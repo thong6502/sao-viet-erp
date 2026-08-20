@@ -467,7 +467,10 @@ class GiuChoService:
             tt = self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang)
             for hang, con in tt["thieu"].items():
                 # 1) Hàng CÓ THẬT trong kho.
-                lay = min(con, _f(tu_do.get(hang)))
+                # `thieu` đếm tới 4 số lẻ nhưng chỗ giữ lưu Numeric(14,2). Làm tròn `lay` về 2 số
+                # NGAY ĐÂY rồi mới xét: dư dấu-phẩy-động (vd 0.003) làm tròn thành 0.00 sẽ đẻ dòng
+                # so_luong=0 phạm check `ck_giu_cho_so_duong` — nên coi như đã đủ, không giữ.
+                lay = round(min(con, _f(tu_do.get(hang))), 2)
                 if lay > 0:
                     tu_do[hang] = _f(tu_do.get(hang)) - lay
                     con -= lay
@@ -476,12 +479,14 @@ class GiuChoService:
                 i = 0
                 while con > 0 and i < len(ve.get(hang, [])):
                     ngay, sl = ve[hang][i]
-                    lay = min(con, sl)
+                    lay = round(min(con, sl), 2)
                     if lay > 0:
                         ve[hang][i] = (ngay, sl - lay)
                         con -= lay
                         moi.append(self._dong(chu, hang, lay, NGUON_DANG_VE, ngay))
-                    if ve[hang][i][1] <= 0:
+                    # Lô còn ≤0.004 coi như cạn (đúng biên Numeric(14,2), khớp `tieu_thu`) → sang lô
+                    # kế; không thì đã lấp đủ `con`, dừng.
+                    if ve[hang][i][1] <= 0.004:
                         i += 1
                     else:
                         break

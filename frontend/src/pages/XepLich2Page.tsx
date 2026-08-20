@@ -15,6 +15,7 @@ import {
   type Xl2BanLamViec, type Xl2BoiCanh, type Xl2BoiCanhBuoc, type Xl2Dong, type Xl2GoiPhatHanh,
   type Xl2GoiYKhe,
   type Xl2HangCho, type Xl2Issue, type Xl2Khe, type Xl2Muc, type Xl2Nguon, type Xl2QRow,
+  type Xl2NhanNgay, type Xl2TuXep,
   type Xl2VatTuTomTat, type Xl2XemTruoc, type XepLichGoiY,
 } from "../api/client";
 import { crud, type Row } from "../api/rebuildCatalog";
@@ -24,8 +25,10 @@ import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon, type IconName } from "../components/Icons";
-import { BangLoi, EmptyState, ngay, ngayGio, thoiLuong } from "./keHoachSxShared";
-import { Xl2Gantt, type Xl2Cluster, type Xl2ClusterKey, type Xl2Lane, type Xl2Patch } from "./Xl2Gantt";
+import { BangLoi, EmptyState, ngay, ngayGio, num, thoiLuong } from "./keHoachSxShared";
+import {
+  Xl2Gantt, type Xl2Cluster, type Xl2ClusterKey, type Xl2Lane, type Xl2Nhom, type Xl2Patch,
+} from "./Xl2Gantt";
 import {
   XL2_MUC_META, XL2_MUC_ORDER, Xl2MucPill, demTheoMuc, dongEntityKey, dongMa, dongNhanParts, entityKey,
   mucNangNhat, nguonIcon, zoomVuaKhit, type Xl2Zoom,
@@ -51,6 +54,17 @@ function fromLocalInput(local: string): string | null {
   if (!local) return null;
   return local.length === 16 ? `${local}:00` : local;
 }
+
+// Hai cách GOM HÀNG trên cùng một bàn, cùng một bộ dữ liệu (không gọi thêm API):
+//  · theo TÀI NGUYÊN — mỗi máy/tổ một hàng, để nhìn máy nào kín máy nào rảnh (mặt phẳng lịch xưởng);
+//  · theo LỆNH — mỗi LSX/bài ghép một hàng, cả chuỗi công đoạn nằm trên MỘT hàng, để nhìn đường đi
+//    của cả lệnh từ bước đầu tới bước cuối.
+const NHOMS: { key: Xl2Nhom; label: string; icon: IconName; hint: string }[] = [
+  { key: "tai_nguyen", label: "Theo máy · tổ", icon: "printer",
+    hint: "Mỗi máy / tổ một hàng — nhìn ra máy nào kín, máy nào còn rảnh." },
+  { key: "lenh", label: "Theo lệnh", icon: "workflow",
+    hint: "Mỗi lệnh / bài ghép một hàng — cả chuỗi công đoạn của một lệnh nằm trên một hàng." },
+];
 
 const ZOOMS: { key: Xl2Zoom; label: string }[] = [
   { key: "gio", label: "Giờ" },
@@ -107,6 +121,8 @@ export function XepLich2Page({
   const [winTu, setWinTu] = useState<string>(() => ymd(new Date()));
   const winDen = useMemo(() => addDays(winTu, WIN_SPAN - 1), [winTu]);
   const [zoom, setZoom] = useState<Xl2Zoom>("ngay");
+  // Gom lane theo tài nguyên (mặc định) hay theo lệnh — xem `NHOMS`.
+  const [nhom, setNhom] = useState<Xl2Nhom>("tai_nguyen");
   // Lọc cụm HIỂN THỊ trên Gantt (§11) — tập các cụm ĐANG ẨN. Không phá dữ liệu: cụm ẩn chỉ thôi vẽ,
   // số việc vẫn hiện trên chip để bật lại. Bàn bận (nhiều máy/tổ) → soi riêng từng nhóm tài nguyên.
   const [ganttAn, setGanttAn] = useState<Set<Xl2ClusterKey>>(() => new Set());
@@ -125,11 +141,18 @@ export function XepLich2Page({
   const qd = useDebounced(q, 200);
   const [qFilter, setQFilter] = useState<Xl2QLoc>("all");
   const [trang, setTrang] = useState(1);
+  const [queueTab, setQueueTab] = useState<"all" | "xep" | "chan">("all");
 
   // Chọn: THỰC THỂ (highlight cả chuỗi + đếm phát hành) và DÒNG (panel chi tiết).
   const [selEntity, setSelEntity] = useState<{ nguon: Xl2Nguon; id: number } | null>(null);
   const [selDongId, setSelDongId] = useState<number | null>(null);
   const [xemTruoc, setXemTruoc] = useState<Xl2XemTruoc | null>(null);
+  // Xem-trước HỎNG khác với xem-trước SẠCH: không có cờ này thì panel vấn đề in "cách đặt hiện tại
+  // sạch" ngay cả khi cú gọi ngã — tức là báo an toàn cho một thứ chưa hề soi được.
+  const [xtErr, setXtErr] = useState(false);
+  // Gõ lại ô Bắt đầu → panel soi lại. Giữ kết quả CŨ trên màn (đỡ nhấp nháy) nhưng phải gắn nhãn
+  // "đang soi lại", không thì người dùng đọc kết quả của giờ CŨ mà tưởng là của giờ vừa gõ.
+  const [xtBusy, setXtBusy] = useState(false);
   const [goiY, setGoiY] = useState<XepLichGoiY | null>(null);
   const [boiCanh, setBoiCanh] = useState<Xl2BoiCanh | null>(null);
   const [phIssues, setPhIssues] = useState<Xl2Issue[] | null>(null);
@@ -153,10 +176,31 @@ export function XepLich2Page({
   const [goiYKhe, setGoiYKhe] = useState<Xl2GoiYKhe | null>(null);
   const [goiYKheLoading, setGoiYKheLoading] = useState(false);
 
+  // Tự xếp lịch cả lệnh (thuật toán `auto` bên BE) — theo THỰC THỂ đang chọn.
+  const [tuXep, setTuXep] = useState<Xl2TuXep | null>(null);
+  const [tuXepBusy, setTuXepBusy] = useState(false);
+  const [tuXepErr, setTuXepErr] = useState<string | null>(null);
+
   // Nháp panel (máy / tổ / giờ)
   const [draftMay, setDraftMay] = useState<number | null>(null);
   const [draftDept, setDraftDept] = useState<number | null>(null);
   const [draftStart, setDraftStart] = useState<string>("");
+
+  // Bố cục & View Mode: Thu gọn Hàng chờ & Chế độ Toàn màn hình Gantt (Focus Canvas)
+  const [queueCollapsed, setQueueCollapsed] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+
+  // Phím tắt Esc để đóng panel chi tiết
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && (selDongId != null || selEntity != null)) {
+        setSelDongId(null);
+        setSelEntity(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selDongId, selEntity]);
 
   // ---- nạp dữ liệu ----
   const loadQueue = useCallback(() => {
@@ -221,18 +265,47 @@ export function XepLich2Page({
     return () => { alive = false; };
   }, [token, selEntity, eventTick]);
 
-  // ---- xem-trước + gợi ý theo dòng đang chọn ----
+  // ---- gợi ý máy theo dòng đang chọn ----
+  // KHÔNG phụ thuộc ô nháp: gợi ý máy trả lời "máy nào nên chạy bước này", gõ giờ không đổi câu đó.
   useEffect(() => {
-    if (!token || selDongId == null) { setXemTruoc(null); setGoiY(null); return; }
+    if (!token || selDongId == null) { setGoiY(null); return; }
     let alive = true;
-    api.xepLich2.xemTruoc(token, selDongId, {})
-      .then((r) => { if (alive) setXemTruoc(r); })
-      .catch(() => { if (alive) setXemTruoc(null); });
     api.xepLich2.goiY(token, selDongId)
       .then((r) => { if (alive) setGoiY(r); })
       .catch(() => { if (alive) setGoiY(null); });
     return () => { alive = false; };
   }, [token, selDongId, eventTick]);
+
+  // Nháp panel gom thành patch tối thiểu — dùng CHUNG cho xem-trước tự động và nút Áp dụng, để
+  // panel vấn đề soi ĐÚNG cái sắp ghi chứ không phải cái đang nằm trong DB.
+  const draftPatch = useMemo<Xl2Patch>(() => {
+    if (!selDong) return {};
+    const patch: Xl2Patch = {};
+    if (draftMay !== selDong.may_id) { patch.may_id = draftMay; patch.department_id = draftMay != null ? null : draftDept; }
+    else if (draftDept !== selDong.department_id) { patch.department_id = draftDept; patch.may_id = draftDept != null ? null : draftMay; }
+    const startIso = fromLocalInput(draftStart);
+    if (startIso !== selDong.start_at) patch.start_at = startIso;
+    return patch;
+  }, [selDong, draftMay, draftDept, draftStart]);
+  const draftKey = JSON.stringify(draftPatch);
+
+  // ---- xem-trước theo NHÁP đang gõ ----
+  // Hoãn 300ms: gõ datetime-local bắn onChange từng ký tự, không hoãn thì mỗi lần sửa phút là một
+  // cú gọi engine. `alive` chặn kết quả về trễ đè lên kết quả của lần gõ mới hơn.
+  useEffect(() => {
+    if (!token || selDongId == null) { setXemTruoc(null); setXtErr(false); setXtBusy(false); return; }
+    let alive = true;
+    setXtBusy(true);
+    const t = window.setTimeout(() => {
+      api.xepLich2.xemTruoc(token, selDongId, draftPatch)
+        .then((r) => { if (alive) { setXemTruoc(r); setXtErr(false); setXtBusy(false); } })
+        .catch(() => { if (alive) { setXemTruoc(null); setXtErr(true); setXtBusy(false); } });
+    }, 300);
+    return () => { alive = false; window.clearTimeout(t); };
+    // `draftKey` (chuỗi hoá của `draftPatch`) làm khoá phụ thuộc: patch là object, so sánh tham
+    // chiếu thì mọi lần render lại đều tưởng là đổi.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, selDongId, draftKey, eventTick]);
 
   // Đồng bộ nháp panel theo dòng chọn
   useEffect(() => {
@@ -242,12 +315,49 @@ export function XepLich2Page({
     setDraftStart(toLocalInput(selDong.start_at));
   }, [selDong]);
 
-  // Đổi dòng chọn → xoá gợi ý khe cũ (F4)
-  useEffect(() => { setGoiYKhe(null); }, [selDongId]);
+  // Đổi dòng chọn → xoá gợi ý khe cũ (F4) và xoá luôn kết quả soi của dòng TRƯỚC: trong 300ms chờ
+  // soi lại, để nguyên panel cũ là đang gán vấn đề của dòng khác cho dòng vừa chọn.
+  useEffect(() => { setGoiYKhe(null); setXemTruoc(null); setXtErr(false); }, [selDongId]);
+  // Đổi lệnh đang chọn → xoá kết quả tự-xếp cũ (kết quả bám đúng MỘT lệnh, không được trôi sang lệnh khác).
+  useEffect(() => { setTuXep(null); setTuXepErr(null); }, [selEntity]);
 
   // ---- dựng cụm/lane cho Gantt ----
   const clusters = useMemo<Xl2Cluster[]>(() => {
     const dong = ban?.dong ?? [];
+    // Khay "CHƯA ĐẶT GIỜ" dùng CHUNG cho cả hai cách gom — thanh không có mốc thì không nằm lên trục
+    // thời gian được, gom kiểu nào cũng vậy.
+    const khayCho = (ds: Xl2Dong[]): Xl2Cluster => ({
+      key: "cho", label: "Chưa đặt giờ", icon: "clock",
+      lanes: [{ key: "cho:_", cluster: "cho", resId: null, label: "Nháp — chọn để xếp máy · giờ", packed: true, dong: ds }],
+    });
+
+    // ---- gom THEO LỆNH: mỗi LSX / bài ghép MỘT hàng, cả chuỗi công đoạn trên một hàng ----
+    if (nhom === "lenh") {
+      const lenh = new Map<string, Xl2Dong[]>();
+      const chua: Xl2Dong[] = [];
+      for (const d of dong) {
+        if (!d.start_at) { chua.push(d); continue; }
+        const k = dongEntityKey(d);
+        (lenh.get(k) ?? lenh.set(k, []).get(k)!).push(d);
+      }
+      const out: Xl2Cluster[] = [];
+      if (lenh.size) {
+        const lanes: Xl2Lane[] = [...lenh.entries()]
+          .map(([k, ds]) => {
+            const d0 = ds[0];
+            const som = ds.reduce((m, d) => (d.start_at && (!m || d.start_at < m) ? d.start_at : m), "" as string);
+            return { key: `lenh:${k}`, cluster: "lenh" as const, resId: null,
+              label: dongMa(d0), sub: d0.ten_san_pham, dong: ds, som };
+          })
+          // Lệnh chạy sớm lên trên — đọc từ trên xuống là đọc theo dòng thời gian.
+          .sort((a, b) => (a.som || "").localeCompare(b.som || "") || a.label.localeCompare(b.label))
+          .map(({ som: _som, ...l }) => l);
+        out.push({ key: "lenh", label: "Theo lệnh", icon: "workflow", lanes });
+      }
+      if (chua.length) out.push(khayCho(chua));
+      return out;
+    }
+
     const may = new Map<number, Xl2Dong[]>();
     const to = new Map<number, Xl2Dong[]>();
     // Thuê ngoài gom theo TÊN nhà cung cấp (khoá "" = chưa rõ NCC, gộp về một khay đáy cụm).
@@ -283,11 +393,9 @@ export function XepLich2Page({
     }
     // Khay "CHƯA ĐẶT GIỜ" xuống ĐÁY (§10.2): rổ việc nháp chờ kéo lên lịch — như khay to-do dưới bàn,
     // không chen giữa các lane tài nguyên. Đồng bộ hai chiều với hàng chờ (chọn ở đây ↔ chọn ở kia).
-    if (cho.length) {
-      out.push({ key: "cho", label: "Chưa đặt giờ", icon: "clock", lanes: [{ key: "cho:_", cluster: "cho", resId: null, label: "Nháp — chọn để xếp máy · giờ", packed: true, dong: cho }] });
-    }
+    if (cho.length) out.push(khayCho(cho));
     return out;
-  }, [ban, mayTen, deptTen]);
+  }, [ban, mayTen, deptTen, nhom]);
 
   // Cụm còn lại sau bộ lọc §11 (bỏ cụm đang ẩn) + lọc B5 (chỉ thanh có vấn đề, bỏ lane/cụm rỗng theo).
   // Gantt vẽ cái này; `clusters` gốc giữ để đếm chip.
@@ -427,6 +535,25 @@ export function XepLich2Page({
     } finally { setBusy(false); }
   }, [token, reloadAll]);
 
+  // TỰ XẾP LỊCH cả lệnh — engine `auto` bên BE chọn máy + giờ cho từng bước theo đúng thứ tự routing,
+  // tính bằng thời lượng TRUNG BÌNH, né trùng máy/khoá máy, và nếu lượt đầu trễ hạn SX thì tự chạy
+  // thêm một lượt "cứu hạn" (ưu tiên máy nhanh nhất) rồi giữ lượt nào tốt hơn.
+  //  · `ghiDe=false` → chỉ đụng bước CÒN TRỐNG giờ; bước đã xếp/đang khoá giữ nguyên.
+  //  · `ghiDe=true`  → xếp lại toàn bộ chuỗi (trừ bước đang khoá).
+  const chayTuXep = useCallback(async (ghiDe: boolean) => {
+    if (!token || !selEntity) return;
+    setTuXepBusy(true);
+    setTuXepErr(null);
+    try {
+      const r = await api.xepLich2.tuXep(token, { nguon: selEntity.nguon, id: selEntity.id, ghiDe });
+      setTuXep(r);
+      setToast({ text: r.tom_tat });
+      reloadAll();
+    } catch (e) {
+      setTuXepErr(e instanceof ApiError ? e.message : "Không chạy được tự xếp");
+    } finally { setTuXepBusy(false); }
+  }, [token, selEntity, reloadAll]);
+
   // Đề xuất một patch (kéo-thả / phím / panel / gợi ý) → xem-trước → mở hộp xác nhận.
   const propose = useCallback(async (dongId: number, patch: Xl2Patch) => {
     if (!token) return;
@@ -443,14 +570,9 @@ export function XepLich2Page({
   // Áp nháp panel: gom các ô đã đổi so với dòng hiện tại thành patch tối thiểu.
   const apDungPanel = useCallback(() => {
     if (!selDong) return;
-    const patch: Xl2Patch = {};
-    if (draftMay !== selDong.may_id) { patch.may_id = draftMay; patch.department_id = draftMay != null ? null : draftDept; }
-    else if (draftDept !== selDong.department_id) { patch.department_id = draftDept; patch.may_id = draftDept != null ? null : draftMay; }
-    const startIso = fromLocalInput(draftStart);
-    if (startIso !== selDong.start_at) patch.start_at = startIso;
-    if (Object.keys(patch).length === 0) { setToast({ text: "Chưa có thay đổi nào" }); return; }
-    void propose(selDong.id, patch);
-  }, [selDong, draftMay, draftDept, draftStart, propose]);
+    if (Object.keys(draftPatch).length === 0) { setToast({ text: "Chưa có thay đổi nào" }); return; }
+    void propose(selDong.id, draftPatch);
+  }, [selDong, draftPatch, propose]);
 
   // Ghi (từ hộp xem-trước).
   const confirmLuu = useCallback(async () => {
@@ -574,66 +696,35 @@ export function XepLich2Page({
   const previewBlocked = !!preview && preview.xt.van_de.some((v) => v.muc === "chan_dat_lich");
   const canReleaseNow = !!selEntity && phIssues != null
     && !phIssues.some((v) => v.muc === "chan_phat_hanh" || v.muc === "chan_dat_lich");
-  // Flowrail (điểm 5): bước hiện tại suy từ trạng thái chọn — 1 chọn việc · 2 xếp máy/giờ · 3 phát hành.
-  const flowStep: 1 | 2 | 3 = canReleaseNow ? 3 : (selDong || selEntity) ? 2 : 1;
   const panelOpen = !!(selDong || selEntity);
 
   return (
     <div className="xl2">
-      {/* Thanh trên */}
+      {/* Thanh trên (Command Bar) */}
       <div className="xl2-top">
         <div className="xl2-top__title">
-          <Icon name="calendar" size={20} />
+          <div className="xl2-top__icon">
+            <Icon name="calendar" size={18} />
+          </div>
           <span>Xếp lịch công đoạn 2</span>
         </div>
-        <div className="xl2-top__spacer" />
-        <div className="xl2-top__grp">
-          <button type="button" className="xl2-iconbtn" title="Bàn trước" aria-label="Bàn trước"
-            onClick={() => setWinTu((s) => addDays(s, -WIN_SPAN))}>
-            <Icon name="chevron" size={16} className="xl2-rot180" />
-          </button>
-          <span className="xl2-top__win">
-            <b>{ngay(winTu)}</b> — <b>{ngay(winDen)}</b>
-          </span>
-          <button type="button" className="xl2-iconbtn" title="Bàn sau" aria-label="Bàn sau"
-            onClick={() => setWinTu((s) => addDays(s, WIN_SPAN))}>
-            <Icon name="chevron" size={16} />
-          </button>
-          <button type="button" className="xl2-iconbtn" title="Về hôm nay" aria-label="Về hôm nay"
-            onClick={() => setWinTu(ymd(new Date()))}>
-            <Icon name="refresh" size={15} />
-          </button>
-        </div>
-        <div className="xl2-seg" role="group" aria-label="Mật độ trục thời gian">
-          {ZOOMS.map((z) => (
-            <button key={z.key} type="button" className="xl2-seg__btn"
-              aria-pressed={zoom === z.key} onClick={() => setZoom(z.key)}>
-              {z.label}
-            </button>
-          ))}
-        </div>
-        <button type="button" className="xl2-iconbtn xl2-iconbtn--wide"
-          title="Vừa khít — tự chọn mật độ theo lượng việc" aria-label="Vừa khít"
-          disabled={!ban || ban.dong.length === 0} onClick={onVuaKhit}>
-          <Icon name="maximize" size={15} /> <span>Vừa khít</span>
-        </button>
-      </div>
 
-      {/* Thanh phụ: TÌM + LỌC hàng chờ (facet đếm) — trái; flowrail + tổng quan bàn — phải. */}
-      <div className="xl2-subbar">
-        <div className="xl2-search">
-          <Icon name="search" size={15} className="xl2-search__ic" />
+        {/* Ô tìm kiếm nhanh */}
+        <div className="xl2-search" style={{ maxWidth: 220 }}>
+          <Icon name="search" size={14} className="xl2-search__ic" />
           <input
             type="search" className="xl2-search__in" value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Tìm mã lệnh / bài ghép…" aria-label="Tìm trong hàng chờ"
+            placeholder="Tìm LSX, bài ghép…" aria-label="Tìm trong hàng chờ"
           />
           {q && (
             <button type="button" className="xl2-search__clear" aria-label="Xoá tìm" onClick={() => setQ("")}>
-              <Icon name="x" size={13} />
+              <Icon name="x" size={12} />
             </button>
           )}
         </div>
+
+        {/* Chip lọc trạng thái */}
         <div className="xl2-chips" role="group" aria-label="Lọc hàng chờ">
           {QFILTERS.map((f) => (
             <button key={f.key} type="button"
@@ -646,75 +737,187 @@ export function XepLich2Page({
             </button>
           ))}
         </div>
-        <div className="xl2-subbar__spacer" />
-        <Xl2BoardBar step={flowStep} digest={ban ? digest : null} />
-      </div>
 
-      {/* Lưới 3 cột — cột phải CO VỀ 0 khi chưa chọn gì (§10.2, quyết định #1), nở khi có panel. */}
-      <div className={`xl2-grid${panelOpen ? " is-panel" : ""}`}>
-        {/* CỘT TRÁI — hàng chờ */}
-        <aside className="xl2-queue">
-          <div className="xl2-queue__head">
-            <Icon name="clipboard" size={16} />
-            <h2>Hàng chờ</h2>
-            <span className="xl2-queue__count xl2-num">{queueCount}</span>
-          </div>
-          <div className="xl2-queue__body">
-            {errQueue ? (
-              <div style={{ padding: "var(--sp-4)" }}><BangLoi text={errQueue} onRetry={loadQueue} /></div>
-            ) : hangCho == null ? (
-              <QueueSkeleton />
-            ) : queueCount === 0 ? (
-              <EmptyState icon="check" title="Hết việc chờ xếp" sub="Mọi lệnh / bài ghép sẵn sàng đã vào kế hoạch." />
-            ) : khongKhop ? (
-              <div className="xl2-qempty">
-                <EmptyState icon="search" title="Không khớp bộ lọc"
-                  sub="Thử đổi từ khoá hoặc chọn lại 'Tất cả'." />
-                <Button variant="ghost" onClick={() => { setQ(""); setQFilter("all"); }}>Xoá lọc</Button>
-              </div>
-            ) : (
-              <>
-                {fXep.length > 0 && (
-                  <div className="xl2-qsec">
-                    <div className="xl2-qsec__label"><Icon name="check" size={12} /> Đủ vật tư · xếp được</div>
-                    {fXep.map((r) => (
-                      <QueueRow key={`${r.nguon}:${r.id}`} r={r} today={today} selected={sameEntity(selEntity, r)}
-                        canCreate={canCreate} busy={busy} onPick={() => pickQueue(r)} onDua={() => duaVao(r)} />
-                    ))}
-                  </div>
-                )}
-                {fChan.length > 0 && (
-                  <div className="xl2-qsec">
-                    <div className="xl2-qsec__label xl2-qsec__label--blocked"><Icon name="lock" size={12} /> Thiếu vật tư · vẫn đưa vào nháp được</div>
-                    {fChan.map((r) => (
-                      <QueueRow key={`${r.nguon}:${r.id}`} r={r} today={today} selected={sameEntity(selEntity, r)}
-                        canCreate={canCreate} busy={busy} onPick={() => pickQueue(r)} onDua={() => duaVao(r)} />
-                    ))}
-                  </div>
-                )}
-              </>
+        <div className="xl2-top__spacer" />
+
+        {/* KPI Live HUD */}
+        {ban && (
+          <div className="xl2-kpibar">
+            <span className="xl2-kpipill" title="Tỷ lệ công đoạn đã xếp vào lịch">
+              <Icon name="workflow" size={12} /> <span>Tiến độ:</span> <b className="xl2-num">{digest.daXep}/{digest.tong}</b>
+            </span>
+            <span className="xl2-kpipill" title="Số lượng tài nguyên đang có việc">
+              <Icon name="printer" size={12} /> <b className="xl2-num">{digest.may}</b> máy · <b className="xl2-num">{digest.to}</b> tổ
+            </span>
+            {facets.gap > 0 && (
+              <span className="xl2-kpipill xl2-kpipill--rush" title="Lệnh gấp cần ưu tiên">
+                <Icon name="alert" size={12} /> <b className="xl2-num">{facets.gap}</b> lệnh gấp
+              </span>
             )}
           </div>
-          {/* Phân trang máy chủ — chỉ hiện khi kết quả lọc tràn 1 trang. */}
-          {hangCho != null && soTrang > 1 && (
-            <div className="xl2-pager">
-              <button type="button" className="xl2-pager__btn" aria-label="Trang trước"
-                disabled={trang <= 1} onClick={() => setTrang((t) => Math.max(1, t - 1))}>
-                <Icon name="chevron" size={15} className="xl2-rot180" />
+        )}
+
+        <div className="xl2-top__divider" />
+
+        {/* Cửa sổ ngày & Zoom */}
+        <div className="xl2-top__grp">
+          <button type="button" className="xl2-iconbtn" title="14 ngày trước" aria-label="14 ngày trước"
+            onClick={() => setWinTu((s) => addDays(s, -WIN_SPAN))}>
+            <Icon name="chevron" size={15} className="xl2-rot180" />
+          </button>
+          <span className="xl2-top__win">
+            <b>{ngay(winTu)}</b> — <b>{ngay(winDen)}</b>
+          </span>
+          <button type="button" className="xl2-iconbtn" title="14 ngày sau" aria-label="14 ngày sau"
+            onClick={() => setWinTu((s) => addDays(s, WIN_SPAN))}>
+            <Icon name="chevron" size={15} />
+          </button>
+          <button type="button" className="xl2-iconbtn" title="Về hôm nay" aria-label="Về hôm nay"
+            onClick={() => setWinTu(ymd(new Date()))}>
+            <Icon name="refresh" size={14} />
+          </button>
+        </div>
+
+        <div className="xl2-seg" role="group" aria-label="Cách gom hàng trên bàn">
+          {NHOMS.map((h) => (
+            <button key={h.key} type="button" className="xl2-seg__btn"
+              aria-pressed={nhom === h.key} title={h.hint} onClick={() => setNhom(h.key)}>
+              <Icon name={h.icon} size={12} /> {h.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="xl2-seg" role="group" aria-label="Mật độ trục thời gian">
+          {ZOOMS.map((z) => (
+            <button key={z.key} type="button" className="xl2-seg__btn"
+              aria-pressed={zoom === z.key} onClick={() => setZoom(z.key)}>
+              {z.label}
+            </button>
+          ))}
+        </div>
+
+        <button type="button" className="xl2-iconbtn xl2-iconbtn--wide"
+          title="Vừa khít — tự chọn mật độ theo lượng việc" aria-label="Vừa khít"
+          disabled={!ban || ban.dong.length === 0} onClick={onVuaKhit}>
+          <Icon name="maximize" size={14} /> <span>Vừa khít</span>
+        </button>
+
+        <button
+          type="button"
+          className={`xl2-iconbtn${focusMode ? " is-active" : ""}`}
+          title={focusMode ? "Thoát chế độ toàn màn hình Gantt" : "Chế độ toàn màn hình Gantt (Focus Canvas)"}
+          aria-label="Toàn màn hình Gantt"
+          onClick={() => setFocusMode((v) => !v)}
+        >
+          <Icon name="maximize" size={14} />
+        </button>
+      </div>
+
+      {/* Lưới 3 cột siêu linh hoạt — co giãn mượt mà giữa các chế độ */}
+      <div className={`xl2-grid${panelOpen && !focusMode ? " is-panel" : ""}${queueCollapsed || focusMode ? " is-queue-collapsed" : ""}${focusMode ? " is-focus" : ""}`}>
+        {/* CỘT TRÁI — Hàng chờ (Dockable / Collapsible) */}
+        <aside className={`xl2-queue${queueCollapsed || focusMode ? " xl2-queue--collapsed" : ""}`}>
+          {queueCollapsed || focusMode ? (
+            <div className="xl2-queue__minirail" onClick={() => { setQueueCollapsed(false); setFocusMode(false); }} title="Mở rộng Hàng chờ">
+              <button type="button" className="xl2-queue__railbtn" aria-label="Mở rộng hàng chờ">
+                <Icon name="clipboard" size={16} />
               </button>
-              <span className="xl2-pager__lb">
-                Trang <b className="xl2-num">{trang}</b>/<span className="xl2-num">{soTrang}</span>
-                <span className="xl2-pager__tong"> · {tongLoc} dòng</span>
-              </span>
-              <button type="button" className="xl2-pager__btn" aria-label="Trang sau"
-                disabled={trang >= soTrang} onClick={() => setTrang((t) => Math.min(soTrang, t + 1))}>
-                <Icon name="chevron" size={15} />
-              </button>
+              <div className="xl2-queue__railcount" title={`${queueCount} việc trong hàng chờ`}>
+                <span className="xl2-num">{queueCount}</span>
+              </div>
+              <div className="xl2-queue__railtext">HÀNG CHỜ</div>
             </div>
+          ) : (
+            <>
+              <div className="xl2-queue__head">
+                <div className="xl2-queue__iconbox">
+                  <Icon name="clipboard" size={15} />
+                </div>
+                <h2>Hàng chờ</h2>
+                <span className="xl2-queue__count xl2-num">{queueCount}</span>
+                <div className="xl2-queue__head-spacer" />
+                <button
+                  type="button"
+                  className="xl2-queue__togglebtn"
+                  title="Thu gọn hàng chờ để mở rộng Gantt"
+                  aria-label="Thu gọn hàng chờ"
+                  onClick={() => setQueueCollapsed(true)}
+                >
+                  <Icon name="chevron" size={14} className="xl2-rot180" />
+                </button>
+              </div>
+              <div className="xl2-qtabs" role="tablist">
+                <button type="button" className={`xl2-qtab${queueTab === "all" ? " is-active" : ""}`} onClick={() => setQueueTab("all")}>
+                  <span>Tất cả</span>
+                  <span className="xl2-qtab__count">{queueCount}</span>
+                </button>
+                <button type="button" className={`xl2-qtab${queueTab === "xep" ? " is-active" : ""}`} onClick={() => setQueueTab("xep")}>
+                  <span>Sẵn sàng</span>
+                  <span className="xl2-qtab__count">{fXep.length}</span>
+                </button>
+                <button type="button" className={`xl2-qtab${queueTab === "chan" ? " is-active" : ""}`} onClick={() => setQueueTab("chan")}>
+                  <span>Bị chặn</span>
+                  <span className="xl2-qtab__count">{fChan.length}</span>
+                </button>
+              </div>
+              <div className="xl2-queue__body">
+                {errQueue ? (
+                  <div style={{ padding: "var(--sp-4)" }}><BangLoi text={errQueue} onRetry={loadQueue} /></div>
+                ) : hangCho == null ? (
+                  <QueueSkeleton />
+                ) : queueCount === 0 ? (
+                  <EmptyState icon="check" title="Hết việc chờ xếp" sub="Mọi lệnh / bài ghép sẵn sàng đã vào kế hoạch." />
+                ) : khongKhop ? (
+                  <div className="xl2-qempty">
+                    <EmptyState icon="search" title="Không khớp bộ lọc"
+                      sub="Thử đổi từ khoá hoặc chọn lại 'Tất cả'." />
+                    <Button variant="ghost" onClick={() => { setQ(""); setQFilter("all"); }}>Xoá lọc</Button>
+                  </div>
+                ) : (
+                  <>
+                    {(queueTab === "all" || queueTab === "xep") && fXep.length > 0 && (
+                      <div className="xl2-qsec">
+                        {queueTab === "all" && <div className="xl2-qsec__label"><Icon name="check" size={12} /> Đủ vật tư · xếp được</div>}
+                        {fXep.map((r) => (
+                          <QueueRow key={`${r.nguon}:${r.id}`} r={r} today={today} selected={sameEntity(selEntity, r)}
+                            canCreate={canCreate} busy={busy} onPick={() => pickQueue(r)} onDua={() => duaVao(r)} />
+                        ))}
+                      </div>
+                    )}
+                    {(queueTab === "all" || queueTab === "chan") && fChan.length > 0 && (
+                      <div className="xl2-qsec">
+                        {queueTab === "all" && <div className="xl2-qsec__label xl2-qsec__label--blocked"><Icon name="lock" size={12} /> Thiếu vật tư · vẫn đưa vào nháp được</div>}
+                        {fChan.map((r) => (
+                          <QueueRow key={`${r.nguon}:${r.id}`} r={r} today={today} selected={sameEntity(selEntity, r)}
+                            canCreate={canCreate} busy={busy} onPick={() => pickQueue(r)} onDua={() => duaVao(r)} />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              {/* Phân trang máy chủ — chỉ hiện khi kết quả lọc tràn 1 trang. */}
+              {hangCho != null && soTrang > 1 && (
+                <div className="xl2-pager">
+                  <button type="button" className="xl2-pager__btn" aria-label="Trang trước"
+                    disabled={trang <= 1} onClick={() => setTrang((t) => Math.max(1, t - 1))}>
+                    <Icon name="chevron" size={15} className="xl2-rot180" />
+                  </button>
+                  <span className="xl2-pager__lb">
+                    Trang <b className="xl2-num">{trang}</b>/<span className="xl2-num">{soTrang}</span>
+                    <span className="xl2-pager__tong"> · {tongLoc} dòng</span>
+                  </span>
+                  <button type="button" className="xl2-pager__btn" aria-label="Trang sau"
+                    disabled={trang >= soTrang} onClick={() => setTrang((t) => Math.min(soTrang, t + 1))}>
+                    <Icon name="chevron" size={15} />
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </aside>
 
-        {/* CỘT GIỮA — Gantt */}
+        {/* CỘT GIỮA — Gantt Canvas */}
         <section className="xl2-center xl2-col--center">
           {err ? (
             <div style={{ padding: "var(--sp-4)" }}><BangLoi text={err} onRetry={loadBan} /></div>
@@ -727,8 +930,7 @@ export function XepLich2Page({
             </div>
           ) : (
             <>
-              {/* Thanh lọc đầu bàn: nút "Chỉ việc có vấn đề" (B5, hiện khi bàn có ≥1 vấn đề, kể cả 1 cụm)
-                  + lọc ẩn/hiện từng cụm §11 (chỉ khi >1 cụm). Gộp một dòng cho gọn. */}
+              {/* Thanh lọc đầu bàn: nút "Chỉ việc có vấn đề" + lọc ẩn/hiện từng cụm */}
               {(soVanDeBan > 0 || clusters.length > 1) && (
                 <div className="xl2-gflt" role="group" aria-label="Lọc hiển thị trên Gantt">
                   {soVanDeBan > 0 && (
@@ -776,6 +978,8 @@ export function XepLich2Page({
                 <Xl2Gantt
                   clusters={clustersHienThi}
                   ca={ban.ca}
+                  caNhan={ban.ca_nhan ?? []}
+                  nhom={nhom}
                   ngayLe={ban.ngay_le}
                   khoaMay={ban.khoa_may}
                   taiMay={ban.tai_may}
@@ -789,23 +993,47 @@ export function XepLich2Page({
                   canUpdate={canUpdate}
                   onSelectDong={pickDong}
                   onPropose={(dongId, patch) => void propose(dongId, patch)}
+                  onDropQueue={(r) => void duaVao(r)}
                 />
               )}
             </>
           )}
         </section>
 
-        {/* CỘT PHẢI — panel (màn hẹp: trượt ra như drawer) */}
-        <aside className={`xl2-panel${panelOpen ? " xl2-panel--open" : ""}`} aria-label="Chi tiết dòng đang chọn">
-          <div className="xl2-panel__body">
-            {panelOpen && (
-              <button type="button" className="xl2-panel__close" onClick={closePanel} aria-label="Đóng bảng chi tiết">
-                <Icon name="x" size={15} /> Đóng
+        {/* CỘT PHẢI — Smart Slide-over Inspector Panel */}
+        <aside className={`xl2-panel${panelOpen && !focusMode ? " xl2-panel--open" : ""}`} aria-label="Chi tiết dòng đang chọn">
+          {panelOpen && (
+            <div className="xl2-panel__head">
+              <div className="xl2-panel__head-title" title={selDong ? dongNhanParts(selDong).ma : selEntityLabel}>
+                <Icon name={selDong ? (selDong.is_locked ? "lock" : nguonIcon(selDong.nguon)) : (selEntity ? nguonIcon(selEntity.nguon) : "workflow")} size={16} />
+                <span className="xl2-panel__head-ma">{selDong ? dongNhanParts(selDong).ma : selEntityLabel}</span>
+                {selDong && dongNhanParts(selDong).congDoan && (
+                  <span className="xl2-panel__head-sub">· {dongNhanParts(selDong).congDoan}</span>
+                )}
+              </div>
+              <button
+                type="button"
+                className="xl2-panel__closebtn"
+                onClick={closePanel}
+                aria-label="Đóng bảng chi tiết"
+                title="Đóng (Esc)"
+              >
+                <Icon name="x" size={15} />
+                <span>Đóng</span>
+                <kbd className="xl2-kbd">Esc</kbd>
               </button>
+            </div>
+          )}
+          <div className="xl2-panel__body">
+            {/* TỰ XẾP LỊCH đứng TRÊN mọi khối chi tiết: nó làm việc theo CẢ LỆNH, nên phải thấy được cả
+                khi đang chọn một bước lẻ (bấm một thanh là `selEntity` cũng được đặt theo lệnh của thanh đó). */}
+            {selEntity && canUpdate && (
+              <TuXepPanel ma={selEntityLabel} bc={boiCanh} kq={tuXep} busy={tuXepBusy} loi={tuXepErr}
+                onChay={(ghiDe) => void chayTuXep(ghiDe)} />
             )}
             {selDong ? (
               <DongPanel
-                dong={selDong} xt={xemTruoc} goiY={goiY}
+                dong={selDong} xt={xemTruoc} xtErr={xtErr} xtBusy={xtBusy} goiY={goiY}
                 mays={mays} phongBans={phongBans} mayTen={mayTen} deptTen={deptTen}
                 draftMay={draftMay} draftDept={draftDept} draftStart={draftStart}
                 canUpdate={canUpdate}
@@ -918,7 +1146,10 @@ export function XepLich2Page({
             )}
           </>
         ) : (
-          <span className="xl2-foot__none">Chọn một lệnh / bài ghép để xem điều kiện phát hành.</span>
+          <div className="xl2-foot__idle">
+            <Icon name="workflow" size={14} />
+            <span>Chọn một lệnh / bài ghép hoặc kéo thả vào máy để xem điều kiện phát hành.</span>
+          </div>
         )}
       </div>
 
@@ -926,23 +1157,20 @@ export function XepLich2Page({
       <ConfirmDialog
         open={!!preview}
         wide
-        title={<span><Icon name="calendar" size={16} /> Xếp vào lịch?</span>}
-        confirmLabel="Xếp"
+        title={<span><Icon name="calendar" size={16} /> Xác nhận xếp vào lịch</span>}
+        confirmLabel="Xếp vào lịch"
         confirmDisabled={previewBlocked}
         busy={busy}
         onConfirm={confirmLuu}
         onCancel={() => setPreview(null)}
       >
         {preview && (
-          <>
-            <div className="xl2-dlg-finish">
-              <span>Kết thúc dự kiến:</span>
-              <b>{preview.xt.finish_at ? ngayGio(preview.xt.finish_at) : "—"}</b>
-              <span>· chiếm máy {thoiLuong(preview.xt.chiem_may_phut)}{preview.xt.theo_may ? " (theo máy)" : ""}</span>
-            </div>
-            <Xl2AnhHuong xt={preview.xt} />
-            <IssueList issues={preview.xt.van_de} empty="Không có vấn đề — xếp được." onMoNguon={canMoNguon ? moNguon : undefined} />
-          </>
+          <Xl2PreviewDialogBody
+            preview={preview}
+            mayTen={mayTen}
+            deptTen={deptTen}
+            onMoNguon={canMoNguon ? moNguon : undefined}
+          />
         )}
       </ConfirmDialog>
 
@@ -1042,46 +1270,90 @@ function QueueRow({
   onDua: () => void;
 }) {
   const worst = mucNangNhat(r.van_de);
-  // Hiện ĐỒNG THỜI cả hai mốc khi có: Giao khách (`han_giao`) và Hạn SX (`han`, chỉ LSX). Trước đây
-  // chỉ show một cái nên người xếp không thấy đệm giữa "xong SX" và "giao" — dễ hứa nhầm (B3).
-  const hanChips = [
-    r.han_giao ? { lb: "Giao", val: r.han_giao } : null,
-    r.han ? { lb: "Hạn SX", val: r.han } : null,
-  ].filter((h): h is { lb: string; val: string } => h != null);
+  const isOverdue = (r.han != null && r.han < today) || (r.han_giao != null && r.han_giao < today);
+  const stripeCls = r.is_rush
+    ? " xl2-qrow--stripe-rush"
+    : isOverdue
+      ? " xl2-qrow--stripe-tre"
+      : r.van_de.length === 0
+        ? " xl2-qrow--stripe-ready"
+        : "";
   const soCd = r.so_cong_doan_chua_xep;
+
   return (
     <div
-      className={`xl2-qrow${selected ? " xl2-qrow--sel" : ""}${r.van_de.length ? " xl2-qrow--blocked" : ""}`}
-      role="button" tabIndex={0} onClick={onPick}
+      className={`xl2-qrow${selected ? " xl2-qrow--sel" : ""}${r.van_de.length ? " xl2-qrow--blocked" : ""}${stripeCls}`}
+      role="button"
+      tabIndex={0}
+      draggable={canCreate && !busy}
+      onDragStart={(e) => {
+        e.dataTransfer.setData("application/json", JSON.stringify({ r }));
+        e.dataTransfer.effectAllowed = "copy";
+      }}
+      onClick={onPick}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onPick(); } }}
+      title={`${r.ma}${r.ten_san_pham ? ` · ${r.ten_san_pham}` : ""}${r.is_rush ? " · LỆNH GẤP" : ""}${r.han ? ` · Hạn SX: ${ngay(r.han)}` : ""}${soCd != null ? ` · ${soCd} bước chưa xếp` : ""}`}
     >
+      {/* Hàng 1: Grip + Icon + Mã + Gấp + Nút đưa vào */}
       <div className="xl2-qrow__top">
-        <span className="xl2-qrow__ma"><Icon name={nguonIcon(r.nguon)} size={13} /> {r.ma}</span>
-        {r.is_rush && <span className="xl2-qrow__rush"><Icon name="alert" size={10} /> Gấp</span>}
-        <span className="xl2-qrow__spacer" />
-        {hanChips.map((h) => {
-          const tre = h.val < today;
-          return (
-            <span key={h.lb} className={`xl2-qrow__han${tre ? " xl2-qrow__han--tre" : ""}`}
-              title={tre ? "Đã quá hạn" : undefined}>
-              {tre && <Icon name="alert" size={10} />} {h.lb} {ngay(h.val)}
-            </span>
-          );
-        })}
+        <span className="xl2-qrow__grip" title="Kéo thả vào máy trên lịch" aria-hidden="true">
+          <Icon name="grip" size={12} />
+        </span>
+        <span className="xl2-qrow__ma">
+          <Icon name={nguonIcon(r.nguon)} size={13} /> {r.ma}
+        </span>
+        {r.is_rush && <span className="xl2-qrow__rush" title="Lệnh gấp"><Icon name="alert" size={9} /> Gấp</span>}
+        <div className="xl2-qrow__spacer" />
+        {canCreate && (
+          <button
+            type="button"
+            className="xl2-qrow__quickbtn"
+            onClick={(e) => { e.stopPropagation(); onDua(); }}
+            disabled={busy}
+            title="Đưa vào kế hoạch"
+          >
+            <Icon name="plus" size={11} /> Đưa vào
+          </button>
+        )}
       </div>
+
+      {/* Hàng 2: Tên sản phẩm / diễn giải */}
+      {r.ten_san_pham && (
+        <div className="xl2-qrow__product" title={r.ten_san_pham}>
+          {r.ten_san_pham}
+        </div>
+      )}
+
+      {/* Hàng 3: Số lượng + Số bước + Pill mức nặng nhất */}
       <div className="xl2-qrow__meta">
-        {soCd > 0 && (
-          <span className="xl2-qrow__cd" title="Số công đoạn còn phải xếp">
-            <Icon name="workflow" size={11} /> {soCd} công đoạn
+        {r.so_luong_dat != null && (
+          <span className="xl2-qrow__qty" title="Số lượng đặt">
+            <b className="xl2-num">{num(r.so_luong_dat)}</b> {r.don_vi_tinh ?? "cái"}
+          </span>
+        )}
+        {soCd != null && soCd > 0 && (
+          <span className="xl2-qrow__steps" title={`${soCd} công đoạn chưa xếp`}>
+            <Icon name="workflow" size={11} /> {soCd} bước
           </span>
         )}
         {worst && <Xl2MucPill muc={worst} count={r.van_de.length} size="xs" />}
       </div>
-      {canCreate && (
-        <div className="xl2-qrow__act">
-          <Button variant="secondary" onClick={(e) => { e.stopPropagation(); onDua(); }} disabled={busy}>
-            <Icon name="plus" size={14} /> Đưa vào kế hoạch
-          </Button>
+
+      {/* Hàng 4: Hạn SX & Hạn giao */}
+      {(r.han || r.han_giao) && (
+        <div className="xl2-qrow__dates">
+          {r.han && (
+            <span className={`xl2-qrow__date${r.han < today ? " is-overdue" : ""}`} title="Hạn hoàn thành sản xuất">
+              <Icon name="calendar" size={11} />
+              <span>SX: <b>{ngay(r.han)}</b></span>
+            </span>
+          )}
+          {r.han_giao && (
+            <span className={`xl2-qrow__date${r.han_giao < today ? " is-overdue" : ""}`} title="Hạn giao hàng cho khách">
+              <Icon name="truck" size={11} />
+              <span>Giao: <b>{ngay(r.han_giao)}</b></span>
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -1308,14 +1580,308 @@ function Xl2AnhHuong({ xt }: { xt: Xl2XemTruoc }) {
   );
 }
 
+function computeSlackDays(hanMoiStr: string | null | undefined, hanSxStr: string | null | undefined): number | null {
+  if (!hanMoiStr || !hanSxStr) return null;
+  const dMoi = new Date(hanMoiStr.slice(0, 10));
+  const dSx = new Date(hanSxStr.slice(0, 10));
+  if (Number.isNaN(dMoi.getTime()) || Number.isNaN(dSx.getTime())) return null;
+  return Math.round((dSx.getTime() - dMoi.getTime()) / 86_400_000);
+}
+
+function Xl2PreviewDialogBody({
+  preview,
+  mayTen,
+  deptTen,
+  onMoNguon,
+}: {
+  preview: { dong: Xl2Dong; patch: Xl2Patch; xt: Xl2XemTruoc };
+  mayTen: Map<number, string>;
+  deptTen: Map<number, string>;
+  onMoNguon?: (i: Xl2Issue) => void;
+}) {
+  const { dong, patch, xt } = preview;
+  const nhan = dongNhanParts(dong);
+  const mayId = patch.may_id !== undefined ? patch.may_id : dong.may_id;
+  const deptId = patch.department_id !== undefined ? patch.department_id : dong.department_id;
+  const mayName = mayId != null ? (mayTen.get(mayId) ?? `Máy #${mayId}`) : null;
+  const deptName = deptId != null ? (deptTen.get(deptId) ?? `Tổ #${deptId}`) : null;
+  const resourceName = mayName ?? deptName ?? "Chưa gán máy / tổ";
+  const resourceIcon: IconName = mayName ? "printer" : deptName ? "users" : "truck";
+
+  const startIso = xt.start_at ?? patch.start_at ?? dong.start_at;
+  const finishIso = xt.finish_at ?? dong.finish_at;
+  const slackDays = computeSlackDays(xt.han_moi ?? finishIso, xt.han_sx);
+  const hasIssues = xt.van_de && xt.van_de.length > 0;
+
+  return (
+    <div className="xl2-dlg-preview">
+      {/* 1. Context header: Lệnh / Sản phẩm / Công đoạn / Tài nguyên */}
+      <div className="xl2-dlg-context">
+        <div className="xl2-dlg-context__main">
+          <div className="xl2-dlg-context__title">
+            <Icon name={dong.is_locked ? "lock" : nguonIcon(dong.nguon)} size={15} />
+            <span className="xl2-dlg-context__ma">{nhan.ma}</span>
+            {nhan.sanPham && <span className="xl2-dlg-context__sp">· {nhan.sanPham}</span>}
+          </div>
+          <div className="xl2-dlg-context__sub">
+            <span className="xl2-dlg-context__cd">
+              {dong.buoc_thu_tu != null ? `Bước ${dong.buoc_thu_tu + 1}: ` : ""}{nhan.congDoan || "Công đoạn"}
+            </span>
+          </div>
+        </div>
+        <div className="xl2-dlg-context__res">
+          <span className="xl2-dlg-context__res-lb">Tài nguyên thực hiện</span>
+          <span className="xl2-dlg-context__res-val">
+            <Icon name={resourceIcon} size={12} /> {resourceName}
+          </span>
+        </div>
+      </div>
+
+      {/* 2. Time Breakdown Card: Bắt đầu vs Kết thúc + Chiếm máy */}
+      <div className="xl2-dlg-card">
+        <div className="xl2-dlg-timegrid">
+          <div className="xl2-dlg-timecol">
+            <span className="xl2-dlg-timelb">Bắt đầu dự kiến</span>
+            <span className="xl2-dlg-timeval">{startIso ? ngayGio(startIso) : "—"}</span>
+          </div>
+          <div className="xl2-dlg-timearrow">
+            <Icon name="arrowRight" size={14} />
+          </div>
+          <div className="xl2-dlg-timecol">
+            <span className="xl2-dlg-timelb">Kết thúc dự kiến</span>
+            <span className="xl2-dlg-timeval xl2-dlg-timeval--finish">{finishIso ? ngayGio(finishIso) : "—"}</span>
+          </div>
+        </div>
+        <div className="xl2-dlg-timemeta">
+          <span className="xl2-dlg-tag">
+            <Icon name="clock" size={11} /> Chiếm máy: <b>{thoiLuong(xt.chiem_may_phut)}</b>
+          </span>
+          {dong.boc_tach && (
+            <span className="xl2-dlg-tag">
+              Canh máy {dong.boc_tach.canh_may_phut}p · Chạy {dong.boc_tach.chay_phut}p
+            </span>
+          )}
+          <span className="xl2-dlg-tag">
+            {xt.theo_may ? "Theo tốc độ máy" : "Theo định mức"}
+          </span>
+        </div>
+      </div>
+
+      {/* 3. Deadline & Slack Analysis (nếu có hạn) */}
+      {(xt.han_moi != null || xt.han_sx != null || xt.han_giao != null) && (
+        <div className="xl2-dlg-card xl2-dlg-card--slack">
+          <div className="xl2-dlg-slackgrid">
+            <div className="xl2-dlg-slackitem">
+              <span className="xl2-dlg-timelb">Mốc xong lệnh mới</span>
+              <span className="xl2-dlg-timeval">{xt.han_moi ? ngay(xt.han_moi) : "—"}</span>
+            </div>
+            <div className="xl2-dlg-slackitem">
+              <span className="xl2-dlg-timelb">Hạn hoàn thành SX</span>
+              <div className="xl2-dlg-slackval">
+                <span className="xl2-dlg-timeval">{xt.han_sx ? ngay(xt.han_sx) : "—"}</span>
+                {slackDays != null && (
+                  <span className={`xl2-slack-pill ${slackDays < 0 ? "xl2-slack-pill--late" : "xl2-slack-pill--ok"}`}>
+                    {slackDays < 0 ? `Trễ ${Math.abs(slackDays)} ngày` : `Dư ${slackDays} ngày`}
+                  </span>
+                )}
+              </div>
+            </div>
+            {xt.han_giao && (
+              <div className="xl2-dlg-slackitem">
+                <span className="xl2-dlg-timelb">Hạn giao khách</span>
+                <span className="xl2-dlg-timeval">{ngay(xt.han_giao)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 4. Downstream Step Impact (nếu có bước sau bị lấn) */}
+      {xt.cong_doan_anh_huong.length > 0 && (
+        <div className="xl2-dlg-impact">
+          <div className="xl2-dlg-impact__h">
+            <Icon name="alert" size={13} /> {xt.cong_doan_anh_huong.length} bước sau bị lấn thứ tự thời gian:
+          </div>
+          <div className="xl2-dlg-impact__list">
+            {xt.cong_doan_anh_huong.map((a) => (
+              <div key={a.dong_id} className="xl2-dlg-impact__row">
+                <span className="xl2-dlg-impact__tt">B{a.thu_tu + 1}</span>
+                <span className="xl2-dlg-impact__cd">{a.cong_doan_ten ?? `Bước #${a.dong_id}`}</span>
+                <span className="xl2-dlg-impact__t">{a.start_at ? ngayGio(a.start_at) : "—"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 5. Validation Status Callout */}
+      {!hasIssues ? (
+        <div className="xl2-dlg-clean">
+          <Icon name="check" size={15} />
+          <span>Đủ điều kiện xếp lịch — Không phát hiện xung đột máy / tổ.</span>
+        </div>
+      ) : (
+        <div className="xl2-dlg-issues">
+          <div className="xl2-dlg-issues__h"><Icon name="alert" size={13} /> Lưu ý & Vấn đề cần cân nhắc:</div>
+          <IssueList issues={xt.van_de} empty="" onMoNguon={onMoNguon} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function fmtSlotDate(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const thuNames = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+  const thu = thuNames[d.getDay()];
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${thu}, ${dd}/${mm}`;
+}
+
+function fmtSlotTimeRange(startIso: string, finishIso: string) {
+  const s = new Date(startIso);
+  const f = new Date(finishIso);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(f.getTime())) return `${ngayGio(startIso)} → ${ngayGio(finishIso)}`;
+  const sTime = s.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  const fTime = f.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  return `${sTime} – ${fTime}`;
+}
+
+// ============================ nhãn THẬT cho gợi ý ==========================
+// `nhan_ngay` do backend chấm (thứ · cuối tuần · ngày lễ · ca đêm). v2 KHÔNG chặn chủ nhật / ngày lễ
+// (chỉ tô nền) nên một khe "sạch luật" vẫn có thể rơi vào mùng 2/9 — phải nói ra để người xếp tự
+// quyết, thay cho cái nhãn "Lý tưởng" cũ vốn chỉ có nghĩa là "không có cảnh báo".
+function NhanNgayTags({ nn, soCanhBao }: { nn?: Xl2NhanNgay | null; soCanhBao: number }) {
+  const tags: { text: string; icon: IconName; warn: boolean }[] = [];
+  if (nn?.thu) tags.push({ text: nn.thu, icon: "calendar", warn: false });
+  if (nn?.ngay_le) tags.push({ text: nn.ngay_le, icon: "calendar", warn: true });
+  else if (nn?.cuoi_tuan) tags.push({ text: "Cuối tuần", icon: "calendar", warn: true });
+  if (nn?.ca_dem) tags.push({ text: "Ca đêm", icon: "clock", warn: true });
+  if (soCanhBao > 0) tags.push({ text: `${soCanhBao} lưu ý`, icon: "alert", warn: true });
+  return (
+    <>
+      {tags.map((t, i) => (
+        <span key={i} className={`xl2-smartcard__tag${t.warn ? " xl2-smartcard__tag--warn" : ""}`}>
+          <Icon name={t.icon} size={11} /> {t.text}
+        </span>
+      ))}
+      {nn != null && soCanhBao === 0 && !nn.ngay_le && !nn.cuoi_tuan && !nn.ca_dem && (
+        <span className="xl2-smartcard__tag xl2-smartcard__tag--ok">
+          <Icon name="check" size={11} /> Không vướng luật nào
+        </span>
+      )}
+    </>
+  );
+}
+
+// Ba số thời lượng: LỊCH tính theo mức TRUNG BÌNH; nhanh-nhất … chậm-nhất chỉ là dải (chính là "hai
+// cái râu" trên thanh Gantt). Bằng nhau ⇒ máy chưa khai tốc độ nhanh/chậm — nói thẳng chứ đừng để
+// người xem tưởng máy chạy chính xác tuyệt đối.
+function DaiThoiLuong({ tb, min, max }: { tb: number; min?: number | null; max?: number | null }) {
+  const co = min != null && max != null && max > min;
+  return (
+    <span className="xl2-smartcard__tag" title={co
+      ? `Lịch tính theo mức trung bình ${thoiLuong(tb)} · nhanh nhất ${thoiLuong(min)} · chậm nhất ${thoiLuong(max)}`
+      : "Máy chưa khai tốc độ nhanh nhất / chậm nhất nên chỉ có một con số — không vẽ râu"}>
+      <Icon name="clock" size={11} /> {thoiLuong(tb)}
+      {co && <i className="xl2-dai">{thoiLuong(min)} – {thoiLuong(max)}</i>}
+    </span>
+  );
+}
+
+// ============================ tự xếp lịch cả lệnh ==========================
+// Người kế hoạch bấm một nút, hệ tự chọn MÁY + GIỜ cho từng bước theo đúng thứ tự routing. Máy chỉ
+// GHI NHẬN đề xuất: mọi bước xếp xong vẫn hiện ra kèm câu vì-sao và các lưu ý, sửa tay lại được.
+function TuXepPanel({ ma, bc, kq, busy, loi, onChay }: {
+  ma: string;
+  bc: Xl2BoiCanh | null;
+  kq: Xl2TuXep | null;
+  busy: boolean;
+  loi: string | null;
+  onChay: (ghiDe: boolean) => void;
+}) {
+  // KHOÁ tại chỗ + nói lý do, không giấu nút (giấu đi thì người dùng tưởng chức năng hỏng).
+  const ly = !bc ? "Đang tải bối cảnh lệnh…"
+    : !bc.da_vao_ke_hoach ? "Lệnh chưa vào kế hoạch — bấm “Đưa vào kế hoạch” ở hàng chờ trước đã."
+      : bc.buoc.length === 0 ? "Lệnh chưa có bước công đoạn nào để xếp."
+        : null;
+  const khoa = busy || ly != null;
+  return (
+    <div className="xl2-psec xl2-tuxep">
+      <div className="xl2-psec__h"><Icon name="zap" size={13} /> Tự xếp lịch cả lệnh</div>
+      <p className="xl2-note">
+        Hệ tự chọn máy · giờ cho {ma} theo đúng thứ tự bước, tính bằng thời lượng <b>trung bình</b>,
+        né trùng máy và vùng khoá máy. Lượt đầu trễ hạn SX thì chạy thêm một lượt ưu tiên máy nhanh nhất.
+      </p>
+      <div className="xl2-tuxep__btns">
+        <Button variant="accent" block disabled={khoa} onClick={() => onChay(false)}>
+          <Icon name="zap" size={14} /> {busy ? "Đang xếp…" : "Xếp các bước còn trống"}
+        </Button>
+        <Button variant="secondary" block disabled={khoa} onClick={() => onChay(true)}>
+          <Icon name="refresh" size={14} /> Xếp lại toàn bộ chuỗi
+        </Button>
+      </div>
+      {ly && <p className="xl2-note">{ly}</p>}
+      {loi && <p className="xl2-note">{loi}</p>}
+      {kq && (
+        <div className="xl2-tuxep__kq">
+          <div className={`xl2-tuxep__tom${kq.tre_han_sx ? " is-tre" : ""}`}>
+            <Icon name={kq.tre_han_sx ? "alert" : "check"} size={13} /> {kq.tom_tat}
+          </div>
+          {(kq.da_xep ?? []).map((b) => (
+            <div key={b.dong_id} className="xl2-tuxep__b">
+              <div className="xl2-tuxep__b-top">
+                <span className="xl2-tuxep__tt">B{b.thu_tu + 1}</span>
+                <span className="xl2-tuxep__cd">{b.cong_doan_ten ?? `Bước #${b.dong_id}`}</span>
+                <span className="xl2-tuxep__may">
+                  {b.may_ten ?? (b.may_id != null ? `Máy #${b.may_id}` : "không dùng máy")}
+                </span>
+              </div>
+              <div className="xl2-tuxep__b-time">{ngayGio(b.start_at)} → {ngayGio(b.finish_at)}</div>
+              <div className="xl2-tuxep__b-meta">
+                <DaiThoiLuong tb={b.chiem_may_phut} min={b.chiem_may_phut_min} max={b.chiem_may_phut_max} />
+                {b.so_may_xet > 0 && (
+                  <span className="xl2-smartcard__tag">{b.so_may_xet} máy đã cân nhắc</span>
+                )}
+                {(b.canh_bao ?? []).length > 0 && (
+                  <span className="xl2-smartcard__tag xl2-smartcard__tag--warn">
+                    <Icon name="alert" size={11} /> {(b.canh_bao ?? []).length} lưu ý
+                  </span>
+                )}
+              </div>
+              <div className="xl2-tuxep__why">{b.ly_do}</div>
+            </div>
+          ))}
+          {(kq.bo_qua ?? []).length > 0 && (
+            <div className="xl2-tuxep__bq">
+              <div className="xl2-tuxep__bq-h">
+                <Icon name="alert" size={12} /> {kq.bo_qua.length} bước chưa xếp được — thiếu gì nói thẳng:
+              </div>
+              {kq.bo_qua.map((b) => (
+                <div key={b.dong_id} className="xl2-tuxep__bq-row">
+                  <b>B{b.thu_tu + 1}</b> {b.cong_doan_ten ?? `#${b.dong_id}`} — {b.ly_do}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DongPanel({
-  dong, xt, goiY, mays, phongBans, mayTen, deptTen,
+  dong, xt, xtErr, xtBusy, goiY, mays, phongBans, mayTen, deptTen,
   draftMay, draftDept, draftStart, canUpdate,
   setDraftMay, setDraftDept, setDraftStart, onApDung, onGoiY,
   goiYKhe, goiYKheLoading, onGoiYKhe, onChonKhe, onXoaNhap, onMoNguon,
 }: {
   dong: Xl2Dong;
   xt: Xl2XemTruoc | null;
+  xtErr: boolean;
+  xtBusy: boolean;
   goiY: XepLichGoiY | null;
   mays: Row[];
   phongBans: Row[];
@@ -1398,23 +1964,74 @@ function DongPanel({
 
       {canUpdate && !dong.is_locked && (
         <div className="xl2-psec">
-          <div className="xl2-psec__h"><Icon name="search" size={13} /> Gợi ý khe trống</div>
-          <Button variant="secondary" block onClick={onGoiYKhe} loading={goiYKheLoading}>
-            <Icon name="search" size={14} /> Tìm ≤3 khe rảnh sớm nhất
-          </Button>
+          <div className="xl2-psec__h xl2-psec__h--flex">
+            <span className="xl2-psec__h-left"><Icon name="cpu" size={13} /> Gợi ý khe rảnh thông minh</span>
+            {goiYKhe && goiYKhe.khe.length > 0 && (
+              <button
+                type="button"
+                className="xl2-smartslot__reload"
+                onClick={onGoiYKhe}
+                disabled={goiYKheLoading}
+                title="Tính lại gợi ý khe"
+              >
+                <Icon name="refresh" size={11} /> Tính lại
+              </button>
+            )}
+          </div>
+          {(!goiYKhe || goiYKhe.khe.length === 0) && !goiYKheLoading && (
+            <Button variant="secondary" block onClick={onGoiYKhe}>
+              <Icon name="search" size={14} /> Tìm ≤3 khe rảnh sớm nhất
+            </Button>
+          )}
           {goiYKheLoading ? (
-            <p className="xl2-note" style={{ marginTop: "var(--sp-2)" }}>Đang tìm khe…</p>
+            <div className="xl2-smartslot-skel">
+              <div className="xl2-smartslot-skel__card" />
+              <div className="xl2-smartslot-skel__card" />
+              <div className="xl2-smartslot-skel__card" />
+            </div>
           ) : goiYKhe && goiYKhe.khe.length > 0 ? (
-            <div className="xl2-khe">
-              {goiYKhe.khe.map((k, i) => (
-                <button key={i} type="button" className="xl2-khe__row" onClick={() => onChonKhe(k)}>
-                  <span className="xl2-khe__time">{ngayGio(k.start_at)} → {ngayGio(k.finish_at)}</span>
-                  <span className="xl2-khe__sub">chiếm {thoiLuong(k.chiem_may_phut)}</span>
-                  {k.canh_bao.length > 0 && (
-                    <span className="xl2-khe__warn"><Icon name="alert" size={11} /> {k.canh_bao.length}</span>
-                  )}
-                </button>
-              ))}
+            <div className="xl2-smartslot">
+              {/* Backend trả các khe theo THỨ TỰ SỚM DẦN trên máy đang chọn — nên nhãn cũng chỉ được nói
+                  đúng chừng đó. Ba tên chiến-lược cũ ("Tiết kiệm canh máy" / "Đệm an toàn") là chữ FE
+                  tự gán theo vị trí mảng, không có gì bên dưới đỡ; ba lớp màu thì GIỮ vì chúng chỉ để
+                  phân biệt thẻ 1-2-3. Nhãn thẻ 2-3 mang SỐ THẬT: muộn hơn khe sớm nhất bao lâu —
+                  đó là cái giá phải trả khi bỏ khe đầu, thứ duy nhất phân biệt được ba thẻ này. */}
+              {goiYKhe.khe.map((k, i) => {
+                const strat = i === 0 ? "speed" : i === 1 ? "batch" : "safe";
+                const treP = Math.max(0, Math.round(
+                  (new Date(k.start_at).getTime() - new Date(goiYKhe.khe[0].start_at).getTime()) / 60000));
+                const stratName = i === 0 ? "Sớm nhất" : `Muộn hơn ${thoiLuong(treP)}`;
+                return (
+                  <div
+                    key={i}
+                    className={`xl2-smartcard xl2-smartcard--${strat}`}
+                    onClick={() => onChonKhe(k)}
+                    title={`Gán vào khe: ${ngayGio(k.start_at)}`}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onChonKhe(k); } }}
+                  >
+                    <div className="xl2-smartcard__head">
+                      <span className="xl2-smartcard__pill">{stratName}</span>
+                      <span className="xl2-smartcard__date">{fmtSlotDate(k.start_at)}</span>
+                    </div>
+                    <div className="xl2-smartcard__main">
+                      <div className="xl2-smartcard__time">{fmtSlotTimeRange(k.start_at, k.finish_at)}</div>
+                      <button
+                        type="button"
+                        className="xl2-smartcard__apply"
+                        onClick={(e) => { e.stopPropagation(); onChonKhe(k); }}
+                      >
+                        Gán
+                      </button>
+                    </div>
+                    <div className="xl2-smartcard__meta">
+                      <DaiThoiLuong tb={k.chiem_may_phut} min={k.chiem_may_phut_min} max={k.chiem_may_phut_max} />
+                      <NhanNgayTags nn={k.nhan_ngay} soCanhBao={(k.canh_bao ?? []).length} />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : goiYKhe ? (
             <div style={{ marginTop: "var(--sp-2)" }}>
@@ -1427,14 +2044,25 @@ function DongPanel({
 
       {goiY && goiY.goi_y_may.length > 0 && canUpdate && !dong.is_locked && (
         <div className="xl2-psec">
-          <div className="xl2-psec__h"><Icon name="activity" size={13} /> Gợi ý máy (máy quyết theo giờ xong)</div>
+          <div className="xl2-psec__h">
+            <Icon name="activity" size={13} /> Gợi ý máy — xếp đúng thứ tự máy mà tự-xếp sẽ chọn
+          </div>
           <div className="xl2-goiy">
             {goiY.goi_y_may.map((g) => (
               <button key={g.may_id} type="button" className="xl2-goiy__row" onClick={() => onGoiY(g.may_id)}>
-                <Icon name="printer" size={13} />
-                <span className="xl2-goiy__name">{g.may_ten ?? `Máy #${g.may_id}`}</span>
-                {g.cung_gom && <span className="xl2-goiy__flag">cùng bộ</span>}
-                <span className="xl2-goiy__sub">{g.finish ? `xong ${ngayGio(g.finish)}` : thoiLuong(g.chiem_may_phut)}</span>
+                <span className="xl2-goiy__top">
+                  <Icon name="printer" size={13} />
+                  <span className="xl2-goiy__name">{g.may_ten ?? `Máy #${g.may_id}`}</span>
+                  {g.cung_gom && <span className="xl2-goiy__flag">cùng bộ</span>}
+                  <span className="xl2-goiy__sub">{g.finish ? `xong ${ngayGio(g.finish)}` : thoiLuong(g.chiem_may_phut)}</span>
+                </span>
+                {/* Câu vì-sao do CHÍNH thuật toán tự-xếp sinh ra — bấm máy này thì lát nữa tự-xếp cũng
+                    chọn đúng nó, không có chuyện gợi một đằng xếp một nẻo. */}
+                <span className="xl2-goiy__why">{g.ly_do}</span>
+                <span className="xl2-goiy__meta">
+                  <DaiThoiLuong tb={g.chiem_may_phut} min={g.chiem_may_phut_min} max={g.chiem_may_phut_max} />
+                  <NhanNgayTags nn={g.nhan_ngay} soCanhBao={(g.canh_bao ?? []).length} />
+                </span>
               </button>
             ))}
           </div>
@@ -1442,8 +2070,19 @@ function DongPanel({
       )}
 
       <div className="xl2-psec">
-        <div className="xl2-psec__h"><Icon name="alert" size={13} /> Vấn đề của dòng này</div>
-        <IssueList issues={xt?.van_de ?? []} empty="Không có vấn đề — cách đặt hiện tại sạch." onMoNguon={onMoNguon} />
+        <div className="xl2-psec__h">
+          <Icon name="alert" size={13} /> Vấn đề của cách đặt đang gõ
+          {xtBusy && xt != null && <span className="xl2-psec__hint">đang soi lại…</span>}
+        </div>
+        {/* Ba trạng thái KHÁC NHAU: chưa soi xong · soi hỏng · soi xong và sạch. Gộp cả ba thành
+            "sạch" là báo an toàn cho thứ chưa hề kiểm được. Trạng thái thứ tư (có kết quả CŨ,
+            đang soi lại theo ô vừa gõ) giữ kết quả trên màn kèm nhãn — xoá trắng mỗi ký tự thì
+            panel nhấp nháy, mà im lặng thì người đọc tưởng số cũ là số mới. */}
+        {xtErr ? <p className="xl2-note">Không soi được — chọn lại dòng để thử lại.</p>
+          : xt == null ? <p className="xl2-note">Đang soi…</p>
+            : <div className={xtBusy ? "xl2-soi-lai" : undefined}>
+                <IssueList issues={xt.van_de} empty="Không có vấn đề — cách đặt hiện tại sạch." onMoNguon={onMoNguon} />
+              </div>}
       </div>
 
       {canUpdate && !dong.is_locked && (
@@ -1456,54 +2095,6 @@ function DongPanel({
         </div>
       )}
     </>
-  );
-}
-
-// ============================ flowrail + tổng quan bàn =====================
-const XL2_FLOW: { icon: IconName; label: string }[] = [
-  { icon: "clipboard", label: "Chọn việc" },
-  { icon: "calendar", label: "Xếp máy · giờ" },
-  { icon: "check", label: "Kiểm & phát hành" },
-];
-
-/** Dải mỏng dưới thanh trên: FLOWRAIL 3 bước (bước hiện tại nổi bật, suy từ trạng thái chọn) +
- *  TỔNG QUAN BÀN (chip đếm thành phần lịch + §15 tổng mức BẤM ĐƯỢC để nổi thanh). Một dải gánh cả
- *  hai để bớt băng ngang. */
-function Xl2BoardBar({
-  step, digest,
-}: {
-  step: 1 | 2 | 3;
-  digest: { tong: number; daXep: number; chuaGio: number; may: number; to: number; ncc: number } | null;
-}) {
-  return (
-    <div className="xl2-boardbar">
-      <ol className="xl2-flow" aria-label="Ba bước xếp lịch">
-        {XL2_FLOW.map((s, i) => {
-          const n = (i + 1) as 1 | 2 | 3;
-          const state = n < step ? "done" : n === step ? "on" : "todo";
-          return (
-            <li key={s.label} className={`xl2-flow__step xl2-flow__step--${state}`}
-              aria-current={n === step ? "step" : undefined}>
-              <span className="xl2-flow__dot">{n < step ? <Icon name="check" size={11} /> : n}</span>
-              <span className="xl2-flow__lb"><Icon name={s.icon} size={13} /> {s.label}</span>
-              {n < XL2_FLOW.length && <Icon name="chevron" size={14} className="xl2-flow__sep" />}
-            </li>
-          );
-        })}
-      </ol>
-      <div className="xl2-boardbar__spacer" />
-      {digest && (
-        <div className="xl2-digest" aria-label="Tổng quan bàn">
-          <span className="xl2-digest__chip"><Icon name="calendar" size={12} /> <b className="xl2-num">{digest.daXep}</b> đã xếp</span>
-          <span className="xl2-digest__chip"><Icon name="clock" size={12} /> <b className="xl2-num">{digest.chuaGio}</b> chưa đặt giờ</span>
-          <span className="xl2-digest__chip"><Icon name="printer" size={12} /> <b className="xl2-num">{digest.may}</b> máy</span>
-          <span className="xl2-digest__chip"><Icon name="users" size={12} /> <b className="xl2-num">{digest.to}</b> tổ</span>
-          {digest.ncc > 0 && (
-            <span className="xl2-digest__chip"><Icon name="truck" size={12} /> <b className="xl2-num">{digest.ncc}</b> thuê ngoài</span>
-          )}
-        </div>
-      )}
-    </div>
   );
 }
 

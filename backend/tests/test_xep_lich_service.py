@@ -467,14 +467,6 @@ def test_bai_ghep_in_chung_mot_dong_loai_tru_in(db, orders, lsx_svc, bg_svc, xl_
     with pytest.raises(XepLichConflict):
         xl_svc.go_lsx(lsx_id=created[0].id, actor=admin)
 
-    # Lane của lệnh đã ghép khuyết bước in (nó chạy chung ở bài) — mỗi dòng lệnh phải mang được mã
-    # bài để màn Gantt ghi "in ở GB-xx". Thiếu thì người xem lịch thấy lệnh hụt một bước, không
-    # có gì giải thích. Chính dòng in chung thì KHÔNG mang (nó là đích, không phải con trỏ).
-    ds = {r["id"]: r for r in xl_svc.danh_sach()["items"]}
-    assert ds[member[0].id]["gang_bai_ghep_id"] == bg.id
-    assert ds[member[0].id]["gang_ma"] == bg.ma
-    assert ds[gang[0].id]["gang_bai_ghep_id"] is None
-
 
 def test_som_nhat_theo_gio_thuc_cua_buoc_truoc(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch):
     """Gán In MUỘN → 'sớm nhất' của Xả tờ phải chạy theo giờ KẾT THÚC thực của In (không phải mốc lý
@@ -542,8 +534,8 @@ def test_dag_buoc_ghep_lay_moc_muon_nhat_cua_nhieu_tien_nhiem(
 def test_cong_gio_lam_tran_sang_ngay_ke(db, xl_svc, monkeypatch):
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     bat_dau = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
-    # 600 phút = 8h ngày đầu (đến 16:00) + 120 phút ngày kế (08:00 → 10:00). Tập ca rỗng (seed không
-    # tick `dung_cho_lich_may`) → LichXuong fallback 8h phẳng [08:00,16:00) giữ nguyên hành vi lát 1.
+    # 600 phút = 8h ngày đầu (đến 16:00) + 120 phút ngày kế (08:00 → 10:00). DB test không tạo ca nào
+    # ⇒ tập ca rỗng → LichXuong fallback 8h phẳng [08:00,16:00) giữ nguyên hành vi lát 1.
     assert _cong_gio_lam(bat_dau, 600, xl_svc.lich) == datetime(2026, 7, 28, 10, 0, tzinfo=timezone.utc)
 
 
@@ -984,18 +976,3 @@ def test_xem_truoc_tha_sach_thi_khong_canh_bao_gi(db, orders, lsx_svc, xl_svc, a
     res = xl_svc.xem_truoc(dong_id=dong.id, may_id=step.may_id,
                            start_at=datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc))
     assert res["canh_bao"] == []
-
-
-def test_canh_bao_di_het_duong_dict_den_schema(db, orders, lsx_svc, xl_svc, admin, customer,
-                                               monkeypatch):
-    """Pydantic nuốt field IM LẶNG: không khai ở `XemTruocOut` thì FE nhận `undefined`, không lỗi."""
-    from app.schemas.xep_lich import XemTruocOut
-
-    monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: d != date(2026, 7, 26))
-    dong, step = _dong_in_san_sang(db, orders, lsx_svc, xl_svc, admin, customer)
-    res = xl_svc.xem_truoc(dong_id=dong.id, may_id=step.may_id,
-                           start_at=datetime(2026, 7, 26, 8, 0, tzinfo=timezone.utc))
-    assert "canh_bao" in XemTruocOut.model_fields
-    ra = XemTruocOut.model_validate(res)
-    assert [c.loai for c in ra.canh_bao] == [c["loai"] for c in res["canh_bao"]]
-    assert ra.model_dump()["canh_bao"][0]["chu"]

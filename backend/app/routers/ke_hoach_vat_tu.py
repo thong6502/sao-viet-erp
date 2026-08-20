@@ -33,6 +33,7 @@ from ..schemas.ke_hoach_vat_tu import (
     CanDoiOut,
     DeNghiMuaIn,
     DeNghiMuaOut,
+    DeNghiMuaXemTruocOut,
     GiuChoIn,
     TheoLenhOut,
     TheoLenhRow,
@@ -168,6 +169,59 @@ def _tra_dong(giu: GiuChoService, lsx_id: int | None, bg_id: int | None) -> Theo
     return TheoLenhRow(**dong)
 
 
+def _noi_dung_de_nghi(gom: dict, ghi_chu: str | None) -> str:
+    """Ô "Nội dung / mục đích" của yêu cầu mua — soạn ở MỘT chỗ cho cả hai cửa.
+
+    Cửa xem-trước và cửa tạo thật phải ra CÙNG một câu chữ. Lệch nhau thì người dùng đọc một đằng
+    trên form, hệ ghi một nẻo vào phiếu, mà không ai kiểm được vì hai câu nằm ở hai chỗ.
+    """
+    noi_dung = (ghi_chu or "").strip() or (
+        f"Thiếu vật tư cho {gom['related_document_code']} — lập từ bảng cân đối kế hoạch vật tư."
+    )
+    # Ngày cần của TỪNG lệnh nối vào cuối nội dung. Yêu cầu chỉ mang MỘT ngày (sớm nhất), nên thiếu
+    # dòng này thì người mua không biết trong lô có lệnh nào cần muộn hơn hay lệnh nào đang gấp —
+    # dễ hối cả đơn cho kịp mốc sớm nhất, hoặc chia đơn nhầm chỗ. Nối cả khi người dùng tự gõ ghi
+    # chú: đây là dữ kiện của hệ, không phải câu chữ thay thế được.
+    if gom.get("ghi_chu_ngay"):
+        noi_dung = f"{noi_dung}\n{gom['ghi_chu_ngay']}"
+    return noi_dung
+
+
+@router.post("/de-nghi-mua/xem-truoc", response_model=DeNghiMuaXemTruocOut)
+def xem_truoc_de_nghi_mua(
+    payload: DeNghiMuaIn,
+    svc: Service,
+    thu_mua: ThuMua,
+    user: CurrentUser,
+    _quyen_doc: Annotated[object, Depends(require_permission(MODULE, "read"))] = None,
+) -> DeNghiMuaXemTruocOut:
+    """Tính BẢN NHÁP của yêu cầu mua — không ghi gì vào cơ sở dữ liệu.
+
+    FE đổ kết quả vào chính form "Tạo yêu cầu mua hàng" (ngày cần · nội dung · từng dòng vật tư đã
+    gộp) để người dùng nhìn, sửa, rồi tự bấm Lưu. Đường tạo thật vẫn là cửa cũ của thu mua
+    `POST /api/department-purchase-requests` — ở đây KHÔNG đẻ thêm đường tạo thứ hai.
+
+    Vẫn hỏi bit TẠO yêu cầu mua ngay tại cửa chỉ-đọc này: dẫn người không có quyền tới một form mà
+    bấm Lưu là 403 thì họ gõ xong mới biết công cốc, rồi đọc thành "phần mềm hỏng".
+    """
+    if not thu_mua.can_create_department_request(user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền tạo yêu cầu mua hàng cho bộ phận.",
+        )
+    try:
+        gom = svc.gom_de_nghi([d.model_dump() for d in payload.dong])
+    except KeHoachVatTuError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    return DeNghiMuaXemTruocOut(
+        related_document_type="lsx",
+        related_document_code=gom["related_document_code"],
+        needed_date=gom["needed_date"],
+        noi_dung=_noi_dung_de_nghi(gom, payload.ghi_chu),
+        lines=gom["lines"],
+    )
+
+
 @router.post("/de-nghi-mua", response_model=DeNghiMuaOut, status_code=status.HTTP_201_CREATED)
 def de_nghi_mua(
     payload: DeNghiMuaIn,
@@ -188,15 +242,7 @@ def de_nghi_mua(
     except KeHoachVatTuError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
 
-    noi_dung = (payload.ghi_chu or "").strip() or (
-        f"Thiếu vật tư cho {gom['related_document_code']} — lập từ bảng cân đối kế hoạch vật tư."
-    )
-    # Ngày cần của TỪNG lệnh nối vào cuối nội dung. Yêu cầu chỉ mang MỘT ngày (sớm nhất), nên thiếu
-    # dòng này thì người mua không biết trong lô có lệnh nào cần muộn hơn hay lệnh nào đang gấp —
-    # dễ hối cả đơn cho kịp mốc sớm nhất, hoặc chia đơn nhầm chỗ. Nối cả khi người dùng tự gõ ghi
-    # chú: đây là dữ kiện của hệ, không phải câu chữ thay thế được.
-    if gom.get("ghi_chu_ngay"):
-        noi_dung = f"{noi_dung}\n{gom['ghi_chu_ngay']}"
+    noi_dung = _noi_dung_de_nghi(gom, payload.ghi_chu)
     try:
         row = thu_mua.create_department_request(
             source_type="san_xuat",

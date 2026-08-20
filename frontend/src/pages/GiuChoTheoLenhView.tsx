@@ -7,6 +7,7 @@ import {
   api,
   type CanDoiKhoaDong,
   type CanDoiMau,
+  type DeNghiMuaXemTruoc,
   type HangLoai,
   type TheoLenhHang,
   type TheoLenhOut,
@@ -101,12 +102,16 @@ export function GiuChoTheoLenhView({
   onOpenLsx,
   onSoGiuLau,
   focusLsxMa,
+  onMoFormMua,
 }: {
   eventTick?: number;
   canDeNghiMua: boolean;
   onOpenLsx?: (id: number) => void;
   onSoGiuLau?: (n: number) => void;
   focusLsxMa?: string | null;
+  /** Mở form "Tạo yêu cầu mua hàng" đã điền sẵn — xem `VatTuKeHoachView`. Hai cách nhìn của cùng
+   *  một bảng thì bấm Mua phải ra cùng một chỗ, không thể bên mở form bên tự lập phiếu. */
+  onMoFormMua?: (nhap: DeNghiMuaXemTruoc) => void;
 }) {
   const { token } = useAuth();
   const [data, setData] = useState<TheoLenhOut | null>(null);
@@ -204,6 +209,12 @@ export function GiuChoTheoLenhView({
     if (dong.length === 0) return;
     setDangChay(khoaChu(r));
     try {
+      // MỞ FORM, KHÔNG TỰ LẬP PHIẾU — giống hệt cách nhìn theo mặt hàng (20/08/2026).
+      const nhap = await api.keHoachVatTu.xemTruocDeNghiMua(token, dong);
+      if (onMoFormMua) {
+        onMoFormMua(nhap);
+        return;
+      }
       const kq = await api.keHoachVatTu.deNghiMua(token, dong);
       setFlash(
         `✓ Đã tạo đề nghị mua hàng ${kq.code} cho ${r.ma}. Mở phân hệ Mua Hàng để duyệt & gửi PO.`,

@@ -6363,7 +6363,7 @@ MIGRATIONS.append(("0177_khuon_dang_dat_lam", _migrate_khuon_dang_dat_lam))
 def _migrate_ca_rieng_may_to(db: Session) -> None:
     """Máy / tổ khai được TẬP CA RIÊNG (`ca_lam_ids` JSON list id `work_shifts`).
 
-    Hôm nay chỉ có MỘT tập ca chung (cờ `work_shifts.dung_cho_lich_may`) áp cho mọi máy và mọi tổ,
+    Hôm nay chỉ có MỘT tập ca chung (mọi ca `work_shifts` đang hoạt động) áp cho mọi máy và mọi tổ,
     nên lịch của tổ chạy 1 ca bị vẽ dài y như máy chạy 2 ca — giờ xong sai, mà sai âm thầm.
 
     NULL / rỗng = DÙNG TẬP CA CHUNG như hiện nay ⇒ dữ liệu cũ KHÔNG đổi hành vi. Bám precedent
@@ -9935,3 +9935,31 @@ def _migrate_phieu_chi_tu_tam_ung(db: Session) -> None:
 
 
 MIGRATIONS.append(("0207_phieu_chi_tu_tam_ung", _migrate_phieu_chi_tu_tam_ung))
+
+
+def _migrate_go_cho_lich_may(db: Session) -> None:
+    """Rút `work_shifts.dung_cho_lich_may` — lịch xưởng ăn thẳng mọi ca `is_active`.
+
+    ⚠️ SỐ ĐO TRƯỚC KHI XOÁ (Postgres dev, 21/08/2026): `work_shifts` 4 dòng · `is_active` 4 dòng ·
+    `dung_cho_lich_may` **0 dòng**. Cột không mang một bit thông tin nào vì chưa bao giờ có đường
+    ghi: không có trong `WorkShiftIn`/`WorkShiftOut`, frontend 0 chỗ nhắc, seeder không đặt. Nơi
+    ĐỌC duy nhất là `XepLichService._ca_lich_may()` — và vì cờ luôn FALSE nên nó luôn thấy tập ca
+    RỖNG rồi rơi về fallback 08:00–16:00, trong khi xưởng đã khai đủ Ca 1 (06–14) · Hành chính
+    (08–17) · Ca 2 (14–22) · Ca 3 (22–06). Chủ chốt chọn "bỏ cờ" ngày 21/08/2026.
+
+    DROP best-effort như mg `0198`/`0215`: SQLite cũ từ chối thì cột mồ côi vô hại vì model đã hết
+    map nó. Idempotent; no-op khi bảng/cột không còn.
+    """
+    insp = inspect(db.get_bind())
+    if "work_shifts" not in set(insp.get_table_names()):
+        return
+    if "dung_cho_lich_may" not in _existing_columns(insp, "work_shifts"):
+        return
+    try:
+        db.execute(text("ALTER TABLE work_shifts DROP COLUMN dung_cho_lich_may"))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+MIGRATIONS.append(("0226_go_cho_lich_may", _migrate_go_cho_lich_may))

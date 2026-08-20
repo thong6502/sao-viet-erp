@@ -127,6 +127,13 @@ export interface KhoanChon {
   }[];
   /** Vật tư khai ở danh mục nhưng chưa quy đổi được — nói thiếu gì, KHÔNG đoán số. */
   canh_bao_vat_tu?: string[];
+  /** Tiền công DỰ KIẾN nếu chọn ĐÚNG đầu việc này, server tính sẵn cho bước đang mở (cùng bộ máy
+   *  với bước đã lưu). Nhờ đó chọn ở dropdown là "nhảy tiền" ngay, khỏi Lưu trước. Có key nghĩa là
+   *  option đến từ server cho bước hiện tại; `null` = chưa quy đổi được SL sang đơn vị đơn giá. */
+  tien_du_kien?: number | null;
+  sl_du_kien?: number | null;
+  don_vi_sl_du_kien?: string | null;
+  dien_giai_du_kien?: string | null;
 }
 
 

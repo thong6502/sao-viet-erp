@@ -33,7 +33,7 @@ Toàn bộ luật dưới đây chạy được bằng dữ liệu ĐANG CÓ. Đ
 | Dải tốc độ máy | `may_thiet_bi.toc_do` (TB) · `toc_do_min` · `toc_do_max` · `makeready_time_default` |
 | Dải năng suất tổ | `cong_doan_dinh_muc.nang_suat_nguoi_gio(_min/_max)`, ghim vào bước qua `khoan_json` |
 | Ba mức thời lượng | `lsx_service.thoi_luong_buoc()` — đã trả `chiem_may_phut` + `_min` + `_max` |
-| Ca làm việc | `work_shifts` (cờ `dung_cho_lich_may`), ca đêm theo `is_overnight` |
+| Ca làm việc | `work_shifts` đang hoạt động (`is_active`), ca đêm theo `is_overnight` |
 | Ngày nghỉ · ngày lễ | `work_calendar_config` + `special_days` (`kind` = off / off1x / work) |
 | Số người của bước | `lsx_cong_doan.so_nhan_cong(_toi_thieu/_tieu_chuan/_toi_da)`, mirror ở `bai_ghep_cong_doan` |
 | Quân số tổ theo ngày | `to_quan_so_ngay` (gõ đè + `ly_do` bắt buộc); không có dòng ⇒ tự tính từ `employees` − `leaves` đã duyệt |

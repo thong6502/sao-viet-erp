@@ -22,7 +22,6 @@ import {
   type StockVoucherStatus,
 } from "../api/client";
 import { useCan } from "../auth/permissions";
-import { Button } from "../components/Button";
 import { CodeLink } from "../components/CodeLink";
 import { Icon } from "../components/Icons";
 import { Select } from "../components/Select";
@@ -45,6 +44,30 @@ import { InboxRequestDrawer, VoucherDrawer } from "./KhoYeuCauPage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
+
+import {
+  Layers,
+  Droplets,
+  FlaskConical,
+  Box,
+  ArrowLeftRight,
+  QrCode,
+  ShoppingCart,
+  Search,
+} from "lucide-react";
+
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  Area,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
+
+
 
 interface MaterialGroup {
   /** Khoá GỘP của bảng tồn: cặp trỏ danh mục gốc. Chuỗi `"giay:12"` dùng làm key của Map/JSX
@@ -84,6 +107,48 @@ function levelOf(onHand: number, th: StockThreshold | undefined): StockLevel | n
   if (th.nguong_toi_da != null && onHand > th.nguong_toi_da) return "du_ton";
   return "du";
 }
+
+function getCategory(g: MaterialGroup): "giay" | "muc" | "hoa_chat" | "khac" {
+  const code = (g.code ?? "").toLowerCase();
+  const name = (g.name ?? "").toLowerCase();
+  const loai = (g.hang_loai ?? "").toLowerCase();
+  if (
+    loai === "giay" ||
+    code.includes("couche") ||
+    code.includes("ford") ||
+    code.includes("ivory") ||
+    code.includes("duplex") ||
+    code.includes("kraft") ||
+    code.includes("bristol") ||
+    name.includes("giấy")
+  ) {
+    return "giay";
+  }
+  if (
+    loai === "muc" ||
+    code.includes("muc") ||
+    name.includes("mực") ||
+    name.includes("pantone") ||
+    name.includes("cmyk")
+  ) {
+    return "muc";
+  }
+  if (
+    code.includes("mang") ||
+    code.includes("keo") ||
+    code.includes("phu") ||
+    name.includes("màng") ||
+    name.includes("keo") ||
+    name.includes("hóa chất") ||
+    name.includes("bóng") ||
+    name.includes("mờ") ||
+    name.includes("phủ")
+  ) {
+    return "hoa_chat";
+  }
+  return "khac";
+}
+
 
 export function KhoTonKhoPage({
   khoId,
@@ -150,6 +215,11 @@ export function KhoTonKhoPage({
   const [vValFrom, setVValFrom] = useState("");
   const [vValTo, setVValTo] = useState("");
 
+  // Bộ lọc Phân loại & Trạng thái Tồn kho Redesign
+  const [categoryFilter, setCategoryFilter] = useState<"all" | "giay" | "muc" | "hoa_chat" | "khac">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "can_mua" | "du" | "du_ton" | "het" | "chuakhai" | "sap_het_han">("all");
+
+
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
@@ -188,12 +258,13 @@ export function KhoTonKhoPage({
     loadVouchers();
   }, [load, loadVouchers]);
 
-  // Về trang 1 khi đổi tab / tìm kiếm / lọc phiếu / lọc ngày-tồn / lọc phiếu (ngày·giá vốn).
   useEffect(() => {
     setPage(1);
   }, [
     tab,
     q,
+    categoryFilter,
+    statusFilter,
     voucherFilter,
     dateFrom,
     dateTo,
@@ -208,6 +279,8 @@ export function KhoTonKhoPage({
 
   // Đổi tab → XÓA sạch mọi bộ lọc (khỏi lẫn bộ lọc giữa 2 nhóm tab). Effect RIÊNG chỉ theo [tab].
   useEffect(() => {
+    setCategoryFilter("all");
+    setStatusFilter("all");
     setDateFrom("");
     setDateTo("");
     setTonFrom("");
@@ -219,6 +292,7 @@ export function KhoTonKhoPage({
     setVValFrom("");
     setVValTo("");
   }, [tab]);
+
 
   const groups = useMemo<MaterialGroup[]>(() => {
     const m = new Map<string, MaterialGroup>();
@@ -293,12 +367,35 @@ export function KhoTonKhoPage({
     const s = q.trim().toLowerCase();
     const tf = tonFrom.trim() === "" ? null : Number(tonFrom);
     const tt = tonTo.trim() === "" ? null : Number(tonTo);
+
+    const targetDate = new Date();
+    targetDate.setDate(targetDate.getDate() + 30);
+    const targetISO = targetDate.toISOString().slice(0, 10);
+
     return groups.filter((g) => {
       if (
         s &&
         !((g.name ?? "").toLowerCase().includes(s) || (g.code ?? "").toLowerCase().includes(s))
       )
         return false;
+
+      // Category Filter
+      if (categoryFilter !== "all") {
+        const cat = getCategory(g);
+        if (cat !== categoryFilter) return false;
+      }
+
+      // Status Filter
+      if (statusFilter === "can_mua" && g.level !== "can_mua") return false;
+      if (statusFilter === "du" && g.level !== "du") return false;
+      if (statusFilter === "du_ton" && g.level !== "du_ton") return false;
+      if (statusFilter === "chuakhai" && g.level !== null) return false;
+      if (statusFilter === "het" && g.total > 0) return false;
+      if (statusFilter === "sap_het_han") {
+        const isExpiring = g.lots.some((l) => l.hsd && l.hsd <= targetISO);
+        if (!isExpiring) return false;
+      }
+
       // Ngày nhập: hiện nếu CÓ ≥1 lô có ngay_nhap rơi trong [dateFrom, dateTo] (so ISO yyyy-mm-dd).
       if (dateFrom || dateTo) {
         const hit = g.lots.some((lot) => {
@@ -316,7 +413,8 @@ export function KhoTonKhoPage({
       if (!inNumRange(g.value, { from: gtFrom, to: gtTo })) return false;
       return true;
     });
-  }, [groups, q, dateFrom, dateTo, tonFrom, tonTo, gtFrom, gtTo]);
+  }, [groups, q, categoryFilter, statusFilter, dateFrom, dateTo, tonFrom, tonTo, gtFrom, gtTo]);
+
 
   const shownVouchers = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -366,45 +464,31 @@ export function KhoTonKhoPage({
     });
   }
 
-  const totalValue = useMemo(
-    () => (canViewCost ? groups.reduce((s, g) => s + g.value, 0) : 0),
-    [groups, canViewCost],
-  );
-  // Cảnh báo: mã đang ở "Cần mua" (≤ ngưỡng tồn).
-  const canMua = useMemo(() => groups.filter((g) => g.level === "can_mua"), [groups]);
+  const clearFilters = useCallback(() => {
+    setQ("");
+    setCategoryFilter("all");
+    setStatusFilter("all");
+    setDateFrom("");
+    setDateTo("");
+    setTonFrom("");
+    setTonTo("");
+    setGtFrom("");
+    setGtTo("");
+    setVDateFrom("");
+    setVDateTo("");
+    setVValFrom("");
+    setVValTo("");
+  }, []);
 
-  // Xóa mọi bộ lọc của TAB đang xem (nút "Xóa lọc" ở empty-state). Funnel từng cột tự có nút riêng.
-  function clearFilters() {
-    if (tab === "ton") {
-      setDateFrom("");
-      setDateTo("");
-      setTonFrom("");
-      setTonTo("");
-      setGtFrom("");
-      setGtTo("");
-    } else {
-      setVDateFrom("");
-      setVDateTo("");
-      setVValFrom("");
-      setVValTo("");
-    }
-  }
 
-  // Tạo Yêu cầu mua hàng từ các mã đã tick: mở form YCMH (nguồn Kho) điền sẵn Tên + ĐVT + SL cần
-  // mua; KHOÁ Tên + ĐVT (lấy từ mặt hàng đã có), chỉ cho sửa số lượng. SL cần mua = (ngưỡng tối đa
-  // nếu có, không thì ngưỡng tồn) − tồn hiện tại, kẹp ≥ 0. Người dùng chỉnh lại được.
   function createPurchaseFromSelected() {
     const chosen = groups.filter((g) => selected.has(g.key));
     if (chosen.length === 0) return;
     navigate("yeu-cau-mua-hang", {
       purchaseSeedLines: chosen.map((g) => {
-        // SL cần mua = (ngưỡng tối đa nếu có, không thì ngưỡng tồn) − tồn hiện tại, kẹp ≥ 0.
-        // Gợi ý rule-based để về ngưỡng; người mua chỉnh lại được.
         const th = thresholds[g.key];
         const target = th?.nguong_toi_da ?? th?.nguong_ton ?? 0;
         return {
-          // Mang theo CẶP chứ không chỉ tên: phía mua hàng nối được về đúng mặt hàng gốc,
-          // thay vì ghép mù bằng chuỗi tên (ghép trượt thì im lặng sai).
           hang_loai: g.hang_loai,
           hang_id: g.hang_id,
           item_name: g.name ?? g.code ?? "",
@@ -418,10 +502,9 @@ export function KhoTonKhoPage({
   }
 
   const voucherCols = canViewCost ? 6 : 5;
-  // Cột tab Tồn kho: [checkbox nếu canCreate] + Vật tư + Vị trí + Tồn khả dụng + Số đợt nhập +
-  // Min/Max + Trạng thái + Ngày nhập (7 cột cố định — Min/Max & Trạng thái AI cũng xem được,
-  // KHÔNG gate theo set_threshold) [+ Giá trị tồn nếu view_cost].
-  const tonCols = (canCreate ? 1 : 0) + 8 + (canViewCost ? 1 : 0);  // +1: cột Hạn sử dụng
+
+  // Cột tab Tồn kho: [checkbox nếu canCreate] + Vật tư + Vị trí + Hạn sử dụng + Tồn khả dụng + Ngưỡng & Trạng Thái + Ngày nhập mới nhất [+ Giá trị tồn nếu view_cost]
+  const tonCols = (canCreate ? 1 : 0) + 6 + (canViewCost ? 1 : 0);
 
   // Phân trang (dùng chung cho cả 2 tab; số tổng theo tab đang xem).
   const pageTotal = tab === "ton" ? filtered.length : shownVouchers.length;
@@ -431,32 +514,36 @@ export function KhoTonKhoPage({
 
   return (
     <main className="rc kho-list">
+      {/* Header Redesign với Quick Action Buttons */}
       <header className="rc__head">
-        <div className="rc__headrow">
-          <h1 className="rc__title">{ten}</h1>
-          <span className="rc__count">
-            {tab === "ton"
-              ? `${groups.length} vật tư đang tồn`
-              : `${shownVouchers.length} phiếu`}
-            {ma ? ` · ${ma}` : ""}
-          </span>
+        <div className="rc__headrow" style={{ justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <h1 className="rc__title">{ten}</h1>
+            <span className="rc__count">
+              {tab === "ton"
+                ? `${groups.length} vật tư đang tồn`
+                : `${shownVouchers.length} phiếu`}
+              {ma ? ` · ${ma}` : ""}
+            </span>
+          </div>
         </div>
         <p className="rc__sub">
           {tab === "ton"
-            ? "Tồn khả dụng theo từng vật tư — bấm một dòng để xem chi tiết các lô."
+            ? "Tồn khả dụng theo từng vật tư — bấm một dòng để xem chi tiết các lô & lịch sử."
             : tab === "nhap"
-              ? "Phiếu NHẬP đã lập tại kho này."
-              : "Phiếu XUẤT đã lập tại kho này."}
+              ? "Danh sách phiếu NHẬP kho đã lập."
+              : "Danh sách phiếu XUẤT kho đã lập."}
         </p>
       </header>
 
-      <div className="kho-shell">
-        <div className="kho-shell__fns">
+      {/* Unified Single-Row Toolbar (Gộp Tabs + Search + Select Filters) */}
+      <div className="rc__toolbar" style={{ marginTop: 0, marginBottom: 16, gap: 12 }}>
+        <div className="kho-shell__fns" style={{ margin: 0 }}>
           {(
             [
-              ["ton", "Tồn kho"],
-              ["nhap", "Phiếu nhập"],
-              ["xuat", "Phiếu xuất"],
+              ["ton", `Tồn kho (${groups.length})`],
+              ["nhap", `Phiếu nhập (${vouchers.filter((v) => v.loai === "NHAP").length})`],
+              ["xuat", `Phiếu xuất (${vouchers.filter((v) => v.loai === "XUAT").length})`],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -469,49 +556,82 @@ export function KhoTonKhoPage({
             </button>
           ))}
         </div>
-      </div>
 
-      <div className="rc__toolbar">
-        <div className="rc__search-wrapper">
-          <SearchIcon />
+        <div className="rc__search-wrapper" style={{ width: 220 }}>
+          <Search style={{ width: 15, height: 15, color: "var(--ash-2)" }} />
           <input
             className="rc__search"
             placeholder={
-              tab === "ton" ? "Tìm mã / tên vật tư…" : "Tìm số phiếu / mã yêu cầu / tên vật tư…"
+              tab === "ton"
+                ? "Tìm mã, tên vật tư…"
+                : "Tìm số phiếu, mã yêu cầu…"
             }
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
-        {tab !== "ton" && (
+
+        {tab === "ton" ? (
           <>
-            <div className="kho-picker">
+            <div className="kho-picker" style={{ width: 145 }}>
               <Select
                 options={[
-                  { value: "all", label: "Mọi trạng thái", hint: String(vouchers.length) },
-                  {
-                    value: "draft",
-                    label: "Chờ ghi sổ",
-                    hint: String(vouchers.filter((v) => v.trang_thai === "draft").length),
-                  },
-                  {
-                    value: "posted",
-                    label: "Đã ghi sổ",
-                    hint: String(vouchers.filter((v) => v.trang_thai === "posted").length),
-                  },
-                  {
-                    value: "cancelled",
-                    label: "Đã hủy",
-                    hint: String(vouchers.filter((v) => v.trang_thai === "cancelled").length),
-                  },
+                  { value: "all", label: "Mọi chủng loại" },
+                  { value: "giay", label: "Giấy in" },
+                  { value: "muc", label: "Mực in" },
+                  { value: "hoa_chat", label: "Hóa chất / Phủ" },
+                  { value: "khac", label: "Vật tư phụ" },
                 ]}
-                value={voucherFilter}
-                onChange={(v) => v != null && setVoucherFilter(v as "all" | StockVoucherStatus)}
-                ariaLabel="Lọc trạng thái phiếu"
+                value={categoryFilter}
+                onChange={(v) => v != null && setCategoryFilter(v as any)}
+                ariaLabel="Lọc chủng loại"
+              />
+            </div>
+
+            <div className="kho-picker" style={{ width: 155 }}>
+              <Select
+                options={[
+                  { value: "all", label: "Mọi trạng thái" },
+                  { value: "can_mua", label: "🔴 Cần mua" },
+                  { value: "du", label: "🟢 Tồn an toàn" },
+                  { value: "du_ton", label: "🟡 Vượt max" },
+                  { value: "chuakhai", label: "⚪ Chưa khai" },
+                  { value: "sap_het_han", label: "⏰ Sắp hết hạn" },
+                ]}
+                value={statusFilter}
+                onChange={(v) => v != null && setStatusFilter(v as any)}
+                ariaLabel="Lọc trạng thái"
               />
             </div>
           </>
+        ) : (
+          <div className="kho-picker" style={{ width: 155 }}>
+            <Select
+              options={[
+                { value: "all", label: "Mọi trạng thái", hint: String(vouchers.length) },
+                {
+                  value: "draft",
+                  label: "Chờ ghi sổ",
+                  hint: String(vouchers.filter((v) => v.trang_thai === "draft").length),
+                },
+                {
+                  value: "posted",
+                  label: "Đã ghi sổ",
+                  hint: String(vouchers.filter((v) => v.trang_thai === "posted").length),
+                },
+                {
+                  value: "cancelled",
+                  label: "Đã hủy",
+                  hint: String(vouchers.filter((v) => v.trang_thai === "cancelled").length),
+                },
+              ]}
+              value={voucherFilter}
+              onChange={(v) => v != null && setVoucherFilter(v as "all" | StockVoucherStatus)}
+              ariaLabel="Lọc trạng thái phiếu"
+            />
+          </div>
         )}
+
         <div className="rc__spacer" />
       </div>
 
@@ -530,46 +650,7 @@ export function KhoTonKhoPage({
         </div>
       )}
 
-      {/* Cảnh báo tồn dưới ngưỡng — dựa trên ngưỡng đã khai cho kho này. */}
-      {tab === "ton" && !loading && canMua.length > 0 && (
-        <div className="banner banner--warn" role="status" style={{ marginBottom: "var(--sp-4)" }}>
-          <span>
-            <b>{canMua.length}</b> mã <b>cần mua</b> (≤ ngưỡng tồn) — tick để tạo yêu cầu mua.
-          </span>
-          {canCreate && (
-            <button
-              type="button"
-              className="btn btn--ghost"
-              style={{ padding: "4px 12px", fontSize: "12px" }}
-              onClick={() => setSelected(new Set(canMua.map((g) => g.key)))}
-            >
-              Chọn hết
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Thanh hành động khi đã tick — tạo Yêu cầu mua hàng cho các mã đã chọn. */}
-      {tab === "ton" && canCreate && selected.size > 0 && (
-        <div className="kho-selbar">
-          <span>
-            Đã chọn <b>{selected.size}</b> mã
-          </span>
-          <div className="rc__spacer" />
-          <button type="button" className="btn btn--ghost" onClick={() => setSelected(new Set())}>
-            Bỏ chọn
-          </button>
-          {khoOptions.filter((w) => w.id !== khoId).length > 0 && (
-            <Button variant="secondary" onClick={() => setDcBulkOpen(true)}>
-              ⇄ Điều chuyển
-            </Button>
-          )}
-          <Button variant="accent" onClick={createPurchaseFromSelected}>
-            Tạo yêu cầu mua
-          </Button>
-        </div>
-      )}
-
+      {/* Bảng Dữ Liệu Tồn Kho Căn Khớp 100% 8 Cột Chuẩn */}
       <div className="rc__tablewrap kho-tablewrap">
         {tab === "ton" ? (
           <table ref={tonTableRef} className="rc__table kho-table kho-ton-table">
@@ -591,23 +672,50 @@ export function KhoTonKhoPage({
                     />
                   </th>
                 )}
-                <th style={{ minWidth: 170 }}>Vật tư</th>
-                <th style={{ minWidth: 80 }}>Vị trí</th>
-                <th style={{ minWidth: 112 }} title="Hạn SỚM NHẤT của lô còn tồn; +N = số hạn khác">Hạn sử dụng</th>
-                <NumFilterHead className="kho-num" style={{ width: "14%" }} label="Tồn khả dụng" from={tonFrom} to={tonTo} onChange={(f, t) => { setTonFrom(f); setTonTo(t); }} />
-                <th className="kho-num" style={{ width: "10%" }}>
-                  Số đợt nhập
+                <th style={{ minWidth: 220 }}>Vật tư</th>
+                <th style={{ minWidth: 70 }}>Vị trí</th>
+                <th style={{ minWidth: 90 }} title="Hạn SỚM NHẤT của lô còn tồn">
+                  Hạn sử dụng
                 </th>
-                <th className="kho-num" style={{ width: "11%" }}>
-                  Min / Max
-                </th>
-                <th style={{ width: "9%" }}>Trạng thái</th>
-                <DateFilterHead className="kho-num kho-colfil--num" style={{ width: "18%" }} label="Ngày nhập mới nhất" from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
+                <NumFilterHead
+                  className="kho-num"
+                  style={{ minWidth: 130 }}
+                  label="Tồn khả dụng"
+                  from={tonFrom}
+                  to={tonTo}
+                  onChange={(f, t) => {
+                    setTonFrom(f);
+                    setTonTo(t);
+                  }}
+                />
+                <th style={{ minWidth: 140 }}>Ngưỡng &amp; Trạng thái</th>
+                <DateFilterHead
+                  className="kho-num kho-colfil--num"
+                  style={{ minWidth: 120 }}
+                  label="Ngày nhập mới nhất"
+                  from={dateFrom}
+                  to={dateTo}
+                  onChange={(f, t) => {
+                    setDateFrom(f);
+                    setDateTo(t);
+                  }}
+                />
                 {canViewCost && (
-                  <NumFilterHead className="kho-num" style={{ width: "12%" }} label="Giá trị tồn" from={gtFrom} to={gtTo} onChange={(f, t) => { setGtFrom(f); setGtTo(t); }} />
+                  <NumFilterHead
+                    className="kho-num"
+                    style={{ minWidth: 130 }}
+                    label="Giá trị tồn"
+                    from={gtFrom}
+                    to={gtTo}
+                    onChange={(f, t) => {
+                      setGtFrom(f);
+                      setGtTo(t);
+                    }}
+                  />
                 )}
               </tr>
             </thead>
+
             <tbody>
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
@@ -762,15 +870,8 @@ export function KhoTonKhoPage({
       {!loading && pageTotal > 0 && (
         <div className="kho-pager">
           <PageSizeSelect value={pageSize} onChange={setPageSize} />
-          <span className="kho-pager__page">
-            {tab === "ton" ? `${pageTotal} vật tư` : `${pageTotal} phiếu`}
-          </span>
-          {tab === "ton" && canViewCost && groups.length > 0 && (
-            <span className="kho-ton__value">
-              Giá trị tồn: <b>{money(Math.round(totalValue))}</b>
-            </span>
-          )}
           <div className="rc__spacer" />
+
           <button
             type="button"
             className="btn btn--ghost"
@@ -870,8 +971,64 @@ export function KhoTonKhoPage({
         />
       )}
 
+      {/* macOS Floating Command Dock khi tick chọn mã */}
+      {tab === "ton" && canCreate && selected.size > 0 && (
+        <div className="kho-dock-overlay">
+          <div className="kho-dock">
+            <div className="kho-dock__badge">
+              <span className="kho-dock__led" />
+              Đã chọn {selected.size} mặt hàng
+            </div>
+
+            <button
+              type="button"
+              className="kho-dock__btn kho-dock__btn--primary"
+              onClick={createPurchaseFromSelected}
+            >
+              <ShoppingCart style={{ width: 15, height: 15 }} />
+              Tạo yêu cầu mua
+            </button>
+
+            {khoOptions.filter((w) => w.id !== khoId).length > 0 && (
+              <button
+                type="button"
+                className="kho-dock__btn kho-dock__btn--secondary"
+                onClick={() => setDcBulkOpen(true)}
+              >
+                <ArrowLeftRight style={{ width: 15, height: 15 }} />
+                Điều chuyển
+              </button>
+            )}
+
+            {selected.size === 1 && (
+              <button
+                type="button"
+                className="kho-dock__btn kho-dock__btn--secondary"
+                onClick={() => {
+                  const selKey = Array.from(selected)[0];
+                  const g = groups.find((item) => item.key === selKey);
+                  if (g) {
+                    printMaterialQr(token, khoId, g.hang_loai, g.hang_id, g.code, g.name);
+                  }
+                }}
+              >
+                <QrCode style={{ width: 15, height: 15 }} />
+                In tem QR
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="kho-dock__btn kho-dock__btn--ghost"
+              onClick={() => setSelected(new Set())}
+            >
+              ✕ Bỏ chọn
+            </button>
+          </div>
+        </div>
+      )}
+
       {dcBulkOpen && (
-        // Điều chuyển HÀNG LOẠT: các mã đã tick → gộp vào MỘT yêu cầu điều chuyển. Trừ tồn nguồn NGAY.
         <DieuChuyenDialog
           token={token}
           khoNguonId={khoId}
@@ -898,6 +1055,7 @@ export function KhoTonKhoPage({
     </main>
   );
 }
+
 
 // In tem QR cho MỘT vật tư ở MỘT kho. Mã QR trỏ TRANG TRA KHO CÔNG KHAI qua token đã KÝ
 // (`#s=<token>`) — quét KHÔNG cần đăng nhập và KHÔNG dò id tuần tự được (services/qr_token).
@@ -970,8 +1128,11 @@ function MaterialRow({
   canSetThreshold: boolean;
   onSetThreshold: (g: MaterialGroup) => void;
 }) {
-  // Ô Min/Max & badge Trạng thái bấm được (chỉ khi có quyền set_threshold) → mở popup đặt ngưỡng.
-  // stopPropagation để KHÔNG kích hoạt onOpen (mở drawer chi tiết) của cả dòng.
+  const cat = getCategory(g);
+  const newest = g.lots.length ? g.lots[g.lots.length - 1].ngay_nhap : null;
+  const viShown = g.viTris.slice(0, 2).join(", ");
+  const viMore = g.viTris.length - 2;
+
   const setThProps = canSetThreshold
     ? {
         className: "kho-ton__setth",
@@ -982,12 +1143,7 @@ function MaterialRow({
         },
       }
     : null;
-  // Bấm dòng → mở popup lịch sử Nhập/Xuất (thay cho bung inline trước đây).
-  // Ngày nhập: CHỈ hiện ngày nhập MỚI NHẤT (lô đã sort cũ→mới ở groups nên lô cuối là mới nhất).
-  const newest = g.lots.length ? g.lots[g.lots.length - 1].ngay_nhap : null;
-  // Vị trí: hiện tối đa 3 vị trí đầu (đã ưu tiên lô mới), dư K → " +K"; title = đủ danh sách.
-  const viShown = g.viTris.slice(0, 3).join(", ");
-  const viMore = g.viTris.length - 3;
+
   return (
     <tr className="rc__row kho-ton__grow" onClick={onOpen}>
       {selectable && (
@@ -1001,30 +1157,71 @@ function MaterialRow({
         </td>
       )}
       <td>
-        <div className="kho-lineimg">
-          {g.anh
-            ? <img className="kho-ton__thumb" src={assetUrl(g.anh) ?? undefined} alt="" loading="lazy" />
-            : <span className="kho-ton__thumb kho-ton__thumb--ph" aria-hidden="true"><BoxIcon/></span>}
+        <div className="kho-lineimg" style={{ alignItems: "center" }}>
+          {g.anh ? (
+            <img className="kho-ton__thumb" src={assetUrl(g.anh) ?? undefined} alt="" loading="lazy" />
+          ) : (
+            <span
+              className="kho-ton__thumb kho-ton__thumb--ph"
+              style={{
+                background:
+                  cat === "giay"
+                    ? "#eff6ff"
+                    : cat === "muc"
+                    ? "#faf5ff"
+                    : cat === "hoa_chat"
+                    ? "#ecfdf5"
+                    : "#f8fafc",
+                color:
+                  cat === "giay"
+                    ? "#2563eb"
+                    : cat === "muc"
+                    ? "#9333ea"
+                    : cat === "hoa_chat"
+                    ? "#059669"
+                    : "#64748b",
+              }}
+              aria-hidden="true"
+            >
+              {cat === "giay" ? (
+                <Layers style={{ width: 16, height: 16 }} />
+              ) : cat === "muc" ? (
+                <Droplets style={{ width: 16, height: 16 }} />
+              ) : cat === "hoa_chat" ? (
+                <FlaskConical style={{ width: 16, height: 16 }} />
+              ) : (
+                <Box style={{ width: 16, height: 16 }} />
+              )}
+            </span>
+          )}
           <div className="kho-lineimg__txt">
-            <div className="rc__name kho-ton__name" title={g.name ?? undefined}>{g.name ?? "—"}</div>
+            <div className="rc__name kho-ton__name" title={g.name ?? undefined}>
+              {g.name ?? "—"}
+            </div>
             {g.code && <div className="rc__muted kho-lines__code">{g.code}</div>}
           </div>
         </div>
       </td>
+
+      {/* Vị trí */}
       <td title={g.viTris.length ? g.viTris.join(", ") : undefined}>
         {g.viTris.length === 0 ? (
           <span className="rc__muted">—</span>
         ) : (
-          <span className="kho-ton__vitri">
+          <span className="kho-badge-loc">
             {viShown}
-            {viMore > 0 ? <span className="kho-ton__vtmore"> +{viMore}</span> : null}
+            {viMore > 0 ? <span style={{ opacity: 0.7, marginLeft: 2 }}>+{viMore}</span> : null}
           </span>
         )}
       </td>
+
+      {/* Hạn sử dụng */}
       <td
         title={
           g.hsdSoonest
-            ? `Hạn sớm nhất: ${fmtDateISO(g.hsdSoonest)}${g.hsdOthers ? ` · +${g.hsdOthers} hạn khác (bung lô để xem đủ)` : ""}`
+            ? `Hạn sớm nhất: ${fmtDateISO(g.hsdSoonest)}${
+                g.hsdOthers ? ` · +${g.hsdOthers} hạn khác` : ""
+              }`
             : undefined
         }
       >
@@ -1037,40 +1234,41 @@ function MaterialRow({
           </span>
         )}
       </td>
+
+      {/* Tồn khả dụng */}
       <td className="kho-num kho-ton__total">
-        {fmtQty(g.total)}
+        <span>{fmtQty(g.total)}</span>
         {g.dvt ? <span className="kho-ton__dvt"> {g.dvt}</span> : null}
       </td>
-      <td className="kho-num kho-ton__lots-n">{g.lots.length}</td>
-      <td
-        {...(setThProps
-          ? { ...setThProps, className: `kho-num ${setThProps.className}` }
-          : { className: "kho-num" })}
-      >
-        {threshold == null ? (
-          <span className="rc__muted">— / —</span>
-        ) : (
-          <>
-            {threshold.nguong_ton != null ? fmtQty(threshold.nguong_ton) : "—"} /{" "}
-            {threshold.nguong_toi_da != null ? fmtQty(threshold.nguong_toi_da) : "—"}
-          </>
-        )}
-      </td>
+
+      {/* Ngưỡng & Trạng Thái (Thanh lịch & Tinh gọn) */}
       <td {...(setThProps ?? {})}>
-        {/* Cột tên là "Trạng thái" → chưa khai ngưỡng hiện chip xám "Chưa khai" (không để trống). */}
         {g.level ? (
-          <StockLevelChip level={g.level} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <StockLevelChip level={g.level} />
+            {threshold && (
+              <span style={{ fontSize: 10.5, color: "var(--ash)", fontVariantNumeric: "tabular-nums" }}>
+                Min {threshold.nguong_ton != null ? fmtQty(threshold.nguong_ton) : "—"} · Max{" "}
+                {threshold.nguong_toi_da != null ? fmtQty(threshold.nguong_toi_da) : "—"}
+              </span>
+            )}
+          </div>
         ) : (
-          <span className="kho-ton__unset">Chưa khai</span>
+          <span className="kho-ton__unset" title="Bấm để khai báo ngưỡng tồn">—</span>
         )}
       </td>
+
+      {/* Ngày nhập mới nhất */}
       <td className="kho-ton__date">
         {newest == null ? <span className="rc__muted">—</span> : fmtDateISO(newest)}
       </td>
+
+      {/* Giá trị tồn */}
       {canViewCost && <td className="kho-num kho-ton__val">{money(Math.round(g.value))}</td>}
     </tr>
   );
 }
+
 
 /** Ô HSD của một lô — dùng chung cho cả tab Nhập và Xuất.
  *
@@ -1250,194 +1448,203 @@ function MaterialHistoryDrawer({
   // lô đã hết) nên tra ngay tại chỗ — không phải gọi thêm API chỉ để hiện hai cột.
   const lotById = useMemo(() => new Map(nhap.map((l) => [l.id, l])), [nhap]);
 
+  const cat = getCategory(material);
+  const catLabel =
+    cat === "giay"
+      ? "📄 GIẤY IN"
+      : cat === "muc"
+      ? "🎨 MỰC IN"
+      : cat === "hoa_chat"
+      ? "🧪 HÓA CHẤT"
+      : "📦 VẬT TƯ IN";
+
   return (
     <>
-    <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
-      <aside className="rc-drawer rc-drawer--mid" onClick={(e) => e.stopPropagation()}>
-        <header className="rc-drawer__head">
-          <div>
-            <div className="rc-drawer__kicker">LỊCH SỬ NHẬP / XUẤT</div>
-            <h2 className="rc-drawer__title">{material.name ?? material.code ?? "—"}</h2>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
-            {material.level && <StockLevelChip level={material.level} />}
-            {/* Chuyển kho: chỉ khi có quyền lập phiếu, có kho đích, và mặt hàng còn tồn. Trừ tồn NGAY. */}
-            {canCreate && khoDich.length > 0 && material.total > 0 && (
+      <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
+        <aside className="rc-drawer rc-drawer--mid rc-drawer--mat-wide" onClick={(e) => e.stopPropagation()}>
+          {/* Drawer Header */}
+          <header className="rc-drawer__head" style={{ borderBottom: "1px solid var(--rule-soft)", paddingBottom: 16 }}>
+            <div>
+              <div className="rc-drawer__kicker" style={{ color: "var(--ash-2)", fontWeight: 600 }}>{catLabel}</div>
+              <h2 className="rc-drawer__title" style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>
+                {material.name ?? material.code ?? "—"}
+              </h2>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {canCreate && khoDich.length > 0 && material.total > 0 && (
+                <button
+                  type="button"
+                  className="kho-action-pill"
+                  onClick={() => setDcOpen(true)}
+                  title="Điều chuyển mặt hàng này sang kho khác"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", background: "var(--paper)", border: "1px solid var(--rule)", borderRadius: 6, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}
+                >
+                  <ArrowLeftRight style={{ width: 14, height: 14 }} /> Chuyển kho
+                </button>
+              )}
               <button
                 type="button"
-                className="rc__link-btn"
-                onClick={() => setDcOpen(true)}
-                title="Điều chuyển mặt hàng này sang kho khác"
+                className={`kho-action-pill${showQr ? " is-active" : ""}`}
+                onClick={() => setShowQr((v) => !v)}
+                aria-pressed={showQr}
+                title="Tem QR vật tư — quét ra tồn & vị trí"
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 12px", background: showQr ? "var(--rust-soft)" : "var(--paper)", color: showQr ? "var(--rust)" : "var(--ink)", border: "1px solid var(--rule)", borderRadius: 6, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}
               >
-                ⇄ Chuyển kho
+                <QrCode style={{ width: 14, height: 14 }} /> {showQr ? "Ẩn QR" : "Tem QR"}
               </button>
-            )}
-            {/* Tem QR của vật tư — hiện ở MỌI tab (Tổng quan · Nhập · Xuất). */}
-            <button
-              type="button"
-              className={`rc__link-btn${showQr ? " is-active" : ""}`}
-              onClick={() => setShowQr((v) => !v)}
-              aria-pressed={showQr}
-              title="Tem QR vật tư — quét ra tồn & vị trí"
-            >
-              {showQr ? "▾ QR" : "▸ QR"}
-            </button>
-            <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
-              ✕
-            </button>
-          </div>
-        </header>
-
-        {showQr && (
-          // Tem QR: quét bằng điện thoại → mở TRANG TRA KHO CÔNG KHAI (tồn · vị trí · lịch sử). In dán kệ.
-          <div className="kho-qr">
-            {qrUrl ? (
-              <div
-                className="kho-qr__img"
-                // qrSvg do chính ta sinh (không chứa dữ liệu người dùng) → an toàn.
-                dangerouslySetInnerHTML={{ __html: qrSvg }}
-              />
-            ) : (
-              <div className="kho-qr__img kho-qr__img--loading">Đang tạo mã…</div>
-            )}
-            <div className="kho-qr__side">
-              <div className="kho-qr__note">
-                Quét để xem tồn, vị trí &amp; lịch sử nhập/xuất của vật tư này (không cần đăng nhập).
-              </div>
-              {qrUrl && <div className="kho-qr__url">{qrUrl}</div>}
-              <button type="button" className="rc__link-btn" onClick={printQr}>
-                🖨 In tem
+              <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
+                ✕
               </button>
             </div>
-          </div>
-        )}
+          </header>
 
-        {(anh || canEditAnh) && (
-          <div className="kho-anh">
-            {anh ? (
-              <button
-                type="button"
-                className="kho-anh__thumb"
-                onClick={() => setZoom(true)}
-                title="Bấm để phóng to"
-              >
-                <img src={assetUrl(anh) ?? undefined} alt={material.name ?? "Ảnh vật tư"} />
-              </button>
-            ) : (
-              <div className="kho-anh__thumb kho-anh__thumb--empty" aria-hidden="true">
-                <Icon name="camera" size={24} />
-              </div>
-            )}
-            {canEditAnh && (
-              <div className="kho-anh__actions">
-                <label className={`rc__link-btn${anhBusy ? " is-disabled" : ""}`}>
-                  {anh ? "Đổi ảnh" : "Thêm ảnh"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    hidden
-                    disabled={anhBusy}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) void pickAnh(f);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
-                {anh && (
-                  <button
-                    type="button"
-                    className="rc__link-btn kho-anh__del"
-                    disabled={anhBusy}
-                    onClick={() => void removeAnh()}
-                  >
-                    Xóa ảnh
+          <div className="rc-drawer__body" style={{ padding: 20 }}>
+            {/* Top Grid: QR Card & Hero Banner */}
+            <div className={showQr ? "drawer-top-grid" : "drawer-hero-only"}>
+              {showQr && (
+                <div className="kho-qr-card">
+                  <div className="kho-qr-card__head">TEM QR VẬT TƯ (IN KỆ KHO)</div>
+                  {qrUrl ? (
+                    <div className="kho-qr-card__svg" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+                  ) : (
+                    <div className="kho-qr-card__loading">Đang tạo mã…</div>
+                  )}
+                  <button type="button" className="kho-qr-card__btn" onClick={printQr}>
+                    🖨 In Tem QR dán kệ
                   </button>
-                )}
-                {anhBusy && <span className="kho-anh__hint">Đang lưu…</span>}
-                {anhErr && <span className="kho-anh__err">{anhErr}</span>}
+                </div>
+              )}
+
+              {/* Hero Banner Hợp Nhất 1 Khối (Avatar + Thông Tin Tồn Kho) */}
+              <div className="drawer-hero-banner-unified">
+                {/* Avatar Ảnh + Thông tin cơ bản */}
+                <div className="hero-banner__avatar-col">
+                  <div className="hero-avatar-wrapper" title={anh ? "Bấm để phóng to ảnh" : undefined}>
+                    {anh ? (
+                      <button
+                        type="button"
+                        className="hero-avatar-btn"
+                        onClick={() => setZoom(true)}
+                      >
+                        <img src={assetUrl(anh) ?? undefined} alt={material.name ?? ""} />
+                      </button>
+                    ) : (
+                      <div className="hero-avatar-ph" aria-hidden="true">
+                        <Icon name="camera" size={22} />
+                      </div>
+                    )}
+                    {canEditAnh && (
+                      <label className="hero-avatar-action-overlay" title="Tải lên / Đổi ảnh vật tư">
+                        <span>{anh ? "Đổi" : "+ Ảnh"}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          hidden
+                          disabled={anhBusy}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) void pickAnh(f);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  <div className="hero-info-txt">
+                    <div className="hero-title-row">
+                      <h3 className="hero-name">{material.name ?? material.code ?? "—"}</h3>
+                      {anh && canEditAnh && (
+                        <button
+                          type="button"
+                          className="hero-del-img-btn"
+                          disabled={anhBusy}
+                          onClick={() => void removeAnh()}
+                          title="Xóa ảnh minh hoạ"
+                        >
+                          Xóa ảnh
+                        </button>
+                      )}
+                    </div>
+                    <div className="hero-sub-code">
+                      {material.code ? `Mã: ${material.code}` : "Mặt hàng kho"}
+                      {anhBusy && <span className="hero-img-busy"> · Đang lưu ảnh…</span>}
+                      {anhErr && <span className="hero-img-err"> · {anhErr}</span>}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Số tồn + Trạng thái LED */}
+                <div className="hero-banner__stock-col">
+                  <div className="hero-stock-main">
+                    <span className="hero-stock-num">{fmtQty(data?.on_hand ?? material.total)}</span>
+                    <span className="hero-stock-dvt">{material.dvt ?? "đvt"}</span>
+                  </div>
+                  <div className="hero-status-row">
+                    <span className={`status-led status-led--${material.level ?? "unset"}`} />
+                    {material.level ? (
+                      <StockLevelChip level={material.level} />
+                    ) : (
+                      <span className="badge-sem badge-sem--muted">Chưa khai ngưỡng</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Bảng so sánh giá Nhà Cung Cấp */}
+            {soGia.length > 0 && (
+              <div className="supplier-price-card">
+                <div className="supplier-price-card__head">BÁO GIÁ NHÀ CUNG CẤP QUY ĐỔI</div>
+                <table className="rc__table supplier-price-table">
+                  <thead>
+                    <tr>
+                      <th>Nhà cung cấp</th>
+                      <th>Báo giá nguyên bản</th>
+                      <th className="kho-num">Quy đổi ({material.dvt ?? "gốc"})</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {soGia.map((s, i) => {
+                      const isCheapest = i === 0 && s.gia_quy_doi != null && soGia.length > 1;
+                      return (
+                        <tr key={s.supplier_item_id} className={isCheapest ? "is-best-price" : ""}>
+                          <td>
+                            <b>{s.supplier_name}</b>
+                            {isCheapest && <span className="supplier-best-badge">🏆 Rẻ nhất</span>}
+                          </td>
+                          <td className="rc__muted">{s.unit_price.toLocaleString("vi-VN")} đ/{s.unit_ten ?? s.unit}</td>
+                          <td className="kho-num">
+                            {s.gia_quy_doi != null ? <b>{money(Math.round(s.gia_quy_doi))}</b> : <span className="rc__muted">—</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
-          </div>
-        )}
 
-        <div className="kho-meta">
-          {material.code ? `${material.code} · ` : ""}
-          Tồn khả dụng: <b>{fmtQty(data?.on_hand ?? material.total)}</b>
-          {material.dvt ? ` ${material.dvt}` : ""}
-        </div>
+            {/* Sticky Tabs Bar */}
+            <div className="drawer-sticky-tabs" style={{ margin: "20px 0 16px 0", borderBottom: "1px solid var(--rule-soft)" }}>
+              {(
+                [
+                  ["tong_quan", "Tổng quan"],
+                  ["nhap", `Lịch sử nhập (${nhap.length})`],
+                  ["xuat", `Lịch sử xuất (${xuat.length})`],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`drawer-tab-btn${tab === id ? " is-active" : ""}`}
+                  onClick={() => setTab(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
-        {/* NCC bán mặt hàng này — giá đã quy về ĐƠN VỊ GỐC nên so ngang được, rẻ nhất đứng đầu.
-            "1.020.000 đ/ram" và "24.500 đ/kg" nhìn thẳng thì không so nổi. */}
-        {soGia.length > 0 && (
-          <div className="kho-meta" style={{ paddingTop: 0 }}>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>NCC bán mặt hàng này</div>
-            <table className="rc__table rc__table--tight">
-              <thead>
-                <tr>
-                  <th>Nhà cung cấp</th>
-                  <th>Giá NCC báo</th>
-                  <th style={{ textAlign: "right" }}>
-                    Quy về {material.dvt ?? "đơn vị gốc"}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {soGia.map((s, i) => (
-                  <tr key={s.supplier_item_id}>
-                    <td>
-                      {s.supplier_name}
-                      {/* Chỉ gắn nhãn khi CÓ ít nhất 2 giá so được — một mình một chợ mà gọi
-                          "rẻ nhất" là gợi ý sai. */}
-                      {i === 0 && s.gia_quy_doi != null && soGia.length > 1 && (
-                        <span className="badge-sem badge-sem--moss" style={{ marginLeft: 6 }}>
-                          rẻ nhất
-                        </span>
-                      )}
-                    </td>
-                    <td className="rc__muted">
-                      {s.unit_price.toLocaleString("vi-VN")} đ/{s.unit_ten ?? s.unit}
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      {s.gia_quy_doi != null ? (
-                        <b>{s.gia_quy_doi.toLocaleString("vi-VN")} đ</b>
-                      ) : (
-                        <span className="rc__muted" title={s.ly_do ?? ""}>
-                          — chưa quy đổi được
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Tab Nhập / Xuất — theo dõi nhập và xuất RIÊNG (spec màn Tồn kho). */}
-        <div
-          className="kho-shell__fns"
-          style={{ padding: "0 var(--sp-5)", borderBottom: "1px solid var(--rule-hair)" }}
-        >
-          {(
-            [
-              ["tong_quan", "Tổng quan"],
-              ["nhap", `Nhập (${nhap.length})`],
-              ["xuat", `Xuất (${xuat.length})`],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className={`kho-shell__fn${tab === id ? " is-active" : ""}`}
-              onClick={() => setTab(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <div className="rc-drawer__body">
           {error && (
             <div className="banner banner--error" role="alert">
               <span>{error}</span>
@@ -1826,15 +2033,15 @@ function MaterialOverview({
   const totalXuat = (data?.xuat ?? []).reduce((s, r) => s + r.so_luong, 0);
   const loHetHang = lots.filter((l) => l.sl_con_lai <= 0).length;
 
-  // Biểu đồ cột nhập/xuất theo tháng (12 tháng gần nhất) — SVG thuần.
+  // Biểu đồ cột nhập/xuất 12 tháng gần nhất (Recharts Composed Chart + Area Gradient)
   const monthlyChart = useMemo(() => {
-    const buckets = new Map<string, { nhap: number; xuat: number }>();
-    // Tạo 12 bucket tháng gần nhất.
+    const buckets = new Map<string, { monthLabel: string; nhap: number; xuat: number }>();
     const now = new Date();
     for (let i = 11; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      buckets.set(key, { nhap: 0, xuat: 0 });
+      const monthLabel = `T${String(d.getMonth() + 1).padStart(2, "0")}`;
+      buckets.set(key, { monthLabel, nhap: 0, xuat: 0 });
     }
     for (const l of data?.nhap ?? []) {
       const key = l.ngay_nhap.slice(0, 7);
@@ -1846,39 +2053,24 @@ function MaterialOverview({
       const b = buckets.get(key);
       if (b) b.xuat += r.so_luong;
     }
-    return [...buckets.entries()].map(([key, v]) => ({ key, ...v }));
+    return [...buckets.values()];
   }, [data]);
 
-  const maxBar = Math.max(...monthlyChart.flatMap((m) => [m.nhap, m.xuat]), 1);
-
-  // Chiều cao SVG
-  const SVG_H = 80;
-  const SVG_W = 360;
-  const BAR_W = 10;
-  const GAP = 4;
-  const SLOT = BAR_W * 2 + GAP + 4;
-  const totalSlots = monthlyChart.length;
-  const chartW = totalSlots * SLOT;
-  const offsetX = (SVG_W - chartW) / 2;
+  // Tìm tháng cao điểm nhất
+  const peakMonth = useMemo(() => {
+    let best = { monthLabel: "", val: 0, type: "nhập" };
+    for (const m of monthlyChart) {
+      if (m.nhap > best.val) best = { monthLabel: m.monthLabel, val: m.nhap, type: "nhập" };
+      if (m.xuat > best.val) best = { monthLabel: m.monthLabel, val: m.xuat, type: "xuất" };
+    }
+    return best.val > 0 ? best : null;
+  }, [monthlyChart]);
 
   return (
     <div className="kho-ov">
-      {/* Hero số tồn + mức */}
-      <div className="kho-ov__hero">
-        <div className="kho-ov__big">
-          {fmtQty(onHand)}
-          {dvt ? <span className="kho-ov__dvt"> {dvt}</span> : null}
-        </div>
-        {level ? (
-          <StockLevelChip level={level} />
-        ) : (
-          <span className="badge-sem badge-sem--muted">Chưa khai</span>
-        )}
-      </div>
-
-      {/* Gauge ngưỡng */}
+      {/* Gauge ngưỡng tồn */}
       {hasThreshold ? (
-        <div className="kho-gauge" aria-hidden="true">
+        <div className="kho-gauge" aria-hidden="true" style={{ marginBottom: 16 }}>
           <div className="kho-gauge__track">
             {minPct != null && maxPct != null && (
               <span
@@ -1899,143 +2091,128 @@ function MaterialOverview({
           </div>
         </div>
       ) : (
-        <p className="kho-hint">Chưa khai ngưỡng cho vật tư này.</p>
+        <p className="kho-hint" style={{ marginBottom: 16 }}>Chưa khai ngưỡng cho vật tư này.</p>
       )}
 
-      {/* Biểu đồ cột nhập/xuất 12 tháng */}
+      {/* Biểu đồ Recharts Composed Area-Bar Chart */}
       {data != null && (totalNhap > 0 || totalXuat > 0) && (
-        <div className="kho-ov__chart-wrap">
-          <div className="kho-ov__chart-title">
-            Nhập / Xuất 12 tháng gần nhất
+        <div className="recharts-overview-box">
+          <div className="recharts-overview-box__head">
+            <div className="recharts-overview-box__title">
+              BIỂU ĐỒ NHẬP / XUẤT 12 THÁNG GẦN NHẤT
+            </div>
+            <div className="recharts-pills-row">
+              <span className="pill-stat pill-stat--nhap">🟢 Nhập: {fmtQty(totalNhap)} {dvt ?? ""}</span>
+              <span className="pill-stat pill-stat--xuat">🔴 Xuất: {fmtQty(totalXuat)} {dvt ?? ""}</span>
+              {peakMonth && (
+                <span className="pill-stat pill-stat--peak">
+                  💡 Cao nhất: {peakMonth.monthLabel} ({fmtQty(peakMonth.val)} {dvt ?? ""})
+                </span>
+              )}
+            </div>
           </div>
-          <div className="kho-ov__chart-legend">
-            <span className="kho-ov__legend-dot kho-ov__legend-dot--nhap" /> Nhập
-            <span className="kho-ov__legend-dot kho-ov__legend-dot--xuat" style={{ marginLeft: 10 }} /> Xuất
+
+          <div style={{ width: "100%", height: 210 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={monthlyChart} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="nhapGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.5} />
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.05} />
+                  </linearGradient>
+                  <linearGradient id="xuatGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#c5400a" stopOpacity={0.9} />
+                    <stop offset="95%" stopColor="#c5400a" stopOpacity={0.3} />
+                  </linearGradient>
+                </defs>
+
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                <XAxis dataKey="monthLabel" tickLine={false} axisLine={{ stroke: "#cbd5e1" }} tick={{ fontSize: 11, fill: "var(--ash)" }} />
+                <YAxis tickLine={false} axisLine={false} tickFormatter={(v) => fmtQty(v)} tick={{ fontSize: 11, fill: "var(--ash)" }} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="custom-recharts-tooltip">
+                          <div className="custom-recharts-tooltip__title">Tháng {label}</div>
+                          {payload.map((entry, idx) => (
+                            <div key={idx} className="custom-recharts-tooltip__row" style={{ color: entry.name === "nhap" ? "#22c55e" : "#c5400a" }}>
+                              <span>{entry.name === "nhap" ? "Nhập kho:" : "Xuất kho:"}</span>
+                              <b>{fmtQty(Number(entry.value))} {dvt ?? ""}</b>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                <Area type="monotone" dataKey="nhap" name="nhap" fill="url(#nhapGrad)" stroke="#22c55e" strokeWidth={2.5} />
+                <Bar dataKey="xuat" name="xuat" fill="url(#xuatGrad)" stroke="#c5400a" radius={[4, 4, 0, 0]} barSize={14} />
+              </ComposedChart>
+            </ResponsiveContainer>
           </div>
-          <svg
-            viewBox={`0 0 ${SVG_W} ${SVG_H + 18}`}
-            width="100%"
-            aria-label="Biểu đồ nhập xuất 12 tháng"
-            style={{ overflow: "visible" }}
-          >
-            {/* Grid lines */}
-            {[0, 0.5, 1].map((f) => (
-              <line
-                key={f}
-                x1={0} y1={SVG_H * (1 - f)}
-                x2={SVG_W} y2={SVG_H * (1 - f)}
-                stroke="var(--rule-hair)"
-                strokeWidth={1}
-              />
-            ))}
-            {monthlyChart.map((m, i) => {
-              const x = offsetX + i * SLOT;
-              const nhapH = (m.nhap / maxBar) * SVG_H;
-              const xuatH = (m.xuat / maxBar) * SVG_H;
-              const label = m.key.slice(5); // "MM"
-              return (
-                <g key={m.key}>
-                  {/* Cột Nhập — xanh rêu */}
-                  {nhapH > 0 && (
-                    <rect
-                      x={x}
-                      y={SVG_H - nhapH}
-                      width={BAR_W}
-                      height={nhapH}
-                      fill="var(--moss)"
-                      rx={2}
-                      opacity={0.85}
-                    >
-                      <title>Nhập {fmtQty(m.nhap)} ({m.key})</title>
-                    </rect>
-                  )}
-                  {/* Cột Xuất — rust */}
-                  {xuatH > 0 && (
-                    <rect
-                      x={x + BAR_W + 2}
-                      y={SVG_H - xuatH}
-                      width={BAR_W}
-                      height={xuatH}
-                      fill="var(--rust)"
-                      rx={2}
-                      opacity={0.75}
-                    >
-                      <title>Xuất {fmtQty(m.xuat)} ({m.key})</title>
-                    </rect>
-                  )}
-                  {/* Nhãn tháng */}
-                  <text
-                    x={x + BAR_W}
-                    y={SVG_H + 14}
-                    textAnchor="middle"
-                    fontSize={9}
-                    fill="var(--ash)"
-                    fontFamily="var(--ff-sans)"
-                  >
-                    {label}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
         </div>
       )}
 
-      {/* Lưới chỉ số */}
-      <dl className="kho-ov__grid">
-        <div className="kho-ov__cell">
-          <dt>Số đợt nhập</dt>
-          <dd>{fmtQty(lots.length)}</dd>
-        </div>
-        <div className="kho-ov__cell">
-          <dt>Ngày nhập gần nhất</dt>
-          <dd>{newest ? fmtDateISO(newest) : "—"}</dd>
-        </div>
-        <div className="kho-ov__cell">
-          <dt>Tổng đã nhập</dt>
-          <dd>{fmtQty(totalNhap)}{dvt ? ` ${dvt}` : ""}</dd>
-        </div>
-        <div className="kho-ov__cell">
-          <dt>Tổng đã xuất</dt>
-          <dd>{fmtQty(totalXuat)}{dvt ? ` ${dvt}` : ""}</dd>
-        </div>
-        <div className="kho-ov__cell">
-          <dt>Ngưỡng</dt>
-          <dd>
-            {hasThreshold
-              ? `Min ${min != null ? fmtQty(min) : "—"} / Max ${max != null ? fmtQty(max) : "—"}`
-              : "Chưa khai ngưỡng"}
-          </dd>
-        </div>
-        {loHetHang > 0 && (
-          <div className="kho-ov__cell">
-            <dt>Lô đã hết hàng</dt>
-            <dd style={{ color: "var(--ash)" }}>{loHetHang} lô</dd>
+      {/* Rich Data Summary Panel (Gắn 2 Khối Đa Cột Giàu Thông Tin) */}
+      <div className="drawer-rich-panel">
+        {/* Box 1: Chỉ số vận hành & Chu kỳ kho */}
+        <div className="rich-panel-box">
+          <div className="rich-panel-box__title">CHỈ SỐ VẬN HÀNH KHO</div>
+          <div className="rich-data-grid">
+            <div className="rich-data-item">
+              <span className="rich-data-item__label">Tổng số lô tồn</span>
+              <span className="rich-data-item__val">{lots.length} lô</span>
+            </div>
+            <div className="rich-data-item">
+              <span className="rich-data-item__label">Ngày nhập gần nhất</span>
+              <span className="rich-data-item__val">{newest ? fmtDateISO(newest) : "—"}</span>
+            </div>
+            <div className="rich-data-item">
+              <span className="rich-data-item__label">HSD gần nhất</span>
+              <span className="rich-data-item__val">{hsdSoonest ? fmtDateISO(hsdSoonest) : "Không khai"}</span>
+            </div>
+            <div className="rich-data-item">
+              <span className="rich-data-item__label">Tổng đã nhập (toàn thời gian)</span>
+              <span className="rich-data-item__val">{fmtQty(totalNhap)} {dvt ?? ""}</span>
+            </div>
+            <div className="rich-data-item">
+              <span className="rich-data-item__label">Tổng đã xuất (toàn thời gian)</span>
+              <span className="rich-data-item__val">{fmtQty(totalXuat)} {dvt ?? ""}</span>
+            </div>
+            <div className="rich-data-item">
+              <span className="rich-data-item__label">Vị trí cất kho</span>
+              <span className="rich-data-item__val">{viTris.length ? viTris.join(", ") : "Chưa gắn"}</span>
+            </div>
           </div>
-        )}
-        <div className="kho-ov__cell kho-ov__cell--wide">
-          <dt>Vị trí</dt>
-          <dd>{viTris.length ? viTris.join(", ") : "—"}</dd>
         </div>
+
+        {/* Box 2: Giá vốn & Tài chính tồn kho */}
         {canViewCost && (
-          <>
-            <div className="kho-ov__cell">
-              <dt>Giá trị tồn</dt>
-              <dd>{money(Math.round(value))}</dd>
+          <div className="rich-panel-box">
+            <div className="rich-panel-box__title">TÀI CHÍNH & GIÁ VỐN TỒN KHO</div>
+            <div className="rich-data-grid">
+              <div className="rich-data-item">
+                <span className="rich-data-item__label">Tổng giá trị tồn kho</span>
+                <span className="rich-data-item__val rich-data-item__val--primary">{money(Math.round(value))}</span>
+              </div>
+              <div className="rich-data-item">
+                <span className="rich-data-item__label">Giá vốn bình quân</span>
+                <span className="rich-data-item__val">{onHand > 0 ? `${money(Math.round(avgCost))}/${dvt ?? "đvt"}` : "—"}</span>
+              </div>
+              <div className="rich-data-item">
+                <span className="rich-data-item__label">Giá trị trung bình 1 lô</span>
+                <span className="rich-data-item__val">{lots.length > 0 ? money(Math.round(value / lots.length)) : "—"}</span>
+              </div>
+              <div className="rich-data-item">
+                <span className="rich-data-item__label">Số lô đã xuất hết</span>
+                <span className="rich-data-item__val">{loHetHang} lô</span>
+              </div>
             </div>
-            <div className="kho-ov__cell">
-              <dt>Giá vốn bình quân</dt>
-              <dd>{onHand > 0 ? `${money(Math.round(avgCost))}${dvt ? ` /${dvt}` : ""}` : "—"}</dd>
-            </div>
-          </>
-        )}
-        {hsdSoonest && (
-          <div className="kho-ov__cell">
-            <dt>HSD gần nhất</dt>
-            <dd>{fmtDateISO(hsdSoonest)}</dd>
           </div>
         )}
-      </dl>
+      </div>
     </div>
   );
 }
@@ -2201,23 +2378,6 @@ function DrawerPager({
   );
 }
 
-const SearchIcon = () => (
-  <svg
-    width="15"
-    height="15"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className="rc__search-icon"
-  >
-    <circle cx="11" cy="11" r="8" />
-    <path d="m21 21-4.3-4.3" />
-  </svg>
-);
-
 const BoxIcon = () => (
   <svg
     width="48"
@@ -2234,3 +2394,4 @@ const BoxIcon = () => (
     <path d="M3 8.6 12 13m0 0 9-4.4M12 13v7" />
   </svg>
 );
+

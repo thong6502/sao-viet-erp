@@ -15,8 +15,8 @@
 // Cố ý là một CÔNG TẮC GOM-THEO chứ không phải hai tab (và càng không phải hai màn): dữ liệu y
 // hệt, chỉ khác trục gom. Tách thành hai mục menu thì người dùng phải nhớ "việc này nằm ở màn
 // nào", trong khi đây là cùng một việc nhìn từ hai phía.
-import { useEffect, useState } from "react";
-import { ApiError, api } from "../api/client";
+import { useCallback, useEffect, useState } from "react";
+import { ApiError, api, type DeNghiMuaXemTruoc } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Icon } from "../components/Icons";
 import { GiuChoTheoLenhView } from "./GiuChoTheoLenhView";
@@ -57,6 +57,34 @@ export function KeHoachVatTuPage({
   useEffect(() => {
     if (focusLsxMa) setGom("lenh");
   }, [focusLsxMa]);
+
+  // "Đề nghị mua ngay" KHÔNG tự đẻ phiếu nữa (20/08/2026, theo yêu cầu chủ): nó mở form "Tạo yêu
+  // cầu mua hàng" ở màn Yêu cầu mua hàng, ĐÃ điền sẵn ngày cần · nội dung · từng dòng vật tư.
+  //
+  // Đi bằng đường seed có sẵn (`purchaseSeed*`, thứ màn Kho đang dùng) chứ không dựng form mua thứ
+  // hai ngay trên bảng cân đối: hai form cùng một việc thì đúng một tháng nữa chúng lệch nhau, mà
+  // chỗ lệch luôn rơi vào ô ít ai bấm nhất.
+  const moFormMua = useCallback(
+    (nhap: DeNghiMuaXemTruoc) => {
+      navigate?.("yeu-cau-mua-hang", {
+        purchaseSeedLines: nhap.lines.map((d) => ({
+          hang_loai: d.hang_loai,
+          hang_id: d.hang_id,
+          item_name: d.item_name,
+          unit: d.unit,
+          quantity: d.quantity,
+        })),
+        purchaseSeedPurpose: nhap.noi_dung,
+        purchaseSeedHeader: {
+          source_type: "san_xuat",
+          needed_date: nhap.needed_date,
+          related_document_type: nhap.related_document_type,
+          related_document_code: nhap.related_document_code,
+        },
+      });
+    },
+    [navigate],
+  );
 
   useEffect(() => {
     if (!token) return;
@@ -173,6 +201,7 @@ export function KeHoachVatTuPage({
           canDeNghiMua={canDeNghiMua !== false}
           onSoDo={setSoDo}
           onOpenLsx={navigate ? (id) => navigate("ke-hoach-sx", { openLsxId: id }) : undefined}
+          onMoFormMua={navigate ? moFormMua : undefined}
         />
       ) : (
         <GiuChoTheoLenhView
@@ -181,6 +210,7 @@ export function KeHoachVatTuPage({
           onSoGiuLau={setSoGiuLau}
           focusLsxMa={focusLsxMa}
           onOpenLsx={navigate ? (id) => navigate("ke-hoach-sx", { openLsxId: id }) : undefined}
+          onMoFormMua={navigate ? moFormMua : undefined}
         />
       )}
     </main>

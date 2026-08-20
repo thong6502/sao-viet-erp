@@ -1,129 +1,132 @@
-"""Gợi ý cho một dòng — LỚP MỎNG trên engine cũ + luật thời gian thuần.
+"""Gợi ý cho một dòng — CÙNG bộ óc với tự-xếp (`auto`), chỉ khác là không ghi gì.
 
-Hai việc:
-- `goi_y`     : mượn danh sách máy cùng nhóm công đoạn engine cũ đã dựng, để người xếp có chỗ bấm
-  chọn. v2 KHÔNG xếp hạng/loại máy theo khổ · số màu · định lượng (spec §6): máy hợp hay không do
-  con người tự cân.
-- `goi_y_khe` : chấm tối đa ba KHE TRỐNG sớm nhất để xếp (B8) — người bấm một phát là xong thay vì
-  tự dò tay. Chỉ dò theo GIỜ (trùng máy · đè khoá · vượt quân số · trong ca · tiền nhiệm · ngày vật
-  tư), đúng bộ luật `constraint`, không thêm bất kỳ phán đoán năng-lực máy nào.
+Trước đây hai khối gợi ý trên màn chạy hai đường riêng và nói hai giờ khác nhau: "gợi ý máy" chỉ
+soi khe trống theo mô hình cũ, còn "gợi ý khe" mới chạy đủ luật. Nay CẢ HAI gọi chung
+`auto.san_thoi_gian` (một sàn duy nhất) và `auto.ung_vien_may` (chấm từng máy bằng đúng
+`_van_de_dat_lich` mà nút Lưu dùng) — máy/khe đã đề xuất thì bấm vào là lưu được, không bao giờ đề
+xuất xong lại bị chính hệ chặn.
+
+- `goi_y`     : top-3 MÁY, sắp bằng đúng chính sách của tự-xếp (giờ xong → công canh máy → tải máy),
+  mỗi máy kèm một câu vì-sao. v2 vẫn KHÔNG phán máy hợp khổ · số màu · định lượng (spec §6).
+- `goi_y_khe` : ≤3 KHE sớm nhất trên máy đang chọn, mỗi khe kèm NHÃN NGÀY thật (chủ nhật · ngày lễ ·
+  ca đêm) thay vì gắn đại chữ "lý tưởng" cho một chỗ không ai đi làm.
 """
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
 
-from ...models.bai_ghep_cong_doan import BaiGhepCongDoan
-from ...models.lsx import LB_THUE_NGOAI
-from ...models.xep_lich import NGUON_LSX
-from ..lsx_service import thoi_luong_buoc
 from ..xep_lich_service import _aware, _naive
+from . import auto
 from . import constraint as C
+
+_THU = ("Thứ hai", "Thứ ba", "Thứ tư", "Thứ năm", "Thứ sáu", "Thứ bảy", "Chủ nhật")
 
 
 def goi_y(service, *, dong_id: int) -> dict:
-    """Gợi ý MÁY cho dòng `dong_id` — TỰ tính trên luật v2, KHÔNG mượn `_top_may` engine cũ.
+    """Gợi ý MÁY cho dòng `dong_id` — chấm bằng đúng luật đặt lịch, sắp bằng đúng chính sách tự-xếp.
 
-    Khác engine cũ ở hai điểm cốt lõi (spec §6, §12.8):
-    - GIỜ XONG tính LIÊN TỤC (`finish = khe + chiếm-máy`), không đi bộ qua ca.
-    - KHÔNG cờ `khong_hop_kho`: v2 không kết luận máy hợp khổ/màu/định lượng — "máy đề xuất, người quyết".
-
-    Thuê ngoài đi theo ngày gửi/nhận, không chiếm máy ⇒ không gợi ý máy (danh sách rỗng). Giữ nguyên
-    hình dạng `{may_id, khe_trong, finish_neu_xep, han_lui, goi_y_may}`; ba mốc bám-máy để None (UI v2
-    chỉ đọc `goi_y_may`).
+    Giữ nguyên hình dạng `{may_id, khe_trong, finish_neu_xep, han_lui, goi_y_may}` cho tương thích;
+    ba mốc bám-máy để None (UI v2 chỉ đọc `goi_y_may`). Thuê ngoài đi theo ngày gửi/nhận, không
+    chiếm máy ⇒ danh sách rỗng.
     """
-    core = service.core
-    dong = core._get_dong(dong_id)
+    with service.ctx.dong_bang():                                # thuần đọc — xem `auto.ung_vien_may`
+        return _goi_y(service, dong_id=dong_id)
+
+
+def _goi_y(service, *, dong_id: int) -> dict:
+    dong = service.core._get_dong(dong_id)
+    rong = {"may_id": dong.may_id, "khe_trong": None, "finish_neu_xep": None,
+            "han_lui": None, "goi_y_may": []}
     if service._la_thue_ngoai(dong):
-        return {"may_id": dong.may_id, "khe_trong": None, "finish_neu_xep": None,
-                "han_lui": None, "goi_y_may": []}
-    som = core._boi_canh_chuoi(dong)[0]          # sàn thời gian (now / bàn giao)
-    for f in service.ctx.tien_nhiem_finish(dong):  # + mọi bước tiền nhiệm đã xếp phải xong trước
-        fa = _aware(f)
-        if fa is not None and (som is None or fa > som):
-            som = fa
+        return rong
+    shadow0 = service._shadow(dong, {})
+    san = auto.san_thoi_gian(service, dong, shadow0)
+    ca = service.ctx.ca_windows()
+    ung_vien = auto.ung_vien_may(service, dong, san=san, chan_ngay=auto.CHAN_NGAY_MAC_DINH, ca=ca)
+    if not ung_vien:
+        return rong
+    # Sắp bằng ĐÚNG chính sách tự-xếp: bốc dần máy tốt nhất còn lại nên thứ tự hiện ra khớp hệt thứ
+    # tự máy sẽ tự chọn — người xem không phải đoán "sao nó xếp máy khác cái nó gợi ý".
+    con = list(ung_vien)
+    xep: list[dict] = []
+    while con and len(xep) < 3:
+        chon = auto.chon_may(con, nhanh_nhat=False)
+        chon["ly_do"] = auto.ly_do_chon(chon, ung_vien, nhanh_nhat=False)
+        xep.append(chon)
+        con = [u for u in con if u["may_id"] != chon["may_id"]]
     return {
-        "may_id": dong.may_id,
-        "khe_trong": None,
-        "finish_neu_xep": None,
-        "han_lui": None,
-        "goi_y_may": _top_may_v2(service, dong, som=som, exclude_id=dong_id),
+        **rong,
+        "goi_y_may": [{
+            "may_id": u["may_id"],
+            "may_ten": u["may_ten"],
+            "khe_trong": _naive(u["start"]),
+            "finish": _naive(u["finish"]),
+            "chiem_may_phut": u["chiem_may_phut"],
+            "chiem_may_phut_min": u["chiem_may_phut_min"],
+            "chiem_may_phut_max": u["chiem_may_phut_max"],
+            "cung_gom": u["cung_gom"],
+            "nhan_ngay": _nhan_ngay(service, u["start"], ca),
+            "canh_bao": u["canh_bao"],
+            "ly_do": u["ly_do"],
+        } for u in xep],
     }
 
 
-def _top_may_v2(service, dong, *, som: datetime, exclude_id: int, top: int = 3) -> list[dict]:
-    """Top máy làm được công đoạn, sắp theo GIỜ XONG (liên tục) tăng dần.
-
-    Thời lượng tính LẠI theo TỪNG máy (`thoi_luong_buoc`): tốc độ/chuẩn bị là thuộc tính của MÁY nên
-    cùng bước trên hai máy ra hai con số. Khe trống mượn `core._khe_trong` (né việc đã xếp + vùng khoá),
-    còn giờ xong theo mô hình v2 chạy liên tục. Tiêu chí PHỤ `cung_gom` (việc liền trước cùng giấy/khổ/
-    bộ mực) chỉ phá hoà khi giờ xong bằng nhau.
-    """
-    core = service.core
-    lcd = (
-        core._lcd(dong.lsx_cong_doan_id) if dong.nguon == NGUON_LSX
-        else service.db.get(BaiGhepCongDoan, dong.bai_ghep_cong_doan_id)
-        if dong.bai_ghep_cong_doan_id else None
-    )
-    if lcd is None:
-        return []
-    lsx = core.lsx_repo.get(dong.lsx_id) if dong.lsx_id else None
-    gom = core._gom_key(lsx)
-    ra: list[dict] = []
-    for may in core._may_lam_duoc(dong):
-        chiem = thoi_luong_buoc(lcd, may, core._sl_tinh(lcd, may))["chiem_may_phut"]
-        if chiem <= 0:
-            continue                          # máy chưa khai tốc độ → không hứa được giờ xong nào
-        khe = core._khe_trong(may.id, som, chiem, exclude_id=exclude_id)
-        if khe is None:
-            continue
-        ra.append({
-            "may_id": may.id,
-            "may_ten": may.ten,
-            "khe_trong": _naive(khe),
-            "finish": _naive(C.finish_lien_tuc(khe, chiem)),
-            "chiem_may_phut": round(chiem, 2),
-            "cung_gom": core._lien_ke_cung_gom(may.id, khe, gom, exclude_id=exclude_id),
-        })
-    ra.sort(key=lambda d: (d["finish"], not d["cung_gom"]))
-    return ra[:top]
-
-
 def goi_y_khe(service, *, dong_id: int, tu, den, toi_da: int = 3) -> dict:
-    """Chấm tối đa `toi_da` khe trống SỚM NHẤT để xếp dòng `dong_id` trong cửa sổ [tu, den] (B8).
+    """≤ `toi_da` KHE sớm nhất để xếp dòng `dong_id`, cửa sổ [tu, den] chỉ là TRẦN nhìn.
 
-    Đã bắt đầu là chạy LIÊN TỤC trên máy cố định (`finish = start + chiếm-máy`) nên khe bắt đầu sớm
-    nhất cũng là khe KẾT THÚC sớm nhất — chỉ cần rà các mốc "mở" (đầu ca + ngay sau việc/khoá đã
-    chiếm máy + tiền nhiệm vừa xong + ngày vật tư về) theo thứ tự tăng dần, nhận khe đầu tiên không
-    vướng luật CHẶN ĐẶT LỊCH, tới khi đủ `toi_da`.
+    Sàn thời gian vẫn là sàn thật (`auto.san_thoi_gian`) chứ không phải mép trái cửa sổ đang xem —
+    kéo Gantt về tuần trước không được phép đẻ ra một khe nằm trong quá khứ.
 
-    Chưa chọn máy / chưa tính được thời lượng ⇒ trả rỗng kèm ghi chú (không đoán bừa một khe).
+    Đã bắt đầu là chạy LIÊN TỤC trên máy cố định nên khe bắt đầu sớm nhất cũng là khe kết thúc sớm
+    nhất — duyệt mốc tăng dần, nhận cái đầu tiên không vướng luật CHẶN, tới khi đủ `toi_da`.
     """
+    with service.ctx.dong_bang():                                # thuần đọc — xem `auto.ung_vien_may`
+        return _goi_y_khe(service, dong_id=dong_id, tu=tu, den=den, toi_da=toi_da)
+
+
+def _goi_y_khe(service, *, dong_id: int, tu, den, toi_da: int = 3) -> dict:
     dong = service.core._get_dong(dong_id)
     if service._la_thue_ngoai(dong):
         return {"khe": [], "ghi_chu": "Bước thuê ngoài đi theo ngày gửi/nhận, không xếp khe máy."}
-    if not dong.may_id:
-        return {"khe": [], "ghi_chu": "Chọn máy trước rồi hệ mới gợi ý được khe trống."}
+    if not dong.may_id and getattr(dong, "department_id", None) is None:
+        return {"khe": [], "ghi_chu": "Chọn máy hoặc tổ trước rồi hệ mới gợi ý được khe."}
     shadow = service._shadow(dong, {})
     dur = service._thoi_luong_v2(shadow)
     chiem = int(dur.get("chiem_may_phut") or 0)
     if dur.get("canh_bao") or chiem <= 0:
-        return {"khe": [], "ghi_chu": "Máy chưa khai tốc độ hoặc đơn vị bước chưa quy đổi — "
-                                      "bổ sung rồi hệ mới gợi ý được khe."}
+        return {"khe": [], "ghi_chu": auto._LY_DO_THIEU.get(dur.get("canh_bao"))
+                or "Chưa tính được thời lượng bước — bổ sung dữ liệu rồi hệ mới gợi ý được khe."}
+    chiem_max = int(dur.get("chiem_may_phut_max") or chiem)
     ca = service.ctx.ca_windows()
+    san = auto.san_thoi_gian(service, dong, shadow)
+    tran = datetime.combine(den, time.min, tzinfo=timezone.utc) + timedelta(days=1)
+    if san >= tran:
+        return {"khe": [], "ghi_chu": "Sớm nhất bước này chạy được là "
+                                      f"{_naive(san):%d/%m %H:%M} — ngoài khoảng đang xem."}
+    chan_ngay = max(1, (tran.date() - san.date()).days)
     khe: list[dict] = []
-    for start in _moc_ung_vien(service, dong, shadow, tu, den, ca):
+    for start in auto._moc_ung_vien(service, dong, shadow, san=san, chan_ngay=chan_ngay, ca=ca):
+        if start >= tran:
+            break
         finish = C.finish_lien_tuc(start, chiem)
         vd = service._van_de_dat_lich(
-            shadow, start=start, finish=finish, may_id=shadow.may_id,
-            department_id=shadow.department_id, canh_bao=None, exclude_id=dong.id,
+            shadow, start=start, finish=finish,
+            finish_max=C.finish_lien_tuc(start, chiem_max),
+            may_id=shadow.may_id, department_id=shadow.department_id,
+            canh_bao=None, exclude_id=dong.id,
         )
         if any(i["muc"] == C.MUC_CHAN_DAT_LICH for i in vd):
             continue
+        canh_bao = [i for i in vd if i["muc"] == C.MUC_CANH_BAO]
         khe.append({
             "start_at": _naive(start),
             "finish_at": _naive(finish),
             "chiem_may_phut": chiem,
-            "canh_bao": [i for i in vd if i["muc"] == C.MUC_CANH_BAO],
+            "chiem_may_phut_min": int(dur.get("chiem_may_phut_min") or chiem),
+            "chiem_may_phut_max": chiem_max,
+            "nhan_ngay": _nhan_ngay(service, start, ca),
+            "canh_bao": canh_bao,
         })
         if len(khe) >= toi_da:
             break
@@ -131,40 +134,21 @@ def goi_y_khe(service, *, dong_id: int, tu, den, toi_da: int = 3) -> dict:
             "Không thấy khe trống trong khoảng đang xem — mở rộng cửa sổ hoặc đổi máy."}
 
 
-def _moc_ung_vien(service, dong, shadow, tu, den, ca) -> list[datetime]:
-    """Các mốc bắt đầu ứng viên trong [tu, den], TĂNG DẦN + đã khử trùng.
+def _nhan_ngay(service, start: datetime, ca) -> dict:
+    """Nhãn THẬT của thời điểm bắt đầu: thứ mấy · có phải ngày lễ · có rơi vào ca đêm không.
 
-    Gom mọi thời điểm một khe có thể "mở": đầu mỗi ca từng ngày · ngay sau mỗi việc/vùng-khoá đã
-    chiếm máy · lúc tổ vừa rảnh · tiền nhiệm vừa xong · ca đầu ngày vật tư về. Ứng viên ngoài ca /
-    còn vướng sẽ bị `_van_de_dat_lich` loại ở vòng chấm — ở đây chỉ cần phủ đủ mốc, không lọc sẵn.
+    Có cái này thì UI không còn phải gắn đại chữ "lý tưởng" cho một khe rơi vào chủ nhật hay mùng 2
+    tháng 9 chỉ vì nó sạch luật — ngày lễ trong v2 CHỈ tô nền, vẫn xếp được, nên phải nói ra để người
+    xếp tự quyết chứ đừng giấu.
     """
-    d0 = datetime.combine(tu, time.min, tzinfo=timezone.utc)
-    d1 = datetime.combine(den, time.min, tzinfo=timezone.utc) + timedelta(days=1)
-    moc: set[datetime] = set()
-    ngay = tu
-    while ngay <= den:
-        base = datetime.combine(ngay, time.min, tzinfo=timezone.utc)
-        for bat_dau, _, _ in ca:
-            moc.add(base + timedelta(minutes=int(bat_dau)))
-        ngay = ngay + timedelta(days=1)
-    for _, f in service.ctx.khoang_may_da_xep(shadow.may_id, dong.id):
-        if f is not None:
-            moc.add(_aware(f))
-    for _, f in service.ctx.khoang_chan_may(shadow.may_id):
-        if f is not None:
-            moc.add(_aware(f))
-    if shadow.department_id:
-        for _, f, _n in service.ctx.placements_to(shadow.department_id, dong.id):
-            if f is not None:
-                moc.add(_aware(f))
-    for f in service.ctx.tien_nhiem_finish(shadow):
-        if f is not None:
-            moc.add(_aware(f))
-    ngay_ve = service.ctx.ngay_vat_tu(dong)
-    if ngay_ve is not None:
-        bat_dau_som = min((b for b, _, _ in ca), default=0)
-        moc.add(datetime.combine(ngay_ve, time.min, tzinfo=timezone.utc)
-                + timedelta(minutes=int(bat_dau_som)))
-    trong = sorted(m for m in moc if d0 <= m < d1)
-    # Trần an toàn: cửa sổ hữu hạn nên hiếm khi chạm, chỉ để chặn vòng chấm thoái hoá.
-    return trong[:400]
+    s = _aware(start)
+    d = s.date()
+    le = next((x for x in service.ctx.ngay_le(d, d)), None)
+    phut = s.hour * 60 + s.minute
+    dem = any(qua_dem and (phut >= b or phut < e) for b, e, qua_dem in ca)
+    return {
+        "thu": _THU[d.weekday()],
+        "cuoi_tuan": d.weekday() >= 5,
+        "ngay_le": (le or {}).get("ten") or None,
+        "ca_dem": bool(dem),
+    }

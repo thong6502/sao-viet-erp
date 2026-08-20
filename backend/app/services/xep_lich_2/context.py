@@ -6,9 +6,16 @@ Tầng này là ranh giới: nó GỌI engine cũ (`XepLichService`) và repo đ
 
 KHÔNG có bất kỳ phép so khớp máy theo khổ/màu/định lượng ở đây (spec §6): máy hợp hay không là việc
 con người tự cân, v2 chỉ dò trùng-máy / đè-khoá / vượt-quân-số theo GIỜ.
+
+**Đóng băng (`dong_bang`)** — mở riêng cho các vòng QUÉT CHỈ-ĐỌC (gợi ý khe · gợi ý máy). Một lượt
+chấm `_van_de_dat_lich` hỏi ~7 thứ (ca · khoá máy · việc trên máy · việc của tổ · quân số · tiền
+nhiệm · hai hạn); quét vài trăm mốc thì thành vài nghìn truy vấn cho CÙNG một câu hỏi. Trong khối
+`with ctx.dong_bang():` mỗi câu hỏi chỉ chạy MỘT lần. CỐ Ý bắt phải xin (opt-in): đường GHI (`luu`,
+`phat_hanh`, `dua_vao`, `xoa_nhap`) không đi qua đây nên không có cửa nào đọc phải số cũ.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import date, datetime
 
 from sqlalchemy import select
@@ -21,6 +28,9 @@ from ...models.xep_lich import NGUON_IN_GHEP, XepLichCongDoan
 from ..xep_lich_service import XepLichService, _aware
 from .constraint import GIO_BAT_DAU, PHUT_LAM_NGAY
 
+#: Tên thứ trong tuần — để gọi tên ngày nghỉ khi lịch không khai tên riêng ("Chủ nhật").
+_THU = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ nhật"]
+
 
 class XepLich2Context:
     def __init__(self, db: Session, core: XepLichService, repo) -> None:
@@ -30,6 +40,31 @@ class XepLich2Context:
         #: Nhớ ngày vật tư theo (lsx, bài) trong vòng đời một request: `kiem_phat_hanh` gọi cho từng
         #: dòng của cùng lệnh nên không được hỏi bảng giữ chỗ lặp lại.
         self._ngay_vt_cache: dict[tuple, date | None] = {}
+        #: None = KHÔNG nhớ gì (mặc định, mọi đường ghi). dict = đang trong khối `dong_bang`.
+        self._snap: dict[tuple, object] | None = None
+
+    # --- Đóng băng cho vòng quét chỉ-đọc ------------------------------------
+    @contextmanager
+    def dong_bang(self):
+        """Trong khối này mỗi câu hỏi nền chỉ chạm DB MỘT lần (xem docstring đầu file).
+
+        Lồng nhau thì khối trong dùng chung kho của khối ngoài; thoát khối trả lại đúng trạng thái
+        trước đó, nên một request vừa quét vừa ghi vẫn an toàn.
+        """
+        truoc = self._snap
+        if truoc is None:
+            self._snap = {}
+        try:
+            yield self
+        finally:
+            self._snap = truoc
+
+    def _nho(self, khoa: tuple, tinh):
+        if self._snap is None:
+            return tinh()
+        if khoa not in self._snap:
+            self._snap[khoa] = tinh()
+        return self._snap[khoa]
 
     # --- Ca làm ------------------------------------------------------------
     def ca_windows(self) -> list[tuple[int, int, bool]]:
@@ -38,6 +73,9 @@ class XepLich2Context:
         Chưa khai ca nào (test / xưởng mới) → fallback một ca ngày 08:00–16:00 để giờ bắt đầu ban
         ngày vẫn hợp lệ. Đây là cửa DUY NHẤT của ca — chỉ soi GIỜ BẮT ĐẦU (§7.1).
         """
+        return self._nho(("ca",), self._ca_windows_moi)
+
+    def _ca_windows_moi(self) -> list[tuple[int, int, bool]]:
         cas = [
             (int(s.start_minute), int(s.end_minute),
              bool(s.is_overnight) or int(s.end_minute) <= int(s.start_minute))
@@ -48,16 +86,16 @@ class XepLich2Context:
     # --- Máy ---------------------------------------------------------------
     def khoang_chan_may(self, may_id: int | None) -> list[tuple]:
         """Vùng KHOÁ (bảo trì/hỏng/nghỉ) của máy — đã tz-aware sẵn từ engine cũ."""
-        return list(self.core._chan_may(may_id))
+        return self._nho(("chan_may", may_id), lambda: list(self.core._chan_may(may_id)))
 
     def khoang_may_da_xep(
         self, may_id: int | None, exclude_id: int | None = None,
     ) -> list[tuple]:
         """Các khoảng việc khác ĐÃ chiếm trên cùng máy (nền dò `trung_may`)."""
-        return [
+        return self._nho(("may_da_xep", may_id, exclude_id), lambda: [
             (_aware(r.start_at), _aware(r.finish_at))
             for r in self.repo.da_xep_khac_tren_may(may_id, exclude_id)
-        ]
+        ])
 
     # --- Tổ / quân số ------------------------------------------------------
     def _so_nguoi(self, dong: XepLichCongDoan) -> int:
@@ -72,15 +110,21 @@ class XepLich2Context:
     def placements_to(
         self, department_id: int | None, exclude_id: int | None = None,
     ) -> list[tuple]:
-        """`(start, finish, so_nguoi)` của các việc CÙNG TỔ đã xếp — nền dò đỉnh quân số."""
-        return [
+        """`(start, finish, so_nguoi)` của các việc CÙNG TỔ đã xếp — nền dò đỉnh quân số.
+
+        Trả BẢN SAO: nơi gọi (`_vuot_quan_so`) nối thêm chính việc đang đặt vào danh sách, mà khi
+        đóng băng thì danh sách gốc nằm trong kho dùng chung — cho ghi thẳng thì mỗi mốc quét lại
+        cộng dồn thêm một người ma.
+        """
+        return list(self._nho(("to", department_id, exclude_id), lambda: [
             (_aware(r.start_at), _aware(r.finish_at), self._so_nguoi(r))
             for r in self.repo.da_xep_khac_theo_to(department_id, exclude_id)
-        ]
+        ]))
 
     def quan_so(self, department_id: int | None, ngay: date) -> dict:
         """Quân số CÓ HIỆU LỰC của tổ trong ngày (số tự tính hoặc dòng gõ đè) — mượn engine cũ."""
-        return self.core.quan_so_ngay(department_id, ngay)
+        return self._nho(("quan_so", department_id, ngay),
+                         lambda: self.core.quan_so_ngay(department_id, ngay))
 
     # --- Tiền nhiệm (DAG routing) -----------------------------------------
     def tien_nhiem_finish(self, dong) -> list[datetime]:
@@ -92,6 +136,11 @@ class XepLich2Context:
         2. Sàn IN-CHUNG: LSX là thành viên bài ghép thì mọi bước (chạy sau in) phải đợi in ghép xong —
            đúng cách engine cũ lấy `_gang_finish` làm sàn (`_do_thi`).
         """
+        khoa = ("tien_nhiem", getattr(dong, "lsx_id", None),
+                getattr(dong, "lsx_cong_doan_id", None))
+        return self._nho(khoa, lambda: self._tien_nhiem_moi(dong))
+
+    def _tien_nhiem_moi(self, dong) -> list[datetime]:
         finishes: list[datetime] = []
         if getattr(dong, "lsx_id", None):
             gang = self.core._gang_finish_cho_lsx(dong.lsx_id)
@@ -116,6 +165,10 @@ class XepLich2Context:
     # --- Hạn ---------------------------------------------------------------
     def hai_han(self, dong) -> tuple[date | None, date | None]:
         """(hạn hoàn thành SX, hạn giao khách) của lệnh/bài — bài ghép chỉ có hạn SX (§5)."""
+        khoa = ("hai_han", getattr(dong, "lsx_id", None), getattr(dong, "bai_ghep_id", None))
+        return self._nho(khoa, lambda: self._hai_han_moi(dong))
+
+    def _hai_han_moi(self, dong) -> tuple[date | None, date | None]:
         if getattr(dong, "lsx_id", None):
             lsx = self.core.lsx_repo.get(dong.lsx_id)
             if lsx is not None:
@@ -153,3 +206,19 @@ class XepLich2Context:
             {"ngay": r.day, "ten": r.name or "", "kind": r.kind}
             for r in self.repo.ngay_le(tu, den)
         ]
+
+    def ten_ngay_nghi(self, d: date) -> str | None:
+        """Tên ngày nghỉ của `d`, hoặc None nếu `d` là ngày làm việc bình thường.
+
+        v2 VẪN xếp được vào ngày nghỉ (§3, §12.2 — máy chạy liên tục, xưởng có thể huy động làm
+        thêm) nên đây KHÔNG phải luật chặn, không đưa vào `_van_de_dat_lich`. Nhưng một khe rơi vào
+        Chủ nhật mà thẻ gợi ý ghi "lý tưởng" thì là nói dối — nhãn này để thẻ nói đúng cái người xếp
+        cần biết TRƯỚC khi bấm.
+        """
+        return self._nho(("ten_nghi", d), lambda: self._ten_ngay_nghi_moi(d))
+
+    def _ten_ngay_nghi_moi(self, d: date) -> str | None:
+        if self.core.cal.is_working_day(d):
+            return None
+        ten = next((r.name for r in self.repo.ngay_le(d, d) if r.name), None)
+        return ten or _THU[d.weekday()]

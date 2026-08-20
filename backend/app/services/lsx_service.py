@@ -709,6 +709,17 @@ class LsxService:
                 "don_vi": rate.unit,
                 "don_gia": _f(rate.unit_price),
             }
+            if buoc is not None:
+                # Tiền công DỰ KIẾN cho ĐÚNG lựa chọn này, tính bằng cùng bộ máy `_khoan_derived`
+                # dùng cho bước đã lưu — chọn đầu việc ở dropdown là "nhảy tiền" ngay, không phải
+                # lưu bước rồi backend mới trả số (kể cả bước vừa gộp chưa có nền khoán nào).
+                kq_t = self._khoan_tu_kh(buoc, khoan_snapshot(rate), quy_cach)
+                item.update({
+                    "tien_du_kien": kq_t["khoan_tien"],
+                    "sl_du_kien": kq_t["khoan_sl"],
+                    "don_vi_sl_du_kien": kq_t["khoan_don_vi_sl"],
+                    "dien_giai_du_kien": kq_t["khoan_dien_giai"] or kq_t["khoan_ly_do"],
+                })
             if dm is not None:
                 vt, cb = self._vat_tu_bung(dm, buoc, quy_cach)
                 item.update({
@@ -886,12 +897,20 @@ class LsxService:
         thì ăn 241 tờ), rồi ĐỔI thẳng sang đơn vị của đơn giá. Không nhân thêm hệ số ngầm nào:
         muốn trả theo lượt máy thì khai đơn giá theo đơn vị `lượt`, đừng giấu phép nhân trong code.
         """
+        return self._khoan_tu_kh(cd, cd.khoan_json or {}, quy_cach)
+
+    def _khoan_tu_kh(self, cd, kh: dict, quy_cach: dict | None) -> dict:
+        """Tiền khoán DỰ KIẾN khi áp MỘT ảnh chụp đầu việc `kh` lên SL của bước `cd`.
+
+        Tách khỏi `_khoan_derived` để dropdown đầu việc chấm TỪNG lựa chọn bằng ĐÚNG một bộ máy:
+        chọn công việc khoán là ra tiền NGAY, không phải lưu bước rồi backend mới trả số. `kh` cùng
+        shape `khoan_json` đã ghim — hoặc ảnh chụp `khoan_snapshot(rate)` của một lựa chọn chưa lưu.
+        """
         # Hợp đồng dict: LUÔN đủ 6 khoá (None khi chưa có gì) — caller `if kq["khoan_tien"]` chứ
         # không phải `if "khoan_tien" in kq`. Trả dict rỗng khi bước chưa chọn đầu việc là mời gọi
         # KeyError ở mọi chỗ đọc.
         trong = {"khoan_sl": None, "khoan_don_vi_sl": None, "khoan_tien": None,
                  "khoan_dien_giai": None, "khoan_thieu": [], "khoan_ly_do": None}
-        kh = cd.khoan_json or {}
         if not kh.get("don_vi") or not kh.get("don_gia"):
             return trong
         # ⓿ CÔNG THỨC RIÊNG của đầu việc (ảnh chụp `khoan_json["cong_thuc"]`, mg `0213`) thắng cả cầu

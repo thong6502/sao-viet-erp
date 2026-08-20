@@ -6,6 +6,7 @@ import {
   api,
   connectQuoteEvents,
   type AppNotification,
+  type DepartmentPurchaseSourceType,
   type HangLoai,
   type ModuleNotificationChannel,
   type PinnedCustomer,
@@ -100,6 +101,15 @@ export interface NavParams {
     note?: string | null;
   }[];
   purchaseSeedPurpose?: string;
+  /** Liên thông Kế hoạch vật tư → YCMH: điền sẵn cả ĐẦU PHIẾU (ngày cần + vết lệnh sản xuất),
+   *  không chỉ mấy dòng vật tư. Bên kia vừa tính xong ngày cần sớm nhất của lô lệnh đã tick — gõ
+   *  lại bằng tay là đoán lại một con số đã có. */
+  purchaseSeedHeader?: {
+    source_type?: DepartmentPurchaseSourceType | null;
+    needed_date?: string | null;
+    related_document_type?: string | null;
+    related_document_code?: string | null;
+  };
   /** Liên thông Đơn hàng → bàn Kế hoạch SX: mở thẳng đơn này ở hàng chờ / danh sách lệnh. */
   openSxOrderId?: number;
   /** Liên thông sơ đồ Bài ghép → Kế hoạch SX: mở thẳng chi tiết một lệnh. */
@@ -1190,6 +1200,7 @@ export function AppShell() {
             focusRequestCode={navParams?.focusRequestCode ?? null}
             seedLines={navParams?.purchaseSeedLines ?? null}
             seedPurpose={navParams?.purchaseSeedPurpose ?? null}
+            seedHeader={navParams?.purchaseSeedHeader ?? null}
           />
         );
       case "mua-hang":

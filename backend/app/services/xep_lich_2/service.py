@@ -32,7 +32,7 @@ from ...repositories.xep_lich_van_de_repo import XepLichVanDeRepository
 from ..lsx_service import _f
 from ..xep_lich_service import XepLichNotFound, XepLichService, _aware, _naive
 from . import constraint as C
-from . import overlay, release, suggestion
+from . import auto, overlay, release, suggestion
 from .context import XepLich2Context
 
 _CANH_BAO_TEXT = {
@@ -639,6 +639,9 @@ class XepLich2Service:
                 vd = release.van_de_vat_tu(self.db, lsx_id=id)
                 row = {
                     "nguon": NGUON_LSX, "id": id, "ma": lsx.ma,
+                    "ten_san_pham": lsx.ten,
+                    "so_luong_dat": lsx.so_luong_dat,
+                    "don_vi_tinh": lsx.don_vi_tinh,
                     "is_rush": bool(getattr(lsx, "is_rush", False)),
                     "han": self.core._han(lsx),
                     "han_giao": lsx.han_giao_khach,
@@ -652,8 +655,11 @@ class XepLich2Service:
                 vd = release.van_de_vat_tu(self.db, bai_ghep_id=id)
                 row = {
                     "nguon": NGUON_IN_GHEP, "id": id, "ma": bg.ma,
+                    "ten_san_pham": bg.ten or "Bài in ghép",
+                    "so_luong_dat": None,
+                    "don_vi_tinh": None,
                     "is_rush": bool(getattr(bg, "is_rush", False)),
-                    "han": None,
+                    "han": bg.han_hoan_thanh_sx,
                     "han_giao": None,
                     "so_cong_doan_chua_xep": int(so_cd_bg.get(id, 0)),
                     "van_de": vd,
@@ -906,12 +912,32 @@ class XepLich2Service:
         return {
             "tu": tu, "den": den,
             "ca": self.ctx.ca_windows(),
+            "ca_nhan": self._ca_nhan(),
             "ngay_le": self.ctx.ngay_le(tu, den),
             "khoa_may": self._khoa_may_trong_cua_so({r.may_id for r in co_gio if r.may_id}, tu, den),
             "tai_may": overlay.tai_may(pl_may, tu, den),
             "tai_to": tai_to,
             "dong": dong,
         }
+
+    def _ca_nhan(self) -> list[dict]:
+        """Ca nền KÈM TÊN, để Gantt gọi được "Ca 2" chứ không chỉ tô một dải xám vô danh.
+
+        `ca_windows()` cố ý chỉ trả bộ ba số (nó là cửa của ENGINE, tên ca không tham gia luật nào).
+        Nhưng màn thì cần tên: xưởng khai 4 ca chồng nhau phủ gần trọn 24h, không có tên thì người
+        xem chỉ thấy một mảng liền và không biết mình đang xếp vào ca nào (§7.1 chỉ soi GIỜ BẮT ĐẦU).
+        Chưa khai ca nào → trả đúng một dải fallback, nói thẳng là mặc định chứ đừng giả vờ có ca.
+        """
+        cas = self.core._ca_lich_may()
+        if not cas:
+            b = C.GIO_BAT_DAU * 60
+            return [{"id": None, "ten": "Giờ mặc định (chưa khai ca)", "bat_dau_phut": b,
+                     "ket_thuc_phut": b + C.PHUT_LAM_NGAY, "qua_dem": False}]
+        return [{
+            "id": int(s.id), "ten": s.name,
+            "bat_dau_phut": int(s.start_minute), "ket_thuc_phut": int(s.end_minute),
+            "qua_dem": bool(s.is_overnight) or int(s.end_minute) <= int(s.start_minute),
+        } for s in cas]
 
     def _quan_so_kha_dung(self, department_id: int, ngay: date) -> dict:
         """Quân số khả dụng của tổ trong ngày, đủ để UI đặt cạnh ĐỈNH mà biết tổ có quá tải không."""
@@ -940,3 +966,13 @@ class XepLich2Service:
     def goi_y_khe(self, *, dong_id: int, tu: date, den: date, toi_da: int = 3) -> dict:
         """Chấm ≤ `toi_da` khe trống sớm nhất để xếp dòng (B8) — người bấm một phát là xong."""
         return suggestion.goi_y_khe(self, dong_id=dong_id, tu=tu, den=den, toi_da=toi_da)
+
+    # ================= TỰ XẾP CẢ CHUỖI =================
+    def tu_xep(self, *, nguon: str, id: int, actor, ghi_de: bool = False,
+               chan_ngay: int = auto.CHAN_NGAY_MAC_DINH) -> dict:
+        """Tự xếp toàn bộ bước chưa có giờ của một lệnh/bài (§6) — thuật toán ở `auto`.
+
+        `ghi_de=True` thì xếp lại CẢ những bước đã có giờ (trừ bước đang khoá). Mọi cách đặt đều đi
+        qua `_van_de_dat_lich` nên không đẻ ra được lịch mà bấm tay sẽ bị chặn."""
+        return auto.tu_xep(self, nguon=nguon, id=id, actor=actor, ghi_de=ghi_de,
+                           chan_ngay=chan_ngay)

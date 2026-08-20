@@ -69,14 +69,25 @@ export function Xl2MucPill({
 }
 
 // ============================ TRỤC THỜI GIAN ================================
-// Bề rộng cột nhãn lane + chiều cao thanh (kế thừa GanttBoard: LABEL_W=240, BAR_H=26).
-export const LABEL_W = 240;
-export const BAR_H = 26;
+// Bề rộng cột nhãn lane + chiều cao thanh (LABEL_W=270 hiển thị trọn vẹn thông số máy, BAR_H=34 hiển thị 2 tầng thông tin).
+export const LABEL_W = 270;
+export const BAR_H = 34;
 /** Dải overlay (nhiệt tải máy / đỉnh quân số) neo đáy lane, KHÔNG đè thanh việc (F1). */
 export const LANE_OVERLAY_H = 12;
-/** thanh (26) + đệm trên (6) + band overlay đáy (12) = 44. Đồng bộ với `--xl2-lane-h` trong CSS. */
-export const LANE_H = BAR_H + 6 + LANE_OVERLAY_H;
-export const CLUSTER_HEAD_H = 30;
+/** thanh (34) + đệm trên (8) + band overlay đáy (12) = 54. Đồng bộ với `--xl2-lane-h` trong CSS. */
+export const LANE_H = BAR_H + 8 + LANE_OVERLAY_H;
+export const CLUSTER_HEAD_H = 32;
+
+/** Phân nhóm công đoạn để tô màu Chroma Task Capsules: In (Blue) · Sau in (Amber) · Đóng gói (Emerald) · Thuê ngoài (Purple) */
+export type Xl2NhomCd = "in" | "sau_in" | "dong_goi" | "thue_ngoai";
+export function nhomCongDoan(congDoanTen: string | null | undefined, isNcc?: boolean): Xl2NhomCd {
+  if (isNcc) return "thue_ngoai";
+  if (!congDoanTen) return "in";
+  const s = congDoanTen.toLowerCase();
+  if (s.includes("in ") || s.startsWith("in") || s.includes("offset") || s.includes("kỹ thuật số") || s.includes("in màu")) return "in";
+  if (s.includes("đóng gói") || s.includes("giao hàng") || s.includes("kiểm phẩm") || s.includes("hoàn thiện") || s.includes("thùng")) return "dong_goi";
+  return "sau_in"; // Bế, cán, gấp, xén, dán, ép kim, uv, khâu chỉ...
+}
 
 export type Xl2Zoom = "gio" | "ca" | "ngay" | "tuan";
 /** px mỗi PHÚT — thanh chạy liên tục nên trục thuần tuyến tính, zoom chỉ đổi mật độ. */

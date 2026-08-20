@@ -68,7 +68,7 @@ class Department(Base):
     # cây con (theo parent_id) coi như sản xuất; phân hệ Sản xuất liệt kê đúng subtree này. "Effective
     # sản xuất" = cột này true HOẶC có tổ tiên true (tính ở service, KHÔNG cascade lưu).
     # DORMANT 2026-08-10 — ca làm riêng của tổ đã BỎ cùng lượt với ca của máy: ca khai MỘT chỗ ở
-    # Nhân sự → Ca kíp (cờ `work_shifts.dung_cho_lich_may`), không lặp lại ở từng tổ. Không còn ô
+    # Nhân sự → Ca kíp (mọi ca đang hoạt động), không lặp lại ở từng tổ. Không còn ô
     # nhập, engine thôi đọc; cột giữ để không mất số cũ (không có Alembic, `create_all` không ALTER).
     ca_lam_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
     la_san_xuat: Mapped[bool] = mapped_column(

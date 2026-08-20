@@ -14,6 +14,7 @@ import {
   type CanDoiMau,
   type CanDoiNhom,
   type CanDoiOut,
+  type DeNghiMuaXemTruoc,
   type HangLoai,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
@@ -92,11 +93,18 @@ export function VatTuKeHoachView({
   canDeNghiMua,
   onOpenLsx,
   onSoDo,
+  onMoFormMua,
 }: {
   eventTick?: number;
   canDeNghiMua: boolean;
   onOpenLsx?: (id: number) => void;
   onSoDo?: (n: number) => void;
+  /** Mở form "Tạo yêu cầu mua hàng" ĐÃ ĐIỀN SẴN từ bản nháp server vừa tính.
+   *
+   *  Bảng này không tự dựng form mua thứ hai: form đã có ở màn Yêu cầu mua hàng, việc ở đây chỉ là
+   *  đưa số sang. Không truyền callback (màn cha không có `navigate`) thì rơi về đường cũ — tạo
+   *  thẳng yêu cầu rồi báo mã, còn hơn một cái nút bấm không ra gì. */
+  onMoFormMua?: (nhap: DeNghiMuaXemTruoc) => void;
 }) {
   const { token } = useAuth();
   const [data, setData] = useState<CanDoiOut | null>(null);
@@ -258,6 +266,17 @@ export function VatTuKeHoachView({
       }));
     setDangGui(true);
     try {
+      // MỞ FORM, KHÔNG TỰ LẬP PHIẾU (20/08/2026, theo yêu cầu chủ). Cửa `xem-truoc` tính đúng thứ
+      // đường tạo thật sẽ dùng — số lượng đã gộp theo mặt hàng, ngày cần sớm nhất, nội dung kèm
+      // ghi chú ngày của từng lệnh — nhưng KHÔNG ghi gì. Người dùng nhìn thấy phiếu trước khi nó
+      // tồn tại, sửa được số, rồi mới bấm Lưu.
+      const nhap = await api.keHoachVatTu.xemTruocDeNghiMua(token, dong);
+      if (onMoFormMua) {
+        onMoFormMua(nhap);
+        return;
+      }
+      // Đường lùi: không sang được màn Yêu cầu mua hàng thì vẫn lập như cũ, đừng để người dùng
+      // bấm xong không thấy gì xảy ra.
       const r = await api.keHoachVatTu.deNghiMua(token, dong);
       setChon(new Set());
       setFlash(
@@ -685,7 +704,7 @@ export function VatTuKeHoachView({
                 </span>
               )}
               <span className="khvt-floating-dock__hint">
-                Gộp thành 1 yêu cầu mua hàng theo đúng số lượng thiếu thực tế.
+                Mở form yêu cầu mua đã điền sẵn — xem lại số rồi bấm Lưu.
               </span>
             </div>
 
@@ -695,7 +714,7 @@ export function VatTuKeHoachView({
               </Button>
               <Button onClick={deNghiMua} disabled={dangGui} className="khvt-btn-action">
                 <Icon name="packageCheck" size={15} />
-                {dangGui ? "Đang tạo phiếu…" : `Đề nghị mua ngay (${chon.size})`}
+                {dangGui ? "Đang mở form…" : `Đề nghị mua ngay (${chon.size})`}
               </Button>
             </div>
           </div>

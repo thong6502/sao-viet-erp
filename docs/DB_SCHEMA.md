@@ -101,7 +101,7 @@ belongs to exactly one, and roles are defined per department.
 - Indexes: `ix_departments_parent_id` on `parent_id`, `ix_departments_level_id` on `level_id`.
 - Foreign keys: `parent_id FK→departments.id` (self-reference); `level_id FK→unit_levels.id`; `head_user_id` is a logical reference to `users.id` (no enforced FK).
 
-**`ca_lam_ids`** (`JSON`, nullable, mg 0178) — **DORMANT từ 10/08/2026**. Từng là tập ca riêng của TỔ; nay đã bỏ cùng ô ca ở màn Máy: ca khai MỘT chỗ duy nhất ở Nhân sự → Ca kíp (cờ `work_shifts.dung_cho_lich_may`), bàn xếp lịch dùng tập chung đó cho các bước KHÔNG có máy. Không còn ô nhập, không còn trong API, engine thôi đọc. Cột giữ lại để không mất số cũ (không có Alembic, `create_all` không ALTER) — **đừng khai lại ô này**.
+**`ca_lam_ids`** (`JSON`, nullable, mg 0178) — **DORMANT từ 10/08/2026**. Từng là tập ca riêng của TỔ; nay đã bỏ cùng ô ca ở màn Máy: ca khai MỘT chỗ duy nhất ở Nhân sự → Ca kíp (mọi ca `work_shifts` đang hoạt động), bàn xếp lịch dùng tập chung đó cho các bước KHÔNG có máy. Không còn ô nhập, không còn trong API, engine thôi đọc. Cột giữ lại để không mất số cũ (không có Alembic, `create_all` không ALTER) — **đừng khai lại ô này**.
 
 **Relationships**
 
@@ -2561,7 +2561,6 @@ và tính công theo tỷ lệ giờ làm.
 | `night_multiplier` | `Numeric(6,4)` → `NUMERIC(6,4)`                      | —      | no   | `1.3`          | Hệ số ca đêm: premium giờ rơi 22h–06h TRONG ca = (hệ số−1)×đơn giá giờ×giờ đêm. 1.3=+30%. Chỉ dùng ca qua đêm. Thêm qua migration 0100. |
 | `grace_minutes` | `Integer` → `INTEGER`                                  | —      | no   | `5`            | Dung sai đi muộn (phút): vào trễ ≤ giá trị này vẫn coi đúng giờ. |
 | `is_active`     | `Boolean` → `BOOLEAN`                                  | —      | no   | `true`         | Ca đang dùng.                                                    |
-| `dung_cho_lich_may` | `Boolean` → `BOOLEAN`                              | —      | no   | `false`        | Ca thuộc LỊCH CHẠY MÁY của xưởng (khác ca chấm công HR). Xếp lịch công đoạn (Gantt) tính giờ theo tập ca có cờ này (nghỉ trưa = khe giữa 2 ca); chưa tick ca nào → fallback 8h phẳng `[08:00,16:00)`. Thêm qua migration 0095. |
 | `note`          | `String(500)` → `VARCHAR(500)`                         | —      | yes  | —              | Ghi chú.                                                         |
 | `created_at`    | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —      | no   | now (UTC)      | Khi tạo.                                                         |
 
@@ -3358,7 +3357,7 @@ Ca **một chân trong một chân ngoài** (`cai → thung`, đóng gói) CHẶ
 
 **Người ở TẦNG GIỮA không tính vào tổ nào:** ai gắn ở "Xưởng in" (không thuộc tổ lá) thì không cộng vào tổ con — cộng vào là đếm thừa người và lịch hứa một năng lực không có thật. Định nghĩa Tổ = nút LÁ trong nhánh `la_san_xuat` (dùng chung `rbac_repo.to_san_xuat()`).
 
-**Quỹ giờ-người ngày** = `so_nguoi` × giờ ca CHUNG của xưởng (tập `work_shifts.dung_cho_lich_may`; ca riêng của tổ đã bỏ 10/08/2026 — chưa tick ca nào thì rơi về 8h phẳng 08:00–16:00). Ràng buộc dùng nó: tại mọi thời điểm, Σ số người các việc đang chạy trong tổ ≤ quân số → vượt là vấn đề **Chặn** (`qua_tai_to`). Đây là thứ THAY cho luật "trùng giờ = xung đột" ở dòng tổ: tổ Dán 8 người chia được 5 người việc A + 3 người việc B cùng lúc.
+**Quỹ giờ-người ngày** = `so_nguoi` × giờ ca CHUNG của xưởng (mọi ca `work_shifts` có `is_active` — cờ `dung_cho_lich_may` đã rút ở mg 0226; ca riêng của tổ đã bỏ 10/08/2026 — chưa khai ca nào thì rơi về 8h phẳng 08:00–16:00). Ràng buộc dùng nó: tại mọi thời điểm, Σ số người các việc đang chạy trong tổ ≤ quân số → vượt là vấn đề **Chặn** (`qua_tai_to`). Đây là thứ THAY cho luật "trùng giờ = xung đột" ở dòng tổ: tổ Dán 8 người chia được 5 người việc A + 3 người việc B cùng lúc.
 
 **Keys & indexes**
 

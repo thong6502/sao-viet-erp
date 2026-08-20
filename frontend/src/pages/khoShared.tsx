@@ -62,12 +62,22 @@ export const VOUCHER_STATUS: Record<StockVoucherStatus, Tone> = {
 
 export function RequestStatusBadge({ status }: { status: StockRequestStatus }) {
   const s = REQUEST_STATUS[status] ?? { label: status, tone: "muted" };
-  return <span className={`badge-sem badge-sem--${s.tone}`}>{s.label}</span>;
+  return (
+    <span className={`badge-sem badge-sem--${s.tone}`}>
+      <span className={`status-dot status-dot--${s.tone}`} />
+      {s.label}
+    </span>
+  );
 }
 
 export function VoucherStatusBadge({ status }: { status: StockVoucherStatus }) {
   const s = VOUCHER_STATUS[status] ?? { label: status, tone: "muted" };
-  return <span className={`badge-sem badge-sem--${s.tone}`}>{s.label}</span>;
+  return (
+    <span className={`badge-sem badge-sem--${s.tone}`}>
+      <span className={`status-dot status-dot--${s.tone}`} />
+      {s.label}
+    </span>
+  );
 }
 
 /** Nhãn ĐIỀU CHUYỂN — dán lên yêu cầu điều chuyển (NHẬP ở đích) để phân biệt với nhập/xuất thường.
@@ -75,10 +85,10 @@ export function VoucherStatusBadge({ status }: { status: StockVoucherStatus }) {
 export function DieuChuyenPill({ khoNguonTen }: { khoNguonTen?: string | null }) {
   return (
     <span
-      className="badge-sem badge-sem--steel"
+      className="badge-sem badge-sem--plum"
       title={khoNguonTen ? `Điều chuyển từ ${khoNguonTen}` : "Điều chuyển nội bộ"}
     >
-      ⇄ Điều chuyển{khoNguonTen ? ` · từ ${khoNguonTen}` : ""}
+      <span aria-hidden style={{ fontSize: 12, lineHeight: 1 }}>⇄</span> Điều chuyển{khoNguonTen ? ` · từ ${khoNguonTen}` : ""}
     </span>
   );
 }
@@ -86,11 +96,21 @@ export function DieuChuyenPill({ khoNguonTen }: { khoNguonTen?: string | null })
 /** Chip LOẠI yêu cầu — cột "Loại" ở danh sách Yêu cầu / Phiếu từ yêu cầu: Nhập · Xuất · Điều chuyển.
  *  `dieuChuyen` ưu tiên (yêu cầu điều chuyển vốn là NHẬP ở đích, nhưng hiển thị là "Điều chuyển"). */
 export function LoaiYeuCauChip({ loai, dieuChuyen }: { loai: StockRequestKind; dieuChuyen?: boolean }) {
-  if (dieuChuyen) return <span className="badge-sem badge-sem--steel">Điều chuyển</span>;
+  if (dieuChuyen) {
+    return (
+      <span className="badge-sem badge-sem--plum">
+        <span aria-hidden style={{ fontSize: 12, lineHeight: 1 }}>⇄</span> Điều chuyển
+      </span>
+    );
+  }
   return loai === "NHAP" ? (
-    <span className="badge-sem badge-sem--moss">Nhập</span>
+    <span className="badge-sem badge-sem--steel">
+      <span aria-hidden style={{ fontSize: 12, lineHeight: 1 }}>↓</span> Nhập
+    </span>
   ) : (
-    <span className="badge-sem badge-sem--rust">Xuất</span>
+    <span className="badge-sem badge-sem--rust">
+      <span aria-hidden style={{ fontSize: 12, lineHeight: 1 }}>↑</span> Xuất
+    </span>
   );
 }
 

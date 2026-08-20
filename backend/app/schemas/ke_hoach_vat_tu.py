@@ -236,6 +236,37 @@ class DeNghiMuaIn(BaseModel):
     ghi_chu: str | None = Field(default=None, max_length=2000)
 
 
+class DeNghiMuaDongOut(BaseModel):
+    """Một dòng ĐÃ GỘP theo mặt hàng — đúng hình dạng ô vật tư của form Yêu cầu mua hàng."""
+
+    hang_loai: str
+    hang_id: int
+    item_name: str
+    unit: str
+    quantity: float
+
+
+class DeNghiMuaXemTruocOut(BaseModel):
+    """Bản NHÁP của yêu cầu mua — tính xong nhưng CHƯA GHI gì vào cơ sở dữ liệu.
+
+    Vì sao có cửa này (20/08/2026, theo yêu cầu chủ): bấm "Đề nghị mua ngay" mà hệ tự đẻ luôn một
+    yêu cầu rồi bảo "sang màn Mua hàng xem lại" là bắt người ta ký trước rồi mới được đọc. Cửa
+    xem-trước trả về ĐÚNG những gì đường tạo thật sẽ dùng (số lượng gộp · ngày cần · nội dung), FE
+    đổ thẳng vào form "Tạo yêu cầu mua hàng" cho người dùng nhìn, sửa, rồi mới bấm Lưu.
+
+    Dùng CHUNG `gom_de_nghi` với `POST /de-nghi-mua`, nên số ở form không thể lệch số hệ sẽ ghi —
+    trừ đúng phần người dùng cố ý sửa tay.
+    """
+
+    #: Luôn `lsx` — giữ nguyên vết "yêu cầu này sinh từ lệnh sản xuất nào".
+    related_document_type: str = "lsx"
+    related_document_code: str
+    needed_date: date
+    #: Ô "Nội dung / mục đích" của form, đã nối sẵn phần ghi chú ngày cần của từng lệnh.
+    noi_dung: str
+    lines: list[DeNghiMuaDongOut]
+
+
 class DeNghiMuaOut(BaseModel):
     """Trả MÃ yêu cầu để FE mở lên xem — cố ý KHÔNG tự gửi đi thu mua.
 

@@ -240,6 +240,11 @@ export function LsxBuocDrawer({
   }, [row.khoan_chon_duoc, row.khoan_rate_id]);
   const mayDaChon = mayRefs?.find((m) => m.id === row.may_id);
   const khoanDaChon = dsKhoan.find((k) => k.id === row.khoan_rate_id);
+  // "Nhảy tiền" khi đổi đầu việc: server tính sẵn tiền công của TỪNG lựa chọn cho đúng bước này
+  // (`tien_du_kien`), nên chọn ở dropdown là ra số ngay — khỏi Lưu trước. Có key ⇒ option đến từ
+  // server cho bước hiện tại; đổi tổ nạp lại danh sách KHÔNG kèm số ⇒ rơi về "Lưu công đoạn…".
+  const khoanLive =
+    khoanDaChon && "tien_du_kien" in khoanDaChon ? khoanDaChon : undefined;
   const nhomPhuThuoc = useMemo(() => {
     const currentLsxId = phuThuocRefs.find((o) => o.step_key === row.key)?.lsx_id;
     const groups = new Map<number, typeof phuThuocRefs>();
@@ -952,7 +957,17 @@ export function LsxBuocDrawer({
                         </select>
 
                         <div className="khsx-khoan-status-row">
-                          {!khoanConKhop ? (
+                          {khoanLive ? (
+                            khoanLive.tien_du_kien != null ? (
+                              <span className="khsx-pill-status khsx-pill-status--ok">
+                                {khoanLive.dien_giai_du_kien ?? row.khoan_dien_giai}
+                              </span>
+                            ) : (
+                              <span className="khsx-pill-status khsx-pill-status--error">
+                                {khoanLive.dien_giai_du_kien ?? "Chưa quy đổi được sản lượng sang đơn vị đơn giá."}
+                              </span>
+                            )
+                          ) : !khoanConKhop ? (
                             <span className="khsx-pill-status khsx-pill-status--warn">
                               Lưu công đoạn để tính lại tiền công
                             </span>

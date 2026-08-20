@@ -863,9 +863,19 @@ export interface XepLichGoiYMay {
   khe_trong: string | null;
   finish: string | null;
   chiem_may_phut: number;
+  /** Dải thời lượng trên CHÍNH máy này (nhanh nhất … chậm nhất). Bằng `chiem_may_phut` ⇒ máy chưa
+   *  khai dải tốc độ, ĐừNG vẽ râu 0 như thể chạy chính xác tuyệt đối. */
+  chiem_may_phut_min: number;
+  chiem_may_phut_max: number;
   /** Việc liền trước trên máy này cùng giấy · khổ · bộ mực (mục E) — đổi việc gần như khỏi canh
    *  lại máy. Tiêu chí PHỤ khi hoà giờ xong. */
   cung_gom: boolean;
+  /** Nhãn THẬT của giờ bắt đầu (thứ · cuối tuần · ngày lễ · ca đêm) — thay cho việc gắn đại chữ "lý tưởng". */
+  nhan_ngay: Xl2NhanNgay;
+  /** Lưu ý còn lại nếu chọn máy này (không chặn). */
+  canh_bao: Xl2Issue[];
+  /** MỘT câu vì-sao do chính thuật toán tự-xếp sinh ra (không phải chữ FE bịa). */
+  ly_do: string;
 }
 
 /** Gợi ý xếp (chỉ đọc): máy trống sớm nhất + kết thúc nếu xếp + hạn lùi còn kịp giao. */
@@ -911,6 +921,9 @@ export interface Xl2QRow {
   nguon: Xl2Nguon;
   id: number;
   ma: string;
+  ten_san_pham?: string | null;
+  so_luong_dat?: number | null;
+  don_vi_tinh?: string | null;
   is_rush: boolean;
   han: string | null;
   han_giao: string | null;
@@ -1063,6 +1076,16 @@ export interface Xl2Dong {
 /** Ca nền của xưởng: `[bat_dau_phut, ket_thuc_phut, qua_dem]` — chỉ soi GIỜ BẮT ĐẦU (§7.1). */
 export type Xl2Ca = [number, number, boolean];
 
+/** Ca nền KÈM TÊN — cùng dữ liệu với `Xl2Ca` nhưng có `ten` để Gantt gọi được "Ca 2" thay vì tô
+ *  một dải xám vô danh. `id` = null khi xưởng chưa khai ca nào (hệ dùng giờ mặc định). */
+export interface Xl2CaNhan {
+  id: number | null;
+  ten: string;
+  bat_dau_phut: number;
+  ket_thuc_phut: number;
+  qua_dem: boolean;
+}
+
 /** Ngày lễ tô nền (vẫn xếp được). `ngay` = "YYYY-MM-DD". */
 export interface Xl2NgayLe {
   ngay: string;
@@ -1101,6 +1124,7 @@ export interface Xl2BanLamViec {
   tu: string;
   den: string;
   ca: Xl2Ca[];
+  ca_nhan: Xl2CaNhan[];
   ngay_le: Xl2NgayLe[];
   khoa_may: Xl2KhoaMay[];
   tai_may: Xl2TaiMay[];
@@ -1114,7 +1138,67 @@ export interface Xl2Khe {
   start_at: string;
   finish_at: string;
   chiem_may_phut: number;
+  /** Dải thời lượng (nhanh nhất … chậm nhất) để vẽ râu; bằng nhau ⇒ chưa khai dải. */
+  chiem_may_phut_min: number;
+  chiem_may_phut_max: number;
+  nhan_ngay: Xl2NhanNgay;
   canh_bao: Xl2Issue[];
+}
+
+/** Nhãn ngày thật của một mốc bắt đầu — để người xếp tự quyết, không giấu.
+ *  v2 KHÔNG chặn ngày lễ/chủ nhật (chỉ tô nền) nên một khe "sạch luật" vẫn có thể rơi vào mùng 2/9. */
+export interface Xl2NhanNgay {
+  /** "Thứ hai" … "Chủ nhật". */
+  thu: string;
+  cuoi_tuan: boolean;
+  /** Tên ngày lễ nếu trùng, không thì null. */
+  ngay_le: string | null;
+  /** Mốc bắt đầu rơi vào một ca QUA ĐÊM. */
+  ca_dem: boolean;
+}
+
+/** MỘT bước thuật toán tự-xếp đã đặt được — kèm câu vì-sao chọn máy/giờ đó. */
+export interface Xl2TuXepBuoc {
+  dong_id: number;
+  thu_tu: number;
+  cong_doan_ten: string | null;
+  may_id: number | null;
+  may_ten: string | null;
+  start_at: string;
+  finish_at: string;
+  chiem_may_phut: number;
+  chiem_may_phut_min: number;
+  chiem_may_phut_max: number;
+  /** Số máy đã cân nhắc cho bước này (0 với bước không chọn máy). */
+  so_may_xet: number;
+  ly_do: string;
+  canh_bao: Xl2Issue[];
+}
+
+/** Một bước KHÔNG xếp được — nói thẳng thiếu gì, không im lặng bỏ qua. */
+export interface Xl2TuXepBoQua {
+  dong_id: number;
+  thu_tu: number;
+  cong_doan_ten: string | null;
+  ly_do: string;
+}
+
+/** Kết quả một lượt TỰ XẾP cả lệnh/bài. `luot` = 1 (êm) · 2 (đã phải chạy thêm lượt cứu hạn)
+ *  · 0 (không có bước nào cần xếp). */
+export interface Xl2TuXep {
+  nguon: Xl2Nguon;
+  id: number;
+  luot: number;
+  da_xep: Xl2TuXepBuoc[];
+  bo_qua: Xl2TuXepBoQua[];
+  /** Số bước không đụng tới (đã có giờ hoặc đang khoá). */
+  so_giu_nguyen: number;
+  finish_chuoi: string | null;
+  han_sx: string | null;
+  han_giao: string | null;
+  tre_han_sx: boolean;
+  tre_ngay: number | null;
+  tom_tat: string;
 }
 
 /** ≤3 khe trống sớm nhất + ghi chú (rỗng khe ⇒ `ghi_chu` nói thiếu gì: chưa chọn máy / chưa tính được
@@ -2107,6 +2191,13 @@ export interface LsxDauViecOption {
   /** Vật tư khai ở danh mục nhưng KHÔNG quy đổi được sang đơn vị của nó — máy không đoán, chỉ nói
    *  thiếu gì để người kế hoạch tự thêm. */
   canh_bao_vat_tu?: string[];
+  /** Tiền công DỰ KIẾN nếu chọn ĐÚNG đầu việc này, backend tính sẵn cho bước đang mở (cùng bộ máy
+   *  với bước đã lưu). Nhờ đó chọn ở dropdown là "nhảy tiền" ngay, khỏi lưu bước trước. Chỉ có khi
+   *  đọc lệnh; `null` = chưa quy đổi được SL sang đơn vị đơn giá (thiếu cầu/khổ) → hiện `dien_giai_du_kien`. */
+  tien_du_kien?: number | null;
+  sl_du_kien?: number | null;
+  don_vi_sl_du_kien?: string | null;
+  dien_giai_du_kien?: string | null;
 }
 export interface LsxListItem {
   id: number; ma: string; loai: string; ten: string; trang_thai: LsxTrangThai;
@@ -7033,6 +7124,25 @@ export interface CanDoiKhoaDong {
   buoc_id: number | null;
 }
 
+/** Bản NHÁP của yêu cầu mua, tính từ các dòng đã tick — server CHƯA ghi gì.
+ *
+ *  Dùng để mở form "Tạo yêu cầu mua hàng" đã điền sẵn: ngày cần · nội dung · từng dòng vật tư đã
+ *  gộp theo mặt hàng. Người dùng xem, sửa, rồi tự bấm Lưu — yêu cầu chỉ sinh ra lúc đó. */
+export interface DeNghiMuaXemTruoc {
+  related_document_type: string;
+  related_document_code: string;
+  /** `YYYY-MM-DD` — đã kẹp sàn hôm nay ở server (lệnh trễ thì ngày cần đã nằm trong quá khứ). */
+  needed_date: string;
+  noi_dung: string;
+  lines: {
+    hang_loai: HangLoai;
+    hang_id: number;
+    item_name: string;
+    unit: string;
+    quantity: number;
+  }[];
+}
+
 /** Một MẶT HÀNG mà một lệnh/bài cần — đã gộp mọi công đoạn của lệnh đó. */
 export interface TheoLenhHang {
   hang_loai: HangLoai;
@@ -9221,6 +9331,18 @@ export const api = {
         body: JSON.stringify({ dong, ghi_chu: ghiChu ?? null }),
       });
     },
+    /** Tính trước yêu cầu mua từ các dòng đã tick — KHÔNG ghi gì. Trả đúng bộ dữ liệu để đổ vào
+     *  form "Tạo yêu cầu mua hàng"; yêu cầu chỉ thật sự sinh ra khi người dùng bấm Lưu ở form đó. */
+    xemTruocDeNghiMua(
+      token: string,
+      dong: CanDoiKhoaDong[],
+      ghiChu?: string | null,
+    ): Promise<DeNghiMuaXemTruoc> {
+      return authed<DeNghiMuaXemTruoc>("/api/ke-hoach-vat-tu/de-nghi-mua/xem-truoc", token, {
+        method: "POST",
+        body: JSON.stringify({ dong, ghi_chu: ghiChu ?? null }),
+      });
+    },
     /** CÙNG bảng cân đối, xoay theo LỆNH — "lệnh này chạy được chưa" thay vì "còn thiếu gì". */
     theoLenh(
       token: string,
@@ -9321,6 +9443,15 @@ export const api = {
     goiYKhe(token: string, dongId: number, params: { tu: string; den: string }): Promise<Xl2GoiYKhe> {
       const suffix = qs({ tu: params.tu, den: params.den });
       return authed<Xl2GoiYKhe>(`/api/xep-lich-2/dong/${dongId}/goi-y-khe${suffix}`, token);
+    },
+    /** TỰ XẾP cả lệnh/bài một phát (POST, có ghi). `ghiDe` = xếp lại cả bước đã có giờ
+     *  (dòng đang KHOÁ vẫn không bị đụng). Trả về từng bước + lý do + bước bỏ qua để UI phanh phui,
+     *  không phải {ok:true} mù. */
+    tuXep(token: string, params: { nguon: Xl2Nguon; id: number; ghiDe?: boolean }): Promise<Xl2TuXep> {
+      const suffix = qs({ ghi_de: params.ghiDe ? true : undefined });
+      return authed<Xl2TuXep>(`/api/xep-lich-2/tu-xep/${params.nguon}/${params.id}${suffix}`, token, {
+        method: "POST",
+      });
     },
     /** Ghi một dòng (khoá lạc quan + chặn đặt lịch). Body BẮT BUỘC `expected_updated_at`. */
     luu(token: string, dongId: number, body: Xl2LuuBody): Promise<Xl2Dong> {

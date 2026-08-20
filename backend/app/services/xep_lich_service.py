@@ -125,7 +125,7 @@ def _cuoi_ngay(d: date) -> datetime:
 # ---- Khung giờ làm của xưởng theo CA THẬT + cộng/lùi thời lượng theo GIỜ LÀM VIỆC ----
 
 class LichXuong:
-    """Khung GIỜ LÀM của xưởng (đọc-lúc-tính, máy-bất-khả-tri): tập ca `dung_cho_lich_may` chồng lên
+    """Khung GIỜ LÀM của xưởng (đọc-lúc-tính, máy-bất-khả-tri): tập ca ĐANG HOẠT ĐỘNG chồng lên
     lịch ngày nghỉ (`CalendarService`). Cấp khoảng làm-việc để engine cộng/lùi thời lượng theo GIỜ.
 
     - Mỗi ca → 1 khoảng/ngày; ca đêm (`is_overnight` hoặc end≤start) vắt sang ngày sau.
@@ -406,14 +406,21 @@ class XepLichService:
         self._lich_cache: dict[int, LichXuong] = {}
 
     def _ca_lich_may(self) -> list[WorkShift]:
-        """Tập ca CHUNG của xưởng (active + `dung_cho_lich_may`), sort theo giờ vào.
+        """Tập ca CHUNG của xưởng = MỌI ca đang hoạt động, sort theo giờ vào.
 
         Sau 2026-08-10 chỉ còn dùng cho bước KHÔNG có máy (việc tay của tổ): ở đó giờ làm của
         NGƯỜI mới là ràng buộc thật. Bước có máy đi theo `_lich_may` (chạy liên tục).
+
+        21/08/2026 BỎ cờ `dung_cho_lich_may` (mg 0226): cờ đó chưa bao giờ có đường khai — không
+        nằm trong `WorkShiftIn/Out`, frontend không có ô — nên 4/4 ca của xưởng đều FALSE và engine
+        luôn rơi về fallback 08:00–16:00 dù màn Khai ca đã khai đủ Ca 1 · Ca 2 · Ca 3 · Hành chính.
+        Hậu quả im lặng: mốc khe gợi ý mỗi ngày chỉ mở đúng 08:00, mẫu số đo tải máy 480 phút thay
+        vì 1440 (bước 10 tiếng bị chấm 125% ⇒ báo quá tải oan). Ca đã tắt (`is_active=False`) vẫn
+        là đường loại một ca ra khỏi lịch xưởng.
         """
         return list(self.db.execute(
             select(WorkShift)
-            .where(WorkShift.is_active.is_(True), WorkShift.dung_cho_lich_may.is_(True))
+            .where(WorkShift.is_active.is_(True))
             .order_by(WorkShift.start_minute)
         ).scalars())
 
@@ -641,8 +648,8 @@ class XepLichService:
     def gio_ca_cua_to(self, department_id: int, ngay: date) -> float:
         """Số GIỜ ca của tổ trong một ngày — theo ca CHUNG của xưởng.
 
-        Ca riêng của tổ đã bỏ (2026-08-10): ca khai một chỗ duy nhất ở Nhân sự → Ca kíp (cờ
-        `dung_cho_lich_may`). `department_id` giữ trong chữ ký vì quỹ giờ-người vẫn tính theo TỔ
+        Ca riêng của tổ đã bỏ (2026-08-10): ca khai một chỗ duy nhất ở Nhân sự → Ca kíp.
+        `department_id` giữ trong chữ ký vì quỹ giờ-người vẫn tính theo TỔ
         (quân số của tổ), chỉ có số GIỜ là dùng chung.
         """
         lich = self.lich
@@ -1553,31 +1560,6 @@ class XepLichService:
             return None
         return self._gang_finish_map({lsx_id}).get(lsx_id)
 
-    def _gang_cua_lsx(self, lsx_ids: set[int]) -> dict[int, tuple[int, str | None]]:
-        """lsx_id → (id, mã) bài ghép chứa nó — 2 query cho CẢ TẬP (cùng lối chống N+1 của
-        `_gang_finish_map`, đừng gọi lẻ trong vòng lặp dòng).
-
-        Dùng để nói cho người xem lịch biết BƯỚC IN CỦA LỆNH ĐI ĐÂU: lệnh đã ghép thì bước in
-        không sinh ở lane của lệnh nữa mà chạy chung ở lane bài ghép. Không có mã bài thì lane
-        lệnh khuyết một bước mà chẳng có gì giải thích."""
-        lsx_ids = {i for i in lsx_ids if i}
-        if not lsx_ids:
-            return {}
-        bg_cua_lsx = dict(
-            self.db.execute(
-                select(BaiGhepThanhVien.lsx_id, BaiGhepThanhVien.bai_ghep_id)
-                .where(BaiGhepThanhVien.lsx_id.in_(lsx_ids))
-            ).all()
-        )
-        if not bg_cua_lsx:
-            return {}
-        ma_bg = dict(
-            self.db.execute(
-                select(BaiGhep.id, BaiGhep.ma).where(BaiGhep.id.in_(set(bg_cua_lsx.values())))
-            ).all()
-        )
-        return {lid: (bgid, ma_bg.get(bgid)) for lid, bgid in bg_cua_lsx.items()}
-
     def _gang_finish_map(self, lsx_ids: set[int]) -> dict[int, datetime | None]:
         """lsx_id → kết thúc in ghép của bài ghép chứa nó — 2 query cho CẢ TẬP (`_do_thi` cần mốc này
         cho từng dòng, gọi lẻ là N+1). LSX không thuộc bài nào → không có key; bài chưa xếp giờ → None."""
@@ -2107,7 +2089,6 @@ class XepLichService:
 
         may_names = {i: m.ten for i, m in may_objs.items()}
         dept_names = self._dept_names({r.department_id for r in rows})
-        gang_map = self._gang_cua_lsx({r.lsx_id for r in rows if r.nguon == NGUON_LSX})
 
         items: list[dict] = []
         for r in rows:
@@ -2116,7 +2097,6 @@ class XepLichService:
             lcd = self._lcd(r.lsx_cong_doan_id)
             ly_do_xn = self._kiem_kha_nang(r, lsx=lsx, may=may_objs.get(r.may_id))
             ma = (lsx.ma if lsx else None) if r.nguon == NGUON_LSX else (bg.ma if bg else None)
-            gang = gang_map.get(r.lsx_id) if r.nguon == NGUON_LSX else None
             bgcd = None
             if r.nguon == NGUON_LSX:
                 ten = lcd.ten if lcd else None
@@ -2138,9 +2118,6 @@ class XepLichService:
             items.append({
                 "id": r.id, "nguon": r.nguon,
                 "lsx_id": r.lsx_id, "bai_ghep_id": r.bai_ghep_id,
-                # Lệnh đã ghép → chỉ sang chỗ bước in thật sự chạy (lane lệnh không có bước in).
-                "gang_bai_ghep_id": gang[0] if gang else None,
-                "gang_ma": gang[1] if gang else None,
                 "lsx_ma": ma, "cong_doan_ten": ten, "loai_buoc": r.loai_buoc,
                 "so_luong_vao": _f(lcd.so_luong_vao) if lcd else None,
                 "don_vi_vao": lcd.don_vi_vao if lcd else None,

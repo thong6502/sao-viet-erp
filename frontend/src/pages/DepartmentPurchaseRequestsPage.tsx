@@ -106,6 +106,7 @@ export function DepartmentPurchaseRequestsPage({
   focusRequestCode = null,
   seedLines = null,
   seedPurpose = null,
+  seedHeader = null,
 }: {
   eventTick?: number;
   /** Liên thông từ PMH/Phiếu chi: lọc + tô sáng đúng mã YCMH này khi mở trang. */
@@ -113,6 +114,17 @@ export function DepartmentPurchaseRequestsPage({
   /** Liên thông từ Kho: mở form tạo, điền sẵn dòng vật tư (Tên + ĐVT) — bỏ trống SL/ghi chú. */
   seedLines?: DepartmentPurchaseRequestLineInput[] | null;
   seedPurpose?: string | null;
+  /** Phần ĐẦU PHIẾU điền sẵn — hiện chỉ Kế hoạch vật tư gửi (20/08/2026).
+   *
+   *  Bên đó đã biết thừa ngày cần (mốc sớm nhất của các lệnh đã tick) và lệnh nào sinh ra yêu cầu
+   *  này; bắt người dùng gõ lại là bắt họ đoán lại một con số máy vừa tính xong. Kho gửi seed
+   *  không kèm đầu phiếu thì mọi thứ chạy y như cũ. */
+  seedHeader?: {
+    source_type?: DepartmentPurchaseSourceType | null;
+    needed_date?: string | null;
+    related_document_type?: string | null;
+    related_document_code?: string | null;
+  } | null;
 }) {
   const { token, user } = useAuth();
   const can = useCan();
@@ -240,12 +252,20 @@ export function DepartmentPurchaseRequestsPage({
     setPage(1);
   }, [focusRequestCode]);
 
-  // Liên thông từ Kho: mở form tạo với dòng vật tư điền sẵn (nguồn = Kho). `seedLines` là object
-  // MỚI mỗi lần điều hướng nên effect chạy đúng 1 lần / lượt bấm "Tạo yêu cầu mua".
+  // Liên thông từ Kho / Kế hoạch vật tư: mở form tạo với dòng vật tư điền sẵn. `seedLines` là
+  // object MỚI mỗi lần điều hướng nên effect chạy đúng 1 lần / lượt bấm "Tạo yêu cầu mua".
+  //
+  // KHÔNG tự lưu hộ. Form mở ra đã đủ chữ đủ số, nhưng cái bấm Lưu vẫn là người — số máy tính ra
+  // (nhất là số lượng thiếu và ngày cần) là ĐỀ XUẤT, người lo vật tư còn phải làm tròn theo ram /
+  // kiện, cộng phòng hao, hoặc bỏ bớt một món đã hỏi mượn được ở xưởng khác.
   useEffect(() => {
     if (!seedLines || seedLines.length === 0) return;
+    setEditing(null);
     setForm({
-      ...emptyRequest("kho"),
+      ...emptyRequest(seedHeader?.source_type ?? "kho"),
+      related_document_type: seedHeader?.related_document_type ?? null,
+      related_document_code: seedHeader?.related_document_code ?? null,
+      needed_date: seedHeader?.needed_date ?? "",
       content: seedPurpose ?? "",
       lines: seedLines,
     });
@@ -311,8 +331,12 @@ export function DepartmentPurchaseRequestsPage({
     };
     return {
       source_type: input.source_type ?? null,
-      related_document_type: null,
-      related_document_code: null,
+      // GIỮ vết chứng từ nguồn thay vì xoá trắng (20/08/2026). Trước đây hai ô này luôn bị nullhoá
+      // vì form gõ tay không có chỗ nhập chúng — nhưng nó cũng xoá luôn vết của phiếu ĐI TỪ màn
+      // khác sang (Kế hoạch vật tư gửi mã lệnh), và xoá cả lúc SỬA một phiếu vốn đã có vết. Người
+      // mua mở phiếu ra không còn biết mua cho lệnh nào; `openEdit` nạp vào rồi lưu là mất.
+      related_document_type: trimOptional(input.related_document_type),
+      related_document_code: trimOptional(input.related_document_code),
       content: (input.content ?? "").trim(),
       needed_date: (input.needed_date ?? "").trim(),
       note: null,

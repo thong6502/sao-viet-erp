@@ -37,7 +37,8 @@ from app.services.xep_lich_2 import (
     XepLich2Blocked, XepLich2Conflict, XepLich2Error, XepLich2Service,
 )
 from app.services.xep_lich_2 import constraint as C
-from app.services.xep_lich_service import XepLichConflict, XepLichNotFound
+from app.models.xep_lich import TT_DA_XEP
+from app.services.xep_lich_service import XepLichConflict, XepLichNotFound, _naive
 from app.repositories.xep_lich_2_repo import XepLich2Repository
 
 from tests.test_xep_lich_service import (  # noqa: F401 — fixture dùng chung
@@ -1083,6 +1084,12 @@ def test_xoa_nhap_chan_khi_da_phat_hanh(v2, db, orders, lsx_svc, admin, customer
 def test_goi_y_khe_ne_khoang_da_chiem_may(
     v2, db, orders, lsx_svc, admin, customer, monkeypatch,
 ):
+    """Khe đề xuất phải NÉ đúng đoạn máy đã bị chiếm, và bám sát đuôi nó.
+
+    Giờ dùng ở đây là TƯƠNG ĐỐI (lấy từ chính khe hệ chấm ra) chứ không neo cứng một ngày
+    lịch: từ khi `goi_y_khe` dùng sàn thật (`max(bây giờ · bàn giao · tiền nhiệm · ngày vật tư)`),
+    mọi mốc viết chết trong quá khứ sẽ hết hạn theo thời gian thực — test sẽ tự mục nát.
+    """
     monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
     l0, l1 = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     in0 = _in_theo_may(db, l0.id)
@@ -1091,21 +1098,35 @@ def test_goi_y_khe_ne_khoang_da_chiem_may(
     db.commit()
     v2.tao_nhap(nguon="lsx", id=l0.id, actor=admin)
     v2.tao_nhap(nguon="lsx", id=l1.id, actor=admin)
+
+    hom_nay = datetime.now(timezone.utc).date()
+    cua_so = {"tu": hom_nay, "den": hom_nay + timedelta(days=3)}
+
+    d1 = _dong_in(db, l1.id)
+    truoc = v2.goi_y_khe(dong_id=d1.id, **cua_so)["khe"]
+    assert truoc, "máy còn trống thì phải chấm được khe"
+    som = truoc[0]["start_at"]
+    chiem = truoc[0]["chiem_may_phut"]
+
+    # Lệnh 0 chiếm đúng cái khe sớm nhất đó ⇒ lệnh 1 phải bị đẩy ra sau đuôi.
     d0 = _dong_in(db, l0.id)
-    # Chiếm máy 08:00–09:30 bằng lệnh 0.
-    v2.luu(dong_id=d0.id, patch={"may_id": in0.may_id, "start_at": _utc(2026, 7, 27, 8, 0)},
+    v2.luu(dong_id=d0.id,
+           patch={"may_id": in0.may_id, "start_at": som.replace(tzinfo=timezone.utc)},
            expected_updated_at=d0.updated_at, actor=admin)
 
-    d1 = _dong_in(db, l1.id)                                    # nháp cùng máy, chưa có giờ
-    res = v2.goi_y_khe(dong_id=d1.id, tu=date(2026, 7, 27), den=date(2026, 7, 27))
+    res = v2.goi_y_khe(dong_id=d1.id, **cua_so)
     khe = res["khe"]
     assert khe, "phải chấm được ít nhất một khe"
     assert len(khe) <= 3
-    # Khe sớm nhất là NGAY SAU đuôi việc đang chiếm máy (09:30), không đè 08:00–09:30.
-    assert khe[0]["start_at"] == datetime(2026, 7, 27, 9, 30)
-    assert khe[0]["finish_at"] is not None
+    assert khe[0]["start_at"] == som + timedelta(minutes=chiem), "khe đầu bám đuôi việc đang chạy"
+    assert khe[0]["finish_at"] == khe[0]["start_at"] + timedelta(minutes=chiem)
     starts = [k["start_at"] for k in khe]
     assert starts == sorted(starts), "khe sắp xếp tăng dần theo giờ bắt đầu"
+    # Mỗi khe mang NHÃN NGÀY thật (thứ · cuối tuần · ngày lễ · ca đêm) để UI không phải gắn đại
+    # chữ "lý tưởng" cho một chỗ rơi vào chủ nhật.
+    nhan = khe[0]["nhan_ngay"]
+    assert {"thu", "cuoi_tuan", "ngay_le", "ca_dem"} <= set(nhan)
+    assert nhan["thu"] and isinstance(nhan["cuoi_tuan"], bool)
 
 
 def test_goi_y_khe_chua_chon_may_thi_bao_thieu(v2, db, orders, lsx_svc, admin, customer):
@@ -1282,3 +1303,156 @@ def test_boi_canh_khong_thay_va_nguon_sai(v2, db, orders, lsx_svc, admin, custom
         v2.boi_canh(nguon="in_ghep", id=999999)
     with pytest.raises(XepLich2Error):
         v2.boi_canh(nguon="ban_be", id=1)
+
+
+# ======================================================================
+# TỰ XẾP CẢ CHUỖI (`auto.tu_xep`) — thuật toán tự xếp lịch công đoạn.
+# Bốn thứ phải đúng, thiếu cái nào là "tự xếp" thành "nhét bừa":
+#   1. Chuỗi nối đuôi nhau (bước sau ≥ bước trước xong), không phải N quyết định mù nhau.
+#   2. Hai lệnh cùng máy KHÔNG đè giờ nhau — bước vừa đặt phải làm bước sau nhìn thấy máy bận.
+#   3. Mọi cách đặt nó ghi ra đều PHẢI qua được chính cửa `luu` (không tự cho mình luật riêng).
+#   4. Dòng đã khoá / đã có giờ thì không đụng (trừ khi người bấm "xếp lại").
+# ======================================================================
+def _chuoi_in_xa(db, lsx_id: int) -> tuple[LsxCongDoan, LsxCongDoan]:
+    """Routing 2 bước có phụ thuộc thật: In (90') → Xả tờ (50'), cùng nhóm máy."""
+    inb = _in_theo_may(db, lsx_id)
+    xa = LsxCongDoan(lsx_id=lsx_id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
+                     may_id=inb.may_id, so_luong_vao=5000, nang_suat=6000,
+                     don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to")
+    db.add(xa)
+    db.flush()
+    db.add(LsxCongDoanPhuThuoc(buoc_truoc_id=inb.id, buoc_sau_id=xa.id))
+    db.commit()
+    return inb, xa
+
+
+def test_tu_xep_noi_duoi_ca_chuoi(v2, db, orders, lsx_svc, admin, customer, monkeypatch):
+    """Xếp một phát cả lệnh: mọi bước có giờ, bước sau bắt đầu SAU khi bước trước xong."""
+    monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    inb, xa = _chuoi_in_xa(db, lsx.id)
+    v2.tao_nhap(nguon="lsx", id=lsx.id, actor=admin)
+
+    kq = v2.tu_xep(nguon="lsx", id=lsx.id, actor=admin)
+    assert kq["bo_qua"] == [], "không bước nào được phép rơi lại: %r" % kq["bo_qua"]
+    assert len(kq["da_xep"]) == 2
+    theo_thu_tu = sorted(kq["da_xep"], key=lambda k: k["thu_tu"])
+    a, b = theo_thu_tu
+    assert b["start_at"] >= a["finish_at"], "bước sau phải đợi bước trước xong"
+    for k in theo_thu_tu:
+        assert k["start_at"] and k["finish_at"] and k["may_id"]
+        assert k["ly_do"], "mỗi bước phải nói được VÌ SAO chọn máy/giờ đó"
+        # Đặt lịch luôn dùng mức TRUNG BÌNH; min/max chỉ để Gantt vẽ râu (§3.3).
+        assert k["chiem_may_phut_min"] <= k["chiem_may_phut"] <= k["chiem_may_phut_max"]
+        assert k["finish_at"] == k["start_at"] + timedelta(minutes=k["chiem_may_phut"])
+
+    # Ghi thật xuống dòng, không phải chỉ trả về cho vui.
+    dongs = {d.lsx_cong_doan_id: d for d in XepLichRepository(db).by_lsx(lsx.id)}
+    for step in (inb, xa):
+        d = dongs[step.id]
+        assert d.start_at is not None and d.finish_at is not None and d.trang_thai == TT_DA_XEP
+    assert kq["tom_tat"] and "Xếp được 2 bước" in kq["tom_tat"]
+
+
+def test_tu_xep_khong_de_hai_lenh_trung_may(v2, db, orders, lsx_svc, admin, customer, monkeypatch):
+    """Hai lệnh cùng một máy: tự xếp lệnh 2 phải NHÌN THẤY máy vừa bị lệnh 1 chiếm."""
+    monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
+    l0, l1 = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    in0 = _in_theo_may(db, l0.id)
+    in1 = _in_theo_may(db, l1.id)
+    in1.may_id = in0.may_id
+    db.commit()
+    v2.tao_nhap(nguon="lsx", id=l0.id, actor=admin)
+    v2.tao_nhap(nguon="lsx", id=l1.id, actor=admin)
+
+    k0 = v2.tu_xep(nguon="lsx", id=l0.id, actor=admin)
+    k1 = v2.tu_xep(nguon="lsx", id=l1.id, actor=admin)
+    assert len(k0["da_xep"]) == 1 and len(k1["da_xep"]) == 1
+    a, b = k0["da_xep"][0], k1["da_xep"][0]
+    if a["may_id"] == b["may_id"]:
+        assert a["finish_at"] <= b["start_at"] or b["finish_at"] <= a["start_at"], \
+            "hai việc cùng máy mà chồng giờ nhau"
+
+
+def test_tu_xep_moi_cach_dat_deu_qua_duoc_cua_luu(
+    v2, db, orders, lsx_svc, admin, customer, monkeypatch,
+):
+    """Bất biến quan trọng nhất: cách đặt tự-xếp ghi ra phải KHÔNG vướng luật CHẶN của `_van_de_dat_lich`.
+
+    Nếu hỏng, người dùng gặp cảnh "hệ tự xếp xong, mở ra sửa một tí là bị chính hệ chặn".
+    """
+    monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    _chuoi_in_xa(db, lsx.id)
+    v2.tao_nhap(nguon="lsx", id=lsx.id, actor=admin)
+    kq = v2.tu_xep(nguon="lsx", id=lsx.id, actor=admin)
+
+    for k in kq["da_xep"]:
+        dong = v2.core._get_dong(k["dong_id"])
+        pv = v2.xem_truoc(dong_id=dong.id, patch={
+            "may_id": k["may_id"], "start_at": k["start_at"].replace(tzinfo=timezone.utc),
+        })
+        chan = [i for i in pv["van_de"] if i["muc"] == MUC_CHAN_DAT_LICH]
+        assert chan == [], "tự xếp đẻ ra cách đặt mà chính hệ chặn: %r" % chan
+
+
+def test_tu_xep_khong_dung_dong_da_khoa(v2, db, orders, lsx_svc, admin, customer, monkeypatch):
+    """Khoá là có ý; đã có giờ là người ta đã quyết. Tự xếp chỉ lấp chỗ TRỐNG — trừ khi bấm xếp lại."""
+    monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    inb, xa = _chuoi_in_xa(db, lsx.id)
+    v2.tao_nhap(nguon="lsx", id=lsx.id, actor=admin)
+    dongs = {d.lsx_cong_doan_id: d for d in XepLichRepository(db).by_lsx(lsx.id)}
+    d_in, d_xa = dongs[inb.id], dongs[xa.id]
+
+    # In: xếp tay rồi KHOÁ. Xả tờ: để trống.
+    v2.luu(dong_id=d_in.id,
+           patch={"may_id": inb.may_id, "start_at": _utc(2026, 9, 28, 8, 0)},
+           expected_updated_at=d_in.updated_at, actor=admin)
+    d_in = v2.core._get_dong(d_in.id)
+    d_in.is_locked = True
+    db.commit()
+    moc_in = (d_in.may_id, d_in.start_at, d_in.finish_at)
+
+    kq = v2.tu_xep(nguon="lsx", id=lsx.id, actor=admin)
+    assert kq["so_giu_nguyen"] == 1
+    assert [k["dong_id"] for k in kq["da_xep"]] == [d_xa.id]
+    d_in = v2.core._get_dong(d_in.id)
+    assert (d_in.may_id, d_in.start_at, d_in.finish_at) == moc_in, "dòng khoá bị đụng"
+
+    # Ngay cả khi bấm "xếp lại toàn bộ", dòng KHOÁ vẫn không bị đụng.
+    kq2 = v2.tu_xep(nguon="lsx", id=lsx.id, actor=admin, ghi_de=True)
+    assert kq2["so_giu_nguyen"] == 1
+    d_in = v2.core._get_dong(d_in.id)
+    assert (d_in.may_id, d_in.start_at, d_in.finish_at) == moc_in
+
+
+def test_tu_xep_ghi_de_xep_lai_dong_da_co_gio(v2, db, orders, lsx_svc, admin, customer, monkeypatch):
+    """`ghi_de=True` = "xếp lại toàn bộ": dòng đã có giờ (không khoá) được tính lại, không bị giữ."""
+    monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    inb = _in_theo_may(db, lsx.id)
+    v2.tao_nhap(nguon="lsx", id=lsx.id, actor=admin)
+    dong = _dong_in(db, lsx.id)
+    v2.luu(dong_id=dong.id,
+           patch={"may_id": inb.may_id, "start_at": _utc(2026, 12, 25, 8, 0)},
+           expected_updated_at=dong.updated_at, actor=admin)
+
+    giu = v2.tu_xep(nguon="lsx", id=lsx.id, actor=admin)
+    assert giu["da_xep"] == [] and giu["so_giu_nguyen"] == 1
+    assert "Không có bước nào cần xếp" in giu["tom_tat"]
+
+    lai = v2.tu_xep(nguon="lsx", id=lsx.id, actor=admin, ghi_de=True)
+    assert len(lai["da_xep"]) == 1 and lai["so_giu_nguyen"] == 0
+    dong = v2.core._get_dong(dong.id)
+    assert dong.start_at is not None
+    assert _naive(dong.start_at) < datetime(2026, 12, 25, 8, 0), "xếp lại phải kéo sớm hơn chỗ cũ"
+
+
+def test_tu_xep_lenh_chua_vao_ke_hoach(v2, db, orders, lsx_svc, admin, customer):
+    """Lệnh chưa đưa vào kế hoạch (0 dòng) ⇒ nói rõ "không có bước nào cần xếp", không nổ."""
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    _in_theo_may(db, lsx.id)
+    kq = v2.tu_xep(nguon="lsx", id=lsx.id, actor=admin)
+    assert kq["da_xep"] == [] and kq["bo_qua"] == [] and kq["luot"] == 0
+    assert "Không có bước nào cần xếp" in kq["tom_tat"]

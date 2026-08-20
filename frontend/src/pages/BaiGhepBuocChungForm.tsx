@@ -140,6 +140,26 @@ export function BuocChungForm({
     return ds;
   })();
 
+  // "Nhảy tiền" khi đổi đầu việc: server đã tính sẵn tiền công của TỪNG lựa chọn cho đúng bước này
+  // (`tien_du_kien`), nên chọn ở dropdown là ra số ngay — khỏi Lưu trước. Chỉ áp khi CHƯA đổi tổ:
+  // đổi tổ thì cả danh sách đầu việc + tiền kèm theo thuộc tổ CŨ, phải Lưu để backend chấm lại.
+  const doiTo = f.department_id !== undefined;
+  const selId = val("piece_rate_id", g.khoan_rate_id);
+  const optLive =
+    !doiTo && selId != null
+      ? dsKhoan.find((k) => k.id === selId && "tien_du_kien" in k)
+      : undefined;
+  const tienLive = optLive?.tien_du_kien ?? null;
+  const slLive = optLive?.sl_du_kien ?? null;
+  const dvSlLive = optLive?.don_vi_sl_du_kien ?? null;
+  const dienGiaiLive = optLive?.dien_giai_du_kien ?? null;
+  // Số bày ở dải KPI: ưu tiên bản live; nếu KHÔNG đổi gì thì giữ số server đã lưu; đổi (đổi tổ, hoặc
+  // xoá lựa chọn / ghim dòng đã ngừng) mà chưa có bản live thì ẩn đi — đừng để số cũ đánh lừa.
+  const chuaDoiKhoan = !doiTo && f.piece_rate_id === undefined;
+  const tienHien = optLive ? tienLive : chuaDoiKhoan ? g.khoan_tien : null;
+  const slHien = optLive ? slLive : chuaDoiKhoan ? g.khoan_sl : null;
+  const dvSlHien = optLive ? dvSlLive : g.khoan_don_vi_sl;
+
   // Vật tư sửa theo LÔ: giữ nguyên danh sách hiện có rồi thay cả cụm khi lưu (API là replace-all).
   const vtHienTai = (f.vat_tus ?? g.vat_tus.map((v) => ({ vat_tu_id: v.vat_tu_id, so_luong: v.so_luong })));
   const datVatTu = (rows: { vat_tu_id: number; so_luong: number }[]) => setF({ ...f, vat_tus: rows });
@@ -563,7 +583,21 @@ export function BuocChungForm({
                   </select>
 
                   <div className="khsx-khoan-status-row">
-                    {f.piece_rate_id !== undefined || f.department_id !== undefined ? (
+                    {doiTo ? (
+                      <span className="khsx-pill-status khsx-pill-status--warn">
+                        Lưu lượt chung để tính lại tiền công
+                      </span>
+                    ) : optLive ? (
+                      tienLive != null ? (
+                        <span className="khsx-pill-status khsx-pill-status--ok">
+                          {dienGiaiLive ?? g.khoan_dien_giai}
+                        </span>
+                      ) : (
+                        <span className="khsx-pill-status khsx-pill-status--error">
+                          {dienGiaiLive ?? "Chưa quy đổi được sản lượng sang đơn vị đơn giá."}
+                        </span>
+                      )
+                    ) : f.piece_rate_id !== undefined ? (
                       <span className="khsx-pill-status khsx-pill-status--warn">
                         Lưu lượt chung để tính lại tiền công
                       </span>
@@ -586,22 +620,22 @@ export function BuocChungForm({
                   </div>
                 ))}
 
-                {(g.khoan_tien != null || g.khoan_sl != null) && (
+                {(tienHien != null || slHien != null) && (
                   <div className="khsx-compact-kpi-strip">
                     <div className="khsx-compact-kpi-cell">
                       <span className="khsx-compact-kpi-label">Sản lượng tính công</span>
                       <div className="khsx-compact-kpi-val-group">
                         <span className="khsx-compact-kpi-val">
-                          {g.khoan_sl != null ? num(g.khoan_sl) : "—"}
+                          {slHien != null ? num(slHien) : "—"}
                         </span>
-                        <span className="khsx-compact-kpi-sub">{nhanDonVi(g.khoan_don_vi_sl) || "chưa quy đổi"}</span>
+                        <span className="khsx-compact-kpi-sub">{nhanDonVi(dvSlHien) || "chưa quy đổi"}</span>
                       </div>
                     </div>
                     <div className="khsx-compact-kpi-cell khsx-compact-kpi-cell--rust">
                       <span className="khsx-compact-kpi-label">Tiền công cả lượt chung</span>
                       <div className="khsx-compact-kpi-val-group">
                         <span className="khsx-compact-kpi-val">
-                          {g.khoan_tien != null ? `${num(g.khoan_tien)} đ` : "—"}
+                          {tienHien != null ? `${num(tienHien)} đ` : "—"}
                         </span>
                         <span className="khsx-compact-kpi-sub">chia lại cho {g.thanh_vien.length} lệnh</span>
                       </div>

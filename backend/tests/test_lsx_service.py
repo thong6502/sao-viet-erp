@@ -1074,6 +1074,34 @@ def test_hai_dau_viec_cung_cong_doan_thi_khong_dien_ho(db, orders, lsx_svc, admi
     assert buoc_be["khoan_tien"] is None      # chưa chọn thì KHÔNG có số nào
 
 
+def test_khoan_chon_duoc_kem_tien_du_kien_cho_tung_dau_viec(db, orders, lsx_svc, admin, customer):
+    """Mỗi đầu việc trong dropdown kèm TIỀN CÔNG DỰ KIẾN cho ĐÚNG bước này — drawer chọn là "nhảy
+    tiền" ngay, không phải Lưu bước rồi backend mới trả số (kể cả bước vừa gộp chưa có nền khoán).
+
+    Bước "Dán hộp" đếm cái, đơn giá đ/cái nên tiền = SL vào × đơn giá — cùng con số mà bước sẽ ăn
+    khi chọn đúng đầu việc đó (đối chiếu `test_bung_lenh_tu_dien_dau_viec_va_ra_tien_du_kien`).
+    """
+    ptg = _ptg_2_san_pham(db)
+    cd_be = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").first()
+    for ten, gia in (("Dán thường", 250), ("Dán khó", 400)):
+        _gan_dinh_muc(db, cong_doan=cd_be, ten=ten, don_vi="cái", don_gia=gia)
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    lines = lsx_svc.preview(d.id)["lines"]
+    lsx = lsx_svc.tao(order_id=d.id, order_line_ids=[lines[0]["order_line_id"]], actor=admin)[0]
+
+    buoc_be = next(b for b in lsx_svc.detail_dict(lsx)["cong_doans"] if b["ten"] == "Dán hộp")
+    sl = buoc_be["so_luong_vao"]
+    opt = {k["ten"]: k for k in buoc_be["khoan_chon_duoc"]}
+    assert opt["Dán thường"]["tien_du_kien"] == pytest.approx(sl * 250, rel=1e-6)
+    assert opt["Dán khó"]["tien_du_kien"] == pytest.approx(sl * 400, rel=1e-6)
+    # Kèm sản lượng đã quy đổi + câu diễn giải để drawer hiện thẳng, không phải tự nhân.
+    assert opt["Dán thường"]["sl_du_kien"] == pytest.approx(sl, rel=1e-6)
+    assert "đ/cái" in opt["Dán thường"]["dien_giai_du_kien"]
+    # Bước CHƯA chọn (khoan_rate_id None) vẫn không tự điền tiền — số chỉ nằm ở từng lựa chọn.
+    assert buoc_be["khoan_tien"] is None
+
+
 def test_sua_routing_ghim_dau_viec_va_giu_gia_luc_chon(db, orders, lsx_svc, admin, customer):
     """Chọn đầu việc ở drawer → ghim SNAPSHOT. Xưởng lên giá khoán sau đó KHÔNG được xê dịch lệnh
     đã phát: bước vẫn giữ đơn giá lúc chọn."""

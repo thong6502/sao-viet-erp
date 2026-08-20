@@ -1058,6 +1058,83 @@ def test_router_NOI_ghi_chu_ngay_vao_noi_dung_yeu_cau(client):
         f"nội dung yêu cầu mua phải mang ghi chú ngày, thực tế: {da_nhan.get('content')!r}"
 
 
+def test_xem_truoc_de_nghi_mua_TRA_DU_DE_DIEN_FORM_va_KHONG_ghi_gi(client):
+    """Cửa xem-trước phải trả đủ bộ để đổ vào form — và tuyệt đối KHÔNG lập phiếu.
+
+    Đây là chỗ dễ hỏng nhất của đợt 20/08/2026: nút "Đề nghị mua ngay" đổi nghĩa từ "lập phiếu"
+    sang "mở form". Nếu cửa này lỡ gọi `create_department_request` thì mỗi lần người dùng bấm rồi
+    bấm Huỷ ở form vẫn đẻ ra một yêu cầu mua ma — không ai thấy, tới lúc thu mua mở màn mới lộ ra
+    một đống phiếu trùng.
+    """
+    from app.main import app
+    from app.routers import ke_hoach_vat_tu as r
+
+    ghi = "LSX-X cần 30/08 ⚠ Chưa suy được ngày cần cho LSX-Y"
+    da_tao: list = []
+
+    class _KhoGia:
+        def gom_de_nghi(self, chon):
+            return {"lines": [{"hang_loai": "vat_tu", "hang_id": 7, "item_name": "Kẽm CTP",
+                               "unit": "kem", "quantity": 15}],
+                    "needed_date": HOM_NAY, "related_document_code": "LSX-X, LSX-Y",
+                    "ghi_chu_ngay": ghi}
+
+    class _ThuMuaGia:
+        def can_create_department_request(self, actor):
+            return True
+
+        def create_department_request(self, **kw):
+            da_tao.append(kw)
+            return {"id": 1, "code": "YC-0001"}
+
+    app.dependency_overrides[r.get_service] = lambda: _KhoGia()
+    app.dependency_overrides[r.get_purchase_service] = lambda: _ThuMuaGia()
+    try:
+        resp = client.post(
+            "/api/ke-hoach-vat-tu/de-nghi-mua/xem-truoc",
+            json={"dong": [{"hang_loai": "vat_tu", "hang_id": 7}]},
+            headers={"Authorization": f"Bearer {_admin_token()}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert da_tao == [], "cửa xem-trước mà vẫn lập phiếu — bấm rồi huỷ là đẻ yêu cầu ma"
+    assert body["related_document_type"] == "lsx"
+    assert body["related_document_code"] == "LSX-X, LSX-Y"
+    assert body["needed_date"] == HOM_NAY.isoformat()
+    assert ghi in body["noi_dung"], f"thiếu ghi chú ngày: {body['noi_dung']!r}"
+    assert body["lines"] == [{"hang_loai": "vat_tu", "hang_id": 7, "item_name": "Kẽm CTP",
+                              "unit": "kem", "quantity": 15}]
+
+
+def test_xem_truoc_de_nghi_mua_CHAN_nguoi_khong_duoc_lap_yeu_cau(client):
+    """Không có bit tạo yêu cầu mua thì chặn NGAY ở cửa xem-trước, đừng dẫn tới form rồi mới 403."""
+    from app.main import app
+    from app.routers import ke_hoach_vat_tu as r
+
+    class _KhoGia:
+        def gom_de_nghi(self, chon):  # pragma: no cover - không được gọi tới
+            raise AssertionError("chặn quyền phải xảy ra TRƯỚC khi tính toán")
+
+    class _ThuMuaGia:
+        def can_create_department_request(self, actor):
+            return False
+
+    app.dependency_overrides[r.get_service] = lambda: _KhoGia()
+    app.dependency_overrides[r.get_purchase_service] = lambda: _ThuMuaGia()
+    try:
+        resp = client.post(
+            "/api/ke-hoach-vat-tu/de-nghi-mua/xem-truoc",
+            json={"dong": [{"hang_loai": "vat_tu", "hang_id": 7}]},
+            headers={"Authorization": f"Bearer {_admin_token()}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 403, resp.text
+
+
 def _admin_token() -> str:
     from app.repositories.user_repo import UserRepository
     from app.security import create_access_token

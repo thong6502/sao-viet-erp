@@ -289,20 +289,25 @@ export function KhoYeuCauPage({
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
-        {/* LỌC TRẠNG THÁI — dropdown thay dải tab cho gọn. */}
-        <div className="kho-picker">
-          <Select
-            options={tabs.map((t) => ({
-              value: t.id,
-              label: t.label,
-              hint: String(countOf(t.id)),
-            }))}
-            value={tab}
-            onChange={(v) => v != null && setTab(v as TabId)}
-            ariaLabel="Lọc trạng thái"
-          />
+        {/* LỌC TRẠNG THÁI — dải tab Segmented Control phẳng thay cho dropdown cũ */}
+        <div className="rc__tabs" style={{ margin: 0 }}>
+          {tabs.map((t) => {
+            const count = countOf(t.id);
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                className={`rc__tab${active ? " is-active" : ""}`}
+                onClick={() => setTab(t.id)}
+              >
+                <span>{t.label}</span>
+                {count > 0 && <span className="rc__tab-badge">{count}</span>}
+              </button>
+            );
+          })}
         </div>
-        {/* Kho là BẮT BUỘC ở màn này: không biết kho thì không tra được lô, không lập được phiếu. */}
+        {/* Kho là BẮT BUỘC ở màn này: chọn kho để tra cứu và lập phiếu */}
         <div className="kho-picker">
           <Select
             options={khoList.map((w) => ({ value: w.id, label: w.ten, hint: w.ma }))}
@@ -391,8 +396,15 @@ export function KhoYeuCauPage({
                         <LoaiYeuCauChip loai={r.loai} dieuChuyen={r.dieu_chuyen} />
                       </td>
                       <td>
-                        <div>{r.nguoi_tao_ten ?? "—"}</div>
-                        <div className="rc__muted">{r.bo_phan_ten ?? "—"}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div className="kho-user-avatar" style={{ width: 22, height: 22, fontSize: 10, flexShrink: 0 }}>
+                            {(r.nguoi_tao_ten || "U").slice(0, 1).toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: "var(--fw-medium)", color: "var(--ink)" }}>{r.nguoi_tao_ten ?? "—"}</div>
+                            <div className="rc__muted" style={{ fontSize: 11 }}>{r.bo_phan_ten ?? "—"}</div>
+                          </div>
+                        </div>
                       </td>
                       <td>
                         <div
@@ -420,7 +432,8 @@ export function KhoYeuCauPage({
                         </div>
                       </td>
                       <td className={`rc__nowrap${overdue ? " kho-overdue" : ""}`}>
-                        {r.ngay_can ? fmtDateISO(r.ngay_can) : "—"}
+                        <div>{r.ngay_can ? fmtDateISO(r.ngay_can) : "—"}</div>
+                        {overdue && <span className="kho-priority-badge kho-priority-badge--critical" style={{ marginTop: 2 }}>Quá hạn</span>}
                       </td>
                       <td>
                         <RequestStatusBadge status={r.trang_thai} />
@@ -430,7 +443,7 @@ export function KhoYeuCauPage({
                           {FULFILLABLE.includes(r.trang_thai) && (
                             <button
                               type="button"
-                              className="rc__link-btn"
+                              className={`kho-act-btn${r.open_voucher_id != null ? " kho-act-btn--secondary" : ""}`}
                               onClick={() => openFulfil(r)}
                             >
                               {r.open_voucher_id != null ? "Xem phiếu" : "Lập phiếu"}
@@ -441,14 +454,6 @@ export function KhoYeuCauPage({
                     </tr>
                   );
                   })}
-                  {Array.from({ length: Math.max(0, pageSize - pageRequests.length) }).map((_, i) => (
-                    <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true">
-                      <td colSpan={reqCols}>
-                        <div className="rc__name">&nbsp;</div>
-                        <div className="rc__muted">&nbsp;</div>
-                      </td>
-                    </tr>
-                  ))}
                 </>
               )}
             </tbody>
@@ -588,10 +593,38 @@ export function InboxRequestDrawer({
 
   const canFulfill = canCreate && req != null && FULFILLABLE.includes(req.trang_thai);
 
+  const reqLines = req?.lines ?? [];
+  const totalSKU = reqLines.length;
+  const totalDeNghi = reqLines.reduce((acc, l) => acc + (Number(l.sl_de_nghi) || 0), 0);
+  const totalDuyet = reqLines.reduce((acc, l) => acc + (Number(l.sl_duyet) || 0), 0);
+  const percentDone = totalDeNghi > 0 ? Math.min(100, Math.round((totalDuyet / totalDeNghi) * 100)) : 0;
+
+  const showStepper = req && req.trang_thai !== "cancelled" && req.trang_thai !== "rejected";
+  const stepperSteps = [
+    {
+      label: "Yêu cầu tạo",
+      sub: req?.nguoi_tao_ten ? `${req.nguoi_tao_ten}` : "Đã tạo",
+      done: true,
+      active: false,
+    },
+    {
+      label: "Lập phiếu kho",
+      sub: vouchers.length > 0 ? `${vouchers.length} phiếu kho` : "Chờ lập phiếu",
+      done: req?.trang_thai === "done" || vouchers.length > 0,
+      active: ["approved", "preparing", "partial"].includes(req?.trang_thai ?? "") && vouchers.length === 0,
+    },
+    {
+      label: "Hoàn tất",
+      sub: req?.trang_thai === "done" ? "Hoàn thành" : "Đang xử lý",
+      done: req?.trang_thai === "done",
+      active: false,
+    },
+  ];
+
   return (
     <>
     <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
-      <aside className="rc-drawer rc-drawer--mid" onClick={(e) => e.stopPropagation()}>
+      <aside className="rc-drawer rc-drawer--wide" onClick={(e) => e.stopPropagation()}>
         <header className="rc-drawer__head">
           <div>
             <div className="rc-drawer__kicker">
@@ -611,13 +644,55 @@ export function InboxRequestDrawer({
           </div>
         </header>
 
+        {showStepper && (
+          <div className="kho-stepper">
+            {stepperSteps.map((s, idx) => {
+              const cls = s.done ? "done" : s.active ? "active" : "pending";
+              return (
+                <div key={idx} className={`kho-stepper__step kho-stepper__step--${cls}`}>
+                  <div className="kho-stepper__dot">
+                    {s.done ? "✓" : idx + 1}
+                  </div>
+                  <div className="kho-stepper__content">
+                    <span className="kho-stepper__label">{s.label}</span>
+                    <span className="kho-stepper__sub">{s.sub}</span>
+                  </div>
+                  {idx < stepperSteps.length - 1 && <div className="kho-stepper__line" />}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {req && (
+          <div className="kho-kpi-wrapper">
+            <div className="kho-kpi-bar">
+              <div className="kho-kpi-pill">
+                Mặt hàng: <strong>{totalSKU} loại</strong>
+              </div>
+              <div className="kho-kpi-pill">
+                Tổng YC: <strong>{fmtQty(totalDeNghi)}</strong>
+              </div>
+              <div className={`kho-kpi-pill ${percentDone >= 100 ? "kho-kpi-pill--moss" : ""}`}>
+                Đã duyệt/cấp: <strong>{fmtQty(totalDuyet)}</strong>
+                {totalDeNghi > 0 && <span style={{ opacity: 0.85 }}>({percentDone}%)</span>}
+              </div>
+            </div>
+            {totalDeNghi > 0 && (
+              <div className="kho-kpi-progress-track">
+                <div
+                  className="kho-kpi-progress-fill"
+                  style={{ width: `${percentDone}%` }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {req && (
           <div className="kho-meta">
-            {req.nguoi_tao_ten ?? "—"}
-            {req.bo_phan_ten ? ` · ${req.bo_phan_ten}` : ""} · {fmtDate(req.created_at)}
-            {req.nguoi_duyet_ten
-              ? ` → Duyệt: ${req.nguoi_duyet_ten} · ${fmtDate(req.duyet_luc)}`
-              : ""}
+            <strong>{req.nguoi_tao_ten ?? "—"}</strong>
+            {req.bo_phan_ten ? ` (${req.bo_phan_ten})` : ""} · {fmtDate(req.created_at)}
           </div>
         )}
 
@@ -643,72 +718,102 @@ export function InboxRequestDrawer({
                 </div>
               )}
               <section className="rc-sec">
-                <h3 className="rc-sec__title">Yêu cầu</h3>
-                <div className="rc-grid">
-                  {req.dieu_chuyen && (
-                    // Đường đi hàng của điều chuyển — CHỈ hiện khi là yêu cầu điều chuyển.
-                    <Readout
-                      label="Điều chuyển"
-                      value={`Từ kho ${req.kho_nguon_ten ?? "—"} → ${req.kho_ten ?? "kho đích"}`}
-                    />
-                  )}
-                  <Readout
-                    label="Ngày cần"
-                    value={req.ngay_can ? fmtDateISO(req.ngay_can) : "—"}
-                  />
-                  <div className="rc-field rc-field--full">
-                    <span className="rc-field__label">Ghi chú</span>
-                    <span>{req.ghi_chu || "—"}</span>
+                <h3 className="rc-sec__title">Thông tin yêu cầu</h3>
+                <div className="kho-info-grid">
+                  <div className="kho-info-item">
+                    <span className="kho-info-item__label">Ngày cần</span>
+                    <div className="kho-info-item__val">{req.ngay_can ? fmtDateISO(req.ngay_can) : "—"}</div>
                   </div>
+                  <div className="kho-info-item">
+                    <span className="kho-info-item__label">Người đề nghị</span>
+                    <div className="kho-info-item__val">
+                      <strong>{req.nguoi_tao_ten ?? "—"}</strong>
+                      {req.bo_phan_ten ? ` (${req.bo_phan_ten})` : ""}
+                    </div>
+                  </div>
+                  {req.dieu_chuyen && (
+                    <div className="kho-info-item">
+                      <span className="kho-info-item__label">Điều chuyển</span>
+                      <div className="kho-info-item__val">
+                        Từ <strong>{req.kho_nguon_ten ?? "—"}</strong> → <strong>{req.kho_ten ?? "Kho đích"}</strong>
+                      </div>
+                    </div>
+                  )}
                 </div>
+                {req.ghi_chu && (
+                  <div className="rc-field rc-field--full" style={{ marginTop: 8 }}>
+                    <span className="rc-field__label">Ghi chú người tạo</span>
+                    <div className="kho-val-card">{req.ghi_chu}</div>
+                  </div>
+                )}
               </section>
 
               <section className="rc-sec">
                 <h3 className="rc-sec__title">Dòng vật tư</h3>
-                <div className="kho-lines__wrap">
+                <div className="kho-lines__wrap kho-lines-card">
                   <table className="kho-lines">
                     <thead>
                       <tr>
-                        <th style={{ minWidth: 150 }}>Vật tư</th>
-                        <th style={{ width: 56 }}>ĐVT</th>
-                        <th className="kho-num">Yêu cầu</th>
-                        <th className="kho-num">Duyệt</th>
-                        {/* Không có `can_view_stock` → cột BIẾN MẤT, không phải "—". */}
-                        {canViewStock && <th className="kho-num">Tồn khả dụng</th>}
+                        <th style={{ minWidth: 160 }}>Vật tư</th>
+                        <th style={{ width: 60, textAlign: "center" }}>ĐVT</th>
+                        <th className="kho-num" style={{ width: 90 }}>Yêu cầu</th>
+                        <th className="kho-num" style={{ width: 90 }}>Duyệt</th>
+                        {/* Cột Tồn khả dụng có chiều rộng 140px chuẩn, không bao giờ bị xén */}
+                        {canViewStock && <th className="kho-num" style={{ width: 140 }}>Tồn khả dụng</th>}
                       </tr>
                     </thead>
                     <tbody>
-                      {req.lines.map((l) => (
-                        <tr key={l.id}>
-                          <td>
-                            {/* Ảnh mặt hàng (từ danh mục, gắn khi lập phiếu nhập) — cạnh tên vật tư, chỉ xem. */}
-                            <div className="kho-lineimg">
-                              {l.hang_anh && (
-                                <img
-                                  className="kho-lineimg__thumb"
-                                  src={assetUrl(l.hang_anh) ?? undefined}
-                                  alt=""
-                                />
-                              )}
-                              <div className="kho-lineimg__txt">
-                                <div
-                                  className="kho-lines__name kho-name-clamp"
-                                  title={l.hang_ten ?? undefined}
-                                >
-                                  {l.hang_ten ?? "—"}
+                      {req.lines.map((l) => {
+                        const shortage = (l.sl_duyet || 0) - (l.ton_kha_dung || 0);
+                        const isShort = l.ton_kha_dung != null && shortage > 0;
+                        return (
+                          <tr key={l.id}>
+                            <td>
+                              <div className="kho-lineimg">
+                                {l.hang_anh && (
+                                  <img
+                                    className="kho-lineimg__thumb"
+                                    src={assetUrl(l.hang_anh) ?? undefined}
+                                    alt=""
+                                  />
+                                )}
+                                <div className="kho-lineimg__txt">
+                                  <div
+                                    className="kho-lines__name kho-name-clamp"
+                                    title={l.hang_ten ?? undefined}
+                                  >
+                                    {l.hang_ten ?? "—"}
+                                  </div>
+                                  <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
                                 </div>
-                                <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
                               </div>
-                            </div>
-                          </td>
-                          <td className="kho-lines__code">{tenDonVi(l.dvt) ?? l.dvt}</td>
-                          <td className="kho-num">{fmtQty(l.sl_de_nghi)}</td>
-                          <td className="kho-num">{fmtQty(l.sl_duyet)}</td>
-                          {canViewStock && (
-                            <td className="kho-num">{fmtQty(l.ton_kha_dung ?? 0)}</td>
-                          )}
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="kho-lines__code" style={{ textAlign: "center" }}>
+                              {tenDonVi(l.dvt) ?? l.dvt}
+                            </td>
+                            <td className="kho-num">{fmtQty(l.sl_de_nghi)}</td>
+                            <td className="kho-num">{fmtQty(l.sl_duyet)}</td>
+                            {canViewStock && (
+                              <td className="kho-num">
+                                <div style={{ fontFamily: "var(--ff-num)", fontWeight: "var(--fw-bold)" }}>
+                                  {fmtQty(l.ton_kha_dung ?? 0)}
+                                </div>
+                                {l.ton_kha_dung != null && (
+                                  isShort ? (
+                                    <span className="kho-priority-badge kho-priority-badge--critical" style={{ fontSize: 10, marginTop: 2 }}>
+                                      Thiếu {fmtQty(shortage)}
+                                    </span>
+                                  ) : (
+                                    <span className="kho-line-badge kho-line-badge--moss" style={{ fontSize: 10, marginTop: 2 }}>
+                                      Đủ tồn
+                                    </span>
+                                  )
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1206,14 +1311,41 @@ function VoucherCreateDrawer({
 
             <section className="rc-sec">
               <h3 className="rc-sec__title">Thông tin phiếu</h3>
+              
+              {/* Meta Summary Banner phẳng 3 cột hairline (Không viền dày bên trái) */}
+              <div className="kho-meta-banner">
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <div>
+                    <span className="rc-field__label" style={{ display: "block", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>Theo yêu cầu</span>
+                    <span className="kho-meta-banner__badge">{request.ma}</span>
+                  </div>
+                  <div style={{ height: 28, width: 1, background: "var(--rule-soft)", margin: "0 4px" }} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div className="kho-user-avatar" style={{ width: 26, height: 26, fontSize: 11, background: "var(--charcoal)", color: "#fff", flexShrink: 0 }}>
+                      {(request.nguoi_tao_ten || "U").slice(0, 1).toUpperCase()}
+                    </div>
+                    <div>
+                      <span className="rc-field__label" style={{ display: "block", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>Người tạo yêu cầu</span>
+                      <div style={{ fontWeight: "var(--fw-medium)", color: "var(--ink)", fontSize: 13 }}>
+                        {request.nguoi_tao_ten || "—"} {request.bo_phan_ten ? `(${request.bo_phan_ten})` : ""}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {canViewCost && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                    <div style={{ height: 28, width: 1, background: "var(--rule-soft)" }} />
+                    <div className="kho-top-kpi-pill">
+                      <span className="kho-top-kpi-pill__label">Tổng giá vốn ({payload.length} dòng)</span>
+                      <span className="kho-top-kpi-pill__val">{money(giaVon)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="rc-grid">
-                {/* Chuỗi trách nhiệm kế thừa từ yêu cầu — ghi thẳng vào phiếu (chỉ đọc). Bỏ "người
-                    duyệt": tạo yêu cầu kho không còn bước duyệt (1 quyền). */}
-                <Readout label="Theo yêu cầu" value={request.ma} />
-                <Readout label="Người tạo yêu cầu" value={request.nguoi_tao_ten || "—"} />
                 {request.dieu_chuyen ? (
-                  // ĐIỀU CHUYỂN: kho nguồn ↔ đích đã CHỐT ở yêu cầu → KHOÁ CỨNG, không cho đổi
-                  // (đổi kho đích là làm sai đích của điều chuyển). Hiện cả hai để thấy đường đi hàng.
                   <>
                     <Readout label="Từ kho (nguồn)" value={request.kho_nguon_ten || "—"} />
                     <Readout
@@ -1228,7 +1360,6 @@ function VoucherCreateDrawer({
                     <span className="rc-field__label">
                       Kho {isNhap ? "(nhập về)" : "(xuất từ)"} <em>*</em>
                     </span>
-                    {/* Bước lập phiếu QUYẾT ĐỊNH kho (yêu cầu không chọn kho). Đổi kho → nạp lại lô. */}
                     <Select
                       portal
                       options={khoList.map((w) => ({ value: w.id, label: w.ten, hint: w.ma }))}
@@ -1298,26 +1429,22 @@ function VoucherCreateDrawer({
                   ))}
                 </div>
               ) : (
-                <div className="kho-lines__wrap">
-                  {/* --wide: cột lấy bề rộng THẬT của nội dung, chật thì cuộn ngang (không ép chữ). */}
-                  <table className="kho-lines kho-lines--wide">
+                <div className="kho-lines__wrap kho-lines-card">
+                  {/* Bảng dòng cấp auto-fit chiều rộng Drawer, min-width 240px cho cột Vật tư chống ép chữ */}
+                  <table className="kho-lines" style={{ width: "100%", tableLayout: "auto" }}>
                     <thead>
                       <tr>
-                        <th className="kho-nhap__stt">STT</th>
-                        <th>Vật tư</th>
-                        {/* Ảnh mặt hàng — NGAY cạnh cột Vật tư (cả nhập lẫn xuất); bảng dài thì cuộn ngang. */}
-                        <th>Ảnh</th>
-                        <th>ĐVT</th>
-                        <th className="kho-num">SL yêu cầu</th>
-                        <th className="kho-num">Tồn hiện tại</th>
-                        <th className="kho-num">{isNhap ? "SL nhập" : "Cấp"}</th>
-                        {/* XUẤT: đơn giá là BÌNH QUÂN gia quyền các lô (giá vốn) — không phải giá nhập tay. */}
-                        <th className="kho-num">{isNhap ? "Đơn giá" : "Đơn giá bình quân"}</th>
-                        <th className="kho-num">Thành tiền</th>
-                        {/* Vị trí cất lô — chỉ phiếu NHẬP (xuất không đặt vị trí). */}
-                        {isNhap && <th>Vị trí</th>}
-                        {/* Hạn sử dụng — chỉ NHẬP; tách lô theo hạn (+ Thêm hạn); dài thì cuộn ngang. */}
-                        {isNhap && <th>Hạn sử dụng</th>}
+                        <th className="kho-nhap__stt" style={{ width: 40, textAlign: "center" }}>#</th>
+                        <th style={{ minWidth: 300 }}>Vật tư</th>
+                        <th style={{ width: 60, textAlign: "center" }}>Ảnh</th>
+                        <th style={{ width: 60, textAlign: "center" }}>ĐVT</th>
+                        <th className="kho-num" style={{ width: 90 }}>SL YC</th>
+                        <th className="kho-num" style={{ width: 90 }}>Tồn kho</th>
+                        <th className="kho-num" style={{ width: 110 }}>{isNhap ? "SL Nhập" : "Cấp"}</th>
+                        <th className="kho-num" style={{ width: 120 }}>{isNhap ? "Đơn giá" : "Đơn giá BQ"}</th>
+                        <th className="kho-num" style={{ width: 130 }}>Thành tiền</th>
+                        {isNhap && <th style={{ width: 140 }}>Vị trí</th>}
+                        {isNhap && <th style={{ width: 140 }}>HSD</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -1395,25 +1522,6 @@ function VoucherCreateDrawer({
                 />
               </label>
             </section>
-
-            {/* Section giá vốn KHÔNG TỒN TẠI khi thiếu quyền — không phải ẩn số bên trong. */}
-            {canViewCost && (
-              <section className="rc-sec">
-                <h3 className="rc-sec__title">Giá vốn phiếu</h3>
-                <div className="dpanel">
-                  <div className="dpanel__label">
-                    <span>Tổng giá vốn</span>
-                    <span className="dpanel__label-extra">{payload.length} dòng</span>
-                  </div>
-                  <div className="dpanel__amount">{money(giaVon)}</div>
-                  <div className="dpanel__sub">
-                    {isNhap
-                      ? "Tính theo đơn giá nhập khai trên từng dòng."
-                      : "Tính đích danh theo giá của từng lô được lấy."}
-                  </div>
-                </div>
-              </section>
-            )}
           </div>
 
           <footer className="rc-drawer__foot">
@@ -1593,7 +1701,7 @@ function AllocRow({
         onClick={!isNhap && !settled ? () => setManualOpen(!open) : undefined}
       >
         <td className="kho-nhap__stt">{idx}</td>
-        <td>
+        <td style={{ minWidth: 300 }}>
           <div className="kho-lines__name">
             {/* Caret: XUẤT bấm dòng để xổ/gập bảng lô đã tự lấy theo FIFO. */}
             {!isNhap && !settled && (
@@ -2049,15 +2157,45 @@ export function VoucherDrawer({
               <>
                 <section className="rc-sec">
                   <h3 className="rc-sec__title">Thông tin phiếu</h3>
-                  {/* kho-info-grid: lưới 2 cột có hairline ngăn cách cho dễ đọc (CSS dựng sẵn). */}
-                  <div className="rc-grid kho-info-grid">
-                    {/* Chuỗi trách nhiệm — ai tạo yêu cầu → ai lập phiếu (kho). Bỏ "người duyệt": tạo
-                        yêu cầu kho không còn bước duyệt (1 quyền). */}
+                  
+                  {/* Meta Summary Banner phẳng 3 cột hairline (Không viền dày bên trái) */}
+                  <div className="kho-meta-banner">
+                    <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                      <div>
+                        <span className="rc-field__label" style={{ display: "block", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>Theo yêu cầu</span>
+                        <span className="kho-meta-banner__badge">{v.request_ma || "—"}</span>
+                      </div>
+                      <div style={{ height: 28, width: 1, background: "var(--rule-soft)", margin: "0 4px" }} />
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div className="kho-user-avatar" style={{ width: 26, height: 26, fontSize: 11, background: "var(--charcoal)", color: "#fff", flexShrink: 0 }}>
+                          {(v.nguoi_lap_ten || "U").slice(0, 1).toUpperCase()}
+                        </div>
+                        <div>
+                          <span className="rc-field__label" style={{ display: "block", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>Người lập phiếu</span>
+                          <div style={{ fontWeight: "var(--fw-medium)", color: "var(--ink)", fontSize: 13 }}>
+                            {v.nguoi_lap_ten || "—"}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {canViewCost && v.gia_von != null && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                        <div style={{ height: 28, width: 1, background: "var(--rule-soft)" }} />
+                        <div className="kho-top-kpi-pill">
+                          <span className="kho-top-kpi-pill__label">Tổng giá vốn ({v.lines.length} dòng)</span>
+                          <span className="kho-top-kpi-pill__val">{money(v.gia_von)}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* kho-voucher-info-grid: lưới 2 cột phẳng mượt */}
+                  <div className="rc-grid kho-voucher-info-grid">
                     <Readout label="Người tạo yêu cầu" value={v.nguoi_de_nghi_ten || "—"} />
                     <Readout label="Người lập phiếu" value={v.nguoi_lap_ten || "—"} />
                     <Readout label="Theo yêu cầu" value={v.request_ma || "—"} />
                     <Readout label="Kho" value={v.kho_ten || "—"} />
-                    {/* Ngày hàng THỰC nhập/xuất kho (khác "Ghi sổ" = ngày chốt sổ kế toán). */}
                     <Readout
                       label={v.loai === "NHAP" ? "Ngày nhập kho" : "Ngày xuất kho"}
                       value={fmtDateISO(v.ngay)}
@@ -2083,33 +2221,33 @@ export function VoucherDrawer({
 
                 <section className="rc-sec">
                   <h3 className="rc-sec__title">Dòng phiếu</h3>
-                  <div className="kho-lines__wrap">
-                    <table className="kho-lines">
+                  <div className="kho-lines__wrap kho-lines-card">
+                    <table className="kho-lines" style={{ width: "100%", tableLayout: "auto" }}>
                       <thead>
                         <tr>
-                          <th style={{ minWidth: 150 }}>Vật tư</th>
-                          <th style={{ width: 52 }}>ĐVT</th>
-                          <th className="kho-num">Số lượng</th>
-                          {canViewCost && <th className="kho-num">Đơn giá</th>}
-                          {canViewCost && <th className="kho-num">Thành tiền</th>}
+                          <th style={{ minWidth: 300 }}>Vật tư</th>
+                          <th style={{ width: 60, textAlign: "center" }}>ĐVT</th>
+                          <th className="kho-num" style={{ width: 110 }}>Số lượng</th>
+                          {canViewCost && <th className="kho-num" style={{ width: 120 }}>Đơn giá</th>}
+                          {canViewCost && <th className="kho-num" style={{ width: 130 }}>Thành tiền</th>}
                         </tr>
                       </thead>
                       <tbody>
                         {v.lines.map((l) => (
                           <tr key={l.id}>
-                            <td>
-                              <div className="kho-lines__name">{l.hang_ten ?? "—"}</div>
-                              <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
+                            <td style={{ minWidth: 300 }}>
+                              <div className="kho-lines__name" style={{ fontWeight: "var(--fw-bold)", color: "var(--ink)" }}>{l.hang_ten ?? "—"}</div>
+                              <div className="kho-lines__code" style={{ fontFamily: "var(--ff-num)", fontSize: 11, color: "var(--ash)" }}>{l.hang_ma ?? ""}</div>
                             </td>
-                            <td className="kho-lines__code">{tenDonVi(l.dvt) ?? l.dvt ?? "—"}</td>
-                            <td className="kho-num">{fmtQty(l.so_luong)}</td>
+                            <td className="kho-lines__code" style={{ textAlign: "center" }}>{tenDonVi(l.dvt) ?? l.dvt ?? "—"}</td>
+                            <td className="kho-num" style={{ fontFamily: "var(--ff-num)", fontVariantNumeric: "tabular-nums" }}>{fmtQty(l.so_luong)}</td>
                             {canViewCost && (
-                              <td className="kho-num">
+                              <td className="kho-num" style={{ fontFamily: "var(--ff-num)", fontVariantNumeric: "tabular-nums" }}>
                                 {l.don_gia != null ? money(l.don_gia) : ""}
                               </td>
                             )}
                             {canViewCost && (
-                              <td className="kho-num">
+                              <td className="kho-num" style={{ fontFamily: "var(--ff-num)", fontVariantNumeric: "tabular-nums", fontWeight: "var(--fw-bold)" }}>
                                 {l.thanh_tien != null ? money(l.thanh_tien) : ""}
                               </td>
                             )}
@@ -2173,19 +2311,6 @@ export function VoucherDrawer({
                     </label>
                   )}
                 </section>
-
-                {canViewCost && v.gia_von != null && (
-                  <section className="rc-sec">
-                    <h3 className="rc-sec__title">Giá vốn phiếu</h3>
-                    <div className="dpanel">
-                      <div className="dpanel__label">
-                        <span>Tổng giá vốn</span>
-                        <span className="dpanel__label-extra">{v.lines.length} dòng</span>
-                      </div>
-                      <div className="dpanel__amount">{money(v.gia_von)}</div>
-                    </div>
-                  </section>
-                )}
               </>
             )}
           </div>

@@ -236,6 +236,30 @@ def goi_y_khe(
         raise _map(exc)
 
 
+# --- Tự xếp lịch cả một lệnh/bài -------------------------------------------
+@router.post("/tu-xep/{nguon}/{id}", response_model=None)
+def tu_xep(
+    nguon: str,
+    id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    ghi_de: bool = Query(False, description="Xếp lại cả những bước đã có giờ (trừ bước đang khoá)"),
+) -> dict:
+    """Tự xếp toàn bộ bước CHƯA có giờ của một lệnh/bài, theo đúng luật mà nút Lưu đang dùng.
+
+    Trả về từng bước đã xếp (kèm câu vì-sao chọn máy đó), các bước chưa xếp được kèm lý do, và độ
+    trễ so với hạn SX. Ghi thật vào lịch — cùng quyền `update` với sửa một dòng."""
+    if nguon not in (NGUON_LSX, NGUON_IN_GHEP):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"Nguồn không hợp lệ: {nguon!r} (cần 'lsx' hoặc 'in_ghep').")
+    try:
+        kq = _svc(db).tu_xep(nguon=nguon, id=id, actor=user, ghi_de=ghi_de)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "xep_lich_changed"})
+    return kq
+
+
 # --- Ghi một dòng (khóa lạc quan + chặn đặt lịch) ---------------------------
 @router.put("/dong/{dong_id}", response_model=None)
 def luu(
