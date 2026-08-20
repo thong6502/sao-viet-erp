@@ -30,7 +30,13 @@ const CHU = "./rebuild-catalog.css";
  *
  * Bài học đắt hơn con số: một guard XANH chưa chứng minh gì nếu chưa có lần nào thấy nó ĐỎ. */
 const NO_DA_BIET: Record<string, number> = {
-  "./kho-request.css": 28,  // scrim · drawer · sec__title · code-badge … (đã giành lại bằng .rc--dm)
+  // 28→31 khi GỘP hai nhánh (20/08/2026): nhánh SX có nhóm scrim · drawer · sec__title · code-badge …
+  // (đã giành lại bằng .rc--dm), nhánh HR/kho thêm bảng Báo cáo kho tái dùng .rc__table (.rc__table--fixed,
+  // .rc__filler, .rc__muted, .rc__link-btn, .rc__tabn …). Không có selector nào TRÙNG — là hợp nhất thật của
+  // hai bộ nợ đã-được-ghi-nhận riêng, không phải rò mới. Vẫn chỉ được CO LẠI từ đây.
+  "./kho-request.css": 31,
+  // .rc-drawer__kicker trong .khvt-drawer__head (màn Kế hoạch vật tư tái dùng đầu drawer của rc, có chủ đích).
+  "./ke-hoach-sx.css": 1,
   "./ky-thuat-may.css": 1,  // .rc__tab.is-qua-han — hex cứng thay token
   "./tinh-gia.css": 19,     // .rc-drawer--wide + bộ .rc-modal__* của màn Tính giá
 };
