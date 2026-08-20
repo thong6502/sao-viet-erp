@@ -48,6 +48,7 @@ import {
   useHeaderTitles,
   writeStoredKho,
 } from "./khoShared";
+import { tenDonVi, useNapTenDonVi } from "./tenDonVi";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
 
@@ -554,6 +555,9 @@ export function InboxRequestDrawer({
   /** Gọi khi yêu cầu đổi trạng thái (kho hủy) để cha refetch list ngay. */
   onChanged?: () => void;
 }) {
+  // Nhãn ĐVT phải là TÊN có dấu lấy từ danh mục ("bản kẽm"), KHÔNG phải mã lưu trong
+  // `stock_request_lines.dvt` ("kem") — mã vẫn giữ nguyên khi gửi lên server để quy đổi.
+  useNapTenDonVi();
   const [req, setReq] = useState<StockRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -697,7 +701,7 @@ export function InboxRequestDrawer({
                               </div>
                             </div>
                           </td>
-                          <td className="kho-lines__code">{l.dvt}</td>
+                          <td className="kho-lines__code">{tenDonVi(l.dvt) ?? l.dvt}</td>
                           <td className="kho-num">{fmtQty(l.sl_de_nghi)}</td>
                           <td className="kho-num">{fmtQty(l.sl_duyet)}</td>
                           {canViewStock && (
@@ -854,6 +858,9 @@ interface AllocBlock {
   ghiChu: string;
   /** Phiếu NHẬP: vị trí cất lô (kệ/ô) — tuỳ chọn; ghi sổ chép sang lô. */
   viTri: string;
+  /** Phiếu NHẬP: HẠN SỬ DỤNG của đợt nhập này (tuỳ chọn, ISO). Một đợt = 1 lô = 1 hạn; nhiều hạn
+   *  của cùng vật tư là do NHIỀU đợt nhập, tồn/báo cáo tự gom. */
+  hsd: string;
   /** Phiếu NHẬP: đơn vị đang gõ ở ô SL nhập — "ton" (đơn vị tồn) hoặc "phu" (đơn vị quy đổi). */
   unit: "ton" | "phu";
   touched: boolean;
@@ -892,6 +899,7 @@ function VoucherCreateDrawer({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  useNapTenDonVi();
   const isNhap = request.loai === "NHAP";
   // NGƯỜI LẬP PHIẾU LUÔN NHẬP + THẤY ĐƠN GIÁ (bỏ gate "xem giá vốn" ở bước lập) — theo yêu cầu:
   // ai tạo phiếu đều set giá; giá do người lập điền, không chờ Kế toán bổ sung nữa.
@@ -936,6 +944,7 @@ function VoucherCreateDrawer({
       lyDo: "",
       ghiChu: "",
       viTri: "",
+      hsd: "",
       unit: "ton",
       touched: false,
       warn: null,
@@ -1041,11 +1050,13 @@ function VoucherCreateDrawer({
         if (b.cap <= 0) continue;
         // SL + đơn giá gửi theo ĐƠN VỊ CỦA DÒNG YÊU CẦU; server tự quy về đơn vị gốc và chốt hệ
         // số vào `sl_goc`. FE KHÔNG tự nhân hệ số nữa — hai nơi cùng quy đổi là hai nơi lệch nhau.
+        // Một đợt nhập = MỘT lô = MỘT hạn (tuỳ chọn). Không hạn → lô không hạn.
         out.push({
           request_line_id: b.line.id,
           so_luong: b.cap,
           don_gia: canViewCost ? Math.round(Number(b.donGia) || 0) : undefined,
           vi_tri: b.viTri.trim() || undefined,
+          hsd: b.hsd || undefined,
           ly_do: ly,
           ghi_chu: ghi,
         });
@@ -1288,7 +1299,8 @@ function VoucherCreateDrawer({
                 </div>
               ) : (
                 <div className="kho-lines__wrap">
-                  <table className="kho-lines">
+                  {/* --wide: cột lấy bề rộng THẬT của nội dung, chật thì cuộn ngang (không ép chữ). */}
+                  <table className="kho-lines kho-lines--wide">
                     <thead>
                       <tr>
                         <th className="kho-nhap__stt">STT</th>
@@ -1304,6 +1316,8 @@ function VoucherCreateDrawer({
                         <th className="kho-num">Thành tiền</th>
                         {/* Vị trí cất lô — chỉ phiếu NHẬP (xuất không đặt vị trí). */}
                         {isNhap && <th>Vị trí</th>}
+                        {/* Hạn sử dụng — chỉ NHẬP; tách lô theo hạn (+ Thêm hạn); dài thì cuộn ngang. */}
+                        {isNhap && <th>Hạn sử dụng</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -1320,6 +1334,7 @@ function VoucherCreateDrawer({
                           onLyDo={(v) => patch(b.line.id, (cur) => ({ ...cur, lyDo: v }))}
                           onLotQty={(lotId, v) => setLotQty(b.line.id, lotId, v)}
                           onViTri={(v) => patch(b.line.id, (cur) => ({ ...cur, touched: true, viTri: v }))}
+                          onHsd={(v) => patch(b.line.id, (cur) => ({ ...cur, touched: true, hsd: v }))}
                           onAnhPick={(file) =>
                             patch(b.line.id, (cur) => ({ ...cur, anhFile: file, anhRemove: false }))
                           }
@@ -1467,6 +1482,7 @@ function AllocRow({
   onLyDo,
   onLotQty,
   onViTri,
+  onHsd,
   onAnhPick,
   onAnhClear,
 }: {
@@ -1480,6 +1496,7 @@ function AllocRow({
   onLyDo: (v: string) => void;
   onLotQty: (lotId: number, v: number) => void;
   onViTri: (v: string) => void;
+  onHsd: (v: string) => void;
   /** Chọn/đổi ảnh mặt hàng (chỉ phiếu NHẬP) — GIỮ file client-side, chỉ lưu khi LẬP PHIẾU. */
   onAnhPick: (file: File) => void;
   /** Bỏ ảnh: có file đang chờ thì huỷ chọn; không thì đánh dấu gỡ ảnh cũ (áp khi lập phiếu). */
@@ -1542,7 +1559,7 @@ function AllocRow({
   const quyDoiHint =
     isNhap && block.heSoVeGoc !== 1 && block.cap > 0 && l.don_vi_goc ? (
       <p className="kho-hint">
-        = {fmtQty(block.cap * block.heSoVeGoc)} {l.don_vi_goc} (lô lưu theo {l.don_vi_goc})
+        = {fmtQty(block.cap * block.heSoVeGoc)} {tenDonVi(l.don_vi_goc) ?? l.don_vi_goc} (lô lưu theo {tenDonVi(l.don_vi_goc) ?? l.don_vi_goc})
         {l.quy_doi_dien_giai ? ` · ${l.quy_doi_dien_giai}` : ""}
       </p>
     ) : null;
@@ -1602,34 +1619,37 @@ function AllocRow({
                 <img src={shownAnh} alt={block.matLabel} />
               </button>
             )}
-            <label className="rc__link-btn">
-              {shownAnh ? "Đổi" : "＋ Ảnh"}
-              <input
-                type="file"
-                accept="image/*"
-                hidden
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) onAnhPick(f);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-            {shownAnh && (
-              <button
-                type="button"
-                className="rc__link-btn kho-anh__del"
-                onClick={() => {
-                  onAnhClear();
-                  setAnhZoom(false);
-                }}
-              >
-                Xóa
-              </button>
-            )}
+            {/* Đổi / Xóa nằm DƯỚI ảnh (kho-anh--cell xếp dọc), không chen ngang làm rộng cột. */}
+            <div className="kho-anh__cellacts">
+              <label className="rc__link-btn">
+                {shownAnh ? "Đổi" : "＋ Ảnh"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onAnhPick(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {shownAnh && (
+                <button
+                  type="button"
+                  className="rc__link-btn kho-anh__del"
+                  onClick={() => {
+                    onAnhClear();
+                    setAnhZoom(false);
+                  }}
+                >
+                  Xóa
+                </button>
+              )}
+            </div>
           </div>
         </td>
-        <td className="kho-lines__code">{l.dvt}</td>
+        <td className="kho-lines__code">{tenDonVi(l.dvt) ?? l.dvt}</td>
         <td className="kho-num">
           {/* SL người yêu cầu xin (sl_de_nghi) — không phải phần còn lại. Đã đủ thì báo "Đã cấp đủ". */}
           {settled ? (
@@ -1708,11 +1728,27 @@ function AllocRow({
               "—"
             ) : (
               <input
-                className="rc-input"
+                className="rc-input kho-nhap__vitri"
                 value={block.viTri}
                 onChange={(e) => onViTri(e.target.value)}
                 placeholder="kệ A / ô…"
                 aria-label="Vị trí cất hàng"
+              />
+            )}
+          </td>
+        )}
+        {/* Hạn sử dụng của ĐỢT nhập này — 1 lô = 1 hạn (tuỳ chọn). Đợt sau nhập thì set hạn của đợt đó. */}
+        {isNhap && (
+          <td>
+            {settled ? (
+              "—"
+            ) : (
+              <input
+                type="date"
+                className="rc-input kho-hsd__date"
+                value={block.hsd}
+                onChange={(e) => onHsd(e.target.value)}
+                aria-label="Hạn sử dụng"
               />
             )}
           </td>
@@ -1722,7 +1758,7 @@ function AllocRow({
       {hasDetail && (
         <tr className="kho-alloc__detailrow">
           <td aria-hidden />
-          <td colSpan={isNhap ? 9 : 8}>
+          <td colSpan={isNhap ? 10 : 8}>
             {quyDoiHint}
             {lyDoBox}
             {!isNhap && (
@@ -1730,7 +1766,7 @@ function AllocRow({
                 {block.thieu > 0 && (
                   <div className="banner banner--warn">
                     <span>
-                      Kho chỉ còn {fmtQty(l.sl_con_lai - block.thieu)} {l.dvt}. Cấp{" "}
+                      Kho chỉ còn {fmtQty(l.sl_con_lai - block.thieu)} {tenDonVi(l.dvt) ?? l.dvt}. Cấp{" "}
                       {fmtQty(l.sl_con_lai - block.thieu)} lần này, phần còn lại chờ nhập hoặc tạo yêu
                       cầu mới.
                     </span>
@@ -1744,6 +1780,8 @@ function AllocRow({
                       <tr>
                         <th>Mã phiếu</th>
                         <th>Nhập</th>
+                        <th>Vị trí</th>
+                        <th>HSD</th>
                         <th className="kho-num">SL thực tế</th>
                         {canViewCost && <th className="kho-num">Đơn giá</th>}
                         <th className="kho-num">SL lấy</th>
@@ -1753,7 +1791,7 @@ function AllocRow({
                     <tbody>
                       {block.lots.length === 0 ? (
                         <tr>
-                          <td colSpan={canViewCost ? 6 : 4} className="kho-lines__empty">
+                          <td colSpan={canViewCost ? 8 : 6} className="kho-lines__empty">
                             Không còn lô khả dụng trong kho này.
                           </td>
                         </tr>
@@ -1763,6 +1801,8 @@ function AllocRow({
                             {/* Mã phiếu nhập gốc; tồn đầu kỳ không có phiếu → lùi về mã lô. */}
                             <td className="kho-lines__code">{lot.voucher_ma ?? lot.ma_lo}</td>
                             <td>{fmtDateISO(lot.ngay_nhap)}</td>
+                            <td>{lot.vi_tri ?? "—"}</td>
+                            <td>{lot.hsd ? fmtDateISO(lot.hsd) : "—"}</td>
                             <td className="kho-num">{fmtQty(lot.sl_con_lai)}</td>
                             {canViewCost && (
                               <td className="kho-num">
@@ -1844,6 +1884,7 @@ export function VoucherDrawer({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  useNapTenDonVi();
   const [v, setV] = useState<StockVoucher | null>(null);
   // Bản in cần `sl_duyet` + ngày yêu cầu (mẫu 01-VT/02-VT có cột "Theo chứng từ") — hai thứ
   // này chỉ có trên yêu cầu, nên phiếu phải kéo kèm.
@@ -2060,7 +2101,7 @@ export function VoucherDrawer({
                               <div className="kho-lines__name">{l.hang_ten ?? "—"}</div>
                               <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
                             </td>
-                            <td className="kho-lines__code">{l.dvt ?? "—"}</td>
+                            <td className="kho-lines__code">{tenDonVi(l.dvt) ?? l.dvt ?? "—"}</td>
                             <td className="kho-num">{fmtQty(l.so_luong)}</td>
                             {canViewCost && (
                               <td className="kho-num">

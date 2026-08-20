@@ -170,6 +170,7 @@ class BaoCaoKhoRow(BaseModel):
     thanh_tien: float | None = None
     kho_id: int | None = None
     kho_ten: str | None = None
+    han_su_dung: date | None = None       # hạn sử dụng của lô dòng này (từ stock_lots.hsd)
     # ĐIỀU CHUYỂN nội bộ (mig 0203): FE gắn nhãn "điều chuyển" + LOẠI dòng này khỏi tổng mua/bán
     # ở Tổng quan (chỉ tính luân chuyển từng kho, không thổi phồng "mua/bán trong kỳ").
     dieu_chuyen: bool = False
@@ -280,6 +281,9 @@ class StockVoucherLineIn(BaseModel):
     ghi_chu: str | None = Field(default=None, max_length=500)
     # Phiếu NHẬP: vị trí cất lô trong kho (kệ/ô) — thủ kho khai; ghi sổ chép sang lô.
     vi_tri: str | None = Field(default=None, max_length=100)
+    # Phiếu NHẬP: hạn sử dụng của lô sắp tạo (tuỳ chọn). Tách hạn = nhiều dòng (mỗi hạn 1 dòng),
+    # phần dư không hạn để None. XUẤT bỏ qua.
+    hsd: date | None = None
 
 
 class StockVoucherCreate(BaseModel):

@@ -26,6 +26,7 @@ import { PrintSheet } from "../components/PrintSheet";
 import { Select } from "../components/Select";
 import { fmtDate, fmtDateISO } from "../utils/format";
 import { DateFilterHead, LoaiYeuCauChip, RequestStatusBadge, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, isOverdue, todayISO, useHeaderTitles } from "./khoShared";
+import { tenDonVi, useNapTenDonVi } from "./tenDonVi";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
 
@@ -602,6 +603,8 @@ function RequestDrawer({
   onClose,
   onSaved,
 }: RequestDrawerProps) {
+  // ĐVT hiện TÊN có dấu từ danh mục, không phải mã `dvt` lưu trong dòng — xem KhoYeuCauPage.
+  useNapTenDonVi();
   const [req, setReq] = useState<StockRequest | null>(null);
   const [loading, setLoading] = useState(requestId != null);
   const [busy, setBusy] = useState(false);
@@ -977,7 +980,7 @@ function RequestDrawer({
                                   }
                                 />
                               ) : (
-                                <span className="kho-lines__code">{l.dvt || "—"}</span>
+                                <span className="kho-lines__code">{tenDonVi(l.dvt) || l.dvt || "—"}</span>
                               )}
                             </td>
                             <td className="kho-num">
@@ -1272,6 +1275,7 @@ function RequestPrint({
   lines: DraftLine[];
   onClose: () => void;
 }) {
+  useNapTenDonVi();
   const title =
     req.loai === "NHAP" ? "GIẤY YÊU CẦU NHẬP KHO" : "GIẤY YÊU CẦU LĨNH VẬT TƯ";
   return (
@@ -1316,7 +1320,7 @@ function RequestPrint({
               <td>{i + 1}</td>
               <td>{l.hang_ten ?? ""}</td>
               <td>{l.hang_ma ?? ""}</td>
-              <td>{l.dvt}</td>
+              <td>{tenDonVi(l.dvt) ?? l.dvt}</td>
               <td style={{ textAlign: "right" }}>{fmtQty(l.sl_de_nghi)}</td>
               <td style={{ textAlign: "right" }}>{l.sl_duyet > 0 ? fmtQty(l.sl_duyet) : ""}</td>
             </tr>

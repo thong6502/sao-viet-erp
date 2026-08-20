@@ -5933,6 +5933,8 @@ export interface BaoCaoKhoRow {
   thanh_tien: number | null;
   kho_id: number | null;
   kho_ten: string | null;
+  /** Hạn sử dụng của lô dòng này (ISO yyyy-mm-dd) — từ stock_lots.hsd. */
+  han_su_dung: string | null;
   /** ĐIỀU CHUYỂN nội bộ: gắn nhãn "điều chuyển" + LOẠI khỏi tổng mua/bán ở Tổng quan. */
   dieu_chuyen: boolean;
 }
@@ -6235,6 +6237,9 @@ export interface StockVoucherLineInput {
   ghi_chu?: string | null;
   /** Phiếu NHẬP: vị trí cất lô (kệ/ô) — thủ kho khai; ghi sổ chép sang lô. */
   vi_tri?: string | null;
+  /** Phiếu NHẬP: hạn sử dụng của lô (ISO yyyy-mm-dd, tuỳ chọn). Tách hạn = nhiều dòng; phần dư
+   *  không hạn để null. */
+  hsd?: string | null;
 }
 
 export interface StockVoucherInput {

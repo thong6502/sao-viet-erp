@@ -38,6 +38,7 @@ import {
   VoucherStatusBadge,
   fmtQty,
   inNumRange,
+  todayISO,
   useHeaderTitles,
 } from "./khoShared";
 import { InboxRequestDrawer, VoucherDrawer } from "./KhoYeuCauPage";
@@ -64,6 +65,10 @@ interface MaterialGroup {
   // Vị trí cất (kệ/ô) distinct, ƯU TIÊN lô nhập gần nhất → rồi giữ thứ tự xuất hiện đầu.
   // Rỗng = chưa lô nào khai vị trí. Dùng ở cột Vị trí (cắt +K) và tab Tổng quan (đủ).
   viTris: string[];
+  // Hạn sử dụng: hạn SỚM NHẤT (gần hết hạn nhất) của các lô CÒN tồn + số hạn KHÁC (cột "+N").
+  // null = không lô nào còn tồn có hạn.
+  hsdSoonest: string | null;
+  hsdOthers: number;
   // Mức tồn 5 màu so với ngưỡng đã khai. null = chưa khai ngưỡng cho mã này ở kho này.
   level: StockLevel | null;
 }
@@ -234,6 +239,8 @@ export function KhoTonKhoPage({
           value: 0,
           lots: [],
           viTris: [],
+          hsdSoonest: null,
+          hsdOthers: 0,
           level: null,
         };
         m.set(key, g);
@@ -262,6 +269,10 @@ export function KhoTonKhoPage({
         }
       }
       g.viTris = viTris;
+      // Hạn sử dụng: distinct các hạn của lô CÒN tồn, sắp TĂNG dần → hạn sớm nhất lên đầu (FEFO).
+      const hsds = [...new Set(g.lots.map((l) => l.hsd).filter((h): h is string => !!h))].sort();
+      g.hsdSoonest = hsds[0] ?? null;
+      g.hsdOthers = Math.max(0, hsds.length - 1);
       g.level = levelOf(g.total, thresholds[g.key]);
     }
     return arr.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "vi"));
@@ -410,7 +421,7 @@ export function KhoTonKhoPage({
   // Cột tab Tồn kho: [checkbox nếu canCreate] + Vật tư + Vị trí + Tồn khả dụng + Số đợt nhập +
   // Min/Max + Trạng thái + Ngày nhập (7 cột cố định — Min/Max & Trạng thái AI cũng xem được,
   // KHÔNG gate theo set_threshold) [+ Giá trị tồn nếu view_cost].
-  const tonCols = (canCreate ? 1 : 0) + 7 + (canViewCost ? 1 : 0);
+  const tonCols = (canCreate ? 1 : 0) + 8 + (canViewCost ? 1 : 0);  // +1: cột Hạn sử dụng
 
   // Phân trang (dùng chung cho cả 2 tab; số tổng theo tab đang xem).
   const pageTotal = tab === "ton" ? filtered.length : shownVouchers.length;
@@ -580,8 +591,9 @@ export function KhoTonKhoPage({
                     />
                   </th>
                 )}
-                <th>Vật tư</th>
-                <th style={{ width: "8%" }}>Vị trí</th>
+                <th style={{ minWidth: 170 }}>Vật tư</th>
+                <th style={{ minWidth: 80 }}>Vị trí</th>
+                <th style={{ minWidth: 112 }} title="Hạn SỚM NHẤT của lô còn tồn; +N = số hạn khác">Hạn sử dụng</th>
                 <NumFilterHead className="kho-num" style={{ width: "14%" }} label="Tồn khả dụng" from={tonFrom} to={tonTo} onChange={(f, t) => { setTonFrom(f); setTonTo(t); }} />
                 <th className="kho-num" style={{ width: "10%" }}>
                   Số đợt nhập
@@ -1009,6 +1021,22 @@ function MaterialRow({
           </span>
         )}
       </td>
+      <td
+        title={
+          g.hsdSoonest
+            ? `Hạn sớm nhất: ${fmtDateISO(g.hsdSoonest)}${g.hsdOthers ? ` · +${g.hsdOthers} hạn khác (bung lô để xem đủ)` : ""}`
+            : undefined
+        }
+      >
+        {g.hsdSoonest == null ? (
+          <span className="rc__muted">—</span>
+        ) : (
+          <span className="kho-ton__vitri">
+            {fmtDateISO(g.hsdSoonest)}
+            {g.hsdOthers > 0 ? <span className="kho-ton__vtmore"> +{g.hsdOthers}</span> : null}
+          </span>
+        )}
+      </td>
       <td className="kho-num kho-ton__total">
         {fmtQty(g.total)}
         {g.dvt ? <span className="kho-ton__dvt"> {g.dvt}</span> : null}
@@ -1041,6 +1069,24 @@ function MaterialRow({
       </td>
       {canViewCost && <td className="kho-num kho-ton__val">{money(Math.round(g.value))}</td>}
     </tr>
+  );
+}
+
+/** Ô HSD của một lô — dùng chung cho cả tab Nhập và Xuất.
+ *
+ *  Quá hạn thì tô đỏ + có `title`: cột hạn dùng mà không cảnh báo thì chỉ là thêm một cột chữ,
+ *  trong khi đúng thứ thủ kho cần biết là "lô này còn dùng được không". Lô không khai HSD (bản
+ *  kẽm, giấy…) vẫn hiện "—" mờ như cũ — phần lớn vật tư in không có hạn. */
+function HsdCell({ hsd }: { hsd: string | null | undefined }) {
+  if (!hsd) return <td className="kho-lines__code">—</td>;
+  const quaHan = hsd < todayISO();
+  return (
+    <td
+      className={quaHan ? "kho-lines__hsd kho-lines__hsd--qua" : "kho-lines__hsd"}
+      title={quaHan ? "Đã quá hạn" : undefined}
+    >
+      {fmtDateISO(hsd)}
+    </td>
   );
 }
 
@@ -1200,6 +1246,9 @@ function MaterialHistoryDrawer({
   const xuat = data?.xuat ?? [];
   const nhapPaged = nhap.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
   const xuatPaged = xuat.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
+  // Dòng XUẤT chỉ mang `lot_id`; vị trí + HSD nằm ở LÔ. `nhap` đã chứa MỌI lô của mặt hàng (kể cả
+  // lô đã hết) nên tra ngay tại chỗ — không phải gọi thêm API chỉ để hiện hai cột.
+  const lotById = useMemo(() => new Map(nhap.map((l) => [l.id, l])), [nhap]);
 
   return (
     <>
@@ -1422,6 +1471,7 @@ function MaterialHistoryDrawer({
                       <th className="kho-num">SL yêu cầu</th>
                       <th className="kho-num">SL nhập</th>
                       <th style={{ minWidth: 96 }}>Vị trí</th>
+                      <th style={{ width: 96 }}>HSD</th>
                       {canViewCost && <th className="kho-num">Đơn giá</th>}
                     </tr>
                   </thead>
@@ -1444,10 +1494,11 @@ function MaterialHistoryDrawer({
                           {lot.sl_de_nghi != null ? fmtQty(lot.sl_de_nghi) : "—"}
                         </td>
                         <td className="kho-num">{fmtQty(lot.sl_ban_dau)}</td>
-                        {/* Vị trí là dữ liệu ĐÃ CHỐT sau ghi sổ → CHỈ hiển thị, không cho sửa. */}
-                        <td>
-                          <span className="kho-lines__code">{lot.vi_tri ?? "—"}</span>
-                        </td>
+                        {/* Vị trí là dữ liệu ĐÃ CHỐT sau ghi sổ → CHỈ hiển thị, không cho sửa.
+                            KHÔNG dùng .kho-lines__code (11px/xám — class đó dành cho MÃ): đây là
+                            cột thủ kho đọc rồi cầm xuống kho, phải rõ như các cột số. */}
+                        <td className="kho-lines__vt">{lot.vi_tri ?? "—"}</td>
+                        <HsdCell hsd={lot.hsd} />
                         {canViewCost && (
                           <td className="kho-num">{money(lot.don_gia_nhap ?? 0)}</td>
                         )}
@@ -1464,35 +1515,46 @@ function MaterialHistoryDrawer({
               <table className="kho-lines">
                 <thead>
                   <tr>
+                    {/* Số phiếu ĐỨNG TRƯỚC ngày, đúng thứ tự tab Nhập — mở drawer là mắt rơi vào
+                        cùng một chỗ dù đang ở tab nào. */}
+                    <th style={{ minWidth: 130 }}>Số phiếu</th>
                     <th style={{ width: 96 }}>Ngày xuất</th>
-                    <th style={{ width: 116 }}>Số phiếu</th>
                     {/* SL yêu cầu (số đã xin trên yêu cầu sinh ra dòng xuất) đứng TRƯỚC SL xuất thực tế. */}
                     <th className="kho-num">SL yêu cầu</th>
                     <th className="kho-num">SL xuất</th>
+                    {/* Vị trí + HSD của LÔ đã xuất — cùng bộ cột với tab Nhập để mắt không phải
+                        đổi chỗ khi bấm qua lại giữa hai tab. */}
+                    <th style={{ minWidth: 96 }}>Vị trí</th>
+                    <th style={{ width: 96 }}>HSD</th>
                     {canViewCost && <th className="kho-num">Giá vốn</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {xuatPaged.map((r, i) => (
+                  {xuatPaged.map((r, i) => {
+                    const lot = r.lot_id != null ? lotById.get(r.lot_id) : undefined;
+                    return (
                     <tr key={`${r.voucher_id}-${r.lot_id}-${i}`}>
-                      <td className="kho-lines__code">{fmtDateISO(r.ngay)}</td>
                       <td className="kho-lines__code">
                         <CodeLink
                           code={r.voucher_ma ?? "—"}
                           onOpen={() => onOpenVoucher(r.voucher_id)}
                         />
                       </td>
+                      <td className="kho-lines__code">{fmtDateISO(r.ngay)}</td>
                       <td className="kho-num">
                         {r.sl_de_nghi != null ? fmtQty(r.sl_de_nghi) : "—"}
                       </td>
                       <td className="kho-num">{fmtQty(r.so_luong)}</td>
+                      <td className="kho-lines__vt">{lot?.vi_tri ?? "—"}</td>
+                      <HsdCell hsd={lot?.hsd} />
                       {canViewCost && (
                         <td className="kho-num">
                           {r.don_gia != null ? money(Math.round(r.don_gia * r.so_luong)) : ""}
                         </td>
                       )}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

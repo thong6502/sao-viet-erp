@@ -159,6 +159,10 @@ class StockVoucherLine(Base):
     # Phiếu NHẬP: VỊ TRÍ cất lô trong kho (kệ/ô) do thủ kho khai lúc lập; ghi sổ chép sang
     # `stock_lots.vi_tri`. Null với phiếu XUẤT (không tạo lô). Thêm qua migration 0115.
     vi_tri: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Phiếu NHẬP: HẠN SỬ DỤNG của lô sắp tạo (tuỳ chọn). Một dòng nhập có thể tách nhiều lô theo
+    # hạn → mỗi (hạn, SL) là MỘT dòng phiếu; phần dư không hạn là dòng hsd=NULL. Ghi sổ chép sang
+    # `stock_lots.hsd` (đã dùng cho FIFO/FEFO: hạn sớm xuất trước). Thêm qua migration 0205.
+    hsd: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     voucher: Mapped[StockVoucher] = relationship("StockVoucher", back_populates="lines")
 

@@ -984,13 +984,14 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                   <NumFilterHead className="kho-bc__num" label="Số lượng" from={slFrom} to={slTo} onChange={(f, t) => { setSlFrom(f); setSlTo(t); }} />
                   <NumFilterHead className="kho-bc__num" label="Đơn giá" from={dgFrom} to={dgTo} onChange={(f, t) => { setDgFrom(f); setDgTo(t); }} />
                   <NumFilterHead className="kho-bc__num" label="Thành tiền" from={ttFrom} to={ttTo} onChange={(f, t) => { setTtFrom(f); setTtTo(t); }} />
+                  <th title="Hạn sử dụng của lô dòng này (nếu có)">Hạn sử dụng</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={10} className="rc__empty-state">Đang tải…</td></tr>
+                  <tr><td colSpan={11} className="rc__empty-state">Đang tải…</td></tr>
                 ) : filteredRows.length === 0 ? (
-                  <tr><td colSpan={10} className="rc__empty-state">Không có dòng nào (phiếu đã ghi sổ) trong kỳ / bộ lọc.</td></tr>
+                  <tr><td colSpan={11} className="rc__empty-state">Không có dòng nào (phiếu đã ghi sổ) trong kỳ / bộ lọc.</td></tr>
                 ) : (
                   pagedRows.map((r, i) => {
                     const rec = lockRecordFor(r.kho_id, r.ngay_ghi_so);
@@ -1018,6 +1019,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                       <td className="kho-bc__num">{fmtQty(r.so_luong)}</td>
                       <td className="kho-bc__num">{fmtMoney(r.don_gia)}</td>
                       <td className="kho-bc__num">{fmtMoney(r.thanh_tien)}</td>
+                      <td>{r.han_su_dung ? fmtDate(r.han_su_dung) : "—"}</td>
                     </tr>
                     );
                   })
@@ -1026,7 +1028,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                 {Array.from({
                   length: Math.max(0, pageSize - (loading || filteredRows.length === 0 ? 1 : pagedRows.length)),
                 }).map((_, i) => (
-                  <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={10}>&nbsp;</td></tr>
+                  <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={11}>&nbsp;</td></tr>
                 ))}
               </tbody>
               {filteredRows.length > 0 && (
@@ -1036,6 +1038,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                       Tổng thành tiền ({filteredRows.length} dòng)
                     </td>
                     <td className="kho-bc__num" style={{ fontWeight: 600 }}>{fmtMoney(total)}</td>
+                    <td />
                   </tr>
                 </tfoot>
               )}
