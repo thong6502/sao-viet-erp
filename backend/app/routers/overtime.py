@@ -12,6 +12,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..deps import (
+    get_current_user,
     CurrentUser,
     get_authorization_service,
     get_employee_repository,
@@ -23,6 +24,7 @@ from ..models.user import User
 from ..realtime import hub
 from ..repositories.employee_repo import EmployeeRepository
 from ..schemas.overtime import (
+    TranThangOut,
     MyOvertimeOut,
     OvertimeBulkIn,
     OvertimeBulkRejectIn,
@@ -54,20 +56,31 @@ MODULE = "tang_ca"
 # Trước đây nhóm này không gác gì (chỉ cần đăng nhập) nên không có cách nào tắt cho một vai.
 # Ba hàng rào cũ GIỮ NGUYÊN (phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công · đúng
 # khung giờ ca) — chúng chống lạm dụng, còn ô này chống truy cập.
+# Ô `self_service` ĐÃ BỎ 15/08/2026 (chủ chốt). Dữ liệu của CHÍNH MÌNH là quyền đương nhiên của
+# mọi tài khoản đăng nhập — xem công / phiếu / đơn của mình, và gửi · sửa · huỷ đơn của mình.
+# Chặn nó là chặn người ta đi làm, chứ không bảo vệ được gì: mọi đường `/me` đã tự lọc theo hồ sơ
+# gắn với tài khoản, không đọc sang ai được.
+# Ba hàng rào thật GIỮ NGUYÊN: phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công ·
+# đúng khung giờ ca. Cái quyết định THẤY MÀN NÀO vẫn là ô của chính màn đó.
 MODULE_TU_PHUC_VU = "self_service"
-SelfUser = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "read"))]
+SelfUser = Annotated[User, Depends(get_current_user)]
 
 # Ô THAO TÁC của Tự phục vụ (tách 11/08/2026). `SelfUser` (= `read`) chỉ cho XEM công / phiếu /
 # đơn của chính mình; mọi đường GHI — chấm công, gửi · sửa · huỷ đơn nghỉ, phiếu tăng ca, xin đi
 # muộn, xin tạm ứng, sửa hồ sơ của mình — đòi ô này.
-SelfWriter = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "create"))]
+# GHI LÀ GHI — phải có ô THAO TÁC của chính màn này (chủ chốt 15/08/2026: *"tôi chưa bật thao tác
+# vẫn bấm gửi đơn được nè"*). Bấm giờ · gửi yêu cầu chỉnh công · xin đi muộn đều là ĐƯỜNG GHI,
+# không phải "xem dữ liệu của mình".
+#
+# Khác với `SelfUser` (đọc phần của mình — quyền đương nhiên, xem chú thích ở trên).
+SelfWriter = Annotated[User, Depends(require_permission(MODULE, "create"))]
 # Sửa / huỷ phiếu: người TẠO tự làm với phiếu của mình, hoặc NGƯỜI DUYỆT làm hộ ⇒ nhận
 # cả hai ô. Ai không có ô nào trong hai ô này thì không đụng được — trước đây chỉ cần
 # đăng nhập là gọi được, đúng chỗ tester bắt.
 SelfOrApprover = Annotated[
     # Người TẠO sửa/huỷ phiếu của mình ⇒ đòi ô THAO TÁC của Tự phục vụ (`create`),
     # không phải ô Xem. Người DUYỆT làm hộ thì đi bằng ô duyệt của phân hệ.
-    User, Depends(require_any_permission((MODULE_TU_PHUC_VU, "create"), (MODULE, "approve")))
+    User, Depends(get_current_user)
 ]
 
 Service = Annotated[OvertimeService, Depends(get_overtime_service)]
@@ -172,6 +185,21 @@ def summary(svc: Service, authz: Authz, user: SelfUser):
         pending = svc.count_pending(scope=authz.scope_for(user, MODULE) or "own", actor=user)
     return OvertimeSummaryOut(pending_in_scope=pending,
                               my_decided_unseen=svc.my_unseen_count(user=user))
+
+
+@router.get("/tran-thang", response_model=TranThangOut)
+def tran_thang(svc: Service, employees: Employees, user: SelfUser,
+               year: int, month: int, employee_id: int | None = None,
+               exclude_id: int | None = None):
+    """Số dư trần giờ làm thêm tháng. Không truyền `employee_id` ⇒ của CHÍNH người gọi.
+
+    Trần là luật của công ty, không phải dữ liệu nhạy cảm của người khác — nhưng vẫn chỉ cho xem
+    người trong tầm duyệt của mình. Rẻ: 1 câu SUM."""
+    if employee_id is None:
+        emp = svc._employee_for_user(user)
+        employee_id = emp.id
+    return TranThangOut(**svc.tran_thang_info(employee_id, int(year), int(month),
+                                              exclude_id=exclude_id))
 
 
 @router.post("/mark-seen", status_code=204)

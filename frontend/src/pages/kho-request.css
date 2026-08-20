@@ -26,6 +26,10 @@
 .rc__table.kho-bc {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  /* Báo cáo nhiều cột chữ dài (Kho · Mã hàng · Tên hàng) — ĐÈ `table-layout:fixed` của `.rc__table`
+     gốc bằng AUTO: cột co giãn theo nội dung, KHÔNG đè/tràn chữ; bảng rộng hơn khung thì cuộn ngang
+     (.kho-bc-wrap có overflow:auto). Tên hàng vẫn cắt "…" nhờ max-width ở `.kho-bc__name`. */
+  table-layout: auto;
 }
 .rc__table.kho-bc thead th {
   position: sticky;
@@ -93,7 +97,7 @@
 .kho-bc-pager {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: var(--sp-3);
   margin-top: var(--sp-2);
   font-size: 0.85rem;
@@ -387,6 +391,13 @@ input.kho-num,
 .kho-lines__wrap {
   overflow-x: auto;
 }
+/* Biến thể WIDE (bảng LẬP PHIẾU): cột lấy BỀ RỘNG THẬT của nội dung — KHÔNG ép tên/mã vật tư gãy
+   dòng để vừa khung. Chật thì cả bảng cuộn ngang (.kho-lines__wrap đã có overflow-x). Hàng CHI TIẾT
+   (colspan: lý do cấp thiếu / bảng lô / banner) KHÔNG nowrap — vẫn xuống dòng bình thường. */
+.kho-lines--wide > thead > tr > th,
+.kho-lines--wide > tbody > tr:not(.kho-alloc__detailrow) > td {
+  white-space: nowrap;
+}
 .kho-lines__empty {
   padding: var(--sp-4) var(--sp-2);
   font-size: 12.5px;
@@ -402,6 +413,21 @@ input.kho-num,
   font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash);
+}
+/* VỊ TRÍ (kệ/ô) trong bảng lịch sử: không phải "mã" nên KHÔNG đi theo .kho-lines__code — thủ kho
+   đọc cột này rồi xuống kho lấy hàng, mờ 11px là đọc hụt. */
+.kho-lines__vt {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+/* HSD: bình thường đọc như vị trí; QUÁ HẠN thì đỏ + đậm để nhảy ra khỏi bảng ngay. */
+.kho-lines__hsd {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.kho-lines__hsd--qua {
+  color: var(--signal, #8a1f1f);
+  font-weight: var(--fw-semibold, 600);
 }
 
 /* --- § Kho phản hồi: mỗi dòng MỘT CÂU, không bảng ------------------------ */
@@ -682,6 +708,21 @@ input.kho-num,
   font-variant-numeric: tabular-nums;
 }
 
+/* Hạn sử dụng của đợt nhập — 1 ô ngày trên mỗi dòng phiếu NHẬP (1 đợt = 1 lô = 1 hạn). */
+.kho-hsd__date {
+  width: 150px;
+}
+
+/* Bộ chọn số dòng/trang — dropdown gọn (mở lên trên). */
+.kho-pgsize {
+  width: 118px;
+  flex: 0 0 auto;
+}
+/* Pager báo cáo (không có spacer sẵn): đẩy selector về mép trái, nút trang giữ bên phải. */
+.kho-bc-pager .kho-pgsize {
+  margin-right: auto;
+}
+
 /* --- Toolbar: ô chọn kho gọn trong hàng toolbar --------------------------- */
 .kho-picker {
   width: 200px;
@@ -694,6 +735,22 @@ input.kho-num,
 }
 .rc-drawer--wide {
   width: min(880px, 96vw);
+}
+/* Phiếu nhập/xuất: body dài (thông tin + bảng dòng + đính kèm + giá vốn). `min-height: 0` để flex
+   child THỰC SỰ cuộn thay vì đùn nội dung ra ngoài; đệm đáy để khối "Giá vốn phiếu" (dpanel) không
+   bị chân drawer (Tạo & Ghi sổ) che mất khi cuộn tới cuối. */
+.kho-voucher-drawer .rc-drawer__body {
+  min-height: 0;
+  padding-bottom: var(--sp-6, 32px);
+}
+/* Bảng "SL chuyển từng mặt hàng" trong popup điều chuyển hàng loạt — tách khỏi ô chọn kho phía trên. */
+.kho-dc-lines {
+  margin-top: var(--sp-3);
+  overflow-x: auto;
+}
+.kho-dc-lines .rc-input.kho-num {
+  width: 100%;
+  min-width: 88px;
 }
 
 /* --- Bản in yêu cầu (trong PrintSheet) ----------------------------------- */
@@ -942,6 +999,17 @@ input.kho-num,
   padding-right: var(--sp-3);
 }
 
+/* THU NHỎ cửa sổ: bảng NHIỀU CỘT (Yêu cầu / Hộp yêu cầu / Tồn / Phiếu) phải CUỘN NGANG thay vì
+   bóp cột (header đè lên nhau + mất chữ). `table-layout:fixed; width:100%` vốn ép bảng vừa khung
+   → cột co lại; thêm `min-width` để bảng giữ bề ngang tối thiểu, khung bọc (đã có overflow-x:auto)
+   tự sinh thanh cuộn. Chỉ áp cho các bảng kho này (.rc__table--fixed = Yêu cầu/Hộp yêu cầu; .kho-table
+   = Tồn/Phiếu), không đụng bảng dùng chung khác. */
+.rc__table--fixed { min-width: 900px; }
+.kho-list .kho-table { min-width: 900px; }
+/* Bảng Tồn kho nhiều cột (+ Hạn sử dụng) + tiêu đề dài → giữ bề ngang tối thiểu để cột VẬT TƯ khỏi
+   bị bóp; hẹp hơn thì khung bọc (.kho-tablewrap overflow:auto) tự cuộn ngang. */
+.kho-list .kho-ton-table { min-width: 1220px; }
+
 /* ─── §6 Hệ thiết kế — bảng chuẩn cho 3 màn danh sách Kho ──────────────────────
    Scope bằng .kho-list (thêm ở root mỗi trang) để KHÔNG đụng .rc__table dùng chung
    với RebuildCatalog. th: nền paper + kẻ dưới 1.5px rule; nhãn 11/700 HOA .07em ash.
@@ -956,6 +1024,17 @@ input.kho-num,
   color: var(--ash);
   background: var(--paper);
   border-bottom: 1.5px solid var(--rule);
+}
+/* Bảng LIST (Yêu cầu/Hộp yêu cầu = .rc__table--fixed · Tồn/Phiếu = .kho-table): tiêu đề cột NẰM
+   NGANG (nowrap, KHÔNG xuống dòng); cột tự co giãn theo nội dung (table-layout:auto) nên tiêu đề
+   không bao giờ đè cột bên; bảng dài quá khung thì KHUNG BỌC (overflow-x:auto) tự cuộn ngang. */
+.rc__table.rc__table--fixed,
+.kho-list .kho-table {
+  table-layout: auto;
+}
+.rc__table.rc__table--fixed thead th,
+.kho-list .kho-table thead th {
+  white-space: nowrap;
 }
 /* Cột số căn phải (khớp ô số tbody) — không ép nhãn số sang trái. */
 .kho-list .rc__table thead th.kho-num {
@@ -1192,7 +1271,9 @@ input.kho-num,
   width: 84px;
 }
 .kho-nhap__vitri {
-  width: 110px;
+  /* .rc-input là width:100% → cột Vị trí không có nội dung nào giữ bề rộng, co còn ~40px và cắt cụt
+     placeholder. Chốt bề rộng đủ đọc "kệ A / ô…". */
+  width: 130px;
   padding: 6px 8px;
 }
 .kho-nhap__lydo {
@@ -1753,6 +1834,7 @@ input.kho-num,
 }
 .kho-chart__leg--in::before { background: var(--moss, #3f6f4a); }
 .kho-chart__leg--out::before { background: var(--rust, #b4531f); }
+.kho-chart__leg--move::before { background: var(--steel, #3b6ea5); }
 .kho-chart__plot {
   display: flex;
   align-items: stretch;
@@ -1785,8 +1867,16 @@ input.kho-num,
   border-radius: 3px 3px 0 0;
   align-self: flex-end;
 }
+/* "≈" nhỏ mờ báo số ĐÃ LÀM TRÒN để hiển thị (đơn giá bình quân / thành tiền lẻ). */
+.kho-approx {
+  font-size: 0.8em;
+  color: var(--ash);
+  margin-right: 1px;
+}
+
 .kho-chart__bar--in { background: var(--moss, #3f6f4a); }
 .kho-chart__bar--out { background: var(--rust, #b4531f); }
+.kho-chart__bar--move { background: var(--steel, #3b6ea5); }
 .kho-chart__xlab {
   font-size: 10px;
   color: var(--ash);
@@ -1844,6 +1934,10 @@ input.kho-num,
 .kho-colfil__btn {
   display: inline-flex; align-items: center; gap: 5px; position: relative;
   background: none; border: none; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer;
+  /* Nhãn cột phễu nằm trong <button> — button KHÔNG tự kế thừa text-transform/letter-spacing của
+     header (đặc thù form control), nên phải ÉP kế thừa để khớp cột thường (viết hoa, cùng cỡ chữ). */
+  text-transform: inherit;
+  letter-spacing: inherit;
 }
 .kho-colfil__btn:hover, .kho-colfil__btn.is-active { color: var(--moss, #3f6f4a); }
 .kho-colfil__btn svg { opacity: 0.5; }
@@ -1901,15 +1995,31 @@ input.kho-num,
   font-size: 13px;
 }
 .kho-anh .rc__link-btn.is-disabled { opacity: 0.5; pointer-events: none; }
-/* Biến thể CELL — ảnh nằm CÙNG HÀNG vật tư (cột "Ảnh") trên dòng chính. KHÔNG xuống dòng để cột có
-   bề rộng ổn định; bảng dài thì cả bảng cuộn ngang (kho-lines__wrap có overflow-x). */
+/* Biến thể CELL — ô cột "Ảnh" trên dòng chính: thumbnail TRÊN, hai nút Đổi/Xóa NẰM DƯỚI ảnh (xếp
+   dọc cho cột hẹp lại). KHÔNG xuống dòng bên trong; bảng dài thì cuộn ngang (kho-lines__wrap). */
 .kho-anh--cell {
   padding: 0;
-  gap: 8px;
+  flex-direction: column;
+  /* CĂN GIỮA cả cụm: ảnh (40px) nằm chính giữa phía trên cặp Đổi/Xóa (~70px) — căn trái thì hai
+     mép so le, nhìn lệch. Giữ Đổi/Xóa NẰM NGANG để không đội thêm chiều cao mỗi dòng. */
+  align-items: center;
+  gap: 6px;
   flex-wrap: nowrap;
   white-space: nowrap;
 }
-.kho-anh--cell .kho-anh__thumb--sm { width: 40px; height: 40px; border-radius: 6px; }
+.kho-anh--cell .kho-anh__thumb--sm { width: 52px; height: 52px; border-radius: 6px; }
+.kho-anh__cellacts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Đổi/Xóa trong ô ảnh là hành động PHỤ → chữ nhỏ & nhẹ hơn nút chính (.rc__link-btn mặc định
+   12.5px/600 nhìn nặng trong bảng); cụm hẹp lại còn ~52px, sát bề rộng ảnh nên cân hơn. */
+.kho-anh--cell .rc__link-btn {
+  font-size: 10px;
+  font-weight: var(--fw-medium, 500);
+  padding: 1px 3px;
+}
 /* Ảnh CẠNH TÊN vật tư trong bảng "Dòng vật tư" (chỉ xem) của drawer chi tiết yêu cầu. */
 .kho-lineimg { display: flex; align-items: center; gap: 10px; }
 .kho-lineimg__txt { min-width: 0; }
@@ -1942,4 +2052,73 @@ input.kho-num,
   border-radius: 8px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
   cursor: default;
+}
+
+/* ─── Tồn kho (tab "ton"): ảnh cạnh tên + làm nổi số chính, scope .kho-ton-table ─── */
+/* Ảnh minh hoạ CHỈ ĐỌC cạnh tên vật tư (dùng chung .kho-lineimg với drawer yêu cầu). */
+.kho-ton__thumb {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-3);
+  border: 1px solid var(--rule-soft);
+  object-fit: cover;
+  background: var(--paper);
+}
+.kho-ton__thumb--ph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ash-2);
+}
+/* BoxIcon mặc định 48px → thu về ~18px cho vừa ô placeholder 40px (không đội so le). */
+.kho-ton__thumb--ph svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Tồn khả dụng: số chính đậm + to hơn; ĐVT vẫn xám nhỏ qua .kho-ton__dvt. */
+.kho-ton-table .kho-ton__total {
+  font-size: 14px;
+  font-weight: var(--fw-bold);
+}
+/* Giá trị tồn: số phụ vừa phải (đậm nhẹ). */
+.kho-ton__val {
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+/* Số đợt nhập: số phụ → hạ tông xám. */
+.kho-ton__lots-n {
+  color: var(--ash);
+}
+
+/* Tách dòng đậm hơn rule-hair 1 nấc + thân bảng nền canvas để tách header (paper). */
+.kho-list .kho-ton-table .rc__row td {
+  border-bottom-color: var(--rule-soft);
+}
+.kho-list .kho-ton-table tbody {
+  background: var(--canvas);
+}
+
+/* Chip trạng thái nét hơn: viền trong mảnh theo tông chip + chấm đèn to 8px. */
+.kho-ton-table .badge-sem {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
+}
+.kho-ton-table .kho-dot {
+  width: 8px;
+  height: 8px;
+}
+
+/* "Chưa khai" — ô viền đứt trung tính (KHÔNG phải chip đèn tồn). */
+.kho-ton__unset {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-2);
+  border: 1px dashed var(--rule);
+  background: transparent;
+  color: var(--ash-2);
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
 }

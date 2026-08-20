@@ -1070,3 +1070,150 @@ def test_accounting_approve_permission_also_allows_voucher_creation(client):
         ).status_code
         == 404
     )
+
+
+# --- PHIẾU CHI TỪ PHIẾU TẠM ỨNG LƯƠNG (chủ chốt 18/08/2026) -----------------------------------
+#
+# Bốn chốt: chỉ phiếu ĐÃ DUYỆT · một tạm ứng một phiếu chi · lập TAY (không tự sinh khi duyệt) ·
+# đã lập phiếu chi thì KHÔNG huỷ được tạm ứng. Áp cho cả `tam_ung` lẫn `luong_dot_1`.
+
+
+def _nv_tam_ung(client, headers, *, ten="NV Tạm Ứng"):
+    db = SessionLocal()
+    try:
+        dept_id = DepartmentRepository(db).get_by_name("Sản xuất").id
+    finally:
+        db.close()
+    r = client.post("/api/employees", json={
+        "full_name": ten, "department_id": dept_id, "hire_date": "2020-01-01",
+        "gender": "male", "status": "active",
+    }, headers=headers)
+    assert r.status_code in (200, 201), r.text
+    return r.json()["employee"]["id"]
+
+
+def _tam_ung(client, headers, eid, *, amount=3_000_000, kind="tam_ung", duyet=True):
+    r = client.post("/api/luong/advances", json={
+        "employee_id": eid, "period_year": 2026, "period_month": 8,
+        "advance_date": "2026-08-01", "amount": amount, "reason": "việc nhà", "kind": kind,
+    }, headers=headers)
+    assert r.status_code in (200, 201), r.text
+    adv = r.json()
+    aid = adv.get("id") or adv.get("advance", {}).get("id")
+    if duyet:
+        d = client.post(f"/api/luong/advances/{aid}/approve", json={}, headers=headers)
+        assert d.status_code == 200, d.text
+    return aid
+
+
+def _pc_tu_tam_ung(client, headers, aid, *, amount=999, expect=201):
+    """Payload cố ý gửi SỐ TIỀN SAI — service phải lấy số của phiếu tạm ứng, không lấy số này."""
+    r = client.post("/api/accounting/payment-vouchers", json={
+        "salary_advance_id": aid,
+        "source_type": "salary_advance",
+        "voucher_type": "cash",
+        "payment_stage": "other",
+        "voucher_date": "2026-08-01",
+        "amount": amount,
+        "currency": "VND",
+        "exchange_rate": 1,
+        "content": "Chi tạm ứng lương tháng 8/2026",
+        "cash_recipient_name": "Ai Đó Khác",
+    }, headers=headers)
+    assert r.status_code == expect, r.text
+    return r.json()
+
+
+def test_phieu_chi_tu_tam_ung_da_duyet(client):
+    """Lập được, và SỐ TIỀN + NGƯỜI NHẬN lấy từ phiếu tạm ứng chứ không lấy từ payload."""
+    headers = _headers(client)
+    eid = _nv_tam_ung(client, headers, ten="NV Ứng Một")
+    aid = _tam_ung(client, headers, eid, amount=3_000_000)
+
+    pc = _pc_tu_tam_ung(client, headers, aid, amount=999)
+    assert pc["source_type"] == "salary_advance"
+    assert pc["salary_advance_id"] == aid
+    assert pc["amount"] == 3_000_000          # KHÔNG phải 999 của payload
+    assert pc["cash_recipient_name"] == "NV Ứng Một"   # KHÔNG phải "Ai Đó Khác"
+    assert pc["code"].startswith("PC-")
+    # Lập phiếu chi = tiền đã ra (chốt 06/08/2026) ⇒ phiếu sinh ra đã là đã chi.
+    assert pc["status"] == "paid"
+    # Mã nguồn in trên chứng từ là MÃ PHIẾU TẠM ỨNG, để lần ngược từ sổ quỹ.
+    assert pc["purchase_request_code"].startswith("TU")
+
+
+def test_phieu_chi_CHI_cho_tam_ung_da_duyet(client):
+    """Phiếu chờ duyệt / từ chối / đã huỷ đều KHÔNG lập được phiếu chi."""
+    headers = _headers(client)
+    eid = _nv_tam_ung(client, headers, ten="NV Ứng Hai")
+
+    cho_duyet = _tam_ung(client, headers, eid, duyet=False)
+    _pc_tu_tam_ung(client, headers, cho_duyet, expect=422)
+
+    tu_choi = _tam_ung(client, headers, eid, duyet=False)
+    client.post(f"/api/luong/advances/{tu_choi}/reject", json={}, headers=headers)
+    _pc_tu_tam_ung(client, headers, tu_choi, expect=422)
+
+
+def test_mot_tam_ung_chi_mot_phieu_chi(client):
+    headers = _headers(client)
+    eid = _nv_tam_ung(client, headers, ten="NV Ứng Ba")
+    aid = _tam_ung(client, headers, eid)
+    _pc_tu_tam_ung(client, headers, aid)
+    _pc_tu_tam_ung(client, headers, aid, expect=409)   # lần hai bị chặn
+
+
+def test_da_lap_phieu_chi_thi_KHONG_huy_duoc_tam_ung(client):
+    """Tiền đã rời két ⇒ huỷ tạm ứng là mất dấu chứng từ. Phải huỷ phiếu chi trước."""
+    headers = _headers(client)
+    eid = _nv_tam_ung(client, headers, ten="NV Ứng Bốn")
+    aid = _tam_ung(client, headers, eid)
+
+    huy_som = client.post(f"/api/luong/advances/{aid}/cancel", headers=headers)
+    assert huy_som.status_code == 200, huy_som.text      # chưa có phiếu chi thì huỷ được
+
+    aid2 = _tam_ung(client, headers, eid)
+    pc = _pc_tu_tam_ung(client, headers, aid2)
+    huy = client.post(f"/api/luong/advances/{aid2}/cancel", headers=headers)
+    assert huy.status_code == 400, huy.text
+    assert pc["code"] in huy.json()["detail"]
+
+    # Huỷ phiếu chi xong thì huỷ tạm ứng được.
+    client.post(f"/api/accounting/payment-vouchers/{pc['id']}/cancel",
+                json={"reason": "chi nhầm"}, headers=headers)
+    lai = client.post(f"/api/luong/advances/{aid2}/cancel", headers=headers)
+    assert lai.status_code == 200, lai.text
+
+
+def test_luong_dot_1_cung_lap_duoc_phieu_chi(client):
+    """Chủ chốt: lương đợt 1 cũng là tiền ra khỏi két ⇒ cũng lập phiếu chi."""
+    headers = _headers(client)
+    eid = _nv_tam_ung(client, headers, ten="NV Đợt Một")
+    aid = _tam_ung(client, headers, eid, amount=5_000_000, kind="luong_dot_1")
+    pc = _pc_tu_tam_ung(client, headers, aid)
+    assert pc["amount"] == 5_000_000 and pc["salary_advance_id"] == aid
+
+
+def test_payload_DUNG_NHU_FE_GUI_khong_co_ten_nguoi_nhan(client):
+    """Mối nối FE↔BE: `client.ts::createVoucherFromAdvance` KHÔNG gửi `cash_recipient_name`
+    (backend tự lấy tên nhân viên). Test này canh đúng payload đó, để đổi schema mà quên FE là đỏ."""
+    headers = _headers(client)
+    eid = _nv_tam_ung(client, headers, ten="NV Đúng Payload")
+    aid = _tam_ung(client, headers, eid, amount=2_500_000)
+
+    r = client.post("/api/accounting/payment-vouchers", json={
+        # y hệt những gì client.ts ghép: input + 4 khoá cứng, KHÔNG có cash_recipient_name.
+        "salary_advance_id": aid,
+        "amount": 2_500_000,
+        "voucher_type": "cash",
+        "voucher_date": "2026-08-01",
+        "content": "Tạm ứng lương tháng 8/2026 — NV Đúng Payload",
+        "source_type": "salary_advance",
+        "payment_stage": "other",
+        "currency": "VND",
+        "exchange_rate": 1,
+    }, headers=headers)
+    assert r.status_code == 201, r.text
+    pc = r.json()
+    assert pc["cash_recipient_name"] == "NV Đúng Payload"   # backend tự điền
+    assert pc["amount"] == 2_500_000 and pc["salary_advance_id"] == aid

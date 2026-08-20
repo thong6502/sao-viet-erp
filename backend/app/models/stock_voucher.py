@@ -17,6 +17,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -24,6 +25,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,6 +60,11 @@ class StockVoucher(Base):
     )
     kho_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("kho_hang.id"), index=True, nullable=False
+    )
+    # ĐIỀU CHUYỂN nội bộ: bật cho CẢ phiếu xuất nguồn LẪN phiếu nhập đích của một điều chuyển. Báo
+    # cáo kho dùng để gắn nhãn "điều chuyển" + LOẠI khỏi tổng mua/bán. Thêm qua mig 0203.
+    dieu_chuyen: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
     )
     ngay: Mapped[date] = mapped_column(Date, nullable=False)
     nguoi_lap_id: Mapped[int] = mapped_column(
@@ -152,6 +159,10 @@ class StockVoucherLine(Base):
     # Phiếu NHẬP: VỊ TRÍ cất lô trong kho (kệ/ô) do thủ kho khai lúc lập; ghi sổ chép sang
     # `stock_lots.vi_tri`. Null với phiếu XUẤT (không tạo lô). Thêm qua migration 0115.
     vi_tri: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Phiếu NHẬP: HẠN SỬ DỤNG của lô sắp tạo (tuỳ chọn). Một dòng nhập có thể tách nhiều lô theo
+    # hạn → mỗi (hạn, SL) là MỘT dòng phiếu; phần dư không hạn là dòng hsd=NULL. Ghi sổ chép sang
+    # `stock_lots.hsd` (đã dùng cho FIFO/FEFO: hạn sớm xuất trước). Thêm qua migration 0205.
+    hsd: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     voucher: Mapped[StockVoucher] = relationship("StockVoucher", back_populates="lines")
 

@@ -28,6 +28,7 @@ from ..models.work_calendar import (
 )
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.calendar_repo import CalendarRepository
+from .ky_cong_guard import ly_do_ky_cong_da_chot
 
 # Thứ trong tuần (Mon=0..Sun=6) → tên cột config.
 _WEEKDAY_COL = ("works_mon", "works_tue", "works_wed", "works_thu", "works_fri", "works_sat", "works_sun")
@@ -57,11 +58,30 @@ def _clean(v: str | None) -> str | None:
 
 
 class CalendarService:
-    def __init__(self, calendar: CalendarRepository, audit: AuditLogRepository) -> None:
+    def __init__(self, calendar: CalendarRepository, audit: AuditLogRepository,
+                 attendance=None) -> None:
         self.calendar = calendar
         self.audit = audit
+        # REPO chấm công (tuỳ chọn) — chỉ để hỏi "tháng đó chốt công chưa". Nhận REPO chứ không
+        # nhận service: `AttendanceService` đã giữ `CalendarService` bên trong nó, nhận ngược lại
+        # là vòng service ↔ service.
+        self._attendance = attendance
         self._config: WorkCalendarConfig | None = None
         self._special_by_year: dict[int, dict[date, SpecialDay]] = {}
+
+    def _chan_neu_ky_cong_da_chot(self, *nhung_ngay: date, viec: str) -> None:
+        """Ngày lễ / ngày nghỉ bù của THÁNG ĐÃ CHỐT thì không sửa được nữa (chủ chốt 15/08/2026).
+
+        Ngày đặc biệt không đụng tới một người — nó đổi công của TOÀN BỘ nhân viên trong tháng đó.
+        Chốt công là chụp ảnh bảng công rồi khoá; sửa ngày lễ sau đó làm Bảng công (đọc thực tế)
+        lệch khỏi phiếu lương (đọc ảnh), mà lệch cả công ty cùng lúc.
+
+        Hay gặp: khai NGHỈ BÙ muộn — nghỉ bù 2/9 mà khai sau khi đã chốt tháng 9."""
+        if self._attendance is None:
+            return
+        loi = ly_do_ky_cong_da_chot(self._attendance, *nhung_ngay, viec=viec)
+        if loi:
+            raise CalendarValidationError(loi)
 
     def _invalidate(self) -> None:
         self._config = None
@@ -174,6 +194,7 @@ class CalendarService:
     def create_special_day(self, *, actor, day: date, kind: str = KIND_OFF, name: str,
                            is_paid: bool = True, note: str | None = None) -> SpecialDay:
         day, kind, name = self._validate_special(day, kind, name)
+        self._chan_neu_ky_cong_da_chot(day, viec="khai thêm ngày đặc biệt cho tháng đó")
         if self.calendar.get_by_day(day) is not None:
             raise CalendarValidationError(f"Ngày {day.isoformat()} đã được khai.")
         # off1x = nghỉ KHÔNG lương (chỉ ai đi làm mới có 1× cho ngày đó) → ép is_paid False.
@@ -191,6 +212,8 @@ class CalendarService:
         if s is None:
             raise CalendarNotFound("Không tìm thấy ngày đặc biệt.")
         day, kind, name = self._validate_special(day, kind, name)
+        # Hỏi CẢ ngày cũ LẪN ngày mới: dời 20/7 sang 20/10 là đụng vào công của cả hai tháng.
+        self._chan_neu_ky_cong_da_chot(s.day, day, viec="sửa ngày đặc biệt")
         clash = self.calendar.get_by_day(day)
         if clash is not None and clash.id != s.id:
             raise CalendarValidationError(f"Ngày {day.isoformat()} đã được khai.")
@@ -206,6 +229,7 @@ class CalendarService:
         s = self.calendar.get(special_id)
         if s is None:
             raise CalendarNotFound("Không tìm thấy ngày đặc biệt.")
+        self._chan_neu_ky_cong_da_chot(s.day, viec="xoá ngày đặc biệt của tháng đó")
         detail = f"{s.day.isoformat()} {s.kind} {s.name}"
         self.calendar.delete(s)
         self._invalidate()

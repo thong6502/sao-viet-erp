@@ -161,6 +161,30 @@ class KhoKhoaSoRepository:
         out.sort(key=lambda t: (t[2], t[1]), reverse=True)  # den (rồi tu) giảm dần
         return out
 
+    def exempted_khos(self, tu_ngay: date, den_ngay: date) -> list[int]:
+        """Trong kỳ TOÀN KHO [tu_ngay, den_ngay]: các kho được MỞ RIÊNG (miễn trừ) — có lệnh mở riêng
+        kho ĐÈ lên khóa toàn kho ở ít nhất 1 ngày. Trả kho_id đang MỞ. Tính in-memory (1 query)."""
+        records = list(self.db.execute(select(KhoKhoaSo).order_by(KhoKhoaSo.id)).scalars())
+
+        def winner_at(kho_id: int, day: date) -> KhoKhoaSo | None:
+            w = None
+            for r in records:  # id tăng dần → bản ghi ghi sau đè bản trước
+                if r.tu_ngay <= day <= r.den_ngay and (r.kho_id is None or r.kho_id == kho_id):
+                    w = r
+            return w
+
+        one = timedelta(days=1)
+        out: list[int] = []
+        for kid in sorted({r.kho_id for r in records if r.kho_id is not None}):
+            day = tu_ngay
+            while day <= den_ngay:
+                w = winner_at(kid, day)
+                if w is not None and w.hanh_dong == "mo":  # kho này đang MỞ (bị lệnh mở riêng đè)
+                    out.append(kid)
+                    break
+                day += one
+        return out
+
     def history(self, limit: int = 300) -> list[KhoKhoaSo]:
         """Toàn bộ thao tác khóa/mở, mới nhất trước — = lịch sử thao tác."""
         return list(

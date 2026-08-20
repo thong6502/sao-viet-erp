@@ -1251,7 +1251,8 @@ export function EmployeeWizard({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Lương cơ bản = mức đóng BH; các khoản phụ cấp là số cố định khai riêng từng nhân viên.
+  // ⚠️ Mức đóng BH = lương cơ bản + lương trách nhiệm (chủ chốt 12/08/2026, đảo chốt cũ
+  // 20/07 "chỉ lương cơ bản"). Các khoản phụ cấp là số cố định khai riêng từng nhân viên.
   const [luongViTri, setLuongViTri] = useState(0);
   const [luongTrachNhiem, setLuongTrachNhiem] = useState(0);
   // "Lương trả 1 lần" (đợt 1): mức trả trong MỘT lần — số điền sẵn khi lập phiếu đợt 1 ở màn Lương.
@@ -1302,7 +1303,7 @@ export function EmployeeWizard({
     }
     if (canSalary && luongViTri <= 0) {
       setStep(2);
-      setError("Lương cơ bản (đóng BH) của nhân viên phải lớn hơn 0.");
+      setError("Lương cơ bản của nhân viên phải lớn hơn 0.");
       return;
     }
     setBusy(true);
@@ -1570,7 +1571,7 @@ export function EmployeeWizard({
                       là số cố định, cộng phẳng mỗi tháng.
                     </span>
                   </div>
-                  <Field label="Lương cơ bản (đóng BH) *">
+                  <Field label="Lương cơ bản *">
                     <input
                       type="number"
                       min={0}

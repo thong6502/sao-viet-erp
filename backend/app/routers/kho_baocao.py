@@ -15,6 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+import json
+
 from ..db import get_db
 from ..deps import require_permission
 from ..models.kho_hang import KhoHang
@@ -28,6 +30,7 @@ from ..models.stock_voucher import (
     StockVoucherLine,
 )
 from ..models.user import User
+from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
 from ..repositories.kho_khoa_so_repo import KhoKhoaSoRepository
@@ -35,9 +38,12 @@ from ..repositories.user_repo import UserRepository
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..services.vat_lieu_kho_service import VatLieuKhoService
 from ..schemas.stock import (
+    BaoCaoChuyenKhoPage,
+    BaoCaoChuyenKhoRow,
     BaoCaoKhoPage,
     BaoCaoKhoRow,
     KhoaSoKyRow,
+    KhoExportLogRow,
     KhoKhoaSoIn,
     KhoKhoaSoRow,
 )
@@ -114,6 +120,8 @@ def _report_rows(
             thanh_tien=round(price * qty) if price is not None else None,
             kho_id=v.kho_id,
             kho_ten=getattr(kho, "ten", None),
+            han_su_dung=getattr(lot, "hsd", None),  # NHẬP: lô vừa tạo · XUẤT: lô bị xuất
+            dieu_chuyen=bool(getattr(v, "dieu_chuyen", False)),
         )
         if ql and not any(
             ql in (val or "").lower() for val in (row.so_ct, row.ma_hang, row.ten_hang)
@@ -135,6 +143,91 @@ def bao_cao_dong(
 ) -> BaoCaoKhoPage:
     rows = _report_rows(db, tu=tu, den=den, kho_id=kho_id, loai=loai, q=q)
     return BaoCaoKhoPage(items=rows, total=len(rows))
+
+
+# --- Điều chuyển kho: 1 dòng/mặt hàng (Xuất tại kho → Nhập tại kho) --------------
+
+def _chuyen_kho_rows(
+    db: Session, *, tu: date | None, den: date | None, kho_id: int | None, q: str | None = None,
+) -> list[BaoCaoChuyenKhoRow]:
+    """Dòng điều chuyển ĐÃ GHI SỔ: mỗi dòng phiếu NHẬP đích (đại diện điều chuyển) → gộp kho nguồn
+    (Xuất tại kho) + kho đích (Nhập tại kho) trên cùng 1 dòng, giá vốn chốt từ nguồn."""
+    ql = (q or "").strip().lower()
+    stmt = (
+        select(StockVoucher, StockVoucherLine, StockRequest, KhoHang)
+        .join(StockVoucherLine, StockVoucherLine.voucher_id == StockVoucher.id)
+        .join(StockRequest, StockRequest.id == StockVoucher.request_id, isouter=True)
+        .join(KhoHang, KhoHang.id == StockVoucher.kho_id, isouter=True)  # kho ĐÍCH (nhập về)
+        .where(
+            StockVoucher.trang_thai == VOUCHER_POSTED,
+            StockVoucher.dieu_chuyen.is_(True),
+            StockVoucher.loai == VOUCHER_NHAP,  # vế NHẬP đích = đại diện cho cả điều chuyển
+        )
+        .order_by(StockVoucher.ghi_so_luc, StockVoucher.id, StockVoucherLine.id)
+    )
+    results = db.execute(stmt).all()
+    # Tên kho NGUỒN (Xuất tại kho) tra từ `stock_requests.kho_nguon_id` — 1 lượt, tránh N+1.
+    kho_repo = KhoHangRepository(db)
+    nguon_map = {
+        kid: getattr(kho_repo.get(kid), "ten", None)
+        for kid in {req.kho_nguon_id for _v, _ln, req, _k in results if req and req.kho_nguon_id}
+    }
+    hang_svc = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    hang_map = hang_svc.map_theo_cap(
+        list({(ln.hang_loai, ln.hang_id) for _v, ln, _req, _k in results})
+    )
+    dv_ten = {d.ma: d.ten for d in DonViDoRepository(db).all_active()}
+
+    rows: list[BaoCaoChuyenKhoRow] = []
+    for v, ln, req, kho in results:
+        mh = hang_map.get((ln.hang_loai, ln.hang_id))
+        d = v.ghi_so_luc.date() if v.ghi_so_luc else None
+        if tu and (d is None or d < tu):
+            continue
+        if den and (d is None or d > den):
+            continue
+        nguon_id = getattr(req, "kho_nguon_id", None) if req else None
+        # Lọc theo kho: giữ điều chuyển LIÊN QUAN kho này (xuất khỏi hoặc nhập vào).
+        if kho_id and kho_id not in (v.kho_id, nguon_id):
+            continue
+        # SL · đơn giá vốn theo ĐƠN VỊ GỐC (khớp tồn + cách tính nhập): don_gia quy về đv gốc.
+        qty = float(ln.sl_goc or 0)
+        so = float(ln.so_luong or 0)
+        price = round(float(ln.don_gia) * so / qty) if (qty and ln.don_gia is not None) else None
+        row = BaoCaoChuyenKhoRow(
+            voucher_id=v.id,
+            ngay_ghi_so=d,
+            ngay_ct=v.ngay,
+            so_ct=v.ma,
+            ma_hang=getattr(mh, "ma", None),
+            ten_hang=getattr(mh, "ten", None),
+            dvt=dv_ten.get(getattr(mh, "don_vi_gia", None), getattr(mh, "don_vi_gia", None)),
+            so_luong=qty,
+            don_gia_von=price,
+            tien_von=round(price * qty) if price is not None else None,
+            kho_xuat_ten=nguon_map.get(nguon_id),
+            kho_nhap_ten=getattr(kho, "ten", None),
+            dien_giai=v.ghi_chu or (req.ghi_chu if req else None),
+        )
+        if ql and not any(
+            ql in (val or "").lower() for val in (row.so_ct, row.ma_hang, row.ten_hang)
+        ):
+            continue
+        rows.append(row)
+    return rows
+
+
+@router.get("/bao-cao/chuyen-kho", response_model=BaoCaoChuyenKhoPage)
+def bao_cao_chuyen_kho(
+    db: Db,
+    _: CloseBookUser,
+    tu: date | None = Query(default=None),
+    den: date | None = Query(default=None),
+    kho_id: int | None = Query(default=None),
+    q: str | None = Query(default=None),
+) -> BaoCaoChuyenKhoPage:
+    rows = _chuyen_kho_rows(db, tu=tu, den=den, kho_id=kho_id, q=q)
+    return BaoCaoChuyenKhoPage(items=rows, total=len(rows))
 
 
 # --- Khóa kỳ (chốt sổ) ---------------------------------------------------------
@@ -165,12 +258,19 @@ def get_khoa_so(db: Db, _: CloseBookUser) -> list[KhoKhoaSoRow]:
 def get_khoa_so_ky(db: Db, _: CloseBookUser) -> list[KhoaSoKyRow]:
     """Các KỲ CÒN đang khóa (đã gộp khoảng liền mạch) — cho tab 'Kỳ đã khóa' chọn nhanh + xuất."""
     kho_repo = KhoHangRepository(db)
+    repo = KhoKhoaSoRepository(db)
     out: list[KhoaSoKyRow] = []
-    for kho_id, tu, den, khoa_luc, ten in KhoKhoaSoRepository(db).locked_periods():
+    for kho_id, tu, den, khoa_luc, ten in repo.locked_periods():
         kho = kho_repo.get(kho_id) if kho_id else None
+        # Kỳ TOÀN KHO: liệt kê các kho đã MỞ RIÊNG trong kỳ (miễn trừ) để hiển thị "trừ: …".
+        mien_tru: list[str] = []
+        if kho_id is None:
+            for kid in repo.exempted_khos(tu, den):
+                k = kho_repo.get(kid)
+                mien_tru.append(getattr(k, "ten", None) or f"Kho #{kid}")
         out.append(KhoaSoKyRow(
             kho_id=kho_id, kho_ten=getattr(kho, "ten", None),
-            tu_ngay=tu, den_ngay=den, khoa_luc=khoa_luc, ten=ten,
+            tu_ngay=tu, den_ngay=den, khoa_luc=khoa_luc, ten=ten, mien_tru=mien_tru,
         ))
     return out
 
@@ -288,6 +388,7 @@ def _map_nhap(r: BaoCaoKhoRow) -> dict:
         "Số lượng": r.so_luong,
         "Đơn giá": r.don_gia,
         "Thành tiền": r.thanh_tien,
+        "Hạn sử dụng": _fmt_date(r.han_su_dung),
     }
 
 
@@ -305,6 +406,39 @@ def _map_xuat(r: BaoCaoKhoRow) -> dict:
         "Số lượng": r.so_luong,
         "Đơn giá vốn": r.don_gia,
         "Tiền vốn": r.thanh_tien,
+        "Hạn sử dụng": _fmt_date(r.han_su_dung),
+    }
+
+
+# Cột đúng thứ tự mẫu MISA "Chuyển kho" (Copy of Mau_chuyen_kho.xls — 36 cột).
+_CHUYEN_HEADERS = [
+    "Hiển thị trên sổ", "Hình thức chuyển kho", "Ngày chứng từ (*)", "Ngày hạch toán (*)",
+    "Số chứng từ (*)", "Mẫu số hóa đơn", "Ký hiệu HĐ", "Hợp đồng KT số/Lệnh điều động", "Ngày",
+    "Của", "Về việc/Diễn giải", "Đại lý/Đơn vị nhận", "Tên đại lý/Tên đơn vị nhận",
+    "Mã số thuế đại lý/đơn vị nhận", "Người vận chuyển", "Tên người VC", "Hợp đồng số",
+    "Phương tiện VC", "Mã hàng (*)", "Tên hàng", "Xuất tại kho (*)", "Địa chỉ kho xuất",
+    "Nhập tại kho (*)", "Địa chỉ kho nhập", "Hàng hóa giữ hộ/bán hộ", "TK Nợ (*)", "TK Có (*)",
+    "ĐVT", "Số lượng", "Đơn giá bán", "Thành tiền", "Đơn giá vốn", "Tiền vốn", "Số lô",
+    "Hạn sử dụng", "Mã thống kê",
+]
+
+
+def _map_chuyen(r: BaoCaoChuyenKhoRow) -> dict:
+    # CHỈ fill cột có sẵn dữ liệu (Xuất/Nhập tại kho, mặt hàng, SL, giá vốn); còn lại để TRỐNG cho
+    # kế toán tự khai trong Excel/MISA ("Hình thức chuyển kho", đối tượng, vận chuyển, TK…).
+    return {
+        "Ngày chứng từ (*)": _fmt_date(r.ngay_ct),
+        "Ngày hạch toán (*)": _fmt_date(r.ngay_ghi_so),
+        "Số chứng từ (*)": r.so_ct,
+        "Về việc/Diễn giải": r.dien_giai,
+        "Mã hàng (*)": r.ma_hang,
+        "Tên hàng": r.ten_hang,
+        "Xuất tại kho (*)": r.kho_xuat_ten,
+        "Nhập tại kho (*)": r.kho_nhap_ten,
+        "ĐVT": r.dvt,
+        "Số lượng": r.so_luong,
+        "Đơn giá vốn": r.don_gia_von,
+        "Tiền vốn": r.tien_von,
     }
 
 
@@ -350,10 +484,67 @@ def _build_xlsx(rows: list[BaoCaoKhoRow], loai: str) -> bytes:
     return buf.getvalue()
 
 
+# --- Ghi NHẬT KÝ mỗi lần xuất Excel (vào audit_logs) → hiện ở tab "Lịch sử thao tác" ------------
+_ACTION_EXPORT = "kho_export"
+
+
+def _log_export(db: Session, user: User, *, loai_label: str,
+                kho_id: int | None, tu: date | None, den: date | None) -> None:
+    """Ghi 1 dòng nhật ký 'xuất Excel' (ai · lúc nào · báo cáo gì · kho · khoảng ngày)."""
+    kho_ten = None
+    if kho_id is not None:
+        kho_ten = getattr(KhoHangRepository(db).get(kho_id), "ten", None)
+    pham_vi = f"{loai_label} · {kho_ten or 'Tất cả kho'}"
+    khoang = (
+        f"{_fmt_date(tu) or '…'} – {_fmt_date(den) or '…'}" if (tu or den) else None
+    )
+    # Tên kỳ: xuất TOÀN BỘ (không lọc ngày) → "Toàn bộ"; khoảng ngày TRÙNG ĐÚNG một kỳ đã khóa
+    # (cùng phạm vi kho) → tên kỳ đó; khoảng ngày lẻ (không trùng kỳ) → để trống.
+    ten_ky: str | None = None
+    if tu is None and den is None:
+        ten_ky = "Toàn bộ"
+    elif tu is not None and den is not None:
+        for k_kho, k_tu, k_den, _luc, k_ten in KhoKhoaSoRepository(db).locked_periods():
+            if k_tu == tu and k_den == den and k_kho == kho_id:
+                ten_ky = k_ten or None
+                break
+    AuditLogRepository(db).create(
+        actor_user_id=getattr(user, "id", None),
+        action=_ACTION_EXPORT,
+        target=loai_label,
+        detail=json.dumps(
+            {"pham_vi": pham_vi, "khoang_ngay": khoang, "ten_ky": ten_ky},
+            ensure_ascii=False,
+        ),
+    )
+
+
+@router.get("/bao-cao/lich-su-export", response_model=list[KhoExportLogRow])
+def get_lich_su_export(db: Db, _: CloseBookUser) -> list[KhoExportLogRow]:
+    """Lịch sử các lần XUẤT EXCEL báo cáo kho (mới nhất trước) — gộp vào tab 'Lịch sử thao tác'."""
+    users = UserRepository(db)
+    out: list[KhoExportLogRow] = []
+    for r in AuditLogRepository(db).list_by_action(_ACTION_EXPORT, limit=200):
+        try:
+            d = json.loads(r.detail or "{}")
+        except (ValueError, TypeError):
+            d = {}
+        u = users.get_by_id(r.actor_user_id) if r.actor_user_id else None
+        out.append(KhoExportLogRow(
+            thoi_diem=r.created_at,
+            loai=r.target or "Xuất Excel",
+            pham_vi=d.get("pham_vi") or r.target or "—",
+            khoang_ngay=d.get("khoang_ngay"),
+            ten_ky=d.get("ten_ky"),
+            nguoi_ten=getattr(u, "name", None),
+        ))
+    return out
+
+
 @router.get("/bao-cao/export.xlsx")
 def export_bao_cao(
     db: Db,
-    _: CloseBookUser,
+    user: CloseBookUser,
     loai: str = Query(pattern="^(NHAP|XUAT)$"),
     tu: date | None = Query(default=None),
     den: date | None = Query(default=None),
@@ -362,9 +553,62 @@ def export_bao_cao(
 ) -> Response:
     rows = _report_rows(db, tu=tu, den=den, kho_id=kho_id, loai=loai, q=q)
     content = _build_xlsx(rows, loai)
+    _log_export(db, user, loai_label="Nhập kho" if loai == VOUCHER_NHAP else "Xuất kho",
+                kho_id=kho_id, tu=tu, den=den)
     fname = f"bao-cao-kho-{'nhap' if loai == VOUCHER_NHAP else 'xuat'}.xlsx"
     return Response(
         content=content,
         media_type=_XLSX_MEDIA,
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+def _build_chuyen_xlsx(rows: list[BaoCaoChuyenKhoRow]) -> bytes:
+    """Export điều chuyển theo mẫu MISA 'Chuyển kho' — chỉ fill cột có dữ liệu, còn lại để trống."""
+    from openpyxl import Workbook, load_workbook
+    from openpyxl.styles import Font
+
+    template = _TEMPLATE_DIR / "chuyen_kho.xlsx"
+    if template.exists():
+        wb = load_workbook(template)
+        ws = wb.active
+    else:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Chuyển kho"
+        ws.append(_CHUYEN_HEADERS)
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+    for i, r in enumerate(rows):
+        vals = _map_chuyen(r)
+        for ci, h in enumerate(_CHUYEN_HEADERS, start=1):
+            v = vals.get(h)
+            if v is None:
+                continue
+            cell = ws.cell(row=2 + i, column=ci, value=v)
+            if h in _MONEY_COLS:
+                cell.number_format = "#,##0"
+            elif h in _QTY_COLS:
+                cell.number_format = "#,##0.###"
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@router.get("/bao-cao/chuyen-kho/export.xlsx")
+def export_chuyen_kho(
+    db: Db,
+    user: CloseBookUser,
+    tu: date | None = Query(default=None),
+    den: date | None = Query(default=None),
+    kho_id: int | None = Query(default=None),
+    q: str | None = Query(default=None),
+) -> Response:
+    rows = _chuyen_kho_rows(db, tu=tu, den=den, kho_id=kho_id, q=q)
+    content = _build_chuyen_xlsx(rows)
+    _log_export(db, user, loai_label="Chuyển kho", kho_id=kho_id, tu=tu, den=den)
+    return Response(
+        content=content,
+        media_type=_XLSX_MEDIA,
+        headers={"Content-Disposition": 'attachment; filename="bao-cao-kho-chuyen-kho.xlsx"'},
     )

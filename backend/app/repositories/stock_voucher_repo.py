@@ -6,12 +6,15 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..models.stock_voucher import (
     VOUCHER_DRAFT,
+    VOUCHER_XUAT,
     StockVoucher,
     StockVoucherAttachment,
     StockVoucherLine,
 )
 
-_HEADER_FIELDS = ("kho_id", "ngay", "nguoi_giao_nhan", "ghi_chu")
+_HEADER_FIELDS = ("kho_id", "ngay", "nguoi_giao_nhan", "ghi_chu",
+                  # ĐIỀU CHUYỂN KHO (mig 0203) — bật cho cả phiếu xuất nguồn lẫn nhập đích.
+                  "dieu_chuyen")
 
 
 class StockVoucherRepository:
@@ -46,6 +49,13 @@ class StockVoucherRepository:
              request_id: int | None = None, kho_id: int | None = None,
              q: str | None = None, page: int = 1, size: int = 50):
         conds = []
+        # ẨN phiếu XUẤT nguồn của điều chuyển khi CÒN NHÁP (bút toán nội bộ, tự ghi sổ khi đích
+        # nhập). Đã ghi sổ thì HIỆN (là vế xuất thật của điều chuyển, phục vụ đối chiếu).
+        conds.append(or_(
+            StockVoucher.dieu_chuyen.is_(False),
+            StockVoucher.loai != VOUCHER_XUAT,
+            StockVoucher.trang_thai != VOUCHER_DRAFT,
+        ))
         if loai:
             conds.append(StockVoucher.loai == loai)
         if trang_thai:
@@ -203,6 +213,7 @@ class StockVoucherRepository:
                 don_gia=ln.get("don_gia"),
                 ghi_chu=ln.get("ghi_chu"),
                 vi_tri=ln.get("vi_tri"),
+                hsd=ln.get("hsd"),
             ))
         self.db.add(obj)
         self.db.commit()

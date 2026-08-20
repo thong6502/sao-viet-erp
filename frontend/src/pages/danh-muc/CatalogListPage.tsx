@@ -180,7 +180,7 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
           khác. Nay `subtitle` chỉ quyết định có render dòng chữ đó hay không. */}
       <header className="rc__head">
         <div className="rc__headrow">
-          <h1 className="rc__title">{config.title}</h1>
+          <h1 className="rc__title">{config.heading ?? config.title}</h1>
           <span className="rc__count">{tongTheoTim} mục</span>
           <div className="rc__spacer" />
           {duocTao && (

@@ -52,7 +52,11 @@ VOUCHER_SOURCE_PURCHASE = "purchase_request"
 VOUCHER_SOURCE_INTERNAL = "internal_expense"
 VOUCHER_SOURCE_CUSTOMER_REFUND = "customer_refund"
 VOUCHER_SOURCE_OTHER = "other"
+# Phiếu chi lập TỪ MỘT PHIẾU TẠM ỨNG LƯƠNG đã duyệt (chủ chốt 18/08/2026). Một phiếu tạm ứng
+# ⇄ một phiếu chi. Áp cho CẢ `tam_ung` lẫn `luong_dot_1` — cùng là tiền ra khỏi két.
+VOUCHER_SOURCE_SALARY_ADVANCE = "salary_advance"
 VOUCHER_SOURCES = (
+    VOUCHER_SOURCE_SALARY_ADVANCE,
     VOUCHER_SOURCE_PURCHASE,
     VOUCHER_SOURCE_INTERNAL,
     VOUCHER_SOURCE_CUSTOMER_REFUND,
@@ -169,6 +173,13 @@ class PaymentVoucher(Base):
     # Soft ref (không FK) có chủ ý: xoá đợt giao đã bị chặn ở tầng service khi đợt còn phiếu chi,
     # nên FK RESTRICT chỉ thêm một chỗ vỡ ở DB mà không thêm an toàn nào.
     delivery_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # Phiếu TẠM ỨNG LƯƠNG nguồn (chủ chốt 18/08/2026). Chỉ có giá trị khi
+    # `source_type = salary_advance`. RESTRICT: còn phiếu chi thì không xoá được phiếu tạm ứng.
+    # Một phiếu tạm ứng chỉ được lập ĐÚNG MỘT phiếu chi ⇒ UNIQUE.
+    salary_advance_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("salary_advances.id", ondelete="RESTRICT"),
+        nullable=True, unique=True, index=True,
+    )
     supplier_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True, index=True
     )

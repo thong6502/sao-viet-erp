@@ -403,6 +403,15 @@ class RoleRepository:
         can_adjust: bool = False,
         # cham_cong: xem tab "Nhật ký chấm công" — tách khỏi `can_read` 11/08/2026.
         can_view_log: bool = False,
+        can_view_timesheet: bool = False,
+        can_approve_late_early: bool = False,
+        can_manage_locations: bool = False,
+        can_manage_shifts: bool = False,
+        can_manage_calendar: bool = False,
+        can_view_payroll_table: bool = False,
+        can_manage_salary_profiles: bool = False,
+        can_manage_piece_rates: bool = False,
+        can_manage_leave_types: bool = False,
         can_approve_exception: bool = False,
         can_set_credit_terms: bool = False,
         can_record_deposit: bool = False,
@@ -433,6 +442,15 @@ class RoleRepository:
         perm.can_approve = can_approve
         perm.can_manage_status = can_manage_status
         perm.can_view_log = can_view_log
+        perm.can_view_timesheet = can_view_timesheet
+        perm.can_approve_late_early = can_approve_late_early
+        perm.can_manage_locations = can_manage_locations
+        perm.can_manage_shifts = can_manage_shifts
+        perm.can_manage_calendar = can_manage_calendar
+        perm.can_view_payroll_table = can_view_payroll_table
+        perm.can_manage_salary_profiles = can_manage_salary_profiles
+        perm.can_manage_piece_rates = can_manage_piece_rates
+        perm.can_manage_leave_types = can_manage_leave_types
         perm.can_reset_password = can_reset_password
         perm.can_lock = can_lock
         perm.can_revoke_sessions = can_revoke_sessions

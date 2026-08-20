@@ -2,6 +2,7 @@
 Không chứa luật nghiệp vụ (những thứ đó ở `OvertimeService`)."""
 from __future__ import annotations
 
+import calendar as _cal
 from datetime import date, datetime, timezone
 
 from sqlalchemy import func, select, update
@@ -129,6 +130,24 @@ class OvertimeRepository:
             stmt = stmt.where(cond)
         return int(self.db.execute(stmt).scalar_one())
 
+    def count_pending_in_range(self, start: date, end: date) -> int:
+        """Số phiếu tăng ca CÒN CHỜ DUYỆT có `work_date` trong [start, end] — guard chốt công.
+
+        KHÁC `count_pending_scoped` (nuôi badge, lọc theo phạm vi người xem): ở đây đếm TOÀN BỘ,
+        vì chốt công là việc của cả tháng chứ không của riêng phạm vi ai.
+
+        Vì sao phải chặn (chủ chốt 15/08/2026): ảnh chụp đóng băng theo trạng thái LÚC CHỐT, mà
+        từ 12/08 duyệt phiếu vào tháng đã chốt cũng bị chặn ⇒ phiếu treo lúc chốt thành NGÕ CỤT:
+        không duyệt được, mà không duyệt thì không có tiền tăng ca. Gỡ ra bắt buộc phải mở lại kỳ
+        công. Ba loại phiếu kia đã chặn đúng vì lý do này; tăng ca lọt cho tới hôm nay."""
+        return int(self.db.execute(
+            select(func.count()).select_from(OvertimeRequest).where(
+                OvertimeRequest.status == STATUS_PENDING,
+                OvertimeRequest.work_date >= start,
+                OvertimeRequest.work_date <= end,
+            )
+        ).scalar_one())
+
     def count_my_unseen(self, employee_id: int) -> int:
         """Số phiếu của NV đã ĐƯỢC QUYẾT mà NV chưa xem — nuôi chuông Topbar."""
         stmt = select(func.count(OvertimeRequest.id)).where(
@@ -164,6 +183,30 @@ class OvertimeRepository:
                 )
             ).scalars()
         )
+
+    def sum_live_minutes_in_month(self, employee_id: int, year: int, month: int, *,
+                                  exclude_id: int | None = None) -> int:
+        """Tổng SỐ PHÚT của các phiếu CÒN HIỆU LỰC (chờ duyệt + đã duyệt) của 1 NV trong 1 tháng
+        — nền cho trần giờ làm thêm Đ107. `exclude_id` để đường SỬA không tự đếm chính nó.
+
+        Vì sao tính cả `pending`: chủ chốt 17/08/2026. Không giữ chỗ thì thợ gửi 10 phiếu vào 10
+        ngày khác nhau (luật 1-phiếu/ngày không chặn giúp), mỗi phiếu lúc TẠO đều còn trong trần,
+        rồi duyệt lần lượt ⇒ trần bị đi qua sạch. Từ chối / hủy phiếu là TRẢ CHỖ ngay, không job.
+
+        Đây là số theo PHIẾU (đã cấp phép), KHÔNG phải giờ đã bấm máy — giờ thực luôn ≤ giờ phiếu
+        vì `compute_day_cong` lấy GIAO của phiên chấm với cửa sổ phiếu."""
+        last = _cal.monthrange(year, month)[1]
+        stmt = select(
+            func.coalesce(func.sum(OvertimeRequest.to_minute - OvertimeRequest.from_minute), 0)
+        ).where(
+            OvertimeRequest.employee_id == employee_id,
+            OvertimeRequest.work_date >= date(year, month, 1),
+            OvertimeRequest.work_date <= date(year, month, last),
+            OvertimeRequest.status.in_(_LIVE),
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(OvertimeRequest.id != exclude_id)
+        return int(self.db.execute(stmt).scalar_one() or 0)
 
     def live_for_day(self, employee_id: int, work_date: date, *,
                      exclude_id: int | None = None) -> list[OvertimeRequest]:

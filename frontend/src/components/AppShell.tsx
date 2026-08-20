@@ -146,9 +146,10 @@ export function AppShell() {
   const [khoCounts, setKhoCounts] = useState<{
     nhap: number;
     xuat: number;
+    dieu_chuyen: number;
     done_unseen: number;
     fail_unseen: number;
-  }>({ nhap: 0, xuat: 0, done_unseen: 0, fail_unseen: 0 });
+  }>({ nhap: 0, xuat: 0, dieu_chuyen: 0, done_unseen: 0, fail_unseen: 0 });
   // Bàn "Thực hiện sản xuất": tổ đã khai báo → node lá ĐỘNG dưới section "Sản xuất" + badge =
   // số việc chờ. `teams` MỘT cú gọi ra cả list lẫn badge (`so_viec_cho`) — đừng thêm API badge
   // riêng. Refetch khi có sự kiện `san_xuat_cong_viec_changed` (badge nhảy + bàn đang mở tự tươi).
@@ -470,11 +471,11 @@ export function AppShell() {
         .counts(token)
         .then((c) => {
           // Workload (chờ cấp) nuôi toast "việc mới"; badge = workload + phản-hồi-kho-chưa-xem của tôi.
-          lastKhoPending.current = c.nhap + c.xuat;
+          lastKhoPending.current = c.nhap + c.xuat + c.dieu_chuyen;
           setKhoCounts(c);
           setBadges((prev) => ({
             ...prev,
-            "kho-main": c.nhap + c.xuat + c.done_unseen + c.fail_unseen,
+            "kho-main": c.nhap + c.xuat + c.dieu_chuyen + c.done_unseen + c.fail_unseen,
           }));
         })
         .catch(() => {});
@@ -874,11 +875,11 @@ export function AppShell() {
         api.kho.deNghi
           .counts(token)
           .then((c) => {
-            lastKhoPending.current = c.nhap + c.xuat;
+            lastKhoPending.current = c.nhap + c.xuat + c.dieu_chuyen;
             setKhoCounts(c);
             setBadges((prev) => ({
               ...prev,
-              "kho-main": c.nhap + c.xuat + c.done_unseen + c.fail_unseen,
+              "kho-main": c.nhap + c.xuat + c.dieu_chuyen + c.done_unseen + c.fail_unseen,
             }));
           })
           .catch(() => {});
@@ -888,7 +889,7 @@ export function AppShell() {
         api.kho.deNghi
           .counts(token)
           .then((c) => {
-            const workload = c.nhap + c.xuat; // chỉ "chờ cấp" — nuôi toast việc-mới
+            const workload = c.nhap + c.xuat + c.dieu_chuyen; // chỉ "chờ cấp" — nuôi toast việc-mới
             setKhoCounts(c);
             setBadges((prev) => ({
               ...prev,
@@ -1070,6 +1071,7 @@ export function AppShell() {
           token={token ?? ""}
           navigate={navigate}
           openMatHangKey={navParams?.openMatHangKey ?? null}
+          khoOptions={khoList}
         />
       );
     }
@@ -1127,10 +1129,10 @@ export function AppShell() {
       case "luong":
         return (
           <LuongPage
+            navigate={navigate}
             focusEmployeeId={navParams?.focusEmployeeId}
             eventTick={quoteTick}
             openTab={navParams?.luongTab}
-            navigate={navigate}
           />
         );
       case "khach-hang":

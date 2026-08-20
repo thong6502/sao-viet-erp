@@ -41,6 +41,8 @@ interface SelectProps<T extends SelectValue> {
   searchPlaceholder?: string;
   /** Căn lề popover ("left" mặc định, "right" cho các ô ở góc phải thanh công cụ). */
   align?: "left" | "right";
+  /** Mở LÊN TRÊN thay vì xuống dưới — cho ô nằm cuối trang/pager (mở xuống sẽ bị che). Cần `portal`. */
+  dropUp?: boolean;
 }
 
 export function Select<T extends SelectValue>({
@@ -56,11 +58,12 @@ export function Select<T extends SelectValue>({
   onSearch,
   searchPlaceholder = "Tìm…",
   align = "left",
+  dropUp = false,
 }: SelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [query, setQuery] = useState("");
-  const [rect, setRect] = useState<{ top: number; left: number; right: number; width: number } | null>(null);
+  const [rect, setRect] = useState<{ top: number; bottom: number; left: number; right: number; width: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -81,7 +84,13 @@ export function Select<T extends SelectValue>({
     const el = triggerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setRect({ top: r.bottom + 4, left: r.left, right: r.right, width: r.width });
+    setRect({
+      top: r.bottom + 4,
+      bottom: window.innerHeight - r.top + 4, // neo mép DƯỚI popover ngay trên trigger (mở lên)
+      left: r.left,
+      right: r.right,
+      width: r.width,
+    });
   }
 
   useLayoutEffect(() => {
@@ -168,9 +177,15 @@ export function Select<T extends SelectValue>({
       aria-activedescendant={`${listId}-${active}`}
       style={
         portal && rect
-          ? align === "right"
-            ? { position: "fixed", top: rect.top, right: window.innerWidth - rect.right, left: "auto", minWidth: rect.width }
-            : { position: "fixed", top: rect.top, left: rect.left, width: rect.width, right: "auto" }
+          ? {
+              position: "fixed",
+              // dropUp: neo mép DƯỚI, top:"auto" để XOÁ `top: calc(100%+4px)` của .sel__list
+              // (không xoá thì phần tử bị đẩy xuống dưới viewport → menu nằm ngoài màn, không bấm được).
+              ...(dropUp ? { top: "auto", bottom: rect.bottom } : { top: rect.top }),
+              ...(align === "right"
+                ? { right: window.innerWidth - rect.right, left: "auto", minWidth: rect.width }
+                : { left: rect.left, width: rect.width, right: "auto" }),
+            }
           : undefined
       }
     >

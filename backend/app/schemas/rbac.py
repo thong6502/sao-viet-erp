@@ -331,6 +331,16 @@ class PermissionRow(BaseModel):
     can_edit_salary: bool = False
     can_adjust: bool = False
     can_view_log: bool = False  # cham_cong: xem tab Nhật ký chấm công (tách khỏi `can_read` 11/08/2026).
+    # cham_cong (mg 0194) — MỘT Ô = MỘT TAB. Xem `models/role.py` để biết ô nào mở tab nào.
+    can_view_timesheet: bool = False      # tab Bảng công tháng (lưới cả công ty + nút Chốt kỳ)
+    can_approve_late_early: bool = False  # tab con Duyệt phiếu đi muộn / về sớm / nghỉ nửa buổi
+    can_manage_locations: bool = False    # tab Điểm chấm công
+    can_manage_shifts: bool = False       # tab Khai ca
+    can_manage_calendar: bool = False     # tab Lịch & Ngày lễ
+    can_view_payroll_table: bool = False  # luong — tab Bảng lương tháng
+    can_manage_salary_profiles: bool = False  # luong — tab Lương nhân viên
+    can_manage_piece_rates: bool = False      # luong — tab Lương khoán
+    can_manage_leave_types: bool = False      # nghi_phep — danh mục loại nghỉ
     can_approve_exception: bool = False
     can_set_credit_terms: bool = False
     can_record_deposit: bool = False   # don_hang_ban — Kế toán ghi phiếu thu cọc

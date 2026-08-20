@@ -94,7 +94,22 @@ class ModuleCapability(BaseModel):
     can_view_cost: bool = False          # kho — xem giá vốn & giá trị tồn
     can_set_threshold: bool = False      # kho — khai ngưỡng tồn / cận tồn
     can_post: bool = False               # kho — GHI SỔ phiếu (chốt tồn); tách khỏi lập nháp (SoD)
+    # ⚠️ `can_view_log` THIẾU Ở ĐÂY từ 11/08 → 15/08/2026: ô "Xem Nhật ký chấm công" cấp xong mà
+    # tab KHÔNG BAO GIỜ HIỆN. Máy chủ gác đúng nên bộ test API vẫn xanh; chỉ người ngồi bấm mới thấy.
+    can_view_log: bool = False           # cham_cong — tab Nhật ký chấm công
     can_close_book: bool = False         # kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export
+    # cham_cong (mg 0194) — MỘT Ô = MỘT TAB. ⚠️ `response_model` của FastAPI CẮT BỎ mọi field
+    # không khai ở đây: thiếu một dòng thì cờ vẫn nằm trong `capabilities()` mà KHÔNG tới được
+    # trình duyệt. Đúng chỗ lọt ngày 15/08/2026.
+    can_view_timesheet: bool = False      # tab Bảng công tháng
+    can_approve_late_early: bool = False  # tab con Duyệt phiếu đi muộn / về sớm
+    can_manage_locations: bool = False    # tab Điểm chấm công
+    can_manage_shifts: bool = False       # tab Khai ca
+    can_manage_calendar: bool = False     # tab Lịch & Ngày lễ
+    can_view_payroll_table: bool = False  # luong — tab Bảng lương tháng
+    can_manage_salary_profiles: bool = False  # luong — tab Lương nhân viên
+    can_manage_piece_rates: bool = False      # luong — tab Lương khoán
+    can_manage_leave_types: bool = False      # nghi_phep — danh mục loại nghỉ
 
 
 class PermissionsOut(BaseModel):

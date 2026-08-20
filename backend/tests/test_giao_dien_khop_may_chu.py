@@ -70,6 +70,12 @@ def _may_chu_gac() -> set[tuple[str, str]]:
         for m, a in re.findall(r'require_permission\(\s*([\w".]+)\s*,\s*"(\w+)"', s):
             if (k := giai(m)):
                 dung.add((k, a))
+        # Nhà máy dựng dependency (15/08/2026): `_ghi_cau_hinh_chung("update", "Khai ca")` bọc
+        # `require_permission(MODULE, action)` bên trong. Không dạy bộ quét đọc lớp gián tiếp này
+        # thì guard kêu oan "máy chủ không gác" trong khi nó gác rất chặt.
+        for ten_ham, a in re.findall(r'(_ghi_cau_hinh_chung|_ghi_lich_chung)\(\s*"(\w+)"', s):
+            if (k := hang.get("MODULE")):
+                dung.add((k, a))
         for blob in re.findall(r'require_any_permission\(([\s\S]{0,400}?)\)\s*\)', s):
             for m, a in re.findall(r'\(\s*([\w".]+)\s*,\s*"(\w+)"\s*\)', blob):
                 if (k := giai(m)):
@@ -175,12 +181,18 @@ NUT_NGUY_HIEM: list[tuple[str, str, str, str]] = [
     ("Duyệt / từ chối PMH", "ke_toan", "approve", "AccountingPurchaseInboxPage.tsx"),
     # Gộp về ô "Thao tác" 12/08/2026 — ô riêng `manage_status` đã bỏ khỏi ma trận.
     ("Sửa số nhận · Mở lại đơn · Đóng đơn", "thu_mua", "update", "PurchaseRequestsPage.tsx"),
-    ("Duyệt yêu cầu chỉnh công", "yeu_cau_chinh_cong", "approve", "ChamCongPage.tsx"),
-    ("Xem tab Yêu cầu chỉnh công", "yeu_cau_chinh_cong", "read", "ChamCongPage.tsx"),
+    # GỘP VỀ MÀN CHẤM CÔNG 15/08/2026 (mg 0194) — hai tab này vốn nằm trong màn đó, không phải
+    # màn riêng. Tab Yêu cầu chỉnh công nay hiện theo chính ô DUYỆT, bỏ ô "xem" riêng.
+    ("Duyệt yêu cầu chỉnh công", "cham_cong", "approve", "ChamCongPage.tsx"),
     ("Chốt bảng lương", "luong", "lock", "LuongPage.tsx"),
     ("Đánh dấu đã chi lương", "luong", "manage_status", "LuongPage.tsx"),
     ("Lập phiếu chi", "phieu_chi", "create", "AccountingPurchaseInboxPage.tsx"),
-    ("Duyệt phiếu đi muộn / về sớm", "di_muon", "approve", "ChamCongPage.tsx"),
+    ("Duyệt phiếu đi muộn / về sớm", "cham_cong", "approve_late_early", "ChamCongPage.tsx"),
+    # MỘT Ô = MỘT TAB: ba tab cấu hình tách khỏi ô "Cấu hình chấm công" cũ.
+    ("Bảng công tháng", "cham_cong", "view_timesheet", "ChamCongPage.tsx"),
+    ("Điểm chấm công", "cham_cong", "manage_locations", "ChamCongPage.tsx"),
+    ("Khai ca", "cham_cong", "manage_shifts", "ChamCongPage.tsx"),
+    ("Lịch & Ngày lễ", "cham_cong", "manage_calendar", "ChamCongPage.tsx"),
 ]
 
 

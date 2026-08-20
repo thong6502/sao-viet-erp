@@ -12,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class ParamsIn(BaseModel):
     standard_cong_default: float | None = Field(default=None, gt=0, le=31)
     probation_ratio: float | None = Field(default=None, gt=0, le=1)
+    ot_max_minutes_per_month: int | None = Field(default=None, ge=0, le=44640)
+    ot_max_minutes_per_day: int | None = Field(default=None, gt=0, le=2880)
     bhxh_rate: float | None = Field(default=None, ge=0, le=1)
     bhyt_rate: float | None = Field(default=None, ge=0, le=1)
     bhtn_rate: float | None = Field(default=None, ge=0, le=1)
@@ -58,6 +60,8 @@ class ParamsOut(BaseModel):
 
     standard_cong_default: float
     probation_ratio: float
+    ot_max_minutes_per_month: int
+    ot_max_minutes_per_day: int
     bhxh_rate: float
     bhyt_rate: float
     bhtn_rate: float
@@ -341,6 +345,9 @@ class MyAdvancesOut(BaseModel):
     items: list[AdvanceOut]
     # Mức "Lương trả 1 lần" hiện hành của NV — FE điền sẵn khi tự xin phiếu đợt 1 (0 = chưa khai).
     luong_dot_1: float = 0
+    #: Tháng SỚM NHẤT còn lập phiếu được ("YYYY-MM") = liền sau kỳ đã chốt/đã chi muộn nhất.
+    #: FE đặt làm `min` của ô chọn kỳ — kỳ đã khoá KHÔNG chọn được nữa (chủ chốt 18/08/2026).
+    ky_min_chon_duoc: str | None = None
 
 
 # --- periods / bảng lương ---------------------------------------------------
@@ -508,11 +515,35 @@ class LineUpdateIn(BaseModel):
 # --- self-service phiếu lương -----------------------------------------------
 
 
+class KyXemDuocOut(BaseModel):
+    """Một kỳ NLĐ đang được xem phiếu — CHỈ nhãn tháng, không kèm tiền."""
+    year: int
+    month: int
+    #: None = mở không thời hạn. Giao diện dùng để chú thích "xem tới ngày…".
+    dong_phieu_luc: datetime | None = None
+
+
+class ChoPhatOut(BaseModel):
+    """Kỳ mới nhất NLĐ CHƯA được xem, kèm lý do — để màn hình thôi nói "chưa có kỳ lương nào".
+
+    ⚠️ KHÔNG có trường tiền nào ở đây, và đừng thêm: cả cửa công bố sinh ra để NLĐ không đọc
+    được số của kỳ chưa phát."""
+    year: int
+    month: int
+    #: `chua_phat` (chưa ai bấm Công bố) · `hen_gio` (đã hẹn, chưa tới giờ) · `da_dong` (hết hạn xem)
+    tinh_trang: str
+    #: Chỉ có nghĩa khi `tinh_trang = "hen_gio"` — giờ phiếu sẽ mở.
+    mo_luc: datetime | None = None
+
+
 class PayslipOut(BaseModel):
     has_employee: bool
     employee_name: str | None = None
     period: PeriodOut | None = None
     line: LineOut | None = None
+    #: Các kỳ NLĐ tra lại được, mới → cũ. Rỗng nghĩa là không có phiếu nào đang mở.
+    ky_xem_duoc: list[KyXemDuocOut] = Field(default_factory=list)
+    cho_phat: ChoPhatOut | None = None
 
 
 # --- Danh mục khoản thu nhập (chủ 2026-07-27) --------------------------------

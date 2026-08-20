@@ -37,6 +37,8 @@ from ..repositories.user_repo import UserRepository
 from ..schemas.stock import (
     AllocationLineOut,
     AllocationOut,
+    DieuChuyenIn,
+    DieuChuyenOut,
     MaterialHistoryOut,
     MaterialXuatRow,
     StockLotOut,
@@ -62,6 +64,8 @@ router = APIRouter(prefix="/api/kho/phieu", tags=["kho-phieu"])
 # Ngưỡng tồn để PREFIX RIÊNG, không nhét dưới /phieu: `/phieu/nguong` là path 1 đoạn nên sẽ
 # bị `/phieu/{voucher_id}` nuốt trước (FastAPI khớp theo thứ tự khai báo) → 422.
 threshold_router = APIRouter(prefix="/api/kho/nguong-ton", tags=["kho-nguong"])
+# Điều chuyển kho — prefix RIÊNG (không nhét dưới /phieu) để không bị `/phieu/{voucher_id}` nuốt.
+dieu_chuyen_router = APIRouter(prefix="/api/kho/dieu-chuyen", tags=["kho-dieu-chuyen"])
 MODULE = "kho"
 
 
@@ -248,6 +252,7 @@ def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
         nguoi_ghi_so_ten=getattr(ghi_so_u, "name", None),
         nguoi_giao_nhan=v.nguoi_giao_nhan, ghi_chu=v.ghi_chu,
         trang_thai=v.trang_thai, ghi_so_luc=v.ghi_so_luc, created_at=v.created_at,
+        dieu_chuyen=bool(getattr(v, "dieu_chuyen", False)),
         lines=lines,
         gia_von=gia_von_total if can_view_cost else None,
     )
@@ -385,6 +390,33 @@ def suggest_allocation(
         ],
         thieu=thieu,
     )
+
+# --- Điều chuyển kho -----------------------------------------------------------
+
+@dieu_chuyen_router.post("", response_model=DieuChuyenOut, status_code=status.HTTP_201_CREATED)
+def dieu_chuyen(
+    payload: DieuChuyenIn, svc: Service, authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+) -> DieuChuyenOut:
+    """Ấn điều chuyển 1 HAY NHIỀU mặt hàng kho nguồn → kho đích (gộp vào MỘT yêu cầu). Server tự
+    XUẤT nguồn (ghi sổ NGAY, trừ tồn, chốt giá vốn bình quân) + tạo YÊU CẦU ĐIỀU CHUYỂN (NHẬP) ở
+    đích cho kho đích lập MỘT phiếu nhận."""
+    try:
+        res = svc.dieu_chuyen(
+            user=user, kho_nguon_id=payload.kho_nguon_id, kho_den_id=payload.kho_den_id,
+            items=[it.model_dump() for it in payload.items], ghi_chu=payload.ghi_chu,
+        )
+    except StockVoucherError as e:
+        raise _err(e) from None
+    yc, px = res["yeu_cau"], res["phieu_xuat"]
+    return DieuChuyenOut(
+        yeu_cau_id=yc.id, yeu_cau_ma=yc.ma,
+        phieu_xuat_id=px.id, phieu_xuat_ma=px.ma,
+        kho_nguon_id=payload.kho_nguon_id, kho_den_id=payload.kho_den_id,
+        so_dong=len(payload.items),
+        gia_von=res["gia_von"] if authz.can(user, MODULE, "view_cost") else None,
+    )
+
 
 # --- Xuất Excel Báo cáo Kho ---
 _XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -565,6 +597,8 @@ def list_lots(
     voucher_ma_map = svc.vouchers.ma_by_ids(
         list({lot.voucher_id for lot in lots if lot.voucher_id is not None})
     )
+    # Mã đơn vị (to/cai/kem…) → TÊN có dấu (tờ/cái/bản kẽm) cho HIỂN THỊ — 1 truy vấn cho cả trang.
+    dv_ten = {d.ma: d.ten for d in svc.hang.don_vi.all_active()}
     out = []
     for lot in lots:
         row = StockLotOut.model_validate(lot)
@@ -573,6 +607,7 @@ def list_lots(
         row.hang_ten = getattr(m, "ten", None)
         row.hang_anh = getattr(m, "anh_url", None)
         row.dvt = getattr(m, "don_vi_gia", None)
+        row.dvt_ten = dv_ten.get(row.dvt, row.dvt)
         row.voucher_ma = voucher_ma_map.get(lot.voucher_id) if lot.voucher_id else None
         # Thủ kho chọn lô nhưng KHÔNG thấy giá (spec §6).
         row.don_gia_nhap = int(lot.don_gia_nhap or 0) if can_view_cost else None

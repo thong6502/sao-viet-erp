@@ -143,6 +143,15 @@ class PayrollParams(Base):
     bh_base_cap: Mapped[float] = mapped_column(_MONEY, nullable=False, default=50_600_000, server_default="50600000")
     # Trần BHTN = 20× lương tối thiểu vùng (vùng I 5.31tr từ 1/1/2026 → 106.2tr). 0 = không áp trần.
     bhtn_base_cap: Mapped[float] = mapped_column(_MONEY, nullable=False, default=106_200_000, server_default="106200000")
+    # --- TRẦN GIỜ LÀM THÊM (Đ107 BLLĐ) — chủ chốt 17/08/2026 ------------------------------
+    # Số PHÚT làm thêm tối đa MỘT NGƯỜI được cấp phiếu trong MỘT THÁNG. `0` = TẮT TRẦN.
+    # ⚠️ Mặc định 0 (TẮT) là CỐ Ý: deploy xong KHÔNG chặn ai đột ngột. Chủ vào Cấu hình lương
+    # gõ 2400 (= 40 giờ, mức Đ107) khi sẵn sàng. Chặn CỨNG, KHÔNG có đường vượt — hết trần thì
+    # lối duy nhất là nâng số này (áp cho CẢ công ty, không riêng ai).
+    ot_max_minutes_per_month: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Số PHÚT tối đa của MỘT phiếu tăng ca (Đ107.1: ≤ 12 giờ/ngày). Trước 17/08/2026 viết cứng
+    # `MAX_OT_MINUTES` trong `overtime_service`. Đưa ra tham số vì luật đổi hằng năm (Sếp Sơn).
+    ot_max_minutes_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=720, server_default="720")
     # TRẦN TẠM ỨNG (chủ 2026-07-23): tổng tạm ứng trong MỘT tháng của 1 NV không vượt tỷ lệ này ×
     # (lương vị trí + trách nhiệm). Ứng nhiều lần trong tháng được, nhưng cộng dồn phải nằm trong trần.
     # Đơn ĐANG CHỜ DUYỆT cũng chiếm chỗ. 0 = KHÔNG giới hạn (đường thoát để duyệt nốt đơn tồn).
@@ -408,6 +417,16 @@ class PayrollLine(Base):
     # hơn. ĐỪNG cộng thêm vào gross: đã nằm trong `luong_cong`. Khác hẳn cột tay `phep_nam`.
     luong_ngay_phep: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     paid_leave_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
+    # TRONG ĐÓ của `actual_cong` — số công của NGÀY LỄ / NGHỈ TUẦN có đi làm. Tách riêng vì phần
+    # công này KHÔNG đi qua trần `min(công làm, công chuẩn)` (Đ98.1.b/c — xem `_luong_cong_split`).
+    # Snapshot để "Sửa 1 ô" tính lại ra đúng số của "Tính lại". ĐỪNG cộng vào gross: đã nằm trong
+    # `luong_cong`. Kỳ CŨ (trước mg 0204) = 0 ⇒ giữ nguyên hành vi cũ, không hồi tố.
+    special_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
+    # TRONG ĐÓ của `ot_pay` — tiền của NGÀY off1x (công ty cho nghỉ, ai đi làm được trả 1×, không
+    # hệ số). Tách riêng vì nó CHỊU thuế TNCN: trả đúng 1× nên không có phần "trả cao hơn" nào để
+    # miễn (kế toán chốt 17/08/2026: "lương thuế chỉ 1 công bình thường"). Snapshot để "Sửa 1 ô"
+    # trừ đúng y "Tính lại". ĐỪNG cộng vào gross: đã nằm trong `ot_pay`. Kỳ CŨ (trước mg 0205) = 0.
+    off1x_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     # Công thiếu ĐƯỢC PHÉP (đơn nghỉ theo giờ đã duyệt) — chỉ để giải trình vì sao công thiếu mà
     # chuyên cần vẫn đủ. Không tham gia công thức nào ở dòng lương.
     excused_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")

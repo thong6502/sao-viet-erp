@@ -1544,6 +1544,67 @@
 .cc-badge-pill--purple { background: var(--plum-soft); color: var(--plum-deep); }
 .cc-badge-pill--orange { background: var(--rust-soft); color: var(--rust-deep); }
 .cc-badge-pill--gray { background: var(--steel-soft); color: var(--steel); }
+.cc-badge-pill--red { background: var(--signal-soft); color: var(--signal-deep); }
+/* Bản "nhạt" của --red: viền thay vì nền đặc. Dùng cho ngày lễ NGHỈ — vẫn là ngày lễ nên
+   giữ đúng màu, nhưng không được hét to bằng ngày lễ ĐI LÀM (cái đó mới ra tiền thêm). */
+.cc-badge-pill--red-soft {
+  background: var(--canvas);
+  color: var(--signal);
+  box-shadow: inset 0 0 0 1px var(--signal-soft);
+}
+
+/* Pill NẰM TRÊN Ô LỊCH (góc phải trên) — nhỏ hơn pill chú giải vì ô chỉ rộng ~100–200px và
+   có lúc phải chứa hai cái cạnh nhau (vd `CN` + `+OT`).
+   Tách thành class là có lý do: trước đây badge `+OT` gõ thẳng
+   `style={{ padding: "1px 4px", fontSize: "9px" }}` ở HAI chỗ vẽ ô khác nhau, nên thêm pill mới
+   là chép số cứng lần thứ ba rồi ba chỗ trôi khác nhau. */
+.cc-badge-pill--cell {
+  padding: 1px 4px;
+  font-size: 9px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  white-space: nowrap;      /* "NGHỈ" không được rớt dòng → pill méo thành hình tròn */
+}
+.cc-month-cell__pills {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+/* Dòng "→ tính N công": chữ nhỏ nhưng phải ĐỌC ĐƯỢC — đây là câu trả lời cho "sao tôi làm
+   ngày lễ mà vẫn thấy 1 công?", để nó mờ như chú thích là hỏng cả mục đích. */
+.cc-month-cell__gain {
+  font-weight: var(--fw-bold);
+  color: var(--signal);
+}
+.cc-month-cell__gain--restday { color: var(--plum-deep); }
+
+/* Cột "Công đặc biệt" của Bảng công tháng: chip tóm tắt, bấm mở drawer từng ngày.
+   Là <button> chứ không phải <div onClick> — bàn phím phải tới được, và flex phải nằm ở ĐÂY
+   chứ không phải trên <td> (flex trên ô bảng làm vỡ layout table). */
+.cc-ts-special {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--r-3);
+  background: none;
+  cursor: pointer;
+  font: inherit;
+}
+.cc-ts-special:hover { border-color: var(--rule); background: var(--rule-hair); }
+.cc-ts-special:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
+.cc-ts-special__total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--rule-soft);
+  font-size: 13px;
+  color: var(--ash);
+}
+.cc-ts-special__total b { font-size: 15px; color: var(--ink); }
 
 /* Custom select dropdowns inside tables and panels */
 .ns__table select,

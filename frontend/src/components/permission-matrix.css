@@ -422,6 +422,19 @@
   opacity: 1;
 }
 
+/* Nhãn "cần Phạm vi Tất cả" trên ô cấu hình dùng chung (15/08/2026). Nói RA MẶT vì sao ô mờ —
+   để trong tooltip thì người cấp quyền phải rê chuột mới biết, mà họ có biết đâu mà rê. */
+.rdx-perm__fine-warn {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+  cursor: help;
+}
+
 @media (max-width: 620px) {
   .rdx-perm__colhead,
   .rdx-perm__row {

@@ -98,8 +98,10 @@ function NotificationBell({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
+  // Chỉ hiện thông báo CHƯA ĐỌC — đã đọc rồi thì BIẾN MẤT khỏi danh sách chuông.
+  const unread = notifs.filter((n) => !n.da_doc);
   const total = notifUnread + leaveUnseen;
-  const empty = notifs.length === 0 && leaveUnseen === 0;
+  const empty = unread.length === 0 && leaveUnseen === 0;
 
   return (
     <div className="tb-bell-wrap" ref={wrapRef}>
@@ -151,17 +153,17 @@ function NotificationBell({
               </button>
             )}
 
-            {notifs.map((n) => (
+            {unread.map((n) => (
               <button
                 key={n.id}
                 type="button"
-                className={`tb-notif__item${n.da_doc ? "" : " tb-notif__item--unread"}`}
+                className="tb-notif__item tb-notif__item--unread"
                 onClick={() => {
                   setOpen(false);
                   onOpenNotif?.(n);
                 }}
               >
-                {!n.da_doc && <span className="tb-notif__dot" aria-hidden="true" />}
+                <span className="tb-notif__dot" aria-hidden="true" />
                 <span className="tb-notif__body">
                   <span className="tb-notif__t">{n.tieu_de}</span>
                   {n.noi_dung && <span className="tb-notif__s">{n.noi_dung}</span>}

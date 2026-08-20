@@ -771,7 +771,8 @@ function KhoDeleteDialog({ row, token, onClose, onDone }: {
 // Khai báo kho — master data NHẸ (chỉ tên / vị trí / ghi chú). Kho tạo ở đây tự đổ
 // ra navbar (mục "Kho hàng"). Mã KHO-xxxx tự gợi ý (suggestNextCode). Xóa mềm để giữ dấu vết.
 export const CFG_KHO_HANG: CatalogConfig = {
-  title: "Kho hàng",
+  title: "Kho hàng",             // danh từ ở nút/lọc: "Thêm kho hàng", "Lọc kho hàng"
+  heading: "Khai báo kho",       // H1 khớp menu "Khai báo kho"
   moduleQuyen: "dm_kho_hang",
   subtitle: "Khai báo kho (tên · vị trí · ghi chú). Kho tạo ở đây tự hiện dưới mục “Kho hàng” trên thanh điều hướng.",
   prefix: "/api/kho",

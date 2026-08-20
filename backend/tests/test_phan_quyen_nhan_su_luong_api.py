@@ -78,37 +78,53 @@ def test_vai_moi_co_san_o_tu_phuc_vu(client):
         assert r.status_code != 403, f"vai mới mà bị chặn ở {duong}"
 
 
-def test_go_o_tu_phuc_vu_thi_chan_het_duong_me(client):
-    """Gỡ ô ⇒ chặn. Đây là chiều mà trước 10/08/2026 KHÔNG THỂ có: không có ô nào để gỡ."""
-    tok = _tai_khoan("tpv-bi-go")
-    _go_o("Vai tpv-bi-go", "self_service")
+def test_moi_tai_khoan_deu_vao_duoc_duong_cua_minh(client):
+    """⚠️ LUẬT ĐỔI 15/08/2026 — test này trước đây khẳng định điều NGƯỢC LẠI.
+
+    Ô `self_service` đã BỎ. Dữ liệu của CHÍNH MÌNH là quyền đương nhiên của mọi tài khoản đăng
+    nhập: xem công / phiếu / đơn của mình, và gửi · sửa · huỷ đơn của mình. Chặn nó là chặn người
+    ta đi làm, chứ không bảo vệ được gì — mọi đường `/me` đã tự lọc theo hồ sơ gắn với tài khoản.
+
+    Cái quyết định THẤY MÀN NÀO vẫn là ô của chính màn đó (chủ chốt: *"phải cấp quyền mới cho
+    hiển thị"*) — vế đó do các test khác trong file này canh."""
+    tok = _tai_khoan("tpv-khong-o-nao")
 
     for duong in DUONG_TU_PHUC_VU:
         r = client.get(duong, headers=_h(tok))
-        assert r.status_code == 403, f"đã gỡ ô Tự phục vụ mà vẫn vào được {duong} ({r.status_code})"
+        assert r.status_code != 403, f"vai không có ô nào mà bị chặn ở {duong}"
 
-    # Cả đường GHI — đúng chỗ tester bắt: "xem thôi mà vẫn gửi/sửa/huỷ phiếu được".
+    # NHƯNG ĐƯỜNG GHI THÌ KHÔNG (chủ chốt 15/08/2026: *"chưa bật thao tác vẫn bấm gửi đơn được"*).
+    # Đọc dữ liệu của mình là quyền đương nhiên; GHI vẫn đòi ô Thao tác của chính màn đó.
     assert client.post("/api/overtime/me", json={
         "work_date": "2026-08-20", "from_minute": 1020, "to_minute": 1080, "reason": "x",
-    }, headers=_h(tok)).status_code == 403
-    assert client.post("/api/attendance/check", json={
-        "latitude": 10.0, "longitude": 106.0,
-    }, headers=_h(tok)).status_code == 403
+    }, headers=_h(tok)).status_code == 403, "chưa có ô Thao tác mà vẫn gửi được phiếu"
 
 
-def test_xem_tang_ca_khong_keo_theo_quyen_gui_phieu(client):
-    """Ô `tang_ca:read` chỉ cho THẤY màn — không phải giấy phép gửi phiếu.
+def test_o_tang_ca_quyet_dinh_THAY_PHIEU_NGUOI_KHAC(client):
+    """⚠️ LUẬT ĐỔI 15/08/2026. Vế cũ ("xem thôi mà vẫn gửi phiếu được") đã hết hiệu lực: gửi phiếu
+    CHO CHÍNH MÌNH nay là quyền đương nhiên.
 
-    Tester ghi: *"phân quyền xem nhưng user vẫn gửi, sửa, huỷ phiếu được"*. Gốc không nằm ở
-    `tang_ca` mà ở chỗ đường tự phục vụ không gác gì.
-    """
-    tok = _tai_khoan("chi-xem-tang-ca", {"tang_ca": dict(can_read=True, scope=SCOPE_ALL)})
-    _go_o("Vai chi-xem-tang-ca", "self_service")
-
-    assert client.get("/api/overtime", headers=_h(tok)).status_code == 200
+    Cái ô `tang_ca` còn quyết định là: có thấy phiếu của NGƯỜI KHÁC không."""
+    khong_o = _tai_khoan("tc-khong-o")
+    assert client.get("/api/overtime", headers=_h(khong_o)).status_code == 403, (
+        "không có ô Tăng ca mà vẫn mở được danh sách phiếu của cả xưởng"
+    )
+    # …và gửi phiếu cho chính mình cũng KHÔNG được: ghi thì phải có ô Thao tác của màn Tăng ca.
     assert client.post("/api/overtime/me", json={
-        "work_date": "2026-08-20", "from_minute": 1020, "to_minute": 1080, "reason": "x",
-    }, headers=_h(tok)).status_code == 403
+        "work_date": "2026-08-21", "from_minute": 1020, "to_minute": 1080, "reason": "x",
+    }, headers=_h(khong_o)).status_code == 403
+
+    # Có ô Thao tác thì gửi được — đây mới là đường của thợ.
+    # Ô Thao tác trên ma trận bật cả create/update/delete cùng lúc; cổng "gửi phiếu" đọc `create`
+    # vì gửi đơn là TẠO MỚI.
+    co_ghi = _tai_khoan("tc-co-ghi",
+                        {"tang_ca": dict(can_read=True, can_create=True, scope="own")})
+    assert client.post("/api/overtime/me", json={
+        "work_date": "2026-08-21", "from_minute": 1020, "to_minute": 1080, "reason": "x",
+    }, headers=_h(co_ghi)).status_code != 403
+
+    co_o = _tai_khoan("tc-co-o", {"tang_ca": dict(can_read=True, scope=SCOPE_ALL)})
+    assert client.get("/api/overtime", headers=_h(co_o)).status_code == 200
 
 
 # ══════════════════════════════════════════════ 2) Chấm công tách khỏi Hồ sơ nhân sự
@@ -117,7 +133,10 @@ def test_xem_tang_ca_khong_keo_theo_quyen_gui_phieu(client):
 def test_ho_so_nhan_su_khong_con_mo_duoc_bang_cong(client):
     """Cấp `nhan_su` KHÔNG kéo theo màn Chấm công nữa, và ngược lại."""
     hs = _tai_khoan("chi-ho-so", {"nhan_su": dict(can_read=True, scope=SCOPE_ALL)})
-    cc = _tai_khoan("chi-cham-cong", {"cham_cong": dict(can_read=True, scope=SCOPE_ALL)})
+    # `can_view_timesheet`: Bảng công tháng tách thành ô riêng 15/08/2026 (mg 0194) — `can_read`
+    # nay chỉ mở màn + ba tab CỦA TÔI.
+    cc = _tai_khoan("chi-cham-cong",
+                    {"cham_cong": dict(can_read=True, can_view_timesheet=True, scope=SCOPE_ALL)})
 
     assert client.get("/api/employees", headers=_h(hs)).status_code == 200
     assert client.get("/api/attendance/timesheet?year=2026&month=8",
@@ -143,11 +162,18 @@ def test_xem_cham_cong_khong_doc_duoc_cau_hinh(client):
         r = client.get(duong, headers=_h(tok))
         assert r.status_code == 403, f"vai chỉ-xem vẫn đọc được cấu hình: {duong} ({r.status_code})"
 
-    # Có ô Cấu hình thì đọc được.
-    quan = _tai_khoan("cc-cau-hinh",
-                      {"cham_cong": dict(can_read=True, can_update=True, scope=SCOPE_ALL)})
-    assert client.get("/api/attendance/locations", headers=_h(quan)).status_code == 200
-    assert client.get("/api/calendar/config", headers=_h(quan)).status_code == 200
+    # MỘT Ô = MỘT TAB (mg 0194): bật đúng ô nào thì đọc được đúng tab đó, không kéo theo tab kia.
+    diem = _tai_khoan("cc-diem",
+                      {"cham_cong": dict(can_read=True, can_manage_locations=True, scope=SCOPE_ALL)})
+    assert client.get("/api/attendance/locations", headers=_h(diem)).status_code == 200
+    assert client.get("/api/calendar/config", headers=_h(diem)).status_code == 403, (
+        "bật Điểm chấm công mà mở luôn Lịch & Ngày lễ — đúng cái bệnh vừa dọn"
+    )
+
+    lich = _tai_khoan("cc-lich",
+                      {"cham_cong": dict(can_read=True, can_manage_calendar=True, scope=SCOPE_ALL)})
+    assert client.get("/api/calendar/config", headers=_h(lich)).status_code == 200
+    assert client.get("/api/attendance/locations", headers=_h(lich)).status_code == 403
 
 
 def test_cham_bu_khong_keo_theo_quyen_chot_ky(client):
@@ -266,64 +292,47 @@ def test_xem_bang_cong_khong_keo_theo_quyen_doc_nhat_ky(client):
     người, cả xưởng — ai đi sớm về muộn hôm nào, đọc là biết. Người cần xem công để tính lương
     không đương nhiên cần đọc dấu chân từng người."""
     chi_bang_cong = _tai_khoan("cc-bang-cong",
-                               {"cham_cong": dict(can_read=True, scope=SCOPE_ALL)})
+                               {"cham_cong": dict(can_read=True, can_view_timesheet=True,
+                                                  scope=SCOPE_ALL)})
     assert client.get("/api/attendance/timesheet?year=2026&month=8",
                       headers=_h(chi_bang_cong)).status_code == 200
     r = client.get("/api/attendance/logs", headers=_h(chi_bang_cong))
     assert r.status_code == 403, f"chỉ có ô Xem mà vẫn đọc được nhật ký: {r.status_code}"
 
     co_nhat_ky = _tai_khoan("cc-nhat-ky",
-                            {"cham_cong": dict(can_read=True, can_view_log=True, scope=SCOPE_ALL)})
+                            {"cham_cong": dict(can_read=True, can_view_log=True,
+                                               can_view_timesheet=True, scope=SCOPE_ALL)})
     assert client.get("/api/attendance/logs", headers=_h(co_nhat_ky)).status_code == 200
 
 
 # ══════════════════════════════════ 6) Vòng 2 — Tự phục vụ tách XEM / THAO TÁC (11/08/2026)
 
 
-def test_o_xem_tu_phuc_vu_khong_cho_ghi_gi(client):
-    """Chủ chốt báo ba lần, ba màn, cùng một gốc: *"chưa bật thao tác nó vẫn hiện nút gửi sửa
-    công, xin đi muộn về sớm vẫn thao tác được"* · *"Tăng ca: vẫn tạo được phiếu của mình"* ·
-    *"Nghỉ phép: vẫn xin nghỉ phép"*.
+def test_duong_cua_toi_chi_tra_du_lieu_CUA_MINH(client):
+    """⚠️ THAY cho `test_o_xem_tu_phuc_vu_khong_cho_ghi_gi` — luật đổi 15/08/2026.
 
-    Gốc: khoá `self_service` từ đợt 3 tới nay CHỈ dùng động từ `read` — cột "Thao tác" là ô chết.
-    Nay `create` mới là thứ cho GHI."""
-    chi_xem = _tai_khoan("tpv-chi-xem", {
-        "self_service": dict(can_read=True, can_create=False, scope="own"),
-    })
+    Ô `self_service` đã bỏ nên không còn tách Xem / Thao tác ở đó nữa. Nhưng bảo đảm QUAN TRỌNG
+    HƠN thì phải giữ, và trước nay chưa có test nào canh thẳng: đường `/me` chỉ được trả dữ liệu
+    của CHÍNH tài khoản gọi nó — bỏ ô quyền đi mà đường đó rò sang người khác thì mới là hỏng.
 
-    # ĐỌC vẫn được — người ta phải xem được công / phiếu của chính mình.
-    assert client.get("/api/attendance/me/status", headers=_h(chi_xem)).status_code == 200
-    assert client.get("/api/overtime/me", headers=_h(chi_xem)).status_code == 200
+    Đây là lý do bỏ ô kia không nguy hiểm: hàng rào thật nằm ở chỗ lọc theo hồ sơ, không ở ô."""
+    tok = _tai_khoan("me-cua-minh")
 
-    # GHI thì không.
-    assert client.post("/api/attendance/check", json={"latitude": 10.0, "longitude": 106.0},
-                       headers=_h(chi_xem)).status_code == 403, "chấm công được dù chỉ có ô Xem"
-    assert client.post("/api/overtime/me", json={
-        "work_date": "2026-08-20", "from_minute": 1020, "to_minute": 1080, "reason": "x",
-    }, headers=_h(chi_xem)).status_code == 403, "gửi phiếu tăng ca được dù chỉ có ô Xem"
-    assert client.post("/api/late-early/me", json={
-        "work_date": "2026-08-20", "kind": "late", "minutes": 30, "reason": "x",
-    }, headers=_h(chi_xem)).status_code == 403, "xin đi muộn được dù chỉ có ô Xem"
-    assert client.post("/api/luong/advances/me", json={"amount": 100000, "reason": "x"},
-                       headers=_h(chi_xem)).status_code == 403, "xin tạm ứng được dù chỉ có ô Xem"
-    assert client.post("/api/leaves", json={
-        "leave_type_id": 1, "start_date": "2026-08-20", "end_date": "2026-08-20", "reason": "x",
-    }, headers=_h(chi_xem)).status_code == 403, "xin nghỉ được dù chỉ có ô Xem"
+    r = client.get("/api/employees/me", headers=_h(tok))
+    assert r.status_code == 200, r.text
+    ho_so = r.json()
+    # Không nhận `employee_id` từ client để đọc hộ người khác.
+    r2 = client.get("/api/attendance/me/logs?employee_id=1", headers=_h(tok))
+    assert r2.status_code in (200, 400, 422), r2.text
+    if r2.status_code == 200 and isinstance(r2.json(), dict):
+        ids = {x.get("employee_id") for x in (r2.json().get("items") or [])}
+        assert ids <= {ho_so.get("id"), None}, f"đường /me trả dữ liệu của người khác: {ids}"
 
 
-def test_co_o_thao_tac_thi_ghi_duoc(client):
-    """Chiều ngược lại — bật ô Thao tác là qua được hàng rào quyền (còn hợp lệ nghiệp vụ hay không
-    là chuyện khác)."""
-    co_ghi = _tai_khoan("tpv-co-ghi", {
-        "self_service": dict(can_read=True, can_create=True, scope="own"),
-    })
-    for duong, than in (
-        ("/api/overtime/me", {"work_date": "2026-08-20", "from_minute": 1020,
-                              "to_minute": 1080, "reason": "x"}),
-        ("/api/luong/advances/me", {"amount": 100000, "reason": "x"}),
-    ):
-        r = client.post(duong, json=than, headers=_h(co_ghi))
-        assert r.status_code != 403, f"có ô Thao tác mà vẫn bị chặn quyền ở {duong}"
+# `test_co_o_thao_tac_thi_ghi_duoc` ĐÃ GỠ 15/08/2026: nó cấp ô `self_service` rồi khẳng định
+# "ghi được". Ô đó nay không còn tác dụng nên vế khẳng định thành HIỂN NHIÊN ĐÚNG — một test luôn
+# xanh bất kể code, tức là một cái vỏ. Phần còn giá trị của nó đã nằm trong
+# `test_moi_tai_khoan_deu_vao_duoc_duong_cua_minh` ở trên.
 
 
 def test_xuat_excel_nhan_su_doi_o_rieng(client):
@@ -355,8 +364,9 @@ def test_duyet_yeu_cau_chinh_cong_doi_o_rieng(client):
     assert client.post("/api/attendance/adjust-requests/1/approve", json={},
                        headers=_h(cham_bu)).status_code == 403
 
+    # mg 0194: khoá riêng `yeu_cau_chinh_cong` GỘP về ô Duyệt của chính màn Chấm công.
     co_o = _tai_khoan("ycch-co-o", {
-        "yeu_cau_chinh_cong": dict(can_read=True, can_approve=True, scope=SCOPE_ALL),
+        "cham_cong": dict(can_read=True, can_approve=True, scope=SCOPE_ALL),
     })
     assert client.get("/api/attendance/adjust-requests", headers=_h(co_o)).status_code == 200
     assert client.post("/api/attendance/adjust-requests/1/approve", json={},
@@ -364,9 +374,13 @@ def test_duyet_yeu_cau_chinh_cong_doi_o_rieng(client):
 
 
 def test_xem_yeu_cau_chinh_cong_khong_keo_theo_quyen_duyet(client):
+    """mg 0194 — tab Yêu cầu chỉnh công nay hiện theo CHÍNH ô Duyệt, bỏ ô "xem" riêng.
+
+    Ô xem riêng là thứ thừa: mở tab đó ra mà không duyệt được thì chẳng để làm gì, mà nó lại là
+    một ô nữa để quản trị phải hiểu."""
     chi_xem = _tai_khoan("ycch-chi-xem",
-                         {"yeu_cau_chinh_cong": dict(can_read=True, scope=SCOPE_ALL)})
-    assert client.get("/api/attendance/adjust-requests", headers=_h(chi_xem)).status_code == 200
+                         {"cham_cong": dict(can_read=True, scope=SCOPE_ALL)})
+    assert client.get("/api/attendance/adjust-requests", headers=_h(chi_xem)).status_code == 403
     for duong in ("/api/attendance/adjust-requests/1/approve",
                   "/api/attendance/adjust-requests/1/reject"):
         assert client.post(duong, json={"reason": "x"},
@@ -376,9 +390,169 @@ def test_xem_yeu_cau_chinh_cong_khong_keo_theo_quyen_duyet(client):
 def test_di_muon_chi_con_o_duyet(client):
     """Chủ chốt: *"Nút Xem với Thao tác có bị thừa không, tôi chỉ thấy Duyệt phiếu đi muộn/về sớm
     là dùng được thôi"*. Danh sách nay đi theo ô Duyệt; xem phiếu của mình thì qua Tự phục vụ."""
-    chi_xem = _tai_khoan("dm-chi-xem", {"di_muon": dict(can_read=True, scope=SCOPE_ALL)})
+    # mg 0194: khoá riêng `di_muon` GỘP về ô chi tiết `can_approve_late_early` của Chấm công.
+    chi_xem = _tai_khoan("dm-chi-xem", {"cham_cong": dict(can_read=True, scope=SCOPE_ALL)})
     assert client.get("/api/late-early", headers=_h(chi_xem)).status_code == 403
 
     co_duyet = _tai_khoan("dm-co-duyet",
-                          {"di_muon": dict(can_read=True, can_approve=True, scope=SCOPE_ALL)})
+                          {"cham_cong": dict(can_read=True, can_approve_late_early=True,
+                                             scope=SCOPE_ALL)})
     assert client.get("/api/late-early", headers=_h(co_duyet)).status_code == 200
+
+
+def test_o_moi_di_TOI_TAN_JSON_ma_trinh_duyet_nhan(client):
+    """⭐ ĐI HẾT CHUỖI, không dừng ở tầng nào.
+
+    Nối một ô quyền ở hệ này có BẢY tầng: cột DB → repo `set_permission` → bản đồ động từ →
+    schema API → ma trận giao diện → `capabilities()` → `can()` ở trình duyệt. Ngày 15/08/2026 nó
+    lọt ở tầng 6 rồi lọt tiếp tầng 7 — mỗi lần đều "mọi thứ đúng, chỉ tab không hiện".
+
+    Test này bám đúng cái JSON mà trình duyệt nhận lúc đăng nhập: ô đã tick phải có mặt Ở ĐÓ với
+    giá trị true. Tầng 7 nay tra thẳng `can_${action}` nên không còn chỗ để sót."""
+    tok = _tai_khoan("e2e-cc-8-o", {
+        "cham_cong": dict(can_read=True, can_view_timesheet=True, can_approve_late_early=True,
+                          can_manage_locations=True, can_manage_shifts=True,
+                          can_manage_calendar=True, can_view_log=True, can_adjust=True,
+                          can_lock=True, scope=SCOPE_ALL),
+    })
+    r = client.get("/api/auth/permissions", headers=_h(tok))
+    assert r.status_code == 200, r.text
+    dong = next((p for p in r.json()["permissions"] if p["module_key"] == "cham_cong"), None)
+    assert dong is not None, "không có dòng cham_cong trong bộ quyền gửi xuống"
+
+    for co in ("can_view_timesheet", "can_approve_late_early", "can_manage_locations",
+               "can_manage_shifts", "can_manage_calendar", "can_view_log"):
+        assert co in dong, f"`{co}` KHÔNG có trong JSON gửi xuống trình duyệt (tầng 6 sót)"
+        assert dong[co] is True, f"`{co}` gửi xuống nhưng bằng False"
+
+
+def test_cau_hinh_dung_chung_doi_pham_vi_TOAN_CONG_TY(client):
+    """⭐ Điểm chấm công · Khai ca · Lịch & Ngày lễ là dữ liệu DÙNG CHUNG cả nhà máy
+    (chủ chốt 15/08/2026).
+
+    Đổi lịch lễ hay sửa khai ca là đổi CÔNG của toàn bộ nhân viên — và đổi tuần làm việc còn đổi
+    cả CÔNG CHUẨN, tức đơn giá ngày của mọi người. Người quản một tổ không có việc gì phải đụng
+    vào đó. Cùng hàng rào đã áp cho Chốt kỳ công.
+
+    Ma trận cũng làm mờ ba ô này khi phạm vi chưa phải "Tất cả", nhưng đó chỉ là hàng rào NHÌN
+    THẤY — chặn thật phải ở máy chủ, nếu không gọi thẳng API là lọt."""
+    ca_phong = _tai_khoan("cfg-ca-phong", {
+        "cham_cong": dict(can_read=True, can_create=True, can_update=True, can_delete=True,
+                          can_manage_shifts=True, can_manage_locations=True,
+                          can_manage_calendar=True, scope="department"),
+    })
+    # ĐỌC thì được — họ vẫn cần xem ca để hiểu bảng công của tổ mình.
+    assert client.get("/api/attendance/shifts", headers=_h(ca_phong)).status_code == 200
+
+    # GHI thì không, ở cả ba nhóm.
+    assert client.post("/api/attendance/shifts",
+                       json={"name": "Ca thử", "start_time": "08:00", "end_time": "17:00"},
+                       headers=_h(ca_phong)).status_code == 403, "sửa khai ca của cả nhà máy"
+    assert client.post("/api/attendance/locations",
+                       json={"name": "Điểm thử", "latitude": 10.0, "longitude": 106.0,
+                             "radius_m": 100},
+                       headers=_h(ca_phong)).status_code == 403, "sửa điểm chấm công"
+    assert client.post("/api/calendar/special-days",
+                       json={"day": "2026-12-25", "kind": "off", "name": "Thử", "is_paid": True},
+                       headers=_h(ca_phong)).status_code == 403, "sửa lịch lễ của cả nhà máy"
+
+
+def test_pham_vi_TAT_CA_thi_sua_cau_hinh_binh_thuong(client):
+    """Đối chứng — siết nhầm thì HCNS không khai nổi ca nào, còn tệ hơn."""
+    toan_cty = _tai_khoan("cfg-toan-cty", {
+        "cham_cong": dict(can_read=True, can_create=True, can_update=True, can_delete=True,
+                          can_manage_shifts=True, can_manage_locations=True,
+                          can_manage_calendar=True, scope=SCOPE_ALL),
+    })
+    assert client.post("/api/attendance/shifts",
+                       json={"name": "Ca toan cty", "start_time": "08:00", "end_time": "17:00"},
+                       headers=_h(toan_cty)).status_code in (200, 201)
+    assert client.post("/api/calendar/special-days",
+                       json={"day": "2026-12-26", "kind": "off", "name": "Thử 2", "is_paid": True},
+                       headers=_h(toan_cty)).status_code in (200, 201)
+
+
+def test_chot_ky_cong_doi_pham_vi_TOAN_CONG_TY(client):
+    """Chốt kỳ / Mở lại kỳ đòi phạm vi "Tất cả" — máy chủ đã chặn từ đợt 1, nay ghim lại bằng test
+    vì ma trận cũng bắt đầu làm mờ ô này (15/08/2026).
+
+    Một cú bấm đóng băng bảng công của TOÀN CÔNG TY, và "Mở lại kỳ" thì XOÁ SẠCH ảnh chụp đó.
+    Chốt nửa nhà máy thì bảng lương không có cách nào biết nửa nào là nửa nào."""
+    ky = {"year": 2026, "month": 7}
+    ca_phong = _tai_khoan("chot-ca-phong", {
+        "cham_cong": dict(can_read=True, can_lock=True, can_adjust=True, scope="department"),
+    })
+    assert client.post("/api/attendance/period/lock", json=ky,
+                       headers=_h(ca_phong)).status_code == 403, "phạm vi cả phòng mà chốt được kỳ"
+    assert client.post("/api/attendance/period/reopen", json=ky,
+                       headers=_h(ca_phong)).status_code == 403, "phạm vi cả phòng mà mở lại được kỳ"
+
+    rieng = _tai_khoan("chot-rieng", {
+        "cham_cong": dict(can_read=True, can_lock=True, scope="own"),
+    })
+    assert client.post("/api/attendance/period/lock", json=ky,
+                       headers=_h(rieng)).status_code == 403
+
+
+def test_o_luong_khong_keo_theo_BANG_LUONG(client):
+    """⭐ Chủ chốt 15/08/2026: *"Sao lại bảng lương với tạm ứng nhân viên được xem nhỉ"*.
+
+    Bảng lương là DANH SÁCH CẢ CÔNG TY kèm nút Tính lại · Chốt kỳ · Đánh dấu đã chi — công cụ
+    quản lý, cùng hạng với Bảng công tháng bên Chấm công. Trước bản vá nó đi theo cột Xem, nên
+    cấp ô Lương ở phạm vi *Của tôi* là người đó vẫn mở được bảng lương (dù chỉ còn dòng của mình
+    sau bản vá phạm vi — vẫn là vào được màn quản lý)."""
+    chi_xem = _tai_khoan("luong-chi-xem", {"luong": dict(can_read=True, scope="own")})
+    r = client.get("/api/luong/table?year=2026&month=8", headers=_h(chi_xem))
+    assert r.status_code == 403, f"cột Xem vẫn mở được bảng lương: {r.status_code}"
+
+    co_o = _tai_khoan("luong-co-o-bang",
+                      {"luong": dict(can_read=True, can_view_payroll_table=True, scope=SCOPE_ALL)})
+    assert client.get("/api/luong/table?year=2026&month=8",
+                      headers=_h(co_o)).status_code == 200
+
+
+def test_o_thao_tac_cua_luong_KHONG_mo_tab_nao(client):
+    """⭐ Chủ chốt 15/08/2026: *"lương nhân viên với lương khoán nó cũng là tab mà nên cũng phải có
+    nút bật tắt chứ"*.
+
+    Luật: **cột Thao tác không mở tab nào** — nó chỉ cho GHI vào tab đã mở được. Trước bản vá, bật
+    Thao tác là ba tab bung ra cùng lúc (Bảng lương · Lương nhân viên · Lương khoán), và tệ hơn:
+    tab Bảng lương hiện ra rồi bấm vào **ăn 403** vì máy chủ đã đòi ô riêng."""
+    chi_thao_tac = _tai_khoan("luong-chi-thao-tac", {
+        "luong": dict(can_read=True, can_create=True, can_update=True, can_delete=True,
+                      scope=SCOPE_ALL),
+    })
+    # Bảng lương: có ô Thao tác nhưng KHÔNG có ô Bảng lương tháng ⇒ chặn.
+    assert client.get("/api/luong/table?year=2026&month=8",
+                      headers=_h(chi_thao_tac)).status_code == 403
+
+    # Có ô riêng thì mở được.
+    du_o = _tai_khoan("luong-du-o", {
+        "luong": dict(can_read=True, can_update=True, can_view_payroll_table=True,
+                      can_manage_salary_profiles=True, can_manage_piece_rates=True,
+                      scope=SCOPE_ALL),
+    })
+    assert client.get("/api/luong/table?year=2026&month=8",
+                      headers=_h(du_o)).status_code == 200
+
+
+def test_xin_tam_ung_cua_minh_van_doi_o_THAO_TAC(client):
+    """Chủ chốt 15/08/2026: *"tạm ứng của tôi, chưa bật thao tác lên vẫn cho gửi duyệt bình
+    thường đó nha"*.
+
+    Luật đã chốt: ĐỌC dữ liệu của mình là quyền đương nhiên; **GHI thì phải có ô Thao tác** của
+    chính màn chứa nó. Tab "Tạm ứng của tôi" nằm trên màn Lương ⇒ theo ô Thao tác của Lương.
+
+    Ở bước bỏ ô Tự phục vụ tôi để sót đúng màn này: đường ghi thành "chỉ cần đăng nhập"."""
+    chi_xem = _tai_khoan("tu-chi-xem", {"luong": dict(can_read=True, scope="own")})
+    r = client.post("/api/luong/advances/me", json={"amount": 100000, "reason": "x"},
+                    headers=_h(chi_xem))
+    assert r.status_code == 403, f"chưa bật Thao tác mà vẫn xin được tạm ứng: {r.status_code}"
+
+    # Đọc thì vẫn được — phiếu lương / tạm ứng của chính mình là quyền đương nhiên.
+    assert client.get("/api/luong/advances/me", headers=_h(chi_xem)).status_code == 200
+
+    co_ghi = _tai_khoan("tu-co-ghi",
+                        {"luong": dict(can_read=True, can_create=True, scope="own")})
+    assert client.post("/api/luong/advances/me", json={"amount": 100000, "reason": "x"},
+                       headers=_h(co_ghi)).status_code != 403

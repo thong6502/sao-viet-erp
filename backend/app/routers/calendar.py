@@ -9,7 +9,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from ..deps import get_calendar_service, require_permission
+from ..deps import get_authorization_service, get_calendar_service, require_permission
+from ..models.role import SCOPE_ALL
 from ..models.user import User
 from ..schemas.calendar import (
     ConfigIn,
@@ -19,6 +20,7 @@ from ..schemas.calendar import (
     SpecialDayOut,
     SpecialDaysOut,
 )
+from ..services.rbac_service import AuthorizationService
 from ..services.calendar_service import (
     STATUTORY_PAID_HOLIDAYS,
     CalendarError,
@@ -33,6 +35,29 @@ router = APIRouter(prefix="/api/calendar", tags=["calendar"])
 MODULE = "cham_cong"
 
 Service = Annotated[CalendarService, Depends(get_calendar_service)]
+
+
+def _ghi_lich_chung(action: str):
+    """Sửa Lịch & Ngày lễ đòi PHẠM VI TOÀN CÔNG TY (chủ chốt 15/08/2026).
+
+    Ngày lễ và tuần làm việc là dữ liệu dùng chung: đổi một ngày là đổi CÔNG của toàn bộ nhân
+    viên, và đổi tuần làm việc còn đổi cả CÔNG CHUẨN (tức đơn giá ngày). Người quản một tổ không
+    có việc gì phải đụng vào đó. Cùng hàng rào với Chốt kỳ công và Khai ca."""
+
+    doi_o = require_permission(MODULE, action)
+
+    # Xem chú thích cùng loại ở `attendance._ghi_cau_hinh_chung`: không dùng Annotated ở đây.
+    def _dep(authz: AuthorizationService = Depends(get_authorization_service),
+             user: User = Depends(doi_o)) -> User:
+        if authz.scope_for(user, MODULE) != SCOPE_ALL:
+            raise HTTPException(
+                status_code=403,
+                detail=("Lịch & Ngày lễ là dữ liệu dùng chung cả công ty — tài khoản của bạn chỉ "
+                        "có phạm vi trong tổ/phòng. Nhờ người có phạm vi toàn công ty sửa."),
+            )
+        return user
+
+    return _dep
 
 
 def _raise(exc: Exception) -> None:
@@ -50,13 +75,13 @@ def _raise(exc: Exception) -> None:
 # ⚠️ ĐỌC cũng đòi ô CẤU HÌNH, không phải ô Xem. Trước 10/08/2026 đường đọc chỉ đòi `read`:
 # vai chỉ-xem không thấy tab nhưng vẫn gọi thẳng API đọc được toạ độ + bán kính mọi điểm
 # chấm công và lưới phân ca cả tháng. Giao diện ẩn tab, máy chủ thì không — đúng Luật 2.
-def get_config(svc: Service, user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> ConfigOut:
+def get_config(svc: Service, user: Annotated[User, Depends(require_permission(MODULE, "manage_calendar"))]) -> ConfigOut:
     return ConfigOut.model_validate(svc.get_config())
 
 
 @router.put("/config", response_model=ConfigOut)
 def update_config(body: ConfigIn, svc: Service,
-                  user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> ConfigOut:
+                  user: Annotated[User, Depends(_ghi_lich_chung("update"))]) -> ConfigOut:
     try:
         c = svc.update_config(actor=user, **body.model_dump(exclude_none=True))
     except CalendarError as exc:
@@ -72,7 +97,7 @@ def list_special_days(svc: Service,
                       # ⚠️ ĐỌC cũng đòi ô CẤU HÌNH, không phải ô Xem. Trước 10/08/2026 đường đọc chỉ đòi `read`:
                       # vai chỉ-xem không thấy tab nhưng vẫn gọi thẳng API đọc được toạ độ + bán kính mọi điểm
                       # chấm công và lưới phân ca cả tháng. Giao diện ẩn tab, máy chủ thì không — đúng Luật 2.
-                      user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+                      user: Annotated[User, Depends(require_permission(MODULE, "manage_calendar"))],
                       year: int = Query(..., ge=2000, le=2100)) -> SpecialDaysOut:
     items = svc.list_special_days(year)
     return SpecialDaysOut(
@@ -85,7 +110,7 @@ def list_special_days(svc: Service,
 
 @router.post("/special-days", response_model=SpecialDayOut, status_code=status.HTTP_201_CREATED)
 def create_special_day(body: SpecialDayIn, svc: Service,
-                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SpecialDayOut:
+                       user: Annotated[User, Depends(_ghi_lich_chung("update"))]) -> SpecialDayOut:
     try:
         s = svc.create_special_day(actor=user, day=body.day, kind=body.kind, name=body.name,
                                    is_paid=body.is_paid, note=body.note)
@@ -96,7 +121,7 @@ def create_special_day(body: SpecialDayIn, svc: Service,
 
 @router.put("/special-days/{special_id}", response_model=SpecialDayOut)
 def update_special_day(special_id: int, body: SpecialDayIn, svc: Service,
-                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SpecialDayOut:
+                       user: Annotated[User, Depends(_ghi_lich_chung("update"))]) -> SpecialDayOut:
     try:
         s = svc.update_special_day(actor=user, special_id=special_id, day=body.day, kind=body.kind,
                                    name=body.name, is_paid=body.is_paid, note=body.note)
@@ -107,7 +132,7 @@ def update_special_day(special_id: int, body: SpecialDayIn, svc: Service,
 
 @router.delete("/special-days/{special_id}", status_code=204)
 def delete_special_day(special_id: int, svc: Service,
-                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+                       user: Annotated[User, Depends(_ghi_lich_chung("update"))]):
     try:
         svc.delete_special_day(actor=user, special_id=special_id)
     except CalendarError as exc:

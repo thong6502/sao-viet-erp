@@ -527,11 +527,14 @@ class PurchaseService:
         from .vat_lieu_kho_service import VatLieuKhoError
 
         info = self.hang.don_vi_cua_mat_hang(hang_loai, hang_id)
+        # Mã đơn vị (cai/thung…) → TÊN có dấu (cái/thùng) cho hiển thị; NCC lưu unit dạng mã.
+        dv_ten = {d.ma: d.ten for d in self.hang.don_vi.all_active()}
         rows: list[dict] = []
         for sup, it in self.suppliers.items_for_hang(hang_loai, hang_id):
             r = {
                 "supplier_id": sup.id, "supplier_name": sup.name,
                 "supplier_item_id": it.id, "unit": it.unit,
+                "unit_ten": dv_ten.get((it.unit or "").strip().lower(), None),
                 "unit_price": int(it.unit_price or 0),
                 "vat_percent": float(it.vat_percent or 0),
                 "gia_quy_doi": None, "gia_quy_doi_vat": None,

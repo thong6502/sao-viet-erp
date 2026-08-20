@@ -36,21 +36,23 @@ import { fmtDate, fmtDateISO, money } from "../utils/format";
 import { printStockVoucher, type StockVoucherPrintData } from "../utils/printStockVoucher";
 import {
   DateFilterHead,
+  LoaiYeuCauChip,
   RequestStatusBadge,
   VoucherStatusBadge,
+  PageSizeSelect,
+  DEFAULT_PAGE_SIZE,
   fmtQty,
-  inDateRange,
   isOverdue,
   readStoredKho,
   todayISO,
+  useHeaderTitles,
   writeStoredKho,
 } from "./khoShared";
+import { tenDonVi, useNapTenDonVi } from "./tenDonVi";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
 
 const KHO_KEY = "kho.yeu-cau.kho-id";
-const PAGE_SIZE = 8;
-const FETCH_SIZE = 200;
 
 type TabId = "tat-ca" | "can-cap" | "done" | "da-huy";
 
@@ -79,14 +81,6 @@ export interface KhoOption {
   ten: string;
 }
 
-/** Yêu cầu MỚI NHẤT (created_at) lên đầu; quá hạn vẫn tô đỏ nhưng không ép lên trên. */
-function sortInbox(a: StockRequest, b: StockRequest): number {
-  const ca = a.created_at ?? "";
-  const cb = b.created_at ?? "";
-  if (ca !== cb) return ca < cb ? 1 : -1; // desc — mới hơn đứng trước
-  return b.ma.localeCompare(a.ma); // cùng thời điểm: mã lớn hơn (mới hơn) trước
-}
-
 /** Mã lệnh/bài của một yêu cầu (mg 0175) — gộp các dòng, hiện tối đa 2 rồi "+n".
  *
  * Một yêu cầu thường xin cho MỘT lệnh, nhưng không cấm xin cho nhiều — nên vẫn phải gộp thay vì
@@ -110,15 +104,26 @@ function progressOf(r: StockRequest): { done: number; total: number; pct: number
   return { done, total, pct: total > 0 ? Math.min(100, (done / total) * 100) : 0 };
 }
 
+/** Ký hiệu "≈" NHỎ đứng trước số khi giá trị HIỂN THỊ đã bị làm tròn (giá trị thật lẻ hơn).
+ *  `decimals` = số chữ số lẻ của cách hiển thị. Tròn khớp → không hiện gì (số tròn để nguyên). */
+function ApproxMark({ raw, decimals }: { raw: number; decimals: number }) {
+  const factor = 10 ** decimals;
+  if (Math.abs(raw - Math.round(raw * factor) / factor) <= 1e-9) return null;
+  return <span className="kho-approx" title="Số đã làm tròn để hiển thị (giá trị thật lẻ hơn)">≈ </span>;
+}
+
 export function KhoYeuCauPage({
   eventTick = 0,
   loai,
+  dieuChuyen = false,
   openRequestId = null,
   onOpenRequestConsumed,
 }: {
   eventTick?: number;
   /** Khoá chiều theo tab (Nhập/Xuất): lọc yêu cầu + phiếu theo loai. */
   loai: StockRequestKind;
+  /** Tab ĐIỀU CHUYỂN: chỉ hiện yêu cầu điều chuyển (dieu_chuyen=true). */
+  dieuChuyen?: boolean;
   /** Bấm thông báo → mở sẵn drawer "ứng theo yêu cầu" đúng id này. */
   openRequestId?: number | null;
   onOpenRequestConsumed?: () => void;
@@ -126,6 +131,8 @@ export function KhoYeuCauPage({
   const { token } = useAuth();
   const can = useCan();
   const canCreate = can("kho", "create");
+  // Hover tiêu đề cột → hiện tên cột đầy đủ (kể cả khi bị cắt).
+  const tableRef = useHeaderTitles();
   // Ghi sổ đã GỘP vào quyền "create" (bỏ tách "post"/SoD) — khớp backend: post_voucher chỉ đòi
   // create. Ai lập được phiếu là ghi sổ được luôn, không còn bước "Chờ ghi sổ" chờ người khác.
   const canPost = canCreate;
@@ -135,11 +142,14 @@ export function KhoYeuCauPage({
   const [khoList, setKhoList] = useState<KhoOption[]>([]);
   const [khoId, setKhoId] = useState<number | null>(() => readStoredKho(KHO_KEY));
   const [requests, setRequests] = useState<StockRequest[]>([]);
+  const [totalCount, setTotalCount] = useState(0);         // tổng bản ghi khớp lọc (từ BE)
+  const [counts, setCounts] = useState<Record<string, number>>({}); // số theo trạng thái → badge tab
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<TabId>("can-cap");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   // Lọc khoảng ngày theo cột "Cần ngày" (ngay_can) — bấm tiêu đề cột để bung Từ/Đến.
   const [dNeed, setDNeed] = useState({ from: "", to: "" });
 
@@ -180,22 +190,29 @@ export function KhoYeuCauPage({
     setLoading(true);
     // KHÔNG lọc theo kho: yêu cầu giờ không gắn kho (kho quyết ở phiếu) → mọi yêu cầu đã duyệt
     // đều vào chung một hộp cho thủ kho xử lý. Ô kho ở toolbar chỉ là kho MẶC ĐỊNH khi lập phiếu.
-    api.kho.deNghi
-      .list(token, {
-        q: q || null,
-        loai,
-        trang_thai: INBOX_STATUSES,
-        size: FETCH_SIZE,
-      })
-      .then((r) => {
+    // BE-paging: chỉ tải ĐÚNG trang theo tab + lọc ngày; đếm số theo trạng thái riêng (badge tab).
+    const filters = {
+      q: q || null,
+      loai,
+      dieu_chuyen: dieuChuyen,
+      ngay_can_tu: dNeed.from || null,
+      ngay_can_den: dNeed.to || null,
+    };
+    Promise.all([
+      api.kho.deNghi.list(token, { ...filters, trang_thai: TAB_STATUSES[tab], page, size: pageSize }),
+      api.kho.deNghi.tabCounts(token, { ...filters, trang_thai: INBOX_STATUSES }),
+    ])
+      .then(([r, c]) => {
         setRequests(r.items);
+        setTotalCount(r.total);
+        setCounts(c);
         setError(null);
       })
       .catch((e) =>
         setError(e instanceof ApiError ? e.message : "Không tải được hộp yêu cầu kho."),
       )
       .finally(() => setLoading(false));
-  }, [token, q, loai, khoId]);
+  }, [token, q, loai, dieuChuyen, dNeed, tab, page, pageSize]);
 
   // "Lập phiếu" / "Xem phiếu": yêu cầu đã có phiếu ĐANG CHỜ GHI SỔ (`open_voucher_id`) thì MỞ LẠI
   // đúng phiếu đó — thấy nguyên dữ liệu đã nhập + Ghi sổ/Hủy — thay vì đẻ ra phiếu trống (mất dữ
@@ -226,28 +243,20 @@ export function KhoYeuCauPage({
 
   useEffect(() => {
     setPage(1);
-  }, [tab, q, khoId, dNeed]);
+  }, [tab, q, khoId, dNeed, pageSize]);
 
+  // Số trên tab = CỘNG số theo trạng thái (BE trả `counts`) của các trạng thái thuộc tab đó.
   function countOf(id: TabId): number {
-    return requests.filter((r) => TAB_STATUSES[id].includes(r.trang_thai)).length;
+    return TAB_STATUSES[id].reduce((s, st) => s + (counts[st] ?? 0), 0);
   }
 
-  const shownRequests = useMemo(
-    () =>
-      requests
-        .filter(
-          (r) => TAB_STATUSES[tab].includes(r.trang_thai) && inDateRange(r.ngay_can ?? "", dNeed),
-        )
-        .sort(sortInbox),
-    [requests, tab, dNeed],
-  );
-
-  const total = shownRequests.length;
-  const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const slice = <T,>(arr: T[]) => arr.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const pageRequests = slice(shownRequests);
-  // Yêu cầu mới nhất trong danh sách đang xem — đánh dấu "Mới" (đã sort desc nên là phần tử đầu).
-  const newestReqId = shownRequests[0]?.id ?? null;
+  // BE đã lọc (tab + ngày + q) + phân trang + sắp theo id giảm (≈ created_at desc như sortInbox)
+  // → dùng thẳng danh sách trả về làm trang hiện tại, không cắt/lọc lại ở client.
+  const total = totalCount;
+  const maxPage = Math.max(1, Math.ceil(total / pageSize));
+  const pageRequests = requests;
+  // "Mới" = yêu cầu MỚI NHẤT — nằm đầu TRANG 1 (BE sắp id desc); trang khác không đánh dấu.
+  const newestReqId = page === 1 ? (requests[0]?.id ?? null) : null;
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "tat-ca", label: "Tất cả" },
@@ -258,14 +267,14 @@ export function KhoYeuCauPage({
 
   // Cột yêu cầu: 8 khi có nút Lập phiếu, 7 khi không (đã bỏ cột Tồn — yêu cầu không gắn kho).
   // Mã · Loại · Bộ phận · Vật tư · Cho lệnh · Tiến độ · Cần ngày · Trạng thái (+ cột thao tác).
-  const reqCols = canCreate ? 8 : 7;
+  const reqCols = canCreate ? 9 : 8;
 
   return (
     <>
       <header className="rc__head">
         <div className="rc__headrow">
           <h1 className="rc__title">Phiếu từ yêu cầu</h1>
-          <span className="rc__count">{requests.length} yêu cầu</span>
+          <span className="rc__count">{totalCount} yêu cầu</span>
         </div>
         <p className="rc__sub">Yêu cầu đã duyệt chờ kho cấp, và phiếu nhập/xuất đã lập.</p>
       </header>
@@ -328,10 +337,11 @@ export function KhoYeuCauPage({
 
       <div className="rc__tablewrap">
         {(
-          <table className="rc__table rc__table--fixed">
+          <table ref={tableRef} className="rc__table rc__table--fixed">
             <thead>
               <tr>
                 <th style={{ width: "13%" }}>Mã</th>
+                <th style={{ width: "10%" }}>Loại</th>
                 <th style={{ width: "15%" }}>Bộ phận · Người</th>
                 <th>Vật tư</th>
                 {/* mg 0175 — soạn hàng theo LỆNH: thủ kho gom được các yêu cầu của cùng một lệnh
@@ -352,7 +362,7 @@ export function KhoYeuCauPage({
             <tbody>
               {loading ? (
                 <SkeletonRows cols={reqCols} />
-              ) : shownRequests.length === 0 ? (
+              ) : requests.length === 0 ? (
                 <EmptyRow
                   cols={reqCols}
                   text={
@@ -376,6 +386,9 @@ export function KhoYeuCauPage({
                       <td className="rc__nowrap">
                         <span className="rc__code-badge">{r.ma}</span>
                         {r.id === newestReqId && <span className="kho-new-pill">Mới</span>}
+                      </td>
+                      <td>
+                        <LoaiYeuCauChip loai={r.loai} dieuChuyen={r.dieu_chuyen} />
                       </td>
                       <td>
                         <div>{r.nguoi_tao_ten ?? "—"}</div>
@@ -428,7 +441,7 @@ export function KhoYeuCauPage({
                     </tr>
                   );
                   })}
-                  {Array.from({ length: Math.max(0, PAGE_SIZE - pageRequests.length) }).map((_, i) => (
+                  {Array.from({ length: Math.max(0, pageSize - pageRequests.length) }).map((_, i) => (
                     <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true">
                       <td colSpan={reqCols}>
                         <div className="rc__name">&nbsp;</div>
@@ -445,6 +458,7 @@ export function KhoYeuCauPage({
 
       {total > 0 && (
         <div className="kho-pager">
+          <PageSizeSelect value={pageSize} onChange={setPageSize} />
           <span className="kho-pager__page">{total} yêu cầu</span>
           <div className="rc__spacer" />
           <button
@@ -541,6 +555,9 @@ export function InboxRequestDrawer({
   /** Gọi khi yêu cầu đổi trạng thái (kho hủy) để cha refetch list ngay. */
   onChanged?: () => void;
 }) {
+  // Nhãn ĐVT phải là TÊN có dấu lấy từ danh mục ("bản kẽm"), KHÔNG phải mã lưu trong
+  // `stock_request_lines.dvt` ("kem") — mã vẫn giữ nguyên khi gửi lên server để quy đổi.
+  useNapTenDonVi();
   const [req, setReq] = useState<StockRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -578,7 +595,11 @@ export function InboxRequestDrawer({
         <header className="rc-drawer__head">
           <div>
             <div className="rc-drawer__kicker">
-              {req?.loai === "NHAP" ? "YÊU CẦU NHẬP" : "YÊU CẦU XUẤT"}
+              {req?.dieu_chuyen
+                ? "YÊU CẦU ĐIỀU CHUYỂN"
+                : req?.loai === "NHAP"
+                  ? "YÊU CẦU NHẬP"
+                  : "YÊU CẦU XUẤT"}
             </div>
             <h2 className="rc-drawer__title">{req?.ma ?? "Đang tải…"}</h2>
           </div>
@@ -624,6 +645,13 @@ export function InboxRequestDrawer({
               <section className="rc-sec">
                 <h3 className="rc-sec__title">Yêu cầu</h3>
                 <div className="rc-grid">
+                  {req.dieu_chuyen && (
+                    // Đường đi hàng của điều chuyển — CHỈ hiện khi là yêu cầu điều chuyển.
+                    <Readout
+                      label="Điều chuyển"
+                      value={`Từ kho ${req.kho_nguon_ten ?? "—"} → ${req.kho_ten ?? "kho đích"}`}
+                    />
+                  )}
                   <Readout
                     label="Ngày cần"
                     value={req.ngay_can ? fmtDateISO(req.ngay_can) : "—"}
@@ -673,7 +701,7 @@ export function InboxRequestDrawer({
                               </div>
                             </div>
                           </td>
-                          <td className="kho-lines__code">{l.dvt}</td>
+                          <td className="kho-lines__code">{tenDonVi(l.dvt) ?? l.dvt}</td>
                           <td className="kho-num">{fmtQty(l.sl_de_nghi)}</td>
                           <td className="kho-num">{fmtQty(l.sl_duyet)}</td>
                           {canViewStock && (
@@ -830,6 +858,9 @@ interface AllocBlock {
   ghiChu: string;
   /** Phiếu NHẬP: vị trí cất lô (kệ/ô) — tuỳ chọn; ghi sổ chép sang lô. */
   viTri: string;
+  /** Phiếu NHẬP: HẠN SỬ DỤNG của đợt nhập này (tuỳ chọn, ISO). Một đợt = 1 lô = 1 hạn; nhiều hạn
+   *  của cùng vật tư là do NHIỀU đợt nhập, tồn/báo cáo tự gom. */
+  hsd: string;
   /** Phiếu NHẬP: đơn vị đang gõ ở ô SL nhập — "ton" (đơn vị tồn) hoặc "phu" (đơn vị quy đổi). */
   unit: "ton" | "phu";
   touched: boolean;
@@ -868,6 +899,7 @@ function VoucherCreateDrawer({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  useNapTenDonVi();
   const isNhap = request.loai === "NHAP";
   // NGƯỜI LẬP PHIẾU LUÔN NHẬP + THẤY ĐƠN GIÁ (bỏ gate "xem giá vốn" ở bước lập) — theo yêu cầu:
   // ai tạo phiếu đều set giá; giá do người lập điền, không chờ Kế toán bổ sung nữa.
@@ -878,7 +910,8 @@ function VoucherCreateDrawer({
   const [ngay, setNgay] = useState(todayISO());
   // Người giao/nhận hàng mặc định = NGƯỜI YÊU CẦU (hàng về/ra theo đúng người xin); thủ kho sửa được.
   const [nguoiGiaoNhan, setNguoiGiaoNhan] = useState(request.nguoi_tao_ten ?? "");
-  const [ghiChu, setGhiChu] = useState("");
+  // ĐIỀU CHUYỂN: ghi chú phiếu nhập đích LẤY SẴN từ ghi chú điều chuyển (đã gắn vào yêu cầu); sửa được.
+  const [ghiChu, setGhiChu] = useState(request.dieu_chuyen ? (request.ghi_chu ?? "") : "");
   // Chứng từ (ảnh/PDF) chọn SẴN lúc tạo — giữ client-side, upload sau khi có voucher_id.
   const [files, setFiles] = useState<File[]>([]);
   const [blocks, setBlocks] = useState<AllocBlock[]>([]);
@@ -911,6 +944,7 @@ function VoucherCreateDrawer({
       lyDo: "",
       ghiChu: "",
       viTri: "",
+      hsd: "",
       unit: "ton",
       touched: false,
       warn: null,
@@ -1016,11 +1050,13 @@ function VoucherCreateDrawer({
         if (b.cap <= 0) continue;
         // SL + đơn giá gửi theo ĐƠN VỊ CỦA DÒNG YÊU CẦU; server tự quy về đơn vị gốc và chốt hệ
         // số vào `sl_goc`. FE KHÔNG tự nhân hệ số nữa — hai nơi cùng quy đổi là hai nơi lệch nhau.
+        // Một đợt nhập = MỘT lô = MỘT hạn (tuỳ chọn). Không hạn → lô không hạn.
         out.push({
           request_line_id: b.line.id,
           so_luong: b.cap,
           don_gia: canViewCost ? Math.round(Number(b.donGia) || 0) : undefined,
           vi_tri: b.viTri.trim() || undefined,
+          hsd: b.hsd || undefined,
           ly_do: ly,
           ghi_chu: ghi,
         });
@@ -1128,7 +1164,7 @@ function VoucherCreateDrawer({
   return (
     <>
       <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={requestClose}>
-        <aside className="rc-drawer rc-drawer--wide" onClick={(e) => e.stopPropagation()}>
+        <aside className="rc-drawer rc-drawer--wide kho-voucher-drawer" onClick={(e) => e.stopPropagation()}>
           <header className="rc-drawer__head">
             <div>
               <div className="rc-drawer__kicker">
@@ -1156,6 +1192,18 @@ function VoucherCreateDrawer({
               </div>
             )}
 
+            {request.dieu_chuyen && isNhap && (
+              // Phiếu NHẬP đích của một điều chuyển: đơn giá đã KHOÁ theo giá vốn chốt ở kho nguồn
+              // (không gõ tay). Nêu rõ để người lập không thắc mắc vì sao đơn giá không sửa được.
+              <div className="banner banner--info">
+                <span>
+                  Phiếu điều chuyển
+                  {request.kho_nguon_ten ? ` từ kho ${request.kho_nguon_ten}` : ""} — đơn giá KHOÁ
+                  theo giá vốn nguồn. <b>Ghi sổ phiếu này sẽ TRỪ kho nguồn và CỘNG kho đích cùng lúc.</b>
+                </span>
+              </div>
+            )}
+
             <section className="rc-sec">
               <h3 className="rc-sec__title">Thông tin phiếu</h3>
               <div className="rc-grid">
@@ -1163,24 +1211,38 @@ function VoucherCreateDrawer({
                     duyệt": tạo yêu cầu kho không còn bước duyệt (1 quyền). */}
                 <Readout label="Theo yêu cầu" value={request.ma} />
                 <Readout label="Người tạo yêu cầu" value={request.nguoi_tao_ten || "—"} />
-                <div className="rc-field">
-                  <span className="rc-field__label">
-                    Kho {isNhap ? "(nhập về)" : "(xuất từ)"} <em>*</em>
-                  </span>
-                  {/* Bước lập phiếu QUYẾT ĐỊNH kho (yêu cầu không chọn kho). Đổi kho → nạp lại lô. */}
-                  <Select
-                    portal
-                    options={khoList.map((w) => ({ value: w.id, label: w.ten, hint: w.ma }))}
-                    value={khoId}
-                    onChange={(v) => {
-                      if (v == null) return;
-                      setDirty(true);
-                      setKhoId(Number(v));
-                    }}
-                    ariaLabel="Kho của phiếu"
-                    placeholder="Chọn kho"
-                  />
-                </div>
+                {request.dieu_chuyen ? (
+                  // ĐIỀU CHUYỂN: kho nguồn ↔ đích đã CHỐT ở yêu cầu → KHOÁ CỨNG, không cho đổi
+                  // (đổi kho đích là làm sai đích của điều chuyển). Hiện cả hai để thấy đường đi hàng.
+                  <>
+                    <Readout label="Từ kho (nguồn)" value={request.kho_nguon_ten || "—"} />
+                    <Readout
+                      label="Đến kho (nhập về)"
+                      value={
+                        request.kho_ten || khoList.find((w) => w.id === khoId)?.ten || "—"
+                      }
+                    />
+                  </>
+                ) : (
+                  <div className="rc-field">
+                    <span className="rc-field__label">
+                      Kho {isNhap ? "(nhập về)" : "(xuất từ)"} <em>*</em>
+                    </span>
+                    {/* Bước lập phiếu QUYẾT ĐỊNH kho (yêu cầu không chọn kho). Đổi kho → nạp lại lô. */}
+                    <Select
+                      portal
+                      options={khoList.map((w) => ({ value: w.id, label: w.ten, hint: w.ma }))}
+                      value={khoId}
+                      onChange={(v) => {
+                        if (v == null) return;
+                        setDirty(true);
+                        setKhoId(Number(v));
+                      }}
+                      ariaLabel="Kho của phiếu"
+                      placeholder="Chọn kho"
+                    />
+                  </div>
+                )}
                 <div className="rc-field">
                   <label className="rc-field__label" htmlFor="v-ngay">
                     {isNhap ? "Ngày nhập kho" : "Ngày xuất kho"}
@@ -1237,7 +1299,8 @@ function VoucherCreateDrawer({
                 </div>
               ) : (
                 <div className="kho-lines__wrap">
-                  <table className="kho-lines">
+                  {/* --wide: cột lấy bề rộng THẬT của nội dung, chật thì cuộn ngang (không ép chữ). */}
+                  <table className="kho-lines kho-lines--wide">
                     <thead>
                       <tr>
                         <th className="kho-nhap__stt">STT</th>
@@ -1253,6 +1316,8 @@ function VoucherCreateDrawer({
                         <th className="kho-num">Thành tiền</th>
                         {/* Vị trí cất lô — chỉ phiếu NHẬP (xuất không đặt vị trí). */}
                         {isNhap && <th>Vị trí</th>}
+                        {/* Hạn sử dụng — chỉ NHẬP; tách lô theo hạn (+ Thêm hạn); dài thì cuộn ngang. */}
+                        {isNhap && <th>Hạn sử dụng</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -1269,6 +1334,7 @@ function VoucherCreateDrawer({
                           onLyDo={(v) => patch(b.line.id, (cur) => ({ ...cur, lyDo: v }))}
                           onLotQty={(lotId, v) => setLotQty(b.line.id, lotId, v)}
                           onViTri={(v) => patch(b.line.id, (cur) => ({ ...cur, touched: true, viTri: v }))}
+                          onHsd={(v) => patch(b.line.id, (cur) => ({ ...cur, touched: true, hsd: v }))}
                           onAnhPick={(file) =>
                             patch(b.line.id, (cur) => ({ ...cur, anhFile: file, anhRemove: false }))
                           }
@@ -1416,6 +1482,7 @@ function AllocRow({
   onLyDo,
   onLotQty,
   onViTri,
+  onHsd,
   onAnhPick,
   onAnhClear,
 }: {
@@ -1429,6 +1496,7 @@ function AllocRow({
   onLyDo: (v: string) => void;
   onLotQty: (lotId: number, v: number) => void;
   onViTri: (v: string) => void;
+  onHsd: (v: string) => void;
   /** Chọn/đổi ảnh mặt hàng (chỉ phiếu NHẬP) — GIỮ file client-side, chỉ lưu khi LẬP PHIẾU. */
   onAnhPick: (file: File) => void;
   /** Bỏ ảnh: có file đang chờ thì huỷ chọn; không thì đánh dấu gỡ ảnh cũ (áp khi lập phiếu). */
@@ -1491,7 +1559,7 @@ function AllocRow({
   const quyDoiHint =
     isNhap && block.heSoVeGoc !== 1 && block.cap > 0 && l.don_vi_goc ? (
       <p className="kho-hint">
-        = {fmtQty(block.cap * block.heSoVeGoc)} {l.don_vi_goc} (lô lưu theo {l.don_vi_goc})
+        = {fmtQty(block.cap * block.heSoVeGoc)} {tenDonVi(l.don_vi_goc) ?? l.don_vi_goc} (lô lưu theo {tenDonVi(l.don_vi_goc) ?? l.don_vi_goc})
         {l.quy_doi_dien_giai ? ` · ${l.quy_doi_dien_giai}` : ""}
       </p>
     ) : null;
@@ -1551,34 +1619,37 @@ function AllocRow({
                 <img src={shownAnh} alt={block.matLabel} />
               </button>
             )}
-            <label className="rc__link-btn">
-              {shownAnh ? "Đổi" : "＋ Ảnh"}
-              <input
-                type="file"
-                accept="image/*"
-                hidden
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) onAnhPick(f);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-            {shownAnh && (
-              <button
-                type="button"
-                className="rc__link-btn kho-anh__del"
-                onClick={() => {
-                  onAnhClear();
-                  setAnhZoom(false);
-                }}
-              >
-                Xóa
-              </button>
-            )}
+            {/* Đổi / Xóa nằm DƯỚI ảnh (kho-anh--cell xếp dọc), không chen ngang làm rộng cột. */}
+            <div className="kho-anh__cellacts">
+              <label className="rc__link-btn">
+                {shownAnh ? "Đổi" : "＋ Ảnh"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onAnhPick(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {shownAnh && (
+                <button
+                  type="button"
+                  className="rc__link-btn kho-anh__del"
+                  onClick={() => {
+                    onAnhClear();
+                    setAnhZoom(false);
+                  }}
+                >
+                  Xóa
+                </button>
+              )}
+            </div>
           </div>
         </td>
-        <td className="kho-lines__code">{l.dvt}</td>
+        <td className="kho-lines__code">{tenDonVi(l.dvt) ?? l.dvt}</td>
         <td className="kho-num">
           {/* SL người yêu cầu xin (sl_de_nghi) — không phải phần còn lại. Đã đủ thì báo "Đã cấp đủ". */}
           {settled ? (
@@ -1607,33 +1678,48 @@ function AllocRow({
               aria-label="SL nhập"
             />
           ) : (
-            // XUẤT: cấp đúng số CÒN ĐƯỢC ỨNG từ yêu cầu — không cho sửa. Muốn cấp một phần thì chọn ít lô hơn.
-            <b className="kho-alloc__capfixed">{fmtQty(l.sl_con_lai)}</b>
+            // XUẤT: cột "Cấp" = SL THỰC CẤP đợt này = tổng SL LẤY các lô (quy về đơn vị dòng yêu cầu),
+            // KHÔNG phải SL yêu cầu bên cạnh. Sửa số cấp bằng cách đổi "SL lấy" ở bảng lô bên dưới.
+            <b className="kho-alloc__capfixed">{fmtQty(cappedTon)}</b>
           )}
         </td>
         <td className="kho-num">
           {/* Đơn giá: NHẬP = giá người yêu cầu khai (số nguyên). XUẤT = đơn giá BÌNH QUÂN gia quyền các
               lô — hiện tới 2 SỐ LẺ để SL × đơn giá sát Thành tiền nhất (làm tròn đồng sẽ lệch to khi
               SL lớn). Thành tiền vẫn là tổng giá vốn THỰC từng lô, không suy từ đơn giá này. */}
-          {isNhap
-            ? block.donGia
-              ? `${Number(block.donGia).toLocaleString("vi-VN")} đ`
-              : "—"
-            : canViewCost && chosen > 0
-              ? `${donGiaBq.toLocaleString("vi-VN", { maximumFractionDigits: 2 })} đ`
-              : "—"}
+          {isNhap ? (
+            block.donGia ? `${Number(block.donGia).toLocaleString("vi-VN")} đ` : "—"
+          ) : canViewCost && chosen > 0 ? (
+            <>
+              <ApproxMark raw={donGiaBq} decimals={2} />
+              {donGiaBq.toLocaleString("vi-VN", { maximumFractionDigits: 2 })} đ
+            </>
+          ) : (
+            "—"
+          )}
         </td>
         <td className="kho-num">
-          {/* Thành tiền: NHẬP = SL nhập × đơn giá; XUẤT = tổng giá vốn các lô (chỉ khi có quyền giá). */}
-          {settled
-            ? "—"
-            : isNhap
-              ? block.donGia && block.cap
-                ? money(Math.round(thanhTien))
-                : "—"
-              : canViewCost && chosen > 0
-                ? money(Math.round(thanhTien))
-                : "—"}
+          {/* Thành tiền: NHẬP = SL nhập × đơn giá; XUẤT = tổng giá vốn các lô (chỉ khi có quyền giá).
+              "≈" nhỏ phía trước khi số bị làm tròn (giá trị thật lẻ hơn); số tròn thì để nguyên. */}
+          {settled ? (
+            "—"
+          ) : isNhap ? (
+            block.donGia && block.cap ? (
+              <>
+                <ApproxMark raw={thanhTien} decimals={0} />
+                {money(Math.round(thanhTien))}
+              </>
+            ) : (
+              "—"
+            )
+          ) : canViewCost && chosen > 0 ? (
+            <>
+              <ApproxMark raw={thanhTien} decimals={0} />
+              {money(Math.round(thanhTien))}
+            </>
+          ) : (
+            "—"
+          )}
         </td>
         {/* Vị trí cất lô (kệ/ô) — chỉ NHẬP; tuỳ chọn, ghi sổ chép sang lô. */}
         {isNhap && (
@@ -1642,11 +1728,27 @@ function AllocRow({
               "—"
             ) : (
               <input
-                className="rc-input"
+                className="rc-input kho-nhap__vitri"
                 value={block.viTri}
                 onChange={(e) => onViTri(e.target.value)}
                 placeholder="kệ A / ô…"
                 aria-label="Vị trí cất hàng"
+              />
+            )}
+          </td>
+        )}
+        {/* Hạn sử dụng của ĐỢT nhập này — 1 lô = 1 hạn (tuỳ chọn). Đợt sau nhập thì set hạn của đợt đó. */}
+        {isNhap && (
+          <td>
+            {settled ? (
+              "—"
+            ) : (
+              <input
+                type="date"
+                className="rc-input kho-hsd__date"
+                value={block.hsd}
+                onChange={(e) => onHsd(e.target.value)}
+                aria-label="Hạn sử dụng"
               />
             )}
           </td>
@@ -1656,7 +1758,7 @@ function AllocRow({
       {hasDetail && (
         <tr className="kho-alloc__detailrow">
           <td aria-hidden />
-          <td colSpan={isNhap ? 9 : 8}>
+          <td colSpan={isNhap ? 10 : 8}>
             {quyDoiHint}
             {lyDoBox}
             {!isNhap && (
@@ -1664,7 +1766,7 @@ function AllocRow({
                 {block.thieu > 0 && (
                   <div className="banner banner--warn">
                     <span>
-                      Kho chỉ còn {fmtQty(l.sl_con_lai - block.thieu)} {l.dvt}. Cấp{" "}
+                      Kho chỉ còn {fmtQty(l.sl_con_lai - block.thieu)} {tenDonVi(l.dvt) ?? l.dvt}. Cấp{" "}
                       {fmtQty(l.sl_con_lai - block.thieu)} lần này, phần còn lại chờ nhập hoặc tạo yêu
                       cầu mới.
                     </span>
@@ -1678,6 +1780,8 @@ function AllocRow({
                       <tr>
                         <th>Mã phiếu</th>
                         <th>Nhập</th>
+                        <th>Vị trí</th>
+                        <th>HSD</th>
                         <th className="kho-num">SL thực tế</th>
                         {canViewCost && <th className="kho-num">Đơn giá</th>}
                         <th className="kho-num">SL lấy</th>
@@ -1687,7 +1791,7 @@ function AllocRow({
                     <tbody>
                       {block.lots.length === 0 ? (
                         <tr>
-                          <td colSpan={canViewCost ? 6 : 4} className="kho-lines__empty">
+                          <td colSpan={canViewCost ? 8 : 6} className="kho-lines__empty">
                             Không còn lô khả dụng trong kho này.
                           </td>
                         </tr>
@@ -1697,6 +1801,8 @@ function AllocRow({
                             {/* Mã phiếu nhập gốc; tồn đầu kỳ không có phiếu → lùi về mã lô. */}
                             <td className="kho-lines__code">{lot.voucher_ma ?? lot.ma_lo}</td>
                             <td>{fmtDateISO(lot.ngay_nhap)}</td>
+                            <td>{lot.vi_tri ?? "—"}</td>
+                            <td>{lot.hsd ? fmtDateISO(lot.hsd) : "—"}</td>
                             <td className="kho-num">{fmtQty(lot.sl_con_lai)}</td>
                             {canViewCost && (
                               <td className="kho-num">
@@ -1778,6 +1884,7 @@ export function VoucherDrawer({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  useNapTenDonVi();
   const [v, setV] = useState<StockVoucher | null>(null);
   // Bản in cần `sl_duyet` + ngày yêu cầu (mẫu 01-VT/02-VT có cột "Theo chứng từ") — hai thứ
   // này chỉ có trên yêu cầu, nên phiếu phải kéo kèm.
@@ -1994,7 +2101,7 @@ export function VoucherDrawer({
                               <div className="kho-lines__name">{l.hang_ten ?? "—"}</div>
                               <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
                             </td>
-                            <td className="kho-lines__code">{l.dvt ?? "—"}</td>
+                            <td className="kho-lines__code">{tenDonVi(l.dvt) ?? l.dvt ?? "—"}</td>
                             <td className="kho-num">{fmtQty(l.so_luong)}</td>
                             {canViewCost && (
                               <td className="kho-num">
