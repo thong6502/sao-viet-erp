@@ -77,10 +77,10 @@ def test_drawer_hien_nhan_luc_ke_thua_va_ket_qua_thoi_gian_o_cuoi() -> None:
     # Bước MÁY: nhân lực không đổi tốc độ máy — nói rõ kíp tiêu chuẩn kế thừa từ đâu.
     assert "số người vận hành kế hoạch" in source
     assert "kíp vận hành tiêu chuẩn" in source
-    # Bước TỔ: người kế hoạch đổi được, kèm định mức và trần tăng năng suất.
-    assert "số người kế hoạch" in source
-    assert "định mức nhân lực" in source
-    assert "trần thời gian" in source
+    # Bước TỔ: kíp chuẩn RÚT NGẮN thời gian (nhân năng suất/đầu người), kèm biên nhân lực để xếp lịch.
+    assert "số người tiêu chuẩn" in source
+    assert "biên nhân lực" in source
+    assert "rút ngắn thời gian" in source
     # Nguồn tính đứng TRƯỚC kết quả — đọc từ "vì sao ra số này" rồi mới tới con số.
     assert "nguồn tính" in source
     assert "thời gian chiếm máy" in source
@@ -98,7 +98,11 @@ def test_drawer_doi_dau_viec_cap_nhat_dinh_muc_va_thoi_gian_live() -> None:
     assert "so_nguoi_toi_da" in source
     assert "thoiLuongLive" in source
     assert "export function thoiLuongLive" in model
-    assert "Math.min(nguoiKeHoach, nguoiToiDa)" in model
+    # Bước TỔ nhân năng suất với SỐ NGƯỜI TIÊU CHUẨN (chốt 20/08/2026): mirror FE phải đọc đúng cột
+    # đó và nhân vào công thức — KHÔNG còn trần `min(kế hoạch, tối đa)` của thiết kế cũ.
+    assert "so_nhan_cong_tieu_chuan" in model
+    assert "ns * nguoiTC" in model
+    assert "Math.min(nguoiKeHoach, nguoiToiDa)" not in model
 
 
 def test_so_do_bai_ghep_ve_routing_day_du_va_mot_cua_ghi() -> None:
