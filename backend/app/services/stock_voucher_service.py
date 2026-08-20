@@ -146,6 +146,8 @@ class StockVoucherService:
                 # Giá của lô sắp tạo = ĐƠN GIÁ KHAI Ở YÊU CẦU (người yêu cầu nhập). Kho KHÔNG sửa
                 # giá — bỏ qua `don_gia` client gửi. Lô chưa tồn tại nên `lot_id` trống tới ghi sổ.
                 item["don_gia"] = int(rl.don_gia or 0)
+                # Hạn sử dụng khai ở dòng (tách lô theo hạn) — ghi sổ chép sang lô. None = lô không hạn.
+                item["hsd"] = ln.get("hsd")
             else:
                 lot = self._require_lot(ln.get("lot_id"), hang, kho_id)
                 item["lot_id"] = lot.id
@@ -272,6 +274,7 @@ class StockVoucherService:
                     sl_ban_dau=sl_goc,
                     sl_con_lai=sl_goc,
                     vi_tri=ln.vi_tri,
+                    hsd=ln.hsd,
                 )
                 ln.lot_id = lot.id
         else:

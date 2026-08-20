@@ -391,6 +391,13 @@ input.kho-num,
 .kho-lines__wrap {
   overflow-x: auto;
 }
+/* Biến thể WIDE (bảng LẬP PHIẾU): cột lấy BỀ RỘNG THẬT của nội dung — KHÔNG ép tên/mã vật tư gãy
+   dòng để vừa khung. Chật thì cả bảng cuộn ngang (.kho-lines__wrap đã có overflow-x). Hàng CHI TIẾT
+   (colspan: lý do cấp thiếu / bảng lô / banner) KHÔNG nowrap — vẫn xuống dòng bình thường. */
+.kho-lines--wide > thead > tr > th,
+.kho-lines--wide > tbody > tr:not(.kho-alloc__detailrow) > td {
+  white-space: nowrap;
+}
 .kho-lines__empty {
   padding: var(--sp-4) var(--sp-2);
   font-size: 12.5px;
@@ -406,6 +413,21 @@ input.kho-num,
   font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash);
+}
+/* VỊ TRÍ (kệ/ô) trong bảng lịch sử: không phải "mã" nên KHÔNG đi theo .kho-lines__code — thủ kho
+   đọc cột này rồi xuống kho lấy hàng, mờ 11px là đọc hụt. */
+.kho-lines__vt {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+/* HSD: bình thường đọc như vị trí; QUÁ HẠN thì đỏ + đậm để nhảy ra khỏi bảng ngay. */
+.kho-lines__hsd {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.kho-lines__hsd--qua {
+  color: var(--signal, #8a1f1f);
+  font-weight: var(--fw-semibold, 600);
 }
 
 /* --- § Kho phản hồi: mỗi dòng MỘT CÂU, không bảng ------------------------ */
@@ -684,6 +706,11 @@ input.kho-num,
 .kho-pager__page {
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
+}
+
+/* Hạn sử dụng của đợt nhập — 1 ô ngày trên mỗi dòng phiếu NHẬP (1 đợt = 1 lô = 1 hạn). */
+.kho-hsd__date {
+  width: 150px;
 }
 
 /* Bộ chọn số dòng/trang — dropdown gọn (mở lên trên). */
@@ -979,8 +1006,9 @@ input.kho-num,
    = Tồn/Phiếu), không đụng bảng dùng chung khác. */
 .rc__table--fixed { min-width: 900px; }
 .kho-list .kho-table { min-width: 900px; }
-/* Bảng Tồn kho nhiều cột + tiêu đề dài ("Ngày nhập mới nhất"…) → rộng hơn để header gọn, ít xuống dòng. */
-.kho-list .kho-ton-table { min-width: 1060px; }
+/* Bảng Tồn kho nhiều cột (+ Hạn sử dụng) + tiêu đề dài → giữ bề ngang tối thiểu để cột VẬT TƯ khỏi
+   bị bóp; hẹp hơn thì khung bọc (.kho-tablewrap overflow:auto) tự cuộn ngang. */
+.kho-list .kho-ton-table { min-width: 1220px; }
 
 /* ─── §6 Hệ thiết kế — bảng chuẩn cho 3 màn danh sách Kho ──────────────────────
    Scope bằng .kho-list (thêm ở root mỗi trang) để KHÔNG đụng .rc__table dùng chung
@@ -1243,7 +1271,9 @@ input.kho-num,
   width: 84px;
 }
 .kho-nhap__vitri {
-  width: 110px;
+  /* .rc-input là width:100% → cột Vị trí không có nội dung nào giữ bề rộng, co còn ~40px và cắt cụt
+     placeholder. Chốt bề rộng đủ đọc "kệ A / ô…". */
+  width: 130px;
   padding: 6px 8px;
 }
 .kho-nhap__lydo {
@@ -1965,15 +1995,31 @@ input.kho-num,
   font-size: 13px;
 }
 .kho-anh .rc__link-btn.is-disabled { opacity: 0.5; pointer-events: none; }
-/* Biến thể CELL — ảnh nằm CÙNG HÀNG vật tư (cột "Ảnh") trên dòng chính. KHÔNG xuống dòng để cột có
-   bề rộng ổn định; bảng dài thì cả bảng cuộn ngang (kho-lines__wrap có overflow-x). */
+/* Biến thể CELL — ô cột "Ảnh" trên dòng chính: thumbnail TRÊN, hai nút Đổi/Xóa NẰM DƯỚI ảnh (xếp
+   dọc cho cột hẹp lại). KHÔNG xuống dòng bên trong; bảng dài thì cuộn ngang (kho-lines__wrap). */
 .kho-anh--cell {
   padding: 0;
-  gap: 8px;
+  flex-direction: column;
+  /* CĂN GIỮA cả cụm: ảnh (40px) nằm chính giữa phía trên cặp Đổi/Xóa (~70px) — căn trái thì hai
+     mép so le, nhìn lệch. Giữ Đổi/Xóa NẰM NGANG để không đội thêm chiều cao mỗi dòng. */
+  align-items: center;
+  gap: 6px;
   flex-wrap: nowrap;
   white-space: nowrap;
 }
-.kho-anh--cell .kho-anh__thumb--sm { width: 40px; height: 40px; border-radius: 6px; }
+.kho-anh--cell .kho-anh__thumb--sm { width: 52px; height: 52px; border-radius: 6px; }
+.kho-anh__cellacts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Đổi/Xóa trong ô ảnh là hành động PHỤ → chữ nhỏ & nhẹ hơn nút chính (.rc__link-btn mặc định
+   12.5px/600 nhìn nặng trong bảng); cụm hẹp lại còn ~52px, sát bề rộng ảnh nên cân hơn. */
+.kho-anh--cell .rc__link-btn {
+  font-size: 10px;
+  font-weight: var(--fw-medium, 500);
+  padding: 1px 3px;
+}
 /* Ảnh CẠNH TÊN vật tư trong bảng "Dòng vật tư" (chỉ xem) của drawer chi tiết yêu cầu. */
 .kho-lineimg { display: flex; align-items: center; gap: 10px; }
 .kho-lineimg__txt { min-width: 0; }

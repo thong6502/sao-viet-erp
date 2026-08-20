@@ -120,6 +120,7 @@ def _report_rows(
             thanh_tien=round(price * qty) if price is not None else None,
             kho_id=v.kho_id,
             kho_ten=getattr(kho, "ten", None),
+            han_su_dung=getattr(lot, "hsd", None),  # NHẬP: lô vừa tạo · XUẤT: lô bị xuất
             dieu_chuyen=bool(getattr(v, "dieu_chuyen", False)),
         )
         if ql and not any(
@@ -387,6 +388,7 @@ def _map_nhap(r: BaoCaoKhoRow) -> dict:
         "Số lượng": r.so_luong,
         "Đơn giá": r.don_gia,
         "Thành tiền": r.thanh_tien,
+        "Hạn sử dụng": _fmt_date(r.han_su_dung),
     }
 
 
@@ -404,6 +406,7 @@ def _map_xuat(r: BaoCaoKhoRow) -> dict:
         "Số lượng": r.so_luong,
         "Đơn giá vốn": r.don_gia,
         "Tiền vốn": r.thanh_tien,
+        "Hạn sử dụng": _fmt_date(r.han_su_dung),
     }
 
 

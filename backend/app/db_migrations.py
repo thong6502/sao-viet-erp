@@ -8440,3 +8440,18 @@ def _migrate_dieu_chuyen_kho(db) -> None:
 
 
 MIGRATIONS.append(("0203_dieu_chuyen_kho", _migrate_dieu_chuyen_kho))
+
+
+def _migrate_stock_voucher_line_hsd(db) -> None:
+    """Hạn sử dụng khai ở DÒNG phiếu NHẬP: thêm `stock_voucher_lines.hsd` (DATE nullable). Một dòng
+    nhập có thể tách nhiều lô theo hạn (mỗi (hạn, SL) là một dòng phiếu). Ghi sổ chép sang
+    `stock_lots.hsd` (đã có sẵn, dùng cho FEFO). No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "stock_voucher_lines" not in insp.get_table_names():
+        return
+    if "hsd" not in _existing_columns(insp, "stock_voucher_lines"):
+        db.execute(text("ALTER TABLE stock_voucher_lines ADD COLUMN hsd DATE"))
+    db.commit()
+
+
+MIGRATIONS.append(("0205_stock_voucher_line_hsd", _migrate_stock_voucher_line_hsd))
