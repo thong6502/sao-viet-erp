@@ -1607,7 +1607,7 @@ function LineEditModal({
                       )}
                       {tuDong && (
                         <span className="lg-lc__src">
-                          theo hoá đơn bán trong kỳ — sửa % ở đơn hàng, không sửa tại đây
+                          theo hoá đơn bán trong kỳ · % lấy từ hồ sơ lương lúc chốt đơn
                         </span>
                       )}
                       {fromEmp && (

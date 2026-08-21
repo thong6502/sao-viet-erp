@@ -667,7 +667,12 @@ class OrderService:
                 quote.status = "converted_to_order"
         # CHỤP ẢNH % hoa hồng của người sales vào đơn (mg 0227 · §4.6). Chụp lúc CHỐT chứ không
         # đọc-sống: đổi % cho người ta từ tháng sau KHÔNG được làm đổi hoa hồng của đơn đã chốt
-        # tháng trước. Chỉ chụp khi đơn còn để 0 — ai đã sửa tay % riêng cho đơn thì giữ nguyên.
+        # tháng trước.
+        #
+        # KHÔNG phơi `commission_pct` ra API/giao diện, cố ý (chủ chốt 21/08/2026): cho sale gõ %
+        # trên chính đơn mình bán là để người ta tự viết phiếu lương của mình. % chỉ khai được ở
+        # HỒ SƠ LƯƠNG (Lương → Thiết lập lương), tức do nhân sự đặt, không do người hưởng đặt.
+        # Điều kiện `còn để 0` giữ lại để `confirm` chạy lại cũng không đổi số đã chụp.
         if not float(order.commission_pct or 0):
             order.commission_pct = _pct_hoa_hong_cua_sale(self.db, order.sale_user_id)
         self.db.commit()

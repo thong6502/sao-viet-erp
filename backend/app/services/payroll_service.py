@@ -1574,8 +1574,9 @@ class PayrollService:
         if row.source == COMPONENT_SOURCE_AUTO:
             raise PayrollValidationError(
                 "Hoa hồng do hệ thống tự tính theo hoá đơn bán trong kỳ — không sửa tay ở đây. "
-                "Sai số thì sửa ở đơn hàng (% hoa hồng) hoặc hoá đơn; cần trả thêm một khoản "
-                "riêng thì thêm khoản \"Thu nhập khác\"."
+                "% của đơn được chốt cứng lúc CHỐT ĐƠN theo hồ sơ lương của nhân viên, nên đơn đã "
+                "chốt thì không nắn lại được: cần trả thêm/bớt thì dùng khoản \"Thu nhập khác\". "
+                "Muốn đổi % cho các đơn SAU thì sửa ở Lương → Thiết lập lương."
             )
         ln = self._line_for_edit(row.line_id, scope=scope, actor=actor)
         fields = {}
@@ -1636,7 +1637,8 @@ class PayrollService:
             # HCNS sẽ đi tìm mỏi mắt. Mà có gỡ được cũng vô nghĩa: "Tính lại" là nó mọc lại.
             raise PayrollValidationError(
                 "Hoa hồng do hệ thống tự tính theo hoá đơn bán trong kỳ — gỡ ở đây không có tác "
-                "dụng, tính lại là hiện lại. Không muốn tính nữa thì sửa % hoa hồng của đơn hàng."
+                "dụng, tính lại là hiện lại. Không muốn tính nữa thì bỏ % hoa hồng của nhân viên "
+                "ở Lương → Thiết lập lương (chỉ ăn vào đơn chốt từ đó trở đi), hoặc huỷ hoá đơn."
             )
         if row.source != COMPONENT_SOURCE_LINE:
             raise PayrollValidationError(

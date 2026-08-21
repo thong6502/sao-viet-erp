@@ -461,3 +461,42 @@ def test_NV_DA_NGHI_VIEC_van_duoc_tra_hoa_hong_don_cu(client):
     dong = next((l for l in r.json()["lines"] if l["employee_id"] == emp), None)
     assert dong is not None, "NV nghỉ việc còn hoa hồng mà không có dòng lương nào"
     assert _dong_hh(dong)[0]["amount"] == 5_000_000
+
+
+def test_KHONG_CO_DUONG_NAO_de_sale_tu_dat_pct_cho_don(client):
+    """⭐ Ai đặt % hoa hồng — chốt bằng SỐ, không bằng lời (chủ 21/08/2026).
+
+    "% của người kinh doanh nó bán được đơn rồi thì nó theo chỗ mình setup trước đó chứ, làm sao
+    nó có quyền chỉnh sửa % hoa hồng được." Cho sale gõ % trên chính đơn mình bán là để người ta
+    TỰ VIẾT PHIẾU LƯƠNG CỦA MÌNH.
+
+    Test này ĐỎ ngay khi ai đó phơi `commission_pct` ra API đơn hàng.
+    """
+    from app.schemas.order import OrderDetailOut, OrderUpdate
+
+    assert "commission_pct" not in OrderUpdate.model_fields, (
+        "đã mở đường ghi % hoa hồng qua API sửa đơn — sale tự đặt được hoa hồng của mình")
+    assert "commission_pct" not in OrderDetailOut.model_fields, (
+        "% hoa hồng của người khác lộ ra trên đơn — ai xem được đơn là biết mức hoa hồng")
+
+
+def test_pct_lay_dung_muc_DA_SETUP_o_ho_so_luong(client):
+    """% của đơn = mức khai ở HỒ SƠ LƯƠNG tại thời điểm chốt, không phải số ai đó gõ vào đơn."""
+    from app.models.user import User as _U
+
+    emp, uid = _sales("theo ho so", pct=0.07)
+    db = SessionLocal()
+    try:
+        from app.services.order_service import _pct_hoa_hong_cua_sale
+        assert _pct_hoa_hong_cua_sale(db, uid) == 0.07
+
+        # Chưa khai gì ⇒ 0, tức đơn của người đó không có hoa hồng (không đoán, không lấy mặc định)
+        u = _U(username="sale-chua-khai", name="Chua khai", password_hash=hash_password("x"))
+        db.add(u)
+        db.flush()
+        db.add(Employee(code="NVKD-CHUAKHAI", full_name="Chua khai", hire_date=date(2020, 1, 1),
+                        user_id=u.id, status=STATUS_ACTIVE))
+        db.commit()
+        assert _pct_hoa_hong_cua_sale(db, u.id) == 0.0
+    finally:
+        db.close()
