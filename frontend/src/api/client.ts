@@ -664,6 +664,11 @@ export interface BaiGhepSoDoBuocChung {
   chiem_may_phut_min: number; chiem_may_phut_max: number;
   /** Giá trị NGƯỜI đã khai — form mồi lại từ đây, không thì mở drawer là ô trống rồi lưu đè mất. */
   so_nhan_cong: number;
+  /** Ba mốc định biên của bước chung (kế thừa định mức đầu việc, sửa đè được) — cùng hợp đồng với
+   *  bước lệnh. Bàn xếp lịch đọc đúng bộ này để kêu quá/thiếu người. */
+  so_nhan_cong_toi_thieu: number | null;
+  so_nhan_cong_tieu_chuan: number;
+  so_nhan_cong_toi_da: number | null;
   nang_suat: number | null; don_vi_nang_suat: string | null;
   /** Dẫn xuất từ tốc độ máy; `setup_phut` kế thừa từ máy. Ô gõ được duy nhất là
    *  `phat_sinh_phut` ("Thời gian khác"). `cho_phut`/`di_chuyen_phut` đã bỏ. */
@@ -761,6 +766,10 @@ export interface BaiGhepBuocChungBody {
   /** Đầu việc khoán ghim theo ID (0/null = bỏ chọn). Ảnh chụp đơn giá do SERVER chụp — client
    *  không gửi `khoan_json` thô, kẻo đơn giá bịa chảy thẳng vào phiếu lương. */
   so_nhan_cong?: number; piece_rate_id?: number | null;
+  /** Biên nhân lực sửa đè được. Gửi kèm thì server GIỮ, không để nhánh ghim đầu việc đè lại. */
+  so_nhan_cong_toi_thieu?: number | null;
+  so_nhan_cong_tieu_chuan?: number | null;
+  so_nhan_cong_toi_da?: number | null;
   nang_suat?: number | null; don_vi_nang_suat?: string | null;
   /** Ô DUY NHẤT còn gõ được (2026-08-04): chuẩn bị + tốc độ kế thừa SỐNG từ máy đang gán. */
   phat_sinh_phut?: number; so_luot_chay?: number;
@@ -868,8 +877,17 @@ export interface XepLichGoiYMay {
   chiem_may_phut_min: number;
   chiem_may_phut_max: number;
   /** Việc liền trước trên máy này cùng giấy · khổ · bộ mực (mục E) — đổi việc gần như khỏi canh
-   *  lại máy. Tiêu chí PHỤ khi hoà giờ xong. */
+   *  lại máy. Nay là MỘT TRỤC ĐIỂM (`doi_bai`), không còn là tiêu chí phá hoà. */
   cung_gom: boolean;
+  /** Điểm tổng 0–100 do `diem_may` chấm. Là số TUYỆT ĐỐI (không phụ thuộc máy nào khác còn trong
+   *  danh sách) nên so được giữa hai lần gọi, và trục nào chưa khai dữ liệu thì bị bỏ khỏi cả tử
+   *  lẫn MẪU — điểm thấp nghĩa là máy dở, không phải danh mục trống. */
+  diem: number;
+  /** Máy này xếp vào là TRỄ hạn SX. Đã bị đẩy xuống dưới mọi máy kịp hạn, nhưng vẫn hiện ra vì
+   *  đôi khi cả xưởng đều trễ và người xếp cần thấy để đi thương lượng hạn. */
+  tre_han: boolean;
+  /** Bảng ba trục đã chấm — CHỈ gồm trục đo được. Trục vắng mặt = chưa đủ dữ liệu để chấm. */
+  truc: XepLichGoiYTruc[];
   /** Nhãn THẬT của giờ bắt đầu (thứ · cuối tuần · ngày lễ · ca đêm) — thay cho việc gắn đại chữ "lý tưởng". */
   nhan_ngay: Xl2NhanNgay;
   /** Lưu ý còn lại nếu chọn máy này (không chặn). */
@@ -878,15 +896,33 @@ export interface XepLichGoiYMay {
   ly_do: string;
 }
 
+/** MỘT trục chấm điểm máy (`diem_may`): đạt/tối đa + câu giải thích bằng lời thợ. */
+export interface XepLichGoiYTruc {
+  /** `kip_han` · `doi_bai` · `san_tai` (v2 không chấm khổ · số màu · định lượng — spec §6). */
+  ma: string;
+  ten: string;
+  dat: number;
+  toi_da: number;
+  /** `dat / toi_da` — dùng để vẽ thanh, đừng tự chia lại ở FE. */
+  ty_le: number;
+  cau: string;
+}
+
 /** Gợi ý xếp (chỉ đọc): máy trống sớm nhất + kết thúc nếu xếp + hạn lùi còn kịp giao. */
 export interface XepLichGoiY {
   may_id: number | null;
   khe_trong: string | null;
   finish_neu_xep: string | null;
   han_lui: string | null;
-  /** Top 3 máy làm được công đoạn, sắp theo GIỜ XONG. Chạy CẢ KHI dòng chưa gán máy — lúc đó bốn
-   *  field trên đều rỗng vì chúng bám "máy đang gán". */
+  /** Top 3 máy làm được công đoạn, sắp KỊP HẠN TRƯỚC rồi tới ĐIỂM. Chạy CẢ KHI dòng chưa gán máy
+   *  — lúc đó bốn field trên đều rỗng vì chúng bám "máy đang gán". */
   goi_y_may: XepLichGoiYMay[];
+  /** Máy KHÔNG vào được danh sách, mỗi dòng "Tên máy: thiếu đúng cái gì". Phải bày ra: máy vắng
+   *  mặt im lặng là thứ làm người xếp thôi tin cái gợi ý, mà lý do thường chỉ là một ô trống ở
+   *  Danh mục → Máy & thiết bị. */
+  bi_loai: string[];
+  /** Chỉ có khi `goi_y_may` RỖNG: một câu nói vì sao không máy nào nhận được bước. */
+  vi_sao_trong: string | null;
 }
 
 // ============================================================================
@@ -1231,6 +1267,10 @@ export interface Xl2XemTruoc {
   /** `han_moi` vượt hạn SX ⇒ true; `tre_ngay` = số ngày trễ (null nếu không trễ). */
   tre_han_sx: boolean;
   tre_ngay: number | null;
+  /** Nhân lực của bước: số BỐ TRÍ (kế hoạch) + ba mốc định biên. Đi kèm xem-trước để hộp xác nhận
+   *  tự giải thích con số trong câu cảnh báo quân số, khỏi bắt người xếp mở màn Lệnh sản xuất tra. */
+  so_nhan_cong: number | null;
+  dinh_bien: Xl2DinhBien;
 }
 
 /** Một bước SAU bị lấn thứ tự bởi cách đặt xem-trước (item 14) — chỉ để trình bày. */

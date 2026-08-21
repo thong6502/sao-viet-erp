@@ -74,12 +74,17 @@ def test_drawer_khong_goi_y_may_tu_cong_doan() -> None:
 
 def test_drawer_hien_nhan_luc_ke_thua_va_ket_qua_thoi_gian_o_cuoi() -> None:
     source = _nhan(DRAWER)
-    # Bước MÁY: nhân lực không đổi tốc độ máy — nói rõ kíp tiêu chuẩn kế thừa từ đâu.
-    assert "số người vận hành kế hoạch" in source
-    assert "kíp vận hành tiêu chuẩn" in source
-    # Bước TỔ: kíp chuẩn RÚT NGẮN thời gian (nhân năng suất/đầu người), kèm biên nhân lực để xếp lịch.
+    # 21/08/2026: MỘT khối nhân lực dùng chung cho cả bước máy lẫn bước tổ. Trước đó mỗi loại hở
+    # một nửa — bước máy có ô kế hoạch mà ba mốc để trống, bước tổ ngược lại — nên nhãn cũ "số
+    # người vận hành kế hoạch" không còn. Con số bàn xếp lịch cân quân số tổ là ô "bố trí".
+    assert "số người bố trí (kế hoạch)" in source
+    assert "biên nhân lực (để xếp lịch)" in source
+    # Bước MÁY: nhân lực không đổi tốc độ máy — nói rõ kíp tiêu chuẩn kế thừa từ đâu (danh mục Máy).
+    assert "nhân lực không thay đổi tốc độ máy" in source
+    assert "kíp tiêu chuẩn lấy từ danh mục máy" in source
+    # Bước TỔ: kíp chuẩn RÚT NGẮN thời gian (nhân năng suất/đầu người), tối thiểu/tối đa chỉ nuôi
+    # cảnh báo xếp lịch chứ không đổi thời lượng.
     assert "số người tiêu chuẩn" in source
-    assert "biên nhân lực" in source
     assert "rút ngắn thời gian" in source
     # Nguồn tính đứng TRƯỚC kết quả — đọc từ "vì sao ra số này" rồi mới tới con số.
     assert "nguồn tính" in source

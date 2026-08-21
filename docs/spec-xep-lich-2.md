@@ -102,8 +102,40 @@ hôm sau, vẫn chiếm máy suốt khoảng đó.
 
 - **Bỏ hẳn** mọi kết luận theo khổ · số màu · định lượng: không kiểm, không lọc, không xếp hạng,
   không cảnh báo. (`_may_fit.py` vẫn còn cho màn cũ, v2 không gọi.)
-- **Chặn** trùng việc trên cùng máy và đè khoảng `chan` của máy (hỏng/bảo trì).
+- **Chặn** trùng việc trên cùng máy. Đè khoảng `chan` (hỏng/bảo trì) **chỉ cảnh báo** — xem §7.3.
 - Máy hỏng/bảo trì chỉ đọc; panel có liên kết sang module Kỹ thuật máy, không sửa tại Gantt.
+
+### 6.1 Chấm điểm máy (`diem_may`) — 21/08/2026
+
+Câu hỏi đổi từ *“máy nào xong sớm nhất”* sang **“máy nào kịp hạn mà ít phí nhất”**. Xong trước hạn
+3 ngày hay 5 ngày là như nhau với xưởng; đua sớm nhất thì máy khoẻ luôn bị bài đầu tiên vơ mất.
+
+**Tầng 0 — cửa dữ liệu.** Máy chỉ vào danh sách nếu `thoi_luong_buoc` tính được bằng chính máy đó
+(`dien_giai.phuong_phap == "may"`). Trước đây máy chưa khai `toc_do` vẫn ra thời lượng > 0 nhờ
+makeready + phát sinh, nên bước “Ghi kẽm CTP” từng được gợi ý ba máy in offset ở đúng 45 phút —
+xếp nhất chính vì chúng KHÔNG làm được việc. Dev hiện có 15/24 máy chưa khai tốc độ.
+
+**Ba trục, thang 100** (`kip_han` 45 · `doi_bai` 30 · `san_tai` 25):
+
+| Trục | Đo cái gì | Ghi chú |
+| --- | --- | --- |
+| `kip_han` | Đệm tới hạn SX (không phải giờ xong tuyệt đối) | Kịp thoải mái ⇒ ăn trọn điểm, trục tự im. Không có hạn thì so tương đối với máy xong sớm nhất |
+| `doi_bai` | Nối ngay sau việc cùng giấy · khổ · bộ mực (`_gom_key`) | Tiền tiết kiệm sờ được; trước đây chỉ là cái phá hoà trong dung sai 60 phút |
+| `san_tai` | Máy đã kín bao nhiêu phần quỹ giờ ca ngày đó | Kín thì trừ, để việc rải đều |
+
+**Gate theo dữ liệu:** trục không đo được thì bỏ khỏi **cả tử số lẫn mẫu số**, không chấm 0 — chấm
+0 cho thứ chưa khai là phạt oan mọi máy như nhau, lại kéo tụt điểm khiến người đọc tưởng cả xưởng
+đều tệ. Điểm vì vậy là số **tuyệt đối**, so được giữa hai lần gọi.
+
+**Chọn máy:** lọc lấy nhóm KỊP HẠN trước, trong nhóm đó chọn điểm cao nhất, giờ xong chỉ là cái phá
+hoà. Không máy nào kịp ⇒ quay về đua giờ xong (lượt cứu hạn).
+
+**Không chấm khổ · số màu · định lượng** — kể cả dưới dạng điểm. Trục “vừa khổ máy” đã viết rồi gỡ
+ra để giữ đúng luật đầu §6; test §12.8 soi mã nguồn canh chừng. Muốn bật phải chủ gật trước.
+
+**Máy bị loại phải nói ra** (`bi_loai`): danh sách máy không vào được kèm thiếu đúng ô dữ liệu nào.
+Vắng mặt im lặng là thứ làm người xếp thôi tin cái gợi ý — mà lý do gần như luôn là một ô trống ở
+Danh mục, sửa một phút là xong.
 - Ba cụm lane: **Máy** · **Tổ** · **Nhà cung cấp**. Cụm NCC gom theo `nha_cung_cap` đã chuẩn hoá
   (trim + gộp khoảng trắng + không phân biệt hoa/thường); trống ⇒ lane "Thuê ngoài — chưa rõ NCC".
 - Công đoạn thuê ngoài: thanh từ mốc gửi dự kiến (`start_at`) đến nhận dự kiến (`finish_at`), tham
@@ -127,8 +159,6 @@ Mỗi vấn đề trả về: `muc` · `ma` · `cau` (câu người đọc) · `
 | `sai_tien_nhiem` | Bắt đầu trước khi bước tiền nhiệm hoàn thành |
 | `truoc_ngay_vat_tu` | Bắt đầu trước ca đầu tiên của ngày vật tư hứa về |
 | `trung_may` | Trùng việc khác trên cùng máy |
-| `de_vung_khoa_may` | Đè khoảng máy hỏng/bảo trì |
-| `vuot_quan_so_to` | Tổng suất người chồng giờ vượt quân số tổ trong ngày |
 
 **7.2 Cho lưu nháp, chặn phát hành** (`chan_phat_hanh`):
 
@@ -143,7 +173,23 @@ Mỗi vấn đề trả về: `muc` · `ma` · `cau` (câu người đọc) · `
 
 **7.3 Cảnh báo, không chặn** (`canh_bao`): `toi_da_lan_viec_ke` (mức chậm nhất lấn việc kế tiếp) ·
 `sat_han_sx` · `dem_giao_ngan` (đệm SX→giao khách quá ngắn) · `vat_tu_dang_ve` · `tai_cao` (máy/tổ
-tải cao) · `sap_bao_tri`.
+tải cao) · `sap_bao_tri` · `vuot_quan_so_to` (đỉnh người cùng lúc vượt quân số tổ) ·
+`de_vung_khoa_may` (đè khoảng máy hỏng/bảo trì) · `cho_tien_nhiem_chua_xep` (giờ đang tính theo
+ƯỚC của bước trước — bước đó chưa được xếp).
+
+> `vuot_quan_so_to` **hạ từ chặn xuống cảnh báo ngày 21/08/2026** theo yêu cầu chủ dự án: số
+> nhân công khai trên routing là số ước, còn xưởng vẫn điều người qua lại giữa các tổ. Chặn cứng
+> làm bước không tìm nổi khe nào trong cả 60 ngày dò (ví dụ thật: bước “Đóng gói + nhập kho” của
+> LSX26-0020 khai 5 người, tổ Đóng gói có 3 ⇒ 241/241 mốc ứng viên đều bị chặn). Con số vẫn hiện
+> nguyên trên thanh bước để người xếp tự cân.
+
+> `de_vung_khoa_may` **hạ từ chặn xuống cảnh báo cùng ngày 21/08/2026**, cùng một lý do: khoảng
+> khoá máy (`machine_unavailable_periods`) là dự kiến do người khai tay, không phải sự thật đang
+> diễn ra — máy sửa xong sớm, hoặc thợ tranh thủ chạy nốt tay bài trước khi tháo máy, đều là
+> chuyện thường. Chặn cứng thì lịch bị khoá theo một dự đoán. Nay vẫn kêu tại chỗ kèm gợi ý “dời
+> sang khe khác hoặc đổi máy”, nhưng quyền quyết ở người xếp. Muốn bật lại: đổi đúng một hằng
+> trong `constraint.de_vung_khoa_may` (mức `MUC_CANH_BAO` → `MUC_CHAN_DAT_LICH`) — cả cửa đặt
+> lịch lẫn cửa phát hành sẽ tự siết lại theo, vì `kiem_phat_hanh` gộp nhóm chặn-đặt-lịch vào.
 
 ---
 

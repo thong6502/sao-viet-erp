@@ -816,6 +816,10 @@ class BaiGhepService:
         # Thời lượng KẾ THỪA từ máy (2026-08-04): client chỉ còn gửi `phat_sinh_phut`.
         # `setup_phut`/`chay_phut`/`di_chuyen_phut`/`ve_sinh_phut` đã rời bộ này.
         "department_id", "may_id", "so_nhan_cong", "loai_buoc",
+        # Biên nhân lực (tối thiểu · tiêu chuẩn · tối đa): kế thừa từ định mức đầu việc nhưng SỬA
+        # ĐÈ được y như bước lệnh — bước chung của bài cũng là một bước có kế hoạch, và bàn xếp
+        # lịch đọc đúng bộ số này để cảnh báo quá/thiếu người.
+        "so_nhan_cong_toi_thieu", "so_nhan_cong_tieu_chuan", "so_nhan_cong_toi_da",
         "nang_suat", "don_vi_nang_suat", "phat_sinh_phut",
         # Chờ kỹ thuật: gộp lấy mức lớn nhất làm MẶC ĐỊNH, người lập kế hoạch sửa đè được (mục B).
         "so_luot_chay", "ghi_chu",
@@ -838,7 +842,14 @@ class BaiGhepService:
                 setattr(chung, field, patch[field])
         # Sau vòng trên: tổ có thể vừa đổi trong cùng lượt lưu, mà đầu việc khoán lọc THEO TỔ.
         if "piece_rate_id" in patch:
-            self._ghim_khoan_chung(chung, patch["piece_rate_id"], giu_kip="so_nhan_cong" in patch)
+            self._ghim_khoan_chung(
+                chung, patch["piece_rate_id"],
+                giu_kip="so_nhan_cong" in patch,
+                giu_bien=any(
+                    k in patch for k in
+                    ("so_nhan_cong_toi_thieu", "so_nhan_cong_tieu_chuan", "so_nhan_cong_toi_da")
+                ),
+            )
         if "vat_tus" in patch:
             self._thay_vat_tu_chung(chung, patch["vat_tus"] or [])
         self.db.flush()
@@ -854,6 +865,7 @@ class BaiGhepService:
 
     def _ghim_khoan_chung(
         self, chung: BaiGhepCongDoan, rate_id: int | None, *, giu_kip: bool,
+        giu_bien: bool = False,
     ) -> None:
         """Ghim đầu việc khoán cho lượt chạy chung — mượn NGUYÊN luật của bước lệnh.
 
@@ -890,9 +902,10 @@ class BaiGhepService:
         # Đơn vị năng suất = đơn vị ĐƠN GIÁ KHOÁN. Bảng ánh xạ `_DV_VAO_SANG_NS` đã gỡ 15/08/2026
         # cùng hai cơ chế đơn vị cũ — thời lượng nay quy SL vào về chính đơn vị này.
         chung.don_vi_nang_suat = rate.unit
-        chung.so_nhan_cong_tieu_chuan = int(dm.so_nguoi_tieu_chuan)
-        chung.so_nhan_cong_toi_da = int(dm.so_nguoi_toi_da)
-        chung.so_nhan_cong_toi_thieu = int(getattr(dm, "so_nguoi_toi_thieu", 1) or 1)
+        if not giu_bien:                      # cùng lượt lưu mà người dùng tự gõ biên thì đừng đè
+            chung.so_nhan_cong_tieu_chuan = int(dm.so_nguoi_tieu_chuan)
+            chung.so_nhan_cong_toi_da = int(dm.so_nguoi_toi_da)
+            chung.so_nhan_cong_toi_thieu = int(getattr(dm, "so_nguoi_toi_thieu", 1) or 1)
         if not giu_kip:                       # người dùng vừa gõ tay kíp thì đừng đè lên
             chung.so_nhan_cong = int(dm.so_nguoi_tieu_chuan)
 
@@ -1626,6 +1639,12 @@ class BaiGhepService:
                 # Giá trị NGƯỜI đã khai — form phải mồi lại được, không thì mỗi lần mở drawer là
                 # ô trống và lưu đè mất số cũ.
                 "so_nhan_cong": c.so_nhan_cong,
+                # Ba mốc định biên đi kèm luôn: form bài ghép trước đây chỉ có ô "số người kế
+                # hoạch" trơ trọi, không cách nào biết bước cần tối thiểu/tối đa mấy người — mà
+                # đúng bộ số này là thứ bàn xếp lịch dùng để kêu quá tải.
+                "so_nhan_cong_toi_thieu": c.so_nhan_cong_toi_thieu,
+                "so_nhan_cong_tieu_chuan": c.so_nhan_cong_tieu_chuan,
+                "so_nhan_cong_toi_da": c.so_nhan_cong_toi_da,
                 "nang_suat": _f(c.nang_suat) or None, "don_vi_nang_suat": c.don_vi_nang_suat,
                 # Chuẩn bị + chạy là SỐ DẪN XUẤT từ máy, không phải cột cũ (đã dormant).
                 "chay_phut": t["chay_phut"],

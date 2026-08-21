@@ -13,6 +13,7 @@ import {
 import {
   ApiError, api, xl2ChanDatLich,
   type Xl2BanLamViec, type Xl2BoiCanh, type Xl2BoiCanhBuoc, type Xl2Dong, type Xl2GoiPhatHanh,
+  type Xl2DinhBien,
   type Xl2GoiYKhe,
   type Xl2HangCho, type Xl2Issue, type Xl2Khe, type Xl2Muc, type Xl2Nguon, type Xl2QRow,
   type Xl2NhanNgay, type Xl2TuXep,
@@ -84,6 +85,29 @@ const MOI_TRANG = 50; // dòng / trang hàng chờ (cắt trang Ở MÁY CHỦ)
 
 const mucBarCls = (m: Xl2Muc): "dat" | "ph" | "warn" =>
   m === "chan_dat_lich" ? "dat" : m === "chan_phat_hanh" ? "ph" : "warn";
+
+// NHÂN LỰC CỦA BƯỚC — một chỗ tính, ba chỗ hiện (thẻ bước · hộp xác nhận · panel dòng đã xếp).
+// `so` là số BỐ TRÍ (kế hoạch) — đúng con số bàn xếp lịch cân quân số tổ; `db` là ba mốc định biên.
+// Bước máy chỉ khai kíp chuẩn (danh mục Máy không có tối thiểu/tối đa) nên viết gọn "chuẩn N" thay vì
+// "– · N · –": dấu gạch đọc như dữ liệu hỏng, trong khi thật ra máy không có khái niệm biên.
+function nhanLucTom(so: number | null | undefined, db: Xl2DinhBien | null | undefined): {
+  coBien: boolean; text: string | null; ngoai: boolean;
+} {
+  const coBien = !!db && (db.toi_thieu != null || db.toi_da != null);
+  const text = !db
+    ? null
+    : coBien
+      ? `${db.toi_thieu ?? "–"} · ${db.tieu_chuan ?? "–"} · ${db.toi_da ?? "–"}`
+      : db.tieu_chuan != null
+        ? `chuẩn ${db.tieu_chuan}`
+        : null;
+  // Từ 21/08/2026 quân số KHÔNG còn chặn đặt lịch, nên chỗ duy nhất người xếp nhìn thấy sai lệch là
+  // con số này — ra ngoài biên thì tô tín hiệu ngay tại chỗ.
+  const ngoai =
+    so != null && !!db &&
+    ((db.toi_thieu != null && so < db.toi_thieu) || (db.toi_da != null && so > db.toi_da));
+  return { coBien, text, ngoai };
+}
 
 // Item 13 — MỞ MODULE NGUỒN để sửa GỐC vấn đề. Chỉ nối những `nguon` có màn sửa RIÊNG: vật tư → Kho,
 // còn bước/tiền-nhiệm (routing · thiếu dữ liệu · thuê ngoài thiếu NCC đều phát ở bước) → Lệnh SX. Máy /
@@ -522,6 +546,15 @@ export function XepLich2Page({
   }, [navigate, selEntity]);
   const canMoNguon = !!navigate;
 
+  // Mở đúng chỗ SỬA nhân lực của một dòng đã xếp: dòng của lệnh → Lệnh SX mở thẳng lệnh đó (drawer
+  // bước có ô số người + ba mốc biên); dòng của bài ghép → màn Bài ghép (bước chung của bài, không có
+  // mốc lệnh đơn lẻ để mở sâu hơn — cùng cách lùi như `moNguon`).
+  const moBuocCuaDong = useCallback((d: Xl2Dong) => {
+    if (!navigate) return;
+    if (d.nguon === "lsx" && d.lsx_id != null) navigate("ke-hoach-sx", { openLsxId: d.lsx_id });
+    else navigate("bai-ghep-2", {});
+  }, [navigate]);
+
   const duaVao = useCallback(async (r: Xl2QRow) => {
     if (!token) return;
     setBusy(true);
@@ -700,18 +733,90 @@ export function XepLich2Page({
 
   return (
     <div className="xl2">
-      {/* Thanh trên (Command Bar) */}
+      {/* Tầng 1: Command & Timeline Bar */}
       <div className="xl2-top">
-        <div className="xl2-top__title">
-          <div className="xl2-top__icon">
-            <Icon name="calendar" size={18} />
+        <div className="xl2-top__left">
+          <span className="xl2-top__title">Xếp lịch công đoạn 2</span>
+          <div className="xl2-top__win">
+            <button type="button" className="xl2-iconbtn xl2-iconbtn--subtle" title="14 ngày trước" aria-label="14 ngày trước"
+              onClick={() => setWinTu((s) => addDays(s, -WIN_SPAN))}>
+              <Icon name="chevron" size={14} className="xl2-rot180" />
+            </button>
+            <span className="xl2-win-label">{ngay(winTu)} — {ngay(winDen)}</span>
+            <button type="button" className="xl2-iconbtn xl2-iconbtn--subtle" title="14 ngày sau" aria-label="14 ngày sau"
+              onClick={() => setWinTu((s) => addDays(s, WIN_SPAN))}>
+              <Icon name="chevron" size={14} />
+            </button>
+            <button type="button" className="xl2-iconbtn xl2-iconbtn--subtle" title="Về hôm nay" aria-label="Về hôm nay"
+              onClick={() => setWinTu(ymd(new Date()))}>
+              <Icon name="refresh" size={13} />
+            </button>
           </div>
-          <span>Xếp lịch công đoạn 2</span>
         </div>
 
-        {/* Ô tìm kiếm nhanh */}
+        <div className="xl2-top__center">
+          <div className="xl2-seg" role="group" aria-label="Cách gom hàng trên bàn">
+            {NHOMS.map((h) => (
+              <button key={h.key} type="button" className="xl2-seg__btn"
+                aria-pressed={nhom === h.key} title={h.hint} onClick={() => setNhom(h.key)}>
+                {h.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="xl2-seg" role="group" aria-label="Mật độ trục thời gian">
+            {ZOOMS.map((z) => (
+              <button key={z.key} type="button" className="xl2-seg__btn"
+                aria-pressed={zoom === z.key} onClick={() => setZoom(z.key)}>
+                {z.label}
+              </button>
+            ))}
+          </div>
+
+          <button type="button" className="xl2-iconbtn xl2-iconbtn--wide"
+            title="Vừa khít — tự chọn mật độ theo lượng việc" aria-label="Vừa khít"
+            disabled={!ban || ban.dong.length === 0} onClick={onVuaKhit}>
+            <span>Vừa khít</span>
+          </button>
+
+          <button
+            type="button"
+            className={`xl2-iconbtn${focusMode ? " is-active" : ""}`}
+            title={focusMode ? "Thoát toàn màn hình" : "Toàn màn hình Gantt"}
+            aria-label="Toàn màn hình Gantt"
+            onClick={() => setFocusMode((v) => !v)}
+          >
+            <Icon name="maximize" size={14} />
+          </button>
+        </div>
+
+        <div className="xl2-top__right">
+          {ban && (
+            <div className="xl2-kpisummary">
+              <span className="xl2-kpisummary__item" title="Tiến độ xếp việc">
+                Đã xếp: <b className="xl2-num">{digest.daXep}/{digest.tong}</b>
+              </span>
+              <span className="xl2-kpisummary__sep">·</span>
+              <span className="xl2-kpisummary__item">
+                <b className="xl2-num">{digest.may}</b> máy · <b className="xl2-num">{digest.to}</b> tổ
+              </span>
+              {facets.gap > 0 && (
+                <>
+                  <span className="xl2-kpisummary__sep">·</span>
+                  <span className="xl2-kpisummary__item xl2-kpisummary__item--rush">
+                    <b className="xl2-num">{facets.gap}</b> gấp
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Tầng 2: Search, Quick Filters & Cluster Toggles */}
+      <div className="xl2-subbar">
         <div className="xl2-search" style={{ maxWidth: 220 }}>
-          <Icon name="search" size={14} className="xl2-search__ic" />
+          <Icon name="search" size={13} className="xl2-search__ic" />
           <input
             type="search" className="xl2-search__in" value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -724,11 +829,10 @@ export function XepLich2Page({
           )}
         </div>
 
-        {/* Chip lọc trạng thái */}
         <div className="xl2-chips" role="group" aria-label="Lọc hàng chờ">
           {QFILTERS.map((f) => (
             <button key={f.key} type="button"
-              className={`seg xl2-chip${qFilter === f.key ? " is-active" : ""}`}
+              className={`xl2-chip${qFilter === f.key ? " is-active" : ""}`}
               aria-pressed={qFilter === f.key} onClick={() => setQFilter(f.key)}>
               {f.label}
               <span className={`chip-count${f.key !== "all" && facets[f.key] > 0 && qFilter !== f.key ? " chip-count--alert" : ""}`}>
@@ -738,79 +842,42 @@ export function XepLich2Page({
           ))}
         </div>
 
-        <div className="xl2-top__spacer" />
+        <div className="xl2-subbar__spacer" />
 
-        {/* KPI Live HUD */}
-        {ban && (
-          <div className="xl2-kpibar">
-            <span className="xl2-kpipill" title="Tỷ lệ công đoạn đã xếp vào lịch">
-              <Icon name="workflow" size={12} /> <span>Tiến độ:</span> <b className="xl2-num">{digest.daXep}/{digest.tong}</b>
-            </span>
-            <span className="xl2-kpipill" title="Số lượng tài nguyên đang có việc">
-              <Icon name="printer" size={12} /> <b className="xl2-num">{digest.may}</b> máy · <b className="xl2-num">{digest.to}</b> tổ
-            </span>
-            {facets.gap > 0 && (
-              <span className="xl2-kpipill xl2-kpipill--rush" title="Lệnh gấp cần ưu tiên">
-                <Icon name="alert" size={12} /> <b className="xl2-num">{facets.gap}</b> lệnh gấp
-              </span>
-            )}
-          </div>
+        {soVanDeBan > 0 && (
+          <button type="button"
+            className={`xl2-filterbtn xl2-filterbtn--vd${chiVanDe ? " is-on" : ""}`}
+            aria-pressed={chiVanDe}
+            title={chiVanDe ? "Hiện lại mọi việc" : "Chỉ hiện việc đang có vấn đề"}
+            onClick={() => setChiVanDe((v) => !v)}>
+            <span>Có vấn đề</span>
+            <b className="xl2-filterbtn__n xl2-num">{soVanDeBan}</b>
+          </button>
         )}
 
-        <div className="xl2-top__divider" />
-
-        {/* Cửa sổ ngày & Zoom */}
-        <div className="xl2-top__grp">
-          <button type="button" className="xl2-iconbtn" title="14 ngày trước" aria-label="14 ngày trước"
-            onClick={() => setWinTu((s) => addDays(s, -WIN_SPAN))}>
-            <Icon name="chevron" size={15} className="xl2-rot180" />
-          </button>
-          <span className="xl2-top__win">
-            <b>{ngay(winTu)}</b> — <b>{ngay(winDen)}</b>
-          </span>
-          <button type="button" className="xl2-iconbtn" title="14 ngày sau" aria-label="14 ngày sau"
-            onClick={() => setWinTu((s) => addDays(s, WIN_SPAN))}>
-            <Icon name="chevron" size={15} />
-          </button>
-          <button type="button" className="xl2-iconbtn" title="Về hôm nay" aria-label="Về hôm nay"
-            onClick={() => setWinTu(ymd(new Date()))}>
-            <Icon name="refresh" size={14} />
-          </button>
-        </div>
-
-        <div className="xl2-seg" role="group" aria-label="Cách gom hàng trên bàn">
-          {NHOMS.map((h) => (
-            <button key={h.key} type="button" className="xl2-seg__btn"
-              aria-pressed={nhom === h.key} title={h.hint} onClick={() => setNhom(h.key)}>
-              <Icon name={h.icon} size={12} /> {h.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="xl2-seg" role="group" aria-label="Mật độ trục thời gian">
-          {ZOOMS.map((z) => (
-            <button key={z.key} type="button" className="xl2-seg__btn"
-              aria-pressed={zoom === z.key} onClick={() => setZoom(z.key)}>
-              {z.label}
-            </button>
-          ))}
-        </div>
-
-        <button type="button" className="xl2-iconbtn xl2-iconbtn--wide"
-          title="Vừa khít — tự chọn mật độ theo lượng việc" aria-label="Vừa khít"
-          disabled={!ban || ban.dong.length === 0} onClick={onVuaKhit}>
-          <Icon name="maximize" size={14} /> <span>Vừa khít</span>
-        </button>
-
-        <button
-          type="button"
-          className={`xl2-iconbtn${focusMode ? " is-active" : ""}`}
-          title={focusMode ? "Thoát chế độ toàn màn hình Gantt" : "Chế độ toàn màn hình Gantt (Focus Canvas)"}
-          aria-label="Toàn màn hình Gantt"
-          onClick={() => setFocusMode((v) => !v)}
-        >
-          <Icon name="maximize" size={14} />
-        </button>
+        {clusters.length > 1 && (
+          <div className="xl2-cluster-toggles" role="group" aria-label="Bật tắt cụm tài nguyên">
+            <span className="xl2-cluster-toggles__label">Hiện:</span>
+            {clusters.map((c) => {
+              const an = ganttAn.has(c.key);
+              const n = c.lanes.reduce((s, l) => s + l.dong.length, 0);
+              return (
+                <button key={c.key} type="button"
+                  className={`xl2-cluster-toggle${an ? " is-off" : " is-on"}`}
+                  aria-pressed={!an}
+                  title={an ? `Hiện cụm ${c.label}` : `Ẩn cụm ${c.label}`}
+                  onClick={() => setGanttAn((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(c.key)) next.delete(c.key); else next.add(c.key);
+                    return next;
+                  })}>
+                  <span>{c.label}</span>
+                  <b className="xl2-cluster-toggle__n xl2-num">{n}</b>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Lưới 3 cột siêu linh hoạt — co giãn mượt mà giữa các chế độ */}
@@ -930,52 +997,16 @@ export function XepLich2Page({
             </div>
           ) : (
             <>
-              {/* Thanh lọc đầu bàn: nút "Chỉ việc có vấn đề" + lọc ẩn/hiện từng cụm */}
-              {(soVanDeBan > 0 || clusters.length > 1) && (
-                <div className="xl2-gflt" role="group" aria-label="Lọc hiển thị trên Gantt">
-                  {soVanDeBan > 0 && (
-                    <button type="button"
-                      className={`xl2-gflt__chip xl2-gflt__chip--vd${chiVanDe ? " is-on" : ""}`}
-                      aria-pressed={chiVanDe}
-                      title={chiVanDe ? "Hiện lại mọi việc" : "Chỉ hiện việc đang có vấn đề"}
-                      onClick={() => setChiVanDe((v) => !v)}>
-                      <Icon name="alert" size={13} />
-                      <span>Chỉ việc có vấn đề</span>
-                      <b className="xl2-gflt__n xl2-num">{soVanDeBan}</b>
-                    </button>
-                  )}
-                  {clusters.length > 1 && <span className="xl2-gflt__lb">Hiện</span>}
-                  {clusters.length > 1 && clusters.map((c) => {
-                    const an = ganttAn.has(c.key);
-                    const n = c.lanes.reduce((s, l) => s + l.dong.length, 0);
-                    return (
-                      <button key={c.key} type="button"
-                        className={`xl2-gflt__chip${an ? " xl2-gflt__chip--off" : ""}`}
-                        aria-pressed={!an}
-                        title={an ? `Hiện cụm ${c.label}` : `Ẩn cụm ${c.label}`}
-                        onClick={() => setGanttAn((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(c.key)) next.delete(c.key); else next.add(c.key);
-                          return next;
-                        })}>
-                        <Icon name={c.icon} size={13} />
-                        <span>{c.label}</span>
-                        <b className="xl2-gflt__n xl2-num">{n}</b>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
               {clustersHienThi.length === 0 ? (
-                <div className="xl2-centerempty">
-                  <EmptyState icon={chiVanDe ? "check" : "workflow"}
-                    title={chiVanDe ? "Không có việc vấn đề đang hiện" : "Đã ẩn hết cụm"}
-                    sub={chiVanDe
-                      ? "Tắt lọc 'Chỉ việc có vấn đề' hoặc bật lại cụm để xem toàn bàn."
-                      : "Bật lại một cụm ở thanh lọc phía trên để xem lịch."} />
-                </div>
-              ) : (
-                <Xl2Gantt
+            <div className="xl2-centerempty">
+              <EmptyState icon={chiVanDe ? "check" : "workflow"}
+                title={chiVanDe ? "Không có việc vấn đề đang hiện" : "Đã ẩn hết cụm"}
+                sub={chiVanDe
+                  ? "Tắt lọc 'Chỉ việc có vấn đề' hoặc bật lại cụm để xem toàn bàn."
+                  : "Bật lại một cụm ở thanh lọc phía trên để xem lịch."} />
+            </div>
+          ) : (
+            <Xl2Gantt
                   clusters={clustersHienThi}
                   ca={ban.ca}
                   caNhan={ban.ca_nhan ?? []}
@@ -1044,6 +1075,7 @@ export function XepLich2Page({
                 onGoiYKhe={() => void onGoiYKhe()} onChonKhe={onChonKhe}
                 onXoaNhap={() => setAskXoaNhap(selDong)}
                 onMoNguon={canMoNguon ? moNguon : undefined}
+                onMoBuoc={navigate ? () => moBuocCuaDong(selDong) : undefined}
               />
             ) : selEntity ? (
               <EntityPanel nguon={selEntity.nguon} ma={selEntityLabel} bc={boiCanh}
@@ -1501,8 +1533,7 @@ function StepCard({
   const nguonLb = b.nguon_thoi_luong === "thue_ngoai" ? "thuê ngoài"
     : b.nguon_thoi_luong === "may" ? "theo máy" : "làm tay";
   const db = b.dinh_bien;
-  const dbText = (db.toi_thieu == null && db.tieu_chuan == null && db.toi_da == null)
-    ? null : `${db.toi_thieu ?? "–"} · ${db.tieu_chuan ?? "–"} · ${db.toi_da ?? "–"}`;
+  const { coBien: dbCoBien, text: dbText, ngoai: dbNgoai } = nhanLucTom(b.so_nhan_cong, db);
   const worst = mucNangNhat(b.van_de);
   return (
     <div className={`xl2-step${b.is_locked ? " xl2-step--locked" : ""}`}>
@@ -1522,8 +1553,22 @@ function StepCard({
           {hasRange && <span className="xl2-step__range"> ({thoiLuong(b.chiem_may_phut_min)}–{thoiLuong(b.chiem_may_phut_max)})</span>}
         </span>
         <span className="xl2-step__tag">{nguonLb}</span>
-        {b.so_nhan_cong != null && <span className="xl2-step__fact"><Icon name="users" size={11} /> {b.so_nhan_cong} người</span>}
-        {dbText && <span className="xl2-step__fact" title="Định biên tham khảo: tối thiểu · tiêu chuẩn · tối đa">ĐB {dbText}</span>}
+        {b.so_nhan_cong != null && (
+          <span
+            className={`xl2-step__fact${dbNgoai ? " xl2-step__fact--warn" : ""}`}
+            title={dbNgoai ? `Bố trí ${b.so_nhan_cong} người, ngoài biên ${db.toi_thieu ?? "–"}–${db.toi_da ?? "–"} của bước — sửa ở màn Lệnh sản xuất, khối Nhân lực.` : "Số người bố trí (kế hoạch) — bàn xếp lịch cân quân số tổ theo số này."}
+          >
+            <Icon name={dbNgoai ? "alert" : "users"} size={11} /> {b.so_nhan_cong} người
+          </span>
+        )}
+        {dbText && (
+          <span
+            className="xl2-step__fact"
+            title={dbCoBien ? "Định biên của bước: tối thiểu · tiêu chuẩn · tối đa" : "Kíp vận hành tiêu chuẩn theo danh mục Máy"}
+          >
+            ĐB {dbText}
+          </span>
+        )}
       </div>
       {b.quan_so && (
         <div className={`xl2-step__qs${b.quan_so.con_ranh < 0 ? " xl2-step__qs--over" : ""}`}>
@@ -1612,6 +1657,12 @@ function Xl2PreviewDialogBody({
   const finishIso = xt.finish_at ?? dong.finish_at;
   const slackDays = computeSlackDays(xt.han_moi ?? finishIso, xt.han_sx);
   const hasIssues = xt.van_de && xt.van_de.length > 0;
+  // Nhân lực bước. Câu cảnh báo quân số chỉ in con số đỉnh ("Đỉnh 5 người…") — đứng một mình nó
+  // không cho biết 5 ở đâu ra, cũng không cho biết bước định biên bao nhiêu. Dán thẳng vào hàng
+  // thẻ dữ kiện: bố trí bao nhiêu, biên bao nhiêu, ngoài biên thì tô đỏ.
+  const nl = nhanLucTom(xt.so_nhan_cong, xt.dinh_bien);
+  const nhanLucText = nl.text == null ? null : nl.coBien ? `định biên ${nl.text}` : `kíp ${nl.text}`;
+  const nhanLucNgoai = nl.ngoai;
 
   return (
     <div className="xl2-dlg-preview">
@@ -1664,6 +1715,20 @@ function Xl2PreviewDialogBody({
           <span className="xl2-dlg-tag">
             {xt.theo_may ? "Theo tốc độ máy" : "Theo định mức"}
           </span>
+          {xt.so_nhan_cong != null && (
+            <span
+              className={`xl2-dlg-tag${nhanLucNgoai ? " xl2-dlg-tag--warn" : ""}`}
+              title={
+                nhanLucNgoai
+                  ? "Số người bố trí ở bước nằm ngoài định biên — sửa tại màn Lệnh sản xuất, khối Nhân lực."
+                  : "Số người bố trí ở bước (khai tại màn Lệnh sản xuất, khối Nhân lực)."
+              }
+            >
+              <Icon name={nhanLucNgoai ? "alert" : "users"} size={11} /> Bố trí{" "}
+              <b>{xt.so_nhan_cong} người</b>
+              {nhanLucText ? ` · ${nhanLucText}` : ""}
+            </span>
+          )}
         </div>
       </div>
 
@@ -1791,6 +1856,13 @@ function DaiThoiLuong({ tb, min, max }: { tb: number; min?: number | null; max?:
   );
 }
 
+// Ba BẬC điểm máy — chỉ để đổi màu chip, KHÔNG phải một luật nghiệp vụ. Cố ý không có bậc "đỏ":
+// mọi máy còn trong danh sách đều xếp được, chỉ hơn kém nhau chỗ phí; cái thật sự phải cảnh báo là
+// cờ `tre_han` chứ không phải điểm thấp.
+function bacDiem(d: number): "tot" | "kha" | "thuong" {
+  return d >= 75 ? "tot" : d >= 50 ? "kha" : "thuong";
+}
+
 // ============================ tự xếp lịch cả lệnh ==========================
 // Người kế hoạch bấm một nút, hệ tự chọn MÁY + GIỜ cho từng bước theo đúng thứ tự routing. Máy chỉ
 // GHI NHẬN đề xuất: mọi bước xếp xong vẫn hiện ra kèm câu vì-sao và các lưu ý, sửa tay lại được.
@@ -1876,7 +1948,7 @@ function DongPanel({
   dong, xt, xtErr, xtBusy, goiY, mays, phongBans, mayTen, deptTen,
   draftMay, draftDept, draftStart, canUpdate,
   setDraftMay, setDraftDept, setDraftStart, onApDung, onGoiY,
-  goiYKhe, goiYKheLoading, onGoiYKhe, onChonKhe, onXoaNhap, onMoNguon,
+  goiYKhe, goiYKheLoading, onGoiYKhe, onChonKhe, onXoaNhap, onMoNguon, onMoBuoc,
 }: {
   dong: Xl2Dong;
   xt: Xl2XemTruoc | null;
@@ -1902,6 +1974,8 @@ function DongPanel({
   onChonKhe: (k: Xl2Khe) => void;
   onXoaNhap: () => void;
   onMoNguon?: (i: Xl2Issue) => void;
+  /** Mở đúng chỗ SỬA số người của bước (Lệnh SX / Bài ghép). Không có `navigate` thì bỏ. */
+  onMoBuoc?: () => void;
 }) {
   const resLabel: ReactNode = dong.may_id != null
     ? <><Icon name="printer" size={13} /> {mayTen.get(dong.may_id) ?? `Máy #${dong.may_id}`}</>
@@ -1909,6 +1983,7 @@ function DongPanel({
       ? <><Icon name="users" size={13} /> {deptTen.get(dong.department_id) ?? `Tổ #${dong.department_id}`}</>
       : <><Icon name="truck" size={13} /> Chưa gán máy / tổ</>;
   const nhan = dongNhanParts(dong);
+  const nl = nhanLucTom(xt?.so_nhan_cong, xt?.dinh_bien);
 
   return (
     <>
@@ -1929,6 +2004,38 @@ function DongPanel({
           <div className="xl2-kv"><span className="xl2-kv__k">Bắt đầu</span><span className="xl2-kv__v xl2-kv__v--num">{dong.start_at ? ngayGio(dong.start_at) : "—"}</span></div>
           <div className="xl2-kv"><span className="xl2-kv__k">Kết thúc</span><span className="xl2-kv__v xl2-kv__v--num">{(xt?.finish_at ?? dong.finish_at) ? ngayGio(xt?.finish_at ?? dong.finish_at) : "—"}</span></div>
           {xt && <div className="xl2-kv"><span className="xl2-kv__k">Chiếm máy</span><span className="xl2-kv__v xl2-kv__v--num">{thoiLuong(xt.chiem_may_phut)}{xt.theo_may ? " (theo máy)" : ""}</span></div>}
+          {/* NHÂN LỰC — khối này trước chỉ có tài nguyên + giờ + chiếm máy, nên khi lịch kêu "đỉnh N
+              người vượt quân số tổ" người xếp không thấy bước khai bao nhiêu người, cũng không biết
+              đi đâu sửa. Nay số bố trí đứng cạnh ba mốc định biên, ra ngoài biên thì tô tín hiệu, và
+              có lối mở thẳng sang chỗ sửa. */}
+          {xt && xt.so_nhan_cong != null && (
+            <div className="xl2-kv">
+              <span className="xl2-kv__k">Nhân lực</span>
+              <span className={`xl2-kv__v xl2-kv__v--nhanluc${nl.ngoai ? " xl2-kv__v--canh" : ""}`}>
+                <span className="xl2-kv__v--num">
+                  {nl.ngoai && <Icon name="alert" size={11} />} {xt.so_nhan_cong} người
+                </span>
+                {nl.text && (
+                  <span
+                    className="xl2-kv__bien"
+                    title={nl.coBien
+                      ? "Định biên của bước: tối thiểu · tiêu chuẩn · tối đa"
+                      : "Kíp vận hành tiêu chuẩn theo danh mục Máy"}
+                  >
+                    {nl.coBien ? "biên" : "kíp"} {nl.text}
+                  </span>
+                )}
+                {onMoBuoc && (
+                  <button type="button" className="xl2-kv__go" onClick={onMoBuoc}
+                    title={dong.nguon === "lsx"
+                      ? "Mở lệnh sản xuất — sửa số người ở khối Nhân lực của bước."
+                      : "Mở màn Bài ghép — sửa số người ở bước chung của bài."}>
+                    <Icon name="link" size={11} /> Sửa
+                  </button>
+                )}
+              </span>
+            </div>
+          )}
           {dong.is_locked && <div className="xl2-kv"><span className="xl2-kv__k">Trạng thái</span><span className="xl2-kv__v">Đã khóa</span></div>}
         </div>
       </div>
@@ -2042,23 +2149,41 @@ function DongPanel({
         </div>
       )}
 
-      {goiY && goiY.goi_y_may.length > 0 && canUpdate && !dong.is_locked && (
+      {goiY && canUpdate && !dong.is_locked && (goiY.goi_y_may.length > 0 || goiY.vi_sao_trong) && (
         <div className="xl2-psec">
           <div className="xl2-psec__h">
             <Icon name="activity" size={13} /> Gợi ý máy — xếp đúng thứ tự máy mà tự-xếp sẽ chọn
           </div>
           <div className="xl2-goiy">
             {goiY.goi_y_may.map((g) => (
-              <button key={g.may_id} type="button" className="xl2-goiy__row" onClick={() => onGoiY(g.may_id)}>
+              <button key={g.may_id} type="button"
+                className={`xl2-goiy__row${g.tre_han ? " xl2-goiy__row--tre" : ""}`}
+                onClick={() => onGoiY(g.may_id)}>
                 <span className="xl2-goiy__top">
                   <Icon name="printer" size={13} />
                   <span className="xl2-goiy__name">{g.may_ten ?? `Máy #${g.may_id}`}</span>
+                  {g.tre_han && <span className="xl2-goiy__flag xl2-goiy__flag--tre">trễ hạn</span>}
                   {g.cung_gom && <span className="xl2-goiy__flag">cùng bộ</span>}
                   <span className="xl2-goiy__sub">{g.finish ? `xong ${ngayGio(g.finish)}` : thoiLuong(g.chiem_may_phut)}</span>
+                  {/* Điểm để LIẾC, không để tính: con số đứng một mình thì vô nghĩa, nên ngay dưới
+                      nó là bảng trục nói điểm ấy tới từ đâu. */}
+                  <span className={`xl2-goiy__diem xl2-goiy__diem--${bacDiem(g.diem)}`}>{g.diem}</span>
                 </span>
                 {/* Câu vì-sao do CHÍNH thuật toán tự-xếp sinh ra — bấm máy này thì lát nữa tự-xếp cũng
                     chọn đúng nó, không có chuyện gợi một đằng xếp một nẻo. */}
                 <span className="xl2-goiy__why">{g.ly_do}</span>
+                {(g.truc ?? []).length > 0 && (
+                  <span className="xl2-truc">
+                    {g.truc.map((t) => (
+                      <span key={t.ma} className="xl2-truc__i" title={t.cau}>
+                        <span className="xl2-truc__ten">{t.ten}</span>
+                        <span className="xl2-truc__bar">
+                          <i style={{ width: `${Math.round(Math.max(0, Math.min(1, t.ty_le)) * 100)}%` }} />
+                        </span>
+                      </span>
+                    ))}
+                  </span>
+                )}
                 <span className="xl2-goiy__meta">
                   <DaiThoiLuong tb={g.chiem_may_phut} min={g.chiem_may_phut_min} max={g.chiem_may_phut_max} />
                   <NhanNgayTags nn={g.nhan_ngay} soCanhBao={(g.canh_bao ?? []).length} />
@@ -2066,6 +2191,19 @@ function DongPanel({
               </button>
             ))}
           </div>
+          {goiY.vi_sao_trong && (
+            <div style={{ marginTop: "var(--sp-2)" }}>
+              <EmptyState icon="search" title="Không máy nào nhận được bước này" sub={goiY.vi_sao_trong} />
+            </div>
+          )}
+          {/* Máy VẮNG MẶT phải giải thích được. Gập lại vì đây là việc đi sửa Danh mục chứ không phải
+              việc đang làm — nhưng bày sẵn số máy để người ta biết có cái đáng mở ra xem. */}
+          {(goiY.bi_loai ?? []).length > 0 && (
+            <details className="xl2-loai">
+              <summary>{goiY.bi_loai.length} máy không vào được danh sách — vì sao?</summary>
+              <ul>{goiY.bi_loai.map((c, i) => <li key={i}>{c}</li>)}</ul>
+            </details>
+          )}
         </div>
       )}
 

@@ -140,6 +140,14 @@ export interface KhoanChon {
 /** Điều kiện bắt đầu (§4.5) — "công đoạn trước xong" là mặc định nên không có ô riêng. */
 let seq = 0;
 export function newKey(): string {
+  // Bước MỚI mang sẵn step_key là UUID THẬT (không phải mã tạm "r…"). Lý do: khi chèn 1 bước
+  // vào giữa DAG rồi bấm Lưu, bước SAU nó tham chiếu step_key này trong `phu_thuoc_step_keys`;
+  // server khớp tiền nhiệm bằng step_key → phải là UUID có thật thì mới tra ra (mã "r5" tra ra
+  // rỗng → lỗi "Không tìm thấy công đoạn tiền nhiệm"). Dev/prod luôn là ngữ cảnh bảo mật
+  // (localhost/https) nên crypto.randomUUID luôn có; nhánh dự phòng chỉ để chắc TypeScript.
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
   seq += 1;
   return `r${seq}`;
 }
