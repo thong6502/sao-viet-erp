@@ -21,6 +21,9 @@ PREFIX_MAP = {
     "order": "DH",
     "job": "LSX",
     "bai_ghep": "GB",  # Bài ghép (gang) — KHÔNG dùng "BG" vì đã là mã Báo giá (quotation).
+    "san_xuat_goi": "GPH",   # Gói phát hành (Thực hiện SX §4.1) — thành phần liên thông.
+    "san_xuat_nhom": "NTP",  # Nhóm thành phẩm (Thực hiện SX §3.1).
+    "san_xuat_kho_hang": "HSX",  # Hàng sản xuất — registry BTP/thành phẩm (Thực hiện SX §14.2).
 }
 
 # Số chứng từ IN trên mẫu Bộ Tài chính (PC00445 / PT00027) — không có năm, chạy liên tục.

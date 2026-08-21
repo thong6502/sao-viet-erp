@@ -192,6 +192,41 @@ class CustomerTag(Base):
     )
 
 
+class CustomerTagCatalog(Base):
+    """KHO NHÃN dùng chung — danh sách nhãn có thể gán, tách khỏi việc đã gán cho ai.
+
+    Vì sao phải có bảng riêng (16/08/2026): trước đây kho nhãn là mảng 13 chuỗi VIẾT CỨNG trong
+    `KhachHangPage.tsx`. Hệ quả là nhãn không thêm/xoá được — gỡ "Nhạy giá" khỏi mọi khách xong,
+    mở hộp Gắn thẻ ra nó vẫn nằm đó, vì nó nằm trong code chứ không trong dữ liệu.
+
+    Không gộp được vào `customer_tags`: bảng đó là bảng GÁN (`customer_id` NOT NULL), nên một nhãn
+    chỉ tồn tại khi đã có khách mang nó. Nhãn "có sẵn nhưng chưa ai dùng" không có chỗ chứa.
+
+    Quan hệ với `customer_tags` là LỎNG — nối bằng chuỗi `label`, KHÔNG khoá ngoại:
+      · dữ liệu đã gán từ trước không phải migrate;
+      · nhãn gõ tay tại chỗ vẫn gán được ngay rồi mới đẻ dòng danh mục;
+      · xoá nhãn ở đây thì service tự dọn các dòng gán mang đúng nhãn đó (xem `xoa_nhan_kho`).
+
+    KHÔNG có cột `mau`: màu chip do `tagTone()` bên frontend suy từ chính chuỗi nhãn (bảng ngữ
+    nghĩa + hash), thêm cột màu là đẻ nguồn sự thật thứ hai cho cùng một thứ.
+    KHÔNG có cột `active`: yêu cầu là THÊM và XOÁ; thêm cờ ngừng-dùng mà không có ô bật/tắt nào
+    trên màn thì chỉ là cột chết.
+    """
+
+    __tablename__ = "customer_tag_catalog"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # unique=True chặn trùng Y HỆT. Trùng KHÁC HOA-THƯỜNG ("VIP" vs "vip") do service chặn — hạ
+    # chữ trong SQL không chạy đúng cho tiếng Việt trên SQLite (xem `ids_with_label`).
+    label: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
 # Hình thức chăm sóc (khảo sát #27: gọi điện, nhắn tin, email, gặp trực tiếp…).
 CARE_GOI_DIEN = "goi_dien"
 CARE_NHAN_TIN = "nhan_tin"

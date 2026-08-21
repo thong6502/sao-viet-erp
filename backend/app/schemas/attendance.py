@@ -75,6 +75,10 @@ class WorkShiftsOut(BaseModel):
     items: list[WorkShiftOut]
 
 
+# `CaLamRefRow` / `CaLamRefListOut` ĐÃ XOÁ (2026-08-10) cùng endpoint `/ca-lam` và hai ô "Ca làm
+# riêng" ở màn Máy / Phòng ban — ca chỉ còn khai ở danh mục Ca kíp (`WorkShiftOut` ở trên).
+
+
 # --- attendance logs --------------------------------------------------------
 
 
@@ -195,6 +199,11 @@ class TimesheetDay(BaseModel):
     leave: str | None = None       # tên loại nghỉ (nếu ngày này nghỉ đã duyệt) HOẶC tên ngày lễ
     leave_paid: bool = False       # nghỉ có lương (P) hay không (KL)
     holiday: bool = False          # ngày nghỉ lễ hưởng lương (cộng 1 công tự động, không cần chấm)
+    # LOẠI NGÀY khi CÓ ĐI LÀM — ba cờ loại trừ nhau (`plain > holiday > restday`, đúng thứ tự
+    # nhánh tính tiền). Ô lịch cần chúng để nói "→ tính N công": không có cờ thì ngày nghỉ tuần
+    # đi làm hiện y hệt ngày thường và người lao động tưởng bị trả thiếu.
+    restday: bool = False          # ngày NGHỈ TUẦN (CN) có đi làm → premium Đ98.1.b
+    plain: bool = False            # ngày `off1x` có đi làm → trả 1×, KHÔNG hệ số
     # Nghỉ luân phiên đã khai trên lưới phân ca — để phân biệt "nghỉ theo lịch" với
     # "vắng". Chỉ là dấu kế hoạch: không công, không tiền.
     planned_off: bool = False
@@ -217,12 +226,26 @@ class TimesheetRow(BaseModel):
     # Công thiếu nhưng CÓ ĐƠN nghỉ theo giờ đã duyệt — KHÔNG cộng vào total_cong (tiền công vẫn
     # trừ), chỉ để Lương giữ nguyên phụ cấp chuyên cần.
     excused_cong: float = 0
+    # Công ĐẶC BIỆT trong tháng (đã nằm TRONG `total_cong`, trừ `plain_cong`) — cột "Công đặc biệt"
+    # của Bảng công tháng đọc thẳng ba số này, khỏi cộng tay từ 31 ô ngày.
+    holiday_cong: float = 0    # công LÀM ngày lễ
+    restday_cong: float = 0    # công LÀM ngày nghỉ tuần
+    plain_cong: float = 0      # công LÀM ngày `off1x` (đã bị trừ khỏi `total_cong`)
 
 
 class HolidayMark(BaseModel):
     day: int           # ngày trong tháng (1..31)
     date: date
     name: str
+
+
+class HeSoNgay(BaseModel):
+    """Hệ số công theo loại ngày — để màn hình khỏi viết cứng số. Xem
+    `AttendanceService.he_so_ngay` cho lý do lễ và nghỉ tuần dùng hai công thức khác nhau."""
+
+    le: float = 4.0          # 1 (tiền lễ Đ112) + holiday_work_multiplier
+    nghi_tuan: float = 2.0   # restday_work_multiplier (KHÔNG cộng 1)
+    off1x: float = 1.0       # phẳng, không hệ số
 
 
 class TimesheetOut(BaseModel):
@@ -232,6 +255,9 @@ class TimesheetOut(BaseModel):
     # Công chuẩn động của tháng (số ngày làm việc theo lịch) — hiển thị; Lương Pha 1 vẫn dùng 26.
     standard_cong: int | None = None
     holidays: list[HolidayMark] = []   # ngày nghỉ lễ hưởng lương trong tháng (tô màu)
+    # Hệ số hiển thị, đọc từ Cấu hình lương. `default_factory` chứ không phải một instance dùng
+    # chung — model mặc định dùng chung là bẫy trạng thái chia sẻ kinh điển.
+    he_so_ngay: HeSoNgay = Field(default_factory=HeSoNgay)
     rows: list[TimesheetRow]
 
 
@@ -374,8 +400,12 @@ class AttendancePeriodOut(BaseModel):
     line_count: int                   # số dòng snapshot đã đóng băng
     employee_count: int               # số NV trong bảng công tháng
     hanging_days: int                 # số ngày treo (thiếu chấm RA) — xử trước khi Chốt
+    # L3 — lượt bấm ghi vào SAU khi kỳ đã chốt. Ảnh chụp không có chúng, Bảng lương cũng
+    # không ⇒ >0 là dấu hiệu phải chốt lại kỳ. Mặc định 0 cho kỳ chưa chốt.
+    phat_sinh_sau_chot: int = 0
     pending_leaves: int               # đơn nghỉ phép chưa duyệt của tháng
     pending_late_early: int = 0       # phiếu đi muộn/về sớm chưa duyệt (chặn chốt công y như trên)
+    pending_overtime: int = 0         # phiếu TĂNG CA chưa duyệt (chặn từ 15/08/2026 — xem repo)
     pending_adjusts: int              # yêu cầu chỉnh công chưa duyệt
     payroll_locked: bool              # kỳ lương tháng này đã chốt → không mở lại kỳ công
 

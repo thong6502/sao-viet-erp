@@ -11,16 +11,28 @@
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* Trang trượt lên 6px mỗi lần mở là chuyển động TRANG TRÍ — với người bật "giảm chuyển động" nó
+   nằm đúng nhóm gây chóng mặt. Skeleton (`rc-skel`) đã tôn trọng cờ này từ trước, còn cả trang thì
+   chưa. Tắt hẳn, không làm chậm lại: nội dung hiện ngay là đúng ý người bật cờ. */
+@media (prefers-reduced-motion: reduce) {
+  .rc { animation: none; }
+}
 
-/* --- Header (đồng bộ .tg-head/.bg__head: rule dưới + title 26px + count mono muted) --- */
+/* --- Header MỘT DẠNG cho cả 10 màn danh mục (đồng bộ .tg-head/.bg__head) -------------
+   Ba hàng nằm TRONG cùng một `<header>`, đóng lại bằng ĐÚNG MỘT kẻ ngang:
+     1. tiêu đề 26px · pill đếm ····· nút [+ Thêm …]
+     2. (tuỳ) một dòng mô tả --ash 13px, tối đa 75ch
+     3. ô tìm ····· dải chip lọc `.seg` │ công tắc "Hiện mục đã ngừng"
+   Hàng 2 vắng thì TSX không render `<p>` — khung không đổi, chỉ hụt một dòng chữ. */
 .rc__head {
   margin-bottom: var(--sp-4);
-  padding-bottom: var(--sp-2);
+  padding-bottom: var(--sp-3);
   border-bottom: 1px solid var(--rule);
 }
 .rc__headrow {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  flex-wrap: wrap;
   gap: var(--sp-3);
 }
 .rc__title {
@@ -32,13 +44,18 @@
   letter-spacing: -.01em;
   line-height: 1.15;
 }
-/* Số lượng: mono muted cạnh title (thay count-pill tròn đen) */
+/* Số lượng: pill nhạt cạnh title — LUÔN hiện (cờ `showCount` đã bỏ 15/08/2026: một màn danh mục
+   giấu mất số mục của chính nó thì người ta phải đếm tay hoặc lật hết trang mới biết là bao nhiêu). */
 .rc__count {
   font-family: var(--ff-num);
-  font-size: 13px;
-  font-weight: var(--fw-regular);
-  color: var(--ash-2);
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  background: var(--rule-soft);
+  border-radius: var(--r-pill);
+  padding: 2px 10px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .rc__sub {
   color: var(--ash);
@@ -48,7 +65,63 @@
   line-height: 1.5;
 }
 
-/* --- Toolbar & Unified Top Bar --- */
+/* Hàng 3 của header: ô tìm trái · chip lọc phải · công tắc "đã ngừng" ngoài cùng. */
+.rc__filterbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+.rc__segs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+/* Công tắc "Hiện mục đã ngừng" — CÙNG HÀNG với chip lọc nhưng KHÁC NGHĨA: nó mở ra một tập khác
+   chứ không cắt tập đang xem. Vạch ngăn bên trái để mắt không đọc nhầm nó là chip thứ N; màu
+   trung tính (không rust, không charcoal) vì đây là chỗ cất đồ đã tắt, không phải lối đi chính. */
+.rc__ngung {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-left: var(--sp-2);
+  padding: 6px 12px 6px var(--sp-4);
+  border: none;
+  border-left: 1px solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ash);
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: color var(--duration-base) var(--easing-standard);
+}
+.rc__ngung:hover {
+  color: var(--ink);
+}
+/* Vòng focus GIỮ góc vuông theo đúng hình lúc nghỉ — bo tròn ở đây thì vạch ngăn `border-left`
+   cong theo, nhìn như nút bị méo mỗi lần Tab vào. */
+.rc__ngung:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.rc__ngung.is-active {
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+}
+/* Đè `.is-active > .chip-count` (nền rust) của global: rust ở đây sẽ hét to hơn cả dải lọc chính. */
+.rc__ngung.is-active > .chip-count {
+  background: var(--steel-soft);
+  color: var(--steel);
+}
+
+/* --- Toolbar & Unified Top Bar ------------------------------------------------------
+   ⚠️ `.rc__unified-bar` / `.rc__unified-right` KHÔNG còn dùng ở màn danh mục (header đã gom về
+   một dạng 15/08/2026) nhưng PHẢI GIỮ: `PhieuBaoTriPage.tsx` và `SuaChuaMayPage.tsx` (module Kỹ
+   thuật máy) vẫn đang dựng thanh trên cùng bằng đúng hai class này. CSS ở repo là GLOBAL — xoá ở
+   đây là hai màn kia mất khung ngay, mà không có gì báo. Dọn nốt khi module đó xong việc. */
 .rc__unified-bar {
   display: flex;
   align-items: center;
@@ -113,8 +186,47 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust, #c5400a) 12%, transparent);
 }
 
-.rc__search:focus + .rc__search-icon {
+/* 🐛 Bản cũ viết `.rc__search:focus + .rc__search-icon` — `+` là "phần tử LIỀN SAU", mà icon nằm
+   TRƯỚC input trong DOM, nên luật đó chưa bao giờ khớp: icon không bao giờ đổi màu khi focus.
+   `:focus-within` trên vỏ mới là cái đọc đúng ý đồ. */
+.rc__search-wrapper:focus-within .rc__search-icon {
   color: var(--rust, #c5400a);
+}
+
+/* Chừa chỗ bên phải cho nút ✕ — không chừa thì chữ dài chui xuống dưới cái nút.
+   CHỈ ở màn danh mục: `.rc__search` còn được 3 màn Kho + 2 màn Kỹ thuật máy dùng, mà bên đó không
+   có nút ✕ nào — nới ở cấp global là 5 ô tìm kia tự dưng thừa 17px trống bên phải.
+   Padding đặt CỐ ĐỊNH chứ không theo `:has(.rc__search-clear)`: gắn theo sự có mặt của nút thì
+   chữ nhảy ngang một nhịp đúng lúc gõ ký tự đầu tiên. */
+.rc--dm .rc__search {
+  padding-right: 28px;
+}
+
+/* Nút ✕ xoá nhanh — chỉ render khi ô có chữ. Vùng bấm 24×24 (icon 12) để không phải nhắm. */
+.rc__search-clear {
+  position: absolute;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ash);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+.rc__search-clear:hover {
+  background: var(--rule-hair);
+  color: var(--ink);
+}
+.rc__search-clear:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
 }
 
 /* Custom button sizing inside rc components to prevent oversized look */
@@ -172,6 +284,31 @@
 .rc__tab.is-active .rc__tabn {
   color: var(--rust);
 }
+/* Công tắc "Hiện mục đã ngừng" đã dọn sang `.rc__ngung` (trên đầu file, cạnh `.rc__filterbar`) —
+   nó không còn là một cái tab nữa. */
+
+/* Ô chọn NHIỀU nhóm máy (`NhomMayMultiField`) — dải `.seg` có ô tick bên trong, nên phải viền lại
+   để chip chưa chọn vẫn nhìn ra là bấm được (`.seg` mặc định trong suốt, không viền). */
+.rc-nhom-may {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.rc-nhom-may .seg {
+  border-color: var(--rule);
+  font-size: 12px;
+}
+.rc-nhom-may .seg input {
+  margin: 0;
+  accent-color: var(--rust);
+}
+.rc-nhom-may .seg.is-active input {
+  accent-color: var(--on-charcoal);
+}
+.rc-nhom-may__hint {
+  flex-basis: 100%;
+  margin: 0;
+}
 
 /* Formula Chips & Badges trong Bảng Danh Mục */
 .rc__formula-chips {
@@ -180,37 +317,54 @@
   align-items: center;
   gap: 5px;
 }
+/* `.badge-sem` mặc định `nowrap` — đúng cho nhãn trạng thái hai chữ, SAI cho mảnh công thức
+   ("bài in = Tờ vào máy + 2000"). Trong hàng mảnh này thì cho xuống dòng, không thì chip tràn
+   khỏi cột "Quy đổi" và đẩy ngang cả bảng. */
+.rc__formula-chips .badge-sem {
+  white-space: normal;
+  word-break: break-word;
+  max-width: 100%;
+  line-height: 1.45;
+}
 
+/* Mảnh công thức TRUNG TÍNH. Anh em cùng hàng của nó (mảnh "là công thức") nay là
+   `.badge-sem--rust` — bản trước tô #1d4ed8, tức dựng một accent XANH THỨ HAI cạnh rust của hệ.
+   Giữ riêng class này thay vì dùng thẳng `.badge-sem--muted` vì công thức phải XUỐNG DÒNG được
+   (`white-space: normal`), còn `.badge-sem` là `nowrap`. Kích thước/bo góc bám theo `.badge-sem`
+   để hai loại mảnh đứng cạnh nhau không so le. */
 .rc__formula-pill {
   display: inline-flex;
   align-items: center;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #334155;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  padding: 2px 7px;
-  border-radius: 6px;
-  white-space: nowrap;
-}
-
-.rc__formula-pill--dynamic {
-  color: #0d9488;
-  background: #f0fdfa;
-  border-color: #99f6e4;
-  font-family: 'JetBrains Mono', Consolas, monospace;
-}
-
-.rc__chip-muted {
-  display: inline-flex;
-  align-items: center;
+  font-family: var(--ff-sans);
   font-size: 11px;
-  font-weight: 600;
-  color: #94a3b8;
-  background: #f8fafc;
-  border: 1px dashed #cbd5e1;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: var(--rule-soft);
   padding: 2px 8px;
-  border-radius: 6px;
+  border-radius: var(--r-2);
+  white-space: normal;
+  word-break: break-word;
+  max-width: 100%;
+  line-height: 1.45;
+}
+
+/* Cảnh báo MỀM (không chặn lưu) — vd cặp số cố định đè lên đường công thức. MÀU lấy ở
+   `.badge-sem--amber` (hổ phách chứ không đỏ: đỏ dành cho lỗi chặn, dùng đỏ cho thứ vẫn lưu được
+   thì người ta quen mắt rồi bỏ qua cả hai). Ở đây CHỈ còn phần HÌNH HỌC mà primitive không lo:
+   cột "Lưu ý" hẹp 12% nên câu dài phải cắt bằng ba chấm, và `title` mới là chỗ đọc nguyên câu.
+   Scope `.rc--dm` (0-2-0) để chắc chắn thắng `display: inline-flex` của `.badge-sem` bất kể thứ
+   tự bundle — `text-overflow` không cắt được chữ nằm trong hộp flex. */
+.rc--dm .rc__warn-pill {
+  display: inline-block;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  /* Giành lại `nowrap` từ luật `.rc__formula-chips .badge-sem` ở trên (cùng 0-2-0, luật này nằm
+     sau nên thắng): ba chấm chỉ hiện được khi chữ KHÔNG xuống dòng. */
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: help;
 }
 /* --- Khối QUY ĐỔI trong drawer Đơn vị (.dvqd) — Modern Enterprise Layout ------------- */
 .dvqd {
@@ -428,16 +582,37 @@
   color: #0f172a;
 }
 
+/* Nút KHOÁ phải NHÌN RA là khoá. Trước 12/08/2026 không có luật này: "Thêm quy đổi" thiếu đơn vị
+   đích vẫn tím rực và con trỏ vẫn là bàn tay — người dùng bấm mãi không ăn, không có gì giải thích. */
+.dvqd__btn:disabled {
+  background: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
+  color: #94a3b8 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+}
+
+/* Nói THIẾU GÌ, đừng bắt đoán. Đứng cạnh nút, mất đi khi đã đủ điều kiện. */
+
 .dvqd__btn--primary {
-  background: #4f46e5;
+  background: linear-gradient(135deg, #ea580c 0%, #c5400a 100%);
   color: #ffffff;
-  border-color: #4f46e5;
+  border: 1px solid #c5400a;
+  box-shadow: 0 4px 14px rgba(197, 64, 10, 0.25);
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
 }
 
 .dvqd__btn--primary:hover:not(:disabled) {
-  background: #4338ca;
-  border-color: #4338ca;
+  background: linear-gradient(135deg, #c5400a 0%, #9a3412 100%);
+  border-color: #9a3412;
   color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(197, 64, 10, 0.35);
 }
 
 .dvqd__btn--danger {
@@ -465,15 +640,54 @@
 }
 
 .dvqd__badge--dynamic {
-  background: #f5f3ff;
-  color: #6d28d9;
-  border: 1px solid #ddd6fe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
 }
 
 .dvqd__badge--static {
   background: #f1f5f9;
   color: #475569;
   border: 1px solid #e2e8f0;
+}
+
+/* Hiển thị Chip công thức đã lưu trong thẻ Quy Đổi Khai Tại Đây */
+.dvqd__chip-preview-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+.dvqd__chip-space {
+  white-space: pre;
+}
+.dvqd__chip-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  border: 1px solid transparent;
+}
+.dvqd__chip-tag--var {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+.dvqd__chip-tag--num {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #15803d;
+  font-weight: 700;
+}
+.dvqd__chip-tag--op {
+  background: #fffbe6;
+  border-color: #fef08a;
+  color: #b45309;
+  font-weight: 700;
+  padding: 1px 6px;
 }
 
 /* Sub-panel chứa Trình biên soạn công thức khi bấm Sửa */
@@ -526,33 +740,52 @@
 
 /* Form Thêm Quy Đổi Mới */
 .dvqd__create-card {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
+  transition: all 0.2s ease;
 }
 
 .dvqd__create-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 12px;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 12px;
+}
+
+.dvqd__create-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
   font-weight: 700;
+  letter-spacing: 0.02em;
   color: #0f172a;
+  text-transform: uppercase;
+}
+.dvqd__create-title svg {
+  color: var(--rust, #c5400a);
 }
 
 .dvqd__type-toggle {
   display: inline-flex;
   background: #e2e8f0;
-  padding: 2px;
-  border-radius: 6px;
+  padding: 3px;
+  border-radius: 8px;
 }
 
 .dvqd__type-btn {
-  padding: 4px 12px;
-  font-size: 11.5px;
+  padding: 5px 14px;
+  font-size: 12px;
   font-weight: 600;
   border: none;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
   color: #64748b;
   cursor: pointer;
@@ -562,27 +795,86 @@
 .dvqd__type-btn.is-active {
   background: #ffffff;
   color: #0f172a;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.dvqd__create-body {
+  width: 100%;
 }
 
 .dvqd__create-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
 .dvqd__create-prefix {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
-  color: #1e293b;
+  color: #0f172a;
 }
 
+.dvqd__formula-section {
+  width: 100%;
+}
+
+.dvqd__equation-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.dvqd__equation-unit {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 4px 12px;
+  border-radius: 6px;
+}
+
+.dvqd__equation-equal {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.dvqd__equation-hint {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.dvqd__create-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.dvqd__footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* GỘP 15/08/2026: selector này từng khai HAI lần trong chính file này. Bản sau đè
+   margin/font-size/color, nhưng `font-weight` + `white-space` của bản trước KHÔNG bị đè nên vẫn
+   đang ăn — xoá bản trước là đổi hình thật. Đây là style ĐANG CHẠY, gộp nguyên trạng. */
 .dvqd__hint {
   margin: 4px 0 0;
   font-size: 12px;
+  font-weight: 600;
   line-height: 1.5;
   color: #64748b;
+  white-space: nowrap;
 }
 
 .dvqd__err {
@@ -601,12 +893,13 @@
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-5);
-  overflow: hidden;
+  overflow-x: auto;
   box-shadow: var(--shadow-1);
 }
 .rc__table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 .rc__table thead th {
   text-align: left;
@@ -628,6 +921,7 @@
   color: var(--ink);
   vertical-align: middle;
   height: auto;
+  word-break: break-word;
 }
 .rc__table tbody tr:last-child td {
   border-bottom: none;
@@ -643,6 +937,12 @@
   outline: 2px solid var(--rust);
   outline-offset: -2px;
 }
+/* Mục ĐÃ NGỪNG DÙNG: mờ cả dòng nhưng vẫn đọc được — người ta vào đây để tìm lại cái đã tắt rồi
+   bấm "Bật lại", che mờ quá tay là hỏng đúng việc họ đang làm. Cùng cách đã dùng cho khoản lương
+   ngừng áp dụng (`luong.css:1192`). Riêng cột Hành động giữ nguyên độ đậm: nút "Bật lại" mà mờ
+   theo thì trông như đang bị khoá. */
+.rc__row--ngung td { opacity: 0.55; }
+.rc__row--ngung td.rc__actcol { opacity: 1; }
 .rc__mono {
   font-family: var(--ff-sans);
   font-size: 13px;
@@ -660,6 +960,12 @@
 /* Mã: badge vuông mono (đồng bộ .ptg-code) */
 .rc__code-badge {
   display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  box-sizing: border-box;
   font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: var(--fw-medium);
@@ -699,6 +1005,39 @@
 .rc__name {
   font-weight: 600;
 }
+/* Ô Tên của MÀN DANH MỤC: nút mở + các badge nằm cùng hàng, cách nhau bằng `gap` thay vì
+   `margin-left` dán trên từng badge. Scope `.rc--dm` vì `.rc__name` còn được 3 màn Kho và 2 màn
+   Kỹ thuật máy dùng — trong đó có chỗ `-webkit-line-clamp`, đổi `display` ở cấp global là vỡ. */
+.rc--dm .rc__name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* ĐƯỜNG BÀN PHÍM mở một dòng. `<button>` thật ⇒ Enter/Space chạy sẵn, vai "button" hợp lệ, và
+   `:focus-visible` có chỗ để bám. Trước đây chỉ có `onClick` trên `<tr>`: chuột mở được, Tab thì
+   đi thẳng từ ô tìm xuống nút "Xóa" — người dùng bàn phím KHÔNG có cách nào mở một dòng ra xem.
+   (Không dán `role="button"` lên `<tr>`: làm thế là mất vai "row", trình đọc màn hình hết đọc
+   được tên cột đi kèm ô.) */
+.rc__open {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--r-2);
+}
+.rc__open:hover {
+  color: var(--rust-deep);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rc__open:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
 .rc__msg {
   text-align: center;
   color: var(--ash, #8a8676);
@@ -730,11 +1069,29 @@
   margin: 0;
   max-width: 40ch;
 }
+/* Ca TẢI HỎNG: icon chuyển sang tông báo lỗi và dòng thứ hai nói LÝ DO máy chủ trả về. Hai dòng
+   chứ không một: câu đầu là kết luận người dùng cần ("không tải được"), câu sau là chi tiết để
+   báo cho IT — nhét chung một dòng thì câu kết luận bị chi tiết nuốt mất. */
+.rc__empty-icon--loi {
+  color: var(--signal);
+  opacity: 0.75;
+}
+.rc__empty-sub {
+  font-size: 12px;
+  color: var(--ash-2);
+  margin: -6px 0 0;
+  max-width: 48ch;
+}
 
 .rc__actcol {
   text-align: right;
   white-space: nowrap;
+  padding-right: 12px !important;
 }
+
+/* `.rc__tram-badge` XOÁ 15/08/2026 → `.badge-sem--steel`. Nó là một badge trạng thái như mọi badge
+   khác, không có lý do gì để có bảng màu riêng (#7c2d12 trên #ffedd5 lại còn sát tông rust của
+   NÚT BẤM, nhìn thoáng qua tưởng bấm được). */
 
 .rc__link-btn {
   background: none;
@@ -804,7 +1161,8 @@
   animation: rc-fade var(--duration-base) var(--easing-standard);
 }
 .rc-drawer {
-  width: min(560px, 95vw);
+  width: max(50vw, 540px);
+  max-width: 95vw;
   height: 100dvh;
   background: var(--canvas);
   border-left: 1px solid var(--rule-soft);
@@ -817,7 +1175,7 @@
 }
 /* Form có công thức → rộng để chứa layout 2 cột (form | công thức + sandbox) */
 .rc-drawer--formula {
-  width: min(900px, 96vw);
+  width: min(92vw, 1100px);
 }
 
 .rc-drawer__tabs {
@@ -938,28 +1296,33 @@
 
 /* Card-style Sections (phẳng — bỏ hover đổi viền/shadow trang trí) */
 .rc-card-section {
-  background: var(--paper-contrast);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  padding: var(--sp-4);
-  box-shadow: var(--shadow-1);
+  background: var(--paper-contrast, #ffffff);
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: var(--r-5, 12px);
+  padding: 16px 20px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
   display: flex;
   flex-direction: column;
-  gap: var(--sp-4);
+  gap: var(--sp-3, 12px);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.rc-card-section:hover {
+  border-color: rgba(197, 64, 10, 0.22);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
 }
 .rc-card-section__title {
   font-family: var(--ff-sans);
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 700;
-  letter-spacing: .02em;
+  letter-spacing: .06em;
   text-transform: uppercase;
-  color: var(--charcoal, #1c1a17);
+  color: var(--rust, #c5400a);
   display: flex;
   align-items: center;
   gap: var(--sp-2);
   border-bottom: 1px solid var(--rule-soft, #e8e3d3);
   padding-bottom: 8px;
-  margin-bottom: var(--sp-1);
+  margin-bottom: 4px;
 }
 .rc-card-section__title svg {
   color: var(--rust, #c5400a);
@@ -1035,6 +1398,63 @@
   display: flex;
   align-items: center;
   width: 100%;
+}
+
+/* Panel & Items dropdown RefSearchField */
+.rc-ref-search-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background: var(--canvas, #ffffff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  box-sizing: border-box;
+}
+
+.rc-ref-search-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8.5px 12px;
+  border-radius: 6px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background-color var(--duration-fast, 120ms) var(--easing-standard, ease);
+}
+.rc-ref-search-item:hover,
+.rc-ref-search-item:focus-visible {
+  background: var(--rust-soft, #f4e2d6);
+  outline: none;
+}
+.rc-ref-search-item__name {
+  font-size: 13px;
+  font-weight: var(--fw-medium, 500);
+  color: var(--ink);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rc-ref-search-item__code {
+  font-family: var(--ff-num);
+  font-size: 11px;
+  color: var(--ash-2);
+  background: var(--rule-hair, #f1f5f9);
+  padding: 2px 7px;
+  border-radius: 4px;
+  flex: none;
+  border: 1px solid var(--rule-soft, #e2e8f0);
 }
 
 .rc-input {
@@ -1442,6 +1862,209 @@ select.rc-input:focus {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
+/* ── Bảng Định mức đầu việc của Tổ (DinhMucDauViecField) ── */
+.rc-bands--dinh-muc {
+  gap: 10px;
+}
+.rc-dinh-muc-wrapper {
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: var(--r-3, 6px);
+  overflow-x: auto;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.04);
+}
+.rc-dinh-muc-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.rc-dinh-muc-table th {
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ash, #8a8676);
+  border-bottom: 1px solid var(--rule-soft, #e8e3d3);
+  border-right: 1px solid var(--rule-hair, #efebde);
+  background: var(--canvas, #fbfaf6);
+  white-space: nowrap;
+}
+.rc-dinh-muc-table th:last-child {
+  border-right: none;
+}
+.rc-dinh-muc-table .rc-col--group {
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-size: 11.5px;
+  color: var(--ink, #14130f);
+}
+.rc-dinh-muc-table .rc-group--ns {
+  background: color-mix(in srgb, var(--rust, #c5400a) 6%, #fff);
+  border-bottom: 2px solid color-mix(in srgb, var(--rust, #c5400a) 40%, transparent);
+}
+.rc-dinh-muc-table .rc-group--nl {
+  background: color-mix(in srgb, #2b6cb0 6%, #fff);
+  border-bottom: 2px solid color-mix(in srgb, #2b6cb0 40%, transparent);
+}
+.rc-dinh-muc-table .rc-col--left { text-align: left; vertical-align: middle; }
+.rc-dinh-muc-table .rc-col--num { text-align: right; width: 72px; min-width: 68px; vertical-align: middle; }
+.rc-dinh-muc-table .rc-col--unit { text-align: center; width: 125px; min-width: 125px; vertical-align: middle; }
+.rc-dinh-muc-table .rc-col--center { text-align: center; vertical-align: middle; }
+
+.rc-dinh-muc-name {
+  font-weight: 500;
+  color: var(--ink, #14130f);
+  padding: 6px 10px !important;
+  white-space: normal;
+  min-width: 160px;
+}
+
+/* Đơn vị năng suất: CHỮ, không phải ô nhập — nó khoá theo đơn giá khoán, sửa ở màn Lương khoán.
+   Để mực nhạt + không viền cho khỏi trông như ô bỏ trống chờ điền. */
+.rc-dinh-muc-table .rc-dinh-muc-unit {
+  color: var(--ink-soft, #6b6455);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rc-dinh-muc-table td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--rule-hair, #efebde);
+  border-right: 1px solid var(--rule-hair, #f5f2e9);
+}
+.rc-dinh-muc-table td:last-child {
+  border-right: none;
+}
+.rc-dinh-muc-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.rc-dinh-muc-table tbody tr:hover {
+  background-color: color-mix(in srgb, var(--rust, #c5400a) 2%, #fff);
+}
+.rc-dinh-muc-table .rc-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 6px;
+  font-size: 12.5px;
+}
+.rc-dinh-muc-table input[type="radio"] {
+  accent-color: var(--rust, #c5400a);
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  vertical-align: middle;
+}
+/* ── Vật tư của đầu việc (mg 0191, nền BOM) ──
+   Pill ở cột "Vật tư" bung một HÀNG PHỤ ngay dưới dòng. Không mở drawer lồng drawer: bảng đã 11
+   cột, người khai cần nhìn được cả các dòng khác để so. Mỗi lúc một hàng phụ. */
+.rc-dm-vt__pill {
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--ink, #14130f);
+  background: color-mix(in srgb, var(--rust, #c5400a) 8%, #fff);
+  border: 1px solid color-mix(in srgb, var(--rust, #c5400a) 22%, transparent);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.rc-dm-vt__pill:hover { background: color-mix(in srgb, var(--rust, #c5400a) 14%, #fff); }
+.rc-dm-vt__pill.is-empty {
+  color: var(--ash, #7c766a);
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--rule, #d8d2c0);
+}
+.rc-dm-vt__pill.is-open {
+  color: #fff;
+  background: var(--rust, #c5400a);
+  border-color: var(--rust, #c5400a);
+}
+.rc-dm-vt__row td {
+  padding: 0 !important;
+  background: var(--paper, #faf8f5);
+}
+.rc-dm-vt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--rust, #c5400a);
+}
+.rc-dm-vt__empty {
+  font-size: 12.5px;
+  color: var(--ash, #7c766a);
+}
+.rc-dm-vt__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  background: #fff;
+  border: 1px solid var(--rule-hair, #efebde);
+  border-radius: var(--r-3, 6px);
+}
+.rc-dm-vt__ma {
+  font-family: var(--ff-mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--ash, #7c766a);
+}
+.rc-dm-vt__ten {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink, #14130f);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rc-dm-vt__dv {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 5px;
+  color: var(--ash, #7c766a);
+  background: var(--paper, #faf8f5);
+  border: 1px solid var(--rule-hair, #efebde);
+}
+.rc-dm-vt__note {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ash, #7c766a);
+}
+
+.rc-dinh-muc-add {
+  margin-top: 2px;
+}
+.rc-dinh-muc-add__select {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px dashed var(--rule, #d8d2c0);
+  border-radius: var(--r-3, 6px);
+  background: var(--canvas, #fbfaf6);
+  color: var(--ink, #14130f);
+  cursor: pointer;
+  outline: none;
+  transition: all var(--duration-fast, 120ms) var(--easing-standard, ease);
+}
+.rc-dinh-muc-add__select:hover {
+  border-color: var(--rust, #c5400a);
+  background: #fff;
+  color: var(--rust, #c5400a);
+  box-shadow: 0 1px 4px rgba(197, 64, 10, 0.08);
+}
+
 /* ── Lịch sử giá: danh sách thẻ phiên bản (vừa bề rộng drawer) ───────── */
 .rc-ver {
   display: flex;
@@ -1757,35 +2380,36 @@ select.rc-input:focus {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px;
-  background: #15171f;
-  padding: 5px 12px;
-  border-bottom: 1px solid #232530;
+  gap: 5px;
+  background: #f8fafc;
+  padding: 6px 12px;
+  border-bottom: 1px solid #e2e8f0;
 }
 .rc-formula__op-label {
   font-size: 10px;
-  font-weight: 600;
-  color: #70758a;
-  margin-right: 2px;
+  font-weight: 700;
+  color: #64748b;
+  margin-right: 4px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 .rc-formula__op-btn {
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid #2e3140;
-  color: #d1d5e6;
-  border-radius: 4px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  border-radius: 5px;
   font-family: var(--ff-sans);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
-  padding: 2px 7px;
+  padding: 3px 8px;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 .rc-formula__op-btn:hover {
-  background: color-mix(in srgb, var(--rust) 30%, transparent);
-  color: #fff;
-  border-color: var(--rust);
+  background: #fff7ed;
+  color: #c5400a;
+  border-color: #c5400a;
 }
 
 .rc-formula__legend {
@@ -1805,17 +2429,17 @@ select.rc-input:focus {
 
 .rc-formula__editor-container {
   position: relative;
-  background: #0d0e12; /* slate tối, gọn */
-  border: 1px solid #232530;
-  border-radius: var(--r-5);
-  overflow: visible;  /* cho popover "Cú pháp" tràn ra ngoài, không bị cắt */
-  transition: border-color var(--duration-base) var(--easing-standard),
-    box-shadow var(--duration-base) var(--easing-standard);
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  overflow: visible;
+  transition: all 0.2s ease;
   width: 100%;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
 }
 .rc-formula__editor-container:focus-within {
-  border-color: var(--rust);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 15%, transparent);
+  border-color: #c5400a;
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.12);
 }
 
 /* Header: nhãn "Công thức" (trái) + nút "Cú pháp" (phải) */
@@ -1824,37 +2448,47 @@ select.rc-input:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #15171f;
-  padding: 6px 8px 6px 14px;
-  border-bottom: 1px solid #232530;
-  border-radius: var(--r-5) var(--r-5) 0 0;  /* bo góc trên khớp container (đã bỏ overflow:hidden) */
+  background: #f8fafc;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  border-radius: 9px 9px 0 0;
 }
 .rc-formula__editor-label {
   font-family: var(--ff-sans);
-  font-size: 10px;
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #70758a;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-/* Nút "Cú pháp" trên nền tối */
+.rc-formula__editor-unit-tag {
+  color: #0284c7;
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
+  padding: 2px 9px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: none;
+}
+
+/* Nút "Cú pháp" trên nền sáng */
 .rc-formula__syntax-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   font-family: var(--ff-sans);
-  font-size: 11px;
-  font-weight: var(--fw-bold);
-  color: #b7bcd0;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid #2e3140;
-  border-radius: var(--r-2);
-  padding: 3px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #475569;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 10px;
   cursor: pointer;
-  transition: color var(--duration-fast) var(--easing-standard),
-    background-color var(--duration-fast) var(--easing-standard),
-    border-color var(--duration-fast) var(--easing-standard);
+  transition: all 0.15s ease;
 }
 .rc-formula__syntax-btn:hover,
 .rc-formula__syntax-btn.is-open {
@@ -1948,21 +2582,237 @@ select.rc-input:focus {
 .rc-syntax__note { font-size: 11.5px; color: var(--ash); line-height: 1.5; margin: 2px 0 0; }
 .rc-syntax__note--no { color: var(--ash-2); }
 
-.rc-formula__textarea {
+/* Khối hiển thị Chip công thức trực quan trong ô công thức */
+.rc-formula__chip-stage {
+  background: #0d0f17;
+  border-bottom: 1px solid #1e2230;
+  padding: 10px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  line-height: 1.4;
+}
+.rc-formula__chip-stage-empty {
+  font-size: 11.5px;
+  color: #64748b;
+  font-style: italic;
+}
+.rc-formula__chip-space {
+  white-space: pre;
+}
+
+/* 1. Các loại Chip Token trong ô công thức */
+.rc-formula__chip-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  user-select: none;
+  cursor: default;
+}
+
+/* Chip biến hợp lệ (Variable Chip - chỉ hiển thị Tên Tiếng Việt) */
+.rc-formula__chip-token--var {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e40af;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rc-formula__chip-token--var:hover {
+  background: #dbeafe;
+  border-color: #60a5fa;
+}
+.rc-formula__chip-token-label {
+  font-weight: 600;
+  color: #1d4ed8;
+}
+.rc-formula__chip-token-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(29, 78, 216, 0.12);
+  color: #1d4ed8;
+  font-size: 11px;
+  cursor: pointer;
+  line-height: 1;
+  transition: all 0.12s ease;
+  margin-left: 2px;
+}
+.rc-formula__chip-token-del:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+/* Chip Toán tử (+ - * / () ) */
+.rc-formula__chip-token--op {
+  background: #fffbe6;
+  border-color: #fef08a;
+  color: #b45309;
+  font-family: var(--ff-sans);
+  font-weight: 700;
+  font-size: 13px;
+  padding: 3px 8px;
+}
+
+/* Chip Hằng số (Numbers) */
+.rc-formula__chip-token--num {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #15803d;
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+}
+
+/* Chip Hàm (max, min, round, ceil, floor) */
+.rc-formula__chip-token--func {
+  background: #faf5ff;
+  border-color: #e9d5ff;
+  color: #7e22ce;
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: lowercase;
+  padding: 3px 8px;
+}
+
+/* Chip Lỗi / Biến không hợp lệ */
+.rc-formula__chip-token--error {
+  background: #4c0519;
+  border-color: #9f1239;
+  color: #fda4af;
+  text-decoration: underline wavy #f43f5e;
+  font-size: 11.5px;
+}
+
+/* Input Wrapper & Autocomplete Popover */
+.rc-formula__input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.rc-formula__autocomplete {
+  position: absolute;
+  left: 12px;
+  bottom: calc(100% + 4px);
+  z-index: 50;
+  width: min(380px, 95vw);
+  max-height: 240px;
+  overflow-y: auto;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.6);
+  padding: 6px;
+}
+.rc-formula__autocomplete-head {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid #1e293b;
+  margin-bottom: 4px;
+}
+.rc-formula__autocomplete-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.rc-formula__autocomplete-item:hover,
+.rc-formula__autocomplete-item.is-selected {
+  background: #1e293b;
+  border-left: 3px solid var(--rust, #c5400a);
+}
+.rc-formula__autocomplete-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.rc-formula__autocomplete-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+.rc-formula__autocomplete-code {
+  font-size: 10.5px;
+  font-family: var(--ff-sans);
+  color: #38bdf8;
+}
+.rc-formula__autocomplete-unit {
+  font-size: 10.5px;
+  color: #cbd5e1;
+  background: #334155;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Ô công thức Chip Tiếng Việt duy nhất (Single Formula Stage & Input) */
+.rc-formula__single-stage {
+  background: #ffffff;
+  border-radius: 0 0 9px 9px;
+  padding: 12px 14px;
+  min-height: 52px;
+  cursor: text;
+  transition: border-color 0.15s ease;
+}
+.rc-formula__single-stage:focus-within {
+  border-color: var(--rust, #c5400a);
+}
+
+.rc-formula__chips-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+/* Inline Input Container inside Chips Wrap */
+.rc-formula__inline-input-box {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 1 1 120px;
+  min-width: 80px;
+}
+
+.rc-formula__inline-input {
   background: transparent !important;
   border: none !important;
-  color: #f0f0c9 !important;
-  font-family: var(--ff-num) !important;
-  font-size: 13.5px !important;
-  line-height: 1.6 !important;
-  padding: 12px 14px !important;
+  color: #0f172a !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.5 !important;
+  padding: 2px 4px !important;
   width: 100%;
-  resize: vertical;
-  min-height: 80px;
-  caret-color: #fff;
+  caret-color: #0f172a;
   outline: none !important;
+  box-shadow: none !important;
 }
-.rc-formula__textarea::placeholder {
+.rc-formula__inline-input::placeholder {
   color: #4b4e5c;
   font-style: italic;
 }
@@ -2231,4 +3081,376 @@ select.rc-input:focus {
   font-family: var(--ff-sans);
   font-weight: 600;
   text-shadow: none;
+}
+
+/* --- Đơn vị tốc độ: chọn + thêm/gỡ ngay tại chỗ -------------------------------
+   Khối quản lý chỉ bung ra khi bấm "＋ Thêm / gỡ" — mặc định ô này phải trông y như
+   một ô chọn bình thường, không được chiếm chỗ của các ô khác trong nhóm. */
+.rc-dvtd { display: flex; flex-direction: column; gap: 8px; }
+.rc-dvtd__row { display: flex; align-items: center; gap: 8px; }
+.rc-dvtd__row > .rc-input { flex: 1 1 auto; min-width: 0; }
+.rc-dvtd__manage {
+  flex: 0 0 auto;
+  border: 1px dashed var(--rule, #d8d2c0);
+  background: var(--canvas, #fbfaf6);
+  color: var(--ink, #14130f);
+  padding: 7px 12px;
+  border-radius: var(--r-3, 6px);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12.5px;
+  white-space: nowrap;
+  transition: all var(--duration-base, 140ms) var(--easing-standard, ease);
+}
+.rc-dvtd__manage:hover:not(:disabled) { border-style: solid; border-color: var(--ash-2, #a8a294); }
+.rc-dvtd__manage:disabled { opacity: 0.45; cursor: not-allowed; }
+.rc-dvtd__panel {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--rule, #d8d2c0);
+  border-radius: var(--r-3, 6px);
+  background: var(--paper, #f5f2ea);
+}
+.rc-dvtd__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rc-dvtd__chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--rule, #d8d2c0);
+  border-radius: 999px;
+  background: var(--canvas, #fbfaf6);
+  font-size: 12.5px;
+}
+.rc-dvtd__chip button {
+  border: none; background: transparent; cursor: pointer;
+  color: var(--ash, #8a8676); font-size: 15px; line-height: 1;
+  padding: 2px 6px; border-radius: 999px;
+}
+.rc-dvtd__chip button:hover:not(:disabled) {
+  background: var(--signal-soft, #efd5d5); color: var(--signal, #8a1f1f);
+}
+.rc-dvtd__chip button:disabled { opacity: 0.4; cursor: not-allowed; }
+.rc-dvtd__err {
+  font-size: 12.5px; color: var(--signal, #8a1f1f);
+  background: var(--signal-soft, #efd5d5);
+  padding: 6px 10px; border-radius: var(--r-3, 6px);
+}
+
+/* ── Dialog xóa kho (KhoDeleteDialog) ─────────────────────────────────────── */
+.kho-del__muted { font-size: 13px; color: var(--ash, #6b6b6b); margin: 0; }
+.kho-del__block { display: grid; gap: 8px; }
+.kho-del__warn { margin: 0; font-weight: var(--fw-bold, 600); color: var(--signal, #8a1f1f); }
+.kho-del__list {
+  margin: 0; padding: 8px 10px 8px 26px; list-style: disc;
+  background: var(--signal-soft, #efd5d5); border-radius: var(--r-3, 6px);
+  color: var(--ink, #1a1a1a); font-size: 13.5px; display: grid; gap: 3px;
+}
+.kho-del__ok { display: grid; gap: 12px; font-size: 13.5px; color: var(--ink, #1a1a1a); }
+.kho-del__ok p { margin: 0; }
+.kho-del__field { display: grid; gap: 6px; font-size: 13px; color: var(--ash, #6b6b6b); }
+.kho-del__input {
+  font: inherit; font-family: var(--ff-num, monospace); letter-spacing: 0.04em;
+  padding: 9px 12px; border: 1px solid var(--rule, #d8d5cd);
+  border-radius: var(--r-3, 6px); background: var(--paper, #fff); color: var(--ink, #1a1a1a);
+}
+.kho-del__input:focus {
+  outline: none; border-color: var(--signal, #8a1f1f);
+  box-shadow: 0 0 0 3px var(--signal-soft, #efd5d5);
+}
+
+/* ── Tab NHẬT KÝ trong drawer ────────────────────────────────────────────────────
+   Timeline dọc Modern SaaS style: chấm mốc màu, badge pill hành động,
+   hiển thị diff thay đổi (cũ → mới) nổi bật, sắc nét. */
+.rc-nk {
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-2) 0 var(--sp-4);
+}
+.rc-nk__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  padding: 0 0 var(--sp-4);
+}
+/* Đường nối timeline các mốc */
+.rc-nk__item::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 28px;
+  bottom: 0;
+  width: 2px;
+  background: var(--rule-hair, rgba(20, 19, 15, 0.08));
+}
+.rc-nk__item:last-child::before {
+  display: none;
+}
+.rc-nk__dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--primary, #0284c7);
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  z-index: 1;
+}
+.rc-nk__item.is-tao .rc-nk__dot {
+  color: var(--success-deep, #15803d);
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.rc-nk__item.is-xoa .rc-nk__dot {
+  color: var(--danger, #b3261e);
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.rc-nk__body {
+  background: #ffffff;
+  border: 1px solid var(--rule-hair, rgba(20, 19, 15, 0.12));
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.rc-nk__body:hover {
+  border-color: rgba(20, 19, 15, 0.2);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.rc-nk__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink, #14130f);
+}
+.rc-nk__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.rc-nk__badge--dm_sua {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+.rc-nk__badge--dm_tao {
+  background: #dcfce7;
+  color: #15803d;
+}
+.rc-nk__badge--dm_xoa {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.rc-nk__who {
+  font-size: 12.5px;
+  font-weight: 500;
+  /* `--ink-soft` KHÔNG có trong tokens.css — viết var(--ink-soft, #hex) là chạy bằng hex dự
+     phòng, màu rơi ra ngoài hệ. Dùng token có thật. */
+  color: var(--ink);
+}
+.rc-nk__at {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ash, #64748b);
+  white-space: nowrap;
+}
+
+.rc-nk__changes {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  border: 1px solid #f1f5f9;
+}
+.rc-nk__change-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+  color: #334155;
+}
+.rc-nk__change-left {
+  color: #475569;
+  font-weight: 500;
+}
+.rc-nk__arrow {
+  color: #0284c7;
+  font-weight: 700;
+  font-size: 13px;
+  user-select: none;
+}
+.rc-nk__change-right {
+  color: #0f172a;
+  font-weight: 600;
+  background: #e0f2fe;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.rc-nk__change-row.is-tien .rc-nk__change-right {
+  color: #c2410c;
+  background: #ffedd5;
+}
+
+.rc-nk__empty {
+  padding: var(--sp-5) var(--sp-4);
+  text-align: center;
+  font-size: 13px;
+  color: var(--ash, #8a8676);
+}
+
+/* ── LỊCH BẢO TRÌ: gói (có chu kỳ) → việc con (nội dung phải làm) ────────
+   Gói là một CÁI THẺ chứ không phải một dòng bảng: mỗi gói mang theo danh sách việc con, nhét
+   danh sách vào một ô của bảng thì hàng cao thấp so le, đọc không ra đâu vào đâu.            */
+.rc-goi-list { display: flex; flex-direction: column; gap: 16px; }
+
+.rc-goi {
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: var(--r-5, 10px);
+  background: var(--paper-contrast, #fff);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color var(--duration-fast, 120ms) var(--easing-standard, ease);
+}
+.rc-goi:focus-within { border-color: rgba(197, 64, 10, 0.35); }
+
+.rc-goi__head { display: flex; align-items: center; gap: 8px; }
+.rc-goi__ten { flex: 1; font-weight: 600; }
+
+.rc-goi__so { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+.rc-goi__o { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ash, #475569); }
+.rc-goi__o > span:first-child { white-space: nowrap; }
+.rc-goi__o .rc-input { padding: 6px 8px; font-size: 13px; }
+.rc-goi__o .rc-input--num { width: 74px; text-align: right; }
+.rc-goi__o select.rc-input { width: auto; }
+/* Ô ngày trình bày dài hơn ô số — để `auto` thì Chrome/Firefox mỗi nơi một bề rộng. */
+.rc-goi__o--ngay .rc-input { width: 148px; }
+
+/* Kỳ tới — CHỈ ĐỌC, đi ra từ phiếu bảo trì gần nhất (màn Phiếu bảo trì). Ghi kèm "tính từ đâu" vì
+   một cái ngày trần không kiểm lại được, còn biết nguồn thì người khai tự soi ra sai ở chỗ nào. */
+.rc-goi__ky {
+  margin: 0; font-size: 12px; line-height: 1.5;
+  color: var(--ash, #475569);
+}
+.rc-goi__ky-nguon { margin-left: 8px; font-size: 11px; color: var(--ash-2, #94a3b8); }
+
+/* Nhắc TẠI CHỖ khi gói có chu kỳ mà chưa có ngày bắt đầu: hệ quả (phiếu coi như tới hạn ngay)
+   chỉ lộ ra ở màn khác, nên không nói ở đây thì người khai không bao giờ biết. */
+.rc-goi__nhac {
+  margin: 0; font-size: 12px; line-height: 1.5;
+  color: var(--amber-deep, #7a5c0f);
+  background: var(--amber-soft, #efe4c4);
+  border-radius: var(--r-3, 6px);
+  padding: 6px 10px;
+}
+
+.rc-goi__viec {
+  border-top: 1px dashed var(--rule-soft, #e2e8f0);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rc-goi__viec-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ash, #475569);
+}
+.rc-goi__dem {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0;
+  text-transform: none; color: var(--ash-2, #64748b);
+  background: var(--rule-hair, #f1f5f9);
+  border-radius: 999px; padding: 1px 8px;
+}
+.rc-goi__ol { list-style: decimal; margin: 0; padding-left: 24px; display: flex; flex-direction: column; gap: 8px; }
+.rc-goi__ol li { display: flex; align-items: center; gap: 6px; }
+.rc-goi__ol li::marker { color: var(--ash-2, #64748b); font-size: 11.5px; }
+.rc-goi__ol .rc-input { flex: 1; padding: 6px 8px; font-size: 13px; }
+
+.rc-goi__empty {
+  margin: 0; font-size: 12.5px; line-height: 1.5;
+  color: var(--ash, #475569);
+  background: var(--rule-hair, #f1f5f9);
+  border-radius: var(--r-3, 6px);
+  padding: 12px;
+}
+.rc-goi__add { align-self: flex-start; }
+
+/* ── Cột TRẠNG THÁI máy (dẫn xuất) ──────────────────────────────────────
+   Chỉ trạng thái CẦN XỬ LÝ mới có nền. Tô nền cả "đang chạy" thì cả cột rực lên và mắt không
+   còn bắt được cái máy đang nằm — đúng thứ duy nhất người ta mở bảng này để tìm.             */
+.rc-tt { display: inline-flex; align-items: flex-start; gap: 6px; padding: 3px 8px 3px 6px; border-radius: 999px; }
+.rc-tt__dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; flex: none; background: currentColor; }
+.rc-tt__body { display: flex; flex-direction: column; line-height: 1.25; }
+.rc-tt__nhan { font-size: 12.5px; font-weight: 600; }
+.rc-tt__chi-tiet { font-size: 11px; opacity: .78; font-weight: 500; }
+
+.rc-tt--may_dung { color: var(--signal-deep, #6b1717); background: var(--signal-soft, #efd5d5); }
+.rc-tt--bao_tri  { color: var(--amber-deep, #7a5c0f); background: var(--amber-soft, #efe4c4); }
+.rc-tt--khoa     { color: var(--ash, #475569); background: var(--rule-hair, #f1f5f9); }
+.rc-tt--dang_chay { color: var(--ink, #0f172a); }
+.rc-tt--dang_chay .rc-tt__dot { background: var(--moss, #2f5d3a); }
+.rc-tt--ranh { color: var(--ash-2, #64748b); }
+.rc-tt--ranh .rc-tt__dot { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
+/* Chưa nạp xong / nạp hỏng: nói "chưa biết", KHÔNG mượn tạm nhãn "Rảnh". */
+.rc-tt--chua-biet { color: var(--ash-2, #64748b); opacity: .6; }
+
+/* ══ GIÀNH LẠI 4 SELECTOR BỊ kho-request.css CƯỚP ═══════════════════════════════════
+   CSS ở repo này là GLOBAL và `AppShell` import TĨNH mọi trang, nên thứ tự trong bundle là cố
+   định: `kho-request.css` khai lại một loạt selector `rc-*` của file này và LUÔN nằm sau ⇒ nó
+   thắng trên MỌI màn, không phải chỉ sau khi ghé qua Kho.
+
+   Bốn chỗ đổi hình thật (hai chỗ còn lại — `.rc-drawer`, `.rc-drawer__head` border — đặt đúng
+   cùng giá trị nên vô hại):
+     · scrim      → xanh lạnh rgba(15,23,42,.4) + blur 4px, thay nền ấm của hệ;
+     · đầu drawer → nền `--canvas` thay `--paper`;
+     · tiêu đề mục→ mọc THÊM vạch rust ::before, thành HAI vạch cạnh nhau (file này đã có
+                    `border-left`), kèm padding lệch 10px thay 6px;
+     · badge mã   → đổi sang font số + đậm + nền `--paper`.
+
+   Cách chữa theo `UI_DESIGN.md` §10 nấc (2): NÂNG ĐỘ CỤ THỂ (0-2-0 thắng 0-1-0) — thắng bất kể
+   thứ tự bundle, và KHÔNG phải `!important` (§11 gọi đó là mùi lỗi). KHÔNG sửa `kho-request.css`:
+   4 màn kho đang chạy dữ liệu sống, ngoài phạm vi việc này.
+
+   `rc--dm` chỉ gắn ở `RebuildCatalogPage` nên `KhoPage`/`KhoHangView` (cũng dùng `.rc`) không
+   dính. ĐẢO NGƯỢC: xoá khối này + xoá `rc--dm` ở TSX là về nguyên trạng.
+   ══════════════════════════════════════════════════════════════════════════════════ */
+.rc--dm .rc-drawer__scrim {
+  background: rgba(13, 12, 10, 0.48);
+  backdrop-filter: blur(2px);
+}
+.rc--dm .rc-drawer__head {
+  background: var(--paper, #fdfcf8);
+}
+.rc--dm .rc-sec__title {
+  padding-left: 6px;
+}
+.rc--dm .rc-sec__title::before {
+  content: none;          /* file này đã vẽ vạch bằng `border-left` — hai vạch là thừa một */
+}
+.rc--dm .rc__code-badge {
+  font-family: var(--ff-sans);
+  font-weight: var(--fw-medium);
+  background: var(--rule-hair);
+  border-color: var(--rule-soft);
+  letter-spacing: normal;
 }

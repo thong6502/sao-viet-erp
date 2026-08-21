@@ -121,10 +121,13 @@ may_thiet_bi.khoa_class     → giá kẽm trong danh mục Kẽm & khuôn (kem_
 ### 3.5 Nhóm NĂNG LỰC / TỐC ĐỘ (mọi máy)
 | Field | Kiểu | Đơn vị | Mô tả |
 |---|---|---|---|
-| toc_do | number | | tốc độ chạy danh nghĩa |
-| don_vi_toc_do | enum(to_gio, m2_gio, cuon_gio, luot_gio, met_gio) | | khớp `loai_may` |
-| makeready_time_default | number | phút | thời gian canh máy mặc định (job mới) |
-| thoi_gian_rua_muc | number | phút | rửa mực/đổi màu (TÁCH khỏi canh máy; đổi đậm→nhạt lâu hơn) |
+| toc_do | number | | **Tốc độ TRUNG BÌNH** (nhãn UI đổi 03/08/2026; tên cột giữ nguyên). Số chảy vào Tính giá / Lệnh SX / Xếp lịch để ra thời lượng ĐIỂM |
+| toc_do_min | number | | Tốc độ tối thiểu (mg 0152). **Từ 04/08/2026 CÓ vào công thức**: nuôi đầu CHẬM của khoảng thời lượng (`thoi_luong_buoc` → `chiem_may_phut_max`) và râu min–max trên Gantt. Chưa khai thì râu co về một điểm |
+| toc_do_max | number | | Tốc độ tối đa (mg 0152) — nuôi đầu NHANH (`chiem_may_phut_min`) |
+| don_vi_toc_do | mã `<đơn vị đếm>_gio` | | **SUY RA từ danh mục `don_vi_do`** — chủ tự thêm/xoá đơn vị ở màn "Đơn vị & quy đổi" là danh sách chọn tự đổi theo. KHÔNG còn là enum cứng. VARCHAR(32) sau mg 0153. Là NHÃN khai báo, KHÔNG dùng để quy đổi trong công thức thời lượng |
+| cong_thuc_luong | công thức | | **CÁCH ĐO LƯỢNG theo đơn vị tốc độ của CHÍNH máy này** (mg `0213`, 17/08/2026). "Bước chạy trên máy này thì bằng bao nhiêu <đơn vị tốc độ>" — máy đo m²/giờ khai `sl_vao * dai_in * rong_in`; máy 5 màu nhận hàng 8 màu khai `sl_vao * so_mau / 5`. Ra **LƯỢNG**, KHÔNG ra giờ: phép `÷ tốc độ` và hai tầng thời lượng không đụng tới. Gắn vào MÁY chứ không vào đơn vị vì `don_vi_do.cong_thuc` là cách đo của một ĐƠN VỊ, dùng chung cho mọi máy đếm bằng `to_gio`. Đọc **SỐNG** — đổi máy là đổi cả tốc độ lẫn cách đếm lượt. `LsxService._sl_theo_don_vi` đọc ở bậc ⓿, trước cầu quy đổi. Bỏ trống = quy đổi như cũ |
+| makeready_time_default | number | phút | thời gian canh máy — **3 kiểu khai**: để trống · gõ tổng · theo từng khoản (chi tiết trong `fields_theo_loai.chuan_bi_khoan`, tổng TỰ CỘNG và khoá chỉ đọc). Bước lệnh KẾ THỪA số này, không gõ lại |
+| thoi_gian_rua_muc | number | phút | **DORMANT 2026-08-04** — đã bỏ ô nhập trên form Máy và gỡ khỏi engine xếp lịch (chiếm máy = canh máy + chạy). Cột còn trong DB, không phơi ra API |
 | min_stock_gsm | int | gsm | định lượng nhỏ nhất chạy được |
 | max_stock_gsm | int | gsm | định lượng lớn nhất |
 | vat_lieu_ho_tro_class | enum[] | | loại vật liệu (tráng/không tráng/carton/nhựa/decal/foil) |
@@ -329,7 +332,7 @@ tien_cong_may = (gio_chay + gio_canh_may) × BHR    [hoặc dùng per-1000-lư�
 ```
 CHO BÌNH BÀI: { gripper_mm, kho_max/min, so_units, cho_phep_tu_tro, cho_phep_tro_dau_duoi,
                 le_hong_mm?, duoi_thang_mau_mm?, truc?{repeat, pitch, dia} }
-CHO TÍNH GIÁ: { BHR / don_gia_ban_gio, toc_do × efficiency, makeready_time, thoi_gian_rua_muc,
+CHO TÍNH GIÁ: { BHR / don_gia_ban_gio, toc_do × efficiency, makeready_time,
                 bu_hao_canh_may_per_mau, bu_hao_chay_pct, units_truoc/sau, khoa_class,
                 chi_phi_phu_per_m2?, click_*? (digital), don_gia_muc_per_m2? (wide/inkjet) }
 CHO SCHEDULING: { toc_do, lich, so_ca, so_may_song_song, may_thay_the, availability_pct }
@@ -356,7 +359,8 @@ CHO SCHEDULING: { toc_do, lich, so_ca, so_may_song_song, may_thay_the, availabil
 | E-MAY-KHO | kho_min > kho_max | chặn |
 | E-MAY-NHIP | gripper_mm ≥ kho_min_rong | chặn |
 | E-MAY-BHR0 | BHR ≤ 0 hoặc gio_tinh_phi ≤ 0 | chặn |
-| E-MAY-SPEED | toc_do ≤ 0 hoặc don_vi_toc_do không khớp loai_may | chặn |
+| E-MAY-SPEED | toc_do / toc_do_min / toc_do_max ≤ 0 | chặn |
+| E-MAY-SPEED-RANGE | min > max, hoặc min > trung bình, hoặc max < trung bình | chặn (chỉ kiểm ô ĐÃ khai — không ép khai đủ ba) |
 | E-MAY-JOBFIT | job: khổ in > kho_max hoặc < kho_min | chặn (khi báo giá) |
 | W-MAY-GSM | job_gsm ngoài [min,max]_stock_gsm | cảnh báo |
 | W-MAY-PROD | productivity/availability ngoài [50,98]% | cảnh báo |

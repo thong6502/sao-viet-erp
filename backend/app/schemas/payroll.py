@@ -12,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class ParamsIn(BaseModel):
     standard_cong_default: float | None = Field(default=None, gt=0, le=31)
     probation_ratio: float | None = Field(default=None, gt=0, le=1)
+    ot_max_minutes_per_month: int | None = Field(default=None, ge=0, le=44640)
+    ot_max_minutes_per_day: int | None = Field(default=None, gt=0, le=2880)
     bhxh_rate: float | None = Field(default=None, ge=0, le=1)
     bhyt_rate: float | None = Field(default=None, ge=0, le=1)
     bhtn_rate: float | None = Field(default=None, ge=0, le=1)
@@ -42,6 +44,14 @@ class ParamsIn(BaseModel):
     pit_flat_threshold: float | None = Field(default=None, ge=0)
     # Trần khấu trừ kỷ luật (Đ102 BLLĐ). 0 = TẮT trần — cố ý cho phép, chủ tự chịu rủi ro.
     phat_cap_pct: float | None = Field(default=None, ge=0, le=1)
+    # Ngưỡng ngày nghỉ không lương để MIỄN đóng BHXH tháng đó (QĐ 595 Đ42.4). 0 = TẮT luật.
+    # `le=31` vì đây là số NGÀY trong một tháng, không phải tỷ lệ.
+    bhxh_mien_tu_so_ngay: int | None = Field(default=None, ge=0, le=31)
+    # Ngưỡng CÔNG của một ngày để hưởng trọn cơm/phụ cấp ca hôm đó (0,5 = nghỉ nửa buổi vẫn ăn).
+    phu_cap_ca_min_cong: float | None = Field(default=None, ge=0, le=1)
+    # SUẤT CƠM TĂNG CA — ngưỡng phút/ngày (chỉ áp cho NGÀY LÀM VIỆC) và tiền một suất.
+    com_tang_ca_nguong_phut: int | None = Field(default=None, ge=0, le=1440)
+    com_tang_ca_muc: float | None = Field(default=None, ge=0)
     # Phụ cấp cơm/ca đêm KHÔNG còn ở cấp công ty — khai theo từng CA (`work_shifts`).
 
 
@@ -50,6 +60,8 @@ class ParamsOut(BaseModel):
 
     standard_cong_default: float
     probation_ratio: float
+    ot_max_minutes_per_month: int
+    ot_max_minutes_per_day: int
     bhxh_rate: float
     bhyt_rate: float
     bhtn_rate: float
@@ -59,6 +71,11 @@ class ParamsOut(BaseModel):
     pit_flat_rate: float = 0.10
     pit_flat_threshold: float = 2_000_000
     phat_cap_pct: float = 0.30
+    bhxh_mien_tu_so_ngay: int = 14
+    phu_cap_ca_min_cong: float = 0.5
+    # Mặc định để dòng params CŨ (chưa có cột) không vỡ validate — cùng lối các trường trên.
+    com_tang_ca_nguong_phut: int = 180
+    com_tang_ca_muc: float = 0
     bhxh_rate_er: float = 0.175
     bhyt_rate_er: float = 0.03
     bhtn_rate_er: float = 0.01
@@ -328,6 +345,9 @@ class MyAdvancesOut(BaseModel):
     items: list[AdvanceOut]
     # Mức "Lương trả 1 lần" hiện hành của NV — FE điền sẵn khi tự xin phiếu đợt 1 (0 = chưa khai).
     luong_dot_1: float = 0
+    #: Tháng SỚM NHẤT còn lập phiếu được ("YYYY-MM") = liền sau kỳ đã chốt/đã chi muộn nhất.
+    #: FE đặt làm `min` của ô chọn kỳ — kỳ đã khoá KHÔNG chọn được nữa (chủ chốt 18/08/2026).
+    ky_min_chon_duoc: str | None = None
 
 
 # --- periods / bảng lương ---------------------------------------------------
@@ -344,6 +364,10 @@ class PeriodOut(BaseModel):
     locked_at: datetime | None = None
     paid_at: datetime | None = None
     paid_by: int | None = None
+    #: Cửa sổ xem phiếu của NLĐ: mở lúc `cong_bo_luc`, đóng lúc `dong_phieu_luc`.
+    #: `cong_bo_luc = None` ⇒ chưa công bố. `dong_phieu_luc = None` ⇒ mở không thời hạn.
+    cong_bo_luc: datetime | None = None
+    dong_phieu_luc: datetime | None = None
 
 
 class PeriodsOut(BaseModel):
@@ -353,6 +377,15 @@ class PeriodsOut(BaseModel):
 class GenerateIn(BaseModel):
     year: int = Field(ge=2000, le=2100)
     month: int = Field(ge=1, le=12)
+
+
+class CongBoIn(BaseModel):
+    """Cửa sổ xem phiếu. `luc = None` ⇒ mở NGAY. `den = None` ⇒ mở không thời hạn."""
+
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
+    luc: datetime | None = None
+    den: datetime | None = None
 
 
 class PeriodPayIn(BaseModel):
@@ -405,6 +438,13 @@ class LineOut(BaseModel):
     night_pay: float = 0           # = phụ cấp CA khai tay của NV — cột DB
     ca_pay: float = 0              # alias của `night_pay` (cùng MỘT số, đừng cộng 2 lần)
     night_premium_pay: float = 0   # premium CA ĐÊM theo giờ (giờ đêm × hệ số + tăng ca đêm) — tự tính, miễn TNCN
+    # Phụ cấp theo CA THỰC LÀM (03/08/2026). Engine tính và LƯU từ đầu nhưng schema quên phơi ra
+    # ⇒ phiếu lương ở FE đọc `l.meal_allowance_pay ?? 0` nên hiện 0đ mãi dù tiền đã cộng vào gross.
+    meal_allowance_pay: float = 0
+    #: Cơm TĂNG CA — dòng riêng trên phiếu lương, không gộp vào cơm ca (hai luật khác nhau,
+    #: một ngày có thể ăn cả hai).
+    com_tang_ca_pay: float = 0
+    shift_allowance_pay: float = 0
     vi_pham: float
     other_bonus: float
     thuong_5s: float = 0
@@ -446,6 +486,10 @@ class LineOut(BaseModel):
 class TableOut(BaseModel):
     period: PeriodOut | None = None
     lines: list[LineOut] = []
+    #: Vì sao CHƯA chốt được bảng lương — `None` = chốt được. Giao diện chỉ việc hiện câu này và
+    #: tắt nút "Chốt"; KHÔNG tự suy lại luật (số lý do còn tăng, suy lại là hai bên trôi khác nhau).
+    #: Xem `PayrollService.ly_do_chua_chot_duoc`.
+    chan_chot_ly_do: str | None = None
 
 
 class LineUpdateIn(BaseModel):
@@ -471,11 +515,35 @@ class LineUpdateIn(BaseModel):
 # --- self-service phiếu lương -----------------------------------------------
 
 
+class KyXemDuocOut(BaseModel):
+    """Một kỳ NLĐ đang được xem phiếu — CHỈ nhãn tháng, không kèm tiền."""
+    year: int
+    month: int
+    #: None = mở không thời hạn. Giao diện dùng để chú thích "xem tới ngày…".
+    dong_phieu_luc: datetime | None = None
+
+
+class ChoPhatOut(BaseModel):
+    """Kỳ mới nhất NLĐ CHƯA được xem, kèm lý do — để màn hình thôi nói "chưa có kỳ lương nào".
+
+    ⚠️ KHÔNG có trường tiền nào ở đây, và đừng thêm: cả cửa công bố sinh ra để NLĐ không đọc
+    được số của kỳ chưa phát."""
+    year: int
+    month: int
+    #: `chua_phat` (chưa ai bấm Công bố) · `hen_gio` (đã hẹn, chưa tới giờ) · `da_dong` (hết hạn xem)
+    tinh_trang: str
+    #: Chỉ có nghĩa khi `tinh_trang = "hen_gio"` — giờ phiếu sẽ mở.
+    mo_luc: datetime | None = None
+
+
 class PayslipOut(BaseModel):
     has_employee: bool
     employee_name: str | None = None
     period: PeriodOut | None = None
     line: LineOut | None = None
+    #: Các kỳ NLĐ tra lại được, mới → cũ. Rỗng nghĩa là không có phiếu nào đang mở.
+    ky_xem_duoc: list[KyXemDuocOut] = Field(default_factory=list)
+    cho_phat: ChoPhatOut | None = None
 
 
 # --- Danh mục khoản thu nhập (chủ 2026-07-27) --------------------------------
@@ -625,8 +693,11 @@ class LineComponentOut(BaseModel):
     is_taxable: bool
     amount: float
     note: str | None = None
-    # `employee` = chép từ hồ sơ NV (chỉ đọc ở màn bảng lương) · `line` = thêm tay cho riêng kỳ này.
+    # `employee` = chép từ hồ sơ NV · `line` = thêm tay cho riêng kỳ này.
     source: str
+    #: HCNS đã sửa tay số tiền CHO RIÊNG KỲ NÀY. Giao diện hiện nhãn "đã sửa cho kỳ này" + nút
+    #: "Trả về theo hồ sơ". Hồ sơ nhân viên KHÔNG đổi — tháng sau tự về mức cũ.
+    da_de_tay: bool = False
 
 
 class LineComponentsOut(BaseModel):

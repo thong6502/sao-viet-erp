@@ -1,4 +1,4 @@
-"""Pydantic schemas — Đề nghị kho & Phiếu nhập/xuất (spec-kho-de-nghi).
+"""Pydantic schemas — Yêu cầu kho & Phiếu nhập/xuất (spec-kho-de-nghi).
 
 Lưu ý phân quyền trên các schema Out: những trường NHẠY CẢM (`don_gia`, `don_gia_nhap`,
 `gia_von`, `ton_kha_dung`) đều `None`-able và được router XÓA khi người gọi thiếu quyền
@@ -12,39 +12,39 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-# --- Đề nghị ----------------------------------------------------------------
+# --- Yêu cầu ----------------------------------------------------------------
 
 class StockRequestLineIn(BaseModel):
-    # Hàng đã có mã → material_id. Hàng MỚI → bỏ material_id, gõ `ten_tu_do`. Đúng 1 trong 2.
-    material_id: int | None = None
-    ten_tu_do: str | None = Field(default=None, max_length=255)
-    dvt: str = Field(min_length=1, max_length=16)
+    # MẶT HÀNG GỐC — bắt buộc chọn từ danh mục Giấy / Vật tư khác (siết 2026-08-08). Không còn
+    # đường gõ tên tự do rồi kho gắn mã sau.
+    hang_loai: str = Field(pattern="^(giay|vat_tu)$")
+    hang_id: int = Field(gt=0)
+    # XIN CHO LỆNH NÀO (mg 0175). Bỏ trống được — xin lặt vặt (băng dính, giẻ lau) không thuộc lệnh
+    # nào, bắt buộc gắn là chặn luôn luồng kho đang chạy. Khai rồi thì bảng cân đối vật tư trừ phần
+    # đã cấp vào ĐÚNG dòng nhu cầu, thay vì để mọi lệnh dùng chung loại giấy cùng báo thiếu.
+    lsx_id: int | None = Field(default=None, gt=0)
+    bai_ghep_id: int | None = Field(default=None, gt=0)
+    # Đơn vị người đề nghị chọn — phải nằm trong tập đổi được của chính mặt hàng đó (service kiểm).
+    dvt: str = Field(min_length=1, max_length=24)
     sl_de_nghi: float = Field(gt=0)
-    # Đơn giá NHẬP do người đề nghị khai (chỉ đề nghị NHẬP). Phiếu kế thừa; kho không sửa.
+    # Đơn giá NHẬP do người đề nghị khai (chỉ đề nghị NHẬP), theo `dvt`. Phiếu kế thừa; kho không sửa.
     don_gia: int | None = Field(default=None, ge=0)
-    # Quy đổi đơn vị do người đề nghị khai (1 don_vi_phu = he_so_quy_doi × dvt tồn).
-    don_vi_phu: str | None = Field(default=None, max_length=16)
-    he_so_quy_doi: float | None = Field(default=None, gt=0)
     ghi_chu: str | None = Field(default=None, max_length=500)
-
-    @model_validator(mode="after")
-    def _one_of(self):
-        has_id = self.material_id is not None
-        has_name = bool((self.ten_tu_do or "").strip())
-        if has_id == has_name:
-            raise ValueError("Mỗi dòng phải có ĐÚNG một: mã hàng có sẵn HOẶC tên hàng mới.")
-        return self
 
 
 class StockRequestCreate(BaseModel):
     loai: str = Field(pattern="^(NHAP|XUAT)$")
-    # Kho KHÔNG chọn ở đề nghị nữa — quyết ở bước lập phiếu. Giữ optional cho tương thích.
+    # Kho KHÔNG chọn ở yêu cầu nữa — quyết ở bước lập phiếu. Giữ optional cho tương thích.
     kho_id: int | None = None
-    # Số đề nghị tự nhập (tuỳ chọn); bỏ trống → hệ thống tự sinh (DNN/DNX####).
+    # Số yêu cầu tự nhập (tuỳ chọn); bỏ trống → hệ thống tự sinh (DNN/DNX####).
     ma: str | None = Field(default=None, max_length=30)
     ngay_can: date | None = None
     uu_tien: str = Field(default="binh_thuong", pattern="^(binh_thuong|gap)$")
     ghi_chu: str | None = Field(default=None, max_length=1000)
+    # Mã loại nhập/xuất kho theo MISA (0/1/2/3…) — người tạo gõ tay; Báo cáo kho dùng để export.
+    loai_kho: str | None = Field(default=None, max_length=50)
+    # Nguồn đợt giao đơn mua (chỉ khi tạo từ nút "Nhập kho" ở đợt giao) — chặn nhập trùng.
+    purchase_delivery_id: int | None = None
     lines: list[StockRequestLineIn] = Field(min_length=1)
 
 
@@ -52,11 +52,12 @@ class StockRequestUpdate(BaseModel):
     ngay_can: date | None = None
     uu_tien: str | None = Field(default=None, pattern="^(binh_thuong|gap)$")
     ghi_chu: str | None = Field(default=None, max_length=1000)
+    loai_kho: str | None = Field(default=None, max_length=50)
     lines: list[StockRequestLineIn] | None = None
 
 
 class StockRequestApprove(BaseModel):
-    """`approved_qty`: line_id → SL duyệt. Bỏ trống = duyệt nguyên số đề nghị."""
+    """`approved_qty`: line_id → SL duyệt. Bỏ trống = duyệt nguyên số yêu cầu."""
 
     approved_qty: dict[int, float] | None = None
 
@@ -69,19 +70,30 @@ class StockRequestLineOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    material_id: int | None = None
-    material_code: str | None = None
-    material_name: str | None = None
-    # Hàng mới chưa có mã: tên gõ tự do. Kho gắn/tạo mã ở phiếu.
-    ten_tu_do: str | None = None
+    hang_loai: str
+    hang_id: int
+    # Mã · tên · nhóm của mặt hàng gốc — router gán để FE khỏi gọi thêm danh mục.
+    hang_ma: str | None = None
+    hang_ten: str | None = None
+    hang_nhom: str | None = None
+    # Ảnh minh hoạ mặt hàng (từ danh mục) — form PHIẾU NHẬP hiện + cho gắn/đổi ảnh ngay khi nhập hàng.
+    hang_anh: str | None = None
+    # "Cho lệnh nào" (mg 0175) + MÃ để FE hiện thẳng, khỏi gọi thêm một vòng /api/lsx cho mỗi dòng.
+    lsx_id: int | None = None
+    bai_ghep_id: int | None = None
+    lsx_ma: str | None = None
+    bai_ghep_ma: str | None = None
     dvt: str
-    # Quy đổi KHO của mặt hàng (để phiếu NHẬP cho nhập theo đơn vị phụ). None = không quy đổi.
-    don_vi_phu: str | None = None
-    he_so_quy_doi: float | None = None
+    # Số đã quy về ĐƠN VỊ GỐC + câu diễn giải ("1 ram = 41,93 kg") — FE hiện dòng nhắc dưới ô SL
+    # để người khai thấy trước con số sẽ vào tồn. None = không đổi được (kèm `canh_bao_dv`).
+    don_vi_goc: str | None = None
+    sl_quy_doi: float | None = None
+    quy_doi_dien_giai: str | None = None
+    canh_bao_dv: str | None = None
     sl_de_nghi: float
     sl_duyet: float
     sl_da_ung: float
-    # Đơn giá NHẬP người đề nghị khai — phiếu kế thừa (kho chỉ đọc). Null với đề nghị XUẤT.
+    # Đơn giá NHẬP người yêu cầu khai — phiếu kế thừa (kho chỉ đọc). Null với yêu cầu XUẤT.
     don_gia: int | None = None
     # Kho phản hồi: lý do kho cấp/nhập thiếu so với còn phải cấp (nếu có).
     ly_do_thieu: str | None = None
@@ -110,16 +122,27 @@ class StockRequestOut(BaseModel):
     ngay_can: date | None = None
     uu_tien: str
     ghi_chu: str | None = None
+    # Loại nhập/xuất kho (tự do — tên hoặc mã) người tạo gõ ở yêu cầu — Báo cáo kho đọc để export.
+    loai_kho: str | None = None
     trang_thai: str
     nguoi_duyet_id: int | None = None
     nguoi_duyet_ten: str | None = None
     duyet_luc: datetime | None = None
     ly_do_tu_choi: str | None = None
-    # Lý do KHO hủy đề nghị (hủy phiếu → đề nghị 'Đã hủy'). Hiện ở mục "Đã hủy".
+    # Lý do KHO hủy yêu cầu (hủy phiếu → yêu cầu 'Đã hủy'). Hiện ở mục "Đã hủy".
     ly_do_huy: str | None = None
     created_at: datetime
+    # Lần đổi gần nhất (tạo/cấp/hoàn tất/hủy) — FE xếp yêu cầu VỪA CÓ PHẢN HỒI lên đầu cho dễ thấy.
+    updated_at: datetime
     # Id phiếu ĐANG CHỜ GHI SỔ (nếu có) — FE đổi nút "Lập phiếu" thành "Xem phiếu", chống tạo trùng.
     open_voucher_id: int | None = None
+    # ĐIỀU CHUYỂN KHO (mig 0203): yêu cầu NHẬP đích có `kho_nguon_id` ⇒ là YÊU CẦU ĐIỀU CHUYỂN
+    # (FE hiện nhãn "Điều chuyển từ «kho_nguon_ten»", đơn giá phiếu nhập khoá). `xuat_voucher_id` =
+    # phiếu xuất nguồn đã ghi sổ (truy cặp đi–đến).
+    dieu_chuyen: bool = False
+    kho_nguon_id: int | None = None
+    kho_nguon_ten: str | None = None
+    xuat_voucher_id: int | None = None
     lines: list[StockRequestLineOut] = []
 
 
@@ -128,8 +151,109 @@ class StockRequestPage(BaseModel):
     total: int
 
 
+# --- Báo cáo kho (kế toán) — docs/spec-bao-cao-kho.md ---
+
+class BaoCaoKhoRow(BaseModel):
+    """1 dòng hàng của 1 phiếu ĐÃ GHI SỔ — cho màn Báo cáo kho (kế toán) + export MISA."""
+
+    voucher_id: int
+    ngay_ghi_so: date | None = None      # = ngày hạch toán (MISA)
+    ngay_ct: date | None = None          # = ngày chứng từ (ngày lập phiếu)
+    so_ct: str                            # = số chứng từ (mã phiếu)
+    loai: str                             # NHAP / XUAT
+    loai_kho: str | None = None           # loại (tự do) người tạo gõ ở yêu cầu
+    ma_hang: str | None = None
+    ten_hang: str | None = None
+    dvt: str | None = None
+    so_luong: float
+    don_gia: int | None = None
+    thanh_tien: float | None = None
+    kho_id: int | None = None
+    kho_ten: str | None = None
+    han_su_dung: date | None = None       # hạn sử dụng của lô dòng này (từ stock_lots.hsd)
+    # ĐIỀU CHUYỂN nội bộ (mig 0203): FE gắn nhãn "điều chuyển" + LOẠI dòng này khỏi tổng mua/bán
+    # ở Tổng quan (chỉ tính luân chuyển từng kho, không thổi phồng "mua/bán trong kỳ").
+    dieu_chuyen: bool = False
+
+
+class BaoCaoKhoPage(BaseModel):
+    items: list[BaoCaoKhoRow]
+    total: int
+
+
+class BaoCaoChuyenKhoRow(BaseModel):
+    """1 dòng hàng của MỘT điều chuyển ĐÃ GHI SỔ — cho màn Báo cáo kho (tab Chuyển kho) + export
+    theo mẫu MISA 'Chuyển kho' (Xuất tại kho → Nhập tại kho trên cùng 1 dòng)."""
+
+    voucher_id: int                       # phiếu NHẬP đích (đại diện điều chuyển)
+    ngay_ghi_so: date | None = None       # = ngày hạch toán (MISA)
+    ngay_ct: date | None = None           # = ngày chứng từ (ngày lập phiếu nhập đích)
+    so_ct: str                            # = số chứng từ (mã phiếu nhập đích)
+    ma_hang: str | None = None
+    ten_hang: str | None = None
+    dvt: str | None = None
+    so_luong: float
+    don_gia_von: int | None = None        # giá vốn chốt từ nguồn (đ/đơn vị gốc)
+    tien_von: float | None = None
+    kho_xuat_ten: str | None = None       # Xuất tại kho = kho nguồn
+    kho_nhap_ten: str | None = None       # Nhập tại kho = kho đích
+    dien_giai: str | None = None          # ghi chú điều chuyển
+
+
+class BaoCaoChuyenKhoPage(BaseModel):
+    items: list[BaoCaoChuyenKhoRow]
+    total: int
+
+
+class KhoKhoaSoIn(BaseModel):
+    kho_id: int | None = None             # None = TOÀN KHO
+    tu_ngay: date
+    den_ngay: date
+    hanh_dong: str = Field(default="khoa", pattern="^(khoa|mo)$")
+    ten: str | None = Field(default=None, max_length=120)   # tên kỳ (chỉ khi 'khoa')
+
+    @model_validator(mode="after")
+    def _check_range(self):
+        if self.den_ngay < self.tu_ngay:
+            raise ValueError("Ngày đến phải lớn hơn hoặc bằng ngày từ.")
+        return self
+
+
+class KhoKhoaSoRow(BaseModel):
+    id: int
+    kho_id: int | None = None
+    kho_ten: str | None = None            # None khi kho_id None = "Toàn kho"
+    tu_ngay: date
+    den_ngay: date
+    hanh_dong: str                        # 'khoa' | 'mo'
+    nguoi_khoa_ten: str | None = None
+    khoa_luc: datetime | None = None
+    ten: str | None = None                # tên kỳ (nếu có)
+
+
+class KhoExportLogRow(BaseModel):
+    """1 lần XUẤT EXCEL báo cáo kho — cho tab 'Lịch sử thao tác' (ghi vào audit_logs)."""
+    thoi_diem: datetime
+    loai: str                             # "Nhập kho" / "Xuất kho" / "Chuyển kho" / "Tồn kho"
+    pham_vi: str                          # loại báo cáo · kho (vd "Nhập kho · Kho nguyên vật liệu")
+    khoang_ngay: str | None = None        # "01/08/2026 – 18/08/2026" hoặc None
+    ten_ky: str | None = None             # tên kỳ đã khóa nếu khoảng ngày trùng kỳ; "Toàn bộ" nếu ko lọc ngày
+    nguoi_ten: str | None = None
+
+
+class KhoaSoKyRow(BaseModel):
+    """1 kỳ CÒN đang khóa (đã gộp khoảng liền mạch) — cho tab 'Kỳ đã khóa' chọn nhanh + xuất."""
+    kho_id: int | None = None             # None = Toàn kho
+    kho_ten: str | None = None
+    tu_ngay: date
+    den_ngay: date
+    khoa_luc: datetime | None = None      # thời điểm khóa quyết định tại ngày đầu kỳ
+    ten: str | None = None                # tên kỳ (từ bản ghi 'khoa' quyết định)
+    mien_tru: list[str] = []              # (kỳ TOÀN KHO) tên các kho đã MỞ RIÊNG trong kỳ này
+
+
 class StockVoucherCancel(BaseModel):
-    """Body khi HỦY phiếu nháp — BẮT BUỘC lý do; đề nghị chuyển 'Đã hủy' kèm lý do này."""
+    """Body khi HỦY phiếu nháp — BẮT BUỘC lý do; yêu cầu chuyển 'Đã hủy' kèm lý do này."""
 
     ly_do: str = Field(min_length=1, max_length=500)
 
@@ -144,22 +268,22 @@ class StockVoucherCancel(BaseModel):
 # --- Phiếu -------------------------------------------------------------------
 
 class StockVoucherLineIn(BaseModel):
+    # Mặt hàng KẾ THỪA từ dòng đề nghị (kho không đổi được), nên phiếu chỉ gửi `request_line_id`.
+    # Bỏ `material_id` + cụm `new_*`: đường "kho tạo hàng mới lúc lập phiếu" đã đóng (siết).
     request_line_id: int
-    # Dòng đề nghị là HÀNG MỚI (chưa có mã): kho CHỌN mã có sẵn → điền `material_id`; hoặc TẠO
-    # MỚI → bỏ material_id, khai `new_*` (backend tạo mã khi LƯU/GHI SỔ, không tạo eager ở FE).
-    material_id: int | None = None
-    new_name: str | None = Field(default=None, max_length=255)
-    new_unit: str | None = Field(default=None, max_length=16)
-    new_don_vi_phu: str | None = Field(default=None, max_length=16)
-    new_he_so_quy_doi: float | None = Field(default=None, gt=0)
     so_luong: float = Field(gt=0)
     # Phiếu NHẬP: giá của lô sắp tạo. Phiếu XUẤT: bỏ qua (giá lấy từ lô).
     don_gia: int | None = Field(default=None, ge=0)
     # Phiếu XUẤT: bắt buộc. Phiếu NHẬP: bỏ qua (lô sinh ra lúc ghi sổ).
     lot_id: int | None = None
-    # Lý do cấp/nhập THIẾU (khi SL < còn phải cấp) — bắt buộc nếu thiếu; ghi vào đề nghị (kho phản hồi).
+    # Lý do cấp/nhập THIẾU (khi SL < còn phải cấp) — bắt buộc nếu thiếu; ghi vào yêu cầu (kho phản hồi).
     ly_do: str | None = Field(default=None, max_length=500)
     ghi_chu: str | None = Field(default=None, max_length=500)
+    # Phiếu NHẬP: vị trí cất lô trong kho (kệ/ô) — thủ kho khai; ghi sổ chép sang lô.
+    vi_tri: str | None = Field(default=None, max_length=100)
+    # Phiếu NHẬP: hạn sử dụng của lô sắp tạo (tuỳ chọn). Tách hạn = nhiều dòng (mỗi hạn 1 dòng),
+    # phần dư không hạn để None. XUẤT bỏ qua.
+    hsd: date | None = None
 
 
 class StockVoucherCreate(BaseModel):
@@ -178,13 +302,21 @@ class StockVoucherLineOut(BaseModel):
 
     id: int
     request_line_id: int
-    material_id: int
-    material_code: str | None = None
-    material_name: str | None = None
+    hang_loai: str
+    hang_id: int
+    hang_ma: str | None = None
+    hang_ten: str | None = None
     dvt: str | None = None
     lot_id: int | None = None
     ma_lo: str | None = None
+    # SL người yêu cầu XIN trên dòng yêu cầu gốc (đọc-nối từ StockRequestLine, không lưu cột).
+    # Để phiếu đối chiếu "yêu cầu vs thực nhận/xuất". None nếu không nối được dòng yêu cầu.
+    sl_de_nghi: float | None = None
     so_luong: float
+    # Số đã quy về đơn vị gốc (số thật sự chạy vào lô) + đơn vị đó — để bản in và màn phiếu nói rõ
+    # "10 ram (= 419,25 kg)" thay vì để người đọc tự đoán con số nào vào tồn.
+    sl_goc: float | None = None
+    don_vi_goc: str | None = None
     ghi_chu: str | None = None
     # Hai trường tiền — router xóa khi thiếu `can_view_cost`.
     don_gia: int | None = None
@@ -199,12 +331,14 @@ class StockVoucherOut(BaseModel):
     loai: str
     request_id: int
     request_ma: str | None = None
+    # Loại phiếu (tự do) người tạo gõ ở YÊU CẦU — hiện trên phiếu + list; Báo cáo kho dùng export.
+    loai_kho: str | None = None
     kho_id: int
     kho_ten: str | None = None
     ngay: date
     nguoi_lap_id: int
     nguoi_lap_ten: str | None = None
-    # Chuỗi trách nhiệm lấy từ ĐỀ NGHỊ gốc: ai đề nghị · ai duyệt (phiếu tự nó không có bước duyệt).
+    # Chuỗi trách nhiệm lấy từ YÊU CẦU gốc: ai yêu cầu · ai duyệt (phiếu tự nó không có bước duyệt).
     nguoi_de_nghi_ten: str | None = None
     nguoi_duyet_ten: str | None = None
     # Người GHI SỔ (duyệt/chốt phiếu) — chỉ có sau khi đã ghi sổ.
@@ -214,6 +348,9 @@ class StockVoucherOut(BaseModel):
     trang_thai: str
     ghi_so_luc: datetime | None = None
     created_at: datetime
+    # ĐIỀU CHUYỂN KHO (mig 0203): true cho cả phiếu xuất nguồn lẫn phiếu nhập đích — FE/báo cáo
+    # gắn nhãn "điều chuyển"; báo cáo loại khỏi tổng mua/bán.
+    dieu_chuyen: bool = False
     lines: list[StockVoucherLineOut] = []
     # Tổng giá vốn — chỉ có khi `can_view_cost`.
     gia_von: int | None = None
@@ -222,6 +359,51 @@ class StockVoucherOut(BaseModel):
 class StockVoucherPage(BaseModel):
     items: list[StockVoucherOut]
     total: int
+
+
+# --- Điều chuyển kho (spec-dieu-chuyen-kho) ---------------------------------
+
+class DieuChuyenItemIn(BaseModel):
+    """1 mặt hàng cần điều chuyển. `so_luong` theo ĐƠN VỊ GỐC của mặt hàng."""
+
+    hang_loai: str = Field(pattern="^(giay|vat_tu)$")
+    hang_id: int = Field(gt=0)
+    so_luong: float = Field(gt=0)
+
+
+class DieuChuyenIn(BaseModel):
+    """Ấn ĐIỀU CHUYỂN 1 HAY NHIỀU mặt hàng kho nguồn → kho đích (gộp vào MỘT yêu cầu điều chuyển)."""
+
+    kho_nguon_id: int
+    kho_den_id: int
+    items: list[DieuChuyenItemIn] = Field(min_length=1)
+    ghi_chu: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def _valid(self) -> "DieuChuyenIn":
+        if self.kho_nguon_id == self.kho_den_id:
+            raise ValueError("Kho nguồn và kho đích phải khác nhau.")
+        seen: set[tuple[str, int]] = set()
+        for it in self.items:
+            key = (it.hang_loai, it.hang_id)
+            if key in seen:
+                raise ValueError("Một mặt hàng chỉ được điều chuyển 1 dòng — gộp số lượng lại.")
+            seen.add(key)
+        return self
+
+
+class DieuChuyenOut(BaseModel):
+    """Kết quả ấn điều chuyển: MỘT yêu cầu điều chuyển (NHẬP đích, nhiều dòng) + phiếu xuất nguồn đã ghi sổ."""
+
+    yeu_cau_id: int
+    yeu_cau_ma: str
+    phieu_xuat_id: int
+    phieu_xuat_ma: str
+    kho_nguon_id: int
+    kho_den_id: int
+    so_dong: int
+    # Tổng giá vốn điều chuyển (Σ theo từng mặt hàng) — router XÓA khi thiếu `can_view_cost`.
+    gia_von: int | None = None
 
 
 class StockVoucherAttachmentOut(BaseModel):
@@ -242,16 +424,27 @@ class StockVoucherAttachmentListOut(BaseModel):
 
 # --- Lô & phân bổ ------------------------------------------------------------
 
+class StockLotViTriIn(BaseModel):
+    """Sửa vị trí cất lô (kệ/ô) trong kho."""
+
+    vi_tri: str | None = Field(default=None, max_length=100)
+
+
 class StockLotOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     ma_lo: str
-    material_id: int
-    material_code: str | None = None
-    material_name: str | None = None
-    # Đơn vị tính của mã hàng — để màn Tồn kho tạo dòng "Yêu cầu mua" có sẵn ĐVT.
+    hang_loai: str
+    hang_id: int
+    hang_ma: str | None = None
+    hang_ten: str | None = None
+    # Ảnh minh hoạ mặt hàng (từ danh mục) — màn Tồn kho gom theo mặt hàng nên chép sẵn vào lô.
+    hang_anh: str | None = None
+    # ĐƠN VỊ GỐC của mặt hàng — `sl_ban_dau`/`sl_con_lai` của lô đều theo đơn vị này. `dvt` = MÃ
+    # (to/cai/kem…), `dvt_ten` = TÊN có dấu (tờ/cái/bản kẽm) để HIỂN THỊ. Mã giữ cho logic/quy đổi.
     dvt: str | None = None
+    dvt_ten: str | None = None
     kho_id: int
     vi_tri: str | None = None
     ngay_nhap: date
@@ -260,10 +453,14 @@ class StockLotOut(BaseModel):
     sl_con_lai: float
     hsd: date | None = None
     trang_thai: str
-    # Phiếu NHẬP đã tạo ra lô này — để màn Tồn kho link mã lô → phiếu. Null với tồn đầu kỳ.
+    # Phiếu NHẬP đã tạo ra lô này — màn Tồn kho hiển thị lô THEO MÃ PHIẾU (link mở phiếu). Null = đầu kỳ.
     voucher_id: int | None = None
+    voucher_ma: str | None = None
     # Giá vốn của lô — chỉ có khi `can_view_cost`. Thủ kho chọn lô mà không thấy giá.
     don_gia_nhap: int | None = None
+    # SL yêu cầu đã sinh ra lô (đọc-nối qua dòng phiếu NHẬP tạo lô → dòng yêu cầu). Không lưu cột.
+    # Không phải tiền → luôn hiện được. None = lô đầu kỳ / không nối được dòng yêu cầu.
+    sl_de_nghi: float | None = None
 
 
 class AllocationLineOut(BaseModel):
@@ -293,6 +490,8 @@ class MaterialXuatRow(BaseModel):
     voucher_ma: str | None = None
     lot_id: int | None = None
     ma_lo: str | None = None
+    # SL yêu cầu đã sinh ra dòng xuất (đọc-nối qua dòng phiếu XUẤT → dòng yêu cầu). Không lưu cột.
+    sl_de_nghi: float | None = None
     so_luong: float
     # Giá vốn ĐÍCH DANH của lô đã xuất — router XÓA khi thiếu `can_view_cost`.
     don_gia: int | None = None
@@ -301,19 +500,56 @@ class MaterialXuatRow(BaseModel):
 class MaterialHistoryOut(BaseModel):
     """Lịch sử 1 mã hàng tại 1 kho: NHẬP = các lô (kể cả đã hết) · XUẤT = dòng phiếu xuất."""
 
-    material_id: int
-    material_code: str | None = None
-    material_name: str | None = None
+    hang_loai: str
+    hang_id: int
+    hang_ma: str | None = None
+    hang_ten: str | None = None
     dvt: str | None = None
     on_hand: float
     nhap: list[StockLotOut] = []
     xuat: list[MaterialXuatRow] = []
 
 
+# --- Tra kho CÔNG KHAI (quét tem QR, không đăng nhập) -------------------------
+# TUYỆT ĐỐI không có trường tiền (giá vốn/đơn giá): trang này ai có link cũng xem được.
+
+class PublicScanLot(BaseModel):
+    ma_lo: str | None = None
+    ngay_nhap: date
+    hsd: date | None = None
+    vi_tri: str | None = None
+    sl_con_lai: float
+
+
+class PublicScanMove(BaseModel):
+    """1 lần nhập/xuất gần đây (công khai — TUYỆT ĐỐI KHÔNG có tiền)."""
+
+    loai: str              # NHAP / XUAT
+    ngay: date | None = None
+    so_ct: str
+    so_luong: float
+
+
+class PublicScanOut(BaseModel):
+    """Dữ liệu tra kho công khai: tên vật tư · ĐVT · kho · tổng tồn · vị trí · lịch sử nhập/xuất."""
+
+    material_code: str | None = None
+    material_name: str | None = None
+    dvt: str | None = None
+    kho_ten: str | None = None
+    on_hand: float
+    # Đường ảnh minh hoạ CÔNG KHAI (`/api/public/vat-lieu-anh?t=…`) — dùng lại chính token QR để
+    # serve, không cần đăng nhập. None = vật tư chưa có ảnh.
+    anh_url: str | None = None
+    lots: list[PublicScanLot] = []
+    history: list[PublicScanMove] = []
+
+
 # --- Ngưỡng tồn ---------------------------------------------------------------
 
 class StockThresholdIn(BaseModel):
-    material_id: int
+    hang_loai: str = Field(pattern="^(giay|vat_tu)$")
+    hang_id: int = Field(gt=0)
     kho_id: int
     nguong_ton: float = Field(ge=0)
     # Bỏ trống → service suy ra = nguong_ton × 1.3 (spec §7).
@@ -326,7 +562,10 @@ class StockThresholdOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    material_id: int
+    hang_loai: str
+    hang_id: int
+    hang_ma: str | None = None
+    hang_ten: str | None = None
     kho_id: int
     nguong_ton: float
     nguong_can_ton: float | None = None
@@ -338,27 +577,12 @@ class StockLevelOut(BaseModel):
     """Mức tồn của 1 mã hàng. `ton_kha_dung` chỉ có khi `can_view_stock` — thiếu quyền thì
     người dùng vẫn thấy `muc_ton` (đèn 5 màu) để biết sắp hết mà không biết còn bao nhiêu."""
 
-    material_id: int
+    hang_loai: str
+    hang_id: int
     muc_ton: str
     ton_kha_dung: float | None = None
 
 
-class StockMaterialCreate(BaseModel):
-    """Thêm nhanh mặt hàng ngay ở đề nghị — tên + ĐVT (giá nhập ở bước phiếu).
-
-    `code` tuỳ chọn: người dùng tự đặt mã; bỏ trống → hệ thống tự sinh (HH###).
-    """
-
-    name: str = Field(min_length=1, max_length=255)
-    unit: str = Field(min_length=1, max_length=16)
-    code: str | None = Field(default=None, max_length=20)
-    # Quy đổi đơn vị KHO (tuỳ chọn): 1 don_vi_phu = he_so_quy_doi × unit (đơn vị tồn).
-    don_vi_phu: str | None = Field(default=None, max_length=16)
-    he_so_quy_doi: float | None = Field(default=None, gt=0)
-
-
-class StockMaterialQuyDoi(BaseModel):
-    """Khai/sửa quy đổi cho hàng đã có — nút 'Quy đổi' trên dòng phiếu. Cả hai trống = bỏ quy đổi."""
-
-    don_vi_phu: str | None = Field(default=None, max_length=16)
-    he_so_quy_doi: float | None = Field(default=None, gt=0)
+# GỠ 2026-08-08: `StockMaterialCreate` + `StockMaterialQuyDoi` — hai cửa cho kho tự đẻ mặt
+# hàng và tự khai quy đổi cho từng dòng. Nay mặt hàng phải có sẵn trong danh mục Giấy / Vật
+# tư khác, còn quy đổi lấy từ đồ thị đơn vị dùng chung.

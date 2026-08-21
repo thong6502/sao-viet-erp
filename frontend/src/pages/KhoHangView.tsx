@@ -73,7 +73,7 @@ export function KhoHangView({ ten, ma }: { ten: string; ma?: string }) {
         </h3>
         <p style={{ margin: "0 auto", maxWidth: 480, color: "var(--ash)", fontSize: "13px", lineHeight: "1.6" }}>
           Mọi dữ liệu tồn kho, chứng từ và phân bổ lô của kho này được quản lý tự động từ dải menu 
-          <strong> Đề nghị nhập xuất</strong> và tab <strong> Tồn kho</strong>.
+          <strong> Yêu cầu nhập xuất</strong> và tab <strong> Tồn kho</strong>.
         </p>
       </div>
     </main>

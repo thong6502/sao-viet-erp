@@ -1,79 +1,39 @@
 """Repository — Danh mục Kho hàng. CRUD + tìm theo mã/tên + sinh mã tự động."""
 from __future__ import annotations
 
-import re
-
-from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
 
 from ..models.kho_hang import KhoHang
+from ..models.stock_lot import StockLot
+from ..models.stock_request import REQUEST_FULFILLABLE, StockRequest
+from ..models.stock_voucher import VOUCHER_DRAFT, StockVoucher
+from .catalog_base import CatalogRepo
 
-_FIELDS = ("ten", "vi_tri", "ghi_chu", "active")
-_MA_PREFIX = "KHO-"
 
+class KhoHangRepository(CatalogRepo):
+    model = KhoHang
+    fields = ("ten", "vi_tri", "ghi_chu", "active")
+    ma_prefix = "KHO-"
+    commit_on_write = False   # `KhoHangService` chốt sau khi đã ghi nhật ký — xem `catalog_base`
 
-class KhoHangRepository:
-    def __init__(self, db: Session) -> None:
-        self.db = db
+    def dem_rang_buoc(self, kho_id: int) -> dict[str, int]:
+        """Ba con số CHẶN xoá một kho: lô còn tồn · phiếu chờ ghi sổ · đề nghị đang xử lý.
 
-    def get(self, item_id: int):
-        return self.db.get(KhoHang, item_id)
+        Ba câu `select()` này trước 15/08/2026 nằm trong `kho_hang_service._blockers` và chạy qua
+        `self.repo.db` — service tự truy DB là đi vòng qua tầng repo, và ba model kho lọt vào
+        import của service.
 
-    def next_ma(self) -> str:
-        """Mã kế tiếp KHO-#### tính trên MỌI hàng (kể cả đã xóa mềm) → không đụng
-        mã cũ đã kẹt trong DB (ma unique). Chỉ tăng, chấp nhận có khoảng trống."""
-        rx = re.compile(rf"^{_MA_PREFIX}(\d+)$")
-        mx = 0
-        for ma in self.db.execute(select(KhoHang.ma)).scalars():
-            m = rx.match((ma or "").strip().upper())
-            if m:
-                mx = max(mx, int(m.group(1)))
-        return f"{_MA_PREFIX}{mx + 1:04d}"
+        Phiếu ĐÃ ghi sổ (lịch sử) KHÔNG kể — xóa mềm giữ nguyên FK để tra cứu.
+        """
+        def _dem(model, *conds) -> int:
+            return int(self.db.execute(
+                select(func.count()).select_from(model).where(*conds)
+            ).scalar_one())
 
-    def find_by_ma(self, ma: str):
-        ma = (ma or "").strip().upper()
-        if not ma:
-            return None
-        return self.db.execute(select(KhoHang).where(func.upper(KhoHang.ma) == ma)).scalars().first()
-
-    def list(self, *, q: str | None = None, active: bool | None = None,
-             page: int = 1, size: int = 50):
-        conds = []
-        if q:
-            like = f"%{q.strip().lower()}%"
-            conds.append(or_(func.lower(KhoHang.ma).like(like), func.lower(KhoHang.ten).like(like)))
-        if active is not None:
-            conds.append(KhoHang.active.is_(active))
-        base = select(KhoHang)
-        count_stmt = select(func.count()).select_from(KhoHang)
-        for c in conds:
-            base = base.where(c)
-            count_stmt = count_stmt.where(c)
-        total = self.db.execute(count_stmt).scalar_one()
-        page, size = max(1, page), max(1, min(size, 200))
-        base = base.order_by(KhoHang.ma.asc()).offset((page - 1) * size).limit(size)
-        return list(self.db.execute(base).scalars()), total
-
-    def create(self, data: dict):
-        obj = KhoHang(ma=data["ma"].strip().upper())
-        for k in _FIELDS:
-            if k in data:
-                setattr(obj, k, data[k])
-        self.db.add(obj)
-        self.db.commit()
-        self.db.refresh(obj)
-        return obj
-
-    def update(self, obj, data: dict):
-        if data.get("ma"):
-            obj.ma = data["ma"].strip().upper()
-        for k in _FIELDS:
-            if k in data:
-                setattr(obj, k, data[k])
-        self.db.commit()
-        self.db.refresh(obj)
-        return obj
-
-    def delete(self, obj) -> None:
-        self.db.delete(obj)
-        self.db.commit()
+        return {
+            "lo_con_ton": _dem(StockLot, StockLot.kho_id == kho_id, StockLot.sl_con_lai > 0),
+            "phieu_cho_ghi_so": _dem(StockVoucher, StockVoucher.kho_id == kho_id,
+                                     StockVoucher.trang_thai == VOUCHER_DRAFT),
+            "de_nghi_dang_xu_ly": _dem(StockRequest, StockRequest.kho_id == kho_id,
+                                       StockRequest.trang_thai.in_(REQUEST_FULFILLABLE)),
+        }

@@ -29,7 +29,134 @@ import re
 from math import ceil, floor
 
 from .routing_engine import basis_qty, compute_step_cost
-from .bu_hao_engine import bu_hao_cong_doan
+# TRẠM dòng giấy, KHÔNG phải mã đơn vị: chuỗi bù hao khoá hệ số và đọc mốc số tờ theo trạm, để
+# xưởng khai mã riêng cho một chặng (`to_in` gắn cờ *tờ in*) vẫn khớp. Xem `services/dong_giay.py`.
+from ..models.don_vi_do import TRAM_CAI, TRAM_CON, TRAM_TAY, TRAM_TO, TRAM_TO_NGUYEN
+from .bien_cong_thuc import MA_TANG_BUOC_TIEN, ngu_canh_phieu
+from .bu_hao_engine import chuoi_nguoc_dv
+from .dong_giay import dich_chuoi
+
+
+def cau_to_sang_cai(*, trang_moi_tay, so_trang, con) -> float:
+    """Hệ số cầu `tờ in → cái` của MỘT sản phẩm. NGUỒN SỰ THẬT DUY NHẤT cho cả tính giá, lệnh sản
+    xuất và bài ghép — ba tầng tự suy riêng thì ba số khác nhau cho cùng một cuốn sách.
+
+    HAI KIỂU LÀM khác hẳn nhau, `trang_moi_tay` là thứ phân biệt (không cần thêm cờ nào):
+
+    - **GẤP TAY** (sách, trang mỗi tay > 1): tờ in gấp NGUYÊN VẸN thành một tay → 1 tờ = 1 tay,
+      một cuốn cần `so_tay` tờ. Hệ số **`1/so_tay`**, NHỎ HƠN 1. Tờ không bị cắt rời nên `con`
+      KHÔNG vào công thức — nó chỉ để vẽ sơ đồ bình bài và kiểm khổ có vừa tờ.
+    - **CẮT RỜI** (tờ rơi, danh thiếp, hộp): một tờ cắt ra `con` cái.
+
+    Lấy `con` cho cả hai kiểu là sai hẳn với sách: 10 tờ mới ra 1 cuốn mà tính thành 1 tờ ra N
+    cuốn thì số giấy hụt đúng `con × so_tay` lần, và hụt một chiều (không bao giờ thừa).
+
+    `so_tay` TÍNH LẠI từ `so_trang / trang_moi_tay`; đừng nhận `so_to_per_sp` đã lưu — đó là số
+    engine GHI RA, snapshot của nó thiu ngay khi ai sửa số trang mà không chạy lại.
+    """
+    tmt = max(int(_f(trang_moi_tay) or 1), 1)
+    if tmt > 1:
+        return 1.0 / so_tay_moi_cuon(trang_moi_tay=trang_moi_tay, so_trang=so_trang)
+    return float(max(int(_f(con) or 0), 1))
+
+
+def so_tay_moi_cuon(*, trang_moi_tay, so_trang) -> int:
+    """Số TAY (= số tờ in) của một cuốn. `ceil(số trang / trang mỗi tay)`, tối thiểu 1."""
+    tmt = max(int(_f(trang_moi_tay) or 1), 1)
+    return max(ceil(max(_f(so_trang), 1.0) / tmt), 1)
+
+
+def la_gap_tay(quy_cach) -> bool:
+    """Sản phẩm GẤP TAY (sách) hay CẮT RỜI?
+
+    Dùng ĐÚNG tiêu chí `cau_to_sang_cai` dùng để chọn nhánh `1/so_tay` — hai chỗ hỏi cùng một câu
+    thì không thể trả lời lệch nhau. Ai cần biết "lệnh này có phải sách không" thì gọi hàm này,
+    đừng tự gõ lại `trang_moi_tay > 1` ở chỗ khác.
+    """
+    return max(int(_f((quy_cach or {}).get("trang_moi_tay")) or 1), 1) > 1
+
+
+MUC_PROCESS = ("C", "M", "Y", "K")
+
+
+def tap_muc(v) -> list[str]:
+    """Chuẩn hoá tập mực của MỘT mặt: viết hoa, bỏ khoảng trắng thừa, bỏ trùng, GIỮ THỨ TỰ khai.
+
+    Không có danh mục mực nên chuẩn hoá chuỗi là hàng rào duy nhất chống `185C` / `185 c` /
+    ` 185C ` thành ba mực khác nhau. An toàn vì hợp `A ∪ B` chỉ tính trong phạm vi MỘT thành phần
+    (ruột và bìa là hai bộ bản riêng), tức mã chỉ cần khớp trong tầm một cái form — và UI cho bấm
+    lại mã của mặt kia thay vì gõ lại.
+    """
+    if not isinstance(v, (list, tuple)):
+        return []
+    out: list[str] = []
+    for x in v:
+        ma = " ".join(str(x or "").split()).upper()
+        if ma and ma not in out:
+            out.append(ma)
+    return out
+
+
+def tap_muc_tu_so(so_mau_a, so_mau_b, so_mau_pha) -> tuple[list[str], list[str]]:
+    """Dựng tập mực TỪ ba con số cũ — luật DUY NHẤT để đọc dữ liệu chưa khai mực.
+
+    Dùng ở hai chỗ và phải giống hệt nhau: migration `0154` backfill DB, và engine đọc thành phần
+    do seed/script dựng tay (chúng bơm số chứ không bơm tập). Viết hai bản là hai chỗ để lệch.
+
+    `N màu process` → tiền tố `[K, C, M, Y]` (đen trước — xưởng gọi "1 màu" là đen), màu pha gắn
+    vào mặt A. Hệ quả CỐ Ý: tập bên ít màu luôn là con của bên nhiều màu, nên `|A ∪ B| = max` —
+    đúng bằng số kẽm tự trở mà engine cũ tính, và ba số dẫn xuất quay về y hệt giá trị vào.
+    Nói cách khác: dữ liệu chỉ-có-số KHÔNG đổi giá; chỉ ai khai mực thật mới thấy số kẽm khác.
+    """
+    n_a = max(int(_f(so_mau_a)), 0)
+    n_b = max(int(_f(so_mau_b)), 0)
+    n_pha = max(int(_f(so_mau_pha)), 0)
+    proc = list(("K", "C", "M", "Y"))
+    # Quá 4 là dữ liệu lạ (process chỉ có 4) — phần dư thành mực chưa rõ tên nhưng vẫn đếm đủ bản.
+    # Đặt tên theo MẶT để hai bên không vô tình gộp làm một khi hợp tập.
+    a = proc[:n_a] + [f"MỰC A{i}" for i in range(5, n_a + 1)]
+    b = proc[:n_b] + [f"MỰC B{i}" for i in range(5, n_b + 1)]
+    a += [f"PHA {i}" for i in range(1, n_pha + 1)]
+    return a, b
+
+
+def so_kem_moi_tay(muc_a, muc_b, quy_cach_in: str) -> int:
+    """Số bản kẽm cho MỘT tay (một bài in). NGUỒN SỰ THẬT DUY NHẤT của công thức kẽm.
+
+    - **AB** (sheetwise): hai mặt hai bộ bản riêng → `|A| + |B|`. Cùng một Pantone dùng ở cả hai
+      mặt vẫn phải ra hai bản, nên cộng chứ không hợp.
+    - **Tự trở / trở nhíp** (work-and-turn / work-and-tumble): cả hai mặt nằm CHUNG một bộ bản,
+      in xong lật tờ chạy lại chính bản đó → `|A ∪ B|`. Mỗi mực riêng biệt vẫn cần một bản riêng.
+      Hai kiểu này khác nhau ở TRỤC LẬT (rủi ro chồng màu, khổ giấy), không khác số bản.
+    - **1 mặt**: `|A|`.
+
+    `max(|A|, |B|)` là rút gọn SAI cho nhánh tự trở — nó chỉ đúng khi tập mặt ít màu nằm gọn trong
+    tập mặt kia. Mặt A `CMYK` với mặt B `185C` phải ra 5 bản, `max` ra 4 và thiếu đúng bản Pantone.
+    """
+    a, b = tap_muc(muc_a), tap_muc(muc_b)
+    if quy_cach_in == "mot_mat":
+        return len(a)
+    if quy_cach_in in ("tu_tro", "tro_nhip"):
+        return len(set(a) | set(b))
+    return len(a) + len(b)
+
+
+def so_mau_dan_xuat(muc_a, muc_b) -> tuple[int, int, int]:
+    """`(so_mau_a, so_mau_b, so_mau_pha)` suy từ tập mực — GIỮ ĐÚNG NGHĨA CŨ của ba cột đó.
+
+    `so_mau_a/b` đếm mực PROCESS mỗi mặt; `so_mau_pha` đếm mực pha PHÂN BIỆT của cả hai mặt gộp
+    lại (một Pantone dùng ở hai mặt vẫn là một màu pha phải pha). Giữ nguyên nghĩa để công thức
+    mực `so_mau_a + so_mau_b + so_mau_pha`, `_may_fit`, lệnh SX, bài ghép và báo giá không phải
+    sửa dòng nào — và để phiếu cũ sau backfill ra y hệt số đang lưu.
+    """
+    a, b = tap_muc(muc_a), tap_muc(muc_b)
+    proc = set(MUC_PROCESS)
+    pha = {m for m in a + b if m not in proc}
+    return (
+        sum(1 for m in a if m in proc),
+        sum(1 for m in b if m in proc),
+        len(pha),
+    )
 
 
 def _f(v, d: float = 0.0) -> float:
@@ -122,6 +249,58 @@ def safe_eval(expr_str: str, variables: dict) -> float:
         raise ValueError(f"Lỗi công thức: {e}")
 
 
+# Biến ĐƠN GIÁ mà công thức vật tư / giấy có thể dùng. Đặt hết = 1 thì công thức tiền nhả ra chính
+# LƯỢNG — xem `luong_tu_cong_thuc`. Mỗi ô một biến giá, tên nói rõ của ai (11/08/2026).
+_BIEN_DON_GIA = ("don_gia_giay", "don_gia_vat_tu")
+
+
+def _don_gia_co_so(don_gia: float, don_vi_gia: str | None) -> float:
+    """Đơn giá quy về ĐƠN VỊ CƠ SỞ mà công thức đang đếm — khai đ/tấn thì về đ/kg.
+
+    Trước 11/08/2026 việc này làm bằng một biến RIÊNG (`don_gia_kg`) phơi ra cho người dùng, thành
+    ra ô Giấy có hai chip "Đơn giá" và "Đơn giá theo cân" cho cùng một số ở mọi mặt hàng đang có
+    (23/23 dòng giấy khai đ/kg), rồi lặng lẽ lệch 1.000 lần ở đúng ca hiếm. Chủ chốt bỏ: quy đổi
+    là việc của MÁY, người khai chỉ nên thấy một chip.
+    """
+    return don_gia / 1000.0 if don_vi_gia == "tan" else don_gia
+
+
+def luong_tu_cong_thuc(formula_str: str, eval_ctx: dict) -> float | None:
+    """LƯỢNG tiêu thụ suy ngược từ công thức TIỀN — đặt mọi biến đơn giá = 1 (Đợt 4 · L).
+
+    Công thức tiền của vật tư luôn có dạng *lượng × đơn giá* (tiền bắt buộc tỉ lệ thuận với giá),
+    nên thay đơn giá bằng 1 thì kết quả chính là lượng, theo đúng đơn vị của đơn giá::
+
+        mực CMYK  `so_mau * dai_in * rong_in * don_gia_vat_tu * to_dau_vao * 0.0003` → **kg**
+        màng bóng `dai_in * rong_in * don_gia_vat_tu * to_sau_in`                → **m²**
+
+    (Chú thích cũ ở đây nói hai công thức trên "sai thang 10⁶ vì `dai_in`/`rong_in` là milimét" —
+    ĐÃ LỖI THỜI, gỡ 11/08/2026. Engine chia 1000 TRƯỚC khi bơm nên trong công thức chúng là MÉT:
+    mực CMYK ra 14,02 kg cho 11.683 m² = 1,20 g/m², đúng mức thực tế của offset 4 màu.)
+
+    Hàm này trả đúng cái công thức nói, kể cả khi công thức sai: nó không có cách nào biết xưởng
+    định lấy đơn vị gì.
+
+    Cách này KHÔNG đụng công thức tính giá và KHÔNG bắt khai định mức riêng — đúng ranh giới plan
+    chốt: kế hoạch chỉ *hỏi* "lệnh này cần bao nhiêu" rồi đọc con số.
+
+    Trả `None` (KHÔNG đoán) khi công thức không hề nhắc tới đơn giá — vd một khoản phí phẳng
+    `50000`: đặt đơn giá = 1 sẽ ra "50000 kg", một con số vô nghĩa mà lại trông như thật.
+    """
+    if not formula_str or not formula_str.strip():
+        return None
+    if not any(re.search(rf"\b{b}\b", formula_str) for b in _BIEN_DON_GIA):
+        return None
+    ctx = dict(eval_ctx)
+    for b in _BIEN_DON_GIA:
+        ctx[b] = 1.0
+    try:
+        luong = safe_eval(formula_str, ctx)
+    except Exception:
+        return None
+    return luong if luong > 0 else None
+
+
 def format_substituted_formula(formula_str: str, variables: dict) -> str:
     if not formula_str or not formula_str.strip():
         return ""
@@ -159,6 +338,14 @@ _COLS = {
     ],
 }
 _NAMES = {"nvl": "Nguyên vật liệu", "cong_doan": "Công đoạn"}
+
+# Loại dụng cụ ĐƯỢC PHÉP mang phí khuôn — dao lưu kho, mua một lần rồi cất kho dùng lại.
+# `kem` (bản kẽm) CỐ Ý ĐỨNG NGOÀI: nó là vật tư tiêu hao, mỗi bài phơi mới, và tiền nó đã nằm
+# trong công thức của bước chế bản (`so_kem × đơn giá`). Cho nó ô phí nữa là tính hai lần.
+TOOLING_CO_PHI = frozenset({"khuon_be", "khuon_ep"})
+# Nhãn đọc được của loại dao — vào thẳng tên dòng tiền ("Xén 3 mặt · phí khuôn bế"). Khớp
+# `DAO_CO_PHI` bên frontend; lệch thì hai màn gọi cùng một con dao bằng hai tên.
+TOOLING_NHAN = {"khuon_be": "khuôn bế", "khuon_ep": "khuôn ép nhũ / dập nổi"}
 
 
 def _pre(name: str, label: str) -> str:
@@ -299,9 +486,15 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     """Tính chi phí 1 SẢN PHẨM → 2 nhóm (nvl · cong_doan). Trả {name, rows, total, meta}."""
     name = tp.get("ten") or ""
     sl = _i(tp.get("so_luong")) or _i(so_luong_mac_dinh)   # SL của sản phẩm này; 0 → SL mặc định phiếu
-    # Số BÀI IN (khuôn) khác nhau của 1 sản phẩm — KHÔNG phải số tờ giấy trong sản phẩm.
-    # Nhân cả số tờ in LẪN số bộ kẽm: sách 100 trang bình 16 trang/tay = 7 bài, mỗi bài 1 bộ kẽm.
-    so_to_per_sp = max(_i(tp.get("so_to_per_sp"), 1), 1)
+    # Số TRANG nội dung của 1 sản phẩm + số trang mỗi tay gấp — người dùng khai, engine LƯU.
+    # Số tờ in đi thẳng từ đây (`sl × so_trang / con`), không qua "số bài in" nữa: chia số TAY cho
+    # số CON là chia hai đại lượng khác đơn vị, sách bình tay vì thế ra sai.
+    so_trang = max(_i(tp.get("so_trang"), 1), 1)
+    trang_moi_tay = max(_i(tp.get("trang_moi_tay"), 1), 1)
+    # Số TAY = số bài in (khuôn) — DẪN XUẤT, mỗi tay 1 bộ kẽm. Sách 160 trang tay 16 → 10 tay.
+    # Tờ rời 1/1 → 1 tay, y như trước.
+    so_tay = max(ceil(so_trang / trang_moi_tay), 1)
+    so_to_per_sp = so_tay
     qc = tp.get("quy_cach_in", "mot_mat")
     passes = 1 if qc == "mot_mat" else 2                    # số mặt qua máy (2 mặt / tự trở = 2)
 
@@ -367,29 +560,165 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     xa = max(xa, 1)
 
     # --- Số tờ CẦN in (net) — tính TRƯỚC để tra bù hao THEO SỐ TỜ (không phải số lượng) ---
-    to_net = ceil(sl * so_to_per_sp / con) if sl > 0 else 0
+    # HAI KIỂU LÀM khác hẳn nhau, `trang_moi_tay` là thứ phân biệt (không cần thêm cờ nào):
+    #  · GẤP TAY (sách, trang mỗi tay > 1): tờ in gấp NGUYÊN VẸN thành một tay → 1 tờ = 1 tay, một
+    #    cuốn cần `so_tay` tờ. Tờ không bị cắt rời nên `con` KHÔNG vào công thức — nó chỉ để vẽ sơ
+    #    đồ bình bài và kiểm khổ có vừa tờ. Bật/tắt `con_auto` vì thế không làm sai số giấy.
+    #  · CẮT RỜI (tờ rơi, danh thiếp, hộp): một tờ cắt ra `con` cái.
+    # `cai_moi_to` dùng lại làm HỆ SỐ quy đổi tờ↔cái cho chuỗi bù hao ngược ở dưới — một nguồn duy
+    # nhất, khỏi hai chỗ tính lệch nhau.
+    cai_moi_to = cau_to_sang_cai(trang_moi_tay=trang_moi_tay, so_trang=so_trang, con=con)
+    to_net = ceil(sl / cai_moi_to) if sl > 0 and cai_moi_to > 0 else 0
 
-    # --- Bù hao mỗi công đoạn: TỰ áp theo mã của công đoạn (kieu_bu_hao != "khong"), tra bậc
-    # theo SỐ TỜ CẦN IN (to_net). Toggle `tinh_bu_hao_cd` TẮT → bỏ qua (người dùng tự nhập bù). ---
-    finishing_spoilage_sum = 0.0
-    if tp.get("tinh_bu_hao_cd", True):
-        for row in tp.get("thanh_phams") or []:
-            cd = row.get("cong_doan") or {}
-            if cd and cd.get("kieu_bu_hao", "khong") != "khong":
-                finishing_spoilage_sum += bu_hao_cong_doan(cd, rows=bu_hao_rows, sl=to_net)
+    # --- Bù hao NGƯỢC theo công đoạn: đi từ CUỐI chuỗi lên, mỗi bước tra bậc theo số đi qua CHÍNH
+    # NÓ, ở ĐÚNG đơn vị của nó (bước in rơi bậc cao hơn bước xén cuối — cộng xuôi phẳng theo
+    # `to_net` thì mọi bước tra cùng một bậc). LUÔN tính: cột `tinh_bu_hao_cd` đã XOÁ (mg `0201`),
+    # tắt bù hao tự là mở đường cho báo giá hụt giấy mà không ai biết. Muốn cộng thêm thì có ô
+    # "+ Bù thêm"; muốn bớt thì đi sửa định mức của công đoạn. ---
+    chain = tp.get("thanh_phams") or []
 
-    # --- Số tờ: net → gross (tờ in) → tờ nguyên ---
-    bu_hao = _i(tp.get("bu_hao_so_to"))         # số bù nhập tay (cộng thêm to_dau_vao)
-    hao = _i(tp.get("hao_so_to"))               # số hao nhập tay (trừ bớt to_sau_in)
-    to_dau_vao = to_net + finishing_spoilage_sum + bu_hao
-    to_sau_in = max(to_dau_vao - hao, 0.0)
-    to_nguyen = ceil(to_dau_vao / xa) if to_dau_vao > 0 else 0
+    def _tram(cd: dict, dau: str) -> str | None:
+        """TRẠM dòng giấy ở một đầu của bước. Tầng gọi (`tinh_gia_service`) tra danh mục rồi bơm
+        `tram_vao`/`tram_ra` vào đây — engine này là hàm THUẦN, không đụng DB được.
 
-    so_mau_a = _i(tp.get("so_mau_a"))     # màu PROCESS mặt A (CMYK…)
-    so_mau_b = _i(tp.get("so_mau_b"))     # màu PROCESS mặt B
-    # Màu pha (Pantone) CỘNG THÊM — mỗi màu mực chạy 1 đơn vị máy là 1 bản kẽm, màu pha cũng vậy.
-    # 4 màu CMYK + 1 Pantone = 5 kẽm. Ô "Số màu mặt A/B" là màu process, KHÔNG gồm màu pha.
-    so_mau_pha = max(_i(tp.get("so_mau_pha")), 0)
+        Thiếu khoá đó thì lùi về chính mã đơn vị: đúng với dữ liệu thời chỉ 5 mã dòng giấy khai
+        được, và giữ cho các test gọi thẳng engine bằng dict tự dựng vẫn chạy như cũ.
+        """
+        return cd.get(f"tram_{dau}", cd.get(f"don_vi_{dau}"))
+
+    # Bước ở trên DÒNG GIẤY = CẢ HAI đầu đứng ở một trạm. Ghi kẽm khai `bai → kem` (hai đầu ngoài
+    # trạm) nên tự rơi ra khỏi đây — không cần luật riêng theo `nhom`.
+    idx_giay = [i for i, r in enumerate(chain)
+                if _tram(r.get("cong_doan") or {}, "vao")
+                and _tram(r.get("cong_doan") or {}, "ra")]
+    # Bước rơi khỏi dòng giấy thì bù hao của nó biến mất KHÔNG kèn không trống — phải kêu, đừng để
+    # số 0 im lặng. Trừ chế bản: nó vốn không chạm giấy, kêu là kêu oan mỗi phiếu.
+    for i, r in enumerate(chain):
+        cd = r.get("cong_doan") or {}
+        if i not in idx_giay and cd.get("nhom") != "prepress":
+            thieu = not (cd.get("don_vi_vao") and cd.get("don_vi_ra"))
+            ly_do = ("chưa khai đơn vị vào/ra" if thieu
+                     else f"đơn vị {cd.get('don_vi_vao')} → {cd.get('don_vi_ra')} không nằm trên "
+                          f"dòng giấy")
+            warnings.append(
+                f"Thành phần '{name}': công đoạn '{r.get('ten') or cd.get('ten') or '?'}' {ly_do} "
+                f"— không được tính vào dòng giấy (bù hao của nó bỏ qua)."
+            )
+    # Đơn vị vào/ra KHAI ở danh mục công đoạn. HỆ SỐ thì phiếu cấp — `con` (bình bài) và `xa`
+    # (số mảnh xả) đã tính ở trên, khai lại vào danh mục là đẻ nguồn sự thật thứ hai.
+    # Ranh giới tờ in → cái: cắt rời thì 1 tờ ra `con` cái; GẤP TAY thì ngược chiều — phải gom
+    # `so_tay` tờ mới ra 1 cuốn (hệ số 1/so_tay). Không có nó, chuỗi ngược chạy 1:1 và mỗi cuốn
+    # hỏng ở bước xén chỉ đòi bù 1 tờ thay vì `so_tay` tờ.
+    # Sách còn đi ĐƯỜNG DÀI qua TAY: gấp (tờ in → tay) rồi bắt tay + vào keo (tay → cuốn). Cầu
+    # đầu là 1 — gấp không sinh không mất tờ; cầu sau vì thế phải gánh trọn `cai_moi_to`, và lấy
+    # THẲNG biến đó chứ không gõ lại `1/so_tay`: tích hai cầu buộc phải bằng đúng cầu tắt
+    # `to → cai`, hai công thức song song là hai chỗ để lệch nhau.
+    # Tờ rời cũng có ĐƯỜNG DÀI qua CON, tuỳ người khai đặt đầu ra bước bế/cắt là `con` hay thẳng
+    # `thành phẩm`: 1 tờ cắt ra 49 con, mỗi con là một thẻ nên `con → thành phẩm` = 1. Viết dạng
+    # CHIA thay vì hằng số 1 để tích hai cầu luôn khoá bằng cầu tắt — mai kia có hàng cần 2 con
+    # ghép thành 1 thành phẩm (thân hộp + nắp) thì `cai_moi_to` đổi là cầu này tự đổi theo.
+    # Số giấy hai đường ra như nhau; khác nhau ở chỗ bù hao tra bậc theo CON hay theo TỜ.
+    # Thiếu hai cầu này thì lệnh sản xuất (đã có đủ) và phiếu tính giá ra hai số giấy khác nhau.
+    # Khoá theo TRẠM (không theo mã đơn vị): xưởng khai mã riêng cho một chặng thì cặp mã không có
+    # trong bảng này, engine ăn hệ số 1 và số giấy sai — im lặng.
+    so_con_qd = float(max(int(con or 0), 1))
+    he_so_dv = {
+        (TRAM_TO, TRAM_CAI): cai_moi_to, (TRAM_TO_NGUYEN, TRAM_TO): float(xa),
+        (TRAM_TO, TRAM_TAY): 1.0, (TRAM_TAY, TRAM_CAI): cai_moi_to,
+        (TRAM_TO, TRAM_CON): so_con_qd, (TRAM_CON, TRAM_CAI): cai_moi_to / so_con_qd,
+    }
+    buoc_in = []
+    for i in idx_giay:
+        cd = chain[i].get("cong_doan") or {}
+        buoc_in.append({
+            "cd": cd,
+            "ten": chain[i].get("ten") or cd.get("ten") or "Công đoạn",
+            "dv_vao": cd.get("don_vi_vao"),
+            "dv_ra": cd.get("don_vi_ra"),
+            "tram_vao": _tram(cd, "vao"),
+            "tram_ra": _tram(cd, "ra"),
+        })
+    # Đích của chuỗi nói bằng đúng thứ bước CUỐI nhả ra — kết ở thành phẩm thì là SL đặt, kết ở con
+    # thì là số con, kết ở tờ thì là số tờ. Một công thức chung với lệnh sản xuất, xem `dich_chuoi`.
+    tram_cuoi = buoc_in[-1]["tram_ra"] if buoc_in else None
+    to_can = dich_chuoi(sl, tram_ra_cuoi=tram_cuoi, cai_moi_to=cai_moi_to, he_so=he_so_dv)
+    buoc_giay, canh_bao_dv = chuoi_nguoc_dv(
+        buoc_in, rows=bu_hao_rows, to_can=to_can, he_so=he_so_dv)
+    for _c in canh_bao_dv:
+        warnings.append(f"Thành phần '{name}': {_c}")
+
+    # --- Số tờ: đọc RA KHỎI CHUỖI tại đúng ranh giới đơn vị, không tính riêng bên ngoài ---
+
+    def _vao_tai(tram: str) -> float | None:
+        """Số lượng VÀO của bước đầu tiên đứng ở TRẠM `tram` — mốc cần ở ranh giới đó.
+
+        Dò theo TRẠM chứ không theo mã: xưởng khai mã riêng cho chặng tờ in (`to_in`) thì dò mã
+        không thấy, mốc rơi về `to_net` và MẤT SẠCH bù hao — hỏng im lặng, không cảnh báo nào.
+        """
+        return next((b["vao"] for b in buoc_giay if b.get("tram_vao") == tram), None)
+
+    to_can_vao = _vao_tai(TRAM_TO)
+    if to_can_vao is None:      # chuỗi rỗng, hoặc toàn bước không chạm tờ in
+        to_can_vao = float(to_net)
+    finishing_spoilage_sum = ceil(to_can_vao) - to_net       # Σ bù hao công đoạn (hiện trên panel)
+    to_dau_vao = ceil(to_can_vao)
+    # Chuỗi CÓ bước xả giấy → tờ nguyên đọc thẳng từ bước đó; không có thì quy đổi ở đây như cũ.
+    _vao_nguyen = _vao_tai(TRAM_TO_NGUYEN)
+    if _vao_nguyen is not None:
+        to_nguyen = ceil(_vao_nguyen)
+    else:
+        to_nguyen = ceil(to_dau_vao / xa) if to_dau_vao > 0 else 0
+    # Tờ TỐT còn lại sau in = `ra` của bước IN (bước in cuối nếu chuỗi có nhiều) — nuôi công thức
+    # tiền của công đoạn sau in. Chuỗi không có bước in → giữ nguyên tờ vào máy (tương thích cũ).
+    to_sau_in = float(to_dau_vao)
+    for _i_row, _b in zip(idx_giay, buoc_giay):
+        if (chain[_i_row].get("cong_doan") or {}).get("nhom") == "print":
+            to_sau_in = float(ceil(_b["ra"]))
+    # Phân rã từng bước cho UI: bước nào ăn bao nhiêu tờ. Chế bản KHÔNG có mặt (không chạm tờ).
+    buoc = {i: b for i, b in zip(idx_giay, buoc_giay)}   # tra theo chỉ số dòng GỐC
+    bu_hao_chi_tiet = [
+        {
+            # KHÓA GHÉP với dòng tiền (`rows["cong_doan"][].buoc_idx`): cùng là chỉ số dòng trong
+            # `chain`. Bắt buộc phải có khóa vì hai danh sách KHÔNG cùng độ dài — chế bản không
+            # chạm tờ nên vắng mặt ở đây mà vẫn có dòng tiền. Ghép bằng cách so TÊN thì hôm nào
+            # xưởng đổi tên một công đoạn là tiền rơi khỏi thẻ mà không lỗi nào báo.
+            "buoc_idx": i,
+            "ten": (chain[i].get("ten") or (chain[i].get("cong_doan") or {}).get("ten")
+                    or "Công đoạn"),
+            "nhom": (chain[i].get("cong_doan") or {}).get("nhom"),   # UI neo "Tờ sau in" vào bước in
+            "dv_vao": b["dv_vao"], "dv_ra": b["dv_ra"],   # UI hiện chỗ ĐỔI đơn vị
+            "vao": ceil(b["vao"]),
+            "ra": ceil(b["ra"]),
+            # `ra` QUY về đơn vị vào + hệ số đã dùng. Không có hai số này thì dòng đổi đơn vị đọc
+            # lên vô lý: "55 tờ in → 5.070 con" mà 55 × 210 = 11.550, người xem không kiểm được.
+            # Ràng buộc: ra_quy + hao == vao (đúng theo cách `hao` tính ngay dưới).
+            "ra_quy": ceil(b["ra"] / (he_so_dv.get((b["tram_vao"], b["tram_ra"])) or 1.0)),
+            "he_so": he_so_dv.get((b["tram_vao"], b["tram_ra"])) or 1.0,
+            # Hao đo bằng ĐƠN VỊ VÀO: bước bế vào 74 tờ ra 15.540 con thì hao là 50 TỜ, không phải
+            # hiệu hai con số khác đơn vị.
+            "hao": ceil(b["vao"]) - ceil(b["ra"] / (he_so_dv.get((b["tram_vao"], b["tram_ra"])) or 1.0)),
+        }
+        for i, b in zip(idx_giay, buoc_giay)
+    ]
+    # Khép mạch về ĐƠN VỊ KHÁCH ĐẶT: số ra khỏi bước cuối → số thành phẩm thật sự có.
+    # Không có dòng này thì panel nhảy thẳng từ "5.000 cái" sang "24 tờ" mà giấu chỗ quy đổi.
+    #
+    # Bước cuối nhả ra thứ gì thì chia lại đúng cầu đó — nghịch đảo của `dich_chuoi`: kết ở thành
+    # phẩm giữ nguyên, kết ở TỜ thì × số cái mỗi tờ, kết ở CON thì × cái/con. Bản cũ chỉ tách hai
+    # ca (`cai` hay không) nên chuỗi kết ở `con` bị nhân nguyên `cai_moi_to` — đếm thừa `con` lần.
+    to_ra_cuoi = ceil(buoc_giay[-1]["ra"]) if buoc_giay else to_dau_vao
+    cau_cuoi = (1.0 if not tram_cuoi or tram_cuoi == TRAM_TO
+                else float(he_so_dv.get((TRAM_TO, tram_cuoi)) or 1.0))
+    so_tp_ra = floor(to_ra_cuoi * cai_moi_to / cau_cuoi) if cau_cuoi > 0 else 0
+
+    # --- Mực in: TẬP mã mỗi mặt là nguồn sự thật; ba số màu là dẫn xuất ---
+    muc_a, muc_b = tap_muc(tp.get("muc_a")), tap_muc(tp.get("muc_b"))
+    if not muc_a and not muc_b:
+        # Thành phần chỉ có ba con số (seed/script dựng tay, phiếu chưa qua backfill) → dựng tập
+        # theo ĐÚNG luật migration `0154` dùng. Không có nhánh này thì chúng ra 0 kẽm lặng lẽ.
+        muc_a, muc_b = tap_muc_tu_so(
+            tp.get("so_mau_a"), tp.get("so_mau_b"), tp.get("so_mau_pha"))
+    so_mau_a, so_mau_b, so_mau_pha = so_mau_dan_xuat(muc_a, muc_b)
     so_mau = so_mau_a + so_mau_b + so_mau_pha
     co_in = bool(tp.get("co_in", True))
 
@@ -402,108 +731,106 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     rong_in_m = kho_in_r / 1000.0
     dinh_luong = _f(tp.get("gsm")) / 1000.0  # gsm / 1000 -> kg/m2 (0.25)
 
-    # --- Số kẽm ---
-    # 1 bộ kẽm mang cả 2 mặt (mot_mat / tự trở / trở nhíp) → chỉ màu A; AB (hai_mat) = 2 bộ riêng A+B.
-    kem_mau = so_mau_a if qc in ("mot_mat", "tu_tro", "tro_nhip") else (so_mau_a + so_mau_b)
-    kem_mau += so_mau_pha        # màu pha = mực riêng, chạy đơn vị riêng → bản kẽm riêng
+    # --- Số kẽm --- mỗi TAY một bộ bản (mỗi tay một nội dung khác), xem `so_kem_moi_tay`.
+    kem_mau = so_kem_moi_tay(muc_a, muc_b, qc)
     so_kem = kem_mau * so_to_per_sp
     so_luot = to_dau_vao * passes
 
-    # --- Cấu cảnh biến dùng chung ---
-    ctx_vars = {
-        "dai_tp": dai_tp_m,
-        "rong_tp": rong_tp_m,
-        "dai_nguyen": dai_nguyen_m,
-        "rong_nguyen": rong_nguyen_m,
-        "dai_in": dai_in_m,
-        "rong_in": rong_in_m,
-        "so_luong": sl,
-        "so_tp": con,
-        "so_mau": so_mau,
-        "so_mau_pha": so_mau_pha,
-        "so_mat": passes,
-        "so_kem": so_kem,
-        "to_dau_vao": to_dau_vao,
-        "to_sau_in": to_sau_in,
-        "to_nguyen": to_nguyen,
-        "dinh_luong": dinh_luong,
-    }
+    # --- Ngữ cảnh biến dùng chung: dựng từ TỪ ĐIỂN, không khai lại dict ở đây ---
+    # Trước 11/08/2026 đây là một dict rời, còn danh sách chip thì nằm cứng bên frontend — hai nửa
+    # của cùng một sự thật, không gì ép khớp, và đã lệch thật (`so_mau_pha` có giá trị mà không gõ
+    # được). Nay `bien_cong_thuc` là nguồn duy nhất; thiếu biến là TypeError ngay, không im lặng.
+    ctx_vars = ngu_canh_phieu(
+        dai_tp=dai_tp_m, rong_tp=rong_tp_m,
+        dai_nguyen=dai_nguyen_m, rong_nguyen=rong_nguyen_m,
+        dai_in=dai_in_m, rong_in=rong_in_m,
+        so_luong=sl, so_tp=con,
+        to_dau_vao=to_dau_vao, to_sau_in=to_sau_in, to_nguyen=to_nguyen,
+        so_mau=so_mau, so_mau_pha=so_mau_pha, so_mat=passes, so_kem=so_kem,
+        dinh_luong=dinh_luong,
+    )
 
     # 2 nhóm: nvl (giấy + vật tư) · cong_doan (chế bản/in/gia công theo thứ tự routing).
     rows: dict[str, list[dict]] = {"nvl": [], "cong_doan": []}
 
     # --- Giấy (Nguyên vật liệu) ---
-    nguon = tp.get("nguon_giay", "cong_ty")
+    # GỠ 2026-08-09 (Đợt 4 · K): nhánh "khách cấp giấy → 0đ". Cột `nguon_giay` còn trong DB nhưng
+    # engine KHÔNG đọc nữa — mọi thành phần đều tính tiền giấy theo công thức.
+    # ⚠️ Phiếu CŨ có `nguon_giay='khach'` mở ra tính lại sẽ NHẢY GIÁ TĂNG (trước không tính tiền
+    # giấy, nay có). Báo giá đã chốt không ảnh hưởng — chúng đã chụp giá tại thời điểm gửi.
     don_gia_giay = _f(tp.get("don_gia_giay"))
     don_vi = tp.get("don_gia_don_vi", "to")
     giay_ten = tp.get("giay_ten") or tp.get("kho_nguyen") or "Giấy"
 
-    if nguon == "khach":
-        rows["nvl"].append({
-            "ten": _pre(name, giay_ten),
-            "so_to": to_nguyen,
-            "don_gia": 0.0,
-            "thanh_tien": 0.0,
-            "gia_don_sp": 0.0,
-            "ghi_chu": "Khách cấp giấy",
-            "cong_thuc": "Khách cấp giấy — 0đ"
-        })
-    else:
-        formula = tp.get("cong_thuc_gia")
-        if not formula or not formula.strip():
-            if don_vi in ("kg", "tan"):   # giấy bán theo CÂN → tiền = khối lượng × đ/kg
-                formula = "dinh_luong * dai_nguyen * rong_nguyen * don_gia_kg * to_nguyen"
-            else:                          # to | ram | cai → tính theo tờ
-                formula = "don_gia * to_nguyen"
-        
-        eval_ctx = dict(ctx_vars)
-        eval_ctx["don_gia"] = don_gia_giay
-        # don_gia_kg: quy về đ/kg cho công thức theo kg. tan (đ/tấn) → ÷1000; kg/khác → thẳng.
-        eval_ctx["don_gia_kg"] = don_gia_giay / 1000.0 if don_vi == "tan" else don_gia_giay
+    formula = tp.get("cong_thuc_gia")
+    if not formula or not formula.strip():
+        if don_vi in ("kg", "tan"):   # giấy bán theo CÂN → tiền = khối lượng × đ/kg
+            formula = "dinh_luong * dai_nguyen * rong_nguyen * don_gia_giay * to_nguyen"
+        else:                          # to | ram | cai → tính theo tờ
+            formula = "don_gia_giay * to_nguyen"
 
-        try:
-            gia_giay = safe_eval(formula, eval_ctx)
-        except Exception as e:
-            warnings.append(f"Thành phần '{name}': lỗi công thức giấy ({e}) — tính 0đ.")
-            gia_giay = 0.0
+    eval_ctx = dict(ctx_vars)
+    eval_ctx["don_gia_giay"] = _don_gia_co_so(don_gia_giay, don_vi)
 
-        rows["nvl"].append({
-            "ten": _pre(name, giay_ten),
-            "so_to": to_nguyen,
-            "don_gia": _r(don_gia_giay),
-            "thanh_tien": _r(gia_giay),
-            "gia_don_sp": _r(gia_giay / sl) if sl > 0 else 0.0,
-            "cong_thuc": format_substituted_formula(formula, eval_ctx)
-        })
+    try:
+        gia_giay = safe_eval(formula, eval_ctx)
+    except Exception as e:
+        warnings.append(f"Thành phần '{name}': lỗi công thức giấy ({e}) — tính 0đ.")
+        gia_giay = 0.0
+
+    rows["nvl"].append({
+        # Nhóm `nvl` trộn GIẤY với vật tư (mực/màng/keo) trong cùng một danh sách. Panel số tờ của
+        # sản phẩm cần tách riêng dòng giấy nên phải có cờ — dò bằng "dòng đầu tiên" là đúng hôm
+        # nay và sai ngay hôm engine đổi thứ tự.
+        "loai": "giay",
+        "cong_thuc_goc": (formula or "").strip(),   # xem chú thích ở nhóm `cong_doan`
+        "ten": _pre(name, giay_ten),
+        "so_to": to_nguyen,
+        "don_gia": _r(don_gia_giay),
+        "thanh_tien": _r(gia_giay),
+        "gia_don_sp": _r(gia_giay / sl) if sl > 0 else 0.0,
+        "cong_thuc": format_substituted_formula(formula, eval_ctx)
+    })
 
     # --- Vật tư in ấn thêm (mực/màng/keo…) → Nguyên vật liệu: thế biến vào CÔNG THỨC của vật tư
-    # (HỆT giấy — công thức nằm ở danh mục vật tư, engine chỉ thế số). don_gia/don_gia_kg/m² phơi sẵn. ---
+    # (HỆT giấy — công thức nằm ở danh mục vật tư, engine chỉ thế số). `don_gia_vat_tu` phơi sẵn. ---
     for vt in tp.get("vat_tus") or []:
         vt_ten = vt.get("ten") or "Vật tư"
         vt_formula = vt.get("cong_thuc_gia")
         vt_don_gia = _f(vt.get("don_gia"))
+        vt_don_vi = vt.get("don_vi_gia", "kg")
+        luong_vt = None
         if not vt_formula or not vt_formula.strip():
             warnings.append(f"Vật tư '{vt_ten}' (thành phần '{name}'): chưa có công thức — tính 0đ.")
             tien_vt, dan_vt = 0.0, "thiếu công thức — 0đ"
         else:
-            vt_don_vi = vt.get("don_vi_gia", "kg")
             eval_ctx = dict(ctx_vars)
-            eval_ctx["don_gia"] = vt_don_gia
-            eval_ctx["don_gia_kg"] = vt_don_gia / 1000.0 if vt_don_vi == "tan" else vt_don_gia
-            eval_ctx["don_gia_m2"] = vt_don_gia
+            eval_ctx["don_gia_vat_tu"] = _don_gia_co_so(vt_don_gia, vt_don_vi)
             try:
                 tien_vt = safe_eval(vt_formula, eval_ctx)
                 dan_vt = format_substituted_formula(vt_formula, eval_ctx)
             except Exception as e:
                 warnings.append(f"Vật tư '{vt_ten}': lỗi công thức ({e}) — tính 0đ.")
                 tien_vt, dan_vt = 0.0, "lỗi công thức — 0đ"
+            # LƯỢNG tiêu thụ (Đợt 4 · L) — suy từ chính công thức tiền, không khai định mức riêng.
+            # `don_gia` đã quy về đơn vị cơ sở ở trên, nên lượng ra theo kg kể cả khi giá khai đ/tấn.
+            luong_vt = luong_tu_cong_thuc(vt_formula, eval_ctx)
         rows["nvl"].append({
+            "loai": "vat_tu",
+            "cong_thuc_goc": (vt_formula or "").strip(),
             "ten": _pre(name, vt_ten),
             "so_to": to_dau_vao,
             "don_gia": _r(vt_don_gia),
             "thanh_tien": _r(tien_vt),
             "gia_don_sp": _r(tien_vt / sl) if sl > 0 else 0.0,
             "cong_thuc": dan_vt,
+            # Kế hoạch vật tư đọc hai field này. `None` = công thức không suy được lượng ⇒ KHÔNG
+            # có dòng cân đối, thà thiếu còn hơn bịa một con số để đi mua hàng theo.
+            # 4 số lẻ chứ KHÔNG dùng `_r` (2 số lẻ như tiền): lượng mực cho một lệnh nhỏ có thể là
+            # 0,003 kg — làm tròn 2 số lẻ là biến nó thành 0 và dòng cân đối biến mất.
+            "luong": round(luong_vt, 4) if luong_vt is not None else None,
+            "luong_don_vi": vt_don_vi if luong_vt is not None else None,
+            "vat_tu_id": vt.get("vat_tu_id"),
         })
 
     # Chuỗi công đoạn là NGUỒN DUY NHẤT: In / Chế bản phải nằm trong routing như mọi công đoạn
@@ -524,14 +851,24 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         "so_trang": 0, "so_cuon": 0, "so_bao": 0, "so_thung": 0,
     }
 
-    for row in tp.get("thanh_phams") or []:
+    for idx_buoc, row in enumerate(chain):
         cd = row.get("cong_doan") or {}
         ten_r = row.get("ten") or cd.get("ten") or "Công đoạn"
-        row_sl = _i(row.get("so_luong"))
-        don_gia_r = _f(row.get("don_gia"))
-        basis = cd.get("pricing_basis") if cd else None
 
         ctx = dict(ctx_base)
+        # SỐ CỦA CHÍNH BƯỚC NÀY (đọc từ chuỗi ngược) — đây là hai chip `sl_vao`/`sl_ra` ở ô Công
+        # thức tính giá của danh mục Công đoạn. Không có chúng thì công thức tiền chỉ với được
+        # `to_dau_vao` — số tờ vào máy đã gồm bù hao của CẢ chuỗi — nên bước đứng sau in tính tiền
+        # cả trên số tờ mà bước trước đã đốt. Đo trên phiếu thật: gấp tay chạm 5.000 mà tính 5.200.
+        #
+        # Đo bằng ĐƠN VỊ CỦA BƯỚC, đúng như hai con số panel đang hiện trên thẻ (`bu_hao_chi_tiet`):
+        # bước gấp là 5.000 tờ → 5.000 tay, bước vào keo là 5.000 tay → 1.000 cuốn.
+        #
+        # Bước không nằm trên dòng giấy (chế bản: nhả kẽm, không chạm tờ) rơi về tờ vào máy — kẽm
+        # phục vụ cả lượt in. KHÔNG để trống: công thức lỡ gõ `sl_vao` sẽ thiếu biến rồi ra 0đ.
+        _b_nay = buoc.get(idx_buoc)
+        ctx["sl_vao"] = ceil(_b_nay["vao"]) if _b_nay else to_dau_vao
+        ctx["sl_ra"] = ceil(_b_nay["ra"]) if _b_nay else to_dau_vao
         # so_mat: dòng IN (nhom=print) LUÔN theo số mặt cách in (passes) — KHÔNG để field mặc định=1
         # nuốt (N2: model so_mat default=1 khiến fallback passes thành code chết). Finishing tự set
         # so_mat (cán 1/2 mặt); ≤0 → dùng passes.
@@ -544,28 +881,14 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         ctx["dt_thanh_pham_cm2"] = _f(row.get("dien_tich"))
 
         formula = cd.get("cong_thuc_gia") if cd else None
-        # Mặc định theo nhom khi công đoạn CHƯA khai công thức: print → công in theo lượt; prepress → kẽm.
-        if (not formula or not formula.strip()) and cd:
-            _nhom_cd = cd.get("nhom")
-            if _nhom_cd == "print":
-                formula = "to_dau_vao * so_mat * don_gia"
-            elif _nhom_cd == "prepress":
-                formula = "so_kem * don_gia"
         if formula and formula.strip():
-            final_don_gia = don_gia_r
-            if not final_don_gia and cd:
-                try:
-                    res_cost = compute_step_cost(cd, ctx)
-                    final_don_gia = res_cost.get("rate_used") or 0.0
-                except Exception:
-                    final_don_gia = cd.get("run_rate") or 0.0
-
             eval_ctx = dict(ctx_vars)
-            eval_ctx["don_gia"] = final_don_gia
-            eval_ctx["don_gia_m2"] = final_don_gia
             eval_ctx["so_mat"] = ctx["so_mat"]
-            eval_ctx["so_vi_tri"] = ctx["so_vi_tri"]
-            eval_ctx["dien_tich"] = ctx["dt_thanh_pham_cm2"]
+            # Bơm ĐỦ bộ biến tầng bước — `ngu_canh_phieu` không bơm được (nó chạy một lần cho cả
+            # thành phần, chưa biết bước nào). Đọc theo danh sách khai thay vì gõ tay từng tên:
+            # thêm biến tầng bước sau này mà quên bơm thì `KeyError` nổ ngay, không ra 0đ im lặng.
+            for _ma in MA_TANG_BUOC_TIEN:
+                eval_ctx[_ma] = ctx[_ma]
 
             try:
                 tien = safe_eval(formula, eval_ctx)
@@ -577,9 +900,9 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
                 dan_d = "lỗi công thức — 0đ"
                 ghi_chu = str(e)
         else:
-            # Formula-only (chốt 2026-07-22): công đoạn finishing/gia công CHƯA khai công thức
-            # → 0đ + cảnh báo. KHÔNG dùng fallback đơn giá routing / rate cũ (tránh "×400đ ma"
-            # không ai chủ ý nhập). In/kẽm (print/prepress) vẫn có công thức mặc định ở trên.
+            # Formula-only (chốt 2026-07-22, siết trọn 11/08/2026): công đoạn CHƯA khai công thức
+            # → 0đ + cảnh báo, KHÔNG trừ nhóm nào. Không dùng fallback đơn giá routing / rate cũ
+            # (tránh "×400đ ma" không ai chủ ý nhập).
             warnings.append(f"Công đoạn '{ten_r}': chưa khai công thức tính giá — tính 0đ.")
             tien = 0.0
             dan_d = "thiếu công thức — 0đ"
@@ -592,6 +915,11 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
 
         # MỌI công đoạn (chế bản/in/gia công) vào chung nhóm "Công đoạn", giữ thứ tự routing.
         rows["cong_doan"].append({
+            "buoc_idx": idx_buoc,   # khóa ghép với `bu_hao_chi_tiet[].buoc_idx` — xem chú thích ở đó
+            # Công thức NGUYÊN VĂN như người ta khai trong danh mục. `cong_thuc` bên dưới là bản đã
+            # thế số — hai thứ khác nhau và panel cần CẢ HAI: một dòng nói "tính bằng gì", một dòng
+            # nói "ra số nào". Chỉ có bản thế số thì người đọc không biết `5.200` là biến nào.
+            "cong_thuc_goc": (formula or "").strip(),
             "ten": _pre(name, ten_r),
             "thanh_tien": _r(tien),
             "gia_don_sp": _r(tien / sl) if sl > 0 else 0.0,
@@ -600,19 +928,78 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         })
 
 
+    # --- PHÍ KHUÔN: khoản MỘT LẦN, GỘP vào giá vốn ---------------------------------------------
+    #
+    # Chốt 15/08/2026: gộp thẳng thành dòng tiền trong nhóm Công đoạn để báo giá chỉ còn MỘT dòng.
+    # Bản đầu tách riêng (giá vốn không gồm dao, báo giá đẻ dòng thứ hai) — chủ dự án đổi sang gộp
+    # cho gọn khâu báo giá. Hệ quả đã biết: tiền dao bị chia theo sản lượng, xem chú thích ở dưới.
+    #
+    # CHỈ nhận phí ở bước có cờ dụng cụ là dao lưu kho. `kem` bị loại: bản kẽm là vật tư tiêu hao và
+    # tiền nó đã nằm trong công thức của bước chế bản — lấy thêm ở đây là tính hai lần.
+    khuon_dong: list[dict] = []
+    thieu_phi: list[str] = []
+    for row in chain:
+        cd = row.get("cong_doan") or {}
+        if not cd.get("requires_tooling") or cd.get("tooling_type") not in TOOLING_CO_PHI:
+            continue
+        ten_b = row.get("ten") or cd.get("ten") or "Công đoạn"
+        tien = _f(row.get("phi_khuon"))
+        if tien > 0:
+            nhan_dao = TOOLING_NHAN.get(cd.get("tooling_type") or "", "khuôn")
+            khuon_dong.append({"ten": ten_b, "loai": cd.get("tooling_type"), "thanh_tien": _r(tien)})
+            # Thành DÒNG TIỀN THẬT trong nhóm Công đoạn ⇒ `total` cộng nó vào, kéo theo `gia_von_tp`
+            # và đơn giá/sản phẩm. Chủ dự án chọn gộp (15/08/2026) để báo giá chỉ còn MỘT dòng.
+            #
+            # ⚠️ Hệ quả đã biết và đã chấp nhận: tiền dao KHÔNG đổi theo sản lượng nên khi bị chia,
+            # đơn nhỏ gánh nặng hơn đơn lớn — cùng con dao 734.300đ, đơn 500 cuốn thành 1.469 đ/cuốn
+            # còn đơn 5.000 cuốn chỉ 147 đ/cuốn.
+            #
+            # KHÔNG gắn `buoc_idx`: khoá đó dùng để ghép dòng tiền với thẻ số tờ của bước. Gắn vào
+            # đây là hai dòng cùng khoá, map `tienTheoBuoc` bên FE nuốt mất một — thẻ bước sẽ hiện
+            # tiền dao thay cho tiền công chạy máy.
+            rows["cong_doan"].append({
+                "loai": "khuon",
+                "ten": _pre(name, f"{ten_b} · phí {nhan_dao}"),
+                "thanh_tien": _r(tien),
+                "gia_don_sp": _r(tien / sl) if sl > 0 else 0.0,
+                "cong_thuc": f"phí làm {nhan_dao} — một lần, không theo sản lượng",
+                "ghi_chu": "",
+            })
+        else:
+            thieu_phi.append(ten_b)
+    if thieu_phi:
+        # NHẮC, không chặn: để trống thường là ĐÚNG (dùng lại dao cũ), chặn là phiền vô cớ. Gộp một
+        # câu cho cả chuỗi thay vì kêu từng bước — ba bước cần dao là ba dòng cảnh báo đọc rất mệt.
+        warnings.append(
+            f"Thành phần '{name}': {', '.join(thieu_phi)} cần khuôn mà chưa khai phí — "
+            f"dùng lại khuôn cũ thì bỏ qua."
+        )
+
     total = sum(_f(r.get("thanh_tien")) for grp in rows.values() for r in grp)
     return {
         "name": name,
         "rows": rows,
+        "phi_khuon_dong": khuon_dong,
+        "phi_khuon": _r(sum(_f(d["thanh_tien"]) for d in khuon_dong)),
         "total": _r(total),
         "meta": {
             "so_luong": sl, "gia_von_don": _r(total / sl) if sl > 0 else 0.0,
             "con": con, "con_auto": bool(con_auto), "so_manh_xa": xa,
             "to_net": to_net, "to_gross": to_dau_vao, "to_nguyen": to_nguyen,
             "so_kem": so_kem, "so_luot": so_luot,
+            # Mực + ba số dẫn xuất trả ngược lên UI: người dùng gõ TẬP, engine chốt SỐ — client
+            # khỏi phải cài lại luật đếm process/pha rồi lệch với backend.
+            "muc_a": muc_a, "muc_b": muc_b, "kem_moi_tay": kem_mau,
+            "so_mau_a": so_mau_a, "so_mau_b": so_mau_b, "so_mau_pha": so_mau_pha,
             "to_dau_vao": to_dau_vao, "to_sau_in": to_sau_in,
-            "bu_hao_auto": _r(finishing_spoilage_sum),  # Σ bù hao công đoạn tự tra (theo số tờ)
-            "bu_hao_tay": bu_hao, "hao_tay": hao,        # số bù / hao nhập tay
+            "bu_hao_auto": _r(finishing_spoilage_sum),   # Σ bù hao công đoạn (chuỗi ngược)
+            "bu_hao_chi_tiet": bu_hao_chi_tiet,          # phân rã: bước nào ăn bao nhiêu tờ
+            "so_trang": so_trang, "trang_moi_tay": trang_moi_tay,   # người dùng khai
+            "so_to_per_sp": so_to_per_sp,                # số bài in — DẪN XUẤT: so_trang / trang_moi_tay
+            "to_ra_cuoi": to_ra_cuoi, "so_tp_ra": so_tp_ra,  # khép mạch tờ → thành phẩm
+            # Hai ô nhập tay đã bỏ hẳn ("− Hao" trước, "+ Bù thêm" 15/08/2026) — giữ khoá trả về
+            # ở 0 để phiếu cũ và màn cũ đọc không vỡ; đừng dựng lại ô nào ở đây.
+            "bu_hao_tay": 0, "hao_tay": 0,
         },
     }
 
@@ -637,7 +1024,15 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[d
         one = _compute_one(tp, so_luong, warns, flags, bu_hao_list)
         for idx in ("nvl", "cong_doan"):
             grouped[idx].extend(one["rows"][idx])
-        components.append({"idx": i, "name": one["name"], "gia_von_tp": one["total"], **one["meta"]})
+        components.append({
+            "idx": i, "name": one["name"], "gia_von_tp": one["total"],
+            # ⚠️ Phí khuôn ĐÃ NẰM TRONG `gia_von_tp` — nó là một dòng tiền của nhóm Công đoạn
+            # (xem `_compute_one`) nên `total` cộng rồi. Hai khoá dưới chỉ để BÀY RA "trong giá vốn
+            # có bao nhiêu tiền dao"; cộng thêm lần nữa là tính hai lần, mà báo giá lấy thẳng
+            # `gia_von_tp` làm giá vốn khoá nên sai sẽ chạy tới tận hoá đơn.
+            "phi_khuon": one["phi_khuon"], "phi_khuon_dong": one["phi_khuon_dong"],
+            **one["meta"],
+        })
 
     if not thanh_phans:
         warns.append("Phiếu chưa có thành phần nào — giá vốn = 0.")
@@ -659,6 +1054,10 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[d
             "tong_so_luong": tong_sl,        # Σ SL các sản phẩm
             "so_thanh_phan": len(thanh_phans or []),   # = SỐ SẢN PHẨM
             "gia_von_don": _r(gia_von_don),            # đơn giá BÌNH QUÂN (Σ giá vốn / Σ SL)
+            # Σ phí khuôn CẢ PHIẾU — số để SOI, đã nằm SẴN trong `grand_total` và `gia_von_don`.
+            # Báo giá KHÔNG đẻ dòng riêng cho nó: nó lấy `gia_von_tp` của từng sản phẩm làm giá vốn
+            # rồi markup, nên tiền dao được markup cùng phần còn lại. Đừng cộng nó vào đâu nữa.
+            "phi_khuon": _r(sum(_f(c.get("phi_khuon")) for c in components)),
             "components": components,
         },
         "groups": groups,

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 
 from ..deps import (
+    get_current_user,
     CurrentUser,
     get_authorization_service,
     get_department_repository,
@@ -28,6 +29,7 @@ from ..deps import (
     require_permission,
 )
 from ..models.user import User
+from ..models.role import SCOPE_ALL
 from ..realtime import hub
 from ..services.payroll_component_service import (
     ComponentError,
@@ -42,6 +44,7 @@ from ..repositories.user_repo import UserRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.payroll_component_repo import PayrollComponentRepository
 from ..schemas.payroll import (
+    CongBoIn,
     ComponentDeleteOut,
     BulkAssignIn,
     BulkAssignOut,
@@ -96,10 +99,6 @@ from ..schemas.piece_work import (
     LeaderBracketOut,
     LeaderBracketsIn,
     LeaderBracketsOut,
-    RateIn,
-    RateOut,
-    RatesOut,
-    UnitsOut,
 )
 from ..services.payroll_service import (
     PayrollError,
@@ -119,11 +118,41 @@ from ..services.piece_work_service import (
 router = APIRouter(prefix="/api/luong", tags=["luong"])
 
 MODULE = "luong"
+
+# TỰ PHỤC VỤ (tách 10/08/2026) — một ô quyền cho MỌI việc người lao động làm với hồ sơ của CHÍNH
+# MÌNH: tự chấm công, xem công/phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng.
+# Trước đây nhóm này không gác gì (chỉ cần đăng nhập) nên không có cách nào tắt cho một vai.
+# Ba hàng rào cũ GIỮ NGUYÊN (phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công · đúng
+# khung giờ ca) — chúng chống lạm dụng, còn ô này chống truy cập.
+# Ô `self_service` ĐÃ BỎ 15/08/2026 (chủ chốt). Dữ liệu của CHÍNH MÌNH là quyền đương nhiên của
+# mọi tài khoản đăng nhập — xem công / phiếu / đơn của mình, và gửi · sửa · huỷ đơn của mình.
+# Chặn nó là chặn người ta đi làm, chứ không bảo vệ được gì: mọi đường `/me` đã tự lọc theo hồ sơ
+# gắn với tài khoản, không đọc sang ai được.
+# Ba hàng rào thật GIỮ NGUYÊN: phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công ·
+# đúng khung giờ ca. Cái quyết định THẤY MÀN NÀO vẫn là ô của chính màn đó.
+MODULE_TU_PHUC_VU = "self_service"
+SelfUser = Annotated[User, Depends(get_current_user)]
+
+# GHI LÀ GHI — xin tạm ứng cho CHÍNH MÌNH vẫn đòi ô THAO TÁC của màn Lương (chủ chốt 15/08/2026:
+# *"chưa bật thao tác lên vẫn cho gửi duyệt bình thường đó nha"*).
+#
+# Tab "Tạm ứng của tôi" đang nằm trên màn Lương, nên nó theo ô Thao tác của chính màn đó. Ai không
+# được cấp ô Lương thì không thấy màn, cũng không có gì để bấm — nhất quán.
+# `SelfUser` (đọc phiếu lương / tạm ứng của mình) vẫn là quyền đương nhiên, không đòi ô.
+SelfWriter = Annotated[User, Depends(require_permission(MODULE, "create"))]
 ConfigViewer = Annotated[
     User,
     Depends(require_any_permission((MODULE, "view_salary"), (MODULE, "update"))),
 ]
 
+
+# Tab "Lương nhân viên" (hồ sơ lương từng người) có Ô RIÊNG từ 15/08/2026 — cột Thao tác không mở
+# tab nào nữa. Ai có ô Xem lương & BHXH cũng vào được: đó là dữ liệu nhạy cảm hơn, ai đọc được nó
+# thì đọc được hồ sơ lương.
+SalaryProfileViewer = Annotated[
+    User,
+    Depends(require_any_permission((MODULE, "manage_salary_profiles"), (MODULE, "view_salary"))),
+]
 Service = Annotated[PayrollService, Depends(get_payroll_service)]
 PieceService = Annotated[PieceWorkService, Depends(get_piece_work_service)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
@@ -135,6 +164,30 @@ CompRepo = Annotated[PayrollComponentRepository, Depends(get_payroll_component_r
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
 
 
+def _chan_neu_khong_toan_cong_ty(authz: AuthorizationService, user: User, viec: str) -> None:
+    """CHỐT / MỞ LẠI / ĐÁNH DẤU ĐÃ CHI kỳ lương đòi phạm vi `all`, không nhận `own`/`department`.
+
+    Vì sao chặn chứ không thu hẹp theo phạm vi: kỳ lương là MỘT bản ghi cho cả công ty
+    (`payroll_periods` khoá theo năm+tháng, xem `get_period_by_ym`). Không có cách nào "chốt phần
+    của tổ mình" — bấm một cái là đổi trạng thái của cả kỳ.
+
+    ⚠️ LỖ HỔNG ĐÃ ĐO ĐƯỢC 10/08/2026: trước bản vá này endpoint chỉ hỏi "có ô Chốt kỳ lương
+    không", KHÔNG hỏi người bấm quản ai. Dựng vai phạm vi `own` bấm chốt ⇒ kỳ chuyển `locked`;
+    bấm tiếp ⇒ chuyển `paid` (đánh dấu ĐÃ TRẢ TIỀN cho toàn bộ người lao động). Giống hệt lỗ hổng
+    Chốt kỳ công đã vá ở đợt 1 — cùng một khuôn sai, ở hai phân hệ.
+
+    Giữ nguyên hàng rào này. Muốn cho tổ trưởng chốt lương tổ mình thì phải đổi mô hình dữ liệu
+    (kỳ lương theo phòng ban) chứ không phải nới quyền."""
+    if authz.scope_for(user, MODULE) != SCOPE_ALL:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"{viec} là việc của cả công ty — tài khoản của bạn chỉ có phạm vi trong "
+                "tổ/phòng. Nhờ người có phạm vi toàn công ty thực hiện."
+            ),
+        )
+
+
 def _emp_scope_for(authz: AuthorizationService, user: User) -> str:
     """Phạm vi DỮ LIỆU NHÂN VIÊN của người gọi. Quyền `luong:update` chỉ trả lời "được làm
     không"; "làm cho AI" là trục `nhan_su` (department_id) — hai chuyện khác nhau.
@@ -142,7 +195,7 @@ def _emp_scope_for(authz: AuthorizationService, user: User) -> str:
     Mặc định `own` (an toàn): vai nào có `luong` mà chưa khai scope `nhan_su` thì bị thu về
     chính mình chứ không rơi vào 'all'. Hiện chỉ Giám đốc và Trưởng phòng HCNS có `luong`, cả
     hai đều `nhan_su=all` nên không ai bị vướng."""
-    return authz.scope_for(user, "nhan_su") or "own"
+    return authz.scope_for(user, MODULE) or "own"
 
 
 def _raise(exc: Exception) -> None:
@@ -412,7 +465,7 @@ def delete_late_penalty_bracket(bracket_id: int, svc: Service,
 
 @router.get("/salaries/{employee_id}", response_model=SalariesOut)
 def list_salaries(employee_id: int, svc: Service, employees: Employees,
-                  users: Users, user: ConfigViewer) -> SalariesOut:
+                  users: Users, user: SalaryProfileViewer) -> SalariesOut:
     emp = employees.get_by_id(employee_id)
     rows = svc.list_salaries(employee_id)
     today = date.today()
@@ -439,7 +492,7 @@ def list_salaries(employee_id: int, svc: Service, employees: Employees,
 
 @router.get("/salaries/{employee_id}/preview", response_model=SalaryPreviewOut)
 def preview_salary(employee_id: int, svc: Service,
-                   user: ConfigViewer) -> SalaryPreviewOut:
+                   user: SalaryProfileViewer) -> SalaryPreviewOut:
     try:
         return SalaryPreviewOut(**svc.salary_preview(employee_id))
     except PayrollError as exc:
@@ -503,7 +556,7 @@ def create_advance(body: AdvanceIn, svc: Service, employees: Employees, departme
 @router.post("/advances/{advance_id}/approve", response_model=AdvanceOut)
 def approve_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, employees: Employees,
                     departments: Departments, authz: Authz,
-                    user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> AdvanceOut:
+                    user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> AdvanceOut:
     try:
         a = svc.decide_advance(advance_id=advance_id, actor=user, approve=True, note=body.note,
                                scope=_emp_scope_for(authz, user))
@@ -516,7 +569,7 @@ def approve_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, empl
 @router.post("/advances/{advance_id}/reject", response_model=AdvanceOut)
 def reject_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, employees: Employees,
                    departments: Departments, authz: Authz,
-                   user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> AdvanceOut:
+                   user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> AdvanceOut:
     try:
         a = svc.decide_advance(advance_id=advance_id, actor=user, approve=False, note=body.note,
                                scope=_emp_scope_for(authz, user))
@@ -528,7 +581,7 @@ def reject_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, emplo
 
 @router.post("/advances/{advance_id}/cancel", response_model=AdvanceOut)
 def cancel_advance(advance_id: int, svc: Service, employees: Employees, departments: Departments,
-                   user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> AdvanceOut:
+                   user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> AdvanceOut:
     try:
         a = svc.cancel_advance(advance_id=advance_id, actor=user)
     except PayrollError as exc:
@@ -538,16 +591,17 @@ def cancel_advance(advance_id: int, svc: Service, employees: Employees, departme
 
 @router.get("/advances/me", response_model=MyAdvancesOut)
 def my_advances(svc: Service, employees: Employees, departments: Departments,
-                user: CurrentUser) -> MyAdvancesOut:
+                user: SelfUser) -> MyAdvancesOut:
     res = svc.my_advances(user=user)
     return MyAdvancesOut(has_employee=res["has_employee"],
                          items=_adv_out(res["items"], employees, departments),
-                         luong_dot_1=res.get("luong_dot_1", 0))
+                         luong_dot_1=res.get("luong_dot_1", 0),
+                         ky_min_chon_duoc=res.get("ky_min_chon_duoc"))
 
 
 @router.post("/advances/me", response_model=AdvanceOut, status_code=status.HTTP_201_CREATED)
 def create_my_advance(body: MyAdvanceIn, svc: Service, employees: Employees,
-                      departments: Departments, user: CurrentUser) -> AdvanceOut:
+                      departments: Departments, user: SelfWriter) -> AdvanceOut:
     """Nhân viên TỰ lập đề nghị tạm ứng cho chính mình → pending → kế toán duyệt.
     Chỉ cần đăng nhập + có hồ sơ (không cần quyền luong:create)."""
     emp = employees.get_by_user_id(user.id)
@@ -565,10 +619,10 @@ def create_my_advance(body: MyAdvanceIn, svc: Service, employees: Employees,
 
 
 @router.get("/advances/notify-summary")
-def advance_notify_summary(svc: Service, authz: Authz, user: CurrentUser) -> dict:
+def advance_notify_summary(svc: Service, authz: Authz, user: SelfUser) -> dict:
     """Badge real-time cho Tạm ứng: `pending_approval_count` = số đề nghị đang chờ duyệt.
-    Chỉ >0 với người có quyền duyệt (luong:update); nhân viên thường → 0 (chỉ nhận toast quyết định)."""
-    can_approve = authz.can(user, MODULE, "update")
+    Chỉ >0 với người có quyền duyệt (luong:approve); nhân viên thường → 0 (chỉ nhận toast quyết định)."""
+    can_approve = authz.can(user, MODULE, "approve")
     return {"pending_approval_count": svc.count_pending_advances() if can_approve else 0}
 
 
@@ -581,14 +635,24 @@ def list_periods(svc: Service, user: Annotated[User, Depends(require_permission(
 
 
 @router.get("/table", response_model=TableOut)
-def get_table(svc: Service, employees: Employees, departments: Departments,
-              user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+def get_table(svc: Service, employees: Employees, departments: Departments, authz: Authz,
+              # Ô RIÊNG từ 15/08/2026 (mg 0195): bảng lương là công cụ quản lý, không đi theo cột
+              # Xem nữa — cấp ô Lương ở phạm vi "Của tôi" không được mở bảng lương cả công ty.
+              user: Annotated[User, Depends(require_permission(MODULE, "view_payroll_table"))],
               year: int = Query(...), month: int = Query(...)) -> TableOut:
-    data = svc.get_table(year=year, month=month)
+    # Trả cờ NGAY CẢ KHI chưa có kỳ lương: màn phải cảnh báo được "chốt công trước" từ trước lúc
+    # bấm Khởi tạo, chứ không đợi tới lúc bấm Chốt mới báo.
+    ly_do = svc.ly_do_chua_chot_duoc(year, month)
+    # LỌC THEO PHẠM VI (15/08/2026). Trước bản vá đường này trả MỌI dòng của kỳ, chỉ hỏi "có ô Xem
+    # Lương không" — ai được cấp ô đó đều đọc được lương cả công ty, kể cả khi phạm vi khai là
+    # "Của tôi". Ô Phạm vi trên dòng Lương vì thế là một ô cấu hình giả.
+    data = svc.get_table(year=year, month=month,
+                         scope=_emp_scope_for(authz, user), actor=user)
     if data is None:
-        return TableOut(period=None, lines=[])
+        return TableOut(period=None, lines=[], chan_chot_ly_do=ly_do)
     return TableOut(period=PeriodOut.model_validate(data["period"]),
-                    lines=_lines_out(data["lines"], employees, departments, svc))
+                    lines=_lines_out(data["lines"], employees, departments, svc),
+                    chan_chot_ly_do=ly_do)
 
 
 @router.post("/generate", response_model=TableOut)
@@ -600,15 +664,18 @@ def generate(body: GenerateIn, svc: Service, employees: Employees, departments: 
         _raise(exc)
     data = svc.get_table(year=body.year, month=body.month)
     return TableOut(period=PeriodOut.model_validate(data["period"]),
-                    lines=_lines_out(data["lines"], employees, departments, svc))
+                    lines=_lines_out(data["lines"], employees, departments, svc),
+                    chan_chot_ly_do=svc.ly_do_chua_chot_duoc(body.year, body.month))
 
 
 @router.put("/lines/{line_id}", response_model=LineOut)
-def update_line(line_id: int, body: LineUpdateIn, svc: Service, employees: Employees, departments: Departments,
+def update_line(line_id: int, body: LineUpdateIn, svc: Service, employees: Employees,
+                departments: Departments, authz: Authz,
                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LineOut:
     try:
         # Khoản THƯỞNG không đi qua đây nữa — xem ghi chú ở `LineUpdateIn`.
-        ln = svc.update_line(line_id=line_id, actor=user, vi_pham=body.vi_pham,
+        ln = svc.update_line(line_id=line_id, actor=user,
+                             scope=_emp_scope_for(authz, user), vi_pham=body.vi_pham,
                              pit=body.pit, pit_manual=body.pit_manual,
                              di_tre_manual=body.di_tre_manual,
                              monthly_override=body.monthly_override, note=body.note,
@@ -621,8 +688,9 @@ def update_line(line_id: int, body: LineUpdateIn, svc: Service, employees: Emplo
 
 
 @router.post("/lock", response_model=PeriodOut)
-def lock_period(body: GenerateIn, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+def lock_period(body: GenerateIn, svc: Service, authz: Authz,
+                user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
+    _chan_neu_khong_toan_cong_ty(authz, user, "Chốt bảng lương")
     try:
         p = svc.lock_period(year=body.year, month=body.month, actor=user)
     except PayrollError as exc:
@@ -631,8 +699,9 @@ def lock_period(body: GenerateIn, svc: Service,
 
 
 @router.post("/reopen", response_model=PeriodOut)
-def reopen_period(body: GenerateIn, svc: Service,
-                  user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+def reopen_period(body: GenerateIn, svc: Service, authz: Authz,
+                  user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
+    _chan_neu_khong_toan_cong_ty(authz, user, "Mở lại kỳ lương")
     try:
         p = svc.reopen_period(year=body.year, month=body.month, actor=user)
     except PayrollError as exc:
@@ -640,9 +709,42 @@ def reopen_period(body: GenerateIn, svc: Service,
     return PeriodOut.model_validate(p)
 
 
+@router.post("/cong-bo", response_model=PeriodOut)
+def cong_bo_phieu(body: CongBoIn, svc: Service, authz: Authz,
+                  user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
+    """Phát phiếu lương cho NLĐ — ngay, hoặc hẹn giờ.
+
+    Gác bằng ô CHỐT BẢNG LƯƠNG chứ không thêm ô quyền mới (chủ chốt 12/08/2026, đường 2: bớt ô để
+    quên). Ngoài đời người chốt lương và người phát phiếu cũng là một; lỡ tay thì có `/thu-hoi`."""
+    _chan_neu_khong_toan_cong_ty(authz, user, "Công bố phiếu lương")
+    try:
+        p = svc.cong_bo_phieu(year=body.year, month=body.month, actor=user,
+                              luc=body.luc, den=body.den)
+    except PayrollError as exc:
+        _raise(exc)
+    return PeriodOut.model_validate(p)
+
+
+@router.post("/thu-hoi", response_model=PeriodOut)
+def thu_hoi_phieu(body: GenerateIn, svc: Service, authz: Authz,
+                  user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
+    _chan_neu_khong_toan_cong_ty(authz, user, "Thu hồi phiếu lương")
+    try:
+        p = svc.thu_hoi_phieu(year=body.year, month=body.month, actor=user)
+    except PayrollError as exc:
+        _raise(exc)
+    return PeriodOut.model_validate(p)
+
+
 @router.post("/pay", response_model=PeriodOut)
-def pay_period(body: PeriodPayIn, svc: Service,
-               user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+# Ô RIÊNG (10/08/2026) — KHÔNG dùng chung với "Chốt bảng lương".
+# Chốt = số đã tính xong, còn Đánh dấu đã chi = tuyên bố TIỀN ĐÃ RA TỚI TAY người lao động, và nó
+# khoá luôn kỳ (muốn mở lại phải huỷ đã chi trước). Hai việc hai người thường khác nhau: người
+# tính lương chốt số, kế toán mới xác nhận đã trả. Gộp một ô là ai chốt được thì tự tuyên bố đã
+# trả — không còn ai đối chiếu.
+def pay_period(body: PeriodPayIn, svc: Service, authz: Authz,
+               user: Annotated[User, Depends(require_permission(MODULE, "manage_status"))]) -> PeriodOut:
+    _chan_neu_khong_toan_cong_ty(authz, user, "Đánh dấu đã chi lương")
     try:
         p = svc.pay_period(year=body.year, month=body.month, actor=user, note=body.note)
     except PayrollError as exc:
@@ -651,8 +753,9 @@ def pay_period(body: PeriodPayIn, svc: Service,
 
 
 @router.post("/unpay", response_model=PeriodOut)
-def unpay_period(body: PeriodPayIn, svc: Service,
-                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+def unpay_period(body: PeriodPayIn, svc: Service, authz: Authz,
+                 user: Annotated[User, Depends(require_permission(MODULE, "manage_status"))]) -> PeriodOut:
+    _chan_neu_khong_toan_cong_ty(authz, user, "Huỷ đánh dấu đã chi lương")
     try:
         p = svc.unpay_period(year=body.year, month=body.month, actor=user, note=body.note)
     except PayrollError as exc:
@@ -689,14 +792,20 @@ def _build_table_xlsx(year: int, month: int, lines) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = f"Luong {month:02d}-{year}"
+    # ⚠️ Các cột khoản CỘNG LẠI phải ra đúng cột "Tổng" (= `gross`). Thêm khoản mới vào engine mà
+    # quên thêm cột ở đây thì file xuất ra không khớp và kế toán không dò ra chênh ở đâu — đúng
+    # chuyện đã xảy ra với "Cơm ca"/"Phụ cấp ca" khi nối hai khoản đó ngày 03/08/2026.
     ws.append(["Mã", "Họ tên", "Phòng/Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
-               "Khoán", "Tăng ca", "Ca đêm", "Ca đêm (giờ×hệ số)", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN",
+               "Khoán", "Tăng ca", "Ca đêm", "Ca đêm (giờ×hệ số)", "Cơm ca", "Phụ cấp ca",
+               "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN",
                "Tạm ứng", "Thực lĩnh"])
     for l in lines:
         ws.append([l.employee_code or "", l.employee_name or "", l.department_name or "",
                    "Thử việc" if l.is_probation else "Chính thức", float(l.actual_cong),
                    int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan),
                    int(l.ot_pay), int(l.night_pay), int(getattr(l, "night_premium_pay", 0) or 0),
+                   int(getattr(l, "meal_allowance_pay", 0) or 0),
+                   int(getattr(l, "shift_allowance_pay", 0) or 0),
                    int(l.vi_pham), int(_bonus_total(l)),
                    int(l.gross), int(l.bhxh), int(l.pit), int(l.advance_total), int(l.net_pay)])
     buf = BytesIO()
@@ -723,10 +832,13 @@ def _build_bank_xlsx(year: int, month: int, lines) -> bytes:
 
 
 @router.get("/export.xlsx")
-def export_table_xlsx(svc: Service, employees: Employees, departments: Departments,
-                      user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+def export_table_xlsx(svc: Service, employees: Employees, departments: Departments, authz: Authz,
+                      user: Annotated[User, Depends(require_permission(MODULE, "export"))],
                       year: int = Query(...), month: int = Query(ge=1, le=12)) -> Response:
-    data = svc.get_table(year=year, month=month)
+    # Xuất Excel LỌC THEO PHẠM VI y như màn: tải file là một đường đọc dữ liệu,
+    # gác màn mà quên file thì hàng rào chỉ là hình vẽ.
+    data = svc.get_table(year=year, month=month,
+                         scope=_emp_scope_for(authz, user), actor=user)
     if data is None:
         raise HTTPException(status_code=404, detail="Chưa có bảng lương tháng này.")
     # PHẢI truyền `svc`: thiếu nó thì `LineOut.components` rỗng ⇒ cột "Thưởng" trong file xuất ra
@@ -736,10 +848,13 @@ def export_table_xlsx(svc: Service, employees: Employees, departments: Departmen
 
 
 @router.get("/bank.xlsx")
-def export_bank_xlsx(svc: Service, employees: Employees, departments: Departments,
-                     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+def export_bank_xlsx(svc: Service, employees: Employees, departments: Departments, authz: Authz,
+                     user: Annotated[User, Depends(require_permission(MODULE, "export"))],
                      year: int = Query(...), month: int = Query(ge=1, le=12)) -> Response:
-    data = svc.get_table(year=year, month=month)
+    # Xuất Excel LỌC THEO PHẠM VI y như màn: tải file là một đường đọc dữ liệu,
+    # gác màn mà quên file thì hàng rào chỉ là hình vẽ.
+    data = svc.get_table(year=year, month=month,
+                         scope=_emp_scope_for(authz, user), actor=user)
     if data is None:
         raise HTTPException(status_code=404, detail="Chưa có bảng lương tháng này.")
     lines = _lines_out(data["lines"], employees, departments)
@@ -750,28 +865,41 @@ def export_bank_xlsx(svc: Service, employees: Employees, departments: Department
 
 
 @router.get("/payslip/me", response_model=PayslipOut)
-def my_payslip(svc: Service, employees: Employees, departments: Departments, user: CurrentUser) -> PayslipOut:
-    res = svc.my_payslip(user=user)
+def my_payslip(svc: Service, employees: Employees, departments: Departments, user: SelfUser,
+               year: int | None = Query(default=None),
+               month: int | None = Query(default=None, ge=1, le=12)) -> PayslipOut:
+    """Phiếu lương của chính NLĐ. `year`/`month` bỏ trống ⇒ kỳ mới nhất đang mở (hành vi cũ).
+
+    Tháng gửi lên KHÔNG được tin: nó đi qua đúng bộ lọc công bố ở tầng repo, nên chỉ định một kỳ
+    chưa phát thì trả về rỗng chứ không rò số (`docs/prd-phieu-luong-tu-phuc-vu.md` §3)."""
+    res = svc.my_payslip(user=user, year=year, month=month)
     line = None
     if res["line"] is not None:
         line = _lines_out([res["line"]], employees, departments, svc)[0]
     period = PeriodOut.model_validate(res["period"]) if res["period"] is not None else None
     return PayslipOut(has_employee=res["has_employee"], employee_name=res["employee_name"],
-                      period=period, line=line)
+                      period=period, line=line,
+                      ky_xem_duoc=res.get("ky_xem_duoc") or [],
+                      cho_phat=res.get("cho_phat"))
 
 
 # --- Lương khoán (nhịp 2) ---------------------------------------------------
-
-
-@router.get("/khoan/rates", response_model=RatesOut)
-def list_rates(svc: PieceService, user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-               department_id: int | None = None) -> RatesOut:
-    return RatesOut(items=[RateOut.model_validate(r) for r in svc.list_rates(department_id=department_id)])
+#
+# ⚠️ BẢNG ĐƠN GIÁ KHOÁN KHÔNG CÒN Ở ĐÂY. Năm route `/khoan/rates` (list · tạo · sửa · xoá) và
+# `/khoan/units` đã gỡ ngày 17/08/2026: `piece_rates` thành màn "Công việc khoán" của Cấu hình danh
+# mục, đi qua `routers/cong_viec_khoan.py` (`/api/cong-viec-khoan`).
+#
+# Vì sao gỡ chứ không để song song: hai đường ghi vào cùng một bảng thì đường không đi qua
+# `CongViecKhoanService` không ghi nhật ký, và tab Nhật ký của màn thiếu dòng mà chẳng ai biết vì
+# sao. Panel "Đơn giá khoán của tổ" trong Cấu hình lương vẫn khai ngay tại chỗ — nó gọi API mới,
+# lọc theo `?to=<tên tổ>`, và đọc được nhờ OR-gate `luong` ở router kia.
+#
+# Còn lại ở đây: THƯỞNG/PHẠT tổ trưởng theo tỷ lệ hàng lỗi (bảng khác, chuyện khác).
 
 
 @router.get("/khoan/leader-brackets", response_model=LeaderBracketsOut)
 def list_leader_brackets(svc: PieceService,
-                         user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                         user: Annotated[User, Depends(require_permission(MODULE, "manage_piece_rates"))],
                          department_id: int) -> LeaderBracketsOut:
     """Bậc thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi — mỗi tổ một bộ riêng.
 
@@ -810,52 +938,6 @@ def set_leader_brackets(body: LeaderBracketsIn, svc: PieceService,
         min_output_qty=float(st.min_output_qty),
         items=[LeaderBracketOut.model_validate(b) for b in rows],
     )
-
-
-@router.get("/khoan/units", response_model=UnitsOut)
-def list_khoan_units(svc: PieceService, db: Annotated[Session, Depends(get_db)],
-                     user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> UnitsOut:
-    """Đơn vị CHỌN ĐƯỢC cho ô "Đơn vị" = danh mục `Đơn vị & quy đổi` (chủ 2026-07-31).
-
-    Trước đây là gợi ý cho ô gõ tự do (mồi mặc định ∪ đơn vị đã dùng). Gõ tự do làm đơn vị lệch
-    một chữ so với danh mục là lệnh sản xuất vĩnh viễn không quy đổi ra tiền được — thiếu đơn vị
-    thì thêm ở danh mục, một nguồn chứ không hai.
-
-    CHỈ trả danh mục, KHÔNG nối thêm đơn vị các dòng cũ: dòng cũ lưu MÃ (`m2`, `hop`, `luot`) còn
-    danh mục hiện TÊN (`m²`, `hộp`, `lượt`) nên nối vào là danh sách đôi nhau từng cặp, nhìn như
-    hai đơn vị khác nhau. Dòng cũ vẫn sửa được: màn khai tự chèn chính giá trị của nó vào danh
-    sách chọn (không ép đổi), `quy_doi_service` cũng tra được cả mã lẫn tên.
-    """
-    from ..repositories.don_vi_do_repo import DonViDoRepository
-
-    return UnitsOut(items=[d.ten for d in DonViDoRepository(db).all_active()])
-
-
-@router.post("/khoan/rates", response_model=RateOut, status_code=status.HTTP_201_CREATED)
-def create_rate(body: RateIn, svc: PieceService,
-                user: Annotated[User, Depends(require_permission(MODULE, "create"))]) -> RateOut:
-    try:
-        return RateOut.model_validate(svc.create_rate(**body.model_dump()))
-    except PieceWorkError as exc:
-        _raise(exc)
-
-
-@router.put("/khoan/rates/{rate_id}", response_model=RateOut)
-def update_rate(rate_id: int, body: RateIn, svc: PieceService,
-                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> RateOut:
-    try:
-        return RateOut.model_validate(svc.update_rate(rate_id, **body.model_dump()))
-    except PieceWorkError as exc:
-        _raise(exc)
-
-
-@router.delete("/khoan/rates/{rate_id}", status_code=204)
-def delete_rate(rate_id: int, svc: PieceService,
-                user: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
-    try:
-        svc.delete_rate(rate_id)
-    except PieceWorkError as exc:
-        _raise(exc)
 
 
 # --- Danh mục khoản thu nhập (chủ 2026-07-27) --------------------------------
@@ -992,9 +1074,11 @@ def bulk_assign_component(component_id: int, body: BulkAssignIn, csvc: CompServi
 
 
 @router.get("/lines/{line_id}/components", response_model=LineComponentsOut)
-def list_line_components(line_id: int, svc: Service, user: ConfigViewer) -> LineComponentsOut:
+def list_line_components(line_id: int, svc: Service, authz: Authz,
+                         user: ConfigViewer) -> LineComponentsOut:
     try:
-        rows = svc.list_line_components(line_id=line_id)
+        rows = svc.list_line_components(line_id=line_id,
+                                       scope=_emp_scope_for(authz, user), actor=user)
     except PayrollError as exc:
         _raise(exc)
     return LineComponentsOut(items=[LineComponentOut.model_validate(r) for r in rows])
@@ -1002,29 +1086,47 @@ def list_line_components(line_id: int, svc: Service, user: ConfigViewer) -> Line
 
 @router.post("/lines/{line_id}/components", response_model=LineComponentOut,
              status_code=status.HTTP_201_CREATED)
-def add_line_component(line_id: int, body: LineComponentIn, svc: Service,
+def add_line_component(line_id: int, body: LineComponentIn, svc: Service, authz: Authz,
                        user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
     try:
-        row = svc.add_line_component(actor=user, line_id=line_id, **body.model_dump())
+        row = svc.add_line_component(actor=user, line_id=line_id,
+                                     scope=_emp_scope_for(authz, user), **body.model_dump())
     except PayrollError as exc:
         _raise(exc)
     return LineComponentOut.model_validate(row)
 
 
 @router.put("/lines/components/{row_id}", response_model=LineComponentOut)
-def update_line_component(row_id: int, body: LineComponentPatchIn, svc: Service,
+def update_line_component(row_id: int, body: LineComponentPatchIn, svc: Service, authz: Authz,
                           user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
     try:
-        row = svc.update_line_component(actor=user, row_id=row_id, **body.model_dump())
+        row = svc.update_line_component(actor=user, row_id=row_id,
+                                        scope=_emp_scope_for(authz, user), **body.model_dump())
     except PayrollError as exc:
         _raise(exc)
     return LineComponentOut.model_validate(row)
 
 
+@router.post("/lines/components/{row_id}/bo-de", response_model=LineComponentOut | None)
+def bo_de_line_component(row_id: int, svc: Service, authz: Authz,
+                         user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+    """"Trả về theo hồ sơ" — bỏ số đè của riêng kỳ này, lấy lại mức đang khai ở hồ sơ NV.
+
+    Trả `null` khi khoản đó đã bị gỡ khỏi hồ sơ (dòng bị xoá luôn — giữ lại là trả một khoản NV
+    không còn được hưởng)."""
+    try:
+        row = svc.bo_de_line_component(actor=user, row_id=row_id,
+                                       scope=_emp_scope_for(authz, user))
+    except PayrollError as exc:
+        _raise(exc)
+    return LineComponentOut.model_validate(row) if row is not None else None
+
+
 @router.delete("/lines/components/{row_id}", status_code=204)
-def delete_line_component(row_id: int, svc: Service,
+def delete_line_component(row_id: int, svc: Service, authz: Authz,
                           user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
     try:
-        svc.delete_line_component(actor=user, row_id=row_id)
+        svc.delete_line_component(actor=user, row_id=row_id,
+                                  scope=_emp_scope_for(authz, user))
     except PayrollError as exc:
         _raise(exc)

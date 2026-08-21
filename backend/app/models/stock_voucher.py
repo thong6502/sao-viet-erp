@@ -1,13 +1,13 @@
 """Phiếu nhập / xuất kho — docs/spec-kho-de-nghi.md §5.
 
-**Mọi phiếu bắt buộc ứng theo một đề nghị đã duyệt** (`request_id` NOT NULL). Luật này
-khớp BRD: mỗi nghiệp vụ kho đều có chứng từ đề nghị đứng trước (nhập mua ← đề nghị mua
+**Mọi phiếu bắt buộc ứng theo một yêu cầu đã duyệt** (`request_id` NOT NULL). Luật này
+khớp BRD: mỗi nghiệp vụ kho đều có chứng từ yêu cầu đứng trước (nhập mua ← yêu cầu mua
 §2.17, nhập TP ← yêu cầu nhập kho của KCS §2.3 b2, xuất cấp bù ← đề xuất cấp bù §2.6 b2…).
 Ba miễn trừ của BRD (tồn đầu kỳ §2.1, điều chỉnh sau kiểm kê §2.16, hủy/thanh lý §2.14)
 đều NGOÀI phạm vi giai đoạn 1 nên chưa cần cửa thoát.
 
 Phiếu ở trạng thái `draft` chưa đụng tồn; `posted` mới ghi sổ (tạo lô nếu nhập, trừ
-`sl_con_lai` nếu xuất) và cộng `sl_da_ung` về dòng đề nghị.
+`sl_con_lai` nếu xuất) và cộng `sl_da_ung` về dòng yêu cầu.
 
 Bảng MỚI → `create_all` tự dựng, không cần migration.
 """
@@ -17,6 +17,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -24,6 +25,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -52,12 +54,17 @@ class StockVoucher(Base):
     # Số phiếu in trên chứng từ (PNK0001 / PXK0001) — sinh qua document_sequences.
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
     loai: Mapped[str] = mapped_column(String(8), index=True, nullable=False)
-    # BẮT BUỘC: không có đề nghị thì không có phiếu (spec §5).
+    # BẮT BUỘC: không có yêu cầu thì không có phiếu (spec §5).
     request_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("stock_requests.id"), index=True, nullable=False
     )
     kho_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("kho_hang.id"), index=True, nullable=False
+    )
+    # ĐIỀU CHUYỂN nội bộ: bật cho CẢ phiếu xuất nguồn LẪN phiếu nhập đích của một điều chuyển. Báo
+    # cáo kho dùng để gắn nhãn "điều chuyển" + LOẠI khỏi tổng mua/bán. Thêm qua mig 0203.
+    dieu_chuyen: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
     )
     ngay: Mapped[date] = mapped_column(Date, nullable=False)
     nguoi_lap_id: Mapped[int] = mapped_column(
@@ -117,27 +124,45 @@ class StockVoucherLine(Base):
     voucher_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("stock_vouchers.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    # Dòng đề nghị mà dòng phiếu này ứng vào — nền cho chặn "ứng vượt SL duyệt".
+    # Dòng yêu cầu mà dòng phiếu này ứng vào — nền cho chặn "ứng vượt SL duyệt".
     request_line_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("stock_request_lines.id"), index=True, nullable=False
     )
-    material_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("materials.id"), index=True, nullable=False
-    )
+    # Mặt hàng gốc — kế thừa từ dòng đề nghị, kho KHÔNG đổi được (mg 0171).
+    hang_loai: Mapped[str] = mapped_column(String(8), nullable=False)
+    hang_id: Mapped[int] = mapped_column(Integer, nullable=False)
     # Phiếu XUẤT: bắt buộc, trỏ vào lô bị trừ. Phiếu NHẬP: null lúc nháp, được gán khi
     # ghi sổ (lúc đó lô mới được sinh ra).
     lot_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("stock_lots.id"), index=True, nullable=True
     )
+    # Số theo ĐƠN VỊ NGƯỜI ĐỀ NGHỊ chọn (`stock_request_lines.dvt`) — giữ nguyên để phiếu in ra
+    # đúng con số họ đọc, và để so với `sl_duyet` mà không phải quy đổi hai đầu.
     so_luong: Mapped[float] = mapped_column(
         Numeric(14, 2), CheckConstraint("so_luong > 0"), nullable=False
     )
-    # Chỉ phiếu NHẬP: giá của lô sắp tạo. Phiếu xuất lấy giá từ lô nên để trống.
+    # Cùng số đó QUY VỀ ĐƠN VỊ GỐC của mặt hàng — đây mới là số chạy vào lô/tồn (mg 0171).
+    #
+    # Lưu chứ không tính-lúc-đọc: hệ số quy đổi là dữ liệu SỐNG (sửa quy cách đóng gói của vật tư
+    # là đổi hệ số). Tính lại sau đó thì lô nhập 3 tháng trước tự đổi số — sổ kho phải bất biến,
+    # nên chốt hệ số ngay lúc lập phiếu.
+    sl_goc: Mapped[float] = mapped_column(
+        Numeric(14, 4), CheckConstraint("sl_goc > 0"), nullable=False
+    )
+    # Chỉ phiếu NHẬP: giá của lô sắp tạo, theo ĐƠN VỊ NGƯỜI KHAI (đ/ram nếu nhập theo ram).
+    # `post()` quy về đ/đơn-vị-gốc trước khi ghi vào lô.
     don_gia: Mapped[int | None] = mapped_column(
         BigInteger, CheckConstraint("don_gia IS NULL OR don_gia >= 0"), nullable=True
     )
     # Ghi chú riêng cho DÒNG (mặt hàng) trên phiếu — vd tình trạng bao gói, lô hàng lỗi lẻ…
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Phiếu NHẬP: VỊ TRÍ cất lô trong kho (kệ/ô) do thủ kho khai lúc lập; ghi sổ chép sang
+    # `stock_lots.vi_tri`. Null với phiếu XUẤT (không tạo lô). Thêm qua migration 0115.
+    vi_tri: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Phiếu NHẬP: HẠN SỬ DỤNG của lô sắp tạo (tuỳ chọn). Một dòng nhập có thể tách nhiều lô theo
+    # hạn → mỗi (hạn, SL) là MỘT dòng phiếu; phần dư không hạn là dòng hsd=NULL. Ghi sổ chép sang
+    # `stock_lots.hsd` (đã dùng cho FIFO/FEFO: hạn sớm xuất trước). Thêm qua migration 0205.
+    hsd: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     voucher: Mapped[StockVoucher] = relationship("StockVoucher", back_populates="lines")
 

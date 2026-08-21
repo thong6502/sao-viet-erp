@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from ..deps import (
+    get_current_user,
     CurrentUser,
     get_attendance_service,
     get_authorization_service,
@@ -20,6 +22,7 @@ from ..deps import (
     get_employee_repository,
     require_permission,
 )
+from ..models.role import SCOPE_ALL
 from ..models.user import User
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository
@@ -42,6 +45,7 @@ from ..schemas.attendance import (
     RejectRequestIn,
     RequestAdjustIn,
     TodayKpiOut,
+    HeSoNgay,
     HolidayMark,
     PeriodActionIn,
     AttendancePeriodOut,
@@ -73,7 +77,48 @@ from ..services.attendance_service import (
 
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
 
-MODULE = "nhan_su"
+# Màn CHẤM CÔNG có khoá RIÊNG từ 10/08/2026 — trước đây dùng chung `nhan_su` với màn Hồ sơ
+# nhân sự, nên cấp quyền xem hồ sơ là mở luôn bảng công cả công ty.
+#
+# Các ô của màn này:
+#   read    — Bảng công tháng + Nhật ký chấm công
+#   adjust  — Chấm bù / sửa lượt bấm ⚠️
+#   lock    — Chốt kỳ / Mở lại kỳ ⚠️ (TÁCH khỏi `adjust` 10/08/2026: một cú bấm đóng băng đầu
+#             vào lương toàn nhà máy, không được đi kèm quyền sửa công thường ngày)
+#   approve — Duyệt yêu cầu chỉnh công
+#   update  — Cấu hình chấm công: Điểm chấm công · Khai ca · Lịch & Ngày lễ (gác cả ĐỌC lẫn
+#             GHI — trước đây đường đọc chỉ đòi `read` nên vai chỉ-xem đọc được toạ độ + bán
+#             kính mọi điểm chấm công và lưới phân ca cả tháng)
+MODULE = "cham_cong"
+# Tab "Yêu cầu chỉnh công" có khoá RIÊNG (11/08/2026) — trước đây xem thì dùng chung
+# `cham_cong:read`, duyệt thì dùng chung `cham_cong:adjust`. Duyệt yêu cầu chỉnh công là
+# việc của người QUẢN tổ/phòng, còn `cham_cong:read` thì ai xem bảng công cũng có.
+# Phạm vi chỉ `department` / `all` — duyệt yêu cầu của chính mình là vô nghĩa.
+MODULE_YC_CHINH_CONG = "yeu_cau_chinh_cong"
+
+# TỰ PHỤC VỤ (tách 10/08/2026) — một ô quyền cho MỌI việc người lao động làm với hồ sơ của CHÍNH
+# MÌNH: tự chấm công, xem công/phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng.
+# Trước đây nhóm này không gác gì (chỉ cần đăng nhập) nên không có cách nào tắt cho một vai.
+# Ba hàng rào cũ GIỮ NGUYÊN (phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công · đúng
+# khung giờ ca) — chúng chống lạm dụng, còn ô này chống truy cập.
+# Ô `self_service` ĐÃ BỎ 15/08/2026 (chủ chốt). Dữ liệu của CHÍNH MÌNH là quyền đương nhiên của
+# mọi tài khoản đăng nhập — xem công / phiếu / đơn của mình, và gửi · sửa · huỷ đơn của mình.
+# Chặn nó là chặn người ta đi làm, chứ không bảo vệ được gì: mọi đường `/me` đã tự lọc theo hồ sơ
+# gắn với tài khoản, không đọc sang ai được.
+# Ba hàng rào thật GIỮ NGUYÊN: phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công ·
+# đúng khung giờ ca. Cái quyết định THẤY MÀN NÀO vẫn là ô của chính màn đó.
+MODULE_TU_PHUC_VU = "self_service"
+SelfUser = Annotated[User, Depends(get_current_user)]
+
+# Ô THAO TÁC của Tự phục vụ (tách 11/08/2026). `SelfUser` (= `read`) chỉ cho XEM công / phiếu /
+# đơn của chính mình; mọi đường GHI — chấm công, gửi · sửa · huỷ đơn nghỉ, phiếu tăng ca, xin đi
+# muộn, xin tạm ứng, sửa hồ sơ của mình — đòi ô này.
+# GHI LÀ GHI — phải có ô THAO TÁC của chính màn này (chủ chốt 15/08/2026: *"tôi chưa bật thao tác
+# vẫn bấm gửi đơn được nè"*). Bấm giờ · gửi yêu cầu chỉnh công · xin đi muộn đều là ĐƯỜNG GHI,
+# không phải "xem dữ liệu của mình".
+#
+# Khác với `SelfUser` (đọc phần của mình — quyền đương nhiên, xem chú thích ở trên).
+SelfWriter = Annotated[User, Depends(require_permission(MODULE, "create"))]
 
 Service = Annotated[AttendanceService, Depends(get_attendance_service)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
@@ -84,6 +129,56 @@ Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 def _scope_for(authz: AuthorizationService, user: User) -> str:
     """Phạm vi dữ liệu của người gọi trên nhan_su (own/department/all). Mặc định own (an toàn)."""
     return authz.scope_for(user, MODULE) or "own"
+
+
+def _chan_neu_khong_toan_cong_ty(authz: AuthorizationService, user: User, viec: str) -> None:
+    """CHỐT / MỞ LẠI kỳ công là việc TOÀN CÔNG TY ⇒ đòi phạm vi `all`, không nhận `own`/`department`.
+
+    Vì sao chặn chứ không thu hẹp theo phạm vi: kỳ công là MỘT bản ghi cho cả công ty
+    (`attendance_periods` khoá theo năm+tháng), và chốt kỳ là chụp ảnh bảng công của TẤT CẢ nhân sự
+    rồi ghi thành số liệu chốt — bảng lương khi kỳ đã khoá đọc đúng ảnh chụp đó. Cho người quản một
+    tổ chốt "phần của tổ mình" thì kỳ thành nửa vời: nửa công ty có số liệu chốt, nửa kia không, mà
+    bảng lương không có cách nào biết nửa nào là nửa nào.
+
+    ⚠️ LỖ HỔNG ĐÃ ĐO ĐƯỢC 10/08/2026: trước bản vá này, endpoint chỉ hỏi "có quyền chấm bù không",
+    KHÔNG hỏi người bấm quản ai. Test dựng vai phạm vi `own` bấm chốt kỳ ⇒ CHỐT ĐƯỢC, và ảnh chụp
+    ra 2 dòng thuộc 2 phòng ban — tức đóng băng đầu vào lương của cả nhà máy. `Mở lại kỳ` còn nặng
+    hơn: nó XOÁ SẠCH ảnh chụp đó.
+
+    Hôm nay chưa ai nổ vì chỉ Giám đốc và TP HCNS có quyền chấm bù, cả hai đều phạm vi cả công ty.
+    Đây là quả mìn chờ đúng ngày phân quyền hẹp lại."""
+    if _scope_for(authz, user) != SCOPE_ALL:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"{viec} là việc của cả công ty — tài khoản của bạn chỉ có phạm vi trong "
+                "tổ/phòng. Nhờ người có phạm vi toàn công ty thực hiện."
+            ),
+        )
+
+
+def _ghi_cau_hinh_chung(action: str, viec: str):
+    """Dependency cho các đường GHI vào dữ liệu DÙNG CHUNG cả nhà máy: điểm chấm công · khai ca ·
+    lịch & ngày lễ (chủ chốt 15/08/2026).
+
+    Ba thứ đó không thuộc một tổ nào: đổi lịch lễ hay sửa khai ca là đổi CÔNG của toàn bộ nhân
+    viên. Người phạm vi "Của tôi" / "Cả phòng" mà sửa được thì họ đụng vào bảng công của cả công
+    ty — cùng loại rủi ro với Chốt kỳ công, nên dùng chung một hàng rào.
+
+    Trả về `User` để endpoint dùng như `require_permission` bình thường."""
+
+    doi_o = require_permission(MODULE, action)
+
+    # ⚠️ KHÔNG dùng `Annotated[...]` ở đây: file bật `from __future__ import annotations` nên chú
+    # thích kiểu thành CHUỖI, mà chuỗi đó lại tham chiếu `action` — biến của closure, không nằm
+    # trong globals. FastAPI giải không ra ⇒ coi `user` là tham số QUERY và trả 422 "Field
+    # required". Tham số mặc định thì `Depends(...)` được tính NGAY, không qua chú thích.
+    def _dep(authz: AuthorizationService = Depends(get_authorization_service),
+             user: User = Depends(doi_o)) -> User:
+        _chan_neu_khong_toan_cong_ty(authz, user, viec)
+        return user
+
+    return _dep
 
 
 def _raise(exc: Exception) -> None:
@@ -119,16 +214,20 @@ def _shift_out(s) -> WorkShiftOut:
 @router.get("/shifts", response_model=WorkShiftsOut)
 def list_shifts(
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "manage_shifts"))],
 ) -> WorkShiftsOut:
     return WorkShiftsOut(items=[_shift_out(s) for s in svc.list_shifts()])
+
+
+# Endpoint `/ca-lam` ĐÃ BỎ (2026-08-10) cùng hai ô "Ca làm riêng" ở màn Máy / Phòng ban: máy chạy
+# liên tục, ca khai một chỗ duy nhất tại danh mục Ca kíp bên dưới.
 
 
 @router.post("/shifts", response_model=WorkShiftOut, status_code=status.HTTP_201_CREATED)
 def create_shift(
     body: WorkShiftIn,
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("create", "Khai ca"))],
 ) -> WorkShiftOut:
     try:
         s = svc.create_shift(
@@ -147,7 +246,7 @@ def update_shift(
     shift_id: int,
     body: WorkShiftIn,
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("update", "Khai ca"))],
 ) -> WorkShiftOut:
     try:
         s = svc.update_shift(
@@ -166,7 +265,7 @@ def update_shift(
 def delete_shift(
     shift_id: int,
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "delete"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("delete", "Khai ca"))],
 ):
     try:
         svc.delete_shift(actor=user, shift_id=shift_id)
@@ -181,7 +280,10 @@ def delete_shift(
 def get_shift_plan(
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    # ⚠️ ĐỌC cũng đòi ô CẤU HÌNH, không phải ô Xem. Trước 10/08/2026 đường đọc chỉ đòi `read`:
+    # vai chỉ-xem không thấy tab nhưng vẫn gọi thẳng API đọc được toạ độ + bán kính mọi điểm
+    # chấm công và lưới phân ca cả tháng. Giao diện ẩn tab, máy chủ thì không — đúng Luật 2.
+    user: Annotated[User, Depends(require_permission(MODULE, "manage_shifts"))],
     year: int,
     month: int,
     department_id: int | None = None,
@@ -207,7 +309,7 @@ def save_shift_plan(
     body: ShiftPlanSaveIn,
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("update", "Khai ca (lưới phân ca)"))],
 ) -> ShiftPlanSaveOut:
     """Ghi hàng loạt ô lưới trong MỘT request (không lặp N request). Ô không hợp lệ
     trả về trong `rejected` kèm lý do thay vì bị bỏ qua im lặng."""
@@ -247,7 +349,7 @@ def list_shift_changes(
 
 
 @router.get("/my-shift-changes", response_model=ShiftChangesOut)
-def my_shift_changes(svc: Service, user: CurrentUser, unseen: bool = False) -> ShiftChangesOut:
+def my_shift_changes(svc: Service, user: SelfUser, unseen: bool = False) -> ShiftChangesOut:
     """Hộp thư "ca của tôi vừa bị đổi" — mọi NV có tài khoản đều xem được của CHÍNH mình,
     không cần quyền quản lý. `unseen=true` chỉ lấy tin CHƯA ĐỌC (khối báo ở màn Công của tôi)."""
     rows = svc.my_shift_changes(user=user, unseen_only=unseen)
@@ -255,13 +357,13 @@ def my_shift_changes(svc: Service, user: CurrentUser, unseen: bool = False) -> S
 
 
 @router.post("/my-shift-changes/seen", response_model=AttendanceNotifyOut)
-def mark_my_shift_changes_seen(svc: Service, user: CurrentUser) -> AttendanceNotifyOut:
+def mark_my_shift_changes_seen(svc: Service, user: SelfUser) -> AttendanceNotifyOut:
     svc.mark_shift_changes_seen(user=user)
     return AttendanceNotifyOut(unseen_shift_changes=0)
 
 
 @router.get("/notify-summary", response_model=AttendanceNotifyOut)
-def notify_summary(svc: Service, user: CurrentUser) -> AttendanceNotifyOut:
+def notify_summary(svc: Service, user: SelfUser) -> AttendanceNotifyOut:
     """Số nuôi badge + toast real-time (SSE đẩy `shift_changed` → FE gọi lại hàm này)."""
     return AttendanceNotifyOut(unseen_shift_changes=svc.unseen_shift_changes(user=user))
 
@@ -272,7 +374,10 @@ def notify_summary(svc: Service, user: CurrentUser) -> AttendanceNotifyOut:
 @router.get("/locations", response_model=WorkLocationsOut)
 def list_locations(
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    # ⚠️ ĐỌC cũng đòi ô CẤU HÌNH, không phải ô Xem. Trước 10/08/2026 đường đọc chỉ đòi `read`:
+    # vai chỉ-xem không thấy tab nhưng vẫn gọi thẳng API đọc được toạ độ + bán kính mọi điểm
+    # chấm công và lưới phân ca cả tháng. Giao diện ẩn tab, máy chủ thì không — đúng Luật 2.
+    user: Annotated[User, Depends(require_permission(MODULE, "manage_locations"))],
 ) -> WorkLocationsOut:
     return WorkLocationsOut(items=[WorkLocationOut.model_validate(l) for l in svc.list_locations()])
 
@@ -281,7 +386,7 @@ def list_locations(
 def create_location(
     body: WorkLocationIn,
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("create", "Điểm chấm công"))],
 ) -> WorkLocationOut:
     try:
         loc = svc.create_location(
@@ -298,7 +403,7 @@ def update_location(
     location_id: int,
     body: WorkLocationIn,
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("update", "Điểm chấm công"))],
 ) -> WorkLocationOut:
     try:
         loc = svc.update_location(
@@ -314,7 +419,7 @@ def update_location(
 def delete_location(
     location_id: int,
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "delete"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("delete", "Điểm chấm công"))],
 ):
     try:
         svc.delete_location(actor=user, location_id=location_id)
@@ -326,7 +431,7 @@ def delete_location(
 
 
 @router.get("/me/status", response_model=MyStatusOut)
-def my_status(svc: Service, user: CurrentUser) -> MyStatusOut:
+def my_status(svc: Service, user: SelfUser) -> MyStatusOut:
     st = svc.my_status(user=user)
     last = st.get("last_check")
     shift = st.get("shift")
@@ -350,7 +455,7 @@ def my_status(svc: Service, user: CurrentUser) -> MyStatusOut:
 
 
 @router.post("/me/preview", response_model=PreviewOut)
-def preview(body: CheckIn, svc: Service, user: CurrentUser) -> PreviewOut:
+def preview(body: CheckIn, svc: Service, user: SelfUser) -> PreviewOut:
     """Dry-run geofence (không ghi log) cho card chấm 'sống' — self-service."""
     try:
         res = svc.preview(user=user, latitude=body.latitude, longitude=body.longitude)
@@ -360,7 +465,7 @@ def preview(body: CheckIn, svc: Service, user: CurrentUser) -> PreviewOut:
 
 
 @router.post("/check", response_model=CheckResultOut)
-def check(body: CheckIn, svc: Service, user: CurrentUser) -> CheckResultOut:
+def check(body: CheckIn, svc: Service, user: SelfWriter) -> CheckResultOut:
     try:
         res = svc.check(user=user, latitude=body.latitude, longitude=body.longitude)
     except AttendanceError as exc:
@@ -380,7 +485,7 @@ def check(body: CheckIn, svc: Service, user: CurrentUser) -> CheckResultOut:
 
 
 @router.get("/me/logs", response_model=AttendanceLogsOut)
-def my_logs(svc: Service, user: CurrentUser) -> AttendanceLogsOut:
+def my_logs(svc: Service, user: SelfUser) -> AttendanceLogsOut:
     try:
         logs = svc.my_logs(user=user)
     except AttendanceError as exc:
@@ -395,7 +500,7 @@ def my_logs(svc: Service, user: CurrentUser) -> AttendanceLogsOut:
 def my_timesheet(
     svc: Service,
     depts: Depts,
-    user: CurrentUser,
+    user: SelfUser,
     year: int = Query(ge=2000, le=2100),
     month: int = Query(ge=1, le=12),
 ) -> TimesheetOut:
@@ -408,6 +513,7 @@ def my_timesheet(
         year=data["year"], month=data["month"], days_in_month=data["days_in_month"],
         standard_cong=data.get("standard_cong"),
         holidays=[HolidayMark(**h) for h in data.get("holidays", [])],
+        he_so_ngay=HeSoNgay(**data.get("he_so_ngay", {})),
         rows=_timesheet_rows(svc, depts, data),
     )
 
@@ -420,10 +526,21 @@ def list_logs(
     svc: Service,
     employees: Employees,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    # Ô RIÊNG `view_log` (11/08/2026) — KHÔNG dùng chung `read` với Bảng công tháng.
+    # Bảng công là số công đã tổng hợp; nhật ký là TỪNG LƯỢT BẤM kèm giờ + toạ độ của từng người,
+    # cả xưởng. Ai cần xem công để tính lương thì không đương nhiên cần đọc dấu chân từng người.
+    user: Annotated[User, Depends(require_permission(MODULE, "view_log"))],
     employee_id: int | None = Query(default=None),
+    # Tìm theo TÊN hoặc MÃ nhân viên. Lọc ở SQL (xem `AttendanceRepository.list_all`) — danh sách
+    # chỉ trả 100 lượt gần nhất nên lọc ở FE là gõ tên ai cũng dễ ra "không tìm thấy".
+    q: str | None = Query(default=None, max_length=100),
+    # Khoảng NGÀY VN (trọn hai đầu). Có lọc ngày thì service tự nới trần dòng — một ngày của xưởng
+    # đông người vượt xa 100 lượt, giữ trần cũ là lọc xong vẫn mất nửa ngày.
+    tu_ngay: date | None = Query(default=None),
+    den_ngay: date | None = Query(default=None),
 ) -> AttendanceLogsOut:
-    logs = svc.list_logs(scope=_scope_for(authz, user), actor=user, employee_id=employee_id)
+    logs = svc.list_logs(scope=_scope_for(authz, user), actor=user, employee_id=employee_id, q=q,
+                         tu_ngay=tu_ngay, den_ngay=den_ngay)
     loc_names = {l.id: l.name for l in svc.list_locations()}
     emp_names: dict[int, str] = {}
     for eid in {l.employee_id for l in logs}:
@@ -456,6 +573,9 @@ def _timesheet_rows(svc: AttendanceService, depts: DepartmentRepository, data: d
             paid_leave_days=r.get("paid_leave_days", 0),
             total_hours=r["total_hours"], total_cong=r.get("total_cong"),
             excused_cong=r.get("excused_cong", 0),
+            # Công đặc biệt — service đã tách sẵn từ 17/08/2026, tới 18/08 mới có đường ra API.
+            holiday_cong=r.get("holiday_cong", 0), restday_cong=r.get("restday_cong", 0),
+            plain_cong=r.get("plain_cong", 0),
         ))
     return rows
 
@@ -465,7 +585,7 @@ def timesheet(
     svc: Service,
     depts: Depts,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "view_timesheet"))],
     year: int = Query(ge=2000, le=2100),
     month: int = Query(ge=1, le=12),
     department_id: int | None = Query(default=None),
@@ -479,6 +599,7 @@ def timesheet(
         year=data["year"], month=data["month"], days_in_month=data["days_in_month"],
         standard_cong=data.get("standard_cong"),
         holidays=[HolidayMark(**h) for h in data.get("holidays", [])],
+        he_so_ngay=HeSoNgay(**data.get("he_so_ngay", {})),
         rows=_timesheet_rows(svc, depts, data),
     )
 
@@ -488,7 +609,7 @@ def timesheet_csv(
     svc: Service,
     depts: Depts,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "view_timesheet"))],
     year: int = Query(ge=2000, le=2100),
     month: int = Query(ge=1, le=12),
     department_id: int | None = Query(default=None),
@@ -546,8 +667,9 @@ def get_period(svc: Service,
 
 
 @router.post("/period/lock", response_model=AttendancePeriodOut)
-def lock_period(body: PeriodActionIn, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "adjust"))]) -> AttendancePeriodOut:
+def lock_period(body: PeriodActionIn, svc: Service, authz: Authz,
+                user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> AttendancePeriodOut:
+    _chan_neu_khong_toan_cong_ty(authz, user, "Chốt kỳ công")
     try:
         data = svc.lock_period(year=body.year, month=body.month, actor=user)
     except AttendanceError as exc:
@@ -556,8 +678,9 @@ def lock_period(body: PeriodActionIn, svc: Service,
 
 
 @router.post("/period/reopen", response_model=AttendancePeriodOut)
-def reopen_period(body: PeriodActionIn, svc: Service,
-                  user: Annotated[User, Depends(require_permission(MODULE, "adjust"))]) -> AttendancePeriodOut:
+def reopen_period(body: PeriodActionIn, svc: Service, authz: Authz,
+                  user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> AttendancePeriodOut:
+    _chan_neu_khong_toan_cong_ty(authz, user, "Mở lại kỳ công")
     try:
         data = svc.reopen_period(year=body.year, month=body.month, actor=user)
     except AttendanceError as exc:
@@ -636,7 +759,7 @@ def today_kpi(
 
 
 @router.post("/me/adjust-request", response_model=AdjustRequestOut)
-def create_adjust_request(body: RequestAdjustIn, svc: Service, user: CurrentUser) -> AdjustRequestOut:
+def create_adjust_request(body: RequestAdjustIn, svc: Service, user: SelfWriter) -> AdjustRequestOut:
     try:
         data = svc.request_adjust(user=user, date_str=body.date, check_type=body.check_type,
                                   suggested_time=body.suggested_time, reason=body.reason)
@@ -646,7 +769,7 @@ def create_adjust_request(body: RequestAdjustIn, svc: Service, user: CurrentUser
 
 
 @router.get("/me/adjust-requests", response_model=AdjustRequestsOut)
-def my_adjust_requests(svc: Service, user: CurrentUser) -> AdjustRequestsOut:
+def my_adjust_requests(svc: Service, user: SelfUser) -> AdjustRequestsOut:
     try:
         res = svc.my_requests(user=user)
     except AttendanceError as exc:
@@ -661,7 +784,7 @@ def my_adjust_requests(svc: Service, user: CurrentUser) -> AdjustRequestsOut:
 
 
 @router.post("/me/adjust-requests/{request_id}/cancel", response_model=AdjustRequestOut)
-def cancel_adjust_request(request_id: int, svc: Service, user: CurrentUser) -> AdjustRequestOut:
+def cancel_adjust_request(request_id: int, svc: Service, user: SelfWriter) -> AdjustRequestOut:
     try:
         data = svc.cancel_request(user=user, request_id=request_id)
     except AttendanceError as exc:
@@ -676,7 +799,7 @@ def cancel_adjust_request(request_id: int, svc: Service, user: CurrentUser) -> A
 def list_adjust_requests(
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
     status: str | None = Query(default="pending"),
 ) -> AdjustRequestsOut:
     items = svc.list_requests(scope=_scope_for(authz, user), actor=user,
@@ -690,7 +813,7 @@ def approve_adjust_request(
     body: ApproveRequestIn,
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "adjust"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
 ) -> AdjustRequestOut:
     try:
         data = svc.approve_request(actor=user, scope=_scope_for(authz, user), request_id=request_id,
@@ -706,7 +829,7 @@ def reject_adjust_request(
     body: RejectRequestIn,
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "adjust"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
 ) -> AdjustRequestOut:
     try:
         data = svc.reject_request(actor=user, scope=_scope_for(authz, user), request_id=request_id, note=body.note)

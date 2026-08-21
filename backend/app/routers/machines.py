@@ -9,6 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..deps import get_machine_service, require_permission
+from ..legacy_api import LEGACY_READONLY
 from ..models.user import User
 from ..schemas.machine import (
     MachineDetailOut,
@@ -20,8 +21,10 @@ from ..services.machine_service import (
     MachineService,
 )
 
-router = APIRouter(prefix="/api/machines", tags=["machines"])
-MODULE = "dm_thiet_bi"
+# `deprecated=True` → OpenAPI gạch ngang cả nhóm; client sinh code sẽ cảnh báo thay vì im lặng.
+router = APIRouter(prefix="/api/machines", tags=["machines"], deprecated=True)
+# Ô quyền RIÊNG, không dùng chung `dm_thiet_bi` của màn Thiết bị & Máy móc nữa — xem `legacy_api.py`.
+MODULE = LEGACY_READONLY
 
 @router.get("", response_model=MachineListOut)
 def list_machines(

@@ -1,0 +1,864 @@
+/* Giao diện Sơ đồ DAG kéo thả & Nối dây phụ thuộc Công đoạn (Routing) */
+
+.dag-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--rule, #e5e5e5);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* Toolbar phía trên Canvas */
+.dag-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+
+.dag-toolbar__left,
+.dag-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Công tắc chuyển chế độ View (DAG vs Table) */
+.dag-view-switch {
+  display: inline-flex;
+  background: #e9ecef;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.dag-view-switch__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #495057;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dag-view-switch__btn:hover {
+  color: #212529;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.dag-view-switch__btn--active {
+  background: #ffffff;
+  color: #c25e38;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Nút zoom / auto layout */
+.dag-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #ced4da;
+  background: #ffffff;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #343a40;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.dag-btn-icon:hover {
+  background: #f1f3f5;
+  border-color: #adb5bd;
+}
+
+/* Cụm zoom gom thành một viên: 3 nút rời cạnh nhau đọc như 3 lệnh không liên quan. */
+.dag-zoom {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.dag-zoom__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: #343a40;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dag-zoom__btn:hover {
+  background: #f1f3f5;
+}
+
+.dag-zoom__val {
+  min-width: 44px;
+  text-align: center;
+  font-family: var(--ff-mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: #343a40;
+  border-left: 1px solid #e9ecef;
+  border-right: 1px solid #e9ecef;
+  line-height: 30px;
+}
+
+/* Hàng ngang: ngăn "Bước LSX khác" + canvas */
+.dag-main {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Ngăn trái — nguồn kéo dây phụ thuộc XUYÊN LSX trong cùng đơn hàng */
+.dag-rail {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 230px;
+  width: 230px;
+  max-height: 100%;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.dag-rail--dong {
+  flex-basis: 46px;
+  width: 46px;
+}
+
+.dag-rail__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-bottom: 1px solid #f1f5f9;
+  background: #f8fafc;
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dag-rail__head:hover {
+  background: #f1f5f9;
+}
+
+.dag-rail--dong .dag-rail__head {
+  justify-content: center;
+  padding: 8px 4px;
+}
+
+.dag-rail__title {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dag-rail__count {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-family: var(--ff-mono, monospace);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.dag-rail__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.dag-rail__hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.dag-rail__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dag-rail__group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+  overflow: hidden;
+}
+
+.dag-rail__group-head:hover {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+}
+
+.dag-rail__lsx {
+  font-family: var(--ff-mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  color: #c25e38;
+  white-space: nowrap;
+}
+
+.dag-rail__nhom {
+  font-size: 10px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90px;
+}
+
+.dag-rail__group-count {
+  font-size: 10px;
+  color: #94a3b8;
+  font-family: var(--ff-mono, monospace);
+}
+
+.dag-rail__group-chevron {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  color: #64748b;
+  transition: transform 0.2s ease;
+}
+
+.dag-rail__group-chevron.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.dag-rail__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #c25e38;
+  border-radius: 6px;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  color: #1e293b;
+  cursor: grab;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: all 0.15s ease;
+}
+
+.dag-rail__item:hover {
+  border-color: #fdba74;
+  border-left-color: #c25e38;
+  background: #fff8f5;
+  box-shadow: 0 2px 6px rgba(194, 94, 56, 0.12);
+  transform: translateX(2px);
+}
+
+.dag-rail__item:active {
+  cursor: grabbing;
+}
+
+.dag-rail__item.is-readonly {
+  cursor: default;
+}
+
+.dag-rail__item.is-readonly:hover {
+  border-color: #e2e8f0;
+  background: #ffffff;
+  transform: none;
+}
+
+.dag-rail__port {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #c25e38;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.dag-rail__item.is-noi .dag-rail__port {
+  background: #c25e38;
+}
+
+.dag-rail__ten {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: #334155;
+}
+
+.dag-rail__da-noi {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: #c25e38;
+}
+
+/* Khung Canvas chính */
+.dag-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  min-height: 320px;
+  background-color: #fafbfc;
+  background-image: radial-gradient(#d0d7de 1.2px, transparent 1.2px);
+  background-size: 20px 20px;
+  border: 1px solid #e1e4e8;
+  border-radius: 8px;
+  overflow: auto;
+  user-select: none;
+  cursor: grab;
+  scrollbar-gutter: stable;
+}
+
+.dag-viewport::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.dag-viewport::-webkit-scrollbar-track {
+  background: #f1f3f5;
+}
+
+.dag-viewport::-webkit-scrollbar-thumb {
+  background: #adb5bd;
+  border: 2px solid #f1f3f5;
+  border-radius: 999px;
+}
+
+.dag-viewport::-webkit-scrollbar-thumb:hover {
+  background: #868e96;
+}
+
+.dag-viewport:active {
+  cursor: grabbing;
+}
+
+/* Kích thước thật do DagRoutingCanvas đặt inline (rộng/cao nội dung × zoom) để vùng cuộn của
+   viewport ôm đúng node ngoài cùng — đừng khai width/height ở đây, chỉ là rule chết. */
+.dag-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+/* Lớp vẽ dây SVG */
+.dag-svg-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 1;
+}
+
+.dag-wire {
+  fill: none;
+  stroke: #94a3b8;
+  stroke-width: 2.5px;
+  stroke-linecap: round;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease, opacity 0.2s ease;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.dag-wire:hover,
+.dag-wire--highlighted {
+  stroke: #c25e38;
+  stroke-width: 3.5px;
+  filter: drop-shadow(0 0 6px rgba(194, 94, 56, 0.45));
+  z-index: 10;
+}
+
+.dag-wire--dimmed {
+  opacity: 0.2;
+}
+
+.dag-wire--draft {
+  fill: none;
+  stroke: #c25e38;
+  stroke-width: 3px;
+  stroke-dasharray: 6 4;
+  animation: dagDash 0.8s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes dagDash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+/* Nút xóa dây nối SVG — nằm ở trung điểm dây nên luôn rơi vào giữa canvas, hiện thường trực thì
+   thành mấy cục tròn xám vô nghĩa (lại còn bị card đè vì lớp SVG nằm dưới node). Chỉ hiện khi
+   trỏ đúng sợi dây. */
+.dag-wire-delete {
+  cursor: pointer;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.dag-svg-layer g:hover > .dag-wire-delete {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.dag-wire-delete circle {
+  fill: #ffffff;
+  stroke: #94a3b8;
+  stroke-width: 1.5px;
+}
+
+.dag-wire-delete text {
+  fill: #64748b;
+}
+
+.dag-wire-delete:hover circle {
+  fill: #e63946;
+  stroke: #e63946;
+}
+
+.dag-wire-delete:hover text {
+  fill: #ffffff;
+}
+
+/* Card Công đoạn (Node) */
+.dag-node {
+  position: absolute;
+  width: 240px;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-top: 4px solid var(--mau-nhanh, #64748b);
+  border-radius: 14px;
+  box-shadow: 
+    0 4px 18px -2px rgba(15, 23, 42, 0.06), 
+    0 1px 3px rgba(15, 23, 42, 0.03);
+  z-index: 2;
+  cursor: move;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease, box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* KHÔNG dịch/phóng card khi hover: dây nối neo theo toạ độ node, card nhích một chút là dây
+   tưởng đứt khỏi cổng. Hover chỉ đổi viền + bóng. */
+.dag-node:hover {
+  border-color: rgba(203, 213, 225, 0.9);
+  box-shadow:
+    0 14px 32px -4px rgba(15, 23, 42, 0.12),
+    0 0 0 1.5px var(--mau-nhanh, #0284c7),
+    0 6px 20px color-mix(in srgb, var(--mau-nhanh, #0284c7) 20%, transparent);
+  z-index: 15;
+}
+
+.dag-node--selected {
+  border-color: var(--mau-nhanh, #2563eb);
+  border-top-color: var(--mau-nhanh, #2563eb);
+  box-shadow: 
+    0 0 0 3px color-mix(in srgb, var(--mau-nhanh, #2563eb) 35%, transparent), 
+    0 16px 36px -4px rgba(15, 23, 42, 0.18);
+  z-index: 16;
+}
+
+.dag-node--has-error {
+  border-color: #ef4444;
+  border-top-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2), 0 4px 18px rgba(239, 68, 68, 0.15);
+}
+
+.dag-node--has-warning {
+  border-color: #f59e0b;
+}
+
+/* Node bóng mờ = bước của LSX KHÁC: viền đứt, đầu nhạt, không sửa được ở màn này */
+.dag-node--ngoai {
+  border-style: dashed;
+  border-color: #b9c0c8;
+  background: #fbfcfd;
+  box-shadow: none;
+  cursor: move;
+}
+
+.dag-node--ngoai:hover {
+  border-color: #c25e38;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.07);
+}
+
+.dag-node__head--ngoai {
+  background: #eef1f4;
+  color: #3d4650;
+  border-bottom: 1px dashed #cfd6de;
+}
+
+.dag-node__head--ngoai .dag-node__title {
+  color: #3d4650;
+}
+
+.dag-node__lsx {
+  font-family: var(--ff-mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border: 1px solid #e0b9a6;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #c25e38;
+}
+
+.dag-node__ngoai-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #6c757d;
+}
+
+.dag-legend__dot--ngoai {
+  background: #ffffff;
+  border: 1.5px dashed #98a2ad;
+}
+
+/* Header của Node */
+.dag-node__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 10px;
+  background: #f8fafc;
+  color: #0f172a;
+  border-bottom: 1px solid #f1f5f9;
+  /* Khớp bo góc 14px của .dag-node (trừ viền) — để 5px là nền header lòi ra ngoài góc card. */
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+
+.dag-node__seq {
+  font-family: var(--ff-mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  background: #e2e8f0;
+  color: #334155;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.dag-node__title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #0f172a;
+}
+
+.dag-node__type-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.dag-node__type-tag--may {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.dag-node__type-tag--thuong {
+  background: #d1fae5;
+  color: #047857;
+}
+
+.dag-node__type-tag--thue_ngoai {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.dag-node__actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.dag-node__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: #e2e8f0;
+  color: #475569;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dag-node__btn:hover {
+  background: #cbd5e1;
+  color: #0f172a;
+}
+
+.dag-node__btn--delete:hover {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* Body của Node */
+.dag-node__body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dag-node__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.dag-node__label {
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.dag-node__value {
+  color: #212529;
+  font-weight: 600;
+}
+
+.dag-node__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: #f1f3f5;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #495057;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dag-node__flow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8f9fa;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #e9ecef;
+  font-size: 11px;
+  color: #343a40;
+}
+
+.dag-node__flow-arrow {
+  color: #c25e38;
+  font-weight: bold;
+}
+
+/* Warnings list inside node */
+.dag-node__warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.dag-node__warning-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.dag-node__warning-chip--err {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.dag-node__warning-chip--warn {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+/* Cổng kết nối (Ports) - Thêm Hit-box rộng hơn */
+.dag-port {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  background: #ffffff;
+  border: 2.5px solid #64748b;
+  border-radius: 50%;
+  cursor: crosshair;
+  z-index: 15;
+  transition: all 0.15s ease;
+}
+
+/* Hit-box mở rộng cho port */
+.dag-port::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  bottom: -8px;
+  border-radius: 50%;
+}
+
+.dag-port:hover {
+  transform: translateY(-50%) scale(1.35);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.25);
+}
+
+.dag-port--in {
+  left: -8px;
+  border-color: #2563eb;
+}
+
+.dag-port--in:hover,
+.dag-port--in-target {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  animation: dagPortPulse 1.2s infinite ease-in-out;
+}
+
+@keyframes dagPortPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(37, 99, 235, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+}
+
+.dag-port--out {
+  right: -8px;
+  border-color: #c25e38;
+}
+
+/* Sơ đồ routing: dây nối neo cứng ở `pos.y + 60` (getPortInPos/getPortOutPos trong
+   DagRoutingCanvas.tsx) trong khi card cao thấp tuỳ nội dung → để `top: 50%` là chấm cổng lệch
+   khỏi đầu dây cả chục px. Trừ 4px viền trên vì con tuyệt đối neo theo padding-box.
+   CHỈ áp trong .dag-canvas — sơ đồ bài ghép (.bgsd-canvas__viewport) card cao cố định và neo dây
+   ở CARD_H/2 nên vẫn dùng 50%. */
+.dag-canvas .dag-port {
+  top: 56px;
+}
+
+.dag-port--out:hover {
+  background: #c25e38;
+  border-color: #9a4423;
+  box-shadow: 0 0 0 4px rgba(194, 94, 56, 0.25);
+}
+
+/* Mini legend bar */
+.dag-legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 11px;
+  color: #6c757d;
+  padding: 4px 8px;
+}
+
+.dag-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dag-legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* Bước IN chạy chung tờ với bài ghép */
+.dag-node--ghep {
+  border-style: dashed;
+  border-color: #c25e38;
+  border-top-color: #c25e38;
+}
+
+.dag-node--ghep .dag-node__head {
+  background: #fff8f5;
+  border-bottom: 1px solid #fde8df;
+}
+
+.dag-node__type-tag--ghep {
+  background: #ffedd5;
+  color: #c25e38;
+  font-family: var(--ff-mono, monospace);
+  text-transform: none;
+}

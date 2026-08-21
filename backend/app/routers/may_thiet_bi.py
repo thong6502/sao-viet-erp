@@ -1,141 +1,160 @@
-"""Máy thiết bị router (module MỚI) — CRUD + preview BHR.
+"""Máy thiết bị router — CRUD danh mục Máy + danh mục Nhóm máy.
 
-Chưa đăng ký vào main.py (unwired) — wiring gom 1 pass sau. Dependency provider khai INLINE
-để không đụng deps.py (file dùng chung, session song song đang sửa).
+Thân CRUD của màn Máy sinh từ `routers/catalog_base.make_catalog_router`. Dependency provider khai
+INLINE để không đụng deps.py (file dùng chung).
+
+⚠️ `/trang-thai` là route TĨNH nên phải khai TRƯỚC lời gọi factory ở cuối file — factory dựng
+`/{item_id}`, mà FastAPI khớp theo THỨ TỰ khai: để sau thì "trang-thai" rơi vào `{item_id}` và ăn
+422 vì không ép được sang int.
 """
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import require_any_permission, require_permission
 from ..models.user import User
-from ..repositories.may_thiet_bi_repo import MayThietBiRepository
+from ..repositories.audit_repo import AuditLogRepository
+from ..repositories.may_thiet_bi_repo import MayThietBiRepository, NhomMayRepository
 from ..schemas.may_thiet_bi import (
-    BhrBreakdownOut,
     MayThietBiIn,
     MayThietBiListOut,
     MayThietBiRow,
+    NhomMayIn,
+    NhomMayListOut,
+    NhomMayRow,
+    TrangThaiMayOut,
+    TrangThaiMayRow,
 )
 from ..services.may_thiet_bi_service import (
     MayThietBiDuplicate,
     MayThietBiNotFound,
     MayThietBiService,
     MayThietBiValidationError,
-    compute_bhr_preview,
+    NhomMayService,
 )
+from ..services.may_trang_thai import trang_thai_may
+from .catalog_base import make_catalog_router
 
 router = APIRouter(prefix="/api/may-thiet-bi", tags=["may-thiet-bi"])
 MODULE = "dm_thiet_bi"
 
+# Danh mục THAM CHIẾU: đọc được nếu có quyền cấu hình Máy HOẶC quyền Tính giá (màn Tính giá cần đổ
+# dropdown Máy mà không phải mở màn cấu hình).
+#
+# MỘT dependency đọc dùng cho CẢ list LẪN detail. Trước 15/08/2026 list mở bằng OR-gate còn detail
+# khoá bằng quyền chặt, nên người Tính giá liệt kê được nhưng bấm vào một dòng thì ăn 403 giữa
+# luồng — lỗi câm, không ai đoán ra thiếu quyền gì.
+_DOC = require_any_permission((MODULE, "read"), ("tinh_gia_thanh", "read"))
+
 
 def get_service(db: Annotated[Session, Depends(get_db)]) -> MayThietBiService:
-    return MayThietBiService(MayThietBiRepository(db))
+    return MayThietBiService(MayThietBiRepository(db), AuditLogRepository(db))
 
 
 Service = Annotated[MayThietBiService, Depends(get_service)]
 
 
-@router.get("", response_model=MayThietBiListOut)
-def list_items(
+def _dung_rows(svc: MayThietBiService, objs: list) -> list[MayThietBiRow]:
+    """Điền TÊN đơn vị tốc độ (1 truy vấn cho cả trang) rồi mới dựng dòng — list · get · create ·
+    update dùng chung một đường nên không chỗ nào lệch."""
+    svc.gan_ten_don_vi(objs)
+    return [MayThietBiRow.model_validate(o) for o in objs]
+
+
+# --- Route TĨNH: khai TRƯỚC factory (xem cảnh báo ở docstring) ---------------------------
+
+
+@router.get("/trang-thai", response_model=TrangThaiMayOut)
+def trang_thai(
+    db: Annotated[Session, Depends(get_db)],
     svc: Service,
-    # Danh mục THAM CHIẾU: đọc được nếu có quyền cấu hình Máy HOẶC quyền Tính giá
-    # (màn Tính giá cần đổ dropdown Máy mà không phải mở màn cấu hình).
-    _: Annotated[User, Depends(require_any_permission((MODULE, "read"), ("tinh_gia_thanh", "read")))],
-    q: str | None = Query(default=None),
-    loai_may: str | None = Query(default=None),
-    trang_thai: str | None = Query(default=None),
-    page: int = Query(default=1, ge=1),
-    size: int = Query(default=50, ge=1, le=200),
-) -> MayThietBiListOut:
-    rows, total = svc.list(q=q, loai_may=loai_may, trang_thai=trang_thai, page=page, size=size)
-    return MayThietBiListOut(
-        items=[MayThietBiRow.model_validate(r) for r in rows], total=total, page=page, size=size
+    _: Annotated[User, Depends(_DOC)],
+) -> TrangThaiMayOut:
+    """Máy nào đang nằm / đang chạy NGAY LÚC NÀY — cột "Trạng thái" của màn Thiết bị."""
+    may_ids = svc.repo.all_ids()      # trước 15/08/2026 router tự `select(MayThietBi.id)`
+    return TrangThaiMayOut(
+        items={k: TrangThaiMayRow(**v) for k, v in trang_thai_may(db, may_ids).items()}
     )
 
 
-@router.get("/{may_id}", response_model=MayThietBiRow)
-def get_item(
-    may_id: int,
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> MayThietBiRow:
-    try:
-        return MayThietBiRow.model_validate(svc.get(may_id))
-    except MayThietBiNotFound as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+make_catalog_router(
+    router, ten="may_thiet_bi", ServiceDep=Service, module=MODULE, doc=_DOC,
+    InModel=MayThietBiIn, RowModel=MayThietBiRow, ListModel=MayThietBiListOut,
+    loc="loai_may",
+    facets=lambda svc, kw: svc.dem_theo_loai(**kw),
+    dung_rows=_dung_rows,
+    # ⚠️ `may_thiet_bi` KHÔNG có cột `active` (gỡ 11/08/2026 — máy dừng khai theo khoảng thời gian
+    # ở `machine_unavailable_periods`). Bật cờ này là nền đi lọc một cột không tồn tại.
+    # Có `active` từ mg `0202` (15/08/2026) — nhờ đó màn Máy vào được luật xoá chung: còn dùng ở
+    # lệnh/công đoạn thì NGỪNG DÙNG, khai nhầm thì xoá hẳn.
+    co_active=True,
+    # Không mở `/ma-goi-y`: mã máy đánh theo LOẠI (`IN-01`, `CM-03`, `BE-02`), không phải một dãy
+    # số duy nhất ⇒ không có "mã kế tiếp" nào đúng. (Bảng đoán tiền tố ở frontend ghi `TB-` —
+    # không khớp bất kỳ máy nào đang có trong DB.)
+)
 
 
-@router.get("/{may_id}/bhr", response_model=BhrBreakdownOut)
-def bhr(
-    may_id: int,
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> BhrBreakdownOut:
-    try:
-        return BhrBreakdownOut(**svc.bhr(may_id))
-    except MayThietBiNotFound as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-    except MayThietBiValidationError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+# --- Danh mục NHÓM MÁY (/api/nhom-may) ---------------------------------------
+# Router RIÊNG nhưng CÙNG module quyền `dm_thiet_bi` với màn Máy — nhờ vậy ai khai được máy thì
+# thêm/xoá được nhóm ngay tại ô, không có cảnh thấy nút rồi ăn 403 (bài học từ tab "Loại nghỉ").
+#
+# KHÔNG dùng factory: bảng `nhom_may` không có cột `ma` (khoá nghiệp vụ là chính `ten`), không có
+# `update`, và `POST` nhận đúng một chuỗi. Ép vào nền chỉ để cho đồng bộ là đẻ ba cờ mà mỗi cờ
+# đúng một nơi dùng — xem `NhomMayService`.
+
+nhom_may_router = APIRouter(prefix="/api/nhom-may", tags=["may-thiet-bi"])
 
 
-@router.post("/bhr-preview", response_model=BhrBreakdownOut)
-def bhr_preview(
-    payload: dict,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> BhrBreakdownOut:
-    """BHR preview từ dữ liệu form (máy CHƯA lưu) — nuôi block xem-trước trong drawer."""
-    try:
-        return BhrBreakdownOut(**compute_bhr_preview(payload))
-    except MayThietBiValidationError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
-    except (TypeError, ValueError) as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+def get_nhom_may_service(db: Annotated[Session, Depends(get_db)]) -> NhomMayService:
+    return NhomMayService(NhomMayRepository(db))
 
 
-@router.post("", response_model=MayThietBiRow, status_code=status.HTTP_201_CREATED)
-def create_item(
-    payload: MayThietBiIn,
-    svc: Service,
+NhomService = Annotated[NhomMayService, Depends(get_nhom_may_service)]
+
+
+@nhom_may_router.get("", response_model=NhomMayListOut)
+def list_nhom_may(
+    svc: NhomService,
+    # Đọc được nếu có quyền cấu hình Máy HOẶC Tính giá — cùng lý do với danh sách máy ở trên.
+    _: Annotated[User, Depends(_DOC)],
+) -> NhomMayListOut:
+    rows = svc.list()
+    # `page`/`size` trả kèm cho khớp phong bì `{items,total,page,size}` của 10 danh mục còn lại —
+    # frontend dùng chung một `crud()` và đọc cả bốn khoá. Bảng này KHÔNG cắt trang (vài chục
+    # dòng), nên luôn là trang 1 và `size` = số dòng thật.
+    return NhomMayListOut(items=[NhomMayRow.model_validate(r) for r in rows],
+                          total=len(rows), page=1, size=len(rows))
+
+
+@nhom_may_router.post("", response_model=NhomMayRow, status_code=status.HTTP_201_CREATED)
+def create_nhom_may(
+    payload: NhomMayIn,
+    svc: NhomService,
     _: Annotated[User, Depends(require_permission(MODULE, "create"))],
-) -> MayThietBiRow:
+) -> NhomMayRow:
     try:
-        return MayThietBiRow.model_validate(svc.create(payload.model_dump(exclude_unset=True)))
+        return NhomMayRow.model_validate(svc.create(payload.ten))
     except MayThietBiDuplicate as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
     except MayThietBiValidationError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
 
 
-@router.put("/{may_id}", response_model=MayThietBiRow)
-def update_item(
-    may_id: int,
-    payload: MayThietBiIn,
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
-) -> MayThietBiRow:
-    try:
-        return MayThietBiRow.model_validate(svc.update(may_id, payload.model_dump(exclude_unset=True)))
-    except MayThietBiNotFound as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-    except MayThietBiDuplicate as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
-    except MayThietBiValidationError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
-
-
-@router.delete("/{may_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-def delete_item(
-    may_id: int,
-    svc: Service,
+@nhom_may_router.delete("/{nhom_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def delete_nhom_may(
+    nhom_id: int,
+    svc: NhomService,
     _: Annotated[User, Depends(require_permission(MODULE, "delete"))],
 ) -> Response:
     try:
-        svc.delete(may_id)
+        svc.delete(nhom_id)
     except MayThietBiNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    except MayThietBiValidationError as e:
+        # 409 chứ không 422: dữ liệu gửi lên hợp lệ, chỉ là TRẠNG THÁI không cho xoá.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)

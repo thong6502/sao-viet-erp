@@ -239,6 +239,21 @@ const ICONS = {
       <path d="M12 7.5V12l3 2" />
     </>
   ),
+  phone: (
+    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+  ),
+  mail: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m3 6 9 7 9-7" />
+    </>
+  ),
+  mapPin: (
+    <>
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+      <circle cx="12" cy="10" r="3" />
+    </>
+  ),
   scissors: (
     <>
       <circle cx="6.5" cy="6.5" r="2.5" />
@@ -253,6 +268,32 @@ const ICONS = {
       <path d="M12 17.2h.01" />
     </>
   ),
+  camera: (
+    <>
+      <path d="M14.5 4h-5L8 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-4l-1.5-3Z" />
+      <circle cx="12" cy="13" r="3" />
+    </>
+  ),
+  alert: (
+    <>
+      <path d="M12 9v4M12 17h.01" />
+      <path d="m10.29 3.86-8.6 15A1 1 0 0 0 2.56 20.36h18.88a1 1 0 0 0 .87-1.5l-8.6-15a1 1 0 0 0-1.72 0z" />
+    </>
+  ),
+  zap: (
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  ),
+  history: (
+    <>
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+    </>
+  ),
+  refresh: (
+    <>
+      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19" />
+    </>
+  ),
   // Quy trình / luồng: hai nút trái gộp vào một nút phải
   workflow: (
     <>
@@ -265,6 +306,93 @@ const ICONS = {
   ),
   // Mũi tên hướng phải
   arrowRight: <path d="M5 12h14M13 5l7 7-7 7" />,
+  // Maximize / Focus
+  maximize: (
+    <>
+      <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+    </>
+  ),
+  edit: (
+    <>
+      <path d="m4 20 4.2-1 10.6-10.6a2 2 0 0 0-2.8-2.8L5.4 16.2Z" />
+      <path d="m14.5 7.1 2.8 2.8" />
+    </>
+  ),
+  cpu: (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <rect x="9" y="9" width="6" height="6" />
+      <path d="M15 2v2M9 2v2M15 20v2M9 20v2M20 15h2M20 9h2M2 15h2M2 9h2" />
+    </>
+  ),
+  minus: <path d="M5 12h14" />,
+  table: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
+    </>
+  ),
+  layout: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M9 21V9" />
+    </>
+  ),
+  // Bánh răng cấu hình. CỐ Ý tách khỏi `edit`: `edit` là sửa nội dung một bản ghi, còn glyph này
+  // là chỉnh tham số của cả khối (khổ giấy, hao hụt…), hai nghĩa khác nhau trong sơ đồ bài ghép.
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2.5v2.2M12 19.3v2.2M4.28 7l1.9 1.1M17.82 15.9l1.9 1.1M4.28 17l1.9-1.1M17.82 8.1l1.9-1.1" />
+    </>
+  ),
+  // Mắt xích — bước thuộc LSX khác (phụ thuộc chéo lệnh) trên sơ đồ DAG.
+  link: (
+    <>
+      <path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.6-2.6a4 4 0 0 0-5.66-5.66l-1.3 1.3" />
+      <path d="M13.5 10.5a4 4 0 0 0-5.7 0l-2.6 2.6a4 4 0 0 0 5.66 5.66l1.3-1.3" />
+    </>
+  ),
+  // Mắt xích ĐỨT — tách lượt chạy chung, mỗi lệnh lấy lại bước của chính nó.
+  unlink: (
+    <>
+      <path d="M14.4 9.6a4 4 0 0 1 0 5.66l-2.1 2.1a4 4 0 0 1-5.66-5.66l1-1" />
+      <path d="M9.6 14.4a4 4 0 0 1 0-5.66l2.1-2.1a4 4 0 0 1 5.66 5.66l-1 1" />
+      <path d="M3.5 3.5 6 6M20.5 20.5 18 18" />
+    </>
+  ),
+  // Mũi tên vòng ngược — dựng lại / xếp lại từ đầu.
+  rotateCcw: (
+    <>
+      <path d="M3 12a9 9 0 1 0 2.64-6.36L3 8" />
+      <path d="M3 3v5h5" />
+    </>
+  ),
+  // Toàn màn hình — mũi tên chéo bung ra 2 góc. Khác `maximize` (4 ngoặc góc = căn vừa khung nhìn).
+  fullscreen: (
+    <>
+      <path d="M14 4h6v6M20 4l-7 7" />
+      <path d="M10 20H4v-6M4 20l7-7" />
+    </>
+  ),
+  play: <path d="M7 4.5v15l13-7.5-13-7.5Z" />,
+  pause: (
+    <>
+      <path d="M8.5 4.5v15M15.5 4.5v15" />
+    </>
+  ),
+  square: <rect x="5" y="5" width="14" height="14" rx="1.5" />,
+  // Tay cầm kéo thả 6 chấm
+  grip: (
+    <>
+      <circle cx="9" cy="12" r="1" fill="currentColor" />
+      <circle cx="9" cy="6" r="1" fill="currentColor" />
+      <circle cx="9" cy="18" r="1" fill="currentColor" />
+      <circle cx="15" cy="12" r="1" fill="currentColor" />
+      <circle cx="15" cy="6" r="1" fill="currentColor" />
+      <circle cx="15" cy="18" r="1" fill="currentColor" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;

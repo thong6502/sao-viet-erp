@@ -13,8 +13,15 @@ import {
   type LeaveTypeInput,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
-import { useCan } from "../auth/permissions";
+import { useCan, useSelfService } from "../auth/permissions";
+import { Button } from "../components/Button";
+import { EmptyRow, EmptyState } from "../components/EmptyState";
+import { Pager, trangHopLe } from "../components/Pager";
+import { RowActionButton } from "../components/RowActionButton";
 import { Timeline, type TimelineEntry } from "../components/Timeline";
+// `fmtDate` DÙNG CHUNG (utils/format) — bản cục bộ cũ y hệt, chép lại chỉ tạo thêm một chỗ
+// phải nhớ sửa. Đừng viết lại.
+import { fmtDate } from "../utils/format";
 import { AlertTriangle, Search, ChevronLeft, ChevronRight, Users, Clock, FileText, ClipboardCheck, Calendar, Sliders, Plus, Info, CheckCircle2, XCircle, LayoutGrid, List, Edit3, Trash2, ShieldCheck, Layers } from "lucide-react";
 import "./nhan-su.css";
 import "./cham-cong.css";
@@ -22,15 +29,23 @@ import "./nghi-phep.css";
 
 type Tab = "me" | "approve" | "calendar" | "types";
 
+/** Cỡ trang chuẩn toàn hệ (prd-dong-bo-ui-thu-mua-nhan-su §2). Dùng chung cho CẢ BỐN tab —
+ *  hai tab đầu phân trang ở MÁY CHỦ, hai tab sau (Lịch nghỉ, Loại nghỉ) phân trang Ở CLIENT.
+ *
+ *  Vì sao hai tab sau cố ý KHÔNG đẩy lên máy chủ:
+ *  • Lịch nghỉ — ba thẻ thống kê ở đầu màn (nhân sự nghỉ / đơn chờ / ngày phép P) và bộ chip lọc
+ *    đều tính trên TOÀN BỘ danh sách nhân viên của tháng. Phân trang ở máy chủ là ba con số đó
+ *    thành "số của trang", sai với cái tên nó đang mang.
+ *  • Loại nghỉ — danh mục cỡ 5-15 dòng, mà endpoint `/api/leaves/types` còn nuôi HAI dropdown
+ *    (chọn loại nghỉ khi tạo đơn, và ô "trừ vào phép năm" của phiếu Đi muộn/Về sớm bên màn Chấm
+ *    công) cùng một chỗ in tên loại nghỉ ở backend. Cắt trang ở máy chủ = hai dropdown đó mất
+ *    lựa chọn mà không báo gì. */
+const PAGE_SIZE = 20;
+
 const STATUS_LABEL: Record<string, string> = {
   pending: "Chờ duyệt", approved: "Đã duyệt", rejected: "Từ chối", cancelled: "Đã hủy",
 };
 
-function fmtDate(s: string | null | undefined): string {
-  if (!s) return "—";
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString("vi-VN");
-}
 function errMsg(e: unknown): string {
   return e instanceof ApiError ? e.message : "Có lỗi xảy ra.";
 }
@@ -81,11 +96,24 @@ export function NghiPhepPage({ onChanged, focusEmployeeId }: { onChanged?: () =>
   // Quyền DUYỆT đơn — HCNS/Admin, VÀ tổ trưởng (chủ chốt 29/07/2026: tổ trưởng duyệt đơn trong
   // tổ mình). Dùng cho tab "Duyệt đơn" + "Lịch nghỉ".
   const canManage = can("nghi_phep", "approve");
+  // Ô TỰ PHỤC VỤ (đợt 3) — quản trị TẮT ĐƯỢC. Không hỏi thì tắt xong nút vẫn bày ra, bấm
+  // mới ăn 403: trông như hệ thống hỏng chứ không như "anh không có quyền".
+  const tuPhucVu = useSelfService();
+  // Ô THAO TÁC của Tự phục vụ — TÁCH khỏi ô Xem ngày 11/08/2026. Tab/danh sách đi theo ô
+  // Xem; còn nút GỬI · SỬA · HUỶ thì đi theo ô này.
+  // GHI LÀ GHI — gửi / sửa / huỷ đơn của CHÍNH MÌNH vẫn đòi ô Thao tác của màn Nghỉ phép
+  // (chủ chốt 15/08/2026: *"tôi chưa bật thao tác vẫn bấm gửi đơn được nè"*). Chỉ phần ĐỌC dữ
+  // liệu của mình mới là quyền đương nhiên.
+  const tuPhucVuGhi = can("nghi_phep", "create");
   // Danh mục LOẠI NGHỈ là chính sách TOÀN CÔNG TY, chỉ HCNS/Admin. Phải gác bằng `update` cho
   // KHỚP backend (`routers/leaves.py` gác 3 endpoint /types bằng `update`) — gác bằng `approve`
   // là tổ trưởng (approve=true, update=false) nhìn thấy tab, mở ra, bấm lưu rồi ăn 403: màn
   // mời-rồi-đuổi, người dùng tưởng mình có quyền.
-  const canTypes = can("nghi_phep", "update");
+  // Danh mục LOẠI NGHỈ có ô riêng từ 15/08/2026 (mg 0197) — trước đó nó dùng chung cột với nút
+  // "Thao tác", nên bật Thao tác (để thợ gửi/huỷ đơn của mình) là mở luôn quyền sửa chính sách
+  // nghỉ của cả nhà máy.
+  const canTypes = can("nghi_phep", "manage_leave_types");
+  // Ai bị gỡ ô Tự phục vụ thì mở thẳng tab Duyệt — không thì vào màn là thấy tab trống.
   const [tab, setTab] = useState<Tab>("me");
 
   // Liên thông từ Hồ sơ NV → mở "Duyệt đơn" lọc đúng NV đó.
@@ -97,16 +125,21 @@ export function NghiPhepPage({ onChanged, focusEmployeeId }: { onChanged?: () =>
     <main className="ns">
       <header className="ns__head">
         <div>
+          {/* Eyebrow = tên SECTION trên sidebar, chép nguyên văn, MỘT cấp (không ghi tên
+              item "Nghỉ phép" — tiêu đề ngay dưới đã nói rồi). Lớp phải là `eyebrow`. */}
+          <p className="eyebrow">Nhân sự &amp; Lương</p>
           <h1 className="ns__title">Nghỉ phép</h1>
           <p className="ns__sub">Đơn xin nghỉ · duyệt · loại nghỉ. Ngày nghỉ đã duyệt hiện trên Bảng công tháng.</p>
         </div>
       </header>
       <nav className="ns-tabs cc-tabs lg-tabs" aria-label="Phân hệ Nghỉ phép">
         <div className="lg-tabs__group">
-          <button className={`lg-tab-btn ${tab === "me" ? "is-active" : ""}`} onClick={() => setTab("me")} title="Đơn xin nghỉ cá nhân">
-            <FileText className="lg-tab-btn__icon" />
-            <span>Đơn của tôi</span>
-          </button>
+          {tuPhucVu && (
+            <button className={`lg-tab-btn ${tab === "me" ? "is-active" : ""}`} onClick={() => setTab("me")} title="Đơn xin nghỉ cá nhân">
+              <FileText className="lg-tab-btn__icon" />
+              <span>Đơn của tôi</span>
+            </button>
+          )}
           {canManage && (
             <button className={`lg-tab-btn ${tab === "approve" ? "is-active" : ""}`} onClick={() => setTab("approve")} title="Duyệt đơn xin nghỉ nhân viên">
               <ClipboardCheck className="lg-tab-btn__icon" />
@@ -129,7 +162,9 @@ export function NghiPhepPage({ onChanged, focusEmployeeId }: { onChanged?: () =>
           )}
         </div>
       </nav>
-      {tab === "me" && <MyLeaveTab token={token!} onChanged={onChanged} />}
+      {tab === "me" && tuPhucVu && (
+        <MyLeaveTab token={token!} onChanged={onChanged} coQuyenGhi={tuPhucVuGhi} />
+      )}
       {tab === "approve" && canManage && <ApproveTab token={token!} onChanged={onChanged} focusEmployeeId={focusEmployeeId} />}
       {tab === "calendar" && canManage && <CalendarTab token={token!} />}
       {tab === "types" && canTypes && <LeaveTypesTab token={token!} />}
@@ -241,9 +276,10 @@ function LeaveRequestFormModal({
         </div>
         <footer className="ns-modal__foot">
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
-          <button className="btn btn--primary" onClick={onSubmit} disabled={busy}>
+          {/* Hành động chính của hộp thoại → cam. Nút "Hủy" bên cạnh là ghost. */}
+          <Button variant="accent" onClick={onSubmit} loading={busy}>
             {busy ? "Đang gửi đơn…" : "Gửi đơn xin nghỉ"}
-          </button>
+          </Button>
         </footer>
       </div>
     </div>
@@ -307,18 +343,30 @@ function LeaveRequestDetailModal({
   );
 }
 
-function MyLeaveTab({ token, onChanged }: { token: string; onChanged?: () => void }) {
+function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
+  token: string;
+  onChanged?: () => void;
+  /** Ô THAO TÁC của Tự phục vụ — gửi / huỷ đơn của chính mình (tách 11/08/2026). */
+  coQuyenGhi: boolean;
+}) {
   const [hasEmp, setHasEmp] = useState<boolean | null>(null);
   const [items, setItems] = useState<LeaveRequest[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [quotas, setQuotas] = useState<LeaveQuota[]>([]);
   const [types, setTypes] = useState<LeaveType[]>([]);
-  
+
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<LeaveRequest | null>(null);
   const [form, setForm] = useState({ leave_type_id: "" as number | "", start_date: "", end_date: "", reason: "" });
 
   const [busy, setBusy] = useState(false);
+  /** Lỗi THAO TÁC (gửi đơn) — chỉ hiện trong hộp thoại tạo đơn. */
   const [error, setError] = useState<string | null>(null);
+  /** Lỗi TẢI DANH SÁCH — ô nhớ RIÊNG. Gộp chung với `error` thì một lần gửi đơn hỏng cũng
+   *  làm cả bảng đơn của mình biến mất. */
+  const [listError, setListError] = useState<string | null>(null);
+  const [loadingList, setLoadingList] = useState(true);
 
   // Đọc id đơn đang mở qua ref để `load` KHÔNG phụ thuộc `selectedRequest`.
   // Nếu để trong deps + setSelectedRequest bên trong load → vòng lặp reopen: đóng modal
@@ -327,20 +375,35 @@ function MyLeaveTab({ token, onChanged }: { token: string; onChanged?: () => voi
   useEffect(() => { selectedIdRef.current = selectedRequest?.id ?? null; }, [selectedRequest]);
 
   const load = useCallback(() => {
-    api.leaves.me(token).then((r) => {
+    setLoadingList(true);
+    setListError(null);
+    api.leaves.me(token, { page, size: PAGE_SIZE }).then((r) => {
       setHasEmp(r.has_employee);
       setItems(r.items);
+      setTotal(r.total);
+      // `quotas` KHÔNG bị phân trang (backend tính theo cả năm) — vẫn đúng ở mọi trang.
       setQuotas(r.quotas ?? []);
+      const trangCanVe = trangHopLe(page, r.total, PAGE_SIZE);
+      if (trangCanVe !== null) setPage(trangCanVe);
 
       // Nếu modal đang mở thì đồng bộ lại trạng thái đơn (chỉ khi id còn khớp).
+      // ⚠ Chỉ dò trong TRANG hiện tại. Không tìm thấy thì GIỮ NGUYÊN đơn đang mở chứ đừng đóng
+      // modal — hủy một đơn ở trang 2 có thể đẩy nó khỏi trang, đóng phụt là người dùng mất
+      // luôn màn xác nhận việc mình vừa làm.
       const openId = selectedIdRef.current;
       if (openId != null) {
         const updated = r.items.find((item) => item.id === openId);
         if (updated) setSelectedRequest(updated);
       }
-    }).catch(() => setHasEmp(false));
-  }, [token]);
-  
+    })
+      // ⚠ TRƯỚC ĐÂY `.catch(() => setHasEmp(false))` — gọi hỏng (mất mạng, 500) cũng in
+      // "tài khoản chưa gắn hồ sơ nhân viên": máy NÓI SAI, người dùng đi tìm HCNS trong khi
+      // lỗi là ở đường mạng. Giờ lỗi tải nằm ở `listError`, `hasEmp` chỉ đổi khi máy chủ
+      // thực sự trả lời.
+      .catch((e) => setListError(errMsg(e)))
+      .finally(() => setLoadingList(false));
+  }, [token, page]);
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => { api.leaves.types(token).then((r) => setTypes(r.items.filter((t) => t.is_active))).catch(() => {}); }, [token]);
 
@@ -358,7 +421,10 @@ function MyLeaveTab({ token, onChanged }: { token: string; onChanged?: () => voi
       });
       setForm({ leave_type_id: "", start_date: "", end_date: "", reason: "" });
       setIsCreateOpen(false);
-      load(); 
+      // Đơn mới xếp đầu (start_date giảm dần) ⇒ về trang 1, không thì gửi đơn xong đang đứng
+      // trang 3 sẽ không thấy đơn mình vừa gửi đâu cả.
+      if (page !== 1) setPage(1);   // đổi trang ⇒ effect tự gọi lại `load`
+      else load();
       onChanged?.();
       setSelectedRequest(created); // Open details modal of newly created request
     } catch (e) { setError(errMsg(e)); } finally { setBusy(false); }
@@ -411,10 +477,15 @@ function MyLeaveTab({ token, onChanged }: { token: string; onChanged?: () => voi
               <Info size={13} className="cc-note-inline-icon" />
               <span>Click dòng để xem chi tiết</span>
             </span>
-            <button className="btn btn--primary cc-btn-cta-compact" onClick={() => { setIsCreateOpen(true); setError(null); }}>
-              <Plus size={15} />
-              <span>Xin nghỉ phép</span>
-            </button>
+            {/* Hành động chính của tab → cam. Lớp cũ `cc-btn-cta-compact` ép navy bằng 6
+                dòng `!important`, gỡ nó ra là mất luôn hình dạng nút ⇒ thay bằng
+                `ns-btn-cta` (chỉ giữ dáng: đậm chữ + không rớt dòng, KHÔNG khai màu). */}
+            {coQuyenGhi && (
+              <Button variant="accent" className="ns-btn-cta" onClick={() => { setIsCreateOpen(true); setError(null); }}>
+                <Plus size={15} />
+                <span>Xin nghỉ phép</span>
+              </Button>
+            )}
           </div>
         </div>
       ) : (
@@ -423,19 +494,37 @@ function MyLeaveTab({ token, onChanged }: { token: string; onChanged?: () => voi
             <Info size={13} className="cc-note-inline-icon" />
             <span>Click vào dòng bản ghi để xem chi tiết tiến trình đơn</span>
           </span>
-          <button className="btn btn--primary cc-btn-cta-compact" onClick={() => { setIsCreateOpen(true); setError(null); }}>
-            <Plus size={15} />
-            <span>Xin nghỉ phép</span>
-          </button>
+          {coQuyenGhi && (
+            <Button variant="accent" className="ns-btn-cta" onClick={() => { setIsCreateOpen(true); setError(null); }}>
+              <Plus size={15} />
+              <span>Xin nghỉ phép</span>
+            </Button>
+          )}
         </div>
       )}
 
-      <LeaveTable 
-        items={items} 
-        showEmployee={false} 
+      <LeaveTable
+        items={items}
+        showEmployee={false}
         onCancel={cancel}
         onRowClick={(r) => setSelectedRequest(r)}
+        loading={loadingList}
+        listError={listError}
+        onRetry={load}
       />
+
+      {/* Chân bảng CHỈ hiện khi có dòng (chuẩn §2.7) — lúc tải/lỗi/rỗng thì khối trong bảng
+          đã nói hết rồi. */}
+      {!loadingList && !listError && items.length > 0 && (
+        <Pager
+          total={total}
+          page={page}
+          size={PAGE_SIZE}
+          loading={loadingList}
+          unit="đơn"
+          onPage={setPage}
+        />
+      )}
 
       {isCreateOpen && (
         <LeaveRequestFormModal 
@@ -467,21 +556,50 @@ function ApproveTab({ token, onChanged, focusEmployeeId }: { token: string; onCh
   // Liên thông từ Hồ sơ NV: lọc theo 1 NV + mặc định xem TẤT CẢ trạng thái (không chỉ chờ duyệt).
   const [status, setStatus] = useState(focusEmployeeId ? "" : "pending");
   const [focus, setFocus] = useState<number | undefined>(focusEmployeeId);
-  useEffect(() => { if (focusEmployeeId) { setFocus(focusEmployeeId); setStatus(""); } }, [focusEmployeeId]);
+  // Nhảy từ Hồ sơ NV sang: đổi bộ lọc thì phải VỀ TRANG 1 luôn, không thì rơi vào trang cũ
+  // của bộ lọc cũ và màn báo "chưa có đơn nghỉ của người này" trong khi người ta có đơn.
+  useEffect(() => { if (focusEmployeeId) { setFocus(focusEmployeeId); setStatus(""); setPage(1); } }, [focusEmployeeId]);
   const [items, setItems] = useState<LeaveRequest[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [sel, setSel] = useState<Set<number>>(new Set());
   // Từ chối: đơn lẻ (LeaveRequest) HOẶC hàng loạt ("bulk") — cùng 1 modal, 1 lý do.
   const [rejectTarget, setRejectTarget] = useState<LeaveRequest | "bulk" | null>(null);
   const [rejectNote, setRejectNote] = useState("");
   const [busy, setBusy] = useState(false);
+  /** Lỗi THAO TÁC (duyệt / từ chối) — hiện trong hộp thoại từ chối. */
   const [error, setError] = useState<string | null>(null);
+  /** Lỗi TẢI hàng đợi — ô nhớ RIÊNG, chỉ nó mới được thay chỗ của bảng. */
+  const [listError, setListError] = useState<string | null>(null);
+  const [loadingList, setLoadingList] = useState(true);
   const load = useCallback(() => {
-    api.leaves.list(token, status || undefined).then((r) => { setItems(r.items); setSel(new Set()); }).catch(() => setItems([]));
-  }, [token, status]);
+    setLoadingList(true);
+    setListError(null);
+    // LỌC THEO 1 NHÂN VIÊN CHẠY Ở MÁY CHỦ (`employeeId`), không còn `items.filter(...)` ở client.
+    // Lọc ở client + phân trang = đơn của người đó nằm ở trang khác thì màn báo "chưa có đơn
+    // nghỉ của người này" — sai sự thật, mà đường vào đây chính là bấm từ Hồ sơ NV.
+    api.leaves.list(token, {
+      status: status || undefined,
+      employeeId: focus,
+      page,
+      size: PAGE_SIZE,
+    })
+      .then((r) => {
+        setItems(r.items);
+        setTotal(r.total);
+        setSel(new Set());
+        const trangCanVe = trangHopLe(page, r.total, PAGE_SIZE);
+        if (trangCanVe !== null) setPage(trangCanVe);
+      })
+      .catch((e) => { setItems([]); setTotal(0); setListError(errMsg(e)); })
+      .finally(() => setLoadingList(false));
+  }, [token, status, focus, page]);
   useEffect(() => { load(); }, [load]);
 
-  const shown = focus ? items.filter((i) => i.employee_id === focus) : items;
+  const shown = items;   // máy chủ đã lọc sẵn theo `focus`
   const focusName = focus ? items.find((i) => i.employee_id === focus)?.employee_name : undefined;
+  // ⚠ CHỈ id chờ duyệt CỦA TRANG ĐANG XEM. "Chọn tất cả" và các nút hàng loạt vì thế cũng chỉ
+  // tác động trong phạm vi trang này — chân bảng nói rõ điều đó cho người duyệt biết.
   const pendingIds = shown.filter((i) => i.status === "pending").map((i) => i.id);
   const selArr = [...sel];
   function toggle(id: number) { setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
@@ -508,12 +626,16 @@ function ApproveTab({ token, onChanged, focusEmployeeId }: { token: string; onCh
       {focus != null && (
         <div className="cc-focus">
           <span>Đang xem đơn nghỉ của <b>{focusName ?? `NV #${focus}`}</b></span>
-          <button type="button" className="btn btn--ghost" onClick={() => setFocus(undefined)}>✕ Bỏ lọc — xem cả xưởng</button>
+          <button type="button" className="btn btn--ghost" onClick={() => { setFocus(undefined); setPage(1); }}>✕ Bỏ lọc — xem cả xưởng</button>
         </div>
       )}
       <div className="cc-ts-toolbar">
         <div className="cc-select-wrapper" style={{ width: "160px" }}>
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          {/* ĐỔI BỘ LỌC ⇒ VỀ TRANG 1, đặt NGAY TRONG handler (không qua `useEffect` theo dõi
+              `status`): làm ở effect thì lượt tải cũ đã bắn đi với số trang cũ rồi mới tới lượt
+              mới — hai lượt chồng nhau. Thiếu hẳn bước reset thì đang ở trang 3, đổi sang "Chờ
+              duyệt" chỉ còn 1 trang ⇒ bảng rỗng trơn mà người duyệt tưởng hết việc. */}
+          <select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
             <option value="pending">Chờ duyệt</option>
             <option value="approved">Đã duyệt</option>
             <option value="rejected">Từ chối</option>
@@ -533,7 +655,23 @@ function ApproveTab({ token, onChanged, focusEmployeeId }: { token: string; onCh
       )}
       <LeaveTable items={shown} showEmployee onApprove={approve}
         onReject={(r) => { setRejectTarget(r); setRejectNote(""); setError(null); }}
-        selectable selected={sel} onToggle={toggle} onToggleAll={toggleAll} allPendingCount={pendingIds.length} />
+        selectable selected={sel} onToggle={toggle} onToggleAll={toggleAll} allPendingCount={pendingIds.length}
+        loading={loadingList} listError={listError} onRetry={load}
+        emptyTitle={focus ? "Chưa có đơn nghỉ của người này" : "Chưa có đơn xin nghỉ nào"}
+        emptySub={status === "pending" ? "Không còn đơn nào chờ duyệt. Đổi bộ lọc trạng thái để xem đơn đã xử lý." : "Thử đổi bộ lọc trạng thái ở trên."} />
+      {!loadingList && !listError && shown.length > 0 && (
+        <Pager
+          total={total}
+          page={page}
+          size={PAGE_SIZE}
+          loading={loadingList}
+          unit="đơn"
+          onPage={setPage}
+          // Nói THẲNG giới hạn của nút hàng loạt: ô tick "chọn tất cả" chỉ quét trang đang xem.
+          // Không nói thì người duyệt bấm "Duyệt 20" rồi tưởng đã dọn sạch hàng đợi.
+          note={total > PAGE_SIZE ? "chọn hàng loạt chỉ áp cho trang đang xem" : undefined}
+        />
+      )}
       {rejectTarget && (
         <div className="ns-modal" role="dialog" aria-modal="true">
           <div className="ns-modal__box cc-day-detail-modal-box">
@@ -581,6 +719,8 @@ function CalendarTab({ token }: { token: string }) {
   const [data, setData] = useState<LeaveCalendar | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "approved" | "pending" | "paid" | "unpaid">("all");
+  /** Trang của LƯỚI (mỗi trang 20 HÀNG nhân viên). Cắt ở client — xem ghi chú ở `PAGE_SIZE`. */
+  const [page, setPage] = useState(1);
   const [hoveredCell, setHoveredCell] = useState<{
     employeeName: string;
     day: number;
@@ -590,9 +730,19 @@ function CalendarTab({ token }: { token: string }) {
     rect: DOMRect;
   } | null>(null);
 
-  useEffect(() => {
-    api.leaves.calendar(token, ym.year, ym.month).then(setData).catch(() => setData(null));
+  // Ba ca tách rời: `data === null` KHÔNG còn kiêm nghĩa "đang tải" — trước đây gọi hỏng
+  // cũng set null nên lưới quay vòng "Đang tải…" vĩnh viễn, không ai biết là mất mạng.
+  const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
+  const load = useCallback(() => {
+    setLoading(true);
+    setListError(null);
+    api.leaves.calendar(token, ym.year, ym.month)
+      .then(setData)
+      .catch((e) => { setData(null); setListError(errMsg(e)); })
+      .finally(() => setLoading(false));
   }, [token, ym]);
+  useEffect(() => { load(); }, [load]);
 
   function shift(delta: number) {
     let m = ym.month + delta, y = ym.year;
@@ -640,6 +790,23 @@ function CalendarTab({ token }: { token: string }) {
         return true;
       })
     : [];
+
+  // ĐỔI THÁNG / TỪ KHOÁ / CHIP LỌC ⇒ VỀ TRANG 1. Thiếu bước này là đang ở trang 3, gõ tên một
+  // người và lưới rỗng trơn — người dùng tưởng người đó không nghỉ ngày nào.
+  //
+  // Ở ĐÂY dùng `useEffect` chứ không nhét vào từng handler như hai tab phân trang máy chủ:
+  // lưới này cắt trang Ở CLIENT nên reset trang KHÔNG sinh lời gọi mạng nào, không có chuyện
+  // hai lượt tải chồng nhau. Mà tháng thì đổi được từ 4 chỗ (nút ‹ ›, ô chọn tháng, nút "Hôm
+  // nay") — rải `setPage(1)` ra 4 handler là kiểu gì cũng có ngày thêm chỗ thứ 5 mà quên.
+  useEffect(() => { setPage(1); }, [ym, searchQuery, statusFilter]);
+
+  // Cắt trang trên danh sách ĐÃ LỌC. Ba thẻ thống kê phía trên vẫn tính trên `data.employees`
+  // đầy đủ — chúng là số của cả tháng, không phải của trang.
+  const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / PAGE_SIZE));
+  const pageSafe = Math.min(page, totalPages);
+  const pagedEmployees = filteredEmployees.slice(
+    (pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE,
+  );
 
   const ymStr = `${ym.year}-${String(ym.month).padStart(2, "0")}`;
 
@@ -757,15 +924,22 @@ function CalendarTab({ token }: { token: string }) {
       </div>
 
       {/* 3. Main Leave Grid Table */}
-      {!data ? (
-        <div className="ns__empty cc-calendar-loading">
-          <div className="cc-loading-spinner" />
-          <span>Đang tải dữ liệu lịch nghỉ...</span>
-        </div>
-      ) : data.employees.length === 0 ? (
-        <div className="ns__empty">Không có ai nghỉ trong tháng này.</div>
+      {loading ? (
+        <EmptyState trangThai="dang-tai" />
+      ) : listError ? (
+        <EmptyState trangThai="loi" loi={listError} onThuLai={load} />
+      ) : !data || data.employees.length === 0 ? (
+        <EmptyState
+          icon="calendar"
+          title="Chưa có ai nghỉ trong tháng này"
+          sub="Đơn nghỉ được duyệt sẽ hiện thành ô P / KL trên lưới."
+        />
       ) : filteredEmployees.length === 0 ? (
-        <div className="ns__empty">Không tìm thấy nhân viên nào khớp với bộ lọc.</div>
+        <EmptyState
+          icon="search"
+          title="Chưa có nhân viên nào khớp bộ lọc"
+          sub="Thử xoá ô tìm tên hoặc bỏ bớt chip lọc phía trên."
+        />
       ) : (
         <div className="cc-timesheet-scroll-container cc-calendar-scroll-wrapper">
           <table className="cc-timesheet-table cc-calendar-table">
@@ -788,6 +962,8 @@ function CalendarTab({ token }: { token: string }) {
               </tr>
               <tr>
                 <th className="cc-calendar-sticky-name cc-calendar-sticky-sub">
+                  {/* Đếm theo TOÀN BỘ danh sách đã lọc, không phải số hàng của trang — đây là
+                      "có bao nhiêu NV khớp", chân bảng bên dưới mới nói đang xem trang mấy. */}
                   <span className="cc-emp-count-badge">{filteredEmployees.length} NV</span>
                 </th>
                 {days.map((d) => {
@@ -806,7 +982,7 @@ function CalendarTab({ token }: { token: string }) {
               </tr>
             </thead>
             <tbody>
-              {filteredEmployees.map((e) => (
+              {pagedEmployees.map((e) => (
                 <tr key={e.employee_id} className="cc-calendar-row">
                   <td className="cc-calendar-sticky-name">
                     <div className="cc-name-cell-wrapper">
@@ -878,6 +1054,18 @@ function CalendarTab({ token }: { token: string }) {
         </div>
       )}
 
+      {/* Chân bảng chỉ có nghĩa khi lưới đang hiện — ba ca tải/lỗi/rỗng ở trên đã thay chỗ
+          của lưới rồi thì đừng in thêm "Tổng 0 nhân viên" bên dưới. */}
+      {!loading && !listError && filteredEmployees.length > 0 && (
+        <Pager
+          total={filteredEmployees.length}
+          page={pageSafe}
+          size={PAGE_SIZE}
+          unit="nhân viên"
+          onPage={setPage}
+        />
+      )}
+
       {/* 4. Glassmorphic Popover Tooltip */}
       {hoveredCell && (() => {
         const tooltipWidth = 240;
@@ -930,9 +1118,20 @@ function LeaveTypesTab({ token }: { token: string }) {
   const [items, setItems] = useState<LeaveType[] | null>(null);
   const [editing, setEditing] = useState<LeaveType | "new" | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
+  /** Trang của danh mục — cắt ở CLIENT (endpoint `/types` còn nuôi 2 dropdown, xem `PAGE_SIZE`). */
+  const [page, setPage] = useState(1);
 
+  const [loading, setLoading] = useState(true);
+  /** Lỗi TẢI danh mục. `toggleActive`/`handleDelete` báo lỗi bằng alert nên không đụng ô này —
+   *  đúng ý: một lần xoá hỏng không được phép làm cả danh mục biến mất. */
+  const [listError, setListError] = useState<string | null>(null);
   const load = useCallback(() => {
-    api.leaves.types(token).then((r) => setItems(r.items)).catch(() => setItems([]));
+    setLoading(true);
+    setListError(null);
+    api.leaves.types(token)
+      .then((r) => setItems(r.items))
+      .catch((e) => { setItems([]); setListError(errMsg(e)); })
+      .finally(() => setLoading(false));
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
@@ -961,9 +1160,16 @@ function LeaveTypesTab({ token }: { token: string }) {
     }
   }
 
+  // Ba thẻ thống kê tính trên TOÀN BỘ danh mục, không phải trang đang xem.
   const totalTypes = items?.length ?? 0;
   const paidTypes = items?.filter((t) => t.is_paid).length ?? 0;
   const unpaidTypes = items?.filter((t) => !t.is_paid).length ?? 0;
+
+  // Cắt trang cho CẢ hai chế độ xem (thẻ và bảng) — hai chế độ chỉ khác cách vẽ, cùng một
+  // danh sách, nên chuyển qua lại không được nhảy sang tập dữ liệu khác.
+  const totalPages = Math.max(1, Math.ceil(totalTypes / PAGE_SIZE));
+  const pageSafe = Math.min(page, totalPages);
+  const pagedTypes = (items ?? []).slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
 
   return (
     <div className="cc-leave-types-wrapper">
@@ -1011,27 +1217,30 @@ function LeaveTypesTab({ token }: { token: string }) {
             </button>
           </div>
 
-          <button className="btn btn--primary cc-btn-cta-compact" onClick={() => setEditing("new")}>
+          {/* Hành động chính DUY NHẤT của tab → cam. (Cặp nút xem thẻ/bảng bên trái là
+              công tắc hiển thị, không phải hành động — giữ nguyên dáng cũ.) */}
+          <Button variant="accent" className="ns-btn-cta" onClick={() => setEditing("new")}>
             <Plus size={16} />
             <span>Thêm loại nghỉ mới</span>
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* 2. Main Content Display */}
-      {items === null ? (
-        <div className="ns__empty cc-calendar-loading">
-          <div className="cc-loading-spinner" />
-          <span>Đang tải loại nghỉ...</span>
-        </div>
-      ) : items.length === 0 ? (
-        <div className="ns__empty" style={{ padding: 40 }}>
-          Chưa khai loại nghỉ nào. Bấm "+ Thêm loại nghỉ mới" để khởi tạo.
-        </div>
+      {loading ? (
+        <EmptyState trangThai="dang-tai" />
+      ) : listError ? (
+        <EmptyState trangThai="loi" loi={listError} onThuLai={load} />
+      ) : !items || items.length === 0 ? (
+        <EmptyState
+          icon="clipboard"
+          title="Chưa khai loại nghỉ nào"
+          sub="Bấm “Thêm loại nghỉ mới” để khai phép năm, nghỉ ốm, việc riêng…"
+        />
       ) : viewMode === "grid" ? (
         /* GRID VIEW (FEATURE CARDS) */
         <div className="cc-leave-types-grid">
-          {items.map((t) => {
+          {pagedTypes.map((t) => {
             return (
               <div key={t.id} className={`cc-leave-type-card ${!t.is_active ? "is-inactive" : ""}`}>
                 <div className="cc-leave-type-card-head">
@@ -1096,20 +1305,20 @@ function LeaveTypesTab({ token }: { token: string }) {
             <thead>
               <tr>
                 <th>Tên loại nghỉ</th>
-                <th style={{ textAlign: "center" }}>Chế độ lương</th>
-                <th style={{ textAlign: "center" }}>Hạn mức hàng năm</th>
-                <th style={{ textAlign: "center" }}>Trạng thái</th>
-                <th style={{ textAlign: "center" }}>Thao tác</th>
+                <th className="ns-col-mid">Chế độ lương</th>
+                <th className="ns-col-mid">Hạn mức hàng năm</th>
+                <th className="ns-col-mid">Trạng thái</th>
+                <th className="ns-col-act">Thao tác</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((t) => {
+              {pagedTypes.map((t) => {
                 return (
                   <tr key={t.id} className={!t.is_active ? "is-inactive-row" : ""}>
                     <td style={{ fontWeight: "bold", color: "var(--ink)" }}>
                       <span>{t.name}</span>
                     </td>
-                    <td style={{ textAlign: "center" }}>
+                    <td className="ns-col-mid">
                       {t.is_paid ? (
                         <span className="cc-type-badge cc-type-badge--paid">
                           Có lương
@@ -1120,19 +1329,20 @@ function LeaveTypesTab({ token }: { token: string }) {
                         </span>
                       )}
                     </td>
-                    <td style={{ textAlign: "center", fontWeight: "bold" }}>
+                    <td className="ns-col-mid" style={{ fontWeight: "bold" }}>
                       {t.annual_quota > 0 ? `${t.annual_quota} ngày/năm` : "Theo đơn xin"}
                     </td>
-                    <td style={{ textAlign: "center" }}>
+                    <td className="ns-col-mid">
                       <label className="cc-switch" title={t.is_active ? "Đang sử dụng" : "Đã tắt"}>
-                        <input type="checkbox" checked={t.is_active} onChange={() => toggleActive(t)} />
+                        <input type="checkbox" checked={t.is_active} onChange={() => toggleActive(t)} aria-label={`Bật/tắt loại nghỉ ${t.name}`} />
                         <span className="cc-slider" />
                       </label>
                     </td>
-                    <td style={{ textAlign: "center" }}>
-                      <div className="cc-approve-actions-cell" style={{ justifyContent: "center" }}>
-                        <button className="btn btn--ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => setEditing(t)}>Sửa</button>
-                        <button className="btn btn--ghost cc-btn-reject" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => handleDelete(t)}>Xóa</button>
+                    <td className="ns-col-act">
+                      {/* Xoá loại nghỉ đụng tới đơn cũ ⇒ GIỮ `danger`. */}
+                      <div className="cc-approve-actions-cell ns-rowact">
+                        <RowActionButton dense label="Sửa" icon="pencil" onClick={() => setEditing(t)} />
+                        <RowActionButton dense danger label="Xóa" icon="trash" onClick={() => handleDelete(t)} />
                       </div>
                     </td>
                   </tr>
@@ -1141,6 +1351,18 @@ function LeaveTypesTab({ token }: { token: string }) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Chân bảng chung cho CẢ hai chế độ xem (thẻ / bảng). Danh mục thường 5-15 dòng nên nút
+          chuyển trang gần như không bao giờ hiện — đúng ý: `Pager` tự ẩn khi chỉ có 1 trang. */}
+      {!loading && !listError && totalTypes > 0 && (
+        <Pager
+          total={totalTypes}
+          page={pageSafe}
+          size={PAGE_SIZE}
+          unit="loại nghỉ"
+          onPage={setPage}
+        />
       )}
 
       {editing && (
@@ -1223,7 +1445,7 @@ function LeaveTypeForm({ token, type, onClose, onSaved }: {
         </div>
         <footer className="ns-modal__foot">
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
-          <button className="btn btn--primary" onClick={save} disabled={busy}>{busy ? "Đang lưu…" : "Lưu cấu hình"}</button>
+          <Button variant="accent" onClick={save} loading={busy}>{busy ? "Đang lưu…" : "Lưu cấu hình"}</Button>
         </footer>
       </div>
     </div>
@@ -1233,14 +1455,21 @@ function LeaveTypeForm({ token, type, onClose, onSaved }: {
 // --- Shared table -----------------------------------------------------------
 
 function LeaveTable({ items, showEmployee, onCancel, onApprove, onReject,
-  selectable, selected, onToggle, onToggleAll, allPendingCount, onRowClick }: {
+  selectable, selected, onToggle, onToggleAll, allPendingCount, onRowClick,
+  loading, listError, onRetry, emptyTitle, emptySub }: {
   items: LeaveRequest[]; showEmployee: boolean;
   onCancel?: (id: number) => void; onApprove?: (id: number) => void; onReject?: (r: LeaveRequest) => void;
   selectable?: boolean; selected?: Set<number>; onToggle?: (id: number) => void;
   onToggleAll?: () => void; allPendingCount?: number;
   onRowClick?: (r: LeaveRequest) => void;
+  /** Ba ca rỗng phải do NƠI GỌI cấp: bảng này không tự gọi máy chủ nên không tự biết
+   *  đang tải hay gọi hỏng. `listError` CHỈ nhận lỗi TẢI DANH SÁCH — đừng truyền lỗi
+   *  duyệt/từ chối vào đây, không thì một lần bấm hỏng là mất cả bảng. */
+  loading?: boolean; listError?: string | null; onRetry?: () => void;
+  emptyTitle?: string; emptySub?: string;
 }) {
   const allChecked = !!allPendingCount && selected?.size === allPendingCount;
+  // ⚠ Đếm theo số cột ĐANG hiện (2 cột bật/tắt theo ngữ cảnh), đừng gõ số cứng.
   const cols = (showEmployee ? 8 : 7) + (selectable ? 1 : 0);
   return (
     <div className="cc-table-card">
@@ -1248,23 +1477,28 @@ function LeaveTable({ items, showEmployee, onCancel, onApprove, onReject,
         <table className="cc-timesheet-table cc-leave-table">
           <thead>
             <tr>
-              {selectable && <th style={{ width: 36, textAlign: "center" }}><input type="checkbox" checked={allChecked} onChange={onToggleAll} title="Chọn tất cả đơn chờ" /></th>}
+              {selectable && <th className="ns-col-pick"><input type="checkbox" checked={allChecked} onChange={onToggleAll} title="Chọn tất cả đơn chờ" aria-label="Chọn tất cả đơn chờ duyệt" /></th>}
               {showEmployee && <th>Nhân viên</th>}
               <th>Loại nghỉ</th>
               <th>Từ ngày</th>
               <th>Đến ngày</th>
-              <th style={{ textAlign: "center" }}>Số ngày</th>
+              <th className="ns-col-mid">Số ngày</th>
               <th>Lý do</th>
-              <th style={{ textAlign: "center" }}>Trạng thái</th>
-              <th style={{ textAlign: "center" }}>Thao tác</th>
+              <th className="ns-col-mid">Trạng thái</th>
+              {/* Tên cột thống nhất toàn hệ là "Thao tác" (không dùng "Hành động"). */}
+              <th className="ns-col-act">Thao tác</th>
             </tr>
           </thead>
           <tbody>
-            {items.map((r) => (
+            {loading && <EmptyRow colSpan={cols} trangThai="dang-tai" />}
+            {!loading && listError && (
+              <EmptyRow colSpan={cols} trangThai="loi" loi={listError} onThuLai={onRetry} />
+            )}
+            {!loading && !listError && items.map((r) => (
               <tr key={r.id} onClick={() => onRowClick?.(r)} className="cc-leave-table-row">
                 {selectable && (
-                  <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
-                    {r.status === "pending" && <input type="checkbox" checked={selected?.has(r.id) ?? false} onChange={() => onToggle?.(r.id)} />}
+                  <td className="ns-col-pick" onClick={(e) => e.stopPropagation()}>
+                    {r.status === "pending" && <input type="checkbox" checked={selected?.has(r.id) ?? false} onChange={() => onToggle?.(r.id)} aria-label={`Chọn đơn của ${r.employee_name ?? `NV#${r.employee_id}`}`} />}
                   </td>
                 )}
                 {showEmployee && (
@@ -1289,7 +1523,7 @@ function LeaveTable({ items, showEmployee, onCancel, onApprove, onReject,
                 </td>
                 <td className="cc-date-cell">{fmtDate(r.start_date)}</td>
                 <td className="cc-date-cell">{fmtDate(r.end_date)}</td>
-                <td style={{ textAlign: "center" }}>
+                <td className="ns-col-mid">
                   <span className="cc-days-pill">{r.days} ngày</span>
                 </td>
                 <td>
@@ -1302,22 +1536,32 @@ function LeaveTable({ items, showEmployee, onCancel, onApprove, onReject,
                     )}
                   </div>
                 </td>
-                <td style={{ textAlign: "center" }}><StatusBadge s={r.status} /></td>
-                <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
-                  <div className="cc-approve-actions-cell" style={{ justifyContent: "center" }}>
-                    {onApprove && r.status === "pending" && <button className="btn btn--primary cc-btn-approve-sm" onClick={() => onApprove(r.id)}>Duyệt</button>}
-                    {onReject && r.status === "pending" && <button className="btn btn--ghost cc-btn-reject-sm" onClick={() => onReject(r)}>Từ chối</button>}
-                    {onCancel && (r.status === "pending" || r.status === "approved") && <button className="btn btn--ghost cc-btn-cancel-sm" onClick={() => onCancel(r.id)}>Hủy</button>}
+                <td className="ns-col-mid"><StatusBadge s={r.status} /></td>
+                <td className="ns-col-act" onClick={(e) => e.stopPropagation()}>
+                  {/* Nút chữ trên dòng → RowActionButton dạng dense (icon + tooltip).
+                      GIỮ `danger` cho Từ chối / Hủy: cả hai đều là quyết định người khác
+                      nhận được ngay, mất tín hiệu đỏ là bấm nhầm ô bên cạnh. */}
+                  <div className="cc-approve-actions-cell ns-rowact">
+                    {onApprove && r.status === "pending" && (
+                      <RowActionButton dense label="Duyệt" icon="check" onClick={() => onApprove(r.id)} />
+                    )}
+                    {onReject && r.status === "pending" && (
+                      <RowActionButton dense danger label="Từ chối" icon="ban" onClick={() => onReject(r)} />
+                    )}
+                    {onCancel && (r.status === "pending" || r.status === "approved") && (
+                      <RowActionButton dense danger label="Hủy đơn" icon="x" onClick={() => onCancel(r.id)} />
+                    )}
                   </div>
                 </td>
               </tr>
             ))}
-            {items.length === 0 && (
-              <tr>
-                <td colSpan={cols} className="ns__empty" style={{ padding: "32px 16px", textAlign: "center", color: "#64748b" }}>
-                  Chưa có đơn xin nghỉ phép nào.
-                </td>
-              </tr>
+            {!loading && !listError && items.length === 0 && (
+              <EmptyRow
+                colSpan={cols}
+                icon="calendar"
+                title={emptyTitle ?? "Chưa có đơn xin nghỉ phép nào"}
+                sub={emptySub ?? "Bấm “Xin nghỉ phép” để gửi đơn đầu tiên."}
+              />
             )}
           </tbody>
         </table>

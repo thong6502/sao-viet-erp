@@ -25,6 +25,8 @@ class ThanhPhamIn(BaseModel):
     dien_tich: float | None = None
     nha_cung_cap: str | None = None
     ghi_chu: str | None = None
+    # Phí làm khuôn của CHÍNH bước này — MỘT LẦN, không nhân SL. 0 = dùng lại dao cũ.
+    phi_khuon: float | None = Field(default=None, ge=0)
 
 
 class ThanhPhamOut(BaseModel):
@@ -43,6 +45,7 @@ class ThanhPhamOut(BaseModel):
     dien_tich: float
     nha_cung_cap: str | None = None
     ghi_chu: str | None = None
+    phi_khuon: float = 0
 
 
 # ============================ VẬT TƯ (nguyên vật liệu thêm) ============================
@@ -75,12 +78,11 @@ class ThanhPhanIn(BaseModel):
     thu_tu: int | None = None
     loai_thanh_phan: str | None = None
     ten: str | None = None
-    kho_thanh_pham: str | None = None
     dai_thanh_pham: int | None = None
     rong_thanh_pham: int | None = None
-    kho_mo_rong: str | None = None
-    tay_gap: str | None = None
-    so_to_per_sp: int | None = Field(default=None, ge=1)
+    so_to_per_sp: int | None = Field(default=None, ge=1)   # DẪN XUẤT (engine ghi) — client gửi cũng bị đè
+    so_trang: int | None = Field(default=None, ge=1)        # số trang nội dung của 1 sản phẩm
+    trang_moi_tay: int | None = Field(default=None, ge=1)   # số trang mỗi tay gấp
     so_luong: int | None = Field(default=None, ge=0)   # SL của sản phẩm này
     don_vi_tinh: str | None = Field(default=None, max_length=30)   # ĐVT sản phẩm (text tự do)
     # Nhãn gộp dòng KHI IN báo giá (ruột + bìa 1 cuốn gõ giống nhau). Không vào công thức giá.
@@ -94,9 +96,6 @@ class ThanhPhanIn(BaseModel):
     don_gia_giay: float | None = None
     don_gia_don_vi: str | None = None
     nguon_giay: str | None = None
-    bu_hao_so_to: int | None = None
-    hao_so_to: int | None = None
-    tinh_bu_hao_cd: bool | None = None
     chua_nhip: float | None = None
     bleed_mm: float | None = None
     khe_cat_mm: float | None = None
@@ -111,10 +110,15 @@ class ThanhPhanIn(BaseModel):
     con_auto: bool | None = None
     may_id: int | None = None
     don_gia_cong_in: float | None = None
-    # Màu (gộp — chỉ số màu mỗi mặt)
+    # Mực in: TẬP mã mỗi mặt (`["C","M","Y","K"]`) — nguồn sự thật của số kẽm, vì tự trở dùng
+    # chung một bộ bản nên kẽm là `|A ∪ B|`, không suy được từ hai con số.
+    muc_a: list[str] | None = None
+    muc_b: list[str] | None = None
+    # Ba số màu: DẪN XUẤT, engine tính lại từ tập rồi ghi đè. Còn nhận từ client để phiếu cũ
+    # (chưa có tập mực) lưu lại không mất số — đừng dựa vào chúng để tính gì.
     so_mau_a: int | None = None
     so_mau_b: int | None = None
-    so_mau_pha: int | None = Field(default=None, ge=0)   # màu pha NẰM TRONG tổng số màu trên
+    so_mau_pha: int | None = Field(default=None, ge=0)
     ghi_chu_ky_thuat: str | None = None   # note KỸ THUẬT/SX theo sản phẩm (canh màu/kẽm cũ/bù hao) → drawer lệnh
     thanh_phams: list[ThanhPhamIn] | None = None
     vat_tus: list[VatTuLineIn] | None = None
@@ -128,12 +132,11 @@ class ThanhPhanOut(BaseModel):
     thu_tu: int
     loai_thanh_phan: str
     ten: str
-    kho_thanh_pham: str | None = None
     dai_thanh_pham: int
     rong_thanh_pham: int
-    kho_mo_rong: str | None = None
-    tay_gap: str | None = None
     so_to_per_sp: int
+    so_trang: int = 1
+    trang_moi_tay: int = 1
     so_luong: int
     don_vi_tinh: str = "cái"
     nhom_bao_gia: str | None = None
@@ -146,9 +149,6 @@ class ThanhPhanOut(BaseModel):
     don_gia_giay: float
     don_gia_don_vi: str
     nguon_giay: str
-    bu_hao_so_to: int
-    hao_so_to: int
-    tinh_bu_hao_cd: bool = True
     chua_nhip: float
     bleed_mm: float = 0
     khe_cat_mm: float = 0
@@ -163,7 +163,9 @@ class ThanhPhanOut(BaseModel):
     con_auto: bool
     may_id: int | None = None
     don_gia_cong_in: float
-    # Màu (gộp)
+    # Mực in — tập mã mỗi mặt; ba số dưới là dẫn xuất engine đã chốt.
+    muc_a: list[str] = Field(default_factory=list)
+    muc_b: list[str] = Field(default_factory=list)
     so_mau_a: int
     so_mau_b: int
     so_mau_pha: int = 0

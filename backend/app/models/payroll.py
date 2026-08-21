@@ -143,6 +143,15 @@ class PayrollParams(Base):
     bh_base_cap: Mapped[float] = mapped_column(_MONEY, nullable=False, default=50_600_000, server_default="50600000")
     # Trần BHTN = 20× lương tối thiểu vùng (vùng I 5.31tr từ 1/1/2026 → 106.2tr). 0 = không áp trần.
     bhtn_base_cap: Mapped[float] = mapped_column(_MONEY, nullable=False, default=106_200_000, server_default="106200000")
+    # --- TRẦN GIỜ LÀM THÊM (Đ107 BLLĐ) — chủ chốt 17/08/2026 ------------------------------
+    # Số PHÚT làm thêm tối đa MỘT NGƯỜI được cấp phiếu trong MỘT THÁNG. `0` = TẮT TRẦN.
+    # ⚠️ Mặc định 0 (TẮT) là CỐ Ý: deploy xong KHÔNG chặn ai đột ngột. Chủ vào Cấu hình lương
+    # gõ 2400 (= 40 giờ, mức Đ107) khi sẵn sàng. Chặn CỨNG, KHÔNG có đường vượt — hết trần thì
+    # lối duy nhất là nâng số này (áp cho CẢ công ty, không riêng ai).
+    ot_max_minutes_per_month: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Số PHÚT tối đa của MỘT phiếu tăng ca (Đ107.1: ≤ 12 giờ/ngày). Trước 17/08/2026 viết cứng
+    # `MAX_OT_MINUTES` trong `overtime_service`. Đưa ra tham số vì luật đổi hằng năm (Sếp Sơn).
+    ot_max_minutes_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=720, server_default="720")
     # TRẦN TẠM ỨNG (chủ 2026-07-23): tổng tạm ứng trong MỘT tháng của 1 NV không vượt tỷ lệ này ×
     # (lương vị trí + trách nhiệm). Ứng nhiều lần trong tháng được, nhưng cộng dồn phải nằm trong trần.
     # Đơn ĐANG CHỜ DUYỆT cũng chiếm chỗ. 0 = KHÔNG giới hạn (đường thoát để duyệt nốt đơn tồn).
@@ -168,8 +177,37 @@ class PayrollParams(Base):
     # `0` = TẮT TRẦN: ghi phạt bao nhiêu trừ bấy nhiêu (thực nhận vẫn có sàn 0, không âm).
     # Màn Cấu hình lương cảnh báo khi đặt 0 hoặc > 30%. Thêm qua migration 0126.
     phat_cap_pct: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.30, server_default="0.3")
+    # SỐ NGÀY nghỉ không lương trong tháng mà từ đó tháng đó KHÔNG ĐÓNG BHXH.
+    #
+    # ⚠️ MỨC LUẬT, không phải chính sách công ty: QĐ 595/QĐ-BHXH Đ42.4 — người lao động không làm
+    # việc và không hưởng tiền lương từ 14 ngày làm việc trở lên trong tháng thì tháng đó không
+    # đóng BHXH. Khai được vì luật đổi thì gõ lại, đừng viết cứng trong engine (cùng lý do với
+    # `phat_cap_pct` và `pit_flat_rate`).
+    #
+    # `0` = TẮT LUẬT: tháng nào cũng trừ BHXH, như hành vi trước 04/08/2026. Engine PHẢI kiểm
+    # `> 0` trước khi so — không thì `ngay_khong_luong >= 0` luôn đúng và CẢ XƯỞNG mất sạch BHXH.
+    # Thêm qua migration 0158.
+    bhxh_mien_tu_so_ngay: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=14, server_default="14")
     # Phụ cấp cơm/ca ĐÃ CHUYỂN sang khai theo TỪNG CA (`work_shifts.meal_allowance` ·
     # `.shift_allowance`) — chủ đổi ý 2026-07-21: gắn vào ca thì NV được gán ca đó tự cộng.
+    #
+    # NGƯỠNG CÔNG để được hưởng phụ cấp cơm/ca của một ngày (chủ chốt 03/08/2026): đủ ngưỡng thì
+    # hưởng TRỌN, dưới ngưỡng thì KHÔNG có — cố ý KHÔNG nhân theo tỷ lệ. Một suất ăn là có hoặc
+    # không; nhân tỷ lệ thì đi muộn 15 phút (công 0,97) ra 24.250đ tiền cơm, vô lý.
+    # 0,5 = nghỉ nửa buổi vẫn được hưởng. Khai được để mỗi xưởng tự đặt, đừng viết cứng.
+    phu_cap_ca_min_cong: Mapped[float] = mapped_column(
+        Numeric(5, 2), nullable=False, default=0.5, server_default="0.5"
+    )
+    # --- SUẤT CƠM TĂNG CA (12/08/2026) ---
+    # Ngưỡng phút tăng ca trong MỘT NGÀY để được suất cơm, áp cho NGÀY LÀM VIỆC. Ngày NGHỈ theo
+    # Lịch chung (gồm ngày lễ, off1x) KHÔNG dùng ngưỡng này — cứ có tăng ca là có suất.
+    com_tang_ca_nguong_phut: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=180, server_default="180"
+    )
+    # Tiền MỘT suất. MẶC ĐỊNH 0 = TẮT — bật sẵn một khoản ra tiền cho cả nhà máy mà chưa ai duyệt
+    # số là tự ý tăng quỹ lương. Cùng lối với `cong_doan_rate`.
+    com_tang_ca_muc: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
@@ -333,6 +371,26 @@ class PayrollPeriod(Base):
     paid_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    #: Lần CHẠY ENGINE gần nhất cho kỳ này (mỗi lần "Tính lại" ghi đè). So với
+    #: `attendance_periods.locked_at` để biết bảng lương có đang là số tính TRƯỚC lúc chốt công không.
+    #:
+    #: Vì sao không dùng `payroll_lines.updated_at`: ô đó cũng nhảy khi HCNS gõ tay một khoản
+    #: thưởng/phạt, nên "mới hơn" KHÔNG có nghĩa là "đã tính lại". Cần một dấu chỉ do engine đặt.
+    #: NULL = kỳ có từ trước migration `0186` (không biết tính lúc nào) — cố ý KHÔNG đoán.
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Thời điểm PHÁT PHIẾU LƯƠNG cho người lao động. NULL = chưa công bố ⇒ NV KHÔNG thấy phiếu.
+    #:
+    #: Một cột làm cả hai việc: "Công bố ngay" ghi thời điểm hiện tại, "Hẹn giờ" ghi mốc tương lai.
+    #: Điều kiện NV thấy phiếu là `cong_bo_luc IS NOT NULL AND cong_bo_luc <= bây giờ` — KIỂM LÚC
+    #: ĐỌC nên KHÔNG cần job chạy nền: không có job để mà chết, không lệch múi giờ, không phải lo
+    #: nhiều worker. Thu hồi = set lại NULL.
+    cong_bo_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Thời điểm ĐÓNG phiếu — NLĐ thôi xem được. NULL = mở không thời hạn.
+    #:
+    #: Cùng với `cong_bo_luc` tạo thành MỘT CỬA SỔ: NV thấy phiếu khi
+    #: `cong_bo_luc <= bây giờ < dong_phieu_luc`. Chủ chốt 12/08/2026: *"cài giờ phiếu nó hiển thị
+    #: trong bao nhiêu lâu"* — phiếu lương không cần mở vĩnh viễn, xem xong là đóng lại.
+    dong_phieu_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PayrollLine(Base):
@@ -359,6 +417,16 @@ class PayrollLine(Base):
     # hơn. ĐỪNG cộng thêm vào gross: đã nằm trong `luong_cong`. Khác hẳn cột tay `phep_nam`.
     luong_ngay_phep: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     paid_leave_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
+    # TRONG ĐÓ của `actual_cong` — số công của NGÀY LỄ / NGHỈ TUẦN có đi làm. Tách riêng vì phần
+    # công này KHÔNG đi qua trần `min(công làm, công chuẩn)` (Đ98.1.b/c — xem `_luong_cong_split`).
+    # Snapshot để "Sửa 1 ô" tính lại ra đúng số của "Tính lại". ĐỪNG cộng vào gross: đã nằm trong
+    # `luong_cong`. Kỳ CŨ (trước mg 0204) = 0 ⇒ giữ nguyên hành vi cũ, không hồi tố.
+    special_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
+    # TRONG ĐÓ của `ot_pay` — tiền của NGÀY off1x (công ty cho nghỉ, ai đi làm được trả 1×, không
+    # hệ số). Tách riêng vì nó CHỊU thuế TNCN: trả đúng 1× nên không có phần "trả cao hơn" nào để
+    # miễn (kế toán chốt 17/08/2026: "lương thuế chỉ 1 công bình thường"). Snapshot để "Sửa 1 ô"
+    # trừ đúng y "Tính lại". ĐỪNG cộng vào gross: đã nằm trong `ot_pay`. Kỳ CŨ (trước mg 0205) = 0.
+    off1x_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     # Công thiếu ĐƯỢC PHÉP (đơn nghỉ theo giờ đã duyệt) — chỉ để giải trình vì sao công thiếu mà
     # chuyên cần vẫn đủ. Không tham gia công thức nào ở dòng lương.
     excused_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
@@ -380,10 +448,21 @@ class PayrollLine(Base):
     ot_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # tổng phút tăng ca (Pha 4a)
     ot_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")          # tiền tăng ca (Pha 4a)
     night_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # số ngày ca đêm (từ Chấm công)
-    # PHỤ CẤP CA của kỳ = số KHAI TAY ở `employee_salaries.phu_cap_ca` (cộng phẳng, không
-    # prorate). Giữ TÊN CỘT cũ vì đã nối sẵn gross/miễn TNCN/export/phiếu lương — không đẻ cột
-    # thứ hai cùng nghĩa (API phơi thêm alias `ca_pay`).
+    # ⚠️ NGƯNG TỪ 03/08/2026 — luôn 0. Trước đây = số KHAI TAY ở `employee_salaries.phu_cap_ca`
+    # (cộng phẳng mỗi tháng). Nay phụ cấp cơm/ca tính THEO CA THỰC LÀM (hai cột ngay dưới), nên
+    # đường này phải tắt CÙNG LƯỢT — để cả hai cùng chạy là TRẢ HAI LẦN.
+    # Giữ cột (không drop) vì kỳ lương cũ đã chốt còn số ở đây; xoá là mất lịch sử.
     night_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # Phụ cấp CƠM CA + PHỤ CẤP CA, tính từ `work_shifts.meal_allowance` / `.shift_allowance` ×
+    # số ngày THỰC LÀM ca đó (ngày đủ ngưỡng `payroll_params.phu_cap_ca_min_cong`).
+    # HAI CỘT RIÊNG, cố ý không gộp: phiếu lương phải nói rõ khoản nào, và tiền ăn giữa ca có trần
+    # miễn thuế riêng (730k/tháng) nên gộp là mất đường tách sau này.
+    meal_allowance_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    shift_allowance_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # Cơm TĂNG CA — cột RIÊNG, không gộp vào `meal_allowance_pay`: hai khoản khác luật (một theo
+    # ca thực làm, một theo giờ tăng ca) và một ngày có thể ăn CẢ HAI. Gộp là hết đường giải thích
+    # với người lao động khi họ hỏi "sao tháng này tiền cơm khác tháng trước".
+    com_tang_ca_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     # Premium CA ĐÊM theo GIỜ (giờ đêm × hệ số + tăng ca đêm) — tự tính từ chấm công, DÒNG RIÊNG, miễn TNCN.
     night_premium_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     vi_pham: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")        # tay — giảm trừ khác (RAW; gộp trần 30% Đ102)
@@ -555,5 +634,19 @@ class PayrollLineComponent(Base):
     source: Mapped[str] = mapped_column(
         String(8), nullable=False, default=COMPONENT_SOURCE_EMPLOYEE,
         server_default=COMPONENT_SOURCE_EMPLOYEE,
+    )
+    #: HCNS đã SỬA TAY số tiền của dòng này CHO RIÊNG KỲ NÀY.
+    #:
+    #: Dùng cho tình huống: hồ sơ gán "Hỗ trợ chi phí đi lại 200.000/tháng", nhưng tháng này người
+    #: ta đi nhiều hơn. Sửa ở hồ sơ là đổi cho MỌI THÁNG SAU và phải nhớ quay lại sửa ngược — quên
+    #: một lần là trả sai mãi. Nên đè ngay trên dòng lương, hồ sơ giữ nguyên.
+    #:
+    #: Dòng đã đè vẫn giữ `source='employee'` (nó KHÔNG phải thưởng nóng), nhưng được MIỄN khỏi
+    #: lượt xoá-ghi-lại của "Tính lại". Hai vế phải làm ĐỦ CẢ HAI, thiếu một là hỏng:
+    #:   1. `replace_employee_line_components` chỉ xoá dòng CHƯA đè;
+    #:   2. `generate` phải BỎ QUA khoản hồ sơ đã có dòng đè — quên vế này thì mỗi lần Tính lại
+    #:      lại thêm một dòng nữa và NV ăn tiền hai lần.
+    da_de_tay: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=sa_false()
     )
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)

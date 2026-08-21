@@ -19,6 +19,7 @@ from ..models.overtime import (
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.overtime_repo import OvertimeRepository
+from .ky_cong_guard import ly_do_ky_cong_da_chot
 
 # Trần độ dài MỘT phiếu (phút). Đ107 BLLĐ: tổng giờ làm + tăng ca ≤ 12h/ngày → 12h là trần rộng rãi.
 MAX_OT_MINUTES = 12 * 60
@@ -60,14 +61,66 @@ def hhmm(minute: int) -> str:
     return f"{rem // 60:02d}:{rem % 60:02d}" + (f" (+{day})" if day else "")
 
 
+def _gio_phut(minute: int) -> str:
+    """Số PHÚT (độ dài) → "8h30" / "40h". Khác `hhmm` — cái kia là MỐC giờ trên trục ngày công,
+    in ra "16:40 (+1)" cho 2400 phút thì vô nghĩa với người đọc."""
+    m = max(0, int(minute))
+    g, ph = divmod(m, 60)
+    return f"{g}h{ph:02d}" if ph else f"{g}h"
+
+
+def _hhmm(minute: int) -> str:
+    """Mốc giờ để người dùng sửa ô "Đến giờ" — dùng lại `hhmm` sẵn có."""
+    return hhmm(minute)
+
+
 class OvertimeService:
     def __init__(self, overtime: OvertimeRepository, employees: EmployeeRepository,
-                 audit: AuditLogRepository) -> None:
+                 audit: AuditLogRepository, attendance=None, payroll=None) -> None:
         self.overtime = overtime
         self.employees = employees
         self.audit = audit
+        # PayrollRepository | None — CHỈ để đọc trần giờ làm thêm ở `payroll_params` (Đ107).
+        # None (unit test dựng tay) ⇒ rơi về hằng số cũ, hành vi y như trước 17/08/2026.
+        self._payroll = payroll
+        # AttendanceRepository | None — hỏi "kỳ công tháng đó chốt chưa" trước khi duyệt/hủy phiếu
+        # ĐÃ DUYỆT. Phiếu tăng ca duyệt xong là RA PHÚT TĂNG CA trong bảng công. Chỉ đọc REPO.
+        self._attendance = attendance
+
+    def _chan_neu_ky_cong_da_chot(self, ngay: date, viec: str) -> None:
+        if self._attendance is None:
+            return
+        loi = ly_do_ky_cong_da_chot(self._attendance, ngay, viec=viec)
+        if loi:
+            raise OvertimeValidationError(loi)
 
     # --- helpers ------------------------------------------------------------
+
+    def _tran_thang(self) -> int:
+        """Số PHÚT làm thêm tối đa một người trong một tháng. `0` = TẮT trần."""
+        if self._payroll is None:
+            return 0
+        return int(getattr(self._payroll.get_params(), "ot_max_minutes_per_month", 0) or 0)
+
+    def _tran_mot_phieu(self) -> int:
+        """Số PHÚT tối đa của MỘT phiếu (Đ107.1, mặc định 12 giờ)."""
+        if self._payroll is None:
+            return MAX_OT_MINUTES
+        return int(getattr(self._payroll.get_params(), "ot_max_minutes_per_day", MAX_OT_MINUTES)
+                   or MAX_OT_MINUTES)
+
+    def tran_thang_info(self, employee_id: int, year: int, month: int, *,
+                        exclude_id: int | None = None) -> dict:
+        """Số dư trần tháng của 1 NV — nuôi dải bộ đếm trên modal tạo/sửa phiếu."""
+        tran = self._tran_thang()
+        da_dung = self.overtime.sum_live_minutes_in_month(
+            employee_id, year, month, exclude_id=exclude_id)
+        return {
+            "ap_tran": tran > 0,
+            "tran_phut": tran,
+            "da_dung_phut": da_dung,
+            "con_lai_phut": max(0, tran - da_dung) if tran > 0 else None,
+        }
 
     def _employee_for_user(self, user):
         emp = self.employees.get_by_user_id(user.id)
@@ -95,14 +148,37 @@ class OvertimeService:
             raise OvertimeValidationError("Giờ tăng ca ngoài phạm vi cho phép.")
         if to_minute <= from_minute:
             raise OvertimeValidationError("Giờ kết thúc phải sau giờ bắt đầu.")
-        if to_minute - from_minute > MAX_OT_MINUTES:
+        tran_phieu = self._tran_mot_phieu()
+        if to_minute - from_minute > tran_phieu:
             raise OvertimeValidationError(
-                f"Một phiếu tăng ca tối đa {MAX_OT_MINUTES // 60} giờ (Điều 107 BLLĐ)."
+                f"Một phiếu tăng ca tối đa {_gio_phut(tran_phieu)} (Điều 107 BLLĐ)."
             )
         if self.overtime.live_for_day(employee_id, work_date, exclude_id=exclude_id):
             raise OvertimeValidationError(
                 "Mỗi ngày chỉ được 1 phiếu tăng ca. Ngày này đã có phiếu — sửa hoặc hủy phiếu cũ."
             )
+        # --- TRẦN GIỜ LÀM THÊM THEO THÁNG (Đ107) — CHẶN CỨNG, không có đường vượt -----------
+        # Chủ chốt 17/08/2026. `0` = tắt trần (mặc định khi mới migrate) ⇒ không chặn ai.
+        # Đếm cả phiếu CHỜ DUYỆT (giữ chỗ) — xem docstring `sum_live_minutes_in_month`.
+        tran_thang = self._tran_thang()
+        if tran_thang > 0:
+            da_dung = self.overtime.sum_live_minutes_in_month(
+                employee_id, work_date.year, work_date.month, exclude_id=exclude_id)
+            con_lai = tran_thang - da_dung
+            phieu_nay = to_minute - from_minute
+            if phieu_nay > con_lai:
+                thang = f"{work_date.month:02d}/{work_date.year}"
+                if con_lai <= 0:
+                    raise OvertimeValidationError(
+                        f"Tháng {thang} đã dùng hết trần tăng ca "
+                        f"({_gio_phut(da_dung)}/{_gio_phut(tran_thang)}). Không cấp thêm phiếu được."
+                    )
+                raise OvertimeValidationError(
+                    f"Vượt trần tăng ca tháng {thang}. Đã đăng ký {_gio_phut(da_dung)}"
+                    f"/{_gio_phut(tran_thang)} — còn {_gio_phut(con_lai)} (gồm cả phiếu chờ duyệt). "
+                    f"Phiếu này {_gio_phut(phieu_nay)}. "
+                    f"Sửa giờ kết thúc còn tối đa {_hhmm(from_minute + con_lai)}."
+                )
         return from_minute, to_minute
 
     def create_request(self, *, actor, work_date: date, from_minute: int, to_minute: int,
@@ -119,6 +195,10 @@ class OvertimeService:
         from_minute, to_minute = self._validate_window(emp.id, work_date, from_minute, to_minute)
 
         approved = bool(auto_approve)
+        if approved:
+            # Tổ trưởng tạo hộ = DUYỆT LUÔN, không qua `_decide`. Thiếu cửa này thì "tạo hộ"
+            # thành đường vòng ghi thẳng phút tăng ca vào tháng đã chốt.
+            self._chan_neu_ky_cong_da_chot(work_date, "tạo phiếu tăng ca đã duyệt")
         r = self.overtime.create_request(
             employee_id=emp.id, work_date=work_date, from_minute=from_minute,
             to_minute=to_minute, reason=_clean(reason),
@@ -137,15 +217,29 @@ class OvertimeService:
 
     # --- đọc ----------------------------------------------------------------
 
-    def my_requests(self, *, user, limit: int = 100) -> list[OvertimeRequest]:
+    def my_requests(self, *, user, page: int = 1,
+                    size: int = 20) -> tuple[list[OvertimeRequest], int]:
+        """Trả `(rows, total)` — `total` là TỔNG phiếu của NV, không phải số dòng của trang."""
         emp = self._employee_for_user(user)
-        return self.overtime.list_by_employee(emp.id, limit=limit)
+        total = self.overtime.count_by_employee(emp.id)
+        rows = self.overtime.list_by_employee(emp.id, limit=size,
+                                              offset=max(0, (page - 1) * size))
+        return rows, total
 
     def list_requests(self, *, scope: str, actor, status: str | None = None,
-                      limit: int = 200) -> list[OvertimeRequest]:
+                      employee_id: int | None = None, page: int = 1,
+                      size: int = 20) -> tuple[list[OvertimeRequest], int]:
         """Danh sách phiếu theo DATA-SCOPE người gọi (own = của mình / department = tổ mình +
-        cây con / all = tất cả) ⇒ tổ trưởng chỉ thấy & duyệt được người trong tổ."""
-        return self.overtime.list_scoped(scope=scope, actor=actor, status=status, limit=limit)
+        cây con / all = tất cả) ⇒ tổ trưởng chỉ thấy & duyệt được người trong tổ.
+
+        `employee_id` chỉ THU HẸP thêm bên trong phạm vi đã có — không nới quyền: gõ id người
+        ngoài tổ thì `_scope_condition` vẫn cắt, kết quả rỗng chứ không lộ phiếu."""
+        total = self.overtime.count_scoped(scope=scope, actor=actor, status=status,
+                                           employee_id=employee_id)
+        rows = self.overtime.list_scoped(scope=scope, actor=actor, status=status,
+                                         employee_id=employee_id, limit=size,
+                                         offset=max(0, (page - 1) * size))
+        return rows, total
 
     def count_pending(self, *, scope: str, actor) -> int:
         return self.overtime.count_pending_scoped(scope=scope, actor=actor)
@@ -185,6 +279,9 @@ class OvertimeService:
         self._guard_scope(r.employee_id, scope=scope, actor=actor)
         if r.status != STATUS_PENDING:
             raise OvertimeValidationError("Chỉ duyệt/từ chối được phiếu đang chờ.")
+        # Chỉ chặn chiều DUYỆT: phiếu chờ chưa ra phút tăng ca nào, từ chối nó không đổi số.
+        if new_status == STATUS_APPROVED:
+            self._chan_neu_ky_cong_da_chot(r.work_date, "duyệt phiếu tăng ca")
         self.overtime.update_request(
             r, status=new_status, decided_by=actor.id,
             decided_at=datetime.now(timezone.utc), decision_note=_clean(note),
@@ -266,6 +363,9 @@ class OvertimeService:
             raise OvertimeForbidden("Bạn chỉ hủy được phiếu do mình tạo.")
         if r.status not in (STATUS_PENDING, STATUS_APPROVED):
             raise OvertimeValidationError("Phiếu này không còn để hủy.")
+        # Hủy phiếu ĐÃ DUYỆT của tháng đã chốt = rút phút tăng ca đã đóng băng.
+        if r.status == STATUS_APPROVED:
+            self._chan_neu_ky_cong_da_chot(r.work_date, "hủy phiếu tăng ca đã duyệt")
         self.overtime.update_request(r, status=STATUS_CANCELLED)
         self.audit.create(actor_user_id=actor.id, action="overtime_cancelled",
                           target=f"overtime_request:{r.id}", detail="→ cancelled")

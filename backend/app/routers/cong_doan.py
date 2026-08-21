@@ -1,100 +1,89 @@
-"""Công đoạn router (module MỚI) — CRUD danh mục. Chưa đăng ký main.py (unwired).
+"""Công đoạn router — CRUD danh mục + hai cửa tham chiếu (`/phong-ban`, `/dau-viec`).
 
-Dependency INLINE (không đụng deps.py). MODULE quyền = "dm_cong_doan".
+Thân CRUD sinh từ `routers/catalog_base.make_catalog_router`. Dependency INLINE (không đụng
+deps.py). MODULE quyền = "dm_cong_doan".
+
+⚠️ Hai route TĨNH bên dưới phải khai TRƯỚC lời gọi factory ở cuối file — factory dựng
+`/{item_id}`, mà FastAPI khớp route theo THỨ TỰ khai: để sau thì `"phong-ban"` rơi vào
+`{item_id}` và ăn 422 vì không ép được sang int.
 """
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import require_any_permission, require_permission
+from ..deps import require_any_permission
 from ..models.user import User
+from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.cong_doan_repo import CongDoanRepository
-from ..repositories.rbac_repo import DepartmentRepository
 from ..schemas.cong_doan import CongDoanIn, CongDoanListOut, CongDoanRow, RefOption, RefOptionListOut
-from ..services.cong_doan_service import (
-    CongDoanDuplicate, CongDoanNotFound, CongDoanService, CongDoanValidationError,
-)
+from ..services.cong_doan_service import CongDoanService
+from .catalog_base import make_catalog_router
 
 router = APIRouter(prefix="/api/cong-doan", tags=["cong-doan"])
 MODULE = "dm_cong_doan"
 
+# Danh mục THAM CHIẾU: đọc được nếu có quyền cấu hình Công đoạn HOẶC quyền Tính giá (màn Tính giá
+# cần đổ dropdown Công đoạn mà không phải mở màn cấu hình).
+#
+# MỘT dependency đọc dùng cho CẢ list LẪN detail. Trước 15/08/2026 list mở bằng OR-gate còn detail
+# khoá bằng quyền chặt, nên người Tính giá liệt kê được nhưng bấm vào một dòng thì ăn 403 giữa
+# luồng — lỗi câm, không ai đoán ra thiếu quyền gì.
+_DOC = require_any_permission((MODULE, "read"), ("tinh_gia_thanh", "read"))
+
 
 def get_service(db: Annotated[Session, Depends(get_db)]) -> CongDoanService:
-    return CongDoanService(CongDoanRepository(db))
+    return CongDoanService(CongDoanRepository(db), AuditLogRepository(db))
 
 
 Service = Annotated[CongDoanService, Depends(get_service)]
 
 
-def _err(e: Exception):
-    if isinstance(e, CongDoanNotFound):
-        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    if isinstance(e, CongDoanDuplicate):
-        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+def _dung_rows(svc: CongDoanService, objs: list) -> list[CongDoanRow]:
+    """Điền TÊN đơn vị vào/ra (1 truy vấn cho cả trang) rồi mới dựng dòng.
+
+    Truyền vào factory nên list · get · create · update dùng CÙNG một đường — trước 15/08/2026
+    bốn handler tự gọi `gan_ten_don_vi` và chỉ cần quên một chỗ là màn hiện mã trần.
+    """
+    svc.gan_ten_don_vi(objs)
+    return [CongDoanRow.model_validate(o) for o in objs]
 
 
-@router.get("", response_model=CongDoanListOut)
-def list_items(
-    svc: Service,
-    # Danh mục THAM CHIẾU: đọc được nếu có quyền cấu hình Công đoạn HOẶC quyền Tính giá
-    # (màn Tính giá cần đổ dropdown Công đoạn mà không phải mở màn cấu hình).
-    _: Annotated[User, Depends(require_any_permission((MODULE, "read"), ("tinh_gia_thanh", "read")))],
-    q: str | None = Query(default=None),
-    nhom: str | None = Query(default=None),
-    active: bool | None = Query(default=None),
-    page: int = Query(default=1, ge=1),
-    size: int = Query(default=50, ge=1, le=200),
-) -> CongDoanListOut:
-    rows, total = svc.list(q=q, nhom=nhom, active=active, page=page, size=size)
-    return CongDoanListOut(items=[CongDoanRow.model_validate(r) for r in rows], total=total, page=page, size=size)
+# --- Route TĨNH: khai TRƯỚC factory (xem cảnh báo ở docstring) ---------------------------
 
 
 @router.get("/phong-ban", response_model=RefOptionListOut)
 def list_phong_ban_options(
-    db: Annotated[Session, Depends(get_db)],
+    svc: Service,
     # Đọc được nếu có quyền cấu hình Công đoạn HOẶC Tính giá (đổ dropdown 'Phòng ban phụ trách').
-    _: Annotated[User, Depends(require_any_permission((MODULE, "read"), ("tinh_gia_thanh", "read")))],
+    _: Annotated[User, Depends(_DOC)],
 ) -> RefOptionListOut:
-    """Phòng ban / tổ cho dropdown 'Phòng ban phụ trách' ở form Công đoạn (khớp field ref: {id, ma, ten}).
-    Lọc về khối SẢN XUẤT (§13.1) — chỉ tổ có `la_san_xuat` (tự/tổ tiên); chưa đánh dấu gì → tất cả."""
-    depts = DepartmentRepository(db).production_departments()
-    return RefOptionListOut(items=[RefOption(id=d.id, ma=d.code, ten=d.name) for d in depts])
+    """TỔ cho dropdown 'Phòng ban / Tổ phụ trách' ở form Công đoạn — luật ở service."""
+    return RefOptionListOut(items=[RefOption(**r) for r in svc.phong_ban_options()])
 
 
-@router.get("/{cd_id}", response_model=CongDoanRow)
-def get_item(cd_id: int, svc: Service, _: Annotated[User, Depends(require_permission(MODULE, "read"))]):
-    try:
-        return CongDoanRow.model_validate(svc.get(cd_id))
-    except CongDoanNotFound as e:
-        raise _err(e) from None
+@router.get("/dau-viec")
+def list_dau_viec_options(
+    svc: Service,
+    _: Annotated[User, Depends(require_any_permission((MODULE, "read"), ("luong", "read")))],
+    department_id: int | None = Query(default=None),
+):
+    """Đầu việc khoán của một tổ — BẢNG CON (`piece_rates`), không phải danh mục Công đoạn.
+
+    Giữ THỦ CÔNG: nó đọc bảng khác, gác bằng quyền khác (`luong`), và trả phong bì dựng tay.
+    """
+    items = svc.dau_viec_options(department_id)
+    return {"items": items, "total": len(items), "page": 1, "size": max(len(items), 1)}
 
 
-@router.post("", response_model=CongDoanRow, status_code=status.HTTP_201_CREATED)
-def create_item(payload: CongDoanIn, svc: Service, _: Annotated[User, Depends(require_permission(MODULE, "create"))]):
-    try:
-        return CongDoanRow.model_validate(svc.create(payload.model_dump(exclude_unset=True)))
-    except (CongDoanDuplicate, CongDoanValidationError) as e:
-        raise _err(e) from None
-
-
-@router.put("/{cd_id}", response_model=CongDoanRow)
-def update_item(cd_id: int, payload: CongDoanIn, svc: Service,
-                _: Annotated[User, Depends(require_permission(MODULE, "update"))]):
-    try:
-        return CongDoanRow.model_validate(svc.update(cd_id, payload.model_dump(exclude_unset=True)))
-    except (CongDoanNotFound, CongDoanDuplicate, CongDoanValidationError) as e:
-        raise _err(e) from None
-
-
-@router.delete("/{cd_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-def delete_item(cd_id: int, svc: Service, _: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
-    try:
-        svc.delete(cd_id)
-    except CongDoanNotFound as e:
-        raise _err(e) from None
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+make_catalog_router(
+    router, ten="cong_doan", ServiceDep=Service, module=MODULE, doc=_DOC,
+    InModel=CongDoanIn, RowModel=CongDoanRow, ListModel=CongDoanListOut,
+    loc="nhom",
+    facets=lambda svc, kw: svc.dem_theo_nhom(**kw),
+    dung_rows=_dung_rows,
+    ma_goi_y=True,      # repo khai `ma_prefix = "CD-"`
+)

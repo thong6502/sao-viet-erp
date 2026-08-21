@@ -66,7 +66,21 @@ tách LCB/TN/PC (2:1:2 / 2:2:1) auto · vi phạm có danh mục/workflow.
 
 Bảng "CÔNG KHOÁN" giấy của xưởng là **danh sách đầu việc + đơn giá**, không phải một giá cho cả tổ:
 tổ Cán/Phủ có *"cán bóng · cán mờ · phủ UV nước · UV mờ"* = 150 đ/m² và *"ghép màng metalize"* =
-250 đ/m². Khai ở `Lương → Cấu hình lương của tổ → Đơn giá khoán` (bảng `piece_rates`).
+250 đ/m² (bảng `piece_rates`).
+
+**CÁCH ĐO LƯỢNG (mg `0213`, 17/08/2026).** Mỗi dòng khai thêm được một công thức trả lời "việc này
+khoán theo lượng nào" — ra số đơn vị của `unit` rồi engine mới nhân đơn giá. Nó thắng cả cầu quy đổi:
+hai việc cùng khoán đ/`cuốn` vẫn có thể đo hai cách ("bắt tay + vào keo" theo `sl_ra`, "đếm, bó" theo
+bó 10 cuốn). Bỏ trống = quy đổi như cũ. Công thức được **GHÌM** vào bước lệnh lúc chọn đầu việc
+(`khoan_snapshot`), nên sửa ở danh mục KHÔNG xê dịch tiền công của lệnh đã phát — muốn bước cũ ăn cách
+đo mới thì chọn lại đầu việc.
+
+**CHỖ KHAI đổi 17/08/2026:** bảng này thành màn **`Cấu hình danh mục → Công việc khoán`** — cùng nền
+với 10 màn danh mục khác nên có mã tự sinh, tab **Nhật ký** từng dòng, và luật xoá chung (còn định
+mức đầu việc / bước lệnh trỏ tới ⇒ chỉ NGỪNG DÙNG). Ô quyền riêng `dm_cong_viec_khoan`, tách khỏi
+`luong`. Tab "Lương khoán" ở màn Lương đã gỡ; panel `Cấu hình lương của tổ → Đơn giá khoán` GIỮ (khai
+ngay trong ngữ cảnh tổ) nhưng nay là một khung nhìn của cùng dữ liệu — nó gọi `/api/cong-viec-khoan`,
+nên mọi lần ghi đều vào nhật ký.
 
 **Màn này CHỈ KHAI BÁO** (chủ 2026-07-31: *"đoạn này là khai báo, đừng cho tính toán ngầm gì ở đây"*).
 Một dòng gồm đúng: **Tổ · Công việc · Đơn vị · Đơn giá** (+ mã máy sinh `KH-####`, ghi chú). Đơn vị

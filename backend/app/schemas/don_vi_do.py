@@ -15,6 +15,12 @@ class DonViDoIn(BaseModel):
     hieu_luc_tu: date | None = None
     ghi_chu: str | None = Field(default=None, max_length=500)
     active: bool = True
+    # Bày trong ô "Đơn vị tốc độ" của màn Máy hay không. Mặc định KHÔNG: bảng này dùng chung cho
+    # kho/khoán/mua hàng, đơn vị mới thêm chưa chắc là tốc độ máy.
+    dung_lam_toc_do: bool = False
+    # Trạm trên DÒNG GIẤY (`to_nguyen · to · con · tay · cai`) — None = ngoài dòng giấy, đúng cho
+    # gần hết danh mục. Đây là thứ duy nhất engine bù hao cần biết về một đơn vị.
+    tram_dong_giay: str | None = Field(default=None, max_length=12)
 
 
 class DonViDoRow(BaseModel):
@@ -27,11 +33,17 @@ class DonViDoRow(BaseModel):
     hieu_luc_tu: date | None = None
     ghi_chu: str | None = None
     active: bool
+    dung_lam_toc_do: bool = False
+    tram_dong_giay: str | None = None
     updated_at: datetime | None = None
     # Cảnh báo mềm (chưa khai quy đổi với ai) — hiện ở màn khai, không chặn lưu.
     canh_bao: list[str] = Field(default_factory=list)
     # Câu quy đổi bằng CHỮ NGƯỜI ĐỌC: "1 tấn = 1.000 kg". Server dựng vì chỉ server thấy cả bảng cặp.
     quy_doi_text: str | None = None
+    # Cũng câu đó nhưng TÁCH SẴN từng mảnh kèm `loai` (nay chỉ còn `"co_dinh"` — mảnh `cong_thuc`
+    # gỡ 17/08/2026 cùng cột `don_vi_do.cong_thuc`, mg `0215`). Khoá `loai` GIỮ: màn đang đọc nó để
+    # tô màu, và cột Quy đổi còn có thể mọc thêm loại mảnh khác.
+    quy_doi_chips: list[dict] = Field(default_factory=list)
 
 
 class DonViDoListOut(BaseModel):
@@ -59,10 +71,10 @@ class HoListOut(BaseModel):
 class CapIn(BaseModel):
     tu_id: int
     den_id: int
-    # Số HOẶC công thức. Dòng công thức gửi he_so = 0 (service tự chuẩn hoá) — `gt=0` ở đây sẽ
-    # chặn oan quy đổi động.
+    # CHỈ số cố định. Quy đổi động (`1 tờ = f(chip) kg`) đã gỡ 14/08/2026 — cách đo nay khai ở
+    # chính đơn vị (`DonViDoIn.cong_thuc`) và trả LƯỢNG, không phải tỉ lệ giữa hai đơn vị.
+    # Vẫn để `ge=0` (không `gt`) vì service mới là nơi báo lỗi có chữ, đẹp hơn 422 trống.
     he_so: float = Field(default=0, ge=0)
-    cong_thuc: str | None = Field(default=None, max_length=200)
     ghi_chu: str | None = Field(default=None, max_length=500)
 
 
@@ -77,7 +89,6 @@ class CapRowOut(BaseModel):
     tu_ten: str
     den_ten: str
     he_so: float
-    cong_thuc: str | None = None
     ghi_chu: str | None = None
     # "1 tấn = 1.000 kg" — dựng sẵn để mọi màn hiện cùng một câu.
     cau: str | None = None

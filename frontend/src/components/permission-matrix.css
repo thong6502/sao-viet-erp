@@ -260,6 +260,11 @@
   gap: var(--sp-3);
   padding: var(--sp-2) var(--sp-4);
 }
+/* Nhóm không có Phạm vi (Danh mục): bỏ cột thứ 4, hai công tắc giữ nguyên bề rộng. */
+.rdx-perm__rows--noscope .rdx-perm__colhead,
+.rdx-perm__rows--noscope .rdx-perm__row {
+  grid-template-columns: minmax(0, 1fr) 92px 92px;
+}
 .rdx-perm__colhead {
   padding-top: var(--sp-3);
   padding-bottom: var(--sp-3);
@@ -292,6 +297,18 @@
 .rdx-perm__cell--scope {
   display: flex;
   justify-content: center;
+}
+.rdx-perm__fixed-read {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.rdx-perm__fixed-note {
+  color: var(--ash);
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
 }
 .rdx-perm__cell--mod {
   display: flex;
@@ -405,6 +422,19 @@
   opacity: 1;
 }
 
+/* Nhãn "cần Phạm vi Tất cả" trên ô cấu hình dùng chung (15/08/2026). Nói RA MẶT vì sao ô mờ —
+   để trong tooltip thì người cấp quyền phải rê chuột mới biết, mà họ có biết đâu mà rê. */
+.rdx-perm__fine-warn {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+  cursor: help;
+}
+
 @media (max-width: 620px) {
   .rdx-perm__colhead,
   .rdx-perm__row {
@@ -413,4 +443,58 @@
     padding-left: var(--sp-3);
     padding-right: var(--sp-3);
   }
+  /* Nhắc lại cho nhóm không có Phạm vi: media query đè lên luật 3 cột ở trên, thiếu dòng này
+     thì màn hẹp chừa một máng trống 116px bên phải nhóm Danh mục. */
+  .rdx-perm__rows--noscope .rdx-perm__colhead,
+  .rdx-perm__rows--noscope .rdx-perm__row {
+    grid-template-columns: minmax(0, 1fr) 56px 56px;
+  }
+}
+
+/* ---- Thanh VAI MẪU (đợt 6) ---------------------------------------------
+   Đứng trên cùng ma trận: sau khi tách quyền theo màn, cấp tay 32 khoá mất 10-15 phút và dễ
+   tick nhầm. Cố ý dùng nút phẳng, KHÔNG phải nút chính (btn--primary): đây là tiện ích điền
+   sẵn, nút hành động thật của form vẫn là "Lưu". */
+.rdx-perm__mau {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+  border: 1px dashed var(--rule-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted, transparent);
+}
+
+.rdx-perm__mau-nhan {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.rdx-perm__mau-nut {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+
+.rdx-perm__mau-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.rdx-perm__mau-btn:hover {
+  border-color: var(--accent, var(--ink));
+  color: var(--accent, var(--ink));
+}
+
+.rdx-perm__mau-ghi {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-soft);
 }

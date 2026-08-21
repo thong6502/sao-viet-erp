@@ -191,6 +191,8 @@ class DepartmentService:
                     "level_id": dept.level_id,
                     "head_title": self._head_title(dept),
                     "la_san_xuat": dept.la_san_xuat,
+                    "la_kinh_doanh": dept.la_kinh_doanh,
+                    "is_kcs": dept.is_kcs,
                     "role_count": own_roles[dept.id],
                     "user_count": own_users[dept.id],
                     "employee_count": own_emps[dept.id],
@@ -223,6 +225,8 @@ class DepartmentService:
             "level_id": dept.level_id,
             "head_title": self._head_title(dept),
             "la_san_xuat": dept.la_san_xuat,
+            "la_kinh_doanh": dept.la_kinh_doanh,
+            "is_kcs": dept.is_kcs,
             "role_count": self.roles.count_by_department(dept.id),
             "user_count": self.users.count_by_department(dept.id),
             "employee_count": self.employees.count_by_department(dept.id),
@@ -292,6 +296,8 @@ class DepartmentService:
         probation_ratio: float = 0.80,
         has_piece_work: bool = False,
         la_san_xuat: bool = False,
+        la_kinh_doanh: bool = False,
+        is_kcs: bool = False,
         actor_id: int | None,
     ) -> Department:
         name = name.strip()
@@ -316,6 +322,10 @@ class DepartmentService:
             self.departments.set_level(dept, level_id)
         if la_san_xuat:
             self.departments.set_la_san_xuat(dept, True)
+        if la_kinh_doanh:
+            self.departments.set_la_kinh_doanh(dept, True)
+        if is_kcs:
+            self.departments.set_is_kcs(dept, True)
         self.audit.create(
             actor_user_id=actor_id,
             action="create_department",
@@ -340,6 +350,8 @@ class DepartmentService:
         allow_set_head: bool = True,
         allow_reparent: bool = True,
         la_san_xuat: bool = False,
+        la_kinh_doanh: object = _KEEP,
+        is_kcs: object = _KEEP,
     ) -> Department:
         dept = self.departments.get_by_id(dept_id)
         if dept is None:
@@ -385,6 +397,14 @@ class DepartmentService:
             else dept.has_piece_work,
         )
         self.departments.set_la_san_xuat(dept, la_san_xuat)
+        # Cờ khối Kinh doanh: KHÔNG gửi = giữ nguyên (khác `la_san_xuat` vốn luôn ghi đè). Màn
+        # Phòng ban có nhiều luồng sửa chỉ đụng tên/trưởng phòng; ghi đè mặc định False ở đó là
+        # âm thầm gỡ khối Kinh doanh của phòng, và danh sách NV phụ trách đổi theo mà không ai báo.
+        if la_kinh_doanh is not _KEEP:
+            self.departments.set_la_kinh_doanh(dept, bool(la_kinh_doanh))
+        # Cờ KCS: cùng luật "KHÔNG gửi = giữ nguyên" như khối Kinh doanh.
+        if is_kcs is not _KEEP:
+            self.departments.set_is_kcs(dept, bool(is_kcs))
         self.audit.create(
             actor_user_id=actor_id,
             action="update_department",

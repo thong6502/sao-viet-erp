@@ -15,6 +15,7 @@ from ..models.quotation import (
     STATUS_REJECTED,
     Quote,
     QuoteApproval,
+    QuoteAttachment,
     QuoteItem,
     QuoteVersion,
 )
@@ -279,3 +280,25 @@ class QuotationRepository:
         self.db.commit()
         self.db.refresh(quote)
         return quote
+
+    # --- Tài liệu đính kèm (nội bộ) -----------------------------------------
+    def list_attachments(self, quote_id: int) -> list[QuoteAttachment]:
+        return list(self.db.execute(
+            select(QuoteAttachment)
+            .where(QuoteAttachment.quote_id == quote_id)
+            .order_by(QuoteAttachment.id.desc())
+        ).scalars())
+
+    def get_attachment(self, attachment_id: int) -> QuoteAttachment | None:
+        return self.db.get(QuoteAttachment, attachment_id)
+
+    def add_attachment(self, quote_id: int, **fields) -> QuoteAttachment:
+        att = QuoteAttachment(quote_id=quote_id, **fields)
+        self.db.add(att)
+        self.db.commit()
+        self.db.refresh(att)
+        return att
+
+    def delete_attachment(self, att: QuoteAttachment) -> None:
+        self.db.delete(att)
+        self.db.commit()

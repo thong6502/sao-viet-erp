@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date
 from sqlalchemy import func, select
 from ..models.operation import Operation, OperationRate
-from ..models.estimate import EstimateCostLine
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.operation_repo import OperationRepository
 
@@ -299,33 +298,12 @@ class OperationService:
         )
         return operation
 
-    def _is_used_in_snapshot(self, operation: Operation) -> bool:
-        """spec §7 — công đoạn đã dùng trong snapshot báo giá thì không xóa cứng.
-
-        Các dòng chi phí báo giá chốt operation qua source_type='operation_rates', source_id=rate.id.
-        """
-        rate_ids = [r.id for r in operation.rates]
-        if not rate_ids:
-            return False
-        used = self.repo.db.execute(
-            select(func.count())
-            .select_from(EstimateCostLine)
-            .where(
-                EstimateCostLine.source_type == "operation_rates",
-                EstimateCostLine.source_id.in_(rate_ids),
-            )
-        ).scalar_one()
-        return used > 0
-
     def delete_operation(self, *, operation_id: int, actor) -> None:
+        # spec §7 (guard "đã dùng trong snapshot báo giá") ĐÃ GỠ 2026-08-08 — Đợt 5: nguồn dữ liệu
+        # duy nhất của guard là `EstimateCostLine.source_type='operation_rates'`, mà cụm tính giá
+        # đời cũ đã xoá hẳn. Engine đang chạy (thanh_phan_engine) KHÔNG ghi tham chiếu ngược tới
+        # `operation_rates`, nên không có gì để kiểm. Dựng lại guard khi engine mới có vết dùng.
         operation = self.get_operation(operation_id)
-
-        # spec §7 — không cho xóa record đã dùng trong snapshot; chỉ được ngưng áp dụng.
-        if self._is_used_in_snapshot(operation):
-            raise OperationInUse(
-                "Công đoạn đã được dùng trong báo giá đã chốt — không thể xóa. "
-                "Hãy đặt Ngưng áp dụng (Inactive) thay vì xóa."
-            )
 
         code, name = operation.code, operation.name
         self.repo.delete(operation)

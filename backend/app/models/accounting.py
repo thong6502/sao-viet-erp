@@ -48,6 +48,21 @@ PAYMENT_VOUCHER_STATUSES = (
     PAYMENT_VOUCHER_CANCELLED,
 )
 
+VOUCHER_SOURCE_PURCHASE = "purchase_request"
+VOUCHER_SOURCE_INTERNAL = "internal_expense"
+VOUCHER_SOURCE_CUSTOMER_REFUND = "customer_refund"
+VOUCHER_SOURCE_OTHER = "other"
+# Phiếu chi lập TỪ MỘT PHIẾU TẠM ỨNG LƯƠNG đã duyệt (chủ chốt 18/08/2026). Một phiếu tạm ứng
+# ⇄ một phiếu chi. Áp cho CẢ `tam_ung` lẫn `luong_dot_1` — cùng là tiền ra khỏi két.
+VOUCHER_SOURCE_SALARY_ADVANCE = "salary_advance"
+VOUCHER_SOURCES = (
+    VOUCHER_SOURCE_SALARY_ADVANCE,
+    VOUCHER_SOURCE_PURCHASE,
+    VOUCHER_SOURCE_INTERNAL,
+    VOUCHER_SOURCE_CUSTOMER_REFUND,
+    VOUCHER_SOURCE_OTHER,
+)
+
 BANK_FEE_PAYER = "payer"
 BANK_FEE_BENEFICIARY = "beneficiary"
 BANK_FEE_SHARED = "shared"
@@ -65,9 +80,21 @@ PAYMENT_RECEIPT_STATUSES = (
 # --- Nguồn phiếu thu (chung 1 quyển sổ PT, 1 dãy số 01-TT) ---------------------
 # purchase_refund: tiền chi mua thừa NCC/nhân viên nộp trả (đường cũ, gắn phiếu chi).
 # order_deposit:   khách đặt cọc đơn bán (đường mới, gắn đơn hàng) — không phiếu chi.
+# sales_invoice:   khách thanh toán công nợ phát sinh từ hóa đơn bán đã phát hành.
 RECEIPT_SOURCE_PURCHASE = "purchase_refund"
 RECEIPT_SOURCE_ORDER = "order_deposit"
-RECEIPT_SOURCES = (RECEIPT_SOURCE_PURCHASE, RECEIPT_SOURCE_ORDER)
+RECEIPT_SOURCE_SALES_INVOICE = "sales_invoice"
+RECEIPT_SOURCE_OTHER = "other"
+RECEIPT_SOURCES = (
+    RECEIPT_SOURCE_PURCHASE,
+    RECEIPT_SOURCE_ORDER,
+    RECEIPT_SOURCE_SALES_INVOICE,
+    RECEIPT_SOURCE_OTHER,
+)
+
+SALES_INVOICE_ISSUED = "issued"
+SALES_INVOICE_CANCELLED = "cancelled"
+SALES_INVOICE_STATUSES = (SALES_INVOICE_ISSUED, SALES_INVOICE_CANCELLED)
 
 
 def _utcnow() -> datetime:
@@ -88,6 +115,8 @@ class CompanyBankAccount(Base):
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="VND")
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    use_for_receipts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    use_for_payments: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -132,8 +161,24 @@ class PaymentVoucher(Base):
     # (voucher_date sửa được sau khi đã cấp số). Phiếu hủy vẫn giữ số. Dùng chung một bộ
     # đếm cho tiền mặt lẫn UNC — cùng quyển phiếu chi.
     doc_no: Mapped[str | None] = mapped_column(String(16), nullable=True, unique=True, index=True)
-    purchase_request_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("purchase_requests.id", ondelete="RESTRICT"), nullable=False, index=True
+    source_type: Mapped[str] = mapped_column(
+        String(24), nullable=False, default=VOUCHER_SOURCE_PURCHASE, index=True
+    )
+    purchase_request_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("purchase_requests.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    # Phiếu này trả cho ĐỢT GIAO nào (chủ chốt 06/08/2026).
+    #   NULL  = phiếu ĐẶT CỌC / ứng trước — chi khi hàng chưa về nên chưa có đợt nào để gắn.
+    #   có id = phiếu THANH TOÁN cho đúng một đợt giao.
+    # Soft ref (không FK) có chủ ý: xoá đợt giao đã bị chặn ở tầng service khi đợt còn phiếu chi,
+    # nên FK RESTRICT chỉ thêm một chỗ vỡ ở DB mà không thêm an toàn nào.
+    delivery_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # Phiếu TẠM ỨNG LƯƠNG nguồn (chủ chốt 18/08/2026). Chỉ có giá trị khi
+    # `source_type = salary_advance`. RESTRICT: còn phiếu chi thì không xoá được phiếu tạm ứng.
+    # Một phiếu tạm ứng chỉ được lập ĐÚNG MỘT phiếu chi ⇒ UNIQUE.
+    salary_advance_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("salary_advances.id", ondelete="RESTRICT"),
+        nullable=True, unique=True, index=True,
     )
     supplier_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True, index=True
@@ -215,12 +260,61 @@ class PaymentVoucher(Base):
     )
 
 
+class SalesInvoice(Base):
+    """Hóa đơn bán đã phát hành — mốc làm phát sinh công nợ phải thu."""
+
+    __tablename__ = "sales_invoices"
+    __table_args__ = (
+        UniqueConstraint(
+            "invoice_symbol", "invoice_number", name="uq_sales_invoice_symbol_number"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("orders.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    customer_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    invoice_symbol: Mapped[str] = mapped_column(String(64), nullable=False)
+    invoice_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
+    amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    payment_term_days_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    customer_name_snapshot: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=SALES_INVOICE_ISSUED, index=True
+    )
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+    cancelled_by_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    order = relationship("Order")
+    customer = relationship("Customer")
+    receipts: Mapped[list["PaymentReceipt"]] = relationship(
+        "PaymentReceipt", back_populates="sales_invoice", order_by="PaymentReceipt.id"
+    )
+
+
 class PaymentReceipt(Base):
-    """Phiếu thu (PT) gắn với một Phiếu chi/UNC đã chi: tiền chi ra tiêu không
-    hết quay VỀ công ty — người nộp (NCC hoặc nhân viên phụ trách mua) nộp quỹ
-    tiền mặt hoặc chuyển về tài khoản công ty. Chỉ lập được trên phiếu chi
-    `paid` — nên phiếu chi gốc không bao giờ hủy được sau khi có phiếu thu
-    (cancel_voucher chỉ cho phiếu đang chờ chi)."""
+    """Phiếu thu đa nguồn: hoàn tiền chi mua, cọc đơn bán, thu hóa đơn hoặc thu khác.
+
+    `source_type` quyết định khóa nguồn nào được dùng; riêng nhánh công nợ liên kết
+    trực tiếp tới `SalesInvoice` để số tiền thu được truy về đúng hóa đơn phát sinh.
+    """
 
     __tablename__ = "payment_receipts"
 
@@ -228,7 +322,7 @@ class PaymentReceipt(Base):
     code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
     # Số IN trên mẫu 01-TT (PT00027) — xem ghi chú doc_no ở PaymentVoucher.
     doc_no: Mapped[str | None] = mapped_column(String(16), nullable=True, unique=True, index=True)
-    # Nguồn phiếu ∈ {purchase_refund, order_deposit}. Cũ = purchase_refund (đường phiếu chi).
+    # Nguồn phiếu ∈ {purchase_refund, order_deposit, sales_invoice, other}.
     source_type: Mapped[str] = mapped_column(
         String(20), nullable=False, default=RECEIPT_SOURCE_PURCHASE, index=True
     )
@@ -243,6 +337,9 @@ class PaymentReceipt(Base):
     # Đường đơn bán (order_deposit) — cọc khách nộp cho một đơn hàng.
     order_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("orders.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    sales_invoice_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("sales_invoices.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     order_no_snapshot: Mapped[str | None] = mapped_column(String(32), nullable=True)
     customer_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -295,6 +392,7 @@ class PaymentReceipt(Base):
     )
 
     payment_voucher = relationship("PaymentVoucher", back_populates="receipts")
+    sales_invoice = relationship("SalesInvoice", back_populates="receipts")
     company_bank_account = relationship("CompanyBankAccount")
     attachments: Mapped[list["PaymentReceiptAttachment"]] = relationship(
         "PaymentReceiptAttachment",

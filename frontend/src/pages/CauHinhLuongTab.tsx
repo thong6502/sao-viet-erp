@@ -11,7 +11,9 @@
 // Quyền: `luong:view_salary` xem được; `luong:update` được xem và sửa. `luong:read` riêng lẻ
 // không được xem dữ liệu cấu hình nhạy cảm.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Info, Trash2 } from "lucide-react";
+// `Trash2` (lucide) đã bỏ: mọi nút xoá trên dòng nay đi qua `RowActionButton` — nút dùng icon
+// `trash` của bộ `components/Icons.tsx` kèm tooltip + tín hiệu nguy hiểm.
+import { Info } from "lucide-react";
 import {
   api,
   type ComponentHolders,
@@ -29,6 +31,7 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { KhoanRatesEditor } from "../components/KhoanRatesEditor";
+import { RowActionButton } from "../components/RowActionButton";
 import { money } from "../utils/format";
 import "./luong.css";
 import "./rebuild-catalog.css";
@@ -86,6 +89,11 @@ function errText(e: unknown): string {
 /** Hệ số nhân (1.5) → % hiển thị (150). Tránh 149.99999 do dấu phẩy động. */
 function toPct(v: number): number {
   return Math.round(v * 1000) / 10;
+}
+/** PHÚT trong DB → GIỜ trên ô nhập (2400 → 40). Làm tròn 2 số lẻ: nếu DB lỡ có số không chia
+ *  hết cho 60 (nhập tay lúc vá dữ liệu) thì ô hiện "40,17" chứ không phải 40.16666666666667. */
+function toGio(phut: number): number {
+  return Math.round((phut / 60) * 100) / 100;
 }
 /** Sắp phòng ban theo CÂY: phòng cha rồi tổ con ngay dưới (dải chip đọc theo mạch tổ chức). */
 function orderByTree(list: Department[]): Department[] {
@@ -256,10 +264,14 @@ export function CauHinhLuongTab({
   token,
   readOnly,
   onDirtyChange,
+  navigate,
 }: {
   token: string;
   readOnly: boolean;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Chỉ dùng cho một đường: panel "Đơn giá khoán của tổ" → màn danh mục Công việc khoán. Bỏ trống
+   *  thì panel vẫn khai được, chỉ mất đường dẫn (xem `KhoanRatesEditor.onMoDanhMuc`). */
+  navigate?: (id: string) => void;
 }) {
   const [sub, setSub] = useState<SubTab>("cochE");
   const [loading, setLoading] = useState(true);
@@ -650,6 +662,7 @@ export function CauHinhLuongTab({
           loading={compsLoading}
           readOnly={readOnly}
           busy={saving}
+          navigate={navigate}
         />
       )}
 
@@ -685,8 +698,12 @@ export function CauHinhLuongTab({
             >
               Hủy thay đổi
             </Button>
+            {/* Việc CHÍNH của cả tab này là GHI cấu hình ⇒ nút cam (`accent`). `primary` trong
+                bộ CSS này ra màu NAVY, không phải cam — đừng đổi ngược lại vì đọc tên lớp.
+                Đây là nút cam DUY NHẤT của tab Cấu hình lương (các nút "+ Thêm…" đều ghost);
+                thêm nút cam thứ hai là phá luật một-nút-cam-mỗi-màn. */}
             <Button
-              variant="primary"
+              variant="accent"
               loading={saving}
               disabled={blocked}
               onClick={saveTab}
@@ -719,6 +736,13 @@ const PARAMS_A = [
   "night_pct",
   "ot_night_extra_pct",
   "adjust_max_per_month",
+  "phu_cap_ca_min_cong",
+  "com_tang_ca_nguong_phut",
+  "com_tang_ca_muc",
+  // Trần giờ làm thêm (Đ107) — thiếu hai tên này thì ô có hiện nhưng thanh "Lưu thay đổi"
+  // KHÔNG thấy dirty và `pick()` không gửi xuống ⇒ sửa xong bấm lưu vẫn y như cũ.
+  "ot_max_minutes_per_month",
+  "ot_max_minutes_per_day",
 ] as const satisfies readonly (keyof PayrollParams)[];
 const PARAMS_INS = [
   "bhxh_rate",
@@ -732,10 +756,13 @@ const PARAMS_INS = [
   "cong_doan_rate",
   "tnld_bnn_rate",
   "phat_cap_pct",
+  "bhxh_mien_tu_so_ngay",
 ] as const satisfies readonly (keyof PayrollParams)[];
 const PARAMS_TAX = [
   "deduction_self",
   "deduction_dependent",
+  "pit_flat_rate",
+  "pit_flat_threshold",
 ] as const satisfies readonly (keyof PayrollParams)[];
 
 function pick(
@@ -873,6 +900,7 @@ function CoCheTab({
   loading,
   readOnly,
   busy,
+  navigate,
 }: {
   token: string;
   p: PayrollParams;
@@ -885,6 +913,7 @@ function CoCheTab({
   loading: boolean;
   readOnly: boolean;
   busy: boolean;
+  navigate?: (id: string) => void;
 }) {
   const deptName = depts.find((d) => d.id === deptId)?.name ?? "";
   const empCounts = useMemo(() => {
@@ -897,14 +926,8 @@ function CoCheTab({
     setComps((cs) =>
       cs.map((c) => {
         if (c.component_key === key) return { ...c, ...patch };
-        // Khoán ⟷ Tăng ca loại trừ nhau: bật cái này thì tự tắt cái kia.
-        if (
-          patch.is_enabled === true &&
-          ((key === "luong_khoan" && c.component_key === "tang_ca") ||
-            (key === "tang_ca" && c.component_key === "luong_khoan"))
-        ) {
-          return { ...c, is_enabled: false };
-        }
+        // ⚠️ GỠ 17/08/2026 — trước đây Khoán ⟷ Tăng ca loại trừ nhau (bật cái này tự tắt cái kia).
+        // Chủ đảo lại: "Tổ khoán VẪN CÓ tăng ca". Hai công tắc nay độc lập, backend cũng đã gỡ.
         return c;
       }),
     );
@@ -984,6 +1007,19 @@ function CoCheTab({
                 value={p.adjust_max_per_month}
                 onChange={(v) => setP("adjust_max_per_month", Math.round(v))}
               />
+              {/* Có cột từ 03/08/2026 và tài liệu ghi "khai được", nhưng thiếu cả ô nhập lẫn tên
+                  trong allowlist của `update_params` ⇒ thực tế là số cứng 0,5. Nối nốt. */}
+              <ParamField
+                label="Công tối thiểu để hưởng cơm / phụ cấp ca"
+                hint="Ngày nào đạt từ mức công này trở lên thì hưởng TRỌN tiền cơm + phụ cấp của ca hôm đó; dưới mức thì không có gì — cố ý không chia theo tỷ lệ, vì một suất ăn là có hoặc không. 0,5 = nghỉ nửa buổi vẫn được hưởng."
+                suffix="công"
+                step={0.25}
+                min={0}
+                max={1}
+                readOnly={readOnly}
+                value={p.phu_cap_ca_min_cong}
+                onChange={(v) => setP("phu_cap_ca_min_cong", v)}
+              />
             </div>
           </section>
           <section className="rc-sec">
@@ -991,6 +1027,41 @@ function CoCheTab({
               Hệ số làm thêm &amp; ngày đặc biệt
             </div>
             <div className="rc-grid">
+              {/* TRẦN GIỜ LÀM THÊM (Đ107) — chủ chốt 17/08/2026. Backend lưu bằng PHÚT, người
+                  dùng nghĩ bằng GIỜ ⇒ ô nhập theo giờ, ×60 lúc lưu / ÷60 lúc đọc. Đây là chỗ
+                  DUY NHẤT nới trần: hết trần thì phiếu tăng ca bị CHẶN CỨNG, không có nút xin
+                  vượt, không có quyền đặc biệt. KHÔNG có trần theo NĂM — chủ đã bỏ. */}
+              <ParamField
+                label="Trần giờ tăng ca / tháng"
+                hint="Số giờ tối đa MỘT người được làm thêm trong MỘT tháng (Điều 107: 40 giờ). Hết trần là KHÔNG tạo được phiếu nữa — không có đường vượt. Để 0 = TẮT TRẦN. Phiếu đang chờ duyệt cũng chiếm chỗ."
+                suffix="giờ"
+                step={0.5}
+                min={0}
+                max={744}
+                readOnly={readOnly}
+                value={toGio(p.ot_max_minutes_per_month)}
+                onChange={(v) =>
+                  setP("ot_max_minutes_per_month", Math.round(v * 60))
+                }
+              />
+              <ParamField
+                label="Trần giờ một phiếu tăng ca"
+                hint="Độ dài tối đa của MỘT phiếu (Điều 107.1: 12 giờ)."
+                warn={
+                  p.ot_max_minutes_per_day <= 0
+                    ? "Phải lớn hơn 0 — ô này KHÔNG có nghĩa “tắt”, để 0 là không lưu được."
+                    : null
+                }
+                suffix="giờ"
+                step={0.5}
+                min={0.5}
+                max={48}
+                readOnly={readOnly}
+                value={toGio(p.ot_max_minutes_per_day)}
+                onChange={(v) =>
+                  setP("ot_max_minutes_per_day", Math.round(v * 60))
+                }
+              />
               {OT_FIELDS.map((f) => (
                 <ParamField
                   key={f.key}
@@ -1010,6 +1081,30 @@ function CoCheTab({
                   onChange={(v) => setP(f.key, v / 100)}
                 />
               ))}
+              {/* SUẤT CƠM TĂNG CA (12/08/2026). Hai ô đi liền nhau vì chúng chỉ có nghĩa cùng
+                  nhau: mức = 0 là tắt hẳn, lúc đó ngưỡng vô nghĩa. Nói rõ luật NGÀY NGHỈ ngay
+                  trong `hint` — nếu không HCNS khai 3 giờ rồi tưởng chủ nhật cũng phải đủ 3 giờ. */}
+              <ParamField
+                label="Tiền một suất cơm tăng ca"
+                hint="Để 0 là TẮT hẳn khoản này. Khoản cơm tăng ca ĐỘC LẬP với cơm ca — một ngày có thể ăn cả hai. Miễn thuế TNCN như cơm ca."
+                suffix="đ/suất"
+                step={5000}
+                min={0}
+                readOnly={readOnly}
+                value={p.com_tang_ca_muc}
+                onChange={(v) => setP("com_tang_ca_muc", v)}
+              />
+              <ParamField
+                label="Tăng ca bao nhiêu phút thì được một suất cơm"
+                hint="CHỈ áp cho NGÀY LÀM VIỆC. Ngày nghỉ theo Lịch chung — gồm cả ngày lễ và ngày 'Nghỉ 1×' — thì cứ có tăng ca là có suất, dù chỉ 1 tiếng. Mặc định 180 phút = 3 giờ."
+                suffix="phút"
+                step={30}
+                min={0}
+                max={1440}
+                readOnly={readOnly}
+                value={p.com_tang_ca_nguong_phut}
+                onChange={(v) => setP("com_tang_ca_nguong_phut", Math.round(v))}
+              />
               <ParamField
                 label="Phụ cấp làm ban đêm"
                 hint="Cộng thêm cho giờ làm 22h–06h (≥30% theo luật). Giờ đêm TRONG ca theo lịch dùng hệ số riêng khai trên form Khai ca."
@@ -1136,16 +1231,21 @@ function CoCheTab({
       {khoanOn && deptId != null && (
         <div className="cl-card">
           <h3 className="cl-card__title">Đơn giá khoán — {deptName}</h3>
+          {/* Mô tả nói ĐÚNG những gì khai được ở ĐÂY. Từ 17/08/2026 bảng đơn giá là danh mục
+              "Công việc khoán" (Cấu hình danh mục) — panel này là một khung nhìn theo tổ của cùng
+              dữ liệu, nên phải nói rõ chỗ nào làm được gì, không thì người dùng đi tìm nút Xoá và
+              tab Nhật ký ngay tại đây. */}
           <p className="cl-card__desc">
-            Khai công việc + đơn giá khoán của tổ này (vd “dán bìa các tông” =
-            170đ/tờ). Tính tiền khoán theo sản lượng sẽ nối khi có Lệnh sản
-            xuất.
+            Khai công việc + đơn giá khoán của tổ này (vd “dán bìa các tông” = 170đ/tờ). Cùng dữ liệu
+            với <b>Cấu hình danh mục → Công việc khoán</b>; xoá hẳn, nhật ký ai đổi giá và mục đã
+            ngừng dùng thì xem ở màn đó.
           </p>
           <div className="cl-card__body">
             <KhoanRatesEditor
               token={token}
               departmentId={deptId}
               deptName={deptName}
+              onMoDanhMuc={navigate ? () => navigate("cong-viec-khoan") : undefined}
             />
           </div>
         </div>
@@ -1204,7 +1304,7 @@ const OT_FIELDS: {
   {
     key: "holiday_work_multiplier",
     label: "Làm nguyên công — ngày lễ",
-    hint: "Đi làm trọn công ngày lễ: cộng THÊM phần chênh (hệ số − 100%).",
+    hint: "Đi làm trọn công ngày lễ: cộng THÊM TRỌN hệ số này (KHÔNG trừ 100%). Nghỉ lễ ở nhà vẫn có lương 100% (Đ112), đi làm được cộng thêm 300% ⇒ tổng 400%. Khác ngày nghỉ tuần: nghỉ CN ở nhà không có lương nên chỉ tổng 200%.",
     floor: 3,
   },
 ];
@@ -1424,7 +1524,14 @@ function LeaderBonusEditor({
                     <th style={{ width: 190 }}>Tỷ lệ lỗi tới</th>
                     <th style={{ width: 210 }}>Thưởng (+) / Phạt (−)</th>
                     <th>Ghi chú</th>
-                    {!readOnly && <th style={{ width: 56 }} aria-label="Thao tác" />}
+                    {/* Ô tiêu đề trống (chỉ có aria-label) đọc được bằng máy nhưng người nhìn
+                        bảng không biết cột cuối làm gì — cho CHỮ "Thao tác" như mọi bảng khác.
+                        Nới 56 → 96 để chữ không ép cột "Ghi chú" xuống dòng. */}
+                    {!readOnly && (
+                      <th className="act" style={{ width: 96 }}>
+                        Thao tác
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -1486,14 +1593,15 @@ function LeaderBonusEditor({
                       </td>
                       {!readOnly && (
                         <td className="act">
-                          <button
-                            type="button"
-                            className="btn btn--ghost"
-                            aria-label={`Xoá bậc ${i + 1}`}
-                            onClick={() => setRows((rs) => (rs ?? []).filter((_, k) => k !== i))}
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          <RowActionButton
+                            dense
+                            danger
+                            label={`Xoá bậc ${i + 1}`}
+                            icon="trash"
+                            onClick={() =>
+                              setRows((rs) => (rs ?? []).filter((_, k) => k !== i))
+                            }
+                          />
                         </td>
                       )}
                     </tr>
@@ -1815,8 +1923,13 @@ function DanhMucTab({ token, readOnly }: { token: string; readOnly: boolean }) {
                     <th className="num" style={{ width: 176 }}>
                       Đang dùng
                     </th>
+                    {/* Cho CHỮ "Thao tác" thay vì ô trống chỉ có aria-label. Nút chữ đã thu về
+                        icon dense (32px/nút) nên 150 → 132 vẫn đủ cho 3 nút, trả lại chỗ cho
+                        cột "Tên khoản". */}
                     {!readOnly && (
-                      <th style={{ width: 150 }} aria-label="Thao tác" />
+                      <th className="act" style={{ width: 132 }}>
+                        Thao tác
+                      </th>
                     )}
                   </tr>
                 </thead>
@@ -1877,8 +1990,9 @@ function DanhMucTab({ token, readOnly }: { token: string; readOnly: boolean }) {
                       <td className="num">
                         {c.employee_count > 0 || c.period_count > 0 ? (
                           <>
-                            {c.employee_count} nhân viên · {c.period_count} kỳ
-                            lương
+                            {c.employee_count} nhân viên 
+                            {/* · {c.period_count} kỳ
+                            lương */}
                             <span className="cl-cell__sub">
                               không xoá cứng được
                             </span>
@@ -1887,11 +2001,14 @@ function DanhMucTab({ token, readOnly }: { token: string; readOnly: boolean }) {
                           <span className="cl-muted">chưa dùng</span>
                         )}
                       </td>
+                      {/* Nút chữ trên dòng → `RowActionButton` dense: icon + tooltip, nhãn cũ
+                          thành aria-label nên không mất nghĩa cho người đọc màn hình. */}
                       {!readOnly && (
                         <td className="act">
-                          <button
-                            type="button"
-                            className="btn btn--ghost"
+                          <RowActionButton
+                            dense
+                            label="Sửa khoản"
+                            icon="pencil"
                             disabled={busyId === c.id}
                             onClick={() => {
                               setFormErr(null);
@@ -1904,40 +2021,36 @@ function DanhMucTab({ token, readOnly }: { token: string; readOnly: boolean }) {
                                 },
                               });
                             }}
-                          >
-                            Sửa
-                          </button>
+                          />
                           {/* Gán hàng loạt (chủ 28/07/2026): tạo khoản xong mà phải mở hồ sơ
                               từng người thì nhà máy 40–100 người không dùng được. Khoản đã
                               ngừng áp dụng thì không gán mới (luật sẵn có ở backend). */}
                           {c.is_active && (
-                            <button
-                              type="button"
-                              className="btn btn--ghost"
+                            <RowActionButton
+                              dense
+                              label="Gán cho nhân viên"
+                              icon="users"
                               disabled={busyId === c.id}
                               onClick={() => openBulk(c)}
-                            >
-                              Gán cho nhân viên
-                            </button>
+                            />
                           )}
                           {c.is_active ? (
-                            <button
-                              type="button"
-                              className="btn btn--ghost"
-                              title="Xoá khoản này"
-                              aria-label={`Xoá khoản ${c.name}`}
+                            <RowActionButton
+                              dense
+                              danger
+                              label={`Xoá khoản ${c.name}`}
+                              icon="trash"
                               disabled={busyId === c.id}
                               onClick={() => {
                                 setDelErr(null);
                                 setDel(c);
                               }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            />
                           ) : (
-                            <button
-                              type="button"
-                              className="btn btn--ghost"
+                            <RowActionButton
+                              dense
+                              label={`Bật lại khoản ${c.name}`}
+                              icon="rotateCcw"
                               disabled={busyId === c.id}
                               onClick={() =>
                                 patch(
@@ -1946,9 +2059,7 @@ function DanhMucTab({ token, readOnly }: { token: string; readOnly: boolean }) {
                                   `Đã bật lại khoản “${c.name}”.`,
                                 )
                               }
-                            >
-                              Bật lại
-                            </button>
+                            />
                           )}
                         </td>
                       )}
@@ -2526,14 +2637,14 @@ function PhuCapTab({
 
   return (
     <>
-      <div className="cl-override-note">
+      {/* <div className="cl-override-note">
         <Info size={14} />
         <span>
           Bốn khoản phụ cấp (ca · trách nhiệm · thâm niên · khác) KHÔNG khai ở
           đây — gõ tay theo TỪNG NGƯỜI ở tab “Lương nhân viên”, một số cố định
           dùng cho mọi tháng.
         </span>
-      </div>
+      </div> */}
 
       <div className="cl-card">
         <h3 className="cl-card__title">Bảo hiểm bắt buộc</h3>
@@ -2654,6 +2765,29 @@ function PhuCapTab({
                   Đây là mức luật định, không phải chính sách công ty.
                 </p>
               )}
+              {/* Trước 04/08/2026 số 14 viết cứng trong `payroll_service`. Đây là số NGÀY —
+                  KHÔNG bọc `toPct` như mấy ô tỷ lệ ngay trên, chép nhầm là lệch 100 lần. */}
+              <ParamField
+                label="Không đóng BHXH nếu nghỉ không lương từ"
+                hint="QĐ 595/QĐ-BHXH Đ42.4: tháng nào người lao động không làm việc và không hưởng lương từ 14 ngày làm việc trở lên thì tháng đó không đóng BHXH. Phủ luôn người vào/nghỉ việc giữa tháng. Đặt 0 = TẮT luật (tháng nào cũng trừ BHXH)."
+                suffix="ngày"
+                step={1}
+                min={0}
+                max={31}
+                readOnly={readOnly}
+                value={p.bhxh_mien_tu_so_ngay}
+                onChange={(v) => setP("bhxh_mien_tu_so_ngay", Math.round(v))}
+              />
+              {/* Cảnh báo, KHÔNG chặn — cùng lối với trần Điều 102 ngay trên. */}
+              {p.bhxh_mien_tu_so_ngay !== 14 && (
+                <p className="cl-hint-inline cl-warn-legal">
+                  ⚠{" "}
+                  {p.bhxh_mien_tu_so_ngay === 0
+                    ? "Đang TẮT luật — tháng nào cũng trừ BHXH, kể cả tháng nghỉ không lương cả tháng."
+                    : `Đang đặt ${p.bhxh_mien_tu_so_ngay} ngày, LỆCH mức 14 ngày của QĐ 595 Đ42.4.`}{" "}
+                  Đây là mức luật định, không phải chính sách công ty.
+                </p>
+              )}
             </div>
           </section>
         </div>
@@ -2665,6 +2799,15 @@ function PhuCapTab({
           Thu nhập tính thuế = thu nhập chịu thuế − bảo hiểm − giảm trừ gia
           cảnh. Biểu lũy tiến từng phần, tính theo tháng. Sửa khi luật đổi (mặc
           định 2026: Luật 109/2025).
+        </p>
+        {/* Hai ô "khấu trừ tại nguồn" nằm CHUNG khối này vì cùng là số đổi theo luật, nhưng
+            chúng đi đường thuế KHÁC HẲN: không giảm trừ gia cảnh, không trừ bảo hiểm. Không nói
+            rõ thì người khai tưởng nó cộng thêm vào đường lũy tiến ở trên. */}
+        <p className="cl-card__desc">
+          Riêng hai ô <b>khấu trừ tại nguồn</b> chỉ áp cho người có cách tính
+          thuế là <b>Khấu trừ 10%</b> (hợp đồng dưới 3 tháng · thời vụ · thực
+          tập). Nhóm đó <b>không</b> được giảm trừ gia cảnh và <b>không</b> trừ
+          bảo hiểm khi tính thuế — hai ô ở trên không ảnh hưởng tới họ.
         </p>
         <div className="cl-card__body">
           <section className="rc-sec">
@@ -2689,6 +2832,40 @@ function PhuCapTab({
                 value={p.deduction_dependent}
                 onChange={(v) => setP("deduction_dependent", v)}
               />
+              {/* Cảnh báo MỀM (vẫn lưu được) theo đúng kiểu ô "% lương thử việc": khai 0 là một
+                  con số hợp lệ, nhưng hậu quả của nó im lặng — cả nhóm hợp đồng ngắn ra thuế 0đ
+                  mà bảng lương trông vẫn bình thường. */}
+              <ParamField
+                label="Thuế suất khấu trừ tại nguồn"
+                hint="Áp cho hợp đồng dưới 3 tháng · thời vụ · thực tập. Luật hiện hành: 10%."
+                warn={
+                  p.pit_flat_rate <= 0
+                    ? "Khai 0% nghĩa là nhóm hợp đồng ngắn ra thuế 0đ — KHÔNG phải miễn thuế, và hệ thống không báo gì thêm."
+                    : null
+                }
+                suffix="%"
+                step={1}
+                min={0}
+                max={100}
+                readOnly={readOnly}
+                value={toPct(p.pit_flat_rate)}
+                onChange={(v) => setP("pit_flat_rate", v / 100)}
+              />
+              <ParamField
+                label="Ngưỡng bắt đầu khấu trừ tại nguồn"
+                hint={`${money(p.pit_flat_threshold)} — dưới ngưỡng thì chưa khấu trừ. Tính trên TỔNG thu nhập chịu thuế cả tháng.`}
+                warn={
+                  p.pit_flat_threshold <= 0
+                    ? "Khai 0 nghĩa là khấu trừ ngay từ đồng đầu tiên."
+                    : null
+                }
+                suffix="đ"
+                step={100000}
+                min={0}
+                readOnly={readOnly}
+                value={p.pit_flat_threshold}
+                onChange={(v) => setP("pit_flat_threshold", v)}
+              />
             </div>
           </section>
 
@@ -2701,7 +2878,12 @@ function PhuCapTab({
                   <th className="num" style={{ width: 160 }}>
                     Thuế suất
                   </th>
-                  {!readOnly && <th style={{ width: 56 }} aria-label="Xóa" />}
+                  {/* Tên cột thống nhất là "Thao tác" (không phải "Xóa"), và có chữ hẳn hoi. */}
+                  {!readOnly && (
+                    <th className="act" style={{ width: 96 }}>
+                      Thao tác
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -2754,16 +2936,15 @@ function PhuCapTab({
                     </td>
                     {!readOnly && (
                       <td className="act">
-                        <button
-                          type="button"
-                          className="btn btn--ghost"
-                          title="Xóa bậc này"
+                        <RowActionButton
+                          dense
+                          danger
+                          label={`Xoá bậc ${i + 1}`}
+                          icon="trash"
                           onClick={() =>
                             setBrackets((bs) => bs.filter((_, j) => j !== i))
                           }
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        />
                       </td>
                     )}
                   </tr>
@@ -2806,7 +2987,12 @@ function PhuCapTab({
                   <th className="num" style={{ width: 200 }}>
                     Số tiền / lần
                   </th>
-                  {!readOnly && <th style={{ width: 56 }} aria-label="Xóa" />}
+                  {/* Tên cột thống nhất là "Thao tác" (không phải "Xóa"), và có chữ hẳn hoi. */}
+                  {!readOnly && (
+                    <th className="act" style={{ width: 96 }}>
+                      Thao tác
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -2857,16 +3043,15 @@ function PhuCapTab({
                     </td>
                     {!readOnly && (
                       <td className="act">
-                        <button
-                          type="button"
-                          className="btn btn--ghost"
-                          title="Xóa bậc này"
+                        <RowActionButton
+                          dense
+                          danger
+                          label={`Xoá bậc ${i + 1}`}
+                          icon="trash"
                           onClick={() =>
                             setPenalties((bs) => bs.filter((_, j) => j !== i))
                           }
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        />
                       </td>
                     )}
                   </tr>

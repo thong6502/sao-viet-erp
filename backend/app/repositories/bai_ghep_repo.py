@@ -27,6 +27,15 @@ class BaiGhepRepository:
             .options(selectinload(BaiGhep.thanh_viens))
         ).scalar_one_or_none()
 
+    def by_ids(self, ids: list[int]) -> dict[int, BaiGhep]:
+        """id → BaiGhep (kèm thành viên) — nạp lô cho bảng xếp lịch (né N+1)."""
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(BaiGhep).where(BaiGhep.id.in_(ids)).options(selectinload(BaiGhep.thanh_viens))
+        ).scalars()
+        return {r.id: r for r in rows}
+
     def list(self) -> list[BaiGhep]:
         return list(
             self.db.execute(

@@ -15,7 +15,6 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint,
-    false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -101,12 +100,10 @@ class WorkShift(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
-    # Ca này thuộc LỊCH CHẠY MÁY của xưởng (khác ca chấm công HR): Xếp lịch công đoạn tính giờ theo
-    # TẬP ca có cờ này (nghỉ trưa = khe giữa 2 ca). Chưa tick ca nào → fallback 8h phẳng [08:00,16:00)
-    # (giữ hành vi lát 1). server_default sa_false() (bẫy Postgres — KHÔNG "0"/"1").
-    dung_cho_lich_may: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default=sa_false()
-    )
+    # `dung_cho_lich_may` ĐÃ RÚT 21/08/2026 (mg 0226): cờ chưa bao giờ có đường khai (không có
+    # trong WorkShiftIn/Out, frontend không có ô) nên 4/4 ca đều FALSE và lịch xưởng luôn rơi về
+    # fallback 08:00–16:00. Nay Xếp lịch ăn thẳng MỌI ca `is_active` — muốn loại một ca khỏi lịch
+    # xưởng thì tắt chính ca đó.
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -199,6 +196,10 @@ class AttendancePeriod(Base):
     )
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    # CÔNG CHUẨN của tháng, ĐÓNG BĂNG lúc chốt (15/08/2026). Ảnh chụp đã giữ công của từng người;
+    # thiếu số này thì mẫu số vẫn đọc lịch sống — mà lịch tuần làm việc không có ngày hiệu lực,
+    # đổi một lần là viết lại đơn giá ngày của mọi tháng cũ. NULL = kỳ chốt trước bản vá.
+    standard_cong: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -245,5 +246,15 @@ class AttendancePeriodLine(Base):
     # Phạt trễ/sớm tự động: danh sách SỐ PHÚT vi phạm (trễ+sớm, không phép) MỖI NGÀY, lưu JSON để đóng
     # băng qua Chốt; Lương áp bảng phạt (mỗi phần tử = 1 lần). NULL/"[]" = không vi phạm.
     late_off_days_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # {ca → [công của từng ngày làm ca đó]} — nền tính phụ cấp cơm / phụ cấp ca khai trên
+    # `work_shifts`. Đóng băng qua Chốt công như `late_off_days_json`: thiếu nó thì phụ cấp NHẢY SỐ
+    # đúng lúc HCNS bấm Chốt (draft một số, chốt xong một số). Ngưỡng "bao nhiêu công thì được
+    # hưởng" KHÔNG lưu ở đây — đó là chính sách trả tiền, nằm ở tham số Lương.
+    ca_lam_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: {"lam": {ngay: phut}, "nghi": {ngay: phut}} — phút tăng ca TỪNG NGÀY, tách theo loại ngày.
+    #: Nền tính SUẤT CƠM TĂNG CA ở Lương: ngày làm việc phải đủ ngưỡng mới có suất, ngày nghỉ thì
+    #: cứ tăng ca là có. `ot_minutes` tổng tháng KHÔNG trả lời được câu hỏi theo ngày đó.
+    #: Đóng băng qua Chốt công như hai cột trên — thiếu là suất cơm NHẢY SỐ đúng lúc chốt công.
+    ot_days_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

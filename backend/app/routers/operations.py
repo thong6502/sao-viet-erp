@@ -10,6 +10,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..deps import get_operation_service, require_permission
+from ..legacy_api import LEGACY_READONLY
 from ..models.user import User
 from ..schemas.operation import (
     OperationDetailOut,
@@ -21,8 +22,10 @@ from ..services.operation_service import (
     OperationService,
 )
 
-router = APIRouter(prefix="/api/operations", tags=["operations"])
-MODULE = "dm_cong_doan"
+# `deprecated=True` → OpenAPI gạch ngang cả nhóm; client sinh code sẽ cảnh báo thay vì im lặng.
+router = APIRouter(prefix="/api/operations", tags=["operations"], deprecated=True)
+# Ô quyền RIÊNG, không dùng chung `dm_cong_doan` của màn Công đoạn nữa — xem `legacy_api.py`.
+MODULE = LEGACY_READONLY
 
 @router.get("", response_model=OperationListOut)
 def list_operations(

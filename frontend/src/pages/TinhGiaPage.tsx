@@ -6,7 +6,9 @@ import { PhieuTinhGiaListView } from "./PhieuTinhGiaListView";
 import { PhieuTinhGiaDetailView } from "./PhieuTinhGiaDetailView";
 import "./tinh-gia.css";
 
-type View = { mode: "list" } | { mode: "detail"; id: number };
+// id = null ⇒ phiếu NHÁP chưa ghi DB (bấm "Lập phiếu" chỉ mở form, chưa gọi API). Phiếu chỉ
+// được tạo thật khi có ≥1 sản phẩm và bấm Tính giá — bỏ ngang thì không để lại phiếu rỗng.
+type View = { mode: "list" } | { mode: "detail"; id: number | null };
 
 export function TinhGiaPage({ navigate, openPhieuId }: {
   // BG-3: điều hướng sang Báo giá (nút "Báo giá →" trên phiếu). Không truyền → ẩn nút.
@@ -30,7 +32,7 @@ export function TinhGiaPage({ navigate, openPhieuId }: {
   return (
     <PhieuTinhGiaListView
       onOpen={(id) => setView({ mode: "detail", id })}
-      onNew={(id) => setView({ mode: "detail", id })}
+      onNew={() => setView({ mode: "detail", id: null })}
     />
   );
 }

@@ -238,6 +238,12 @@ class EmployeeOut(EmployeeRow):
     resign_date: date | None = None
     resign_reason: str | None = None
     note: str | None = None
+    # Thâm niên đã có TRƯỚC khi vào làm (tháng). Trước đây chỉ NHẬN lúc tạo chứ không TRẢ ra —
+    # nên màn nào tính thâm niên tổng cũng thiếu vế này với người chuyển từ nơi khác sang.
+    prior_seniority_months: int = 0
+    # Trưởng bộ phận (departments.head_user_id → tên tài khoản). CHỈ route self-service
+    # `/me` điền — danh sách HCNS bỏ trống để không phải tra thêm mỗi dòng (N+1).
+    department_head_name: str | None = None
 
 
 class EmployeeKpis(BaseModel):
@@ -310,14 +316,38 @@ class UpdateRequestOut(BaseModel):
     employee_id: int
     employee_name: str | None = None       # router fills (HCNS list)
     changes: dict
+    # Giá trị ĐANG có trên hồ sơ của đúng các field trong `changes` — router điền cho hàng đợi
+    # HCNS. Thiếu ô này thì người duyệt chỉ thấy giá trị mới, không biết đang đổi TỪ GÌ sang gì
+    # (màn "Hồ sơ của tôi" không cần: nó đã cầm sẵn hồ sơ của chính người xem).
+    current: dict = {}
     reason: str | None = None
     status: str
     decision_note: str | None = None
+    # Vết xử lý: lúc nào + ai. Thiếu hai ô này thì NV bị từ chối cũng không biết ai quyết,
+    # lúc nào — màn "Hồ sơ của tôi" đọc đúng hai field này.
+    decided_at: datetime | None = None
+    decided_by_name: str | None = None       # router fills
     created_at: datetime
 
 
 class UpdateRequestsOut(BaseModel):
     items: list[UpdateRequestOut]
+
+
+class MyUpdateRequestsOut(UpdateRequestsOut):
+    """Phong bì phân trang cho danh sách đề nghị của CHÍNH NV (màn "Hồ sơ của tôi").
+
+    Giữ đúng bộ `items · total · page · size` như các danh mục đã cắt trang ở máy chủ
+    (`schemas/vat_lieu_kho.ListOut`), thêm `dem`: số đề nghị theo từng trạng thái tính trên TOÀN
+    BỘ hồ sơ. `dem` không phải trang trí — badge "N chờ duyệt" và số trên pill lọc phải đọc ở đây,
+    đếm trên `items` của trang đang xem sẽ sai khi NV có nhiều hơn một trang.
+
+    Hàng đợi HCNS (`UpdateRequestsOut`) chưa cắt trang, để nguyên."""
+
+    total: int = 0
+    page: int = 1
+    size: int = 0
+    dem: dict[str, int] = Field(default_factory=dict)
 
 
 class EmployeeEventOut(BaseModel):
@@ -407,6 +437,8 @@ class JobGradeIn(BaseModel):
     code: str | None = Field(default=None, max_length=20)
     seq: int | None = None
     note: str | None = Field(default=None, max_length=255)
+    # Hệ số chia sản lượng khoán theo bậc (module Thực hiện SX §8). Bỏ trống = chưa khai (engine coi 1.0).
+    output_coefficient: float | None = Field(default=None, ge=0, le=999.999)
 
 
 class JobGradeUpdateIn(BaseModel):
@@ -416,6 +448,7 @@ class JobGradeUpdateIn(BaseModel):
     seq: int | None = None
     is_active: bool | None = None
     note: str | None = Field(default=None, max_length=255)
+    output_coefficient: float | None = Field(default=None, ge=0, le=999.999)
 
 
 class JobGradeOut(BaseModel):
@@ -427,6 +460,7 @@ class JobGradeOut(BaseModel):
     seq: int
     is_active: bool
     note: str | None = None
+    output_coefficient: float | None = None
 
 
 class JobGradesOut(BaseModel):

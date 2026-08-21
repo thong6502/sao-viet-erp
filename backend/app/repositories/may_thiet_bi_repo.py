@@ -1,93 +1,132 @@
 """Repository — Máy thiết bị. CRUD + list/filter + find_by_ma."""
 from __future__ import annotations
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models.may_thiet_bi import MayThietBi
+from ..models.don_vi_do import DonViDo
+from ..models.may_thiet_bi import MayThietBi, NhomMay
+from .catalog_base import CatalogRepo
 
 # Field client được phép gán (ma chuẩn hoá riêng; id/created/updated do server quản).
+# Dọn 11/08/2026: chỉ còn cột CÓ Ô NHẬP trên form Máy. Xem docstring `models/may_thiet_bi.py`
+# cho danh sách đã gỡ và lý do.
 ASSIGNABLE = (
-    "ten", "loai_may", "finishing_subtype", "nhom_cost_center", "phong_ban_id", "dia_diem",
-    "hang_san_xuat", "model", "so_seri", "trang_thai", "ghi_chu", "ghi_chu_2",
-    "ma_tai_san", "ma_TK_cost_center", "nha_cung_cap", "ngay_dua_vao_su_dung",
-    "het_han_bao_hanh", "phuong_phap_khau_hao",
-    "nguon_bhr", "don_gia_gio_BHR", "von_dau_tu", "gia_tri_thu_hoi", "nam_khau_hao",
-    "lai_von_pct", "gio_lam_nam", "availability_pct", "productivity_pct", "efficiency_pct",
-    "so_nhan_cong", "luong_gio", "luong_burden_pct", "cong_suat_kW", "he_so_tai_dien",
-    "don_gia_dien", "bao_hiem_nam", "dien_tich_san_m2", "don_gia_thue_m2_nam", "bao_tri_gio",
-    "overhead_gio", "markup_pct", "ngay_cap_nhat_bhr",
-    "toc_do", "don_vi_toc_do", "makeready_time_default", "thoi_gian_rua_muc", "min_stock_gsm",
-    "max_stock_gsm", "vat_lieu_ho_tro_class", "so_may_song_song", "so_ca", "chi_so_dem_luot",
-    "ngay_bao_tri_gan_nhat", "chu_ky_bao_tri", "chu_ky_bao_tri_don_vi", "ngay_bao_tri_ke_tiep",
+    "ten", "loai_may", "hang_san_xuat", "model", "so_seri", "ghi_chu",
+    "toc_do", "toc_do_min", "toc_do_max", "don_vi_toc_do", "cong_thuc_luong",
+    "makeready_time_default",
+    "so_nhan_cong",
     "kho_max_dai", "kho_max_rong", "kho_min_dai", "kho_min_rong",
     "kho_kem_dai", "kho_kem_rong", "vung_in_dai", "vung_in_rong", "gripper_mm", "nhip_giay_mm",
-    "le_hong_mm",
-    "duoi_thang_mau_mm", "so_units", "units_truoc", "units_sau", "khoa_class", "co_tro_mat",
-    "cho_phep_tu_tro", "cho_phep_tro_dau_duoi", "bu_hao_canh_may_per_mau", "bu_hao_chay_pct",
-    "ho_tro_cip3", "fields_theo_loai",
+    "le_hong_mm", "duoi_thang_mau_mm",
+    "fields_theo_loai", "active",
 )
 
 
-class MayThietBiRepository:
+class MayThietBiRepository(CatalogRepo):
+    model = MayThietBi
+    fields = ASSIGNABLE
+    commit_on_write = False   # `MayThietBiService` chốt sau khi ghi nhật ký — xem `catalog_base`
+    # `active` (mg `0202`, 15/08/2026) = máy CÒN DÙNG hay đã thanh lý. Khác `machine_unavailable_
+    # periods` — chỗ đó khai máy dừng TẠM theo khoảng thời gian, và Xếp lịch vẫn đọc nó như cũ.
+
+    def extra_conds(self, *, loai_may: str | None = None, **_) -> list:
+        return [MayThietBi.loai_may == loai_may] if loai_may else []
+
+    def all_ids(self) -> list[int]:
+        """Id của MỌI máy — cột "Trạng thái" của màn Thiết bị hỏi trạng thái cả danh mục một lượt.
+
+        Trước 15/08/2026 câu `select()` này nằm thẳng trong `routers/may_thiet_bi.trang_thai`.
+        """
+        return [int(i) for i in self.db.execute(select(MayThietBi.id)).scalars()]
+
+    def dem_theo_loai(self, *, q: str | None = None,
+                      active: bool | None = None) -> dict[str, int]:
+        """Số máy của TỪNG loại — số hiện trên tab lọc của màn Thiết bị.
+
+        Cố ý KHÔNG áp điều kiện `loai_may`: tab nào cũng phải khoe số của nó, kể cả tab đang
+        không được chọn. `q` thì CÓ áp — đang tìm "KOMORI" mà tab vẫn khoe số cả danh mục là
+        nói dối. Một câu GROUP BY thay cho cách cũ (màn kéo cả bảng về rồi tự đếm trong JS).
+
+        `active` cũng CÓ áp (mg `0202`): đang xem "mục đã ngừng" mà tab vẫn khoe số của máy còn
+        dùng thì bảng một đằng, số trên tab một nẻo — y như `khuon_be_repo.dem_theo_tinh_trang`.
+        """
+        stmt = select(MayThietBi.loai_may, func.count()).group_by(MayThietBi.loai_may)
+        loc = self._loc_q(q)
+        if loc is not None:
+            stmt = stmt.where(loc)
+        if active is not None:
+            stmt = stmt.where(MayThietBi.active.is_(active))
+        # Máy CHƯA khai loại gom vào khoá rỗng "" thay vì bị loại: màn cộng các số này ra tổng
+        # cho tab "Tất cả", bỏ nhóm khuyết đi là tab đó hụt số mà không ai biết vì sao.
+        return {(str(loai).strip() if loai is not None else ""): int(n)
+                for loai, n in self.db.execute(stmt)}
+
+    def don_vi_ten(self) -> dict[str, str]:
+        """`{mã đơn vị: tên}` cho CẢ danh mục Đơn vị — một truy vấn cho cả trang, không N+1.
+
+        Cùng cách `cong_doan_repo.don_vi_ten()` làm. Bảng máy chỉ lưu MÃ đơn vị tốc độ (`to_gio`,
+        `m_phut`) mà mã không đọc được thành lời; tên phải tra ở danh mục Đơn vị.
+        """
+        return {
+            (ma or "").strip().lower(): ten
+            for ma, ten in self.db.execute(select(DonViDo.ma, DonViDo.ten)).all()
+        }
+
+
+class NhomMayRepository:
+    """Danh mục NHÓM MÁY — bảng phẳng, KHÔNG kế thừa `CatalogRepo`.
+
+    `nhom_may` không có cột `ma` (khoá nghiệp vụ là chính `ten`, unique) nên nền danh mục — vốn
+    xoay quanh mã + `next_ma` + chuẩn hoá hoa/thường — không áp vào được. Ở đây chỉ cần bốn câu
+    truy vấn, gom về repo để `NhomMayService` thôi truy DB thẳng.
+    """
+
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def get(self, may_id: int) -> MayThietBi | None:
-        return self.db.get(MayThietBi, may_id)
+    def get(self, nhom_id: int) -> NhomMay | None:
+        return self.db.get(NhomMay, nhom_id)
 
-    def find_by_ma(self, ma: str) -> MayThietBi | None:
-        ma = (ma or "").strip().upper()
-        if not ma:
-            return None
-        return self.db.execute(
-            select(MayThietBi).where(func.upper(MayThietBi.ma) == ma)
-        ).scalars().first()
+    def list_active(self) -> list[NhomMay]:
+        return list(self.db.execute(
+            select(NhomMay).where(NhomMay.active.is_(True)).order_by(NhomMay.ten)
+        ).scalars())
 
-    def list(self, *, q: str | None = None, loai_may: str | None = None,
-             trang_thai: str | None = None, page: int = 1, size: int = 50):
-        conds = []
-        if q:
-            like = f"%{q.strip().lower()}%"
-            conds.append(or_(func.lower(MayThietBi.ma).like(like),
-                             func.lower(MayThietBi.ten).like(like)))
-        if loai_may:
-            conds.append(MayThietBi.loai_may == loai_may)
-        if trang_thai:
-            conds.append(MayThietBi.trang_thai == trang_thai)
-        base = select(MayThietBi)
-        count_stmt = select(func.count()).select_from(MayThietBi)
-        for c in conds:
-            base = base.where(c)
-            count_stmt = count_stmt.where(c)
-        total = self.db.execute(count_stmt).scalar_one()
-        page = max(1, page)
-        size = max(1, min(size, 200))
-        base = base.order_by(MayThietBi.ma.asc()).offset((page - 1) * size).limit(size)
-        return list(self.db.execute(base).scalars()), total
+    def find_by_ten(self, ten: str) -> NhomMay | None:
+        return self.db.execute(select(NhomMay).where(NhomMay.ten == ten)).scalars().first()
 
-    # -- writes --
-    def _apply(self, may: MayThietBi, data: dict) -> None:
-        for k in ASSIGNABLE:
-            if k in data:
-                setattr(may, k, data[k])
-
-    def create(self, data: dict) -> MayThietBi:
-        may = MayThietBi(ma=data["ma"].strip().upper())
-        self._apply(may, data)
-        self.db.add(may)
+    def create(self, ten: str) -> NhomMay:
+        row = NhomMay(ten=ten)
+        self.db.add(row)
         self.db.commit()
-        self.db.refresh(may)
-        return may
+        self.db.refresh(row)
+        return row
 
-    def update(self, may: MayThietBi, data: dict) -> MayThietBi:
-        if data.get("ma"):
-            may.ma = data["ma"].strip().upper()
-        self._apply(may, data)
+    def bat_lai(self, row: NhomMay) -> NhomMay:
+        row.active = True
         self.db.commit()
-        self.db.refresh(may)
-        return may
+        self.db.refresh(row)
+        return row
 
-    def delete(self, may: MayThietBi) -> None:
-        self.db.delete(may)
+    def delete(self, row: NhomMay) -> None:
+        self.db.delete(row)
         self.db.commit()
+
+    def dem_may_dung(self, ten: str) -> int:
+        return int(self.db.execute(
+            select(func.count()).select_from(MayThietBi).where(MayThietBi.loai_may == ten)
+        ).scalar_one())
+
+    def dem_cong_doan_cho_phep(self, ten: str) -> int:
+        """Số công đoạn có tên nhóm này trong `nhom_may_cho_phep`.
+
+        Cột đó là JSON list TÊN nhóm — không query bằng SQL cho mọi phương ngữ nên lọc trong
+        Python; bảng công đoạn nhỏ (vài chục dòng).
+        """
+        from ..models.cong_doan import CongDoan
+
+        return sum(
+            1 for cd in self.db.execute(select(CongDoan)).scalars()
+            if isinstance(cd.nhom_may_cho_phep, list) and ten in cd.nhom_may_cho_phep
+        )

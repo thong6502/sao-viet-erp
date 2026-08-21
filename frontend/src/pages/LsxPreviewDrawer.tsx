@@ -9,6 +9,7 @@ import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
 import { BangLoi, ChipGap, ChuoiCongDoan, CanhBaoMem, ThieuStack, ngay, num } from "./keHoachSxShared";
+import { donViChuoi, nhanDonVi } from "./lsxBuoc";
 
 export function LsxPreviewDrawer({
   orderId,
@@ -185,9 +186,11 @@ export function LsxPreviewDrawer({
                     <th scope="col">Sản phẩm</th>
                     <th scope="col" className="khsx-th--num">SL đơn</th>
                     <th scope="col" className="khsx-th--num">Bù hao</th>
-                    <th scope="col" className="khsx-th--num">Tờ in</th>
-                    <th scope="col" className="khsx-th--num">Tờ nguyên</th>
-                    <th scope="col" className="khsx-th--num">Con/tờ</th>
+                    {/* Tiêu đề nói CHẶNG, không nói đơn vị: mỗi dòng là một sản phẩm khác nhau nên
+                        có thể đếm bằng đơn vị khác nhau. Đơn vị nằm trong từng ô (`don_vi_*`). */}
+                    <th scope="col" className="khsx-th--num">Vào máy</th>
+                    <th scope="col" className="khsx-th--num">Giấy nguyên</th>
+                    <th scope="col" className="khsx-th--num">Bình bài</th>
                     <th scope="col" className="khsx-th--num">Kẽm · lượt</th>
                     <th scope="col">Công đoạn</th>
                     <th scope="col">Thiếu</th>
@@ -312,6 +315,11 @@ function PreviewRow({
   onOpenLsx: (id: number) => void;
 }) {
   const daCo = line.lsx_id != null;
+  // Đơn vị của CHÍNH dòng này — server đọc từ routing dự kiến rồi gửi mã kèm mỗi dòng; tên tra ở
+  // danh mục. Chưa có bài tính giá ⇒ mã rỗng ⇒ nhãn rỗng, ô chỉ còn số (đúng: chưa biết gì để nói).
+  // Bốn chặng do SERVER chấm, ở đây chỉ dịch mã sang tên — cùng một hàm với màn chi tiết lệnh.
+  const dvDong = donViChuoi(line, line.don_vi_tinh);
+  const { to: dvTo, tp: dvTp } = dvDong;
   return (
     <tr
       className={
@@ -349,10 +357,26 @@ function PreviewRow({
           </div>
         )}
       </td>
-      <td className="khsx-num">{num(line.bu_hao_to)}</td>
-      <td className="khsx-num">{num(line.so_to_ke_hoach)}</td>
-      <td className="khsx-num">{num(line.so_to_nguyen)}</td>
-      <td className="khsx-num">{num(line.so_con)}</td>
+      {/* Bù hao đếm bằng đúng đơn vị tờ vào máy — không lặp lại nhãn ở đây cho đỡ rối, ô ngay bên
+          cạnh đã nói. Tooltip vẫn ghi đủ để không ai phải đoán. */}
+      <td className="khsx-num" title={dvTo ? `${num(line.bu_hao_to)} ${dvTo}` : undefined}>
+        {num(line.bu_hao_to)}
+      </td>
+      <td className="khsx-num">
+        {num(line.so_to_ke_hoach)} <span className="khsx-unit">{dvTo}</span>
+      </td>
+      {/* Không có bước xả giấy ⇒ tờ nguyên = tờ vào máy, dùng chung nhãn. */}
+      <td className="khsx-num">
+        {num(line.so_to_nguyen)}{" "}
+        <span className="khsx-unit">{nhanDonVi(line.don_vi_to_nguyen) || dvTo}</span>
+      </td>
+      {/* Tỉ số hai đơn vị. Bày cả "A/B" trong ô hẹp là vỡ hàng ⇒ hiện tử số, mẫu số vào tooltip. */}
+      <td
+        className="khsx-num"
+        title={dvTp && dvTo ? `${num(line.so_con)} ${dvTp} trên 1 ${dvTo}` : undefined}
+      >
+        {num(line.so_con)} <span className="khsx-unit">{dvTp}</span>
+      </td>
       <td className="khsx-num">
         {line.so_kem == null && line.so_luot == null ? "—" : `${num(line.so_kem)} · ${num(line.so_luot)}`}
       </td>
@@ -360,7 +384,7 @@ function PreviewRow({
         <ChuoiCongDoan steps={line.routing} />
       </td>
       <td>
-        <ThieuStack codes={line.thieu} />
+        <ThieuStack codes={line.thieu} dv={dvDong} />
       </td>
     </tr>
   );

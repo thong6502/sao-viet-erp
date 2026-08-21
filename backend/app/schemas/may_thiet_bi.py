@@ -1,10 +1,12 @@
-"""Pydantic schemas — Máy thiết bị. Create/Update permissive (extra allow → engine field
-theo loai_may đi thẳng vào fields_theo_loai/ASSIGNABLE); Row đầy đủ; BHR breakdown."""
+"""Pydantic schemas — Máy thiết bị. Create/Update permissive (extra allow → field phụ theo
+loai_may đi thẳng vào fields_theo_loai/ASSIGNABLE); Row đầy đủ.
+
+"""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class MayThietBiIn(BaseModel):
@@ -14,9 +16,10 @@ class MayThietBiIn(BaseModel):
     ma: str = Field(min_length=1, max_length=30)
     ten: str = Field(min_length=1, max_length=150)
     loai_may: str = Field(min_length=1, max_length=24)
-    trang_thai: str = "active"
-    khoa_class: str | None = None
-    # Khổ + nhíp + units (engine bình bài) — khai rõ để validate chặt.
+    hang_san_xuat: str | None = None
+    model: str | None = None
+    so_seri: str | None = None
+    # Khổ + nhíp (engine bình bài) — khai rõ để validate chặt.
     kho_max_dai: int | None = None
     kho_max_rong: int | None = None
     kho_min_dai: int | None = None
@@ -29,13 +32,23 @@ class MayThietBiIn(BaseModel):
     nhip_giay_mm: int | None = None
     le_hong_mm: int | None = None
     duoi_thang_mau_mm: int | None = None
-    so_units: int | None = None
-    # BHR nguồn — validate ở service.
-    nguon_bhr: str | None = None
-    don_gia_gio_BHR: float | None = None
-    toc_do: float | None = None
+    toc_do: float | None = None          # TRUNG BÌNH — số duy nhất chảy vào mọi tính toán
+    toc_do_min: float | None = None      # dải năng lực, CHỈ ĐỂ KHAI (xem model)
+    toc_do_max: float | None = None
     don_vi_toc_do: str | None = None
+    #: Cách đo LƯỢNG theo đơn vị tốc độ của CHÍNH máy này (vd `sl_vao * dai_in * rong_in` cho máy
+    #: đo m²/giờ). Rỗng = để hệ quy đổi như cũ — xem `LsxService._sl_theo_don_vi`.
+    cong_thuc_luong: str | None = None
+    # `makeready_time_default` = thời gian CANH MÁY, Xếp lịch đọc. KHÁC "Chuẩn bị" của Công đoạn
+    # (`cong_doan.setup_time`, Lệnh SX đọc) — hai nơi hai việc, không gộp không cộng.
+    makeready_time_default: float | None = None
+    # Kíp chuẩn cần để vận hành máy. Đây là nhu cầu nhân lực, không nhân tốc độ máy.
+    so_nhan_cong: float = Field(default=1, ge=1)
+    # Túi JSON: `chuan_bi_khoan` (các khoản chuẩn bị) + `lich_bao_tri` (Lịch bảo trì định kỳ).
     fields_theo_loai: dict | None = None
+    # Máy còn dùng hay đã thanh lý (mg `0202`). Máy dừng TẠM thì vẫn `True` — khai ở
+    # `machine_unavailable_periods`, xem `models/may_thiet_bi`.
+    active: bool = True
 
 
 class MayThietBiRow(BaseModel):
@@ -45,46 +58,25 @@ class MayThietBiRow(BaseModel):
     ma: str
     ten: str
     loai_may: str
-    finishing_subtype: str | None = None
-    nhom_cost_center: str | None = None
     hang_san_xuat: str | None = None
     model: str | None = None
-    nha_cung_cap: str | None = None
-    trang_thai: str
-    active: bool = True
-    # BHR inputs (đủ để sửa lại + tính)
-    nguon_bhr: str = "dung_tu_von"
-    don_gia_gio_BHR: float | None = None
-    von_dau_tu: float | None = None
-    gia_tri_thu_hoi: float = 0
-    nam_khau_hao: int = 8
-    lai_von_pct: float | None = None
-    gio_lam_nam: int = 2000
-    availability_pct: float = 85
-    productivity_pct: float = 85
-    efficiency_pct: float = 80
-    so_nhan_cong: float = 1
-    luong_gio: float | None = None
-    luong_burden_pct: float = 30
-    cong_suat_kW: float | None = None
-    he_so_tai_dien: float = 0.65
-    don_gia_dien: float | None = None
-    bao_hiem_nam: float = 0
-    dien_tich_san_m2: float | None = None
-    don_gia_thue_m2_nam: float | None = None
-    bao_tri_gio: float | None = None
-    overhead_gio: float | None = None
-    markup_pct: float | None = None
-    so_may_song_song: int = 1
-    ngay_cap_nhat_bhr: date | None = None
+    so_seri: str | None = None
     # Năng lực
     toc_do: float | None = None
+    toc_do_min: float | None = None
+    toc_do_max: float | None = None
     don_vi_toc_do: str | None = None
+    cong_thuc_luong: str | None = None
+    # TÊN đọc được của đơn vị tốc độ, tra từ danh mục Đơn vị (`may_thiet_bi_service.gan_ten_don_vi`)
+    # — bảng chỉ lưu MÃ (`to_gio`) mà mã không thành lời. Cùng cách đã làm cho Giấy · Vật tư ·
+    # Công đoạn, để màn khỏi nhúng bảng nhãn thứ hai rồi lệch với danh mục.
+    #
+    # ⚠️ BẪY ĐÃ DÍNH 4 LẦN: service trả thêm field mà schema Out không khai thì Pydantic NUỐT IM
+    # LẶNG và FE nhận `undefined`, không lỗi nào. Thêm field phải đi HẾT đường service → schema.
+    don_vi_toc_do_ten: str | None = None
     makeready_time_default: float | None = None
-    thoi_gian_rua_muc: float | None = None
-    min_stock_gsm: int | None = None
-    max_stock_gsm: int | None = None
-    # Engine bình bài (offset)
+    so_nhan_cong: float = 1
+    # Engine bình bài
     kho_max_dai: int | None = None
     kho_max_rong: int | None = None
     kho_min_dai: int | None = None
@@ -97,19 +89,9 @@ class MayThietBiRow(BaseModel):
     nhip_giay_mm: int | None = None
     le_hong_mm: int | None = None
     duoi_thang_mau_mm: int | None = None
-    so_units: int | None = None
-    units_truoc: int | None = None
-    units_sau: int | None = None
-    khoa_class: str | None = None
-    co_tro_mat: bool | None = None
-    cho_phep_tu_tro: bool | None = None
-    cho_phep_tro_dau_duoi: bool | None = None
-    bu_hao_canh_may_per_mau: int | None = None
-    bu_hao_chay_pct: float | None = None
-    ho_tro_cip3: bool | None = None
     fields_theo_loai: dict | None = None
+    active: bool = True
     ghi_chu: str | None = None
-    ghi_chu_2: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -119,10 +101,59 @@ class MayThietBiListOut(BaseModel):
     total: int
     page: int
     size: int
+    # Số máy theo TỪNG loại (`{"Máy in": 12, "Bế": 3}`) — nuôi số trên tab lọc của màn Thiết bị.
+    # Phải do server trả: màn chỉ cầm 20 dòng của trang đang xem nên không tự đếm được nữa, mà
+    # `loai_may` là chữ TỰ DO nên màn cũng không biết trước có những tab nào.
+    facets: dict[str, int] = {}
 
 
-class BhrBreakdownOut(BaseModel):
-    gio_tinh_phi: float | None = None
-    breakdown: dict
-    BHR: float
-    don_gia_ban_gio: float
+# --- Trạng thái máy LÚC NÀY (dẫn xuất) ---------------------------------------
+# Cố ý KHÔNG nhét vào `MayThietBiRow`: hàng loạt màn khác đang đổ dropdown máy bằng chính schema
+# đó (Tính giá, Lệnh SX, Công đoạn), thêm số phải-tính-mỗi-lần-đọc vào đấy là bắt cả chục chỗ
+# không cần trả giá. Màn Thiết bị gọi riêng endpoint này rồi ghép theo id.
+
+
+class TrangThaiMayRow(BaseModel):
+    trang_thai: str          # may_dung | bao_tri | khoa | dang_chay | ranh
+    nhan: str                # nhãn tiếng Việt dựng sẵn ở backend — hai màn khỏi tự đặt tên khác nhau
+    chi_tiet: str | None = None    # "đứng 3 giờ 20 · dao bế" / "LSX26-0142 · xong 14:30"
+    phieu_id: int | None = None    # phiếu sự cố đang mở (mở thẳng drawer bên màn Bảo trì)
+    den: datetime | None = None    # lúc máy chạy lại / lệnh chạy xong
+
+
+class TrangThaiMayOut(BaseModel):
+    # Máy KHÔNG có mặt trong map = đang rảnh. Chỉ trả máy có chuyện, khỏi tải cả bảng.
+    items: dict[int, TrangThaiMayRow]
+
+
+# --- Danh mục Nhóm máy -------------------------------------------------------
+
+
+class NhomMayIn(BaseModel):
+    ten: str = Field(min_length=1, max_length=60)
+
+
+class NhomMayRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ten: str
+    active: bool
+
+    # `ma` để dùng chung khuôn danh mục bên FE (`crud()` gõ theo Row có ma/ten). Nhóm máy KHÔNG có
+    # mã riêng — chính cái TÊN là giá trị lưu trên `may_thiet_bi.loai_may` — nên soi lại từ `ten`.
+    # Phải là `computed_field`: `@property` trần KHÔNG được Pydantic v2 đưa vào JSON.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def ma(self) -> str:
+        return self.ten
+
+
+class NhomMayListOut(BaseModel):
+    items: list[NhomMayRow]
+    total: int
+    # `page`/`size` để phong bì giống 10 danh mục còn lại — FE dùng chung `crud()` và đọc cả bốn
+    # khoá; thiếu hai cái này là phân trang câm (undefined). Bảng nhóm máy nhỏ và KHÔNG cắt trang:
+    # luôn trả trọn một trang, `size` = số dòng thật.
+    page: int = 1
+    size: int = 0

@@ -56,14 +56,102 @@ def _create(client, token, **over):
     return client.post("/api/employees", json=body, headers=_h(token))
 
 
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _doc_xlsx(data: bytes) -> list[list]:
+    """Doc lai file .xlsx thanh danh sach dong — de kiem NOI DUNG chu khong chi kiem status 200."""
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(BytesIO(data), read_only=True, data_only=True)
+    try:
+        return [list(r) for r in wb.active.iter_rows(values_only=True)]
+    finally:
+        wb.close()
+
+
+def test_xuat_nhan_su_ra_file_xlsx_that(client):
+    """Nut "Xuat Excel" phai ra file .xlsx THAT, khong phai CSV doi ten (chu chot 08/08/2026)."""
+    token = _admin_token(client)
+    _create(client, token, full_name="Nguyen Thi Xuat", hire_date="2024-03-01")
+
+    resp = client.get("/api/employees/export.xlsx", headers=_h(token))
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith(XLSX_MIME)
+    assert "attachment" in resp.headers["content-disposition"]
+    assert resp.content[:2] == b"PK", "phai la file .xlsx (zip), khong phai chuoi CSV"
+
+    rows = _doc_xlsx(resp.content)
+    assert rows[0] == ["Mã", "Họ tên", "Phòng/Tổ", "Chức danh", "Bậc tay nghề", "Trạng thái",
+                       "Ngày vào", "Tài khoản"]
+    ten = [r[1] for r in rows[1:]]
+    assert "Nguyen Thi Xuat" in ten
+    # Ngay vao phai la chuoi dd/mm/yyyy — de nguyen kieu ngay thi moi may Excel hien mot kieu.
+    dong = next(r for r in rows[1:] if r[1] == "Nguyen Thi Xuat")
+    assert dong[6] == "01/03/2024"
+
+
+def test_xuat_nhan_su_khong_bi_cat_o_200_nguoi(client):
+    """Ban cu chi lay 200 nguoi dau roi IM LANG. File phai co DU so nguoi nhu o "Tong" tren man."""
+    token = _admin_token(client)
+    tong = client.get("/api/employees?size=1", headers=_h(token)).json()["total"]
+
+    rows = _doc_xlsx(client.get("/api/employees/export.xlsx", headers=_h(token)).content)
+    assert len(rows) - 1 == tong, "so dong trong file phai bang so Tong tren man"
+
+
+def test_xuat_nhan_su_theo_dung_bo_loc_cua_man(client):
+    """File xuat ra phai phan anh DUNG bo loc dang chon, khong phai ca danh sach."""
+    token = _admin_token(client)
+    _create(client, token, full_name="Loc Theo Phong", department_id=_dept_id("Kinh doanh"))
+    kd = _dept_id("Kinh doanh")
+
+    tong_kd = client.get(
+        f"/api/employees?size=1&department_id={kd}", headers=_h(token)
+    ).json()["total"]
+    rows = _doc_xlsx(
+        client.get(f"/api/employees/export.xlsx?department_id={kd}", headers=_h(token)).content
+    )
+    assert len(rows) - 1 == tong_kd
+    assert all(r[2] == "Kinh doanh" for r in rows[1:])
+
+
+def test_xuat_nhan_su_chan_nguoi_khong_co_quyen(client):
+    """Ro du lieu nhan su la rui ro lon nhat cua endpoint nay — nguoi khong co quyen phai bi chan."""
+    resp = client.get("/api/employees/export.xlsx", headers=_h(_sales_token()))
+    assert resp.status_code == 403
+
+
 # --- self-service "Hồ sơ của tôi" ------------------------------------------
+
+
+def _vai_tho(client, token) -> int:
+    """Vai TRỐNG QUYỀN cho thợ — chỉ có hai ô mặc định (Tự phục vụ + Nội quy).
+
+    Từ 10/08/2026 tự phục vụ là MỘT Ô QUYỀN. Tài khoản KHÔNG GÁN VAI thì không có ô nào, nên
+    cũng không mở được "Hồ sơ của tôi" — giống hệt mọi module khác của hệ thống. Vai mới sinh ra
+    đã kèm sẵn hai ô đó (xem `RoleRepository.O_MAC_DINH`)."""
+    meta = client.get("/api/employees/meta", headers=_h(token)).json()
+    dept = next(d["id"] for d in meta["departments"] if d["name"] == "Hành chính nhân sự")
+    from app.db import SessionLocal
+    from app.repositories.rbac_repo import RoleRepository
+    db = SessionLocal()
+    try:
+        roles = RoleRepository(db)
+        vai = roles.get_by_name_and_department("Tho trong quyen", dept) or roles.create(
+            name="Tho trong quyen", department_id=dept)
+        return vai.id
+    finally:
+        db.close()
 
 
 def test_my_profile_self_service(client):
     token = _admin_token(client)
     _create(client, token, full_name="NV Tự", phone="0900", note="ghi chú nội bộ",
             payroll_group="van_phong",
-            account={"username": "nvtu", "password": "nvtu12345"})
+            account={"username": "nvtu", "password": "nvtu12345", "role_id": _vai_tho(client, token)})
     me_tok = client.post("/api/auth/login", json={"username": "nvtu", "password": "nvtu12345"}).json()["access_token"]
 
     me = client.get("/api/employees/me", headers=_h(me_tok)).json()
@@ -84,7 +172,7 @@ def test_profile_update_request_flow(client):
     → áp thật vào hồ sơ; duyệt lại đơn đã xử lý → 400."""
     admin = _admin_token(client)
     _create(client, admin, full_name="NV Yêu Cầu", bank_account="111",
-            account={"username": "nvyc", "password": "nvyc12345"})
+            account={"username": "nvyc", "password": "nvyc12345", "role_id": _vai_tho(client, admin)})
     me_tok = client.post("/api/auth/login", json={"username": "nvyc", "password": "nvyc12345"}).json()["access_token"]
 
     # đề nghị đổi số TK (được) + phone (không whitelist → bị loại)
@@ -108,6 +196,152 @@ def test_profile_update_request_flow(client):
     assert client.get("/api/employees/me", headers=_h(me_tok)).json()["employee"]["bank_account"] == "999"
     # duyệt lại đơn đã xử lý → 400
     assert client.post(f"/api/employees/update-requests/{rid}/approve", json={}, headers=_h(admin)).status_code == 400
+
+
+def test_ho_so_cua_toi_tra_du_o_bhxh_thue_va_quan_ly_truc_tiep(client):
+    """Màn "Hồ sơ của tôi" đọc thẳng payload này. Thiếu một field ở schema Out là màn hiện
+    "—" trong khi DB có số — nên chốt bằng test: BHXH · cách tính thuế · ngày và nơi cấp CCCD ·
+    hạn thử việc · trưởng bộ phận (do route /me tự tra)."""
+    admin = _admin_token(client)
+    hcns = _dept_id("Hành chính nhân sự")
+    r = _create(client, admin, full_name="NV Đủ Ô", department_id=hcns,
+                social_insurance_no="7912345678", pit_tax_code="8123456789",
+                national_id="079080000123", national_id_date="2021-03-04",
+                national_id_place="Cục CS QLHC", probation_end_date="2024-03-15",
+                account={"username": "nvdu", "password": "nvdu12345", "role_id": _vai_tho(client, admin)})
+    assert r.status_code == 201, r.text
+
+    # Trưởng bộ phận của phòng = tài khoản admin.
+    db = SessionLocal()
+    try:
+        depts = DepartmentRepository(db)
+        admin_user = UserRepository(db).get_by_username("admin")
+        depts.set_head(depts.get_by_id(hcns), admin_user.id)
+        head_name = admin_user.name or admin_user.username
+    finally:
+        db.close()
+
+    me_tok = client.post("/api/auth/login",
+                         json={"username": "nvdu", "password": "nvdu12345"}).json()["access_token"]
+    emp = client.get("/api/employees/me", headers=_h(me_tok)).json()["employee"]
+    assert emp["social_insurance_no"] == "7912345678"
+    assert emp["pit_mode"] == "luy_tien"
+    assert emp["national_id_date"] == "2021-03-04" and emp["national_id_place"] == "Cục CS QLHC"
+    assert emp["probation_end_date"] == "2024-03-15"
+    assert emp["department_head_name"] == head_name
+
+
+def test_nv_tu_rut_de_nghi_khi_hcns_chua_xu_ly(client):
+    """Gõ nhầm thì phải rút lại được — nhưng rút = đổi trạng thái, KHÔNG xoá vết; và chỉ rút
+    được đề nghị CỦA MÌNH, còn đang chờ."""
+    admin = _admin_token(client)
+    _create(client, admin, full_name="NV Rút", bank_account="111",
+            account={"username": "nvrut", "password": "nvrut12345", "role_id": _vai_tho(client, admin)})
+    _create(client, admin, full_name="NV Khác", account={"username": "nvkhac", "password": "nvkhac1234", "role_id": _vai_tho(client, admin)})
+    tok = client.post("/api/auth/login",
+                      json={"username": "nvrut", "password": "nvrut12345"}).json()["access_token"]
+    tok_khac = client.post("/api/auth/login",
+                           json={"username": "nvkhac", "password": "nvkhac1234"}).json()["access_token"]
+
+    rid = client.post("/api/employees/me/update-requests",
+                      json={"changes": {"bank_account": "999"}, "reason": "Đổi NH"},
+                      headers=_h(tok)).json()["id"]
+
+    # người khác KHÔNG rút hộ được
+    assert client.post(f"/api/employees/me/update-requests/{rid}/cancel",
+                       headers=_h(tok_khac)).status_code == 404
+
+    ok = client.post(f"/api/employees/me/update-requests/{rid}/cancel", headers=_h(tok))
+    assert ok.status_code == 200 and ok.json()["status"] == "cancelled"
+    assert ok.json()["decided_at"] is not None and ok.json()["decided_by_name"] == "NV Rút"
+
+    # vẫn còn trong danh sách (có vết), và HCNS không duyệt được nữa
+    mine = client.get("/api/employees/me/update-requests", headers=_h(tok)).json()["items"]
+    assert any(x["id"] == rid and x["status"] == "cancelled" for x in mine)
+    assert client.post(f"/api/employees/update-requests/{rid}/approve", json={},
+                       headers=_h(admin)).status_code == 400
+    # rút lần hai → 400, và hồ sơ KHÔNG bị áp thay đổi
+    assert client.post(f"/api/employees/me/update-requests/{rid}/cancel", headers=_h(tok)).status_code == 400
+    assert client.get("/api/employees/me", headers=_h(tok)).json()["employee"]["bank_account"] == "111"
+
+
+def test_de_nghi_bi_tu_choi_luu_ai_quyet_va_ly_do(client):
+    """NV phải thấy ai từ chối, lúc nào, vì sao — không thì màn chỉ có chữ "Từ chối" trơ trọi."""
+    admin = _admin_token(client)
+    _create(client, admin, full_name="NV Bị Từ Chối", bank_account="111",
+            account={"username": "nvtc", "password": "nvtc12345", "role_id": _vai_tho(client, admin)})
+    tok = client.post("/api/auth/login",
+                      json={"username": "nvtc", "password": "nvtc12345"}).json()["access_token"]
+    rid = client.post("/api/employees/me/update-requests",
+                      json={"changes": {"bank_account": "999"}}, headers=_h(tok)).json()["id"]
+
+    client.post(f"/api/employees/update-requests/{rid}/reject",
+                json={"note": "Sai số tài khoản"}, headers=_h(admin))
+
+    row = next(x for x in client.get("/api/employees/me/update-requests", headers=_h(tok)).json()["items"]
+               if x["id"] == rid)
+    assert row["status"] == "rejected" and row["decision_note"] == "Sai số tài khoản"
+    assert row["decided_at"] is not None and row["decided_by_name"]
+
+
+def test_de_nghi_cua_toi_cat_trang_o_may_chu_va_dem_theo_trang_thai(client):
+    """Đề nghị KHÔNG bị xoá khi rút/từ chối nên danh sách chỉ dài thêm ⇒ cắt trang Ở MÁY CHỦ.
+
+    Hai chốt: (1) `page`/`size` cắt đúng và `total` là tổng THẬT chứ không phải số dòng trả về;
+    (2) `dem` đếm trên TOÀN BỘ hồ sơ và KHÔNG đổi theo bộ lọc — badge "N chờ duyệt" cùng số trên
+    pill lọc đọc ô này; đếm lại từ `items` của trang đang xem là sai ngay khi qua trang 2."""
+    admin = _admin_token(client)
+    _create(client, admin, full_name="NV Nhiều Đề Nghị", bank_account="111",
+            account={"username": "nvnhieu", "password": "nvnhieu123", "role_id": _vai_tho(client, admin)})
+    tok = client.post("/api/auth/login",
+                      json={"username": "nvnhieu", "password": "nvnhieu123"}).json()["access_token"]
+
+    ids = [client.post("/api/employees/me/update-requests",
+                       json={"changes": {"bank_account": f"90{i}"}}, headers=_h(tok)).json()["id"]
+           for i in range(5)]
+    client.post(f"/api/employees/me/update-requests/{ids[0]}/cancel", headers=_h(tok))
+    client.post(f"/api/employees/update-requests/{ids[1]}/reject", json={"note": "Sai"}, headers=_h(admin))
+
+    trang1 = client.get("/api/employees/me/update-requests?page=1&size=2", headers=_h(tok)).json()
+    assert trang1["total"] == 5 and trang1["page"] == 1 and trang1["size"] == 2
+    assert [x["id"] for x in trang1["items"]] == sorted(ids, reverse=True)[:2]   # mới nhất trước
+
+    trang3 = client.get("/api/employees/me/update-requests?page=3&size=2", headers=_h(tok)).json()
+    assert [x["id"] for x in trang3["items"]] == [ids[0]] and trang3["total"] == 5
+
+    assert trang1["dem"] == {"pending": 3, "cancelled": 1, "rejected": 1}
+
+    loc = client.get("/api/employees/me/update-requests?status=pending&size=10", headers=_h(tok)).json()
+    assert loc["total"] == 3 and all(x["status"] == "pending" for x in loc["items"])
+    assert loc["dem"]["cancelled"] == 1        # pill "Đã rút" vẫn phải hiện số dù đang lọc pending
+    assert client.get("/api/employees/me/update-requests?status=xyz", headers=_h(tok)).status_code == 400
+
+
+def test_de_nghi_dai_hon_o_ho_so_bi_chan_va_hang_doi_kem_gia_tri_hien_tai(client):
+    """Hai chốt của màn HCNS duyệt đề nghị cập nhật:
+
+    1) `changes` là JSON — dài bao nhiêu cũng lưu được, nên phải ĐO NGAY LÚC GỬI theo đúng độ
+       dài cột (`bank_account` = String(30)). Không đo thì đề nghị 44 ký tự lọt vào hàng đợi,
+       tới lúc HCNS bấm Duyệt mới ghi vào cột thật ⇒ Postgres nổ `value too long` và người
+       DUYỆT lãnh lỗi thay người GÕ (SQLite của test không nổ, nên chốt bằng test này).
+    2) Hàng đợi phải kèm giá trị ĐANG có: người duyệt cần thấy đổi TỪ GÌ sang gì mới quyết được.
+    """
+    admin = _admin_token(client)
+    _create(client, admin, full_name="NV Dài Chữ", bank_account="111",
+            account={"username": "nvdai", "password": "nvdai12345", "role_id": _vai_tho(client, admin)})
+    tok = client.post("/api/auth/login",
+                      json={"username": "nvdai", "password": "nvdai12345"}).json()["access_token"]
+
+    qua_dai = client.post("/api/employees/me/update-requests",
+                          json={"changes": {"bank_account": "9" * 44}}, headers=_h(tok))
+    assert qua_dai.status_code == 400
+    assert "30 ký tự" in qua_dai.json()["detail"]
+
+    rid = client.post("/api/employees/me/update-requests",
+                      json={"changes": {"bank_account": "999"}}, headers=_h(tok)).json()["id"]
+    row = next(x for x in client.get("/api/employees/update-requests?status=pending",
+                                     headers=_h(admin)).json()["items"] if x["id"] == rid)
+    assert row["current"]["bank_account"] == "111"
 
 
 # --- create + list ----------------------------------------------------------
@@ -155,7 +389,7 @@ def test_create_with_employee_specific_salary_can_have_different_amounts(client)
                         "chuyen_can": 500_000},
     )
     assert first.status_code == 201 and second.status_code == 201
-    assert first.json()["employee"]["job_grade_name"] == "Bậc 2"
+    assert first.json()["employee"]["job_grade_name"] == "Thợ vững"
     assert second.json()["employee"]["job_grade_id"] == bac_2, "hai người CÙNG một bậc"
 
     salary_a = client.get(
@@ -354,7 +588,7 @@ def test_transfer_and_promote_record_events(client):
         json={"kind": "promote", "new_job_grade_id": bac_3},
         headers=_h(token),
     )
-    assert p.status_code == 200 and p.json()["job_grade_name"] == "Bậc 3"
+    assert p.status_code == 200 and p.json()["job_grade_name"] == "Thợ thường"
 
     kinds = {e["event_type"] for e in client.get(f"/api/employees/{eid}/events", headers=_h(token)).json()["items"]}
     assert {"hired", "transferred", "promoted"} <= kinds
@@ -383,7 +617,7 @@ def test_transfer_and_promote_change_grade_without_changing_salary(client):
     )
     assert transferred.status_code == 200, transferred.text
     assert transferred.json()["department_id"] == kd
-    assert transferred.json()["job_grade_name"] == "Bậc 2"
+    assert transferred.json()["job_grade_name"] == "Thợ vững"
 
     promoted = client.post(
         f"/api/employees/{employee['id']}/transitions",
@@ -392,7 +626,7 @@ def test_transfer_and_promote_change_grade_without_changing_salary(client):
         headers=_h(token),
     )
     assert promoted.status_code == 200, promoted.text
-    assert promoted.json()["job_grade_name"] == "Bậc 3"
+    assert promoted.json()["job_grade_name"] == "Thợ thường"
 
     # Lương KHÔNG đổi, KHÔNG sinh mốc lương mới (vẫn đúng 1 bản ghi ban đầu).
     history = client.get(

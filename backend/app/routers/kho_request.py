@@ -1,13 +1,14 @@
-"""Router — Đề nghị kho (spec-kho-de-nghi §2–§4, §7–§8).
+"""Router — Yêu cầu kho (spec-kho-de-nghi §2–§4, §7–§8).
 
 Phục vụ CẢ HAI màn, khác nhau ở scope + quyền hiển thị cột (không nhân đôi dữ liệu):
-* **Đề nghị kho** — người đề nghị, scope `own`, không thấy tồn/giá
+* **Yêu cầu kho** — người yêu cầu, scope `own`, không thấy tồn/giá
 * **Hộp yêu cầu kho** — thủ kho/quản lý kho, scope `all`, thấy tồn (+ giá nếu có quyền)
 
 Dependency INLINE theo pattern các router kho hiện có. MODULE quyền = "kho".
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -16,21 +17,19 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import CurrentUser, get_authorization_service, require_permission
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
-from ..models.stock_request import REQ_XUAT
+from ..models.stock_request import REQ_APPROVED
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.document_sequence_repo import DocumentSequenceRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
-from ..repositories.material_repo import MaterialRepository
 from ..repositories.rbac_repo import DepartmentRepository
 from ..repositories.stock_lot_repo import StockLotRepository, StockThresholdRepository
 from ..repositories.stock_request_repo import StockRequestRepository
 from ..repositories.stock_voucher_repo import StockVoucherRepository
+from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.user_repo import UserRepository
+from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..schemas.stock import (
-    StockMaterialCreate,
-    StockMaterialQuyDoi,
-    StockRequestApprove,
     StockRequestCreate,
     StockRequestLineOut,
     StockRequestOut,
@@ -38,13 +37,18 @@ from ..schemas.stock import (
     StockRequestReject,
     StockRequestUpdate,
 )
-from ..services.material_service import MaterialDuplicate, MaterialError, MaterialService
 from ..services.rbac_service import AuthorizationService
 from ..services.sequence_service import SequenceService
 from ..services.stock_request_service import StockRequestError, StockRequestService
+from ..services.vat_lieu_kho_service import HANG_NHAN, VatLieuKhoError, VatLieuKhoService
 
 router = APIRouter(prefix="/api/kho/de-nghi", tags=["kho-de-nghi"])
 MODULE = "kho"
+
+
+def _hang_service(db: Session) -> VatLieuKhoService:
+    """Danh mục gốc (Giấy + Vật tư khác) — nguồn mặt hàng và nguồn quy đổi đơn vị của kho."""
+    return VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
 
 
 def get_service(db: Annotated[Session, Depends(get_db)]) -> StockRequestService:
@@ -53,6 +57,7 @@ def get_service(db: Annotated[Session, Depends(get_db)]) -> StockRequestService:
         StockLotRepository(db),
         StockThresholdRepository(db),
         SequenceService(DocumentSequenceRepository(db)),
+        hang=_hang_service(db),
     )
 
 
@@ -65,40 +70,77 @@ def _err(e: StockRequestError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict[int, str] | None,
-               on_hand: dict[int, float] | None,
+def _lenh_map(db: Session, reqs) -> dict[tuple[str, int], str]:
+    """`{("lsx"|"bai_ghep", id): mã}` cho CẢ TRANG trong 2 query (mg 0175).
+
+    Tra từng dòng là N+1 ngay trên màn Hộp yêu cầu — nơi đúng ra phải mở nhanh nhất.
+    """
+    from ..models.bai_ghep import BaiGhep
+    from ..models.lsx import Lsx
+
+    lsx_ids = {ln.lsx_id for r in reqs for ln in r.lines if ln.lsx_id}
+    bg_ids = {ln.bai_ghep_id for r in reqs for ln in r.lines if ln.bai_ghep_id}
+    ra: dict[tuple[str, int], str] = {}
+    if lsx_ids:
+        for i, ma in db.query(Lsx.id, Lsx.ma).filter(Lsx.id.in_(lsx_ids)):
+            ra[("lsx", i)] = ma
+    if bg_ids:
+        for i, ma in db.query(BaiGhep.id, BaiGhep.ma).filter(BaiGhep.id.in_(bg_ids)):
+            ra[("bai_ghep", i)] = ma
+    return ra
+
+
+def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
+               on_hand: dict | None,
                open_voucher_id: int | None = None,
-               mat_map: dict | None = None) -> StockRequestOut:
+               hang_map: dict | None = None,
+               hang_svc: VatLieuKhoService | None = None,
+               lenh_map: dict | None = None) -> StockRequestOut:
     """Dựng payload + ÁP quyền hiển thị.
 
     `muc_ton` (đèn 5 màu) trả cho mọi vai vì không kèm con số; `ton_kha_dung` chỉ set khi
     có `can_view_stock`. Ẩn ở đây chứ không chỉ ẩn trên UI — ẩn cột ở FE thì số vẫn nằm
     trong response.
 
-    `mat_map` (id → Material) dựng SẴN theo cả trang để tránh N+1 khi list; gọi lẻ 1 đề nghị
-    thì để None, hàm tự nạp 1 query cho các dòng của đề nghị đó.
+    `hang_map` ((loai,id) → bản ghi danh mục) dựng SẴN theo cả trang để tránh N+1 khi list;
+    gọi lẻ 1 đề nghị thì để None, hàm tự nạp.
     """
-    materials = MaterialRepository(db)
+    hang_svc = hang_svc or _hang_service(db)
     users = UserRepository(db)
-    if mat_map is None:
-        mat_map = materials.by_ids([ln.material_id for ln in req.lines])
+    cap = [(ln.hang_loai, ln.hang_id) for ln in req.lines]
+    if hang_map is None:
+        hang_map = hang_svc.map_theo_cap(cap)
+    if lenh_map is None:
+        lenh_map = _lenh_map(db, [req])
     lines: list[StockRequestLineOut] = []
     for ln in req.lines:
-        m = mat_map.get(ln.material_id) if ln.material_id else None
+        key = (ln.hang_loai, ln.hang_id)
+        m = hang_map.get(key)
+        # Quy đổi để FE hiện "10 ram ≈ 419,25 kg" ngay dưới ô SL — người khai thấy TRƯỚC con số
+        # sẽ vào tồn, thay vì bấm Lưu rồi mới biết. Không đổi được thì trả `canh_bao_dv` nguyên
+        # văn lý do chứ không im lặng.
+        qd, canh_bao = None, None
+        try:
+            qd = hang_svc.quy_ve_goc(ln.hang_loai, ln.hang_id, ln.dvt, float(ln.sl_de_nghi))
+        except VatLieuKhoError as e:
+            canh_bao = str(e)
         lines.append(StockRequestLineOut(
             id=ln.id,
-            material_id=ln.material_id,
-            material_code=getattr(m, "code", None),
-            # Hàng chưa có mã → hiển thị tên gõ tự do (kèm dấu để phân biệt ở FE).
-            material_name=getattr(m, "name", None) or ln.ten_tu_do,
-            ten_tu_do=ln.ten_tu_do,
+            hang_loai=ln.hang_loai,
+            hang_id=ln.hang_id,
+            hang_ma=getattr(m, "ma", None),
+            hang_ten=getattr(m, "ten", None),
+            hang_anh=getattr(m, "anh_url", None),
+            hang_nhom=HANG_NHAN.get(ln.hang_loai),
+            lsx_id=ln.lsx_id,
+            bai_ghep_id=ln.bai_ghep_id,
+            lsx_ma=lenh_map.get(("lsx", ln.lsx_id)),
+            bai_ghep_ma=lenh_map.get(("bai_ghep", ln.bai_ghep_id)),
             dvt=ln.dvt,
-            # Quy đổi ưu tiên khai TRÊN DÒNG (người đề nghị); hàng có mã chưa khai → lấy của mặt hàng.
-            don_vi_phu=ln.don_vi_phu or getattr(m, "don_vi_phu", None),
-            he_so_quy_doi=(
-                float(ln.he_so_quy_doi) if ln.he_so_quy_doi is not None
-                else (float(m.he_so_quy_doi) if getattr(m, "he_so_quy_doi", None) is not None else None)
-            ),
+            don_vi_goc=(qd or {}).get("don_vi_goc_ten"),
+            sl_quy_doi=(qd or {}).get("sl_goc"),
+            quy_doi_dien_giai=(qd or {}).get("dien_giai"),
+            canh_bao_dv=canh_bao,
             sl_de_nghi=float(ln.sl_de_nghi),
             sl_duyet=float(ln.sl_duyet),
             sl_da_ung=float(ln.sl_da_ung),
@@ -106,13 +148,17 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict[int, str]
             don_gia=ln.don_gia,
             ly_do_thieu=ln.ly_do_thieu,
             ghi_chu=ln.ghi_chu,
-            muc_ton=(levels or {}).get(ln.material_id),
-            ton_kha_dung=(on_hand or {}).get(ln.material_id) if can_view_stock else None,
+            muc_ton=(levels or {}).get(key),
+            ton_kha_dung=(on_hand or {}).get(key) if can_view_stock else None,
         ))
     creator = users.get_by_id(req.nguoi_tao_id) if req.nguoi_tao_id else None
     approver = users.get_by_id(req.nguoi_duyet_id) if req.nguoi_duyet_id else None
     dept = DepartmentRepository(db).get_by_id(req.bo_phan_id) if req.bo_phan_id else None
-    kho = KhoHangRepository(db).get(req.kho_id) if req.kho_id else None
+    kho_repo = KhoHangRepository(db)
+    kho = kho_repo.get(req.kho_id) if req.kho_id else None
+    # ĐIỀU CHUYỂN: yêu cầu NHẬP đích có `kho_nguon_id` → hiện "Điều chuyển từ «kho nguồn»".
+    kho_nguon_id = getattr(req, "kho_nguon_id", None)
+    kho_nguon = kho_repo.get(kho_nguon_id) if kho_nguon_id else None
     return StockRequestOut(
         id=req.id, ma=req.ma, loai=req.loai,
         nguoi_tao_id=req.nguoi_tao_id,
@@ -120,31 +166,35 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict[int, str]
         bo_phan_id=req.bo_phan_id, bo_phan_ten=getattr(dept, "name", None),
         kho_id=req.kho_id, kho_ten=getattr(kho, "ten", None),
         ngay_can=req.ngay_can, uu_tien=req.uu_tien,
-        ghi_chu=req.ghi_chu, trang_thai=req.trang_thai,
+        ghi_chu=req.ghi_chu, loai_kho=req.loai_kho, trang_thai=req.trang_thai,
         nguoi_duyet_id=req.nguoi_duyet_id,
         nguoi_duyet_ten=getattr(approver, "name", None),
         duyet_luc=req.duyet_luc, ly_do_tu_choi=req.ly_do_tu_choi,
         ly_do_huy=req.ly_do_huy,
         open_voucher_id=open_voucher_id,
-        created_at=req.created_at, lines=lines,
+        dieu_chuyen=bool(getattr(req, "dieu_chuyen", False)),
+        kho_nguon_id=kho_nguon_id,
+        kho_nguon_ten=getattr(kho_nguon, "ten", None),
+        xuat_voucher_id=getattr(req, "xuat_voucher_id", None),
+        created_at=req.created_at, updated_at=req.updated_at, lines=lines,
     )
 
 
 def _levels(svc: StockRequestService, req):
-    """Mức tồn cho các dòng của đề nghị, tính theo KHO ĐÍCH của chính đề nghị (`req.kho_id`).
-    Chỉ có nghĩa với đề nghị XUẤT (đề nghị NHẬP thì tồn thấp là chuyện đương nhiên, tô đèn đỏ
-    chỉ gây nhiễu). Đề nghị cũ chưa có kho → không có đèn."""
-    if req.kho_id is None or req.loai != REQ_XUAT:
-        return None, None
-    ids = [ln.material_id for ln in req.lines]
-    return svc.levels_and_on_hand(ids, req.kho_id)
+    """TỒN KHẢ DỤNG + đèn (`muc_ton`) cho các dòng của yêu cầu. Yêu cầu KHÔNG gắn kho (kho quyết ở
+    bước lập phiếu) → `req.kho_id` thường None → `on_hand_map` cộng tồn khả dụng TRÊN MỌI KHO.
+    `levels_and_on_hand` tính CẢ đèn lẫn tồn trong 1 lượt: đèn theo ngưỡng của kho (kho_id None thì
+    chưa có ngưỡng → chỉ phân biệt hết/còn). UI đã bỏ cột đèn nên không nhiễu, nhưng GIỮ `muc_ton`
+    cho API/test (bỏ hẳn làm vỡ test đèn + mất tín hiệu cho ai còn dùng)."""
+    cap = [(ln.hang_loai, ln.hang_id) for ln in req.lines]
+    return svc.levels_and_on_hand(cap, req.kho_id)
 
 
 def _scoped_filters(user: User, authz: AuthorizationService) -> dict:
     """Dịch scope của vai trò thành bộ lọc list.
 
-    `own` là cách người đề nghị bị chặn khỏi kho: họ chỉ thấy đề nghị của chính mình,
-    nên không có đường nào nhìn thấy đề nghị/tồn của bộ phận khác.
+    `own` là cách người yêu cầu bị chặn khỏi kho: họ chỉ thấy yêu cầu của chính mình,
+    nên không có đường nào nhìn thấy yêu cầu/tồn của bộ phận khác.
     """
     scope = authz.scope_for(user, MODULE) or SCOPE_OWN
     if scope == SCOPE_ALL:
@@ -155,7 +205,7 @@ def _scoped_filters(user: User, authz: AuthorizationService) -> dict:
 
 
 def _require_visible(req, user: User, authz: AuthorizationService) -> None:
-    """404 (không phải 403) khi đề nghị nằm ngoài scope — không tiết lộ là nó có tồn tại."""
+    """404 (không phải 403) khi yêu cầu nằm ngoài scope — không tiết lộ là nó có tồn tại."""
     scope = authz.scope_for(user, MODULE) or SCOPE_OWN
     if scope == SCOPE_ALL:
         return
@@ -163,7 +213,7 @@ def _require_visible(req, user: User, authz: AuthorizationService) -> None:
         return
     if scope == SCOPE_OWN and req.nguoi_tao_id == user.id:
         return
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đề nghị")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy yêu cầu")
 
 
 @router.get("", response_model=StockRequestPage)
@@ -172,95 +222,106 @@ def list_requests(
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     loai: str | None = Query(default=None),
     trang_thai: list[str] | None = Query(default=None),
-    kho_id: int | None = Query(default=None, description="Lọc đề nghị theo kho đích"),
+    kho_id: int | None = Query(default=None, description="Lọc yêu cầu theo kho đích"),
+    dieu_chuyen: bool | None = Query(
+        default=None, description="True = chỉ yêu cầu điều chuyển · False = nhập/xuất thường"),
     q: str | None = Query(default=None),
+    ngay_can_tu: date | None = Query(default=None),
+    ngay_can_den: date | None = Query(default=None),
+    tao_tu: date | None = Query(default=None),
+    tao_den: date | None = Query(default=None),
+    order: str = Query(default="id", pattern="^(id|updated)$"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
 ) -> StockRequestPage:
     rows, total = svc.requests.list(
-        loai=loai, trang_thai=trang_thai, q=q, kho_id=kho_id, page=page, size=size,
+        loai=loai, trang_thai=trang_thai, q=q, kho_id=kho_id, dieu_chuyen=dieu_chuyen,
+        ngay_can_tu=ngay_can_tu, ngay_can_den=ngay_can_den, tao_tu=tao_tu, tao_den=tao_den,
+        order=order, page=page, size=size,
         **_scoped_filters(user, authz),
     )
     can_view_stock = authz.can(user, MODULE, "view_stock")
     draft_map = StockVoucherRepository(db).draft_ids_by_request([r.id for r in rows])
     # Nạp SẴN mọi mã hàng của cả trang trong 1 query (tránh N+1 trong _serialize).
-    mat_map = MaterialRepository(db).by_ids(
-        [ln.material_id for r in rows for ln in r.lines]
+    hang_svc = _hang_service(db)
+    hang_map = hang_svc.map_theo_cap(
+        [(ln.hang_loai, ln.hang_id) for r in rows for ln in r.lines]
     )
+    lenh_map = _lenh_map(db, rows)
     items = []
     for r in rows:
-        # Đèn tồn tính theo KHO của chính đề nghị (r.kho_id), không phải theo bộ lọc.
-        levels, on_hand = _levels(svc, r)
+        # List KHÔNG hiện tồn khả dụng/đèn (chỉ drawer chi tiết hiện) → khỏi tính, tránh N+1 query.
+        levels, on_hand = None, None
         items.append(_serialize(r, db=db, can_view_stock=can_view_stock,
-                                levels=levels, on_hand=on_hand,
-                                open_voucher_id=draft_map.get(r.id), mat_map=mat_map))
+                                levels=levels, on_hand=on_hand, lenh_map=lenh_map,
+                                open_voucher_id=draft_map.get(r.id), hang_map=hang_map, hang_svc=hang_svc))
     return StockRequestPage(items=items, total=total)
 
 
-@router.get("/vat-tu")
-def search_materials(
-    db: Db,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
-    q: str | None = Query(default=None),
-    size: int = Query(default=20, ge=1, le=50),
-):
-    """Tìm vật tư để chọn khi lập đề nghị.
-
-    Có endpoint riêng vì `/api/materials` gác bằng module `dm_giay_vat_tu` — không vai kho
-    nào có quyền đó, mà cấp thêm thì lộ luôn bảng giá (`MaterialRow.costs`). Ở đây gác bằng
-    `kho:read` và CHỈ trả 4 trường tối thiểu: người đề nghị thấy tên + ĐVT, không thấy giá.
-    """
-    rows, _total = MaterialRepository(db).list(q=q, is_active=True, size=size)
-    return [_material_out(m) for m in rows]
-
-
-def _material_out(m) -> dict:
+@router.get("/counts")
+def request_counts(
+    svc: Service, authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> dict[str, int]:
+    """Số yêu cầu ĐÃ DUYỆT chờ kho lập phiếu, theo chiều. Badge "chờ cấp" là VIỆC CỦA KHO nên CHỈ
+    hiện cho người XỬ LÝ (can_create=lập phiếu / can_view_stock) — khớp đúng người nhận thông báo;
+    người chỉ TẠO yêu cầu (vd tổ trưởng SX) KHÔNG thấy badge. Trong tầm thì lọc theo SCOPE như list:
+    kho trung tâm (all) thấy tổng; phòng ban thấy của phòng; scope own thấy của mình."""
+    # `done_unseen` / `fail_unseen` = phản hồi kho (yêu cầu HOÀN TẤT / KHÔNG THÀNH) của CHÍNH user mà
+    # user chưa mở xem — KHÔNG lọc theo scope xử-lý (việc của NGƯỜI TẠO, không phải workload kho).
+    # Người chỉ tạo yêu cầu vẫn nhận số này dù nhap/xuat = 0. Badge người tạo = done + fail.
+    resp = svc.requests.unseen_response_counts(user.id)
+    is_kho_worker = authz.can(user, MODULE, "create") or authz.can(user, MODULE, "view_stock")
+    if not is_kho_worker:
+        return {"nhap": 0, "xuat": 0, "dieu_chuyen": 0,
+                "done_unseen": resp["done"], "fail_unseen": resp["fail"]}
+    counts = svc.requests.count_by_loai([REQ_APPROVED], **_scoped_filters(user, authz))
     return {
-        "id": m.id, "code": m.code, "name": m.name, "unit": m.unit,
-        "don_vi_phu": m.don_vi_phu,
-        "he_so_quy_doi": float(m.he_so_quy_doi) if m.he_so_quy_doi is not None else None,
+        "nhap": counts["nhap"],
+        "xuat": counts["xuat"],
+        "dieu_chuyen": counts["dieu_chuyen"],
+        "done_unseen": resp["done"],
+        "fail_unseen": resp["fail"],
     }
 
 
-@router.post("/vat-tu", status_code=status.HTTP_201_CREATED)
-def create_material(
-    body: StockMaterialCreate,
-    db: Db,
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
-):
-    """Tạo mã hàng — CHỈ KHO (vai lập phiếu) làm, ở bước lập phiếu khi gặp hàng mới (BRD §3.4).
-    Người đề nghị KHÔNG tạo mã: họ gõ tên tự do, kho gắn/tạo mã sau. Chống trùng theo tên/mã."""
-    svc = MaterialService(MaterialRepository(db), AuditLogRepository(db))
-    try:
-        m = svc.create_material(
-            name=body.name, material_type="hang_khac", unit=body.unit,
-            code=body.code, actor=user,
-            don_vi_phu=body.don_vi_phu, he_so_quy_doi=body.he_so_quy_doi,
-        )
-    except MaterialDuplicate as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
-    except MaterialError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    return _material_out(m)
+@router.get("/counts-by-status")
+def request_counts_by_status(
+    svc: Service, authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    loai: str | None = Query(default=None),
+    trang_thai: list[str] | None = Query(default=None, description="Tập nền trạng thái (vd INBOX)"),
+    kho_id: int | None = Query(default=None),
+    dieu_chuyen: bool | None = Query(default=None),
+    q: str | None = Query(default=None),
+    ngay_can_tu: date | None = Query(default=None),
+    ngay_can_den: date | None = Query(default=None),
+    tao_tu: date | None = Query(default=None),
+    tao_den: date | None = Query(default=None),
+) -> dict[str, int]:
+    """Đếm yêu cầu theo TỪNG trạng thái (áp cùng bộ lọc list, TRỪ tab) → FE cộng theo tab cho badge.
+    Trả {trang_thai: số}. Áp SCOPE như list để badge khớp đúng danh sách người dùng thấy."""
+    return svc.requests.count_by_status(
+        loai=loai, base_trang_thai=trang_thai, kho_id=kho_id, dieu_chuyen=dieu_chuyen, q=q,
+        ngay_can_tu=ngay_can_tu, ngay_can_den=ngay_can_den, tao_tu=tao_tu, tao_den=tao_den,
+        **_scoped_filters(user, authz),
+    )
 
 
-@router.put("/vat-tu/{material_id}/quy-doi")
-def set_material_quy_doi(
-    material_id: int,
-    body: StockMaterialQuyDoi,
-    db: Db,
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+@router.post("/{request_id}/seen", status_code=204)
+def mark_request_seen(
+    request_id: int,
+    svc: Service,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ):
-    """Khai/sửa quy đổi đơn vị cho hàng đã có — nút 'Quy đổi' trên dòng phiếu (vai lập phiếu)."""
-    svc = MaterialService(MaterialRepository(db), AuditLogRepository(db))
-    try:
-        m = svc.set_quy_doi(
-            material_id=material_id, don_vi_phu=body.don_vi_phu,
-            he_so_quy_doi=body.he_so_quy_doi, actor=user,
-        )
-    except MaterialError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    return _material_out(m)
+    """NGƯỜI TẠO mở xem 1 yêu cầu của mình → đánh dấu đã xem → hạ badge/số đỏ đúng yêu cầu đó.
+    Chỉ tác dụng lên yêu cầu do chính user tạo (repo lọc theo nguoi_tao_id)."""
+    svc.requests.mark_seen_one(request_id, user.id)
+
+
+# GỠ 2026-08-08 — ba cửa cũ: `GET /vat-tu` (tìm trong bảng `materials`), `POST /vat-tu` (kho tự
+# tạo mã hàng), `PUT /vat-tu/{id}/quy-doi` (khai hệ số riêng cho kho). Picker mặt hàng giờ dùng
+# `GET /api/vat-lieu-kho/mat-hang`, đơn vị dùng `.../mat-hang/{loai}/{id}/don-vi`.
 
 
 @router.get("/{request_id}", response_model=StockRequestOut)
@@ -270,7 +331,7 @@ def get_request(
 ) -> StockRequestOut:
     req = svc.requests.get_with_lines(request_id)
     if req is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đề nghị")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy yêu cầu")
     _require_visible(req, user, authz)
     levels, on_hand = _levels(svc, req)
     draft_map = StockVoucherRepository(db).draft_ids_by_request([req.id])
@@ -289,6 +350,7 @@ def create_request(
             user=user, loai=payload.loai, kho_id=payload.kho_id, ma=payload.ma,
             lines=[ln.model_dump() for ln in payload.lines],
             ngay_can=payload.ngay_can, uu_tien=payload.uu_tien, ghi_chu=payload.ghi_chu,
+            loai_kho=payload.loai_kho, purchase_delivery_id=payload.purchase_delivery_id,
         )
     except StockRequestError as e:
         raise _err(e) from None
@@ -304,10 +366,10 @@ def update_request(
 ) -> StockRequestOut:
     req = svc.requests.get_with_lines(request_id)
     if req is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đề nghị")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy yêu cầu")
     if req.nguoi_tao_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail="Chỉ người tạo mới sửa được đề nghị")
+                            detail="Chỉ người tạo mới sửa được yêu cầu")
     data = payload.model_dump(exclude_unset=True, exclude={"lines"})
     lines = [ln.model_dump() for ln in payload.lines] if payload.lines is not None else None
     try:
@@ -322,7 +384,7 @@ def _act(svc: StockRequestService, request_id: int, user: User, authz: Authoriza
          db: Session, fn) -> StockRequestOut:
     req = svc.requests.get_with_lines(request_id)
     if req is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy đề nghị")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy yêu cầu")
     try:
         req = fn(req)
     except StockRequestError as e:
@@ -337,18 +399,9 @@ def submit(request_id: int, svc: Service, db: Db, authz: Authz,
     return _act(svc, request_id, user, authz, db, svc.submit)
 
 
-@router.post("/{request_id}/duyet", response_model=StockRequestOut)
-def approve(request_id: int, payload: StockRequestApprove, svc: Service, db: Db, authz: Authz,
-            user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
-    return _act(svc, request_id, user, authz, db,
-                lambda r: svc.approve(r, approver=user, approved_qty=payload.approved_qty))
-
-
-@router.post("/{request_id}/tu-choi", response_model=StockRequestOut)
-def reject(request_id: int, payload: StockRequestReject, svc: Service, db: Db, authz: Authz,
-           user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
-    return _act(svc, request_id, user, authz, db,
-                lambda r: svc.reject(r, approver=user, ly_do=payload.ly_do))
+# Yêu cầu BỎ BƯỚC DUYỆT (chủ 06/08/2026): tạo là 'approved' luôn (xem service.create). Không còn
+# ai duyệt/từ chối → gỡ 2 endpoint `/duyet` và `/tu-choi`. Service `approve`/`reject` GIỮ lại (không
+# gọi từ đâu nữa) để khỏi đụng thêm; nhưng KHÔNG để endpoint mồ côi require `approve`.
 
 
 @router.post("/{request_id}/huy", response_model=StockRequestOut)
@@ -357,8 +410,17 @@ def cancel(request_id: int, svc: Service, db: Db, authz: Authz,
     req = svc.requests.get(request_id)
     if req is not None and req.nguoi_tao_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail="Chỉ người tạo mới hủy được đề nghị")
+                            detail="Chỉ người tạo mới hủy được yêu cầu")
     return _act(svc, request_id, user, authz, db, svc.cancel)
+
+
+@router.post("/{request_id}/huy-kho", response_model=StockRequestOut)
+def cancel_kho(request_id: int, payload: StockRequestReject, svc: Service, db: Db, authz: Authz,
+               user: Annotated[User, Depends(require_permission(MODULE, "create"))]):
+    """Kho HỦY yêu cầu (quyết định KHÔNG lập phiếu) — kèm lý do; gate bằng `create` (quyền lập
+    phiếu), KHÔNG cần là người tạo. Yêu cầu chuyển 'Đã hủy'; số đã cấp bởi phiếu đã ghi sổ (nếu
+    có) vẫn giữ nguyên trong kho."""
+    return _act(svc, request_id, user, authz, db, lambda r: svc.cancel_by_kho(r, payload.ly_do))
 
 
 @router.post("/{request_id}/tiep-nhan", response_model=StockRequestOut)
@@ -379,8 +441,9 @@ def prepare(request_id: int, svc: Service, db: Db, authz: Authz,
 def suggest_qty(
     svc: Service, user: CurrentUser,
     _: Annotated[User, Depends(require_permission(MODULE, "request"))],
-    material_id: int = Query(...),
+    hang_loai: str = Query(...),
+    hang_id: int = Query(..., gt=0),
 ):
     """Gợi ý số lượng từ lịch sử đề nghị của bộ phận (spec §8). Không đụng tới tồn nên
     người đề nghị gọi được mà không lộ gì."""
-    return {"so_luong": svc.suggest_quantity(material_id, user.department_id)}
+    return {"so_luong": svc.suggest_quantity((hang_loai, hang_id), user.department_id)}

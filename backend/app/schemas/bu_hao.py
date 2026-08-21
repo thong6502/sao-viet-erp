@@ -38,7 +38,7 @@ class BuHaoRow(BaseModel):
 
 
 class BuHaoListOut(BaseModel):
-    items: list
+    items: list[BuHaoRow]
     total: int
     page: int
     size: int

@@ -7,7 +7,6 @@ from .attendance import (
     WorkShift,
 )
 from .audit import AuditLog
-from .costing import Costing, CostingOperation, CostingPaperOption
 from .customer import Customer
 from .department import Department
 from .employee import (
@@ -19,13 +18,18 @@ from .employee import (
     EmployeeShiftDay,
     JobGrade,
 )
-from .noi_quy import NoiQuyAttachment, NoiQuyDocument, NoiQuyPage, NoiQuyVersion
+from .noi_quy import (
+    NoiQuyAttachment,
+    NoiQuyDocument,
+    NoiQuyPage,
+    NoiQuyRecord,
+    NoiQuyVersion,
+)
 from .profile_request import ProfileUpdateRequest
 from .leave import LeaveRequest, LeaveType
 from .late_early import LateEarlyRequest
 from .overtime import OvertimeRequest
 from .work_calendar import SpecialDay, WorkCalendarConfig
-from .material import Material, MaterialCost
 from .machine import Machine, MachineRate
 from .module import Module
 from .operation import Operation, OperationRate
@@ -49,15 +53,19 @@ from .payroll import (
     SalaryRateRule,
 )
 from .piece_work import PieceLeaderBonusBracket, PieceLeaderBonusSetting, PieceRate
-from .product import Product, ProductComponent
 from .product_type_catalog import ProductTypeCatalog
 from .purchase import (
     DepartmentPurchaseRequest,
     DepartmentPurchaseRequestLine,
+    PurchaseAttachment,
+    PurchaseDelivery,
+    PurchaseDeliveryLine,
     PurchaseRequest,
     PurchaseRequestLine,
     PurchaseRequestSource,
+    PurchaseStatusHistory,
     Supplier,
+    SupplierItem,
 )
 from .accounting import (
     CompanyBankAccount,
@@ -65,6 +73,7 @@ from .accounting import (
     PaymentReceiptAttachment,
     PaymentVoucher,
     PaymentVoucherAttachment,
+    SalesInvoice,
     SupplierBankAccount,
 )
 from .quotation import (
@@ -81,27 +90,79 @@ from .unit_level import UnitLevel
 from .user import User
 from .plate_die_rate import PlateDieRate
 from .norm import Norm
-from .may_thiet_bi import MayThietBi
+from .may_thiet_bi import MayThietBi, NhomMay
 from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
-from .cong_doan import CongDoan
+from .cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu
 from .bu_hao import BuHao
 from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang
+from .kho_khoa_so import KhoKhoaSo
+from .notification import Notification
 from .stock_request import StockRequest, StockRequestLine
 from .stock_lot import StockLot, StockThreshold
 from .stock_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLine
 from .khuon_be import KhuonBe
+from .vat_tu_giu_cho import VatTuGiuCho
 from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
-from .lsx import Lsx, LsxCongDoan
+from .lsx import Lsx, LsxCongDoan, LsxCongDoanVatTu, LsxCongDoanPhuThuoc
 from .bai_ghep import BaiGhep, BaiGhepThanhVien
+from .bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCongDoanVatTu
 from .xep_lich import XepLichCongDoan
 from .xep_lich_van_de import XepLichVanDe
 from .machine_unavailable import MachineUnavailablePeriod
+# Bảng MỚI phải import Ở ĐÂY thì `create_all` mới dựng: module không được import thì class không
+# chạy, không đăng ký lên `Base.metadata`, và bảng lặng lẽ không tồn tại (không lỗi nào bật ra).
+from .to_quan_so import ToQuanSoNgay
 from .document_sequence import DocumentSequence
-from .estimate import Estimate, EstimateOption, EstimateCostLine
+from .ky_thuat_may import BaoTriMay, KyThuatMayAnh, SuaChuaMay, YeuCauSuaChua
+from .module_notification import ModuleNotification, ModuleNotificationRead
+from .san_xuat import (
+    SanXuatCongViec,
+    SanXuatGoiPhatHanh,
+    SanXuatNhom,
+    SanXuatNhomLsx,
+    SanXuatPhienBan,
+    SanXuatPhuThuoc,
+)
+from .san_xuat_thuc_thi import (
+    SanXuatKhoangThamGia,
+    SanXuatPhanCong,
+    SanXuatPhienChay,
+)
+from .san_xuat_ly_do import SanXuatLyDo
+from .san_xuat_san_luong import (
+    SanXuatBanGiao,
+    SanXuatBanGiaoDieuChinh,
+    SanXuatBatch,
+    SanXuatBatchLotVao,
+    SanXuatVatTuNhan,
+)
+from .san_xuat_phan_bo import (
+    SanXuatHoTro,
+    SanXuatPhanBo,
+    SanXuatPhanBoBuTru,
+    SanXuatPhanBoDong,
+    SanXuatPhanBoLoaiTru,
+)
+from .san_xuat_kcs import (
+    SanXuatKcsBatch,
+    SanXuatKcsLoi,
+    SanXuatKcsLoiAnh,
+)
+from .san_xuat_kho import (
+    SanXuatKhoHang,
+    SanXuatKhoLot,
+    SanXuatNhapKhoYc,
+)
+from .cong_doan_tag import CongDoanTag, CongDoanTagCatalog
 
 __all__ = [
+    "CongDoanTag",
+    "CongDoanTagCatalog",
+    "BaiGhepCongDoan",
+    "BaiGhepCongDoanMap",
+    "BaiGhepCongDoanVatTu",
     "User",
     "Department",
     "Role",
@@ -118,6 +179,7 @@ __all__ = [
     "EmployeeAttachment",
     "JobGrade",
     "NoiQuyDocument",
+    "NoiQuyRecord",
     "NoiQuyVersion",
     "NoiQuyAttachment",
     "NoiQuyPage",
@@ -134,23 +196,25 @@ __all__ = [
     "WorkCalendarConfig",
     "SpecialDay",
     "Customer",
-    "Product",
-    "ProductComponent",
     "ProductTypeCatalog",
     "Supplier",
+    "SupplierItem",
     "DepartmentPurchaseRequest",
     "DepartmentPurchaseRequestLine",
     "PurchaseRequest",
     "PurchaseRequestLine",
     "PurchaseRequestSource",
+    "PurchaseDelivery",
+    "PurchaseDeliveryLine",
+    "PurchaseAttachment",
+    "PurchaseStatusHistory",
     "CompanyBankAccount",
     "SupplierBankAccount",
     "PaymentVoucher",
     "PaymentReceipt",
+    "SalesInvoice",
     "PaymentVoucherAttachment",
     "PaymentReceiptAttachment",
-    "Material",
-    "MaterialCost",
     "Machine",
     "MachineRate",
     "Operation",
@@ -161,9 +225,6 @@ __all__ = [
     "QuoteAttachment",
     "QuoteActivityLog",
     "QuoteApproval",
-    "Costing",
-    "CostingPaperOption",
-    "CostingOperation",
     "Order",
     "OrderLine",
     "OrderApproval",
@@ -185,13 +246,14 @@ __all__ = [
     "PlateDieRate",
     "Norm",
     "DocumentSequence",
-    "Estimate",
-    "EstimateOption",
-    "EstimateCostLine",
+    "ModuleNotification",
+    "ModuleNotificationRead",
     "PhieuTinhGia",
     "PhieuThanhPhan",
     "PhieuThanhPham",
     "KhoHang",
+    "KhoKhoaSo",
+    "Notification",
     "StockRequest",
     "StockRequestLine",
     "StockVoucher",
@@ -202,11 +264,46 @@ __all__ = [
     "KhuonBe",
     "Lsx",
     "LsxCongDoan",
+    "LsxCongDoanVatTu",
+    "LsxCongDoanPhuThuoc",
+    "CongDoanDauViec",
+    "CongDoanDauViecVatTu",
     "BaiGhep",
     "BaiGhepThanhVien",
     "XepLichCongDoan",
     "XepLichVanDe",
     "MachineUnavailablePeriod",
+    "SuaChuaMay",
+    "BaoTriMay",
+    "KyThuatMayAnh",
+    "YeuCauSuaChua",
+    "ToQuanSoNgay",
     "DonViDo",
     "DonViQuyDoi",
+    "SanXuatNhom",
+    "SanXuatNhomLsx",
+    "SanXuatGoiPhatHanh",
+    "SanXuatPhienBan",
+    "SanXuatCongViec",
+    "SanXuatPhuThuoc",
+    "SanXuatPhanCong",
+    "SanXuatPhienChay",
+    "SanXuatKhoangThamGia",
+    "SanXuatLyDo",
+    "SanXuatBatch",
+    "SanXuatBatchLotVao",
+    "SanXuatBanGiao",
+    "SanXuatBanGiaoDieuChinh",
+    "SanXuatVatTuNhan",
+    "SanXuatHoTro",
+    "SanXuatPhanBo",
+    "SanXuatPhanBoDong",
+    "SanXuatPhanBoBuTru",
+    "SanXuatPhanBoLoaiTru",
+    "SanXuatKcsBatch",
+    "SanXuatKcsLoi",
+    "SanXuatKcsLoiAnh",
+    "SanXuatKhoHang",
+    "SanXuatKhoLot",
+    "SanXuatNhapKhoYc",
 ]

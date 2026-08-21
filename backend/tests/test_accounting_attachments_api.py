@@ -1,6 +1,7 @@
 """Phiếu chi/UNC — file chứng từ đính kèm (upload/list/delete + giới hạn)."""
 from __future__ import annotations
 
+from datetime import date, timedelta
 from pathlib import Path
 
 from app.db import SessionLocal
@@ -34,11 +35,67 @@ def _supplier(client, headers) -> dict:
             "address": "7 Trần Phú, Hà Nội",
             "contact_name": "Trần Hoa",
             "supplier_group": "paper",
+            # Dòng vật tư phải có trong danh mục mặt hàng của một NCC đang hoạt động
+            # (`purchase_service._clean_department_lines` → `suppliers.has_active_item`), nếu không
+            # thì YCMH bị chặn 422 ngay từ bước đầu. Tên phải khớp đúng tên dùng ở `_voucher`.
+            "items": [
+                {"item_name": "Giấy Duplex", "unit": "tờ", "unit_price": 2200, "vat_percent": 8}
+            ],
         },
         headers=headers,
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def _needed_date(days: int = 30) -> str:
+    """Ngày cần hàng phải >= hôm nay (`purchase_service._business_today`, giờ VN). Cắm cứng một
+    ngày cụ thể là tự hẹn giờ cho test vỡ — cả file này từng đỏ vì `2026-07-20` trôi vào quá khứ.
+    Đệm 30 ngày nên chênh múi giờ CI (UTC) với VN không đụng tới."""
+    return (date.today() + timedelta(days=days)).isoformat()
+
+
+def _duyet(client, purchase_id: int) -> None:
+    """Duyệt PMH bằng tài khoản KHÁC người lập.
+
+    Từ 04/08/2026: (a) đường gộp "duyệt + lập phiếu chi một cú bấm" đã bỏ — kế toán chỉ lập phiếu
+    chi cho PMH ĐÃ DUYỆT; (b) người lập không tự duyệt được phiếu của mình. Nên test phải có người
+    duyệt riêng, đúng như ngoài đời: giám đốc duyệt, kế toán mới viết phiếu chi.
+    """
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        u = users.get_by_username("acct-approver")
+        if u is None:
+            bgd = DepartmentRepository(db).get_by_name("Ban giám đốc")
+            roles = RoleRepository(db)
+            role = roles.create(name="Duyet PMH cho ke toan", department_id=bgd.id)
+            # Duyệt PMH dời sang khoá `ke_toan` (11/08/2026); giữ `thu_mua:read` để đọc phiếu.
+            roles.set_permission(role_id=role.id, module_key="ke_toan",
+                                 can_read=True, can_approve=True, scope=SCOPE_ALL)
+            roles.set_permission(role_id=role.id, module_key="thu_mua",
+                                 can_read=True, scope=SCOPE_ALL)
+            u = users.create(username="acct-approver", name="GD Duyet",
+                             password_hash=hash_password("x"))
+            users.set_assignment(u, department_id=bgd.id, role_id=role.id, is_active=True)
+        token = create_access_token(str(u.id))
+    finally:
+        db.close()
+    r = client.post(f"/api/purchase-requests/{purchase_id}/approve",
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+
+
+def _khai_coc(client, headers, purchase_id: int, so_tien: int) -> dict:
+    """Khai CỌC DỰ KIẾN — bắt buộc trước khi lập phiếu ĐẶT CỌC (luật 09/08/2026), và phải khai lúc
+    phiếu còn NHÁP vì duyệt xong là khoá."""
+    r = client.put(
+        f"/api/purchase-requests/{purchase_id}/contract",
+        json={"contract_number": None, "deposit_expected": so_tien},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
 
 
 def _voucher(client, headers, supplier_id: int) -> dict:
@@ -47,7 +104,7 @@ def _voucher(client, headers, supplier_id: int) -> dict:
         json={
             "source_type": "kinh_doanh",
             "purpose": "Mua giấy cần chứng từ",
-            "needed_date": "2026-07-20",
+            "needed_date": _needed_date(),
             "lines": [{"item_name": "Giấy Duplex", "unit": "tờ", "quantity": 1000}],
         },
         headers=headers,
@@ -59,7 +116,7 @@ def _voucher(client, headers, supplier_id: int) -> dict:
             "supplier_id": supplier_id,
             "source_request_ids": [source.json()["id"]],
             "purpose": "Mua giấy cần chứng từ",
-            "needed_date": "2026-07-20",
+            "needed_date": _needed_date(),
             "lines": [
                 {
                     "item_name": "Giấy Duplex",
@@ -74,16 +131,22 @@ def _voucher(client, headers, supplier_id: int) -> dict:
         headers=headers,
     )
     assert purchase.status_code == 201, purchase.text
+    # Phiếu dưới đây là phiếu ĐẶT CỌC 1tr ⇒ phải khai cọc dự kiến trước, lúc còn nháp.
+    _khai_coc(client, headers, purchase.json()["id"], 1_000_000)
     submitted = client.post(
         f"/api/purchase-requests/{purchase.json()['id']}/submit", headers=headers
     )
     assert submitted.status_code == 200, submitted.text
+    _duyet(client, purchase.json()["id"])
     created = client.post(
-        f"/api/accounting/purchase-requests/{purchase.json()['id']}/approve-and-create-voucher",
+        "/api/accounting/payment-vouchers",
         json={
+            "purchase_request_id": purchase.json()["id"],
             "voucher_type": "cash",
             "payment_stage": "advance",
             "voucher_date": "2026-07-13",
+            # Hạn trả BẮT BUỘC từ 05/08/2026 — không có hạn thì phiếu không bao giờ bị báo quá hạn.
+            "planned_payment_date": "2026-07-28",
             "amount": 1_000_000,
             "currency": "VND",
             "exchange_rate": 1,
@@ -107,14 +170,7 @@ def _upload(client, headers, voucher_id: int, *, name="hoa-don.jpg", data=b"anh-
 def _paid_receipt(client, headers, supplier_id: int) -> dict:
     """Phiếu chi đã chi → lập 1 phiếu thu 300k (chờ thu)."""
     voucher = _voucher(client, headers, supplier_id)
-    assert (
-        client.post(
-            f"/api/accounting/payment-vouchers/{voucher['id']}/mark-paid",
-            json={"bank_reference": None},
-            headers=headers,
-        ).status_code
-        == 200
-    )
+    assert voucher["status"] == "paid"
     created = client.post(
         f"/api/accounting/payment-vouchers/{voucher['id']}/receipts",
         json={
@@ -144,9 +200,10 @@ def _reader_token() -> str:
         department = DepartmentRepository(db).get_by_name("Kế toán")
         roles = RoleRepository(db)
         role = roles.create(name="Kế toán xem chứng từ", department_id=department.id)
-        roles.set_permission(
-            role_id=role.id, module_key="ke_toan", can_read=True, scope=SCOPE_ALL
-        )
+        # CHỈ XEM, không được gán/gỡ chứng từ — cấp `can_read` trên đủ 6 màn kế toán.
+        for khoa in ("ke_toan", "phieu_chi", "phieu_thu", "cong_no_phai_tra",
+                     "cong_no_phai_thu", "tk_ngan_hang"):
+            roles.set_permission(role_id=role.id, module_key=khoa, can_read=True, scope=SCOPE_ALL)
         users = UserRepository(db)
         user = users.create(
             username="attachment-reader",
@@ -199,14 +256,7 @@ def test_upload_allowed_after_paid_blocked_after_cancelled(client):
     headers = _headers(client)
     supplier = _supplier(client, headers)
     paid = _voucher(client, headers, supplier["id"])
-    assert (
-        client.post(
-            f"/api/accounting/payment-vouchers/{paid['id']}/mark-paid",
-            json={"bank_reference": None},
-            headers=headers,
-        ).status_code
-        == 200
-    )
+    assert paid["status"] == "paid"
     after_paid = _upload(client, headers, paid["id"])
     assert after_paid.status_code == 201, after_paid.text  # hóa đơn về sau khi chi
 

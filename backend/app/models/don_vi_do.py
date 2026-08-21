@@ -24,6 +24,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint,
+    false as sa_false,
     true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -61,6 +62,58 @@ HO_NHAN = {
     "khac": "Khác",
 }
 
+# --- DÒNG GIẤY: những TRẠM mà tờ giấy đi qua trong xưởng ----------------------------------------
+# Cùng MỘT đống giấy nhưng mỗi chặng đếm một kiểu: mua về đếm TỜ NGUYÊN, xả xong đếm TỜ IN, bế ra
+# đếm CON (hoặc gấp thành TAY), đóng xong đếm CÁI. Đây là thứ DUY NHẤT engine cần biết về đơn vị
+# để chạy chuỗi bù hao ngược; mọi đơn vị khác (kg · m² · thùng · kẽm · lượt) đứng NGOÀI dòng và
+# không cần cờ — NULL là trạng thái bình thường của gần hết danh mục.
+#
+# Vì sao là CỜ TRÊN DANH MỤC chứ không phải danh sách mã cứng trong code (trước 2026-08-11 nằm ở
+# `cong_doan.DON_VI_DONG_GIAY`): công đoạn khai đơn vị nào là việc của xưởng, đơn vị mới thêm ở màn
+# Đơn vị phải dùng được ngay. Code chỉ hỏi "đơn vị này đứng ở TRẠM nào", không hỏi "tên nó là gì".
+TRAM_TO_NGUYEN = "to_nguyen"
+TRAM_TO = "to"
+TRAM_CON = "con"
+TRAM_TAY = "tay"
+TRAM_CAI = "cai"
+TRAM_DONG_GIAY = (TRAM_TO_NGUYEN, TRAM_TO, TRAM_CON, TRAM_TAY, TRAM_CAI)
+TRAM_NHAN = {
+    TRAM_TO_NGUYEN: "Tờ nguyên (giấy mua về)",
+    TRAM_TO: "Tờ in",
+    TRAM_CON: "Con (mảnh bế ra)",
+    TRAM_TAY: "Tay sách",
+    TRAM_CAI: "Thành phẩm",
+}
+# CẦU giữa hai trạm — dòng giấy chảy MỘT CHIỀU và chỉ qua những nhịp CÓ HỆ SỐ:
+#     tờ nguyên ──(số mảnh xả)──▶ tờ in ──┬─(con/tờ)─▶ con ─(1/số con)─▶ thành phẩm
+#                                         ├─(1)──────▶ tay ─(số tay)──▶ thành phẩm   (khâu sách)
+#                                         └─(con hoặc 1/số tay)───────▶ thành phẩm   (lối đi tắt)
+#
+# Đây là chỗ DUY NHẤT còn liệt kê tay, và nó ĐÚNG chỗ: mỗi nhịp cần một hệ số lấy từ quy cách lệnh
+# (bình bài · số mảnh xả · số tay), hệ số đó là CÔNG THỨC nằm ở `lsx_service._he_so_cau`. Thêm đơn
+# vị mới vào danh mục thì KHÔNG phải sửa đây; chỉ khi xưởng đẻ ra một nhịp dòng giấy mới thì mới
+# phải khai cả hệ số của nó — và lúc đó buộc phải sửa code, đúng ra là thế.
+#
+# `to_nguyen → cai` KHÔNG có trong danh sách: nhảy cóc qua khâu in thì chẳng ai biết một tờ nguyên
+# ra mấy thành phẩm, để lọt là engine lấy hệ số 1 rồi cấp thiếu giấy trong im lặng.
+CAU_TRAM = frozenset({
+    (TRAM_TO_NGUYEN, TRAM_TO),
+    (TRAM_TO, TRAM_CON), (TRAM_CON, TRAM_CAI),
+    (TRAM_TO, TRAM_TAY), (TRAM_TAY, TRAM_CAI),
+    (TRAM_TO, TRAM_CAI),
+})
+
+
+def tram_chay_xuoi(tram_vao: str | None, tram_ra: str | None) -> bool:
+    """Cặp trạm có chảy ĐÚNG CHIỀU dòng giấy không. Cùng trạm = bước không đổi cách đếm (in, KCS).
+
+    Thay `cong_doan.CAP_DON_VI_HOP_LE`: bản cũ liệt kê tay theo MÃ ĐƠN VỊ nên thêm đơn vị là phải
+    sửa code. Bản này liệt kê theo TRẠM — đơn vị nào gắn cờ trạm nào thì tự khớp.
+    """
+    if tram_vao is None or tram_ra is None:
+        return False
+    return tram_vao == tram_ra or (tram_vao, tram_ra) in CAU_TRAM
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -93,6 +146,34 @@ class DonViDo(Base):
     active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_true(), default=True
     )
+    # ⚠️ CỘT CHẾT 15/08/2026 — KHÔNG nơi nào đọc nữa, giữ để dữ liệu cũ không mất.
+    #
+    # Ý định ban đầu: lọc ô "Đơn vị tốc độ" của màn Máy cho khỏi bày cả danh mục. Cái hỏng là
+    # **không bao giờ có ô nào để bật cờ này** — chỉ migration 0154 bật sẵn cho 8 mã và seed set
+    # theo đúng 8 mã ấy. Nên nó không phải "cờ người dùng khai", nó là một danh sách cứng nằm dưới
+    # DB: đơn vị xưởng tự khai thì cờ = false vĩnh viễn và không dùng làm tốc độ được.
+    #
+    # Chủ chốt 15/08: ô chọn bày MỌI đơn vị đang `active`. Danh sách dài hơn vài dòng, đổi lại khai
+    # đơn vị nào cũng dùng được ngay — đúng lẽ của module Đơn vị & quy đổi.
+    #
+    # Xoá cột phải viết migration nên để lượt sau; đừng đọc lại nó, và đừng dựng bộ lọc mới ở đây.
+    dung_lam_toc_do: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
+    # Đơn vị này đứng ở TRẠM nào trên dòng giấy — xem khối `TRAM_DONG_GIAY` đầu file. NULL = ngoài
+    # dòng giấy (kg · thùng · kẽm · lượt…), là trạng thái của gần hết danh mục.
+    #
+    # String chứ không Boolean: engine cần biết trạm NÀO để kiểm chiều chảy (tờ nguyên → tờ in →
+    # con/tay → cái); Boolean chỉ nói được "có nằm trên dòng hay không" nên không chặn nổi `cai → to`.
+    tram_dong_giay: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    # `cong_thuc` (CÁCH ĐO của đơn vị, mg 0192) GỠ 17/08/2026 — mg `0215`. Bảng này nay chỉ trả lời
+    # HAI câu: đơn vị nào có, và đổi qua lại thế nào (cặp `don_vi_quy_doi`, hệ số cố định).
+    #
+    # Vì sao gỡ: cách đo treo ở ĐƠN VỊ là câu trả lời dùng chung cho mọi ai đếm bằng đơn vị đó, mà
+    # câu hỏi thật luôn thuộc về một cái CỤ THỂ — keo và mực cùng đo bằng `kg` nhưng ăn khác nhau,
+    # hai máy cùng đo `to_gio` nhưng đếm lượt khác nhau. Nay mỗi nơi có ô của mình:
+    # `giay_nguyen`/`vat_tu_in_an`/`may_thiet_bi`/`piece_rates.cong_thuc_luong` và
+    # `cong_doan.cong_thuc_san_luong`.
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -126,16 +207,8 @@ class DonViQuyDoi(Base):
     den_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("don_vi_do.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    # 1 <tu> = he_so <den>. Dòng SỐ thì > 0 (service chặn 0/âm — chia cho 0 khi đi chiều ngược);
-    # dòng CÔNG THỨC lưu 0 vì hệ số chỉ có lúc chạy. Để 0 chứ không để 1: đường nào lỡ đọc nhầm cột
-    # này sẽ ra 0 (hỏng thấy ngay) chứ không ra số y như thật mà sai.
+    # 1 <tu> = he_so <den>, LUÔN là số cố định > 0 (service chặn 0/âm — chia cho 0 khi đi ngược).
     he_so: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
-    # QUY ĐỔI ĐỘNG — hệ số là công thức, tính lúc dùng: "1 tờ = dinh_luong * dai * rong" kg. Có
-    # những cặp không có đáp án chung (tờ 65×86 Ford 70 nặng 0,039 kg, tờ 79×109 Couché 300 nặng
-    # 0,258 kg) nhưng TÍNH ĐƯỢC từ khổ + định lượng, nên vẫn thuộc danh mục — chỉ là hệ số biết
-    # tính. Biến do NƠI GỌI bơm vào (`quy_doi_service.ngu_canh`): chỉ nơi gọi mới biết bước này
-    # đang đếm tờ nguyên hay tờ in.
-    cong_thuc: Mapped[str | None] = mapped_column(String(200), nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(

@@ -9,8 +9,10 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(24, 23, 19, 0.48);
-  animation: dmodalFade var(--duration-base) var(--easing-standard);
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: dmodalFade 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes dmodalFade {
@@ -23,22 +25,23 @@
 }
 
 .dmodal {
-  width: min(760px, 100%);
+  width: min(960px, 95vw);
   max-height: calc(100vh - 48px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-3);
-  background: var(--canvas);
-  box-shadow: var(--shadow-3);
-  animation: dmodalRise var(--duration-base) var(--easing-standard);
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 20px 50px -10px rgba(15, 23, 42, 0.2);
+  animation: dmodalRise 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
 }
 
 @keyframes dmodalRise {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -52,8 +55,9 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--sp-3);
-  padding: var(--sp-4) var(--sp-5);
-  border-bottom: 1px solid var(--rule);
+  padding: 16px 20px 14px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
 }
 
 .dmodal__heading {
@@ -62,14 +66,18 @@
 
 .dmodal__title {
   margin: 2px 0 0;
-  font-size: 18px;
+  font-size: 19px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 
 .dmodal__subtitle {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--ash);
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: #64748b;
+  line-height: 1.4;
 }
 
 .dmodal__head-right {
@@ -81,22 +89,25 @@
 }
 
 .dmodal__x {
-  width: 34px;
-  height: 34px;
-  /* Kéo × về sát góc thật để không đẩy cao đầu popup; badge nằm ngay dưới. */
-  margin: -6px -8px 0 0;
-  border: 0;
-  border-radius: var(--r-2);
+  width: 30px;
+  height: 30px;
+  margin: -2px -4px 0 0;
+  border: none;
+  border-radius: 6px;
   background: transparent;
-  color: var(--ash);
-  font-size: 23px;
+  color: #64748b;
+  font-size: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .dmodal__x:hover {
-  background: var(--rule-hair);
-  color: var(--ink);
+  background: #f1f5f9;
+  color: #0f172a;
 }
 
 /* Nội dung: các khối cũ của panel chi tiết (purchase__facts, acct-purpose,

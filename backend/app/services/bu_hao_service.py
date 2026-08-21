@@ -1,31 +1,42 @@
-"""Danh mục Bù hao — service CRUD (validate bậc động)."""
+"""Danh mục Bù hao — service CRUD (validate bậc động).
+
+Thân CRUD dùng chung ở `services/catalog_base.CatalogService`; ở đây chỉ còn luật riêng.
+"""
 from __future__ import annotations
 
 from ..models.bu_hao import DON_VI_BAC
 from ..repositories.bu_hao_repo import BuHaoRepository
+from .catalog_base import (
+    CatalogDuplicate, CatalogError, CatalogNotFound, CatalogService, CatalogValidationError,
+)
 
 
-class BuHaoError(Exception):
+class BuHaoError(CatalogError):
     pass
 
 
-class BuHaoValidationError(BuHaoError):
+class BuHaoValidationError(BuHaoError, CatalogValidationError):
     pass
 
 
-class BuHaoDuplicate(BuHaoError):
+class BuHaoDuplicate(BuHaoError, CatalogDuplicate):
     pass
 
 
-class BuHaoNotFound(BuHaoError):
+class BuHaoNotFound(BuHaoError, CatalogNotFound):
     pass
 
 
-class BuHaoService:
-    def __init__(self, repo: BuHaoRepository) -> None:
-        self.repo = repo
+class BuHaoService(CatalogService):
+    LOAI = "bu_hao"
+    E_NOT_FOUND, E_DUPLICATE, E_VALIDATION = BuHaoNotFound, BuHaoDuplicate, BuHaoValidationError
+    MSG_NOT_FOUND = "Không tìm thấy dòng bù hao."
+    MSG_DUPLICATE = "Mã đã tồn tại."
 
-    def _validate(self, data: dict) -> None:
+    def __init__(self, repo: BuHaoRepository, audit=None) -> None:
+        super().__init__(repo, audit)
+
+    def _validate(self, data: dict, obj=None) -> None:
         if not (data.get("ma") or "").strip():
             raise BuHaoValidationError("Mã không được trống.")
         if not (data.get("ten") or "").strip():
@@ -36,29 +47,3 @@ class BuHaoService:
             tu, den = b.get("sl_tu"), b.get("sl_den")
             if den is not None and tu is not None and int(tu) >= int(den):
                 raise BuHaoValidationError(f"Bậc SL: từ ({tu}) phải < đến ({den}).")
-
-    def get(self, item_id: int):
-        obj = self.repo.get(item_id)
-        if obj is None:
-            raise BuHaoNotFound("Không tìm thấy dòng bù hao.")
-        return obj
-
-    def list(self, **kw):
-        return self.repo.list(**kw)
-
-    def create(self, data: dict, created_by: int | None = None):
-        self._validate(data)
-        if self.repo.find_by_ma(data["ma"]) is not None:
-            raise BuHaoDuplicate("Mã đã tồn tại.")
-        return self.repo.create(data)
-
-    def update(self, item_id: int, data: dict):
-        obj = self.get(item_id)
-        self._validate(data)
-        dup = self.repo.find_by_ma(data["ma"])
-        if dup is not None and dup.id != obj.id:
-            raise BuHaoDuplicate("Mã đã tồn tại.")
-        return self.repo.update(obj, data)
-
-    def delete(self, item_id: int) -> None:
-        self.repo.delete(self.get(item_id))

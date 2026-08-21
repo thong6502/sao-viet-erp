@@ -1,25 +1,31 @@
-"""Loại sản phẩm — service: CRUD + validate (§5) + helper tương thích layout (§5.1)."""
+"""Loại sản phẩm — service: CRUD + validate (§5) + helper tương thích layout (§5.1).
+
+Thân CRUD dùng chung ở `services/catalog_base.CatalogService`; ở đây chỉ còn luật riêng.
+"""
 from __future__ import annotations
 
 from ..models.loai_san_pham import (
-    BOX_SUB_TYPE, COVER_TYPE, STRUCT_LAYOUT_MATRIX, STRUCTURAL_TYPE, LoaiSanPham,
+    BOX_SUB_TYPE, COVER_TYPE, STRUCT_LAYOUT_MATRIX, STRUCTURAL_TYPE,
 )
 from ..repositories.loai_san_pham_repo import LoaiSanPhamRepository
+from .catalog_base import (
+    CatalogDuplicate, CatalogError, CatalogNotFound, CatalogService, CatalogValidationError,
+)
 
 
-class LoaiSanPhamError(Exception):
+class LoaiSanPhamError(CatalogError):
     pass
 
 
-class LoaiSanPhamValidationError(LoaiSanPhamError):
+class LoaiSanPhamValidationError(LoaiSanPhamError, CatalogValidationError):
     pass
 
 
-class LoaiSanPhamDuplicate(LoaiSanPhamError):
+class LoaiSanPhamDuplicate(LoaiSanPhamError, CatalogDuplicate):
     pass
 
 
-class LoaiSanPhamNotFound(LoaiSanPhamError):
+class LoaiSanPhamNotFound(LoaiSanPhamError, CatalogNotFound):
     pass
 
 
@@ -28,11 +34,26 @@ def is_layout_compatible(structural_type: str, layout_mode: str) -> bool:
     return layout_mode in STRUCT_LAYOUT_MATRIX.get(structural_type, ())
 
 
-class LoaiSanPhamService:
-    def __init__(self, repo: LoaiSanPhamRepository) -> None:
-        self.repo = repo
+class LoaiSanPhamService(CatalogService):
+    """`audit` có DEFAULT `None`: 8 test hiện có dựng service bằng `LoaiSanPhamService(repo)`,
+    thêm tham số bắt buộc là gãy hết mà chẳng được gì.
 
-    def _validate(self, data: dict) -> None:
+    Ghi NHẬT KÝ như 6 danh mục còn lại. Trước 15/08/2026 service này không nhận `audit` nên không
+    ghi dòng nào — trong khi `routers/nhat_ky_danh_muc.LOAI_MODULE` đã map sẵn `loai_san_pham`,
+    tức tab "Nhật ký" của màn này mở ra LUÔN RỖNG và không ai biết vì sao.
+    """
+
+    LOAI = "loai_san_pham"
+    E_NOT_FOUND = LoaiSanPhamNotFound
+    E_DUPLICATE = LoaiSanPhamDuplicate
+    E_VALIDATION = LoaiSanPhamValidationError
+    MSG_NOT_FOUND = "Không tìm thấy loại sản phẩm."
+    MSG_DUPLICATE = "Mã loại sản phẩm đã tồn tại."
+
+    def __init__(self, repo: LoaiSanPhamRepository, audit=None) -> None:
+        super().__init__(repo, audit)
+
+    def _validate(self, data: dict, obj=None) -> None:
         if not (data.get("ma") or "").strip():
             raise LoaiSanPhamValidationError("Mã loại sản phẩm không được trống.")
         if not (data.get("ten") or "").strip():
@@ -46,29 +67,3 @@ class LoaiSanPhamService:
             raise LoaiSanPhamValidationError("Có bìa cần cover_type (tự bìa / bìa rời). [E-SP-COVER]")
         # imposition_rule_id: §2 nói bắt buộc; ở MVP cho phép NULL (gán sau khi Bình bài land)
         # để không hard-block, nhưng cảnh báo ở engine nếu thiếu khi báo giá.
-
-    def get(self, sp_id: int) -> LoaiSanPham:
-        sp = self.repo.get(sp_id)
-        if sp is None:
-            raise LoaiSanPhamNotFound("Không tìm thấy loại sản phẩm.")
-        return sp
-
-    def list(self, **kw):
-        return self.repo.list(**kw)
-
-    def create(self, data: dict) -> LoaiSanPham:
-        self._validate(data)
-        if self.repo.find_by_ma(data["ma"]) is not None:
-            raise LoaiSanPhamDuplicate("Mã loại sản phẩm đã tồn tại.")
-        return self.repo.create(data)
-
-    def update(self, sp_id: int, data: dict) -> LoaiSanPham:
-        sp = self.get(sp_id)
-        self._validate(data)
-        dup = self.repo.find_by_ma(data["ma"])
-        if dup is not None and dup.id != sp.id:
-            raise LoaiSanPhamDuplicate("Mã loại sản phẩm đã tồn tại.")
-        return self.repo.update(sp, data)
-
-    def delete(self, sp_id: int) -> None:
-        self.repo.delete(self.get(sp_id))

@@ -137,10 +137,14 @@ class PayrollComponentRepository:
         ⚠️ CHỈ xoá dòng `source='employee'`. Dòng `source='line'` (thưởng nóng HCNS thêm tay cho
         riêng kỳ này) PHẢI sống sót qua mọi lần bấm "Tính lại" — xoá cả hai là mất tiền của người
         lao động mà không một thông báo nào."""
+        # ⚠️ CHỪA RA dòng ĐÃ ĐÈ TAY (`da_de_tay`): HCNS sửa số cho riêng kỳ này thì "Tính lại"
+        # KHÔNG được ghi đè, nếu không sửa xong bấm Tính lại là mất số âm thầm — đúng lý do trước
+        # 12/08/2026 phải chặn hẳn đường sửa.
         self.db.execute(
             delete(PayrollLineComponent).where(
                 PayrollLineComponent.line_id == line_id,
                 PayrollLineComponent.source == COMPONENT_SOURCE_EMPLOYEE,
+                PayrollLineComponent.da_de_tay.is_(False),
             )
         )
         for r in rows:

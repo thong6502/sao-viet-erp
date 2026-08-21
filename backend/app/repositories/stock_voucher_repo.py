@@ -6,12 +6,15 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..models.stock_voucher import (
     VOUCHER_DRAFT,
+    VOUCHER_XUAT,
     StockVoucher,
     StockVoucherAttachment,
     StockVoucherLine,
 )
 
-_HEADER_FIELDS = ("kho_id", "ngay", "nguoi_giao_nhan", "ghi_chu")
+_HEADER_FIELDS = ("kho_id", "ngay", "nguoi_giao_nhan", "ghi_chu",
+                  # ĐIỀU CHUYỂN KHO (mig 0203) — bật cho cả phiếu xuất nguồn lẫn nhập đích.
+                  "dieu_chuyen")
 
 
 class StockVoucherRepository:
@@ -20,6 +23,15 @@ class StockVoucherRepository:
 
     def get(self, voucher_id: int) -> StockVoucher | None:
         return self.db.get(StockVoucher, voucher_id)
+
+    def ma_by_ids(self, ids: list[int]) -> dict[int, str]:
+        """Map voucher_id → mã phiếu — cho chỗ hiển thị lô THEO PHIẾU (nạp 1 lượt, tránh N+1)."""
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(StockVoucher.id, StockVoucher.ma).where(StockVoucher.id.in_(ids))
+        ).all()
+        return {r.id: r.ma for r in rows}
 
     def get_by_ma(self, ma: str) -> StockVoucher | None:
         return self.db.execute(
@@ -37,6 +49,13 @@ class StockVoucherRepository:
              request_id: int | None = None, kho_id: int | None = None,
              q: str | None = None, page: int = 1, size: int = 50):
         conds = []
+        # ẨN phiếu XUẤT nguồn của điều chuyển khi CÒN NHÁP (bút toán nội bộ, tự ghi sổ khi đích
+        # nhập). Đã ghi sổ thì HIỆN (là vế xuất thật của điều chuyển, phục vụ đối chiếu).
+        conds.append(or_(
+            StockVoucher.dieu_chuyen.is_(False),
+            StockVoucher.loai != VOUCHER_XUAT,
+            StockVoucher.trang_thai != VOUCHER_DRAFT,
+        ))
         if loai:
             conds.append(StockVoucher.loai == loai)
         if trang_thai:
@@ -63,7 +82,7 @@ class StockVoucherRepository:
         return list(self.db.execute(base).scalars()), total
 
     def draft_ids_by_request(self, request_ids: list[int]) -> dict[int, int]:
-        """Map {request_id: id phiếu ĐANG CHỜ GHI SỔ (draft) mới nhất}. Để đề nghị biết đã có
+        """Map {request_id: id phiếu ĐANG CHỜ GHI SỔ (draft) mới nhất}. Để yêu cầu biết đã có
         phiếu chờ ghi sổ chưa → đổi nút 'Lập phiếu' thành 'Xem phiếu', chống tạo trùng."""
         if not request_ids:
             return {}
@@ -81,7 +100,7 @@ class StockVoucherRepository:
         return out
 
     def sum_issued_for_line(self, request_line_id: int, *, exclude_voucher_id: int | None = None) -> float:
-        """Tổng số lượng đã ứng vào 1 dòng đề nghị qua các phiếu ĐÃ GHI SỔ.
+        """Tổng số lượng đã ứng vào 1 dòng yêu cầu qua các phiếu ĐÃ GHI SỔ.
 
         Dùng để kiểm tra chặn "ứng vượt SL duyệt" một cách độc lập với `sl_da_ung` — hai
         con số phải khớp; lệch nghĩa là có bug ghi sổ, và cách tính lại này bắt được.
@@ -100,13 +119,17 @@ class StockVoucherRepository:
             stmt = stmt.where(StockVoucher.id != exclude_voucher_id)
         return float(self.db.execute(stmt).scalar_one() or 0)
 
-    def xuat_history(self, material_id: int, kho_id: int) -> list[dict]:
-        """Lịch sử XUẤT của 1 mã hàng tại 1 kho — mỗi dòng phiếu XUẤT ĐÃ GHI SỔ, đích danh lô.
+    def xuat_history(self, hang: tuple[str, int], kho_id: int) -> list[dict]:
+        """Lịch sử XUẤT của 1 mặt hàng tại 1 kho — mỗi dòng phiếu XUẤT ĐÃ GHI SỔ, đích danh lô.
 
         Giá vốn của dòng xuất = giá của lô bị trừ (`don_gia_nhap`), không phải `line.don_gia`
         (phiếu xuất không khai giá). Router ẩn giá nếu người gọi thiếu `can_view_cost`.
+
+        `sl_de_nghi` = SL xin trên dòng yêu cầu gốc (nối qua `request_line_id` → StockRequestLine)
+        — không phải tiền, luôn hiện được; None nếu dòng phiếu không nối được yêu cầu.
         """
         from ..models.stock_lot import StockLot
+        from ..models.stock_request import StockRequestLine
         from ..models.stock_voucher import VOUCHER_POSTED, VOUCHER_XUAT
 
         stmt = (
@@ -114,11 +137,18 @@ class StockVoucherRepository:
                 StockVoucher.id, StockVoucher.ma, StockVoucher.ngay,
                 StockVoucherLine.lot_id, StockVoucherLine.so_luong,
                 StockLot.ma_lo, StockLot.don_gia_nhap,
+                StockRequestLine.sl_de_nghi.label("sl_de_nghi"),
             )
             .join(StockVoucher, StockVoucher.id == StockVoucherLine.voucher_id)
             .join(StockLot, StockLot.id == StockVoucherLine.lot_id, isouter=True)
+            .join(
+                StockRequestLine,
+                StockRequestLine.id == StockVoucherLine.request_line_id,
+                isouter=True,
+            )
             .where(
-                StockVoucherLine.material_id == material_id,
+                StockVoucherLine.hang_loai == hang[0],
+                StockVoucherLine.hang_id == hang[1],
                 StockVoucher.kho_id == kho_id,
                 StockVoucher.loai == VOUCHER_XUAT,
                 StockVoucher.trang_thai == VOUCHER_POSTED,
@@ -130,9 +160,41 @@ class StockVoucherRepository:
                 "voucher_id": r.id, "voucher_ma": r.ma, "ngay": r.ngay,
                 "lot_id": r.lot_id, "ma_lo": r.ma_lo,
                 "so_luong": float(r.so_luong), "don_gia": int(r.don_gia_nhap or 0),
+                "sl_de_nghi": float(r.sl_de_nghi) if r.sl_de_nghi is not None else None,
             }
             for r in self.db.execute(stmt).all()
         ]
+
+    def sl_de_nghi_by_lot(self, lots) -> dict[int, float]:
+        """Map lot_id → `sl_de_nghi` của dòng yêu cầu đã sinh ra lô NHẬP.
+
+        Lô NHẬP có `voucher_id` (phiếu tạo lô); dòng phiếu NHẬP tạo lô là dòng có
+        `voucher_id == lot.voucher_id` và `lot_id == lot.id` (ghi sổ gán lot_id về dòng).
+        Từ dòng đó lấy `request_line_id` → `StockRequestLine.sl_de_nghi`. Lọc theo cả
+        (voucher_id, lot_id) nên chỉ bắt dòng NHẬP tạo lô, không dính dòng XUẤT trừ lô.
+        """
+        from ..models.stock_request import StockRequestLine
+
+        voucher_ids = list({lot.voucher_id for lot in lots if lot.voucher_id is not None})
+        lot_ids = list({lot.id for lot in lots if lot.voucher_id is not None})
+        if not voucher_ids or not lot_ids:
+            return {}
+        stmt = (
+            select(StockVoucherLine.lot_id, StockRequestLine.sl_de_nghi)
+            .join(
+                StockRequestLine,
+                StockRequestLine.id == StockVoucherLine.request_line_id,
+            )
+            .where(
+                StockVoucherLine.voucher_id.in_(voucher_ids),
+                StockVoucherLine.lot_id.in_(lot_ids),
+            )
+        )
+        return {
+            lot_id: float(sl)
+            for lot_id, sl in self.db.execute(stmt).all()
+            if lot_id is not None and sl is not None
+        }
 
     def create(self, *, ma: str, loai: str, request_id: int, nguoi_lap_id: int,
                lines: list[dict], **header) -> StockVoucher:
@@ -143,11 +205,15 @@ class StockVoucherRepository:
         for ln in lines:
             obj.lines.append(StockVoucherLine(
                 request_line_id=ln["request_line_id"],
-                material_id=ln["material_id"],
+                hang_loai=ln["hang_loai"],
+                hang_id=ln["hang_id"],
                 lot_id=ln.get("lot_id"),
                 so_luong=ln["so_luong"],
+                sl_goc=ln["sl_goc"],          # số đã quy về đơn vị gốc — chốt lúc lập phiếu
                 don_gia=ln.get("don_gia"),
                 ghi_chu=ln.get("ghi_chu"),
+                vi_tri=ln.get("vi_tri"),
+                hsd=ln.get("hsd"),
             ))
         self.db.add(obj)
         self.db.commit()

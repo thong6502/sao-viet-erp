@@ -1,22 +1,30 @@
 """Data access for operational accounting and purchase payments."""
 from __future__ import annotations
 
-from sqlalchemy import asc, case, desc, func, or_, select, update
+from datetime import datetime, timezone
+from uuid import uuid4
+
+from sqlalchemy import MetaData, Table, asc, case, desc, func, inspect, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.accounting import (
+    PAYMENT_RECEIPT_CANCELLED,
     PAYMENT_RECEIPT_RECEIVED,
     PAYMENT_RECEIPT_WAITING,
+    PAYMENT_VOUCHER_CANCELLED,
     PAYMENT_VOUCHER_PAID,
-    PAYMENT_VOUCHER_WAITING,
     RECEIPT_SOURCE_ORDER,
+    SALES_INVOICE_ISSUED,
     CompanyBankAccount,
     PaymentReceipt,
     PaymentReceiptAttachment,
     PaymentVoucher,
     PaymentVoucherAttachment,
+    SalesInvoice,
     SupplierBankAccount,
 )
+from ..models.customer import Customer
+from ..models.order import Order
 from ..models.purchase import PurchaseRequest, PurchaseRequestSource, Supplier
 
 
@@ -42,10 +50,16 @@ class AccountingRepository:
 
     # --- company bank accounts -------------------------------------------
 
-    def list_company_accounts(self, *, active_only: bool = False) -> list[CompanyBankAccount]:
+    def list_company_accounts(
+        self, *, active_only: bool = False, usage: str | None = None
+    ) -> list[CompanyBankAccount]:
         stmt = select(CompanyBankAccount)
         if active_only:
             stmt = stmt.where(CompanyBankAccount.is_active.is_(True))
+        if usage == "receive":
+            stmt = stmt.where(CompanyBankAccount.use_for_receipts.is_(True))
+        elif usage == "pay":
+            stmt = stmt.where(CompanyBankAccount.use_for_payments.is_(True))
         return list(
             self.db.execute(
                 stmt.order_by(CompanyBankAccount.is_default.desc(), CompanyBankAccount.bank_name, CompanyBankAccount.id)
@@ -131,6 +145,17 @@ class AccountingRepository:
     def get_voucher(self, voucher_id: int) -> PaymentVoucher | None:
         return self.db.execute(self._voucher_stmt().where(PaymentVoucher.id == voucher_id)).scalars().first()
 
+    def get_voucher_by_salary_advance(self, salary_advance_id: int):
+        """Phiếu chi đã lập cho một phiếu tạm ứng — None nếu chưa lập.
+
+        Dùng ở HAI chỗ: chặn lập phiếu chi lần hai, và chặn huỷ phiếu tạm ứng khi tiền đã ra."""
+        return self.db.execute(
+            select(PaymentVoucher).where(
+                PaymentVoucher.salary_advance_id == salary_advance_id,
+                PaymentVoucher.status != PAYMENT_VOUCHER_CANCELLED,
+            )
+        ).scalars().first()
+
     def get_voucher_by_code(self, code: str) -> PaymentVoucher | None:
         return self.db.execute(
             select(PaymentVoucher).where(PaymentVoucher.code == code)
@@ -141,6 +166,7 @@ class AccountingRepository:
         *,
         q: str | None = None,
         status: str | None = None,
+        source_type: str | None = None,
         voucher_type: str | None = None,
         supplier_id: int | None = None,
         purchase_request_id: int | None = None,
@@ -157,6 +183,8 @@ class AccountingRepository:
                     func.lower(func.coalesce(PaymentVoucher.doc_no, "")).like(like),
                     func.lower(PaymentVoucher.source_code_snapshot).like(like),
                     func.lower(PaymentVoucher.supplier_name_snapshot).like(like),
+                    func.lower(func.coalesce(PaymentVoucher.cash_recipient_name, "")).like(like),
+                    func.lower(func.coalesce(PaymentVoucher.beneficiary_account_holder_snapshot, "")).like(like),
                     func.lower(PaymentVoucher.content).like(like),
                     PaymentVoucher.purchase_request.has(func.lower(PurchaseRequest.code).like(like)),
                     PaymentVoucher.purchase_request.has(
@@ -168,6 +196,8 @@ class AccountingRepository:
             )
         if status:
             conditions.append(PaymentVoucher.status == status)
+        if source_type:
+            conditions.append(PaymentVoucher.source_type == source_type)
         if voucher_type:
             conditions.append(PaymentVoucher.voucher_type == voucher_type)
         if supplier_id is not None:
@@ -212,24 +242,17 @@ class AccountingRepository:
 
     def _voucher_totals(self, conditions) -> dict:
         """Tổng tiền trên TOÀN BỘ kết quả khớp bộ lọc (không chỉ trang hiện tại) —
-        kế toán chi nhiều đợt không phải cộng tay."""
+        kế toán chi nhiều đợt không phải cộng tay.
+
+        `total_waiting_amount` giữ lại và luôn = 0 kể từ khi bỏ trạng thái "Chờ chi" (06/08/2026):
+        phiếu cũ đã được migration `0169` chuyển hết sang `paid`, và không đường nào sinh phiếu
+        `waiting` nữa. Giữ khoá để hợp đồng API không vỡ, KHÔNG giữ phép cộng — cộng một thứ luôn
+        rỗng chỉ tốn một lần quét bảng mỗi lần mở màn."""
         sums_stmt = select(
             func.coalesce(
                 func.sum(
                     case(
                         (PaymentVoucher.status == PAYMENT_VOUCHER_PAID, PaymentVoucher.amount_vnd),
-                        else_=0,
-                    )
-                ),
-                0,
-            ),
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            PaymentVoucher.status == PAYMENT_VOUCHER_WAITING,
-                            PaymentVoucher.amount_vnd,
-                        ),
                         else_=0,
                     )
                 ),
@@ -244,24 +267,17 @@ class AccountingRepository:
         for condition in conditions:
             sums_stmt = sums_stmt.where(condition)
             receipts_stmt = receipts_stmt.where(condition)
-        paid_sum, waiting_sum = self.db.execute(sums_stmt).one()
+        (paid_sum,) = self.db.execute(sums_stmt).one()
         received_sum = self.db.execute(receipts_stmt).scalar_one()
         return {
             "total_paid_amount": int(paid_sum),
-            "total_waiting_amount": int(waiting_sum),
+            "total_waiting_amount": 0,
             "total_receipt_received_amount": int(received_sum),
         }
 
-    def reserved_amount(self, purchase_request_id: int, *, exclude_id: int | None = None) -> int:
-        stmt = select(func.coalesce(func.sum(PaymentVoucher.amount_vnd), 0)).where(
-            PaymentVoucher.purchase_request_id == purchase_request_id,
-            PaymentVoucher.status.in_((PAYMENT_VOUCHER_WAITING, PAYMENT_VOUCHER_PAID)),
-        )
-        if exclude_id is not None:
-            stmt = stmt.where(PaymentVoucher.id != exclude_id)
-        vouchers = int(self.db.execute(stmt).scalar_one())
-        # Tiền ĐÃ THU về mở lại hạn mức lập chứng từ của PMH.
-        return max(0, vouchers - self.receipt_received_amount(purchase_request_id))
+    # `reserved_amount` ĐÃ GỠ 06/08/2026: trần lập phiếu chi nay tính trong `purchase_money`
+    # (`outstanding_amount` / `tran_dat_coc`) trên đúng tập quan hệ đã eager-load, nên không cần
+    # query riêng — và quan trọng hơn: một nguồn số, không phải hai chỗ tự cộng lấy.
 
     # --- payment receipts ---------------------------------------------------
 
@@ -288,6 +304,11 @@ class AccountingRepository:
                     func.lower(PaymentReceipt.voucher_code_snapshot).like(like),
                     func.lower(PaymentReceipt.purchase_code_snapshot).like(like),
                     func.lower(PaymentReceipt.supplier_name_snapshot).like(like),
+                    func.lower(PaymentReceipt.order_no_snapshot).like(like),
+                    func.lower(PaymentReceipt.customer_name_snapshot).like(like),
+                    PaymentReceipt.sales_invoice.has(
+                        func.lower(SalesInvoice.invoice_number).like(like)
+                    ),
                     func.lower(PaymentReceipt.payer_name).like(like),
                     func.lower(PaymentReceipt.content).like(like),
                 )
@@ -405,6 +426,168 @@ class AccountingRepository:
             ).scalars()
         )
 
+    # --- sales invoices / accounts receivable ------------------------------
+
+    def get_sales_order(self, order_id: int) -> Order | None:
+        return self.db.execute(
+            select(Order).options(selectinload(Order.lines)).where(Order.id == order_id)
+        ).scalar_one_or_none()
+
+    def get_customer(self, customer_id: int) -> Customer | None:
+        return self.db.get(Customer, customer_id)
+
+    def customers_by_ids(self, customer_ids: set[int]) -> dict[int, Customer]:
+        if not customer_ids:
+            return {}
+        rows = self.db.execute(
+            select(Customer).where(Customer.id.in_(customer_ids))
+        ).scalars()
+        return {row.id: row for row in rows}
+
+    def get_sales_invoice(self, invoice_id: int) -> SalesInvoice | None:
+        return self.db.execute(
+            self._sales_invoice_stmt().where(SalesInvoice.id == invoice_id)
+        ).scalar_one_or_none()
+
+    def list_sales_invoices(
+        self,
+        *,
+        order_id: int | None = None,
+        customer_id: int | None = None,
+        status: str | None = None,
+    ) -> list[SalesInvoice]:
+        stmt = self._sales_invoice_stmt()
+        if order_id is not None:
+            stmt = stmt.where(SalesInvoice.order_id == order_id)
+        if customer_id is not None:
+            stmt = stmt.where(SalesInvoice.customer_id == customer_id)
+        if status is not None:
+            stmt = stmt.where(SalesInvoice.status == status)
+        return list(
+            self.db.execute(
+                stmt.order_by(SalesInvoice.invoice_date, SalesInvoice.id)
+            ).scalars()
+        )
+
+    def issued_invoice_amount_for_order(self, order_id: int) -> int:
+        return int(
+            self.db.execute(
+                select(func.coalesce(func.sum(SalesInvoice.amount_vnd), 0)).where(
+                    SalesInvoice.order_id == order_id,
+                    SalesInvoice.status == SALES_INVOICE_ISSUED,
+                )
+            ).scalar_one()
+        )
+
+    def received_invoice_receipt_sums(self, invoice_ids: list[int]) -> dict[int, int]:
+        if not invoice_ids:
+            return {}
+        stmt = (
+            select(
+                PaymentReceipt.sales_invoice_id,
+                func.coalesce(func.sum(PaymentReceipt.amount_vnd), 0),
+            )
+            .where(
+                PaymentReceipt.sales_invoice_id.in_(invoice_ids),
+                PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
+            )
+            .group_by(PaymentReceipt.sales_invoice_id)
+        )
+        return {int(iid): int(amount) for iid, amount in self.db.execute(stmt)}
+
+    def sales_invoice_has_active_receipts(self, invoice_id: int) -> bool:
+        return bool(
+            self.db.execute(
+                select(func.count()).select_from(PaymentReceipt).where(
+                    PaymentReceipt.sales_invoice_id == invoice_id,
+                    PaymentReceipt.status != PAYMENT_RECEIPT_CANCELLED,
+                )
+            ).scalar_one()
+        )
+
+    def list_receipts_for_receivables(
+        self,
+        *,
+        invoice_ids: list[int],
+        order_ids: list[int],
+        since=None,
+    ) -> list[PaymentReceipt]:
+        if not invoice_ids and not order_ids:
+            return []
+        links = []
+        if invoice_ids:
+            links.append(PaymentReceipt.sales_invoice_id.in_(invoice_ids))
+        if order_ids:
+            links.append(
+                (PaymentReceipt.order_id.in_(order_ids))
+                & (PaymentReceipt.source_type == RECEIPT_SOURCE_ORDER)
+            )
+        stmt = self._receipt_stmt().where(
+            or_(*links),
+            PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
+        )
+        if since is not None:
+            stmt = stmt.where(PaymentReceipt.receipt_date >= since)
+        return list(
+            self.db.execute(
+                stmt.order_by(PaymentReceipt.receipt_date.desc(), PaymentReceipt.id.desc())
+            ).scalars()
+        )
+
+    def save_sales_invoice(self, invoice: SalesInvoice) -> SalesInvoice:
+        # Tương thích DB SQLite/PG đã từng chạy schema hóa đơn đời cũ. Các cột cũ
+        # ``code/subtotal_vnd/vat_vnd`` là NOT NULL nên ORM hiện tại không thể INSERT
+        # nếu không cấp giá trị. Phản chiếu đúng bảng live và ghi thêm các cột đó;
+        # hóa đơn cũ vẫn giữ nguyên, DB trắng tiếp tục dùng đường ORM bình thường.
+        bind = self.db.get_bind()
+        live_columns = {c["name"] for c in inspect(bind).get_columns("sales_invoices")}
+        legacy_required = {"code", "subtotal_vnd", "vat_vnd"}
+        if invoice.id is None and legacy_required <= live_columns:
+            now = datetime.now(timezone.utc)
+            values = {
+                "order_id": invoice.order_id,
+                "customer_id": invoice.customer_id,
+                "invoice_symbol": invoice.invoice_symbol,
+                "invoice_number": invoice.invoice_number,
+                "invoice_date": invoice.invoice_date,
+                "amount_vnd": invoice.amount_vnd,
+                "payment_term_days_snapshot": invoice.payment_term_days_snapshot,
+                "due_date": invoice.due_date,
+                "customer_name_snapshot": invoice.customer_name_snapshot,
+                "status": invoice.status,
+                "created_by_user_id": invoice.created_by_user_id,
+                "created_at": now,
+                "updated_at": now,
+                "code": f"HD-{uuid4().hex[:28]}",
+                "subtotal_vnd": invoice.amount_vnd,
+                "vat_vnd": 0,
+            }
+            if "invoice_series" in live_columns:
+                values["invoice_series"] = invoice.invoice_symbol
+            if "invoice_no" in live_columns:
+                values["invoice_no"] = invoice.invoice_number
+            if "payment_term_days" in live_columns:
+                values["payment_term_days"] = invoice.payment_term_days_snapshot
+            table = Table("sales_invoices", MetaData(), autoload_with=bind)
+            result = self.db.execute(table.insert().values(**values))
+            invoice_id = int(result.inserted_primary_key[0])
+            self._commit()
+            saved = self.get_sales_invoice(invoice_id)
+            if saved is None:
+                raise RuntimeError("Không đọc lại được hóa đơn vừa ghi.")
+            return saved
+        self.db.add(invoice)
+        self._commit()
+        self.db.refresh(invoice)
+        return self.get_sales_invoice(invoice.id) or invoice
+
+    def _sales_invoice_stmt(self):
+        return select(SalesInvoice).options(
+            selectinload(SalesInvoice.order),
+            selectinload(SalesInvoice.customer),
+            selectinload(SalesInvoice.receipts),
+        )
+
     def save_receipt(self, receipt: PaymentReceipt) -> PaymentReceipt:
         self.db.add(receipt)
         self._commit()
@@ -414,6 +597,7 @@ class AccountingRepository:
     def _receipt_stmt(self):
         return select(PaymentReceipt).options(
             selectinload(PaymentReceipt.payment_voucher),
+            selectinload(PaymentReceipt.sales_invoice),
             selectinload(PaymentReceipt.company_bank_account),
             selectinload(PaymentReceipt.attachments),
         )

@@ -602,12 +602,37 @@ class EmployeeRepository:
         self.db.refresh(req)
         return req
 
-    def list_update_requests_by_employee(self, employee_id: int) -> list[ProfileUpdateRequest]:
-        return list(self.db.execute(
-            select(ProfileUpdateRequest)
-            .where(ProfileUpdateRequest.employee_id == employee_id)
+    def list_update_requests_by_employee(
+        self, employee_id: int, *, status: str | None = None, page: int = 1, size: int = 10,
+    ) -> tuple[list[ProfileUpdateRequest], int]:
+        """MỘT TRANG đề nghị của chính NV + tổng số dòng khớp bộ lọc.
+
+        Cắt trang ở DB chứ không ở FE: đề nghị KHÔNG bị xoá khi rút/từ chối nên danh sách chỉ dài
+        thêm theo thời gian — kéo cả bảng về rồi `slice` trong JS là kiểu cũ đã bỏ."""
+        dieu_kien = [ProfileUpdateRequest.employee_id == employee_id]
+        if status is not None:
+            dieu_kien.append(ProfileUpdateRequest.status == status)
+        total = int(self.db.execute(
+            select(func.count()).select_from(ProfileUpdateRequest).where(*dieu_kien)
+        ).scalar_one())
+        rows = list(self.db.execute(
+            select(ProfileUpdateRequest).where(*dieu_kien)
             .order_by(ProfileUpdateRequest.id.desc())
+            .limit(size).offset((page - 1) * size)
         ).scalars())
+        return rows, total
+
+    def dem_update_requests_by_employee(self, employee_id: int) -> dict[str, int]:
+        """Số đề nghị theo TỪNG trạng thái, tính trên TOÀN BỘ hồ sơ của NV — không theo trang.
+
+        Badge "N chờ duyệt" và số trên các pill lọc phải đọc ở đây: đếm trên mảng của trang đang
+        xem sẽ sai ngay khi NV có nhiều đề nghị hơn một trang."""
+        rows = self.db.execute(
+            select(ProfileUpdateRequest.status, func.count())
+            .where(ProfileUpdateRequest.employee_id == employee_id)
+            .group_by(ProfileUpdateRequest.status)
+        ).all()
+        return {str(trang_thai): int(so) for trang_thai, so in rows}
 
     def list_update_requests(self, *, status: str | None = None) -> list[ProfileUpdateRequest]:
         stmt = select(ProfileUpdateRequest)
@@ -647,8 +672,10 @@ class EmployeeRepository:
         return None
 
     def create_job_grade(self, *, code: str, name: str, seq: int = 0,
-                         is_active: bool = True, note: str | None = None) -> JobGrade:
-        g = JobGrade(code=code, name=name, seq=seq, is_active=is_active, note=note)
+                         is_active: bool = True, note: str | None = None,
+                         output_coefficient=None) -> JobGrade:
+        g = JobGrade(code=code, name=name, seq=seq, is_active=is_active, note=note,
+                     output_coefficient=output_coefficient)
         self.db.add(g)
         self.db.commit()
         self.db.refresh(g)

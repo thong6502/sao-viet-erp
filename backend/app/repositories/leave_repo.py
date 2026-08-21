@@ -73,15 +73,25 @@ class LeaveRepository:
         self.db.refresh(r)
         return r
 
-    def list_by_employee(self, employee_id: int, *, limit: int = 100) -> list[LeaveRequest]:
+    def list_by_employee(self, employee_id: int, *, limit: int = 100,
+                         offset: int = 0) -> list[LeaveRequest]:
         return list(
             self.db.execute(
                 select(LeaveRequest)
                 .where(LeaveRequest.employee_id == employee_id)
                 .order_by(LeaveRequest.start_date.desc(), LeaveRequest.id.desc())
                 .limit(limit)
+                .offset(offset)
             ).scalars()
         )
+
+    def count_by_employee(self, employee_id: int) -> int:
+        """Tổng đơn của 1 NV — nuôi chân phân trang tab "Đơn của tôi". COUNT ở DB, đừng
+        `len(list_by_employee())`: hàm kia đang bị `limit` cắt nên đếm ra số của TRANG."""
+        return int(self.db.execute(
+            select(func.count(LeaveRequest.id))
+            .where(LeaveRequest.employee_id == employee_id)
+        ).scalar_one())
 
     def list_all(self, *, status: str | None = None, limit: int = 200) -> list[LeaveRequest]:
         stmt = select(LeaveRequest)
@@ -109,17 +119,47 @@ class LeaveRepository:
             return Employee.department_id.in_(dept_ids)
         raise ValueError(f"Unknown scope: {scope!r}")
 
-    def list_scoped(self, *, scope: str, actor, status: str | None = None, limit: int = 200) -> list[LeaveRequest]:
-        stmt = select(LeaveRequest).join(Employee, LeaveRequest.employee_id == Employee.id)
+    def _scoped_filters(self, stmt, *, scope: str, actor, status: str | None,
+                        employee_id: int | None):
+        """Bộ lọc DÙNG CHUNG cho `list_scoped` và `count_scoped`.
+
+        Phải chung một chỗ: hai hàm mà lọc lệch nhau thì `total` ở chân bảng không mở ra xem
+        được — báo 30 nhưng lật hết trang chỉ thấy 12, người dùng thôi tin con số đó."""
         cond = self._scope_condition(scope=scope, actor=actor)
         if cond is not None:
             stmt = stmt.where(cond)
         if status is not None:
             stmt = stmt.where(LeaveRequest.status == status)
+        if employee_id is not None:
+            stmt = stmt.where(LeaveRequest.employee_id == employee_id)
+        return stmt
+
+    def list_scoped(self, *, scope: str, actor, status: str | None = None,
+                    employee_id: int | None = None, limit: int = 200,
+                    offset: int = 0) -> list[LeaveRequest]:
+        stmt = select(LeaveRequest).join(Employee, LeaveRequest.employee_id == Employee.id)
+        stmt = self._scoped_filters(stmt, scope=scope, actor=actor, status=status,
+                                    employee_id=employee_id)
         stmt = stmt.order_by(
             LeaveRequest.status.asc(), LeaveRequest.start_date.desc(), LeaveRequest.id.desc()
-        ).limit(limit)
+        ).limit(limit).offset(offset)
         return list(self.db.execute(stmt).scalars())
+
+    def count_scoped(self, *, scope: str, actor, status: str | None = None,
+                     employee_id: int | None = None) -> int:
+        """Tổng đơn trong phạm vi + bộ lọc — chân phân trang tab "Duyệt đơn".
+
+        `employee_id` LỌC Ở MÁY CHỦ chứ không ở client nữa: liên thông từ Hồ sơ NV lọc đúng 1
+        người, mà lọc ở client thì đơn của người đó rơi sang trang khác là màn báo "chưa có
+        đơn" — sai sự thật."""
+        stmt = (
+            select(func.count(LeaveRequest.id))
+            .select_from(LeaveRequest)
+            .join(Employee, LeaveRequest.employee_id == Employee.id)
+        )
+        stmt = self._scoped_filters(stmt, scope=scope, actor=actor, status=status,
+                                    employee_id=employee_id)
+        return int(self.db.execute(stmt).scalar_one())
 
     def count_pending_scoped(self, *, scope: str, actor) -> int:
         """Số đơn ĐANG CHỜ DUYỆT trong scope người gọi — nuôi badge sidebar (COUNT ở DB,

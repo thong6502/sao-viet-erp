@@ -1,47 +1,12 @@
-"""Pydantic models cho API Đơn giá khoán (module `luong`, nhịp 2)."""
+"""Pydantic models cho API Thưởng/phạt tổ trưởng (module `luong`, nhịp 2).
+
+⚠️ `RateIn` · `RateOut` · `RatesOut` · `UnitsOut` gỡ ngày 17/08/2026 cùng năm route `/khoan/rates`
+và `/khoan/units`: bảng đơn giá thành danh mục "Công việc khoán", schema của nó ở
+`schemas/cong_viec_khoan.py` (tên field theo cột mới `ma` · `ten` · `active`).
+"""
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
-
-
-# --- đơn giá khoán ----------------------------------------------------------
-
-
-class RateIn(BaseModel):
-    group_name: str = Field(min_length=1, max_length=40)
-    department_id: int | None = None
-    code: str | None = Field(default=None, max_length=20)
-    name: str = Field(min_length=1, max_length=255)
-    # Đơn vị CHỌN TỪ danh mục `Đơn vị & quy đổi` (màn khai gửi TÊN đơn vị). Không enum cứng ở đây:
-    # danh mục là nguồn, thêm đơn vị mới không phải sửa code.
-    unit: str = Field(default="khác", max_length=24)
-    unit_price: float = Field(ge=0)
-    note: str | None = Field(default=None, max_length=255)
-    is_active: bool = True
-
-
-class RateOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    group_name: str
-    department_id: int | None = None
-    code: str | None = None
-    name: str
-    unit: str
-    unit_price: float
-    note: str | None = None
-    is_active: bool
-
-
-class RatesOut(BaseModel):
-    items: list[RateOut]
-
-
-class UnitsOut(BaseModel):
-    """Gợi ý cho ô "Đơn vị" — KHÔNG phải whitelist, gõ ngoài danh sách vẫn lưu được."""
-
-    items: list[str]
 
 
 # --- Bậc thưởng/phạt tổ trưởng theo tỷ lệ hàng lỗi (chủ 29/07/2026) ---------

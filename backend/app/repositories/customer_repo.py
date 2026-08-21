@@ -21,6 +21,7 @@ from ..models.customer import (
     CustomerContact,
     CustomerNote,
     CustomerTag,
+    CustomerTagCatalog,
 )
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
@@ -375,6 +376,60 @@ class CustomerRepository:
     def delete_address(self, address: CustomerAddress) -> None:
         self.db.delete(address)
         self.db.commit()
+
+    # --- kho nhãn dùng chung (`customer_tag_catalog`) -----------------------------
+
+    def list_kho_nhan(self) -> list[CustomerTagCatalog]:
+        return list(self.db.execute(
+            select(CustomerTagCatalog).order_by(CustomerTagCatalog.label)
+        ).scalars())
+
+    def dem_khach_theo_nhan(self) -> dict[str, int]:
+        """Mỗi nhãn (hạ chữ) đang được bao nhiêu khách mang — để cảnh báo TRƯỚC khi xoá.
+
+        Gom trong Python chứ không `GROUP BY lower(label)`: `lower()` của SQLite chỉ hạ chữ ASCII
+        nên "Ưu tiên" và "ưu tiên" ra hai nhóm — cùng lỗi đã ghi ở `ids_with_label`.
+        """
+        out: dict[str, int] = {}
+        for (label,) in self.db.execute(select(CustomerTag.label)).all():
+            key = label.strip().lower()
+            out[key] = out.get(key, 0) + 1
+        return out
+
+    def tim_nhan_kho(self, label: str) -> CustomerTagCatalog | None:
+        """Tra theo nhãn, KHÔNG phân biệt hoa-thường (so trong Python, lý do như trên)."""
+        needle = label.strip().lower()
+        for row in self.list_kho_nhan():
+            if row.label.strip().lower() == needle:
+                return row
+        return None
+
+    def get_nhan_kho(self, nhan_id: int) -> CustomerTagCatalog | None:
+        return self.db.get(CustomerTagCatalog, nhan_id)
+
+    def them_nhan_kho(self, *, label: str, created_by: int | None) -> CustomerTagCatalog:
+        row = CustomerTagCatalog(label=label, created_by=created_by)
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return row
+
+    def xoa_nhan_kho(self, row: CustomerTagCatalog) -> int:
+        """Xoá nhãn khỏi kho VÀ gỡ nó khỏi mọi khách đang mang. Trả số khách bị gỡ.
+
+        Dọn luôn dòng gán chứ không để lại: nhãn đã biến khỏi kho mà chip vẫn hiện trên khách thì
+        không còn đường nào gỡ chip đó ra (hộp Gắn thẻ chỉ bày nhãn có trong kho).
+        """
+        needle = row.label.strip().lower()
+        da_gan = [
+            t for t in self.db.execute(select(CustomerTag)).scalars()
+            if t.label.strip().lower() == needle
+        ]
+        for t in da_gan:
+            self.db.delete(t)
+        self.db.delete(row)
+        self.db.commit()
+        return len(da_gan)
 
     # --- nhãn thủ công (#7: sales gán tay để phân loại chăm sóc) ------------------
 

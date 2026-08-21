@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, false as sa_false
+from sqlalchemy import (
+    Boolean, DateTime, ForeignKey, Integer, JSON, Numeric, String, false as sa_false,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -65,7 +67,26 @@ class Department(Base):
     # Đánh dấu phòng ban thuộc khối SẢN XUẤT (nền phân tổ cho Kế hoạch SX). Tick ở 1 nút cha ⇒ cả
     # cây con (theo parent_id) coi như sản xuất; phân hệ Sản xuất liệt kê đúng subtree này. "Effective
     # sản xuất" = cột này true HOẶC có tổ tiên true (tính ở service, KHÔNG cascade lưu).
+    # DORMANT 2026-08-10 — ca làm riêng của tổ đã BỎ cùng lượt với ca của máy: ca khai MỘT chỗ ở
+    # Nhân sự → Ca kíp (mọi ca đang hoạt động), không lặp lại ở từng tổ. Không còn ô
+    # nhập, engine thôi đọc; cột giữ để không mất số cũ (không có Alembic, `create_all` không ALTER).
+    ca_lam_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
     la_san_xuat: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
+    # Đánh dấu phòng ban thuộc khối KINH DOANH — cùng cơ chế kế thừa cây con như `la_san_xuat`
+    # (tick phòng cha ⇒ KD1/KD2 bên dưới cũng là kinh doanh). Trả lời câu "ai được giao phụ trách
+    # khách hàng": hộp chọn NV phụ trách đổ theo khối này, giao với phạm vi dữ liệu của người xem.
+    # CHƯA TICK PHÒNG NÀO = hệ suy theo quyền module `khach_hang` (xem `customers.list_sale_options`)
+    # — dữ liệu cũ không cần khai lại vẫn chạy đúng.
+    la_kinh_doanh: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
+    # Đánh dấu TỔ KIỂM TRA CHẤT LƯỢNG (KCS) — nền cho module Thực hiện sản xuất (spec-thuc-hien-san-xuat
+    # §3.1, §14). KHÁC `la_san_xuat`: không kế thừa cây con, không suy theo tổ tiên — cờ đặt ĐÍCH DANH
+    # trên đúng (các) tổ làm KCS. Dùng để: (1) sinh việc "KCS cuối" ở gói phát hành trỏ về tổ này,
+    # (2) route lô kiểm KCS. Một hệ có thể có nhiều tổ KCS; chưa tick tổ nào ⇒ chưa bật khâu KCS.
+    is_kcs: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
     )
     created_at: Mapped[datetime] = mapped_column(

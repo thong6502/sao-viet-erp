@@ -226,7 +226,7 @@ class ProductTypeCatalogService:
     def clone_item(self, *, item_id: int, new_product_type: str, new_name: str, actor) -> ProductTypeCatalog:
         """spec §5.1 'Sao chép / Tạo version mới' — nhân bản toàn bộ cấu hình sang mã mới.
 
-        Vì product_type là FK key (estimates/norms/products) nên 'version mới' hiện thực bằng
+        Vì product_type là FK key (norms) nên 'version mới' hiện thực bằng
         clone sang mã mới thay vì đa-version cùng mã (tránh phá FK). Version bump +1 trên bản mới.
         """
         src = self.get_item(item_id)
@@ -235,8 +235,7 @@ class ProductTypeCatalogService:
             "required_fields", "shown_fields", "dimension_rule_type", "default_bleed_mm",
             "default_gutter_mm", "default_trim_mm", "allow_rotation", "allow_custom_size",
             "has_page_count", "page_multiple", "pages_per_signature", "has_cover_body_split",
-            "allowed_materials", "default_paper_material_id", "default_cover_material_id",
-            "default_body_material_id", "default_ink_material_id", "has_packaging", "default_pack_qty",
+            "allowed_materials", "has_packaging", "default_pack_qty",
             "default_operations", "required_operations", "allow_extra_operations",
             "compatible_technologies", "sheet_count_mode", "ink_cost_mode", "has_tooling",
             "default_tooling_type", "allow_manual_override", "waste_pct",
@@ -249,20 +248,17 @@ class ProductTypeCatalogService:
 
     def delete_item(self, *, item_id: int, actor) -> None:
         item = self.get_item(item_id)
-        # #9 — guard xóa: estimates.product_type là FK NOT NULL, norms.product_type là FK.
-        from ..models.product import Product
-        from ..models.estimate import Estimate
+        # #9 — guard xóa: `norms.product_type` là FK. (products/estimates đã xoá ở Đợt 5.)
         from ..models.norm import Norm
         pt = item.product_type
-        referenced = any(
-            self.repo.db.execute(select(m).where(m.product_type == pt)).first() is not None
-            for m in (Product, Estimate, Norm)
+        referenced = (
+            self.repo.db.execute(select(Norm).where(Norm.product_type == pt)).first() is not None
         )
         # spec §8 — record đã dùng (used_count > 0, kể cả phiếu đã xóa) hoặc đang được tham chiếu
         # thì không xóa cứng; chỉ được Ngưng áp dụng.
         if referenced or (item.used_count or 0) > 0:
             raise ProductTypeCatalogInUse(
-                "Không thể xóa loại sản phẩm đã dùng / đang được tham chiếu (sản phẩm / tính giá / định mức). "
+                "Không thể xóa loại sản phẩm đã dùng / đang được tham chiếu (định mức). "
                 "Hãy đặt Ngưng áp dụng thay vì xóa."
             )
 

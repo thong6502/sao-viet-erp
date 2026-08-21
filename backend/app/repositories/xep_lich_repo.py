@@ -80,6 +80,23 @@ class XepLichRepository:
             ).scalars()
         )
 
+    def rows_da_xep_theo_to(self, department_id: int) -> list[XepLichCongDoan]:
+        """Dòng đã xếp + có giờ của MỘT tổ — nền kiểm quân số lúc xem trước.
+
+        Khác `rows_da_xep_co_may` (kéo cả bàn lịch để dò trùng máy): xem trước chỉ hỏi về ĐÚNG tổ
+        của dòng đang kéo, mà thao tác đó chạy mỗi lần thả chuột.
+        """
+        return list(
+            self.db.execute(
+                select(XepLichCongDoan).where(
+                    XepLichCongDoan.trang_thai == TT_DA_XEP,
+                    XepLichCongDoan.department_id == department_id,
+                    XepLichCongDoan.start_at.is_not(None),
+                    XepLichCongDoan.finish_at.is_not(None),
+                )
+            ).scalars()
+        )
+
     def nguon_cho_xep_lsx(self) -> list[Lsx]:
         """LSX `san_sang`, KHÔNG thuộc bài ghép nào (LSX gang lập kế hoạch qua bài ghép), mới nhất trước."""
         from sqlalchemy.orm import selectinload

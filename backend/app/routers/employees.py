@@ -23,6 +23,7 @@ from fastapi import (
 )
 
 from ..deps import (
+    get_current_user,
     CurrentUser,
     get_audit_repository,
     get_authorization_service,
@@ -34,6 +35,7 @@ from ..deps import (
     require_any_permission,
     require_permission,
 )
+from ..models.profile_request import REQUEST_STATUSES
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
@@ -66,6 +68,7 @@ from ..schemas.employee import (
     JobGradesOut,
     MyContactIn,
     MyProfileOut,
+    MyUpdateRequestsOut,
     RequestDecisionIn,
     RoleOption,
     ShiftAssignmentOut,
@@ -91,6 +94,35 @@ from ..storage import get_storage, make_key, url_from_key
 router = APIRouter(prefix="/api/employees", tags=["employees"])
 
 MODULE = "nhan_su"
+
+# TỰ PHỤC VỤ (tách 10/08/2026) — một ô quyền cho MỌI việc người lao động làm với hồ sơ của CHÍNH
+# MÌNH: tự chấm công, xem công/phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng.
+# Trước đây nhóm này không gác gì (chỉ cần đăng nhập) nên không có cách nào tắt cho một vai.
+# Ba hàng rào cũ GIỮ NGUYÊN (phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công · đúng
+# khung giờ ca) — chúng chống lạm dụng, còn ô này chống truy cập.
+# Ô `self_service` ĐÃ BỎ 15/08/2026 (chủ chốt). Dữ liệu của CHÍNH MÌNH là quyền đương nhiên của
+# mọi tài khoản đăng nhập — xem công / phiếu / đơn của mình, và gửi · sửa · huỷ đơn của mình.
+# Chặn nó là chặn người ta đi làm, chứ không bảo vệ được gì: mọi đường `/me` đã tự lọc theo hồ sơ
+# gắn với tài khoản, không đọc sang ai được.
+# Ba hàng rào thật GIỮ NGUYÊN: phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công ·
+# đúng khung giờ ca. Cái quyết định THẤY MÀN NÀO vẫn là ô của chính màn đó.
+MODULE_TU_PHUC_VU = "self_service"
+SelfUser = Annotated[User, Depends(get_current_user)]
+
+# Ô THAO TÁC của Tự phục vụ (tách 11/08/2026). `SelfUser` (= `read`) chỉ cho XEM công / phiếu /
+# đơn của chính mình; mọi đường GHI — chấm công, gửi · sửa · huỷ đơn nghỉ, phiếu tăng ca, xin đi
+# muộn, xin tạm ứng, sửa hồ sơ của mình — đòi ô này.
+# ⚠️ CỐ Ý KHÔNG đòi ô Thao tác ở đây, khác với 4 màn kia (chủ chốt 15/08/2026).
+#
+# Luật chung là "ghi thì phải có ô Thao tác của chính màn chứa việc đó". Ba đường dưới đây —
+# sửa số điện thoại / tài khoản NH của mình, gửi và huỷ yêu cầu cập nhật hồ sơ — nằm ở màn
+# **Hồ sơ của tôi**, mà màn đó KHÔNG có ô quyền nào cả: nó mở cho mọi tài khoản đăng nhập.
+# Đòi ô `nhan_su:create` là đòi một ô mà thợ không bao giờ được cấp ⇒ khoá luôn đường tự sửa
+# thông tin liên hệ của chính họ.
+#
+# Hàng rào thật ở đây là TẦNG SERVICE: chỉ ghi được vào hồ sơ gắn với chính tài khoản đang gọi,
+# và yêu cầu cập nhật thì phải qua HCNS duyệt mới đổi được dữ liệu.
+SelfWriter = Annotated[User, Depends(get_current_user)]
 
 # Hồ sơ HR (CCCD, hợp đồng…) đi qua kho file dùng chung; đọc lại qua /api/files, chỉ người
 # có quyền `nhan_su` mới xem được (app/routers/files.py).
@@ -214,7 +246,119 @@ def _dup(employee) -> DuplicateRef | None:
     return DuplicateRef(id=employee.id, code=employee.code, full_name=employee.full_name)
 
 
+def _can_apply_transition(authz: AuthorizationService, user: User, kind: str) -> bool:
+    if kind in {"transfer", "promote"}:
+        return authz.can(user, MODULE, "transfer")
+    return authz.can(user, MODULE, "manage_status")
+
+
 # --- list + meta ------------------------------------------------------------
+
+
+#: Nhãn trạng thái trong file xuất — phải khớp nhãn trên màn, nếu không kế toán đối chiếu là lệch.
+_NHAN_TRANG_THAI = {
+    "probation": "Thử việc",
+    "active": "Chính thức",
+    "on_leave": "Nghỉ dài hạn",
+    "suspended": "Đình chỉ",
+    "resigned": "Đã nghỉ",
+}
+
+#: Nhãn cột file xuất — GIỮ ĐÚNG 8 cột đang hiện trên màn. Đổi cột là việc khác, đừng nhét vào đây.
+_COT_XUAT = ("Mã", "Họ tên", "Phòng/Tổ", "Chức danh", "Bậc tay nghề", "Trạng thái",
+             "Ngày vào", "Tài khoản")
+
+#: Lấy theo mẻ khi xuất. KHÔNG phải trần kết quả — vòng lặp chạy tới khi đủ `total`.
+_ME_XUAT = 200
+
+
+@router.get("/export.xlsx")
+def export_employees_xlsx(
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    depts: Depts,
+    roles: Roles,
+    # Ô "Xuất Excel danh sách" (`nhan_su:export`) — trước 11/08/2026 endpoint chỉ đòi `read`, và
+    # giao diện cũng KHÔNG hỏi ô nào cả, nên ô đó chưa bao giờ có tác dụng: ai xem được hồ sơ là
+    # tải được cả danh sách nhân sự ra file. Xuất file là mang dữ liệu RA KHỎI hệ thống — phải là
+    # một quyết định cấp riêng, không đi kèm quyền xem.
+    user: Annotated[User, Depends(require_permission(MODULE, "export"))],
+    q: str | None = Query(default=None),
+    department_id: int | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
+    has_account: bool | None = Query(default=None),
+    sort: str = Query(default="code"),
+) -> Response:
+    """Xuất danh sách nhân sự ra .xlsx THẬT (chủ chốt 08/08/2026).
+
+    Trước đây giao diện tự nối chuỗi CSV rồi đặt tên nút là "Xuất Excel" — nhãn nói dối, và tệ hơn
+    là nó chỉ lấy **200 người đầu** rồi im lặng, ai đứng thứ 201 trở đi biến mất khỏi file.
+
+    Hai ràng buộc BẮT BUỘC, đừng tối giản đi:
+
+    1. **Cùng phạm vi quyền và cùng bộ lọc với màn danh sách.** Dùng lại `_scope_for` và đúng các
+       tham số của `list_employees`. Bỏ qua là người có phạm vi `own` tải được cả công ty — rò dữ
+       liệu nhân sự, không phải lỗi giao diện.
+    2. **Không dùng trần `size` của endpoint danh sách** (`le=200`). Ở đây lặp theo mẻ tới khi đủ
+       `total`, nên thêm người không phải sửa lại số nào.
+    """
+    from io import BytesIO
+
+    from openpyxl import Workbook  # lazy import: thiếu dep chỉ hỏng endpoint này, không sập app
+    from openpyxl.styles import Font
+
+    scope = _scope_for(authz, user)
+    rows: list = []
+    page = 1
+    while True:
+        batch, total = svc.list_employees(
+            scope=scope, actor=user, q=q, department_id=department_id, status=status_filter,
+            has_account=has_account, sort=sort, page=page, size=_ME_XUAT,
+        )
+        rows.extend(batch)
+        if len(rows) >= total or not batch:
+            break
+        page += 1
+
+    dept_ids = {e.department_id for e in rows if e.department_id is not None}
+    user_ids = {e.user_id for e in rows if e.user_id is not None}
+    names = _dept_names(depts, dept_ids)
+    unames = _user_names(users, user_ids)
+    rnames = _role_names(users, roles, user_ids)
+    gnames = {g.id: g.name for g in svc.list_job_grades()}
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Nhan su"
+    ws.append(list(_COT_XUAT))
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for e in rows:
+        r = _row(e, names, unames, rnames, gnames)
+        ws.append([
+            r.code or "",
+            r.full_name or "",
+            r.department_name or "",
+            r.role_name or r.position or "",
+            r.job_grade_name or "",
+            _NHAN_TRANG_THAI.get(r.status, r.status or ""),
+            # Ngày vào ghi dạng chuỗi dd/mm/yyyy: để nguyên kiểu ngày thì Excel mỗi máy hiện một
+            # định dạng theo vùng, kế toán đối chiếu là lệch.
+            r.hire_date.strftime("%d/%m/%Y") if r.hire_date else "",
+            r.account_username or "",
+        ])
+    for idx, width in enumerate((14, 26, 22, 22, 16, 14, 12, 18), start=1):
+        ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = width
+    ws.freeze_panes = "A2"
+
+    buf = BytesIO()
+    wb.save(buf)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="danh-sach-nhan-vien.xlsx"'},
+    )
 
 
 @router.get("", response_model=EmployeeListOut)
@@ -323,7 +467,7 @@ def create_employee(
     status_in = data.pop("status")
     hire_date = data.pop("hire_date")
     if initial_salary is not None:
-        if not authz.can(user, "luong", "update"):
+        if not authz.can(user, MODULE, "edit_salary"):
             raise HTTPException(
                 status_code=403,
                 detail="Ban khong co quyen khai muc luong ban dau cho nhan vien.",
@@ -380,11 +524,20 @@ def _my_out(employee, depts: DepartmentRepository, users: UserRepository,
     out = _full(employee, depts, users, svc)
     for f in _MY_HIDDEN:
         setattr(out, f, None)
+    # "Quản lý trực tiếp của tôi" — chỉ tra ở đây (1 hồ sơ/lượt), KHÔNG đưa vào `_full` vì màn
+    # danh sách HCNS sẽ thành N+1 truy vấn.
+    if employee.department_id is not None:
+        d = depts.get_by_id(employee.department_id)
+        head_id = getattr(d, "head_user_id", None) if d is not None else None
+        if head_id is not None:
+            u = users.get_by_id(head_id)
+            if u is not None:
+                out.department_head_name = u.name or u.username
     return out
 
 
 @router.get("/me", response_model=MyProfileOut)
-def my_profile(svc: Service, depts: Depts, users: Users, user: CurrentUser) -> MyProfileOut:
+def my_profile(svc: Service, depts: Depts, users: Users, user: SelfUser) -> MyProfileOut:
     emp = svc.my_employee(user=user)
     if emp is None:
         return MyProfileOut(has_employee=False, employee=None)
@@ -392,7 +545,7 @@ def my_profile(svc: Service, depts: Depts, users: Users, user: CurrentUser) -> M
 
 
 @router.put("/me", response_model=MyProfileOut)
-def update_my_profile(body: MyContactIn, svc: Service, depts: Depts, users: Users, user: CurrentUser) -> MyProfileOut:
+def update_my_profile(body: MyContactIn, svc: Service, depts: Depts, users: Users, user: SelfWriter) -> MyProfileOut:
     try:
         emp = svc.update_my_contact(user=user, fields=body.model_dump(exclude_unset=True))
     except EmployeeError as exc:
@@ -401,7 +554,7 @@ def update_my_profile(body: MyContactIn, svc: Service, depts: Depts, users: User
 
 
 @router.get("/me/events", response_model=EmployeeEventsOut)
-def my_events(svc: Service, users: Users, user: CurrentUser) -> EmployeeEventsOut:
+def my_events(svc: Service, users: Users, user: SelfUser) -> EmployeeEventsOut:
     items = []
     for ev in svc.my_events(user=user):
         row = EmployeeEventOut.model_validate(ev)
@@ -413,18 +566,41 @@ def my_events(svc: Service, users: Users, user: CurrentUser) -> EmployeeEventsOu
 
 
 @router.get("/me/attachments", response_model=AttachmentsOut)
-def my_attachments(svc: Service, user: CurrentUser) -> AttachmentsOut:
+def my_attachments(svc: Service, user: SelfUser) -> AttachmentsOut:
     return AttachmentsOut(items=[AttachmentOut.model_validate(a) for a in svc.my_attachments(user=user)])
 
 
-def _req_out(req, emp_names: dict[int, str]) -> UpdateRequestOut:
+def _decider_name(req, users: UserRepository) -> str | None:
+    """Tên người đã quyết (duyệt/từ chối) — hoặc chính NV nếu họ tự rút lại."""
+    if req.decided_by is None:
+        return None
+    u = users.get_by_id(req.decided_by)
+    return (u.name or u.username) if u is not None else None
+
+
+def _current_values(emp, changes: dict) -> dict:
+    """Giá trị hồ sơ ĐANG mang của đúng các field NV xin đổi — người duyệt cần thấy 'đang là gì'
+    mới quyết được. Ngày về chuỗi ISO cho FE tự định dạng."""
+    out: dict = {}
+    for key in changes:
+        val = getattr(emp, key, None)
+        out[key] = val.isoformat() if isinstance(val, date) else val
+    return out
+
+
+def _req_out(req, emps: dict[int, object], users: UserRepository | None = None) -> UpdateRequestOut:
     out = UpdateRequestOut.model_validate(req)
-    out.employee_name = emp_names.get(req.employee_id)
+    emp = emps.get(req.employee_id)
+    if emp is not None:
+        out.employee_name = emp.full_name
+        out.current = _current_values(emp, req.changes or {})
+    if users is not None:
+        out.decided_by_name = _decider_name(req, users)
     return out
 
 
 @router.post("/me/update-requests", response_model=UpdateRequestOut, status_code=201)
-def create_my_request(body: UpdateRequestIn, svc: Service, user: CurrentUser) -> UpdateRequestOut:
+def create_my_request(body: UpdateRequestIn, svc: Service, user: SelfWriter) -> UpdateRequestOut:
     try:
         req = svc.create_update_request(user=user, changes=body.changes, reason=body.reason)
     except EmployeeError as exc:
@@ -432,9 +608,28 @@ def create_my_request(body: UpdateRequestIn, svc: Service, user: CurrentUser) ->
     return UpdateRequestOut.model_validate(req)
 
 
-@router.get("/me/update-requests", response_model=UpdateRequestsOut)
-def my_requests(svc: Service, user: CurrentUser) -> UpdateRequestsOut:
-    return UpdateRequestsOut(items=[UpdateRequestOut.model_validate(r) for r in svc.my_update_requests(user=user)])
+@router.get("/me/update-requests", response_model=MyUpdateRequestsOut)
+def my_requests(svc: Service, users: Users, user: SelfUser,
+                status_filter: str | None = Query(default=None, alias="status"),
+                page: int = Query(default=1, ge=1),
+                size: int = Query(default=10, ge=1, le=100)) -> MyUpdateRequestsOut:
+    """Đề nghị của chính NV — CẮT TRANG Ở MÁY CHỦ, kèm số đếm theo trạng thái cho pill lọc."""
+    if status_filter is not None and status_filter not in REQUEST_STATUSES:
+        raise HTTPException(status_code=400, detail="Trạng thái lọc không hợp lệ.")
+    rows, total, dem = svc.my_update_requests(user=user, status=status_filter, page=page, size=size)
+    return MyUpdateRequestsOut(
+        items=[_req_out(r, {}, users) for r in rows], total=total, page=page, size=size, dem=dem,
+    )
+
+
+@router.post("/me/update-requests/{request_id}/cancel", response_model=UpdateRequestOut)
+def cancel_my_request(request_id: int, svc: Service, users: Users, user: SelfWriter) -> UpdateRequestOut:
+    """NV rút lại đề nghị của CHÍNH MÌNH khi HCNS chưa xử lý (gõ nhầm / đổi ý)."""
+    try:
+        req = svc.cancel_my_update_request(user=user, request_id=request_id)
+    except EmployeeError as exc:
+        _raise(exc)
+    return _req_out(req, {}, users)
 
 
 # --- HCNS duyệt yêu cầu cập nhật (quyền chi tiết `approve`) ------------------
@@ -445,16 +640,16 @@ def list_requests(svc: Service, users: Users,
                   user: Annotated[User, Depends(require_permission(MODULE, "read"))],
                   status_filter: str | None = Query(default=None, alias="status")) -> UpdateRequestsOut:
     reqs = svc.list_update_requests(status=status_filter)
-    emp_names: dict[int, str] = {}
+    emps: dict[int, object] = {}
     for eid in {r.employee_id for r in reqs}:
         emp = svc.employees.get_by_id(eid)
         if emp is not None:
-            emp_names[eid] = emp.full_name
-    return UpdateRequestsOut(items=[_req_out(r, emp_names) for r in reqs])
+            emps[eid] = emp
+    return UpdateRequestsOut(items=[_req_out(r, emps, users) for r in reqs])
 
 
 @router.post("/update-requests/{request_id}/approve", response_model=UpdateRequestOut)
-def approve_request(request_id: int, body: RequestDecisionIn, svc: Service, authz: Authz,
+def approve_request(request_id: int, body: RequestDecisionIn, svc: Service, authz: Authz, users: Users,
                     user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> UpdateRequestOut:
     try:
         req = svc.decide_update_request(request_id=request_id, actor=user, approve=True, note=body.note,
@@ -462,18 +657,18 @@ def approve_request(request_id: int, body: RequestDecisionIn, svc: Service, auth
                                         can_edit_salary=authz.can(user, MODULE, "edit_salary"))
     except EmployeeError as exc:
         _raise(exc)
-    return UpdateRequestOut.model_validate(req)
+    return _req_out(req, {}, users)
 
 
 @router.post("/update-requests/{request_id}/reject", response_model=UpdateRequestOut)
-def reject_request(request_id: int, body: RequestDecisionIn, svc: Service, authz: Authz,
+def reject_request(request_id: int, body: RequestDecisionIn, svc: Service, authz: Authz, users: Users,
                    user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> UpdateRequestOut:
     try:
         req = svc.decide_update_request(request_id=request_id, actor=user, approve=False,
                                         note=body.note, scope=_scope_for(authz, user))
     except EmployeeError as exc:
         _raise(exc)
-    return UpdateRequestOut.model_validate(req)
+    return _req_out(req, {}, users)
 
 
 # --- detail / edit ----------------------------------------------------------
@@ -502,7 +697,8 @@ def create_job_grade(
 ) -> JobGradeOut:
     try:
         g = svc.create_job_grade(actor=user, name=body.name, code=body.code,
-                                 seq=body.seq, note=body.note)
+                                 seq=body.seq, note=body.note,
+                                 output_coefficient=body.output_coefficient)
     except EmployeeError as exc:
         _raise(exc)
     return JobGradeOut.model_validate(g)
@@ -687,9 +883,14 @@ def apply_transition(
     authz: Authz,
     depts: Depts,
     users: Users,
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> EmployeeOut:
     try:
+        if not _can_apply_transition(authz, user, body.kind):
+            raise HTTPException(
+                status_code=403,
+                detail="Ban khong co quyen thuc hien thao tac ho so nay.",
+            )
         current = svc.get_employee(
             employee_id=employee_id, scope=_scope_for(authz, user), actor=user
         )

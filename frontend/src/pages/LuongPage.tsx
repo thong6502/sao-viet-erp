@@ -4,10 +4,11 @@
 //   • Tạm ứng — ghi nhiều lần → duyệt → tự trừ.
 //   • Cấu hình lương — 3 tab con: bậc lương & KPI · cơ chế theo bộ phận · phụ cấp & bảo hiểm.
 //   • Phiếu lương của tôi — self-service.
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar,
   DollarSign,
+  Download,
   Users,
   Clock,
   TrendingDown,
@@ -16,7 +17,6 @@ import {
   AlertTriangle,
   Wallet,
   FileText,
-  Calculator,
   Receipt,
   HandCoins,
 } from "lucide-react";
@@ -24,12 +24,16 @@ import {
   api,
   PIT_MODE_META,
   PIT_MODE_ORDER,
+  type ChoPhat,
+  type CompanyBankAccountRow,
   type ComponentKind,
   type EmployeeDetail,
   type EmployeeInput,
   type EmployeeRow,
   type EmployeeSalary,
   type LineComponent,
+  type PaymentVoucherRow,
+  type PaymentVoucherType,
   type PayrollComponent,
   type PayrollLine,
   type PayrollParams,
@@ -39,21 +43,26 @@ import {
   type SalaryAdvance,
   type SalaryPreview,
 } from "../api/client";
+import type { NavigateFn } from "../components/AppShell";
+import { MonthPicker } from "../components/MonthPicker";
 import { useAuth } from "../auth/useAuth";
-import { useCan } from "../auth/permissions";
+import { useCan, useSelfService } from "../auth/permissions";
 import { fmtDateTime } from "../utils/format";
 import { printAdvanceRequest } from "../utils/printAdvanceRequest";
 import { CauHinhLuongTab } from "./CauHinhLuongTab";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
-import { KhoanRatesEditor } from "../components/KhoanRatesEditor";
+import { EmptyRow, EmptyState } from "../components/EmptyState";
+import { RowActionButton } from "../components/RowActionButton";
 import "./nhan-su.css";
 import "./luong.css";
 
+// `"khoan"` GỠ 17/08/2026: bảng đơn giá khoán thành màn "Công việc khoán" của Cấu hình danh mục.
+// Giữ giá trị này trong union thì `?tab=khoan` (link cũ ai đó bookmark) vào một tab không render gì.
+// Không có nó, `tabTuUrl` rơi về tab mặc định — người dùng thấy màn Lương bình thường.
 type Tab =
   | "bang"
   | "nhanvien"
-  | "khoan"
   | "tamung"
   | "cauhinh"
   | "phieu"
@@ -72,6 +81,59 @@ function curYm(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
+/** Kỳ lệch `delta` tháng so với tháng này, dạng `YYYY-MM`. Luôn dựng từ ngày 1 để tháng 31 ngày
+ *  không trượt sang tháng sau (31/01 + 1 tháng ra 03/03 nếu cộng thẳng vào ngày hiện tại). */
+function ymOffset(delta: number): string {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+/** Khoảng kỳ lương HỢP LÝ cho một phiếu tạm ứng / lương đợt 1.
+ *
+ *  Ô "Kỳ lương" quyết định BẢNG LƯƠNG THÁNG NÀO trừ lại khoản ứng — gõ nhầm năm là tiền ra hôm
+ *  nay mà sang năm sau mới thu lại, và không màn nào kêu lên vì kỳ đó chưa tồn tại (backend chỉ
+ *  chặn kỳ ĐÃ CHỐT / ĐÃ CHI). Nên chặn ngay ở ô:
+ *    · `max` = tháng SAU tháng này — ứng trước cho kỳ tới là việc thật, xa hơn là gõ nhầm;
+ *    · `min` = 12 tháng trước — xa hơn nữa thì kỳ đó chắc chắn đã chốt/đã chi rồi. */
+function khoangKyUng(): { min: string; max: string } {
+  return { min: ymOffset(-12), max: ymOffset(1) };
+}
+/** `YYYY-MM` → `MM/YYYY` để đọc trong câu tiếng Việt. */
+function ymLabel(ym: string): string {
+  const [y, m] = ym.split("-");
+  return y && m ? `${m}/${y}` : ym;
+}
+
+/** Câu + sắc thái cho trạng thái kỳ lương, hiện NGAY dưới ô Kỳ lương ở modal tạm ứng.
+ *
+ *  Trả `null` = CHƯA BIẾT (đang tải, hoặc không có quyền `luong:read` để đọc danh sách kỳ) ⇒ im
+ *  lặng, đừng đoán. Đoán sai ở đây tệ hơn không nói gì: backend vẫn là chốt chặn thật. */
+function trangThaiKyUng(
+  status: string | null,
+): { text: string; tone: "muted" | "ok" | "bad" } | null {
+  if (status === null) return null;
+  if (status === "chua_tao")
+    return {
+      text: "Kỳ này chưa tạo — phiếu vẫn lập được, sẽ trừ khi kỳ được tính lương.",
+      tone: "muted",
+    };
+  if (status === "draft")
+    return {
+      text: "Kỳ đang mở — khoản ứng sẽ trừ vào bảng lương tháng này.",
+      tone: "ok",
+    };
+  if (status === "locked")
+    return { text: "Kỳ đã chốt — không lập được phiếu cho kỳ này.", tone: "bad" };
+  if (status === "paid")
+    return { text: "Kỳ đã chi — không lập được phiếu cho kỳ này.", tone: "bad" };
+  // Máy chủ thêm trạng thái mới mà màn chưa biết: nói chung chung còn hơn nói SAI, và KHÔNG tự
+  // khoá nút — khoá nhầm là chặn việc thật (cùng cách xử của `lyDoChuaCoPhieu`).
+  return {
+    text: "Chưa rõ trạng thái kỳ này — cứ gửi, máy chủ sẽ báo nếu kỳ đã khoá.",
+    tone: "muted",
+  };
+}
+
 // Hôm nay dạng YYYY-MM-DD, dựng từ giờ ĐỊA PHƯƠNG (không dùng toISOString để tránh
 // lệch 1 ngày khi ở múi giờ VN lúc rạng sáng).
 function todayYmd(): string {
@@ -125,10 +187,13 @@ function bonusTitle(l: PayrollLine): string {
 }
 
 export function LuongPage({
+  navigate,
   focusEmployeeId,
   eventTick,
   openTab,
 }: {
+  /** Nhảy chéo màn — tab Tạm ứng mở phiếu chi đã lập bên Kế toán. */
+  navigate?: NavigateFn;
   focusEmployeeId?: number;
   /** Tăng mỗi sự kiện real-time (SSE) → tab Tạm ứng đang mở tự refetch, không cần đổi màn. */
   eventTick?: number;
@@ -138,11 +203,39 @@ export function LuongPage({
   const { token } = useAuth();
   const can = useCan();
   const canManage = can("luong", "update");
+  // `luong:read` (cột Xem) nay chỉ MỞ MÀN — không còn mở tab quản lý nào. Hai tab cá nhân
+  // (Phiếu lương / Tạm ứng của tôi) là dữ liệu của chính người đăng nhập, không cần ô.
+  const canCreateAdvance = can("luong", "create");
+  const canApproveAdvance = can("luong", "approve");
+  const canLockPeriod = can("luong", "lock");
+  // Ô TỰ PHỤC VỤ (đợt 3) — quản trị TẮT ĐƯỢC. Không hỏi thì tắt xong nút vẫn bày ra, bấm
+  // mới ăn 403: trông như hệ thống hỏng chứ không như "anh không có quyền".
+  const tuPhucVu = useSelfService();
+  // Ô RIÊNG (10/08/2026): "Đã chi" tuyên bố TIỀN ĐÃ RA TỚI TAY người lao động và khoá kỳ —
+  // khác hẳn "Chốt" (số đã tính xong). Ngoài đời hai người: người tính lương chốt số, kế toán
+  // mới xác nhận đã trả.
+  const canMarkPaid = can("luong", "manage_status");
+  const canExportPayroll = can("luong", "export");
+  // BẢNG LƯƠNG THÁNG là công cụ QUẢN LÝ (danh sách cả công ty + Tính lại + Chốt kỳ) ⇒ Ô RIÊNG
+  // từ 15/08/2026, cùng khuôn "Bảng công tháng" bên Chấm công. Trước đó nó đi theo cột Xem, nên
+  // cấp ô Lương ở phạm vi "Của tôi" là thợ vẫn mở được bảng lương của cả công ty.
+  // Vẫn cho những ai có việc PHẢI làm trên bảng đó (chốt kỳ · đánh dấu đã chi · xuất file) vào —
+  // không thì cấp đúng ô của họ mà vẫn không thấy chỗ để bấm.
+  // Cột Thao tác KHÔNG mở tab nào (chủ chốt 15/08/2026) — nó chỉ cho GHI vào tab đã mở được.
+  // Trước đó `|| canManage` làm tab hiện ra rồi bấm vào ăn 403, vì máy chủ đòi ô riêng.
+  const canOpenBangLuong = can("luong", "view_payroll_table");
+  const canLuongNhanVien = can("luong", "manage_salary_profiles");
+  // Tab TẠM ỨNG là danh sách phiếu của NGƯỜI KHÁC ⇒ đi theo ô "Duyệt tạm ứng" (đã có sẵn), không
+  // theo cột Xem. Tạm ứng CỦA MÌNH nằm ở tab riêng bên phải, không cần ô nào.
+  const canOpenTamUng = canApproveAdvance;
   // Cấu hình lương là dữ liệu nhạy cảm: quyền đọc module không đủ.
   // Người có quyền sửa luôn được xem để tránh ma trận quyền cũ khóa nhầm quản trị viên.
-  const canReadConfig = can("luong", "view_salary") || canManage;
+  // Tab "Cấu hình lương" đi theo ĐÚNG ô của nó (`Xem cấu hình lương`). Trước 11/08/2026 còn
+  // `|| canManage`: ai bật ô Thao tác là tab cấu hình tự bung ra — mà sửa một dòng lương và sửa
+  // thang bậc / hệ số / thuế của cả công ty là hai mức khác hẳn nhau.
+  const canReadConfig = can("luong", "view_salary");
   const [tab, setTab] = useState<Tab>(
-    canManage ? "bang" : canReadConfig ? "cauhinh" : "phieu",
+    canOpenBangLuong ? "bang" : canReadConfig ? "cauhinh" : "phieu",
   );
   // Cấu hình lương đang có thay đổi chưa lưu → chặn rời tab (S5).
   const [cfgDirty, setCfgDirty] = useState(false);
@@ -165,6 +258,10 @@ export function LuongPage({
     <main className="ns">
       <header className="ns__head">
         <div>
+          {/* Eyebrow = TÊN SECTION trên thanh bên, chép NGUYÊN VĂN và chỉ MỘT cấp — không ghi
+              tên item ("Lương") vì <h1> ngay dưới đã nói rồi. Lớp phải là `eyebrow` (global.css);
+              `ns__eyebrow` KHÔNG có CSS ở đâu cả, dùng nhầm là ra chữ thường 15px. */}
+          <p className="eyebrow">Nhân sự &amp; Lương</p>
           <h1 className="ns__title">Lương</h1>
           <p className="ns__sub">
             Bảng lương thời gian hàng tháng · tự kéo công từ Chấm công
@@ -174,7 +271,7 @@ export function LuongPage({
 
       <nav className="ns-tabs cc-tabs lg-tabs" aria-label="Phân hệ Lương">
         <div className="lg-tabs__group">
-          {canManage && (
+          {canOpenBangLuong && (
             <button
               className={`lg-tab-btn ${tab === "bang" ? "is-active" : ""}`}
               onClick={() => go("bang")}
@@ -184,7 +281,7 @@ export function LuongPage({
               <span>Bảng lương tháng</span>
             </button>
           )}
-          {canManage && (
+          {canLuongNhanVien && (
             <button
               className={`lg-tab-btn ${tab === "nhanvien" ? "is-active" : ""}`}
               onClick={() => go("nhanvien")}
@@ -194,17 +291,7 @@ export function LuongPage({
               <span>Lương nhân viên</span>
             </button>
           )}
-          {canManage && (
-            <button
-              className={`lg-tab-btn ${tab === "khoan" ? "is-active" : ""}`}
-              onClick={() => go("khoan")}
-              title="Quản lý lương khoán"
-            >
-              <Calculator className="lg-tab-btn__icon" />
-              <span>Lương khoán</span>
-            </button>
-          )}
-          {canManage && (
+          {canOpenTamUng && (
             <button
               className={`lg-tab-btn ${tab === "tamung" ? "is-active" : ""}`}
               onClick={() => go("tamung")}
@@ -229,46 +316,64 @@ export function LuongPage({
           )}
         </div>
 
-        {canManage && <div className="lg-tabs__divider" aria-hidden="true" />}
+        {(canOpenBangLuong || canManage || canOpenTamUng) && (
+          <div className="lg-tabs__divider" aria-hidden="true" />
+        )}
 
-        <div className="lg-tabs__group lg-tabs__group--personal">
-          <button
-            className={`lg-tab-btn ${tab === "phieu" ? "is-active" : ""}`}
-            onClick={() => go("phieu")}
-            title="Xem phiếu lương cá nhân"
-          >
-            <Receipt className="lg-tab-btn__icon" />
-            <span>Phiếu lương của tôi</span>
-          </button>
-          <button
-            className={`lg-tab-btn ${tab === "tamung-me" ? "is-active" : ""}`}
-            onClick={() => go("tamung-me")}
-            title="Đề nghị & theo dõi tạm ứng cá nhân"
-          >
-            <HandCoins className="lg-tab-btn__icon" />
-            <span>Tạm ứng của tôi</span>
-          </button>
-        </div>
+        {tuPhucVu && (
+          <div className="lg-tabs__group lg-tabs__group--personal">
+            <button
+              className={`lg-tab-btn ${tab === "phieu" ? "is-active" : ""}`}
+              onClick={() => go("phieu")}
+              title="Xem phiếu lương cá nhân"
+            >
+              <Receipt className="lg-tab-btn__icon" />
+              <span>Phiếu lương của tôi</span>
+            </button>
+            <button
+              className={`lg-tab-btn ${tab === "tamung-me" ? "is-active" : ""}`}
+              onClick={() => go("tamung-me")}
+              title="Đề nghị & theo dõi tạm ứng cá nhân"
+            >
+              <HandCoins className="lg-tab-btn__icon" />
+              <span>Tạm ứng của tôi</span>
+            </button>
+          </div>
+        )}
       </nav>
 
-      {tab === "bang" && canManage && <BangLuongTab token={token!} />}
-      {tab === "nhanvien" && canManage && (
+      {tab === "bang" && canOpenBangLuong && (
+        <BangLuongTab
+          token={token!}
+          canManage={canManage}
+          canLockPeriod={canLockPeriod}
+          canMarkPaid={canMarkPaid}
+          canExportPayroll={canExportPayroll}
+        />
+      )}
+      {tab === "nhanvien" && canLuongNhanVien && (
         <NhanVienTab token={token!} focusEmployeeId={focusEmployeeId} />
       )}
-      {tab === "khoan" && canManage && <KhoanTab token={token!} />}
-      {tab === "tamung" && canManage && (
-        <TamUngTab token={token!} eventTick={eventTick} />
+      {tab === "tamung" && canOpenTamUng && (
+        <TamUngTab
+          token={token!}
+          navigate={navigate}
+          eventTick={eventTick}
+          canCreateAdvance={canCreateAdvance}
+          canApproveAdvance={canApproveAdvance}
+        />
       )}
       {tab === "cauhinh" && canReadConfig && (
         <CauHinhLuongTab
           token={token!}
           readOnly={!canManage}
           onDirtyChange={setCfgDirty}
+          navigate={navigate}
         />
       )}
-      {tab === "phieu" && <PhieuLuongTab token={token!} />}
-      {tab === "tamung-me" && (
-        <TamUngCuaToiTab token={token!} eventTick={eventTick} />
+      {tab === "phieu" && tuPhucVu && <PhieuLuongTab token={token!} />}
+      {tab === "tamung-me" && tuPhucVu && (
+        <TamUngCuaToiTab token={token!} eventTick={eventTick} canCreate={canCreateAdvance} />
       )}
 
       <DiscardChangesDialog
@@ -287,13 +392,44 @@ export function LuongPage({
 
 // --- Tab: Bảng lương tháng --------------------------------------------------
 
-function BangLuongTab({ token }: { token: string }) {
+function BangLuongTab({
+  token,
+  canManage,
+  canLockPeriod,
+  canMarkPaid,
+  canExportPayroll,
+}: {
+  token: string;
+  canManage: boolean;
+  canLockPeriod: boolean;
+  canMarkPaid: boolean;
+  canExportPayroll: boolean;
+}) {
   const [ym, setYm] = useState(curYm);
   const [period, setPeriod] = useState<PayrollPeriod | null>(null);
   const [lines, setLines] = useState<PayrollLine[]>([]);
+  // Lý do CHƯA chốt được bảng lương, do máy chủ soạn. null = chốt được. Màn chỉ hiện lại,
+  // không tự suy luật — xem chú thích ở `PayrollTable.chan_chot_ly_do`.
+  const [chanChotLyDo, setChanChotLyDo] = useState<string | null>(null);
+  // Bảng "Công bố phiếu lương" — null = đang đóng. Mở ra thì giữ CẢ HAI mốc của cửa sổ xem:
+  // `mo` (trống = ngay bây giờ) và `dong` (trống = không thời hạn). Chuỗi `datetime-local`.
+  const [congBo, setCongBo] = useState<{ mo: string; dong: string } | null>(null);
+  /** `datetime-local` trả GIỜ MÁY NGƯỜI DÙNG, không kèm múi giờ. `fmtDateTime` lại dán `Z` vào
+   *  chuỗi thiếu múi giờ (đúng cho dữ liệu API, vì máy chủ trả UTC) ⇒ đưa thẳng vào là câu tóm
+   *  tắt LỆCH 7 TIẾNG so với cái người dùng vừa gõ. Quy về ISO có múi giờ trước rồi mới format. */
+  const gioDiaPhuong = (v: string) =>
+    v ? fmtDateTime(new Date(v).toISOString()) : "—";
   const [filter, setFilter] = useState<"all" | "ct" | "tv">("all");
+  const [q, setQ] = useState("");
+  const [dept, setDept] = useState("all");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // ⚠️ HAI ô nhớ lỗi KHÁC NHAU, đừng gộp lại:
+  //   `err`     = lỗi THAO TÁC (tính lại · chốt · đã chi · xuất file) → hiện ở banner đỏ.
+  //   `listErr` = lỗi TẢI BẢNG → hiện ở khối rỗng ca `lỗi`.
+  // Gộp một ô thì một lần xuất Excel hỏng cũng làm cả bảng lương biến mất khỏi màn.
+  const [listErr, setListErr] = useState<string | null>(null);
+  const [listLoading, setListLoading] = useState(true);
   const [editing, setEditing] = useState<PayrollLine | null>(null);
   const [printing, setPrinting] = useState<PayrollLine | null>(null);
   const [params, setParams] = useState<PayrollParams | null>(null);
@@ -307,16 +443,25 @@ function BangLuongTab({ token }: { token: string }) {
   }, [token]);
 
   const load = useCallback(() => {
+    setListLoading(true);
     api.luong
       .table(token, year, month)
       .then((t) => {
         setPeriod(t.period);
         setLines(t.lines);
+        setChanChotLyDo(t.chan_chot_ly_do ?? null);
+        setListErr(null);
       })
-      .catch(() => {
+      .catch((e) => {
+        // `GET /table` trả 200 kèm `period: null` khi kỳ CHƯA được tạo (xem
+        // `routers/payroll.py:get_table`) ⇒ rơi vào nhánh này nghĩa là gọi HỎNG thật (mất mạng,
+        // 403, 500), KHÔNG phải "chưa có kỳ". Trước đây nuốt lỗi rồi vẽ màn "Kỳ lương chưa được
+        // tạo" — hệ nói sai sự thật, kế toán tưởng phải khởi tạo lại kỳ đã có.
         setPeriod(null);
         setLines([]);
-      });
+        setListErr(errText(e));
+      })
+      .finally(() => setListLoading(false));
   }, [token, year, month]);
   useEffect(() => {
     load();
@@ -335,10 +480,28 @@ function BangLuongTab({ token }: { token: string }) {
     }
   }
 
-  const shown = lines.filter(
-    (l) =>
-      filter === "all" || (filter === "tv" ? l.is_probation : !l.is_probation),
+  // Danh sách Phòng/Tổ lấy từ CHÍNH các dòng lương đang có, không gọi thêm API: kỳ lương nào
+  // cũng chỉ gồm người có mặt trong kỳ đó, nên đổ cả cây phòng ban ra là bày cả những tổ không
+  // có ai để lọc.
+  const dsPhong = useMemo(
+    () =>
+      Array.from(
+        new Set(lines.map((l) => (l.department_name ?? "").trim()).filter(Boolean)),
+      ).sort((a, b) => a.localeCompare(b, "vi")),
+    [lines],
   );
+
+  const kw = q.trim().toLowerCase();
+  const shown = lines.filter((l) => {
+    if (filter !== "all" && (filter === "tv") !== l.is_probation) return false;
+    if (dept !== "all" && (l.department_name ?? "").trim() !== dept) return false;
+    if (!kw) return true;
+    // Tìm theo CẢ mã lẫn họ tên — người trả lương gõ mã, người soát gõ tên.
+    return (
+      (l.employee_name ?? "").toLowerCase().includes(kw) ||
+      (l.employee_code ?? "").toLowerCase().includes(kw)
+    );
+  });
   const totalNet = shown.reduce((s, l) => s + l.net_pay, 0);
   const totalStaff = shown.length;
   const officialCount = shown.filter((l) => !l.is_probation).length;
@@ -385,12 +548,32 @@ function BangLuongTab({ token }: { token: string }) {
           <span className="lg-date-icon">
             <Calendar size={14} />
           </span>
+          <MonthPicker value={ym} onChange={setYm} ariaLabel="Kỳ lương" />
+        </div>
+        <div className="lg-search-wrapper">
+          <span className="lg-search-icon">
+            <Search size={14} />
+          </span>
           <input
-            type="month"
-            value={ym}
-            onChange={(e) => setYm(e.target.value)}
+            className="lg-search-input"
+            placeholder="Tìm theo tên / mã…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
           />
         </div>
+        {dsPhong.length > 1 && (
+          <select
+            className="lg-dept-filter"
+            value={dept}
+            onChange={(e) => setDept(e.target.value)}
+            title="Lọc theo Phòng / Tổ"
+          >
+            <option value="all">Tất cả phòng / tổ</option>
+            {dsPhong.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        )}
         <div className="lg-seg">
           {(["all", "ct", "tv"] as const).map((f) => (
             <button
@@ -402,25 +585,33 @@ function BangLuongTab({ token }: { token: string }) {
             </button>
           ))}
         </div>
-        {isDraft && period && (
+        {/* Nút CAM (`btn--accent`) = việc chính của màn. "Tính lại" và "Khởi tạo bảng lương" là
+            CÙNG một việc ở hai trạng thái nên cùng vai; hai nút KHÔNG BAO GIỜ hiện cùng lúc
+            ("Tính lại" đòi `period`, "Khởi tạo" nằm trong nhánh `!period`) nên vẫn đúng luật
+            MỖI MÀN CHỈ MỘT NÚT CAM. Thêm nút cam thứ hai vào thanh này là phá luật đó.
+            ⚠️ `btn--primary` trong bộ CSS này ra màu NAVY, không phải cam — đừng "sửa" ngược lại. */}
+        {canManage && isDraft && period && (
           <button
-            className="btn btn--primary"
+            className="btn btn--accent"
             onClick={() => run(() => api.luong.generate(token, year, month))}
             disabled={busy}
           >
             {busy ? "Đang tính…" : "↻ Tính lại"}
           </button>
         )}
-        {period && isDraft && (
+        {canLockPeriod && period && isDraft && (
+          // Kỳ công chưa chốt ⇒ KHOÁ nút chứ không để bấm rồi ăn lỗi đỏ (luật đợt 5). `title` là
+          // chỗ DUY NHẤT nói được lý do khi nút đã xám, nên phải nói rõ phải làm gì tiếp.
           <button
             className="btn btn--ghost"
             onClick={() => run(() => api.luong.lock(token, year, month))}
-            disabled={busy}
+            disabled={busy || Boolean(chanChotLyDo)}
+            title={chanChotLyDo ?? undefined}
           >
             🔒 Chốt
           </button>
         )}
-        {locked && (
+        {canLockPeriod && locked && (
           <button
             className="btn btn--ghost"
             onClick={() => run(() => api.luong.reopen(token, year, month))}
@@ -429,7 +620,7 @@ function BangLuongTab({ token }: { token: string }) {
             Mở lại
           </button>
         )}
-        {locked && (
+        {canMarkPaid && locked && (
           <button
             className="btn btn--primary"
             onClick={() => run(() => api.luong.pay(token, year, month))}
@@ -438,7 +629,7 @@ function BangLuongTab({ token }: { token: string }) {
             💵 Đã chi
           </button>
         )}
-        {paid && (
+        {canMarkPaid && paid && (
           <button
             className="btn btn--ghost"
             onClick={() =>
@@ -449,31 +640,62 @@ function BangLuongTab({ token }: { token: string }) {
             ↩ Hủy đã chi
           </button>
         )}
-        {period && (
+        {/* CÔNG BỐ PHIẾU LƯƠNG (12/08/2026) — trả lời câu "KHI NÀO người lao động thấy phiếu".
+            Chỉ hiện khi kỳ ĐÃ CHỐT: bản nháp thì số chưa đóng băng, phát ra là mời người ta đọc
+            một con số sắp đổi. Gác chung ô quyền với Chốt bảng lương (đường 2 — bớt ô để quên). */}
+        {canLockPeriod && (locked || paid) && (
+          <button
+            className="btn btn--ghost"
+            onClick={() =>
+              setCongBo((v) => (v ? null : { mo: "", dong: "" }))
+            }
+            disabled={busy}
+            title="Chọn khoảng thời gian người lao động xem được phiếu lương của kỳ này."
+          >
+            📤 {period?.cong_bo_luc ? "Đổi lịch phiếu" : "Công bố phiếu"}
+          </button>
+        )}
+        {canLockPeriod && period?.cong_bo_luc && (
+          <button
+            className="btn btn--ghost"
+            onClick={() => run(() => api.luong.thuHoi(token, year, month))}
+            disabled={busy}
+            title="Rút phiếu lại — người lao động thôi thấy ngay lập tức."
+          >
+            ↩ Thu hồi phiếu
+          </button>
+        )}
+        {/* Ký tự ⬇ gõ thẳng trong chuỗi đã bỏ: mỗi hệ điều hành vẽ một kiểu, không nhận màu/kích
+            thước theo nút. Dùng icon thật. Bộ `components/Icons.tsx` KHÔNG có glyph tải xuống
+            (đã soát: gần nhất chỉ là `chevron` — mũi tên xuống của menu, đọc thành "mở danh
+            sách"), nên lấy `Download` của lucide đúng như màn Nhân sự đang dùng cho CHÍNH nút
+            "Xuất Excel" (NhanSuPage.tsx:654). Nhãn giữ nguyên: backend nay sinh .xlsx thật. */}
+        {canExportPayroll && period && (
           <button
             className="btn btn--ghost"
             onClick={() => downloadXlsx("table")}
             disabled={busy}
           >
-            ⬇ Xuất Excel
+            <Download size={14} /> Xuất Excel
           </button>
         )}
-        {(locked || paid) && (
+        {canExportPayroll && (locked || paid) && (
           <button
             className="btn btn--ghost"
             onClick={() => downloadXlsx("bank")}
             disabled={busy}
           >
-            ⬇ File chuyển khoản
+            <Download size={14} /> File chuyển khoản
           </button>
         )}
         {locked && <span className="ns-badge ns-badge--muted">Đã chốt</span>}
         {paid && (
           <span className="ns-badge ns-badge--muted">
             💵 Đã chi
-            {period?.paid_at
-              ? ` ${new Date(period.paid_at).toLocaleDateString("vi-VN")}`
-              : ""}
+            {/* `fmtDateTime` (utils/format) chứ không phải `new Date().toLocaleDateString`:
+                backend trả mốc thời gian UTC KHÔNG có hậu tố Z, để `new Date()` tự hiểu là giờ
+                địa phương thì ngày chi lệch mất một hôm nếu chi vào đầu/cuối ngày. */}
+            {period?.paid_at ? ` ${fmtDateTime(period.paid_at)}` : ""}
           </span>
         )}
       </div>
@@ -481,6 +703,118 @@ function BangLuongTab({ token }: { token: string }) {
       {err && (
         <div className="banner banner--error" style={{ marginBottom: 12 }}>
           {err}
+        </div>
+      )}
+
+      {/* Kỳ công chưa chốt: hiện NGAY CẢ KHI chưa khởi tạo bảng lương, để người tính lương biết
+          trước chứ không phải bấm Chốt rồi mới bị chặn. Nút "Chốt" cũng đã xám (xem thanh trên).
+          Chỉ nhắc, KHÔNG chặn Tính lại — xem thử quỹ lương giữa tháng vẫn là việc bình thường. */}
+      {/* BẢNG CÔNG BỐ PHIẾU LƯƠNG — một cửa sổ mở–đóng, không phải hai nút rời.
+          Chủ chốt 12/08/2026: "công bố nhưng cũng phải cài giờ phiếu hiển thị trong bao lâu".
+          Hai ô ĐỀU CÓ THỂ BỎ TRỐNG và mỗi cách bỏ trống có nghĩa riêng — nên phải nói ra bằng
+          chữ ngay dưới ô, đừng bắt người dùng đoán. Nút gợi ý nhanh (7/30 ngày) tính từ MỐC MỞ
+          chứ không phải từ hôm nay, nếu không hẹn mở tháng sau mà đóng tuần này. */}
+      {congBo && (
+        <div className="lg-congbo">
+          <div className="lg-congbo__title">
+            Người lao động xem phiếu lương {String(month).padStart(2, "0")}/{year} trong khoảng
+          </div>
+          <div className="lg-congbo__grid">
+            <label className="lg-congbo__field">
+              <span>Mở lúc</span>
+              <input
+                type="datetime-local"
+                value={congBo.mo}
+                onChange={(e) => setCongBo({ ...congBo, mo: e.target.value })}
+              />
+              <em>{congBo.mo ? "" : "bỏ trống = mở ngay khi bấm"}</em>
+            </label>
+            <label className="lg-congbo__field">
+              <span>Đóng lúc</span>
+              <input
+                type="datetime-local"
+                value={congBo.dong}
+                min={congBo.mo || undefined}
+                onChange={(e) => setCongBo({ ...congBo, dong: e.target.value })}
+              />
+              <em>{congBo.dong ? "" : "bỏ trống = mở không thời hạn"}</em>
+            </label>
+            <div className="lg-congbo__quick">
+              {([["7 ngày", 7], ["14 ngày", 14], ["30 ngày", 30]] as const).map(([nhan, ngay]) => (
+                <button
+                  key={ngay}
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => {
+                    const goc = congBo.mo ? new Date(congBo.mo) : new Date();
+                    const het = new Date(goc.getTime() + ngay * 86400000);
+                    const p2 = (n: number) => String(n).padStart(2, "0");
+                    setCongBo({
+                      ...congBo,
+                      dong: `${het.getFullYear()}-${p2(het.getMonth() + 1)}-${p2(het.getDate())}T${p2(het.getHours())}:${p2(het.getMinutes())}`,
+                    });
+                  }}
+                >
+                  {nhan}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setCongBo({ ...congBo, dong: "" })}
+              >
+                Không giới hạn
+              </button>
+            </div>
+          </div>
+          <div className="lg-congbo__foot">
+            <span className="lg-congbo__hint">
+              {congBo.dong && congBo.mo && new Date(congBo.dong) <= new Date(congBo.mo)
+                ? "⚠ Giờ đóng phải sau giờ mở."
+                : `Phiếu mở ${congBo.mo ? `từ ${gioDiaPhuong(congBo.mo)}` : "ngay bây giờ"}` +
+                  (congBo.dong ? ` đến ${gioDiaPhuong(congBo.dong)}.` : ", không thời hạn.")}
+            </span>
+            <div className="lg-congbo__act">
+              <button className="btn btn--ghost" onClick={() => setCongBo(null)}>
+                Bỏ
+              </button>
+              <button
+                className="btn btn--accent"
+                disabled={
+                  busy ||
+                  Boolean(congBo.dong && congBo.mo && new Date(congBo.dong) <= new Date(congBo.mo))
+                }
+                onClick={() => {
+                  const mo = congBo.mo ? new Date(congBo.mo).toISOString() : null;
+                  const dong = congBo.dong ? new Date(congBo.dong).toISOString() : null;
+                  setCongBo(null);
+                  run(() => api.luong.congBo(token, year, month, mo, dong));
+                }}
+              >
+                {period?.cong_bo_luc ? "Cập nhật" : "Công bố"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trạng thái hiện tại — nói rõ CẢ HAI đầu cửa sổ, đừng để HCNS phải đoán phiếu còn mở không. */}
+      {period?.cong_bo_luc && (
+        <div className="banner banner--success" style={{ marginBottom: 12 }}>
+          {new Date(period.cong_bo_luc) > new Date()
+            ? `Đã hẹn — phiếu mở lúc ${fmtDateTime(period.cong_bo_luc)}`
+            : `Đang mở từ ${fmtDateTime(period.cong_bo_luc)}`}
+          {period.dong_phieu_luc
+            ? new Date(period.dong_phieu_luc) <= new Date()
+              ? ` · ĐÃ ĐÓNG lúc ${fmtDateTime(period.dong_phieu_luc)} — người lao động thôi xem được.`
+              : ` · đóng lúc ${fmtDateTime(period.dong_phieu_luc)}.`
+            : " · không thời hạn."}
+        </div>
+      )}
+
+      {chanChotLyDo && isDraft && (
+        <div className="banner banner--warn" style={{ marginBottom: 12 }}>
+          {chanChotLyDo}
         </div>
       )}
 
@@ -542,7 +876,16 @@ function BangLuongTab({ token }: { token: string }) {
         </div>
       )}
 
-      {!period ? (
+      {/* BA CA phải tách, không gộp (xem components/EmptyState.tsx):
+            đang tải · gọi HỎNG · thật sự chưa có kỳ.
+          Trước đây cả ba đều rơi vào màn "Kỳ lương chưa được tạo": vào màn là nháy một nhịp
+          "chưa tạo" rồi mới ra bảng, còn khi backend chết thì mời người ta khởi tạo lại một kỳ
+          lương đã có sẵn. */}
+      {listLoading && !period ? (
+        <EmptyState trangThai="dang-tai" />
+      ) : listErr && !period ? (
+        <EmptyState trangThai="loi" loi={listErr} onThuLai={load} />
+      ) : !period ? (
         <div className="lg-init-dashboard">
           <div className="lg-init-grid">
             <div className="lg-init-section lg-init-section--sources">
@@ -650,7 +993,7 @@ function BangLuongTab({ token }: { token: string }) {
                 tiến hành khởi tạo.
               </p>
             </div>
-            {isDraft && (
+            {canManage && isDraft && (
               <button
                 className="btn btn--accent btn--large"
                 onClick={() =>
@@ -683,7 +1026,10 @@ function BangLuongTab({ token }: { token: string }) {
                 <th className="lg-num">BHXH</th>
                 <th className="lg-num">Đợt 1 / Tạm ứng</th>
                 <th className="lg-num lg-net">Thực lĩnh</th>
-                <th></th>
+                {/* Tên cột thống nhất toàn hệ là "Thao tác" (không phải "Hành động"), và có CHỮ
+                    chứ không để trống — ô trống thì người đọc bảng 16 cột không biết cột cuối
+                    làm gì. `lg-actcol` canh phải để tiêu đề đứng thẳng cột nút. */}
+                <th className="lg-actcol">Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -759,29 +1105,62 @@ function BangLuongTab({ token }: { token: string }) {
                   </td>
                   <td className="lg-num lg-net">{money(l.net_pay)}</td>
                   <td className="lg-rowact">
-                    {!locked && (
-                      <button
-                        className="btn btn--ghost"
+                    {canManage && !locked && (
+                      <RowActionButton
+                        dense
+                        label="Sửa dòng lương"
+                        icon="pencil"
                         onClick={() => setEditing(l)}
-                      >
-                        Sửa
-                      </button>
+                      />
                     )}
-                    <button
-                      className="btn btn--ghost"
+                    <RowActionButton
+                      dense
+                      label="In phiếu lương"
+                      icon="printer"
                       onClick={() => setPrinting(l)}
-                    >
-                      In
-                    </button>
+                    />
                   </td>
                 </tr>
               ))}
+              {/* colSpan=16 = ĐÚNG số cột đang hiện. Bảng này KHÔNG ẩn/hiện cột theo quyền (chỉ
+                  nút trong ô Thao tác mới theo quyền) nên số cứng là đúng — thêm/bớt <th> thì
+                  phải sửa cả số này lẫn colSpan của <tfoot> bên dưới. */}
               {shown.length === 0 && (
-                <tr>
-                  <td colSpan={16} className="ns__empty">
-                    Không có nhân viên phù hợp bộ lọc.
-                  </td>
-                </tr>
+                <EmptyRow
+                  colSpan={16}
+                  trangThai={
+                    listErr ? "loi" : listLoading ? "dang-tai" : "rong"
+                  }
+                  loi={listErr}
+                  onThuLai={load}
+                  icon="users"
+                  // "Chưa có…" chứ không "Không có…": dữ liệu chưa tới, không phải phán quyết.
+                  title={
+                    lines.length
+                      ? "Chưa có ai khớp bộ lọc"
+                      : "Chưa có dòng lương nào trong kỳ"
+                  }
+                  sub={
+                    lines.length
+                      ? "Bỏ bớt từ khoá, phòng/tổ hoặc nhóm Chính thức / Thử việc rồi xem lại."
+                      : "Bấm “Tính lại” để dựng lại bảng lương của kỳ này từ chấm công."
+                  }
+                  action={
+                    lines.length ? (
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={() => {
+                          setQ("");
+                          setDept("all");
+                          setFilter("all");
+                        }}
+                      >
+                        Xoá bộ lọc
+                      </button>
+                    ) : undefined
+                  }
+                />
               )}
             </tbody>
             <tfoot>
@@ -1192,6 +1571,9 @@ function LineEditModal({
             ) : (
               lcRows.map((r) => {
                 const fromEmp = r.source === "employee";
+                // Dòng chép từ hồ sơ nhưng HCNS đã sửa số CHO RIÊNG KỲ NÀY (12/08/2026).
+                // "Tính lại" chừa nó ra, và hồ sơ nhân viên không đổi.
+                const daDe = Boolean(r.da_de_tay);
                 const d = lcDraft[r.id] ?? {
                   amount: r.amount,
                   note: r.note ?? "",
@@ -1208,15 +1590,17 @@ function LineEditModal({
                       {r.name}
                       {fromEmp && (
                         <span
-                          className="ns-badge ns-badge--muted"
+                          className={`ns-badge ${daDe ? "ns-badge--info" : "ns-badge--muted"}`}
                           style={{ marginLeft: 6 }}
                         >
-                          Từ hồ sơ
+                          {daDe ? "Đã sửa cho kỳ này" : "Từ hồ sơ"}
                         </span>
                       )}
                       {fromEmp && (
                         <span className="lg-lc__src">
-                          sửa ở Lương → Lương nhân viên
+                          {daDe
+                            ? "hồ sơ giữ nguyên — tháng sau tự về mức cũ"
+                            : "mức theo hồ sơ; sửa ở đây chỉ đổi riêng kỳ này"}
                         </span>
                       )}
                     </div>
@@ -1228,7 +1612,10 @@ function LineEditModal({
                       </span>
                     </div>
                     <div className="lg-lc__money">
-                      {fromEmp || readOnly ? (
+                      {/* Dòng "Từ hồ sơ" NAY SỬA ĐƯỢC (chủ chốt 12/08/2026): "tháng này nó đi
+                          nhiều hơn thì sửa thế nào". Sửa ở hồ sơ là đổi cho MỌI tháng sau và phải
+                          nhớ sửa ngược — quên một lần là trả sai mãi. */}
+                      {readOnly ? (
                         <span className="lg-lc__ro">{money(r.amount)}</span>
                       ) : (
                         <input
@@ -1268,6 +1655,45 @@ function LineEditModal({
                       )}
                     </div>
                     <div className="lg-lc__act">
+                      {fromEmp && !readOnly && (
+                        <>
+                          {d.amount !== r.amount && (
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              disabled={rowBusy}
+                              onClick={() =>
+                                void lcRun(
+                                  r.id,
+                                  () =>
+                                    api.luong.updateLineComponent(token, r.id, {
+                                      amount: d.amount,
+                                    }),
+                                  `Đã sửa “${r.name}” cho riêng kỳ này.`,
+                                )
+                              }
+                            >
+                              Lưu
+                            </button>
+                          )}
+                          {daDe && d.amount === r.amount && (
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              disabled={rowBusy}
+                              onClick={() =>
+                                void lcRun(
+                                  r.id,
+                                  () => api.luong.boDeComponent(token, r.id),
+                                  `Đã trả “${r.name}” về mức hồ sơ.`,
+                                )
+                              }
+                            >
+                              Trả về theo hồ sơ
+                            </button>
+                          )}
+                        </>
+                      )}
                       {!fromEmp && !readOnly && (
                         <>
                           {dirty && (
@@ -1436,12 +1862,22 @@ function NhanVienTab({
   const [emps, setEmps] = useState<EmployeeRow[]>([]);
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<EmployeeRow | null>(null);
+  // Ba ca của bảng: đang tải · rỗng thật · gọi hỏng. `listErr` CHỈ giữ lỗi TẢI DANH SÁCH.
+  const [listErr, setListErr] = useState<string | null>(null);
+  const [listLoading, setListLoading] = useState(true);
 
   const load = useCallback(() => {
+    setListLoading(true);
     api.employees
       .list(token, { size: 200, sort: "code" })
-      .then((r) => setEmps(r.items))
-      .catch(() => setEmps([]));
+      .then((r) => {
+        setEmps(r.items);
+        setListErr(null);
+      })
+      // Trước đây nuốt lỗi rồi gán [] ⇒ bảng in "không có nhân viên" trong khi thật ra là gọi
+      // hỏng. Giữ nguyên danh sách cũ và nói đúng ca `lỗi`.
+      .catch((e) => setListErr(errText(e)))
+      .finally(() => setListLoading(false));
   }, [token]);
   useEffect(() => {
     load();
@@ -1495,7 +1931,8 @@ function NhanVienTab({
               <th>Họ tên</th>
               <th>Vị trí</th>
               <th>Trạng thái</th>
-              <th>Hành động</th>
+              {/* "Thao tác" — tên cột thống nhất toàn hệ, KHÔNG dùng "Hành động". */}
+              <th className="lg-actcol">Thao tác</th>
             </tr>
           </thead>
           <tbody>
@@ -1541,23 +1978,47 @@ function NhanVienTab({
                       {statusInfo.label}
                     </span>
                   </td>
-                  <td>
-                    <button
-                      className="lg-edit-salary-btn"
+                  {/* Nút chữ trên dòng → `RowActionButton` dạng dense (icon + tooltip) như mọi
+                      bảng khác của hệ. Nhãn vẫn là "Thiết lập lương" — nó thành aria-label và
+                      nội dung tooltip, không mất chữ cho người đọc màn hình. */}
+                  <td className="lg-rowact">
+                    <RowActionButton
+                      dense
+                      label="Thiết lập lương"
+                      icon="settings"
                       onClick={() => setPicked(e)}
-                    >
-                      <Sliders size={13} /> Thiết lập lương
-                    </button>
+                    />
                   </td>
                 </tr>
               );
             })}
             {shown.length === 0 && (
-              <tr>
-                <td colSpan={5} className="ns__empty">
-                  Không có nhân viên.
-                </td>
-              </tr>
+              <EmptyRow
+                colSpan={5}
+                trangThai={listErr ? "loi" : listLoading ? "dang-tai" : "rong"}
+                loi={listErr}
+                onThuLai={load}
+                icon="users"
+                title={
+                  emps.length ? "Chưa có ai khớp từ khoá" : "Chưa có nhân viên"
+                }
+                sub={
+                  emps.length
+                    ? "Thử gõ ngắn hơn, hoặc tìm bằng mã nhân viên."
+                    : "Khai hồ sơ ở màn Nhân sự trước, rồi quay lại thiết lập lương."
+                }
+                action={
+                  emps.length ? (
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      onClick={() => setQ("")}
+                    >
+                      Xoá từ khoá
+                    </button>
+                  ) : undefined
+                }
+              />
             )}
           </tbody>
         </table>
@@ -1612,6 +2073,8 @@ type SysRow = {
   taxable: boolean;
   value: number;
   set: (v: number) => void;
+  /** Khoản đã NGƯNG: cho xem số cũ để tra lịch sử nhưng không cho sửa (sửa cũng không ra tiền). */
+  readOnly?: boolean;
 };
 
 function SalaryModal({
@@ -1628,7 +2091,9 @@ function SalaryModal({
   // `nhan_su:edit_salary`. Thiếu quyền thì hiện chỉ-đọc chứ đừng cho bấm rồi im lặng không ăn.
   const canEditPit = can("nhan_su", "update") && can("nhan_su", "edit_salary");
   const [preview, setPreview] = useState<SalaryPreview | null>(null);
-  const [history, setHistory] = useState<EmployeeSalary[]>([]);
+  // null = ĐANG TẢI (khởi tạo [] sẽ in "Chưa khai lương" ngay lúc còn fetch — báo sai).
+  const [history, setHistory] = useState<EmployeeSalary[] | null>(null);
+  const [histErr, setHistErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
@@ -1680,13 +2145,17 @@ function SalaryModal({
   const reload = useCallback(async () => {
     const [prev, hist] = await Promise.all([
       api.luong.salaryPreview(token, emp.id).catch(() => null),
-      api.luong.salaries(token, emp.id).catch(() => ({
-        items: [] as EmployeeSalary[],
-        employee_id: emp.id,
-        employee_name: null,
-      })),
+      // Đọc lịch sử hỏng thì phải NÓI RA (ca `lỗi` của bảng cuối màn). Bản cũ nuốt lỗi rồi trả
+      // danh sách rỗng ⇒ màn in "Chưa khai lương" cho người ĐÃ có lương, và người dùng khai
+      // lại một mốc đã tồn tại. Trả null = không đụng gì tới số đang hiện.
+      api.luong.salaries(token, emp.id).catch((e) => {
+        setHistErr(errText(e));
+        return null;
+      }),
     ]);
     setPreview(prev);
+    if (!hist) return;
+    setHistErr(null);
     setHistory(hist.items);
     // Điền sẵn theo bản lương mới nhất (để SỬA thay vì khai lại từ đầu).
     const latest = hist.items.length
@@ -2008,7 +2477,7 @@ function SalaryModal({
   const sysRows: SysRow[] = [
     {
       key: "luong_vi_tri",
-      name: "Lương cơ bản (đóng BH)",
+      name: "Lương cơ bản",
       note: "BHXH/BHYT/BHTN đóng trên số này",
       taxable: true,
       value: luongViTri,
@@ -2032,11 +2501,15 @@ function SalaryModal({
     },
     {
       key: "phu_cap_ca",
-      name: "Phụ cấp ca",
-      note: "Cộng phẳng mỗi tháng — engine miễn TNCN như tiền tăng ca / ca đêm",
-      taxable: false,
+      name: "Phụ cấp ca (đã ngưng)",
+      // Chú thích cũ ghi "engine miễn TNCN như tiền tăng ca / ca đêm" — câu đó KHẲNG ĐỊNH SAI:
+      // phần miễn thuế là di sản từ hồi ô này là tiền ca đêm ĐƯỢC TÍNH, còn TT 111/2013 Đ3.1.i
+      // chỉ miễn phần trả CAO HƠN gắn với giờ đêm/tăng ca THỰC TẾ.
+      note: "KHÔNG còn ra tiền từ 03/08/2026 — cơm & phụ cấp ca nay tính theo CA THỰC LÀM (khai ở từng ca, màn Chấm công). Số cũ giữ lại để tra lịch sử.",
+      taxable: true,
       value: phuCapCa,
       set: setPhuCapCa,
+      readOnly: true,
     },
     {
       key: "phu_cap_tham_nien",
@@ -2057,6 +2530,14 @@ function SalaryModal({
   const pitKnown = detail != null && detail.pit_mode != null;
   const pitEff = pitMode ?? "luy_tien";
   const hasDeduction = pitEff === "luy_tien"; // 2 nhánh còn lại KHÔNG có giảm trừ gia cảnh
+
+  // Khối "Cấu hình tính thuế TNCN" trong modal này ĐANG TẮT (JSX bị comment ở ~2494–2616). Giữ
+  // nguyên phần tính ở trên để bật lại chỉ cần bỏ comment khối JSX. Mấy dòng `void` dưới đây chỉ
+  // để TypeScript thôi báo "khai mà không dùng" — không chạy gì, không đổi hành vi.
+  void PIT_MODE_ORDER;
+  void detailErr;
+  void pitKnown;
+  void hasDeduction;
   const deductionSelf = params ? params.deduction_self : null;
   const deductionDependent = params ? params.deduction_dependent : null;
   const deductionTotal =
@@ -2094,7 +2575,8 @@ function SalaryModal({
                       ? "theo quy tắc"
                       : "chưa có"}
               </span>
-              {" · "}phụ cấp {money(preview.allowance)} · đóng BH trên{" "}
+              {/* {" · "}phụ cấp {money(preview.allowance)} */}
+               · đóng BH trên{" "}
               {money(preview.insurance_base)}
             </div>
           )}
@@ -2134,6 +2616,10 @@ function SalaryModal({
                     step={100000}
                     aria-label={`Số tiền ${r.name}`}
                     value={r.value}
+                    // Ô đã ngưng: cho XEM số cũ nhưng KHÔNG cho sửa. Ẩn hẳn thì người ta không
+                    // tra được lịch sử; để sửa được thì lại hứa suông vì số đó không ra tiền nữa.
+                    readOnly={r.readOnly}
+                    disabled={r.readOnly}
                     onChange={(e) => r.set(Number(e.target.value))}
                   />
                 </div>
@@ -2437,7 +2923,7 @@ function SalaryModal({
           {/* Cấu hình tính thuế TNCN theo TỪNG NGƯỜI. Mọi con số (giảm trừ, tỷ lệ khấu trừ,
               ngưỡng) LẤY TỪ `GET /api/luong/params` — viết cứng vào chuỗi là màn hình nói dối
               ngay lần luật đổi mức. */}
-          <h4 className="ns-section__title" style={{ marginTop: 16 }}>
+          {/* <h4 className="ns-section__title" style={{ marginTop: 16 }}>
             Cấu hình tính thuế TNCN
           </h4>
           {detailErr && (
@@ -2450,8 +2936,6 @@ function SalaryModal({
           <div className="lg-pit">
             <label className="ns-field lg-pit__mode">
               <span className="ns-field__label">Cách tính thuế TNCN</span>
-              {/* Chưa đọc được hồ sơ thì ĐỂ TRỐNG, đừng hiện sẵn "Luỹ tiến" — người dùng sẽ
-                  đọc thành "người này đang tính luỹ tiến" trong khi mình chưa biết gì. */}
               <select
                 value={pitKnown ? pitEff : ""}
                 disabled={!canEditPit || !pitKnown}
@@ -2561,7 +3045,7 @@ function SalaryModal({
                 )}
               </p>
             </div>
-          </div>
+          </div> */}
 
           <div className="ns-grid" style={{ marginTop: 12 }}>
             <div
@@ -2643,7 +3127,7 @@ function SalaryModal({
                 </tr>
               </thead>
               <tbody>
-                {history.map((s) => {
+                {(history ?? []).map((s) => {
                   const vt = s.luong_vi_tri ?? 0;
                   const tn = s.luong_trach_nhiem ?? 0;
                   const nen = vt + tn > 0 ? vt + tn : (s.base_amount ?? 0);
@@ -2677,12 +3161,18 @@ function SalaryModal({
                     </tr>
                   );
                 })}
-                {history.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="ns__empty">
-                      Chưa khai lương.
-                    </td>
-                  </tr>
+                {(history ?? []).length === 0 && (
+                  <EmptyRow
+                    colSpan={9}
+                    trangThai={
+                      histErr ? "loi" : history === null ? "dang-tai" : "rong"
+                    }
+                    loi={histErr}
+                    onThuLai={() => void reload()}
+                    icon="clock"
+                    title="Chưa khai lương cho người này"
+                    sub="Điền các ô ở trên rồi bấm “Lưu điều chỉnh” — mốc đầu tiên sẽ nằm ở đây."
+                  />
                 )}
               </tbody>
             </table>
@@ -2769,14 +3259,6 @@ function SalaryModal({
   );
 }
 
-// --- Tab: Lương khoán (đơn giá khoán) ---------------------------------------
-// Tiền khoán mỗi người = Phiếu sản lượng theo người (màn Lệnh SX) → cột "Khoán" bảng lương.
-// Tab này chỉ quản lý bảng ĐƠN GIÁ khoán để tra khi ghi phiếu.
-
-function KhoanTab({ token }: { token: string }) {
-  return <KhoanRatesEditor token={token} />;
-}
-
 // --- Tab: Tạm ứng -----------------------------------------------------------
 
 /** Map 1 bản ghi tạm ứng → dữ liệu phiếu in "Giấy đề nghị tạm ứng". */
@@ -2798,15 +3280,35 @@ function advPrintData(a: SalaryAdvance) {
 
 function TamUngTab({
   token,
+  navigate,
   eventTick,
+  canCreateAdvance,
+  canApproveAdvance,
 }: {
   token: string;
+  navigate?: NavigateFn;
   eventTick?: number;
+  canCreateAdvance: boolean;
+  canApproveAdvance: boolean;
 }) {
+  const can = useCan();
+  // Lập phiếu chi là việc của KẾ TOÁN, không phải của người duyệt tạm ứng (tách vai từ
+  // 04/08/2026) ⇒ đi theo ô của phân hệ Phiếu chi, không theo `luong:approve`.
+  const canLapPhieuChi = can("phieu_chi", "create");
+  const canXemPhieuChi = can("phieu_chi", "read");
   const [ym, setYm] = useState(curYm);
   const [items, setItems] = useState<SalaryAdvance[]>([]);
   const [emps, setEmps] = useState<EmployeeRow[]>([]);
   const [adding, setAdding] = useState<null | "tam_ung" | "luong_dot_1">(null);
+  // advance_id → phiếu chi CÒN HIỆU LỰC. Phiếu ĐÃ HUỶ bị loại ra vì backend cũng bỏ qua nó
+  // (`get_voucher_by_salary_advance` lọc `status != cancelled`): huỷ phiếu chi xong là lập lại
+  // được, chip phải biến mất theo — không thì kế toán tưởng đã chi rồi và bỏ sót tiền.
+  const [pcTheoTamUng, setPcTheoTamUng] = useState<Map<number, PaymentVoucherRow>>(
+    () => new Map(),
+  );
+  const [lapPcCho, setLapPcCho] = useState<SalaryAdvance | null>(null);
+  const [pcVuaLap, setPcVuaLap] = useState<PaymentVoucherRow | null>(null);
+  const [actErr, setActErr] = useState<string | null>(null);
   const [year, month] = ym.split("-").map(Number);
 
   const load = useCallback(() => {
@@ -2815,9 +3317,29 @@ function TamUngTab({
       .then((r) => setItems(r.items))
       .catch(() => setItems([]));
   }, [token, year, month]);
+  // Danh sách tạm ứng CHƯA trả cờ "đã lập phiếu chi" ⇒ đối chiếu bằng sổ phiếu chi, map theo
+  // `salary_advance_id`. Ai không có ô xem phiếu chi thì bỏ qua hẳn (gọi vào chỉ ăn 403).
+  const loadPhieuChi = useCallback(() => {
+    if (!canXemPhieuChi) {
+      setPcTheoTamUng(new Map());
+      return;
+    }
+    api.accounting
+      .salaryAdvanceVouchers(token)
+      .then((rows) => {
+        const map = new Map<number, PaymentVoucherRow>();
+        for (const pc of rows) {
+          if (pc.salary_advance_id == null || pc.status === "cancelled") continue;
+          map.set(pc.salary_advance_id, pc);
+        }
+        setPcTheoTamUng(map);
+      })
+      .catch(() => setPcTheoTamUng(new Map()));
+  }, [token, canXemPhieuChi]);
   useEffect(() => {
     load();
-  }, [load, eventTick]);
+    loadPhieuChi();
+  }, [load, loadPhieuChi, eventTick]);
   useEffect(() => {
     api.employees
       .list(token, { size: 200, sort: "code" })
@@ -2826,11 +3348,16 @@ function TamUngTab({
   }, [token]);
 
   async function act(fn: () => Promise<unknown>) {
+    setActErr(null);
     try {
       await fn();
       load();
-    } catch {
-      /* ignore */
+      loadPhieuChi();
+    } catch (e) {
+      // Nuốt lỗi ở đây là chỗ hỏng cũ: huỷ tạm ứng ĐÃ lập phiếu chi nay bị chặn 400 kèm CÂU
+      // GIẢI THÍCH + mã phiếu chi ("… huỷ phiếu chi trước rồi mới huỷ được."). Hiện NGUYÊN CÂU
+      // của backend — viết lại là mất mã phiếu, người dùng không biết phải huỷ cái nào.
+      setActErr(errText(e));
     }
   }
 
@@ -2855,28 +3382,73 @@ function TamUngTab({
           <span className="lg-date-icon">
             <Calendar size={14} />
           </span>
-          <input
-            type="month"
-            value={ym}
-            onChange={(e) => setYm(e.target.value)}
-          />
+          <MonthPicker value={ym} onChange={setYm} ariaLabel="Kỳ lương" />
         </div>
-        <button
-          className="btn btn--primary"
-          onClick={() => setAdding("tam_ung")}
-        >
-          + Thêm ứng
-        </button>
-        <button
-          className="btn btn--ghost"
-          onClick={() => setAdding("luong_dot_1")}
-        >
-          + Phiếu lương đợt 1
-        </button>
+        {canCreateAdvance && (
+          <button
+            className="btn btn--primary"
+            onClick={() => setAdding("tam_ung")}
+          >
+            + Thêm ứng
+          </button>
+        )}
+        {canCreateAdvance && (
+          <button
+            className="btn btn--ghost"
+            onClick={() => setAdding("luong_dot_1")}
+          >
+            + Phiếu lương đợt 1
+          </button>
+        )}
         <span className="lg-approved-badge">
           Đã duyệt: <b>{money(totalApproved)}đ</b>
         </span>
       </div>
+
+      {actErr && (
+        <div className="banner banner--error lg-tu-note">
+          <span>{actErr}</span>
+          <button
+            type="button"
+            className="lg-tu-note__x"
+            aria-label="Đóng thông báo"
+            onClick={() => setActErr(null)}
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {/* Báo THÀNH CÔNG ở lại tới khi tự đóng (không tự tắt sau vài giây) vì nó mang MÃ PHIẾU
+          CHI bấm được — mã trôi mất là kế toán phải đi tìm lại trong sổ quỹ. */}
+      {pcVuaLap && (
+        <div className="banner banner--success lg-tu-note">
+          <span>
+            Đã lập phiếu chi <b className="lg-tu-note__code">{pcVuaLap.code}</b>{" "}
+            — {money(pcVuaLap.amount)}đ, tiền đã ra khỏi két.
+          </span>
+          {navigate && (
+            <button
+              type="button"
+              className="lg-tu-note__link"
+              onClick={() =>
+                navigate("ke-toan-phieu-chi", {
+                  focusVoucherQuery: pcVuaLap.code,
+                })
+              }
+            >
+              Mở phiếu chi
+            </button>
+          )}
+          <button
+            type="button"
+            className="lg-tu-note__x"
+            aria-label="Đóng thông báo"
+            onClick={() => setPcVuaLap(null)}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {items.length === 0 ? (
         <div className="lg-table-empty-state">
@@ -2903,7 +3475,8 @@ function TamUngTab({
                 <th className="lg-num">Số tiền</th>
                 <th>Lý do</th>
                 <th>Trạng thái</th>
-                <th>Hành động</th>
+                {/* "Thao tác" — tên cột thống nhất toàn hệ, KHÔNG dùng "Hành động". */}
+                <th className="lg-actcol">Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -2913,6 +3486,7 @@ function TamUngTab({
                   "ns-badge--muted",
                 ];
                 const [kLabel, kCls] = KIND[a.kind] ?? KIND.tam_ung;
+                const pc = pcTheoTamUng.get(a.id) ?? null;
                 return (
                   <tr key={a.id}>
                     <td className="font-mono">{a.code ?? "—"}</td>
@@ -2928,42 +3502,90 @@ function TamUngTab({
                     <td>
                       <span className={`ns-badge ${cls}`}>{label}</span>
                     </td>
-                    <td className="cc-rowact">
-                      <button
-                        className="btn btn--ghost"
+                    {/* Nút chữ trên dòng → `RowActionButton` dense. `danger` GIỮ NGUYÊN cho Từ
+                        chối / Hủy: mất tín hiệu đỏ là bấm nhầm vào tiền của người ta. */}
+                    <td className="lg-rowact">
+                      <RowActionButton
+                        dense
+                        label="In phiếu đề nghị"
+                        icon="printer"
                         onClick={() => printAdvanceRequest(advPrintData(a))}
-                      >
-                        🖨 In phiếu
-                      </button>
-                      {a.status === "pending" && (
+                      />
+                      {canApproveAdvance && a.status === "pending" && (
                         <>
-                          <button
-                            className="btn btn--ghost"
+                          <RowActionButton
+                            dense
+                            label="Duyệt"
+                            icon="check"
                             onClick={() =>
                               act(() => api.luong.approveAdvance(token, a.id))
                             }
-                          >
-                            Duyệt
-                          </button>
-                          <button
-                            className="btn btn--ghost ns-danger"
+                          />
+                          <RowActionButton
+                            dense
+                            danger
+                            label="Từ chối"
+                            icon="x"
                             onClick={() =>
                               act(() => api.luong.rejectAdvance(token, a.id))
                             }
-                          >
-                            Từ chối
-                          </button>
+                          />
                         </>
                       )}
-                      {a.status === "approved" && (
-                        <button
-                          className="btn btn--ghost ns-danger"
+                      {/* CHỈ phiếu ĐÃ DUYỆT mới ra được tiền. Đã có phiếu chi thì thay nút bằng
+                          CHIP mã phiếu — một phiếu tạm ứng chỉ một phiếu chi, bày nút lần hai chỉ
+                          để người ta bấm rồi ăn 409. */}
+                      {a.status === "approved" &&
+                        (pc ? (
+                          navigate ? (
+                            <button
+                              type="button"
+                              className="lg-pc-chip"
+                              title={`Mở phiếu chi ${pc.code} bên Kế toán`}
+                              onClick={() =>
+                                navigate("ke-toan-phieu-chi", {
+                                  focusVoucherQuery: pc.code,
+                                })
+                              }
+                            >
+                              {pc.code}
+                            </button>
+                          ) : (
+                            <span
+                              className="lg-pc-chip lg-pc-chip--static"
+                              title={`Đã lập phiếu chi ${pc.code}`}
+                            >
+                              {pc.code}
+                            </span>
+                          )
+                        ) : canLapPhieuChi ? (
+                          <RowActionButton
+                            dense
+                            variant="accent"
+                            label="Lập phiếu chi"
+                            icon="clipboard"
+                            onClick={() => setLapPcCho(a)}
+                          />
+                        ) : null)}
+                      {/* Đã lập phiếu chi thì backend chặn huỷ (400). Chặn luôn ở NÚT để lý do
+                          đọc được ngay trên tooltip — kèm MÃ phiếu chi, vì đó chính là thứ phải
+                          đi huỷ trước. Bấm được mà ăn lỗi thì `act()` vẫn hiện nguyên câu
+                          backend trả về. */}
+                      {canApproveAdvance && a.status === "approved" && (
+                        <RowActionButton
+                          dense
+                          danger
+                          disabled={pc != null}
+                          label={
+                            pc
+                              ? `Đã lập phiếu chi ${pc.code} — huỷ phiếu chi trước`
+                              : "Hủy phiếu đã duyệt"
+                          }
+                          icon="ban"
                           onClick={() =>
                             act(() => api.luong.cancelAdvance(token, a.id))
                           }
-                        >
-                          Hủy
-                        </button>
+                        />
                       )}
                     </td>
                   </tr>
@@ -2988,6 +3610,322 @@ function TamUngTab({
           }}
         />
       )}
+
+      {lapPcCho && (
+        <LapPhieuChiModal
+          token={token}
+          adv={lapPcCho}
+          onClose={() => setLapPcCho(null)}
+          onDone={(pc) => {
+            setLapPcCho(null);
+            setActErr(null);
+            setPcVuaLap(pc);
+            loadPhieuChi();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Lập PHIẾU CHI từ một phiếu tạm ứng ĐÃ DUYỆT (chủ chốt 18/08/2026).
+ *
+ *  Ba ô nhận diện (nhân viên · mã tạm ứng · số tiền) để CHỈ ĐỌC — backend lấy số tiền từ phiếu
+ *  tạm ứng và tên người nhận từ hồ sơ NV, mọi giá trị gửi lên đều bị bỏ qua. Bày ô cho gõ rồi
+ *  âm thầm vứt đi là cách nhanh nhất để kế toán tin phiếu chi ghi số họ vừa sửa. */
+function LapPhieuChiModal({
+  token,
+  adv,
+  onClose,
+  onDone,
+}: {
+  token: string;
+  adv: SalaryAdvance;
+  onClose: () => void;
+  onDone: (pc: PaymentVoucherRow) => void;
+}) {
+  const tenNv = adv.employee_name ?? `NV#${adv.employee_id}`;
+  const kyLuong = `${String(adv.period_month).padStart(2, "0")}/${adv.period_year}`;
+  const homNay = todayYmd();
+  const [vtype, setVtype] = useState<PaymentVoucherType>("cash");
+  const [ngay, setNgay] = useState(homNay);
+  // Phiếu đợt 1 KHÔNG phải "tạm ứng" — gọi đúng tên khoản để nội dung in trên chứng từ không nói
+  // sai bản chất. Sửa được, đây chỉ là chữ điền sẵn.
+  const [noiDung, setNoiDung] = useState(
+    `${adv.kind === "luong_dot_1" ? "Thanh toán lương đợt 1" : "Tạm ứng lương"} tháng ${kyLuong} — ${tenNv}`,
+  );
+  const [ghiChu, setGhiChu] = useState("");
+  // Địa chỉ + giấy tờ CHỈ in trên mẫu 02-TT tiền mặt (ký nhận tại quỹ), nên bày đúng nhánh tiền
+  // mặt như modal phiếu chi bên Kế toán. Chuyển khoản đã có tài khoản thụ hưởng làm bằng chứng.
+  const [diaChi, setDiaChi] = useState("");
+  const [giayTo, setGiayTo] = useState("");
+  const [tkCty, setTkCty] = useState<number | "">("");
+  const [tkList, setTkList] = useState<CompanyBankAccountRow[]>([]);
+  const [tkLoi, setTkLoi] = useState(false);
+  const [thHolder, setThHolder] = useState(adv.employee_name ?? "");
+  const [thSo, setThSo] = useState(adv.bank_account ?? "");
+  const [thNganHang, setThNganHang] = useState(adv.bank_name ?? "");
+  const [thChiNhanh, setThChiNhanh] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const chuyenKhoan = vtype === "bank_transfer";
+
+  // Chỉ nạp tài khoản công ty khi thật sự chọn chuyển khoản — phiếu tiền mặt không cần, mà API
+  // này còn đòi ô quyền KHÁC (Tài khoản ngân hàng), gọi bừa là 403 cho cả người chi tiền mặt.
+  useEffect(() => {
+    if (!chuyenKhoan) return;
+    let alive = true;
+    api.accounting
+      .companyAccounts(token, true, "pay")
+      .then((rows) => {
+        if (!alive) return;
+        setTkList(rows);
+        setTkLoi(false);
+        if (rows.length === 1) setTkCty(rows[0].id);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setTkList([]);
+        setTkLoi(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [chuyenKhoan, token]);
+
+  async function save() {
+    const nd = noiDung.trim();
+    if (!nd) {
+      setErr("Nhập nội dung chi.");
+      return;
+    }
+    if (ngay > homNay) {
+      setErr("Ngày chứng từ không được ở tương lai.");
+      return;
+    }
+    if (
+      chuyenKhoan &&
+      (tkCty === "" ||
+        !thHolder.trim() ||
+        !thSo.trim() ||
+        !thNganHang.trim())
+    ) {
+      setErr(
+        "Chuyển khoản phải có tài khoản trích nợ và đủ tên · số tài khoản · ngân hàng thụ hưởng.",
+      );
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      const pc = await api.accounting.createVoucherFromAdvance(token, {
+        salary_advance_id: adv.id,
+        amount: adv.amount,
+        voucher_type: vtype,
+        voucher_date: ngay,
+        content: nd,
+        note: ghiChu.trim() || null,
+        cash_recipient_address: chuyenKhoan ? null : diaChi.trim() || null,
+        cash_recipient_identity: chuyenKhoan ? null : giayTo.trim() || null,
+        // `bank_fee_bearer` cố ý KHÔNG bày thành ô: lương chuyển đi thì công ty chịu phí, nếu
+        // không nhân viên nhận hụt so với số đã duyệt. Backend mặc định đúng "payer".
+        company_bank_account_id: chuyenKhoan ? Number(tkCty) : null,
+        beneficiary_account_holder: chuyenKhoan ? thHolder.trim() : null,
+        beneficiary_account_number: chuyenKhoan ? thSo.trim() : null,
+        beneficiary_bank_name: chuyenKhoan ? thNganHang.trim() : null,
+        beneficiary_bank_branch: chuyenKhoan ? thChiNhanh.trim() || null : null,
+      });
+      onDone(pc);
+    } catch (e) {
+      // 409 (đã có phiếu chi) · 422 (chưa duyệt) — backend trả câu tiếng Việt đủ ý, giữ nguyên.
+      setErr(errText(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="ns-modal" role="dialog" aria-modal="true">
+      <div className="ns-modal__box">
+        <header className="ns-modal__head">
+          <h2>Lập phiếu chi — {adv.code ?? `tạm ứng #${adv.id}`}</h2>
+          <button className="ns-modal__x" onClick={onClose}>
+            ×
+          </button>
+        </header>
+        {/* `lg-pc-body` = flex column + gap: mọi khối con tự giãn cách đều nhau, không phải rắc
+            `margin-top` số cứng lên từng ô (khối chuyển khoản ẩn/hiện làm lệch nhịp ngay). */}
+        <div className="ns-modal__body lg-pc-body">
+          {err && <div className="banner banner--error">{err}</div>}
+
+          <div className="lg-pc-ro">
+            <div className="lg-pc-ro__cell">
+              <span className="lg-pc-ro__lbl">Nhân viên nhận tiền</span>
+              <b className="lg-pc-ro__val">{tenNv}</b>
+            </div>
+            <div className="lg-pc-ro__cell">
+              <span className="lg-pc-ro__lbl">Mã phiếu tạm ứng</span>
+              <b className="lg-pc-ro__val lg-pc-ro__val--code">
+                {adv.code ?? "—"}
+              </b>
+            </div>
+            <div className="lg-pc-ro__cell">
+              <span className="lg-pc-ro__lbl">Số tiền</span>
+              <b className="lg-pc-ro__val lg-pc-ro__val--money">
+                {money(adv.amount)}đ
+              </b>
+            </div>
+          </div>
+          <p className="lg-pc-hint">
+            Ba ô trên lấy thẳng từ phiếu tạm ứng đã duyệt, không sửa được — phiếu
+            chi luôn đúng bằng số đã duyệt.
+          </p>
+
+          <div className="ns-grid">
+            <label className="ns-field">
+              <span className="ns-field__label">Hình thức chi *</span>
+              <select
+                value={vtype}
+                onChange={(e) =>
+                  setVtype(e.target.value as PaymentVoucherType)
+                }
+              >
+                <option value="cash">Tiền mặt</option>
+                <option value="bank_transfer">Chuyển khoản</option>
+              </select>
+            </label>
+            <label className="ns-field">
+              <span className="ns-field__label">Ngày chứng từ *</span>
+              {/* `max` chặn ngay ở ô chọn — backend cũng từ chối ngày tương lai (422). */}
+              <input
+                type="date"
+                max={homNay}
+                value={ngay}
+                onChange={(e) => setNgay(e.target.value)}
+              />
+            </label>
+          </div>
+
+          {chuyenKhoan && (
+            <>
+              {tkLoi && (
+                <div className="banner banner--warn">
+                  Không đọc được danh sách tài khoản công ty (thiếu quyền Tài
+                  khoản ngân hàng). Chọn “Tiền mặt”, hoặc nhờ kế toán có quyền
+                  lập giúp.
+                </div>
+              )}
+              {!tkLoi && tkList.length === 0 && (
+                <div className="banner banner--warn">
+                  Chưa có tài khoản công ty bật “dùng để chi”. Khai báo ở mục Tài
+                  khoản ngân hàng trước khi lập UNC.
+                </div>
+              )}
+              <label className="ns-field">
+                <span className="ns-field__label">Tài khoản trích nợ *</span>
+                <select
+                  value={tkCty}
+                  onChange={(e) =>
+                    setTkCty(e.target.value ? Number(e.target.value) : "")
+                  }
+                >
+                  <option value="">— chọn tài khoản công ty —</option>
+                  {tkList.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.bank_name} · {t.account_number} · {t.currency}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="ns-grid">
+                <label className="ns-field">
+                  <span className="ns-field__label">Chủ tài khoản nhận *</span>
+                  <input
+                    value={thHolder}
+                    onChange={(e) => setThHolder(e.target.value)}
+                  />
+                </label>
+                <label className="ns-field">
+                  <span className="ns-field__label">Số tài khoản nhận *</span>
+                  <input
+                    inputMode="numeric"
+                    value={thSo}
+                    onChange={(e) => setThSo(e.target.value)}
+                  />
+                </label>
+                <label className="ns-field">
+                  <span className="ns-field__label">Ngân hàng nhận *</span>
+                  <input
+                    value={thNganHang}
+                    onChange={(e) => setThNganHang(e.target.value)}
+                  />
+                </label>
+                <label className="ns-field">
+                  <span className="ns-field__label">Chi nhánh</span>
+                  <input
+                    value={thChiNhanh}
+                    onChange={(e) => setThChiNhanh(e.target.value)}
+                  />
+                </label>
+              </div>
+              <p className="lg-pc-hint">
+                Điền sẵn theo tài khoản ngân hàng khai trong hồ sơ nhân viên —
+                soát lại trước khi chuyển.
+              </p>
+            </>
+          )}
+
+          {/* Nhánh TIỀN MẶT: hai ô của mẫu 02-TT người nhận ký tại quỹ. Bỏ trống được — hồ sơ
+              nhân viên thường đã có, đây là chỗ ghi khi giấy tờ xuất trình khác hồ sơ. */}
+          {!chuyenKhoan && (
+            <div className="ns-grid">
+              <label className="ns-field">
+                <span className="ns-field__label">Địa chỉ người nhận</span>
+                <input
+                  value={diaChi}
+                  onChange={(e) => setDiaChi(e.target.value)}
+                />
+              </label>
+              <label className="ns-field">
+                <span className="ns-field__label">CCCD/Giấy tờ</span>
+                <input
+                  value={giayTo}
+                  onChange={(e) => setGiayTo(e.target.value)}
+                />
+              </label>
+            </div>
+          )}
+
+          <label className="ns-field">
+            <span className="ns-field__label">Nội dung chi *</span>
+            <input
+              value={noiDung}
+              onChange={(e) => setNoiDung(e.target.value)}
+            />
+          </label>
+          <label className="ns-field">
+            <span className="ns-field__label">Ghi chú</span>
+            <input value={ghiChu} onChange={(e) => setGhiChu(e.target.value)} />
+          </label>
+        </div>
+        <footer className="ns-modal__foot">
+          <span className="lg-pc-warn">
+            Lập phiếu chi là tiền đã ra khỏi két. Lập xong không sửa được, chỉ
+            huỷ được.
+          </span>
+          <div className="ns-modal__footright">
+            <button
+              className="btn btn--ghost"
+              onClick={onClose}
+              disabled={busy}
+            >
+              Hủy
+            </button>
+            <button className="btn btn--primary" onClick={save} disabled={busy}>
+              {busy ? "Đang lập…" : "Lập phiếu chi"}
+            </button>
+          </div>
+        </footer>
+      </div>
     </div>
   );
 }
@@ -3019,6 +3957,39 @@ function AddAdvanceModal({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Danh sách kỳ lương, đọc MỘT LẦN lúc mở modal (không gọi lại theo từng lần đổi ô). `null` =
+  // chưa biết: đang tải, hoặc gọi hỏng — im lặng chứ đừng đoán "kỳ chưa tạo".
+  const [periods, setPeriods] = useState<PayrollPeriod[] | null>(null);
+  const kyRange = useMemo(khoangKyUng, []);
+  const ky = `${year}-${String(month).padStart(2, "0")}`;
+  const kyNgoaiKhoang = ky < kyRange.min || ky > kyRange.max;
+  // Kỳ có trong danh sách thì lấy trạng thái của nó; không có = chưa ai tính lương tháng đó.
+  const kyStatus = useMemo(() => {
+    if (periods === null) return null;
+    const p = periods.find((x) => x.year === year && x.month === month);
+    return p ? p.status : "chua_tao";
+  }, [periods, year, month]);
+  const kyNote = trangThaiKyUng(kyStatus);
+  // Chốt chặn thật vẫn ở backend (409 kèm câu giải thích). Khoá nút ở đây chỉ để người lập biết
+  // NGAY lúc mở modal, khỏi điền hết form rồi mới ăn lỗi.
+  const kyChanGui =
+    kyNgoaiKhoang || kyStatus === "locked" || kyStatus === "paid";
+
+  useEffect(() => {
+    let alive = true;
+    api.luong
+      .periods(token)
+      .then((r) => {
+        if (alive) setPeriods(r.items);
+      })
+      .catch(() => {
+        // Không đọc được (mất mạng / thiếu ô Xem lương) ⇒ giữ `null`: không chip, không khoá nút.
+        if (alive) setPeriods(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token]);
 
   // Phiếu đợt 1: chọn NV xong tự điền sẵn số tiền = "Lương trả 1 lần" trong hồ sơ (cho sửa).
   useEffect(() => {
@@ -3051,6 +4022,14 @@ function AddAdvanceModal({
   async function save() {
     if (empId === "" || amount <= 0) {
       setErr("Chọn nhân viên và nhập số tiền > 0.");
+      return;
+    }
+    if (kyChanGui) {
+      setErr(
+        kyNgoaiKhoang
+          ? `Kỳ ${ymLabel(ky)} nằm ngoài khoảng lập phiếu (${ymLabel(kyRange.min)} – ${ymLabel(kyRange.max)}).`
+          : `Kỳ ${ymLabel(ky)} đã khoá — không lập được phiếu cho kỳ này.`,
+      );
       return;
     }
     setBusy(true);
@@ -3092,6 +4071,33 @@ function AddAdvanceModal({
               <b>“Thanh toán lương đợt 1”</b> trên phiếu lương.
             </p>
           )}
+          {/* Kỳ lương CHỈ ĐỌC: kỳ đi theo ô chọn tháng trên thanh công cụ (danh sách bên dưới
+              cũng lọc theo nó) — bày thêm ô sửa ở đây thì lập xong phiếu lại không thấy nó trong
+              bảng. Nhưng phải NÓI RA kỳ nào và kỳ đó đang ở trạng thái gì: đây là ô quyết định
+              bảng lương tháng nào trừ lại khoản ứng. */}
+          <div className="lg-ky-box">
+            <div className="lg-ky-box__row">
+              <span className="lg-ky-box__lbl">Kỳ lương</span>
+              <span className="lg-ky-box__val">{ymLabel(ky)}</span>
+            </div>
+            <p className="lg-ky-box__hint">
+              Tháng sẽ trừ lại khoản ứng này trên bảng lương — không nhất thiết
+              là tháng của ngày ứng. Đổi kỳ ở ô chọn tháng trên thanh công cụ.
+            </p>
+            {kyNgoaiKhoang ? (
+              <p className="lg-ky-status lg-ky-status--bad">
+                Kỳ {ymLabel(ky)} nằm ngoài khoảng lập phiếu (
+                {ymLabel(kyRange.min)} – {ymLabel(kyRange.max)}) — đổi kỳ trên
+                thanh công cụ rồi lập lại.
+              </p>
+            ) : (
+              kyNote && (
+                <p className={`lg-ky-status lg-ky-status--${kyNote.tone}`}>
+                  {kyNote.text}
+                </p>
+              )
+            )}
+          </div>
           <label className="ns-field">
             <span className="ns-field__label">Nhân viên *</span>
             <select
@@ -3143,7 +4149,20 @@ function AddAdvanceModal({
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>
             Hủy
           </button>
-          <button className="btn btn--primary" onClick={save} disabled={busy}>
+          {/* Kỳ đã chốt / đã chi / ngoài khoảng ⇒ khoá nút ngay, khỏi điền hết form rồi mới ăn
+              409. `title` để người dùng rê chuột biết vì sao nút xám. */}
+          <button
+            className="btn btn--primary"
+            onClick={save}
+            disabled={busy || kyChanGui}
+            title={
+              kyNgoaiKhoang
+                ? `Kỳ ${ymLabel(ky)} nằm ngoài khoảng lập phiếu (${ymLabel(kyRange.min)} – ${ymLabel(kyRange.max)}).`
+                : kyChanGui && kyNote
+                  ? kyNote.text
+                  : undefined
+            }
+          >
             {busy ? "Đang lưu…" : "Lưu"}
           </button>
         </footer>
@@ -3197,7 +4216,7 @@ function PayslipCard({
     luongNgayPhep > 0
       ? {
           "Lương theo công": [
-            "Trong đó: lương ngày phép (theo lương vị trí)",
+            "Trong đó: lương ngày phép",
             luongNgayPhep,
           ],
         }
@@ -3205,7 +4224,16 @@ function PayslipCard({
 
   const income = [
     ["Lương theo công", l.luong_cong],
-    ["Phụ cấp ca", pcCa],
+    // Hai khoản theo CA THỰC LÀM (từ 03/08/2026) — mỗi khoản MỘT DÒNG, không gộp: phiếu lương
+    // phải nói rõ ăn bao nhiêu cơm, bao nhiêu phụ cấp.
+    ["Cơm ca", l.meal_allowance_pay ?? 0],
+    // Dòng RIÊNG, không gộp vào "Cơm ca": hai khoản khác luật (một theo ca thực làm, một theo
+    // giờ tăng ca) và một ngày có thể ăn CẢ HAI. Gộp là hết đường giải thích khi NLĐ hỏi.
+    ["Cơm tăng ca", l.com_tang_ca_pay ?? 0],
+    ["Phụ cấp ca (theo ca làm)", l.shift_allowance_pay ?? 0],
+    // Ô cũ per-người đã ngưng ⇒ chỉ còn hiện ở kỳ CŨ đã chốt (còn số thì mới in dòng), để phiếu
+    // lương tháng trước in lại vẫn đúng y nguyên.
+    ...(pcCa ? ([["Phụ cấp ca (khai tay — đã ngưng)", pcCa]] as [string, number][]) : []),
     ["Phụ cấp ca đêm (giờ × hệ số)", l.night_premium_pay ?? 0],
     ["Phụ cấp thâm niên", pcThamNien],
     ["Phụ cấp khác", pcKhac],
@@ -3337,7 +4365,7 @@ function PayslipCard({
       {/* 2 dòng thuế (chủ 27/07/2026). `pit_taxable` là thu nhập TÍNH thuế — đã trừ bảo hiểm
           + giảm trừ gia cảnh, KHÔNG phải "tổng thu nhập chịu thuế"; backend không snapshot số
           đó nên gọi đúng tên, đừng dán nhãn "chịu thuế" lên số đã trừ giảm trừ. */}
-      <div className="lg-payslip2__tax">
+      {/* <div className="lg-payslip2__tax">
         <span className="lg-payslip2__taxcell">
           <span>Thu nhập tính thuế TNCN</span>
           <b>{money(l.pit_taxable)}đ</b>
@@ -3351,7 +4379,7 @@ function PayslipCard({
           giảm trừ gia cảnh — thuế TNCN bấm trên số này. Thu nhập miễn thuế gồm
           tăng ca, ca đêm và các khoản không tích “Chịu thuế” trong danh mục.
         </span>
-      </div>
+      </div> */}
       <div className="lg-payslip2__net">
         <span>THỰC NHẬN</span>
         <span>{money(l.net_pay)}đ</span>
@@ -3373,9 +4401,13 @@ function PayslipCard({
 function TamUngCuaToiTab({
   token,
   eventTick,
+  canCreate,
 }: {
   token: string;
   eventTick?: number;
+  /** Ô THAO TÁC của màn Lương. Không có ô thì KHÔNG bày nút — bày ra mà bấm ăn 403 thì
+   *  trông như hệ thống hỏng, chứ không như "anh không có quyền" (chủ chốt 15/08/2026). */
+  canCreate: boolean;
 }) {
   const [data, setData] = useState<MyAdvances | null>(null);
   const [adding, setAdding] = useState<null | "tam_ung" | "luong_dot_1">(null);
@@ -3428,20 +4460,26 @@ function TamUngCuaToiTab({
   return (
     <div>
       <div className="cc-toolbar lg-toolbar">
-        <button
-          className="btn btn--primary"
-          onClick={() => setAdding("tam_ung")}
-        >
-          + Đề nghị tạm ứng
-        </button>
-        <button
-          className="btn btn--ghost"
-          onClick={() => setAdding("luong_dot_1")}
-        >
-          + Xin lương đợt 1
-        </button>
+        {canCreate && (
+          <button
+            className="btn btn--primary"
+            onClick={() => setAdding("tam_ung")}
+          >
+            + Đề nghị tạm ứng
+          </button>
+        )}
+        {canCreate && (
+          <button
+            className="btn btn--ghost"
+            onClick={() => setAdding("luong_dot_1")}
+          >
+            + Xin lương đợt 1
+          </button>
+        )}
         <span className="cc-card__hint">
-          Đề nghị gửi tới kế toán duyệt; bấm “In phiếu” để ký &amp; nộp.
+          {canCreate
+            ? "Đề nghị gửi tới kế toán duyệt; bấm “In phiếu” để ký & nộp."
+            : "Chỉ xem — vai của bạn chưa được bật ô Thao tác ở màn Lương nên không gửi đề nghị được."}
         </span>
       </div>
       {data.items.length === 0 ? (
@@ -3466,7 +4504,8 @@ function TamUngCuaToiTab({
                 <th className="lg-num">Số tiền</th>
                 <th>Lý do</th>
                 <th>Trạng thái</th>
-                <th>Hành động</th>
+                {/* "Thao tác" — tên cột thống nhất toàn hệ, KHÔNG dùng "Hành động". */}
+                <th className="lg-actcol">Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -3491,13 +4530,13 @@ function TamUngCuaToiTab({
                     <td>
                       <span className={`ns-badge ${cls}`}>{label}</span>
                     </td>
-                    <td className="cc-rowact">
-                      <button
-                        className="btn btn--ghost"
+                    <td className="lg-rowact">
+                      <RowActionButton
+                        dense
+                        label="In phiếu đề nghị"
+                        icon="printer"
                         onClick={() => printAdvanceRequest(advPrintData(a))}
-                      >
-                        🖨 In phiếu
-                      </button>
+                      />
                     </td>
                   </tr>
                 );
@@ -3511,6 +4550,7 @@ function TamUngCuaToiTab({
           token={token}
           kind={adding}
           dot1Prefill={data.luong_dot_1}
+          kyMinServer={data.ky_min_chon_duoc ?? null}
           onClose={() => setAdding(null)}
           onSaved={() => {
             setAdding(null);
@@ -3526,12 +4566,15 @@ function MyAdvanceModal({
   token,
   kind,
   dot1Prefill,
+  kyMinServer,
   onClose,
   onSaved,
 }: {
   token: string;
   kind: "tam_ung" | "luong_dot_1";
   dot1Prefill: number;
+  /** Mốc kỳ sớm nhất còn lập được, từ `/advances/me`. null ⇒ dùng mốc 12 tháng mặc định. */
+  kyMinServer: string | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -3545,10 +4588,31 @@ function MyAdvanceModal({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // KHÔNG gọi `GET /api/luong/periods` ở đây: đường đó đòi quyền `luong:read`, còn màn này chỉ
+  // cần `luong:create` ⇒ nhân viên thường gọi vào là 403. Thay vào đó server trả kèm mốc
+  // `ky_min_chon_duoc` trong `/advances/me` — cùng lối với `luong_dot_1`.
+  //
+  // Chủ chốt 18/08/2026: **kỳ đã chốt thì không cho chọn nữa**. Mốc server = tháng liền sau kỳ
+  // khoá muộn nhất; lấy mốc MUỘN HƠN giữa nó và mốc 12 tháng để không nới lỏng chốt chống gõ
+  // nhầm năm. So chuỗi `YYYY-MM` là đúng thứ tự thời gian nên không cần đổi sang Date.
+  const kyRange = useMemo(() => {
+    const base = khoangKyUng();
+    const min = kyMinServer && kyMinServer > base.min ? kyMinServer : base.min;
+    return { min, max: base.max };
+  }, [kyMinServer]);
+  // Lịch của trình duyệt đã làm mờ tháng ngoài `min`/`max`, nhưng gõ tay thì vẫn lọt ⇒ so lại.
+  // So chuỗi `YYYY-MM` là đúng thứ tự thời gian nên không cần đổi sang Date.
+  const kyNgoaiKhoang = ym < kyRange.min || ym > kyRange.max;
 
   async function save() {
     if (amount <= 0) {
       setErr("Nhập số tiền > 0.");
+      return;
+    }
+    if (kyNgoaiKhoang) {
+      setErr(
+        `Kỳ lương chỉ chọn được từ ${ymLabel(kyRange.min)} đến ${ymLabel(kyRange.max)}.`,
+      );
       return;
     }
     const [year, month] = ym.split("-").map(Number);
@@ -3596,11 +4660,23 @@ function MyAdvanceModal({
           <div className="ns-grid">
             <label className="ns-field">
               <span className="ns-field__label">Kỳ lương</span>
-              <input
-                type="month"
+              <MonthPicker
                 value={ym}
-                onChange={(e) => setYm(e.target.value)}
+                onChange={setYm}
+                ariaLabel="Kỳ lương"
+                min={kyRange.min}
+                max={kyRange.max}
               />
+              <span className="ns-field__hint">
+                Tháng sẽ trừ lại khoản ứng này trên bảng lương — không nhất
+                thiết là tháng của ngày ứng.
+              </span>
+              {kyNgoaiKhoang && (
+                <span className="ns-field__hint ns-field__hint--err">
+                  Chỉ chọn được kỳ từ {ymLabel(kyRange.min)} đến{" "}
+                  {ymLabel(kyRange.max)}.
+                </span>
+              )}
             </label>
             <label className="ns-field">
               <span className="ns-field__label">Ngày ứng</span>
@@ -3629,7 +4705,16 @@ function MyAdvanceModal({
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>
             Hủy
           </button>
-          <button className="btn btn--primary" onClick={save} disabled={busy}>
+          <button
+            className="btn btn--primary"
+            onClick={save}
+            disabled={busy || kyNgoaiKhoang}
+            title={
+              kyNgoaiKhoang
+                ? `Kỳ lương chỉ chọn được từ ${ymLabel(kyRange.min)} đến ${ymLabel(kyRange.max)}.`
+                : undefined
+            }
+          >
             {busy ? "Đang gửi…" : "Gửi đề nghị"}
           </button>
         </footer>
@@ -3640,18 +4725,54 @@ function MyAdvanceModal({
 
 // --- Tab: Phiếu lương của tôi -----------------------------------------------
 
+/** Câu giải thích vì sao chưa xem được phiếu — CHỈ tháng + lý do, không bao giờ kèm tiền.
+ *  Bốn tình huống trước đây gộp thành một câu "Chưa có phiếu lương", nên thợ tưởng bị sót
+ *  lương rồi đi hỏi HCNS (`docs/prd-phieu-luong-tu-phuc-vu.md` §1.2). */
+function lyDoChuaCoPhieu(cp: ChoPhat | null): { tieu_de: string; mo_ta: string } {
+  if (!cp)
+    return {
+      tieu_de: "Chưa có phiếu lương",
+      mo_ta: "Bạn chưa có kỳ lương nào trong hệ thống. Liên hệ HCNS nếu bạn nghĩ đây là nhầm lẫn.",
+    };
+  const ky = `tháng ${String(cp.month).padStart(2, "0")}/${cp.year}`;
+  if (cp.tinh_trang === "hen_gio")
+    return {
+      tieu_de: `Phiếu lương ${ky} sắp được phát`,
+      mo_ta: `Phiếu sẽ mở lúc ${cp.mo_luc ? fmtDateTime(cp.mo_luc) : "giờ đã hẹn"}. Quay lại sau thời điểm đó.`,
+    };
+  if (cp.tinh_trang === "da_dong")
+    return {
+      tieu_de: `Phiếu lương ${ky} đã đóng`,
+      mo_ta: "Thời hạn xem phiếu của kỳ này đã hết. Cần xem lại thì liên hệ HCNS.",
+    };
+  if (cp.tinh_trang === "chua_phat")
+    return {
+      tieu_de: `Phiếu lương ${ky} đang được lập`,
+      mo_ta: "Bảng lương kỳ này chưa được phát. Phiếu sẽ hiện ngay khi HCNS công bố.",
+    };
+  // Máy chủ thêm trạng thái mới mà màn chưa biết: nói chung chung còn hơn nói SAI. Đừng gộp ca
+  // này vào "đang được lập" — một ngày nào đó nó sẽ là câu sai với một tình huống thật.
+  return {
+    tieu_de: `Chưa xem được phiếu lương ${ky}`,
+    mo_ta: "Liên hệ HCNS để biết thời điểm phát phiếu.",
+  };
+}
+
 function PhieuLuongTab({ token }: { token: string }) {
   const [data, setData] = useState<Awaited<
     ReturnType<typeof api.luong.myPayslip>
   > | null>(null);
+  // Kỳ đang xem. `null` = để máy chủ chọn kỳ mới nhất đang mở — mở màn luôn về phiếu mới nhất,
+  // KHÔNG nhớ lựa chọn cũ: người ta vào đây để xem lương tháng này, tra lại là việc phụ.
+  const [ky, setKy] = useState<{ year: number; month: number } | null>(null);
   useEffect(() => {
     // Không gọi `getParams` nữa: 3 dòng BHXH/BHYT/BHTN do backend trả kèm phiếu, nên nhân viên
     // KHÔNG cần quyền cấu hình lương (trước đây gọi rồi ăn 403 → phiếu rơi về dòng gộp).
     api.luong
-      .myPayslip(token)
+      .myPayslip(token, ky ?? undefined)
       .then(setData)
       .catch(() => setData(null));
-  }, [token]);
+  }, [token, ky]);
 
   if (!data)
     return (
@@ -3677,20 +4798,18 @@ function PhieuLuongTab({ token }: { token: string }) {
       </div>
     );
   }
+  const dsKy = data.ky_xem_duoc ?? [];
   const l = data.line;
   if (!l || !data.period) {
+    const { tieu_de, mo_ta } = lyDoChuaCoPhieu(data.cho_phat);
     return (
       <div className="lg-payslip-empty-container">
         <div className="lg-payslip-empty-card">
           <div className="lg-payslip-empty-icon">
             <FileText size={24} />
           </div>
-          <h3 className="lg-payslip-empty-title">Chưa có phiếu lương</h3>
-          <p className="lg-payslip-empty-desc">
-            Không tìm thấy dữ liệu phiếu lương của bạn cho tháng này. Phiếu
-            lương sẽ hiển thị sau khi bộ phận HCNS hoàn tất việc chốt bảng
-            lương.
-          </p>
+          <h3 className="lg-payslip-empty-title">{tieu_de}</h3>
+          <p className="lg-payslip-empty-desc">{mo_ta}</p>
         </div>
       </div>
     );
@@ -3702,9 +4821,36 @@ function PhieuLuongTab({ token }: { token: string }) {
         className="lg-payslip-noprint"
         style={{ textAlign: "center", marginBottom: 8 }}
       >
+        {/* Ô chọn kỳ CHỈ hiện khi có từ 2 kỳ trở lên — một kỳ mà bày dropdown là thêm khối UI
+            vô nghĩa. Kỳ nào vào được danh sách này là máy chủ đã duyệt cửa sổ công bố rồi. */}
+        {dsKy.length > 1 && (
+          <select
+            className="input"
+            style={{ width: "auto", marginRight: 8 }}
+            value={`${data.period.year}-${data.period.month}`}
+            onChange={(e) => {
+              const [y, m] = e.target.value.split("-").map(Number);
+              setKy({ year: y, month: m });
+            }}
+            title="Chọn kỳ lương muốn xem lại"
+          >
+            {dsKy.map((k) => (
+              <option key={`${k.year}-${k.month}`} value={`${k.year}-${k.month}`}>
+                {`Tháng ${String(k.month).padStart(2, "0")}/${k.year}`}
+                {k.dong_phieu_luc ? ` — xem tới ${fmtDateTime(k.dong_phieu_luc)}` : ""}
+              </option>
+            ))}
+          </select>
+        )}
         <button className="btn btn--ghost" onClick={() => window.print()}>
           🖨 In phiếu
         </button>
+        {/* Đang xem được kỳ cũ mà kỳ mới chưa phát: nói ra, đừng để họ tưởng bị sót lương. */}
+        {data.cho_phat && (
+          <div className="lg-payslip-noprint" style={{ marginTop: 6, fontSize: 13, opacity: 0.75 }}>
+            {lyDoChuaCoPhieu(data.cho_phat).tieu_de}.
+          </div>
+        )}
       </div>
       <PayslipCard line={l} period={data.period} />
     </div>

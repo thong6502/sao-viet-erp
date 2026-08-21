@@ -6,12 +6,13 @@ auto VÀO/RA toggling, self check-in gated on a linked employee, and the RBAC bo
 from __future__ import annotations
 
 import calendar
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
 import app.services.attendance_service as _att_svc
 from app.db import SessionLocal
+from app.repositories.attendance_repo import AttendanceRepository
 from app.repositories.employee_repo import EmployeeRepository
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
@@ -39,6 +40,66 @@ def _ghim_hom_nay(monkeypatch):
     "Ngày mai" trong test = mùng 1 tháng sau.
     Seam này CHỈ chi phối `_require_not_future`; lượt chấm thật vẫn ghi theo giờ thực."""
     monkeypatch.setattr(_att_svc, "_today_vn", _ngay_cuoi_thang)
+
+
+def _vai_cham_bu_pham_vi(pham_vi: str, ten_vai: str) -> str:
+    """Tao mot vai CO quyen cham bu nhung PHAM VI hep, tra token.
+
+    Dung cho test chot ky: hom nay chi Giam doc va TP HCNS co `adjust`, ca hai deu pham vi ca cong
+    ty — nen khong the dung tai khoan seed de kiem hang rao pham vi."""
+    from app.models.role import SCOPE_ALL  # noqa: F401  (giu import gan cho de doc)
+
+    db = SessionLocal()
+    try:
+        depts, roles, users = DepartmentRepository(db), RoleRepository(db), UserRepository(db)
+        dept = depts.get_by_name("Sản xuất")
+        role = roles.get_by_name_and_department(ten_vai, dept.id)
+        if role is None:
+            role = roles.create(name=ten_vai, department_id=dept.id)
+        # Màn Chấm công có khoá RIÊNG từ 10/08/2026 (`cham_cong`), và CHỐT KỲ tách sang ô
+        # `can_lock` chứ không còn đi kèm `can_adjust` — cấp cả hai để test kiểm đúng hàng rào
+        # PHẠM VI chứ không vô tình kiểm nhầm hàng rào "chưa cấp ô nào".
+        roles.set_permission(
+            role_id=role.id, module_key="cham_cong",
+            can_read=True, can_adjust=True, can_lock=True, scope=pham_vi,
+        )
+        uname = f"probe-{ten_vai.lower().replace(' ', '-')}"
+        u = users.get_by_username(uname)
+        if u is None:
+            u = users.create(username=uname, name=ten_vai, password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=dept.id, role_id=role.id, is_active=True)
+        db.commit()
+        return create_access_token(str(u.id))
+    finally:
+        db.close()
+
+
+def test_chot_ky_cong_doi_pham_vi_toan_cong_ty(client):
+    """CHOT KY / MO LAI KY la viec TOAN CONG TY — pham vi hep phai bi chan.
+
+    Lo hong do duoc ngay 10/08/2026: endpoint chi hoi "co quyen cham bu khong", KHONG hoi nguoi bam
+    quan ai. Vai pham vi `own` bam Chot ky ⇒ CHOT DUOC, va anh chup ra 2 dong thuoc 2 phong ban —
+    tuc dong bang dau vao luong cua CA NHA MAY. `Mo lai ky` con nang hon: no XOA SACH anh chup do.
+
+    Hom nay chua ai no vi chi Giam doc va TP HCNS co quyen cham bu, ca hai deu pham vi ca cong ty.
+    Test nay giu hang rao cho ngay phan quyen hep lai.
+    """
+    thang_truoc = date.today().replace(day=1) - timedelta(days=1)
+    kỳ = {"year": thang_truoc.year, "month": thang_truoc.month}
+
+    for pham_vi, ten in (("own", "Probe Chot Own"), ("department", "Probe Chot Dept")):
+        tok = _vai_cham_bu_pham_vi(pham_vi, ten)
+        r = client.post("/api/attendance/period/lock", json=kỳ, headers=_h(tok))
+        assert r.status_code == 403, f"pham vi {pham_vi} KHONG duoc chot ky: {r.text}"
+        assert "cả công ty" in r.json()["detail"]
+
+        r2 = client.post("/api/attendance/period/reopen", json=kỳ, headers=_h(tok))
+        assert r2.status_code == 403, f"pham vi {pham_vi} KHONG duoc mo lai ky: {r2.text}"
+
+    # Nguoi pham vi CA CONG TY van chot binh thuong — hang rao khong duoc chan nham nguoi dung that.
+    admin = _admin_token(client)
+    ok = client.post("/api/attendance/period/lock", json=kỳ, headers=_h(admin))
+    assert ok.status_code == 200, ok.text
 
 
 def _admin_token(client) -> str:
@@ -361,13 +422,29 @@ def test_timesheet_forbidden_without_permission(client):
 
 
 def _make_worker(username: str, dept_id: int) -> int:
-    """User active, KHÔNG có quyền module — chấm công tự phục vụ sau khi nối hồ sơ NV."""
+    """Thợ: vai TRỐNG TRƠN (không ô quản trị nào) — chỉ tự phục vụ sau khi nối hồ sơ NV.
+
+    Từ 10/08/2026 tự phục vụ là MỘT Ô QUYỀN chứ không còn là luật ngầm "ai đăng nhập cũng làm
+    được". Vai mới sinh ra đã có sẵn ô đó (xem `RoleRepository.O_MAC_DINH`), nên ở đây chỉ cần gán
+    một vai trống — giống ngoài đời, mọi người lao động đều thuộc một vai nào đó.
+
+    Trước đây fixture để `role_id=None` (không vai): nay không vai = không ô nào = không tự chấm
+    công được, đúng ý đồ Luật 1."""
     db = SessionLocal()
     try:
-        users = UserRepository(db)
+        users, roles = UserRepository(db), RoleRepository(db)
+        vai = roles.get_by_name_and_department("Thợ trống quyền", dept_id)
+        if vai is None:
+            vai = roles.create(name="Thợ trống quyền", department_id=dept_id)
+            # Từ 15/08/2026 (mg 0194): ô `self_service` đã bỏ, phần "của tôi" đi theo ô của CHÍNH
+            # màn đó. Thợ phải được cấp `cham_cong` mới bấm giờ được — `can_read` mở màn + ba tab
+            # của mình, `can_create` là ô Thao tác (ghi thì phải có ô, kể cả ghi đơn của mình).
+            # KHÔNG có `can_view_timesheet` ⇒ vẫn không thấy lưới công cả xưởng.
+            roles.set_permission(role_id=vai.id, module_key="cham_cong", scope="own",
+                                 can_read=True, can_create=True)
         u = users.get_by_username(username) or users.create(
             username=username, name=username, password_hash=hash_password("x"))
-        users.set_assignment(u, department_id=dept_id, role_id=None, is_active=True)
+        users.set_assignment(u, department_id=dept_id, role_id=vai.id, is_active=True)
         return u.id
     finally:
         db.close()
@@ -381,7 +458,13 @@ def _dept_hr_token(dept_name: str) -> str:
         roles = RoleRepository(db)
         role = roles.get_by_name_and_department("HR-scope", dept.id) or roles.create(
             name="HR-scope", department_id=dept.id)
-        roles.set_permission(role_id=role.id, module_key="nhan_su", can_read=True, scope="department")
+        # Đọc nhật ký + bảng công là màn Chấm công ⇒ khoá `cham_cong`.
+        # `can_view_log`: tab Nhật ký chấm công tách thành ô riêng 11/08/2026 — HR của phòng
+        # vẫn phải đọc được nhật ký của phòng mình.
+        # `can_view_timesheet`: Bảng công tháng tách thành ô riêng 15/08/2026 (mg 0194) — `can_read`
+        # nay chỉ mở màn + ba tab CỦA TÔI; muốn xem lưới cả phòng phải có ô này.
+        roles.set_permission(role_id=role.id, module_key="cham_cong", can_read=True,
+                             can_view_log=True, can_view_timesheet=True, scope="department")
         users = UserRepository(db)
         u = users.get_by_username(f"hr-{dept.id}") or users.create(
             username=f"hr-{dept.id}", name="HR", password_hash=hash_password("x"))
@@ -836,6 +919,127 @@ def test_cong_le_toi_tay_nguoi_khong_cham_cong(client):
     assert row["total_cong"] == 1.0                   # công lễ tới tay, không phải None/0
 
 
+# --- Ô ngày phải TỰ NÓI loại ngày: lễ · nghỉ tuần · off1x -------------------
+#
+# Chủ báo 17/08/2026: công nhân đi làm ngày lễ, mở "Lịch công của tôi" thấy đúng chữ "Công: 1" —
+# y hệt một ngày thường — nên tưởng mình bị trả thiếu, trong khi Lương đang trả 4× cho ngày đó.
+# Gốc là ô ngày chỉ mang MỘT cờ `holiday`, và nó chỉ được gắn ở nhánh KHÔNG chấm công; ngày nghỉ
+# tuần / ngày `off1x` thì không có cờ nào cả. Ba cờ dưới đây là ĐẦU VÀO DUY NHẤT để màn hình phân
+# biệt bốn loại ngày — mất một cờ là màn hình lại nói dối về tiền.
+
+NAM_LN, THANG_LN = 2026, 6          # tháng 6/2026: mùng 1 là thứ Hai ⇒ 14 là Chủ nhật
+
+
+def _nv_ca_hanh_chinh(client, token, *, ten: str) -> tuple[int, str]:
+    """NV + tài khoản riêng, ca 08:00–17:00 hiệu lực từ 2020 ⇒ bấm 08:00→17:00 là TRÒN 1 công.
+
+    Không dùng `_nv_trang`: ca kiểm thử mặc định là 00:00–23:59 (khung 1439') nên chấm 8h–17h
+    ra công lẻ, che mất thứ đang đo."""
+    did = _dept_id("Hành chính nhân sự")
+    uid = _make_worker(f"u-{ten.lower().replace(' ', '-')}", did)
+    eid = _link_employee(client, token, full_name=ten, dept_id=did, user_id=uid,
+                         assign_shift=False)
+    items = client.get("/api/attendance/shifts", headers=_h(token)).json()["items"]
+    ca = next((s for s in items if s["name"] == "Ca giờ hành chính LN"), None)
+    if ca is None:
+        ca = client.post("/api/attendance/shifts",
+                         json={"name": "Ca giờ hành chính LN", "start_time": "08:00",
+                               "end_time": "17:00"}, headers=_h(token)).json()
+    r = client.put(f"/api/employees/{eid}/shift",
+                   json={"default_shift_id": ca["id"], "effective_from": "2020-01-01"},
+                   headers=_h(token))
+    assert r.status_code == 200, r.text
+    return eid, create_access_token(str(uid))
+
+
+def _bam_ca_chinh(eid: int, ngay: int) -> None:
+    """Một cặp VÀO/RA 08:00–17:00 giờ VN ghi thẳng qua repo — API `check` chỉ chấm được 'bây giờ'."""
+    db = SessionLocal()
+    try:
+        repo = AttendanceRepository(db)
+        for kieu, gio_vn in (("in", 8), ("out", 17)):
+            phut_utc = gio_vn * 60 - 7 * 60
+            repo.create_log(employee_id=eid, check_type=kieu, within_range=True,
+                            checked_at=datetime(NAM_LN, THANG_LN, ngay,
+                                                phut_utc // 60, phut_utc % 60, tzinfo=timezone.utc))
+    finally:
+        db.close()
+
+
+def _khai_ngay_dac_biet(client, token, ngay: int, *, kind: str, ten: str) -> None:
+    r = client.post("/api/calendar/special-days",
+                    json={"day": f"{NAM_LN}-{THANG_LN:02d}-{ngay:02d}", "kind": kind,
+                          "name": ten, "is_paid": kind == "off"},
+                    headers=_h(token))
+    assert r.status_code in (200, 201), r.text
+
+
+def test_o_ngay_mang_du_co_le_nghi_tuan_va_off1x(client):
+    """⭐ Bốn loại ngày, bốn dấu khác nhau — và chúng LOẠI TRỪ NHAU.
+
+    Thứ tự phải khớp đúng nhánh tính tiền (`plain > holiday > restday`): ngày `off1x` rơi vào
+    Chủ nhật mà bị gắn `restday` là màn hình hứa 2× trong khi Lương trả 1×."""
+    token = _admin_token(client)
+    eid, wt = _nv_ca_hanh_chinh(client, token, ten="NV Loai Ngay")
+    _khai_ngay_dac_biet(client, token, 10, kind="off", ten="Lễ thử")        # thứ Tư
+    _khai_ngay_dac_biet(client, token, 11, kind="off1x", ten="Nghỉ 1x thử")  # thứ Năm
+    for d in (9, 10, 11, 14):        # thường · lễ · off1x · Chủ nhật
+        _bam_ca_chinh(eid, d)
+
+    r = client.get(f"/api/attendance/me/timesheet?year={NAM_LN}&month={THANG_LN}", headers=_h(wt))
+    assert r.status_code == 200, r.text
+    row = r.json()["rows"][0]
+    o = row["days"]
+
+    def co(d: int) -> tuple[bool, bool, bool]:
+        return (o[str(d)]["holiday"], o[str(d)]["restday"], o[str(d)]["plain"])
+
+    assert o["9"]["cong"] == 1.0 and co(9) == (False, False, False), "ngày thường không đeo cờ nào"
+    assert co(10) == (True, False, False), "ngày lễ ĐI LÀM phải mang cờ lễ (nhánh cũ chỉ gắn khi NGHỈ)"
+    assert co(11) == (False, False, True), "ngày off1x đi làm: 1× phẳng, KHÔNG phải premium"
+    assert co(14) == (False, True, False), "Chủ nhật đi làm phải nhận ra được, trước đây trắng trơn"
+
+    # Ba cột tổng cũng phải ra tới API — cột "Công đặc biệt" của Bảng công tháng đọc thẳng chúng.
+    assert row["holiday_cong"] == 1.0 and row["restday_cong"] == 1.0 and row["plain_cong"] == 1.0
+
+
+def test_he_so_ngay_doc_tu_cau_hinh_luong_le_cong_1_chu_nhat_thi_khong(client):
+    """⭐ Chỗ dễ sai nhất: LỄ = 1 + hệ số, NGHỈ TUẦN = hệ số (KHÔNG cộng 1).
+
+    Vì tiền cố ý tính hai kiểu (`payroll_service._compute`): ngày lễ đã có sẵn 1 công lương Đ112
+    dù nghỉ ở nhà nên Đ98.1.c cộng TRỌN 300% ⇒ 4×; Chủ nhật nghỉ ở nhà thì không đồng nào, phần 1×
+    chính là tiền đi làm ⇒ chỉ 2×. Cộng 1 cho cả hai là màn hình hứa 3× mà phiếu lương trả 2×."""
+    token = _admin_token(client)
+    _, wt = _nv_trang(client, token, ten="NV He So")
+    duong = f"/api/attendance/me/timesheet?year={NAM_LN}&month={THANG_LN}"
+
+    mac_dinh = client.get(duong, headers=_h(wt)).json()["he_so_ngay"]
+    assert mac_dinh == {"le": 4.0, "nghi_tuan": 2.0, "off1x": 1.0}
+
+    # Đổi Cấu hình lương ⇒ số trên ô lịch phải đi theo (nếu ai đó viết cứng "4" thì đỏ ở đây).
+    # Hai hệ số khác nhau + khác mặc định ⇒ nhầm công thức nào cũng lộ.
+    r = client.put("/api/luong/params",
+                   json={"holiday_work_multiplier": 4, "restday_work_multiplier": 2.5},
+                   headers=_h(token))
+    assert r.status_code == 200, r.text
+    assert client.get(duong, headers=_h(wt)).json()["he_so_ngay"] == {
+        "le": 5.0, "nghi_tuan": 2.5, "off1x": 1.0}
+
+
+def test_giao_dien_that_su_doc_co_loai_ngay_va_he_so():
+    """Máy chủ trả cờ mà giao diện quên đọc thì màn hình vẫn nói "Công: 1" — tức là bản vá này
+    KHÔNG giải quyết gì cả. Khuôn sai "máy chủ đổi, giao diện quên" đã lặp nhiều vòng ở repo
+    (xem `test_com_tang_ca.test_giao_dien_that_su_hien_va_khai_duoc`)."""
+    from pathlib import Path
+
+    fe = Path(__file__).resolve().parents[2] / "frontend" / "src"
+    assert "he_so_ngay" in (fe / "api" / "client.ts").read_text(encoding="utf-8")
+    tsx = (fe / "pages" / "ChamCongPage.tsx").read_text(encoding="utf-8")
+    for chu in ("day.restday", "day.plain", "heSo.le", "heSo.nghi_tuan",
+                "→ tính", "Công đặc biệt"):
+        assert chu in tsx, f"giao diện chưa dùng {chu!r} — ô lịch vẫn không nói được số công"
+
+
 # --- Không chấm công cho ngày CHƯA TỚI --------------------------------------
 #
 # Chủ phát hiện 31/07/2026: đang ngày 31/7 mà vẫn gửi được yêu cầu chỉnh công cho 02/8.
@@ -884,3 +1088,115 @@ def test_HCNS_cham_bu_ngay_MAI_bi_chan(client):
                     json={"employee_id": eid, "date": _ngay_mai(), "check_type": "in",
                           "time": "08:00", "reason": "chấm bù"}, headers=_h(token))
     assert r.status_code == 400 and "chưa tới" in r.json()["detail"], r.text
+
+
+# --- Nhật ký chấm công: tìm theo tên / mã ------------------------------------
+#
+# Tìm ở SERVER chứ không lọc ở FE: danh sách chỉ trả 100 lượt gần nhất của CẢ XƯỞNG, lọc sau khi
+# đã cắt thì gõ tên người không bấm trong vài giờ qua sẽ ra "không tìm thấy" dù họ vẫn đi làm.
+
+
+def _cham(client, token):
+    return client.post("/api/attendance/check",
+                       json={"latitude": 10.0, "longitude": 106.0}, headers=_h(token))
+
+
+def _nhat_ky(client, token, **params):
+    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    r = client.get(f"/api/attendance/logs{'?' + qs if qs else ''}", headers=_h(token))
+    assert r.status_code == 200, r.text
+    return r.json()["items"]
+
+
+def test_tim_nhat_ky_theo_ten_va_theo_ma(client):
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    dept = _dept_id("Hành chính nhân sự")
+    ua = _make_worker("nk-an", dept)
+    _link_employee(client, token, full_name="Nguyễn Văn An", dept_id=dept, user_id=ua)
+    ub = _make_worker("nk-binh", dept)
+    _link_employee(client, token, full_name="Trần Thị Bình", dept_id=dept, user_id=ub)
+    ta, tb = create_access_token(str(ua)), create_access_token(str(ub))
+    assert _cham(client, ta).json()["success"] and _cham(client, tb).json()["success"]
+
+    assert len(_nhat_ky(client, token)) == 2                      # không lọc → cả hai
+    chi_an = _nhat_ky(client, token, q="An")
+    assert chi_an and all(x["employee_name"] == "Nguyễn Văn An" for x in chi_an)
+    # Không phân biệt hoa/thường.
+    assert len(_nhat_ky(client, token, q="nguyễn")) == len(chi_an)
+    # Theo MÃ nhân viên.
+    ma = client.get("/api/employees/me", headers=_h(ta)).json()["employee"]["code"]
+    assert ma and _nhat_ky(client, token, q=ma)
+
+
+def test_tim_khong_khop_ai_thi_RONG_chu_khong_tra_het(client):
+    """Không khớp mà trả hết là kiểu 'tìm kiếm' tệ nhất — người dùng tưởng đã tìm ra."""
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    _link_admin_employee(client, token)
+    assert _cham(client, token).json()["success"]
+    assert _nhat_ky(client, token) != []
+    assert _nhat_ky(client, token, q="khongcoainaytencainay") == []
+
+
+def test_TIM_KIEM_khong_ro_sang_to_khac(client):
+    """⭐ Tìm kiếm KHÔNG được là đường vòng để nhìn trộm. Người chỉ thấy tổ mình gõ tên người tổ
+    khác phải ra RỖNG — `q` thu hẹp bên TRONG lớp scope, không thay thế nó."""
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    dept_a, dept_b = _dept_id("Hành chính nhân sự"), _dept_id("Kinh doanh")
+    ub = _make_worker("nk-to-b", dept_b)
+    _link_employee(client, token, full_name="Người Tổ B", dept_id=dept_b, user_id=ub)
+    assert _cham(client, create_access_token(str(ub))).json()["success"]
+
+    hr_a = _dept_hr_token("Hành chính nhân sự")     # scope = phòng mình
+    assert _nhat_ky(client, hr_a, q="Người Tổ B") == [], "tim kiem lam ro nguoi to khac"
+    # Admin (scope all) thì vẫn thấy — chứng tỏ dữ liệu CÓ, chỉ bị scope chặn đúng chỗ.
+    assert _nhat_ky(client, token, q="Người Tổ B") != []
+
+
+def test_loc_nhat_ky_theo_khoang_ngay(client):
+    """⭐ Xem lại NGÀY TRƯỚC — nhu cầu chủ nêu 03/08/2026.
+
+    Biên `den_ngay` phải lấy TRỌN ngày đó (nửa mở tới 00:00 hôm sau): chọn "đến 28/7" mà cắt ở
+    00:00 ngày 28 là mất sạch lượt bấm trong chính ngày 28 — lỗi lệch biên kinh điển."""
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from app.db import SessionLocal as _S
+    from app.models.attendance import AttendanceLog
+
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    eid = _link_admin_employee(client, token)
+
+    vn = _tz(_td(hours=7))
+    hom_qua = (_dt.now(vn) - _td(days=1)).date()
+    truoc_nua = (_dt.now(vn) - _td(days=5)).date()
+    db = _S()
+    try:
+        for d, gio in ((hom_qua, 8), (hom_qua, 17), (truoc_nua, 8)):
+            db.add(AttendanceLog(
+                employee_id=eid, check_type="in" if gio < 12 else "out",
+                checked_at=_dt.combine(d, _dt.min.time(), tzinfo=vn).replace(hour=gio)
+                .astimezone(_tz.utc)))
+        db.commit()
+    finally:
+        db.close()
+
+    # Đúng MỘT ngày: tu = den = hôm qua ⇒ phải ra ĐỦ 2 lượt của ngày đó (8h và 17h).
+    mot_ngay = _nhat_ky(client, token, tu_ngay=hom_qua.isoformat(), den_ngay=hom_qua.isoformat())
+    assert len(mot_ngay) == 2, f"bien 'den_ngay' cat mat luot trong ngay: {mot_ngay}"
+
+    # Khoảng rộng gom cả hai ngày.
+    ca_hai = _nhat_ky(client, token, tu_ngay=truoc_nua.isoformat(), den_ngay=hom_qua.isoformat())
+    assert len(ca_hai) == 3
+
+    # Ngoài khoảng ⇒ rỗng.
+    assert _nhat_ky(client, token, tu_ngay=hom_qua.isoformat(),
+                    den_ngay=hom_qua.isoformat(), q="khongkhopai") == []
+
+
+def test_loc_ngay_thi_NOI_TRAN_dong(client):
+    """Có lọc ngày thì trần phải nới: một ngày của xưởng đông người vượt xa 100 lượt, giữ trần cũ
+    là lọc xong vẫn mất nửa ngày TRONG IM LẶNG."""
+    from app.services.attendance_service import AttendanceService
+    assert AttendanceService.LOG_LIMIT_CO_LOC_NGAY > 100

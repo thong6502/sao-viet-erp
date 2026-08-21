@@ -26,7 +26,7 @@ class KhoHangRow(BaseModel):
 
 
 class KhoHangListOut(BaseModel):
-    items: list
+    items: list[KhoHangRow]
     total: int
     page: int
     size: int

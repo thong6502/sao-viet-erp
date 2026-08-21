@@ -9,19 +9,22 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..deps import (
+    get_current_user,
     CurrentUser,
     get_authorization_service,
     get_employee_repository,
     get_overtime_service,
     require_permission,
+    require_any_permission,
 )
 from ..models.user import User
 from ..realtime import hub
 from ..repositories.employee_repo import EmployeeRepository
 from ..schemas.overtime import (
+    TranThangOut,
     MyOvertimeOut,
     OvertimeBulkIn,
     OvertimeBulkRejectIn,
@@ -47,6 +50,38 @@ from ..services.rbac_service import AuthorizationService
 router = APIRouter(prefix="/api/overtime", tags=["overtime"])
 
 MODULE = "tang_ca"
+
+# TỰ PHỤC VỤ (tách 10/08/2026) — một ô quyền cho MỌI việc người lao động làm với hồ sơ của CHÍNH
+# MÌNH: tự chấm công, xem công/phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng.
+# Trước đây nhóm này không gác gì (chỉ cần đăng nhập) nên không có cách nào tắt cho một vai.
+# Ba hàng rào cũ GIỮ NGUYÊN (phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công · đúng
+# khung giờ ca) — chúng chống lạm dụng, còn ô này chống truy cập.
+# Ô `self_service` ĐÃ BỎ 15/08/2026 (chủ chốt). Dữ liệu của CHÍNH MÌNH là quyền đương nhiên của
+# mọi tài khoản đăng nhập — xem công / phiếu / đơn của mình, và gửi · sửa · huỷ đơn của mình.
+# Chặn nó là chặn người ta đi làm, chứ không bảo vệ được gì: mọi đường `/me` đã tự lọc theo hồ sơ
+# gắn với tài khoản, không đọc sang ai được.
+# Ba hàng rào thật GIỮ NGUYÊN: phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công ·
+# đúng khung giờ ca. Cái quyết định THẤY MÀN NÀO vẫn là ô của chính màn đó.
+MODULE_TU_PHUC_VU = "self_service"
+SelfUser = Annotated[User, Depends(get_current_user)]
+
+# Ô THAO TÁC của Tự phục vụ (tách 11/08/2026). `SelfUser` (= `read`) chỉ cho XEM công / phiếu /
+# đơn của chính mình; mọi đường GHI — chấm công, gửi · sửa · huỷ đơn nghỉ, phiếu tăng ca, xin đi
+# muộn, xin tạm ứng, sửa hồ sơ của mình — đòi ô này.
+# GHI LÀ GHI — phải có ô THAO TÁC của chính màn này (chủ chốt 15/08/2026: *"tôi chưa bật thao tác
+# vẫn bấm gửi đơn được nè"*). Bấm giờ · gửi yêu cầu chỉnh công · xin đi muộn đều là ĐƯỜNG GHI,
+# không phải "xem dữ liệu của mình".
+#
+# Khác với `SelfUser` (đọc phần của mình — quyền đương nhiên, xem chú thích ở trên).
+SelfWriter = Annotated[User, Depends(require_permission(MODULE, "create"))]
+# Sửa / huỷ phiếu: người TẠO tự làm với phiếu của mình, hoặc NGƯỜI DUYỆT làm hộ ⇒ nhận
+# cả hai ô. Ai không có ô nào trong hai ô này thì không đụng được — trước đây chỉ cần
+# đăng nhập là gọi được, đúng chỗ tester bắt.
+SelfOrApprover = Annotated[
+    # Người TẠO sửa/huỷ phiếu của mình ⇒ đòi ô THAO TÁC của Tự phục vụ (`create`),
+    # không phải ô Xem. Người DUYỆT làm hộ thì đi bằng ô duyệt của phân hệ.
+    User, Depends(get_current_user)
+]
 
 Service = Annotated[OvertimeService, Depends(get_overtime_service)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
@@ -113,7 +148,7 @@ def _notify_decision(r, employees: EmployeeRepository, decision: str) -> None:
 
 @router.post("/me", response_model=OvertimeRequestOut, status_code=status.HTTP_201_CREATED)
 def create_my_request(body: OvertimeRequestIn, svc: Service, employees: Employees,
-                      user: CurrentUser):
+                      user: SelfWriter):
     """TỰ PHỤC VỤ: chỉ cần đăng nhập + có hồ sơ NV — KHÔNG bắt ô quyền riêng, đúng khuôn
     `POST /api/attendance/me/adjust-request`. Mọi người lao động đều phải xin được tăng ca cho
     CHÍNH MÌNH; quyền `tang_ca:read` chỉ quyết định có thấy màn hay không, còn `approve` mới là
@@ -129,18 +164,21 @@ def create_my_request(body: OvertimeRequestIn, svc: Service, employees: Employee
 
 
 @router.get("/me", response_model=MyOvertimeOut)
-def my_requests(svc: Service, employees: Employees, user: CurrentUser):
+def my_requests(svc: Service, employees: Employees, user: SelfUser,
+                page: int = Query(default=1, ge=1),
+                size: int = Query(default=20, ge=1, le=100)):
     if not svc.has_employee(user=user):
-        return MyOvertimeOut(has_employee=False)
-    reqs = svc.my_requests(user=user)
+        return MyOvertimeOut(has_employee=False, page=page, size=size)
+    reqs, total = svc.my_requests(user=user, page=page, size=size)
     emp = employees.get_by_user_id(user.id)
     return MyOvertimeOut(has_employee=True,
                          employee_name=emp.full_name if emp is not None else None,
-                         items=_resolve(employees, reqs))
+                         items=_resolve(employees, reqs),
+                         total=total, page=page, size=size)
 
 
 @router.get("/summary", response_model=OvertimeSummaryOut)
-def summary(svc: Service, authz: Authz, user: CurrentUser):
+def summary(svc: Service, authz: Authz, user: SelfUser):
     """Badge sidebar + chuông. `pending_in_scope` = None khi người gọi KHÔNG có quyền duyệt."""
     pending = None
     if authz.can(user, MODULE, "approve"):
@@ -149,8 +187,23 @@ def summary(svc: Service, authz: Authz, user: CurrentUser):
                               my_decided_unseen=svc.my_unseen_count(user=user))
 
 
+@router.get("/tran-thang", response_model=TranThangOut)
+def tran_thang(svc: Service, employees: Employees, user: SelfUser,
+               year: int, month: int, employee_id: int | None = None,
+               exclude_id: int | None = None):
+    """Số dư trần giờ làm thêm tháng. Không truyền `employee_id` ⇒ của CHÍNH người gọi.
+
+    Trần là luật của công ty, không phải dữ liệu nhạy cảm của người khác — nhưng vẫn chỉ cho xem
+    người trong tầm duyệt của mình. Rẻ: 1 câu SUM."""
+    if employee_id is None:
+        emp = svc._employee_for_user(user)
+        employee_id = emp.id
+    return TranThangOut(**svc.tran_thang_info(employee_id, int(year), int(month),
+                                              exclude_id=exclude_id))
+
+
 @router.post("/mark-seen", status_code=204)
-def mark_seen(svc: Service, user: CurrentUser):
+def mark_seen(svc: Service, user: SelfUser):
     svc.mark_seen(user=user)
 
 
@@ -175,10 +228,16 @@ def create_for_employee(body: OvertimeRequestForIn, svc: Service, employees: Emp
 @router.get("", response_model=OvertimeRequestsOut)
 def list_requests(svc: Service, employees: Employees, authz: Authz,
                   user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-                  status_filter: str | None = None):
+                  status_filter: str | None = None,
+                  employee_id: int | None = Query(default=None),
+                  page: int = Query(default=1, ge=1),
+                  size: int = Query(default=20, ge=1, le=100)):
+    # `employee_id` KHÔNG nới phạm vi — chỉ lọc THÊM bên trong phạm vi đã có (xem service).
     scope = authz.scope_for(user, MODULE) or "own"
-    reqs = svc.list_requests(scope=scope, actor=user, status=status_filter)
-    return OvertimeRequestsOut(items=_resolve(employees, reqs))
+    reqs, total = svc.list_requests(scope=scope, actor=user, status=status_filter,
+                                    employee_id=employee_id, page=page, size=size)
+    return OvertimeRequestsOut(items=_resolve(employees, reqs),
+                               total=total, page=page, size=size)
 
 
 @router.post("/bulk-approve", response_model=OvertimeBulkResultOut)
@@ -235,7 +294,7 @@ def reject(request_id: int, body: OvertimeRejectIn, svc: Service, employees: Emp
 
 @router.put("/{request_id}", response_model=OvertimeRequestOut)
 def update_my_request(request_id: int, body: OvertimeRequestIn, svc: Service, employees: Employees,
-                      user: CurrentUser):
+                      user: SelfOrApprover):
     """SỬA phiếu đang chờ duyệt — chỉ người tạo, chỉ khi pending (service chặn). Không cần ô quyền
     riêng (tự phục vụ, giống POST /me)."""
     try:
@@ -249,7 +308,7 @@ def update_my_request(request_id: int, body: OvertimeRequestIn, svc: Service, em
 
 
 @router.post("/{request_id}/cancel", response_model=OvertimeRequestOut)
-def cancel(request_id: int, svc: Service, employees: Employees, authz: Authz, user: CurrentUser):
+def cancel(request_id: int, svc: Service, employees: Employees, authz: Authz, user: SelfOrApprover):
     try:
         r = svc.cancel(actor=user, request_id=request_id,
                        is_manager=authz.can(user, MODULE, "approve"))

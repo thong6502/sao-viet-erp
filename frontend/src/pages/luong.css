@@ -283,8 +283,24 @@
   display: flex; justify-content: space-around; margin-top: 28px; text-align: center;
   font-size: 12.5px; font-weight: var(--fw-medium);
 }
-.lg-rowact { white-space: nowrap; }
-.lg-rowact .btn { margin-left: 4px; }
+/* --- Ô "Thao tác" trên dòng bảng --------------------------------------------
+   Nút trong ô này là `RowActionButton` dạng dense: mỗi nút được BỌC trong
+   `<span class="rowact__tip">` (bong bóng tooltip), nên `margin` đặt trên `.btn` nằm BÊN TRONG
+   span và phụ thuộc thứ tự bundle với `.btn.rowact__icon-btn{margin-left:0}` — khoảng cách phải
+   đặt trên chính SPAN thì mới chắc.
+   Và KHÔNG dùng `display:flex` trên chính `<td>`: flex trên ô bảng phá vertical-align + độ cao
+   dòng (cùng luật với `.cl-table td .rc-switch` ngay dưới). Căn phải bằng `text-align` là đủ. */
+.lg-rowact { white-space: nowrap; text-align: right; }
+/* `.lg-emp-table-wrapper .ns__table td` (0,2,1) ép canh TRÁI cho mọi ô — thêm lớp thứ ba để
+   riêng ô Thao tác canh phải, không thì tiêu đề đứng bên phải mà nút đứng bên trái. */
+.lg-emp-table-wrapper .ns__table td.lg-rowact { text-align: right; }
+.lg-rowact .rowact__tip + .rowact__tip { margin-left: 4px; }
+/* Tiêu đề cột Thao tác phải canh PHẢI theo nút. `.ns__table th` (nhan-su.css) và
+   `.lg-emp-table-wrapper .ns__table th` đều canh trái nên phải nâng độ ưu tiên bằng chính lớp
+   bọc — KHÔNG dùng !important. */
+.lg-emp-table-wrapper .ns__table th.lg-actcol,
+.lg-table .ns__table th.lg-actcol,
+.ns__table th.lg-actcol { text-align: right; }
 
 /* In phiếu lương: chỉ in card, ẩn phần còn lại */
 @media print {
@@ -669,26 +685,6 @@
   color: var(--signal);
 }
 
-.lg-edit-salary-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  padding: 6px 12px;
-  font-size: 12.5px;
-  font-weight: var(--fw-medium);
-  border-radius: var(--r-3);
-  border: 1px solid var(--rule);
-  background: var(--canvas);
-  color: var(--ink);
-  cursor: pointer;
-  transition: all var(--duration-fast) var(--easing-standard);
-}
-.lg-edit-salary-btn:hover {
-  background: var(--rust-soft);
-  border-color: var(--rust);
-  color: var(--rust-deep);
-}
-
 /* Custom selects in toolbar */
 .lg-select-wrapper {
   position: relative;
@@ -956,8 +952,19 @@
 .cl-table td.num .rc-input-wrapper { margin-left: auto; max-width: 140px; }
 /* Công tắc trong bảng (Đơn giá ca) — căn giữa theo chiều dọc, KHÔNG flex trên <td>. */
 .cl-table td .rc-switch { vertical-align: middle; }
-.cl-table td.act { text-align: right; white-space: nowrap; }
-.cl-table td.act .btn { margin-left: 4px; }
+.cl-table td.act, .cl-table th.act { text-align: right; white-space: nowrap; }
+/* Khoảng cách giữa các nút thao tác đặt trên SPAN bọc tooltip của `RowActionButton`, không đặt
+   trên `.btn` — nút dense có `margin-left:0` riêng, để trên `.btn` là dính cuộc đọ độ ưu tiên
+   phụ thuộc thứ tự bundle. */
+.cl-table td.act .rowact__tip + .rowact__tip { margin-left: 4px; }
+
+/* `RowActionButton` gắn sẵn lớp `md-page__rowbtn--danger` cho tín hiệu NGUY HIỂM (xoá / ngừng),
+   nhưng phần khai màu của lớp đó nằm ở `master-data.css` — hai màn Lương KHÔNG import file ấy
+   (import vào là kéo cả bộ `.md-page__*` của màn danh mục sang đây). Khai lại đúng phần cần,
+   giới hạn trong gốc `.ns` (màn Lương) và `.cl` (tab Cấu hình lương). Gỡ dòng này là nút Xoá
+   trông y hệt nút thường. */
+.ns .md-page__rowbtn--danger,
+.cl .md-page__rowbtn--danger { color: var(--signal); }
 .cl-cell__sub {
   display: block;
   margin-top: 2px;
@@ -1932,3 +1939,298 @@
 .khoan-cdfield { min-width: 0; }
 .khoan-cdfield .khoan-cdpick { min-width: 0; }
 
+
+/* --- Bảng lương: ô tìm + lọc Phòng/Tổ trên thanh công cụ ---------------------
+   `.lg-search-wrapper` gốc có margin-bottom (dùng ở màn khai lương, xếp dọc). Trong thanh công cụ
+   của Bảng lương nó nằm CÙNG HÀNG với ô tháng và nút Chính thức/Thử việc, nên phải bỏ margin đó
+   — không thì mỗi ô lệch một độ cao. */
+.lg-toolbar .lg-search-wrapper { margin-bottom: 0; }
+.lg-toolbar .lg-search-input { min-width: 220px; }
+
+.lg-dept-filter {
+  height: 34px;
+  padding: 0 30px 0 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  cursor: pointer;
+  max-width: 220px;
+  transition: all var(--duration-base) var(--easing-standard);
+}
+.lg-dept-filter:focus { outline: none; border-color: var(--rust); }
+
+/* ── BẢNG CÔNG BỐ PHIẾU LƯƠNG (12/08/2026) ────────────────────────────────────
+   Trước đó là một hàng trần: nhãn + ô datetime + 2 nút, không khung, không nói
+   được ô bỏ trống nghĩa là gì. Chủ chốt: "giao diện hẹn giờ xấu quá".
+
+   Ba việc bảng này phải làm rõ, vì cả HAI ô đều bỏ trống được và mỗi cách bỏ
+   trống một nghĩa:
+     • mở trống  = mở ngay khi bấm
+     • đóng trống = mở không thời hạn
+   Nên mỗi ô có một dòng chú NGAY DƯỚI, và dưới cùng là một câu tả cả cửa sổ
+   bằng tiếng Việt — người dùng đọc lại được điều mình vừa chọn trước khi bấm.
+
+   Dùng nền `--steel-soft` để tách khỏi băng cảnh báo (`--amber-soft`) và băng
+   thành công (`--moss-soft`) đang có trên cùng màn — đây là khối THAO TÁC, không
+   phải thông báo. */
+.lg-congbo {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--steel-soft);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.lg-congbo__title { font-weight: var(--fw-medium); color: var(--ink); }
+.lg-congbo__grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--sp-4);
+}
+.lg-congbo__field { display: flex; flex-direction: column; gap: 4px; }
+.lg-congbo__field > span { font-size: 13px; color: var(--ash-2); }
+.lg-congbo__field > input {
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  font: inherit;
+  font-family: var(--ff-num);
+  color: var(--ink);
+}
+/* Dòng chú của ô: giữ CHỖ cả khi rỗng (`min-height`) để hai ô không nhảy lên
+   xuống mỗi lần người dùng gõ vào một ô. */
+.lg-congbo__field > em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--ash-2);
+  min-height: 16px;
+}
+/* Nút gợi ý nhanh xuống hàng dưới cùng khi hết chỗ — laptop 1280 vẫn đủ một hàng. */
+.lg-congbo__quick { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-self: flex-end; padding-bottom: 20px; }
+.lg-congbo__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  border-top: 1px solid var(--rule-hair);
+  padding-top: var(--sp-3);
+}
+.lg-congbo__hint { font-size: 13px; color: var(--ash-2); }
+.lg-congbo__act { display: flex; gap: var(--sp-2); }
+
+/* ==== Tab Tạm ứng → LẬP PHIẾU CHI (18/08/2026) ==============================
+   Một phiếu tạm ứng ĐÃ DUYỆT đẻ ra ĐÚNG MỘT phiếu chi, và lập phiếu chi nghĩa là
+   TIỀN ĐÃ RA KHỎI KÉT — không có trạng thái "chờ chi". Nên phần này chỉ có hai
+   hình: NÚT (chưa chi) và CHIP MÃ PHIẾU (đã chi). Không có hình thứ ba. */
+
+/* Băng báo trên đầu tab: lỗi thao tác (đỏ) và mã phiếu chi vừa lập (xanh). `.banner`
+   ở global.css đã lo nền/viền + `space-between`; ở đây chỉ thêm canh giữa theo chiều
+   dọc và khoảng cách xuống bảng. Băng thành công KHÔNG tự tắt vì nó mang mã phiếu
+   bấm được — mã trôi mất là phải đi mò lại trong sổ quỹ. */
+/* Viết `.banner.lg-tu-note` (0,2,0) chứ KHÔNG `.lg-tu-note` trơn: `.banner` ở
+   global.css đặt `align-items: flex-start` với cùng độ ưu tiên (0,1,0), hoà nhau thì
+   thắng thua tuỳ THỨ TỰ trong bundle — cùng cái bẫy đã ghi ở row-action-button.css. */
+.banner.lg-tu-note {
+  align-items: center;
+  margin-bottom: var(--sp-3);
+}
+/* Cụm nút bên phải băng dồn về cuối, chừa chỗ cho câu chữ dài xuống dòng. */
+.lg-tu-note > span:first-child { flex: 1; min-width: 0; }
+.lg-tu-note__link {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: var(--fw-medium);
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.lg-tu-note__link:hover,
+.lg-tu-note__link:focus-visible { text-decoration-thickness: 2px; }
+.lg-tu-note__x {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  background: none;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.65;
+}
+.lg-tu-note__x:hover { opacity: 1; }
+/* Mã chứng từ đọc bằng font SỐ: kế toán so từng ký tự với tờ giấy trên tay. */
+.lg-tu-note__code { font-family: var(--ff-num); }
+
+/* CHIP mã phiếu chi trong ô Thao tác — thay chỗ nút "Lập phiếu chi" khi đã chi rồi.
+   Xanh rêu = việc đã xong (cùng ngữ nghĩa `.banner--success`), KHÔNG dùng badge xám
+   vì đây là dấu tiền đã ra, phải đọc được từ xa. */
+.lg-pc-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--moss) 30%, transparent);
+  border-radius: var(--r-pill);
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  font-family: var(--ff-num);
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  line-height: 1.5;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-standard);
+}
+.lg-pc-chip:hover,
+.lg-pc-chip:focus-visible {
+  background: color-mix(in srgb, var(--moss) 18%, var(--moss-soft));
+}
+/* Không có `navigate` (màn nhúng chỗ khác) → chip chỉ để ĐỌC mã, đừng giả vờ bấm được. */
+.lg-pc-chip--static { cursor: default; }
+.lg-pc-chip--static:hover { background: var(--moss-soft); }
+/* Ô Thao tác là `<td>` nên KHÔNG được flex (vỡ layout bảng). Canh giữa hai loại con
+   inline (chip 24px và nút icon 32px) bằng `vertical-align`, và tự lo khoảng cách
+   quanh chip vì luật `.rowact__tip + .rowact__tip` không với tới nó. */
+.lg-rowact .rowact__tip,
+.lg-rowact .lg-pc-chip { vertical-align: middle; }
+.lg-rowact .lg-pc-chip { margin-left: 4px; }
+.lg-rowact .lg-pc-chip + .rowact__tip { margin-left: 4px; }
+
+/* --- Modal lập phiếu chi ------------------------------------------------- */
+/* Thân modal xếp dọc bằng `gap` thay vì rắc `margin-top` lên từng ô: khối chuyển
+   khoản ẩn/hiện theo Hình thức chi, có margin số cứng là nhịp lệch ngay khi đổi. */
+.lg-pc-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* Ba ô nhận diện CHỈ ĐỌC. Nền `--steel-soft` (khối dữ liệu, không phải cảnh báo) để
+   mắt phân biệt ngay với các ô nhập bên dưới — backend ghi đè số tiền + người nhận
+   bằng dữ liệu của phiếu tạm ứng, bày ô cho gõ là nói dối kế toán. */
+.lg-pc-ro {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--steel-soft);
+  padding: var(--sp-2) var(--sp-4);
+}
+.lg-pc-ro__cell {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-2) 0;
+}
+.lg-pc-ro__cell + .lg-pc-ro__cell { border-top: 1px solid var(--rule-hair); }
+.lg-pc-ro__lbl {
+  flex: none;
+  font-size: 13px;
+  color: var(--ash-2);
+}
+.lg-pc-ro__val {
+  min-width: 0;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.lg-pc-ro__val--code { font-family: var(--ff-num); }
+/* Số tiền là con số kế toán PHẢI soát trước khi bấm — cho to hơn một nấc, font số. */
+.lg-pc-ro__val--money {
+  font-family: var(--ff-num);
+  font-size: 16px;
+  font-weight: var(--fw-bold);
+}
+.lg-pc-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ash-2);
+}
+/* Câu nhắc ở chân modal: tiền ra khỏi két là việc KHÔNG lùi được, nên nó đứng ngay
+   cạnh nút bấm chứ không nằm lẫn trong thân form. */
+.lg-pc-warn {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--amber-deep);
+}
+
+/* --- Kỳ lương ở modal tạm ứng (HCNS lập hộ) ------------------------------- */
+/* Ô này quyết định BẢNG LƯƠNG THÁNG NÀO trừ lại khoản ứng — hay bị đọc lướt thành
+   "tháng của ngày ứng". Kỳ đi theo ô chọn tháng trên thanh công cụ nên ở đây là khối
+   CHỈ ĐỌC (cùng ngữ nghĩa `.lg-pc-ro`: nền --steel-soft = dữ liệu, không phải cảnh
+   báo), kèm một dòng trạng thái kỳ để người lập biết NGAY chứ không phải điền hết
+   form rồi mới ăn 409 của backend. */
+.lg-ky-box {
+  margin: var(--sp-3) 0 var(--sp-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--steel-soft);
+  padding: var(--sp-3) var(--sp-4);
+}
+.lg-ky-box__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+}
+.lg-ky-box__lbl {
+  flex: none;
+  font-size: 13px;
+  color: var(--ash-2);
+}
+.lg-ky-box__val {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.lg-ky-box__hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ash-2);
+}
+/* Dòng trạng thái kỳ: câu ĐẦY ĐỦ chứ không phải pill một chữ — người lập cần biết
+   hệ quả ("sẽ trừ vào bảng lương tháng này" / "không lập được"), và câu tự nói ra
+   trạng thái nên màu chỉ là nhấn thêm, không phải nghĩa duy nhất. */
+.lg-ky-status {
+  margin: var(--sp-2) 0 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  line-height: 1.45;
+}
+/* Nền hơi xám (KHÔNG trắng trơn): trắng + viền + bo góc giữa một form thì mắt đọc
+   thành ô nhập, mà đây là câu thông báo. */
+.lg-ky-status--muted {
+  border-color: var(--rule);
+  background: color-mix(in srgb, var(--steel) 10%, var(--canvas));
+  color: var(--ash);
+}
+.lg-ky-status--ok {
+  border-color: color-mix(in srgb, var(--moss) 30%, transparent);
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+}
+.lg-ky-status--bad {
+  border-color: color-mix(in srgb, var(--signal) 30%, transparent);
+  background: var(--signal-soft);
+  color: var(--signal-deep);
+}

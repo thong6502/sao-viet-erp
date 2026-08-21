@@ -2,6 +2,7 @@
 Không chứa luật nghiệp vụ (những thứ đó ở `OvertimeService`)."""
 from __future__ import annotations
 
+import calendar as _cal
 from datetime import date, datetime, timezone
 
 from sqlalchemy import func, select, update
@@ -44,15 +45,25 @@ class OvertimeRepository:
         self.db.refresh(r)
         return r
 
-    def list_by_employee(self, employee_id: int, *, limit: int = 100) -> list[OvertimeRequest]:
+    def list_by_employee(self, employee_id: int, *, limit: int = 100,
+                         offset: int = 0) -> list[OvertimeRequest]:
         return list(
             self.db.execute(
                 select(OvertimeRequest)
                 .where(OvertimeRequest.employee_id == employee_id)
                 .order_by(OvertimeRequest.work_date.desc(), OvertimeRequest.id.desc())
                 .limit(limit)
+                .offset(offset)
             ).scalars()
         )
+
+    def count_by_employee(self, employee_id: int) -> int:
+        """Tổng phiếu của 1 NV — nuôi chân phân trang tab "Phiếu của tôi". COUNT ở DB, đừng
+        `len(list_by_employee())`: hàm kia đang bị `limit` cắt nên đếm ra số của TRANG."""
+        return int(self.db.execute(
+            select(func.count(OvertimeRequest.id))
+            .where(OvertimeRequest.employee_id == employee_id)
+        ).scalar_one())
 
     # --- scope-aware reads (own = phiếu của mình theo Employee.user_id; department =
     #     phiếu của phòng/tổ mình + cây con; all = tất cả). `overtime_requests` KHÔNG có cột
@@ -70,18 +81,41 @@ class OvertimeRepository:
             return Employee.department_id.in_(dept_ids)
         raise ValueError(f"Unknown scope: {scope!r}")
 
-    def list_scoped(self, *, scope: str, actor, status: str | None = None,
-                    limit: int = 200) -> list[OvertimeRequest]:
-        stmt = select(OvertimeRequest).join(Employee, OvertimeRequest.employee_id == Employee.id)
+    def _scoped_filters(self, stmt, *, scope: str, actor, status: str | None,
+                        employee_id: int | None):
+        """Bộ lọc DÙNG CHUNG cho `list_scoped` và `count_scoped` — hai hàm lọc lệch nhau thì
+        `total` ở chân bảng không mở ra xem được (báo 30, lật hết trang chỉ thấy 12)."""
         cond = self._scope_condition(scope=scope, actor=actor)
         if cond is not None:
             stmt = stmt.where(cond)
         if status is not None:
             stmt = stmt.where(OvertimeRequest.status == status)
+        if employee_id is not None:
+            stmt = stmt.where(OvertimeRequest.employee_id == employee_id)
+        return stmt
+
+    def list_scoped(self, *, scope: str, actor, status: str | None = None,
+                    employee_id: int | None = None, limit: int = 200,
+                    offset: int = 0) -> list[OvertimeRequest]:
+        stmt = select(OvertimeRequest).join(Employee, OvertimeRequest.employee_id == Employee.id)
+        stmt = self._scoped_filters(stmt, scope=scope, actor=actor, status=status,
+                                    employee_id=employee_id)
         stmt = stmt.order_by(
             OvertimeRequest.status.asc(), OvertimeRequest.work_date.desc(), OvertimeRequest.id.desc()
-        ).limit(limit)
+        ).limit(limit).offset(offset)
         return list(self.db.execute(stmt).scalars())
+
+    def count_scoped(self, *, scope: str, actor, status: str | None = None,
+                     employee_id: int | None = None) -> int:
+        """Tổng phiếu trong phạm vi + bộ lọc — chân phân trang tab "Duyệt phiếu"."""
+        stmt = (
+            select(func.count(OvertimeRequest.id))
+            .select_from(OvertimeRequest)
+            .join(Employee, OvertimeRequest.employee_id == Employee.id)
+        )
+        stmt = self._scoped_filters(stmt, scope=scope, actor=actor, status=status,
+                                    employee_id=employee_id)
+        return int(self.db.execute(stmt).scalar_one())
 
     def count_pending_scoped(self, *, scope: str, actor) -> int:
         """Số phiếu ĐANG CHỜ DUYỆT trong scope người gọi — nuôi badge sidebar (COUNT ở DB)."""
@@ -95,6 +129,24 @@ class OvertimeRepository:
         if cond is not None:
             stmt = stmt.where(cond)
         return int(self.db.execute(stmt).scalar_one())
+
+    def count_pending_in_range(self, start: date, end: date) -> int:
+        """Số phiếu tăng ca CÒN CHỜ DUYỆT có `work_date` trong [start, end] — guard chốt công.
+
+        KHÁC `count_pending_scoped` (nuôi badge, lọc theo phạm vi người xem): ở đây đếm TOÀN BỘ,
+        vì chốt công là việc của cả tháng chứ không của riêng phạm vi ai.
+
+        Vì sao phải chặn (chủ chốt 15/08/2026): ảnh chụp đóng băng theo trạng thái LÚC CHỐT, mà
+        từ 12/08 duyệt phiếu vào tháng đã chốt cũng bị chặn ⇒ phiếu treo lúc chốt thành NGÕ CỤT:
+        không duyệt được, mà không duyệt thì không có tiền tăng ca. Gỡ ra bắt buộc phải mở lại kỳ
+        công. Ba loại phiếu kia đã chặn đúng vì lý do này; tăng ca lọt cho tới hôm nay."""
+        return int(self.db.execute(
+            select(func.count()).select_from(OvertimeRequest).where(
+                OvertimeRequest.status == STATUS_PENDING,
+                OvertimeRequest.work_date >= start,
+                OvertimeRequest.work_date <= end,
+            )
+        ).scalar_one())
 
     def count_my_unseen(self, employee_id: int) -> int:
         """Số phiếu của NV đã ĐƯỢC QUYẾT mà NV chưa xem — nuôi chuông Topbar."""
@@ -131,6 +183,30 @@ class OvertimeRepository:
                 )
             ).scalars()
         )
+
+    def sum_live_minutes_in_month(self, employee_id: int, year: int, month: int, *,
+                                  exclude_id: int | None = None) -> int:
+        """Tổng SỐ PHÚT của các phiếu CÒN HIỆU LỰC (chờ duyệt + đã duyệt) của 1 NV trong 1 tháng
+        — nền cho trần giờ làm thêm Đ107. `exclude_id` để đường SỬA không tự đếm chính nó.
+
+        Vì sao tính cả `pending`: chủ chốt 17/08/2026. Không giữ chỗ thì thợ gửi 10 phiếu vào 10
+        ngày khác nhau (luật 1-phiếu/ngày không chặn giúp), mỗi phiếu lúc TẠO đều còn trong trần,
+        rồi duyệt lần lượt ⇒ trần bị đi qua sạch. Từ chối / hủy phiếu là TRẢ CHỖ ngay, không job.
+
+        Đây là số theo PHIẾU (đã cấp phép), KHÔNG phải giờ đã bấm máy — giờ thực luôn ≤ giờ phiếu
+        vì `compute_day_cong` lấy GIAO của phiên chấm với cửa sổ phiếu."""
+        last = _cal.monthrange(year, month)[1]
+        stmt = select(
+            func.coalesce(func.sum(OvertimeRequest.to_minute - OvertimeRequest.from_minute), 0)
+        ).where(
+            OvertimeRequest.employee_id == employee_id,
+            OvertimeRequest.work_date >= date(year, month, 1),
+            OvertimeRequest.work_date <= date(year, month, last),
+            OvertimeRequest.status.in_(_LIVE),
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(OvertimeRequest.id != exclude_id)
+        return int(self.db.execute(stmt).scalar_one() or 0)
 
     def live_for_day(self, employee_id: int, work_date: date, *,
                      exclude_id: int | None = None) -> list[OvertimeRequest]:

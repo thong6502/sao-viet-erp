@@ -56,12 +56,20 @@ class OvertimeRequestOut(BaseModel):
 
 class OvertimeRequestsOut(BaseModel):
     items: list[OvertimeRequestOut]
+    # Ba ô phân trang THÊM VÀO (09/08/2026). Thêm trường = tương thích ngược; client cũ chỉ
+    # đọc `items` vẫn chạy nguyên.
+    total: int = 0     # tổng phiếu khớp phạm vi + bộ lọc (KHÔNG phải số dòng của trang)
+    page: int = 1
+    size: int = 20
 
 
 class MyOvertimeOut(BaseModel):
     has_employee: bool
     employee_name: str | None = None
     items: list[OvertimeRequestOut] = []
+    total: int = 0
+    page: int = 1
+    size: int = 20
 
 
 class OvertimeBulkIn(BaseModel):
@@ -76,6 +84,17 @@ class OvertimeBulkRejectIn(BaseModel):
 class OvertimeBulkResultOut(BaseModel):
     done: list[int]
     skipped: list[int]
+
+
+class TranThangOut(BaseModel):
+    """Số dư trần giờ làm thêm THÁNG của 1 NV — nuôi dải bộ đếm trên modal tạo/sửa phiếu.
+
+    `ap_tran = False` ⇒ chưa bật trần, FE ẨN cả khối (đừng bày ô vô nghĩa).
+    Số đếm theo PHIẾU (chờ duyệt + đã duyệt), KHÔNG phải giờ đã bấm máy."""
+    ap_tran: bool = False
+    tran_phut: int = 0
+    da_dung_phut: int = 0
+    con_lai_phut: int | None = None
 
 
 class OvertimeSummaryOut(BaseModel):

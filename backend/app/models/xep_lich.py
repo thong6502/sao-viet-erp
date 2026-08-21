@@ -2,8 +2,10 @@
 
 Mỗi dòng = 1 công đoạn cần xếp lịch. Hai NGUỒN:
 - `lsx`     : 1 công đoạn của 1 lệnh sản xuất (neo `lsx_cong_doan_id`).
-- `in_ghep` : công đoạn IN CHẠY CHUNG của 1 bài ghép (neo `bai_ghep_id`) — xuất hiện MỘT lần dưới mã
-  bài ghép, KHÔNG lặp trên từng LSX thành viên. Kết thúc in ghép là tiền đề cho bước xả tờ của các LSX.
+- `in_ghep` : 1 công đoạn CHẠY CHUNG của 1 bài ghép (neo `bai_ghep_id` + `bai_ghep_cong_doan_id`) —
+  xuất hiện MỘT lần dưới mã bài ghép, KHÔNG lặp trên từng LSX thành viên. Bài gộp được nhiều công
+  đoạn (CTP · in · cán · bế) nên có thể có NHIỀU dòng loại này cho một bài. Kết thúc của bước chung
+  MUỘN NHẤT là tiền đề cho các bước riêng sau điểm toả của từng LSX.
 
 BẢNG CHỈ LƯU QUYẾT ĐỊNH CỦA NGƯỜI (gán máy/tổ/NCC · ca · giờ bắt đầu/kết thúc · trạng thái · khóa). Mọi
 số DẪN XUẤT (thời lượng, sớm-nhất/muộn-nhất, độ dư, nhãn nguy cơ, cờ xung đột) TÍNH LÚC ĐỌC ở service —
@@ -72,9 +74,14 @@ class XepLichCongDoan(Base):
     bai_ghep_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("bai_ghep.id", ondelete="CASCADE"), index=True, nullable=True
     )
+    # NEO bước chạy chung NÀO của bài (soft → `bai_ghep_cong_doan.id`). Bài gộp cả CTP/cán/bế chứ
+    # không riêng bước in, nên MỖI bước chung là MỘT dòng lịch. Trước đây bài chỉ đẻ đúng một dòng
+    # "in ghép" trong khi routing lệnh đã loại hết bước bị đè → gộp CTP/cán là hai bước đó biến mất
+    # khỏi board: không đặt chỗ máy, không tính thời lượng, không ai báo.
+    bai_ghep_cong_doan_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     # Snapshot `lsx_cong_doan.thu_tu` — sắp thứ tự chuỗi + suy bước trước-sau không cần join.
     source_thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # Snapshot loại bước (may/to/thue_ngoai/cho/kcs/xa_to/in_ghep) — lọc "cần gán máy" khỏi join.
+    # Snapshot loại bước routing (may/to/thue_ngoai); dòng in ghép cũng dùng `may`.
     loai_buoc: Mapped[str] = mapped_column(String(12), nullable=False, default="may")
 
     # --- Tài nguyên được gán (record-only: máy đề xuất, người quyết) ---

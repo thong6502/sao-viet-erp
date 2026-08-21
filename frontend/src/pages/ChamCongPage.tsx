@@ -1,7 +1,7 @@
 // Chấm công GPS (module `nhan_su`). 3 tab:
 //   • Chấm công của tôi — lấy GPS trình duyệt, chấm VÀO/RA nếu trong bán kính điểm gần nhất.
 //   • Điểm chấm công (HR) — khai toạ độ + bán kính; "Lấy vị trí hiện tại" để điền nhanh.
-//   • Bảng chấm công (HR) — toàn bộ log.
+//   • Nhật ký chấm công (HR) — 100 lượt bấm gần nhất, tìm được theo tên/mã NV.
 // Server là cổng geofence thật (Haversine); ngoài phạm vi bị chặn cứng.
 import {
   useCallback,
@@ -27,7 +27,10 @@ import {
   type LeaveType,
   type MyShift,
   type TodayKpi,
+  type HeSoNgay,
+  type HolidayMark,
   type Timesheet,
+  type TimesheetDay,
   type TimesheetRow,
   type AttendancePeriod,
   type WorkLocation,
@@ -48,8 +51,10 @@ import {
   type ShiftPlanPatchItem,
 } from "../api/client";
 import type { NavigateFn } from "../components/AppShell";
+import { EmptyState } from "../components/EmptyState";
+import { MonthPicker } from "../components/MonthPicker";
 import { useAuth } from "../auth/useAuth";
-import { useCan } from "../auth/permissions";
+import { useCan, useSelfService } from "../auth/permissions";
 import {
   UserCheck,
   CalendarDays,
@@ -123,6 +128,164 @@ const TIME_MINUTES = Array.from({ length: 60 }, (_, index) =>
 const FAULT_LABEL: Record<string, string> = Object.fromEntries(
   FAULT_OPTIONS.map((o) => [o.value, o.label]),
 );
+
+/** Hệ số dự phòng khi response chưa có `he_so_ngay` — KHỚP mặc định của `payroll_params`
+ *  (`holiday_work_multiplier` 3 ⇒ lễ 1+3 = 4×; `restday_work_multiplier` 2 ⇒ CN 2×).
+ *  Chỉ là lưới an toàn: số thật luôn đọc từ máy chủ vì nhà máy khai được ở Cấu hình lương. */
+const HE_SO_NGAY_MAC_DINH: HeSoNgay = { le: 4, nghi_tuan: 2, off1x: 1 };
+
+type PillO = { text: string; tone: string; title: string };
+type ONgay = {
+  /** class phụ nối sau `cc-month-cell` (màu nền ô) */
+  variant: string;
+  timeRange: string;
+  statusLabel: string;
+  /** "→ tính 4 công" — rỗng nếu ngày này không có hệ số */
+  gain: string;
+  gainClass: string;
+  pills: PillO[];
+};
+
+/** Đọc một ô ngày thành thứ hiển thị được: màu ô · giờ · dòng công · pill loại ngày.
+ *
+ *  ⚠️ MỘT HÀM cho CẢ HAI lịch (tự phục vụ + lịch NV trong màn HCNS). Trước 18/08/2026 hai chỗ
+ *  vẽ ô bằng hai đoạn `if` chép tay và ĐÃ trôi khác nhau: bên HCNS hỏi `day.leave` trước nên
+ *  ngày lễ hiện thành "Nghỉ phép (P)". Thêm nhãn mới cho từng bên là chép lỗi lần thứ ba.
+ *
+ *  TRẬT TỰ HỎI — GIỮ NGUYÊN, đừng "dọn":
+ *   1. LƯỢT BẤM trước tiên. Ngày lễ / Chủ nhật ĐI LÀM vừa có giờ vào-ra vừa mang cờ ngày;
+ *      hỏi cờ trước là nuốt mất giờ công thật (lỗi cũ của cả hai lịch).
+ *   2. Trong nhánh có bấm: `plain > holiday > restday` — ĐÚNG thứ tự nhánh tính tiền bên Lương.
+ *      Ngày `off1x` rơi vào Chủ nhật mà đọc thành `restday` là hứa 2× trong khi phiếu trả 1×.
+ *
+ *  Số công quy đổi = `cong × hệ số` chứ không phải hệ số trần: làm nửa ngày lễ thì được 2 công,
+ *  đúng như engine tính (`holiday_cong × m_hol`). Viết cứng "4" là nói dối người làm nửa buổi.
+ */
+function docONgay(day: TimesheetDay | undefined, heSo: HeSoNgay): ONgay {
+  const o: ONgay = {
+    variant: "",
+    timeRange: "",
+    statusLabel: "",
+    gain: "",
+    gainClass: "cc-month-cell__gain",
+    pills: [],
+  };
+  if (!day) return o;
+
+  const quyDoi = (hs: number) =>
+    day.cong != null ? `→ tính ${Number((day.cong * hs).toFixed(2))} công` : "";
+
+  if (day.first_in || day.last_out) {
+    o.variant = " cc-month-cell--work";
+    if (day.late || day.early) o.variant += " cc-month-cell--makeup";
+    o.timeRange = `${day.first_in ?? "?"} - ${day.last_out ?? "?"}`;
+    o.statusLabel =
+      day.cong != null
+        ? `Công: ${day.cong}`
+        : day.hours != null
+          ? `${day.hours}h`
+          : "Đã chấm";
+    if (day.plain) {
+      // Ngày công ty cho nghỉ mà vẫn đi làm: trả 1× phẳng, KHÔNG hệ số. Cố ý KHÔNG có dòng
+      // "→ tính…" — thêm vào là gợi ý có tiền nhân, mà không hề có.
+      o.pills.push({
+        text: "NGHỈ",
+        tone: "gray",
+        title: "Ngày nghỉ của công ty — đi làm tính 1 công, không hệ số",
+      });
+    } else if (day.holiday) {
+      o.pills.push({ text: "LỄ", tone: "red", title: day.leave ?? "Ngày lễ" });
+      o.gain = quyDoi(heSo.le);
+    } else if (day.restday) {
+      o.pills.push({ text: "CN", tone: "purple", title: "Ngày nghỉ tuần — đi làm hưởng thêm" });
+      o.gain = quyDoi(heSo.nghi_tuan);
+      o.gainClass += " cc-month-cell__gain--restday";
+    }
+  } else if (day.holiday) {
+    // Lễ KHÔNG tiêu ngày phép năm — gọi nó là "Nghỉ Phép (P)" là nói sai bản chất.
+    o.variant = " cc-month-cell--holiday";
+    o.statusLabel = "Nghỉ lễ — vẫn hưởng lương";
+    o.pills.push({ text: "LỄ", tone: "red-soft", title: day.leave ?? "Ngày lễ" });
+  } else if (day.leave) {
+    o.variant = " cc-month-cell--holiday";
+    o.statusLabel = day.leave_paid ? "Nghỉ Phép (P)" : "Nghỉ KL";
+  } else if (day.planned_off) {
+    // Nghỉ theo lịch xoay ca: dấu KẾ HOẠCH, không ra tiền, không tiêu phép — nên
+    // để màu lặng như cuối tuần, đừng mượn màu lễ/phép.
+    o.variant = " cc-month-cell--weekend";
+    o.statusLabel = "Nghỉ theo lịch";
+  }
+  if (day.ot_minutes) {
+    o.pills.push({ text: "+OT", tone: "orange", title: `Tăng ca: ${day.ot_minutes}′` });
+  }
+  return o;
+}
+
+/** Số công gọn: 1 chứ không phải 1.00, nhưng 0,5 công vẫn phải thấy. */
+const soCong = (v?: number | null) => Number((v ?? 0).toFixed(2));
+
+/** Chip tóm tắt cho cột "Công đặc biệt" — rỗng ⇒ caller vẽ "—".
+ *  Không bày chip rỗng: tháng không lễ thì ~90% hàng chẳng có gì, chip rỗng chỉ tổ làm bẩn cột. */
+function congDacBiet(row: TimesheetRow): PillO[] {
+  const chips: PillO[] = [];
+  if (soCong(row.restday_cong) > 0)
+    chips.push({
+      text: `${soCong(row.restday_cong)} CN`,
+      tone: "purple",
+      title: "Công làm ngày nghỉ tuần",
+    });
+  if (soCong(row.holiday_cong) > 0)
+    chips.push({
+      text: `${soCong(row.holiday_cong)} lễ`,
+      tone: "red",
+      title: "Công làm ngày lễ",
+    });
+  if (soCong(row.plain_cong) > 0)
+    chips.push({
+      text: `${soCong(row.plain_cong)} nghỉ`,
+      tone: "gray",
+      title: "Công làm ngày công ty cho nghỉ (1×, không hệ số)",
+    });
+  return chips;
+}
+
+type DongDacBiet = {
+  ngay: number;
+  loai: string;
+  ten: string;
+  cong: number;
+  quyDoi: number;
+  tone: string;
+};
+
+/** Bung cột "Công đặc biệt" thành TỪNG NGÀY cho drawer — cột chỉ nói tổng, mà câu hỏi thật của
+ *  kế toán là "ngày nào, mấy công, quy đổi ra bao nhiêu". */
+function ngayDacBiet(
+  row: TimesheetRow,
+  heSo: HeSoNgay,
+  tenLe: Map<number, string>,
+  year: number,
+  month: number,
+): DongDacBiet[] {
+  const ds: DongDacBiet[] = [];
+  for (const [k, day] of Object.entries(row.days)) {
+    if (!day.first_in && !day.last_out) continue; // chỉ ngày CÓ ĐI LÀM mới sinh công đặc biệt
+    const ngay = Number(k);
+    const cong = soCong(day.cong);
+    if (cong <= 0) continue;
+    if (day.plain) {
+      ds.push({ ngay, loai: "Ngày nghỉ công ty", ten: "trả 1× — không hệ số",
+                cong, quyDoi: soCong(cong * heSo.off1x), tone: "gray" });
+    } else if (day.holiday) {
+      ds.push({ ngay, loai: "Ngày lễ", ten: tenLe.get(ngay) ?? "nghỉ lễ hưởng lương",
+                cong, quyDoi: soCong(cong * heSo.le), tone: "red" });
+    } else if (day.restday) {
+      ds.push({ ngay, loai: "Nghỉ tuần", ten: WEEKDAY_NAMES_SHORT[getWeekdayIndex(year, month, ngay)],
+                cong, quyDoi: soCong(cong * heSo.nghi_tuan), tone: "purple" });
+    }
+  }
+  return ds.sort((a, b) => a.ngay - b.ngay);
+}
 
 function fmtDateTime(s: string | null | undefined): string {
   if (!s) return "—";
@@ -248,15 +411,46 @@ export function ChamCongPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
-  const canConfig = can("nhan_su", "update"); // cấu hình điểm/ca
-  const canView = can("nhan_su", "read"); // xem toàn xưởng (theo scope)
-  const canApproveEl = can("di_muon", "approve"); // duyệt phiếu đi muộn / về sớm
+  // Khoá RIÊNG của màn Chấm công (10/08/2026) — không mượn quyền màn Hồ sơ nhân sự nữa.
+  // `update` = ô "Cấu hình chấm công": gác cả ĐỌC lẫn GHI ba tab Điểm chấm công / Khai ca /
+  // Lịch & Ngày lễ (trước đây đường đọc chỉ đòi `read` nên ẩn tab mà API vẫn trả dữ liệu).
+  // MỘT Ô = MỘT TAB (chủ chốt 15/08/2026, mg 0194). Trước đó `canConfig` một mình mở BA tab
+  // cấu hình — bật một ô ra ba màn, người cấp quyền không biết mình vừa mở cái gì.
+  const canDiemChamCong = can("cham_cong", "manage_locations");
+  const canKhaiCa = can("cham_cong", "manage_shifts");
+  const canLichLe = can("cham_cong", "manage_calendar");
+  // Ghi vào ba tab cấu hình: vẫn là ô Thao tác chung của màn (luật "bật Thao tác là thao tác cả").
+  const canConfig = can("cham_cong", "update");
+  // Bảng công tháng = lưới cả xưởng + nút Chốt kỳ ⇒ Ô RIÊNG, không đi theo `read` nữa.
+  // `read` nay = mở màn + ba tab CỦA TÔI (bấm giờ · lịch công của mình · tự xin đi muộn).
+  const canView = can("cham_cong", "view_timesheet");
+  // Ô RIÊNG (11/08/2026): Bảng công tháng là số công đã tổng hợp; NHẬT KÝ là từng lượt bấm
+  // kèm giờ + toạ độ của cả xưởng — ai đi sớm về muộn hôm nào, đọc là biết. Hai mức nhạy cảm
+  // khác nhau nên hai ô khác nhau.
+  const canViewLog = can("cham_cong", "view_log");
+  // Tab "Yêu cầu chỉnh công" có KHOÁ RIÊNG từ 11/08/2026 — không còn ăn theo `cham_cong`.
+  // Xem danh sách = ô Xem của màn đó; duyệt / từ chối = ô Duyệt riêng.
+  // Tab Yêu cầu chỉnh công hiện theo chính ô DUYỆT — bỏ ô "xem" riêng (mg 0194).
+  const canViewYcch = can("cham_cong", "approve");
+  const canApproveYcch = can("cham_cong", "approve");
+  // Ô TỰ PHỤC VỤ (đợt 3) — quản trị TẮT ĐƯỢC. Không hỏi thì tắt xong nút vẫn bày ra, bấm
+  // mới ăn 403: trông như hệ thống hỏng chứ không như "anh không có quyền".
+  const tuPhucVu = useSelfService();
+  // Ô THAO TÁC của Tự phục vụ — TÁCH khỏi ô Xem ngày 11/08/2026. Tab/danh sách đi theo ô
+  // Xem; còn nút GỬI · SỬA · HUỶ thì đi theo ô này.
+  // GHI LÀ GHI — gửi / sửa / huỷ đơn của CHÍNH MÌNH vẫn đòi ô Thao tác của màn Chấm công
+  // (chủ chốt 15/08/2026: *"tôi chưa bật thao tác vẫn bấm gửi đơn được nè"*). Chỉ phần ĐỌC dữ
+  // liệu của mình mới là quyền đương nhiên.
+  const tuPhucVuGhi = can("cham_cong", "create");
+  const canApproveEl = can("cham_cong", "approve_late_early"); // gộp từ khoá `di_muon`
+  // Mặc định vào tab của mình; ai bị gỡ ô Tự phục vụ thì mở thẳng tab xem được — không thì
+  // vào màn là thấy một tab trống trơn không hiểu vì sao.
   const [tab, setTab] = useState<Tab>("me");
 
-  // Liên thông từ Hồ sơ NV → mở "Bảng chấm công" lọc đúng NV đó.
+  // Liên thông từ Hồ sơ NV → mở "Nhật ký chấm công" lọc đúng NV đó.
   useEffect(() => {
-    if (focusEmployeeId && canView) setTab("logs");
-  }, [focusEmployeeId, canView]);
+    if (focusEmployeeId && canViewLog) setTab("logs");
+  }, [focusEmployeeId, canViewLog]);
 
   return (
     <main className="ns">
@@ -270,26 +464,34 @@ export function ChamCongPage({
       </header>
 
       <nav className="cc-tabs">
-        <button
-          className={tab === "me" ? "is-active" : ""}
-          onClick={() => setTab("me")}
-        >
-          <UserCheck size={14} /> Chấm công của tôi
-        </button>
-        <button
-          className={tab === "my-timesheet" ? "is-active" : ""}
-          onClick={() => setTab("my-timesheet")}
-        >
-          <CalendarDays size={14} /> Công của tôi
-        </button>
-        {/* LUÔN hiện: ai vào được màn Chấm công cũng phải xin đi muộn/về sớm cho CHÍNH MÌNH được. */}
-        <button
-          className={tab === "di-muon" ? "is-active" : ""}
-          onClick={() => setTab("di-muon")}
-        >
-          <Clock3 size={14} /> Đi muộn / về sớm / nghỉ nửa buổi
-        </button>
-        {canConfig && (
+        {tuPhucVu && (
+          <button
+            className={tab === "me" ? "is-active" : ""}
+            onClick={() => setTab("me")}
+          >
+            <UserCheck size={14} /> Chấm công của tôi
+          </button>
+        )}
+        {tuPhucVu && (
+          <button
+            className={tab === "my-timesheet" ? "is-active" : ""}
+            onClick={() => setTab("my-timesheet")}
+          >
+            <CalendarDays size={14} /> Công của tôi
+          </button>
+        )}
+        {/* Hiện với người CÓ ô Tự phục vụ (ai cũng phải xin đi muộn/về sớm cho CHÍNH MÌNH được) —
+            hoặc với người DUYỆT phiếu của tổ. Trước đây "LUÔN hiện", nhưng từ khi Tự phục vụ thành
+            ô tắt được thì luôn-hiện nghĩa là bày nút cho người không bấm được. */}
+        {(tuPhucVu || canApproveEl) && (
+          <button
+            className={tab === "di-muon" ? "is-active" : ""}
+            onClick={() => setTab("di-muon")}
+          >
+            <Clock3 size={14} /> Đi muộn / về sớm / nghỉ nửa buổi
+          </button>
+        )}
+        {canDiemChamCong && (
           <button
             className={tab === "locations" ? "is-active" : ""}
             onClick={() => setTab("locations")}
@@ -297,7 +499,7 @@ export function ChamCongPage({
             <MapPin size={14} /> Điểm chấm công
           </button>
         )}
-        {canConfig && (
+        {canKhaiCa && (
           <button
             className={tab === "khai-ca" ? "is-active" : ""}
             onClick={() => setTab("khai-ca")}
@@ -305,7 +507,7 @@ export function ChamCongPage({
             <Clock size={14} /> Khai ca
           </button>
         )}
-        {canConfig && (
+        {canLichLe && (
           <button
             className={tab === "lich-le" ? "is-active" : ""}
             onClick={() => setTab("lich-le")}
@@ -313,12 +515,12 @@ export function ChamCongPage({
             <Calendar size={14} /> Lịch & Ngày lễ
           </button>
         )}
-        {canView && (
+        {canViewLog && (
           <button
             className={tab === "logs" ? "is-active" : ""}
             onClick={() => setTab("logs")}
           >
-            <ClipboardList size={14} /> Bảng chấm công
+            <ClipboardList size={14} /> Nhật ký chấm công
           </button>
         )}
         {canView && (
@@ -329,7 +531,7 @@ export function ChamCongPage({
             <Table size={14} /> Bảng công tháng
           </button>
         )}
-        {canView && (
+        {canViewYcch && (
           <button
             className={tab === "yeu-cau" ? "is-active" : ""}
             onClick={() => setTab("yeu-cau")}
@@ -340,9 +542,14 @@ export function ChamCongPage({
       </nav>
 
       {tab === "me" && (
-        <MyCheckIn token={token!} canConfig={canConfig} navigate={navigate} />
+        <MyCheckIn
+          token={token!}
+          canConfig={canConfig}
+          coQuyenGhi={tuPhucVuGhi}
+          navigate={navigate}
+        />
       )}
-      {tab === "my-timesheet" && <MyTimesheetTab token={token!} />}
+      {tab === "my-timesheet" && tuPhucVu && <MyTimesheetTab token={token!} />}
       {tab === "di-muon" && (
         <LateEarlyTab
           token={token!}
@@ -354,17 +561,18 @@ export function ChamCongPage({
       {tab === "locations" && canConfig && <LocationsTab token={token!} />}
       {tab === "khai-ca" && canConfig && <ShiftsTab token={token!} />}
       {tab === "lich-le" && canConfig && <CalendarTab token={token!} />}
-      {tab === "logs" && canView && (
+      {tab === "logs" && canViewLog && (
         <LogsTab token={token!} focusEmployeeId={focusEmployeeId} />
       )}
       {tab === "timesheet" && canView && (
-        <TimesheetTab token={token!} canAdjust={can("nhan_su", "adjust")} />
-      )}
-      {tab === "yeu-cau" && canView && (
-        <AdjustRequestsTab
+        <TimesheetTab
           token={token!}
-          canAdjust={can("nhan_su", "adjust")}
+          canAdjust={can("cham_cong", "adjust")}
+          canLock={can("cham_cong", "lock")}
         />
+      )}
+      {tab === "yeu-cau" && canViewYcch && (
+        <AdjustRequestsTab token={token!} canAdjust={canApproveYcch} />
       )}
     </main>
   );
@@ -699,10 +907,13 @@ function GpsRadarMap2D({
 function MyCheckIn({
   token,
   canConfig,
+  coQuyenGhi,
   navigate,
 }: {
   token: string;
   canConfig: boolean;
+  /** Ô THAO TÁC của Tự phục vụ — bấm chấm công là GHI dữ liệu (tách 11/08/2026). */
+  coQuyenGhi: boolean;
   navigate?: NavigateFn;
 }) {
   const [status, setStatus] = useState<AttendanceStatus | null>(null);
@@ -870,6 +1081,8 @@ function MyCheckIn({
   const showTimer =
     status.next_action === "out" && status.last_check?.check_type === "in";
   const btnDisabled =
+    // Chưa được cấp ô Thao tác thì nút khoá luôn — máy chủ cũng chặn, đừng để bấm rồi ăn 403.
+    !coQuyenGhi ||
     checking ||
     locating ||
     !status.can_check ||
@@ -1429,7 +1642,7 @@ function MyTimesheetTab({ token }: { token: string }) {
   const [reqDate, setReqDate] = useState<string | null>(null); // ngày đang xin chỉnh (mở modal)
   const [year, month] = ym.split("-").map(Number);
 
-  useEffect(() => {
+  const taiBieuCong = useCallback(() => {
     setLoading(true);
     api.attendance
       .myTimesheet(token, year, month)
@@ -1437,6 +1650,10 @@ function MyTimesheetTab({ token }: { token: string }) {
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, [token, year, month]);
+
+  useEffect(() => {
+    taiBieuCong();
+  }, [taiBieuCong]);
 
   const loadReqs = useCallback(() => {
     api.attendance
@@ -1504,6 +1721,8 @@ function MyTimesheetTab({ token }: { token: string }) {
   }
 
   const row = data?.rows[0] ?? null;
+  // Hệ số quy đổi công lễ / nghỉ tuần — LẤY TỪ MÁY CHỦ (khai ở Cấu hình lương), không viết cứng.
+  const heSoNgay = data?.he_so_ngay ?? HE_SO_NGAY_MAC_DINH;
 
   // Build calendar matrix cells
   const startOffset = (new Date(year, month - 1, 1).getDay() + 6) % 7; // Mon=0..Sun=6
@@ -1620,15 +1839,25 @@ function MyTimesheetTab({ token }: { token: string }) {
           </div>
         </div>
       </div>
-      {loading && <p className="ns__empty">Đang tải biểu công…</p>}
+      {loading && <EmptyState trangThai="dang-tai" inline />}
       {!loading && !data && (
-        <p className="ns__empty">Không tải được biểu công tháng này.</p>
+        <EmptyState
+          trangThai="loi"
+          loi="Không tải được biểu công tháng này."
+          onThuLai={taiBieuCong}
+          inline
+        />
       )}
       {/* Có `data` mà không có hàng: từ 31/07/2026 backend luôn trả hàng của chính người đăng nhập
           (kể cả chưa chấm buổi nào) nên nhánh này gần như không còn xảy ra. Giữ làm lưới an toàn —
           màn trắng trơn không một lời nào là thứ tệ nhất. */}
       {!loading && data && !row && (
-        <p className="ns__empty">Tháng này bạn chưa có dữ liệu chấm công.</p>
+        <EmptyState
+          icon="calendar"
+          title="Tháng này bạn chưa có dữ liệu chấm công"
+          sub="Bấm vào ô ngày trên lịch để gửi yêu cầu chỉnh công."
+          inline
+        />
       )}
       {!loading && row && data && (
         <div
@@ -1676,42 +1905,9 @@ function MyTimesheetTab({ token }: { token: string }) {
                   />
                 );
               const day = row.days[String(dayNum)];
-              let cellClass = "cc-month-cell";
-              let statusLabel = "";
-              let timeRange = "";
-              let otBadge = false;
-
-              if (day) {
-                // TRẬT TỰ QUAN TRỌNG — hỏi LƯỢT BẤM trước.
-                // Backend nhét TÊN NGÀY LỄ vào chung field `leave` với tên loại nghỉ phép, và
-                // ngày lễ ĐI LÀM thì ô vừa có `leave` vừa có giờ vào/ra. Trước đây `leave` được
-                // hỏi trước nên hôm đó bị vẽ thành "Nghỉ Phép (P)", nuốt mất giờ công thật.
-                const hasPunch = day.first_in || day.last_out;
-                if (hasPunch) {
-                  cellClass += " cc-month-cell--work";
-                  if (day.late || day.early) cellClass += " cc-month-cell--makeup";
-                  timeRange = `${day.first_in ?? "?"} - ${day.last_out ?? "?"}`;
-                  statusLabel =
-                    day.cong != null
-                      ? `Công: ${day.cong}`
-                      : day.hours != null
-                        ? `${day.hours}h`
-                        : "Đã chấm";
-                  if (day.ot_minutes) otBadge = true;
-                } else if (day.holiday) {
-                  // Lễ KHÔNG tiêu ngày phép năm — gọi nó là "Nghỉ Phép (P)" là nói sai bản chất.
-                  cellClass += " cc-month-cell--holiday";
-                  statusLabel = "Nghỉ lễ";
-                } else if (day.leave) {
-                  cellClass += " cc-month-cell--holiday";
-                  statusLabel = day.leave_paid ? "Nghỉ Phép (P)" : "Nghỉ KL";
-                } else if (day.planned_off) {
-                  // Nghỉ theo lịch xoay ca: dấu KẾ HOẠCH, không ra tiền, không tiêu phép — nên
-                  // để màu lặng như cuối tuần, đừng mượn màu lễ/phép.
-                  cellClass += " cc-month-cell--weekend";
-                  statusLabel = "Nghỉ theo lịch";
-                }
-              }
+              // Đọc ô qua `docONgay` — CHUNG với lịch NV bên màn HCNS, xem chú thích ở hàm đó.
+              const o = docONgay(day, heSoNgay);
+              let cellClass = "cc-month-cell" + o.variant;
 
               const currentDayOfWeek = new Date(
                 year,
@@ -1748,14 +1944,17 @@ function MyTimesheetTab({ token }: { token: string }) {
                     }}
                   >
                     <span className="cc-month-cell-num">{dayNum}</span>
-                    {otBadge && (
-                      <span
-                        className="cc-badge-pill cc-badge-pill--orange"
-                        style={{ padding: "1px 4px", fontSize: "9px" }}
-                      >
-                        +OT
-                      </span>
-                    )}
+                    <span className="cc-month-cell__pills">
+                      {o.pills.map((p) => (
+                        <span
+                          key={p.text}
+                          className={`cc-badge-pill cc-badge-pill--cell cc-badge-pill--${p.tone}`}
+                          title={p.title}
+                        >
+                          {p.text}
+                        </span>
+                      ))}
+                    </span>
                   </div>
                   <div
                     style={{
@@ -1765,7 +1964,7 @@ function MyTimesheetTab({ token }: { token: string }) {
                       marginTop: "4px",
                     }}
                   >
-                    {timeRange || "—"}
+                    {o.timeRange || "—"}
                   </div>
                   <div
                     style={{
@@ -1773,11 +1972,21 @@ function MyTimesheetTab({ token }: { token: string }) {
                       color: "var(--ash)",
                       marginTop: "2px",
                       display: "flex",
+                      // Dòng này dài hẳn ra từ 18/08/2026 ("Công: 1 → tính 4 công"), mà ô lịch
+                      // chỉ rộng ~150px ở laptop ⇒ phải cho xuống dòng, không thì tràn ra ngoài.
+                      flexWrap: "wrap",
+                      gap: "2px",
                       justifyContent: "space-between",
                       width: "100%",
                     }}
                   >
-                    <span>{statusLabel}</span>
+                    <span>
+                      {o.statusLabel}
+                      {/* Chữ nằm THẲNG trên ô, không nhét vào tooltip: `title` của ô đã bị câu
+                          "Bấm để gửi yêu cầu chỉnh công" chiếm, mà đây mới là thứ người ta cần
+                          thấy ngay — "làm ngày lễ mà chỉ thấy Công: 1" chính là chỗ mất niềm tin. */}
+                      {o.gain && <span className={o.gainClass}> {o.gain}</span>}
+                    </span>
                     {day?.late && (
                       <span
                         style={{ color: "var(--signal)", fontWeight: "bold" }}
@@ -2107,14 +2316,13 @@ function LocationsTab({ token }: { token: string }) {
 
       {/* 2. Location Cards Grid */}
       {items === null ? (
-        <div className="ns__empty cc-calendar-loading">
-          <div className="cc-loading-spinner" />
-          <span>Đang tải danh sách điểm chấm công...</span>
-        </div>
+        <EmptyState trangThai="dang-tai" />
       ) : items.length === 0 ? (
-        <div className="ns__empty" style={{ padding: 40 }}>
-          Chưa có điểm chấm công nào được cấu hình. Bấm "+ Thêm điểm chấm công" để tạo mới.
-        </div>
+        <EmptyState
+          icon="building"
+          title="Chưa khai điểm chấm công nào"
+          sub='Bấm "+ Thêm điểm chấm công" để tạo điểm đầu tiên. Chưa có điểm thì nhân viên bấm ở đâu cũng được tính là ngoài vùng.'
+        />
       ) : (
         <div className="cc-locations-grid">
           {items.map((l) => {
@@ -2455,12 +2663,28 @@ function LogsTab({
   const [kpi, setKpi] = useState<TodayKpi | null>(null);
 
   useEffect(() => setFocus(focusEmployeeId), [focusEmployeeId]);
+
+  // Ô tìm: gõ tới đâu gọi API tới đó thì mỗi phím một request. Chờ 300ms im tay rồi mới gọi.
+  const [q, setQ] = useState("");
+  const [qGui, setQGui] = useState("");
   useEffect(() => {
+    const t = setTimeout(() => setQGui(q), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  // Khoảng ngày để xem lại NGÀY TRƯỚC. Không đặt mặc định = hôm nay: mở màn ra thấy ngay lượt
+  // gần nhất vẫn đúng ý hơn, ai cần lùi ngày thì tự chọn.
+  const [tuNgay, setTuNgay] = useState("");
+  const [denNgay, setDenNgay] = useState("");
+  const ngayNguoc = !!tuNgay && !!denNgay && denNgay < tuNgay;
+
+  useEffect(() => {
+    if (ngayNguoc) return;      // khoảng vô nghĩa → giữ nguyên kết quả cũ, khỏi gọi API thừa
     api.attendance
-      .logs(token, focus)
+      .logs(token, focus, qGui, tuNgay || undefined, denNgay || undefined)
       .then((r) => setItems(r.items))
       .catch(() => setItems([]));
-  }, [token, focus]);
+  }, [token, focus, qGui, tuNgay, denNgay, ngayNguoc]);
 
   useEffect(() => {
     if (focus == null) {
@@ -2585,10 +2809,72 @@ function LogsTab({
         </div>
       )}
 
+      {/* Dùng lại `cc-sp-search` của chính màn này (lưới Phân ca). KHÔNG mượn `lg-search-*` bên
+          màn Lương: class đó nằm trong `luong.css` mà file này không import — mượn là ô trần
+          không style, mà kéo cả `luong.css` sang thì tệ hơn nữa. */}
+      <div className="cc-toolbar" style={{ marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+        <label className="cc-sp-search">
+          <Search size={14} />
+          <input
+            placeholder="Tìm theo tên / mã nhân viên…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </label>
+        <label className="cc-sp-search">
+          <span style={{ fontSize: 12 }}>Từ</span>
+          <input
+            type="date"
+            value={tuNgay}
+            max={denNgay || undefined}
+            onChange={(e) => setTuNgay(e.target.value)}
+          />
+        </label>
+        <label className="cc-sp-search">
+          <span style={{ fontSize: 12 }}>đến</span>
+          <input
+            type="date"
+            value={denNgay}
+            min={tuNgay || undefined}
+            onChange={(e) => setDenNgay(e.target.value)}
+          />
+        </label>
+        {(tuNgay || denNgay) && (
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => {
+              setTuNgay("");
+              setDenNgay("");
+            }}
+          >
+            ✕ Bỏ lọc ngày
+          </button>
+        )}
+      </div>
+      {ngayNguoc && (
+        <div className="banner banner--error" style={{ marginBottom: 10 }}>
+          Đến ngày phải sau hoặc bằng từ ngày.
+        </div>
+      )}
+
       {!items ? (
-        <p className="ns__empty">Đang tải lịch sử chấm công…</p>
+        <EmptyState trangThai="dang-tai" inline />
       ) : (
-        <AttendanceTable logs={items} showEmployee={focus == null} />
+        <>
+          <AttendanceTable logs={items} showEmployee={focus == null} />
+          {/* Nói THẬT về giới hạn: không ghi thì người dùng tưởng đã thấy hết rồi kết luận sai
+              ("hôm kia nó không chấm công") trong khi thật ra lượt cũ nằm ngoài 100 dòng này. */}
+          <p className="cc-note" style={{ marginTop: 8 }}>
+            {items.length === 0
+              ? `Không có lượt chấm công nào${qGui ? ` khớp “${qGui}”` : ""}${
+                  tuNgay || denNgay ? " trong khoảng ngày đã chọn" : ""
+                }.`
+              : tuNgay || denNgay
+                ? `Đang xem ${items.length} lượt bấm trong khoảng ngày đã chọn${qGui ? ` khớp “${qGui}”` : ""}.`
+                : `Đang xem ${items.length} lượt bấm gần nhất${qGui ? ` khớp “${qGui}”` : ""} — tối đa 100. Muốn xem ngày trước thì chọn khoảng ngày ở trên.`}
+          </p>
+        </>
       )}
     </div>
   );
@@ -4177,7 +4463,7 @@ function ShiftPlanPanel({ token }: { token: string }) {
         <span className="cc-sp-lg cc-sp-lg--dirty">Chưa lưu</span>
       </div>
 
-      {loading && <p className="ns__empty">Đang tải lưới phân ca…</p>}
+      {loading && <EmptyState trangThai="dang-tai" inline />}
       {!loading && data && (
         <div className="cc-timesheet-scroll-container cc-sp-scroll">
           <table
@@ -5737,6 +6023,7 @@ function EmployeeCalendarModal({
   year,
   month,
   daysInMonth,
+  heSoNgay,
   onClose,
 }: {
   employeeName: string;
@@ -5744,6 +6031,9 @@ function EmployeeCalendarModal({
   year: number;
   month: number;
   daysInMonth: number;
+  /** Hệ số quy đổi công lễ / nghỉ tuần từ Cấu hình lương — truyền xuống chứ không đọc lại,
+   *  hai lịch phải nói cùng một con số. */
+  heSoNgay: HeSoNgay;
   onClose: () => void;
 }) {
   const startOffset = (new Date(year, month - 1, 1).getDay() + 6) % 7; // Mon=0..Sun=6
@@ -5858,32 +6148,11 @@ function EmployeeCalendarModal({
                 );
 
               const day = employeeRow.days[String(dayNum)];
-              let cellClass = "cc-month-cell cc-emp-cal-cell";
-              let timeRange = "";
-              let statusLabel = "";
-              let otBadge = false;
-
-              if (day) {
-                if (day.leave) {
-                  cellClass += " cc-month-cell--holiday";
-                  statusLabel = day.leave_paid ? "Nghỉ phép (P)" : "Nghỉ KL";
-                } else {
-                  const hasPunch = day.first_in || day.last_out;
-                  if (hasPunch) {
-                    cellClass += " cc-month-cell--work";
-                    if (day.late || day.early)
-                      cellClass += " cc-month-cell--makeup";
-                    timeRange = `${day.first_in ?? "?"} - ${day.last_out ?? "?"}`;
-                    statusLabel =
-                      day.cong != null
-                        ? `Công: ${day.cong}`
-                        : day.hours != null
-                          ? `${day.hours}h`
-                          : "Đã chấm";
-                    if (day.ot_minutes) otBadge = true;
-                  }
-                }
-              }
+              // CHUNG hàm với lịch tự phục vụ. Đoạn `if` cũ ở đây hỏi `day.leave` TRƯỚC nên ngày
+              // lễ hiện thành "Nghỉ phép (P)" — HCNS và người lao động nhìn cùng một ngày mà đọc
+              // ra hai chuyện khác nhau.
+              const o = docONgay(day, heSoNgay);
+              let cellClass = "cc-month-cell cc-emp-cal-cell" + o.variant;
 
               const currentDayOfWeek = new Date(
                 year,
@@ -5906,14 +6175,17 @@ function EmployeeCalendarModal({
                     }}
                   >
                     <span className="cc-month-cell-num">{dayNum}</span>
-                    {otBadge && (
-                      <span
-                        className="cc-badge-pill cc-badge-pill--orange"
-                        style={{ padding: "1px 4px", fontSize: "9px" }}
-                      >
-                        +OT
-                      </span>
-                    )}
+                    <span className="cc-month-cell__pills">
+                      {o.pills.map((p) => (
+                        <span
+                          key={p.text}
+                          className={`cc-badge-pill cc-badge-pill--cell cc-badge-pill--${p.tone}`}
+                          title={p.title}
+                        >
+                          {p.text}
+                        </span>
+                      ))}
+                    </span>
                   </div>
                   <div
                     style={{
@@ -5923,7 +6195,7 @@ function EmployeeCalendarModal({
                       marginTop: "4px",
                     }}
                   >
-                    {timeRange || "—"}
+                    {o.timeRange || "—"}
                   </div>
                   <div
                     style={{
@@ -5937,7 +6209,10 @@ function EmployeeCalendarModal({
                       width: "100%",
                     }}
                   >
-                    <span>{statusLabel}</span>
+                    <span>
+                      {o.statusLabel}
+                      {o.gain && <span className={o.gainClass}> {o.gain}</span>}
+                    </span>
                     {day?.late && (
                       <span
                         style={{ color: "var(--signal)", fontWeight: "bold" }}
@@ -5974,9 +6249,16 @@ function EmployeeCalendarModal({
 function TimesheetTab({
   token,
   canAdjust,
+  canLock,
 }: {
   token: string;
   canAdjust: boolean;
+  /** Ô "Chốt kỳ công / Mở lại kỳ" — TÁCH khỏi ô Chấm bù từ đợt 4 (10/08/2026).
+   *
+   *  ⚠️ Trước 11/08/2026 hai nút này gác bằng `canAdjust` (ô Chấm bù) trong khi máy chủ đòi
+   *  `cham_cong:lock` ⇒ sai CẢ HAI CHIỀU: có Chấm bù mà không có Chốt kỳ thì vẫn thấy nút rồi bấm
+   *  ăn 403; có Chốt kỳ mà không có Chấm bù thì không thấy nút dù máy chủ cho phép. */
+  canLock: boolean;
 }) {
   const [ym, setYm] = useState(() => {
     const d = new Date();
@@ -6002,6 +6284,8 @@ function TimesheetTab({
     row: TimesheetRow;
     name: string;
   } | null>(null);
+  // Hàng đang mở drawer "Công đặc biệt" — cột chỉ nói tổng, drawer nói từng ngày.
+  const [specialFor, setSpecialFor] = useState<TimesheetRow | null>(null);
   const [year, month] = ym.split("-").map(Number);
 
   useEffect(() => {
@@ -6166,7 +6450,8 @@ function TimesheetTab({
         (period.hanging_days > 0 ||
           period.pending_leaves +
             period.pending_adjusts +
-            period.pending_late_early >
+            period.pending_late_early +
+            (period.pending_overtime ?? 0) >
             0) && (
           <div
             className="banner banner--warn cc-ts-warn-banner"
@@ -6179,12 +6464,30 @@ function TimesheetTab({
               <strong>
                 {period.pending_leaves +
                   period.pending_adjusts +
-                  period.pending_late_early}
+                  period.pending_late_early +
+                  (period.pending_overtime ?? 0)}
               </strong>{" "}
-              đơn chờ duyệt.
+              đơn chờ duyệt (nghỉ phép · đi muộn–về sớm · tăng ca · chỉnh công).
             </span>
           </div>
         )}
+
+      {/* L3 — kỳ ĐÃ CHỐT nhưng vẫn có lượt bấm mới. Băng này là thứ DUY NHẤT cho người dùng biết:
+          ảnh chụp không có mấy lượt đó, nên Bảng lương cũng không tính. Không chặn thợ bấm giờ —
+          chỉ nhắc HCNS chốt lại kỳ. */}
+      {period && period.status === "locked" && (period.phat_sinh_sau_chot ?? 0) > 0 && (
+        <div
+          className="banner banner--warn cc-ts-warn-banner"
+          style={{ marginBottom: "16px" }}
+        >
+          <AlertTriangle size={14} style={{ marginRight: "6px" }} />
+          <span>
+            Kỳ công đã chốt nhưng có <strong>{period.phat_sinh_sau_chot}</strong> lượt bấm ghi
+            vào sau đó — <strong>ảnh chụp không có mấy lượt này</strong>, nên Bảng lương cũng
+            không tính. Mở lại kỳ công rồi chốt lại để cập nhật.
+          </span>
+        </div>
+      )}
 
       {periodMsg && (
         <div
@@ -6198,11 +6501,11 @@ function TimesheetTab({
       {/* 2. Redesigned Filter & Actions Bar */}
       <div className="cc-ts-header-actions">
         <div className="cc-ts-filters">
-          <input
-            type="month"
+          <MonthPicker
             value={ym}
-            onChange={(e) => setYm(e.target.value)}
+            onChange={setYm}
             className="cc-ts-input-month"
+            ariaLabel="Kỳ chấm công"
           />
           <select
             value={deptId}
@@ -6251,7 +6554,7 @@ function TimesheetTab({
             <span>{downloading ? "Đang xuất…" : "Xuất CSV"}</span>
           </button>
 
-          {canAdjust && period && (
+          {canLock && period && (
             <div className="cc-ts-action-lock-wrapper">
               {period.status === "draft" ? (
                 <button
@@ -6306,6 +6609,9 @@ function TimesheetTab({
                   );
                 })}
                 <th>Công</th>
+                {/* MỘT cột cho cả ba loại công đặc biệt — bảng này đã 31 cột ngày, thêm ba cột
+                    riêng là đẩy cột Giờ ra khỏi màn 1440px. Chi tiết từng ngày nằm trong drawer. */}
+                <th>Công đặc biệt</th>
                 <th>Giờ</th>
               </tr>
             </thead>
@@ -6322,11 +6628,12 @@ function TimesheetTab({
                   onNameClick={() =>
                     setSelectedEmployeeCal({ row: r, name: r.employee_name })
                   }
+                  onSpecialClick={() => setSpecialFor(r)}
                 />
               ))}
               {data.rows.length === 0 && (
                 <tr>
-                  <td colSpan={days.length + 5} className="ns__empty">
+                  <td colSpan={days.length + 6} className="ns__empty">
                     Chưa có dữ liệu chấm công tháng này.
                   </td>
                 </tr>
@@ -6355,9 +6662,110 @@ function TimesheetTab({
           year={year}
           month={month}
           daysInMonth={data?.days_in_month ?? 30}
+          heSoNgay={data?.he_so_ngay ?? HE_SO_NGAY_MAC_DINH}
           onClose={() => setSelectedEmployeeCal(null)}
         />
       )}
+
+      {specialFor && (
+        <CongDacBietDrawer
+          row={specialFor}
+          year={year}
+          month={month}
+          heSoNgay={data?.he_so_ngay ?? HE_SO_NGAY_MAC_DINH}
+          holidays={data?.holidays ?? []}
+          onClose={() => setSpecialFor(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Drawer "Công đặc biệt": từng ngày lễ / nghỉ tuần / ngày nghỉ công ty CÓ ĐI LÀM, kèm số công
+ *  quy đổi. Đây là chỗ trả lời câu hỏi tiền — nên nói luôn VÌ SAO lễ và Chủ nhật khác hệ số,
+ *  đừng bắt kế toán đi tra Sổ tay mới hiểu con số trên màn. */
+function CongDacBietDrawer({
+  row,
+  year,
+  month,
+  heSoNgay,
+  holidays,
+  onClose,
+}: {
+  row: TimesheetRow;
+  year: number;
+  month: number;
+  heSoNgay: HeSoNgay;
+  holidays: HolidayMark[];
+  onClose: () => void;
+}) {
+  const tenLe = useMemo(
+    () => new Map(holidays.map((h) => [h.day, h.name])),
+    [holidays],
+  );
+  const dong = useMemo(
+    () => ngayDacBiet(row, heSoNgay, tenLe, year, month),
+    [row, heSoNgay, tenLe, year, month],
+  );
+  const tongQuyDoi = soCong(dong.reduce((s, d) => s + d.quyDoi, 0));
+
+  return (
+    <div
+      className="cc-sp-drawer"
+      role="dialog"
+      aria-label={`Công đặc biệt — ${row.employee_name}`}
+    >
+      <div className="cc-sp-drawer__backdrop" onClick={onClose} />
+      <div className="cc-sp-drawer__panel">
+        <div className="cc-sp-drawer__head">
+          <div>
+            <div className="cc-sp-drawer__title">Công đặc biệt</div>
+            <div className="cc-sp-drawer__sub">
+              {row.employee_name} · tháng {month}/{year}
+            </div>
+          </div>
+          <button type="button" className="btn btn--ghost" onClick={onClose}>
+            Đóng
+          </button>
+        </div>
+        <p className="cc-note">
+          Ngày lễ đi làm tính {soCong(heSoNgay.le)} công (1 công tiền lễ + phần
+          làm thêm ngày lễ). Ngày nghỉ tuần đi làm tính{" "}
+          {soCong(heSoNgay.nghi_tuan)} công. Ngày công ty cho nghỉ mà vẫn đi làm
+          tính 1 công, không hệ số.
+        </p>
+        {dong.length === 0 ? (
+          <p className="ns__empty">
+            Tháng này không có ngày lễ / nghỉ tuần nào đi làm.
+          </p>
+        ) : (
+          <>
+            <ul className="cc-sp-hist">
+              {dong.map((d) => (
+                <li key={d.ngay} className="cc-sp-hist__item">
+                  <div className="cc-sp-hist__body">
+                    <div className="cc-sp-hist__top">
+                      <span className="cc-sp-hist__name">
+                        {WEEKDAY_NAMES_SHORT[getWeekdayIndex(year, month, d.ngay)]}{" "}
+                        {String(d.ngay).padStart(2, "0")}/
+                        {String(month).padStart(2, "0")} · {d.loai}
+                      </span>
+                      <span className={`cc-badge-pill cc-badge-pill--${d.tone}`}>
+                        {d.cong} → {d.quyDoi} công
+                      </span>
+                    </div>
+                    <div className="cc-sp-hist__range">{d.ten}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div className="cc-ts-special__total">
+              <span>Tổng quy đổi</span>
+              <b>{tongQuyDoi} công</b>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -6368,13 +6776,16 @@ function TimesheetRowView({
   isWeekend,
   onCellClick,
   onNameClick,
+  onSpecialClick,
 }: {
   row: TimesheetRow;
   days: number[];
   isWeekend: (dayNum: number) => boolean;
   onCellClick?: (dayNum: number) => void;
   onNameClick?: () => void;
+  onSpecialClick?: () => void;
 }) {
+  const chipsDacBiet = congDacBiet(row);
   const clickable = !!onCellClick;
   const cellProps = (d: number) =>
     clickable
@@ -6461,6 +6872,28 @@ function TimesheetRowView({
       })}
       <td style={{ fontWeight: "bold", textAlign: "center" }}>
         {row.total_cong != null ? row.total_cong : row.total_days}
+      </td>
+      {/* KHÔNG flex trên <td> (layout bảng vỡ ở Safari/Firefox) — bọc trong <button> rồi flex ở đó. */}
+      <td style={{ textAlign: "center" }}>
+        {chipsDacBiet.length === 0 ? (
+          <span style={{ color: "var(--ash-2)" }}>—</span>
+        ) : (
+          <button
+            type="button"
+            className="cc-ts-special"
+            onClick={onSpecialClick}
+            title="Xem từng ngày và số công quy đổi"
+          >
+            {chipsDacBiet.map((c) => (
+              <span
+                key={c.text}
+                className={`cc-badge-pill cc-badge-pill--${c.tone}`}
+              >
+                {c.text}
+              </span>
+            ))}
+          </button>
+        )}
       </td>
       <td style={{ fontWeight: "bold", textAlign: "center" }}>
         {row.total_hours}h
@@ -7804,6 +8237,14 @@ function ElFormModal({
   const remaining = quota?.remaining ?? 0;
   const shortOfLeave = !forEmployee && quotas.length > 0 && remaining < 0.5;
 
+  // Băng số dư phép + khối "trừ vào phép năm" của form này ĐANG TẮT (JSX bị comment ở ~7965 và
+  // ~8099). Phần tính ở trên giữ nguyên để bật lại chỉ cần bỏ comment khối JSX, không phải dựng
+  // lại cả dây chuyền `quotas → quota → remaining`. Ba dòng `void` dưới đây chỉ để TypeScript
+  // thôi báo "khai mà không dùng" — không chạy gì, không đổi hành vi.
+  void types;
+  void leaveCong;
+  void shortOfLeave;
+
   // 1 phiếu/ngày: dò trong danh sách `mine` NGAY khi đổi ngày, đừng để bấm Gửi rồi mới báo.
   const clash = useMemo(() => {
     if (forEmployee || !workDate) return null;
@@ -7884,7 +8325,7 @@ function ElFormModal({
         <div className="ns-modal__body">
           {err && <div className="banner banner--error">{err}</div>}
 
-          {forEmployee ? (
+          {/* {forEmployee ? (
             <div className="el-balance el-balance--muted">
               <span>Số dư phép của thợ sẽ được hệ thống kiểm khi lưu.</span>
             </div>
@@ -7895,7 +8336,7 @@ function ElFormModal({
                 còn {elNum(remaining)} / {elNum(quota.annual_quota)} ngày
               </span>
             </div>
-          ) : null}
+          ) : null} */}
 
           {forEmployee && (
             <label className="ns-field">
@@ -8018,7 +8459,7 @@ function ElFormModal({
             <p className="np-hint np-hint--ok">Nghỉ {elDurLong(minutes)}</p>
           ) : null}
 
-          {canDeduct && types.length > 0 && (
+          {/* {canDeduct && types.length > 0 && (
             <div className="el-stack">
               <label className="ns-check">
                 <input
@@ -8083,7 +8524,7 @@ function ElFormModal({
                 </p>
               )}
             </div>
-          )}
+          )} */}
 
           <label className="ns-field el-field">
             <span className="ns-field__label">Lý do</span>

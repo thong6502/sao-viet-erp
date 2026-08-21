@@ -25,7 +25,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models.cong_doan import CongDoan
+from .models.cong_doan import CongDoan, CongDoanDauViec
 from .models.customer import Customer
 from .models.khuon_be import KhuonBe
 from .models.loai_san_pham import LoaiSanPham
@@ -78,13 +78,44 @@ _CONG_DOAN_MOI: list[tuple] = [
     ("CD-0013", "Ghép màng metalize", "finishing",
      "max(dai_in * rong_in * so_mat * to_dau_vao * 4000, 200000)", 4000, 25, 2500, "CM-03",
      "Tổ Cán màng", "co_dinh", 50, False, None, "4.000đ/m², sàn 200.000đ/lượt ghép."),
+    # Xén RỜI khác hẳn "xén 3 mặt" (CD-0009, đếm cuốn): đây là nhát cắt chia MỘT tờ in thành N con
+    # trên máy xén — cách làm phổ thông nhất cho tờ rơi/tờ hướng dẫn/bảng giá, hàng vuông vắn không
+    # cần khuôn. Danh mục cũ chỉ có CD-0011 "Bế thành phẩm" đi được chặng `to → cai`, mà bế thì đòi
+    # khuôn: thiếu mã này, mọi lệnh hàng tờ rời buộc phải khai bế, hoặc bỏ hẳn bước cắt — bỏ bước
+    # cắt là chuỗi ngược mất mắt xích tờ↔cái, chạy 1:1 và số giấy ra gấp đúng `con` lần.
+    ("CD-0014", "Xén rời thành phẩm", "finishing", "to_dau_vao * 80", 80, 15, 4000, None,
+     "Tổ Bế & Xén", "co_dinh", 20, False, None,
+     "Xén chia con trên máy xén: 1 tờ in ra `con` thành phẩm. Hàng vuông vắn, không cần khuôn."),
 ]
+
+# Đơn vị VÀO/RA của khâu sách — KHÔNG để mặc định `cai`. Khai sai thành `cai → cai` thì chuỗi bù
+# hao ngược mất ranh giới tờ↔cuốn, chạy 1:1 và ra số giấy hụt đúng bằng số tay mỗi cuốn.
+#
+# Đường sách đủ ba chặng: TỜ NGUYÊN → TỜ IN → TAY → CUỐN. Trước đây hai bước này khai `to → to`
+# rồi `to → cai`, tức nhảy cóc qua mức TAY: gấp xong vẫn gọi là tờ in, tới vào keo mới đổi thẳng
+# tờ → cuốn. Số giấy vẫn đúng (cầu tắt `to → cai` gánh cả 1/so_tay) nhưng bù hao của bước gấp và
+# bước bắt tay bị tra bậc ở SAI ĐƠN VỊ, và người đọc lệnh không thấy tay ở đâu ra.
+#
+_DON_VI_KHAU_SACH: dict[str, tuple[str, str]] = {
+    "CD-0007": ("to", "tay"),    # gấp tay: 1 tờ in gấp nguyên thành 1 tay (hệ số 1)
+    "CD-0008": ("tay", "cai"),   # bắt tay + vào keo: gom `so_tay` tay → 1 cuốn
+    "CD-0009": ("cai", "cai"),   # xén 3 mặt: đếm cuốn thành phẩm, không đổi mức
+    "CD-0010": ("to", "to"),     # cán màng mờ: chạy tờ, ra tờ
+    "CD-0011": ("to", "cai"),    # bế thành phẩm: 1 tờ ra `so_tp` con → thành phẩm
+    "CD-0012": ("cai", "cai"),   # đóng gói: đếm thành phẩm
+    "CD-0013": ("to", "to"),     # ghép màng metalize: chạy tờ, ra tờ
+    "CD-0014": ("to", "cai"),    # xén rời: 1 tờ in cắt ra `con` thành phẩm
+}
 
 # --- Bảng CÔNG KHOÁN của tổ (số hoá đúng tờ Excel xưởng đang dùng) ------------------------------
 # (ten_to, ma, ten_dau_viec, [mã công đoạn — CHỈ để suy ra tổ], don_vi, don_gia, ghi_chu)
 # Đơn giá chỉ treo vào TỔ. Danh sách công đoạn ở đây KHÔNG được lưu vào bảng: nó chỉ dùng để tìm
 # `department_id` đúng của tổ, vì tên tổ trong Excel và tên phòng ban trong hệ có thể lệch nhau.
 _DON_GIA_KHOAN: list[tuple] = [
+    # Bước IN là bước chính của mọi lệnh — thiếu đơn giá khoán ở đây thì màn bước hiện "chưa có
+    # bảng khoán" và tiền công của cả lệnh hụt mất phần lớn nhất. Thêm 12/08/2026 (trước đó dev
+    # phải gõ tay `KH-0001`, làm sạch DB một cái là mất).
+    ("Tổ In offset", "IN-01K", "In 2 màu", ["CD-0002"], "tờ", 600, None),
     ("Tổ Cán màng", "CP-01", "Cán bóng · cán mờ · phủ UV nước · UV mờ",
      ["CD-0003", "CD-0010"], "m²", 150,
      "Làm theo nhóm; tổ trưởng lấy 5%/tổng doanh thu, phần còn lại nhóm tự chia và báo kế toán."),
@@ -93,6 +124,7 @@ _DON_GIA_KHOAN: list[tuple] = [
     ("Tổ Bế & Xén", "BE-01", "Bế máy tự động", ["CD-0011"], "tờ", 250, None),
     ("Tổ Bế & Xén", "BE-02", "Bế tay (hàng ăn gian nhíp, SL ít)", ["CD-0011"], "tờ", 400, None),
     ("Tổ Bế & Xén", "XEN-01", "Xén 3 mặt thành phẩm", ["CD-0009"], "cuốn", 120, None),
+    ("Tổ Bế & Xén", "XEN-02", "Xén rời con (tờ rơi, bảng giá)", ["CD-0014"], "tờ", 80, None),
     ("Tổ Đóng gói", "TP-01", "Gấp tay sách máy", ["CD-0007"], "tờ", 60, None),
     ("Tổ Đóng gói", "TP-02", "Bắt tay + vào keo gáy vuông", ["CD-0008"], "cuốn", 700, None),
     ("Tổ Đóng gói", "TP-03", "Đếm, bó, đóng gói thành phẩm", ["CD-0012"], "cuốn", 40, None),
@@ -103,13 +135,13 @@ _DON_GIA_KHOAN: list[tuple] = [
 _SETUP_IN_MAC_DINH = 45.0
 
 # --- Năng lực máy dùng trong luồng (chỉ điền khi cột còn TRỐNG — không đè số người dùng đã khai).
-# (ma, toc_do tờ/giờ, makeready phút, rửa mực phút)
-_MAY_NANG_LUC: list[tuple[str, float, float, float]] = [
-    ("IN-01", 8000, 30, 20),    # Mitsubishi 2 màu 72×102 — ruột sách đen
-    ("IN-02", 9000, 45, 30),    # Mitsubishi 4 màu 79×109
-    ("IN-04", 10000, 60, 40),   # Mitsubishi 6 màu 72×102
-    ("CM-03", 3000, 20, 0),     # cán màng 800×1080
-    ("BE-01", 4000, 60, 0),     # bế tự động Yawa 1050
+# (ma, toc_do tờ/giờ, makeready phút). Cột rửa mực đã bỏ khỏi hệ nên seed thôi điền.
+_MAY_NANG_LUC: list[tuple[str, float, float]] = [
+    ("IN-01", 8000, 30),    # Mitsubishi 2 màu 72×102 — ruột sách đen
+    ("IN-02", 9000, 45),    # Mitsubishi 4 màu 79×109
+    ("IN-04", 10000, 60),   # Mitsubishi 6 màu 72×102
+    ("CM-03", 3000, 20),    # cán màng 800×1080
+    ("BE-01", 4000, 60),    # bế tự động Yawa 1050
 ]
 
 
@@ -121,7 +153,6 @@ def _ensure_cong_doan(db: Session) -> dict[str, int]:
     """Bổ sung công đoạn khâu sách/thẻ (idempotent theo mã). Trả map mã → id của MỌI công đoạn."""
     from .models.department import Department
 
-    may_ids = {m.ma: m.id for m in db.execute(select(MayThietBi)).scalars()}
     to_ids = {d.name: d.id for d in db.execute(select(Department)).scalars()}
     co_san = {c.ma: c for c in db.execute(select(CongDoan)).scalars()}
     for (ma, ten, nhom, ct, rate, setup, ns, may_ma, to_ten, kieu_bh, so_to_bh,
@@ -131,7 +162,6 @@ def _ensure_cong_doan(db: Session) -> dict[str, int]:
         db.add(CongDoan(
             ma=ma, ten=ten, nhom=nhom, che_do_tinh="theo_san_luong", pricing_basis="per_other",
             cong_thuc_gia=ct, run_rate=rate, setup_time=setup, nang_suat=ns,
-            may_id=may_ids.get(may_ma) if may_ma else None,
             department_id=to_ids.get(to_ten),
             kieu_bu_hao=kieu_bh, so_to_bu_hao=so_to_bh,
             requires_tooling=tooling, tooling_type=tooling_type, ghi_chu=ghi_chu,
@@ -140,13 +170,19 @@ def _ensure_cong_doan(db: Session) -> dict[str, int]:
     if cd_in is not None and not cd_in.setup_time:
         cd_in.setup_time = _SETUP_IN_MAC_DINH
     db.flush()
+    # Sửa cả công đoạn ĐÃ CÓ, không chỉ cái mới tạo: DB demo cũ đang giữ `cai → cai` mặc định.
+    for c in db.execute(select(CongDoan)).scalars():
+        dv = _DON_VI_KHAU_SACH.get(c.ma)
+        if dv and (c.don_vi_vao, c.don_vi_ra) != dv:
+            c.don_vi_vao, c.don_vi_ra = dv
+    db.flush()
     return {c.ma: c.id for c in db.execute(select(CongDoan)).scalars()}
 
 
 def _ensure_may_nang_luc(db: Session) -> None:
-    """Điền tốc độ / makeready / rửa mực cho các máy của luồng — CHỈ khi cột còn trống."""
+    """Điền tốc độ / makeready cho các máy của luồng — CHỈ khi cột còn trống."""
     by_ma = {m.ma: m for m in db.execute(select(MayThietBi)).scalars()}
-    for ma, toc_do, makeready, rua_muc in _MAY_NANG_LUC:
+    for ma, toc_do, makeready in _MAY_NANG_LUC:
         m = by_ma.get(ma)
         if m is None:
             continue
@@ -155,8 +191,6 @@ def _ensure_may_nang_luc(db: Session) -> None:
             m.don_vi_toc_do = "to_gio"
         if not m.makeready_time_default:
             m.makeready_time_default = makeready
-        if not m.thoi_gian_rua_muc and rua_muc:
-            m.thoi_gian_rua_muc = rua_muc
     db.flush()
 
 
@@ -172,7 +206,7 @@ def _ensure_don_gia_khoan(db: Session) -> None:
     # ĐÃ LỆCH THẬT: "Đóng gói + nhập kho" bị heuristic seed xếp vào Tổ KCS vì có chữ "nhập kho",
     # nên đơn giá khai cho "Tổ Đóng gói" sẽ không bao giờ khớp bước đó.
     cd_rows = {c.ma: c for c in db.execute(select(CongDoan)).scalars()}
-    co_san = {r.code for r in db.execute(select(PieceRate)).scalars() if r.code}
+    co_san = {r.ma for r in db.execute(select(PieceRate)).scalars() if r.ma}
     rows = []
     for ten_to, ma, ten, cds, don_vi, don_gia, ghi_chu in _DON_GIA_KHOAN:
         if ma in co_san:
@@ -184,13 +218,52 @@ def _ensure_don_gia_khoan(db: Session) -> None:
         if dept_id is None:
             continue   # chưa có tổ nào nhận → khai đơn giá cũng không ai dùng
         rows.append(PieceRate(
-            group_name=ten_to, department_id=dept_id, code=ma, name=ten,
+            group_name=ten_to, department_id=dept_id, ma=ma, ten=ten,
             unit=don_vi, unit_price=don_gia,
-            note=ghi_chu, is_active=True,
+            note=ghi_chu, active=True,
         ))
     if rows:
         db.add_all(rows)
         db.commit()
+
+
+def _ensure_dinh_muc_to(db: Session) -> None:
+    """Gắn đầu việc vào công đoạn theo ĐÚNG bản đồ khai ở `_DON_GIA_KHOAN`.
+
+
+    Sai này không chỉ xấu mắt: từ khi đầu việc mang theo VẬT TƯ (BOM, mg 0191), gắn nhầm đầu việc là
+    bung nhầm vật tư xuống lệnh. Bản đồ phải là nguồn sự thật duy nhất.
+
+    Vẫn idempotent: công đoạn đã có định mức thì không đụng — người dùng khai tay không bị đè.
+    """
+    from .models.piece_work import PieceRate
+
+    rate_theo_ma = {
+        r.ma: r for r in db.execute(
+            select(PieceRate).where(PieceRate.active.is_(True))
+        ).scalars() if r.ma
+    }
+    cd_rows = {c.ma: c for c in db.execute(select(CongDoan)).scalars()}
+    # Lật bản đồ: công đoạn → các đầu việc THẬT SỰ làm ở đó.
+    theo_cd: dict[str, list[str]] = {}
+    for _to, ma_rate, _ten, cds, *_ in _DON_GIA_KHOAN:
+        for cd_ma in cds:
+            theo_cd.setdefault(cd_ma, []).append(ma_rate)
+    for cd_ma, ma_rates in theo_cd.items():
+        cd = cd_rows.get(cd_ma)
+        if cd is None or cd.dau_viec_dinh_muc:
+            continue
+        for ma_rate in ma_rates:
+            rate = rate_theo_ma.get(ma_rate)
+            # Đầu việc phải thuộc ĐÚNG tổ của công đoạn — service kiểm luật này, seed cũng phải
+            # theo, không thì dữ liệu mồi vào rồi sửa ở form là bị chặn không lưu lại được.
+            if rate is None or rate.department_id != cd.department_id:
+                continue
+            cd.dau_viec_dinh_muc.append(CongDoanDauViec(
+                piece_rate_id=rate.id, nang_suat_nguoi_gio=float(cd.nang_suat or 500),
+                so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3,
+            ))
+    db.commit()
 
 
 def _ensure_loai_the(db: Session) -> int | None:
@@ -204,13 +277,17 @@ def _ensure_loai_the(db: Session) -> int | None:
 
 
 def _ensure_khuon_the(db: Session, khach_ten: str | None) -> int | None:
-    """Khuôn bế thẻ (lệnh SX cần khuôn mới rời trạng thái 'chờ bổ sung')."""
+    """Một dòng mẫu cho KHO KHUÔN — nay chỉ để danh mục có dữ liệu xem, không lệnh nào trỏ tới.
+
+    Trước 16/08/2026 con dao này được gán vào lệnh thẻ để lệnh rời trạng thái 'chờ bổ sung'; cả
+    ràng buộc đó lẫn cột `khuon_be_id` đã bỏ (mg `0203`).
+    """
     kb = db.execute(select(KhuonBe).where(KhuonBe.ma == "KB-0006")).scalars().first()
     if kb is None:
         kb = KhuonBe(
             ma="KB-0006", ten="Khuôn bế thẻ nhân viên 54×86 (góc R3 + lỗ dây)",
-            khach_hang=khach_ten, so_ke="Kệ B2 — kho khuôn",
-            ngay_lam_khuon=date.today() - timedelta(days=20), tinh_trang="dang_dung",
+            so_ke="Kệ B2 — kho khuôn", loai="khuon_be",
+            ngay_ve_du_kien=date.today() - timedelta(days=20), tinh_trang="dang_dung",
             ghi_chu="Bế 99 con/tờ 65×86.",
         )
         db.add(kb)
@@ -258,17 +335,18 @@ def _tao_phieu_tinh_gia(db: Session, *, cd: dict[str, int], sale_id: int | None,
     # ── ① RUỘT SÁCH — 160 trang A5 trên tờ 65×86: 16 con/mặt = tay 32 trang → 5 tay/cuốn ──────
     ruot = PhieuThanhPhan(
         thu_tu=0, loai_thanh_phan="ruot", ten="Ruột sách 160 trang",
-        kho_thanh_pham="14,5×20,5 cm (A5)", dai_thanh_pham=205, rong_thanh_pham=145,
-        so_to_per_sp=5,              # 160 trang ÷ 32 trang/tay = 5 bài in, mỗi bài 1 bộ kẽm
+        dai_thanh_pham=205, rong_thanh_pham=145,
+        so_trang=160, trang_moi_tay=32,
         so_luong=SL_SACH, don_vi_tinh="cuốn", nhom_bao_gia=NHOM_SACH,
         loai_san_pham_id=lsp_sach_id,
         giay_id=(ford70.id if ford70 else None), kho_nguyen="650×860",
         kho_nguyen_dai=860, kho_nguyen_rong=650, nguon_giay="cong_ty",
         # Chừa tờ in KHÔNG khai ở phiếu nữa — engine lấy theo danh mục Máy (nhíp/lề hông/đuôi).
         co_in=True, quy_cach_in="hai_mat", kho_in_dai=860, kho_in_rong=650,
-        # 1 TAY/tờ — KHÔNG để engine nhồi tối đa con/tờ như tờ rời: 16 con/mặt của 1 tờ là 32
-        # TRANG của cùng một cuốn, không phải 16 cuốn.
-        so_con=1, con_auto=False,
+        # 16 con/mặt trên tờ 65×86 (A5 145×205: 4 ngang × 4 dọc) = 32 trang/tay. Với sách, `so_con`
+        # KHÔNG vào công thức giấy (tờ gấp nguyên vẹn thành tay) — nó để vẽ sơ đồ bình bài và kiểm
+        # khổ có vừa tờ, nên phải là số THẬT chứ đừng để 1.
+        so_con=16, con_auto=False,
         may_id=may_2mau, so_mau_a=1, so_mau_b=1,
         ghi_chu_ky_thuat="Bình tay 32 trang (16 con/mặt) trên tờ 65×86 → 5 tay/cuốn. "
                          "In đen 1+1 màu máy 2 màu. Gấp máy, bắt tay, keo gáy vuông.",
@@ -286,8 +364,7 @@ def _tao_phieu_tinh_gia(db: Session, *, cd: dict[str, int], sale_id: int | None,
     # ── ② BÌA SÁCH — bìa rời, khổ mở 300×205 (2 tay + gáy 10mm), Couché 300 cán màng mờ ───────
     bia = PhieuThanhPhan(
         thu_tu=1, loai_thanh_phan="bia", ten="Bìa sách (bìa rời, cán màng mờ)",
-        kho_thanh_pham="30×20,5 cm (khổ mở)", kho_mo_rong="300×205 mm (2 tay + gáy 10mm)",
-        dai_thanh_pham=300, rong_thanh_pham=205,
+        dai_thanh_pham=300, rong_thanh_pham=205,   # khổ MỞ của bìa (2 tay + gáy 10mm)
         so_to_per_sp=1, so_luong=SL_SACH, don_vi_tinh="cuốn", nhom_bao_gia=NHOM_SACH,
         loai_san_pham_id=lsp_sach_id,
         giay_id=(couche300.id if couche300 else None), kho_nguyen="650×860",
@@ -308,7 +385,7 @@ def _tao_phieu_tinh_gia(db: Session, *, cd: dict[str, int], sale_id: int | None,
     # ── ③ THẺ NHÂN VIÊN — 54×86mm (khổ CR80), Couché 300, cán mờ 2 mặt, bế góc tròn ───────────
     the = PhieuThanhPhan(
         thu_tu=2, loai_thanh_phan="to_roi", ten="Thẻ nhân viên 54×86mm",
-        kho_thanh_pham="5,4×8,6 cm", dai_thanh_pham=86, rong_thanh_pham=54,
+        dai_thanh_pham=86, rong_thanh_pham=54,
         so_to_per_sp=1, so_luong=SL_THE, don_vi_tinh="thẻ",
         loai_san_pham_id=lsp_the_id,
         giay_id=(couche300.id if couche300 else None), kho_nguyen="650×860",
@@ -355,7 +432,7 @@ def _tao_phieu_the_bo_sung(db: Session, *, cd: dict[str, int], sale_id: int | No
     )
     the = PhieuThanhPhan(
         thu_tu=0, loai_thanh_phan="to_roi", ten="Thẻ nhân viên 54×86mm (đợt 2)",
-        kho_thanh_pham="5,4×8,6 cm", dai_thanh_pham=86, rong_thanh_pham=54,
+        dai_thanh_pham=86, rong_thanh_pham=54,
         so_to_per_sp=1, so_luong=SL_THE_BO_SUNG, don_vi_tinh="thẻ",
         loai_san_pham_id=lsp_the_id,
         giay_id=(couche300.id if couche300 else None), kho_nguyen="650×860",
@@ -393,7 +470,11 @@ def _ma_phieu(db: Session, created: datetime) -> str:
 
 
 def _tao_bao_gia(db: Session, *, ptg: PhieuTinhGia, khach: Customer, sale_id: int,
-                 seq: SequenceService, created: datetime):
+                 seq: SequenceService, created: datetime,
+                 customer_note: str = "Giao 1 lần cùng thẻ nhân viên. "
+                                      "Duyệt maquette trước khi lên kẽm.",
+                 internal_note: str = "Khách quen, markup 18%. "
+                                      "Gáy 10mm đã xác nhận với kỹ thuật."):
     """Báo giá từ PTG — 1 dòng/sản phẩm, giá vốn KHÓA từ `gia_von_tp`, khách ĐÃ ĐỒNG Ý.
 
     Dựng theo đúng luật `QuotationService._fill_version_from_ptg` (dùng lại `calculate_pricing`
@@ -403,7 +484,7 @@ def _tao_bao_gia(db: Session, *, ptg: PhieuTinhGia, khach: Customer, sale_id: in
         DEFAULT_TERMS, Quote, QuoteActivityLog, QuoteItem, QuoteVersion,
         STATUS_ACCEPTED, VERSION_STATUS_ACCEPTED,
     )
-    from .services.quotation_service import QuotationService, dien_giai_tu_thanh_phan
+    from .services.quotation_service import QuotationService, _kho_tp, dien_giai_tu_thanh_phan
 
     sent = created + timedelta(days=1)
     accepted = created + timedelta(days=3)
@@ -418,8 +499,8 @@ def _tao_bao_gia(db: Session, *, ptg: PhieuTinhGia, khach: Customer, sale_id: in
         delivery_address="Lô B4, KCN Tân Bình, Q. Tân Phú, TP.HCM",
         contact_name_snapshot="Nguyễn Thị Hà", contact_phone_snapshot="0901000001",
         contact_title_snapshot="Trưởng phòng Hành chính",
-        customer_note="Giao 1 lần cùng thẻ nhân viên. Duyệt maquette trước khi lên kẽm.",
-        internal_note="Khách quen, markup 18%. Gáy 10mm đã xác nhận với kỹ thuật.",
+        customer_note=customer_note,
+        internal_note=internal_note,
         created_at=created, updated_at=accepted,
     )
     db.add(q)
@@ -445,7 +526,7 @@ def _tao_bao_gia(db: Session, *, ptg: PhieuTinhGia, khach: Customer, sale_id: in
             quote_version_id=v.id, phieu_thanh_phan_id=tp.id, line_no=pos + 1,
             product_type=tp.loai_thanh_phan or "san_pham",
             product_name=tp.ten or ptg.ten_san_pham,
-            product_spec_text=tp.kho_thanh_pham,
+            product_spec_text=_kho_tp(tp),
             dien_giai=dien_giai_tu_thanh_phan(db, tp),
             nhom=tp.nhom_bao_gia,
             quantity=qty, unit=tp.don_vi_tinh or "cái",
@@ -454,7 +535,7 @@ def _tao_bao_gia(db: Session, *, ptg: PhieuTinhGia, khach: Customer, sale_id: in
             discount_amount=pricing["discount_amount"],
             vat_percent=VAT_PCT, vat_amount=pricing["vat_amount"],
             final_amount=pricing["final_amount"],
-            accepted=True,   # khách chốt CẢ 3 dòng
+            accepted=True,   # khách chốt CẢ mọi dòng
         ))
         subtotal += pricing["selling_price"]
         discount += pricing["discount_amount"]
@@ -469,9 +550,10 @@ def _tao_bao_gia(db: Session, *, ptg: PhieuTinhGia, khach: Customer, sale_id: in
     v.final_amount = final
 
     for act, at, note in (
-        ("create_quote", created, f"Tạo báo giá v1 từ phiếu tính giá {ptg.ma} (3 sản phẩm)"),
+        ("create_quote", created,
+         f"Tạo báo giá v1 từ phiếu tính giá {ptg.ma} ({len(tps)} sản phẩm)"),
         ("send", sent, "Gửi khách qua email"),
-        ("accept", accepted, "Khách đồng ý toàn bộ 3 dòng"),
+        ("accept", accepted, f"Khách đồng ý toàn bộ {len(tps)} dòng"),
     ):
         db.add(QuoteActivityLog(
             quote_id=q.id, quote_version_id=v.id, action=act, actor_id=sale_id,
@@ -552,7 +634,7 @@ def _tao_don_hang(db: Session, *, quote, version, khach: Customer, sale_id: int,
     return o
 
 
-def _tao_lenh_san_xuat(db: Session, *, order, actor, khuon_the_id: int | None) -> list:
+def _tao_lenh_san_xuat(db: Session, *, order, actor) -> list:
     """Sinh lệnh sản xuất qua LsxService THẬT (routing + số tờ + đơn vị bước do service tính),
     rồi gán khuôn bế cho lệnh thẻ và xác nhận 'sẵn sàng' như kế hoạch làm trên màn."""
     from .models.lsx import TT_SAN_SANG
@@ -566,8 +648,6 @@ def _tao_lenh_san_xuat(db: Session, *, order, actor, khuon_the_id: int | None) -
         order_id=order.id, order_line_ids=[ln.id for ln in order.lines], actor=actor,
     )
     for lsx in lenhs:
-        if khuon_the_id and any("bế" in (cd.ten or "").lower() for cd in lsx.cong_doans):
-            lsx.khuon_be_id = khuon_the_id
         lsx.han_hoan_thanh_sx = (order.delivery_committed_date - timedelta(days=3)
                                  if order.delivery_committed_date else None)
         _sua_don_vi_gap_tay(lsx)
@@ -580,14 +660,13 @@ def _tao_lenh_san_xuat(db: Session, *, order, actor, khuon_the_id: int | None) -
 
 
 def _sua_don_vi_gap_tay(lsx) -> None:
-    """Hiệu chỉnh bước 'Gấp tay sách' về đơn vị TỜ — đúng như kế hoạch sửa tay trên màn lệnh.
+    """Ghim SỐ LƯỢNG bước 'Gấp tay sách' về số TỜ IN — 10.250 tờ, không phải 1.000 cuốn.
 
-    Heuristic mặc định của `lsx_service` cho mọi bước có chữ "gấp" đếm theo CON (đúng với gấp tờ
-    rơi: xén rời rồi mới gấp từng con). Gấp TAY SÁCH thì gấp cả TỜ in — 10.250 tờ, không phải
-    1.000 cuốn. Cùng một chữ, hai nghiệp vụ; máy không suy được nên người kế hoạch quyết, và seed
-    mô phỏng lệnh ĐÃ được hiệu chỉnh.
+    Gấp TAY SÁCH là gấp cả TỜ in, một tờ ra một tay (hệ số 1) — khác hẳn gấp tờ rơi (xén rời rồi
+    mới gấp từng con). Đơn vị nay do DANH MỤC khai (`to → tay`, xem `_DON_VI_KHAU_SACH`) chứ
+    không còn dò chữ "gấp" trong tên nữa; hàm này chỉ còn ghim số lượng cho lệnh mô phỏng.
     """
-    from .models.lsx import DV_TO, NS_TO_GIO
+    from .models.lsx import DV_TAY, DV_TO
 
     to = float(lsx.so_to_ke_hoach or 0)
     if to <= 0:
@@ -596,12 +675,10 @@ def _sua_don_vi_gap_tay(lsx) -> None:
         if "gấp tay" not in (cd.ten or "").lower():
             continue
         cd.so_luong_vao = to
-        cd.so_luong_ra = to
+        cd.so_luong_ra = to          # 1 tờ = 1 tay nên vào bằng ra, chỉ đổi TÊN đơn vị
         cd.don_vi_vao = DV_TO
-        cd.don_vi_ra = DV_TO
+        cd.don_vi_ra = DV_TAY
         cd.he_so_quy_doi = 1
-        if cd.nang_suat:
-            cd.don_vi_nang_suat = NS_TO_GIO
 
 
 def _sua_so_luong_buoc_be(lsx) -> None:
@@ -648,6 +725,7 @@ def seed_luong_ban_sx(db: Session) -> None:
     cd = _ensure_cong_doan(db)
     _ensure_may_nang_luc(db)
     _ensure_don_gia_khoan(db)   # bảng khoán của tổ → bước lệnh tự điền được đầu việc lúc bung
+    _ensure_dinh_muc_to(db)
 
     can_luong_du = not _co_phieu(db, TEN_PHIEU)
     can_luong_cho = not _co_phieu(db, TEN_PHIEU_BO_SUNG)
@@ -669,7 +747,7 @@ def seed_luong_ban_sx(db: Session) -> None:
         select(LoaiSanPham).where(LoaiSanPham.ma == "LSP-0003")
     ).scalars().first()
     lsp_the_id = _ensure_loai_the(db)
-    khuon_the_id = _ensure_khuon_the(db, khach.name)
+    _ensure_khuon_the(db, khach.name)   # chỉ để kho khuôn có dòng mẫu — lệnh không trỏ tới nữa
     seq = SequenceService(DocumentSequenceRepository(db))
 
     if can_luong_du:
@@ -690,7 +768,7 @@ def seed_luong_ban_sx(db: Session) -> None:
                             "(đã sửa maquette v2).",
         )
         db.commit()   # LsxService.tao tự commit — chốt phần thương mại trước cho sạch transaction
-        _tao_lenh_san_xuat(db, order=order, actor=ke_hoach, khuon_the_id=khuon_the_id)
+        _tao_lenh_san_xuat(db, order=order, actor=ke_hoach)
         db.commit()
 
     if can_luong_cho:

@@ -23,39 +23,6 @@
   margin: 0;
 }
 
-/* Stats dashboard */
-.md-page__stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--sp-4);
-}
-.md-page__stat-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  padding: var(--sp-4) var(--sp-5);
-}
-.md-page__stat-label {
-  font-family: var(--ff-sans);
-  font-size: 10px;
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ash);
-}
-.md-page__stat-val {
-  font-size: 24px;
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-}
-.md-page__stat-card--warn {
-  border-color: #f7dcd0;
-  background: var(--rust-soft);
-}
-.md-page__stat-card--warn .md-page__stat-val {
-  color: var(--rust-deep);
-}
-
 /* Toolbar */
 .md-page__toolbar {
   display: flex;
@@ -175,6 +142,12 @@
 }
 .md-page__actions-col {
   white-space: nowrap;
+  text-align: right;
+}
+/* Tiêu đề cột Thao tác phải canh phải THEO NÚT. Trước đây nó luôn nằm bên trái vì
+   `.md-page__table thead th{text-align:left}` (0,2,1) THẮNG `.md-page__actions-col` (0,1,0) —
+   nên chữ "THAO TÁC" đứng một nơi, nút đứng một nẻo. Phải nâng độ ưu tiên, không phải !important. */
+.md-page__table thead th.md-page__actions-col {
   text-align: right;
 }
 .md-page__rowbtn {

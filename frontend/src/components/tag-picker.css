@@ -1,0 +1,247 @@
+/* TagPicker — khối gắn nhãn inline cho bước công đoạn. Tự chứa, không phụ thuộc CSS màn khác.
+   Bảng 8 tông chép từ khach-hang.css để nhãn ra ĐÚNG cùng màu với cùng một chữ. */
+
+.tagpick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tagpick__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.tagpick__empty {
+  font-size: 12.5px;
+  color: #9ca3af;
+  font-style: italic;
+}
+
+/* Chip nhãn đang gán — nền đặc theo tông, chữ trắng. */
+.tagpick__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 6px 0 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1;
+}
+
+.tagpick__chip-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.12s ease;
+}
+.tagpick__chip-del:hover:not(:disabled) { background: rgba(255, 255, 255, 0.42); }
+.tagpick__chip-del:disabled { opacity: 0.5; cursor: default; }
+
+/* Nút "＋ Nhãn" mở bảng chọn. */
+.tagpick__add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: transparent;
+  color: #475569;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.tagpick__add:hover,
+.tagpick__add.is-open {
+  border-color: #94a3b8;
+  color: #1e293b;
+  background: #f8fafc;
+}
+
+/* Bảng chọn inline. */
+.tagpick__panel {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 6px 20px -12px rgba(15, 23, 42, 0.28);
+}
+
+.tagpick__searchbar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.tagpick__search-ic { color: #94a3b8; flex-shrink: 0; }
+.tagpick__search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  color: #2a2a2a;
+}
+.tagpick__search-input::placeholder { color: #9ca3af; }
+.tagpick__search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 5px;
+  background: #e2e8f0;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0;
+}
+.tagpick__search-clear:hover { background: #cbd5e1; }
+
+.tagpick__cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.tagpick__cloud-empty {
+  font-size: 12.5px;
+  color: #9ca3af;
+  font-style: italic;
+  padding: 4px 2px;
+}
+
+.tagpick__pill-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Pill chọn — viền, chưa bật thì nền nhạt; bật thì nền đặc theo tông (quy tắc .is-on ở dưới). */
+.tagpick__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.tagpick__pill:disabled { opacity: 0.55; cursor: default; }
+.tagpick__pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  flex-shrink: 0;
+}
+
+.tagpick__pill--create {
+  border-style: dashed;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+.tagpick__pill--create:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+/* Nút xoá nhãn khỏi kho — nổi ở góc phải pill khi rê chuột. */
+.tagpick__pill-del {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border: 1px solid #fecdd3;
+  border-radius: 50%;
+  background: #fff;
+  color: #e11d48;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+.tagpick__pill-wrap:hover .tagpick__pill-del,
+.tagpick__pill-del:focus-visible { opacity: 1; }
+.tagpick__pill-del:hover { background: #fee2e2; }
+.tagpick__pill-del:disabled { opacity: 0; }
+
+.tagpick__error {
+  font-size: 12.5px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+/* ---- 8 tông màu (dot chưa bật · nền đặc khi bật/chip) — giá trị chép từ khach-hang.css ---- */
+.tagpick__tone--indigo  .tagpick__pill-dot { background: #6366f1; }
+.tagpick__tone--emerald .tagpick__pill-dot { background: #10b981; }
+.tagpick__tone--violet  .tagpick__pill-dot { background: #8b5cf6; }
+.tagpick__tone--cyan    .tagpick__pill-dot { background: #0ea5e9; }
+.tagpick__tone--amber   .tagpick__pill-dot { background: #f59e0b; }
+.tagpick__tone--rose    .tagpick__pill-dot { background: #f43f5e; }
+.tagpick__tone--fuchsia .tagpick__pill-dot { background: #d946ef; }
+.tagpick__tone--teal    .tagpick__pill-dot { background: #14b8a6; }
+
+.tagpick__pill.tagpick__tone--indigo:hover:not(:disabled)  { background: rgba(99,102,241,0.08);  border-color: rgba(99,102,241,0.3);  color: #4338ca; }
+.tagpick__pill.tagpick__tone--emerald:hover:not(:disabled) { background: rgba(16,185,129,0.08);  border-color: rgba(16,185,129,0.3);  color: #047857; }
+.tagpick__pill.tagpick__tone--violet:hover:not(:disabled)  { background: rgba(139,92,246,0.08);  border-color: rgba(139,92,246,0.3);  color: #6d28d9; }
+.tagpick__pill.tagpick__tone--cyan:hover:not(:disabled)    { background: rgba(14,165,233,0.08);  border-color: rgba(14,165,233,0.3);  color: #0369a1; }
+.tagpick__pill.tagpick__tone--amber:hover:not(:disabled)   { background: rgba(245,158,11,0.08);  border-color: rgba(245,158,11,0.3);  color: #b45309; }
+.tagpick__pill.tagpick__tone--rose:hover:not(:disabled)    { background: rgba(244,63,94,0.08);   border-color: rgba(244,63,94,0.3);   color: #be123c; }
+.tagpick__pill.tagpick__tone--fuchsia:hover:not(:disabled) { background: rgba(217,70,239,0.08);  border-color: rgba(217,70,239,0.3);  color: #a21caf; }
+.tagpick__pill.tagpick__tone--teal:hover:not(:disabled)    { background: rgba(20,184,166,0.08);  border-color: rgba(20,184,166,0.3);  color: #0f766e; }
+
+.tagpick__pill.is-on { color: #fff; border-color: transparent; }
+.tagpick__chip.tagpick__tone--indigo,  .tagpick__pill.is-on.tagpick__tone--indigo  { background: #6366f1; }
+.tagpick__chip.tagpick__tone--emerald, .tagpick__pill.is-on.tagpick__tone--emerald { background: #10b981; }
+.tagpick__chip.tagpick__tone--violet,  .tagpick__pill.is-on.tagpick__tone--violet  { background: #8b5cf6; }
+.tagpick__chip.tagpick__tone--cyan,    .tagpick__pill.is-on.tagpick__tone--cyan    { background: #0ea5e9; }
+.tagpick__chip.tagpick__tone--amber,   .tagpick__pill.is-on.tagpick__tone--amber   { background: #f59e0b; }
+.tagpick__chip.tagpick__tone--rose,    .tagpick__pill.is-on.tagpick__tone--rose    { background: #f43f5e; }
+.tagpick__chip.tagpick__tone--fuchsia, .tagpick__pill.is-on.tagpick__tone--fuchsia { background: #d946ef; }
+.tagpick__chip.tagpick__tone--teal,    .tagpick__pill.is-on.tagpick__tone--teal    { background: #14b8a6; }
+.tagpick__pill.is-on .tagpick__pill-dot { background: rgba(255,255,255,0.9); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tagpick__add,
+  .tagpick__pill,
+  .tagpick__chip-del,
+  .tagpick__pill-del { transition: none; }
+}

@@ -5,13 +5,14 @@ parameters (no string-formatted input). No business rules here.
 """
 from __future__ import annotations
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models.department import Department
 from ..models.module import Module
-from ..models.role import Role, RolePermission
+from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN, Role, RolePermission
 from ..models.unit_level import UnitLevel
+from ..models.user import User
 
 
 class ModuleRepository:
@@ -135,27 +136,62 @@ class DepartmentRepository:
                     queue.append(child.id)
         return result
 
+    def _khoi_theo_co(self, co: str, *, fallback_all: bool) -> list[Department]:
+        """Phòng/tổ thuộc một KHỐI: tự bật cờ `co` HOẶC có tổ tiên bật (đi ngược cây `parent_id`).
+        Dùng chung cho khối Sản xuất (`la_san_xuat`) và khối Kinh doanh (`la_kinh_doanh`) — cùng
+        một luật kế thừa, chỉ khác tên cờ."""
+        depts = self.list_all()
+        by_id = {d.id: d for d in depts}
+
+        def thuoc_khoi(d: Department) -> bool:
+            cur, seen = d, set()
+            while cur is not None and cur.id not in seen:
+                seen.add(cur.id)
+                if getattr(cur, co, False):
+                    return True
+                cur = by_id.get(cur.parent_id) if cur.parent_id is not None else None
+            return False
+
+        khoi = [d for d in depts if thuoc_khoi(d)]
+        if not khoi and fallback_all:
+            return depts
+        return khoi
+
     def production_departments(self, *, fallback_all: bool = True) -> list[Department]:
         """Phòng/tổ thuộc khối SẢN XUẤT (§13.1): tự `la_san_xuat` HOẶC có tổ tiên `la_san_xuat`
         (đi ngược cây `parent_id`). `fallback_all=True` (mặc định): chưa đánh dấu phòng nào → trả
         tất cả (an toàn cho dropdown Công đoạn không rỗng). `fallback_all=False`: trả ĐÚNG tập tổ
         khối SX (rỗng nếu chưa tick cờ) — navbar Sản xuất dùng cái này để không phun ra mọi phòng ban."""
-        depts = self.list_all()
-        by_id = {d.id: d for d in depts}
+        return self._khoi_theo_co("la_san_xuat", fallback_all=fallback_all)
 
-        def is_prod(d: Department) -> bool:
-            cur, seen = d, set()
-            while cur is not None and cur.id not in seen:
-                seen.add(cur.id)
-                if cur.la_san_xuat:
-                    return True
-                cur = by_id.get(cur.parent_id) if cur.parent_id is not None else None
-            return False
+    def kinh_doanh_departments(self) -> list[Department]:
+        """Phòng/tổ thuộc khối KINH DOANH: tự `la_kinh_doanh` HOẶC có tổ tiên bật cờ — tick phòng
+        Kinh doanh thì KD1/KD2 bên dưới cũng là kinh doanh, không phải tick lại từng tổ.
 
-        prod = [d for d in depts if is_prod(d)]
-        if not prod and fallback_all:
-            return depts
-        return prod
+        KHÔNG có fallback "trả tất cả": rỗng = **chưa khai khối kinh doanh**, và người gọi
+        (`customers.list_sale_options`) đọc cái rỗng đó để lùi về quy tắc theo quyền. Trả cả công
+        ty ở đây thì Thủ kho lại lọt vào danh sách NV phụ trách — đúng lỗi đang đi sửa."""
+        return self._khoi_theo_co("la_kinh_doanh", fallback_all=False)
+
+    def to_san_xuat(self) -> list[Department]:
+        """**ĐỊNH NGHĨA DÙNG CHUNG CỦA "TỔ"** — nút LÁ trong nhánh có cờ Khối Sản xuất.
+
+        Một chỗ duy nhất, vì "tổ" xuất hiện ở ba nơi và trước đây mỗi nơi hiểu một kiểu: dropdown
+        "Phòng ban / Tổ phụ trách" ở danh mục Công đoạn đổ CẢ CHA LẪN CON, còn quỹ giờ-người của
+        bàn xếp lịch mà cũng đếm cả cha lẫn con thì **quân số bị đếm chồng** (người của tổ con được
+        cộng thêm một lần ở phòng cha).
+
+        Hai luật:
+        · thuộc khối SX = tự `la_san_xuat` HOẶC có tổ tiên `la_san_xuat` (đã có ở `production_departments`);
+        · là LÁ = không có phòng ban con nào.
+
+        `fallback_all=False` có chủ ý: chưa tick cờ nào thì trả **RỖNG**, không phun ra mọi phòng
+        ban. Rỗng là một câu trả lời đọc được ("chưa khai khối sản xuất"); phun cả công ty ra thì
+        người dùng chọn nhầm phòng Kế toán làm tổ in mà không biết mình đang chọn sai.
+        """
+        khoi = self.production_departments(fallback_all=False)
+        co_con = {d.parent_id for d in self.list_all() if d.parent_id is not None}
+        return [d for d in khoi if d.id not in co_con]
 
     def set_head(self, dept: Department, head_user_id: int | None) -> Department:
         dept.head_user_id = head_user_id
@@ -181,6 +217,20 @@ class DepartmentRepository:
     def set_la_san_xuat(self, dept: Department, value: bool) -> Department:
         """Đánh dấu / bỏ dấu phòng ban thuộc khối SẢN XUẤT (nền phân tổ cho Kế hoạch SX)."""
         dept.la_san_xuat = bool(value)
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
+
+    def set_la_kinh_doanh(self, dept: Department, value: bool) -> Department:
+        """Đánh dấu / bỏ dấu phòng ban thuộc khối KINH DOANH (nền cho danh sách NV phụ trách)."""
+        dept.la_kinh_doanh = bool(value)
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
+
+    def set_is_kcs(self, dept: Department, value: bool) -> Department:
+        """Đánh dấu / bỏ dấu TỔ KCS. Đích danh — KHÔNG cascade cây con như `la_san_xuat`."""
+        dept.is_kcs = bool(value)
         self.db.commit()
         self.db.refresh(dept)
         return dept
@@ -220,11 +270,36 @@ class RoleRepository:
             select(Role).where(Role.name == name, Role.department_id == department_id)
         ).scalar_one_or_none()
 
+    #: Hai ô bật SẴN cho MỌI vai mới (10/08/2026).
+    #:   self_service — việc người lao động làm với hồ sơ CỦA CHÍNH MÌNH: tự chấm công, xem công
+    #:     và phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng.
+    #:   noi_quy      — đọc nội quy lao động.
+    #: Vì sao bật sẵn dù luật chung là "không cấp thì không được": hai thứ này là quyền của MỌI
+    #: người lao động, không phải đặc quyền của một vai. Vai mới mà không có chúng thì người vừa
+    #: được gán vai không tự chấm công nổi, và mỗi lần thêm vai lại phải nhớ tick tay — nhớ được
+    #: một lần, quên từ lần thứ hai. Khác trước ở chỗ: nay chúng HIỆN trên ma trận và GỠ ĐƯỢC,
+    #: chứ không phải luật ngầm "ai đăng nhập cũng làm được".
+    O_MAC_DINH: tuple[str, ...] = ("self_service", "noi_quy")
+
     def create(self, *, name: str, department_id: int) -> Role:
         role = Role(name=name, department_id=department_id)
         self.db.add(role)
         self.db.commit()
         self.db.refresh(role)
+        for khoa in self.O_MAC_DINH:
+            # Module chưa tồn tại (DB cũ chưa chạy migration) thì bỏ qua — khoá ngoại sẽ vỡ.
+            # ⚠️ Tra theo CỘT `key`, không dùng `db.get(Module, khoa)`: khoá chính của bảng là `id`
+            # (số), nên `get` bằng chuỗi luôn trả None và nhánh này lặng lẽ bỏ qua MỌI lần.
+            co = self.db.execute(select(Module).where(Module.key == khoa)).scalar_one_or_none()
+            if co is None:
+                continue
+            # `self_service` cần CẢ ô Thao tác (`can_create`) — nếu không thì vai mới gán
+            # xong, thợ mở màn Chấm công ra mà không bấm được nút nào (đổi 11/08/2026).
+            self.db.add(RolePermission(
+                role_id=role.id, module_key=khoa, can_read=True,
+                can_create=(khoa == "self_service"),
+            ))
+        self.db.commit()
         return role
 
     def update_name(self, role: Role, name: str) -> Role:
@@ -266,6 +341,34 @@ class RoleRepository:
             ).scalars()
         )
 
+    def kho_notify_user_ids(self, *, bo_phan_id: int | None, creator_id: int | None) -> list[int]:
+        """User ids NÊN nhận tín hiệu 'việc kho mới' cho yêu cầu ở phòng `bo_phan_id`.
+
+        = người XỬ LÝ kho (`can_create` HOẶC `can_view_stock`) mà PHẠM VI của vai PHỦ phòng đó:
+        `all` (mọi phòng) · `department` (phòng người nhận khớp phòng yêu cầu) · `own` (chính
+        người tạo). Tôn trọng ĐÚNG scope như danh sách yêu cầu (kho_request._scoped_filters):
+        'phòng nào thấy phòng đó', còn kho scope=all vẫn thấy mọi phòng."""
+        stmt = (
+            select(User.id)
+            .join(RolePermission, RolePermission.role_id == User.role_id)
+            .where(
+                RolePermission.module_key == "kho",
+                or_(
+                    RolePermission.can_create.is_(True),
+                    RolePermission.can_view_stock.is_(True),
+                ),
+                or_(
+                    RolePermission.scope == SCOPE_ALL,
+                    and_(
+                        RolePermission.scope == SCOPE_DEPARTMENT,
+                        User.department_id == bo_phan_id,
+                    ),
+                    and_(RolePermission.scope == SCOPE_OWN, User.id == creator_id),
+                ),
+            )
+        )
+        return [uid for (uid,) in self.db.execute(stmt).all()]
+
     def set_permission(
         self,
         *,
@@ -298,6 +401,17 @@ class RoleRepository:
         can_view_salary: bool = False,
         can_edit_salary: bool = False,
         can_adjust: bool = False,
+        # cham_cong: xem tab "Nhật ký chấm công" — tách khỏi `can_read` 11/08/2026.
+        can_view_log: bool = False,
+        can_view_timesheet: bool = False,
+        can_approve_late_early: bool = False,
+        can_manage_locations: bool = False,
+        can_manage_shifts: bool = False,
+        can_manage_calendar: bool = False,
+        can_view_payroll_table: bool = False,
+        can_manage_salary_profiles: bool = False,
+        can_manage_piece_rates: bool = False,
+        can_manage_leave_types: bool = False,
         can_approve_exception: bool = False,
         can_set_credit_terms: bool = False,
         can_record_deposit: bool = False,
@@ -309,6 +423,7 @@ class RoleRepository:
         can_view_cost: bool = False,
         can_set_threshold: bool = False,
         can_post: bool = False,
+        can_close_book: bool = False,
     ) -> RolePermission:
         """Upsert the (role, module) permission row."""
         perm = self.get_permission(role_id, module_key)
@@ -326,6 +441,16 @@ class RoleRepository:
         perm.can_view_discount = can_view_discount
         perm.can_approve = can_approve
         perm.can_manage_status = can_manage_status
+        perm.can_view_log = can_view_log
+        perm.can_view_timesheet = can_view_timesheet
+        perm.can_approve_late_early = can_approve_late_early
+        perm.can_manage_locations = can_manage_locations
+        perm.can_manage_shifts = can_manage_shifts
+        perm.can_manage_calendar = can_manage_calendar
+        perm.can_view_payroll_table = can_view_payroll_table
+        perm.can_manage_salary_profiles = can_manage_salary_profiles
+        perm.can_manage_piece_rates = can_manage_piece_rates
+        perm.can_manage_leave_types = can_manage_leave_types
         perm.can_reset_password = can_reset_password
         perm.can_lock = can_lock
         perm.can_revoke_sessions = can_revoke_sessions
@@ -353,6 +478,7 @@ class RoleRepository:
         perm.can_view_cost = can_view_cost
         perm.can_set_threshold = can_set_threshold
         perm.can_post = can_post
+        perm.can_close_book = can_close_book
         self.db.commit()
         self.db.refresh(perm)
         return perm

@@ -21,6 +21,7 @@ from ..models.leave import (
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.leave_repo import LeaveRepository
+from .ky_cong_guard import ly_do_ky_cong_da_chot
 
 
 class LeaveError(Exception):
@@ -73,10 +74,15 @@ class LeaveService:
         audit: AuditLogRepository,
         calendar=None,
         late_early=None,
+        attendance=None,
     ) -> None:
         self.leaves = leaves
         self.employees = employees
         self.audit = audit
+        # AttendanceRepository | None — chỉ để hỏi "kỳ công tháng đó chốt chưa" trước khi duyệt/hủy
+        # đơn ĐÃ DUYỆT. Đơn nghỉ có lương RA CÔNG, mà công tháng đã chốt thì đã đóng băng cho bảng
+        # lương. Chỉ đọc REPO nên không vòng service↔service.
+        self._attendance = attendance
         # LateEarlyRepository | None — phiếu đi muộn/về sớm có tick "trừ vào phép năm" cũng tiêu
         # quỹ phép (nửa buổi = 0,5 ngày). Chỉ đọc REPO nên không vòng service↔service.
         self._late_early = late_early
@@ -203,14 +209,27 @@ class LeaveService:
                           detail=f"{emp.code} {lt.name} {start_date}→{end_date} ({days}n)")
         return r
 
-    def my_requests(self, *, user, limit: int = 100) -> list[LeaveRequest]:
+    def my_requests(self, *, user, page: int = 1, size: int = 20) -> tuple[list[LeaveRequest], int]:
+        """Trả `(rows, total)` — `total` là TỔNG đơn của NV, không phải số dòng của trang."""
         emp = self._employee_for_user(user)
-        return self.leaves.list_by_employee(emp.id, limit=limit)
+        total = self.leaves.count_by_employee(emp.id)
+        rows = self.leaves.list_by_employee(emp.id, limit=size, offset=max(0, (page - 1) * size))
+        return rows, total
 
-    def list_requests(self, *, scope: str, actor, status: str | None = None, limit: int = 200) -> list[LeaveRequest]:
+    def list_requests(self, *, scope: str, actor, status: str | None = None,
+                      employee_id: int | None = None, page: int = 1,
+                      size: int = 20) -> tuple[list[LeaveRequest], int]:
         """Danh sách đơn theo DATA-SCOPE người gọi (own = của mình / department = của phòng /
-        all = tất cả). Duyệt tập trung: HCNS/Admin scope=all thấy mọi đơn."""
-        return self.leaves.list_scoped(scope=scope, actor=actor, status=status, limit=limit)
+        all = tất cả). Duyệt tập trung: HCNS/Admin scope=all thấy mọi đơn.
+
+        `employee_id` chỉ THU HẸP thêm bên trong phạm vi đã có — không mở rộng quyền: gõ id của
+        người ngoài phạm vi thì `_scope_condition` vẫn cắt, kết quả rỗng chứ không lộ đơn."""
+        total = self.leaves.count_scoped(scope=scope, actor=actor, status=status,
+                                         employee_id=employee_id)
+        rows = self.leaves.list_scoped(scope=scope, actor=actor, status=status,
+                                       employee_id=employee_id, limit=size,
+                                       offset=max(0, (page - 1) * size))
+        return rows, total
 
     def count_pending(self, *, scope: str, actor) -> int:
         """Số đơn chờ duyệt trong scope — nuôi badge sidebar."""
@@ -297,6 +316,15 @@ class LeaveService:
         if not self.employees.can_access(employee=emp, scope=scope, actor=actor):
             raise LeaveForbidden("Nhân viên này ngoài phạm vi quản lý của bạn.")
 
+    def _chan_neu_ky_cong_da_chot(self, r: LeaveRequest, viec: str) -> None:
+        """Đơn bắc cầu hai tháng (28/8 → 03/9) thì soi CẢ HAI đầu — chỉ cần một đầu nằm trong
+        tháng đã chốt là đủ làm lệch số."""
+        if self._attendance is None:
+            return
+        loi = ly_do_ky_cong_da_chot(self._attendance, r.start_date, r.end_date, viec=viec)
+        if loi:
+            raise LeaveValidationError(loi)
+
     def _decide(self, *, actor, request_id, new_status, note, scope: str) -> LeaveRequest:
         r = self.leaves.get_request(request_id)
         if r is None:
@@ -304,6 +332,10 @@ class LeaveService:
         self._guard_scope(r.employee_id, scope=scope, actor=actor)
         if r.status != STATUS_PENDING:
             raise LeaveValidationError("Chỉ duyệt/từ chối được đơn đang chờ.")
+        # TỪ CHỐI thì không chặn: đơn chờ vốn không tính vào bảng công, từ chối nó chẳng đổi số nào.
+        # DUYỆT mới đổi — đó là lúc ngày nghỉ thành công (có lương hoặc không lương).
+        if new_status == STATUS_APPROVED:
+            self._chan_neu_ky_cong_da_chot(r, "duyệt đơn nghỉ")
         self.leaves.update_request(
             r, status=new_status, decided_by=actor.id,
             decided_at=datetime.now(timezone.utc), decision_note=_clean(note),
@@ -366,6 +398,10 @@ class LeaveService:
             self._guard_scope(r.employee_id, scope=scope, actor=actor)
         if r.status in (STATUS_REJECTED, STATUS_CANCELLED):
             raise LeaveValidationError("Đơn đã kết thúc, không hủy được.")
+        # Hủy một đơn ĐÃ DUYỆT của tháng đã chốt = GỠ công đã đóng băng ⇒ hai màn lệch nhau, y hệt
+        # chiều duyệt. Đơn còn chờ thì hủy thoải mái, nó chưa vào bảng công.
+        if r.status == STATUS_APPROVED:
+            self._chan_neu_ky_cong_da_chot(r, "hủy đơn nghỉ đã duyệt")
         self.leaves.update_request(r, status=STATUS_CANCELLED)
         self.audit.create(actor_user_id=actor.id, action="leave_cancelled",
                           target=f"leave_request:{r.id}", detail="hủy đơn")

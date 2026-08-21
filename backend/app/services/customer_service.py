@@ -592,6 +592,62 @@ class CustomerService:
             detail=f"Xóa tài liệu: {att.file_name}",
         )
 
+    # --- kho nhãn dùng chung (thêm / xoá nhãn, 16/08/2026) -----------------------
+
+    def list_kho_nhan(self) -> list[dict]:
+        """Kho nhãn + số khách đang mang từng nhãn (để cảnh báo trước khi xoá).
+
+        KHÔNG lọc theo scope: kho nhãn là từ vựng dùng chung của cả công ty, không phải dữ liệu
+        của riêng khách nào. Số đếm thì đếm TOÀN BỘ — sale nhìn thấy "3 khách đang dùng" rồi mới
+        quyết xoá, mà 3 khách đó có thể thuộc sale khác; hạ số xuống theo scope là để họ xoá nhầm
+        vì tưởng không ai dùng.
+        """
+        dem = self.customers.dem_khach_theo_nhan()
+        return [
+            {"id": r.id, "label": r.label, "so_khach": dem.get(r.label.strip().lower(), 0)}
+            for r in self.customers.list_kho_nhan()
+        ]
+
+    def them_nhan_kho(self, *, label: str, actor):
+        """Thêm nhãn vào kho. Nhãn đã có (không phân biệt hoa-thường) → trả nhãn cũ, không lỗi.
+
+        Gõ lại một nhãn đang có là chuyện thường khi nhiều người cùng nhập; báo lỗi ở đây chỉ chặn
+        đúng thao tác mà người dùng đang muốn làm (chọn nhãn đó) — cùng lối đã dùng ở `add_tag`.
+        """
+        label = (label or "").strip()
+        if not label:
+            raise CustomerValidationError("Nhãn không được để trống.")
+        if len(label) > 50:
+            raise CustomerValidationError("Nhãn tối đa 50 ký tự.")
+        san_co = self.customers.tim_nhan_kho(label)
+        if san_co is not None:
+            return san_co
+        row = self.customers.them_nhan_kho(label=label, created_by=actor.id)
+        self.audit.create(
+            actor_user_id=actor.id, action="update_customer", target="customer:kho_nhan",
+            detail=f"Thêm nhãn vào kho: {label}",
+        )
+        return row
+
+    def xoa_nhan_kho(self, *, nhan_id: int, actor) -> int:
+        """Xoá nhãn khỏi kho + gỡ khỏi mọi khách đang mang. Trả số khách bị gỡ.
+
+        KHÔNG chặn khi đang có khách mang nhãn (khác luật xoá của 10 màn Cấu hình danh mục): nhãn
+        là lời ghi chú mềm, không phải danh mục mà số liệu neo vào. Bắt gỡ nhãn khỏi 30 khách rồi
+        mới cho xoá thì không ai xoá nổi. Bù lại, màn hình hỏi kèm SỐ KHÁCH THẬT trước khi gọi
+        endpoint này — cảnh báo có số, chứ không phải hộp thoại "bạn có chắc không".
+        """
+        row = self.customers.get_nhan_kho(nhan_id)
+        if row is None:
+            raise CustomerNotFound("Không tìm thấy nhãn.")
+        label = row.label
+        so_khach = self.customers.xoa_nhan_kho(row)
+        self.audit.create(
+            actor_user_id=actor.id, action="update_customer", target="customer:kho_nhan",
+            detail=f"Xoá nhãn khỏi kho: {label} (gỡ khỏi {so_khach} khách)",
+        )
+        return so_khach
+
     # --- nhãn thủ công (#7: sales gán tay) ---------------------------------------
 
     def list_tags(self, *, customer_id: int, scope: str, actor):
@@ -610,6 +666,11 @@ class CustomerService:
         existing = self.customers.find_tag_by_label(customer_id, label)
         if existing is not None:
             return existing
+        # Nhãn gõ tay tại chỗ cũng phải VÀO KHO, không thì lần sau người khác gõ lại từ đầu và
+        # sớm muộn ra hai biến thể ("Khó tính" / "Khách khó") — hai dòng rời trong ô lọc, tìm ra
+        # hai kết quả rời. Đây là chỗ duy nhất nhãn mới sinh ra ngoài màn quản lý kho.
+        if self.customers.tim_nhan_kho(label) is None:
+            self.customers.them_nhan_kho(label=label, created_by=actor.id)
         tag = self.customers.add_tag(customer_id, label=label, created_by=actor.id)
         self.audit.create(
             actor_user_id=actor.id,

@@ -27,10 +27,32 @@ router = APIRouter(prefix="/api/files", tags=["files"])
 _PREFIX_PERMISSION: dict[str, str] = {
     "hr": "nhan_su",
     "crm": "khach_hang",
-    "ke-toan": "ke_toan",
-    "ke-toan-thu": "ke_toan",
+    # Chứng từ đính kèm đi theo MÀN của nó, không còn dùng chung khoá `ke_toan`.
+    "ke-toan": "phieu_chi",
+    "ke-toan-thu": "phieu_thu",
     "don-hang": "don_hang_ban",
     "san-xuat": "san_xuat",
+    "kho": "kho",  # đính kèm phiếu kho (chứng từ nhập/xuất) — chỉ người có quyền đọc kho xem được
+    # Hợp đồng / hoá đơn / biên bản giao nhận của phiếu mua (06/08/2026).
+    "mua-hang": "thu_mua",
+    # Tài liệu đính kèm nội bộ của báo giá (file khách gửi / mẫu thiết kế / ảnh tham khảo).
+    "bao-gia": "bao_gia",
+    # Ảnh hiện trạng hỏng + ảnh chứng thực sau sửa/bảo trì (12/08/2026). Gác quyền vì ảnh máy móc
+    # cho thấy tình trạng nhà xưởng, không phải thứ ai đăng nhập cũng nên xem.
+    "ky-thuat-may": "ky_thuat_may",
+}
+
+# Thư mục chứa ảnh của HAI màn khác ô quyền — khoá có dạng `<thư mục>/<loại phiếu>/...` nên soi
+# thêm đoạn thứ hai. Không làm bước này thì chỉ còn hai lựa chọn, cả hai đều dở: nới `ky-thuat-may`
+# cho cả hai khoá (người chỉ có Phiếu bảo trì xem được ảnh máy hỏng), hoặc để nguyên một khoá
+# (người chỉ có Phiếu bảo trì không xem được ảnh của chính phiếu mình đang làm).
+_PREFIX_2_PERMISSION: dict[tuple[str, str], tuple[str, ...]] = {
+    ("ky-thuat-may", "bao_tri"): ("phieu_bao_tri",),
+    # Ảnh máy hỏng người ngoài tổ kỹ thuật gửi kèm yêu cầu — HAI khoá, có một cái không bỏ được:
+    # lúc yêu cầu thành phiếu, ảnh đổi chủ sang phiếu nhưng KHOÁ LƯU TRỮ vẫn mang đoạn `yeu_cau`
+    # (đổi khoá = phải chép tệp trong storage). Chỉ để `yeu_cau_sua_chua` thì tổ sửa chữa mở phiếu
+    # ra thấy ô ảnh 403; chỉ để `ky_thuat_may` thì người báo không xem lại được ảnh mình vừa gửi.
+    ("ky-thuat-may", "yeu_cau"): ("yeu_cau_sua_chua", "ky_thuat_may"),
 }
 
 
@@ -44,8 +66,14 @@ def download_file(
     if not is_safe_key(key):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Đường dẫn tệp không hợp lệ")
 
-    module = _PREFIX_PERMISSION.get(key.split("/", 1)[0])
-    if module and not authz.can(user, module, "read"):
+    doan = key.split("/")
+    khoa = _PREFIX_2_PERMISSION.get((doan[0], doan[1] if len(doan) > 1 else ""))
+    if khoa is None:
+        mot = _PREFIX_PERMISSION.get(doan[0])
+        khoa = (mot,) if mot else ()
+    # `any`: có MỘT khoá đọc được là đủ — nhiều khoá ở đây nghĩa là "nhiều nhóm người cùng có lý do
+    # chính đáng nhìn tấm ảnh này", không phải "phải có đủ cả hai".
+    if khoa and not any(authz.can(user, m, "read") for m in khoa):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền xem tệp này")
 
     try:

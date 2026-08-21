@@ -1,9 +1,11 @@
-"""Bài ghép (print gang) — gom công đoạn IN của NHIỀU LSX chạy chung 1 tờ, 1 lần lên máy.
+"""Bài ghép (print gang) — gom các công đoạn chạy CHUNG của NHIỀU LSX trên 1 tờ, 1 lần lên máy.
 
-Đối tượng KẾ HOẠCH: chỉ quản phần CHẠY CHUNG (bình bài → xuất kẽm → in). Mỗi LSX vẫn giữ
-nguyên mã/số lượng/hạn/routing-sau-in/chi phí; sau in tách ra (xả tờ) chạy tiếp riêng. Không
-gộp lệnh, không nuốt LSX (khớp mô hình gang chuẩn ngành: Phoenix Layout→Product, printIQ
-parent/sub "revert to standard job").
+Đối tượng KẾ HOẠCH: chỉ quản phần CHẠY CHUNG. Chung KHÔNG chỉ có mỗi bước in — cùng một tờ
+ghép thì bộ kẽm là một (CTP chung), cán màng cán cả tờ, bế chung nếu cùng dao; điểm TOẢ nằm sau
+bước gộp cuối cùng, không phải cứ sau in. NGƯỜI khai bước nào chung (xem `bai_ghep_cong_doan`),
+máy không tự đoán. Mỗi LSX vẫn giữ nguyên mã/số lượng/hạn/routing-riêng/chi phí; qua điểm toả
+thì tách ra chạy tiếp riêng. Không gộp lệnh, không nuốt LSX (khớp mô hình gang chuẩn ngành:
+Phoenix Layout→Product, printIQ parent/sub "revert to standard job").
 
 NEO THÀNH VIÊN VÀO `lsx_id` (FK THẬT), KHÔNG vào công đoạn: sửa routing LSX = replace-all →
 `lsx_cong_doan.id` tái sinh, neo công đoạn sẽ mất dấu. Mỗi LSX vào TỐI ĐA 1 bài ghép (ca 1 LSX
@@ -18,10 +20,11 @@ migration. Boolean (nếu phát sinh) dùng `false()`/`true()` của SQLAlchemy 
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
-    DateTime, ForeignKey, Integer, String, Text, UniqueConstraint,
+    Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint,
+    false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -49,8 +52,19 @@ class BaiGhep(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)  # GB26-0001
+    ten: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    han_hoan_thanh_sx: Mapped[date | None] = mapped_column(Date, nullable=True)
+    is_rush: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
+    nguoi_phu_trach_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # -> users.id
 
     trang_thai: Mapped[str] = mapped_column(String(20), nullable=False, default=TT_NHAP)
+    # CÔNG TẮC giữ chỗ vật tư — song song `lsx.giu_cho_bat`. Bài ghép là CHỦ THỂ giữ chỗ của các
+    # lệnh thành viên (lệnh đã ghép không giữ riêng), nên công tắc phải nằm ở đây chứ không ở lệnh.
+    giu_cho_bat: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
 
     # --- Giấy + khổ tờ in CHẠY CHUNG (một tờ ghép chỉ một loại giấy) ---
     giay_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → giay_nguyen.id
@@ -59,8 +73,11 @@ class BaiGhep(Base):
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)   # → may_thiet_bi.id
 
     # --- Hao hụt tờ (người khai) — cộng vào số tờ tốt để ra tổng tờ cấp ---
-    hao_hut_setup: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # bù canh máy
-    hao_hut_chay: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # bù khi chạy
+    # NULL = CHƯA KHAI, bài lấy số máy đề xuất · 0 = NGƯỜI khai "chạy đúng số, không bù".
+    # Hai ý này từng chung một giá trị 0 nên `or hao_de_xuat` nuốt mất ý định khai 0: không có
+    # cách nào bảo bài đừng cộng hao. Đó là lý do cột phải nullable chứ không phải default 0.
+    hao_hut_setup: Mapped[int | None] = mapped_column(Integer, nullable=True)  # bù canh máy
+    hao_hut_chay: Mapped[int | None] = mapped_column(Integer, nullable=True)   # bù khi chạy
 
     ghi_chu: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -87,7 +104,11 @@ class BaiGhepThanhVien(Base):
 
     __tablename__ = "bai_ghep_thanh_vien"
     # Chống thêm TRÙNG một LSX vào cùng một bài (guard "1 LSX ≤ 1 bài" nằm ở service, cross-table).
-    __table_args__ = (UniqueConstraint("bai_ghep_id", "lsx_id", name="uq_bai_ghep_lsx"),)
+    __table_args__ = (
+        UniqueConstraint("bai_ghep_id", "lsx_id", name="uq_bai_ghep_lsx"),
+        # Chốt ở DB để hai request đồng thời cũng không thể đưa một LSX vào hai bài khác nhau.
+        UniqueConstraint("lsx_id", name="uq_bai_ghep_thanh_vien_lsx_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # FK THẬT + CASCADE: xoá bài → xoá thành viên.
@@ -102,5 +123,10 @@ class BaiGhepThanhVien(Base):
     # Số con của LSX này trên tờ ghép (ups). INPUT người sửa (bố cục ghép khác in riêng); mặc định
     # = `lsx.so_con`. Số tờ tốt = max_i(ceil(lsx.so_luong_dat / so_con_tren_to)).
     so_con_tren_to: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # DEPRECATED — thay bằng `bai_ghep_cong_doan` + `bai_ghep_cong_doan_map`. Cột này giả định
+    # "bước in là điểm gộp DUY NHẤT", sai với thực tế (còn CTP/cán/bế chung) và không diễn tả nổi
+    # nhiều bước gộp. Giữ cột để không vỡ dữ liệu đang có; ngừng ĐỌC ở code mới. Gỡ ở đợt dọn
+    # riêng (cần `db_migrations.py` + `DB_SCHEMA.md`), không gỡ giữa lúc refactor.
+    buoc_in_step_key: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
     bai_ghep: Mapped["BaiGhep"] = relationship("BaiGhep", back_populates="thanh_viens")

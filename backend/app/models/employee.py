@@ -25,6 +25,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     UniqueConstraint,
     false as sa_false,
@@ -87,15 +88,17 @@ ATTACHMENT_DOC_KINDS = (DOC_HOP_DONG, DOC_CCCD, DOC_BANG_CAP, DOC_KHAC)
 
 
 # --- Danh mục BẬC TAY NGHỀ (chủ 2026-07-29) ---------------------------------
-# Chủ chốt lại: **BỎ bậc phụ**, còn 5 BẬC CHÍNH đánh thẳng Bậc 1 → Bậc 5 (Bậc 1 CAO NHẤT).
-# (Bản đầu là 3 chính + 2 phụ `tho_*`/`phu_*` — migration 0129 đổi tên tại chỗ, giữ nguyên id
-# nên ai đang mang bậc thì không mất.)
+# 5 BẬC CHÍNH, hạng CAO NHẤT đứng đầu (seq 1). Tên gọi DÂN DÃ theo cách xưởng gọi nhau
+# (chủ 2026-08-19): thợ cứng tay nhất → mới vào. Mã `bac_1…bac_5` GIỮ NGUYÊN làm khoá ổn định —
+# tên chỉ là nhãn hiển thị, đổi tên không đụng hạng của ai.
+# (Đường đời: bản đầu 3 chính + 2 phụ `tho_*`/`phu_*` → migration 0129 gộp về Bậc 1…5 → migration
+# 0155 đổi sang tên dân dã dưới đây. Tất cả đổi tên TẠI CHỖ giữ id nên không ai mất bậc.)
 JOB_GRADE_SEED = (
-    ("bac_1", "Bậc 1", 1),
-    ("bac_2", "Bậc 2", 2),
-    ("bac_3", "Bậc 3", 3),
-    ("bac_4", "Bậc 4", 4),
-    ("bac_5", "Bậc 5", 5),
+    ("bac_1", "Thợ lành nghề", 1),
+    ("bac_2", "Thợ vững", 2),
+    ("bac_3", "Thợ thường", 3),
+    ("bac_4", "Tập việc", 4),
+    ("bac_5", "Lính mới", 5),
 )
 
 
@@ -119,13 +122,19 @@ class JobGrade(Base):
     # ánh xạ sang đây khi backfill, nên hồ sơ khai bằng mã cũ vẫn về đúng bậc.
     code: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(60), nullable=False)
-    # Thứ tự hiển thị. Số NHỎ = bậc CAO (Bậc 1 đứng đầu) — theo cách chủ liệt kê.
+    # Thứ tự hiển thị. Số NHỎ = bậc CAO (hạng cứng tay nhất đứng đầu) — theo cách chủ liệt kê.
     seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     # Tắt thay vì xoá khi một bậc thôi dùng: hồ sơ cũ đang trỏ vào vẫn đọc được tên bậc.
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=sa_true()
     )
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Hệ số quy đổi SẢN LƯỢNG theo bậc — nền chia khoán ở module Thực hiện sản xuất
+    # (spec-thuc-hien-san-xuat §8). Đây ĐÚNG là "treo cột vào bảng bậc" mà docstring lớp này đã dặn:
+    # khi phân bổ sản lượng lô cho từng người, phần của mỗi người được nhân hệ số bậc này (thợ cứng
+    # tay ăn nhiều hơn tập việc trên cùng một mẻ). NULL = CHƯA khai ⇒ engine coi như 1.0 (chia đều theo
+    # thời gian tham gia); khai bậc KHÔNG tự động đổi lương cho tới khi hệ số được điền + có mẻ khoán.
+    output_coefficient: Mapped[float | None] = mapped_column(Numeric(6, 3), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

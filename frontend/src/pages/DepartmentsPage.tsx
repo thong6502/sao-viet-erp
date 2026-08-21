@@ -10,6 +10,7 @@ import {
   type ModuleDef,
   type PermissionRow,
   type Role,
+  type RoleTemplate,
   type Scope,
   type UserBrief,
 } from "../api/client";
@@ -30,6 +31,7 @@ import { Icon } from "../components/Icons";
 import {
   Building2,
   Factory,
+  Handshake,
   Briefcase,
   Users,
   FolderTree,
@@ -47,11 +49,75 @@ import {
   ChevronUp,
   ChevronDown,
   Move,
+  ShieldCheck,
+  ArrowRightLeft,
+  X,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import type { NavigateFn } from "../components/AppShell";
 import "./departments.css";
 import "./nhan-su.css";
 import "./redesign-phong-ban.css";
+
+const READ_IMPLYING_ACTIONS: ActionKey[] = [
+  "can_create",
+  "can_update",
+  "can_delete",
+  "can_reassign",
+  "can_export",
+  "can_view_debt",
+  "can_view_discount",
+  "can_approve",
+  "can_manage_status",
+  "can_reset_password",
+  "can_lock",
+  "can_revoke_sessions",
+  "can_assign_role",
+  "can_transfer",
+  "can_set_head",
+  "can_requote",
+  "can_manage_price",
+  "can_cancel",
+  "can_manage_permissions",
+  "can_clone",
+  "can_toggle_active",
+  "can_reparent",
+  "can_view_salary",
+  "can_edit_salary",
+  "can_adjust",
+  "can_approve_exception",
+  "can_set_credit_terms",
+  "can_record_deposit",
+  "can_assign_work",
+  "can_record_output",
+  "can_handover",
+  "can_request",
+  "can_view_stock",
+  "can_view_cost",
+  "can_set_threshold",
+  "can_post",
+];
+
+function applyPermissionDependency(
+  row: PermissionRow,
+  action: ActionKey,
+  value: boolean,
+): PermissionRow {
+  const next = { ...row, [action]: value };
+  if (action === "can_read" && !value) {
+    for (const key of READ_IMPLYING_ACTIONS) next[key] = false;
+    return next;
+  }
+  if (action === "can_view_salary" && !value) {
+    next.can_edit_salary = false;
+  }
+  if (action === "can_edit_salary" && value) {
+    next.can_view_salary = true;
+  }
+  if (value && READ_IMPLYING_ACTIONS.includes(action)) next.can_read = true;
+  return next;
+}
 
 /** Đã kéo sơ đồ cây ít nhất 1 lần → không nhắc "kéo để di chuyển" nữa. */
 const PAN_HINT_KEY = "rdx-org-pan-hint";
@@ -129,10 +195,6 @@ export function DepartmentsPage({
     // Nhánh dự phòng chỉ còn dùng khi đúng người đang đăng nhập: họ vừa đổi ảnh trong màn Tài khoản
     // thì context xác thực mới hơn danh sách đang cache, hiện ngay cho khỏi tưởng đổi không ăn.
     //
-    // 🔴 ĐÃ GỠ nhánh so theo TÊN. Trước đây ai trùng tên với người đang đăng nhập là **hiện ảnh của
-    // người đang đăng nhập lên hàng của họ** — mà trùng tên trong nhà máy là chuyện thường
-    // (Nguyễn Văn A). Gắn sai mặt vào sai người trên màn nhân sự là loại sai không được phép có,
-    // và nó im lặng hoàn toàn. Chỉ khớp theo `id` — thứ duy nhất định danh chắc chắn.
     const laChinhMinh = options?.userId != null && user?.id === options.userId;
 
     const src = options?.avatarUrl
@@ -225,6 +287,9 @@ export function DepartmentsPage({
   const [empMeta, setEmpMeta] = useState<EmployeeMeta | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
   const [modules, setModules] = useState<ModuleDef[]>([]);
+  // Bảng VAI MẪU (đợt 6). Lỗi khi nạp ⇒ để rỗng: thanh chọn mẫu tự ẩn, ma trận vẫn cấp tay
+  // được như cũ — mẫu là tiện ích, không phải điều kiện để cấp quyền.
+  const [roleTemplates, setRoleTemplates] = useState<RoleTemplate[]>([]);
   // Who may head the selected unit (its subtree, PBI-4004).
   const [headCandidates, setHeadCandidates] = useState<UserBrief[]>([]);
   // Modal chỉ định Trưởng phòng nhanh trực tiếp từ Head Hero Card
@@ -259,6 +324,18 @@ export function DepartmentsPage({
 
   // Bulk transfer (PBI-4008): tick members + pick a target department.
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<number>>(new Set());
+
+  // Listen for Esc key to quickly clear selection
+  useEffect(() => {
+    if (selectedMemberIds.size === 0) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSelectedMemberIds(new Set());
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedMemberIds.size]);
   const [transferTarget, setTransferTarget] = useState<number | null>(null);
   const [transferBusy, setTransferBusy] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
@@ -297,6 +374,8 @@ export function DepartmentsPage({
     number | null
   >(null);
   const [editLaSanXuat, setEditLaSanXuat] = useState(false);
+  // Khối KINH DOANH — nền cho danh sách "NV phụ trách" ở màn Khách hàng (cả cây con kế thừa).
+  const [editLaKinhDoanh, setEditLaKinhDoanh] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -311,7 +390,7 @@ export function DepartmentsPage({
 
   // Cây tổ chức (cột trái) — tìm theo tên/mã + chip lọc phân loại phòng.
   const [search, setSearch] = useState("");
-  const [treeFilter, setTreeFilter] = useState<"all" | "san_xuat" | "van_phong" | "no_head" | "no_staff">(
+  const [treeFilter, setTreeFilter] = useState<"all" | "san_xuat" | "kinh_doanh" | "van_phong" | "no_head" | "no_staff">(
     "all",
   );
   // Chế độ xem: danh sách cây thẻ (tree) vs Sơ đồ khối trực quan (chart)
@@ -464,6 +543,9 @@ export function DepartmentsPage({
   const currentDept = departments.find((d) => d.id === selectedId) ?? null;
   const { childrenOf, roots } = useMemo(() => buildTree(departments), [departments]);
   const byId = useMemo(() => new Map(departments.map((d) => [d.id, d])), [departments]);
+  // Ô "Ca làm việc của tổ" ĐÃ BỎ 2026-08-10 (cùng ô ca ở màn Máy): ca khai MỘT chỗ ở Nhân sự →
+  // Ca kíp, không lặp lại ở từng tổ. Kèm theo đó `laTo` cũng gỡ — nó chỉ sinh ra để gate ô này.
+
   // Units that can't be the selected unit's parent: itself + all its descendants (no cycles).
   const excludedParentIds = useMemo(() => {
     const ids = new Set<number>();
@@ -500,10 +582,12 @@ export function DepartmentsPage({
   // không ai phụ trách" là việc phải xử lý ngay, còn "phòng chưa tuyển ai" thì không.
   const treeStats = useMemo(() => {
     let sanXuat = 0;
+    let kinhDoanh = 0;
     let noHead = 0;
     let noStaff = 0;
     for (const d of departments) {
       if (d.la_san_xuat) sanXuat += 1;
+      if (d.la_kinh_doanh) kinhDoanh += 1;
       const st = deptStatus(d);
       if (st === "no_head") noHead += 1;
       else if (st === "no_staff") noStaff += 1;
@@ -511,6 +595,7 @@ export function DepartmentsPage({
     return {
       all: departments.length,
       san_xuat: sanXuat,
+      kinh_doanh: kinhDoanh,
       van_phong: departments.length - sanXuat,
       no_head: noHead,
       no_staff: noStaff,
@@ -535,6 +620,7 @@ export function DepartmentsPage({
       if (!hay.includes(q)) return false;
     }
     if (treeFilter === "san_xuat" && !d.la_san_xuat) return false;
+    if (treeFilter === "kinh_doanh" && !d.la_kinh_doanh) return false;
     if (treeFilter === "van_phong" && d.la_san_xuat) return false;
     if (treeFilter === "no_head" && deptStatus(d) !== "no_head") return false;
     if (treeFilter === "no_staff" && deptStatus(d) !== "no_staff") return false;
@@ -601,11 +687,13 @@ export function DepartmentsPage({
     Promise.all([
       loadDepartments(),
       api.rbac.modules(token).catch(() => [] as ModuleDef[]),
+      api.rbac.roleTemplates(token).catch(() => [] as RoleTemplate[]),
     ])
-      .then(([list, mods]) => {
+      .then(([list, mods, mau]) => {
         if (cancelled) return;
         setDepartments(list);
         setModules(mods);
+        setRoleTemplates(mau);
         // Tự động chọn phòng gốc hàng đầu (Root department) khi nạp màn hình để hiển thị ngay chi tiết
         const { roots: rts } = buildTree(list);
         const defaultId = rts[0]?.id ?? list[0]?.id ?? null;
@@ -649,6 +737,7 @@ export function DepartmentsPage({
     setEditHead(dept?.head_user_id ?? null);
     setEditParentId(dept?.parent_id ?? null);
     setEditLaSanXuat(dept?.la_san_xuat ?? false);
+    setEditLaKinhDoanh(dept?.la_kinh_doanh ?? false);
     if (!token || selectedId == null) {
       setMembers([]);
       setRoles([]);
@@ -704,6 +793,7 @@ export function DepartmentsPage({
     setEditHead(currentDept?.head_user_id ?? null);
     setEditParentId(currentDept?.parent_id ?? null);
     setEditLaSanXuat(currentDept?.la_san_xuat ?? false);
+    setEditLaKinhDoanh(currentDept?.la_kinh_doanh ?? false);
     setSaveError(null);
     setDirty(false);
     setInfoOpen(true);
@@ -864,6 +954,7 @@ export function DepartmentsPage({
           probation_ratio: currentDept?.probation_ratio ?? 0.8,
         },
         editLaSanXuat,
+        editLaKinhDoanh,
       );
       await refresh(selectedId);
       setDirty(false);
@@ -963,7 +1054,11 @@ export function DepartmentsPage({
 
   function toggleAddRole(moduleKey: string, action: ActionKey, value: boolean) {
     setAddRoleMatrix((rows) =>
-      rows.map((r) => (r.module_key === moduleKey ? { ...r, [action]: value } : r)),
+      rows.map((r) =>
+        r.module_key === moduleKey
+          ? applyPermissionDependency(r, action, value)
+          : r,
+      ),
     );
   }
 
@@ -1023,9 +1118,26 @@ export function DepartmentsPage({
     setEditRoleError(null);
   }
 
+  /** Áp mẫu vào ma trận SỬA vai — THAY SẠCH, không trộn với quyền cũ.
+   *  Trộn thì áp mẫu "Công nhân" lên một vai đang đầy quyền vẫn còn nguyên quyền cũ — đúng thứ
+   *  vai mẫu sinh ra để tránh. Chỉ đổi state; chưa bấm Lưu thì chưa có gì xuống DB. */
+  function apMauSuaVai(t: RoleTemplate) {
+    setEditRoleMatrix(t.permissions.map((r) => ({ ...r })));
+    setEditRoleError(null);
+  }
+
+  /** Áp mẫu vào ma trận THÊM vai mới. */
+  function apMauThemVai(t: RoleTemplate) {
+    setAddRoleMatrix(t.permissions.map((r) => ({ ...r })));
+  }
+
   function toggleEditRole(moduleKey: string, action: ActionKey, value: boolean) {
     setEditRoleMatrix((rows) =>
-      rows.map((r) => (r.module_key === moduleKey ? { ...r, [action]: value } : r)),
+      rows.map((r) =>
+        r.module_key === moduleKey
+          ? applyPermissionDependency(r, action, value)
+          : r,
+      ),
     );
   }
 
@@ -1100,6 +1212,8 @@ export function DepartmentsPage({
       ? Building2
       : d.la_san_xuat
       ? Factory
+      : d.la_kinh_doanh
+      ? Handshake
       : Briefcase;
 
     const kidsCount = childrenOf.get(d.id)?.length ?? 0;
@@ -1150,6 +1264,9 @@ export function DepartmentsPage({
             <span className="rdx-tree__name">{d.name}</span>
             {d.code && <span className="rdx-tree__code">{d.code}</span>}
             {d.la_san_xuat && <span className="rdx-tree__pill">Khối SX</span>}
+            {d.la_kinh_doanh && (
+              <span className="rdx-tree__pill rdx-tree__pill--kd">Khối KD</span>
+            )}
           </div>
 
           <div className="rdx-tree__line2">
@@ -1231,6 +1348,8 @@ export function DepartmentsPage({
       ? Building2
       : dept.la_san_xuat
       ? Factory
+      : dept.la_kinh_doanh
+      ? Handshake
       : Briefcase;
 
     return (
@@ -1387,6 +1506,9 @@ export function DepartmentsPage({
   const treeChips = [
     { key: "all", label: "Tất cả", n: treeStats.all },
     { key: "san_xuat", label: "Sản xuất", n: treeStats.san_xuat },
+    // Khối Kinh doanh: quyết định ai vào được danh sách "NV phụ trách" ở màn Khách hàng — chip
+    // này là chỗ duy nhất soi nhanh xem đã tick đúng phòng chưa.
+    { key: "kinh_doanh", label: "Kinh doanh", n: treeStats.kinh_doanh },
     { key: "van_phong", label: "Văn phòng", n: treeStats.van_phong },
     // Hai chip RIÊNG, cố ý không gộp: "Thiếu trưởng" là việc phải xử lý ngay (phòng có người mà
     // không ai phụ trách); "Chưa có nhân sự" chỉ là phòng mới khai, chưa tuyển ai. Gộp một số là
@@ -1691,6 +1813,9 @@ export function DepartmentsPage({
                       {currentDept.la_san_xuat && (
                         <span className="rdx-drawer__pill">Khối SX</span>
                       )}
+                      {currentDept.la_kinh_doanh && (
+                        <span className="rdx-drawer__pill rdx-drawer__pill--kd">Khối KD</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1796,6 +1921,12 @@ export function DepartmentsPage({
                         </span>
                       </div>
                       <div className="rdx-ov__item">
+                        <span className="rdx-ov__k">Khối kinh doanh</span>
+                        <span className="rdx-ov__v">
+                          {currentDept.la_kinh_doanh ? "Có" : "Không"}
+                        </span>
+                      </div>
+                      <div className="rdx-ov__item">
                         <span className="rdx-ov__k">Lương khoán</span>
                         <span className="rdx-ov__v">
                           {currentDept.has_piece_work ? "Có" : "Không"}
@@ -1877,58 +2008,186 @@ export function DepartmentsPage({
                             Ô tìm + lọc thì ngược lại: chỉ có nghĩa khi đã có người, nên ẩn khi rỗng.
                             Không quyền thêm + phòng rỗng ⇒ thanh chẳng còn gì, bỏ hẳn khay trống. */}
                     {(members.length > 0 || canAddEmployee) && (
-                    <div className="depts__staff-toolbar" style={{ marginBottom: 12 }}>
-                      {members.length > 0 && (
-                        <>
-                          <div className="rdx-tree__search" style={{ flex: "1 1 auto", maxWidth: "240px" }}>
-                            <Search size={14} className="rdx-tree__search-icon" />
-                            <input
-                              className="rdx-tree__search-input"
-                              placeholder="Tìm tên, mã, tài khoản…"
-                              value={memberSearch}
-                              onChange={(e) => {
-                                setMemberSearch(e.target.value);
-                                setMemberPage(1);
-                              }}
-                              aria-label="Tìm nhân sự"
-                            />
-                          </div>
+                      <div
+                        className={`depts__staff-toolbar${
+                          canBulk && selectedMemberIds.size > 0 ? " depts__staff-toolbar--morphed" : ""
+                        }`}
+                        style={{ marginBottom: 12 }}
+                      >
+                        {canBulk && selectedMemberIds.size > 0 ? (
+                          /* ── MORPHED STATE: Contextual Bulk Action Bar ─────────── */
+                          <div className="depts__morph-bar" role="region" aria-label="Thao tác hàng loạt">
+                            <div className="depts__morph-left">
+                              <div className="depts__dock-counter">
+                                <CheckCircle2 size={15} className="depts__dock-counter-icon" />
+                                <span>
+                                  Đã chọn <strong key={selectedMemberIds.size} className="depts__dock-pop-num">{selectedMemberIds.size}</strong> người
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                className="depts__dock-clear-btn"
+                                title="Nhấn Esc để bỏ chọn nhanh"
+                                onClick={() => setSelectedMemberIds(new Set())}
+                              >
+                                <X size={14} />
+                                <span>Bỏ chọn</span>
+                                <kbd className="depts__dock-kbd">Esc</kbd>
+                              </button>
+                            </div>
 
-                          <div style={{ width: "160px", flexShrink: 0 }}>
-                            <Select
-                              ariaLabel="Lọc trạng thái nhân sự"
-                              value={memberStatusFilter}
-                              onChange={(v) => {
-                                setMemberStatusFilter(v);
-                                setMemberPage(1);
-                              }}
-                              options={[
-                                { value: "all", label: "Tất cả trạng thái" },
-                                { value: "active", label: "Đang hoạt động" },
-                                { value: "locked", label: "Đã khóa" },
-                              ]}
-                            />
+                            <div className="depts__morph-actions">
+                              {canAssignRole && roles.length > 0 && (
+                                <div className="depts__dock-group">
+                                  <div className="depts__dock-label-tag">
+                                    <ShieldCheck size={14} className="depts__dock-icon--shield" />
+                                    <span>Vai trò</span>
+                                  </div>
+                                  <div className="depts__dock-select-wrap">
+                                    <Select
+                                      ariaLabel="Vai trò"
+                                      value={assignRoleTarget}
+                                      placeholder="— Chọn vai trò —"
+                                      onChange={(v) => setAssignRoleTarget(v)}
+                                      options={[
+                                        { value: null, label: "— Chọn vai trò —" },
+                                        ...roles.map((r) => ({ value: r.id, label: r.name })),
+                                      ]}
+                                    />
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="accent"
+                                    loading={assignRoleBusy}
+                                    disabled={assignRoleTarget == null || !canAssignRole}
+                                    className="depts__dock-btn-accent"
+                                    onClick={() =>
+                                      setPendingBulk({
+                                        title: "Xác nhận gán vai trò",
+                                        message:
+                                          `Bạn sắp gán vai trò "${roles.find((r) => r.id === assignRoleTarget)?.name ?? ""}" ` +
+                                          `cho ${selectedWithAccount} người đã chọn. Vai trò cũ của họ sẽ bị thay thế.` +
+                                          (selectedWithoutAccount > 0
+                                            ? ` ${selectedWithoutAccount} người chưa có tài khoản sẽ được BỎ QUA (phải cấp tài khoản trước).`
+                                            : "") +
+                                          " Kiểm tra kỹ trước khi xác nhận.",
+                                        confirmLabel: "Gán vai trò",
+                                        run: doAssignRole,
+                                      })
+                                    }
+                                  >
+                                    Gán
+                                  </Button>
+                                  {selectedWithoutAccount > 0 && (
+                                    <span className="depts__dock-warning-chip" title={`${selectedWithoutAccount} người chưa có tài khoản hệ thống`}>
+                                      <AlertCircle size={12} /> {selectedWithoutAccount} chưa có TK
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+
+                              {canTransfer && (
+                                <div className="depts__dock-group">
+                                  <div className="depts__dock-label-tag">
+                                    <ArrowRightLeft size={14} className="depts__dock-icon--transfer" />
+                                    <span>Chuyển sang</span>
+                                  </div>
+                                  <div className="depts__dock-select-wrap">
+                                    <Select
+                                      ariaLabel="Phòng đích"
+                                      value={transferTarget}
+                                      placeholder="— Chọn phòng đích —"
+                                      onChange={(v) => setTransferTarget(v)}
+                                      options={[
+                                        { value: null, label: "— Chọn phòng đích —" },
+                                        ...departments
+                                          .filter((d) => d.id !== selectedId)
+                                          .map((d) => ({
+                                            value: d.id,
+                                            label: d.name,
+                                            hint: d.code || undefined,
+                                          })),
+                                      ]}
+                                    />
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="accent"
+                                    loading={transferBusy}
+                                    disabled={transferTarget == null || !canTransfer}
+                                    className="depts__dock-btn-accent"
+                                    onClick={() =>
+                                      setPendingBulk({
+                                        title: "Xác nhận chuyển phòng ban",
+                                        message:
+                                          `Bạn sắp chuyển ${selectedMemberIds.size} người sang phòng ` +
+                                          `"${departments.find((d) => d.id === transferTarget)?.name ?? ""}". ` +
+                                          "Vai trò hiện tại của họ sẽ bị gỡ. Kiểm tra kỹ trước khi xác nhận.",
+                                        confirmLabel: "Chuyển phòng ban",
+                                        danger: true,
+                                        run: doTransfer,
+                                      })
+                                    }
+                                  >
+                                    Chuyển
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </>
-                      )}
-                      {canAddEmployee && (
-                        <button
-                          type="button"
-                          className="rdx-head-hero__btn-highlight"
-                          style={{ height: "34px", fontSize: "12px", padding: "0 12px", flexShrink: 0 }}
-                          // Khoá khi chưa nạp được danh mục cho form. Trước đây nút vẫn bấm được mà
-                          // modal có điều kiện `empMeta && …` nên KHÔNG MỞ GÌ, KHÔNG BÁO GÌ —
-                          // người dùng bấm mấy lần rồi tưởng máy treo.
-                          disabled={!empMeta}
-                          title={empMeta
-                            ? undefined
-                            : "Chưa nạp được danh mục phòng/vai trò/ca. Tải lại trang rồi thử lại."}
-                          onClick={() => setWizardOpen(true)}
-                        >
-                          <Plus size={14} /> Thêm nhân viên
-                        </button>
-                      )}
-                    </div>
+                        ) : (
+                          /* ── NORMAL STATE: Search & Filter Toolbar ─────────────── */
+                          <>
+                            {members.length > 0 && (
+                              <>
+                                <div className="rdx-tree__search" style={{ flex: "1 1 auto", maxWidth: "240px" }}>
+                                  <Search size={14} className="rdx-tree__search-icon" />
+                                  <input
+                                    className="rdx-tree__search-input"
+                                    placeholder="Tìm tên, mã, tài khoản…"
+                                    value={memberSearch}
+                                    onChange={(e) => {
+                                      setMemberSearch(e.target.value);
+                                      setMemberPage(1);
+                                    }}
+                                    aria-label="Tìm nhân sự"
+                                  />
+                                </div>
+
+                                <div style={{ width: "160px", flexShrink: 0 }}>
+                                  <Select
+                                    ariaLabel="Lọc trạng thái nhân sự"
+                                    value={memberStatusFilter}
+                                    onChange={(v) => {
+                                      setMemberStatusFilter(v);
+                                      setMemberPage(1);
+                                    }}
+                                    options={[
+                                      { value: "all", label: "Tất cả trạng thái" },
+                                      { value: "active", label: "Đang hoạt động" },
+                                      { value: "locked", label: "Đã khóa" },
+                                    ]}
+                                  />
+                                </div>
+                              </>
+                            )}
+                            {canAddEmployee && (
+                              <button
+                                type="button"
+                                className="rdx-head-hero__btn-highlight"
+                                style={{ height: "34px", fontSize: "12px", padding: "0 12px", flexShrink: 0 }}
+                                disabled={!empMeta}
+                                title={empMeta
+                                  ? undefined
+                                  : "Chưa nạp được danh mục phòng/vai trò/ca. Tải lại trang rồi thử lại."}
+                                onClick={() => setWizardOpen(true)}
+                              >
+                                <Plus size={14} /> Thêm nhân viên
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
                     )}
 
                     {members.length === 0 ? (
@@ -1939,104 +2198,6 @@ export function DepartmentsPage({
                       </p>
                     ) : (
                       <>
-
-                    {/* Floating Bulk Action Bar — ONLY rendered when 1+ members are checked */}
-                    {canBulk && selectedMemberIds.size > 0 && (
-                      <div className="depts__transfer depts__transfer--top" style={{ marginBottom: 12 }}>
-                        <span className="depts__transfer-count">
-                          Đã chọn {selectedMemberIds.size} người
-                        </span>
-                        {canAssignRole && roles.length > 0 && (
-                          <div className="depts__bulk-action">
-                            <span className="depts__bulk-label">Gán vai trò</span>
-                            <div className="depts__transfer-select">
-                              <Select
-                                ariaLabel="Vai trò"
-                                value={assignRoleTarget}
-                                placeholder="— Chọn vai trò —"
-                                onChange={(v) => setAssignRoleTarget(v)}
-                                options={[
-                                  { value: null, label: "— Chọn vai trò —" },
-                                  ...roles.map((r) => ({ value: r.id, label: r.name })),
-                                ]}
-                              />
-                            </div>
-                            <Button
-                              type="button"
-                              variant="accent"
-                              loading={assignRoleBusy}
-                              disabled={assignRoleTarget == null || !canAssignRole}
-                              onClick={() =>
-                                setPendingBulk({
-                                  title: "Xác nhận gán vai trò",
-                                  message:
-                                    `Bạn sắp gán vai trò "${roles.find((r) => r.id === assignRoleTarget)?.name ?? ""}" ` +
-                                    `cho ${selectedWithAccount} người đã chọn. Vai trò cũ của họ sẽ bị thay thế.` +
-                                    (selectedWithoutAccount > 0
-                                      ? ` ${selectedWithoutAccount} người chưa có tài khoản sẽ được BỎ QUA (phải cấp tài khoản trước).`
-                                      : "") +
-                                    " Kiểm tra kỹ trước khi xác nhận.",
-                                  confirmLabel: "Gán vai trò",
-                                  run: doAssignRole,
-                                })
-                              }
-                            >
-                              Gán
-                            </Button>
-                          </div>
-                        )}
-                        {canTransfer && (
-                          <div className="depts__bulk-action">
-                            <span className="depts__bulk-label">Chuyển sang</span>
-                            <div className="depts__transfer-select">
-                              <Select
-                                ariaLabel="Phòng đích"
-                                value={transferTarget}
-                                placeholder="— Chọn phòng đích —"
-                                onChange={(v) => setTransferTarget(v)}
-                                options={[
-                                  { value: null, label: "— Chọn phòng đích —" },
-                                  ...departments
-                                    .filter((d) => d.id !== selectedId)
-                                    .map((d) => ({
-                                      value: d.id,
-                                      label: d.name,
-                                      hint: d.code || undefined,
-                                    })),
-                                ]}
-                              />
-                            </div>
-                            <Button
-                              type="button"
-                              variant="accent"
-                              loading={transferBusy}
-                              disabled={transferTarget == null || !canTransfer}
-                              onClick={() =>
-                                setPendingBulk({
-                                  title: "Xác nhận chuyển phòng ban",
-                                  message:
-                                    `Bạn sắp chuyển ${selectedMemberIds.size} người sang phòng ` +
-                                    `"${departments.find((d) => d.id === transferTarget)?.name ?? ""}". ` +
-                                    "Vai trò hiện tại của họ sẽ bị gỡ. Kiểm tra kỹ trước khi xác nhận.",
-                                  confirmLabel: "Chuyển phòng ban",
-                                  danger: true,
-                                  run: doTransfer,
-                                })
-                              }
-                            >
-                              Chuyển
-                            </Button>
-                          </div>
-                        )}
-                        <button
-                          type="button"
-                          className="btn btn--ghost"
-                          onClick={() => setSelectedMemberIds(new Set())}
-                        >
-                          Bỏ chọn
-                        </button>
-                      </div>
-                    )}
 
                         {(transferError || assignRoleError) && (
                           <span className="depts__inline-error" role="alert">
@@ -2282,6 +2443,8 @@ export function DepartmentsPage({
                             onToggle={toggleEditRole}
                             onScope={scopeEditRole}
                             readOnly={!canManagePerms}
+                            templates={roleTemplates}
+                            onApplyTemplate={apMauSuaVai}
                           />
                         )}
 
@@ -2505,6 +2668,35 @@ export function DepartmentsPage({
                     </span>
                     <span className="rdx-switch-card__desc">
                       Tự động liên kết các đơn vị trực thuộc vào phân hệ Quản lý &amp; Đơn hàng Sản xuất
+                    </span>
+                  </div>
+                </div>
+                <div className="rdx-toggle-switch" aria-hidden="true" />
+              </div>
+            </div>
+
+            {/* Switch Card "Bộ phận Kinh doanh" — cặp đôi với Khối Sản xuất, cùng luật kế thừa
+                cây con. Quyết định ai vào được hộp chọn "NV phụ trách" ở màn Khách hàng. */}
+            <div className="field depts__field--full">
+              <div
+                className={`rdx-switch-card${editLaKinhDoanh ? " is-checked" : ""}`}
+                onClick={() => {
+                  setEditLaKinhDoanh(!editLaKinhDoanh);
+                  setDirty(true);
+                }}
+              >
+                <div className="rdx-switch-card__left">
+                  <div className="rdx-switch-card__icon">
+                    <Handshake size={20} />
+                  </div>
+                  <div className="rdx-switch-card__main">
+                    <span className="rdx-switch-card__title">
+                      Bộ phận thuộc Khối Kinh doanh
+                      <InfoHint label="Đánh dấu phòng/khối thuộc KINH DOANH: cả cây con tự coi là kinh doanh. Người trong khối này là người được giao phụ trách khách hàng. Chưa tick phòng nào thì hệ thống tạm suy theo quyền module Khách hàng." />
+                    </span>
+                    <span className="rdx-switch-card__desc">
+                      Người trong khối được giao phụ trách khách hàng — hiện trong danh sách NV phụ
+                      trách ở màn Khách hàng
                     </span>
                   </div>
                 </div>
@@ -2769,6 +2961,8 @@ export function DepartmentsPage({
             matrix={addRoleMatrix}
             onToggle={toggleAddRole}
             onScope={scopeAddRole}
+            templates={roleTemplates}
+            onApplyTemplate={apMauThemVai}
           />
         ) : (
           <p className="depts__status">

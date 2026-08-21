@@ -2,11 +2,12 @@
 // Trang hồ sơ (tab Thông tin / Quá trình công tác / Đính kèm / Nhật ký) + dialog Đổi
 // trạng thái / Điều chuyển / Nâng bậc (sinh Quá trình công tác) + nối/tạo tài khoản.
 // Backend là cổng quyền thật (403); useCan chỉ ẩn/hiện nút cho gọn UX.
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   api,
   ApiError,
   assetUrl,
+  EMPLOYEE_FIELD_MAXLEN,
   PIT_MODE_META,
   type AuditRow,
   type EmployeeAttachment,
@@ -24,9 +25,14 @@ import {
   type WorkShift,
   type PayrollComponent,
 } from "../api/client";
+import { Button } from "../components/Button";
+import { EmptyRow, EmptyState } from "../components/EmptyState";
+import { RowActionButton } from "../components/RowActionButton";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
-import { money } from "../utils/format";
+// `fmtDate` DÙNG CHUNG (utils/format) — trước đây file này tự chép một bản y hệt.
+// Đừng viết lại bản cục bộ: sửa cách hiện ngày ở một chỗ mà nửa hệ thống không đổi theo.
+import { fmtDate, fmtDateTime, money } from "../utils/format";
 import type { NavigateFn } from "../components/AppShell";
 import { Timeline, type TimelineEntry } from "../components/Timeline";
 import {
@@ -48,17 +54,21 @@ import {
   Mail,
   MapPin,
   Lock,
-  Paperclip,
   Trash2,
   Edit2,
   TrendingUp,
   UserMinus,
   AlertTriangle,
+  ArrowRight,
   Key,
   User,
   Shield,
   Hash,
   X,
+  UploadCloud,
+  File,
+  Image,
+  Eye,
 } from "lucide-react";
 import "./nhan-su.css";
 
@@ -98,13 +108,6 @@ const EVENT_LABEL: Record<string, string> = {
   resigned: "Nghỉ việc",
   reinstated: "Tuyển lại",
 };
-
-function fmtDate(s: string | null | undefined): string {
-  if (!s) return "—";
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return s;
-  return d.toLocaleDateString("vi-VN");
-}
 
 function errMsg(e: unknown): string {
   if (e instanceof ApiError) return e.message;
@@ -299,7 +302,7 @@ function JobGradeField({
           <input
             autoFocus
             value={name}
-            placeholder="Tên bậc, vd: Bậc 4"
+            placeholder="Tên bậc, vd: Thợ vững"
             onChange={(e) => setName(e.target.value)}
             // Ô này nằm TRONG modal: không chặn nổi bọt thì Esc đóng luôn cả wizard, mất sạch
             // những gì đang gõ dở ở các bước trước.
@@ -369,7 +372,10 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
   const can = useCan();
   const canCreate = can("nhan_su", "create");
   const canApprove = can("nhan_su", "approve");
-  const canSalary = can("luong", "update"); // có quyền khai lương → hiện bước "Lương" khi thêm NV
+  const canSalary = can("nhan_su", "edit_salary"); // có quyền khai lương → hiện bước "Lương" khi thêm NV
+  // Ô "Xuất Excel danh sách". Trước 11/08/2026 nút render TRẦN, không hỏi quyền gì — nên ô đó
+  // trong ma trận chưa bao giờ có tác dụng. Máy chủ cũng đã siết sang `nhan_su:export`.
+  const canExport = can("nhan_su", "export");
 
   const [data, setData] = useState<{
     items: EmployeeRow[];
@@ -377,7 +383,12 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
     kpis: EmployeeKpis;
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  /** Lỗi THAO TÁC (vd xuất Excel hỏng) → chỉ hiện băng đỏ, bảng vẫn còn dữ liệu. */
   const [error, setError] = useState<string | null>(null);
+  /** Lỗi TẢI DANH SÁCH → mới được phép thay chỗ của bảng bằng khối "không đọc được".
+   *  ⚠ Đừng gộp hai ô nhớ này làm một: gộp rồi thì một lần xuất Excel hỏng cũng làm cả
+   *  bảng nhân sự biến mất, người dùng tưởng mất dữ liệu. */
+  const [listError, setListError] = useState<string | null>(null);
 
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -421,62 +432,39 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
       })
       .then((res) => {
         setData({ items: res.items, total: res.total, kpis: res.kpis });
-        setError(null);
+        setListError(null);
       })
-      .catch((e) => setError(errMsg(e)))
+      .catch((e) => setListError(errMsg(e)))
       .finally(() => setLoading(false));
   }, [token, q, statusFilter, deptFilter, accountFilter, sort, page]);
 
+  /** Tải file .xlsx do MÁY CHỦ dựng.
+   *
+   *  Trước 08/08/2026 hàm này tự nối chuỗi CSV ngay trên trình duyệt, đặt tên nút là "Xuất Excel"
+   *  nhưng file ra là `.csv`, và tệ nhất: nó chỉ lấy **200 người đầu** rồi im lặng — ai đứng thứ
+   *  201 trở đi biến mất khỏi file mà không có một dòng cảnh báo nào.
+   *
+   *  Bản mới gửi ĐÚNG bộ lọc đang chọn lên máy chủ; máy chủ lấy trọn theo phạm vi quyền của người
+   *  bấm, nên số dòng trong file luôn khớp số "Tổng" trên màn. */
   async function exportExcel() {
     if (!token) return;
     setExporting(true);
     try {
-      const res = await api.employees.list(token, {
+      const url = await api.employees.exportXlsxBlobUrl(token, {
         q: q || undefined,
         status: statusFilter || undefined,
         department_id: deptFilter === "" ? undefined : deptFilter,
         sort,
-        page: 1,
-        size: 200,
       });
-      const rows: string[][] = [
-        [
-          "Mã",
-          "Họ tên",
-          "Phòng/Tổ",
-          "Chức danh",
-          "Bậc tay nghề",
-          "Trạng thái",
-          "Ngày vào",
-          "Tài khoản",
-        ],
-      ];
-      for (const e of res.items)
-        rows.push([
-          e.code,
-          e.full_name,
-          e.department_name ?? "",
-          e.role_name ?? e.position ?? "",
-          e.job_grade_name ?? e.job_grade ?? "",
-          STATUS_LABEL[e.status] ?? e.status,
-          e.hire_date ?? "",
-          e.account_username ?? "",
-        ]);
-      const csv =
-        "﻿" +
-        rows
-          .map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(","))
-          .join("\r\n");
-      const url = URL.createObjectURL(
-        new Blob([csv], { type: "text/csv;charset=utf-8" }),
-      );
       const a = document.createElement("a");
       a.href = url;
-      a.download = "danh-sach-nhan-vien.csv";
+      a.download = "danh-sach-nhan-vien.xlsx";
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+    } catch {
+      setError("Không tải được file danh sách nhân viên.");
     } finally {
       setExporting(false);
     }
@@ -502,31 +490,41 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
     <main className="ns ns2">
       <header className="ns__head">
         <div>
+          {/* Eyebrow = TÊN SECTION trên sidebar, chép nguyên văn, MỘT cấp. Lớp phải là
+              `eyebrow` (global.css) — `ns__eyebrow` không có CSS ở đâu cả, dùng nó là ra
+              chữ thường 15px. */}
+          <p className="eyebrow">Nhân sự &amp; Lương</p>
           <h1 className="ns__title">Hồ sơ nhân sự</h1>
           <p className="ns__sub">
             Phòng Hành chính nhân sự · quản lý hồ sơ, quá trình công tác
           </p>
         </div>
         <div className="ns2__headact">
+          {/* Vai PHỤ → ghost. Cùng hệ `.btn` với nút cam bên cạnh nên hai nút bằng chiều cao;
+              trước đây nút này cao 40px (`ns-btn-secondary`) còn nút kia 40px tự chế — đổi một
+              cái sang `.btn` mà giữ cái kia là lệch hàng ngay. */}
           {canApprove && (
-            <button
+            <Button
               type="button"
-              className={`ns-btn-secondary${reqCount > 0 ? " ns2-reqbtn--on" : ""}`}
+              variant="ghost"
+              className={reqCount > 0 ? "ns2-reqbtn--on" : undefined}
               onClick={() => setReqOpen(true)}
             >
               <Activity size={14} />
               Yêu cầu cập nhật{reqCount > 0 ? ` (${reqCount})` : ""}
-            </button>
+            </Button>
           )}
+          {/* Hành động chính DUY NHẤT của màn → `accent` (cam). ⚠ `variant="primary"` trong code
+              này ra màu NAVY, ngược với tên gọi trong docs/UI_DESIGN.md. */}
           {canCreate && (
-            <button
+            <Button
               type="button"
-              className="ns-btn-primary"
+              variant="accent"
               onClick={() => setWizardOpen(true)}
             >
               <UserPlus size={15} />
               Thêm nhân viên
-            </button>
+            </Button>
           )}
         </div>
       </header>
@@ -565,7 +563,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
               <Search className="ns-search-icon" size={16} />
               <input
                 className="ns__search"
-                placeholder="Tìm tên / mã / CCCD / SĐT…"
+                placeholder="Tìm tên / mã…"
                 value={q}
                 onChange={(e) => {
                   setPage(1);
@@ -668,14 +666,16 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                 </select>
                 <ChevronDown className="ns-select-chevron" size={14} />
               </div>
-              <button
-                className="ns-btn-excel"
-                onClick={exportExcel}
-                disabled={exporting}
-              >
-                <Download size={14} />
-                {exporting ? "Đang xuất…" : "Xuất Excel"}
-              </button>
+              {canExport && (
+                <button
+                  className="ns-btn-excel"
+                  onClick={exportExcel}
+                  disabled={exporting}
+                >
+                  <Download size={14} />
+                  {exporting ? "Đang xuất…" : "Xuất Excel"}
+                </button>
+              )}
               {/* Bỏ chip "Sắp hết thử việc ×": dải lọc phía trên đã sáng đúng ô đó rồi,
                   hai chỗ báo cùng một trạng thái chỉ làm người dùng phải đọc hai lần. */}
             </div>
@@ -702,14 +702,17 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                 </tr>
               </thead>
               <tbody>
-                {loading && (
-                  <tr>
-                    <td colSpan={7} className="ns__empty">
-                      Đang tải danh sách…
-                    </td>
-                  </tr>
+                {loading && <EmptyRow colSpan={7} trangThai="dang-tai" />}
+                {!loading && listError && (
+                  <EmptyRow
+                    colSpan={7}
+                    trangThai="loi"
+                    loi={listError}
+                    onThuLai={load}
+                  />
                 )}
                 {!loading &&
+                  !listError &&
                   rows.map((e) => {
                     const avatarClass = getAvatarClass(e.full_name);
                     const photoSrc = assetUrl(e.photo_url);
@@ -787,42 +790,54 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                       </tr>
                     );
                   })}
-                {!loading && rows.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="ns__empty">
-                      {endingSoon
-                        ? "Không có ai sắp hết thử việc."
-                        : "Chưa có nhân viên nào."}
-                    </td>
-                  </tr>
+                {!loading && !listError && rows.length === 0 && (
+                  <EmptyRow
+                    colSpan={7}
+                    icon="users"
+                    title={
+                      endingSoon
+                        ? "Chưa có ai sắp hết thử việc"
+                        : "Chưa có nhân viên nào khớp"
+                    }
+                    sub={
+                      endingSoon
+                        ? "Danh sách này chỉ hiện người còn dưới ngưỡng ngày tới hạn thử việc."
+                        : "Thử bỏ bớt bộ lọc, hoặc thêm nhân viên mới."
+                    }
+                  />
                 )}
               </tbody>
             </table>
           </div>
 
+          {/* Chân bảng chuẩn: TỔNG bên trái, nút chuyển trang bên phải và CHỈ hiện khi có
+              hơn 1 trang — một cặp ‹ › mờ tịt dưới bảng 3 dòng chỉ làm người dùng đi tìm
+              trang thứ hai không tồn tại. */}
           <div className="ns__pager">
             <span>{data ? `${data.total} nhân viên` : ""}</span>
-            <div className="ns__pagerbtns">
-              <button
-                type="button"
-                className="btn btn--ghost"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                ‹
-              </button>
-              <span>
-                {page} / {totalPages}
-              </span>
-              <button
-                type="button"
-                className="btn btn--ghost"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                ›
-              </button>
-            </div>
+            {totalPages > 1 && (
+              <div className="ns__pagerbtns">
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => p - 1)}
+                >
+                  ‹
+                </button>
+                <span>
+                  {page} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  ›
+                </button>
+              </div>
+            )}
           </div>
         </section>
       </div>
@@ -890,6 +905,27 @@ const REQ_FIELD_LABEL: Record<string, string> = {
   bank_name: "Ngân hàng",
   dependents_count: "Người phụ thuộc",
 };
+const REQ_DATE_FIELDS = new Set(["date_of_birth", "national_id_date"]);
+
+/** Một giá trị trong đề nghị → chuỗi đọc được. `null`/rỗng phải nói RÕ là "chưa có" hay "bỏ
+ *  trống" chứ không in ô trắng: người duyệt đang phải quyết dựa trên đúng mấy chữ này. */
+function reqValue(field: string, v: unknown, khiRong: string): string {
+  if (v === null || v === undefined || v === "") return khiRong;
+  return REQ_DATE_FIELDS.has(field) ? fmtDate(String(v)) : String(v);
+}
+
+/** Ô nào vượt độ dài cột hồ sơ ⇒ bấm Duyệt chắc chắn bị BE chặn. Nói trước cho người duyệt
+ *  (và tắt nút Duyệt) thay vì để họ bấm rồi ăn thông báo lỗi. */
+function reqQuaDai(changes: UpdateRequest["changes"]): string[] {
+  const loi: string[] = [];
+  for (const [k, v] of Object.entries(changes)) {
+    const max = EMPLOYEE_FIELD_MAXLEN[k];
+    if (max && typeof v === "string" && v.length > max) {
+      loi.push(`${REQ_FIELD_LABEL[k] ?? k}: ${v.length} ký tự, vượt giới hạn ${max}`);
+    }
+  }
+  return loi;
+}
 
 function RequestQueueModal({
   token,
@@ -902,11 +938,20 @@ function RequestQueueModal({
 }) {
   const [items, setItems] = useState<UpdateRequest[] | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Lỗi TẢI hàng đợi. Trước đây `.catch` nuốt lỗi rồi `setItems([])` ⇒ máy chủ chết mà bảng
+   *  vẫn in "không có yêu cầu": HCNS tưởng sạch việc và đóng màn. */
+  const [listError, setListError] = useState<string | null>(null);
+  /** Lỗi khi DUYỆT/TỪ CHỐI (khác lỗi tải danh sách) — vd nội dung dài hơn ô hồ sơ. */
+  const [actionError, setActionError] = useState<string | null>(null);
   const load = useCallback(() => {
+    setListError(null);
     api.employees
       .updateRequests(token, "pending")
       .then((r) => setItems(r.items))
-      .catch(() => setItems([]));
+      .catch((e) => {
+        setItems([]);
+        setListError(errMsg(e));
+      });
   }, [token]);
   useEffect(() => {
     load();
@@ -914,76 +959,138 @@ function RequestQueueModal({
 
   async function decide(id: number, approve: boolean) {
     setBusy(true);
+    setActionError(null);
     try {
       if (approve) await api.employees.approveRequest(token, id);
       else await api.employees.rejectRequest(token, id, "Từ chối");
       load();
       onDecided();
+    } catch (e) {
+      // Trước đây lỗi duyệt rơi vào hư không: người duyệt bấm, không thấy gì đổi, tưởng máy
+      // đơ. Hay gặp nhất là ô dài hơn cột (BE trả câu "… tối đa N ký tự").
+      setActionError(errMsg(e));
     } finally {
       setBusy(false);
     }
   }
   return (
-    <div className="ns-modal" role="dialog" aria-modal="true">
+    <div className="ns-modal" role="dialog" aria-modal="true" aria-labelledby="nsq-title">
       <div className="ns-modal__box ns-modal__box--wide">
         <header className="ns-modal__head">
-          <h2>Yêu cầu cập nhật hồ sơ (chờ duyệt)</h2>
-          <button className="ns-modal__x" onClick={onClose}>
+          <h2 id="nsq-title">Yêu cầu cập nhật hồ sơ (chờ duyệt)</h2>
+          <button className="ns-modal__x" onClick={onClose} aria-label="Đóng">
             ×
           </button>
         </header>
         <div className="ns-modal__body">
-          {!items ? (
-            <p className="ns__empty">Đang tải…</p>
-          ) : (
-            <div className="ns__tablewrap">
-              <table className="ns__table">
-                <thead>
-                  <tr>
-                    <th>Nhân viên</th>
-                    <th>Đề nghị đổi</th>
-                    <th>Lý do</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((r) => (
-                    <tr key={r.id}>
-                      <td>{r.employee_name ?? `NV#${r.employee_id}`}</td>
-                      <td>
-                        {Object.entries(r.changes)
-                          .map(([k, v]) => `${REQ_FIELD_LABEL[k] ?? k}: ${v}`)
-                          .join(" · ")}
-                      </td>
-                      <td>{r.reason ?? "—"}</td>
-                      <td className="cc-rowact">
-                        <button
-                          className="btn btn--ghost"
-                          disabled={busy}
+          {actionError && (
+            <div className="banner banner--error" role="alert">
+              {actionError}
+            </div>
+          )}
+          {!items && !listError && <EmptyState trangThai="dang-tai" inline />}
+          {listError && (
+            <EmptyState trangThai="loi" loi={listError} onThuLai={load} inline />
+          )}
+          {!listError && items?.length === 0 && (
+            <EmptyState
+              icon="clipboard"
+              title="Chưa có yêu cầu chờ duyệt"
+              sub="Nhân viên gửi đề nghị sửa hồ sơ thì việc sẽ hiện ở đây."
+              inline
+            />
+          )}
+          {/* MỖI ĐỀ NGHỊ MỘT THẺ, không nhồi vào một ô bảng nữa: chuỗi nối bằng dấu "·" không
+              xuống dòng nên hộ khẩu / nơi cấp CCCD dài là đẩy luôn cột Lý do và hai nút
+              Duyệt–Từ chối ra khỏi màn. Thẻ cũng là chỗ đặt được cột "Hiện tại" — người duyệt
+              phải thấy đang đổi TỪ GÌ sang gì mới quyết được. */}
+          {!listError && !!items?.length && (
+            <ul className="nsq__list">
+              {items.map((r) => {
+                const entries = Object.entries(r.changes);
+                const quaDai = reqQuaDai(r.changes);
+                return (
+                  <li className="nsq__item" key={r.id}>
+                    <div className="nsq__head">
+                      <span className="nsq__who">
+                        <User size={13} />
+                        {r.employee_name ?? `NV#${r.employee_id}`}
+                      </span>
+                      <span className="nsq__sent">
+                        <Clock size={12} />
+                        Gửi {fmtDateTime(r.created_at)}
+                      </span>
+                    </div>
+
+                    <div className="nsq__diff">
+                      <div className="nsq__diff-head">
+                        <span>Mục thông tin</span>
+                        <span>Hiện tại</span>
+                        <span aria-hidden="true" />
+                        <span>Đề nghị mới</span>
+                      </div>
+                      {entries.map(([k, v]) => (
+                        <div className="nsq__diff-row" key={k}>
+                          <span className="nsq__diff-name">
+                            {REQ_FIELD_LABEL[k] ?? k}
+                          </span>
+                          <span className="nsq__chip nsq__chip--old">
+                            {reqValue(k, r.current?.[k], "(chưa có)")}
+                          </span>
+                          <ArrowRight
+                            size={13}
+                            className="nsq__arrow"
+                            aria-hidden="true"
+                          />
+                          <span className="nsq__chip nsq__chip--new">
+                            {reqValue(k, v, "(bỏ trống)")}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {r.reason && (
+                      <p className="nsq__reason">
+                        <span className="nsq__reason-label">Lý do đề nghị:</span>{" "}
+                        {r.reason}
+                      </p>
+                    )}
+
+                    {quaDai.length > 0 && (
+                      <p className="nsq__warn" role="alert">
+                        <AlertTriangle size={13} />
+                        <span>
+                          Nội dung dài hơn ô hồ sơ cho phép ({quaDai.join(" · ")}) — duyệt
+                          sẽ bị chặn. Đề nghị nhân viên gửi lại bản ngắn gọn.
+                        </span>
+                      </p>
+                    )}
+
+                    <div className="nsq__foot">
+                      <div className="cc-rowact ns-rowact">
+                        <RowActionButton
+                          dense
+                          label="Duyệt"
+                          icon="check"
+                          disabled={busy || quaDai.length > 0}
                           onClick={() => decide(r.id, true)}
-                        >
-                          Duyệt
-                        </button>
-                        <button
-                          className="btn btn--ghost ns-danger"
+                        />
+                        {/* GIỮ tín hiệu nguy hiểm: từ chối là quyết định NV nhận được ngay,
+                            mất màu đỏ là bấm nhầm ô bên cạnh. */}
+                        <RowActionButton
+                          dense
+                          danger
+                          label="Từ chối"
+                          icon="ban"
                           disabled={busy}
                           onClick={() => decide(r.id, false)}
-                        >
-                          Từ chối
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {items.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="ns__empty">
-                        Không có yêu cầu chờ duyệt.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                        />
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
         <footer className="ns-modal__foot">
@@ -1082,14 +1189,12 @@ function KpiStrip({
       {/* Tách sang phải: đây là ô DUY NHẤT đòi người làm gì đó, không xếp lẫn 3 ô đếm kia. */}
       <button
         type="button"
-        className={`ns__kpi ns__kpi--action${isEndingSoonActive ? " is-active" : ""}${
-          endingSoonCount === 0 ? " is-quiet" : ""
-        }`}
+        className={`ns__kpi ${isEndingSoonActive ? " is-active" : ""}`}
         onClick={onPickEndingSoon}
         aria-pressed={isEndingSoonActive}
         title={
           endingSoonCount === 0
-            ? "Không có ai sắp hết thử việc trong 30 ngày tới"
+            ? "Chưa có ai sắp hết thử việc trong 30 ngày tới"
             : `${endingSoonCount} người hết thử việc trong 30 ngày tới — cần quyết định ký chính thức`
         }
       >
@@ -1146,7 +1251,8 @@ export function EmployeeWizard({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Lương cơ bản = mức đóng BH; các khoản phụ cấp là số cố định khai riêng từng nhân viên.
+  // ⚠️ Mức đóng BH = lương cơ bản + lương trách nhiệm (chủ chốt 12/08/2026, đảo chốt cũ
+  // 20/07 "chỉ lương cơ bản"). Các khoản phụ cấp là số cố định khai riêng từng nhân viên.
   const [luongViTri, setLuongViTri] = useState(0);
   const [luongTrachNhiem, setLuongTrachNhiem] = useState(0);
   // "Lương trả 1 lần" (đợt 1): mức trả trong MỘT lần — số điền sẵn khi lập phiếu đợt 1 ở màn Lương.
@@ -1197,7 +1303,7 @@ export function EmployeeWizard({
     }
     if (canSalary && luongViTri <= 0) {
       setStep(2);
-      setError("Lương cơ bản (đóng BH) của nhân viên phải lớn hơn 0.");
+      setError("Lương cơ bản của nhân viên phải lớn hơn 0.");
       return;
     }
     setBusy(true);
@@ -1465,7 +1571,7 @@ export function EmployeeWizard({
                       là số cố định, cộng phẳng mỗi tháng.
                     </span>
                   </div>
-                  <Field label="Lương cơ bản (đóng BH) *">
+                  <Field label="Lương cơ bản *">
                     <input
                       type="number"
                       min={0}
@@ -1744,27 +1850,42 @@ export function EmployeeWizard({
                   setFiles((fs) => [...fs, { file, doc_kind: kind }])
                 }
               />
-              <ul className="ns-filelist">
-                {files.map((f, i) => (
-                  <li key={i}>
-                    <span>
-                      {DOC_KIND_LABEL[f.doc_kind]} · {f.file.name}
-                    </span>
-                    <button
-                      className="btn btn--ghost"
-                      onClick={() =>
-                        setFiles((fs) => fs.filter((_, j) => j !== i))
-                      }
-                    >
-                      Bỏ
-                    </button>
-                  </li>
-                ))}
-                {files.length === 0 && (
-                  <li className="ns__empty">
-                    Chưa chọn tệp nào (không bắt buộc).
-                  </li>
-                )}
+              <ul className="ns-filelist-v2">
+                {files.map((f, i) => {
+                  const typeInfo = getFileTypeInfo(f.file.name);
+                  const IconComponent = typeInfo.icon;
+                  return (
+                    <li key={i} className="ns-fileitem">
+                      <div className={`ns-fileitem__icon ${typeInfo.className}`}>
+                        <IconComponent size={18} />
+                      </div>
+                      <div className="ns-fileitem__main">
+                        <div className="ns-fileitem__name-group">
+                          <span className="ns-fileitem__name" title={f.file.name}>
+                            {f.file.name}
+                          </span>
+                          <div className="ns-fileitem__sub">
+                            {formatFileSize(f.file.size)}
+                          </div>
+                        </div>
+                        <span className="ns-fileitem__badge">
+                          {DOC_KIND_LABEL[f.doc_kind] ?? f.doc_kind}
+                        </span>
+                      </div>
+                      <div className="ns-fileitem__actions">
+                        <button
+                          type="button"
+                          className="btn btn--ghost ns-danger btn--sm"
+                          style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                          title="Xóa tệp"
+                          onClick={() => setFiles((fs) => fs.filter((_, j) => j !== i))}
+                        >
+                          <Trash2 size={13} /> Bỏ
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
@@ -1867,22 +1988,17 @@ export function EmployeeWizard({
                 ‹ Trước
               </button>
             )}
+            {/* Nút ĐI TỚI của wizard = hành động chính của hộp thoại → cam (`accent`).
+                "Tiếp" và "Lưu" không bao giờ hiện cùng lúc nên vẫn đúng luật MỘT nút cam. */}
             {step < STEPS.length - 1 && (
-              <button
-                className="btn btn--primary"
-                onClick={() => setStep((s) => s + 1)}
-              >
+              <Button variant="accent" onClick={() => setStep((s) => s + 1)}>
                 Tiếp ›
-              </button>
+              </Button>
             )}
             {step === STEPS.length - 1 && (
-              <button
-                className="btn btn--primary"
-                onClick={submit}
-                disabled={busy}
-              >
+              <Button variant="accent" onClick={submit} loading={busy}>
                 {busy ? "Đang lưu…" : "Lưu & xem hồ sơ"}
-              </button>
+              </Button>
             )}
           </div>
         </footer>
@@ -1891,25 +2007,167 @@ export function EmployeeWizard({
   );
 }
 
-function FilePicker({ onAdd }: { onAdd: (file: File, kind: string) => void }) {
-  const [kind, setKind] = useState("hop_dong");
+function getFileTypeInfo(fileName: string) {
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  if (ext === "pdf") {
+    return { icon: FileText, className: "ns-fileitem__icon--pdf" };
+  }
+  if (["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(ext || "")) {
+    return { icon: Image, className: "ns-fileitem__icon--img" };
+  }
+  return { icon: File, className: "ns-fileitem__icon--doc" };
+}
+
+function formatFileSize(bytes?: number): string | null {
+  if (!bytes) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function FilePicker({
+  onAdd,
+  disabled = false,
+  compact = false,
+  defaultKind = "hop_dong",
+}: {
+  onAdd: (file: File, kind: string) => void;
+  disabled?: boolean;
+  compact?: boolean;
+  defaultKind?: string;
+}) {
+  const [kind, setKind] = useState(defaultKind || "hop_dong");
+  const [isDragging, setIsDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (defaultKind && defaultKind !== "all") {
+      setKind(defaultKind);
+    }
+  }, [defaultKind]);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!disabled && !isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (disabled) return;
+    const f = e.dataTransfer.files?.[0];
+    if (f) onAdd(f, kind);
+  };
+
+  if (compact) {
+    return (
+      <div
+        className={`ns-upload-bar ${isDragging ? "ns-upload-bar--dragging" : ""}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          style={{ display: "none" }}
+          disabled={disabled}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onAdd(f, kind);
+            e.target.value = "";
+          }}
+        />
+        <div className="ns-upload-bar__left">
+          <Button
+            variant="accent"
+            className="btn--sm"
+            disabled={disabled}
+            onClick={() => inputRef.current?.click()}
+          >
+            <UploadCloud size={15} style={{ marginRight: 4 }} />
+            Tải tệp đính kèm
+          </Button>
+          <select
+            className="ns-dropzone__select"
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+            disabled={disabled}
+          >
+            {Object.entries(DOC_KIND_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+          <span className="ns-upload-bar__drop-text">
+            hoặc kéo & thả tệp trực tiếp vào đây
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="ns-filepick">
-      <select value={kind} onChange={(e) => setKind(e.target.value)}>
-        {Object.entries(DOC_KIND_LABEL).map(([k, v]) => (
-          <option key={k} value={k}>
-            {v}
-          </option>
-        ))}
-      </select>
+    <div
+      className={`ns-dropzone--empty ${isDragging ? "ns-dropzone--dragging" : ""}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <input
+        ref={inputRef}
         type="file"
+        style={{ display: "none" }}
+        disabled={disabled}
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) onAdd(f, kind);
           e.target.value = "";
         }}
       />
+      <div
+        className="ns-dropzone__body"
+        onClick={() => !disabled && inputRef.current?.click()}
+      >
+        <div className="ns-dropzone__icon-wrap">
+          <UploadCloud size={20} />
+        </div>
+        <p className="ns-dropzone__prompt">
+          Kéo & thả tệp vào đây hoặc{" "}
+          <button type="button" className="ns-dropzone__btn" disabled={disabled}>
+            chọn tệp từ máy tính
+          </button>
+        </p>
+        <p className="ns-dropzone__hint">
+          Hợp đồng, CCCD, bằng cấp (PDF, Word, Ảnh)... tải lên để lưu hồ sơ
+        </p>
+        <div
+          style={{ marginTop: 6 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <select
+            className="ns-dropzone__select"
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+            disabled={disabled}
+          >
+            {Object.entries(DOC_KIND_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1985,7 +2243,11 @@ function EmployeeDetailPanel({
 }) {
   const can = useCan();
   const canUpdate = can("nhan_su", "update");
-  const canViewSalary = can("nhan_su", "view_salary");
+  const canEditSalaryFields = can("nhan_su", "edit_salary");
+  const canViewSalary =
+    can("nhan_su", "view_salary") || canEditSalaryFields;
+  const canManageStatus = can("nhan_su", "manage_status");
+  const canTransfer = can("nhan_su", "transfer");
   const canViewAccount = can("nguoi_dung", "read");
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [tab, setTab] = useState<Tab>("info");
@@ -2010,8 +2272,16 @@ function EmployeeDetailPanel({
   }, [reload]);
 
   if (!emp) {
+    // Tách "đang tải" khỏi "gọi hỏng": trước đây cả hai in cùng một dòng chữ xám nên mất
+    // mạng cũng trông y như đang chờ — người dùng ngồi đợi mãi một khay không bao giờ mở.
     return (
-      <div className="ns2-detail__loading">{error ?? "Đang tải hồ sơ…"}</div>
+      <div className="ns2-detail__loading">
+        {error ? (
+          <EmptyState trangThai="loi" loi={error} onThuLai={reload} />
+        ) : (
+          <EmptyState trangThai="dang-tai" />
+        )}
+      </div>
     );
   }
 
@@ -2053,7 +2323,7 @@ function EmployeeDetailPanel({
           </h2>
           <p className="ns-detail__meta">
             <Briefcase size={13} />
-            {/* Tên bậc đã tự mang chữ "Bậc" (Bậc 1…Bậc 5) → thêm tiền tố nữa ra "Bậc Bậc 1". */}
+            {/* job_grade_name là nhãn danh mục (Thợ lành nghề…Lính mới) — hiện nguyên văn, không ghép tiền tố. */}
             {emp.code} · {emp.department_name ?? "—"} · {emp.position ?? "—"}
             {(emp.job_grade_name ?? emp.job_grade)
               ? ` · ${emp.job_grade_name ?? emp.job_grade}`
@@ -2069,7 +2339,7 @@ function EmployeeDetailPanel({
         </div>
       </header>
 
-      {(navigate || canUpdate) && (
+      {(navigate || canUpdate || canManageStatus || canTransfer) && (
         <div className="ns-detail__actions">
           <div className="ns-detail__shortcuts">
             {navigate && (
@@ -2116,7 +2386,11 @@ function EmployeeDetailPanel({
                 {editInfo ? "Hủy sửa" : "Sửa thông tin"}
               </button>
             )}
-            {canUpdate && tab === "salary" && canViewSalary && !resigned && (
+            {canUpdate &&
+              canEditSalaryFields &&
+              tab === "salary" &&
+              canViewSalary &&
+              !resigned && (
               <button
                 type="button"
                 className="btn btn--ghost btn--sm"
@@ -2126,7 +2400,7 @@ function EmployeeDetailPanel({
                 {editSalary ? "Hủy sửa" : "Sửa lương & BHXH"}
               </button>
             )}
-            {canUpdate && (
+            {(canManageStatus || canTransfer) && (
               <div className="ns-dropdown">
                 <button
                   type="button"
@@ -2138,7 +2412,7 @@ function EmployeeDetailPanel({
                 </button>
                 {dropdownOpen && (
                   <div className="ns-dropdown-menu">
-                    {emp.status === "probation" && (
+                    {canManageStatus && emp.status === "probation" && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -2150,7 +2424,7 @@ function EmployeeDetailPanel({
                         <UserCheck size={14} /> Chuyển chính thức
                       </button>
                     )}
-                    {emp.status === "active" && (
+                    {canManageStatus && emp.status === "active" && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -2162,7 +2436,7 @@ function EmployeeDetailPanel({
                         <UserMinus size={14} /> Cho nghỉ dài hạn
                       </button>
                     )}
-                    {emp.status === "on_leave" && (
+                    {canManageStatus && emp.status === "on_leave" && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -2174,7 +2448,7 @@ function EmployeeDetailPanel({
                         <UserCheck size={14} /> Đi làm lại
                       </button>
                     )}
-                    {!resigned && (
+                    {canTransfer && !resigned && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -2186,7 +2460,7 @@ function EmployeeDetailPanel({
                         <TrendingUp size={14} /> Điều chuyển tổ
                       </button>
                     )}
-                    {!resigned && (
+                    {canTransfer && !resigned && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -2198,7 +2472,7 @@ function EmployeeDetailPanel({
                         <TrendingUp size={14} /> Nâng bậc / Chức danh
                       </button>
                     )}
-                    {!resigned && (
+                    {canManageStatus && !resigned && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -2210,7 +2484,7 @@ function EmployeeDetailPanel({
                         <AlertTriangle size={14} /> Đình chỉ công tác
                       </button>
                     )}
-                    {!resigned && (
+                    {canManageStatus && !resigned && (
                       <button
                         type="button"
                         className="ns-dropdown-item ns-danger"
@@ -2222,7 +2496,7 @@ function EmployeeDetailPanel({
                         <UserMinus size={14} /> Thôi việc / Nghỉ việc
                       </button>
                     )}
-                    {resigned && (
+                    {canManageStatus && resigned && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -2468,9 +2742,11 @@ function InfoTab({
           >
             Hủy
           </button>
-          <button className="btn btn--primary" onClick={save} disabled={busy}>
+          {/* Hành động chính của form đang mở → cam. Mỗi tab chỉ có ĐÚNG một nút Lưu nên
+              khay hồ sơ không bao giờ hiện hai nút cam cùng lúc. */}
+          <Button variant="accent" onClick={save} loading={busy}>
             {busy ? "Đang lưu…" : "Lưu"}
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -2676,9 +2952,11 @@ function SalaryTab({
           >
             Hủy
           </button>
-          <button className="btn btn--primary" onClick={save} disabled={busy}>
+          {/* Hành động chính của form đang mở → cam. Mỗi tab chỉ có ĐÚNG một nút Lưu nên
+              khay hồ sơ không bao giờ hiện hai nút cam cùng lúc. */}
+          <Button variant="accent" onClick={save} loading={busy}>
             {busy ? "Đang lưu…" : "Lưu"}
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -2946,9 +3224,9 @@ function AccountTab({
             >
               Tạo mật khẩu khác
             </button>
-            <button
+            <Button
               type="button"
-              className="btn btn--primary"
+              variant="accent"
               disabled={busy || !username.trim() || password.length < 6}
               onClick={() =>
                 run(async () => {
@@ -2962,7 +3240,7 @@ function AccountTab({
               }
             >
               {busy ? "Đang tạo…" : "Cấp tài khoản"}
-            </button>
+            </Button>
           </div>
         )}
         {tempPw && (
@@ -3181,13 +3459,23 @@ function EventsTab({
   meta: EmployeeMeta | null;
 }) {
   const [events, setEvents] = useState<EmployeeEvent[] | null>(null);
-  useEffect(() => {
+  const [loi, setLoi] = useState<string | null>(null);
+  const load = useCallback(() => {
+    setLoi(null);
     api.employees
       .events(token, employeeId)
       .then((r) => setEvents(r.items))
-      .catch(() => setEvents([]));
+      .catch((e) => {
+        setEvents([]);
+        setLoi(errMsg(e));
+      });
   }, [token, employeeId]);
-  if (!events) return <p className="ns__empty">Đang tải…</p>;
+  useEffect(() => {
+    load();
+  }, [load]);
+  if (loi)
+    return <EmptyState trangThai="loi" loi={loi} onThuLai={load} />;
+  if (!events) return <EmptyState trangThai="dang-tai" />;
 
   // Dịch giá trị thô (mã trạng thái / id phòng / bậc) sang chữ dễ hiểu cho nhân viên.
   const humanize = (field: string | null, v: string | null): string | null => {
@@ -3197,7 +3485,7 @@ function EventsTab({
       const d = meta?.departments.find((x) => String(x.id) === v);
       return d ? d.name : `phòng #${v}`;
     }
-    return v; // bậc tay nghề ("Bậc 2"), chức danh…
+    return v; // bậc tay nghề ("Thợ vững"), chức danh…
   };
 
   const items: TimelineEntry[] = events.map((ev) => {
@@ -3249,20 +3537,48 @@ function FilesTab({
 }) {
   const [items, setItems] = useState<EmployeeAttachment[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loi, setLoi] = useState<string | null>(null);
+  const [activeKind, setActiveKind] = useState<string>("all");
+
   const load = useCallback(() => {
+    setLoi(null);
     api.employees
       .attachments(token, employeeId)
       .then((r) => setItems(r.items))
-      .catch(() => setItems([]));
+      .catch((e) => {
+        setItems([]);
+        setLoi(errMsg(e));
+      });
   }, [token, employeeId]);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  const counts = useMemo(() => {
+    if (!items) return {};
+    const res: Record<string, number> = { all: items.length };
+    for (const item of items) {
+      res[item.doc_kind] = (res[item.doc_kind] || 0) + 1;
+    }
+    return res;
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    if (!items) return [];
+    if (activeKind === "all") return items;
+    return items.filter((a) => a.doc_kind === activeKind);
+  }, [items, activeKind]);
+
+  const hasFiles = !!(items && items.length > 0);
 
   return (
     <div>
       {canUpdate && (
         <FilePicker
+          disabled={busy}
+          compact={hasFiles}
+          defaultKind={activeKind !== "all" ? activeKind : "hop_dong"}
           onAdd={async (file, kind) => {
             setBusy(true);
             try {
@@ -3274,46 +3590,114 @@ function FilesTab({
           }}
         />
       )}
-      {busy && <p className="ns__empty">Đang tải lên…</p>}
-      <ul className="ns-filelist">
-        {items?.map((a) => (
-          <li key={a.id}>
-            <a
-              href={assetUrl(a.file_url) ?? "#"}
-              target="_blank"
-              rel="noreferrer"
+
+      {busy && <p className="ns__empty">Đang tải tệp lên…</p>}
+      {loi && <EmptyState trangThai="loi" loi={loi} onThuLai={load} />}
+      {!loi && items === null && <EmptyState trangThai="dang-tai" />}
+
+      {!loi && items !== null && (
+        <>
+          {/* Category Filter Chips Bar */}
+          <div className="ns-file-filters">
+            <button
+              type="button"
+              className={`ns-file-filter-chip ${activeKind === "all" ? "ns-file-filter-chip--active" : ""}`}
+              onClick={() => setActiveKind("all")}
             >
-              <Paperclip size={14} />
-              <span>
-                {DOC_KIND_LABEL[a.doc_kind] ?? a.doc_kind} · {a.file_name}
+              Tất cả
+              <span className="ns-file-filter-chip__count">
+                {counts["all"] || 0}
               </span>
-            </a>
-            <span className="ns-file__date">{fmtDate(a.uploaded_at)}</span>
-            {canUpdate && (
+            </button>
+            {Object.entries(DOC_KIND_LABEL).map(([k, label]) => (
               <button
+                key={k}
                 type="button"
-                className="btn btn--ghost ns-danger"
-                style={{
-                  padding: "4px 8px",
-                  display: "inline-flex",
-                  alignItems: "center",
-                }}
-                onClick={async () => {
-                  await api.employees.deleteAttachment(token, employeeId, a.id);
-                  load();
-                }}
+                className={`ns-file-filter-chip ${activeKind === k ? "ns-file-filter-chip--active" : ""}`}
+                onClick={() => setActiveKind(k)}
               >
-                <Trash2 size={13} />
+                {label}
+                <span className="ns-file-filter-chip__count">
+                  {counts[k] || 0}
+                </span>
               </button>
-            )}
-          </li>
-        ))}
-        {items?.length === 0 && (
-          <li className="ns__empty" style={{ gridColumn: "span 2" }}>
-            Chưa có tệp nào.
-          </li>
-        )}
-      </ul>
+            ))}
+          </div>
+
+          {/* Full-width List Rows */}
+          {filteredItems.length === 0 ? (
+            <p className="ns__empty" style={{ padding: "20px 0" }}>
+              {activeKind === "all"
+                ? "Chưa có tệp đính kèm nào."
+                : `Chưa có tệp nào thuộc danh mục "${DOC_KIND_LABEL[activeKind]}".`}
+            </p>
+          ) : (
+            <ul className="ns-filelist-v2">
+              {filteredItems.map((a) => {
+                const typeInfo = getFileTypeInfo(a.file_name);
+                const IconComponent = typeInfo.icon;
+                return (
+                  <li key={a.id} className="ns-fileitem">
+                    <div className={`ns-fileitem__icon ${typeInfo.className}`}>
+                      <IconComponent size={18} />
+                    </div>
+                    <div className="ns-fileitem__main">
+                      <div className="ns-fileitem__name-group">
+                        <span className="ns-fileitem__name" title={a.file_name}>
+                          {a.file_name}
+                        </span>
+                        <div className="ns-fileitem__sub">
+                          <span>{fmtDate(a.uploaded_at)}</span>
+                        </div>
+                      </div>
+                      <span className="ns-fileitem__badge">
+                        {DOC_KIND_LABEL[a.doc_kind] ?? a.doc_kind}
+                      </span>
+                    </div>
+                    <div className="ns-fileitem__actions">
+                      <a
+                        href={assetUrl(a.file_url) ?? "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn btn--secondary btn--sm"
+                        style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                        title="Xem / Tải tệp"
+                      >
+                        <Eye size={13} /> Xem / Tải
+                      </a>
+                      {canUpdate && (
+                        <button
+                          type="button"
+                          className="btn btn--ghost ns-danger btn--sm"
+                          style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                          title="Xóa tệp"
+                          aria-label={`Xóa tệp ${a.file_name}`}
+                          onClick={async () => {
+                            if (
+                              window.confirm(
+                                `Bạn có chắc chắn muốn xóa tệp "${a.file_name}"?`,
+                              )
+                            ) {
+                              await api.employees.deleteAttachment(
+                                token,
+                                employeeId,
+                                a.id,
+                              );
+                              load();
+                            }
+                          }}
+                        >
+                          <Trash2 size={13} /> Xóa
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -3334,16 +3718,25 @@ function ActivityTab({
       }[]
     | null
   >(null);
-  useEffect(() => {
+  const [loi, setLoi] = useState<string | null>(null);
+  const load = useCallback(() => {
+    setLoi(null);
     api.employees
       .activity(token, employeeId)
       .then((r) => setItems(r.items))
-      .catch(() => setItems([]));
+      .catch((e) => {
+        setItems([]);
+        setLoi(errMsg(e));
+      });
   }, [token, employeeId]);
-  if (!items) return <p className="ns__empty">Đang tải…</p>;
+  useEffect(() => {
+    load();
+  }, [load]);
+  if (loi) return <EmptyState trangThai="loi" loi={loi} onThuLai={load} />;
+  if (!items) return <EmptyState trangThai="dang-tai" />;
   const tl: TimelineEntry[] = items.map((a) => ({
     title: a.detail || a.action,
-    meta: `${new Date(a.created_at).toLocaleString("vi-VN")}${a.actor_name ? ` · ${a.actor_name}` : ""}`,
+    meta: `${fmtDateTime(a.created_at)}${a.actor_name ? ` · ${a.actor_name}` : ""}`,
   }));
   return <Timeline items={tl} emptyText="Chưa có hoạt động." />;
 }
@@ -3552,9 +3945,9 @@ function ActionDialog({
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>
             Hủy
           </button>
-          <button className="btn btn--primary" onClick={submit} disabled={busy}>
+          <Button variant="accent" onClick={submit} loading={busy}>
             {busy ? "Đang xử lý…" : "Xác nhận"}
-          </button>
+          </Button>
         </footer>
       </div>
     </div>

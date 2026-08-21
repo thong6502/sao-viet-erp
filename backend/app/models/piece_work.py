@@ -12,34 +12,18 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Integer, Numeric, String
+from sqlalchemy import Boolean, DateTime, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
 
 # --- Đơn vị tính đơn giá khoán ----------------------------------------------
 #
-# ⚠️ ĐÂY CHỈ LÀ GỢI Ý MỒI, KHÔNG PHẢI WHITELIST (chủ 29/07/2026: *"chỉ select được mấy cái thôi,
-# nhiều cái khác thì sao, bất tiện lắm"*). Nhà máy in còn hàng chục đơn vị khác (mét tới, ram,
-# thùng carton…) — người dùng gõ thẳng, đơn vị nào đã dùng sẽ tự vào danh sách gợi ý lần sau
-# (`PieceWorkRepository.distinct_units`).
+# Đơn vị CHỌN TỪ DANH MỤC `Đơn vị & quy đổi` (chủ 31/07/2026 — xem
+# `GET /api/payroll/khoan/units`). Trước đó là ô gõ tự do có gợi ý mồi; gõ tự do thì đơn vị lệch
+# một chữ so với danh mục là lệnh sản xuất vĩnh viễn không quy đổi ra tiền được. Thiếu đơn vị ⇒
+# thêm ở danh mục, KHÔNG sửa code.
 #
-# Lưu CHỮ HIỂN THỊ, không phải mã. Bản cũ lưu mã (`m2`) rồi dịch sang nhãn (`m²`) lúc hiện —
-# cho gõ tự do mà giữ cách đó thì bấm gợi ý "m²" lưu ra chuỗi khác với mã "m2" của dòng cũ:
-# hai dòng cùng nghĩa, khác giá trị. Migration 0125 đã đổi 8 mã cũ sang nhãn.
-DEFAULT_PIECE_UNITS = (
-    "m²",        # bồi, cán/phủ
-    "bài in",    # máy in, theo số màu
-    "tấn",       # cắt giấy cuộn
-    "cuốn",      # cắt/bắt thành phẩm
-    "lượt",      # cắt demi
-    "hộp",       # gỡ hàng
-    "tờ",
-    "kg",
-    "bộ",
-    "chiếc",
-    "khác",
-)
 UNIT_KHAC = "khác"   # giá trị mặc định khi bỏ trống
 
 _MONEY = Numeric(14, 2)
@@ -50,7 +34,14 @@ def _utcnow() -> datetime:
 
 
 class PieceRate(Base):
-    """Đơn giá khoán: 1 công việc của 1 tổ với đơn vị + đơn giá."""
+    """Đơn giá khoán: 1 công việc của 1 tổ với đơn vị + đơn giá.
+
+    Từ 17/08/2026 đây là DANH MỤC "Công việc khoán" trong Cấu hình danh mục (`loai =
+    "cong_viec_khoan"`, quyền `dm_cong_viec_khoan`) — cùng nền với 10 màn kia, nên có mã tự sinh,
+    nhật ký từng dòng và luật xoá chung. Nó vẫn là bảng giá mà Lương khoán tra, chỉ khác chỗ KHAI:
+    trước nằm trong một tab của màn Lương, nay đứng cùng chỗ với Công đoạn · Đơn vị · Bù hao, vì
+    bên dùng nó nhiều nhất là SẢN XUẤT (bước lệnh chọn đầu việc khoán), không phải kế toán lương.
+    """
 
     __tablename__ = "piece_rates"
 
@@ -60,8 +51,13 @@ class PieceRate(Base):
     # Tổ (departments.id) sở hữu đơn giá — khai đơn giá NGAY trong Cấu hình lương của tổ.
     # Nullable: đơn giá cũ/chưa gắn tổ vẫn hợp lệ; group_name giữ làm nhãn hiển thị.
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
-    code: Mapped[str | None] = mapped_column(String(20), nullable=True)  # mã (A–F cho máy in)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)       # tên công việc
+    # ⚠️ `ma` · `ten` · `active` — ĐỔI TÊN từ `code` · `name` · `is_active` ngày 17/08/2026 (mg
+    # `0210`) để bảng vào được nền danh mục dùng chung (`CatalogRepo` · `CatalogService` ·
+    # `make_catalog_router` đều đọc đúng ba tên này). Đây là ĐỔI TÊN CỘT THẬT, không phải bí danh:
+    # bốn màn danh mục khác đã đặt cùng ba tên đó, giữ hai bộ tên cho cùng một ý là nguồn gốc của
+    # những lỗi "sửa một bên, bên kia im lặng chạy tên cũ".
+    ma: Mapped[str | None] = mapped_column(String(20), nullable=True)  # mã (KH-####; A–F đời cũ)
+    ten: Mapped[str] = mapped_column(String(255), nullable=False)      # tên công việc khoán
     # ⚠️ CỘT CHẾT — trước đây tra đơn giá theo (tổ + công đoạn). Bảng này giờ là KHAI BÁO thuần:
     # đơn giá chỉ treo vào TỔ, việc nào của tổ dùng đơn giá nào là do bên sản xuất chọn ở bước
     # lệnh. Giữ cột để không mất dữ liệu cũ; KHÔNG đọc ở bất kỳ đâu nữa.
@@ -70,8 +66,21 @@ class PieceRate(Base):
     # "thùng carton" là hỏng. Đổi kiểu cột ⇒ migration 0125.
     unit: Mapped[str] = mapped_column(String(24), nullable=False, default=UNIT_KHAC, server_default=UNIT_KHAC)
     unit_price: Mapped[float] = mapped_column(_MONEY, nullable=False)
+    # CÔNG THỨC LƯỢNG của ĐẦU VIỆC NÀY (mg `0213`) — "việc này khoán theo lượng nào", tính ra số
+    # đơn vị của `unit` rồi mới nhân `unit_price`.
+    #
+    # Vì sao gắn vào ĐẦU VIỆC chứ không vào đơn vị: "Bắt tay + vào keo" khoán đ/`cuốn` mà bước đếm
+    # bằng `tay` — cầu `tay → cuốn` không có trong bảng cặp nên đầu việc này CHƯA BAO GIỜ ra tiền.
+    # Khai `sl_ra` ở đây là xong, mà không kéo theo mọi việc khác cũng đo bằng `cuốn`.
+    #
+    # ⚠️ GHÌM vào bước lệnh: `khoan_snapshot()` chép chuỗi này vào `khoan_json` cạnh `don_gia`/
+    # `don_vi`. Lệnh đã phát đọc ảnh chụp — xưởng sửa cách đo về sau KHÔNG được xê dịch tiền công
+    # của lệnh đang chạy. Muốn bước cũ ăn công thức mới thì chọn lại đầu việc.
+    cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    # Còn dùng hay đã ngừng. Xoá một đơn giá đang được định mức đầu việc trỏ tới là làm mồ côi dữ
+    # liệu, nên luồng xoá chung chỉ tắt cờ này khi còn nơi dùng (xem `danh_muc_tham_chieu`).
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 

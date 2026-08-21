@@ -36,6 +36,14 @@ def _dept_id(name: str) -> int:
         db.close()
 
 
+def _role_id(name: str, department_id: int) -> int:
+    db = SessionLocal()
+    try:
+        return RoleRepository(db).get_by_name_and_department(name, department_id).id
+    finally:
+        db.close()
+
+
 def _sales_token() -> str:
     db = SessionLocal()
     try:
@@ -348,16 +356,154 @@ def test_quota_prorated_for_mid_year_hire(client):
     token = _admin_token(client)
     tid = _make_type(client, token, name="Phép năm", is_paid=True)  # quota 12
     y = date.today().year
+    # Admin đã có hồ sơ do backfill và quan hệ tài khoản↔nhân viên là 1–1, nên không gán thêm hồ
+    # sơ cho admin được. Tạo hẳn nhân viên riêng kèm tài khoản rồi đăng nhập bằng chính họ.
+    dept_id = _dept_id("Hành chính nhân sự")
+    role_id = _role_id("Nhân viên", dept_id)
     emp = client.post("/api/employees",
-        json={"full_name": "NV Mới", "department_id": _dept_id("Hành chính nhân sự"),
-              "hire_date": f"{y}-07-01"}, headers=_h(token)).json()["employee"]
-    client.post(f"/api/employees/{emp['id']}/account", json={"user_id": _uid("admin")}, headers=_h(token))
+        json={
+            "full_name": "NV Mới",
+            "department_id": dept_id,
+            "hire_date": f"{y}-07-01",
+            "account": {
+                "username": "nv-moi-phep",
+                "password": "secret1",
+                "role_id": role_id,
+            },
+        },
+        headers=_h(token),
+    ).json()["employee"]
+    employee_token = client.post(
+        "/api/auth/login",
+        json={"username": "nv-moi-phep", "password": "secret1"},
+    ).json()["access_token"]
 
-    me = client.get("/api/leaves/me", headers=_h(token)).json()
+    me = client.get("/api/leaves/me", headers=_h(employee_token)).json()
     q = next(q for q in me["quotas"] if q["name"] == "Phép năm")
     assert q["annual_quota"] == 6 and q["remaining"] == 6  # 12 × 6 tháng (7..12) / 12
 
     # Đơn dài (>6 ngày làm việc) → chặn vì vượt hạn mức đã prorate.
     r = client.post("/api/leaves", json={"leave_type_id": tid,
-        "start_date": f"{y}-11-02", "end_date": f"{y}-11-16"}, headers=_h(token))
+        "start_date": f"{y}-11-02", "end_date": f"{y}-11-16"}, headers=_h(employee_token))
     assert r.status_code == 400 and "Vượt hạn mức" in r.json()["detail"]
+
+
+# --- phân trang (09/08/2026) -------------------------------------------------
+# Trước đây `/api/leaves/me` và `/api/leaves` trả thẳng danh sách với trần cứng 100/200 gõ trong
+# repo — quá số đó là đơn RỤNG im lặng. Bốn test dưới khoá: `total` đúng, trang 2 ra dòng khác
+# trang 1, `size` có trần, và `employee_id` lọc ĐÚNG ở máy chủ mà KHÔNG nới phạm vi quyền.
+
+
+def _seed_leaves(employee_id: int, leave_type_id: int, count: int, *,
+                 status: str = "pending", start_year: int = 2026) -> list[int]:
+    """Ghi thẳng `count` đơn vào DB, mỗi đơn một ngày khác nhau.
+
+    CỐ Ý không đi qua `POST /api/leaves`: đường đó có luật hạn mức phép năm + chặn trùng ngày,
+    tạo 25 đơn kiểu ấy là vỡ vì lý do chẳng liên quan gì tới phân trang. Ở đây đang kiểm ĐƯỜNG
+    ĐỌC, nên nạp dữ liệu bằng repo là đúng tầng."""
+    from datetime import timedelta
+
+    from app.models.leave import LeaveRequest
+
+    db = SessionLocal()
+    try:
+        ids = []
+        base = date(start_year, 1, 5)
+        for i in range(count):
+            day = base + timedelta(days=i * 2)
+            row = LeaveRequest(employee_id=employee_id, leave_type_id=leave_type_id,
+                               start_date=day, end_date=day, days=1, status=status)
+            db.add(row)
+            db.flush()
+            ids.append(row.id)
+        db.commit()
+        return ids
+    finally:
+        db.close()
+
+
+def test_don_cua_toi_phan_trang_dung_total_va_giu_nguyen_quotas(client):
+    token = _admin_token(client)
+    tid = _make_type(client, token)
+    eid = _link_admin_employee(client, token)
+    _seed_leaves(eid, tid, 25)
+
+    p1 = client.get("/api/leaves/me?page=1&size=20", headers=_h(token)).json()
+    p2 = client.get("/api/leaves/me?page=2&size=20", headers=_h(token)).json()
+
+    assert p1["total"] == 25 and p2["total"] == 25
+    assert len(p1["items"]) == 20 and len(p2["items"]) == 5
+    ids1 = {x["id"] for x in p1["items"]}
+    ids2 = {x["id"] for x in p2["items"]}
+    assert ids1.isdisjoint(ids2) and len(ids1 | ids2) == 25
+
+    # ⚠ TƯƠNG THÍCH NGƯỢC: màn Chấm công gọi CHÍNH endpoint này chỉ để lấy `quotas`. Ba ô
+    # has_employee / employee_name / quotas phải Ở GỐC và không bị phân trang đụng vào.
+    assert p1["has_employee"] is True and p1["employee_name"] == "NV Nghỉ"
+    assert p1["quotas"] and p1["quotas"] == p2["quotas"]
+
+    # Gọi KHÔNG truyền page/size (đúng cách màn Chấm công đang gọi) vẫn phải 200 + có quotas.
+    cu = client.get("/api/leaves/me", headers=_h(token)).json()
+    assert cu["quotas"] == p1["quotas"] and cu["total"] == 25
+
+    # Trần size + page phải dương.
+    assert client.get("/api/leaves/me?size=101", headers=_h(token)).status_code == 422
+    assert client.get("/api/leaves/me?page=0", headers=_h(token)).status_code == 422
+
+
+def test_duyet_don_phan_trang_dung_total_va_trang_2_khac_trang_1(client):
+    token = _admin_token(client)
+    tid = _make_type(client, token)
+    eid = _link_admin_employee(client, token)
+    _seed_leaves(eid, tid, 25)
+
+    p1 = client.get("/api/leaves?page=1&size=20", headers=_h(token)).json()
+    p2 = client.get("/api/leaves?page=2&size=20", headers=_h(token)).json()
+
+    assert p1["total"] == 25 and p1["page"] == 1 and p1["size"] == 20
+    assert len(p1["items"]) == 20 and len(p2["items"]) == 5
+    ids1 = {x["id"] for x in p1["items"]}
+    ids2 = {x["id"] for x in p2["items"]}
+    assert ids1.isdisjoint(ids2) and len(ids1 | ids2) == 25
+
+    assert client.get("/api/leaves?size=101", headers=_h(token)).status_code == 422
+    assert client.get("/api/leaves?page=0", headers=_h(token)).status_code == 422
+
+
+def test_loc_theo_nhan_vien_chay_o_may_chu_va_total_theo_bo_loc(client):
+    """Liên thông từ Hồ sơ NV lọc đúng 1 người: `total` phải là tổng CỦA NGƯỜI ĐÓ, không phải
+    tổng cả xưởng — chân bảng báo sai là người duyệt lật trang tìm mãi không thấy."""
+    token = _admin_token(client)
+    tid = _make_type(client, token)
+    mine = _link_admin_employee(client, token)
+    other = client.post("/api/employees",
+                        json={"full_name": "NV Khác", "department_id": _dept_id("Sản xuất"),
+                              "hire_date": "2020-01-01", "gender": "male", "status": "active"},
+                        headers=_h(token)).json()["employee"]["id"]
+    _seed_leaves(mine, tid, 22)
+    _seed_leaves(other, tid, 3)
+
+    ca = client.get("/api/leaves?size=100", headers=_h(token)).json()
+    assert ca["total"] == 25
+
+    loc = client.get(f"/api/leaves?employee_id={other}&size=100", headers=_h(token)).json()
+    assert loc["total"] == 3
+    assert {x["employee_id"] for x in loc["items"]} == {other}
+
+    # Lọc + phân trang phải ăn khớp: trang 1 cỡ 2 ra 2 dòng, trang 2 ra 1 dòng, total vẫn 3.
+    l1 = client.get(f"/api/leaves?employee_id={other}&page=1&size=2", headers=_h(token)).json()
+    l2 = client.get(f"/api/leaves?employee_id={other}&page=2&size=2", headers=_h(token)).json()
+    assert l1["total"] == 3 and len(l1["items"]) == 2 and len(l2["items"]) == 1
+
+
+def test_employee_id_khong_noi_pham_vi_quyen(client):
+    """`employee_id` chỉ THU HẸP trong phạm vi sẵn có. NV Sales (scope `own`) gõ id người khác
+    thì phải ra RỖNG — không được biến thành đường lách xem đơn cả công ty."""
+    token = _admin_token(client)
+    tid = _make_type(client, token)
+    admin_eid = _link_admin_employee(client, token)
+    _seed_leaves(admin_eid, tid, 3)
+
+    stoken = _sales_token()
+    lach = client.get(f"/api/leaves?employee_id={admin_eid}", headers=_h(stoken)).json()
+    assert lach["items"] == [] and lach["total"] == 0

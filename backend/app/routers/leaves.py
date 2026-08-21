@@ -11,11 +11,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..deps import (
+    get_current_user,
     CurrentUser,
     get_authorization_service,
     get_employee_repository,
     get_leave_service,
     require_permission,
+    require_any_permission,
 )
 from ..models.user import User
 from ..repositories.employee_repo import EmployeeRepository
@@ -50,6 +52,28 @@ router = APIRouter(prefix="/api/leaves", tags=["leaves"])
 # cancel để tự phục vụ; HCNS/Admin thêm `approve` = "leave admin" (duyệt + quản loại nghỉ +
 # xem mọi đơn theo scope). Duyệt TẬP TRUNG: chỉ HCNS/Admin có `approve`.
 MODULE = "nghi_phep"
+
+# TỰ PHỤC VỤ (tách 10/08/2026) — một ô quyền cho MỌI việc người lao động làm với hồ sơ của CHÍNH
+# MÌNH: tự chấm công, xem công/phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng.
+# Trước đây nhóm này không gác gì (chỉ cần đăng nhập) nên không có cách nào tắt cho một vai.
+# Ba hàng rào cũ GIỮ NGUYÊN (phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công · đúng
+# khung giờ ca) — chúng chống lạm dụng, còn ô này chống truy cập.
+# Ô `self_service` ĐÃ BỎ 15/08/2026 (chủ chốt). Dữ liệu của CHÍNH MÌNH là quyền đương nhiên của
+# mọi tài khoản đăng nhập — xem công / phiếu / đơn của mình, và gửi · sửa · huỷ đơn của mình.
+# Chặn nó là chặn người ta đi làm, chứ không bảo vệ được gì: mọi đường `/me` đã tự lọc theo hồ sơ
+# gắn với tài khoản, không đọc sang ai được.
+# Ba hàng rào thật GIỮ NGUYÊN: phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công ·
+# đúng khung giờ ca. Cái quyết định THẤY MÀN NÀO vẫn là ô của chính màn đó.
+MODULE_TU_PHUC_VU = "self_service"
+SelfUser = Annotated[User, Depends(get_current_user)]
+# Sửa / huỷ phiếu: người TẠO tự làm với phiếu của mình, hoặc NGƯỜI DUYỆT làm hộ ⇒ nhận
+# cả hai ô. Ai không có ô nào trong hai ô này thì không đụng được — trước đây chỉ cần
+# đăng nhập là gọi được, đúng chỗ tester bắt.
+SelfOrApprover = Annotated[
+    # HUỶ đơn là ĐƯỜNG GHI ⇒ ô Thao tác của chính màn Nghỉ phép (15/08/2026). Người DUYỆT huỷ hộ
+    # thì đi bằng ô Duyệt. Trước 15/08 nó đi theo ô Thao tác của Tự phục vụ — ô đó đã bỏ.
+    User, Depends(require_any_permission((MODULE, "cancel"), (MODULE, "approve")))
+]
 
 Service = Annotated[LeaveService, Depends(get_leave_service)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
@@ -111,7 +135,7 @@ def list_types(svc: Service, user: Annotated[User, Depends(require_permission(MO
 
 @router.post("/types", response_model=LeaveTypeOut, status_code=status.HTTP_201_CREATED)
 def create_type(body: LeaveTypeIn, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LeaveTypeOut:
+                user: Annotated[User, Depends(require_permission(MODULE, "manage_leave_types"))]) -> LeaveTypeOut:
     try:
         t = svc.create_type(actor=user, name=body.name, is_paid=body.is_paid,
                             annual_quota=body.annual_quota, note=body.note)
@@ -122,7 +146,7 @@ def create_type(body: LeaveTypeIn, svc: Service,
 
 @router.put("/types/{type_id}", response_model=LeaveTypeOut)
 def update_type(type_id: int, body: LeaveTypeIn, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LeaveTypeOut:
+                user: Annotated[User, Depends(require_permission(MODULE, "manage_leave_types"))]) -> LeaveTypeOut:
     try:
         t = svc.update_type(actor=user, type_id=type_id, name=body.name, is_paid=body.is_paid,
                             annual_quota=body.annual_quota, note=body.note, is_active=body.is_active)
@@ -133,7 +157,7 @@ def update_type(type_id: int, body: LeaveTypeIn, svc: Service,
 
 @router.delete("/types/{type_id}", status_code=204)
 def delete_type(type_id: int, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+                user: Annotated[User, Depends(require_permission(MODULE, "manage_leave_types"))]):
     try:
         svc.delete_type(actor=user, type_id=type_id)
     except LeaveError as exc:
@@ -145,7 +169,14 @@ def delete_type(type_id: int, svc: Service,
 
 @router.post("", response_model=LeaveRequestOut, status_code=status.HTTP_201_CREATED)
 def create_request(body: LeaveRequestIn, svc: Service, employees: Employees,
-                   user: Annotated[User, Depends(require_permission(MODULE, "create"))]) -> LeaveRequestOut:
+                   # XIN NGHỈ CHO CHÍNH MÌNH ⇒ ô Thao tác của **Tự phục vụ**, cùng chỗ với xin
+                   # tăng ca · đi muộn · tạm ứng (đổi 11/08/2026). Trước đó đòi `nghi_phep:create`
+                   # — riêng nghỉ phép một kiểu, nên chủ chốt tắt ô Thao tác của Tự phục vụ mà vẫn
+                   # xin nghỉ được. Vẫn nhận `nghi_phep:create` cho ca HCNS **nhập đơn hộ** thợ
+                   # không dùng máy.
+                   # GỬI đơn là ĐƯỜNG GHI ⇒ ô Thao tác của màn Nghỉ phép (15/08/2026).
+                   user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+                   ) -> LeaveRequestOut:
     try:
         r = svc.create_request(actor=user, leave_type_id=body.leave_type_id,
                                start_date=body.start_date, end_date=body.end_date, reason=body.reason)
@@ -156,17 +187,21 @@ def create_request(body: LeaveRequestIn, svc: Service, employees: Employees,
 
 @router.get("/me", response_model=MyLeaveOut)
 def my_requests(svc: Service, employees: Employees,
-                user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> MyLeaveOut:
+                user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                page: int = Query(default=1, ge=1),
+                size: int = Query(default=20, ge=1, le=100)) -> MyLeaveOut:
     if not svc.has_employee(user=user):
-        return MyLeaveOut(has_employee=False, employee_name=None, items=[], quotas=[])
-    reqs = svc.my_requests(user=user)
-    name = None
-    if reqs:
-        emp = employees.get_by_id(reqs[0].employee_id)
-        name = emp.full_name if emp is not None else None
+        return MyLeaveOut(has_employee=False, employee_name=None, items=[], quotas=[],
+                          total=0, page=page, size=size)
+    reqs, total = svc.my_requests(user=user, page=page, size=size)
+    # Tên lấy từ HỒ SƠ GẮN TÀI KHOẢN, không suy từ `reqs[0]` như trước: sang trang 2 mà trang đó
+    # rỗng (hoặc NV chưa có đơn nào) thì `reqs` rỗng ⇒ tên biến mất giữa chừng.
+    emp = employees.get_by_user_id(user.id)
+    name = emp.full_name if emp is not None else None
     quotas = svc.my_quotas(user=user, year=date.today().year)
     return MyLeaveOut(has_employee=True, employee_name=name,
-                      items=_resolve(svc, employees, reqs), quotas=quotas)
+                      items=_resolve(svc, employees, reqs), quotas=quotas,
+                      total=total, page=page, size=size)
 
 
 @router.get("/summary", response_model=LeaveSummaryOut)
@@ -201,7 +236,7 @@ def leave_calendar(svc: Service, authz: Authz,
 
 
 @router.post("/{request_id}/cancel", response_model=LeaveRequestOut)
-def cancel_request(request_id: int, svc: Service, employees: Employees, authz: Authz, user: CurrentUser) -> LeaveRequestOut:
+def cancel_request(request_id: int, svc: Service, employees: Employees, authz: Authz, user: SelfOrApprover) -> LeaveRequestOut:
     is_hr = authz.can(user, MODULE, "approve")
     try:
         r = svc.cancel(actor=user, request_id=request_id, is_hr=is_hr,
@@ -217,11 +252,17 @@ def cancel_request(request_id: int, svc: Service, employees: Employees, authz: A
 @router.get("", response_model=LeaveRequestsOut)
 def list_requests(svc: Service, employees: Employees, authz: Authz,
                   user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-                  status_filter: str | None = Query(default=None, alias="status")) -> LeaveRequestsOut:
+                  status_filter: str | None = Query(default=None, alias="status"),
+                  employee_id: int | None = Query(default=None),
+                  page: int = Query(default=1, ge=1),
+                  size: int = Query(default=20, ge=1, le=100)) -> LeaveRequestsOut:
     # Data-scope: HCNS/Admin (scope=all) thấy mọi đơn; NV (scope=own) chỉ thấy đơn của mình.
+    # `employee_id` KHÔNG nới phạm vi — nó lọc THÊM bên trong phạm vi đã có (xem service).
     scope = authz.scope_for(user, MODULE) or "own"
-    reqs = svc.list_requests(scope=scope, actor=user, status=status_filter)
-    return LeaveRequestsOut(items=_resolve(svc, employees, reqs))
+    reqs, total = svc.list_requests(scope=scope, actor=user, status=status_filter,
+                                    employee_id=employee_id, page=page, size=size)
+    return LeaveRequestsOut(items=_resolve(svc, employees, reqs),
+                            total=total, page=page, size=size)
 
 
 @router.post("/{request_id}/approve", response_model=LeaveRequestOut)

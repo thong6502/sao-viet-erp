@@ -42,6 +42,7 @@ from ..models.employee import (
     STATUS_SUSPENDED,
     Employee,
 )
+from ..models.profile_request import REQ_CANCELLED, REQ_PENDING
 from ..config import settings
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
@@ -113,6 +114,26 @@ class EmployeeForbidden(EmployeeError):
     """The employee exists but is outside the caller's data scope."""
 
 
+# Nhãn tiếng Việt của cột hồ sơ — CHỈ để ghép câu báo lỗi cho người đang gõ ("Số tài khoản tối
+# đa 30 ký tự"), không phải nguồn hiển thị của FE (FE có bảng nhãn riêng).
+FIELD_LABELS: dict[str, str] = {
+    "full_name": "Họ tên", "position": "Chức danh", "national_id": "CCCD",
+    "national_id_place": "Nơi cấp CCCD", "phone": "Điện thoại", "email": "Email",
+    "permanent_address": "Hộ khẩu", "current_address": "Chỗ ở hiện tại",
+    "emergency_contact_name": "Người liên hệ khẩn", "emergency_contact_phone": "SĐT người liên hệ",
+    "social_insurance_no": "Số sổ BHXH", "pit_tax_code": "MST cá nhân",
+    "bank_account": "Số tài khoản", "bank_name": "Ngân hàng", "job_grade": "Bậc tay nghề",
+    "payroll_group": "Nhóm lương", "note": "Ghi chú",
+}
+
+
+def _max_len(field: str) -> int | None:
+    """Số ký tự tối đa của một cột hồ sơ, ĐỌC THẲNG TỪ MODEL (`String(n)`) chứ không chép tay —
+    đổi độ dài cột thì chỗ này theo ngay, không có bảng số thứ hai để lệch."""
+    col = Employee.__table__.columns.get(field)
+    return getattr(getattr(col, "type", None), "length", None)
+
+
 def _clean(value: str | None) -> str | None:
     if value is None:
         return None
@@ -164,13 +185,29 @@ class EmployeeService:
             raise EmployeeValidationError("Số người phụ thuộc phải là số nguyên ≥ 0.")
         return n
 
+    @staticmethod
+    def _check_len(field: str, value: str | None) -> str | None:
+        """Chặn chuỗi DÀI HƠN CỘT ngay tại cửa vào.
+
+        Vì sao phải đo ở đây: `profile_update_requests.changes` là JSON — NV gõ dài bao nhiêu
+        cũng LƯU ĐƯỢC lúc gửi đề nghị, nhưng mãi tới lúc HCNS bấm Duyệt mới đem ghi vào cột
+        thật (`bank_account` chỉ 30 ký tự) ⇒ Postgres nổ `value too long`, người DUYỆT lãnh
+        lỗi 500 thay cho người GÕ. Đo tại đây thì người gõ nhận câu tiếng Việt ngay lúc gửi,
+        và đề nghị cũ lỡ quá dài cũng ra 400 có chữ chứ không phải 500 trắng."""
+        limit = _max_len(field)
+        if value is not None and limit is not None and len(value) > limit:
+            raise EmployeeValidationError(
+                f"{FIELD_LABELS.get(field, field)} tối đa {limit} ký tự (đang nhập {len(value)})."
+            )
+        return value
+
     def _clean_fields(self, fields: dict) -> dict:
         """Trim string inputs; validate the constrained ones. Returns a cleaned copy
         containing only recognised employee columns."""
         out: dict = {}
         for key, value in fields.items():
             if key == "full_name":
-                out[key] = self._validate_name(value)
+                out[key] = self._check_len(key, self._validate_name(value))
             elif key == "gender":
                 out[key] = self._validate_gender(value)
             elif key == "dependents_count":
@@ -181,7 +218,7 @@ class EmployeeService:
                 g = self._resolve_job_grade(value, None)
                 out[key] = g.id if g is not None else None
             elif isinstance(value, str):
-                out[key] = _clean(value)
+                out[key] = self._check_len(key, _clean(value))
             else:
                 out[key] = value
         return out
@@ -516,9 +553,42 @@ class EmployeeService:
             employee_id=emp.id, changes=payload, reason=_clean(reason),
         )
 
-    def my_update_requests(self, *, user):
+    def my_update_requests(self, *, user, status: str | None = None, page: int = 1, size: int = 10):
+        """Một trang đề nghị của chính NV + tổng dòng + số đếm theo trạng thái.
+
+        Tài khoản chưa gắn hồ sơ (admin thuần) không phải lỗi — trả trang rỗng để màn "Hồ sơ của
+        tôi" hiện trạng thái rỗng bình thường."""
         emp = self.employees.get_by_user_id(user.id)
-        return self.employees.list_update_requests_by_employee(emp.id) if emp is not None else []
+        if emp is None:
+            return [], 0, {}
+        rows, total = self.employees.list_update_requests_by_employee(
+            emp.id, status=status, page=page, size=size,
+        )
+        return rows, total, self.employees.dem_update_requests_by_employee(emp.id)
+
+    def cancel_my_update_request(self, *, user, request_id: int):
+        """NV tự RÚT LẠI đề nghị của chính mình khi HCNS chưa xử lý.
+
+        Ba cửa phải qua: có hồ sơ · đúng đề nghị của mình (không rút hộ người khác) · còn
+        `pending`. Rút = đổi trạng thái, KHÔNG xoá dòng — HCNS vẫn tra được là đã từng có đề nghị
+        này và ai rút lúc nào."""
+        emp = self.employees.get_by_user_id(user.id)
+        if emp is None:
+            raise EmployeeValidationError("Tài khoản chưa gắn hồ sơ nhân viên.")
+        req = self.employees.get_update_request(request_id)
+        if req is None or req.employee_id != emp.id:
+            raise EmployeeNotFound("Không tìm thấy đề nghị cập nhật.")
+        if req.status != REQ_PENDING:
+            raise EmployeeValidationError("Đề nghị đã được xử lý, không rút lại được.")
+        req = self.employees.update_update_request(
+            req, status=REQ_CANCELLED, decided_by=user.id,
+            decided_at=datetime.now(timezone.utc),
+        )
+        self.audit.create(
+            actor_user_id=user.id, action="cancel_profile_request",
+            target=f"employee:{emp.id}", detail=f"{emp.code} rút đề nghị #{req.id}",
+        )
+        return req
 
     def list_update_requests(self, *, status=None):
         return self.employees.list_update_requests(status=status)
@@ -797,7 +867,8 @@ class EmployeeService:
         return self.employees.list_job_grades(active_only=active_only)
 
     def create_job_grade(self, *, actor, name: str, code: str | None = None,
-                         seq: int | None = None, note: str | None = None):
+                         seq: int | None = None, note: str | None = None,
+                         output_coefficient=None):
         name = _clean(name)
         if not name:
             raise EmployeeValidationError("Cần nhập tên bậc.")
@@ -809,6 +880,7 @@ class EmployeeService:
         g = self.employees.create_job_grade(
             code=code, name=name, note=_clean(note),
             seq=self.employees.next_job_grade_seq() if seq is None else int(seq),
+            output_coefficient=output_coefficient,
         )
         self.audit.create(actor_user_id=actor.id, action="job_grade_created",
                           target=f"job_grade:{g.id}", detail=g.name)
@@ -820,6 +892,10 @@ class EmployeeService:
             raise EmployeeNotFound("Không tìm thấy bậc tay nghề.")
         clean = {k: v for k, v in fields.items()
                  if k in ("name", "seq", "is_active", "note") and v is not None}
+        # Hệ số sản lượng: cho phép đặt VÀ xoá (null) — có mặt trong `fields` = client chủ ý gửi
+        # (router dùng `exclude_unset`), nên None ở đây nghĩa "xoá hệ số" chứ không phải "không đụng".
+        if "output_coefficient" in fields:
+            clean["output_coefficient"] = fields["output_coefficient"]
         if "name" in clean:
             clean["name"] = _clean(clean["name"])
             if not clean["name"]:

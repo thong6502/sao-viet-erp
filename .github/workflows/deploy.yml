@@ -20,35 +20,11 @@ concurrency:
 jobs:
   # ---------------------------------------------------------------
   # 1) CI gate — không deploy nếu build/test gãy.
+  #    Định nghĩa nằm ở `build-test.yml` (dùng chung với CI của pull request), KHÔNG chép lại ở
+  #    đây: hai bản rời nhau thì PR và deploy sẽ kiểm hai thứ khác nhau mà không ai biết.
   # ---------------------------------------------------------------
   build-test:
-    name: Build & test (gate)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # Frontend: tsc + vite build (bắt lỗi type + build).
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Frontend build
-        working-directory: frontend
-        run: |
-          npm ci
-          npm run build
-
-      # Backend: cài deps + chạy pytest (SQLite in-memory, không cần DB ngoài).
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-      - name: Backend tests
-        run: |
-          pip install -r backend/requirements.txt
-          pytest -q
+    uses: ./.github/workflows/build-test.yml
 
   # ---------------------------------------------------------------
   # 2) Deploy — SSH vào VPS, kéo code, dựng lại containers.
@@ -91,14 +67,54 @@ jobs:
               exit 1
             fi
 
+            # Build image MỚI nhưng CHƯA thay container đang phục vụ. Phải build trước bước migrate
+            # ở dưới, nếu không container tạm sẽ chạy migration bằng image CŨ.
+            echo "→ Build image mới (chưa thay container)"
+            docker compose build
+
+            # MIGRATION CHẠY TRƯỚC KHI THAY CONTAINER (chốt 2026-08-09) — áp cho cả staging và prod.
+            # Container tạm `run --rm` không đụng container đang phục vụ; migration lỗi thì
+            # `set -e` dừng script ngay tại đây và **app cũ vẫn sống**. Trước đây migration chỉ chạy
+            # trong lifespan của app mới, nên migration lỗi = app mới chết = mất dịch vụ (staging
+            # chết 21 giờ vì guard 0171 raise).
+            # Không cần `--no-deps`: compose tự chờ db/redis/minio healthy theo `depends_on`.
+            echo "→ Chạy migration bằng container tạm (app cũ vẫn đang phục vụ)"
+            docker compose run --rm -T backend python -m app.migrate
+
             # Dựng service nào là do COMPOSE_PROFILES trong .env quyết (bản triển khai khai đủ
             # 6). KHÔNG dùng --remove-orphans: chạy kèm profiles rất dễ xoá nhầm container của
             # profile đang tắt.
             echo "→ Dựng lại & khởi động containers"
             docker compose up -d --build
 
-            echo "→ Dọn image cũ"
-            docker image prune -f
-
             echo "→ Trạng thái"
             docker compose ps
+
+            # `docker compose up -d` trả về ngay khi container ĐƯỢC TẠO, không đợi app trong đó
+            # lên — nên `ps` ở trên gần như luôn đẹp kể cả khi backend crash-loop. 2026-08-09
+            # staging chết 21 giờ vì migration 0171 raise mà Actions vẫn xanh; cổng này chặn ca đó.
+            echo "→ Chờ backend trả /api/health (tối đa 90s)"
+            # Gọi từ TRONG container vì backend chỉ expose 8000 trong network nội bộ, host không
+            # map port; và mỗi môi trường bind cổng web khác nhau (stg 8181, prod 8180) nên curl từ
+            # host phải viết hai nhánh. `exec` fail cũng là tín hiệu đúng: container đang restart
+            # thì không exec vào được.
+            OK=0
+            for i in $(seq 1 30); do
+              if docker compose exec -T backend python -c \
+                   "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3).status==200 else 1)" \
+                   >/dev/null 2>&1; then
+                OK=1; echo "  backend OK (lần thử $i)"; break
+              fi
+              sleep 3
+            done
+            if [ "$OK" != "1" ]; then
+              echo "DỪNG: backend không trả /api/health sau 90s. Log 80 dòng cuối:"
+              docker compose logs --tail 80 backend || true
+              docker compose ps || true
+              exit 1
+            fi
+
+            # Dọn image cũ SAU CÙNG: chạy trước health check thì lỡ cần lùi về image trước cũng
+            # không còn gì để lùi.
+            echo "→ Dọn image cũ"
+            docker image prune -f

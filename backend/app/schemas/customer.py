@@ -226,6 +226,28 @@ class TagsOut(BaseModel):
     items: list[TagOut]
 
 
+# --- Kho nhãn dùng chung (thêm / xoá nhãn — 16/08/2026) -------------------------
+
+
+class KhoNhanRow(BaseModel):
+    """Một nhãn trong kho + số khách đang mang nó.
+
+    `so_khach` để màn hình hỏi có SỐ trước khi xoá ("3 khách đang mang nhãn này") thay vì một hộp
+    thoại "bạn có chắc không" — đếm sẵn ở đây nên không phải gọi thêm vòng nào lúc bấm xoá."""
+
+    id: int
+    label: str
+    so_khach: int = 0
+
+
+class KhoNhanOut(BaseModel):
+    items: list[KhoNhanRow]
+
+
+class KhoNhanXoaOut(BaseModel):
+    so_khach_da_go: int
+
+
 # --- Ghi chú tự do (tab Ghi chú — lưu ý team về khách) --------------------------
 
 
@@ -427,10 +449,21 @@ class CustomerDetailOut(BaseModel):
 
 
 class SaleOption(BaseModel):
-    """A selectable Sale (owner) for the create/edit form filters."""
+    """Một người trong hộp chọn "NV phụ trách" (hộp lọc, ô gán khi tạo/sửa, hộp điều chuyển).
+
+    `co_the_gan=False` = người này KHÔNG đủ tư cách nhận khách mới (ngoài khối Kinh doanh / đã
+    khoá tài khoản) nhưng vẫn đang giữ khách trong tầm nhìn ⇒ hộp LỌC hiện, ô GÁN ẩn."""
 
     id: int
     name: str
+    # Vai trò + phòng để hộp chọn hiện 2 tầng ("Lê Sale Một" / "NV Sales · Kinh doanh") — cùng một
+    # cái tên xuất hiện ở 3 chỗ, không có chức danh thì không biết ai là trưởng ai là nhân viên.
+    vai_tro: str | None = None
+    phong_ban: str | None = None
+    co_the_gan: bool = True
+    # Số khách người này đang phụ trách TRONG TẦM NHÌN của người xem (hộp Điều chuyển cần con số
+    # này để biết chuyển bao nhiêu; 0 = chưa giữ khách nào).
+    so_kh: int = 0
 
 
 class CustomerReassignIn(BaseModel):
@@ -491,12 +524,20 @@ class CustomerDashboardOut(BaseModel):
     receivable: ReceivableCard
 
 
+class OrderLineBriefOut(BaseModel):
+    description: str
+    line_total: int
+
+
 class OrderHistoryRowOut(BaseModel):
     id: int
     order_no: str
     status: str
     order_kind: str
     summary: str
+    #: Từng dòng kèm TIỀN THẬT — khối "Sản phẩm mua nhiều nhất" cộng theo đây thay vì chia đều
+    #: tổng đơn cho số dấu phẩy trong `summary`.
+    lines: list[OrderLineBriefOut] = []
     total: int | None
     created_at: datetime
 

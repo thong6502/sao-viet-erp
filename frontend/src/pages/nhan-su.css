@@ -70,61 +70,32 @@
   font-weight: 400;
 }
 
-.ns-head-actions {
+/* ── Cụm nút ở đầu màn ───────────────────────────────────────────────────
+   `.ns-btn-primary` (gradient cam tự chế) và `.ns-btn-secondary` ĐÃ BỎ: mọi nút giờ dùng
+   `<Button variant="accent|ghost">` của components/Button.tsx. Đừng dựng lại nút riêng ở
+   đây — hai hệ nút song song là hai chiều cao, hai bán kính bo, và mỗi lần đổi thiết kế
+   phải sửa hai chỗ. */
+.ns-head-actions,
+.ns2__headact {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
-.ns-btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 18px;
-  border: none;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #c5400a 0%, #ea580c 100%);
-  color: #ffffff;
-  font-weight: 600;
-  font-size: 13.5px;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(197, 64, 10, 0.28);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+/* Có yêu cầu chờ duyệt → viền đậm hơn cho nút phụ (KHÔNG tô cam: cam là vai nút hành
+   động chính, mỗi màn chỉ được một). */
+.ns2-reqbtn--on {
+  border-color: var(--amber, #9c7714);
+  color: var(--amber-deep, #7a5c0f);
+  font-weight: var(--fw-bold, 600);
 }
 
-.ns-btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(197, 64, 10, 0.38);
-  background: linear-gradient(135deg, #b33808 0%, #d97706 100%);
-}
-
-.ns-btn-primary:active {
-  transform: translateY(0);
-}
-
-.ns-btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 16px;
-  border: 1px solid var(--rule-soft, #e8e3d3);
-  border-radius: 10px;
-  background: #ffffff;
-  color: var(--ink, #14130f);
-  font-weight: 600;
-  font-size: 13px;
-  cursor: pointer;
-  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.04);
-  transition: all 0.18s ease;
-}
-
-.ns-btn-secondary:hover {
-  background: #fff5f0;
-  border-color: #fdecde;
-  color: #c5400a;
-  box-shadow: 0 3px 8px rgba(197, 64, 10, 0.1);
+/* Dáng nút CTA gọn — CHỈ dáng, KHÔNG màu. Thay cho `cc-btn-cta-compact` (lớp cũ ép navy
+   bằng 6 dòng `!important`, đặt cạnh `variant="accent"` là nút cam bị đè về navy). */
+.ns-btn-cta {
+  font-weight: var(--fw-bold, 600);
+  white-space: nowrap;
 }
 
 /* ── Dải lọc nhanh theo trạng thái ──────────────────────────────────────
@@ -166,51 +137,42 @@ button.ns__kpi {
 
 .ns__kpi:hover {
   border-color: var(--rule, #d8d2c0);
-  background: #fffaf7;
+  /* Nền hover TRUNG TÍNH (xám giấy), không phải ánh cam — xem ghi chú màu ở `.is-active`. */
+  background: var(--rule-hair, #f1f5f9);
   color: var(--ink, #14130f);
 }
 
 .ns__kpi:focus-visible {
-  outline: 2px solid var(--rust, #c5400a);
+  outline: 2px solid var(--charcoal, #0f172a);
   outline-offset: 2px;
 }
 
-/* Đang chọn = nền cam đặc: đọc được ngay đang lọc cái gì, không cần dò viền mảnh. */
+/* Đang chọn = nền THAN CHÌ đặc: đọc được ngay đang lọc cái gì, không cần dò viền mảnh.
+   ⚠ TRƯỚC ĐÂY nền CAM. Đổi vì cam là vai của NÚT HÀNH ĐỘNG ("Thêm nhân viên") — để cam ở
+   cả chip lọc thì trên cùng một màn có hai vệt cam, mắt không biết đâu là nút bấm để LÀM,
+   đâu là chỗ đang bật bộ lọc. Đừng "trả lại màu thương hiệu" cho dải này.
+   Đây là BỘ LỌC, không phải thẻ thống kê — xem ghi chú ở `.ns2__kpis` phía trên. */
 .ns__kpi.is-active {
-  background: var(--rust, #c5400a);
-  border-color: var(--rust, #c5400a);
-  color: #ffffff;
+  background: var(--charcoal, #0f172a);
+  border-color: var(--charcoal, #0f172a);
+  color: var(--on-charcoal, #f8fafc);
 }
 
+/* Chữ số bên trong khai màu riêng (`--ink`, đen trên nền trắng) nên KHÔNG tự kế thừa —
+   phải ép lại, không thì số gần như tàng hình trên nền than chì. */
 .ns__kpi.is-active .ns__kpival,
 .ns__kpi.is-active .ns__kpilabel {
-  color: #ffffff;
+  color: var(--on-charcoal, #f8fafc);
+}
+
+.ns__kpi.is-active:hover {
+  background: var(--charcoal-2, #1e293b);
+  border-color: var(--charcoal-2, #1e293b);
+  color: var(--on-charcoal, #f8fafc);
 }
 
 .ns__kpi.is-active svg {
   opacity: 1;
-}
-
-/* Ô "Sắp hết thử việc": đẩy sang phải, tách khỏi 3 ô đếm — đây là VIỆC CẦN LÀM,
-   không phải một con số thống kê nữa. */
-.ns__kpi--action {
-  margin-left: auto;
-  background: var(--amber-soft, #fdf6e3);
-  border-color: rgba(156, 119, 20, 0.28);
-  color: var(--amber-deep, #7a5c0f);
-}
-
-.ns__kpi--action:hover {
-  background: #f9edd2;
-  border-color: rgba(156, 119, 20, 0.45);
-  color: var(--amber-deep, #7a5c0f);
-}
-
-/* Không có ai sắp hết thử việc → tắt màu. Màu chỉ bật khi thật sự có việc. */
-.ns__kpi--action.is-quiet {
-  background: #ffffff;
-  border-color: var(--rule-soft, #e8e3d3);
-  color: var(--ash, #6b665b);
 }
 
 .ns__kpival {
@@ -1518,74 +1480,261 @@ button.ns__kpi {
 .tline__item--tone-steel .tline__dot { border-color: var(--steel) !important; background: var(--steel-soft) !important; }
 .tline__item--tone-signal .tline__dot { border-color: var(--signal) !important; background: var(--signal-soft) !important; }
 
-/* File pick list */
-.ns-filepick {
-  display: flex;
-  gap: var(--sp-2);
-  align-items: center;
-  margin-bottom: var(--sp-4);
-  padding: var(--sp-4);
-  border: 2px dashed var(--rule);
-  border-radius: var(--r-6);
-  background: var(--canvas);
-}
+/* File Attachment Component V2 Styles */
 
-.ns-filepick select {
-  padding: 8px 12px;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-5);
-  background: #fff;
-  font: inherit;
-}
-
-.ns-filelist {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--sp-3);
-}
-
-.ns-filelist li {
+/* Filter Chips Bar */
+.ns-file-filters {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
-  padding: var(--sp-3);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  background: #fff;
-  font-size: 13.5px;
-  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.01);
+  gap: var(--sp-2, 8px);
+  margin-bottom: var(--sp-3, 12px);
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.ns-file-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 99px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2, #475467);
+  background: var(--canvas, #f9fafb);
+  border: 1px solid var(--rule-soft, #eaecf0);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.ns-file-filter-chip:hover {
+  background: #ffffff;
+  border-color: var(--rule, #d0d5dd);
+  color: var(--ink-1, #101828);
+}
+
+.ns-file-filter-chip--active {
+  background: var(--rust-deep, #c23e22);
+  border-color: var(--rust-deep, #c23e22);
+  color: #ffffff !important;
+  font-weight: 600;
+}
+
+.ns-file-filter-chip__count {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.06);
+  color: inherit;
+}
+
+.ns-file-filter-chip--active .ns-file-filter-chip__count {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+/* Compact Upload Bar (Khi đã có tệp) */
+.ns-upload-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3, 12px);
+  padding: 8px 14px;
+  background: var(--canvas, #f9fafb);
+  border: 1.5px dashed var(--rule, #d0d5dd);
+  border-radius: var(--r-6, 10px);
+  margin-bottom: var(--sp-4, 16px);
   transition: all 0.2s ease;
 }
 
-.ns-filelist li:hover {
-  border-color: var(--rust-soft);
-  box-shadow: 0 3px 8px rgba(20, 19, 15, 0.03);
+.ns-upload-bar--dragging {
+  border-color: var(--rust, #e05638);
+  background: rgba(224, 86, 56, 0.04);
+  box-shadow: 0 0 0 3px rgba(224, 86, 56, 0.1);
 }
 
-.ns-filelist li > a {
+.ns-upload-bar__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   flex: 1;
-  color: var(--rust-deep);
-  text-decoration: none;
-  font-weight: var(--fw-bold);
+  min-width: 0;
+}
+
+.ns-upload-bar__drop-text {
+  font-size: 12.5px;
+  color: var(--ash-2, #667085);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Dropzone (Khi chưa có tệp - Tỉ lệ vừa vặn ~130px) */
+.ns-dropzone--empty {
+  border: 2px dashed var(--rule, #d0d5dd);
+  border-radius: var(--r-6, 12px);
+  background: var(--canvas, #f9fafb);
+  padding: 20px;
+  text-align: center;
+  margin-bottom: var(--sp-4, 16px);
+  transition: all 0.2s ease;
+}
+
+.ns-dropzone--empty:hover,
+.ns-dropzone--empty.ns-dropzone--dragging {
+  border-color: var(--rust, #e05638);
+  background: rgba(224, 86, 56, 0.03);
+}
+
+.ns-dropzone__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.ns-dropzone__icon-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid var(--rule-soft, #eaecf0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--rust, #e05638);
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.05);
+}
+
+.ns-dropzone__prompt {
+  font-size: 13px;
+  color: var(--ink-2, #475467);
+  margin: 0;
+}
+
+.ns-dropzone__btn {
+  background: none;
+  border: none;
+  color: var(--rust, #e05638);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.ns-dropzone__hint {
+  font-size: 11.5px;
+  color: var(--ash-2, #98a2b3);
+  margin: 0;
+}
+
+.ns-dropzone__select {
+  padding: 5px 10px;
+  border: 1px solid var(--rule, #d0d5dd);
+  border-radius: var(--r-5, 6px);
+  background: #ffffff;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-1, #101828);
+  outline: none;
+  cursor: pointer;
+}
+
+/* Full-Width File List Rows V2 */
+.ns-filelist-v2 {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.ns-fileitem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #ffffff;
+  border: 1px solid var(--rule-soft, #eaecf0);
+  border-radius: var(--r-6, 10px);
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.02);
+}
+
+.ns-fileitem:hover {
+  border-color: var(--rust-soft, #fecdca);
+  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.05);
+  transform: translateY(-1px);
+}
+
+.ns-fileitem__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ns-fileitem__icon--pdf { background: #fef2f2; color: #ef4444; }
+.ns-fileitem__icon--img { background: #fff7ed; color: #f97316; }
+.ns-fileitem__icon--doc { background: #eff6ff; color: #3b82f6; }
+
+.ns-fileitem__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ns-fileitem__name-group {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ns-fileitem__name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-1, #101828);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ns-fileitem__sub {
+  font-size: 11.5px;
+  color: var(--ash-2, #667085);
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.ns-filelist li > a:hover {
-  color: var(--rust);
+.ns-fileitem__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--canvas-2, #f2f4f7);
+  color: var(--ink-2, #344054);
+  flex-shrink: 0;
 }
 
-.ns-file__date {
-  color: var(--ash-2);
-  font-size: 11px;
-  font-family: var(--ff-sans);
+.ns-fileitem__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 /* Request Queue & Tables */
@@ -1624,6 +1773,161 @@ button.ns__kpi {
   border-bottom-style: none;
 }
 
+/* ── Hàng đợi HCNS duyệt "Yêu cầu cập nhật hồ sơ": MỖI ĐỀ NGHỊ MỘT THẺ ────────────────
+   Bỏ bảng ở màn này. Nội dung là chuỗi TỰ DO người dùng gõ (hộ khẩu, nơi cấp CCCD, số tài
+   khoản) — bảng cũ nhồi cả cụm thay đổi vào MỘT ô, không xuống dòng nên tràn ngang và đẩy
+   cột Lý do + hai nút Duyệt/Từ chối ra khỏi màn. Thẻ cho xuống dòng thoải mái và có chỗ đặt
+   cột "Hiện tại".
+   Bố cục diff bám theo bảng ở "Hồ sơ của tôi" (`.mine__diff-table`): người gửi và người duyệt
+   nhìn CÙNG một cách thì mới đối chiếu được với nhau. */
+.nsq__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nsq__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  padding: var(--sp-4);
+}
+
+.nsq__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.nsq__who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.nsq__who svg {
+  color: var(--ash-2);
+}
+
+.nsq__sent {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  color: var(--ash-2);
+}
+
+.nsq__diff {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+}
+
+.nsq__diff-head,
+.nsq__diff-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 150px) minmax(0, 1fr) 16px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 8px var(--sp-3);
+}
+
+.nsq__diff-head {
+  background: var(--paper);
+  color: var(--ash);
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.nsq__diff-row + .nsq__diff-row {
+  border-top: 1px solid var(--rule-hair);
+}
+
+.nsq__diff-name {
+  font-size: var(--fs-sm);
+  color: var(--ash);
+}
+
+.nsq__arrow {
+  color: var(--ash-2);
+}
+
+/* Chuỗi người dùng gõ có thể rất dài mà KHÔNG có dấu cách nào (số tài khoản dán nhầm cả
+   đoạn). `anywhere` là cách duy nhất cắt được giữa từ — thiếu nó là thẻ phình ngang, đúng
+   lỗi của bảng cũ. */
+.nsq__chip {
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: var(--r-3);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.nsq__chip--old {
+  background: var(--rule-hair);
+  color: var(--ash);
+  text-decoration: line-through;
+  text-decoration-color: var(--ash-2);
+}
+
+.nsq__chip--new {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  font-weight: var(--fw-medium);
+}
+
+.nsq__reason {
+  margin: 0;
+  padding: 8px var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  background: var(--paper);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.nsq__reason-label {
+  color: var(--ash);
+  font-weight: var(--fw-bold);
+}
+
+.nsq__warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 8px var(--sp-3);
+  border-radius: var(--r-3);
+  background: var(--signal-soft);
+  color: var(--signal-deep);
+  font-size: var(--fs-xs);
+}
+
+.nsq__warn svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.nsq__foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .cc-rowact {
   display: flex;
   gap: var(--sp-2);
@@ -1634,6 +1938,61 @@ button.ns__kpi {
   padding: 4px 10px;
   font-size: 12.5px;
   border-radius: var(--r-3);
+}
+
+/* ── Cột trong bảng: lớp thay cho `style={{ textAlign: "center" }}` rải khắp JSX ──────
+   Gom về CSS để đổi canh lề một lần là ăn mọi bảng, và để dòng JSX đọc ra ý nghĩa của cột
+   thay vì một mẩu style. Đặt ở nhan-su.css vì cả Hồ sơ nhân sự · Nghỉ phép · Tăng ca ·
+   Nội quy đều import file này. */
+
+/* Cột THAO TÁC: co sát nội dung (`width:1%` + nowrap) nên cột chỉ rộng bằng cụm nút.
+   Canh GIỮA chứ không phải phải: bảng ở Nghỉ phép nằm trong `.cc-timesheet-table`, mà lớp
+   đó đã ép `th { text-align: center }` với cùng độ ưu tiên và được nạp SAU nhan-su.css —
+   ghi `right` ở đây thì tiêu đề vẫn giữa còn nút chạy sang phải, lệch nhau. */
+.ns-col-act {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* Cột canh giữa (số ngày, trạng thái, badge…). */
+.ns-col-mid {
+  text-align: center;
+}
+
+/* Cột ô tích chọn: hẹp, canh giữa. */
+.ns-col-pick {
+  width: 36px;
+  text-align: center;
+}
+
+/* Cụm nút trên một dòng. Dùng KÈM lớp sẵn có của màn (vd `.cc-approve-actions-cell`,
+   `.cc-rowact`) nên chỉ ghi đè canh lề + khoảng cách; phải đặt SAU hai lớp kia trong file
+   này thì mới thắng (cùng độ ưu tiên, hơn nhau ở thứ tự). */
+.ns-rowact {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: center;
+}
+
+/* Ô chứa khối rỗng (`EmptyRow`) nằm trong bảng của Chấm công/Nghỉ phép, mà lớp
+   `.cc-timesheet-table td` ép `white-space: nowrap` + padding cho ô dữ liệu — áp lên khối
+   rỗng thì câu gợi ý dài không xuống dòng, kéo bảng rộng ra ngang màn. Trả lại nếp thường.
+   Phải viết kèm `.cc-timesheet-table` mới đủ ưu tiên: file này được nạp TRƯỚC cham-cong.css. */
+.cc-timesheet-table td.empty-state__cell {
+  white-space: normal;
+  padding: 0;
+}
+
+/* `RowActionButton` gắn sẵn lớp `md-page__rowbtn--danger` cho tín hiệu NGUY HIỂM (xoá / từ
+   chối / hủy), nhưng phần khai MÀU của lớp đó nằm ở `master-data.css` — nhóm màn Nhân sự
+   KHÔNG import file ấy (import vào là kéo nguyên bộ `.md-page__*` của màn danh mục sang).
+   Khai lại đúng phần cần, giới hạn trong gốc `.ns` (Hồ sơ NV · Nghỉ phép · Tăng ca) và
+   `.nqr` (Nội quy). GỠ DÒNG NÀY là nút Xoá trông y hệt nút thường — bấm nhầm như chơi. */
+.ns .md-page__rowbtn--danger,
+.nqr .md-page__rowbtn--danger {
+  color: var(--signal);
 }
 
 /* Alerts Banners */
@@ -1685,6 +2044,22 @@ button.ns__kpi {
 
   .ns-wizard__salary-intro span {
     text-align: left;
+  }
+
+  /* Diff đề nghị cập nhật: màn hẹp thì xếp DỌC. Mũi tên xoay 90° chứ không ẩn — nó là thứ
+     nói "cũ → mới"; bỏ đi thì hai chip chồng nhau đọc ra hai giá trị ngang hàng. */
+  .nsq__diff-head {
+    display: none;
+  }
+
+  .nsq__diff-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .nsq__arrow {
+    transform: rotate(90deg);
+    justify-self: start;
   }
 }
 

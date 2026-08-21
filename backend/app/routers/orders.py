@@ -1,7 +1,11 @@
 """Đơn hàng bán (Order) routes — redesign-don-hang-ban.md (P1 khung đơn).
 
-P1: list / get / enums / activity / create (từ báo giá | nhập tay) / update (khi nháp).
-Cọc/duyệt/chốt/hủy = P2–P5.
+P1: list / get / enums / activity / create (TỪ BÁO GIÁ) / update (khi nháp).
+Cọc/chốt/hủy = P2–P5.
+
+ĐÃ GỠ: nhánh tạo đơn nhập tay + 3 route duyệt đơn đặc thù (submit-approval / approve / reject).
+LƯU Ý quyền `approve_exception`: nghe như của luồng duyệt nhưng nó CÒN gác việc HỦY ĐƠN ĐÃ CHỐT
+(xem route hủy bên dưới) — đừng xoá theo.
 """
 from __future__ import annotations
 
@@ -17,7 +21,6 @@ from ..deps import (
 )
 from ..models.user import User
 from ..schemas.order import (
-    ApprovalActionIn,
     OrderActivityOut,
     OrderCancelIn,
     OrderCreate,
@@ -96,7 +99,6 @@ def list_orders(
     q: str | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
     order_kind: str | None = Query(default=None),
-    approval_state: str | None = Query(default=None),
     view_scope: str | None = Query(default=None),
     sort: str = Query(default="-created_at"),
     page: int = Query(default=1, ge=1),
@@ -105,7 +107,7 @@ def list_orders(
     scope = _effective_scope(_scope_for(authz, user), view_scope)
     return svc.list(
         actor=user, scope=scope, q=q, status=status_filter, order_kind=order_kind,
-        approval_state=approval_state, sort=sort, page=page, size=size,
+        sort=sort, page=page, size=size,
     )
 
 
@@ -126,10 +128,9 @@ def notify_summary(
     authz: Authz,
 ) -> dict:
     """Số nuôi badge/toast real-time Đơn hàng bán — 'việc chờ TÔI xử lý' theo vai (SSE snapshot lúc
-    connect + REST fallback khi có event). TP/GĐ=chờ duyệt; Kế toán=chờ ghi cọc; Sale=sẵn sàng chốt."""
+    connect + REST fallback khi có event). Kế toán=chờ ghi cọc; Sale=sẵn sàng chốt."""
     return svc.notify_summary(
         actor=user, scope=_scope_for(authz, user),
-        can_approve=authz.can(user, MODULE, "approve_exception"),
         can_record_deposit=authz.can(user, MODULE, "record_deposit"),
         can_manage_status=authz.can(user, MODULE, "manage_status"),
     )
@@ -286,58 +287,6 @@ def extend_quote(
         return svc.extend_source_quote(order_id=order_id, actor=user, scope=_scope_for(authz, user))
     except Exception as exc:
         raise _map(exc)
-
-
-# --- Duyệt đơn đặc thù (P3) — luật trình-duyệt --------------------------------
-@router.post("/{order_id}/submit", response_model=OrderDetailOut)
-def submit_for_approval(
-    order_id: int,
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
-    svc: Service,
-    authz: Authz,
-) -> OrderDetailOut:
-    try:
-        d = svc.submit_for_approval(order_id=order_id, actor=user, scope=_scope_for(authz, user))
-    except Exception as exc:
-        raise _map(exc)
-    _order_changed(d.order_no)   # trình duyệt → TP/GĐ thấy 'chờ duyệt'
-    return d
-
-
-@router.post("/{order_id}/approve", response_model=OrderDetailOut)
-def approve_order(
-    order_id: int,
-    payload: ApprovalActionIn,
-    user: Annotated[User, Depends(require_permission(MODULE, "approve_exception"))],
-    svc: Service,
-    authz: Authz,
-) -> OrderDetailOut:
-    try:
-        d = svc.approve(order_id=order_id, actor=user, scope=_scope_for(authz, user), note=payload.note)
-    except Exception as exc:
-        raise _map(exc)
-    if d.sale_user_id:   # báo NGƯỜI SOẠN kết quả duyệt NGAY (toast)
-        hub.publish(d.sale_user_id, {"type": "order_decision", "code": d.order_no, "decision": "approved"})
-    _order_changed(d.order_no)
-    return d
-
-
-@router.post("/{order_id}/reject", response_model=OrderDetailOut)
-def reject_order(
-    order_id: int,
-    payload: ApprovalActionIn,
-    user: Annotated[User, Depends(require_permission(MODULE, "approve_exception"))],
-    svc: Service,
-    authz: Authz,
-) -> OrderDetailOut:
-    try:
-        d = svc.reject(order_id=order_id, actor=user, scope=_scope_for(authz, user), note=payload.note)
-    except Exception as exc:
-        raise _map(exc)
-    if d.sale_user_id:
-        hub.publish(d.sale_user_id, {"type": "order_decision", "code": d.order_no, "decision": "rejected"})
-    _order_changed(d.order_no)
-    return d
 
 
 # --- Cọc (V5) — Kế toán LẬP PHIẾU THU CỌC THẬT, quyền `record_deposit` --------

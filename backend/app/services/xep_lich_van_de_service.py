@@ -2,16 +2,16 @@
 
 Bàn kiểm soát cuối trước khi thả kế hoạch xuống xưởng (bám BC Planning Worksheet: cảnh báo + action
 message recompute mỗi lần đọc, KHÔNG lưu). Vấn đề là DẪN XUẤT từ `XepLichService.danh_sach()` (đã tính
-sẵn cờ trùng máy / nhãn nguy cơ / bị chặn / cần xác nhận) + 3 detector rẻ (đè khóa máy · sai tiền nhiệm
-· gang thiếu xả tờ). Chỉ PHẦN CON NGƯỜI XỬ LÝ lưu ở `xep_lich_van_de` (neo `issue_key`); lịch sử dùng
+sẵn cờ trùng máy / nhãn nguy cơ / bị chặn / cần xác nhận) cùng các detector đè khóa máy và sai tiền
+nhiệm. Chỉ PHẦN CON NGƯỜI XỬ LÝ lưu ở `xep_lich_van_de` (neo `issue_key`); lịch sử dùng
 AuditLog. Máy-chỉ-ghi-nhận: máy phát hiện + tính trễ + gợi ý; người Tiếp nhận rồi mới xử lý/duyệt ngoại lệ.
 
-Phân mức: Chặn (bắt buộc xử lý trước phát hành) · Nghiêm trọng · Cao · Cảnh báo. `da_phat_hanh`
-(≈ Released) chỉ set khi entity hết xung đột Chặn CHƯA ngoại lệ.
+Phân mức CHỈ CÒN 2: **Chặn** (cửa phát hành không mở) · **Nên xem** (cứ làm, nhưng biết trước).
+`da_phat_hanh` (≈ Released) chỉ set khi entity hết xung đột Chặn CHƯA ngoại lệ.
 """
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
@@ -20,7 +20,7 @@ from ..models.bai_ghep import (
     TT_DA_LAP_KE_HOACH as BG_DA_LAP, TT_DA_PHAT_HANH as BG_DA_PHAT_HANH, BaiGhep, BaiGhepThanhVien,
 )
 from ..models.lsx import (
-    LB_THUE_NGOAI, LB_XA_TO, TT_DA_LAP_KE_HOACH as LSX_DA_LAP,
+    LB_THUE_NGOAI, TT_DA_LAP_KE_HOACH as LSX_DA_LAP,
     TT_DA_PHAT_HANH as LSX_DA_PHAT_HANH, Lsx,
 )
 from ..models.xep_lich_van_de import (
@@ -34,32 +34,50 @@ from .xep_lich_service import (
     _aware, _cuoi_ngay, _dau_ngay, _naive, _utcnow,
 )
 
-# --- Mức nghiêm trọng (4 mức; Chặn = chặn phát hành) ---
+# --- Mức: CHỈ 2 (18/08/2026, gộp từ 4) ---
+# Trước có `chan · nghiem_trong · cao · canh_bao`, nhưng chỉ `chan` có hiệu lực thật (chặn phát
+# hành); ba mức dưới KHÁC NHAU MỖI MÀU CHỮ — người dùng phải học 4 từ để rồi vẫn xử lý y hệt nhau.
+# Nay: Chặn = chưa phát hành được. Nên xem = cứ làm, nhưng biết trước.
 SEV_CHAN = "chan"
-SEV_NGHIEM_TRONG = "nghiem_trong"
-SEV_CAO = "cao"
-SEV_CANH_BAO = "canh_bao"
-SEV_ORDER = {SEV_CHAN: 0, SEV_NGHIEM_TRONG: 1, SEV_CAO: 2, SEV_CANH_BAO: 3}
+SEV_LUU_Y = "luu_y"
+SEV_ORDER = {SEV_CHAN: 0, SEV_LUU_Y: 1}
 
-# --- Nhóm vấn đề ---
-CAT_TRUNG_MAY = "trung_may"
-CAT_DE_KHOA_MAY = "de_khoa_may"
-CAT_SAI_TIEN_NHIEM = "sai_tien_nhiem"
-CAT_GANG_THIEU_XA_TO = "gang_thieu_xa_to"
-CAT_THIEU_DU_LIEU = "thieu_du_lieu"
-CAT_NGUY_CO_TRE = "nguy_co_tre"
-CAT_MAY_KHONG_KHAM = "may_khong_kham"
-CAT_QUA_TAI_MAY = "qua_tai_may"
-CAT_HAN_BAI_GHEP = "han_bai_ghep"
-CAT_THUE_NGOAI = "thue_ngoai"
+# --- Loại vấn đề: 6 — trả lời đúng một câu "AI phải sửa cái này" ---
+# Gộp từ 12 tên bộ dò. Người đọc `title` + `nguyen_nhan` để biết chuyện gì; `category` chỉ để LỌC
+# và để gom cho hàng đèn Kế hoạch SX, nên nó phải là 6 việc của 6 người chứ không phải 12 tên máy.
+CAT_MAY = "may"                # máy đá nhau · đè vùng khoá · quá tải · không kham nổi tờ in
+CAT_NGUOI = "nguoi"            # tổ không đủ quân cho khung giờ đã xếp
+CAT_VAT_TU = "vat_tu"          # chưa có hàng để chạy
+CAT_HAN = "han"                # trễ hạn giao (của lệnh, hoặc do bài ghép in xong muộn)
+CAT_DU_LIEU = "du_lieu"        # thiếu/sai dữ liệu nên chưa lên được lịch
+CAT_THUE_NGOAI = "thue_ngoai"  # nhà gia công ngoài
+
+
+# --- Tiền tố `issue_key` — CHUỖI CŨ GIỮ NGUYÊN, tách hẳn khỏi `category` ---
+# `xep_lich_van_de` neo state người-xử-lý theo `issue_key`. Gộp loại mà đổi luôn tiền tố khoá là
+# mất sạch "ai đã tiếp nhận · ai đã duyệt ngoại lệ". Nên khoá và loại nay là HAI thứ: khoá vẫn MỊN
+# theo từng bộ dò (vốn đã vậy — `thue_ngoai` phát ra 4 tiền tố khác nhau), loại thì GOM cho người
+# đọc. Đổi bất kỳ chuỗi nào dưới đây = mất state của các vấn đề đang mở, đừng đụng.
+K_TRUNG_MAY = "trung_may"
+K_DE_KHOA_MAY = "de_khoa_may"
+K_SAI_TIEN_NHIEM = "sai_tien_nhiem"
+K_THIEU_DU_LIEU = "thieu_du_lieu"
+K_NGUY_CO_TRE = "nguy_co_tre"
+K_MAY_KHONG_KHAM = "may_khong_kham"
+K_QUA_TAI_MAY = "qua_tai_may"
+K_HAN_BAI_GHEP = "han_bai_ghep"
+K_THIEU_VAT_TU = "thieu_vat_tu"              # F: bảng cân đối có dòng đỏ cho lệnh/bài này
+K_THIEU_NGUOI = "thieu_nguoi"                # G: tổ bố trí dưới số người tối thiểu
+K_QUA_TAI_TO = "qua_tai_to"                  # I: Σ người các việc cùng lúc > quân số có mặt của tổ
 
 # §3.1 ngưỡng tải máy trên CỬA SỔ TRƯỢT (§6 dùng hằng cấu hình thay bảng planning_issue_rules):
-# 85–100% → Cảnh báo, >100% → Cao. Cửa sổ = số ngày tới tính từ hôm nay.
+# 85–100% → "sát công suất", >100% → "VƯỢT công suất" — nay phân biệt bằng CHỮ trong tiêu đề
+# (mức giờ chỉ còn 2). Cửa sổ = số ngày tới tính từ hôm nay.
 TAI_CUA_SO_NGAY = 7
 TAI_PCT_CAO = 100.0
 TAI_PCT_CANH_BAO = 85.0
 
-_RUI_RO_SEV = {"da_tre": SEV_NGHIEM_TRONG, "nguy_co_tre": SEV_CAO, "sap_toi_han": SEV_CANH_BAO}
+_RUI_RO_XAU = ("da_tre", "nguy_co_tre", "sap_toi_han")
 _RUI_RO_RANK = {"da_tre": 0, "nguy_co_tre": 1, "sap_toi_han": 2, "an_toan": 3, "chua_co_han": 4}
 _RUI_RO_LABEL = {"da_tre": "đã trễ", "nguy_co_tre": "nguy cơ trễ", "sap_toi_han": "sắp tới hạn"}
 _XN_LABEL = {"kho_vuot_may": "khổ vượt máy", "so_mau_vuot_units": "số màu vượt máy",
@@ -72,6 +90,12 @@ def _fmt(dt) -> str:
     if a is None:
         return "—"
     return a.replace(tzinfo=None).strftime("%d/%m %H:%M")
+
+
+def _ngay(d) -> str:
+    """`date` → 'dd/mm'. Khác `_fmt` (nhận datetime, in kèm giờ): ngày hàng về là NGÀY, gắn giờ vào
+    là bịa ra một độ chính xác nhà cung cấp chưa từng hứa."""
+    return d.strftime("%d/%m") if hasattr(d, "strftime") else str(d)
 
 
 def _phut_str(phut: float) -> str:
@@ -105,6 +129,10 @@ class XepLichVanDeService:
         self.audit = audit or AuditLogRepository(db)
         self.xl = XepLichService(db, XepLichRepository(db), self.audit)
         self.repo = XepLichVanDeRepository(db)
+        # Cache trong VÒNG ĐỜI service (= một request): bảng cân đối vật tư đắt, mà `_build()`
+        # chạy hai lượt mỗi lần mở bàn xếp lịch. Xem `_can_doi_vat_tu`.
+        self._kh_vt = None
+        self._kh_vt_bang: dict | None = None
 
     # ================= DẪN XUẤT DANH SÁCH VẤN ĐỀ =================
 
@@ -117,22 +145,38 @@ class XepLichVanDeService:
             "mas": _uniq([r.get("lsx_ma") for r in rows]),
         }
 
-    def _build(self) -> list[dict]:
-        """Mọi vấn đề dẫn xuất (chưa lọc), đã trộn state người xử lý."""
-        rows = self.xl.danh_sach()["items"]
+    def _build(self, rows: list[dict] | None = None) -> list[dict]:
+        """Mọi vấn đề dẫn xuất (chưa lọc), đã trộn state người xử lý.
+
+        `rows` = danh sách dòng lịch DÙNG LẠI. `danh_sach()` dựng cả DAG + thời lượng cho TOÀN bàn,
+        nên nơi nào đã có `rows` trong tay (xem `dong_va_van_de`) thì truyền vào, đừng để nó chạy
+        lượt thứ hai cho cùng một câu trả lời.
+        """
+        if rows is None:
+            rows = self.xl.danh_sach()["items"]
         issues: list[dict] = []
         issues += self._trung_may(rows)
         issues += self._de_khoa_may(rows)
         issues += self._sai_tien_nhiem(rows)
-        issues += self._gang_thieu_xa_to(rows)
         issues += self._thieu_du_lieu(rows)
         issues += self._nguy_co_tre(rows)
         issues += self._may_khong_kham(rows)
         issues += self._qua_tai_may(rows)
         issues += self._han_som_bai_ghep(rows)
         issues += self._thue_ngoai(rows)
+        issues += self._thieu_nguoi(rows)
+        issues += self._qua_tai_to(rows)
+        issues += self._thieu_vat_tu(rows)
         self._merge_state(issues)
         return issues
+
+    def dong_va_van_de(self) -> tuple[list[dict], list[dict]]:
+        """(dòng lịch, vấn đề) trong MỘT lượt tính — cho bên ngoài cần cả hai (hàng đèn Kế hoạch SX).
+
+        Gọi `danh_sach()` rồi `liet_ke()` là chạy engine hai lần cho cùng một tập dữ liệu.
+        """
+        rows = self.xl.danh_sach()["items"]
+        return rows, self._build(rows)
 
     def liet_ke(self, *, severity: str | None = None, category: str | None = None,
                 trang_thai: str | None = None, lsx_id: int | None = None,
@@ -161,9 +205,7 @@ class XepLichVanDeService:
             return sum(1 for it in issues if it["severity"] == sev and it["trang_thai"] != TT_NGOAI_LE)
         return {
             "chan": n(SEV_CHAN),
-            "nghiem_trong": n(SEV_NGHIEM_TRONG),
-            "cao": n(SEV_CAO),
-            "canh_bao": n(SEV_CANH_BAO),
+            "luu_y": n(SEV_LUU_Y),
             "ngoai_le": sum(1 for it in issues if it["trang_thai"] == TT_NGOAI_LE),
             "tong": len(issues),
         }
@@ -218,8 +260,8 @@ class XepLichVanDeService:
                         continue
                     lo, hi = (a, b) if a["id"] <= b["id"] else (b, a)
                     out.append({
-                        "issue_key": f"{CAT_TRUNG_MAY}:{mid}:{lo['id']}:{hi['id']}",
-                        "category": CAT_TRUNG_MAY, "severity": SEV_CHAN,
+                        "issue_key": f"{K_TRUNG_MAY}:{mid}:{lo['id']}:{hi['id']}",
+                        "category": CAT_MAY, "severity": SEV_CHAN,
                         "title": (f"{a['lsx_ma']} · {a['cong_doan_ten']} ({_fmt(sa)}–{_fmt(ea)}) "
                                   f"trùng {b['lsx_ma']} · {b['cong_doan_ten']} ({_fmt(sb)}–{_fmt(eb)}) "
                                   f"trên {a['may_ten']} — {_phut_str(ov)}"),
@@ -246,8 +288,8 @@ class XepLichVanDeService:
                 if ov <= 0:
                     continue
                 out.append({
-                    "issue_key": f"{CAT_DE_KHOA_MAY}:{r['id']}:{p.id}",
-                    "category": CAT_DE_KHOA_MAY, "severity": SEV_CHAN,
+                    "issue_key": f"{K_DE_KHOA_MAY}:{r['id']}:{p.id}",
+                    "category": CAT_MAY, "severity": SEV_CHAN,
                     "title": (f"{r['lsx_ma']} · {r['cong_doan_ten']} xếp {_fmt(s)}–{_fmt(e)} đè vùng "
                               f"khóa máy {r['may_ten']} ({p.reason}) {_fmt(ps)}–{_fmt(pe)}"),
                     "nguyen_nhan": "Công đoạn được xếp vào khoảng máy đang bảo trì/khóa.",
@@ -268,8 +310,8 @@ class XepLichVanDeService:
             if gap <= 1:  # cho phép sai số làm tròn 1 phút
                 continue
             out.append({
-                "issue_key": f"{CAT_SAI_TIEN_NHIEM}:{r['id']}",
-                "category": CAT_SAI_TIEN_NHIEM, "severity": SEV_CHAN,
+                "issue_key": f"{K_SAI_TIEN_NHIEM}:{r['id']}",
+                "category": CAT_DU_LIEU, "severity": SEV_CHAN,
                 "title": (f"{r['lsx_ma']} · {r['cong_doan_ten']} xếp {_fmt(st)} nhưng bước trước xong "
                           f"lúc {_fmt(som)} — sớm hơn {_phut_str(gap)}"),
                 "nguyen_nhan": "Công đoạn sau được xếp bắt đầu trước khi công đoạn trước kết thúc.",
@@ -277,33 +319,6 @@ class XepLichVanDeService:
                 "delay_phut": None,
                 "group_key": f"lsx:{r['lsx_id']}",
             })
-        return out
-
-    def _gang_thieu_xa_to(self, rows: list[dict]) -> list[dict]:
-        """LSX tham gia bài ghép nhưng routing thiếu bước XẢ TỜ (tách bán thành phẩm sau in chung) — Chặn."""
-        bg_ids = _uniq([r["bai_ghep_id"] for r in rows if r["nguon"] == "in_ghep" and r["bai_ghep_id"]])
-        out: list[dict] = []
-        for bgid in bg_ids:
-            bg = self.xl.bg_repo.get(bgid)
-            if bg is None:
-                continue
-            for tv in bg.thanh_viens:
-                lid = tv.lsx_id
-                member_rows = [r for r in rows if r["nguon"] == "lsx" and r["lsx_id"] == lid]
-                if not member_rows:
-                    continue
-                if any(r["loai_buoc"] == LB_XA_TO for r in member_rows):
-                    continue
-                out.append({
-                    "issue_key": f"{CAT_GANG_THIEU_XA_TO}:{lid}",
-                    "category": CAT_GANG_THIEU_XA_TO, "severity": SEV_CHAN,
-                    "title": (f"{member_rows[0]['lsx_ma']} tham gia bài ghép {bg.ma} nhưng routing chưa "
-                              f"có bước xả tờ (tách bán thành phẩm sau khi in chung)."),
-                    "nguyen_nhan": "In chạy chung ở bài ghép, sau in phải xả tờ tách ra mới chạy tiếp riêng.",
-                    "impacts": self._impact(member_rows, extra_bg=[bgid]),
-                    "delay_phut": None,
-                    "group_key": f"bai_ghep:{bgid}",
-                })
         return out
 
     def _thieu_du_lieu(self, rows: list[dict]) -> list[dict]:
@@ -320,8 +335,8 @@ class XepLichVanDeService:
             txt = ("chưa gán máy/tổ" if r["blocked_reason"] == "thieu_may"
                    else "chưa khai năng suất → không tính được thời lượng")
             out.append({
-                "issue_key": f"{CAT_THIEU_DU_LIEU}:{r['id']}",
-                "category": CAT_THIEU_DU_LIEU, "severity": SEV_CHAN,
+                "issue_key": f"{K_THIEU_DU_LIEU}:{r['id']}",
+                "category": CAT_DU_LIEU, "severity": SEV_CHAN,
                 "title": f"{r['lsx_ma']} · {r['cong_doan_ten']}: {txt}",
                 "nguyen_nhan": "Công đoạn bắt buộc thiếu dữ liệu nên không lên được lịch.",
                 "impacts": self._impact([r]),
@@ -331,15 +346,16 @@ class XepLichVanDeService:
         return out
 
     def _nguy_co_tre(self, rows: list[dict]) -> list[dict]:
-        """Nguy cơ trễ gom theo LSX (mức xấu nhất trong chuỗi): da_tre→Nghiêm trọng, nguy_co_tre→Cao,
-        sap_toi_han→Cảnh báo. NETRONIC: kẻ sọc trễ hạn."""
+        """Nguy cơ trễ gom theo LSX, lấy nhãn xấu nhất trong chuỗi (đã trễ > nguy cơ trễ > sắp tới
+        hạn) làm câu chữ. Mức luôn là Nên xem: trễ hạn KHÔNG chặn phát hành — xưởng vẫn phải chạy,
+        việc của điều độ là biết mà báo khách. NETRONIC: kẻ sọc trễ hạn."""
         by_lsx: dict[int, list[dict]] = {}
         for r in rows:
             if r["nguon"] == "lsx" and r["lsx_id"]:
                 by_lsx.setdefault(r["lsx_id"], []).append(r)
         out: list[dict] = []
         for lid, rs in by_lsx.items():
-            risky = [r for r in rs if r["nhan_rui_ro"] in _RUI_RO_SEV]
+            risky = [r for r in rs if r["nhan_rui_ro"] in _RUI_RO_XAU]
             if not risky:
                 continue
             worst = min(risky, key=lambda r: _RUI_RO_RANK.get(r["nhan_rui_ro"], 9))["nhan_rui_ro"]
@@ -348,8 +364,8 @@ class XepLichVanDeService:
             delay = (abs(min_slack) * PHUT_LAM_NGAY) if (min_slack is not None and min_slack < 0) else None
             slack_txt = f" (độ dư {min_slack:+d}d)" if min_slack is not None else ""
             out.append({
-                "issue_key": f"{CAT_NGUY_CO_TRE}:{lid}",
-                "category": CAT_NGUY_CO_TRE, "severity": _RUI_RO_SEV[worst],
+                "issue_key": f"{K_NGUY_CO_TRE}:{lid}",
+                "category": CAT_HAN, "severity": SEV_LUU_Y,
                 "title": f"{rs[0]['lsx_ma']}: {_RUI_RO_LABEL[worst]}{slack_txt}",
                 "nguyen_nhan": "Dự kiến hoàn thành so với hạn cho thấy lệnh có nguy cơ trễ.",
                 "impacts": self._impact(rs),
@@ -366,8 +382,8 @@ class XepLichVanDeService:
                 continue
             ly = ", ".join(_XN_LABEL.get(x, x) for x in (r["ly_do_xac_nhan"] or []))
             out.append({
-                "issue_key": f"{CAT_MAY_KHONG_KHAM}:{r['id']}",
-                "category": CAT_MAY_KHONG_KHAM, "severity": SEV_CAO,
+                "issue_key": f"{K_MAY_KHONG_KHAM}:{r['id']}",
+                "category": CAT_MAY, "severity": SEV_LUU_Y,
                 "title": f"{r['lsx_ma']} · {r['cong_doan_ten']}: máy {r['may_ten']} có thể không kham ({ly})",
                 "nguyen_nhan": "Thông số máy đang gán vượt spec công đoạn — cần xác nhận hoặc đổi máy.",
                 "impacts": self._impact([r]),
@@ -405,16 +421,18 @@ class XepLichVanDeService:
             pct = (xep / avail * 100.0) if avail > 0 else float("inf")
             if pct < TAI_PCT_CANH_BAO:
                 continue
-            sev = SEV_CAO if pct >= TAI_PCT_CAO else SEV_CANH_BAO
+            # Mức gộp còn 2 nên "vượt" và "sát" công suất hết khác màu — đẩy vào CHỮ, chỗ người
+            # dùng thật sự đọc, thay vì bắt họ đoán qua sắc đỏ/cam.
+            muc_tu = "VƯỢT công suất" if pct >= TAI_PCT_CAO else "sát công suất"
             if avail > 0:
-                title = (f"{rs[0]['may_ten']}: tải {pct:.0f}% trong {TAI_CUA_SO_NGAY} ngày tới "
+                title = (f"{rs[0]['may_ten']}: tải {pct:.0f}% ({muc_tu}) trong {TAI_CUA_SO_NGAY} ngày tới "
                          f"({xep / 60.0:.0f}h đã xếp / {avail / 60.0:.0f}h khả dụng)")
             else:
                 title = (f"{rs[0]['may_ten']}: {xep / 60.0:.0f}h đã xếp nhưng KHÔNG có giờ khả dụng "
                          f"trong {TAI_CUA_SO_NGAY} ngày tới")
             out.append({
-                "issue_key": f"{CAT_QUA_TAI_MAY}:{mid}",
-                "category": CAT_QUA_TAI_MAY, "severity": sev,
+                "issue_key": f"{K_QUA_TAI_MAY}:{mid}",
+                "category": CAT_MAY, "severity": SEV_LUU_Y,
                 "title": title,
                 "nguyen_nhan": "Tổng giờ công việc đã xếp trên máy vượt (hoặc sát) công suất khả dụng của kỳ.",
                 "impacts": self._impact(rs),
@@ -437,15 +455,16 @@ class XepLichVanDeService:
             bg = self.xl.bg_repo.get(bgid)
             if bg is None:
                 continue
+            lsx_cua_tv = self.xl.bg_repo.lsx_by_ids([tv.lsx_id for tv in bg.thanh_viens])
             for tv in bg.thanh_viens:
-                lsx = self.xl.lsx_repo.get(tv.lsx_id)
+                lsx = lsx_cua_tv.get(tv.lsx_id)
                 han = self.xl._han(lsx)
                 if han is None or _aware(_cuoi_ngay(han)) >= finish_in:
                     continue
                 member_rows = [r for r in rows if r["nguon"] == "lsx" and r["lsx_id"] == tv.lsx_id]
                 out.append({
-                    "issue_key": f"{CAT_HAN_BAI_GHEP}:{tv.lsx_id}:{bgid}",
-                    "category": CAT_HAN_BAI_GHEP, "severity": SEV_NGHIEM_TRONG,
+                    "issue_key": f"{K_HAN_BAI_GHEP}:{tv.lsx_id}:{bgid}",
+                    "category": CAT_HAN, "severity": SEV_LUU_Y,
                     "title": (f"{lsx.ma}: hạn hoàn thành {_fmt(_cuoi_ngay(han))} SỚM HƠN lúc bài ghép "
                               f"{bg.ma} in xong {_fmt(finish_in)}"),
                     "nguyen_nhan": "Lệnh có hạn sớm hơn thời điểm bài ghép in xong — không kịp xả tờ chạy tiếp.",
@@ -457,7 +476,13 @@ class XepLichVanDeService:
 
     def _thue_ngoai(self, rows: list[dict]) -> list[dict]:
         """Bước gia công ngoài: (a) thiếu NCC / ngày gửi-nhận → Chặn (không chốt được lịch nhận);
-        (b) bước SAU (trong LSX) xếp bắt đầu TRƯỚC ngày nhận gia công dự kiến → Nghiêm trọng."""
+        (b) bước SAU (trong LSX) xếp bắt đầu TRƯỚC mốc nhận hàng → Nghiêm trọng;
+        (c) hàng đang ở ngoài mà QUÁ HẠN nhận → Nghiêm trọng;
+        (d) nhận về HỤT vượt định mức cho phép → Nghiêm trọng.
+
+        Mốc nhận lấy SỐ THỰC khi đã có (`nhan_luc`), chưa về mới rơi về `ngay_nhan_dk`. Một bộ
+        luật cho cả dự kiến lẫn thực tế — đừng để màn lệnh và màn xung đột phán hai kiểu.
+        """
         out: list[dict] = []
         for r in rows:
             if r["loai_buoc"] != LB_THUE_NGOAI:
@@ -482,21 +507,57 @@ class XepLichVanDeService:
                     "delay_phut": None,
                     "group_key": f"lsx:{r['lsx_id']}",
                 })
-            # (b) bước sau xếp trước ngày nhận gia công dự kiến
-            if lcd.ngay_nhan_dk is not None and orm is not None and r["lsx_id"]:
-                nhan = _aware(_cuoi_ngay(lcd.ngay_nhan_dk))
+            # (b) bước sau xếp trước MỐC NHẬN — thực tế thắng dự kiến khi hàng đã về
+            da_ve = lcd.nhan_luc is not None
+            nhan = (_aware(lcd.nhan_luc) if da_ve
+                    else _aware(_cuoi_ngay(lcd.ngay_nhan_dk)) if lcd.ngay_nhan_dk else None)
+            if nhan is not None and orm is not None and r["lsx_id"]:
                 starts = [_aware(x.start_at) for x in self.xl.repo.by_lsx(r["lsx_id"])
                           if x.source_thu_tu > orm.source_thu_tu and x.start_at]
                 early = min(starts) if starts else None
                 if early is not None and early < nhan:
+                    moc = "đã nhận" if da_ve else "dự kiến"
                     out.append({
                         "issue_key": f"thue_ngoai_tre:{r['id']}",
-                        "category": CAT_THUE_NGOAI, "severity": SEV_NGHIEM_TRONG,
+                        "category": CAT_THUE_NGOAI, "severity": SEV_LUU_Y,
                         "title": (f"{r['lsx_ma']}: bước sau xếp {_fmt(early)} — TRƯỚC khi nhận hàng gia công "
-                                  f"{r['cong_doan_ten']} (dự kiến {_fmt(nhan)})"),
-                        "nguyen_nhan": "Công đoạn sau được xếp bắt đầu trước ngày dự kiến nhận hàng gia công về.",
+                                  f"{r['cong_doan_ten']} ({moc} {_fmt(nhan)})"),
+                        "nguyen_nhan": "Công đoạn sau được xếp bắt đầu trước lúc nhận hàng gia công về.",
                         "impacts": self._impact([r]),
                         "delay_phut": round((nhan - early).total_seconds() / 60.0),
+                        "group_key": f"lsx:{r['lsx_id']}",
+                    })
+            # (c) hàng ĐANG Ở NGOÀI mà quá hạn nhận — chỉ đếm khi đã thật sự giao đi
+            if lcd.giao_luc is not None and not da_ve and lcd.ngay_nhan_dk is not None:
+                tre = (date.today() - lcd.ngay_nhan_dk).days
+                if tre > 0:
+                    out.append({
+                        "issue_key": f"thue_ngoai_qua_han:{r['id']}",
+                        "category": CAT_THUE_NGOAI, "severity": SEV_LUU_Y,
+                        "title": (f"{r['lsx_ma']} · {r['cong_doan_ten']}: hàng đang ở ngoài, "
+                                  f"quá hạn nhận {tre} ngày"),
+                        "nguyen_nhan": (f"Đã giao cho {lcd.nha_cung_cap or 'nhà gia công'} nhưng chưa "
+                                        f"nhận về, hẹn {lcd.ngay_nhan_dk:%d/%m}."),
+                        "impacts": self._impact([r]),
+                        "delay_phut": tre * 24 * 60,
+                        "group_key": f"lsx:{r['lsx_id']}",
+                    })
+            # (d) nhận về hụt vượt định mức — định mức TRỐNG là chưa khai, đừng phán
+            if (lcd.sl_giao_thuc is not None and lcd.sl_nhan_thuc is not None
+                    and lcd.hao_hut_cho_phep is not None):
+                hut = float(lcd.sl_giao_thuc) - float(lcd.sl_nhan_thuc)
+                cho_phep = float(lcd.hao_hut_cho_phep)
+                if hut > cho_phep:
+                    out.append({
+                        "issue_key": f"thue_ngoai_hut:{r['id']}",
+                        "category": CAT_THUE_NGOAI, "severity": SEV_LUU_Y,
+                        "title": (f"{r['lsx_ma']} · {r['cong_doan_ten']}: nhận về hụt "
+                                  f"{hut:,.0f}, định mức cho phép {cho_phep:,.0f}".replace(",", ".")),
+                        "nguyen_nhan": (f"Giao {float(lcd.sl_giao_thuc):,.0f} nhận "
+                                        f"{float(lcd.sl_nhan_thuc):,.0f} — thiếu hàng cho bước sau."
+                                        ).replace(",", "."),
+                        "impacts": self._impact([r]),
+                        "delay_phut": None,
                         "group_key": f"lsx:{r['lsx_id']}",
                     })
         return out
@@ -538,7 +599,7 @@ class XepLichVanDeService:
     def ngoai_le(self, *, issue_key: str, ly_do: str, expires_at, actor):
         """Chấp nhận ngoại lệ (router gate `approve`). KHÔNG cho ngoại lệ vấn đề kỹ thuật bất khả:
         máy không kham khổ giấy/số màu là chặn kỹ thuật — phải đổi máy, không bỏ qua bằng ngoại lệ."""
-        if issue_key.startswith(f"{CAT_MAY_KHONG_KHAM}:"):
+        if issue_key.startswith(f"{K_MAY_KHONG_KHAM}:"):
             raise XepLichConflict("Vấn đề kỹ thuật (máy không đáp ứng) không thể duyệt ngoại lệ — đổi máy.")
         return self._act(
             issue_key, actor,
@@ -559,6 +620,23 @@ class XepLichVanDeService:
                 out.append(it)
         return out
 
+    def _chan_thieu_vat_tu(self, *, lsx_id: int | None = None,
+                           bai_ghep_id: int | None = None) -> None:
+        """GATE DÙNG CHUNG với màn Xếp lịch 2 (§9.3): chưa giữ đủ vật tư thì KHÔNG phát hành.
+
+        Màn cũ trước đây chỉ soi bảng CÂN ĐỐI (tồn tự do) nên nhả giữ chỗ mà kho vẫn đầy thì cửa
+        này mở — lệnh phát hành ra xưởng trong khi vật tư đã bị lệnh khác lĩnh mất. Nay cả hai cửa
+        (cũ + v2) cùng vấp một luật: `release.van_de_vat_tu` soi theo GIỮ CHỖ, không phải tồn tự do.
+        """
+        from .xep_lich_2 import release as _release2
+
+        vd = _release2.van_de_vat_tu(self.db, lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+        if vd:
+            raise XepLichConflict(
+                "Vật tư chưa giữ đủ — không thể phát hành: "
+                + "; ".join(i["mo_ta"] for i in vd)
+            )
+
     def phat_hanh_lsx(self, *, lsx_id: int, actor) -> Lsx:
         lsx = self.xl.lsx_repo.get(lsx_id)
         if lsx is None:
@@ -567,10 +645,14 @@ class XepLichVanDeService:
             raise XepLichConflict(f"Lệnh {lsx.ma} chưa lập kế hoạch — không thể phát hành")
         if self.xl.bg_repo.lsx_da_ghep([lsx_id]):
             raise XepLichConflict("Lệnh nằm trong bài ghép — phát hành qua bài ghép")
+        self._chan_thieu_vat_tu(lsx_id=lsx_id)
         blk = self._blocking_for(self._build(), lsx_ids={lsx_id}, bg_ids=set())
         if blk:
             raise XepLichConflict(f"Còn {len(blk)} xung đột CHẶN chưa xử lý/ngoại lệ — không thể phát hành")
         lsx.trang_thai = LSX_DA_PHAT_HANH
+        # §4.1 — đóng băng gói phát hành (snapshot công việc + nhóm thành phẩm) trong CÙNG giao dịch.
+        from .san_xuat.release import phat_hanh as _sx_phat_hanh
+        _sx_phat_hanh(self.db, lsx_ids={lsx_id}, bai_ghep_ids=set(), actor=actor)
         self.audit.create(actor_user_id=getattr(actor, "id", None), action="xep_lich_phat_hanh",
                           target=f"lsx:{lsx.id}", detail=f"Phát hành lệnh {lsx.ma}")
         self.repo.commit()
@@ -583,6 +665,7 @@ class XepLichVanDeService:
         if bg.trang_thai != BG_DA_LAP:
             raise XepLichConflict(f"Bài ghép {bg.ma} chưa lập kế hoạch — không thể phát hành")
         members = {tv.lsx_id for tv in bg.thanh_viens}
+        self._chan_thieu_vat_tu(bai_ghep_id=bai_ghep_id)
         blk = self._blocking_for(self._build(), lsx_ids=members, bg_ids={bai_ghep_id})
         if blk:
             raise XepLichConflict(f"Còn {len(blk)} xung đột CHẶN chưa xử lý/ngoại lệ — không thể phát hành")
@@ -591,57 +674,309 @@ class XepLichVanDeService:
             lsx = self.xl.lsx_repo.get(lid)
             if lsx is not None:
                 lsx.trang_thai = LSX_DA_PHAT_HANH
+        # §4.1 — snapshot: bài ghép = MỘT công việc chung (§3.3) + bước riêng của từng thành viên.
+        from .san_xuat.release import phat_hanh as _sx_phat_hanh
+        _sx_phat_hanh(self.db, lsx_ids=set(members), bai_ghep_ids={bai_ghep_id}, actor=actor)
         self.audit.create(actor_user_id=getattr(actor, "id", None), action="xep_lich_phat_hanh",
                           target=f"bai_ghep:{bg.id}", detail=f"Phát hành bài ghép {bg.ma}")
         self.repo.commit()
         return bg
 
-    def go_phat_hanh_lsx(self, *, lsx_id: int, actor) -> Lsx:
+    @staticmethod
+    def _chot_ly_do_go(ly_do: str | None) -> str:
+        """BẮT GÕ LÝ DO khi gỡ phát hành (G2).
+
+        Gỡ phát hành là đảo một quyết định đã thả xuống xưởng — hệ CHƯA có lớp thực thi nên nó
+        không biết thợ đã chạy tới đâu. Thứ duy nhất còn lại là VẾT: ai gỡ, lúc nào, vì sao. Cho
+        gỡ mà không cần lý do là xoá luôn cái vết đó.
+        """
+        ly_do = (ly_do or "").strip()
+        if len(ly_do) < 3:
+            raise XepLichConflict(
+                "Gỡ phát hành phải ghi lý do — lệnh đã xuống xưởng, cần vết để đối chiếu sau."
+            )
+        return ly_do[:500]
+
+    def go_phat_hanh_lsx(self, *, lsx_id: int, actor, ly_do: str | None = None) -> Lsx:
         lsx = self.xl.lsx_repo.get(lsx_id)
         if lsx is None:
             raise XepLichNotFound("Không tìm thấy lệnh sản xuất")
         if lsx.trang_thai == LSX_DA_PHAT_HANH:
+            ly_do = self._chot_ly_do_go(ly_do)
+            from .san_xuat import release_update as _ru
+            if _ru.co_cong_viec_da_bat_dau(self.db, nguon="lsx", id=lsx_id):
+                raise XepLichConflict(
+                    "Gói đã có công việc bắt đầu — không thể thu hồi toàn bộ phát hành (§4.3). "
+                    "Chỉ cập nhật được phần chưa bắt đầu."
+                )
+            _ru.thu_hoi_goi(self.db, nguon="lsx", id=lsx_id, actor=actor)
             lsx.trang_thai = LSX_DA_LAP
             self.audit.create(actor_user_id=getattr(actor, "id", None), action="xep_lich_go_phat_hanh",
-                              target=f"lsx:{lsx.id}", detail=f"Thu hồi phát hành lệnh {lsx.ma}")
+                              target=f"lsx:{lsx.id}",
+                              detail=f"Thu hồi phát hành lệnh {lsx.ma} — {ly_do}")
             self.repo.commit()
         return lsx
 
-    def go_phat_hanh_bai_ghep(self, *, bai_ghep_id: int, actor) -> BaiGhep:
+    def go_phat_hanh_bai_ghep(self, *, bai_ghep_id: int, actor, ly_do: str | None = None) -> BaiGhep:
         bg = self.xl.bg_repo.get(bai_ghep_id)
         if bg is None:
             raise XepLichNotFound("Không tìm thấy bài ghép")
         if bg.trang_thai == BG_DA_PHAT_HANH:
+            ly_do = self._chot_ly_do_go(ly_do)
+            from .san_xuat import release_update as _ru
+            if _ru.co_cong_viec_da_bat_dau(self.db, nguon="in_ghep", id=bai_ghep_id):
+                raise XepLichConflict(
+                    "Gói đã có công việc bắt đầu — không thể thu hồi toàn bộ phát hành (§4.3). "
+                    "Chỉ cập nhật được phần chưa bắt đầu."
+                )
+            _ru.thu_hoi_goi(self.db, nguon="in_ghep", id=bai_ghep_id, actor=actor)
             bg.trang_thai = BG_DA_LAP
             for tv in bg.thanh_viens:
                 lsx = self.xl.lsx_repo.get(tv.lsx_id)
                 if lsx is not None and lsx.trang_thai == LSX_DA_PHAT_HANH:
                     lsx.trang_thai = LSX_DA_LAP
             self.audit.create(actor_user_id=getattr(actor, "id", None), action="xep_lich_go_phat_hanh",
-                              target=f"bai_ghep:{bg.id}", detail=f"Thu hồi phát hành bài ghép {bg.ma}")
+                              target=f"bai_ghep:{bg.id}",
+                              detail=f"Thu hồi phát hành bài ghép {bg.ma} — {ly_do}")
             self.repo.commit()
         return bg
 
     # ================= SẴN SÀNG PHÁT HÀNH (cho UI) =================
 
     def san_sang_phat_hanh(self) -> dict:
-        """LSX/bài ghép đã lập kế hoạch + số xung đột CHẶN còn lại (0 = phát hành được)."""
+        """LSX/bài ghép đã lập kế hoạch + số xung đột CHẶN còn lại (0 = phát hành được).
+
+        Trả CẢ những cái ĐÃ PHÁT HÀNH (`da_phat_hanh=True`, mục G2). Trước đây danh sách chỉ có
+        `da_lap_ke_hoach`, nên phát hành xong là entity biến mất khỏi màn — mà `lsx_service.update`
+        thì chặn *"Lệnh đã lập kế hoạch — gỡ kế hoạch trước khi sửa"*, còn gỡ kế hoạch lại đòi gỡ
+        phát hành trước. Kết quả: lệnh ĐÓNG BĂNG VĨNH VIỄN vì UI không có nút nào để quay lại.
+        """
         issues = self._build()
         items: list[dict] = []
         lsxs = self.db.execute(
             select(Lsx).where(
-                Lsx.trang_thai == LSX_DA_LAP,
+                Lsx.trang_thai.in_([LSX_DA_LAP, LSX_DA_PHAT_HANH]),
                 ~exists(select(BaiGhepThanhVien.id).where(BaiGhepThanhVien.lsx_id == Lsx.id)),
             ).order_by(Lsx.created_at.desc())
         ).scalars()
         for lsx in lsxs:
             blk = self._blocking_for(issues, lsx_ids={lsx.id}, bg_ids=set())
-            items.append({"nguon": "lsx", "id": lsx.id, "ma": lsx.ma, "blocking": len(blk)})
+            items.append({"nguon": "lsx", "id": lsx.id, "ma": lsx.ma, "blocking": len(blk),
+                          "da_phat_hanh": lsx.trang_thai == LSX_DA_PHAT_HANH})
         bgs = self.db.execute(
-            select(BaiGhep).where(BaiGhep.trang_thai == BG_DA_LAP).order_by(BaiGhep.created_at.desc())
+            select(BaiGhep).where(BaiGhep.trang_thai.in_([BG_DA_LAP, BG_DA_PHAT_HANH]))
+            .order_by(BaiGhep.created_at.desc())
         ).scalars()
         for bg in bgs:
             members = {tv.lsx_id for tv in bg.thanh_viens}
             blk = self._blocking_for(issues, lsx_ids=members, bg_ids={bg.id})
-            items.append({"nguon": "in_ghep", "id": bg.id, "ma": bg.ma, "blocking": len(blk)})
+            items.append({"nguon": "in_ghep", "id": bg.id, "ma": bg.ma, "blocking": len(blk),
+                          "da_phat_hanh": bg.trang_thai == BG_DA_PHAT_HANH})
         return {"items": items, "total": len(items)}
+
+    # ================= ĐỢT 2 — DETECTOR MỚI =================
+
+    def _thieu_nguoi(self, rows: list[dict]) -> list[dict]:
+        """Bước của TỔ bố trí ít người hơn mức TỐI THIỂU (Chặn) — dưới mức đó không mở máy được.
+
+        `cong_doan_dau_viec.so_nguoi_toi_thieu` trước đây chỉ là khai báo; đây là chỗ nó thành ràng
+        buộc thật. Chỉ so khi ĐÃ khai (> 1): mặc định 1 nghĩa là chưa khai, không phải "cần 1".
+        """
+        out: list[dict] = []
+        for r in rows:
+            toi_thieu = r.get("so_nhan_cong_toi_thieu")
+            bo_tri = r.get("so_nhan_cong")
+            if not toi_thieu or int(toi_thieu) <= 1 or not bo_tri:
+                continue
+            if int(bo_tri) >= int(toi_thieu):
+                continue
+            out.append({
+                "issue_key": f"{K_THIEU_NGUOI}:{r['id']}",
+                "category": CAT_NGUOI, "severity": SEV_CHAN,
+                "title": (f"{r['lsx_ma']} · {r['cong_doan_ten']}: bố trí {bo_tri} người, "
+                          f"tối thiểu {toi_thieu}"),
+                "nguyen_nhan": ("Định mức đầu việc yêu cầu số người tối thiểu — dưới mức đó "
+                                "không vận hành được."),
+                "impacts": self._impact([r]),
+                "delay_phut": None,
+                "group_key": f"lsx:{r['lsx_id']}",
+            })
+        return out
+
+    def _qua_tai_to(self, rows: list[dict]) -> list[dict]:
+        """Σ số người các việc CHẠY CÙNG LÚC trong một tổ vượt quân số có mặt hôm đó → Chặn (mục I).
+
+        Đây là thứ THAY cho luật "trùng giờ = xung đột" ở dòng tổ. Tổ Dán 8 người hoàn toàn có thể
+        chia 5 người việc A và 3 người việc B cùng lúc — đối xử tổ y như máy (chiếm trọn khoảng giờ)
+        là bịa ra xung đột không có thật, rồi người dùng học cách bỏ qua báo đỏ. Ràng buộc THẬT nằm
+        ở NGƯỜI: 5 + 3 ≤ 8 thì được, 5 + 5 thì không.
+
+        Quét theo MỐC (sweep-line) chứ không so từng cặp: ba việc 3+3+3 người chồng nhau từng đôi
+        một vẫn có thể vừa 9 người, mà so từng cặp thì báo đỏ cả ba. Chỉ tổng ở từng mốc mới đúng.
+
+        Quân số lấy theo NGÀY của mốc — mỗi ngày một con số (nghỉ phép, mượn người).
+        """
+        theo_id = {r["id"]: r for r in rows}
+        out: list[dict] = []
+        for k in self.xl.khoang_tai_to(rows):
+            if not k["qua_tai"]:
+                continue
+            chay = [theo_id[i] for i in k["dong_ids"] if i in theo_id]
+            moc = _aware(k["start"])
+            ten_to = k.get("department_ten") or f"Tổ #{k['department_id']}"
+            out.append({
+                "issue_key": f"{K_QUA_TAI_TO}:{k['department_id']}:{moc:%Y%m%d%H%M}",
+                "category": CAT_NGUOI, "severity": SEV_CHAN,
+                "title": (f"{ten_to} {_fmt(moc)}: cần {k['dung']} người, "
+                          f"có mặt {k['quan_so']}"),
+                "nguyen_nhan": (
+                    f"{len(chay)} việc chạy cùng lúc trong tổ, cộng lại {k['dung']} người trong khi "
+                    f"quân số ngày {moc:%d/%m} là {k['quan_so']}. Dời bớt một việc, hoặc sửa quân "
+                    f"số ngày đó nếu có mượn người tổ khác."
+                ),
+                "impacts": self._impact(chay),
+                "delay_phut": None,
+                "group_key": f"to:{k['department_id']}",
+            })
+        return out
+
+    def _thieu_vat_tu(self, rows: list[dict]) -> list[dict]:
+        """Lệnh / bài có dòng ĐỎ trên bảng cân đối vật tư → vấn đề mức Chặn (F).
+
+        Đọc THẲNG `ke_hoach_vat_tu_service`, không chép lại phép cân đối — hai nơi tính là hai nơi
+        lệch, mà lệch ở đây là phát hành một lệnh không có giấy.
+
+        **KHÔNG chặn lúc xếp** (chủ chốt): xếp lịch trước rồi mới biết bao giờ cần hàng, cấm xếp
+        khi thiếu là cấm đúng bước sinh ra thông tin để đi mua. Chỉ chặn ở cửa PHÁT HÀNH.
+
+        Gộp MỘT vấn đề cho mỗi lệnh/bài (không phải mỗi mặt hàng): người xử lý cần biết "lệnh này
+        thiếu vật tư", còn thiếu những gì thì mở bảng cân đối ra xem — đẻ 5 vấn đề cho 5 loại giấy
+        là làm ngập danh sách bằng cùng một việc.
+        """
+        try:
+            bang = self._can_doi_vat_tu()
+        except Exception as exc:
+            # Bảng cân đối hỏng KHÔNG được làm sập cả màn Vấn đề: 9 detector kia vẫn phải chạy.
+            # NHƯNG cũng KHÔNG được im lặng trả rỗng — rỗng đọc y hệt "không lệnh nào thiếu vật tư",
+            # và cửa phát hành sẽ mở cho một lệnh không có giấy. Không kiểm được thì phải NÓI ra.
+            return [{
+                "issue_key": f"{K_THIEU_VAT_TU}:khong_kiem_duoc",
+                "category": CAT_VAT_TU,
+                "severity": SEV_LUU_Y,
+                "title": "Không kiểm được vật tư",
+                "nguyen_nhan": (
+                    "Bảng cân đối vật tư lỗi nên không biết lệnh nào thiếu hàng: "
+                    f"{type(exc).__name__}. Mở tab Vật tư ở bàn Kế hoạch SX để xem lỗi thật, "
+                    "và tự đối chiếu tồn trước khi phát hành."
+                ),
+                "impacts": self._impact([]),
+                "delay_phut": None,
+                "group_key": "thieu_vat_tu:loi",
+            }]
+        # HAI rổ, KHÔNG gộp: `do` = chưa có hàng ⇒ đi mua. `ve_muon` = đã mua rồi, hàng về SAU ngày
+        # cần ⇒ phải DỜI LỊCH (mua thêm là mua đúp). Cùng chặn phát hành, nhưng câu chỉ việc khác
+        # hẳn nhau — gộp một câu là chỉ người ta đi làm nhầm việc.
+        #
+        # ⚠️ Phải nhận CẢ HAI mã. Bảng cân đối tách `ve_muon` ra khỏi `do` ngày 17/08/2026; lọc mỗi
+        # `!= "do"` như bản cũ thì dòng về muộn TUỘT khỏi cửa chặn và lệnh không có giấy vẫn phát
+        # hành được.
+        thieu_lsx: dict[int, list[str]] = {}
+        thieu_bg: dict[int, list[str]] = {}
+        muon_lsx: dict[int, list[str]] = {}
+        muon_bg: dict[int, list[str]] = {}
+        for nhom in bang.get("items", []):
+            if nhom.get("loai_nhom") != "vat_tu":
+                continue
+            for d in nhom.get("dong", []):
+                tt = d.get("trang_thai")
+                if tt not in ("do", "ve_muon"):
+                    continue
+                ten = nhom.get("hang_ten") or nhom.get("hang_ma") or "?"
+                if tt == "ve_muon" and d.get("ngay_du_hang"):
+                    ten = f"{ten} (về {_ngay(d['ngay_du_hang'])})"
+                bang_lsx, bang_bg = (muon_lsx, muon_bg) if tt == "ve_muon" else (thieu_lsx, thieu_bg)
+                if d.get("lsx_id"):
+                    bang_lsx.setdefault(d["lsx_id"], []).append(ten)
+                elif d.get("bai_ghep_id"):
+                    bang_bg.setdefault(d["bai_ghep_id"], []).append(ten)
+
+        ma_lsx = {r["lsx_id"]: r["lsx_ma"] for r in rows if r.get("lsx_id")}
+        ma_bg = {r["bai_ghep_id"]: r["lsx_ma"] for r in rows if r.get("bai_ghep_id")}
+        out: list[dict] = []
+        for ve_muon, blsx, bbg in ((False, thieu_lsx, thieu_bg), (True, muon_lsx, muon_bg)):
+            for lsx_id, tens in blsx.items():
+                lien_quan = [r for r in rows if r.get("lsx_id") == lsx_id]
+                if not lien_quan:
+                    continue                 # lệnh chưa vào kế hoạch thì chưa phải việc của bàn này
+                out.append(self._van_de_thieu_vt(
+                    f"lsx:{lsx_id}", ma_lsx.get(lsx_id), tens, lien_quan, None,
+                    ve_muon=ve_muon))
+            for bg_id, tens in bbg.items():
+                lien_quan = [r for r in rows if r.get("bai_ghep_id") == bg_id]
+                if not lien_quan:
+                    continue
+                out.append(self._van_de_thieu_vt(
+                    f"bai_ghep:{bg_id}", ma_bg.get(bg_id), tens, lien_quan, bg_id,
+                    ve_muon=ve_muon))
+        return out
+
+    def _van_de_thieu_vt(self, khoa: str, ma: str | None, tens: list[str],
+                         lien_quan: list[dict], bg_id: int | None,
+                         *, ve_muon: bool = False) -> dict:
+        ds = _uniq(tens)
+        hien = ", ".join(ds[:3]) + (f" và {len(ds) - 3} thứ khác" if len(ds) > 3 else "")
+        # `issue_key` phải kèm loại: một lệnh có thể VỪA thiếu món A VỪA có món B về muộn, hai vấn
+        # đề khác nhau. Thiếu tiền tố thì hai cái trùng khoá, một cái nuốt cái kia — và state
+        # "đã xử lý" của người dùng cũng dính chung.
+        tien_to = "ve_muon:" if ve_muon else ""
+        return {
+            "issue_key": f"{K_THIEU_VAT_TU}:{tien_to}{khoa}",
+            "category": CAT_VAT_TU, "severity": SEV_CHAN,
+            "title": (f"{ma or khoa}: {hien} về sau ngày cần" if ve_muon
+                      else f"{ma or khoa}: thiếu {hien}"),
+            "nguyen_nhan": (
+                # ĐÃ mua rồi ⇒ chỉ đúng việc phải làm là dời lịch, KHÔNG phải đi mua tiếp.
+                "Hàng đã đặt nhưng ngày về muộn hơn ngày cần — dời bước tiêu thụ sang sau ngày về, "
+                "hoặc hối nhà cung cấp. ĐỪNG lập yêu cầu mua nữa: lô đang trên đường về."
+                if ve_muon else
+                "Bảng cân đối vật tư báo thiếu — tồn cộng hàng đang về vẫn không đủ tới ngày cần."
+            ),
+            "impacts": self._impact(lien_quan, extra_bg=[bg_id] if bg_id else None),
+            "delay_phut": None,
+            "group_key": khoa,
+        }
+
+    def _can_doi_vat_tu(self) -> dict:
+        """Bảng cân đối vật tư — dựng service TRỄ và nhớ luôn KẾT QUẢ trong vòng đời service.
+
+        Nhớ kết quả chứ không chỉ nhớ service: `can_doi()` nạp toàn bộ lệnh + bài + phiếu mua + tồn
+        và tính `thoi_luong_buoc` từng bước. `_build()` chạy ở CẢ `danh_sach` (view Vấn đề) LẪN
+        `san_sang_phat_hanh` (badge + cửa phát hành), nên mỗi lần mở bàn xếp lịch là hai lượt quét
+        y hệt nhau. Service sống trong MỘT request nên cache ở đây không bao giờ trả số cũ.
+        """
+        if getattr(self, "_kh_vt_bang", None) is not None:
+            return self._kh_vt_bang
+        if getattr(self, "_kh_vt", None) is None:
+            from ..repositories.bai_ghep_repo import BaiGhepRepository
+            from ..repositories.don_vi_do_repo import DonViDoRepository
+            from ..repositories.lsx_repo import LsxRepository
+            from ..repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
+            from ..repositories.stock_lot_repo import StockLotRepository
+            from ..repositories.stock_request_repo import StockRequestRepository
+            from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+            from .ke_hoach_vat_tu_service import KeHoachVatTuService
+            from .vat_lieu_kho_service import VatLieuKhoService
+
+            self._kh_vt = KeHoachVatTuService(
+                self.db,
+                lsx_repo=LsxRepository(self.db),
+                bai_ghep_repo=BaiGhepRepository(self.db),
+                hang=VatLieuKhoService(VatLieuKhoRepository(self.db), DonViDoRepository(self.db)),
+                lots=StockLotRepository(self.db),
+                requests=StockRequestRepository(self.db),
+                purchases=PurchaseRequestRepository(self.db),
+                suppliers=SupplierRepository(self.db),
+                don_vi=DonViDoRepository(self.db),
+            )
+        self._kh_vt_bang = self._kh_vt.can_doi()
+        return self._kh_vt_bang

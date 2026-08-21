@@ -79,13 +79,19 @@ class PhieuThanhPhan(Base):
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     loai_thanh_phan: Mapped[str] = mapped_column(String(30), nullable=False, default="to_roi")
     ten: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    kho_thanh_pham: Mapped[str | None] = mapped_column(String(100), nullable=True)  # nhãn tự do hiển thị
+    # `kho_thanh_pham` / `kho_mo_rong` / `tay_gap` đã DROP (mig 0144): ô nhập gỡ từ 2026-07-29 nên
+    # phiếu mới luôn rỗng, mà bản lệnh vẫn vẽ ra ba dòng "—". Khổ thành phẩm THẬT là
+    # `dai_thanh_pham` / `rong_thanh_pham` ngay dưới (mm, nuôi bình bài).
     dai_thanh_pham: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # mm — khổ thành phẩm ③ (bình bài)
     rong_thanh_pham: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # mm ★
-    kho_mo_rong: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    tay_gap: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # Số BÀI IN (khuôn) mỗi sản phẩm — mỗi bài 1 bộ kẽm. Sách: số tay. KHÔNG phải số tờ giấy.
+    # DẪN XUẤT từ `so_trang / trang_moi_tay`; engine ghi lại mỗi lần tính, người dùng không nhập.
     so_to_per_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Số TRANG NỘI DUNG của 1 sản phẩm (tờ rời 1 mặt = 1, 2 mặt = 2, sách = số trang thật) và số
+    # trang mỗi tay gấp. Người dùng khai, LƯU lại (trước đây popover tính xong là mất).
+    # Số tờ in = SL × so_trang / (con × số mặt) — số mặt suy từ `quy_cach_in`.
+    so_trang: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    trang_moi_tay: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     so_luong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # SL đặt của SẢN PHẨM này (0 = lấy SL mặc định phiếu)
     don_vi_tinh: Mapped[str] = mapped_column(String(30), nullable=False, default="cái")  # ĐVT sản phẩm (text tự do) → chảy sang Báo giá
     # Nhóm GỘP KHI BÁO GIÁ: các sản phẩm cùng nhãn này (ruột + bìa của 1 cuốn) in ra báo giá
@@ -102,15 +108,6 @@ class PhieuThanhPhan(Base):
     don_gia_giay: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     don_gia_don_vi: Mapped[str] = mapped_column(String(8), nullable=False, default="to")   # to|tan
     nguon_giay: Mapped[str] = mapped_column(String(12), nullable=False, default="cong_ty")  # cong_ty|khach
-    bu_hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # bù hao (tờ in cộng thêm) — KHÔNG hệ số
-    hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)      # hao (tờ in trừ đi)
-    # Bật/TẮT tính bù hao công đoạn TỰ (mỗi công đoạn tra theo số tờ). Tắt → không cộng bù hao tự;
-    # người dùng tự nhập `bu_hao_so_to`. Mặc định BẬT.
-    tinh_bu_hao_cd: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
-    # Chừa tờ in thuộc về MÁY (danh mục: `nhip_giay_mm` / `le_hong_mm` / `duoi_thang_mau_mm`).
-    # Phiếu chỉ giữ MỘT ô đè: nhíp giấy — khoản duy nhất đổi theo job (cạnh nạp, hướng bài).
-    # Lề hông · đuôi · xén · cả gáy đã BỎ khỏi phiếu: chưa từng có chỗ nhập, chỉ làm engine cộng
-    # nhầm hai chiều. Muốn đổi thì sửa danh mục Máy — một nguồn, mọi phiếu ăn theo.
     chua_nhip: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     # Bình bài: con để bình = thành phẩm ③ + 2×bleed; giữa 2 con kề nhau chừa `khe_cat_mm`.
     # 0 = không tràn lề / bình sát cắt chung nhát. Sale nhập trên phiếu (hỏi khách hoặc kỹ thuật).
@@ -129,11 +126,26 @@ class PhieuThanhPhan(Base):
     may_id: Mapped[int | None] = mapped_column(Integer, nullable=True)              # → may_thiet_bi.id (soft)
     don_gia_cong_in: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)  # mực GỘP trong đơn giá
 
-    # --- Màu (đã gộp: chỉ SỐ MÀU mỗi mặt — không SEL/Pan/Nền, không hệ số) ---
+    # --- Mực in: TẬP MÃ MỰC mỗi mặt, không phải con số ---
+    # `["C","M","Y","K"]` · `["K","185C"]`. C/M/Y/K là bốn mã process cố định; mọi mã khác là màu
+    # pha, chuỗi tự do đã chuẩn hoá (viết hoa, bỏ khoảng trắng thừa) — KHÔNG có danh mục mực.
+    #
+    # Phải là TẬP chứ không phải số, vì tự trở/trở nhíp dùng chung một bộ bản nên số kẽm là
+    # `|A ∪ B|`: 4 màu CMYK ở mặt A với 1 Pantone ở mặt B ra 5 kẽm, còn `max(4,1)` ra 4 — thiếu
+    # đúng cái bản Pantone, ra tới máy mới lộ. Con số không mang đủ thông tin để tính hợp.
+    #
+    # An toàn khi gõ tự do vì hợp CHỈ tính trong phạm vi MỘT thành phần (ruột và bìa là hai bộ
+    # bản riêng): mã chỉ cần thống nhất giữa mặt A và mặt B của cùng sản phẩm, tức trong tầm một
+    # cái form. UI cho bấm lại mã của mặt kia thay vì gõ lại nên không lệch.
+    muc_a: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    muc_b: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+
+    # --- Ba số màu: nay là DẪN XUẤT của `muc_a`/`muc_b`, engine ghi lại. GIỮ NGUYÊN NGHĨA CŨ ---
+    # `so_mau_a/b` = số mực PROCESS mỗi mặt; `so_mau_pha` = số mực pha PHÂN BIỆT của cả hai mặt.
+    # Giữ cột + giữ nghĩa để ~28 chỗ đang đọc (công thức mực, `_may_fit`, lệnh SX, bài ghép, báo
+    # giá) không phải sửa dòng nào, và để tiền mực của phiếu cũ không nhúc nhích sau backfill.
     so_mau_a: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # số màu mặt A
     so_mau_b: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # số màu mặt B
-    # Màu pha (Pantone) — NẰM TRONG tổng số màu trên, KHÔNG cộng thêm: 1 màu pha vẫn 1 kẽm, đã đếm
-    # ở so_mau_a/b. Ghi nhận để xưởng biết phải pha mực + rửa máy; engine chỉ phơi biến `so_mau_pha`.
     so_mau_pha: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Ghi chú KỸ THUẬT/SX theo SẢN PHẨM (canh màu như mẫu · kẽm cũ · bù hao…) — kỹ thuật, KHÔNG giá;
@@ -186,6 +198,20 @@ class PhieuThanhPham(Base):
     dien_tich: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)  # cm²/thành phẩm
     nha_cung_cap: Mapped[str | None] = mapped_column(String(150), nullable=True)   # thuê ngoài
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # PHÍ KHUÔN của CHÍNH bước này — khoản MỘT LẦN (không nhân số lượng).
+    #
+    # Chỉ có nghĩa khi công đoạn nguồn bật `requires_tooling` với `tooling_type` là dao lưu kho
+    # (`khuon_be` · `khuon_ep`). `kem` KHÔNG có ô: bản kẽm là vật tư tiêu hao, mỗi bài phơi mới, và
+    # tiền nó đã nằm trong công thức của bước chế bản (`so_kem × đơn giá`) — thêm ô là tính hai lần.
+    #
+    # 0 / để trống = DÙNG LẠI dao cũ ⇒ không tính tiền. Đúng thông lệ ngành: phí dao thu ở đơn đầu,
+    # dao giữ lại trong kho, đơn tái đặt không thu lại.
+    #
+    # ⚠️ CÓ cộng vào `gia_von_tp` — engine đẻ nó thành một dòng tiền trong nhóm Công đoạn (chốt
+    # 15/08/2026: gộp để báo giá chỉ còn MỘT dòng). Nghĩa là tiền dao BỊ CHIA theo sản lượng: cùng
+    # con dao 734.300đ, đơn 500 cuốn gánh 1.469 đ/cuốn còn đơn 5.000 cuốn chỉ 147 đ/cuốn. Đây là
+    # đánh đổi đã biết và đã chọn, KHÔNG phải lỗi — đừng "sửa" bằng cách rút nó ra khỏi giá vốn.
+    phi_khuon: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

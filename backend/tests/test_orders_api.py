@@ -1,13 +1,17 @@
 """Đơn hàng bán — service-level tests (redesign-don-hang-ban.md P1–P5).
 
-Dựng DB in-memory + seed, rồi chạy OrderService end-to-end: 2 nguồn (báo giá/nhập tay),
-snapshot NET sau chiết khấu, cọc đa hình thức, duyệt, cổng chốt + khóa báo giá, hủy + seam.
+Dựng DB in-memory + seed, rồi chạy OrderService end-to-end: nguồn DUY NHẤT là báo giá,
+snapshot NET sau chiết khấu, cọc đa hình thức, cổng chốt + khóa báo giá, hủy + seam.
+
+Đường tạo đơn NHẬP TAY và luồng DUYỆT đơn đặc thù đã gỡ khỏi hệ thống — test tương ứng xoá,
+thay bằng 2 guard chặn hồi quy (`test_create_requires_quotation`, `test_approval_flow_removed`).
 """
 from __future__ import annotations
 
 from datetime import date, timedelta
 
 import pytest
+from pydantic import ValidationError
 
 from app.db import Base, SessionLocal, engine
 from app.db_migrations import run_migrations
@@ -24,7 +28,6 @@ from app.repositories.user_repo import UserRepository
 from app.schemas.order import (
     OrderCreate,
     OrderDepositReceiptIn,
-    OrderLineIn,
     OrderUpdate,
 )
 from app.seed import seed_all
@@ -100,32 +103,30 @@ def _accepted_quote(db, customer, *, selling=1_000_000, discount=100_000, vat=8,
     return q
 
 
-# --- P1: nguồn nhập tay -------------------------------------------------------
-def test_create_manual_no_cost_needs_approval(svc, admin, customer):
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(
-        source_type="nhap_tay", customer_id=customer.id,
-        lines=[OrderLineIn(description="Danh thiếp", qty=1000, unit_price=500, vat_pct=8)],
-        vat_pct_estimate=8,
-    ))
-    assert d.cost_basis == "none"
-    assert d.needs_approval is True
-    assert d.margin_pct is None          # biên "không xác định", KHÔNG 0/100
-    assert d.total == 500_000
-    assert d.total_with_vat == 540_000
+# --- Guard: đơn CHỈ sinh từ báo giá ------------------------------------------
+def test_create_requires_quotation():
+    """Chặn hồi quy đường tạo đơn NHẬP TAY: `quotation_id` bắt buộc ngay ở schema, và schema
+    KHÔNG còn nhận `customer_id`/`lines` — không ai dựng nổi payload đơn tay nữa."""
+    with pytest.raises(ValidationError):
+        OrderCreate()
+    payload = OrderCreate(quotation_id=1)
+    assert not hasattr(payload, "customer_id")
+    assert not hasattr(payload, "lines")
+    assert not hasattr(payload, "source_type")
 
 
-def test_manual_requires_customer_and_lines(svc, admin):
-    with pytest.raises(OrderValidationError):
-        svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="nhap_tay", lines=[]))
+def test_approval_flow_removed(svc):
+    """Luồng duyệt đơn đặc thù đã gỡ SẠCH ở tầng service (endpoint đi kèm cũng xoá)."""
+    for gone in ("submit_for_approval", "approve", "reject", "_create_manual"):
+        assert not hasattr(svc, gone), f"{gone} lẽ ra đã bị gỡ"
 
 
 # --- P1: nguồn báo giá — snapshot NET sau chiết khấu --------------------------
 def test_create_from_quote_line_total_is_net_after_discount(svc, admin, customer, db):
     q = _accepted_quote(db, customer)
     # % cọc đặt trên đơn (báo giá không còn giữ) — truyền qua payload khi tạo đơn.
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id, deposit_pct=50))
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(quotation_id=q.id, deposit_pct=50))
     assert d.cost_basis == "quote"
-    assert d.needs_approval is False
     assert d.total == 900_000            # NET (1.000.000 − 100.000), KHÔNG phồng theo unit_price gộp
     assert d.total_with_vat == 972_000
     assert d.deposit_pct == 50
@@ -135,9 +136,9 @@ def test_create_from_quote_line_total_is_net_after_discount(svc, admin, customer
 
 def test_one_quote_one_order_guard(svc, admin, customer, db):
     q = _accepted_quote(db, customer)
-    svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    svc.create(actor=admin, scope="all", payload=OrderCreate(quotation_id=q.id))
     with pytest.raises(OrderConflict):
-        svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+        svc.create(actor=admin, scope="all", payload=OrderCreate(quotation_id=q.id))
 
 
 # --- V5: cọc = PHIẾU THU THẬT (PaymentReceipt nguồn đơn) — cổng đủ cọc lật ----
@@ -159,7 +160,7 @@ def test_deposit_receipts_accumulate_and_gate_flips(svc, admin, customer, db):
 
 def test_deposit_receipt_rejects_bad_method_and_amount(svc, admin, customer, db):
     q = _accepted_quote(db, customer)
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(quotation_id=q.id))
     with pytest.raises(OrderValidationError):   # hình thức thu không thuộc {cash, bank_transfer}
         svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
                                 payload=OrderDepositReceiptIn(receipt_method="vang", amount=100_000))
@@ -189,48 +190,19 @@ def test_stats_money_aggregate_tracks_deposit_shortfall(svc, admin, customer, db
 
 
 def test_order_from_quote_pins_phieu_thanh_phan_id(svc, admin, customer, db):
-    """Đơn TỪ BÁO GIÁ copy phieu_thanh_phan_id (pin truy vết ấn phẩm) từ dòng báo giá nguồn;
-    đơn NHẬP TAY để None (không có ấn phẩm định giá)."""
+    """Đơn TỪ BÁO GIÁ copy phieu_thanh_phan_id (pin truy vết ấn phẩm) từ dòng báo giá nguồn."""
     q = _accepted_quote(db, customer)
     item = db.query(QuoteItem).join(QuoteVersion).filter(QuoteVersion.quote_id == q.id).first()
     item.phieu_thanh_phan_id = 777   # dòng báo giá trỏ 1 "sản phẩm" của PTG
     db.commit()
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(quotation_id=q.id))
     assert d.lines[0].phieu_thanh_phan_id == 777
-
-    m = svc.create(actor=admin, scope="all", payload=OrderCreate(
-        source_type="nhap_tay", customer_id=customer.id,
-        lines=[OrderLineIn(description="Tờ rơi", qty=100, unit_price=1000, vat_pct=8)]))
-    assert m.lines[0].phieu_thanh_phan_id is None
-
-
-# --- P3: duyệt đơn đặc thù ----------------------------------------------------
-def test_submit_reject_then_approve(svc, admin, customer):
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(
-        source_type="nhap_tay", customer_id=customer.id,
-        lines=[OrderLineIn(description="x", qty=1, unit_price=100, vat_pct=8)]))
-    d = svc.submit_for_approval(order_id=d.id, actor=admin, scope="all")
-    assert d.approval_state == "pending"
-    d = svc.reject(order_id=d.id, actor=admin, scope="all", note="Giá thấp")
-    assert d.approval_state == "rejected" and d.approvals[0].decision == "rejected"
-    with pytest.raises(OrderValidationError):
-        svc.reject(order_id=d.id, actor=admin, scope="all", note="")
-    svc.submit_for_approval(order_id=d.id, actor=admin, scope="all")
-    d = svc.approve(order_id=d.id, actor=admin, scope="all", note="OK")
-    assert d.approval_state == "approved" and d.approvals[0].triggers_json == ["no_cost"]
-
-
-def test_quote_order_does_not_need_approval(svc, admin, customer, db):
-    q = _accepted_quote(db, customer)
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
-    with pytest.raises(OrderValidationError):
-        svc.submit_for_approval(order_id=d.id, actor=admin, scope="all")
 
 
 # --- P4: cổng chốt + khóa báo giá ---------------------------------------------
 def test_confirm_gate_blocks_then_locks_quote(svc, admin, customer, db):
     q = _accepted_quote(db, customer)
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(quotation_id=q.id))
     assert d.can_confirm is False
     with pytest.raises(OrderValidationError):
         svc.confirm(order_id=d.id, actor=admin, scope="all")
@@ -250,7 +222,7 @@ def test_confirm_gate_blocks_then_locks_quote(svc, admin, customer, db):
 # --- Việc 4: gia hạn báo giá nguồn từ đơn (gỡ blocker "báo giá hết hạn") ------
 def test_extend_source_quote_clears_expiry_blocker(svc, admin, customer, db):
     q = _accepted_quote(db, customer)
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(quotation_id=q.id))
     q.valid_until = date.today() - timedelta(days=1)   # báo giá hết hạn SAU khi đã lập đơn
     db.commit()
     d = svc.get(order_id=d.id, actor=admin, scope="all")
@@ -265,18 +237,14 @@ def test_extend_source_quote_clears_expiry_blocker(svc, admin, customer, db):
         svc.extend_source_quote(order_id=d.id, actor=admin, scope="all")
 
 
-def test_extend_source_quote_rejects_manual_order(svc, admin, customer):
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(
-        source_type="nhap_tay", customer_id=customer.id,
-        lines=[OrderLineIn(description="x", qty=1, unit_price=1000, vat_pct=8)]))
-    with pytest.raises(OrderValidationError):          # đơn nhập tay không gắn báo giá để gia hạn
-        svc.extend_source_quote(order_id=d.id, actor=admin, scope="all")
+# `test_extend_source_quote_rejects_manual_order` đã xoá: không còn cách nào dựng ĐƠN KHÔNG GẮN
+# BÁO GIÁ qua service, nên nhánh "gia hạn báo giá của đơn nhập tay" không dựng được ca test nữa.
 
 
 # --- P5: hủy + seam -----------------------------------------------------------
 def test_cancel_ordered_needs_permission_and_fault(svc, admin, customer, db):
     q = _accepted_quote(db, customer)
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(quotation_id=q.id))
     svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
                     payload=OrderDepositReceiptIn(receipt_method="bank_transfer", amount=486_000))
     svc.update(order_id=d.id, actor=admin, scope="all",
@@ -291,21 +259,19 @@ def test_cancel_ordered_needs_permission_and_fault(svc, admin, customer, db):
     assert len(d.deposits) >= 1  # cọc KHÔNG xóa khi hủy (hoàn/quyết toán ngoài hệ thống)
 
 
-def test_manual_confirm_requires_consent_evidence(svc, admin, customer):
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(
-        source_type="nhap_tay", customer_id=customer.id,
-        lines=[OrderLineIn(description="x", qty=1, unit_price=1000, vat_pct=8)]))
-    svc.submit_for_approval(order_id=d.id, actor=admin, scope="all")
-    svc.approve(order_id=d.id, actor=admin, scope="all", note="OK")
+def test_consent_attachment_is_optional_extra_evidence(svc, admin, customer, db):
+    """Đính kèm chứng cứ khách đồng ý VẪN dùng được (Sale kẹp PO/mail vào đơn), nhưng KHÔNG còn là
+    cổng chặn chốt: đơn giờ luôn từ báo giá `accepted` — chính báo giá là chứng cứ."""
+    q = _accepted_quote(db, customer)
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(quotation_id=q.id))
     svc.update(order_id=d.id, actor=admin, scope="all",
                payload=OrderUpdate(customer_po_no="PO1", delivery_committed_date=date.today()))
     d = svc.get(order_id=d.id, actor=admin, scope="all")
-    assert d.can_confirm is False
-    assert any("chứng cứ" in b.lower() for b in d.confirm_blockers)   # thiếu chứng cứ đồng ý
+    assert d.can_confirm is True                                    # KHÔNG chặn vì thiếu đính kèm
+    assert not any("chứng cứ" in b.lower() for b in d.confirm_blockers)
     d = svc.add_consent_attachment(order_id=d.id, actor=admin, scope="all",
         file_name="po.png", content_type="image/png", data=b"\x89PNG\r\n\x1a\n fake")
     assert len(d.consent_attachments) == 1
-    assert d.can_confirm is True
     d = svc.confirm(order_id=d.id, actor=admin, scope="all")
     assert d.status == "ordered"
 
@@ -314,9 +280,8 @@ def test_manual_confirm_requires_consent_evidence(svc, admin, customer):
 # test_accounting_api.py, không còn đính ở đơn.
 
 
-def test_cancel_draft(svc, admin, customer):
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(
-        source_type="nhap_tay", customer_id=customer.id,
-        lines=[OrderLineIn(description="x", qty=1, unit_price=100, vat_pct=8)]))
+def test_cancel_draft(svc, admin, customer, db):
+    q = _accepted_quote(db, customer)
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(quotation_id=q.id))
     d = svc.cancel(order_id=d.id, actor=admin, scope="all", reason="Đổi ý", fault=None, can_cancel_ordered=False)
     assert d.status == "cancelled"

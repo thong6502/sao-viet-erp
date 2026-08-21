@@ -6,11 +6,11 @@ import { Icon, type IconName } from "../components/Icons";
 import {
   LSX_LOAI_BUOC_META,
   LSX_THIEU_LABELS,
+  nhanMa,
+  type DonViNhan,
+  type LsxDen,
   type LsxLoaiBuoc,
   type LsxTrangThai,
-  type XepLichSeverity,
-  type XepLichVanDeCategory,
-  type XepLichVanDeTrangThai,
 } from "../api/client";
 
 // --- định dạng --------------------------------------------------------------
@@ -51,10 +51,30 @@ export function classHan(dateStr: string | null | undefined): string {
   return "";
 }
 
+/** Class cảnh báo hạn ưu tiên LỊCH THẬT, lùi về đếm ngày lịch khi lệnh chưa vào kế hoạch.
+ *
+ *  `classHan` chỉ so hôm nay với ngày hạn. Câu đó bỏ sót đúng trường hợp đáng lo nhất: lệnh còn
+ *  10 ngày tới hạn nhưng lịch đã kéo qua hạn 2 ngày thì nó ĐANG trễ, mà ô vẫn xanh. `slack_ngay`
+ *  (độ dư nhỏ nhất giữa các bước đã xếp, âm = trễ — xem `services/lsx_tong_quan.py::_slack`) trả
+ *  lời thẳng câu đó. Không thêm ô nào, chỉ đổi NGUỒN tô màu của cột sẵn có. */
+export function classHanLich(
+  slack: number | null | undefined,
+  dateStr: string | null | undefined,
+): string {
+  if (slack == null) return classHan(dateStr);
+  if (slack < 0) return "khsx-date--late";
+  if (slack <= 1) return "khsx-date--soon";
+  return "";
+}
+
 // --- trạng thái lệnh --------------------------------------------------------
 const PILL: Record<LsxTrangThai, { label: string; cls: string }> = {
   nhap: { label: "Nháp", cls: "khsx-pill--nhap" },
-  cho_bo_sung: { label: "Chờ bổ sung", cls: "khsx-pill--thieu" },
+  // `cho_bo_sung` KHÔNG còn mặt riêng (18/08/2026): server vẫn lật cờ này khi lưu một lệnh còn
+  // dở, nhưng cột phải màn chi tiết đã kêu "Còn thiếu N mục" — hai chỗ báo cùng một việc gây rối,
+  // và pill đứng yên ở Nháp cho tới lần lưu kế nên nó nói sai nhiều hơn nói đúng. Giữ KHOÁ để
+  // lệnh cũ trong DB vẫn render được, chỉ cho đội lốt Nháp.
+  cho_bo_sung: { label: "Nháp", cls: "khsx-pill--nhap" },
   san_sang: { label: "Sẵn sàng", cls: "khsx-pill--sansang" },
   da_lap_ke_hoach: { label: "Đã lập kế hoạch", cls: "khsx-pill--dakethoach" },
   da_phat_hanh: { label: "Đã phát hành", cls: "khsx-pill--phathanh" },
@@ -70,10 +90,11 @@ export function TrangThaiPill({ tt, lg = false }: { tt: LsxTrangThai; lg?: boole
   );
 }
 
-export const TRANG_THAI_TABS: { key: string; label: string; tone?: "default" | "alert" }[] = [
+// `key` có thể là NHIỀU trạng thái ngăn bằng dấu phẩy — repo backend nhận danh sách (`IN`), FE đếm
+// bằng cách tách chuỗi. Tab "Nháp" ôm luôn `cho_bo_sung` vì hai cái nay là một mặt.
+export const TRANG_THAI_TABS: { key: string; label: string }[] = [
   { key: "all", label: "Tất cả" },
-  { key: "nhap", label: "Nháp" },
-  { key: "cho_bo_sung", label: "Chờ bổ sung", tone: "alert" },
+  { key: "nhap,cho_bo_sung", label: "Nháp" },
   { key: "san_sang", label: "Sẵn sàng" },
 ];
 
@@ -155,82 +176,6 @@ export function NguyCoTreChip({
   );
 }
 
-// --- Vấn đề kế hoạch (xung đột & nguy cơ trễ) -------------------------------
-// Mọi nhãn của bàn "Vấn đề" (loại · mức · trạng thái xử lý) nằm ĐÚNG MỘT chỗ — cùng file với
-// pill/chip lệnh. KHÔNG đẻ bảng màu rời: mức trỏ cặp token có sẵn (signal→rust→amber→steel), luôn
-// kèm CHỮ nhãn để phân biệt (a11y — không chỉ dựa màu). Icon lấy từ bộ Icons có sẵn.
-
-/** Loại vấn đề → nhãn + icon (dùng ở chip category + drawer). */
-export const XEP_LICH_CATEGORY_META: Record<XepLichVanDeCategory, { label: string; icon: IconName }> = {
-  trung_may: { label: "Trùng máy", icon: "printer" },
-  de_khoa_may: { label: "Đè vùng khóa máy", icon: "lock" },
-  sai_tien_nhiem: { label: "Sai thứ tự công đoạn", icon: "workflow" },
-  gang_thieu_xa_to: { label: "Bài ghép thiếu xả tờ", icon: "layers" },
-  thieu_du_lieu: { label: "Thiếu dữ liệu", icon: "help" },
-  nguy_co_tre: { label: "Nguy cơ trễ hạn", icon: "clock" },
-  may_khong_kham: { label: "Máy không đáp ứng", icon: "ban" },
-  qua_tai_may: { label: "Quá tải máy", icon: "activity" },
-  han_bai_ghep: { label: "Hạn sớm hơn bài ghép", icon: "calendar" },
-  thue_ngoai: { label: "Thuê ngoài", icon: "truck" },
-};
-
-/** Mức nghiêm trọng → nhãn + class (thang NÓNG→NGUỘI). chan đậm nhất (icon `ban`); moss KHÔNG
- *  dùng cho mức (dành cho OK/đã-xử-lý). Class trỏ cặp token trong xep-lich.css (.xlcd-sev--*). */
-export const XEP_LICH_SEV_META: Record<XepLichSeverity, { label: string; cls: string; icon?: IconName }> = {
-  chan: { label: "Chặn", cls: "xlcd-sev--chan", icon: "ban" },
-  nghiem_trong: { label: "Nghiêm trọng", cls: "xlcd-sev--nghiem-trong" },
-  cao: { label: "Cao", cls: "xlcd-sev--cao" },
-  canh_bao: { label: "Cảnh báo", cls: "xlcd-sev--canh-bao" },
-};
-
-/** Trạng thái xử lý vấn đề → nhãn + class pill (.xlcd-tt--*). */
-export const XEP_LICH_VANDE_TT_META: Record<XepLichVanDeTrangThai, { label: string; cls: string }> = {
-  moi: { label: "Mới", cls: "xlcd-tt--moi" },
-  tiep_nhan: { label: "Đã tiếp nhận", cls: "xlcd-tt--tiep-nhan" },
-  dang_xu_ly: { label: "Đang xử lý", cls: "xlcd-tt--dang-xu-ly" },
-  da_xu_ly: { label: "Đã xử lý", cls: "xlcd-tt--da-xu-ly" },
-  ngoai_le: { label: "Ngoại lệ", cls: "xlcd-tt--ngoai-le" },
-  tam_hoan: { label: "Tạm hoãn", cls: "xlcd-tt--tam-hoan" },
-};
-
-/** Pill MỨC (bo tròn, bám .khsx-pill nhưng nền/màu theo token mức). chan dùng icon `ban`, còn lại
- *  chấm tròn. Luôn có chữ nhãn → phân biệt được cả khi mù màu. `lg` cho head drawer. */
-export function SevPill({ sev, lg = false }: { sev: XepLichSeverity; lg?: boolean }) {
-  const meta = XEP_LICH_SEV_META[sev];
-  return (
-    <span className={`xlcd-sevpill ${meta.cls} ${lg ? "xlcd-sevpill--lg" : ""}`}>
-      {meta.icon ? (
-        <Icon name={meta.icon} size={lg ? 13 : 11} />
-      ) : (
-        <span className="xlcd-sevpill__dot" aria-hidden="true" />
-      )}
-      {meta.label}
-    </span>
-  );
-}
-
-/** Pill TRẠNG THÁI xử lý (bo tròn, bám .khsx-pill). */
-export function VanDeTrangThaiPill({ tt }: { tt: XepLichVanDeTrangThai }) {
-  const meta = XEP_LICH_VANDE_TT_META[tt] ?? XEP_LICH_VANDE_TT_META.moi;
-  return (
-    <span className={`khsx-pill ${meta.cls}`}>
-      <span className="khsx-pill__dot" aria-hidden="true" />
-      {meta.label}
-    </span>
-  );
-}
-
-/** Chip LOẠI vấn đề (icon + nhãn, bo vuông nhẹ) — nhìn icon là biết nhóm nguyên nhân. */
-export function CategoryChip({ category }: { category: XepLichVanDeCategory }) {
-  const meta = XEP_LICH_CATEGORY_META[category] ?? XEP_LICH_CATEGORY_META.thieu_du_lieu;
-  return (
-    <span className="xlcd-vcat">
-      <Icon name={meta.icon} size={12} />
-      {meta.label}
-    </span>
-  );
-}
-
 // --- chip -------------------------------------------------------------------
 export function ChipGap() {
   return (
@@ -248,29 +193,116 @@ export function ChipNgoai({ ncc }: { ncc?: string | null }) {
   );
 }
 
-/** Chip THIẾU — bo vuông (khác pill trạng thái bo tròn) để không lẫn. */
-export function ChipThieu({ code }: { code: string }) {
+// --- Hàng đèn tiến độ (Đợt 1 redesign 18/08/2026) ---------------------------
+// Ba thứ bảng lệnh CHƯA nói: vật tư đã có chủ chưa · lịch đã đứng được chưa · có ai làm không.
+// Hạn và Định mức KHÔNG có đèn ở đây — cột `Hạn` đã tô bằng `classHan` và cột `CĐ` đã đỏ khi lệnh
+// chưa có công đoạn; đèn thứ tư chỉ nói lại chuyện cột bên cạnh vừa nói.
+
+const DEN_META: Record<keyof LsxDen, { label: string; icon: IconName }> = {
+  vat_tu: { label: "Vật tư", icon: "box" },
+  may_gio: { label: "Máy & giờ", icon: "printer" },
+  nguoi: { label: "Người", icon: "users" },
+};
+const DEN_KEYS = ["vat_tu", "may_gio", "nguoi"] as const;
+
+/** Chỉ vẽ chấm cho `do`/`vang`; `ok` để trống ô.
+ *
+ *  20 lệnh × 3 chấm mà đa số xanh thì mắt không bắt được cái đỏ — điều độ quét bảng để TÌM chỗ
+ *  tắc, không cần được xác nhận chỗ không tắc. `den == null` = chưa tải xong (đèn gọi rời sau
+ *  bảng): giữ ô trống, đừng nhấp nháy skeleton trên từng dòng.
+ */
+export function DenTienDo({
+  den,
+  lg = false,
+  onNhay,
+}: {
+  den: LsxDen | null | undefined;
+  lg?: boolean;
+  onNhay?: (nhay: { man: string; id: number }) => void;
+}) {
+  if (!den) return <span className="khsx-den khsx-den--cho" aria-hidden="true" />;
+  const hien = DEN_KEYS.filter((k) => den[k].muc !== "ok");
+  if (!hien.length) {
+    return (
+      <span className="khsx-den__ok" title="Không vướng gì">
+        {lg ? (
+          <>
+            <Icon name="check" size={12} /> Không vướng gì
+          </>
+        ) : (
+          "—"
+        )}
+      </span>
+    );
+  }
+  return (
+    <span className={`khsx-den ${lg ? "khsx-den--lg" : ""}`}>
+      {hien.map((k) => {
+        const d = den[k];
+        const meta = DEN_META[k];
+        const day = `${meta.label}: ${d.chu}`;
+        const noi = (
+          <>
+            <Icon name={meta.icon} size={12} />
+            <span className="khsx-den__txt">{lg ? d.chu : meta.label}</span>
+            {!lg && <span className="sr-only">: {d.chu}</span>}
+          </>
+        );
+        const cls = `khsx-den__chip khsx-den__chip--${d.muc}`;
+        return d.nhay && onNhay ? (
+          <button
+            key={k}
+            type="button"
+            className={`${cls} khsx-den__chip--bam`}
+            title={day}
+            // Chấm nằm TRONG dòng bấm-được của bảng lệnh: không chặn nổi bọt thì bấm chấm vừa nhảy
+            // màn vừa mở chi tiết lệnh, người dùng thấy hai việc xảy ra cho một cú bấm.
+            onClick={(e) => {
+              e.stopPropagation();
+              onNhay(d.nhay!);
+            }}
+          >
+            {noi}
+          </button>
+        ) : (
+          <span key={k} className={cls} title={day}>
+            {noi}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+/** Chip THIẾU — bo vuông (khác pill trạng thái bo tròn) để không lẫn.
+ *
+ *  `dv` = đơn vị bốn chặng của CHÍNH lệnh/dòng đang xét. Bốn câu checklist có nhắc đơn vị sẽ gọi
+ *  tên xưởng đặt thay vì chữ cứng "tờ in → con" (xem `LSX_THIEU_LABELS`). Không truyền cũng chạy:
+ *  câu lùi về bản chung. */
+export function ChipThieu({ code, dv }: { code: string; dv?: DonViNhan | null }) {
   return (
     <span className="khsx-need">
-      <Icon name="x" size={10} /> {LSX_THIEU_LABELS[code] ?? code}
+      <Icon name="x" size={10} /> {nhanMa(LSX_THIEU_LABELS, code, dv)}
     </span>
   );
 }
 
 /** Xếp chồng chip thiếu, tối đa `max` rồi gộp phần dư → chiều cao hàng không giật. */
-export function ThieuStack({ codes, max = 2 }: { codes: string[]; max?: number }) {
+export function ThieuStack(
+  { codes, max = 2, dv }: { codes: string[]; max?: number; dv?: DonViNhan | null },
+) {
   if (!codes.length) return <span className="khsx-muted">—</span>;
   const hien = codes.slice(0, max);
   const du = codes.slice(max);
   return (
     <span className="khsx-need-stack">
       {hien.map((c) => (
-        <ChipThieu key={c} code={c} />
+        <ChipThieu key={c} code={c} dv={dv} />
       ))}
       {du.length > 0 && (
         <span
           className="khsx-need khsx-need--more"
-          title={du.map((c) => LSX_THIEU_LABELS[c] ?? c).join(" · ")}
+          title={du.map((c) => nhanMa(LSX_THIEU_LABELS, c, dv)).join(" · ")}
         >
           +{du.length}
         </span>
@@ -318,12 +350,23 @@ export function ChuoiCongDoan({
             aria-current={active ? "step" : undefined}
           >
             {s.loai_buoc === "thue_ngoai" && <Icon name="truck" size={10} />}
-            {s.loai_buoc === "cho" && <Icon name="clock" size={10} />}
             {s.ten}
           </span>
         );
       })}
     </span>
+  );
+}
+
+// --- ô key–value ------------------------------------------------------------
+/** Ô nhãn–giá trị CHỈ ĐỌC (khuôn `.khsx-kv` trong ke-hoach-sx.css). Dùng cho số DẪN XUẤT: cái gì
+ *  gõ được thì là `<label class="khsx-kv khsx-kv--edit">`, không phải ô này. */
+export function Kv({ k, v }: { k: string; v: string | number }) {
+  return (
+    <div className="khsx-kv">
+      <span className="khsx-kv__k">{k}</span>
+      <span className="khsx-kv__v">{v}</span>
+    </div>
   );
 }
 

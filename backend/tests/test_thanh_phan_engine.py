@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from math import ceil
 
+import pytest
+
 from app.services.thanh_phan_engine import (
     binh_bai_con, binh_bai_layout, compute_phieu,
 )
@@ -86,7 +88,6 @@ def _component() -> dict:
         "kho_in_dai": 650, "kho_in_rong": 430,
         "kho_dai": 860, "kho_rong": 650, "gsm": 300, "giay_ten": "Couche 300",
         "don_gia_giay": 5000, "don_gia_don_vi": "to", "nguon_giay": "cong_ty",
-        "bu_hao_so_to": 0,
         "che_ban_don_gia": 100000, "don_gia_cong_in": 100,
         "so_mau_a": 4, "so_mau_b": 4, "co_in": True,
     }
@@ -155,34 +156,170 @@ def test_san_pham_khong_nhap_sl_thi_lay_mac_dinh_phieu():
     assert res["meta"]["components"][0]["so_luong"] == 2000   # rơi về SL mặc định phiếu
 
 
-def test_khach_cap_giay_thi_giay_0():
+def test_co_nguon_giay_khach_van_TINH_TIEN_giay():
+    """Đợt 4 · K — nguồn giấy "khách cấp" ĐÃ GỠ: engine không đọc cờ đó nữa.
+
+    Test cũ ghim `subtotal == 0`; nay ngược lại. Phiếu CŨ còn cờ trong dữ liệu mở ra tính lại sẽ
+    NHẢY GIÁ TĂNG — đó là hệ quả đã biết và chấp nhận (báo giá đã chốt không đổi, chúng chụp giá
+    tại thời điểm gửi). Giữ test này ở chiều ngược để lần sau không ai lặng lẽ khôi phục nhánh cũ.
+    """
     tp = _component()
     tp["nguon_giay"] = "khach"
     res = compute_phieu(so_luong=1000, thanh_phans=[tp])
-    assert _grp(res, "nvl")["subtotal"] == 0
+    assert _grp(res, "nvl")["subtotal"] > 0
+
+    # Và ra ĐÚNG bằng phiếu không mang cờ — cờ đó nay hoàn toàn vô hiệu.
+    sach = _component()
+    assert _grp(res, "nvl")["subtotal"] == _grp(
+        compute_phieu(so_luong=1000, thanh_phans=[sach]), "nvl"
+    )["subtotal"]
 
 
-def test_formula_engine_ast_and_hao_so_to():
+def test_che_ban_khong_nam_trong_dong_giay():
+    """Chế bản để TRỐNG đơn vị (nhả kẽm, không nhả tờ) → tự rơi khỏi chuỗi bù hao theo tờ."""
     tp = _component()
-    tp["cong_thuc_gia"] = "dinh_luong * dai_nguyen * rong_nguyen * don_gia_kg * to_nguyen"
-    tp["bu_hao_so_to"] = 250
-    tp["hao_so_to"] = 150
-    
+    tp["thanh_phams"] = [
+        {"ten": "Ghi kẽm CTP", "cong_doan": {"ten": "Ghi kẽm CTP", "nhom": "prepress",
+                                             "kieu_bu_hao": "co_dinh", "so_to_bu_hao": 999,
+                                             "don_vi_vao": None, "don_vi_ra": None}},
+        {"ten": "In offset", "cong_doan": {"ten": "In offset", "nhom": "print",
+                                           "kieu_bu_hao": "co_dinh", "so_to_bu_hao": 150,
+                                           "don_vi_vao": "to", "don_vi_ra": "to"}},
+        {"ten": "Cán màng", "cong_doan": {"ten": "Cán màng", "nhom": "finishing",
+                                          "kieu_bu_hao": "co_dinh", "so_to_bu_hao": 50,
+                                          "don_vi_vao": "to", "don_vi_ra": "to"}},
+    ]
+    res = compute_phieu(so_luong=5000, thanh_phans=[tp])
+    m = res["meta"]["components"][0]
+    # Chế bản để trống là CỐ Ý → không kêu. (Bước khác quên khai thì có cảnh báo riêng.)
+    assert not [w for w in res.get("warnings", []) if "chưa khai đơn vị" in w]
+    # 5000/49 = 103 tờ net. Ngược: Cán 103→153 · In 153→303. 999 tờ của CHẾ BẢN không được cộng.
+    assert m["bu_hao_auto"] == 200
+    assert m["to_dau_vao"] == 303
+    # Chế bản KHÔNG có mặt trong phân rã (nó không chạm tờ nào).
+    assert [b["ten"] for b in m["bu_hao_chi_tiet"]] == ["In offset", "Cán màng"]
+    # Tờ sau in = `ra` của bước in → cán màng chỉ tính tiền trên 153 tờ, không phải 303.
+    assert m["to_sau_in"] == 153
+
+
+def test_routing_qua_ranh_gioi_be_thi_chuoi_bat_dau_tu_SL_KHACH_DAT():
+    """Routing có bế → chuỗi đi ngược từ 5.000 CON, quy về tờ tại đúng bước bế."""
+    tp = _component()
+    tp["thanh_phams"] = [
+        {"ten": "In offset", "cong_doan": {"ten": "In offset", "nhom": "print",
+                                           "kieu_bu_hao": "co_dinh", "so_to_bu_hao": 150,
+                                           "don_vi_vao": "to", "don_vi_ra": "to"}},
+        {"ten": "Bế", "cong_doan": {"ten": "Bế", "nhom": "finishing",
+                                    "kieu_bu_hao": "co_dinh", "so_to_bu_hao": 50,
+                                    "don_vi_vao": "to", "don_vi_ra": "cai"}},
+        {"ten": "Đóng gói", "cong_doan": {"ten": "Đóng gói", "nhom": "finishing",
+                                          "don_vi_vao": "cai", "don_vi_ra": "cai"}},
+    ]
+    res = compute_phieu(so_luong=5000, thanh_phans=[tp])
+    m = res["meta"]["components"][0]
+    # con=49, xả=2. Ngược: Đóng gói 5.000 con → Bế 5.000÷49=102,04 +50 = 152,04 tờ →
+    # In 152,04 + 150 = 302,04 → ceil 303 tờ vào máy.
+    assert m["to_dau_vao"] == 303
+    assert m["bu_hao_auto"] == 303 - m["to_net"]        # to_net = ceil(5000/49) = 103
+    assert m["to_nguyen"] == 152                        # ceil(303 / 2 mảnh xả)
+    assert m["to_sau_in"] == 153                        # `ra` của bước in = ceil(152,04)
+    # Chuỗi nhắm ĐÚNG số khách đặt nên không dư — khác ca không có bế (bình bài thừa ra vài con).
+    assert m["so_tp_ra"] == 5000
+    # Phân rã mang theo đơn vị để UI chỉ ra chỗ đổi.
+    be_row = next(b for b in m["bu_hao_chi_tiet"] if b["ten"] == "Bế")
+    assert (be_row["dv_vao"], be_row["dv_ra"]) == ("to", "cai")
+    assert be_row["hao"] == 50                          # hao đo bằng ĐƠN VỊ VÀO (tờ), không phải con
+    assert not [w for w in res.get("warnings", []) if "đứt đơn vị" in w]
+
+
+def _sach_tp() -> dict:
+    """Ruột sách 160 trang, tay 32 → 5 tay/cuốn. Trang A5 trên tờ in 650×430."""
+    tp = _component()
+    tp.update({"ten": "Ruột sách", "so_trang": 160, "trang_moi_tay": 32,
+               "dai_thanh_pham": 210, "rong_thanh_pham": 148})
+    return tp
+
+
+def _buoc(ten: str, dv_vao, dv_ra, *, nhom="finishing", hao=0) -> dict:
+    return {"ten": ten, "cong_doan": {
+        "ten": ten, "nhom": nhom, "kieu_bu_hao": "co_dinh" if hao else "khong",
+        "so_to_bu_hao": hao, "don_vi_vao": dv_vao, "don_vi_ra": dv_ra}}
+
+
+def test_duong_tay_sach_ra_dung_bang_duong_tat_to_cai():
+    """Sách khai `tờ in → tay → cuốn` phải ra ĐÚNG số giấy như khai tắt `tờ in → cuốn`.
+
+    Cầu `to→tay` là 1 (gấp không sinh không mất tờ) nên cầu `tay→cai` phải gánh trọn `1/so_tay`.
+    Sai chỗ này thì chuỗi ngược chạy 1:1 qua bước gấp và mỗi cuốn chỉ đòi 1 tờ thay vì 5.
+    """
+    tat = _sach_tp()
+    tat["thanh_phams"] = [
+        _buoc("In offset", "to", "to", nhom="print", hao=150),
+        _buoc("Bắt tay + vào keo", "to", "cai"),
+        _buoc("Xén 3 mặt", "cai", "cai"),
+    ]
+    dai = _sach_tp()
+    dai["thanh_phams"] = [
+        _buoc("In offset", "to", "to", nhom="print", hao=150),
+        _buoc("Gấp tay sách", "to", "tay"),
+        _buoc("Bắt tay + vào keo", "tay", "cai"),
+        _buoc("Xén 3 mặt", "cai", "cai"),
+    ]
+    m_tat = compute_phieu(so_luong=2000, thanh_phans=[tat])["meta"]["components"][0]
+    res_dai = compute_phieu(so_luong=2000, thanh_phans=[dai])
+    m_dai = res_dai["meta"]["components"][0]
+
+    # 2.000 cuốn × 5 tay = 10.000 tờ net, + 150 tờ canh máy.
+    assert m_tat["to_net"] == 10_000
+    assert (m_dai["to_net"], m_dai["to_dau_vao"]) == (m_tat["to_net"], m_tat["to_dau_vao"])
+    assert m_dai["to_dau_vao"] == 10_150
+    # Đi qua `tay` không được đẻ cảnh báo "thiếu cầu quy đổi".
+    assert not [w for w in res_dai.get("warnings", []) if "quy đổi" in w or "đứt" in w]
+    # Bước gấp nhận 10.000 tờ và nhả 10.000 tay — hệ số 1, không phải 1/5.
+    gap = next(b for b in m_dai["bu_hao_chi_tiet"] if b["ten"] == "Gấp tay sách")
+    assert (gap["dv_vao"], gap["dv_ra"], gap["he_so"]) == ("to", "tay", 1.0)
+
+
+def test_hao_o_buoc_tay_sang_cuon_doi_du_so_tay():
+    """Hỏng 100 CUỐN ở bước vào keo phải đòi bù 100 × 5 tay, không phải 100 tay."""
+    tp = _sach_tp()
+    tp["thanh_phams"] = [
+        _buoc("In offset", "to", "to", nhom="print"),
+        _buoc("Gấp tay sách", "to", "tay"),
+        _buoc("Bắt tay + vào keo", "tay", "cai", hao=100),
+    ]
+    m = compute_phieu(so_luong=2000, thanh_phans=[tp])["meta"]["components"][0]
+    # Ngược: 2.000 cuốn ÷ (1/5) = 10.000 tay, + 100 tay hao = 10.100 tay → 10.100 tờ.
+    assert m["to_dau_vao"] == 10_100
+    keo = next(b for b in m["bu_hao_chi_tiet"] if b["ten"] == "Bắt tay + vào keo")
+    assert (keo["dv_vao"], keo["dv_ra"]) == ("tay", "cai")
+    assert keo["hao"] == 100                 # hao đo bằng ĐƠN VỊ VÀO (tay)
+    assert keo["ra_quy"] == 10_000           # 2.000 cuốn quy về tay
+
+
+def test_formula_engine_ast_va_hai_o_nhap_tay_da_bo():
+    """Hai ô nhập tay đã bỏ hẳn — "− Hao" trước, "+ Bù thêm" 15/08/2026.
+
+    Gửi kèm cả hai khoá cũ để chắc engine LỜ ĐI chứ không âm thầm đọc lại: phiếu cũ trong DB vẫn
+    còn giá trị ở đó, đọc nhầm là giá nhảy mà không ai đụng vào phiếu.
+    """
+    tp = _component()
+    tp["cong_thuc_gia"] = "dinh_luong * dai_nguyen * rong_nguyen * don_gia_giay * to_nguyen"
+    tp["bu_hao_so_to"] = 250   # khoá CŨ — phải bị lờ
+    tp["hao_so_to"] = 150      # khoá CŨ — phải bị lờ
+
     res = compute_phieu(so_luong=4000, thanh_phans=[tp])
     m = res["meta"]["components"][0]
-    
-    # 4000 / 49 = 82 con/to net
-    # to_dau_vao = 82 + 0 (finishing spoilages) + 250 (bu_hao) = 332
-    # to_sau_in = 332 - 150 = 182
-    # to_nguyen = ceil(332 / 2) = 166
-    assert m["to_dau_vao"] == 332
-    assert m["to_sau_in"] == 182
-    assert m["to_nguyen"] == 166
 
-    # Verify formula calculation
-    # dinh_luong = 0.3, dai_nguyen = 0.86, rong_nguyen = 0.65, don_gia_kg = 5000, to_nguyen = 166
-    # 0.3 * 0.86 * 0.65 * 5000 * 166 = 139191.0
-    assert _grp(res, "nvl")["subtotal"] == 139191.0
+    # 4000 / 49 = 82 tờ net. Chuỗi công đoạn rỗng ⇒ bù hao 0, và KHÔNG còn cộng tay.
+    # to_sau_in = 82: chuỗi không có bước in → rơi về tờ vào máy. to_nguyen = ceil(82 / 2) = 41.
+    assert m["to_dau_vao"] == 82
+    assert m["to_sau_in"] == 82
+    assert (m["bu_hao_tay"], m["hao_tay"]) == (0, 0)
+    assert m["to_nguyen"] == 41
+
+    # 0.3 × 0.86 × 0.65 × 5000 × 41 = 34.378,5
+    assert _grp(res, "nvl")["subtotal"] == 34378.5
 
     # Check formula formatting
     row = _grp(res, "nvl")["rows"][0]
@@ -190,10 +327,14 @@ def test_formula_engine_ast_and_hao_so_to():
 
 
 def test_giay_don_vi_tan_quy_ve_kg():
-    """Giấy bán theo TẤN: đơn giá đ/tấn phải ÷1000 khi công thức dùng don_gia_kg (chống lệch 1000×).
+    """Giấy bán theo TẤN: đơn giá đ/tấn phải ÷1000 khi công thức dùng don_gia_giay (chống lệch 1000×).
 
-    Neo theo phiếu hộp đôi: giấy D250, khổ nguyên 445×640, gsm 250, 17.100.000 đ/tấn,
-    con=2, SL 4.000, bù 250 → to_nguyen 2.250 → tiền giấy = 0,25×0,445×0,64×17.100×2.250.
+    Neo theo phiếu hộp đôi: giấy D250, khổ nguyên 445×640, gsm 250, 17.100.000 đ/tấn, con=2,
+    SL 4.000 → to_nguyen 2.000 → tiền giấy = 0,25×0,445×0,64×17.100×2.000.
+
+    ⚠️ Phiếu tay gốc còn cộng 250 tờ "+ Bù thêm" (ra 2.250 tờ · 685 đ/TP). Ô đó đã BỎ 15/08/2026
+    nên mốc neo hạ xuống 2.000 tờ · 609 đ/TP. Cái test này canh là chuyện KHÁC — đơn giá khai
+    đ/tấn phải ÷1.000 — và chuyện đó không đổi.
     """
     tp = {
         "ten": "Hộp D250", "so_to_per_sp": 1, "quy_cach_in": "mot_mat", "con_auto": False,
@@ -201,19 +342,18 @@ def test_giay_don_vi_tan_quy_ve_kg():
         "kho_dai": 640, "kho_rong": 445, "kho_in_dai": 640, "kho_in_rong": 445,
         "gsm": 250, "giay_ten": "Duplex D250",
         "don_gia_giay": 17_100_000, "don_gia_don_vi": "tan", "nguon_giay": "cong_ty",
-        "bu_hao_so_to": 250, "co_in": False,
-        "cong_thuc_gia": "dinh_luong * dai_nguyen * rong_nguyen * don_gia_kg * to_nguyen",
+        "co_in": False,
+        "cong_thuc_gia": "dinh_luong * dai_nguyen * rong_nguyen * don_gia_giay * to_nguyen",
     }
     res = compute_phieu(so_luong=4000, thanh_phans=[tp])
     m = res["meta"]["components"][0]
     assert m["to_net"] == 2000
-    assert m["to_dau_vao"] == 2250
+    assert m["to_dau_vao"] == 2000
     assert m["so_manh_xa"] == 1          # khổ in = khổ nguyên → không xả
-    assert m["to_nguyen"] == 2250
-    # 0.25 × 0.445 × 0.64 × 17100 × 2250 = 2.739.420 (don_gia_kg = 17.100.000 ÷ 1000)
-    assert _grp(res, "nvl")["subtotal"] == 2739420.0
-    # ≈ 685 đ/thành phẩm (đúng phiếu tay)
-    assert round(2739420.0 / 4000) == 685
+    assert m["to_nguyen"] == 2000
+    # 0.25 × 0.445 × 0.64 × 17100 × 2000 = 2.435.040 (don_gia_giay = 17.100.000 ÷ 1000)
+    assert _grp(res, "nvl")["subtotal"] == 2435040.0
+    assert round(2435040.0 / 4000) == 609
 
 
 def test_in_kem_la_cong_doan_trong_chuoi():
@@ -222,9 +362,9 @@ def test_in_kem_la_cong_doan_trong_chuoi():
     tp = _component()   # field cứng: don_gia_cong_in=100, che_ban_don_gia=100000
     tp["thanh_phams"] = [
         {"ten": "In offset", "don_gia": 200,
-         "cong_doan": {"nhom": "print", "cong_thuc_gia": "to_dau_vao * so_mat * don_gia"}},
+         "cong_doan": {"nhom": "print", "cong_thuc_gia": "to_dau_vao * so_mat * 200"}},
         {"ten": "Chế bản kẽm", "don_gia": 90000,
-         "cong_doan": {"nhom": "prepress", "cong_thuc_gia": "so_kem * don_gia"}},
+         "cong_doan": {"nhom": "prepress", "cong_thuc_gia": "so_kem * 90000"}},
     ]
     res = compute_phieu(so_luong=5000, thanh_phans=[tp])
     m = res["meta"]["components"][0]
@@ -252,25 +392,28 @@ def test_giay_kg_default_theo_can():
     assert _grp(res, "nvl")["subtotal"] == round(expected, 2)
 
 
-def test_cong_doan_default_theo_nhom_khong_can_khai_cong_thuc():
-    """In (print) & Kẽm (prepress) KHÔNG khai cong_thuc_gia → engine tự dùng công thức mặc định theo nhom."""
+def test_cong_doan_chua_khai_cong_thuc_thi_KEU_chu_khong_bia_tien():
+    """Bỏ hai công thức MẶC ĐỊNH theo nhóm (11/08/2026) — chúng dựa vào `don_gia` của công đoạn,
+    một biến CHẾT (không có ô nhập ở phiếu lẫn danh mục) nên vẫn ra 0đ, chỉ là 0đ trông như đã tính.
+
+    Nay chưa khai công thức thì engine nói thẳng và tính 0đ — bắt người ta viết một công thức.
+    """
     tp = _component()
     tp["thanh_phams"] = [
-        {"ten": "In offset", "don_gia": 200, "cong_doan": {"nhom": "print"}},        # không cong_thuc_gia
-        {"ten": "Ghi kẽm", "don_gia": 90000, "cong_doan": {"nhom": "prepress"}},      # không cong_thuc_gia
+        {"ten": "In offset", "don_gia": 200, "cong_doan": {"nhom": "print"}},
+        {"ten": "Ghi kẽm", "don_gia": 90000, "cong_doan": {"nhom": "prepress"}},
     ]
     res = compute_phieu(so_luong=5000, thanh_phans=[tp])
-    m = res["meta"]["components"][0]
-    # In (print → to_dau_vao × so_mat × don_gia) + Kẽm (prepress → so_kem × don_gia), gộp nhóm 'Công đoạn'.
-    tien_in = m["to_dau_vao"] * 2 * 200
-    tien_kem = m["so_kem"] * 90000
-    assert _grp(res, "cong_doan")["subtotal"] == tien_in + tien_kem
+    assert _grp(res, "cong_doan")["subtotal"] == 0
+    w = " ".join(res["warnings"])
+    assert "In offset" in w and "Ghi kẽm" in w and "chưa khai công thức tính giá" in w
 
 
 def _fin_row(**kw) -> dict:
-    """1 dòng công đoạn gia công có công thức phẳng: tiền = so_luong × don_gia."""
+    """1 dòng công đoạn gia công có công thức phẳng. Đơn giá GÕ THẲNG vào công thức — ô Công đoạn
+    không có biến tiền (gỡ 11/08/2026: không có chỗ nào nhập đơn giá công đoạn)."""
     return {"ten": "Bế", "don_gia": 300, "cong_doan": {
-        "ten": "Bế", "nhom": "finishing", "cong_thuc_gia": "so_luong * don_gia"}, **kw}
+        "ten": "Bế", "nhom": "finishing", "cong_thuc_gia": "so_luong * 300"}, **kw}
 
 
 def _tp_co_cong_doan(**kw) -> dict:
@@ -300,11 +443,396 @@ def test_mau_pha_cong_them_ban_kem():
 
 
 def test_mau_pha_nhan_theo_so_tay():
-    """Ruột sách 8 tay, 4 màu + 1 pha mỗi tay → (4+1) × 8 = 40 kẽm."""
+    """Ruột sách 128 trang, tay 16 → 8 tay; 4 màu + 1 pha mỗi tay → (4+1) × 8 = 40 kẽm.
+
+    Số tay là DẪN XUẤT `so_trang / trang_moi_tay` — gửi thẳng `so_to_per_sp` không còn tác dụng."""
     tp = _component()
     tp.update({"quy_cach_in": "mot_mat", "so_mau_a": 4, "so_mau_b": 0, "so_mau_pha": 1,
-               "so_to_per_sp": 8})
-    assert compute_phieu(so_luong=1000, thanh_phans=[tp])["meta"]["components"][0]["so_kem"] == 40
+               "so_trang": 128, "trang_moi_tay": 16})
+    out = compute_phieu(so_luong=1000, thanh_phans=[tp])["meta"]["components"][0]
+    assert out["so_to_per_sp"] == 8
+    assert out["so_kem"] == 40
+
+
+def test_duong_con_to_roi_ra_dung_bang_duong_tat_to_cai():
+    """Tờ rời khai `tờ in → con → thành phẩm` phải ra ĐÚNG số giấy như khai tắt `tờ in → cái`.
+
+    Cắt xong con nào là thẻ ấy, không gom, nên `con → thành phẩm` = 1 và cầu `tờ in → con` gánh
+    trọn số con. Khác biệt thật giữa hai đường KHÔNG nằm ở số giấy mà ở đơn vị tra bậc bù hao:
+    đường dài thì bước đóng gói tra theo 5.000 CON, đường tắt thì bước bế tra theo 102 TỜ.
+    """
+    tat = _component()
+    tat["thanh_phams"] = [
+        _buoc("In offset", "to", "to", nhom="print", hao=150),
+        _buoc("Bế", "to", "cai", hao=50),
+        _buoc("Đóng gói", "cai", "cai"),
+    ]
+    dai = _component()
+    dai["thanh_phams"] = [
+        _buoc("In offset", "to", "to", nhom="print", hao=150),
+        _buoc("Bế", "to", "con", hao=50),
+        _buoc("Đóng gói", "con", "cai"),
+    ]
+    res_dai = compute_phieu(so_luong=5000, thanh_phans=[dai])
+    m_tat = compute_phieu(so_luong=5000, thanh_phans=[tat])["meta"]["components"][0]
+    m_dai = res_dai["meta"]["components"][0]
+
+    assert m_tat["con"] == 49
+    assert (m_dai["to_dau_vao"], m_dai["to_nguyen"]) == (m_tat["to_dau_vao"], m_tat["to_nguyen"])
+    assert m_dai["to_dau_vao"] == 303
+    # Đi qua `con` KHÔNG được đẻ cảnh báo "chưa biết hệ số quy đổi — tạm tính 1" nữa.
+    assert not [w for w in res_dai.get("warnings", []) if "hệ số quy đổi" in w]
+    be = next(b for b in m_dai["bu_hao_chi_tiet"] if b["ten"] == "Bế")
+    goi = next(b for b in m_dai["bu_hao_chi_tiet"] if b["ten"] == "Đóng gói")
+    assert (be["dv_vao"], be["dv_ra"], be["he_so"]) == ("to", "con", 49.0)
+    assert (goi["dv_vao"], goi["dv_ra"], goi["he_so"]) == ("con", "cai", 1.0)
+    assert goi["ra_quy"] == 5000                 # bước đóng gói đếm CON, không đếm tờ
+
+
+def test_duong_con_cua_sach_van_khoa_bang_cau_tat():
+    """Bất biến tích-hai-cầu giữ cả với sách, nơi `tờ in → cái` NHỎ hơn 1 (gom tay).
+
+    Sách không khai `con` trong thực tế, nhưng cầu vẫn phải nhất quán — viết dạng chia là để
+    không có tổ hợp nào rơi ra ngoài.
+    """
+    tp = _sach_tp()
+    tp["thanh_phams"] = [
+        _buoc("In offset", "to", "to", nhom="print"),
+        _buoc("Bế", "to", "con"),
+        _buoc("Đóng gói", "con", "cai"),
+    ]
+    tat = _sach_tp()
+    tat["thanh_phams"] = [
+        _buoc("In offset", "to", "to", nhom="print"),
+        _buoc("Bắt tay + vào keo", "to", "cai"),
+    ]
+    m = compute_phieu(so_luong=2000, thanh_phans=[tp])["meta"]["components"][0]
+    m_tat = compute_phieu(so_luong=2000, thanh_phans=[tat])["meta"]["components"][0]
+    assert m["to_dau_vao"] == m_tat["to_dau_vao"] == 10_000
+
+
+# --- Mạch TIỀN chạy song song mạch SỐ TỜ (panel sản phẩm) ---------------------------------------
+
+
+def _buoc_tien(ten: str, dv_vao, dv_ra, *, nhom="finishing", hao=0, ct=None) -> dict:
+    r = _buoc(ten, dv_vao, dv_ra, nhom=nhom, hao=hao)
+    if ct:
+        r["cong_doan"]["cong_thuc_gia"] = ct
+    return r
+
+
+def _chuoi_co_tien() -> dict:
+    """Sách: chế bản (không chạm tờ) + 3 bước có chạm tờ, tất cả đều CÓ công thức tiền."""
+    tp = _sach_tp()
+    tp["thanh_phams"] = [
+        _buoc_tien("Ghi kẽm CTP", None, None, nhom="prepress", ct="so_kem * 50000"),
+        _buoc_tien("In offset", "to", "to", nhom="print", hao=150, ct="to_dau_vao * 300"),
+        _buoc_tien("Gấp tay sách", "to", "tay", ct="to_dau_vao * 20"),
+        _buoc_tien("Bắt tay + vào keo", "tay", "cai", ct="so_luong * 500"),
+    ]
+    return tp
+
+
+def test_dong_tien_ghep_voi_dong_so_to_bang_KHOA_chu_khong_bang_TEN():
+    """Panel sản phẩm hiện tiền ngay trên thẻ số tờ ⇒ hai danh sách phải ghép được với nhau.
+
+    Chúng KHÔNG cùng độ dài và KHÔNG cùng thứ tự: chế bản có dòng tiền nhưng vắng mặt ở phân rã
+    số tờ (nó không chạm tờ nào). Ghép theo VỊ TRÍ là lệch nguyên một bước; ghép theo TÊN thì vỡ
+    đúng hôm xưởng đổi tên một công đoạn — mà vỡ IM LẶNG, tiền chỉ biến mất khỏi thẻ. Nên engine
+    phát `buoc_idx` cho cả hai bên.
+    """
+    res = compute_phieu(so_luong=1000, thanh_phans=[_chuoi_co_tien()])
+    m = res["meta"]["components"][0]
+    tien = _grp(res, "cong_doan")["rows"]
+
+    # Chế bản CÓ tiền nhưng VẮNG ở phân rã số tờ — chính là lý do phải có khóa.
+    assert len(tien) == 4 and len(m["bu_hao_chi_tiet"]) == 3
+    assert 0 in {r["buoc_idx"] for r in tien}
+    assert 0 not in {b["buoc_idx"] for b in m["bu_hao_chi_tiet"]}
+
+    # Ghép theo khóa: mỗi thẻ số tờ tìm được ĐÚNG MỘT dòng tiền của chính nó.
+    theo_khoa = {r["buoc_idx"]: r for r in tien}
+    assert len(theo_khoa) == len(tien), "khóa trùng — ghép sẽ nuốt mất dòng"
+    for b in m["bu_hao_chi_tiet"]:
+        assert b["buoc_idx"] in theo_khoa
+        assert theo_khoa[b["buoc_idx"]]["ten"].endswith(b["ten"])
+
+    # Ghép theo VỊ TRÍ thì SAI — giữ dòng này để không ai "tối giản" khóa đi rồi dùng index.
+    assert [r["ten"].split(" · ")[-1] for r in tien][:3] != [b["ten"] for b in m["bu_hao_chi_tiet"]]
+
+
+def test_chip_sl_vao_bat_dung_so_to_cua_chinh_buoc():
+    """Công thức tiền của công đoạn phải với được số của CHÍNH bước nó, không phải số cả chuỗi.
+
+    Ruột sách 1.000 cuốn × 5 tay = 5.000 tờ tốt; In hao 200 ⇒ tờ vào máy 5.200. Máy gấp nhận
+    5.000 tờ — nhưng trước 15/08/2026 ô công thức không có tên biến nào trỏ tới 5.000, chỉ có
+    `to_dau_vao` = 5.200, nên tiền công gấp bị tính cả trên 200 tờ mà máy in đã đốt.
+    """
+    tp = _sach_tp()
+    tp["thanh_phams"] = [
+        _buoc_tien("In offset", "to", "to", nhom="print", hao=150, ct="to_dau_vao * 300"),
+        _buoc_tien("Gấp tay sách", "to", "tay", ct="sl_vao * 120"),
+        _buoc_tien("Bắt tay + vào keo", "tay", "cai", ct="sl_ra * 1500"),
+    ]
+    res = compute_phieu(so_luong=1000, thanh_phans=[tp])
+    tien = {r["ten"].split(" · ")[-1]: r["thanh_tien"] for r in _grp(res, "cong_doan")["rows"]}
+    assert not [w for w in res["warnings"] if "lỗi công thức" in w], res["warnings"]
+
+    m = res["meta"]["components"][0]
+    assert (m["to_net"], m["to_dau_vao"]) == (5_000, 5_150)     # hao 150 của bước in
+    # Gấp chạm ĐÚNG 5.000 tờ (tờ tốt ra khỏi in), không phải 5.150 tờ vào máy.
+    assert tien["Gấp tay sách"] == 5_000 * 120
+    assert tien["Gấp tay sách"] != m["to_dau_vao"] * 120, "vẫn đang tính trên số tờ của cả chuỗi"
+    # `sl_ra` của bước vào keo là số CUỐN nó nhả ra — đơn vị của bước, không phải tờ.
+    assert tien["Bắt tay + vào keo"] == 1_000 * 1500
+    # Bước IN thì `sl_vao` và `to_dau_vao` trùng nhau — nó thật sự chạy từng ấy tờ.
+    assert tien["In offset"] == 5_150 * 300
+
+
+def test_chip_sl_vao_o_buoc_khong_cham_to_thi_ve_to_vao_may():
+    """Chế bản nhả kẽm, không nằm trên dòng giấy ⇒ không có số của bước. Rơi về tờ vào máy chứ
+    KHÔNG để trống — để trống là công thức thiếu biến rồi ra 0đ mà không ai báo."""
+    tp = _sach_tp()
+    tp["thanh_phams"] = [
+        _buoc_tien("Ghi kẽm CTP", None, None, nhom="prepress", ct="sl_vao * 1"),
+        _buoc_tien("In offset", "to", "to", nhom="print", hao=150, ct="to_dau_vao * 300"),
+    ]
+    res = compute_phieu(so_luong=1000, thanh_phans=[tp])
+    tien = {r["ten"].split(" · ")[-1]: r["thanh_tien"] for r in _grp(res, "cong_doan")["rows"]}
+    assert not [w for w in res["warnings"] if "lỗi công thức" in w], res["warnings"]
+    assert tien["Ghi kẽm CTP"] == res["meta"]["components"][0]["to_dau_vao"]
+
+
+def test_moi_dong_mang_ca_cong_thuc_GOC_lan_ban_THE_SO():
+    """Panel hiện hai dòng: "tính bằng gì" rồi "ra số nào". Chỉ có bản thế số thì đọc lên là
+    `5.200 × 2 × 350` — không biết 5.200 là tờ vào máy hay tờ nguyên, mà hai số đó đều có mặt
+    trên màn và khác nhau."""
+    tp = _chuoi_co_tien()
+    tp["vat_tus"] = [{"ten": "Keo gáy", "don_gia": 40000, "don_vi_gia": "kg",
+                      "cong_thuc_gia": "0.002 * so_luong * don_gia_vat_tu"}]
+    res = compute_phieu(so_luong=1000, thanh_phans=[tp])
+
+    cd = {r["ten"].split(" · ")[-1]: r for r in _grp(res, "cong_doan")["rows"]}
+    assert cd["In offset"]["cong_thuc_goc"] == "to_dau_vao * 300"
+    # Bản thế số là bản KHÁC — cùng công thức nhưng đã thay biến bằng giá trị.
+    assert "to_dau_vao(" in cd["In offset"]["cong_thuc"]
+    assert cd["In offset"]["cong_thuc_goc"] != cd["In offset"]["cong_thuc"]
+
+    nvl = {r["loai"]: r for r in _grp(res, "nvl")["rows"]}
+    assert nvl["vat_tu"]["cong_thuc_goc"] == "0.002 * so_luong * don_gia_vat_tu"
+    # Giấy KHÔNG khai công thức riêng ⇒ engine dùng bản mặc định; dòng gốc phải là bản THẬT SỰ
+    # chạy, không phải chuỗi rỗng — không thì panel nói "không có công thức" trong khi có tiền.
+    assert "to_nguyen" in nvl["giay"]["cong_thuc_goc"]
+
+
+def test_cong_doan_chua_khai_cong_thuc_thi_dong_goc_de_TRONG():
+    """Chưa khai thì để trống hẳn — panel bỏ dòng diễn giải, chỉ còn câu "thiếu công thức — 0đ"."""
+    tp = _sach_tp()
+    tp["thanh_phams"] = [_buoc_tien("Bước quên khai", "to", "to", nhom="print")]
+    row = _grp(compute_phieu(so_luong=1000, thanh_phans=[tp]), "cong_doan")["rows"][0]
+    assert row["cong_thuc_goc"] == ""
+    assert row["thanh_tien"] == 0
+
+
+def test_cong_don_moi_dong_ra_dung_gia_von_san_pham():
+    """Con số tổng ở chân panel phải bằng Σ mọi dòng đang hiện — không thì người xem tự cộng lại
+    ra số khác và mất tin vào cả bảng."""
+    res = compute_phieu(so_luong=1000, thanh_phans=[_chuoi_co_tien()])
+    m = res["meta"]["components"][0]
+    tong = sum(r["thanh_tien"] for g in res["groups"] for r in g["rows"])
+    assert round(tong, 2) == m["gia_von_tp"]
+    assert m["gia_von_tp"] > 0
+    assert m["gia_von_don"] == round(m["gia_von_tp"] / 1000, 2)
+
+
+def test_dong_giay_co_co_rieng_de_panel_tach_khoi_vat_tu():
+    """Nhóm `nvl` trộn giấy với mực/màng/keo. Panel cần dòng GIẤY riêng, mà dò bằng "dòng đầu
+    tiên" là đúng hôm nay và sai ngay hôm engine đổi thứ tự."""
+    tp = _chuoi_co_tien()
+    tp["vat_tus"] = [{"ten": "Keo gáy", "don_gia": 40000, "don_vi_gia": "kg",
+                      "cong_thuc_gia": "0.002 * so_luong * don_gia_vat_tu"}]
+    nvl = _grp(compute_phieu(so_luong=1000, thanh_phans=[tp]), "nvl")["rows"]
+    assert [r["loai"] for r in nvl] == ["giay", "vat_tu"]
+    assert len([r for r in nvl if r["loai"] == "giay"]) == 1
+
+
+# --- PHÍ KHUÔN: khoản MỘT LẦN, đứng ngoài giá vốn -----------------------------------------------
+
+
+def _buoc_dao(ten: str, loai: str | None, phi: float = 0.0) -> dict:
+    """Bước gia công có cờ dụng cụ. `loai=None` = không cần dao."""
+    cd = {"ten": ten, "nhom": "finishing", "kieu_bu_hao": "khong",
+          "don_vi_vao": "to", "don_vi_ra": "to", "cong_thuc_gia": "to_dau_vao * 10",
+          "requires_tooling": loai is not None, "tooling_type": loai}
+    return {"ten": ten, "cong_doan": cd, "phi_khuon": phi}
+
+
+def _phieu_co_dao(*buocs) -> dict:
+    tp = _component()
+    tp["thanh_phams"] = [
+        {"ten": "In offset", "cong_doan": {"ten": "In offset", "nhom": "print",
+                                           "don_vi_vao": "to", "don_vi_ra": "to",
+                                           "cong_thuc_gia": "to_dau_vao * 300"}},
+        *buocs,
+    ]
+    return tp
+
+
+def test_phi_khuon_CONG_vao_gia_von_va_bi_chia_theo_san_luong():
+    """Chốt 15/08/2026: gộp phí dao vào giá vốn để báo giá chỉ còn MỘT dòng.
+
+    Hệ quả đã biết và đã chọn: tiền dao KHÔNG đổi theo sản lượng nên khi bị chia, đơn nhỏ gánh
+    nặng hơn đơn lớn. Test ghim luôn con số để lần sau ai đổi ý thì thấy ngay mình đang đổi cái gì.
+    """
+    def _don(sl: int):
+        return compute_phieu(so_luong=sl, thanh_phans=[
+            _phieu_co_dao(_buoc_dao("Bế thành phẩm", "khuon_be", 1_500_000))])["meta"]["components"][0]
+
+    m = _don(5000)
+    assert m["phi_khuon"] == 1_500_000
+    assert [d["ten"] for d in m["phi_khuon_dong"]] == ["Bế thành phẩm"]
+
+    # Giá vốn = Σ mọi dòng tiền, và dòng dao NẰM TRONG đó.
+    res = compute_phieu(so_luong=5000, thanh_phans=[
+        _phieu_co_dao(_buoc_dao("Bế thành phẩm", "khuon_be", 1_500_000))])
+    dong_dao = [r for g in res["groups"] for r in g["rows"] if r.get("loai") == "khuon"]
+    assert len(dong_dao) == 1 and dong_dao[0]["thanh_tien"] == 1_500_000
+    # Dòng dao KHÔNG mang `buoc_idx` — khoá đó để ghép với thẻ số tờ, trùng khoá là nuốt mất dòng.
+    assert "buoc_idx" not in dong_dao[0]
+    tong_dong = sum(r["thanh_tien"] for g in res["groups"] for r in g["rows"])
+    assert round(tong_dong, 2) == m["gia_von_tp"]
+
+    # Đơn giá CÓ nhúc nhích vì con dao, và nhúc nhích ngược chiều sản lượng.
+    khong_dao = compute_phieu(so_luong=5000, thanh_phans=[
+        _phieu_co_dao(_buoc_dao("Bế thành phẩm", "khuon_be", 0))])["meta"]["components"][0]
+    assert m["gia_von_don"] - khong_dao["gia_von_don"] == pytest.approx(1_500_000 / 5000)
+    # Cùng con dao, đơn nhỏ gánh nặng gấp 10 lần đơn lớn.
+    nho, lon = _don(500), _don(5000)
+    assert nho["gia_von_don"] > lon["gia_von_don"]
+
+
+def test_ba_buoc_can_dao_thi_ba_dong_phi_rieng():
+    """Hộp cần ba con dao ở ba bước — mỗi con một dòng, tổng cộng lại. Gộp một cục thì lúc tái đơn
+    chỉ làm lại MỘT con dao sẽ không biết trừ ra bao nhiêu."""
+    res = compute_phieu(so_luong=500, thanh_phans=[_phieu_co_dao(
+        _buoc_dao("Bế thành phẩm", "khuon_be", 1_500_000),
+        _buoc_dao("Ép kim", "khuon_ep", 900_000),
+        _buoc_dao("Bế nổi", "khuon_ep", 0),          # dùng lại dao cũ
+    )])
+    m = res["meta"]["components"][0]
+    assert m["phi_khuon"] == 2_400_000
+    assert [(d["ten"], d["thanh_tien"]) for d in m["phi_khuon_dong"]] == [
+        ("Bế thành phẩm", 1_500_000), ("Ép kim", 900_000)]
+    # Bước để trống KHÔNG đẻ dòng 0đ, nhưng PHẢI được nhắc.
+    assert any("Bế nổi" in w and "chưa khai phí" in w for w in res["warnings"]), res["warnings"]
+    assert res["meta"]["phi_khuon"] == 2_400_000
+
+
+def test_ban_kem_khong_co_phi_khuon():
+    """`kem` là vật tư tiêu hao, tiền đã nằm trong công thức chế bản (`so_kem × đơn giá`).
+    Nhận thêm phí ở đây là tính hai lần — nên bỏ qua cả số lẫn lời nhắc."""
+    res = compute_phieu(so_luong=500, thanh_phans=[_phieu_co_dao(
+        _buoc_dao("Ghi kẽm CTP", "kem", 900_000),
+    )])
+    m = res["meta"]["components"][0]
+    assert m["phi_khuon"] == 0 and m["phi_khuon_dong"] == []
+    assert not [w for w in res["warnings"] if "chưa khai phí" in w]
+
+
+def test_buoc_khong_can_dao_thi_khong_nhac():
+    """Chuỗi toàn bước phẳng ⇒ không dòng phí, không cảnh báo, không khối nào mọc trên màn."""
+    res = compute_phieu(so_luong=500, thanh_phans=[_phieu_co_dao(
+        _buoc_dao("Cán màng mờ", None),
+    )])
+    m = res["meta"]["components"][0]
+    assert m["phi_khuon"] == 0 and m["phi_khuon_dong"] == []
+    assert not [w for w in res["warnings"] if "khuôn" in w]
+
+
+# --- Mực in: TẬP mã, không phải con số ----------------------------------------------------------
+
+
+def _kem(qc: str, a: list[str], b: list[str], **kw) -> int:
+    tp = _component()
+    tp.update({"quy_cach_in": qc, "muc_a": a, "muc_b": b, **kw})
+    return compute_phieu(so_luong=1000, thanh_phans=[tp])["meta"]["components"][0]["so_kem"]
+
+
+def test_kem_ab_cong_hai_mat_tu_tro_hop_hai_mat():
+    """AB dùng hai bộ bản riêng (`|A|+|B|`); tự trở/trở nhíp chung một bộ (`|A ∪ B|`)."""
+    cmyk = ["C", "M", "Y", "K"]
+    assert _kem("hai_mat", cmyk, ["K"]) == 5          # 4 + 1, hai bộ bản
+    assert _kem("tu_tro", cmyk, ["K"]) == 4           # {C,M,Y,K} — mặt B là tập con
+    assert _kem("tro_nhip", cmyk, ["K"]) == 4         # nhíp khác trục lật, KHÔNG khác số bản
+    assert _kem("mot_mat", cmyk, ["K"]) == 4          # mặt B không tồn tại
+
+
+def test_kem_tu_tro_khong_phai_max_khi_hai_mat_muc_khac_nhau():
+    """`max(|A|,|B|)` chỉ đúng khi tập bên ít màu nằm gọn trong bên kia — hai ca dưới thì không.
+
+    Đây là lý do phải lưu TẬP MÃ: hai con số `4` và `1` không cho biết cái `1` đó là K (đã có
+    trong CMYK) hay một Pantone riêng, mà hai đáp án lệch nhau đúng một bản kẽm.
+    """
+    cmyk = ["C", "M", "Y", "K"]
+    # 4/1 nhưng mặt sau là Pantone riêng → hợp ra 5, max ra 4.
+    assert _kem("tu_tro", cmyk, ["185C"]) == 5
+    # 2/2 nhưng bốn mực khác nhau hoàn toàn → hợp ra 4, max ra 2.
+    assert _kem("tu_tro", ["K", "185C"], ["300C", "123C"]) == 4
+    # Cùng một Pantone hai mặt: tự trở gộp còn 1 bản, AB vẫn phải 2 (hai bộ bản riêng).
+    assert _kem("tu_tro", ["185C"], ["185C"]) == 1
+    assert _kem("hai_mat", ["185C"], ["185C"]) == 2
+
+
+def test_muc_chuan_hoa_va_nhan_theo_so_tay():
+    """Mã mực chuẩn hoá (viết hoa, gộp khoảng trắng, bỏ trùng); kẽm nhân theo SỐ TAY."""
+    # " 185c " và "185C" là MỘT mực — không có danh mục nên chuẩn hoá chuỗi là hàng rào duy nhất.
+    assert _kem("tu_tro", ["C", "M", "Y", "K"], [" 185c "]) == 5
+    assert _kem("tu_tro", ["185C"], ["185 C"]) == 2      # khoảng trắng GIỮA là mã khác, không gộp
+    assert _kem("hai_mat", ["K", "K", "k"], []) == 1     # trùng trong cùng một mặt → bỏ
+    # Ruột sách 128 trang tay 16 → 8 tay, AB 4/1 → 5 bản mỗi tay → 40 kẽm.
+    assert _kem("hai_mat", ["C", "M", "Y", "K"], ["K"], so_trang=128, trang_moi_tay=16) == 40
+
+
+def test_ba_so_mau_van_la_dan_xuat_dung_nghia_cu():
+    """`so_mau_a/b` = mực PROCESS mỗi mặt; `so_mau_pha` = mực pha PHÂN BIỆT của cả hai mặt."""
+    tp = _component()
+    tp.update({"quy_cach_in": "hai_mat", "muc_a": ["C", "M", "Y", "K", "185C"],
+               "muc_b": ["K", "185C", "300C"]})
+    m = compute_phieu(so_luong=1000, thanh_phans=[tp])["meta"]["components"][0]
+    assert (m["so_mau_a"], m["so_mau_b"]) == (4, 1)   # chỉ đếm CMYK
+    assert m["so_mau_pha"] == 2                       # 185C dùng hai mặt vẫn là MỘT màu phải pha
+
+
+def test_thanh_phan_chi_co_so_mau_ra_y_het_so_cu():
+    """Dữ liệu chỉ-có-số (seed/script/phiếu chưa backfill) không được đổi giá.
+
+    Luật dựng tập từ số (`tap_muc_tu_so`, migration 0154 dùng chung) cố ý cho tập bên ít màu là
+    CON của bên nhiều màu ⇒ `|A ∪ B| = max` = đúng số kẽm engine cũ tính.
+    """
+    for qc, ky_vong in (("hai_mat", 4 + 2 + 1), ("tu_tro", 4 + 1), ("mot_mat", 4 + 1)):
+        tp = _component()
+        tp.update({"quy_cach_in": qc, "so_mau_a": 4, "so_mau_b": 2, "so_mau_pha": 1,
+                   "so_to_per_sp": 1})
+        m = compute_phieu(so_luong=1000, thanh_phans=[tp])["meta"]["components"][0]
+        assert m["so_kem"] == ky_vong, qc
+        # Ba số dẫn xuất quay về đúng giá trị đưa vào → tiền mực không nhúc nhích.
+        assert (m["so_mau_a"], m["so_mau_b"], m["so_mau_pha"]) == (4, 2, 1), qc
+
+
+def test_khai_qua_4_mau_process_tach_thanh_pha_nhung_giu_TONG():
+    """Khai `so_mau_a = 5` là dữ liệu không có thật — mực process chỉ có bốn (CMYK).
+
+    DB dev đang có 2 hàng như vậy. Luật dựng tập đọc phần dư thành mực chưa rõ tên: `(5,0,0)` →
+    4 process + 1 pha. Tách lại thế này ĐÚNG HƠN bản khai, và quan trọng là **giữ nguyên TỔNG**
+    `so_mau_a + so_mau_b + so_mau_pha` — thứ mà công thức tiền mực dùng — nên giá không đổi.
+    """
+    tp = _component()
+    tp.update({"quy_cach_in": "mot_mat", "so_mau_a": 5, "so_mau_b": 0, "so_mau_pha": 0,
+               "so_to_per_sp": 1})
+    m = compute_phieu(so_luong=1000, thanh_phans=[tp])["meta"]["components"][0]
+    assert m["so_kem"] == 5                                      # y hệt công thức cũ
+    assert (m["so_mau_a"], m["so_mau_b"], m["so_mau_pha"]) == (4, 0, 1)
+    assert m["so_mau_a"] + m["so_mau_b"] + m["so_mau_pha"] == 5   # TỔNG giữ nguyên
 
 
 # --- Chừa tách theo chiều: MỘT bản duy nhất ------------------------------------------------------
@@ -349,3 +877,62 @@ def test_binh_bai_the_nhan_vien_ra_99_con():
     sai = binh_bai_layout(kho_in_dai=860, kho_in_rong=650, dai_tp=86, rong_tp=54,
                           chua_mm=20, bleed_mm=0)
     assert sai["con"] == 105
+
+
+# ============================ Đợt 4 · L — LƯỢNG vật tư ============================
+def test_luong_suy_tu_cong_thuc_giu_dung_bat_bien_tien_bang_luong_nhan_don_gia():
+    """Đặt mọi biến đơn giá = 1 thì công thức TIỀN nhả ra chính LƯỢNG.
+
+    Không ghim con số tuyệt đối: nó phụ thuộc cách xưởng hiệu chỉnh công thức (mã seed chỉ là
+    minh hoạ). Thứ PHẢI đúng ở mọi hiệu chỉnh là bất biến `tiền = lượng × đơn giá` — và nó đúng
+    với mọi mức giá, vì tiền bắt buộc tỉ lệ thuận với giá.
+    """
+    from app.services.thanh_phan_engine import luong_tu_cong_thuc, safe_eval
+
+    ct = "so_mau * dai_in * rong_in * don_gia_vat_tu * to_dau_vao * 0.0003"
+    for gia in (250_000, 123_456, 1):
+        ctx = {"so_mau": 4, "dai_in": 650, "rong_in": 900, "to_dau_vao": 1_000,
+               "don_gia_vat_tu": gia}
+        luong = luong_tu_cong_thuc(ct, ctx)
+        tien = safe_eval(ct, ctx)
+        assert luong is not None
+        assert abs(tien - luong * gia) <= abs(tien) * 1e-9   # tolerance TƯƠNG ĐỐI: số cỡ 1e11
+    # Lượng KHÔNG đổi theo giá — nó là lượng, không phải tiền.
+    a = luong_tu_cong_thuc(ct, {**ctx, "don_gia": 1})
+    b = luong_tu_cong_thuc(ct, {**ctx, "don_gia": 9_999_999})
+    assert a == b
+
+
+def test_cong_thuc_khong_nhac_don_gia_thi_KHONG_suy_luong():
+    """Phí phẳng `50000`: đặt đơn giá = 1 sẽ ra "50000 kg" — con số vô nghĩa mà trông như thật.
+
+    Thà KHÔNG có dòng cân đối còn hơn bịa một số để bộ phận mua đi mua theo.
+    """
+    from app.services.thanh_phan_engine import luong_tu_cong_thuc
+
+    ctx = {"to_dau_vao": 1_000, "don_gia_vat_tu": 5}
+    assert luong_tu_cong_thuc("50000", ctx) is None
+    assert luong_tu_cong_thuc("", ctx) is None
+    assert luong_tu_cong_thuc(None, ctx) is None
+    assert luong_tu_cong_thuc("to_dau_vao * 0", ctx) is None       # ra 0 ⇒ không có nhu cầu
+    assert luong_tu_cong_thuc("khong_ton_tai * don_gia", ctx) is None  # lỗi công thức ⇒ im, không nổ
+
+
+def test_dong_vat_tu_phoi_luong_va_don_vi_ra_ngoai():
+    """Engine trả `luong` + `luong_don_vi` + `vat_tu_id` để kế hoạch đọc mà không phải tính lại."""
+    tp = _component()
+    tp["vat_tus"] = [{
+        "vat_tu_id": 77, "ten": "Màng bóng", "don_gia": 3_000, "don_vi_gia": "m2",
+        "cong_thuc_gia": "dai_in * rong_in * don_gia_vat_tu * to_sau_in",
+    }]
+    res = compute_phieu(so_luong=1000, thanh_phans=[tp])
+    dong = [r for r in _grp(res, "nvl")["rows"] if "Màng bóng" in r["ten"]]
+    assert len(dong) == 1
+    assert dong[0]["vat_tu_id"] == 77
+    assert dong[0]["luong_don_vi"] == "m2"
+    assert dong[0]["luong"] > 0
+    # Hai field làm tròn ĐỘC LẬP (tiền 2 số lẻ, lượng 4 số lẻ) nên tích không khớp tuyệt đối —
+    # sai số trần = nửa bậc làm tròn của lượng × đơn giá. Bất biến chính xác kiểm ở test trên.
+    assert dong[0]["thanh_tien"] == pytest.approx(
+        dong[0]["luong"] * 3_000, abs=0.5e-4 * 3_000 + 0.01,
+    )

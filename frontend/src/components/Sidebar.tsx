@@ -13,6 +13,10 @@ import "./sidebar.css";
 interface NavChild {
   id: string;
   label: string;
+  /** Khoá quyền RIÊNG của menu con. Bỏ trống thì con dùng chung khoá của cha (mặc định cũ).
+   *  Có từ 10/08/2026 khi phân hệ Kế toán tách mỗi màn một khoá — ba màn con của "Kế toán thu
+   *  mua" nay là ba ô quyền khác nhau, không còn cùng bật/tắt theo cha. */
+  module?: string;
 }
 
 export interface NavItem {
@@ -24,7 +28,19 @@ export interface NavItem {
   children?: NavChild[];
 }
 
+// Ô `self_service` ĐÃ BỎ 15/08/2026 — phần "của tôi" là quyền đương nhiên, không phải ô cấp.
+// Hằng giữ lại tạm cho tới khi dọn xong khoá cũ ở máy chủ; menu KHÔNG còn ăn theo nó.
 export const SELF_SERVICE_MODULE = "self_service";
+// Menu hiện cho MỌI tài khoản đăng nhập KHÔNG CẦN cấp ô nào — tức luật ngầm, đi ngược Luật 1
+// của đợt phân quyền ("không có ô nào bật thì không vào được").
+//
+// ⚠️ NAY RỖNG, và cố ý để rỗng. Hai mục từng nằm đây đều đã có ô thật:
+//   • "yeu-cau-mua-hang" → khoá `yeu_cau_mua_hang` (10/08/2026)
+//   • "noi-quy"          → khoá `noi_quy`, được seed + migration cấp cho MỌI vai nên thực tế ai
+//                          cũng vẫn đọc được, khác ở chỗ giờ quản trị GỠ ĐƯỢC.
+// Thêm id mới vào đây = tạo lại đúng cái luật ngầm vừa dọn. Muốn "ai cũng vào được" thì cấp ô đó
+// cho mọi vai (xem `RoleRepository.O_MAC_DINH`), đừng bỏ qua cổng quyền.
+export const AUTHENTICATED_NAV_IDS: ReadonlySet<string> = new Set([]);
 
 interface NavSection {
   id: string;
@@ -41,19 +57,8 @@ const NAV: NavSection[] = [
     items: [
       { id: "dashboard", label: "Dashboard", icon: "grid", module: "dashboard" },
       { id: "ho-so-cua-toi", label: "Hồ sơ của tôi", icon: "users", module: "dashboard" },
-      // Nội quy công ty: Giám đốc soạn, MỌI nhân viên đọc.
-      // 🔴 `modules: [SELF_SERVICE_MODULE]` là CỐ Ý và BẮT BUỘC giữ nguyên. `self_service` được
-      // AppShell nhét vào `readable` cho mọi tài khoản, nên ai cũng thấy mục này — đúng yêu cầu
-      // "tất cả nhân viên có thể thấy". `module: "noi_quy"` chỉ còn là nhãn quyền GHI (Giám đốc
-      // soạn/ban hành), trang tự kiểm bằng `can("noi_quy","update")`.
-      // Sửa thành `modules: ["noi_quy"]` = CẢ CÔNG TY MẤT QUYỀN ĐỌC NỘI QUY, âm thầm, không lỗi.
-      {
-        id: "noi-quy",
-        label: "Nội quy công ty",
-        icon: "book",
-        module: "noi_quy",
-        modules: [SELF_SERVICE_MODULE],
-      },
+      // "Nội quy công ty" ĐÃ DỜI xuống section "Nhân sự & Lương" (chốt của chủ 09/08/2026):
+      // nội quy lao động là tài liệu của HCNS, để ở "Tổng quan" thì không ai đoán ra chỗ tìm.
     ],
   },
   {
@@ -79,9 +84,25 @@ const NAV: NavSection[] = [
     id: "san-xuat",
     label: "Sản xuất",
     items: [
+      // MỘT MÀN = MỘT Ô QUYỀN (17/08/2026). Trước đó 6 mục dưới đây treo trên đúng hai khoá
+      // (`san_xuat` mở 4 màn, `ky_thuat_may` mở 2), nên không có cách nào cho ai đó xem lệnh mà
+      // không dời được lịch cả xưởng. Migration 0209 đã sao chép quyền cũ sang 4 khoá mới.
       { id: "ke-hoach-sx", label: "Kế hoạch sản xuất", icon: "workflow", module: "san_xuat" },
-      { id: "bai-ghep", label: "Bài ghép", icon: "layers", module: "san_xuat" },
-      { id: "xep-lich-cong-doan", label: "Xếp lịch công đoạn", icon: "calendar", module: "san_xuat" },
+      // Đứng ngay sau Kế hoạch SX vì nó là bước kế tiếp của cùng một người: lệnh chốt xong thì hỏi
+      // "còn thiếu vật tư gì, hôm nào phải đặt".
+      { id: "ke-hoach-vat-tu", label: "Kế hoạch vật tư", icon: "box", module: "ke_hoach_vat_tu" },
+      // Màn bài ghép cũ gỡ 18/08/2026. Id đường dẫn giữ `bai-ghep-2` (đổi id là hỏng dấu trang
+      // người dùng đã lưu + bản đồ badge), NHÃN là "Bài ghép" — người dùng chỉ còn một màn.
+      { id: "bai-ghep-2", label: "Bài ghép", icon: "layers", module: "bai_ghep_2" },
+      // Màn xếp lịch cũ (module `xep_lich`) đã thay bằng "một bàn làm việc" v2 (`xep_lich_2`) — 19/08/2026.
+      // GIỮ id đường dẫn `xep-lich-cong-doan-2` để không hỏng dấu trang + bản đồ badge; NHÃN về tên quen.
+      // Mọi vai đã có quyền `xep_lich_2` (mg 0218 chép từ `xep_lich`) nên không ai mất quyền khi bỏ màn cũ.
+      { id: "xep-lich-cong-doan-2", label: "Xếp lịch công đoạn", icon: "calendar", module: "xep_lich_2" },
+      // Hai ô quyền cùng mở màn này: tổ sửa chữa vào bằng `ky_thuat_may`, người ngoài báo máy hỏng
+      // vào bằng `yeu_cau_sua_chua` (màn tự chọn khung theo quyền).
+      { id: "sua-chua-may", label: "Sửa chữa máy", icon: "settings", module: "ky_thuat_may",
+        modules: ["ky_thuat_may", "yeu_cau_sua_chua"] },
+      { id: "phieu-bao-tri", label: "Phiếu bảo trì", icon: "clock", module: "phieu_bao_tri" },
     ],
   },
   {
@@ -92,70 +113,132 @@ const NAV: NavSection[] = [
         id: "yeu-cau-mua-hang",
         label: "Yêu cầu mua hàng",
         icon: "clipboard",
-        module: "thu_mua",
+        module: "yeu_cau_mua_hang",
         // ke_toan: kế toán bấm mã YCMH từ PMH/Phiếu chi để truy vết ngược.
+        // Danh sách dự phòng GIỮ NGUYÊN các phân hệ đề nghị vật tư — nó là TẬP CON của
+        // DEPARTMENT_REQUEST_READER_MODULES ở backend. Rộng hơn backend là menu hiện mà API trả
+        // 403; hẹp hơn thì chỉ ẩn menu, quyền đọc dữ liệu không suy suyển.
+        //
+        // ⚠️ CỐ Ý THIẾU "thu_mua" (chủ chốt 15/08/2026: "tôi chỉ cấp quyền cho mình nhìn thấy
+        // menu thu mua thôi"). Người mua hàng VẪN đọc được YCMH ở máy chủ — bắt buộc, vì màn Mua
+        // hàng gọi thẳng API đó để nạp ô chọn nguồn (`loadSources`). Chỉ là không tự động hiện
+        // thêm một mục menu khi quản trị mới cấp mỗi ô Mua hàng; muốn có menu thì cấp ô
+        // "Yêu cầu mua hàng". Gỡ dòng ngoại lệ trong `test_giao_dien_khop_may_chu.py` nếu đảo lại.
         modules: [
-          "thu_mua",
+          "yeu_cau_mua_hang",
           "bao_gia",
           "kho",
           "san_xuat",
-          "dm_giay_vat_tu",
+          "dm_giay",
           "ke_toan",
         ],
       },
       { id: "mua-hang", label: "Mua hàng", icon: "bag", module: "thu_mua" },
-      { id: "nha-cung-cap", label: "Nhà cung cấp", icon: "truck", module: "thu_mua" },
+      { id: "nha-cung-cap", label: "Nhà cung cấp", icon: "truck", module: "nha_cung_cap" },
     ],
   },
   {
     id: "ke-toan",
     label: "Kế toán",
     items: [
-      { id: "ke-toan-yeu-cau-mua", label: "Yêu cầu mua hàng", icon: "fileCheck", module: "ke_toan" },
-      { id: "ke-toan-phieu-chi", label: VOUCHER_PAGE_LABEL, icon: "calculator", module: "ke_toan" },
-      { id: "ke-toan-phieu-thu", label: "Phiếu thu", icon: "fileText", module: "ke_toan" },
-      { id: "ke-toan-tai-khoan", label: "Tài khoản ngân hàng", icon: "building", module: "ke_toan" },
+      // BỎ NHÓM CON "Kế toán thu mua" (chủ chốt 12/08/2026): ba màn dưới nay đứng NGANG HÀNG với
+      // Phiếu thu · Công nợ phải thu · Tài khoản ngân hàng. Lý do gộp cũ (số liệu công nợ phải trả
+      // đến từ PMH + phiếu chi) đúng về dữ liệu nhưng sai về thao tác: bên THU đã phẳng, để bên CHI
+      // thụt thêm một cấp thì hai vế đối xứng của cùng một việc lại nằm hai độ sâu khác nhau.
+      //
+      // Icon đi theo CẶP cho dễ đọc: hai phiếu dùng `fileText`, hai công nợ dùng `calculator`.
+      //
+      // "Đơn mua hàng" TRƯỚC ĐÂY mang nhãn "Yêu cầu mua hàng" — nhãn SAI: màn này hiển thị PHIẾU
+      // MUA HÀNG (`/api/accounting/inbox` trả `PurchaseRequestListOut`), không phải YCMH. Nhìn
+      // menu cũ tưởng có hai chỗ xem YCMH, thật ra một chỗ là PMH.
+      //
+      // Đây cũng là nơi DUYỆT đơn mua hàng (chủ 04/08/2026: "phải duyệt ở phần kế toán chứ") —
+      // màn Mua hàng bên Thu mua không còn nút duyệt nữa.
+      {
+        id: "ke-toan-don-mua-hang",
+        label: "Đơn mua hàng",
+        icon: "clipboard",
+        module: "ke_toan",
+      },
+      {
+        id: "ke-toan-phieu-chi",
+        label: VOUCHER_PAGE_LABEL,
+        icon: "fileText",
+        module: "phieu_chi",
+      },
+      {
+        id: "ke-toan-cong-no",
+        label: "Công nợ phải trả",
+        icon: "calculator",
+        module: "cong_no_phai_tra",
+      },
+      {
+        id: "ke-toan-phieu-thu",
+        label: "Phiếu thu",
+        icon: "fileText",
+        module: "phieu_thu",
+      },
+      {
+        id: "ke-toan-cong-no-phai-thu",
+        label: "Công nợ phải thu",
+        icon: "calculator",
+        module: "cong_no_phai_thu",
+      },
+      {
+        id: "ke-toan-tai-khoan-ngan-hang",
+        label: "Tài khoản ngân hàng",
+        icon: "database",
+        module: "tk_ngan_hang",
+      },
     ],
   },
   {
-    // SECTION "Nhập xuất kho" — nghiệp vụ chứng từ kho (đề nghị + phiếu nhập/xuất). TÁCH khỏi
-    // "Kho hàng" vì section đó chỉ để LIỆT KÊ các kho vật lý đã khai báo, không chứa màn nghiệp vụ.
-    id: "nhap-xuat-kho",
-    label: "Nhập xuất kho",
-    items: [
-      // MỘT mục — bên trong chia tab VIỆC (Đề nghị · Hộp yêu cầu) × CHIỀU (Nhập · Xuất).
-      // Tab "Hộp yêu cầu" tự ẩn nếu vai không có create/view_stock (gate trong KhoPage).
-      // Tên "Đề nghị & Cấp phát": đúng việc của module (xin vật tư → kho cấp), phân biệt với
-      // section "Kho hàng" (kho vật lý: tồn/phiếu/ngưỡng).
-      { id: "kho-main", label: "Đề nghị nhập xuất", icon: "warehouse", module: "kho" },
-    ],
-  },
-  {
-    // SECTION "Kho hàng" — CHỈ chứa các kho ĐÃ KHAI BÁO (inject ĐỘNG từ AppShell qua
-    // dynamicItems, key theo section id). Không có kho nào → section tự ẩn.
+    // SECTION "Kho hàng" — GỘP màn nghiệp vụ kho (Yêu cầu nhập xuất · Báo cáo kho) + các kho ĐÃ
+    // KHAI BÁO (inject ĐỘNG từ AppShell qua dynamicItems, key theo section id → xếp SAU 2 mục
+    // nghiệp vụ, vì merge = [...items, ...dynamicItems]). `id`/`module` giữ nguyên nên routing +
+    // quyền không đổi khi dời khỏi section "Nhập xuất kho" cũ (đã bỏ).
     id: "kho-hang",
     label: "Kho hàng",
-    items: [],
+    items: [
+      // MỘT mục — bên trong chia tab VIỆC (Yêu cầu · Hộp yêu cầu) × CHIỀU (Nhập · Xuất).
+      // Tab "Hộp yêu cầu" tự ẩn nếu vai không có create/view_stock (gate trong KhoPage).
+      { id: "kho-main", label: "Yêu cầu nhập xuất", icon: "warehouse", module: "kho" },
+      // Báo cáo kho (kế toán): sổ nhập-xuất + khóa kỳ + export MISA. AppShell ẩn nếu thiếu close_book.
+      { id: "kho-baocao", label: "Báo cáo kho", icon: "fileText", module: "kho" },
+    ],
   },
   {
     id: "cau-hinh-dm",
     label: "Cấu hình danh mục",
     items: [
       { id: "loai-san-pham", label: "Loại sản phẩm", icon: "clipboard", module: "dm_loai_san_pham" },
-      { id: "may-thiet-bi", label: "Thiết bị & Máy in", icon: "warehouse", module: "dm_thiet_bi" },
+      { id: "may-thiet-bi", label: "Thiết bị & Máy móc", icon: "warehouse", module: "dm_thiet_bi" },
       { id: "cong-doan", label: "Công đoạn", icon: "activity", module: "dm_cong_doan" },
-      { id: "bu-hao", label: "Bù hao", icon: "fileText", module: "dm_cong_doan" },
+      // Công việc khoán: đơn giá khoán theo tổ. Đứng cạnh Công đoạn vì đó là chỗ nó được dùng (ô
+      // "Đầu việc và định mức của tổ" ở form Công đoạn, rồi bước lệnh chọn lại). Trước 17/08/2026
+      // khai trong một tab của màn Lương — sai chỗ: bảng này là dữ liệu GỐC của sản xuất, kế toán
+      // lương chỉ đọc ra tiền.
+      // Icon `calculator` giữ đúng cái người dùng đang quen: tab "Lương khoán" cũ cũng mang icon máy
+      // tính. Trong nhóm danh mục nó là duy nhất nên không lẫn với ba mục dùng `clipboard`.
+      { id: "cong-viec-khoan", label: "Công việc khoán", icon: "calculator", module: "dm_cong_viec_khoan" },
+      { id: "bu-hao", label: "Bù hao", icon: "fileText", module: "dm_bu_hao" },
       // Đơn vị & quy đổi: dùng chung cho khoán · kho · mua hàng, nên nằm ở danh mục chứ không
       // chôn trong màn Lương. MỘT mục cho hai bảng (đơn vị · cặp "1 tấn = 1.000 kg") — tách hai
       // mục thì hai cái tên gần trùng nhau, không ai đoán được vào đâu làm gì.
-      { id: "don-vi", label: "Đơn vị & quy đổi", icon: "activity", module: "dm_cong_doan" },
-      { id: "chung-loai-giay", label: "Chủng loại giấy", icon: "fileText", module: "kho" },
-      { id: "giay", label: "Giấy", icon: "bag", module: "kho" },
-      { id: "vat-tu-in-an", label: "Vật tư in ấn", icon: "bag", module: "kho" },
-      // Khuôn bế: khai báo nơi lưu trữ khuôn (số kệ · ngày làm · tình trạng). Quyền RIÊNG `khuon_be`.
-      { id: "khuon-be", label: "Khuôn bế", icon: "clipboard", module: "khuon_be" },
+      { id: "don-vi", label: "Đơn vị & quy đổi", icon: "activity", module: "dm_don_vi" },
+      { id: "chung-loai-giay", label: "Chủng loại giấy", icon: "fileText", module: "dm_chung_loai_giay" },
+      { id: "giay", label: "Giấy", icon: "bag", module: "dm_giay" },
+      { id: "vat-tu-in-an", label: "Vật tư khác", icon: "bag", module: "dm_vat_tu" },
+      // Khuôn: kho dao của xưởng (bế + ép nhũ) — khách · loại · số kệ · tình trạng. Bước cần khuôn
+      // ở Lệnh sản xuất chọn dao từ đây. Nhan đề đổi 16/08/2026; `module` GIỮ chuỗi `khuon_be` vì
+      // nó nằm trong bảng phân quyền của DB thật.
+      { id: "khuon-be", label: "Khuôn", icon: "clipboard", module: "khuon_be" },
       // Khai báo kho: màn CRUD tạo/sửa kho. Kho tạo ở đây tự hiện thành mục dưới SECTION "Kho hàng".
-      { id: "khai-bao-kho", label: "Khai báo kho", icon: "warehouse", module: "kho" },
+      { id: "khai-bao-kho", label: "Khai báo kho", icon: "warehouse", module: "dm_kho_hang" },
+      // Lý do & lỗi SX (§15): danh mục chuẩn hoá lý do/lỗi nuôi mọi ô chọn ở màn Thực hiện SX
+      // (hỏng batch · điều chỉnh bàn giao · mở lại phân bổ…). Quyền RIÊNG `dm_ly_do_san_xuat`
+      // (mg 0221 chép từ `san_xuat`). Đứng cuối nhóm — nó là dữ liệu vận hành SX, không phải master.
+      { id: "ly-do-san-xuat", label: "Lý do & lỗi SX", icon: "alert", module: "dm_ly_do_san_xuat" },
     ],
   },
   {
@@ -167,15 +250,29 @@ const NAV: NavSection[] = [
       // sự vì nó là cái khung chứa.
       { id: "phong-ban", label: "Phòng ban", icon: "building", module: "phong_ban" },
       { id: "nhan-su", label: "Hồ sơ nhân sự", icon: "users", module: "nhan_su" },
-      { id: "cham-cong", label: "Chấm công", icon: "activity", module: "nhan_su", modules: ["nhan_su", SELF_SERVICE_MODULE] },
+      // Khoá RIÊNG `cham_cong` (10/08/2026) — trước đây dùng chung `nhan_su` nên cấp quyền xem
+      // hồ sơ là mở luôn bảng công cả công ty. Vẫn nhận SELF_SERVICE: thợ chỉ có ô Tự phục vụ
+      // cũng phải vào được màn này để bấm chấm công và xem công của mình.
+      // Menu theo ĐÚNG ô của chính nó. Vai Công nhân được cấp `cham_cong` ở phạm vi "Của tôi"
+      // ⇒ vẫn vào bấm giờ được; ai không được cấp thì không thấy menu (chủ chốt 15/08/2026).
+      { id: "cham-cong", label: "Chấm công", icon: "activity", module: "cham_cong" },
       { id: "nghi-phep", label: "Nghỉ phép", icon: "calendar", module: "nghi_phep" },
       { id: "tang-ca", label: "Tăng ca", icon: "clock", module: "tang_ca" },
+      // Lương vào bằng Ô THẬT của chính nó. Trước 15/08/2026 còn mở qua `self_service` —
+      // ô cấp sẵn cho mọi vai và ĐÃ GỠ khỏi bảng phân quyền, tức một cái cổng không tay nắm:
+      // HCNS tắt ô Lương mà người ta vẫn vào được màn. Migration 0198 + `_luong_self()` bên
+      // seed đã rót ô `luong` (Của tôi: Xem + Thao tác) cho mọi vai nên gỡ cổng ma không ai mất màn.
+      { id: "luong", label: "Lương", icon: "calculator", module: "luong" },
+      // Nội quy lao động: ai cũng phải đọc, nhưng từ 10/08/2026 đi qua Ô QUYỀN `noi_quy` thật
+      // (seed + migration cấp cho MỌI vai) chứ không còn nằm trong AUTHENTICATED_NAV_IDS.
+      // ⚠ ĐỪNG dời lại lên "Tổng quan" và ĐỪNG đổi `id`/`module`: id là khoá route + khoá
+      // MODULE_BY_NAV_ID, đổi là gãy cả điều hướng lẫn cổng quyền.
       {
-        id: "luong",
-        label: "Lương",
-        icon: "calculator",
-        module: "luong",
-        modules: ["luong", SELF_SERVICE_MODULE],
+        id: "noi-quy",
+        label: "Nội quy công ty",
+        icon: "book",
+        module: "noi_quy",
+        modules: ["noi_quy"],
       },
     ],
   },
@@ -196,8 +293,27 @@ export const MODULE_BY_NAV_ID: Record<string, string> = Object.fromEntries(
   NAV.flatMap((s) => s.items.map((i) => [i.id, i.module])),
 );
 
+/** nav id → những module cần có quyền đọc để vào được mục đó.
+ *
+ * ⚠️ PHẢI gom cả MENU CON. `NavChild` không khai `module` riêng nên nó **thừa hưởng** của item
+ * cha; thiếu vế này thì mọi mục con tra ra `undefined` và `AppShell` chặn 403 — kể cả giám đốc
+ * toàn quyền. Đúng lỗi đã xảy ra 04/08/2026 khi gom "Đơn mua hàng" + "Phiếu chi" thành con của
+ * "Kế toán thu mua": hai mục đang chạy tốt bỗng báo "không có quyền truy cập".
+ */
 export const MODULES_BY_NAV_ID: Record<string, string[]> = Object.fromEntries(
-  NAV.flatMap((s) => s.items.map((i) => [i.id, i.modules ?? [i.module]])),
+  NAV.flatMap((s) =>
+    s.items.flatMap((i) => {
+      const mods = i.modules ?? [i.module];
+      return [
+        [i.id, mods] as [string, string[]],
+        // Menu con có khoá riêng thì dùng khoá đó — nếu vẫn kế thừa của cha thì hàng rào ở
+        // AppShell sẽ cho vào cả ba màn con chỉ vì có quyền một màn.
+        ...(i.children ?? []).map(
+          (c) => [c.id, c.module ? [c.module] : mods] as [string, string[]],
+        ),
+      ];
+    }),
+  ),
 );
 
 interface SidebarProps {
@@ -234,10 +350,20 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
       ...s,
       items: merged
         .filter((i) => !hiddenIds?.has(i.id))
-        .filter((i) => (i.modules ?? [i.module]).some((module) => readable.has(module)))
+        .filter((i) =>
+          AUTHENTICATED_NAV_IDS.has(i.id) ||
+          (i.modules ?? [i.module]).some((module) => readable.has(module)),
+        )
         .map((i) => {
           const dyn = itemChildren?.[i.id];
-          return dyn && dyn.length ? { ...i, children: dyn } : i;
+          if (dyn && dyn.length) return { ...i, children: dyn };
+          // Menu con có khoá riêng → ẩn con nào chưa được cấp. Con không khai khoá thì theo cha
+          // (giữ nguyên nếp cũ của mọi nhóm khác).
+          if (!i.children?.some((c) => c.module)) return i;
+          return {
+            ...i,
+            children: i.children.filter((c) => !c.module || readable.has(c.module)),
+          };
         }),
     };
   }).filter((s) => s.items.length > 0);
@@ -331,7 +457,13 @@ function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowPro
         <Icon name={item.icon} className="sidebar__icon" />
         <span className="sidebar__label">{item.label}</span>
         {badge != null && badge > 0 && (
-          <span className="sidebar__badge" aria-label={`${badge} chờ xử lý`}>{badge > 99 ? "99+" : badge}</span>
+          <span
+            className="sidebar__badge"
+            aria-label={`${badge} thông báo chưa đọc`}
+            title={`${badge} thông báo chưa đọc`}
+          >
+            {badge > 99 ? "99+" : badge}
+          </span>
         )}
         {hasChildren && (
           <Icon

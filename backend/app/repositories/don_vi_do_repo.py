@@ -4,12 +4,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import aliased
 
 from ..models.don_vi_do import DonViDo, DonViQuyDoi
+from .catalog_base import CatalogRepo
 
-_FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active")
-_CAP_FIELDS = ("tu_id", "den_id", "he_so", "cong_thuc", "ghi_chu")
+_FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active", "dung_lam_toc_do",
+           "tram_dong_giay")
+# `cong_thuc` KHÔNG còn ghi được ở CẢ HAI bảng: cặp bỏ 14/08/2026 (mg 0198), đơn vị bỏ 17/08/2026
+# (mg 0215). Công thức tính lượng nay khai ở món hàng / máy / đầu việc khoán / công đoạn.
+_CAP_FIELDS = ("tu_id", "den_id", "he_so", "ghi_chu")
 
 
 @dataclass
@@ -24,32 +28,46 @@ class CapRow:
     tu_ten: str
     den_ten: str
     he_so: float
-    # Có công thức = quy đổi ĐỘNG, `he_so` vô nghĩa (lưu 0) — số chỉ có lúc chạy.
-    cong_thuc: str | None = None
     ghi_chu: str | None = None
 
 
-class DonViDoRepository:
-    def __init__(self, db: Session) -> None:
-        self.db = db
+class DonViDoRepository(CatalogRepo):
+    model = DonViDo
+    fields = _FIELDS
+    # Mã đơn vị viết THƯỜNG (`kg`, `to`, `m2`) — khác 6 danh mục còn lại. Không phải nhầm lẫn:
+    # mã này nằm nguyên trong dữ liệu sống (`cong_doan.don_vi_vao/ra`, công thức tính giá,
+    # `giay.don_vi_gia`) nên đổi sang HOA là vỡ hết chỗ so mã. Ghi và tra đều `lower()`.
+    ma_case = "lower"
+    # Xếp theo HỌ trước rồi mới tới mã: bảng gom `kg · g · tấn` liền nhau chứ không trộn lẫn.
+    order_cols = ("ho", "ma")
+    # `DonViDoService` chốt sau khi ghi nhật ký — xem `services/catalog_base`. Chỉ áp cho CRUD của
+    # ĐƠN VỊ; ba hàm `*_cap` bên dưới là bảng khác và vẫn tự commit.
+    commit_on_write = False
 
-    def get(self, item_id: int):
-        return self.db.get(DonViDo, item_id)
-
-    def find_by_ma(self, ma: str):
-        ma = (ma or "").strip().lower()
-        if not ma:
-            return None
-        return self.db.execute(
-            select(DonViDo).where(func.lower(DonViDo.ma) == ma)
-        ).scalars().first()
+    def extra_conds(self, *, ho: str | None = None, **_) -> list:
+        return [func.lower(DonViDo.ho) == ho.strip().lower()] if ho else []
 
     def all_active(self) -> list[DonViDo]:
-        """Toàn bộ đơn vị đang dùng — nguồn cho `quy_doi_service` (bảng nhỏ, nạp cả bảng là đủ)."""
+        """Đơn vị ĐANG DÙNG — cho Ô CHỌN: không mời người ta gán mới thứ đã ngừng.
+
+        Tra cứu / dựng lại số của chứng từ cũ thì dùng `all_rows()`, ĐỪNG dùng hàm này.
+        """
         return list(
             self.db.execute(
                 select(DonViDo).where(DonViDo.active.is_(True)).order_by(DonViDo.ho, DonViDo.ma)
             ).scalars()
+        )
+
+    def all_rows(self) -> list[DonViDo]:
+        """Toàn bộ đơn vị, KỂ CẢ đã ngừng dùng — cho đường ĐỌC / tra cứu.
+
+        Đơn vị ngừng dùng mà chứng từ cũ còn trỏ tới thì vẫn phải đổi ra số và hiện ra tên. Lọc
+        `active` ở đường đọc là làm tiền khoán của lệnh lịch sử tụt về rỗng và cột ĐVT trống trơn —
+        cùng một luật đã chốt cho lương 27/07 (`payroll_service.py:501`): ngừng áp dụng thì chặn
+        GÁN MỚI, không chặn ĐỌC LẠI.
+        """
+        return list(
+            self.db.execute(select(DonViDo).order_by(DonViDo.ho, DonViDo.ma)).scalars()
         )
 
     def distinct_ho(self) -> list[str]:
@@ -59,51 +77,6 @@ class DonViDoRepository:
         ).scalars()
         return sorted({(h or "").strip() for h in rows if (h or "").strip()})
 
-    def list(self, *, q: str | None = None, ho: str | None = None, active: bool | None = None,
-             page: int = 1, size: int = 50):
-        conds = []
-        if q:
-            like = f"%{q.strip().lower()}%"
-            conds.append(or_(func.lower(DonViDo.ma).like(like), func.lower(DonViDo.ten).like(like)))
-        if ho:
-            conds.append(func.lower(DonViDo.ho) == ho.strip().lower())
-        if active is not None:
-            conds.append(DonViDo.active.is_(active))
-        base = select(DonViDo)
-        count_stmt = select(func.count()).select_from(DonViDo)
-        for c in conds:
-            base = base.where(c)
-            count_stmt = count_stmt.where(c)
-        total = self.db.execute(count_stmt).scalar_one()
-        page, size = max(1, page), max(1, min(size, 200))
-        base = base.order_by(DonViDo.ho.asc(), DonViDo.ma.asc())
-        base = base.offset((page - 1) * size).limit(size)
-        return list(self.db.execute(base).scalars()), total
-
-    def create(self, data: dict):
-        obj = DonViDo(ma=data["ma"].strip().lower())
-        for k in _FIELDS:
-            if k in data:
-                setattr(obj, k, data[k])
-        self.db.add(obj)
-        self.db.commit()
-        self.db.refresh(obj)
-        return obj
-
-    def update(self, obj, data: dict):
-        if data.get("ma"):
-            obj.ma = data["ma"].strip().lower()
-        for k in _FIELDS:
-            if k in data:
-                setattr(obj, k, data[k])
-        self.db.commit()
-        self.db.refresh(obj)
-        return obj
-
-    def delete(self, obj) -> None:
-        self.db.delete(obj)
-        self.db.commit()
-
     # --- cặp quy đổi ---------------------------------------------------------
 
     def cap_rows(self, *, bo_qua_id: int | None = None) -> list[CapRow]:
@@ -112,8 +85,7 @@ class DonViDoRepository:
         tu, den = aliased(DonViDo), aliased(DonViDo)
         stmt = (
             select(DonViQuyDoi.id, DonViQuyDoi.tu_id, DonViQuyDoi.den_id,
-                   tu.ma, den.ma, tu.ten, den.ten, DonViQuyDoi.he_so,
-                   DonViQuyDoi.cong_thuc, DonViQuyDoi.ghi_chu)
+                   tu.ma, den.ma, tu.ten, den.ten, DonViQuyDoi.he_so, DonViQuyDoi.ghi_chu)
             .join(tu, tu.id == DonViQuyDoi.tu_id)
             .join(den, den.id == DonViQuyDoi.den_id)
             .order_by(tu.ma.asc(), den.ma.asc())
@@ -122,7 +94,7 @@ class DonViDoRepository:
             stmt = stmt.where(DonViQuyDoi.id != bo_qua_id)
         return [
             CapRow(id=r[0], tu_id=r[1], den_id=r[2], tu_ma=r[3], den_ma=r[4],
-                   tu_ten=r[5], den_ten=r[6], he_so=float(r[7]), cong_thuc=r[8], ghi_chu=r[9])
+                   tu_ten=r[5], den_ten=r[6], he_so=float(r[7]), ghi_chu=r[8])
             for r in self.db.execute(stmt).all()
         ]
 
@@ -151,11 +123,32 @@ class DonViDoRepository:
             )
         ).scalars().first()
 
+
+    def cong_doan_lay_lam_don_vi_ra(self, ma: str) -> list[str]:
+        """Tên công đoạn đang lấy `ma` làm ĐƠN VỊ RA, và CẢ HAI vế đều ngoài dòng giấy.
+
+        Dùng để chặn chiều ngược của luật vòng tròn: công đoạn khai xong xuôi rồi mới có người vào
+        sửa công thức của đơn vị thêm `sl_vao`. Chỉ kể ca hai-vế-ngoài-dòng vì chỉ ở đó công thức
+        của đơn vị RA mới được đọc.
+        """
+        from ..models.cong_doan import CongDoan
+        from ..models.don_vi_do import DonViDo
+
+        if not ma:
+            return []
+        tram = {d.ma: d.tram_dong_giay for d in self.db.execute(select(DonViDo)).scalars()}
+        ra: list[str] = []
+        for cd in self.db.execute(
+            select(CongDoan).where(CongDoan.don_vi_ra == ma)
+        ).scalars():
+            if tram.get(cd.don_vi_vao) is None and tram.get(cd.don_vi_ra) is None:
+                ra.append(cd.ten)
+        return ra
+
     def create_cap(self, data: dict):
         obj = DonViQuyDoi(tu_id=data["tu_id"], den_id=data["den_id"], he_so=data["he_so"])
-        for k in ("cong_thuc", "ghi_chu"):
-            if k in data:
-                setattr(obj, k, data[k])
+        if "ghi_chu" in data:
+            obj.ghi_chu = data["ghi_chu"]
         self.db.add(obj)
         self.db.commit()
         self.db.refresh(obj)

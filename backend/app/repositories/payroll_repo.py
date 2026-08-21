@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models.payroll import (
@@ -15,6 +15,8 @@ from ..models.payroll import (
     LatePenaltyBracket,
     PayrollLine,
     PayrollParams,
+    PERIOD_LOCKED,
+    PERIOD_PAID,
     PayrollPeriod,
     PitTaxBracket,
     SalaryAdvance,
@@ -262,6 +264,24 @@ class PayrollRepository:
             select(func.count()).select_from(SalaryAdvance).where(SalaryAdvance.status == status)
         ).scalar_one()
 
+    def count_pending_advances_in_period(self, year: int, month: int) -> int:
+        """Số phiếu tạm ứng / lương đợt 1 CÒN CHỜ DUYỆT của ĐÚNG kỳ đó — guard chốt lương.
+
+        KHÁC `count_advances_by_status` (đếm mọi kỳ, nuôi badge): chốt lương là việc của một
+        tháng, phiếu treo tháng khác không liên quan.
+
+        Vì sao phải chặn (chủ chốt 15/08/2026): tiền tạm ứng được nướng THẲNG vào dòng lương lúc
+        bấm "Tính lại" — không có ảnh chụp nào che như bên chấm công. Duyệt phiếu SAU khi chốt
+        lương thì khoản trừ không bao giờ xảy ra: tiền mặt đã đưa cho thợ mà lương vẫn trả đủ.
+        """
+        return int(self.db.execute(
+            select(func.count()).select_from(SalaryAdvance).where(
+                SalaryAdvance.status == ADV_PENDING,
+                SalaryAdvance.period_year == year,
+                SalaryAdvance.period_month == month,
+            )
+        ).scalar_one())
+
     def advance_code_exists(self, code: str) -> bool:
         """Kiểm mã tạm ứng đã tồn tại chưa — để sinh mã ngẫu nhiên không trùng."""
         return self.db.execute(
@@ -317,6 +337,19 @@ class PayrollRepository:
         self.db.commit()
         self.db.refresh(p)
         return p
+
+    def latest_closed_period(self) -> PayrollPeriod | None:
+        """Kỳ lương ĐÃ CHỐT / ĐÃ CHI muộn nhất — None nếu chưa kỳ nào bị khoá.
+
+        Nền cho ô chọn kỳ trên phiếu tạm ứng: kỳ khoá theo thứ tự thời gian, nên "tháng liền sau
+        kỳ khoá muộn nhất" là mốc chọn sớm nhất còn hợp lệ — một mốc liên tục, đúng cái
+        `<input type="month" min=...>` biểu diễn được (nó không bỏ trống được tháng ở GIỮA)."""
+        return self.db.execute(
+            select(PayrollPeriod)
+            .where(PayrollPeriod.status.in_((PERIOD_LOCKED, PERIOD_PAID)))
+            .order_by(PayrollPeriod.year.desc(), PayrollPeriod.month.desc())
+            .limit(1)
+        ).scalars().first()
 
     def list_periods(self, *, limit: int = 36) -> list[PayrollPeriod]:
         return list(
@@ -375,4 +408,78 @@ class PayrollRepository:
                 .order_by(PayrollPeriod.year.desc(), PayrollPeriod.month.desc())
                 .limit(1)
             ).scalars().first()
+        )
+
+    @staticmethod
+    def _dieu_kien_xem_phieu(bay_gio) -> tuple:
+        """Bộ lọc "kỳ này NLĐ được xem chưa" — MỘT chỗ, BA câu truy vấn cùng dùng.
+
+        `cong_bo_luc <= bay_gio < dong_phieu_luc` là chỗ "hẹn giờ" tự chạy — không cần job nền.
+        Cả mở lẫn đóng đều chỉ là phép so ngày lúc ĐỌC.
+
+        Tách ra vì từ 17/08/2026 có ba đường hỏi cùng một câu (kỳ mới nhất · kỳ chỉ định · danh
+        sách kỳ). Chép lại ba lần thì lần sau đổi luật công bố là sót một chỗ, mà chỗ sót đó
+        chính là chỗ để lọt SỐ TIỀN của kỳ chưa phát."""
+        return (
+            PayrollPeriod.cong_bo_luc.is_not(None),
+            PayrollPeriod.cong_bo_luc <= bay_gio,
+            # Hết hạn xem thì thôi hiện. NULL = mở không thời hạn.
+            or_(PayrollPeriod.dong_phieu_luc.is_(None),
+                PayrollPeriod.dong_phieu_luc > bay_gio),
+        )
+
+    def latest_published_line_for_employee(self, employee_id: int, bay_gio) -> PayrollLine | None:
+        """Dòng lương gần nhất của 1 NV trong các kỳ ĐÃ CÔNG BỐ và ĐÃ TỚI GIỜ.
+
+        Lọc ngay trong câu truy vấn chứ không lấy kỳ mới nhất rồi kiểm sau: kỳ tháng 8 chưa công bố
+        mà tháng 7 đã công bố thì NV phải thấy PHIẾU THÁNG 7, không phải "không có phiếu nào".
+
+        Đây là nhánh MẶC ĐỊNH (không chỉ định tháng) — mở màn là thấy phiếu mới nhất."""
+        return (
+            self.db.execute(
+                select(PayrollLine)
+                .join(PayrollPeriod, PayrollLine.period_id == PayrollPeriod.id)
+                .where(PayrollLine.employee_id == employee_id,
+                       *self._dieu_kien_xem_phieu(bay_gio))
+                .order_by(PayrollPeriod.year.desc(), PayrollPeriod.month.desc())
+                .limit(1)
+            ).scalars().first()
+        )
+
+    def published_line_for_employee(self, employee_id: int, bay_gio,
+                                    year: int, month: int) -> PayrollLine | None:
+        """Dòng lương của 1 NV ở ĐÚNG kỳ được chỉ định — nếu kỳ đó đang cho xem.
+
+        ⚠️ Tháng do NLĐ gửi lên phải đi qua CHÍNH bộ lọc công bố, không phải lọc thêm sau khi đã
+        lấy dòng ra. Gõ tay `?year=2026&month=3` cho kỳ chưa phát thì câu này trả None — không có
+        đường nào để một con số của kỳ chưa phát rời khỏi máy chủ."""
+        return (
+            self.db.execute(
+                select(PayrollLine)
+                .join(PayrollPeriod, PayrollLine.period_id == PayrollPeriod.id)
+                .where(PayrollLine.employee_id == employee_id,
+                       PayrollPeriod.year == int(year),
+                       PayrollPeriod.month == int(month),
+                       *self._dieu_kien_xem_phieu(bay_gio))
+            ).scalars().first()
+        )
+
+    def published_periods_for_employee(self, employee_id: int, bay_gio) -> list[PayrollPeriod]:
+        """MỌI kỳ mà NV này đang được xem phiếu, mới → cũ (17/08/2026).
+
+        Khác `latest_published_line_for_employee` đúng một điểm: KHÔNG `limit(1)`. Trước đó hệ
+        thống lọc ra đủ các kỳ rồi ném hết chỉ giữ một, nên tháng 7 phát "không thời hạn" vẫn biến
+        mất ngay khi phát tháng 8 — muốn cho xem lại phải THU HỒI tháng 8, tức cắt phiếu hiện tại
+        của cả công ty. Bỏ `limit(1)` là ô "giờ đóng" mới thành công tắc lịch sử đúng nghĩa.
+
+        JOIN sang dòng lương để chỉ trả kỳ mà NV này THỰC SỰ có phiếu — người vào làm tháng 8
+        không phải thấy tháng 7 rỗng trong danh sách chọn."""
+        return list(
+            self.db.execute(
+                select(PayrollPeriod)
+                .join(PayrollLine, PayrollLine.period_id == PayrollPeriod.id)
+                .where(PayrollLine.employee_id == employee_id,
+                       *self._dieu_kien_xem_phieu(bay_gio))
+                .order_by(PayrollPeriod.year.desc(), PayrollPeriod.month.desc())
+            ).scalars().all()
         )

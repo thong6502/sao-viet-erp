@@ -22,10 +22,19 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
 
+# `THO` còn dùng cho `GiayNguyen.tho` (thớ của TỪNG loại giấy) — ĐỪNG gỡ theo.
 THO = ("canh_dai", "canh_ngan")
-DON_VI_GIA_GIAY = ("kg", "cai", "ram", "to", "tan")
-BE_MAT_GIAY = ("bong", "mo", "nham")
-DON_VI_GIA_VAT_TU = ("kg", "lit", "nghin_luot", "ban", "cai", "bo", "thung", "met", "m2", "cuon")
+
+# MẶT HÀNG GỐC nằm ở HAI bảng với hai dãy id riêng, nên mọi nơi trỏ tới nó (kho, NCC) phải mang
+# CẶP `(hang_loai, hang_id)` chứ không mang mỗi id. Khoá cặp thay vì hai cột `giay_id`/`vat_tu_id`
+# rời: tồn kho phải GỘP NHÓM theo mặt hàng (`GROUP BY hang_loai, hang_id`), mà hai cột nullable thì
+# mọi truy vấn gộp đều phải COALESCE và unique constraint phải tách làm hai.
+HANG_GIAY = "giay"
+HANG_VAT_TU = "vat_tu"
+HANG_LOAI = (HANG_GIAY, HANG_VAT_TU)
+# GỠ 2026-08-08: `DON_VI_GIA_GIAY` / `DON_VI_GIA_VAT_TU` — hai danh sách đơn vị CỨNG. Đơn vị giờ
+# lấy từ danh mục `don_vi_do` (nguồn duy nhất, dùng chung cho Kho · NCC · khoán · tính giá); thêm
+# đơn vị là việc khai ở màn Đơn vị & quy đổi, không phải sửa code.
 
 
 def _utcnow() -> datetime:
@@ -40,8 +49,6 @@ class ChungLoaiGiay(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
     ten: Mapped[str] = mapped_column(String(150), nullable=False)
-    be_mat: Mapped[str | None] = mapped_column(String(12), nullable=True)   # bong|mo|nham
-    tho_mac_dinh: Mapped[str | None] = mapped_column(String(12), nullable=True)  # canh_dai|canh_ngan
     mo_ta: Mapped[str | None] = mapped_column(String(500), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -64,12 +71,27 @@ class GiayNguyen(Base):
     gsm: Mapped[int] = mapped_column(Integer, nullable=False)       # định lượng
     caliper_micron: Mapped[int | None] = mapped_column(Integer, nullable=True)  # độ dày (spine/creep; ≠ gsm)
     tho: Mapped[str | None] = mapped_column(String(12), nullable=True)          # canh_dai|canh_ngan
-    don_vi_gia: Mapped[str] = mapped_column(String(8), nullable=False, server_default="kg", default="kg")
+    # ĐƠN VỊ GỐC của mặt hàng — mã trong `don_vi_do`, KHÔNG còn là enum cứng ở frontend. Tồn kho
+    # cộng dồn theo đơn vị này; nhập bằng đơn vị nào cũng được rồi quy về đây (xem `quy_doi_service.
+    # don_vi_dung_duoc`). NULL = chưa chọn: không mặc định "kg" nữa vì đoán sai một lần là sai
+    # vĩnh viễn — màn danh mục hiện "Chưa chọn đơn vị" để người khai tự chọn.
+    don_vi_gia: Mapped[str | None] = mapped_column(String(24), nullable=True)
     don_gia: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
     gia_thi_truong: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)   # giá tham khảo thị trường
     kho_tinh_gia: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)  # khổ này dùng để tính giá?
     cong_thuc_gia: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # CÔNG THỨC LƯỢNG (mg 0195) — "một lệnh cần bao nhiêu <đơn vị này>". Cùng luật với
+    # `VatTuInAn.cong_thuc_luong`: ra LƯỢNG cho kế hoạch vật tư, khác `cong_thuc_gia` ngay trên
+    # (ra TIỀN cho phiếu tính giá).
+    #
+    # Có ô này thì giấy khai ĐVT `kg` THẬT rồi tự tính ra kg — không phải đi vòng qua cạnh quy đổi
+    # động `tờ → kg` nữa. Cạnh đó là thứ duy nhất còn giữ "công thức mà lại có đích", thứ chủ chốt
+    # 13/08/2026 là vô lý; khai ở đây xong thì xoá nó bằng tay trên UI được.
+    cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Ảnh minh hoạ vật tư (1 ảnh). Lưu đường `/api/files/materials/…` (đọc qua router có đăng nhập);
+    # trang QR công khai serve lại chính key này qua `/api/public/vat-lieu-anh` bằng token QR. NULL = chưa có ảnh.
+    anh_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     version_no: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)  # phiên bản giá hiện hành (mirror từ giay_gia_version)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -117,10 +139,26 @@ class VatTuInAn(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
     ten: Mapped[str] = mapped_column(String(150), nullable=False)
-    don_vi_gia: Mapped[str] = mapped_column(String(16), nullable=False, server_default="cai", default="cai")
+    # ĐƠN VỊ GỐC — mã trong `don_vi_do`. NULL = chưa chọn (xem ghi chú ở `GiayNguyen.don_vi_gia`).
+    don_vi_gia: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    # BỎ quy cách đóng gói (`don_vi_dong_goi` / `he_so_dong_goi`, mg 0170 → gỡ 10/08/2026): khai
+    # quy đổi hai nơi (ở đây và ở danh mục Đơn vị & quy đổi) là bắt người dùng nhớ luật vô ích.
+    # Cần "thùng keo 20 kg" thì khai thẳng một đơn vị như vậy trong danh mục Đơn vị & quy đổi.
+    # Hai cột cũ để nguyên trong DB (không drop, dự án không có Alembic) nhưng không còn ai đọc.
     don_gia: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
     cong_thuc_gia: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # CÔNG THỨC LƯỢNG (mg 0194) — "một lệnh cần bao nhiêu <đơn vị này>", biến lấy từ quy cách lệnh.
+    # KHÁC `cong_thuc_gia` ngay trên: ô kia ra TIỀN cho phiếu tính giá, ô này ra LƯỢNG cho BOM ở
+    # bước lệnh. Hai câu hỏi khác nhau nên hai ô, đừng gộp.
+    #
+    # Vì sao đặt ở VẬT TƯ chứ không ở đơn vị (chủ chốt 13/08/2026): `kg` dùng chung cho keo · mực ·
+    # giấy, mà mỗi thứ tiêu hao theo một cách khác hẳn. Gắn công thức lên `kg` là mọi vật tư đo bằng
+    # kg đều bị tính theo cùng một công thức; muốn tránh thì phải đẻ `kg_keo`, `kg_muc`, `kg_giay`…
+    # rồi kho và mua hàng lãnh đủ mấy cái tên đó trong khi họ vẫn cân bằng kg thật.
+    cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Ảnh minh hoạ vật tư (1 ảnh) — xem ghi chú `GiayNguyen.anh_url`.
+    anh_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

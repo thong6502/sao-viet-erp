@@ -13,6 +13,7 @@ from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan
 from ..models.may_thiet_bi import MayThietBi
 from ..models.vat_lieu_kho import GiayNguyen, VatTuInAn
+from .dong_giay import ban_do_tram
 from .thanh_phan_engine import compute_phieu
 
 
@@ -25,7 +26,7 @@ def _f(v, d: float = 0.0) -> float:
         return d
 
 
-def _cong_doan_to_dict(cd: CongDoan) -> dict:
+def _cong_doan_to_dict(cd: CongDoan, tram: dict[str, str] | None = None) -> dict:
     return {
         "id": cd.id,
         "ma": cd.ma,
@@ -45,6 +46,19 @@ def _cong_doan_to_dict(cd: CongDoan) -> dict:
         "first_unit_floor": _f(cd.first_unit_floor) if cd.first_unit_floor is not None else None,
         "min_charge": _f(cd.min_charge) if cd.min_charge is not None else None,
         "spoilage_pct": _f(cd.spoilage_pct),
+        # Hai cờ dụng cụ: engine dùng để biết bước nào ĐƯỢC PHÉP mang phí khuôn, và để kêu khi
+        # bước cần dao mà chưa khai phí. Trước đây engine hoàn toàn không thấy hai cờ này.
+        "requires_tooling": bool(cd.requires_tooling),
+        "tooling_type": cd.tooling_type,
+        # Đơn vị vào/ra khai ở danh mục — engine cần để tra bù hao ĐÚNG đơn vị và biết bước nào là
+        # ranh giới quy đổi. Hệ số thì engine tự có (`con`, `so_manh_xa` của chính phiếu).
+        "don_vi_vao": cd.don_vi_vao,
+        "don_vi_ra": cd.don_vi_ra,
+        # TRẠM dòng giấy của hai đơn vị đó (None = ngoài dòng giấy). Engine là hàm THUẦN nên không
+        # tự tra danh mục được — tầng này có `db` thì tra hộ. Thiếu hai khoá này thì engine lùi về
+        # luật cũ "có khai đơn vị = trên dòng giấy", đúng với dữ liệu thời chỉ 5 mã khai được.
+        "tram_vao": tram.get(cd.don_vi_vao) if tram else None,
+        "tram_ra": tram.get(cd.don_vi_ra) if tram else None,
     }
 
 
@@ -54,18 +68,25 @@ def _bu_hao_to_dict(b: BuHao) -> dict:
 
 # ============================ Mô hình THEO THÀNH PHẦN ============================
 _TP_SCALAR_FIELDS = (
-    "thu_tu", "loai_thanh_phan", "ten", "kho_thanh_pham", "dai_thanh_pham", "rong_thanh_pham",
-    "kho_mo_rong", "tay_gap", "so_to_per_sp", "so_luong", "loai_san_pham_id",
+    "thu_tu", "loai_thanh_phan", "ten", "dai_thanh_pham", "rong_thanh_pham",
+    # `don_vi_tinh` đi qua engine như mọi trường khác → lệnh sản xuất kế thừa được ĐVT từ PHIẾU,
+    # thôi cảnh mỗi tầng tự lấy một đường rồi không ai kiểm chúng có khớp nhau không.
+    "don_vi_tinh", "so_to_per_sp", "so_trang", "trang_moi_tay", "so_luong", "loai_san_pham_id",
     "giay_id", "kho_nguyen", "kho_nguyen_dai", "kho_nguyen_rong", "don_gia_giay",
-    "don_gia_don_vi", "nguon_giay", "bu_hao_so_to", "hao_so_to", "tinh_bu_hao_cd",
+    "don_gia_don_vi", "nguon_giay",
     "chua_nhip", "bleed_mm", "khe_cat_mm",
     "co_in", "che_ban_loai", "che_ban_don_gia", "quy_cach_in",
     "kho_in_dai", "kho_in_rong", "so_con", "con_auto", "may_id", "don_gia_cong_in",
-    "so_mau_a", "so_mau_b", "so_mau_pha",
+    # `muc_a`/`muc_b` là TẬP mã mực người dùng khai — nguồn sự thật của số kẽm. Ba số `so_mau_*`
+    # đi cùng ở đây chỉ để đọc lại phiếu cũ chưa backfill; engine LUÔN tính lại chúng từ tập rồi
+    # ghi đè xuống DB (`_ghi_so_mau_dan_xuat`), nên đừng tin số client gửi lên.
+    "muc_a", "muc_b", "so_mau_a", "so_mau_b", "so_mau_pha",
 )
 _ROW_SCALAR_FIELDS = (
     "thu_tu", "cong_doan_id", "ten", "don_gia", "so_luong", "bu_hao",
     "so_mat", "so_vi_tri", "dien_tich", "nha_cung_cap", "ghi_chu",
+    # Phí khuôn của bước — engine CÓ cộng vào giá vốn (một dòng tiền trong nhóm Công đoạn).
+    "phi_khuon",
 )
 
 
@@ -74,7 +95,9 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
     d: dict = {}
     for k in _TP_SCALAR_FIELDS:
         v = getattr(tp, k, None)
-        if isinstance(v, (int, str, bool)) or v is None:
+        # `list` cho `muc_a`/`muc_b` (cột JSON) — không có nhánh này thì nó rơi xuống `_f()` và
+        # một danh sách mực thành 0.0 trong im lặng, kéo số kẽm về 0.
+        if isinstance(v, (int, str, bool, list)) or v is None:
             d[k] = v
         else:
             d[k] = _f(v)  # Decimal → float
@@ -120,17 +143,19 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
             d["vung_in_dai"] = may.vung_in_dai or 0
             d["vung_in_rong"] = may.vung_in_rong or 0
 
-    # Dòng gia công sau in: bơm cấu hình công đoạn khi dòng KHÔNG có đơn giá phẳng.
+    # Dòng gia công sau in: bơm cấu hình công đoạn cho MỌI dòng có gắn danh mục.
+    #
+    tram = ban_do_tram(db)   # đọc MỘT lần cho cả phiếu, không hỏi lại từng dòng
     rows: list[dict] = []
     for row in sorted(tp.thanh_phams, key=lambda r: (r.thu_tu or 0, r.id or 0)):
         rd: dict = {}
         for k in _ROW_SCALAR_FIELDS:
             v = getattr(row, k, None)
             rd[k] = v if (isinstance(v, (int, str, bool)) or v is None) else _f(v)
-        if not _f(rd.get("don_gia")) and row.cong_doan_id is not None:
+        if row.cong_doan_id is not None:
             cd = db.get(CongDoan, row.cong_doan_id)
             if cd is not None:
-                rd["cong_doan"] = _cong_doan_to_dict(cd)
+                rd["cong_doan"] = _cong_doan_to_dict(cd, tram)
         rows.append(rd)
     d["thanh_phams"] = rows
 
@@ -167,16 +192,25 @@ def compute_phieu_snapshot(db: Session, phieu) -> dict:
     so_luong = int(phieu.so_luong or 0)
     tps = sorted(phieu.thanh_phans, key=lambda t: (t.thu_tu or 0, t.id or 0))
     resolved = [_resolve_thanh_phan(db, tp) for tp in tps]
-    bu_hao_rows = [_bu_hao_to_dict(b) for b in db.execute(
-        select(BuHao).where(BuHao.active.is_(True))
-    ).scalars()]
+    # KHÔNG lọc `active`: phiếu đã lưu chạy lại engine mỗi lần Lưu. Ẩn một mã bù hao mà lọc ở đây
+    # thì số tờ hao và giá vốn của phiếu cũ nhảy ngay lần sửa kế tiếp, không ai được báo.
+    bu_hao_rows = [_bu_hao_to_dict(b) for b in db.execute(select(BuHao)).scalars()]
     result = compute_phieu(so_luong=so_luong, thanh_phans=resolved, bu_hao_rows=bu_hao_rows)
 
-    # gán giá vốn từng thành phần.
+    # gán giá vốn từng thành phần + ghi ngược SỐ BÀI IN dẫn xuất (so_trang / trang_moi_tay) để
+    # bản lệnh và báo giá đọc được mà không phải tính lại.
     for comp in result["meta"]["components"]:
         idx = comp["idx"]
         if 0 <= idx < len(tps):
             tps[idx].gia_von_tp = comp["gia_von_tp"]
+            if comp.get("so_to_per_sp"):
+                tps[idx].so_to_per_sp = int(comp["so_to_per_sp"])
+            # Ba số màu là DẪN XUẤT của tập mực — engine chốt, DB chép lại. Nhờ vậy ~28 chỗ đang
+            # đọc `so_mau_a/b/pha` (công thức mực, `_may_fit`, lệnh SX, bài ghép, báo giá) không
+            # phải biết gì về tập mực, mà cũng không thể lệch với nó.
+            tps[idx].so_mau_a = int(comp.get("so_mau_a") or 0)
+            tps[idx].so_mau_b = int(comp.get("so_mau_b") or 0)
+            tps[idx].so_mau_pha = int(comp.get("so_mau_pha") or 0)
 
     tong = float(result.get("grand_total") or 0)
     phieu.tong_gia_von = tong

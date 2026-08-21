@@ -56,3 +56,7 @@ Backend/static/noi-quy/
 .codex-tmp
 
 tmp
+
+# Ảnh người dùng tải lên lúc chạy (cùng loại với 10 thư mục static ở trên)
+backend/static/bao-gia/
+backend/static/ky-thuat-may/

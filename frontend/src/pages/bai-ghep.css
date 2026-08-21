@@ -18,17 +18,17 @@
 .bghep .bghep-ups:focus-visible { outline: 2px solid var(--rust); outline-offset: -1px; }
 .bghep .bghep-du { color: var(--amber-deep); font-weight: var(--fw-medium); }
 
-/* --- Kiểm tương thích --- */
-.bghep .bghep-hint { font-size: var(--fs-sm); color: var(--ash); margin: 0 0 var(--sp-4); }
-.bghep .bghep-compat__attr { font-weight: var(--fw-medium); color: var(--ink); white-space: nowrap; }
-.bghep .bghep-muc {
-  display: inline-block; padding: 2px 10px; border-radius: 999px;
-  font-size: var(--fs-xs); font-weight: var(--fw-medium); white-space: nowrap;
+/* Chọn lượt in chạy chung tờ — chỉ hiện khi lệnh in nhiều hơn một lượt. Dùng cùng khuôn với ô
+   con/tờ ngay cạnh để hàng thành viên không bị hai chiều cao khác nhau. */
+.bghep .khsx-select-sm {
+  max-width: 180px; padding: 4px 8px;
+  border: 1px solid var(--rule-hair); border-radius: var(--radius-1, 6px);
+  font-size: var(--fs-sm); color: var(--ink); background: var(--paper);
 }
-/* "Phù hợp" = trung tính (xám): màu chỉ dành cho thiểu số cần chú ý (cần xác nhận / không phù hợp). */
-.bghep .bghep-muc--ok { background: var(--rule-soft); color: var(--ash); }
-.bghep .bghep-muc--warn { background: var(--amber-soft); color: var(--amber-deep); }
-.bghep .bghep-muc--bad { background: var(--signal-soft); color: var(--signal); }
+.bghep .khsx-select-sm:focus-visible { outline: 2px solid var(--rust); outline-offset: -1px; }
+
+/* --- Dòng gợi ý trên canvas --- */
+.bghep .bghep-hint { font-size: var(--fs-sm); color: var(--ash); margin: 0 0 var(--sp-4); }
 
 /* --- Nhắc xả tờ (callout hổ phách) --- */
 .bghep .bghep-note {
@@ -55,19 +55,1467 @@
 }
 .bghep .bghep-soto__lbl { font-size: var(--fs-sm); color: var(--ash); }
 
-/* --- Picker thêm lệnh --- */
-.bghep .bghep-pick {
-  margin-top: var(--sp-4); padding: var(--sp-4);
-  border: 1px dashed var(--rule-soft); border-radius: var(--radius-2, 8px); background: var(--paper);
+/* --- Picker thêm lệnh (Modern Pro Max) --- */
+.bgsd-btn-add-picker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  background: #ffffff;
+  border: 1px dashed #0284c7;
+  border-radius: 10px;
+  color: #0284c7;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.bghep .bghep-pick__title { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--ink); font-weight: var(--fw-medium); }
-.bghep .bghep-pick__list {
-  list-style: none; margin: 0 0 var(--sp-3); padding: 0; display: grid; gap: 6px; max-height: 220px; overflow: auto;
+.bgsd-btn-add-picker:hover {
+  background: #f0f9ff;
+  border-style: solid;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.12);
 }
-.bghep .bghep-pick__list label {
-  display: flex; gap: var(--sp-2); align-items: center; font-size: var(--fs-sm); color: var(--ink); cursor: pointer;
+
+.bgsd-pick-container {
+  margin-top: 14px;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid rgba(2, 132, 199, 0.3);
+  border-radius: 14px;
+  box-shadow: 0 6px 20px rgba(2, 132, 199, 0.08);
 }
-.bghep .bghep-pick__foot { display: flex; gap: var(--sp-2); justify-content: flex-end; }
+
+.bghep-pick__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.bghep-pick__title {
+  margin: 0;
+  font-size: 14px;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.bghep-pick__list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.bgsd-pick-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #0f172a;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.bgsd-pick-item:hover {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.bgsd-pick-item.is-checked {
+  background: #f0f9ff;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 1px #0284c7;
+}
+
+.bgsd-pick-checkbox {
+  width: 17px;
+  height: 17px;
+  accent-color: #0284c7;
+  cursor: pointer;
+}
+
+.bgsd-pick-code {
+  font-weight: 700;
+  color: #0284c7;
+}
+
+.bgsd-pick-name {
+  font-weight: 600;
+  color: #0f172a;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bgsd-pick-giay {
+  font-size: 12px;
+  color: #64748b;
+  background: #e2e8f0;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.bgsd-pick-qty {
+  font-family: var(--ff-num, monospace);
+  font-size: 12px;
+  font-weight: 700;
+  color: #059669;
+  background: #dcfce7;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #bbf7d0;
+}
+
+.bghep-pick__foot {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
 
 /* --- Field nhỏ (khổ / hao hụt) --- */
 .bghep .khsx-field--sm { max-width: 190px; }
+
+/* ===== Sơ đồ bài ghép — nút thắt: N nhánh vào → 1 node IN → N nhánh ra =====
+   Bố cục 3 cột: nhánh trước in CANH PHẢI (chụm vào IN), IN neo cột giữa, nhánh sau in CANH TRÁI.
+   Nhánh dài ngắn khác nhau nên canh mép trong, không canh mép ngoài. */
+.bghep .bgsd__grid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.bghep .bgsd__cot { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.bghep .bgsd__cot--truoc { align-items: flex-end; }
+.bghep .bgsd__cot--sau { align-items: flex-start; }
+
+.bghep .bgsd__nhanh {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  max-width: 100%;
+  padding: var(--sp-2);
+  border-radius: var(--radius-1, 6px);
+  transition: background 0.15s ease;
+}
+.bghep .bgsd__nhanh.is-chon { background: color-mix(in srgb, var(--mau-nhanh) 8%, transparent); }
+.bghep .bgsd__cot--truoc .bgsd__nhanh { border-right: 3px solid var(--mau-nhanh); }
+.bghep .bgsd__cot--sau .bgsd__nhanh { border-left: 3px solid var(--mau-nhanh); }
+
+.bghep .bgsd__chuoi { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
+.bghep .bgsd__trong { font-size: var(--fs-sm); }
+.bghep .bgsd__nhan {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-xs); color: var(--ash); white-space: nowrap;
+}
+.bghep .bgsd__nhan--phai { min-width: 60px; }
+.bghep .bgsd__cham {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
+}
+
+/* Node công đoạn trên nhánh — chỉ đọc, bấm là sang lệnh */
+.bghep .bgsd-node {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 5px 10px;
+  border: 1px solid var(--rule-hair); border-radius: var(--radius-1, 6px);
+  background: var(--bg-card, #fff);
+  text-align: left; cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.bghep .bgsd-node:hover { border-color: var(--mau-nhanh, var(--rust)); box-shadow: 0 2px 6px rgba(0,0,0,.06); }
+.bghep .bgsd-node__ten { font-size: var(--fs-sm); color: var(--ink); white-space: nowrap; }
+.bghep .bgsd-node__phu { font-size: var(--fs-xs); color: var(--ash); white-space: nowrap; }
+/* Bước của LỆNH KHÁC ngoài bài — cùng ngôn ngữ với node bóng mờ ở sơ đồ routing. */
+.bghep .bgsd-node--ngoai {
+  border-style: dashed; background: var(--paper); cursor: default;
+}
+.bghep .bgsd-node--ngoai:hover { border-color: var(--rule-hair); box-shadow: none; }
+
+/* Node IN — nút thắt, cột giữa */
+.bghep .bgsd-in {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-width: 190px; padding: var(--sp-3);
+  border: 2px solid var(--rust); border-radius: var(--radius-2, 10px);
+  background: var(--ink, #14130f); color: #fff;
+  cursor: pointer;
+}
+.bghep .bgsd-in.is-chon { box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 35%, transparent); }
+.bghep .bgsd-in__ma { font-family: var(--ff-mono); font-size: var(--fs-sm); color: var(--rust-soft, #f0c9b6); }
+.bghep .bgsd-in__ten { font-size: var(--fs-sm); font-weight: var(--fw-bold, 700); letter-spacing: .04em; }
+.bghep .bgsd-in__may, .bgsd-in__to {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: var(--fs-xs); color: #e6e3dd;
+}
+
+.bghep .bgsd-panel {
+  padding: var(--sp-3);
+  border: 1px solid var(--rule-hair); border-radius: var(--radius-1, 6px);
+  background: var(--paper);
+}
+.bghep .bgsd-panel__head {
+  display: flex; align-items: center; gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-sm); font-weight: var(--fw-medium);
+}
+.bghep .bgsd-panel__head .khsx-xlink { margin-left: auto; }
+
+/* --- WOW DAG Canvas cho Bài ghép (Pro Max Edition) --- */
+/* MỘT khối duy nhất — trước đây selector này khai hai lần, khối sau đè height của khối trước. */
+.bgsd-canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 420px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  background-color: #f8fafc;
+  background-image: 
+    radial-gradient(circle at 10% 15%, rgba(56, 189, 248, 0.06), transparent 45%),
+    radial-gradient(circle at 90% 85%, rgba(99, 102, 241, 0.06), transparent 45%),
+    linear-gradient(180deg, #fafbfc 0%, #f1f5f9 100%);
+  overflow: hidden;
+  margin-bottom: var(--sp-4);
+  user-select: none;
+  box-shadow: inset 0 2px 8px rgba(15, 23, 42, 0.03), 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+.bgsd-canvas-wrap.has-dot-grid {
+  background-image: 
+    radial-gradient(circle at 10% 15%, rgba(56, 189, 248, 0.08), transparent 45%),
+    radial-gradient(circle at 90% 85%, rgba(99, 102, 241, 0.08), transparent 45%),
+    radial-gradient(rgba(148, 163, 184, 0.35) 1.2px, transparent 1.2px);
+  background-size: 100% 100%, 100% 100%, 22px 22px;
+  background-position: 0 0, 0 0, 0 0;
+}
+
+.bgsd-canvas__toolbar {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 999px;
+  box-shadow: 
+    0 10px 30px -5px rgba(15, 23, 42, 0.1), 
+    0 2px 6px rgba(2, 132, 199, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.bgsd-tb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.bgsd-tb-btn:hover { background: #e0f2fe; color: #0284c7; transform: translateY(-1px); }
+.bgsd-tb-btn.is-active { background: #0284c7; color: #ffffff; box-shadow: 0 3px 10px rgba(2, 132, 199, 0.38); }
+.bgsd-tb-zoom { font-size: 12px; font-family: var(--ff-mono, monospace); font-weight: 800; min-width: 46px; text-align: center; color: #0284c7; }
+.bgsd-tb-divider { width: 1px; height: 16px; background: #cbd5e1; margin: 0 4px; }
+/* Phép xếp cột chưa hội tụ → vị trí thẻ có thể lệch. Cảnh báo về LAYOUT, không phải về số liệu. */
+.bgsd-tb-canhbao {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--amber-soft, #fef3c7);
+  color: var(--amber-deep, #92400e);
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Vùng cuộn thật. Nhờ overflow:auto mà lăn chuột, Shift+lăn, trackpad hai ngón, phím mũi tên và
+   cảm ứng đều chạy sẵn — trước đây overflow:hidden nên chỉ còn cách kéo nền, không ai đoán ra. */
+/* Vùng cuộn. `display:flex` + `margin:auto` ở lớp định cỡ: sơ đồ nhỏ hơn khung thì nằm GIỮA,
+   lớn hơn thì cuộn được cả hai phía. Dùng `justify-content:center` sẽ cắt mất mép trái khi tràn.
+   Đệm trên chừa chỗ cho thanh công cụ nổi (top:14 + cao ~40) để hàng đầu không bị nó đè. */
+.bgsd-canvas {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  cursor: grab;
+  display: flex;
+  padding: 64px 20px 20px;
+  box-sizing: border-box;
+}
+.bgsd-canvas.is-panning { cursor: grabbing; }
+.bgsd-canvas:focus-visible {
+  outline: 2px solid var(--rust, #c25e38);
+  outline-offset: -2px;
+}
+/* Cùng khuôn thanh cuộn với .dag-viewport của sơ đồ routing để hai màn không lệch nhau. */
+.bgsd-canvas::-webkit-scrollbar { width: 10px; height: 10px; }
+.bgsd-canvas::-webkit-scrollbar-track { background: #f1f3f5; }
+.bgsd-canvas::-webkit-scrollbar-thumb {
+  background: #adb5bd;
+  border: 2px solid #f1f3f5;
+  border-radius: 999px;
+}
+.bgsd-canvas::-webkit-scrollbar-thumb:hover { background: #868e96; }
+
+/* Lớp định cỡ: kích thước ĐÃ nhân zoom, quyết định tầm cuộn. Không transform lớp này. */
+.bgsd-canvas__sizer { position: relative; margin: auto; flex: none; }
+
+/* Mặt vẽ: toạ độ gốc chưa nhân zoom, kích thước do JS đặt theo biên nội dung thật. */
+.bgsd-canvas__viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.bgsd-canvas__svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 2;
+}
+
+/* Animation đường flow hạt sáng neon chạy dọc dây nối */
+@keyframes bgsdFlow {
+  from { stroke-dashoffset: 32; }
+  to { stroke-dashoffset: 0; }
+}
+.bgsd-flow-line {
+  animation: bgsdFlow 1s linear infinite;
+  opacity: 0.9;
+}
+
+/* --- Canvas Top Bar (Hướng dẫn & Nút Mở Thông Số) --- */
+.bgsd-canvas-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.bgsd-canvas-top-bar .bghep-hint {
+  font-size: 13px;
+  color: #64748b;
+  flex: 1;
+  min-width: 280px;
+}
+
+
+/* Điểm cắm dây Cyber Ports (Port Pins) */
+.bgsd-port {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #38bdf8;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 14px #38bdf8;
+  transform: translateY(-50%);
+  z-index: 7;
+  animation: bgsdPulsePort 2s infinite;
+}
+@keyframes bgsdPulsePort {
+  0%, 100% { transform: translateY(-50%) scale(1); box-shadow: 0 0 10px #38bdf8; }
+  50% { transform: translateY(-50%) scale(1.3); box-shadow: 0 0 20px #38bdf8, 0 0 30px rgba(56, 189, 248, 0.6); }
+}
+.bgsd-port--left { left: -6px; }
+.bgsd-port--right { right: -6px; }
+
+/* --- Thẻ Node Công Đoạn (Modern 3D Elevation Cards: 200x76px) --- */
+.bgsd-card-node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 200px !important;
+  height: 76px !important;
+  box-sizing: border-box !important;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid var(--mau-nhanh, #0284c7);
+  box-shadow: 
+    0 6px 18px rgba(15, 23, 42, 0.06),
+    0 2px 4px rgba(15, 23, 42, 0.03);
+  cursor: move;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 5;
+  text-align: left;
+  overflow: hidden !important;
+}
+.bgsd-card-node:hover {
+  transform: translateY(-4px) scale(1.03);
+  box-shadow: 
+    0 14px 30px rgba(15, 23, 42, 0.12), 
+    0 0 0 2px var(--mau-nhanh, #0284c7),
+    0 4px 12px color-mix(in srgb, var(--mau-nhanh, #0284c7) 25%, transparent);
+}
+.bgsd-card-node.is-nhanh-chon {
+  border-color: var(--mau-nhanh, #0284c7);
+  background: #ffffff;
+  box-shadow: 
+    0 0 0 3.5px color-mix(in srgb, var(--mau-nhanh, #0284c7) 40%, transparent), 
+    0 14px 32px rgba(15, 23, 42, 0.16);
+}
+
+.bgsd-card-node__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mau-nhanh, #0284c7) 14%, transparent);
+  color: var(--mau-nhanh, #0284c7);
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mau-nhanh, #0284c7) 20%, transparent);
+}
+
+.bgsd-card-node__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.bgsd-card-node .bgsd-node__ten {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: block;
+  line-height: 1.2;
+}
+.bgsd-card-node .bgsd-node__phu {
+  font-size: 11.5px;
+  color: #64748b;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: block;
+  margin-top: 3px;
+}
+
+/* --- Thẻ Nhánh Đơn Hàng LSX Header (Left Ticket Node: 165x76px) --- */
+/* KÍCH THƯỚC do JS đặt inline (BRANCH_HDR_W/H) — không chép lại ở đây. Cùng bộ số đó còn dùng để
+   tính biên vùng cuộn, nên CSS mà chép thì hai bên lệch nhau là thẻ bị cắt mất chữ. */
+.bgsd-card-branch {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-left: 5px solid var(--mau-nhanh, #0284c7);
+  border-radius: 14px;
+  font-size: 12px;
+  cursor: move;
+  z-index: 5;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden !important;
+}
+.bgsd-card-branch:hover {
+  transform: translateY(-4px) scale(1.03);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12), 0 0 0 2px var(--mau-nhanh, #0284c7);
+}
+.bgsd-card-branch.is-chon {
+  background: #f0f9ff;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3.5px rgba(2, 132, 199, 0.3), 0 14px 30px rgba(15, 23, 42, 0.14);
+}
+
+.bgsd-card-branch__head { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.bgsd-branch__ups { font-size: 10px; font-weight: 800; color: #0284c7; background: #e0f2fe; border: 1px solid #bae6fd; padding: 1px 6px; border-radius: 6px; font-family: var(--ff-mono, monospace); white-space: nowrap; }
+.bgsd-card-branch__cust { display: grid; gap: 1px; max-width: 100%; min-width: 0; }
+.bgsd-card-branch__cust > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Sản phẩm là dòng chính, khách là dòng phụ — cùng cỡ thì mắt không biết bám vào đâu. */
+.bgsd-branch__sp { color: #334155; font-size: 11.5px; font-weight: 700; }
+.bgsd-branch__kh { color: var(--ash); font-size: 10.5px; font-weight: 500; }
+
+/* Cần / dư tờ — con số quyết định của bài ghép. */
+.bgsd-card-branch__to {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  margin-top: 3px; font-size: 10.5px; font-variant-numeric: tabular-nums;
+}
+.bgsd-branch__can { color: var(--ash); font-weight: 600; }
+.bgsd-branch__can.is-warn { color: var(--amber-deep); }
+.bgsd-branch__du {
+  padding: 1px 6px; border-radius: 999px; font-weight: 700;
+  background: var(--rule-soft); color: var(--ash);
+}
+.bgsd-branch__du.is-warn { background: var(--amber-soft); color: var(--amber-deep); }
+.bgsd-branch__du.is-bad { background: var(--signal-soft); color: var(--signal); }
+
+/* Phần giấy lệnh này gánh — thông tin CHI PHÍ, để nhạt hơn cần/dư tờ (thứ quyết định lúc cân bài). */
+.bgsd-branch__giay {
+  color: var(--ash); font-weight: 600; font-size: 10px;
+  padding: 1px 6px; border-radius: 999px; background: var(--rule-soft);
+  white-space: nowrap;
+}
+
+/* `con/tờ` sửa tại chỗ: giữ nguyên hình dáng chip để thẻ không nhảy layout khi đổi qua ô nhập.
+   Ẩn spinner của input number — mũi tên tí xíu trên chip 10px vừa xấu vừa khó bấm trúng. */
+.bgsd-branch__ups--edit {
+  width: 52px; text-align: center; appearance: textfield; -moz-appearance: textfield;
+  cursor: text;
+}
+.bgsd-branch__ups--edit::-webkit-outer-spin-button,
+.bgsd-branch__ups--edit::-webkit-inner-spin-button { appearance: none; margin: 0; }
+.bgsd-branch__ups--edit:hover { border-color: #7dd3fc; }
+.bgsd-branch__ups--edit:focus-visible {
+  outline: 2px solid var(--rust, #c25e38); outline-offset: 1px; background: #fff;
+}
+
+/* Lượt in chạy chung tờ — chỉ hiện khi lệnh có nhiều hơn một lượt in. */
+.bgsd-branch__luot {
+  display: flex; align-items: center; gap: 4px; margin-top: 2px;
+  font-size: 10px; color: var(--ash);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.bgsd-card-branch__tags { display: flex; align-items: center; gap: 5px; margin-top: 1px; }
+
+/* Tag GẤP Nhấp Nháy (Rush Badge) */
+@keyframes bgsdRushPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 rgba(225, 29, 72, 0); }
+  50% { transform: scale(1.05); box-shadow: 0 0 8px rgba(225, 29, 72, 0.5); }
+}
+.bgsd-rush-tag {
+  animation: bgsdRushPulse 1.8s infinite;
+}
+
+.bgsd-node__step-num {
+  font-size: 10.5px;
+  font-weight: 900;
+  color: var(--mau-nhanh, #0284c7);
+  background: color-mix(in srgb, var(--mau-nhanh, #0284c7) 14%, transparent);
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-right: 3px;
+  font-family: var(--ff-mono, monospace);
+}
+
+/* --- Thẻ Kết Quả Đầu Ra KPI (Right Result Node) --- */
+.bgsd-card-branch--right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-left-width: 1px;
+  border-right: 5px solid #059669;
+  background: #f0fdf4;
+}
+.bgsd-pill-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 800;
+  font-family: var(--ff-mono, monospace);
+}
+.bgsd-pill-status.is-surplus { 
+  color: #047857; 
+  background: #d1fae5;
+  border: 1px solid #a7f3d0;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.bgsd-pill-status.is-exact { 
+  color: #475569; 
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+/* --- Unified Single-Card Top Header Bar (Siêu gọn ~90px) & Backward-Compatible Topbar --- */
+.bghep-compact-topbar,
+.bghep-unified-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  margin-bottom: 10px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.02);
+}
+
+.bghep-compact-topbar__header,
+.bghep-uh-row1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bghep-compact-topbar__badges,
+.bghep-uh-titlegroup,
+.bghep-uh-titlewrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bghep-back-btn {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-bottom: 0 !important;
+}
+.bghep-back-btn:hover { background: #e2e8f0; color: #0f172a; }
+
+.bghep-ma-title {
+  font-size: 20px;
+  font-weight: 900;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  margin: 0;
+  line-height: 1;
+}
+
+.bghep-badge-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.bghep-badge-ready--ok { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+.bghep-badge-ready--blocked { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+.bghep-badge-ready--done { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+
+.bghep-badge-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.bghep-badge-luuy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #fff7ed;
+  border: 1px solid #ffedd5;
+  color: #c2410c;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.bghep-top-toolbar__actions,
+.bghep-uh-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Horizontal Micro Metric Strip & Facts Grid */
+.bghep-compact-topbar__facts,
+.bghep-uh-metrics {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.bghep-micro-fact,
+.bghep-uh-metric-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.bghep-micro-fact__label,
+.bghep-uh-m-label {
+  color: #64748b;
+  font-weight: 500;
+  margin-right: 2px;
+}
+
+.bghep-micro-fact__val,
+.bghep-uh-m-val {
+  color: #0f172a;
+  font-weight: 800;
+  font-family: var(--ff-mono, monospace);
+  padding: 1px 6px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+}
+
+/* T1: hao ≥ số tờ tốt — makeready nuốt sản lượng, tô đỏ để planner cân nhắc gộp thêm lệnh. */
+.bghep-uh-m-val--canh {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.bghep-uh-m-sep {
+  color: #cbd5e1;
+  font-size: 10px;
+}
+
+.bghep-uh-missing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: #ef4444;
+  font-weight: 600;
+}
+.bghep-uh-missing-tag {
+  background: #fef2f2;
+  border: 1px solid #fee2e2;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.bgsd-canvas-container {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 140px);
+  height: calc(100vh - 140px);
+  position: relative;
+}
+
+.bgsd-canvas-wrapper {
+  flex: 1;
+  height: 100%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Floating Control Bar --- */
+.bgsd-floating-bar {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 12;
+}
+
+.bgsd-btn-floating-inspector {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(241, 245, 249, 0.95));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(2, 132, 199, 0.35);
+  border-radius: 999px;
+  box-shadow: 0 4px 20px rgba(2, 132, 199, 0.14), 0 2px 8px rgba(15, 23, 42, 0.06);
+  color: #0284c7;
+  font-size: var(--fs-xs, 13px);
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bgsd-btn-floating-inspector:hover {
+  background: #ffffff;
+  border-color: #0284c7;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(2, 132, 199, 0.25);
+}
+
+.bgsd-floating-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: #0284c7;
+  color: #ffffff;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* --- Modal Popup ---
+   Modal KHÔNG trượt, KHÔNG scale: nó là bàn nhập liệu mở đi mở lại chục lần một phiên, mỗi lần
+   nhấp nháy vị trí là một lần mắt phải bắt lại chỗ. Chỉ mờ dần cả lớp overlay (opacity trên cha
+   kéo theo dialog) — dialog tự đứng đúng chỗ ngay từ khung đầu. */
+.bgsd-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: bgsdFadeIn 0.14s ease-out;
+}
+
+@keyframes bgsdFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bgsd-modal-overlay { animation: none; }
+}
+
+.bgsd-modal-dialog {
+  width: 100%;
+  max-width: 960px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25), 0 8px 24px rgba(15, 23, 42, 0.1);
+  overflow: hidden;
+}
+
+.bgsd-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  background: linear-gradient(135deg, #0f172a, #1e293b);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.bgsd-modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  letter-spacing: -0.01em;
+}
+
+.bgsd-modal-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(2, 132, 199, 0.25);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.bgsd-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.bgsd-modal-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  transform: rotate(90deg);
+}
+
+.bgsd-modal-body {
+  flex: 1;
+  padding: 20px 22px;
+  overflow-y: auto;
+  background: #f8fafc;
+}
+
+.bgsd-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 22px;
+  background: #ffffff;
+  border-top: 1px solid #e2e8f0;
+}
+
+/* --- Section Container Modern Elevation --- */
+.bgsd-sec {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+  transition: all 0.15s ease;
+}
+.bgsd-sec:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+
+.bgsd-sec--featured {
+  background: #ffffff;
+  border: 1px solid rgba(2, 132, 199, 0.25);
+  box-shadow: 0 4px 16px rgba(2, 132, 199, 0.06);
+}
+
+.bgsd-sec__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 14px;
+}
+
+/* --- Form Layout & Labels --- */
+.bgsd-form-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.bgsd-field-wide {
+  grid-column: span 4;
+}
+
+.bgsd-field-half {
+  grid-column: span 4;
+}
+
+@media (min-width: 640px) {
+  .bgsd-field-wide {
+    grid-column: span 2;
+  }
+  .bgsd-field-half {
+    grid-column: span 2;
+  }
+}
+
+/* --- Stepper Controls for Con/Tờ --- */
+.bgsd-ups-stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.bgsd-ups-stepper:focus-within {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+}
+
+.bgsd-ups-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 30px;
+  border: 0;
+  background: #f1f5f9;
+  color: #0f172a;
+  font-weight: 700;
+  font-size: 15px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.bgsd-ups-btn:hover:not(:disabled) {
+  background: #0284c7;
+  color: #ffffff;
+}
+.bgsd-ups-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.bgsd-ups-input {
+  width: 64px !important;
+  height: 30px !important;
+  border: 0 !important;
+  border-left: 1px solid #e2e8f0 !important;
+  border-right: 1px solid #e2e8f0 !important;
+  border-radius: 0 !important;
+  text-align: center !important;
+  font-weight: 700 !important;
+  font-family: var(--ff-num, monospace) !important;
+  font-size: 14px !important;
+  color: #0f172a !important;
+  padding: 0 2px !important;
+}
+
+/* --- Table styling inside modal --- */
+.bgsd-modal-tablewrap {
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.02);
+}
+
+.bgsd-modal-table {
+  width: 100%;
+}
+.bgsd-modal-table th {
+  background: #f1f5f9;
+  font-weight: 700;
+  color: #334155;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 10px 12px;
+}
+.bgsd-modal-table td {
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+/* Status Chips & Surplus Badges */
+.bgsd-chip-surplus {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--ff-num, monospace);
+  border: 1px solid #bbf7d0;
+}
+
+/* D3: dư LỚN — ghép lệch sản lượng, đổi chip xanh sang hổ phách cảnh báo. */
+.bgsd-chip-surplus--warn {
+  background: #fef3c7;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+/* D3: gợi ý con/tờ dưới stepper — tối đa theo khổ (ước lượng) + số gợi ý cân (bấm áp). */
+.bgsd-ups-hint {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--ink-soft, #64748b);
+}
+.bgsd-ups-goiy {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: #2563eb;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.bgsd-ups-goiy:hover { color: #1d4ed8; }
+
+.bgsd-banner-callout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: var(--fs-xs, 12px);
+  margin-bottom: var(--sp-2);
+}
+.bgsd-banner-callout--amber { background: var(--amber-soft); color: var(--amber-deep); }
+.bgsd-banner-callout--signal { background: var(--signal-soft); color: var(--signal); }
+
+/* --- High-end Styled Textarea cho Ghi chú Kế hoạch --- */
+.bgsd-notes-textarea {
+  width: 100%;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font-size: 13.5px;
+  color: #0f172a;
+  line-height: 1.55;
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  resize: vertical;
+  min-height: 78px;
+  font-family: inherit;
+}
+
+.bgsd-notes-textarea::placeholder {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.bgsd-notes-textarea:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #ffffff;
+}
+
+.bgsd-notes-textarea:focus {
+  outline: none;
+  background: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15), inset 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.bgsd-notes-textarea:disabled {
+  background: #f1f5f9;
+  color: #64748b;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* --- Single Workspace Inspector Sub-Sections --- */
+.bgsd-inspector-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4, 16px);
+}
+
+.bgsd-sec {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2, 8px);
+  padding: 14px 16px;
+  background: var(--paper, #f8fafc);
+  border: 1px solid var(--rule-hair, #e2e8f0);
+  border-radius: var(--radius-2, 10px);
+}
+
+.bgsd-sec__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs, 13px);
+  font-weight: 700;
+  color: var(--ink, #0f172a);
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+}
+
+@media (max-width: 1024px) {
+  .bgsd-split-container {
+    flex-direction: column;
+    height: auto;
+    min-height: 520px;
+  }
+  .bgsd-inspector-aside {
+    width: 100%;
+    max-height: 500px;
+  }
+}
+
+
+
+
+
+/* Dư TỜ ngay sau nút thắt IN — đặt tại chỗ nó phát sinh, không dồn xuống cuối chuỗi. */
+.bgsd-du-to {
+  position: absolute;
+  z-index: 4;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  font-family: var(--ff-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: auto;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.bgsd-du-to:hover {
+  transform: scale(1.08);
+}
+.bgsd-du-to.is-thua { 
+  background: rgba(254, 243, 199, 0.95); 
+  color: #92400e; 
+  border: 1px solid #fde68a;
+  box-shadow: 0 4px 12px rgba(146, 64, 14, 0.12);
+}
+.bgsd-du-to.is-vua { 
+  background: rgba(248, 250, 252, 0.95); 
+  color: #475569; 
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+}
+/* Bước gộp là bước CUỐI routing → không còn thẻ riêng nào để neo chip, nó về khối tổng kết cuối
+   nhánh. Ở đó chip phải nằm TRONG dòng chảy (xếp trên "dư con"), không thả nổi tuyệt đối. */
+.bgsd-du-to--tong { position: static; display: inline-flex; align-items: center; }
+
+/* ===================================================================
+   GỘP BƯỚC — thẻ chung, thẻ ứng viên, thanh chọn
+   Thẻ ở sơ đồ bài ghép dùng LẠI bộ class `.dag-node*` của sơ đồ routing (dag-routing.css) để hai
+   màn nhìn y hệt nhau. Dưới đây chỉ là phần RIÊNG của bài ghép: lượt chạy chung trải dọc qua các
+   nhánh, và trạng thái sáng/mờ lúc đang chọn bước để gộp.
+   =================================================================== */
+
+/* Thẻ của một lượt chạy CHUNG — trải dọc qua các nhánh nó đè lên, nên nhánh tự tụ vào trái và
+   toả ra phải mà không cần vẽ thêm khung gì. */
+.bgsd-gang {
+  border-top-color: var(--rust, #c25e38);
+  box-shadow: 0 6px 20px rgba(194, 94, 56, 0.16);
+  display: flex;
+  flex-direction: column;
+  z-index: 6;
+}
+.bgsd-gang .dag-node__body { flex: 1; }
+.bgsd-gang__chams { display: inline-flex; gap: 3px; margin-right: 2px; flex: 0 0 auto; }
+
+/* Nút sửa/tách chỉ hiện khi RÊ CHUỘT hoặc khi thẻ đang được chọn/focus — thẻ chung vốn đã chật
+   (tên + mã bài + chấm màu + số + thời lượng), để nút hiện thường trực là nó ăn mất chỗ của số.
+   Giữ hiện khi focus-within để bàn phím vẫn tới được nút (rê chuột thì không tab được). */
+.bgsd-gang--hover-act .dag-node__actions {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.bgsd-gang--hover-act:hover .dag-node__actions,
+.bgsd-gang--hover-act:focus-within .dag-node__actions,
+.bgsd-gang--hover-act.dag-node--selected .dag-node__actions {
+  opacity: 1;
+}
+@media (hover: none) {
+  /* Cảm ứng không có trạng thái rê — luôn hiện, không thì không bấm được. */
+  .bgsd-gang--hover-act .dag-node__actions { opacity: 1; }
+}
+
+/* Lệnh nào đang nằm trên tờ này. Dấu * = lệnh đó có ghi chú kỹ thuật riêng — thợ chạy chung một
+   lượt phải đọc được yêu cầu của mọi khách, nên gom lên thẻ chứ không giấu trong drawer. */
+/* Bước chế bản chạy chung = chung bản (1 bộ kẽm), không trên dòng giấy → thẻ ghi 1 dòng dịu thay
+   cho số tờ vào/ra. */
+.bgsd-gang__chungban {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 4px 0;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--ink-soft, #64748b);
+}
+
+/* T3: gợi ý lọc máy + cảnh báo máy không hợp công đoạn, dưới ô "Máy chạy" của drawer bước chung. */
+.bgsd-field-hint { display: block; margin-top: 3px; font-size: 10.5px; color: var(--ink-soft, #64748b); }
+.bgsd-field-warn { display: block; margin-top: 3px; font-size: 11px; font-weight: 600; color: #b91c1c; }
+
+.bgsd-gang__lenh { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.bgsd-gang__lenh-chip {
+  padding: 1px 7px;
+  border: 1px solid var(--rule-hair, #e2e8f0);
+  border-radius: 999px;
+  background: var(--paper, #f8fafc);
+  font-family: var(--ff-mono, monospace);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-soft, #475569);
+}
+
+/* Trạng thái lúc đang chọn bước để gộp: ứng viên SÁNG, phần còn lại MỜ. Kiểm vòng đã chạy ở
+   server trước đó nên cái gì sáng là bấm được, không có chuyện bấm rồi mới bị từ chối. */
+.bgsd-step { transition: opacity 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
+.bgsd-step.is-ung-vien {
+  border-color: var(--rust, #c25e38);
+  box-shadow: 0 0 0 3px rgba(194, 94, 56, 0.18), 0 4px 14px rgba(194, 94, 56, 0.14);
+  cursor: pointer;
+}
+.bgsd-step.is-mo { opacity: 0.32; }
+.bgsd-step.is-mo:hover { opacity: 0.5; }
+.bgsd-step.is-chon-gop { border-top-color: var(--rust, #c25e38); }
+
+/* Thanh nổi đáy khung khi đang chọn — nói rõ đang chọn mấy bước, công đoạn nào. */
+.bgsd-selbar {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 
+    0 20px 45px -10px rgba(15, 23, 42, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  font-size: 13px;
+  animation: bgsdSelbarUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* Tên RIÊNG, không dùng tên chung: keyframes này mang `translateX(-50%)` của riêng thanh pill (nó
+   tự căn giữa bằng transform). Trước đây nó tên `bgsdSlideUp` trùng với keyframes của modal, mà
+   trùng tên thì bản KHAI SAU thắng cả file — modal bị kéo lệch nửa chiều rộng sang trái rồi trượt
+   ngang vào. Đặt tên theo chỗ dùng là hết đường tái phát. */
+@keyframes bgsdSelbarUp {
+  from { transform: translate(-50%, 20px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+.bgsd-selbar__info b { font-variant-numeric: tabular-nums; color: #38bdf8; }
+.bgsd-selbar__gop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #c25e38 0%, #ea580c 100%);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(194, 94, 56, 0.4);
+  transition: all 0.18s ease;
+}
+.bgsd-selbar__gop:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+.bgsd-selbar__gop:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(194, 94, 56, 0.55); }
+.bgsd-selbar__huy {
+  padding: 5px 12px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.bgsd-selbar__huy:hover { color: #fff; background: rgba(255, 255, 255, 0.2); }
+/* Lý do thẻ mờ không nhận: hiện ngay trên thanh chọn, không bắt người dùng rê chuột tìm tooltip. */
+.bgsd-selbar__chan {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 420px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.16);
+  color: #fcd34d;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+/* Ghi chú kỹ thuật của từng lệnh trong drawer bước chung — GOM, không đè. */
+.bgsd-gang-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.bgsd-gang-notes li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--paper, #f8fafc);
+  font-size: 12.5px;
+}
+.bgsd-gang-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+/* ── "Vì sao lệnh này không có ở đây" (17/08/2026) ────────────────────────────────────────────
+   Lệnh đã bật giữ chỗ vật tư bị LỌC khỏi hàng chờ ghép, không phải chặn lúc bấm. Biến mất im lặng
+   thì người ghép đi tìm một mã cụ thể sẽ tưởng lệnh chưa sẵn sàng và đi sửa nhầm chỗ — nên phải
+   nói ra, kèm đúng đường gỡ.
+
+   Xám-trung-tính chứ không đỏ/cam: đây KHÔNG phải lỗi, mà là thứ tự làm việc đúng (ghép trước, giữ
+   chỗ sau). Tô cảnh báo lên nó là dạy người dùng sợ một việc bình thường. */
+.bghep-anvi {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  color: var(--ash);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+.bghep-anvi > svg { flex: 0 0 auto; margin-top: 3px; }
+.bghep-anvi b { color: var(--ink); font-weight: var(--fw-bold); }

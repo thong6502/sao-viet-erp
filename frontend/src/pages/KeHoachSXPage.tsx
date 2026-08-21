@@ -6,26 +6,41 @@
 //
 // Lát này DỪNG ở trạng thái "sẵn sàng": chưa ghép bài, chưa xếp lịch, chưa phát xuống xưởng.
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, api, type HangChoItem, type LsxListItem } from "../api/client";
+import {
+  ApiError,
+  api,
+  type HangChoItem,
+  type LsxListItem,
+  type LsxTongQuanOut,
+} from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan, useScopeOf } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
+import { Pager, trangHopLe } from "../components/Pager";
 import { StatusTabs } from "../components/StatusTabs";
 import { LsxDetailView } from "./LsxDetailView";
 import { LsxPreviewDrawer } from "./LsxPreviewDrawer";
+import { nhanDonVi } from "./lsxBuoc";
+import { useNapTenDonVi } from "./tenDonVi";
 import {
   BangLoi,
   ChipGap,
+  DenTienDo,
   EmptyState,
   Skeleton,
   TRANG_THAI_TABS,
   TrangThaiPill,
   classHan,
+  classHanLich,
   ngay,
   ngayGio,
   num,
 } from "./keHoachSxShared";
+
+/** Dòng/trang cho CẢ hai bảng của màn. Khớp mặc định `size` của `/api/lsx`; đổi ở đây là
+ *  đổi cả chân trang lẫn tham số gửi lên, không được để hai nơi lệch nhau. */
+const SIZE_TRANG = 50;
 import "./ke-hoach-sx.css";
 
 type View = { mode: "list" } | { mode: "detail"; id: number };
@@ -33,12 +48,15 @@ type View = { mode: "list" } | { mode: "detail"; id: number };
 export function KeHoachSXPage({
   navigate,
   openOrderId,
+  openLsxId,
   eventTick,
   onBadgeStale,
 }: {
   navigate?: (id: string, params?: Record<string, unknown>) => void;
   /** Deep-link từ Đơn hàng: mở thẳng hàng chờ + drawer lệnh dự kiến của đơn này. */
   openOrderId?: number | null;
+  /** Deep-link từ sơ đồ Bài ghép: mở thẳng chi tiết MỘT lệnh. */
+  openLsxId?: number | null;
   /** Tăng mỗi lần có event SSE → refetch (real-time, không bắt người dùng F5). */
   eventTick?: number;
   onBadgeStale?: () => void;
@@ -47,8 +65,12 @@ export function KeHoachSXPage({
   const can = useCan();
   const scopeOf = useScopeOf();
   const canCreate = can("san_xuat", "create");
+  // Nhãn đơn vị đọc từ DANH MỤC — nạp một lần cho cả phiên (bảng lệnh + drawer lệnh dự kiến).
+  useNapTenDonVi();
 
   const [view, setView] = useState<View>({ mode: "list" });
+  // Tab "Vật tư" ĐÃ TÁCH 17/08/2026 thành màn riêng `Kế hoạch vật tư` (chủ chốt) — xem
+  // `KeHoachVatTuPage`. Màn này giữ đúng phạm vi MỘT lệnh; bảng cân đối cả kho là việc của màn kia.
   const [tab, setTab] = useState<"hang-cho" | "lenh">("hang-cho");
   const [previewOrderId, setPreviewOrderId] = useState<number | null>(null);
   const [orderFilter, setOrderFilter] = useState<{ id: number; code: string } | null>(null);
@@ -59,14 +81,32 @@ export function KeHoachSXPage({
   const [ttFilter, setTtFilter] = useState("all");
   const [q, setQ] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  // Phân trang + số trên tab đều do MÁY CHỦ trả. Đếm bằng `lenhs.length` như trước chỉ đúng khi
+  // cả bảng nằm gọn trong một lượt tải — có phân trang là số đó thành số của TRANG, sai ngay.
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [facets, setFacets] = useState<Record<string, number>>({});
+  const [queuePage, setQueuePage] = useState(1);
+  const [queueTotal, setQueueTotal] = useState(0);
+  // Hàng đèn tiến độ (Đợt 1 redesign 18/08/2026) — GỌI RỜI sau bảng lệnh, không nhét vào
+  // `/api/lsx`: endpoint tổng quan chạy engine cân đối vật tư + bộ dò vấn đề, còn bảng lệnh phải
+  // hiện ngay. `denTick` để các hành động khác (tạo lệnh, đổi routing, giữ chỗ) bắt đèn tính lại —
+  // bộ lọc/ô tìm KHÔNG bắt, vì khoá dưới đây chỉ đổi khi TẬP lệnh đổi.
+  const [tq, setTq] = useState<Record<number, LsxTongQuanOut["items"][number]>>({});
+  const [denTick, setDenTick] = useState(0);
 
   const loadQueue = useCallback(() => {
     if (!token) return;
     api.lsx
-      .hangCho(token)
-      .then((r) => setQueue(r.items))
+      .hangCho(token, { page: queuePage, size: SIZE_TRANG })
+      .then((r) => {
+        setQueue(r.items);
+        setQueueTotal(r.total);
+        const ve = trangHopLe(queuePage, r.total, SIZE_TRANG);
+        if (ve) setQueuePage(ve);
+      })
       .catch((e: unknown) => setErr(e instanceof ApiError ? e.message : String(e)));
-  }, [token]);
+  }, [token, queuePage]);
 
   const loadLenhs = useCallback(() => {
     if (!token) return;
@@ -75,16 +115,53 @@ export function KeHoachSXPage({
         order_id: orderFilter?.id,
         trang_thai: ttFilter === "all" ? undefined : ttFilter,
         q: q.trim() || undefined,
+        page,
+        size: SIZE_TRANG,
       })
-      .then((r) => setLenhs(r.items))
+      .then((r) => {
+        setLenhs(r.items);
+        setTotal(r.total);
+        setFacets(r.facets);
+        // Xoá nốt dòng cuối của trang 3 ⇒ còn 2 trang: không kéo về thì màn trắng trơn.
+        const ve = trangHopLe(page, r.total, SIZE_TRANG);
+        if (ve) setPage(ve);
+      })
       .catch((e: unknown) => setErr(e instanceof ApiError ? e.message : String(e)));
-  }, [token, orderFilter, ttFilter, q]);
+  }, [token, orderFilter, ttFilter, q, page]);
+
+  // Đổi bộ lọc thì về trang 1 — giữ nguyên trang cũ là rơi vào vùng trống của kết quả mới.
+  useEffect(() => setPage(1), [ttFilter, q, orderFilter]);
 
   useEffect(() => loadQueue(), [loadQueue, eventTick]);
   useEffect(() => {
     const t = setTimeout(loadLenhs, q ? 250 : 0);   // debounce ô tìm
     return () => clearTimeout(t);
   }, [loadLenhs, eventTick, q]);
+
+  // Lệnh Nháp chưa có gì để nói (chưa chốt routing, chưa giữ chỗ) ⇒ không hỏi đèn cho chúng.
+  const khoaDen = (lenhs ?? [])
+    .filter((l) => l.trang_thai !== "nhap" && l.trang_thai !== "cho_bo_sung")
+    .map((l) => l.id)
+    .join(",");
+  useEffect(() => {
+    if (!token || !khoaDen) {
+      setTq({});
+      return;
+    }
+    let huy = false;
+    api.lsx
+      .tongQuan(token, khoaDen.split(",").map(Number))
+      .then((r) => {
+        if (!huy) setTq(Object.fromEntries(r.items.map((i) => [i.lsx_id, i])));
+      })
+      // Đèn hỏng thì bảng lệnh vẫn phải dùng được — ô đèn để trống, KHÔNG chặn cả màn bằng `err`.
+      .catch(() => {
+        if (!huy) setTq({});
+      });
+    return () => {
+      huy = true;
+    };
+  }, [token, khoaDen, eventTick, denTick]);
 
   // Deep-link từ màn Đơn hàng ("Mở bàn Kế hoạch sản xuất ↗").
   useEffect(() => {
@@ -94,6 +171,10 @@ export function KeHoachSXPage({
       setPreviewOrderId(openOrderId);
     }
   }, [openOrderId]);
+
+  useEffect(() => {
+    if (openLsxId) setView({ mode: "detail", id: openLsxId });
+  }, [openLsxId]);
 
   useEffect(() => {
     if (!flash) return;
@@ -115,6 +196,9 @@ export function KeHoachSXPage({
   const doiDuLieu = useCallback(() => {
     loadQueue();
     loadLenhs();
+    // Tập lệnh có thể KHÔNG đổi sau một lần sửa routing/giữ chỗ ⇒ `khoaDen` đứng yên ⇒ effect trên
+    // không chạy lại. Tick thẳng để đèn không nói chuyện cũ.
+    setDenTick((n) => n + 1);
     onBadgeStale?.();
   }, [loadQueue, loadLenhs, onBadgeStale]);
 
@@ -126,48 +210,60 @@ export function KeHoachSXPage({
           navigate={navigate}
           onBack={() => setView({ mode: "list" })}
           onChanged={doiDuLieu}
+          eventTick={eventTick}
         />
       </main>
     );
   }
 
+  // Số trên tab lấy từ `facets` của máy chủ, KHÔNG đếm mảng đang hiện. Tab gộp nhiều trạng thái
+  // (Nháp = "nhap,cho_bo_sung") thì cộng các phần.
   const demTheoTt = (key: string) =>
-    key === "all" ? (lenhs?.length ?? 0) : (lenhs ?? []).filter((l) => l.trang_thai === key).length;
+    key === "all"
+      ? (facets.all ?? 0)
+      : key.split(",").reduce((s, k) => s + (facets[k] ?? 0), 0);
 
   return (
     <main className="khsx">
-      <header className="khsx__head">
-        <p className="eyebrow">Sản xuất</p>
-        <div className="khsx__headrow">
-          <h1 className="khsx__title">Kế hoạch sản xuất</h1>
-          <span className="khsx__count">
-            {num(queue?.length ?? 0)} đơn chờ · {num(lenhs?.length ?? 0)} lệnh
-          </span>
+      <header className="khsx-page-header">
+        <div className="khsx-page-header__left">
+          <div className="khsx-page-header__eyebrow-row">
+            <span className="khsx-eyebrow-badge">
+              <Icon name="clipboard" size={12} /> Sản xuất &amp; Điều phối
+            </span>
+            <span className="khsx-sync-badge">
+              <span className="khsx-sync-badge__dot" /> Live Sync
+            </span>
+          </div>
+          <h1 className="khsx-page-header__title">Kế hoạch sản xuất</h1>
+          <p className="khsx-page-header__sub">
+            Quản lý và điều phối toàn bộ tiến độ sản xuất từ tiếp nhận đơn hàng đến hoàn thành ra xưởng
+          </p>
         </div>
       </header>
 
-      <div className="khsx__segrow" role="tablist" aria-label="Khu vực làm việc">
+      <div className="khsx-tabs-bar" role="tablist" aria-label="Khu vực làm việc">
         <button
           type="button"
           role="tab"
           aria-selected={tab === "hang-cho"}
-          className={`seg ${tab === "hang-cho" ? "is-active" : ""}`}
+          className={`khsx-tab-btn ${tab === "hang-cho" ? "is-active" : ""}`}
           onClick={() => setTab("hang-cho")}
         >
-          Hàng chờ
-          {(queue?.length ?? 0) > 0 && (
-            <span className="chip-count chip-count--alert">{queue?.length}</span>
-          )}
+          <Icon name="packageCheck" size={14} />
+          <span>Hàng chờ tiếp nhận</span>
+          {queueTotal > 0 && <span className="khsx-tab-badge khsx-tab-badge--alert">{queueTotal}</span>}
         </button>
         <button
           type="button"
           role="tab"
           aria-selected={tab === "lenh"}
-          className={`seg ${tab === "lenh" ? "is-active" : ""}`}
+          className={`khsx-tab-btn ${tab === "lenh" ? "is-active" : ""}`}
           onClick={() => setTab("lenh")}
         >
-          Lệnh sản xuất
-          <span className="chip-count">{lenhs?.length ?? 0}</span>
+          <Icon name="layers" size={14} />
+          <span>Lệnh sản xuất</span>
+          <span className="khsx-tab-badge">{total}</span>
         </button>
       </div>
 
@@ -183,6 +279,9 @@ export function KeHoachSXPage({
           rows={queue}
           scopeAll={scopeOf("san_xuat") === "all"}
           onOpen={(id) => setPreviewOrderId(id)}
+          total={queueTotal}
+          page={queuePage}
+          onPage={setQueuePage}
         />
       ) : (
         <LenhTable
@@ -195,7 +294,14 @@ export function KeHoachSXPage({
           onClearOrderFilter={() => setOrderFilter(null)}
           onOpen={(id) => setView({ mode: "detail", id })}
           onGoQueue={() => setTab("hang-cho")}
+          tq={tq}
+          // Bấm chấm là tới THẲNG chỗ sửa kèm mã lệnh — nhảy sang màn rồi còn phải tự tìm lệnh
+          // trong 200 dòng thì vẫn là đổi màn, chỉ đỡ được nửa việc.
+          onNhay={navigate ? (nhay, ma) => navigate(nhay.man, { focusLsxMa: ma }) : undefined}
           dem={demTheoTt}
+          total={total}
+          page={page}
+          onPage={setPage}
         />
       )}
 
@@ -220,10 +326,17 @@ function QueueTable({
   rows,
   scopeAll,
   onOpen,
+  total,
+  page,
+  onPage,
 }: {
   rows: HangChoItem[] | null;
   scopeAll: boolean;
   onOpen: (orderId: number) => void;
+  /** TỔNG đơn chờ trên máy chủ (≠ `rows.length`, vốn chỉ là trang đang xem). */
+  total: number;
+  page: number;
+  onPage: (p: number) => void;
 }) {
   if (rows !== null && rows.length === 0) {
     return (
@@ -308,6 +421,7 @@ function QueueTable({
           </tbody>
         )}
       </table>
+      <Pager total={total} page={page} size={SIZE_TRANG} onPage={onPage} unit="đơn chờ" />
     </div>
   );
 }
@@ -323,7 +437,12 @@ function LenhTable({
   onClearOrderFilter,
   onOpen,
   onGoQueue,
+  tq,
+  onNhay,
   dem,
+  total,
+  page,
+  onPage,
 }: {
   rows: LsxListItem[] | null;
   ttFilter: string;
@@ -332,8 +451,15 @@ function LenhTable({
   onQ: (v: string) => void;
   orderFilter: { id: number; code: string } | null;
   onClearOrderFilter: () => void;
+  /** TỔNG lệnh khớp bộ lọc trên máy chủ. */
+  total: number;
+  page: number;
+  onPage: (p: number) => void;
   onOpen: (id: number) => void;
   onGoQueue: () => void;
+  /** Đèn theo lsx_id — tải RỜI sau bảng, nên thiếu khoá = chưa có tin, không phải "không sao". */
+  tq: Record<number, LsxTongQuanOut["items"][number]>;
+  onNhay?: (nhay: { man: string; id: number }, ma: string) => void;
   dem: (key: string) => number;
 }) {
   const coLoc = ttFilter !== "all" || q.trim() !== "" || orderFilter != null;
@@ -401,15 +527,15 @@ function LenhTable({
             <caption className="sr-only">Danh sách lệnh sản xuất</caption>
             <thead>
               <tr>
-                <th scope="col">Mã lệnh</th>
-                <th scope="col">Sản phẩm</th>
-                <th scope="col">Đơn · Khách</th>
-                <th scope="col" className="khsx-th--num">SL</th>
-                <th scope="col" className="khsx-th--num">Tờ in</th>
-                <th scope="col" className="khsx-th--num">CĐ</th>
-                <th scope="col" className="khsx__col--opt">Tổ đầu</th>
-                <th scope="col">Hạn</th>
-                <th scope="col">Trạng thái</th>
+                <th scope="col" style={{ width: 140 }}>Mã lệnh</th>
+                <th scope="col" style={{ minWidth: 200 }}>Sản phẩm / Bộ phận</th>
+                <th scope="col" style={{ minWidth: 150 }}>Đơn · Khách</th>
+                <th scope="col" className="khsx-th--num" style={{ width: 100 }}>SL</th>
+                <th scope="col" className="khsx-th--num" style={{ width: 100 }}>Vào máy</th>
+                <th scope="col" style={{ width: 130 }}>Tiến độ CĐ</th>
+                <th scope="col" style={{ width: 140 }}>Hạn SX &amp; Giao</th>
+                <th scope="col" style={{ width: 120 }}>Vướng</th>
+                <th scope="col" style={{ width: 130 }}>Trạng thái</th>
               </tr>
             </thead>
             {rows === null ? (
@@ -432,32 +558,90 @@ function LenhTable({
                     }}
                   >
                     <td>
-                      <span className="khsx__code">{l.ma}</span>
-                      {l.is_rush && <ChipGap />}
-                    </td>
-                    {/* Lệnh chỉ mang tên bộ phận ("Bìa") → phải nói rõ nó thuộc sản phẩm thương
-                        mại nào, không thì nhìn danh sách không biết bìa của cuốn nào. */}
-                    <td className="khsx__name" title={l.nhom ? `${l.nhom} — ${l.ten}` : l.ten}>
-                      {l.ten}
-                      {l.nhom && <div className="khsx__sub khsx__sub--nhom">{l.nhom}</div>}
+                      <div className="khsx-code-badge">
+                        <span className="khsx__code">{l.ma}</span>
+                        {l.is_rush && <ChipGap />}
+                      </div>
                     </td>
                     <td>
-                      {l.order_no ?? "—"}
-                      {l.customer_name && <div className="khsx__sub">{l.customer_name}</div>}
+                      <div className="khsx-cell-prod">
+                        <div className="khsx-prod__title" title={l.nhom ? `${l.nhom} — ${l.ten}` : l.ten}>
+                          {l.ten}
+                        </div>
+                        {l.nhom && (
+                          <div className="khsx-prod__group" title="Thuộc bộ phận / nhóm sản phẩm">
+                            <Icon name="layers" size={11} /> {l.nhom}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="khsx-cell-order">
+                        {l.order_no ? (
+                          <span className="khsx-order-chip">{l.order_no}</span>
+                        ) : (
+                          <span className="khsx-muted">—</span>
+                        )}
+                        {l.customer_name && (
+                          <div className="khsx-order__cust" title={l.customer_name}>
+                            {l.customer_name}
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="khsx-num">
-                      {num(l.so_luong_dat)} <span className="khsx-unit">{l.don_vi_tinh}</span>
-                    </td>
-                    <td className="khsx-num">{num(l.so_to_ke_hoach)}</td>
-                    <td className={`khsx-num ${l.so_cong_doan === 0 ? "khsx__bad" : ""}`}>
-                      {l.so_cong_doan}
-                    </td>
-                    <td className="khsx__col--opt">{l.to_dau_ten ?? "—"}</td>
-                    <td>
-                      <div className={`khsx-num ${classHan(l.han_hoan_thanh_sx)}`}>
-                        SX {ngay(l.han_hoan_thanh_sx)}
+                      <div className="khsx-qty-cell">
+                        <b>{num(l.so_luong_dat)}</b> <small>{l.don_vi_tinh}</small>
                       </div>
-                      <div className="khsx__sub">Giao {ngay(l.han_giao_khach)}</div>
+                    </td>
+                    <td className="khsx-num">
+                      <div className="khsx-qty-cell">
+                        {l.so_to_ke_hoach > 0 ? (
+                          <>
+                            <b>{num(l.so_to_ke_hoach)}</b>{" "}
+                            <small>{nhanDonVi(l.don_vi_to)}</small>
+                          </>
+                        ) : (
+                          <span className="khsx-muted">—</span>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="khsx-step-cell">
+                        <span className={`khsx-step-pill ${l.so_cong_doan === 0 ? "is-bad" : ""}`}>
+                          {l.so_cong_doan > 0 ? `${l.so_cong_doan} bước` : "Chưa có CĐ"}
+                        </span>
+                        <span className="khsx-step-org" title="Tổ sản xuất xuất phát">
+                          {l.to_dau_ten || "—"}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="khsx-cell-date">
+                        <div
+                          className={`khsx-date-line ${classHanLich(tq[l.id]?.slack_ngay, l.han_hoan_thanh_sx)}`}
+                          title={
+                            tq[l.id]?.slack_ngay != null
+                              ? tq[l.id]!.slack_ngay! < 0
+                                ? `Lịch đang vượt hạn ${-tq[l.id]!.slack_ngay!} ngày làm việc`
+                                : `Lịch còn dư ${tq[l.id]!.slack_ngay!} ngày làm việc`
+                              : undefined
+                          }
+                        >
+                          <span className="khsx-date-lbl">SX:</span>
+                          <b>{ngay(l.han_hoan_thanh_sx)}</b>
+                        </div>
+                        <div className="khsx-date-line is-sub">
+                          <span className="khsx-date-lbl">Giao:</span>
+                          <b>{ngay(l.han_giao_khach)}</b>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <DenTienDo
+                        den={tq[l.id]?.den}
+                        onNhay={onNhay ? (nhay) => onNhay(nhay, l.ma) : undefined}
+                      />
                     </td>
                     <td>
                       <TrangThaiPill tt={l.trang_thai} />
@@ -471,7 +655,7 @@ function LenhTable({
       )}
 
       {rows !== null && rows.length > 0 && (
-        <p className="khsx__footnote">{rows.length} lệnh trong bộ lọc hiện tại</p>
+        <Pager total={total} page={page} size={SIZE_TRANG} onPage={onPage} unit="lệnh" />
       )}
     </>
   );

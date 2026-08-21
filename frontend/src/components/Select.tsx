@@ -16,6 +16,12 @@ export interface SelectOption<T extends SelectValue = SelectValue> {
   value: T;
   label: string;
   hint?: string;
+  /** Dòng phụ DƯỚI nhãn (vd "NV Sales · Kinh doanh" dưới tên người). Khác `hint` vốn nằm CÙNG
+   *  dòng: dùng khi dòng phụ là thuộc tính của lựa chọn chứ không phải chú thích ngắn. Không
+   *  truyền thì DOM giữ nguyên như cũ. */
+  sub?: string;
+  /** Chấm số ĐỎ (báo "mới/chưa xem") ở cuối lựa chọn — vd số phản hồi kho chưa xem. Ẩn khi ≤0. */
+  badge?: number;
 }
 
 interface SelectProps<T extends SelectValue> {
@@ -33,6 +39,10 @@ interface SelectProps<T extends SelectValue> {
    *  KHÔNG lọc cục bộ nữa (server đã lọc, lọc thêm sẽ giấu mất kết quả vừa tải về). */
   onSearch?: (query: string) => void;
   searchPlaceholder?: string;
+  /** Căn lề popover ("left" mặc định, "right" cho các ô ở góc phải thanh công cụ). */
+  align?: "left" | "right";
+  /** Mở LÊN TRÊN thay vì xuống dưới — cho ô nằm cuối trang/pager (mở xuống sẽ bị che). Cần `portal`. */
+  dropUp?: boolean;
 }
 
 export function Select<T extends SelectValue>({
@@ -47,11 +57,13 @@ export function Select<T extends SelectValue>({
   searchable = false,
   onSearch,
   searchPlaceholder = "Tìm…",
+  align = "left",
+  dropUp = false,
 }: SelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [query, setQuery] = useState("");
-  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [rect, setRect] = useState<{ top: number; bottom: number; left: number; right: number; width: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -72,7 +84,13 @@ export function Select<T extends SelectValue>({
     const el = triggerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setRect({ top: r.bottom + 4, left: r.left, width: r.width });
+    setRect({
+      top: r.bottom + 4,
+      bottom: window.innerHeight - r.top + 4, // neo mép DƯỚI popover ngay trên trigger (mở lên)
+      left: r.left,
+      right: r.right,
+      width: r.width,
+    });
   }
 
   useLayoutEffect(() => {
@@ -154,12 +172,20 @@ export function Select<T extends SelectValue>({
   const list = (
     <ul
       ref={listRef}
-      className={`sel__list${portal ? " sel__list--portal" : ""}`}
+      className={`sel__list${portal ? " sel__list--portal" : ""}${align === "right" ? " sel__list--right" : ""}`}
       role="listbox"
       aria-activedescendant={`${listId}-${active}`}
       style={
         portal && rect
-          ? { position: "fixed", top: rect.top, left: rect.left, width: rect.width, right: "auto" }
+          ? {
+              position: "fixed",
+              // dropUp: neo mép DƯỚI, top:"auto" để XOÁ `top: calc(100%+4px)` của .sel__list
+              // (không xoá thì phần tử bị đẩy xuống dưới viewport → menu nằm ngoài màn, không bấm được).
+              ...(dropUp ? { top: "auto", bottom: rect.bottom } : { top: rect.top }),
+              ...(align === "right"
+                ? { right: window.innerWidth - rect.right, left: "auto", minWidth: rect.width }
+                : { left: rect.left, width: rect.width, right: "auto" }),
+            }
           : undefined
       }
     >
@@ -205,8 +231,20 @@ export function Select<T extends SelectValue>({
             choose(i);
           }}
         >
-          <span className="sel__opt-label">{opt.label}</span>
+          {opt.sub ? (
+            <span className="sel__opt-stack">
+              <span className="sel__opt-label">{opt.label}</span>
+              <span className="sel__opt-sub">{opt.sub}</span>
+            </span>
+          ) : (
+            <span className="sel__opt-label">{opt.label}</span>
+          )}
           {opt.hint && <span className="sel__opt-hint">{opt.hint}</span>}
+          {opt.badge != null && opt.badge > 0 && (
+            <span className="sel__opt-badge" aria-label={`${opt.badge} chưa xem`}>
+              {opt.badge > 99 ? "99+" : opt.badge}
+            </span>
+          )}
           {opt.value === value && (
             <span className="sel__opt-check" aria-hidden="true">✓</span>
           )}

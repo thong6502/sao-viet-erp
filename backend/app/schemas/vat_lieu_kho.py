@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
+
+RowT = TypeVar("RowT")
 
 
 # ---- Phiên bản giá giấy (lịch sử) ----
@@ -43,8 +46,6 @@ class GiayGiaVersionRow(BaseModel):
 class ChungLoaiGiayIn(BaseModel):
     ma: str = Field(min_length=1, max_length=30)
     ten: str = Field(min_length=1, max_length=150)
-    be_mat: str | None = None
-    tho_mac_dinh: str | None = None
     mo_ta: str | None = None
     active: bool = True
 
@@ -54,8 +55,6 @@ class ChungLoaiGiayRow(BaseModel):
     id: int
     ma: str
     ten: str
-    be_mat: str | None = None
-    tho_mac_dinh: str | None = None
     mo_ta: str | None = None
     active: bool
     updated_at: datetime | None = None
@@ -69,12 +68,15 @@ class GiayIn(BaseModel):
     gsm: int = Field(gt=0)
     caliper_micron: int | None = None
     tho: str | None = None
-    don_vi_gia: str = "kg"
+    # Mã đơn vị trong `don_vi_do`. None/"" = chưa chọn — KHÔNG mặc định "kg" nữa: đơn vị gốc quyết
+    # định cách cộng tồn kho, điền hộ một lần là sai vĩnh viễn mà không ai để ý.
+    don_vi_gia: str | None = None
     don_gia: float = Field(default=0, ge=0)
     gia_thi_truong: float | None = None
     kho_tinh_gia: bool = True
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
+    cong_thuc_luong: str | None = None
     active: bool = True
 
 
@@ -87,13 +89,16 @@ class GiayRow(BaseModel):
     gsm: int
     caliper_micron: int | None = None
     tho: str | None = None
-    don_vi_gia: str
+    don_vi_gia: str | None = None
+    # Tên đơn vị để BẢNG đọc được ("bản kẽm" thay vì mã `kem`) — router gán, không có trong DB.
+    don_vi_ten: str | None = None
     don_gia: float
     gia_thi_truong: float | None = None
     kho_tinh_gia: bool
     ghi_chu: str | None = None
     version_no: int = 1
     cong_thuc_gia: str | None = None
+    cong_thuc_luong: str | None = None
     active: bool
     updated_at: datetime | None = None
 
@@ -102,10 +107,11 @@ class GiayRow(BaseModel):
 class VatTuIn(BaseModel):
     ma: str = Field(min_length=1, max_length=30)
     ten: str = Field(min_length=1, max_length=150)
-    don_vi_gia: str = "cai"
+    don_vi_gia: str | None = None
     don_gia: float = Field(default=0, ge=0)
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
+    cong_thuc_luong: str | None = None
     active: bool = True
 
 
@@ -114,16 +120,65 @@ class VatTuRow(BaseModel):
     id: int
     ma: str
     ten: str
-    don_vi_gia: str
+    don_vi_gia: str | None = None
+    # Tên đơn vị cho BẢNG đọc được — router gán, không có trong DB.
+    don_vi_ten: str | None = None
     don_gia: float
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
+    cong_thuc_luong: str | None = None
     active: bool
     updated_at: datetime | None = None
 
 
-class ListOut(BaseModel):
-    items: list
+class ListOut(BaseModel, Generic[RowT]):
+    """Phong bì phân trang dùng chung cho CẢ BA danh mục ở router `vat_lieu_kho`.
+
+    GENERIC chứ không `items: list` trần: ba đường (`/chung-loai-giay` · `/giay` ·
+    `/vat-tu-in-an`) trả ba kiểu dòng khác nhau, khai trần thì OpenAPI mất kiểu và client sinh
+    ra `any[]`. Router dùng `ListOut[GiayRow]`, `ListOut[VatTuRow]`…
+    """
+
+    items: list[RowT]
     total: int
     page: int
     size: int
+
+
+class VatLieuAnhOut(BaseModel):
+    """Kết quả gắn/gỡ ảnh minh hoạ — đường ảnh sau thao tác (None = đã gỡ)."""
+    anh_url: str | None = None
+
+
+# ---- MẶT HÀNG GỐC: cửa dùng chung cho Kho + NCC ----
+class MatHangRow(BaseModel):
+    """1 dòng trong picker mặt hàng — gộp Giấy + Vật tư khác."""
+    hang_loai: str            # 'giay' | 'vat_tu'
+    hang_id: int
+    nhom: str                 # nhãn hiện trên chip ("Giấy" / "Vật tư khác")
+    ma: str
+    ten: str
+    don_vi_goc: str | None = None
+
+
+class DonViDungDuocRow(BaseModel):
+    ma: str
+    ten: str
+    # `he_so`: 1 đơn-vị-gốc = he_so <đơn vị này>. `he_so_ve_goc`: chiều ngược, dùng khi quy số
+    # người dùng nhập về đơn vị gốc để cộng tồn. Trả cả hai để nơi gọi khỏi tự nghịch đảo.
+    he_so: float
+    he_so_ve_goc: float
+    la_goc: bool
+    dien_giai: str
+
+
+class DonViCuaMatHangOut(BaseModel):
+    hang_loai: str
+    hang_id: int
+    ma: str
+    ten: str
+    don_vi_goc: str | None = None
+    don_vi_goc_ten: str | None = None
+    ds: list[DonViDungDuocRow] = []
+    # Vì sao danh sách rỗng — UI hiện nguyên câu này thay vì im lặng khoá ô.
+    ly_do: str | None = None

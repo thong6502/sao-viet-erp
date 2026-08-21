@@ -1,27 +1,74 @@
-// Khung "Kho" — gộp Đề nghị + Hộp yêu cầu vào MỘT module, chia tab.
+// Khung "Kho" — gộp Yêu cầu + Hộp yêu cầu vào MỘT module, chia tab.
 //
 // Hai trục tab:
-//   • VIỆC:   Đề nghị · Hộp yêu cầu  (Hộp yêu cầu chỉ hiện cho vai trong kho)
+//   • VIỆC:   Yêu cầu · Hộp yêu cầu  (Hộp yêu cầu chỉ hiện cho vai trong kho)
 //   • CHIỀU:  Nhập · Xuất            (khoá chiều cho màn con qua prop `loai`)
 //
 // Không tách bảng DB — vẫn 1 bảng `stock_requests`/`stock_vouchers` cột `loai`, chỉ lọc theo
-// chiều. `key={loai}` để đổi chiều là remount màn con với state sạch (khỏi lẫn dữ liệu 2 chiều).
-import { useState } from "react";
+// chiều. `key={chieu}` để đổi chiều là remount màn con với state sạch (khỏi lẫn dữ liệu 3 chiều).
+import { useCallback, useEffect, useState } from "react";
 import type { StockRequestKind } from "../api/client";
 import { useCan } from "../auth/permissions";
-import { KhoDeNghiPage } from "./KhoDeNghiPage";
+import { KhoDeNghiPage, type KhoNhapSeed } from "./KhoDeNghiPage";
 import { KhoYeuCauPage } from "./KhoYeuCauPage";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
 
 type FnTab = "denghi" | "yeucau";
+// CHIỀU: Nhập · Xuất · Điều chuyển (điều chuyển = yêu cầu NHẬP ở đích, tách tab riêng để khỏi lẫn).
+type Chieu = StockRequestKind | "DIEU_CHUYEN";
 
-export function KhoPage({ eventTick = 0 }: { eventTick?: number }) {
+export function KhoPage({
+  eventTick = 0,
+  nhapSeed,
+  counts,
+  onSeen,
+  openRequest,
+}: {
+  eventTick?: number;
+  /** Điều hướng từ "Nhập kho" (đợt giao đơn mua) → ép về tab Yêu cầu · Nhập, mở sẵn form đã điền. */
+  nhapSeed?: KhoNhapSeed | null;
+  /** Số yêu cầu ĐÃ DUYỆT chờ cấp theo chiều (badge Nhập/Xuất/Điều chuyển) + phản hồi kho chưa xem
+   *  của người tạo (done_unseen=Hoàn tất, fail_unseen=Không thành). */
+  counts?: { nhap: number; xuat: number; dieu_chuyen: number; done_unseen: number; fail_unseen: number };
+  /** Người tạo mở xem 1 yêu cầu → refetch badge/số đỏ (AppShell reloadBadges). */
+  onSeen?: () => void;
+  /** Bấm 1 thông báo kho → mở đúng yêu cầu: `view` chọn tab, `id` = request_id. */
+  openRequest?: { id: number; view: FnTab };
+}) {
   const can = useCan();
-  const canDeNghi = can("kho", "request") || can("kho", "approve");
+  // Tab "Yêu cầu" (xem + tạo yêu cầu) CHỈ cho vai có `can_request` ("Tạo yêu cầu nhập/xuất") → THỦ
+  // KHO (chỉ có view_stock/create) KHÔNG thấy tab này, chỉ thấy "Phiếu từ yêu cầu".
+  const canDeNghi = can("kho", "request");
   const canYeuCau = can("kho", "create") || can("kho", "view_stock");
   const [fn, setFn] = useState<FnTab>(canDeNghi ? "denghi" : "yeucau");
-  const [loai, setLoai] = useState<StockRequestKind>("NHAP");
+  // CHIỀU: Nhập · Xuất · Điều chuyển. Điều chuyển vốn là yêu cầu NHẬP ở đích nhưng tách tab riêng để
+  // Nhập/Xuất KHÔNG lẫn điều chuyển; màn con nhận `loai` (NHẬP cho tab điều chuyển) + cờ `dieuChuyen`.
+  const [chieu, setChieu] = useState<Chieu>("NHAP");
+  const dieuChuyenTab = chieu === "DIEU_CHUYEN";
+  const childLoai: StockRequestKind = dieuChuyenTab ? "NHAP" : chieu;
+  // Seed đang chờ đổ vào form (từ "Nhập kho" ở đơn mua). Effect ép tab Yêu cầu · Nhập; KhoDeNghiPage
+  // tiêu thụ rồi gọi onSeedConsumed để xoá — tránh mở lại form khi bấm sang tab khác.
+  const [pendingSeed, setPendingSeed] = useState<KhoNhapSeed | null>(null);
+  useEffect(() => {
+    if (nhapSeed?.seed?.length) {
+      setFn("denghi");
+      setChieu("NHAP");
+      setPendingSeed(nhapSeed);
+    }
+  }, [nhapSeed]);
+  const consumeSeed = useCallback(() => setPendingSeed(null), []);
+  // Yêu cầu cần MỞ SẴN (bấm từ thông báo): ép đúng tab rồi truyền id xuống màn con để bung drawer.
+  const [openReqId, setOpenReqId] = useState<number | null>(null);
+  useEffect(() => {
+    if (openRequest?.id != null) {
+      setFn(openRequest.view);
+      setOpenReqId(openRequest.id);
+    }
+  }, [openRequest]);
+  const consumeOpenReq = useCallback(() => setOpenReqId(null), []);
+  // Phản hồi kho chưa xem của NGƯỜI TẠO (Hoàn tất + Không thành) — badge tab "Yêu cầu".
+  const phanHoiUnseen = (counts?.done_unseen ?? 0) + (counts?.fail_unseen ?? 0);
   const activeFn: FnTab =
     fn === "denghi" && !canDeNghi
       ? "yeucau"
@@ -40,7 +87,12 @@ export function KhoPage({ eventTick = 0 }: { eventTick?: number }) {
               onClick={() => setFn("denghi")}
             >
               <FileTextIcon />
-              <span>Đề nghị</span>
+              <span>Yêu cầu</span>
+              {phanHoiUnseen > 0 && (
+                <span className="kho-shell__count" aria-label={`${phanHoiUnseen} phản hồi chưa xem`}>
+                  {phanHoiUnseen}
+                </span>
+              )}
             </button>
           )}
           {canYeuCau && (
@@ -50,29 +102,64 @@ export function KhoPage({ eventTick = 0 }: { eventTick?: number }) {
               onClick={() => setFn("yeucau")}
             >
               <InboxIcon />
-              <span>Phiếu từ đề nghị</span>
+              <span>Phiếu từ yêu cầu</span>
             </button>
           )}
         </div>
         <div className="kho-shell__dirs">
-          {(["NHAP", "XUAT"] as StockRequestKind[]).map((k) => (
-            <button
-              key={k}
-              type="button"
-              className={`seg${loai === k ? " is-active" : ""}`}
-              onClick={() => setLoai(k)}
-            >
-              {k === "NHAP" ? <ArrowDownIcon /> : <ArrowUpIcon />}
-              <span>{k === "NHAP" ? "Nhập" : "Xuất"}</span>
-            </button>
-          ))}
+          {(["NHAP", "XUAT", "DIEU_CHUYEN"] as Chieu[]).map((k) => {
+            const n =
+              k === "NHAP"
+                ? counts?.nhap ?? 0
+                : k === "XUAT"
+                  ? counts?.xuat ?? 0
+                  : counts?.dieu_chuyen ?? 0;
+            const label = k === "NHAP" ? "Nhập" : k === "XUAT" ? "Xuất" : "Điều chuyển";
+            return (
+              <button
+                key={k}
+                type="button"
+                className={`seg${chieu === k ? " is-active" : ""}`}
+                onClick={() => setChieu(k)}
+              >
+                {k === "NHAP" ? (
+                  <ArrowDownIcon />
+                ) : k === "XUAT" ? (
+                  <ArrowUpIcon />
+                ) : (
+                  <span aria-hidden style={{ fontSize: 15, lineHeight: 1 }}>⇄</span>
+                )}
+                <span>{label}</span>
+                {n > 0 && <span className="kho-shell__count" aria-label={`${n} yêu cầu chờ xử lý`}>{n}</span>}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {activeFn === "denghi" ? (
-        <KhoDeNghiPage key={`dn-${loai}`} loai={loai} eventTick={eventTick} />
+        <KhoDeNghiPage
+          key={`dn-${chieu}`}
+          loai={childLoai}
+          dieuChuyen={dieuChuyenTab}
+          eventTick={eventTick}
+          initialSeed={chieu === "NHAP" ? pendingSeed : null}
+          onSeedConsumed={consumeSeed}
+          unseenDone={counts?.done_unseen ?? 0}
+          unseenFail={counts?.fail_unseen ?? 0}
+          onSeen={onSeen}
+          openRequestId={openReqId}
+          onOpenRequestConsumed={consumeOpenReq}
+        />
       ) : (
-        <KhoYeuCauPage key={`yc-${loai}`} loai={loai} eventTick={eventTick} />
+        <KhoYeuCauPage
+          key={`yc-${chieu}`}
+          loai={childLoai}
+          dieuChuyen={dieuChuyenTab}
+          eventTick={eventTick}
+          openRequestId={openReqId}
+          onOpenRequestConsumed={consumeOpenReq}
+        />
       )}
     </main>
   );

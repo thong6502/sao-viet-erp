@@ -6,9 +6,10 @@ import calendar
 import json
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from ..models.employee import Employee
 from ..models.attendance import (
     AttendanceAdjustRequest,
     AttendanceLog,
@@ -19,6 +20,32 @@ from ..models.attendance import (
     WorkLocation,
     WorkShift,
 )
+
+
+def _load_ot_days(raw):
+    """Đọc `ot_days_json`. Ép khoá ngày về SỐ để khớp nhánh live — xem `_chuan_ot_days`."""
+    import json as _json
+    try:
+        v = _json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        v = {}
+    return {k: {int(d): int(m) for d, m in (v.get(k) or {}).items()} for k in ("lam", "nghi")}
+
+
+def _load_ca_lam(raw: str | None) -> dict[int, list[float]]:
+    """Đọc cột JSON `ca_lam_json` → {ca → [công từng ngày làm ca đó]}.
+
+    Khoá JSON luôn là CHUỖI, phải ép về int — không thì bên Lương tra `work_shifts` bằng "3" thay
+    vì 3 và im lặng ra 0 đồng phụ cấp. Hỏng dữ liệu → {} chứ không nổ, giống `_load_off_days`."""
+    if not raw:
+        return {}
+    try:
+        v = json.loads(raw)
+        if not isinstance(v, dict):
+            return {}
+        return {int(k): [float(x) for x in val] for k, val in v.items() if isinstance(val, list)}
+    except (ValueError, TypeError):
+        return {}
 
 
 def _load_off_days(raw: str | None) -> list[int]:
@@ -150,6 +177,20 @@ class AttendanceRepository:
             ).scalars()
         )
 
+    def count_logs_created_after(self, start, end, moc) -> int:
+        """Số lượt bấm của khoảng [start, end) mà được GHI VÀO sau mốc `moc` (UTC).
+
+        Dùng để biết kỳ công đã chốt còn "phát sinh" gì không. Lọc theo HAI trục khác nhau, cố ý:
+        `checked_at` nói lượt bấm thuộc THÁNG nào, `created_at` nói nó được ghi LÚC nào. Chỉ nhìn
+        một trục là hỏng — người chấm công hôm nay cho tháng này (created mới, checked mới) khác
+        hẳn HCNS ghi bù hôm nay cho tháng trước.
+        """
+        return int(self.db.execute(
+            select(func.count()).select_from(AttendanceLog)
+            .where(AttendanceLog.checked_at >= start, AttendanceLog.checked_at < end,
+                   AttendanceLog.created_at > moc)
+        ).scalar() or 0)
+
     # --- attendance_adjust_requests (yêu cầu chỉnh công) --------------------
 
     def create_request(self, **fields) -> AttendanceAdjustRequest:
@@ -225,13 +266,34 @@ class AttendanceRepository:
         return self.db.execute(stmt).scalar_one()
 
     def list_all(
-        self, *, employee_ids: set[int] | None = None, limit: int = 100
+        self, *, employee_ids: set[int] | None = None, limit: int = 100, q: str | None = None,
+        tu=None, den=None,
     ) -> list[AttendanceLog]:
         """Logs mới nhất. `employee_ids=None` = mọi nhân viên; tập rỗng = không ai (an toàn
-        cho scope không thấy NV nào); tập có phần tử = chỉ các NV đó (dùng cho lọc scope)."""
+        cho scope không thấy NV nào); tập có phần tử = chỉ các NV đó (dùng cho lọc scope).
+
+        `q` = tìm theo TÊN hoặc MÃ nhân viên. Lọc ở SQL chứ không ở FE là có chủ đích: hàm này chỉ
+        trả `limit` lượt gần nhất của CẢ XƯỞNG, mà xưởng 50 người bấm 2–4 lượt/ngày thì 100 lượt
+        chưa hết nửa ngày — lọc sau khi đã cắt thì gõ tên ai không bấm trong vài giờ qua sẽ ra
+        "không tìm thấy" dù họ vẫn đi làm. Đẩy xuống SQL để `limit` là 100 lượt CỦA NGƯỜI ĐƯỢC TÌM.
+
+        ⚠️ `q` lọc BÊN TRONG `employee_ids` (đã áp scope ở service), KHÔNG thay thế nó — tìm kiếm
+        không được là đường vòng để thấy người ngoài phạm vi."""
         stmt = select(AttendanceLog)
         if employee_ids is not None:
             stmt = stmt.where(AttendanceLog.employee_id.in_(employee_ids))
+        # `tu`/`den` là mốc UTC đã quy đổi từ NGÀY VN ở service — repo không tự đoán múi giờ.
+        if tu is not None:
+            stmt = stmt.where(AttendanceLog.checked_at >= tu)
+        if den is not None:
+            stmt = stmt.where(AttendanceLog.checked_at < den)
+        kw = (q or "").strip()
+        if kw:
+            like = f"%{kw.lower()}%"
+            stmt = stmt.join(Employee, Employee.id == AttendanceLog.employee_id).where(
+                or_(func.lower(Employee.full_name).like(like),
+                    func.lower(Employee.code).like(like))
+            )
         stmt = stmt.order_by(AttendanceLog.checked_at.desc(), AttendanceLog.id.desc()).limit(limit)
         return list(self.db.execute(stmt).scalars())
 
@@ -288,6 +350,8 @@ class AttendanceRepository:
                 "ot_holiday_minutes": int(getattr(ln, "ot_holiday_minutes", 0) or 0),
                 "ot_restday_minutes": int(getattr(ln, "ot_restday_minutes", 0) or 0),
                 "late_off_days": _load_off_days(getattr(ln, "late_off_days_json", None)),
+                "ca_lam": _load_ca_lam(getattr(ln, "ca_lam_json", None)),
+                "ot_days": _load_ot_days(getattr(ln, "ot_days_json", None)),
                 "night_premium_minutes": float(getattr(ln, "night_premium_minutes", 0) or 0),
                 "ot_night_normal_minutes": int(getattr(ln, "ot_night_normal_minutes", 0) or 0),
                 "ot_night_restday_minutes": int(getattr(ln, "ot_night_restday_minutes", 0) or 0),
