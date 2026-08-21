@@ -160,12 +160,13 @@ function legacyBonusRows(l: PayrollLine): [string, number][] {
 
 /** Từng khoản THƯỞNG của kỳ này (cột "Thưởng" trên bảng + tooltip).
  *
- * ⚠️ CHỈ khoản `source='line'`. Khoản từ hồ sơ đã nằm trong `allowance` → hiện ở cột "Phụ cấp";
- * gộp cả hai vào đây là bảng đếm đôi tiền của cùng một khoản. */
+ * ⚠️ KHÔNG lấy khoản `source='employee'`: nó đã nằm trong `allowance` → hiện ở cột "Phụ cấp";
+ * gộp cả hai vào đây là bảng đếm đôi tiền của cùng một khoản. Còn `auto` (hoa hồng KD) thì PHẢI
+ * có: nó nằm ngoài `allowance`, cộng thẳng vào `gross`. Giữ ĐỒNG BỘ với `_bonus_total()` ở BE. */
 function bonusRows(l: PayrollLine): [string, number][] {
   return [
     ...(l.components ?? [])
-      .filter((c) => c.kind !== "tru" && c.source === "line")
+      .filter((c) => c.kind !== "tru" && (c.source === "line" || c.source === "auto"))
       .map(
         (c) =>
           [c.note ? `${c.name} (${c.note})` : c.name, c.amount] as [
@@ -1571,6 +1572,9 @@ function LineEditModal({
             ) : (
               lcRows.map((r) => {
                 const fromEmp = r.source === "employee";
+                // HỆ TỰ TÍNH (hoa hồng KD): CHỈ ĐỌC. Backend chặn sửa/gỡ, nên để ô nhập ở đây là
+                // mời người ta bấm vào một cái báo lỗi; mà có sửa được thì "Tính lại" cũng ghi đè.
+                const tuDong = r.source === "auto";
                 // Dòng chép từ hồ sơ nhưng HCNS đã sửa số CHO RIÊNG KỲ NÀY (12/08/2026).
                 // "Tính lại" chừa nó ra, và hồ sơ nhân viên không đổi.
                 const daDe = Boolean(r.da_de_tay);
@@ -1596,6 +1600,16 @@ function LineEditModal({
                           {daDe ? "Đã sửa cho kỳ này" : "Từ hồ sơ"}
                         </span>
                       )}
+                      {tuDong && (
+                        <span className="ns-badge ns-badge--muted" style={{ marginLeft: 6 }}>
+                          Hệ tự tính
+                        </span>
+                      )}
+                      {tuDong && (
+                        <span className="lg-lc__src">
+                          theo hoá đơn bán trong kỳ — sửa % ở đơn hàng, không sửa tại đây
+                        </span>
+                      )}
                       {fromEmp && (
                         <span className="lg-lc__src">
                           {daDe
@@ -1615,7 +1629,7 @@ function LineEditModal({
                       {/* Dòng "Từ hồ sơ" NAY SỬA ĐƯỢC (chủ chốt 12/08/2026): "tháng này nó đi
                           nhiều hơn thì sửa thế nào". Sửa ở hồ sơ là đổi cho MỌI tháng sau và phải
                           nhớ sửa ngược — quên một lần là trả sai mãi. */}
-                      {readOnly ? (
+                      {readOnly || tuDong ? (
                         <span className="lg-lc__ro">{money(r.amount)}</span>
                       ) : (
                         <input
@@ -1635,7 +1649,7 @@ function LineEditModal({
                       )}
                     </div>
                     <div className="lg-lc__note">
-                      {fromEmp || readOnly ? (
+                      {fromEmp || readOnly || tuDong ? (
                         <span className="lg-lc__ro">{r.note || "—"}</span>
                       ) : (
                         <input
@@ -1694,7 +1708,7 @@ function LineEditModal({
                           )}
                         </>
                       )}
-                      {!fromEmp && !readOnly && (
+                      {!fromEmp && !readOnly && !tuDong && (
                         <>
                           {dirty && (
                             <button

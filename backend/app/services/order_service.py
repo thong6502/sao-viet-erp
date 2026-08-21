@@ -109,6 +109,27 @@ def _unlink_attachment(url: str) -> None:
         get_storage().delete(key)
 
 
+def _pct_hoa_hong_cua_sale(db, sale_user_id) -> float:
+    """% hoa hồng ĐANG hiệu lực của người sales, để chụp vào đơn lúc chốt.
+
+    Đọc `employee_salaries` (bảng versioned) qua `employees.user_id` — đơn ghi USER, mức lương thì
+    treo ở EMPLOYEE. Không tìm được người / chưa khai mức nào ⇒ 0, tức đơn không có hoa hồng.
+    """
+    if not sale_user_id:
+        return 0.0
+    from ..models.employee import Employee
+    from ..models.payroll import EmployeeSalary
+
+    emp = db.query(Employee).filter(Employee.user_id == int(sale_user_id)).first()
+    if emp is None:
+        return 0.0
+    ms = (db.query(EmployeeSalary)
+            .filter(EmployeeSalary.employee_id == emp.id)
+            .order_by(EmployeeSalary.effective_from.desc(), EmployeeSalary.id.desc())
+            .first())
+    return float(getattr(ms, "commission_pct", 0) or 0)
+
+
 class OrderService:
     def __init__(
         self,
@@ -644,6 +665,11 @@ class OrderService:
             quote = self.quotations.get_by_id(order.quotation_id)
             if quote is not None and quote.status != "converted_to_order":
                 quote.status = "converted_to_order"
+        # CHỤP ẢNH % hoa hồng của người sales vào đơn (mg 0227 · §4.6). Chụp lúc CHỐT chứ không
+        # đọc-sống: đổi % cho người ta từ tháng sau KHÔNG được làm đổi hoa hồng của đơn đã chốt
+        # tháng trước. Chỉ chụp khi đơn còn để 0 — ai đã sửa tay % riêng cho đơn thì giữ nguyên.
+        if not float(order.commission_pct or 0):
+            order.commission_pct = _pct_hoa_hong_cua_sale(self.db, order.sale_user_id)
         self.db.commit()
         self.audit.create(actor_user_id=actor.id, action="confirm_order",
             target=f"order:{order.id}", detail=f"Chốt đơn {order.order_no}")

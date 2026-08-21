@@ -777,9 +777,14 @@ def _bonus_total(l: LineOut) -> float:
     """Cột "Thưởng" của bảng/file xuất = khoản PHÁT SINH kỳ này + 6 cột thưởng CŨ.
 
     ⚠️ KHÔNG tính khoản `source='employee'`: nó đã nằm trong `allowance` (cột "Phụ cấp") — cộng cả
-    hai là file xuất ra đếm đôi tiền của cùng một khoản. Giữ ĐỒNG BỘ với `bonusRows()` ở FE."""
+    hai là file xuất ra đếm đôi tiền của cùng một khoản. Giữ ĐỒNG BỘ với `bonusRows()` ở FE.
+
+    `auto` (hoa hồng KD) PHẢI có mặt: nó nằm NGOÀI `allowance`, cộng thẳng vào `gross`. Bỏ sót là
+    file xuất có tiền trong cột "Tổng" mà không cột nào giải thích được — kế toán dò lệch mãi
+    không ra."""
     return (
-        sum(c.amount for c in l.components if c.kind != "tru" and c.source == "line")
+        sum(c.amount for c in l.components
+            if c.kind != "tru" and c.source in ("line", "auto"))
         + float(l.other_bonus) + float(l.thuong_5s) + float(l.thuong_doanh_so)
         + float(l.thuong_thanh_tich) + float(l.phep_nam) + float(l.tra_dong_phuc)
     )

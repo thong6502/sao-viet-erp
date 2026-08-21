@@ -4894,7 +4894,9 @@ export interface ComponentValueInput {
 }
 
 /** Tầng 3 — khoản trên MỘT dòng bảng lương. `source`: `employee` = chép từ hồ sơ (sửa ở
- *  Lương → Lương nhân viên) · `line` = thêm tay, CHỈ có ở kỳ này, không lặp sang tháng sau. */
+ *  Lương → Lương nhân viên) · `line` = thêm tay, CHỈ có ở kỳ này, không lặp sang tháng sau ·
+ *  `auto` = HỆ TỰ TÍNH (hoa hồng KD, theo hoá đơn bán trong kỳ) — backend CHẶN sửa/gỡ, giao diện
+ *  phải để ở dạng chỉ đọc, và số bị ghi lại mỗi lần "Tính lại". */
 export interface LineComponent {
   id: number;
   component_id: number;
@@ -4904,7 +4906,7 @@ export interface LineComponent {
   is_taxable: boolean;
   amount: number;
   note: string | null;
-  source: "employee" | "line";
+  source: "employee" | "line" | "auto";
   /** HCNS đã sửa tay số tiền CHO RIÊNG KỲ NÀY. Hồ sơ nhân viên KHÔNG đổi — tháng sau tự về mức
    *  cũ. Dòng đã đè được miễn khỏi lượt ghi đè của "Tính lại". */
   da_de_tay?: boolean;

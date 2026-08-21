@@ -9972,3 +9972,55 @@ def _migrate_go_cho_lich_may(db: Session) -> None:
 
 
 MIGRATIONS.append(("0226_go_cho_lich_may", _migrate_go_cho_lich_may))
+
+
+def _migrate_hoa_hong_kinh_doanh(db) -> None:
+    """Hoa hồng KD (docs/redesign-luong-kinh-doanh.md §4.6): `orders.commission_pct` + khoản danh mục.
+
+    Ô `%` của NHÂN VIÊN đã có từ mg 0128 (`employee_salaries.commission_pct`) nhưng engine lương
+    KHÔNG đọc — khai bao nhiêu cũng không ra một đồng. Migration này lắp hai mắt xích còn thiếu:
+
+      1. `orders.commission_pct` — % CHỤP vào từng đơn lúc chốt (đổi % người ta từ tháng sau
+         không được sửa ngược hoa hồng đơn cũ);
+      2. khoản danh mục `HOA_HONG_KD` — chỗ tiền hiện lên phiếu lương. Đi qua danh mục chứ không
+         thêm cột `payroll_lines.hoa_hong`: cột kiểu đó (`thuong_doanh_so`) đã bị chặn ghi mới từ
+         28/07/2026 vì cờ "Chịu thuế" phải là quy tắc khai được, không phải hằng số trong engine.
+
+    `is_taxable=true` (hoa hồng là thu nhập chịu thuế TNCN) · `in_insurance_base=false` (không vào
+    gốc đóng BHXH).
+    """
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+
+    if "orders" in ten_bang and "commission_pct" not in _existing_columns(insp, "orders"):
+        db.execute(text(
+            "ALTER TABLE orders ADD COLUMN commission_pct NUMERIC(6,4) NOT NULL DEFAULT 0"
+        ))
+        db.commit()
+
+    if "payroll_components" not in ten_bang:
+        return
+    cot = _existing_columns(insp, "payroll_components")
+    # Liệt kê cột động: bảng này đã thêm cờ vài lần, hard-code là vỡ ở lần thêm cờ tiếp theo.
+    gia_tri = {
+        "code": "hoa_hong_kd", "name": "Hoa hồng kinh doanh", "kind": "thu",
+        "is_taxable": True, "in_insurance_base": False, "is_active": True, "sort_order": 50,
+        "note": "Hệ tự tính theo hoá đơn bán trong kỳ — không gõ tay.",
+    }
+    dung = {k: v for k, v in gia_tri.items() if k in cot}
+    ten_cot = ", ".join(dung)
+    tham_so = ", ".join(f":{k}" for k in dung)
+    # `created_at` NOT NULL mà KHÔNG có server default ⇒ phải tự điền. Đã cắn đúng bẫy này ở
+    # mg 0199 với `modules.created_at`.
+    if "created_at" in cot:
+        ten_cot += ", created_at"
+        tham_so += ", CURRENT_TIMESTAMP"
+    db.execute(
+        text(f"INSERT INTO payroll_components ({ten_cot}) SELECT {tham_so} "
+             "WHERE NOT EXISTS (SELECT 1 FROM payroll_components WHERE code = :code)"),
+        dung,
+    )
+    db.commit()
+
+
+MIGRATIONS.append(("0227_hoa_hong_kinh_doanh", _migrate_hoa_hong_kinh_doanh))
