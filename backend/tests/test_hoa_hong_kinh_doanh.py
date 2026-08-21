@@ -500,3 +500,26 @@ def test_pct_lay_dung_muc_DA_SETUP_o_ho_so_luong(client):
         assert _pct_hoa_hong_cua_sale(db, u.id) == 0.0
     finally:
         db.close()
+
+
+def test_chup_pct_KHONG_duoc_lay_muc_CUA_TUONG_LAI(client):
+    """⭐ Chốt đơn HÔM NAY phải ăn mức ĐANG hiệu lực hôm nay, không phải mức tháng sau.
+
+    Nhân sự khai trước "từ 01/12 lên 20%". Đơn chốt hôm nay mà chụp nhầm 20% là công ty trả
+    theo lời hứa CHƯA tới hạn — mỗi 100tr doanh thu chi dư 15tr.
+
+    Cả engine lương tra mức bằng `effective_from <= ngày` (`latest_salaries_map`); hàm chụp này
+    phải theo đúng nếp đó.
+    """
+    from app.services.order_service import _pct_hoa_hong_cua_sale
+
+    emp, uid = _sales("muc tuong lai", pct=0.05)
+    db = SessionLocal()
+    try:
+        db.add(EmployeeSalary(employee_id=emp, effective_from=date(2099, 12, 1),
+                              base_amount=10_000_000, commission_pct=0.20))
+        db.commit()
+        assert _pct_hoa_hong_cua_sale(db, uid) == 0.05, (
+            "chụp nhầm mức của tương lai — đơn chốt hôm nay ăn % chưa tới hạn")
+    finally:
+        db.close()
