@@ -5680,28 +5680,37 @@ def _migrate_cong_doan_nhom_may_cho_phep(db: Session) -> None:
     """Cột `nhom_may_cho_phep` (JSON list tên nhóm máy) cho `cong_doan` — chặn gán máy SAI LOẠI ở
     bước (vd Ghi kẽm CTP không cho gán máy Bế). NULL = chưa khai = không ràng buộc.
 
-    ADD COLUMN kiểu `JSON` chạy trên cả Postgres (json) lẫn SQLite (TEXT affinity). Backfill qua
-    ORM để SQLAlchemy tự serialize đúng dialect (tránh cast text→json thủ công); chỉ đụng hàng NULL
-    nên idempotent (DB create_all mới đã có cột + seed set sẵn → loop không tìm thấy hàng nào)."""
-    from .models.cong_doan import CongDoan
+    ADD COLUMN kiểu `JSON` chạy trên cả Postgres (json) lẫn SQLite (TEXT affinity).
 
+    Backfill bằng raw SQL UPDATE nêu ĐÍCH DANH cột — TUYỆT ĐỐI không `db.query(CongDoan)`. Một ORM
+    full-select kéo THEO MỌI cột model hiện tại, kể cả cột do migration SAU thêm (vd
+    `he_so_ngoai_dong` ở 0196); trên DB prod cũ chưa có cột đó, select 500 `UndefinedColumn` ngay
+    trong bước 0168 này (deploy đỏ 2026-08-21). UPDATE tường minh chỉ đụng `ten` + `nhom_may_cho_phep`
+    nên miễn nhiễm cột-tương-lai; `json.dumps` tự serialize, Postgres ép chuỗi→json trong ngữ cảnh
+    gán (không cần cast tay), SQLite lưu text. Chạy NGOÀI nhánh ADD + lọc `IS NULL` nên idempotent kể
+    cả khi lượt trước đã ADD cột rồi chết giữa chừng (cột có sẵn, hàng còn NULL)."""
     insp = inspect(db.get_bind())
     if "cong_doan" not in insp.get_table_names():
         return
     if "nhom_may_cho_phep" not in _existing_columns(insp, "cong_doan"):
         db.execute(text("ALTER TABLE cong_doan ADD COLUMN nhom_may_cho_phep JSON"))
         db.commit()
-        _bf = {
-            "Ghi kẽm CTP": ["Chế bản"],
-            "In offset": ["Máy in", "In ngoài"],
-            "Cán màng bóng": ["Cán màng / UV"],
-            "Bồi sóng": ["Bồi"],
-            "Ép kim": ["Bế"],
-            "Bế nổi": ["Bế"],
-        }
-        for cd in db.query(CongDoan).filter(CongDoan.nhom_may_cho_phep.is_(None)).all():
-            if cd.ten in _bf:
-                cd.nhom_may_cho_phep = _bf[cd.ten]
+    _bf = {
+        "Ghi kẽm CTP": ["Chế bản"],
+        "In offset": ["Máy in", "In ngoài"],
+        "Cán màng bóng": ["Cán màng / UV"],
+        "Bồi sóng": ["Bồi"],
+        "Ép kim": ["Bế"],
+        "Bế nổi": ["Bế"],
+    }
+    for ten, nhoms in _bf.items():
+        db.execute(
+            text(
+                "UPDATE cong_doan SET nhom_may_cho_phep = :val "
+                "WHERE ten = :ten AND nhom_may_cho_phep IS NULL"
+            ),
+            {"val": json.dumps(nhoms, ensure_ascii=False), "ten": ten},
+        )
     db.commit()
 
 
