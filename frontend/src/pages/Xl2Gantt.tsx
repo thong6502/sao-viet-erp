@@ -8,14 +8,14 @@
 import {
   Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties,
 } from "react";
-import { Icon, type IconName } from "../components/Icons";
+import type { IconName } from "../components/Icons";
 import type {
   Xl2Ca, Xl2CaNhan, Xl2Dong, Xl2KhoaMay, Xl2Muc, Xl2NgayLe, Xl2QRow, Xl2TaiMay, Xl2TaiTo,
 } from "../api/client";
 import { ngayGio, thoiLuong } from "./keHoachSxShared";
 import {
-  BAR_H, CLUSTER_HEAD_H, LANE_H, LABEL_W, XL2_MUC_META, buildLinearScale, demViecLanes, dongEntityKey, dongNhanParts,
-  dongSerial, nguonIcon, ngayToWall, wallToNaive, nhomCongDoan, type Xl2Zoom,
+  BAR_H, CLUSTER_HEAD_H, LANE_H, LABEL_W, buildLinearScale, demViecLanes, dongEntityKey, dongNhanParts,
+  dongSerial, ngayToWall, wallToNaive, nhomCongDoan, type Xl2Zoom,
 } from "./xl2Shared";
 import { wallMinutes, fromWall, nowWall } from "./gantt-time";
 
@@ -109,14 +109,6 @@ function hh(t: number): string {
 function hhm(m: number): string {
   const t = ((m % 1440) + 1440) % 1440;
   return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
-}
-
-/** Bậc nhiệt tải máy theo tỉ lệ chiếm ngày: <50% · <75% · <90% · ≥90%. */
-function heatBucket(pct: number): 1 | 2 | 3 | 4 {
-  if (pct < 0.5) return 1;
-  if (pct < 0.75) return 2;
-  if (pct < 0.9) return 3;
-  return 4;
 }
 
 export function Xl2Gantt({
@@ -508,33 +500,7 @@ export function Xl2Gantt({
     return curves;
   }, [hoverEntityKey, selectedEntityKey, clusters, laneYMap, scale]);
 
-  // Thống kê nhanh KPI toàn xưởng
-  const stats = useMemo(() => {
-    const mayCluster = clusters.find((c) => c.key === "may");
-    const totalMays = mayCluster?.lanes.length || 0;
-    const activeMays = mayCluster?.lanes.filter((l) => l.dong.some((d) => !!d.start_at)).length || 0;
-    let totalJobs = 0;
-    let totalMinutes = 0;
-    for (const c of clusters) {
-      for (const l of c.lanes) {
-        for (const d of l.dong) {
-          if (d.start_at) {
-            totalJobs += 1;
-            totalMinutes += d.boc_tach?.chiem_may_phut || 60;
-          }
-        }
-      }
-    }
-    const capPct = totalMays > 0 ? Math.round((activeMays / totalMays) * 100) : 0;
-    return { totalMays, activeMays, totalJobs, totalMinutes, capPct };
-  }, [clusters]);
-
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const scrollToNow = useCallback(() => {
-    if (nowX != null && scrollRef.current) {
-      scrollRef.current.scrollTo({ left: Math.max(0, LABEL_W + nowX - 300), behavior: "smooth" });
-    }
-  }, [nowX]);
 
   const fullW = LABEL_W + scale.width;
   const laneStyle: CSSProperties = { "--xl2-label-w": `${LABEL_W}px`, "--xl2-bar-h": `${BAR_H}px` } as CSSProperties;
