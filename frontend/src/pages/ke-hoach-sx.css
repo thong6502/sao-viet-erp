@@ -3138,6 +3138,17 @@ td.khsx-num > .khsx-unit {
   font-size: 10.5px;
   color: var(--ash-2, #94a3b8);
 }
+/* Ô định biên KHOÁ (bước máy: kíp chuẩn là thông số của danh mục Máy). Span chứ không phải
+   input nên phải tự bật display để `text-align: right` của lớp gốc còn tác dụng. */
+.khsx-labor-num-field--ro {
+  display: block;
+  color: var(--ash, #64748b);
+}
+/* Số người bố trí rơi ra ngoài biên tối thiểu–tối đa của bước. */
+.khsx-labor-warn {
+  color: var(--danger, #b91c1c);
+  font-weight: 700;
+}
 
 /* Khoán Card */
 .khsx-khoan-body {
@@ -6901,4 +6912,11 @@ td.khsx-num > .khsx-unit {
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-align: center;
+}
+
+/* Dòng "Kế hoạch N người" trên bảng routing khi số bố trí rơi ra ngoài định biên của bước — cùng
+   sắc đỏ với `.khsx-labor-warn` trong drawer để hai chỗ nói cùng một tiếng. */
+.khsx-rt__sub2--canhbao {
+  color: var(--danger, #b91c1c);
+  font-weight: 600;
 }

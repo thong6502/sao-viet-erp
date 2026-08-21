@@ -221,6 +221,9 @@ export function LsxRoutingTable({
         loai_buoc: r.loai_buoc,
         department_id: r.department_id,
         may_id: r.may_id,
+        // Số lượng chạy theo `thu_tu` (thứ tự bảng), KHÔNG theo cạnh phụ thuộc — nên không gửi
+        // `phu_thuoc_step_keys` (gửi vào chỉ tổ chạm guard tiền-nhiệm của replace_routing lúc vẽ
+        // dở). Bước chèn giữa ra đúng số là nhờ nó nằm đúng vị trí `thu_tu` (chèn đúng chỗ khi thêm).
       }));
       try {
         const buocs = await onXemTruocRouting(payload);
@@ -358,7 +361,8 @@ export function LsxRoutingTable({
     const seq = ++doiMaySeq.current;
     const may = mayRefs?.find((m) => m.id === mayId) ?? null;
     const kip = Math.max(Math.trunc(Number(may?.soNguoiVanHanh ?? 1)) || 1, 1);
-    const laMay = rows.find((x) => x.key === key)?.loai_buoc === "may";
+    const rowNay = rows.find((x) => x.key === key);
+    const laMay = rowNay?.loai_buoc === "may";
     patch(key, {
       may_id: mayId,
       // Kíp chỉ áp cho bước MÁY. Bước thuê ngoài cũng chọn được máy (máy của nhà thầu) nhưng số
@@ -372,7 +376,10 @@ export function LsxRoutingTable({
     setLive(
       may ? `Đã chọn ${may.ten}${laMay ? `, kíp ${kip} người` : ""}` : "Đã bỏ máy khỏi bước",
     );
-    if (key.startsWith("r")) return;   // bước chưa lưu: server chưa biết step_key này
+    // Bước CHƯA lưu (id rỗng) → server chưa có step_key này để tra (xem_truoc_may báo 404).
+    // Trước dùng tiền tố "r" của key làm dấu hiệu "chưa lưu", nhưng bước mới nay mang UUID thật
+    // (khớp cách server lưu step_key) nên phải đọc `id` — nguồn sự thật của "đã lưu hay chưa".
+    if (rowNay?.id == null) return;
     try {
       const xt = await onXemTruocMay(key, mayId);
       if (seq !== doiMaySeq.current) return;
@@ -418,13 +425,25 @@ export function LsxRoutingTable({
     setLive("Đã hoàn tác");
   }
 
-  function them() {
-    setRows((prev) => [...prev, emptyRow()]);
-    setLive("Đã thêm công đoạn mới ở cuối");
+  /** Thêm 1 bước. `afterKey` = chèn NGAY SAU bước đó (dùng khi sơ đồ DAG có node đang chọn) để
+   *  `thu_tu` đúng ngay — số lượng + số hiệu bám `thu_tu` nên chèn đúng chỗ là chúng tự đúng, khỏi
+   *  "thêm cuối rồi kéo lên". Không truyền `afterKey` ⇒ thêm ở cuối như cũ. */
+  function them(afterKey?: string) {
+    const at = afterKey ? rows.findIndex((r) => r.key === afterKey) : -1;
+    setRows((prev) => {
+      if (at < 0) return [...prev, emptyRow()];
+      const next = [...prev];
+      next.splice(at + 1, 0, emptyRow());
+      return next;
+    });
+    const tenSau = at >= 0 ? rows[at]?.ten || `bước ${at + 1}` : null;
+    setLive(tenSau ? `Đã chèn công đoạn mới sau ${tenSau}` : "Đã thêm công đoạn mới ở cuối");
     setTimeout(() => {
-      const last = tbodyRef.current?.querySelector<HTMLElement>("tr:last-of-type .khsx-rt__open");
-      last?.focus();
-      last?.scrollIntoView({ block: "nearest" });
+      const rowsEl = tbodyRef.current?.querySelectorAll<HTMLElement>("tr");
+      const tr = at >= 0 ? rowsEl?.[at + 1] : rowsEl?.[(rowsEl?.length ?? 1) - 1];
+      const btn = tr?.querySelector<HTMLElement>(".khsx-rt__open");
+      btn?.focus();
+      btn?.scrollIntoView({ block: "nearest" });
     }, 0);
   }
 
@@ -493,6 +512,16 @@ export function LsxRoutingTable({
   const conLai = leadTime?.ngay_con_lai ?? null;
   const treHan = conLai != null && soNgay > conLai;
   const soNgoai = rows.filter((r) => r.loai_buoc === "thue_ngoai").length;
+  // Bước GIAO KHÁCH = bước CUỐI NẰM TRÊN DÒNG GIẤY (đơn vị thành phẩm), KHÔNG phải dòng cuối bảng.
+  // Bước bản-kèm/CTP chèn vào giữa (tren_dong_giay=false) có thể xếp cuối theo thứ tự nhưng không
+  // giao khách — khớp đúng backend `_canh_bao_don_vi` lấy `buoc[-1]` trong nhóm trên-dòng-giấy.
+  const idxBuocGiao = useMemo(() => {
+    let idx = -1;
+    rows.forEach((r, i) => {
+      if (r.tren_dong_giay && r.don_vi_ra) idx = i;
+    });
+    return idx;
+  }, [rows]);
   // Chỉ hỏi lý do khi routing đã khác CẤU TRÚC ban đầu (thêm/bớt/đổi thứ tự/đổi loại bước) —
   // sửa số lượng hay thời gian là việc thường ngày, hỏi lý do mỗi lần là phiền vô ích.
   const doiCauTruc = useMemo(() => {
@@ -527,7 +556,7 @@ export function LsxRoutingTable({
 
         {canUpdate && (
           <div className="khsx-rt__baracts">
-            <Button variant="secondary" onClick={them}>
+            <Button variant="secondary" onClick={() => them()}>
               <Icon name="plus" size={14} /> Thêm công đoạn
             </Button>
             <Button
@@ -607,7 +636,7 @@ export function LsxRoutingTable({
                       lệnh mới sẵn sàng lập kế hoạch.
                     </p>
                     {canUpdate && (
-                      <Button variant="secondary" onClick={them}>
+                      <Button variant="secondary" onClick={() => them()}>
                         <Icon name="plus" size={14} /> Thêm công đoạn
                       </Button>
                     )}
@@ -655,8 +684,24 @@ export function LsxRoutingTable({
                   </td>
                   <td>
                     <span className={lamO ? "" : "khsx-muted"}>{lamO || "tổ mặc định"}</span>
-                    {r.so_nhan_cong && n(r.so_nhan_cong) > 1 && (
-                      <span className="khsx-rt__sub2">Kế hoạch {r.so_nhan_cong} người</span>
+                    {/* HIỆN LUÔN, kể cả 1 người (21/08/2026). Điều kiện `> 1` cũ giấu mất số của
+                        bước một người: nhìn bảng không biết bước đã khai người hay chưa, phải mở
+                        từng drawer — trong khi đây đúng là con số bàn xếp lịch dùng cân quân số tổ.
+                        Ngoài biên tối thiểu/tối đa thì tô cảnh báo ngay trên dòng. */}
+                    {!ngoai && (
+                      <span
+                        className={`khsx-rt__sub2${
+                          (r.so_nhan_cong_toi_thieu != null && n(r.so_nhan_cong) < r.so_nhan_cong_toi_thieu) ||
+                          (r.so_nhan_cong_toi_da != null && n(r.so_nhan_cong) > r.so_nhan_cong_toi_da)
+                            ? " khsx-rt__sub2--canhbao"
+                            : ""
+                        }`}
+                        title={`Định biên của bước: tối thiểu ${r.so_nhan_cong_toi_thieu ?? "–"} · tiêu chuẩn ${
+                          r.so_nhan_cong_tieu_chuan ?? "–"
+                        } · tối đa ${r.so_nhan_cong_toi_da ?? "–"} người`}
+                      >
+                        Kế hoạch {Math.max(1, n(r.so_nhan_cong) || 1)} người
+                      </span>
                     )}
                     {/* Hàng gửi ra ngoài đang ở đâu — bấm là nhảy thẳng vào sổ giao–nhận. Badge
                         chỉ để NHÌN và NHẢY: một cửa ghi duy nhất, nằm trong drawer. */}
@@ -883,6 +928,7 @@ export function LsxRoutingTable({
           row={rows[moBuoc]}
           index={moBuoc}
           tong={rows.length}
+          laBuocGiao={moBuoc === idxBuocGiao}
           soLuongDat={soLuongDat}
           congDoanRefs={congDoanRefs}
           toRefs={toRefs}

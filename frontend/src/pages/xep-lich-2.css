@@ -39,73 +39,85 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------------- Thanh trên (Command Header) ------------------------------ */
+/* ---------------- Tầng 1: Command & Timeline Header (38px Compact) ------------ */
 .xl2-top {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
-  flex-wrap: wrap;
-  padding: 8px 18px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 16px;
+  height: 44px;
   border-bottom: 1px solid var(--rule-soft);
   background: var(--canvas);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  flex: none;
 }
-.xl2-top__title {
+.xl2-top__left {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 16px;
+  gap: 14px;
+}
+.xl2-top__title {
+  font-size: 14px;
   font-weight: var(--fw-bold);
   letter-spacing: -0.01em;
   color: var(--ink);
-}
-.xl2-top__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--r-2);
-  background: var(--rust-soft);
-  color: var(--rust-deep);
-}
-.xl2-top__spacer { flex: 1 1 auto; min-width: var(--sp-4); }
-.xl2-top__grp {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  white-space: nowrap;
 }
 .xl2-top__win {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
+  gap: 2px;
+  padding: 2px 6px;
   background: var(--paper);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-pill);
-  font-size: var(--fs-xs);
-  color: var(--ash);
-  cursor: pointer;
-  transition: all var(--duration-fast) ease;
 }
-.xl2-top__win:hover {
-  border-color: var(--rust);
-  background: var(--rust-soft);
-}
-.xl2-top__win b {
+.xl2-win-label {
+  font-size: 11.5px;
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
-  font-weight: var(--fw-bold);
+  font-weight: var(--fw-semibold);
   color: var(--ink);
+  padding: 0 6px;
 }
-.xl2-top__divider {
-  width: 1px;
-  height: 20px;
-  background: var(--rule-soft);
-  margin: 0 2px;
+.xl2-top__center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.xl2-top__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-/* Seg (zoom / cửa sổ) — Segmented Control chuẩn Charcoal & Slate */
+/* KPI Summary Live Pill */
+.xl2-kpisummary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  font-size: 11px;
+  color: var(--ash);
+  white-space: nowrap;
+}
+.xl2-kpisummary__item b {
+  color: var(--ink);
+}
+.xl2-kpisummary__sep {
+  color: var(--rule);
+}
+.xl2-kpisummary__item--rush {
+  color: var(--signal);
+}
+.xl2-kpisummary__item--rush b {
+  color: var(--signal);
+}
+
+/* Seg (zoom / nhóm) — Segmented Control */
 .xl2-seg {
   display: inline-flex;
   padding: 2px;
@@ -117,9 +129,9 @@
   appearance: none;
   border: 0;
   background: transparent;
-  padding: 4px 12px;
+  padding: 3px 10px;
   border-radius: var(--r-pill);
-  font-size: var(--fs-xs);
+  font-size: 11.5px;
   font-weight: var(--fw-medium);
   color: var(--ash);
   cursor: pointer;
@@ -130,7 +142,7 @@
   background: var(--charcoal);
   color: var(--on-charcoal);
   font-weight: var(--fw-bold);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
 }
 .xl2-seg__btn:focus-visible {
   outline: 2px solid var(--rust);
@@ -142,11 +154,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-pill);
-  background: var(--canvas);
+  background: var(--paper);
   color: var(--ash);
   cursor: pointer;
   transition: all var(--duration-fast) ease;
@@ -155,54 +167,62 @@
 .xl2-iconbtn:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
 .xl2-iconbtn:disabled { opacity: 0.4; cursor: not-allowed; }
 .xl2-iconbtn.is-active { background: var(--charcoal); color: var(--on-charcoal); border-color: var(--charcoal); }
-/* chevron lật ngược cho nút "bàn trước" */
+
+.xl2-iconbtn--subtle {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--r-pill);
+}
+.xl2-iconbtn--subtle:hover {
+  background: var(--rule-hair);
+  color: var(--ink);
+}
+
 .xl2-rot180 { transform: rotate(180deg); }
-/* nút icon RỘNG (có nhãn) — dùng cho "Vừa khít" */
+
 .xl2-iconbtn--wide {
   width: auto;
-  gap: 6px;
-  padding: 0 12px;
-  height: 32px;
+  gap: 5px;
+  padding: 0 10px;
+  height: 28px;
   border-radius: var(--r-pill);
-  font-size: var(--fs-xs);
+  font-size: 11.5px;
   font-weight: var(--fw-medium);
   color: var(--ash);
 }
-.xl2-iconbtn--wide svg { color: var(--ash-2); }
 .xl2-iconbtn--wide:hover:not(:disabled) { color: var(--rust-deep); background: var(--rust-soft); border-color: var(--rust-soft); }
-.xl2-iconbtn--wide:hover:not(:disabled) svg { color: var(--rust-deep); }
 
-/* ---------------- Thanh phụ: tìm + lọc hàng chờ + tổng quan bàn ------------- */
+/* ---------------- Tầng 2: Search & Quick Filter Chips ---------------------- */
 .xl2-subbar {
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
-  flex-wrap: wrap;
-  padding: 6px 18px;
+  gap: 10px;
+  padding: 5px 16px;
+  height: 38px;
   border-bottom: 1px solid var(--rule-soft);
   background: var(--paper);
 }
 .xl2-subbar__spacer { flex: 1 1 auto; min-width: var(--sp-2); }
 
-/* ô tìm trong hàng chờ */
+/* ô tìm kiếm */
 .xl2-search {
   position: relative;
   display: inline-flex;
   align-items: center;
-  flex: 0 1 260px;
-  min-width: 190px;
 }
-.xl2-search__ic { position: absolute; left: 11px; color: var(--ash-2); pointer-events: none; }
+.xl2-search__ic { position: absolute; left: 9px; color: var(--ash-2); pointer-events: none; }
 .xl2-search__in {
   width: 100%;
-  height: 30px;
-  padding: 0 30px 0 32px;
-  border: 1px solid var(--rule);
+  height: 26px;
+  padding: 0 24px 0 28px;
+  border: 1px solid var(--rule-soft);
   border-radius: var(--r-pill);
   background: var(--canvas);
   color: var(--ink);
-  font-size: var(--fs-xs);
+  font-size: 11.5px;
   transition: all var(--duration-fast) ease;
 }
 .xl2-search__in::placeholder { color: var(--ash-2); }
@@ -210,12 +230,12 @@
 .xl2-search__in:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; border-color: var(--rust); }
 .xl2-search__clear {
   position: absolute;
-  right: 6px;
+  right: 5px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border: 0;
   border-radius: var(--r-pill);
   background: transparent;
@@ -224,13 +244,14 @@
 }
 .xl2-search__clear:hover { color: var(--ink); background: var(--rule-hair); }
 
-/* chip lọc — dải chip Charcoal và Status Tones */
-.xl2-chips { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+/* chip lọc hàng chờ */
+.xl2-chips { display: inline-flex; align-items: center; gap: 4px; }
 .xl2-chip {
-  padding: 3px 10px;
-  font-size: var(--fs-xs);
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: var(--fw-medium);
   border-radius: var(--r-pill);
-  border: 1px solid var(--rule);
+  border: 1px solid var(--rule-soft);
   background: var(--canvas);
   color: var(--ash);
   cursor: pointer;
@@ -245,11 +266,75 @@
   font-weight: var(--fw-bold);
 }
 .xl2-chip .chip-count {
-  margin-left: 6px;
+  margin-left: 5px;
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-bold);
+  font-size: 10.5px;
+}
+.chip-count--alert {
+  color: var(--signal);
+}
+
+/* Nút Có vấn đề & Cluster Toggles */
+.xl2-filterbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule-soft);
+  background: var(--canvas);
   font-size: 11px;
+  color: var(--ash);
+  cursor: pointer;
+  transition: all var(--duration-fast) ease;
+}
+.xl2-filterbtn--vd.is-on {
+  background: var(--signal-soft);
+  border-color: var(--signal);
+  color: var(--signal);
+  font-weight: var(--fw-bold);
+}
+.xl2-filterbtn__n {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+}
+
+.xl2-cluster-toggles {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.xl2-cluster-toggles__label {
+  font-size: 11px;
+  color: var(--ash-2);
+  margin-right: 2px;
+}
+.xl2-cluster-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule-soft);
+  background: var(--canvas);
+  font-size: 11px;
+  color: var(--ink);
+  cursor: pointer;
+  transition: all var(--duration-fast) ease;
+}
+.xl2-cluster-toggle.is-off {
+  background: transparent;
+  color: var(--ash-2);
+  border-style: dashed;
+  opacity: 0.65;
+}
+.xl2-cluster-toggle__n {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  color: var(--ash);
 }
 
 /* ---------------- Dải bàn: flowrail + tổng quan ---------------------------- */
@@ -806,62 +891,6 @@
   min-height: 0;
   background: var(--paper);
 }
-.xl2-gflt {
-  flex: none;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 16px;
-  border-bottom: 1px solid var(--rule-soft);
-  background: var(--canvas);
-}
-.xl2-gflt__lb {
-  font-size: 11px;
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ash);
-  margin-right: 2px;
-}
-.xl2-gflt__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-pill);
-  background: var(--paper);
-  color: var(--ink);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-medium);
-  cursor: pointer;
-  transition: all var(--duration-fast) ease;
-}
-.xl2-gflt__chip:hover { border-color: var(--rust); background: var(--rust-soft); color: var(--rust-deep); }
-.xl2-gflt__chip svg { color: var(--ash-2); }
-.xl2-gflt__chip--off {
-  background: transparent;
-  color: var(--ash-2);
-  border-style: dashed;
-  opacity: 0.65;
-}
-.xl2-gflt__chip--off svg { color: var(--rule); }
-.xl2-gflt__n {
-  min-width: 16px;
-  padding: 0 5px;
-  border-radius: var(--r-pill);
-  background: var(--rule-hair);
-  color: var(--ash);
-  font-family: var(--ff-num);
-  font-variant-numeric: tabular-nums;
-  font-size: 10px;
-  font-weight: var(--fw-bold);
-  text-align: center;
-}
-.xl2-gflt__chip--off .xl2-gflt__n { background: transparent; }
-.xl2-gflt__chip--vd svg { color: var(--amber-deep); }
-.xl2-gflt__chip--vd .xl2-gflt__n { background: var(--amber-soft); color: var(--amber-deep); }
 .xl2-gantt {
   flex: 1 1 auto;
   min-height: 0;
@@ -876,108 +905,6 @@
   position: relative;
 }
 
-/* 1. Live Factory Capacity KPI Dashboard Bar - Ultra WOW Glassmorphism */
-.xl2-gantt-kpi {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 6px 16px;
-  background: color-mix(in srgb, var(--canvas) 85%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--rule-soft);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
-}
-.xl2-gantt-kpi__items {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.xl2-kpi-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11.5px;
-  color: var(--ash);
-}
-.xl2-kpi-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--moss);
-  box-shadow: 0 0 0 2px var(--moss-soft);
-}
-.xl2-kpi-dot--active {
-  background: #10b981;
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
-  animation: pulseGlow 2s infinite ease-in-out;
-}
-.xl2-kpi-lb {
-  font-size: 11px;
-  color: var(--ash);
-  font-weight: var(--fw-medium);
-}
-.xl2-kpi-val {
-  font-family: var(--ff-num);
-  font-variant-numeric: tabular-nums;
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-}
-.xl2-kpi-sub {
-  font-family: var(--ff-num);
-  color: var(--ash-2);
-  font-size: 11px;
-}
-.xl2-kpi-bar {
-  width: 48px;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--rule-soft);
-  overflow: hidden;
-  display: inline-block;
-}
-.xl2-kpi-bar__fill {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, #10b981 0%, #059669 100%);
-  border-radius: 3px;
-  transition: width 200ms ease;
-}
-.xl2-kpi-bar__fill.is-high {
-  background: linear-gradient(90deg, #f59e0b 0%, #ef4444 100%);
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
-}
-.xl2-gantt-kpi__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.xl2-kpi-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 11px;
-  border-radius: var(--r-pill);
-  border: 1px solid color-mix(in srgb, var(--rust) 30%, var(--rule-soft));
-  background: var(--paper);
-  color: var(--ink);
-  font-size: 11px;
-  font-weight: var(--fw-semibold);
-  cursor: pointer;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
-  transition: all var(--duration-fast) ease;
-}
-.xl2-kpi-btn:hover {
-  border-color: var(--rust);
-  color: var(--rust-deep);
-  background: var(--rust-soft);
-  box-shadow: 0 2px 6px rgba(197, 64, 10, 0.15);
-  transform: translateY(-1px);
-}
-
 /* SVG Dependency Flow Lines */
 .xl2-svg-deps {
   position: absolute;
@@ -990,29 +917,29 @@
 .xl2-dep-path-glow {
   fill: none;
   stroke: var(--rust-soft);
-  stroke-width: 6px;
-  opacity: 0.45;
+  stroke-width: 5px;
+  opacity: 0.35;
   stroke-linecap: round;
   filter: blur(2px);
 }
 .xl2-dep-path {
   fill: none;
   stroke: var(--rust);
-  stroke-width: 2px;
+  stroke-width: 1.75px;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-dasharray: 5 3;
   animation: depDash 1.2s linear infinite;
-  filter: drop-shadow(0 0 4px rgba(197, 64, 10, 0.4));
+  filter: drop-shadow(0 0 3px rgba(197, 64, 10, 0.35));
 }
 .xl2-dep-path--bad {
   stroke: var(--signal);
-  stroke-width: 2.5px;
+  stroke-width: 2px;
   stroke-dasharray: 6 3;
   filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.7));
 }
 .xl2-dep-particle {
-  filter: drop-shadow(0 0 4px var(--rust));
+  filter: drop-shadow(0 0 3px var(--rust));
 }
 .xl2-dep-conflict-dot {
   fill: var(--signal);
@@ -1039,10 +966,9 @@
   position: sticky;
   top: 0;
   z-index: 6;
-  height: 44px;
+  height: 40px;
   background: var(--canvas);
   border-bottom: 1px solid var(--rule-soft);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 .xl2-ruler__spacer {
   position: sticky;
@@ -1056,10 +982,10 @@
 .xl2-ruler__day {
   position: absolute;
   top: 0;
-  height: 22px;
+  height: 20px;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   padding-left: 8px;
   font-size: 11px;
   color: var(--ink);
@@ -1082,11 +1008,11 @@
   font-size: 11px;
 }
 .xl2-ruler__today-dot {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: var(--r-pill);
   background: #10b981;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+  box-shadow: 0 0 5px rgba(16, 185, 129, 0.6);
 }
 .xl2-ruler__day--today {
   background: color-mix(in srgb, var(--moss-soft) 40%, transparent);
@@ -1110,11 +1036,11 @@
 .xl2-ruler__tick {
   position: absolute;
   bottom: 0;
-  height: 22px;
+  height: 20px;
   display: flex;
   align-items: center;
   padding-left: 4px;
-  font-size: 10.5px;
+  font-size: 10px;
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   color: var(--ash-2);
@@ -1139,7 +1065,7 @@
 }
 .xl2-magnetic-badge {
   position: sticky;
-  top: 48px;
+  top: 44px;
   left: 6px;
   display: inline-flex;
   align-items: center;
@@ -1147,7 +1073,7 @@
   border-radius: var(--r-pill);
   background: var(--charcoal);
   color: var(--on-charcoal);
-  font-size: 11px;
+  font-size: 10.5px;
   font-family: var(--ff-num);
   font-weight: var(--fw-bold);
   box-shadow: var(--shadow-4);
@@ -1162,29 +1088,19 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 32px;
-  padding: 0 10px;
+  height: 28px;
+  padding: 0 12px;
   width: var(--xl2-label-w);
-  background: var(--paper);
+  background: var(--canvas);
   border-top: 1px solid var(--rule-soft);
   border-bottom: 1px solid var(--rule-soft);
   border-right: 1px solid var(--rule-soft);
 }
-.xl2-cluster__iconbox {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
-  background: var(--rule-hair);
-  color: var(--ash);
-}
 .xl2-cluster__title {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.06em;
   color: var(--ink);
 }
 .xl2-cluster__count {
@@ -1199,21 +1115,16 @@
 .xl2-cluster__headbg {
   position: absolute;
   left: 0;
-  height: 32px;
-  background: var(--paper);
+  height: 28px;
+  background: var(--canvas);
   border-top: 1px solid var(--rule-soft);
   border-bottom: 1px solid var(--rule-soft);
   z-index: 1;
 }
-.xl2-cluster--cho { margin-top: 8px; }
+.xl2-cluster--cho { margin-top: 6px; }
 .xl2-cluster--cho .xl2-cluster__head,
 .xl2-cluster--cho .xl2-cluster__headbg {
   background: var(--rule-hair);
-  border-top: 1px solid var(--rule-soft);
-}
-.xl2-cluster--cho .xl2-cluster__iconbox {
-  background: var(--rust-soft);
-  color: var(--rust-deep);
 }
 
 /* Lane */
@@ -1223,7 +1134,7 @@
   border-bottom: 1px solid var(--rule-hair);
   transition: background var(--duration-fast) ease;
 }
-.xl2-lane:hover { background: color-mix(in srgb, var(--paper) 50%, transparent); }
+.xl2-lane:hover { background: color-mix(in srgb, var(--paper) 40%, transparent); }
 .xl2-lane--dim .xl2-lane__label { opacity: 0.6; }
 .xl2-lane__label {
   position: sticky;
@@ -1233,24 +1144,11 @@
   height: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
   padding: 0 12px;
   background: var(--canvas);
   border-right: 1px solid var(--rule-soft);
   font-size: 12px;
   color: var(--ink);
-}
-.xl2-lane__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  color: var(--ash);
-  flex: none;
 }
 .xl2-lane__info {
   display: flex;
@@ -1284,50 +1182,37 @@
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-medium);
+  font-size: 10.5px;
 }
 
-/* Capacity Meter trên Lane */
-.xl2-lane__cap {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: none;
-  padding: 1px 6px;
-  border-radius: var(--r-pill);
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  font-size: 10px;
-}
+/* Capacity Progress Meter trên Cột Máy */
 .xl2-cap-bar {
-  width: 24px;
+  width: 32px;
   height: 4px;
   border-radius: 2px;
   background: var(--rule-soft);
   overflow: hidden;
+  display: inline-block;
+  vertical-align: middle;
 }
 .xl2-cap-bar__fill {
   display: block;
   height: 100%;
-  background: var(--moss);
+  background: #10b981;
   border-radius: 2px;
   transition: width 200ms ease;
 }
-.xl2-cap-bar__fill.is-high {
-  background: var(--signal);
+.xl2-cap-bar__fill.is-med {
+  background: #f59e0b;
 }
-.xl2-cap-num {
-  font-family: var(--ff-num);
-  font-variant-numeric: tabular-nums;
-  font-weight: var(--fw-bold);
-  font-size: 10px;
-  color: var(--ash);
+.xl2-cap-bar__fill.is-high {
+  background: #ef4444;
 }
 
-/* RUY-BĂNG CA — dính ngay dưới thước, cùng hệ toạ độ với lane (chừa cột nhãn `--xl2-label-w`).
-   Mỗi ca một thanh CÓ TÊN; ca gối nhau xếp xuống hàng dưới nên không màu nào đè màu nào. */
+/* RUY-BĂNG CA — Tích hợp ngay dưới thước */
 .xl2-carib {
   position: sticky;
-  top: 44px;
+  top: 40px;
   z-index: 5;
   background: var(--canvas);
   border-bottom: 1px solid var(--rule-soft);
@@ -1345,23 +1230,23 @@
   background: var(--canvas);
   border-right: 1px solid var(--rule-soft);
   color: var(--ash-2);
-  font-size: var(--fs-2xs);
+  font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .xl2-carib__ca {
   position: absolute;
-  height: 13px;
+  height: 14px;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   padding: 0 5px;
   border-radius: 3px;
   border: 1px solid var(--xl2-ca, var(--rule));
   background: var(--xl2-ca-bg, var(--rule-hair));
   color: var(--xl2-ca, var(--ink));
-  font-size: 9px;
+  font-size: 9.5px;
   line-height: 1;
   white-space: nowrap;
   overflow: hidden;
@@ -1371,7 +1256,7 @@
   color: var(--ash-2);
   font-variant-numeric: tabular-nums;
 }
-/* 5 ô màu ca — dùng lại họ màu sẵn có, không đẻ token mới. */
+/* 5 ô màu ca xưởng */
 .xl2-carib__ca--c0, .xl2-castart--c0 { --xl2-ca: var(--steel); --xl2-ca-bg: var(--steel-soft); }
 .xl2-carib__ca--c1, .xl2-castart--c1 { --xl2-ca: var(--amber-deep); --xl2-ca-bg: var(--amber-soft); }
 .xl2-carib__ca--c2, .xl2-castart--c2 { --xl2-ca: var(--moss); --xl2-ca-bg: var(--moss-soft); }
@@ -1386,10 +1271,7 @@
   z-index: 1;
 }
 
-/* Nền ca + lưới ngày.
-   KHÔNG tô mỗi ca thành một dải phủ kín lane nữa: ca xưởng gối nhau (hành chính 8–17 đè Ca 1 6–14,
-   Ca 2 14–22…) nên tô chồng là ra một mảng xám phủ 24h, nhìn không ra ca nào với ca nào. Trong lane
-   chỉ còn (a) khoảng KHÔNG ca nào phủ và (b) vạch MỐC bắt đầu ca; tên ca đọc ở ruy-băng dưới thước. */
+/* Nền ca + lưới ngày */
 .xl2-nonwork {
   position: absolute;
   top: 0;
@@ -1397,20 +1279,20 @@
   background: repeating-linear-gradient(
     135deg,
     var(--rule-hair),
-    var(--rule-hair) 5px,
-    var(--paper) 5px,
-    var(--paper) 10px
+    var(--rule-hair) 4px,
+    var(--paper) 4px,
+    var(--paper) 8px
   );
   z-index: 0;
   pointer-events: none;
 }
 .xl2-castart {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
+  top: 2px;
+  bottom: 2px;
   width: 0;
   border-left: 1px dashed var(--xl2-ca, var(--rule));
-  opacity: 0.55;
+  opacity: 0.45;
   z-index: 0;
   pointer-events: none;
 }
@@ -1428,7 +1310,7 @@
   top: 0;
   bottom: 0;
   background: var(--rust-soft);
-  opacity: 0.35;
+  opacity: 0.3;
   z-index: 0;
   pointer-events: none;
 }
@@ -1436,7 +1318,7 @@
 /* Laser "Now Line" với Glowing Gradient */
 @keyframes pulseGlow {
   0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-  70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+  70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
   100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
 }
 .xl2-nowline {
@@ -1447,22 +1329,22 @@
   background: linear-gradient(180deg, #ef4444 0%, #f97316 50%, #ea580c 100%);
   z-index: 5;
   pointer-events: none;
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
 }
 .xl2-nowline::before {
   content: "";
   position: absolute;
   top: 0;
-  left: -4px;
-  width: 10px;
-  height: 10px;
+  left: -3px;
+  width: 8px;
+  height: 8px;
   border-radius: var(--r-pill);
   background: #ef4444;
-  border: 2px solid var(--canvas);
+  border: 1.5px solid var(--canvas);
   animation: pulseGlow 2s infinite ease-in-out;
 }
 
-/* Overlay Lane */
+/* Overlay Vùng khoá máy / bảo trì */
 .xl2-khoa {
   position: absolute;
   top: 0;
@@ -1473,72 +1355,10 @@
     var(--steel-soft) 0 6px, transparent 6px 12px);
   border-left: 1px solid var(--steel);
   border-right: 1px solid var(--steel);
-  opacity: 0.9;
+  opacity: 0.85;
 }
-.xl2-load {
-  position: absolute;
-  bottom: 0;
-  height: 12px;
-  z-index: 1;
-  pointer-events: none;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding-right: 4px;
-  border-left: 1px solid var(--rule-hair);
-}
-.xl2-load--h1 { background: var(--heat-1); }
-.xl2-load--h2 { background: var(--heat-2); }
-.xl2-load--h3 { background: var(--heat-3); }
-.xl2-load--h4 { background: var(--heat-4); }
-.xl2-load__n {
-  font-family: var(--ff-num);
-  font-variant-numeric: tabular-nums;
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-medium);
-  line-height: 1;
-  color: var(--ink);
-}
-.xl2-load--h4 .xl2-load__n { color: var(--paper-contrast); }
 
-.xl2-heat {
-  position: absolute;
-  bottom: 0;
-  height: 12px;
-  z-index: 1;
-  pointer-events: none;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 0 4px;
-  border-left: 1px solid var(--rule-hair);
-}
-.xl2-heat--calm { background: var(--heat-0); }
-.xl2-heat--ok { background: var(--amber-soft); }
-.xl2-heat--over {
-  background: var(--signal-soft);
-  box-shadow: inset 0 2px 0 var(--signal);
-}
-.xl2-heat__n {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  font-family: var(--ff-num);
-  font-variant-numeric: tabular-nums;
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-bold);
-  line-height: 1;
-  color: var(--ink);
-}
-.xl2-heat--over .xl2-heat__n { color: var(--signal); }
-.xl2-heat--ok .xl2-heat__n { color: var(--amber-deep); }
-.xl2-heat--ok .xl2-heat__n::after { content: "✓"; margin-left: 2px; }
-
-/* ================= THANH CÔNG VIỆC GANTT (Glossy Glass 3D Capsules) ============ */
-@keyframes shimmerGlow {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(200%); }
-}
+/* ================= THANH CÔNG VIỆC GANTT (Modern Chroma Task Capsules) ============ */
 .xl2-bar {
   position: absolute;
   top: 50%;
@@ -1546,82 +1366,94 @@
   height: var(--xl2-bar-h);
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 8px 3px 10px;
-  border-radius: 7px;
+  gap: 5px;
+  padding: 2px 7px 2px 8px;
+  border-radius: 6px;
   border: 1px solid var(--rule);
   background: var(--canvas);
   color: var(--ink);
-  font-size: var(--fs-2xs);
+  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   cursor: pointer;
   z-index: 2;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 2px 5px rgba(15, 23, 42, 0.08);
-  transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease, opacity 150ms ease, filter 150ms ease;
-}
-.xl2-bar::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 40%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
-  pointer-events: none;
-  animation: shimmerGlow 4s infinite linear;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, opacity 120ms ease;
 }
 .xl2-bar:hover {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 4px 14px rgba(15, 23, 42, 0.14);
-  transform: translateY(calc(-50% - 2px));
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.12);
+  transform: translateY(calc(-50% - 1px));
   z-index: 4;
 }
 .xl2-bar:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
 
-/* Color Coding Theo Nhóm Công Đoạn */
+/* Chroma Color Coding Theo Nhóm Công Đoạn */
 .xl2-bar--grp-in {
-  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-  border-color: #38bdf8;
+  background: linear-gradient(135deg, #f0f7ff 0%, #e0f0fe 100%);
+  border-color: #7dd3fc;
   color: #0369a1;
 }
 .xl2-bar--grp-in .xl2-bar__accent { background: #0284c7; }
 .xl2-bar--grp-in .xl2-bar__code { color: #0c4a6e; }
 
-.xl2-bar--grp-be,
-.xl2-bar--grp-can {
+.xl2-bar--grp-sau_in {
   background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
-  border-color: #fbbf24;
+  border-color: #fcd34d;
   color: #92400e;
 }
-.xl2-bar--grp-be .xl2-bar__accent,
-.xl2-bar--grp-can .xl2-bar__accent { background: #d97706; }
-.xl2-bar--grp-be .xl2-bar__code,
-.xl2-bar--grp-can .xl2-bar__code { color: #78350f; }
+.xl2-bar--grp-sau_in .xl2-bar__accent { background: #d97706; }
+.xl2-bar--grp-sau_in .xl2-bar__code { color: #78350f; }
 
-.xl2-bar--grp-thanh-pham {
-  background: linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%);
-  border-color: #f472b6;
-  color: #9d174d;
+.xl2-bar--grp-dong_goi {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border-color: #86efac;
+  color: #15803d;
 }
-.xl2-bar--grp-thanh-pham .xl2-bar__accent { background: #db2777; }
-.xl2-bar--grp-thanh-pham .xl2-bar__code { color: #831843; }
+.xl2-bar--grp-dong_goi .xl2-bar__accent { background: #16a34a; }
+.xl2-bar--grp-dong_goi .xl2-bar__code { color: #14532d; }
+
+.xl2-bar--grp-thue_ngoai {
+  background: linear-gradient(135deg, #fbf7ff 0%, #f3e8ff 100%);
+  border-color: #d8b4fe;
+  color: #7e22ce;
+  border-style: dashed;
+}
+.xl2-bar--grp-thue_ngoai .xl2-bar__accent { background: #9333ea; }
+.xl2-bar--grp-thue_ngoai .xl2-bar__code { color: #581c87; }
 
 /* Focus Mode: Dimmed các task không chọn */
 .xl2-bar--dimmed {
-  opacity: 0.28;
-  filter: grayscale(0.5);
+  opacity: 0.25;
+  filter: grayscale(0.6);
   transform: translateY(-50%) scale(0.98);
 }
 
-/* Dải Accent báo trạng thái mép trái */
+/* Dải Accent chỉ báo trạng thái mép trái */
 .xl2-bar__accent {
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  width: 3.5px;
-  border-radius: 7px 0 0 7px;
+  width: 3px;
+  border-radius: 6px 0 0 6px;
   background: var(--moss);
+}
+
+/* Vân sọc canh máy (Setup Time Hatch) ở đầu thanh */
+.xl2-bar__setup-hatch {
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(0, 0, 0, 0.06),
+    rgba(0, 0, 0, 0.06) 2px,
+    transparent 2px,
+    transparent 5px
+  );
+  border-right: 1px solid rgba(0, 0, 0, 0.12);
+  pointer-events: none;
 }
 
 .xl2-bar__body {
@@ -1634,24 +1466,21 @@
 .xl2-bar__row1 {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
+}
+.xl2-bar__row1--tiny {
+  justify-content: center;
 }
 .xl2-bar__row2 {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
-  font-size: 10px;
+  font-size: 9.5px;
   color: var(--ash);
 }
 
-.xl2-bar__icon {
-  display: inline-flex;
-  align-items: center;
-  color: var(--ash-2);
-  flex: none;
-}
 .xl2-bar__code {
   flex: 0 1 auto;
   min-width: 0;
@@ -1659,18 +1488,18 @@
   text-overflow: ellipsis;
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: var(--fw-bold);
   color: var(--ink);
 }
 .xl2-bar__step-pill {
   flex: none;
   font-family: var(--ff-num);
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: var(--fw-bold);
-  padding: 0 4px;
+  padding: 0 3px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.8);
   border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
   color: inherit;
 }
@@ -1679,7 +1508,7 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: var(--fw-semibold);
   color: var(--ink);
 }
@@ -1688,50 +1517,26 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 10px;
+  font-size: 9.5px;
   color: var(--ash-2);
 }
 .xl2-bar__dur {
   flex: none;
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: var(--fw-bold);
   color: inherit;
-  background: rgba(255, 255, 255, 0.7);
-  padding: 0 4px;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 0 3px;
   border-radius: 3px;
   border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
 }
-
-/* Nhãn tràn ra ngoài (Spill Capsule) khi thanh hẹp */
-.xl2-bar__spill {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 2;
-  max-width: 240px;
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  background: color-mix(in srgb, var(--canvas) 92%, transparent);
-  border: 1px solid var(--rule-soft);
-  font-size: 11px;
-  color: var(--ash);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  transition: all 150ms ease;
-}
-.xl2-bar__spill.is-sel { color: var(--rust-deep); font-weight: var(--fw-bold); border-color: var(--rust); }
-.xl2-bar__spill.is-chain-hover { color: var(--rust-deep); font-weight: var(--fw-bold); border-color: var(--rust); background: var(--rust-soft); }
 
 .xl2-bar--draggable { cursor: grab; }
 .xl2-bar--draggable:active { cursor: grabbing; }
 .xl2-bar--locked { cursor: not-allowed; background: var(--rule-hair); }
 .xl2-bar--locked .xl2-bar__accent { background: var(--steel); }
-.xl2-bar--locked .xl2-bar__icon { color: var(--steel); }
 
 /* Khối nháp "chưa đặt giờ" */
 .xl2-bar--pack {
@@ -1741,14 +1546,11 @@
 }
 .xl2-bar--pack .xl2-bar__accent { background: var(--steel-soft); }
 .xl2-bar--pack .xl2-bar__code { color: var(--ash); }
-.xl2-bar--pack .xl2-bar__icon { color: var(--steel); }
 .xl2-bar--pack:hover {
-  box-shadow: var(--shadow-2);
   border-color: var(--rust);
   background: var(--rust-soft);
 }
 .xl2-bar--pack:hover .xl2-bar__code { color: var(--rust-deep); }
-.xl2-bar--pack:hover .xl2-bar__icon { color: var(--rust); }
 
 /* Chọn & Chuỗi thực thể */
 .xl2-bar--chain {
@@ -1756,83 +1558,27 @@
 }
 .xl2-bar--sel {
   border-color: var(--rust);
-  box-shadow: 0 0 0 2px var(--rust-soft), 0 4px 12px rgba(197, 64, 10, 0.2);
+  box-shadow: 0 0 0 2px var(--rust-soft), 0 3px 10px rgba(197, 64, 10, 0.2);
   z-index: 5;
 }
 
-/* Hover Chain Glow — Phát sáng chuỗi thực thể khi hover một thanh bất kỳ */
+/* Hover Chain Glow — Phát sáng chuỗi thực thể khi hover */
 .xl2-bar--chain-hover {
   border-color: var(--rust);
-  box-shadow: 0 0 0 2px var(--rust), 0 4px 14px rgba(197, 64, 10, 0.25);
-  transform: translateY(calc(-50% - 2px));
+  box-shadow: 0 0 0 2px var(--rust), 0 3px 12px rgba(197, 64, 10, 0.25);
+  transform: translateY(calc(-50% - 1px));
   z-index: 5;
 }
 
-/* 3 Mức trạng thái */
+/* 3 Mức trạng thái cảnh báo / chặn */
 .xl2-bar--dat { border-color: var(--signal); background: var(--signal-soft); }
 .xl2-bar--dat .xl2-bar__accent { background: var(--signal); }
-.xl2-bar--dat .xl2-bar__icon { color: var(--signal); }
 .xl2-bar--ph { border-color: color-mix(in srgb, var(--rust) 40%, transparent); background: var(--rust-soft); }
 .xl2-bar--ph .xl2-bar__accent { background: var(--rust); }
-.xl2-bar--ph .xl2-bar__icon { color: var(--rust-deep); }
 .xl2-bar--warn { border-color: var(--amber); background: var(--amber-soft); }
 .xl2-bar--warn .xl2-bar__accent { background: var(--amber); }
-.xl2-bar--warn .xl2-bar__icon { color: var(--amber-deep); }
 
-.xl2-bar__rau {
-  position: absolute;
-  left: 3px;
-  right: 1px;
-  bottom: 1px;
-  height: 3px;
-  display: flex;
-  border-radius: 0 0 4px 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-.xl2-rau-seg { height: 100%; }
-.xl2-rau-seg--canh { background: var(--steel-soft); }
-.xl2-rau-seg--hatch {
-  background: repeating-linear-gradient(
-    45deg,
-    var(--steel-soft),
-    var(--steel-soft) 3px,
-    var(--steel) 3px,
-    var(--steel) 6px
-  );
-}
-.xl2-rau-seg--chay { background: var(--steel); }
-.xl2-rau-seg--khac { background: var(--ash-2); opacity: 0.5; }
-
-/* Chroma Task Capsules theo nhóm công đoạn */
-.xl2-bar--grp-in {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--steel-soft) 35%, var(--canvas)), var(--canvas));
-  border-color: color-mix(in srgb, var(--steel) 35%, var(--rule));
-}
-.xl2-bar--grp-in .xl2-bar__accent { background: var(--steel); }
-
-.xl2-bar--grp-sau_in {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--amber-soft) 40%, var(--canvas)), var(--canvas));
-  border-color: color-mix(in srgb, var(--amber) 40%, var(--rule));
-}
-.xl2-bar--grp-sau_in .xl2-bar__accent { background: var(--amber-deep); }
-
-.xl2-bar--grp-dong_goi {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--moss-soft) 40%, var(--canvas)), var(--canvas));
-  border-color: color-mix(in srgb, var(--moss) 35%, var(--rule));
-}
-.xl2-bar--grp-dong_goi .xl2-bar__accent { background: var(--moss); }
-
-.xl2-bar--grp-thue_ngoai {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--paper) 70%, var(--canvas)), var(--canvas));
-  border-color: var(--rule);
-  border-style: dashed;
-}
-.xl2-bar--grp-thue_ngoai .xl2-bar__accent { background: var(--ash-2); }
-
-/* RÂU nhanh-nhất … chậm-nhất — vẽ NGOÀI thanh (thanh có overflow:hidden nên bản cũ bị cắt mất
-   đúng nửa "chậm nhất", tức là nửa quan trọng). Thanh = mức TRUNG BÌNH (lịch tính theo nó);
-   hai đầu râu = tối thiểu và tối đa. Máy chưa khai dải ⇒ KHÔNG vẽ râu, tooltip nói rõ là chưa khai. */
+/* Râu nhanh-nhất / chậm-nhất ngoài thanh */
 .xl2-rau2 {
   position: absolute;
   top: 50%;
@@ -2050,6 +1796,34 @@
 /* đệm SX→giao âm: chữ tín-hiệu (lệnh SX xong SAU hạn giao) */
 .xl2-kv__v--tre { color: var(--signal); font-weight: var(--fw-bold); }
 
+/* hàng NHÂN LỰC: số bố trí + ba mốc định biên + lối đi sửa. Xuống hàng được vì panel hẹp (~430px)
+   và chuỗi "2 người · biên 1 · 2 · 3 · Sửa" dài hơn ô giá trị một dòng. */
+.xl2-kv__v--nhanluc {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.xl2-kv__bien { font-size: var(--fs-xs); font-weight: var(--fw-regular); color: var(--ash); }
+.xl2-kv__v--canh { color: var(--signal); font-weight: var(--fw-bold); }
+.xl2-kv__v--canh .xl2-kv__bien { color: var(--signal); }
+.xl2-kv__go {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  color: var(--ash);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.xl2-kv__go:hover { color: var(--rust-deep); border-color: var(--rust); background: var(--rust-soft); }
+.xl2-kv__go:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
+
 /* ---- vật tư tóm tắt (một dòng trạng thái) -------------------------------- */
 .xl2-vt {
   display: flex;
@@ -2148,6 +1922,13 @@
   font-variant-numeric: tabular-nums;
 }
 .xl2-step__fact svg { color: var(--ash-2); }
+/* Số người bố trí ngoài biên tối thiểu–tối đa của bước — dùng lại đúng sắc `--signal` của
+   dòng quân số ngay bên dưới để hai cảnh báo cùng một tiếng nói. */
+.xl2-step__fact--warn {
+  color: var(--signal);
+  font-weight: var(--fw-medium);
+}
+.xl2-step__fact--warn svg { color: var(--signal); }
 .xl2-step__range { color: var(--ash-2); }
 .xl2-step__tag {
   padding: 1px 7px;
@@ -2263,6 +2044,86 @@
   border-radius: var(--r-pill);
   padding: 1px 6px;
 }
+
+/* ĐIỂM máy (`diem_may`) — con số đứng cuối hàng tên, đọc như điểm thi chứ không phải huy hiệu
+   trang trí: 75+ xanh rêu (chọn được), 50–74 hổ phách (tạm), dưới 50 xám (còn máy khá hơn). */
+.xl2-goiy__diem {
+  margin-left: 6px;
+  min-width: 26px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  font-weight: var(--fw-medium);
+  text-align: center;
+}
+.xl2-goiy__diem--tot { color: var(--moss-deep); background: var(--moss-soft); }
+.xl2-goiy__diem--kha { color: var(--amber-deep); background: var(--amber-soft); }
+.xl2-goiy__diem--thuong { color: var(--ash); background: var(--rule-soft); }
+
+/* Máy TRỄ hạn vẫn hiện (đừng ẩn — người xếp cần biết cả xưởng đang trễ), nhưng phải nhìn ra ngay
+   là nhóm khác: viền rỉ + nền nhạt, không đổi thứ tự đọc. */
+.xl2-goiy__row--tre { border-color: var(--rust); background: var(--rust-soft); }
+.xl2-goiy__flag--tre { color: #fff; background: var(--rust); }
+
+/* Ba trục chấm điểm — thanh mảnh nằm ngang, hover ra câu giải thích bằng lời thợ (title). */
+.xl2-truc {
+  display: flex;
+  gap: 10px;
+  margin-top: 2px;
+}
+.xl2-truc__i {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 0;
+  cursor: help;
+}
+.xl2-truc__ten {
+  font-size: 10.5px;
+  color: var(--ash-2);
+  white-space: nowrap;
+}
+.xl2-truc__bar {
+  flex: 1 1 auto;
+  height: 4px;
+  min-width: 18px;
+  border-radius: var(--r-pill);
+  background: var(--rule-soft);
+  overflow: hidden;
+}
+.xl2-truc__bar > i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--rust);
+  transition: width var(--duration-fast) ease;
+}
+.xl2-goiy__row--tre .xl2-truc__bar { background: rgba(0, 0, 0, 0.08); }
+
+/* Máy BỊ LOẠI — gập lại, mở ra thấy thiếu đúng ô dữ liệu nào. Vắng mặt im lặng là thứ làm người
+   xếp thôi tin cái gợi ý, nên khối này bắt buộc có, chỉ là không chiếm chỗ khi chưa cần. */
+.xl2-loai {
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+}
+.xl2-loai > summary {
+  cursor: pointer;
+  padding: 3px 0;
+  color: var(--ash-2);
+}
+.xl2-loai > summary:hover { color: var(--rust); }
+.xl2-loai ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.xl2-loai li { line-height: 1.45; }
 
 /* TỰ XẾP LỊCH cả lệnh — nút + bảng kết quả nói vì-sao từng bước. */
 .xl2-tuxep__btns {
@@ -2812,6 +2673,16 @@
 }
 .xl2-dlg-tag b {
   color: var(--ink);
+}
+/* Thẻ dữ kiện mang cảnh báo (số người bố trí ngoài định biên) — cùng sắc `--signal` với các
+   cảnh báo quân số khác trên màn, không đẻ màu mới. */
+.xl2-dlg-tag--warn {
+  color: var(--signal);
+  border-color: color-mix(in srgb, var(--signal) 40%, transparent);
+  background: color-mix(in srgb, var(--signal) 8%, var(--paper));
+}
+.xl2-dlg-tag--warn b {
+  color: var(--signal);
 }
 
 /* Slack Grid */

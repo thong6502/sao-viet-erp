@@ -189,6 +189,15 @@ export function BuocChungForm({
 
   const mayId = val("may_id", g.may_id) ?? null;
   const mayDaChon = (mayRefs ?? []).find((m) => m.id === mayId) ?? null;
+  // Nhân lực: số BỐ TRÍ so với biên của bước. Cảnh báo ngay tại chỗ khai, đừng đợi tới bàn xếp
+  // lịch — tới đó mới biết thì bài đã lập kế hoạch, sửa lại tốn một vòng.
+  const boTri = Math.max(1, Math.trunc(Number(val("so_nhan_cong", g.so_nhan_cong) ?? 1)) || 1);
+  const bienMin = val("so_nhan_cong_toi_thieu", g.so_nhan_cong_toi_thieu) ?? null;
+  const bienMax = val("so_nhan_cong_toi_da", g.so_nhan_cong_toi_da) ?? null;
+  const bienTc = val("so_nhan_cong_tieu_chuan", g.so_nhan_cong_tieu_chuan) ?? 1;
+  const ngoaiBien =
+    (bienMin != null && boTri < bienMin) || (bienMax != null && boTri > bienMax);
+  const bienText = `${bienMin ?? "–"}–${bienMax ?? "–"}`;
 
   // Thời lượng tính LẠI TẠI CHỖ bằng đúng công thức của bước lệnh: đổi máy / số lượt / thời gian
   // khác là bảng bóc tách nhảy ngay, không phải lưu rồi mở lại mới thấy. Chưa nạp xong danh mục máy
@@ -199,8 +208,13 @@ export function BuocChungForm({
         loai_buoc: g.loai_buoc,
         so_luot_chay: String(val("so_luot_chay", g.so_luot_chay) ?? 1),
         so_nhan_cong: String(val("so_nhan_cong", g.so_nhan_cong) ?? 1),
-        so_nhan_cong_toi_da: null,
-        so_nhan_cong_tieu_chuan: Number(g.so_nhan_cong || 1),
+        // Thời lượng chia theo số người TIÊU CHUẨN (xem `thoi_luong_buoc` ở backend), không theo
+        // số bố trí. Trước đây chỗ này mượn tạm `so_nhan_cong` làm tiêu chuẩn vì form chưa có biên
+        // — hai bên lệch nhau ngay khi bố trí ≠ tiêu chuẩn, xem-trước ra một số, lưu xong ra số khác.
+        so_nhan_cong_toi_da: val("so_nhan_cong_toi_da", g.so_nhan_cong_toi_da) ?? null,
+        so_nhan_cong_tieu_chuan: Number(
+          val("so_nhan_cong_tieu_chuan", g.so_nhan_cong_tieu_chuan) || 1,
+        ),
         nang_suat: String(val("nang_suat", g.nang_suat) ?? ""),
         phat_sinh_phut: String(val("phat_sinh_phut", g.phat_sinh_phut) ?? 0),
         thoi_luong_dien_giai: g.thoi_luong_dien_giai,
@@ -210,7 +224,8 @@ export function BuocChungForm({
       mayDaChon,
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [g, f.so_luot_chay, f.so_nhan_cong, f.nang_suat, f.phat_sinh_phut, mayDaChon],
+    [g, f.so_luot_chay, f.so_nhan_cong, f.so_nhan_cong_tieu_chuan, f.so_nhan_cong_toi_da,
+     f.nang_suat, f.phat_sinh_phut, mayDaChon],
   );
 
   const setup = Number(tg.setup_phut ?? 0);
@@ -529,24 +544,91 @@ export function BuocChungForm({
                     {g.loai_buoc === "may" ? "Nhân sự vận hành máy" : "Nhân sự làm tay"}
                   </h3>
                 </div>
-                <label className="khsx-field">
-                  <span className="khsx-field__label">SỐ NGƯỜI KẾ HOẠCH</span>
-                  <div className="khsx-input-unit-combine">
-                    <input
-                      type="number" min="1" className="khsx-input-combine__num"
-                      value={val("so_nhan_cong", g.so_nhan_cong) ?? ""}
-                      placeholder="1"
-                      disabled={!canUpdate}
-                      onChange={(e) => setF({ ...f, so_nhan_cong: Number(e.target.value) || 1 })}
-                    />
-                    <span className="khsx-input-combine__unit">người</span>
+                {/* Cùng một hình với khối Nhân lực của bước lệnh (21/08/2026): số BỐ TRÍ ở trên,
+                    ba mốc định biên ở dưới. Trước đây bước chung của bài chỉ có mỗi ô "số người kế
+                    hoạch" trơ trọi — người khai không biết bước cần tối thiểu/tối đa mấy người, mà
+                    đúng bộ số đó mới là thứ bàn xếp lịch dùng để kêu quá tải quân số tổ. */}
+                <div className="khsx-labor-section">
+                  <label className="khsx-field">
+                    <span className="khsx-field__label">SỐ NGƯỜI BỐ TRÍ (KẾ HOẠCH)</span>
+                    <div className="khsx-input-unit-combine">
+                      <input
+                        type="number" min="1" className="khsx-input-combine__num"
+                        value={val("so_nhan_cong", g.so_nhan_cong) ?? ""}
+                        placeholder="1"
+                        disabled={!canUpdate}
+                        onChange={(e) => setF({ ...f, so_nhan_cong: Number(e.target.value) || 1 })}
+                      />
+                      <span className="khsx-input-combine__unit">người</span>
+                    </div>
+                    <span className="khsx-field__hint">
+                      Bàn xếp lịch cân quân số tổ theo đúng số này.{" "}
+                      {g.loai_buoc === "may"
+                        ? "Thêm người không làm máy chạy nhanh hơn."
+                        : "Không đổi thời lượng bước — thời lượng chia theo số người tiêu chuẩn."}
+                      {ngoaiBien && (
+                        <strong className="khsx-labor-warn">
+                          {" "}
+                          Ngoài biên {bienText} người của bước.
+                        </strong>
+                      )}
+                    </span>
+                  </label>
+
+                  {/* Biên nhân lực — nuôi cảnh báo thiếu/quá người khi xếp lịch, không vào thời gian. */}
+                  <div className="khsx-labor-triplet-card">
+                    <span className="khsx-field__label">BIÊN NHÂN LỰC (ĐỂ XẾP LỊCH)</span>
+                    <div className="khsx-labor-triplet-grid">
+                      {([
+                        ["Tối thiểu", "so_nhan_cong_toi_thieu"],
+                        ["Tiêu chuẩn", "so_nhan_cong_tieu_chuan"],
+                        ["Tối đa", "so_nhan_cong_toi_da"],
+                      ] as const).map(([nhan, khoa]) => (
+                        <label className="khsx-labor-pill-input" key={khoa}>
+                          <span className="khsx-labor-pill-label">{nhan}</span>
+                          <input
+                            type="number"
+                            min="1"
+                            className="khsx-labor-num-field"
+                            value={val(khoa, g[khoa]) ?? ""}
+                            placeholder="—"
+                            disabled={!canUpdate}
+                            onChange={(e) => {
+                              const so = e.target.value === "" ? null : Math.max(1, Number(e.target.value) || 1);
+                              if (khoa === "so_nhan_cong_tieu_chuan") {
+                                const std = so ?? 1;
+                                const cu = Math.max(1, Number(g.so_nhan_cong_tieu_chuan) || 1);
+                                // Kế hoạch đang bám kíp chuẩn ⇒ kéo theo cho khỏi lệch. Người khai
+                                // đã chỉnh tay số khác ⇒ giữ nguyên, không giẫm lên họ.
+                                setF(
+                                  boTri === cu
+                                    ? { ...f, so_nhan_cong_tieu_chuan: std, so_nhan_cong: std }
+                                    : { ...f, so_nhan_cong_tieu_chuan: std },
+                                );
+                                return;
+                              }
+                              setF({ ...f, [khoa]: so });
+                            }}
+                          />
+                          <span className="khsx-labor-unit">người</span>
+                        </label>
+                      ))}
+                    </div>
+                    <span className="khsx-field__hint">
+                      {g.loai_buoc === "may" ? (
+                        <>Kíp đứng máy chỉ để bàn xếp lịch cân người — không đổi thời lượng, vì thời
+                        lượng bước máy chạy theo tốc độ máy.</>
+                      ) : (
+                        <>
+                          Kíp tiêu chuẩn <strong>rút ngắn thời gian</strong>: năng suất khoán khai theo
+                          đầu người nên kíp {Math.max(1, Number(bienTc) || 1)} người làm nhanh gấp{" "}
+                          {Math.max(1, Number(bienTc) || 1)}. Tối thiểu/tối đa chỉ để bàn xếp lịch cảnh
+                          báo, không đổi thời lượng bước.
+                        </>
+                      )}
+                    </span>
                   </div>
-                  <span className="khsx-field__hint">
-                    {g.loai_buoc === "may"
-                      ? "Kíp đứng máy — thêm người không làm máy chạy nhanh hơn."
-                      : "Nhân với năng suất một người để ra năng suất cả tổ."}
-                  </span>
-                </label>
+                </div>
               </section>
             )}
 

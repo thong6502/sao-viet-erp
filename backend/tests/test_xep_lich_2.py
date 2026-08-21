@@ -104,13 +104,14 @@ def test_ngoai_ca_hieu_ca_dem():
 
 
 # ======================================================================
-# §12.3 — máy hỏng/bảo trì nằm GIỮA khoảng chạy ⇒ chặn (`de_vung_khoa_may`).
+# §12.3 — máy hỏng/bảo trì nằm GIỮA khoảng chạy ⇒ CẢNH BÁO, không chặn (hạ mức 21/08/2026).
 # ======================================================================
-def test_de_vung_khoa_may_la_chan():
+def test_de_vung_khoa_may_chi_canh_bao():
     start, finish = _utc(2026, 7, 27, 8, 0), _utc(2026, 7, 27, 12, 0)
     khoa = [(_utc(2026, 7, 27, 10, 0), _utc(2026, 7, 27, 11, 0))]      # bảo trì 10–11 GIỮA khoảng
     vd = C.de_vung_khoa_may(start, finish, khoa)
-    assert vd is not None and vd["ma"] == "de_vung_khoa_may" and vd["muc"] == MUC_CHAN_DAT_LICH
+    # Vẫn PHẢI nói ra — hạ mức là nới một nấc, không phải xoá luật.
+    assert vd is not None and vd["ma"] == "de_vung_khoa_may" and vd["muc"] == C.MUC_CANH_BAO
     # Khoá NẰM NGOÀI khoảng chạy thì không sao.
     assert C.de_vung_khoa_may(start, finish, [(_utc(2026, 7, 27, 13, 0),
                                                _utc(2026, 7, 27, 14, 0))]) is None
@@ -1456,3 +1457,218 @@ def test_tu_xep_lenh_chua_vao_ke_hoach(v2, db, orders, lsx_svc, admin, customer)
     kq = v2.tu_xep(nguon="lsx", id=lsx.id, actor=admin)
     assert kq["da_xep"] == [] and kq["bo_qua"] == [] and kq["luot"] == 0
     assert "Không có bước nào cần xếp" in kq["tom_tat"]
+
+
+# ============================================================================
+# THỨ TỰ XẾP THEO ROUTING (routing.thu_tu_xep) — hàm thuần, kiểm ở mức hàm
+# ============================================================================
+def _r(id: int, thu_tu: int):
+    return SimpleNamespace(id=id, source_thu_tu=thu_tu)
+
+
+def test_thu_tu_xep_theo_dag_khi_canh_nguoc_thu_tu():
+    """Cạnh routing được phép NGƯỢC `thu_tu` (LSX26-0020 thật: B1→B6→B2→B3→B4→B5).
+
+    Duyệt theo `thu_tu` thì tới lượt B2, tiền nhiệm B6 của nó chưa có giờ ⇒ sàn thiếu mất tiền nhiệm
+    ⇒ cả chuỗi rơi về "bây giờ" và chồng lên nhau. Phải xếp theo thứ tự TÔ-PÔ.
+    """
+    from app.services.xep_lich_2.routing import thu_tu_xep
+    rows = [_r(1, 0), _r(2, 1), _r(3, 2), _r(4, 3), _r(5, 4), _r(6, 5)]
+    canh = {2: [6], 3: [2], 4: [3], 5: [4], 6: [1]}          # B2←B6, B3←B2, …, B6←B1
+    assert [r.id for r in thu_tu_xep(rows, canh)] == [1, 6, 2, 3, 4, 5]
+
+
+def test_thu_tu_xep_giu_nguyen_thu_tu_khi_dag_thuan():
+    """DAG trùng `thu_tu` (đại đa số lệnh) hoặc không có cạnh nào ⇒ ra ĐÚNG thứ tự cũ, không đảo."""
+    from app.services.xep_lich_2.routing import thu_tu_xep
+    rows = [_r(30, 2), _r(10, 0), _r(20, 1)]
+    assert [r.id for r in thu_tu_xep(rows, {20: [10], 30: [20]})] == [10, 20, 30]
+    assert [r.id for r in thu_tu_xep(rows, {})] == [10, 20, 30]
+
+
+def test_thu_tu_xep_con_vong_thi_khong_chet():
+    """Dữ liệu cũ còn vòng (đáng lẽ `_kiem_chu_trinh_phu_thuoc` đã chặn) ⇒ nối phần kẹt vào cuối
+    theo `thu_tu`, KHÔNG ném lỗi: tự xếp không được phép chết vì một cạnh hỏng."""
+    from app.services.xep_lich_2.routing import thu_tu_xep
+    rows = [_r(1, 0), _r(2, 1), _r(3, 2)]
+    ra = thu_tu_xep(rows, {2: [3], 3: [2]})                  # B2 ⇄ B3
+    assert [r.id for r in ra] == [1, 2, 3]
+    assert len(ra) == 3, "không được đánh rơi bước nào"
+
+
+# ======================================================================
+# §6.1 — CHẤM ĐIỂM MÁY (`diem_may`): kịp hạn trước, gate theo dữ liệu, không đụng khổ.
+# ======================================================================
+def _uv(may_id: int, finish: datetime, **kw) -> dict:
+    """Một ứng viên máy tối giản — đúng những khoá mà `diem_may` đọc."""
+    return {"may_id": may_id, "may_ten": f"M{may_id}", "finish": finish,
+            "co_gom": kw.get("co_gom", False), "cung_gom": kw.get("cung_gom", False),
+            "tai_ngay": kw.get("tai_ngay", 0)}
+
+
+_CA_8H = [(480, 960, False)]                                     # 8h–16h = 480 phút/ngày
+
+
+def test_diem_may_quy_ca_phut_cong_ca_qua_dem():
+    from app.services.xep_lich_2 import diem_may as DM
+    assert DM.quy_ca_phut(_CA_8H) == 480
+    assert DM.quy_ca_phut([(1320, 360, True)]) == 480            # 22h→6h vắt qua nửa đêm
+
+
+def test_diem_may_tre_han_bi_danh_dau_va_ve_khong_diem_kip_han():
+    """Xong sau 24h ngày hạn = TRỄ. Cờ `tre_han` là cái mà `chon_may` lọc, không phải điểm thấp."""
+    from app.services.xep_lich_2 import diem_may as DM
+    han = date(2026, 8, 20)
+    kip = _uv(1, datetime(2026, 8, 20, 15, tzinfo=timezone.utc))
+    tre = _uv(2, datetime(2026, 8, 21, 9, tzinfo=timezone.utc))  # đã sang ngày sau hạn
+    DM.cham_tat_ca([kip, tre], han=han, ca=_CA_8H)
+    assert kip["diem"]["tre_han"] is False
+    assert tre["diem"]["tre_han"] is True
+    assert tre["diem"]["diem"] < kip["diem"]["diem"]
+    assert next(t for t in tre["diem"]["truc"] if t["ma"] == "kip_han")["dat"] == 0
+
+
+def test_diem_may_xong_23h_ngay_han_van_la_kip():
+    """Hạn là NGÀY: xong 23h ngày hạn vẫn kịp. Nếu so với 0h ngày hạn thì cả xưởng trễ oan."""
+    from app.services.xep_lich_2 import diem_may as DM
+    u = _uv(1, datetime(2026, 8, 20, 23, tzinfo=timezone.utc))
+    DM.cham_tat_ca([u], han=date(2026, 8, 20), ca=_CA_8H)
+    assert u["diem"]["tre_han"] is False
+
+
+def test_diem_may_gom_giay_thang_khi_hai_may_cung_kip_han():
+    """Hai máy cùng kịp thoải mái ⇒ trục kịp hạn hoà, quyền quyết về trục ĐỔI BÀI."""
+    from app.services.xep_lich_2 import diem_may as DM
+    xa = datetime(2026, 8, 10, 10, tzinfo=timezone.utc)
+    noi = _uv(1, xa, co_gom=True, cung_gom=True)
+    roi = _uv(2, xa, co_gom=True, cung_gom=False)
+    DM.cham_tat_ca([noi, roi], han=date(2026, 12, 31), ca=_CA_8H)
+    assert noi["diem"]["diem"] > roi["diem"]["diem"]
+    assert "giấy" in " ".join(noi["diem"]["manh"])
+
+
+def test_diem_may_truc_khong_do_duoc_bi_bo_khoi_ca_tu_lan_mau():
+    """Lệnh chưa đủ quy cách ⇒ KHÔNG có trục `doi_bai`, và điểm KHÔNG bị kéo tụt vì thiếu nó.
+
+    Chấm 0 cho thứ chưa khai là phạt oan mọi máy như nhau — vô nghĩa, mà còn làm người đọc tưởng
+    cả xưởng đều tệ.
+    """
+    from app.services.xep_lich_2 import diem_may as DM
+    xa = datetime(2026, 8, 10, 10, tzinfo=timezone.utc)
+    khong_do = _uv(1, xa, co_gom=False)
+    do_duoc = _uv(2, xa, co_gom=True, cung_gom=True)
+    DM.cham_tat_ca([khong_do], han=date(2026, 12, 31), ca=_CA_8H)
+    DM.cham_tat_ca([do_duoc], han=date(2026, 12, 31), ca=_CA_8H)
+    assert [t["ma"] for t in khong_do["diem"]["truc"]] == ["kip_han", "san_tai"]
+    assert khong_do["diem"]["diem"] == do_duoc["diem"]["diem"], "thiếu dữ liệu ≠ máy dở"
+
+
+def test_diem_may_chua_khai_ca_thi_bo_truc_san_tai():
+    from app.services.xep_lich_2 import diem_may as DM
+    u = _uv(1, datetime(2026, 8, 10, 10, tzinfo=timezone.utc))
+    DM.cham_tat_ca([u], han=date(2026, 12, 31), ca=[])
+    assert [t["ma"] for t in u["diem"]["truc"]] == ["kip_han"]
+
+
+def test_diem_may_may_kin_ca_bi_tru_diem_san_tai():
+    from app.services.xep_lich_2 import diem_may as DM
+    xa = datetime(2026, 8, 10, 10, tzinfo=timezone.utc)
+    ranh = _uv(1, xa, tai_ngay=0)
+    kin = _uv(2, xa, tai_ngay=470)                               # gần kín 480 phút quỹ ca
+    DM.cham_tat_ca([ranh, kin], han=date(2026, 12, 31), ca=_CA_8H)
+    assert ranh["diem"]["diem"] > kin["diem"]["diem"]
+    assert kin["diem"]["tru"] and "kín" in kin["diem"]["tru"]
+
+
+def test_diem_may_khong_co_han_thi_do_tuong_doi_chu_khong_bo_truc():
+    """Thiếu cả hai hạn ⇒ vẫn phải còn yếu tố thời gian, không thì hệ chọn máy xong muộn 10 ngày."""
+    from app.services.xep_lich_2 import diem_may as DM
+    som = _uv(1, datetime(2026, 8, 10, 10, tzinfo=timezone.utc))
+    muon = _uv(2, datetime(2026, 8, 13, 10, tzinfo=timezone.utc))
+    DM.cham_tat_ca([som, muon], han=None, ca=_CA_8H)
+    assert som["diem"]["diem"] > muon["diem"]["diem"]
+    assert som["diem"]["tre_han"] is False and muon["diem"]["tre_han"] is False
+
+
+def test_diem_may_la_so_tuyet_doi_khong_doi_khi_bot_ung_vien():
+    """Gợi ý bốc dần từng máy ra khỏi danh sách ⇒ điểm máy còn lại KHÔNG được nhảy."""
+    from app.services.xep_lich_2 import diem_may as DM
+    a = _uv(1, datetime(2026, 8, 10, 10, tzinfo=timezone.utc), co_gom=True, cung_gom=True)
+    b = _uv(2, datetime(2026, 8, 11, 10, tzinfo=timezone.utc), co_gom=True)
+    DM.cham_tat_ca([a, b], han=date(2026, 12, 31), ca=_CA_8H)
+    truoc = b["diem"]["diem"]
+    b2 = _uv(2, b["finish"], co_gom=True)
+    DM.cham_tat_ca([b2], han=date(2026, 12, 31), ca=_CA_8H)
+    assert b2["diem"]["diem"] == truoc
+
+
+def test_chon_may_uu_tien_kip_han_hon_diem_cao():
+    """Máy điểm cao mà TRỄ hạn không được thắng máy kịp hạn — hạn là điều kiện, không phải điểm."""
+    from app.services.xep_lich_2 import auto, diem_may as DM
+    kip = _uv(1, datetime(2026, 8, 20, 10, tzinfo=timezone.utc), tai_ngay=470)
+    tre = _uv(2, datetime(2026, 8, 25, 10, tzinfo=timezone.utc), co_gom=True, cung_gom=True)
+    for u in (kip, tre):
+        u.update(chiem_may_phut=60)
+    DM.cham_tat_ca([kip, tre], han=date(2026, 8, 20), ca=_CA_8H)
+    assert auto.chon_may([kip, tre], nhanh_nhat=False)["may_id"] == 1
+    # Lượt CỨU HẠN thì chỉ còn một câu hỏi là xong sớm nhất — ở đây vẫn là chính máy đó.
+    assert auto.chon_may([kip, tre], nhanh_nhat=True)["may_id"] == 1
+
+
+def test_chon_may_ca_hai_deu_tre_thi_lay_xong_som_nhat():
+    from app.services.xep_lich_2 import auto, diem_may as DM
+    a = _uv(1, datetime(2026, 8, 25, 10, tzinfo=timezone.utc), co_gom=True, cung_gom=True)
+    b = _uv(2, datetime(2026, 8, 23, 10, tzinfo=timezone.utc))
+    for u in (a, b):
+        u.update(chiem_may_phut=60)
+    DM.cham_tat_ca([a, b], han=date(2026, 8, 20), ca=_CA_8H)
+    assert auto.chon_may([a, b], nhanh_nhat=False)["may_id"] == 2
+
+
+def test_goi_y_may_kem_diem_va_bang_truc(v2, db, orders, lsx_svc, admin, customer):
+    """Hợp đồng của `/goi-y`: mỗi máy kèm ĐIỂM 0–100 · cờ trễ hạn · bảng trục có câu giải thích."""
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    _in_theo_may(db, lsx.id)
+    v2.tao_nhap(nguon="lsx", id=lsx.id, actor=admin)
+    res = v2.goi_y(dong_id=_dong_in(db, lsx.id).id)
+    assert {"goi_y_may", "bi_loai", "vi_sao_trong"} <= set(res)
+    assert res["goi_y_may"], "máy làm được bước in thì phải có gợi ý"
+    assert len(res["goi_y_may"]) <= 3
+    g = res["goi_y_may"][0]
+    assert 0 <= g["diem"] <= 100 and isinstance(g["tre_han"], bool)
+    assert g["truc"] and all(
+        {"ma", "ten", "dat", "toi_da", "ty_le", "cau"} <= set(t) and t["cau"] for t in g["truc"])
+    assert all(t["ma"] in ("kip_han", "doi_bai", "san_tai") for t in g["truc"])
+    assert g["ly_do"], "phải có MỘT câu vì-sao do chính thuật toán sinh"
+    # Điểm giảm dần theo đúng thứ tự hiện ra (trong cùng nhóm kịp hạn).
+    kip = [x["diem"] for x in res["goi_y_may"] if not x["tre_han"]]
+    assert kip == sorted(kip, reverse=True)
+
+
+def test_goi_y_may_loai_may_khong_tinh_duoc_thoi_luong_va_noi_ly_do(
+    v2, db, orders, lsx_svc, admin, customer, monkeypatch,
+):
+    """Máy KHÔNG làm được bước thì phải bị loại — và phải nói ra vì sao, đừng vắng mặt im lặng.
+
+    Bẫy thật đã gặp: máy chưa khai tốc độ vẫn ra thời lượng > 0 nhờ makeready + phát sinh, nên
+    "Ghi kẽm CTP" từng được gợi ý ba máy in offset ở đúng 45 phút — xếp nhất chính vì chúng
+    không làm được việc.
+    """
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    _in_theo_may(db, lsx.id)
+    v2.tao_nhap(nguon="lsx", id=lsx.id, actor=admin)
+    dong = _dong_in(db, lsx.id)
+
+    from app.services.xep_lich_2 import auto
+    that = auto.thoi_luong_buoc
+
+    def gia(*a, **kw):                                           # ép mọi máy về đường KHÔNG-theo-máy
+        d = dict(that(*a, **kw))
+        d["dien_giai"] = {**(d.get("dien_giai") or {}), "phuong_phap": "to"}
+        return d
+
+    monkeypatch.setattr(auto, "thoi_luong_buoc", gia)
+    res = v2.goi_y(dong_id=dong.id)
+    assert res["goi_y_may"] == []
+    assert res["bi_loai"], "loại hết máy thì phải liệt kê ra"
+    assert res["vi_sao_trong"], "và phải có một câu tổng nói vì sao danh sách trống"

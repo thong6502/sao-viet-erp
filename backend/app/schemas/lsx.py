@@ -523,11 +523,12 @@ class RoutingReplaceIn(BaseModel):
 
 
 class XemTruocRoutingRow(BaseModel):
-    """1 bước trong payload XEM TRƯỚC routing — chỉ các trường chuỗi ngược cần để suy số.
+    """1 bước trong payload XEM TRƯỚC routing — các trường chuỗi ngược cần để suy số.
 
-    KHÔNG mang vật tư / khoán / phụ thuộc: xem trước chỉ trả DÒNG CHẢY (số vào–ra + đơn vị) nên
-    payload gọn để không lỡ chạm guard vật-tư/phụ-thuộc của `replace_routing`. `step_key` gửi cả
-    khoá client `r{n}` của bước mới chèn để server dội lại đúng dòng đó.
+    KHÔNG mang vật tư / khoán / phụ thuộc (những thứ chỉ ảnh hưởng lúc LƯU, không đổi dòng chảy số
+    lượng — số lượng chạy theo `thu_tu`, không theo cạnh phụ thuộc), để payload gọn và không lỡ
+    chạm guard vật-tư/phụ-thuộc của `replace_routing`. Muốn bước chèn giữa ra đúng số thì đưa nó về
+    đúng vị trí `thu_tu` (chèn đúng chỗ ở FE), không phải khai cạnh phụ thuộc cho xem-trước.
     """
 
     step_key: str | None = None

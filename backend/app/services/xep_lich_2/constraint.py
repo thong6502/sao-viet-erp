@@ -5,7 +5,11 @@ Nhờ vậy test §12 soi được từng luật ở mức hàm mà khỏi dựn
 
 Ba MỨC kiểm soát (spec §7):
 - `MUC_CANH_BAO`     — chỉ nhắc, không chặn.
-- `MUC_CHAN_DAT_LICH`— chặn ngay lúc đặt/sửa lịch (ngoài ca · đè khoá máy · trùng máy · vượt quân số).
+- `MUC_CHAN_DAT_LICH`— chặn ngay lúc đặt/sửa lịch (ngoài ca · trùng máy · thiếu chủ · sai tiền
+  nhiệm). Quân số tổ và vùng khoá máy KHÔNG còn trong nhóm này từ 21/08/2026 — xem
+  `vuot_quan_so_to` và `de_vung_khoa_may`. Cả hai bị hạ vì cùng một bệnh: luật cứng dựng trên một
+  bản khai TAY còn thưa thì chặn nhầm nhiều hơn chặn đúng. Còn lại trong nhóm này là những thứ máy
+  tự biết chắc — hai việc không thể cùng nằm trên một máy, giờ không thuộc ca nào đã khai.
 - `MUC_CHAN_PHAT_HANH`— cho đặt nháp, nhưng chặn lúc phát hành (vật tư chưa đủ).
 
 CỐ Ý không có bất kỳ luật nào theo khổ giấy / số màu / định lượng (spec §6, §12.8): máy khớp hay
@@ -91,14 +95,25 @@ def chua_tai_nguyen(
 def de_vung_khoa_may(
     start: datetime, finish: datetime, khoa: list[tuple[datetime, datetime]],
 ) -> dict | None:
-    """Máy hỏng/bảo trì nằm CHẠM khoảng chạy ⇒ chặn (§6, §12.3). Khoá ngoài khoảng thì không sao."""
+    """Máy hỏng/bảo trì nằm CHẠM khoảng chạy ⇒ CẢNH BÁO (§7.3). Khoá ngoài khoảng thì không sao.
+
+    HẠ TỪ CHẶN XUỐNG CẢNH BÁO 21/08/2026 theo yêu cầu chủ, cùng lý lẽ với `vuot_quan_so_to`: vùng
+    khoá máy là thứ người ta khai TAY và khai thưa (dev đang có 0 dòng), nên nó mô tả dự định chứ
+    không mô tả sự thật của xưởng. Lấy một bản khai thưa đi chặn cứng thì hai đằng đều sai: máy hỏng
+    thật mà chưa ai kịp khai vẫn xếp được như thường, còn khoá khai dư lại bịt mất khe của một máy
+    đang chạy tốt — mà người xếp không có đường đi tiếp ngoài việc xoá bản khai.
+
+    Hạ mức là nới ĐÚNG một nấc, không phải xoá luật: vấn đề vẫn hiện nguyên câu trên thanh và trong
+    danh sách vấn đề, chỉ khác là nó không còn tự bác nút Lưu (và theo `kiem_phat_hanh` thì cũng
+    không còn chặn Phát hành). Muốn bật lại thành chặn thì đổi đúng một hằng ở dòng dưới.
+    """
     for k_start, k_finish in khoa:
         if k_start < finish and start < k_finish:
             return issue(
-                "de_vung_khoa_may", MUC_CHAN_DAT_LICH,
+                "de_vung_khoa_may", MUC_CANH_BAO,
                 "Khoảng chạy đè lên thời gian máy hỏng/bảo trì.",
                 nguon="may",
-                goi_y="Dời sang khe khác hoặc đổi máy.",
+                goi_y="Cân nhắc dời sang khe khác hoặc đổi máy.",
             )
     return None
 
@@ -118,22 +133,33 @@ def trung_may(
     return None
 
 
-def dinh_dong_thoi(placements: list[tuple[datetime, datetime, int]]) -> int:
-    """ĐỈNH số người cùng lúc của một loạt việc — quét đường (sweep line).
+def dinh_dong_thoi_chi_tiet(
+    placements: list[tuple[datetime, datetime, int]],
+) -> tuple[int, int]:
+    """(ĐỈNH số người cùng lúc, SỐ VIỆC chồng giờ tại đúng đỉnh đó) — quét đường (sweep line).
 
     Tại cùng mốc, việc KẾT THÚC xử lý trước việc BẮT ĐẦU nên xếp nối tiếp (chạm mép) không bị cộng
-    dồn. Tách riêng để cả cửa CHẶN (`vuot_quan_so_to`) lẫn cửa CẢNH BÁO (`tai_to_cao`) đo cùng một số.
+    dồn. Đếm luôn số việc vì câu cảnh báo "đỉnh 5 người" một mình thì người xếp không biết 5 đó là
+    MỘT bước khai 5 người hay năm việc chồng nhau — hai chuyện sửa khác hẳn nhau.
     """
-    events: list[tuple[datetime, int]] = []
+    events: list[tuple[datetime, int, int]] = []
     for p_start, p_finish, so_nguoi in placements:
-        events.append((p_start, int(so_nguoi)))
-        events.append((p_finish, -int(so_nguoi)))
+        events.append((p_start, int(so_nguoi), 1))
+        events.append((p_finish, -int(so_nguoi), -1))
     events.sort(key=lambda e: (e[0], e[1]))
-    dang_chay = dinh = 0
-    for _, delta in events:
+    dang_chay = dinh = viec_dang_chay = viec_tai_dinh = 0
+    for _, delta, delta_viec in events:
         dang_chay += delta
-        dinh = max(dinh, dang_chay)
-    return dinh
+        viec_dang_chay += delta_viec
+        if dang_chay > dinh:
+            dinh, viec_tai_dinh = dang_chay, viec_dang_chay
+    return dinh, viec_tai_dinh
+
+
+def dinh_dong_thoi(placements: list[tuple[datetime, datetime, int]]) -> int:
+    """ĐỈNH số người cùng lúc của một loạt việc. Tách riêng để hai cửa cảnh báo
+    (`vuot_quan_so_to`, `tai_to_cao`) đo cùng một số."""
+    return dinh_dong_thoi_chi_tiet(placements)[0]
 
 
 def lan_viec_ke(
@@ -165,9 +191,9 @@ def sap_bao_tri(
 ) -> dict | None:
     """Máy có kỳ KHOÁ (bảo trì/hỏng/nghỉ) tới GẦN ngay sau khi việc xong ⇒ CẢNH BÁO (§7.3).
 
-    `khoa` = list `(k_start, k_finish)` đã aware — cùng nguồn `de_vung_khoa_may` (luật chặn khi ĐÈ
-    lên). Ở đây việc KHÔNG đè (đè thì đã bị chặn), nhưng kỳ khoá tới sát đuôi việc: nhắc để người xếp
-    biết máy sắp nghỉ, tránh dồn thêm việc vào sát đó. Chỉ soi kỳ khoá bắt đầu SAU khi việc xong.
+    `khoa` = list `(k_start, k_finish)` đã aware — cùng nguồn `de_vung_khoa_may` (luật báo khi ĐÈ
+    lên). Ở đây việc KHÔNG đè, nhưng kỳ khoá tới sát đuôi việc: nhắc để người xếp biết máy sắp nghỉ,
+    tránh dồn thêm việc vào sát đó. Chỉ soi kỳ khoá bắt đầu SAU khi việc xong.
     """
     if finish is None:
         return None
@@ -224,14 +250,29 @@ def tai_may_cao(
 def vuot_quan_so_to(
     placements: list[tuple[datetime, datetime, int]], quan_so: int,
 ) -> dict | None:
-    """ĐỈNH đồng thời của một tổ vượt quân số khả dụng ⇒ chặn (§4, §12.4)."""
-    dinh = dinh_dong_thoi(placements)
+    """ĐỈNH đồng thời của một tổ vượt quân số khả dụng ⇒ CẢNH BÁO (§4, §12.4).
+
+    21/08/2026 hạ từ CHẶN xuống CẢNH BÁO theo yêu cầu chủ dự án: quân số khai trên routing là số
+    ƯỚC (bước "Đóng gói + nhập kho" của LSX26-0020 khai 5 người trong khi tổ có 3), trong khi thực
+    tế xưởng vẫn điều người qua lại giữa các tổ. Chặn cứng làm bước không tìm được khe nào trong cả
+    60 ngày dò — máy nói "không xếp được" mà việc thì vẫn làm được. Vẫn nêu đúng con số để người xếp
+    tự cân, KHÔNG giấu.
+    """
+    dinh, so_viec = dinh_dong_thoi_chi_tiet(placements)
     if dinh > quan_so:
+        # MỘT việc ở đỉnh ⇒ con số đến thẳng từ ô "số người bố trí" của chính bước này; nói đúng
+        # như vậy để người xếp biết mở đâu mà sửa, thay vì đoán xem "đỉnh 5" là mấy việc cộng lại.
+        mo_ta = (
+            f"Bước này bố trí {dinh} người, vượt quân số {quan_so} của tổ."
+            if so_viec <= 1
+            else f"Đỉnh {dinh} người cùng lúc ({so_viec} việc chồng giờ) vượt quân số "
+                 f"{quan_so} của tổ."
+        )
         return issue(
-            "vuot_quan_so_to", MUC_CHAN_DAT_LICH,
-            f"Đỉnh {dinh} người cùng lúc vượt quân số {quan_so} của tổ.",
+            "vuot_quan_so_to", MUC_CANH_BAO, mo_ta,
             nguon="to",
-            goi_y="Giãn giờ các việc hoặc bổ sung người.",
+            goi_y=("Sửa số người bố trí ở bước, giãn giờ hoặc bổ sung người."
+                   if so_viec <= 1 else "Giãn giờ các việc hoặc bổ sung người."),
         )
     return None
 
@@ -242,7 +283,7 @@ def tai_to_cao(
     """Đỉnh quân số tổ CHƯA vượt (không chặn) nhưng đã chạm ngưỡng cao ⇒ CẢNH BÁO CÓ MỨC (§7.3).
 
     `dinh` = số người cùng lúc ở đỉnh (đã gồm việc đang đặt); `quan_so` = quân số khả dụng. Vượt hẳn
-    thì `vuot_quan_so_to` lo (chặn) — ở đây chỉ lo vùng "sắp kịch". Chia hai mức (cao / rất cao) để
+    thì `vuot_quan_so_to` lo — ở đây chỉ lo vùng "sắp kịch". Chia hai mức (cao / rất cao) để
     người xếp phân biệt "đông" với "gần hết người", không chỉ ném ra một con số thô.
     """
     if quan_so <= 0 or dinh <= 0 or dinh > quan_so:

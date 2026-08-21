@@ -32,31 +32,19 @@ from ...repositories.xep_lich_van_de_repo import XepLichVanDeRepository
 from ..lsx_service import _f
 from ..xep_lich_service import XepLichNotFound, XepLichService, _aware, _naive
 from . import constraint as C
-from . import auto, overlay, release, suggestion
+from . import auto, chan_doan, overlay, release, suggestion
 from .context import XepLich2Context
 
-_CANH_BAO_TEXT = {
-    "may_chua_toc_do": "Máy chưa khai tốc độ nên chưa tính được thời lượng.",
-    "chua_quy_doi": "Đơn vị của bước chưa quy đổi được về đơn vị tốc độ máy.",
-    "thue_ngoai_chua_lich": "Bước thuê ngoài chưa khai ngày gửi/nhận nên chưa tính được thời gian gia công.",
-}
-
-# Khi ĐÃ chọn giờ mà engine không tính nổi thời lượng, thiếu dữ liệu này biến lịch thành vô nghĩa
-# ⇒ nâng từ cảnh báo lên CHẶN ĐẶT LỊCH (spec §7.1: thieu_thoi_luong / thieu_quy_doi). Còn lúc mới
-# tạo nháp (chưa có giờ) thì vẫn chỉ nhắc, không cản người đưa lệnh vào kế hoạch.
-# Mỗi mục là (ma_chan, mo_ta, goi_y) — gợi ý riêng theo đúng thứ dữ liệu đang thiếu.
-_CANH_BAO_CHAN = {
-    "may_chua_toc_do": ("thieu_thoi_luong",
-                        "Máy chưa khai tốc độ nên chưa tính được thời lượng chạy.",
-                        "Khai tốc độ máy rồi xếp lại."),
-    "chua_quy_doi": ("thieu_quy_doi",
-                     "Đơn vị của bước chưa quy đổi được về đơn vị tốc độ máy.",
-                     "Quy đổi đơn vị bước về đơn vị tốc độ máy rồi xếp lại."),
-    "thue_ngoai_chua_lich": (
-        "thieu_lead_thue_ngoai",
-        "Bước thuê ngoài chưa khai ngày gửi/nhận (hoặc số ngày gia công) nên chưa tính được thời gian.",
-        "Khai ngày gửi & ngày nhận dự kiến — hoặc số ngày gia công + vận chuyển — rồi xếp lại.",
-    ),
+# Mã CHẶN tương ứng khi ĐÃ chọn giờ mà engine không tính nổi thời lượng: thiếu dữ liệu này biến
+# lịch thành vô nghĩa ⇒ nâng từ cảnh báo lên CHẶN ĐẶT LỊCH (spec §7.1). Lúc mới tạo nháp (chưa có
+# giờ) thì vẫn chỉ nhắc, không cản người đưa lệnh vào kế hoạch.
+# CÂU CHỮ không nằm ở đây: `chan_doan.chi_tiet` dựng câu từ chính dữ liệu bước đang đứng (loại bước ·
+# số lượng vào · đơn vị nguồn/đích · tên máy hay đầu việc khoán), nên bước tổ không bị đọc câu của
+# bước máy và người xếp thấy luôn con số đang vướng.
+_MA_CHAN = {
+    "may_chua_toc_do": "thieu_thoi_luong",
+    "chua_quy_doi": "thieu_quy_doi",
+    "thue_ngoai_chua_lich": "thieu_lead_thue_ngoai",
 }
 
 # Nhãn ĐỐI TƯỢNG tĩnh cho các loại vấn đề không neo vào một máy/tổ cụ thể (điền lúc trình bày).
@@ -70,6 +58,16 @@ _DOI_TUONG_TINH = {
 
 # Xếp hạng 3 mức để rút MỨC NẶNG NHẤT của một cách đặt: chặn-đặt-lịch > chặn-phát-hành > cảnh-báo.
 _XL2_MUC_RANK = {C.MUC_CHAN_DAT_LICH: 3, C.MUC_CHAN_PHAT_HANH: 2, C.MUC_CANH_BAO: 1}
+
+
+def _goi_ten(ten: str, loai: str) -> str:
+    """Gọi tên tài nguyên trong câu văn — KHÔNG lặp loại khi tên đã tự mang loại.
+
+    Danh mục máy/tổ do người dùng khai, tên thường đã có sẵn chữ "Máy …" / "Tổ …" (dữ liệu thật:
+    "Máy bế tự động Yawa 1050", "Tổ Đóng gói"); ghép cứng tiền tố sẽ ra "máy Máy bế tự động".
+    """
+    t = (ten or "").strip()
+    return t if t.lower().startswith(loai.lower() + " ") else f"{loai} {t}"
 
 
 def _muc_worst(van_de: list[dict]) -> str | None:
@@ -215,18 +213,19 @@ class XepLich2Service:
                 if fn:
                     vd.append(fn)
         if canh_bao:
-            if start is not None and canh_bao in _CANH_BAO_CHAN:
-                ma, text, goi_y = _CANH_BAO_CHAN[canh_bao]
-                vd.append(C.issue(ma, C.MUC_CHAN_DAT_LICH, text, nguon="buoc", goi_y=goi_y))
+            mo_ta, goi_y = chan_doan.chi_tiet(self, dong, canh_bao)
+            if start is not None and canh_bao in _MA_CHAN:
+                vd.append(C.issue(_MA_CHAN[canh_bao], C.MUC_CHAN_DAT_LICH, mo_ta,
+                                  nguon="buoc", goi_y=goi_y))
             else:
-                vd.append(C.issue(canh_bao, C.MUC_CANH_BAO,
-                                  _CANH_BAO_TEXT.get(canh_bao, "Cần xem lại dữ liệu bước."),
-                                  nguon="buoc"))
+                vd.append(C.issue(canh_bao, C.MUC_CANH_BAO, mo_ta, nguon="buoc", goi_y=goi_y))
         return vd
 
     def _vuot_quan_so(self, dong, department_id, start, finish, exclude_id) -> list[dict]:
-        """Đỉnh quân số tổ: vượt hẳn ⇒ CHẶN (`vuot_quan_so_to`); sắp kịch ⇒ CẢNH BÁO có mức
-        (`tai_to_cao`). Đo cùng một đỉnh nên hai cửa không lệch nhau."""
+        """Đỉnh quân số tổ: vượt hẳn ⇒ CẢNH BÁO (`vuot_quan_so_to`); sắp kịch ⇒ CẢNH BÁO có mức
+        (`tai_to_cao`). Đo cùng một đỉnh nên hai cửa không lệch nhau.
+
+        Cả hai đều chỉ CẢNH BÁO (21/08/2026) — quân số không còn chặn đặt lịch lẫn phát hành."""
         if not department_id:
             return []
         qs = self.ctx.quan_so(department_id, start.date())
@@ -330,6 +329,61 @@ class XepLich2Service:
             self._ten_to_cache[department_id] = d.name if d else None
         return self._ten_to_cache[department_id]
 
+    def _nhan_buoc(self, r, nhan: "_NhanMaps") -> str:
+        """Nhãn NGƯỜI ĐỌC của một bước: `B3 · Cán màng bóng` — đúng số bàn/panel đang hiện (B = thứ
+        tự + 1). Không có tên công đoạn thì còn mỗi số bước, vẫn hơn nhãn chung "Công đoạn"."""
+        ten = (nhan.lsx_cd.get(r.lsx_cong_doan_id) if r.nguon == NGUON_LSX
+               else nhan.bg_cd.get(r.bai_ghep_cong_doan_id))
+        so = f"B{int(r.source_thu_tu or 0) + 1}"
+        return f"{so} · {ten}" if ten else so
+
+    def _chu_buoc(self, r) -> str | None:
+        """AI đang nhận bước — nhà thầu ngoài / máy / tổ, gọi bằng TÊN THẬT. None = còn vô chủ.
+
+        Dòng theo máy trong dữ liệu thật thường mang KÈM `department_id` (tổ vận hành máy), nên thứ
+        tự ưu tiên là thầu ngoài → máy → tổ, khớp thứ tự engine đọc tài nguyên."""
+        if (ncc := (getattr(r, "nha_cung_cap", None) or "").strip()):
+            return f"nhà thầu ngoài {ncc}"
+        if r.may_id:
+            ten = self._ten_may(r.may_id)
+            return _goi_ten(ten, "máy") if ten else "máy đã chọn"
+        if r.department_id:
+            ten = self._ten_to(r.department_id)
+            return _goi_ten(ten, "tổ") if ten else "tổ đã chọn"
+        return None
+
+    def _ly_do_chua_tinh_duoc(self, r) -> tuple[str, str] | None:
+        """`(mô tả, gợi ý)` vì sao engine CHƯA tính nổi thời lượng của MỘT dòng đã lưu, hay None khi
+        tính được bình thường. Câu do `chan_doan` dựng nên nó gọi tên đúng thứ đang thiếu."""
+        ma = (self._thoi_luong_v2(r) or {}).get("canh_bao")
+        return chan_doan.chi_tiet(self, r, ma) if ma else None
+
+    def _van_de_chua_xep(self, r, nhan: "_NhanMaps") -> dict:
+        """Vấn đề CHẶN PHÁT HÀNH của MỘT bước chưa xếp xong — gọi ĐÍCH DANH bước nào, thiếu THỨ GÌ.
+
+        Trước 21/08/2026 mọi bước dùng chung một câu "Còn công đoạn chưa gán đủ máy/tổ và giờ bắt
+        đầu": lệnh 6 bước đẻ 6 thẻ y hệt nhau, và bước ĐÃ có máy vẫn bị nói là thiếu máy (LSX26-0020:
+        cả 6 dòng có `may_id`/`department_id`, chỉ thiếu `start_at`). Nay tách đúng ba tình huống —
+        thiếu giờ · thiếu chủ · thiếu cả hai — và ghép thêm lý do engine chưa tính nổi thời lượng khi
+        có, vì đó mới là thứ chặn Tự xếp.
+        """
+        chu = self._chu_buoc(r)
+        gio = _naive(r.start_at)
+        if chu and gio is None:
+            mo_ta = f"Đã giao cho {chu} nhưng CHƯA có giờ bắt đầu."
+            goi_y = "Bấm Tự xếp cho bước này, hoặc kéo thanh vào bàn để chốt giờ bắt đầu."
+        elif chu is None and gio is not None:
+            mo_ta = f"Đã có giờ bắt đầu {gio:%H:%M %d/%m} nhưng CHƯA chọn ai chạy bước."
+            goi_y = "Chọn máy, tổ hoặc nhà thầu ngoài cho bước này."
+        else:
+            mo_ta = "CHƯA chọn máy/tổ, cũng CHƯA có giờ bắt đầu."
+            goi_y = "Bấm Tự xếp cho bước này, hoặc chọn máy/tổ rồi kéo vào bàn."
+        if (ly_do := self._ly_do_chua_tinh_duoc(r)):
+            mo_ta += f" {ly_do[0]}"
+            goi_y = ly_do[1] or goi_y
+        return C.issue("con_buoc_chua_xep", C.MUC_CHAN_PHAT_HANH, mo_ta, nguon="buoc",
+                       goi_y=goi_y, doi_tuong=self._nhan_buoc(r, nhan))
+
     def _dien_doi_tuong(self, van_de, *, may_id=None, department_id=None):
         """Điền `doi_tuong` (đối tượng bị ảnh hưởng) cho mỗi vấn đề theo `nguon` — CHỈ trình bày.
 
@@ -342,10 +396,10 @@ class XepLich2Service:
             ng = i.get("nguon") or ""
             if ng == "may":
                 ten = self._ten_may(may_id)
-                i["doi_tuong"] = f"Máy {ten}" if ten else "Máy"
+                i["doi_tuong"] = _goi_ten(ten, "Máy") if ten else "Máy"
             elif ng == "to":
                 ten = self._ten_to(department_id)
-                i["doi_tuong"] = f"Tổ {ten}" if ten else "Tổ"
+                i["doi_tuong"] = _goi_ten(ten, "Tổ") if ten else "Tổ"
             else:
                 tinh = _DOI_TUONG_TINH.get(ng)
                 if tinh:
@@ -394,6 +448,11 @@ class XepLich2Service:
     def xem_truoc(self, *, dong_id: int, patch: dict) -> dict:
         dong = self.core._get_dong(dong_id)
         t = self._tinh(dong, patch)
+        # Nhân lực của bước đi kèm xem-trước. Hộp xác nhận vốn chỉ in NGUYÊN VĂN câu vấn đề
+        # ("Đỉnh 5 người cùng lúc vượt quân số 3 của tổ") — người xếp đọc xong không biết số 5 ở
+        # đâu ra và định biên của bước là bao nhiêu, phải mở màn Lệnh sản xuất mới tra được.
+        # Trả kèm số bố trí + ba mốc để hộp thoại tự nói hết.
+        op = self._op_cua_dong(dong)
         anh_huong, han_moi, han_sx, han_giao = self._anh_huong_ha_nguon(dong, t["finish"])
         tre = (han_moi.date() - han_sx).days if (han_moi is not None and han_sx is not None) else None
         return {
@@ -412,6 +471,8 @@ class XepLich2Service:
             "han_giao": han_giao,
             "tre_han_sx": bool(tre is not None and tre > 0),
             "tre_ngay": tre if (tre is not None and tre > 0) else None,
+            "so_nhan_cong": int(getattr(op, "so_nhan_cong", 1) or 1) if op is not None else None,
+            "dinh_bien": self._dinh_bien(op),
         }
 
     # ================= LƯU (khóa lạc quan + chặn đặt lịch) =================
@@ -486,15 +547,11 @@ class XepLich2Service:
                 )
                 tre["da_ngoai_le"] = True
             vd.append(tre)
+        nhan = self._nap_nhan(rows)
         for r in rows:
             co_tai_nguyen = bool(r.may_id or r.department_id or (r.nha_cung_cap or "").strip())
             if r.start_at is None or not co_tai_nguyen:
-                vd.append(C.issue(
-                    "con_buoc_chua_xep", C.MUC_CHAN_PHAT_HANH,
-                    "Còn công đoạn chưa gán đủ máy/tổ và giờ bắt đầu.",
-                    nguon="buoc",
-                    goi_y="Xếp giờ cho mọi công đoạn trước khi phát hành.",
-                ))
+                vd.append(self._van_de_chua_xep(r, nhan))
                 continue
             t = self._tinh(r, {})
             vd += [i for i in t["van_de"] if i["muc"] == C.MUC_CHAN_DAT_LICH]

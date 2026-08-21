@@ -44,6 +44,11 @@ class BuocChungUpdateIn(BaseModel):
     may_id: int | None = None
     loai_buoc: str | None = None
     so_nhan_cong: int | None = None
+    # Biên nhân lực sửa đè được (mặc định kế thừa định mức đầu việc). Gửi kèm thì server GIỮ,
+    # không để nhánh ghim đầu việc đè lại.
+    so_nhan_cong_toi_thieu: int | None = None
+    so_nhan_cong_tieu_chuan: int | None = None
+    so_nhan_cong_toi_da: int | None = None
     # Đầu việc khoán ghim theo ID, KHÔNG nhận `khoan_json` thô: ảnh chụp đơn giá là thứ server
     # chụp từ bảng giá của tổ. Cho client gửi thẳng là mở cửa cho đơn giá bịa vào phiếu lương.
     # 0 / null = bỏ chọn. Luật kiểm dùng chung với bước lệnh (`_dau_viec_cua_cong_doan`).
@@ -369,6 +374,10 @@ class SoDoBuocChung(BaseModel):
     chiem_may_phut_max: float = 0
     # Giá trị NGƯỜI đã khai — form phải mồi lại được, không thì mở drawer là ô trống và lưu đè mất.
     so_nhan_cong: int = 1
+    # Ba mốc định biên của bước chung — cùng hợp đồng với bước lệnh ở màn KHSX.
+    so_nhan_cong_toi_thieu: int | None = None
+    so_nhan_cong_tieu_chuan: int = 1
+    so_nhan_cong_toi_da: int | None = None
     nang_suat: float | None = None
     don_vi_nang_suat: str | None = None
     chay_phut: float | None = None      # dẫn xuất: SL vào × 60 ÷ tốc độ máy × số lượt

@@ -19,7 +19,10 @@ export interface DagRoutingCanvasProps {
   onUpdateRows: (rows: EditRow[]) => void;
   /** `tab` chỉ dùng cho deep-link từ badge trên node (vd sổ giao–nhận). */
   onOpenDrawer: (index: number, tab?: "giao_nhan") => void;
-  onAddStep: () => void;
+  /** `afterKey` = chèn ngay sau node ĐANG CHỌN (nếu có) để `thu_tu` đúng liền — số lượng + số hiệu
+   *  bám `thu_tu` nên đây là chỗ quyết định vị trí, không phải cạnh phụ thuộc. Không chọn node nào
+   *  thì thêm ở cuối. */
+  onAddStep: (afterKey?: string) => void;
 }
 
 export interface Point {
@@ -650,16 +653,26 @@ export function DagRoutingCanvas({
             <Icon name="layout" size={14} /> Sắp xếp tự động
           </button>
 
-          {canUpdate && (
-            <button
-              type="button"
-              className="dag-btn-icon"
-              style={{ background: "#c25e38", color: "#fff", borderColor: "#c25e38" }}
-              onClick={onAddStep}
-            >
-              <Icon name="plus" size={14} /> Thêm công đoạn
-            </button>
-          )}
+          {canUpdate && (() => {
+            // Có node đang chọn ⇒ CHÈN NGAY SAU nó (thu_tu đúng liền); chưa chọn ⇒ thêm ở cuối.
+            const nodeChon = selectedKey ? rows.find((r) => r.key === selectedKey) : null;
+            const tenChon = nodeChon?.ten?.trim();
+            const tenNgan = tenChon && tenChon.length > 18 ? `${tenChon.slice(0, 17)}…` : tenChon;
+            return (
+              <button
+                type="button"
+                className="dag-btn-icon"
+                style={{ background: "#c25e38", color: "#fff", borderColor: "#c25e38" }}
+                onClick={() => onAddStep(selectedKey ?? undefined)}
+                title={tenChon
+                  ? `Chèn 1 công đoạn ngay sau "${tenChon}"`
+                  : "Thêm công đoạn ở cuối — bấm chọn 1 bước trước để chèn vào giữa"}
+              >
+                <Icon name="plus" size={14} />{" "}
+                {tenNgan ? `Chèn sau: ${tenNgan}` : "Thêm công đoạn"}
+              </button>
+            );
+          })()}
         </div>
 
         <div className="dag-toolbar__right">

@@ -32,7 +32,7 @@ export interface FlowEdge {
 }
 
 const VIEW_W = 1280;
-const VIEW_H = 650;
+const VIEW_H = 500;
 const HEAD_H = 40;
 
 export const LANES: { key: LaneKey; label: string; cx: number; colorVar: string }[] = [
@@ -112,17 +112,6 @@ export const NODES: FlowNode[] = [
     desc: "Tạo Đơn bán chính thức trên hệ thống ERP, theo dõi tiến độ sản xuất và thanh toán.",
   },
   {
-    id: "plan",
-    label: "Kế hoạch giao hàng",
-    lane: "kd",
-    kind: "process",
-    cx: 385,
-    cy: 260,
-    sub: "Sales lập",
-    role: "Phòng Kinh doanh",
-    desc: "Lên lịch trình dự kiến bàn giao sản phẩm cho khách hàng.",
-  },
-  {
     id: "prod",
     label: "Sản xuất",
     lane: "sx",
@@ -177,58 +166,21 @@ export const NODES: FlowNode[] = [
     desc: "Khách hàng nhận hàng, nghiệm thu chất lượng và phản hồi kết quả.",
   },
   {
-    id: "return",
-    label: "Xác nhận trả hàng",
-    lane: "kd",
-    kind: "decision",
-    cx: 385,
-    cy: 460,
-    role: "Kinh doanh / QA",
-    desc: "Đánh giá yêu cầu trả hàng nếu hàng bị lỗi quy cách hoặc nhầm lẫn sản phẩm.",
-  },
-  {
-    id: "returned",
-    label: "Hàng bán trả lại",
-    lane: "kh",
-    kind: "process",
-    cx: 135,
-    cy: 510,
-    to: "khach-hang",
-    role: "Kho / Kinh doanh",
-    desc: "Xử lý thủ tục nhập trả lại kho và lên phương án đền bù / làm lại.",
-  },
-  {
-    id: "receipt",
-    label: "Phiếu thu / Báo có",
-    lane: "kd",
-    kind: "process",
-    cx: 385,
-    cy: 510,
-    sub: "Kế toán",
-    role: "Kế toán",
-    desc: "Ghi nhận dòng tiền thanh toán từ khách hàng vào hệ thống kế toán.",
-  },
-  {
-    id: "report",
-    label: "Báo cáo bán hàng",
-    lane: "kd",
-    kind: "process",
-    cx: 385,
-    cy: 560,
-    role: "Quản lý / Kinh doanh",
-    desc: "Tổng hợp doanh thu, chi phí, hiệu suất chốt đơn và công nợ khách hàng.",
-  },
-  {
     id: "end",
     label: "Kết thúc",
-    lane: "kd",
+    lane: "kh",
     kind: "end",
-    cx: 385,
-    cy: 610,
+    cx: 135,
+    cy: 460,
     role: "Hệ thống",
-    desc: "Đơn hàng hoàn tất vòng đời bán hàng và thu tiền thành công.",
+    desc: "Khách nhận đủ hàng — hết phạm vi bản đồ này. Trả hàng · phiếu thu · báo cáo bán hàng đã gỡ khỏi sơ đồ 21/08/2026 (nghiệp vụ của phân hệ khác, không thuộc luồng bán).",
   },
 ];
+
+/** Số bước & số màn bấm được — ĐẾM TỪ `NODES`, đừng gõ tay: gỡ/thêm một bước là con số gõ tay
+  * nói dối ngay lượt sau (đã dính khi gỡ "Kế hoạch giao hàng" 21/08/2026). */
+export const SO_BUOC = NODES.length;
+export const SO_MAN = new Set(NODES.filter((n) => n.to).map((n) => n.to)).size;
 
 export const EDGES: FlowEdge[] = [
   { from: "start", to: "req", d: "M135 72 L135 96" },
@@ -237,17 +189,11 @@ export const EDGES: FlowEdge[] = [
   { from: "quote", to: "confirm", d: "M315 160 L205 160" },
   { from: "confirm", to: "order", d: "M135 174 L135 210 L315 210" },
   { from: "order", to: "prod", d: "M455 210 L635 210 L635 246" },
-  { from: "order", to: "plan", d: "M385 224 L385 246" },
   { from: "prod", to: "stockin", d: "M705 260 L885 260 L885 296" },
   { from: "stockin", to: "stockout", d: "M885 324 L885 346" },
   { from: "stockout", to: "delivery", d: "M955 360 L1135 360 L1135 396" },
   { from: "delivery", to: "receive", d: "M1065 410 L205 410" },
-  { from: "receive", to: "return", d: "M135 424 L135 442 L385 442" },
-  { from: "return", to: "receipt", d: "M385 478 L385 496", label: "Không", lx: 405, ly: 486 },
-  { from: "return", to: "returned", d: "M325 460 L135 460 L135 496", label: "Có", lx: 155, ly: 452 },
-  { from: "receipt", to: "report", d: "M385 524 L385 546" },
-  { from: "returned", to: "report", d: "M135 524 L135 560 L315 560" },
-  { from: "report", to: "end", d: "M385 574 L385 598" },
+  { from: "receive", to: "end", d: "M135 424 L135 448" },
 ];
 
 const PROC_W = 140;
@@ -347,11 +293,11 @@ export function QuyTrinhKinhDoanhPage({ navigate }: { navigate: (id: string) => 
           <div className="qtkd__metrics">
             <div className="qtkd__metric-pill">
               <span className="qtkd__metric-dot is-active"></span>
-              <span className="qtkd__metric-num">17</span> Bước quy trình
+              <span className="qtkd__metric-num">{SO_BUOC}</span> Bước quy trình
             </div>
             <div className="qtkd__metric-pill">
               <span className="qtkd__metric-dot is-link"></span>
-              <span className="qtkd__metric-num">7</span> Màn hình hoạt động
+              <span className="qtkd__metric-num">{SO_MAN}</span> Màn hình hoạt động
             </div>
           </div>
         </div>

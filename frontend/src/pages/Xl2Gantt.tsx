@@ -204,7 +204,11 @@ export function Xl2Gantt({
   // Ruy-băng ca dưới thước: mỗi ngày lặp lại đúng bộ ca, mỗi ca một thanh CÓ TÊN ở hàng của nó.
   const ribbon = useMemo(() => {
     const out: { x: number; w: number; row: number; idx: number; ten: string; gio: string }[] = [];
-    for (let d = winStart; d < winEnd; d += 1440) {
+    // Lùi MỘT NGÀY trước mép trái: ca qua đêm (Ca 3 22:00–06:00) khởi hành từ HÔM TRƯỚC, mà vòng lặp
+    // cũ bắt đầu đúng `winStart` nên khúc 00:00–06:00 của ngày đầu cửa sổ không ai vẽ. Người xem thấy
+    // dải trống rồi kết luận "máy xếp việc ngoài ca" — trong khi engine xếp ĐÚNG luật, chỉ là cái ca
+    // hợp lệ đó không được tô. `scale.xOf` tự kẹp về 0 nên phần thò ra trái không đè cột nhãn.
+    for (let d = winStart - 1440; d < winEnd; d += 1440) {
       for (const c of caLayout.items) {
         const x = scale.xOf(d + c.s);
         const x2 = scale.xOf(d + c.s + c.dai);
@@ -537,43 +541,9 @@ export function Xl2Gantt({
 
   return (
     <div className="xl2-gantt-wrap">
-      {/* 1. Live Factory Capacity KPI Bar */}
-      <div className="xl2-gantt-kpi">
-        <div className="xl2-gantt-kpi__items">
-          <div className="xl2-kpi-chip">
-            <span className="xl2-kpi-dot xl2-kpi-dot--active" />
-            <span className="xl2-kpi-lb">Máy hoạt động:</span>
-            <b className="xl2-kpi-val">{stats.activeMays}/{stats.totalMays} máy</b>
-          </div>
-          <div className="xl2-kpi-chip">
-            <span className="xl2-kpi-lb">Công suất tải:</span>
-            <span className="xl2-kpi-bar">
-              <span
-                className={`xl2-kpi-bar__fill${stats.capPct > 85 ? " is-high" : ""}`}
-                style={{ width: `${Math.min(stats.capPct, 100)}%` }}
-              />
-            </span>
-            <b className="xl2-kpi-val">{stats.capPct}%</b>
-          </div>
-          <div className="xl2-kpi-chip">
-            <Icon name="workflow" size={12} />
-            <span className="xl2-kpi-lb">Đã xếp:</span>
-            <b className="xl2-kpi-val">{stats.totalJobs} công đoạn</b>
-            <span className="xl2-kpi-sub">· {thoiLuong(stats.totalMinutes)}</span>
-          </div>
-        </div>
-        <div className="xl2-gantt-kpi__actions">
-          {nowX != null && (
-            <button type="button" className="xl2-kpi-btn" onClick={scrollToNow} title="Di chuyển tới mốc hiện tại">
-              <Icon name="clock" size={12} /> Hôm nay
-            </button>
-          )}
-        </div>
-      </div>
-
       <div className="xl2-gantt__scroll" ref={scrollRef}>
         <div className="xl2-gantt__inner" style={{ width: fullW, ...laneStyle }}>
-          {/* Thước 2 tầng sang trọng */}
+          {/* Thước 2 tầng tích hợp Ca xưởng */}
           <div className="xl2-ruler" style={{ width: fullW }}>
             <div className="xl2-ruler__spacer" />
             {ruler.days.map((d, i) => (
@@ -594,22 +564,20 @@ export function Xl2Gantt({
             ))}
           </div>
 
-          {/* RUY-BĂNG CA — ca nào ra ca nấy, có TÊN, gối nhau thì tách hàng. Đây là chỗ trả lời câu
-              "ca nào với ca nào": trong lane chỉ còn vạch mốc bắt đầu, tên ca đọc ở đây. */}
-          <div className="xl2-carib" style={{ width: fullW, height: caLayout.rows * 15 + 6 }}>
+          {/* Ruy-băng Ca làm việc tích hợp */}
+          <div className="xl2-carib" style={{ width: fullW, height: caLayout.rows * 16 + 6 }}>
             <div className="xl2-carib__spacer">
-              <Icon name="clock" size={11} />
-              <span>Ca xưởng</span>
+              <span>Ca làm việc</span>
             </div>
             {ribbon.map((b, i) => (
               <div
                 key={`cb${i}`}
                 className={`xl2-carib__ca xl2-carib__ca--c${b.idx % 5}`}
-                style={{ left: LABEL_W + b.x, width: Math.max(b.w, 2), top: 3 + b.row * 15 }}
+                style={{ left: LABEL_W + b.x, width: Math.max(b.w, 2), top: 3 + b.row * 16 }}
                 title={`${b.ten} · ${b.gio}`}
               >
-                {b.w >= 44 && <span className="xl2-carib__ten">{b.ten}</span>}
-                {b.w >= 116 && <span className="xl2-carib__gio">{b.gio}</span>}
+                {b.w >= 40 && <span className="xl2-carib__ten">{b.ten}</span>}
+                {b.w >= 100 && <span className="xl2-carib__gio">{b.gio}</span>}
               </div>
             ))}
           </div>
@@ -631,7 +599,6 @@ export function Xl2Gantt({
               </defs>
               {dependencyCurves.map((c) => (
                 <g key={c.id}>
-                  {/* Glowing aura path */}
                   <path d={c.d} className="xl2-dep-path-glow" />
                   <path
                     d={c.d}
@@ -639,12 +606,12 @@ export function Xl2Gantt({
                     markerEnd={c.hasConflict ? "url(#xl2-arrow-bad)" : "url(#xl2-arrow)"}
                   />
                   {!c.hasConflict && (
-                    <circle r="3.5" fill="var(--rust)" className="xl2-dep-particle">
+                    <circle r="3" fill="var(--rust)" className="xl2-dep-particle">
                       <animateMotion path={c.d} dur="1.8s" repeatCount="indefinite" />
                     </circle>
                   )}
                   {c.hasConflict && (
-                    <circle cx={c.xMid} cy={c.yMid} r="5" className="xl2-dep-conflict-dot" />
+                    <circle cx={c.xMid} cy={c.yMid} r="4.5" className="xl2-dep-conflict-dot" />
                   )}
                 </g>
               ))}
@@ -666,9 +633,6 @@ export function Xl2Gantt({
             <div key={cluster.key} className={`xl2-cluster xl2-cluster--${cluster.key}`}>
               <div className="xl2-cluster__headbg" style={{ width: fullW }} />
               <div className="xl2-cluster__head">
-                <div className="xl2-cluster__iconbox">
-                  <Icon name={cluster.icon} size={14} />
-                </div>
                 <span className="xl2-cluster__title">{cluster.label}</span>
                 {(() => {
                   const viec = demViecLanes(cluster.lanes);
@@ -695,32 +659,34 @@ export function Xl2Gantt({
                 return (
                   <div key={lane.key} className="xl2-lane">
                     <div className="xl2-lane__label" title={lane.label}>
-                      <div className="xl2-lane__icon">
-                        <Icon name={cluster.icon} size={13} />
-                      </div>
                       <div className="xl2-lane__info">
                         <div className="xl2-lane__name-row">
                           <span className="xl2-lane__name">{lane.label}</span>
                         </div>
                         <div className="xl2-lane__sub-row">
                           {lane.cluster === "may" && (
-                            <span className="xl2-lane__spec">
-                              {avgLoad != null && avgLoad > 0 ? `${avgLoad}% tải` : "Rảnh"}
-                            </span>
+                            <>
+                              <span className="xl2-lane__spec">
+                                {avgLoad != null && avgLoad > 0 ? `${avgLoad}% tải` : "Rảnh"}
+                              </span>
+                              {avgLoad != null && (
+                                <span className="xl2-cap-bar" title={`Tải trung bình: ${avgLoad}%`}>
+                                  <span
+                                    className={`xl2-cap-bar__fill${avgLoad > 85 ? " is-high" : avgLoad > 65 ? " is-med" : ""}`}
+                                    style={{ width: `${Math.min(avgLoad, 100)}%` }}
+                                  />
+                                </span>
+                              )}
+                            </>
                           )}
                           {lane.cluster === "to" && (
                             <span className="xl2-lane__spec">Tổ trực ca</span>
                           )}
+                          {lane.cluster === "ncc" && (
+                            <span className="xl2-lane__spec">Đối tác thuê ngoài</span>
+                          )}
                           {lane.cluster === "lenh" && lane.sub && (
                             <span className="xl2-lane__spec" title={lane.sub}>{lane.sub}</span>
-                          )}
-                          {avgLoad != null && (
-                            <span className="xl2-cap-bar">
-                              <span
-                                className={`xl2-cap-bar__fill${avgLoad > 85 ? " is-high" : ""}`}
-                                style={{ width: `${Math.min(avgLoad, 100)}%` }}
-                              />
-                            </span>
                           )}
                         </div>
                       </div>
@@ -745,7 +711,7 @@ export function Xl2Gantt({
                         } catch {}
                       } : undefined}
                     >
-                    {/* nền */}
+                    {/* Nền lưới thời gian & ngày nghỉ */}
                     {!lane.packed && (
                       <>
                         {bg.nonwork.map((w, i) => (
@@ -765,47 +731,12 @@ export function Xl2Gantt({
                         {nowX != null && <div className="xl2-nowline" style={{ left: nowX }} />}
                       </>
                     )}
-                    {/* overlay F1 — lane Máy */}
+                    {/* Khoá máy / Bảo trì (chỉ vẽ vùng khoá bảo trì, KHÔNG vẽ dải cam ngang) */}
                     {!lane.packed && lane.cluster === "may" && lane.resId != null && (
                       <>
                         {overlay.khoaByMay.get(lane.resId)?.map((k, i) => (
                           <div key={`kh${i}`} className="xl2-khoa" style={{ left: k.x, width: k.w }} title={k.title} />
                         ))}
-                        {[...(overlay.taiMayByDay.get(lane.resId)?.entries() ?? [])].map(([dayWall, v]) => (
-                          <div
-                            key={`ld${dayWall}`}
-                            className={`xl2-load xl2-load--h${heatBucket(v.pct)}`}
-                            style={{ left: scale.xOf(dayWall), width: 1440 * scale.ppm }}
-                            title={`Máy chạy ${thoiLuong(v.phut)} (${Math.round(v.pct * 100)}%)`}
-                          >
-                            {v.pct >= 0.6 && <span className="xl2-load__n">{Math.round(v.pct * 100)}%</span>}
-                          </div>
-                        ))}
-                      </>
-                    )}
-                    {/* overlay F1 — lane Tổ */}
-                    {!lane.packed && lane.cluster === "to" && lane.resId != null && (
-                      <>
-                        {[...(overlay.taiToByDept.get(lane.resId)?.entries() ?? [])].map(([dayWall, t]) => {
-                          const over = t.dinh > t.so_nguoi && !t.go_de;
-                          const cls = over ? "xl2-heat--over" : t.go_de ? "xl2-heat--ok" : "xl2-heat--calm";
-                          return (
-                            <div
-                              key={`ht${dayWall}`}
-                              className={`xl2-heat ${cls}`}
-                              style={{ left: scale.xOf(dayWall), width: 1440 * scale.ppm }}
-                              title={over ? `Quá tải: cần ${t.dinh}, có ${t.so_nguoi}`
-                                : t.go_de ? `Đã duyệt vượt: cần ${t.dinh}, có ${t.so_nguoi}`
-                                  : `Đỉnh ${t.dinh}/${t.so_nguoi}`}
-                            >
-                              {(over || t.go_de) && (
-                                <span className="xl2-heat__n">
-                                  {over && <Icon name="alert" size={10} />}{t.dinh}/{t.so_nguoi}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
                       </>
                     )}
                     {/* Thanh công việc Modern Task Capsule */}
@@ -827,25 +758,18 @@ export function Xl2Gantt({
                       
                       const bt = dong.boc_tach;
                       const btUncertain = !!bt && bt.chiem_may_phut_max > bt.chiem_may_phut_min;
-                      // Thanh vẽ theo mức TRUNG BÌNH (lịch tính bằng nó); min–max chỉ là râu. Máy chưa khai
-                      // tốc-độ-nhanh/chậm thì cả ba số bằng nhau — phải NÓI RA là chưa khai dải, đừng để
-                      // người xem tưởng máy chạy chính xác tuyệt đối.
                       const btTitle = bt
                         ? ` · canh ${thoiLuong(bt.canh_may_phut)} · chạy ${thoiLuong(bt.chay_phut)} · khác ${thoiLuong(bt.khac_phut)}`
                           + (btUncertain
-                            ? ` · chiếm ${thoiLuong(bt.chiem_may_phut)} (nhanh nhất ${thoiLuong(bt.chiem_may_phut_min)} · chậm nhất ${thoiLuong(bt.chiem_may_phut_max)})`
-                            : ` · chiếm ${thoiLuong(bt.chiem_may_phut)} — máy chưa khai dải nhanh/chậm nên không vẽ râu`)
+                            ? ` · chiếm ${thoiLuong(bt.chiem_may_phut)} (${thoiLuong(bt.chiem_may_phut_min)}–${thoiLuong(bt.chiem_may_phut_max)})`
+                            : ` · chiếm ${thoiLuong(bt.chiem_may_phut)}`)
                         : "";
                       
                       const nhan = dongNhanParts(dong);
                       const serial = dongSerial(dong);
                       const nhomCd = nhomCongDoan(nhan.congDoan, lane.cluster === "ncc");
-                      const wide = width >= 90;
-                      const tiny = width < 48;
-                      const spillText = tiny
-                        ? `${serial}${nhan.congDoan ? ` · ${nhan.congDoan}` : ""}`
-                        : (nhan.congDoan ?? "");
-                      const showSpill = timed && !wide && spillText !== "";
+                      const isWide = width >= 84;
+                      const isMedium = width >= 48 && !isWide;
                       const durLabel = bt?.chiem_may_phut ? thoiLuong(bt.chiem_may_phut) : null;
 
                       return (
@@ -862,39 +786,53 @@ export function Xl2Gantt({
                           onPointerEnter={() => setHoverEntityKey(thisEntityKey)}
                           onPointerLeave={() => setHoverEntityKey(null)}
                         >
+                          {/* Accent chỉ báo trạng thái mép trái */}
                           <span className="xl2-bar__accent" />
+
+                          {/* Vân sọc vi sóng canh máy ở đầu thanh */}
+                          {timed && bt && bt.canh_may_phut > 0 && width >= 40 && (
+                            <span
+                              className="xl2-bar__setup-hatch"
+                              style={{ width: `${Math.min(Math.max((bt.canh_may_phut / (bt.chiem_may_phut || 1)) * 100, 4), 30)}%` }}
+                              title={`Canh máy: ${thoiLuong(bt.canh_may_phut)}`}
+                              aria-hidden="true"
+                            />
+                          )}
+
                           <div className="xl2-bar__body">
-                            <div className="xl2-bar__row1">
-                              <span className="xl2-bar__icon">
-                                <Icon name={dong.is_locked ? "lock" : muc ? XL2_MUC_META[muc].icon : nguonIcon(dong.nguon)} size={11} />
-                              </span>
-                              {!tiny && <span className="xl2-bar__code">{serial}</span>}
-                              {dong.buoc_thu_tu != null && !tiny && (
-                                <span className="xl2-bar__step-pill">B{dong.buoc_thu_tu + 1}</span>
-                              )}
-                              {wide && durLabel && <span className="xl2-bar__dur">{durLabel}</span>}
-                            </div>
-                            {wide && nhan.congDoan && (
-                              <div className="xl2-bar__row2">
-                                <span className="xl2-bar__cd">{nhan.congDoan}</span>
-                                {nhan.sanPham && <span className="xl2-bar__sp">· {nhan.sanPham}</span>}
+                            {isWide ? (
+                              <>
+                                <div className="xl2-bar__row1">
+                                  <span className="xl2-bar__code">{serial}</span>
+                                  {dong.buoc_thu_tu != null && (
+                                    <span className="xl2-bar__step-pill">B{dong.buoc_thu_tu + 1}</span>
+                                  )}
+                                  {durLabel && <span className="xl2-bar__dur">{durLabel}</span>}
+                                </div>
+                                {nhan.congDoan && (
+                                  <div className="xl2-bar__row2">
+                                    <span className="xl2-bar__cd">{nhan.congDoan}</span>
+                                    {nhan.sanPham && <span className="xl2-bar__sp">· {nhan.sanPham}</span>}
+                                  </div>
+                                )}
+                              </>
+                            ) : isMedium ? (
+                              <div className="xl2-bar__row1">
+                                <span className="xl2-bar__code">{serial}</span>
+                                {dong.buoc_thu_tu != null && (
+                                  <span className="xl2-bar__step-pill">B{dong.buoc_thu_tu + 1}</span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="xl2-bar__row1 xl2-bar__row1--tiny">
+                                {dong.buoc_thu_tu != null ? (
+                                  <span className="xl2-bar__step-pill">B{dong.buoc_thu_tu + 1}</span>
+                                ) : (
+                                  <span className="xl2-bar__code">{serial}</span>
+                                )}
                               </div>
                             )}
                           </div>
-
-                          {timed && bt && width >= 40 && (() => {
-                            const tot = bt.chiem_may_phut || 1;
-                            const pc = (m: number) => `${((m / tot) * 100).toFixed(2)}%`;
-                            return (
-                              <>
-                                <span className="xl2-bar__rau" aria-hidden="true">
-                                  <span className="xl2-rau-seg xl2-rau-seg--canh xl2-rau-seg--hatch" style={{ width: pc(bt.canh_may_phut) }} />
-                                  <span className="xl2-rau-seg xl2-rau-seg--chay" style={{ width: pc(bt.chay_phut) }} />
-                                  <span className="xl2-rau-seg xl2-rau-seg--khac" style={{ width: pc(bt.khac_phut) }} />
-                                </span>
-                              </>
-                            );
-                          })()}
                         </button>
                         {timed && bt && btUncertain && (
                           <span
@@ -908,13 +846,6 @@ export function Xl2Gantt({
                             <i className="xl2-rau2__cap xl2-rau2__cap--min" />
                             <i className="xl2-rau2__cap xl2-rau2__cap--max" />
                           </span>
-                        )}
-                        {showSpill && (
-                          <span
-                            className={`xl2-bar__spill${sel ? " is-sel" : ""}${isHoveredChain ? " is-chain-hover" : ""}`}
-                            style={{ left: left + width + 6 }}
-                            aria-hidden="true"
-                          >{spillText}</span>
                         )}
                         </Fragment>
                       );
