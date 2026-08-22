@@ -3608,7 +3608,10 @@ export interface QuotationListParams {
 
 // --- Nhân sự · Hồ sơ nhân sự (nhan_su), lát #1 -----------------------------
 
-export type EmployeeStatus = "probation" | "active" | "on_leave" | "suspended" | "resigned";
+/** `probation_ended` = đã qua Ngày hết thử việc, CHỜ HCNS bấm "Chuyển chính thức" (máy tự đặt).
+ *  Vẫn ăn lương thử việc cho tới lúc bấm — chỉ trạng thái đổi, tiền không đổi. */
+export type EmployeeStatus =
+  | "probation" | "probation_ended" | "active" | "on_leave" | "suspended" | "resigned";
 
 /** Cách tính thuế TNCN của MỘT người (chốt chủ 27/07/2026 — `employees.pit_mode`).
  *  Ba trạng thái nên dùng chuỗi, không nhồi 2 cờ Boolean (nhồi là mở chỗ để lệch). */
@@ -3735,6 +3738,8 @@ export interface EmployeeDuplicate {
   full_name: string;
 }
 
+  /** Đã hết thử việc, chờ HCNS xác nhận chính thức. */
+  probation_ended: number;
 export interface EmployeeCreateOut {
   employee: EmployeeDetail;
   duplicate_national_id: EmployeeDuplicate | null;

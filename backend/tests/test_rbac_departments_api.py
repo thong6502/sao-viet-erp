@@ -144,7 +144,7 @@ def test_set_head_must_belong_to_department(client):
     # Create a person IN this department (hồ sơ + tài khoản), then set them as head -> ok.
     emp = client.post(
         "/api/employees",
-        json={
+        json={"probation_end_date": "2025-12-31",
             "full_name": "Người Đứng Đầu", "department_id": dept_id, "hire_date": "2024-01-15",
             "account": {"username": "head", "password": "password123"},
         },
@@ -217,7 +217,7 @@ def test_rolled_up_counts_and_member_detail(client):
     ).json()
     emp = client.post(
         "/api/employees",
-        json={
+        json={"probation_end_date": "2025-12-31",
             "full_name": "Người A", "department_id": child["id"], "hire_date": "2024-01-15",
             "account": {"username": "khoia-1", "password": "password123", "role_id": role["id"]},
         },
@@ -254,7 +254,7 @@ def test_members_list_includes_staff_without_account(client):
     did = client.post("/api/departments", json={"name": "Tổ Không TK"}, headers=_h(token)).json()["id"]
     emp = client.post(
         "/api/employees",
-        json={"full_name": "Thợ Không TK", "department_id": did, "hire_date": "2024-01-01"},
+        json={"probation_end_date": "2025-12-31", "full_name": "Thợ Không TK", "department_id": did, "hire_date": "2024-01-01"},
         headers=_h(token),
     ).json()["employee"]
 
@@ -278,7 +278,7 @@ def test_employee_count_and_delete_blocked_by_employees(client):
     # 1 hồ sơ nhân sự thuộc phòng, KHÔNG tạo tài khoản
     r = client.post(
         "/api/employees",
-        json={"full_name": "NV EC", "department_id": did, "hire_date": "2024-01-01"},
+        json={"probation_end_date": "2025-12-31", "full_name": "NV EC", "department_id": did, "hire_date": "2024-01-01"},
         headers=_h(token),
     )
     assert r.status_code == 201

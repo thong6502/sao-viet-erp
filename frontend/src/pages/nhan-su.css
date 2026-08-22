@@ -620,12 +620,21 @@ button.ns__kpi {
 .ns-badge--warn { background: #fffbeb; color: #b45309; border-color: #fde68a; }
 .ns-badge--info { background: #f3e8ff; color: #7e22ce; border-color: #e9d5ff; }
 .ns-badge--muted { background: #f8fafc; color: #64748b; border-color: #e2e8f0; }
+/* "Hết thử việc · chờ xác nhận" — cam ĐẬM hơn `--warn` (thử việc) để tách hai cái cạnh nhau,
+   nhưng chưa phải đỏ `--danger`: đây là việc TỒN cần bấm, không phải sự cố. */
+.ns-badge--due { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+
+/* Ô KPI "Chờ xác nhận" — cùng hệ cam với badge, để mắt nối được ô lọc với dòng trong bảng. */
+.ns__kpi--due { border-color: #fed7aa; background: #fff7ed; }
+.ns__kpi--due .ns__kpilabel, .ns__kpi--due .ns__kpival { color: #c2410c; }
+.ns__kpi--due svg { color: #f97316; }
 .ns-badge--danger { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
 
 .ns-badge--ok .ns-badge-dot { background: #10b981; }
 .ns-badge--warn .ns-badge-dot { background: #f59e0b; }
 .ns-badge--info .ns-badge-dot { background: #a855f7; }
 .ns-badge--muted .ns-badge-dot { background: #94a3b8; }
+.ns-badge--due .ns-badge-dot { background: #f97316; }
 .ns-badge--danger .ns-badge-dot { background: #f43f5e; }
 
 /* Pager UI - Minimalist Footer Bar */

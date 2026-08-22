@@ -45,7 +45,7 @@ def _dept_id(name: str) -> int:
 
 def _nv(client, h, ten="NV Com Tang Ca") -> int:
     r = client.post("/api/employees",
-                    json={"full_name": ten, "department_id": _dept_id("Hành chính nhân sự"),
+                    json={"probation_end_date": "2025-12-31", "full_name": ten, "department_id": _dept_id("Hành chính nhân sự"),
                           "hire_date": "2020-01-01"}, headers=h)
     assert r.status_code in (200, 201), r.text
     eid = r.json()["employee"]["id"]

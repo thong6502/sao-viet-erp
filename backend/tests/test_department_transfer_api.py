@@ -51,7 +51,8 @@ def _make_user(username: str, dept_id: int, role_id: int | None) -> int:
 def _make_employee(client, token, *, name: str, dept_id: int, username: str | None = None,
                    role_id: int | None = None) -> dict:
     """Tạo hồ sơ NV (kèm tài khoản nếu có `username`). Trả EmployeeDetail."""
-    body: dict = {"full_name": name, "department_id": dept_id, "hire_date": "2024-01-15"}
+    body: dict = {"full_name": name, "department_id": dept_id, "hire_date": "2024-01-15",
+                  "probation_end_date": "2025-12-31"}
     if username is not None:
         acc: dict = {"username": username, "password": "password123"}
         if role_id is not None:

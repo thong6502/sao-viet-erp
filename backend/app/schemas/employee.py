@@ -252,9 +252,12 @@ class EmployeeKpis(BaseModel):
     total: int
     active: int
     probation: int
+    #: Đã qua Ngày hết thử việc, CHỜ HCNS bấm "Chuyển chính thức" (máy tự đặt). Vẫn ăn lương
+    #: thử việc cho tới lúc bấm — xem `models/employee.STATUS_PROBATION_ENDED`.
+    probation_ended: int = 0
     on_leave: int
     resigned: int
-    probation_ending_soon: int  # probation_end_date trong ≤N ngày
+    probation_ending_soon: int  # probation_end_date trong ≤N ngày (CHƯA tới hạn)
 
 
 class EmployeeListOut(BaseModel):

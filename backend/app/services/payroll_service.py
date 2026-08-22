@@ -24,6 +24,7 @@ from ..models.employee import (
     PIT_CAM_KET_08,
     PIT_KHAU_TRU_10,
     STATUS_PROBATION,
+    STATUS_PROBATION_ENDED,
     STATUS_RESIGNED,
 )
 from ..models.role import SCOPE_ALL
@@ -925,7 +926,14 @@ class PayrollService:
                   brackets=None, on: date, employee_status: str | None = None,
                   department_id: int | None = None) -> dict:
         effective_status = employee_status or employee.status
-        is_probation = effective_status == STATUS_PROBATION
+        # "Hết thử việc, chờ HCNS xác nhận" ĂN TIỀN Y HỆT THỬ VIỆC (chủ chốt 22/08/2026): vẫn
+        # hệ số `probation_ratio`, vẫn không đóng BHXH, vẫn không trừ đoàn phí. Chủ chốt là tiền
+        # KHÔNG đổi cho tới khi HCNS bấm "Chuyển chính thức" — trạng thái mới chỉ để MÀN HÌNH nói
+        # đúng rằng thời gian thử việc đã hết, không phải để đổi số.
+        # ⚠️ Rủi ro đã ghi rõ cho chủ trước khi chốt: Điều 27 BLLĐ coi người làm tiếp sau thử việc
+        # là ĐÃ chính thức, nên phần 20% giữ lại kể từ ngày hết hạn là trả thiếu. Chủ vẫn chọn
+        # phương án này. ĐỪNG tự "sửa cho đúng luật" — hỏi chủ trước.
+        is_probation = effective_status in (STATUS_PROBATION, STATUS_PROBATION_ENDED)
         ratio = float(params.probation_ratio) if is_probation else 1.0
         dept_id = (getattr(employee, "department_id", None)
                    if department_id is None else department_id)

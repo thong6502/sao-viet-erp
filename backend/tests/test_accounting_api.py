@@ -1084,7 +1084,7 @@ def _nv_tam_ung(client, headers, *, ten="NV Tạm Ứng"):
         dept_id = DepartmentRepository(db).get_by_name("Sản xuất").id
     finally:
         db.close()
-    r = client.post("/api/employees", json={
+    r = client.post("/api/employees", json={"probation_end_date": "2025-12-31",
         "full_name": ten, "department_id": dept_id, "hire_date": "2020-01-01",
         "gender": "male", "status": "active",
     }, headers=headers)

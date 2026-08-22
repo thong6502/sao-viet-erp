@@ -477,7 +477,7 @@ def _dept_hr_token(dept_name: str) -> str:
 def _link_employee(client, token, *, full_name, dept_id, user_id, assign_shift: bool = True) -> int:
     emp = client.post(
         "/api/employees",
-        json={"full_name": full_name, "department_id": dept_id, "hire_date": "2020-01-01"},
+        json={"probation_end_date": "2025-12-31", "full_name": full_name, "department_id": dept_id, "hire_date": "2020-01-01"},
         headers=_h(token),
     ).json()["employee"]
     client.post(f"/api/employees/{emp['id']}/account", json={"user_id": user_id}, headers=_h(token))

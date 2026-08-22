@@ -51,6 +51,10 @@ def _create(client, token, **over):
         "full_name": over.pop("full_name", "Trần Văn A"),
         "department_id": over.pop("department_id", _dept_id("Hành chính nhân sự")),
         "hire_date": over.pop("hire_date", "2024-01-15"),
+        # Hồ sơ mặc định là THỬ VIỆC, mà trạng thái đó nay BẮT BUỘC khai ngày hết thử việc.
+        # Mốc chọn TRƯỚC ngày bật "tự đánh dấu hết thử việc" (22/08/2026) ⇒ hàm quét bỏ qua ⇒
+        # hồ sơ đứng yên ở "probation", hành vi các test cũ không đổi một chữ.
+        "probation_end_date": over.pop("probation_end_date", "2025-12-31"),
     }
     body.update(over)
     return client.post("/api/employees", json=body, headers=_h(token))
@@ -499,7 +503,8 @@ def test_update_edits_profile(client):
     emp = _create(client, token).json()["employee"]
     resp = client.put(
         f"/api/employees/{emp['id']}",
-        json={"full_name": "Tên Mới", "phone": "0900000000", "dependents_count": 2},
+        json={"full_name": "Tên Mới", "phone": "0900000000", "dependents_count": 2,
+              "probation_end_date": "2025-12-31"},
         headers=_h(token),
     )
     assert resp.status_code == 200
@@ -823,11 +828,13 @@ def test_edit_salary_gate_blocks_sensitive_write(client):
 
     # Admin đặt số TK nền (full_name bắt buộc ở EmployeeUpdate)
     r_admin = client.put(f"/api/employees/{eid}",
-                         json={"full_name": "NV No Salary", "bank_account": "111"}, headers=_h(admin))
+                         json={"full_name": "NV No Salary", "bank_account": "111",
+                               "probation_end_date": "2025-12-31"}, headers=_h(admin))
     assert r_admin.status_code == 200
     # user không-quyền-lương PUT đổi bank + phone → bank bị bỏ, phone đổi
     upd = client.put(f"/api/employees/{eid}",
-                     json={"full_name": "NV No Salary", "bank_account": "999", "phone": "0911"}, headers=_h(tok))
+                     json={"full_name": "NV No Salary", "bank_account": "999", "phone": "0911",
+                           "probation_end_date": "2025-12-31"}, headers=_h(tok))
     assert upd.status_code == 200
     seen2 = client.get(f"/api/employees/{eid}", headers=_h(admin)).json()
     assert seen2["phone"] == "0911"         # field thường: ghi được
@@ -847,7 +854,8 @@ def test_employee_edit_syncs_name_and_department_to_user(client):
                       account={"username": "synced", "password": "synced123"})
     eid = created.json()["employee"]["id"]
 
-    client.put(f"/api/employees/{eid}", json={"full_name": "Tên Mới"}, headers=_h(admin))
+    client.put(f"/api/employees/{eid}", json={"full_name": "Tên Mới", "probation_end_date": "2025-12-31"},
+               headers=_h(admin))
     client.post(f"/api/employees/{eid}/transitions",
                 json={"kind": "transfer", "new_department_id": kd}, headers=_h(admin))
 
@@ -881,3 +889,122 @@ def test_danh_sach_nhan_vien_chan_size_qua_200(client):
     token = _admin_token(client)
     assert client.get("/api/employees?page=1&size=500", headers=_h(token)).status_code == 422
     assert client.get("/api/employees?page=1&size=200", headers=_h(token)).status_code == 200
+
+
+# --- HẾT THỬ VIỆC: MÁY TỰ ĐÁNH DẤU, HCNS MỚI XÁC NHẬN (chủ chốt 22/08/2026) -------------------
+#
+# Bốn chốt: ô Ngày hết thử việc là BẮT BUỘC · qua ngày thì máy đổi sang "Hết thử việc" chứ KHÔNG
+# tự lên chính thức · tiền không đổi ở bước máy · hồ sơ hết hạn TRƯỚC ngày bật thì máy không đụng.
+
+
+def _svc_nhan_su(db):
+    from app.repositories.audit_repo import AuditLogRepository
+    from app.repositories.employee_repo import EmployeeRepository
+    from app.repositories.rbac_repo import DepartmentRepository
+    from app.repositories.user_repo import UserRepository
+    from app.services.employee_service import EmployeeService
+    return EmployeeService(EmployeeRepository(db), AuditLogRepository(db),
+                           UserRepository(db), DepartmentRepository(db))
+
+
+def test_thu_viec_bat_buoc_khai_ngay_het_thu_viec(client):
+    """Không có ngày thì máy không có mốc nào để so ⇒ chặn ngay từ lúc tạo."""
+    token = _admin_token(client)
+    r = _create(client, token, full_name="NV Thiếu Ngày", probation_end_date=None)
+    assert r.status_code == 400, r.text
+    assert "Ngày hết thử việc" in r.json()["detail"]
+
+    # Khai rồi thì tạo được.
+    ok = _create(client, token, full_name="NV Đủ Ngày", probation_end_date="2026-10-31")
+    assert ok.status_code == 201, ok.text
+
+
+def test_qua_ngay_het_thu_viec_may_doi_sang_HET_THU_VIEC_chu_khong_len_chinh_thuc(client):
+    from datetime import date, timedelta
+    from app.db import SessionLocal
+
+    token = _admin_token(client)
+    hom_qua = date.today() - timedelta(days=1)
+    eid = _create(client, token, full_name="NV Hết Hạn Hôm Qua",
+                  probation_end_date=hom_qua.isoformat()).json()["employee"]["id"]
+
+    db = SessionLocal()
+    try:
+        svc = _svc_nhan_su(db)
+        assert svc.tu_danh_dau_het_thu_viec(moc=hom_qua) == 1
+    finally:
+        db.close()
+
+    emp = client.get(f"/api/employees/{eid}", headers=_h(token)).json()
+    # KHÔNG phải "active" — đây là điểm chính của cả tính năng.
+    assert emp["status"] == "probation_ended"
+
+    ev = client.get(f"/api/employees/{eid}/events", headers=_h(token)).json()
+    moc_moi = [e for e in ev["items"] if e["event_type"] == "probation_ended"]
+    assert len(moc_moi) == 1, ev
+    # Ngày hiệu lực = ngày đầu tiên KHÔNG còn thử việc.
+    assert moc_moi[0]["effective_date"] == (hom_qua + timedelta(days=1)).isoformat()
+
+    # Chạy lại không đẻ thêm mốc (hồ sơ hết là `probation` nên rơi khỏi lượt quét sau).
+    db = SessionLocal()
+    try:
+        assert _svc_nhan_su(db).tu_danh_dau_het_thu_viec(moc=hom_qua) == 0
+    finally:
+        db.close()
+
+
+def test_may_KHONG_dung_ho_so_het_han_truoc_ngay_bat_tinh_nang(client):
+    """Dữ liệu tồn: hết hạn từ thời chưa có tính năng ⇒ để HCNS tự xử, máy không đụng."""
+    from datetime import date, timedelta
+    from app.db import SessionLocal
+
+    token = _admin_token(client)
+    hom_qua = date.today() - timedelta(days=1)
+    eid = _create(client, token, full_name="NV Tồn Cũ",
+                  probation_end_date=hom_qua.isoformat()).json()["employee"]["id"]
+
+    db = SessionLocal()
+    try:
+        # Mốc đặt SAU ngày hết hạn ⇒ hồ sơ này là "người cũ".
+        assert _svc_nhan_su(db).tu_danh_dau_het_thu_viec(moc=date.today()) == 0
+    finally:
+        db.close()
+    assert client.get(f"/api/employees/{eid}", headers=_h(token)).json()["status"] == "probation"
+
+
+def test_chua_toi_han_thi_van_la_thu_viec(client):
+    from datetime import date, timedelta
+    from app.db import SessionLocal
+
+    token = _admin_token(client)
+    mai = date.today() + timedelta(days=1)
+    eid = _create(client, token, full_name="NV Còn Hạn",
+                  probation_end_date=mai.isoformat()).json()["employee"]["id"]
+    db = SessionLocal()
+    try:
+        assert _svc_nhan_su(db).tu_danh_dau_het_thu_viec(moc=date(2020, 1, 1)) == 0
+    finally:
+        db.close()
+    assert client.get(f"/api/employees/{eid}", headers=_h(token)).json()["status"] == "probation"
+
+
+def test_HCNS_bam_chuyen_chinh_thuc_tu_trang_thai_het_thu_viec(client):
+    """Đường lên chính thức vẫn phải có người bấm — và nó phải mở từ trạng thái mới."""
+    from datetime import date, timedelta
+    from app.db import SessionLocal
+
+    token = _admin_token(client)
+    hom_qua = date.today() - timedelta(days=1)
+    eid = _create(client, token, full_name="NV Chờ Xác Nhận",
+                  probation_end_date=hom_qua.isoformat()).json()["employee"]["id"]
+    db = SessionLocal()
+    try:
+        _svc_nhan_su(db).tu_danh_dau_het_thu_viec(moc=hom_qua)
+    finally:
+        db.close()
+
+    r = client.post(f"/api/employees/{eid}/transitions",
+                    json={"kind": "confirm", "effective_date": date.today().isoformat()},
+                    headers=_h(token))
+    assert r.status_code == 200, r.text
+    assert client.get(f"/api/employees/{eid}", headers=_h(token)).json()["status"] == "active"

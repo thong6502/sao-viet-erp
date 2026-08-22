@@ -74,6 +74,10 @@ import "./nhan-su.css";
 
 const STATUS_LABEL: Record<string, string> = {
   probation: "Thử việc",
+  // Máy tự đặt khi qua Ngày hết thử việc. KHÔNG phải chính thức — và tiền vẫn là tiền thử việc
+  // cho tới khi HCNS bấm "Chuyển chính thức". Nhãn phải nói rõ là đang CHỜ người, nếu không
+  // HCNS đọc thành "xong rồi" rồi không bấm nữa.
+  probation_ended: "Hết thử việc · chờ xác nhận",
   active: "Chính thức",
   on_leave: "Nghỉ dài hạn",
   suspended: "Đình chỉ",
@@ -81,6 +85,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 const STATUS_CLASS: Record<string, string> = {
   probation: "ns-badge--warn",
+  probation_ended: "ns-badge--due",
   active: "ns-badge--ok",
   on_leave: "ns-badge--info",
   suspended: "ns-badge--muted",
@@ -546,6 +551,10 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
               onPickProbation={() => {
                 setEndingSoon(false);
                 setStatusFilter("probation");
+              }}
+              onPickProbationEnded={() => {
+                setEndingSoon(false);
+                setStatusFilter("probation_ended");
               }}
               onPickActive={() => {
                 setEndingSoon(false);
@@ -1129,6 +1138,7 @@ function KpiStrip({
   endingSoon,
   onPickAll,
   onPickProbation,
+  onPickProbationEnded,
   onPickActive,
   onPickEndingSoon,
 }: {
@@ -1137,11 +1147,13 @@ function KpiStrip({
   endingSoon: boolean;
   onPickAll: () => void;
   onPickProbation: () => void;
+  onPickProbationEnded: () => void;
   onPickActive: () => void;
   onPickEndingSoon: () => void;
 }) {
   const isAllActive = statusFilter === "" && !endingSoon;
   const isProbationActive = statusFilter === "probation" && !endingSoon;
+  const isProbationEndedActive = statusFilter === "probation_ended" && !endingSoon;
   const isActiveActive = statusFilter === "active" && !endingSoon;
   const isEndingSoonActive = endingSoon;
 
@@ -1173,6 +1185,22 @@ function KpiStrip({
         <span className="ns__kpilabel">Thử việc</span>
         <span className="ns__kpival">{kpis.probation}</span>
       </button>
+
+      {/* Ô VIỆC TỒN: chỉ hiện khi có người thật sự đang chờ. Đây là cái duy nhất nhắc HCNS rằng
+          có người đã hết hạn mà chưa ai bấm — 0 người thì giấu đi cho đỡ rác. */}
+      {kpis.probation_ended > 0 && (
+        <button
+          type="button"
+          className={`ns__kpi ns__kpi--due${isProbationEndedActive ? " is-active" : ""}`}
+          onClick={onPickProbationEnded}
+          aria-pressed={isProbationEndedActive}
+          title="Đã hết thử việc, chờ bấm Chuyển chính thức"
+        >
+          <UserCheck size={13} aria-hidden="true" />
+          <span className="ns__kpilabel">Chờ xác nhận</span>
+          <span className="ns__kpival">{kpis.probation_ended}</span>
+        </button>
+      )}
 
       <button
         type="button"
@@ -1473,12 +1501,20 @@ export function EmployeeWizard({
                 </select>
               </Field>
               {form.status === "probation" && (
-                <Field label="Ngày hết thử việc">
+                <Field label="Ngày hết thử việc *">
                   <input
                     type="date"
+                    required
                     value={form.probation_end_date ?? ""}
                     onChange={(e) => set("probation_end_date", e.target.value)}
                   />
+                  {/* Nói LÝ DO chứ không chỉ "bắt buộc": người khai hiểu bỏ trống thì hỏng cái
+                      gì mới chịu điền đúng, thay vì gõ bừa một ngày cho qua ô. */}
+                  <span className="ns-field__hint">
+                    Bắt buộc — tới ngày này hệ thống tự chuyển sang “Hết thử việc · chờ xác
+                    nhận” để nhắc bấm chuyển chính thức. Lương vẫn tính mức thử việc cho tới
+                    lúc bấm.
+                  </span>
                 </Field>
               )}
             </div>
@@ -2412,7 +2448,10 @@ function EmployeeDetailPanel({
                 </button>
                 {dropdownOpen && (
                   <div className="ns-dropdown-menu">
-                    {canManageStatus && emp.status === "probation" && (
+                    {/* Hiện ở CẢ "Thử việc" (xác nhận sớm) lẫn "Hết thử việc · chờ xác nhận".
+                        Thiếu vế thứ hai là người đã hết hạn không còn đường nào lên chính thức. */}
+                    {canManageStatus
+                      && (emp.status === "probation" || emp.status === "probation_ended") && (
                       <button
                         type="button"
                         className="ns-dropdown-item"

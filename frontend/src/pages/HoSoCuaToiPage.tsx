@@ -38,7 +38,8 @@ import "./nhan-su.css";
 import "./ho-so-cua-toi.css";
 
 const STATUS_LABEL: Record<string, string> = {
-  probation: "Thử việc", active: "Chính thức", on_leave: "Nghỉ dài hạn",
+  probation: "Thử việc", probation_ended: "Hết thử việc · chờ xác nhận",
+  active: "Chính thức", on_leave: "Nghỉ dài hạn",
   suspended: "Đình chỉ", resigned: "Đã nghỉ",
 };
 const STATUS_CLASS: Record<string, string> = {

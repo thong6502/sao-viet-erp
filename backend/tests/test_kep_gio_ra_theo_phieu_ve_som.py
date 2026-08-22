@@ -42,7 +42,7 @@ def _dept_id(name: str) -> int:
 def _nv_ca_8_18(client, h) -> int:
     """NV ca 08:00–18:00 (600 phút) — số tròn nên công đọc ra dễ đối chiếu."""
     r = client.post("/api/employees",
-                    json={"full_name": "NV Ve Som", "department_id": _dept_id("Hành chính nhân sự"),
+                    json={"probation_end_date": "2025-12-31", "full_name": "NV Ve Som", "department_id": _dept_id("Hành chính nhân sự"),
                           "hire_date": "2020-01-01"}, headers=h)
     assert r.status_code in (200, 201), r.text
     eid = r.json()["employee"]["id"]

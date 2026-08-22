@@ -2327,7 +2327,10 @@ function BulkAssignDialog({
       .then(([all, amounts, dsPhong]) => {
         if (!alive) return;
         // Chỉ NV ĐANG LÀM VIỆC — rải phụ cấp cho người đã nghỉ là đẻ tiền cho hồ sơ chết.
-        setEmps(all.filter((e) => e.status === "active" || e.status === "probation"));
+        // "Hết thử việc chờ xác nhận" vẫn đang đi làm ⇒ vẫn phải chọn được ở đây.
+        setEmps(all.filter(
+          (e) => e.status === "active" || e.status === "probation"
+            || e.status === "probation_ended"));
         setHeld(new Map(amounts.items.map((x) => [x.employee_id, x.amount])));
         setDepts(dsPhong);
         setErr(null);

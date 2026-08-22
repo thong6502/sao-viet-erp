@@ -12,7 +12,7 @@ Framework-agnostic: raises domain errors the router maps to HTTP. Enforces:
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from ..models.employee import (
     ATTACHMENT_DOC_KINDS,
@@ -22,6 +22,7 @@ from ..models.employee import (
     EVENT_HIRED,
     EVENT_LEAVE_END,
     EVENT_LEAVE_START,
+    EVENT_PROBATION_ENDED,
     EVENT_PROMOTED,
     EVENT_REINSTATED,
     EVENT_RESIGNED,
@@ -38,6 +39,7 @@ from ..models.employee import (
     STATUS_ACTIVE,
     STATUS_ON_LEAVE,
     STATUS_PROBATION,
+    STATUS_PROBATION_ENDED,
     STATUS_RESIGNED,
     STATUS_SUSPENDED,
     Employee,
@@ -51,13 +53,25 @@ from ..repositories.user_repo import UserRepository
 from ..security import hash_password
 from ..shift_notify import push_shift_changes
 
+# Mốc bật "tự đánh dấu HẾT THỬ VIỆC" (chủ chốt 22/08/2026). Hồ sơ có NGÀY HẾT THỬ VIỆC TRƯỚC
+# mốc này là dữ liệu tồn từ thời chưa có tính năng — máy KHÔNG đụng, để HCNS tự xử. Đụng vào là
+# tự ý đổi trạng thái hàng loạt người mà mình không biết đầu đuôi (đạt hay không đạt, có định cho
+# nghỉ hay không).
+MOC_TU_DANH_DAU_HET_THU_VIEC = date(2026, 8, 22)
+
 # Status transitions: kind → (allowed from-statuses, resulting status, event_type).
+# `probation_end` là đường DUY NHẤT máy tự đi (xem `tu_danh_dau_het_thu_viec`); mọi kind còn lại
+# vẫn phải có người bấm.
 _STATUS_TRANSITIONS: dict[str, tuple[set[str], str, str]] = {
-    "confirm": ({STATUS_PROBATION}, STATUS_ACTIVE, EVENT_CONFIRMED),
+    "probation_end": ({STATUS_PROBATION}, STATUS_PROBATION_ENDED, EVENT_PROBATION_ENDED),
+    # Vẫn cho xác nhận SỚM (đang thử việc, chưa tới hạn) — HCNS quyết thì khỏi chờ hết hạn.
+    "confirm": ({STATUS_PROBATION, STATUS_PROBATION_ENDED}, STATUS_ACTIVE, EVENT_CONFIRMED),
     "leave_start": ({STATUS_ACTIVE}, STATUS_ON_LEAVE, EVENT_LEAVE_START),
     "leave_end": ({STATUS_ON_LEAVE}, STATUS_ACTIVE, EVENT_LEAVE_END),
-    "suspend": ({STATUS_PROBATION, STATUS_ACTIVE, STATUS_ON_LEAVE}, STATUS_SUSPENDED, EVENT_SUSPENDED),
-    "resign": ({STATUS_PROBATION, STATUS_ACTIVE, STATUS_ON_LEAVE, STATUS_SUSPENDED}, STATUS_RESIGNED, EVENT_RESIGNED),
+    "suspend": ({STATUS_PROBATION, STATUS_PROBATION_ENDED, STATUS_ACTIVE, STATUS_ON_LEAVE},
+                STATUS_SUSPENDED, EVENT_SUSPENDED),
+    "resign": ({STATUS_PROBATION, STATUS_PROBATION_ENDED, STATUS_ACTIVE, STATUS_ON_LEAVE,
+                STATUS_SUSPENDED}, STATUS_RESIGNED, EVENT_RESIGNED),
     "reinstate": ({STATUS_RESIGNED}, STATUS_ACTIVE, EVENT_REINSTATED),
 }
 # Fields the plain edit (PUT) may set — deliberately EXCLUDES status/department_id/job_grade
@@ -178,6 +192,19 @@ class EmployeeService:
         return status
 
     @staticmethod
+    def _bat_buoc_ngay_het_thu_viec(status: str | None, probation_end_date) -> None:
+        """Hồ sơ ở trạng thái Thử việc BẮT BUỘC khai Ngày hết thử việc (chủ chốt 22/08/2026).
+
+        Không phải thủ tục giấy tờ: đó là mốc DUY NHẤT máy dựa vào để tự đánh dấu hết thử việc.
+        Bỏ trống thì người đó nằm lại Thử việc vô thời hạn và ăn hệ số thử việc mãi — đúng cái lỗ
+        mà tính năng này sinh ra để bịt. Chặn ở NGUỒN rẻ hơn đi dò sau."""
+        if status == STATUS_PROBATION and probation_end_date is None:
+            raise EmployeeValidationError(
+                "Hồ sơ thử việc phải khai 'Ngày hết thử việc' — hệ thống dựa vào ngày này để "
+                "tự đánh dấu hết thử việc khi tới hạn."
+            )
+
+    @staticmethod
     def _validate_dependents(n: int | None) -> int:
         if n is None:
             return 0
@@ -292,6 +319,7 @@ class EmployeeService:
             fields = {k: v for k, v in fields.items() if k not in SENSITIVE_FIELDS}
         clean = self._clean_fields(fields)
         clean["full_name"] = self._validate_name(clean.get("full_name"))
+        self._bat_buoc_ngay_het_thu_viec(status, clean.get("probation_end_date"))
 
         dup_nid, dup_si = self.find_duplicates(
             national_id=clean.get("national_id"),
@@ -350,6 +378,14 @@ class EmployeeService:
         clean = self._clean_fields(clean)
         if "full_name" in clean:
             clean["full_name"] = self._validate_name(clean["full_name"])
+        # `status` KHÔNG nằm trong EDITABLE_FIELDS nên đây luôn là trạng thái hiện hành. Hồ sơ cũ
+        # đang thử việc mà bỏ trống ngày sẽ bị chặn cho tới khi khai bù — cách duy nhất dọn hết
+        # tồn mà không phải sửa dữ liệu bằng tay.
+        # Chỉ chặn ĐƯỜNG HCNS SỬA HỒ SƠ. NV tự sửa liên lạc (`update_my_contact`) và HCNS duyệt
+        # yêu cầu sửa (`decide_update_request`) đi đường khác, không vướng chốt này — người lao
+        # động không khai được ngày hết thử việc nên chặn họ là chặn oan.
+        self._bat_buoc_ngay_het_thu_viec(
+            employee.status, clean.get("probation_end_date", employee.probation_end_date))
 
         dup_nid, dup_si = self.find_duplicates(
             national_id=clean.get("national_id", employee.national_id),
@@ -710,15 +746,54 @@ class EmployeeService:
             from_value=old_status,
             to_value=to_status,
             note=note or resign_reason,
-            actor_user_id=actor.id,
+            # `actor=None` = MÁY tự bấm (xem `tu_danh_dau_het_thu_viec`). Cột cho phép rỗng, và
+            # để rỗng là trung thực hơn gán bừa người đang mở màn hình — người đó không quyết
+            # định gì cả. Ghi chú của sự kiện là chỗ nói rõ vì sao trạng thái đổi.
+            actor_user_id=getattr(actor, "id", None),
         )
         self.audit.create(
-            actor_user_id=actor.id,
+            actor_user_id=getattr(actor, "id", None),
             action=f"employee_{event_type}",
             target=f"employee:{employee.id}",
             detail=f"{employee.code} {old_status}→{to_status}",
         )
         return employee
+
+    def tu_danh_dau_het_thu_viec(self, *, moc: date | None = None) -> int:
+        """Máy tự đổi Thử việc → **Hết thử việc** cho ai đã qua Ngày hết thử việc. Trả số hồ sơ
+        đã đổi.
+
+        KHÔNG chuyển thẳng lên "Đang làm việc": chủ chốt 22/08/2026 là **chỉ HCNS bấm mới thành
+        chính thức**. Máy chỉ nói "thời gian thử việc đã hết", không tự quyết đạt hay không đạt.
+
+        TIỀN KHÔNG ĐỔI ở bước này — engine lương coi trạng thái mới y hệt thử việc (vẫn 80%, vẫn
+        không đóng BHXH). Chỉ khi HCNS bấm "Chuyển chính thức" mới lên nguyên mức.
+
+        Không có bộ hẹn giờ trong hệ thống nên hàm này được gọi LÚC ĐỌC — mở danh sách Nhân sự và
+        lúc chạy Tính lương. Chạy lại nhiều lần vô hại: đổi xong thì hồ sơ hết là `probation` nên
+        lần quét sau không bắt lại nữa.
+
+        Ngày hiệu lực = ngày hết thử việc + 1 (ngày đầu tiên KHÔNG còn thử việc), nên nếu về sau
+        HCNS bấm chuyển chính thức thì mốc trên Quá trình công tác vẫn đọc được đúng thứ tự.
+
+        `moc` chỉ để TEST đặt mốc riêng; chạy thật luôn dùng `MOC_TU_DANH_DAU_HET_THU_VIEC`."""
+        hom_nay = date.today()
+        doi = 0
+        for e in self.employees.list_probation_qua_han(
+                moc=moc or MOC_TU_DANH_DAU_HET_THU_VIEC, den_ngay=hom_nay):
+            try:
+                self._apply_status(
+                    e, None, "probation_end", e.probation_end_date + timedelta(days=1),
+                    "Tự động: đã qua ngày hết thử việc, chờ HCNS xác nhận chính thức", None)
+            except EmployeeValidationError:
+                # ĐUA: hàm này chạy trong request ĐỌC (mở danh sách Nhân sự / chạy Tính lương),
+                # nên hai người mở cùng lúc là hai lượt quét cùng nhắm một hồ sơ. Người thua thấy
+                # trạng thái đã đổi rồi và `_apply_status` chặn — đúng, nhưng KHÔNG được để lỗi đó
+                # nổ ra giữa một request chỉ đi xem danh sách. Bỏ qua và đi tiếp: việc đã có người
+                # làm xong rồi.
+                continue
+            doi += 1
+        return doi
 
     def _apply_transfer(self, employee, actor, effective_date, note, new_department_id,
                         new_job_grade=None, new_job_grade_id=None) -> Employee:

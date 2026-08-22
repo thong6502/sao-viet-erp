@@ -62,7 +62,7 @@ def _uid(username: str) -> int:
 
 def _nhan_vien(client, h, ten="NV Chot Cong") -> dict:
     r = client.post("/api/employees",
-                    json={"full_name": ten, "department_id": _dept_id("Hành chính nhân sự"),
+                    json={"probation_end_date": "2025-12-31", "full_name": ten, "department_id": _dept_id("Hành chính nhân sự"),
                           "hire_date": "2020-01-01"}, headers=h)
     assert r.status_code in (200, 201), r.text
     emp = r.json()["employee"]
@@ -669,7 +669,7 @@ def test_L7_khong_bao_dong_gia_voi_nguoi_thang_sau_moi_vao(client):
     h = _h(client)
     _nhan_vien(client, h)
     r = client.post("/api/employees",
-                    json={"full_name": "NV Thang Sau Moi Vao",
+                    json={"probation_end_date": "2025-12-31", "full_name": "NV Thang Sau Moi Vao",
                           "department_id": _dept_id("Hành chính nhân sự"),
                           "hire_date": f"{L1_NAM}-{L1_THANG + 1:02d}-01"}, headers=h)
     assert r.status_code in (200, 201), r.text

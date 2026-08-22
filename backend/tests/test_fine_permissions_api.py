@@ -52,7 +52,7 @@ def test_employee_salary_fields_masked_without_view_salary(client):
         hcns = DepartmentRepository(db).get_by_name("Hành chính nhân sự").id
     finally:
         db.close()
-    eid = client.post("/api/employees", json={
+    eid = client.post("/api/employees", json={"probation_end_date": "2025-12-31",
         "full_name": "NV Mật", "department_id": hcns, "hire_date": "2020-01-01",
         "social_insurance_no": "SI123", "bank_account": "9999", "payroll_group": "van_phong",
     }, headers=_h(admin)).json()["employee"]["id"]
