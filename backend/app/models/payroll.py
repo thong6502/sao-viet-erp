@@ -533,7 +533,18 @@ COMPONENT_KINDS = (COMPONENT_KIND_THU, COMPONENT_KIND_TRU)
 # Nguồn của một dòng khoản trên BẢNG LƯƠNG (Tầng 3).
 COMPONENT_SOURCE_EMPLOYEE = "employee"   # chép từ hồ sơ NV — ghi đè mỗi lần tính lại
 COMPONENT_SOURCE_LINE = "line"           # thêm tay cho riêng kỳ này — giữ nguyên khi tính lại
-COMPONENT_SOURCES = (COMPONENT_SOURCE_EMPLOYEE, COMPONENT_SOURCE_LINE)
+# HỆ TỰ TÍNH cho riêng kỳ này (hoa hồng KD, mg 0227). Vì sao KHÔNG dùng lại hai nguồn trên:
+#   · `employee` bị ghi đè mỗi lần tính lại — ĐÚNG cái cần, nhưng nó vào `allowance` và nguồn của
+#     nó là hồ sơ NV, trong khi hoa hồng đổi theo TỪNG KỲ;
+#   · `line` GIỮ NGUYÊN khi tính lại — sai hẳn: số hoa hồng phải chạy theo hoá đơn mới phát sinh.
+# Trộn vào `line` còn nguy hơn: `replace_employee_line_components` cố ý CHỪA `line` ra, nên hoa
+# hồng cũ nằm lại cạnh hoa hồng mới và CỘNG ĐÔI.
+COMPONENT_SOURCE_AUTO = "auto"
+COMPONENT_SOURCES = (COMPONENT_SOURCE_EMPLOYEE, COMPONENT_SOURCE_LINE, COMPONENT_SOURCE_AUTO)
+
+#: Mã khoản danh mục của hoa hồng kinh doanh. Cố định để engine tra được; đổi TÊN hiển thị thì
+#: thoải mái, đổi MÃ là engine mất dấu.
+COMPONENT_CODE_HOA_HONG = "hoa_hong_kd"
 
 
 class PayrollComponent(Base):

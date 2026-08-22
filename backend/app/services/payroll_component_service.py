@@ -43,6 +43,13 @@ _RESERVED: dict[str, str] = {
     # ô tay của chúng đã bị gỡ khỏi màn Sửa lương, nay khai bằng chính danh mục này để cờ
     # "Chịu thuế" khai được (trước bị đóng đinh chịu thuế). Thêm lại là chặn nhầm chính đường
     # duy nhất còn khai được.
+    # Từ mg 0227 hoa hồng KD do ENGINE tự tính theo hoá đơn bán ⇒ gõ tay thêm một khoản
+    # "Hoa hồng" nữa là trả HAI LẦN. Khoản hệ thống tên "Hoa hồng kinh doanh" nên slug đó cũng
+    # phải chặn, không thì tạo được bản sao y hệt nằm cạnh bản gốc.
+    "hoa_hong": "khoản \"Hoa hồng kinh doanh\" — engine tự tính theo hoá đơn bán trong kỳ",
+    "hoa_hong_kd": "khoản \"Hoa hồng kinh doanh\" — engine tự tính theo hoá đơn bán trong kỳ",
+    "hoa_hong_kinh_doanh": "khoản \"Hoa hồng kinh doanh\" — engine tự tính theo hoá đơn bán trong kỳ",
+    "hoa_hong_ban_hang": "khoản \"Hoa hồng kinh doanh\" — engine tự tính theo hoá đơn bán trong kỳ",
     "phep_nam": "tiền ngày nghỉ phép — engine tự tính từ chấm công",
     "tien_phep": "tiền ngày nghỉ phép — engine tự tính từ chấm công",
     "luong_ngay_phep": "tiền ngày nghỉ phép — engine tự tính từ chấm công",

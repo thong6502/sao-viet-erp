@@ -2100,6 +2100,10 @@ _PAYROLL_COMPONENTS_SEED = [
     ("tra_dong_phuc",      "Trả đồng phục",          "thu", True,  130),
     # Hai khoản MỞ (chủ 27/07/2026): khoản lặt vặt phát sinh một lần (thưởng nóng của Sếp) thì
     # dùng luôn hai khoản này + ghi chú, KHÔNG phải đẻ một danh mục mới dùng một lần rồi bỏ.
+    # Hoa hồng KD — HỆ TỰ TÍNH theo hoá đơn bán trong kỳ, không ai gõ tay (nguồn `auto`).
+    # Phải seed cả ở đây lẫn mg 0227: DB trắng không chạy migration, mà thiếu khoản này thì
+    # engine không có chỗ ghi ⇒ hoa hồng bằng 0 mà không báo gì.
+    ("hoa_hong_kd",        "Hoa hồng kinh doanh",    "thu", True,  140),
     ("thu_nhap_khac_ct",   "Thu nhập khác (chịu thuế)", "thu", True,  900),
     ("thu_nhap_khac_mt",   "Thu nhập khác (miễn thuế)", "thu", False, 910),
 ]

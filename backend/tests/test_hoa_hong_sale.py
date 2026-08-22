@@ -1,8 +1,11 @@
-"""% hoa hồng cho nhân viên kinh doanh (chủ 29/07/2026 — "khai phần trăm hoa hồng cho NV sale").
+"""Ô khai % hoa hồng của NV kinh doanh (chủ 29/07/2026 — "khai phần trăm hoa hồng cho NV sale").
 
-Đợt này **CHỈ KHAI**. Hai thứ phải chốt bằng số, không bằng lời:
-  1. Khai % KHÔNG làm đổi một đồng nào trên bảng lương.
-  2. % đi theo MỐC HIỆU LỰC — đổi % từ tháng sau thì kỳ tháng trước tính lại vẫn ra số cũ.
+File này canh Ô KHAI: khai/đọc lại đúng số, chặn gõ nhầm 5 thành 500%, và % đi theo MỐC HIỆU
+LỰC — đổi % từ tháng sau thì kỳ tháng trước tính lại vẫn ra số cũ.
+
+⚠️ Từ 21/08/2026 hoa hồng ĐÃ ra tiền thật, nhưng KHÔNG qua cột này: `_compute` vẫn không đọc
+`employee_salaries.commission_pct`. Đường ra tiền là CHỤP % vào `orders.commission_pct` lúc chốt
+đơn rồi nhân với hoá đơn bán trong kỳ — xem `tests/test_hoa_hong_kinh_doanh.py`.
 """
 from __future__ import annotations
 
@@ -77,12 +80,15 @@ def test_doi_phan_tram_KHONG_lam_doi_ky_cu(client):
 
 
 def test_khai_hoa_hong_KHONG_lam_doi_mot_dong_nao(client):
-    """⭐ "Chỉ khai, chưa ra tiền" — chốt bằng SỐ THẬT.
+    """⭐ `_compute` KHÔNG được tự đọc % của nhân viên — chốt bằng SỐ THẬT.
+
+    Từ 21/08/2026 hoa hồng đã ra tiền, nhưng theo ĐÚNG MỘT đường: chụp % vào đơn lúc chốt rồi
+    nhân với hoá đơn bán trong kỳ (khoản danh mục `hoa_hong_kd`, nguồn `auto`). Nếu `_compute`
+    đọc thêm cột này của hồ sơ thì NV ăn hoa hồng HAI LẦN — một lần theo hoá đơn, một lần phẳng
+    theo % nhân lương — mà phiếu lương trông vẫn bình thường vì hai số nằm hai chỗ.
 
     Gọi thẳng `_compute` với đủ 26 công: NV không có chấm công thì lương = 0, so 0 với 0 là
-    test rỗng (đã dính đúng bẫy này ở các test thuế trước đây).
-
-    Test này ĐỎ ngay khi ai đó nối hoa hồng vào engine mà quên bàn với chủ."""
+    test rỗng (đã dính đúng bẫy này ở các test thuế trước đây)."""
     client
     db = SessionLocal()
     try:

@@ -693,7 +693,9 @@ class LineComponentOut(BaseModel):
     is_taxable: bool
     amount: float
     note: str | None = None
-    # `employee` = chép từ hồ sơ NV · `line` = thêm tay cho riêng kỳ này.
+    # `employee` = chép từ hồ sơ NV · `line` = thêm tay cho riêng kỳ này · `auto` = HỆ TỰ TÍNH
+    # (hoa hồng KD). Giao diện phải KHOÁ ô của dòng `auto`: backend chặn sửa/gỡ, vì số bám hoá
+    # đơn và bị ghi lại mỗi lần "Tính lại".
     source: str
     #: HCNS đã sửa tay số tiền CHO RIÊNG KỲ NÀY. Giao diện hiện nhãn "đã sửa cho kỳ này" + nút
     #: "Trả về theo hồ sơ". Hồ sơ nhân viên KHÔNG đổi — tháng sau tự về mức cũ.
