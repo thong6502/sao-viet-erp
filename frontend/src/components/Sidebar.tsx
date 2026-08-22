@@ -76,6 +76,9 @@ const NAV: NavSection[] = [
       { id: "tinh-gia", label: "Tính giá", icon: "calculator", module: "tinh_gia_thanh" },
       { id: "bao-gia", label: "Báo giá in ấn", icon: "fileText", module: "bao_gia" },
       { id: "don-hang-ban", label: "Đơn hàng bán", icon: "cart", module: "don_hang_ban" },
+      // Giao hàng là khúc SAU của đơn hàng bán nên nằm ngay dưới nó, không dựng nhóm mới.
+      // Gác bằng MỘT ô `giao_hang` — không có cửa phụ nào khác (bài học ô ma `self_service`).
+      { id: "giao-hang", label: "Giao hàng", icon: "truck", module: "giao_hang" },
       { id: "khach-hang", label: "Khách hàng", icon: "users", module: "khach_hang" },
     ],
   },
@@ -233,6 +236,11 @@ const NAV: NavSection[] = [
       // ở Lệnh sản xuất chọn dao từ đây. Nhan đề đổi 16/08/2026; `module` GIỮ chuỗi `khuon_be` vì
       // nó nằm trong bảng phân quyền của DB thật.
       { id: "khuon-be", label: "Khuôn", icon: "clipboard", module: "khuon_be" },
+      // Thành phẩm: hàng của đơn hàng bán, hệ tự khai khi chốt đơn. Đứng CẠNH Vật tư khác vì
+      // chung một bảng và người dùng hay nhầm hai chỗ (docs/prd-thanh-pham.md).
+      { id: "thanh-pham", label: "Thành phẩm", icon: "bag", module: "dm_thanh_pham" },
+      // Khuôn bế: khai báo nơi lưu trữ khuôn (số kệ · ngày làm · tình trạng). Quyền RIÊNG `khuon_be`.
+      { id: "khuon-be", label: "Khuôn bế", icon: "clipboard", module: "khuon_be" },
       // Khai báo kho: màn CRUD tạo/sửa kho. Kho tạo ở đây tự hiện thành mục dưới SECTION "Kho hàng".
       { id: "khai-bao-kho", label: "Khai báo kho", icon: "warehouse", module: "dm_kho_hang" },
       // Lý do & lỗi SX (§15): danh mục chuẩn hoá lý do/lỗi nuôi mọi ô chọn ở màn Thực hiện SX

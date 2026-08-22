@@ -818,7 +818,10 @@
 }
 
 .ar-invoice-table {
-  min-width: 980px;
+  /* Ô chi tiết rộng `min(960px, 95vw)`; trừ padding còn ~900px. Sàn 980px cũ luôn tràn, mà cột
+     bị đẩy ra ngoài chính là cột NÚT — người dùng phải kéo ngang mới bấm được "Thu tiền".
+     Bỏ cột "Đơn nguồn" (gộp vào ô Hóa đơn) nên 7 cột vừa ở mức này. */
+  min-width: 820px;
 }
 
 .ar-history-table {
@@ -1067,4 +1070,47 @@
 
 .acct-deliveries__table td:nth-child(3) {
   min-width: 190px;
+}
+
+/* --- Thẻ số của ô chi tiết công nợ -------------------------------------------------------
+ * Số ĐỨNG TRÊN, nhãn nhỏ ở dưới: mắt bắt con số trước rồi mới đọc nó là gì. Danh sách
+ * nhãn–giá trị cũ để số và nhãn cùng cỡ nên không biết đọc cái nào trước. */
+.ar-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+.ar-stat {
+  background: var(--paper);
+  border-radius: var(--r-3);
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.ar-stat__n {
+  display: block;
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+/* Số 0 đã lùi về "—" ở tầng dữ liệu; ở đây chỉ tô ĐỎ khi thật sự có nợ quá hạn. */
+.ar-stat--danger .ar-stat__n {
+  color: var(--signal);
+}
+
+.ar-stat__l {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ash-2);
+}
+
+/* Nút "Xem lịch sử thu cũ hơn" — tách khỏi bảng phía trên, không dính sát mép. */
+.ar-more {
+  margin-top: var(--sp-3);
 }

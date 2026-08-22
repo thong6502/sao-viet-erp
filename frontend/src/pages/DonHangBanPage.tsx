@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon, type IconName } from "../components/Icons";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
+import { TaoYeuCauGiaoHang } from "./TaoYeuCauGiaoHang";
 import {
   api,
   ApiError,
@@ -619,6 +620,17 @@ function OrderDrawer({
                 <ProductionHintEditor order={order} onSaved={onSaved} />
               )}
 
+              {/* Giao hàng (19/08/2026) — khúc SAU của đơn, nên đứng ngay trong màn đơn chứ không
+                  bắt Bán hàng nhớ mã đơn rồi sang màn khác gõ lại. Tự ẩn nếu không có ô `giao_hang`. */}
+              {order.status === "ordered" && (
+                <TaoYeuCauGiaoHang
+                  orderId={order.id}
+                  diaChiMacDinh={order.delivery_address}
+                  nguoiNhanMacDinh={order.delivery_contact_name}
+                  sdtMacDinh={order.delivery_contact_phone}
+                />
+              )}
+
               {/* Vòng đời đơn */}
               <Section title="Vòng đời đơn">
                 <div className="dhb__lifecycle-header">
@@ -1153,10 +1165,13 @@ function InvoicePanel({
                   <th>Đã thu</th>
                   <th>Còn nợ</th>
                   <th>Trạng thái</th>
+                  {/* Nút Hủy ĐỨNG CỘT RIÊNG: nhét dưới chip trạng thái làm ô đó cao gấp đôi và
+                      chữ "Hủy" đỏ trông như một trạng thái thứ hai của hóa đơn. */}
+                  <th className="dhb__text-right">Thao tác</th>
                 </tr>
               </thead>
               <tbody>
-                {book.items.length === 0 && <tr><td colSpan={7}>Chưa ghi nhận hóa đơn.</td></tr>}
+                {book.items.length === 0 && <tr><td colSpan={8}>Chưa ghi nhận hóa đơn.</td></tr>}
                 {book.items.map((item) => (
                   <tr key={item.id} className={item.status === "cancelled" ? "is-cancelled" : ""}>
                     <td><strong>{item.invoice_symbol ? `${item.invoice_symbol} · ` : ""}{item.invoice_number}</strong><small>{item.created_by_name ?? "—"}</small></td>
@@ -1169,10 +1184,23 @@ function InvoicePanel({
                       <span className={`dhb__invoice-status ${item.status === "issued" ? "is-issued" : "is-cancelled"}`}>
                         {item.status === "issued" ? "Đã ghi" : "Đã hủy"}
                       </span>
-                      {item.status === "issued" && canCancel && (
+                    </td>
+                    <td className="dhb__text-right">
+                      {/* ĐÃ CÓ PHIẾU THU thì KHÔNG bày nút hủy (chủ 22/08/2026: "đã lập phiếu thu
+                          rồi sao lại cho phép hủy hóa đơn"). Máy chủ vốn đã chặn — "Hóa đơn đã có
+                          phiếu thu gắn vào; hãy hủy phiếu thu trước" — nên bày nút ở đây chỉ là
+                          mời người ta bấm vào một cái báo lỗi.
+                          Dùng `direct_received_amount` chứ không phải `received_amount`: cọc cấn
+                          trừ gắn với ĐƠN, không phải hóa đơn, nên nó không chặn hủy. */}
+                      {item.status === "issued" && canCancel && item.direct_received_amount <= 0 && (
                         <button type="button" className="dhb__invoice-cancel" title="Hủy hóa đơn" onClick={() => { setCancelTarget(item); setCancelReason(""); setFormError(null); }}>
                           Hủy
                         </button>
+                      )}
+                      {item.status === "issued" && canCancel && item.direct_received_amount > 0 && (
+                        <small className="dhb__muted" title="Hủy phiếu thu trước rồi mới hủy được hóa đơn">
+                          đã thu — không hủy
+                        </small>
                       )}
                     </td>
                   </tr>

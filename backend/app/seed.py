@@ -35,6 +35,9 @@ MODULES: list[tuple[str, str]] = [
     ("bao_gia", "Báo giá in ấn"),
     ("don_hang_ban", "Đơn hàng bán"),
     ("tinh_gia_thanh", "Tính giá thành"),
+    # Giao hàng (19/08/2026): yêu cầu giao → lên kế hoạch → đề nghị xuất kho → chuyến giao.
+    # MỘT khoá cho cả màn; hai tab đặc quyền tách bằng ô chi tiết `can_plan` / `can_view_drivers`.
+    ("giao_hang", "Giao hàng"),
     # TÁCH THEO MÀN (chủ chốt 10/08/2026, đường A): mỗi màn một ô quyền + phạm vi riêng.
     # `thu_mua` GIỮ NGUYÊN KHOÁ nhưng thu hẹp nghĩa còn đúng màn "Mua hàng" — đổi khoá là mọi hàng
     # `role_permissions` cũ trỏ vào hư không, mất quyền hàng loạt. Hai màn kia tách ra khoá mới,
@@ -197,6 +200,9 @@ def _full(scope: str, *, can_approve_exception: bool = False) -> dict:
         can_manage_salary_profiles=True,
         can_manage_piece_rates=True,
         can_manage_leave_types=True,
+        # giao_hang (mg 0199) — hai tab đặc quyền của màn Giao hàng.
+        can_plan=True,
+        can_view_drivers=True,
     )
 
 

@@ -22,6 +22,7 @@ import {
 import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
+import GiaoHangPage from "../pages/GiaoHangPage";
 import { KeHoachSXPage } from "../pages/KeHoachSXPage";
 import { KeHoachVatTuPage } from "../pages/KeHoachVatTuPage";
 import { BaiGhep2Page } from "../pages/BaiGhep2Page";
@@ -556,11 +557,26 @@ export function AppShell() {
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
     if (!token || readable === null || !coTheMoKenhSse(readable)) return;
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("di_muon") || readable.has("thu_mua") || readable.has("yeu_cau_mua_hang") || readable.has("ke_toan") ||
+      readable.has("phieu_chi") || readable.has("phieu_thu") ||
+      // Tài xế thường CHỈ có ô `giao_hang` — không mở cổng ở đây thì họ không kết nối
+      // SSE, và mọi thông báo chuyến gửi cho họ rơi vào hư không.
+      readable.has("giao_hang"))) return;
 
     const close = connectQuoteEvents(token, (e) => {
       // Có thông báo mới vào chuông → refetch list + badge chuông (độc lập luồng badge module).
       if (e.type === "notification_new") {
         reloadNotifs();
+        return;
+      }
+      // Chuyến giao của CHÍNH tài xế này — máy chủ đẩy đích danh nên không lọc quyền lần nữa.
+      // Tài xế đang ở kho hoặc trên đường, không ngồi canh màn hình (CLAUDE.md: nội bộ = tức thì).
+      if (e.type === "giao_hang_chuyen") {
+        setQuoteTick((n) => n + 1);
+        pushToast(
+          String(e.message ?? "Chuyến giao của bạn vừa cập nhật."),
+          e.viec === "kho_xong" ? "ok" : "info",
+        );
         return;
       }
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
@@ -1159,6 +1175,9 @@ export function AppShell() {
         );
       case "don-hang-ban":
         return <DonHangBanPage navigate={navigate} openOrderId={navParams?.openOrderId ?? null} />;
+      case "giao-hang":
+        // `eventTick` tăng mỗi sự kiện SSE ⇒ bảng chuyến tự tươi, không phải F5.
+        return <GiaoHangPage eventTick={quoteTick} />;
       case "ke-hoach-sx":
         return (
           <KeHoachSXPage

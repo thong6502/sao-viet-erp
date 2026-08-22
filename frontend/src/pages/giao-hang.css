@@ -1,0 +1,332 @@
+/* Màn Giao hàng — chỉ những class RIÊNG của màn này.
+ *
+ * Khung chung (rc__head, rc__table, rc-drawer…) lấy từ rebuild-catalog.css. Đừng mượn `.rc__row`
+ * cho khối flex: class đó dành cho <tr> (có cursor pointer + hover nền), mượn sang <div> là
+ * con trỏ hình bàn tay trên thứ không bấm được. */
+
+.gh-section {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  background: var(--canvas);
+}
+
+.gh-tabs {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Một dòng thông tin trong drawer: pill + chữ, xuống dòng gọn trên laptop hẹp. */
+.gh-line {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: 13px;
+}
+
+.gh-line:last-child {
+  border-bottom: none;
+}
+
+.gh-line em {
+  color: var(--charcoal-2);
+  font-style: normal;
+  opacity: 0.75;
+}
+
+/* Form dọc trong drawer — nhãn trên, ô dưới. */
+.gh-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+
+/* `>` chứ KHÔNG phải khoảng trắng: bản đầu là `.gh-form label` nên nó với tay vào TỪNG label
+ * bên trong fieldset chọn hàng, ép `flex-direction: column` — ô tích nhảy lên một dòng, tên hàng
+ * tràn ra ngoài khung. Chọn tổ tiên bằng khoảng trắng là mời đúng loại tai nạn này. */
+.gh-form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--charcoal-2);
+}
+
+.gh-actions {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+/* Mã chứng từ bấm được — không dùng <a> vì không điều hướng URL. */
+.gh-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.gh-link:hover {
+  opacity: 0.7;
+}
+
+/* --- Dải tab -----------------------------------------------------------------
+ * Cùng thông số hình với `.np-seg` bên Chấm công (nền lõm + viên nổi cho tab đang mở), khai
+ * lại ở đây thay vì import `cham-cong.css`: kéo cả stylesheet của màn khác về chỉ vì 20 dòng
+ * là buộc hai màn vào nhau, sửa bên kia gãy bên này. */
+.gh-seg {
+  display: inline-flex;
+  gap: var(--sp-1);
+  padding: 4px;
+  background: var(--rule-hair);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  flex-wrap: wrap;
+}
+
+.gh-seg__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  border: none;
+  background: transparent;
+  color: var(--ash);
+  font-family: var(--ff-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  white-space: nowrap;   /* nhãn dài KHÔNG xuống dòng — tab gãy đôi trông như hỏng */
+  transition: background-color var(--duration-base) var(--easing-standard),
+    color var(--duration-base) var(--easing-standard);
+}
+
+.gh-seg__btn:hover {
+  color: var(--rust);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.gh-seg__btn.is-active {
+  background: var(--paper);
+  color: var(--rust-deep);
+  font-weight: var(--fw-bold);
+  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.08);
+}
+
+/* Số đếm nằm TRONG nút, không phải chip rời bên cạnh — chip rời bị xuống dòng riêng. */
+.gh-seg__n {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--rule-soft);
+  color: var(--charcoal-2);
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  text-align: center;
+}
+
+.gh-seg__btn.is-active .gh-seg__n {
+  background: var(--rust);
+  color: #fff;
+}
+
+/* --- Khoảng trống ------------------------------------------------------------
+ * Ô trống trong bảng chỉ nói "không có gì"; khối này nói THÊM phải làm gì tiếp. */
+.gh-empty {
+  padding: 48px 24px;
+  text-align: center;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-6);
+  background: var(--canvas);
+}
+
+.gh-empty__title {
+  font-size: 15px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+
+.gh-empty__desc {
+  font-size: 13px;
+  color: var(--ash);
+  max-width: 46ch;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+/* --- Bảng --------------------------------------------------------------------
+ * Cột giờ và cột số KHÔNG xuống dòng: "08:00 19/08/2026" gãy làm đôi thì mắt phải ghép lại. */
+.gh-nowrap {
+  white-space: nowrap;
+}
+
+.gh-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+
+/* --- Chọn hàng giao đợt này --------------------------------------------------
+ * Đơn hai sản phẩm mà mới xong cái thứ nhất là chuyện thường, nên PHẢI tích được từng dòng.
+ * Trước đó luật là "để trống ô số = tự loại" — đúng việc nhưng nhìn vào không biết. */
+.gh-pick {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  padding: var(--sp-3);
+  margin: 0;
+}
+
+.gh-pick legend {
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+}
+
+.gh-pick__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 8px 6px;
+  border-radius: 8px;
+  flex-wrap: wrap;   /* laptop hẹp: ô số rơi xuống dòng dưới, KHÔNG bóp tên hàng méo đi */
+}
+
+.gh-pick__row + .gh-pick__row {
+  border-top: 1px solid var(--rule-hair);
+}
+
+/* Dòng đã tích nổi lên: mắt quét một lượt là biết đợt này giao gì. */
+.gh-pick__row.is-on {
+  background: var(--rust-soft);
+}
+
+.gh-pick__tick {
+  display: flex;
+  flex-direction: row;   /* khai lại rõ ràng — đừng để ai kế thừa `column` từ form bọc ngoài */
+  align-items: flex-start;
+  gap: var(--sp-2);
+  flex: 1 1 auto;
+  min-width: 0;          /* thiếu dòng này thì tên hàng dài đẩy tràn ra khỏi khung */
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Tên hàng dài phải TỰ XUỐNG DÒNG trong ô của nó, không đẩy ô số đi chỗ khác. */
+.gh-pick__tick > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.gh-pick__tick input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.gh-pick__tick em {
+  color: var(--ash);
+  font-style: normal;
+  white-space: nowrap;
+}
+
+/* Ô số cố định bề ngang — không giãn theo tên hàng dài ngắn khác nhau.
+ * Hai class (`.gh-pick` bọc ngoài) để THẮNG `.input { width: 100% }`; cùng độ đặc hiệu thì thứ
+ * tự bundle quyết định, mà thứ tự bundle không phải thứ mình kiểm soát được. */
+.gh-pick .gh-pick__qty {
+  flex: none;
+  width: 120px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.gh-pick .gh-pick__qty:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--rule-hair);
+}
+
+/* Ô chọn mặt hàng kho — dòng thứ hai dưới dòng tích, thụt vào cho thấy nó thuộc dòng trên. */
+.gh-pick__hang {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 0 6px 10px 30px;
+  background: var(--rust-soft);
+  border-radius: 0 0 8px 8px;
+}
+
+.gh-pick__hang-nhan {
+  flex: none;
+  font-size: 12px;
+  color: var(--ash);
+}
+
+/* Combobox chiếm phần còn lại — thiếu dòng này nó co lại còn một viên thuốc. */
+.gh-pick__hang > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Dải đầu bảng Nhân viên: ô chọn tháng + câu giải thích hai khung thời gian.
+ * `align-items: end` để đáy ô input thẳng hàng với dòng chữ bên cạnh — không thì chữ trôi lên
+ * giữa ô, nhìn như hai khối rời nhau. */
+.gh-nvbar {
+  display: flex;
+  align-items: end;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+}
+
+.gh-nvbar__thang {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rc-muted, #64748b);
+}
+
+/* Ô `type=month` mặc định giãn hết chiều ngang của flex item — ghim lại cho vừa nội dung. */
+.gh-nvbar__thang .input {
+  width: 170px;
+}
+
+/* --- File minh chứng của chuyến (hoá đơn / biên nhận) -------------------------------------
+ * Nằm trong ô chi tiết yêu cầu, ngay dưới thông tin chuyến — đúng chỗ người ta đang nhìn khi
+ * hỏi "chuyến này có giấy tờ gì". Tách thành mục riêng ở xa là bắt cuộn đi tìm. */
+.gh-dinhkem {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--rule-soft);
+}
+
+.gh-dinhkem__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+/* Nút bọc `<input type=file>` ẩn — trình duyệt không cho tạo kiểu cho nút chọn file gốc. */
+.gh-dinhkem__add {
+  cursor: pointer;
+  white-space: nowrap;
+}

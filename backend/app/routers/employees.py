@@ -773,7 +773,14 @@ def update_employee(
     try:
         employee, dup_nid, dup_si = svc.update_employee(
             employee_id=employee_id, scope=_scope_for(authz, user), actor=user,
-            fields=body.model_dump(),
+            # `exclude_unset` BẮT BUỘC — đây là PATCH một phần, không phải ghi đè cả hồ sơ.
+            # Thiếu nó thì mọi ô client không gửi vẫn có mặt với giá trị None, nên chỗ nào viết
+            # `clean.get(k, giá_trị_cũ)` cũng nhận None thay vì giá trị cũ (`.get` thấy khoá TỒN
+            # TẠI thì trả None, không rơi về mặc định).
+            # Đã cắn thật 22/08/2026: hồ sơ thử việc ĐÃ khai ngày hết thử việc, HCNS sửa mỗi số
+            # điện thoại ⇒ 400 "phải khai Ngày hết thử việc". Hai đường sửa hồ sơ khác trong file
+            # này (`update_my_contact`, duyệt yêu cầu sửa) vốn đã dùng `exclude_unset`.
+            fields=body.model_dump(exclude_unset=True),
             can_edit_salary=authz.can(user, MODULE, "edit_salary"),
         )
     except EmployeeError as exc:

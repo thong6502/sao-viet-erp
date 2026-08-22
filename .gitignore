@@ -45,6 +45,8 @@ backend/static/ke-toan-thu/
 backend/static/don-hang/
 backend/static/don-hang-coc/
 Backend/static/noi-quy/
+Backend/static/bao-gia/
+Backend/static/giao-hang/
 
 # DB backups (dev.db.bak-*)
 *.bak-*

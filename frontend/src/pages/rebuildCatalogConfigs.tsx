@@ -691,6 +691,36 @@ export const CFG_VAT_TU: CatalogConfig = {
   ],
 };
 
+// THÀNH PHẨM — cùng bảng `vat_tu_in_an` với Vật tư khác, chia nhau bằng `order_line_id`
+// (docs/prd-thanh-pham.md §3). Menu + ô quyền riêng, nhưng KHÔNG phải `hang_loai` thứ ba: với
+// kho thành phẩm vẫn là "vat_tu", nên luồng nhập kho · lập phiếu · trừ tồn không sửa gì.
+export const CFG_THANH_PHAM: CatalogConfig = {
+  title: "Thành phẩm",
+  moduleQuyen: "dm_thanh_pham",
+  subtitle: "Tên hàng bán ra — hệ tự khai khi chốt đơn để kho nhập/xuất được. Trùng tên thì dùng lại, không đẻ dòng mới.",
+  prefix: "/api/vat-lieu-kho/thanh-pham",
+  nhatKyLoai: "thanh_pham",
+  // Khai tay ĐƯỢC (nới 19/08/2026) — Bán hàng khai trước một món khách sắp đặt là chuyện thường.
+  // Nhưng KHÔNG cho Xóa: dòng có thể đang có lô tồn hoặc phiếu đã ghi sổ, xoá là làm mồ côi;
+  // ngừng dùng thì tắt ô Đang dùng. Máy chủ chặn song song, không chỉ giấu nút.
+  khongXoa: true,
+  softDelete: true,
+  columns: [
+    // CỘT + Ô "Khách hàng" ĐÃ GỠ HẲN (chủ 21/08/2026: "khách hàng mình lưu làm gì, mình không
+    // dùng tới — thành phẩm này là một cái tên hàng mới, nêu chưa khai để tái sử dụng, tránh
+    // phình lên"). Thành phẩm KHÔNG thuộc về ai nữa: hai khách đặt cùng tên dùng CHUNG một dòng.
+    // Công tắc chia hai màn chuyển sang cột `la_thanh_pham` (mg 0228) — repo tự đóng dấu, người
+    // dùng không khai, nên bỏ ô này không làm dòng mới rơi sang màn Vật tư.
+    { key: "don_vi_gia", label: "ĐVT", render: (r) => dvCell(r) },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
+  ],
+  fields: [
+    { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", ...F_DON_VI, group: "Thông số",
+      hint: "Lấy theo đơn vị trên dòng đơn hàng — sửa nếu kho đếm bằng đơn vị khác" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
+  ],
+};
+
 // Xóa kho KHÔNG dùng luồng ẩn-mềm mặc định: kho là gốc của lô/phiếu/yêu cầu nên phải CHẶN nếu còn
 // dính, và bắt gõ mã xác nhận (thao tác nặng). Gọi /delete-check để soi rồi mới cho xóa qua DELETE
 // (backend xóa mềm + tự chặn lần nữa). Chỉ role có quyền kho:delete mới thấy nút Xóa.
@@ -1008,6 +1038,7 @@ export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "chung-loai-giay": CFG_CHUNG_LOAI_GIAY,
   "giay": CFG_GIAY,
   "vat-tu-in-an": CFG_VAT_TU,
+  "thanh-pham": CFG_THANH_PHAM,
   "khuon-be": CFG_KHUON_BE,
   "ly-do-san-xuat": CFG_LY_DO_SAN_XUAT,
 };

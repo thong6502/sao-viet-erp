@@ -189,10 +189,12 @@ export function AccountingReceivablesPage({
             {!loading && rows.length === 0 && <tr><td colSpan={7}>Chưa có khách hàng còn công nợ phải thu phù hợp.</td></tr>}
             {!loading && rows.map((row) => (
               <tr key={row.customer_id ?? `none-${row.customer_name}`}>
-                <td>
-                  <strong>{row.customer_name}</strong>
-                  <small>Đã ghi hóa đơn {money(row.invoiced_amount)}</small>
-                </td>
+                {/* CỐ Ý KHÔNG hiện "Đã ghi hóa đơn" ở đây (chủ 21/08/2026: "để làm gì, nó có
+                    tác dụng gì cả"). Nó LUÔN bằng "Đã thu" + "Tổng phải thu" — hai cột đã nằm
+                    ngay cạnh: mỗi hoá đơn có `remaining = amount − received`, cộng theo khách là
+                    ra đẳng thức đó, không ngoại lệ. Bày thêm một số suy được là bắt người ta đọc
+                    ba số để hiểu hai. */}
+                <td><strong>{row.customer_name}</strong></td>
                 <td>{row.invoice_count}</td>
                 <td><strong>{money(row.total_due)}</strong></td>
                 <td className={row.overdue_amount > 0 ? "pay-cell--danger" : ""}>{money(row.overdue_amount)}</td>
@@ -316,12 +318,27 @@ function ReceivablesDrawer({
       {!detail && !error && <p>Đang tải chi tiết...</p>}
       {detail && (
         <>
-          <dl className="purchase__facts">
-            <div><dt>Tổng còn phải thu</dt><dd>{money(detail.total_due)}</dd></div>
-            <div><dt>Quá hạn</dt><dd>{money(detail.overdue_amount)}</dd></div>
-            <div><dt>Đã thu ({detail.period_months} tháng)</dt><dd>{money(detail.received_in_period)}</dd></div>
-            <div><dt>Hạn mức</dt><dd>{detail.credit_limit > 0 ? money(detail.credit_limit) : "—"}</dd></div>
-          </dl>
+          {/* Thẻ số thay cho danh sách nhãn–giá trị: số ĐỨNG TRÊN, nhãn nhỏ ở dưới, để mắt bắt
+              được con số trước. Số 0 lùi về dấu "—" mờ — ô này thường có 2–3 số 0, để nguyên thì
+              số thật chìm nghỉm giữa đống số không. */}
+          <div className="ar-stats">
+            <div className="ar-stat">
+              <b className="ar-stat__n">{money(detail.total_due)}</b>
+              <span className="ar-stat__l">Tổng còn phải thu</span>
+            </div>
+            <div className={`ar-stat${detail.overdue_amount > 0 ? " ar-stat--danger" : ""}`}>
+              <b className="ar-stat__n">{detail.overdue_amount > 0 ? money(detail.overdue_amount) : "—"}</b>
+              <span className="ar-stat__l">Quá hạn</span>
+            </div>
+            <div className="ar-stat">
+              <b className="ar-stat__n">{detail.received_in_period > 0 ? money(detail.received_in_period) : "—"}</b>
+              <span className="ar-stat__l">Đã thu ({detail.period_months} tháng)</span>
+            </div>
+            <div className="ar-stat">
+              <b className="ar-stat__n">{detail.credit_limit > 0 ? money(detail.credit_limit) : "—"}</b>
+              <span className="ar-stat__l">Hạn mức</span>
+            </div>
+          </div>
 
           <section className="pay-block ar-invoices">
             <div className="pay-block__head"><h3>Hóa đơn còn phải thu</h3><strong>{money(detail.total_due)}</strong></div>
@@ -330,8 +347,10 @@ function ReceivablesDrawer({
               <table className="pay-table ar-invoice-table">
                 <thead>
                   <tr>
+                    {/* "Đơn nguồn" gộp vào ô Hóa đơn (dòng nhỏ bên dưới): 8 cột không vừa bề
+                        rộng ô, và cột bị đẩy ra ngoài chính là cột NÚT — người dùng phải kéo
+                        ngang mới bấm được "Thu tiền". */}
                     <th>Hóa đơn</th>
-                    <th>Đơn nguồn</th>
                     <th>Ngày / hạn thu</th>
                     <th>Giá trị</th>
                     <th>Cấn cọc</th>
@@ -341,12 +360,17 @@ function ReceivablesDrawer({
                   </tr>
                 </thead>
                 <tbody>
-                  {detail.items.length === 0 && <tr><td colSpan={8}>Khách hàng này không còn hóa đơn phải thu.</td></tr>}
+                  {detail.items.length === 0 && <tr><td colSpan={7}>Khách hàng này không còn hóa đơn phải thu.</td></tr>}
                   {detail.items.map((item) => (
                     <Fragment key={item.invoice_id}>
                       <tr>
-                        <td><strong>{item.invoice_symbol ? `${item.invoice_symbol} · ` : ""}{item.invoice_number}</strong><small>{fmtDate(item.invoice_date)}</small></td>
-                        <td><CodeLink code={item.order_code} onOpen={() => navigate("don-hang-ban", { openOrderId: item.order_id })} /></td>
+                        <td>
+                          <strong>{item.invoice_symbol ? `${item.invoice_symbol} · ` : ""}{item.invoice_number}</strong>
+                          <small>
+                            {fmtDate(item.invoice_date)} ·{" "}
+                            <CodeLink code={item.order_code} onOpen={() => navigate("don-hang-ban", { openOrderId: item.order_id })} />
+                          </small>
+                        </td>
                         <td>
                           {item.due_date ? fmtDate(item.due_date) : "—"}
                           {item.chua_dat_han && <small>Chưa đặt hạn</small>}
@@ -366,7 +390,7 @@ function ReceivablesDrawer({
                       </tr>
                       {receiptFor?.invoice_id === item.invoice_id && (
                         <tr className="ar-receipt-form-row">
-                          <td colSpan={8}>
+                          <td colSpan={7}>
                             <InvoiceReceiptForm
                               item={item}
                               customerName={row.customer_name}
@@ -388,6 +412,11 @@ function ReceivablesDrawer({
 
           <section className="pay-block pay-block--ok">
             <div className="pay-block__head"><h3>Lịch sử đã thu / cấn cọc</h3><strong>{money(detail.received_in_period)}</strong></div>
+            {/* Rỗng thì nói một câu, ĐỪNG bày 7 tiêu đề cột cho một dòng "chưa có gì" — bảng
+                trống trông như đang hỏng chứ không như đang trống. */}
+            {detail.paid.length === 0 ? (
+              <p className="pay-block__hint">Chưa có khoản thu trong kỳ đang xem.</p>
+            ) : (
             <div className="ar-tablewrap">
               <table className="pay-table ar-history-table">
                 {/* "Người lập" đứng cạnh chính số phiếu của người đó — soi lịch sử thấy dòng lạ
@@ -395,7 +424,6 @@ function ReceivablesDrawer({
                     chỗ, để hai màn đọc như nhau. */}
                 <thead><tr><th>Phiếu thu</th><th>Người lập</th><th>Áp dụng</th><th>Hóa đơn / đơn</th><th>Ngày thu</th><th>Hình thức</th><th>Số tiền</th></tr></thead>
                 <tbody>
-                  {detail.paid.length === 0 && <tr><td colSpan={7}>Chưa có khoản thu trong kỳ đang xem.</td></tr>}
                   {detail.paid.map((receipt) => (
                     <tr key={`${receipt.receipt_id}-${receipt.applied_to}-${receipt.sales_invoice_id ?? receipt.order_id}`}>
                       <td>
@@ -416,7 +444,14 @@ function ReceivablesDrawer({
                 </tbody>
               </table>
             </div>
-            {!detail.all_history && <Button variant="ghost" onClick={() => setAllHistory(true)}>Xem lịch sử thu cũ hơn</Button>}
+            )}
+            {!detail.all_history && (
+              /* Nút đứng ngay sau bảng nên phải TỰ tách khoảng — `pay-block` chỉ giãn cách giữa
+                 các khối, không chen vào giữa con của một khối. */
+              <div className="ar-more">
+                <Button variant="ghost" onClick={() => setAllHistory(true)}>Xem lịch sử thu cũ hơn</Button>
+              </div>
+            )}
           </section>
         </>
       )}

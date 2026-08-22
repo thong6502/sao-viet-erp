@@ -25,6 +25,10 @@ _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 _HEADER_FIELDS = ("bo_phan_id", "kho_id", "ngay_can", "uu_tien", "ghi_chu", "loai_kho",
                   "purchase_delivery_id",
+                  # NGUỒN GIAO HÀNG (mg 0201): chuyến giao sinh ra yêu cầu XUẤT này. Thiếu tên ở
+                  # danh sách này thì giá trị bị NUỐT IM LẶNG — yêu cầu vẫn tạo, chỉ là không nối
+                  # về đâu cả. Đúng cái bẫy đã cắn 19/08/2026.
+                  "delivery_trip_id",
                   # ĐIỀU CHUYỂN KHO (mig 0203) — set từ service khi ấn điều chuyển.
                   "dieu_chuyen", "kho_nguon_id", "xuat_voucher_id")
 
@@ -68,6 +72,25 @@ class StockRequestRepository:
         co_lsx = lsx_id in (None, "") or self.db.get(Lsx, int(lsx_id)) is not None
         co_bg = bai_ghep_id in (None, "") or self.db.get(BaiGhep, int(bai_ghep_id)) is not None
         return co_lsx, co_bg
+
+    def tim_theo_delivery_trip(self, trip_id: int, *, loai: str | None = None):
+        """Yêu cầu kho CÒN SỐNG của một chuyến giao (bỏ qua đã huỷ / từ chối).
+
+        Giao hàng đọc ngược qua đây: chuyến đã gửi yêu cầu chưa, mã bao nhiêu. Cùng khuôn
+        `purchase_delivery_id` mà Mua hàng dùng để chặn nhập kho trùng một đợt.
+
+        ⚠️ PHẢI truyền `loai`. Một chuyến nay có tới HAI yêu cầu treo cùng `delivery_trip_id`:
+        `XUAT` lúc lấy hàng đi giao, và `NHAP` lúc trả hàng về (chuyến hỏng / giao thiếu). Không
+        lọc thì hàm trả bản mới nhất — tức sau khi trả hàng, mọi chỗ hỏi "yêu cầu xuất của chuyến"
+        đều nhận nhầm phiếu nhập.
+        """
+        stmt = select(StockRequest).where(
+            StockRequest.delivery_trip_id == trip_id,
+            StockRequest.trang_thai.notin_([REQ_CANCELLED, REQ_REJECTED]),
+        )
+        if loai is not None:
+            stmt = stmt.where(StockRequest.loai == loai)
+        return self.db.execute(stmt.order_by(StockRequest.id.desc())).scalars().first()
 
     def get_by_ma(self, ma: str) -> StockRequest | None:
         return self.db.execute(

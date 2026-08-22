@@ -157,6 +157,7 @@ def create_department(
             la_san_xuat=payload.la_san_xuat,
             la_kinh_doanh=payload.la_kinh_doanh,
             is_kcs=payload.is_kcs,
+            la_giao_hang=payload.la_giao_hang,
             actor_id=user.id,
         )
     except DepartmentNameTaken as e:
@@ -203,6 +204,12 @@ def update_department(
             if "is_kcs" in payload.model_fields_set
             else {}
         )
+        # Cờ bộ phận Giao hàng: cùng luật "không gửi = giữ nguyên" như cờ Kinh doanh ngay trên.
+        gh_kw = (
+            {"la_giao_hang": payload.la_giao_hang}
+            if "la_giao_hang" in payload.model_fields_set
+            else {}
+        )
         dept = depts.update(
             dept_id=dept_id,
             name=payload.name,
@@ -217,6 +224,7 @@ def update_department(
             **salary_kw,
             **kd_kw,
             **kcs_kw,
+            **gh_kw,
         )
     except (SetHeadForbidden, ReparentForbidden) as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None

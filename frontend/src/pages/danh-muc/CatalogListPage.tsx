@@ -32,8 +32,10 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
   // chỉ-đọc vẫn thấy đủ Thêm / Xóa / Bật lại, bấm xong mới ăn 403 — nút bày ra để rồi từ chối.
   // `moduleQuyen` bỏ trống (vd màn dùng trong test) = không gác, hành vi cũ y nguyên.
   const mQuyen = config.moduleQuyen;
-  const duocTao = !mQuyen || can(mQuyen, "create");
-  const duocXoa = !mQuyen || can(mQuyen, "delete");
+  // `khongTaoTay` / `khongXoa` là luật CỦA MÀN, đứng TRƯỚC quyền: có quyền tạo vẫn không tạo
+  // tay được, vì dòng ở đó do hệ sinh (xem `types.ts`).
+  const duocTao = !config.khongTaoTay && (!mQuyen || can(mQuyen, "create"));
+  const duocXoa = !config.khongXoa && (!mQuyen || can(mQuyen, "delete"));
   const duocBatLai = !mQuyen || can(mQuyen, "update");
   const api = useMemo(() => crud(config.prefix), [config.prefix]);
   const [rows, setRows] = useState<Row[]>([]);
@@ -248,10 +250,20 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
           <thead>
             <tr>
               <th style={{ width: "14%" }}>Mã</th>
-              <th style={{ width: "16%" }}>Tên</th>
+              {/* TÊN là cột người ta đọc để nhận ra dòng — cho nó rộng nhất. 16% cũ làm tên sản
+                  phẩm xuống 2–3 dòng trong khi cột bên cạnh bỏ trống. */}
+              <th style={{ width: "24%" }}>Tên</th>
               {config.columns.map((c) => {
                 const isCenter = c.key === "bac" || c.key === "dai" || c.key === "active";
-                const w = c.key === "quy_doi_text" ? "34%" : c.key === "canh_bao" ? "12%" : c.key === "ghi_chu" ? "16%" : undefined;
+                // ⚠️ `table-layout: fixed` + `width: 100%`: cột KHÔNG khai bề rộng ăn TRỌN phần
+                // còn lại. Màn Thành phẩm chỉ có đúng một cột như vậy (ĐVT) nên nó chiếm 46% màn
+                // hình cho một chữ "hộp", còn Tên bị ép xuống 3 dòng (chủ báo 22/08/2026).
+                // ĐVT ở cả ba danh mục (Giấy · Vật tư khác · Thành phẩm) đều là một chip ngắn.
+                const w = c.key === "quy_doi_text" ? "34%"
+                  : c.key === "canh_bao" ? "12%"
+                  : c.key === "ghi_chu" ? "22%"
+                  : c.key === "don_vi_gia" ? "9%"
+                  : undefined;
                 return <th key={c.key} style={w ? { width: w } : undefined} className={isCenter ? "text-center" : ""}>{c.label}</th>;
               })}
               <th className="rc__actcol" style={{ width: "8%", textAlign: "right" }}>Hành động</th>

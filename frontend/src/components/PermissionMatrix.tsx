@@ -67,7 +67,9 @@ export type ActionKey =
   | "can_view_payroll_table"
   | "can_manage_salary_profiles"
   | "can_manage_piece_rates"
-  | "can_manage_leave_types";
+  | "can_manage_leave_types"
+  | "can_plan"
+  | "can_view_drivers";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
 // Dữ liệu vẫn lưu tách (can_create/can_update/can_delete) nên backend không đổi.
@@ -273,6 +275,19 @@ const FINE_ACTIONS: Record<
       hint: "Thêm / sửa / XOÁ các loại nghỉ (phép năm, nghỉ ốm, không lương…) — chính sách dùng chung cho CẢ CÔNG TY, không phải việc của một phòng. Đây chính là ý nghĩa của cột “Thao tác” ở dòng này; cột “Xoá” không dùng tới.",
     },
   ],
+  // Giao hàng (19/08/2026) — MỘT Ô = MỘT TAB, cùng luật với Chấm công và Lương.
+  giao_hang: [
+    {
+      key: "can_plan",
+      label: "Lên đơn giao hàng",
+      hint: "Mở tab “Yêu cầu giao” + nút Lên đơn giao hàng (chọn tài xế, giờ lấy, giờ dự kiến giao) + nút Gửi đề nghị xuất hàng sang kho. Tách khỏi cột Thao tác vì gửi yêu cầu giao (Bán hàng làm) và xếp chuyến cho tài xế (Quản lý Giao hàng làm) là việc của hai người — gộp một cột là Bán hàng xếp được lịch tài xế.",
+    },
+    {
+      key: "can_view_drivers",
+      label: "Nhân viên giao hàng",
+      hint: "Mở tab “Nhân viên giao hàng” — lịch làm việc, chuyến đang chạy, số chuyến hoàn thành và tổng km trong ngày của NGƯỜI KHÁC. Ô riêng vì tài xế ở phạm vi “Của tôi” không được thấy năng suất đồng nghiệp.",
+    },
+  ],
   // Tách khỏi ô "Chấm bù" của màn Chấm công ngày 11/08/2026.
   tang_ca: [
     {
@@ -346,6 +361,8 @@ const FINE_ACTIONS: Record<
 const MODULE_HINTS: Record<string, string> = {
   self_service:
     "Việc người lao động làm với hồ sơ CỦA CHÍNH MÌNH: tự chấm công, xem công và phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng. Vai mới sinh ra đã bật sẵn ô này. Tắt đi thì người đó không tự chấm công được nữa — cân nhắc trước khi bỏ tick.",
+  giao_hang:
+    "Xem: mở màn Giao hàng — tab “Đơn giao hàng”, lọc theo Phạm vi. Thao tác: gửi yêu cầu giao từ đơn hàng bán, bấm đã lấy hàng, nhập kết quả + số km. Lên đơn giao hàng và tab Nhân viên giao hàng là hai ô riêng bên dưới. Kho KHÔNG cần ô này — nút Duyệt của kho nằm trong Hộp yêu cầu và đi theo ô Kho.",
   nhan_su:
     "Xem: mở Hồ sơ nhân sự (danh sách NV, chi tiết hồ sơ). Chỉnh sửa: thêm/sửa/xóa hồ sơ. Lương & BHXH của NV là dữ liệu nhạy cảm nên tách riêng thành quyền xem và quyền sửa. Màn Chấm công KHÔNG còn nằm trong ô này — nó có ô riêng ngay bên dưới.",
   cham_cong:
@@ -362,6 +379,12 @@ const MODULE_HINTS: Record<string, string> = {
     "Xem: MỞ MÀN Lương — chỉ thấy hai tab của chính mình (Phiếu lương của tôi, Tạm ứng của tôi). Không có ô này là không vào được màn, kể cả để xem phiếu lương của mình, nên vai nào cũng nên bật. Thao tác: gửi đề nghị tạm ứng / xin lương đợt 1 cho chính mình, và ghi ở những tab đã mở. Bảng lương tháng, Lương nhân viên, Lương khoán, Cấu hình, duyệt tạm ứng, chốt kỳ, xuất file — mỗi thứ một ô ở quyền chi tiết bên dưới.",
   thu_mua:
     "Xem: xem danh sách YCMH và PMH trong phạm vi được cấp. Chỉnh sửa: lập/sửa/gửi duyệt PMH, đánh dấu đã mua/đã nhận. Duyệt-từ chối PMH và hủy PMH nằm ở quyền chi tiết.",
+  // Hai chú giải dưới bổ sung 21/08/2026: trước đó hai màn này KHÔNG có dòng nào, người cấp quyền
+  // phải tự đoán "Xem cái này thì thấy gì" (xem docs/RBAC_QUYEN_THEO_MODULE.md §5).
+  yeu_cau_mua_hang:
+    "Xem: mở màn Yêu cầu mua hàng (YCMH của các bộ phận) trong phạm vi được cấp. Màn này CỐ Ý mở cho nhiều nhóm — báo giá, kho, sản xuất, giấy, kế toán, thu mua đều vào được bằng ô Xem của chính họ, nên bật ô này chỉ là MỘT trong bảy đường vào. Chỉnh sửa: lập yêu cầu cho bộ phận mình, sửa khi còn nháp, và hủy yêu cầu. Chuyển YCMH thành phiếu mua hàng là việc của ô Mua hàng.",
+  nha_cung_cap:
+    "Xem: danh mục Nhà cung cấp + bảng mặt hàng NCC đang bán (kèm tải mẫu và xuất Excel). Chỉnh sửa: thêm/sửa NCC, ngừng dùng, và nhập bảng mặt hàng từ Excel. Ô này còn mở TÀI KHOẢN NGÂN HÀNG của nhà cung cấp ở màn Kế toán — người quản danh mục NCC sửa được TK của họ mà không cần ô Tài khoản ngân hàng.",
   khach_hang:
     "Xem: danh bạ khách + lịch sử giao dịch. Chỉnh sửa: thêm/sửa/xóa khách. Điều chuyển sang sale khác, xuất file, xem công nợ, đặt chính sách tài chính nằm ở quyền chi tiết.",
   bao_gia:
@@ -433,7 +456,10 @@ const MODULE_GROUPS: {
   {
     key: "kinh_doanh",
     label: "Kinh doanh",
-    modules: ["khach_hang", "bao_gia", "don_hang_ban", "tinh_gia_thanh"],
+    // `giao_hang` đứng ngay sau `don_hang_ban`: nó là khúc SAU của đơn, và người cấp quyền dò
+    // theo màn hình chứ không theo tên kỹ thuật. Thiếu ở đây thì nó rơi vào nhóm "Khác" —
+    // vẫn cấp được, nhưng phải cuộn xuống cuối mới thấy.
+    modules: ["khach_hang", "bao_gia", "don_hang_ban", "giao_hang", "tinh_gia_thanh"],
   },
   // MỘT MÀN = MỘT DÒNG, xếp đúng thứ tự menu "Sản xuất" để người cấp quyền dò theo màn hình.
   // 6 mục menu → 6 dòng; trước 17/08/2026 chỉ có 2, bật đủ 2/2 vẫn không siết được màn nào.
@@ -510,6 +536,7 @@ const MODULE_GROUPS: {
       "dm_chung_loai_giay",
       "dm_giay",
       "dm_vat_tu",
+      "dm_thanh_pham",
       "khuon_be",
       "dm_kho_hang",
     ],

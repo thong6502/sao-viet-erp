@@ -60,6 +60,8 @@ from ..services.sequence_service import SequenceService
 from ..services.stock_request_service import StockRequestService
 from ..services.stock_voucher_service import StockVoucherError, StockVoucherService
 
+from ..services.delivery_notify import bao_tai_xe_kho_lap_phieu
+
 router = APIRouter(prefix="/api/kho/phieu", tags=["kho-phieu"])
 # Ngưỡng tồn để PREFIX RIÊNG, không nhét dưới /phieu: `/phieu/nguong` là path 1 đoạn nên sẽ
 # bị `/phieu/{voucher_id}` nuốt trước (FastAPI khớp theo thứ tự khai báo) → 422.
@@ -319,6 +321,10 @@ def create_voucher(
         )
     except StockVoucherError as e:
         raise _err(e) from None
+    # Yêu cầu của GIAO HÀNG thì báo tài xế "kho soạn xong, tới lấy được" — mốc đó chỉ kho biết.
+    # Toàn bộ logic ở `services/delivery_notify`; hàm đó tự nuốt lỗi nên không cần `try` ở đây và
+    # không đường nào làm hỏng việc lập phiếu.
+    bao_tai_xe_kho_lap_phieu(db, payload.request_id, getattr(v, "ma", None))
     return _serialize(v, svc=svc, db=db, can_view_cost=authz.can(user, MODULE, "view_cost"))
 
 

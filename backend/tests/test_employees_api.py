@@ -1008,3 +1008,32 @@ def test_HCNS_bam_chuyen_chinh_thuc_tu_trang_thai_het_thu_viec(client):
                     headers=_h(token))
     assert r.status_code == 200, r.text
     assert client.get(f"/api/employees/{eid}", headers=_h(token)).json()["status"] == "active"
+
+
+def test_SUA_MOT_PHAN_khong_lam_mat_o_khong_gui(client):
+    """⭐ PUT hồ sơ là SỬA MỘT PHẦN, không phải ghi đè cả hồ sơ.
+
+    Lỗi thật ngày 22/08/2026: router gọi `body.model_dump()` mà THIẾU `exclude_unset=True`, nên
+    mọi ô client không gửi vẫn có mặt với giá trị `None`. Chỗ nào viết `clean.get(k, giá_trị_cũ)`
+    cũng nhận `None` — `.get` thấy khoá TỒN TẠI thì trả `None`, không rơi về mặc định.
+
+    Ngoài đời: hồ sơ thử việc ĐÃ khai ngày hết thử việc, HCNS sửa mỗi số điện thoại là ăn 400
+    "phải khai Ngày hết thử việc" — đòi khai cái đã khai, và không có đường nào đi tiếp.
+
+    Khoá CẢ HAI chiều: không gửi thì GIỮ, gửi `null` tường minh thì vẫn tính là cố ý xoá (và vẫn
+    bị luật chặn). Chỉ khoá chiều đầu thì ai đó gỡ luôn hàng rào cũng qua được test.
+    """
+    token = _admin_token(client)
+    eid = _create(client, token, full_name="NV Sửa Một Phần",
+                  probation_end_date="2026-06-30").json()["employee"]["id"]
+
+    r = client.put(f"/api/employees/{eid}", headers=_h(token),
+                   json={"full_name": "NV Sửa Một Phần", "phone": "0909000111"})
+    assert r.status_code == 200, r.text
+    doc = client.get(f"/api/employees/{eid}", headers=_h(token)).json()
+    assert doc["probation_end_date"] == "2026-06-30", "ô KHÔNG gửi lên bị xoá mất"
+    assert doc["phone"] == "0909000111"
+
+    r2 = client.put(f"/api/employees/{eid}", headers=_h(token),
+                    json={"full_name": "NV Sửa Một Phần", "probation_end_date": None})
+    assert r2.status_code == 400, r2.text

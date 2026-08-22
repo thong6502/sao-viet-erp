@@ -57,7 +57,9 @@ export type PermAction =
   | "view_payroll_table"
   | "manage_salary_profiles"   // luong — tab Lương nhân viên
   | "manage_piece_rates"       // luong — tab Lương khoán
-  | "manage_leave_types";      // nghi_phep — danh mục loại nghỉ
+  | "manage_leave_types"       // nghi_phep — danh mục loại nghỉ
+  | "plan"                     // giao_hang — tab Yêu cầu chờ lên kế hoạch + phân công
+  | "view_drivers";            // giao_hang — tab Nhân viên giao hàng
 
 export type Capabilities = Map<string, ModuleCapability>;
 

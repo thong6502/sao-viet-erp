@@ -65,6 +65,8 @@ ACTION_VIEW_PAYROLL_TABLE = "view_payroll_table"  # luong: tab Bảng lương th
 ACTION_MANAGE_SALARY_PROFILES = "manage_salary_profiles"  # luong: tab Lương nhân viên
 ACTION_MANAGE_PIECE_RATES = "manage_piece_rates"          # luong: tab Lương khoán
 ACTION_MANAGE_LEAVE_TYPES = "manage_leave_types"          # nghi_phep: danh mục loại nghỉ
+ACTION_PLAN = "plan"                  # giao_hang: tab Yêu cầu chờ lên kế hoạch + phân công
+ACTION_VIEW_DRIVERS = "view_drivers"  # giao_hang: tab Nhân viên giao hàng (lịch + KPI người khác)
 # Ghi chú: don_hang_ban tái dùng ACTION_APPROVE (= "Chốt đơn") và ACTION_CANCEL (= "Hủy đơn");
 # ACTION_APPROVE_EXCEPTION TÁCH RIÊNG (chỉ GĐ) — duyệt đơn đặc thù mới được chốt.
 
@@ -117,6 +119,8 @@ _ACTION_ATTR = {
     ACTION_MANAGE_SALARY_PROFILES: "can_manage_salary_profiles",
     ACTION_MANAGE_PIECE_RATES: "can_manage_piece_rates",
     ACTION_MANAGE_LEAVE_TYPES: "can_manage_leave_types",
+    ACTION_PLAN: "can_plan",
+    ACTION_VIEW_DRIVERS: "can_view_drivers",
 }
 
 
@@ -208,6 +212,8 @@ class AuthorizationService:
                 "can_manage_salary_profiles": p.can_manage_salary_profiles,
                 "can_manage_piece_rates": p.can_manage_piece_rates,
                 "can_manage_leave_types": p.can_manage_leave_types,
+                "can_plan": p.can_plan,
+                "can_view_drivers": p.can_view_drivers,
             }
             for p in self.roles.permissions_for(user.role_id)
         ]

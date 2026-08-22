@@ -3780,3 +3780,14 @@
   background: var(--rust-soft);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rust) 22%, transparent);
 }
+
+/* Khối GIAO HÀNG — bậc thứ BA của cùng một accent, KHÔNG đẻ màu thứ hai (UI_DESIGN §2):
+   SX = nền đặc · KD = nền nhạt · Giao hàng = viền, nền trong suốt. Ba bậc phân biệt bằng ĐỘ ĐẬM
+   nên vẫn đọc được khi ba nhãn đứng cạnh nhau trên cùng một dòng.
+   Đặt sau khối `--kd` có chủ ý: file này từng bị lặp cả khối, bản nằm sau mới thắng. */
+.rdx-tree__pill--gh,
+.rdx-drawer__pill--gh {
+  color: var(--rust-deep);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rust) 45%, transparent);
+}

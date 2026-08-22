@@ -16,6 +16,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean, Date, DateTime, Integer, JSON, Numeric, String, Text,
+    false as sa_false,
     true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -157,6 +158,37 @@ class VatTuInAn(Base):
     # rồi kho và mua hàng lãnh đủ mấy cái tên đó trong khi họ vẫn cân bằng kg thật.
     cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # THÀNH PHẨM của một đơn hàng (mg 0203 · docs/prd-thanh-pham.md).
+    #
+    # Sản phẩm in là hàng ĐẶT RIÊNG — "Hộp thuốc 10 vỉ, in 2 màu, cán bóng" không có sẵn ở danh
+    # mục nào. Nhưng kho chỉ xuất được thứ CÓ trong danh mục (luật 08/08/2026 bỏ ô tên tự do),
+    # nên lúc CHỐT ĐƠN hệ tự khai mỗi dòng đơn thành một dòng ở đây.
+    #
+    # ⚠️ NGƯNG DÙNG LÀM KHOÁ từ 21/08/2026 (mg 0228). Giữ cột để tra lịch sử "đơn đầu tiên của
+    # khách nào", KHÔNG được dùng lại làm công tắc màn hay phạm vi gộp trùng.
+    #
+    # Trước đó nó gánh HAI việc: chủ của thành phẩm + công tắc chia hai màn danh mục. Chủ dự án
+    # bỏ: "thành phẩm này là một cái tên hàng, nêu chưa khai để tái sử dụng, tránh phình lên" —
+    # tức nó KHÔNG thuộc về ai, giống bán cùng một cái quạt cho nhiều khách. Hệ quả:
+    #   · công tắc màn chuyển sang cột `la_thanh_pham` ngay dưới;
+    #   · phạm vi gộp trùng chuyển thành TÊN đã chuẩn hoá, không kèm khách.
+    customer_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+
+    # CÔNG TẮC chia hai màn dùng chung bảng này: `true` ⇒ màn "Thành phẩm", `false` ⇒ "Vật tư
+    # khác" (xem `_VatTuRepo` / `_ThanhPhamRepo`). Cột cờ RIÊNG chứ không suy từ cột khác nữa —
+    # suy từ `customer_id` đã hỏng đúng lúc thành phẩm thôi thuộc về khách. Thêm ở mg 0228.
+    la_thanh_pham: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=sa_false()
+    )
+
+    # Đơn ĐẦU TIÊN đặt món này — giữ để tra nguồn gốc, KHÔNG phải khoá định danh (mg 0203 từng
+    # dùng làm khoá và sai: đặt lại là đẻ dòng thứ hai). Không cập nhật ở những lần đặt sau.
+    #
+    # Soft-ref, KHÔNG FK cứng: danh mục sống lâu hơn đơn — huỷ đơn KHÔNG xoá thành phẩm vì có thể
+    # đã nhập kho, xoá là làm mồ côi lô tồn. Cùng khuôn `stock_requests.purchase_delivery_id`.
+    order_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    order_line_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     # Ảnh minh hoạ vật tư (1 ảnh) — xem ghi chú `GiayNguyen.anh_url`.
     anh_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)

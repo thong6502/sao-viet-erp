@@ -247,6 +247,13 @@
   font-size: 12px;
 }
 
+/* Ghi chú mờ thay cho nút — "đã thu, không hủy". Cùng cỡ chữ với `small` trong bảng. */
+.dhb__muted {
+  color: var(--ash-2);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .dhb__text-right {
   text-align: right;
 }
@@ -420,11 +427,20 @@
 }
 
 .dhb__drawer-content {
-  width: 580px;
+  /* NỬA MÀN HÌNH (chủ 21/08/2026). 580px cũ chỉ ~39% màn 1490px, nên bảng "Hoá đơn & công nợ"
+     (6 cột tiền) bị cắt và phải cuộn ngang mới đọc hết — đọc số tiền mà phải kéo ngang là mời
+     đọc nhầm dòng.
+     `min-width` giữ sàn để trên laptop 13" (1280px) ô vẫn là 640px chứ không bóp lại. */
+  width: 50vw;
+  min-width: 580px;
   max-width: 95vw;
   height: 100%;
   background: var(--canvas);
   overflow-y: auto;
+  /* CỐ Ý KHÔNG đặt `overflow-x: hidden` (đã thử và gỡ ngày 21/08/2026). Nó không làm nội dung vừa
+     ô — chỉ CẮT CỤT phần thừa, mà cắt số tiền thì tệ hơn hẳn một thanh cuộn xấu. Cách chữa đúng
+     là để nội dung co được: xem `min-width: 0` ở `.dhb__timeline-step` và khung cuộn riêng của
+     `.dhb__invoice-tablewrap`. Còn thừa chỗ nào thì phải THẤY nó mà sửa, không phải giấu đi. */
   box-shadow: var(--shadow-lg);
   border-left: 1px solid var(--rule-soft);
   animation: dhb-slide-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -746,6 +762,18 @@
   position: relative;
   z-index: 2;
   flex: 1;
+  /* ⚠️ `flex: 1` KHÔNG đủ để co: mặc định `min-width: auto` giữ mỗi bước rộng bằng chữ dài nhất
+     trong nó ("không cần cọc", "đã ghi một phần"). 5 bước như vậy cộng lại rộng hơn ô chi tiết
+     ⇒ đẩy tràn cả viền, và vì `.dhb__drawer-content` cuộn được nên nền không đi theo, nhìn như
+     chữ lòi hẳn ra ngoài (chủ báo 21/08/2026: "ở laptop nó tràn viền luôn"). */
+  min-width: 0;
+}
+
+/* Nhãn bước: xuống dòng còn đọc được; kéo ngang thì cả dải vỡ. */
+.dhb__timeline-label,
+.dhb__timeline-sub {
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .dhb__timeline-dot {
@@ -796,6 +824,10 @@
 
 /* Sections inside Vòng đời đơn */
 .dhb__lifecycle-box {
+  /* Khối là con của một flex column; mặc định `min-width: auto` giữ nó rộng bằng đứa con rộng
+     nhất (bảng hoá đơn đặt sàn 760px) ⇒ con tràn khỏi viền chính khối này (chủ báo 21/08/2026).
+     Cho co được thì viền mới ôm đúng nội dung. */
+  min-width: 0;
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-5);
@@ -866,7 +898,10 @@
 
 .dhb__invoice-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* `auto-fit` + sàn 110px: ô hẹp thì tự xuống hàng, không ép 4–5 cột nằm bẹp rồi đẩy tràn viền.
+     Trước đây ép cứng số cột nên ô chi tiết hẹp là hàng này rộng hơn khối. */
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  min-width: 0;
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-3);
   overflow: hidden;
@@ -906,6 +941,14 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-3);
+  /* Câu chú thích dài + nút "Ghi nhận hóa đơn" không vừa một hàng trên ô hẹp — cho xuống dòng,
+     đừng để nút bị đẩy lòi ra ngoài viền. */
+  flex-wrap: wrap;
+}
+
+.dhb__invoice-toolbar p {
+  min-width: 0;
+  flex: 1 1 220px;
 }
 
 .dhb__invoice-toolbar p {
@@ -975,6 +1018,9 @@
 
 .dhb__invoice-tablewrap {
   overflow-x: auto;
+  /* Bảng bên trong đặt sàn 760px — khung này phải tự chặn lại, không thì nó nong cha ra. */
+  max-width: 100%;
+  min-width: 0;
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-3);
 }
@@ -1323,6 +1369,9 @@
 
   .dhb__drawer-content {
     width: 100%;
+    /* PHẢI gỡ luôn `min-width` của bản rộng — máy hẹp hơn 580px thì cái sàn đó đẩy ô tràn khỏi
+       màn, kéo ngang cả trang. */
+    min-width: 0;
     max-width: 100vw;
   }
 
