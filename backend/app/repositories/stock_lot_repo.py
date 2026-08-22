@@ -134,6 +134,29 @@ class StockLotRepository:
         found = {(loai, hid): float(total or 0) for loai, hid, total in self.db.execute(stmt)}
         return {tuple(h): found.get(tuple(h), 0.0) for h in hangs}
 
+    def on_hand_by_kho(self, hangs: list[Hang]) -> dict[Hang, dict[int, float]]:
+        """Tồn khả dụng của từng mã hàng, TÁCH THEO KHO — để xếp hạng "kho nào có nhiều hàng
+        nhất" khi gợi ý kho xuất. Khoá ngoài là cặp `(hang_loai, hang_id)`, khoá trong là
+        `kho_id`; kho không có lô nào của mặt hàng thì vắng mặt (không phải 0 rải khắp)."""
+        if not hangs:
+            return {}
+        stmt = (
+            select(StockLot.hang_loai, StockLot.hang_id, StockLot.kho_id,
+                   func.coalesce(func.sum(StockLot.sl_con_lai), 0))
+            .where(
+                tuple_(StockLot.hang_loai, StockLot.hang_id).in_([tuple(h) for h in hangs]),
+                StockLot.trang_thai.in_(LOT_ISSUABLE),
+                StockLot.sl_con_lai > 0,
+            )
+            .group_by(StockLot.hang_loai, StockLot.hang_id, StockLot.kho_id)
+        )
+        out: dict[Hang, dict[int, float]] = {tuple(h): {} for h in hangs}
+        for loai, hid, kho_id, total in self.db.execute(stmt):
+            if kho_id is None:
+                continue
+            out.setdefault((loai, hid), {})[int(kho_id)] = float(total or 0)
+        return out
+
     def list_lots(self, *, hang: Hang | None = None, kho_id: int | None = None,
                   con_hang: bool = True) -> list[StockLot]:
         stmt = select(StockLot)

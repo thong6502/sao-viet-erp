@@ -630,6 +630,8 @@ export function PurchaseRequestsPage({
         ghi_chu: `Nhập từ đơn mua ${row.code} — đợt ${dot.seq_no}`,
         locked: true,   // số liệu từ đơn mua → khoá, không cho sửa dòng
         deliveryId: dot.id,   // gắn nguồn đợt → yêu cầu chặn nhập trùng
+        don_mua_ma: row.code,   // hiện rõ mã đơn mua ở THÔNG TIN CHUNG của form nhập
+        dot_so: dot.seq_no,
       },
     });
   };

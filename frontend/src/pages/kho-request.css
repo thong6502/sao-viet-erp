@@ -1929,6 +1929,11 @@ input.kho-num,
   flex: 1;
   position: relative;
 }
+/* Bước CUỐI không có đường nối — nếu để flex:1 thì phần dư 1/3 chiều rộng của nó chừa một khoảng
+   HỞ ở cuối stepper. Cho co theo nội dung → nằm sát mép phải, đường nối chạy hết tới nó. */
+.kho-stepper__step:last-child {
+  flex: 0 0 auto;
+}
 .kho-stepper__dot {
   width: 22px;
   height: 22px;
@@ -1997,8 +2002,15 @@ input.kho-num,
 
 /* Minimalist KPI Metrics Bar & Progress Line */
 .kho-kpi-wrapper {
+  display: block;
+  width: 100%;
   background: var(--canvas);
   border-bottom: 1px solid var(--rule-soft);
+}
+/* Thanh tiến độ + nền chạy HẾT chiều ngang phiếu (không thụt nửa chừng). */
+.kho-kpi-wrapper .kho-kpi-progress-track {
+  width: 100%;
+  display: block;
 }
 .kho-kpi-bar {
   display: flex;
@@ -2009,7 +2021,7 @@ input.kho-num,
 }
 .kho-kpi-progress-track {
   width: 100%;
-  height: 4px;
+  height: 6px;
   background: var(--rule-soft);
   overflow: hidden;
 }
@@ -2186,7 +2198,11 @@ input.kho-num,
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-3);
-  overflow: hidden;
+  /* Bảng dòng cấp (nhập) rất rộng: thêm SL/đơn giá/thành tiền/vị trí/HSD. Card bo góc nhưng PHẢI
+     cho CUỘN NGANG kẻo cột HSD cuối bị cắt — `overflow: hidden` cũ đè lên `.kho-lines__wrap`
+     (overflow-x:auto) làm mất thanh cuộn. Tách 2 trục: ngang cuộn, dọc vẫn bo góc. */
+  overflow-x: auto;
+  overflow-y: hidden;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
 .kho-lines-card .kho-lines thead th {
@@ -2648,129 +2664,263 @@ input.kho-num,
 }
 
 /* --- Tab TỔNG QUAN (dashboard Báo cáo kho) --------------------------------- */
-.kho-dash { display: flex; flex-direction: column; gap: var(--sp-4); }
-.kho-dash__kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: var(--sp-3);
-}
-.kho-dash__card {
+.kho-dash {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: var(--sp-3) var(--sp-4);
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  border-left: 3px solid var(--rule);
-  border-radius: var(--r-3, 8px);
+  gap: var(--sp-6, 24px);
 }
-.kho-dash__card--in { border-left-color: var(--moss, #3f6f4a); }
-.kho-dash__card--out { border-left-color: var(--rust, #b4531f); }
+.kho-dash__kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sp-4, 16px);
+}
+.kho-dash__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 18px 20px;
+  background: var(--paper, #ffffff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: var(--r-6, 12px);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
+  overflow: hidden;
+}
+.kho-dash__card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3.5px;
+  background: var(--rule, #cbd5e1);
+  border-radius: 12px 12px 0 0;
+}
+.kho-dash__card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  border-color: var(--rule, #cbd5e1);
+}
+.kho-dash__card--in::before {
+  background: linear-gradient(90deg, var(--moss, #2f5d3a), #488258);
+}
+.kho-dash__card--out::before {
+  background: linear-gradient(90deg, var(--rust, #c5400a), #e05e26);
+}
+.kho-dash__card--diff::before {
+  background: linear-gradient(90deg, var(--steel, #4a5560), #64748b);
+}
+.kho-dash__card--items::before {
+  background: linear-gradient(90deg, var(--plum, #5f4d9e), #816ecb);
+}
+.kho-dash__card--move::before {
+  background: linear-gradient(90deg, var(--amber, #9c7714), #cda025);
+}
+
+.kho-dash__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.kho-dash__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--rule-hair, #f1f5f9);
+  color: var(--ash-2, #64748b);
+  flex-shrink: 0;
+}
+.kho-dash__card--in .kho-dash__icon {
+  background: var(--moss-soft, #dbe7dd);
+  color: var(--moss-deep, #244a2e);
+}
+.kho-dash__card--out .kho-dash__icon {
+  background: var(--rust-soft, #f4e2d6);
+  color: var(--rust-deep, #8a2d07);
+}
+.kho-dash__card--diff .kho-dash__icon {
+  background: var(--steel-soft, #dde1e5);
+  color: var(--steel, #4a5560);
+}
+.kho-dash__card--items .kho-dash__icon {
+  background: var(--plum-soft, #e6e0f2);
+  color: var(--plum-deep, #483a7a);
+}
+.kho-dash__card--move .kho-dash__icon {
+  background: var(--amber-soft, #efe4c4);
+  color: var(--amber-deep, #7a5c0f);
+}
+
 .kho-dash__label {
   font-family: var(--ff-sans);
-  font-size: 10px;
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.09em;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--ash);
+  color: var(--ash-2, #64748b);
 }
 .kho-dash__val {
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
-  font-size: 21px;
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-  line-height: 1.15;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink, #0f172a);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin-top: 4px;
 }
-.kho-dash__sub { font-size: 12px; color: var(--ash); }
+.kho-dash__sub {
+  font-size: 12px;
+  color: var(--ash, #475569);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
 .kho-dash__cols {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--sp-4);
+  gap: var(--sp-5, 20px);
   align-items: start;
 }
-@media (max-width: 760px) {
+@media (max-width: 860px) {
   .kho-dash__cols { grid-template-columns: 1fr; }
 }
 
-/* Biểu đồ cột Nhập/Xuất theo thời gian (dashboard) — CSS thuần, không thư viện. */
-.kho-chart { display: flex; flex-direction: column; gap: var(--sp-2); }
-.kho-chart__legend { display: flex; gap: var(--sp-3); font-size: 12px; color: var(--ash); }
-.kho-chart__leg { display: inline-flex; align-items: center; gap: 6px; }
+/* Biểu đồ cột Nhập/Xuất theo thời gian (dashboard) — CSS nâng cấp hiện đại */
+.kho-chart-container {
+  background: var(--paper, #ffffff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: var(--r-6, 12px);
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+}
+.kho-chart { display: flex; flex-direction: column; gap: var(--sp-3, 12px); }
+.kho-chart__legend {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4, 16px);
+  font-size: 12.5px;
+  color: var(--ash-2, #64748b);
+  margin-bottom: 4px;
+}
+.kho-chart__leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  background: var(--rule-hair, #f8fafc);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 99px;
+  font-weight: 500;
+}
 .kho-chart__leg::before {
   content: "";
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   border-radius: 3px;
   display: inline-block;
 }
-.kho-chart__leg--in::before { background: var(--moss, #3f6f4a); }
-.kho-chart__leg--out::before { background: var(--rust, #b4531f); }
-.kho-chart__leg--move::before { background: var(--steel, #3b6ea5); }
+.kho-chart__leg--in::before { background: var(--moss, #2f5d3a); }
+.kho-chart__leg--out::before { background: var(--rust, #c5400a); }
+.kho-chart__leg--move::before { background: var(--steel, #4a5560); }
 .kho-chart__plot {
   display: flex;
   align-items: stretch;
-  gap: var(--sp-2);
-  height: 190px;
-  padding-top: var(--sp-1);
+  gap: var(--sp-2, 8px);
+  height: 210px;
+  padding-top: 16px;
+  padding-bottom: 4px;
   overflow-x: auto;
-  border-bottom: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft, #e2e8f0);
+  background-image: linear-gradient(to bottom, var(--rule-hair, #f8fafc) 1px, transparent 1px);
+  background-size: 100% 40px;
 }
 .kho-chart__grp {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  min-width: 34px;
+  gap: 6px;
+  min-width: 38px;
   flex: 1 0 auto;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.kho-chart__grp:hover {
+  opacity: 0.85;
 }
 .kho-chart__bars {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  gap: 3px;
+  gap: 4px;
   width: 100%;
   flex: 1;
   min-height: 0;
 }
 .kho-chart__bar {
-  width: 12px;
-  min-height: 2px;
-  border-radius: 3px 3px 0 0;
+  width: 14px;
+  min-height: 3px;
+  border-radius: 4px 4px 0 0;
   align-self: flex-end;
+  transition: height 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s ease;
 }
-/* "≈" nhỏ mờ báo số ĐÃ LÀM TRÒN để hiển thị (đơn giá bình quân / thành tiền lẻ). */
+.kho-chart__bar:hover {
+  transform: scaleY(1.03);
+}
+
 .kho-approx {
   font-size: 0.8em;
-  color: var(--ash);
+  color: var(--ash, #475569);
   margin-right: 1px;
 }
 
-.kho-chart__bar--in { background: var(--moss, #3f6f4a); }
-.kho-chart__bar--out { background: var(--rust, #b4531f); }
-.kho-chart__bar--move { background: var(--steel, #3b6ea5); }
+.kho-chart__bar--in { background: linear-gradient(180deg, var(--moss, #2f5d3a), #488258); }
+.kho-chart__bar--out { background: linear-gradient(180deg, var(--rust, #c5400a), #e05e26); }
+.kho-chart__bar--move { background: linear-gradient(180deg, var(--steel, #4a5560), #64748b); }
 .kho-chart__xlab {
-  font-size: 10px;
-  color: var(--ash);
+  font-family: var(--ff-num, monospace);
+  font-size: 11px;
+  color: var(--ash-2, #64748b);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  font-weight: 500;
 }
 
-/* Biểu đồ TRÒN (donut) tỉ trọng giá trị theo mặt hàng — conic-gradient, không thư viện. */
-.kho-donut { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+/* Biểu đồ TRÒN (donut) tỉ trọng giá trị theo mặt hàng */
+.kho-donut-box {
+  background: var(--paper, #ffffff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: var(--r-6, 12px);
+  padding: 18px 20px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+}
+.kho-donut { display: flex; align-items: center; gap: var(--sp-5, 20px); flex-wrap: wrap; }
 .kho-donut__ring {
-  width: 132px;
-  height: 132px;
+  width: 140px;
+  height: 140px;
   border-radius: 50%;
   flex: 0 0 auto;
   position: relative;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  transition: transform 0.2s ease;
+}
+.kho-donut__ring:hover {
+  transform: scale(1.02);
 }
 .kho-donut__ring::after {
   content: "";
   position: absolute;
-  inset: 27%;
+  inset: 24%;
   border-radius: 50%;
-  background: var(--paper, #fff);
+  background: var(--paper, #ffffff);
+  box-shadow: inset 0 2px 6px rgba(15, 23, 42, 0.06);
 }
 .kho-donut__legend {
   list-style: none;
@@ -2778,12 +2928,22 @@ input.kho-num,
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  font-size: 12px;
+  gap: 7px;
+  font-size: 12.5px;
   flex: 1;
-  min-width: 130px;
+  min-width: 140px;
 }
-.kho-donut__leg { display: flex; align-items: center; gap: 7px; }
+.kho-donut__leg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+.kho-donut__leg:hover {
+  background: var(--rule-hair, #f8fafc);
+}
 .kho-donut__dot { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
 .kho-donut__legname {
   flex: 1;
@@ -2791,14 +2951,19 @@ input.kho-num,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--ink);
+  color: var(--ink, #0f172a);
+  font-weight: 500;
 }
 .kho-donut__legpct {
   flex: 0 0 auto;
-  font-family: var(--ff-num);
+  font-family: var(--ff-num, monospace);
   font-variant-numeric: tabular-nums;
-  color: var(--ash);
-  font-weight: var(--fw-bold);
+  color: var(--ash-2, #64748b);
+  font-weight: 600;
+  background: var(--rule-hair, #f1f5f9);
+  padding: 2px 7px;
+  border-radius: 99px;
+  font-size: 11px;
 }
 
 /* Tiêu đề cột NGÀY có bộ lọc: bấm nhãn → popup 2 ô Từ/Đến. Dùng chung 2 màn (DateFilterHead). */

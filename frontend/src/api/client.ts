@@ -6976,6 +6976,9 @@ export interface BaoCaoChuyenKhoRow {
   tien_von: number | null;
   kho_xuat_ten: string | null;
   kho_nhap_ten: string | null;
+  /** ID kho nguồn/đích — để Sổ Chuyển kho tô màu + ổ khóa theo kỳ đã khóa (như Nhập/Xuất). */
+  kho_xuat_id: number | null;
+  kho_nhap_id: number | null;
   dien_giai: string | null;
 }
 
@@ -7307,6 +7310,10 @@ export interface StockVoucherLine {
   ghi_chu: string | null;
   don_gia: number | null;
   thanh_tien: number | null;
+  /** Hạn sử dụng của lô dòng này (ISO yyyy-mm-dd) — BE trả để hiện trên phiếu (điều chuyển). */
+  hsd?: string | null;
+  /** Vị trí cất lô (kệ/ô) — phiếu điều chuyển hiện/khai per-lô. null = chưa khai. */
+  vi_tri?: string | null;
 }
 
 export interface StockVoucher {
@@ -7399,6 +7406,8 @@ export interface DieuChuyenItemInput {
   hang_loai: HangLoai;
   hang_id: number;
   so_luong: number;
+  /** Vị trí cất ở KHO ĐÍCH (kệ/ô) — tuỳ chọn, khai lúc ấn; áp cho mọi lô của mặt hàng. */
+  vi_tri?: string | null;
 }
 
 /** Ấn ĐIỀU CHUYỂN 1 hay NHIỀU mặt hàng kho nguồn → kho đích (gộp vào MỘT yêu cầu điều chuyển). */
@@ -7449,6 +7458,8 @@ export interface StockLot {
   don_gia_nhap: number | null;
   /** SL đề nghị đã sinh ra lô (đọc-nối). Không phải tiền → luôn có. null = lô đầu kỳ / không nối được. */
   sl_de_nghi: number | null;
+  /** Lô sinh từ phiếu ĐIỀU CHUYỂN (nhận về) — lịch sử mặt hàng xếp vào tab "Chuyển kho" riêng. */
+  dieu_chuyen?: boolean;
 }
 
 export interface StockAllocationLine {
@@ -7492,6 +7503,8 @@ export interface StockMaterialXuatRow {
   so_luong: number;
   /** Giá vốn đích danh của lô đã xuất — chỉ có khi `can_view_cost`. */
   don_gia: number | null;
+  /** Dòng xuất thuộc phiếu ĐIỀU CHUYỂN (chuyển đi) — lịch sử mặt hàng xếp vào tab "Chuyển kho". */
+  dieu_chuyen?: boolean;
 }
 
 /** Lịch sử 1 mã hàng tại 1 kho: NHẬP = các lô (cả đã hết) · XUẤT = dòng phiếu xuất. */
@@ -10922,6 +10935,11 @@ export const api = {
       prepare(token: string, id: number): Promise<StockRequest> {
         return authed<StockRequest>(`/api/kho/de-nghi/${id}/chuan-bi`, token, { method: "POST" });
       },
+      /** Gợi ý "Kho (xuất từ)" khi lập phiếu XUẤT: kho có nhiều hàng nhất theo thứ tự dòng yêu
+       *  cầu. `kho_id === null` = không kho nào còn hàng → FE giữ nguyên kho đang chọn. */
+      goiYKho(token: string, id: number): Promise<{ kho_id: number | null }> {
+        return authed<{ kho_id: number | null }>(`/api/kho/de-nghi/${id}/goi-y-kho`, token);
+      },
       /** Gợi ý SL từ lịch sử đề nghị của bộ phận; `so_luong === null` = chưa đủ dữ liệu. */
       goiYSoLuong(
         token: string, hangLoai: HangLoai, hangId: number,
@@ -10985,6 +11003,17 @@ export const api = {
           token,
           { method: "PATCH", body: JSON.stringify({ vi_tri: viTri }) },
         );
+      },
+      /** Khai VỊ TRÍ cất lô cho DÒNG phiếu NHẬP còn NHÁP (điều chuyển đích) — trước khi ghi sổ. */
+      suaViTriDong(
+        token: string,
+        voucherId: number,
+        lines: { line_id: number; vi_tri: string | null }[],
+      ): Promise<{ ok: boolean }> {
+        return authed<{ ok: boolean }>(`/api/kho/phieu/${voucherId}/vi-tri`, token, {
+          method: "PATCH",
+          body: JSON.stringify({ lines }),
+        });
       },
       /** Gợi ý lấy hàng từ lô nào (FEFO → FIFO). `thieu` > 0 = kho không đủ hàng. */
       goiYLo(
@@ -11072,6 +11101,17 @@ export const api = {
         }
         if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
         return URL.createObjectURL(await resp.blob());
+      },
+    },
+
+    /** Điều chuyển kho — thao tác trên CẢ phiếu điều chuyển (vế xuất nguồn + vế nhập đích). */
+    dieuChuyen: {
+      /** Hủy CẢ phiếu điều chuyển — chỉ khi chưa ghi sổ (đã ghi sổ → 400). Trả 204. */
+      huy(token: string, reqId: number, lyDo: string): Promise<void> {
+        return authed<void>(`/api/kho/dieu-chuyen/${reqId}/huy`, token, {
+          method: "POST",
+          body: JSON.stringify({ ly_do: lyDo }),
+        });
       },
     },
 

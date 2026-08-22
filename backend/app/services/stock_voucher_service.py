@@ -17,6 +17,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from ..models.document_sequence import (
+    SEQ_DOC_TYPE_STOCK_TRANSFER,
     SEQ_DOC_TYPE_STOCK_VOUCHER_IN,
     SEQ_DOC_TYPE_STOCK_VOUCHER_OUT,
 )
@@ -98,7 +99,8 @@ class StockVoucherService:
     # --- Lập phiếu ----------------------------------------------------------
 
     def create(self, *, user, request_id: int, kho_id: int, lines: list[dict],
-               ngay: date | None = None, ma: str | None = None, **header) -> StockVoucher:
+               ngay: date | None = None, ma: str | None = None,
+               _dc_dest: bool = False, **header) -> StockVoucher:
         req = self.requests.get_with_lines(request_id)
         if req is None:
             raise StockVoucherError("Không tìm thấy yêu cầu.")
@@ -114,6 +116,13 @@ class StockVoucherService:
         loai = req.loai
         if loai not in VOUCHER_KINDS:
             raise StockVoucherError("Loại yêu cầu không hợp lệ.")
+
+        # ĐIỀU CHUYỂN: phiếu NHẬP đích do HỆ dựng sẵn lúc ấn điều chuyển (giá vốn + HSD khoá đích danh
+        # theo lô nguồn). Kho đích CHỈ ghi sổ — không tự lập phiếu, chặn để không đẻ phiếu trùng nhập đôi.
+        if loai == VOUCHER_NHAP and getattr(req, "dieu_chuyen", False) and not _dc_dest:
+            raise StockVoucherError(
+                "Phiếu nhập điều chuyển đã được dựng sẵn — vào yêu cầu điều chuyển để ghi sổ."
+            )
 
         lines_by_id = {ln.id: ln for ln in req.lines}
         prepared: list[dict] = []
@@ -152,11 +161,17 @@ class StockVoucherService:
                 "vi_tri": ((ln.get("vi_tri") or "").strip() or None) if loai == VOUCHER_NHAP else None,
             }
             if loai == VOUCHER_NHAP:
-                # Giá của lô sắp tạo = ĐƠN GIÁ KHAI Ở YÊU CẦU (người yêu cầu nhập). Kho KHÔNG sửa
-                # giá — bỏ qua `don_gia` client gửi. Lô chưa tồn tại nên `lot_id` trống tới ghi sổ.
-                item["don_gia"] = int(rl.don_gia or 0)
-                # Hạn sử dụng khai ở dòng (tách lô theo hạn) — ghi sổ chép sang lô. None = lô không hạn.
-                item["hsd"] = ln.get("hsd")
+                if _dc_dest:
+                    # ĐIỀU CHUYỂN: phiếu nhập đích dựng theo TỪNG LÔ nguồn — khoá giá vốn + HSD ĐÚNG
+                    # lô nguồn (đích danh, KHÔNG bình quân) để kho đích chạy FEFO/giá vốn như nguồn.
+                    item["don_gia"] = int(ln.get("don_gia") or 0)
+                    item["hsd"] = ln.get("hsd")
+                else:
+                    # Giá của lô sắp tạo = ĐƠN GIÁ KHAI Ở YÊU CẦU (người yêu cầu nhập). Kho KHÔNG sửa
+                    # giá — bỏ qua `don_gia` client gửi. Lô chưa tồn tại nên `lot_id` trống tới ghi sổ.
+                    item["don_gia"] = int(rl.don_gia or 0)
+                    # Hạn sử dụng khai ở dòng (tách lô theo hạn) — ghi sổ chép sang lô. None = không hạn.
+                    item["hsd"] = ln.get("hsd")
             else:
                 lot = self._require_lot(ln.get("lot_id"), hang, kho_id)
                 item["lot_id"] = lot.id
@@ -396,14 +411,15 @@ class StockVoucherService:
 
     def dieu_chuyen(self, *, user, kho_nguon_id: int, kho_den_id: int,
                     items: list[dict], ghi_chu: str | None = None) -> dict:
-        """Ấn ĐIỀU CHUYỂN 1 HAY NHIỀU mặt hàng kho nguồn → kho đích (option A: trừ nguồn NGAY).
+        """Ấn ĐIỀU CHUYỂN 1 HAY NHIỀU mặt hàng kho nguồn → kho đích (gộp vào MỘT nhịp).
 
-        Gộp CẢ danh sách vào MỘT nhịp, tái dùng TRỌN cơ chế nhập/xuất:
-          1) MỘT yêu cầu XUẤT nội bộ ở nguồn (nhiều dòng) + MỘT phiếu XUẤT (FIFO đích danh mỗi mặt
-             hàng) + GHI SỔ → trừ tồn nguồn, chốt GIÁ VỐN BÌNH QUÂN từng mặt hàng.
-          2) MỘT yêu cầu NHẬP ở đích (yêu cầu điều chuyển, nhiều dòng) mang kho nguồn + phiếu xuất +
-             đơn giá từng dòng = giá vốn chốt → kho đích lập MỘT phiếu nhập (đơn giá khoá).
-        Trả `{yeu_cau, phieu_xuat, gia_von}` (gia_von = tổng giá vốn điều chuyển)."""
+        Tái dùng TRỌN cơ chế nhập/xuất, CHỈ TRỪ TỒN KHI GHI SỔ (spec §2):
+          1) MỘT yêu cầu XUẤT nội bộ ở nguồn + MỘT phiếu XUẤT NHÁP (FEFO→FIFO đích danh mỗi mặt
+             hàng) — CHƯA trừ tồn.
+          2) MỘT yêu cầu NHẬP ở đích (yêu cầu điều chuyển) + phiếu NHẬP đích DỰNG SẴN theo TỪNG LÔ
+             nguồn (giá vốn + HSD khoá đích danh từng lô, KHÔNG bình quân). Kho đích chỉ ghi sổ →
+             trừ nguồn + cộng đích cùng nhịp (xem `post`).
+        Trả `{yeu_cau, phieu_xuat, phieu_nhap, gia_von}` (gia_von = tổng giá vốn điều chuyển)."""
         if kho_nguon_id == kho_den_id:
             raise StockVoucherError("Kho nguồn và kho đích phải khác nhau.")
         if not items:
@@ -437,6 +453,8 @@ class StockVoucherService:
             prepared.append({
                 "hang_loai": hang_loai, "hang_id": hang_id, "dvt_goc": dvt_goc,
                 "qty": qty, "alloc": alloc, "gia_von": int(round(tong_tien / qty)) if qty else 0,
+                # Vị trí kho đích khai lúc ấn (tuỳ chọn) — áp cho MỌI lô của mặt hàng này.
+                "vi_tri": (str(it.get("vi_tri") or "").strip() or None),
             })
 
         # Điều chuyển rồi sẽ ghi sổ ở kho nguồn (lúc đích nhập) → chặn SỚM nếu kỳ nguồn đã khóa sổ
@@ -468,19 +486,40 @@ class StockVoucherService:
             user=user, request_id=src_req.id, kho_id=kho_nguon_id, ghi_chu=ghi_chu, lines=xuat_lines,
         )
 
-        # (3) MỘT yêu cầu NHẬP ở đích = yêu cầu điều chuyển (THẤY ĐƯỢC): đơn giá từng dòng = giá vốn
-        # chốt → phiếu nhập đích khoá đơn giá; kho nguồn + phiếu xuất để truy cặp đi–đến.
+        # (3) MỘT yêu cầu NHẬP ở đích = yêu cầu điều chuyển (THẤY ĐƯỢC): đơn giá dòng = giá vốn bình
+        # quân (chỉ để HIỂN THỊ mức giá của yêu cầu); kho nguồn + phiếu xuất để truy cặp đi–đến.
         dest_req = self.request_service.create_dieu_chuyen(
             user=user, loai=VOUCHER_NHAP, kho_id=kho_den_id,
             kho_nguon_id=kho_nguon_id, xuat_voucher_id=xuat.id, ghi_chu=ghi_chu, notify=True,
+            doc_type=SEQ_DOC_TYPE_STOCK_TRANSFER,   # số phiếu điều chuyển DC… (đầu mối mặt tiền)
             lines=[
                 {"hang_loai": p["hang_loai"], "hang_id": p["hang_id"], "dvt": p["dvt_goc"],
                  "sl_de_nghi": p["qty"], "don_gia": p["gia_von"]}
                 for p in prepared
             ],
         )
+        # (4) DỰNG SẴN phiếu NHẬP đích (nháp) — MỖI LÔ nguồn 1 dòng, khoá GIÁ VỐN + HSD ĐÍCH DANH
+        # theo lô (không bình quân) để kho đích chạy FEFO/giá vốn y như nguồn. Điều chuyển theo đơn
+        # vị gốc (hệ số 1) ⇒ so_luong = sl_goc. Kho đích chỉ xem lại + ghi sổ (trừ nguồn + cộng đích).
+        dest_rl_by_hang = {(rl.hang_loai, rl.hang_id): rl for rl in dest_req.lines}
+        nhap_lines: list[dict] = []
+        for p in prepared:
+            rl = dest_rl_by_hang[(p["hang_loai"], p["hang_id"])]
+            for a in p["alloc"]:
+                nhap_lines.append({
+                    "request_line_id": rl.id,
+                    "so_luong": float(a["so_luong"]),
+                    "don_gia": int(a["don_gia_nhap"] or 0),  # giá vốn ĐÚNG lô nguồn
+                    "hsd": a.get("hsd"),                      # HSD đi theo lô
+                    "vi_tri": p.get("vi_tri"),                # vị trí kho đích (khai lúc ấn, nếu có)
+                })
+        nhap = self.create(
+            user=user, request_id=dest_req.id, kho_id=kho_den_id, ghi_chu=ghi_chu,
+            lines=nhap_lines, _dc_dest=True,
+        )
         tong_gia_von = sum(int(round(p["gia_von"] * p["qty"])) for p in prepared)
-        return {"yeu_cau": dest_req, "phieu_xuat": xuat, "gia_von": tong_gia_von}
+        return {"yeu_cau": dest_req, "phieu_xuat": xuat, "phieu_nhap": nhap,
+                "gia_von": tong_gia_von}
 
     def cancel(self, voucher_id: int, ly_do: str):
         """Hủy phiếu khi CÒN NHÁP — BẮT BUỘC lý do; yêu cầu chuyển 'Đã hủy' kèm lý do (KẾT THÚC,
@@ -512,12 +551,61 @@ class StockVoucherService:
                 self.request_service.cancel_by_kho(req, ly_do)
         return v
 
+    def huy_dieu_chuyen(self, dest_req_id: int, ly_do: str):
+        """Hủy CẢ phiếu điều chuyển khi CHƯA ghi sổ (spec-phieu-dieu-chuyen §5). Nhờ (ii) trừ-khi-ghi-
+        sổ nên trước ghi sổ CHƯA trừ gì → hủy sạch: phiếu NHẬP đích (nháp) + phiếu XUẤT nguồn (nháp)
+        + đóng 2 yêu cầu, KHÔNG đụng tồn. Đã ghi sổ → chặn (sửa sai bằng điều chuyển ngược)."""
+        dest_req = self.requests.get_with_lines(dest_req_id)
+        if (dest_req is None or not getattr(dest_req, "dieu_chuyen", False)
+                or dest_req.loai != VOUCHER_NHAP):
+            raise StockVoucherError("Không tìm thấy phiếu điều chuyển.")
+        if not (ly_do or "").strip():
+            raise StockVoucherError("Hủy phiếu điều chuyển phải có lý do.")
+        # Phiếu NHẬP đích còn NHÁP mới hủy được. `draft_ids_by_request` CHỈ trả phiếu nháp → đã ghi
+        # sổ (posted) thì trả rỗng ⇒ chặn đúng mà không phải tự dò trạng thái.
+        dest_v_id = self.vouchers.draft_ids_by_request([dest_req.id]).get(dest_req.id)
+        if dest_v_id is None:
+            raise StockVoucherError(
+                "Điều chuyển đã ghi sổ — không hủy được, hãy điều chuyển ngược lại."
+            )
+        dest_v = self.vouchers.get(dest_v_id)
+        dest_v.trang_thai = VOUCHER_CANCELLED
+        self.vouchers.save(dest_v)
+        # Phiếu XUẤT nguồn (nháp) gắn cặp — hủy luôn + đóng yêu cầu xuất nội bộ (nếu còn nháp).
+        src_v = self.vouchers.get(dest_req.xuat_voucher_id) if dest_req.xuat_voucher_id else None
+        if src_v is not None and src_v.trang_thai == VOUCHER_DRAFT:
+            src_v.trang_thai = VOUCHER_CANCELLED
+            self.vouchers.save(src_v)
+            src_req = self.requests.get_with_lines(src_v.request_id)
+            if src_req is not None:
+                self.request_service.cancel_by_kho(src_req, ly_do)
+        self.request_service.cancel_by_kho(dest_req, ly_do)
+        return dest_req
+
     def set_lot_vi_tri(self, lot_id: int, vi_tri: str | None):
         """Thủ kho sửa VỊ TRÍ cất lô (kệ/ô) trong kho — người cầm hàng quản vị trí vật lý."""
         lot = self.lots.set_vi_tri(lot_id, (vi_tri or "").strip() or None)
         if lot is None:
             raise StockVoucherError("Không tìm thấy lô.")
         return lot
+
+    def set_draft_line_vi_tri(self, voucher_id: int, items: list[dict]):
+        """Khai VỊ TRÍ cất lô cho DÒNG phiếu NHẬP còn NHÁP (ghi sổ sẽ chép sang lô). Dùng cho phiếu
+        ĐIỀU CHUYỂN đích dựng sẵn — thủ kho đích khai chỗ cất TRƯỚC khi ghi sổ. Chỉ sửa khi phiếu
+        còn nháp; đã ghi sổ thì sửa ở LÔ (`set_lot_vi_tri`)."""
+        v = self.vouchers.get_with_lines(voucher_id)
+        if v is None:
+            raise StockVoucherError("Không tìm thấy phiếu.")
+        if v.loai != VOUCHER_NHAP:
+            raise StockVoucherError("Chỉ phiếu nhập mới khai vị trí cất lô.")
+        if v.trang_thai != VOUCHER_DRAFT:
+            raise StockVoucherError("Phiếu đã ghi sổ — sửa vị trí ở lô, không sửa trên phiếu.")
+        by_id = {ln.id: ln for ln in v.lines}
+        for it in items:
+            ln = by_id.get(int(it["line_id"]))
+            if ln is not None:
+                ln.vi_tri = (it.get("vi_tri") or "").strip() or None
+        return self.vouchers.save(v)
 
     # --- Gợi ý phân bổ lô ----------------------------------------------------
 

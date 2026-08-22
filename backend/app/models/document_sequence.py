@@ -21,6 +21,9 @@ SEQ_DOC_TYPE_STOCK_VOUCHER_IN = "stock_voucher_in"
 SEQ_DOC_TYPE_STOCK_VOUCHER_OUT = "stock_voucher_out"
 SEQ_DOC_TYPE_STOCK_REQUEST_IN = "stock_request_in"
 SEQ_DOC_TYPE_STOCK_REQUEST_OUT = "stock_request_out"
+# Điều chuyển kho: SỐ PHIẾU RIÊNG (DC…) cho "Phiếu điều chuyển" — mặt tiền phủ lên cặp xuất/nhập
+# (spec-phieu-dieu-chuyen §2). Gán cho vế NHẬP đích (đầu mối phiếu điều chuyển).
+SEQ_DOC_TYPE_STOCK_TRANSFER = "stock_transfer"
 
 
 class DocumentSequence(Base):
