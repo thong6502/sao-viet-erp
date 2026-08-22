@@ -340,6 +340,20 @@ def get_request(
                       open_voucher_id=draft_map.get(req.id))
 
 
+@router.get("/{request_id}/goi-y-kho")
+def suggest_kho(
+    request_id: int, svc: Service, db: Db, authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> dict:
+    """Gợi ý 'Kho (xuất từ)' cho phiếu XUẤT: kho có nhiều hàng nhất theo thứ tự dòng yêu cầu.
+    `kho_id=None` = không kho nào còn hàng → FE giữ nguyên kho đang chọn."""
+    req = svc.requests.get_with_lines(request_id)
+    if req is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy yêu cầu")
+    _require_visible(req, user, authz)
+    return {"kho_id": svc.goi_y_kho_xuat(req)}
+
+
 @router.post("", response_model=StockRequestOut, status_code=status.HTTP_201_CREATED)
 def create_request(
     payload: StockRequestCreate, svc: Service, db: Db, authz: Authz,

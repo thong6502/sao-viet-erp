@@ -450,6 +450,8 @@ function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowPro
       <button
         type="button"
         className={`sidebar__link${active ? " is-active" : ""}`}
+        // Tooltip = nhãn ĐẦY ĐỦ: hàng menu cắt chữ (…) khi rail hẹp, rê chuột vẫn đọc được tên module.
+        title={item.label}
         aria-current={activeId === item.id ? "page" : undefined}
         aria-expanded={hasChildren ? isOpen : undefined}
         onClick={() => (hasChildren ? onToggle() : onSelect(item.id))}
@@ -481,6 +483,7 @@ function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowPro
               <button
                 type="button"
                 className={`sidebar__sublink${activeId === child.id ? " is-active" : ""}`}
+                title={child.label}
                 aria-current={activeId === child.id ? "page" : undefined}
                 onClick={() => onSelect(child.id)}
               >

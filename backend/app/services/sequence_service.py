@@ -9,6 +9,7 @@ from ..models.document_sequence import (
     SEQ_DOC_TYPE_PAYMENT_VOUCHER,
     SEQ_DOC_TYPE_STOCK_REQUEST_IN,
     SEQ_DOC_TYPE_STOCK_REQUEST_OUT,
+    SEQ_DOC_TYPE_STOCK_TRANSFER,
     SEQ_DOC_TYPE_STOCK_VOUCHER_IN,
     SEQ_DOC_TYPE_STOCK_VOUCHER_OUT,
     SEQ_YEAR_GLOBAL,
@@ -35,6 +36,7 @@ FLAT_PREFIX_MAP = {
     SEQ_DOC_TYPE_STOCK_VOUCHER_OUT: "PXK",
     SEQ_DOC_TYPE_STOCK_REQUEST_IN: "DNN",
     SEQ_DOC_TYPE_STOCK_REQUEST_OUT: "DNX",
+    SEQ_DOC_TYPE_STOCK_TRANSFER: "DC",   # Phiếu điều chuyển (mặt tiền) — DC00001
 }
 
 # #18 — múi giờ NGHIỆP VỤ (VN = UTC+7, không DST → offset cố định, không cần tzdata). Server

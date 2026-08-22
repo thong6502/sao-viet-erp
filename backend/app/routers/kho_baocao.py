@@ -69,7 +69,13 @@ def _report_rows(
         .join(StockRequest, StockRequest.id == StockVoucher.request_id, isouter=True)
         .join(KhoHang, KhoHang.id == StockVoucher.kho_id, isouter=True)
         .join(StockLot, StockLot.id == StockVoucherLine.lot_id, isouter=True)
-        .where(StockVoucher.trang_thai == VOUCHER_POSTED)
+        .where(
+            StockVoucher.trang_thai == VOUCHER_POSTED,
+            # ĐIỀU CHUYỂN có chiều "Chuyển kho" RIÊNG (/bao-cao/chuyen-kho) → KHÔNG lẫn vào Sổ
+            # Nhập/Xuất (chuẩn kế toán: nội bộ, không nhập-mua/xuất-bán). 3 chiều tách bạch:
+            # Nhập kho = nhập thật · Xuất kho = xuất thật · Chuyển kho = điều chuyển nội bộ.
+            StockVoucher.dieu_chuyen.is_(False),
+        )
     )
     if loai:
         stmt = stmt.where(StockVoucher.loai == loai)
@@ -207,6 +213,8 @@ def _chuyen_kho_rows(
             tien_von=round(price * qty) if price is not None else None,
             kho_xuat_ten=nguon_map.get(nguon_id),
             kho_nhap_ten=getattr(kho, "ten", None),
+            kho_xuat_id=nguon_id,       # kho nguồn — cho FE tô kỳ đã khóa
+            kho_nhap_id=v.kho_id,       # kho đích (phiếu nhập đích ghi sổ ở đây)
             dien_giai=v.ghi_chu or (req.ghi_chu if req else None),
         )
         if ql and not any(
@@ -551,6 +559,8 @@ def export_bao_cao(
     kho_id: int | None = Query(default=None),
     q: str | None = Query(default=None),
 ) -> Response:
+    # `_report_rows` đã LOẠI điều chuyển (chuẩn kế toán: nội bộ, không nhập-mua/xuất-bán) — nên file
+    # MISA nhập/xuất tự động không dính điều chuyển; điều chuyển có mẫu "Chuyển kho" riêng.
     rows = _report_rows(db, tu=tu, den=den, kho_id=kho_id, loai=loai, q=q)
     content = _build_xlsx(rows, loai)
     _log_export(db, user, loai_label="Nhập kho" if loai == VOUCHER_NHAP else "Xuất kho",

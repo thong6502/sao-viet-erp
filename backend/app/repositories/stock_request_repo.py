@@ -7,13 +7,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.stock_request import (
     REQ_CANCELLED,
     REQ_DONE,
     REQ_NHAP,
+    REQ_PREPARING,
     REQ_REJECTED,
     REQ_XUAT,
     StockRequest,
@@ -88,10 +89,19 @@ class StockRequestRepository:
                       bo_phan_id: int | None = None) -> dict[str, int]:
         """Đếm yêu cầu chờ xử lý theo CHIỀU cho badge: `nhap` · `xuat` · `dieu_chuyen`.
         `nhap`/`xuat` KHÔNG tính điều chuyển (đã tách sang bucket riêng); vế XUẤT nguồn nội bộ luôn
-        bị ẩn. LỌC THEO SCOPE (nguoi_tao_id/bo_phan_id) GIỐNG `list` để badge khớp đúng list."""
-        conds = [StockRequest.trang_thai.in_(trang_thai)]
-        # ẨN vế XUẤT nguồn của điều chuyển (bút toán nội bộ, tự ghi sổ khi đích nhập) khỏi badge.
-        conds.append(or_(StockRequest.dieu_chuyen.is_(False), StockRequest.loai != REQ_XUAT))
+        bị ẩn. LỌC THEO SCOPE (nguoi_tao_id/bo_phan_id) GIỐNG `list` để badge khớp đúng list.
+
+        ĐIỀU CHUYỂN: phiếu nhập đích TỰ DỰNG SẴN lúc ấn điều chuyển → yêu cầu nhảy 'preparing' NGAY
+        (không dừng ở 'approved' chờ lập phiếu như nhập/xuất thường). Nên bucket điều chuyển đếm CẢ
+        'preparing' (= chờ kho đích ghi sổ) — nếu chỉ đếm 'approved' thì badge điều chuyển tắt ngay
+        sau khi ấn, mất tín hiệu "còn phiếu chờ ghi sổ" (spec §10)."""
+        dc_trang_thai = list(dict.fromkeys([*trang_thai, REQ_PREPARING]))
+        thuong = and_(StockRequest.dieu_chuyen.is_(False),
+                      StockRequest.trang_thai.in_(trang_thai))
+        # Vế XUẤT nguồn (dieu_chuyen + loai XUAT) luôn ẩn khỏi badge — chỉ đếm vế NHẬP đích.
+        dc_cond = and_(StockRequest.dieu_chuyen.is_(True), StockRequest.loai == REQ_NHAP,
+                       StockRequest.trang_thai.in_(dc_trang_thai))
+        conds = [or_(thuong, dc_cond)]
         if nguoi_tao_id is not None:
             conds.append(StockRequest.nguoi_tao_id == nguoi_tao_id)
         if bo_phan_id is not None:
@@ -102,8 +112,8 @@ class StockRequestRepository:
             .group_by(StockRequest.loai, StockRequest.dieu_chuyen)
         ).all()
         out = {"nhap": 0, "xuat": 0, "dieu_chuyen": 0}
-        for loai, dc, n in rows:
-            if dc:
+        for loai, dc_flag, n in rows:
+            if dc_flag:
                 out["dieu_chuyen"] += int(n)   # điều chuyển (yêu cầu NHẬP đích) — bucket riêng
             elif loai == REQ_NHAP:
                 out["nhap"] += int(n)

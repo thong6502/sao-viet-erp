@@ -240,3 +240,174 @@ ${showMoney ? `<div class="words">Tổng số tiền (viết bằng chữ): ${es
   win.focus();
   return true;
 }
+
+// ── Phiếu điều chuyển kho (xuất kho kiêm vận chuyển nội bộ) ───────────────────
+//  KHÁC 01-VT/02-VT: điều chuyển là MỘT phiếu Từ kho → Đến kho (nội bộ), không phải nhập/xuất
+//  mua-bán. Thêm cột HSD (điều chuyển giữ giá vốn + hạn dùng ĐÍCH DANH theo lô) và ô ký
+//  Giao · Vận chuyển · Nhận — làm giấy tờ đi đường.
+
+export interface TransferPrintLine {
+  materialCode: string | null;
+  materialName: string | null;
+  dvt: string | null;
+  soLuong: number;
+  donGia: number | null;
+  thanhTien: number | null;
+  /** HSD của lô (ISO yyyy-mm-dd) — null nếu lô không hạn. */
+  hsd: string | null;
+}
+
+export interface TransferPrintData {
+  docNo: string | null;
+  docDate: string | null;
+  khoNguon: string | null;
+  khoDich: string | null;
+  nguoiLap: string | null;
+  nguoiGiaoNhan: string | null;
+  lyDo: string | null;
+  lines: TransferPrintLine[];
+  tongTien: number | null;
+  cancelled?: boolean;
+}
+
+/** ISO yyyy-mm-dd → dd/mm/yyyy (ô HSD trên bảng). */
+function ddmy(iso: string | null): string {
+  return iso ? iso.slice(0, 10).split("-").reverse().join("/") : "";
+}
+
+/** In PHIẾU ĐIỀU CHUYỂN KHO; trả false nếu trình duyệt chặn pop-up. */
+export function printTransferVoucher(data: TransferPrintData): boolean {
+  const win = window.open("", "_blank", "width=1024,height=760");
+  if (!win) return false;
+  const logoSrc = logoUrl.startsWith("data:") ? logoUrl : window.location.origin + logoUrl;
+  const { d, m, y } = dmyParts(data.docDate);
+  const showMoney = data.lines.some((l) => l.donGia !== null && l.donGia !== undefined);
+  const words = showMoney && data.tongTien !== null ? amountInWords(data.tongTien) : "";
+
+  const body = data.lines
+    .map(
+      (l, i) => `<tr>
+        <td class="c">${i + 1}</td>
+        <td>${escapeHtml(l.materialName ?? "")}</td>
+        <td class="c">${escapeHtml(l.materialCode ?? "")}</td>
+        <td class="c">${escapeHtml(l.dvt ?? "")}</td>
+        <td class="r">${qty(l.soLuong)}</td>
+        ${showMoney ? `<td class="r">${money(l.donGia ?? 0)}</td><td class="r">${money(l.thanhTien ?? 0)}</td>` : ""}
+        <td class="c">${escapeHtml(ddmy(l.hsd))}</td>
+      </tr>`,
+    )
+    .join("");
+
+  const totalRow = showMoney
+    ? `<tr class="tot"><td colspan="6" class="r"><b>Cộng</b></td><td class="r"><b>${money(data.tongTien ?? 0)}</b></td><td></td></tr>`
+    : `<tr class="tot"><td colspan="6" class="r"><b>Cộng</b></td></tr>`;
+
+  const signerNames = [
+    "Người lập phiếu",
+    "Người giao hàng (kho nguồn)",
+    "Người vận chuyển",
+    "Thủ kho nhận (kho đích)",
+    "Kế toán trưởng",
+  ];
+  const signers = signerNames
+    .map(
+      (name, index) =>
+        `<div class="sign"><div class="sign-name">${escapeHtml(name)}</div>
+         <div class="sign-sub">(Ký, họ tên${index === signerNames.length - 1 ? ", đóng dấu" : ""})</div></div>`,
+    )
+    .join("");
+
+  win.document.write(`<!doctype html><html lang="vi"><head><meta charset="utf-8">
+<title>PHIẾU ĐIỀU CHUYỂN KHO ${escapeHtml(data.docNo ?? "")}</title><style>
+@page{size:A4;margin:12mm}
+*{box-sizing:border-box}
+body{font:13px "Times New Roman",serif;color:#000;margin:0;position:relative}
+.head{display:flex;justify-content:space-between;gap:24px;align-items:flex-start}
+.unit{max-width:58%;display:flex;gap:10px;align-items:flex-start}
+.unit-logo{height:48px;width:auto;flex:0 0 auto;object-fit:contain}
+.unit b{font-size:13.5px}
+.unit div{margin-top:2px}
+.form{text-align:center;min-width:40%}
+.form b{font-size:13px}
+.form i{display:block;font-size:11px;margin-top:3px;line-height:1.35}
+.title-wrap{display:flex;justify-content:space-between;align-items:flex-start;margin-top:10px}
+.title-mid{flex:1;text-align:center}
+h1{font-size:19px;margin:6px 0 2px;letter-spacing:.5px}
+.doc-date{font-style:italic;font-weight:700;margin-bottom:6px}
+.meta{min-width:26%;font-size:12.5px;line-height:1.7}
+.meta div{white-space:nowrap}
+.body{margin-top:6px;line-height:1.85}
+.row{display:flex;gap:6px}
+.lb{white-space:nowrap}
+.vl{flex:1;font-weight:700}
+table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12.5px}
+th,td{border:1px solid #000;padding:4px 5px;vertical-align:top}
+th{text-align:center;font-weight:700}
+td.c{text-align:center}
+td.r{text-align:right}
+tr.tot td{font-weight:700}
+.words{margin-top:6px;font-style:italic}
+.sign-date{text-align:right;font-style:italic;margin:14px 0 8px}
+.signs{display:flex;justify-content:space-between;gap:8px;text-align:center}
+.sign{flex:1}
+.sign-name{font-weight:700;font-size:12px}
+.sign-sub{font-style:italic;font-size:11px}
+.stamp{position:fixed;top:42%;left:50%;transform:translate(-50%,-50%) rotate(-24deg);
+  font-size:64px;font-weight:700;color:rgba(200,0,0,.18);border:6px solid rgba(200,0,0,.18);
+  padding:8px 28px;letter-spacing:6px;pointer-events:none}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style></head><body onload="window.print()">
+${data.cancelled ? '<div class="stamp">ĐÃ HỦY</div>' : ""}
+<div class="head">
+  <div class="unit">
+    <img class="unit-logo" src="${escapeHtml(logoSrc)}" alt="">
+    <div>
+      <b>${escapeHtml(COMPANY.name)}</b>
+      <div>${escapeHtml(COMPANY.address)}</div>
+    </div>
+  </div>
+  <div class="form"><b>Phiếu xuất kho kiêm vận chuyển nội bộ</b>
+    <i>(Chứng từ điều chuyển nội bộ — làm giấy tờ đi đường)</i>
+  </div>
+</div>
+<div class="title-wrap">
+  <div class="title-mid">
+    <h1>PHIẾU ĐIỀU CHUYỂN KHO</h1>
+    <div class="doc-date">Ngày ${escapeHtml(d)} tháng ${escapeHtml(m)} năm ${escapeHtml(y)}</div>
+  </div>
+  <div class="meta">
+    <div>Số: &nbsp;<b>${escapeHtml(data.docNo ?? "...............")}</b></div>
+  </div>
+</div>
+<div class="body">
+  <div class="row"><span class="lb">Từ kho (nguồn):</span> <span class="vl">${escapeHtml(data.khoNguon ?? DOTS)}</span></div>
+  <div class="row"><span class="lb">Đến kho (nhập về):</span> <span class="vl">${escapeHtml(data.khoDich ?? DOTS)}</span></div>
+  ${row("Người vận chuyển / giao nhận", data.nguoiGiaoNhan)}
+  ${row("Người lập phiếu", data.nguoiLap)}
+  ${row("Lý do điều chuyển", data.lyDo)}
+</div>
+<table>
+  <thead>
+    <tr>
+      <th style="width:28px">STT</th>
+      <th>Tên, nhãn hiệu, quy cách vật tư</th>
+      <th style="width:76px">Mã số</th>
+      <th style="width:52px">ĐVT</th>
+      <th style="width:80px">Số lượng</th>
+      ${showMoney ? '<th style="width:92px">Đơn giá vốn</th><th style="width:104px">Thành tiền</th>' : ""}
+      <th style="width:82px">HSD</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${body}
+    ${totalRow}
+  </tbody>
+</table>
+${showMoney ? `<div class="words">Tổng giá trị (viết bằng chữ): ${escapeHtml(words)}</div>` : ""}
+<div class="sign-date">Ngày......tháng.......năm...............</div>
+<div class="signs">${signers}</div>
+</body></html>`);
+  win.document.close();
+  win.focus();
+  return true;
+}

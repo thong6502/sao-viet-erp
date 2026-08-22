@@ -7,7 +7,7 @@
 // Hai cột nhạy cảm — "Tồn khả dụng" và "Giá vốn" — KHÔNG render khi thiếu quyền: cột biến mất
 // khỏi <thead> chứ không hiện "—". Dấu gạch vẫn là một câu trả lời ("chỗ này có số, bạn không
 // được xem"), còn ở đây phải im lặng hoàn toàn.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   ApiError,
   api,
@@ -32,13 +32,20 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { MaterialCombobox } from "../components/MaterialCombobox";
 import { Select } from "../components/Select";
-import { fmtDate, fmtDateISO, money } from "../utils/format";
-import { printStockVoucher, type StockVoucherPrintData } from "../utils/printStockVoucher";
+import { fmtDate, fmtDateISO, fmtDateTime, money } from "../utils/format";
+import {
+  printStockVoucher,
+  printTransferVoucher,
+  type StockVoucherPrintData,
+  type TransferPrintData,
+} from "../utils/printStockVoucher";
 import {
   DateFilterHead,
   LoaiYeuCauChip,
   RequestStatusBadge,
   VoucherStatusBadge,
+  TransferStatusBadge,
+  type TransferStatus,
   PageSizeSelect,
   DEFAULT_PAGE_SIZE,
   fmtQty,
@@ -156,6 +163,9 @@ export function KhoYeuCauPage({
   const [openRequest, setOpenRequest] = useState<number | null>(null);
   const [creatingFor, setCreatingFor] = useState<StockRequest | null>(null);
   const [openVoucher, setOpenVoucher] = useState<number | null>(null);
+  // Tab ĐIỀU CHUYỂN: một drawer DUY NHẤT (phiếu điều chuyển làm mặt tiền) — bỏ qua openRequest/
+  // openVoucher/creatingFor của nhánh Nhập/Xuất.
+  const [openTransfer, setOpenTransfer] = useState<number | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -236,7 +246,8 @@ export function KhoYeuCauPage({
   // Bấm thông báo "yêu cầu mới chờ cấp" → mở sẵn drawer ứng theo đúng yêu cầu đó.
   useEffect(() => {
     if (openRequestId == null) return;
-    setOpenRequest(openRequestId);
+    if (dieuChuyen) setOpenTransfer(openRequestId);
+    else setOpenRequest(openRequestId);
     onOpenRequestConsumed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openRequestId]);
@@ -258,9 +269,11 @@ export function KhoYeuCauPage({
   // "Mới" = yêu cầu MỚI NHẤT — nằm đầu TRANG 1 (BE sắp id desc); trang khác không đánh dấu.
   const newestReqId = page === 1 ? (requests[0]?.id ?? null) : null;
 
+  // Tab ĐIỀU CHUYỂN đổi nhãn "Cần cấp" → "Chờ ghi sổ" (giữ nguyên TabId/TAB_STATUSES: can-cap =
+  // yêu cầu NHẬP đích còn phiếu nháp chờ ghi sổ). Nhánh Nhập/Xuất giữ nhãn cũ.
   const tabs: { id: TabId; label: string }[] = [
     { id: "tat-ca", label: "Tất cả" },
-    { id: "can-cap", label: "Cần cấp" },
+    { id: "can-cap", label: dieuChuyen ? "Chờ ghi sổ" : "Cần cấp" },
     { id: "done", label: "Hoàn tất" },
     { id: "da-huy", label: "Đã hủy" },
   ];
@@ -273,10 +286,16 @@ export function KhoYeuCauPage({
     <>
       <header className="rc__head">
         <div className="rc__headrow">
-          <h1 className="rc__title">Phiếu từ yêu cầu</h1>
-          <span className="rc__count">{totalCount} yêu cầu</span>
+          <h1 className="rc__title">{dieuChuyen ? "Phiếu điều chuyển" : "Phiếu từ yêu cầu"}</h1>
+          <span className="rc__count">
+            {totalCount} {dieuChuyen ? "phiếu" : "yêu cầu"}
+          </span>
         </div>
-        <p className="rc__sub">Yêu cầu đã duyệt chờ kho cấp, và phiếu nhập/xuất đã lập.</p>
+        <p className="rc__sub">
+          {dieuChuyen
+            ? "Điều chuyển nội bộ giữa các kho — chờ kho đích ghi sổ."
+            : "Yêu cầu đã duyệt chờ kho cấp, và phiếu nhập/xuất đã lập."}
+        </p>
       </header>
 
       <div className="rc__toolbar">
@@ -341,7 +360,17 @@ export function KhoYeuCauPage({
       )}
 
       <div className="rc__tablewrap">
-        {(
+        {dieuChuyen ? (
+          <TransferTable
+            rows={pageRequests}
+            loading={loading}
+            canCreate={canCreate}
+            canViewCost={canViewCost}
+            newestReqId={newestReqId}
+            tableRef={tableRef}
+            onOpen={setOpenTransfer}
+          />
+        ) : (
           <table ref={tableRef} className="rc__table rc__table--fixed">
             <thead>
               <tr>
@@ -530,6 +559,487 @@ export function KhoYeuCauPage({
           onChanged={load}
         />
       )}
+
+      {dieuChuyen && openTransfer != null && token && (
+        <TransferDrawer
+          key={`tr-${openTransfer}`}
+          token={token}
+          requestId={openTransfer}
+          canCreate={canCreate}
+          canViewCost={canViewCost}
+          onClose={() => setOpenTransfer(null)}
+          onChanged={load}
+        />
+      )}
+    </>
+  );
+}
+
+// ── ĐIỀU CHUYỂN: bảng list + drawer (phiếu điều chuyển làm mặt tiền) ──────────
+
+/** Trạng thái PHIẾU ĐIỀU CHUYỂN suy từ yêu cầu NHẬP đích: hủy → da-huy · hoàn tất → hoan-tat ·
+ *  còn phiếu nháp chờ ghi sổ → cho-ghi-so. */
+function transferStatusOf(r: StockRequest): TransferStatus {
+  if (r.trang_thai === "cancelled") return "da-huy";
+  if (r.trang_thai === "done") return "hoan-tat";
+  return "cho-ghi-so";
+}
+
+function TransferTable({
+  rows,
+  loading,
+  canCreate,
+  canViewCost,
+  newestReqId,
+  tableRef,
+  onOpen,
+}: {
+  rows: StockRequest[];
+  loading: boolean;
+  canCreate: boolean;
+  canViewCost: boolean;
+  newestReqId: number | null;
+  tableRef: RefObject<HTMLTableElement>;
+  onOpen: (id: number) => void;
+}) {
+  // Mã · Tuyến · Ngày · Trạng thái · [Tổng giá vốn] · Số dòng · [thao tác]
+  const cols = 5 + (canViewCost ? 1 : 0) + (canCreate ? 1 : 0);
+  return (
+    <table ref={tableRef} className="rc__table rc__table--fixed">
+      <thead>
+        <tr>
+          <th style={{ width: "15%" }}>Mã</th>
+          <th style={{ width: "27%" }}>Tuyến</th>
+          <th style={{ width: "13%" }}>Ngày</th>
+          <th style={{ width: "15%" }}>Trạng thái</th>
+          {canViewCost && <th className="kho-num" style={{ width: "15%" }}>Tổng giá vốn</th>}
+          <th className="kho-num" style={{ width: "9%" }}>Số dòng</th>
+          {canCreate && <th className="rc__actcol" style={{ width: "12%" }} />}
+        </tr>
+      </thead>
+      <tbody>
+        {loading ? (
+          <SkeletonRows cols={cols} />
+        ) : rows.length === 0 ? (
+          <EmptyRow
+            cols={cols}
+            text="Chưa có phiếu điều chuyển. Tạo bằng nút ⇄ Chuyển kho ở màn tồn kho."
+          />
+        ) : (
+          rows.map((r) => {
+            const giaVon = r.lines.reduce((s, l) => s + (l.don_gia ?? 0) * l.sl_duyet, 0);
+            return (
+              <tr
+                key={r.id}
+                className={`rc__row${r.id === newestReqId ? " rc__row--new" : ""}`}
+                onClick={() => onOpen(r.id)}
+              >
+                <td className="rc__nowrap">
+                  <span className="rc__code-badge">{r.ma}</span>
+                  {r.id === newestReqId && <span className="kho-new-pill">Mới</span>}
+                </td>
+                <td>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span className="rc__name">{r.kho_nguon_ten ?? "—"}</span>
+                    <span aria-hidden style={{ color: "var(--ash)" }}>⇄</span>
+                    <span className="rc__name">{r.kho_ten ?? "—"}</span>
+                  </div>
+                </td>
+                <td className="rc__nowrap">{fmtDate(r.created_at)}</td>
+                <td>
+                  <TransferStatusBadge status={transferStatusOf(r)} />
+                </td>
+                {canViewCost && <td className="kho-num">{money(giaVon)}</td>}
+                <td className="kho-num">{r.lines.length}</td>
+                {canCreate && (
+                  <td className="rc__actcol" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      className={`kho-act-btn${r.open_voucher_id == null ? " kho-act-btn--secondary" : ""}`}
+                      onClick={() => onOpen(r.id)}
+                    >
+                      {r.open_voucher_id != null ? "Ghi sổ" : "Xem"}
+                    </button>
+                  </td>
+                )}
+              </tr>
+            );
+          })
+        )}
+      </tbody>
+    </table>
+  );
+}
+
+function TransferDrawer({
+  token,
+  requestId,
+  canCreate,
+  canViewCost,
+  onClose,
+  onChanged,
+}: {
+  token: string;
+  requestId: number;
+  canCreate: boolean;
+  canViewCost: boolean;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  useNapTenDonVi();
+  const [req, setReq] = useState<StockRequest | null>(null);
+  const [v, setV] = useState<StockVoucher | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [askPost, setAskPost] = useState(false);
+  const [askCancel, setAskCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [popupBlocked, setPopupBlocked] = useState(false);
+  // Vị trí cất lô khai TRƯỚC ghi sổ (phiếu điều chuyển đích không có form nhập) — keyed theo line id.
+  const [viTriEdit, setViTriEdit] = useState<Record<number, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    api.kho.deNghi
+      .get(token, requestId)
+      .then(async (r) => {
+        if (cancelled) return;
+        setReq(r);
+        // Phiếu NHẬP đích: còn chờ ghi sổ thì có `open_voucher_id`; đã ghi sổ / đã hủy thì null →
+        // truy lại qua list (request_id + loai NHAP) để vẫn hiện được các dòng theo lô.
+        let voucherId = r.open_voucher_id;
+        if (voucherId == null) {
+          const list = await api.kho.phieu
+            .list(token, { request_id: requestId, loai: "NHAP", size: 5 })
+            .catch(() => null);
+          voucherId = list?.items[0]?.id ?? null;
+        }
+        if (voucherId != null) {
+          const voucher = await api.kho.phieu.get(token, voucherId).catch(() => null);
+          if (!cancelled) setV(voucher);
+        }
+      })
+      .catch((e) =>
+        setError(e instanceof ApiError ? e.message : "Không tải được phiếu điều chuyển."),
+      )
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, requestId]);
+
+  // Nạp vị trí sẵn có của dòng phiếu vào ô sửa (điều chuyển đích thường trống tới khi thủ kho khai).
+  useEffect(() => {
+    if (!v) return;
+    const init: Record<number, string> = {};
+    v.lines.forEach((l) => {
+      init[l.id] = l.vi_tri ?? "";
+    });
+    setViTriEdit(init);
+  }, [v]);
+
+  const status: TransferStatus =
+    req?.trang_thai === "cancelled"
+      ? "da-huy"
+      : v?.trang_thai === "posted" || req?.trang_thai === "done"
+        ? "hoan-tat"
+        : "cho-ghi-so";
+  // Ghi sổ / Hủy chỉ khi CHƯA ghi sổ (còn phiếu nháp đích) — đã ghi sổ/hủy → chỉ đọc.
+  const canAct =
+    canCreate && req != null && req.open_voucher_id != null && req.trang_thai !== "cancelled";
+
+  function ghiSo() {
+    if (!v) return;
+    setBusy(true);
+    setError(null);
+    // Lưu VỊ TRÍ đã khai (nếu có) TRƯỚC khi ghi sổ → ghi sổ chép sang lô. Một nhịp thao tác.
+    const viTriLines = v.lines.map((l) => ({
+      line_id: l.id,
+      vi_tri: (viTriEdit[l.id] ?? "").trim() || null,
+    }));
+    api.kho.phieu
+      .suaViTriDong(token, v.id, viTriLines)
+      .then(() => api.kho.phieu.ghiSo(token, v.id))
+      .then(() => {
+        onChanged();
+        onClose();
+      })
+      .catch((e) => {
+        setAskPost(false);
+        setBusy(false);
+        setError(e instanceof ApiError ? e.message : "Không ghi sổ được phiếu.");
+      });
+  }
+
+  function huy() {
+    const ly = cancelReason.trim();
+    if (!ly) return;
+    setBusy(true);
+    setError(null);
+    api.kho.dieuChuyen
+      .huy(token, requestId, ly)
+      .then(() => {
+        onChanged();
+        onClose();
+      })
+      .catch((e) => {
+        setAskCancel(false);
+        setBusy(false);
+        setError(e instanceof ApiError ? e.message : "Không hủy được phiếu điều chuyển.");
+      });
+  }
+
+  function doPrint() {
+    if (!req) return;
+    // Mẫu điều chuyển RIÊNG (Từ kho → Đến kho + HSD), không phải 01-VT/02-VT. Dòng lấy từ phiếu
+    // NHẬP đích (per-lô + giá vốn + HSD). Giá vốn null khi thiếu quyền → bản in tự bỏ 2 cột tiền.
+    const data: TransferPrintData = {
+      docNo: req.ma,
+      docDate: v ? v.ngay : (req.created_at ? req.created_at.slice(0, 10) : null),
+      khoNguon: req.kho_nguon_ten,
+      khoDich: req.kho_ten,
+      nguoiLap: v?.nguoi_lap_ten ?? req.nguoi_tao_ten ?? null,
+      nguoiGiaoNhan: v?.nguoi_giao_nhan ?? null,
+      lyDo: v?.ghi_chu ?? req.ghi_chu ?? null,
+      tongTien: v?.gia_von ?? null,
+      cancelled: req.trang_thai === "cancelled",
+      lines: (v?.lines ?? []).map((l) => ({
+        materialCode: l.hang_ma,
+        materialName: l.hang_ten,
+        dvt: tenDonVi(l.dvt) ?? l.dvt,
+        soLuong: l.so_luong,
+        donGia: l.don_gia,
+        thanhTien: l.thanh_tien,
+        hsd: l.hsd ?? null,
+      })),
+    };
+    setPopupBlocked(!printTransferVoucher(data));
+  }
+
+  return (
+    <>
+      <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
+        <aside className="rc-drawer rc-drawer--wide" onClick={(e) => e.stopPropagation()}>
+          <header className="rc-drawer__head">
+            <div>
+              <div className="rc-drawer__kicker">PHIẾU ĐIỀU CHUYỂN</div>
+              <h2 className="rc-drawer__title">{req?.ma ?? "Đang tải…"}</h2>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
+              {req && <TransferStatusBadge status={status} />}
+              <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
+                ✕
+              </button>
+            </div>
+          </header>
+
+          <div className="rc-drawer__body">
+            {error && (
+              <div className="banner banner--error" role="alert">
+                <span>{error}</span>
+              </div>
+            )}
+            {popupBlocked && (
+              <div className="banner banner--warn" role="alert">
+                <span>Trình duyệt đã chặn cửa sổ in. Cho phép pop-up cho trang này rồi bấm In lại.</span>
+              </div>
+            )}
+            {loading || !req ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <span key={i} className="rc-skel" style={{ width: `${90 - i * 12}%` }} />
+                ))}
+              </div>
+            ) : (
+              <>
+                {req.trang_thai === "cancelled" && req.ly_do_huy && (
+                  <div className="banner banner--warn" role="status">
+                    <span>
+                      <b>Đã hủy</b> — Lý do: {req.ly_do_huy}
+                    </span>
+                  </div>
+                )}
+
+                <section className="rc-sec">
+                  <h3 className="rc-sec__title">Tuyến điều chuyển</h3>
+                  <div className="kho-info-grid">
+                    <div className="kho-info-item">
+                      <span className="kho-info-item__label">Từ kho (nguồn)</span>
+                      <div className="kho-info-item__val">{req.kho_nguon_ten ?? "—"}</div>
+                    </div>
+                    <div className="kho-info-item">
+                      <span className="kho-info-item__label">Đến kho (nhập về)</span>
+                      <div className="kho-info-item__val">{req.kho_ten ?? "—"}</div>
+                    </div>
+                    <div className="kho-info-item">
+                      <span className="kho-info-item__label">Ngày</span>
+                      <div className="kho-info-item__val">
+                        {v ? fmtDateISO(v.ngay) : fmtDate(req.created_at)}
+                      </div>
+                    </div>
+                    <div className="kho-info-item">
+                      <span className="kho-info-item__label">Số CT phiếu nhập</span>
+                      <div className="kho-info-item__val">{v?.ma ?? "—"}</div>
+                    </div>
+                    <div className="kho-info-item">
+                      <span className="kho-info-item__label">Người tạo</span>
+                      <div className="kho-info-item__val">
+                        {req.nguoi_tao_ten ?? "—"}
+                        {req.bo_phan_ten ? ` (${req.bo_phan_ten})` : ""}
+                      </div>
+                    </div>
+                    <div className="kho-info-item">
+                      <span className="kho-info-item__label">Tạo lúc</span>
+                      <div className="kho-info-item__val">{fmtDateTime(req.created_at)}</div>
+                    </div>
+                  </div>
+                </section>
+
+                <div className="banner banner--info">
+                  <span>Ghi sổ sẽ TRỪ kho nguồn và CỘNG kho đích cùng lúc.</span>
+                </div>
+
+                <section className="rc-sec">
+                  <h3 className="rc-sec__title">Dòng điều chuyển (theo lô)</h3>
+                  <div className="kho-lines__wrap kho-lines-card">
+                    <table className="kho-lines" style={{ width: "100%", tableLayout: "auto" }}>
+                      <thead>
+                        <tr>
+                          <th style={{ minWidth: 240 }}>Vật tư</th>
+                          <th className="kho-num" style={{ width: 120 }}>Số lượng</th>
+                          {canViewCost && <th className="kho-num" style={{ width: 120 }}>Giá vốn</th>}
+                          {canViewCost && <th className="kho-num" style={{ width: 130 }}>Thành tiền</th>}
+                          <th style={{ width: 120 }}>HSD</th>
+                          <th style={{ width: 180 }}>Vị trí</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {!v || v.lines.length === 0 ? (
+                          <tr>
+                            <td colSpan={canViewCost ? 6 : 4} className="kho-lines__empty">
+                              Không có dòng nào.
+                            </td>
+                          </tr>
+                        ) : (
+                          v.lines.map((l) => (
+                            <tr key={l.id}>
+                              <td>
+                                <div className="kho-lines__name">{l.hang_ten ?? "—"}</div>
+                                <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
+                              </td>
+                              <td className="kho-num">
+                                {fmtQty(l.so_luong)} {tenDonVi(l.dvt) ?? l.dvt ?? ""}
+                              </td>
+                              {canViewCost && (
+                                <td className="kho-num">
+                                  {l.don_gia != null ? money(l.don_gia) : "—"}
+                                </td>
+                              )}
+                              {canViewCost && (
+                                <td className="kho-num">
+                                  {l.thanh_tien != null ? money(l.thanh_tien) : "—"}
+                                </td>
+                              )}
+                              <td>{l.hsd ? fmtDateISO(l.hsd) : "—"}</td>
+                              <td>
+                                {canAct ? (
+                                  <input
+                                    className="rc-input"
+                                    style={{ minWidth: 150, width: "100%" }}
+                                    value={viTriEdit[l.id] ?? ""}
+                                    onChange={(e) =>
+                                      setViTriEdit((m) => ({ ...m, [l.id]: e.target.value }))
+                                    }
+                                    placeholder="kệ / ô…"
+                                  />
+                                ) : (
+                                  l.vi_tri ?? "—"
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </>
+            )}
+          </div>
+
+          <footer className="rc-drawer__foot">
+            {canAct && (
+              <Button variant="accent" loading={busy} onClick={() => setAskPost(true)}>
+                Ghi sổ
+              </Button>
+            )}
+            {canAct && (
+              <button
+                type="button"
+                className="btn btn--danger"
+                onClick={() => {
+                  setCancelReason("");
+                  setAskCancel(true);
+                }}
+              >
+                Hủy
+              </button>
+            )}
+            {/* In được ở MỌI trạng thái (kể cả Chờ ghi sổ / Hoàn tất / Đã hủy) — bản giấy làm chứng
+                từ đi đường. Cần phiếu đích (`v`) đã tải để có dòng theo lô. */}
+            {v && (
+              <button type="button" className="btn btn--secondary" onClick={doPrint}>
+                In phiếu
+              </button>
+            )}
+            <button type="button" className="btn btn--secondary" onClick={onClose}>
+              Đóng
+            </button>
+          </footer>
+        </aside>
+      </div>
+
+      <ConfirmDialog
+        open={askPost}
+        title="Ghi sổ phiếu điều chuyển?"
+        message="Tồn kho nguồn sẽ TRỪ và kho đích sẽ CỘNG cùng lúc — phiếu không sửa được nữa."
+        confirmLabel="Ghi sổ"
+        busy={busy}
+        onCancel={() => setAskPost(false)}
+        onConfirm={ghiSo}
+      />
+
+      <ConfirmDialog
+        open={askCancel}
+        title="Hủy phiếu điều chuyển này?"
+        message="Cả phiếu điều chuyển sẽ bị hủy kèm lý do. Chỉ hủy được khi CHƯA ghi sổ."
+        confirmLabel="Hủy phiếu"
+        cancelLabel="Giữ lại"
+        danger
+        busy={busy}
+        confirmDisabled={!cancelReason.trim()}
+        onCancel={() => setAskCancel(false)}
+        onConfirm={huy}
+      >
+        <label className="rc-field">
+          <span className="rc-field__label">
+            Lý do hủy <em>*</em>
+          </span>
+          <textarea
+            className="rc-textarea"
+            rows={3}
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+            placeholder="Vì sao hủy điều chuyển này? (bắt buộc)"
+            autoFocus
+          />
+        </label>
+      </ConfirmDialog>
     </>
   );
 }
@@ -1026,6 +1536,25 @@ function VoucherCreateDrawer({
   const [dirty, setDirty] = useState(false);
   const [askDiscard, setAskDiscard] = useState(false);
   const [askPost, setAskPost] = useState(false);
+
+  // Tự chọn "Kho (xuất từ)" = kho có NHIỀU hàng nhất (ưu tiên mặt hàng đầu tiên) NGAY khi mở phiếu
+  // XUẤT — thay vì bê kho đang xem ở toolbar (dễ trỏ vào kho rỗng). Chỉ chạy MỘT LẦN, cho MỌI phiếu
+  // XUẤT thường; chỉ chừa ĐIỀU CHUYỂN (kho nguồn đã bị khoá). Sau đó thủ kho đổi tay tùy ý.
+  // KHÔNG dùng cờ `cancelled`: StrictMode (dev) chạy effect 2 lần — cleanup lần 1 sẽ set cancelled
+  // = true trong khi ref đã chặn lần 2 fetch → kết quả bị VỨT. Ref one-shot đủ đảm bảo gọi 1 lần;
+  // setKhoId idempotent, có unmount sớm cũng chỉ là no-op (React 18 không cảnh báo).
+  const daGoiYKho = useRef(false);
+  useEffect(() => {
+    if (daGoiYKho.current || isNhap || request.dieu_chuyen) return;
+    daGoiYKho.current = true;
+    api.kho.deNghi
+      .goiYKho(token, request.id)
+      .then((r) => {
+        if (r.kho_id == null || !khoList.some((w) => w.id === r.kho_id)) return;
+        setKhoId(r.kho_id);
+      })
+      .catch(() => {});
+  }, [token, request, isNhap, khoList]);
 
   // Gợi ý lô chạy NGAY khi mở drawer, không chờ bấm nút: thủ kho mở phiếu ra là để lấy hàng,
   // bắt bấm thêm một nút "gợi ý" chỉ để có đúng cái FEFO mặc định là thao tác thừa.

@@ -95,7 +95,7 @@ export function KhoDeNghiPage({
   // null = đóng; "new" = soạn mới; {id} = mở yêu cầu đã có; {seed} = tạo lại từ yêu cầu cũ.
   const [drawer, setDrawer] = useState<
     | null
-    | { mode: "new"; seed?: SeedLine[]; loai?: StockRequestKind; ghiChu?: string; ngayCan?: string; locked?: boolean; deliveryId?: number }
+    | { mode: "new"; seed?: SeedLine[]; loai?: StockRequestKind; ghiChu?: string; ngayCan?: string; locked?: boolean; deliveryId?: number; donMuaMa?: string; dotSo?: number }
     | { mode: "open"; id: number }
   >(null);
 
@@ -111,6 +111,8 @@ export function KhoDeNghiPage({
         ngayCan: initialSeed.ngay_can,
         locked: initialSeed.locked,
         deliveryId: initialSeed.deliveryId,
+        donMuaMa: initialSeed.don_mua_ma,
+        dotSo: initialSeed.dot_so,
       });
       onSeedConsumed?.();
     }
@@ -445,6 +447,8 @@ export function KhoDeNghiPage({
           seedNgayCan={drawer.mode === "new" ? drawer.ngayCan : undefined}
           seedLocked={drawer.mode === "new" ? drawer.locked : undefined}
           seedDeliveryId={drawer.mode === "new" ? drawer.deliveryId : undefined}
+          seedDonMuaMa={drawer.mode === "new" ? drawer.donMuaMa : undefined}
+          seedDotSo={drawer.mode === "new" ? drawer.dotSo : undefined}
           canRequest={canRequest}
           onClone={(lines, loai) => setDrawer({ mode: "new", seed: lines, loai })}
           onClose={() => setDrawer(null)}
@@ -699,6 +703,9 @@ export interface KhoNhapSeed {
   locked?: boolean;
   /** Nguồn đợt giao (purchase_deliveries.id) → gắn vào yêu cầu để chặn nhập trùng đợt. */
   deliveryId?: number;
+  /** Mã đơn mua (purchase_requests.code) + số đợt giao — hiện rõ nguồn ngay ở form nhập. */
+  don_mua_ma?: string;
+  dot_so?: number;
 }
 
 interface DraftLine extends SeedLine {
@@ -746,6 +753,8 @@ interface RequestDrawerProps {
   seedNgayCan?: string;
   seedLocked?: boolean;
   seedDeliveryId?: number;
+  seedDonMuaMa?: string;
+  seedDotSo?: number;
   canRequest: boolean;
   onClone: (lines: SeedLine[], loai: StockRequestKind) => void;
   onClose: () => void;
@@ -762,6 +771,8 @@ function RequestDrawer({
   seedNgayCan,
   seedLocked,
   seedDeliveryId,
+  seedDonMuaMa,
+  seedDotSo,
   canRequest,
   onClone,
   onClose,
@@ -1111,6 +1122,15 @@ function RequestDrawer({
                       )}
                     </div>
                   </div>
+                  {seedDonMuaMa && (
+                    <div className="kho-info-item">
+                      <span className="kho-info-item__label">Đơn mua</span>
+                      <div className="kho-info-item__val">
+                        <span className="rc__code-badge">{seedDonMuaMa}</span>
+                        {seedDotSo != null ? ` · Đợt ${seedDotSo}` : ""}
+                      </div>
+                    </div>
+                  )}
                   {req?.bo_phan_ten && (
                     <div className="kho-info-item">
                       <span className="kho-info-item__label">Bộ phận</span>
