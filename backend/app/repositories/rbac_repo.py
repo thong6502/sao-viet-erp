@@ -231,9 +231,22 @@ class DepartmentRepository:
     def set_is_kcs(self, dept: Department, value: bool) -> Department:
         """Đánh dấu / bỏ dấu TỔ KCS. Đích danh — KHÔNG cascade cây con như `la_san_xuat`."""
         dept.is_kcs = bool(value)
+    def set_la_giao_hang(self, dept: Department, value: bool) -> Department:
+        """Đánh dấu / bỏ dấu bộ phận GIAO HÀNG (nền cho tab Nhân viên giao hàng)."""
+        dept.la_giao_hang = bool(value)
         self.db.commit()
         self.db.refresh(dept)
         return dept
+
+    def dept_ids_giao_hang(self) -> set[int]:
+        """Id phòng/tổ thuộc bộ phận GIAO HÀNG — tự bật cờ HOẶC có tổ tiên bật cờ.
+
+        `fallback_all=False`: chưa tick phòng nào thì trả RỖNG, không phải "tất cả". Trả tất cả ở
+        đây là mọi nhân viên công ty hiện trong tab Nhân viên giao hàng.
+        """
+        # `_khoi_theo_co` trả DANH SÁCH Department — phải rút ra id, không thì nơi gọi so
+        # `department_id not in <list Department>` sẽ LUÔN đúng và loại hết mọi người, im lặng.
+        return {d.id for d in self._khoi_theo_co("la_giao_hang", fallback_all=False)}
 
     def count_by_level(self, level_id: int) -> int:
         """How many departments are tagged with a given unit level (delete guard)."""
@@ -412,6 +425,8 @@ class RoleRepository:
         can_manage_salary_profiles: bool = False,
         can_manage_piece_rates: bool = False,
         can_manage_leave_types: bool = False,
+        can_plan: bool = False,
+        can_view_drivers: bool = False,
         can_approve_exception: bool = False,
         can_set_credit_terms: bool = False,
         can_record_deposit: bool = False,
@@ -451,6 +466,8 @@ class RoleRepository:
         perm.can_manage_salary_profiles = can_manage_salary_profiles
         perm.can_manage_piece_rates = can_manage_piece_rates
         perm.can_manage_leave_types = can_manage_leave_types
+        perm.can_plan = can_plan
+        perm.can_view_drivers = can_view_drivers
         perm.can_reset_password = can_reset_password
         perm.can_lock = can_lock
         perm.can_revoke_sessions = can_revoke_sessions

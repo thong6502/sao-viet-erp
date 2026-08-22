@@ -61,6 +61,8 @@ export const congDoan = crud("/api/cong-doan");
 export const loaiSanPham = crud("/api/loai-san-pham");
 // Vật liệu Kho: 3 loại con dưới cùng prefix.
 export const giay = crud("/api/vat-lieu-kho/giay");
+/** Danh mục ĐƠN VỊ ĐO — nguồn cho ô ĐVT trên phiếu tính giá. */
+export const donViDo = crud("/api/don-vi");
 export const muc = crud("/api/vat-lieu-kho/muc");
 export const banKem = crud("/api/vat-lieu-kho/ban-kem");
 export const vatTu = crud("/api/vat-lieu-kho/vat-tu-in-an"); // vật tư in ấn gộp (mực/kẽm/màng/keo)

@@ -19,6 +19,7 @@ from ..db import get_db
 from ..deps import (
     CurrentUser, get_authorization_service, require_any_permission, require_permission,
 )
+from ..models.customer import Customer
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
@@ -26,7 +27,8 @@ from ..repositories.purchase_repo import SupplierRepository
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..schemas.vat_lieu_kho import (
     ChungLoaiGiayIn, ChungLoaiGiayRow, DonViCuaMatHangOut, GiayGiaVersionIn, GiayGiaVersionRow,
-    GiayIn, GiayRow, ListOut, MatHangRow, VatLieuAnhOut, VatTuIn, VatTuRow,
+    GiayIn, GiayRow, ListOut, MatHangRow, ThanhPhamIn, ThanhPhamRow, VatLieuAnhOut,
+    VatTuIn, VatTuRow,
 )
 from ..services.rbac_service import AuthorizationService
 from ..services.vat_lieu_kho_service import (
@@ -44,6 +46,10 @@ MODULE_BY_KIND = {
     "chung_loai_giay": "dm_chung_loai_giay",
     "giay": "dm_giay",
     "vat_tu": "dm_vat_tu",
+    # Màn danh mục THỨ TƯ trên cùng router — chung bảng `vat_tu_in_an` với "vat_tu", chia nhau
+    # bằng `customer_id` (docs/prd-thanh-pham.md §3). Ô quyền riêng vì chủ dự án muốn menu
+    # riêng ở Cấu hình danh mục.
+    "thanh_pham": "dm_thanh_pham",
 }
 MODULE = MODULE_BY_KIND["giay"]   # dùng cho các route giá giấy bên dưới
 
@@ -77,6 +83,24 @@ def _rows_kem_don_vi(svc: MotDanhMucVatLieu, objs: list, RowModel) -> list:
     return rows
 
 
+def _rows_thanh_pham(svc: MotDanhMucVatLieu, objs: list, RowModel) -> list:
+    """Dòng + tên đơn vị + TÊN KHÁCH, mỗi thứ một truy vấn cho cả trang.
+
+    Không gán tên khách thì bảng chỉ có một số id — người khai không biết dòng đó của ai, mà
+    "của ai" chính là thứ phân biệt hai thành phẩm cùng tên (docs/prd-thanh-pham.md §5 L2).
+    """
+    rows = _rows_kem_don_vi(svc, objs, RowModel)
+    ids = {r.customer_id for r in rows if r.customer_id}
+    if ids:
+        db = svc.goc.repo.db
+        ten = dict(
+            db.query(Customer.id, Customer.name).filter(Customer.id.in_(sorted(ids))).all()
+        )
+        for r in rows:
+            r.customer_ten = ten.get(r.customer_id or 0)
+    return rows
+
+
 def _khai(kind: str, InModel, RowModel, path: str, *, kem_don_vi: bool):
     mod = MODULE_BY_KIND[kind]
     make_catalog_router(
@@ -86,8 +110,12 @@ def _khai(kind: str, InModel, RowModel, path: str, *, kem_don_vi: bool):
         # Phong bì phân trang GẮN ĐÚNG kiểu dòng của danh mục này → OpenAPI ra `GiayRow[]` chứ
         # không phải `any[]` (xem `schemas/vat_lieu_kho.ListOut`).
         ListModel=ListOut[RowModel],
-        dung_rows=((lambda svc, objs: _rows_kem_don_vi(svc, objs, RowModel))
-                   if kem_don_vi else None),
+        dung_rows=(
+            (lambda svc, objs: _rows_thanh_pham(svc, objs, RowModel))
+            if kem_don_vi == "khach"
+            else (lambda svc, objs: _rows_kem_don_vi(svc, objs, RowModel)) if kem_don_vi
+            else None
+        ),
         # Không mở `/ma-goi-y`: mã ở ba danh mục này là chữ có nghĩa (`COUCHE`, `MUC-CMYK`,
         # `COUCHE-300-65x86`), không phải một dãy số ⇒ không có "mã kế tiếp" nào đúng.
     )
@@ -96,6 +124,9 @@ def _khai(kind: str, InModel, RowModel, path: str, *, kem_don_vi: bool):
 _khai("chung_loai_giay", ChungLoaiGiayIn, ChungLoaiGiayRow, "chung-loai-giay", kem_don_vi=False)
 _khai("giay", GiayIn, GiayRow, "giay", kem_don_vi=True)
 _khai("vat_tu", VatTuIn, VatTuRow, "vat-tu-in-an", kem_don_vi=True)
+# Thành phẩm: CÙNG nền CRUD, nhưng `VatLieuKhoService._chan_go_tay` chặn tạo/xoá — dòng ở
+# đây chỉ do `OrderService.confirm()` sinh ra (docs/prd-thanh-pham.md L1, L5).
+_khai("thanh_pham", ThanhPhamIn, ThanhPhamRow, "thanh-pham", kem_don_vi="khach")
 
 
 # -- MẶT HÀNG GỐC: hai cửa Kho + NCC dùng để chọn hàng và chọn đơn vị --

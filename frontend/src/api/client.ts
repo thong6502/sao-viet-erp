@@ -368,6 +368,18 @@ export type QuoteEvent =
       nguoi_tao_ten?: string | null;
       bo_phan_ten?: string | null;
     }
+  // Giao hàng (20/08/2026): đẩy ĐÍCH DANH cho tài xế của chuyến. Tài xế đang ở kho hoặc trên
+  // đường, không ngồi canh màn hình — bắt họ F5 để biết "kho soạn xong chưa" là bắt đoán.
+  | {
+      type: "giao_hang_chuyen";
+      /** `phan_chuyen` | `doi_gio` | `gui_kho` | `kho_xong` — `kho_xong` là mốc tài xế lên đường. */
+      viec: string;
+      trip_id: number;
+      request_code?: string | null;
+      khach?: string | null;
+      ma_phieu?: string | null;
+      message: string;
+    }
   // `notification_new` = có thông báo mới vào chuông → FE refetch list + badge chuông.
   | { type: "notification_new" }
   // Thực hiện sản xuất (module `san_xuat`): `san_xuat_cong_viec_changed` = tín hiệu bàn tổ đổi
@@ -2476,6 +2488,7 @@ export interface Department {
   /** Đánh dấu khối KINH DOANH (mg 0181) — cùng luật kế thừa cây con. Nền cho danh sách
    *  "NV phụ trách" ở màn Khách hàng; chưa tick phòng nào thì backend lùi về quy tắc theo quyền. */
   la_kinh_doanh?: boolean;
+  la_giao_hang?: boolean;
 }
 
 /** Cơ chế ra mức lương của một phòng ban (Pha 1). */
@@ -2617,6 +2630,9 @@ export interface ModuleCapability {
   can_manage_salary_profiles?: boolean;
   can_manage_piece_rates?: boolean;
   can_manage_leave_types?: boolean;
+  /** giao_hang (mg 0199) — tab Lên kế hoạch + tab Nhân viên giao hàng. */
+  can_plan?: boolean;
+  can_view_drivers?: boolean;
 }
 
 /** A live login session (active refresh token) for the admin user-detail view (spec-08). */
@@ -2697,6 +2713,9 @@ export interface PermissionRow {
   can_manage_salary_profiles?: boolean;
   can_manage_piece_rates?: boolean;
   can_manage_leave_types?: boolean;
+  /** giao_hang (mg 0199) — tab Lên kế hoạch + tab Nhân viên giao hàng. */
+  can_plan?: boolean;
+  can_view_drivers?: boolean;
 }
 
 // --- Khách hàng (CRM), spec-06 v2 -------------------------------------------
@@ -3608,7 +3627,10 @@ export interface QuotationListParams {
 
 // --- Nhân sự · Hồ sơ nhân sự (nhan_su), lát #1 -----------------------------
 
-export type EmployeeStatus = "probation" | "active" | "on_leave" | "suspended" | "resigned";
+/** `probation_ended` = đã qua Ngày hết thử việc, CHỜ HCNS bấm "Chuyển chính thức" (máy tự đặt).
+ *  Vẫn ăn lương thử việc cho tới lúc bấm — chỉ trạng thái đổi, tiền không đổi. */
+export type EmployeeStatus =
+  | "probation" | "probation_ended" | "active" | "on_leave" | "suspended" | "resigned";
 
 /** Cách tính thuế TNCN của MỘT người (chốt chủ 27/07/2026 — `employees.pit_mode`).
  *  Ba trạng thái nên dùng chuỗi, không nhồi 2 cờ Boolean (nhồi là mở chỗ để lệch). */
@@ -3716,6 +3738,8 @@ export interface EmployeeKpis {
   total: number;
   active: number;
   probation: number;
+  /** Đã hết thử việc, chờ HCNS xác nhận chính thức. */
+  probation_ended: number;
   on_leave: number;
   resigned: number;
   probation_ending_soon: number;
@@ -7682,6 +7706,8 @@ export const api = {
       /** Cờ khối Kinh doanh. `undefined` = KHÔNG gửi ⇒ backend giữ nguyên — luồng đổi trưởng
        *  phòng không được âm thầm gỡ khối Kinh doanh của phòng. */
       laKinhDoanh?: boolean,
+      /** Cờ bộ phận Giao hàng. Cùng luật `undefined` = KHÔNG gửi ⇒ backend giữ nguyên. */
+      laGiaoHang?: boolean,
     ): Promise<Department> {
       return authed<Department>(`/api/departments/${id}`, token, {
         method: "PUT",
@@ -7694,6 +7720,7 @@ export const api = {
           ...(salary ?? {}),
           la_san_xuat: laSanXuat,
           ...(laKinhDoanh === undefined ? {} : { la_kinh_doanh: laKinhDoanh }),
+          ...(laGiaoHang === undefined ? {} : { la_giao_hang: laGiaoHang }),
         }),
       });
     },
@@ -9071,6 +9098,103 @@ export const api = {
           department_id: departmentId, items, min_output_qty: minOutputQty,
         }),
       });
+    },
+  },
+
+  // --- Giao hàng (module `giao_hang`) ---------------------------------------
+  // Ba nhóm đường: yêu cầu (Bán hàng) · kế hoạch + chuyến (Giao hàng) · đề nghị xuất (Kho).
+  // Đường của kho gác bằng ô `kho`, KHÔNG phải ô `giao_hang` — kho không cần cấp thêm ô nào.
+  giaoHang: {
+    conPhaiGiao(token: string, orderId: number): Promise<ConPhaiGiao> {
+      return authed<ConPhaiGiao>(`/api/giao-hang/orders/${orderId}/con-phai-giao`, token);
+    },
+    requests(token: string, opts?: { orderId?: number; choLenKeHoach?: boolean }): Promise<{ items: DeliveryRequest[] }> {
+      const q = new URLSearchParams();
+      if (opts?.orderId != null) q.set("order_id", String(opts.orderId));
+      if (opts?.choLenKeHoach) q.set("cho_len_ke_hoach", "true");
+      const s = q.toString();
+      return authed<{ items: DeliveryRequest[] }>(`/api/giao-hang/requests${s ? `?${s}` : ""}`, token);
+    },
+    request(token: string, id: number): Promise<DeliveryRequestDetail> {
+      return authed<DeliveryRequestDetail>(`/api/giao-hang/requests/${id}`, token);
+    },
+    createRequest(token: string, input: DeliveryRequestInput): Promise<DeliveryRequest> {
+      return authed<DeliveryRequest>("/api/giao-hang/requests", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updateRequest(token: string, id: number, input: Partial<DeliveryRequestInput>): Promise<DeliveryRequest> {
+      return authed<DeliveryRequest>(`/api/giao-hang/requests/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    cancelRequest(token: string, id: number, lyDo: string): Promise<DeliveryRequest> {
+      return authed<DeliveryRequest>(`/api/giao-hang/requests/${id}/huy`, token, { method: "POST", body: JSON.stringify({ ly_do: lyDo }) });
+    },
+
+    trips(token: string, opts?: { dangChay?: boolean }): Promise<{ items: DeliveryTrip[] }> {
+      const q = opts?.dangChay ? "?dang_chay=true" : "";
+      return authed<{ items: DeliveryTrip[] }>(`/api/giao-hang/trips${q}`, token);
+    },
+    plan(token: string, input: PlanInput): Promise<{ trip: DeliveryTrip; canh_bao: string[] }> {
+      return authed<{ trip: DeliveryTrip; canh_bao: string[] }>("/api/giao-hang/plans", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updatePlan(token: string, tripId: number, input: Partial<PlanInput>): Promise<{ trip: DeliveryTrip; canh_bao: string[] }> {
+      return authed<{ trip: DeliveryTrip; canh_bao: string[] }>(`/api/giao-hang/plans/${tripId}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    cancelPlan(token: string, tripId: number, lyDo: string): Promise<DeliveryTrip> {
+      return authed<DeliveryTrip>(`/api/giao-hang/plans/${tripId}/huy`, token, { method: "POST", body: JSON.stringify({ ly_do: lyDo }) });
+    },
+    batDauGiao(token: string, tripId: number): Promise<DeliveryTrip> {
+      return authed<DeliveryTrip>(`/api/giao-hang/trips/${tripId}/bat-dau-giao`, token, { method: "POST" });
+    },
+    ghiKetQua(token: string, tripId: number, input: KetQuaInput): Promise<DeliveryTrip> {
+      return authed<DeliveryTrip>(`/api/giao-hang/trips/${tripId}/ket-qua`, token, { method: "POST", body: JSON.stringify(input) });
+    },
+    daTraHang(token: string, tripId: number): Promise<DeliveryTrip> {
+      return authed<DeliveryTrip>(`/api/giao-hang/trips/${tripId}/da-tra-hang`, token, { method: "POST" });
+    },
+
+    /** Xem trước dòng sẽ gửi kho — suy ra từ yêu cầu giao, không sửa được. */
+    hangCanXuat(token: string, tripId: number): Promise<HangCanXuat[]> {
+      return authed<HangCanXuat[]>(`/api/giao-hang/plans/${tripId}/hang-can-xuat`, token);
+    },
+    /** Gửi YÊU CẦU XUẤT KHO thật — chứng từ của KHO, không phải loại riêng của Giao hàng.
+     *  Hàng ra khỏi kho phải có phiếu kho; giao khách không ngoại lệ (chủ chốt 19/08/2026). */
+    guiYeuCauXuatKho(token: string, tripId: number, input: YeuCauXuatKhoInput): Promise<YeuCauKho> {
+      return authed<YeuCauKho>(`/api/giao-hang/plans/${tripId}/yeu-cau-xuat-kho`, token, { method: "POST", body: JSON.stringify(input) });
+    },
+    /** File MINH CHỨNG của chuyến — ảnh/PDF. Hàng đi kèm hoá đơn: trước lúc đi đính hoá đơn cho
+     *  tài xế cầm theo, giao xong chụp lại tờ khách đã ký. Đính được ở bất kỳ lúc nào. */
+    dinhKemChuyen(token: string, tripId: number): Promise<{ items: DinhKemChuyen[] }> {
+      return authed<{ items: DinhKemChuyen[] }>(`/api/giao-hang/trips/${tripId}/dinh-kem`, token);
+    },
+    themDinhKemChuyen(token: string, tripId: number, file: File): Promise<DinhKemChuyen> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<DinhKemChuyen>(`/api/giao-hang/trips/${tripId}/dinh-kem`, token, {
+        method: "POST", body: form,
+      });
+    },
+    xoaDinhKemChuyen(token: string, tripId: number, attachmentId: number): Promise<void> {
+      return authed<void>(`/api/giao-hang/trips/${tripId}/dinh-kem/${attachmentId}`, token, {
+        method: "DELETE",
+      });
+    },
+
+    /** Tài xế TỰ bấm khi đã cầm được hàng. Trước đây do kho bấm — đổi 19/08/2026. */
+    daLayHang(token: string, tripId: number): Promise<DeliveryTrip> {
+      return authed<DeliveryTrip>(`/api/giao-hang/trips/${tripId}/da-lay-hang`, token, { method: "POST" });
+    },
+
+    /** Tài xế CHỌN ĐƯỢC khi phân công — gác bằng ô Lên kế hoạch, KHÔNG phải `nhan_su`. */
+    taiXeChon(token: string): Promise<{ items: DeliveryDriverPick[] }> {
+      return authed<{ items: DeliveryDriverPick[] }>("/api/giao-hang/tai-xe-chon", token);
+    },
+    /** `thang` dạng `YYYY-MM` — chỉ đổi hai cột THÁNG. Cột "hôm nay" và trạng thái luôn là
+     *  bây giờ, không đổi theo tháng đang xem. */
+    nhanVien(token: string, opts?: { ngay?: string; thang?: string }): Promise<{ items: DeliveryDriver[] }> {
+      const q = new URLSearchParams();
+      if (opts?.ngay) q.set("ngay", opts.ngay);
+      if (opts?.thang) q.set("thang", opts.thang);
+      const s = q.toString();
+      return authed<{ items: DeliveryDriver[] }>(`/api/giao-hang/nhan-vien${s ? `?${s}` : ""}`, token);
     },
   },
 
@@ -11499,4 +11623,231 @@ export interface NormTestOutput {
   purchase_sheets: number;
   steps: NormTestStep[];
   warnings: string[];
+}
+
+// --- Giao hàng (module `giao_hang`) -----------------------------------------
+// HAI TẦNG TRẠNG THÁI: `DeliveryRequest.trang_thai` là HÀM do máy chủ tính (chỉ hai giá trị được
+// lưu là `cho_len_ke_hoach`/`da_huy`); `DeliveryTrip.trang_thai` mới là máy trạng thái thật.
+// Đừng suy trạng thái yêu cầu ở FE — hai nơi tính là hai nơi lệch.
+export type DeliveryRequestStatus =
+  | "cho_len_ke_hoach"
+  | "dang_thuc_hien"
+  | "da_giao_du"
+  | "da_huy";
+
+export type DeliveryTripStatus =
+  | "da_len_ke_hoach"
+  | "dang_chuan_bi"
+  | "da_lay_hang"
+  | "dang_giao"
+  | "thanh_cong"
+  | "giao_thieu"
+  | "hen_lai"
+  | "that_bai"
+  | "dang_tra_hang"
+  | "da_tra_hang"
+  | "da_huy";
+
+export interface DeliveryRequestLine {
+  id: number;
+  order_line_id: number;
+  qty: number;
+  mo_ta: string | null;
+  don_vi_tinh: string | null;
+  da_giao: number;
+  /** Mặt hàng KHO của dòng — Bán hàng chọn một lần lúc lập yêu cầu. */
+  hang_loai: string | null;
+  hang_id: number | null;
+  hang_ten: string | null;
+  dvt: string | null;
+}
+
+export interface DeliveryRequest {
+  id: number;
+  code: string;
+  order_id: number;
+  order_code: string | null;
+  customer_id: number | null;
+  customer_name: string | null;
+  department_id: number | null;
+  ngay_can_giao: string;
+  dia_chi: string;
+  nguoi_nhan: string | null;
+  sdt_nguoi_nhan: string | null;
+  ghi_chu: string | null;
+  trang_thai: DeliveryRequestStatus;
+  ly_do_huy: string | null;
+  created_by: number | null;
+  created_by_name: string | null;
+  created_at: string;
+  lines: DeliveryRequestLine[];
+  so_lan_giao: number;
+  /** Trạng thái Lệnh sản xuất — CHỈ HIỆN cho quản lý tự nhìn, KHÔNG chặn (PRD quyết định #1). */
+}
+
+export interface DeliveryTripLine {
+  order_line_id: number;
+  qty_giao: number;
+}
+
+export interface DeliveryTrip {
+  id: number;
+  request_id: number;
+  request_code: string | null;
+  order_id: number | null;
+  order_code: string | null;
+  customer_name: string | null;
+  lan_thu: number;
+  employee_id: number;
+  employee_name: string | null;
+  gio_lay_hang: string;
+  gio_du_kien_giao: string;
+  ghi_chu_phan_cong: string | null;
+  trang_thai: DeliveryTripStatus;
+  km: number | null;
+  thoi_gian_ket_thuc: string | null;
+  nguoi_nhan_thuc_te: string | null;
+  ly_do_that_bai: string | null;
+  huong_xu_ly: string | null;
+  ngay_hen_lai: string | null;
+  ghi_chu_ket_qua: string | null;
+  lines: DeliveryTripLine[];
+  /** Mã + trạng thái YÊU CẦU XUẤT KHO của chuyến (chứng từ của kho). null = chưa gửi. */
+  yeu_cau_kho_ma: string | null;
+  yeu_cau_kho_trang_thai: string | null;
+  /** Kho đã LẬP PHIẾU chưa. Suy từ `stock_vouchers`, không phải cột lưu — kho thao tác trên
+   *  màn của họ nên trạng thái phải đọc ngược từ sổ kho. */
+  kho_da_lap_phieu?: boolean;
+}
+
+export interface DeliveryHistory {
+  id: number;
+  tu_trang_thai: string | null;
+  den_trang_thai: string;
+  nguoi_thao_tac_id: number | null;
+  nguoi_thao_tac_name: string | null;
+  luc: string;
+  ghi_chu: string | null;
+  ly_do: string | null;
+}
+
+export interface DeliveryRequestDetail {
+  request: DeliveryRequest;
+  trips: DeliveryTrip[];
+  lich_su: DeliveryHistory[];
+}
+
+export interface DeliveryRequestInput {
+  order_id: number;
+  ngay_can_giao: string;
+  /** Chỉ HAI ô: dòng đơn nào, bao nhiêu. Ba ô mặt hàng kho gỡ 19/08/2026 — hệ tự khai vào danh
+   *  mục Thành phẩm lúc chốt đơn, người lập không chọn gì (docs/prd-thanh-pham.md). */
+  lines: {
+    order_line_id: number;
+    qty: number;
+  }[];
+  dia_chi?: string | null;
+  nguoi_nhan?: string | null;
+  sdt_nguoi_nhan?: string | null;
+  ghi_chu?: string | null;
+}
+
+export interface PlanInput {
+  request_id: number;
+  employee_id: number;
+  gio_lay_hang: string;
+  gio_du_kien_giao: string;
+  kho_id?: number | null;
+  ghi_chu_phan_cong?: string | null;
+}
+
+export interface KetQuaInput {
+  ket_qua: "thanh_cong" | "giao_thieu" | "hen_lai" | "that_bai";
+  /** `>= 0`, KHÔNG phải `> 0`: xe chưa lăn bánh mà khách không nghe máy thì 0 km là số THẬT. */
+  km: number;
+  thoi_gian_ket_thuc?: string | null;
+  nguoi_nhan_thuc_te?: string | null;
+  ly_do_that_bai?: string | null;
+  huong_xu_ly?: "tra_ve" | "cho_giao_lai" | null;
+  ngay_hen_lai?: string | null;
+  ghi_chu?: string | null;
+  so_thuc_nhan?: { order_line_id: number; qty: number }[] | null;
+  /** Bật sau khi người dùng đã xem cảnh báo "km lớn bất thường" và khẳng định đúng. */
+  xac_nhan_km_lon?: boolean;
+}
+
+/** Một dòng SẼ gửi kho — máy suy ra từ yêu cầu giao, người dùng chỉ xem. */
+export interface DinhKemChuyen {
+  id: number;
+  trip_id: number;
+  file_name: string;
+  /** Đọc lại qua `/api/files/...` — cần đăng nhập. */
+  file_url: string;
+  file_type: string | null;
+  uploaded_by: number | null;
+  uploaded_at: string;
+}
+
+export interface HangCanXuat {
+  hang_loai: string;
+  hang_id: number;
+  hang_ten: string | null;
+  dvt: string;
+  sl_de_nghi: number;
+}
+
+export interface YeuCauXuatKhoInput {
+  /** CHỈ chọn kho. Dòng hàng suy ra từ yêu cầu giao — không gửi từ đây. */
+  /** Để TRỐNG (21/08/2026): thủ kho chọn kho lúc lập phiếu — người gửi không biết hàng
+   *  đang nằm kho nào. */
+  kho_id?: number | null;
+  ngay_can?: string | null;
+  ghi_chu?: string | null;
+}
+
+export interface YeuCauKho {
+  id: number;
+  ma: string;
+  trang_thai: string;
+}
+
+export interface DeliveryDriver {
+  employee_id: number;
+  ho_ten: string;
+  trang_thai: "ranh" | "co_lich" | "dang_giao" | "dang_tra_hang" | "nghi";
+  chuyen_dang_thuc_hien: string | null;
+  chuyen_ke_tiep: string | null;
+  so_chuyen_xong: number;
+  tong_km: number;
+  /** Trong THÁNG chứa ngày đang xem — để theo dõi định kỳ (20/08/2026). */
+  so_chuyen_thang?: number;
+  tong_km_thang?: number;
+}
+
+export interface DeliveryDriverPick {
+  id: number;
+  code: string | null;
+  full_name: string;
+  department: string | null;
+  /** Có ô Thao tác của màn Giao hàng chưa. Không có ⇒ họ thấy chuyến nhưng KHÔNG bấm được
+   *  "Đã lấy hàng" / nhập kết quả, chuyến tắc ở đó. Phải báo ngay lúc chọn. */
+  /** Có tài khoản đăng nhập chưa. Tách khỏi `co_thao_tac` để câu cảnh báo chỉ đúng màn cần
+   *  sửa: chưa có tài khoản → màn Người dùng; có rồi mà thiếu ô → màn Vai trò. */
+  co_tai_khoan?: boolean;
+  co_thao_tac: boolean;
+}
+
+export interface ConPhaiGiaoLine {
+  order_line_id: number;
+  mo_ta: string | null;
+  don_vi_tinh: string | null;
+  qty_dat: number;
+  da_giao: number;
+  con_phai_giao: number;
+}
+
+export interface ConPhaiGiao {
+  order_id: number;
+  da_giao_du: boolean;
+  lines: ConPhaiGiaoLine[];
 }

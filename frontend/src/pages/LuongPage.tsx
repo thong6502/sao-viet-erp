@@ -1959,6 +1959,12 @@ function NhanVienTab({
                   label: "Thử việc",
                   className: "ns-badge ns-badge--warn",
                 },
+                // Vẫn ăn lương thử việc ⇒ bộ lọc "Thử việc" phía trên vẫn gom người này vào
+                // (nó lọc theo `is_probation` của dòng lương, không theo trạng thái hồ sơ).
+                probation_ended: {
+                  label: "Hết thử việc · chờ xác nhận",
+                  className: "ns-badge ns-badge--due",
+                },
                 active: {
                   label: "Chính thức",
                   className: "ns-badge ns-badge--ok",

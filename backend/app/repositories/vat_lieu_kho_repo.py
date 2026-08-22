@@ -34,11 +34,67 @@ class _VatTuRepo(CatalogRepo):
               "cong_thuc_luong")
     commit_on_write = False
 
+    # THÀNH PHẨM ĐI MÀN RIÊNG (mg 0204 · docs/prd-thanh-pham.md §3). Dòng có `customer_id` là
+    # thành phẩm của một khách — nó thuộc màn "Thành phẩm", không phải màn này.
+    #
+    # Không lọc ở đây thì nó hiện ở CẢ HAI màn, và mực/kẽm/hoá chất chìm nghỉm giữa thành phẩm.
+    def extra_conds(self, **kw) -> list:
+        return [*super().extra_conds(**kw), VatTuInAn.la_thanh_pham.is_(False)]
+
+
+    # ⚠️ KHÔNG ghi đè `get()` ở đây. Đã thử và VỠ 19/08/2026: kho tra mặt hàng `hang_loai="vat_tu"`
+    # đi qua đúng repo này, và thành phẩm VỚI KHO là "vat_tu" (xem `_mat_hang_row`). Chặn ở đây là
+    # chặn luôn kho — 14 test đỏ với câu "Không tìm thấy mặt hàng." ngay ở bước lập yêu cầu xuất.
+    #
+    # Chốt chặn tra-chéo giữa hai MÀN nằm ở `MotDanhMucVatLieu` — lớp CHỈ màn danh mục đi qua.
+    # `extra_conds` ở trên thì an toàn: nó chỉ vào `list()`, mà kho không liệt kê theo màn.
+
+
+class _ThanhPhamRepo(CatalogRepo):
+    """CÙNG bảng `vat_tu_in_an` với `_VatTuRepo`, lọc NGƯỢC lại (docs/prd-thanh-pham.md §3).
+
+    Chung bảng vì kho chỉ trỏ được vào `hang_loai` nó biết ("giay" | "vat_tu"); bảng riêng là
+    kéo theo giá trị thứ ba, mà cột đó nằm trong stock_lots · stock_vouchers · stock_requests ·
+    purchase — toàn code bên kho, trong khi kho chẳng cần biết gì về thành phẩm.
+
+    `ten` SỬA ĐƯỢC (nới 19/08/2026): tên là mô tả khách đặt, gõ sai chính tả thì phải sửa được —
+    mà tên cũng là khoá dedup, nên sửa tên chính là cách gộp hai dòng lỡ đẻ trùng.
+    `ma` thì KHÔNG: mã đã nằm trong lô tồn và phiếu đã ghi sổ.
+    """
+
+    model = VatTuInAn
+    # `customer_id` GỠ khỏi đây (mg 0228): thành phẩm không còn thuộc về khách. `la_thanh_pham`
+    # cũng KHÔNG nằm trong danh sách — nó là công tắc màn, do service đặt, không cho form sửa.
+    fields = ("ten", "don_vi_gia", "ghi_chu", "active")
+    commit_on_write = False
+
+    def extra_conds(self, **kw) -> list:
+        return [*super().extra_conds(**kw), VatTuInAn.la_thanh_pham.is_(True)]
+
+    def _sau_gan(self, obj, data: dict) -> None:
+        """Dòng đi qua repo NÀY thì LÀ thành phẩm — đóng dấu luôn, đừng chờ ai truyền vào.
+
+        `_gan` chỉ chép cột có trong `fields`, nên cờ do NƠI GỌI đặt sẽ bị nuốt không một tiếng
+        động. Đóng dấu ở đây là cách duy nhất không ai quên được.
+
+        `_VatTuRepo` KHÔNG có hàm đối xứng đóng dấu `False`, cố ý: cột đã mặc định `false` nên
+        dòng mới vốn đã đúng, còn dòng cũ thì `_dung_man` chặn không cho sửa chéo màn. Viết thêm
+        cho "đối xứng" là dựng một dòng không test nào với tới được.
+        """
+        super()._sau_gan(obj, data)
+        obj.la_thanh_pham = True
+
+    def update(self, obj, data: dict):
+        # `CatalogRepo.update` ghi `ma` nếu payload có — `fields` không chặn được nó. Gỡ ra
+        # trước khi xuống nền: mã đã đi vào lô tồn và phiếu, đổi là mất dấu.
+        return super().update(obj, {k: v for k, v in data.items() if k != "ma"})
+
 
 _REPOS = {
     "chung_loai_giay": _ChungLoaiGiayRepo,
     "giay": _GiayRepo,
     "vat_tu": _VatTuRepo,
+    "thanh_pham": _ThanhPhamRepo,
 }
 
 

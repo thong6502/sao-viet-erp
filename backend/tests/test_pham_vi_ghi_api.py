@@ -279,7 +279,7 @@ def _nv(client, headers, ten: str, phong: str) -> int:
     finally:
         db.close()
     r = client.post("/api/employees",
-                    json={"full_name": ten, "department_id": dept_id, "hire_date": "2020-01-01"},
+                    json={"probation_end_date": "2025-12-31", "full_name": ten, "department_id": dept_id, "hire_date": "2020-01-01"},
                     headers=headers)
     assert r.status_code in (200, 201), r.text
     return r.json()["employee"]["id"]

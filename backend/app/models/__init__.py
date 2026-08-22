@@ -98,6 +98,13 @@ from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang
 from .kho_khoa_so import KhoKhoaSo
 from .notification import Notification
+from .delivery import (
+    DeliveryRequest,
+    DeliveryRequestLine,
+    DeliveryStatusHistory,
+    DeliveryTrip,
+    DeliveryTripLine,
+)
 from .stock_request import StockRequest, StockRequestLine
 from .stock_lot import StockLot, StockThreshold
 from .stock_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLine
@@ -254,6 +261,11 @@ __all__ = [
     "KhoHang",
     "KhoKhoaSo",
     "Notification",
+    "DeliveryRequest",
+    "DeliveryRequestLine",
+    "DeliveryStatusHistory",
+    "DeliveryTrip",
+    "DeliveryTripLine",
     "StockRequest",
     "StockRequestLine",
     "StockVoucher",

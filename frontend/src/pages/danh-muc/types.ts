@@ -93,6 +93,13 @@ export interface CatalogConfig {
   // đang TẠO — block nào cần id thì tự nhắc "lưu trước đã".
   renderExtra?: (form: Record<string, unknown>, existing: Row | null) => ReactNode;
   softDelete?: boolean;         // "Xóa" = ẩn mềm (active=false), giữ dữ liệu; list chỉ hiện active
+  /** Danh mục do HỆ SINH, không ai gõ tay ⇒ giấu nút "Thêm". Máy chủ chặn song song
+   *  (`VatLieuKhoService._chan_go_tay`) — giấu nút mà không chặn thì một lời gọi API thẳng vẫn
+   *  đẻ được dòng. Dùng cho Thành phẩm: `OrderService.confirm()` khai, xem docs/prd-thanh-pham.md. */
+  khongTaoTay?: boolean;
+  /** Giấu nút "Xóa". Cho danh mục mà dòng có thể đang được lô tồn / chứng từ trỏ vào — xoá là
+   *  làm mồ côi. Ngừng dùng thì tắt `active`. */
+  khongXoa?: boolean;
   autoCode?: boolean;           // mã sinh NGẦM ở backend → ẩn ô "Mã" lúc tạo, không gửi ma
   /** Tạo xong thì GIỮ drawer mở ở bản ghi vừa tạo. Dùng cho màn có khối con phải gắn vào id (vd
    *  Đơn vị: tạo "tấn" xong khai ngay quy đổi) — đóng phắt là bắt người ta đi tìm lại dòng. */

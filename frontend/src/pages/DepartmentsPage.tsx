@@ -32,6 +32,7 @@ import {
   Building2,
   Factory,
   Handshake,
+  Truck,
   Briefcase,
   Users,
   FolderTree,
@@ -376,6 +377,7 @@ export function DepartmentsPage({
   const [editLaSanXuat, setEditLaSanXuat] = useState(false);
   // Khối KINH DOANH — nền cho danh sách "NV phụ trách" ở màn Khách hàng (cả cây con kế thừa).
   const [editLaKinhDoanh, setEditLaKinhDoanh] = useState(false);
+  const [editLaGiaoHang, setEditLaGiaoHang] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -390,7 +392,7 @@ export function DepartmentsPage({
 
   // Cây tổ chức (cột trái) — tìm theo tên/mã + chip lọc phân loại phòng.
   const [search, setSearch] = useState("");
-  const [treeFilter, setTreeFilter] = useState<"all" | "san_xuat" | "kinh_doanh" | "van_phong" | "no_head" | "no_staff">(
+  const [treeFilter, setTreeFilter] = useState<"all" | "san_xuat" | "kinh_doanh" | "giao_hang" | "van_phong" | "no_head" | "no_staff">(
     "all",
   );
   // Chế độ xem: danh sách cây thẻ (tree) vs Sơ đồ khối trực quan (chart)
@@ -583,11 +585,13 @@ export function DepartmentsPage({
   const treeStats = useMemo(() => {
     let sanXuat = 0;
     let kinhDoanh = 0;
+    let giaoHang = 0;
     let noHead = 0;
     let noStaff = 0;
     for (const d of departments) {
       if (d.la_san_xuat) sanXuat += 1;
       if (d.la_kinh_doanh) kinhDoanh += 1;
+      if (d.la_giao_hang) giaoHang += 1;
       const st = deptStatus(d);
       if (st === "no_head") noHead += 1;
       else if (st === "no_staff") noStaff += 1;
@@ -596,6 +600,7 @@ export function DepartmentsPage({
       all: departments.length,
       san_xuat: sanXuat,
       kinh_doanh: kinhDoanh,
+      giao_hang: giaoHang,
       van_phong: departments.length - sanXuat,
       no_head: noHead,
       no_staff: noStaff,
@@ -621,6 +626,7 @@ export function DepartmentsPage({
     }
     if (treeFilter === "san_xuat" && !d.la_san_xuat) return false;
     if (treeFilter === "kinh_doanh" && !d.la_kinh_doanh) return false;
+    if (treeFilter === "giao_hang" && !d.la_giao_hang) return false;
     if (treeFilter === "van_phong" && d.la_san_xuat) return false;
     if (treeFilter === "no_head" && deptStatus(d) !== "no_head") return false;
     if (treeFilter === "no_staff" && deptStatus(d) !== "no_staff") return false;
@@ -738,6 +744,7 @@ export function DepartmentsPage({
     setEditParentId(dept?.parent_id ?? null);
     setEditLaSanXuat(dept?.la_san_xuat ?? false);
     setEditLaKinhDoanh(dept?.la_kinh_doanh ?? false);
+    setEditLaGiaoHang(dept?.la_giao_hang ?? false);
     if (!token || selectedId == null) {
       setMembers([]);
       setRoles([]);
@@ -794,6 +801,7 @@ export function DepartmentsPage({
     setEditParentId(currentDept?.parent_id ?? null);
     setEditLaSanXuat(currentDept?.la_san_xuat ?? false);
     setEditLaKinhDoanh(currentDept?.la_kinh_doanh ?? false);
+    setEditLaGiaoHang(currentDept?.la_giao_hang ?? false);
     setSaveError(null);
     setDirty(false);
     setInfoOpen(true);
@@ -955,6 +963,7 @@ export function DepartmentsPage({
         },
         editLaSanXuat,
         editLaKinhDoanh,
+        editLaGiaoHang,
       );
       await refresh(selectedId);
       setDirty(false);
@@ -1267,6 +1276,12 @@ export function DepartmentsPage({
             {d.la_kinh_doanh && (
               <span className="rdx-tree__pill rdx-tree__pill--kd">Khối KD</span>
             )}
+            {d.la_giao_hang && (
+              <span className="rdx-tree__pill rdx-tree__pill--gh"
+                    title="Người trong khối này hiện ở tab Nhân viên giao hàng và chọn được khi phân chuyến">
+                Giao hàng
+              </span>
+            )}
           </div>
 
           <div className="rdx-tree__line2">
@@ -1509,6 +1524,9 @@ export function DepartmentsPage({
     // Khối Kinh doanh: quyết định ai vào được danh sách "NV phụ trách" ở màn Khách hàng — chip
     // này là chỗ duy nhất soi nhanh xem đã tick đúng phòng chưa.
     { key: "kinh_doanh", label: "Kinh doanh", n: treeStats.kinh_doanh },
+    // Khối Giao hàng: quyết định ai hiện ở tab Nhân viên giao hàng và ai chọn được khi phân
+    // chuyến — chip này là chỗ soi nhanh xem đã tick đúng phòng chưa.
+    { key: "giao_hang", label: "Giao hàng", n: treeStats.giao_hang },
     { key: "van_phong", label: "Văn phòng", n: treeStats.van_phong },
     // Hai chip RIÊNG, cố ý không gộp: "Thiếu trưởng" là việc phải xử lý ngay (phòng có người mà
     // không ai phụ trách); "Chưa có nhân sự" chỉ là phòng mới khai, chưa tuyển ai. Gộp một số là
@@ -1815,6 +1833,9 @@ export function DepartmentsPage({
                       )}
                       {currentDept.la_kinh_doanh && (
                         <span className="rdx-drawer__pill rdx-drawer__pill--kd">Khối KD</span>
+                      )}
+                      {currentDept.la_giao_hang && (
+                        <span className="rdx-drawer__pill rdx-drawer__pill--gh">Giao hàng</span>
                       )}
                     </div>
                   </div>
@@ -2697,6 +2718,36 @@ export function DepartmentsPage({
                     <span className="rdx-switch-card__desc">
                       Người trong khối được giao phụ trách khách hàng — hiện trong danh sách NV phụ
                       trách ở màn Khách hàng
+                    </span>
+                  </div>
+                </div>
+                <div className="rdx-toggle-switch" aria-hidden="true" />
+              </div>
+            </div>
+
+            {/* Switch Card "Bộ phận Giao hàng" — cùng luật kế thừa cây con với hai cờ trên.
+                Quyết định AI hiện trong tab Nhân viên giao hàng. Trước 20/08/2026 tab đó lọc
+                theo quyền RBAC rồi bỏ ai chưa có chuyến, nên tài xế mới tuyển không hiện ra. */}
+            <div className="field depts__field--full">
+              <div
+                className={`rdx-switch-card${editLaGiaoHang ? " is-checked" : ""}`}
+                onClick={() => {
+                  setEditLaGiaoHang(!editLaGiaoHang);
+                  setDirty(true);
+                }}
+              >
+                <div className="rdx-switch-card__left">
+                  <div className="rdx-switch-card__icon">
+                    <Truck size={20} />
+                  </div>
+                  <div className="rdx-switch-card__main">
+                    <span className="rdx-switch-card__title">
+                      Bộ phận Giao hàng
+                      <InfoHint label="Đánh dấu phòng/tổ làm GIAO HÀNG: cả cây con tự coi là giao hàng. Mọi người trong khối này hiện ở tab Nhân viên giao hàng — kể cả người chưa chạy chuyến nào, để còn phân chuyến cho họ." />
+                    </span>
+                    <span className="rdx-switch-card__desc">
+                      Người trong khối là tài xế — hiện ở tab Nhân viên giao hàng để phân chuyến và
+                      theo dõi km
                     </span>
                   </div>
                 </div>

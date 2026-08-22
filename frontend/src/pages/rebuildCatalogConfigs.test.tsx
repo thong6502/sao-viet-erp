@@ -9,7 +9,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
-  CFG_CONG_VIEC_KHOAN, CFG_DON_VI, CFG_GIAY, CFG_MAY, CFG_VAT_TU,
+  CFG_CONG_VIEC_KHOAN, CFG_DON_VI, CFG_GIAY, CFG_MAY, CFG_THANH_PHAM, CFG_VAT_TU,
 } from "./rebuildCatalogConfigs";
 import type { CatalogConfig, FieldDef } from "./RebuildCatalogPage";
 import type { Row } from "../api/rebuildCatalog";
@@ -146,5 +146,44 @@ describe("ô Cách đo lượng ở màn Máy và Công việc khoán (mg 0213)"
       expect(cfg.nhanTabCongThuc).toBeUndefined();
       expect(cfg.fields.some((f) => f.key === "cong_thuc_gia")).toBe(true);
     }
+  });
+});
+
+describe("Thành phẩm — hàng đặt riêng của MỘT khách (docs/prd-thanh-pham.md)", () => {
+  it("bảng KHÔNG còn cột Khách hàng", () => {
+    // Đảo luật 21/08/2026 ("không dùng tới với lại cũng không cần thiết"). Trước đó cột này để
+    // phân biệt hai thành phẩm cùng tên khác khách; đếm lúc gỡ: 7 thành phẩm, 0 tên trùng.
+    // Mã dòng (`TP-<mã khách>-nnn`) vẫn chỉ ra chủ nếu về sau có trùng thật.
+    expect(CFG_THANH_PHAM.columns.some((c) => c.key === "customer_ten")).toBe(false);
+  });
+
+  it("⭐ KHÔNG còn ô Khách hàng ở đâu cả", () => {
+    // Đảo luật 21/08/2026: "khách hàng mình lưu làm gì, mình không dùng tới — thành phẩm này là
+    // một cái tên hàng mới, nêu chưa khai để tái sử dụng, tránh phình lên".
+    //
+    // Trước đó ô này BẮT BUỘC vì `customer_id` là công tắc chia hai màn — để trống là dòng vừa
+    // khai rơi sang màn Vật tư khác rồi mất tích. Công tắc nay là cột `la_thanh_pham` (mg 0228)
+    // do repo tự đóng dấu, nên bỏ ô này an toàn.
+    //
+    // Test này ĐỎ ngay khi ai đó đưa lại khách vào thành phẩm — dù ở cột hay ở ô.
+    expect(CFG_THANH_PHAM.fields.some((f) => f.key === "customer_id")).toBe(false);
+    expect(CFG_THANH_PHAM.columns.some((c) => c.key === "customer_ten")).toBe(false);
+  });
+
+  it("KHÔNG cho xoá, NHƯNG cho khai tay", () => {
+    // Xoá là làm mồ côi lô tồn (L7). Khai tay thì cho (L5 nới 19/08/2026) — luật siết 08/08/2026
+    // của kho bỏ ô tên tự do TRÊN PHIẾU XUẤT, nó không cấm khai danh mục.
+    expect(CFG_THANH_PHAM.khongXoa).toBe(true);
+    expect(CFG_THANH_PHAM.khongTaoTay).toBeUndefined();
+  });
+
+  it("KHÔNG bày ô Mã thành ô sửa", () => {
+    // Mã đã nằm trong lô tồn và phiếu đã ghi sổ. Máy chủ gạt đi, nhưng lúc đó họ đã gõ xong rồi.
+    expect(CFG_THANH_PHAM.fields.some((f) => f.key === "ma")).toBe(false);
+  });
+
+  it("ô quyền RIÊNG, không dùng chung với Vật tư khác", () => {
+    expect(CFG_THANH_PHAM.moduleQuyen).toBe("dm_thanh_pham");
+    expect(CFG_VAT_TU.moduleQuyen).toBe("dm_vat_tu");
   });
 });

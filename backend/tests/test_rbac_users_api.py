@@ -76,7 +76,7 @@ def _mk_account(
         account["role_id"] = role_id
     resp = client.post(
         "/api/employees",
-        json={
+        json={"probation_end_date": "2025-12-31",
             "full_name": f"NV {username}",
             "department_id": _dept_id(dept_name),
             "hire_date": "2024-01-15",
@@ -128,7 +128,7 @@ def test_duplicate_username_rejected(client):
     _mk_account(client, token, "dup")
     dup = client.post(
         "/api/employees",
-        json={
+        json={"probation_end_date": "2025-12-31",
             "full_name": "Dup2", "department_id": _dept_id("Kinh doanh"),
             "hire_date": "2024-01-15",
             "account": {"username": "dup", "password": DEFAULT_PW},
@@ -193,7 +193,7 @@ def test_non_admin_forbidden(client):
     assert (
         client.post(
             "/api/employees",
-            json={
+            json={"probation_end_date": "2025-12-31",
                 "full_name": "X", "department_id": _dept_id("Kinh doanh"),
                 "hire_date": "2024-01-15",
                 "account": {"username": "userx", "password": DEFAULT_PW},

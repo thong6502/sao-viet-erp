@@ -122,7 +122,7 @@ function OtherReceiptDialog({
     amount: 0,
     exchange_rate: 1,
     content: "",
-    debit_account: "1111",
+    debit_account: null,
     credit_account: null,
     company_bank_account_id: null,
     bank_reference: null,
@@ -180,8 +180,7 @@ function OtherReceiptDialog({
       amount: Math.round(Number(form.amount)),
       exchange_rate: 1,
       content: form.content.trim(),
-      debit_account:
-        optional(form.debit_account) ?? (isBank ? "1121" : "1111"),
+      debit_account: optional(form.debit_account),
       credit_account: optional(form.credit_account),
       company_bank_account_id: isBank ? form.company_bank_account_id ?? null : null,
       bank_reference: isBank ? optional(form.bank_reference) : null,
@@ -251,7 +250,6 @@ function OtherReceiptDialog({
               className={form.receipt_method === "cash" ? "is-active" : ""}
               onClick={() => {
                 set("receipt_method", "cash" as PaymentVoucherType);
-                set("debit_account", "1111");
                 set("company_bank_account_id", null);
                 set("bank_reference", null);
               }}
@@ -263,7 +261,6 @@ function OtherReceiptDialog({
               className={isBank ? "is-active" : ""}
               onClick={() => {
                 set("receipt_method", "bank_transfer" as PaymentVoucherType);
-                set("debit_account", "1121");
               }}
             >
               Chuyển khoản
@@ -305,7 +302,9 @@ function OtherReceiptDialog({
           {/* Hai ô "Định khoản Nợ / Có" ĐÃ BỎ (chủ chốt 15/08/2026) — xem chú thích cùng ngày ở
               `PaymentVouchersPage`. Ô Số tiền vì thế đứng MỘT MÌNH: hạ lưới từ 3 cột xuống 1 để
               nó không bị kéo bằng 1/3 hàng rồi nằm trơ với hai khoảng trống bên cạnh.
-              Tài khoản "Nợ" vẫn điền ngầm theo hình thức thu (1111 · 1121) trong `payload`. */}
+              21/08/2026: thôi luôn việc ĐIỀN NGẦM 1111/1121 — chủ: "cái nợ và có ấy thì họ điền
+              gì kệ họ". Phiếu in ra để trống dòng chấm cho kế toán tự ghi (`printTT200` đã in
+              sẵn dấu chấm khi trống). Hai cột này không nuôi tính toán nào, chỉ để IN. */}
           <label className="acct-field">
             <span>Số tiền (VND) <b>*</b></span>
             <input

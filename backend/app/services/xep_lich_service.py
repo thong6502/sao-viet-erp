@@ -27,7 +27,8 @@ from ..models.attendance import WorkShift
 from ..models.cong_doan import CongDoan
 from ..models.department import Department
 from ..models.employee import (
-    STATUS_ACTIVE as EMP_ACTIVE, STATUS_PROBATION as EMP_PROBATION, Employee,
+    STATUS_ACTIVE as EMP_ACTIVE, STATUS_PROBATION as EMP_PROBATION,
+    STATUS_PROBATION_ENDED as EMP_PROBATION_ENDED, Employee,
 )
 from ..models.leave import STATUS_APPROVED as LEAVE_APPROVED, LeaveRequest
 from ..models.to_quan_so import ToQuanSoNgay
@@ -483,7 +484,8 @@ class XepLichService:
         Người gắn ở tầng giữa ("thuộc Xưởng in", không thuộc tổ lá nào) KHÔNG tính vào tổ nào —
         cộng họ vào một tổ nào đó là đếm thừa người, và lịch sẽ hứa một năng lực không có thật.
         """
-        dang_lam = (EMP_ACTIVE, EMP_PROBATION)
+        # Hết thử việc chờ xác nhận vẫn đi làm ⇒ vẫn phải xếp được ca.
+        dang_lam = (EMP_ACTIVE, EMP_PROBATION, EMP_PROBATION_ENDED)
         tong = self.db.execute(
             select(func.count()).select_from(Employee).where(
                 Employee.department_id == department_id, Employee.status.in_(dang_lam),
@@ -636,7 +638,7 @@ class XepLichService:
             select(Employee.department_id, func.count())
             .where(
                 Employee.department_id.in_([d.id for d in giua]),
-                Employee.status.in_((EMP_ACTIVE, EMP_PROBATION)),
+                Employee.status.in_((EMP_ACTIVE, EMP_PROBATION, EMP_PROBATION_ENDED)),
             )
             .group_by(Employee.department_id)
         ).all())

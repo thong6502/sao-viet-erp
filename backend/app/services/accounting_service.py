@@ -1274,8 +1274,11 @@ class AccountingService:
             currency="VND",
             exchange_rate=1,
             content=_text(content, label="Nội dung thu", max_length=500) or f"Thu cọc đơn {order_no}",
-            debit_account=("1121" if receipt_method == VOUCHER_BANK_TRANSFER else "1111"),
-            credit_account="131",
+            # Nợ/Có ĐỂ TRỐNG (chủ 21/08/2026: "cái nợ và có ấy thì họ điền gì kệ họ"). Hai cột
+            # này không nuôi tính toán nào, chỉ IN ra phiếu — `printTT200` in sẵn dòng chấm khi
+            # trống để kế toán tự ghi. Đúng ý ban đầu, xem mg 2288: "định khoản Nợ/Có NHẬP TAY".
+            debit_account=None,
+            credit_account=None,
             bank_reference=reference,
             company_bank_account_id=(company_account.id if company_account else None),
             company_account_holder_snapshot=(company_account.account_holder if company_account else None),
@@ -1343,7 +1346,6 @@ class AccountingService:
         )
         for key, value in prepared.items():
             setattr(receipt, key, value)
-        receipt.credit_account = receipt.credit_account or "131"
         receipt.company_bank_account_id = account.id if account else None
         receipt.company_account_holder_snapshot = account.account_holder if account else None
         receipt.company_account_number_snapshot = account.account_number if account else None

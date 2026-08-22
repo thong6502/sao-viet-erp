@@ -6,6 +6,10 @@ quyền thì màn vẫn chạy, chỉ có vai không phải Giám đốc là m�
 
 Nên mọi bảng ở đây được chép NGUYÊN VĂN từ bản TRƯỚC refactor và ghi CỨNG. So registry với chính
 nó thì test luôn xanh kể cả khi registry sai.
+
+Thêm màn danh mục MỚI thì các bảng dưới phải thêm ĐÚNG một dòng, kèm ghi chú vì sao — đừng nới
+lỏng phép so sánh cho nó xanh, làm thế là giết đúng cái tác dụng của file này. Đã thêm:
+`dm_thanh_pham` (19/08/2026, mg 0203 · docs/prd-thanh-pham.md).
 """
 from __future__ import annotations
 
@@ -41,11 +45,14 @@ SCOPELESS_CU = frozenset({
     "dm_loai_san_pham", "dm_thiet_bi", "dm_cong_doan", "dm_cong_viec_khoan", "dm_bu_hao",
     "dm_don_vi", "dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "khuon_be", "dm_kho_hang",
     "dm_ly_do_san_xuat",
+    # Thành phẩm (19/08/2026, mg 0203): danh mục thì KHÔNG có phạm vi — bỏ sót ở đây là màn mọc
+    # ra dropdown Phạm vi, rồi scope `own` bó âm thầm quyền vừa cấp.
+    "dm_thanh_pham",
     "ky_thuat_may", "yeu_cau_sua_chua",
     "ke_hoach_vat_tu", "bai_ghep_2", "xep_lich_2", "phieu_bao_tri",
 })
 
-#: `nhat_ky_danh_muc.LOAI_MODULE` bản cũ — 17 khoá: 11 tên chính, 3 tên đời cũ
+#: `nhat_ky_danh_muc.LOAI_MODULE` — 17 khoá: 11 tên chính, 3 tên đời cũ
 #: (`product_type`/`machine`/`operation`), bảng phụ `don_vi_quy_doi`, 2 khoá Kỹ thuật máy.
 LOAI_MODULE_CU = {
     "loai_san_pham": "dm_loai_san_pham",
@@ -63,6 +70,9 @@ LOAI_MODULE_CU = {
     "chung_loai_giay": "dm_chung_loai_giay",
     "giay": "dm_giay",
     "vat_tu": "dm_vat_tu",
+    # Thành phẩm (19/08/2026) — thiếu dòng này thì nhật ký của màn đó trả 404 dù bản ghi có đủ
+    # lịch sử sửa ĐVT.
+    "thanh_pham": "dm_thanh_pham",
     "khuon_be": "khuon_be",
     "kho_hang": "dm_kho_hang",
     # Lý do & lỗi SX vào Cấu hình danh mục 19/08/2026 (§15) — màn thứ 12, module riêng.
@@ -132,7 +142,10 @@ def test_khuon_be_giu_nguyen_chuoi_quyen():
 def test_khong_trung_loai_khong_trung_module():
     loai = [d.loai for d in DANH_MUC] + [a for d in DANH_MUC for a in d.alias_loai]
     assert len(loai) == len(set(loai)), "trùng `loai` giữa tên chính và tên đời cũ"
-    assert len(MODULE_KEYS) == len(set(MODULE_KEYS)) == 12
+    # 13 từ 21/08/2026: 10 màn gốc + Công việc khoán + Lý do SX (upstream) + Thành phẩm.
+    # Con số phải ĐỔI chứ không được bỏ — nó bắt cả trường hợp lỡ tay khai trùng một màn
+    # thành hai dòng.
+    assert len(MODULE_KEYS) == len(set(MODULE_KEYS)) == 13
 
 
 def test_dem_theo_loai_phu_dung_cac_man_co_model():
@@ -152,11 +165,10 @@ def test_dang_ky_tra_du_cac_man(client):
     r = client.get("/api/danh-muc/dang-ky", headers=_admin(client))
     assert r.status_code == 200, r.text
     items = r.json()["items"]
-    assert len(items) == 12
-    assert [i["module"] for i in items] == list(MODULE_KEYS), "phải giữ đúng thứ tự menu"
-    for i in items:
-        assert {"loai", "module", "nhan", "path"} == set(i), f"khoá lệch: {sorted(i)}"
-        assert i["nhan"] and i["path"]
+    assert len(items) == 13
+# `test_dang_ky_tra_du_11_man` GỠ 21/08/2026 — trùng việc với `test_dang_ky_tra_du_cac_man`
+# ngay trên (cả hai đếm số màn của endpoint đăng ký). Giữ bản của upstream, con số cập nhật thành
+# 13 khi Thành phẩm nhập vào cùng Công việc khoán và Lý do SX.
 
 
 def test_dang_ky_khong_bi_nuot_vao_route_co_tham_so(client):

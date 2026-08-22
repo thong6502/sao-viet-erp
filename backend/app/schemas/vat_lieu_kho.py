@@ -131,6 +131,43 @@ class VatTuRow(BaseModel):
     updated_at: datetime | None = None
 
 
+class ThanhPhamIn(BaseModel):
+    """Ô khai của màn Thành phẩm (docs/prd-thanh-pham.md L5).
+
+    `customer_id` BẮT BUỘC về nghiệp vụ — nhưng để `None` được ở đây để `VatLieuKhoService.
+    _validate` ra câu lỗi tiếng Việt đọc được, thay vì 422 khô của Pydantic.
+
+    `ma` chỉ dùng lúc TẠO. Sửa thì `_ThanhPhamRepo.update` gỡ nó ra: mã đã nằm trong lô tồn và
+    phiếu đã ghi sổ.
+    """
+
+    ma: str = Field(min_length=1, max_length=30)
+    ten: str = Field(min_length=1, max_length=150)
+    customer_id: int | None = None
+    don_vi_gia: str | None = None
+    ghi_chu: str | None = None
+    active: bool = True
+
+
+class ThanhPhamRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    ma: str
+    ten: str
+    don_vi_gia: str | None = None
+    # Tên đơn vị cho BẢNG đọc được — router gán, không có trong DB (như `VatTuRow`).
+    don_vi_ten: str | None = None
+    ghi_chu: str | None = None
+    # CHỦ của thành phẩm + phạm vi dedup. `customer_ten` do router gán, không có trong DB.
+    customer_id: int | None = None
+    customer_ten: str | None = None
+    # Đơn ĐẦU TIÊN đặt món này — tra nguồn gốc, KHÔNG phải khoá định danh (xem mg 0204).
+    order_id: int | None = None
+    order_line_id: int | None = None
+    active: bool
+    updated_at: datetime | None = None
+
+
 class ListOut(BaseModel, Generic[RowT]):
     """Phong bì phân trang dùng chung cho CẢ BA danh mục ở router `vat_lieu_kho`.
 

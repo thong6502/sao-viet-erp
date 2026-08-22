@@ -171,7 +171,8 @@ def test_ca_nen_sua_ho_so_nhan_vien(client):
     _set_base(client, token, emp["id"], a["id"], "2026-01-01")
 
     r = client.put(f"/api/employees/{emp['id']}", headers=_h(token),
-                   json={"full_name": "NV Sửa Hồ Sơ", "default_shift_id": b["id"]})
+                   json={"full_name": "NV Sửa Hồ Sơ", "default_shift_id": b["id"],
+                         "probation_end_date": "2025-12-31"})
     assert r.status_code == 200, r.text
 
     rows = [x for x in _logs(emp["id"]) if x.origin == "profile"]
@@ -209,6 +210,7 @@ def test_tao_ho_so_moi_khong_sinh_dong_lich_su(client):
     token = _admin_token(client)
     sh = _mk_shift(client, token, "Ca lúc tạo", "08:00", "17:00")
     r = client.post("/api/employees", headers=_h(token), json={
+        "probation_end_date": "2025-12-31",
         "full_name": "NV Mới Tinh", "department_id": _dept_id("Hành chính nhân sự"),
         "hire_date": "2026-01-01", "default_shift_id": sh["id"]})
     assert r.status_code == 201, r.text

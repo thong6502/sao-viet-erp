@@ -43,12 +43,19 @@ PIT_CAM_KET_08 = "cam_ket_08"    # có cam kết 08/CK-TNCN ⇒ không khấu tr
 PIT_MODES = (PIT_LUY_TIEN, PIT_KHAU_TRU_10, PIT_CAM_KET_08)
 
 STATUS_PROBATION = "probation"      # thử việc
+# Đã QUA ngày hết thử việc nhưng HCNS CHƯA xác nhận (chủ chốt 22/08/2026). Máy tự đặt trạng thái
+# này; nó KHÔNG phải "chính thức" — chỉ HCNS bấm "Chuyển chính thức" mới thành `active`.
+# TIỀN GIỮ NGUYÊN như thử việc (vẫn hệ số `probation_ratio`, vẫn không đóng BHXH) cho tới lúc
+# bấm — đây là chốt của chủ, không phải sơ suất. Xem `payroll_service._compute` chỗ `is_probation`.
+# Người ở trạng thái này VẪN đang đi làm: vẫn lên bảng lương, vẫn được xếp ca, vẫn chấm công.
+STATUS_PROBATION_ENDED = "probation_ended"   # hết thử việc, chờ HCNS xác nhận
 STATUS_ACTIVE = "active"            # đang làm việc (chính thức)
 STATUS_ON_LEAVE = "on_leave"        # nghỉ dài hạn (thai sản / ốm / không lương)
 STATUS_SUSPENDED = "suspended"      # tạm đình chỉ
 STATUS_RESIGNED = "resigned"        # đã nghỉ việc
 EMPLOYEE_STATUSES = (
     STATUS_PROBATION,
+    STATUS_PROBATION_ENDED,
     STATUS_ACTIVE,
     STATUS_ON_LEAVE,
     STATUS_SUSPENDED,
@@ -59,7 +66,8 @@ GENDERS = ("male", "female", "other")
 
 # --- Loại mốc Quá trình công tác --------------------------------------------
 EVENT_HIRED = "hired"               # vào làm (mốc đầu, sinh tự động khi tạo NV)
-EVENT_CONFIRMED = "confirmed"       # chuyển chính thức (probation → active)
+EVENT_PROBATION_ENDED = "probation_ended"   # hết hạn thử việc (máy tự đặt, probation → probation_ended)
+EVENT_CONFIRMED = "confirmed"       # chuyển chính thức (probation/probation_ended → active)
 EVENT_TRANSFERRED = "transferred"   # điều chuyển phòng/tổ
 EVENT_PROMOTED = "promoted"         # nâng bậc thợ / đổi chức danh
 EVENT_LEAVE_START = "leave_start"   # bắt đầu nghỉ dài hạn
@@ -69,6 +77,7 @@ EVENT_RESIGNED = "resigned"         # nghỉ việc
 EVENT_REINSTATED = "reinstated"     # tuyển lại (resigned → active)
 EMPLOYEE_EVENT_TYPES = (
     EVENT_HIRED,
+    EVENT_PROBATION_ENDED,
     EVENT_CONFIRMED,
     EVENT_TRANSFERRED,
     EVENT_PROMOTED,

@@ -1042,7 +1042,7 @@ def test_create_employee_stores_prior_seniority(client):
     finally:
         db.close()
     # Không khai → mặc định 0 (không vỡ tạo NV).
-    res0 = client.post("/api/employees", json={
+    res0 = client.post("/api/employees", json={"probation_end_date": "2025-12-31",
         "full_name": "NV Không khai TN", "department_id": _dept_id("Hành chính nhân sự"),
         "hire_date": "2021-01-01", "status": "active"}, headers=_h(token))
     assert res0.status_code == 201, res0.text

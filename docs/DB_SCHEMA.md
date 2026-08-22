@@ -92,6 +92,7 @@ belongs to exactly one, and roles are defined per department.
 | `la_san_xuat`  | `Boolean` → `BOOLEAN`                                  | —                             | no   | `false`        | Đánh dấu phòng ban thuộc khối SẢN XUẤT (spec-ke-hoach-san-xuat §13.1). Tick ở 1 nút cha ⇒ cả cây con (theo `parent_id`) coi như sản xuất; phân hệ Sản xuất liệt kê đúng subtree. "Effective sản xuất" = cột này true HOẶC có tổ tiên true (tính ở service, không cascade lưu). |
 | `la_kinh_doanh` | `Boolean` → `BOOLEAN`                                 | —                             | no   | `false`        | Đánh dấu phòng ban thuộc khối KINH DOANH (mg 0181) — cùng luật kế thừa cây con như `la_san_xuat`: tick phòng cha ⇒ KD1/KD2 bên dưới cũng là kinh doanh. Trả lời "ai được giao phụ trách khách hàng": hộp chọn NV phụ trách ở màn Khách hàng đổ theo khối này, giao với phạm vi dữ liệu của người xem. **Chưa tick phòng nào ⇒ lùi về quy tắc "ai có quyền module `khach_hang`"** nên DB cũ không cần khai lại. |
 | `is_kcs`       | `Boolean` → `BOOLEAN`                                  | —                             | no   | `false`        | Đánh dấu TỔ KIỂM TRA CHẤT LƯỢNG (KCS) — mg 0220, module Thực hiện sản xuất §3.1/§14. **KHÁC `la_san_xuat`**: KHÔNG kế thừa cây con, KHÔNG suy theo tổ tiên — cờ đặt ĐÍCH DANH lên đúng (các) tổ làm KCS. Dùng để sinh việc "KCS cuối" ở gói phát hành trỏ về tổ này và route lô kiểm KCS. Nhiều tổ KCS được; chưa tick tổ nào ⇒ chưa bật khâu KCS. |
+| `la_giao_hang` | `Boolean` → `BOOLEAN` | — | no | `false` | **Bộ phận GIAO HÀNG** (mg 0205) — kế thừa xuống cây con như hai cờ trên. Trả lời câu *"ai là tài xế"*: tab Nhân viên giao hàng liệt kê MỌI người thuộc khối này, kể cả người chưa chạy chuyến nào. Trước 20/08/2026 tab đó lọc theo quyền RBAC rồi bỏ ai chưa có chuyến, nên tài xế mới tuyển không hiện ra. |
 | `created_at`   | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                             | no   | now (UTC)      | When the department row was created.                                                                                                                                                                                                                                           |
 
 **Keys & indexes**
@@ -194,6 +195,8 @@ gets on that module.
 | `can_manage_salary_profiles` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (luong, mg 0196) — tab **Lương nhân viên** (hồ sơ lương từng người). Tách khỏi cột Thao tác: cột đó nay chỉ cho GHI, không mở tab nào. |
 | `can_manage_piece_rates` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (luong, mg 0196) — tab **Lương khoán** (đơn giá khoán theo tổ/công việc). Tách khỏi cột Thao tác. |
 | `can_manage_leave_types` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nghi_phep, mg 0197) — **danh mục loại nghỉ** (phép năm, nghỉ ốm, không lương…), chính sách dùng chung cả công ty. Trước đó nó mượn chính cột `can_update`, mà `can_update` là một trong ba cột nút *Thao tác* bật cùng lúc ⇒ bật Thao tác là ô này TỰ SÁNG THEO, mở luôn quyền sửa chính sách nghỉ của cả nhà máy. |
+| `can_plan` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (giao_hang, mg 0199) — tab **Yêu cầu chờ lên kế hoạch** + nút phân công tài xế. Tách khỏi `can_create` vì gửi yêu cầu giao (Bán hàng) và xếp chuyến cho tài xế (Quản lý Giao hàng) là việc của hai người. |
+| `can_view_drivers` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (giao_hang, mg 0199) — tab **Nhân viên giao hàng**: lịch làm việc, số chuyến, tổng km của NGƯỜI KHÁC. Ô riêng vì tài xế ở phạm vi *Của tôi* không được thấy năng suất đồng nghiệp. |
 
 **Keys & indexes**
 
@@ -1359,9 +1362,9 @@ SEAM-19 (`drivers.employee_id` back-fill khi Tài xế build). Portable across S
 | `job_grade_id`            | `Integer` → `INTEGER`                                  | **FK→job_grades.id**, **IX**   | yes  | —              | **BẬC TAY NGHỀ — nguồn sự thật DUY NHẤT** (chủ 29/07/2026). Trỏ danh mục `job_grades`. Chỉ đổi qua TRANSITION (`promote`/`transfer`), KHÔNG qua sửa hồ sơ thường ⇒ mọi lần đổi bậc đều có dòng Quá trình công tác. NULL = chưa khai bậc. Thêm qua migration 0127. |
 | `job_grade`               | `String(50)` → `VARCHAR(50)`                           | —                              | yes  | —              | ⚠️ **CỘT CŨ — NGỪNG GHI từ 29/07/2026.** Bậc thợ chữ tự do (vd "3/7"). Migration 0127 đã chuyển sang `job_grade_id`; cột giữ cho dữ liệu cũ, chỉ đọc khi `job_grade_id` NULL. |
 | `prior_seniority_months`  | `Integer` → `INTEGER`                                  | —                              | no   | `0`            | Thâm niên đã có TRƯỚC khi vào làm (tháng); tổng thâm niên = số này + thời gian từ `hire_date`. Đợt 1 chỉ lưu/hiển thị. Thêm qua migration 0093. |
-| `status`                  | `String(16)` → `VARCHAR(16)`                           | —                              | no   | `probation`    | probation/active/on_leave/suspended/resigned.                                                                       |
+| `status`                  | `String(16)` → `VARCHAR(16)`                           | —                              | no   | `probation`    | probation/**probation_ended**/active/on_leave/suspended/resigned. `probation_ended` = đã qua ngày hết thử việc, CHỜ HCNS bấm "Chuyển chính thức"; **máy tự đặt**, và **ăn tiền y hệt thử việc** (80%, không đóng BHXH) cho tới lúc bấm. |
 | `hire_date`               | `Date` → `DATE`                                        | —                              | yes  | —              | Ngày vào làm.                                                                                                       |
-| `probation_end_date`      | `Date` → `DATE`                                        | —                              | yes  | —              | Ngày dự kiến hết thử việc (KPI "sắp hết thử việc").                                                                 |
+| `probation_end_date`      | `Date` → `DATE`                                        | —                              | yes  | —              | Ngày hết thử việc. **BẮT BUỘC khi `status = probation`** (chặn ở service, không phải ở DB) — đây là mốc DUY NHẤT máy dựa vào để tự đổi sang `probation_ended`. Cột vẫn nullable vì các trạng thái khác không cần. |
 | `resign_date`             | `Date` → `DATE`                                        | —                              | yes  | —              | Ngày nghỉ việc.                                                                                                     |
 | `resign_reason`           | `String(255)` → `VARCHAR(255)`                         | —                              | yes  | —              | Lý do nghỉ (bắt buộc khi status=resigned).                                                                          |
 | `date_of_birth`           | `Date` → `DATE`                                        | —                              | yes  | —              | Ngày sinh.                                                                                                          |
@@ -3240,7 +3243,19 @@ dùng cho bình bài.
 
 **Purpose:** vật tư in ấn — danh mục PHẲNG (mực/kẽm/hoá chất/màng/keo… chung 1 bảng, phân biệt bằng tên) theo bảng xưởng: Mã · Tên · ĐVT · Giá · Ghi chú. Thay 2 bảng cũ `muc`+`ban_kem`.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `don_vi_gia`, `don_vi_dong_goi`, `he_so_dong_goi`, `don_gia`, `cong_thuc_gia`, `cong_thuc_luong`, `ghi_chu`, `anh_url`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `don_vi_gia`, `don_vi_dong_goi`, `he_so_dong_goi`, `don_gia`, `cong_thuc_gia`, `cong_thuc_luong`, `ghi_chu`, `anh_url`, `active`, `created_at`, `updated_at`, `customer_id`, `la_thanh_pham`, `order_id`, `order_line_id`.
+
+`la_thanh_pham` (BOOLEAN NOT NULL default `false`, mg 0228): **CÔNG TẮC chia hai màn danh mục** — `false` ⇒ *Vật tư khác* (`dm_vat_tu`), `true` ⇒ *Thành phẩm* (`dm_thanh_pham`). Người dùng **không khai** ô này: `_VatTuRepo` / `_ThanhPhamRepo` tự đóng dấu ở `_sau_gan`, vì `_gan` chỉ chép cột có trong `fields` nên cờ do nơi gọi đặt sẽ bị nuốt không một tiếng động.
+
+> Đây là cột **thứ ba** giữ vai công tắc, và hai cột trước đều vỡ vì cùng một lý do — chúng **suy ra** câu trả lời thay vì nói thẳng. `order_line_id` (20/08/2026): thành phẩm khai tay không có nó ⇒ khai xong không sửa được. `customer_id` (mg 0204): đúng khi thành phẩm còn thuộc về một khách, hỏng ngay khi bỏ ô Khách.
+
+`customer_id` (INTEGER nullable, mg 0204 — **NGƯNG DÙNG LÀM KHOÁ từ 21/08/2026**): nay chỉ còn là vết *"khách nào đặt món này đầu tiên"*. Giữ cột để tra lịch sử và để đảo lại được; **không** được dùng lại làm công tắc màn hay phạm vi gộp trùng.
+
+**Phạm vi gộp trùng nay là TÊN ĐÃ CHUẨN HOÁ, không kèm khách.** Chủ chốt 21/08/2026: *"thành phẩm này là một cái tên hàng mới, nêu chưa khai để tái sử dụng, tránh phình lên"* — hai khách cùng đặt *"Tờ hướng dẫn sử dụng — gấp 3"* **dùng chung một dòng**, giống bán cùng một cái quạt cho nhiều khách. Mã sinh ra là một dãy chung `TP-00001`; mã cũ dạng `TP-<mã khách>-nnn` **giữ nguyên** (đang nằm trong lô tồn và phiếu đã ghi sổ). Xem `services/thanh_pham_khai_bao`.
+
+`order_id` · `order_line_id` (INTEGER nullable, mg 0203): **đơn ĐẦU TIÊN đặt món này** — giữ để tra nguồn gốc, KHÔNG cập nhật ở những lần đặt sau. ⚠️ mg 0203 từng dùng `order_line_id` làm khoá định danh và **sai**: khách đặt lại là đẻ dòng thứ hai cùng tên. Sản phẩm in là hàng ĐẶT RIÊNG — *"Hộp thuốc 10 vỉ — in 2 màu, cán bóng"* không có sẵn ở danh mục nào; nhưng kho chỉ xuất được thứ CÓ trong danh mục (luật 08/08/2026 bỏ ô tên tự do), nên `OrderService.confirm()` tự khai mỗi dòng đơn thành một dòng ở đây, mã `TP-<số đơn>-<id dòng>`.
+
+⚠️ Đây **KHÔNG** phải `hang_loai` thứ ba: với kho, thành phẩm vẫn là `hang_loai="vat_tu"` — `VatLieuKhoService._mat_hang_row` ép về đúng giá trị đó. Soft-ref, không FK cứng: huỷ đơn KHÔNG xoá thành phẩm (có thể đã nhập kho, xoá là làm mồ côi lô tồn).
 
 `cong_thuc_luong` (TEXT nullable, mg 0194): **CÔNG THỨC RA LƯỢNG** của chính món hàng — "một lệnh cần bao nhiêu <đơn vị này>", biến lấy từ quy cách lệnh (vd keo: `0.002 * so_luong`). ĐỪNG LẪN với `cong_thuc_gia` ngay bên cạnh: ô kia ra **TIỀN** cho phiếu tính giá, ô này ra **LƯỢNG** cho BOM ở bước lệnh.
 
@@ -5284,6 +5299,7 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | `ghi_chu` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Đặc thù nghiệp vụ (nhập mua / xuất cấp bù / xuất bảo trì…) ghi ở đây — giai đoạn 1 chưa tách loại phiếu riêng nên đây là chỗ DUY NHẤT giữ ngữ cảnh. |
 | `loai_kho` | `String(50)` → `VARCHAR(50)` | — | yes | — | Loại nhập/xuất kho — TỰ DO người tạo gõ ở form yêu cầu (tên hoặc mã, vd "nhập mua" / "2"); Báo cáo kho kế toán đọc để xuất Excel MISA. NULL = chưa khai. Thêm `0169` (INT) → đổi VARCHAR ở `0170`. |
 | `purchase_delivery_id` | `Integer` → `INTEGER` | **IX** | yes | — | NGUỒN: đợt giao đơn mua (`purchase_deliveries.id`) sinh ra yêu cầu NHẬP này (bấm "Nhập kho" ở đợt giao). **Soft ref** (không FK — module Mua hàng có thể migrate sau). Dùng CHẶN nhập kho TRÙNG một đợt: đợt đã có yêu cầu (chưa hủy) trỏ vào thì nút đổi "Đã nhập kho". Thêm qua migration `0189`. |
+| `delivery_trip_id` | `Integer` → `INTEGER` | **IX** | yes | — | **NGUỒN GIAO HÀNG** (mg 0201) — chuyến giao (`delivery_trips.id`) sinh ra yêu cầu XUẤT này khi Quản lý Giao hàng bấm *Gửi yêu cầu xuất kho*. Soft ref (không FK — phân hệ Giao hàng có thể migrate sau), cùng khuôn `purchase_delivery_id` ngay trên. Kho KHÔNG phải biết gì về cột này: với họ đây vẫn là một yêu cầu xuất bình thường. ⚠ Tên cột phải có trong `_HEADER_FIELDS` của `stock_request_repo` — thiếu là giá trị bị NUỐT IM LẶNG, yêu cầu vẫn tạo mà không nối về đâu. |
 | `purchase_delivery_id` | `Integer` → `INTEGER` | **IX** | yes | — | NGUỒN: đợt giao đơn mua (`purchase_deliveries.id`) sinh ra yêu cầu NHẬP này (bấm "Nhập kho" ở đợt giao). Soft ref (KHÔNG FK — module Mua hàng migrate độc lập). Dùng CHẶN nhập kho TRÙNG một đợt: đợt đã có yêu cầu (chưa hủy) trỏ vào → nút đổi "Đã nhập kho". NULL = yêu cầu thường. Thêm qua migration `0189`. |
 | `trang_thai` | `String(16)` → `VARCHAR(16)` | **IX** | no | `draft` | Vòng đời: `draft` → `pending` → `approved` → `received` → `preparing` → `partial` → `done`; nhánh `rejected` / `cancelled`. `partial`/`done` do hệ thống tự set khi phiếu ứng số lượng. Người tạo chỉ sửa/hủy được ở `draft`/`pending`; kho chỉ lập phiếu ứng ở `approved`/`received`/`preparing`/`partial`. |
 | `nguoi_duyet_id` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Ai duyệt (tổ trưởng/quản lý bộ phận đề nghị — KHÔNG phải kho). |
@@ -5597,13 +5613,149 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 
 ---
 
-## (LỊCH SỬ) Kế hoạch & Lệnh sản xuất — 8 bảng cũ ĐÃ DROP
+## Giao hàng — 5 bảng
 
-> ⛔ **2026-07-23** — `lenh_sx` · `print_form` · `gang_placement` · `routing_step` ·
-> `routing_step_assignment` · `san_luong` · `ban_giao` · `lenh_item` đã bị **DROP** ở migration
-> `0092_drop_lenh_sx_cu` (tầng code gỡ trước đó ở commit `bcefd1c`). Module dựng lại dùng
-> `lsx` / `lsx_cong_doan` ở mục trên. Migration `0079`–`0087` (ALTER các bảng cũ) vẫn ship nhưng
-> tự no-op vì bảng không còn. Tài liệu mô tả 8 bảng cũ đã xoá khỏi file này để khỏi gây nhiễu.
+> `docs/prd-giao-hang.md`. Hai luật xương sống, sửa là hỏng cả phân hệ:
+>
+> * **HAI TẦNG TRẠNG THÁI** — `delivery_requests` chỉ LƯU hai trạng thái nó thật sự sở hữu
+>   (`cho_len_ke_hoach`, `da_huy`); *"đang thực hiện"* / *"đã giao đủ"* là **HÀM** tính từ các lần
+>   giao, **không có cột**. Tầng dưới có 8 trạng thái × 4 kết quả — quên cập nhật ngược một nhánh
+>   là yêu cầu treo mãi ở "đang thực hiện" mà không ai biết.
+> * **"ĐÃ GIAO BAO NHIÊU" = `SUM(delivery_trip_lines.qty_giao)`** qua các lần `thanh_cong` /
+>   `giao_thieu`. **KHÔNG** có cột `order_lines.delivered_qty` — repo không có Alembic nên một cột
+>   cộng dồn lệch là không có đường phát hiện lẫn đường sửa lại êm.
+>
+> **Hàng ra khỏi kho PHẢI CÓ PHIẾU KHO — giao khách không ngoại lệ** (chủ chốt 19/08/2026).
+> Giao hàng KHÔNG dựng chứng từ riêng: nó lập một `stock_requests` loại **XUẤT** bình thường,
+> kho lập phiếu · ghi sổ · trừ tồn bằng luồng sẵn có. Nối hai bên bằng soft-ref
+> `stock_requests.delivery_trip_id` (mg 0201), cùng khuôn `purchase_delivery_id` của Mua hàng.
+>
+> Kéo theo: thành phẩm phải được khai ở **Giấy / Vật tư khác** rồi nhập kho lấy số lượng —
+> đúng quy trình xưởng đang chạy. Bản đầu dựng bảng `delivery_issue_requests` song song với
+> nút *Duyệt* riêng, ĐÃ XOÁ: kho không có bước duyệt (bỏ 06/08/2026), họ **lập phiếu**.
+
+### `delivery_requests`
+
+**Purpose:** Yêu cầu giao hàng — MỘT ĐỢT giao của một đơn hàng bán. Một đơn đẻ nhiều yêu cầu.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(30)` → `VARCHAR(30)` | **UQ**, **IX** | no | — | `YCGH-yymmdd-XXXX`, cùng khuôn `YCMH-` bên Thu mua. |
+| `order_id` | `Integer` → `INTEGER` | **FK→orders.id**, **IX** | no | — | Đơn hàng bán nguồn. Chỉ tạo từ đơn `ordered` (đã chốt) và chưa giao đủ. |
+| `customer_id` | `Integer` → `INTEGER` | **IX** | yes | — | Chép từ đơn để lọc/hiện nhanh. Soft ref — đơn không đổi khách sau khi chốt nên không sợ lệch. |
+| `department_id` | `Integer` → `INTEGER` | **FK→departments.id**, **IX** | yes | — | Phòng của người tạo — trục lọc phạm vi `department` (RBAC data-scope). |
+| `ngay_can_giao` | `Date` → `DATE` | — | no | — | Ngày khách cần nhận. Ở quá khứ ⇒ **cảnh báo, vẫn cho lưu** (nhập bù đơn hôm qua là chuyện thật). |
+| `dia_chi` | `String(500)` → `VARCHAR(500)` | — | no | `""` | **SNAPSHOT** nơi giao — điền sẵn từ `orders.delivery_address` / sổ địa chỉ khách, sửa được, rồi ĐÔNG LẠI. Sửa địa chỉ đơn tháng sau thì phiếu giao cũ vẫn giữ địa chỉ đã giao THẬT. Cùng khuôn `order_lines.unit_price_snapshot`. |
+| `nguoi_nhan` | `String(255)` → `VARCHAR(255)` | — | yes | — | Người nhận hàng (snapshot từ `orders.delivery_contact_name`). |
+| `sdt_nguoi_nhan` | `String(30)` → `VARCHAR(30)` | — | yes | — | SĐT người nhận (snapshot từ `orders.delivery_contact_phone`). |
+| `ghi_chu` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Ghi chú giao hàng. |
+| `trang_thai` | `String(20)` → `VARCHAR(20)` | **IX** | no | `cho_len_ke_hoach` | **Chỉ hai giá trị**: `cho_len_ke_hoach` \| `da_huy`. CHECK chặn giá trị khác. Mọi trạng thái khác của yêu cầu là HÀM tính từ `delivery_trips` — xem ghi chú đầu mục. |
+| `ly_do_huy` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lý do huỷ. Chỉ huỷ được khi CHƯA có lần giao nào. |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Người lập yêu cầu. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `utcnow()` | Thời điểm tạo. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `utcnow()` (onupdate) | Lần sửa cuối. |
+
+### `delivery_request_lines`
+
+**Purpose:** 1 dòng hàng của ĐỢT NÀY.
+
+> `qty` là số **YÊU CẦU** giao, KHÔNG phải số đã giao. Tổng các yêu cầu đang mở + đã giao không
+> được vượt `order_lines.qty`.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `request_id` | `Integer` → `INTEGER` | **FK→delivery_requests.id** (CASCADE), **IX** | no | — | Yêu cầu chứa dòng này. |
+| `order_line_id` | `Integer` → `INTEGER` | **FK→order_lines.id**, **IX** | no | — | Dòng đơn hàng bán tương ứng. UQ theo cặp `(request_id, order_line_id)` — một dòng đơn chỉ xuất hiện một lần trong một yêu cầu. |
+| `qty` | `Integer` → `INTEGER` | — | no | — | Số lượng yêu cầu giao đợt này. CHECK `> 0`. |
+| `hang_loai` | `String(8)` → `VARCHAR(8)` | | yes | `NULL` | Danh mục chứa mặt hàng — luôn `vat_tu` (mg 0202). Hệ điền, người dùng không chọn. |
+| `hang_id` | `Integer` → `INTEGER` | soft-ref `vat_tu_in_an.id` | yes | `NULL` | Dòng **Thành phẩm** do `OrderService.confirm()` tự khai (mg 0203, `docs/prd-thanh-pham.md`). Yêu cầu xuất kho suy ra từ đây, không ai gõ lại. |
+| `dvt` | `String(24)` → `VARCHAR(24)` | | yes | `NULL` | Đơn vị tính chốt tại thời điểm lập yêu cầu — snapshot, đổi ĐVT danh mục sau không sửa yêu cầu cũ. |
+
+### `delivery_trips`
+
+**Purpose:** LẦN GIAO — nơi mọi trạng thái, số km và lịch sử thật sự sống (tầng 2).
+
+> ⚠️ **ĐỔI 22/08/2026 — MỘT yêu cầu = MỘT chuyến** (`prd-giao-hang-mot-yeu-cau-mot-chuyen.md`).
+> Giao lại **KHÔNG** còn là thêm hàng vào yêu cầu cũ; phải **lập yêu cầu giao MỚI**. Chặn ở
+> `DeliveryService.len_ke_hoach` + chỉ số UNIQUE `uq_delivery_trips_request` (mg 0229).
+> Một yêu cầu chỉ được có **MỘT** lần giao đang hoạt động tại một thời điểm.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `request_id` | `Integer` → `INTEGER` | **FK→delivery_requests.id** (CASCADE), **IX** | no | — | Yêu cầu nguồn. |
+| `lan_thu` | `Integer` → `INTEGER` | **UQ** (cặp với `request_id`) | no | `1` | **NGƯNG DÙNG từ 22/08/2026** — luôn `1` vì một yêu cầu chỉ còn một chuyến. Giữ cột (không drop): chuyến cũ mang giá trị thật, và drop cột là việc không đảo được. |
+| `employee_id` | `Integer` → `INTEGER` | **FK→employees.id**, **IX** | no | — | Tài xế. Dùng `employees` chứ KHÔNG dựng bảng `drivers` riêng — trạng thái *"đang nghỉ"* chỉ đọc được nếu tài xế là nhân viên thật (đơn `nghi_phep` đã duyệt + chấm công). |
+| `gio_lay_hang` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | — | Giờ tài xế tới kho lấy hàng. Đây là cột KHO nhìn để xếp thứ tự chuẩn bị. |
+| `gio_du_kien_giao` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | — | Giờ dự kiến giao tới khách. Cặp `[gio_lay_hang, gio_du_kien_giao]` là khoảng dùng để phát hiện **trùng lịch** tài xế. |
+| `ghi_chu_phan_cong` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú của quản lý khi phân công. |
+| `trang_thai` | `String(20)` → `VARCHAR(20)` | **IX** | no | `da_len_ke_hoach` | Tám trạng thái một chiều: `da_len_ke_hoach` → `dang_chuan_bi` (kho DUYỆT đề nghị) → `da_lay_hang` (TÀI XẾ tự bấm) → `dang_giao` → `thanh_cong` \| `giao_thieu` \| `hen_lai` \| `that_bai` → `dang_tra_hang` → `da_tra_hang`. Thêm `da_huy`. |
+| `km` | `Integer` → `INTEGER` | — | yes | — | Số kilomet thực tế. CHECK `>= 0` — **không phải `> 0`**: khách không nghe máy khi xe chưa lăn bánh thì 0 km là số THẬT. `> 500` ⇒ cảnh báo bắt xác nhận (gõ nhầm 180 thành 1800), không chặn. Chỉ thống kê, **KHÔNG vào lương**. |
+| `thoi_gian_ket_thuc` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm đóng chuyến. |
+| `nguoi_nhan_thuc_te` | `String(255)` → `VARCHAR(255)` | — | yes | — | Người ký nhận thật (có thể khác `delivery_requests.nguoi_nhan`). |
+| `ly_do_that_bai` | `String(500)` → `VARCHAR(500)` | — | yes | — | Bắt buộc khi kết quả là `that_bai`. |
+| `huong_xu_ly` | `String(20)` → `VARCHAR(20)` | — | yes | — | `tra_ve` \| `cho_giao_lai`. Bắt buộc khi `that_bai`. |
+| `ngay_hen_lai` | `Date` → `DATE` | — | yes | — | **NGƯNG GHI từ 22/08/2026** cùng lượt bỏ kết quả `hen_lai` — đó là trạng thái TREO: chuyến chưa xong mà cũng không kết thúc, hàng nằm trên xe không biết tới bao giờ. Nay khách hẹn lại = ghi `that_bai`, **trả hàng về kho**, rồi lập yêu cầu mới cho ngày hẹn. Giữ cột để đọc dòng cũ. |
+| `ghi_chu_ket_qua` | `Text` → `TEXT` | — | yes | — | Ghi chú khi đóng chuyến. |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Người lên kế hoạch chuyến này. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `utcnow()` | Thời điểm lập kế hoạch. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `utcnow()` (onupdate) | Lần sửa cuối. |
+
+### `delivery_trip_lines`
+
+**Purpose:** Số THỰC NHẬN từng dòng của một lần giao — nguồn duy nhất của "đã giao bao nhiêu".
+
+> **ĐIỀN LUÔN LUÔN** khi chuyến có kết quả `thanh_cong` hoặc `giao_thieu`; thành công thì bằng
+> đúng số yêu cầu. MỘT LUẬT, KHÔNG RẼ NHÁNH — chỉ điền khi giao thiếu là tạo hai đường tính
+> "đã giao", mà hai đường thì sớm muộn lệch.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `trip_id` | `Integer` → `INTEGER` | **FK→delivery_trips.id** (CASCADE), **IX** | no | — | Lần giao chứa dòng này. |
+| `order_line_id` | `Integer` → `INTEGER` | **FK→order_lines.id**, **IX** | no | — | Dòng đơn hàng bán. UQ theo cặp `(trip_id, order_line_id)`. |
+| `qty_giao` | `Integer` → `INTEGER` | — | no | — | Số khách THỰC NHẬN. CHECK `>= 0` — **0 là hợp lệ**: khách nhận dòng A, từ chối dòng B trong cùng chuyến. |
+
+### `delivery_status_history`
+
+**Purpose:** Lịch sử đổi trạng thái của LẦN GIAO. Chỉ ghi, không sửa, không xoá.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `trip_id` | `Integer` → `INTEGER` | **FK→delivery_trips.id** (CASCADE), **IX** | no | — | Lần giao. |
+| `tu_trang_thai` | `String(20)` → `VARCHAR(20)` | — | yes | — | Trạng thái trước. NULL ở dòng đầu tiên (lúc lập kế hoạch). |
+| `den_trang_thai` | `String(20)` → `VARCHAR(20)` | — | no | — | Trạng thái sau. |
+| `nguoi_thao_tac_id` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Ai bấm. |
+| `luc` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `utcnow()` | Lúc nào. |
+| `ghi_chu` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú kèm theo. |
+| `ly_do` | `String(500)` → `VARCHAR(500)` | — | yes | — | Bắt buộc khi thất bại / trả hàng / huỷ. |
+
+### `delivery_trip_attachments`
+
+**Purpose:** file MINH CHỨNG của một chuyến giao — ảnh hoặc PDF (mg 0230, chốt 22/08/2026). Việc
+thật: *hàng đi kèm hoá đơn* — trước lúc đi đính hoá đơn cho tài xế cầm theo, giao xong chụp lại tờ
+khách đã ký. Cả hai đều là file của CHUYẾN nên **một bảng là đủ**: tách "hoá đơn đi" với "biên nhận
+về" là bắt người dùng chọn loại trước khi tải, chọn sai thì phải xoá tải lại.
+
+Bytes nằm ở **kho file dùng chung** (`app/storage.py`), đọc lại qua `/api/files`; bảng này chỉ giữ
+metadata + đường dẫn — mirror `payment_receipt_attachments`. Trần **10 MB / file**, **20 file /
+chuyến**, chỉ nhận `image/*` và `application/pdf`.
+
+Đính được ở **bất kỳ lúc nào** trong đời chuyến, và **xoá được kể cả khi chuyến đã có kết quả** —
+tài xế chụp mờ/chụp nhầm là chuyện thường, khoá lại là buộc để rác trong hồ sơ chứng từ.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `trip_id` | `Integer` → `INTEGER` | **FK→delivery_trips.id** (CASCADE), **IX** | no | — | Chuyến giao chứa file này. |
+| `file_name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên file đã làm sạch (`storage.safe_name`). |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | Đường đọc lại qua `/api/files/...`. |
+| `file_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | MIME lúc tải lên. |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** (SET NULL) | yes | — | Ai tải lên. |
+| `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | `utcnow()` | Lúc nào. |
 
 ### `module_notifications`
 

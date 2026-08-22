@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from ..models.employee import STATUS_ACTIVE, STATUS_PROBATION
+from ..models.employee import STATUS_ACTIVE, STATUS_PROBATION, STATUS_PROBATION_ENDED
 from ..models.payroll import COMPONENT_KINDS, COMPONENT_KIND_THU, PayrollComponent
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.payroll_component_repo import PayrollComponentRepository
@@ -280,7 +280,9 @@ class PayrollComponentService:
             # "Tất cả" = ĐANG LÀM VIỆC (chính thức + thử việc). Người đã nghỉ việc bị loại —
             # rải phụ cấp cho người đã nghỉ là đẻ tiền cho hồ sơ chết.
             targets = [e for e in in_scope.values()
-                       if e.status in (STATUS_ACTIVE, STATUS_PROBATION)]
+                       # Hết thử việc chờ xác nhận VẪN đang đi làm ⇒ phải nằm trong danh sách,
+                       # nếu không người đó rơi khỏi bảng lương trong im lặng.
+                       if e.status in (STATUS_ACTIVE, STATUS_PROBATION, STATUS_PROBATION_ENDED)]
             skipped_out_of_scope = 0
         else:
             targets = [in_scope[i] for i in employee_ids if i in in_scope]

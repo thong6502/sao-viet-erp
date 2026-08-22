@@ -19,7 +19,7 @@ from ..deps import (
     get_authorization_service,
     get_department_repository,
     get_employee_repository,
-    get_employee_repository,
+    get_employee_service,
     get_payroll_component_repository,
     get_payroll_component_service,
     get_payroll_service,
@@ -37,6 +37,7 @@ from ..services.payroll_component_service import (
     ComponentValidationError,
     PayrollComponentService,
 )
+from ..services.employee_service import EmployeeService
 from ..services.rbac_service import AuthorizationService
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository
@@ -159,6 +160,8 @@ Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Departments = Annotated[DepartmentRepository, Depends(get_department_repository)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
+#: Chỉ dùng cho MỘT việc: quét "đã qua ngày hết thử việc" trước khi tính lương (xem `generate`).
+EmpService = Annotated[EmployeeService, Depends(get_employee_service)]
 CompService = Annotated[PayrollComponentService, Depends(get_payroll_component_service)]
 CompRepo = Annotated[PayrollComponentRepository, Depends(get_payroll_component_repository)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
@@ -657,7 +660,12 @@ def get_table(svc: Service, employees: Employees, departments: Departments, auth
 
 @router.post("/generate", response_model=TableOut)
 def generate(body: GenerateIn, svc: Service, employees: Employees, departments: Departments,
+             emp_svc: EmpService,
              user: Annotated[User, Depends(require_permission(MODULE, "create"))]) -> TableOut:
+    # Quét TRƯỚC khi tính: nếu tháng này không ai mở màn Nhân sự thì đây là chỗ duy nhất còn lại
+    # để trạng thái kịp đúng. Không đổi tiền (engine coi "hết thử việc" y hệt thử việc) nhưng
+    # đổi cái HIỆN trên bảng lương, và giữ hai màn nói cùng một chuyện.
+    emp_svc.tu_danh_dau_het_thu_viec()
     try:
         svc.generate(year=body.year, month=body.month, actor=user)
     except PayrollError as exc:

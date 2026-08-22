@@ -307,7 +307,7 @@ def test_assign_shift_endpoint_does_not_clobber(client):
     ).json()
     emp = client.post(
         "/api/employees",
-        json={"full_name": "NV X", "department_id": _dept_id("Hành chính nhân sự"),
+        json={"probation_end_date": "2025-12-31", "full_name": "NV X", "department_id": _dept_id("Hành chính nhân sự"),
               "hire_date": "2020-01-01", "position": "Thợ in"},
         headers=_h(token),
     ).json()["employee"]
@@ -335,7 +335,7 @@ def test_shift_history_resolves_the_shift_on_each_effective_date(client):
     ).json()
     emp = client.post(
         "/api/employees",
-        json={"full_name": "NV Đổi Ca", "department_id": _dept_id("Hành chính nhân sự"),
+        json={"probation_end_date": "2025-12-31", "full_name": "NV Đổi Ca", "department_id": _dept_id("Hành chính nhân sự"),
               "hire_date": "2026-01-01"},
         headers=_h(token),
     ).json()["employee"]
@@ -417,7 +417,7 @@ def _mk_shift(client, token, name, start, end, *, overnight=False) -> dict:
 
 def _mk_emp(client, token, name, *, hire="2020-01-01") -> dict:
     r = client.post("/api/employees",
-                    json={"full_name": name, "department_id": _dept_id("Hành chính nhân sự"),
+                    json={"probation_end_date": "2025-12-31", "full_name": name, "department_id": _dept_id("Hành chính nhân sự"),
                           "hire_date": hire}, headers=_h(token))
     assert r.status_code == 201, r.text
     return r.json()["employee"]

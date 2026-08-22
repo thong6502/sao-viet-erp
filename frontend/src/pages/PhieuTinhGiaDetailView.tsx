@@ -19,11 +19,12 @@ import {
   type TinhGiaComponentMeta,
   type TinhGiaPreviewOut,
 } from "../api/client";
-import { congDoan, giay, loaiSanPham, mayThietBi, type Row } from "../api/rebuildCatalog";
+import { congDoan, donViDo, giay, loaiSanPham, mayThietBi, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { MucInHang } from "../components/MucIn";
+import { ThanhPhamGoiY } from "../components/ThanhPhamGoiY";
 import { ImpositionDiagram } from "./ImpositionDiagram";
 import { heSoChu, nhanDonVi } from "./lsxBuoc";
 import { useNapTenDonVi } from "./tenDonVi";
@@ -2140,6 +2141,39 @@ function ComponentModal({
   addFin: (cuid: string, cong_doan_id?: number | null, ten?: string, insertIndex?: number | null) => void;
   removeFin: (cuid: string, fuid: string) => void;
 }) {
+  // Lấy token tại chỗ thay vì luồn prop qua 16 tham số — ô gợi ý tên sản phẩm cần gọi API
+  // danh mục Thành phẩm.
+  const { token } = useAuth();
+
+  // Danh mục ĐƠN VỊ TÍNH cho ô ĐVT (chủ 21/08/2026: "lấy theo Đơn vị tính trong danh mục cho họ
+  // chọn"). Nạp MỘT lần cho cả khối sản phẩm — mỗi ô tự gọi là mỗi sản phẩm một request.
+  // Lưu TÊN ("cái") chứ không lưu mã ("cai"): chuỗi này chảy thẳng sang Báo giá rồi ra
+  // `order_lines.don_vi_tinh` và IN LÊN GIẤY. Đổi sang mã là mọi báo giá cũ in ra chữ khác.
+  const [dvtOpts, setDvtOpts] = useState<string[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    donViDo
+      .list(token, { active: true, size: 200 })
+      .then((r) => {
+        // Danh mục có cả m² · kg · mm · bản kẽm — đúng cho vật tư, vô nghĩa cho ĐVT sản phẩm.
+        // KHÔNG lọc bỏ (danh mục là của chủ, lọc là tự quyết hộ), chỉ ĐẨY LÊN TRƯỚC những họ
+        // dùng để BÁN: thành phẩm (cái/hộp/cuốn/bộ/con) · tờ (tờ rơi bán theo tờ) · thùng.
+        // Không gom thành optgroup vì họ trong danh mục chỉ có mã thô (`khoi_luong`…), chưa
+        // có nhãn hiển thị — bịa nhãn ở đây là đẻ nguồn sự thật thứ hai.
+        const uu_tien = ["thanh_pham", "to", "thung"];
+        const hang = (ho: string) => {
+          const i = uu_tien.indexOf(ho);
+          return i < 0 ? uu_tien.length : i;
+        };
+        const ds = r.items
+          .map((d: Row) => ({ ten: String(d.ten ?? ""), ho: String(d.ho ?? "") }))
+          .filter((d) => d.ten);
+        ds.sort((a, b) => hang(a.ho) - hang(b.ho) || a.ten.localeCompare(b.ten, "vi"));
+        setDvtOpts(ds.map((d) => d.ten));
+      })
+      .catch(() => setDvtOpts([]));
+  }, [token]);
+
   // uid của sản phẩm đang mở trợ lý "tính số khuôn từ số trang" (mỗi lúc chỉ 1 popover).
   const [calcUid, setCalcUid] = useState<string | null>(null);
   // Bung phân rã bù hao: bước nào trong chuỗi ăn bao nhiêu tờ. Mặc định thu gọn.
@@ -2240,12 +2274,14 @@ function ComponentModal({
               <div className="tg-grid">
                 <label className="tg-field tg-span-6">
                   <span className="tg-microlabel">Tên sản phẩm</span>
-                  <input
-                    className="tg-input"
-                    type="text"
+                  {/* GỢI Ý từ danh mục Thành phẩm, KHÔNG ép chọn — gõ tên mới vẫn được.
+                      Chọn lại đúng tên cũ thì lúc chốt đơn hệ dùng lại đúng dòng danh mục cũ,
+                      không đẻ dòng mới (docs/prd-thanh-pham.md §11). */}
+                  <ThanhPhamGoiY
+                    token={token ?? ""}
                     value={c.ten}
                     placeholder="VD Thân hộp / Ruột / Bìa"
-                    onChange={(e) => patchComp(c.uid, { ten: e.target.value })}
+                    onChange={(ten) => patchComp(c.uid, { ten })}
                   />
                 </label>
                 <div className="tg-span-3">
@@ -2258,13 +2294,21 @@ function ComponentModal({
                 </div>
                 <label className="tg-field tg-span-3">
                   <span className="tg-microlabel">ĐVT</span>
-                  <input
+                  <select
                     className="tg-input"
-                    type="text"
                     value={c.don_vi_tinh}
-                    placeholder="cái / tờ / cuốn / hộp…"
                     onChange={(e) => patchComp(c.uid, { don_vi_tinh: e.target.value })}
-                  />
+                  >
+                    {/* Giá trị ĐANG DÙNG mà danh mục không có (gõ tay từ trước, hoặc đơn vị vừa
+                        bị ngừng) vẫn phải chọn được — nếu không, mở phiếu cũ ra là ĐVT tự nhảy
+                        sang đơn vị khác mà không ai báo. */}
+                    {c.don_vi_tinh && !dvtOpts.includes(c.don_vi_tinh) && (
+                      <option value={c.don_vi_tinh}>{c.don_vi_tinh} (ngoài danh mục)</option>
+                    )}
+                    {dvtOpts.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
                 </label>
                 {/* Gộp dòng khi báo giá KHÔNG có ô ở đây: nó là quan hệ giữa các dòng, thao tác
                     nằm ở bảng "Sản phẩm trong phiếu" (tick nhiều dòng → gõ tên nhóm 1 lần). */}

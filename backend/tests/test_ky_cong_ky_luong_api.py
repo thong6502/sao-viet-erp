@@ -41,7 +41,7 @@ def _uid(username: str) -> int:
 def _mot_nhan_vien(client, h) -> dict:
     emp = client.post(
         "/api/employees",
-        json={"full_name": "NV Khoá Kỳ", "department_id": _dept_id("Hành chính nhân sự"),
+        json={"probation_end_date": "2025-12-31", "full_name": "NV Khoá Kỳ", "department_id": _dept_id("Hành chính nhân sự"),
               "hire_date": "2020-01-01"},
         headers=h,
     )

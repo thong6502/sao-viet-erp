@@ -193,6 +193,7 @@ class DepartmentService:
                     "la_san_xuat": dept.la_san_xuat,
                     "la_kinh_doanh": dept.la_kinh_doanh,
                     "is_kcs": dept.is_kcs,
+                    "la_giao_hang": dept.la_giao_hang,
                     "role_count": own_roles[dept.id],
                     "user_count": own_users[dept.id],
                     "employee_count": own_emps[dept.id],
@@ -227,6 +228,7 @@ class DepartmentService:
             "la_san_xuat": dept.la_san_xuat,
             "la_kinh_doanh": dept.la_kinh_doanh,
             "is_kcs": dept.is_kcs,
+            "la_giao_hang": dept.la_giao_hang,
             "role_count": self.roles.count_by_department(dept.id),
             "user_count": self.users.count_by_department(dept.id),
             "employee_count": self.employees.count_by_department(dept.id),
@@ -298,6 +300,7 @@ class DepartmentService:
         la_san_xuat: bool = False,
         la_kinh_doanh: bool = False,
         is_kcs: bool = False,
+        la_giao_hang: bool = False,
         actor_id: int | None,
     ) -> Department:
         name = name.strip()
@@ -326,6 +329,8 @@ class DepartmentService:
             self.departments.set_la_kinh_doanh(dept, True)
         if is_kcs:
             self.departments.set_is_kcs(dept, True)
+        if la_giao_hang:
+            self.departments.set_la_giao_hang(dept, True)
         self.audit.create(
             actor_user_id=actor_id,
             action="create_department",
@@ -352,6 +357,7 @@ class DepartmentService:
         la_san_xuat: bool = False,
         la_kinh_doanh: object = _KEEP,
         is_kcs: object = _KEEP,
+        la_giao_hang: object = _KEEP,
     ) -> Department:
         dept = self.departments.get_by_id(dept_id)
         if dept is None:
@@ -405,6 +411,11 @@ class DepartmentService:
         # Cờ KCS: cùng luật "KHÔNG gửi = giữ nguyên" như khối Kinh doanh.
         if is_kcs is not _KEEP:
             self.departments.set_is_kcs(dept, bool(is_kcs))
+        # Cùng luật "KHÔNG gửi = giữ nguyên" như cờ Kinh doanh ngay trên: màn Phòng ban có nhiều
+        # luồng sửa chỉ đụng tên/trưởng phòng, ghi đè mặc định False ở đó là âm thầm gỡ bộ phận
+        # giao hàng, và tab Nhân viên giao hàng trống trơn mà không ai báo.
+        if la_giao_hang is not _KEEP:
+            self.departments.set_la_giao_hang(dept, bool(la_giao_hang))
         self.audit.create(
             actor_user_id=actor_id,
             action="update_department",

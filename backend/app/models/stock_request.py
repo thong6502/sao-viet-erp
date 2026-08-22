@@ -101,6 +101,13 @@ class StockRequest(Base):
     # FK — module Mua hàng có thể migrate sau). Dùng để CHẶN nhập kho TRÙNG một đợt: đợt đã có yêu cầu
     # (chưa hủy) trỏ vào thì nút "Nhập kho" đổi thành "Đã nhập kho · Xem". Thêm qua migration 0189.
     purchase_delivery_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    # NGUỒN: chuyến giao hàng sinh ra yêu cầu XUẤT này (Giao hàng bấm "Gửi yêu cầu xuất
+    # kho"). Soft ref, cùng khuôn `purchase_delivery_id` ngay trên. Có nó thì màn Giao hàng
+    # đọc ngược được trạng thái kho đang tới đâu, và chặn gửi trùng cho một chuyến.
+    #
+    # KHO KHÔNG PHẢI BIẾT GÌ VỀ CỘT NÀY: với kho nó vẫn là một yêu cầu xuất bình thường,
+    # lập phiếu / ghi sổ y hệt vật tư. Thêm mg 0201.
+    delivery_trip_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     # ĐIỀU CHUYỂN KHO (mô hình 2 yêu cầu, mig 0203): ấn điều chuyển sinh CẶP yêu cầu — một XUẤT ở
     # kho nguồn (tự lập + ghi sổ ngay để trừ tồn) và một NHẬP ở kho đích (chờ đích lập phiếu nhận).
     # Cả hai bật `dieu_chuyen=true`. Yêu cầu NHẬP đích còn mang:

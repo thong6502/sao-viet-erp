@@ -140,7 +140,7 @@ function StandaloneVoucherDialog({
     beneficiary_bank_branch: null,
     bank_fee_bearer: "payer",
     debit_account: null,
-    credit_account: "1111",
+    credit_account: null,
     note: null,
   });
   const [companyAccounts, setCompanyAccounts] = useState<CompanyBankAccountRow[]>([]);
@@ -215,7 +215,7 @@ function StandaloneVoucherDialog({
       beneficiary_bank_branch: isBank ? optional(form.beneficiary_bank_branch) : null,
       bank_fee_bearer: isBank ? form.bank_fee_bearer ?? "payer" : null,
       debit_account: optional(form.debit_account),
-      credit_account: optional(form.credit_account) ?? (isBank ? "1121" : "1111"),
+      credit_account: optional(form.credit_account),
       invoice_number: optional(form.invoice_number),
       invoice_date: optional(form.invoice_date),
       contract_number: optional(form.contract_number),
@@ -270,7 +270,6 @@ function StandaloneVoucherDialog({
               onClick={() => {
                 set("voucher_type", "cash" as PaymentVoucherType);
                 set("company_bank_account_id", null);
-                set("credit_account", "1111");
               }}
             >
               Tiền mặt
@@ -280,7 +279,6 @@ function StandaloneVoucherDialog({
               className={isBank ? "is-active" : ""}
               onClick={() => {
                 set("voucher_type", "bank_transfer" as PaymentVoucherType);
-                set("credit_account", "1121");
               }}
             >
               Chuyển khoản
@@ -381,8 +379,9 @@ function StandaloneVoucherDialog({
               thoại phiếu chi theo đơn hôm 12/08: chúng bắt kế toán gõ số hiệu tài khoản cho từng
               phiếu mà hệ thống KHÔNG hạch toán gì từ đó, chỉ in ra.
               Đợt 12/08 tôi chỉ dọn hộp thoại lập-theo-đơn và bỏ sót đúng hai form LẬP RỜI này.
-              Tài khoản "Có" vẫn được điền ngầm theo hình thức chi (1111 tiền mặt · 1121 chuyển
-              khoản) ở `payload` bên dưới, nên phiếu in ra không mất dòng nào. */}
+              21/08/2026: thôi luôn việc ĐIỀN NGẦM 1111/1121 — chủ: "cái nợ và có ấy thì họ điền
+              gì kệ họ". Phiếu in ra để trống dòng chấm cho kế toán tự ghi (`printTT200` in sẵn
+              dấu chấm khi trống), đúng ý ban đầu của hai cột: "định khoản nhập tay". */}
           <section className="acct-form-section">
             <h3>Chứng từ tham chiếu</h3>
             <div className="acct-form-grid acct-form-grid--2">

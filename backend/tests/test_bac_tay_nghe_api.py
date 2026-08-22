@@ -152,8 +152,11 @@ def test_bac_KHONG_doi_duoc_qua_sua_ho_so_thuong(client):
     client.post(f"/api/employees/{eid}/transitions",
                 json={"kind": "promote", "new_job_grade_id": g1}, headers=_h(token))
 
+    # PUT là ghi đè TOÀN PHẦN ⇒ phải gửi kèm ngày hết thử việc, nếu không là xoá trắng ô đó
+    # trên hồ sơ đang thử việc — nay bị chặn.
     r = client.put(f"/api/employees/{eid}",
-                   json={"full_name": "NV Giữ Luật", "job_grade_id": g2}, headers=_h(token))
+                   json={"full_name": "NV Giữ Luật", "job_grade_id": g2,
+                         "probation_end_date": "2025-12-31"}, headers=_h(token))
     assert r.status_code == 200, r.text
 
     con = client.get(f"/api/employees/{eid}", headers=_h(token)).json()
@@ -236,7 +239,7 @@ def test_khai_hoa_hong_ngay_khi_tao_ho_so(client):
     """Wizard khai lương ban đầu cùng lúc tạo hồ sơ — thiếu field ở `InitialEmployeeSalaryIn`
     thì % gõ vào bị nuốt lặng lẽ, người dùng tưởng đã khai."""
     token = _admin_token(client)
-    r = client.post("/api/employees", json={
+    r = client.post("/api/employees", json={"probation_end_date": "2025-12-31",
         "full_name": "NV Khai Hoa Hồng Lúc Tạo",
         "initial_salary": {"luong_vi_tri": 12_000_000, "commission_pct": 0.03},
     }, headers=_h(token))

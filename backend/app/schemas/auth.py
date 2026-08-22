@@ -110,6 +110,8 @@ class ModuleCapability(BaseModel):
     can_manage_salary_profiles: bool = False  # luong — tab Lương nhân viên
     can_manage_piece_rates: bool = False      # luong — tab Lương khoán
     can_manage_leave_types: bool = False      # nghi_phep — danh mục loại nghỉ
+    can_plan: bool = False                    # giao_hang — tab Lên kế hoạch
+    can_view_drivers: bool = False            # giao_hang — tab Nhân viên giao hàng
 
 
 class PermissionsOut(BaseModel):

@@ -149,6 +149,14 @@ NHAN: dict[str, str] = {
     "cong_thuc_gia": "Công thức tính giá",
     "cong_thuc_luong": "Công thức tính lượng",
     "cong_thuc_san_luong": "Công thức sản lượng ra",
+    # Thành phẩm (mg 0203–0204, 0228) — mấy cột này nằm trên `vat_tu_in_an` nên nhật ký của MÀN
+    # Vật tư khác cũng có thể chạm tới. Thiếu nhãn là in tên cột thô ra cho người dùng đọc.
+    "customer_id": "Khách hàng",
+    "order_id": "Đơn hàng gốc",
+    "order_line_id": "Dòng đơn hàng gốc",
+    # Công tắc chia hai màn danh mục (mg 0228). Người dùng KHÔNG khai ô này — repo tự đóng dấu —
+    # nhưng nhật ký vẫn phải gọi được tên nó nếu có gì đó chạm vào.
+    "la_thanh_pham": "Là thành phẩm",
     # Bù hao
     "bac": "Bậc số lượng",
     # Đơn vị & quy đổi

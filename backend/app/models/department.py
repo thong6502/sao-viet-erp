@@ -89,6 +89,17 @@ class Department(Base):
     is_kcs: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
     )
+
+    # Bộ phận GIAO HÀNG (mg 0205). Kế thừa xuống cây con y như `la_san_xuat`/`la_kinh_doanh` —
+    # tick phòng cha thì mọi tổ dưới cũng là giao hàng. (KHÁC `is_kcs` ngay trên: cờ đó KHÔNG
+    # kế thừa, đặt đích danh từng tổ.)
+    #
+    # Trả lời câu "ai là tài xế": tab Nhân viên giao hàng liệt kê MỌI người thuộc khối này, kể cả
+    # người chưa chạy chuyến nào. Trước 20/08/2026 tab đó lọc theo quyền RBAC rồi bỏ qua ai chưa
+    # có chuyến, nên tài xế mới tuyển không hiện ra — không ai phân chuyến cho họ được.
+    la_giao_hang: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
