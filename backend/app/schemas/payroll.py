@@ -432,6 +432,8 @@ class LineOut(BaseModel):
     phu_cap_tham_nien: float = 0
     phu_cap_khac: float = 0        # router fills = allowance − thâm niên
     khoan: float = 0
+    #: Khoán km giao hàng (mg 0231) — CỘNG THÊM vào gross, không phải "trong đó" của khoản nào.
+    khoan_km: float = 0
     ot_minutes: int = 0
     ot_pay: float = 0
     night_days: int = 0
@@ -710,3 +712,25 @@ class LineComponentsOut(BaseModel):
 # chưa giải được lúc tạo lớp. Rebuild tường minh ở đây cho lỗi (nếu có) nổ lúc import, không phải
 # lúc trả response cho người dùng.
 LineOut.model_rebuild()
+
+
+class KhoanKmChuyenOut(BaseModel):
+    """MỘT chuyến giao trong bảng đối chiếu khoán km (mg 0231)."""
+
+    trip_id: int
+    ngay: datetime | None = None
+    km: int = 0
+    don_gia_km: float = 0
+    #: `tai_xe` | `phu_xe` — vai trò trong CHUYẾN ĐÓ, không phải chức danh của người.
+    vai_tro: str
+    #: % được hưởng của chuyến. Đi một mình = 100, không phải `pct_tai_xe`.
+    pct: float = 0
+    thanh_tien: float = 0
+
+
+class KhoanKmChiTietOut(BaseModel):
+    """Bảng đối chiếu cho HCNS. `tong` PHẢI khớp cột "Khoán km" trên bảng lương — lệch là một
+    trong hai bên tính sai, và số nào cũng không tin được nữa."""
+
+    items: list[KhoanKmChuyenOut] = []
+    tong: float = 0

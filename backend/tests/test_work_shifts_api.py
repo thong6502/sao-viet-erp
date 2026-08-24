@@ -7,6 +7,17 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+
+
+def _future_plan_ym() -> tuple[int, int]:
+    """Tháng cho test LƯỚI PHÂN CA — LUÔN tương lai. Guard khoá quá khứ ("cứ quá khứ là không
+    đổi ca nữa") nên test lưới không được dùng tháng cố định đã trôi vào quá khứ."""
+    t = date.today()
+    return (t.year + (1 if t.month == 12 else 0), t.month % 12 + 1)
+
+
+_PY, _PM = _future_plan_ym()
+_PMS = f"{_PY}-{_PM:02d}"   # vd "2026-09" — dùng cho work_date của ô lưới
 from types import SimpleNamespace
 
 from app.db import SessionLocal
@@ -423,14 +434,14 @@ def _mk_emp(client, token, name, *, hire="2020-01-01") -> dict:
     return r.json()["employee"]
 
 
-def _save_plan(client, token, cells, *, year=2026, month=6, expect=200):
+def _save_plan(client, token, cells, *, year=_PY, month=_PM, expect=200):
     r = client.put("/api/attendance/shift-plan",
                    json={"year": year, "month": month, "cells": cells}, headers=_h(token))
     assert r.status_code == expect, r.text
     return r.json()
 
 
-def _plan_row(client, token, eid, *, year=2026, month=6):
+def _plan_row(client, token, eid, *, year=_PY, month=_PM):
     r = client.get(f"/api/attendance/shift-plan?year={year}&month={month}", headers=_h(token))
     assert r.status_code == 200, r.text
     data = r.json()
@@ -447,16 +458,16 @@ def test_shift_day_overrides_assignment(client):
                json={"default_shift_id": base["id"], "effective_from": "2026-01-01"},
                headers=_h(token))
 
-    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": "2026-06-15",
+    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": f"{_PMS}-15",
                                 "action": "set", "shift_id": other["id"]}])
 
     db = SessionLocal()
     try:
         repo = EmployeeRepository(db)
         e = repo.get_by_id(emp["id"])
-        assert repo.shift_id_on(e, date(2026, 6, 15)) == other["id"]   # ô khai tay thắng
-        assert repo.shift_id_on(e, date(2026, 6, 14)) == base["id"]    # ngày khác giữ mốc
-        assert repo.shift_id_on(e, date(2026, 6, 16)) == base["id"]
+        assert repo.shift_id_on(e, date(_PY, _PM, 15)) == other["id"]   # ô khai tay thắng
+        assert repo.shift_id_on(e, date(_PY, _PM, 14)) == base["id"]    # ngày khác giữ mốc
+        assert repo.shift_id_on(e, date(_PY, _PM, 16)) == base["id"]
     finally:
         db.close()
 
@@ -474,7 +485,7 @@ def test_shift_day_off_does_not_block_resolve(client):
                json={"default_shift_id": base["id"], "effective_from": "2026-01-01"},
                headers=_h(token))
 
-    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": "2026-06-17",
+    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": f"{_PMS}-17",
                                 "action": "off"}])
 
     db = SessionLocal()
@@ -506,7 +517,7 @@ def test_overnight_then_day_shift_rotation(client):
                json={"default_shift_id": day["id"], "effective_from": "2026-01-01"},
                headers=_h(token))
     # 15/06 khai CA KHUYA (đè ca nền); 16/06 để trống → kế thừa ca ngày.
-    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": "2026-06-15",
+    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": f"{_PMS}-15",
                                 "action": "set", "shift_id": night["id"]}])
 
     utc = _tz.utc
@@ -515,18 +526,18 @@ def test_overnight_then_day_shift_rotation(client):
         arepo = AttendanceRepository(db)
         # Ca khuya 15/06: VÀO 22:00 VN (15:00 UTC), RA 06:00 VN ngày 16 (23:00 UTC ngày 15).
         arepo.create_log(employee_id=emp["id"], check_type="in",
-                         checked_at=datetime(2026, 6, 15, 15, 0, tzinfo=utc), within_range=True)
+                         checked_at=datetime(_PY, _PM, 15, 15, 0, tzinfo=utc), within_range=True)
         arepo.create_log(employee_id=emp["id"], check_type="out",
-                         checked_at=datetime(2026, 6, 15, 23, 0, tzinfo=utc), within_range=True)
+                         checked_at=datetime(_PY, _PM, 15, 23, 0, tzinfo=utc), within_range=True)
         # Ca ngày 16/06: VÀO 08:00 VN (01:00 UTC), RA 17:00 VN (10:00 UTC).
         arepo.create_log(employee_id=emp["id"], check_type="in",
-                         checked_at=datetime(2026, 6, 16, 1, 0, tzinfo=utc), within_range=True)
+                         checked_at=datetime(_PY, _PM, 16, 1, 0, tzinfo=utc), within_range=True)
         arepo.create_log(employee_id=emp["id"], check_type="out",
-                         checked_at=datetime(2026, 6, 16, 10, 0, tzinfo=utc), within_range=True)
+                         checked_at=datetime(_PY, _PM, 16, 10, 0, tzinfo=utc), within_range=True)
     finally:
         db.close()
 
-    ts = client.get("/api/attendance/timesheet?year=2026&month=6", headers=_h(token)).json()
+    ts = client.get(f"/api/attendance/timesheet?year={_PY}&month={_PM}", headers=_h(token)).json()
     row = next(r for r in ts["rows"] if r["employee_id"] == emp["id"])
     assert row["days"]["15"]["cong"] == 1.0, row["days"]["15"]
     assert row["days"]["16"]["cong"] == 1.0, row["days"]["16"]
@@ -548,10 +559,10 @@ def test_shift_plan_bulk_set_off_inherit(client):
                headers=_h(token))
 
     res = _save_plan(client, token, [
-        {"employee_id": emp["id"], "work_date": "2026-06-01", "action": "set",
+        {"employee_id": emp["id"], "work_date": f"{_PMS}-01", "action": "set",
          "shift_id": night["id"]},
-        {"employee_id": emp["id"], "work_date": "2026-06-02", "action": "off"},
-        {"employee_id": emp["id"], "work_date": "2026-06-03", "action": "inherit"},
+        {"employee_id": emp["id"], "work_date": f"{_PMS}-02", "action": "off"},
+        {"employee_id": emp["id"], "work_date": f"{_PMS}-03", "action": "inherit"},
     ])
     assert res["saved"] == 2 and res["cleared"] == 0 and res["rejected"] == []
 
@@ -569,7 +580,7 @@ def test_shift_plan_bulk_set_off_inherit(client):
     assert row["no_default"] is False
 
     # inherit trên ô ĐANG khai → xóa, quay về mốc
-    res2 = _save_plan(client, token, [{"employee_id": emp["id"], "work_date": "2026-06-01",
+    res2 = _save_plan(client, token, [{"employee_id": emp["id"], "work_date": f"{_PMS}-01",
                                        "action": "inherit"}])
     assert res2["cleared"] == 1
     row2, _ = _plan_row(client, token, emp["id"])
@@ -585,7 +596,7 @@ def test_shift_plan_rejects_bad_cells_with_reason(client):
     res = _save_plan(client, token, [
         {"employee_id": emp["id"], "work_date": "2026-07-01", "action": "set",
          "shift_id": shift["id"]},
-        {"employee_id": emp["id"], "work_date": "2026-06-05", "action": "set",
+        {"employee_id": emp["id"], "work_date": f"{_PMS}-05", "action": "set",
          "shift_id": 999999},
     ])
     assert res["saved"] == 0 and len(res["rejected"]) == 2
@@ -624,7 +635,7 @@ def test_shift_plan_matches_engine_before_first_milestone(client):
                json={"default_shift_id": shift["id"], "effective_from": "2026-06-15"},
                headers=_h(token))
 
-    row, _ = _plan_row(client, token, emp["id"])
+    row, _ = _plan_row(client, token, emp["id"], year=2026, month=6)
     assert row["days"]["14"]["shift_id"] is None, row["days"]["14"]   # trước mốc → KHÔNG ca
     assert row["days"]["14"]["source"] == "none"
     assert row["days"]["15"]["shift_id"] == shift["id"]               # từ mốc → có ca
@@ -656,7 +667,7 @@ def test_delete_shift_blocked_when_used_only_by_shift_plan(client):
     token = _admin_token(client)
     shift = _mk_shift(client, token, "Ca chỉ trong lưới", "13:00", "21:00")
     emp = _mk_emp(client, token, "NV Lưới Only")
-    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": "2026-06-20",
+    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": f"{_PMS}-20",
                                 "action": "set", "shift_id": shift["id"]}])
     assert client.delete(f"/api/attendance/shifts/{shift['id']}",
                          headers=_h(token)).status_code == 400
@@ -680,21 +691,24 @@ def test_timesheet_marks_planned_off_without_touching_cong(client):
         arepo = AttendanceRepository(db)
         # Làm đủ ngày 08/06 (08:00–17:00 VN = 01:00–10:00 UTC)
         arepo.create_log(employee_id=emp["id"], check_type="in",
-                         checked_at=datetime(2026, 6, 8, 1, 0, tzinfo=_tz.utc), within_range=True)
+                         checked_at=datetime(_PY, _PM, 8, 1, 0, tzinfo=_tz.utc), within_range=True)
         arepo.create_log(employee_id=emp["id"], check_type="out",
-                         checked_at=datetime(2026, 6, 8, 10, 0, tzinfo=_tz.utc), within_range=True)
+                         checked_at=datetime(_PY, _PM, 8, 10, 0, tzinfo=_tz.utc), within_range=True)
     finally:
         db.close()
     # 10/06 khai NGHỈ theo lịch (không chấm công ngày này)
-    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": "2026-06-10",
+    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": f"{_PMS}-10",
                                 "action": "off"}])
 
-    ts = client.get("/api/attendance/timesheet?year=2026&month=6", headers=_h(token)).json()
+    ts = client.get(f"/api/attendance/timesheet?year={_PY}&month={_PM}", headers=_h(token)).json()
     row = next(r for r in ts["rows"] if r["employee_id"] == emp["id"])
     assert row["days"]["10"]["planned_off"] is True
     assert row["days"]["10"]["cong"] is None          # nghỉ → không công
     assert row["days"]["8"]["planned_off"] is False
-    assert row["total_cong"] == 1.0                   # chỉ ngày đã làm, dấu nghỉ không cộng gì
+    # Dấu nghỉ (ngày 10) KHÔNG cộng công. Tháng có thể có ngày LỄ (vd 02/09) cộng thêm — đó là việc
+    # khác; điều cần khoá: chỉ ngày ĐÃ LÀM (8) + lễ mới vào total, ngày planned_off thì không.
+    hol = sum(v["cong"] for v in row["days"].values() if v.get("holiday") and v.get("cong"))
+    assert row["total_cong"] == 1.0 + hol
 
 
 def test_set_base_shift_bulk_creates_history(client):
@@ -832,7 +846,7 @@ def test_shift_plan_forbidden_without_permission(client):
                       headers=_h(token)).status_code == 403
     assert client.put("/api/attendance/shift-plan",
                       json={"year": 2026, "month": 6,
-                            "cells": [{"employee_id": 1, "work_date": "2026-06-01",
+                            "cells": [{"employee_id": 1, "work_date": f"{_PMS}-01",
                                        "action": "off"}]},
                       headers=_h(token)).status_code == 403
 

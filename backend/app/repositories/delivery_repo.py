@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.delivery import (
@@ -24,6 +24,7 @@ from ..models.delivery import (
     YC_DA_HUY,
     DeliveryRequest,
     DeliveryRequestLine,
+    DeliveryKmBracket,
     DeliveryStatusHistory,
     DeliveryTrip,
     DeliveryTripAttachment,
@@ -205,10 +206,15 @@ class DeliveryRepository:
         Định nghĩa "trùng" nằm đúng ở đây, một chỗ duy nhất (PRD §6): hai khoảng giao nhau khi
         `bat_dau < ket_thuc_cu` VÀ `ket_thuc > bat_dau_cu`. Chạm mép (giao xong lúc 10:00, lấy
         hàng chuyến sau lúc 10:00) KHÔNG tính là trùng — dùng `<` chứ không `<=`.
+
+        ⭐ Soi CẢ HAI VAI (mg 0231): người đang làm PHỤ XE ở chuyến khác cũng là người đang bận.
+        Lọc mỗi `employee_id` thì họ vô hình — xếp được hai chuyến cùng giờ, và kíp xe là thứ
+        SINH RA TIỀN nên đó là trả hai chuyến cho cùng một khoảng thời gian.
         """
         q = (
             select(DeliveryTrip)
-            .where(DeliveryTrip.employee_id == employee_id,
+            .where(or_(DeliveryTrip.employee_id == employee_id,
+                       DeliveryTrip.phu_xe_employee_id == employee_id),
                    DeliveryTrip.trang_thai.in_(LAN_GIAO_DANG_CHAY),
                    DeliveryTrip.gio_lay_hang < ket_thuc,
                    DeliveryTrip.gio_du_kien_giao > bat_dau)
@@ -263,3 +269,42 @@ class DeliveryRepository:
             .where(DeliveryStatusHistory.trip_id == trip_id)
             .order_by(DeliveryStatusHistory.id)
         ).scalars().all())
+
+    # --- Bậc đơn giá khoán km (mg-free, theo phòng ban) ------------------------------------
+    def brackets_cua_phong(self, department_id: int) -> list[DeliveryKmBracket]:
+        """Các bậc của một phòng, xếp theo `seq`. Bậc `up_to_km IS NULL` (∞) luôn ở cuối."""
+        return list(self.db.execute(
+            select(DeliveryKmBracket)
+            .where(DeliveryKmBracket.department_id == department_id)
+            .order_by(DeliveryKmBracket.seq)
+        ).scalars().all())
+
+    def ghi_lai_brackets(self, department_id: int, rows: list[dict]) -> None:
+        """Xoá sạch rồi ghi mới — bảng bậc là một khối, sửa cả cụm chứ không từng dòng."""
+        self.db.execute(
+            DeliveryKmBracket.__table__.delete().where(
+                DeliveryKmBracket.department_id == department_id
+            )
+        )
+        for i, r in enumerate(rows, start=1):
+            self.db.add(DeliveryKmBracket(
+                department_id=department_id, seq=i,
+                up_to_km=r.get("up_to_km"), don_gia=r["don_gia"],
+            ))
+        self.db.flush()
+
+    def tra_don_gia_km(self, department_id: int, km: int) -> float | None:
+        """Đơn giá của bậc mà `km` rơi vào. None = phòng CHƯA khai bậc nào (nơi gọi tự fallback).
+
+        Bậc đầu tiên (theo seq) có `km ≤ up_to_km` thắng; `up_to_km IS NULL` là bậc ∞ nên luôn
+        khớp — miễn nó đứng cuối, mà `ghi_lai_brackets` đánh seq tăng dần theo thứ tự người dùng
+        xếp, nên UI phải để bậc ∞ ở cuối (FE có chặn).
+        """
+        rows = self.brackets_cua_phong(department_id)
+        if not rows:
+            return None
+        for b in rows:
+            if b.up_to_km is None or int(km) <= b.up_to_km:
+                return float(b.don_gia)
+        # Không có bậc ∞ và km vượt mọi trần: dùng bậc cao nhất — thà trả hơn là trả 0 âm thầm.
+        return float(rows[-1].don_gia)

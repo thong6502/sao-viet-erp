@@ -330,3 +330,11 @@
   cursor: pointer;
   white-space: nowrap;
 }
+
+/* Nhãn "(không bắt buộc)" cạnh tên ô — nhạt hơn nhãn chính để không tranh chỗ với nó, nhưng vẫn
+   đọc được. Không dùng `opacity` vì nó làm mờ cả trên nền tối. */
+.gh-opt {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--muted, #6b7280);
+}
