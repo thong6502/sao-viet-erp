@@ -44,8 +44,12 @@ const NO_DA_BIET: Record<string, number> = {
   //   · 1 cái là NỢ THẬT: `.rc-drawer__kicker` khai toàn cục, tô thẳng đầu drawer của danh mục.
   //     Nó nhập vào đúng khối .rc-drawer / .rc-drawer__head / .rc-drawer__scrim đã nằm trong nợ
   //     từ trước, nên chưa gỡ riêng được — gỡ thì gỡ cả khối, ghi lại đây để không quên.
+  // 37→40 khi dựng tiếp Báo cáo/Điều chuyển + drawer lịch sử (24/08/2026): thêm override khối
+  //   `.rc-sec`/`.rc-sec__title` cho card dashboard (`.kho-dash .rc-sec…`) + tiêu đề section drawer.
+  //   NỢ THẬT nên trả sau: chuyển các section kho sang class `kho-*` riêng thay vì đè lên `.rc-sec`
+  //   dùng chung. (Bảng tồn/phiếu/điều chuyển set width:100% KHÔNG đụng rc-* — không tính vào đây.)
   // Vẫn chỉ được CO LẠI từ đây.
-  "./kho-request.css": 37,
+  "./kho-request.css": 40,
   // .rc-drawer__kicker trong .khvt-drawer__head (màn Kế hoạch vật tư tái dùng đầu drawer của rc, có chủ đích).
   "./ke-hoach-sx.css": 1,
   "./ky-thuat-may.css": 1,  // .rc__tab.is-qua-han — hex cứng thay token
