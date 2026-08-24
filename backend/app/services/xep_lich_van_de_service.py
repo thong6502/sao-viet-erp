@@ -31,7 +31,7 @@ from ..repositories.xep_lich_repo import XepLichRepository
 from ..repositories.xep_lich_van_de_repo import XepLichVanDeRepository
 from .xep_lich_service import (
     PHUT_LAM_NGAY, XepLichConflict, XepLichNotFound, XepLichService,
-    _aware, _cuoi_ngay, _dau_ngay, _naive, _utcnow,
+    _aware, _cuoi_ngay, _dau_ngay, _gio_xuong, _naive, _utcnow,
 )
 
 # --- Mức: CHỈ 2 (18/08/2026, gộp từ 4) ---
@@ -395,7 +395,7 @@ class XepLichVanDeService:
     def _qua_tai_may(self, rows: list[dict]) -> list[dict]:
         """Tổng giờ đã xếp / giờ khả dụng của 1 máy trong CỬA SỔ 7 ngày tới (Cao/Cảnh báo). Khác
         trùng-máy: từng thanh Gantt chưa chồng nhau nhưng TỔNG tải vượt công suất → nguy cơ trễ."""
-        today = _utcnow().date()
+        today = _gio_xuong().date()
         den = today + timedelta(days=TAI_CUA_SO_NGAY - 1)
         win_s, win_e = _dau_ngay(today), _dau_ngay(today + timedelta(days=TAI_CUA_SO_NGAY))
         by_may: dict[int, list[dict]] = {}

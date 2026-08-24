@@ -1,5 +1,5 @@
 """Trạng thái máy LÚC NÀY (dẫn xuất từ vùng khoá + lệnh đang chạy). In-memory DB."""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -35,7 +35,9 @@ def _may(db, *, ma="IN-01") -> MayThietBi:
 
 def _khoa(db, may_id: int, *, ly_do: str, kieu: str = KIEU_CHAN, gio_con_lai: float = 3,
           note: str | None = None) -> None:
-    now = datetime.now(timezone.utc)
+    # Giờ TƯỜNG của xưởng: cột `unavailable_from/to` lưu wall-clock dán nhãn UTC, nên mốc dựng
+    # trong test phải cùng gốc với `mtt._gio_xuong()` mà service đem ra so (sửa 22/08/2026).
+    now = mtt._gio_xuong()
     db.add(MachineUnavailablePeriod(
         may_id=may_id, kieu=kieu, reason=ly_do, note=note,
         unavailable_from=now - timedelta(hours=1),
@@ -103,7 +105,9 @@ def test_vung_khoa_DE_len_lenh_dang_chay(monkeypatch):
 def test_khoang_da_het_gio_thi_may_tro_lai_binh_thuong():
     db = _db()
     may = _may(db)
-    now = datetime.now(timezone.utc)
+    # Giờ TƯỜNG của xưởng: cột `unavailable_from/to` lưu wall-clock dán nhãn UTC, nên mốc dựng
+    # trong test phải cùng gốc với `mtt._gio_xuong()` mà service đem ra so (sửa 22/08/2026).
+    now = mtt._gio_xuong()
     db.add(MachineUnavailablePeriod(
         may_id=may.id, kieu=KIEU_CHAN, reason=LY_DO_HONG_HOC,
         unavailable_from=now - timedelta(hours=5), unavailable_to=now - timedelta(hours=1),
@@ -121,7 +125,7 @@ def test_nhieu_khoang_chong_nhau_giu_cai_mo_khoa_MUON_nhat():
     _khoa(db, may.id, ly_do=LY_DO_HONG_HOC, gio_con_lai=6)
     den = mtt.trang_thai_may(db, [may.id])[may.id]["den"]
     assert den is not None
-    # `den` là NAIVE nhưng mang giá trị UTC (quy ước đầu ra của Xếp lịch: FE `new Date(iso)`
-    # không được dịch múi). So với `datetime.now()` local là lệch đúng 7 tiếng.
-    bay_gio = datetime.now(timezone.utc).replace(tzinfo=None)
+    # `den` là NAIVE nhưng mang GIỜ TƯỜNG của xưởng (quy ước đầu ra của Xếp lịch: FE
+    # `new Date(iso)` không được dịch múi) — so bằng chính đồng hồ tường, không phải UTC.
+    bay_gio = mtt._gio_xuong().replace(tzinfo=None)
     assert (den - bay_gio) > timedelta(hours=5)

@@ -1712,15 +1712,21 @@ def seed_work_shifts(db: Session) -> None:
     repo = AttendanceRepository(db)
     if repo.list_shifts():
         return
+    # `ca_san_xuat`: ca nào CÓ người đứng máy ⇒ vào lịch xưởng và làm mẫu số đo tải máy. Hành
+    # chính là ca VĂN PHÒNG — vẫn chấm công bình thường nhưng không phải giờ sản xuất (mg 0227).
     shifts = {
         "Hành chính": repo.create_shift(name="Hành chính", start_minute=8 * 60, end_minute=17 * 60,
-                                        is_overnight=False, grace_minutes=5, is_active=True),
+                                        is_overnight=False, grace_minutes=5, is_active=True,
+                                        ca_san_xuat=False),
         "Ca 1": repo.create_shift(name="Ca 1", start_minute=6 * 60, end_minute=14 * 60,
-                                  is_overnight=False, grace_minutes=5, is_active=True),
+                                  is_overnight=False, grace_minutes=5, is_active=True,
+                                  ca_san_xuat=True),
         "Ca 2": repo.create_shift(name="Ca 2", start_minute=14 * 60, end_minute=22 * 60,
-                                  is_overnight=False, grace_minutes=5, is_active=True),
+                                  is_overnight=False, grace_minutes=5, is_active=True,
+                                  ca_san_xuat=True),
         "Ca 3": repo.create_shift(name="Ca 3", start_minute=22 * 60, end_minute=6 * 60,
-                                  is_overnight=True, grace_minutes=5, is_active=True),
+                                  is_overnight=True, grace_minutes=5, is_active=True,
+                                  ca_san_xuat=True),
     }
     assign = {
         "Trần Văn An": "Hành chính", "Lê Thị Bình": "Hành chính", "Phạm Minh Cường": "Hành chính",

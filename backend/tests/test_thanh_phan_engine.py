@@ -845,9 +845,9 @@ def test_chua_tach_chieu_nhip_khong_an_chieu_rong():
     rồi trừ đều hai chiều (20/20) là cách màn lệnh sản xuất từng làm."""
     from app.services.thanh_phan_engine import chua_theo_chieu
 
-    # NGUỒN = danh mục MÁY. `gripper_mm` là nhíp KẼM, KHÔNG được dùng.
+    # NGUỒN = danh mục MÁY. Chỉ nhíp GIẤY vào chiều dài; mép nhíp bản kẽm KHÔNG được dùng.
     assert chua_theo_chieu(
-        {"nhip_giay_mm": 10, "duoi_thang_mau_mm": 5, "le_hong_mm": 5, "gripper_mm": 44}
+        {"nhip_giay_mm": 10, "duoi_thang_mau_mm": 5, "le_hong_mm": 5}
     ) == (15, 10)
     assert chua_theo_chieu(
         {"nhip_giay_mm": 8, "duoi_thang_mau_mm": 4, "le_hong_mm": 3}

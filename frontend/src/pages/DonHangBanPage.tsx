@@ -115,7 +115,9 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
   // `create` KHÔNG còn được dùng ở màn này (đơn sinh từ Báo giá) — quyền vẫn tồn tại, gác ở đó.
   const canUpdate = can("don_hang_ban", "update");
   const canRecordDeposit = can("don_hang_ban", "record_deposit");
-  const canApproveException = can("don_hang_ban", "approve_exception");
+  // Hủy đơn đã chốt MẶC ĐỊNH BẬT cho vai có Sửa đơn (gỡ công tắc `approve_exception` 24/08/2026;
+  // luồng "duyệt đơn đặc thù" vốn đã bỏ nên cờ này giờ chỉ còn gác việc hủy đơn đã chốt).
+  const canApproveException = true;
   const canManageStatus = can("don_hang_ban", "manage_status");
 
   const [tab, setTab] = useState("all");

@@ -21,11 +21,15 @@ import {
   n,
   nhanDonVi,
   phut,
+  tenBuoc,
   thoiLuong,
   thoiLuongLive,
 } from "./lsxBuoc";
 
-const LOAI_BUOC_ORDER: LsxLoaiBuoc[] = ["may", "to", "thue_ngoai"];
+// "Thuê ngoài" GỠ khỏi nút chọn theo yêu cầu — xưởng không đưa việc ra ngoài qua màn này.
+// Vẫn CHỪA nút khi bước ĐÃ lỡ đặt thuê-ngoài (dữ liệu cũ) để toggle không rơi vào trạng thái
+// trống không đổi được — người dùng thấy nó đang bật và chuyển về Máy/Tổ được.
+const LOAI_BUOC_ORDER: LsxLoaiBuoc[] = ["may", "to"];
 
 /** Gom máy theo `loai_may`.
  *  Xưởng có ~24 máy đủ loại (bế, bồi, UV, cán, in) — đổ phẳng thì gán máy bế cho bước ghi kẽm
@@ -91,7 +95,6 @@ export function LsxBuocDrawer({
   onPatch,
   onPatchLsx,
   onDoiCongDoan,
-  onDoiTo,
   onDoiMay,
   onGiaoNhan,
   tabDau,
@@ -132,7 +135,6 @@ export function LsxBuocDrawer({
   onPatchLsx?: (p: { so_luong_dat?: number }) => void;
   /** Đổi công đoạn: kéo lại toàn bộ mặc định của công đoạn mới (giữ SL vào/ra). */
   onDoiCongDoan: (congDoanId: number | null) => void;
-  onDoiTo: (departmentId: number | null) => void;
   /** Đổi máy: kíp đứng máy lấy theo danh mục Máy NGAY, rồi hỏi server thời lượng mới. Không đi
    *  qua `onPatch` vì hai số đó không nằm trong form — chúng tới từ máy vừa chọn. */
   onDoiMay: (mayId: number | null) => void;
@@ -226,10 +228,19 @@ export function LsxBuocDrawer({
   const mayForm = mayRefs?.find((m) => m.id === row.may_id) ?? null;
   const t = useMemo(() => thoiLuong(row, mayForm), [row, mayForm]);
   const tg = useMemo(() => thoiLuongLive(row, mayForm), [row, mayForm]);
-  const nhomMay = useMemo(
-    () => (mayRefs ? nhomMayTheoLoai(mayRefs) : []),
-    [mayRefs],
-  );
+  // Máy chọn được LỌC theo "Máy làm được công đoạn này" khai ở danh mục Công đoạn (loai_may). Cùng
+  // luật engine xếp lịch `_may_lam_duoc`: rỗng/không khai ⇒ nhận mọi máy; có khai ⇒ chỉ máy đúng
+  // nhóm, NHƯNG vẫn GIỮ máy đang gán dù sai loại (dữ liệu cũ) để không âm thầm bỏ lựa chọn hiện có.
+  const nhomMay = useMemo(() => {
+    if (!mayRefs) return [];
+    const allow =
+      congDoanRefs?.find((c) => c.id === row.cong_doan_id)?.nhomMayChoPhep ?? null;
+    if (!allow || allow.length === 0) return nhomMayTheoLoai(mayRefs);
+    const loc = mayRefs.filter(
+      (m) => (m.nhom != null && allow.includes(m.nhom)) || m.id === row.may_id,
+    );
+    return nhomMayTheoLoai(loc);
+  }, [mayRefs, congDoanRefs, row.cong_doan_id, row.may_id]);
 
   // Đầu việc khoán chọn được: danh sách server gửi + giữ cả đầu việc ĐANG ghim dù nó không còn khớp
   const dsKhoan = useMemo(() => {
@@ -449,7 +460,7 @@ export function LsxBuocDrawer({
                 tabIndex={-1}
                 ref={titleRef}
               >
-                {row.ten || "Công đoạn chưa đặt tên"}
+                {tenBuoc(row, congDoanRefs) || "Công đoạn chưa đặt tên"}
               </h2>
             </div>
 
@@ -567,7 +578,10 @@ export function LsxBuocDrawer({
                   <div className="khsx-field">
                     <span className="khsx-field__label">LOẠI BƯỚC THỰC HIỆN</span>
                     <div className="khsx-seg-std" role="group" aria-label="Loại bước">
-                      {LOAI_BUOC_ORDER.map((k) => {
+                      {(row.loai_buoc === "thue_ngoai"
+                        ? [...LOAI_BUOC_ORDER, "thue_ngoai" as LsxLoaiBuoc]
+                        : LOAI_BUOC_ORDER
+                      ).map((k) => {
                         const m = LSX_LOAI_BUOC_META[k];
                         return (
                           <button
@@ -780,28 +794,21 @@ export function LsxBuocDrawer({
                     </div>
 
                     <div className="khsx-assign-grid">
-                      <label className="khsx-field">
+                      {/* TỔ PHỤ TRÁCH — CHỈ ĐỌC. Tổ khai một chỗ ở danh mục Công đoạn; drawer chỉ
+                          bày lại, không cho đổi (chủ 22/08/2026). Đổi công đoạn ⇒ tổ tự theo. */}
+                      <div className="khsx-field">
                         <span className="khsx-field__label">TỔ PHỤ TRÁCH</span>
-                        {toRefs ? (
-                          <select
-                            className="khsx-select-std"
-                            value={row.department_id ?? ""}
-                            disabled={!canUpdate}
-                            onChange={(e) =>
-                              onDoiTo(e.target.value ? Number(e.target.value) : null)
-                            }
-                          >
-                            <option value="">— tổ mặc định của công đoạn —</option>
-                            {toRefs.map((t2) => (
-                              <option key={t2.id} value={t2.id}>
-                                {t2.ten}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="khsx-val-text">Tổ mặc định</span>
-                        )}
-                      </label>
+                        <span className="khsx-val-text">
+                          {(row.department_id != null
+                            ? toRefs?.find((t2) => t2.id === row.department_id)?.ten
+                            : null) ??
+                            row.department_ten ??
+                            "Theo mặc định của công đoạn"}
+                        </span>
+                        <span className="khsx-field__hint">
+                          Khai ở danh mục Công đoạn — đổi tổ tại đó.
+                        </span>
+                      </div>
 
                       {/* Máy sản xuất (chỉ với bước MÁY) */}
                       {row.loai_buoc !== "to" && (
@@ -979,7 +986,7 @@ export function LsxBuocDrawer({
                           {dsKhoan.map((k) => (
                             <option key={k.id} value={k.id}>
                               {k.don_vi
-                                ? `${k.ten} — ${num(k.don_gia)} đ/${k.don_vi}`
+                                ? `${k.ten} — ${num(k.don_gia)} đ/${dvNhanChung(k.don_vi)}`
                                 : k.ten}
                             </option>
                           ))}

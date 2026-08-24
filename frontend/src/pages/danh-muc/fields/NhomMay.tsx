@@ -9,6 +9,7 @@ import { useAuth } from "../../../auth/useAuth";
 import { useCan } from "../../../auth/permissions";
 import { ApiError } from "../../../api/client";
 import { crud } from "../../../api/rebuildCatalog";
+import { LockIcon } from "../icons";
 import type { Row } from "../types";
 
 // ⚠️ HẰNG CẤP MODULE, cố ý. Nhét vào `useMemo` trong component thì mỗi lần render ra một object
@@ -77,13 +78,26 @@ export function NhomMayField({
           {loi && <div className="rc-dvtd__err">{loi}</div>}
           <div className="rc-dvtd__chips">
             {options.length === 0 && <span className="badge-sem badge-sem--muted">Chưa có nhóm máy nào.</span>}
-            {options.map((o) => (
-              <span key={o.id} className="rc-dvtd__chip">
-                {String(o.ten)}
-                <button type="button" disabled={ban} title="Xoá nhóm (chỉ được khi không còn máy nào dùng)"
-                  onClick={() => xoa(o)}>×</button>
-              </span>
-            ))}
+            {options.map((o) => {
+              // Nhóm HỆ THỐNG (vd "Máy in"): bình bài & tính giá bám vào ⇒ khoá, thay × bằng ổ khoá.
+              const heThong = Boolean(o.he_thong);
+              return (
+                <span key={o.id}
+                  className={`rc-dvtd__chip${heThong ? " rc-dvtd__chip--locked" : ""}`}>
+                  {String(o.ten)}
+                  {heThong ? (
+                    <span className="rc-dvtd__lock"
+                      title="Nhóm hệ thống — bình bài & tính giá bám vào, không xoá được">
+                      <LockIcon size={11} />
+                    </span>
+                  ) : (
+                    <button type="button" disabled={ban}
+                      title="Xoá nhóm (chỉ được khi không còn máy nào dùng)"
+                      onClick={() => xoa(o)}>×</button>
+                  )}
+                </span>
+              );
+            })}
           </div>
           <div className="rc-dvtd__row">
             <input className="rc-input" value={tenMoi} disabled={ban}

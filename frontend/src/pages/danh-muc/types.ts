@@ -16,6 +16,11 @@ export interface FieldDef {
    *  hỏi hai câu khác nhau — "Công thức tính giá" (ra tiền) vs "Công thức tính lượng" (ra lượng,
    *  cần chip `sl_vao`/`sl_ra`, không cần chip đơn giá). */
   loaiO?: string;
+  /** Ô `formula`: NHÃN của tab công thức chứa ô này. Cho phép MỘT màn tách nhiều tab công thức
+   *  riêng — vd Giấy: ô `cong_thuc_gia` vào tab "Công thức tính giá", ô `cong_thuc_luong` vào tab
+   *  "Công thức tính lượng". Ô công thức KHÔNG khai `nhanTab` rơi vào tab mặc định (nhãn
+   *  `config.nhanTabCongThuc`, mặc định "Công thức tính giá") — nên màn 1 tab như cũ giữ nguyên. */
+  nhanTab?: string;
   refPrefix?: string;           // ref / ref-multi / ref-search: endpoint danh mục nguồn (đổ theo TÊN/MÃ)
   /** Query thêm khi nạp danh mục nguồn, vd `{ active: true }` — không lọc thì picker mời cả dòng
    *  đã ngừng dùng, người ta chọn xong bấm Lưu mới ăn lỗi từ server. */
@@ -41,9 +46,16 @@ export interface ColumnDef {
 
 export interface FacetDef {
   key: string;                  // field lọc (vd "nhom")
-  values: { value: string; label: string }[];
-  /** Nhóm máy do xưởng tự đặt: sinh thêm tab cho giá trị có thật trong dữ liệu mà
-   *  `values` chưa liệt kê — khai cứng sẽ bỏ sót nhóm người dùng tự đặt. */
+  /** Tab khai CỨNG — chỉ dùng khi tập giá trị nằm trong code ở CẢ HAI đầu (vd `hang_loai` của
+   *  Kho: thêm một loại là phải sửa backend). Màn nào lọc theo một danh mục người dùng khai
+   *  được thì bỏ trống ô này và khai `source`. */
+  values?: { value: string; label: string }[];
+  /** DANH MỤC THẬT sinh ra tab (vd `/api/nhom-may` — chính nguồn đổ ô chọn trong drawer). Có
+   *  `source` thì hàng tab bày đúng danh sách người dùng đang khai, kể cả mục chưa có dòng nào
+   *  (số 0): nhóm vừa tạo mà không thấy tab đâu thì người khai tưởng nó không lưu được. */
+  source?: string;
+  /** Nối thêm tab cho giá trị CÓ THẬT trong dữ liệu mà `values`/`source` chưa liệt kê. Cần cho
+   *  cột lưu CHỮ tự do: dòng cũ mang tên nhóm đã gỡ khỏi danh mục vẫn phải có lối lọc tới. */
   dynamic?: boolean;
 }
 

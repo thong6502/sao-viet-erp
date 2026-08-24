@@ -60,6 +60,9 @@ const SOURCE_STATUS_META: Record<
   needs_correction: { label: "Cần Thu mua chỉnh sửa", tone: "rejected" },
   in_purchase: { label: "Đang mua", tone: "pending" },
   done: { label: "Hoàn tất", tone: "received" },
+  // Tông HỔ PHÁCH, không phải tông "đã hủy" (đỏ/xám): yêu cầu VẪN CÒN SỐNG, chỉ rụng vài món.
+  // Dùng chung tông với "Đã hủy" là người đọc lướt tưởng cả phiếu chết, thôi không xử lý nữa.
+  partially_cancelled: { label: "Hủy một phần", tone: "partial" },
   cancelled: { label: "Đã hủy", tone: "cancelled" },
 };
 
@@ -93,6 +96,14 @@ function noiDungCu(purpose: string | null, note: string | null): string {
 
 function noiDung(row: DepartmentPurchaseRequestRow): string {
   return row.content?.trim() || noiDungCu(row.purpose, row.note);
+}
+
+/** Món CÒN SỐNG trong yêu cầu. Món bị bỏ vẫn được máy chủ trả về (kèm ai bỏ · lúc nào · vì sao)
+ *  để còn tra lại, nên mọi chỗ đếm/xem-trước phải lọc, không thì con số phồng lên vô nghĩa. */
+function dongSong(
+  row: DepartmentPurchaseRequestRow,
+): DepartmentPurchaseRequestLineOut[] {
+  return row.lines.filter((line) => !line.cancelled_at);
 }
 
 function todayInputValue(): string {
@@ -166,6 +177,11 @@ export function DepartmentPurchaseRequestsPage({
     null,
   );
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  /** Đang hỏi bỏ MỘT MÓN khỏi yêu cầu (mg 0233). Lý do bắt buộc — máy chủ trả 422 nếu trống, nên
+   *  khoá luôn nút Xác nhận ở đây để người dùng không phải bấm mới biết. */
+  const [boMon, setBoMon] = useState<
+    { line: DepartmentPurchaseRequestLineOut; reason: string; error: string | null } | null
+  >(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const minNeededDate = useMemo(() => todayInputValue(), []);
 
@@ -175,6 +191,14 @@ export function DepartmentPurchaseRequestsPage({
     () => rows.find((row) => row.id === selectedId) ?? null,
     [rows, selectedId],
   );
+  /** Có bày cột "Bỏ món" trong bảng chi tiết không. Cùng luật với nút Huỷ yêu cầu: người tạo VÀ
+   *  có ô Thao tác, hoặc có quyền huỷ. Từng dòng còn bị máy chủ chặn tiếp qua `can_cancel`. */
+  const boMonDuoc = useMemo(() => {
+    if (!selected || selected.status === "cancelled") return false;
+    return (
+      canAdminCancel || (canUpdate && selected.requested_by_user_id === user?.id)
+    );
+  }, [selected, canAdminCancel, canUpdate, user?.id]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -290,14 +314,19 @@ export function DepartmentPurchaseRequestsPage({
       content: row.content ?? noiDungCu(row.purpose, row.note),
       needed_date: row.needed_date,
       note: null,
-      lines: row.lines.map((line) => ({
-        hang_loai: line.hang_loai,
-        hang_id: line.hang_id,
-        item_name: line.item_name,
-        unit: line.unit,
-        quantity: line.quantity,
-        note: line.note,
-      })),
+      // Món ĐÃ BỎ không vào form sửa: nó là vết đã đóng, sửa lại là mở một cuộc huỷ đã kết thúc.
+      // Máy chủ giữ nguyên các dòng đó khi nhận PUT (xem `purchase_repo.update`), nên không gửi
+      // lên không có nghĩa là xoá.
+      lines: row.lines
+        .filter((line) => !line.cancelled_at)
+        .map((line) => ({
+          hang_loai: line.hang_loai,
+          hang_id: line.hang_id,
+          item_name: line.item_name,
+          unit: line.unit,
+          quantity: line.quantity,
+          note: line.note,
+        })),
     });
     setFormError(null);
     setMode(true);
@@ -407,6 +436,34 @@ export function DepartmentPurchaseRequestsPage({
       else setFormError("Không tạo được yêu cầu mua hàng.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function confirmBoMon() {
+    if (!token || !boMon || !selected) return;
+    const ly_do = boMon.reason.trim();
+    if (!ly_do) {
+      setBoMon({ ...boMon, error: "Nhập lý do bỏ món này khỏi yêu cầu." });
+      return;
+    }
+    setActionBusy(`line-cancel:${boMon.line.id}`);
+    try {
+      const saved = await api.departmentPurchaseRequests.cancelLine(
+        token,
+        selected.id,
+        boMon.line.id,
+        ly_do,
+      );
+      // Máy chủ trả về CẢ yêu cầu sau khi tính lại (trạng thái phiếu có thể đổi theo, vd món cuối
+      // bị bỏ ⇒ phiếu thành Đã hủy) — thay nguyên dòng, đừng vá tay từng ô.
+      setRows((current) => current.map((row) => (row.id === saved.id ? saved : row)));
+      setBoMon(null);
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : "Không bỏ được món này khỏi yêu cầu.";
+      setBoMon((current) => (current ? { ...current, error: message } : current));
+    } finally {
+      setActionBusy(null);
     }
   }
 
@@ -591,16 +648,16 @@ export function DepartmentPurchaseRequestsPage({
                     </div>
                   </td>
                   <td>{fmtDate(row.needed_date)}</td>
-                  <td
-                    title={row.lines.map((line) => line.item_name).join(", ")}
-                  >
-                    <strong>{row.lines.length} dòng</strong>
+                  <td title={row.lines.map((line) => line.item_name).join(", ")}>
+                    {/* Đếm theo món CÒN SỐNG: món đã bỏ vẫn nằm trong `lines` (giữ vết ai bỏ, lý do
+                        gì) nhưng không còn là việc phải mua, kể chung vào "N dòng" là nói dối. */}
+                    <strong>{dongSong(row).length} dòng</strong>
                     <div className="md-page__muted">
-                      {row.lines
+                      {dongSong(row)
                         .slice(0, 2)
                         .map((line) => line.item_name)
                         .join(", ")}
-                      {row.lines.length > 2 ? "…" : ""}
+                      {dongSong(row).length > 2 ? "…" : ""}
                     </div>
                   </td>
                   <td>
@@ -609,6 +666,15 @@ export function DepartmentPurchaseRequestsPage({
                   </td>
                   <td>
                     <SourceStatusBadge status={row.workflow_status} />
+                    {/* "Hủy một phần" nói mất món, KHÔNG nói phần còn lại đi tới đâu — nên tiến độ
+                        thật (chờ duyệt / đang mua…) xuống dòng phụ thay vì tranh chỗ trên huy hiệu. */}
+                    {row.workflow_status === "partially_cancelled" && (
+                      <div className="md-page__muted">
+                        {SOURCE_STATUS_META[row.progress_status]?.label ?? row.progress_status} · đã
+                        bỏ {row.cancelled_line_count}/
+                        {row.cancelled_line_count + row.active_line_count} món
+                      </div>
+                    )}
                   </td>
                   <td
                     className="md-page__actions-col"
@@ -723,10 +789,14 @@ export function DepartmentPurchaseRequestsPage({
             </div>
           )}
           <p className="eyebrow">
-            Vật tư đã yêu cầu ({selected.lines.length} dòng)
+            Vật tư đã yêu cầu ({dongSong(selected).length} dòng
+            {selected.cancelled_line_count > 0
+              ? `, đã bỏ ${selected.cancelled_line_count}`
+              : ""}
+            )
           </p>
           {(() => {
-            const veDu = selected.lines.filter((l) => {
+            const veDu = dongSong(selected).filter((l) => {
               const f = l.fulfilment;
               if (!f) return false;
               // Phiếu chưa có tin về số nhận (`null`) mà đã ở bậc "đã nhận" ⇒ luật cũ: coi như đủ.
@@ -736,7 +806,7 @@ export function DepartmentPurchaseRequestsPage({
             if (veDu === 0) return null;
             return (
               <p className="md-page__muted purchase__tien-do">
-                {veDu}/{selected.lines.length} mặt hàng đã về đủ
+                {veDu}/{dongSong(selected).length} mặt hàng đã về đủ
               </p>
             );
           })()}
@@ -750,11 +820,15 @@ export function DepartmentPurchaseRequestsPage({
                 <th className="pay-num">Yêu cầu</th>
                 {/* <th>Nhà cung cấp</th> */}
                 <th>Tình trạng</th>
+                {boMonDuoc && <th className="md-page__actions-col">Thao tác</th>}
               </tr>
             </thead>
             <tbody>
               {selected.lines.map((line) => (
-                <tr key={line.id}>
+                <tr
+                  key={line.id}
+                  className={line.cancelled_at ? "purchase__dong-da-bo" : undefined}
+                >
                   <td>
                     <strong>{line.item_name}</strong>
                     {line.note && (
@@ -763,17 +837,51 @@ export function DepartmentPurchaseRequestsPage({
                         <small>{line.note}</small>
                       </>
                     )}
+                    {line.cancelled_at && (
+                      <div className="md-page__muted">
+                        Đã bỏ{line.cancelled_by_name ? ` bởi ${line.cancelled_by_name}` : ""} ·{" "}
+                        {fmtDate(line.cancelled_at)}
+                        {line.cancel_reason ? ` — ${line.cancel_reason}` : ""}
+                      </div>
+                    )}
                   </td>
                   <td className="pay-num">
                     {line.quantity.toLocaleString("vi-VN")} {line.unit}
                   </td>
                   {/* <td>{line.fulfilment?.supplier_name ?? "—"}</td> */}
                   <td>
-                    <LineFulfilmentCell
-                      line={line}
-                      coPhieu={selected.purchase_requests.length > 0}
-                    />
+                    {line.cancelled_at ? (
+                      <span className="purchase__status purchase__status--cancelled">
+                        Đã bỏ
+                      </span>
+                    ) : (
+                      <LineFulfilmentCell
+                        line={line}
+                        coPhieu={selected.purchase_requests.length > 0}
+                      />
+                    )}
                   </td>
+                  {boMonDuoc && (
+                    <td className="md-page__actions-col">
+                      {/* Món đang nằm trong một đơn mua còn sống thì KHÔNG ẩn nút — khoá lại và
+                          nói thẳng đơn nào (`cancel_block_reason` do máy chủ soạn), không thì
+                          người dùng tưởng phần mềm hỏng. */}
+                      {!line.cancelled_at && (
+                        <div className="purchase__actions purchase__actions--dense">
+                          <RowActionButton
+                            dense
+                            danger
+                            icon="ban"
+                            label={line.cancel_block_reason ?? "Bỏ món này"}
+                            disabled={!line.can_cancel}
+                            onClick={() =>
+                              setBoMon({ line, reason: "", error: null })
+                            }
+                          />
+                        </div>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -998,6 +1106,43 @@ export function DepartmentPurchaseRequestsPage({
         onConfirm={confirmCancel}
         onCancel={() => setCanceling(null)}
       />
+
+      {/* Cùng khuôn với hộp "Hủy yêu cầu" ngay trên: hộp XÁC NHẬN, không phải modal biểu mẫu —
+          đây là một câu hỏi có/không kèm ô lý do. `confirmDisabled` khoá nút cho tới khi có lý do
+          (máy chủ trả 422 nếu trống, đừng bắt người dùng bấm mới biết). */}
+      <ConfirmDialog
+        open={Boolean(boMon)}
+        title="Bỏ món này khỏi yêu cầu?"
+        message={
+          boMon && selected
+            ? // Bỏ món CUỐI CÙNG là huỷ luôn cả yêu cầu — đây là chỗ duy nhất người dùng thấy
+              // được điều đó trước khi bấm.
+              dongSong(selected).length <= 1
+              ? `"${boMon.line.item_name}" là món cuối còn lại — bỏ nó là cả yêu cầu ${selected.code} chuyển sang Đã hủy.`
+              : `"${boMon.line.item_name}" sẽ không còn được mua nữa. Các món khác trong yêu cầu vẫn chạy tiếp.`
+            : undefined
+        }
+        danger
+        confirmLabel="Bỏ món"
+        busy={boMon ? actionBusy === `line-cancel:${boMon.line.id}` : false}
+        error={boMon?.error ?? null}
+        confirmDisabled={!boMon?.reason.trim()}
+        onConfirm={confirmBoMon}
+        onCancel={() => setBoMon(null)}
+      >
+        <label className="purchase__field">
+          <span>Lý do bỏ (bắt buộc)</span>
+          <textarea
+            className="input purchase__textarea"
+            value={boMon?.reason ?? ""}
+            onChange={(e) =>
+              setBoMon((current) =>
+                current ? { ...current, reason: e.target.value, error: null } : current,
+              )
+            }
+          />
+        </label>
+      </ConfirmDialog>
     </main>
   );
 }

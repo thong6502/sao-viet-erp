@@ -1111,6 +1111,9 @@ class LsxService:
         for o in orders:
             so_dong = len(o.lines)
             so_co = sum(1 for ln in o.lines if ln.id in da_co)
+            # Tóm tắt tên các sản phẩm/hạng mục trong đơn (OrderLine.description)
+            sp_names = list(dict.fromkeys((ln.description or "").strip() for ln in o.lines if (ln.description or "").strip()))
+            san_pham_tom_tat = ", ".join(sp_names) if sp_names else None
             out.append({
                 "order_id": o.id,
                 "order_no": o.order_no,
@@ -1122,6 +1125,7 @@ class LsxService:
                 "san_xuat_released_at": o.san_xuat_released_at,
                 "so_dong": so_dong,
                 "so_dong_co_lsx": so_co,
+                "san_pham_tom_tat": san_pham_tom_tat,
             })
         return out, total
 
@@ -2785,6 +2789,12 @@ class LsxService:
         old_by_key = {r.step_key: r for r in lsx.cong_doans}
         rows: list[LsxCongDoan] = []
         payloads: list[dict] = []
+        # Bước có đầu việc đã GHIM nhưng nay mồ côi (không còn thuộc công đoạn ∩ tổ) → gỡ tại đây rồi
+        # gom về đây để BÁO LƯU Ý sau khi lưu, thay vì chặn cứng cả lệnh. Xem khối "piece_rate_id".
+        # Treo lên chính service (per-request) để router đọc; KHÔNG đính lên object ORM vì identity-map
+        # trả cùng instance trong một session ⇒ lần đọc sau sẽ dính lưu ý cũ.
+        bo_dau_viec: list[dict] = []
+        self.bo_dau_viec_lan_luu = bo_dau_viec
         for i, r in enumerate(rows_in):
             d = r.model_dump(exclude_unset=True)
             payloads.append(d)
@@ -2857,7 +2867,15 @@ class LsxService:
                 rate = next((x for x in self._piece_rates() if x.id == rid), None) if rid else None
                 allowed = self._dau_viec_cua_cong_doan(cd_obj, dept)
                 if rate is not None and rate.id not in {x.id for x in allowed}:
-                    raise LsxValidationError("Đầu việc không thuộc công đoạn hoặc tổ phụ trách")
+                    # Đầu việc đã GHIM trên bước nay không còn thuộc (công đoạn ∩ tổ) — thường vì
+                    # danh mục đổi dưới chân lệnh (đổi tổ phụ trách · gỡ định mức đầu việc · ngừng
+                    # dùng đầu việc/công đoạn). KHÔNG chặn cả lệnh (một đầu việc mồ côi từng khoá
+                    # cứng nút Lưu kể cả khi người ta chỉ sửa chỗ khác): tự GỠ đầu việc mồ côi rồi
+                    # báo LƯU Ý đích danh bước để mở lại chọn đầu việc phù hợp — cùng lối "giữ được
+                    # thứ đã có" như khối vật tư ngừng-dùng bên dưới.
+                    bo_dau_viec.append(
+                        {"vi_tri": i + 1, "ten": row.ten, "dau_viec": rate.ten})
+                    rate = None
                 row.khoan_json = khoan_snapshot(rate) if rate is not None else None
                 if rate is not None:
                     dm = next((x for x in (getattr(cd_obj, "dau_viec_dinh_muc", None) or [])

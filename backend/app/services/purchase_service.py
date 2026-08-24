@@ -154,6 +154,20 @@ class PurchaseError(Exception):
     pass
 
 
+# Nhãn NGẮN của trạng thái đơn mua — chỉ dùng để ghép câu chặn "món này đang nằm ở đơn nào".
+# Không phải bảng nhãn của giao diện (nhãn UI ở FE); ở đây chỉ cần đủ để người đọc câu lỗi biết
+# phải đi xử lý ở đâu.
+_NHAN_PMH_NGAN = {
+    PR_DRAFT: "còn nháp",
+    PR_PENDING: "chờ duyệt",
+    PR_APPROVED: "đã duyệt",
+    PR_REJECTED: "bị từ chối, thu mua đang sửa",
+    PR_PURCHASED: "đã đặt hàng",
+    PR_PARTIALLY_RECEIVED: "đã về một phần",
+    PR_RECEIVED: "đã nhận đủ",
+}
+
+
 class PurchaseValidationError(PurchaseError):
     pass
 
@@ -1325,6 +1339,92 @@ class PurchaseService:
         )
         return self._to_department_request_out(saved)
 
+    def _phieu_dang_giu_dong(self, row) -> dict[int, PurchaseRequest]:
+        """Dòng nào của yêu cầu đang bị một ĐƠN MUA CÒN SỐNG nắm giữ.
+
+        Còn sống = mọi trạng thái TRỪ `cancelled`. Đơn BỊ TỪ CHỐI vẫn tính là đang giữ: luồng hiện
+        tại bắt thu mua sửa lại chính đơn đó rồi gửi duyệt lại (xem `_tinh_lai_trang_thai_ycmh`),
+        nên món hàng vẫn đang trên đường đi — bỏ nó khỏi yêu cầu lúc này là đơn kia mua về một thứ
+        không ai còn cần.
+
+        Một dòng có thể qua nhiều đơn (đơn cũ huỷ, đơn mới lập) ⇒ giữ đơn có tiến độ CAO NHẤT, để
+        câu chặn gọi đúng tên cái đơn đang thực sự chạy."""
+        giu: dict[int, PurchaseRequest] = {}
+        for link in getattr(row, "purchase_links", []):
+            phieu = link.purchase_request
+            if phieu is None or phieu.status == PR_CANCELLED:
+                continue
+            for pl in phieu.lines:
+                sid = getattr(pl, "department_request_line_id", None)
+                if sid is None:
+                    continue
+                cu = giu.get(sid)
+                if cu is None or _BAC_PHIEU.get(phieu.status, 0) > _BAC_PHIEU.get(cu.status, 0):
+                    giu[sid] = phieu
+        return giu
+
+    @staticmethod
+    def _cau_chan_huy_dong(phieu) -> str:
+        nhan = _NHAN_PMH_NGAN.get(phieu.status, phieu.status)
+        return (
+            f"Món này đang nằm ở đơn mua {phieu.code} ({nhan}). "
+            "Xử lý ở đơn mua đó trước rồi mới bỏ được món khỏi yêu cầu."
+        )
+
+    def cancel_department_request_line(
+        self, request_id: int, line_id: int, *, reason: str | None, actor
+    ) -> dict:
+        """Huỷ MỘT MÓN trong yêu cầu, giữ nguyên các món còn lại (mg 0233).
+
+        Chủ chốt 24/08/2026: *"phải quản tới từng món hàng, đừng quản tới cấp chứng từ nữa"*.
+        Trước đây chỉ có `cancel_department_request` — huỷ là huỷ cả phiếu, và chỉ huỷ được khi
+        phiếu còn `open`, nên yêu cầu 5 dòng mà thu mua đã lập đơn cho 3 dòng thì 2 dòng thừa mắc
+        kẹt vĩnh viễn.
+
+        Ở đây KHÔNG chặn theo trạng thái phiếu cha — chặn theo TỪNG MÓN: món nào chưa bị đơn mua
+        nào nắm thì bỏ được, kể cả khi phiếu cha đang "Đang mua" vì món khác. Huỷ hết món thì phiếu
+        cha mới thành `cancelled`."""
+        row = self._department_request(request_id)
+        if row.status == DPR_CANCELLED:
+            raise PurchaseConflict("Yêu cầu này đã huỷ.")
+        can_cancel_any = self.authz.can(actor, "yeu_cau_mua_hang", "cancel")
+        if row.requested_by_user_id != actor.id and not can_cancel_any:
+            raise PurchaseForbidden("Chi nguoi tao yeu cau hoac admin moi duoc huy.")
+        ly_do = (reason or "").strip()
+        if not ly_do:
+            # Bỏ một món giữa chừng là việc người khác sẽ hỏi lại ("sao không mua nữa?") ⇒ bắt ghi
+            # lý do ngay, đừng để phải đi lục chat.
+            raise PurchaseValidationError("Nhập lý do bỏ món này khỏi yêu cầu.")
+        line = next((l for l in row.lines if l.id == line_id), None)
+        if line is None:
+            raise PurchaseValidationError("Không tìm thấy món này trong yêu cầu.")
+        if line.cancelled_at is not None:
+            raise PurchaseConflict("Món này đã huỷ rồi.")
+        phieu = self._phieu_dang_giu_dong(row).get(line.id)
+        if phieu is not None:
+            raise PurchaseConflict(self._cau_chan_huy_dong(phieu))
+
+        line.cancelled_at = _now()
+        line.cancelled_by_user_id = actor.id
+        line.cancel_reason = ly_do
+        con_song = [l for l in row.lines if l.cancelled_at is None]
+        if not con_song:
+            # Món cuối cùng ⇒ cả yêu cầu khép lại. Lý do của món cuối cũng là lý do của phiếu.
+            row.reject_reason = ly_do
+            self._dat_trang_thai(row, DPR_CANCELLED, doc_type=DOC_YCMH, actor=actor, ly_do=ly_do)
+        else:
+            # Bỏ một món có thể làm đổi trạng thái phiếu: yêu cầu 2 món, món chưa ai mua bị bỏ ⇒
+            # phần còn lại đang ở đơn đã duyệt ⇒ phiếu nhảy từ "Chờ mua" sang "Đang mua".
+            self._tinh_lai_trang_thai_ycmh(row)
+        saved = self.department_requests.save(row)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="cancel_department_purchase_request_line",
+            target=f"department_purchase_request_line:{line.id}",
+            detail=f"{row.code} · {line.item_name} · {ly_do}",
+        )
+        return self._to_department_request_out(saved)
+
     # --- purchase requests -------------------------------------------------
 
     def list_requests(
@@ -1586,6 +1686,10 @@ class PurchaseService:
                     f'Dòng "{line.item_name}" trỏ tới một dòng không thuộc yêu cầu nguồn của phiếu này.'
                 )
             goc = dong_nguon[src_line_id]
+            if getattr(goc, "cancelled_at", None) is not None:
+                raise PurchaseValidationError(
+                    f'Dòng "{goc.item_name}" đã bị bộ phận yêu cầu huỷ — không lập phiếu mua cho nó nữa.'
+                )
             if getattr(line, "hang_loai", None) is None and getattr(line, "hang_id", None) is None:
                 line.hang_loai = getattr(goc, "hang_loai", None)
                 line.hang_id = getattr(goc, "hang_id", None)
@@ -2058,8 +2162,20 @@ class PurchaseService:
         không có nối thì lùi về suy theo PHIẾU.
 
         Yêu cầu đã HUỶ thì không đụng — huỷ là quyết định của người, không phải trạng thái suy ra.
+
+        DÒNG đã huỷ cũng không tính (mg 0233): một dòng bỏ đi thì nó không được kéo cả yêu cầu về
+        "Chờ mua" nữa — trước đây nó kéo, vì dòng không có phiếu nào phủ luôn tính bậc 0.
         """
         if source is None or source.status == DPR_CANCELLED:
+            return
+        dong_song = [
+            line for line in getattr(source, "lines", [])
+            if getattr(line, "cancelled_at", None) is None
+        ]
+        if getattr(source, "lines", None) and not dong_song:
+            # Huỷ hết dòng ⇒ yêu cầu coi như huỷ. Đường huỷ dòng đã tự đặt trạng thái này rồi;
+            # đây là lưới an toàn cho các mốc khác gọi vào (duyệt/huỷ phiếu con).
+            self._dat_trang_thai(source, DPR_CANCELLED, doc_type=DOC_YCMH)
             return
         phieu = [
             link.purchase_request
@@ -2085,9 +2201,10 @@ class PurchaseService:
                 )
         if bac_theo_dong:
             # Dòng nào chưa có phiếu nào phủ thì vẫn là "Chờ mua" — chính là chỗ hay bị bỏ sót.
+            # Chỉ đếm DÒNG CÒN SỐNG: dòng đã huỷ không còn chờ ai mua nữa.
             bac = min(
-                bac_theo_dong.get(line.id, 0) for line in getattr(source, "lines", [])
-            ) if getattr(source, "lines", None) else min(bac_theo_dong.values())
+                bac_theo_dong.get(line.id, 0) for line in dong_song
+            ) if dong_song else min(bac_theo_dong.values())
         else:
             bac = min(_BAC_PHIEU.get(p.status, 0) for p in phieu)
         self._dat_trang_thai(source, _BAC_SANG_TRANG_THAI[bac], doc_type=DOC_YCMH)
@@ -3110,11 +3227,19 @@ class PurchaseService:
         total = 0
         lines = []
         tinh_trang = self._tinh_trang_tung_dong(row)
+        dang_giu = self._phieu_dang_giu_dong(row)
+        so_dong_huy = 0
         for line in row.lines:
             qty = float(line.quantity)
             unit_price = int(line.expected_unit_price)
             line_total = int(round(qty * unit_price))
-            total += line_total
+            da_huy = line.cancelled_at is not None
+            if da_huy:
+                so_dong_huy += 1
+            else:
+                # Món đã bỏ KHÔNG cộng vào tiền dự kiến — nó không còn là tiền sắp chi.
+                total += line_total
+            phieu_giu = None if da_huy else dang_giu.get(line.id)
             lines.append(
                 {
                     "id": line.id,
@@ -3129,8 +3254,20 @@ class PurchaseService:
                     # None = chưa vào phiếu nào, HOẶC phiếu lập trước 05/08/2026 (chưa có nối
                     # dòng ↔ dòng). Giao diện phải nói rõ hai ca đó, đừng hiện như nhau.
                     "fulfilment": tinh_trang.get(line.id),
+                    "cancelled_at": line.cancelled_at,
+                    "cancelled_by_name": self._user_name(line.cancelled_by_user_id),
+                    "cancel_reason": line.cancel_reason,
+                    # Luật "món này bỏ được không" thuộc về MÁY CHỦ. Trả sẵn cả câu lý do để giao
+                    # diện KHOÁ nút kèm lời giải thích (chủ chốt 20/08/2026: "đừng ẩn nút — khoá
+                    # và nói lý do") mà không phải chép lại luật ở FE rồi lệch nhau.
+                    # Chỉ nói về TÌNH TRẠNG MÓN; quyền của người đang xem thì FE tự AND thêm.
+                    "can_cancel": not da_huy and phieu_giu is None,
+                    "cancel_block_reason": (
+                        self._cau_chan_huy_dong(phieu_giu) if phieu_giu is not None else None
+                    ),
                 }
             )
+        so_dong_song = len(row.lines) - so_dong_huy
         phieu_con = [
             link.purchase_request
             for link in getattr(row, "purchase_links", [])
@@ -3139,19 +3276,28 @@ class PurchaseService:
         # Ưu tiên trạng thái cần người dùng hành động. `status` vẫn giữ vai trò khóa luồng; trường
         # này chỉ giúp bảng nói đúng việc Thu mua phải làm tiếp theo.
         if row.status in (DPR_OPEN, DPR_IN_PURCHASE, DPR_DONE, DPR_CANCELLED):
-            workflow_status = row.status
+            progress_status = row.status
         elif any(p.status == PR_REJECTED for p in phieu_con):
-            workflow_status = "needs_correction"
+            progress_status = "needs_correction"
         elif any(p.status == PR_DRAFT for p in phieu_con):
-            workflow_status = "drafting"
+            progress_status = "drafting"
         else:
-            workflow_status = row.status
+            progress_status = row.status
+        # HUỶ MỘT PHẦN đè lên nhãn tiến độ (chủ chốt 24/08/2026: có món bị bỏ là phải thấy ngay).
+        # Tiến độ phần còn lại KHÔNG mất — nó ở `progress_status`, giao diện in thành dòng chữ nhỏ
+        # dưới huy hiệu. Huỷ HẾT món thì `status` đã là `cancelled`, rơi vào nhánh trên.
+        workflow_status = (
+            "partially_cancelled" if (so_dong_huy and so_dong_song) else progress_status
+        )
 
         return {
             "id": row.id,
             "code": row.code,
             "status": row.status,
             "workflow_status": workflow_status,
+            "progress_status": progress_status,
+            "cancelled_line_count": so_dong_huy,
+            "active_line_count": so_dong_song,
             "source_type": row.source_type,
             "requesting_department_id": row.requesting_department_id,
             "requesting_department_name": (

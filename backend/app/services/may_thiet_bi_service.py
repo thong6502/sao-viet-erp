@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from ..models.may_thiet_bi import MayThietBi, NhomMay
+from ..models.may_thiet_bi import MayThietBi, NhomMay, la_nhom_khoa
 from ..repositories.may_thiet_bi_repo import MayThietBiRepository, NhomMayRepository
 from .catalog_base import (
     CatalogDuplicate, CatalogError, CatalogNotFound, CatalogService, CatalogValidationError,
@@ -63,9 +63,6 @@ class MayThietBiService(CatalogService):
             raise MayThietBiValidationError("Khổ min (dài) > khổ max. [E-MAY-KHO]")
         if kminr and kmaxr and kminr > kmaxr:
             raise MayThietBiValidationError("Khổ min (rộng) > khổ max. [E-MAY-KHO]")
-        gr, minr = data.get("gripper_mm"), data.get("kho_min_rong")
-        if gr and minr and gr >= minr:
-            raise MayThietBiValidationError("Nhíp (gripper) ≥ khổ min (rộng). [E-MAY-NHIP]")
 
         toc_do = data.get("toc_do")
         dvtd = data.get("don_vi_toc_do")
@@ -154,6 +151,11 @@ class NhomMayService:
         row = self.repo.get(nhom_id)
         if row is None:
             raise MayThietBiNotFound("Không tìm thấy nhóm máy.")
+        if la_nhom_khoa(row.ten):
+            raise MayThietBiValidationError(
+                f"“{row.ten}” là nhóm hệ thống — cả bình bài và tính giá bám vào nó, "
+                "không xoá được."
+            )
         ly_do = []
         if (n := self.dem_may_dung(row.ten)) > 0:
             ly_do.append(f"{n} máy đang thuộc nhóm này")

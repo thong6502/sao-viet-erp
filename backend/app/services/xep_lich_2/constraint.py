@@ -210,15 +210,47 @@ def sap_bao_tri(
     )
 
 
-def phut_ca_moi_ngay(ca: list[tuple[int, int, bool]]) -> int:
-    """Tổng quỹ giờ (PHÚT) một ngày làm việc theo các ca đã khai — mẫu số để đo tải máy/ngày.
+def doan_ca_trong_ngay(ca) -> list[tuple[int, int]]:
+    """Trải các ca thành ĐOẠN nằm gọn trong MỘT ngày `[0, 1440)`.
 
-    Ca đêm (`qua_dem`, `ket_thuc <= bat_dau`) ôm nửa đêm nên độ dài = `(1440 - bat_dau) + ket_thuc`.
-    Giả định các ca không chồng nhau (ca xưởng khai rời) nên cộng thẳng.
+    Ca qua đêm (22:00–06:00) cắt làm hai — `[1320, 1440)` của hôm nay và `[0, 360)` của chính
+    ngày đó: một ngày lịch luôn có đủ cả hai đầu (đầu ca hôm nay + đuôi ca hôm qua), nên đo
+    trên một ngày đại diện là đúng. Các đoạn CÓ THỂ CHỒNG NHAU — bên gọi tự hợp lại.
+    """
+    doan: list[tuple[int, int]] = []
+    for bat_dau, ket_thuc, qua_dem in (ca or []):
+        b = max(0, min(1440, int(bat_dau or 0)))
+        e = max(0, min(1440, int(ket_thuc or 0)))
+        if qua_dem or e <= b:
+            if b < 1440:
+                doan.append((b, 1440))
+            if e > 0:
+                doan.append((0, e))
+        elif e > b:
+            doan.append((b, e))
+    return doan
+
+
+def phut_ca_moi_ngay(ca) -> int:
+    """Quỹ giờ (PHÚT) một ngày làm việc theo ca đã khai — mẫu số để đo tải máy/ngày.
+
+    Đo phần giờ ĐƯỢC PHỦ (HỢP các khoảng ca, chồng nhau chỉ tính MỘT lần), KHÔNG cộng thẳng độ
+    dài từng ca. Cộng thẳng là sai từ gốc vì xưởng khai ca GỐI NHAU: Ca 1 06:00–14:00 + Hành chính
+    08:00–17:00 + Ca 2 14:00–22:00 + Ca 3 22:00–06:00 cộng thẳng ra 1980' cho một ngày chỉ có 1440'
+    (Hành chính nằm GỌN trong Ca 1 + Ca 2, bị đếm hai lần) ⇒ mọi con số tải bị chia cho mẫu số
+    phồng, thấp giả ~27% (7% tải thật ra là 9%).
+
+    Sửa 22/08/2026. Docstring cũ ghi thẳng "giả định các ca không chồng nhau" — giả định đó chết
+    từ khi mg 0226 (bỏ `dung_cho_lich_may`) cho engine đọc TẤT CẢ ca thật của xưởng; trước đó nó
+    rơi về fallback 480'/ngày nên không ai thấy.
     """
     tong = 0
-    for bat_dau, ket_thuc, qua_dem in ca:
-        tong += (1440 - bat_dau + ket_thuc) if qua_dem else (ket_thuc - bat_dau)
+    het = 0
+    for b, e in sorted(doan_ca_trong_ngay(ca)):
+        if e <= het:
+            continue
+        tong += e - max(b, het)
+        het = e
     return tong
 
 

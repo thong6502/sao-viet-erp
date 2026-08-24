@@ -9,7 +9,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
-  CFG_CONG_VIEC_KHOAN, CFG_DON_VI, CFG_GIAY, CFG_MAY, CFG_THANH_PHAM, CFG_VAT_TU,
+  CFG_CONG_DOAN, CFG_CONG_VIEC_KHOAN, CFG_DON_VI, CFG_GIAY, CFG_MAY, CFG_THANH_PHAM, CFG_VAT_TU,
 } from "./rebuildCatalogConfigs";
 import type { CatalogConfig, FieldDef } from "./RebuildCatalogPage";
 import type { Row } from "../api/rebuildCatalog";
@@ -141,11 +141,33 @@ describe("ô Cách đo lượng ở màn Máy và Công việc khoán (mg 0213)"
     expect(CFG_CONG_VIEC_KHOAN.nhanTabCongThuc).toBe("Cách đo lượng");
   });
 
-  it("Giấy · Vật tư giữ nhãn mặc định: ô của chúng có cả công thức GIÁ", () => {
-    for (const cfg of [CFG_GIAY, CFG_VAT_TU]) {
-      expect(cfg.nhanTabCongThuc).toBeUndefined();
-      expect(cfg.fields.some((f) => f.key === "cong_thuc_gia")).toBe(true);
-    }
+  it("Giấy: hai ô công thức TÁCH hai tab riêng (Tính giá · Tính lượng)", () => {
+    // Cả hai ô vẫn còn — chỉ tách tab qua `nhanTab`. `cong_thuc_gia` ra TIỀN cho phiếu tính giá,
+    // `cong_thuc_luong` ra kg cho bảng cân đối vật tư; không được nhét chung một tab.
+    expect(truong(CFG_GIAY, "cong_thuc_gia").nhanTab).toBe("Công thức tính giá");
+    expect(truong(CFG_GIAY, "cong_thuc_luong").nhanTab).toBe("Công thức tính lượng");
+    // Mỗi ô tự khai tab của nó nên KHÔNG dùng nhãn config-level.
+    expect(CFG_GIAY.nhanTabCongThuc).toBeUndefined();
+  });
+
+  it("Công đoạn: hai ô công thức TÁCH hai tab riêng (Tính giá · Sản lượng ra)", () => {
+    // Y như Giấy: `cong_thuc_gia` ra TIỀN cho phiếu tính giá, `cong_thuc_san_luong` ra LƯỢNG cho
+    // bước ngoài dòng giấy — mỗi ô tự khai `nhanTab`, không nhét chung một tab "Công thức".
+    expect(truong(CFG_CONG_DOAN, "cong_thuc_gia").nhanTab).toBe("Công thức tính giá");
+    expect(truong(CFG_CONG_DOAN, "cong_thuc_san_luong").nhanTab).toBe("Công thức sản lượng ra");
+    // Ô sản lượng ra dùng bộ chip `quy_doi` (ra lượng, không mời chip đơn giá).
+    expect(truong(CFG_CONG_DOAN, "cong_thuc_san_luong").loaiO).toBe("quy_doi");
+    // Mỗi ô tự khai tab nên KHÔNG dùng nhãn config-level.
+    expect(CFG_CONG_DOAN.nhanTabCongThuc).toBeUndefined();
+  });
+
+  it("Vật tư khác: CHỈ tab tính lượng — ẩn ô công thức GIÁ khỏi drawer", () => {
+    // Ô giá bị ẩn khỏi màn (cột DB + đường engine vẫn còn); nhãn tab đổi cho khớp để đừng mời
+    // người khai gõ công thức tiền vào ô ra lượng.
+    expect(CFG_VAT_TU.fields.some((f) => f.key === "cong_thuc_gia")).toBe(false);
+    expect(CFG_VAT_TU.nhanTabCongThuc).toBe("Công thức tính lượng");
+    // Ô lượng vẫn còn, dùng bộ chip `quy_doi` (không mời chip đơn giá).
+    expect(truong(CFG_VAT_TU, "cong_thuc_luong").loaiO).toBe("quy_doi");
   });
 });
 

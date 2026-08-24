@@ -21,7 +21,7 @@ import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
 import { BangLoi, ChipGap, EmptyState, Skeleton, classHan, ngay, num } from "./keHoachSxShared";
-import { moTaPhieuMua, tomTatPhieuMua } from "./phieuMuaNhan";
+import { moTaPhieuMua, tomTatPhieuMua, vetDangKep } from "./phieuMuaNhan";
 
 /** Bốn màu — LUÔN kèm chữ, không chỉ dựa màu (a11y). Nhãn nói HỆ QUẢ, không nói màu. */
 const MAU_META: Record<CanDoiMau, { label: string; cls: string; hint: string }> = {
@@ -502,6 +502,19 @@ export function VatTuKeHoachView({
                 // cột trạng thái toàn chữ, cái cần đọc chìm mất. Drawer vẫn kê đủ.
                 const vetMua = isDu ? null : tomTatPhieuMua(nhom.phieu_mua);
 
+                // Màu chỉ số độ phủ — bốn trạng thái, nặng nhất thắng:
+                //   đỏ  = thiếu và chưa ai đặt mua ⇒ phải mua ngay
+                //   cam = thiếu nhưng hàng đang trên đường về
+                //   vàng = chưa quy đổi được đơn vị ⇒ con số chưa tin được
+                //   xanh = đủ tồn, không phải lo
+                const mauPhu = isThieu
+                  ? "is-deficit"
+                  : isVeMuon
+                    ? "is-onway"
+                    : isKhongRo
+                      ? "is-unknown"
+                      : "is-full";
+
                 // Tính tổng lượng thiếu của cả nhóm
                 const tongThieuNhom = nhom.dong.reduce((s, d) => s + (d.thieu ?? 0), 0);
 
@@ -550,15 +563,16 @@ export function VatTuKeHoachView({
                       </td>
                     )}
 
-                    {/* Cột 1: Mặt hàng */}
+                    {/* Cột 1: Mặt hàng — chỉ TÊN, không bày mã danh mục. Người xem bảng cân đối
+                        đọc "Bản kẽm khổ 74", không đọc "KEM-74"; ai quen mã thì gõ vào ô tìm kiếm
+                        vẫn ra (server lọc cả `hang_ma`). */}
                     <td>
                       <div className="khvt-cell-item">
                         <div className="khvt-cell-item__top">
-                          <span className="khvt-item-code">{nhom.hang_ma ?? "—"}</span>
+                          <span className="khvt-item-name" title={nhom.hang_ten ?? undefined}>
+                            {nhom.hang_ten ?? "(mặt hàng đã gỡ khỏi danh mục)"}
+                          </span>
                           <span className={`khvt-item-tag ${tag.cls}`}>{tag.label}</span>
-                        </div>
-                        <div className="khvt-item-name" title={nhom.hang_ten ?? undefined}>
-                          {nhom.hang_ten ?? "(mặt hàng đã gỡ khỏi danh mục)"}
                         </div>
                       </div>
                     </td>
@@ -577,9 +591,7 @@ export function VatTuKeHoachView({
                         </div>
                         <div className="khvt-mini-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
                           <div
-                            className={`khvt-mini-bar__fill ${
-                              pct >= 100 ? "is-full" : isThieu ? "is-deficit" : "is-partial"
-                            }`}
+                            className={`khvt-mini-bar__fill ${mauPhu}`}
                             style={{ width: `${Math.max(4, pct)}%` }}
                           />
                         </div>
@@ -588,7 +600,7 @@ export function VatTuKeHoachView({
 
                     {/* Cột 3: Độ phủ */}
                     <td>
-                      <span className={`khvt-coverage-badge ${pct >= 100 ? "is-ok" : "is-short"}`}>
+                      <span className={`khvt-coverage-badge ${mauPhu}`}>
                         {pct}%
                       </span>
                     </td>
@@ -596,7 +608,7 @@ export function VatTuKeHoachView({
                     {/* Cột 4: Lượng thiếu */}
                     <td className="khsx-num khvt-cell-thieu">
                       {tongThieuNhom > 0 ? (
-                        <div className="khvt-deficit-tag">
+                        <div className="khvt-deficit-pill" title={`Thiếu ${soGoc(tongThieuNhom)} ${nhom.don_vi_goc ?? ""}`}>
                           <b>-{soGoc(tongThieuNhom)}</b>
                           <small>{nhom.don_vi_goc}</small>
                         </div>
@@ -622,47 +634,57 @@ export function VatTuKeHoachView({
                       </div>
                     </td>
 
-                    {/* Cột 6: Trạng thái */}
+                    {/* Cột 6: Trạng thái (2 tầng mạch lạc) */}
                     <td>
-                      {isThieu && (
-                        <span className="khvt-badge khvt-badge--do">
-                          <Icon name="ban" size={11} /> {nhom.so_dong_do} dòng thiếu
-                        </span>
-                      )}
-                      {isVeMuon && !isThieu && (
-                        <span className="khvt-badge khvt-badge--vemuon">
-                          <Icon name="truck" size={11} /> {nhom.so_dong_ve_muon} về muộn
-                        </span>
-                      )}
-                      {isKhongRo && !isThieu && !isVeMuon && (
-                        <span className="khvt-badge khvt-badge--khongro">
-                          <Icon name="help" size={11} /> Chưa quy đổi
-                        </span>
-                      )}
-                      {isDu && (
-                        <span className="khvt-badge khvt-badge--du">
-                          <Icon name="check" size={11} /> Đủ trong kho
-                        </span>
-                      )}
+                      <div className="khvt-status-cell">
+                        {isThieu && (
+                          <span className="khvt-badge khvt-badge--do">
+                            <Icon name="ban" size={11} /> {nhom.so_dong_do} dòng thiếu
+                          </span>
+                        )}
+                        {isVeMuon && !isThieu && (
+                          <span className="khvt-badge khvt-badge--vemuon">
+                            <Icon name="truck" size={11} /> {nhom.so_dong_ve_muon} về muộn
+                          </span>
+                        )}
+                        {isKhongRo && !isThieu && !isVeMuon && (
+                          <span className="khvt-badge khvt-badge--khongro">
+                            <Icon name="help" size={11} /> Chưa quy đổi
+                          </span>
+                        )}
+                        {isDu && (
+                          <span className="khvt-badge khvt-badge--du">
+                            <Icon name="check" size={11} /> Đủ trong kho
+                          </span>
+                        )}
 
-                      {/* "Đã có ai lo món này chưa". Bảng chỉ cộng hàng khi PMH đã duyệt VÀ có
-                          ngày về, nên phiếu vừa lập không nhích một con số nào — không nói ra thì
-                          nó hiện y hệt "chưa ai mua", và người sau bấm Mua chồng lên. */}
-                      {vetMua && (
-                        <div className="khvt-po-note" title={vetMua.title}>
-                          <Icon name="cart" size={11} /> {vetMua.chinh}
-                          {vetMua.them > 0 && <b>+{vetMua.them}</b>}
-                        </div>
-                      )}
+                        {/* Thẻ thông tin PO ở tầng 2 */}
+                        {vetMua && (
+                          <div className="khvt-po-note" title={vetMua.title}>
+                            <Icon name="cart" size={11} />
+                            <span>{vetMua.chinh}</span>
+                            {vetMua.them > 0 && <b>+{vetMua.them}</b>}
+                            {/* Món kẹt bị `+N` nuốt mất. Chip chỉ khoe phiếu CHẮC NHẤT (đúng luật
+                                "tin xấu không che tin tốt"), nên phần đứng lại phải tự gọi tên —
+                                không thì nó nằm im trong tooltip, không ai mở ra đọc. */}
+                            {vetMua.kep && (
+                              <span className="khvt-po-note__kep">
+                                <Icon name="alert" size={10} /> có đơn bị từ chối
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </td>
 
-                    {/* Cột 7: Hạn đặt */}
+                    {/* Cột 7: Hạn đặt (Highlight đỏ nếu trễ so với mốc hàng về) */}
                     <td className="khsx__col--opt">
                       {hanDatSomNhat ? (
                         <span
                           className={`khvt-date-val ${
-                            hanDatSomNhat.datMuon ? "khsx-date--late" : classHan(hanDatSomNhat.han)
+                            hanDatSomNhat.datMuon || isVeMuon ? "khsx-date--late" : classHan(hanDatSomNhat.han)
                           }`}
+                          title={isVeMuon ? `Hạn đặt ${ngay(hanDatSomNhat.han)} (cần dời kế hoạch hoặc hối giao hàng)` : undefined}
                         >
                           {ngay(hanDatSomNhat.han)}
                         </span>
@@ -764,6 +786,14 @@ function VatTuDetailDrawer({
   const tongCan = nhom.tong_can ?? 0;
   const pct = tongCan > 0 ? Math.min(100, Math.round((ton / tongCan) * 100)) : 100;
   const isThieu = nhom.so_dong_do > 0;
+  // Cùng luật màu với bảng: đỏ (phải mua) > cam (đang về) > vàng (chưa quy đổi) > xanh.
+  const mauPhu = isThieu
+    ? "is-deficit"
+    : (nhom.so_dong_ve_muon ?? 0) > 0
+      ? "is-onway"
+      : nhom.so_dong_khong_ro > 0
+        ? "is-unknown"
+        : "is-full";
   const dongVeMuon = nhom.dong.find((d) => d.trang_thai === "ve_muon");
   const tag = nhanLoaiHang(nhom);
   const tongThieuNhom = nhom.dong.reduce((s, d) => s + (d.thieu ?? 0), 0);
@@ -796,31 +826,29 @@ function VatTuDetailDrawer({
             </div>
           </div>
           <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
-            ✕
+            <Icon name="x" size={16} />
           </button>
         </header>
 
         {/* Drawer Body */}
         <div className="rc-drawer__body khvt-drawer__body">
           {/* Dải KPI Compact (§4 UI_DESIGN.md) */}
-          <div className="khvt-drawer-kpis">
-            <div className="khvt-drawer-kpi">
-              <span className="khvt-drawer-kpi__label">Tồn khả dụng</span>
-              <span className="khvt-drawer-kpi__val">
+          <div className="khvt-drawer-kpi-grid">
+            <div className="khvt-bento-kpi">
+              <span className="khvt-bento-kpi__label">Tồn khả dụng</span>
+              <span className="khvt-bento-kpi__val">
                 <b>{soGoc(nhom.ton)}</b> <small>{nhom.don_vi_goc}</small>
               </span>
             </div>
-            <div className="khvt-drawer-kpi__sep" aria-hidden="true" />
-            <div className="khvt-drawer-kpi">
-              <span className="khvt-drawer-kpi__label">Tổng nhu cầu</span>
-              <span className="khvt-drawer-kpi__val">
+            <div className="khvt-bento-kpi">
+              <span className="khvt-bento-kpi__label">Tổng nhu cầu</span>
+              <span className="khvt-bento-kpi__val">
                 <b>{soGoc(nhom.tong_can)}</b> <small>{nhom.don_vi_goc}</small>
               </span>
             </div>
-            <div className="khvt-drawer-kpi__sep" aria-hidden="true" />
-            <div className="khvt-drawer-kpi">
-              <span className="khvt-drawer-kpi__label">Cân đối</span>
-              <div className="khvt-drawer-kpi__val">
+            <div className="khvt-bento-kpi">
+              <span className="khvt-bento-kpi__label">Cân đối</span>
+              <div className="khvt-bento-kpi__val">
                 {tongThieuNhom > 0 ? (
                   <span className="khvt-kpi-badge khvt-kpi-badge--deficit">
                     Thiếu <b>-{soGoc(tongThieuNhom)}</b> <small>{nhom.don_vi_goc}</small>
@@ -832,14 +860,13 @@ function VatTuDetailDrawer({
                 )}
               </div>
             </div>
-            <div className="khvt-drawer-kpi__sep" aria-hidden="true" />
-            <div className="khvt-drawer-kpi">
-              <span className="khvt-drawer-kpi__label">Độ phủ kho</span>
-              <div className="khvt-drawer-kpi__cov">
-                <span className="khvt-drawer-kpi__cov-pct">{pct}%</span>
+            <div className="khvt-bento-kpi">
+              <span className="khvt-bento-kpi__label">Độ phủ kho</span>
+              <div className="khvt-bento-kpi__cov">
+                <span className="khvt-bento-kpi__cov-pct">{pct}%</span>
                 <div className="khvt-mini-bar">
                   <div
-                    className={`khvt-mini-bar__fill ${pct >= 100 ? "is-full" : isThieu ? "is-deficit" : "is-partial"}`}
+                    className={`khvt-mini-bar__fill ${mauPhu}`}
                     style={{ width: `${Math.max(4, pct)}%` }}
                   />
                 </div>
@@ -849,8 +876,8 @@ function VatTuDetailDrawer({
 
           {/* Khuyến nghị điều phối cho ca Hàng về muộn */}
           {dongVeMuon && (
-            <div className="khvt-recommend-box">
-              <div className="khvt-recommend-box__icon">
+            <div className="khvt-recommend-box khvt-recommend-box--truck">
+              <div className="khvt-recommend-box__badge khvt-recommend-box__badge--truck">
                 <Icon name="truck" size={16} />
               </div>
               <div className="khvt-recommend-box__content">
@@ -872,7 +899,7 @@ function VatTuDetailDrawer({
               lượng nằm cạnh nhau chính là dấu hiệu ai đó đã đề nghị trùng. */}
           {(nhom.phieu_mua ?? []).length > 0 && (
             <div className="khvt-recommend-box">
-              <div className="khvt-recommend-box__icon">
+              <div className="khvt-recommend-box__badge khvt-recommend-box__badge--warn">
                 <Icon name="cart" size={16} />
               </div>
               <div className="khvt-recommend-box__content">
@@ -880,11 +907,18 @@ function VatTuDetailDrawer({
                 nghị mua thêm, tránh đặt trùng:
                 <ul className="khvt-po-list">
                   {nhom.phieu_mua.map((pm) => (
-                    <li key={pm.ma}>
+                    <li key={pm.ma} className={vetDangKep(pm) ? "khvt-po--kep" : undefined}>
                       <span className="khvt-po-list__loai">
                         {pm.loai === "pmh" ? "Phiếu mua" : "Đề nghị"}
                       </span>
                       {moTaPhieuMua(pm, { dayDu: true })}
+                      {/* Món kẹt: nói luôn VIỆC CẦN LÀM. "Đơn bị từ chối" mà không kèm câu này thì
+                          người đọc vẫn ngồi chờ, vì mọi dòng khác trong danh sách đều đang chạy. */}
+                      {vetDangKep(pm) && (
+                        <em className="khvt-po-list__kep">
+                          — đang đứng, cần thu mua lập lại đơn
+                        </em>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -895,7 +929,7 @@ function VatTuDetailDrawer({
           {/* Công cụ khuôn bế ghi chú */}
           {nhom.loai_nhom === "cong_cu" && (
             <div className="khvt-recommend-box">
-              <div className="khvt-recommend-box__icon">
+              <div className="khvt-recommend-box__badge khvt-recommend-box__badge--warn">
                 <Icon name="help" size={16} />
               </div>
               <div className="khvt-recommend-box__content">
@@ -1011,24 +1045,31 @@ function VatTuDetailDrawer({
 
                         <td className="khsx-num khvt-num-cell">
                           <div className="khvt-num-primary">{d.nhu_cau_hien_thi}</div>
-                          {(d.da_cap ?? 0) > 0 && (
-                            <div className="khvt-num-sub khvt-num-sub--ok">
-                              đã cấp {soGoc(d.da_cap)}
-                            </div>
-                          )}
-                          {(d.dang_linh ?? 0) > 0 && (
-                            <div className="khvt-num-sub">đang lĩnh {soGoc(d.dang_linh)}</div>
-                          )}
+                          <div className="khvt-sub-pills">
+                            {(d.da_cap ?? 0) > 0 && (
+                              <span className="khvt-cap-pill khvt-cap-pill--ok">
+                                cấp {soGoc(d.da_cap)} {nhom.don_vi_goc ?? ""}
+                              </span>
+                            )}
+                            {(d.dang_linh ?? 0) > 0 && (
+                              <span className="khvt-cap-pill khvt-cap-pill--warn">
+                                lĩnh {soGoc(d.dang_linh)} {nhom.don_vi_goc ?? ""}
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         <td className="khsx-num khvt-num-cell">
-                          <span className={`khvt-delta-tag ${isConLaiAm ? "is-negative" : "is-neutral"}`}>
-                            {soGoc(d.con_lai_sau)}
-                          </span>
-                          {(d.thieu ?? 0) > 0 && (
-                            <div className="khvt-num-sub khvt-num-sub--do">
-                              thiếu {soGoc(d.thieu)}
-                            </div>
+                          {isConLaiAm ? (() => {
+                            const valThieu = d.thieu ?? (d.con_lai_sau != null ? Math.abs(d.con_lai_sau) : 0);
+                            return (
+                              <div className="khvt-deficit-pill" title={`Thiếu ${soGoc(valThieu)} ${nhom.don_vi_goc ?? ""}`}>
+                                <b>Thiếu -{soGoc(valThieu)}</b>
+                                <small>{nhom.don_vi_goc}</small>
+                              </div>
+                            );
+                          })() : (
+                            <span className="khvt-num-primary">{soGoc(d.con_lai_sau)}</span>
                           )}
                         </td>
 

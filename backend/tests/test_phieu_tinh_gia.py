@@ -197,7 +197,7 @@ def test_phieu_tinh_gia_scope(client, auth_headers):
 
 
 def _seed_may_mitsubishi() -> int:
-    """Máy 2 màu Mitsubishi 72×102 như danh mục thật: nhíp KẼM 44, nhíp GIẤY 10, lề hông 5, đuôi 8."""
+    """Máy 2 màu Mitsubishi 72×102 như danh mục thật: nhíp GIẤY 10, lề hông 5, đuôi 8."""
     from app.models.may_thiet_bi import MayThietBi
 
     db = SessionLocal()
@@ -206,7 +206,6 @@ def _seed_may_mitsubishi() -> int:
             ma="IN-TEST-72", ten="Mitsubishi 72x102 test", loai_may="press_offset_sheet",
             kho_max_dai=1020, kho_max_rong=720, kho_min_dai=545, kho_min_rong=390,
             vung_in_dai=1010, vung_in_rong=710,
-            gripper_mm=44,        # nhíp KẼM — KHÔNG được dùng làm chừa giấy
             nhip_giay_mm=10, le_hong_mm=5, duoi_thang_mau_mm=8,
         )
         db.add(may)

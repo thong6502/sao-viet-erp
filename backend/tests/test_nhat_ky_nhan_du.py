@@ -46,12 +46,12 @@ def test_moi_cot_danh_muc_deu_co_nhan(loai, model):
 
 def test_cau_nhat_ky_khong_con_lo_ten_cot():
     """Ca thật: đổi hai cột của Máy — câu phải là chữ người đọc được, kèm đơn vị."""
-    truoc = {"loai_may": "Máy in", "gripper_mm": 10, "kho_max_rong": 720}
-    sau = {"loai_may": "Máy bế", "gripper_mm": 12, "kho_max_rong": 720}
+    truoc = {"loai_may": "Máy in", "nhip_giay_mm": 10, "kho_max_rong": 720}
+    sau = {"loai_may": "Máy bế", "nhip_giay_mm": 12, "kho_max_rong": 720}
     dong = mo_ta_thay_doi(truoc, sau)
 
     assert "Nhóm máy Máy in → Máy bế" in dong
-    assert "Nhíp kẽm 10 → 12 mm" in dong
+    assert "Nhíp giấy 10 → 12 mm" in dong
     # Cột KHÔNG đổi thì không được đẻ ra dòng nào.
     assert not any("Khổ giấy max" in d for d in dong)
 

@@ -125,7 +125,7 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
     #                 KHÔNG đổ vùng in vào đây nữa: vùng in đã trừ sẵn nhíp/lề, đổ vào rồi trừ chừa
     #                 lần nữa là TRỪ HAI LẦN (hụt 14-19% số con). Thiếu → fallback khổ giấy máy.
     #  · chừa + vùng in = thông số kỹ thuật để engine trừ đúng chiều / cảnh báo. Phiếu để trống thì
-    #                 lấy theo máy (xem `_compute_one`). `gripper_mm` là nhíp KẼM — KHÔNG dùng ở đây.
+    #                 lấy theo máy (xem `_compute_one`). Chừa lấy nhíp GIẤY, không lấy mép nhíp bản kẽm.
     if tp.may_id is not None:
         may = db.get(MayThietBi, tp.may_id)
         if may is not None:

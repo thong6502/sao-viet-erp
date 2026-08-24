@@ -28,7 +28,6 @@ class MayThietBiIn(BaseModel):
     kho_kem_rong: int | None = None
     vung_in_dai: int | None = None
     vung_in_rong: int | None = None
-    gripper_mm: int | None = None
     nhip_giay_mm: int | None = None
     le_hong_mm: int | None = None
     duoi_thang_mau_mm: int | None = None
@@ -85,7 +84,6 @@ class MayThietBiRow(BaseModel):
     kho_kem_rong: int | None = None
     vung_in_dai: int | None = None
     vung_in_rong: int | None = None
-    gripper_mm: int | None = None
     nhip_giay_mm: int | None = None
     le_hong_mm: int | None = None
     duoi_thang_mau_mm: int | None = None
@@ -147,6 +145,14 @@ class NhomMayRow(BaseModel):
     @property
     def ma(self) -> str:
         return self.ten
+
+    # Nhóm HỆ THỐNG (vd "Máy in") — FE ẩn nút xoá, backend chặn xoá. SUY từ tên, không cột DB.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def he_thong(self) -> bool:
+        from ..models.may_thiet_bi import la_nhom_khoa
+
+        return la_nhom_khoa(self.ten)
 
 
 class NhomMayListOut(BaseModel):

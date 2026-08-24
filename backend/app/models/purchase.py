@@ -536,6 +536,18 @@ class DepartmentPurchaseRequestLine(Base):
     quantity: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     expected_unit_price: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # HUỶ TỪNG MÓN (mg 0233, 24/08/2026 — chủ chốt: "phải quản tới từng món hàng, đừng quản tới
+    # cấp chứng từ nữa"). Trước đó chỉ huỷ được CẢ yêu cầu, nên một dòng thừa trong yêu cầu 5 dòng
+    # là bế tắc: huỷ thì mất 4 dòng đang mua, không huỷ thì Thu mua cứ thấy nó nằm đó.
+    # `cancelled_at IS NULL` = dòng còn sống. Trạng thái phiếu (`department_purchase_requests.status`)
+    # nay DẪN XUẤT từ các dòng CÒN SỐNG; huỷ hết dòng thì phiếu mới thành `cancelled`.
+    # Dòng đã huỷ KHÔNG bị xoá — nó là vết "đã từng đề nghị rồi bỏ", và `purchase_request_lines`
+    # có thể còn trỏ tới qua `department_request_line_id`.
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     request: Mapped[DepartmentPurchaseRequest] = relationship(
         "DepartmentPurchaseRequest", back_populates="lines"

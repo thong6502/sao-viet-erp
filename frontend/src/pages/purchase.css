@@ -2041,3 +2041,15 @@
 .kho-dv__ro--trong {
   color: var(--ash-2);
 }
+
+/* Dòng vật tư ĐÃ BỎ khỏi yêu cầu (mg 0233). Giữ lại trong bảng để tra "ai bỏ · lúc nào · vì sao",
+   nhưng phải nhìn-là-biết nó không còn là việc phải làm: chữ mờ + gạch ngang tên hàng và số lượng.
+   Không gạch phần chú thích lý do — đó là chữ cần ĐỌC ĐƯỢC, gạch vào là phản tác dụng. */
+.purchase__dong-da-bo > td {
+  color: var(--ash-2);
+}
+
+.purchase__dong-da-bo > td > strong,
+.purchase__dong-da-bo > td.pay-num {
+  text-decoration: line-through;
+}

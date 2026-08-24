@@ -213,7 +213,14 @@ export function Xl2Gantt({
 
   // Overlay F1: gom vùng khoá máy + tải máy/ngày + đỉnh quân số tổ/ngày về map theo tài nguyên (O(1) khi vẽ).
   const overlay = useMemo(() => {
-    const caPhut = ca.reduce((n, [s, e, overnight]) => n + Math.max(0, (overnight ? 1440 + e : e) - s), 0);
+    // MẪU SỐ của % tải = số phút trong ngày xưởng THỰC SỰ có ca phủ. Lấy từ phần bù của
+    // `caLayout.trong` (khoảng không ca nào phủ) — tức chính cái đang được VẼ trên ruy-băng ca, nên
+    // con số luôn khớp với hình. CỘNG THẲNG độ dài từng ca là SAI: ca xưởng gối nhau (Hành chính
+    // 08:00–17:00 nằm gọn trong Ca 1 + Ca 2) nên tổng ra 1980' cho một ngày chỉ có 1440' ⇒ mọi %
+    // tải thấp giả ~27% (sửa 22/08/2026, khớp `constraint.phut_ca_moi_ngay` bên máy chủ).
+    // Từ mg 0227 máy chủ chỉ gửi ca có cờ `ca_san_xuat` (ca văn phòng ở lại màn Ca kíp), nên ruy-băng
+    // ca và mẫu số này cùng nói về MỘT thứ: giờ xưởng có người đứng máy.
+    const caPhut = 1440 - caLayout.trong.reduce((n, [a, b]) => n + Math.max(0, b - a), 0);
     const availPerDay = caPhut > 0 ? caPhut : 1440;
 
     const khoaByMay = new Map<number, { x: number; w: number; title: string }[]>();
@@ -242,7 +249,7 @@ export function Xl2Gantt({
       m.set(day, t);
     }
     return { khoaByMay, taiMayByDay, taiToByDept };
-  }, [khoaMay, taiMay, taiTo, ca, scale]);
+  }, [khoaMay, taiMay, taiTo, caLayout, scale]);
 
   // Thước: nhãn ngày + tick giờ 2 tầng hiện đại.
   const todayYmd = useMemo(() => {
@@ -614,13 +621,18 @@ export function Xl2Gantt({
                   <div className="xl2-lane__label"><span className="xl2-lane__name">— trống —</span></div>
                 </div>
               ) : cluster.lanes.map((lane) => {
-                const avgLoad = lane.cluster === "may" && lane.resId != null ? (() => {
+                // % tải = trung bình trên NHỮNG NGÀY CÓ VIỆC, không phải trên cả cửa sổ: máy rảnh 13
+                // ngày đợi một bài thì câu trả lời hữu ích là "hôm chạy nó ken bao nhiêu", chứ không
+                // phải một số gần 0 do chia đều. Kèm SỐ NGÀY vào tooltip để không bị đọc nhầm thành
+                // tải của cả khung ngày đang xem.
+                const tai = lane.cluster === "may" && lane.resId != null ? (() => {
                   const m = overlay.taiMayByDay.get(lane.resId);
-                  if (!m || m.size === 0) return 0;
+                  if (!m || m.size === 0) return { pct: 0, ngay: 0 };
                   let sum = 0;
                   for (const v of m.values()) sum += v.pct;
-                  return Math.round((sum / m.size) * 100);
+                  return { pct: Math.round((sum / m.size) * 100), ngay: m.size };
                 })() : null;
+                const avgLoad = tai?.pct ?? null;
 
                 return (
                   <div key={lane.key} className="xl2-lane">
@@ -636,7 +648,12 @@ export function Xl2Gantt({
                                 {avgLoad != null && avgLoad > 0 ? `${avgLoad}% tải` : "Rảnh"}
                               </span>
                               {avgLoad != null && (
-                                <span className="xl2-cap-bar" title={`Tải trung bình: ${avgLoad}%`}>
+                                <span
+                                  className="xl2-cap-bar"
+                                  title={tai && tai.ngay > 0
+                                    ? `Tải trung bình ${avgLoad}% — tính trên ${tai.ngay} ngày có việc trong khung đang xem`
+                                    : "Chưa có việc nào trong khung đang xem"}
+                                >
                                   <span
                                     className={`xl2-cap-bar__fill${avgLoad > 85 ? " is-high" : avgLoad > 65 ? " is-med" : ""}`}
                                     style={{ width: `${Math.min(avgLoad, 100)}%` }}

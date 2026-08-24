@@ -150,7 +150,7 @@ export const CFG_MAY: CatalogConfig = {
   // Máy có cột `active` từ 15/08/2026 (mg `0202`) ⇒ vào được luật xoá chung: còn dùng ở lệnh /
   // công đoạn thì NGỪNG DÙNG, khai nhầm thì xoá hẳn. Trước đó màn này chỉ có xoá cứng.
   softDelete: true,
-  subtitle: "Nhập tự do mọi loại máy (in, cán màng/UV, bồi, bế…). Tự đặt Nhóm máy rồi điền khổ kẽm, nhíp kẽm, khổ giấy, vùng in.",
+  subtitle: "Nhập tự do mọi loại máy (in, cán màng/UV, bồi, bế…). Tự đặt Nhóm máy rồi điền khổ kẽm, khổ giấy, vùng in.",
   prefix: "/api/may-thiet-bi",
   nhatKyLoai: "may_thiet_bi",
   columns: [
@@ -251,19 +251,12 @@ export const CFG_MAY: CatalogConfig = {
       } },
   ],
   loadExtra: (token) => trangThaiMay(token),
-  // Lọc theo Nhóm máy. `dynamic` vì ô này gõ TỰ DO: nhóm chủ xưởng tự đặt vẫn có tab riêng,
-  // không bị rơi ra ngoài như khi khai cứng 5 giá trị gợi ý.
-  facet: {
-    key: "loai_may",
-    values: [
-      { value: "Máy in", label: "Máy in" },
-      { value: "In ngoài", label: "In ngoài" },
-      { value: "Cán màng / UV", label: "Cán màng / UV" },
-      { value: "Bồi", label: "Bồi" },
-      { value: "Bế", label: "Bế" },
-    ],
-    dynamic: true,
-  },
+  // Lọc theo Nhóm máy — hàng tab lấy thẳng từ DANH MỤC nhóm máy (`/api/nhom-may`), đúng cái
+  // nguồn đổ ra mấy con chip trong drawer. Trước 22/08/2026 chỗ này liệt kê CỨNG 5 tên: nhóm chủ
+  // xưởng tự đặt chỉ hiện sau khi đã có máy thuộc về nó (tab sinh từ số đếm), còn 5 tên cứng thì
+  // treo mãi kể cả khi đã gỡ khỏi danh mục. `dynamic` vẫn giữ: máy cũ mang tên nhóm không còn
+  // trong danh mục vẫn phải có lối lọc tới, không được rơi khỏi hàng tab.
+  facet: { key: "loai_may", source: "/api/nhom-may", dynamic: true },
   // Ô công thức duy nhất của màn Máy ra LƯỢNG (theo đơn vị tốc độ), không ra tiền — nhãn tab mặc
   // định "Công thức tính giá" sẽ mời gõ sai thứ vào đó.
   nhanTabCongThuc: "Cách đo lượng",
@@ -293,8 +286,6 @@ export const CFG_MAY: CatalogConfig = {
     { key: "vung_in_rong", label: "Vùng in max — rộng (mm)", type: "number", group: "Khổ kẽm & Vùng in",
       showIf: (f) => isMayIn(f.loai_may) },
     { key: "vung_in_dai", label: "Vùng in max — dài (mm)", type: "number", group: "Khổ kẽm & Vùng in",
-      showIf: (f) => isMayIn(f.loai_may) },
-    { key: "gripper_mm", label: "Nhíp kẽm (mm)", type: "number", group: "Khổ kẽm & Vùng in",
       showIf: (f) => isMayIn(f.loai_may) },
     // ── 3. Thông số chừa lề tờ in (chỉ Máy in) ─────────────────────────────
     { key: "nhip_giay_mm", label: "Nhíp giấy (mm)", type: "number", group: "Thông số chừa lề tờ in",
@@ -402,8 +393,9 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
   // xoá hẳn, còn nơi dùng thì chỉ ngừng dùng. Mục đã ngừng xem lại ở công tắc trên dải lọc.
   softDelete: true,
-  // Màn này có HAI ô công thức, một ra tiền một ra lượng ⇒ nhãn tab phải trung tính.
-  nhanTabCongThuc: "Công thức",
+  // Màn này có HAI ô công thức, một ra TIỀN một ra LƯỢNG ⇒ TÁCH hai tab riêng: mỗi ô tự khai
+  // `nhanTab` của nó (Công thức tính giá ↔ Công thức sản lượng ra), nên KHÔNG dùng nhãn tab gộp
+  // `nhanTabCongThuc` — nhét chung một tab là mời gõ nhầm công thức tiền vào ô ra lượng.
   facet: { key: "nhom", values: mapOpt(NHOM_CD) },
   columns: [
     { key: "nhom", label: "Giai đoạn", render: (r) => lbl(NHOM_CD)(r.nhom) },
@@ -453,7 +445,8 @@ export const CFG_CONG_DOAN: CatalogConfig = {
 
     // CHỈ TÍNH THEO CÔNG THỨC: đã bỏ ô 'Cách tính giá' / 'Đơn giá' / 'Bậc kích thước'.
     // Đơn giá nhập per-phiếu (mỗi dòng phiếu tính giá tự mang don_gia); công đoạn chỉ khai CÔNG THỨC.
-    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
+    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá",
+      nhanTab: "Công thức tính giá" },
     // ── Đơn vị đứng TRƯỚC Bù hao: nó quyết định bù hao được tra theo số gì (tờ hay con) ────────
     // Chọn từ DANH MỤC Đơn vị & quy đổi (không còn 5 mã cứng): bước không chạm giấy khai đơn vị
     // THẬT của nó — ghi kẽm `bài in → bản kẽm` — thay vì phải bỏ trống như trước 11/08/2026.
@@ -474,7 +467,7 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // server giữ), nên đoán ở đây là đoán sai. Engine tự bỏ qua với bước trên dòng giấy — số của
     // chúng đến từ chuỗi bù hao ngược. Hint nói rõ phạm vi thay cho việc ẩn/hiện.
     { key: "cong_thuc_san_luong", label: "Công thức sản lượng ra", type: "formula",
-      loaiO: "quy_doi", group: "Đơn vị",
+      loaiO: "quy_doi", group: "Đơn vị", nhanTab: "Công thức sản lượng ra",
       hint: "CHỈ cho bước ngoài dòng giấy (ghi kẽm, ép nhũ…). vd Ghi kẽm: so_kem. Bước trên dòng giấy lấy số từ chuỗi bù hao nên khai ở đây không ai đọc." },
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong" },
     { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
@@ -646,13 +639,16 @@ export const CFG_GIAY: CatalogConfig = {
     { key: "don_vi_gia", label: "ĐVT", ...F_DON_VI, group: "Thông số" },
     // Đơn giá theo cân — CHỐT CỨNG ở danh mục (engine lấy thẳng, phiếu không sửa).
     { key: "don_gia", label: "Đơn giá (đ/kg)", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn (mặc định đ/kg)" },
-    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
+    // Hai ô công thức TÁCH HAI TAB riêng (`nhanTab`): "Tính giá" ra tiền, "Tính lượng" ra lượng —
+    // hai câu hỏi khác nhau, đứng chung một tab dễ gõ nhầm công thức tiền vào ô lượng.
+    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá",
+      nhanTab: "Công thức tính giá" },
     // Ô thứ hai ra LƯỢNG, không ra tiền. Nó là thứ DUY NHẤT còn đổi được tờ → kg cho bảng cân đối
     // vật tư sau khi gỡ cặp quy đổi động (mg 0198); mg 0197 đã điền sẵn cho giấy bán theo cân, tới
     // nay chưa có ô nào để người dùng nhìn thấy hay sửa. `loaiO: "quy_doi"` ⇒ chip có `sl_vao`/
     // `sl_ra` và KHÔNG có đơn giá — ô này không được phép nhắc tới tiền.
     { key: "cong_thuc_luong", label: "Công thức tính lượng", type: "formula", loaiO: "quy_doi",
-      group: "Giá",
+      group: "Giá", nhanTab: "Công thức tính lượng",
       hint: "vd: dinh_luong * dai_nguyen * rong_nguyen * to_nguyen — ra số kg giấy phải mua" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
@@ -664,6 +660,10 @@ export const CFG_VAT_TU: CatalogConfig = {
   subtitle: "Mực, bản kẽm, hoá chất, màng, keo… — mã · tên · ĐVT · công thức.",
   prefix: "/api/vat-lieu-kho/vat-tu-in-an",
   nhatKyLoai: "vat_tu",
+  // Vật tư CHỈ còn 1 tab công thức, ra LƯỢNG (tiêu hao cho kế hoạch vật tư). Ô "Công thức tính
+  // giá" đã ẩn khỏi drawer (xưởng không thêm dòng mực/màng/keo rời vào phiếu tính giá) — nhãn tab
+  // đổi cho khớp, đừng để chữ "tính giá" mời người ta gõ công thức tiền vào đây.
+  nhanTabCongThuc: "Công thức tính lượng",
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
   // xoá hẳn, còn nơi dùng thì chỉ ngừng dùng. Mục đã ngừng xem lại ở công tắc trên dải lọc.
   softDelete: true,
@@ -680,7 +680,10 @@ export const CFG_VAT_TU: CatalogConfig = {
     // Đơn giá chốt ở danh mục — engine phơi thành ĐÚNG MỘT biến `don_gia` cho công thức vật tư
     // (đã quy về đơn vị cơ sở; `don_gia_kg`/`don_gia_m2` gỡ 11/08/2026 vì trùng nghĩa).
     { key: "don_gia", label: "Đơn giá", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn — dùng làm biến don_gia trong công thức" },
-    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
+    // Ô "cong_thuc_gia" (công thức ra TIỀN cho dòng vật tư trên phiếu tính giá) ĐÃ ẨN khỏi drawer
+    // theo yêu cầu — cột DB, dữ liệu cũ và đường engine (`thanh_phan_engine`/`tinh_gia_service`)
+    // vẫn nguyên; chỉ không cho khai mới ở đây. Cần mở lại thì thêm field formula `cong_thuc_gia`
+    // với `nhanTab: "Công thức tính giá"`.
     // Lượng tiêu hao của CHÍNH món này. Đường ưu tiên số 1 của `LsxService._luong_vat_tu`: khai ở
     // đây thì keo thôi ăn ké "cách đo" của đơn vị `kg` — thứ đang dùng chung cho cả mực lẫn keo dù
     // hai món tiêu hao khác hẳn nhau.

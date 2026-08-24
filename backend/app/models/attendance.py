@@ -100,10 +100,17 @@ class WorkShift(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
-    # `dung_cho_lich_may` ĐÃ RÚT 21/08/2026 (mg 0226): cờ chưa bao giờ có đường khai (không có
-    # trong WorkShiftIn/Out, frontend không có ô) nên 4/4 ca đều FALSE và lịch xưởng luôn rơi về
-    # fallback 08:00–16:00. Nay Xếp lịch ăn thẳng MỌI ca `is_active` — muốn loại một ca khỏi lịch
-    # xưởng thì tắt chính ca đó.
+    # Ca CHẠY DƯỚI XƯỞNG: tập ca mà Xếp lịch lấy làm giờ làm của xưởng — khung giờ hợp lệ để
+    # đặt việc VÀ MẪU SỐ đo % tải máy. Ca văn phòng (Hành chính 08:00–17:00) tắt ô này: nó nằm
+    # gọn trong Ca 1 + Ca 2 nên không nới thêm giờ nào cho xưởng, nhưng vẫn phải giữ để chấm công.
+    # Mặc định BẬT ⇒ khai ca mới mà quên tick thì vẫn như cũ, không ca nào biến mất im lặng.
+    # ⚠ Bản trước tên `dung_cho_lich_may` (mg 0095) chết ở mg 0226 vì mặc định TẮT mà lại KHÔNG có
+    # ô khai: 4/4 ca đều FALSE ⇒ engine thấy tập ca rỗng rồi rơi về fallback 08:00–16:00. Lần này có ô
+    # ở màn Ca kíp + `WorkShiftIn/Out`, và `_ca_lich_may()` KHÔNG còn đường rơi về fallback vì cờ:
+    # không ca nào bật thì nó dùng TẤT CẢ ca đang dùng (mg 0227).
+    ca_san_xuat: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

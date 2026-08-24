@@ -42,7 +42,7 @@ from app.services.xep_lich_service import XepLichConflict, XepLichNotFound, _nai
 from app.repositories.xep_lich_2_repo import XepLich2Repository
 
 from tests.test_xep_lich_service import (  # noqa: F401 — fixture dùng chung
-    _giu_cho_du, _gop_in_va_san_sang, _hai_lsx_san_sang, _in_step, _nha_cho,
+    _giu_cho_du, _gop_in_va_san_sang, _hai_lsx_san_sang, _in_step, _khai_ca_xuong, _nha_cho,
     admin, bg_svc, customer, db, lsx_svc, orders, xl_svc,
 )
 
@@ -189,6 +189,40 @@ def test_tai_to_cao_chia_muc():
     assert C.tai_to_cao(5, 8) is None                                  # 62.5% < 75% → không nhắc
     assert C.tai_to_cao(9, 8) is None                                  # đã vượt → vuot_quan_so_to lo
     assert C.tai_to_cao(1, 0) is None                                  # chưa khai quân số
+
+
+# Ca THẬT của xưởng (bản khai đang chạy trên Postgres dev) — BỐN ca GỐI NHAU phủ trọn 24h.
+CA_XUONG_GOI_NHAU = [
+    (360, 840, False),        # Ca 1        06:00–14:00 = 480'
+    (480, 1020, False),       # Hành chính 08:00–17:00 = 540'  (nằm GỌN trong Ca 1 + Ca 2)
+    (840, 1320, False),       # Ca 2        14:00–22:00 = 480'
+    (1320, 360, True),        # Ca 3        22:00–06:00 = 480'  (qua đêm)
+]
+
+
+def test_quy_ca_phut_ca_GOI_NHAU_chi_dem_MOT_lan():
+    """⭐ Mẫu số của MọI con số tải máy. Cộng thẳng độ dài từng ca ra 1980' cho một ngày chỉ có
+    1440' — Hành chính bị đếm hai lần vì nằm gọn trong Ca 1 + Ca 2 ⇒ tất cả % tải thấp giả ~27%
+    (màn hiện 7% trong khi thực là 9%). Lỗi này Ủ từ 21/08/2026 (mg 0226 cho engine đọc ca thật),
+    trước đó hàm rơi về fallback 480' nên không ai thấy.
+    """
+    cong_thang = sum((1440 - b + e) if qd else (e - b) for b, e, qd in CA_XUONG_GOI_NHAU)
+    assert cong_thang == 1980                                         # phép CŨ — vượt quá 24h
+    assert C.phut_ca_moi_ngay(CA_XUONG_GOI_NHAU) == 1440              # phép MỚI — hợp các khoảng
+
+    # Hành chính không góp thêm giờ nào: bỏ nó đi mẫu số phải Y NGUYÊN.
+    assert C.phut_ca_moi_ngay([c for c in CA_XUONG_GOI_NHAU if c != (480, 1020, False)]) == 1440
+
+    # Tải thật của một máy bận 105' trong ngày: 105/1440 = 7.3% (cũ: 105/1980 = 5.3%).
+    assert round(105 / C.phut_ca_moi_ngay(CA_XUONG_GOI_NHAU) * 100) == 7
+
+    # Ca RỜI NHAU vẫn cộng bình thường — sửa chồng lấn không được ăn bớt của xưởng khai rời.
+    assert C.phut_ca_moi_ngay([(0, 240, False), (720, 960, False)]) == 480
+    # Chồng MỘT PHẦN (08–16 + 14–22): 480 + 480 − 120 gối = 840.
+    assert C.phut_ca_moi_ngay([(480, 960, False), (840, 1320, False)]) == 840
+    # Ca đêm chồng chính đuôi nó (06:00–06:00 = trọn ngày) không được vượt 1440.
+    assert C.phut_ca_moi_ngay([(360, 360, True)]) == 1440
+    assert C.phut_ca_moi_ngay([]) == 0                                # chưa khai ca nào
 
 
 def test_tai_may_cao_chia_muc_va_quy_gio_ca():
@@ -1515,6 +1549,18 @@ def test_diem_may_quy_ca_phut_cong_ca_qua_dem():
     assert DM.quy_ca_phut([(1320, 360, True)]) == 480            # 22h→6h vắt qua nửa đêm
 
 
+def test_diem_may_va_canh_bao_tai_dung_CHUNG_mot_thuoc():
+    """⭐ Trục `san_tai` (chấm khe gợi ý) và cảnh báo "máy ken đặc" phải đo cùng một mẫu số.
+    Trước 22/08/2026 đây là hai bản sao độc lập của cùng phép cộng ⇒ sửa một nơi thì nơi kia lệch
+    âm thầm: máy bị trừ điểm san tải theo một thước, còn đèn cảnh báo bật theo thước khác.
+    """
+    from app.services.xep_lich_2 import diem_may as DM
+    for ca in (_CA_8H, CA_XUONG_GOI_NHAU, [(1320, 360, True)], []):
+        assert DM.quy_ca_phut(ca) == C.phut_ca_moi_ngay(ca)
+    assert DM.quy_ca_phut(CA_XUONG_GOI_NHAU) == 1440
+    assert DM.quy_ca_phut(None) == 0                             # chưa khai ca — trục tự tắt, không nổ
+
+
 def test_diem_may_tre_han_bi_danh_dau_va_ve_khong_diem_kip_han():
     """Xong sau 24h ngày hạn = TRỄ. Cờ `tre_han` là cái mà `chon_may` lọc, không phải điểm thấp."""
     from app.services.xep_lich_2 import diem_may as DM
@@ -1672,3 +1718,32 @@ def test_goi_y_may_loai_may_khong_tinh_duoc_thoi_luong_va_noi_ly_do(
     assert res["goi_y_may"] == []
     assert res["bi_loai"], "loại hết máy thì phải liệt kê ra"
     assert res["vi_sao_trong"], "và phải có một câu tổng nói vì sao danh sách trống"
+
+
+def test_ruy_bang_ca_tren_gantt_bo_ca_van_phong(v2, db):
+    """Ruy-băng "CA LÀM VIỆC" trên bàn Xếp lịch 2 chỉ vẽ ca dưới xưởng (mg 0227).
+
+    Trước cờ: Hành chính 08:00–17:00 chồng lên Ca 1 + Ca 2 nên FE phải đẩy nó xuống DÒNG THỨ HAI
+    — ruy-băng cao gấp đôi mà không nói thêm điều gì về giờ chạy máy. FE không tự lọc: `caLayout`
+    dựng thẳng từ `ca_nhan` máy chủ gửi, và mẫu số % tải cũng đọc chính mảng đó — lọc ở đây là
+    lọc cả hai.
+    """
+    _khai_ca_xuong(db)
+    ten = [c["ten"] for c in v2._ca_nhan()]
+    assert ten == ["Ca 1", "Ca 2", "Ca 3"], ten
+    assert all(0 <= c["bat_dau_phut"] < 1440 for c in v2._ca_nhan())
+
+
+def test_khong_ca_nao_tick_thi_khung_gio_KHONG_roi_ve_8h(v2, db):
+    """Cửa §7.1 (khung giờ hợp lệ để đặt việc) không được rơi về fallback 08:00–16:00.
+
+    Đó là cách cờ đời trước hỏng trong im lặng: 4/4 ca FALSE ⇒ tập ca rỗng ⇒ engine tưởng xưởng
+    chỉ làm 8 tiếng ngày, chặn mọi việc đặt ngoài khung đó.
+    """
+    from app.models.attendance import WorkShift
+
+    _khai_ca_xuong(db)
+    for c in db.query(WorkShift).all():
+        c.ca_san_xuat = False
+    db.commit()
+    assert len(v2._ca_nhan()) == 4          # KHÔNG phải 1 dải "Giờ mặc định (chưa khai ca)"

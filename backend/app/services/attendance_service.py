@@ -473,23 +473,24 @@ class AttendanceService:
         return self.attendance.list_shifts(active_only=active_only)
 
     def create_shift(self, *, actor, name, start_time, end_time, is_overnight=False,
-                     grace_minutes=5, meal_allowance=25000,
-                     shift_allowance=50000, night_multiplier=1.3, note=None) -> WorkShift:
+                     grace_minutes=5, meal_allowance=25000, shift_allowance=50000,
+                     night_multiplier=1.3, note=None, ca_san_xuat=True) -> WorkShift:
         is_overnight = bool(is_overnight)
         name, sm, em, g = self._validate_shift(name, start_time, end_time, grace_minutes, is_overnight)
         s = self.attendance.create_shift(
             name=name, start_minute=sm, end_minute=em, is_overnight=is_overnight,
             grace_minutes=g, meal_allowance=meal_allowance, shift_allowance=shift_allowance,
             night_multiplier=max(1.0, float(night_multiplier or 1.0)),
-            note=_clean(note), is_active=True,
+            note=_clean(note), is_active=True, ca_san_xuat=bool(ca_san_xuat),
         )
         self.audit.create(actor_user_id=actor.id, action="create_work_shift",
                           target=f"work_shift:{s.id}", detail=f"{name} {start_time}–{end_time}")
         return s
 
     def update_shift(self, *, actor, shift_id, name, start_time, end_time, is_overnight=False,
-                     grace_minutes=5, meal_allowance=25000,
-                     shift_allowance=50000, night_multiplier=1.3, note=None, is_active=True) -> WorkShift:
+                     grace_minutes=5, meal_allowance=25000, shift_allowance=50000,
+                     night_multiplier=1.3, note=None, is_active=True,
+                     ca_san_xuat=True) -> WorkShift:
         s = self.attendance.get_shift(shift_id)
         if s is None:
             raise AttendanceNotFound("Không tìm thấy ca làm việc.")
@@ -499,7 +500,7 @@ class AttendanceService:
             s, name=name, start_minute=sm, end_minute=em, is_overnight=is_overnight,
             grace_minutes=g, meal_allowance=meal_allowance, shift_allowance=shift_allowance,
             night_multiplier=max(1.0, float(night_multiplier or 1.0)),
-            note=_clean(note), is_active=bool(is_active),
+            note=_clean(note), is_active=bool(is_active), ca_san_xuat=bool(ca_san_xuat),
         )
         self.audit.create(actor_user_id=actor.id, action="update_work_shift",
                           target=f"work_shift:{s.id}", detail=f"{name} {start_time}–{end_time}")

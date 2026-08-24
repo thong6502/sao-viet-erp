@@ -236,6 +236,29 @@ def cancel_department_purchase_request(
     return DepartmentPurchaseRequestOut(**row)
 
 
+@router.post(
+    "/api/department-purchase-requests/{request_id}/lines/{line_id}/cancel",
+    response_model=DepartmentPurchaseRequestOut,
+)
+def cancel_department_purchase_request_line(
+    request_id: int,
+    line_id: int,
+    payload: ReasonIn,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    # Cùng ô quyền với huỷ CẢ yêu cầu (`update`) — bỏ một món là phiên bản nhỏ hơn của cùng việc
+    # đó, tách ô quyền riêng chỉ đẻ thêm thứ phải khai mà không đổi ai được làm gì.
+    user: Annotated[User, Depends(require_permission(MODULE_YCMH, "update"))],
+) -> DepartmentPurchaseRequestOut:
+    try:
+        row = svc.cancel_department_request_line(
+            request_id, line_id, reason=payload.reason, actor=user
+        )
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return DepartmentPurchaseRequestOut(**row)
+
+
 @router.get("/api/suppliers", response_model=SupplierListOut)
 def list_suppliers(
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],

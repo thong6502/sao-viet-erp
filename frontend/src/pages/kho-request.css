@@ -3253,13 +3253,22 @@ input.kho-num,
   color: #ffffff;
 }
 
-
+/* Badge "Đủ tồn" trên từng dòng — cùng khuôn với .kho-priority-badge ở cùng ô.
+   Khối màu bên dưới từng bị mất dòng selector: CSS lỗi cú pháp và nuốt luôn luật kế tiếp. */
+.kho-line-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
   font-size: 11px;
-  font-weight: 700;
-  background: var(--moss-soft);
-  color: var(--moss-deep);
-  border: 1px solid color-mix(in srgb, var(--moss) 30%, transparent);
-  margin-left: 8px;
+  font-weight: var(--fw-bold);
+}
+/* "Đủ tồn" là chuyện bình thường ⇒ để trung tính, dành màu cho dòng cần xử lý. */
+.kho-line-badge--muted {
+  background: var(--rule-hair);
+  color: var(--ash);
+  border: 1px solid var(--rule-soft);
 }
 
 /* Recharts Custom Overview Container */

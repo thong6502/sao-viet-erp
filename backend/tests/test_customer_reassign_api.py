@@ -167,12 +167,13 @@ def test_reassign_writes_per_customer_audit(client):
     assert any(it["title"] == "Điều chuyển phụ trách" for it in audit["items"])
 
 
-def test_export_gated_by_export_permission(client):
-    # NV Sales: có khach_hang read (scope own) nhưng KHÔNG có quyền chi tiết `export`.
+def test_export_default_on_for_read_users(client):
+    # Xuất file MẶC ĐỊNH BẬT (24/08/2026): chỉ cần quyền Xem khách là tải được lịch sử mua của
+    # khách trong tầm nhìn — công tắc chi tiết `export` đã gỡ khỏi ma trận phân quyền.
     s1 = _mk_user("t-sale1", "NV Sales", "Kinh doanh")
     c1 = _mk_customer("KH X", s1)
-    assert client.get(f"/api/customers/{c1}/orders.csv", headers=_token(s1)).status_code == 403
-    # Trưởng phòng KD: có `export` → tải được (khách trong phòng).
+    assert client.get(f"/api/customers/{c1}/orders.csv", headers=_token(s1)).status_code == 200
+    # Trưởng phòng KD cũng tải được (khách trong phòng).
     tp = _mk_user("t-tpkd", "Trưởng phòng KD", "Kinh doanh")
     assert client.get(f"/api/customers/{c1}/orders.csv", headers=_token(tp)).status_code == 200
 

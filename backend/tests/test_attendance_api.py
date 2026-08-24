@@ -1200,3 +1200,34 @@ def test_loc_ngay_thi_NOI_TRAN_dong(client):
     là lọc xong vẫn mất nửa ngày TRONG IM LẶNG."""
     from app.services.attendance_service import AttendanceService
     assert AttendanceService.LOG_LIMIT_CO_LOC_NGAY > 100
+
+
+def test_ca_san_xuat_luu_va_pho_ra_duoc(client):
+    """Cờ "ca chạy dưới xưởng" phải có ĐƯỜNG KHAI thật: POST/PUT nhận, GET trả.
+
+    Đây chính là chỗ cờ đời trước (`dung_cho_lich_may`, mg 0095) chết: cột có trong DB nhưng
+    không nằm trong `WorkShiftIn/Out` nên KHÔNG ai bật được, 4/4 ca đều FALSE và engine rơi về
+    fallback 8h. Cột không có đường khai là cột chết.
+    """
+    token = _admin_token(client)
+    vp = client.post("/api/attendance/shifts",
+                     json={"name": "Hành chính test", "start_time": "08:00", "end_time": "17:00",
+                           "ca_san_xuat": False},
+                     headers=_h(token)).json()
+    assert vp["ca_san_xuat"] is False
+
+    # Bỏ trống ⇒ BẬT (khai ca mới mà quên tick thì vẫn như cũ, không ca nào biến mất im lặng).
+    xuong = client.post("/api/attendance/shifts",
+                        json={"name": "Ca xưởng test", "start_time": "06:00", "end_time": "14:00"},
+                        headers=_h(token)).json()
+    assert xuong["ca_san_xuat"] is True
+
+    # Sửa được cả hai chiều.
+    sua = client.put(f"/api/attendance/shifts/{vp['id']}",
+                     json={"name": "Hành chính test", "start_time": "08:00", "end_time": "17:00",
+                           "ca_san_xuat": True},
+                     headers=_h(token))
+    assert sua.status_code == 200 and sua.json()["ca_san_xuat"] is True
+
+    items = client.get("/api/attendance/shifts", headers=_h(token)).json()["items"]
+    assert all("ca_san_xuat" in s for s in items)

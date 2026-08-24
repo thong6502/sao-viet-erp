@@ -1979,6 +1979,7 @@ export interface HangChoItem {
   san_xuat_released_at: string | null;
   so_dong: number;
   so_dong_co_lsx: number;
+  san_pham_tom_tat?: string | null;
 }
 export interface HangChoOut {
   items: HangChoItem[];
@@ -2332,7 +2333,13 @@ export interface LsxDetail {
   /** Lệnh đang ghép chung tờ với ai. `null` = in riêng. Khi có, THÔNG SỐ TỜ (máy in, giấy, khổ
    *  tờ in, số con) do BÀI quyết — sửa ở màn lệnh không có tác dụng. */
   bai_ghep: LsxBaiGhep | null;
+  /** Bước bị GỠ đầu việc mồ côi trong LẦN LƯU routing vừa rồi (rỗng ở mọi cửa đọc khác). Lưu VẪN
+   *  thành công — chỉ là lưu ý để mở đúng bước chọn lại đầu việc. */
+  bo_dau_viec?: LsxBoDauViec[];
 }
+/** Một bước bị gỡ đầu việc mồ côi khi lưu routing (đầu việc đã ghim không còn thuộc công đoạn ∩
+ *  tổ, thường vì danh mục đổi dưới chân lệnh). `vi_tri` = số thứ tự bước (1-based) để mở đúng chỗ. */
+export interface LsxBoDauViec { vi_tri: number; ten: string; dau_viec: string; }
 export interface LsxBaiGhep {
   id: number; ma: string; trang_thai: string;
   may_id: number | null; may_ten: string | null;
@@ -4081,6 +4088,12 @@ export interface WorkShift {
   /** Phụ cấp ca khai theo ca (đ), áp ca ngày/đêm. Đợt 1: lưu/phơi; engine chưa dùng. */
   shift_allowance: number;
   is_active: boolean;
+  /**
+   * Ca CHẠY DƯỚI XƯỞNG: Xếp lịch lấy đúng các ca này làm giờ làm của xưởng — khung giờ được phép
+   * đặt việc VÀ mẫu số tính % tải máy. Ca văn phòng (Hành chính 08:00–17:00) tắt cờ: vẫn chấm công
+   * bình thường, chỉ thôi tính vào lịch xưởng.
+   */
+  ca_san_xuat: boolean;
   note: string | null;
 }
 
@@ -4095,6 +4108,8 @@ export interface WorkShiftInput {
   shift_allowance?: number;
   note?: string | null;
   is_active?: boolean;
+  /** Ca chạy dưới xưởng SX — nuôi khung giờ Xếp lịch + mẫu số % tải máy. Bỏ trống = bật. */
+  ca_san_xuat?: boolean;
 }
 
 export interface TimesheetDay {
@@ -5047,6 +5062,10 @@ export interface CongDoanLite {
   ma: string;
   ten: string;
   khoan_ghi_theo: string;
+  /** Nhóm máy (loai_may) làm được công đoạn — checkbox "Máy làm được công đoạn này" ở danh mục.
+   *  Drawer routing lệnh SX lọc dropdown MÁY theo đây; null/rỗng = không giới hạn (hiện tất cả).
+   *  `/api/cong-doan` (CongDoanRow) đã trả sẵn, không cần đổi backend. */
+  nhom_may_cho_phep?: string[] | null;
 }
 
 // Phiếu sản lượng công đoạn (Pha 5b)
@@ -5494,7 +5513,10 @@ export type DepartmentPurchaseRequestStatus =
 export type DepartmentPurchaseWorkflowStatus =
   | DepartmentPurchaseRequestStatus
   | "drafting"
-  | "needs_correction";
+  | "needs_correction"
+  /** Có món bị bỏ nhưng CHƯA bỏ hết (mg 0233). Đè lên nhãn tiến độ; tiến độ phần còn lại nằm ở
+      `progress_status`. Bỏ hết món thì `status` = `cancelled`, không phải trạng thái này. */
+  | "partially_cancelled";
 
 export type DepartmentPurchaseSourceType =
   | "kinh_doanh"
@@ -5871,6 +5893,16 @@ export interface DepartmentPurchaseRequestLineOut {
   /** null = dòng CHƯA vào phiếu nào, HOẶC phiếu lập trước 05/08/2026 (chưa có nối dòng ↔ dòng).
       Hai ca đó phải hiện khác nhau — xem `DepartmentPurchaseRequestRow.purchase_requests`. */
   fulfilment: LineFulfilment | null;
+  /** Khác null = MÓN NÀY đã bị bỏ khỏi yêu cầu (mg 0233). Vẫn hiện trong danh sách, gạch ngang
+      kèm lý do — xoá khỏi màn là người xem tưởng mình nhớ nhầm. */
+  cancelled_at: string | null;
+  cancelled_by_name: string | null;
+  cancel_reason: string | null;
+  /** Luật "bỏ được không" do MÁY CHỦ chốt. false + `cancel_block_reason` ⇒ vẫn bày nút, khoá lại
+      và in đúng câu đó (đừng ẩn nút — khoá và nói lý do). Chỉ nói về tình trạng MÓN; quyền của
+      người đang xem thì màn hình tự AND thêm. */
+  can_cancel: boolean;
+  cancel_block_reason: string | null;
 }
 
 /** Một lần đổi trạng thái của YCMH/PMH. */
@@ -5912,6 +5944,10 @@ export interface DepartmentPurchaseRequestRow {
   code: string;
   status: DepartmentPurchaseRequestStatus;
   workflow_status: DepartmentPurchaseWorkflowStatus;
+  /** Nhãn TIẾN ĐỘ thuần, không bị "Huỷ một phần" che — in thành dòng chữ nhỏ dưới huy hiệu. */
+  progress_status: DepartmentPurchaseWorkflowStatus;
+  cancelled_line_count: number;
+  active_line_count: number;
   source_type: DepartmentPurchaseSourceType;
   requesting_department_id: number | null;
   requesting_department_name: string | null;
@@ -10280,6 +10316,20 @@ export const api = {
         body: JSON.stringify({ reason }),
       });
     },
+    /** Bỏ MỘT MÓN khỏi yêu cầu, giữ nguyên các món còn lại (mg 0233). Lý do BẮT BUỘC (422 nếu
+        trống). Món đang nằm ở đơn mua còn sống → 409 kèm câu chỉ đúng đơn phải xử lý trước. */
+    cancelLine(
+      token: string,
+      id: number,
+      lineId: number,
+      reason: string,
+    ): Promise<DepartmentPurchaseRequestRow> {
+      return authed<DepartmentPurchaseRequestRow>(
+        `/api/department-purchase-requests/${id}/lines/${lineId}/cancel`,
+        token,
+        { method: "POST", body: JSON.stringify({ reason }) },
+      );
+    },
   },
 
   purchaseRequests: {
@@ -10931,8 +10981,12 @@ export const api = {
   // --- Công đoạn (danh mục, lite cho dropdown) -----------------------------
   congDoan: {
     // size ≤ 200 — router chặn `le=200`, gửi 500 là 422 (đừng nâng lại).
+    // `active=true` — chỉ đổ công đoạn ĐANG DÙNG vào các ô chọn (tính giá + lệnh SX). Món đã
+    // "Ngừng dùng" (active=false) phải BIẾN khỏi dropdown đúng như hộp thoại ngừng-dùng hứa;
+    // không truyền cờ này thì backend trả CẢ món đã ngừng (repo lọc `if active is not None`).
+    // Bước lệnh SX đang lỡ dùng món đã ngừng vẫn hiện đúng: drawer tự ghim lại option đó.
     list(token: string): Promise<{ items: CongDoanLite[] }> {
-      return authed<{ items: CongDoanLite[] }>("/api/cong-doan?size=200", token);
+      return authed<{ items: CongDoanLite[] }>("/api/cong-doan?size=200&active=true", token);
     },
   },
 

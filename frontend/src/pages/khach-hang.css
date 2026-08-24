@@ -1486,6 +1486,27 @@
   flex-direction: column;
   gap: var(--sp-4);
 }
+/* Note "khách mới" — dải mảnh trung thực trên skeleton rỗng (chưa có giao dịch).
+   Không chặn tab: KPI/biểu đồ vẫn hiện khung rỗng, Chính sách tài chính vẫn cấu hình được. */
+.kh__dash-newnote {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-4, 10px);
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-line, var(--rule-soft));
+  color: var(--amber-deep);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.kh__dash-newnote svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.kh__dash-newnote strong {
+  font-weight: var(--fw-bold);
+}
 /* Card chart theo prototype .sec-card (đo thật): pad 16, radius 10.
    Chain .card để thắng padding sp-8 của .card global. */
 .card.kh__chart {

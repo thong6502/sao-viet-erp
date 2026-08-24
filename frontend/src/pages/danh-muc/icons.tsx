@@ -78,3 +78,11 @@ export const CircleXIcon = ({ size = 12, sw = 3, ...r }: IconProps & { sw?: numb
     <path d="m15 9-6 6M9 9l6 6" />
   </SvgIcon>
 );
+
+/** Ổ khoá — nhóm máy HỆ THỐNG không cho xoá (ô "Nhóm máy" ở màn Thiết bị). */
+export const LockIcon = ({ size = 12, ...r }: IconProps) => (
+  <SvgIcon size={size} {...r}>
+    <rect x="5" y="11" width="14" height="10" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </SvgIcon>
+);

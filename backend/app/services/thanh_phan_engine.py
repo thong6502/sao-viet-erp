@@ -379,7 +379,7 @@ def chua_theo_chieu(tp: dict) -> tuple[float, float]:
       · RỘNG ← lề hông ×2 (`le_hong_mm`, trừ mỗi bên).
 
     KHÔNG gộp một số trừ đều hai chiều — nhíp là mép máy kẹp ở CẠNH NẠP, không ăn chiều rộng.
-    `gripper_mm` là nhíp KẼM (~44mm), KHÔNG được dùng ở đây: dùng nhầm là hụt 14-19% số con.
+    Chỉ dùng nhíp GIẤY; mép nhíp trên BẢN KẼM (~44mm) là chuyện khác, dùng nhầm là hụt 14-19% số con.
 
     Đè duy nhất còn lại: `chua_nhip` trên phiếu — khoản đổi theo job (hướng bài, cạnh nạp). Lề hông
     · đuôi · xén · cả gáy đã bỏ khỏi phiếu (mig 0139): chúng chưa từng có chỗ nhập, mà xén/gáy còn

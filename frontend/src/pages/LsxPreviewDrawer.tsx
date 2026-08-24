@@ -112,36 +112,43 @@ export function LsxPreviewDrawer({
       >
         <header className="khsx-drawer__head">
           <div className="khsx-drawer__headmain">
-            <p className="khsx-drawer__kicker">Lệnh dự kiến · chưa ghi vào hệ thống</p>
+            <p className="khsx-drawer__kicker">
+              <span className="khsx-badge-kicker">Lệnh dự kiến · chưa ghi DB</span>
+            </p>
             <h2 className="khsx-drawer__title" id="khsx-drawer-title" tabIndex={-1} ref={titleRef}>
               {data ? `${data.order_no} · ${data.customer_name ?? "—"}` : "Đang tải…"}
             </h2>
             {data && (
-              <p className="khsx-drawer__meta">
-                Giao {ngay(data.delivery_committed_date)}
-                {data.sale_name ? ` · Sale ${data.sale_name}` : ""}
+              <div className="khsx-drawer__meta">
+                <span className="khsx-meta-item">
+                  <Icon name="calendar" size={13} /> Giao {ngay(data.delivery_committed_date)}
+                </span>
+                {data.sale_name && (
+                  <span className="khsx-meta-item">
+                    <Icon name="users" size={13} /> Sale {data.sale_name}
+                  </span>
+                )}
                 {data.is_rush && <ChipGap />}
-              </p>
+              </div>
             )}
           </div>
           <button type="button" className="khsx-drawer__x" onClick={onClose} aria-label="Đóng">
-            <Icon name="x" size={16} />
+            <Icon name="x" size={18} />
           </button>
         </header>
 
         <div className="khsx-drawer__body">
-          <p className="khsx-callout khsx-callout--steel">
+          <p className="khsx-callout khsx-callout--steel khsx-callout--compact">
             <Icon name="help" size={14} />
             <span>
-              Số dưới đây máy <strong>bung sẵn</strong> từ bài tính giá — là <strong>đề xuất</strong>,
-              sửa được sau khi tạo lệnh. Máy không tự tạo và không tự bỏ dòng nào.
+              Số dưới đây máy <strong>bung sẵn</strong> từ bài tính giá — là đề xuất, sửa được sau khi tạo lệnh.
             </span>
           </p>
 
           {data?.production_note && (
-            <p className="khsx-callout khsx-callout--amber">
+            <p className="khsx-callout khsx-callout--amber khsx-callout--compact">
               <Icon name="bell" size={14} />
-              <span>Lưu ý sản xuất từ Sale: {data.production_note}</span>
+              <span>Lưu ý từ Sale: {data.production_note}</span>
             </p>
           )}
 
@@ -186,8 +193,6 @@ export function LsxPreviewDrawer({
                     <th scope="col">Sản phẩm</th>
                     <th scope="col" className="khsx-th--num">SL đơn</th>
                     <th scope="col" className="khsx-th--num">Bù hao</th>
-                    {/* Tiêu đề nói CHẶNG, không nói đơn vị: mỗi dòng là một sản phẩm khác nhau nên
-                        có thể đếm bằng đơn vị khác nhau. Đơn vị nằm trong từng ô (`don_vi_*`). */}
                     <th scope="col" className="khsx-th--num">Vào máy</th>
                     <th scope="col" className="khsx-th--num">Giấy nguyên</th>
                     <th scope="col" className="khsx-th--num">Bình bài</th>
@@ -210,8 +215,6 @@ export function LsxPreviewDrawer({
                   </tbody>
                 ) : (
                   <tbody>
-                    {/* Gom hiển thị theo nhãn nhóm (ruột + bìa của 1 cuốn) cho dễ đọc — nhưng
-                        MỖI DÒNG VẪN LÀ MỘT LỆNH: tick riêng, số tờ/kẽm riêng, máy chạy khác nhau. */}
                     {gomDongLenh(data?.lines ?? []).flatMap((node) => {
                       const dong = (l: LsxPreviewLine, con: boolean, cuoi = false) => (
                         <PreviewRow
@@ -272,7 +275,6 @@ export function LsxPreviewDrawer({
   );
 }
 
-/** Node hiển thị: 1 nhóm (nhiều dòng lệnh) hoặc 1 dòng lẻ. Gom theo nhãn `nhom`, giữ vị trí. */
 type NodeLenh =
   | { kind: "don"; key: string; line: LsxPreviewLine }
   | { kind: "nhom"; key: string; ten: string; members: LsxPreviewLine[] };
@@ -298,7 +300,6 @@ function gomDongLenh(lines: LsxPreviewLine[]): NodeLenh[] {
   return out;
 }
 
-
 function PreviewRow({
   line,
   con,
@@ -315,9 +316,6 @@ function PreviewRow({
   onOpenLsx: (id: number) => void;
 }) {
   const daCo = line.lsx_id != null;
-  // Đơn vị của CHÍNH dòng này — server đọc từ routing dự kiến rồi gửi mã kèm mỗi dòng; tên tra ở
-  // danh mục. Chưa có bài tính giá ⇒ mã rỗng ⇒ nhãn rỗng, ô chỉ còn số (đúng: chưa biết gì để nói).
-  // Bốn chặng do SERVER chấm, ở đây chỉ dịch mã sang tên — cùng một hàm với màn chi tiết lệnh.
   const dvDong = donViChuoi(line, line.don_vi_tinh);
   const { to: dvTo, tp: dvTp } = dvDong;
   return (
@@ -334,10 +332,15 @@ function PreviewRow({
         </label>
       </td>
       <td>
-        <div className="khsx-prev__name">{line.ten}</div>
-        <div className="khsx-prev__nameSub">
+        <div className="khsx-prev__name-inline">
+          <span className="khsx-prev__name">{line.ten}</span>
           {daCo ? (
-            <button type="button" className="khsx-xlink" onClick={() => onOpenLsx(line.lsx_id!)}>
+            <button
+              type="button"
+              className="khsx-action-link"
+              onClick={() => onOpenLsx(line.lsx_id!)}
+              title="Bấm để mở lệnh sản xuất này"
+            >
               {line.lsx_ma} — mở lệnh →
             </button>
           ) : line.ptg_ma ? (
@@ -345,42 +348,46 @@ function PreviewRow({
           ) : null}
         </div>
       </td>
-      <td className="khsx-num">
-        {num(line.so_luong_dat)} <span className="khsx-unit">{line.don_vi_tinh}</span>
+      <td className="khsx-num khsx-num--val">
+        <span className="khsx-num__main">{num(line.so_luong_dat)}</span> <span className="khsx-unit">{line.don_vi_tinh}</span>
         {line.sl_ptg != null && (
-          <div>
+          <span className="khsx-num__ptg-warn">
             <CanhBaoMem
               title={`Bài tính giá làm với ${num(line.sl_ptg)}; đơn đặt ${num(line.so_luong_dat)}. Số dùng thật là của đơn.`}
             >
-              tính giá {num(line.sl_ptg)}
+              {num(line.sl_ptg)}
             </CanhBaoMem>
-          </div>
+          </span>
         )}
       </td>
-      {/* Bù hao đếm bằng đúng đơn vị tờ vào máy — không lặp lại nhãn ở đây cho đỡ rối, ô ngay bên
-          cạnh đã nói. Tooltip vẫn ghi đủ để không ai phải đoán. */}
-      <td className="khsx-num" title={dvTo ? `${num(line.bu_hao_to)} ${dvTo}` : undefined}>
-        {num(line.bu_hao_to)}
+      <td className="khsx-num khsx-num--val" title={dvTo ? `${num(line.bu_hao_to)} ${dvTo}` : undefined}>
+        <span className="khsx-num__main">{num(line.bu_hao_to)}</span>
       </td>
-      <td className="khsx-num">
-        {num(line.so_to_ke_hoach)} <span className="khsx-unit">{dvTo}</span>
+      <td className="khsx-num khsx-num--val">
+        <span className="khsx-num__main">{num(line.so_to_ke_hoach)}</span> <span className="khsx-unit">{dvTo}</span>
       </td>
-      {/* Không có bước xả giấy ⇒ tờ nguyên = tờ vào máy, dùng chung nhãn. */}
-      <td className="khsx-num">
-        {num(line.so_to_nguyen)}{" "}
+      <td className="khsx-num khsx-num--val">
+        <span className="khsx-num__main">{num(line.so_to_nguyen)}</span>{" "}
         <span className="khsx-unit">{nhanDonVi(line.don_vi_to_nguyen) || dvTo}</span>
       </td>
-      {/* Tỉ số hai đơn vị. Bày cả "A/B" trong ô hẹp là vỡ hàng ⇒ hiện tử số, mẫu số vào tooltip. */}
       <td
-        className="khsx-num"
+        className="khsx-num khsx-num--val"
         title={dvTp && dvTo ? `${num(line.so_con)} ${dvTp} trên 1 ${dvTo}` : undefined}
       >
-        {num(line.so_con)} <span className="khsx-unit">{dvTp}</span>
+        <span className="khsx-num__main">{num(line.so_con)}</span> <span className="khsx-unit">{dvTp}</span>
       </td>
-      <td className="khsx-num">
-        {line.so_kem == null && line.so_luot == null ? "—" : `${num(line.so_kem)} · ${num(line.so_luot)}`}
+      <td className="khsx-num khsx-num--val">
+        {line.so_kem == null && line.so_luot == null ? (
+          <span className="khsx-muted">—</span>
+        ) : (
+          <span className="khsx-num__pair">
+            <span className="khsx-num__main">{num(line.so_kem)}</span><span className="khsx-unit">kẽm</span>
+            <span className="khsx-num__sep">·</span>
+            <span className="khsx-num__main">{num(line.so_luot)}</span><span className="khsx-unit">lượt</span>
+          </span>
+        )}
       </td>
-      <td>
+      <td className="khsx-prev__flow-col">
         <ChuoiCongDoan steps={line.routing} />
       </td>
       <td>
@@ -389,3 +396,5 @@ function PreviewRow({
     </tr>
   );
 }
+
+

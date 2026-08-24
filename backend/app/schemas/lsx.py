@@ -372,6 +372,15 @@ class LsxListOut(BaseModel):
     facets: dict[str, int] = {}
 
 
+class BoDauViecOut(BaseModel):
+    """Một bước bị GỠ đầu việc mồ côi khi lưu routing (đầu việc đã ghim không còn thuộc công đoạn
+    ∩ tổ — thường vì danh mục đổi dưới chân lệnh). KHÔNG chặn lưu; báo để mở bước chọn lại."""
+
+    vi_tri: int          # số thứ tự bước trong routing (1-based) để người kế hoạch mở đúng chỗ
+    ten: str             # tên công đoạn của bước
+    dau_viec: str        # tên đầu việc đã bị gỡ
+
+
 class LsxOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -441,6 +450,9 @@ class LsxOut(BaseModel):
     # Lệnh đang ghép chung tờ với ai. None = in riêng. Khi có, THÔNG SỐ TỜ (máy in, giấy, khổ tờ
     # in, số con) đọc theo bài — sửa ở màn lệnh không có tác dụng.
     bai_ghep: LsxBaiGhepOut | None = None
+    # Bước bị GỠ đầu việc mồ côi trong LẦN LƯU routing này (rỗng ở mọi cửa đọc khác). Non-blocking:
+    # lưu vẫn thành công, FE bày lưu ý để người kế hoạch mở đúng bước chọn lại đầu việc.
+    bo_dau_viec: list[BoDauViecOut] = Field(default_factory=list)
 
 
 class BuocBiDeOut(BaseModel):

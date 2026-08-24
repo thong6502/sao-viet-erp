@@ -31,6 +31,7 @@ import {
   loiDong,
   n,
   phut,
+  tenBuoc,
   thoiLuong,
   toBody,
   toEdit,
@@ -55,6 +56,9 @@ export interface RefRow {
   chuanBiKhoan?: { ten?: string; phut?: number }[];
   /** MÁY — "Số người vận hành tiêu chuẩn" ở danh mục Máy. Chính là KÍP ĐỨNG MÁY của bước. */
   soNguoiVanHanh?: number | null;
+  /** CÔNG ĐOẠN — nhóm máy (loai_may) làm được công đoạn này, để drawer LỌC dropdown máy. Chỉ có
+   *  trên ref CÔNG ĐOẠN (congDoanRefs), không phải ref máy. null/rỗng = không giới hạn. */
+  nhomMayChoPhep?: string[] | null;
 }
 
 /** Nhãn đơn vị CỦA MỘT BƯỚC. Chưa khai đơn vị ⇒ “—”.
@@ -259,6 +263,38 @@ export function LsxRoutingTable({
     [onXemTruocRouting],
   );
 
+  /** Nạp đầu việc khoán cho cặp (công đoạn, tổ) rồi áp vào bước: đúng MỘT đầu việc thì điền sẵn,
+   *  từ hai trở lên để TRỐNG cho người lập lệnh chọn theo hàng. Luật khớp phải trùng
+   *  `lsx_service._khoan_mac_dinh` — lệch là FE điền một đằng, backend gate một nẻo.
+   *
+   *  Dùng CHUNG cho đổi TỔ và đổi CÔNG ĐOẠN: cả hai đều đổi tập đầu việc hợp lệ nên chỉ được có
+   *  MỘT bản luật nạp. `seq` chốt qua `doiToSeq` để phản hồi tới trễ không đè lần đổi mới hơn. */
+  const napDauViec = useCallback(
+    async (key: string, congDoanId: number | null, departmentId: number | null, seq: number) => {
+      if (!departmentId || !congDoanId) return;
+      try {
+        const options = await onDauViecOptions(congDoanId, departmentId);
+        if (seq !== doiToSeq.current) return;
+        const chosen = options.length === 1 ? options[0] : null;
+        patch(key, {
+          khoan_chon_duoc: options,
+          khoan_rate_id: chosen?.id ?? null,
+          nang_suat: chosen ? String(chosen.nang_suat_nguoi_gio) : "",
+          don_vi_nang_suat: chosen?.don_vi_nang_suat ?? "",
+          so_nhan_cong: String(chosen?.so_nguoi_tieu_chuan ?? 1),
+          so_nhan_cong_tieu_chuan: chosen?.so_nguoi_tieu_chuan ?? 1,
+          so_nhan_cong_toi_da: chosen?.so_nguoi_toi_da ?? null,
+        });
+        setLive(options.length
+          ? `Đã nạp ${options.length} đầu việc khoán`
+          : "Công đoạn/tổ này chưa gắn đầu việc khoán");
+      } catch {
+        if (seq === doiToSeq.current) setLive("Không tải được bảng khoán");
+      }
+    },
+    [onDauViecOptions, patch],
+  );
+
   /** Đổi công đoạn của 1 bước → kéo lại dữ liệu trung tính của công đoạn (tổ phụ trách, đơn vị,
    *  chuẩn bị). Loại bước và tài nguyên vẫn là quyết định của kế hoạch tại chính bước LSX.
    *
@@ -275,6 +311,9 @@ export function LsxRoutingTable({
         patch(key, { cong_doan_id: null });
         return;
       }
+      // Đổi công đoạn ⇒ đổi cả tổ mặc định ⇒ tập đầu việc khoán hợp lệ đổi theo. Chốt seq NGAY để
+      // chặn phản hồi nạp-đầu-việc tới trễ đè lên lần đổi mới hơn (`napDauViec` so `doiToSeq`).
+      const seq = ++doiToSeq.current;
       try {
         const m = await onMacDinhBuoc(id);
         const applied: Partial<EditRow> = {
@@ -286,6 +325,13 @@ export function LsxRoutingTable({
           // in ngay sau, tức đúng cảnh báo giả vừa sửa nhưng sống lại lúc người dùng đang sửa.
           tren_dong_giay: m.tren_dong_giay !== false,
           he_so_quy_doi: m.he_so_quy_doi > 1 ? String(m.he_so_quy_doi) : "",
+          // RESET khoán: giữ `khoan_rate_id` cũ thì nó trỏ đầu việc của công đoạn CŨ → lưu thì backend
+          // tự GỠ nó như đầu việc mồ côi + báo lưu ý (không chặn nữa). Reset ngay ở đây để luồng đổi
+          // công đoạn thông thường KHỎI dính lưu ý đó; `napDauViec` ngay dưới điền lại đầu việc đúng
+          // của công đoạn mới (đúng 1 thì tự chọn) — cùng một bản luật nạp khoán.
+          khoan_rate_id: null, khoan_chon_duoc: [], khoan_dien_giai: null, khoan_ly_do: null,
+          nang_suat: "", don_vi_nang_suat: "",
+          so_nhan_cong: "1", so_nhan_cong_tieu_chuan: 1, so_nhan_cong_toi_da: null,
           // Thời gian chuẩn bị + chạy KHÔNG còn nằm ở bước: kế thừa sống từ máy đang gán.
         };
         patch(key, applied);
@@ -295,56 +341,15 @@ export function LsxRoutingTable({
         const snapshot = rowsRef.current.map(
           (r) => (r.key === key ? { ...r, ...applied } : r));
         void xemTruocChuoi(snapshot);
+        // Nạp lại đầu việc khoán theo (công đoạn mới, tổ mới) — đúng 1 thì điền sẵn, khỏi mất khoán.
+        void napDauViec(key, m.cong_doan_id, m.department_id, seq);
       } catch {
         // Mất mạng / không có quyền đọc danh mục → ít nhất vẫn đổi được tên, đừng chặn người dùng.
         patch(key, { cong_doan_id: id, ten: tenHienTai, department_id: null });
       }
     },
-    [onMacDinhBuoc, patch, xemTruocChuoi],
+    [onMacDinhBuoc, napDauViec, patch, xemTruocChuoi],
   );
-
-  /** Đổi tổ phải đổi luôn tập đầu việc khoán; không được giữ snapshot/list của tổ cũ. */
-  const doiTo = useCallback(async (key: string, departmentId: number | null) => {
-    const seq = ++doiToSeq.current;
-    const row = rows.find((x) => x.key === key);
-    const reset: Partial<EditRow> = {
-      department_id: departmentId,
-      khoan_rate_id: null,
-      khoan_chon_duoc: [],
-      khoan_dien_giai: null,
-      khoan_ly_do: null,
-      nang_suat: "",
-      don_vi_nang_suat: "",
-      so_nhan_cong: "1",
-      so_nhan_cong_tieu_chuan: 1,
-      so_nhan_cong_toi_da: null,
-    };
-    patch(key, reset);
-    if (!departmentId || !row?.cong_doan_id) return;
-    try {
-      const options = await onDauViecOptions(row.cong_doan_id, departmentId);
-      if (seq !== doiToSeq.current) return;
-      // Đúng MỘT đầu việc thì điền sẵn (không có gì để chọn nhầm); từ hai trở lên để TRỐNG cho
-      // người lập lệnh quyết theo hàng. Cờ `is_default` khai ở danh mục đã gỡ 12/08/2026 (mg 0190)
-      // — luật này phải khớp `lsx_service._khoan_mac_dinh`, lệch là FE điền một đằng BE một nẻo.
-      const chosen = options.length === 1 ? options[0] : null;
-      patch(key, {
-        ...reset,
-        khoan_chon_duoc: options,
-        khoan_rate_id: chosen?.id ?? null,
-        nang_suat: chosen ? String(chosen.nang_suat_nguoi_gio) : "",
-        don_vi_nang_suat: chosen?.don_vi_nang_suat ?? "",
-        so_nhan_cong: String(chosen?.so_nguoi_tieu_chuan ?? 1),
-        so_nhan_cong_tieu_chuan: chosen?.so_nguoi_tieu_chuan ?? 1,
-        so_nhan_cong_toi_da: chosen?.so_nguoi_toi_da ?? null,
-      });
-      setLive(options.length
-        ? `Đã nạp ${options.length} đầu việc khoán của tổ mới`
-        : "Tổ mới không có đầu việc khoán được gắn với công đoạn này");
-    } catch {
-      if (seq === doiToSeq.current) setLive("Không tải được bảng khoán của tổ mới");
-    }
-  }, [onDauViecOptions, patch, rows]);
 
   /** Đổi máy là LẤY SỐ NGAY, không đợi bấm "Lưu công đoạn" (chủ 20/08/2026: *"khi chọn máy là
    *  phải lấy số luôn chứ"*). Hai nửa, cố ý tách:
@@ -487,8 +492,8 @@ export function LsxRoutingTable({
   }
 
   const flow = useMemo(
-    () => rows.map((r) => ({ ten: r.ten || "…", loai_buoc: r.loai_buoc })),
-    [rows],
+    () => rows.map((r) => ({ ten: tenBuoc(r, congDoanRefs) || "…", loai_buoc: r.loai_buoc })),
+    [rows, congDoanRefs],
   );
   const tong = useMemo(
     () => rows.reduce(
@@ -556,9 +561,10 @@ export function LsxRoutingTable({
 
         {canUpdate && (
           <div className="khsx-rt__baracts">
-            <Button variant="secondary" onClick={() => them()}>
-              <Icon name="plus" size={14} /> Thêm công đoạn
-            </Button>
+            {/* Không còn nút "Thêm công đoạn" chung chung ở đây. Thêm bước = CHÈN SAU 1 bước cụ
+                thể: bảng dùng nút "+" ở mỗi hàng (bấm "+" hàng cuối = thêm ở cuối), sơ đồ DAG
+                chọn node rồi "Chèn sau: <bước>". Danh sách rỗng vẫn có nút thêm-bước-đầu ở ô
+                trống bên dưới — không giấu mất đường tạo bước đầu tiên. */}
             <Button
               variant="accent"
               disabled={!dirty}
@@ -677,7 +683,7 @@ export function LsxRoutingTable({
                       className="khsx-rt__open"
                       onClick={(e) => moDrawer(i, e.currentTarget)}
                     >
-                      <span className="khsx-rt__ten">{r.ten || "— chưa chọn công đoạn —"}</span>
+                      <span className="khsx-rt__ten">{tenBuoc(r, congDoanRefs) || "— chưa chọn công đoạn —"}</span>
                       <span className={`khsx-lb khsx-lb--${meta.tone}`}>{meta.label}</span>
                       {!r.bat_buoc && <span className="khsx-lb khsx-lb--opt">tùy chọn</span>}
                     </button>
@@ -779,7 +785,7 @@ export function LsxRoutingTable({
                       <span className="khsx-need-stack">
                         {r.phu_thuoc_step_keys.slice(0, 2).map((k) => (
                           <span key={k} className="khsx-need khsx-need--soft">
-                            {rows.find((x) => x.key === k)?.ten ?? "Bước LSX khác"}
+                            {tenBuoc(rows.find((x) => x.key === k), congDoanRefs) || "Bước LSX khác"}
                           </span>
                         ))}
                         {r.phu_thuoc_step_keys.length > 2 && <span className="khsx-need">+{r.phu_thuoc_step_keys.length - 2}</span>}
@@ -944,7 +950,6 @@ export function LsxRoutingTable({
           onPatch={(p) => patch(rows[moBuoc].key, p)}
           onPatchLsx={onPatchLsx}
           onDoiCongDoan={(id) => doiCongDoan(rows[moBuoc].key, id, rows[moBuoc].ten)}
-          onDoiTo={(id) => doiTo(rows[moBuoc].key, id)}
           onDoiMay={(id) => doiMay(rows[moBuoc].key, id)}
           onGiaoNhan={onGiaoNhan}
           tabDau={tabDau}

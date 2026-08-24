@@ -89,6 +89,7 @@ const SOURCE_STATUS_META: Record<
   needs_correction: { label: "Cần Thu mua chỉnh sửa", tone: "rejected" },
   in_purchase: { label: "Đang mua", tone: "pending" },
   done: { label: "Hoàn tất", tone: "received" },
+  partially_cancelled: { label: "Hủy một phần", tone: "partial" },
   cancelled: { label: "Đã hủy", tone: "cancelled" },
 };
 
@@ -595,7 +596,7 @@ export function PurchaseRequestsPage({
   onDataRefreshed?: () => void;
 }) {
   // `user` chỉ cần cho luật "Huỷ phiếu" — luật đó đang ẩn (15/08/2026), bật lại thì lấy kèm.
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const can = useCan();
   const canCreate = can("thu_mua", "create");
   const openYcmh = (code: string) =>
@@ -641,8 +642,9 @@ export function PurchaseRequestsPage({
     navigate("kho-main", { khoOpenRequest: { id: dot.stock_request_id, view: "denghi" } });
   };
   const canUpdate = can("thu_mua", "update");
-  /* Luật hiện nút "Huỷ phiếu" — ẩn cùng cái nút (15/08/2026). Giữ nguyên chữ vì nó chép đúng
-     luật của `PurchaseService.cancel`, viết lại từ đầu là dịp chép sai.
+  /* Luật hiện nút "Huỷ phiếu" — BẬT LẠI 24/08/2026 (chủ chốt: "bật nút hủy lên"). Ẩn từ
+     15/08 tới 24/08; chữ dưới đây chép đúng luật của `PurchaseService.cancel`, đổi luật ở
+     máy chủ thì phải sửa cả đây, nếu không nút bày ra rồi bấm vào ăn 409. */
   // Huỷ phiếu ĐÃ GỬI DUYỆT là quyết định của NGƯỜI DUYỆT — ô duyệt nay nằm bên Kế toán.
   const canDuyetChi = can("ke_toan", "approve");
   const HUY_DUOC_TRANG_THAI = [
@@ -652,7 +654,6 @@ export function PurchaseRequestsPage({
     HUY_DUOC_TRANG_THAI.includes(row.status) &&
     (canDuyetChi ||
       (canUpdate && row.status === "draft" && row.created_by_user_id === user?.id));
-  */
   // Ba nút "Sửa số nhận · Mở lại đơn · Đóng đơn" gác bằng ô "Thao tác" (`update`) — gộp lại
   // ngày 12/08/2026 sau khi chủ chốt test ô riêng `manage_status` và kết luận nó không đáng có.
   const canApprovePurchase = can("thu_mua", "update");
@@ -1388,11 +1389,9 @@ export function PurchaseRequestsPage({
         {/* Nút "Mở lại đơn" / "Lùi đã nhận" ĐÃ GỠ 12/08/2026 (chủ chốt: "cái nút mở lại đơn bỏ
             đi nha"). Endpoint `undo-received` và bộ test của nó GIỮ NGUYÊN — nó là van an toàn
             khi lỡ bấm "Đã nhận", chỉ là không còn bày ra ở màn này. */}
-        {/* NÚT "HUỶ PHIẾU" — ĐANG ẨN (chủ chốt 15/08/2026: "không đúng công năng hiện tại
-            của tôi, ẩn nút là được"). Bày ra hôm 12/08 rồi rút lại ngay trong ngày.
-            Máy chủ GIỮ NGUYÊN đường huỷ (`POST /api/purchase-requests/{id}/cancel`) cùng 4 nhánh
-            test của nó: nó vẫn là van gỡ kẹt khi phiếu lập nhầm. Bật lại = bỏ dấu chú thích ở
-            khối dưới; luật hiện nút đã chép sẵn đúng theo `PurchaseService.cancel`.
+        {/* NÚT "HUỶ PHIẾU" — bày lại 24/08/2026 sau 9 ngày ẩn. Đây là van gỡ kẹt khi phiếu lập
+            nhầm: `POST /api/purchase-requests/{id}/cancel` chưa từng bị gỡ, chỉ là không có nút.
+            Luật hiện nút nằm ở `huyPhieuDuoc` phía trên, chép đúng `PurchaseService.cancel`. */}
         {huyPhieuDuoc(row) && (
           <RowActionButton
             dense={dense}
@@ -1404,7 +1403,7 @@ export function PurchaseRequestsPage({
               setReasonModal({ kind: "cancel", row, reason: "", error: null })
             }
           />
-        )} */}
+        )}
       </div>
     );
   }

@@ -111,7 +111,7 @@ const soKemMoiTay = (muc_a: string[], muc_b: string[], quyCach: string): number 
  *  · RỘNG ← lề hông ×2 (hai bên)
  *
  * Nguồn là DANH MỤC MÁY; phiếu chỉ còn một ô đè `chua_nhip`. Không chọn máy → chừa 0 cả hai chiều.
- * `gripper_mm` là nhíp KẼM — KHÔNG dùng ở đây (dùng nhầm là hụt 14-19% số con). */
+ * Chỉ lấy nhíp GIẤY — mép nhíp trên BẢN KẼM (~44mm) là chuyện khác, dùng nhầm là hụt 14-19% số con. */
 function chuaTheoChieu(
   c: { chua_nhip: number },
   may: Row | null | undefined,
@@ -1163,7 +1163,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
 
   // Chọn máy → CHỈ gán may_id. KHÔNG copy thông số máy vào phiếu nữa: engine đọc thẳng
   // `nhip_giay_mm` / `le_hong_mm` / `duoi_thang_mau_mm` từ danh mục máy khi bình bài.
-  // (Bản cũ copy `gripper_mm` = nhíp KẼM ~44mm vào `chua_nhip` làm chừa GIẤY rồi trừ cả hai
+  // (Bản cũ copy mép nhíp BẢN KẼM ~44mm vào `chua_nhip` làm chừa GIẤY rồi trừ cả hai
   //  chiều → hụt 14-19% số con. Các ô `chua_*` giờ chỉ còn là ĐÈ thủ công, trống = theo máy.)
   const onPickMay = useCallback(
     (uid: string, mid: number | null) => {

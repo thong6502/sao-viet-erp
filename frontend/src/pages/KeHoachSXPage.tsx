@@ -242,28 +242,28 @@ export function KeHoachSXPage({
         </div>
       </header>
 
-      <div className="khsx-tabs-bar" role="tablist" aria-label="Khu vực làm việc">
+      <div className="khsx-underline-tabs" role="tablist" aria-label="Khu vực làm việc">
         <button
           type="button"
           role="tab"
           aria-selected={tab === "hang-cho"}
-          className={`khsx-tab-btn ${tab === "hang-cho" ? "is-active" : ""}`}
+          className={`khsx-underline-tab ${tab === "hang-cho" ? "is-active" : ""}`}
           onClick={() => setTab("hang-cho")}
         >
-          <Icon name="packageCheck" size={14} />
+          <Icon name="packageCheck" size={15} />
           <span>Hàng chờ tiếp nhận</span>
-          {queueTotal > 0 && <span className="khsx-tab-badge khsx-tab-badge--alert">{queueTotal}</span>}
+          {queueTotal > 0 && <span className="khsx-tab-count khsx-tab-count--alert">{queueTotal}</span>}
         </button>
         <button
           type="button"
           role="tab"
           aria-selected={tab === "lenh"}
-          className={`khsx-tab-btn ${tab === "lenh" ? "is-active" : ""}`}
+          className={`khsx-underline-tab ${tab === "lenh" ? "is-active" : ""}`}
           onClick={() => setTab("lenh")}
         >
-          <Icon name="layers" size={14} />
+          <Icon name="layers" size={15} />
           <span>Lệnh sản xuất</span>
-          <span className="khsx-tab-badge">{total}</span>
+          <span className="khsx-tab-count">{total}</span>
         </button>
       </div>
 
@@ -295,8 +295,6 @@ export function KeHoachSXPage({
           onOpen={(id) => setView({ mode: "detail", id })}
           onGoQueue={() => setTab("hang-cho")}
           tq={tq}
-          // Bấm chấm là tới THẲNG chỗ sửa kèm mã lệnh — nhảy sang màn rồi còn phải tự tìm lệnh
-          // trong 200 dòng thì vẫn là đổi màn, chỉ đỡ được nửa việc.
           onNhay={navigate ? (nhay, ma) => navigate(nhay.man, { focusLsxMa: ma }) : undefined}
           dem={demTheoTt}
           total={total}
@@ -357,21 +355,22 @@ function QueueTable({
         <caption className="sr-only">Đơn hàng đã chuyển xuống sản xuất, chờ lên lệnh</caption>
         <thead>
           <tr>
-            <th scope="col">Mã đơn</th>
-            <th scope="col">Khách hàng</th>
-            <th scope="col">Ngày giao</th>
-            <th scope="col">Lên lệnh</th>
-            <th scope="col" className="khsx__col--opt">Lưu ý sản xuất</th>
-            <th scope="col" className="khsx__col--opt">Chuyển lúc</th>
-            <th scope="col"><span className="sr-only">Mở</span></th>
+            <th scope="col" style={{ width: 110 }}>Mã đơn</th>
+            <th scope="col" style={{ width: 200 }}>Khách hàng &amp; Sale</th>
+            <th scope="col" style={{ minWidth: 240 }}>Sản phẩm / Hạng mục</th>
+            <th scope="col" className="khsx-th--center" style={{ width: 110 }}>Ngày giao</th>
+            <th scope="col" className="khsx-th--center" style={{ width: 110 }}>Tiến độ lệnh</th>
+            <th scope="col" className="khsx__col--opt" style={{ minWidth: 140 }}>Lưu ý sản xuất</th>
+            <th scope="col" className="khsx-th--center khsx__col--opt" style={{ width: 150 }}>Chuyển lúc</th>
+            <th scope="col" className="khsx-th--right" style={{ width: 150 }}><span className="sr-only">Hành động</span></th>
           </tr>
         </thead>
         {rows === null ? (
-          <Skeleton rows={4} cols={7} />
+          <Skeleton rows={4} cols={8} />
         ) : (
           <tbody>
             {rows.map((o) => {
-              const pct = o.so_dong ? Math.round((o.so_dong_co_lsx / o.so_dong) * 100) : 0;
+              const isAllDone = o.so_dong > 0 && o.so_dong_co_lsx === o.so_dong;
               return (
                 <tr
                   key={o.order_id}
@@ -388,32 +387,52 @@ function QueueTable({
                   }}
                 >
                   <td>
-                    <span className="khsx__code">{o.order_no}</span>
-                    {o.is_rush && <ChipGap />}
-                  </td>
-                  <td>
-                    {o.customer_name ?? "—"}
-                    {o.sale_name && <div className="khsx__sub">{o.sale_name}</div>}
-                  </td>
-                  <td className={`khsx-num ${classHan(o.delivery_committed_date)}`}>
-                    {ngay(o.delivery_committed_date)}
-                  </td>
-                  <td>
-                    <div className="khsx-prog">
-                      <b>
-                        {o.so_dong_co_lsx}/{o.so_dong}
-                      </b>
-                      <span className="khsx-prog__bar">
-                        <i style={{ width: `${pct}%` }} />
-                      </span>
+                    <div className="khsx-code-cell">
+                      <span className="khsx__code">{o.order_no}</span>
+                      {o.is_rush && <ChipGap />}
                     </div>
+                  </td>
+                  <td>
+                    <div className="khsx-cust-cell">
+                      <span className="khsx-cust-name">{o.customer_name ?? "—"}</span>
+                      {o.sale_name && (
+                        <span className="khsx-sale-badge">
+                          <Icon name="users" size={10} /> Sale {o.sale_name}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="khsx-prod-tags-wrap" title={o.san_pham_tom_tat ?? undefined}>
+                      {o.san_pham_tom_tat ? (
+                        o.san_pham_tom_tat.split(", ").map((item, idx) => (
+                          <span key={idx} className="khsx-prod-tag">
+                            {item}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="khsx-muted">{o.so_dong} hạng mục</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className={`khsx-td--center ${classHan(o.delivery_committed_date)}`}>
+                    <span className="khsx-date-val">{ngay(o.delivery_committed_date)}</span>
+                  </td>
+                  <td className="khsx-td--center">
+                    <span className={`khsx-prog-pill ${isAllDone ? "is-done" : "is-pending"}`}>
+                      {o.so_dong_co_lsx}/{o.so_dong} dòng
+                    </span>
                   </td>
                   <td className="khsx__note khsx__col--opt" title={o.production_note ?? undefined}>
                     {o.production_note || "—"}
                   </td>
-                  <td className="khsx-num khsx__col--opt">{ngayGio(o.san_xuat_released_at)}</td>
-                  <td className="khsx__rowcta">
-                    Xem lệnh dự kiến <Icon name="chevron" size={13} />
+                  <td className="khsx-td--center khsx__col--opt">
+                    <span className="khsx-time-val">{ngayGio(o.san_xuat_released_at)}</span>
+                  </td>
+                  <td className="khsx-td--right">
+                    <span className="khsx-cta-btn">
+                      Xem lệnh dự kiến <Icon name="chevron" size={12} />
+                    </span>
                   </td>
                 </tr>
               );

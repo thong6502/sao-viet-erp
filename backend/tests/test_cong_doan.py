@@ -114,6 +114,31 @@ def test_cong_doan_to_luu_dinh_muc_theo_dau_viec():
     assert (dm.so_nguoi_tieu_chuan, dm.so_nguoi_toi_da) == (3, 5)
 
 
+def test_dau_viec_options_kem_ten_don_vi():
+    """Bảng định mức phải hiện TÊN đơn vị chứ không mã trần (`ma-0001`).
+
+    `dau_viec_options` lưu MÃ (`don_vi`) nhưng phải kèm `don_vi_ten` như mọi màn khác (Công việc
+    khoán · Máy · Vật tư): bày TÊN cho người khai, chỉ lùi về mã khi mã ngoài danh mục Đơn vị.
+    """
+    db, svc = _svc()
+    from app.models.don_vi_do import DonViDo
+
+    db.add(DonViDo(ma="hg", ten="hộp giấy", ho="khac"))   # tên KHÁC mã để phân biệt hai nhánh
+    to = Department(name="Tổ Gấp", code="PB950", la_san_xuat=True)
+    db.add(to)
+    db.flush()
+    db.add_all([
+        PieceRate(group_name="Tổ Gấp", department_id=to.id, ten="Gấp tay", unit="hg", unit_price=100),
+        PieceRate(group_name="Tổ Gấp", department_id=to.id, ten="Việc mã lạ", unit="mét tới", unit_price=50),
+    ])
+    db.commit()
+
+    opts = {o["ten"]: o for o in svc.dau_viec_options(to.id)}
+    assert opts["Gấp tay"]["don_vi"] == "hg"              # vẫn giữ MÃ cho engine
+    assert opts["Gấp tay"]["don_vi_ten"] == "hộp giấy"    # nhưng bày TÊN cho người khai
+    assert opts["Việc mã lạ"]["don_vi_ten"] is None       # mã ngoài danh mục ⇒ FE lùi về mã trần
+
+
 def test_dinh_muc_luu_dai_nang_suat_don_vi_va_ba_moc_nhan_luc():
     """Dải năng suất + đơn vị khai báo + ba mốc nhân lực lưu đúng, và khai ngược thì bị chặn."""
     db, svc = _svc()

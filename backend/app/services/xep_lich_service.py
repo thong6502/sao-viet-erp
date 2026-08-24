@@ -94,7 +94,25 @@ class XepLichConflict(XepLichError):
 
 
 def _utcnow() -> datetime:
+    """UTC THẬT — chỉ dùng cho DẤU THỜI GIAN BẢN GHI (`created_at`, `resolved_at`), KHÔNG dùng làm
+    mốc xếp lịch. Muốn "bây giờ" để tính lịch thì gọi `_gio_xuong()`."""
     return datetime.now(timezone.utc)
+
+
+def _gio_xuong() -> datetime:
+    """Bây giờ theo ĐỒNG HỒ XƯỞNG — mốc sàn cho mọi phép xếp lịch.
+
+    Cả module này dán nhãn `timezone.utc` lên GIỜ TƯỜNG của nhà máy: `_aware()` coi giờ naive FE gửi
+    lên là giờ nhà máy, `_naive()` trả ra wall-clock để `new Date(iso)` bên FE không dịch múi, phút ca
+    (`start_minute=360` → 06:00) cũng là phút-trong-ngày theo giờ tường. Chỉ riêng `_utcnow()` là UTC
+    THẬT ⇒ ở VN nó lùi 7 tiếng so với mọi giá trị khác trên bảng: 09:14 giờ xưởng vào engine thành
+    02:14, rơi vào Ca 3 (22:00–06:00) trong khi xưởng đang Ca 1, và engine xếp việc vào những giờ đã
+    trôi qua. (Phát hiện 22/08/2026 trên màn Xếp lịch 2.)
+
+    GIỮ `_utcnow()` NGUYÊN VẸN: nó còn là `default=` của `created_at` (`xep_lich_van_de`, `audit`) và
+    là giá trị của `resolved_at` — dấu thời gian BẢN GHI là chuyện khác, đổi ở đó là dời lịch sử.
+    """
+    return datetime.now().replace(tzinfo=timezone.utc)
 
 
 def _aware(dt: datetime | None) -> datetime | None:
@@ -407,23 +425,28 @@ class XepLichService:
         self._lich_cache: dict[int, LichXuong] = {}
 
     def _ca_lich_may(self) -> list[WorkShift]:
-        """Tập ca CHUNG của xưởng = MỌI ca đang hoạt động, sort theo giờ vào.
+        """Tập ca CHUNG của xưởng = ca đang dùng VÀ có tick "chạy dưới xưởng", sort theo giờ vào.
 
-        Sau 2026-08-10 chỉ còn dùng cho bước KHÔNG có máy (việc tay của tổ): ở đó giờ làm của
-        NGƯỜI mới là ràng buộc thật. Bước có máy đi theo `_lich_may` (chạy liên tục).
+        Đây là cửa DUY NHẤT đọc `work_shifts` cho Xếp lịch: nó vừa là khung giờ hợp lệ để đặt việc
+        (§7.1 soi giờ bắt đầu), vừa là MẪU SỐ đo % tải máy. Ca văn phòng không được vào đây: xưởng
+        khai Hành chính 08:00–17:00 cạnh Ca 1 · Ca 2 · Ca 3 — hôm nay nó nằm gọn trong Ca 1 + Ca 2
+        nên không nới thêm phút nào, nhưng tắt Ca 2 đi là mẫu số phồng từ 8 lên 11 tiếng ⇒ mọi %
+        tải thấp giả 27%.
 
-        21/08/2026 BỎ cờ `dung_cho_lich_may` (mg 0226): cờ đó chưa bao giờ có đường khai — không
-        nằm trong `WorkShiftIn/Out`, frontend không có ô — nên 4/4 ca của xưởng đều FALSE và engine
-        luôn rơi về fallback 08:00–16:00 dù màn Khai ca đã khai đủ Ca 1 · Ca 2 · Ca 3 · Hành chính.
-        Hậu quả im lặng: mốc khe gợi ý mỗi ngày chỉ mở đúng 08:00, mẫu số đo tải máy 480 phút thay
-        vì 1440 (bước 10 tiếng bị chấm 125% ⇒ báo quá tải oan). Ca đã tắt (`is_active=False`) vẫn
-        là đường loại một ca ra khỏi lịch xưởng.
+        ⚠ KHÔNG ca nào tick ⇒ trả TẤT CẢ ca đang dùng, KHÔNG trả rỗng. Chính chỗ này giết cờ đời
+        trước (`dung_cho_lich_may`, mg 0095 → gỡ ở mg 0226): cờ mặc định TẮT và không có ô khai nên
+        4/4 ca đều FALSE, hàm này trả rỗng rồi `LichXuong` rơi về fallback 08:00–16:00 — im lặng,
+        không ai thấy. Nay cờ mặc định BẬT (mg 0227) và có ô ở màn Ca kíp; vẫn giữ đường lùi này
+        cho DB cũ / xưởng lỡ tắt hết: thà đo bằng mọi ca còn hơn đo bằng một ca tưởng tượng.
+
+        Ca đã tắt (`is_active=False`) vẫn là đường loại hẳn một ca ra khỏi lịch xưởng.
         """
-        return list(self.db.execute(
+        cas = list(self.db.execute(
             select(WorkShift)
             .where(WorkShift.is_active.is_(True))
             .order_by(WorkShift.start_minute)
         ).scalars())
+        return [s for s in cas if bool(getattr(s, "ca_san_xuat", True))] or cas
 
     def _lich_may(self, may_id: int | None) -> LichXuong:
         """Khung giờ của MÁY — chạy LIÊN TỤC (2026-08-10: bỏ ca riêng của máy và của tổ).
@@ -1220,7 +1243,7 @@ class XepLichService:
     # ================= CHUỖI THỜI GIAN (dẫn xuất) =================
 
     def _san_thoi_gian(self, lsx: Lsx | None) -> datetime:
-        now = _utcnow()
+        now = _gio_xuong()
         bg = _aware(lsx.ban_giao_at) if lsx else None
         return max(now, bg) if bg else now
 
@@ -1269,7 +1292,7 @@ class XepLichService:
                     cho_truoc = dur[rows[i - 1].id]["tong_phut"] - dur[rows[i - 1].id]["chiem_may_phut"]
                     lf = ls - timedelta(minutes=cho_truoc)
         # --- độ dư + nhãn ---
-        today = _utcnow().date()
+        today = _gio_xuong().date()
         for r in rows:
             it = info[r.id]
             muon = it.get("muon_nhat")
@@ -1372,7 +1395,7 @@ class XepLichService:
             lag = dur[rid]["tong_phut"] - chiem
             latest_start[rid] = ls - timedelta(minutes=lag)
 
-        today = _utcnow().date()
+        today = _gio_xuong().date()
         for rid, it in info.items():
             muon, ef = it.get("muon_nhat"), it["earliest_finish"]
             if muon is None:

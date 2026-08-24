@@ -97,8 +97,7 @@ class MayThietBi(Base):
     kho_kem_rong: Mapped[int | None] = mapped_column(Integer, nullable=True)
     vung_in_dai: Mapped[int | None] = mapped_column(Integer, nullable=True)   # vùng in lớn nhất (mm)
     vung_in_rong: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    gripper_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)    # mép nhíp trên BẢN KẼM (~44mm)
-    # Nhíp GIẤY — cạnh máy kẹp tờ giấy, KHÁC `gripper_mm` (nhíp kẽm) cả về nghĩa lẫn độ lớn (~8-12mm).
+    # Nhíp GIẤY — cạnh máy kẹp tờ giấy (~8-12mm). (Ô "Nhíp kẽm" `gripper_mm` đã bỏ — mg 0228.)
     # ★ bình bài: trừ vào chiều DÀI tờ in (1 cạnh nạp), KHÔNG trừ chiều rộng.
     nhip_giay_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)
     le_hong_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)          # ★ trừ MỖI BÊN chiều rộng
@@ -136,6 +135,19 @@ class MayThietBi(Base):
 # `schema_migrations` sống qua `drop_all` nên test không chạy lại migration; chỉ seed dựng được
 # DB test. Chép danh sách ra hai chỗ là sớm muộn hai chỗ lệch nhau.
 NHOM_MAY_MAC_DINH = ("Máy in", "In ngoài", "Cán màng / UV", "Bồi", "Bế")
+
+# Nhóm HỆ THỐNG — KHÔNG cho xoá khỏi danh mục. "Máy in" là mỏ neo của cả bình bài + tính giá:
+# hàm `isMayIn()` (frontend) bật ~8 ô kỹ thuật (khổ kẽm, vùng in, nhíp giấy) và cho phép bình bài
+# CHỈ khi nhóm là máy in. Xoá nhóm này (khi tình cờ không còn máy nào thuộc) là mất luôn chỗ chọn
+# ⇒ không khai nổi máy in mới. Cờ `he_thong` trên NhomMayRow SUY từ tên này — không cột DB, đảo
+# được (bỏ tên khỏi tuple là mở khoá lại). CỐ Ý chỉ "Máy in", không quét cả NHOM_MAY_MAC_DINH:
+# Bế/Bồi/Cán màng/In ngoài xưởng nào không có thì cứ cho xoá.
+NHOM_MAY_KHOA = ("Máy in",)
+
+
+def la_nhom_khoa(ten: str | None) -> bool:
+    """Tên nhóm có bị khoá xoá không (so KHỚP ĐÚNG, không heuristic như `isMayIn`)."""
+    return (ten or "").strip() in NHOM_MAY_KHOA
 
 
 class NhomMay(Base):

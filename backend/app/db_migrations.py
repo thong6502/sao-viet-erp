@@ -10369,3 +10369,98 @@ def _migrate_giao_hang_dinh_kem(db) -> None:
 
 
 MIGRATIONS.append(("0230_giao_hang_dinh_kem", _migrate_giao_hang_dinh_kem))
+
+
+def _migrate_work_shift_ca_san_xuat(db: Session) -> None:
+    """`work_shifts.ca_san_xuat` — ca nào CHẠY DƯỚI XƯỞNG, ca nào chỉ để chấm công.
+
+    Vì sao cần: mẫu số đo % tải máy là "một ngày xưởng có bao nhiêu phút được ca phủ". Xưởng khai
+    Ca 1 (06–14) · Ca 2 (14–22) · Ca 3 (22–06) · Hành chính (08–17); ba ca đầu là người đứng máy,
+    cái thứ tư là văn phòng. Hôm nay Hành chính nằm GỌN trong Ca 1 + Ca 2 nên không nới thêm phút
+    nào — nhưng đó là MAY chứ không phải thiết kế: tắt Ca 2 đi thì giờ xưởng còn 06–14 (8 tiếng) mà
+    Hành chính kéo mẫu số tới 17:00 (11 tiếng) ⇒ mọi % tải thấp giả 27%.
+
+    ⚠ Mặc định TRUE và backfill TRUE cho MỌI dòng đang có ⇒ migration chạy xong KHÔNG đổi một con
+    số nào. Muốn ca văn phòng thôi tính vào lịch xưởng thì vào Nhân sự → Ca kíp bỏ tick — một cú
+    click, đảo lại được. CỐ Ý không đoán theo TÊN ca ("Hành chính"): tên là dữ liệu người dùng gõ,
+    xưởng khác gọi "Giờ HC" hay "Văn phòng" là trật.
+
+    Đây là bản THỨ HAI của cờ này. Bản đầu `dung_cho_lich_may` (mg 0095) chết ở mg 0226 vì mặc định
+    TẮT mà không có đường khai ⇒ 4/4 ca FALSE ⇒ engine thấy tập ca rỗng rồi rơi về fallback
+    08:00–16:00. Lần này: (1) mặc định BẬT, (2) có ô ở màn Ca kíp + `WorkShiftIn/Out`, (3)
+    `_ca_lich_may()` không ca nào bật thì dùng TẤT CẢ ca đang dùng — hết đường rơi về 8h.
+
+    Chỉ ADD COLUMN DEFAULT — idempotent, no-op trên DB fresh (create_all đã dựng)."""
+    insp = inspect(db.get_bind())
+    if "work_shifts" not in set(insp.get_table_names()):
+        return
+    if "ca_san_xuat" in _existing_columns(insp, "work_shifts"):
+        return
+    db.execute(text(
+        "ALTER TABLE work_shifts ADD COLUMN ca_san_xuat BOOLEAN NOT NULL DEFAULT TRUE"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0231_work_shift_ca_san_xuat", _migrate_work_shift_ca_san_xuat))
+
+
+def _migrate_go_gripper_mm(db: Session) -> None:
+    """Rút `may_thiet_bi.gripper_mm` (nhãn UI "Nhíp kẽm").
+
+    Cột này là mép nhíp trên BẢN KẼM (~44mm) — KHÁC nhíp GIẤY (`nhip_giay_mm`, ~10mm) mà engine
+    bình bài thực sự dùng để chừa lề tờ in. Engine CỐ Ý không đọc `gripper_mm` (có test canh: dùng
+    nhầm nó làm chừa giấy từng hụt 14-19% số con). Ngoài validate E-MAY-NHIP + nhãn nhật ký, không
+    tầng nào ăn cột này ⇒ gỡ hẳn khỏi danh mục máy.
+
+    Raw SQL đích danh cột, best-effort, idempotent; no-op khi bảng/cột không còn (DB fresh dựng bằng
+    create_all đã không có cột)."""
+    insp = inspect(db.get_bind())
+    if "may_thiet_bi" not in set(insp.get_table_names()):
+        return
+    if "gripper_mm" not in _existing_columns(insp, "may_thiet_bi"):
+        return
+    try:
+        db.execute(text("ALTER TABLE may_thiet_bi DROP COLUMN gripper_mm"))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+MIGRATIONS.append(("0232_go_gripper_mm_nhip_kem", _migrate_go_gripper_mm))
+
+
+def _migrate_huy_tung_dong_ycmh(db: Session) -> None:
+    """`department_purchase_request_lines.cancelled_at/_by_user_id/cancel_reason` — huỷ TỪNG MÓN.
+
+    24/08/2026, chủ chốt: *"phải quản tới từng món hàng, đừng quản tới cấp chứng từ nữa"*. Trước
+    mốc này việc huỷ chỉ có ở cấp PHIẾU: yêu cầu 5 dòng mà 1 dòng khai thừa thì hoặc huỷ cả phiếu
+    (mất 4 dòng Thu mua đang chạy), hoặc để nguyên cho nó nằm đó gây nhiễu bảng cân đối vật tư.
+
+    Sau migration này `department_purchase_requests.status` DẪN XUẤT từ các dòng CÒN SỐNG
+    (`cancelled_at IS NULL`); huỷ hết dòng thì phiếu mới về `cancelled`. Dòng đã huỷ giữ lại làm
+    vết, không xoá — `purchase_request_lines.department_request_line_id` còn có thể trỏ tới.
+
+    Chỉ ADD COLUMN NULLABLE, không backfill (NULL = còn sống, đúng nghĩa mọi dòng đang có).
+    Raw SQL đích danh cột, idempotent, no-op trên DB fresh (create_all đã dựng)."""
+    insp = inspect(db.get_bind())
+    if "department_purchase_request_lines" not in set(insp.get_table_names()):
+        return
+    dang_co = _existing_columns(insp, "department_purchase_request_lines")
+    them = [
+        ("cancelled_at", "TIMESTAMP WITH TIME ZONE"),
+        ("cancelled_by_user_id", "INTEGER"),
+        ("cancel_reason", "TEXT"),
+    ]
+    for ten, kieu in them:
+        if ten in dang_co:
+            continue
+        # SQLite không có TIMESTAMP WITH TIME ZONE; nó nhận "TIMESTAMP" và lưu như TEXT.
+        kieu_that = "TIMESTAMP" if db.get_bind().dialect.name == "sqlite" else kieu
+        db.execute(text(
+            f"ALTER TABLE department_purchase_request_lines ADD COLUMN {ten} {kieu_that}"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0233_huy_tung_dong_ycmh", _migrate_huy_tung_dong_ycmh))

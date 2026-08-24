@@ -90,6 +90,8 @@ import {
   Undo2,
   Eraser,
   Users,
+  Factory,
+  Building2,
   Repeat,
   Target,
   Navigation,
@@ -5583,6 +5585,31 @@ function ShiftsTab({ token }: { token: string }) {
                     Ca ngày
                   </span>
                 )}
+                {s.ca_san_xuat ? (
+                  <span className="cc-badge-pill cc-badge-pill--orange">
+                    <Factory
+                      size={10}
+                      style={{
+                        display: "inline",
+                        verticalAlign: "middle",
+                        marginRight: "2px",
+                      }}
+                    />{" "}
+                    Dưới xưởng
+                  </span>
+                ) : (
+                  <span className="cc-badge-pill cc-badge-pill--gray">
+                    <Building2
+                      size={10}
+                      style={{
+                        display: "inline",
+                        verticalAlign: "middle",
+                        marginRight: "2px",
+                      }}
+                    />{" "}
+                    Văn phòng
+                  </span>
+                )}
               </div>
               {s.note && (
                 <div
@@ -5774,6 +5801,7 @@ function ShiftForm({
     shift_allowance: shift?.shift_allowance ?? 50000,
     note: shift?.note ?? "",
     is_active: shift?.is_active ?? true,
+    ca_san_xuat: shift?.ca_san_xuat ?? true,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -5980,6 +6008,20 @@ function ShiftForm({
               </span>
             </label>
           )}
+          <label className="ns-check" style={{ marginTop: 10 }}>
+            <input
+              type="checkbox"
+              checked={!!form.ca_san_xuat}
+              onChange={(e) => set("ca_san_xuat", e.target.checked)}
+            />{" "}
+            Ca chạy dưới xưởng sản xuất
+          </label>
+          <p className="cc-note" style={{ marginTop: 4 }}>
+            Bật cho ca có người đứng máy. Bàn Xếp lịch lấy đúng các ca này làm
+            giờ làm của xưởng: khung giờ được phép đặt việc, và mẫu số tính %
+            tải máy. Ca văn phòng (vd Hành chính 08:00–17:00) thì tắt — vẫn chấm
+            công bình thường, chỉ thôi tính vào lịch xưởng.
+          </p>
           <label className="ns-check">
             <input
               type="checkbox"

@@ -55,6 +55,9 @@ class WorkShiftIn(BaseModel):
     shift_allowance: float = Field(default=50000, ge=0)
     note: str | None = Field(default=None, max_length=500)
     is_active: bool = True
+    # Ca chạy dưới xưởng SX — nuôi khung giờ Xếp lịch + mẫu số % tải máy (xem model). Mặc định
+    # BẬT: bên gọi cũ không gửi trường này thì ca vẫn vào lịch như trước, không biến mất.
+    ca_san_xuat: bool = True
 
 
 class WorkShiftOut(BaseModel):
@@ -68,6 +71,7 @@ class WorkShiftOut(BaseModel):
     meal_allowance: float = 25000
     shift_allowance: float = 50000
     is_active: bool
+    ca_san_xuat: bool = True
     note: str | None = None
 
 

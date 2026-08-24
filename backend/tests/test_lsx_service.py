@@ -1135,6 +1135,62 @@ def test_sua_routing_ghim_dau_viec_va_giu_gia_luc_chon(db, orders, lsx_svc, admi
     assert buoc_be["khoan_don_gia"] == 250
 
 
+def test_sua_routing_go_dau_viec_mo_coi_thay_vi_chan(db, orders, lsx_svc, admin, customer):
+    """Đầu việc đã GHIM nay mồ côi (danh mục đổi dưới chân lệnh) → lưu VẪN thành công: server tự gỡ
+    đầu việc mồ côi và trả LƯU Ý đích danh bước, KHÔNG chặn cứng cả lệnh như trước.
+
+    Tình huống thật (screenshot 22/08/2026): người kế hoạch ghim đầu việc cho bước "Dán hộp", sau đó
+    bên danh mục gỡ định mức đầu việc khỏi công đoạn (hoặc đổi tổ / ngừng dùng). Trước đây lần lưu
+    routing kế tiếp ném "Đầu việc không thuộc công đoạn hoặc tổ phụ trách" — một đầu việc mồ côi
+    khoá cứng nút Lưu kể cả khi người ta chỉ sửa chỗ khác.
+    """
+    from app.models.cong_doan import CongDoanDauViec
+
+    ptg = _ptg_2_san_pham(db)
+    cd_be = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").first()
+    r1 = _gan_dinh_muc(db, cong_doan=cd_be, ten="Dán thường", don_vi="cái", don_gia=250)
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    lines = lsx_svc.preview(d.id)["lines"]
+    lsx = lsx_svc.tao(order_id=d.id, order_line_ids=[lines[0]["order_line_id"]], actor=admin)[0]
+
+    def _rows(src, rate_id):
+        return [
+            LsxCongDoanIn(
+                thu_tu=cd.thu_tu, cong_doan_id=cd.cong_doan_id, ten=cd.ten, nhom=cd.nhom,
+                department_id=cd.department_id, so_luong_vao=float(cd.so_luong_vao),
+                so_luong_ra=float(cd.so_luong_ra), don_vi_vao=cd.don_vi_vao, don_vi_ra=cd.don_vi_ra,
+                piece_rate_id=(rate_id if cd.ten == "Dán hộp" else None),
+            )
+            for cd in sorted(src.cong_doans, key=lambda c: c.thu_tu)
+        ]
+
+    # 1) Ghim đầu việc như bình thường — chưa mồ côi thì KHÔNG có lưu ý nào.
+    saved = lsx_svc.replace_routing(lsx_id=lsx.id, rows_in=_rows(lsx, r1.id), actor=admin)
+    assert lsx_svc.bo_dau_viec_lan_luu == []
+    buoc = next(b for b in lsx_svc.detail_dict(saved)["cong_doans"] if b["ten"] == "Dán hộp")
+    assert buoc["khoan_rate_id"] == r1.id
+
+    # 2) Danh mục gỡ định mức đầu việc khỏi công đoạn ⇒ đầu việc đã ghim thành mồ côi.
+    db.query(CongDoanDauViec).filter_by(cong_doan_id=cd_be.id, piece_rate_id=r1.id).delete()
+    db.commit()
+
+    # 3) Lưu lại (drawer vẫn gửi kèm đầu việc đã ghim) — KHÔNG ném lỗi, tự gỡ + báo lưu ý.
+    lsx = lsx_svc.get(lsx.id)
+    saved = lsx_svc.replace_routing(lsx_id=lsx.id, rows_in=_rows(lsx, r1.id), actor=admin)
+
+    lu = lsx_svc.bo_dau_viec_lan_luu
+    assert len(lu) == 1
+    assert lu[0]["ten"] == "Dán hộp" and lu[0]["dau_viec"] == "Dán thường"
+    assert lu[0]["vi_tri"] >= 1, "phải nói SỐ THỨ TỰ bước để người kế hoạch mở đúng chỗ"
+    # Đầu việc mồ côi đã bị GỠ khỏi bước (khoán về rỗng, không còn khoá lưu).
+    buoc = next(b for b in lsx_svc.detail_dict(saved)["cong_doans"] if b["ten"] == "Dán hộp")
+    assert buoc["khoan_rate_id"] is None
+
+    # Lưu ý KHÔNG nằm trong read-model: đọc lại lệnh không thấy nó (transient, không cột DB).
+    assert "bo_dau_viec" not in lsx_svc.detail_dict(lsx_svc.get(lsx.id))
+
+
 def test_bung_vat_tu_theo_dau_viec_va_khong_de_len_dong_nguoi_sua(
     db, orders, lsx_svc, admin, customer
 ):

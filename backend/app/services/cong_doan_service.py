@@ -241,7 +241,12 @@ class CongDoanService(CatalogService):
         return items
 
     def dau_viec_options(self, department_id: int | None = None) -> list[dict]:
+        # `don_vi` lưu MÃ (`to`, `kg`); mã trần thì người khai không đọc ra "tờ"/"kg". Gán kèm
+        # `don_vi_ten` như mọi màn khác (Công việc khoán · Máy · Vật tư) để bảng định mức hiện
+        # TÊN, chỉ lùi về mã khi mã lạ (ngoài danh mục Đơn vị). Một truy vấn cho cả danh sách.
+        ten = self.repo.don_vi_ten()
         return [{"id": r.id, "ma": r.ma or f"DV-{r.id}", "ten": r.ten,
                  "department_id": r.department_id, "don_vi": r.unit,
+                 "don_vi_ten": ten.get((r.unit or "").strip().lower()),
                  "don_gia": float(r.unit_price)}
                 for r in self.repo.piece_rates_active(department_id)]

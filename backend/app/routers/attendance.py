@@ -204,7 +204,7 @@ def _shift_out(s) -> WorkShiftOut:
         night_multiplier=float(getattr(s, "night_multiplier", 1.3) or 1.3),
         grace_minutes=s.grace_minutes,
         meal_allowance=s.meal_allowance, shift_allowance=s.shift_allowance,
-        is_active=s.is_active, note=s.note,
+        is_active=s.is_active, ca_san_xuat=bool(getattr(s, "ca_san_xuat", True)), note=s.note,
     )
 
 
@@ -235,6 +235,7 @@ def create_shift(
             is_overnight=body.is_overnight, grace_minutes=body.grace_minutes,
             meal_allowance=body.meal_allowance, shift_allowance=body.shift_allowance,
             night_multiplier=body.night_multiplier, note=body.note,
+            ca_san_xuat=body.ca_san_xuat,
         )
     except AttendanceError as exc:
         _raise(exc)
@@ -254,7 +255,7 @@ def update_shift(
             end_time=body.end_time, is_overnight=body.is_overnight,
             grace_minutes=body.grace_minutes, meal_allowance=body.meal_allowance,
             shift_allowance=body.shift_allowance, night_multiplier=body.night_multiplier,
-            note=body.note, is_active=body.is_active,
+            note=body.note, is_active=body.is_active, ca_san_xuat=body.ca_san_xuat,
         )
     except AttendanceError as exc:
         _raise(exc)

@@ -4,11 +4,12 @@ from __future__ import annotations
 from datetime import date
 from typing import Sequence
 
-from sqlalchemy import asc, desc, exists, func, or_, select
+from sqlalchemy import and_, asc, desc, exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.accounting import PAYMENT_VOUCHER_PAID, PaymentVoucher
 from ..models.purchase import (
+    DPR_CANCELLED,
     DPR_IN_PURCHASE,
     DPR_OPEN,
     DPR_PENDING_APPROVAL,
@@ -519,22 +520,48 @@ class DepartmentPurchaseRequestRepository:
                     )
                 )
 
+            # "Huỷ một phần" (mg 0233) = có ít nhất một món đã bỏ VÀ vẫn còn món sống. Huy hiệu
+            # trên bảng lấy trạng thái này ĐÈ lên nhãn tiến độ, nên bộ lọc phải đi cùng: lọc "Đang
+            # mua" mà vẫn trả về dòng đang đeo huy hiệu "Huỷ một phần" là người dùng thôi tin bộ lọc.
+            def co_dong(da_huy: bool):
+                dk = (
+                    DepartmentPurchaseRequestLine.cancelled_at.is_not(None)
+                    if da_huy
+                    else DepartmentPurchaseRequestLine.cancelled_at.is_(None)
+                )
+                return exists(
+                    select(DepartmentPurchaseRequestLine.id).where(
+                        DepartmentPurchaseRequestLine.department_request_id
+                        == DepartmentPurchaseRequest.id,
+                        dk,
+                    )
+                )
+
+            huy_mot_phan = and_(co_dong(True), co_dong(False))
             co_tu_choi = co_phieu_con(PR_REJECTED)
             co_nhap = co_phieu_con(PR_DRAFT)
-            if status == "needs_correction":
-                conditions.append(co_tu_choi)
+            if status == "partially_cancelled":
+                conditions.append(huy_mot_phan)
+            elif status == "needs_correction":
+                conditions.extend((co_tu_choi, ~huy_mot_phan))
             elif status == "drafting":
-                conditions.extend((~co_tu_choi, co_nhap))
+                conditions.extend((~co_tu_choi, co_nhap, ~huy_mot_phan))
             elif status == DPR_PENDING_APPROVAL:
                 conditions.extend(
                     (
                         DepartmentPurchaseRequest.status == DPR_PENDING_APPROVAL,
                         ~co_tu_choi,
                         ~co_nhap,
+                        ~huy_mot_phan,
                     )
                 )
-            else:
+            elif status == DPR_CANCELLED:
+                # Phiếu huỷ HẲN: không còn món sống nào ⇒ `huy_mot_phan` tự sai, không cần loại.
                 conditions.append(DepartmentPurchaseRequest.status == status)
+            else:
+                conditions.extend(
+                    (DepartmentPurchaseRequest.status == status, ~huy_mot_phan)
+                )
         if source_type:
             conditions.append(DepartmentPurchaseRequest.source_type == source_type)
         if requested_by_user_id is not None:
@@ -680,7 +707,12 @@ class DepartmentPurchaseRequestRepository:
         request.purpose = purpose
         request.content = content if content is not None else purpose
         request.needed_date = needed_date
-        request.lines = [
+        # DÒNG ĐÃ HUỶ KHÔNG ĐI QUA FORM SỬA (mg 0233) — form chỉ gửi lên các món còn sống. Gán đè
+        # cả list là `delete-orphan` xoá sạch dòng đã huỷ: mất vết "đã từng đề nghị rồi bỏ", và
+        # `purchase_request_lines.department_request_line_id` trỏ tới nó bị SET NULL theo (dòng đơn
+        # mua mất luôn nguồn). Giữ chúng ở ĐẦU, đúng thứ tự id cũ.
+        da_huy = [ln for ln in request.lines if ln.cancelled_at is not None]
+        moi = [
             DepartmentPurchaseRequestLine(
                 item_name=line.item_name,
                 unit=line.unit,
@@ -692,6 +724,7 @@ class DepartmentPurchaseRequestRepository:
             )
             for line in lines
         ]
+        request.lines = [*da_huy, *moi]
         try:
             self.db.commit()
         except Exception:
@@ -929,6 +962,26 @@ class PurchaseRequestRepository:
                 selectinload(PurchaseRequest.deliveries).selectinload(PurchaseDelivery.lines),
             )
             .where(PurchaseRequest.status == PR_PENDING)
+            .order_by(PurchaseRequest.id.asc())
+        )
+        return list(self.db.execute(stmt).scalars())
+
+    def dong_nhap_hoac_bi_tu_choi(self) -> list[PurchaseRequest]:
+        """PMH NHÁP + PMH BỊ TỪ CHỐI — hai loại phiếu KHÔNG hứa hàng, nhưng nói được món đang kẹt.
+
+        Cố ý đứng ngoài `dong_dang_ve`/`dong_cho_duyet`: cả hai loại này số học bằng 0, không được
+        cộng một ly nào vào tồn. Chúng chỉ để trả lời câu *"món này chưa ai lo, hay đã có người lo
+        mà hỏng giữa chừng"* — hai tình huống trước 24/08/2026 vẽ y hệt nhau trên bảng cân đối
+        (`YCMH-260820-JI8X` đeo chip "mới đề nghị" trong khi `PMH-260820-YC1U` của chính món đó đã
+        bị từ chối, đang chờ thu mua lập lại).
+
+        Chỉ nạp `lines` — phía gọi cần `department_request_line_id` để dò về đúng DÒNG yêu cầu,
+        không cần đợt giao (phiếu nháp/bị từ chối thì làm gì có đợt giao nào).
+        """
+        stmt = (
+            select(PurchaseRequest)
+            .options(selectinload(PurchaseRequest.lines))
+            .where(PurchaseRequest.status.in_([PR_DRAFT, PR_REJECTED]))
             .order_by(PurchaseRequest.id.asc())
         )
         return list(self.db.execute(stmt).scalars())

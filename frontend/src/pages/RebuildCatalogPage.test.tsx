@@ -30,6 +30,16 @@ const CONFIG_TAB: CatalogConfig = {
   facet: { key: "nhom", values: [{ value: "in", label: "In" }, { value: "sau_in", label: "Sau in" }] },
 };
 
+/** Bản lấy hàng tab từ DANH MỤC THẬT (`facet.source`) thay vì liệt kê cứng trong config. */
+const CONFIG_TAB_DM: CatalogConfig = {
+  ...CONFIG,
+  facet: { key: "nhom", source: "/api/nhom-cd", dynamic: true },
+};
+
+/** Danh mục nguồn của hàng tab. "moi-khai" CỐ Ý chưa có dòng nào thuộc về — đúng cảnh nhóm vừa
+ *  tạo xong trong drawer. */
+const NHOM_NGUON = ["in", "sau_in", "moi-khai"];
+
 /** N dòng danh mục: CD-001 "Công đoạn 1" (lẻ = nhóm in, chẵn = sau in). */
 function duLieu(n: number): Row[] {
   return Array.from({ length: n }, (_, i) => ({
@@ -48,6 +58,14 @@ function stubApi(tong: number) {
   vi.stubGlobal("fetch", vi.fn((url: string) => {
     const u = new URL(String(url), "http://localhost:8000");
     goi.push(u);
+    // Danh mục NGUỒN của hàng tab (`facet.source`) — trả danh sách NHÓM, không phải dòng danh mục.
+    if (u.pathname === "/api/nhom-cd") {
+      const nhom = NHOM_NGUON.map((ten, i) => ({ id: i + 1, ma: "", ten }));
+      return Promise.resolve(new Response(
+        JSON.stringify({ items: nhom, total: nhom.length, page: 1, size: nhom.length }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+    }
     const q = (u.searchParams.get("q") ?? "").toLowerCase();
     const nhom = u.searchParams.get("nhom");
     const khop = tatCa.filter((r) =>
@@ -171,6 +189,20 @@ describe("RebuildCatalogPage — phân trang 20 dòng/trang Ở MÁY CHỦ", () 
     await waitFor(() => expect(screen.getByText(/Tổng 22 bản ghi/)).toBeTruthy());
     // Đang đứng ở tab con nhưng số cạnh tiêu đề vẫn là tổng cả danh mục.
     expect(within(screen.getByRole("main")).getByText("45 mục")).toBeTruthy();
+  });
+
+  it("tab lấy từ DANH MỤC nguồn: nhóm chưa có dòng nào vẫn có tab, số 0", async () => {
+    stubApi(45);
+    moMan(CONFIG_TAB_DM);
+
+    await screen.findByText("CD-001");
+    // Máy chủ chỉ đếm được nhóm ĐANG CÓ dòng, nên "moi-khai" không nằm trong `facets`. Trước
+    // 22/08/2026 hàng tab dựng từ chính `facets` ⇒ nhóm vừa khai xong biến mất, người khai tưởng
+    // nó không lưu được. Nay tab bày theo danh mục, chưa có máy nào thì đứng ở số 0.
+    const tab = await screen.findByRole("button", { name: /^moi-khai/ });
+    expect(tab.textContent).toContain("0");
+    // Nhóm có dòng vẫn lấy số từ máy chủ như cũ.
+    expect(screen.getByRole("button", { name: /^in/ }).textContent).toContain("23");
   });
 
   it("bảng rỗng thì KHÔNG hiện chân phân trang (khối “chưa có…” nói thay rồi)", async () => {

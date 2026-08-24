@@ -1314,7 +1314,7 @@ export function InboxRequestDrawer({
                                       Thiếu {fmtQty(shortage)}
                                     </span>
                                   ) : (
-                                    <span className="kho-line-badge kho-line-badge--moss" style={{ fontSize: 10, marginTop: 2 }}>
+                                    <span className="kho-line-badge kho-line-badge--muted" style={{ fontSize: 10, marginTop: 2 }}>
                                       Đủ tồn
                                     </span>
                                   )

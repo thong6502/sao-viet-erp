@@ -638,7 +638,8 @@ def export_customers_csv(
     svc: Service,
     authz: Authz,
     users: Users,
-    user: Annotated[User, Depends(require_permission(MODULE, "export"))],
+    # Xuất file MẶC ĐỊNH BẬT: chỉ cần quyền Xem khách (gỡ quyền chi tiết `export` 24/08/2026).
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> Response:
     """Xuất toàn bộ danh bạ trong scope của người gọi (CSV UTF-8 BOM mở bằng Excel).
     Redesign spec-06 v2: định danh + chính sách tài chính (ai cũng xem); bỏ Trạng thái + CK cũ."""
@@ -798,7 +799,7 @@ def get_customer(
     return CustomerDetailOut(
         customer=_row(customer, names, stat, tags=tag_map.get(customer.id)),
         receivable=_receivable_card(
-            svc, customer, can_view=authz.can(user, MODULE, "view_debt")
+            svc, customer, can_view=True  # Xem công nợ MẶC ĐỊNH BẬT (gỡ quyền `view_debt` 24/08/2026)
         ),
     )
 
@@ -834,7 +835,7 @@ def customer_dashboard(
         heatmap=[HeatCellOut(**vars(h)) for h in d.heatmap],
         has_data=d.has_data,
         receivable=_receivable_card(
-            svc, customer, can_view=authz.can(user, MODULE, "view_debt")
+            svc, customer, can_view=True  # Xem công nợ MẶC ĐỊNH BẬT (gỡ quyền `view_debt` 24/08/2026)
         ),
     )
 
@@ -1000,7 +1001,8 @@ def customer_order_history_csv(
     svc: Service,
     analytics: Analytics,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "export"))],
+    # Xuất file MẶC ĐỊNH BẬT: chỉ cần quyền Xem khách (gỡ quyền chi tiết `export` 24/08/2026).
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> Response:
     """Xuất Excel (CSV UTF-8 BOM mở được bằng Excel) — lịch sử mua hàng THẬT của khách."""
     scope = _scope_for(authz, user)
@@ -1126,7 +1128,7 @@ def update_customer_financial(
     return CustomerDetailOut(
         customer=_row(customer, names, stat, tags=tag_map.get(customer.id)),
         receivable=_receivable_card(
-            svc, customer, can_view=authz.can(user, MODULE, "view_debt")
+            svc, customer, can_view=True  # Xem công nợ MẶC ĐỊNH BẬT (gỡ quyền `view_debt` 24/08/2026)
         ),
     )
 

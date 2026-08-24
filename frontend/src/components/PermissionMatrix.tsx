@@ -89,16 +89,9 @@ const FINE_ACTIONS: Record<
       label: "Điều chuyển",
       hint: "Chuyển khách sang NV sale khác (đổi người phụ trách) — một khách hoặc hàng loạt. Không có cờ này thì chỉ xem/sửa khách trong phạm vi của mình, không sang tay được.",
     },
-    {
-      key: "can_export",
-      label: "Xuất file",
-      hint: "Xuất danh bạ khách (CSV) + lịch sử mua hàng của khách (Excel). Lịch sử báo giá chưa có nút xuất — BE chưa làm endpoint.",
-    },
-    {
-      key: "can_view_debt",
-      label: "Xem công nợ",
-      hint: "Cho xem thẻ Công nợ của khách (số dư phải thu theo hóa đơn đã ghi nhận + hạn mức đã dùng).",
-    },
+    // "Xuất file" (can_export) + "Xem công nợ" (can_view_debt) đã gỡ khỏi ma trận 24/08/2026:
+    // chốt là 2 tính năng này MẶC ĐỊNH BẬT cho mọi vai có Xem khách — không còn công tắc riêng.
+    // Cột DB + ActionKey giữ nguyên (đảo được: thêm lại entry ở đây là bật lại toggle).
     {
       key: "can_set_credit_terms",
       label: "Thiết lập chính sách tài chính",
@@ -117,11 +110,9 @@ const FINE_ACTIONS: Record<
   ],
   // Đơn hàng bán: duyệt đơn đặc thù (nhập tay/bổ sung) + hủy đơn đã chốt = 1 cờ; ghi cọc = Kế toán.
   don_hang_ban: [
-    {
-      key: "can_approve_exception",
-      label: "Duyệt đơn đặc thù · hủy đơn đã chốt",
-      hint: 'Gộp 2 quyền vào 1 cờ: (1) Duyệt "đơn đặc thù" — đơn nhập tay KHÔNG có giá vốn nên không soi được biên lời/lỗ, Sale phải trình lên; (2) Hủy đơn ĐÃ CHỐT (đã lên trạng thái "ordered"). Thường chỉ TP/GĐ Kinh doanh có — NV Sales không.',
-    },
+    // "Duyệt đơn đặc thù · hủy đơn đã chốt" (can_approve_exception) đã gỡ khỏi ma trận 24/08/2026:
+    // luồng duyệt đơn đặc thù vốn đã bỏ, nay chốt hủy-đơn-đã-chốt MẶC ĐỊNH BẬT cho vai có Sửa đơn.
+    // Cột DB + ActionKey giữ nguyên (đảo được: thêm lại entry ở đây là bật lại toggle).
     {
       key: "can_record_deposit",
       label: "Ghi phiếu thu cọc",
@@ -386,11 +377,11 @@ const MODULE_HINTS: Record<string, string> = {
   nha_cung_cap:
     "Xem: danh mục Nhà cung cấp + bảng mặt hàng NCC đang bán (kèm tải mẫu và xuất Excel). Chỉnh sửa: thêm/sửa NCC, ngừng dùng, và nhập bảng mặt hàng từ Excel. Ô này còn mở TÀI KHOẢN NGÂN HÀNG của nhà cung cấp ở màn Kế toán — người quản danh mục NCC sửa được TK của họ mà không cần ô Tài khoản ngân hàng.",
   khach_hang:
-    "Xem: danh bạ khách + lịch sử giao dịch. Chỉnh sửa: thêm/sửa/xóa khách. Điều chuyển sang sale khác, xuất file, xem công nợ, đặt chính sách tài chính nằm ở quyền chi tiết.",
+    "Xem: danh bạ khách + lịch sử giao dịch (kèm xuất file & thẻ công nợ — mặc định bật). Chỉnh sửa: thêm/sửa/xóa khách. Điều chuyển sang sale khác và đặt chính sách tài chính nằm ở quyền chi tiết.",
   bao_gia:
     "Xem: xem báo giá trong phạm vi. Chỉnh sửa: tạo/sửa báo giá + thao tác vòng đời thường (gửi khách, ghi nhận đồng ý/từ chối, hủy, xuất PDF, tạo bản mới). Riêng báo giá “đặc thù” cần quyền chi tiết để duyệt.",
   don_hang_ban:
-    "Xem: xem đơn hàng bán. Chỉnh sửa: tạo/sửa đơn. Duyệt đơn đặc thù, hủy đơn đã chốt và ghi phiếu thu cọc nằm ở quyền chi tiết.",
+    "Xem: xem đơn hàng bán. Chỉnh sửa: tạo/sửa đơn (kèm hủy đơn đã chốt — mặc định bật). Ghi phiếu thu cọc nằm ở quyền chi tiết.",
   // 6 dòng dưới đây gác 6 MÀN RIÊNG (tách 17/08/2026). Trước đó `san_xuat` mở 4 màn và
   // `ky_thuat_may` mở 2 — nhãn cũ chỉ kể một màn nên người cấp quyền không đoán ra mình vừa mở gì.
   san_xuat:

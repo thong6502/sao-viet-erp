@@ -349,7 +349,7 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
   // khách vô chủ tự rơi ra ngoài tầm nhìn — thêm option cho họ chỉ ra danh sách rỗng, gây bối rối.
   const canSeeUnassigned = scopeOf("khach_hang") === "all";
   const canReassign = can("khach_hang", "reassign");
-  const canExport = can("khach_hang", "export");
+  const canExport = true; // Xuất file MẶC ĐỊNH BẬT (gỡ công tắc `export` khách 24/08/2026).
   const canCreate = can("khach_hang", "create");
   const colCount = canReassign ? 7 : 6; // [checkbox] · KH · doanh số · số đơn · TB/đơn · NV · ›
 
@@ -1706,18 +1706,11 @@ function DashboardTab({
   canCredit: boolean;
   onCustomerUpdated: (c: CustomerRow) => void;
 }) {
-  if (!dash.has_data) {
-    return (
-      <div className="kh__empty-panel">
-        <p className="kh__empty-title">Chưa có lịch sử giao dịch</p>
-        <p className="kh__muted">
-          Khách này chưa có đơn hàng hay báo giá nào. Dashboard sẽ tự cập nhật từ dữ liệu thật
-          khi phát sinh giao dịch — không hiển thị số giả.
-        </p>
-      </div>
-    );
-  }
-  const canDebt = useCan()("khach_hang", "view_debt");
+  // Khách MỚI (chưa có đơn/báo giá): KHÔNG chặn cả tab. Chính sách tài chính là dữ liệu CẤU HÌNH
+  // (không dẫn xuất từ giao dịch) nên phải luôn hiện để cấu hình được ngay. KPI/biểu đồ vẫn vẽ đủ
+  // khung nhưng để rỗng (số THẬT = 0, không bịa) — chỉ kèm một dòng note trung thực ở đầu.
+  // Công nợ MẶC ĐỊNH BẬT cho mọi vai xem khách (gỡ công tắc `view_debt` 24/08/2026) — luôn hiện thẻ.
+  const canDebt = true;
   const avgVal = dash.avg_order_value ?? 0;
   const cards: { label: string; value: ReactNode; hint?: string; muted?: boolean }[] = [
     // Không có dữ liệu 24 tháng để so YoY thật → hint trung thực về phạm vi số liệu.
@@ -1743,6 +1736,16 @@ function DashboardTab({
 
   return (
     <div className="kh__dash">
+      {!dash.has_data && (
+        <div className="kh__dash-newnote">
+          <UserPlus size={15} strokeWidth={2} />
+          <span>
+            Khách mới — chưa phát sinh giao dịch. Doanh số, tần suất &amp; cơ cấu sản phẩm sẽ tự
+            cập nhật từ đơn hàng thật; bạn vẫn cấu hình được <strong>Chính sách tài chính</strong>{" "}
+            bên dưới ngay bây giờ.
+          </span>
+        </div>
+      )}
       <div className="kh__kpis">
         {cards.map((c) => (
           <div className="kh__kpi card" key={c.label}>
@@ -2030,7 +2033,7 @@ function OrdersTab({
   code: string;
 }) {
   const { token } = useAuth();
-  const canExport = useCan()("khach_hang", "export");
+  const canExport = true; // Xuất Excel lịch sử mua MẶC ĐỊNH BẬT (gỡ công tắc `export` 24/08/2026).
   const [rows, setRows] = useState<OrderHistoryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);

@@ -121,18 +121,43 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
   /** Sau khi TẠO / SỬA / XÓA: tải lại cả bảng lẫn dữ liệu phụ. */
   const lamMoi = useCallback(() => { load(); setTick((t) => t + 1); }, [load]);
 
-  // Tab lọc: giữ THỨ TỰ khai sẵn, nối thêm giá trị TỰ DO người dùng đã khai (facet.dynamic) —
-  // nay đọc từ `facets` của máy chủ, vì màn chỉ cầm 20 dòng nên không tự quét ra được nữa.
+  // Danh mục THẬT làm nền cho hàng tab (`facet.source`, vd Nhóm máy). Nạp riêng và nạp lại sau
+  // mỗi lần ghi (`tick`): khai thêm một nhóm trong drawer là hàng tab phải có ngay chỗ của nó.
+  // Trước 22/08/2026 tab chỉ mọc từ SỐ ĐẾM của máy chủ (`GROUP BY` trên chính bảng đang xem), nên
+  // nhóm vừa tạo — chưa dòng nào thuộc về — im lặng như thể không lưu được.
+  const facetSource = config.facet?.source;
+  const [facetDm, setFacetDm] = useState<{ value: string; label: string }[] | null>(null);
+  useEffect(() => {
+    if (!token || !facetSource) { setFacetDm(null); return; }
+    let alive = true;
+    crud(facetSource).list(token, { page: 1, size: 200 })
+      .then((r) => {
+        if (!alive) return;
+        setFacetDm(r.items
+          .map((it) => String(it.ten ?? "").trim())
+          .filter(Boolean)
+          .map((v) => ({ value: v, label: v })));
+      })
+      // Hỏng thì để `null`: hàng tab lùi về đúng những giá trị máy chủ đang đếm được, KHÔNG bịa
+      // ra một danh sách tên nằm sẵn trong code (danh mục là động, tên trong code sớm muộn lệch).
+      .catch(() => { if (alive) setFacetDm(null); });
+    return () => { alive = false; };
+  }, [token, facetSource, tick]);
+
+  // Tab lọc: nền là danh mục thật (`source`) — hoặc danh sách khai cứng (`values`) với màn không
+  // có danh mục — rồi nối thêm giá trị TỰ DO đã có trong dữ liệu mà nền chưa liệt kê
+  // (`facet.dynamic`), đọc từ `facets` của máy chủ vì màn chỉ cầm 20 dòng.
   const facetValues = useMemo(() => {
     const f = config.facet;
     if (!f) return [];
-    if (!f.dynamic) return f.values;
-    const known = new Set(f.values.map((v) => v.value));
+    const nen = facetDm ?? f.values ?? [];
+    if (!f.dynamic) return nen;
+    const known = new Set(nen.map((v) => v.value));
     const them = Object.keys(facets)
       .filter((v) => v && !known.has(v))
       .sort((a, b) => a.localeCompare(b, "vi"));
-    return [...f.values, ...them.map((v) => ({ value: v, label: v }))];
-  }, [config.facet, facets]);
+    return [...nen, ...them.map((v) => ({ value: v, label: v }))];
+  }, [config.facet, facets, facetDm]);
 
   // Số cạnh tiêu đề và số trên tab "Tất cả": tổng theo Ô TÌM, KHÔNG theo tab đang chọn — đứng ở
   // tab "Bế" mà tiêu đề tụt xuống còn 3 thì người ta tưởng danh mục có 3 dòng.
