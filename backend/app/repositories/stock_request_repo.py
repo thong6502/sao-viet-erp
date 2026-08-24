@@ -136,6 +136,10 @@ class StockRequestRepository:
             stmt = select(func.count()).select_from(StockRequest).where(
                 StockRequest.nguoi_tao_id == nguoi_tao_id,
                 StockRequest.trang_thai.in_(statuses),
+                # ẨN yêu cầu XUẤT nguồn nội bộ của điều chuyển (bút toán ẩn, KHÔNG mở xem được ở màn
+                # nào) — nếu đếm thì badge "đã phản hồi" của người ấn điều chuyển kẹt +1 vĩnh viễn.
+                # Cùng luật ẩn với `_base_conds`.
+                or_(StockRequest.dieu_chuyen.is_(False), StockRequest.loai != REQ_XUAT),
                 fresh,
             )
             return int(self.db.execute(stmt).scalar() or 0)

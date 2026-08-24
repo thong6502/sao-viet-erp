@@ -29,6 +29,7 @@ import { StockLevelChip } from "../components/StockLevelChip";
 import type { NavigateFn } from "../components/AppShell";
 import { fmtDateISO, money } from "../utils/format";
 import { qrToSvg } from "../lib/qr";
+import { tenDonVi, useNapTenDonVi } from "./tenDonVi";
 import {
   DateFilterHead,
   NumFilterHead,
@@ -536,7 +537,9 @@ export function KhoTonKhoPage({
             ? "Tồn khả dụng theo từng vật tư — bấm một dòng để xem chi tiết các lô & lịch sử."
             : tab === "nhap"
               ? "Danh sách phiếu NHẬP kho đã lập."
-              : "Danh sách phiếu XUẤT kho đã lập."}
+              : tab === "xuat"
+                ? "Danh sách phiếu XUẤT kho đã lập."
+                : "Danh sách phiếu ĐIỀU CHUYỂN kho (chuyển đi / nhận về)."}
         </p>
       </header>
 
@@ -1331,6 +1334,7 @@ function MaterialHistoryDrawer({
   /** Đổi/gỡ ảnh xong → báo cha cập nhật `hang_anh` mọi lô cùng mặt hàng (mở lại không bị ảnh cũ). */
   onAnhChanged: (hangLoai: HangLoai, hangId: number, url: string | null) => void;
 }) {
+  useNapTenDonVi(); // nạp nhãn đơn vị (danh mục) để ghi rõ đơn vị ở các bảng lịch sử
   const [data, setData] = useState<StockMaterialHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1457,6 +1461,10 @@ function MaterialHistoryDrawer({
   const DRAWER_PAGE = 10;
   const nhap = data?.nhap ?? [];
   const xuat = data?.xuat ?? [];
+  // Đơn vị GỐC của mã hàng (ram/tờ…) — nhãn cho MỌI số theo đơn vị lô (SL nhập/xuất/chuyển).
+  // Cột "SL yêu cầu" thì theo đơn vị NGƯỜI XIN (dvt_yeu_cau, có thể khác) — ghi riêng từng dòng.
+  const dvtGoc = tenDonVi(data?.dvt) ?? data?.dvt ?? "";
+  const dvtYeuCau = (ma?: string | null) => (ma ? tenDonVi(ma) ?? ma : dvtGoc);
   // Dòng XUẤT chỉ mang `lot_id`; vị trí + HSD nằm ở LÔ. `nhap` đã chứa MỌI lô của mặt hàng (kể cả
   // lô đã hết) nên tra ngay tại chỗ — không phải gọi thêm API chỉ để hiện hai cột.
   const lotById = useMemo(() => new Map(nhap.map((l) => [l.id, l])), [nhap]);
@@ -1752,9 +1760,11 @@ function MaterialHistoryDrawer({
                         </td>
                         <td className="kho-lines__code">{fmtDateISO(lot.ngay_nhap)}</td>
                         <td className="kho-num">
-                          {lot.sl_de_nghi != null ? fmtQty(lot.sl_de_nghi) : "—"}
+                          {lot.sl_de_nghi != null
+                            ? `${fmtQty(lot.sl_de_nghi)} ${dvtYeuCau(lot.dvt_yeu_cau)}`.trim()
+                            : "—"}
                         </td>
-                        <td className="kho-num">{fmtQty(lot.sl_ban_dau)}</td>
+                        <td className="kho-num">{`${fmtQty(lot.sl_ban_dau)} ${dvtGoc}`.trim()}</td>
                         {/* Vị trí là dữ liệu ĐÃ CHỐT sau ghi sổ → CHỈ hiển thị, không cho sửa.
                             KHÔNG dùng .kho-lines__code (11px/xám — class đó dành cho MÃ): đây là
                             cột thủ kho đọc rồi cầm xuống kho, phải rõ như các cột số. */}
@@ -1804,9 +1814,11 @@ function MaterialHistoryDrawer({
                       </td>
                       <td className="kho-lines__code">{fmtDateISO(r.ngay)}</td>
                       <td className="kho-num">
-                        {r.sl_de_nghi != null ? fmtQty(r.sl_de_nghi) : "—"}
+                        {r.sl_de_nghi != null
+                          ? `${fmtQty(r.sl_de_nghi)} ${dvtYeuCau(r.dvt_yeu_cau)}`.trim()
+                          : "—"}
                       </td>
-                      <td className="kho-num">{fmtQty(r.so_luong)}</td>
+                      <td className="kho-num">{`${fmtQty(r.so_luong)} ${dvtGoc}`.trim()}</td>
                       <td className="kho-lines__vt">{lot?.vi_tri ?? "—"}</td>
                       <HsdCell hsd={lot?.hsd} />
                       {canViewCost && (
@@ -1858,7 +1870,7 @@ function MaterialHistoryDrawer({
                           {r.dir === "in" ? "⇄ nhận về" : "⇄ chuyển đi"}
                         </span>
                       </td>
-                      <td className="kho-num">{fmtQty(r.so_luong)}</td>
+                      <td className="kho-num">{`${fmtQty(r.so_luong)} ${dvtGoc}`.trim()}</td>
                       <td className="kho-lines__vt">{r.vi_tri ?? "—"}</td>
                       <HsdCell hsd={r.hsd} />
                       {canViewCost && (

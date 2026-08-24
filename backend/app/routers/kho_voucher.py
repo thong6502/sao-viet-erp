@@ -680,8 +680,11 @@ def material_history(
         row.dvt = dvt
         row.voucher_ma = voucher_ma_map.get(lot.voucher_id) if lot.voucher_id else None
         row.don_gia_nhap = int(lot.don_gia_nhap or 0) if can_view_cost else None
-        # SL yêu cầu KHÔNG phải tiền → luôn hiện (không gate theo can_view_cost).
-        row.sl_de_nghi = sl_de_nghi_map.get(lot.id)
+        # SL yêu cầu KHÔNG phải tiền → luôn hiện (không gate theo can_view_cost). Kèm ĐƠN VỊ người
+        # xin (có thể khác đơn vị gốc của lô) để lịch sử ghi rõ đơn vị cột "SL yêu cầu".
+        sl_dvt = sl_de_nghi_map.get(lot.id)
+        row.sl_de_nghi = sl_dvt[0] if sl_dvt else None
+        row.dvt_yeu_cau = sl_dvt[1] if sl_dvt else None
         row.dieu_chuyen = lot.voucher_id in dc_voucher_ids if lot.voucher_id else False
         nhap.append(row)
 
@@ -691,7 +694,7 @@ def material_history(
         MaterialXuatRow(
             ngay=r["ngay"], voucher_id=r["voucher_id"], voucher_ma=r["voucher_ma"],
             lot_id=r["lot_id"], ma_lo=r["ma_lo"], so_luong=r["so_luong"],
-            sl_de_nghi=r["sl_de_nghi"],
+            sl_de_nghi=r["sl_de_nghi"], dvt_yeu_cau=r["dvt_yeu_cau"],
             don_gia=r["don_gia"] if can_view_cost else None,
             dieu_chuyen=r["dieu_chuyen"],
         )

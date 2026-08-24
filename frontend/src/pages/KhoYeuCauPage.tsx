@@ -1657,9 +1657,13 @@ function VoucherCreateDrawer({
         next = lot.sl_con_lai;
         warn = `Lô này chỉ còn ${fmtQty(lot.sl_con_lai)}.`;
       }
-      if (others + next > b.line.sl_con_lai) {
-        next = Math.max(0, b.line.sl_con_lai - others);
-        warn = `Chỉ được cấp ${fmtQty(b.line.sl_con_lai)} theo duyệt — muốn cấp thêm phải tạo yêu cầu mới.`;
+      // Mốc duyệt `sl_con_lai` theo ĐƠN VỊ YÊU CẦU, còn số lô (`others`/`next`) theo ĐƠN VỊ GỐC —
+      // phải quy mốc về gốc rồi mới so, không thì vật tư có quy đổi (vd xin ram, lô lưu tờ) bị ép
+      // "SL lấy" về 0 khi sửa tay (others gốc đã vượt sl_con_lai yêu cầu).
+      const capGoc = b.line.sl_con_lai * (b.heSoVeGoc || 1);
+      if (others + next > capGoc) {
+        next = Math.max(0, capGoc - others);
+        warn = `Chỉ được cấp ${fmtQty(capGoc)} theo duyệt — muốn cấp thêm phải tạo yêu cầu mới.`;
       }
       return {
         ...b,
@@ -2175,9 +2179,11 @@ function AllocRow({
     };
   }, [l.hang_loai, l.hang_id, khoId, token]);
 
-  const chosen = block.lots.reduce((s, x) => s + x.so_luong, 0);
-  const target = block.cap;
-  const matched = Math.abs(chosen - target) < 1e-9;
+  const chosen = block.lots.reduce((s, x) => s + x.so_luong, 0);   // tổng đã lấy — ĐƠN VỊ GỐC (lô)
+  const target = block.cap;                                         // mốc cần — ĐƠN VỊ YÊU CẦU
+  // `chosen` (gốc) và `target` (yêu cầu) KHÁC đơn vị — quy mốc cần về GỐC để so cho khớp bảng lô.
+  const targetGoc = target * (block.heSoVeGoc || 1);
+  const matched = Math.abs(chosen - targetGoc) < 1e-6;
   // Cấp/nhập ÍT HƠN còn phải cấp → bắt buộc LÝ DO (kho phản hồi). Quy cả hai vế về ĐƠN VỊ DÒNG
   // YÊU CẦU (lô đếm theo đơn vị gốc) rồi mới so với `sl_con_lai`.
   const cappedTon = isNhap ? block.cap : chosen / (block.heSoVeGoc || 1);
@@ -2403,8 +2409,11 @@ function AllocRow({
                 {block.thieu > 0 && (
                   <div className="banner banner--warn">
                     <span>
-                      Kho chỉ còn {fmtQty(l.sl_con_lai - block.thieu)} {tenDonVi(l.dvt) ?? l.dvt}. Cấp{" "}
-                      {fmtQty(l.sl_con_lai - block.thieu)} lần này, phần còn lại chờ nhập hoặc tạo yêu
+                      {/* `cappedTon` = phần cấp được, ĐÃ quy về ĐƠN VỊ YÊU CẦU (khớp nhãn `l.dvt`).
+                          KHÔNG dùng `l.sl_con_lai - block.thieu`: sl_con_lai (yêu cầu) trừ thieu
+                          (gốc) là trộn đơn vị → ra số âm khi vật tư có quy đổi. */}
+                      Kho chỉ còn {fmtQty(cappedTon)} {tenDonVi(l.dvt) ?? l.dvt}. Cấp{" "}
+                      {fmtQty(cappedTon)} lần này, phần còn lại chờ nhập hoặc tạo yêu
                       cầu mới.
                     </span>
                   </div>
@@ -2476,8 +2485,8 @@ function AllocRow({
                   className={`kho-alloc__sum${matched ? " kho-alloc__sum--ok" : " kho-alloc__sum--off"}`}
                 >
                   {matched
-                    ? `✓ Lấy đủ ${fmtQty(chosen)} / cần ${fmtQty(target)}`
-                    : `Lấy ${fmtQty(chosen)} / cần ${fmtQty(target)} · thiếu ${fmtQty(Math.max(0, target - chosen))}`}
+                    ? `✓ Lấy đủ ${fmtQty(chosen)} / cần ${fmtQty(targetGoc)}`
+                    : `Lấy ${fmtQty(chosen)} / cần ${fmtQty(targetGoc)} · thiếu ${fmtQty(Math.max(0, targetGoc - chosen))}`}
                 </div>
               </>
             )}
@@ -2614,7 +2623,7 @@ export function VoucherDrawer({
         materialCode: l.hang_ma,
         materialName: l.hang_ten,
         maLo: l.ma_lo,
-        dvt: l.dvt,
+        dvt: tenDonVi(l.dvt) ?? l.dvt,   // TÊN có dấu (tờ/bản kẽm) thay MÃ (to/kem) — khớp bản in điều chuyển
         soLuongChungTu: req?.lines.find((x) => x.id === l.request_line_id)?.sl_duyet ?? null,
         soLuong: l.so_luong,
         donGia: l.don_gia,

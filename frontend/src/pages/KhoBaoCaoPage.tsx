@@ -526,8 +526,12 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       if (rec && !ids.includes(rec.id)) ids.push(rec.id);
     };
     for (const r of rows) push(r.kho_id, r.ngay_ghi_so);
-    // Gộp cả Sổ Chuyển kho (dùng kho ĐÍCH, fallback nguồn) để màu kỳ khớp khi xem chiều Chuyển kho.
-    for (const r of chuyenRows) push(r.kho_nhap_id ?? r.kho_xuat_id, r.ngay_ghi_so);
+    // Gộp cả Sổ Chuyển kho: mỗi dòng đụng 2 kho → push CẢ kho đích lẫn kho nguồn để màu kỳ khớp
+    // dù khóa riêng kho nào (push tự dedup theo id kỳ khóa).
+    for (const r of chuyenRows) {
+      push(r.kho_nhap_id, r.ngay_ghi_so);
+      push(r.kho_xuat_id, r.ngay_ghi_so);
+    }
     ids.sort((a, b) => {
       const la = locks.find((l) => l.id === a);
       const lb = locks.find((l) => l.id === b);
@@ -545,6 +549,19 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       // Tên file DỄ HIỂU thay UUID của blob. Bắt buộc gán a.download tên thật — để rỗng thì trình
       // duyệt lấy id blob làm tên (khó nhìn). CHUYEN có endpoint export riêng (mẫu MISA "Chuyển kho").
       const khoang = tu || den ? ` ${tu || "…"} đến ${den || "…"}` : "";
+      // Đắp bộ lọc funnel theo CỘT (Ngày CT · SL · Đơn giá · Thành tiền) đang áp ở bảng → file
+      // Excel = ĐÚNG bảng đang xem, không kéo thừa dòng đã bị lọc. Số rỗng = không chặn.
+      const num = (s: string) => (s.trim() === "" ? null : Number(s));
+      const funnel = {
+        ct_from: ctFrom || null,
+        ct_to: ctTo || null,
+        sl_from: num(slFrom),
+        sl_to: num(slTo),
+        dg_from: num(dgFrom),
+        dg_to: num(dgTo),
+        tt_from: num(ttFrom),
+        tt_to: num(ttTo),
+      };
       const url =
         soChieu === "CHUYEN"
           ? await api.kho.baoCao.chuyenKhoExportXlsxBlobUrl(token, {
@@ -552,12 +569,14 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               den: den || null,
               kho_id: khoId,
               q: search || null,
+              ...funnel,
             })
           : await api.kho.baoCao.exportXlsxBlobUrl(token, soChieu, {
               tu: tu || null,
               den: den || null,
               kho_id: khoId,
               q: search || null,
+              ...funnel,
             });
       const a = document.createElement("a");
       a.href = url;
@@ -1042,7 +1061,11 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                   <tr><td colSpan={11} className="rc__empty-state">Không có dòng điều chuyển nào (đã ghi sổ) trong kỳ / bộ lọc.</td></tr>
                 ) : (
                   pagedChuyen.map((r, i) => {
-                    const rec = lockRecordFor(r.kho_nhap_id ?? r.kho_xuat_id, r.ngay_ghi_so);
+                    // Điều chuyển đụng 2 kho: tô/khóa nếu kho ĐÍCH HOẶC kho NGUỒN thuộc kỳ đã khóa
+                    // (khóa riêng từng kho, không phải toàn kho, thì mỗi kho có kỳ khóa riêng).
+                    const rec =
+                      lockRecordFor(r.kho_nhap_id, r.ngay_ghi_so) ??
+                      lockRecordFor(r.kho_xuat_id, r.ngay_ghi_so);
                     const pIdx = rec ? (periodIndex.get(rec.id) ?? 0) % 3 : -1;
                     return (
                     <tr key={`${r.voucher_id}-${i}`} className={rec ? `kho-bc__lock kho-bc__lock-${pIdx}` : undefined}>
