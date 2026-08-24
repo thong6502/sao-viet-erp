@@ -4104,9 +4104,15 @@ function ShiftPlanPanel({ token }: { token: string }) {
     }
   }
 
-  // Mở form đặt ca nền: mặc định áp dụng từ NGÀY 1 của tháng đang xem.
+  // Mở form đặt ca nền: mặc định áp dụng từ NGÀY 1 của tháng đang xem, NHƯNG không lùi trước hôm
+  // nay. Ca nền lùi vào quá khứ ⇒ ngày ĐÃ CHẤM CÔNG resolve sang ca mới ⇒ lương kỳ nháp tính lại
+  // âm thầm ("lỗi chí mạng" 24/08/2026). Mặc định mùng-1 (như cũ) chính là cái bẫy đó cho tháng
+  // hiện tại. Chốt tại đây + `min` ở ô ngày để không MỜI người dùng ghi đè quá khứ. Tháng tương
+  // lai vẫn ra mùng 1; tháng hiện tại/cũ ra hôm nay.
   function openBase(ids: number[], label: string, current?: number | null) {
-    setBaseFrom(`${year}-${String(month).padStart(2, "0")}-01`);
+    const dau = `${year}-${String(month).padStart(2, "0")}-01`;
+    const homNay = isoToday();
+    setBaseFrom(dau > homNay ? dau : homNay);
     setBaseShift(current ?? "");
     setBaseMsg(null);
     setBaseTarget({ ids, label });
@@ -4975,7 +4981,9 @@ function ShiftPlanPanel({ token }: { token: string }) {
                 Ca nền áp dụng{" "}
                 <strong>từ ngày đã chọn trở về sau, cho MỌI tháng</strong> —
                 khác với tô ca trên lưới (chỉ đúng ngày đã tô). Ngày nào không
-                khai trên lưới thì dùng ca nền này.
+                khai trên lưới thì dùng ca nền này.{" "}
+                <strong>Chỉ đặt được từ hôm nay trở đi</strong> — quá khứ đã khoá,
+                đổi ca ngày đã chấm công sẽ tính lại lương sai.
               </p>
               <label className="cc-sp-basepop__row">
                 <span>Ca</span>
@@ -5009,6 +5017,7 @@ function ShiftPlanPanel({ token }: { token: string }) {
                 <input
                   className="cc-input-text"
                   type="date"
+                  min={isoToday()}
                   value={baseFrom}
                   onChange={(e) => setBaseFrom(e.target.value)}
                 />
