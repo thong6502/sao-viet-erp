@@ -861,6 +861,9 @@ function DialogLenKeHoach({
   onXong: () => void;
 }) {
   const [employeeId, setEmployeeId] = useState("");
+  // Phụ xe — TUỲ CHỌN, tối đa một người (mg 0231). Cùng danh sách với tài xế: vai trò do Ô THẢ
+  // NGƯỜI VÀO quyết định, không phải thuộc tính của người. Hôm nay lái, mai đi phụ.
+  const [phuXeId, setPhuXeId] = useState("");
   const [taiXe, setTaiXe] = useState<DeliveryDriverPick[]>([]);
   const [lay, setLay] = useState("");
   const [giao, setGiao] = useState("");
@@ -882,6 +885,9 @@ function DialogLenKeHoach({
       .plan(token, {
         request_id: request.id,
         employee_id: Number(employeeId),
+        // KHÔNG gửi khi để trống (đừng gửi `null`): ở đường ĐỔI kế hoạch `null` nghĩa là GỠ phụ
+        // xe, nên giữ hai nghĩa tách bạch ngay từ màn tạo cho khỏi lẫn về sau.
+        ...(phuXeId ? { phu_xe_employee_id: Number(phuXeId) } : {}),
         gio_lay_hang: new Date(lay).toISOString(),
         gio_du_kien_giao: new Date(giao).toISOString(),
         ghi_chu_phan_cong: ghiChu || null,
@@ -916,7 +922,12 @@ function DialogLenKeHoach({
           <label>
             Nhân viên giao
             <select className="input" value={employeeId}
-              onChange={(e) => setEmployeeId(e.target.value)}>
+              onChange={(e) => {
+                setEmployeeId(e.target.value);
+                // Đổi tài xế thành đúng người đang làm phụ xe ⇒ GỠ ô phụ xe. Chỉ lọc danh sách
+                // là chưa đủ: giá trị cũ còn trong state, gửi lên máy chủ mới báo lỗi.
+                if (e.target.value === phuXeId) setPhuXeId("");
+              }}>
               <option value="">— Chọn tài xế —</option>
               {taiXe.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -955,6 +966,30 @@ function DialogLenKeHoach({
               </div>
             );
           })()}
+          <label>
+            Phụ xe <span className="gh-opt">(không bắt buộc)</span>
+            <select
+              className="input"
+              value={phuXeId}
+              onChange={(e) => setPhuXeId(e.target.value)}
+            >
+              <option value="">— Đi một mình —</option>
+              {taiXe
+                // Bỏ chính tài xế khỏi danh sách: máy chủ chặn trùng người, nhưng bày ra rồi báo
+                // lỗi là mời người ta bấm vào một cái sai.
+                .filter((t) => String(t.id) !== employeeId)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.full_name}
+                    {t.code ? ` · ${t.code}` : ""}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <p className="rc__sub">
+            Có phụ xe thì tiền chuyến chia theo tỷ lệ khai ở <b>Phòng ban</b>; đi một mình thì tài
+            xế ăn trọn.
+          </p>
           <label>
             Giờ lấy hàng
             <input className="input" type="datetime-local" value={lay}

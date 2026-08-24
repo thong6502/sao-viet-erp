@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, Up
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import get_authorization_service, require_permission
+from ..deps import get_authorization_service, require_any_permission, require_permission
 from ..models.delivery import LAN_GIAO_DANG_CHAY
 from ..models.role import SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
@@ -37,6 +37,9 @@ from ..repositories.user_repo import UserRepository
 from ..schemas.delivery import (
     DinhKemListOut,
     DinhKemOut,
+    KmBracketOut,
+    KmBracketsIn,
+    KmBracketsOut,
     ConPhaiGiaoLine,
     ConPhaiGiaoOut,
     DeliveryRequestCreate,
@@ -270,6 +273,10 @@ def _trip_out(db: Session, svc: DeliveryService, trip) -> TripOut:
         lan_thu=trip.lan_thu,
         employee_id=trip.employee_id,
         employee_name=getattr(emp, "full_name", None),
+        phu_xe_employee_id=trip.phu_xe_employee_id,
+        phu_xe_name=getattr(
+            svc.employees.get_by_id(trip.phu_xe_employee_id) if trip.phu_xe_employee_id else None,
+            "full_name", None),
         gio_lay_hang=trip.gio_lay_hang,
         gio_du_kien_giao=trip.gio_du_kien_giao,
         ghi_chu_phan_cong=trip.ghi_chu_phan_cong,
@@ -420,6 +427,7 @@ def len_ke_hoach(body: PlanIn, svc: Service, db: Db, authz: Authz, user: Planner
     try:
         kq = svc.len_ke_hoach(
             request_id=body.request_id, employee_id=body.employee_id,
+            phu_xe_employee_id=body.phu_xe_employee_id,
             gio_lay_hang=body.gio_lay_hang, gio_du_kien_giao=body.gio_du_kien_giao,
             actor=user, kho_id=body.kho_id, ghi_chu_phan_cong=body.ghi_chu_phan_cong,
             scope=_scope(authz, user),
@@ -730,3 +738,34 @@ def dinh_kem_xoa(trip_id: int, attachment_id: int, svc: Service, db: Db, authz: 
         raise _err(e)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- Bậc đơn giá khoán km (cấu hình trong màn Phòng ban) --------------------------------------
+# Gate `luong` HOẶC `phong_ban`: khối khoán km nay nằm ở màn Cấu hình lương (quyền `luong`),
+# nhưng vẫn nhận `phong_ban` để không phá luồng cũ / người quản phòng ban.
+@router.get("/departments/{dept_id}/km-brackets", response_model=KmBracketsOut)
+def km_brackets(
+    dept_id: int, svc: Service,
+    _: Annotated[User, Depends(require_any_permission(("luong", "view_salary"),
+                                                      ("luong", "update"),
+                                                      ("phong_ban", "read")))],
+) -> KmBracketsOut:
+    tx, px = svc.khoan_km_pct(dept_id)
+    return KmBracketsOut(items=[KmBracketOut(**b) for b in svc.km_brackets(dept_id)],
+                         pct_tai_xe=tx, pct_phu_xe=px)
+
+
+@router.put("/departments/{dept_id}/km-brackets", response_model=KmBracketsOut)
+def ghi_km_brackets(
+    dept_id: int, body: KmBracketsIn, svc: Service, db: Db,
+    user: Annotated[User, Depends(require_any_permission(("luong", "update"),
+                                                         ("phong_ban", "update")))],
+) -> KmBracketsOut:
+    try:
+        rows = svc.ghi_km_brackets(dept_id, [it.model_dump() for it in body.items], actor=user,
+                                   pct_tai_xe=body.pct_tai_xe, pct_phu_xe=body.pct_phu_xe)
+    except DeliveryError as e:
+        raise _err(e)
+    db.commit()
+    tx, px = svc.khoan_km_pct(dept_id)
+    return KmBracketsOut(items=[KmBracketOut(**b) for b in rows], pct_tai_xe=tx, pct_phu_xe=px)

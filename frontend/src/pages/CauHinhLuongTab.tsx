@@ -28,6 +28,7 @@ import {
   type SalaryComponentKey,
 } from "../api/client";
 import { Button } from "../components/Button";
+import { KhoanKmEditor } from "./KhoanKmEditor";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { KhoanRatesEditor } from "../components/KhoanRatesEditor";
@@ -949,6 +950,9 @@ function CoCheTab({
     return false;
   }, [depts, deptId]);
   const toTruongUserId = depts.find((d) => d.id === deptId)?.head_user_id ?? null;
+  // Cờ Giao hàng dùng TRỰC TIẾP (không kế thừa cây) — khớp `_chup_don_gia_km` ở BE đọc cờ RIÊNG
+  // của phòng tài xế. Tài xế phải thuộc đúng phòng bật cờ thì mới có khoán km.
+  const laGiaoHang = depts.find((d) => d.id === deptId)?.la_giao_hang ?? false;
 
   return (
     <>
@@ -1258,6 +1262,17 @@ function CoCheTab({
           departmentId={deptId}
           deptName={deptName}
           hasLeader={toTruongUserId != null}
+          readOnly={readOnly}
+        />
+      )}
+
+      {/* Đơn giá khoán km giao hàng (chủ chốt 24/08/2026 — dời từ màn Phòng ban sang đây). Hiện
+          khi tổ bật cờ Bộ phận Giao hàng. Cả cụm (bậc đơn giá + % chia kíp) ở một chỗ. */}
+      {laGiaoHang && deptId != null && (
+        <KhoanKmEditor
+          token={token}
+          departmentId={deptId}
+          deptName={deptName}
           readOnly={readOnly}
         />
       )}

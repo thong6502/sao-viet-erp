@@ -378,6 +378,8 @@ export function DepartmentsPage({
   // Khối KINH DOANH — nền cho danh sách "NV phụ trách" ở màn Khách hàng (cả cây con kế thừa).
   const [editLaKinhDoanh, setEditLaKinhDoanh] = useState(false);
   const [editLaGiaoHang, setEditLaGiaoHang] = useState(false);
+  // Khoán km giao hàng (đơn giá + %) ĐÃ DỜI sang Cấu hình lương → Cơ chế lương theo bộ phận
+  // (chủ chốt 24/08/2026). Ở đây chỉ còn CỜ bật/tắt Bộ phận Giao hàng.
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -964,6 +966,7 @@ export function DepartmentsPage({
         editLaSanXuat,
         editLaKinhDoanh,
         editLaGiaoHang,
+        // Khoán km (đơn giá + %) ĐÃ DỜI sang Cấu hình lương — không gửi từ đây nữa.
       );
       await refresh(selectedId);
       setDirty(false);

@@ -10371,6 +10371,103 @@ def _migrate_giao_hang_dinh_kem(db) -> None:
 MIGRATIONS.append(("0230_giao_hang_dinh_kem", _migrate_giao_hang_dinh_kem))
 
 
+def _migrate_khoan_km_giao_hang(db) -> None:
+    """Khoán km cho tài xế (chủ chốt 24/08/2026) — xem `docs/prd-khoan-km-giao-hang.md`.
+
+    Tài xế ăn lương chấm công CỘNG tiền theo km. Đo bảng lương thật T05/2026: phần km 19–22 tr
+    trong khi lương cứng chỉ ~5 tr — tức đây là thu nhập CHÍNH của họ, đang tính tay ngoài hệ.
+
+    Ba ô cấu hình để ở PHÒNG BAN, ngay dưới cờ `la_giao_hang`: đơn giá + tỷ lệ chia cho kíp xe
+    (1 tài xế + 1 phụ xe). Không tách sang màn khác — một nhóm thiết lập thì ở một chỗ.
+
+    Bốn cột trên chuyến: người phụ xe, và BA SỐ CHỤP LẠI lúc ghi kết quả (đơn giá + hai tỷ lệ).
+    Chụp là bắt buộc: đổi đơn giá tháng sau mà kỳ trước tự nhảy theo thì bảng lương đã chốt biến
+    thành số khác — đúng bài học `orders.commission_pct` ngày 21/08.
+
+    Đơn giá seed 4.330 đ/km = 84.031.992 đ ÷ 19.406 km, tức mức giữ NGUYÊN tổng chi hiện tại của
+    cả bốn xe. Tỷ lệ 60/40 là con số chủ đưa.
+    """
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+
+    if "departments" in ten_bang:
+        cot = _existing_columns(insp, "departments")
+        for ten, kieu in (("don_gia_km", "NUMERIC(14,2) NOT NULL DEFAULT 0"),
+                          ("pct_tai_xe", "NUMERIC(5,2) NOT NULL DEFAULT 60"),
+                          ("pct_phu_xe", "NUMERIC(5,2) NOT NULL DEFAULT 40")):
+            if ten not in cot:
+                db.execute(text(f"ALTER TABLE departments ADD COLUMN {ten} {kieu}"))
+        # Phòng đang bật cờ Giao hàng thì nạp sẵn đơn giá, khỏi phải đi khai lại tay.
+        if "la_giao_hang" in cot:
+            db.execute(text("UPDATE departments SET don_gia_km = 4330 "
+                            "WHERE la_giao_hang = true AND don_gia_km = 0"))
+
+    if "delivery_trips" in ten_bang:
+        cot = _existing_columns(insp, "delivery_trips")
+        for ten, kieu in (
+            ("phu_xe_employee_id", "INTEGER REFERENCES employees(id)"),
+            # NULL = chuyến CŨ, chạy trước khi có tính năng ⇒ engine bỏ qua, không tự đẻ tiền
+            # ngược cho quá khứ. Khác hẳn 0: 0 là "đã chụp, và bằng 0".
+            ("don_gia_km", "NUMERIC(14,2)"),
+            ("pct_tai_xe", "NUMERIC(5,2)"),
+            ("pct_phu_xe", "NUMERIC(5,2)"),
+        ):
+            if ten not in cot:
+                db.execute(text(f"ALTER TABLE delivery_trips ADD COLUMN {ten} {kieu}"))
+        if "phu_xe_employee_id" not in cot:
+            db.execute(text("CREATE INDEX IF NOT EXISTS ix_delivery_trips_phu_xe "
+                            "ON delivery_trips (phu_xe_employee_id)"))
+
+    # Tiền khoán km là MỘT CỘT trên dòng lương, KHÔNG phải một dòng trong "Danh mục khoản thu nhập".
+    #
+    # ⭐ Bản nháp migration này từng seed một khoản `khoan_km_gh` vào danh mục — tức lặp lại đúng
+    # cái lỗi vừa sửa xong cùng ngày với hoa hồng. Màn danh mục là chỗ HCNS khai phụ cấp/thưởng rồi
+    # gán cho TỪNG NGƯỜI, thêm xoá thoải mái; nhét khoản hệ thống vào đó là đặt một cái công tắc
+    # toàn hệ thống ngay cạnh nút xoá.
+    #
+    # Lý do duy nhất khiến hoa hồng phải là "dòng khoản" là để hiện trong "Khoản phát sinh tháng
+    # này". Khoán km không cần: nó không sửa tay được. Mà mọi tiền engine tự tính khác đều đã là
+    # cột sẵn — `khoan`, `ot_pay`, `night_pay`, `chuyen_can`, `meal_allowance_pay`… Làm cột là về
+    # đúng nhà, không phải phá lệ.
+    if "payroll_lines" in ten_bang:
+        if "khoan_km" not in _existing_columns(insp, "payroll_lines"):
+            db.execute(text(
+                "ALTER TABLE payroll_lines ADD COLUMN khoan_km NUMERIC(14,2) NOT NULL DEFAULT 0"
+            ))
+    db.commit()
+
+
+MIGRATIONS.append(("0231_khoan_km_giao_hang", _migrate_khoan_km_giao_hang))
+
+
+def _migrate_khoan_km_cot_luong(db) -> None:
+    """VÁ cột `payroll_lines.khoan_km` cho DB đã chạy 0231 TRƯỚC khi phần này được thêm vào.
+
+    Vì sao cần một migration RIÊNG thay vì sửa 0231: 0231 chạy lần đầu (trên DB dev) khi thân nó
+    mới có `departments` + `delivery_trips`; cột `payroll_lines.khoan_km` được thêm vào thân 0231
+    SAU đó. Nhưng `run_migrations` bỏ qua mọi id đã nằm trong `schema_migrations`, nên phần thêm
+    sau KHÔNG bao giờ chạy trên DB đã applied 0231 — bảng lương query cột không tồn tại ⇒ 500.
+
+    Bài học (đã cắn 24/08/2026): sửa thân một migration ĐÃ applied là vô hình với mọi DB đã chạy
+    nó. Thay đổi schema mới LUÔN là một migration mới.
+
+    Idempotent: DB fresh chạy 0231 (thân hiện tại đã có cột) rồi tới đây thấy cột có → bỏ qua.
+    Test dùng `create_all` dựng cột thẳng từ model → cũng bỏ qua.
+    """
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    if "khoan_km" in _existing_columns(insp, "payroll_lines"):
+        return
+    db.execute(text(
+        "ALTER TABLE payroll_lines ADD COLUMN khoan_km NUMERIC(14,2) NOT NULL DEFAULT 0"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0232_khoan_km_cot_luong", _migrate_khoan_km_cot_luong))
+
+
 def _migrate_work_shift_ca_san_xuat(db: Session) -> None:
     """`work_shifts.ca_san_xuat` — ca nào CHẠY DƯỚI XƯỞNG, ca nào chỉ để chấm công.
 
@@ -10402,7 +10499,7 @@ def _migrate_work_shift_ca_san_xuat(db: Session) -> None:
     db.commit()
 
 
-MIGRATIONS.append(("0231_work_shift_ca_san_xuat", _migrate_work_shift_ca_san_xuat))
+MIGRATIONS.append(("0233_work_shift_ca_san_xuat", _migrate_work_shift_ca_san_xuat))
 
 
 def _migrate_go_gripper_mm(db: Session) -> None:
@@ -10427,7 +10524,7 @@ def _migrate_go_gripper_mm(db: Session) -> None:
         db.rollback()
 
 
-MIGRATIONS.append(("0232_go_gripper_mm_nhip_kem", _migrate_go_gripper_mm))
+MIGRATIONS.append(("0234_go_gripper_mm_nhip_kem", _migrate_go_gripper_mm))
 
 
 def _migrate_huy_tung_dong_ycmh(db: Session) -> None:
@@ -10463,4 +10560,4 @@ def _migrate_huy_tung_dong_ycmh(db: Session) -> None:
     db.commit()
 
 
-MIGRATIONS.append(("0233_huy_tung_dong_ycmh", _migrate_huy_tung_dong_ycmh))
+MIGRATIONS.append(("0235_huy_tung_dong_ycmh", _migrate_huy_tung_dong_ycmh))

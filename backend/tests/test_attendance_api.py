@@ -1231,3 +1231,177 @@ def test_ca_san_xuat_luu_va_pho_ra_duoc(client):
 
     items = client.get("/api/attendance/shifts", headers=_h(token)).json()["items"]
     assert all("ca_san_xuat" in s for s in items)
+
+
+# --- Ô lịch hiện ca cho ngày CHƯA CHẤM (chủ chốt 24/08/2026) --------------------------------
+def _next_month() -> tuple[int, int]:
+    """Tháng SAU — mọi ngày đều là tương lai, khỏi phụ thuộc hôm nay là ngày mấy."""
+    t = date.today()
+    return (t.year + 1, 1) if t.month == 12 else (t.year, t.month + 1)
+
+
+def _tao_ca_dem(client, token) -> int:
+    items = client.get("/api/attendance/shifts", headers=_h(token)).json()["items"]
+    co = next((s for s in items if s["name"] == "Ca đêm KT"), None)
+    if co is not None:
+        return co["id"]
+    return client.post("/api/attendance/shifts",
+                       json={"name": "Ca đêm KT", "start_time": "22:00", "end_time": "06:00",
+                             "is_overnight": True},
+                       headers=_h(token)).json()["id"]
+
+
+def test_NGAY_MAI_hien_CA_du_chua_cham_cong(client):
+    """⭐ Chủ chốt: "mặc định hiện ca lên các ngày CHƯA đến ngày chấm công — để xem ngày mai làm
+    ca gì". Ví dụ hôm nay ca HC, mai xếp ca đêm thì ô ngày mai phải hiện "Ca đêm".
+
+    Trước đợt này lưới tháng chỉ dựng ô cho ngày CÓ chấm/nghỉ/lễ, nên ngày tương lai trống trơn dù
+    đã xếp ca. Nay ngày đã có `EmployeeShiftDay` (xếp ở Phân ca tháng) hiện ca luôn.
+    """
+    token = _admin_token(client)
+    eid = _link_admin_employee(client, token)          # có ca nền (HC)
+    ca_dem = _tao_ca_dem(client, token)
+    ny, nm = _next_month()
+
+    # Xếp ca đêm cho ngày 15 tháng sau (một ngày tương lai) — mô phỏng lưới Phân ca tháng.
+    db = SessionLocal()
+    try:
+        repo = EmployeeRepository(db)
+        repo.upsert_shift_day(employee_id=eid, work_date=date(ny, nm, 15),
+                              shift_id=ca_dem, is_off=False, created_by=None)
+        db.commit()
+    finally:
+        db.close()
+
+    ts = client.get(f"/api/attendance/timesheet?year={ny}&month={nm}", headers=_h(token)).json()
+    row = next(r for r in ts["rows"] if r["employee_name"] == "NV Admin")
+    ngay15 = row["days"].get("15")
+
+    assert ngay15 is not None, "ngày tương lai đã xếp ca KHÔNG hiện ô"
+    assert ngay15["shift_name"] == "Ca đêm KT", ngay15
+    # Chưa tới ⇒ chưa chấm: không giờ, không công, KHÔNG bị đếm là ngày làm/vắng.
+    assert ngay15["present"] is False
+    assert ngay15["first_in"] is None and ngay15["cong"] is None
+    assert row["total_days"] == 0, "ngày tương lai bị đếm nhầm thành ngày công"
+    # Ngày chỉ-xếp-trước KHÔNG tự cộng công: chính ô ngày 15 có cong=None (đã assert trên). Tổng
+    # công của tháng có thể > 0 vì ngày LỄ trong tháng (vd 02/09) — đó là việc khác, không phải
+    # ngày mới xếp. Cái cần khoá: ngày 15 không kéo theo công nào.
+    assert ngay15["cong"] is None
+
+
+def test_NGAY_MAI_TRAI_ca_nen_len_ngay_lam_viec_tuong_lai(client):
+    """⭐ Đa số NV đi CA NỀN (không xếp tay từng ngày). Ngày LÀM VIỆC tương lai phải hiện ca nền để
+    "xem mai làm ca gì" — không chờ xếp tay. DB thật của chủ có 0 dòng phân ca theo ngày, nên chỉ
+    trải theo ô xếp tay thì ngày mai mãi trống."""
+    token = _admin_token(client)
+    _link_admin_employee(client, token)   # gán ca nền "Ca kiểm thử chấm công"
+    ny, nm = _next_month()
+    ts = client.get(f"/api/attendance/timesheet?year={ny}&month={nm}", headers=_h(token)).json()
+    row = next(r for r in ts["rows"] if r["employee_name"] == "NV Admin")
+    ca_nen = [d for d, c in row["days"].items()
+              if c["shift_name"] == "Ca kiểm thử chấm công" and not c["present"]]
+    assert ca_nen, f"ca nền KHÔNG trải lên ngày làm việc tương lai nào: {row['days']}"
+
+
+def test_CHU_NHAT_ca_nen_KHONG_trai_len_nhung_TO_TAY_thi_hien(client):
+    """⭐ Chủ chốt 24/08/2026: tuần chuẩn T2–T7 (works_sun=False mặc định), Chủ nhật NGHỈ. Trải ca
+    nền lên ngày tương lai phải BỎ QUA Chủ nhật — không tự bịa NV làm CN. NHƯNG nếu tô TAY từng ô
+    (tạo `EmployeeShiftDay`) thì Chủ nhật đó VẪN hiện: "muốn làm chủ nhật thì chỉnh bằng bút"."""
+    token = _admin_token(client)
+    eid = _link_admin_employee(client, token)   # ca nền "Ca kiểm thử chấm công"
+    ca_dem = _tao_ca_dem(client, token)
+    ny, nm = _next_month()
+    cns = [d for d in range(1, 29) if date(ny, nm, d).weekday() == 6]   # các CN đầu tháng
+    cn_nghi, cn_lam = cns[0], cns[1]
+
+    # Tô tay ca đêm cho MỘT Chủ nhật (mô phỏng "bút") — CN kia để mặc định.
+    db = SessionLocal()
+    try:
+        EmployeeRepository(db).upsert_shift_day(
+            employee_id=eid, work_date=date(ny, nm, cn_lam),
+            shift_id=ca_dem, is_off=False, created_by=None)
+        db.commit()
+    finally:
+        db.close()
+
+    ts = client.get(f"/api/attendance/timesheet?year={ny}&month={nm}", headers=_h(token)).json()
+    row = next(r for r in ts["rows"] if r["employee_name"] == "NV Admin")
+    # CN không tô tay: ca nền KHÔNG trải lên (nghỉ mặc định).
+    assert str(cn_nghi) not in row["days"], f"CN {cn_nghi} bị trải ca nền dù tuần T2–T7"
+    # CN tô tay: hiện đúng ca đã tô.
+    assert row["days"][str(cn_lam)]["shift_name"] == "Ca đêm KT"
+
+
+def test_BUT_van_gan_duoc_CN_va_NGAY_LE_du_gan_loat_bo_qua(client):
+    """⭐ Chủ chốt 24/08/2026: gán một loạt BỎ ngày nghỉ + lễ (khỏi tự bịa người làm), NHƯNG bút
+    (tô tay từng ô) VẪN gán được CN/lễ — "lỡ chủ nhật cần hàng thì gán người vào, ngày lễ cũng vậy".
+
+    Ở tầng máy chủ: `set_shift_plan` (đường mà cả bút lẫn loạt đều đi qua) KHÔNG chặn ngày nghỉ/lễ
+    — chặn ở đó thì bút cũng không gán được. Việc "loạt bỏ qua ngày nghỉ" là lọc Ở GIAO DIỆN trước
+    khi gửi. Nên test này khoá: gửi thẳng ô CN + ô lễ ⇒ máy chủ NHẬN, và ô hiện ra ở bảng công."""
+    token = _admin_token(client)
+    eid = _link_admin_employee(client, token)
+    shift_id = _ensure_test_shift(client, token)
+    ny, nm = _next_month()
+
+    # Ngày lễ (KIND_OFF) — is_working_day = False ⇒ gán loạt sẽ bỏ qua ở FE.
+    le = next(d for d in range(10, 26) if date(ny, nm, d).weekday() != 6)
+    r = client.post("/api/calendar/special-days", json={
+        "day": date(ny, nm, le).isoformat(), "kind": "off", "name": "Lễ thử", "is_paid": True},
+        headers=_h(token))
+    assert r.status_code == 201, r.text
+    cn = next(d for d in range(1, 29) if date(ny, nm, d).weekday() == 6)
+
+    # BÚT: gán ca cho đúng ô CN và ô lễ (mô phỏng tô tay từng ô).
+    r = client.put("/api/attendance/shift-plan", json={"year": ny, "month": nm, "cells": [
+        {"employee_id": eid, "work_date": date(ny, nm, cn).isoformat(), "action": "set", "shift_id": shift_id},
+        {"employee_id": eid, "work_date": date(ny, nm, le).isoformat(), "action": "set", "shift_id": shift_id},
+    ]}, headers=_h(token))
+    assert r.status_code == 200, r.text
+    res = r.json()
+    assert res["saved"] == 2, f"máy chủ không nhận gán CN/lễ: {res}"
+    assert res["rejected"] == [], f"CN/lễ bị từ chối: {res['rejected']}"
+
+    # Hiện ra ở bảng công (đường `scheduled` — không gác lịch tuần).
+    ts = client.get(f"/api/attendance/timesheet?year={ny}&month={nm}", headers=_h(token)).json()
+    row = next(r for r in ts["rows"] if r["employee_name"] == "NV Admin")
+    assert row["days"][str(cn)]["shift_name"] == "Ca kiểm thử chấm công", row["days"].get(str(cn))
+    assert row["days"][str(le)]["shift_name"] == "Ca kiểm thử chấm công", row["days"].get(str(le))
+
+
+def test_NGAY_QUA_KHU_bi_KHOA_khong_sua_ca_duoc(client):
+    """⭐ LỖI CHÍ MẠNG (chủ chốt 24/08/2026): gán ca đè lên ngày quá khứ → công đã chấm bị tính lại
+    theo ca mới, sai âm thầm. Chủ chốt "quá khứ rồi thì không cho sửa nữa" — máy chủ KHOÁ ngày
+    < hôm nay, mọi set/off/inherit đều bị từ chối. Chỉ đổi được ca từ HÔM NAY trở đi."""
+    import pytest
+
+    from app.services.attendance_service import _today_vn
+
+    token = _admin_token(client)
+    eid = _link_admin_employee(client, token, assign_shift=False)
+    _shift_from_month_start(client, token, eid)   # hire backdated + ca nền từ ngày 1 tháng này
+    ca_dem = _tao_ca_dem(client, token)
+
+    today = _today_vn()   # PHẢI cùng mốc với service (guard dùng giờ VN), kẻo lệch múi giờ
+    if today.day < 3:
+        pytest.skip("đầu tháng chưa có ngày quá khứ trong tháng để kiểm")
+    y, m = today.year, today.month
+
+    def _put(y_, m_, day, action="set", shift_id=None):
+        cell = {"employee_id": eid, "work_date": date(y_, m_, day).isoformat(), "action": action}
+        if shift_id is not None:
+            cell["shift_id"] = shift_id
+        return client.put("/api/attendance/shift-plan",
+                          json={"year": y_, "month": m_, "cells": [cell]}, headers=_h(token)).json()
+
+    # QUÁ KHỨ: set / off / inherit đều bị KHOÁ.
+    for act, sid in (("set", ca_dem), ("off", None), ("inherit", None)):
+        res = _put(y, m, today.day - 1, act, sid)
+        assert res["saved"] == 0 and res["cleared"] == 0, (act, res)
+        assert len(res["rejected"]) == 1 and "qua" in res["rejected"][0]["reason"].lower(), (act, res)
+
+    # HÔM NAY + TƯƠNG LAI ⇒ gán bình thường.
+    assert _put(y, m, today.day, "set", ca_dem)["rejected"] == []
+    ny, nm = _next_month()
+    r = _put(ny, nm, 15, "set", ca_dem)
+    assert r["saved"] == 1 and r["rejected"] == [], r

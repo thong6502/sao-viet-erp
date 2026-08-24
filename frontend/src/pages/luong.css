@@ -2234,3 +2234,18 @@
   background: var(--signal-soft);
   color: var(--signal-deep);
 }
+
+/* ── Bảng đối chiếu khoán km (mg 0231) ────────────────────────────────────────────────────
+   Popup HCNS bấm vào cột "Khoán km" để soi từng chuyến. Chỉ xem, không sửa. */
+.lg-soikm__ky {
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--muted, #6b7280);
+}
+
+/* Số tiền và km xếp cột thẳng hàng — bảng đối chiếu mà chữ số so le thì mắt phải dò từng dòng. */
+.lg-soikm td.lg-num,
+.lg-soikm th.lg-num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

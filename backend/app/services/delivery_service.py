@@ -57,6 +57,11 @@ from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 # Hai chuyến cách nhau dưới ngần này thì CẢNH BÁO (không chặn) — PRD §6.
 DEM_SAT_GIO = timedelta(minutes=30)
 
+#: Mốc "người gọi KHÔNG gửi trường này" — phân biệt với `None` nghĩa là "gửi lên để XOÁ".
+#: Cần cho `doi_ke_hoach(phu_xe_employee_id=...)`: dùng `None` làm mặc định thì không có đường nào
+#: gỡ phụ xe đã xếp, vì gỡ và không-đụng-tới trông giống hệt nhau.
+_KHONG_GUI = object()
+
 # Trạng thái dẫn xuất của yêu cầu — KHÔNG lưu, chỉ trả cho FE.
 YC_DANG_THUC_HIEN = "dang_thuc_hien"
 YC_DA_GIAO_DU = "da_giao_du"
@@ -366,8 +371,124 @@ class DeliveryService:
     # =====================================================================================
     # Lên kế hoạch — và đề nghị xuất hàng đi kèm
     # =====================================================================================
+    # --- Bậc đơn giá khoán km (cấu hình trong màn Phòng ban) -------------------------------
+    def km_brackets(self, department_id: int) -> list[dict]:
+        return [{"up_to_km": b.up_to_km, "don_gia": float(b.don_gia)}
+                for b in self.deliveries.brackets_cua_phong(department_id)]
+
+    def khoan_km_pct(self, department_id: int) -> tuple[float, float]:
+        """(% tài xế, % phụ xe) của phòng — cho màn Cấu hình lương hiện sẵn."""
+        pb = self.departments.get_by_id(department_id) if self.departments else None
+        return (float(getattr(pb, "pct_tai_xe", 60) or 60),
+                float(getattr(pb, "pct_phu_xe", 40) or 40))
+
+    def ghi_km_brackets(self, department_id: int, items: list[dict], *, actor=None,
+                        pct_tai_xe=None, pct_phu_xe=None) -> list[dict]:
+        """Ghi lại toàn bộ bảng bậc của phòng, sau khi kiểm cấu trúc.
+
+        Ba luật, mỗi cái chặn một kiểu sai làm tra bậc ra số vô nghĩa:
+        1. Trần km phải TĂNG DẦN — bậc xếp lộn thì `tra_don_gia_km` (duyệt theo thứ tự) trả nhầm.
+        2. Bậc ∞ (`up_to_km=None`) chỉ một, và phải ở CUỐI — nó nuốt mọi km từ chỗ nó đứng.
+        3. Trần trùng nhau ⇒ có đoạn hai giá, không ai biết lấy giá nào.
+        """
+        sach = [it for it in (items or [])]
+        vo_han = [i for i, it in enumerate(sach) if it.get("up_to_km") in (None, 0)]
+        if len(vo_han) > 1:
+            raise DeliveryError("Chỉ được một bậc 'từ … trở lên' (để trống trần km).")
+        if vo_han and vo_han[0] != len(sach) - 1:
+            raise DeliveryError("Bậc 'từ … trở lên' phải nằm CUỐI bảng.")
+        tran = [it["up_to_km"] for it in sach if it.get("up_to_km")]
+        if any(b <= a for a, b in zip(tran, tran[1:])):
+            raise DeliveryError("Trần km phải tăng dần và không trùng nhau.")
+        self.deliveries.ghi_lai_brackets(
+            department_id,
+            [{"up_to_km": it.get("up_to_km") or None, "don_gia": it["don_gia"]} for it in sach],
+        )
+        # Lưu luôn % chia kíp nếu gửi kèm (màn Cấu hình lương lưu cả cụm một lần). Kiểm cộng đúng
+        # 100 ở đây — cùng luật với `_dat_khoan_km` bên department_service, một chỗ chặn cho một
+        # đường ghi. Đơn giá đã là số tài xế được hưởng nên % chỉ để chia kíp.
+        if pct_tai_xe is not None or pct_phu_xe is not None:
+            pb = self.departments.get_by_id(department_id) if self.departments else None
+            if pb is None:
+                raise DeliveryNotFound("Không tìm thấy phòng ban")
+            tx = float(pct_tai_xe if pct_tai_xe is not None else pb.pct_tai_xe)
+            px = float(pct_phu_xe if pct_phu_xe is not None else pb.pct_phu_xe)
+            if abs(tx + px - 100.0) > 0.01:
+                raise DeliveryError(
+                    f"% tài xế + % phụ xe phải bằng 100 (đang {tx:g} + {px:g} = {tx + px:g})."
+                )
+            pb.pct_tai_xe = tx
+            pb.pct_phu_xe = px
+        return self.km_brackets(department_id)
+
+    def _chup_don_gia_km(self, trip) -> None:
+        """CHỤP đơn giá + tỷ lệ chia của phòng ban vào chuyến, ngay lúc ghi kết quả (mg 0231).
+
+        ⭐ Vì sao chụp chứ không đọc lúc tính lương: chủ chỉnh đơn giá tháng 9 thì bảng lương
+        tháng 5 đã chốt sẽ đổi theo — số cũ không tái lập được, mà không ai thấy nó đổi. Đúng bài
+        học `orders.commission_pct` ngày 21/08/2026.
+
+        Lấy theo phòng ban của TÀI XẾ (người chịu trách nhiệm chuyến). Phòng chưa bật cờ Giao hàng
+        ⇒ để NGUYÊN `NULL`: nghĩa là "chuyến này không thuộc diện khoán km", engine bỏ qua. Ghi 0
+        vào đó là nói dối rằng đã chụp và bằng 0.
+
+        ĐƠN GIÁ THEO BẬC (chủ chốt 24/08/2026): tra bảng bậc của phòng theo SỐ KM của chuyến —
+        toàn km × đơn giá của bậc km rơi vào. Chụp lại ĐÚNG MỘT số (đơn giá đã tra) vào chuyến,
+        nên engine lương / bảng chi tiết / chia kíp KHÔNG đổi gì: chúng vẫn đọc `trip.don_gia_km`.
+        Phòng chưa khai bậc nào ⇒ fallback về ô đơn giá phẳng cũ `pb.don_gia_km` (tổ setup từ
+        trước khi có bậc vẫn chạy).
+        """
+        nv = self.employees.get_by_id(trip.employee_id)
+        pb = None
+        if nv is not None and getattr(nv, "department_id", None) and self.departments is not None:
+            pb = self.departments.get_by_id(nv.department_id)
+        if pb is None or not getattr(pb, "la_giao_hang", False):
+            return
+        theo_bac = self.deliveries.tra_don_gia_km(pb.id, int(trip.km or 0))
+        trip.don_gia_km = theo_bac if theo_bac is not None else pb.don_gia_km
+        trip.pct_tai_xe = pb.pct_tai_xe
+        trip.pct_phu_xe = pb.pct_phu_xe
+
+    def _chuan_hoa_phu_xe(self, employee_id, phu_xe_employee_id):
+        """Kiểm phụ xe và trả về id đã chuẩn hoá (None nếu không có).
+
+        ⭐ Chặn xếp CÙNG MỘT NGƯỜI vào cả hai ô. Không chặn thì họ ăn `pct_tai_xe` + `pct_phu_xe`
+        = 100% của chính chuyến đó — nhìn bảng lương không thấy gì bất thường, vì tổng vẫn đúng
+        bằng tiền một chuyến. Chỉ có điều đáng ra phải chia cho hai người.
+        """
+        if phu_xe_employee_id in (None, "", 0):
+            return None
+        phu_xe_employee_id = int(phu_xe_employee_id)
+        if phu_xe_employee_id == int(employee_id):
+            raise DeliveryError("Tài xế và phụ xe không được là cùng một người")
+        if self.employees.get_by_id(phu_xe_employee_id) is None:
+            raise DeliveryNotFound("Không tìm thấy nhân viên phụ xe")
+        return phu_xe_employee_id
+
+    def kiem_lich_kip_xe(self, *, employee_id, phu_xe_employee_id, gio_lay_hang,
+                         gio_du_kien_giao, bo_qua_trip_id=None) -> list[str]:
+        """Kiểm trùng lịch cho CẢ KÍP, không riêng tài xế.
+
+        ⭐ Phụ xe cũng là một con người: không mở rộng vế này thì một người làm phụ xe hai chuyến
+        cùng giờ vẫn lọt, mà kíp xe là thứ SINH RA TIỀN — trùng lịch nghĩa là trả tiền hai chuyến
+        cho một khoảng thời gian.
+        """
+        canh_bao = list(self.kiem_lich_tai_xe(
+            employee_id=employee_id, gio_lay_hang=gio_lay_hang,
+            gio_du_kien_giao=gio_du_kien_giao, bo_qua_trip_id=bo_qua_trip_id,
+        ))
+        if phu_xe_employee_id:
+            canh_bao += [
+                f"Phụ xe: {c}" for c in self.kiem_lich_tai_xe(
+                    employee_id=phu_xe_employee_id, gio_lay_hang=gio_lay_hang,
+                    gio_du_kien_giao=gio_du_kien_giao, bo_qua_trip_id=bo_qua_trip_id,
+                    nhan="Phụ xe",
+                )
+            ]
+        return canh_bao
+
     def kiem_lich_tai_xe(self, *, employee_id, gio_lay_hang, gio_du_kien_giao,
-                         bo_qua_trip_id=None) -> list[str]:
+                         bo_qua_trip_id=None, nhan="Tài xế") -> list[str]:
         """CHẶN nếu trùng; trả về danh sách CẢNH BÁO nếu chỉ sát giờ (PRD §6)."""
         if gio_du_kien_giao <= gio_lay_hang:
             raise DeliveryError("Giờ dự kiến giao phải sau giờ lấy hàng")
@@ -382,7 +503,9 @@ class DeliveryService:
         )
         if trung:
             ma = ", ".join(f"#{t.id}" for t in trung)
-            raise DeliveryError(f"Tài xế đã có chuyến trùng giờ: {ma}")
+            # `nhan` để câu báo chỉ ĐÚNG NGƯỜI: hàm này nay dùng cho cả phụ xe, mà báo
+            # "Tài xế đã có chuyến trùng giờ" khi kẹt phụ xe là cử người đi sửa nhầm ô.
+            raise DeliveryError(f"{nhan} đã có chuyến trùng giờ: {ma}")
         # Sát giờ = không trùng nhưng đệm dưới 30 phút ⇒ cho lưu, chỉ nhắc.
         ke = self.deliveries.trung_lich(
             employee_id=employee_id,
@@ -395,7 +518,8 @@ class DeliveryService:
         return []
 
     def len_ke_hoach(self, *, request_id, employee_id, gio_lay_hang, gio_du_kien_giao,
-                     actor, kho_id=None, ghi_chu_phan_cong=None, scope=None) -> dict:
+                     actor, kho_id=None, ghi_chu_phan_cong=None, scope=None,
+                     phu_xe_employee_id=None) -> dict:
         req = self.deliveries.get_request(request_id)
         if req is None:
             raise DeliveryNotFound("Không tìm thấy yêu cầu giao hàng")
@@ -414,11 +538,13 @@ class DeliveryService:
             raise DeliveryError("Yêu cầu đã giao đủ")
         if self.employees.get_by_id(employee_id) is None:
             raise DeliveryNotFound("Không tìm thấy nhân viên giao hàng")
+        phu_xe_employee_id = self._chuan_hoa_phu_xe(employee_id, phu_xe_employee_id)
 
         self._chan_gio_qua_khu(gio_lay_hang, "Giờ lấy hàng")
         self._chan_gio_qua_khu(gio_du_kien_giao, "Giờ dự kiến giao")
-        canh_bao = self.kiem_lich_tai_xe(
-            employee_id=employee_id, gio_lay_hang=gio_lay_hang, gio_du_kien_giao=gio_du_kien_giao,
+        canh_bao = self.kiem_lich_kip_xe(
+            employee_id=employee_id, phu_xe_employee_id=phu_xe_employee_id,
+            gio_lay_hang=gio_lay_hang, gio_du_kien_giao=gio_du_kien_giao,
         )
 
         # (đẩy realtime sau khi có `trip` — xem cuối hàm)
@@ -426,6 +552,7 @@ class DeliveryService:
             request_id=request_id,
             lan_thu=self.deliveries.lan_thu_ke_tiep(request_id),
             employee_id=employee_id,
+            phu_xe_employee_id=phu_xe_employee_id,
             gio_lay_hang=gio_lay_hang,
             gio_du_kien_giao=gio_du_kien_giao,
             ghi_chu_phan_cong=ghi_chu_phan_cong,
@@ -591,7 +718,8 @@ class DeliveryService:
         return req
 
     def doi_ke_hoach(self, trip_id, *, actor, scope=None, employee_id=None,
-                     gio_lay_hang=None, gio_du_kien_giao=None, ghi_chu_phan_cong=None) -> dict:
+                     gio_lay_hang=None, gio_du_kien_giao=None, ghi_chu_phan_cong=None,
+                     phu_xe_employee_id=_KHONG_GUI) -> dict:
         """Đổi người / đổi giờ khi tài xế CHƯA cầm hàng.
 
         Đã gửi yêu cầu xuất kho mà đổi giờ thì CẢNH BÁO, không tự huỷ phiếu bên kho — đó là
@@ -613,8 +741,17 @@ class DeliveryService:
         moi_nv = employee_id if employee_id is not None else trip.employee_id
         moi_lay = gio_lay_hang if gio_lay_hang is not None else trip.gio_lay_hang
         moi_giao = gio_du_kien_giao if gio_du_kien_giao is not None else trip.gio_du_kien_giao
-        canh_bao = self.kiem_lich_tai_xe(
-            employee_id=moi_nv, gio_lay_hang=moi_lay, gio_du_kien_giao=moi_giao,
+        # `_KHONG_GUI` chứ không phải `None`: người dùng GỠ phụ xe cũng gửi `None` lên. Lấy `None`
+        # làm "không gửi" thì không có đường nào gỡ được phụ xe đã xếp.
+        moi_phu = (trip.phu_xe_employee_id if phu_xe_employee_id is _KHONG_GUI
+                   else self._chuan_hoa_phu_xe(moi_nv, phu_xe_employee_id))
+        if moi_phu is not None and moi_phu == moi_nv:
+            # Đổi TÀI XẾ thành đúng người đang làm phụ xe — hai ô hoá ra một người mà mỗi ô kiểm
+            # riêng thì không ai bắt được.
+            raise DeliveryError("Tài xế và phụ xe không được là cùng một người")
+        canh_bao = self.kiem_lich_kip_xe(
+            employee_id=moi_nv, phu_xe_employee_id=moi_phu,
+            gio_lay_hang=moi_lay, gio_du_kien_giao=moi_giao,
             bo_qua_trip_id=trip.id,
         )
 
@@ -623,6 +760,7 @@ class DeliveryService:
         # đầu hàm), nên với họ chuyến này coi như chưa từng bắt đầu.
         doi_nguoi = moi_nv != trip.employee_id
         trip.employee_id = moi_nv
+        trip.phu_xe_employee_id = moi_phu
         trip.gio_lay_hang = moi_lay
         trip.gio_du_kien_giao = moi_giao
         if ghi_chu_phan_cong is not None:
@@ -727,6 +865,7 @@ class DeliveryService:
             trip.huong_xu_ly = huong_xu_ly
 
         trip.km = km
+        self._chup_don_gia_km(trip)
         trip.thoi_gian_ket_thuc = thoi_gian_ket_thuc or _utcnow()
         trip.nguoi_nhan_thuc_te = nguoi_nhan_thuc_te
         trip.ghi_chu_ket_qua = ghi_chu

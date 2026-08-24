@@ -16,6 +16,7 @@ from .test_work_shifts_api import (
     _mk_emp,
     _mk_shift,
     _save_plan,
+    _PMS,
 )
 
 
@@ -61,7 +62,7 @@ def test_luoi_ghi_dung_truoc_sau_va_co_co_ke_thua(client):
     emp = _mk_emp(client, token, "NV Log Lưới")
     _set_base(client, token, emp["id"], base["id"])
 
-    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": "2026-06-10",
+    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": f"{_PMS}-10",
                                 "action": "set", "shift_id": night["id"]}])
 
     rows = _logs(emp["id"], kind="day")
@@ -71,7 +72,7 @@ def test_luoi_ghi_dung_truoc_sau_va_co_co_ke_thua(client):
     assert r.inherited_before is True, "trước đó ô đang kế thừa ca nền"
     assert r.shift_id_before == base["id"], "ca trước phải là CA NỀN, không phải None"
     assert r.shift_id_after == night["id"]
-    assert str(r.apply_date) == "2026-06-10"
+    assert str(r.apply_date) == f"{_PMS}-10"
 
 
 def test_luoi_khong_ghi_khi_luu_lai_y_nguyen(client):
@@ -82,7 +83,7 @@ def test_luoi_khong_ghi_khi_luu_lai_y_nguyen(client):
     token = _admin_token(client)
     night = _mk_shift(client, token, "Khuya lặp", "22:00", "06:00", overnight=True)
     emp = _mk_emp(client, token, "NV Lưu Lặp")
-    cell = [{"employee_id": emp["id"], "work_date": "2026-06-11",
+    cell = [{"employee_id": emp["id"], "work_date": f"{_PMS}-11",
              "action": "set", "shift_id": night["id"]}]
 
     _save_plan(client, token, cell)
@@ -100,11 +101,11 @@ def test_luoi_off_va_inherit(client):
     emp = _mk_emp(client, token, "NV Off Inherit")
     _set_base(client, token, emp["id"], base["id"])
 
-    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": "2026-06-12",
+    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": f"{_PMS}-12",
                                 "action": "set", "shift_id": day["id"]}])
-    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": "2026-06-12",
+    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": f"{_PMS}-12",
                                 "action": "off"}])
-    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": "2026-06-12",
+    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": f"{_PMS}-12",
                                 "action": "inherit"}])
 
     rows = _logs(emp["id"], kind="day")
@@ -228,7 +229,7 @@ def test_api_lich_su_hien_ca_hai_lop_va_loc_duoc(client):
     b = _mk_shift(client, token, "API đè B", "14:00", "22:00")
     emp = _mk_emp(client, token, "NV API Lịch Sử")
     _set_base(client, token, emp["id"], a["id"], "2026-01-01")
-    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": "2026-06-20",
+    _save_plan(client, token, [{"employee_id": emp["id"], "work_date": f"{_PMS}-20",
                                 "action": "set", "shift_id": b["id"]}])
 
     def get(**kw):
@@ -322,7 +323,7 @@ def test_luoi_tra_ve_so_da_bao_va_chua_bao_duoc(client):
     sh = _mk_shift(client, token, "Ca đếm báo", "08:00", "17:00")
     emp = _mk_emp(client, token, "NV Không Tài Khoản")
 
-    res = _save_plan(client, token, [{"employee_id": emp["id"], "work_date": "2026-06-13",
+    res = _save_plan(client, token, [{"employee_id": emp["id"], "work_date": f"{_PMS}-13",
                                       "action": "set", "shift_id": sh["id"]}])
     assert res["changed"] == 1
     assert res["notified"] == 0

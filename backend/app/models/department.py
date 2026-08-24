@@ -7,6 +7,7 @@ Portable across SQLite and Postgres.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean, DateTime, ForeignKey, Integer, JSON, Numeric, String, false as sa_false,
@@ -99,6 +100,22 @@ class Department(Base):
     # có chuyến, nên tài xế mới tuyển không hiện ra — không ai phân chuyến cho họ được.
     la_giao_hang: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
+    )
+    # --- Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật -------------------
+    # Ba ô để CHUNG một chỗ với cờ Giao hàng: tách đơn giá sang màn Cấu hình lương, tỷ lệ sang màn
+    # này là bắt người dùng nhớ hai nơi cho cùng một nhóm thiết lập.
+    #: Đơn giá mỗi km — số TÀI XẾ ĐƯỢC HƯỞNG, không phải cước cả xe (không có tầng % nào nữa).
+    #: Seed 4.330 = 84.031.992đ ÷ 19.406 km, tức mức giữ NGUYÊN tổng chi T05/2026 của cả bốn xe.
+    don_gia_km: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2), nullable=False, server_default="0", default=0
+    )
+    #: Chia tiền một chuyến cho kíp xe. Hai ô BẮT BUỘC cộng đúng 100 — nếu không, tổng chi cho một
+    #: chuyến sẽ khác nhau tuỳ chuyến đó đi mấy người, và không ai giải thích được vì sao.
+    pct_tai_xe: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, server_default="60", default=60
+    )
+    pct_phu_xe: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, server_default="40", default=40
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

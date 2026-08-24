@@ -146,6 +146,9 @@ type ONgay = {
   gain: string;
   gainClass: string;
   pills: PillO[];
+  /** Tên CA của ngày (vd "HC", "Ca 1") — máy chủ đã phân sẵn (`day.shift_name`), gán ở Khai ca →
+   *  Phân ca tháng. Rỗng ⇒ ngày không có ca (nghỉ theo lịch / ngoài lịch phân). */
+  caLabel: string;
 };
 
 /** Đọc một ô ngày thành thứ hiển thị được: màu ô · giờ · dòng công · pill loại ngày.
@@ -171,8 +174,12 @@ function docONgay(day: TimesheetDay | undefined, heSo: HeSoNgay): ONgay {
     gain: "",
     gainClass: "cc-month-cell__gain",
     pills: [],
+    caLabel: "",
   };
   if (!day) return o;
+  // Tên ca hiện DÙ NGÀY CÓ ĐI LÀM HAY KHÔNG: nó là ca ĐƯỢC PHÂN, không phải ca suy từ giờ bấm.
+  // Ngày chưa tới / nghỉ vẫn cho thấy "hôm đó xếp ca gì" — đó chính là câu chủ hỏi.
+  o.caLabel = day.shift_name ?? "";
 
   const quyDoi = (hs: number) =>
     day.cong != null ? `→ tính ${Number((day.cong * hs).toFixed(2))} công` : "";
@@ -1958,6 +1965,13 @@ function MyTimesheetTab({ token }: { token: string }) {
                       ))}
                     </span>
                   </div>
+                  {/* Tên CA của ngày (Phân ca tháng) — hiện DÙ có bấm hay không. Chủ hỏi
+                      "điền ca từng ngày vào ô công". Bấm ô để đổi ca ở tab Khai ca. */}
+                  {o.caLabel && (
+                    <div className="cc-month-cell__ca" title={`Ca làm: ${o.caLabel}`}>
+                      {o.caLabel}
+                    </div>
+                  )}
                   <div
                     style={{
                       fontSize: "11px",
@@ -3647,6 +3661,8 @@ function ShiftPlanPanel({ token }: { token: string }) {
   );
   const [rejects, setRejects] = useState<Map<string, string>>(() => new Map());
   const [drag, setDrag] = useState<DragRect | null>(null);
+  // Nhắc khi tô một loạt bỏ qua ngày nghỉ tuần (theo lịch tuần) — người dùng khỏi tưởng hụt ô.
+  const [boQuaNghi, setBoQuaNghi] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [progress, setProgress] = useState<{
     done: number;
@@ -3957,12 +3973,34 @@ function ShiftPlanPanel({ token }: { token: string }) {
       }
     }
     if (!hits.length) return;
+    setBoQuaNghi(null);   // xoá nhắc của lần tô trước
+    // TÔ MỘT LOẠT (kéo > 1 ô) BỎ QUA (chủ chốt 24/08/2026):
+    //   · NGÀY QUÁ KHỨ (< hôm nay) — "lỗi chí mạng": gán 1–30 đè lên ngày đã chấm công / chờ đơn
+    //     thì công quá khứ bị tính lại theo ca mới. Quá khứ đã xong, loạt chỉ áp HÔM NAY trở đi.
+    //   · NGÀY NGHỈ TUẦN — tuần chuẩn T2–T7, đụng Chủ nhật là sai ý.
+    // Cả hai chỉ chặn khi TÔ LOẠT; 1 ô (bút) vẫn cho, để sửa từng ngày khi thật sự cần (máy chủ
+    // vẫn chặn riêng việc đổi ca ngày quá khứ ĐÃ CÓ ca).
+    const todayIso = (() => {
+      const n = new Date();
+      return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+    })();
+    const effective =
+      hits.length > 1
+        ? hits.filter((h) => h.day.is_working && h.day.date >= todayIso)
+        : hits;
+    if (!effective.length) return;
+    const boQua = hits.length - effective.length;
     const b = brush;
     setPending((prev) => {
       const next = new Map(prev);
-      for (const h of hits) applyBrush(next, h.row, h.day, b);
+      for (const h of effective) applyBrush(next, h.row, h.day, b);
       return next;
     });
+    if (boQua > 0) {
+      setBoQuaNghi(
+        `Đã bỏ qua ${boQua} ô (ngày đã qua / ngày nghỉ). Tô LOẠT chỉ áp hôm nay trở đi; muốn sửa quá khứ hoặc gán ngày nghỉ thì tô TAY từng ô.`,
+      );
+    }
     // Ô vừa sửa lại thì gỡ cờ "bị từ chối" của lần lưu trước.
     setRejects((prev) => {
       if (!prev.size) return prev;
@@ -4068,9 +4106,15 @@ function ShiftPlanPanel({ token }: { token: string }) {
     }
   }
 
-  // Mở form đặt ca nền: mặc định áp dụng từ NGÀY 1 của tháng đang xem.
+  // Mở form đặt ca nền: mặc định áp dụng từ NGÀY 1 của tháng đang xem, NHƯNG không lùi trước hôm
+  // nay. Ca nền lùi vào quá khứ ⇒ ngày ĐÃ CHẤM CÔNG resolve sang ca mới ⇒ lương kỳ nháp tính lại
+  // âm thầm ("lỗi chí mạng" 24/08/2026). Mặc định mùng-1 (như cũ) chính là cái bẫy đó cho tháng
+  // hiện tại. Chốt tại đây + `min` ở ô ngày để không MỜI người dùng ghi đè quá khứ. Tháng tương
+  // lai vẫn ra mùng 1; tháng hiện tại/cũ ra hôm nay.
   function openBase(ids: number[], label: string, current?: number | null) {
-    setBaseFrom(`${year}-${String(month).padStart(2, "0")}-01`);
+    const dau = `${year}-${String(month).padStart(2, "0")}-01`;
+    const homNay = isoToday();
+    setBaseFrom(dau > homNay ? dau : homNay);
     setBaseShift(current ?? "");
     setBaseMsg(null);
     setBaseTarget({ ids, label });
@@ -4377,6 +4421,11 @@ function ShiftPlanPanel({ token }: { token: string }) {
           <span>{error}</span>
         </div>
       )}
+      {boQuaNghi && (
+        <div className="banner banner--warn cc-sp-banner">
+          <span>{boQuaNghi}</span>
+        </div>
+      )}
       {result && (
         <div className="banner banner--success cc-sp-banner">
           <span>
@@ -4481,7 +4530,7 @@ function ShiftPlanPanel({ token }: { token: string }) {
                   Ca nền
                 </th>
                 {cal.map((c) => {
-                  const restDay = c.weekday === 6 || !c.is_working;
+                  const restDay = !c.is_working;   // theo LỊCH TUẦN thật (works_*), không đóng đinh CN
                   const cls = [
                     "cc-sp-hdr",
                     c.weekday === 0 ? "cc-sp-hdr--wk" : "",
@@ -4662,7 +4711,7 @@ function ShiftPlanPanel({ token }: { token: string }) {
                           ? shiftMeta.get(eff.shiftId)
                           : undefined;
                       const reason = rejects.get(key);
-                      const restDay = c.weekday === 6 || !c.is_working;
+                      const restDay = !c.is_working;   // theo LỊCH TUẦN thật (works_*), không đóng đinh CN
                       const cls = [
                         "cc-day-cell",
                         "cc-sp-cell",
@@ -4730,7 +4779,11 @@ function ShiftPlanPanel({ token }: { token: string }) {
                               : undefined
                           }
                         >
-                          {eff.off ? (
+                          {/* Ngày NGHỈ TUẦN (theo lịch) mà KHÔNG tô tay ⇒ hiện "nghỉ", KHÔNG hiện
+                              ca nền mờ. Trước đây ô Chủ nhật vẫn khoe ca nền (is-ghost) nên Khai ca
+                              trông như đã xếp CN, lệch với Công của tôi (để trống). Nay hai màn
+                              THÔNG NHAU: CN nghỉ ở cả hai; tô tay (eff.hand) thì mới hiện ca. */}
+                          {eff.off || (restDay && !eff.hand) ? (
                             <span className="cc-sp-rest" title={chipTip}>
                               –
                             </span>
@@ -4930,7 +4983,9 @@ function ShiftPlanPanel({ token }: { token: string }) {
                 Ca nền áp dụng{" "}
                 <strong>từ ngày đã chọn trở về sau, cho MỌI tháng</strong> —
                 khác với tô ca trên lưới (chỉ đúng ngày đã tô). Ngày nào không
-                khai trên lưới thì dùng ca nền này.
+                khai trên lưới thì dùng ca nền này.{" "}
+                <strong>Chỉ đặt được từ hôm nay trở đi</strong> — quá khứ đã khoá,
+                đổi ca ngày đã chấm công sẽ tính lại lương sai.
               </p>
               <label className="cc-sp-basepop__row">
                 <span>Ca</span>
@@ -4964,6 +5019,7 @@ function ShiftPlanPanel({ token }: { token: string }) {
                 <input
                   className="cc-input-text"
                   type="date"
+                  min={isoToday()}
                   value={baseFrom}
                   onChange={(e) => setBaseFrom(e.target.value)}
                 />
@@ -6229,6 +6285,13 @@ function EmployeeCalendarModal({
                       ))}
                     </span>
                   </div>
+                  {/* Tên CA của ngày (Phân ca tháng) — hiện DÙ có bấm hay không. Chủ hỏi
+                      "điền ca từng ngày vào ô công". Bấm ô để đổi ca ở tab Khai ca. */}
+                  {o.caLabel && (
+                    <div className="cc-month-cell__ca" title={`Ca làm: ${o.caLabel}`}>
+                      {o.caLabel}
+                    </div>
+                  )}
                   <div
                     style={{
                       fontSize: "11px",

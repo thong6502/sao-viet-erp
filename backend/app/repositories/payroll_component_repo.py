@@ -161,6 +161,10 @@ class PayrollComponentRepository:
         ⚠️ CHỈ xoá `source='auto'`. Đụng vào `line` là xoá mất thưởng nóng HCNS thêm tay; đụng vào
         `employee` là xoá khoản của hồ sơ — cả hai đều mất tiền của người lao động mà không một
         thông báo nào.
+
+        KHÔNG cần chừa `da_de_tay` như `replace_employee_line_components`: dòng `auto` không sửa
+        tay được (chốt lại 24/08/2026 — *"kệ nó ăn theo đơn hàng cho chắc"*) nên không bao giờ
+        mang cờ đó. Thêm điều kiện lọc ở đây là viết một nhánh không đường nào chạy tới.
         """
         self.db.execute(
             delete(PayrollLineComponent).where(
