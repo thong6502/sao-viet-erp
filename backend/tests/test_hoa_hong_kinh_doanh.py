@@ -376,17 +376,28 @@ def test_khoan_hoa_hong_la_nguon_AUTO_khong_phai_tay_go(client):
     assert _dong_hh(_tinh_luong(client, emp))[0]["source"] == "auto"
 
 
+def _co_hoa_hong(client, ma_don: str, ten: str = "go tay"):
+    """NV kinh doanh + 1 hoá đơn 108tr ⇒ hoa hồng 5tr. Trả `(emp, row_id)` của dòng hoa hồng."""
+    emp, uid = _sales(ten)
+    _hoa_don(_don(ma_don, uid, truoc_vat=100_000_000), 108_000_000)
+    return emp, _dong_hh(_tinh_luong(client, emp))[0]["id"]
+
+
 def test_KHONG_CHO_GO_TAY_dong_hoa_hong(client):
     """⭐ Sửa/gỡ tay dòng hoa hồng phải bị CHẶN, kèm câu chỉ đúng chỗ sửa.
 
-    Không chặn thì: sửa số → "Tính lại" xoá sạch âm thầm; gỡ dòng → tính lại là mọc lại. Cả hai
-    đều để HCNS tưởng mình vừa làm được việc gì đó.
+    Luật này đã bị mở ra rồi ĐÓNG LẠI trong cùng ngày 24/08/2026 — chủ thử xong chốt: *"số tiền
+    hoa hồng ấy đừng cho sửa tay nữa, kệ nó ăn theo đơn hàng cho chắc"*. Lý do đứng vững:
+
+    - Đè tay ⇒ kỳ đó THÔI chạy theo hoá đơn. Kế toán xuất thêm hoá đơn sau, tiền không tự cộng,
+      và không ai nhớ ra để sửa lại.
+    - Số bám hoá đơn thì luôn đối chiếu được với sổ bán hàng; số gõ tay thì không đối chiếu với
+      cái gì cả.
+
+    Cần trả thêm/bớt cho một người ⇒ khoản "Thu nhập khác", đúng chỗ và có ghi chú.
+    Gỡ dòng cũng chặn: tính lại là nó mọc lại, nút chỉ để người ta bấm vào một cái báo lỗi.
     """
-    emp, uid = _sales("go tay")
-    oid = _don("DH-LUONG-07", uid, truoc_vat=100_000_000)
-    _hoa_don(oid, 108_000_000)
-    line = _tinh_luong(client, emp)
-    row_id = _dong_hh(line)[0]["id"]
+    emp, row_id = _co_hoa_hong(client, "DH-LUONG-07")
 
     r = client.put(f"/api/luong/lines/components/{row_id}", json={"amount": 99_000_000},
                    headers=_h(client))
@@ -400,12 +411,42 @@ def test_KHONG_CHO_GO_TAY_dong_hoa_hong(client):
     assert _dong_hh(_tinh_luong(client, emp))[0]["amount"] == 5_000_000
 
 
-def test_FILE_XUAT_khong_duoc_NUOT_hoa_hong(client):
-    """⭐ Hoa hồng nằm trong cột "Tổng" thì phải có MỘT cột giải thích được nó.
+def test_HOA_HONG_khong_hien_trong_DANH_MUC_khoan_thu_nhap(client):
+    """⭐ Chốt của chủ 24/08/2026: *"cái danh mục cấu hình này làm khoản trợ cấp hoặc thưởng thôi
+    mà đừng dính cứng nó — mấy cái danh mục này họ thêm được và xoá được nha."*
 
-    Cột "Thưởng" của bảng + file xuất trước đây chỉ cộng `source='line'`, nên khoản `auto` lọt
-    vào Tổng mà không cột nào nói ra — kế toán dò lệch mãi không ra, đúng chuyện đã xảy ra với
-    "Cơm ca"/"Phụ cấp ca" ngày 03/08/2026.
+    Để hoa hồng lẫn trong đó sinh ra một cái bẫy thật: bấm xoá một "dòng phụ cấp" hoá ra là TẮT
+    TÍNH NĂNG hoa hồng của toàn công ty (`_hoa_hong_rows` kiểm `is_active` trước khi tính).
+
+    Giấu ở màn hình, KHÔNG xoá dòng trong DB — engine vẫn phải tra được nó để lấy `is_taxable` và
+    `component_id`. Nên test khoá cả hai vế.
+    """
+    r = client.get("/api/luong/components", headers=_h(client))
+    assert r.status_code == 200, r.text
+    ma = [c["code"] for c in r.json()["items"]]
+    assert "hoa_hong_kd" not in ma, "hoa hồng vẫn nằm trong danh mục ⇒ xoá nhầm là tắt tính năng"
+    assert ma, "giấu nhầm cả danh mục — các khoản phụ cấp/thưởng phải còn nguyên"
+
+    # Vế hai: giấu khỏi màn hình KHÔNG được làm chết engine.
+    emp, uid = _sales("van chay")
+    _hoa_don(_don("DH-LUONG-07E", uid, truoc_vat=100_000_000), 108_000_000)
+    assert _dong_hh(_tinh_luong(client, emp))[0]["amount"] == 5_000_000
+
+
+def test_FILE_XUAT_hoa_hong_co_COT_RIENG_khong_lan_vao_Thuong(client):
+    """⭐ Hoa hồng nằm trong cột "Tổng" thì phải có MỘT cột mang ĐÚNG TÊN nó giải thích.
+
+    Hai đời luật, cả hai đều từ một lỗi thật:
+
+    1. 21/08/2026 — cột "Thưởng" chỉ cộng `source='line'`, khoản `auto` lọt vào Tổng mà không cột
+       nào nói ra. Kế toán dò lệch mãi không ra (y như "Cơm ca"/"Phụ cấp ca" ngày 03/08).
+       ⇒ vá bằng cách cộng `auto` vào "Thưởng".
+    2. 24/08/2026 — vá kiểu đó thành GIẤU CHỖ KHÁC: chủ mở bảng lương tìm cột hoa hồng không thấy,
+       vì nó nằm lẫn với thưởng nóng trong một con số chung, chi tiết chỉ hiện khi rê chuột.
+       ⇒ tách hẳn thành cột "Hoa hồng".
+
+    Nên test này khoá HAI chiều: cột Hoa hồng phải nhận đủ tiền, và cột Thưởng phải KHÔNG đổi —
+    thiếu vế sau thì cộng hai cột lại vượt "Tổng" mà vẫn xanh.
     """
     from io import BytesIO
 
@@ -427,10 +468,12 @@ def test_FILE_XUAT_khong_duoc_NUOT_hoa_hong(client):
     _tinh_luong(client, emp)
     _, sau = _xuat("file xuat")
 
-    i_thuong, i_tong = head.index("Thưởng"), head.index("Tổng")
+    i_thuong, i_hh, i_tong = (head.index("Thưởng"), head.index("Hoa hồng"), head.index("Tổng"))
     assert sau[i_tong] - truoc[i_tong] == 5_000_000, "Tổng không nhận hoa hồng"
-    assert sau[i_thuong] - truoc[i_thuong] == 5_000_000, (
-        "Tổng có thêm 5tr mà không cột khoản nào tăng — file xuất cộng lại không khớp")
+    assert sau[i_hh] - truoc[i_hh] == 5_000_000, (
+        "Tổng có thêm 5tr mà cột Hoa hồng không tăng — file xuất cộng lại không khớp")
+    assert sau[i_thuong] == truoc[i_thuong], (
+        "hoa hồng vẫn còn lẫn trong cột Thưởng ⇒ cộng hai cột lại là đếm đôi")
 
 
 def test_NV_DA_NGHI_VIEC_van_duoc_tra_hoa_hong_don_cu(client):

@@ -3791,3 +3791,141 @@
   background: transparent;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rust) 45%, transparent);
 }
+
+/* ── Khoán km giao hàng (mg 0231) ─────────────────────────────────────────────────────────
+   Ba ô cùng hàng: đơn giá rộng gấp rưỡi hai ô % vì nó mang số nghìn, còn % tối đa ba ký tự.
+   Chia đều 1fr là ô % thừa chỗ trong khi đơn giá phải cuộn — cùng bệnh đã sửa ở màn Thành phẩm. */
+.depts__khoankm {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr;
+  gap: 10px;
+}
+
+.depts__khoankm-o {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* `min-width: 0` cho phép ô co lại dưới bề rộng nội dung — thiếu nó thì grid tràn ngang ở
+     khung hẹp, đúng bẫy `min-width: auto` của flex/grid item. */
+  min-width: 0;
+}
+
+.depts__khoankm-o > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted, #6b7280);
+}
+
+.depts__khoankm-o input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  background: var(--card, #fff);
+  color: var(--ink, #111827);
+}
+
+.depts__khoankm-o input:focus-visible {
+  outline: 2px solid var(--brand, #2563eb);
+  outline-offset: 1px;
+}
+
+.depts__khoankm-note {
+  display: block;
+  margin-top: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted, #6b7280);
+}
+
+/* ── Bảng bậc đơn giá km (mg 0231, chốt 24/08/2026) ───────────────────────────────────────
+   Editor nhiều dòng: "đến km" hẹp, "đơn giá" rộng, nút xoá bám phải. Cùng khung với `.depts__khoankm`. */
+.depts__bac {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.depts__bac-head,
+.depts__bac-row {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 32px;
+  gap: 10px;
+  align-items: center;
+}
+
+.depts__bac-head > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted, #6b7280);
+}
+
+.depts__bac-row input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  background: var(--card, #fff);
+  color: var(--ink, #111827);
+}
+
+.depts__bac-row input:disabled {
+  background: var(--muted-bg, #f3f4f6);
+  color: var(--muted, #9ca3af);
+  text-align: center;
+  font-style: italic;
+}
+
+.depts__bac-row input:focus-visible {
+  outline: 2px solid var(--brand, #2563eb);
+  outline-offset: 1px;
+}
+
+/* Nút xoá bậc — vuông, nhạt, đỏ khi rê. Không dùng icon để khỏi kéo thêm asset cho một nút phụ. */
+.depts__bac-x {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 8px;
+  background: var(--card, #fff);
+  color: var(--muted, #6b7280);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.depts__bac-x:hover:not(:disabled) {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.depts__bac-x:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.depts__bac-add {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 6px 12px;
+  border: 1px dashed var(--line, #d1d5db);
+  border-radius: 8px;
+  background: none;
+  color: var(--brand, #2563eb);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.depts__bac-add:hover {
+  background: var(--brand-soft, #eff6ff);
+  border-style: solid;
+}

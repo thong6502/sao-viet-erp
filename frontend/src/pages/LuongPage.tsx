@@ -35,6 +35,7 @@ import {
   type PaymentVoucherRow,
   type PaymentVoucherType,
   type PayrollComponent,
+  type KhoanKmChiTiet,
   type PayrollLine,
   type PayrollParams,
   type PayrollPeriod,
@@ -158,15 +159,28 @@ function legacyBonusRows(l: PayrollLine): [string, number][] {
   ).filter(([, v]) => (v ?? 0) !== 0);
 }
 
+/** Mã khoản "Hoa hồng kinh doanh" — CÓ CỘT RIÊNG, không nằm trong "Thưởng" (24/08/2026).
+ *  Trùng `COMPONENT_CODE_HOA_HONG` ở BE (`models/payroll.py`). */
+const MA_HOA_HONG = "hoa_hong_kd";
+
 /** Từng khoản THƯỞNG của kỳ này (cột "Thưởng" trên bảng + tooltip).
  *
  * ⚠️ KHÔNG lấy khoản `source='employee'`: nó đã nằm trong `allowance` → hiện ở cột "Phụ cấp";
- * gộp cả hai vào đây là bảng đếm đôi tiền của cùng một khoản. Còn `auto` (hoa hồng KD) thì PHẢI
- * có: nó nằm ngoài `allowance`, cộng thẳng vào `gross`. Giữ ĐỒNG BỘ với `_bonus_total()` ở BE. */
-function bonusRows(l: PayrollLine): [string, number][] {
+ * gộp cả hai vào đây là bảng đếm đôi tiền của cùng một khoản. Còn `auto` thì PHẢI có: nó nằm
+ * ngoài `allowance`, cộng thẳng vào `gross`. Giữ ĐỒNG BỘ với `_bonus_total()` ở BE.
+ *
+ * ⭐ TRỪ hoa hồng — nay có cột riêng. Gộp nó vào đây là cách cũ, và cách cũ khiến chủ mở bảng
+ * lương tìm mãi không thấy hoa hồng đâu: nó lẫn với thưởng nóng trong một con số, chi tiết chỉ
+ * hiện khi rê chuột. Tiền máy tự tính từ phân hệ khác thì phải mang đúng tên nó trên bảng. */
+export function bonusRows(l: PayrollLine): [string, number][] {
   return [
     ...(l.components ?? [])
-      .filter((c) => c.kind !== "tru" && (c.source === "line" || c.source === "auto"))
+      .filter(
+        (c) =>
+          c.kind !== "tru" &&
+          (c.source === "line" || c.source === "auto") &&
+          c.code !== MA_HOA_HONG,
+      )
       .map(
         (c) =>
           [c.note ? `${c.name} (${c.note})` : c.name, c.amount] as [
@@ -185,6 +199,15 @@ function bonusTitle(l: PayrollLine): string {
   return rows.length
     ? rows.map(([k, v]) => `${k}: ${money(v)}`).join(" · ")
     : "";
+}
+
+/** Cột "Hoa hồng kinh doanh" — máy tự tính theo hoá đơn bán trong kỳ, HCNS không gõ tay.
+ *  Số 0 nghĩa là chưa khai `commission_pct` ở hồ sơ lương của người kinh doanh: không khai % thì
+ *  lúc chốt đơn chụp về rỗng, và mọi bước sau đều bằng 0. */
+export function hoaHongTotal(l: PayrollLine): number {
+  return (l.components ?? [])
+    .filter((c) => c.kind !== "tru" && c.code === MA_HOA_HONG)
+    .reduce((s, c) => s + c.amount, 0);
 }
 
 export function LuongPage({
@@ -433,6 +456,9 @@ function BangLuongTab({
   const [listLoading, setListLoading] = useState(true);
   const [editing, setEditing] = useState<PayrollLine | null>(null);
   const [printing, setPrinting] = useState<PayrollLine | null>(null);
+  // Bảng đối chiếu khoán km — HCNS bấm vào cột "Khoán km" để soi từng chuyến. Bắt buộc phải có:
+  // km là TÀI XẾ TỰ GÕ, khác hẳn hoa hồng (nguồn là hoá đơn kế toán đã xuất).
+  const [soiKm, setSoiKm] = useState<PayrollLine | null>(null);
   const [params, setParams] = useState<PayrollParams | null>(null);
   const [year, month] = ym.split("-").map(Number);
 
@@ -1020,10 +1046,16 @@ function BangLuongTab({
                 <th className="lg-num">Chuyên cần</th>
                 <th className="lg-num">Phụ cấp</th>
                 <th className="lg-num">Khoán</th>
+                {/* Khoán km đứng cạnh Khoán vì cùng loại: tiền máy tự tính từ sản lượng/km, cộng
+                    phẳng lên lương chấm công. Cột RIÊNG chứ không gộp — bài học hoa hồng. */}
+                <th className="lg-num">Khoán km</th>
                 <th className="lg-num">Tăng ca</th>
                 <th className="lg-num">Ca đêm</th>
                 <th className="lg-num">Vi phạm</th>
                 <th className="lg-num">Thưởng</th>
+                {/* Hoa hồng đứng CẠNH Thưởng vì trước 24/08/2026 nó nằm lẫn bên trong cột đó —
+                    để sát nhau thì người quen bảng cũ nhìn ra ngay số đã tách đi đâu. */}
+                <th className="lg-num">Hoa hồng</th>
                 <th className="lg-num">BHXH</th>
                 <th className="lg-num">Đợt 1 / Tạm ứng</th>
                 <th className="lg-num lg-net">Thực lĩnh</th>
@@ -1049,6 +1081,24 @@ function BangLuongTab({
                   <td className="lg-num">{money(l.chuyen_can)}</td>
                   <td className="lg-num">{money(l.allowance)}</td>
                   <td className="lg-num">{l.khoan ? money(l.khoan) : "—"}</td>
+                  <td className="lg-num">
+                    {l.khoan_km ? (
+                      // Bấm được ⇒ phải TRÔNG như bấm được. Số gạch chân kiểu link, không phải
+                      // một con số trơ mà người dùng phải đoán là có thể bấm.
+                      <button
+                        type="button"
+                        className="lg-linkbtn"
+                        title="Xem từng chuyến giao đã sinh ra số này"
+                        onClick={() => setSoiKm(l)}
+                      >
+                        {money(l.khoan_km)}
+                      </button>
+                    ) : (
+                      <span title="Không có chuyến giao trong kỳ, hoặc tổ chưa bật Bộ phận Giao hàng">
+                        —
+                      </span>
+                    )}
+                  </td>
                   <td
                     className="lg-num"
                     title={
@@ -1085,6 +1135,16 @@ function BangLuongTab({
                       (`allowance`); cộng cả hai là đếm đôi trên bảng. */}
                   <td className="lg-num" title={bonusTitle(l)}>
                     {bonusTotal(l) ? money(bonusTotal(l)) : "—"}
+                  </td>
+                  <td
+                    className="lg-num"
+                    title={
+                      hoaHongTotal(l)
+                        ? "Hoa hồng kinh doanh — máy tự tính theo hoá đơn bán trong kỳ"
+                        : "Chưa khai % hoa hồng ở hồ sơ lương của nhân viên kinh doanh"
+                    }
+                  >
+                    {hoaHongTotal(l) ? money(hoaHongTotal(l)) : "—"}
                   </td>
                   <td className="lg-num lg-minus">
                     {l.bhxh ? "−" + money(l.bhxh) : "—"}
@@ -1123,12 +1183,13 @@ function BangLuongTab({
                   </td>
                 </tr>
               ))}
-              {/* colSpan=16 = ĐÚNG số cột đang hiện. Bảng này KHÔNG ẩn/hiện cột theo quyền (chỉ
-                  nút trong ô Thao tác mới theo quyền) nên số cứng là đúng — thêm/bớt <th> thì
-                  phải sửa cả số này lẫn colSpan của <tfoot> bên dưới. */}
+              {/* colSpan=18 = ĐÚNG số cột đang hiện (16 → 17 khi tách cột "Hoa hồng" → 18 khi
+                  thêm "Khoán km", cùng ngày 24/08/2026). Bảng này KHÔNG ẩn/hiện cột theo quyền
+                  (chỉ nút trong ô Thao tác mới theo quyền) nên số cứng là đúng — thêm/bớt <th>
+                  thì phải sửa cả số này lẫn colSpan của <tfoot> bên dưới. */}
               {shown.length === 0 && (
                 <EmptyRow
-                  colSpan={16}
+                  colSpan={18}
                   trangThai={
                     listErr ? "loi" : listLoading ? "dang-tai" : "rong"
                   }
@@ -1166,7 +1227,7 @@ function BangLuongTab({
             </tbody>
             <tfoot>
               <tr className="lg-foot">
-                <td colSpan={14}>Tổng thực lĩnh ({shown.length} người)</td>
+                <td colSpan={16}>Tổng thực lĩnh ({shown.length} người)</td>
                 <td className="lg-num lg-net">{money(totalNet)}</td>
                 <td></td>
               </tr>
@@ -1190,6 +1251,15 @@ function BangLuongTab({
             setEditing(null);
             load();
           }}
+        />
+      )}
+
+      {soiKm && period && (
+        <SoiKhoanKm
+          token={token}
+          line={soiKm}
+          period={period}
+          onClose={() => setSoiKm(null)}
         />
       )}
 
@@ -1229,6 +1299,138 @@ function BangLuongTab({
 /** 2 khoản "mở" seed sẵn cho khoản lặt vặt (thưởng nóng) — đưa LÊN ĐẦU dropdown khoản phát
  *  sinh để không ai phải đẻ một danh mục mới dùng đúng một lần rồi bỏ. */
 const OPEN_COMPONENT_CODES = ["thu_nhap_khac_ct", "thu_nhap_khac_mt"];
+
+/** Bảng đối chiếu KHOÁN KM của một dòng lương — HCNS bấm số ở cột "Khoán km" để mở.
+ *
+ * ⭐ Vì sao bắt buộc có: km là **tài xế tự gõ**. Hoa hồng thì nguồn là hoá đơn kế toán đã xuất,
+ * đã qua tay người khác; km thì không ai kiểm giữa chừng. Không cho soi lại từng chuyến thì khoán
+ * km thành tiền tự khai, và cuối tháng không đối chiếu được với sổ tài xế.
+ *
+ * CHỈ XEM, không sửa: cái gì máy tự tính thì đừng phơi thành ô gõ tay. Sai km ⇒ sửa ở chuyến giao
+ * rồi tính lại — chữa đúng gốc, không nắn ngọn.
+ */
+function SoiKhoanKm({
+  token,
+  line,
+  period,
+  onClose,
+}: {
+  token: string;
+  line: PayrollLine;
+  period: PayrollPeriod;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<KhoanKmChiTiet | null>(null);
+  const [loi, setLoi] = useState<string | null>(null);
+
+  useEffect(() => {
+    let huy = false;
+    api.luong
+      .chiTietKhoanKm(token, line.id)
+      .then((r) => !huy && setData(r))
+      .catch((e: unknown) =>
+        !huy && setLoi(e instanceof Error ? e.message : "Không tải được chi tiết"),
+      );
+    return () => {
+      huy = true;
+    };
+  }, [token, line.id]);
+
+  // Tổng bảng chi tiết PHẢI khớp cột trên bảng lương. Lệch nghĩa là một trong hai bên tính sai —
+  // nói thẳng ra chứ đừng để HCNS tự phát hiện khi đối chiếu với kế toán.
+  const lech = data != null && Math.abs(data.tong - (line.khoan_km ?? 0)) > 1;
+
+  return (
+    <div className="ns-modal" role="dialog" aria-modal="true">
+      <div className="ns-modal__box ns-modal__box--wide">
+        <header className="ns-modal__head">
+          <h2>
+            Khoán km — {line.employee_name}
+            <span className="lg-soikm__ky">
+              {" "}
+              kỳ {String(period.month).padStart(2, "0")}/{period.year}
+            </span>
+          </h2>
+          <button className="ns-modal__x" onClick={onClose} aria-label="Đóng">
+            ×
+          </button>
+        </header>
+        <div className="ns-modal__body">
+          {loi && <div className="banner banner--error">{loi}</div>}
+          {lech && (
+            <div className="banner banner--warn" role="status">
+              Tổng chi tiết ({money(data!.tong)}) khác cột Khoán km trên bảng lương (
+              {money(line.khoan_km ?? 0)}) — bấm <b>Tính lại</b> để đồng bộ.
+            </div>
+          )}
+          {data == null && !loi && <p className="cc-note">Đang tải chi tiết…</p>}
+          {data != null && data.items.length === 0 && (
+            <p className="cc-note">Kỳ này không có chuyến giao nào sinh ra tiền km.</p>
+          )}
+          {data != null && data.items.length > 0 && (
+            <div className="ns__tablewrap">
+              <table className="ns__table lg-soikm">
+                <thead>
+                  <tr>
+                    <th>Ngày</th>
+                    <th>Chuyến</th>
+                    <th>Vai trò</th>
+                    <th className="lg-num">Km</th>
+                    <th className="lg-num">Đơn giá</th>
+                    <th className="lg-num">Phần hưởng</th>
+                    <th className="lg-num">Thành tiền</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.map((c) => (
+                    <tr key={c.trip_id}>
+                      <td>{c.ngay ? new Date(c.ngay).toLocaleDateString("vi-VN") : "—"}</td>
+                      <td>#{c.trip_id}</td>
+                      <td>
+                        <span
+                          className={`ns-badge ${
+                            c.vai_tro === "tai_xe" ? "ns-badge--info" : "ns-badge--muted"
+                          }`}
+                        >
+                          {c.vai_tro === "tai_xe" ? "Tài xế" : "Phụ xe"}
+                        </span>
+                      </td>
+                      <td className="lg-num">{c.km}</td>
+                      <td className="lg-num">{money(c.don_gia_km)}</td>
+                      {/* 100% = đi một mình. Không hiện cột này thì hai chuyến cùng km mà tiền
+                          khác nhau, HCNS không hiểu vì sao. */}
+                      <td className="lg-num">{c.pct}%</td>
+                      <td className="lg-num">{money(c.thanh_tien)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="lg-foot">
+                    <td colSpan={3}>Cộng {data.items.length} chuyến</td>
+                    <td className="lg-num">
+                      {data.items.reduce((s, c) => s + c.km, 0)}
+                    </td>
+                    <td colSpan={2} />
+                    <td className="lg-num">{money(data.tong)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+          <p className="cc-note">
+            Số này <b>máy tự tính</b> theo km từng chuyến — không sửa ở đây được. Sai km thì sửa ở{" "}
+            <b>Giao hàng → chuyến đó</b> rồi bấm <b>Tính lại</b>.
+          </p>
+        </div>
+        <footer className="ns-modal__foot">
+          <button className="btn btn--ghost" onClick={onClose}>
+            Đóng
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
 
 function LineEditModal({
   token,
@@ -1628,7 +1830,10 @@ function LineEditModal({
                     <div className="lg-lc__money">
                       {/* Dòng "Từ hồ sơ" NAY SỬA ĐƯỢC (chủ chốt 12/08/2026): "tháng này nó đi
                           nhiều hơn thì sửa thế nào". Sửa ở hồ sơ là đổi cho MỌI tháng sau và phải
-                          nhớ sửa ngược — quên một lần là trả sai mãi. */}
+                          nhớ sửa ngược — quên một lần là trả sai mãi.
+                          Dòng "Hệ tự tính" (hoa hồng) thì KHÔNG: chủ chốt 24/08/2026 "kệ nó ăn
+                          theo đơn hàng cho chắc". Đè tay là kỳ đó thôi chạy theo hoá đơn, kế toán
+                          xuất thêm hoá đơn sau cũng không cộng — mà không ai nhớ ra để sửa lại. */}
                       {readOnly || tuDong ? (
                         <span className="lg-lc__ro">{money(r.amount)}</span>
                       ) : (
@@ -1708,6 +1913,8 @@ function LineEditModal({
                           )}
                         </>
                       )}
+                      {/* Hệ tự tính: KHÔNG nút nào. Sửa thì máy chủ chặn, xoá thì "Tính lại" mọc
+                          lại — bày nút ra chỉ để mời người ta bấm vào một cái báo lỗi. */}
                       {!fromEmp && !readOnly && !tuDong && (
                         <>
                           {dirty && (

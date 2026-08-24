@@ -2489,6 +2489,11 @@ export interface Department {
    *  "NV phụ trách" ở màn Khách hàng; chưa tick phòng nào thì backend lùi về quy tắc theo quyền. */
   la_kinh_doanh?: boolean;
   la_giao_hang?: boolean;
+  /** Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật. Đơn giá là số TÀI XẾ
+   *  ĐƯỢC HƯỞNG, không phải cước cả xe. Hai ô % bắt buộc cộng đúng 100 (máy chủ chặn). */
+  don_gia_km?: number;
+  pct_tai_xe?: number;
+  pct_phu_xe?: number;
 }
 
 /** Cơ chế ra mức lương của một phòng ban (Pha 1). */
@@ -4692,6 +4697,9 @@ export interface PayrollLine {
   /** Phần còn lại = allowance − thâm niên (backend tính). */
   phu_cap_khac?: number;
   khoan: number;
+  /** Khoán km giao hàng (mg 0231) — CỘNG THÊM vào gross, không phải "trong đó" của khoản nào.
+   *  Là CỘT chứ không phải khoản danh mục: tiền engine tự tính đứng cùng nhà với `khoan`. */
+  khoan_km?: number;
   ot_minutes: number;
   ot_pay: number;
   night_days: number;
@@ -4935,6 +4943,23 @@ export interface LineComponent {
    *  cũ. Dòng đã đè được miễn khỏi lượt ghi đè của "Tính lại". */
   da_de_tay?: boolean;
 }
+export interface KhoanKmChuyen {
+  trip_id: number;
+  ngay: string | null;
+  km: number;
+  don_gia_km: number;
+  /** Vai trò trong CHUYẾN ĐÓ, không phải chức danh của người. */
+  vai_tro: "tai_xe" | "phu_xe";
+  /** % được hưởng của chuyến. Đi một mình = 100, không phải `pct_tai_xe`. */
+  pct: number;
+  thanh_tien: number;
+}
+
+export interface KhoanKmChiTiet {
+  items: KhoanKmChuyen[];
+  tong: number;
+}
+
 export interface LineComponentInput {
   component_id: number;
   amount: number;
@@ -7708,6 +7733,9 @@ export const api = {
       laKinhDoanh?: boolean,
       /** Cờ bộ phận Giao hàng. Cùng luật `undefined` = KHÔNG gửi ⇒ backend giữ nguyên. */
       laGiaoHang?: boolean,
+      /** Ba ô khoán km. Cùng luật `undefined` = KHÔNG gửi ⇒ giữ nguyên: luồng chỉ sửa tên phòng
+       *  mà gửi kèm 0 là âm thầm xoá đơn giá, tháng sau tài xế nhận 0 đồng km. */
+      khoanKm?: { don_gia_km?: number; pct_tai_xe?: number; pct_phu_xe?: number },
     ): Promise<Department> {
       return authed<Department>(`/api/departments/${id}`, token, {
         method: "PUT",
@@ -7721,6 +7749,7 @@ export const api = {
           la_san_xuat: laSanXuat,
           ...(laKinhDoanh === undefined ? {} : { la_kinh_doanh: laKinhDoanh }),
           ...(laGiaoHang === undefined ? {} : { la_giao_hang: laGiaoHang }),
+          ...(khoanKm ?? {}),
         }),
       });
     },
@@ -8949,6 +8978,11 @@ export const api = {
     lineComponents(token: string, lineId: number): Promise<{ items: LineComponent[] }> {
       return authed<{ items: LineComponent[] }>(`/api/luong/lines/${lineId}/components`, token);
     },
+    /** Bảng đối chiếu khoán km của một dòng lương — từng chuyến giao đã sinh ra tiền.
+     *  `tong` PHẢI khớp cột "Khoán km"; lệch là một trong hai bên tính sai. */
+    chiTietKhoanKm(token: string, lineId: number): Promise<KhoanKmChiTiet> {
+      return authed<KhoanKmChiTiet>(`/api/luong/lines/${lineId}/khoan-km`, token);
+    },
     addLineComponent(token: string, lineId: number, input: LineComponentInput): Promise<LineComponent> {
       return authed<LineComponent>(`/api/luong/lines/${lineId}/components`, token, { method: "POST", body: JSON.stringify(input) });
     },
@@ -9186,6 +9220,18 @@ export const api = {
     /** Tài xế CHỌN ĐƯỢC khi phân công — gác bằng ô Lên kế hoạch, KHÔNG phải `nhan_su`. */
     taiXeChon(token: string): Promise<{ items: DeliveryDriverPick[] }> {
       return authed<{ items: DeliveryDriverPick[] }>("/api/giao-hang/tai-xe-chon", token);
+    },
+    /** Bậc đơn giá khoán km của một phòng — cấu hình trong màn Phòng ban. */
+    kmBrackets(token: string, deptId: number): Promise<KmBracketsResp> {
+      return authed<KmBracketsResp>(`/api/giao-hang/departments/${deptId}/km-brackets`, token);
+    },
+    /** Lưu cả cụm khoán km một lần: bảng bậc + % chia kíp. */
+    saveKmBrackets(
+      token: string, deptId: number, items: KmBracket[],
+      pct?: { pct_tai_xe: number; pct_phu_xe: number },
+    ): Promise<KmBracketsResp> {
+      return authed<KmBracketsResp>(`/api/giao-hang/departments/${deptId}/km-brackets`, token,
+        { method: "PUT", body: JSON.stringify({ items, ...(pct ?? {}) }) });
     },
     /** `thang` dạng `YYYY-MM` — chỉ đổi hai cột THÁNG. Cột "hôm nay" và trạng thái luôn là
      *  bây giờ, không đổi theo tháng đang xem. */
@@ -11700,6 +11746,10 @@ export interface DeliveryTrip {
   lan_thu: number;
   employee_id: number;
   employee_name: string | null;
+  /** Phụ xe — tối đa MỘT người, tuỳ chọn (mg 0231). Vai trò do Ô THẢ NGƯỜI VÀO quyết định,
+   *  không phải thuộc tính của người: hôm nay lái, mai đi phụ. */
+  phu_xe_employee_id?: number | null;
+  phu_xe_name?: string | null;
   gio_lay_hang: string;
   gio_du_kien_giao: string;
   ghi_chu_phan_cong: string | null;
@@ -11752,9 +11802,24 @@ export interface DeliveryRequestInput {
   ghi_chu?: string | null;
 }
 
+export interface KmBracketsResp {
+  items: KmBracket[];
+  pct_tai_xe: number;
+  pct_phu_xe: number;
+}
+
+export interface KmBracket {
+  /** Trần km của bậc; `null` = bậc cao nhất (từ đó trở lên), chỉ một và ở CUỐI. */
+  up_to_km: number | null;
+  don_gia: number;
+}
+
 export interface PlanInput {
   request_id: number;
   employee_id: number;
+  /** Gửi `null` khi ĐỔI kế hoạch = GỠ phụ xe; KHÔNG gửi = giữ nguyên. Máy chủ phân biệt hai
+   *  trường hợp đó, nên đừng gửi `null` chỉ vì ô đang trống ở màn tạo mới. */
+  phu_xe_employee_id?: number | null;
   gio_lay_hang: string;
   gio_du_kien_giao: string;
   kho_id?: number | null;

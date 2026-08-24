@@ -27,6 +27,7 @@ Portable SQLite ↔ Postgres: integer PK, string/date/JSON-free, timestamp defau
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import (
     CheckConstraint,
@@ -34,6 +35,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -213,6 +215,13 @@ class DeliveryTrip(Base):
     employee_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("employees.id"), index=True, nullable=False
     )
+    # Phụ xe — TUỲ CHỌN, tối đa MỘT người (mg 0231). Chủ chốt "1 tài xế 1 phụ xe cho nó dễ", nên
+    # cột nullable chứ không đẻ bảng kíp xe: bảng phụ chỉ đáng khi số người thay đổi được.
+    # Vai trò do Ô THẢ NGƯỜI VÀO quyết định, không phải thuộc tính của người — hôm nay lái, mai đi
+    # phụ là chuyện thường, khai ở hồ sơ là đẻ ra nguồn sự thật thứ hai lệch với thực tế chuyến.
+    phu_xe_employee_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("employees.id"), index=True, nullable=True
+    )
 
     gio_lay_hang: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     gio_du_kien_giao: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -237,6 +246,17 @@ class DeliveryTrip(Base):
     huong_xu_ly: Mapped[str | None] = mapped_column(String(20), nullable=True)
     ngay_hen_lai: Mapped[date | None] = mapped_column(Date, nullable=True)
     ghi_chu_ket_qua: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # --- Khoán km: BA SỐ CHỤP LẠI lúc ghi kết quả (mg 0231) ------------------------------------
+    # Chụp là bắt buộc. Đọc thẳng đơn giá/tỷ lệ của phòng ban lúc TÍNH LƯƠNG thì tháng sau chủ
+    # chỉnh một con số là bảng lương đã chốt của mọi tháng trước đổi theo — đúng bài học
+    # `orders.commission_pct` ngày 21/08/2026.
+    #
+    # NULL = chuyến chạy TRƯỚC khi có tính năng ⇒ engine bỏ qua, không tự đẻ tiền ngược cho quá
+    # khứ. Khác hẳn 0: 0 là "đã chụp, và bằng 0" (phòng ban chưa khai đơn giá).
+    don_gia_km: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    pct_tai_xe: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    pct_phu_xe: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
 
     created_by: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id"), index=True, nullable=True
@@ -340,3 +360,29 @@ class DeliveryTripAttachment(Base):
     uploaded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
+
+
+class DeliveryKmBracket(Base):
+    """Bậc đơn giá khoán km, THEO PHÒNG BAN (mg-free — create_all tự dựng bảng mới).
+
+    Tra theo SỐ KM của một chuyến: bậc đầu tiên có `km ≤ up_to_km` → `don_gia`; `up_to_km` NULL =
+    bậc cao nhất (từ đó trở lên). Mirror `late_penalty_brackets`.
+
+    ⭐ CÁCH TÍNH: toàn bộ km của chuyến × đơn giá của MỘT bậc mà km rơi vào (chủ chốt 24/08/2026),
+    KHÔNG cộng dồn từng đoạn. Chuyến 8 km, bậc 5–10km giá 20.000 ⇒ 8 × 20.000 = 160.000. Đây đúng
+    cách bảng lương thật tính (đo 521 chặng: thành tiền = km × đơn giá một bậc).
+
+    Vì sao THEO PHÒNG BAN chứ không toàn công ty như bảng thuế/phạt: đơn giá là thoả thuận của
+    khối giao hàng, khai ngay trong màn Phòng ban nơi bật cờ `la_giao_hang` (chủ chốt vị trí này).
+    Nhiều tổ giao hàng khác nhau có thể có bảng giá khác nhau.
+    """
+
+    __tablename__ = "delivery_km_brackets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    department_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("departments.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)                    # thứ tự bậc 1..N
+    up_to_km: Mapped[int | None] = mapped_column(Integer, nullable=True)         # trần KM; NULL = ∞
+    don_gia: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)     # đồng/km

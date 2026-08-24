@@ -5809,3 +5809,22 @@
   width: fit-content;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
+
+/* Chip TÊN CA của ngày trong ô lịch (chốt 24/08/2026) — ca đã phân ở Khai ca → Phân ca tháng,
+   máy chủ trả `shift_name`. Nhỏ, nhạt, nằm trên dòng giờ vào/ra: nó là NHÃN của ngày, không tranh
+   chỗ với số công. Dùng token sẵn có để tự hợp light/dark. */
+.cc-month-cell__ca {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--wash, #eef2ff);
+  color: var(--ink-soft, #4b5563);
+  font-size: 10px;
+  font-weight: var(--fw-bold, 600);
+  line-height: 16px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

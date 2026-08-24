@@ -63,6 +63,22 @@ _RESERVED: dict[str, str] = {
 }
 
 
+# Khoản của HỆ THỐNG — engine tự tính, KHÔNG hiện trong màn "Danh mục khoản thu nhập".
+#
+# ⭐ Chốt của chủ 24/08/2026: *"cái danh mục cấu hình này làm khoản trợ cấp hoặc thưởng thôi mà
+# đừng dính cứng nó — mấy cái danh mục này họ thêm được và xoá được nha."* Màn đó là chỗ HCNS khai
+# phụ cấp/thưởng rồi gán cho TỪNG NGƯỜI. Hoa hồng không thuộc loại đó: nó chạy theo hoá đơn, áp
+# cho cả hệ thống.
+#
+# Để lẫn vào đấy sinh ra một cái bẫy thật: bấm nút xoá một "dòng phụ cấp" hoá ra là TẮT TÍNH NĂNG
+# hoa hồng của toàn công ty — `_hoa_hong_rows` kiểm `is_active` trước khi tính, tắt là mọi người
+# mất hoa hồng, không một lời cảnh báo.
+#
+# Giấu ở tầng service (không phải xoá dòng): dòng vẫn phải tồn tại vì `payroll_line_components`
+# cần `component_id` và cần `is_taxable` khai được. Chỉ là màn danh mục không còn nó để xoá nhầm.
+_HE_THONG: frozenset[str] = frozenset({"hoa_hong_kd"})
+
+
 class ComponentError(Exception):
     """Base cho lỗi miền danh mục khoản thu nhập."""
 
@@ -109,8 +125,18 @@ class PayrollComponentService:
 
     # --- danh mục -----------------------------------------------------------
 
-    def list_components(self, *, active_only: bool = False) -> list[PayrollComponent]:
-        return self.components.list_components(active_only=active_only)
+    def list_components(self, *, active_only: bool = False,
+                        gom_he_thong: bool = False) -> list[PayrollComponent]:
+        """Danh mục cho MÀN HÌNH — mặc định GIẤU khoản hệ thống (xem `_HE_THONG`).
+
+        Engine không đi qua đây (nó tra thẳng `get_by_code`), nên giấu ở đây không tắt tính năng
+        nào. Hai chỗ khác trong hệ cũng gọi `repo.list_components()` trực tiếp để dựng bảng tra
+        id → khoản; chúng PHẢI thấy đủ, và chúng không đi qua hàm này.
+        """
+        rows = self.components.list_components(active_only=active_only)
+        if gom_he_thong:
+            return rows
+        return [c for c in rows if c.code not in _HE_THONG]
 
     def _unique_code(self, name: str) -> str:
         base = _slug(name)

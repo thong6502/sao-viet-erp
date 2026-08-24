@@ -87,6 +87,9 @@ class DeliveryRequestPage(BaseModel):
 class PlanIn(BaseModel):
     request_id: int
     employee_id: int
+    #: Phụ xe — TUỲ CHỌN, tối đa một người (mg 0231). Vai trò do Ô THẢ NGƯỜI VÀO quyết định, nên
+    #: hai ô cùng lấy từ danh sách nhân viên khối Giao hàng; service chặn trùng người.
+    phu_xe_employee_id: int | None = None
     gio_lay_hang: datetime
     gio_du_kien_giao: datetime
     kho_id: int | None = None
@@ -95,6 +98,9 @@ class PlanIn(BaseModel):
 
 class PlanUpdate(BaseModel):
     employee_id: int | None = None
+    #: Gửi `null` = GỠ phụ xe; KHÔNG gửi = giữ nguyên. Router dùng `exclude_unset=True` nên hai
+    #: trường hợp đó xuống service khác nhau (`None` vs mốc `_KHONG_GUI`).
+    phu_xe_employee_id: int | None = None
     gio_lay_hang: datetime | None = None
     gio_du_kien_giao: datetime | None = None
     ghi_chu_phan_cong: str | None = None
@@ -136,6 +142,8 @@ class TripOut(BaseModel):
     lan_thu: int
     employee_id: int
     employee_name: str | None = None
+    phu_xe_employee_id: int | None = None
+    phu_xe_name: str | None = None
     gio_lay_hang: datetime
     gio_du_kien_giao: datetime
     ghi_chu_phan_cong: str | None = None
@@ -292,3 +300,30 @@ class DinhKemOut(BaseModel):
 
 class DinhKemListOut(BaseModel):
     items: list[DinhKemOut] = []
+
+
+# --- Bậc đơn giá khoán km (theo phòng ban) -------------------------------------------------
+class KmBracketIn(BaseModel):
+    """Một bậc. `up_to_km=None` = bậc cao nhất (từ đó trở lên) — CHỈ được có một, và ở CUỐI."""
+
+    up_to_km: int | None = Field(default=None, gt=0)
+    don_gia: float = Field(ge=0)
+
+
+class KmBracketsIn(BaseModel):
+    items: list[KmBracketIn] = []
+    # Tỷ lệ chia kíp xe — TUỲ CHỌN gửi kèm (màn Cấu hình lương lưu cả cụm khoán km một lần).
+    # None = không đụng tới %, chỉ ghi bậc. Gửi cả hai thì service kiểm cộng đúng 100.
+    pct_tai_xe: float | None = Field(default=None, ge=0, le=100)
+    pct_phu_xe: float | None = Field(default=None, ge=0, le=100)
+
+
+class KmBracketOut(BaseModel):
+    up_to_km: int | None = None
+    don_gia: float = 0
+
+
+class KmBracketsOut(BaseModel):
+    items: list[KmBracketOut] = []
+    pct_tai_xe: float = 60
+    pct_phu_xe: float = 40
