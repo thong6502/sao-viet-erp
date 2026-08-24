@@ -15,6 +15,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 import { Select } from "../components/Select";
 import { DateFilterHead, NumFilterHead, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, inDateRange, inNumRange, todayISO, useHeaderTitles } from "./khoShared";
+import { Search } from "lucide-react";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
 
@@ -254,7 +255,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
         cur.sl += r.so_luong ?? 0;
         cur.tien += r.thanh_tien ?? 0;
       }
-      return [...m.values()].sort((a, b) => b.tien - a.tien).slice(0, 8);
+      return [...m.values()].sort((a, b) => b.tien - a.tien).slice(0, 10);
     };
 
     // Chuyển kho (từ dashChuyen): theo TUYẾN (từ kho → đến kho) + TOP mặt hàng chuyển.
@@ -271,7 +272,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
     }
     const chuyenTheoTuyen = [...tuyenAgg.values()]
       .map((t) => ({ tuyen: t.tuyen, giaTri: t.giaTri, phieu: t.phieu.size }))
-      .sort((a, b) => b.giaTri - a.giaTri);
+      .sort((a, b) => b.giaTri - a.giaTri)
+      .slice(0, 10);
     const topChuyenMap = new Map<
       string,
       { ma: string | null; ten: string | null; dvt: string | null; sl: number; tien: number }
@@ -286,7 +288,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       cur.sl += r.so_luong ?? 0;
       cur.tien += r.tien_von ?? 0;
     }
-    const topChuyen = [...topChuyenMap.values()].sort((a, b) => b.tien - a.tien).slice(0, 8);
+    const topChuyen = [...topChuyenMap.values()].sort((a, b) => b.tien - a.tien).slice(0, 10);
 
     // Chuỗi thời gian Nhập/Xuất — mặc định theo NGÀY; tự gộp theo THÁNG nếu quá nhiều ngày (>45)
     // để biểu đồ khỏi tràn/rối.
@@ -688,12 +690,6 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             </button>
           )}
         </div>
-        <p className="rc__sub">
-          Sổ kho từ phiếu ĐÃ GHI SỔ (Nhập · Xuất · Chuyển kho) + khóa/mở kỳ + lịch sử thao tác — cho
-          kế toán kho. Loại nhập/xuất MISA do kế toán tự điền trên Excel dựa theo chiều + kho. Điều
-          chuyển có chiều <strong>Chuyển kho</strong> riêng — KHÔNG lẫn vào Nhập/Xuất, không tính vào
-          tổng nhập-mua/xuất-bán.
-        </p>
       </header>
 
       <div className="kho-shell">
@@ -795,7 +791,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
 
               {/* Biểu đồ cột Nhập/Xuất theo thời gian — CSS nâng cấp hiện đại */}
               {dash.chuoi.length > 0 && (
-                <section className="rc-sec kho-chart-container">
+                <section className="rc-sec">
                   <h3 className="rc-sec__title">
                     Nhập / Xuất{dash.chuyenSoDong > 0 ? " / Chuyển kho" : ""} theo {dash.theoThang ? "tháng" : "ngày"}
                   </h3>
@@ -927,7 +923,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                   ["Tỉ trọng nhập", buildDonut(dash.topNhap, dash.tongNhap)],
                   ["Tỉ trọng xuất", buildDonut(dash.topXuat, dash.tongXuat)],
                 ] as const).map(([ten, segs]) => (
-                  <section className="rc-sec kho-donut-box" key={ten}>
+                  <section className="rc-sec" key={ten}>
                     <h3 className="rc-sec__title">{ten}</h3>
                     {segs.length === 0 ? (
                       <p className="kho-hint">Không có dòng nào.</p>
@@ -1006,17 +1002,23 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       {tab === "so" && (
         <>
           <div className="rc__toolbar">
-            <div className="kho-picker">
-              <Select
-                ariaLabel="Chiều"
-                value={soChieu}
-                onChange={(v) => setSoChieu((v as "NHAP" | "XUAT" | "CHUYEN") || "NHAP")}
-                options={[
-                  { value: "NHAP", label: "Nhập kho" },
-                  { value: "XUAT", label: "Xuất kho" },
-                  { value: "CHUYEN", label: "Chuyển kho" },
-                ]}
-              />
+            <div className="kho-chieu-segmented">
+              {(
+                [
+                  ["NHAP", "Nhập kho"],
+                  ["XUAT", "Xuất kho"],
+                  ["CHUYEN", "Chuyển kho"],
+                ] as const
+              ).map(([val, lbl]) => (
+                <button
+                  key={val}
+                  type="button"
+                  className={`kho-chieu-btn kho-chieu-btn--${val.toLowerCase()}${soChieu === val ? " is-active" : ""}`}
+                  onClick={() => setSoChieu(val)}
+                >
+                  {lbl}
+                </button>
+              ))}
             </div>
             <div className="kho-picker">
               <Select
@@ -1026,13 +1028,15 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                 options={khoOptions}
               />
             </div>
-            <input
-              className="rc-input"
-              style={{ marginLeft: "auto", maxWidth: 260 }}
-              placeholder="Tìm số CT / mã / tên hàng…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+            <div className="rc__search-wrapper" style={{ marginLeft: "auto", width: 260 }}>
+              <Search className="rc__search-icon" style={{ width: 15, height: 15 }} />
+              <input
+                className="rc__search"
+                placeholder="Tìm số CT / mã / tên hàng…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
           </div>
 
           {soChieu === "CHUYEN" ? (
@@ -1061,8 +1065,6 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                   <tr><td colSpan={11} className="rc__empty-state">Không có dòng điều chuyển nào (đã ghi sổ) trong kỳ / bộ lọc.</td></tr>
                 ) : (
                   pagedChuyen.map((r, i) => {
-                    // Điều chuyển đụng 2 kho: tô/khóa nếu kho ĐÍCH HOẶC kho NGUỒN thuộc kỳ đã khóa
-                    // (khóa riêng từng kho, không phải toàn kho, thì mỗi kho có kỳ khóa riêng).
                     const rec =
                       lockRecordFor(r.kho_nhap_id, r.ngay_ghi_so) ??
                       lockRecordFor(r.kho_xuat_id, r.ngay_ghi_so);
@@ -1071,7 +1073,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                     <tr key={`${r.voucher_id}-${i}`} className={rec ? `kho-bc__lock kho-bc__lock-${pIdx}` : undefined}>
                       <td>
                         {rec && (
-                          <span title={`Kỳ đã khóa: ${fmtDate(rec.tu_ngay)} – ${fmtDate(rec.den_ngay)}`} style={{ marginRight: 3 }}>
+                          <span title={`Kỳ đã khóa: ${fmtDate(rec.tu_ngay)} – ${fmtDate(rec.den_ngay)}`} style={{ marginRight: 5 }}>
                             <LockIcon />
                           </span>
                         )}
@@ -1174,7 +1176,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                     <tr key={`${r.voucher_id}-${i}`} className={rec ? `kho-bc__lock kho-bc__lock-${pIdx}` : undefined}>
                       <td>
                         {rec && (
-                          <span title={`Kỳ đã khóa: ${fmtDate(rec.tu_ngay)} – ${fmtDate(rec.den_ngay)}`} style={{ marginRight: 3 }}>
+                          <span title={`Kỳ đã khóa: ${fmtDate(rec.tu_ngay)} – ${fmtDate(rec.den_ngay)}`} style={{ marginRight: 5 }}>
                             <LockIcon />
                           </span>
                         )}
@@ -1198,7 +1200,6 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                     );
                   })
                 )}
-                {/* Dòng đệm giữ bảng CAO ĐỀU 1 trang — KỂ CẢ khi rỗng/đang tải (khỏi bị co lại). */}
                 {Array.from({
                   length: Math.max(0, pageSize - (loading || filteredRows.length === 0 ? 1 : pagedRows.length)),
                 }).map((_, i) => (
@@ -1264,13 +1265,15 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               ]}
             />
           </div>
-          <input
-            className="rc-input"
-            style={{ marginLeft: "auto", maxWidth: 280 }}
-            placeholder="Tìm phạm vi / người / tên kỳ / ngày…"
-            value={histQuery}
-            onChange={(e) => setHistQuery(e.target.value)}
-          />
+          <div className="rc__search-wrapper" style={{ marginLeft: "auto", width: 280 }}>
+            <Search className="rc__search-icon" style={{ width: 15, height: 15 }} />
+            <input
+              className="rc__search"
+              placeholder="Tìm phạm vi / người / tên kỳ / ngày…"
+              value={histQuery}
+              onChange={(e) => setHistQuery(e.target.value)}
+            />
+          </div>
         </div>
         <div className="kho-bc-wrap">
           <table className="rc__table kho-bc">
@@ -1302,14 +1305,14 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                           style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
                         >
                           <LockIcon open={r.hanh_dong === "mo"} />
-                          {r.hanh_dong === "khoa" ? "Khóa" : "Mở"}
+                          {r.hanh_dong === "khoa" ? "Khóa kỳ" : "Mở kỳ"}
                         </span>
                       )}
                     </td>
-                    <td>{r.pham_vi}</td>
+                    <td><span className="rc__code-badge">{r.pham_vi}</span></td>
                     <td>{r.khoang_ngay ?? "—"}</td>
                     <td>{r.ten_ky ?? "—"}</td>
-                    <td>{r.nguoi_ten ?? "—"}</td>
+                    <td><strong>{r.nguoi_ten ?? "—"}</strong></td>
                   </tr>
                 ))
               )}
@@ -1351,19 +1354,22 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       {tab === "ky" && (
         <>
         <div className="rc__toolbar">
-          <input
-            className="rc-input"
-            style={{ marginLeft: "auto", maxWidth: 280 }}
-            placeholder="Tìm tên kỳ / phạm vi / ngày…"
-            value={kyQuery}
-            onChange={(e) => setKyQuery(e.target.value)}
-          />
+          <div className="rc__search-wrapper" style={{ marginLeft: "auto", width: 280 }}>
+            <Search className="rc__search-icon" style={{ width: 15, height: 15 }} />
+            <input
+              className="rc__search"
+              placeholder="Tìm tên kỳ / phạm vi / ngày…"
+              value={kyQuery}
+              onChange={(e) => setKyQuery(e.target.value)}
+            />
+          </div>
         </div>
         <div className="kho-bc-wrap">
           <table className="rc__table kho-bc">
             <thead>
               <tr>
-                <DateFilterHead label="Khoảng ngày" from={lockTu} to={lockDen} onChange={(f, t) => { setLockTu(f); setLockDen(t); }} />
+                <DateFilterHead label="Khoảng ngày khóa" from={lockTu} to={lockDen} onChange={(f, t) => { setLockTu(f); setLockDen(t); }} />
+                <th title="Trạng thái">Trạng thái</th>
                 <th title="Tên kỳ đặt khi khóa (tuỳ chọn)">Tên kỳ</th>
                 <th title="Toàn kho hay một kho cụ thể">Phạm vi</th>
                 <DateFilterHead label="Khóa lúc" from={klFrom} to={klTo} onChange={(f, t) => { setKlFrom(f); setKlTo(t); }} />
@@ -1373,7 +1379,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             <tbody>
               {filteredKy.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="rc__empty-state">
+                  <td colSpan={6} className="rc__empty-state">
                     {kyList.length === 0
                       ? "Chưa có kỳ nào đang khóa. Bấm “Khóa / mở kỳ” để chốt sổ."
                       : "Không có kỳ nào khớp bộ lọc."}
@@ -1382,7 +1388,16 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               ) : (
                 pagedKy.map((k, i) => (
                   <tr key={`${k.kho_id ?? "all"}-${k.tu_ngay}-${i}`}>
-                    <td>{fmtDate(k.tu_ngay)} – {fmtDate(k.den_ngay)}</td>
+                    <td>
+                      <span className="rc__code-badge" style={{ fontWeight: 600 }}>
+                        {fmtDate(k.tu_ngay)} – {fmtDate(k.den_ngay)}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="badge-sem badge-sem--rust" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <LockIcon size={12} /> Đang khóa
+                      </span>
+                    </td>
                     <td>{k.ten ?? "—"}</td>
                     <td>
                       {k.kho_id == null ? "Toàn kho" : k.kho_ten ?? `Kho #${k.kho_id}`}
@@ -1404,7 +1419,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               {Array.from({
                 length: Math.max(0, pageSize - (filteredKy.length === 0 ? 1 : pagedKy.length)),
               }).map((_, i) => (
-                <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={5}>&nbsp;</td></tr>
+                <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={6}>&nbsp;</td></tr>
               ))}
             </tbody>
           </table>
