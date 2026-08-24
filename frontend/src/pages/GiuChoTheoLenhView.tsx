@@ -893,7 +893,7 @@ function LenhVatTuDrawer({
           </div>
           <button
             type="button"
-            className="rc-drawer__x"
+            className="khvt-drawer__x"
             onClick={onClose}
             aria-label="Đóng"
             title="Đóng (Esc)"

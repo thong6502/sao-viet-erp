@@ -5510,12 +5510,17 @@ td.khsx-num > .khsx-unit {
   border-bottom: 1px solid var(--rule-soft);
   flex-shrink: 0;
 }
-.khsx .khvt-drawer__head .rc-drawer__x {
+/* Nút đóng của hai drawer Kế hoạch vật tư. Trước đây mượn class `rc-drawer__x` của màn Cấu hình
+   danh mục: CSS là global nên mượn class vừa ăn theo style màn kia, vừa bị guard cssKhongCuop
+   bắt (đúng chỗ nó sinh ra để bắt). Nay đứng một mình — gộp luôn `padding:0` và cú xoay lúc rê
+   chuột mà bản cũ thừa hưởng từ họ `rc`, để nút nhìn y hệt trước. */
+.khsx .khvt-drawer__head .khvt-drawer__x {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
+  padding: 0;
   border-radius: 50%;
   border: none;
   background: transparent;
@@ -5523,9 +5528,10 @@ td.khsx-num > .khsx-unit {
   cursor: pointer;
   transition: all 0.15s ease;
 }
-.khsx .khvt-drawer__head .rc-drawer__x:hover {
+.khsx .khvt-drawer__head .khvt-drawer__x:hover {
   background: var(--rule-soft);
   color: var(--ink);
+  transform: rotate(90deg);
 }
 .khsx .khvt-drawer__head .rc-drawer__kicker {
   display: inline-flex;

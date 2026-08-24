@@ -825,7 +825,7 @@ function VatTuDetailDrawer({
               <span className="khvt-drawer__code">{nhom.hang_ma ?? "—"}</span>
             </div>
           </div>
-          <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
+          <button type="button" className="khvt-drawer__x" onClick={onClose} aria-label="Đóng">
             <Icon name="x" size={16} />
           </button>
         </header>
