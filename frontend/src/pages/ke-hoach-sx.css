@@ -7,6 +7,18 @@
   padding: var(--sp-5) var(--sp-6);
 }
 
+/* Bảng màu TRẠNG THÁI dùng chung cho hai cách nhìn của Kế hoạch vật tư (Theo mặt hàng ↔ Theo lệnh).
+   Trước đây "Theo mặt hàng" gõ hex tươi tận nơi, còn "Theo lệnh" xài token đất/trầm → cùng một ý
+   nghĩa mà hai màn lệch tông. Gom bốn ý nghĩa về đây, cho "Theo lệnh" trỏ vào — hai màn cùng hệ màu.
+   GIÁ TRỊ đồng bộ với hệ màu "Theo mặt hàng" (khvt-badge--*, khvt-coverage-badge, khvt-mini-bar__fill);
+   đổi tông sau này thì sửa cả hai chỗ. */
+.khsx {
+  --kh-ok-bg: #d1fae5;      --kh-ok-fg: #047857;      --kh-ok-bd: #6ee7b7;      --kh-ok-bar: #10b981;   /* đủ / sẵn sàng / mở khoá */
+  --kh-thieu-bg: #ffe4e6;   --kh-thieu-fg: #e11d48;   --kh-thieu-bd: #fecdd3;   --kh-thieu-bar: #f43f5e; /* thiếu, cần mua */
+  --kh-canhbao-bg: #fef3c7; --kh-canhbao-fg: #b45309; --kh-canhbao-bd: #fde68a; --kh-canhbao-bar: #f59e0b; /* chờ hàng / chưa quy đổi / một phần */
+  --kh-vemuon-bg: #dbeafe;  --kh-vemuon-fg: #1d4ed8;  --kh-vemuon-bd: #93c5fd;  --kh-vemuon-bar: #3b82f6; /* hàng về muộn / đang trên đường */
+}
+
 /* button/input KHÔNG kế thừa font của trang → mặc định rơi về Arial, chữ tiếng Việt lệch hẳn
    so với phần còn lại. Ép về font app cho MỌI control trong màn. */
 .khsx button,
@@ -1184,12 +1196,6 @@ td.khsx-num > .khsx-unit {
   color: #b45309;
   border: 1px solid #fde68a;
   cursor: pointer;
-}
-
-.khsx-topbar__tag--info {
-  background: #f1f5f9;
-  color: #475569;
-  border: 1px solid #cbd5e1;
 }
 
 .khsx-topbar__pop-trigger {
@@ -5789,31 +5795,31 @@ td.khsx-num > .khsx-unit {
   font-weight: 600;
 }
 .khsx .khvt-kpi-badge--deficit {
-  background: var(--signal-soft);
-  color: var(--signal);
-  border: 1px solid color-mix(in srgb, var(--signal) 24%, var(--signal-soft));
+  background: var(--kh-thieu-bg);
+  color: var(--kh-thieu-fg);
+  border: 1px solid var(--kh-thieu-bd);
 }
 .khsx .khvt-kpi-badge--ok {
-  background: var(--moss-soft);
-  color: var(--moss-deep);
-  border: 1px solid color-mix(in srgb, var(--moss) 24%, var(--moss-soft));
+  background: var(--kh-ok-bg);
+  color: var(--kh-ok-fg);
+  border: 1px solid var(--kh-ok-bd);
 }
 .khsx .khvt-bento-kpi__val--deficit {
-  color: #e11d48 !important;
+  color: var(--kh-thieu-fg) !important;
   font-weight: 700;
 }
 .khsx .khvt-bento-kpi__val--deficit b,
 .khsx .khvt-bento-kpi__val--deficit small {
-  color: #e11d48 !important;
+  color: var(--kh-thieu-fg) !important;
   font-family: var(--ff-sans) !important;
 }
 .khsx .khvt-bento-kpi__val--ok {
-  color: #047857 !important;
+  color: var(--kh-ok-fg) !important;
   font-weight: 700;
 }
 .khsx .khvt-bento-kpi__val--ok b,
 .khsx .khvt-bento-kpi__val--ok small {
-  color: #047857 !important;
+  color: var(--kh-ok-fg) !important;
   font-family: var(--ff-sans) !important;
 }
 
@@ -5886,10 +5892,10 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-stream-chip--xam { background: var(--rule-hair); color: var(--ash); border: 1px solid var(--rule-soft); }
 .khsx .khvt-stream-chip--xanh { background: var(--moss-soft); color: var(--moss-deep); border: 1px solid color-mix(in srgb, var(--moss) 24%, var(--moss-soft)); }
-.khsx .khvt-stream-chip--vang { background: var(--amber-soft); color: var(--amber-deep); border: 1px solid color-mix(in srgb, var(--amber) 24%, var(--amber-soft)); }
-.khsx .khvt-stream-chip--do { background: var(--signal-soft); color: var(--signal); border: 1px solid color-mix(in srgb, var(--signal) 24%, var(--signal-soft)); }
+.khsx .khvt-stream-chip--vang { background: var(--kh-canhbao-bg); color: var(--kh-canhbao-fg); border: 1px solid var(--kh-canhbao-bd); }
+.khsx .khvt-stream-chip--do { background: var(--kh-thieu-bg); color: var(--kh-thieu-fg); border: 1px solid var(--kh-thieu-bd); }
 .khsx .khvt-stream-chip--khongro { background: var(--steel-soft); color: var(--steel); border: 1px solid var(--rule); }
-.khsx .khvt-stream-chip--vemuon { background: var(--rust-soft); color: var(--rust-deep); border: 1px solid color-mix(in srgb, var(--rust) 24%, var(--rust-soft)); }
+.khsx .khvt-stream-chip--vemuon { background: var(--kh-vemuon-bg); color: var(--kh-vemuon-fg); border: 1px solid var(--kh-vemuon-bd); }
 
 .khsx .khvt-pill--xam { background: var(--rule-hair); color: var(--ash); border: 1px solid var(--rule-soft); }
 .khsx .khvt-pill--xanh { background: var(--moss-soft); color: var(--moss-deep); border: 1px solid color-mix(in srgb, var(--moss) 24%, var(--moss-soft)); }
@@ -5936,9 +5942,12 @@ td.khsx-num > .khsx-unit {
   color: var(--amber-deep);
 }
 .khsx .khvt-recommend-box--truck {
-  background: var(--sky-soft, #f0f9ff);
-  border-left-color: var(--sky, #0284c7);
-  color: var(--sky-deep, #075985);
+  background: var(--kh-vemuon-bg);
+  border-left-color: var(--kh-vemuon-bar);
+  border-top-color: color-mix(in srgb, var(--kh-vemuon-bar) 20%, transparent);
+  border-right-color: color-mix(in srgb, var(--kh-vemuon-bar) 20%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--kh-vemuon-bar) 20%, transparent);
+  color: var(--kh-vemuon-fg);
 }
 .khsx .khvt-recommend-box__badge {
   display: inline-flex;
@@ -5952,7 +5961,7 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-recommend-box__badge--ok { background: var(--moss); color: #ffffff; }
 .khsx .khvt-recommend-box__badge--lock { background: var(--rust); color: #ffffff; }
 .khsx .khvt-recommend-box__badge--warn { background: var(--amber); color: #ffffff; }
-.khsx .khvt-recommend-box__badge--truck { background: #0284c7; color: #ffffff; }
+.khsx .khvt-recommend-box__badge--truck { background: var(--kh-vemuon-bar); color: #ffffff; }
 .khsx .khvt-recommend-box__content {
   flex: 1;
   min-width: 0;
@@ -6088,9 +6097,9 @@ td.khsx-num > .khsx-unit {
   white-space: nowrap;
 }
 .khsx .khvt-lock-badge--open {
-  background: var(--moss-soft);
-  color: var(--moss-deep);
-  border: 1px solid color-mix(in srgb, var(--moss) 24%, var(--moss-soft));
+  background: var(--kh-ok-bg);
+  color: var(--kh-ok-fg);
+  border: 1px solid var(--kh-ok-bd);
 }
 .khsx .khvt-lock-badge--locked {
   background: var(--paper);
@@ -6098,9 +6107,9 @@ td.khsx-num > .khsx-unit {
   border: 1px solid var(--rule-soft);
 }
 .khsx .khvt-lock-badge--partial {
-  background: var(--amber-soft);
-  color: var(--amber-deep);
-  border: 1px solid color-mix(in srgb, var(--amber) 24%, var(--amber-soft));
+  background: var(--kh-canhbao-bg);
+  color: var(--kh-canhbao-fg);
+  border: 1px solid var(--kh-canhbao-bd);
 }
 
 /* Chip loại lệnh sản xuất (ghép, gấp) */
@@ -6142,19 +6151,19 @@ td.khsx-num > .khsx-unit {
   white-space: nowrap;
 }
 .khsx .khvt-readiness-badge.is-ready {
-  background: var(--moss-soft);
-  color: var(--moss-deep);
-  border: 1px solid color-mix(in srgb, var(--moss) 24%, var(--moss-soft));
+  background: var(--kh-ok-bg);
+  color: var(--kh-ok-fg);
+  border: 1px solid var(--kh-ok-bd);
 }
 .khsx .khvt-readiness-badge.is-partial {
-  background: var(--amber-soft);
-  color: var(--amber-deep);
-  border: 1px solid color-mix(in srgb, var(--amber) 24%, var(--amber-soft));
+  background: var(--kh-canhbao-bg);
+  color: var(--kh-canhbao-fg);
+  border: 1px solid var(--kh-canhbao-bd);
 }
 .khsx .khvt-readiness-badge.is-deficit {
-  background: var(--signal-soft);
-  color: var(--signal);
-  border: 1px solid color-mix(in srgb, var(--signal) 24%, var(--signal-soft));
+  background: var(--kh-thieu-bg);
+  color: var(--kh-thieu-fg);
+  border: 1px solid var(--kh-thieu-bd);
 }
 .khsx .khvt-readiness-badge b {
   font-family: var(--ff-num, monospace) !important;
@@ -6188,13 +6197,13 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-readiness-bar__fill.is-ready,
 .khsx .khvt-readiness-bar__fill.is-full {
-  background: var(--moss);
+  background: var(--kh-ok-bar);
 }
 .khsx .khvt-readiness-bar__fill.is-partial {
-  background: var(--amber);
+  background: var(--kh-canhbao-bar);
 }
 .khsx .khvt-readiness-bar__fill.is-deficit {
-  background: var(--signal);
+  background: var(--kh-thieu-bar);
 }
 
 /* Nút hành động nhanh trong bảng theo lệnh */
@@ -6420,7 +6429,7 @@ td.khsx-num > .khsx-unit {
   font-family: var(--ff-num, monospace);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--signal);
+  color: var(--kh-thieu-fg);
   background: rgba(255, 255, 255, 0.7);
   padding: 1px 5px;
   border-radius: var(--r-2);
@@ -6439,7 +6448,7 @@ td.khsx-num > .khsx-unit {
   font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--rust-deep);
+  color: var(--kh-vemuon-fg);
   background: rgba(255, 255, 255, 0.8);
   padding: 1px 5px;
   border-radius: var(--r-2);
@@ -6488,13 +6497,13 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-readiness-bar__fill.is-full,
 .khsx .khvt-readiness-bar__fill.is-ready {
-  background: var(--moss);
+  background: var(--kh-ok-bar);
 }
 .khsx .khvt-readiness-bar__fill.is-partial {
-  background: var(--amber);
+  background: var(--kh-canhbao-bar);
 }
 .khsx .khvt-readiness-bar__fill.is-deficit {
-  background: var(--signal);
+  background: var(--kh-thieu-bar);
 }
 
 /* --- Cột Cửa Xếp Lịch (Scheduling Lock Badges) -------------------------- */
@@ -6510,9 +6519,9 @@ td.khsx-num > .khsx-unit {
   white-space: nowrap;
 }
 .khsx .khvt-lock-badge--open {
-  background: var(--moss-soft);
-  color: var(--moss-deep);
-  border: 1px solid color-mix(in srgb, var(--moss) 24%, var(--moss-soft));
+  background: var(--kh-ok-bg);
+  color: var(--kh-ok-fg);
+  border: 1px solid var(--kh-ok-bd);
 }
 .khsx .khvt-lock-badge--locked {
   background: var(--paper);
@@ -6520,9 +6529,9 @@ td.khsx-num > .khsx-unit {
   border: 1px solid var(--rule);
 }
 .khsx .khvt-lock-badge--partial {
-  background: var(--amber-soft);
-  color: var(--amber-deep);
-  border: 1px solid color-mix(in srgb, var(--amber) 24%, var(--amber-soft));
+  background: var(--kh-canhbao-bg);
+  color: var(--kh-canhbao-fg);
+  border: 1px solid var(--kh-canhbao-bd);
 }
 
 /* Nút Mua & Khóa Mua */
@@ -7309,20 +7318,20 @@ td.khsx-num > .khsx-unit {
   border-color: var(--rule-soft);
 }
 .khsx .khvt-stream-chip--vang {
-  background: var(--amber-soft);
-  color: var(--amber-deep);
-  border-color: color-mix(in srgb, var(--amber) 24%, var(--amber-soft));
+  background: var(--kh-canhbao-bg);
+  color: var(--kh-canhbao-fg);
+  border-color: var(--kh-canhbao-bd);
 }
 .khsx .khvt-stream-chip--do {
-  background: var(--signal-soft);
-  color: var(--signal);
-  border-color: color-mix(in srgb, var(--signal) 24%, var(--signal-soft));
+  background: var(--kh-thieu-bg);
+  color: var(--kh-thieu-fg);
+  border-color: var(--kh-thieu-bd);
   font-weight: var(--fw-bold);
 }
 .khsx .khvt-stream-chip--vemuon {
-  background: var(--rust-soft);
-  color: var(--rust-deep);
-  border-color: color-mix(in srgb, var(--rust) 24%, var(--rust-soft));
+  background: var(--kh-vemuon-bg);
+  color: var(--kh-vemuon-fg);
+  border-color: var(--kh-vemuon-bd);
 }
 .khsx .khvt-stream-chip--xam {
   background: var(--rule-hair);
@@ -7343,7 +7352,7 @@ td.khsx-num > .khsx-unit {
 /* Con số dính sát tên vật tư thì dấu trừ đọc thành gạch nối ("Couche 150gsm-162,5 kg"). Tách ra
    một nhịp để "tên" và "thiếu bao nhiêu" là hai mẩu tin riêng. */
 .khsx .khvt-stream-chip__deficit {
-  color: var(--signal);
+  color: var(--kh-thieu-fg);
   font-family: var(--ff-num, monospace);
   font-weight: 700;
   margin-left: 4px;
@@ -7381,10 +7390,10 @@ td.khsx-num > .khsx-unit {
   border-radius: var(--r-pill);
   transition: width 0.3s ease;
 }
-.khsx .khvt-readiness-bar__fill.is-full { background: var(--moss); }
-.khsx .khvt-readiness-bar__fill.is-partial { background: var(--amber); }
-.khsx .khvt-readiness-bar__fill.is-deficit { background: var(--signal); }
-.khsx .khvt-readiness-bar__fill.is-ready { background: var(--rust); }
+.khsx .khvt-readiness-bar__fill.is-full { background: var(--kh-ok-bar); }
+.khsx .khvt-readiness-bar__fill.is-partial { background: var(--kh-canhbao-bar); }
+.khsx .khvt-readiness-bar__fill.is-deficit { background: var(--kh-thieu-bar); }
+.khsx .khvt-readiness-bar__fill.is-ready { background: var(--kh-ok-bar); }
 
 /* Visual Lock / Unlock Badges */
 .khsx .khvt-lock-badge {
@@ -7398,9 +7407,9 @@ td.khsx-num > .khsx-unit {
   letter-spacing: 0.02em;
 }
 .khsx .khvt-lock-badge--open {
-  background: var(--moss-soft);
-  color: var(--moss-deep);
-  border: 1px solid color-mix(in srgb, var(--moss) 24%, var(--moss-soft));
+  background: var(--kh-ok-bg);
+  color: var(--kh-ok-fg);
+  border: 1px solid var(--kh-ok-bd);
 }
 .khsx .khvt-lock-badge--locked {
   background: var(--rule-hair);
@@ -7408,9 +7417,9 @@ td.khsx-num > .khsx-unit {
   border: 1px solid var(--rule);
 }
 .khsx .khvt-lock-badge--partial {
-  background: var(--amber-soft);
-  color: var(--amber-deep);
-  border: 1px solid color-mix(in srgb, var(--amber) 24%, var(--amber-soft));
+  background: var(--kh-canhbao-bg);
+  color: var(--kh-canhbao-fg);
+  border: 1px solid var(--kh-canhbao-bd);
 }
 
 /* Nút Mua & Cạnh tranh tồn */
@@ -7548,10 +7557,10 @@ td.khsx-num > .khsx-unit {
   border-radius: var(--r-pill);
   transition: width 0.3s ease;
 }
-.khsx .khvt-bcard__progress-fill.is-full { background: var(--moss); }
-.khsx .khvt-bcard__progress-fill.is-partial { background: var(--amber); }
-.khsx .khvt-bcard__progress-fill.is-deficit { background: var(--signal); }
-.khsx .khvt-bcard__progress-fill.is-ready { background: var(--rust); }
+.khsx .khvt-bcard__progress-fill.is-full { background: var(--kh-ok-bar); }
+.khsx .khvt-bcard__progress-fill.is-partial { background: var(--kh-canhbao-bar); }
+.khsx .khvt-bcard__progress-fill.is-deficit { background: var(--kh-thieu-bar); }
+.khsx .khvt-bcard__progress-fill.is-ready { background: var(--kh-ok-bar); }
 
 .khsx .khvt-bcard__actions {
   display: flex;

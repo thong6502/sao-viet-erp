@@ -2182,11 +2182,11 @@ def test_mac_dinh_ke_thua_tu_danh_muc_cong_doan_va_may(db, orders, lsx_svc, admi
     assert b["In offset"].so_luot_chay == 1
 
 
-def test_che_ban_dung_ngoai_chuoi_va_khong_deo_canh_bao_dut_don_vi(db, orders, lsx_svc, admin, customer):
-    """Chế bản đếm KẼM → đơn vị TRỐNG, đứng ngoài chuỗi, và KHÔNG được đẻ cảnh báo giả.
+def test_che_ban_dung_ngoai_chuoi_giu_don_vi_trong(db, orders, lsx_svc, admin, customer):
+    """Chế bản đếm KẼM → đơn vị TRỐNG, đứng ngoài chuỗi giấy.
 
-    Đây là bẫy chính: nếu so liền kề mà không lọc bước trống ra trước thì bước chế bản đứng đầu
-    routing sẽ "đứt đơn vị" với bước in ngay sau nó, dù chuỗi giấy hoàn toàn liền mạch.
+    `replace_routing` không được gán đơn vị dòng giấy cho bước prepress: gán vào là nó chen
+    giữa chuỗi bù hao ngược và số tờ phải mua sai theo.
     """
     ptg = _ptg_2_san_pham(db)
     to_id = _to_san_xuat(db).id
@@ -2208,10 +2208,8 @@ def test_che_ban_dung_ngoai_chuoi_va_khong_deo_canh_bao_dut_don_vi(db, orders, l
     hop2 = lsx_svc.get(hop.id)
     ctp_row = hop2.cong_doans[0]
     assert (ctp_row.don_vi_vao, ctp_row.don_vi_ra) == (None, None)
-    # Chuỗi giấy (in → bế) liền mạch ⇒ KHÔNG cảnh báo, dù chế bản chen ở đầu.
-    assert "dut_don_vi" not in lsx_svc.canh_bao_cua(hop2)
-    # Bước cuối vẫn giao đúng SL đơn → không lệch.
-    assert "lech_sl_don" not in lsx_svc.canh_bao_cua(hop2)
+    # Chuỗi giấy (in → bế) vẫn liền mạch, chế bản chen ở đầu không cắt vào nó.
+    assert [c.don_vi_vao for c in hop2.cong_doans[1:]] == ["to", "to"]
 
 
 def test_chi_tiet_lenh_co_buoc_che_ban_van_qua_duoc_SCHEMA(db, orders, lsx_svc, admin, customer):
@@ -2844,17 +2842,13 @@ def test_chay_phut_luon_la_so_dan_xuat_khong_bi_dong_bang(
     assert _tl(lsx_svc.get(hop.id).cong_doans[-1], db)["chay_phut"] > 0
 
 
-def test_canh_bao_mem_khong_lot_vao_ro_chan_va_ghi_ly_do(db, orders, lsx_svc, admin, customer):
-    """§14: chuỗi đứt đơn vị / lệch bài tính giá chỉ TÔ MÀU, không chặn. §10: lưu lý do thay đổi.
-
-    "Đứt chuyền" theo SỐ nay không xảy ra được nữa — số lượng mọi bước là dẫn xuất của chuỗi
-    ngược nên luôn khớp. Cái còn đứt được là ĐƠN VỊ: bước sau ăn đơn vị khác bước trước nhả.
-    """
+def test_replace_routing_ghi_ly_do_vao_audit(db, orders, lsx_svc, admin, customer):
+    """§10: đổi routing của lệnh phải để lại vết LÝ DO trong audit, không sửa lén."""
     ptg = _ptg_2_san_pham(db)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
     hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
-    assert hop.routing_goc_json and "khac_bai_tinh_gia" not in lsx_svc.canh_bao_cua(hop)
+    assert hop.routing_goc_json
     to_id = _to_san_xuat(db).id
     cd_be = db.query(CongDoan).filter(CongDoan.ma == "CD-BE-T").first()
     cd_in = db.query(CongDoan).filter(CongDoan.nhom == "print").first()
@@ -2865,15 +2859,11 @@ def test_canh_bao_mem_khong_lot_vao_ro_chan_va_ghi_ly_do(db, orders, lsx_svc, ad
         LsxCongDoanIn(ten="Bế", nhom="finishing", department_id=to_id, cong_doan_id=cd_be.id),
         LsxCongDoanIn(ten="In offset", nhom="print", department_id=to_id, cong_doan_id=cd_in.id),
     ])
-    hop2 = lsx_svc.get(hop.id)
-    cb = lsx_svc.canh_bao_cua(hop2)
-    assert "dut_don_vi" in cb and "khac_bai_tinh_gia" in cb
-    assert not (set(cb) & set(lsx_svc.thieu_cua(hop2)))      # hai rổ TÁCH BẠCH
     chi_tiet = [r.detail for r in AuditLogRepository(db).list_by_target(f"lsx:{hop.id}")]
     assert any("Khách đổi sang gia công ngoài" in c for c in chi_tiet)
 
 
-def test_canh_bao_vuot_han_giao_khi_lead_time_dai_hon_han(db, orders, lsx_svc, admin, customer):
+def test_lead_time_dai_hon_so_ngay_con_lai_toi_han(db, orders, lsx_svc, admin, customer):
     ptg = _ptg_2_san_pham(db)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)   # hạn giao = hôm nay + 10 ngày
     ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
@@ -2882,14 +2872,14 @@ def test_canh_bao_vuot_han_giao_khi_lead_time_dai_hon_han(db, orders, lsx_svc, a
     for cd in hop.cong_doans:
         cd.may_id, cd.nang_suat, cd.phat_sinh_phut = None, None, 0
     db.commit()
-    assert "vuot_han_giao" not in lsx_svc.canh_bao_cua(lsx_svc.get(hop.id))
+    lt0 = lsx_svc.lead_time(lsx_svc.get(hop.id))
+    assert lt0["so_ngay"] <= lt0["ngay_con_lai"]
 
     # Bơm giờ bằng ô DUY NHẤT còn gõ được: 200 giờ ⇒ 25 ngày > 10 ngày còn lại.
     hop.cong_doans[0].phat_sinh_phut = 200 * 60
     db.commit()
     lt = lsx_svc.lead_time(lsx_svc.get(hop.id))
     assert lt["so_ngay"] > lt["ngay_con_lai"]
-    assert "vuot_han_giao" in lsx_svc.canh_bao_cua(lsx_svc.get(hop.id))
 
 
 def test_migration_0093_chay_hai_lan_van_no_op():

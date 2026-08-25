@@ -254,38 +254,6 @@ def test_don_vi_toc_do_cua_may_doc_tu_ma_gio():
     assert ma_don_vi_toc_do(May(None)) is None
 
 
-def test_buoc_roi_khoi_dong_giay_phai_keu_len():
-    """LỖ 3 — engine tính giá kêu, lệnh sản xuất thì câm.
-
-    Bước khai đơn vị hợp lệ nhưng ngoài dòng giấy rơi khỏi chuỗi: số lượng đứng im ở 0 và bù hao
-    biến mất khỏi số giấy. Hai màn phải nói cùng một câu về cùng một dữ liệu.
-    """
-    db = _db()
-    _seed_don_vi(db)
-    lsx = Lsx(id=1, ma="L1", order_id=1, order_line_id=1, so_luong_dat=1000, so_con=4,
-              quy_cach_json={})
-    lsx.cong_doans = [
-        LsxCongDoan(step_key="s1", thu_tu=1, ten="Ghi kẽm", nhom="prepress",
-                    don_vi_vao="bai", don_vi_ra="kem"),
-        LsxCongDoan(step_key="s2", thu_tu=2, ten="In offset", nhom="print",
-                    don_vi_vao="to", don_vi_ra="to"),
-    ]
-    db.add(lsx)
-    db.commit()
-    svc = _svc(db)
-    # Chế bản ngoài dòng giấy là CHUYỆN THƯỜNG — kêu là kêu oan mọi lệnh.
-    assert "buoc_ngoai_dong_giay" not in svc._canh_bao_don_vi(lsx)
-
-    # Bước gia công khai `lượt → lượt`: hợp lệ, nhưng rơi khỏi chuỗi ⇒ phải kêu.
-    db.add(DonViDo(ma="luot", ten="lượt", ho="khac"))
-    lsx.cong_doans.append(
-        LsxCongDoan(step_key="s3", thu_tu=3, ten="Ép nhũ", nhom="finishing",
-                    don_vi_vao="luot", don_vi_ra="luot"))
-    db.commit()
-    svc._tram_cache = None          # danh mục vừa đổi
-    assert "buoc_ngoai_dong_giay" in svc._canh_bao_don_vi(lsx)
-
-
 def test_dich_chuoi_theo_tram_ra_cua_buoc_cuoi():
     """LỖ 4 — hai engine ăn hai đích khác nhau khi routing KHÔNG kết ở thành phẩm."""
     he_so = {("to", "cai"): 2.0, ("to", "con"): 8.0, ("to", "tay"): 1.0}
@@ -354,30 +322,6 @@ def test_may_ctp_chay_theo_so_kem_khi_buoc_dem_kem():
     t2 = thoi_luong_buoc(buoc, May(500, "kg_gio"), None)
     assert t2["chay_phut"] == 0
     assert t2["dien_giai"]["phuong_phap"] == "chua_quy_doi"
-
-
-def test_canh_bao_buoc_roi_khoi_dong_giay():
-    """LỖ 3 — tính giá kêu mà lệnh sản xuất câm, hai màn nói khác nhau về cùng dữ liệu."""
-    db = _db()
-    _seed_don_vi(db)
-    db.add(CongDoan(id=9, ma="TRON", ten="Trộn keo", nhom="finishing",
-                    don_vi_vao="thung", don_vi_ra="thung"))
-    lsx = Lsx(id=1, ma="L1", order_id=1, order_line_id=1, so_luong_dat=1000, so_con=4,
-              quy_cach_json={})
-    lsx.cong_doans = [
-        LsxCongDoan(step_key="s1", thu_tu=1, ten="In", nhom="print",
-                    don_vi_vao="to", don_vi_ra="cai", so_luong_ra=1000),
-        LsxCongDoan(step_key="s2", thu_tu=2, cong_doan_id=9, ten="Trộn keo", nhom="finishing",
-                    don_vi_vao="thung", don_vi_ra="thung"),
-    ]
-    db.add(lsx)
-    db.commit()
-    assert "buoc_ngoai_dong_giay" in _svc(db)._canh_bao_don_vi(lsx)
-
-    # Chế bản đứng ngoài là CHUYỆN BÌNH THƯỜNG — kêu ở đây là kêu oan mọi lệnh.
-    lsx.cong_doans[1].nhom = "prepress"
-    db.commit()
-    assert "buoc_ngoai_dong_giay" not in _svc(db)._canh_bao_don_vi(lsx)
 
 
 def test_dich_chuoi_va_routing_ket_o_con():

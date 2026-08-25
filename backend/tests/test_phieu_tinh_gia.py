@@ -373,3 +373,36 @@ def test_khong_nhac_khi_danh_muc_khong_lien_quan_doi(client, auth_headers):
     finally:
         db.close()
     assert client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()["danh_muc_doi"] is None
+
+
+def test_list_cot_sl_la_tong_sl_cac_san_pham(client, auth_headers):
+    """Cột SL ngoài bảng = Σ SL các sản phẩm — có vậy SL × giá vốn/đơn mới ra tổng giá vốn.
+
+    Trước đây cột này lấy ô SL mặc định ở đầu phiếu (20.000) trong khi đơn giá lại chia cho Σ SL
+    các sản phẩm (60.000) ⇒ nhìn ba cột cạnh nhau nhân lại không ra nhau.
+    """
+    giay_id, cd_id = _seed_catalog()
+    a = _component(giay_id, cd_id) | {"ten": "Ruột", "so_luong": 4000}
+    b = _component(giay_id, cd_id) | {"ten": "Bìa", "so_luong": 1000}
+    c = _component(giay_id, cd_id) | {"ten": "Nhãn"}          # bỏ trống → rơi về SL mặc định phiếu
+    resp = client.post("/api/phieu-tinh-gia", json={
+        "ten_san_pham": "Sách", "so_luong": 2000, "thanh_phans": [a, b, c],
+    }, headers=auth_headers)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+
+    lst = client.get("/api/phieu-tinh-gia", headers=auth_headers)
+    row = next(it for it in lst.json()["items"] if it["id"] == body["id"])
+    assert row["so_luong"] == 4000 + 1000 + 2000
+    # Ba cột phải khớp nhau: SL × giá vốn/đơn = tổng giá vốn (sai số làm tròn đơn giá).
+    assert row["so_luong"] * row["gia_von_don"] == pytest.approx(row["tong_gia_von"], rel=1e-3)
+
+
+def test_list_phieu_trang_van_lay_sl_dau_phieu(client, auth_headers):
+    """Phiếu chưa có sản phẩm nào thì không có gì để cộng — giữ ô SL người lập vừa gõ."""
+    resp = client.post("/api/phieu-tinh-gia", json={"ten_san_pham": "Nháp", "so_luong": 7000},
+                       headers=auth_headers)
+    pid = resp.json()["id"]
+    lst = client.get("/api/phieu-tinh-gia", headers=auth_headers)
+    row = next(it for it in lst.json()["items"] if it["id"] == pid)
+    assert row["so_luong"] == 7000

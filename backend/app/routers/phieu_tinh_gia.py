@@ -35,6 +35,7 @@ from ..schemas.phieu_tinh_gia import (
     ThanhPhanIn,
 )
 from ..services.rbac_service import AuthorizationService
+from ..services.thanh_phan_engine import chuan_hoa_cot
 from ..services.tinh_gia_service import compute_phieu_snapshot, danh_muc_doi_sau_khi_tinh
 
 router = APIRouter(prefix="/api/phieu-tinh-gia", tags=["phieu-tinh-gia"])
@@ -135,6 +136,15 @@ def list_items(
     for r in rows:
         it = PhieuTinhGiaListItem.model_validate(r)
         it.so_thanh_phan = len(r.thanh_phans)
+        # Cột "SL" ngoài bảng phải là ĐÚNG SỐ MÀ ĐƠN GIÁ ĐANG CHIA: Σ SL các sản phẩm bên trong
+        # phiếu (engine: `compute_phieu.tong_sl`), sản phẩm bỏ trống SL thì rơi về SL mặc định ở
+        # đầu phiếu (engine: `_compute_one`). Lấy thẳng `phieu.so_luong` như trước là bày ra hai
+        # số không nhân lại được với nhau — PTG-2026-0009 hiện SL 20.000 trong khi 44.856.157đ
+        # đang chia cho 60.000 sản phẩm ra 748đ/sp.
+        if r.thanh_phans:
+            it.so_luong = sum(
+                int(tp.so_luong or 0) or int(r.so_luong or 0) for tp in r.thanh_phans
+            )
         it.ten_thanh_phans = [tp.ten for tp in sorted(r.thanh_phans, key=lambda x: x.thu_tu) if tp.ten]
         items.append(it)
     return PhieuTinhGiaListOut(items=items, total=total)
@@ -181,6 +191,9 @@ def get_item(
 ) -> PhieuTinhGiaOut:
     p = _fetch_in_scope(db, p_id, user, authz)
     out = PhieuTinhGiaOut.model_validate(p)
+    # Ảnh chụp giữ SỐ, không giữ CÁCH BÀY: đắp lại danh sách cột theo khai báo hiện tại của engine
+    # để phiếu cũ không còn gánh cột đã bỏ (cột "Ghi chú" rỗng, 25/08/2026).
+    out.result = chuan_hoa_cot(out.result)
     # Mở phiếu = ĐỌC LẠI ẢNH CHỤP, không tính lại (chủ ý — xem docstring service). Chỉ kèm thêm
     # lời nhắc nếu danh mục đã đổi sau lần tính; bấm hay không là quyền người lập phiếu.
     # POST/PUT không cần: hai đường đó vừa tính lại xong nên luôn còn khớp.

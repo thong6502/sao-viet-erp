@@ -10,7 +10,7 @@ from math import ceil
 import pytest
 
 from app.services.thanh_phan_engine import (
-    _vi, binh_bai_con, binh_bai_layout, compute_phieu,
+    _vi, binh_bai_con, binh_bai_layout, chuan_hoa_cot, compute_phieu,
 )
 
 
@@ -978,3 +978,50 @@ def test_dong_vat_tu_phoi_luong_va_don_vi_ra_ngoai():
     assert dong[0]["thanh_tien"] == pytest.approx(
         dong[0]["luong"] * 3_000, abs=0.5e-4 * 3_000 + 0.01,
     )
+
+
+def test_ten_buoc_lay_theo_danh_muc_va_bang_khong_con_cot_ghi_chu():
+    """Đổi tên công đoạn trong danh mục → phiếu gọi TÊN MỚI; bảng bỏ cột "Ghi chú".
+
+    Phiếu chụp ảnh SỐ TIỀN chứ không chụp ảnh CÁI TÊN — người đọc phiếu và người đứng máy phải
+    gọi cùng một việc bằng cùng một tên. Chữ "thuê ngoài" (chỗ cũ là cột Ghi chú) đi liền tên bước.
+    """
+    tp = _component()
+    tp["thanh_phams"] = [
+        {"ten": "In offset", "cong_doan": {"ten": "In offset", "nhom": "print",
+                                           "cong_thuc_gia": "to_dau_vao * 100",
+                                           "don_vi_vao": "to", "don_vi_ra": "to"}},
+        # Tên CHÉP lúc thêm bước là "Cán màng bóng"; danh mục nay đã đổi thành "Cán màng mờ".
+        {"ten": "Cán màng bóng", "cong_doan_id": 9, "nha_cung_cap": "Cty Minh Long",
+         "cong_doan": {"ten": "Cán màng mờ", "nhom": "finishing",
+                       "cong_thuc_gia": "to_sau_in * 50",
+                       "don_vi_vao": "to", "don_vi_ra": "to"}},
+    ]
+    res = compute_phieu(so_luong=5000, thanh_phans=[tp])
+    grp = _grp(res, "cong_doan")
+
+    assert "ghi_chu" not in {c["key"] for c in grp["columns"]}
+    assert all("ghi_chu" not in r for r in grp["rows"])
+
+    dong = [r for r in grp["rows"] if "màng" in r["ten"].lower()]
+    assert len(dong) == 1
+    assert "Cán màng mờ" in dong[0]["ten"] and "Cán màng bóng" not in dong[0]["ten"]
+    assert "thuê ngoài: Cty Minh Long" in dong[0]["ten"]
+
+    # Thẻ số tờ gọi cùng một tên — hai chỗ lệch tên là hai chỗ người dùng tưởng hai bước khác nhau.
+    assert [b["ten"] for b in res["meta"]["components"][0]["bu_hao_chi_tiet"]] == [
+        "In offset", "Cán màng mờ",
+    ]
+
+
+def test_anh_chup_cu_bo_lai_cot_da_go():
+    """Phiếu tính từ trước vẫn giữ `columns` cũ trong ảnh chụp — đọc ra phải bày theo cột hôm nay."""
+    cu = {"groups": [{"idx": "cong_doan", "name": "Công đoạn", "rows": [{"ten": "Bế"}],
+                      "columns": [{"key": "ten", "label": "Công đoạn"},
+                                  {"key": "ghi_chu", "label": "Ghi chú"}]}],
+          "grand_total": 0}
+    moi = chuan_hoa_cot(cu)
+    assert "ghi_chu" not in {c["key"] for c in moi["groups"][0]["columns"]}
+    assert moi["groups"][0]["rows"] == [{"ten": "Bế"}]      # SỐ của ảnh chụp không bị đụng
+    assert cu["groups"][0]["columns"][1]["key"] == "ghi_chu"  # trả bản mới, không sửa bản gốc
+    assert chuan_hoa_cot(None) is None

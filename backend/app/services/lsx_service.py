@@ -55,7 +55,7 @@ from ..models.vat_lieu_kho import GiayNguyen, VatTuInAn
 from ..services.bu_hao_engine import hao_buoc
 from ..models.don_vi_do import TRAM_CAI, TRAM_CON, TRAM_TAY, TRAM_TO, TRAM_TO_NGUYEN
 from ..services.dong_giay import (
-    ban_do_tram, chieu_hop_le, dich_chuoi, don_vi_chuoi, ma_cua_tram, tram_cua, tren_dong_giay,
+    ban_do_tram, dich_chuoi, don_vi_chuoi, ma_cua_tram, tram_cua, tren_dong_giay,
 )
 from ..models.don_vi_do import DonViDo
 from ..services.bien_cong_thuc import ngu_canh_lenh, quy_cach_bien
@@ -1622,41 +1622,7 @@ class LsxService:
         del tp
         return thieu
 
-    def _canh_bao_don_vi(self, lsx: Lsx) -> list[str]:
-        """Cảnh báo MỀM về chuỗi đơn vị. LỌC bước NGOÀI dòng giấy ra TRƯỚC rồi mới so liền kề —
-        không lọc thì bước ghi kẽm (`bai → kem`) đứng đầu routing đẻ cảnh báo giả với bước in."""
-        tram = self._tram()
-        tat_ca = sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
-        buoc = [c for c in tat_ca if tren_dong_giay(c.don_vi_vao, c.don_vi_ra, tram)]
-        out: list[str] = []
-        # Bước rơi KHỎI dòng giấy thì bù hao của nó biến mất khỏi số giấy phải mua và số lượng đứng
-        # im ở 0 (kéo theo thời lượng 0) — phải kêu. Trừ chế bản: nó vốn không chạm giấy, kêu là kêu
-        # oan mọi lệnh. Cùng luật với cảnh báo bên engine tính giá, để hai màn nói cùng một câu.
-        if any(c.nhom != "prepress" and not tren_dong_giay(c.don_vi_vao, c.don_vi_ra, tram)
-               for c in tat_ca):
-            out.append("buoc_ngoai_dong_giay")
-        if any(not chieu_hop_le(c.don_vi_vao, c.don_vi_ra, tram) for c in buoc):
-            out.append("cap_don_vi_sai")
-        # So liền mạch theo TRẠM: hai bước khai hai mã khác nhau cho cùng một chặng là hợp lệ.
-        if any(tram_cua(t.don_vi_ra, tram) != tram_cua(s.don_vi_vao, tram)
-               for t, s in zip(buoc, buoc[1:])):
-            out.append("dut_don_vi")
-        # Bước cuối phải giao đủ hàng — nhưng SO BẰNG ĐƠN VỊ CỦA NÓ, không so thẳng với SL đặt:
-        # routing kết ở `con` thì bước cuối nhả số CON, khách thì đặt số CÁI. So thẳng là đẻ cảnh
-        # báo giả cho mọi lệnh loại đó. Dựng lại đích bằng đúng công thức chuỗi đã dùng.
-        if buoc:
-            he_so = self._he_so_cau(lsx)
-            mong_doi = dich_chuoi(
-                float(lsx.so_luong_dat or 0),
-                tram_ra_cuoi=tram_cua(buoc[-1].don_vi_ra, tram),
-                cai_moi_to=he_so.get((TRAM_TO, TRAM_CAI)) or 1.0,
-                he_so=he_so,
-            )
-            if ceil(mong_doi) != int(_f(buoc[-1].so_luong_ra)):
-                out.append("lech_sl_don")
-        return out
-
-    # ================= TÍNH NGƯỢC · LEAD TIME · CẢNH BÁO =================
+    # ================= TÍNH NGƯỢC · LEAD TIME =================
 
     def mac_dinh_buoc(self, *, lsx_id: int, cong_doan_id: int) -> dict:
         """Thuộc tính công việc khi kế hoạch ĐỔI công đoạn giữa chừng.
@@ -2102,57 +2068,6 @@ class LsxService:
             "ngay_con_lai": con_lai,
         }
 
-    def canh_bao_cua(self, lsx: Lsx) -> list[str]:
-        """Rổ cảnh báo MỀM (§14) — chỉ tô màu, KHÔNG chặn lưu và KHÔNG chặn "Sẵn sàng".
-
-        Toàn là phán đoán nghề: máy nêu nghi vấn, người kế hoạch quyết. Ví dụ "đứt chuyền" có thể
-        đúng ý (chừa bán thành phẩm cho lệnh khác), nên chặn là sai.
-        """
-        canh_bao: list[str] = []
-        buoc = sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
-
-        for i, cd in enumerate(buoc):
-            vao, ra = _f(cd.so_luong_vao), _f(cd.so_luong_ra)
-            if cd.don_vi_vao == cd.don_vi_ra and vao > 0 and ra > vao and "ra_lon_hon_vao" not in canh_bao:
-                canh_bao.append("ra_lon_hon_vao")
-            if i + 1 < len(buoc):
-                sau = buoc[i + 1]
-                if (cd.don_vi_ra == sau.don_vi_vao and ra > 0 and _f(sau.so_luong_vao) > ra
-                        and "dut_chuyen" not in canh_bao):
-                    canh_bao.append("dut_chuyen")
-
-        lt = self.lead_time(lsx)
-        if lt["ngay_con_lai"] is not None and lt["so_ngay"] > lt["ngay_con_lai"]:
-            canh_bao.append("vuot_han_giao")
-
-        goc = lsx.routing_goc_json
-        if goc is not None and goc != _routing_van_tay(lsx.cong_doans):
-            canh_bao.append("khac_bai_tinh_gia")
-
-        if self._may_khong_hop_kho(lsx):
-            canh_bao.append("may_khong_hop_kho")
-        canh_bao.extend(self._canh_bao_don_vi(lsx))
-        return canh_bao
-
-    def _may_khong_hop_kho(self, lsx: Lsx) -> bool:
-        """Khổ tờ in vượt khổ tối đa của máy đã gán (xoay 90° vẫn không lọt)."""
-        qc = lsx.quy_cach_json or {}
-        dai, rong = _f(qc.get("kho_in_dai")), _f(qc.get("kho_in_rong"))
-        if dai <= 0 or rong <= 0:
-            return False
-        may_ids = {cd.may_id for cd in lsx.cong_doans if cd.may_id}
-        if lsx.may_id:
-            may_ids.add(lsx.may_id)
-        for mid in may_ids:
-            may = self.db.get(MayThietBi, mid)
-            max_d, max_r = _f(may.kho_max_dai) if may else 0, _f(may.kho_max_rong) if may else 0
-            if max_d <= 0 or max_r <= 0:
-                continue
-            lot = (dai <= max_d and rong <= max_r) or (rong <= max_d and dai <= max_r)
-            if not lot:
-                return True
-        return False
-
     def detail_dict(self, lsx: Lsx) -> dict:
         """Ghép dữ liệu hiển thị (tên đơn/khách/máy/tổ/khuôn) cho 1 lệnh."""
         order = self.db.get(Order, lsx.order_id)
@@ -2218,7 +2133,6 @@ class LsxService:
             "may_ten": may_names.get(lsx.may_id),
             "nguoi_phu_trach_ten": self._user_name(lsx.nguoi_phu_trach_id),
             "thieu": self.thieu_cua(lsx),
-            "canh_bao": self.canh_bao_cua(lsx),
             "lead_time": self.lead_time(lsx),
             "cong_doans": buoc_dicts,
             # Công thợ DỰ KIẾN cả lệnh = Σ các bước quy đổi được. Bước nào chưa chọn đầu việc / thiếu

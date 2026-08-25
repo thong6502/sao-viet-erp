@@ -33,6 +33,9 @@ def _cong_doan_to_dict(cd: CongDoan, tram: dict[str, str] | None = None) -> dict
         "id": cd.id,
         "ma": cd.ma,
         "ten": cd.ten,
+        # Tên in cho thợ — engine gọi bước bằng tên này khi có (`_ten_buoc`), cho khớp đúng chip
+        # người lập phiếu nhìn thấy bên màn phiếu (`cdName` bên FE cũng ưu tiên nó).
+        "ten_hien_thi": cd.ten_hien_thi,
         "nhom": cd.nhom,
         "kieu_bu_hao": cd.kieu_bu_hao,
         "bu_hao_id": cd.bu_hao_id,

@@ -190,7 +190,9 @@ export function PhieuTinhGiaListView({
                 <SortBtn label="Mã PTG" col="ma" sort={sort} onSort={setSort} />
               </th>
               <th>Sản phẩm</th>
-              <th className="tg-num">
+              {/* SL ở đây là Σ SL CÁC SẢN PHẨM bên trong phiếu (không phải ô SL mặc định đầu
+                  phiếu) — có vậy SL × giá vốn/đơn mới ra tổng giá vốn ngay hàng bên cạnh. */}
+              <th className="tg-num" title="Tổng số lượng của các sản phẩm trong phiếu">
                 <SortBtn label="SL" col="so_luong" sort={sort} onSort={setSort} />
               </th>
               <th className="tg-num">

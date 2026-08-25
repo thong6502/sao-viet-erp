@@ -4361,7 +4361,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `department_id` | `Integer` FK→`departments.id` | IX | yes | — | Snapshot tổ thực hiện (§2.2). |
 | `la_kcs` | `Boolean` | — | no | `false` | Snapshot: thực hiện tại tổ KCS. |
 | `la_kcs_cuoi` | `Boolean` | — | no | `false` | KCS cuối của nhóm (đúng một/nhóm — §2.2). |
-| `may_id` | `Integer` FK→`machines.id` | — | yes | — | Snapshot máy. |
+| `may_id` | `Integer` | — | yes | — | Snapshot máy — soft → `may_thiet_bi.id`. Migration `0237` GỠ khoá ngoại cứng cũ trỏ `machines`: máy của bước lấy từ danh mục đang chạy `may_thiet_bi`, id lệch hẳn `machines` (danh mục đời tính giá) nên lệnh nào có bước chạy máy ngoài dải đó cũng vỡ lúc phát hành, kẹt lại `da_phat_hanh` mà không có công việc. |
 | `du_kien_bat_dau` | `DateTime(timezone=True)` | — | yes | — | Thời gian dự kiến bắt đầu. |
 | `du_kien_ket_thuc` | `DateTime(timezone=True)` | — | yes | — | Thời gian dự kiến kết thúc. |
 | `so_luong_vao` | `Numeric(18,3)` | — | yes | — | Định mức snapshot: lượng vào. |

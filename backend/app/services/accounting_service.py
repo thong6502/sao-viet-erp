@@ -1201,8 +1201,7 @@ class AccountingService:
         if voucher.status != PAYMENT_VOUCHER_PAID:
             raise AccountingConflict("Chỉ Phiếu chi/UNC đã chi mới được lập phiếu thu.")
         prepared = self._prepare_receipt(voucher, values, exclude_receipt_id=None)
-        # Cấp số trước khi chạm ORM object — increment_and_get() tự commit (xem
-        # _next_voucher_doc_no).
+        # Cấp số trước khi chạm ORM object (xem _next_voucher_doc_no).
         doc_no = self.sequences.generate_flat_code(SEQ_DOC_TYPE_PAYMENT_RECEIPT)
         receipt = PaymentReceipt(
             code=self._new_receipt_code(),
@@ -2189,7 +2188,9 @@ class AccountingService:
     def _next_voucher_doc_no(self) -> str:
         """Số IN trên mẫu 02-TT (PC00445) — chung bộ đếm cho tiền mặt lẫn UNC.
 
-        LƯU Ý: gọi hàm này SAU khi validate xong và TRƯỚC mọi mutation ORM — nó commit.
+        Bộ đếm nay đi CHUNG giao dịch (không còn tự commit — xem
+        DocumentSequenceRepository.increment_and_get), nên phiếu hỏng thì số cấp dở trả lại.
+        Vẫn giữ nếp gọi SAU khi validate xong: số nhảy vô ích cũng là số mất.
         """
         return self.sequences.generate_flat_code(SEQ_DOC_TYPE_PAYMENT_VOUCHER)
 

@@ -1204,6 +1204,7 @@ export function AppShell() {
             navigate={navigate}
             eventTick={quoteTick}
             onBadgeStale={reloadBadges}
+            focusLsxMa={navParams?.focusLsxMa ?? null}
           />
         );
       case "sua-chua-may":

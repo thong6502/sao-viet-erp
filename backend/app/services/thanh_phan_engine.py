@@ -333,11 +333,27 @@ _COLS = {
         {"key": "ten", "label": "Công đoạn", "align": "left", "kind": "text"},
         {"key": "thanh_tien", "label": "Số tiền", "align": "right", "kind": "money"},
         {"key": "gia_don_sp", "label": "đ/TP", "align": "right", "kind": "money"},
+        # Bỏ cột "Ghi chú" (25/08/2026): 100% dòng để trống nên bảng gánh một cột rỗng. Hai thứ
+        # từng rơi vào đó nay về đúng chỗ — lỗi công thức đã nằm ở `warnings` + ô Diễn giải, còn
+        # "thuê ngoài" đi liền TÊN BƯỚC (xem dưới) để đọc một dòng là biết ai làm.
         {"key": "cong_thuc", "label": "Công thức thế số", "align": "left", "kind": "formula"},
-        {"key": "ghi_chu", "label": "Ghi chú", "align": "left", "kind": "text"},
     ],
 }
 _NAMES = {"nvl": "Nguyên vật liệu", "cong_doan": "Công đoạn"}
+
+
+def chuan_hoa_cot(result: dict | None) -> dict | None:
+    """Đắp lại `columns` của ẢNH CHỤP cũ theo khai báo HIỆN TẠI (`_COLS`) — trả bản MỚI, không sửa.
+
+    Cột là CÁCH BÀY, không phải dữ liệu: ảnh chụp giữ nguyên số tiền của lần tính cũ (chủ ý —
+    xem `tinh_gia_service`), còn bảng bày mấy cột là chuyện của hôm nay. Không có hàm này thì
+    phiếu tính trước 25/08/2026 vẫn kéo theo cột "Ghi chú" đã bỏ, tới khi ai đó bấm Tính giá lại.
+    """
+    if not result or not isinstance(result.get("groups"), list):
+        return result
+    groups = [{**g, "columns": _COLS.get(g.get("idx")) or g.get("columns")}
+              for g in result["groups"]]
+    return {**result, "groups": groups}
 
 # Loại dụng cụ ĐƯỢC PHÉP mang phí khuôn — dao lưu kho, mua một lần rồi cất kho dùng lại.
 # `kem` (bản kẽm) CỐ Ý ĐỨNG NGOÀI: nó là vật tư tiêu hao, mỗi bài phơi mới, và tiền nó đã nằm
@@ -351,6 +367,19 @@ TOOLING_NHAN = {"khuon_be": "khuôn bế", "khuon_ep": "khuôn ép nhũ / dập 
 def _pre(name: str, label: str) -> str:
     name = (name or "").strip()
     return f"{name} · {label}" if name else label
+
+
+def _ten_buoc(row: dict) -> str:
+    """Tên bước để HIỆN — dòng gắn danh mục thì lấy tên SỐNG của danh mục.
+
+    Phiếu chỉ chụp ảnh SỐ TIỀN (xem `tinh_gia_service.danh_muc_doi_sau_khi_tinh`), KHÔNG chụp
+    ảnh CÁI TÊN: xưởng đổi tên một công đoạn là mọi phiếu phải gọi nó bằng tên mới, nếu không
+    người đọc phiếu và người đứng máy nói hai tên cho cùng một việc. `row["ten"]` (tên chép lúc
+    thêm bước) chỉ còn dùng cho dòng TỰ NHẬP — dòng không có `cong_doan_id` thì không có danh
+    mục nào để hỏi. Ưu tiên `ten_hien_thi` cho khớp chip bên màn phiếu (`cdName` bên FE).
+    """
+    cd = row.get("cong_doan") or {}
+    return cd.get("ten_hien_thi") or cd.get("ten") or row.get("ten") or "Công đoạn"
 
 
 def _fit(outer_d: float, outer_r: float, inner_d: float, inner_r: float) -> int:
@@ -694,8 +723,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             # chạm tờ nên vắng mặt ở đây mà vẫn có dòng tiền. Ghép bằng cách so TÊN thì hôm nào
             # xưởng đổi tên một công đoạn là tiền rơi khỏi thẻ mà không lỗi nào báo.
             "buoc_idx": i,
-            "ten": (chain[i].get("ten") or (chain[i].get("cong_doan") or {}).get("ten")
-                    or "Công đoạn"),
+            "ten": _ten_buoc(chain[i]),
             "nhom": (chain[i].get("cong_doan") or {}).get("nhom"),   # UI neo "Tờ sau in" vào bước in
             "dv_vao": b["dv_vao"], "dv_ra": b["dv_ra"],   # UI hiện chỗ ĐỔI đơn vị
             "vao": ceil(b["vao"]),
@@ -867,7 +895,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
 
     for idx_buoc, row in enumerate(chain):
         cd = row.get("cong_doan") or {}
-        ten_r = row.get("ten") or cd.get("ten") or "Công đoạn"
+        ten_r = _ten_buoc(row)
 
         ctx = dict(ctx_base)
         # SỐ CỦA CHÍNH BƯỚC NÀY (đọc từ chuỗi ngược) — đây là hai chip `sl_vao`/`sl_ra` ở ô Công
@@ -907,12 +935,10 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             try:
                 tien = safe_eval(formula, eval_ctx)
                 dan_d = format_substituted_formula(formula, eval_ctx)
-                ghi_chu = ""
             except Exception as e:
                 warnings.append(f"Dòng '{ten_r}': lỗi công thức ({e}) — tính 0đ.")
                 tien = 0.0
                 dan_d = "lỗi công thức — 0đ"
-                ghi_chu = str(e)
         else:
             # Formula-only (chốt 2026-07-22, siết trọn 11/08/2026): công đoạn CHƯA khai công thức
             # → 0đ + cảnh báo, KHÔNG trừ nhóm nào. Không dùng fallback đơn giá routing / rate cũ
@@ -920,12 +946,11 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             warnings.append(f"Công đoạn '{ten_r}': chưa khai công thức tính giá — tính 0đ.")
             tien = 0.0
             dan_d = "thiếu công thức — 0đ"
-            ghi_chu = ""
 
         cong_thuc = _ct(dan_d, tien, sl) if _chia_duoc(dan_d) else dan_d
-        if row.get("nha_cung_cap"):
-            suffix = f"(thuê ngoài: {row['nha_cung_cap']})"
-            ghi_chu = f"{ghi_chu} {suffix}".strip() if ghi_chu else suffix
+        # Thuê ngoài đi LIỀN TÊN BƯỚC (chỗ cũ là cột "Ghi chú" đã bỏ): ai làm việc này là một
+        # phần của việc, đọc rời sang cột khác thì mắt phải bắc cầu qua ba cột số.
+        ten_dong = f"{ten_r} · thuê ngoài: {row['nha_cung_cap']}" if row.get("nha_cung_cap") else ten_r
 
         # MỌI công đoạn (chế bản/in/gia công) vào chung nhóm "Công đoạn", giữ thứ tự routing.
         rows["cong_doan"].append({
@@ -934,11 +959,10 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             # thế số — hai thứ khác nhau và panel cần CẢ HAI: một dòng nói "tính bằng gì", một dòng
             # nói "ra số nào". Chỉ có bản thế số thì người đọc không biết `5.200` là biến nào.
             "cong_thuc_goc": (formula or "").strip(),
-            "ten": _pre(name, ten_r),
+            "ten": _pre(name, ten_dong),
             "thanh_tien": _r(tien),
             "gia_don_sp": _r(tien / sl) if sl > 0 else 0.0,
             "cong_thuc": cong_thuc,
-            "ghi_chu": ghi_chu,
         })
 
 
@@ -980,7 +1004,6 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
                 # nhưng nó ĐANG bị chia vào giá vốn — giấu con số bị chia đi thì người lập phiếu
                 # không thấy đơn nhỏ đang gánh bao nhiêu, mà đó chính là lúc cần thấy nhất.
                 "cong_thuc": _ct(f"{_vi(_r(tien))}đ làm {nhan_dao}, một lần", tien, sl),
-                "ghi_chu": "",
             })
         else:
             thieu_phi.append(ten_b)

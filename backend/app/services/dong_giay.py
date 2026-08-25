@@ -8,7 +8,7 @@ TRƯỚC 2026-08-11 việc phân loại này nằm rải ba chỗ, mỗi chỗ m
   - `tinh_nguoc_routing`: đơn vị vào/ra khác None  (vì DANH SÁCH đơn vị công đoạn chỉ có 5 mã
     dòng giấy, nên "có khai đơn vị" ⇔ "trên dòng giấy" — đúng nhưng chỉ đúng NHỜ danh sách cứng)
   - `bai_ghep_service`: `nhom != "prepress"`      (theo NHÓM công đoạn)
-  - `_canh_bao_don_vi`: lại lọc theo đơn vị None
+  - `_canh_bao_don_vi`: lại lọc theo đơn vị None   (hàm đã gỡ 25/08/2026 cùng rổ cảnh báo mềm)
 Nay công đoạn khai đơn vị TỰ DO từ danh mục Đơn vị & quy đổi (bước ghi kẽm khai thẳng `bai → kem`
 thay vì để trống), nên "có khai đơn vị" KHÔNG còn đồng nghĩa "trên dòng giấy" — phải hỏi CỜ TRẠM
 trên danh mục (`don_vi_do.tram_dong_giay`). Một luật, một chỗ, ba nơi cùng gọi.

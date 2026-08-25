@@ -620,6 +620,24 @@ class XepLichVanDeService:
                 out.append(it)
         return out
 
+    def _chan_xung_dot(self, *, lsx_ids: set[int], bg_ids: set[int], bo_qua: bool) -> None:
+        """Gác xung đột ĐỜI CŨ (12 detector của màn Xếp lịch 1) — chặn khi còn vấn đề CHẶN chưa
+        ngoại lệ.
+
+        `bo_qua=True` CHỈ dùng cho đường màn XẾP LỊCH 2 (25/08/2026): bên đó đã tự gác bằng
+        `XepLich2Service._chan_phat_hanh`, ĐÚNG BẰNG danh sách UI đang bày. Chạy thêm gác này nữa là
+        hai người gác hai danh sách khác nhau — dải chân báo "đủ điều kiện phát hành" mà nút Phát
+        hành trả "còn 2 xung đột CHẶN chưa xử lý/ngoại lệ", người dùng không có cách nào biết phải
+        gỡ cái gì (LSX26-0029: hai `sai_tien_nhiem` sinh ra vì bước đã trôi vào quá khứ — luật v2
+        không có mục đó). Màn cũ phát hành thì `bo_qua=False`, gác giữ nguyên như trước."""
+        if bo_qua:
+            return
+        blk = self._blocking_for(self._build(), lsx_ids=lsx_ids, bg_ids=bg_ids)
+        if blk:
+            raise XepLichConflict(
+                f"Còn {len(blk)} xung đột CHẶN chưa xử lý/ngoại lệ — không thể phát hành"
+            )
+
     def _chan_thieu_vat_tu(self, *, lsx_id: int | None = None,
                            bai_ghep_id: int | None = None) -> None:
         """GATE DÙNG CHUNG với màn Xếp lịch 2 (§9.3): chưa giữ đủ vật tư thì KHÔNG phát hành.
@@ -637,18 +655,22 @@ class XepLichVanDeService:
                 + "; ".join(i["mo_ta"] for i in vd)
             )
 
-    def phat_hanh_lsx(self, *, lsx_id: int, actor) -> Lsx:
+    def phat_hanh_lsx(self, *, lsx_id: int, actor, bo_qua_xung_dot: bool = False) -> Lsx:
         lsx = self.xl.lsx_repo.get(lsx_id)
         if lsx is None:
             raise XepLichNotFound("Không tìm thấy lệnh sản xuất")
         if lsx.trang_thai != LSX_DA_LAP:
+            # Nói ĐÚNG trạng thái đang có: câu cũ luôn kêu "chưa lập kế hoạch" nên lệnh đã
+            # phát hành rồi mà bấm lại vẫn bị mắng sai chỗ, người dùng tưởng mất kế hoạch.
+            if lsx.trang_thai == LSX_DA_PHAT_HANH:
+                raise XepLichConflict(
+                    f"Lệnh {lsx.ma} đã phát hành rồi — thu hồi phát hành trước nếu muốn làm lại"
+                )
             raise XepLichConflict(f"Lệnh {lsx.ma} chưa lập kế hoạch — không thể phát hành")
         if self.xl.bg_repo.lsx_da_ghep([lsx_id]):
             raise XepLichConflict("Lệnh nằm trong bài ghép — phát hành qua bài ghép")
         self._chan_thieu_vat_tu(lsx_id=lsx_id)
-        blk = self._blocking_for(self._build(), lsx_ids={lsx_id}, bg_ids=set())
-        if blk:
-            raise XepLichConflict(f"Còn {len(blk)} xung đột CHẶN chưa xử lý/ngoại lệ — không thể phát hành")
+        self._chan_xung_dot(lsx_ids={lsx_id}, bg_ids=set(), bo_qua=bo_qua_xung_dot)
         lsx.trang_thai = LSX_DA_PHAT_HANH
         # §4.1 — đóng băng gói phát hành (snapshot công việc + nhóm thành phẩm) trong CÙNG giao dịch.
         from .san_xuat.release import phat_hanh as _sx_phat_hanh
@@ -658,17 +680,20 @@ class XepLichVanDeService:
         self.repo.commit()
         return lsx
 
-    def phat_hanh_bai_ghep(self, *, bai_ghep_id: int, actor) -> BaiGhep:
+    def phat_hanh_bai_ghep(self, *, bai_ghep_id: int, actor,
+                           bo_qua_xung_dot: bool = False) -> BaiGhep:
         bg = self.xl.bg_repo.get(bai_ghep_id)
         if bg is None:
             raise XepLichNotFound("Không tìm thấy bài ghép")
         if bg.trang_thai != BG_DA_LAP:
+            if bg.trang_thai == BG_DA_PHAT_HANH:
+                raise XepLichConflict(
+                    f"Bài ghép {bg.ma} đã phát hành rồi — thu hồi phát hành trước nếu muốn làm lại"
+                )
             raise XepLichConflict(f"Bài ghép {bg.ma} chưa lập kế hoạch — không thể phát hành")
         members = {tv.lsx_id for tv in bg.thanh_viens}
         self._chan_thieu_vat_tu(bai_ghep_id=bai_ghep_id)
-        blk = self._blocking_for(self._build(), lsx_ids=members, bg_ids={bai_ghep_id})
-        if blk:
-            raise XepLichConflict(f"Còn {len(blk)} xung đột CHẶN chưa xử lý/ngoại lệ — không thể phát hành")
+        self._chan_xung_dot(lsx_ids=members, bg_ids={bai_ghep_id}, bo_qua=bo_qua_xung_dot)
         bg.trang_thai = BG_DA_PHAT_HANH
         for lid in members:
             lsx = self.xl.lsx_repo.get(lid)

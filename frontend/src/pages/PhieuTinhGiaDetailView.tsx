@@ -377,6 +377,15 @@ const DAO_CO_PHI: Record<string, string> = {
  *  Đọc CỜ từ danh mục Công đoạn (`requires_tooling` + `tooling_type`), KHÔNG đoán theo tên bước —
  *  tên là chữ người dùng gõ, đổi lúc nào không ai báo. Dòng tự nhập (không gắn danh mục) thì không
  *  có cờ nào để đọc ⇒ không hỏi phí. */
+/** Tên bước để HIỆN. Dòng có gắn danh mục → gọi theo tên SỐNG trong danh mục, nên xưởng đổi tên
+ *  một công đoạn là phiếu gọi tên mới ngay (tiền vẫn giữ ảnh chụp — xem băng "Danh mục đã đổi").
+ *  Dòng tự nhập (không `cong_doan_id`) mới rơi về tên đã lưu trong phiếu. Cùng luật với engine
+ *  (`thanh_phan_engine._ten_buoc`). */
+function tenBuoc(f: { cong_doan_id: number | null; ten: string }, congDoans: Row[]): string {
+  const cd = f.cong_doan_id == null ? undefined : congDoans.find((x) => x.id === f.cong_doan_id);
+  return (cd ? cdName(cd) : "") || f.ten || "";
+}
+
 function daoCuaBuoc(f: { cong_doan_id: number | null }, congDoans: Row[]): string | null {
   if (f.cong_doan_id == null) return null;
   const cd = congDoans.find((x) => x.id === f.cong_doan_id);
@@ -2729,7 +2738,7 @@ function ComponentModal({
                   <div key={f.uid} className="tg-timeline-item">
                     <span className="tg-chip">
                       <span className="tg-chip__name">
-                        {f.ten || "(công đoạn)"}
+                        {tenBuoc(f, congDoans) || "(công đoạn)"}
                       </span>
                       <button
                         type="button"
@@ -2798,7 +2807,7 @@ function ComponentModal({
                     {daos.map(({ f, dao }) => (
                       <div className="tg-khuon__row" key={f.uid}>
                         <span className="tg-khuon__ten">
-                          {f.ten || "(công đoạn)"}
+                          {tenBuoc(f, congDoans) || "(công đoạn)"}
                           <em>{dao}</em>
                         </span>
                         <div className="tg-khuon__input">
@@ -2809,7 +2818,7 @@ function ComponentModal({
                             step={1000}
                             /* Ô số trần không có <label> nối vào — trình đọc màn hình chỉ đọc
                                "spin button". Ghép tên bước + loại dao thành nhãn. */
-                            aria-label={`Phí ${dao} của bước ${f.ten || "công đoạn"}`}
+                            aria-label={`Phí ${dao} của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
                             value={f.phi_khuon || ""}
                             placeholder="0"
                             onChange={(e) =>

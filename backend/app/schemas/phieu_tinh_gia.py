@@ -239,6 +239,8 @@ class PhieuTinhGiaListItem(BaseModel):
     ten_san_pham: str
     loai_san_pham_id: int | None = None
     kho_thanh_pham: str | None = None
+    # Σ SL CÁC SẢN PHẨM bên trong phiếu — không phải ô SL mặc định ở đầu phiếu. Router tính lại
+    # (xem `list_items`) để cột SL × cột giá vốn/đơn ra đúng cột tổng giá vốn.
     so_luong: int
     gia_von_don: float
     tong_gia_von: float

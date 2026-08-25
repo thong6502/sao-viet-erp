@@ -437,9 +437,9 @@ class LsxOut(BaseModel):
     updated_at: datetime
 
     cong_doans: list[LsxCongDoanOut] = Field(default_factory=list)
-    # Hai rổ TÁCH BẠCH: `thieu` CHẶN "Sẵn sàng lập kế hoạch" (§12); `canh_bao` chỉ tô màu (§14).
+    # `thieu` CHẶN nút "Sẵn sàng lập kế hoạch" (§12). Rổ cảnh báo MỀM §14 (`canh_bao`) đã gỡ
+    # 25/08/2026 — server vẫn tính mỗi lần mở lệnh mà không màn nào đọc.
     thieu: list[str] = Field(default_factory=list)
-    canh_bao: list[str] = Field(default_factory=list)
     lead_time: LeadTimeOut | None = None
     # Công thợ khoán DỰ KIẾN cả lệnh = Σ bước quy đổi được. Là số SÀN: bước chưa chọn đầu việc hoặc
     # thiếu số để quy đổi thì không góp vào — đừng đọc như tổng chi phí nhân công thật.

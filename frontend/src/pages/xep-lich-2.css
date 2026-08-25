@@ -9,8 +9,8 @@
 
 .xl2 {
   --xl2-label-w: 270px;
-  --xl2-bar-h: 34px;
-  --xl2-lane-h: 54px; /* 34 thanh + 8 đệm + 12 band overlay (đồng bộ LANE_H ở xl2Shared) */
+  --xl2-bar-h: 40px;
+  --xl2-lane-h: 60px; /* 40 thanh + 8 đệm + 12 band overlay (đồng bộ LANE_H ở xl2Shared) */
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -1305,6 +1305,15 @@
   z-index: 0;
   pointer-events: none;
 }
+.xl2-tickgrid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(15, 23, 42, 0.04);
+  z-index: 0;
+  pointer-events: none;
+}
 .xl2-holiday {
   position: absolute;
   top: 0;
@@ -1358,68 +1367,58 @@
   opacity: 0.85;
 }
 
-/* ================= THANH CÔNG VIỆC GANTT (Modern Chroma Task Capsules) ============ */
+/* ================= THANH CÔNG VIỆC GANTT (Golden Ratio HSL Infinite Color Engine) ============ */
 .xl2-bar {
+  --lsx-h: 200; /* Mặc định 200° nếu thiếu */
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
   height: var(--xl2-bar-h);
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 7px 2px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--rule);
-  background: var(--canvas);
-  color: var(--ink);
+  gap: 6px;
+  padding: 3px 8px 3px 10px;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--lsx-h), 65%, 72%);
+  background: linear-gradient(135deg, hsl(var(--lsx-h), 80%, 97%) 0%, hsl(var(--lsx-h), 70%, 91%) 100%);
+  color: hsl(var(--lsx-h), 80%, 25%);
   font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   cursor: pointer;
   z-index: 2;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
   transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease, opacity 120ms ease;
 }
-.xl2-bar:hover {
-  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.12);
-  transform: translateY(calc(-50% - 1px));
-  z-index: 4;
-}
-.xl2-bar:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
 
-/* Chroma Color Coding Theo Nhóm Công Đoạn */
-.xl2-bar--grp-in {
-  background: linear-gradient(135deg, #f0f7ff 0%, #e0f0fe 100%);
-  border-color: #7dd3fc;
-  color: #0369a1;
+.xl2-bar .xl2-bar__accent {
+  background: hsl(var(--lsx-h), 85%, 40%);
 }
-.xl2-bar--grp-in .xl2-bar__accent { background: #0284c7; }
-.xl2-bar--grp-in .xl2-bar__code { color: #0c4a6e; }
 
-.xl2-bar--grp-sau_in {
-  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
-  border-color: #fcd34d;
-  color: #92400e;
+.xl2-bar .xl2-bar__code {
+  color: hsl(var(--lsx-h), 90%, 20%);
 }
-.xl2-bar--grp-sau_in .xl2-bar__accent { background: #d97706; }
-.xl2-bar--grp-sau_in .xl2-bar__code { color: #78350f; }
 
-.xl2-bar--grp-dong_goi {
-  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
-  border-color: #86efac;
-  color: #15803d;
+.xl2-bar .xl2-bar__step-pill {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid hsl(var(--lsx-h), 60%, 75%);
+  color: hsl(var(--lsx-h), 85%, 25%);
 }
-.xl2-bar--grp-dong_goi .xl2-bar__accent { background: #16a34a; }
-.xl2-bar--grp-dong_goi .xl2-bar__code { color: #14532d; }
 
-.xl2-bar--grp-thue_ngoai {
-  background: linear-gradient(135deg, #fbf7ff 0%, #f3e8ff 100%);
-  border-color: #d8b4fe;
-  color: #7e22ce;
+.xl2-bar .xl2-bar__dur {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid hsl(var(--lsx-h), 60%, 75%);
+  color: hsl(var(--lsx-h), 85%, 25%);
+}
+
+.xl2-bar .xl2-bar__cd {
+  color: hsl(var(--lsx-h), 80%, 25%);
+}
+
+/* Thuê ngoài NCC — Viền nét đứt */
+.xl2-bar--ncc {
   border-style: dashed;
 }
-.xl2-bar--grp-thue_ngoai .xl2-bar__accent { background: #9333ea; }
-.xl2-bar--grp-thue_ngoai .xl2-bar__code { color: #581c87; }
 
 /* Focus Mode: Dimmed các task không chọn */
 .xl2-bar--dimmed {
@@ -1434,29 +1433,45 @@
   left: 0;
   top: 0;
   bottom: 0;
-  width: 3px;
+  width: 4px;
   border-radius: 6px 0 0 6px;
   background: var(--moss);
 }
 
-/* Vân sọc canh máy (Setup Time Hatch) ở đầu thanh */
-.xl2-bar__setup-hatch {
+/* Đầu thanh: quãng CHUẨN BỊ MÁY (chưa ra sản phẩm). Mảng ĐẶC đậm hơn nền chip một nấc + vạch
+   ngăn — KHÔNG dùng sọc chéo: trên bàn này sọc chéo chỉ có nghĩa "không làm việc" (ngoài ca ·
+   máy bị khoá), dùng lại cho việc-đang-chạy thì ba thứ khác nhau trông y hệt nhau. */
+.xl2-bar__setup {
   position: absolute;
-  left: 3px;
+  left: 4px;
   top: 0;
   bottom: 0;
-  background: repeating-linear-gradient(
-    -45deg,
-    rgba(0, 0, 0, 0.06),
-    rgba(0, 0, 0, 0.06) 2px,
-    transparent 2px,
-    transparent 5px
+  background: hsl(var(--lsx-h), 55%, 85%);
+  border-right: 1.5px solid hsl(var(--lsx-h), 50%, 62%);
+  pointer-events: none;
+}
+
+/* Đuôi thanh: quãng XÊ DỊCH giờ xong (máy khai tốc độ nhanh–chậm nên giờ xong là một dải).
+   Nhạt dần ra mép + vạch ĐỨT dọc = "từ đây trở đi là chưa chắc". Nằm TRONG chip, không còn treo
+   dưới thanh như cũ — nét đứt nằm ngoài chip bị đọc nhầm thành đường phụ thuộc của Gantt. */
+.xl2-bar__slack {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.7) 45%,
+    rgba(255, 255, 255, 0.92) 100%
   );
-  border-right: 1px solid rgba(0, 0, 0, 0.12);
+  border-left: 1.5px dashed hsl(var(--lsx-h), 45%, 60%);
   pointer-events: none;
 }
 
 .xl2-bar__body {
+  position: relative; /* nổi trên mảng chuẩn bị máy + đuôi xê dịch (cả hai là absolute) */
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -1489,7 +1504,8 @@
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
-  font-weight: var(--fw-bold);
+  font-weight: 800;
+  letter-spacing: -0.01em;
   color: var(--ink);
 }
 .xl2-bar__step-pill {
@@ -1497,11 +1513,14 @@
   font-family: var(--ff-num);
   font-size: 9px;
   font-weight: var(--fw-bold);
-  padding: 0 3px;
+  padding: 0 4px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
   color: inherit;
+}
+.xl2-bar__dur--range {
+  letter-spacing: -0.02em;
 }
 .xl2-bar__cd {
   flex: 0 1 auto;
@@ -1521,13 +1540,17 @@
   color: var(--ash-2);
 }
 .xl2-bar__dur {
-  flex: none;
+  /* Nhường chỗ TRƯỚC mã lệnh: hệ số co lớn nên khi thanh hẹp, thời lượng teo lại
+     (rồi biến mất theo ngưỡng ở Xl2Gantt) chứ mã lệnh + bước không bao giờ bị cắt. */
+  flex: 0 200 auto;
+  min-width: 0;
+  overflow: hidden;
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   font-size: 9px;
   font-weight: var(--fw-bold);
   color: inherit;
-  background: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.85);
   padding: 0 3px;
   border-radius: 3px;
   border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
@@ -1555,19 +1578,21 @@
 /* Chọn & Chuỗi thực thể */
 .xl2-bar--chain {
   border-color: var(--rust);
+  box-shadow: 0 0 0 1.5px rgba(197, 64, 10, 0.25), 0 2px 8px rgba(197, 64, 10, 0.15);
+  z-index: 4;
 }
 .xl2-bar--sel {
-  border-color: var(--rust);
-  box-shadow: 0 0 0 2px var(--rust-soft), 0 3px 10px rgba(197, 64, 10, 0.2);
-  z-index: 5;
+  border-color: var(--rust-deep);
+  box-shadow: 0 0 0 2.5px var(--rust), 0 4px 12px rgba(197, 64, 10, 0.3);
+  z-index: 6;
 }
 
 /* Hover Chain Glow — Phát sáng chuỗi thực thể khi hover */
 .xl2-bar--chain-hover {
-  border-color: var(--rust);
-  box-shadow: 0 0 0 2px var(--rust), 0 3px 12px rgba(197, 64, 10, 0.25);
+  border-color: var(--rust-deep);
+  box-shadow: 0 0 0 2.5px var(--rust), 0 4px 14px rgba(197, 64, 10, 0.35);
   transform: translateY(calc(-50% - 1px));
-  z-index: 5;
+  z-index: 6;
 }
 
 /* 3 Mức trạng thái cảnh báo / chặn */
@@ -1579,25 +1604,6 @@
 .xl2-bar--warn .xl2-bar__accent { background: var(--amber); }
 
 /* Râu nhanh-nhất / chậm-nhất ngoài thanh */
-.xl2-rau2 {
-  position: absolute;
-  top: 50%;
-  height: 0;
-  margin-top: calc(var(--xl2-bar-h) / 2 + 1px);
-  border-top: 1.5px dashed var(--ash-2);
-  z-index: 3;
-  pointer-events: none;
-}
-.xl2-rau2__cap {
-  position: absolute;
-  top: -4px;
-  width: 0;
-  height: 9px;
-  border-left: 2px solid var(--ash-2);
-}
-.xl2-rau2__cap--min { left: 0; }
-.xl2-rau2__cap--max { right: 0; }
-
 /* Ghost khi kéo thả */
 .xl2-ghost {
   position: absolute;
@@ -2291,13 +2297,9 @@
   gap: var(--sp-2);
   padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--rule-soft);
-  border-left-width: 3px;
   border-radius: var(--r-3);
   background: var(--canvas);
 }
-.xl2-issue--dat { border-left-color: var(--signal); }
-.xl2-issue--ph { border-left-color: var(--heat-3); }
-.xl2-issue--warn { border-left-color: var(--amber); }
 .xl2-issue__ic { flex: none; margin-top: 1px; }
 .xl2-issue--dat .xl2-issue__ic { color: var(--signal); }
 .xl2-issue--ph .xl2-issue__ic { color: var(--rust-deep); }

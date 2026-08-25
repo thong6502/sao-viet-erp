@@ -10593,3 +10593,48 @@ def _migrate_kho_mm_so_thuc(db: Session) -> None:
 
 
 MIGRATIONS.append(("0236_kho_mm_so_thuc", _migrate_kho_mm_so_thuc))
+
+
+def _migrate_sx_cong_viec_may_khoa_mem(db: Session) -> None:
+    """0237 — `san_xuat_cong_viec.may_id`: gỡ KHOÁ NGOẠI CỨNG trỏ `machines`.
+
+    Cột này là ảnh chụp MÁY của bước lúc phát hành, mà máy của bước lấy từ danh mục ĐANG CHẠY
+    `may_thiet_bi`; `machines` là danh mục đời tính giá, id hai bảng KHÔNG trùng nhau. Vì thế
+    mọi lệnh có bước chạy máy nằm ngoài dải id của `machines` đều vỡ lúc phát hành với
+    ``ForeignKeyViolation ... Key (may_id)=(27) is not present in table "machines"`` — và vỡ ở
+    GIỮA giao dịch, để lại lệnh kẹt nửa vời (`da_phat_hanh` nhưng không sinh được công việc nào).
+    Test không bắt được vì fixture dựng máy thẳng vào `machines` nên id luôn khớp.
+
+    Mọi bảng khác neo máy bằng khoá MỀM (`lsx_cong_doan`, `xep_lich_cong_doan`, `bai_ghep`,
+    `ky_thuat_*`). Bước này đưa `san_xuat_cong_viec` về đúng quy ước đó. Tên ràng buộc lấy từ
+    catalog thay vì đoán, phòng DB nào đó đặt tên khác.
+    """
+    bind = db.get_bind()
+    if bind.dialect.name != "postgresql":
+        return
+    insp = inspect(bind)
+    if "san_xuat_cong_viec" not in set(insp.get_table_names()):
+        return
+    ten_rang_buoc = [
+        r[0]
+        for r in db.execute(
+            text(
+                "SELECT tc.constraint_name FROM information_schema.table_constraints tc "
+                "JOIN information_schema.key_column_usage kcu "
+                "  ON kcu.constraint_name = tc.constraint_name "
+                " AND kcu.table_schema = tc.table_schema "
+                "WHERE tc.constraint_type = 'FOREIGN KEY' "
+                "  AND tc.table_schema = 'public' "
+                "  AND tc.table_name = 'san_xuat_cong_viec' "
+                "  AND kcu.column_name = 'may_id'"
+            )
+        ).all()
+    ]
+    for ten in ten_rang_buoc:
+        db.execute(
+            text(f'ALTER TABLE san_xuat_cong_viec DROP CONSTRAINT IF EXISTS "{ten}"')
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0237_sx_cong_viec_may_khoa_mem", _migrate_sx_cong_viec_may_khoa_mem))

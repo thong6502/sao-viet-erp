@@ -20,16 +20,19 @@ import { BangLoi, ChipGap, EmptyState, Skeleton, ngay, num } from "./keHoachSxSh
 import { moTaPhieuMua, tomTatPhieuMua, vetDangKep } from "./phieuMuaNhan";
 
 /** Nhãn ngắn & màu cho trạng thái vật tư.
- *  Màu lấy THẲNG từ biến hệ thống (tokens.css) chứ không gõ mã hex tại chỗ — gõ tay thì màn này
- *  trôi khỏi bảng màu chung, đúng cái đã xảy ra: nền/chữ ở đây từng là hệ Tailwind rời. Hai ô
- *  `bg`/`text` cũ không nơi nào đọc (đã grep) nên bỏ; nền/chữ do lớp `cls` lo. */
+ *  Màu lấy THẲNG từ biến hệ thống chứ không gõ mã hex tại chỗ — gõ tay thì màn này trôi khỏi bảng
+ *  màu chung, đúng cái đã xảy ra: nền/chữ ở đây từng là hệ Tailwind rời. Hai ô `bg`/`text` cũ không
+ *  nơi nào đọc (đã grep) nên bỏ; nền/chữ do lớp `cls` lo.
+ *  `dotColor` (chỉ dùng cho icon ở chế độ thẻ) trỏ vào bộ biến TRẠNG THÁI CHUNG `--kh-*` khai ở
+ *  ke-hoach-sx.css — cùng một nguồn với màn "Theo mặt hàng" để hai cách nhìn không lệch tông; các
+ *  trạng thái trung tính (đã cấp / đủ tồn / chưa rõ) giữ token đất cho chìm, chỉ tin xấu mới tươi. */
 const MAU_VATTU: Record<string, { label: string; cls: string; dotColor: string }> = {
   xam: { label: "Đã cấp", cls: "khvt-stream-chip--xam", dotColor: "var(--ash-2)" },
   xanh: { label: "Đủ tồn", cls: "khvt-stream-chip--xanh", dotColor: "var(--moss)" },
-  vang: { label: "Chờ hàng về", cls: "khvt-stream-chip--vang", dotColor: "var(--amber)" },
-  do: { label: "Thiếu cần mua", cls: "khvt-stream-chip--do", dotColor: "var(--signal)" },
+  vang: { label: "Chờ hàng về", cls: "khvt-stream-chip--vang", dotColor: "var(--kh-canhbao-fg)" },
+  do: { label: "Thiếu cần mua", cls: "khvt-stream-chip--do", dotColor: "var(--kh-thieu-fg)" },
   khong_ro: { label: "Chưa rõ ĐVT", cls: "khvt-stream-chip--khongro", dotColor: "var(--steel)" },
-  ve_muon: { label: "Hàng về muộn", cls: "khvt-stream-chip--vemuon", dotColor: "var(--rust)" },
+  ve_muon: { label: "Hàng về muộn", cls: "khvt-stream-chip--vemuon", dotColor: "var(--kh-vemuon-fg)" },
 };
 
 function mauVatTu(mau: CanDoiMau) {

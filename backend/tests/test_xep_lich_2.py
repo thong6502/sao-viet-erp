@@ -36,6 +36,7 @@ from app.services.xep_lich_2 import (
     MUC_CANH_BAO, MUC_CHAN_DAT_LICH, MUC_CHAN_PHAT_HANH,
     XepLich2Blocked, XepLich2Conflict, XepLich2Error, XepLich2Service,
 )
+from app.services.xep_lich_2 import auto as A
 from app.services.xep_lich_2 import constraint as C
 from app.models.xep_lich import TT_DA_XEP
 from app.services.xep_lich_service import XepLichConflict, XepLichNotFound, _naive
@@ -127,6 +128,25 @@ def test_trung_may_khi_chong_gio():
     # Nối đuôi (10–12) không phải trùng.
     assert C.trung_may(start, finish, [(_utc(2026, 7, 27, 10, 0),
                                         _utc(2026, 7, 27, 12, 0))]) is None
+
+
+# Mốc trong DB lẻ giây (auto-xếp lấy từ `now()`) còn ô nhập giờ chỉ tới PHÚT ⇒ việc nối đuôi bị
+# hô trùng oan. Dung sai 1 phút phải nuốt lệch dưới phút, nhưng KHÔNG được nuốt trùng thật.
+def test_trung_may_bo_qua_chong_lan_le_giay():
+    start, finish = _utc(2026, 7, 27, 10, 54), _utc(2026, 7, 27, 12, 11)
+    truoc = (_utc(2026, 7, 27, 10, 22),
+             _utc(2026, 7, 27, 10, 54).replace(second=29, microsecond=870360))
+    assert C.trung_may(start, finish, [truoc]) is None          # chồng 29,87 giây ⇒ bỏ qua
+    # Chồng 2 phút vẫn là trùng.
+    that = (_utc(2026, 7, 27, 10, 22), _utc(2026, 7, 27, 10, 56))
+    assert C.trung_may(start, finish, [that])["ma"] == "trung_may"
+
+
+# Mọi mốc GHI XUỐNG phải tròn phút — `service._tinh` và `auto._ap` đều đi qua đây.
+def test_tron_phut_cat_giay():
+    moc = _utc(2026, 7, 27, 10, 54).replace(second=29, microsecond=870360)
+    assert C.tron_phut(moc) == _utc(2026, 7, 27, 10, 54)
+    assert C.tron_phut(None) is None
 
 
 # ======================================================================
@@ -257,8 +277,10 @@ def test_van_de_dat_lich_gan_du_ba_canh_bao_moi_qua_wiring(v2, monkeypatch):
     monkeypatch.setattr(v2.ctx, "khoang_chan_may",
                         lambda may_id: [(_utc(2026, 7, 27, 11, 0), _utc(2026, 7, 27, 12, 0))])
     # Việc kế đã xếp 10:00–16:00 (không đè việc đang đặt 08:00–09:30) — vừa là mốc lấn, vừa nạp tải máy.
-    monkeypatch.setattr(v2.ctx, "khoang_may_da_xep",
-                        lambda may_id, exclude_id: [(_utc(2026, 7, 27, 10, 0), _utc(2026, 7, 27, 16, 0))])
+    ke = [(_utc(2026, 7, 27, 10, 0), _utc(2026, 7, 27, 16, 0))]
+    monkeypatch.setattr(v2.ctx, "khoang_may_da_xep", lambda may_id, exclude_id: ke)
+    # `lan_viec_ke` ăn nền HẸP HƠN (việc của LỆNH KHÁC) — ở đây việc kế là của lệnh khác nên vẫn kêu.
+    monkeypatch.setattr(v2.ctx, "khoang_may_lenh_khac", lambda may_id, exclude_id, dong: ke)
     monkeypatch.setattr(v2.ctx, "quan_so", lambda dept, ngay: {"so_nguoi": 8, "go_de": False})
     monkeypatch.setattr(v2.ctx, "placements_to", lambda dept, exclude_id: [])
     monkeypatch.setattr(v2.ctx, "_so_nguoi", lambda dong: 7)          # đỉnh 7/8 → tải tổ cao
@@ -275,6 +297,63 @@ def test_van_de_dat_lich_gan_du_ba_canh_bao_moi_qua_wiring(v2, monkeypatch):
     assert {"lan_viec_ke", "sap_bao_tri", "tai_to_cao", "tai_may_cao"} <= codes
     assert "trung_may" not in codes and "de_vung_khoa_may" not in codes   # không đè → không chặn
     assert all(i["muc"] == MUC_CANH_BAO for i in vd), "cả bốn chỉ nhắc, không chặn đặt lịch"
+
+
+def test_lan_viec_ke_im_khi_viec_ke_la_buoc_sau_cua_chinh_lenh(v2, monkeypatch):
+    """Việc kế trên máy là bước sau của CHÍNH lệnh này ⇒ KHÔNG cảnh báo lấn (25/08/2026).
+
+    Bước sau vốn phải đợi bước trước xong: bước trước chạy chậm thì cả dây trượt theo, không ai mất
+    máy. Nhưng nó vẫn là việc thật trên máy — TẢI MÁY vẫn phải đếm nó, và `trung_may` vẫn soi nó."""
+    ca = [(480, 960, False)]
+    monkeypatch.setattr(v2.ctx, "ca_windows", lambda: ca)
+    monkeypatch.setattr(v2.ctx, "ngay_vat_tu", lambda dong: None)
+    monkeypatch.setattr(v2.ctx, "tien_nhiem_finish", lambda dong: [])
+    monkeypatch.setattr(v2.ctx, "hai_han", lambda dong: (None, None))
+    monkeypatch.setattr(v2.ctx, "khoang_chan_may", lambda may_id: [])
+    ke = [(_utc(2026, 7, 27, 10, 0), _utc(2026, 7, 27, 16, 0))]
+    monkeypatch.setattr(v2.ctx, "khoang_may_da_xep", lambda may_id, exclude_id: ke)
+    monkeypatch.setattr(v2.ctx, "khoang_may_lenh_khac", lambda may_id, exclude_id, dong: [])
+    monkeypatch.setattr(v2.ctx, "quan_so", lambda dept, ngay: {"so_nguoi": 8, "go_de": False})
+    monkeypatch.setattr(v2.ctx, "placements_to", lambda dept, exclude_id: [])
+    monkeypatch.setattr(v2.ctx, "_so_nguoi", lambda dong: 1)
+
+    shadow = SimpleNamespace(nguon="lsx", loai_buoc=LB_MAY, lsx_id=1, lsx_cong_doan_id=1,
+                             bai_ghep_id=None, bai_ghep_cong_doan_id=None, may_id=9,
+                             department_id=3, nha_cung_cap=None)
+    vd = v2._van_de_dat_lich(
+        shadow, start=_utc(2026, 7, 27, 8, 0), finish=_utc(2026, 7, 27, 9, 30),
+        finish_max=_utc(2026, 7, 27, 10, 30), may_id=9, department_id=3,
+        canh_bao=None, exclude_id=999,
+    )
+    codes = {i["ma"] for i in vd}
+    assert "lan_viec_ke" not in codes, "bước sau của chính lệnh mình không phải việc bị lấn"
+    assert "tai_may_cao" in codes, "việc kế vẫn là việc thật trên máy — tải máy phải đếm nó"
+
+
+def test_ctx_khoang_may_lenh_khac_chi_bo_viec_cung_lenh(
+    v2, db, orders, lsx_svc, admin, customer, monkeypatch,
+):
+    """Nền hẹp của `lan_viec_ke`: bỏ việc CÙNG lệnh, giữ nguyên việc của lệnh khác."""
+    monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
+    l0, l1 = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    inb, xa = _chuoi_in_xa(db, l0.id)
+    in1 = _in_theo_may(db, l1.id)
+    in1.may_id = inb.may_id                                   # ép cả ba bước về CÙNG một máy
+    db.commit()
+    v2.tao_nhap(nguon="lsx", id=l0.id, actor=admin)
+    v2.tao_nhap(nguon="lsx", id=l1.id, actor=admin)
+
+    rep = XepLichRepository(db)
+    d_in = next(d for d in rep.by_lsx(l0.id) if d.lsx_cong_doan_id == inb.id)
+    d_xa = next(d for d in rep.by_lsx(l0.id) if d.lsx_cong_doan_id == xa.id)
+    d_l1 = next(d for d in rep.by_lsx(l1.id) if d.lsx_cong_doan_id == in1.id)
+    v2.luu(dong_id=d_in.id, patch={"may_id": inb.may_id, "start_at": _utc(2026, 7, 27, 8, 0)},
+           expected_updated_at=d_in.updated_at, actor=admin)
+
+    may = inb.may_id
+    assert len(v2.ctx.khoang_may_da_xep(may, d_xa.id)) == 1     # nền của `trung_may`: thấy đủ
+    assert v2.ctx.khoang_may_lenh_khac(may, d_xa.id, d_xa) == []          # cùng lệnh → bỏ
+    assert len(v2.ctx.khoang_may_lenh_khac(may, d_l1.id, d_l1)) == 1      # lệnh khác → giữ
 
 
 # ======================================================================
@@ -759,6 +838,72 @@ def test_duyet_ngoai_le_tu_choi_khi_khong_tre(v2, db, orders, lsx_svc, admin, cu
         v2.duyet_ngoai_le(nguon="lsx", id=lsx.id, ly_do="x", actor=admin)
     with pytest.raises(XepLich2Error):                              # không có trễ hạn để duyệt
         v2.duyet_ngoai_le(nguon="lsx", id=lsx.id, ly_do="không có gì để duyệt", actor=admin)
+
+
+# ======================================================================
+# MỘT CỬA PHÁT HÀNH (25/08/2026) — v2 chỉ nghe `kiem_phat_hanh`, gác đời cũ không xen vào.
+#
+# Trước đây có HAI người gác: dải chân UI đọc `kiem_phat_hanh` báo "đủ điều kiện phát hành", còn
+# nút Phát hành lại đi qua 12 detector của màn Xếp lịch 1 và trả "còn 2 xung đột CHẶN chưa xử
+# lý/ngoại lệ" (LSX26-0029) — người dùng không có cách nào biết phải gỡ cái gì.
+# ======================================================================
+def _lsx_hai_buoc_da_xep(v2, db, orders, lsx_svc, admin, customer, monkeypatch):
+    """Lệnh 2 bước (In → Xả tờ) đã tự-xếp xong, hạn xa để KHÔNG lẫn `tre_han_sx` vào phép thử.
+
+    `_chuoi_in_xa` khai ở mục Tự xếp phía dưới — Python tra tên lúc CHẠY nên gọi ngược lên được."""
+    monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    hom_nay = datetime.now(timezone.utc).date()
+    lsx.han_hoan_thanh_sx = hom_nay + timedelta(days=120)
+    lsx.han_giao_khach = hom_nay + timedelta(days=130)
+    db.commit()
+    inb, xa = _chuoi_in_xa(db, lsx.id)
+    v2.tao_nhap(nguon="lsx", id=lsx.id, actor=admin)
+    v2.tu_xep(nguon="lsx", id=lsx.id, actor=admin)
+    return lsx, inb, xa
+
+
+def test_phat_hanh_v2_khong_goi_gac_doi_cu(v2, db, orders, lsx_svc, admin, customer, monkeypatch):
+    """Đường phát hành v2 KHÔNG được chạm `_build()` của service màn cũ — một cửa là một cửa."""
+    from app.services.xep_lich_van_de_service import XepLichVanDeService
+    lsx, _, _ = _lsx_hai_buoc_da_xep(v2, db, orders, lsx_svc, admin, customer, monkeypatch)
+    assert v2._chan_phat_hanh(nguon="lsx", id=lsx.id) == [], "lệnh phải sạch trước khi thử"
+
+    def _cam(self):
+        raise AssertionError("gác đời cũ KHÔNG được chạy trên đường phát hành v2")
+
+    monkeypatch.setattr(XepLichVanDeService, "_build", _cam)
+    assert v2.phat_hanh(nguon="lsx", id=lsx.id, actor=admin).trang_thai == TT_DA_PHAT_HANH
+
+
+def test_man_cu_van_giu_gac_cua_no(v2, db, orders, lsx_svc, admin, customer, monkeypatch):
+    """Bỏ gác chỉ áp cho đường v2: phát hành TỪ MÀN CŨ vẫn qua `_build()` như trước."""
+    from app.services.xep_lich_van_de_service import XepLichVanDeService
+    lsx, _, _ = _lsx_hai_buoc_da_xep(v2, db, orders, lsx_svc, admin, customer, monkeypatch)
+    da_goi = []
+    monkeypatch.setattr(XepLichVanDeService, "_build", lambda self: da_goi.append(1) or [])
+    XepLichVanDeService(db, AuditLogRepository(db)).phat_hanh_lsx(lsx_id=lsx.id, actor=admin)
+    assert da_goi, "màn cũ phải còn gác xung đột đời cũ"
+
+
+def test_chan_dat_lich_con_vuong_thi_chan_phat_hanh(v2, db, orders, lsx_svc, admin, customer,
+                                                    monkeypatch):
+    """Luật CHẶN ĐẶT LỊCH còn vướng ⇒ chặn luôn phát hành (trước 25/08 chỉ ba mã cứng mới chặn).
+
+    Kịch bản thật: xếp xong cả chuỗi rồi ĐẨY bước IN sang hôm sau — `luu` chỉ soi chính dòng bị sửa
+    nên bước XẢ TỜ ở lại phía trước, hoá ra chạy TRƯỚC bước in (`sai_tien_nhiem`)."""
+    lsx, inb, _ = _lsx_hai_buoc_da_xep(v2, db, orders, lsx_svc, admin, customer, monkeypatch)
+    d_in = next(d for d in XepLichRepository(db).by_lsx(lsx.id) if d.lsx_cong_doan_id == inb.id)
+    s = d_in.start_at
+    moi = _utc(s.year, s.month, s.day, s.hour, s.minute) + timedelta(days=1)
+    v2.luu(dong_id=d_in.id, patch={"start_at": moi},
+           expected_updated_at=d_in.updated_at, actor=admin)
+
+    sai = [i for i in v2.kiem_phat_hanh(nguon="lsx", id=lsx.id) if i["ma"] == "sai_tien_nhiem"]
+    assert sai and sai[0]["muc"] == MUC_CHAN_DAT_LICH
+    with pytest.raises(XepLich2Blocked) as e:
+        v2.phat_hanh(nguon="lsx", id=lsx.id, actor=admin)
+    assert "sai_tien_nhiem" in _ma(e.value.van_de)
 
 
 # ======================================================================
@@ -1407,6 +1552,76 @@ def test_tu_xep_khong_de_hai_lenh_trung_may(v2, db, orders, lsx_svc, admin, cust
     if a["may_id"] == b["may_id"]:
         assert a["finish_at"] <= b["start_at"] or b["finish_at"] <= a["start_at"], \
             "hai việc cùng máy mà chồng giờ nhau"
+
+
+def test_khe_dau_tien_ne_cach_dat_de_ra_canh_bao(monkeypatch):
+    """C — tự-xếp không được giao ra bản kế hoạch mà CHÍNH NÓ chấm là có vấn đề.
+
+    Khe sớm nhất dính `MA_NE` (cảnh báo do chỗ đặt chật) thì dò thêm tìm khe sạch; hết trần mà
+    không có thì quay về đúng khe sớm nhất — né KHÔNG BAO GIỜ được đắt hơn thứ nó né."""
+    t0 = _utc(2026, 7, 27, 8, 0)
+    moc = [t0, t0 + timedelta(hours=1), t0 + timedelta(hours=2)]
+    monkeypatch.setattr(A, "_moc_ung_vien",
+                        lambda service, dong, shadow, *, san, chan_ngay, ca: moc)
+
+    def dung(theo_moc: dict):
+        """`service` giả: mỗi mốc trả sẵn danh sách vấn đề đã dựng."""
+        return SimpleNamespace(_van_de_dat_lich=lambda shadow, *, start, **kw: theo_moc[start])
+
+    lan = [C.issue("lan_viec_ke", MUC_CANH_BAO, "lấn việc kế")]
+    chan = [C.issue("trung_may", MUC_CHAN_DAT_LICH, "trùng máy")]
+    tai = [C.issue("tai_may_cao", MUC_CANH_BAO, "máy tải cao")]
+    dong = SimpleNamespace(id=1)
+    shadow = SimpleNamespace(may_id=9, department_id=3)
+
+    def khe(service, **kw):
+        return A._khe_dau_tien(service, dong, shadow, chiem=30, chiem_max=60, san=t0,
+                               chan_ngay=7, ca=[(480, 960, False)], **kw)
+
+    # Mốc 1 lấn việc kế · mốc 2 bị chặn · mốc 3 sạch ⇒ lấy mốc 3, và KHÔNG mang cảnh báo nào về.
+    sv = dung({moc[0]: lan, moc[1]: chan, moc[2]: []})
+    assert khe(sv) == (moc[2], [], None)
+    # Lượt CỨU HẠN (`ne_canh_bao=False`) vẫn ăn khe sớm nhất, kèm cảnh báo của nó.
+    start, cb, _ = khe(sv, ne_canh_bao=False)
+    assert start == moc[0] and [i["ma"] for i in cb] == ["lan_viec_ke"]
+    # Cảnh báo NGOÀI diện né (`tai_may_cao`) không đáng để dời việc — nhận ngay khe sớm nhất.
+    assert khe(dung({moc[0]: tai, moc[1]: [], moc[2]: []}))[0] == moc[0]
+    # Mốc nào cũng lấn ⇒ quay về khe sớm nhất chứ không bỏ trống máy, và vẫn nói ra cảnh báo.
+    start, cb, vi_sao = khe(dung({moc[0]: lan, moc[1]: lan, moc[2]: lan}))
+    assert start == moc[0] and [i["ma"] for i in cb] == ["lan_viec_ke"] and vi_sao is None
+
+
+def test_khe_dau_tien_khong_ne_qua_tran_gio(monkeypatch):
+    """Khe sạch nằm quá `TRAN_NE_GIO` giờ ⇒ thà mang cảnh báo còn hơn bỏ máy trống nửa ngày."""
+    t0 = _utc(2026, 7, 27, 8, 0)
+    moc = [t0, t0 + timedelta(hours=A.TRAN_NE_GIO + 1)]
+    monkeypatch.setattr(A, "_moc_ung_vien",
+                        lambda service, dong, shadow, *, san, chan_ngay, ca: moc)
+    lan = [C.issue("lan_viec_ke", MUC_CANH_BAO, "lấn việc kế")]
+    theo_moc = {moc[0]: lan, moc[1]: []}
+    sv = SimpleNamespace(_van_de_dat_lich=lambda shadow, *, start, **kw: theo_moc[start])
+    start, cb, _ = A._khe_dau_tien(sv, SimpleNamespace(id=1), SimpleNamespace(may_id=9,
+                                   department_id=3), chiem=30, chiem_max=60, san=t0,
+                                   chan_ngay=7, ca=[(480, 960, False)])
+    assert start == moc[0] and [i["ma"] for i in cb] == ["lan_viec_ke"]
+
+
+def test_tu_xep_khong_tu_de_ra_canh_bao_lan_viec_ke(
+    v2, db, orders, lsx_svc, admin, customer, monkeypatch,
+):
+    """A+C hợp lại: xếp cả chuỗi In → Xả trên cùng một máy không được đẻ ra `lan_viec_ke`.
+
+    Đây đúng cảnh người xếp gặp trên màn: tự-xếp nối đuôi hai bước của CÙNG lệnh rồi tự chấm kế
+    hoạch mình vừa đẻ là có vấn đề (25/08/2026)."""
+    monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    _chuoi_in_xa(db, lsx.id)
+    v2.tao_nhap(nguon="lsx", id=lsx.id, actor=admin)
+
+    kq = v2.tu_xep(nguon="lsx", id=lsx.id, actor=admin)
+    assert len(kq["da_xep"]) == 2
+    ma = [i["ma"] for k in kq["da_xep"] for i in (k.get("canh_bao") or [])]
+    assert "lan_viec_ke" not in ma, "tự-xếp tự tố kế hoạch của chính mình: %r" % ma
 
 
 def test_tu_xep_moi_cach_dat_deu_qua_duoc_cua_luu(

@@ -6,16 +6,16 @@
 // tuần tự). Kéo NGANG đổi giờ; kéo DỌC sang lane khác đổi tài nguyên (máy↔tổ). Mỗi cú kéo/nhấn phím chỉ
 // ĐỀ XUẤT một patch — controller mới gọi xem-trước rồi ghi (một cửa duy nhất). Component này KHÔNG gọi API.
 import {
-  Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties,
+  useCallback, useEffect, useMemo, useRef, useState, type CSSProperties,
 } from "react";
 import type { IconName } from "../components/Icons";
 import type {
   Xl2Ca, Xl2CaNhan, Xl2Dong, Xl2KhoaMay, Xl2Muc, Xl2NgayLe, Xl2QRow, Xl2TaiMay, Xl2TaiTo,
 } from "../api/client";
-import { ngayGio, thoiLuong } from "./keHoachSxShared";
+import { ngayGio, thoiLuong, thoiLuongNgan } from "./keHoachSxShared";
 import {
-  BAR_H, CLUSTER_HEAD_H, LANE_H, LABEL_W, buildLinearScale, demViecLanes, dongEntityKey, dongNhanParts,
-  dongSerial, ngayToWall, wallToNaive, nhomCongDoan, type Xl2Zoom,
+  BAR_H, CLUSTER_HEAD_H, LANE_H, LABEL_W, buildLinearScale, demViecLanes, dongHue, dongEntityKey, dongNhanParts,
+  dongSerial, ngayToWall, wallToNaive, type Xl2Zoom,
 } from "./xl2Shared";
 import { wallMinutes, fromWall, nowWall } from "./gantt-time";
 
@@ -707,6 +707,9 @@ export function Xl2Gantt({
                         {bg.dayLines.map((x, i) => (
                           <div key={`g${i}`} className="xl2-daygrid" style={{ left: x }} />
                         ))}
+                        {ruler.ticks.map((t, i) => (
+                          <div key={`tg${i}`} className="xl2-tickgrid" style={{ left: t.x }} />
+                        ))}
                         {bg.caStarts.map((c, i) => (
                           <div key={`cs${i}`} className={`xl2-castart xl2-castart--c${c.idx % 5}`}
                             style={{ left: c.x }} title={c.title} />
@@ -742,25 +745,52 @@ export function Xl2Gantt({
                       const bt = dong.boc_tach;
                       const btUncertain = !!bt && bt.chiem_may_phut_max > bt.chiem_may_phut_min;
                       const btTitle = bt
-                        ? ` · canh ${thoiLuong(bt.canh_may_phut)} · chạy ${thoiLuong(bt.chay_phut)} · khác ${thoiLuong(bt.khac_phut)}`
+                        ? ` · chuẩn bị máy ${thoiLuong(bt.canh_may_phut)} · chạy ${thoiLuong(bt.chay_phut)} · khác ${thoiLuong(bt.khac_phut)}`
                           + (btUncertain
-                            ? ` · chiếm ${thoiLuong(bt.chiem_may_phut)} (${thoiLuong(bt.chiem_may_phut_min)}–${thoiLuong(bt.chiem_may_phut_max)})`
+                            ? ` · chiếm ${thoiLuong(bt.chiem_may_phut)} (xong sớm nhất sau ${thoiLuong(bt.chiem_may_phut_min)}, muộn nhất ${thoiLuong(bt.chiem_may_phut_max)})`
                             : ` · chiếm ${thoiLuong(bt.chiem_may_phut)}`)
                         : "";
                       
                       const nhan = dongNhanParts(dong);
                       const serial = dongSerial(dong);
-                      const nhomCd = nhomCongDoan(nhan.congDoan, lane.cluster === "ncc");
-                      const isWide = width >= 84;
-                      const isMedium = width >= 48 && !isWide;
-                      const durLabel = bt?.chiem_may_phut ? thoiLuong(bt.chiem_may_phut) : null;
+                      const hue = dongHue(dong);
+                      const isNcc = lane.cluster === "ncc";
+                      const isWide = width >= 96;
+                      const isMedium = width >= 44 && !isWide;
+                      // HAI VÙNG dưới đây vẽ NẰM TRONG chip (chốt 25/08/2026). Trước kia dải sai số là
+                      // "râu" gạch đứt treo DƯỚI thanh — trùng đúng ngôn ngữ hình của đường phụ thuộc
+                      // Gantt nên ai cũng đọc nhầm thành "việc này nối sang việc kia".
+                      const inner = Math.max(width - 4, 0); // trừ dải accent mép trái
+                      const chiem = bt?.chiem_may_phut || 0;
+                      //  ĐẦU chip = chuẩn bị máy, vẽ ĐÚNG TỈ LỆ (bản cũ ép 4–30% nên bước canh 45ph/chạy
+                      //  15ph vẫn hiện ra mẩu bé tí, nhìn ngược hẳn sự thật). Nhỏ quá thì thôi không vẽ.
+                      const setupPx = timed && bt && bt.canh_may_phut > 0 && chiem > 0
+                        ? Math.min((bt.canh_may_phut / chiem) * inner, inner)
+                        : 0;
+                      //  ĐUÔI chip = quãng "có thể đã xong rồi": từ mốc sớm nhất tới mép phải thanh.
+                      const slackPx = timed && bt && btUncertain && chiem > 0
+                        ? Math.min(Math.max(((chiem - bt.chiem_may_phut_min) / chiem) * inner, 6), inner * 0.5)
+                        : 0;
+                      const durLabel = chiem ? thoiLuongNgan(chiem) : null;
+                      //  Máy có khai nhanh–chậm ⇒ in thẳng DẢI GIỜ ("1g05–1g40") thay vì con số giữa:
+                      //  đọc ra ngay là còn xê dịch, khỏi phải đoán bằng hình.
+                      const durRange = bt && btUncertain
+                        ? `${thoiLuongNgan(bt.chiem_may_phut_min)}–${thoiLuongNgan(bt.chiem_may_phut_max)}`
+                        : null;
+                      // MÃ LỆNH + BƯỚC là thứ luôn phải đọc được trên MỌI thanh (vd "LSX-0029·B3").
+                      // Thanh hẹp thì rụng thời lượng trước — bề rộng thanh vốn đã nói lên thời lượng,
+                      // còn không thấy mã lệnh thì cả bàn Gantt thành một dãy ô vô danh.
+                      const buocLabel = dong.buoc_thu_tu != null ? `B${dong.buoc_thu_tu + 1}` : "";
+                      const serialNgan = serial.replace(/^(?:LSX|GB)-/, "");
+                      const maBuoc = `${serial}${buocLabel ? `·${buocLabel}` : ""}`;
+                      const maBuocNgan = `${serialNgan}${buocLabel ? `·${buocLabel}` : ""}`;
 
                       return (
-                        <Fragment key={dong.id}>
                         <button
+                          key={dong.id}
                           type="button"
-                          className={`xl2-bar xl2-bar--grp-${nhomCd}${mucCls}${sel ? " xl2-bar--sel" : ""}${chain ? " xl2-bar--chain" : ""}${isHoveredChain ? " xl2-bar--chain-hover" : ""}${isDimmed ? " xl2-bar--dimmed" : ""}${dong.is_locked ? " xl2-bar--locked" : ""}${canDrag ? " xl2-bar--draggable" : ""}${!timed ? " xl2-bar--pack" : ""}`}
-                          style={{ left, width }}
+                          className={`xl2-bar${isNcc ? " xl2-bar--ncc" : ""}${mucCls}${sel ? " xl2-bar--sel" : ""}${chain ? " xl2-bar--chain" : ""}${isHoveredChain ? " xl2-bar--chain-hover" : ""}${isDimmed ? " xl2-bar--dimmed" : ""}${dong.is_locked ? " xl2-bar--locked" : ""}${canDrag ? " xl2-bar--draggable" : ""}${!timed ? " xl2-bar--pack" : ""}`}
+                          style={{ left, width, "--lsx-h": hue } as CSSProperties}
                           title={`${nhan.ma}${nhan.congDoan ? ` · ${nhan.congDoan}` : ""}${nhan.sanPham ? ` · ${nhan.sanPham}` : ""}${dong.start_at ? ` · ${ngayGio(dong.start_at)}` : " · chưa đặt giờ"}${dong.is_locked ? " · đã khóa" : ""}${btTitle}`}
                           aria-label={`${nhan.ma}${nhan.congDoan ? `, ${nhan.congDoan}` : ""}${nhan.sanPham ? `, ${nhan.sanPham}` : ""}${dong.start_at ? `, bắt đầu ${ngayGio(dong.start_at)}` : ", chưa đặt giờ"}`}
                           onPointerDown={canDrag ? (e) => onBarDown(dong, e) : undefined}
@@ -772,12 +802,23 @@ export function Xl2Gantt({
                           {/* Accent chỉ báo trạng thái mép trái */}
                           <span className="xl2-bar__accent" />
 
-                          {/* Vân sọc vi sóng canh máy ở đầu thanh */}
-                          {timed && bt && bt.canh_may_phut > 0 && width >= 40 && (
+                          {/* Đầu chip: quãng CHUẨN BỊ MÁY — mảng đậm + vạch ngăn, KHÔNG dùng sọc chéo
+                              (sọc chéo trên màn này chỉ có một nghĩa: ngoài ca / máy bị khoá). */}
+                          {setupPx >= 5 && bt && (
                             <span
-                              className="xl2-bar__setup-hatch"
-                              style={{ width: `${Math.min(Math.max((bt.canh_may_phut / (bt.chiem_may_phut || 1)) * 100, 4), 30)}%` }}
-                              title={`Canh máy: ${thoiLuong(bt.canh_may_phut)}`}
+                              className="xl2-bar__setup"
+                              style={{ width: setupPx }}
+                              title={`Chuẩn bị máy: ${thoiLuong(bt.canh_may_phut)}`}
+                              aria-hidden="true"
+                            />
+                          )}
+
+                          {/* Đuôi chip: quãng XÊ DỊCH giờ xong — nhạt dần, ngăn bằng vạch đứt dọc. */}
+                          {slackPx >= 6 && bt && (
+                            <span
+                              className="xl2-bar__slack"
+                              style={{ width: slackPx }}
+                              title={`Xong sớm nhất sau ${thoiLuong(bt.chiem_may_phut_min)}, muộn nhất ${thoiLuong(bt.chiem_may_phut_max)}`}
                               aria-hidden="true"
                             />
                           )}
@@ -786,11 +827,15 @@ export function Xl2Gantt({
                             {isWide ? (
                               <>
                                 <div className="xl2-bar__row1">
-                                  <span className="xl2-bar__code">{serial}</span>
-                                  {dong.buoc_thu_tu != null && (
-                                    <span className="xl2-bar__step-pill">B{dong.buoc_thu_tu + 1}</span>
+                                  <span className="xl2-bar__code" title={maBuoc}>{serial}</span>
+                                  {buocLabel && (
+                                    <span className="xl2-bar__step-pill">{buocLabel}</span>
                                   )}
-                                  {durLabel && <span className="xl2-bar__dur">{durLabel}</span>}
+                                  {durRange && width >= 150 ? (
+                                    <span className="xl2-bar__dur xl2-bar__dur--range">{durRange}</span>
+                                  ) : durLabel && width >= 112 ? (
+                                    <span className="xl2-bar__dur">{durLabel}</span>
+                                  ) : null}
                                 </div>
                                 {nhan.congDoan && (
                                   <div className="xl2-bar__row2">
@@ -801,36 +846,15 @@ export function Xl2Gantt({
                               </>
                             ) : isMedium ? (
                               <div className="xl2-bar__row1">
-                                <span className="xl2-bar__code">{serial}</span>
-                                {dong.buoc_thu_tu != null && (
-                                  <span className="xl2-bar__step-pill">B{dong.buoc_thu_tu + 1}</span>
-                                )}
+                                <span className="xl2-bar__code" title={maBuoc}>{maBuocNgan}</span>
                               </div>
                             ) : (
                               <div className="xl2-bar__row1 xl2-bar__row1--tiny">
-                                {dong.buoc_thu_tu != null ? (
-                                  <span className="xl2-bar__step-pill">B{dong.buoc_thu_tu + 1}</span>
-                                ) : (
-                                  <span className="xl2-bar__code">{serial}</span>
-                                )}
+                                <span className="xl2-bar__code" title={maBuoc}>{maBuocNgan}</span>
                               </div>
                             )}
                           </div>
                         </button>
-                        {timed && bt && btUncertain && (
-                          <span
-                            className="xl2-rau2"
-                            style={{
-                              left: scale.xOf(sW + bt.chiem_may_phut_min),
-                              width: Math.max((bt.chiem_may_phut_max - bt.chiem_may_phut_min) * scale.ppm, 6),
-                            }}
-                            aria-hidden="true"
-                          >
-                            <i className="xl2-rau2__cap xl2-rau2__cap--min" />
-                            <i className="xl2-rau2__cap xl2-rau2__cap--max" />
-                          </span>
-                        )}
-                        </Fragment>
                       );
                     })}
                     {/* ghost khi kéo trúng lane này */}

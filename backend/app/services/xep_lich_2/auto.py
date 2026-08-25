@@ -41,6 +41,16 @@ from . import routing as R
 CHAN_NGAY_MAC_DINH = 60
 # Trần mốc ứng viên xét cho MỘT bước — chặn vòng chấm thoái hoá khi lịch quá dày.
 TRAN_UNG_VIEN = 400
+# --- NÉ cảnh báo do CHÍNH CHỖ ĐẶT gây ra (25/08/2026) ---
+# Chỉ hai mã này: chúng là hậu quả của việc nhét bước vào khe CHẬT, dời sang chỗ rộng là hết. Các
+# cảnh báo khác hoặc là thuộc tính của lệnh (`dem_giao_ngan` — dời kiểu gì cũng kêu, né là quét cạn
+# trần vô ích), hoặc dời muộn còn tệ hơn (`sat_han_sx`, `sap_bao_tri`), hoặc là chuyện san tải mà
+# `diem_may` đã lo (`tai_may_cao`, `tai_to_cao`) — né mấy cái đó là lặng lẽ đẩy việc sang ngày khác.
+MA_NE = ("lan_viec_ke", "vuot_quan_so_to")
+# Trần dò thêm khi khe sớm nhất dính `MA_NE` — chặn cả về SỐ MỐC lẫn về GIỜ, để việc né KHÔNG BAO
+# GIỜ đắt hơn thứ nó né: thà mang một cảnh báo còn hơn bỏ máy trống nửa ngày.
+TRAN_NE_MOC = 24
+TRAN_NE_GIO = 8
 
 
 
@@ -140,16 +150,25 @@ def _moc_ung_vien(service, dong, shadow, *, san: datetime, chan_ngay: int,
         for _, f, _n in service.ctx.placements_to(shadow.department_id, dong.id):
             if f is not None:
                 moc.add(_aware(f))
-    trong = sorted(m for m in moc if san <= m <= tran)
+    # TRÒN PHÚT (lên) ngay tại lò đẻ mốc: mọi giờ hệ tự chấm — tự-xếp, gợi ý máy, gợi ý khe —
+    # đều đi qua đây, nên chốt ở một chỗ là cả hệ nói cùng một loại giờ với ô nhập của màn.
+    trong = sorted({C.tron_phut(m, len_tren=True) for m in moc if san <= m <= tran})
     return trong[:TRAN_UNG_VIEN]
 
 
 def _khe_dau_tien(service, dong, shadow, *, chiem: int, chiem_max: int, san: datetime,
-                  chan_ngay: int, ca) -> tuple[datetime | None, list[dict], str | None]:
+                  chan_ngay: int, ca,
+                  ne_canh_bao: bool = True) -> tuple[datetime | None, list[dict], str | None]:
     """Khe SỚM NHẤT không vướng luật CHẶN ĐẶT LỊCH, kèm các cảnh báo còn lại của khe đó.
 
     Chạy liên tục nên khe bắt đầu sớm nhất cũng là khe kết thúc sớm nhất — duyệt mốc tăng dần rồi
     nhận cái đầu tiên sạch là tối ưu, không cần quét hết.
+
+    `ne_canh_bao=True`: khe sớm nhất mà dính `MA_NE` thì DÒ THÊM (trong trần `TRAN_NE_MOC` mốc và
+    `TRAN_NE_GIO` giờ) tìm khe không dính; không có mới quay về đúng khe sớm nhất đó. Trước đây máy
+    nhận ngay khe đầu tiên rồi tự chấm chính kế hoạch mình vừa đẻ là "có vấn đề", người xếp mở lên
+    thấy một bảng cảnh báo do máy tự gây ra (25/08/2026). Lượt CỨU HẠN tắt cờ này — lúc đó chỉ còn
+    một câu hỏi là cứu được bao nhiêu giờ.
 
     Không tìm ra khe nào thì trả kèm MỘT MỆNH ĐỀ vì-sao dựng từ SỔ ĐẾM luật đã chặn trên TOÀN BỘ
     mốc đã dò (`chan_doan.vi_sao_khong_co_khe`) — kể luật ở mốc đầu tiên là kể nhầm, vì mốc đầu hay
@@ -158,7 +177,12 @@ def _khe_dau_tien(service, dong, shadow, *, chiem: int, chiem_max: int, san: dat
     dem: dict[str, int] = {}
     mo_ta: dict[str, str] = {}
     so_moc = 0
+    du_phong: tuple[datetime, list[dict]] | None = None   # khe sớm nhất, nhưng dính MA_NE
+    them = 0
     for start in _moc_ung_vien(service, dong, shadow, san=san, chan_ngay=chan_ngay, ca=ca):
+        if du_phong is not None and (them >= TRAN_NE_MOC
+                                     or start - du_phong[0] > timedelta(hours=TRAN_NE_GIO)):
+            break
         so_moc += 1
         finish = C.finish_lien_tuc(start, chiem)
         vd = service._van_de_dat_lich(
@@ -174,13 +198,20 @@ def _khe_dau_tien(service, dong, shadow, *, chiem: int, chiem_max: int, san: dat
                 dem[ma] = dem.get(ma, 0) + 1
                 mo_ta.setdefault(ma, i.get("mo_ta") or ma)
             continue
-        return start, [i for i in vd if i["muc"] == C.MUC_CANH_BAO], None
+        canh_bao = [i for i in vd if i["muc"] == C.MUC_CANH_BAO]
+        if not ne_canh_bao or not any(i.get("ma") in MA_NE for i in canh_bao):
+            return start, canh_bao, None
+        if du_phong is None:
+            du_phong = (start, canh_bao)
+        them += 1
+    if du_phong is not None:
+        return du_phong[0], du_phong[1], None
     return None, [], CD.vi_sao_khong_co_khe(dem, mo_ta, so_moc=so_moc, chan_ngay=chan_ngay)
 
 
 # ============================ CHỌN MÁY ============================
 def ung_vien_may(service, dong, *, san: datetime, chan_ngay: int, ca,
-                 ket: list[str] | None = None) -> list[dict]:
+                 ket: list[str] | None = None, ne_canh_bao: bool = True) -> list[dict]:
     """Mọi máy làm được bước này, kèm khe sớm nhất + giờ xong + hai tiêu chí phá hoà.
 
     `ket` (tuỳ chọn) là sổ ghi vì sao từng máy bị loại — chỉ nơi cần báo thất bại mới truyền vào."""
@@ -190,11 +221,12 @@ def ung_vien_may(service, dong, *, san: datetime, chan_ngay: int, ca,
     # CỐ Ý không bọc ở ngoài `tu_xep`: sau mỗi bước vừa ghi, máy đã bị chiếm thêm — ảnh chụp cũ sẽ
     # nói dối và bước sau sẽ đè lên bước trước.
     with service.ctx.dong_bang():
-        return _ung_vien_may(service, dong, san=san, chan_ngay=chan_ngay, ca=ca, ket=ket)
+        return _ung_vien_may(service, dong, san=san, chan_ngay=chan_ngay, ca=ca, ket=ket,
+                             ne_canh_bao=ne_canh_bao)
 
 
 def _ung_vien_may(service, dong, *, san: datetime, chan_ngay: int, ca,
-                  ket: list[str] | None = None) -> list[dict]:
+                  ket: list[str] | None = None, ne_canh_bao: bool = True) -> list[dict]:
     core = service.core
     lsx = core.lsx_repo.get(dong.lsx_id) if dong.lsx_id else None
     gom = core._gom_key(lsx)
@@ -208,7 +240,7 @@ def _ung_vien_may(service, dong, *, san: datetime, chan_ngay: int, ca,
         shadow = service._shadow(dong, {"may_id": may.id})
         start, canh_bao, vi_sao = _khe_dau_tien(
             service, dong, shadow, chiem=d["chiem_may_phut"], chiem_max=d["chiem_may_phut_max"],
-            san=san, chan_ngay=chan_ngay, ca=ca,
+            san=san, chan_ngay=chan_ngay, ca=ca, ne_canh_bao=ne_canh_bao,
         )
         if start is None:
             if ket is not None:
@@ -279,8 +311,8 @@ def _ap(dong, *, may_id, start, finish) -> None:
     (`da_xep_khac_tren_may` lọc `trang_thai == TT_DA_XEP`, autoflush lo phần còn lại)."""
     if may_id is not None:
         dong.may_id = may_id
-    dong.start_at = start
-    dong.finish_at = finish
+    dong.start_at = C.tron_phut(start)
+    dong.finish_at = C.tron_phut(finish)
     dong.trang_thai = TT_DA_XEP
     dong.blocked_reason = None
 
@@ -308,7 +340,7 @@ def _vi_sao_khong_may(ket: list[str], chan_ngay: int) -> str:
 
 
 def _xep_theo_thoi_luong_san(service, dong, shadow, *, san, chan_ngay, ca, ly_do,
-                             cho: list[str] | None = None) -> dict:
+                             cho: list[str] | None = None, ne_canh_bao: bool = True) -> dict:
     """Nhánh dùng chung cho bước KHÔNG chọn máy (thuê ngoài · làm tay theo tổ): thời lượng đã cố
     định sẵn, chỉ còn việc tìm khe sớm nhất."""
     dur = service._thoi_luong_v2(shadow)
@@ -321,7 +353,8 @@ def _xep_theo_thoi_luong_san(service, dong, shadow, *, san, chan_ngay, ca, ly_do
     chiem_max = int(dur.get("chiem_may_phut_max") or chiem)
     start, canh_bao, vi_sao = _khe_dau_tien(service, dong, shadow, chiem=chiem,
                                             chiem_max=chiem_max, san=san,
-                                            chan_ngay=chan_ngay, ca=ca)
+                                            chan_ngay=chan_ngay, ca=ca,
+                                            ne_canh_bao=ne_canh_bao)
     if start is None:
         return {"ok": False,
                 "ly_do": f"Không tìm được khe hợp lệ trong {chan_ngay} ngày tới"
@@ -345,14 +378,18 @@ def xep_mot_buoc(service, dong, *, chan_ngay: int, nhanh_nhat: bool) -> dict:
     if loai == LB_THUE_NGOAI:
         return _xep_theo_thoi_luong_san(
             service, dong, shadow0, san=san, chan_ngay=chan_ngay, ca=ca, cho=cho,
+            ne_canh_bao=not nhanh_nhat,
             ly_do="Bước gửi ngoài — xếp theo lead-time gửi → nhận, không chiếm máy.")
     if loai == LB_TO:
         return _xep_theo_thoi_luong_san(
             service, dong, shadow0, san=san, chan_ngay=chan_ngay, ca=ca, cho=cho,
+            ne_canh_bao=not nhanh_nhat,
             ly_do="Bước làm tay — xếp vào khe sớm nhất tổ còn đủ người.")
 
     ket: list[str] = []
-    ung_vien = ung_vien_may(service, dong, san=san, chan_ngay=chan_ngay, ca=ca, ket=ket)
+    # Lượt CỨU HẠN không né cảnh báo: đang chạy đua với hạn thì một cảnh báo rẻ hơn một giờ trễ.
+    ung_vien = ung_vien_may(service, dong, san=san, chan_ngay=chan_ngay, ca=ca, ket=ket,
+                            ne_canh_bao=not nhanh_nhat)
     if not ung_vien:
         return {"ok": False, "ly_do": _vi_sao_khong_may(ket, chan_ngay)}
     chon = chon_may(ung_vien, nhanh_nhat=nhanh_nhat)

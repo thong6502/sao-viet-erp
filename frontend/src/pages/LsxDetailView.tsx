@@ -7,7 +7,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
-  LSX_CANH_BAO_LABELS,
   LSX_THIEU_LABELS,
   nhanMa,
   api,
@@ -766,15 +765,6 @@ export function LsxDetailView({
             ) : (
               <span className="khsx-topbar__tag khsx-topbar__tag--ok">
                 <Icon name="check" size={14} /> Đủ dữ liệu
-              </span>
-            )}
-
-            {d.canh_bao.length > 0 && (
-              <span
-                className="khsx-topbar__tag khsx-topbar__tag--info"
-                title={d.canh_bao.map((c) => nhanMa(LSX_CANH_BAO_LABELS, c, dvChuoi)).join("; ")}
-              >
-                <Icon name="help" size={13} /> {d.canh_bao.length} lưu ý
               </span>
             )}
           </div>

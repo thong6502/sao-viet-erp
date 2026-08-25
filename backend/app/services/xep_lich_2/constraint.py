@@ -50,6 +50,23 @@ def finish_lien_tuc(start: datetime, chiem_may_phut: int) -> datetime:
     return start + timedelta(minutes=int(chiem_may_phut))
 
 
+def tron_phut(moc: datetime | None, *, len_tren: bool = False) -> datetime | None:
+    """Cắt giây/micro giây — mọi mốc Xếp lịch 2 ĐƯA RA hay GHI XUỐNG đều phải TRÒN PHÚT.
+
+    Màn nhập giờ bằng `datetime-local` (chỉ tới phút) nên mốc lẻ giây là thứ người dùng không sửa
+    được mà vẫn phải gánh: mở ngăn kéo là giây bị cắt, đem so với hàng xóm còn nguyên giây thành
+    chồng lấn ảo. Chuẩn hoá để không đẻ thêm mốc lẻ (25/08/2026); mốc CŨ đã lỡ lẻ thì dung sai của
+    `trung_may` đỡ — không đụng vào dữ liệu đang sống.
+
+    `len_tren=True` làm tròn LÊN, dành cho MỐC ỨNG VIÊN của tự-xếp/gợi-ý-khe: sàn ở đó là
+    `max(bây giờ · tiền nhiệm xong · máy vừa nhả)`, cắt xuống là lùi vào trước cái mình đang né.
+    """
+    if moc is None:
+        return None
+    tron = moc.replace(second=0, microsecond=0)
+    return tron + timedelta(minutes=1) if len_tren and tron != moc else tron
+
+
 def ngoai_ca(start: datetime, ca: list[tuple[int, int, bool]]) -> dict | None:
     """Cửa chặn DUY NHẤT của ca (§7.1): GIỜ BẮT ĐẦU phải rơi vào một ca đã cấu hình.
 
@@ -120,10 +137,22 @@ def de_vung_khoa_may(
 
 def trung_may(
     start: datetime, finish: datetime, da_xep: list[tuple[datetime, datetime]],
+    *, dung_sai_phut: int = 1,
 ) -> dict | None:
-    """Trùng việc khác trên CÙNG máy (§7.1). Nối đuôi (chạm mép) KHÔNG tính là trùng."""
+    """Trùng việc khác trên CÙNG máy (§7.1). Nối đuôi (chạm mép) KHÔNG tính là trùng.
+
+    Chừa `dung_sai_phut` phút dung sai, cùng lý lẽ với `sai_tien_nhiem`. Mốc trong DB do auto-xếp
+    sinh từ `now()` nên LẺ GIÂY (`10:54:29.870360`), còn ô nhập giờ của màn là `datetime-local` —
+    chỉ tới PHÚT. Mở ngăn kéo một việc nối đuôi là bản "đang gõ" bắt đầu lúc `10:54:00` và chồm
+    ngược 29,87 giây vào việc trước ⇒ so chặt tới micro giây thì cả chuỗi khít nhau bị hô trùng
+    OAN (25/08/2026). Chồng lấn dưới một phút cũng không có nghĩa với xưởng: người xếp không có
+    đường nào đặt giờ lẻ giây để mà sửa.
+    """
+    dung_sai = timedelta(minutes=dung_sai_phut)
     for o_start, o_finish in da_xep:
         if o_start < finish and start < o_finish:
+            if min(finish, o_finish) - max(start, o_start) <= dung_sai:
+                continue
             return issue(
                 "trung_may", MUC_CHAN_DAT_LICH,
                 "Trùng giờ với một việc khác trên cùng máy.",
@@ -172,6 +201,9 @@ def lan_viec_ke(
     (min↔max): rơi vào nhánh chậm thì đuôi `finish_max` có thể chồm sang việc kế đã xếp. Chỉ nhắc,
     không chặn — chưa chắc chạy tới max, và người xếp có thể chủ động chừa đệm. Không có dải max
     (`finish_max <= finish`) thì không thể lấn thêm.
+
+    `da_xep` ở đây là việc của LỆNH KHÁC (`ctx.khoang_may_lenh_khac`), hẹp hơn nền của `trung_may`:
+    lấn sang bước sau của chính mình thì cả dây trượt theo chứ không ai mất máy.
     """
     if finish is None or finish_max is None or finish_max <= finish:
         return None

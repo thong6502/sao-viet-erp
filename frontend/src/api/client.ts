@@ -512,23 +512,6 @@ export const LSX_THIEU_LABELS: Record<string, NhanMa> = {
       : "Chưa khai Số trang / Trang mỗi tay — có công đoạn gom tay thành cuốn",
 };
 
-/** Cảnh báo MỀM — chỉ tô màu, không chặn lưu và không chặn Sẵn sàng. */
-export const LSX_CANH_BAO_LABELS: Record<string, NhanMa> = {
-  ra_lon_hon_vao: "Có công đoạn ra nhiều hơn vào",
-  dut_chuyen: "Đứt chuyền — bước sau đòi nhiều hơn bước trước giao",
-  vuot_han_giao: "Tổng thời gian dẫn vượt hạn giao khách",
-  khac_bai_tinh_gia: "Routing đã đổi so với bài tính giá",
-  may_khong_hop_kho: (dv) => `Khổ ${dv.to || "tờ in"} vượt khổ tối đa của máy`,
-  // Chuỗi 3 đơn vị (tờ nguyên → tờ in → tờ thành phẩm) — kiểm trên các bước CÓ đơn vị, bước
-  // không chạm giấy (chế bản) đứng ngoài.
-  // Bước khai đơn vị hợp lệ nhưng KHÔNG nằm trên dòng giấy (vd `lượt → lượt`): nó rơi khỏi chuỗi
-  // bù hao nên số lượng đứng im ở 0 và hao của nó biến mất khỏi số giấy — phải nói ra.
-  buoc_ngoai_dong_giay: "Có công đoạn khai đơn vị ngoài dòng giấy — số lượng và bù hao của nó không được tính",
-  cap_don_vi_sai: "Có công đoạn khai đơn vị đi ngược dòng giấy",
-  dut_don_vi: "Chuỗi đứt đơn vị — bước sau ăn đơn vị khác bước trước nhả",
-  lech_sl_don: "Bước cuối ra khác số lượng đơn đặt",
-};
-
 /** Mã → câu, đã thế tên đơn vị của CHÍNH lệnh đang xét. Mã lạ ⇒ trả mã trần (thà thấy mã còn hơn
  *  nuốt mất). `dv` bỏ trống ⇒ câu lùi về bản chung, không có tên đơn vị nào. */
 export function nhanMa(
@@ -2320,9 +2303,9 @@ export interface LsxDetail {
   /** "Lưu ý sản xuất (gửi xưởng)" đọc SỐNG từ đơn hàng — nguồn DUY NHẤT của ô lưu ý thợ thấy. */
   luu_y_gui_xuong: string | null;
   cong_doans: LsxCongDoan[];
-  /** Hai rổ TÁCH BẠCH: `thieu` chặn nút Sẵn sàng; `canh_bao` chỉ tô màu. */
+  /** Mã CHẶN nút "Sẵn sàng lập kế hoạch" (dịch bằng `LSX_THIEU_LABELS`). Rổ cảnh báo mềm
+   *  `canh_bao` đã gỡ cả hai đầu 25/08/2026 — không màn nào hiện nó. */
   thieu: string[];
-  canh_bao: string[];
   lead_time: LsxLeadTime | null;
   /** Công thợ khoán DỰ KIẾN cả lệnh = Σ bước quy đổi được. Là số SÀN: bước chưa chọn đầu việc
    *  hoặc thiếu số để quy đổi thì không góp vào. */
@@ -3226,6 +3209,8 @@ export interface PhieuTinhGiaListItem {
   ten_san_pham: string;
   loai_san_pham_id: number | null;
   kho_thanh_pham: string | null;
+  /** Σ SL CÁC SẢN PHẨM bên trong phiếu (BE tính lại) — không phải ô SL mặc định ở đầu phiếu.
+   *  Đây là số mà `gia_von_don` đang chia, nên SL × giá vốn/đơn = tổng giá vốn. */
   so_luong: number;
   gia_von_don: number;
   tong_gia_von: number;
