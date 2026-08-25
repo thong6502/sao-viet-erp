@@ -1261,7 +1261,7 @@ def test_purchase_request_full_lifecycle(client, auth_headers):
 
     pr = _create_purchase_request(client, auth_headers, supplier["id"], [source["id"]])
 
-    assert re.fullmatch(r"PMH-\d{6}-[A-Z0-9]{4}", pr["code"])
+    assert re.fullmatch(r"DMH-\d{6}-[A-Z0-9]{4}", pr["code"])   # prefix đổi PMH→DMH 25/08/2026
     assert pr["status"] == "draft"
     assert pr["supplier_name"] == supplier["name"]
     assert pr["sources"][0]["code"] == source["code"]

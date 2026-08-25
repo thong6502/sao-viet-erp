@@ -151,6 +151,7 @@ class StockVoucherRepository:
                 StockVoucherLine.lot_id, StockVoucherLine.so_luong,
                 StockLot.ma_lo, StockLot.don_gia_nhap,
                 StockRequestLine.sl_de_nghi.label("sl_de_nghi"),
+                StockRequestLine.dvt.label("dvt_yeu_cau"),
             )
             .join(StockVoucher, StockVoucher.id == StockVoucherLine.voucher_id)
             .join(StockLot, StockLot.id == StockVoucherLine.lot_id, isouter=True)
@@ -174,18 +175,23 @@ class StockVoucherRepository:
                 "lot_id": r.lot_id, "ma_lo": r.ma_lo,
                 "so_luong": float(r.so_luong), "don_gia": int(r.don_gia_nhap or 0),
                 "sl_de_nghi": float(r.sl_de_nghi) if r.sl_de_nghi is not None else None,
+                "dvt_yeu_cau": r.dvt_yeu_cau,
                 "dieu_chuyen": bool(r.dieu_chuyen),
             }
             for r in self.db.execute(stmt).all()
         ]
 
-    def sl_de_nghi_by_lot(self, lots) -> dict[int, float]:
-        """Map lot_id → `sl_de_nghi` của dòng yêu cầu đã sinh ra lô NHẬP.
+    def sl_de_nghi_by_lot(self, lots) -> dict[int, tuple[float, str | None]]:
+        """Map lot_id → (`sl_de_nghi`, `dvt`) của dòng yêu cầu đã sinh ra lô NHẬP.
+
+        `dvt` = ĐƠN VỊ người xin khai trên yêu cầu — có thể KHÁC đơn vị gốc của lô (vd xin 'tờ'
+        mà lô lưu 'ram'), nên lịch sử phải ghi rõ đơn vị này cho cột "SL yêu cầu", tránh nhìn
+        "40.000 (tờ)" cạnh "80 (ram)" tưởng lệch.
 
         Lô NHẬP có `voucher_id` (phiếu tạo lô); dòng phiếu NHẬP tạo lô là dòng có
         `voucher_id == lot.voucher_id` và `lot_id == lot.id` (ghi sổ gán lot_id về dòng).
-        Từ dòng đó lấy `request_line_id` → `StockRequestLine.sl_de_nghi`. Lọc theo cả
-        (voucher_id, lot_id) nên chỉ bắt dòng NHẬP tạo lô, không dính dòng XUẤT trừ lô.
+        Từ dòng đó lấy `request_line_id` → `StockRequestLine`. Lọc theo cả (voucher_id, lot_id)
+        nên chỉ bắt dòng NHẬP tạo lô, không dính dòng XUẤT trừ lô.
         """
         from ..models.stock_request import StockRequestLine
 
@@ -194,7 +200,7 @@ class StockVoucherRepository:
         if not voucher_ids or not lot_ids:
             return {}
         stmt = (
-            select(StockVoucherLine.lot_id, StockRequestLine.sl_de_nghi)
+            select(StockVoucherLine.lot_id, StockRequestLine.sl_de_nghi, StockRequestLine.dvt)
             .join(
                 StockRequestLine,
                 StockRequestLine.id == StockVoucherLine.request_line_id,
@@ -205,8 +211,8 @@ class StockVoucherRepository:
             )
         )
         return {
-            lot_id: float(sl)
-            for lot_id, sl in self.db.execute(stmt).all()
+            lot_id: (float(sl), dvt)
+            for lot_id, sl, dvt in self.db.execute(stmt).all()
             if lot_id is not None and sl is not None
         }
 
