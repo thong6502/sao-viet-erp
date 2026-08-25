@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { bonusRows, hoaHongTotal } from "./LuongPage";
+import { bonusRows, hoaHongTotal } from "./shared/helpers";
 
 type Khoan = {
   code: string;

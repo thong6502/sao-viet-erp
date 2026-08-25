@@ -26,7 +26,7 @@ import {
   defaultMatrix,
   type ActionKey,
 } from "../components/PermissionMatrix";
-import { EmployeeWizard } from "./NhanSuPage";
+import { EmployeeWizard } from "./nhan-su-luong/nhan-su";
 import { Icon } from "../components/Icons";
 import {
   Building2,
