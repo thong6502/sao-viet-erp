@@ -78,8 +78,9 @@ class ThanhPhanIn(BaseModel):
     thu_tu: int | None = None
     loai_thanh_phan: str | None = None
     ten: str | None = None
-    dai_thanh_pham: int | None = None
-    rong_thanh_pham: int | None = None
+    # mm — SỐ THỰC (khổ hay lẻ nửa ly: name card 88.9×50.8, letter 215.9×279.4).
+    dai_thanh_pham: float | None = None
+    rong_thanh_pham: float | None = None
     so_to_per_sp: int | None = Field(default=None, ge=1)   # DẪN XUẤT (engine ghi) — client gửi cũng bị đè
     so_trang: int | None = Field(default=None, ge=1)        # số trang nội dung của 1 sản phẩm
     trang_moi_tay: int | None = Field(default=None, ge=1)   # số trang mỗi tay gấp
@@ -91,8 +92,8 @@ class ThanhPhanIn(BaseModel):
     # Giấy
     giay_id: int | None = None
     kho_nguyen: str | None = None
-    kho_nguyen_dai: int | None = None
-    kho_nguyen_rong: int | None = None
+    kho_nguyen_dai: float | None = None
+    kho_nguyen_rong: float | None = None
     don_gia_giay: float | None = None
     don_gia_don_vi: str | None = None
     nguon_giay: str | None = None
@@ -104,8 +105,8 @@ class ThanhPhanIn(BaseModel):
     che_ban_loai: str | None = None
     che_ban_don_gia: float | None = None
     quy_cach_in: str | None = None
-    kho_in_dai: int | None = None
-    kho_in_rong: int | None = None
+    kho_in_dai: float | None = None
+    kho_in_rong: float | None = None
     so_con: int | None = Field(default=None, ge=1)
     con_auto: bool | None = None
     may_id: int | None = None
@@ -132,8 +133,8 @@ class ThanhPhanOut(BaseModel):
     thu_tu: int
     loai_thanh_phan: str
     ten: str
-    dai_thanh_pham: int
-    rong_thanh_pham: int
+    dai_thanh_pham: float
+    rong_thanh_pham: float
     so_to_per_sp: int
     so_trang: int = 1
     trang_moi_tay: int = 1
@@ -144,8 +145,8 @@ class ThanhPhanOut(BaseModel):
     # Giấy
     giay_id: int | None = None
     kho_nguyen: str | None = None
-    kho_nguyen_dai: int = 0
-    kho_nguyen_rong: int = 0
+    kho_nguyen_dai: float = 0
+    kho_nguyen_rong: float = 0
     don_gia_giay: float
     don_gia_don_vi: str
     nguon_giay: str
@@ -157,8 +158,8 @@ class ThanhPhanOut(BaseModel):
     che_ban_loai: str | None = None
     che_ban_don_gia: float
     quy_cach_in: str
-    kho_in_dai: int
-    kho_in_rong: int
+    kho_in_dai: float
+    kho_in_rong: float
     so_con: int
     con_auto: bool
     may_id: int | None = None
@@ -196,6 +197,16 @@ class PhieuTinhGiaUpdate(BaseModel):
     thanh_phans: list[ThanhPhanIn] | None = None
 
 
+class DanhMucDoi(BaseModel):
+    """Danh mục đã sửa SAU lần tính gần nhất của phiếu — nuôi câu nhắc "bấm Tính giá để cập nhật".
+
+    Chỉ là LỜI NHẮC: số tiền và tên trong phiếu vẫn giữ nguyên ảnh chụp cũ cho tới khi người lập
+    phiếu chủ động bấm tính lại. Xem `services.tinh_gia_service.danh_muc_doi_sau_khi_tinh`.
+    """
+    luc: datetime          # mốc tính gần nhất của phiếu
+    ten: list[str]         # tên những mục danh mục đã đổi (công đoạn · giấy · máy · vật tư)
+
+
 class PhieuTinhGiaOut(BaseModel):
     """Phiếu đầy đủ — kèm thành phần lồng + result (ảnh chụp engine) + warnings."""
     model_config = ConfigDict(from_attributes=True)
@@ -215,6 +226,8 @@ class PhieuTinhGiaOut(BaseModel):
     thanh_phans: list[ThanhPhanOut] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    # None = phiếu còn khớp danh mục. Router gán tay (không đọc được từ ORM) — xem router GET/PUT.
+    danh_muc_doi: DanhMucDoi | None = None
 
 
 class PhieuTinhGiaListItem(BaseModel):
@@ -231,6 +244,11 @@ class PhieuTinhGiaListItem(BaseModel):
     tong_gia_von: float
     ktv: str | None = None
     so_thanh_phan: int = 0
+    # Tên các sản phẩm BÊN TRONG phiếu. Ô `ten_san_pham` ở đầu phiếu là chữ tự do người lập
+    # gõ, bỏ trống được — bỏ trống thì bảng ngoài này chẳng biết phiếu báo cái gì. Gửi kèm
+    # tên hàng bên trong để cột "Sản phẩm" có cái mà rơi về. Danh sách đã selectinload sẵn,
+    # không thêm truy vấn nào.
+    ten_thanh_phans: list[str] = Field(default_factory=list)
     ngay: datetime | None = Field(default=None, validation_alias="created_at")
 
     @field_serializer("ngay")

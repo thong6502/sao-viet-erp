@@ -10561,3 +10561,35 @@ def _migrate_huy_tung_dong_ycmh(db: Session) -> None:
 
 
 MIGRATIONS.append(("0235_huy_tung_dong_ycmh", _migrate_huy_tung_dong_ycmh))
+
+
+def _migrate_kho_mm_so_thuc(db: Session) -> None:
+    """6 cột mm của `phieu_thanh_phan` — khổ thành phẩm ③, giấy nguyên ①, tờ in ② — INTEGER → NUMERIC(10,2).
+
+    Khổ in THẬT hay lẻ nửa ly: name card 88.9×50.8 (3.5×2 inch), thư mời khổ letter 215.9×279.4,
+    bìa cộng gáy 3.5mm, giấy nhập cắt lẻ. Cả engine bình bài (`binh_bai_layout` nhận `float`) lẫn
+    ô "Bleed"/"Khe cắt" cạnh bên (đã là Numeric) vốn xử số lẻ được — chỉ SÁU cột này còn INTEGER,
+    nên gõ 215.9 là API trả 422 `int_from_float` và ô bình bài live đứng im, không ai hiểu vì sao.
+
+    Nới cột (integer → numeric là cast NGẦM của Postgres, không cần USING, không mất số cũ).
+    Raw SQL đích danh cột, idempotent (bỏ qua cột đã NUMERIC), no-op trên SQLite: cột khai
+    INTEGER ở SQLite vẫn giữ nguyên 215.9 nhờ affinity, và DB test dựng bằng create_all."""
+    bind = db.get_bind()
+    if bind.dialect.name == "sqlite":
+        return
+    insp = inspect(bind)
+    if "phieu_thanh_phan" not in set(insp.get_table_names()):
+        return
+    kieu = {c["name"]: str(c["type"]).upper() for c in insp.get_columns("phieu_thanh_phan")}
+    for ten in (
+        "dai_thanh_pham", "rong_thanh_pham",
+        "kho_nguyen_dai", "kho_nguyen_rong",
+        "kho_in_dai", "kho_in_rong",
+    ):
+        if not kieu.get(ten, "").startswith("INTEGER"):
+            continue
+        db.execute(text(f"ALTER TABLE phieu_thanh_phan ALTER COLUMN {ten} TYPE NUMERIC(10, 2)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0236_kho_mm_so_thuc", _migrate_kho_mm_so_thuc))

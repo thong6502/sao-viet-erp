@@ -18,6 +18,7 @@ import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import "./accounting.css";
+import "./purchase.css";
 
 type AccountTab = "company" | "supplier";
 type AccountRow = CompanyBankAccountRow | SupplierBankAccountRow;
@@ -222,25 +223,6 @@ export function AccountingBankAccountsPage() {
     }
   }
 
-  async function toggle(row: AccountRow) {
-    if (!token) return;
-    setBusy(true);
-    try {
-      if ("supplier_id" in row)
-        await api.accounting.toggleSupplierAccount(token, row.id);
-      else await api.accounting.toggleCompanyAccount(token, row.id);
-      load();
-    } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : "Không đổi được trạng thái tài khoản.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
   function createForCurrentTab() {
     openCreate();
   }
@@ -313,25 +295,39 @@ export function AccountingBankAccountsPage() {
               <th>Loại tiền</th>
               {tab === "company" && <th>Mục đích</th>}
               <th>Trạng thái</th>
-              <th>Thao tác</th>
             </tr>
           </thead>
           <tbody>
-            {loading && (
-              <tr>
-                <td colSpan={8}>Đang tải...</td>
-              </tr>
-            )}
+            {loading &&
+              Array.from({ length: 5 }).map((_, i) => (
+                <tr key={`sk-${i}`} className="purchase__skeleton-row">
+                  <td><div className="purchase__skeleton-bar" style={{ width: "140px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "130px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "120px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "100px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "60px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "70px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "80px" }} /></td>
+                </tr>
+              ))}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={8}>Chưa có tài khoản ngân hàng.</td>
+                <td colSpan={7}>Chưa có tài khoản ngân hàng.</td>
               </tr>
             )}
             {!loading &&
               rows.map((row) => {
                 const company = isCompanyAccount(row) ? row : null;
                 return (
-                  <tr key={`${tab}-${row.id}`}>
+                  // Bấm cả DÒNG để mở phiếu sửa (thao tác nay nằm TRONG bản ghi, không còn cột
+                  // "Thao tác" bên ngoài). CHỈ mở cho người có quyền sửa — `save()` không tự
+                  // chặn quyền nên đừng để người chỉ-xem mở được form. Trạng thái Hoạt
+                  // động/Ngừng dùng đổi bằng ô tick "Đang hoạt động" ngay trong phiếu rồi Lưu.
+                  <tr
+                    key={`${tab}-${row.id}`}
+                    className={canManage ? "acct-clickrow" : undefined}
+                    onClick={canManage ? () => openEdit(row) : undefined}
+                  >
                     {tab === "supplier" && (
                       <td>
                         {"supplier_name" in row ? row.supplier_name : "—"}
@@ -360,27 +356,6 @@ export function AccountingBankAccountsPage() {
                       >
                         {row.is_active ? "Hoạt động" : "Ngừng dùng"}
                       </span>
-                    </td>
-                    <td>
-                      <div className="acct-actions acct-actions--compact">
-                        {canManage && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              onClick={() => openEdit(row)}
-                            >
-                              Sửa
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              disabled={busy}
-                              onClick={() => toggle(row)}
-                            >
-                              {row.is_active ? "Ngừng dùng" : "Bật lại"}
-                            </Button>
-                          </>
-                        )}
-                      </div>
                     </td>
                   </tr>
                 );

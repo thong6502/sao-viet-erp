@@ -466,7 +466,18 @@ def _ct(dan: str, tien: float, sl: int) -> str:
     tien = _f(tien)
     if sl <= 0:
         return f"{dan} = {_vi(tien)}đ"
-    return f"{dan} ÷ {_vi(sl)} = {_vi(round(tien / sl, 2))}đ/sp"
+    # Diễn giải đã có phép chia của CHÍNH NÓ ⇒ đóng ngoặc trước khi nối "÷ SL". Không ngoặc thì
+    # đọc lên là "a ÷ b ÷ 4.000" — không ai biết vế nào chia cho vế nào. Trước 25/08/2026 chỗ gọi
+    # xử lý bằng cách BỎ LUÔN vế "÷ SL" khi thấy dấu ÷, nên công thức có phép chia thì mất hẳn số
+    # đ/sp — đúng chỗ người dùng kêu ở dòng Giấy.
+    ve = f"({dan})" if "÷" in dan else dan
+    return f"{ve} ÷ {_vi(sl)} = {_vi(round(tien / sl, 2))}đ/sp"
+
+
+def _chia_duoc(dan: str) -> bool:
+    """`dan` là diễn giải THẬT hay là câu báo lỗi ('thiếu công thức — 0đ')? Câu báo lỗi mà nối
+    thêm '÷ 4.000 = 0đ/sp' thì đọc như một phép tính có thật."""
+    return "đ/sp" not in dan and "thiếu" not in dan and "lỗi" not in dan
 
 
 def _step_cost_safe(cd: dict, ctx: dict, warnings: list[str], ten: str) -> tuple[float, str]:
@@ -789,7 +800,10 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         "don_gia": _r(don_gia_giay),
         "thanh_tien": _r(gia_giay),
         "gia_don_sp": _r(gia_giay / sl) if sl > 0 else 0.0,
-        "cong_thuc": format_substituted_formula(formula, eval_ctx)
+        # Nối vế "÷ SL = đ/sp" y như dòng công đoạn. Tiền giấy là khoản to nhất phiếu mà lại là
+        # dòng DUY NHẤT không quy ra đơn giá/sản phẩm — người lập phiếu phải bấm máy tính tay để
+        # so với mấy dòng công đoạn ngay bên dưới (kêu 25/08/2026).
+        "cong_thuc": _ct(format_substituted_formula(formula, eval_ctx), gia_giay, sl),
     })
 
     # --- Vật tư in ấn thêm (mực/màng/keo…) → Nguyên vật liệu: thế biến vào CÔNG THỨC của vật tư
@@ -823,7 +837,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             "don_gia": _r(vt_don_gia),
             "thanh_tien": _r(tien_vt),
             "gia_don_sp": _r(tien_vt / sl) if sl > 0 else 0.0,
-            "cong_thuc": dan_vt,
+            "cong_thuc": _ct(dan_vt, tien_vt, sl) if _chia_duoc(dan_vt) else dan_vt,
             # Kế hoạch vật tư đọc hai field này. `None` = công thức không suy được lượng ⇒ KHÔNG
             # có dòng cân đối, thà thiếu còn hơn bịa một con số để đi mua hàng theo.
             # 4 số lẻ chứ KHÔNG dùng `_r` (2 số lẻ như tiền): lượng mực cho một lệnh nhỏ có thể là
@@ -908,7 +922,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             dan_d = "thiếu công thức — 0đ"
             ghi_chu = ""
 
-        cong_thuc = _ct(dan_d, tien, sl) if ("÷" not in dan_d and "đ/sp" not in dan_d and "thiếu" not in dan_d) else dan_d
+        cong_thuc = _ct(dan_d, tien, sl) if _chia_duoc(dan_d) else dan_d
         if row.get("nha_cung_cap"):
             suffix = f"(thuê ngoài: {row['nha_cung_cap']})"
             ghi_chu = f"{ghi_chu} {suffix}".strip() if ghi_chu else suffix
@@ -962,7 +976,10 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
                 "ten": _pre(name, f"{ten_b} · phí {nhan_dao}"),
                 "thanh_tien": _r(tien),
                 "gia_don_sp": _r(tien / sl) if sl > 0 else 0.0,
-                "cong_thuc": f"phí làm {nhan_dao} — một lần, không theo sản lượng",
+                # Cũng phải quy ra đ/sp. Tiền dao KHÔNG co giãn theo sản lượng (chú thích ở trên),
+                # nhưng nó ĐANG bị chia vào giá vốn — giấu con số bị chia đi thì người lập phiếu
+                # không thấy đơn nhỏ đang gánh bao nhiêu, mà đó chính là lúc cần thấy nhất.
+                "cong_thuc": _ct(f"{_vi(_r(tien))}đ làm {nhan_dao}, một lần", tien, sl),
                 "ghi_chu": "",
             })
         else:

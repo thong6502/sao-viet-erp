@@ -82,8 +82,11 @@ class PhieuThanhPhan(Base):
     # `kho_thanh_pham` / `kho_mo_rong` / `tay_gap` đã DROP (mig 0144): ô nhập gỡ từ 2026-07-29 nên
     # phiếu mới luôn rỗng, mà bản lệnh vẫn vẽ ra ba dòng "—". Khổ thành phẩm THẬT là
     # `dai_thanh_pham` / `rong_thanh_pham` ngay dưới (mm, nuôi bình bài).
-    dai_thanh_pham: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # mm — khổ thành phẩm ③ (bình bài)
-    rong_thanh_pham: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # mm ★
+    # SỐ LẺ ĐƯỢC (mig 0236, Numeric như `bleed_mm`/`khe_cat_mm` ngay dưới): khổ thật hay lẻ nửa
+    # ly — name card 88.9×50.8 (3.5×2 inch), thư mời 215.9×279.4 (khổ letter), bìa cộng gáy 3.5mm.
+    # Thời còn INTEGER, gõ 215.9 là engine trả 422 `int_from_float` và ô bình bài đứng im.
+    dai_thanh_pham: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)   # mm — khổ thành phẩm ③ (bình bài)
+    rong_thanh_pham: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)  # mm ★
     # Số BÀI IN (khuôn) mỗi sản phẩm — mỗi bài 1 bộ kẽm. Sách: số tay. KHÔNG phải số tờ giấy.
     # DẪN XUẤT từ `so_trang / trang_moi_tay`; engine ghi lại mỗi lần tính, người dùng không nhập.
     so_to_per_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -103,8 +106,8 @@ class PhieuThanhPhan(Base):
     # --- Giấy ---
     giay_id: Mapped[int | None] = mapped_column(Integer, nullable=True)             # → giay_nguyen.id (soft)
     kho_nguyen: Mapped[str | None] = mapped_column(String(100), nullable=True)      # nhãn hiển thị "rộng×dài" (giay_ten fallback)
-    kho_nguyen_dai: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # mm — khổ giấy nguyên ① dài (ĐÈ danh mục khi > 0)
-    kho_nguyen_rong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # mm — rộng ①
+    kho_nguyen_dai: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)   # mm — khổ giấy nguyên ① dài (ĐÈ danh mục khi > 0) · số lẻ được
+    kho_nguyen_rong: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)  # mm — rộng ①
     don_gia_giay: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     don_gia_don_vi: Mapped[str] = mapped_column(String(8), nullable=False, default="to")   # to|tan
     nguon_giay: Mapped[str] = mapped_column(String(12), nullable=False, default="cong_ty")  # cong_ty|khach
@@ -119,8 +122,8 @@ class PhieuThanhPhan(Base):
     che_ban_loai: Mapped[str | None] = mapped_column(String(30), nullable=True)
     che_ban_don_gia: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     quy_cach_in: Mapped[str] = mapped_column(String(12), nullable=False, default="mot_mat")  # mot_mat|hai_mat(AB)|tu_tro|tro_nhip
-    kho_in_dai: Mapped[int] = mapped_column(Integer, nullable=False, default=0)     # mm — khổ tờ in ② (bình bài + số lượt)
-    kho_in_rong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)    # mm ★
+    kho_in_dai: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)     # mm — khổ tờ in ② (bình bài + số lượt) · số lẻ được
+    kho_in_rong: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)    # mm ★
     so_con: Mapped[int] = mapped_column(Integer, nullable=False, default=1)         # con/tờ ④ (auto bình bài; override được)
     con_auto: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)   # True: engine tự bình bài; False: dùng so_con
     may_id: Mapped[int | None] = mapped_column(Integer, nullable=True)              # → may_thiet_bi.id (soft)

@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -217,4 +219,75 @@ def compute_phieu_snapshot(db: Session, phieu) -> dict:
     phieu.gia_von_don = float(result.get("meta", {}).get("gia_von_don") or 0)  # đơn giá bình quân (Σ vốn / Σ SL)
     phieu.result_json = result
     phieu.warnings_json = result.get("warnings") or []
+    # ĐÓNG DẤU GIỜ TÍNH. Không dựa vào `onupdate` được: bấm "Tính giá" mà không sửa gì thì mọi cột
+    # đều bằng giá trị cũ, SQLAlchemy không sinh UPDATE, `updated_at` đứng im — và lời nhắc
+    # "danh mục đã đổi" sẽ không bao giờ tắt dù người dùng đã tính lại.
+    phieu.updated_at = datetime.now(timezone.utc)
     return result
+
+
+# ============================ DANH MỤC ĐỔI SAU KHI TÍNH ============================
+# Phiếu tính giá giữ ẢNH CHỤP: mở lại phiếu là đọc lại đúng con số + đúng cái tên của lần bấm
+# "Tính giá" gần nhất, KHÔNG tính lại. Đó là chủ ý — phiếu đã báo cho khách mà ai sửa đơn giá
+# trong danh mục một cái là hàng loạt phiếu cũ đổi số theo thì không còn tin được số nào.
+#
+# Nhưng im lặng hoàn toàn cũng sai: người dùng đổi tên/cấu hình công đoạn xong mở phiếu ra thấy
+# y như cũ, tưởng phần mềm hỏng. Nên phiếu TỰ BIẾT MÌNH ĐÃ CŨ và nói ra — còn bấm tính lại hay
+# không vẫn là quyền của người lập phiếu, máy không tự sửa số.
+
+
+def _utc(v: datetime | None) -> datetime | None:
+    """Giờ từ SQLite về là NAIVE, từ Postgres về là AWARE. So thẳng hai kiểu ⇒ TypeError."""
+    if v is None:
+        return None
+    return v if v.tzinfo is not None else v.replace(tzinfo=timezone.utc)
+
+
+def danh_muc_doi_sau_khi_tinh(db: Session, phieu) -> dict | None:
+    """Danh mục mà phiếu đang dùng có bản nào sửa SAU lần tính gần nhất không?
+
+    `None` = phiếu còn khớp danh mục. Ngược lại `{"luc": datetime, "ten": [...]}` — `luc` là mốc
+    tính của phiếu (để câu nhắc gọi được ngày), `ten` là những mục đã đổi.
+
+    Mốc so sánh là `phieu.updated_at`: mọi đường ghi phiếu (POST/PUT) đều chạy
+    `compute_phieu_snapshot` ngay trước khi commit, nên ngày sửa phiếu CHÍNH LÀ ngày tính.
+
+    KHÔNG soi `loai_san_pham`: loại chỉ bung chuỗi công đoạn mặc định lúc chọn, sửa nó về sau
+    không đổi một đồng nào của phiếu đã lập — nhắc là nhắc nhảm.
+    """
+    moc = _utc(getattr(phieu, "updated_at", None))
+    if moc is None:
+        return None
+
+    giay_ids: set[int] = set()
+    may_ids: set[int] = set()
+    cd_ids: set[int] = set()
+    vt_ids: set[int] = set()
+    for tp in phieu.thanh_phans:
+        if tp.giay_id:
+            giay_ids.add(int(tp.giay_id))
+        if tp.may_id:
+            may_ids.add(int(tp.may_id))
+        for f in tp.thanh_phams:
+            if f.cong_doan_id:
+                cd_ids.add(int(f.cong_doan_id))
+        for vt in tp.vat_tus:
+            if vt.vat_tu_id:
+                vt_ids.add(int(vt.vat_tu_id))
+
+    ten: list[str] = []
+    for model, ids in ((CongDoan, cd_ids), (GiayNguyen, giay_ids), (MayThietBi, may_ids), (VatTuInAn, vt_ids)):
+        if not ids:
+            continue
+        # Lọc mốc bằng Python chứ không bằng WHERE: cột giờ trên SQLite (test) không so được với
+        # datetime aware ở tầng SQL, mà số dòng ở đây tối đa vài chục.
+        for row_ten, row_luc in db.execute(
+            select(model.ten, model.updated_at).where(model.id.in_(ids))
+        ).all():
+            luc = _utc(row_luc)
+            if luc is not None and luc > moc and row_ten:
+                ten.append(str(row_ten))
+
+    if not ten:
+        return None
+    return {"luc": moc, "ten": sorted(set(ten))}

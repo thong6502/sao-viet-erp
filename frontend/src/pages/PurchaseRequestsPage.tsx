@@ -1296,22 +1296,15 @@ export function PurchaseRequestsPage({
             : "purchase__actions"
         }
       >
-        {dense && (
-          <RowActionButton
-            dense
-            label="Xem chi tiết"
-            icon="eye"
-            onClick={() => setSelectedId(row.id)}
-          />
-        )}
-        {dense && (
-          <RowActionButton
-            dense
-            label="In phiếu"
-            icon="printer"
-            onClick={() => openPrint(row)}
-          />
-        )}
+        {/* "Xem chi tiết" đã bỏ: bấm vào DÒNG là mở drawer, mà nút này lại nằm TRONG drawer nên
+            thừa. "In phiếu" giữ nhưng bỏ gate `dense` — nay thao tác nằm GỌN trong bản ghi
+            (drawer), không còn cột "Thao tác" ngoài dòng (24/08/2026). */}
+        <RowActionButton
+          dense={dense}
+          label="In phiếu"
+          icon="printer"
+          onClick={() => openPrint(row)}
+        />
         {canEdit && (
           <RowActionButton
             dense={dense}
@@ -1430,56 +1423,49 @@ export function PurchaseRequestsPage({
 
   return (
     <main className="md-page">
-      <header className="md-page__head">
-        <p className="eyebrow">Thu mua</p>
-        <h1 className="md-page__title">Mua hàng</h1>
-        <p className="md-page__sub">
-          Bộ phận mua hàng lập đơn mua từ YCMH, gửi người có quyền duyệt, sau đó
-          theo dõi đang mua và đã nhận hàng.
-        </p>
-      </header>
-
-      {/* Hai tab con: mỗi bảng một khung nhìn riêng. Số trên tab yêu cầu là số ĐANG CHỜ MUA
-          (`open`), KHÁC số dòng bảng bên trong (bảng lọc "Tất cả") — xem chú thích ở `choMua`. */}
-      <div className="purchase__tabs">
-        <StatusTabs
-          active={tab}
-          onChange={(key) => setTab(key as PurchaseTab)}
-          tabs={[
-            {
-              key: "yeu-cau",
-              label: "Yêu cầu chờ xử lý",
-              count: choMua.soLuong,
-              tone: coYcQuaHan ? "alert" : "default",
-            },
-            { key: "phieu", label: "Đơn mua hàng", count: total },
-          ]}
-        />
+      {/* Đầu màn gọn 1 HÀNG như màn "Yêu cầu mua hàng": tiêu đề trái, 2 tab con phải.
+          Bỏ eyebrow + đoạn mô tả để không chiếm chiều cao. Số trên tab yêu cầu là số ĐANG
+          CHỜ MUA (`open`), KHÁC số dòng bảng bên trong (bảng lọc "Tất cả") — xem `choMua`. */}
+      <div className="purchase__topbar-unified">
+        <div className="purchase__topbar-left">
+          <h1 className="purchase__topbar-title">Mua hàng</h1>
+        </div>
+        <div className="purchase__topbar-actions">
+          <StatusTabs
+            active={tab}
+            onChange={(key) => setTab(key as PurchaseTab)}
+            tabs={[
+              {
+                key: "yeu-cau",
+                label: "Yêu cầu chờ xử lý",
+                count: choMua.soLuong,
+                tone: coYcQuaHan ? "alert" : "default",
+              },
+              { key: "phieu", label: "Đơn mua hàng", count: total },
+            ]}
+          />
+        </div>
       </div>
 
       {/* Chỉ dựng nội dung của tab ĐANG MỞ (bảng kia không nằm dưới mép màn nữa, nó không tồn tại).
           Nhưng DỮ LIỆU vẫn tải cả hai ngay từ đầu — số đếm trên tab kia phải đúng ngay. */}
       {tab === "yeu-cau" && (
       <section className="card md-page__tablewrap purchase__source-inbox">
-        <div className="purchase__source-head">
-          <div>
-            <p className="eyebrow">Yêu cầu từ phòng ban</p>
-            <h2>Danh sách chờ Thu mua xử lý</h2>
-          </div>
-        </div>
-
         {bannerLoi}
 
         <div className="purchase__source-toolbar">
           <form
-            className="md-page__search"
+            className="md-page__search purchase__search-wrap"
             onSubmit={(e) => {
               e.preventDefault();
               setSourcePage(1);
             }}
           >
+            <span className="purchase__search-icon">
+              <Icon name="search" size={16} />
+            </span>
             <input
-              className="input"
+              className="input purchase__search-input"
               placeholder="Tìm mã yêu cầu, mục đích..."
               value={sourceQ}
               onChange={(e) => {
@@ -1487,12 +1473,9 @@ export function PurchaseRequestsPage({
                 setSourcePage(1);
               }}
             />
-            {/* <Button type="submit" variant="ghost">
-              Tìm
-            </Button> */}
           </form>
           <select
-            className="input purchase__select"
+            className="input purchase__select-modern"
             value={sourceStatus}
             onChange={(e) => {
               setSourceStatus(e.target.value as SourceStatusFilter);
@@ -1508,10 +1491,10 @@ export function PurchaseRequestsPage({
           </select>
         </div>
 
-        <table className="md-page__table">
+        <table className="md-page__table purchase__table-modern">
           <thead>
-            {/* Thao tác đứng CUỐI — khớp bảng Phiếu mua ngay dưới. Cùng một màn mà hai bảng để
-                cột nút ở hai đầu thì mắt phải nhảy qua lại. */}
+            {/* KHÔNG còn cột "Thao tác": bấm vào DÒNG là lập đơn luôn (openCreatePurchaseRequest).
+                Thao tác gộp vào bản ghi cho khớp Yêu cầu mua hàng của phòng ban (24/08/2026). */}
             <tr>
               <th>Mã yêu cầu</th>
               <th>Nguồn</th>
@@ -1519,22 +1502,30 @@ export function PurchaseRequestsPage({
               <th>Cần hàng</th>
               <th>Vật tư</th>
               <th>Trạng thái</th>
-              <th>Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {sourceLoading ? (
-              <EmptyRow colSpan={7} trangThai="dang-tai" />
+              Array.from({ length: 5 }).map((_, i) => (
+                <tr key={`sk-${i}`} className="purchase__skeleton-row">
+                  <td><div className="purchase__skeleton-bar" style={{ width: "130px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "150px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "110px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                </tr>
+              ))
             ) : sourceError ? (
               <EmptyRow
-                colSpan={7}
+                colSpan={6}
                 trangThai="loi"
                 loi={sourceError}
                 onThuLai={loadSources}
               />
             ) : sourceRows.length === 0 ? (
               <EmptyRow
-                colSpan={7}
+                colSpan={6}
                 icon="clipboard"
                 title="Chưa có yêu cầu mua từ phòng ban"
                 sub="Đơn mua hàng luôn bắt đầu từ một yêu cầu của bộ phận — chờ họ gửi sang."
@@ -1542,6 +1533,9 @@ export function PurchaseRequestsPage({
             ) : (
               sourceRows.map((row) => {
                 const disabled = row.status !== "open";
+                // Đếm/hiện món CÒN SỐNG (bỏ dòng đã huỷ) — khớp cách bảng Yêu cầu mua hàng đếm,
+                // không thì phiếu "Hủy một phần" phồng số món lên vô nghĩa.
+                const dong = row.lines.filter((line) => !line.cancelled_at);
                 return (
                   <tr
                     key={row.id}
@@ -1553,47 +1547,51 @@ export function PurchaseRequestsPage({
                     }
                   >
                     <td>
-                      <strong className="md-page__mono">{row.code}</strong>
-                      <div className="md-page__muted">{noiDung(row)}</div>
+                      <div className="purchase__code-row">
+                        <strong className="purchase__code-badge">{row.code}</strong>
+                        {row.related_document_code && (
+                          <span
+                            className="purchase__source-tag"
+                            title={`Chứng từ liên quan: ${row.related_document_type || "Nguồn"} ${row.related_document_code}`}
+                          >
+                            {row.related_document_code}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
-                      <div>
+                      <div className="purchase__dept-title">
                         {row.requesting_department_name ||
                           row.requested_by_name ||
                           "Nội bộ"}
                       </div>
+                      {row.requesting_department_name && row.requested_by_name && (
+                        <div className="md-page__muted">{row.requested_by_name}</div>
+                      )}
                     </td>
                     <td>{fmtDate(row.created_at)}</td>
                     <td>{fmtDate(row.needed_date)}</td>
-                    <td>
-                      <strong>{row.lines.length} dòng</strong>
-                      <div className="md-page__muted">
-                        {row.lines
-                          .slice(0, 2)
-                          .map((line) => line.item_name)
-                          .join(", ")}
+                    <td title={dong.map((line) => line.item_name).join(", ")}>
+                      <div className="purchase__item-row">
+                        <span className="purchase__item-chip">{dong.length} món</span>
+                        <span className="purchase__item-names">
+                          {dong
+                            .slice(0, 2)
+                            .map((line) => line.item_name)
+                            .join(", ")}
+                          {dong.length > 2 ? "…" : ""}
+                        </span>
                       </div>
                     </td>
                     <td>
-                      <SourceStatusBadge status={row.workflow_status} />
-                      {purchaseChildSummary(row) && (
-                        <div className="md-page__muted purchase__source-progress">
-                          {purchaseChildSummary(row)}
-                        </div>
-                      )}
-                    </td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      {canCreate && !disabled ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() => openCreatePurchaseRequest(row)}
-                        >
-                          Tạo đơn
-                        </Button>
-                      ) : (
-                        <span className="md-page__muted">—</span>
-                      )}
+                      <div className="purchase__status-col">
+                        <SourceStatusBadge status={row.workflow_status} />
+                        {purchaseChildSummary(row) && (
+                          <div className="md-page__muted purchase__source-progress">
+                            {purchaseChildSummary(row)}
+                          </div>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -1601,6 +1599,7 @@ export function PurchaseRequestsPage({
             )}
           </tbody>
         </table>
+        {!sourceLoading && (
         <div className="purchase__source-foot">
           <span className="md-page__muted">
             Tổng {sourceTotal} yêu cầu
@@ -1625,6 +1624,7 @@ export function PurchaseRequestsPage({
             </div>
           )}
         </div>
+        )}
       </section>
       )}
 
@@ -1650,27 +1650,20 @@ export function PurchaseRequestsPage({
       )}
 
       <section className="card md-page__tablewrap purchase__list">
-        {/* Thẻ này TRƯỚC 08/08/2026 không có tiêu đề, còn ô tìm + ô lọc thì trôi lơ lửng ngoài thẻ.
-            Nay tiêu đề bên trái, bộ lọc bên phải, tất cả nằm TRONG thẻ — cùng khuôn đầu thẻ với
-            bảng yêu cầu. Đừng kéo bộ lọc ra ngoài lại. */}
-        <div className="purchase__source-head purchase__list-head">
-          <div>
-            <p className="eyebrow">Thu mua</p>
-            <h2>Đơn mua hàng</h2>
-          </div>
-          <div className="purchase__list-tools">
+        {/* Ô tìm + bộ lọc ngay đầu thẻ, dồn TRÁI; KHÔNG lặp tiêu đề "Đơn mua hàng" — đã có trên tab. */}
+        <div className="purchase__list-tools purchase__source-toolbar">
             <form
-              className="md-page__search"
+              className="md-page__search purchase__search-wrap"
               onSubmit={(e) => {
-                // KHÔNG gọi load() ở đây: `load` đóng gói từ khoá ĐÃ CHẬM 300ms, bấm Enter ngay
-                // sau khi gõ sẽ bắn lượt với từ khoá CŨ, rồi 300ms sau mới bắn lượt mới — lượt cũ
-                // về sau là đè kết quả sai lên bảng. Cứ để bộ chờ tự bắn.
                 e.preventDefault();
                 setPage(1);
               }}
             >
+              <span className="purchase__search-icon">
+                <Icon name="search" size={16} />
+              </span>
               <input
-                className="input"
+                className="input purchase__search-input"
                 placeholder="Tìm mã phiếu, mục đích, ghi chú..."
                 value={q}
                 onChange={(e) => {
@@ -1680,14 +1673,14 @@ export function PurchaseRequestsPage({
               />
             </form>
             <select
-              className="input purchase__select"
+              className="input purchase__select-modern"
               value={status}
               onChange={(e) => {
                 setStatus(e.target.value as StatusFilter);
                 setPage(1);
               }}
             >
-              <option value="all">Tất cả</option>
+              <option value="all">Tất cả trạng thái</option>
               {Object.entries(STATUS_META).map(([value, meta]) => (
                 <option key={value} value={value}>
                   {meta.label}
@@ -1695,7 +1688,7 @@ export function PurchaseRequestsPage({
               ))}
             </select>
             <select
-              className="input purchase__select"
+              className="input purchase__select-modern"
               value={supplierFilter}
               onChange={(e) => {
                 setSupplierFilter(e.target.value === "all" ? "all" : Number(e.target.value));
@@ -1710,7 +1703,7 @@ export function PurchaseRequestsPage({
               ))}
             </select>
             <select
-              className="input purchase__select"
+              className="input purchase__select-modern"
               value={depositFilter}
               onChange={(e) => {
                 setDepositFilter(e.target.value as DepositFilter);
@@ -1769,16 +1762,14 @@ export function PurchaseRequestsPage({
                 }}
               />
             </div>
-          </div>
         </div>
-
-        {bannerLoi}
 
         <table className="md-page__table">
           <thead>
             <tr>
-              {/* TRẠNG THÁI luôn đứng NGAY TRƯỚC Thao tác — thống nhất ở mọi màn Thu mua /
-                  Kế toán. Mỗi màn để một chỗ khác nhau thì người dùng phải đi tìm lại từng lần. */}
+              {/* KHÔNG còn cột "Thao tác": bấm vào DÒNG mở drawer chi tiết, mọi thao tác (In · Sửa ·
+                  Gửi duyệt · Ghi đợt giao · Huỷ…) nằm ở chân drawer. Gộp thao tác vào bản ghi cho
+                  khớp Yêu cầu mua hàng của phòng ban (24/08/2026). */}
               <th>Mã đơn</th>
               <th>Nhà cung cấp</th>
               <th>Ngày tạo</th>
@@ -1787,19 +1778,27 @@ export function PurchaseRequestsPage({
               <th>Tiền cọc</th>
               <th>Người tạo / duyệt</th>
               <th>Trạng thái</th>
-              {/* `md-page__actions-col` canh tiêu đề THEO NÚT (nút dense nằm sát phải). Thiếu lớp
-                  này thì chữ "Thao tác" đứng một nơi, cụm nút đứng một nẻo. */}
-              <th className="md-page__actions-col">Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <EmptyRow colSpan={9} trangThai="dang-tai" />
+              Array.from({ length: 5 }).map((_, i) => (
+                <tr key={`sk-${i}`} className="purchase__skeleton-row">
+                  <td><div className="purchase__skeleton-bar" style={{ width: "120px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "150px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "80px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "110px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "110px" }} /></td>
+                </tr>
+              ))
             ) : listError ? (
-              <EmptyRow colSpan={9} trangThai="loi" loi={listError} onThuLai={load} />
+              <EmptyRow colSpan={8} trangThai="loi" loi={listError} onThuLai={load} />
             ) : rows.length === 0 ? (
               <EmptyRow
-                colSpan={9}
+                colSpan={8}
                 icon="cart"
                 title="Chưa có đơn mua hàng nào khớp"
                 sub={
@@ -1907,12 +1906,6 @@ export function PurchaseRequestsPage({
                   <td>
                     <StatusBadge status={row.status} />
                   </td>
-                  <td
-                    className="md-page__actions-col"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {actionButtons(row, true)}
-                  </td>
                 </tr>
               ))
             )}
@@ -1921,6 +1914,7 @@ export function PurchaseRequestsPage({
         {/* Chân bảng CÙNG KHUÔN với bảng yêu cầu phía trên: tổng bên trái, nút chuyển trang bên
             phải, và CHỈ hiện nút khi thật sự có nhiều hơn một trang. Trước 08/08/2026 khối này
             nằm ngoài thẻ và luôn in "Trang 1/1" kèm hai nút mờ — nhiễu mà không nói thêm gì. */}
+        {!loading && (
         <div className="purchase__source-foot">
           <span className="md-page__muted">
             Tổng {total} đơn
@@ -1947,6 +1941,7 @@ export function PurchaseRequestsPage({
             </div>
           )}
         </div>
+        )}
       </section>
       </>
       )}
@@ -4046,6 +4041,7 @@ function SourceStatusBadge({
   const meta = SOURCE_STATUS_META[status];
   return (
     <span className={`purchase__status purchase__status--${meta.tone}`}>
+      <span className={`purchase__status-dot purchase__status-dot--${meta.tone}`} />
       {meta.label}
     </span>
   );

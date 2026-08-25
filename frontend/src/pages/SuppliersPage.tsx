@@ -23,7 +23,6 @@ import { Button } from "../components/Button";
 import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombobox";
 import { EmptyRow, EmptyState } from "../components/EmptyState";
 import { Icon } from "../components/Icons";
-import { RowActionButton } from "../components/RowActionButton";
 // Định dạng tiền / ngày lấy từ helper CHUNG. Màn này trước 09/08/2026 tự chép lại `formatVND` và
 // gọi thẳng `toLocaleDateString("vi-VN")` — sửa cách hiện tiền một lần là phải đi sửa từng màn.
 import { fmtDate, money } from "../utils/format";
@@ -579,6 +578,13 @@ export function SuppliersPage({
     if (!token || !canUpdate) return;
     try {
       await api.suppliers.toggleActive(token, row.id);
+      // Drawer đang mở CÙNG NCC này thì lật trạng thái tại chỗ luôn — badge ở đầu drawer +
+      // nhãn nút phải đổi NGAY, không chờ `load()` (nút này nay nằm TRONG bản ghi).
+      setSelected((cur) =>
+        cur && cur.id === row.id
+          ? { ...cur, status: cur.status === "active" ? "inactive" : "active" }
+          : cur,
+      );
       loadAll();
       load();
     } catch (err) {
@@ -615,15 +621,60 @@ export function SuppliersPage({
 
   return (
     <main className="md-page">
-      {/* Header Section */}
-      <header className="md-page__head">
-        <p className="eyebrow">Thu mua</p>
-        <h1 className="md-page__title">Nhà cung cấp</h1>
-        <p className="md-page__sub">
-          Danh mục đối tác do bộ phận mua hàng quản lý, dùng để chọn vào phiếu
-          yêu cầu và phiếu mua hàng.
-        </p>
-      </header>
+      {/* Đầu màn gọn 1 HÀNG như màn "Yêu cầu mua hàng": tiêu đề + badge đếm trái, ô tìm + lọc
+          giữa, nút "+ Thêm NCC" phải. Bỏ eyebrow + mô tả để không chiếm chiều cao; dải KPI 3 chỉ
+          số vẫn giữ ngay dưới (một hàng mỏng). */}
+      <div className="purchase__topbar-unified">
+        <div className="purchase__topbar-left">
+          <h1 className="purchase__topbar-title">Nhà cung cấp</h1>
+        </div>
+        <div className="purchase__topbar-controls">
+          <form
+            className="purchase__search-wrap"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setPage(1);
+              load();
+            }}
+          >
+            <span className="purchase__search-icon">
+              <Icon name="search" size={16} />
+            </span>
+            <input
+              className="input purchase__search-input"
+              placeholder="Tìm Tên NCC, MST, SĐT, liên hệ, tên mặt hàng..."
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setPage(1);
+              }}
+            />
+          </form>
+          <select
+            className="input purchase__select-modern"
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value as "all" | "active" | "inactive");
+              setPage(1);
+            }}
+          >
+            <option value="active">Đang hợp tác</option>
+            <option value="inactive">Tạm ngừng hợp tác</option>
+            <option value="all">Tất cả trạng thái</option>
+          </select>
+        </div>
+        {canCreate && (
+          // ⚠️ TÊN LỚP ĐẶT NGƯỢC VỚI TÀI LIỆU: `variant="accent"` mới ra màu CAM thương hiệu,
+          // `variant="primary"` ra màu NAVY. Đây là hành động chính DUY NHẤT của màn nền; nút cam
+          // thứ hai của màn nằm trong DRAWER ("Lưu nhà cung cấp") — khác hộp nên không phạm luật
+          // "tối đa MỘT nút cam mỗi màn / mỗi hộp thoại". Đừng nâng thêm nút nào lên accent.
+          <div className="purchase__topbar-actions">
+            <Button variant="accent" onClick={openCreate}>
+              + Thêm NCC
+            </Button>
+          </div>
+        )}
+      </div>
 
       {/* DẢI CHỈ SỐ một hàng — bản mẫu `.rdx-compact-kpi` ở DepartmentsPage (và `.pay-kpibar` ở
           màn Công nợ). Trước 09/08/2026 đây là 3 THẺ cao ~78px với emoji tự chế 🏢 ✓ – :
@@ -666,56 +717,6 @@ export function SuppliersPage({
             <span className="supplier__kpi-lbl">Tạm ngừng</span>
           </span>
         </div>
-      </div>
-
-      {/* Search Toolbar */}
-      <div className="md-page__toolbar">
-        <form
-          className="md-page__search"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setPage(1);
-            load();
-          }}
-        >
-          <input
-            className="input"
-            placeholder="Tìm Tên NCC, MST, SĐT, liên hệ, tên mặt hàng..."
-            value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setPage(1);
-            }}
-          />
-          {/* <Button type="submit" variant="ghost">
-            Tìm
-          </Button> */}
-        </form>
-
-        <select
-          className="input purchase__select"
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value as "all" | "active" | "inactive");
-            setPage(1);
-          }}
-        >
-          <option value="active">Đang hợp tác</option>
-          <option value="inactive">Tạm ngừng hợp tác</option>
-          <option value="all">Tất cả trạng thái</option>
-        </select>
-
-        <div className="md-page__toolbar-spacer" />
-
-        {canCreate && (
-          // ⚠️ TÊN LỚP ĐẶT NGƯỢC VỚI TÀI LIỆU: `variant="accent"` mới ra màu CAM thương hiệu,
-          // `variant="primary"` ra màu NAVY. Đây là hành động chính DUY NHẤT của màn nền; nút cam
-          // thứ hai của màn nằm trong DRAWER ("Lưu nhà cung cấp") — khác hộp nên không phạm luật
-          // "tối đa MỘT nút cam mỗi màn / mỗi hộp thoại". Đừng nâng thêm nút nào lên accent.
-          <Button variant="accent" onClick={openCreate}>
-            + Thêm NCC
-          </Button>
-        )}
       </div>
 
       {/* Lọc nhanh theo nhóm NCC. Nhóm lấy từ dữ liệu thật (`groupPills`), chưa nhóm nào được đặt
@@ -767,7 +768,6 @@ export function SuppliersPage({
             <col className="supplier__col-contact" />
             <col className="supplier__col-items" />
             <col className="supplier__col-status" />
-            {canUpdate && <col className="supplier__col-actions" />}
           </colgroup>
           <thead>
             <tr>
@@ -775,22 +775,28 @@ export function SuppliersPage({
               <th>Người liên hệ</th>
               <th>Mặt hàng</th>
               <th>Trạng thái</th>
-              {canUpdate && <th className="md-page__actions-col">Thao tác</th>}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <EmptyRow colSpan={canUpdate ? 5 : 4} trangThai="dang-tai" />
+              Array.from({ length: 5 }).map((_, i) => (
+                <tr key={`sk-${i}`} className="purchase__skeleton-row">
+                  <td><div className="purchase__skeleton-bar" style={{ width: "160px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "140px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "120px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                </tr>
+              ))
             ) : listError ? (
               <EmptyRow
-                colSpan={canUpdate ? 5 : 4}
+                colSpan={4}
                 trangThai="loi"
                 loi={listError}
                 onThuLai={load}
               />
             ) : rows.length === 0 ? (
               <EmptyRow
-                colSpan={canUpdate ? 5 : 4}
+                colSpan={4}
                 icon="truck"
                 title="Chưa có nhà cung cấp nào khớp"
                 sub="Khai nhà cung cấp trước, rồi mới khai bảng giá vật tư của họ."
@@ -901,44 +907,6 @@ export function SuppliersPage({
                       {row.status === "active" ? "Hoạt động" : "Tạm ngừng"}
                     </span>
                   </td>
-
-                  {/* Column 6: Actions — TOÀN icon dense (`RowActionButton`), thống nhất với hai
-                      màn Thu mua còn lại. Hai nút chữ cũ ngốn ~150px nên cột phải giữ 17% bề
-                      ngang chỉ để chứa chữ, cắt mất chỗ của tên NCC và người liên hệ.
-                      GIỮ `danger` cho nút Ngừng: nó cắt NCC khỏi mọi ô chọn ở phiếu mua — mất tín
-                      hiệu đỏ là bấm nhầm. Chiều ngược lại (Mở lại hợp tác) KHÔNG nguy hiểm nên
-                      không tô đỏ; nhãn/icon cũng đổi theo trạng thái, đừng gộp thành một. */}
-                  {canUpdate && (
-                    <td
-                      className="md-page__actions-col supplier__actions-cell"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="purchase__actions purchase__actions--dense">
-                        <RowActionButton
-                          dense
-                          label="Xem / sửa nhà cung cấp"
-                          icon="pencil"
-                          onClick={() => openEdit(row)}
-                        />
-                        {row.status === "active" ? (
-                          <RowActionButton
-                            dense
-                            danger
-                            label="Ngừng hợp tác"
-                            icon="ban"
-                            onClick={() => toggle(row)}
-                          />
-                        ) : (
-                          <RowActionButton
-                            dense
-                            label="Mở lại hợp tác"
-                            icon="check"
-                            onClick={() => toggle(row)}
-                          />
-                        )}
-                      </div>
-                    </td>
-                  )}
                 </tr>
               ))
             )}
@@ -1685,8 +1653,24 @@ export function SuppliersPage({
                 )}
               </div>
 
-              {/* Drawer Footer Actions */}
+              {/* Drawer Footer Actions — thao tác ĐỔI TRẠNG THÁI (trước ở cột "Thao tác" ngoài
+                  bảng) nay nằm TRONG bản ghi: chỉ hiện khi đang sửa một NCC có sẵn, đẩy sang
+                  TRÁI (`marginRight:auto`) tách khỏi cặp Hủy/Lưu. `type="button"` vì nằm trong
+                  <form> — không được submit. Nhãn/icon + màu `danger` đổi theo trạng thái: Ngừng
+                  hợp tác cắt NCC khỏi mọi ô chọn phiếu mua nên phải đỏ; Mở lại thì không. */}
               <div className="supplier-drawer__foot">
+                {mode === "edit" && selected && (
+                  <Button
+                    type="button"
+                    variant={selected.status === "active" ? "danger" : "ghost"}
+                    onClick={() => toggle(selected)}
+                    disabled={saving}
+                    style={{ marginRight: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}
+                  >
+                    <Icon name={selected.status === "active" ? "ban" : "check"} size={16} />
+                    {selected.status === "active" ? "Ngừng hợp tác" : "Mở lại hợp tác"}
+                  </Button>
+                )}
                 <button
                   type="button"
                   className="btn btn--ghost"

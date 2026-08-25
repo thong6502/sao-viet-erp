@@ -17,7 +17,6 @@ import type { NavigateFn } from "../components/AppShell";
 import { Button } from "../components/Button";
 import { CodeLink } from "../components/CodeLink";
 import { DetailModal } from "../components/DetailModal";
-import { Icon } from "../components/Icons";
 import { fmtDate, fmtDateTime, money, originalMoney } from "../utils/format";
 import { printTT200 } from "../utils/printTT200";
 import { PaymentReceiptDialog } from "./PaymentReceiptDialog";
@@ -721,24 +720,31 @@ export function PaymentReceiptsPage({
         <table className="md-page__table">
           <thead>
             <tr>
+              {/* KHÔNG còn cột "Thao tác": bấm vào DÒNG mở drawer chi tiết, mọi thao tác nằm ở
+                  chân drawer (24/08/2026 — gộp thao tác vào bản ghi). */}
               <th>Mã phiếu thu</th>
               <th>Người nộp</th>
               <th>Người lập</th>
               <th>Lập lúc</th>
               <th className="acct-amount-cell">Số tiền</th>
               <th>Trạng thái</th>
-              <th className="acct-action-cell">Thao tác</th>
             </tr>
           </thead>
           <tbody>
-            {loading && (
-              <tr>
-                <td colSpan={7}>Đang tải...</td>
-              </tr>
-            )}
+            {loading &&
+              Array.from({ length: 5 }).map((_, i) => (
+                <tr key={`sk-${i}`} className="purchase__skeleton-row">
+                  <td><div className="purchase__skeleton-bar" style={{ width: "130px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "140px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "120px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "110px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "80px" }} /></td>
+                </tr>
+              ))}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={7}>
+                <td colSpan={6}>
                   Chưa có phiếu thu phù hợp. Có thể tạo phiếu thu trực tiếp tại đây,
                   hoặc lập từ đơn bán/phiếu chi nguồn khi phát sinh nghiệp vụ.
                 </td>
@@ -808,46 +814,34 @@ export function PaymentReceiptsPage({
                         </span>
                       )}
                   </td>
-                  <td className="acct-action-cell">
-                    <button
-                      type="button"
-                      className="acct-eye"
-                      aria-label={`Xem chi tiết ${row.code}`}
-                      title="Xem chi tiết"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setSelectedId(row.id);
-                      }}
-                    >
-                      <Icon name="eye" size={17} />
-                    </button>
-                  </td>
                 </tr>
               ))}
           </tbody>
         </table>
-        <div className="md-page__pager">
-          <span>{total} phiếu thu</span>
-          <div>
-            <Button
-              variant="ghost"
-              disabled={page <= 1}
-              onClick={() => setPage((value) => value - 1)}
-            >
-              Trước
-            </Button>
-            <span>
-              {page}/{totalPages}
-            </span>
-            <Button
-              variant="ghost"
-              disabled={page >= totalPages}
-              onClick={() => setPage((value) => value + 1)}
-            >
-              Sau
-            </Button>
+        {!loading && (
+          <div className="md-page__pager">
+            <span>{total} phiếu thu</span>
+            <div>
+              <Button
+                variant="ghost"
+                disabled={page <= 1}
+                onClick={() => setPage((value) => value - 1)}
+              >
+                Trước
+              </Button>
+              <span>
+                {page}/{totalPages}
+              </span>
+              <Button
+                variant="ghost"
+                disabled={page >= totalPages}
+                onClick={() => setPage((value) => value + 1)}
+              >
+                Sau
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </section>
       {selected && (
         <DetailModal

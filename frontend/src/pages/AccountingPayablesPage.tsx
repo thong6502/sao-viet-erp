@@ -267,30 +267,36 @@ export function AccountingPayablesPage({
         <table className="md-page__table">
           <thead>
             <tr>
+              {/* KHÔNG còn cột "Thao tác": bấm vào DÒNG (hoặc bất kỳ con số nào) mở drawer chi
+                  tiết công nợ (24/08/2026 — gộp thao tác vào bản ghi). */}
               <th>Nhà cung cấp</th>
               <th className="acct-amount-cell">Đơn còn nợ</th>
               <th className="acct-amount-cell">Còn nợ</th>
               <th className="acct-amount-cell">Quá hạn</th>
               <th className="acct-amount-cell">Đã trả ({soThang} tháng)</th>
-              <th className="acct-amount-cell">Thao tác</th>
             </tr>
           </thead>
           <tbody>
-            {loading && (
-              <tr>
-                <td colSpan={6}>Đang tải...</td>
-              </tr>
-            )}
+            {loading &&
+              Array.from({ length: 5 }).map((_, i) => (
+                <tr key={`sk-${i}`} className="purchase__skeleton-row">
+                  <td><div className="purchase__skeleton-bar" style={{ width: "160px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "100px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "100px" }} /></td>
+                </tr>
+              ))}
             {error && !loading && (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={5}>
                   Chưa đọc được số liệu — xem thông báo lỗi ở trên.
                 </td>
               </tr>
             )}
             {biet && rows.length === 0 && (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={5}>
                   {q.trim() ? (
                     <>Không tìm thấy nhà cung cấp nào tên "{q.trim()}".</>
                   ) : filter !== "all" ? (
@@ -359,33 +365,32 @@ export function AccountingPayablesPage({
                       tone="ok"
                     />
                   </td>
-                  <td className="acct-amount-cell">
-                    <Icon name="eye" size={17} />
-                  </td>
                 </tr>
               ))}
           </tbody>
         </table>
-        <div className="md-page__pager">
-          <span className="md-page__muted">
-            Tổng {summary?.total ?? 0} nhà cung cấp
-            {(summary?.pages ?? 1) > 1 ? ` · Trang ${summary?.page}/${summary?.pages}` : ""}
-          </span>
-          {(summary?.pages ?? 1) > 1 && (
-            <div className="md-page__pager-btns">
-              <Button variant="ghost" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
-                Trước
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={page >= (summary?.pages ?? 1) || loading}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Sau
-              </Button>
-            </div>
-          )}
-        </div>
+        {!loading && (
+          <div className="md-page__pager">
+            <span className="md-page__muted">
+              Tổng {summary?.total ?? 0} nhà cung cấp
+              {(summary?.pages ?? 1) > 1 ? ` · Trang ${summary?.page}/${summary?.pages}` : ""}
+            </span>
+            {(summary?.pages ?? 1) > 1 && (
+              <div className="md-page__pager-btns">
+                <Button variant="ghost" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
+                  Trước
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={page >= (summary?.pages ?? 1) || loading}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Sau
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       {open && open.row.supplier_id != null && (

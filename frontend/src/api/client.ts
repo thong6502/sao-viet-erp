@@ -3231,6 +3231,9 @@ export interface PhieuTinhGiaListItem {
   tong_gia_von: number;
   ktv: string | null;
   so_thanh_phan: number;
+  /** Tên các sản phẩm BÊN TRONG phiếu, đúng thứ tự khai. Cột "Sản phẩm" rơi về đây khi ô tên ở
+   *  đầu phiếu bỏ trống (ô đó là chữ tự do, không ai bắt buộc gõ). */
+  ten_thanh_phans: string[];
   ngay: string | null;
 }
 export interface PhieuTinhGiaListOut {
@@ -3346,6 +3349,10 @@ export interface PhieuTinhGiaOut {
   thanh_phans: ThanhPhanOut[];
   created_at: string | null;
   updated_at: string | null;
+  /** Danh mục (công đoạn · giấy · máy · vật tư) mà phiếu đang dùng đã có bản sửa SAU lần tính
+   *  gần nhất. null = phiếu còn khớp danh mục. Chỉ để NHẮC — số trong phiếu vẫn là ảnh chụp cũ
+   *  cho tới khi người lập bấm "Tính giá". */
+  danh_muc_doi: { luc: string; ten: string[] } | null;
 }
 
 /** 1 dòng nhật ký hoạt động của phiếu tính giá — ai làm gì · khi nào. */

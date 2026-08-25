@@ -14,7 +14,6 @@ import type { NavigateFn } from "../components/AppShell";
 import { Button } from "../components/Button";
 import { CodeLink } from "../components/CodeLink";
 import { DetailModal } from "../components/DetailModal";
-import { Icon } from "../components/Icons";
 import { PurchaseActivityTimeline } from "../components/PurchaseActivityTimeline";
 import { UNC_ENABLED } from "../constants/features";
 import { fmtDate, money } from "../utils/format";
@@ -519,9 +518,9 @@ export function AccountingPurchaseInboxPage({
         <table className="md-page__table">
           <thead>
             <tr>
-              {/* HAI cột trạng thái (đơn + thanh toán) đứng cạnh nhau, NGAY TRƯỚC Thao tác —
-                  thống nhất với các màn Thu mua / Kế toán khác. Trước đây "Trạng thái" nằm ở cột 2
-                  còn "Thanh toán" ở cột 5, mắt phải nhảy hai chỗ để đọc cùng một câu chuyện. */}
+              {/* HAI cột trạng thái (đơn + thanh toán) đứng cạnh nhau ở cuối. KHÔNG còn cột
+                  "Thao tác": bấm vào DÒNG mở drawer chi tiết, mọi thao tác nằm ở chân drawer
+                  (24/08/2026 — gộp thao tác vào bản ghi). */}
               <th>Mã đơn</th>
               <th>Nhà cung cấp</th>
               <th>Ngày tạo</th>
@@ -530,18 +529,25 @@ export function AccountingPurchaseInboxPage({
               <th>Ngày cần</th>
               <th>Trạng thái</th>
               <th>Thanh toán</th>
-              <th className="acct-action-cell">Thao tác</th>
             </tr>
           </thead>
           <tbody>
-            {loading && (
-              <tr>
-                <td colSpan={9}>Đang tải...</td>
-              </tr>
-            )}
+            {loading &&
+              Array.from({ length: 5 }).map((_, i) => (
+                <tr key={`sk-${i}`} className="purchase__skeleton-row">
+                  <td><div className="purchase__skeleton-bar" style={{ width: "120px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "150px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "80px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "110px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "110px" }} /></td>
+                </tr>
+              ))}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={9}>Không có đơn mua hàng phù hợp.</td>
+                <td colSpan={8}>Không có đơn mua hàng phù hợp.</td>
               </tr>
             )}
             {!loading &&
@@ -598,47 +604,35 @@ export function AccountingPurchaseInboxPage({
                       </span>
                       <small>{money(row.outstanding_amount)} còn lại</small>
                     </td>
-                    <td className="acct-action-cell">
-                      <button
-                        type="button"
-                        className="acct-eye"
-                        aria-label={`Xem chi tiết ${row.code}`}
-                        title="Xem chi tiết"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setSelectedId(row.id);
-                        }}
-                      >
-                        <Icon name="eye" size={17} />
-                      </button>
-                    </td>
                   </tr>
                 );
               })}
           </tbody>
         </table>
-        <div className="md-page__pager">
-          <span>{total} đơn</span>
-          <div>
-            <Button
-              variant="ghost"
-              disabled={page <= 1}
-              onClick={() => setPage((value) => value - 1)}
-            >
-              Trước
-            </Button>
-            <span>
-              {page}/{totalPages}
-            </span>
-            <Button
-              variant="ghost"
-              disabled={page >= totalPages}
-              onClick={() => setPage((value) => value + 1)}
-            >
-              Sau
-            </Button>
+        {!loading && (
+          <div className="md-page__pager">
+            <span>{total} đơn</span>
+            <div>
+              <Button
+                variant="ghost"
+                disabled={page <= 1}
+                onClick={() => setPage((value) => value - 1)}
+              >
+                Trước
+              </Button>
+              <span>
+                {page}/{totalPages}
+              </span>
+              <Button
+                variant="ghost"
+                disabled={page >= totalPages}
+                onClick={() => setPage((value) => value + 1)}
+              >
+                Sau
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </section>
 
       {selected && (

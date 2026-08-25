@@ -175,20 +175,34 @@ export function AccountingReceivablesPage({
         <table className="md-page__table pay-table">
           <thead>
             <tr>
+              {/* KHÔNG còn cột "Xem": bấm vào DÒNG mở drawer công nợ, mọi thao tác (Thu tiền từng
+                  hóa đơn) nằm TRONG drawer (24/08/2026 — gộp thao tác vào bản ghi). */}
               <th>Khách hàng</th>
               <th>HĐ còn nợ</th>
               <th>Tổng phải thu</th>
               <th>Quá hạn</th>
               <th>Đã thu</th>
               <th>Hạn mức</th>
-              <th>Xem</th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={7}>Đang tải...</td></tr>}
-            {!loading && rows.length === 0 && <tr><td colSpan={7}>Chưa có khách hàng còn công nợ phải thu phù hợp.</td></tr>}
+            {loading &&
+              Array.from({ length: 5 }).map((_, i) => (
+                <tr key={`sk-${i}`} className="purchase__skeleton-row">
+                  <td><div className="purchase__skeleton-bar" style={{ width: "150px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "70px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "110px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "80px" }} /></td>
+                </tr>
+              ))}
+            {!loading && rows.length === 0 && <tr><td colSpan={6}>Chưa có khách hàng còn công nợ phải thu phù hợp.</td></tr>}
             {!loading && rows.map((row) => (
-              <tr key={row.customer_id ?? `none-${row.customer_name}`}>
+              <tr
+                key={row.customer_id ?? `none-${row.customer_name}`}
+                onClick={() => row.customer_id != null && setOpen(row)}
+              >
                 {/* CỐ Ý KHÔNG hiện "Đã ghi hóa đơn" ở đây (chủ 21/08/2026: "để làm gì, nó có
                     tác dụng gì cả"). Nó LUÔN bằng "Đã thu" + "Tổng phải thu" — hai cột đã nằm
                     ngay cạnh: mỗi hoá đơn có `remaining = amount − received`, cộng theo khách là
@@ -203,35 +217,32 @@ export function AccountingReceivablesPage({
                   {row.credit_limit > 0 ? money(row.credit_limit) : "—"}
                   {row.vuot_han_muc && <small className="pay-cell--danger">Vượt {money(row.vuot_bao_nhieu)}</small>}
                 </td>
-                <td>
-                  <Button variant="ghost" disabled={row.customer_id == null} onClick={() => setOpen(row)} aria-label={`Xem công nợ ${row.customer_name}`}>
-                    <Icon name="eye" size={16} />
-                  </Button>
-                </td>
               </tr>
             ))}
           </tbody>
         </table>
-        <div className="md-page__pager">
-          <span className="md-page__muted">
-            Tổng {summary?.total ?? 0} khách hàng
-            {(summary?.pages ?? 1) > 1 ? ` · Trang ${summary?.page}/${summary?.pages}` : ""}
-          </span>
-          {(summary?.pages ?? 1) > 1 && (
-            <div className="md-page__pager-btns">
-              <Button variant="ghost" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
-                Trước
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={page >= (summary?.pages ?? 1) || loading}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Sau
-              </Button>
-            </div>
-          )}
-        </div>
+        {!loading && (
+          <div className="md-page__pager">
+            <span className="md-page__muted">
+              Tổng {summary?.total ?? 0} khách hàng
+              {(summary?.pages ?? 1) > 1 ? ` · Trang ${summary?.page}/${summary?.pages}` : ""}
+            </span>
+            {(summary?.pages ?? 1) > 1 && (
+              <div className="md-page__pager-btns">
+                <Button variant="ghost" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
+                  Trước
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={page >= (summary?.pages ?? 1) || loading}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Sau
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       {open?.customer_id != null && (

@@ -2616,7 +2616,9 @@ select.rc-input:focus {
   border: 1px solid transparent;
   transition: all 0.15s ease;
   user-select: none;
-  cursor: default;
+  /* `text` chứ không phải `default`: bấm vào chip là ĐẶT CON TRỎ ở đó (nửa trái → đứng trước,
+     nửa phải → đứng sau), giống bấm vào chữ trong ô nhập thường. */
+  cursor: text;
 }
 
 /* Chip biến hợp lệ (Variable Chip - chỉ hiển thị Tên Tiếng Việt) */
@@ -2796,6 +2798,36 @@ select.rc-input:focus {
   align-items: center;
   flex: 1 1 120px;
   min-width: 80px;
+}
+
+/* Con trỏ ĐỨNG GIỮA dãy chip. Ô gõ lúc này chỉ được rộng bằng chữ đang gõ — giữ `flex: 1 1 120px`
+   là nó nong ra 120px và đẩy hết chip bên phải xuống dòng dưới. Vạch đứng để nhìn thấy con trỏ
+   đang ở đâu ngay cả khi ô chưa được focus (caret gốc của trình duyệt chỉ hiện lúc focus). */
+.rc-formula__inline-input-box--giua {
+  flex: 0 0 auto;
+  min-width: 6px;
+}
+.rc-formula__inline-input-box--giua .rc-formula__inline-input {
+  padding: 2px 0 !important;
+}
+.rc-formula__inline-input-box--giua::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--rust, #c5400a);
+  opacity: 0.45;
+}
+.rc-formula__inline-input-box--giua:focus-within::before {
+  opacity: 1;
+  animation: rc-formula-nhay 1.05s step-end infinite;
+}
+@keyframes rc-formula-nhay {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.12; }
 }
 
 .rc-formula__inline-input {

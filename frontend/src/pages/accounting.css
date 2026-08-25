@@ -54,6 +54,17 @@
   background: var(--rule-hair);
 }
 
+/* Màn Tài khoản ngân hàng KHÔNG bọc trong .acct-list (bảng md-page__table trần) nên
+   không ăn luật bấm-dòng ở trên; và md-page__row nằm ở master-data.css — file này KHÔNG
+   import ở đó. Nên khai lớp bấm-được RIÊNG, tự chứa trong accounting.css để chắc chắn có
+   con trỏ + sáng hover khi bấm cả dòng mở phiếu sửa. */
+.acct-clickrow {
+  cursor: pointer;
+}
+.acct-clickrow:hover {
+  background: var(--rule-hair);
+}
+
 .acct-list td small,
 .acct-account-pair small,
 .acct-voucher-amount small {
@@ -798,6 +809,17 @@
 
 /* Công nợ phải thu theo HÓA ĐƠN. Bảng chi tiết rộng được cuộn ngang, không ép tên/mã xuống
    thành cột chữ; form thu tiền nằm cùng drawer để tránh chồng thêm một modal. */
+
+/* Dòng danh sách khách bấm được (mở drawer) từ 24/08/2026 — bỏ cột "Xem", đưa thao tác vào
+   bản ghi. Sáng lên khi rê chuột như các màn .acct-list để dạy "bấm vào xem". Chỉ áp cho bảng
+   tổng hợp ngoài cùng, KHÔNG cho các .pay-table lồng trong drawer (những bảng đó không bấm cả dòng). */
+.ar-summary-table > .pay-table > tbody > tr {
+  cursor: pointer;
+}
+.ar-summary-table > .pay-table > tbody > tr:hover {
+  background: var(--rule-hair);
+}
+
 .ar-summary-table td small,
 .ar-invoice-table td small,
 .ar-history-table td small {

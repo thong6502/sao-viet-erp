@@ -10,7 +10,7 @@ from math import ceil
 import pytest
 
 from app.services.thanh_phan_engine import (
-    binh_bai_con, binh_bai_layout, compute_phieu,
+    _vi, binh_bai_con, binh_bai_layout, compute_phieu,
 )
 
 
@@ -737,6 +737,48 @@ def test_ban_kem_khong_co_phi_khuon():
     m = res["meta"]["components"][0]
     assert m["phi_khuon"] == 0 and m["phi_khuon_dong"] == []
     assert not [w for w in res["warnings"] if "chưa khai phí" in w]
+
+
+def test_moi_dong_tien_deu_khep_bang_don_gia_moi_san_pham():
+    """Giấy · vật tư · công đoạn · phí khuôn — dòng nào cũng phải khép bằng "÷ SL = …đ/sp".
+
+    Kêu 25/08/2026: trên panel giá vốn chỉ dòng công đoạn có đuôi đ/sp; dòng Giấy (khoản TO NHẤT
+    phiếu) và dòng Phí khuôn thì không, nên muốn so đắt rẻ giữa các dòng phải bấm máy tính tay.
+
+    Ghim luôn hai ca dễ vỡ:
+    · Công thức CÓ SẴN phép chia — trước đây chỗ gọi thấy dấu ÷ là bỏ luôn vế "÷ SL", nên bước đó
+      mất số đ/sp. Nay đóng ngoặc vế trước rồi mới chia, để "a ÷ b ÷ SL" không đọc thành nhập nhằng.
+    · Bước THIẾU công thức — 0đ vì chưa khai, KHÔNG được nối "÷ 4.000 = 0đ/sp" vào câu báo lỗi.
+    """
+    tp = _phieu_co_dao(_buoc_dao("Bế thành phẩm", "khuon_be", 800_000))
+    tp["cong_thuc_gia"] = "dinh_luong * dai_nguyen * rong_nguyen * don_gia_giay * to_nguyen"
+    tp["vat_tus"] = [{"ten": "Màng bóng", "don_gia": 60_000, "don_vi_gia": "kg",
+                      "cong_thuc_gia": "dai_in * rong_in * to_sau_in * don_gia_vat_tu"}]
+    tp["thanh_phams"] += [
+        # Chia cho 1.000 ngay trong công thức: đây là ca từng làm mất đuôi đ/sp.
+        {"ten": "Gấp tay", "cong_doan": {"ten": "Gấp tay", "nhom": "finishing", "kieu_bu_hao": "khong",
+                                         "don_vi_vao": "to", "don_vi_ra": "to",
+                                         "cong_thuc_gia": "to_dau_vao / 1000 * 250000"}},
+        {"ten": "Đóng gói", "cong_doan": {"ten": "Đóng gói", "nhom": "finishing", "kieu_bu_hao": "khong",
+                                          "don_vi_vao": "to", "don_vi_ra": "to", "cong_thuc_gia": ""}},
+    ]
+    res = compute_phieu(so_luong=4000, thanh_phans=[tp])
+    # Tên dòng mang tiền tố tên thành phần ("Card · …") nên tra theo ĐUÔI.
+    moi_dong = [r for g in res["groups"] for r in g["rows"]]
+    dong = {ten: next(r for r in moi_dong if r["ten"].endswith(ten))
+            for ten in ("Couche 300", "Màng bóng", "In offset", "Gấp tay", "Đóng gói", "phí khuôn bế")}
+
+    for ten in ("Couche 300", "Màng bóng", "In offset", "Gấp tay", "phí khuôn bế"):
+        r = dong[ten]
+        assert r["cong_thuc"].endswith("đ/sp"), (ten, r["cong_thuc"])
+        # Đuôi phải khớp CHÍNH con số engine tính, không phải một phép chia thứ hai lệch pha.
+        assert f"÷ 4.000 = {_vi(round(r['gia_don_sp'], 2))}đ/sp" in r["cong_thuc"], (ten, r["cong_thuc"])
+
+    # Công thức tự có phép chia ⇒ vế trước phải nằm trong ngoặc.
+    assert dong["Gấp tay"]["cong_thuc"].startswith("(") and ") ÷ 4.000 = " in dong["Gấp tay"]["cong_thuc"]
+
+    # Bước chưa khai công thức: giữ nguyên câu báo lỗi, KHÔNG đội lốt phép tính.
+    assert dong["Đóng gói"]["cong_thuc"] == "thiếu công thức — 0đ"
 
 
 def test_buoc_khong_can_dao_thi_khong_nhac():

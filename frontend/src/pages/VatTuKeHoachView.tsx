@@ -476,14 +476,11 @@ export function VatTuKeHoachView({
                 <th scope="col" style={{ minWidth: 170 }}>
                   Lệnh sử dụng
                 </th>
-                <th scope="col" style={{ width: 150 }}>
+                <th scope="col" style={{ minWidth: 185 }}>
                   Trạng thái
                 </th>
                 <th scope="col" className="khsx__col--opt" style={{ width: 120 }}>
                   Hạn đặt
-                </th>
-                <th scope="col" style={{ width: 80, textAlign: "right" }}>
-                  <span className="sr-only">Thao tác</span>
                 </th>
               </tr>
             </thead>
@@ -582,10 +579,11 @@ export function VatTuKeHoachView({
                       <div className="khvt-cell-ton-can">
                         <div className="khvt-ton-can-text">
                           <span className="khvt-ton-val">
-                            Tồn: <b>{soGoc(nhom.ton)}</b>
+                            Tồn <b>{soGoc(nhom.ton)}</b>
                           </span>
+                          <span className="khvt-can-sep">/</span>
                           <span className="khvt-can-val">
-                            Cần: <b>{soGoc(nhom.tong_can)}</b>
+                            Cần <b>{soGoc(nhom.tong_can)}</b>
                           </span>
                           <span className="khvt-unit-val">{nhom.don_vi_goc ?? ""}</span>
                         </div>
@@ -605,13 +603,12 @@ export function VatTuKeHoachView({
                       </span>
                     </td>
 
-                    {/* Cột 4: Lượng thiếu */}
+                    {/* Cột 4: Lượng thiếu (Shape Pill 999px đồng bộ với Độ phủ & Trạng thái) */}
                     <td className="khsx-num khvt-cell-thieu">
                       {tongThieuNhom > 0 ? (
-                        <div className="khvt-deficit-pill" title={`Thiếu ${soGoc(tongThieuNhom)} ${nhom.don_vi_goc ?? ""}`}>
-                          <b>-{soGoc(tongThieuNhom)}</b>
-                          <small>{nhom.don_vi_goc}</small>
-                        </div>
+                        <span className="khvt-deficit-pill" title={`Thiếu ${soGoc(tongThieuNhom)} ${nhom.don_vi_goc ?? ""}`}>
+                          -{soGoc(tongThieuNhom)} {nhom.don_vi_goc}
+                        </span>
                       ) : (
                         <span className="khvt-deficit-zero">0 {nhom.don_vi_goc}</span>
                       )}
@@ -677,32 +674,20 @@ export function VatTuKeHoachView({
                       </div>
                     </td>
 
-                    {/* Cột 7: Hạn đặt (Highlight đỏ nếu trễ so với mốc hàng về) */}
+                    {/* Cột 7: Hạn đặt (Shape Date Badge 6px đồng bộ với Lệnh sử dụng) */}
                     <td className="khsx__col--opt">
                       {hanDatSomNhat ? (
                         <span
-                          className={`khvt-date-val ${
-                            hanDatSomNhat.datMuon || isVeMuon ? "khsx-date--late" : classHan(hanDatSomNhat.han)
+                          className={`khvt-date-badge ${
+                            hanDatSomNhat.datMuon || isVeMuon ? "is-late" : ""
                           }`}
                           title={isVeMuon ? `Hạn đặt ${ngay(hanDatSomNhat.han)} (cần dời kế hoạch hoặc hối giao hàng)` : undefined}
                         >
-                          {ngay(hanDatSomNhat.han)}
+                          <Icon name="clock" size={11} /> {ngay(hanDatSomNhat.han)}
                         </span>
                       ) : (
-                        <span className="khsx-muted">—</span>
+                        <span className="khvt-date-empty">—</span>
                       )}
-                    </td>
-
-                    {/* Cột 8: Nút mở Drawer */}
-                    <td style={{ textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        className="khvt-btn-detail"
-                        onClick={() => setSelectedNhomId(nhomId)}
-                        title="Xem chi tiết phân bổ từng lệnh"
-                      >
-                        Chi tiết <Icon name="chevron" size={12} />
-                      </button>
                     </td>
                   </tr>
                 );
@@ -837,28 +822,28 @@ function VatTuDetailDrawer({
             <div className="khvt-bento-kpi">
               <span className="khvt-bento-kpi__label">Tồn khả dụng</span>
               <span className="khvt-bento-kpi__val">
-                <b>{soGoc(nhom.ton)}</b> <small>{nhom.don_vi_goc}</small>
+                {soGoc(nhom.ton)} {nhom.don_vi_goc}
               </span>
             </div>
             <div className="khvt-bento-kpi">
               <span className="khvt-bento-kpi__label">Tổng nhu cầu</span>
               <span className="khvt-bento-kpi__val">
-                <b>{soGoc(nhom.tong_can)}</b> <small>{nhom.don_vi_goc}</small>
+                {soGoc(nhom.tong_can)} {nhom.don_vi_goc}
               </span>
             </div>
             <div className="khvt-bento-kpi">
               <span className="khvt-bento-kpi__label">Cân đối</span>
-              <div className="khvt-bento-kpi__val">
+              <span className="khvt-bento-kpi__val">
                 {tongThieuNhom > 0 ? (
-                  <span className="khvt-kpi-badge khvt-kpi-badge--deficit">
-                    Thiếu <b>-{soGoc(tongThieuNhom)}</b> <small>{nhom.don_vi_goc}</small>
+                  <span className="khvt-bento-kpi__val--deficit">
+                    -{soGoc(tongThieuNhom)} {nhom.don_vi_goc}
                   </span>
                 ) : (
-                  <span className="khvt-kpi-badge khvt-kpi-badge--ok">
-                    Đủ tồn kho
+                  <span className="khvt-bento-kpi__val--ok">
+                    0 {nhom.don_vi_goc}
                   </span>
                 )}
-              </div>
+              </span>
             </div>
             <div className="khvt-bento-kpi">
               <span className="khvt-bento-kpi__label">Độ phủ kho</span>

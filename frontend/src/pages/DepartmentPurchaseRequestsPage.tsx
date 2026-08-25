@@ -4,7 +4,6 @@ import {
   useMemo,
   useState,
   type FormEvent,
-  type ReactNode,
 } from "react";
 import {
   ApiError,
@@ -23,10 +22,10 @@ import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombobox";
-import { DetailModal } from "../components/DetailModal";
 import { EmptyRow } from "../components/EmptyState";
 import { StatusHistoryTimeline } from "../components/StatusHistoryTimeline";
 import { RowActionButton } from "../components/RowActionButton";
+import { Icon } from "../components/Icons";
 import { fmtDate } from "../utils/format";
 import "./master-data.css";
 // Bảng tình trạng từng dòng mượn `.pay-table` của màn Công nợ — cùng loại bảng phụ trong hộp
@@ -183,6 +182,7 @@ export function DepartmentPurchaseRequestsPage({
     { line: DepartmentPurchaseRequestLineOut; reason: string; error: string | null } | null
   >(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [drawerTab, setDrawerTab] = useState<"items" | "history">("items");
   const minNeededDate = useMemo(() => todayInputValue(), []);
 
   // Lấy lại từ `rows` (không lưu cả object) để sau khi Hủy cập nhật `rows` thì
@@ -501,70 +501,55 @@ export function DepartmentPurchaseRequestsPage({
 
   return (
     <main className="md-page">
-      <header className="md-page__head">
-        {/* Eyebrow = tên SECTION trên sidebar, chép NGUYÊN VĂN, MỘT cấp. Màn này nằm trong section
-            "Thu mua" (Sidebar.tsx: Thu mua → Yêu cầu mua hàng · Mua hàng · Nhà cung cấp), nên
-            eyebrow là "Thu mua". Trước 09/08/2026 ghi "Phòng ban" — đó là tên NGƯỜI DÙNG màn, KHÔNG
-            phải chỗ màn nằm; ai đọc xong đi tìm mục "Phòng ban" trên sidebar sẽ lạc sang Nhân sự.
-            ⚠️ Phải là className="eyebrow": lớp `ns__eyebrow` KHÔNG có CSS ở bất kỳ file nào, dùng
-            nó là ra chữ thường 15px. */}
-        <p className="eyebrow">Thu mua</p>
-        <h1 className="md-page__title">Yêu cầu mua hàng</h1>
-        {/* Phụ đề nói rõ VAI của người đang đọc, vì màn mở cho 6 nhóm quyền (Sidebar.tsx: thu_mua ·
-            bao_gia · kho · san_xuat · dm_giay_vat_tu · ke_toan). Câu cũ tả cả hai đầu ("các phòng
-            ban… Thu mua dùng danh sách này…") nên người mở màn không biết mình là bên nào. */}
-        <p className="md-page__sub">
-          Phòng ban của bạn gửi yêu cầu vật tư sang Thu mua.
-        </p>
-      </header>
-
-      <div className="md-page__toolbar">
-        <form
-          className="md-page__search"
-          onSubmit={(e) => {
-            e.preventDefault();
-            load();
-          }}
-        >
-          <input
-            className="input"
-            placeholder="Tìm mã yêu cầu, mục đích, vật tư..."
-            value={q}
+      <div className="purchase__topbar-unified">
+        <div className="purchase__topbar-left">
+          <h1 className="purchase__topbar-title">Yêu cầu mua hàng</h1>
+          <span className="purchase__count-badge">{loading ? "..." : total}</span>
+        </div>
+        <div className="purchase__topbar-controls">
+          <form
+            className="purchase__search-wrap"
+            onSubmit={(e) => {
+              e.preventDefault();
+              load();
+            }}
+          >
+            <span className="purchase__search-icon">
+              <Icon name="search" size={16} />
+            </span>
+            <input
+              className="input purchase__search-input"
+              placeholder="Tìm mã yêu cầu, mục đích, vật tư..."
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setPage(1);
+              }}
+            />
+          </form>
+          <select
+            className="input purchase__select-modern"
+            value={status}
             onChange={(e) => {
-              setQ(e.target.value);
+              setStatus(e.target.value as StatusFilter);
               setPage(1);
             }}
-          />
-          {/* <Button type="submit" variant="ghost">
-            Tìm
-          </Button> */}
-        </form>
-        <select
-          className="input purchase__select"
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value as StatusFilter);
-            setPage(1);
-          }}
-        >
-          <option value="all">Tất cả trạng thái</option>
-          {Object.entries(SOURCE_STATUS_META).map(([value, meta]) => (
-            <option key={value} value={value}>
-              {meta.label}
-            </option>
-          ))}
-        </select>
-        <div className="md-page__toolbar-spacer" />
-        {canCreate && (
-          // ⚠️ TÊN LỚP ĐẶT NGƯỢC VỚI TÀI LIỆU: `variant="accent"` mới ra màu CAM thương hiệu,
-          // `variant="primary"` ra màu NAVY. Ai đọc docs/UI_DESIGN.md rồi gõ "primary" sẽ được
-          // một nút navy — đúng lỗi của nút này trước 09/08/2026.
-          // Đây là hành động chính DUY NHẤT của màn; luật là TỐI ĐA MỘT nút cam mỗi màn, nên
-          // đừng nâng thêm nút nào khác (Xoá bộ lọc, Trước/Sau, nút trên dòng) lên accent.
-          <Button variant="accent" onClick={openCreate}>
-            + Tạo yêu cầu mua
-          </Button>
-        )}
+          >
+            <option value="all">Tất cả trạng thái</option>
+            {Object.entries(SOURCE_STATUS_META).map(([value, meta]) => (
+              <option key={value} value={value}>
+                {meta.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="purchase__topbar-actions">
+          {canCreate && (
+            <Button variant="accent" onClick={openCreate}>
+              + Tạo yêu cầu mua
+            </Button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -574,35 +559,35 @@ export function DepartmentPurchaseRequestsPage({
       )}
 
       <section className="card md-page__tablewrap">
-        <table className="md-page__table">
+        <table className="md-page__table purchase__table-modern">
           <thead>
             <tr>
-              {/* TRẠNG THÁI luôn đứng NGAY TRƯỚC Thao tác — thống nhất ở mọi màn Thu mua /
-                  Kế toán, để mắt không phải đi tìm lại ở từng màn. */}
-              <th>Mã yêu cầu</th>
-              <th>Bộ phận</th>
-              <th>Cần hàng</th>
-              <th>Vật tư</th>
-              <th>Người tạo</th>
-              <th>Trạng thái</th>
-              {/* `md-page__actions-col` canh tiêu đề THEO NÚT (cụm nút dense nằm sát phải). Thiếu
-                  lớp này thì chữ "Thao tác" đứng một nơi, cụm nút đứng một nẻo. */}
-              <th className="md-page__actions-col">Thao tác</th>
+              <th style={{ width: "160px" }}>Mã yêu cầu</th>
+              <th style={{ width: "210px" }}>Bộ phận / Người tạo</th>
+              <th style={{ width: "260px" }}>Vật tư</th>
+              <th style={{ width: "220px" }}>Trạng thái & Cần hàng</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <EmptyRow colSpan={7} trangThai="dang-tai" />
+              Array.from({ length: 5 }).map((_, idx) => (
+                <tr key={idx} className="purchase__skeleton-row">
+                  <td><div className="purchase__skeleton-bar" style={{ width: "120px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "140px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "180px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "150px" }} /></td>
+                </tr>
+              ))
             ) : listError ? (
               <EmptyRow
-                colSpan={7}
+                colSpan={4}
                 trangThai="loi"
                 loi={listError}
                 onThuLai={load}
               />
             ) : rows.length === 0 ? (
               <EmptyRow
-                colSpan={7}
+                colSpan={4}
                 icon="clipboard"
                 title="Chưa có yêu cầu mua hàng nào khớp"
                 sub={
@@ -638,84 +623,52 @@ export function DepartmentPurchaseRequestsPage({
                   onClick={() => setSelectedId(row.id)}
                 >
                   <td>
-                    <strong className="md-page__mono">{row.code}</strong>
-                    <div className="md-page__muted">{noiDung(row)}</div>
-                  </td>
-                  <td>
-                    {row.requesting_department_name || "Nội bộ"}
-                    <div className="md-page__muted">
-                      {SOURCE_TYPE_LABELS[row.source_type]}
+                    <div className="purchase__code-row">
+                      <strong className="purchase__code-badge">{row.code}</strong>
+                      {row.related_document_code && (
+                        <span
+                          className="purchase__source-tag"
+                          title={`Chứng từ liên quan: ${row.related_document_type || "Nguồn"} ${row.related_document_code}`}
+                        >
+                          {row.related_document_code}
+                        </span>
+                      )}
                     </div>
                   </td>
-                  <td>{fmtDate(row.needed_date)}</td>
+                  <td>
+                    <div className="purchase__dept-title">{row.requesting_department_name || "Nội bộ"}</div>
+                    <div className="md-page__muted">
+                      {row.requested_by_name || SOURCE_TYPE_LABELS[row.source_type]}
+                    </div>
+                  </td>
                   <td title={row.lines.map((line) => line.item_name).join(", ")}>
-                    {/* Đếm theo món CÒN SỐNG: món đã bỏ vẫn nằm trong `lines` (giữ vết ai bỏ, lý do
-                        gì) nhưng không còn là việc phải mua, kể chung vào "N dòng" là nói dối. */}
-                    <strong>{dongSong(row).length} dòng</strong>
-                    <div className="md-page__muted">
-                      {dongSong(row)
-                        .slice(0, 2)
-                        .map((line) => line.item_name)
-                        .join(", ")}
-                      {dongSong(row).length > 2 ? "…" : ""}
+                    <div className="purchase__item-row">
+                      <span className="purchase__item-chip">{dongSong(row).length} món</span>
+                      <span className="purchase__item-names">
+                        {dongSong(row)
+                          .slice(0, 2)
+                          .map((line) => line.item_name)
+                          .join(", ")}
+                        {dongSong(row).length > 2 ? "…" : ""}
+                      </span>
                     </div>
                   </td>
                   <td>
-                    {row.requested_by_name || "—"}
-                    <div className="md-page__muted">{fmtDate(row.created_at)}</div>
-                  </td>
-                  <td>
-                    <SourceStatusBadge status={row.workflow_status} />
-                    {/* "Hủy một phần" nói mất món, KHÔNG nói phần còn lại đi tới đâu — nên tiến độ
-                        thật (chờ duyệt / đang mua…) xuống dòng phụ thay vì tranh chỗ trên huy hiệu. */}
-                    {row.workflow_status === "partially_cancelled" && (
-                      <div className="md-page__muted">
-                        {SOURCE_STATUS_META[row.progress_status]?.label ?? row.progress_status} · đã
-                        bỏ {row.cancelled_line_count}/
-                        {row.cancelled_line_count + row.active_line_count} món
+                    <div className="purchase__status-col">
+                      <SourceStatusBadge status={row.workflow_status} />
+                      <div className="purchase__meta-line">
+                        <span>Cần {fmtDate(row.needed_date)}</span>
+                        {row.purchase_requests && row.purchase_requests.length > 0 && (
+                          <span className="purchase__pmh-inline">
+                            {" "}· {row.purchase_requests.map((p) => p.code).join(", ")}
+                          </span>
+                        )}
                       </div>
-                    )}
-                  </td>
-                  <td
-                    className="md-page__actions-col"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    {/* Cột Thao tác dùng TOÀN icon dense (`RowActionButton`), không trộn icon với
-                        nút chữ: mỗi nút chữ chiếm ~64px nên ba nút là đẩy cột tiền/trạng thái ra
-                        khỏi tầm mắt ở 1440px, mà mắt cũng phải đọc hai kiểu ký hiệu trong cùng một
-                        ô. Tooltip của `RowActionButton` giữ nguyên phần chữ.
-                        GIỮ `danger` ở nút Hủy — mất tín hiệu đỏ là bấm nhầm sang huỷ yêu cầu. */}
-                    <div className="purchase__actions purchase__actions--dense">
-                      <RowActionButton
-                        dense
-                        label="Xem chi tiết"
-                        icon="eye"
-                        onClick={() => setSelectedId(row.id)}
-                      />
-                      {/* Sửa/Huỷ đòi ĐỦ HAI thứ: là người tạo VÀ có ô Thao tác. Trước 11/08/2026
-                          chỉ xét "có phải người tạo không", nên gỡ ô Thao tác rồi hai nút vẫn bày
-                          ra — bấm mới ăn 403. Máy chủ vốn chặn đúng; đây là phần giao diện. */}
-                      {row.status === "open" &&
-                        canUpdate &&
-                        row.requested_by_user_id === user?.id && (
-                          <RowActionButton
-                            dense
-                            label="Sửa yêu cầu"
-                            icon="pencil"
-                            onClick={() => openEdit(row)}
-                          />
-                        )}
-                      {row.status === "open" &&
-                        (canAdminCancel ||
-                          (canUpdate && row.requested_by_user_id === user?.id)) && (
-                          <RowActionButton
-                            dense
-                            danger
-                            label="Hủy yêu cầu"
-                            icon="ban"
-                            onClick={() => setCanceling(row)}
-                          />
-                        )}
+                      {row.workflow_status === "partially_cancelled" && (
+                        <div className="md-page__muted">
+                          {SOURCE_STATUS_META[row.progress_status]?.label ?? row.progress_status} · bỏ {row.cancelled_line_count}/{row.cancelled_line_count + row.active_line_count} món
+                        </div>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -723,14 +676,11 @@ export function DepartmentPurchaseRequestsPage({
             )}
           </tbody>
         </table>
-        {/* Chân bảng chuẩn: tổng bên trái, điều hướng trang bên phải. Chỉ hiện nút khi thật sự
-            có nhiều hơn một trang — bảng 3 dòng mà treo "Trang 1/1" là nhiễu. */}
-        <div className="purchase__source-foot">
-          <span className="md-page__muted">
-            Tổng {total} yêu cầu
-            {totalPages > 1 ? ` · Trang ${page}/${totalPages}` : ""}
-          </span>
-          {totalPages > 1 && (
+        {!loading && totalPages > 1 && (
+          <div className="purchase__source-foot">
+            <span className="md-page__muted">
+              Tổng {total} yêu cầu · Trang {page}/{totalPages}
+            </span>
             <div className="md-page__pager-btns">
               <button
                 type="button"
@@ -749,172 +699,220 @@ export function DepartmentPurchaseRequestsPage({
                 Sau
               </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </section>
 
       {selected && (
-        <DetailModal
-          kicker="Chi tiết yêu cầu"
-          title={selected.code}
-          subtitle={noiDung(selected)}
-          badge={<SourceStatusBadge status={selected.workflow_status} />}
-          onClose={() => setSelectedId(null)}
-        >
-          <dl className="purchase__facts">
-            <div>
-              <dt>Nhóm nguồn</dt>
-              <dd>{SOURCE_TYPE_LABELS[selected.source_type]}</dd>
-            </div>
-            <div>
-              <dt>Phòng ban</dt>
-              <dd>{selected.requesting_department_name || "Nội bộ"}</dd>
-            </div>
-            <div>
-              <dt>Ngày cần hàng</dt>
-              <dd>{fmtDate(selected.needed_date)}</dd>
-            </div>
-            <div>
-              <dt>Người tạo</dt>
-              <dd>{selected.requested_by_name || "—"}</dd>
-            </div>
-            <div>
-              <dt>Tạo lúc</dt>
-              <dd>{fmtDate(selected.created_at)}</dd>
-            </div>
-          </dl>
-          {selected.reject_reason && (
-            <div className="purchase__note purchase__note--reject">
-              <strong>Lý do từ chối / huỷ:</strong> {selected.reject_reason}
-            </div>
-          )}
-          <p className="eyebrow">
-            Vật tư đã yêu cầu ({dongSong(selected).length} dòng
-            {selected.cancelled_line_count > 0
-              ? `, đã bỏ ${selected.cancelled_line_count}`
-              : ""}
-            )
-          </p>
-          {(() => {
-            const veDu = dongSong(selected).filter((l) => {
-              const f = l.fulfilment;
-              if (!f) return false;
-              // Phiếu chưa có tin về số nhận (`null`) mà đã ở bậc "đã nhận" ⇒ luật cũ: coi như đủ.
-              const nhan = f.received_quantity ?? f.ordered_quantity;
-              return f.purchase_status === "received" && nhan >= f.ordered_quantity;
-            }).length;
-            if (veDu === 0) return null;
-            return (
-              <p className="md-page__muted purchase__tien-do">
-                {veDu}/{dongSong(selected).length} mặt hàng đã về đủ
-              </p>
-            );
-          })()}
-          {/* Trạng thái ở đầu phiếu là bậc THẤP NHẤT của các dòng — nhìn danh sách biết "có gì đó
-              chưa xong". Bảng dưới đây trả lời tiếp: chưa xong ở ĐÂU. Thiếu bảng thì biết kẹt mà
-              không biết kẹt chỗ nào; thiếu trạng thái đầu phiếu thì phải mở từng yêu cầu mới biết. */}
-          <table className="pay-table">
-            <thead>
-              <tr>
-                <th>Vật tư</th>
-                <th className="pay-num">Yêu cầu</th>
-                {/* <th>Nhà cung cấp</th> */}
-                <th>Tình trạng</th>
-                {boMonDuoc && <th className="md-page__actions-col">Thao tác</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {selected.lines.map((line) => (
-                <tr
-                  key={line.id}
-                  className={line.cancelled_at ? "purchase__dong-da-bo" : undefined}
-                >
-                  <td>
-                    <strong>{line.item_name}</strong>
-                    {line.note && (
-                      <>
-                        <br />
-                        <small>{line.note}</small>
-                      </>
-                    )}
-                    {line.cancelled_at && (
-                      <div className="md-page__muted">
-                        Đã bỏ{line.cancelled_by_name ? ` bởi ${line.cancelled_by_name}` : ""} ·{" "}
-                        {fmtDate(line.cancelled_at)}
-                        {line.cancel_reason ? ` — ${line.cancel_reason}` : ""}
-                      </div>
-                    )}
-                  </td>
-                  <td className="pay-num">
-                    {line.quantity.toLocaleString("vi-VN")} {line.unit}
-                  </td>
-                  {/* <td>{line.fulfilment?.supplier_name ?? "—"}</td> */}
-                  <td>
-                    {line.cancelled_at ? (
-                      <span className="purchase__status purchase__status--cancelled">
-                        Đã bỏ
-                      </span>
-                    ) : (
-                      <LineFulfilmentCell
-                        line={line}
-                        coPhieu={selected.purchase_requests.length > 0}
-                      />
-                    )}
-                  </td>
-                  {boMonDuoc && (
-                    <td className="md-page__actions-col">
-                      {/* Món đang nằm trong một đơn mua còn sống thì KHÔNG ẩn nút — khoá lại và
-                          nói thẳng đơn nào (`cancel_block_reason` do máy chủ soạn), không thì
-                          người dùng tưởng phần mềm hỏng. */}
-                      {!line.cancelled_at && (
-                        <div className="purchase__actions purchase__actions--dense">
-                          <RowActionButton
-                            dense
-                            danger
-                            icon="ban"
-                            label={line.cancel_block_reason ?? "Bỏ món này"}
-                            disabled={!line.can_cancel}
-                            onClick={() =>
-                              setBoMon({ line, reason: "", error: null })
-                            }
-                          />
-                        </div>
-                      )}
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {selected.purchase_requests.length > 0 && (
-            <>
-              <p className="eyebrow" style={{ marginTop: 16 }}>
-                Phiếu mua đã lập ({selected.purchase_requests.length})
-              </p>
-              <div className="purchase__lines">
-                {selected.purchase_requests.map((p) => (
-                  <div className="purchase__line" key={p.id}>
-                    <span>
-                      <strong>{p.code}</strong>
-                      {p.supplier_name && (
-                        <>
-                          <br />
-                          <small>{p.supplier_name}</small>
-                        </>
-                      )}
-                    </span>
-                    <StatusBadgePhieu status={p.status} />
+        <div className="rc-drawer__scrim" onClick={() => setSelectedId(null)}>
+          <aside className="rc-drawer purchase__drawer-780" onClick={(e) => e.stopPropagation()}>
+            <div className="purchase__hero-banner">
+              <div className="purchase__hero-top">
+                <div>
+                  <span className="purchase__hero-kicker">Chi tiết yêu cầu mua hàng</span>
+                  <div className="purchase__hero-title-row">
+                    <h2 className="purchase__hero-code">{selected.code}</h2>
+                    <SourceStatusBadge status={selected.workflow_status} />
                   </div>
-                ))}
+                </div>
+                <button
+                  type="button"
+                  className="purchase__hero-x"
+                  onClick={() => setSelectedId(null)}
+                  aria-label="Đóng"
+                >
+                  ✕
+                </button>
               </div>
-            </>
-          )}
-          <p className="eyebrow" style={{ marginTop: 16 }}>
-            Lịch sử trạng thái
-          </p>
-          <StatusHistoryTimeline items={selected.status_history} />
-        </DetailModal>
+
+              <div className="purchase__hero-meta">
+                <span>{selected.requesting_department_name || "Nội bộ"}</span>
+                {selected.requested_by_name && (
+                  <>
+                    <span className="purchase__hero-dot">•</span>
+                    <span>{selected.requested_by_name}</span>
+                  </>
+                )}
+                <span className="purchase__hero-dot">•</span>
+                <span className="purchase__hero-date">Cần {fmtDate(selected.needed_date)}</span>
+                <span className="purchase__hero-dot">•</span>
+                <span>
+                  {dongSong(selected).length} mặt hàng
+                  {selected.cancelled_line_count > 0 ? ` (đã bỏ ${selected.cancelled_line_count})` : ""}
+                </span>
+                {selected.related_document_code && (
+                  <>
+                    <span className="purchase__hero-dot">•</span>
+                    <span className="purchase__hero-chip" style={{ margin: 0 }}>
+                      {selected.related_document_code}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="rc-drawer__tabs" style={{ margin: "16px 24px 0 24px" }}>
+              <button
+                type="button"
+                className={`rc-drawer__tab ${drawerTab === "items" ? "is-active" : ""}`}
+                onClick={() => setDrawerTab("items")}
+              >
+                Nội dung & Vật tư ({dongSong(selected).length})
+              </button>
+              <button
+                type="button"
+                className={`rc-drawer__tab ${drawerTab === "history" ? "is-active" : ""}`}
+                onClick={() => setDrawerTab("history")}
+              >
+                Lịch sử trạng thái ({selected.status_history?.length || 0})
+              </button>
+            </div>
+
+            <div className="rc-drawer__body purchase__drawer-body-wow">
+              {drawerTab === "items" ? (
+                <>
+                  {noiDung(selected) && (
+                    <div className="purchase__note" style={{ fontSize: "13px" }}>
+                      {noiDung(selected)}
+                    </div>
+                  )}
+
+                  {selected.reject_reason && (
+                    <div className="purchase__note purchase__note--reject">
+                      <strong>Lý do từ chối / huỷ:</strong> {selected.reject_reason}
+                    </div>
+                  )}
+
+                  <div className="purchase__items-section">
+                    <table className="pay-table purchase__drawer-table">
+                      <thead>
+                        <tr>
+                          <th>Vật tư</th>
+                          <th className="pay-num">Yêu cầu</th>
+                          <th>Nhà cung cấp & PMH</th>
+                          <th>Trạng thái</th>
+                          {boMonDuoc && selected.lines.some((l) => !l.cancelled_at && l.can_cancel) && (
+                            <th className="md-page__actions-col">Thao tác</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selected.lines.map((line) => (
+                          <tr
+                            key={line.id}
+                            className={line.cancelled_at ? "purchase__dong-da-bo" : undefined}
+                          >
+                            <td>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <span style={{ color: "var(--ash)" }}>
+                                  <Icon name="box" size={14} />
+                                </span>
+                                <strong style={{ fontFamily: "var(--ff-sans)" }}>{line.item_name}</strong>
+                              </div>
+                              {line.note && (
+                                <div style={{ fontSize: "11px", color: "var(--ash)", marginTop: "2px" }}>
+                                  {line.note}
+                                </div>
+                              )}
+                              {line.cancelled_at && (
+                                <div className="md-page__muted" style={{ fontSize: "11px" }}>
+                                  Đã bỏ{line.cancelled_by_name ? ` bởi ${line.cancelled_by_name}` : ""} · {fmtDate(line.cancelled_at)}
+                                  {line.cancel_reason ? ` — ${line.cancel_reason}` : ""}
+                                </div>
+                              )}
+                            </td>
+                            <td className="pay-num">
+                              <span className="purchase__qty-badge">
+                                {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                              </span>
+                            </td>
+                            <td>
+                              {line.fulfilment?.supplier_name ? (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                                  <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--ink)" }}>
+                                    {line.fulfilment.supplier_name}
+                                  </span>
+                                  {line.fulfilment?.purchase_code && (
+                                    <span className="purchase__spec-tag purchase__spec-tag--pmh" style={{ fontSize: "10px", width: "fit-content" }}>
+                                      {line.fulfilment.purchase_code}
+                                      {line.fulfilment.received_quantity ? ` · nhận ${line.fulfilment.received_quantity.toLocaleString("vi-VN")} ${line.unit}` : ""}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : line.fulfilment?.purchase_code ? (
+                                <span className="purchase__spec-tag purchase__spec-tag--pmh" style={{ fontSize: "10px" }}>
+                                  {line.fulfilment.purchase_code}
+                                </span>
+                              ) : (
+                                <span className="md-page__muted" style={{ fontSize: "12px" }}>—</span>
+                              )}
+                            </td>
+                            <td>
+                              {line.cancelled_at ? (
+                                <span className="purchase__status purchase__status--cancelled">
+                                  Đã bỏ
+                                </span>
+                              ) : (
+                                <LineFulfilmentCell
+                                  line={line}
+                                  coPhieu={selected.purchase_requests.length > 0}
+                                />
+                              )}
+                            </td>
+                            {boMonDuoc && selected.lines.some((l) => !l.cancelled_at && l.can_cancel) && (
+                              <td className="md-page__actions-col">
+                                {!line.cancelled_at && line.can_cancel && (
+                                  <div className="purchase__actions purchase__actions--dense">
+                                    <RowActionButton
+                                      dense
+                                      danger
+                                      icon="ban"
+                                      label={line.cancel_block_reason ?? "Bỏ món"}
+                                      onClick={() => setBoMon({ line, reason: "", error: null })}
+                                    />
+                                  </div>
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div className="purchase__timeline-section">
+                  <StatusHistoryTimeline items={selected.status_history} />
+                </div>
+              )}
+            </div>
+
+            {selected.status === "open" &&
+              (canAdminCancel || (canUpdate && selected.requested_by_user_id === user?.id)) && (
+                <div className="rc-drawer__footer purchase__drawer-footer">
+                  {canUpdate && selected.requested_by_user_id === user?.id && (
+                    <button
+                      type="button"
+                      className="btn btn--primary"
+                      onClick={() => openEdit(selected)}
+                    >
+                      <Icon name="edit" size={14} /> Sửa yêu cầu
+                    </button>
+                  )}
+                  {(canAdminCancel ||
+                    (canUpdate && selected.requested_by_user_id === user?.id)) && (
+                    <button
+                      type="button"
+                      className="btn btn--danger"
+                      onClick={() => setCanceling(selected)}
+                    >
+                      <Icon name="ban" size={14} /> Hủy yêu cầu
+                    </button>
+                  )}
+                </div>
+              )}
+          </aside>
+        </div>
       )}
 
       {mode && (
@@ -923,32 +921,54 @@ export function DepartmentPurchaseRequestsPage({
             className="card md-page__dialog purchase__dialog purchase__dialog--request"
             role="dialog"
             aria-modal="true"
+            style={{ overflow: "hidden", padding: 0 }}
           >
-            <div className="md-page__dialog-head">
-              <h2>{editing ? "Sửa yêu cầu mua hàng" : "Tạo yêu cầu mua hàng"}</h2>
-              <button
-                type="button"
-                className="md-page__close"
-                onClick={closeForm}
-              >
-                ×
-              </button>
+            <div className="purchase__hero-banner">
+              <div className="purchase__hero-top">
+                <div>
+                  <span className="purchase__hero-kicker">Form nhập liệu vật tư</span>
+                  <div className="purchase__hero-title-row">
+                    <h2 className="purchase__hero-code" style={{ fontSize: "18px" }}>
+                      {editing ? "Sửa yêu cầu mua hàng" : "Tạo yêu cầu mua hàng"}
+                    </h2>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="purchase__hero-x"
+                  onClick={closeForm}
+                  aria-label="Đóng"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="purchase__hero-meta">
+                <span>{departmentName || "Nội bộ"}</span>
+                {editing && (
+                  <>
+                    <span className="purchase__hero-dot">•</span>
+                    <span>{editing.code}</span>
+                  </>
+                )}
+              </div>
             </div>
-            <form className="md-page__dialog-body" onSubmit={save}>
+
+            <form className="md-page__dialog-body" onSubmit={save} style={{ padding: "20px 24px" }}>
               {formError && (
-                <div className="banner banner--error" role="alert">
+                <div className="banner banner--error" role="alert" style={{ marginBottom: "16px" }}>
                   {formError}
                 </div>
               )}
-              <div className="md-page__form-grid">
-                <LocalField label="Phòng ban của bạn">
-                  <div className="input purchase__readonly-field">
-                    {departmentName || "Theo tài khoản đăng nhập"}
-                  </div>
-                </LocalField>
-                <LocalField label="Ngày cần hàng" required>
+
+              <div className="purchase__modal-top-fields">
+                <div className="md-page__field" style={{ width: "220px" }}>
+                  <label htmlFor="needed_date_input">
+                    Ngày cần hàng <span className="md-page__req">*</span>
+                  </label>
                   <input
-                    className="input"
+                    id="needed_date_input"
+                    className="input purchase__input-flat"
                     type="date"
                     required
                     min={minNeededDate}
@@ -957,128 +977,136 @@ export function DepartmentPurchaseRequestsPage({
                       setForm({ ...form, needed_date: e.target.value })
                     }
                   />
-                </LocalField>
-                {/* MỘT ô thay cho cặp "Mục đích" + "Ghi chú" (chủ chốt 07/08/2026). Hai ô cho
-                    cùng một ý khiến người khai phân vân chữ nào bỏ vào đâu, rồi mỗi người điền một
-                    kiểu. Dữ liệu cũ đã được migration 0171 dồn sang một ô. */}
-                <LocalField label="Nội dung / mục đích" wide required>
+                </div>
+
+                <div className="md-page__field" style={{ width: "100%" }}>
+                  <label htmlFor="content_input">
+                    Nội dung / mục đích <span className="md-page__req">*</span>
+                  </label>
                   <textarea
-                    className="input purchase__textarea"
+                    id="content_input"
+                    className="input purchase__textarea-flat"
                     required
+                    rows={2}
                     value={form.content}
                     onChange={(e) =>
                       setForm({ ...form, content: e.target.value })
                     }
                     placeholder="VD: thiếu giấy cho lệnh sản xuất SX-2026-014, cần trước ngày đóng gói"
                   />
-                </LocalField>
+                </div>
               </div>
 
-              <div className="purchase__form-section">
-                <div className="purchase__form-section-head">
-                  <h3>Vật tư cần mua</h3>
-                  <button
-                    type="button"
-                    className="btn btn--ghost"
-                    onClick={() =>
-                      setForm((current) => ({
-                        ...current,
-                        lines: [...current.lines, emptyLine()],
-                      }))
-                    }
-                  >
-                    + Thêm dòng
-                  </button>
-                </div>
-                <div className="purchase__line-editor purchase__line-editor--request">
-                  <div className="purchase__line-labels" aria-hidden="true">
-                    <span>
-                      Vật tư <span className="purchase__required-star">*</span>
-                    </span>
-                    <span>
-                      ĐVT <span className="purchase__required-star">*</span>
-                    </span>
-                    <span>
-                      Số lượng <span className="purchase__required-star">*</span>
-                    </span>
-                    <span>Ghi chú dòng</span>
-                    <span></span>
-                  </div>
-                  {form.lines.map((line, index) => (
-                    <div className="purchase__line-edit" key={index}>
-                      {/* Chọn từ DANH MỤC GỐC (Giấy + Vật tư khác) — cùng ô với đề nghị kho và
-                          bảng giá NCC. Trước đây đổ từ bảng giá NCC nên món chưa ai báo giá thì
-                          không đề nghị mua được, mà tên lưu dạng chuỗi cũng không nối về đâu. */}
-                      <div className="purchase__line-name">
-                        <MaterialCombobox
-                          token={token ?? ""}
-                          hangTen={line.item_name || null}
-                          chiCoNhaCungCap
-                          onPick={(m) =>
-                            setLine(index, {
-                              hang_loai: m.hang_loai,
-                              hang_id: m.hang_id,
-                              item_name: m.ten,
-                              unit: "",
-                            })
+              <div className="purchase__modal-items-head">
+                <h4 className="purchase__section-heading" style={{ margin: 0 }}>
+                  Danh sách vật tư cần mua ({form.lines.length})
+                </h4>
+              </div>
+
+              <div className="purchase__modal-table-wrap">
+                <table className="pay-table purchase__modal-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: "36%" }}>Vật tư *</th>
+                      <th style={{ width: "16%" }}>ĐVT</th>
+                      <th style={{ width: "18%" }} className="pay-num">Số lượng *</th>
+                      <th>Ghi chú dòng</th>
+                      <th style={{ width: "40px", textAlign: "center" }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {form.lines.map((line, index) => (
+                      <tr key={index}>
+                        <td>
+                          <MaterialCombobox
+                            token={token ?? ""}
+                            hangTen={line.item_name || null}
+                            chiCoNhaCungCap
+                            onPick={(m) =>
+                              setLine(index, {
+                                hang_loai: m.hang_loai,
+                                hang_id: m.hang_id,
+                                item_name: m.ten,
+                                unit: "",
+                              })
+                            }
+                          />
+                        </td>
+                        <td>
+                          <DonViChonTheoHang
+                            chiDoc
+                            token={token ?? ""}
+                            hangLoai={line.hang_loai ?? null}
+                            hangId={line.hang_id ?? null}
+                            value={line.unit}
+                            onChange={(ma) => setLine(index, { unit: ma })}
+                            disabled={!line.hang_loai || !line.hang_id}
+                          />
+                        </td>
+                        <td className="pay-num">
+                          <input
+                            className="input purchase__input-flat pay-num"
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            required
+                            placeholder="1000"
+                            value={line.quantity > 0 ? line.quantity : ""}
+                            onChange={(e) =>
+                              setLine(index, {
+                                quantity: Number(e.target.value || 0),
+                              })
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            className="input purchase__input-flat"
+                            placeholder="Nếu có"
+                            value={line.note ?? ""}
+                            onChange={(e) => setLine(index, { note: e.target.value })}
+                          />
+                        </td>
+                        <td style={{ textAlign: "center" }}>
+                          <button
+                            type="button"
+                            className="purchase__icon-trash-btn"
+                            aria-label="Xóa dòng vật tư"
+                            title="Xóa dòng"
+                            disabled={form.lines.length <= 1}
+                            onClick={() =>
+                              setForm((current) => ({
+                                ...current,
+                                lines: current.lines.filter((_, i) => i !== index),
+                              }))
+                            }
+                          >
+                            <Icon name="trash" size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="purchase__add-line-tr">
+                      <td colSpan={5} style={{ padding: 0 }}>
+                        <button
+                          type="button"
+                          className="purchase__add-line-btn"
+                          onClick={() =>
+                            setForm((current) => ({
+                              ...current,
+                              lines: [...current.lines, emptyLine()],
+                            }))
                           }
-                        />
-                      </div>
-                      {/* ĐVT = ĐÚNG đơn vị của mặt hàng, CHỈ ĐỌC (chủ chốt 12/08/2026: "nhà
-                          cung cấp ghi là kg thì yêu cầu mua hàng nó cũng là kg, không cho sửa gì
-                          hết"). Trước đây còn cho chọn trong danh sách quy đổi — người đề nghị
-                          mua đổi sang thùng/bao là đẻ ra một con số phải quy đổi ngược khi đối
-                          chiếu bảng giá nhà cung cấp, và không ai biết nó đã đổi. */}
-                      <DonViChonTheoHang
-                        chiDoc
-                        token={token ?? ""}
-                        hangLoai={line.hang_loai ?? null}
-                        hangId={line.hang_id ?? null}
-                        value={line.unit}
-                        onChange={(ma) => setLine(index, { unit: ma })}
-                        disabled={!line.hang_loai || !line.hang_id}
-                      />
-                      <input
-                        className="input purchase__number-input"
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        required
-                        placeholder="VD: 1000"
-                        value={line.quantity > 0 ? line.quantity : ""}
-                        onChange={(e) =>
-                          setLine(index, {
-                            quantity: Number(e.target.value || 0),
-                          })
-                        }
-                      />
-                      <input
-                        className="input purchase__line-note"
-                        placeholder="Nếu có"
-                        value={line.note ?? ""}
-                        onChange={(e) => setLine(index, { note: e.target.value })}
-                      />
-                      <button
-                        type="button"
-                        className="purchase__line-remove"
-                        aria-label="Xóa dòng vật tư"
-                        title="Xóa dòng"
-                        disabled={form.lines.length <= 1}
-                        onClick={() =>
-                          setForm((current) => ({
-                            ...current,
-                            lines: current.lines.filter((_, i) => i !== index),
-                          }))
-                        }
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                        >
+                          <Icon name="plus" size={14} /> Thêm dòng vật tư mới...
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
 
-              <div className="md-page__dialog-actions">
+              <div className="md-page__dialog-actions" style={{ marginTop: "20px" }}>
                 <button
                   type="button"
                   className="btn btn--ghost"
@@ -1087,8 +1115,16 @@ export function DepartmentPurchaseRequestsPage({
                 >
                   Hủy
                 </button>
-                <Button type="submit" variant="accent" loading={saving}>
-                  {editing ? "Cập nhật yêu cầu" : "Lưu yêu cầu"}
+                <Button type="submit" variant="accent" loading={saving} style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  {editing ? (
+                    <>
+                      <Icon name="edit" size={14} /> Cập nhật yêu cầu
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="plus" size={14} /> Lưu yêu cầu
+                    </>
+                  )}
                 </Button>
               </div>
             </form>
@@ -1155,6 +1191,7 @@ function SourceStatusBadge({
   const meta = SOURCE_STATUS_META[status];
   return (
     <span className={`purchase__status purchase__status--${meta.tone}`}>
+      <span className={`purchase__status-dot purchase__status-dot--${meta.tone}`} />
       {meta.label}
     </span>
   );
@@ -1239,27 +1276,5 @@ function LineFulfilmentCell({
         <small className="pay-short">Cần lập phiếu lại cho dòng này</small>
       )}
     </>
-  );
-}
-
-function LocalField({
-  label,
-  wide = false,
-  required = false,
-  children,
-}: {
-  label: string;
-  wide?: boolean;
-  required?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <label className={`purchase__field${wide ? " md-page__form-wide" : ""}`}>
-      <span>
-        {label}
-        {required && <span className="purchase__required-star"> *</span>}
-      </span>
-      {children}
-    </label>
   );
 }

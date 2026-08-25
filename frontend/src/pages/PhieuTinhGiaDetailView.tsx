@@ -24,6 +24,7 @@ import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { MucInHang } from "../components/MucIn";
+import { Select, type SelectOption } from "../components/Select";
 import { ThanhPhamGoiY } from "../components/ThanhPhamGoiY";
 import { ImpositionDiagram } from "./ImpositionDiagram";
 import { heSoChu, nhanDonVi } from "./lsxBuoc";
@@ -776,6 +777,15 @@ function MucInBlock({
   );
 }
 
+/** Ô số. `thapPhan` = ô ĐO ĐẠC (mm) — nhận số lẻ.
+ *
+ *  Khổ in thật hay lẻ nửa ly (name card 88.9×50.8, thư mời letter 215.9×279.4, bìa cộng gáy
+ *  3.5mm) nên các ô mm phải nhập được số thực. Ô mm KHÔNG dùng `type="number"`: dấu thập phân
+ *  của nó phụ thuộc ngôn ngữ trình duyệt — máy để tiếng Việt gõ "215.9" thì trình duyệt nuốt
+ *  dấu chấm, máy để tiếng Anh gõ "215,9" thì nuốt dấu phẩy, và số lẻ còn bị đánh dấu
+ *  `stepMismatch` vì step mặc định = 1. Dùng ô chữ + `inputMode="decimal"` (bàn phím điện thoại
+ *  vẫn ra bàn số) rồi tự quy dấu phẩy về dấu chấm — gõ kiểu nào cũng ăn.
+ */
 function NumField({
   label,
   value,
@@ -784,6 +794,7 @@ function NumField({
   step,
   opt,
   suffix,
+  thapPhan,
 }: {
   label: string;
   value: number;
@@ -792,6 +803,7 @@ function NumField({
   step?: string;
   opt?: string;
   suffix?: string;
+  thapPhan?: boolean;
 }) {
   const [valStr, setValStr] = useState<string>(String(value ?? 0));
 
@@ -802,7 +814,11 @@ function NumField({
   }, [value]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
+    // Ô mm là ô CHỮ nên chữ cái lọt được vào: lọc ngay tại đây, chỉ giữ số và MỘT dấu thập phân
+    // (đã quy phẩy → chấm). Không lọc thì "21a5" nằm lại trên màn tới lúc rời ô mới bật về 0.
+    const raw = thapPhan
+      ? e.target.value.replace(",", ".").replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1")
+      : e.target.value;
     setValStr(raw);
     if (raw === "") {
       onChange(min);
@@ -833,9 +849,9 @@ function NumField({
       <div className={suffix ? "tg-suffixwrap" : undefined}>
         <input
           className="tg-input tg-input--num"
-          type="number"
-          min={min}
-          step={step}
+          {...(thapPhan
+            ? { type: "text", inputMode: "decimal" as const }
+            : { type: "number", min, step })}
           value={valStr}
           onChange={handleChange}
           onBlur={handleBlur}
@@ -1028,7 +1044,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
 
   // --- Kết quả ---
   const [result, setResult] = useState<TinhGiaPreviewOut | null>(null);
-  const [warnList, setWarnList] = useState<string[]>([]);
   // Nhật ký hoạt động THẬT (ai làm gì · khi nào) — nhiều người cùng sửa 1 phiếu.
   const [acts, setActs] = useState<PtgActivity[]>([]);
   const [showAllActs, setShowAllActs] = useState(false); // UI-only: "Xem tất cả"
@@ -1037,6 +1052,11 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const [err, setErr] = useState<string | null>(null);
   // Chặn cửa khi rời phiếu nháp đang có nội dung (chưa lưu → thoát là mất).
   const [hoiThoat, setHoiThoat] = useState(false);
+  // Danh mục đã sửa SAU lần tính gần nhất (BE so mốc, xem `danh_muc_doi_sau_khi_tinh`). Mở phiếu
+  // là đọc lại ẢNH CHỤP — cố ý, phiếu đã báo cho khách thì không được tự đổi số dưới chân người
+  // ta. Nhưng im hẳn cũng sai: đổi tên/cấu hình công đoạn xong mở phiếu thấy y như cũ thì tưởng
+  // phần mềm hỏng. Nên nói ra + đưa sẵn nút, còn bấm hay không là quyền người lập phiếu.
+  const [danhMucDoi, setDanhMucDoi] = useState<PhieuTinhGiaOut["danh_muc_doi"]>(null);
 
   const applyOut = useCallback((out: PhieuTinhGiaOut) => {
     setMa(out.ma);
@@ -1047,7 +1067,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     setLoaiSPId(out.loai_san_pham_id ?? "");
     setComps((out.thanh_phans ?? []).map(fromComponent));
     setResult(out.result);
-    setWarnList(out.result?.warnings ?? out.warnings ?? []);
+    // POST/PUT vừa tính lại xong nên BE luôn trả null → bấm "Tính giá" là băng nhắc tự tắt.
+    setDanhMucDoi(out.danh_muc_doi ?? null);
   }, []);
 
   // Nạp nhật ký hoạt động của phiếu (mới→cũ) từ backend. Nhận id tường minh vì ngay sau lần lưu
@@ -1627,6 +1648,19 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
         </div>
       ) : null}
 
+      {danhMucDoi ? (
+        <div className="banner banner--warn" role="status" style={{ marginTop: "var(--sp-4)" }}>
+          <span>
+            <b>Danh mục đã đổi sau lần tính {fmtActDateTime(danhMucDoi.luc)}</b> — phiếu đang giữ số
+            và tên của lần tính đó. Đã sửa: {danhMucDoi.ten.slice(0, 4).join(" · ")}
+            {danhMucDoi.ten.length > 4 ? ` · +${danhMucDoi.ten.length - 4} mục nữa` : ""}.
+          </span>
+          <Button variant="secondary" onClick={calc} loading={calcing} disabled={!token}>
+            Tính giá lại
+          </Button>
+        </div>
+      ) : null}
+
       {loading ? (
         <div className="tg-empty" style={{ marginTop: "var(--sp-5)" }}>
           <p className="tg-empty__title">Đang tải phiếu…</p>
@@ -2039,16 +2073,9 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
               )}
             </section>
 
-            {warnList.length > 0 ? (
-              <section className="tg-warn" role="status">
-                <div className="tg-warn__title">Lưu ý ({warnList.length})</div>
-                <ul className="tg-warn__list">
-                  {warnList.map((w, i) => (
-                    <li key={i}>{w}</li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
+            {/* Khối "Lưu ý (n)" GỠ 25/08/2026 theo yêu cầu chủ chốt. Engine VẪN sinh cảnh báo và
+                BE vẫn lưu `warnings_json` — chỉ thôi bày ở cột phải. Muốn dựng lại thì đọc từ
+                `out.result?.warnings ?? out.warnings`. */}
           </aside>
         </div>
       )}
@@ -2236,6 +2263,59 @@ function ComponentModal({
     const loc = mays.filter((m) => /(^|\W)in(\W|$)/i.test(String(m.loai_may ?? "")));
     return loc.length > 0 ? loc : mays;
   }, [mays]);
+  // ---- Lựa chọn cho các ô CÓ TÌM GẦN ĐÚNG ----
+  // Bốn danh mục dưới đây dài hàng chục tới hàng trăm dòng; <select> gốc bắt người dùng cuộn hoặc
+  // gõ đúng ký tự ĐẦU mới nhảy tới. Đổi sang `Select` (searchable) để gõ mảnh nào cũng ra: "may in
+  // nho", "duplex 250", "hop giay" — bỏ dấu, tách từ, không cần đúng thứ tự (xem `utils/timGanDung`).
+  // Gom bằng useMemo vì modal render lại theo từng phím gõ ở các ô số bên cạnh.
+  const dvtSelOpts = useMemo<SelectOption<string>[]>(() => {
+    const ds: SelectOption<string>[] = dvtOpts.map((d) => ({ value: d, label: d }));
+    // Giá trị ĐANG DÙNG mà danh mục không có (gõ tay từ trước, hoặc đơn vị vừa bị ngừng) vẫn phải
+    // chọn được — nếu không, mở phiếu cũ ra là ĐVT tự nhảy sang đơn vị khác mà không ai báo.
+    if (c.don_vi_tinh && !dvtOpts.includes(c.don_vi_tinh))
+      ds.unshift({ value: c.don_vi_tinh, label: `${c.don_vi_tinh} (ngoài danh mục)` });
+    return ds;
+  }, [dvtOpts, c.don_vi_tinh]);
+  const loaiSPOpts = useMemo<SelectOption<string>[]>(
+    () => [
+      { value: "", label: "— Chọn loại sản phẩm —" },
+      ...loaiSPs.map((s) => ({ value: String(s.id), label: rowLabel(s) })),
+    ],
+    [loaiSPs],
+  );
+  const giayOpts = useMemo<SelectOption<string>[]>(
+    () => [
+      { value: "", label: "— Chọn giấy —" },
+      ...giays.map((g) => ({ value: String(g.id), label: rowLabel(g) })),
+    ],
+    [giays],
+  );
+  const mayOpts = useMemo<SelectOption<string>[]>(
+    () => [
+      { value: "", label: "— Không chọn —" },
+      ...mayIn.map((m) => ({ value: String(m.id), label: rowLabel(m) })),
+    ],
+    [mayIn],
+  );
+  // Ô công đoạn là ô HÀNH ĐỘNG (chọn xong thì đẻ chip, ô tự về rỗng) nên không có mục "— Chọn —".
+  const cdOpts = useMemo<SelectOption<string>[]>(
+    () => [
+      ...congDoans.map((cd) => ({ value: String(cd.id), label: cdName(cd) })),
+      { value: "__blank", label: "+ Tự nhập…" },
+    ],
+    [congDoans],
+  );
+  // Một đường thêm chip cho CẢ hai chỗ: mũi tên chèn giữa chuỗi và nút "+ Thêm công đoạn" ở cuối.
+  const themCongDoan = (v: string, insertIdx: number | null = null) => {
+    if (!v) return;
+    if (v === "__blank") {
+      addFin(c.uid, null, "", insertIdx);
+      return;
+    }
+    const cd = congDoans.find((x) => String(x.id) === v);
+    addFin(c.uid, cd ? cd.id : null, cd ? cdName(cd) : "", insertIdx);
+  };
+
   // Bình bài chỉ tính được khi có ĐỦ khổ thành phẩm ③ + khổ tờ in ② (khổ in tự lấy từ giấy/máy).
   const canBinhBai =
     c.dai_thanh_pham > 0 && c.rong_thanh_pham > 0 && c.kho_in_dai > 0 && c.kho_in_rong > 0;
@@ -2294,21 +2374,16 @@ function ComponentModal({
                 </div>
                 <label className="tg-field tg-span-3">
                   <span className="tg-microlabel">ĐVT</span>
-                  <select
-                    className="tg-input"
+                  <Select
+                    options={dvtSelOpts}
                     value={c.don_vi_tinh}
-                    onChange={(e) => patchComp(c.uid, { don_vi_tinh: e.target.value })}
-                  >
-                    {/* Giá trị ĐANG DÙNG mà danh mục không có (gõ tay từ trước, hoặc đơn vị vừa
-                        bị ngừng) vẫn phải chọn được — nếu không, mở phiếu cũ ra là ĐVT tự nhảy
-                        sang đơn vị khác mà không ai báo. */}
-                    {c.don_vi_tinh && !dvtOpts.includes(c.don_vi_tinh) && (
-                      <option value={c.don_vi_tinh}>{c.don_vi_tinh} (ngoài danh mục)</option>
-                    )}
-                    {dvtOpts.map((d) => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
+                    onChange={(v) => patchComp(c.uid, { don_vi_tinh: v })}
+                    ariaLabel="Đơn vị tính"
+                    searchable
+                    portal
+                    className="tg-input"
+                    listClassName="tg-pop"
+                  />
                 </label>
                 {/* Gộp dòng khi báo giá KHÔNG có ô ở đây: nó là quan hệ giữa các dòng, thao tác
                     nằm ở bảng "Sản phẩm trong phiếu" (tick nhiều dòng → gõ tên nhóm 1 lần). */}
@@ -2316,26 +2391,23 @@ function ComponentModal({
                   <span className="tg-microlabel">
                     Loại sản phẩm <span className="tg-microlabel__opt">tự bung công đoạn mặc định</span>
                   </span>
-                  <select
+                  <Select
+                    options={loaiSPOpts}
+                    value={c.loai_san_pham_id == null ? "" : String(c.loai_san_pham_id)}
+                    onChange={(v) => onPickLoaiSP(c.uid, v === "" ? "" : Number(v))}
+                    ariaLabel="Loại sản phẩm"
+                    searchable
+                    portal
                     className="tg-input"
-                    value={c.loai_san_pham_id ?? ""}
-                    onChange={(e) =>
-                      onPickLoaiSP(c.uid, e.target.value === "" ? "" : Number(e.target.value))
-                    }
-                  >
-                    <option value="">— Chọn loại sản phẩm —</option>
-                    {loaiSPs.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {rowLabel(s)}
-                      </option>
-                    ))}
-                  </select>
+                    listClassName="tg-pop"
+                  />
                 </label>
                 <div className="tg-span-6">
                       <NumField
                         label="Dài chi tiết phẳng"
                         value={c.dai_thanh_pham}
                         onChange={(n) => patchComp(c.uid, { dai_thanh_pham: n })}
+                        thapPhan
                         suffix="mm"
                       />
                     </div>
@@ -2344,6 +2416,7 @@ function ComponentModal({
                         label="Rộng chi tiết phẳng"
                         value={c.rong_thanh_pham}
                         onChange={(n) => patchComp(c.uid, { rong_thanh_pham: n })}
+                        thapPhan
                         suffix="mm"
                       />
                     </div>
@@ -2418,6 +2491,7 @@ function ComponentModal({
                     value={c.bleed_mm}
                     onChange={(n) => patchComp(c.uid, { bleed_mm: n })}
                     opt="mỗi cạnh con · 0 = không tràn lề"
+                    thapPhan
                     suffix="mm"
                   />
                 </div>
@@ -2427,6 +2501,7 @@ function ComponentModal({
                     value={c.khe_cat_mm}
                     onChange={(n) => patchComp(c.uid, { khe_cat_mm: n })}
                     opt="0 = bình sát, cắt chung nhát"
+                    thapPhan
                     suffix="mm"
                   />
                 </div>
@@ -2441,18 +2516,16 @@ function ComponentModal({
               <div className="tg-grid">
                 <label className="tg-field tg-span-6">
                   <span className="tg-microlabel">Loại giấy</span>
-                  <select
+                  <Select
+                    options={giayOpts}
+                    value={c.giay_id == null ? "" : String(c.giay_id)}
+                    onChange={(v) => onPickGiay(c.uid, v === "" ? null : Number(v))}
+                    ariaLabel="Loại giấy"
+                    searchable
+                    portal
                     className="tg-input"
-                    value={c.giay_id ?? ""}
-                    onChange={(e) => onPickGiay(c.uid, e.target.value === "" ? null : Number(e.target.value))}
-                  >
-                    <option value="">— Chọn giấy —</option>
-                    {giays.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {rowLabel(g)}
-                      </option>
-                    ))}
-                  </select>
+                    listClassName="tg-pop"
+                  />
                 </label>
                 {/* GỠ 2026-08-09 (Đợt 4 · K): ô chọn "Nguồn giấy — Công ty / Khách cấp".
                     Công ty luôn cấp giấy, và engine đã thôi đọc cờ đó. Để lại ô mà engine không
@@ -2463,6 +2536,7 @@ function ComponentModal({
                     label="Dài nguyên"
                     value={c.kho_nguyen_dai}
                     onChange={(n) => patchComp(c.uid, { kho_nguyen_dai: n })}
+                    thapPhan
                     suffix="mm"
                   />
                 </div>
@@ -2471,6 +2545,7 @@ function ComponentModal({
                     label="Rộng nguyên"
                     value={c.kho_nguyen_rong}
                     onChange={(n) => patchComp(c.uid, { kho_nguyen_rong: n })}
+                    thapPhan
                     suffix="mm"
                   />
                 </div>
@@ -2501,18 +2576,16 @@ function ComponentModal({
                   <span className="tg-microlabel">
                     Máy in <span className="tg-microlabel__opt">→ khổ tờ in</span>
                   </span>
-                  <select
+                  <Select
+                    options={mayOpts}
+                    value={c.may_id == null ? "" : String(c.may_id)}
+                    onChange={(v) => onPickMay(c.uid, v === "" ? null : Number(v))}
+                    ariaLabel="Máy in"
+                    searchable
+                    portal
                     className="tg-input"
-                    value={c.may_id ?? ""}
-                    onChange={(e) => onPickMay(c.uid, e.target.value === "" ? null : Number(e.target.value))}
-                  >
-                    <option value="">— Không chọn —</option>
-                    {mayIn.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {rowLabel(m)}
-                      </option>
-                    ))}
-                  </select>
+                    listClassName="tg-pop"
+                  />
                 </label>
                 <div className="tg-field tg-span-5">
                   <span className="tg-microlabel">
@@ -2550,6 +2623,7 @@ function ComponentModal({
                     label="Khổ tờ in dài"
                     value={c.kho_in_dai}
                     onChange={(n) => patchComp(c.uid, { kho_in_dai: n })}
+                    thapPhan
                     suffix="mm"
                   />
                 </div>
@@ -2558,6 +2632,7 @@ function ComponentModal({
                     label="Khổ tờ in rộng"
                     value={c.kho_in_rong}
                     onChange={(n) => patchComp(c.uid, { kho_in_rong: n })}
+                    thapPhan
                     suffix="mm"
                   />
                 </div>
@@ -2666,60 +2741,41 @@ function ComponentModal({
                         <CloseIcon />
                       </button>
                     </span>
+                    {/* `title` chuyển lên thẻ bọc: `Select` không nhận `title`, mà mũi tên 22px
+                        không có chữ nên mất tooltip là mất luôn manh mối "bấm được". */}
                     {fIdx < c.thanh_phams.length - 1 && (
-                      <div className="tg-timeline-arrow-wrap">
-                        <select
-                          className="tg-timeline-select-arrow"
-                          title="Chèn công đoạn vào giữa"
+                      <div className="tg-timeline-arrow-wrap" title="Chèn công đoạn vào giữa">
+                        <Select
+                          options={cdOpts}
                           value=""
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (!v) return;
-                            const insertIdx = fIdx + 1;
-                            if (v === "__blank") {
-                              addFin(c.uid, null, "", insertIdx);
-                            } else {
-                              const cd = congDoans.find((x) => String(x.id) === v);
-                              addFin(c.uid, cd ? cd.id : null, cd ? cdName(cd) : "", insertIdx);
-                            }
-                          }}
-                        >
-                          <option value="">➔</option>
-                          {congDoans.map((cd) => (
-                            <option key={cd.id} value={cd.id}>
-                              {cdName(cd)}
-                            </option>
-                          ))}
-                          <option value="__blank">+ Tự nhập…</option>
-                        </select>
+                          onChange={(v) => themCongDoan(v, fIdx + 1)}
+                          placeholder="➔"
+                          ariaLabel="Chèn công đoạn vào giữa"
+                          searchable
+                          portal
+                          className="tg-timeline-select-arrow"
+                          listClassName="tg-pop"
+                        />
                       </div>
                     )}
                   </div>
                 ))}
-                <select
-                  className="tg-chip-add"
-                  aria-label="Thêm công đoạn"
-                  value=""
+                <div
+                  className="tg-chip-add-wrap"
                   style={{ marginLeft: c.thanh_phams.length > 0 ? "8px" : "0" }}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (!v) return;
-                    if (v === "__blank") {
-                      addFin(c.uid);
-                    } else {
-                      const cd = congDoans.find((x) => String(x.id) === v);
-                      addFin(c.uid, cd ? cd.id : null, cd ? cdName(cd) : "");
-                    }
-                  }}
                 >
-                  <option value="">+ Thêm công đoạn…</option>
-                  {congDoans.map((cd) => (
-                    <option key={cd.id} value={cd.id}>
-                      {cdName(cd)}
-                    </option>
-                  ))}
-                  <option value="__blank">+ Tự nhập…</option>
-                </select>
+                  <Select
+                    options={cdOpts}
+                    value=""
+                    onChange={(v) => themCongDoan(v)}
+                    placeholder="+ Thêm công đoạn…"
+                    ariaLabel="Thêm công đoạn"
+                    searchable
+                    portal
+                    className="tg-chip-add"
+                    listClassName="tg-pop"
+                  />
+                </div>
               </div>
 
               {/* PHÍ KHUÔN — chỉ mọc khi chuỗi có bước cần dao lưu kho. Chuỗi toàn bước phẳng thì
@@ -3063,7 +3119,15 @@ function ComponentModal({
                     </div>
                     {dsKhuon.map((d, i) => (
                       <div className="tg-sheetrow tg-sheetrow--sub" key={`k${i}`}>
-                        <span className="tg-sheetrow__stack">{d.ten}</span>
+                        <span className="tg-sheetrow__stack">
+                          {d.ten}
+                          {/* Không dùng `HaiDongCongThuc`: dòng khuôn không có công thức gốc, và
+                              chuỗi engine trả về đã tự chứa dấu "=" nên thêm "= " nữa là hai dấu
+                              bằng trong một câu. Ở đây chỉ cần vế "÷ SL = đ/sp". */}
+                          {d.congThuc && (
+                            <em className="tg-sheetrow__derive tg-sheetrow__derive--so">{d.congThuc}</em>
+                          )}
+                        </span>
                         <SoDv so={fmt(Math.round(d.tien))} dv="đ" />
                       </div>
                     ))}

@@ -4844,87 +4844,54 @@ td.khsx-num > .khsx-unit {
 /* ==========================================================================
    TAB VẬT TƯ — bảng cân đối (khối theo mặt hàng, dòng theo ngày cần)
    Mọi rule bọc trong `.khsx` như phần trên; token lấy nguyên từ styles/tokens.css.
-   ========================================================================== */
-
-/* ==========================================================================
-   TAB VẬT TƯ — Smart Factory Control Tower (bảng cân đối theo mặt hàng & theo lệnh)
-   Mọi rule bọc trong `.khsx` như phần trên; token lấy nguyên từ styles/tokens.css.
-   ========================================================================== */
-
-.khsx.khvt-page {
-  max-width: 1320px;
-  margin: 0 auto;
-}
-/* Số của màn này (tồn · cần · thiếu · %) xếp thẳng cột, chữ số cùng bề rộng nên không nhảy khi
-   giá trị đổi. Luật tokens.css: hễ dùng --ff-num thì phải đi kèm tabular-nums — trước đây rải rác
-   ~20 chỗ khai --ff-num mà thiếu dòng này. */
-.khsx.khvt-page,
-.khsx .khvt-drawer {
-  font-variant-numeric: tabular-nums;
+/* --- Ultra-Compact Topbar Header (~64px Height) --------------------------- */
+.khsx .khvt-header--compact {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+  padding: 10px 0 14px 0 !important;
+  margin-bottom: 0 !important;
+  flex-wrap: wrap !important;
 }
 
-/* --- Header & Live Sync --------------------------------------------------- */
-.khsx .khvt-header {
-  border-bottom: 1px solid var(--rule-soft);
-  padding-bottom: var(--sp-4);
-  margin-bottom: var(--sp-5);
+.khsx .khvt-header__left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
 }
-.khsx .khvt-header__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--sp-2);
+
+.khsx .khvt-header__left .khvt-header__title {
+  font-size: 19px !important;
+  font-weight: 700 !important;
+  color: #0f172a !important;
+  margin: 0 !important;
+  letter-spacing: -0.02em !important;
 }
-.khsx .khvt-header__badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--rust-deep);
-  background: var(--rust-soft);
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
+
+.khsx .khvt-header__left .khvt-header__dot {
+  color: #94a3b8 !important;
+  font-size: 14px !important;
 }
-.khsx .khvt-header__pulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--rust);
-  box-shadow: 0 0 0 2px rgba(197, 64, 10, 0.2);
+
+.khsx .khvt-header__left .khvt-header__desc {
+  font-size: 13px !important;
+  color: #64748b !important;
+  margin: 0 !important;
 }
-.khsx .khvt-header__sync {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--fs-xs);
-  color: var(--moss-deep);
-  background: var(--moss-soft);
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  font-weight: 600;
-}
-.khsx .khvt-header__title-row {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--sp-4);
-  flex-wrap: wrap;
-}
-.khsx .khvt-header__title {
-  margin: 0 0 4px 0;
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--ink);
-  letter-spacing: -0.02em;
-}
-.khsx .khvt-header__desc {
-  margin: 0;
-  font-size: var(--fs-sm);
-  color: var(--ash);
-  line-height: 1.45;
+
+.khsx .khvt-header__left .khvt-header__sync {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #059669 !important;
+  background: #ecfdf5 !important;
+  border: 1px solid #a7f3d0 !important;
+  padding: 2px 8px !important;
+  border-radius: 12px !important;
 }
 
 /* --- Segmented Capsule Switch (§2 UI_DESIGN.md) -------------------------- */
@@ -4933,44 +4900,148 @@ td.khsx-num > .khsx-unit {
   align-items: center;
   gap: 4px;
   padding: 4px;
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-pill);
+  background: #f1f5f9 !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 999px !important;
   box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
 }
+
 .khsx .khvt-segmented-btn {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 16px;
+  gap: 8px;
+  padding: 8px 18px;
   font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--ash);
+  color: #64748b;
   background: transparent;
   border: none;
-  border-radius: var(--r-pill);
+  border-radius: 999px !important;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   text-align: left;
 }
+
 .khsx .khvt-segmented-btn:hover {
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.8);
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.6);
 }
+
 .khsx .khvt-segmented-btn.is-active {
-  background: var(--canvas);
-  color: var(--ink);
-  box-shadow: var(--shadow-4);
+  background: #ffffff !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12), 0 1px 2px rgba(15, 23, 42, 0.08) !important;
 }
+
 .khsx .khvt-segmented-btn__content {
   display: flex;
   flex-direction: column;
   gap: 1px;
 }
+
 .khsx .khvt-segmented-btn__label {
   font-weight: 700;
   line-height: 1.2;
+}
+
+.khsx .khvt-segmented-btn__sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+.khsx .khvt-segmented-btn.is-active .khvt-segmented-btn__sub {
+  color: #475569;
+}
+
+.khsx .khvt-badge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  font-family: var(--ff-num, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.khsx .khvt-badge-count--alert {
+  background: #ffe4e6;
+  color: #e11d48;
+  border: 1px solid #fecdd3;
+}
+
+.khsx .khvt-badge-count--warn {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+/* --- Unified Control Bar (StatusTabs + Search in 1 row - §5 UI_DESIGN.md) - */
+.khsx .khvt-unified-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-4);
+}
+
+.khsx .khvt-unified-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.khsx .khvt-utab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: #475569;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.khsx .khvt-utab:hover {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+.khsx .khvt-utab.is-active {
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+}
+
+.khsx .khvt-utab__count {
+  font-family: var(--ff-num, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.khsx .khvt-utab.is-active .khvt-utab__count {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
 }
 .khsx .khvt-segmented-btn__sub {
   font-size: 11px;
@@ -5193,11 +5264,29 @@ td.khsx-num > .khsx-unit {
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-5);
   background: var(--canvas);
-  overflow: hidden;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
+
+.khsx .khvt-master-tablewrap::-webkit-scrollbar {
+  height: 8px;
+}
+.khsx .khvt-master-tablewrap::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+.khsx .khvt-master-tablewrap::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+.khsx .khvt-master-tablewrap::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
 .khsx .khvt-master-table {
   width: 100%;
+  min-width: 1080px !important;
   border-collapse: collapse;
   font-size: 13.5px;
 }
@@ -5296,28 +5385,34 @@ td.khsx-num > .khsx-unit {
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
+.khsx .khvt-can-sep {
+  color: #cbd5e1;
+  font-weight: 500;
+  font-size: 11px;
+}
 .khsx .khvt-unit-val {
   font-size: 11px;
-  color: var(--ash-2);
+  color: #64748b;
 }
 
 .khsx .khvt-mini-bar {
   width: 100%;
-  height: 4px;
-  background: var(--rule-soft);
-  border-radius: var(--r-pill);
+  height: 5px;
+  background: #e2e8f0;
+  border-radius: 4px;
   overflow: hidden;
+  margin-top: 2px;
 }
 .khsx .khvt-mini-bar__fill {
   height: 100%;
-  border-radius: var(--r-pill);
-  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 4px;
+  transition: width 0.3s ease;
 }
-.khsx .khvt-mini-bar__fill.is-full { background: var(--moss); }
-.khsx .khvt-mini-bar__fill.is-partial { background: var(--amber); }
-.khsx .khvt-mini-bar__fill.is-deficit { background: var(--signal); }
-.khsx .khvt-mini-bar__fill.is-onway { background: var(--rust); }
-.khsx .khvt-mini-bar__fill.is-unknown { background: var(--amber); }
+.khsx .khvt-mini-bar__fill.is-full { background: #10b981 !important; }
+.khsx .khvt-mini-bar__fill.is-partial { background: #f59e0b !important; }
+.khsx .khvt-mini-bar__fill.is-deficit { background: #f43f5e !important; }
+.khsx .khvt-mini-bar__fill.is-onway { background: #3b82f6 !important; }
+.khsx .khvt-mini-bar__fill.is-unknown { background: #f59e0b !important; }
 
 .khsx .khvt-coverage-badge {
   display: inline-block;
@@ -5328,46 +5423,74 @@ td.khsx-num > .khsx-unit {
   padding: 2px 8px;
   border-radius: var(--r-pill);
 }
-.khsx .khvt-coverage-badge.is-full { background: var(--moss-soft); color: var(--moss-deep); }
-.khsx .khvt-coverage-badge.is-onway { background: var(--rust-soft); color: var(--rust-deep); }
-.khsx .khvt-coverage-badge.is-unknown { background: var(--amber-soft); color: var(--amber-deep); }
-.khsx .khvt-coverage-badge.is-deficit { background: var(--signal-soft); color: var(--signal); }
+.khsx .khvt-coverage-badge.is-full { background: #d1fae5 !important; color: #047857 !important; }
+.khsx .khvt-coverage-badge.is-onway { background: #dbeafe !important; color: #1d4ed8 !important; }
+.khsx .khvt-coverage-badge.is-unknown { background: #fef3c7 !important; color: #b45309 !important; }
+.khsx .khvt-coverage-badge.is-deficit { background: #ffe4e6 !important; color: #e11d48 !important; }
 
-/* Cột Lượng thiếu */
+/* Cột Lượng thiếu - Shape Pill 999px đồng bộ với cột Độ phủ & Trạng thái */
 .khsx .khvt-cell-thieu {
   white-space: nowrap;
 }
 .khsx .khvt-deficit-tag,
 .khsx .khvt-deficit-pill {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  font-family: var(--ff-num, monospace);
-  font-size: var(--fs-sm);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--signal);
-  background: var(--signal-soft);
-  border: 1px solid color-mix(in srgb, var(--signal) 24%, var(--signal-soft));
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  white-space: nowrap;
-}
-.khsx .khvt-deficit-tag b,
-.khsx .khvt-deficit-pill b {
-  font-weight: 700;
-}
-.khsx .khvt-deficit-tag small,
-.khsx .khvt-deficit-pill small {
-  font-family: var(--ff-sans);
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  color: var(--signal-deep);
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  font-variant-numeric: tabular-nums !important;
+  color: #e11d48 !important;
+  background: #ffe4e6 !important;
+  border: 1px solid #fecdd3 !important;
+  padding: 2px 10px !important;
+  border-radius: 999px !important;
+  white-space: nowrap !important;
 }
 .khsx .khvt-deficit-zero {
-  font-family: var(--ff-num, monospace);
-  font-size: var(--fs-xs);
-  color: var(--ash-2);
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  color: #94a3b8 !important;
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  padding: 2px 10px !important;
+  border-radius: 999px !important;
+  white-space: nowrap !important;
+}
+
+/* Cột Hạn đặt - Shape Date Badge 6px đồng bộ với cột Lệnh sử dụng */
+.khsx .khvt-date-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #e11d48 !important;
+  background: #fff1f2 !important;
+  border: 1px solid #fecdd3 !important;
+  padding: 3px 8px !important;
+  border-radius: 6px !important;
+  white-space: nowrap !important;
+}
+.khsx .khvt-date-badge.is-late,
+.khsx .khsx-date--late {
+  color: #e11d48 !important;
+  background: #fff1f2 !important;
+  border-color: #fecdd3 !important;
+  font-weight: 700 !important;
+  font-family: var(--ff-sans) !important;
+}
+.khsx .khvt-date-empty {
+  color: #cbd5e1 !important;
+  font-size: 13px !important;
 }
 
 .khsx .khvt-status-cell {
@@ -5388,6 +5511,15 @@ td.khsx-num > .khsx-unit {
   padding: 2px 7px;
   border-radius: var(--r-2);
   margin-top: 2px;
+  white-space: nowrap !important;
+  max-width: 175px !important;
+  text-overflow: ellipsis !important;
+  overflow: hidden !important;
+}
+.khsx .khvt-po-note span {
+  white-space: nowrap !important;
+  text-overflow: ellipsis !important;
+  overflow: hidden !important;
 }
 .khsx .khvt-po-note b {
   font-family: var(--ff-num, monospace);
@@ -5495,9 +5627,10 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-drawer .khvt-drawer-kpi__val b,
 .khsx .khvt-drawer .khvt-drawer-kpi__cov-pct,
 .khsx .khvt-drawer .khvt-kpi-badge--deficit b,
+.khsx .khvt-drawer .khvt-num-primary,
 .khsx .khvt-drawer .khvt-num-primary b,
 .khsx .khvt-drawer .khvt-delta-tag {
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-variant-numeric: tabular-nums;
 }
 
@@ -5607,16 +5740,20 @@ td.khsx-num > .khsx-unit {
   color: var(--ash);
 }
 .khsx .khvt-bento-kpi__val {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--ink);
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  font-family: var(--ff-sans) !important;
+  color: #0f172a;
   display: flex;
   align-items: baseline;
-  gap: 3px;
+  gap: 4px;
 }
-.khsx .khvt-bento-kpi__val b {
-  font-family: var(--ff-num, monospace) !important;
-  font-size: 16px;
+.khsx .khvt-bento-kpi__val b,
+.khsx .khvt-bento-kpi__val small,
+.khsx .khvt-bento-kpi__val span {
+  font-family: var(--ff-sans) !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
 }
 .khsx .khvt-bento-kpi__cov {
   display: flex;
@@ -5624,10 +5761,10 @@ td.khsx-num > .khsx-unit {
   gap: 8px;
 }
 .khsx .khvt-bento-kpi__cov-pct {
-  font-size: 13px;
-  font-weight: 700;
-  font-family: var(--ff-num, monospace) !important;
-  color: var(--ink);
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  font-family: var(--ff-sans) !important;
+  color: #0f172a;
 }
 
 /* Ô KPI báo trạng thái bằng badge ("Thiếu -162,5 kg" / "Đủ tồn kho") — dùng ở CẢ hai drawer
@@ -5661,8 +5798,23 @@ td.khsx-num > .khsx-unit {
   color: var(--moss-deep);
   border: 1px solid color-mix(in srgb, var(--moss) 24%, var(--moss-soft));
 }
+.khsx .khvt-bento-kpi__val--deficit {
+  color: #e11d48 !important;
+  font-weight: 700;
+}
+.khsx .khvt-bento-kpi__val--deficit b,
+.khsx .khvt-bento-kpi__val--deficit small {
+  color: #e11d48 !important;
+  font-family: var(--ff-sans) !important;
+}
 .khsx .khvt-bento-kpi__val--ok {
-  color: var(--moss-deep);
+  color: #047857 !important;
+  font-weight: 700;
+}
+.khsx .khvt-bento-kpi__val--ok b,
+.khsx .khvt-bento-kpi__val--ok small {
+  color: #047857 !important;
+  font-family: var(--ff-sans) !important;
 }
 
 .khsx .khvt-drawer-breakdown {
@@ -5711,10 +5863,10 @@ td.khsx-num > .khsx-unit {
   border-radius: var(--r-pill);
   white-space: nowrap;
 }
-.khsx .khvt-badge--do { background: var(--signal-soft); color: var(--signal); border: 1px solid color-mix(in srgb, var(--signal) 24%, var(--signal-soft)); }
-.khsx .khvt-badge--vemuon { background: var(--rust-soft); color: var(--rust-deep); border: 1px solid color-mix(in srgb, var(--rust) 24%, var(--rust-soft)); }
-.khsx .khvt-badge--khongro { background: var(--amber-soft); color: var(--amber-deep); border: 1px solid color-mix(in srgb, var(--amber) 24%, var(--amber-soft)); }
-.khsx .khvt-badge--du { background: var(--moss-soft); color: var(--moss-deep); border: 1px solid color-mix(in srgb, var(--moss) 24%, var(--moss-soft)); }
+.khsx .khvt-badge--do { background: #ffe4e6 !important; color: #e11d48 !important; border: 1px solid #fecdd3 !important; }
+.khsx .khvt-badge--vemuon { background: #dbeafe !important; color: #1d4ed8 !important; border: 1px solid #93c5fd !important; }
+.khsx .khvt-badge--khongro { background: #fef3c7 !important; color: #b45309 !important; border: 1px solid #fde68a !important; }
+.khsx .khvt-badge--du { background: #d1fae5 !important; color: #047857 !important; border: 1px solid #6ee7b7 !important; }
 
 .khsx .khvt-stream-chip {
   display: inline-flex;
@@ -5878,7 +6030,7 @@ td.khsx-num > .khsx-unit {
 }
 
 .khsx .khvt-num-cell { text-align: right; }
-.khsx .khvt-num-primary { font-weight: 700; color: var(--ink); font-family: var(--ff-num, monospace) !important; font-variant-numeric: tabular-nums; }
+.khsx .khvt-num-primary { font-weight: 700; color: #0f172a; font-family: var(--ff-sans) !important; font-variant-numeric: tabular-nums; }
 .khsx .khvt-num-sub { font-size: var(--fs-xs); color: var(--ash); margin-top: 2px; }
 .khsx .khvt-num-sub--ok { color: var(--moss-deep); }
 .khsx .khvt-num-sub--do { color: var(--signal); font-weight: 600; }
@@ -7645,17 +7797,20 @@ td.khsx-num > .khsx-unit {
   font-family: var(--ff-num, monospace);
 }
 .khsx .khvt-po-list__loai {
-  display: inline-block;
-  min-width: 74px;
-  margin-right: 6px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--rust-soft);
-  color: var(--rust-deep);
-  font-family: var(--ff-sans);
-  font-size: 10px;
-  font-weight: var(--fw-bold);
-  text-align: center;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin-right: 6px !important;
+  padding: 2px 8px !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  text-align: center !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
 }
 
 /* Dòng "Kế hoạch N người" trên bảng routing khi số bố trí rơi ra ngoài định biên của bước — cùng
