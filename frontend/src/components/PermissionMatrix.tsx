@@ -435,6 +435,21 @@ export const SCOPES: { value: Scope; label: string }[] = [
 
 // Gom module theo PHÂN HỆ để ma trận quyền đọc được (thu gọn từng nhóm). Module không nằm trong
 // nhóm nào rơi vào "Khác" (fallback an toàn khi backend thêm module mới chưa map).
+// Khoá CŨ đã gộp về nơi khác — ẨN khỏi ma trận, KHÔNG xoá dữ liệu (ĐẢO ĐƯỢC: xoá set này là chúng
+// hiện lại y cũ). Đã soi đủ BA nơi (cổng router · `authz.can` ở service · `can(...)` ở giao diện)
+// + đếm dữ liệu thật ngày 26/08/2026 — không dòng code nào còn đọc chúng:
+//   · `self_service`       — BỎ 15/08/2026. Hằng `MODULE_TU_PHUC_VU` còn khai ở 6 router và
+//                            `SELF_SERVICE_MODULE` còn export ở Sidebar, nhưng KHÔNG nơi nào dùng.
+//                            20/23 vai đang bật ⇒ ẩn mà KHÔNG ai mất quyền (vì không ai đọc).
+//   · `yeu_cau_chinh_cong` — gộp về `cham_cong.approve`. Số khớp: 2 vai ↔ 2 vai.
+//   · `di_muon`            — gộp về `cham_cong.approve_late_early`. Số khớp: 3 vai ↔ 3 vai. Việc
+//                            CUỐI CÙNG của nó (badge phiếu chờ duyệt + kênh SSE) đã chuyển sang
+//                            `cham_cong` cùng ngày; đã đếm: mọi vai có `di_muon` đều đã có
+//                            `cham_cong` nên không ai mất badge.
+// Xoá HẲN (dòng `role_permissions` + khoá ở `seed.py`/`deps.py` + hằng chết) để LƯỢT SAU — việc đó
+// không đảo được nên cần migration + chủ gật.
+const MODULE_DA_NGUNG = new Set(["self_service", "di_muon", "yeu_cau_chinh_cong"]);
+
 const MODULE_GROUPS: {
   key: string;
   label: string;
@@ -685,7 +700,8 @@ export function PermissionMatrix({
   /** Mặc định CÒN SỐNG — thà để thừa một ô vô hại còn hơn khoá nhầm một ô đang dùng. */
   const oSong = (moduleKey: string, viec: string): boolean =>
     !viecChet.get(moduleKey)?.has(viec);
-  const byKey = new Map(matrix.map((r) => [r.module_key, r]));
+  const matrixHienThi = matrix.filter((r) => !MODULE_DA_NGUNG.has(r.module_key));
+  const byKey = new Map(matrixHienThi.map((r) => [r.module_key, r]));
   // Nhóm mở/đóng: mặc định mở khi nhóm CÓ quyền; override khi người dùng bấm.
   const [groupOverride, setGroupOverride] = useState<Map<string, boolean>>(new Map());
   // Panel quyền chi tiết bung inline theo module.
@@ -693,7 +709,7 @@ export function PermissionMatrix({
 
   // Dựng danh sách nhóm hiển thị: nhóm đã map + nhóm "Khác" cho module chưa map.
   const mapped = new Set(MODULE_GROUPS.flatMap((g) => g.modules));
-  const orphans = matrix.map((r) => r.module_key).filter((k) => !mapped.has(k));
+  const orphans = matrixHienThi.map((r) => r.module_key).filter((k) => !mapped.has(k));
   const groups = [
     ...MODULE_GROUPS.map((g) => ({
       key: g.key,

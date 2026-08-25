@@ -1,0 +1,1 @@
+export { ChamCongPage } from "./ChamCongPage";

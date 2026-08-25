@@ -1030,11 +1030,10 @@ def test_giao_dien_that_su_doc_co_loai_ngay_va_he_so():
     """Máy chủ trả cờ mà giao diện quên đọc thì màn hình vẫn nói "Công: 1" — tức là bản vá này
     KHÔNG giải quyết gì cả. Khuôn sai "máy chủ đổi, giao diện quên" đã lặp nhiều vòng ở repo
     (xem `test_com_tang_ca.test_giao_dien_that_su_hien_va_khai_duoc`)."""
-    from pathlib import Path
+    from tests._fe_source import MAN_CHAM_CONG, doc_file_fe, doc_module_fe
 
-    fe = Path(__file__).resolve().parents[2] / "frontend" / "src"
-    assert "he_so_ngay" in (fe / "api" / "client.ts").read_text(encoding="utf-8")
-    tsx = (fe / "pages" / "ChamCongPage.tsx").read_text(encoding="utf-8")
+    assert "he_so_ngay" in doc_file_fe("api", "client.ts")
+    tsx = doc_module_fe(*MAN_CHAM_CONG)
     for chu in ("day.restday", "day.plain", "heSo.le", "heSo.nghi_tuan",
                 "→ tính", "Công đặc biệt"):
         assert chu in tsx, f"giao diện chưa dùng {chu!r} — ô lịch vẫn không nói được số công"

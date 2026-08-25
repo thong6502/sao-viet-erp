@@ -576,11 +576,10 @@ def test_B_giao_dien_that_su_doc_ly_do_nay():
     """Hàng rào chống đúng khuôn sai đã lặp 4 lần vòng này: máy chủ đổi, giao diện quên.
 
     Cờ có mà màn không đọc thì nút "Chốt" vẫn sáng như cũ — bấm vào ăn 400, không ai biết vì sao."""
-    from pathlib import Path
+    from tests._fe_source import MAN_LUONG, doc_file_fe, doc_module_fe
 
-    fe = Path(__file__).resolve().parents[2] / "frontend" / "src"
-    client_ts = (fe / "api" / "client.ts").read_text(encoding="utf-8")
-    luong = (fe / "pages" / "LuongPage.tsx").read_text(encoding="utf-8")
+    client_ts = doc_file_fe("api", "client.ts")
+    luong = doc_module_fe(*MAN_LUONG)
 
     assert "chan_chot_ly_do" in client_ts, "kiểu PayrollTable chưa khai trường lý do"
     assert "chan_chot_ly_do" in luong, "màn Lương không đọc lý do từ máy chủ"
@@ -716,11 +715,10 @@ def test_L3_cham_cong_sau_khi_chot_thi_bi_danh_dau(client):
 
 def test_L3_giao_dien_cham_cong_that_su_doc_co_nay():
     """Cùng hàng rào với bên Lương: máy chủ đổi, giao diện quên — khuôn sai đã lặp 4 lần vòng này."""
-    from pathlib import Path
+    from tests._fe_source import MAN_CHAM_CONG, doc_file_fe, doc_module_fe
 
-    fe = Path(__file__).resolve().parents[2] / "frontend" / "src"
-    assert "phat_sinh_sau_chot" in (fe / "api" / "client.ts").read_text(encoding="utf-8")
-    cc = (fe / "pages" / "ChamCongPage.tsx").read_text(encoding="utf-8")
+    assert "phat_sinh_sau_chot" in doc_file_fe("api", "client.ts")
+    cc = doc_module_fe(*MAN_CHAM_CONG)
     assert "phat_sinh_sau_chot" in cc, "màn Chấm công không đọc cờ phát sinh sau chốt"
     assert "chốt lại" in cc, "băng cảnh báo phải nói rõ phải làm gì"
 
