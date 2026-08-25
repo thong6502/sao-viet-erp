@@ -30,7 +30,6 @@ import type { NavigateFn } from "../components/AppShell";
 import type { SeedLine } from "./KhoDeNghiPage";
 import { CodeLink } from "../components/CodeLink";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { DetailModal } from "../components/DetailModal";
 import { EmptyRow } from "../components/EmptyState";
 import { PurchaseActivityTimeline } from "../components/PurchaseActivityTimeline";
 import { StatusTabs } from "../components/StatusTabs";
@@ -417,7 +416,7 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
 <html lang="vi">
 <head>
   <meta charset="utf-8" />
-  <title>In đơn mua hàng ${html(row.code)}</title>
+  <title>In phiếu mua hàng ${html(row.code)}</title>
   <style>
     @page { size: A4; margin: 14mm; }
     * { box-sizing: border-box; }
@@ -514,6 +513,17 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
       min-height: 42px;
       padding: 8px;
     }
+    .sign {
+      display: flex;
+      justify-content: space-around;
+      gap: 24px;
+      margin-top: 30px;
+      text-align: center;
+      page-break-inside: avoid;
+    }
+    .sign-col { flex: 1; }
+    .sign-role { font-weight: 700; text-transform: uppercase; font-size: 12px; }
+    .sign-hint { color: #666; font-size: 10px; font-style: italic; margin-top: 2px; }
     @media print {
       body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
@@ -531,7 +541,7 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
     </div>
   </div>
 
-  <h1>Đơn mua hàng</h1>
+  <h1>Phiếu mua hàng</h1>
   <div class="code">Mã đơn: ${html(row.code)}</div>
 
   <section class="info">
@@ -572,6 +582,17 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
   </section>
 
   ${row.reject_reason ? `<section class="note"><span class="label">Lý do từ chối / huỷ</span>${html(row.reject_reason)}</section>` : ""}
+
+  <section class="sign">
+    <div class="sign-col">
+      <div class="sign-role">Người mua hàng</div>
+      <div class="sign-hint">(Ký, ghi rõ họ tên)</div>
+    </div>
+    <div class="sign-col">
+      <div class="sign-role">Kế toán trưởng</div>
+      <div class="sign-hint">(Ký, ghi rõ họ tên)</div>
+    </div>
+  </section>
 
 </body>
 </html>`);
@@ -929,6 +950,16 @@ export function PurchaseRequestsPage({
     () => rows.find((row) => row.id === selectedId) ?? null,
     [rows, selectedId],
   );
+
+  // Drawer chi tiết đơn: Esc để đóng (trước đây do DetailModal lo, nay drawer tự nghe).
+  useEffect(() => {
+    if (selectedId == null) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setSelectedId(null);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selectedId]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const sourceTotalPages = Math.max(
@@ -1572,16 +1603,7 @@ export function PurchaseRequestsPage({
                     <td>{fmtDate(row.created_at)}</td>
                     <td>{fmtDate(row.needed_date)}</td>
                     <td title={dong.map((line) => line.item_name).join(", ")}>
-                      <div className="purchase__item-row">
-                        <span className="purchase__item-chip">{dong.length} món</span>
-                        <span className="purchase__item-names">
-                          {dong
-                            .slice(0, 2)
-                            .map((line) => line.item_name)
-                            .join(", ")}
-                          {dong.length > 2 ? "…" : ""}
-                        </span>
-                      </div>
+                      <span className="purchase__item-chip">{dong.length} món</span>
                     </td>
                     <td>
                       <div className="purchase__status-col">
@@ -1949,14 +1971,50 @@ export function PurchaseRequestsPage({
       {/* Hộp thoại nằm NGOÀI hai tab: mở từ tab nào cũng phải sống tiếp khi tab đổi (lập phiếu
           xong là màn tự nhảy sang tab phiếu — kéo hộp vào trong tab thì nó bị gỡ giữa chừng). */}
       {selected && (
-        <DetailModal
-          kicker="Chi tiết đơn"
-          title={selected.code}
-          subtitle={noiDung(selected)}
-          badge={<StatusBadge status={selected.status} />}
-          footer={actionButtons(selected)}
-          onClose={() => setSelectedId(null)}
-        >
+        <div className="rc-drawer__scrim" onClick={() => setSelectedId(null)}>
+          <aside
+            className="rc-drawer purchase__drawer-780"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={selected.code}
+          >
+            <div className="purchase__hero-banner">
+              <div className="purchase__hero-top">
+                <div>
+                  <span className="purchase__hero-kicker">Chi tiết đơn</span>
+                  <div className="purchase__hero-title-row">
+                    <h2 className="purchase__hero-code">{selected.code}</h2>
+                    <StatusBadge status={selected.status} />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="purchase__hero-x"
+                  onClick={() => setSelectedId(null)}
+                  aria-label="Đóng"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="purchase__hero-meta">
+                <span>{selected.supplier_name || "Chưa chọn"}</span>
+                <span className="purchase__hero-dot">•</span>
+                <span>Người lập {selected.created_by_name || "—"}</span>
+                <span className="purchase__hero-dot">•</span>
+                <span className="purchase__hero-date">
+                  Cần {fmtDate(selected.needed_date)}
+                </span>
+                <span className="purchase__hero-dot">•</span>
+                <span>{selected.lines.length} mặt hàng</span>
+              </div>
+            </div>
+            <div className="rc-drawer__body">
+              {noiDung(selected) && (
+                <div className="purchase__note" style={{ fontSize: "13px" }}>
+                  {noiDung(selected)}
+                </div>
+              )}
           <dl className="purchase__facts">
             <div>
               <dt>Nhà cung cấp</dt>
@@ -1997,32 +2055,45 @@ export function PurchaseRequestsPage({
               <strong>Lý do từ chối / huỷ:</strong> {selected.reject_reason}
             </div>
           )}
-          <div className="purchase__lines">
-            {selected.lines.map((line) => (
-              <div className="purchase__line" key={line.id}>
-                <div>
-                  <strong>{line.item_name}</strong>
-                  <div className="md-page__muted">
-                    {line.quantity.toLocaleString("vi-VN")} {line.unit} ×{" "}
-                    {money(line.expected_unit_price)}
-                  </div>
-                  <div className="md-page__muted">
-                    Giảm {line.discount_percent}% ={" "}
-                    {money(line.discount_amount)} · VAT {line.vat_percent}%
-                    = {money(line.vat_amount)}
-                  </div>
-                  {line.note && (
-                    <div className="md-page__muted">{line.note}</div>
-                  )}
-                </div>
-                <strong>{money(line.line_total)}</strong>
-              </div>
-            ))}
-          </div>
-          <div className="purchase__detail-total">
-            <span>Tổng dự kiến</span>
-            <strong>{money(selected.total_estimate)}</strong>
-          </div>
+          <table className="md-page__table purchase__lines-table">
+            <thead>
+              <tr>
+                <th>Vật tư</th>
+                <th className="num">Số lượng</th>
+                <th className="num">Đơn giá</th>
+                <th className="num">Giảm</th>
+                <th className="num">VAT</th>
+                <th className="num">Thành tiền</th>
+              </tr>
+            </thead>
+            <tbody>
+              {selected.lines.map((line) => (
+                <tr key={line.id}>
+                  <td>
+                    <strong>{line.item_name}</strong>
+                    {line.note && (
+                      <div className="purchase__line-src">{line.note}</div>
+                    )}
+                  </td>
+                  <td className="num">
+                    {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                  </td>
+                  <td className="num">{money(line.expected_unit_price)}</td>
+                  <td className="num">{line.discount_percent}%</td>
+                  <td className="num">{line.vat_percent}%</td>
+                  <td className="num">
+                    <strong>{money(line.line_total)}</strong>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={5}>Tổng dự kiến</td>
+                <td className="num">{money(selected.total_estimate)}</td>
+              </tr>
+            </tfoot>
+          </table>
 
           <ContractBlock
             row={selected}
@@ -2053,29 +2124,75 @@ export function PurchaseRequestsPage({
             Lịch sử đơn mua hàng
           </p>
           <PurchaseActivityTimeline items={selected.activity_history} />
-        </DetailModal>
+            </div>
+            <div className="purchase__drawer-footer">
+              {actionButtons(selected)}
+            </div>
+          </aside>
+        </div>
       )}
 
       {mode && (
-        <div className="md-page__overlay" role="presentation">
-          <div
-            className="card md-page__dialog purchase__dialog purchase__dialog--order"
+        <div className="rc-drawer__scrim" role="presentation">
+          <aside
+            className="rc-drawer purchase__drawer-780"
+            onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
+            aria-label={
+              mode === "edit"
+                ? editing?.code ?? "Sửa đơn mua hàng"
+                : "Đơn mua hàng mới"
+            }
           >
-            <div className="md-page__dialog-head">
-              <h2>
-                {mode === "edit" ? "Sửa đơn mua hàng" : "Tạo đơn mua hàng"}
-              </h2>
-              <button
-                type="button"
-                className="md-page__close"
-                onClick={() => setMode(null)}
-              >
-                ×
-              </button>
+            <div className="purchase__hero-banner">
+              <div className="purchase__hero-top">
+                <div>
+                  <span className="purchase__hero-kicker">
+                    {mode === "edit" ? "Sửa đơn mua hàng" : "Tạo đơn mua hàng"}
+                  </span>
+                  <div className="purchase__hero-title-row">
+                    <h2 className="purchase__hero-code">
+                      {mode === "edit" ? editing?.code : "Đơn mua hàng mới"}
+                    </h2>
+                    {mode === "edit" && editing && (
+                      <StatusBadge status={editing.status} />
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="purchase__hero-x"
+                  onClick={() => setMode(null)}
+                  aria-label="Đóng"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="purchase__hero-meta">
+                {mode === "edit" ? (
+                  <>
+                    <span>{editing?.supplier_name || "Chưa chọn"}</span>
+                    <span className="purchase__hero-dot">•</span>
+                    <span>{form.lines.length} mặt hàng</span>
+                  </>
+                ) : (
+                  <>
+                    <span>{form.lines.length} mặt hàng</span>
+                    {form.source_request_ids.length > 0 && (
+                      <>
+                        <span className="purchase__hero-dot">•</span>
+                        <span>
+                          {form.source_request_ids.length} yêu cầu nguồn
+                        </span>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
-            <form className="md-page__dialog-body" onSubmit={save}>
+            <form onSubmit={save} className="purchase__drawer-form">
+              <div className="rc-drawer__body">
               {formError && (
                 <div className="banner banner--error" role="alert">
                   {formError}
@@ -2356,8 +2473,8 @@ export function PurchaseRequestsPage({
                   </p>
                 )}
               </div>
-
-              <div className="md-page__dialog-actions">
+              </div>
+              <div className="purchase__drawer-footer">
                 <button
                   type="button"
                   className="btn btn--ghost"
@@ -2371,7 +2488,7 @@ export function PurchaseRequestsPage({
                 </Button>
               </div>
             </form>
-          </div>
+          </aside>
         </div>
       )}
 

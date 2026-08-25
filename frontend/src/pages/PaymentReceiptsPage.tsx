@@ -16,7 +16,6 @@ import { useCan } from "../auth/permissions";
 import type { NavigateFn } from "../components/AppShell";
 import { Button } from "../components/Button";
 import { CodeLink } from "../components/CodeLink";
-import { DetailModal } from "../components/DetailModal";
 import { fmtDate, fmtDateTime, money, originalMoney } from "../utils/format";
 import { printTT200 } from "../utils/printTT200";
 import { PaymentReceiptDialog } from "./PaymentReceiptDialog";
@@ -456,6 +455,16 @@ export function PaymentReceiptsPage({
     action();
   }
 
+  // Drawer chi tiết: Esc để đóng (trước đây do DetailModal lo, nay drawer tự nghe).
+  useEffect(() => {
+    if (selectedId == null) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setSelectedId(null);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selectedId]);
+
   useEffect(() => {
     if (!token || selectedReceiptId == null) {
       setAttachments([]);
@@ -844,26 +853,59 @@ export function PaymentReceiptsPage({
         )}
       </section>
       {selected && (
-        <DetailModal
-          kicker="Phiếu thu"
-          title={selected.code}
-          subtitle={selected.doc_no ? `Số phiếu: ${selected.doc_no}` : undefined}
-          badge={
-            <div className="acct-status-stack">
-              <span
-                className={`acct-voucher-status acct-voucher-status--${STATUS_META[selected.status].tone}`}
-              >
-                {STATUS_META[selected.status].label}
-              </span>
-              {selected.status === "received" &&
-                selected.attachment_count === 0 && (
-                  <span className="acct-missing-doc">Thiếu chứng từ</span>
+        <div className="rc-drawer__scrim" onClick={() => setSelectedId(null)}>
+          <aside
+            className="rc-drawer purchase__drawer-780"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={selected.code}
+          >
+            <div className="purchase__hero-banner">
+              <div className="purchase__hero-top">
+                <div>
+                  <span className="purchase__hero-kicker">Phiếu thu</span>
+                  <div className="purchase__hero-title-row">
+                    <h2 className="purchase__hero-code">{selected.code}</h2>
+                    <div className="acct-status-stack">
+                      <span
+                        className={`acct-voucher-status acct-voucher-status--${STATUS_META[selected.status].tone}`}
+                      >
+                        {STATUS_META[selected.status].label}
+                      </span>
+                      {selected.status === "received" &&
+                        selected.attachment_count === 0 && (
+                          <span className="acct-missing-doc">Thiếu chứng từ</span>
+                        )}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="purchase__hero-x"
+                  onClick={() => setSelectedId(null)}
+                  aria-label="Đóng"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="purchase__hero-meta">
+                <span>{selected.payer_name}</span>
+                <span className="purchase__hero-dot">•</span>
+                <span>Ngày {fmtDate(selected.receipt_date)}</span>
+                <span className="purchase__hero-dot">•</span>
+                <span>{money(selected.amount_vnd)}</span>
+                <span className="purchase__hero-dot">•</span>
+                <span>{sourceLabel(selected)}</span>
+                {selected.doc_no && (
+                  <>
+                    <span className="purchase__hero-dot">•</span>
+                    <span>Số CT {selected.doc_no}</span>
+                  </>
                 )}
+              </div>
             </div>
-          }
-          footer={actions(selected)}
-          onClose={() => setSelectedId(null)}
-        >
+            <div className="rc-drawer__body">
           <dl className="purchase__facts">
             <div>
               <dt>Nguồn thu</dt>
@@ -1052,7 +1094,10 @@ export function PaymentReceiptsPage({
               Lý do hủy: {selected.cancel_reason}
             </div>
           )}
-        </DetailModal>
+            </div>
+            <div className="purchase__drawer-footer">{actions(selected)}</div>
+          </aside>
+        </div>
       )}
 
       {editState && (

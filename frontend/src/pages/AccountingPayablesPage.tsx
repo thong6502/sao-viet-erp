@@ -11,7 +11,6 @@ import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import type { NavigateFn } from "../components/AppShell";
 import { Button } from "../components/Button";
-import { DetailModal } from "../components/DetailModal";
 import { Icon } from "../components/Icons";
 import { fmtDate, money } from "../utils/format";
 import "./accounting.css";
@@ -523,6 +522,15 @@ function PayablesDrawer({
       .finally(() => setLoading(false));
   }, [token, supplierId, xemHetLichSu]);
 
+  // Drawer chỉ-xem: Esc để đóng (trước đây do DetailModal lo, nay drawer tự nghe).
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const hienNo = tab === "all" || tab === "overdue";
   const khoanNo = useMemo(() => {
     const items = detail?.items ?? [];
@@ -539,28 +547,53 @@ function PayablesDrawer({
     : 0;
 
   return (
-    <DetailModal
-      kicker="Công nợ phải trả"
-      title={supplierName}
-      subtitle={
-        detail
-          ? `Còn nợ ${money(detail.total_due)}`
-          : undefined
-      }
-      badge={
-        detail?.vuot_han_muc ? (
-          <span className="pay-badge pay-badge--danger">
-            Vượt hạn mức {money(detail.vuot_bao_nhieu)}
-          </span>
-        ) : undefined
-      }
-      onClose={onClose}
-      footer={
-        <Button variant="ghost" onClick={onClose}>
-          Đóng
-        </Button>
-      }
-    >
+    <div className="rc-drawer__scrim" onClick={onClose}>
+      <aside
+        className="rc-drawer purchase__drawer-780"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={supplierName}
+      >
+        <div className="purchase__hero-banner">
+          <div className="purchase__hero-top">
+            <div>
+              <span className="purchase__hero-kicker">Công nợ phải trả</span>
+              <div className="purchase__hero-title-row">
+                <h2 className="purchase__hero-code">{supplierName}</h2>
+                {detail?.vuot_han_muc ? (
+                  <span className="pay-badge pay-badge--danger">
+                    Vượt hạn mức {money(detail.vuot_bao_nhieu)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="purchase__hero-x"
+              onClick={onClose}
+              aria-label="Đóng"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="purchase__hero-meta">
+            {detail && (
+              <>
+                <span>Đang nợ {money(detail.total_due)}</span>
+                {detail.overdue_amount > 0 && (
+                  <>
+                    <span className="purchase__hero-dot">•</span>
+                    <span>Quá hạn {money(detail.overdue_amount)}</span>
+                  </>
+                )}
+                <span className="purchase__hero-dot">•</span>
+                <span>Hạn mức {detail.credit_limit > 0 ? money(detail.credit_limit) : "Chưa đặt"}</span>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="rc-drawer__body">
       {error && (
         <div className="banner banner--error" role="alert">
           {error}
@@ -863,6 +896,8 @@ function PayablesDrawer({
           </section>
         </>
       )}
-    </DetailModal>
+        </div>
+      </aside>
+    </div>
   );
 }

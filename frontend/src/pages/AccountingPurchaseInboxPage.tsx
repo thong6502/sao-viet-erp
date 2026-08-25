@@ -13,7 +13,6 @@ import { useCan } from "../auth/permissions";
 import type { NavigateFn } from "../components/AppShell";
 import { Button } from "../components/Button";
 import { CodeLink } from "../components/CodeLink";
-import { DetailModal } from "../components/DetailModal";
 import { PurchaseActivityTimeline } from "../components/PurchaseActivityTimeline";
 import { UNC_ENABLED } from "../constants/features";
 import { fmtDate, money } from "../utils/format";
@@ -213,6 +212,17 @@ export function AccountingPurchaseInboxPage({
     () => rows.find((row) => row.id === selectedId) ?? null,
     [rows, selectedId],
   );
+
+  // Drawer chi tiết đơn: Esc để đóng (trước đây do DetailModal lo, nay drawer tự nghe).
+  useEffect(() => {
+    if (selectedId == null) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setSelectedId(null);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selectedId]);
+
   const [vouchers, setVouchers] = useState<PaymentVoucherRow[]>([]);
   const [vouchersLoading, setVouchersLoading] = useState(false);
 
@@ -636,24 +646,54 @@ export function AccountingPurchaseInboxPage({
       </section>
 
       {selected && (
-        <DetailModal
-          kicker="Chi tiết đơn"
-          title={selected.code}
-          badge={
-            <span
-              className={`purchase__status purchase__status--${STATUS_META[selected.status].tone}`}
-            >
-              {STATUS_META[selected.status].label}
-            </span>
-          }
-          footer={actions(selected)}
-          onClose={() => setSelectedId(null)}
-        >
+        <div className="rc-drawer__scrim" onClick={() => setSelectedId(null)}>
+          <aside
+            className="rc-drawer purchase__drawer-780"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={selected.code}
+          >
+            <div className="purchase__hero-banner">
+              <div className="purchase__hero-top">
+                <div>
+                  <span className="purchase__hero-kicker">Chi tiết đơn</span>
+                  <div className="purchase__hero-title-row">
+                    <h2 className="purchase__hero-code">{selected.code}</h2>
+                    <span
+                      className={`purchase__status purchase__status--${STATUS_META[selected.status].tone}`}
+                    >
+                      {STATUS_META[selected.status].label}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="purchase__hero-x"
+                  onClick={() => setSelectedId(null)}
+                  aria-label="Đóng"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="purchase__hero-meta">
+                <span>{selected.supplier_name}</span>
+                <span className="purchase__hero-dot">•</span>
+                <span>Người lập {selected.created_by_name || "—"}</span>
+                <span className="purchase__hero-dot">•</span>
+                <span className="purchase__hero-date">
+                  Cần {fmtDate(selected.needed_date)}
+                </span>
+                <span className="purchase__hero-dot">•</span>
+                <span>{selected.lines.length} mặt hàng</span>
+              </div>
+            </div>
+            <div className="rc-drawer__body">
           {/* Nhắc TRƯỚC khi bấm Duyệt, nhưng không khoá nút — người duyệt cầm số liệu rồi tự
               quyết. Chỉ hiện khi NCC thật sự đã vượt: bày cả lúc bình thường là nhiễu. */}
           {credit?.vuot_han_muc && (
             <div className="banner banner--warn" role="status">
-              Nhà cung cấp này đang nợ {money(credit.no_hien_tai)} — vượt hạn
+              Đang nợ nhà cung cấp {money(credit.no_hien_tai)} — vượt hạn
               mức {money(credit.credit_limit)} là{" "}
               <strong>{money(credit.vuot_bao_nhieu)}</strong>. Đây là cảnh báo,
               không chặn duyệt.
@@ -716,21 +756,32 @@ export function AccountingPurchaseInboxPage({
               <strong>Lý do từ chối / huỷ:</strong> {selected.reject_reason}
             </div>
           )}
-          <div className="purchase__lines">
-            {selected.lines.map((line) => (
-              <div className="purchase__line" key={line.id}>
-                <span>
-                  <strong>{line.item_name}</strong>
-                  <br />
-                  <small>
-                    {line.quantity.toLocaleString("vi-VN")} {line.unit} ·
-                    VAT {line.vat_percent}%
-                  </small>
-                </span>
-                <strong>{money(line.line_total)}</strong>
-              </div>
-            ))}
-          </div>
+          <table className="md-page__table purchase__lines-table">
+            <thead>
+              <tr>
+                <th>Vật tư</th>
+                <th className="num">Số lượng</th>
+                <th className="num">VAT</th>
+                <th className="num">Thành tiền</th>
+              </tr>
+            </thead>
+            <tbody>
+              {selected.lines.map((line) => (
+                <tr key={line.id}>
+                  <td>
+                    <strong>{line.item_name}</strong>
+                  </td>
+                  <td className="num">
+                    {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                  </td>
+                  <td className="num">{line.vat_percent}%</td>
+                  <td className="num">
+                    <strong>{money(line.line_total)}</strong>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
           {/* Bốn con số theo đúng công thức mới: nợ = HÀNG ĐÃ VỀ − đã chi ròng. "Đang chờ chi" đã
               bỏ (không còn phiếu chờ chi), thay bằng "Hàng đã giao" — số thật sự đẻ ra công nợ. */}
           <div className="acct-payment-grid">
@@ -883,7 +934,10 @@ export function AccountingPurchaseInboxPage({
             <p className="eyebrow">Lịch sử đơn mua hàng</p>
             <PurchaseActivityTimeline items={selected.activity_history} />
           </section>
-        </DetailModal>
+            </div>
+            <div className="purchase__drawer-footer">{actions(selected)}</div>
+          </aside>
+        </div>
       )}
 
       {voucherMode && (
