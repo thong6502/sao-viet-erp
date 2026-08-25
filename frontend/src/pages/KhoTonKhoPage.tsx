@@ -62,7 +62,6 @@ import {
 import {
   ResponsiveContainer,
   ComposedChart,
-  Area,
   Bar,
   XAxis,
   YAxis,
@@ -322,8 +321,14 @@ export function KhoTonKhoPage({
         };
         m.set(key, g);
       }
-      g.total += lot.sl_con_lai;
-      g.value += lot.sl_con_lai * (lot.don_gia_nhap ?? 0);
+      // TỒN KHẢ DỤNG = chỉ lô `available` (khớp backend `on_hand`/`LOT_ISSUABLE`). Lô chờ KCS
+      // (`qc_wait`) / giữ chỗ (`hold`) / lỗi (`defect`) KHÔNG tính vào "khả dụng" — trước đây cộng
+      // bừa nên list lệch drawer (vd 300,25 list vs 285,25 drawer). Vẫn giữ MỌI lô trong `g.lots`
+      // để hiển thị vị trí / HSD / lịch sử.
+      if (lot.trang_thai === "available") {
+        g.total += lot.sl_con_lai;
+        g.value += lot.sl_con_lai * (lot.don_gia_nhap ?? 0);
+      }
       g.lots.push(lot);
     }
     const arr = [...m.values()];
@@ -602,11 +607,11 @@ export function KhoTonKhoPage({
               <Select
                 options={[
                   { value: "all", label: "Mọi trạng thái" },
-                  { value: "can_mua", label: "🔴 Cần mua" },
-                  { value: "du", label: "🟢 Tồn an toàn" },
-                  { value: "du_ton", label: "🟡 Vượt max" },
-                  { value: "chuakhai", label: "⚪ Chưa khai" },
-                  { value: "sap_het_han", label: "⏰ Sắp hết hạn" },
+                  { value: "can_mua", label: "Cần mua" },
+                  { value: "du", label: "Đủ" },
+                  { value: "du_ton", label: "Dư" },
+                  { value: "chuakhai", label: "Chưa khai" },
+                  { value: "sap_het_han", label: "Sắp hết hạn" },
                 ]}
                 value={statusFilter}
                 onChange={(v) => v != null && setStatusFilter(v as any)}
@@ -683,7 +688,7 @@ export function KhoTonKhoPage({
                   </th>
                 )}
                 <th style={{ minWidth: 220 }}>Vật tư</th>
-                <th style={{ minWidth: 70 }}>Vị trí</th>
+                <th style={{ minWidth: 104 }}>Vị trí</th>
                 <th style={{ minWidth: 90 }} title="Hạn SỚM NHẤT của lô còn tồn">
                   Hạn sử dụng
                 </th>
@@ -1169,7 +1174,6 @@ function MaterialRow({
 }) {
   const cat = getCategory(g);
   const newest = g.lots.length ? g.lots[g.lots.length - 1].ngay_nhap : null;
-  const viShown = g.viTris.slice(0, 2).join(", ");
   const viMore = g.viTris.length - 2;
 
   const setThProps = canSetThreshold
@@ -1200,28 +1204,8 @@ function MaterialRow({
           {g.anh ? (
             <img className="kho-ton__thumb" src={assetUrl(g.anh) ?? undefined} alt="" loading="lazy" />
           ) : (
-            <span
-              className="kho-ton__thumb kho-ton__thumb--ph"
-              style={{
-                background:
-                  cat === "giay"
-                    ? "#eff6ff"
-                    : cat === "muc"
-                    ? "#faf5ff"
-                    : cat === "hoa_chat"
-                    ? "#ecfdf5"
-                    : "#f8fafc",
-                color:
-                  cat === "giay"
-                    ? "#2563eb"
-                    : cat === "muc"
-                    ? "#9333ea"
-                    : cat === "hoa_chat"
-                    ? "#059669"
-                    : "#64748b",
-              }}
-              aria-hidden="true"
-            >
+            // Nền neutral (slate) đồng nhất — CHỦNG LOẠI đã phân biệt bằng icon, không cần pastel.
+            <span className="kho-ton__thumb kho-ton__thumb--ph" aria-hidden="true">
               {cat === "giay" ? (
                 <Layers style={{ width: 16, height: 16 }} />
               ) : cat === "muc" ? (
@@ -1242,15 +1226,19 @@ function MaterialRow({
         </div>
       </td>
 
-      {/* Vị trí */}
-      <td title={g.viTris.length ? g.viTris.join(", ") : undefined}>
+      {/* Vị trí — tối đa 2 chip trên MỘT hàng + "+N" (nhiều hơn 2 thì gộp phần dư). */}
+      <td>
         {g.viTris.length === 0 ? (
           <span className="rc__muted">—</span>
         ) : (
-          <span className="kho-badge-loc">
-            {viShown}
-            {viMore > 0 ? <span style={{ opacity: 0.7, marginLeft: 2 }}>+{viMore}</span> : null}
-          </span>
+          <div className="kho-loc-cell" title={g.viTris.join(", ")}>
+            {g.viTris.slice(0, 2).map((v) => (
+              <span key={v} className="kho-badge-loc" title={v}>
+                {v}
+              </span>
+            ))}
+            {viMore > 0 ? <span className="kho-loc-cell__more">+{viMore}</span> : null}
+          </div>
         )}
       </td>
 
@@ -1267,7 +1255,7 @@ function MaterialRow({
         {g.hsdSoonest == null ? (
           <span className="rc__muted">—</span>
         ) : g.hsdSoonest < todayISO() ? (
-          <span className="kho-lines__hsd kho-lines__hsd--qua" style={{ fontWeight: 600 }}>
+          <span className="kho-lines__hsd kho-lines__hsd--qua">
             {fmtDateISO(g.hsdSoonest)} · Quá hạn
             {g.hsdOthers > 0 ? <span className="kho-ton__vtmore"> +{g.hsdOthers}</span> : null}
           </span>
@@ -1285,13 +1273,14 @@ function MaterialRow({
         {g.dvt ? <span className="kho-ton__dvt"> {g.dvt}</span> : null}
       </td>
 
-      {/* Ngưỡng & Trạng Thái (Thanh lịch & Tinh gọn) */}
+      {/* Ngưỡng & Trạng thái — chip token gọn (align-items:flex-start ⇒ KHÔNG dãn tràn cột) +
+          Min/Max phụ xám nhạt. */}
       <td {...(setThProps ?? {})}>
         {g.level ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div className="kho-ton__thstack">
             <StockLevelChip level={g.level} />
             {threshold && (
-              <span style={{ fontSize: 10.5, color: "var(--ash)", fontVariantNumeric: "tabular-nums" }}>
+              <span className="kho-ton__thmm">
                 Min {threshold.nguong_ton != null ? fmtQty(threshold.nguong_ton) : "—"} · Max{" "}
                 {threshold.nguong_toi_da != null ? fmtQty(threshold.nguong_toi_da) : "—"}
               </span>
@@ -1410,7 +1399,7 @@ function MaterialHistoryDrawer({
     }
   }
   // Tab MẶC ĐỊNH = "Tổng quan" (đầu tiên) khi mở drawer; giữ nguyên Nhập/Xuất phía sau.
-  const [tab, setTab] = useState<"tong_quan" | "nhap" | "xuat" | "chuyen">("tong_quan");
+  const [tab, setTab] = useState<"tong_quan" | "lo_ton" | "nhap" | "xuat" | "chuyen">("tong_quan");
   const [page, setPage] = useState(1);
   // Tem QR vật tư: quét ra TRANG TRA KHO CÔNG KHAI (không đăng nhập) qua token đã ký "#s=..".
   const [showQr, setShowQr] = useState(false);
@@ -1531,9 +1520,12 @@ function MaterialHistoryDrawer({
     // Mới nhất lên đầu (ngày giảm) — cùng hướng sắp xếp với tab Nhập/Xuất.
     return [...ins, ...outs].sort((a, b) => (a.ngay < b.ngay ? 1 : a.ngay > b.ngay ? -1 : 0));
   }, [nhap, xuat, lotById]);
+  // Tab "Lô tồn" = các lô CÒN TỒN (sl_con_lai > 0) — số lô đang thực sự có hàng của mã này tại kho.
+  const loTon = useMemo(() => nhap.filter((l) => l.sl_con_lai > 0), [nhap]);
   const nhapPaged = nhapThuong.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
   const xuatPaged = xuatThuong.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
   const chuyenPaged = chuyenRows.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
+  const loTonPaged = loTon.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
 
   const cat = getCategory(material);
   const catLabel =
@@ -1736,6 +1728,7 @@ function MaterialHistoryDrawer({
               {(
                 [
                   ["tong_quan", "Tổng quan"],
+                  ["lo_ton", `Lô tồn (${loTon.length})`],
                   ["nhap", `Lịch sử nhập (${nhapThuong.length})`],
                   ["xuat", `Lịch sử xuất (${xuatThuong.length})`],
                   ["chuyen", `Lịch sử chuyển kho (${chuyenRows.length})`],
@@ -1771,6 +1764,54 @@ function MaterialHistoryDrawer({
               onHand={data?.on_hand ?? material.total}
               data={data}
             />
+          ) : tab === "lo_ton" ? (
+            loTon.length === 0 ? (
+              <p className="kho-hint">Không còn lô nào tồn cho vật tư này.</p>
+            ) : (
+              <div className="kho-lines__wrap">
+                <table className="kho-lines">
+                  <thead>
+                    <tr>
+                      <th style={{ minWidth: 130 }}>Phiếu</th>
+                      <th style={{ width: 96 }}>Ngày nhập</th>
+                      <th className="kho-num">Còn lại</th>
+                      <th style={{ minWidth: 96 }}>Vị trí</th>
+                      <th style={{ width: 96 }}>HSD</th>
+                      {canViewCost && <th className="kho-num">Đơn giá</th>}
+                      {canViewCost && <th className="kho-num">Giá trị</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loTonPaged.map((lot) => (
+                      <tr key={lot.id}>
+                        <td className="kho-lines__code">
+                          {lot.voucher_id != null ? (
+                            <CodeLink
+                              code={lot.voucher_ma ?? lot.ma_lo}
+                              onOpen={() => onOpenVoucher(lot.voucher_id!)}
+                            />
+                          ) : (
+                            "Đầu kỳ"
+                          )}
+                        </td>
+                        <td className="kho-lines__code">{fmtDateISO(lot.ngay_nhap)}</td>
+                        <td className="kho-num">{`${fmtQty(lot.sl_con_lai)} ${dvtGoc}`.trim()}</td>
+                        <td className="kho-lines__vt">{lot.vi_tri ?? "—"}</td>
+                        <HsdCell hsd={lot.hsd} />
+                        {canViewCost && (
+                          <td className="kho-num">{money(lot.don_gia_nhap ?? 0)}</td>
+                        )}
+                        {canViewCost && (
+                          <td className="kho-num">
+                            {money(Math.round(lot.sl_con_lai * (lot.don_gia_nhap ?? 0)))}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
           ) : tab === "nhap" ? (
             nhapThuong.length === 0 ? (
               <p className="kho-hint">Chưa có lô nhập nào cho vật tư này.</p>
@@ -1935,7 +1976,9 @@ function MaterialHistoryDrawer({
               ? nhapThuong.length
               : tab === "xuat"
                 ? xuatThuong.length
-                : chuyenRows.length) > DRAWER_PAGE && (
+                : tab === "lo_ton"
+                  ? loTon.length
+                  : chuyenRows.length) > DRAWER_PAGE && (
               <DrawerPager
                 page={page}
                 total={
@@ -1943,7 +1986,9 @@ function MaterialHistoryDrawer({
                     ? nhapThuong.length
                     : tab === "xuat"
                       ? xuatThuong.length
-                      : chuyenRows.length
+                      : tab === "lo_ton"
+                        ? loTon.length
+                        : chuyenRows.length
                 }
                 pageSize={DRAWER_PAGE}
                 onPage={setPage}
@@ -2217,7 +2262,9 @@ function MaterialOverview({
   // Tổng nhập/xuất toàn thời gian từ data.
   const totalNhap = (data?.nhap ?? []).reduce((s, l) => s + l.sl_ban_dau, 0);
   const totalXuat = (data?.xuat ?? []).reduce((s, r) => s + r.so_luong, 0);
-  const loHetHang = lots.filter((l) => l.sl_con_lai <= 0).length;
+  // Đếm lô ĐÃ XUẤT HẾT từ `data.nhap` (con_hang=false → có cả lô `empty`); KHÔNG dùng `material.lots`
+  // vì mảng đó đã lọc bỏ lô hết (sl_con_lai>0) nên đếm ở đó luôn ra 0.
+  const loHetHang = (data?.nhap ?? []).filter((l) => l.sl_con_lai <= 0).length;
 
   // Biểu đồ cột nhập/xuất 12 tháng gần nhất (Recharts Composed Chart + Area Gradient)
   const monthlyChart = useMemo(() => {
@@ -2309,8 +2356,8 @@ function MaterialOverview({
                   {/* Nhập = moss (#2f5d3a, ĐÚNG --moss), Xuất = rust (#c5400a, ĐÚNG --rust): cặp
                       màu chuẩn của phân hệ kho — KHÔNG dùng xanh chói #22c55e off-palette. */}
                   <linearGradient id="nhapGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#2f5d3a" stopOpacity={0.45} />
-                    <stop offset="95%" stopColor="#2f5d3a" stopOpacity={0.04} />
+                    <stop offset="5%" stopColor="#2f5d3a" stopOpacity={0.9} />
+                    <stop offset="95%" stopColor="#2f5d3a" stopOpacity={0.3} />
                   </linearGradient>
                   <linearGradient id="xuatGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#c5400a" stopOpacity={0.9} />
@@ -2339,7 +2386,8 @@ function MaterialOverview({
                     return null;
                   }}
                 />
-                <Area type="monotone" dataKey="nhap" name="nhap" fill="url(#nhapGrad)" stroke="#2f5d3a" strokeWidth={2.5} />
+                {/* Nhập + Xuất CÙNG dạng cột (grouped bars) → cân xứng, dễ so sánh từng tháng. */}
+                <Bar dataKey="nhap" name="nhap" fill="url(#nhapGrad)" stroke="#2f5d3a" radius={[4, 4, 0, 0]} barSize={14} />
                 <Bar dataKey="xuat" name="xuat" fill="url(#xuatGrad)" stroke="#c5400a" radius={[4, 4, 0, 0]} barSize={14} />
               </ComposedChart>
             </ResponsiveContainer>

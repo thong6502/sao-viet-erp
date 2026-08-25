@@ -358,16 +358,6 @@ class StockRequestService:
         self._notif_nguoi_tao(req, loai="kho_huy", tieu_de="Yêu cầu đã bị hủy")
         return req
 
-    def revert_if_untouched(self, req: StockRequest) -> StockRequest:
-        """Hủy phiếu nháp cuối cùng (không còn phiếu active) mà CHƯA ứng gì → về 'Cần cấp'
-        (approved) để cấp lại. Đã ứng một phần thì giữ partial. Gọi từ voucher.cancel."""
-        any_issued = any(float(ln.sl_da_ung) > 0 for ln in req.lines)
-        if not any_issued and req.trang_thai in (REQ_RECEIVED, REQ_PREPARING):
-            req.trang_thai = REQ_APPROVED
-            req = self.requests.save(req)
-            self._notify(req, "Phiếu đã hủy — yêu cầu chờ cấp lại")
-        return req
-
     # --- Tồn & đèn tín hiệu -------------------------------------------------
 
     def levels_for(self, hangs: list[tuple[str, int]], kho_id: int) -> dict[tuple[str, int], str]:
