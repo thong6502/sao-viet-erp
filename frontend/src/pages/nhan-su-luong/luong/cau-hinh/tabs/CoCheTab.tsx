@@ -8,7 +8,7 @@ import type {
   SalaryComponentKey,
 } from "../../../../../api/client";
 import { KhoanRatesEditor } from "../../../../../components/KhoanRatesEditor";
-import { KhoanKmEditor } from "../../../../KhoanKmEditor";
+import { KhoanKmEditor } from "../components/KhoanKmEditor";
 import { DeptChips } from "../components/DeptChips";
 import { NumInput, ParamField, Switch } from "../components/fields";
 import { LeaderBonusEditor } from "../components/LeaderBonusEditor";

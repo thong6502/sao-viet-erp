@@ -22,7 +22,7 @@ import {
 import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
-import GiaoHangPage from "../pages/GiaoHangPage";
+import GiaoHangPage from "../pages/giao-hang/giao-hang";
 import { KeHoachSXPage } from "../pages/KeHoachSXPage";
 import { KeHoachVatTuPage } from "../pages/KeHoachVatTuPage";
 import { BaiGhep2Page } from "../pages/BaiGhep2Page";
@@ -51,9 +51,9 @@ import type { KhoNhapSeed } from "../pages/KhoDeNghiPage";
 
 // Danh mục rebuild (config .tsx — render pill JSX)
 import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
-import { DepartmentPurchaseRequestsPage } from "../pages/DepartmentPurchaseRequestsPage";
+import { DepartmentPurchaseRequestsPage } from "../pages/mua-hang/yeu-cau-mua-hang";
 import { PurchaseRequestsPage } from "../pages/mua-hang/phieu-mua-hang";
-import { SuppliersPage } from "../pages/SuppliersPage";
+import { SuppliersPage } from "../pages/mua-hang/nha-cung-cap";
 import { AccountingPayablesPage } from "../pages/ke-toan/cong-no-phai-tra";
 import { AccountingReceivablesPage } from "../pages/ke-toan/cong-no-phai-thu";
 import { AccountingPurchaseInboxPage } from "../pages/ke-toan/don-mua-hang";

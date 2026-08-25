@@ -2,9 +2,10 @@
 // (kiêm chứng từ đối chiếu tiền), KHÔNG lộ MST/cost/margin. Ngày giao chừa TRỐNG để ghi tay; số
 // phiếu mượn số đơn (chưa có sổ cấp số phiếu giao riêng — đó là module giao hàng làm sau).
 // Data lấy trực tiếp từ OrderDetail đã fetch ở màn Đơn hàng bán.
-import { PrintSheet } from "../components/PrintSheet";
-import { gopTheoNhom } from "../utils/gop-nhom";
-import type { OrderDetail } from "../api/client";
+// (tách từ pages/DeliveryNotePrint.tsx).
+import { PrintSheet } from "../../../components/PrintSheet";
+import { gopTheoNhom } from "../../../utils/gop-nhom";
+import type { OrderDetail } from "../../../api/client";
 
 const money = (n: number | null | undefined): string => Math.round(n || 0).toLocaleString("vi-VN");
 // Đơn giá KHÔNG làm tròn: dòng gộp (ruột + bìa) hay ra số lẻ .5 — làm tròn xong khách nhân

@@ -8,14 +8,15 @@
 //     thành snapshot của yêu cầu (sửa địa chỉ đơn tháng sau không đổi phiếu giao cũ).
 //   · "GHI LÀ GHI" — không có ô Thao tác của màn Giao hàng thì KHÔNG bày nút. Bày ra rồi bấm ăn
 //     403 trông như hệ thống hỏng, chứ không như "anh không có quyền".
+// (tách từ pages/TaoYeuCauGiaoHang.tsx).
 import { Fragment, useCallback, useEffect, useState } from "react";
-import type { ConPhaiGiao, DeliveryRequest } from "../api/client";
-import { api } from "../api/client";
-import { useAuth } from "../auth/useAuth";
-import { useCan } from "../auth/permissions";
-import { Button } from "../components/Button";
-import { fmtDate } from "../utils/format";
-import "./giao-hang.css";
+import type { ConPhaiGiao, DeliveryRequest } from "../../../api/client";
+import { api } from "../../../api/client";
+import { useAuth } from "../../../auth/useAuth";
+import { useCan } from "../../../auth/permissions";
+import { Button } from "../../../components/Button";
+import { fmtDate } from "../../../utils/format";
+import "../../giao-hang.css";
 
 /** Hôm nay dạng `YYYY-MM-DD` — cùng dạng với `input[type=date]`, so sánh chuỗi là đủ.
  *  `toISOString()` trả giờ UTC nên có thể lệch một ngày; dùng giờ ĐỊA PHƯƠNG vì người dùng và

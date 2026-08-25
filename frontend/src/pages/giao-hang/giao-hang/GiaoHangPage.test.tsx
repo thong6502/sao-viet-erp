@@ -11,9 +11,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 import GiaoHangPage from "./GiaoHangPage";
-import { AuthContext, type AuthState } from "../auth/AuthContext";
-import { PermissionsProvider, buildCapabilities } from "../auth/permissions";
-import type { ModuleCapability } from "../api/client";
+import { AuthContext, type AuthState } from "../../../auth/AuthContext";
+import { PermissionsProvider, buildCapabilities } from "../../../auth/permissions";
+import type { ModuleCapability } from "../../../api/client";
 
 const AUTH: AuthState = {
   status: "authenticated", user: null, token: "t",

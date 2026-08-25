@@ -9,8 +9,8 @@
 // theo % (đi một mình tài xế ăn 100%). Đơn giá là số TÀI XẾ ĐƯỢC HƯỞNG, không phải cước cả xe.
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, api, type KmBracket } from "../api/client";
-import { Button } from "../components/Button";
+import { ApiError, api, type KmBracket } from "../../../../../api/client";
+import { Button } from "../../../../../components/Button";
 
 export function KhoanKmEditor({
   token,
