@@ -1,3 +1,5 @@
+// Màn Phòng ban — cơ cấu tổ chức, nhân sự theo phòng, vai trò & quyền
+// (tách từ pages/DepartmentsPage.tsx).
 import { useEffect, useMemo, useState, useRef } from "react";
 import {
   ApiError,
@@ -13,21 +15,21 @@ import {
   type RoleTemplate,
   type Scope,
   type UserBrief,
-} from "../api/client";
-import { useAuth } from "../auth/useAuth";
-import { useCan } from "../auth/permissions";
-import { Button } from "../components/Button";
-import { ConfirmDialog } from "../components/ConfirmDialog";
-import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
-import { InfoHint } from "../components/InfoHint";
-import { Select } from "../components/Select";
+} from "../../../api/client";
+import { useAuth } from "../../../auth/useAuth";
+import { useCan } from "../../../auth/permissions";
+import { Button } from "../../../components/Button";
+import { ConfirmDialog } from "../../../components/ConfirmDialog";
+import { DiscardChangesDialog } from "../../../components/DiscardChangesDialog";
+import { InfoHint } from "../../../components/InfoHint";
+import { Select } from "../../../components/Select";
 import {
   PermissionMatrix,
   defaultMatrix,
   type ActionKey,
-} from "../components/PermissionMatrix";
-import { EmployeeWizard } from "./nhan-su-luong/nhan-su";
-import { Icon } from "../components/Icons";
+} from "../../../components/PermissionMatrix";
+import { EmployeeWizard } from "../nhan-su";
+import { Icon } from "../../../components/Icons";
 import {
   Building2,
   Factory,
@@ -56,103 +58,16 @@ import {
   CheckCircle2,
   AlertCircle,
 } from "lucide-react";
-import type { NavigateFn } from "../components/AppShell";
-import "./departments.css";
-import "./nhan-su.css";
-import "./redesign-phong-ban.css";
-
-const READ_IMPLYING_ACTIONS: ActionKey[] = [
-  "can_create",
-  "can_update",
-  "can_delete",
-  "can_reassign",
-  "can_export",
-  "can_view_debt",
-  "can_view_discount",
-  "can_approve",
-  "can_manage_status",
-  "can_reset_password",
-  "can_lock",
-  "can_revoke_sessions",
-  "can_assign_role",
-  "can_transfer",
-  "can_set_head",
-  "can_requote",
-  "can_manage_price",
-  "can_cancel",
-  "can_manage_permissions",
-  "can_clone",
-  "can_toggle_active",
-  "can_reparent",
-  "can_view_salary",
-  "can_edit_salary",
-  "can_adjust",
-  "can_approve_exception",
-  "can_set_credit_terms",
-  "can_record_deposit",
-  "can_assign_work",
-  "can_record_output",
-  "can_handover",
-  "can_request",
-  "can_view_stock",
-  "can_view_cost",
-  "can_set_threshold",
-  "can_post",
-];
-
-function applyPermissionDependency(
-  row: PermissionRow,
-  action: ActionKey,
-  value: boolean,
-): PermissionRow {
-  const next = { ...row, [action]: value };
-  if (action === "can_read" && !value) {
-    for (const key of READ_IMPLYING_ACTIONS) next[key] = false;
-    return next;
-  }
-  if (action === "can_view_salary" && !value) {
-    next.can_edit_salary = false;
-  }
-  if (action === "can_edit_salary" && value) {
-    next.can_view_salary = true;
-  }
-  if (value && READ_IMPLYING_ACTIONS.includes(action)) next.can_read = true;
-  return next;
-}
-
-/** Đã kéo sơ đồ cây ít nhất 1 lần → không nhắc "kéo để di chuyển" nữa. */
-const PAN_HINT_KEY = "rdx-org-pan-hint";
-
-/** Group departments by parent and find the roots, so the list can render as a real tree.
- *  Orphans (parent missing/filtered out) are treated as roots so nothing ever disappears. */
-function buildTree(list: Department[]): {
-  childrenOf: Map<number, Department[]>;
-  roots: Department[];
-} {
-  const ids = new Set(list.map((d) => d.id));
-  const childrenOf = new Map<number, Department[]>();
-  const roots: Department[] = [];
-  for (const d of list) {
-    const parent = d.parent_id ?? null;
-    if (parent != null && ids.has(parent)) {
-      const bucket = childrenOf.get(parent);
-      if (bucket) bucket.push(d);
-      else childrenOf.set(parent, [d]);
-    } else {
-      roots.push(d);
-    }
-  }
-  return { childrenOf, roots };
-}
-
-function initials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
-}
+import type { NavigateFn } from "../../../components/AppShell";
+import { PAN_HINT_KEY } from "./shared/constants";
+import {
+  applyPermissionDependency,
+  buildTree,
+  initials,
+} from "./shared/helpers";
+import "../../departments.css";
+import "../../nhan-su.css";
+import "../../redesign-phong-ban.css";
 
 export function DepartmentsPage({
   onDeptChanged,

@@ -1,0 +1,1 @@
+export { TangCaPage } from "./TangCaPage";

@@ -16,7 +16,7 @@ import {
 import type { NavigateFn } from "../../../components/AppShell";
 import { useAuth } from "../../../auth/useAuth";
 import { useCan, useSelfService } from "../../../auth/permissions";
-import { CauHinhLuongTab } from "../../CauHinhLuongTab";
+import { CauHinhLuongTab } from "./cau-hinh";
 import { DiscardChangesDialog } from "../../../components/DiscardChangesDialog";
 import type { Tab } from "./shared/types";
 import { BangLuongTab } from "./tabs/BangLuongTab";

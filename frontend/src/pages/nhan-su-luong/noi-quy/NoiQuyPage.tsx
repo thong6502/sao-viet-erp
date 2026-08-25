@@ -1,3 +1,5 @@
+// Màn Nội quy công ty — danh mục tài liệu nội quy: tải lên, tìm, xem trước, xoá
+// (tách từ pages/NoiQuyPage.tsx).
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ExternalLink,
@@ -8,17 +10,17 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { ApiError, api, assetUrl, type NoiQuyRecord } from "../api/client";
-import { useAuth } from "../auth/useAuth";
-import { useCan } from "../auth/permissions";
-import { Button } from "../components/Button";
-import { ConfirmDialog } from "../components/ConfirmDialog";
-import { EmptyRow } from "../components/EmptyState";
-import { Pager, trangHopLe } from "../components/Pager";
-import { RowActionButton } from "../components/RowActionButton";
-import { useDebounced } from "../utils/useDebounced";
-import "./nhan-su.css";
-import "./noi-quy.css";
+import { ApiError, api, assetUrl, type NoiQuyRecord } from "../../../api/client";
+import { useAuth } from "../../../auth/useAuth";
+import { useCan } from "../../../auth/permissions";
+import { Button } from "../../../components/Button";
+import { ConfirmDialog } from "../../../components/ConfirmDialog";
+import { EmptyRow } from "../../../components/EmptyState";
+import { Pager, trangHopLe } from "../../../components/Pager";
+import { RowActionButton } from "../../../components/RowActionButton";
+import { useDebounced } from "../../../utils/useDebounced";
+import "../../nhan-su.css";
+import "../../noi-quy.css";
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const FILE_ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp";
