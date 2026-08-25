@@ -7045,13 +7045,38 @@ export interface BaoCaoKhoPage {
   total: number;
 }
 
-export interface BaoCaoKhoParams {
+/** Bộ lọc funnel theo CỘT (giống bảng đang xem) — để "xuất Excel" = đúng bảng, không kéo thừa dòng
+ *  đã bị lọc cột. Khoảng BAO GỒM hai đầu; để trống = không chặn. */
+export interface BaoCaoFunnel {
+  ct_from?: string | null;   // Ngày CT từ (yyyy-mm-dd)
+  ct_to?: string | null;
+  sl_from?: number | null;   // Số lượng
+  sl_to?: number | null;
+  dg_from?: number | null;   // Đơn giá / đơn giá vốn
+  dg_to?: number | null;
+  tt_from?: number | null;   // Thành tiền / tiền vốn
+  tt_to?: number | null;
+}
+
+export interface BaoCaoKhoParams extends BaoCaoFunnel {
   tu?: string | null;
   den?: string | null;
   kho_id?: number | null;
   loai?: StockRequestKind | null;
   /** Tìm số CT / mã hàng / tên hàng — để "lọc gì = xuất nấy" (cả bảng lẫn file). */
   q?: string | null;
+}
+
+/** Đắp 8 tham số funnel (nếu có) vào query — dùng chung cho 2 endpoint export báo cáo kho. */
+function setFunnelQs(qs: URLSearchParams, f: BaoCaoFunnel): void {
+  if (f.ct_from) qs.set("ct_from", f.ct_from);
+  if (f.ct_to) qs.set("ct_to", f.ct_to);
+  if (f.sl_from != null) qs.set("sl_from", String(f.sl_from));
+  if (f.sl_to != null) qs.set("sl_to", String(f.sl_to));
+  if (f.dg_from != null) qs.set("dg_from", String(f.dg_from));
+  if (f.dg_to != null) qs.set("dg_to", String(f.dg_to));
+  if (f.tt_from != null) qs.set("tt_from", String(f.tt_from));
+  if (f.tt_to != null) qs.set("tt_to", String(f.tt_to));
 }
 
 /** Báo cáo kho — 1 dòng điều chuyển đã ghi sổ (Xuất tại kho → Nhập tại kho). */
@@ -7079,7 +7104,7 @@ export interface BaoCaoChuyenKhoPage {
   total: number;
 }
 
-export interface BaoCaoChuyenKhoParams {
+export interface BaoCaoChuyenKhoParams extends BaoCaoFunnel {
   tu?: string | null;
   den?: string | null;
   kho_id?: number | null;
@@ -7550,6 +7575,8 @@ export interface StockLot {
   don_gia_nhap: number | null;
   /** SL đề nghị đã sinh ra lô (đọc-nối). Không phải tiền → luôn có. null = lô đầu kỳ / không nối được. */
   sl_de_nghi: number | null;
+  /** ĐƠN VỊ của `sl_de_nghi` (đơn vị người xin) — có thể khác `dvt` gốc của lô; ghi rõ ở cột SL yêu cầu. */
+  dvt_yeu_cau?: string | null;
   /** Lô sinh từ phiếu ĐIỀU CHUYỂN (nhận về) — lịch sử mặt hàng xếp vào tab "Chuyển kho" riêng. */
   dieu_chuyen?: boolean;
 }
@@ -7592,6 +7619,8 @@ export interface StockMaterialXuatRow {
   ma_lo: string | null;
   /** SL đề nghị đã sinh ra dòng xuất (đọc-nối). Không phải tiền → luôn có. null = không nối được. */
   sl_de_nghi: number | null;
+  /** ĐƠN VỊ của `sl_de_nghi` (đơn vị người xin) — có thể khác đơn vị gốc; ghi rõ ở cột SL yêu cầu. */
+  dvt_yeu_cau?: string | null;
   so_luong: number;
   /** Giá vốn đích danh của lô đã xuất — chỉ có khi `can_view_cost`. */
   don_gia: number | null;
@@ -11409,6 +11438,7 @@ export const api = {
         if (params.den) qs.set("den", params.den);
         if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
         if (params.q) qs.set("q", params.q);
+        setFunnelQs(qs, params);
         const doFetch = (bearer: string) =>
           fetch(`${BASE_URL}/api/kho/bao-cao/export.xlsx?${qs.toString()}`, {
             credentials: "include", cache: "no-store", headers: authHeader(bearer),
@@ -11431,6 +11461,7 @@ export const api = {
         if (params.den) qs.set("den", params.den);
         if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
         if (params.q) qs.set("q", params.q);
+        setFunnelQs(qs, params);
         const doFetch = (bearer: string) =>
           fetch(`${BASE_URL}/api/kho/bao-cao/chuyen-kho/export.xlsx?${qs.toString()}`, {
             credentials: "include", cache: "no-store", headers: authHeader(bearer),

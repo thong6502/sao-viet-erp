@@ -404,6 +404,15 @@ export function KhoDeNghiPage({
                 );
               })
             )}
+            {/* Hàng ĐỆM giữ ĐỘ DÀI (chiều cao) bảng cố định — ít yêu cầu (vd 1-5 dòng) bảng vẫn trải
+                đủ pageSize dòng, đồng bộ với bảng Tồn/Phiếu/Báo cáo, không teo lại. */}
+            {Array.from({
+              length: Math.max(0, pageSize - (loading ? 5 : shown.length === 0 ? 1 : shown.length)),
+            }).map((_, i) => (
+              <tr key={`rfiller-${i}`} className="rc__filler" aria-hidden="true">
+                <td colSpan={colCount}>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

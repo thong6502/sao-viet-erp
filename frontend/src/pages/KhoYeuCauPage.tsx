@@ -368,6 +368,7 @@ export function KhoYeuCauPage({
             canViewCost={canViewCost}
             newestReqId={newestReqId}
             tableRef={tableRef}
+            pageSize={pageSize}
             onOpen={setOpenTransfer}
           />
         ) : (
@@ -485,6 +486,18 @@ export function KhoYeuCauPage({
                   })}
                 </>
               )}
+              {/* Hàng ĐỆM giữ chiều cao bảng cố định — ít yêu cầu vẫn trải đủ pageSize dòng (đồng bộ
+                  với các bảng kho khác), không teo lại khi lọc còn vài dòng. */}
+              {Array.from({
+                length: Math.max(
+                  0,
+                  pageSize - (loading ? 5 : requests.length === 0 ? 1 : pageRequests.length),
+                ),
+              }).map((_, i) => (
+                <tr key={`reqfiller-${i}`} className="rc__filler" aria-hidden="true">
+                  <td colSpan={reqCols}>&nbsp;</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
@@ -592,6 +605,7 @@ function TransferTable({
   canViewCost,
   newestReqId,
   tableRef,
+  pageSize,
   onOpen,
 }: {
   rows: StockRequest[];
@@ -600,6 +614,7 @@ function TransferTable({
   canViewCost: boolean;
   newestReqId: number | null;
   tableRef: RefObject<HTMLTableElement>;
+  pageSize: number;
   onOpen: (id: number) => void;
 }) {
   // Mã · Tuyến · Ngày · Trạng thái · [Tổng giá vốn] · Số dòng · [thao tác]
@@ -666,6 +681,14 @@ function TransferTable({
             );
           })
         )}
+        {/* Hàng ĐỆM giữ chiều cao bảng cố định (giống bảng khác) — ít phiếu vẫn trải đủ pageSize dòng. */}
+        {Array.from({
+          length: Math.max(0, pageSize - (loading ? 5 : rows.length === 0 ? 1 : rows.length)),
+        }).map((_, i) => (
+          <tr key={`tfiller-${i}`} className="rc__filler" aria-hidden="true">
+            <td colSpan={cols}>&nbsp;</td>
+          </tr>
+        ))}
       </tbody>
     </table>
   );
@@ -870,11 +893,15 @@ function TransferDrawer({
                   <div className="kho-info-grid">
                     <div className="kho-info-item">
                       <span className="kho-info-item__label">Từ kho (nguồn)</span>
-                      <div className="kho-info-item__val">{req.kho_nguon_ten ?? "—"}</div>
+                      <div className="kho-info-item__val" style={{ fontWeight: 600, color: "var(--moss-deep, #1e3a29)" }}>
+                        {req.kho_nguon_ten ?? "—"}
+                      </div>
                     </div>
                     <div className="kho-info-item">
                       <span className="kho-info-item__label">Đến kho (nhập về)</span>
-                      <div className="kho-info-item__val">{req.kho_ten ?? "—"}</div>
+                      <div className="kho-info-item__val" style={{ fontWeight: 600, color: "var(--steel-deep, #1e293b)" }}>
+                        {req.kho_ten ?? "—"}
+                      </div>
                     </div>
                     <div className="kho-info-item">
                       <span className="kho-info-item__label">Ngày</span>
@@ -884,7 +911,9 @@ function TransferDrawer({
                     </div>
                     <div className="kho-info-item">
                       <span className="kho-info-item__label">Số CT phiếu nhập</span>
-                      <div className="kho-info-item__val">{v?.ma ?? "—"}</div>
+                      <div className="kho-info-item__val">
+                        {v?.ma ? <span className="rc__code-badge">{v.ma}</span> : "—"}
+                      </div>
                     </div>
                     <div className="kho-info-item">
                       <span className="kho-info-item__label">Người tạo</span>
@@ -900,8 +929,8 @@ function TransferDrawer({
                   </div>
                 </section>
 
-                <div className="banner banner--info">
-                  <span>Ghi sổ sẽ TRỪ kho nguồn và CỘNG kho đích cùng lúc.</span>
+                <div className="banner banner--info" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 13 }}>💡 Ghi sổ sẽ <b>TRỪ</b> kho nguồn và <b>CỘNG</b> kho đích cùng lúc.</span>
                 </div>
 
                 <section className="rc-sec">
@@ -910,30 +939,30 @@ function TransferDrawer({
                     <table className="kho-lines" style={{ width: "100%", tableLayout: "auto" }}>
                       <thead>
                         <tr>
-                          <th style={{ minWidth: 240 }}>Vật tư</th>
+                          <th style={{ minWidth: 220 }}>Vật tư</th>
                           <th className="kho-num" style={{ width: 120 }}>Số lượng</th>
                           {canViewCost && <th className="kho-num" style={{ width: 120 }}>Giá vốn</th>}
                           {canViewCost && <th className="kho-num" style={{ width: 130 }}>Thành tiền</th>}
-                          <th style={{ width: 120 }}>HSD</th>
+                          <th style={{ width: 110 }}>HSD</th>
                           <th style={{ width: 180 }}>Vị trí</th>
                         </tr>
                       </thead>
                       <tbody>
                         {!v || v.lines.length === 0 ? (
                           <tr>
-                            <td colSpan={canViewCost ? 6 : 4} className="kho-lines__empty">
-                              Không có dòng nào.
+                            <td colSpan={canViewCost ? 6 : 4} className="kho-lines__empty" style={{ textAlign: "center", padding: "20px 0" }}>
+                              <i>Không có dòng nào.</i>
                             </td>
                           </tr>
                         ) : (
                           v.lines.map((l) => (
                             <tr key={l.id}>
                               <td>
-                                <div className="kho-lines__name">{l.hang_ten ?? "—"}</div>
-                                <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
+                                <div className="kho-lines__name" style={{ fontWeight: 600 }}>{l.hang_ten ?? "—"}</div>
+                                <div className="kho-lines__code" style={{ fontSize: 11, color: "var(--ash-2)" }}>{l.hang_ma ?? ""}</div>
                               </td>
                               <td className="kho-num">
-                                {fmtQty(l.so_luong)} {tenDonVi(l.dvt) ?? l.dvt ?? ""}
+                                <strong>{fmtQty(l.so_luong)}</strong> {tenDonVi(l.dvt) ?? l.dvt ?? ""}
                               </td>
                               {canViewCost && (
                                 <td className="kho-num">
@@ -942,7 +971,7 @@ function TransferDrawer({
                               )}
                               {canViewCost && (
                                 <td className="kho-num">
-                                  {l.thanh_tien != null ? money(l.thanh_tien) : "—"}
+                                  <strong>{l.thanh_tien != null ? money(l.thanh_tien) : "—"}</strong>
                                 </td>
                               )}
                               <td>{l.hsd ? fmtDateISO(l.hsd) : "—"}</td>
@@ -965,6 +994,23 @@ function TransferDrawer({
                           ))
                         )}
                       </tbody>
+                      {v && v.lines.length > 0 && (
+                        <tfoot>
+                          <tr style={{ fontWeight: 600 }}>
+                            <td style={{ textAlign: "right" }}>Tổng cộng ({v.lines.length} dòng):</td>
+                            <td className="kho-num">
+                              {fmtQty(v.lines.reduce((s, l) => s + (l.so_luong ?? 0), 0))}
+                            </td>
+                            {canViewCost && <td className="kho-num">—</td>}
+                            {canViewCost && (
+                              <td className="kho-num">
+                                {money(v.lines.reduce((s, l) => s + (l.thanh_tien ?? 0), 0))}
+                              </td>
+                            )}
+                            <td colSpan={2}></td>
+                          </tr>
+                        </tfoot>
+                      )}
                     </table>
                   </div>
                 </section>
@@ -1657,9 +1703,13 @@ function VoucherCreateDrawer({
         next = lot.sl_con_lai;
         warn = `Lô này chỉ còn ${fmtQty(lot.sl_con_lai)}.`;
       }
-      if (others + next > b.line.sl_con_lai) {
-        next = Math.max(0, b.line.sl_con_lai - others);
-        warn = `Chỉ được cấp ${fmtQty(b.line.sl_con_lai)} theo duyệt — muốn cấp thêm phải tạo yêu cầu mới.`;
+      // Mốc duyệt `sl_con_lai` theo ĐƠN VỊ YÊU CẦU, còn số lô (`others`/`next`) theo ĐƠN VỊ GỐC —
+      // phải quy mốc về gốc rồi mới so, không thì vật tư có quy đổi (vd xin ram, lô lưu tờ) bị ép
+      // "SL lấy" về 0 khi sửa tay (others gốc đã vượt sl_con_lai yêu cầu).
+      const capGoc = b.line.sl_con_lai * (b.heSoVeGoc || 1);
+      if (others + next > capGoc) {
+        next = Math.max(0, capGoc - others);
+        warn = `Chỉ được cấp ${fmtQty(capGoc)} theo duyệt — muốn cấp thêm phải tạo yêu cầu mới.`;
       }
       return {
         ...b,
@@ -2175,9 +2225,11 @@ function AllocRow({
     };
   }, [l.hang_loai, l.hang_id, khoId, token]);
 
-  const chosen = block.lots.reduce((s, x) => s + x.so_luong, 0);
-  const target = block.cap;
-  const matched = Math.abs(chosen - target) < 1e-9;
+  const chosen = block.lots.reduce((s, x) => s + x.so_luong, 0);   // tổng đã lấy — ĐƠN VỊ GỐC (lô)
+  const target = block.cap;                                         // mốc cần — ĐƠN VỊ YÊU CẦU
+  // `chosen` (gốc) và `target` (yêu cầu) KHÁC đơn vị — quy mốc cần về GỐC để so cho khớp bảng lô.
+  const targetGoc = target * (block.heSoVeGoc || 1);
+  const matched = Math.abs(chosen - targetGoc) < 1e-6;
   // Cấp/nhập ÍT HƠN còn phải cấp → bắt buộc LÝ DO (kho phản hồi). Quy cả hai vế về ĐƠN VỊ DÒNG
   // YÊU CẦU (lô đếm theo đơn vị gốc) rồi mới so với `sl_con_lai`.
   const cappedTon = isNhap ? block.cap : chosen / (block.heSoVeGoc || 1);
@@ -2403,8 +2455,11 @@ function AllocRow({
                 {block.thieu > 0 && (
                   <div className="banner banner--warn">
                     <span>
-                      Kho chỉ còn {fmtQty(l.sl_con_lai - block.thieu)} {tenDonVi(l.dvt) ?? l.dvt}. Cấp{" "}
-                      {fmtQty(l.sl_con_lai - block.thieu)} lần này, phần còn lại chờ nhập hoặc tạo yêu
+                      {/* `cappedTon` = phần cấp được, ĐÃ quy về ĐƠN VỊ YÊU CẦU (khớp nhãn `l.dvt`).
+                          KHÔNG dùng `l.sl_con_lai - block.thieu`: sl_con_lai (yêu cầu) trừ thieu
+                          (gốc) là trộn đơn vị → ra số âm khi vật tư có quy đổi. */}
+                      Kho chỉ còn {fmtQty(cappedTon)} {tenDonVi(l.dvt) ?? l.dvt}. Cấp{" "}
+                      {fmtQty(cappedTon)} lần này, phần còn lại chờ nhập hoặc tạo yêu
                       cầu mới.
                     </span>
                   </div>
@@ -2476,8 +2531,8 @@ function AllocRow({
                   className={`kho-alloc__sum${matched ? " kho-alloc__sum--ok" : " kho-alloc__sum--off"}`}
                 >
                   {matched
-                    ? `✓ Lấy đủ ${fmtQty(chosen)} / cần ${fmtQty(target)}`
-                    : `Lấy ${fmtQty(chosen)} / cần ${fmtQty(target)} · thiếu ${fmtQty(Math.max(0, target - chosen))}`}
+                    ? `✓ Lấy đủ ${fmtQty(chosen)} / cần ${fmtQty(targetGoc)}`
+                    : `Lấy ${fmtQty(chosen)} / cần ${fmtQty(targetGoc)} · thiếu ${fmtQty(Math.max(0, targetGoc - chosen))}`}
                 </div>
               </>
             )}
@@ -2614,7 +2669,7 @@ export function VoucherDrawer({
         materialCode: l.hang_ma,
         materialName: l.hang_ten,
         maLo: l.ma_lo,
-        dvt: l.dvt,
+        dvt: tenDonVi(l.dvt) ?? l.dvt,   // TÊN có dấu (tờ/bản kẽm) thay MÃ (to/kem) — khớp bản in điều chuyển
         soLuongChungTu: req?.lines.find((x) => x.id === l.request_line_id)?.sl_duyet ?? null,
         soLuong: l.so_luong,
         donGia: l.don_gia,
@@ -2640,7 +2695,7 @@ export function VoucherDrawer({
   return (
     <>
       <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
-        <aside className="rc-drawer rc-drawer--mid" onClick={(e) => e.stopPropagation()}>
+        <aside className="rc-drawer rc-drawer--wide kho-voucher-drawer" onClick={(e) => e.stopPropagation()}>
           <header className="rc-drawer__head">
             <div>
               <div className="rc-drawer__kicker">

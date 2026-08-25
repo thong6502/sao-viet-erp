@@ -488,6 +488,9 @@ class StockLotOut(BaseModel):
     # SL yêu cầu đã sinh ra lô (đọc-nối qua dòng phiếu NHẬP tạo lô → dòng yêu cầu). Không lưu cột.
     # Không phải tiền → luôn hiện được. None = lô đầu kỳ / không nối được dòng yêu cầu.
     sl_de_nghi: float | None = None
+    # ĐƠN VỊ của `sl_de_nghi` (đơn vị người xin khai) — có thể KHÁC `dvt` gốc của lô (xin 'tờ',
+    # lô lưu 'ram'). Lịch sử ghi rõ để không nhìn "40.000 (tờ)" cạnh "80 (ram)" tưởng lệch.
+    dvt_yeu_cau: str | None = None
     # Lô này SINH RA từ phiếu ĐIỀU CHUYỂN (nhận về) → lịch sử mặt hàng xếp vào tab "Chuyển kho"
     # riêng, không lẫn tab Nhập thường. Không lưu cột — router suy từ voucher tạo lô.
     dieu_chuyen: bool = False
@@ -522,6 +525,8 @@ class MaterialXuatRow(BaseModel):
     ma_lo: str | None = None
     # SL yêu cầu đã sinh ra dòng xuất (đọc-nối qua dòng phiếu XUẤT → dòng yêu cầu). Không lưu cột.
     sl_de_nghi: float | None = None
+    # ĐƠN VỊ của `sl_de_nghi` (đơn vị người xin) — có thể khác đơn vị gốc; ghi rõ cho cột SL yêu cầu.
+    dvt_yeu_cau: str | None = None
     so_luong: float
     # Giá vốn ĐÍCH DANH của lô đã xuất — router XÓA khi thiếu `can_view_cost`.
     don_gia: int | None = None
