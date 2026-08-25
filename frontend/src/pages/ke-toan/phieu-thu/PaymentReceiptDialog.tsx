@@ -1,73 +1,17 @@
+// Hộp lập/sửa PHIẾU THU tiền thừa của một phiếu chi (tách từ pages/PaymentReceiptDialog.tsx).
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ApiError,
   api,
   type CompanyBankAccountRow,
   type PaymentReceiptInput,
-  type PaymentReceiptRow,
-  type PaymentVoucherRow,
   type PaymentVoucherType,
-} from "../api/client";
-import { useAuth } from "../auth/useAuth";
-import { Button } from "../components/Button";
-import { money } from "../utils/format";
-
-function isoToday(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function optional(value?: string | null): string | null {
-  const cleaned = (value ?? "").trim();
-  return cleaned || null;
-}
-
-interface PaymentReceiptDialogProps {
-  /** Phiếu chi gốc (đã chi) — nguồn người nộp, currency/tỷ giá và hạn mức còn được thu. */
-  voucher: PaymentVoucherRow;
-  receipt?: PaymentReceiptRow | null;
-  onClose: () => void;
-  onSaved: (receipt: PaymentReceiptRow) => void;
-}
-
-function initialForm(
-  voucher: PaymentVoucherRow,
-  receipt?: PaymentReceiptRow | null,
-): PaymentReceiptInput {
-  if (receipt) {
-    return {
-      payer_name: receipt.payer_name,
-      payer_address: receipt.payer_address,
-      receipt_method: receipt.receipt_method,
-      receipt_date: receipt.receipt_date,
-      amount: receipt.amount,
-      exchange_rate: receipt.exchange_rate,
-      content: receipt.content,
-      company_bank_account_id: receipt.company_bank_account_id,
-      debit_account: receipt.debit_account,
-      credit_account: receipt.credit_account,
-      note: receipt.note,
-    };
-  }
-  return {
-    // Người nộp = người phụ trách mua (người lập PMH); thiếu thì rơi về
-    // người nhận tiền mặt trên phiếu chi. KHÔNG dùng tên công ty NCC.
-    payer_name:
-      voucher.purchase_created_by_name || voucher.cash_recipient_name || "",
-    // Mẫu 01-TT có ô Địa chỉ — suy sẵn từ phiếu chi, sửa được.
-    payer_address: voucher.cash_recipient_address ?? voucher.supplier_address,
-    receipt_method: "cash",
-    receipt_date: isoToday(),
-    debit_account: null,
-    credit_account: null,
-    // Để trống bắt kế toán tự gõ số thực nộp (ca phổ biến là thu tiền thừa,
-    // không phải thu trọn) — "Còn được thu" hiện ở dải tổng quan để đối chiếu.
-    amount: 0,
-    exchange_rate: voucher.exchange_rate,
-    content: `Thu hồi tiền thừa ${voucher.code}`,
-    company_bank_account_id: null,
-    note: null,
-  };
-}
+} from "../../../api/client";
+import { useAuth } from "../../../auth/useAuth";
+import { Button } from "../../../components/Button";
+import { money } from "../../../utils/format";
+import { initialForm, optional } from "./shared/helpers";
+import type { PaymentReceiptDialogProps } from "./shared/types";
 
 export function PaymentReceiptDialog({
   voucher,

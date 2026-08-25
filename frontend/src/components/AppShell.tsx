@@ -54,12 +54,12 @@ import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
 import { DepartmentPurchaseRequestsPage } from "../pages/DepartmentPurchaseRequestsPage";
 import { PurchaseRequestsPage } from "../pages/mua-hang/phieu-mua-hang";
 import { SuppliersPage } from "../pages/SuppliersPage";
-import { AccountingPayablesPage } from "../pages/AccountingPayablesPage";
-import { AccountingReceivablesPage } from "../pages/AccountingReceivablesPage";
-import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPage";
-import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
-import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
-import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
+import { AccountingPayablesPage } from "../pages/ke-toan/cong-no-phai-tra";
+import { AccountingReceivablesPage } from "../pages/ke-toan/cong-no-phai-thu";
+import { AccountingPurchaseInboxPage } from "../pages/ke-toan/don-mua-hang";
+import { PaymentVouchersPage } from "../pages/ke-toan/phieu-chi";
+import { PaymentReceiptsPage } from "../pages/ke-toan/phieu-thu";
+import { AccountingBankAccountsPage } from "../pages/ke-toan/tk-ngan-hang";
 import {
   AUTHENTICATED_NAV_IDS,
   MODULES_BY_NAV_ID,

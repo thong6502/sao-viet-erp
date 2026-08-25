@@ -1,0 +1,1 @@
+export { AccountingPayablesPage } from "./AccountingPayablesPage";
