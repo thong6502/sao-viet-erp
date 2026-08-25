@@ -1755,11 +1755,13 @@ class PurchaseService:
         return lines
 
     def _new_purchase_code(self) -> str:
+        # Prefix DMH (Đơn mua hàng) — đổi từ PMH 25/08/2026 theo yêu cầu chủ. CHỈ áp cho đơn MỚI;
+        # đơn cũ đã lưu mã "PMH-..." giữ nguyên (mã đã in/tham chiếu ở phiếu chi, không đổi ngược).
         today = datetime.now().strftime("%y%m%d")
         alphabet = string.ascii_uppercase + string.digits
         for _ in range(20):
             rand = "".join(secrets.choice(alphabet) for _ in range(4))
-            code = f"PMH-{today}-{rand}"
+            code = f"DMH-{today}-{rand}"
             if self.requests.get_by_code(code) is None:
                 return code
         raise PurchaseConflict("Không sinh được mã phiếu duy nhất, vui lòng thử lại.")

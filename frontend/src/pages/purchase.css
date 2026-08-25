@@ -148,6 +148,23 @@
   font-size: 18px;
 }
 
+/* Bảng dòng hàng trong popup Chi tiết đơn — đi KÈM .md-page__table (đồng bộ với bảng Đợt giao /
+   Chứng từ chi cùng popup), thay layout xếp chồng cũ. Chỉ thêm canh phải cột số + dòng Tổng. */
+.purchase__lines-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.purchase__lines-table .purchase__line-src {
+  color: var(--ash-2);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.purchase__lines-table tfoot td {
+  font-weight: 700;
+  border-top: 2px solid var(--rule);
+}
+
 .purchase__actions {
   display: flex;
   flex-wrap: wrap;
@@ -588,6 +605,15 @@
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
+}
+
+/* Form đơn mua hàng dựng trong drawer: <form> là lớp flex giữa hero-banner và
+   footer để .rc-drawer__body (flex:1; overflow-y:auto) cuộn được, footer luôn dính đáy. */
+.purchase__drawer-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 /* --- Slate Hero Modal & Data Entry Table ----------------------------------- */
@@ -1066,7 +1092,7 @@
 
 .purchase__search-input {
   padding-left: 38px !important;
-  border-radius: var(--r-pill, 20px) !important;
+  border-radius: var(--r-3) !important;
   font-family: var(--ff-sans) !important;
   font-size: 13px !important;
   border: 1px solid var(--rule-soft, #cbd5e1) !important;
@@ -1076,33 +1102,35 @@
   height: 38px;
 }
 
-.purchase__search-input:focus {
-  border-color: #6366f1 !important;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12) !important;
-  outline: none !important;
+.purchase__search-input:focus-visible {
+  outline: 2px solid var(--rust); outline-offset: 1px; border-color: var(--ink) !important;
 }
 
 .purchase__select-modern {
-  border-radius: var(--r-pill, 20px) !important;
+  border-radius: var(--r-3) !important;
   font-family: var(--ff-sans) !important;
-  font-size: 13px !important;
-  border: 1px solid var(--rule-soft, #cbd5e1) !important;
-  background-color: var(--paper, #ffffff) !important;
-  padding: 6px 36px 6px 14px !important;
+  font-size: var(--fs-sm) !important;
+  color: var(--ink) !important;
+  border: 1px solid var(--rule) !important;
+  background-color: var(--canvas, #fff) !important;
+  padding: 6px 34px 6px 12px !important;
   height: 38px;
+  width: auto !important;
+  min-width: 150px;
+  max-width: 220px;
   cursor: pointer !important;
-  transition: all 0.2s ease !important;
+  transition: border-color .15s ease, box-shadow .15s ease !important;
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
   background-repeat: no-repeat !important;
-  background-position: right 14px center !important;
+  background-position: right 12px center !important;
 }
-
-.purchase__select-modern:focus {
-  border-color: #6366f1 !important;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12) !important;
-  outline: none !important;
+.purchase__select-modern:hover { border-color: var(--ash-2) !important; }
+.purchase__select-modern:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+  border-color: var(--ink) !important;
 }
 
 /* --- Modern Table Enhancements (WOW UI/UX - Font Be Vietnam Pro Alignment) --- */
@@ -1348,11 +1376,11 @@
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-  min-height: 40px;
+  min-height: 38px;
   padding: 4px 6px 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-6);
-  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
 }
 
 .purchase__date-group > span {

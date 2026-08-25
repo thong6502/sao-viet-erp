@@ -15,7 +15,6 @@ import { useCan } from "../auth/permissions";
 import type { NavigateFn } from "../components/AppShell";
 import { Button } from "../components/Button";
 import { CodeLink } from "../components/CodeLink";
-import { DetailModal } from "../components/DetailModal";
 import { Icon } from "../components/Icons";
 import { fmtDate, money } from "../utils/format";
 import "./accounting.css";
@@ -317,14 +316,71 @@ function ReceivablesDrawer({
     onChanged();
   }
 
+  // ĐÓNG AN TOÀN: đang bung form thu tiền (receiptFor != null) thì Esc/scrim/✕ KHÔNG đóng —
+  // tránh mất bản nháp đang gõ. Chỉ đóng khi không có form nào mở.
+  const closeIfIdle = () => {
+    if (receiptFor == null) onClose();
+  };
+
+  // Drawer tự nghe Esc (trước đây do DetailModal lo). Guard receiptFor để không nuốt draft.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape" && receiptFor == null) onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [receiptFor, onClose]);
+
   return (
-    <DetailModal
-      kicker="Công nợ phải thu"
-      title={row.customer_name}
-      subtitle={detail ? `Còn phải thu ${money(detail.total_due)}` : undefined}
-      badge={detail?.vuot_han_muc ? <span className="acct-voucher-status acct-voucher-status--waiting">Vượt hạn mức</span> : undefined}
-      onClose={onClose}
-    >
+    <div className="rc-drawer__scrim" onClick={closeIfIdle}>
+      <aside
+        className="rc-drawer purchase__drawer-780"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={row.customer_name}
+      >
+        <div className="purchase__hero-banner">
+          <div className="purchase__hero-top">
+            <div>
+              <span className="purchase__hero-kicker">Công nợ phải thu</span>
+              <div className="purchase__hero-title-row">
+                <h2 className="purchase__hero-code">{row.customer_name}</h2>
+                {detail?.vuot_han_muc ? <span className="acct-voucher-status acct-voucher-status--waiting">Vượt hạn mức</span> : null}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="purchase__hero-x"
+              onClick={closeIfIdle}
+              aria-label="Đóng"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="purchase__hero-meta">
+            <span>{row.invoice_count} hóa đơn</span>
+            {detail && (
+              <>
+                <span className="purchase__hero-dot">•</span>
+                <span>Còn phải thu {money(detail.total_due)}</span>
+                {detail.overdue_amount > 0 && (
+                  <>
+                    <span className="purchase__hero-dot">•</span>
+                    <span>Quá hạn {money(detail.overdue_amount)}</span>
+                  </>
+                )}
+                {detail.credit_limit > 0 && (
+                  <>
+                    <span className="purchase__hero-dot">•</span>
+                    <span>Hạn mức {money(detail.credit_limit)}</span>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+        <div className="rc-drawer__body">
       {error && <div className="banner banner--error">{error}</div>}
       {!detail && !error && <p>Đang tải chi tiết...</p>}
       {detail && (
@@ -466,7 +522,9 @@ function ReceivablesDrawer({
           </section>
         </>
       )}
-    </DetailModal>
+        </div>
+      </aside>
+    </div>
   );
 }
 

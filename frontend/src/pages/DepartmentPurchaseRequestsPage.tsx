@@ -564,8 +564,9 @@ export function DepartmentPurchaseRequestsPage({
             <tr>
               <th style={{ width: "160px" }}>Mã yêu cầu</th>
               <th style={{ width: "210px" }}>Bộ phận / Người tạo</th>
-              <th style={{ width: "260px" }}>Vật tư</th>
-              <th style={{ width: "220px" }}>Trạng thái & Cần hàng</th>
+              <th style={{ width: "110px" }}>Vật tư</th>
+              <th style={{ width: "130px" }}>Ngày cần hàng</th>
+              <th style={{ width: "180px" }}>Trạng thái</th>
             </tr>
           </thead>
           <tbody>
@@ -574,20 +575,21 @@ export function DepartmentPurchaseRequestsPage({
                 <tr key={idx} className="purchase__skeleton-row">
                   <td><div className="purchase__skeleton-bar" style={{ width: "120px" }} /></td>
                   <td><div className="purchase__skeleton-bar" style={{ width: "140px" }} /></td>
-                  <td><div className="purchase__skeleton-bar" style={{ width: "180px" }} /></td>
-                  <td><div className="purchase__skeleton-bar" style={{ width: "150px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "70px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "100px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "130px" }} /></td>
                 </tr>
               ))
             ) : listError ? (
               <EmptyRow
-                colSpan={4}
+                colSpan={5}
                 trangThai="loi"
                 loi={listError}
                 onThuLai={load}
               />
             ) : rows.length === 0 ? (
               <EmptyRow
-                colSpan={4}
+                colSpan={5}
                 icon="clipboard"
                 title="Chưa có yêu cầu mua hàng nào khớp"
                 sub={
@@ -642,28 +644,12 @@ export function DepartmentPurchaseRequestsPage({
                     </div>
                   </td>
                   <td title={row.lines.map((line) => line.item_name).join(", ")}>
-                    <div className="purchase__item-row">
-                      <span className="purchase__item-chip">{dongSong(row).length} món</span>
-                      <span className="purchase__item-names">
-                        {dongSong(row)
-                          .slice(0, 2)
-                          .map((line) => line.item_name)
-                          .join(", ")}
-                        {dongSong(row).length > 2 ? "…" : ""}
-                      </span>
-                    </div>
+                    <span className="purchase__item-chip">{dongSong(row).length} món</span>
                   </td>
+                  <td>{fmtDate(row.needed_date)}</td>
                   <td>
                     <div className="purchase__status-col">
                       <SourceStatusBadge status={row.workflow_status} />
-                      <div className="purchase__meta-line">
-                        <span>Cần {fmtDate(row.needed_date)}</span>
-                        {row.purchase_requests && row.purchase_requests.length > 0 && (
-                          <span className="purchase__pmh-inline">
-                            {" "}· {row.purchase_requests.map((p) => p.code).join(", ")}
-                          </span>
-                        )}
-                      </div>
                       {row.workflow_status === "partially_cancelled" && (
                         <div className="md-page__muted">
                           {SOURCE_STATUS_META[row.progress_status]?.label ?? row.progress_status} · bỏ {row.cancelled_line_count}/{row.cancelled_line_count + row.active_line_count} món
