@@ -323,7 +323,11 @@ export function AppShell() {
     }
     // Badge Chấm công: số phiếu ĐI MUỘN / VỀ SỚM chờ duyệt trong scope (null nếu không duyệt được).
     // Treo ở nav `cham-cong` vì tab phiếu nằm trong màn Chấm công, KHÔNG phải màn Tăng ca.
-    if (readable.has("di_muon")) {
+    // Gác bằng chính màn chứa badge (`cham_cong`), KHÔNG phải khoá cũ `di_muon` — khoá đó đã gộp
+    // về `cham_cong.approve_late_early` (mg 0212) và đang bị gỡ khỏi ma trận quyền. Ai được xem
+    // Chấm công thì hỏi; MÁY CHỦ mới là nơi quyết định có số hay không (trả null nếu không duyệt
+    // được), nên mở rộng cửa ở đây không lộ gì.
+    if (readable.has("cham_cong")) {
       api.lateEarly
         .summary(token)
         .then((s) => {
@@ -557,7 +561,7 @@ export function AppShell() {
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
     if (!token || readable === null || !coTheMoKenhSse(readable)) return;
-    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("di_muon") || readable.has("thu_mua") || readable.has("yeu_cau_mua_hang") || readable.has("ke_toan") ||
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("cham_cong") || readable.has("thu_mua") || readable.has("yeu_cau_mua_hang") || readable.has("ke_toan") ||
       readable.has("phieu_chi") || readable.has("phieu_thu") ||
       // Tài xế thường CHỈ có ô `giao_hang` — không mở cổng ở đây thì họ không kết nối
       // SSE, và mọi thông báo chuyến gửi cho họ rơi vào hư không.
@@ -782,7 +786,7 @@ export function AppShell() {
           e.decision === "approved" ? "ok" : "warn",
         );
         reloadBadges();
-      } else if (readable.has("di_muon") && e.type === "el_pending_changed") {
+      } else if (readable.has("cham_cong") && e.type === "el_pending_changed") {
         // Có phiếu đi muộn mới/hủy → refetch số 'chờ duyệt'; toast khi TĂNG (người duyệt).
         // Badge treo ở nav "cham-cong" (tab phiếu nằm trong màn Chấm công).
         api.lateEarly

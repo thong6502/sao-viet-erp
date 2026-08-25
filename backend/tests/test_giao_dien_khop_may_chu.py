@@ -20,6 +20,14 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests._fe_source import (
+    MAN_CHAM_CONG,
+    MAN_KE_TOAN_DON_MUA_HANG,
+    MAN_LUONG,
+    MAN_MUA_HANG_PHIEU,
+    doc_module_fe,
+)
+
 GOC = Path(__file__).resolve().parents[2]
 BE = GOC / "backend" / "app"
 FE = GOC / "frontend" / "src"
@@ -175,39 +183,40 @@ def test_moi_khoa_module_may_chu_gac_deu_co_cho_dung_o_giao_dien():
 #:
 #: KHUÔN SAI NÀY ĐÃ LẶP BỐN LẦN trong đợt 11/08/2026 — mỗi lần đều là "đổi khoá ở máy chủ, quên
 #: màn". Bảng này chỉ ghim những nút mà bấm nhầm là đau: chốt kỳ, duyệt chi tiền, đảo số công nợ.
-NUT_NGUY_HIEM: list[tuple[str, str, str, str]] = [
-    # (mô tả, module, action, file giao diện)
-    ("Chốt kỳ công / Mở lại kỳ", "cham_cong", "lock", "ChamCongPage.tsx"),
-    ("Duyệt / từ chối PMH", "ke_toan", "approve", "AccountingPurchaseInboxPage.tsx"),
+#:
+#: Ô cuối là THƯ MỤC MÀN, không phải một file: các màn đã chẻ thành shell + `tabs/` + `modals/`,
+#: nút nào nằm file nào là chuyện nội bộ của màn. Ghim tên file thì mỗi lần chẻ tiếp là guard đỏ
+#: oan (hoặc tệ hơn: `rglob` vớ nhầm file trùng tên ở màn khác rồi xanh giả).
+NUT_NGUY_HIEM: list[tuple[str, str, str, tuple[str, ...]]] = [
+    # (mô tả, module, action, thư mục màn giao diện)
+    ("Chốt kỳ công / Mở lại kỳ", "cham_cong", "lock", MAN_CHAM_CONG),
+    ("Duyệt / từ chối PMH", "ke_toan", "approve", MAN_KE_TOAN_DON_MUA_HANG),
     # Gộp về ô "Thao tác" 12/08/2026 — ô riêng `manage_status` đã bỏ khỏi ma trận.
-    ("Sửa số nhận · Mở lại đơn · Đóng đơn", "thu_mua", "update", "PurchaseRequestsPage.tsx"),
+    ("Sửa số nhận · Mở lại đơn · Đóng đơn", "thu_mua", "update", MAN_MUA_HANG_PHIEU),
     # GỘP VỀ MÀN CHẤM CÔNG 15/08/2026 (mg 0194) — hai tab này vốn nằm trong màn đó, không phải
     # màn riêng. Tab Yêu cầu chỉnh công nay hiện theo chính ô DUYỆT, bỏ ô "xem" riêng.
-    ("Duyệt yêu cầu chỉnh công", "cham_cong", "approve", "ChamCongPage.tsx"),
-    ("Chốt bảng lương", "luong", "lock", "LuongPage.tsx"),
-    ("Đánh dấu đã chi lương", "luong", "manage_status", "LuongPage.tsx"),
-    ("Lập phiếu chi", "phieu_chi", "create", "AccountingPurchaseInboxPage.tsx"),
-    ("Duyệt phiếu đi muộn / về sớm", "cham_cong", "approve_late_early", "ChamCongPage.tsx"),
+    ("Duyệt yêu cầu chỉnh công", "cham_cong", "approve", MAN_CHAM_CONG),
+    ("Chốt bảng lương", "luong", "lock", MAN_LUONG),
+    ("Đánh dấu đã chi lương", "luong", "manage_status", MAN_LUONG),
+    ("Lập phiếu chi", "phieu_chi", "create", MAN_KE_TOAN_DON_MUA_HANG),
+    ("Duyệt phiếu đi muộn / về sớm", "cham_cong", "approve_late_early", MAN_CHAM_CONG),
     # MỘT Ô = MỘT TAB: ba tab cấu hình tách khỏi ô "Cấu hình chấm công" cũ.
-    ("Bảng công tháng", "cham_cong", "view_timesheet", "ChamCongPage.tsx"),
-    ("Điểm chấm công", "cham_cong", "manage_locations", "ChamCongPage.tsx"),
-    ("Khai ca", "cham_cong", "manage_shifts", "ChamCongPage.tsx"),
-    ("Lịch & Ngày lễ", "cham_cong", "manage_calendar", "ChamCongPage.tsx"),
+    ("Bảng công tháng", "cham_cong", "view_timesheet", MAN_CHAM_CONG),
+    ("Điểm chấm công", "cham_cong", "manage_locations", MAN_CHAM_CONG),
+    ("Khai ca", "cham_cong", "manage_shifts", MAN_CHAM_CONG),
+    ("Lịch & Ngày lễ", "cham_cong", "manage_calendar", MAN_CHAM_CONG),
 ]
 
 
 def test_nut_nguy_hiem_hoi_dung_o_quyen_cua_no():
     """Mỗi nút nguy hiểm phải được gác bằng ĐÚNG ô của nó, ở ĐÚNG màn có nút."""
     thieu = []
-    for mo_ta, khoa, viec, ten_file in NUT_NGUY_HIEM:
-        ds = list(FE.rglob(ten_file))
-        if not ds:
-            thieu.append(f"  {mo_ta}: không tìm thấy file {ten_file}")
-            continue
-        nguon = ds[0].read_text(encoding="utf-8")
+    for mo_ta, khoa, viec, man in NUT_NGUY_HIEM:
+        nguon = doc_module_fe(*man)
         mau = rf'can\(\s*"{khoa}"\s*,\s*"{viec}"\s*\)'
         if not re.search(mau, nguon):
-            thieu.append(f'  {mo_ta}: {ten_file} không hỏi can("{khoa}", "{viec}")')
+            ten_man = "/".join(man)
+            thieu.append(f'  {mo_ta}: {ten_man} không hỏi can("{khoa}", "{viec}")')
     assert not thieu, (
         "Nút nguy hiểm không gác bằng ô của chính nó — nhiều khả năng đổi khoá ở máy chủ mà quên "
         "màn. Hậu quả: cấp quyền rồi mà nút không hiện, hoặc thấy nút mà bấm ăn 403.\n"
