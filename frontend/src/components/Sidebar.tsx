@@ -50,7 +50,7 @@ interface NavSection {
 
 // Mirrors the reference rail. `module` is the permission key each item is gated
 // on; `children` entries are placeholder sub-pages — rename/extend as routes land.
-const NAV: NavSection[] = [
+export const NAV: NavSection[] = [
   {
     id: "tong-quan",
     label: "Tổng quan",
@@ -76,6 +76,9 @@ const NAV: NavSection[] = [
       { id: "tinh-gia", label: "Tính giá", icon: "calculator", module: "tinh_gia_thanh" },
       { id: "bao-gia", label: "Báo giá in ấn", icon: "fileText", module: "bao_gia" },
       { id: "don-hang-ban", label: "Đơn hàng bán", icon: "cart", module: "don_hang_ban" },
+      // Giao hàng là khúc SAU của đơn hàng bán nên nằm ngay dưới nó, không dựng nhóm mới.
+      // Gác bằng MỘT ô `giao_hang` — không có cửa phụ nào khác (bài học ô ma `self_service`).
+      { id: "giao-hang", label: "Giao hàng", icon: "truck", module: "giao_hang" },
       { id: "khach-hang", label: "Khách hàng", icon: "users", module: "khach_hang" },
     ],
   },
@@ -229,6 +232,9 @@ const NAV: NavSection[] = [
       { id: "chung-loai-giay", label: "Chủng loại giấy", icon: "fileText", module: "dm_chung_loai_giay" },
       { id: "giay", label: "Giấy", icon: "bag", module: "dm_giay" },
       { id: "vat-tu-in-an", label: "Vật tư khác", icon: "bag", module: "dm_vat_tu" },
+      // Thành phẩm: hàng của đơn hàng bán, hệ tự khai khi chốt đơn. Đứng CẠNH Vật tư khác vì
+      // chung một bảng và người dùng hay nhầm hai chỗ (docs/prd-thanh-pham.md).
+      { id: "thanh-pham", label: "Thành phẩm", icon: "bag", module: "dm_thanh_pham" },
       // Khuôn: kho dao của xưởng (bế + ép nhũ) — khách · loại · số kệ · tình trạng. Bước cần khuôn
       // ở Lệnh sản xuất chọn dao từ đây. Nhan đề đổi 16/08/2026; `module` GIỮ chuỗi `khuon_be` vì
       // nó nằm trong bảng phân quyền của DB thật.
@@ -450,6 +456,8 @@ function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowPro
       <button
         type="button"
         className={`sidebar__link${active ? " is-active" : ""}`}
+        // Tooltip = nhãn ĐẦY ĐỦ: hàng menu cắt chữ (…) khi rail hẹp, rê chuột vẫn đọc được tên module.
+        title={item.label}
         aria-current={activeId === item.id ? "page" : undefined}
         aria-expanded={hasChildren ? isOpen : undefined}
         onClick={() => (hasChildren ? onToggle() : onSelect(item.id))}
@@ -481,6 +489,7 @@ function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowPro
               <button
                 type="button"
                 className={`sidebar__sublink${activeId === child.id ? " is-active" : ""}`}
+                title={child.label}
                 aria-current={activeId === child.id ? "page" : undefined}
                 onClick={() => onSelect(child.id)}
               >

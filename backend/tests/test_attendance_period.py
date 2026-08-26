@@ -42,7 +42,7 @@ def _emp_with_leave(client, token, *, approve: bool, start: str, end: str):
     """NV gắn tài khoản admin + 1 đơn nghỉ phép có lương (approved/pending) trong kỳ."""
     emp = client.post(
         "/api/employees",
-        json={"full_name": "NV Kỳ", "department_id": _dept_id("Hành chính nhân sự"), "hire_date": "2020-01-01"},
+        json={"probation_end_date": "2025-12-31", "full_name": "NV Kỳ", "department_id": _dept_id("Hành chính nhân sự"), "hire_date": "2020-01-01"},
         headers=_h(token),
     ).json()["employee"]
     client.post(f"/api/employees/{emp['id']}/account", json={"user_id": _uid("admin")}, headers=_h(token))

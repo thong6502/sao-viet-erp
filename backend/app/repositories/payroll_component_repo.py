@@ -13,6 +13,7 @@ from sqlalchemy import delete, distinct, func, select
 from sqlalchemy.orm import Session
 
 from ..models.payroll import (
+    COMPONENT_SOURCE_AUTO,
     COMPONENT_SOURCE_EMPLOYEE,
     COMPONENT_SOURCE_LINE,
     EmployeeSalaryComponent,
@@ -150,6 +151,30 @@ class PayrollComponentRepository:
         for r in rows:
             self.db.add(PayrollLineComponent(
                 line_id=line_id, source=COMPONENT_SOURCE_EMPLOYEE, **r))
+
+    def replace_auto_line_components(self, line_id: int, rows: list[dict]) -> None:
+        """Ghi lại phần HỆ TỰ TÍNH của một dòng lương (hoa hồng KD).
+
+        Xoá sạch rồi ghi mới: số hoa hồng chạy theo hoá đơn phát sinh thêm, nên mỗi lần "Tính lại"
+        phải ra số mới chứ không cộng dồn.
+
+        ⚠️ CHỈ xoá `source='auto'`. Đụng vào `line` là xoá mất thưởng nóng HCNS thêm tay; đụng vào
+        `employee` là xoá khoản của hồ sơ — cả hai đều mất tiền của người lao động mà không một
+        thông báo nào.
+
+        KHÔNG cần chừa `da_de_tay` như `replace_employee_line_components`: dòng `auto` không sửa
+        tay được (chốt lại 24/08/2026 — *"kệ nó ăn theo đơn hàng cho chắc"*) nên không bao giờ
+        mang cờ đó. Thêm điều kiện lọc ở đây là viết một nhánh không đường nào chạy tới.
+        """
+        self.db.execute(
+            delete(PayrollLineComponent).where(
+                PayrollLineComponent.line_id == line_id,
+                PayrollLineComponent.source == COMPONENT_SOURCE_AUTO,
+            )
+        )
+        for r in rows:
+            self.db.add(PayrollLineComponent(
+                line_id=line_id, source=COMPONENT_SOURCE_AUTO, **r))
 
     def line_components(self, line_id: int, *, source: str | None = None
                         ) -> list[PayrollLineComponent]:

@@ -49,6 +49,23 @@ PURCHASE_REQUEST_STATUSES = (
     PR_CANCELLED,
 )
 
+# --- ĐÁNH GIÁ SAO NHÀ CUNG CẤP (máy tự tính, KHÔNG ai chấm tay) -------------------------------
+# Ba con số dưới đây là TỪ ĐIỂN CHUNG của luật tính sao: `services/danh_gia_ncc.py` đọc để tính
+# bằng Python, `repositories/purchase_repo.py` đọc để dựng CASE trong SQL. Để ở models vì đây là
+# hằng của nghiệp vụ mua hàng, và cả hai tầng kia đều đã import models sẵn — đặt ở services thì
+# repository phải import ngược lên services, đặt ở repository thì luật nghiệp vụ nằm sai tầng.
+# Sửa số ở đây là sửa CẢ HAI đường tính; test `test_danh_gia_ncc.py` canh hai đường không lệch.
+
+#: Chỉ ba trạng thái này mới vào sổ điểm: đơn ĐÃ đặt với NCC. Trước đó (`draft`/`pending_approval`/
+#: `approved`) NCC còn chưa nhận đơn — mình duyệt chậm là chuyện nội bộ, đừng ghi vào điểm của họ.
+#: `rejected`/`cancelled` cũng không tính: không có hàng thì không có hẹn nào để mà lỡ.
+TRANG_THAI_TINH_SAO = (PR_PURCHASED, PR_PARTIALLY_RECEIVED, PR_RECEIVED)
+
+#: Thang sao theo SỐ NGÀY TRỄ: (trễ tối đa, số sao). Đọc từ trên xuống, khớp nấc ĐẦU TIÊN.
+#: ≤0 ngày (đúng hẹn/sớm) → 5 · 1–3 → 4 · 4–7 → 3 · 8–14 → 2 · >14 → `SAO_THAP_NHAT`.
+NGUONG_SAO_NCC = ((0, 5), (3, 4), (7, 3), (14, 2))
+SAO_THAP_NHAT = 1
+
 # Loại file đính kèm của mua hàng. `hop_dong` treo ở PMH (delivery_id NULL); `hoa_don` và
 # `bien_ban_giao` treo ở một đợt giao cụ thể.
 PURCHASE_ATTACHMENT_HOP_DONG = "hop_dong"
@@ -536,6 +553,18 @@ class DepartmentPurchaseRequestLine(Base):
     quantity: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     expected_unit_price: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # HUỶ TỪNG MÓN (mg 0233, 24/08/2026 — chủ chốt: "phải quản tới từng món hàng, đừng quản tới
+    # cấp chứng từ nữa"). Trước đó chỉ huỷ được CẢ yêu cầu, nên một dòng thừa trong yêu cầu 5 dòng
+    # là bế tắc: huỷ thì mất 4 dòng đang mua, không huỷ thì Thu mua cứ thấy nó nằm đó.
+    # `cancelled_at IS NULL` = dòng còn sống. Trạng thái phiếu (`department_purchase_requests.status`)
+    # nay DẪN XUẤT từ các dòng CÒN SỐNG; huỷ hết dòng thì phiếu mới thành `cancelled`.
+    # Dòng đã huỷ KHÔNG bị xoá — nó là vết "đã từng đề nghị rồi bỏ", và `purchase_request_lines`
+    # có thể còn trỏ tới qua `department_request_line_id`.
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     request: Mapped[DepartmentPurchaseRequest] = relationship(
         "DepartmentPurchaseRequest", back_populates="lines"

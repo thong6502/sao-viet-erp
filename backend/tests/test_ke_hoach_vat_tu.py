@@ -16,7 +16,7 @@ Dựng dữ liệu THẲNG vào DB (Order/OrderLine tối thiểu để thoả F
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -1413,3 +1413,84 @@ def test_vat_tu_co_CONG_THUC_LUONG_van_lay_SO_DA_CHOT_o_buoc_khong_tinh_lai(db, 
                     if (n["hang_loai"], n["hang_id"]) == ("vat_tu", vt.id))["dong"][0]
         assert "khong_doi_chieu_duoc" not in dong["canh_bao"], dong.get("ly_do_canh_bao")
         assert dong["nhu_cau"] == pytest.approx(cho_doi)
+
+
+# --- VẾT MUA THEO TỪNG MÓN, KHÔNG THEO CẢ YÊU CẦU -----------------------------
+#
+# Chủ chốt 24/08/2026: *"phải đi vào trong trạng thái của từng sản phẩm trong yêu cầu ấy chứ không
+# phải yêu cầu"*. Một YCMH gộp nhiều món; Thu mua lập đơn cho từng món một, nên trạng thái của cả
+# yêu cầu KHÔNG nói được món cụ thể này đang ở đâu.
+
+
+def _ycmh_hai_mon(db, *, hang_a, hang_b, status=DPR_OPEN):
+    """YCMH hai dòng, hai mặt hàng khác nhau — dựng thẳng để khỏi kéo cả luồng HTTP vào đây."""
+    yc = DepartmentPurchaseRequest(
+        code=f"YCMH-{db.query(DepartmentPurchaseRequest).count() + 1}",
+        status=status, source_type=SOURCE_SAN_XUAT, purpose="Thiếu vật tư",
+        needed_date=HOM_NAY,
+    )
+    db.add(yc)
+    db.flush()
+    dong = []
+    for i, hang in enumerate((hang_a, hang_b)):
+        ln = DepartmentPurchaseRequestLine(
+            department_request_id=yc.id, item_name=f"Giấy đề nghị {i + 1}",
+            hang_loai=hang[0], hang_id=hang[1], unit="kg", quantity=100,
+        )
+        db.add(ln)
+        dong.append(ln)
+    db.commit()
+    return yc, dong[0], dong[1]
+
+
+def test_yeu_cau_dang_mua_vi_mon_KHAC_thi_mon_nay_van_la_dang_cho_thu_mua(db, svc, customer):
+    """⭐ Ca chủ hỏi (ảnh 3): yêu cầu đã "đang mua" nhưng chỉ vì MỘT món trong đó.
+
+    Trước 24/08/2026 chip lấy thẳng `yc.status`, nên món chưa ai lập đơn cũng đeo nhãn "đang mua"
+    — người lập kế hoạch nhìn vào tưởng có hàng đang trên đường, thực ra không ai cầm.
+    """
+    g1 = _giay(db, ma="GY-CHUA-MUA")
+    g2 = _giay(db, ma="GY-DA-MUA")
+    yc, dong1, dong2 = _ycmh_hai_mon(
+        db, hang_a=("giay", g1.id), hang_b=("giay", g2.id),
+        status="in_purchase",   # cả yêu cầu đã nhảy sang "đang mua" vì món thứ hai
+    )
+    # Đơn mua CHỈ ôm món thứ hai, và nối đích danh dòng của yêu cầu.
+    pmh = _phieu_mua(db, hang=("giay", g2.id), so_luong=100, ngay_ve=MAI)
+    pmh.lines[0].department_request_line_id = dong2.id
+    db.commit()
+
+    _lenh(db, customer, ma="LSX-A", giay_id=g1.id, so_to_nguyen=1_000, han=MAI)
+    _lenh(db, customer, ma="LSX-B", giay_id=g2.id, so_to_nguyen=1_000, han=MAI)
+    bang = svc.can_doi()
+
+    chua_mua = _nhom(bang, g1)["phieu_mua"]
+    assert chua_mua == [
+        {"ma": yc.code, "loai": "ycmh", "trang_thai": DPR_OPEN, "ngay_ve": None},
+    ], "món chưa ai lập đơn phải nói đúng là còn đang chờ Thu mua"
+
+    da_mua = _nhom(bang, g2)["phieu_mua"]
+    assert [(v["ma"], v["loai"]) for v in da_mua] == [(pmh.code, "pmh")], (
+        "món đã có đơn mua thì chỉ nói về đơn mua — thêm chip YCMH là vẽ ra hai việc song song"
+    )
+
+
+def test_mon_da_BO_khoi_yeu_cau_thi_rung_chip(db, svc, customer):
+    """Bộ phận bỏ món khỏi yêu cầu (mg 0233) ⇒ không còn ai chờ nó, nhãn phải biến mất.
+
+    Giữ lại thì bảng cân đối bảo "đang có người lo" trong khi thực tế chẳng ai lo, và người lập kế
+    hoạch không bấm Mua nữa."""
+    g = _giay(db)
+    yc, dong1, _dong2 = _ycmh_hai_mon(
+        db, hang_a=("giay", g.id), hang_b=("giay", _giay(db, ma="GY-KHAC").id),
+    )
+    _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    assert _nhom(svc.can_doi(), g)["phieu_mua"] != []
+
+    dong1.cancelled_at = datetime.now(timezone.utc)
+    dong1.cancel_reason = "Kho còn hàng"
+    db.commit()
+
+    assert _nhom(svc.can_doi(), g)["phieu_mua"] == [], (
+        "món đã bỏ mà vẫn đeo nhãn thì nhãn nói dối"
+    )

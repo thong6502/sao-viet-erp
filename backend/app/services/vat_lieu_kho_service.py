@@ -20,13 +20,15 @@ from ..repositories.purchase_repo import SupplierRepository
 from ..repositories.vat_lieu_kho_repo import VERSION_SNAPSHOT, VatLieuKhoRepository
 from . import nhat_ky_danh_muc as nk
 from .catalog_base import (
-    CatalogDuplicate, CatalogError, CatalogNotFound, CatalogValidationError,
+    CatalogDuplicate, CatalogError, CatalogNotFound, CatalogValidationError, ma_ban_sao,
 )
 from .quy_doi_service import don_vi_dung_duoc, don_vi_map
 
 # Nhãn nhóm hiện trên picker — người chọn phải phân biệt được hai nguồn khi tên gần giống nhau.
 # Tên khác `HANG_LOAI` (tuple mã hợp lệ, ở models) để không ai nhầm "danh sách mã" với "bảng nhãn".
-HANG_NHAN = {"giay": "Giấy", "vat_tu": "Vật tư khác"}
+# `thanh_pham` là MÀN danh mục thứ ba, KHÔNG phải `hang_loai` thứ ba — nó chung bảng
+# `vat_tu_in_an` và với kho vẫn là "vat_tu" (xem `_mat_hang_row`, docs/prd-thanh-pham.md §3).
+HANG_NHAN = {"giay": "Giấy", "vat_tu": "Vật tư khác", "thanh_pham": "Thành phẩm"}
 
 
 class VatLieuKhoError(CatalogError):
@@ -92,6 +94,9 @@ class VatLieuKhoService:
             raise VatLieuKhoValidationError("Tên không được trống.")
         # `chung_loai_giay` không còn ô nào cần kiểm ngoài mã/tên (gỡ `be_mat`/`tho_mac_dinh`
         # 15/08/2026) — nhánh riêng của nó bỏ luôn, đừng để lại `if` rỗng.
+        # `thanh_pham` KHÔNG còn cổng nào ngoài mã/tên (21/08/2026): ô Khách hàng đã bỏ vì thành
+        # phẩm là một CÁI TÊN dùng lại, không thuộc về ai. Công tắc màn nay là `la_thanh_pham`,
+        # do lớp `MotDanhMucVatLieu` đặt lúc tạo — người dùng không khai.
         if kind == "giay":
             if not data.get("chung_loai_giay_id"):
                 raise VatLieuKhoValidationError("Phải chọn Chủng loại giấy.")
@@ -148,11 +153,38 @@ class VatLieuKhoService:
         self.repo.chot_giao_dich()
         return obj
 
+    @staticmethod
+    def _chan_go_tay(kind: str, viec: str) -> None:
+        """Thành phẩm KHÔNG XOÁ được — dòng này có thể đang có lô tồn, xoá là làm mồ côi (PRD L7).
+
+        Ngừng dùng thì tắt `active`, đảo lại được. Xoá thì không.
+
+        ⚠️ TẠO thì CHO (nới 19/08/2026). Bản đầu chặn cả tạo, viện luật siết 08/08/2026 của kho —
+        đọc sai: luật đó bỏ ô tên TỰ DO TRÊN PHIẾU XUẤT (`stock_request_lines.ten_tu_do`), nó
+        không cấm khai danh mục. Mọi danh mục khác đều khai tay được; chặn ở đây là không cho
+        Bán hàng khai trước một món khách sắp đặt.
+        """
+        if kind == "thanh_pham":
+            raise VatLieuKhoValidationError(
+                f"Không {viec} thành phẩm được — nó có thể đang có tồn kho hoặc phiếu đã ghi sổ. "
+                "Muốn ngừng dùng thì tắt ô Đang dùng."
+            )
+
     def delete(self, kind: str, item_id: int, actor_id: int | None = None) -> None:
+        self._chan_go_tay(kind, "xoá")
         obj = self.get(kind, item_id)
         nk.ghi_xoa(self.audit, actor_id=actor_id, loai=kind, obj=obj)
         self.repo.delete(obj)
         self.repo.chot_giao_dich()
+
+    def clone(self, kind: str, item_id: int, actor_id: int | None = None):
+        """Nhân bản một dòng: copy mọi cột nghiệp vụ, đổi mã + tên để không trùng bản gốc."""
+        goc = self.get(kind, item_id)
+        data = nk.anh_chup(goc)
+        ma_goc = data.get("ma") or ""
+        data["ten"] = f"{data.get('ten', '')} (bản sao)"
+        data["ma"] = ma_ban_sao(lambda ma: self.repo.find_by_ma(kind, ma), ma_goc)
+        return self.create(kind, data, actor_id)
 
     def set_anh(self, kind: str, item_id: int, url: str | None):
         """Gắn/gỡ ẢNH minh hoạ cho mặt hàng GỐC (chỉ giấy / vật tư khác — chủng loại không có ảnh).
@@ -184,7 +216,16 @@ class VatLieuKhoService:
     @staticmethod
     def _mat_hang_row(loai: str, obj) -> dict:
         return {
-            "hang_loai": loai,
+            # ⚠️ MẮT XÍCH SỐ MỘT của docs/prd-thanh-pham.md §3.
+            #
+            # `loai` = MÀN danh mục nào (chuyện của người khai). `hang_loai` = BẢNG nào (chuyện
+            # của sổ kho). Hai không gian tên khác nhau. Thành phẩm nằm chung bảng
+            # `vat_tu_in_an` nên với kho nó LÀ "vat_tu".
+            #
+            # Trả thẳng "thanh_pham" ra đây là đẻ ra `hang_loai` thứ ba mà `stock_lots` /
+            # `stock_vouchers` / `stock_requests` không nhận — kho nhập được nhưng tra ngược ra
+            # rỗng, và không có lỗi nào báo.
+            "hang_loai": "vat_tu" if loai == "thanh_pham" else loai,
             "hang_id": obj.id,
             "nhom": HANG_NHAN[loai],
             "ma": obj.ma,
@@ -229,7 +270,10 @@ class VatLieuKhoService:
             else None
         )
         ra: list[dict] = []
-        for loai in ("giay", "vat_tu"):
+        # `thanh_pham` PHẢI có mặt: đây là ô kho gõ để chọn mặt hàng lúc nhập kho / lập phiếu.
+        # Thiếu nó thì kho KHÔNG TÌM THẤY thành phẩm để nhập kho, mà ô tìm chỉ trả về rỗng —
+        # không lỗi, không thông báo, không ai biết vì sao (docs/prd-thanh-pham.md §10.3).
+        for loai in ("giay", "vat_tu", "thanh_pham"):
             rows, _t = self.repo.list(loai, q=q, active=True, page=1, size=moi_ben)
             ra.extend(
                 self._mat_hang_row(loai, r)
@@ -362,23 +406,65 @@ class MotDanhMucVatLieu:
         self.goc = goc
         self.kind = kind
 
+    @property
+    def audit(self):
+        """Nền router (`catalog_base.make_catalog_router`) đọc `svc.audit.db` để tra lịch sử công
+        thức — cùng khuôn với `CatalogService`, dù lớp này không phải subclass của nó."""
+        return self.goc.audit
+
     def list(self, **kw):
         return self.goc.list(self.kind, **kw)
 
+    def _dung_man(self, item_id: int) -> None:
+        """Chặn tra CHÉO id giữa hai màn dùng chung bảng `vat_tu_in_an`.
+
+        "Vật tư khác" và "Thành phẩm" là hai MÀN trên cùng một bảng, chia nhau bằng
+        `customer_id` (docs/prd-thanh-pham.md §3). `list()` đã lọc, nhưng đường tra theo id thì
+        không — không chặn thì màn Vật tư sửa/xoá được thành phẩm qua đường vòng.
+
+        ⚠️ Chặn Ở ĐÂY chứ KHÔNG ở repo. Bản đầu chặn trong `_VatTuRepo.get()` và VỠ ngay: kho tra
+        mặt hàng `hang_loai="vat_tu"` đi qua đúng repo đó, mà thành phẩm với kho LÀ "vat_tu" —
+        14 test đỏ với câu "Không tìm thấy mặt hàng." ở bước lập yêu cầu xuất kho. Lớp này thì
+        chỉ nền CRUD của MÀN danh mục đi qua, kho không dùng.
+        """
+        if self.kind not in ("vat_tu", "thanh_pham"):
+            return
+        obj = self.goc.get(self.kind, item_id)      # ném NotFound nếu không có
+        # ⚠️ Phân biệt bằng `la_thanh_pham` — ĐÚNG cột mà `_VatTuRepo` / `_ThanhPhamRepo` lọc.
+        #
+        # Đây là cột thứ BA giữ vai này, và hai cột trước đều vỡ vì cùng một lý do: chúng SUY RA
+        # câu trả lời thay vì nói thẳng.
+        #   · `order_line_id` (20/08/2026) — thành phẩm KHAI TAY không có nó ⇒ khai xong không
+        #     sửa được, báo "Không tìm thấy mặt hàng.";
+        #   · `customer_id` (mg 0204) — đúng khi thành phẩm còn thuộc về một khách, hỏng ngay khi
+        #     chủ bỏ ô Khách (21/08/2026) vì dòng mới không còn khách để suy.
+        # Nay là cột cờ nói thẳng, không suy từ gì cả.
+        la_thanh_pham = bool(getattr(obj, "la_thanh_pham", False))
+        if la_thanh_pham != (self.kind == "thanh_pham"):
+            raise VatLieuKhoNotFound("Không tìm thấy mặt hàng.")
+
     def get(self, item_id: int):
+        self._dung_man(item_id)
         return self.goc.get(self.kind, item_id)
 
     def create(self, data: dict, actor_id: int | None = None):
         return self.goc.create(self.kind, data, actor_id=actor_id)
 
     def update(self, item_id: int, data: dict, actor_id: int | None = None):
+        self._dung_man(item_id)
         return self.goc.update(self.kind, item_id, data, actor_id=actor_id)
 
     def dat_active(self, item_id: int, active: bool, actor_id: int | None = None):
+        self._dung_man(item_id)
         return self.goc.dat_active(self.kind, item_id, active, actor_id=actor_id)
 
     def delete(self, item_id: int, actor_id: int | None = None) -> None:
+        self._dung_man(item_id)
         self.goc.delete(self.kind, item_id, actor_id=actor_id)
+
+    def clone(self, item_id: int, actor_id: int | None = None):
+        self._dung_man(item_id)
+        return self.goc.clone(self.kind, item_id, actor_id=actor_id)
 
     def gan_ten_don_vi(self, items) -> None:
         self.goc.gan_ten_don_vi(items)

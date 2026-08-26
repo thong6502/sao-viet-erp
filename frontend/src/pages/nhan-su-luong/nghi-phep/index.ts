@@ -1,0 +1,1 @@
+export { NghiPhepPage } from "./NghiPhepPage";

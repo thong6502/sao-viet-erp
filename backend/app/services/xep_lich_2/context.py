@@ -97,6 +97,23 @@ class XepLich2Context:
             for r in self.repo.da_xep_khac_tren_may(may_id, exclude_id)
         ])
 
+    def khoang_may_lenh_khac(self, may_id: int | None, exclude_id: int | None, dong) -> list[tuple]:
+        """Như trên nhưng BỎ các bước của CHÍNH lệnh/bài này (nền cảnh báo `lan_viec_ke`).
+
+        Bước sau của cùng một lệnh vốn phải đợi bước trước xong: bước trước chạy chậm thì cả dây
+        trượt theo, không ai bị mất máy. Đem chúng vào diện "việc kế phải giữ chỗ" là bắt lệnh tự
+        cảnh báo chính mình — mà tự-xếp lại luôn xếp chuỗi khít mép, nên cảnh báo đó nổ ở gần như
+        mọi lệnh (25/08/2026). Trùng giờ THẬT vẫn do `trung_may` gác, và cửa đó soi ĐỦ mọi việc.
+        """
+        lsx_id = getattr(dong, "lsx_id", None)
+        bai_id = getattr(dong, "bai_ghep_id", None)
+        return self._nho(("may_lenh_khac", may_id, exclude_id, lsx_id, bai_id), lambda: [
+            (_aware(r.start_at), _aware(r.finish_at))
+            for r in self.repo.da_xep_khac_tren_may(may_id, exclude_id)
+            if not ((lsx_id is not None and r.lsx_id == lsx_id)
+                    or (bai_id is not None and r.bai_ghep_id == bai_id))
+        ])
+
     # --- Tổ / quân số ------------------------------------------------------
     def _so_nguoi(self, dong: XepLichCongDoan) -> int:
         """Số nhân công MỘT dòng tiêu thụ — lấy đúng con số đã khai ở bước (§4)."""

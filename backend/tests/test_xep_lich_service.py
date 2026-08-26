@@ -46,6 +46,7 @@ from app.services.order_service import OrderService
 from app.services.sequence_service import SequenceService
 from app.services.xep_lich_service import (
     LichXuong, XepLichConflict, XepLichService, XepLichValidationError, _cong_gio_lam, _dau_ca,
+    _gio_xuong,
 )
 
 
@@ -498,12 +499,12 @@ def test_som_nhat_theo_gio_thuc_cua_buoc_truoc(db, orders, lsx_svc, xl_svc, admi
 def test_dag_buoc_ghep_lay_moc_muon_nhat_cua_nhieu_tien_nhiem(
     db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch,
 ):
-    monkeypatch.setattr("app.services.xep_lich_service._utcnow",
+    monkeypatch.setattr("app.services.xep_lich_service._gio_xuong",
                         lambda: datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc))
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     # `som_nhat` còn bị chặn dưới bởi mốc BÀN GIAO SX (`_san_thoi_gian`), mà mốc đó do
-    # `order_service.release_production` đóng dấu bằng giờ THẬT — nó không đi qua `_utcnow` vừa
+    # `order_service.release_production` đóng dấu bằng giờ THẬT — nó không đi qua `_gio_xuong` vừa
     # patch ở trên. Không ghim lại thì hễ chạy sau 11:00 UTC là sàn giờ thật vượt mốc tiền nhiệm,
     # `som_nhat` thành "bây giờ" và test đỏ theo đồng hồ chứ không theo logic đang đo.
     lsx.ban_giao_at = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
@@ -976,3 +977,107 @@ def test_xem_truoc_tha_sach_thi_khong_canh_bao_gi(db, orders, lsx_svc, xl_svc, a
     res = xl_svc.xem_truoc(dong_id=dong.id, may_id=step.may_id,
                            start_at=datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc))
     assert res["canh_bao"] == []
+
+
+# --- Múi giờ: mốc "bây giờ" của engine phải là ĐỒNG HỒ XƯỞNG ---------------------------------
+
+def test_san_thoi_gian_bam_dong_ho_xuong(db, xl_svc):
+    """Mốc sàn xếp lịch phải là giờ TƯỜNG của xưởng, không phải UTC thật.
+
+    Bẫy 22/08/2026: `_san_thoi_gian` lấy `datetime.now(timezone.utc)` trong khi phút ca, `_aware()`
+    (giờ FE gửi lên) và `_naive()` (giờ trả về) đều là giờ tường dán nhãn UTC. Ở VN lệch 7 tiếng:
+    xưởng 09:14 thì engine tưởng 02:14 ⇒ xếp việc vào giờ ĐÃ TRÔI QUA và rơi nhầm vào Ca 3 đêm.
+    """
+    tuong = datetime.now()
+    san = xl_svc._san_thoi_gian(None)
+    assert san.tzinfo is not None, "sàn phải aware để so được với start/finish đã _aware()"
+    assert abs((san.replace(tzinfo=None) - tuong).total_seconds()) < 5
+    assert abs((_gio_xuong().replace(tzinfo=None) - tuong).total_seconds()) < 5
+
+
+def test_moc_xep_lich_khong_con_dung_utcnow():
+    """Chốt thêm bằng MÃ NGUỒN: máy CI chạy giờ UTC nên ở đó UTC ≡ giờ tường, test hành vi phía trên
+    luôn xanh và KHÔNG canh được hồi quy. `_utcnow()` chỉ còn được phép làm dấu thời gian BẢN GHI
+    (`created_at`, `resolved_at`); mọi mốc đem đi TÍNH LỊCH phải qua `_gio_xuong()`.
+    """
+    import inspect
+
+    from app.services import xep_lich_service as xl
+    from app.services import xep_lich_van_de_service as vd
+
+    for mod in (xl, vd):
+        src = inspect.getsource(mod)
+        assert "_utcnow().date()" not in src, f"{mod.__name__}: mốc ngày xếp lịch phải dùng _gio_xuong()"
+        assert "= _utcnow()" not in src, f"{mod.__name__}: mốc sàn xếp lịch phải dùng _gio_xuong()"
+
+    for fn in (xl.XepLichService._san_thoi_gian, xl.XepLichService._chuoi, xl.XepLichService._do_thi,
+               vd.XepLichVanDeService._qua_tai_may):
+        assert "_utcnow" not in inspect.getsource(fn), f"{fn.__qualname__} còn lấy giờ UTC thật"
+
+
+# --- Ca CHẠY DƯỚI XƯỞNG: cờ `ca_san_xuat` nuôi khung giờ + mẫu số % tải (mg 0227) ------------
+
+def _khai_ca_xuong(db):
+    """Khai 4 ca THẬT của xưởng vào DB test.
+
+    `seed_work_shifts` nằm sau cổng `SEED_DEMO` nên DB test KHÔNG có ca nào — engine rơi về
+    fallback 08:00–16:00. Muốn soi cờ `ca_san_xuat` thì phải dựng đúng bộ ca hay gặp: ba ca chạy
+    máy gối nhau phủ trọn 24h + một ca văn phòng nằm GỌN trong Ca 1 + Ca 2.
+    """
+    from app.models.attendance import WorkShift
+
+    cas = [
+        WorkShift(name="Ca 1", start_minute=6 * 60, end_minute=14 * 60, ca_san_xuat=True),
+        WorkShift(name="Hành chính", start_minute=8 * 60, end_minute=17 * 60, ca_san_xuat=False),
+        WorkShift(name="Ca 2", start_minute=14 * 60, end_minute=22 * 60, ca_san_xuat=True),
+        WorkShift(name="Ca 3", start_minute=22 * 60, end_minute=6 * 60, is_overnight=True,
+                  ca_san_xuat=True),
+    ]
+    db.add_all(cas)
+    db.commit()
+    return cas
+
+
+def test_ca_lich_may_bo_ca_van_phong(db, xl_svc):
+    """Ca văn phòng KHÔNG được vào lịch xưởng.
+
+    Xưởng khai Ca 1 (06–14) · Ca 2 (14–22) · Ca 3 (22–06) là người đứng máy, thêm Hành chính
+    (08–17) là văn phòng. Hôm nay Hành chính nằm GỌN trong Ca 1 + Ca 2 nên không nới thêm phút
+    nào — đó là MAY, không phải thiết kế. Test này chốt cái thiết kế: hàm chỉ trả ca có tick.
+    """
+    from app.models.attendance import WorkShift
+    from app.services.xep_lich_2 import constraint as C
+
+    _khai_ca_xuong(db)
+    ten = [c.name for c in xl_svc._ca_lich_may()]
+    assert "Hành chính" not in ten, f"ca văn phòng lọt vào lịch xưởng: {ten}"
+    assert ten == ["Ca 1", "Ca 2", "Ca 3"], ten           # sort theo giờ vào
+
+    # Bằng chứng cờ CÓ tác dụng: tắt Ca 2 + Ca 3 đi thì giờ xưởng chỉ còn 06–14 = 480'.
+    # Nếu Hành chính lọt vào, mẫu số kéo tới 17:00 = 660' ⇒ mọi % tải thấp giả 27%.
+    for c in db.query(WorkShift).filter(WorkShift.name.in_(["Ca 2", "Ca 3"])).all():
+        c.is_active = False
+    db.commit()
+    ca = [(int(c.start_minute), int(c.end_minute),
+           bool(c.is_overnight) or int(c.end_minute) <= int(c.start_minute))
+          for c in xl_svc._ca_lich_may()]
+    assert C.phut_ca_moi_ngay(ca) == 480, f"mẫu số phồng vì ca văn phòng: {ca}"
+
+
+def test_ca_lich_may_khong_ai_tick_thi_lay_HET_ca(db, xl_svc):
+    """⚠ Bẫy đã giết cờ đời trước — KHÔNG được trả rỗng.
+
+    `dung_cho_lich_may` (mg 0095 → gỡ ở mg 0226) mặc định TẮT mà không có ô khai ⇒ 4/4 ca đều
+    FALSE ⇒ hàm này trả rỗng ⇒ `LichXuong` rơi về fallback 08:00–16:00, im lặng, không ai thấy.
+    Nay không ca nào tick thì đo bằng MỌI ca đang dùng — thà đo bằng ca thật còn hơn ca tưởng
+    tượng.
+    """
+    from app.models.attendance import WorkShift
+
+    _khai_ca_xuong(db)
+    for c in db.query(WorkShift).all():
+        c.ca_san_xuat = False
+    db.commit()
+    cas = xl_svc._ca_lich_may()
+    assert len(cas) == 4, [c.name for c in cas]
+    assert "Hành chính" in [c.name for c in cas]

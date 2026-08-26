@@ -1453,6 +1453,10 @@ select.input {
 .rdx-quote .inp:focus { outline: 2px solid var(--rust); outline-offset: -1px; border-color: var(--rust); }
 .rdx-quote .inp:disabled { opacity: 0.55; background: var(--canvas); }
 .rdx-quote .pctcell { display: flex; align-items: center; justify-content: flex-end; gap: 4px; color: var(--ash); }
+/* Cột "Giá bán (gõ tay)" — ô rộng hơn .inp thường (chứa số tiền), viền rust khi đang làm gốc. */
+.rdx-quote .pricecell { display: flex; align-items: center; justify-content: flex-end; }
+.rdx-quote .pricecell .inp { width: 118px; }
+.rdx-quote .pricecell--on .inp { border-color: var(--rust); background: color-mix(in srgb, var(--rust) 8%, var(--paper)); }
 
 /* ---- DETAIL: dark card (Giá bán đề xuất) ----------------------------------- */
 .rdx-quote .dk { background: var(--dark); color: var(--on-dark); border-radius: var(--r-5); overflow: hidden; box-shadow: var(--shadow-4); }
@@ -1476,6 +1480,12 @@ select.input {
 .rdx-quote .drow.total .k { color: var(--on-dark); font-weight: 600; }
 .rdx-quote .drow.total .v { color: var(--rust); font-weight: 800; font-size: 16px; }
 .rdx-quote .dk__extra { padding: 0 18px 16px; }
+.rdx-quote .dk .dpct { display: inline-flex; align-items: center; gap: 2px; margin-left: 8px; background: rgba(245, 241, 232, 0.08); border: 1px solid rgba(245, 241, 232, 0.16); border-radius: var(--r-2); padding: 1px 6px 1px 3px; color: var(--on-dark-muted); font-size: 11px; font-weight: 600; transition: border-color 120ms ease, box-shadow 120ms ease; }
+.rdx-quote .dk .dpct:focus-within { border-color: var(--rust); box-shadow: 0 0 0 1px var(--rust); color: var(--paper); }
+.rdx-quote .dk .dinp { font-family: var(--ff-num); font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; text-align: right; width: 34px; border: none; background: transparent; color: var(--on-dark); padding: 2px 0; outline: none; -moz-appearance: textfield; }
+.rdx-quote .dk .dinp::-webkit-outer-spin-button,
+.rdx-quote .dk .dinp::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.rdx-quote .dk .dinp:disabled { opacity: 0.5; }
 
 /* ---- DETAIL: info list (Khách hàng / follow-up) ---------------------------- */
 .rdx-quote .info { padding: 4px 16px 12px; }
@@ -1851,30 +1861,6 @@ select.input {
   color: #92400e;
   margin: 0;
   line-height: 1.5;
-}
-
-/* Lock Banner */
-.rdx-quote .ro-lock-banner {
-  margin-top: 14px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: linear-gradient(135deg, #fff7ed 0%, #fff1f2 100%);
-  border: 1px solid #ffedd5;
-  border-left: 4px solid var(--rust, #e05638);
-  border-radius: 8px;
-  padding: 12px 14px;
-}
-
-.rdx-quote .ro-lock-icon {
-  color: var(--rust, #e05638);
-  flex-shrink: 0;
-}
-
-.rdx-quote .ro-lock-desc {
-  font-size: 12.5px;
-  color: #9a3412;
-  line-height: 1.4;
 }
 
 .rdx-quote .verline-box {

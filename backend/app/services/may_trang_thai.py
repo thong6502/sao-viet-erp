@@ -60,6 +60,17 @@ def _naive(dt: datetime | None) -> datetime | None:
     return dt.replace(tzinfo=None) if dt is not None else None
 
 
+def _gio_xuong() -> datetime:
+    """Bây giờ theo ĐỒNG HỒ XƯỞNG, gắn nhãn UTC cho khớp `_aware()` ở trên.
+
+    Mọi mốc đem ra so ở đây (`start_at`/`finish_at` bàn lịch, vùng khoá máy) đều là GIỜ TƯỜNG dán
+    nhãn UTC. Lấy `datetime.now(timezone.utc)` là UTC thật ⇒ ở VN lùi 7 tiếng: lúc 09:00 xưởng, hàm
+    hỏi "máy nào đang chạy lúc 02:00" và trả về lệnh của ca đêm. Sửa cùng lượt với mốc sàn xếp lịch
+    22/08/2026 (`xep_lich_service._gio_xuong`).
+    """
+    return datetime.now().replace(tzinfo=timezone.utc)
+
+
 def _gio(dt: datetime | None) -> str:
     return f"{dt:%H:%M}" if dt else "?"
 
@@ -116,7 +127,7 @@ def trang_thai_may(db, may_ids: list[int], *, bay_gio: datetime | None = None) -
     """
     if not may_ids:
         return {}
-    bay_gio = bay_gio or datetime.now(timezone.utc)
+    bay_gio = bay_gio or _gio_xuong()
     out: dict[int, dict] = {}
 
     # 1. Đang chạy (yếu nhất — bị vùng khoá đè)

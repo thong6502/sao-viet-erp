@@ -8,6 +8,7 @@
 // the simpler absolute popover and does not close on page scroll.
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { khopGanDung } from "../utils/timGanDung";
 import "./select.css";
 
 export type SelectValue = string | number | null;
@@ -43,6 +44,12 @@ interface SelectProps<T extends SelectValue> {
   align?: "left" | "right";
   /** Mở LÊN TRÊN thay vì xuống dưới — cho ô nằm cuối trang/pager (mở xuống sẽ bị che). Cần `portal`. */
   dropUp?: boolean;
+  /** Class THÊM cho nút bấm (trigger) — để ô này đội lốt input/chip của màn đang dùng thay vì
+   *  luôn mang bộ mặt `sel__trigger`. Không truyền thì không đổi gì. */
+  className?: string;
+  /** Class THÊM cho popover. Cần vì bản `portal` treo ở `document.body`, ra NGOÀI mọi selector
+   *  bọc theo màn — không có class riêng thì màn không cách nào chỉnh được cái danh sách. */
+  listClassName?: string;
 }
 
 export function Select<T extends SelectValue>({
@@ -59,11 +66,13 @@ export function Select<T extends SelectValue>({
   searchPlaceholder = "Tìm…",
   align = "left",
   dropUp = false,
+  className,
+  listClassName,
 }: SelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [query, setQuery] = useState("");
-  const [rect, setRect] = useState<{ top: number; bottom: number; left: number; right: number; width: number } | null>(null);
+  const [rect, setRect] = useState<{ top: number; bottom: number; left: number; right: number; width: number; up: boolean } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -74,9 +83,10 @@ export function Select<T extends SelectValue>({
   // Lọc cục bộ CHỈ khi không có `onSearch` (nguồn tĩnh). Có `onSearch` = server lọc rồi.
   const shown =
     searchable && !onSearch && query.trim()
-      ? options.filter((o) =>
-          `${o.label} ${o.hint ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()),
-        )
+      ? // Khớp GẦN ĐÚNG: bỏ dấu + tách từ (xem `utils/timGanDung`). Gõ "may in nho" phải ra
+        // "MÁY IN NHỎ 46×64" — lọc `includes` thường trả rỗng ở đúng những lần gõ như vậy.
+        // Soi cả `sub` vì dòng phụ hay chứa đúng thứ người ta nhớ (khổ máy, gsm giấy).
+        options.filter((o) => khopGanDung(`${o.label} ${o.hint ?? ""} ${o.sub ?? ""}`, query))
       : options;
 
   // Portal mode: pin the popover to the trigger's current viewport rect.
@@ -84,7 +94,11 @@ export function Select<T extends SelectValue>({
     const el = triggerRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
+    // Tự LẬT LÊN khi dưới trigger không đủ chỗ (280px là max-height của popover trong select.css).
+    // Không lật thì ô nằm cuối modal mở ra một danh sách bị cắt đáy màn, phần dưới không bấm được.
+    const choDuoi = window.innerHeight - r.bottom;
     setRect({
+      up: dropUp || (choDuoi < 240 && r.top > choDuoi),
       top: r.bottom + 4,
       bottom: window.innerHeight - r.top + 4, // neo mép DƯỚI popover ngay trên trigger (mở lên)
       left: r.left,
@@ -154,6 +168,9 @@ export function Select<T extends SelectValue>({
     }
     if (e.key === "Escape") {
       e.preventDefault();
+      // Chỉ đóng DANH SÁCH. Không chặn thì phím Esc bay tiếp lên modal/drawer cha và đóng
+      // luôn cả cửa sổ — thẻ <select> gốc trước đây tự nuốt phím này.
+      e.stopPropagation();
       setOpen(false);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -172,7 +189,9 @@ export function Select<T extends SelectValue>({
   const list = (
     <ul
       ref={listRef}
-      className={`sel__list${portal ? " sel__list--portal" : ""}${align === "right" ? " sel__list--right" : ""}`}
+      className={`sel__list${portal ? " sel__list--portal" : ""}${align === "right" ? " sel__list--right" : ""}${
+        listClassName ? ` ${listClassName}` : ""
+      }`}
       role="listbox"
       aria-activedescendant={`${listId}-${active}`}
       style={
@@ -181,10 +200,15 @@ export function Select<T extends SelectValue>({
               position: "fixed",
               // dropUp: neo mép DƯỚI, top:"auto" để XOÁ `top: calc(100%+4px)` của .sel__list
               // (không xoá thì phần tử bị đẩy xuống dưới viewport → menu nằm ngoài màn, không bấm được).
-              ...(dropUp ? { top: "auto", bottom: rect.bottom } : { top: rect.top }),
+              ...(rect.up ? { top: "auto", bottom: rect.bottom } : { top: rect.top }),
               ...(align === "right"
                 ? { right: window.innerWidth - rect.right, left: "auto", minWidth: rect.width }
-                : { left: rect.left, width: rect.width, right: "auto" }),
+                : rect.width < 60
+                  // Nút TÍ HON (vd mũi tên 22px chèn công đoạn): ép width = bề ngang nút thì danh
+                  // sách chỉ còn một sợi, chữ vỡ từng ký tự — thả cho nó tự nở theo nội dung.
+                  // Ngưỡng để thấp để các ô chọn nhỏ-nhưng-có-nhãn (pager…) giữ nguyên nếp cũ.
+                  ? { left: rect.left, minWidth: 220, right: "auto" }
+                  : { left: rect.left, width: rect.width, right: "auto" }),
             }
           : undefined
       }
@@ -259,7 +283,7 @@ export function Select<T extends SelectValue>({
         type="button"
         id={id}
         ref={triggerRef}
-        className={`sel__trigger${open ? " is-open" : ""}`}
+        className={`sel__trigger${open ? " is-open" : ""}${className ? ` ${className}` : ""}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}

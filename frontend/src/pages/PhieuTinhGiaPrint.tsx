@@ -195,7 +195,7 @@ export function PhieuTinhGiaPrint({
           </div>
           <div className="ptg-th">
             <h1>PHIẾU TÍNH GIÁ ẤN PHẨM</h1>
-            <div className="ptg-cty">CÔNG TY SAO VIỆT NHẬT</div>
+            <div className="ptg-cty">CÔNG TY CỔ PHẦN IN SAO VIỆT NHẬT</div>
           </div>
           {/* Số phiếu là DANH TÍNH của chứng từ ⇒ đứng đầu, to nhất khối. Bản cũ để "Ngày in" —
               thứ ít quan trọng nhất — nổi absolute đè lên đúng góc này, thành ra ba dòng chen nhau

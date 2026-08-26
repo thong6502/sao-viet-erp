@@ -31,6 +31,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 
+from . import constraint as C
+
 # Trọng số ba trục. Đổi số ở đây là đổi CHÍNH SÁCH xếp lịch, không phải tinh chỉnh kỹ thuật.
 TRONG_SO = {"kip_han": 45.0, "doi_bai": 30.0, "san_tai": 25.0}
 TEN_TRUC = {
@@ -60,16 +62,15 @@ def _f(v) -> float:
 
 
 def quy_ca_phut(ca) -> float:
-    """Tổng phút làm việc của MỘT ngày theo lịch ca — mẫu số đo tải máy.
+    """Quỹ phút làm việc của MỘT ngày theo lịch ca — mẫu số của trục `san_tai`.
 
-    `ca` là list `(phút bắt đầu, phút kết thúc, có qua đêm)` trong ngày. Ca qua đêm đếm phần đuôi
-    ngày cộng phần đầu ngày hôm sau: đó vẫn là một ca của một ngày công.
+    UỶ THÁC cho `constraint.phut_ca_moi_ngay` để cảnh báo "máy ken đặc" và điểm "san tải" luôn đo
+    bằng CÙNG MỘT thước — trước 22/08/2026 đây là bản sao độc lập của cùng phép cộng, nên khi phép
+    cộng thẳng lộ ra sai (ca xưởng gối nhau) thì phải sửa hai nơi mới hết.
     """
-    tong = 0.0
-    for bat_dau, ket_thuc, qua_dem in ca or []:
-        b, e = _f(bat_dau), _f(ket_thuc)
-        tong += (1440.0 - b) + e if qua_dem else max(0.0, e - b)
-    return tong
+    return float(C.phut_ca_moi_ngay(
+        [(_f(b), _f(e), bool(qd)) for b, e, qd in (ca or [])],
+    ))
 
 
 def _pct(ty: float) -> int:

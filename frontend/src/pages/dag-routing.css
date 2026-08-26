@@ -31,6 +31,14 @@
   gap: 8px;
 }
 
+/* Dòng nhắc khi chưa chọn bước nào: thêm công đoạn = chọn 1 node rồi "Chèn sau". */
+.dag-toolbar__hint {
+  font-size: 13px;
+  font-style: italic;
+  color: #6b7280;
+  padding: 0 4px;
+}
+
 /* Công tắc chuyển chế độ View (DAG vs Table) */
 .dag-view-switch {
   display: inline-flex;

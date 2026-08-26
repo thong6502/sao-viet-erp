@@ -7,13 +7,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.stock_request import (
     REQ_CANCELLED,
     REQ_DONE,
     REQ_NHAP,
+    REQ_PREPARING,
     REQ_REJECTED,
     REQ_XUAT,
     StockRequest,
@@ -25,6 +26,10 @@ _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 _HEADER_FIELDS = ("bo_phan_id", "kho_id", "ngay_can", "uu_tien", "ghi_chu", "loai_kho",
                   "purchase_delivery_id",
+                  # NGUỒN GIAO HÀNG (mg 0201): chuyến giao sinh ra yêu cầu XUẤT này. Thiếu tên ở
+                  # danh sách này thì giá trị bị NUỐT IM LẶNG — yêu cầu vẫn tạo, chỉ là không nối
+                  # về đâu cả. Đúng cái bẫy đã cắn 19/08/2026.
+                  "delivery_trip_id",
                   # ĐIỀU CHUYỂN KHO (mig 0203) — set từ service khi ấn điều chuyển.
                   "dieu_chuyen", "kho_nguon_id", "xuat_voucher_id")
 
@@ -69,6 +74,25 @@ class StockRequestRepository:
         co_bg = bai_ghep_id in (None, "") or self.db.get(BaiGhep, int(bai_ghep_id)) is not None
         return co_lsx, co_bg
 
+    def tim_theo_delivery_trip(self, trip_id: int, *, loai: str | None = None):
+        """Yêu cầu kho CÒN SỐNG của một chuyến giao (bỏ qua đã huỷ / từ chối).
+
+        Giao hàng đọc ngược qua đây: chuyến đã gửi yêu cầu chưa, mã bao nhiêu. Cùng khuôn
+        `purchase_delivery_id` mà Mua hàng dùng để chặn nhập kho trùng một đợt.
+
+        ⚠️ PHẢI truyền `loai`. Một chuyến nay có tới HAI yêu cầu treo cùng `delivery_trip_id`:
+        `XUAT` lúc lấy hàng đi giao, và `NHAP` lúc trả hàng về (chuyến hỏng / giao thiếu). Không
+        lọc thì hàm trả bản mới nhất — tức sau khi trả hàng, mọi chỗ hỏi "yêu cầu xuất của chuyến"
+        đều nhận nhầm phiếu nhập.
+        """
+        stmt = select(StockRequest).where(
+            StockRequest.delivery_trip_id == trip_id,
+            StockRequest.trang_thai.notin_([REQ_CANCELLED, REQ_REJECTED]),
+        )
+        if loai is not None:
+            stmt = stmt.where(StockRequest.loai == loai)
+        return self.db.execute(stmt.order_by(StockRequest.id.desc())).scalars().first()
+
     def get_by_ma(self, ma: str) -> StockRequest | None:
         return self.db.execute(
             select(StockRequest).where(func.upper(StockRequest.ma) == ma.strip().upper())
@@ -88,10 +112,19 @@ class StockRequestRepository:
                       bo_phan_id: int | None = None) -> dict[str, int]:
         """Đếm yêu cầu chờ xử lý theo CHIỀU cho badge: `nhap` · `xuat` · `dieu_chuyen`.
         `nhap`/`xuat` KHÔNG tính điều chuyển (đã tách sang bucket riêng); vế XUẤT nguồn nội bộ luôn
-        bị ẩn. LỌC THEO SCOPE (nguoi_tao_id/bo_phan_id) GIỐNG `list` để badge khớp đúng list."""
-        conds = [StockRequest.trang_thai.in_(trang_thai)]
-        # ẨN vế XUẤT nguồn của điều chuyển (bút toán nội bộ, tự ghi sổ khi đích nhập) khỏi badge.
-        conds.append(or_(StockRequest.dieu_chuyen.is_(False), StockRequest.loai != REQ_XUAT))
+        bị ẩn. LỌC THEO SCOPE (nguoi_tao_id/bo_phan_id) GIỐNG `list` để badge khớp đúng list.
+
+        ĐIỀU CHUYỂN: phiếu nhập đích TỰ DỰNG SẴN lúc ấn điều chuyển → yêu cầu nhảy 'preparing' NGAY
+        (không dừng ở 'approved' chờ lập phiếu như nhập/xuất thường). Nên bucket điều chuyển đếm CẢ
+        'preparing' (= chờ kho đích ghi sổ) — nếu chỉ đếm 'approved' thì badge điều chuyển tắt ngay
+        sau khi ấn, mất tín hiệu "còn phiếu chờ ghi sổ" (spec §10)."""
+        dc_trang_thai = list(dict.fromkeys([*trang_thai, REQ_PREPARING]))
+        thuong = and_(StockRequest.dieu_chuyen.is_(False),
+                      StockRequest.trang_thai.in_(trang_thai))
+        # Vế XUẤT nguồn (dieu_chuyen + loai XUAT) luôn ẩn khỏi badge — chỉ đếm vế NHẬP đích.
+        dc_cond = and_(StockRequest.dieu_chuyen.is_(True), StockRequest.loai == REQ_NHAP,
+                       StockRequest.trang_thai.in_(dc_trang_thai))
+        conds = [or_(thuong, dc_cond)]
         if nguoi_tao_id is not None:
             conds.append(StockRequest.nguoi_tao_id == nguoi_tao_id)
         if bo_phan_id is not None:
@@ -102,8 +135,8 @@ class StockRequestRepository:
             .group_by(StockRequest.loai, StockRequest.dieu_chuyen)
         ).all()
         out = {"nhap": 0, "xuat": 0, "dieu_chuyen": 0}
-        for loai, dc, n in rows:
-            if dc:
+        for loai, dc_flag, n in rows:
+            if dc_flag:
                 out["dieu_chuyen"] += int(n)   # điều chuyển (yêu cầu NHẬP đích) — bucket riêng
             elif loai == REQ_NHAP:
                 out["nhap"] += int(n)
@@ -126,6 +159,10 @@ class StockRequestRepository:
             stmt = select(func.count()).select_from(StockRequest).where(
                 StockRequest.nguoi_tao_id == nguoi_tao_id,
                 StockRequest.trang_thai.in_(statuses),
+                # ẨN yêu cầu XUẤT nguồn nội bộ của điều chuyển (bút toán ẩn, KHÔNG mở xem được ở màn
+                # nào) — nếu đếm thì badge "đã phản hồi" của người ấn điều chuyển kẹt +1 vĩnh viễn.
+                # Cùng luật ẩn với `_base_conds`.
+                or_(StockRequest.dieu_chuyen.is_(False), StockRequest.loai != REQ_XUAT),
                 fresh,
             )
             return int(self.db.execute(stmt).scalar() or 0)

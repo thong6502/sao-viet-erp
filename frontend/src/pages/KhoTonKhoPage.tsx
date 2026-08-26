@@ -29,6 +29,7 @@ import { StockLevelChip } from "../components/StockLevelChip";
 import type { NavigateFn } from "../components/AppShell";
 import { fmtDateISO, money } from "../utils/format";
 import { qrToSvg } from "../lib/qr";
+import { tenDonVi, useNapTenDonVi } from "./tenDonVi";
 import {
   DateFilterHead,
   NumFilterHead,
@@ -54,12 +55,13 @@ import {
   QrCode,
   ShoppingCart,
   Search,
+  Printer,
+  Check,
 } from "lucide-react";
 
 import {
   ResponsiveContainer,
   ComposedChart,
-  Area,
   Bar,
   XAxis,
   YAxis,
@@ -96,7 +98,7 @@ interface MaterialGroup {
   level: StockLevel | null;
 }
 
-type TonTab = "ton" | "nhap" | "xuat";
+type TonTab = "ton" | "nhap" | "xuat" | "dc";
 
 /** Mức tồn 4 mức — MIRROR backend `stock_level` (bỏ "sắp hết/cận tồn"). Chưa khai ngưỡng
  *  → null (không bịa cảnh báo). Màn tồn chỉ có hàng còn tồn nên "het" gần như không xuất hiện. */
@@ -319,8 +321,14 @@ export function KhoTonKhoPage({
         };
         m.set(key, g);
       }
-      g.total += lot.sl_con_lai;
-      g.value += lot.sl_con_lai * (lot.don_gia_nhap ?? 0);
+      // TỒN KHẢ DỤNG = chỉ lô `available` (khớp backend `on_hand`/`LOT_ISSUABLE`). Lô chờ KCS
+      // (`qc_wait`) / giữ chỗ (`hold`) / lỗi (`defect`) KHÔNG tính vào "khả dụng" — trước đây cộng
+      // bừa nên list lệch drawer (vd 300,25 list vs 285,25 drawer). Vẫn giữ MỌI lô trong `g.lots`
+      // để hiển thị vị trí / HSD / lịch sử.
+      if (lot.trang_thai === "available") {
+        g.total += lot.sl_con_lai;
+        g.value += lot.sl_con_lai * (lot.don_gia_nhap ?? 0);
+      }
       g.lots.push(lot);
     }
     const arr = [...m.values()];
@@ -418,12 +426,16 @@ export function KhoTonKhoPage({
 
   const shownVouchers = useMemo(() => {
     const s = q.trim().toLowerCase();
-    // Tab quyết định loại phiếu (Nhập/Xuất) — thay bộ lọc dropdown cũ. Tab 'ton' không render list này.
-    const wantLoai = tab === "xuat" ? "XUAT" : "NHAP";
+    // Tab quyết định nhóm phiếu: Nhập / Xuất (KHÔNG lẫn điều chuyển) · Điều chuyển (cả 2 vế của kho
+    // này — xuất đi + nhập về). Tab 'ton' không render list này.
     const vf = vValFrom.trim() === "" ? null : Number(vValFrom);
     const vt = vValTo.trim() === "" ? null : Number(vValTo);
     return vouchers
-      .filter((v) => v.loai === wantLoai)
+      .filter((v) =>
+        tab === "dc"
+          ? v.dieu_chuyen
+          : v.loai === (tab === "xuat" ? "XUAT" : "NHAP") && !v.dieu_chuyen,
+      )
       .filter((v) => voucherFilter === "all" || v.trang_thai === voucherFilter)
       .filter(
         (v) =>
@@ -532,7 +544,9 @@ export function KhoTonKhoPage({
             ? "Tồn khả dụng theo từng vật tư — bấm một dòng để xem chi tiết các lô & lịch sử."
             : tab === "nhap"
               ? "Danh sách phiếu NHẬP kho đã lập."
-              : "Danh sách phiếu XUẤT kho đã lập."}
+              : tab === "xuat"
+                ? "Danh sách phiếu XUẤT kho đã lập."
+                : "Danh sách phiếu ĐIỀU CHUYỂN kho (chuyển đi / nhận về)."}
         </p>
       </header>
 
@@ -542,8 +556,9 @@ export function KhoTonKhoPage({
           {(
             [
               ["ton", `Tồn kho (${groups.length})`],
-              ["nhap", `Phiếu nhập (${vouchers.filter((v) => v.loai === "NHAP").length})`],
-              ["xuat", `Phiếu xuất (${vouchers.filter((v) => v.loai === "XUAT").length})`],
+              ["nhap", `Phiếu nhập (${vouchers.filter((v) => v.loai === "NHAP" && !v.dieu_chuyen).length})`],
+              ["xuat", `Phiếu xuất (${vouchers.filter((v) => v.loai === "XUAT" && !v.dieu_chuyen).length})`],
+              ["dc", `Điều chuyển (${vouchers.filter((v) => v.dieu_chuyen).length})`],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -558,7 +573,7 @@ export function KhoTonKhoPage({
         </div>
 
         <div className="rc__search-wrapper" style={{ width: 220 }}>
-          <Search style={{ width: 15, height: 15, color: "var(--ash-2)" }} />
+          <Search className="rc__search-icon" style={{ width: 15, height: 15 }} />
           <input
             className="rc__search"
             placeholder={
@@ -592,11 +607,11 @@ export function KhoTonKhoPage({
               <Select
                 options={[
                   { value: "all", label: "Mọi trạng thái" },
-                  { value: "can_mua", label: "🔴 Cần mua" },
-                  { value: "du", label: "🟢 Tồn an toàn" },
-                  { value: "du_ton", label: "🟡 Vượt max" },
-                  { value: "chuakhai", label: "⚪ Chưa khai" },
-                  { value: "sap_het_han", label: "⏰ Sắp hết hạn" },
+                  { value: "can_mua", label: "Cần mua" },
+                  { value: "du", label: "Đủ" },
+                  { value: "du_ton", label: "Dư" },
+                  { value: "chuakhai", label: "Chưa khai" },
+                  { value: "sap_het_han", label: "Sắp hết hạn" },
                 ]}
                 value={statusFilter}
                 onChange={(v) => v != null && setStatusFilter(v as any)}
@@ -673,7 +688,7 @@ export function KhoTonKhoPage({
                   </th>
                 )}
                 <th style={{ minWidth: 220 }}>Vật tư</th>
-                <th style={{ minWidth: 70 }}>Vị trí</th>
+                <th style={{ minWidth: 104 }}>Vị trí</th>
                 <th style={{ minWidth: 90 }} title="Hạn SỚM NHẤT của lô còn tồn">
                   Hạn sử dụng
                 </th>
@@ -771,6 +786,18 @@ export function KhoTonKhoPage({
                   />
                 ))
               )}
+              {/* Hàng ĐỆM giữ độ dài (chiều cao) bảng cố định — trang cuối / ít vật tư vẫn trải đủ
+                  pageSize dòng, đồng bộ với bảng phiếu & Báo cáo. */}
+              {Array.from({
+                length: Math.max(
+                  0,
+                  pageSize - (loading ? 5 : filtered.length === 0 ? 1 : pagedGroups.length),
+                ),
+              }).map((_, i) => (
+                <tr key={`tonfiller-${i}`} className="rc__filler" aria-hidden="true">
+                  <td colSpan={tonCols}>&nbsp;</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         ) : (
@@ -834,6 +861,11 @@ export function KhoTonKhoPage({
                     <tr key={v.id} className="rc__row" onClick={() => setOpenVoucher(v.id)}>
                       <td className="rc__nowrap">
                         <span className="rc__code-badge">{v.ma}</span>
+                        {tab === "dc" && (
+                          <span style={{ marginLeft: 6, fontSize: 11, color: "var(--ash)" }}>
+                            {v.loai === "XUAT" ? "⇄ chuyển đi" : "⇄ nhận về"}
+                          </span>
+                        )}
                       </td>
                       <td className="rc__nowrap kho-lines__code">
                         {v.request_ma ? (
@@ -862,6 +894,18 @@ export function KhoTonKhoPage({
                   );
                 })
               )}
+              {/* Hàng ĐỆM giữ ĐỘ DÀI (chiều cao) bảng cố định giữa các tab — ít dữ liệu (vd 1-2 phiếu)
+                  bảng vẫn trải đủ pageSize dòng như bảng Báo cáo/Khóa sổ, không co ngắn tủn. */}
+              {Array.from({
+                length: Math.max(
+                  0,
+                  pageSize - (loadingV ? 5 : shownVouchers.length === 0 ? 1 : pagedVouchers.length),
+                ),
+              }).map((_, i) => (
+                <tr key={`vfiller-${i}`} className="rc__filler" aria-hidden="true">
+                  <td colSpan={voucherCols + 1}>&nbsp;</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
@@ -1130,7 +1174,6 @@ function MaterialRow({
 }) {
   const cat = getCategory(g);
   const newest = g.lots.length ? g.lots[g.lots.length - 1].ngay_nhap : null;
-  const viShown = g.viTris.slice(0, 2).join(", ");
   const viMore = g.viTris.length - 2;
 
   const setThProps = canSetThreshold
@@ -1161,28 +1204,8 @@ function MaterialRow({
           {g.anh ? (
             <img className="kho-ton__thumb" src={assetUrl(g.anh) ?? undefined} alt="" loading="lazy" />
           ) : (
-            <span
-              className="kho-ton__thumb kho-ton__thumb--ph"
-              style={{
-                background:
-                  cat === "giay"
-                    ? "#eff6ff"
-                    : cat === "muc"
-                    ? "#faf5ff"
-                    : cat === "hoa_chat"
-                    ? "#ecfdf5"
-                    : "#f8fafc",
-                color:
-                  cat === "giay"
-                    ? "#2563eb"
-                    : cat === "muc"
-                    ? "#9333ea"
-                    : cat === "hoa_chat"
-                    ? "#059669"
-                    : "#64748b",
-              }}
-              aria-hidden="true"
-            >
+            // Nền neutral (slate) đồng nhất — CHỦNG LOẠI đã phân biệt bằng icon, không cần pastel.
+            <span className="kho-ton__thumb kho-ton__thumb--ph" aria-hidden="true">
               {cat === "giay" ? (
                 <Layers style={{ width: 16, height: 16 }} />
               ) : cat === "muc" ? (
@@ -1203,23 +1226,27 @@ function MaterialRow({
         </div>
       </td>
 
-      {/* Vị trí */}
-      <td title={g.viTris.length ? g.viTris.join(", ") : undefined}>
+      {/* Vị trí — tối đa 2 chip trên MỘT hàng + "+N" (nhiều hơn 2 thì gộp phần dư). */}
+      <td>
         {g.viTris.length === 0 ? (
           <span className="rc__muted">—</span>
         ) : (
-          <span className="kho-badge-loc">
-            {viShown}
-            {viMore > 0 ? <span style={{ opacity: 0.7, marginLeft: 2 }}>+{viMore}</span> : null}
-          </span>
+          <div className="kho-loc-cell" title={g.viTris.join(", ")}>
+            {g.viTris.slice(0, 2).map((v) => (
+              <span key={v} className="kho-badge-loc" title={v}>
+                {v}
+              </span>
+            ))}
+            {viMore > 0 ? <span className="kho-loc-cell__more">+{viMore}</span> : null}
+          </div>
         )}
       </td>
 
-      {/* Hạn sử dụng */}
+      {/* Hạn sử dụng — CẢNH BÁO đỏ khi có lô CÒN TỒN đã quá hạn (hsdSoonest tính từ lô sl_con_lai>0). */}
       <td
         title={
           g.hsdSoonest
-            ? `Hạn sớm nhất: ${fmtDateISO(g.hsdSoonest)}${
+            ? `${g.hsdSoonest < todayISO() ? "CÓ LÔ CÒN TỒN ĐÃ QUÁ HẠN — " : ""}Hạn sớm nhất: ${fmtDateISO(g.hsdSoonest)}${
                 g.hsdOthers ? ` · +${g.hsdOthers} hạn khác` : ""
               }`
             : undefined
@@ -1227,6 +1254,11 @@ function MaterialRow({
       >
         {g.hsdSoonest == null ? (
           <span className="rc__muted">—</span>
+        ) : g.hsdSoonest < todayISO() ? (
+          <span className="kho-lines__hsd kho-lines__hsd--qua">
+            {fmtDateISO(g.hsdSoonest)} · Quá hạn
+            {g.hsdOthers > 0 ? <span className="kho-ton__vtmore"> +{g.hsdOthers}</span> : null}
+          </span>
         ) : (
           <span className="kho-ton__vitri">
             {fmtDateISO(g.hsdSoonest)}
@@ -1241,13 +1273,14 @@ function MaterialRow({
         {g.dvt ? <span className="kho-ton__dvt"> {g.dvt}</span> : null}
       </td>
 
-      {/* Ngưỡng & Trạng Thái (Thanh lịch & Tinh gọn) */}
+      {/* Ngưỡng & Trạng thái — chip token gọn (align-items:flex-start ⇒ KHÔNG dãn tràn cột) +
+          Min/Max phụ xám nhạt. */}
       <td {...(setThProps ?? {})}>
         {g.level ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div className="kho-ton__thstack">
             <StockLevelChip level={g.level} />
             {threshold && (
-              <span style={{ fontSize: 10.5, color: "var(--ash)", fontVariantNumeric: "tabular-nums" }}>
+              <span className="kho-ton__thmm">
                 Min {threshold.nguong_ton != null ? fmtQty(threshold.nguong_ton) : "—"} · Max{" "}
                 {threshold.nguong_toi_da != null ? fmtQty(threshold.nguong_toi_da) : "—"}
               </span>
@@ -1316,6 +1349,7 @@ function MaterialHistoryDrawer({
   /** Đổi/gỡ ảnh xong → báo cha cập nhật `hang_anh` mọi lô cùng mặt hàng (mở lại không bị ảnh cũ). */
   onAnhChanged: (hangLoai: HangLoai, hangId: number, url: string | null) => void;
 }) {
+  useNapTenDonVi(); // nạp nhãn đơn vị (danh mục) để ghi rõ đơn vị ở các bảng lịch sử
   const [data, setData] = useState<StockMaterialHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1365,7 +1399,7 @@ function MaterialHistoryDrawer({
     }
   }
   // Tab MẶC ĐỊNH = "Tổng quan" (đầu tiên) khi mở drawer; giữ nguyên Nhập/Xuất phía sau.
-  const [tab, setTab] = useState<"tong_quan" | "nhap" | "xuat">("tong_quan");
+  const [tab, setTab] = useState<"tong_quan" | "lo_ton" | "nhap" | "xuat" | "chuyen">("tong_quan");
   const [page, setPage] = useState(1);
   // Tem QR vật tư: quét ra TRANG TRA KHO CÔNG KHAI (không đăng nhập) qua token đã ký "#s=..".
   const [showQr, setShowQr] = useState(false);
@@ -1442,21 +1476,70 @@ function MaterialHistoryDrawer({
   const DRAWER_PAGE = 10;
   const nhap = data?.nhap ?? [];
   const xuat = data?.xuat ?? [];
-  const nhapPaged = nhap.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
-  const xuatPaged = xuat.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
+  // Đơn vị GỐC của mã hàng (ram/tờ…) — nhãn cho MỌI số theo đơn vị lô (SL nhập/xuất/chuyển).
+  // Cột "SL yêu cầu" thì theo đơn vị NGƯỜI XIN (dvt_yeu_cau, có thể khác) — ghi riêng từng dòng.
+  const dvtGoc = tenDonVi(data?.dvt) ?? data?.dvt ?? "";
+  const dvtYeuCau = (ma?: string | null) => (ma ? tenDonVi(ma) ?? ma : dvtGoc);
   // Dòng XUẤT chỉ mang `lot_id`; vị trí + HSD nằm ở LÔ. `nhap` đã chứa MỌI lô của mặt hàng (kể cả
   // lô đã hết) nên tra ngay tại chỗ — không phải gọi thêm API chỉ để hiện hai cột.
   const lotById = useMemo(() => new Map(nhap.map((l) => [l.id, l])), [nhap]);
+  // TÁCH điều chuyển ra tab riêng: tab Nhập/Xuất chỉ còn NHẬP/XUẤT THƯỜNG; tab "Chuyển kho" gộp cả
+  // hai chiều — lô NHẬN VỀ (lô sinh từ phiếu điều chuyển) + dòng CHUYỂN ĐI (dòng xuất điều chuyển).
+  const nhapThuong = useMemo(() => nhap.filter((l) => !l.dieu_chuyen), [nhap]);
+  const xuatThuong = useMemo(() => xuat.filter((r) => !r.dieu_chuyen), [xuat]);
+  const chuyenRows = useMemo(() => {
+    const ins = nhap
+      .filter((l) => l.dieu_chuyen)
+      .map((l) => ({
+        key: `in-${l.id}`,
+        dir: "in" as const,
+        ngay: l.ngay_nhap,
+        voucher_id: l.voucher_id,
+        voucher_ma: l.voucher_ma ?? l.ma_lo,
+        so_luong: l.sl_ban_dau,
+        don_gia: l.don_gia_nhap,
+        vi_tri: l.vi_tri,
+        hsd: l.hsd,
+      }));
+    const outs = xuat
+      .filter((r) => r.dieu_chuyen)
+      .map((r, i) => {
+        const lot = r.lot_id != null ? lotById.get(r.lot_id) : undefined;
+        return {
+          key: `out-${r.voucher_id}-${r.lot_id}-${i}`,
+          dir: "out" as const,
+          ngay: r.ngay,
+          voucher_id: r.voucher_id as number | null,
+          voucher_ma: r.voucher_ma,
+          so_luong: r.so_luong,
+          don_gia: r.don_gia,
+          vi_tri: lot?.vi_tri ?? null,
+          hsd: lot?.hsd ?? null,
+        };
+      });
+    // Mới nhất lên đầu (ngày giảm) — cùng hướng sắp xếp với tab Nhập/Xuất.
+    return [...ins, ...outs].sort((a, b) => (a.ngay < b.ngay ? 1 : a.ngay > b.ngay ? -1 : 0));
+  }, [nhap, xuat, lotById]);
+  // Tab "Lô tồn" = các lô CÒN TỒN (sl_con_lai > 0) — số lô đang thực sự có hàng của mã này tại kho.
+  const loTon = useMemo(() => nhap.filter((l) => l.sl_con_lai > 0), [nhap]);
+  const nhapPaged = nhapThuong.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
+  const xuatPaged = xuatThuong.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
+  const chuyenPaged = chuyenRows.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
+  const loTonPaged = loTon.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
 
   const cat = getCategory(material);
   const catLabel =
     cat === "giay"
-      ? "📄 GIẤY IN"
+      ? "GIẤY IN"
       : cat === "muc"
-      ? "🎨 MỰC IN"
+      ? "MỰC IN"
       : cat === "hoa_chat"
-      ? "🧪 HÓA CHẤT"
-      : "📦 VẬT TƯ IN";
+      ? "HÓA CHẤT"
+      : "VẬT TƯ IN";
+  // Icon chủng loại — DÙNG LẠI bộ lucide của bảng tồn (Layers/Droplets/FlaskConical/Box) thay cho
+  // emoji ở kicker, để cả màn chỉ một bộ icon (không lẫn emoji OS-render).
+  const CatIcon =
+    cat === "giay" ? Layers : cat === "muc" ? Droplets : cat === "hoa_chat" ? FlaskConical : Box;
 
   return (
     <>
@@ -1465,7 +1548,12 @@ function MaterialHistoryDrawer({
           {/* Drawer Header */}
           <header className="rc-drawer__head" style={{ borderBottom: "1px solid var(--rule-soft)", paddingBottom: 16 }}>
             <div>
-              <div className="rc-drawer__kicker" style={{ color: "var(--ash-2)", fontWeight: 600 }}>{catLabel}</div>
+              <div
+                className="rc-drawer__kicker"
+                style={{ color: "var(--ash-2)", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}
+              >
+                <CatIcon style={{ width: 13, height: 13 }} aria-hidden="true" /> {catLabel}
+              </div>
               <h2 className="rc-drawer__title" style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>
                 {material.name ?? material.code ?? "—"}
               </h2>
@@ -1509,8 +1597,13 @@ function MaterialHistoryDrawer({
                   ) : (
                     <div className="kho-qr-card__loading">Đang tạo mã…</div>
                   )}
-                  <button type="button" className="kho-qr-card__btn" onClick={printQr}>
-                    🖨 In Tem QR dán kệ
+                  <button
+                    type="button"
+                    className="kho-qr-card__btn"
+                    onClick={printQr}
+                    style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                  >
+                    <Printer style={{ width: 13, height: 13 }} aria-hidden="true" /> In Tem QR dán kệ
                   </button>
                 </div>
               )}
@@ -1580,8 +1673,9 @@ function MaterialHistoryDrawer({
                     <span className="hero-stock-num">{fmtQty(data?.on_hand ?? material.total)}</span>
                     <span className="hero-stock-dvt">{material.dvt ?? "đvt"}</span>
                   </div>
+                  {/* CHỈ một chỉ báo trạng thái: StockLevelChip đã tự mang chấm kho-dot--* + chữ.
+                      Bỏ đèn LED chói/glow cạnh nó (hai thứ cùng nói một trạng thái). */}
                   <div className="hero-status-row">
-                    <span className={`status-led status-led--${material.level ?? "unset"}`} />
                     {material.level ? (
                       <StockLevelChip level={material.level} />
                     ) : (
@@ -1611,7 +1705,11 @@ function MaterialHistoryDrawer({
                         <tr key={s.supplier_item_id} className={isCheapest ? "is-best-price" : ""}>
                           <td>
                             <b>{s.supplier_name}</b>
-                            {isCheapest && <span className="supplier-best-badge">🏆 Rẻ nhất</span>}
+                            {isCheapest && (
+                              <span className="supplier-best-badge">
+                                <Check style={{ width: 12, height: 12 }} aria-hidden="true" /> Rẻ nhất
+                              </span>
+                            )}
                           </td>
                           <td className="rc__muted">{s.unit_price.toLocaleString("vi-VN")} đ/{s.unit_ten ?? s.unit}</td>
                           <td className="kho-num">
@@ -1630,8 +1728,10 @@ function MaterialHistoryDrawer({
               {(
                 [
                   ["tong_quan", "Tổng quan"],
-                  ["nhap", `Lịch sử nhập (${nhap.length})`],
-                  ["xuat", `Lịch sử xuất (${xuat.length})`],
+                  ["lo_ton", `Lô tồn (${loTon.length})`],
+                  ["nhap", `Lịch sử nhập (${nhapThuong.length})`],
+                  ["xuat", `Lịch sử xuất (${xuatThuong.length})`],
+                  ["chuyen", `Lịch sử chuyển kho (${chuyenRows.length})`],
                 ] as const
               ).map(([id, label]) => (
                 <button
@@ -1664,8 +1764,56 @@ function MaterialHistoryDrawer({
               onHand={data?.on_hand ?? material.total}
               data={data}
             />
+          ) : tab === "lo_ton" ? (
+            loTon.length === 0 ? (
+              <p className="kho-hint">Không còn lô nào tồn cho vật tư này.</p>
+            ) : (
+              <div className="kho-lines__wrap">
+                <table className="kho-lines">
+                  <thead>
+                    <tr>
+                      <th style={{ minWidth: 130 }}>Phiếu</th>
+                      <th style={{ width: 96 }}>Ngày nhập</th>
+                      <th className="kho-num">Còn lại</th>
+                      <th style={{ minWidth: 96 }}>Vị trí</th>
+                      <th style={{ width: 96 }}>HSD</th>
+                      {canViewCost && <th className="kho-num">Đơn giá</th>}
+                      {canViewCost && <th className="kho-num">Giá trị</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loTonPaged.map((lot) => (
+                      <tr key={lot.id}>
+                        <td className="kho-lines__code">
+                          {lot.voucher_id != null ? (
+                            <CodeLink
+                              code={lot.voucher_ma ?? lot.ma_lo}
+                              onOpen={() => onOpenVoucher(lot.voucher_id!)}
+                            />
+                          ) : (
+                            "Đầu kỳ"
+                          )}
+                        </td>
+                        <td className="kho-lines__code">{fmtDateISO(lot.ngay_nhap)}</td>
+                        <td className="kho-num">{`${fmtQty(lot.sl_con_lai)} ${dvtGoc}`.trim()}</td>
+                        <td className="kho-lines__vt">{lot.vi_tri ?? "—"}</td>
+                        <HsdCell hsd={lot.hsd} />
+                        {canViewCost && (
+                          <td className="kho-num">{money(lot.don_gia_nhap ?? 0)}</td>
+                        )}
+                        {canViewCost && (
+                          <td className="kho-num">
+                            {money(Math.round(lot.sl_con_lai * (lot.don_gia_nhap ?? 0)))}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
           ) : tab === "nhap" ? (
-            nhap.length === 0 ? (
+            nhapThuong.length === 0 ? (
               <p className="kho-hint">Chưa có lô nhập nào cho vật tư này.</p>
             ) : (
               <div className="kho-lines__wrap">
@@ -1698,9 +1846,11 @@ function MaterialHistoryDrawer({
                         </td>
                         <td className="kho-lines__code">{fmtDateISO(lot.ngay_nhap)}</td>
                         <td className="kho-num">
-                          {lot.sl_de_nghi != null ? fmtQty(lot.sl_de_nghi) : "—"}
+                          {lot.sl_de_nghi != null
+                            ? `${fmtQty(lot.sl_de_nghi)} ${dvtYeuCau(lot.dvt_yeu_cau)}`.trim()
+                            : "—"}
                         </td>
-                        <td className="kho-num">{fmtQty(lot.sl_ban_dau)}</td>
+                        <td className="kho-num">{`${fmtQty(lot.sl_ban_dau)} ${dvtGoc}`.trim()}</td>
                         {/* Vị trí là dữ liệu ĐÃ CHỐT sau ghi sổ → CHỈ hiển thị, không cho sửa.
                             KHÔNG dùng .kho-lines__code (11px/xám — class đó dành cho MÃ): đây là
                             cột thủ kho đọc rồi cầm xuống kho, phải rõ như các cột số. */}
@@ -1715,7 +1865,8 @@ function MaterialHistoryDrawer({
                 </table>
               </div>
             )
-          ) : xuat.length === 0 ? (
+          ) : tab === "xuat" ? (
+            xuatThuong.length === 0 ? (
             <p className="kho-hint">Chưa có lần xuất nào cho vật tư này.</p>
           ) : (
             <div className="kho-lines__wrap">
@@ -1749,9 +1900,11 @@ function MaterialHistoryDrawer({
                       </td>
                       <td className="kho-lines__code">{fmtDateISO(r.ngay)}</td>
                       <td className="kho-num">
-                        {r.sl_de_nghi != null ? fmtQty(r.sl_de_nghi) : "—"}
+                        {r.sl_de_nghi != null
+                          ? `${fmtQty(r.sl_de_nghi)} ${dvtYeuCau(r.dvt_yeu_cau)}`.trim()
+                          : "—"}
                       </td>
-                      <td className="kho-num">{fmtQty(r.so_luong)}</td>
+                      <td className="kho-num">{`${fmtQty(r.so_luong)} ${dvtGoc}`.trim()}</td>
                       <td className="kho-lines__vt">{lot?.vi_tri ?? "—"}</td>
                       <HsdCell hsd={lot?.hsd} />
                       {canViewCost && (
@@ -1765,13 +1918,78 @@ function MaterialHistoryDrawer({
                 </tbody>
               </table>
             </div>
+          )
+          ) : chuyenRows.length === 0 ? (
+            <p className="kho-hint">Chưa có lần chuyển kho nào cho vật tư này.</p>
+          ) : (
+            <div className="kho-lines__wrap">
+              <table className="kho-lines">
+                <thead>
+                  <tr>
+                    <th style={{ minWidth: 130 }}>Số phiếu</th>
+                    <th style={{ width: 96 }}>Ngày</th>
+                    <th style={{ minWidth: 100 }}>Chiều</th>
+                    <th className="kho-num">Số lượng</th>
+                    <th style={{ minWidth: 96 }}>Vị trí</th>
+                    <th style={{ width: 96 }}>HSD</th>
+                    {canViewCost && <th className="kho-num">Giá trị</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {chuyenPaged.map((r) => (
+                    <tr key={r.key}>
+                      <td className="kho-lines__code">
+                        {r.voucher_id != null ? (
+                          <CodeLink
+                            code={r.voucher_ma ?? "—"}
+                            onOpen={() => onOpenVoucher(r.voucher_id!)}
+                          />
+                        ) : (
+                          r.voucher_ma ?? "—"
+                        )}
+                      </td>
+                      <td className="kho-lines__code">{fmtDateISO(r.ngay)}</td>
+                      {/* Chiều điều chuyển ở góc nhìn của KHO NÀY: nhận về (là kho đích) / chuyển đi
+                          (là kho nguồn). Text tự rõ nghĩa nên giữ màu trung tính, không tô đỏ/xanh. */}
+                      <td className="rc__nowrap">
+                        <span style={{ fontSize: 12, color: "var(--ash)" }}>
+                          {r.dir === "in" ? "⇄ nhận về" : "⇄ chuyển đi"}
+                        </span>
+                      </td>
+                      <td className="kho-num">{`${fmtQty(r.so_luong)} ${dvtGoc}`.trim()}</td>
+                      <td className="kho-lines__vt">{r.vi_tri ?? "—"}</td>
+                      <HsdCell hsd={r.hsd} />
+                      {canViewCost && (
+                        <td className="kho-num">
+                          {r.don_gia != null ? money(Math.round(r.don_gia * r.so_luong)) : ""}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           {!loading &&
             tab !== "tong_quan" &&
-            (tab === "nhap" ? nhap.length : xuat.length) > DRAWER_PAGE && (
+            (tab === "nhap"
+              ? nhapThuong.length
+              : tab === "xuat"
+                ? xuatThuong.length
+                : tab === "lo_ton"
+                  ? loTon.length
+                  : chuyenRows.length) > DRAWER_PAGE && (
               <DrawerPager
                 page={page}
-                total={tab === "nhap" ? nhap.length : xuat.length}
+                total={
+                  tab === "nhap"
+                    ? nhapThuong.length
+                    : tab === "xuat"
+                      ? xuatThuong.length
+                      : tab === "lo_ton"
+                        ? loTon.length
+                        : chuyenRows.length
+                }
                 pageSize={DRAWER_PAGE}
                 onPage={setPage}
               />
@@ -1857,6 +2075,8 @@ function DieuChuyenDialog({
       items.map((it) => [keyOf(it), it.tonKhaDung > 0 ? String(it.tonKhaDung) : ""]),
     ),
   );
+  // Vị trí cất ở KHO ĐÍCH (kệ/ô) — tuỳ chọn, khai ngay lúc ấn; áp cho mọi lô của mặt hàng.
+  const [viTri, setViTri] = useState<Record<string, string>>({});
   const [ghiChu, setGhiChu] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1891,6 +2111,7 @@ function DieuChuyenDialog({
           hang_loai: x.it.hang_loai,
           hang_id: x.it.hang_id,
           so_luong: x.sl,
+          vi_tri: (viTri[keyOf(x.it)] ?? "").trim() || null,
         })),
         ghi_chu: ghiChu.trim() || null,
       });
@@ -1944,6 +2165,7 @@ function DieuChuyenDialog({
               <th style={{ minWidth: 160 }}>Vật tư</th>
               <th className="kho-num">Tồn khả dụng</th>
               <th className="kho-num" style={{ width: 140 }}>SL chuyển</th>
+              <th style={{ width: 160 }}>Vị trí (kho đích)</th>
             </tr>
           </thead>
           <tbody>
@@ -1964,6 +2186,15 @@ function DieuChuyenDialog({
                       value={qty[k] ?? ""}
                       onChange={(e) => setQty((prev) => ({ ...prev, [k]: e.target.value }))}
                       aria-label={`SL chuyển ${it.ten}`}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="rc-input"
+                      value={viTri[k] ?? ""}
+                      onChange={(e) => setViTri((prev) => ({ ...prev, [k]: e.target.value }))}
+                      placeholder="kệ / ô… (tuỳ chọn)"
+                      aria-label={`Vị trí ${it.ten}`}
                     />
                   </td>
                 </tr>
@@ -2031,7 +2262,9 @@ function MaterialOverview({
   // Tổng nhập/xuất toàn thời gian từ data.
   const totalNhap = (data?.nhap ?? []).reduce((s, l) => s + l.sl_ban_dau, 0);
   const totalXuat = (data?.xuat ?? []).reduce((s, r) => s + r.so_luong, 0);
-  const loHetHang = lots.filter((l) => l.sl_con_lai <= 0).length;
+  // Đếm lô ĐÃ XUẤT HẾT từ `data.nhap` (con_hang=false → có cả lô `empty`); KHÔNG dùng `material.lots`
+  // vì mảng đó đã lọc bỏ lô hết (sl_con_lai>0) nên đếm ở đó luôn ra 0.
+  const loHetHang = (data?.nhap ?? []).filter((l) => l.sl_con_lai <= 0).length;
 
   // Biểu đồ cột nhập/xuất 12 tháng gần nhất (Recharts Composed Chart + Area Gradient)
   const monthlyChart = useMemo(() => {
@@ -2102,11 +2335,15 @@ function MaterialOverview({
               BIỂU ĐỒ NHẬP / XUẤT 12 THÁNG GẦN NHẤT
             </div>
             <div className="recharts-pills-row">
-              <span className="pill-stat pill-stat--nhap">🟢 Nhập: {fmtQty(totalNhap)} {dvt ?? ""}</span>
-              <span className="pill-stat pill-stat--xuat">🔴 Xuất: {fmtQty(totalXuat)} {dvt ?? ""}</span>
+              <span className="pill-stat pill-stat--nhap">
+                <span className="kho-dot" aria-hidden="true" /> Nhập: {fmtQty(totalNhap)} {dvt ?? ""}
+              </span>
+              <span className="pill-stat pill-stat--xuat">
+                <span className="kho-dot" aria-hidden="true" /> Xuất: {fmtQty(totalXuat)} {dvt ?? ""}
+              </span>
               {peakMonth && (
                 <span className="pill-stat pill-stat--peak">
-                  💡 Cao nhất: {peakMonth.monthLabel} ({fmtQty(peakMonth.val)} {dvt ?? ""})
+                  Cao nhất: {peakMonth.monthLabel} ({fmtQty(peakMonth.val)} {dvt ?? ""})
                 </span>
               )}
             </div>
@@ -2116,9 +2353,11 @@ function MaterialOverview({
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={monthlyChart} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                 <defs>
+                  {/* Nhập = moss (#2f5d3a, ĐÚNG --moss), Xuất = rust (#c5400a, ĐÚNG --rust): cặp
+                      màu chuẩn của phân hệ kho — KHÔNG dùng xanh chói #22c55e off-palette. */}
                   <linearGradient id="nhapGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.5} />
-                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.05} />
+                    <stop offset="5%" stopColor="#2f5d3a" stopOpacity={0.9} />
+                    <stop offset="95%" stopColor="#2f5d3a" stopOpacity={0.3} />
                   </linearGradient>
                   <linearGradient id="xuatGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#c5400a" stopOpacity={0.9} />
@@ -2136,7 +2375,7 @@ function MaterialOverview({
                         <div className="custom-recharts-tooltip">
                           <div className="custom-recharts-tooltip__title">Tháng {label}</div>
                           {payload.map((entry, idx) => (
-                            <div key={idx} className="custom-recharts-tooltip__row" style={{ color: entry.name === "nhap" ? "#22c55e" : "#c5400a" }}>
+                            <div key={idx} className="custom-recharts-tooltip__row" style={{ color: entry.name === "nhap" ? "#6f9e79" : "#e8996a" }}>
                               <span>{entry.name === "nhap" ? "Nhập kho:" : "Xuất kho:"}</span>
                               <b>{fmtQty(Number(entry.value))} {dvt ?? ""}</b>
                             </div>
@@ -2147,7 +2386,8 @@ function MaterialOverview({
                     return null;
                   }}
                 />
-                <Area type="monotone" dataKey="nhap" name="nhap" fill="url(#nhapGrad)" stroke="#22c55e" strokeWidth={2.5} />
+                {/* Nhập + Xuất CÙNG dạng cột (grouped bars) → cân xứng, dễ so sánh từng tháng. */}
+                <Bar dataKey="nhap" name="nhap" fill="url(#nhapGrad)" stroke="#2f5d3a" radius={[4, 4, 0, 0]} barSize={14} />
                 <Bar dataKey="xuat" name="xuat" fill="url(#xuatGrad)" stroke="#c5400a" radius={[4, 4, 0, 0]} barSize={14} />
               </ComposedChart>
             </ResponsiveContainer>

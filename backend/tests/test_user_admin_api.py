@@ -70,7 +70,7 @@ def test_account_created_via_employee_can_login(client):
     token = _admin_token(client)
     client.post(
         "/api/employees",
-        json={
+        json={"probation_end_date": "2025-12-31",
             "full_name": "U tự đặt", "department_id": _dept_id("Kinh doanh"),
             "hire_date": "2024-01-15",
             "account": {"username": "u-custom-pw", "password": "MyPass2026"},
@@ -85,7 +85,7 @@ def test_account_short_password_rejected(client):
     token = _admin_token(client)
     r = client.post(
         "/api/employees",
-        json={
+        json={"probation_end_date": "2025-12-31",
             "full_name": "U ngắn", "department_id": _dept_id("Kinh doanh"),
             "hire_date": "2024-01-15",
             "account": {"username": "u-short-pw", "password": "123"},
@@ -100,7 +100,7 @@ def _make_target(client, token, username="target-1") -> int:
     Gán sẵn vai trò trong Kinh doanh để quan sát được việc đổi phòng làm rớt vai trò."""
     created = client.post(
         "/api/employees",
-        json={
+        json={"probation_end_date": "2025-12-31",
             "full_name": "Người Mục Tiêu",
             "department_id": _dept_id("Kinh doanh"),
             "hire_date": "2024-01-15",

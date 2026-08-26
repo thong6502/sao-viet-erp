@@ -48,6 +48,7 @@ from ..schemas.stock import (
     StockVoucherAttachmentListOut,
     StockVoucherAttachmentOut,
     StockVoucherCancel,
+    StockVoucherViTriIn,
     StockVoucherCreate,
     StockVoucherLineOut,
     StockVoucherOut,
@@ -59,6 +60,8 @@ from ..services.rbac_service import AuthorizationService
 from ..services.sequence_service import SequenceService
 from ..services.stock_request_service import StockRequestService
 from ..services.stock_voucher_service import StockVoucherError, StockVoucherService
+
+from ..services.delivery_notify import bao_tai_xe_kho_lap_phieu
 
 router = APIRouter(prefix="/api/kho/phieu", tags=["kho-phieu"])
 # Ngưỡng tồn để PREFIX RIÊNG, không nhét dưới /phieu: `/phieu/nguong` là path 1 đoạn nên sẽ
@@ -177,6 +180,8 @@ def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
                 sl_goc=float(ln.sl_goc),
                 don_vi_goc=goc_map.get(key),
                 ghi_chu=ln.ghi_chu,
+                hsd=ln.hsd,   # HSD đích danh theo lô (phiếu điều chuyển hiện được); không phải tiền → không ẩn
+                vi_tri=ln.vi_tri,   # vị trí cất lô — phiếu điều chuyển khai/hiện per-lô
                 don_gia=unit if can_view_cost else None,
                 thanh_tien=thanh_tien if can_view_cost else None,
             ))
@@ -319,6 +324,10 @@ def create_voucher(
         )
     except StockVoucherError as e:
         raise _err(e) from None
+    # Yêu cầu của GIAO HÀNG thì báo tài xế "kho soạn xong, tới lấy được" — mốc đó chỉ kho biết.
+    # Toàn bộ logic ở `services/delivery_notify`; hàm đó tự nuốt lỗi nên không cần `try` ở đây và
+    # không đường nào làm hỏng việc lập phiếu.
+    bao_tai_xe_kho_lap_phieu(db, payload.request_id, getattr(v, "ma", None))
     return _serialize(v, svc=svc, db=db, can_view_cost=authz.can(user, MODULE, "view_cost"))
 
 
@@ -365,6 +374,21 @@ def update_lot_vi_tri(
     return {"id": lot.id, "vi_tri": lot.vi_tri}
 
 
+@router.patch("/{voucher_id}/vi-tri")
+def set_voucher_vi_tri(
+    voucher_id: int, payload: StockVoucherViTriIn, svc: Service,
+    # Khai VỊ TRÍ cất lô cho DÒNG phiếu NHẬP còn NHÁP — dùng cho phiếu ĐIỀU CHUYỂN đích dựng sẵn
+    # (không có form nhập vị trí). Ghi sổ chép sang lô. Đã ghi sổ → sửa ở lô (`/lo/{id}/vi-tri`).
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+):
+    """Khai vị trí cất lô cho dòng phiếu nhập còn nháp (trước khi ghi sổ)."""
+    try:
+        svc.set_draft_line_vi_tri(voucher_id, [ln.model_dump() for ln in payload.lines])
+    except StockVoucherError as e:
+        raise _err(e) from None
+    return {"ok": True}
+
+
 # --- Lô & gợi ý phân bổ ------------------------------------------------------
 
 @router.get("/lo/goi-y", response_model=AllocationOut)
@@ -398,9 +422,9 @@ def dieu_chuyen(
     payload: DieuChuyenIn, svc: Service, authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
 ) -> DieuChuyenOut:
-    """Ấn điều chuyển 1 HAY NHIỀU mặt hàng kho nguồn → kho đích (gộp vào MỘT yêu cầu). Server tự
-    XUẤT nguồn (ghi sổ NGAY, trừ tồn, chốt giá vốn bình quân) + tạo YÊU CẦU ĐIỀU CHUYỂN (NHẬP) ở
-    đích cho kho đích lập MỘT phiếu nhận."""
+    """Ấn điều chuyển 1 HAY NHIỀU mặt hàng kho nguồn → kho đích (gộp vào MỘT yêu cầu). Server tự tạo
+    phiếu XUẤT nguồn NHÁP + YÊU CẦU ĐIỀU CHUYỂN (NHẬP) ở đích + phiếu NHẬP đích DỰNG SẴN (khoá giá
+    vốn + HSD đích danh theo TỪNG LÔ). Kho đích chỉ ghi sổ phiếu nhập → trừ nguồn + cộng đích cùng nhịp."""
     try:
         res = svc.dieu_chuyen(
             user=user, kho_nguon_id=payload.kho_nguon_id, kho_den_id=payload.kho_den_id,
@@ -408,14 +432,30 @@ def dieu_chuyen(
         )
     except StockVoucherError as e:
         raise _err(e) from None
-    yc, px = res["yeu_cau"], res["phieu_xuat"]
+    yc, px, pn = res["yeu_cau"], res["phieu_xuat"], res["phieu_nhap"]
     return DieuChuyenOut(
         yeu_cau_id=yc.id, yeu_cau_ma=yc.ma,
         phieu_xuat_id=px.id, phieu_xuat_ma=px.ma,
+        phieu_nhap_id=pn.id, phieu_nhap_ma=pn.ma,
         kho_nguon_id=payload.kho_nguon_id, kho_den_id=payload.kho_den_id,
         so_dong=len(payload.items),
         gia_von=res["gia_von"] if authz.can(user, MODULE, "view_cost") else None,
     )
+
+
+@dieu_chuyen_router.post("/{req_id}/huy", status_code=status.HTTP_204_NO_CONTENT)
+def huy_dieu_chuyen(
+    req_id: int, payload: StockVoucherCancel, svc: Service,
+    # Hủy CẢ phiếu điều chuyển khi CHƯA ghi sổ: hủy 2 phiếu con (nháp) + đóng 2 yêu cầu. Cùng quyền
+    # lập phiếu (create). Đã ghi sổ → 400 (sửa sai bằng điều chuyển ngược). `req_id` = đầu mối phiếu
+    # điều chuyển = yêu cầu NHẬP đích.
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+):
+    """Hủy phiếu điều chuyển (spec-phieu-dieu-chuyen §5) — chỉ khi chưa ghi sổ."""
+    try:
+        svc.huy_dieu_chuyen(req_id, payload.ly_do)
+    except StockVoucherError as e:
+        raise _err(e) from None
 
 
 # --- Xuất Excel Báo cáo Kho ---
@@ -632,9 +672,10 @@ def material_history(
     # NHẬP = mọi lô của mặt hàng tại kho (con_hang=False để giữ cả lô đã xuất hết), FIFO theo ngày.
     lots = svc.lots.list_lots(hang=hang, kho_id=kho_id, con_hang=False)
     # Mã phiếu NHẬP của từng lô (hiển thị lô THEO PHIẾU thay mã lô kỹ thuật) — nạp 1 lượt, tránh N+1.
-    voucher_ma_map = svc.vouchers.ma_by_ids(
-        list({lot.voucher_id for lot in lots if lot.voucher_id is not None})
-    )
+    voucher_ids = list({lot.voucher_id for lot in lots if lot.voucher_id is not None})
+    voucher_ma_map = svc.vouchers.ma_by_ids(voucher_ids)
+    # Lô sinh từ phiếu ĐIỀU CHUYỂN → gắn cờ để FE tách tab "Chuyển kho" (nhận về) khỏi Nhập thường.
+    dc_voucher_ids = svc.vouchers.dieu_chuyen_by_ids(voucher_ids)
     # SL yêu cầu của từng lô NHẬP (nối lô → dòng phiếu NHẬP → dòng yêu cầu) — nạp 1 lượt, tránh N+1.
     sl_de_nghi_map = svc.vouchers.sl_de_nghi_by_lot(lots)
     nhap: list[StockLotOut] = []
@@ -645,8 +686,12 @@ def material_history(
         row.dvt = dvt
         row.voucher_ma = voucher_ma_map.get(lot.voucher_id) if lot.voucher_id else None
         row.don_gia_nhap = int(lot.don_gia_nhap or 0) if can_view_cost else None
-        # SL yêu cầu KHÔNG phải tiền → luôn hiện (không gate theo can_view_cost).
-        row.sl_de_nghi = sl_de_nghi_map.get(lot.id)
+        # SL yêu cầu KHÔNG phải tiền → luôn hiện (không gate theo can_view_cost). Kèm ĐƠN VỊ người
+        # xin (có thể khác đơn vị gốc của lô) để lịch sử ghi rõ đơn vị cột "SL yêu cầu".
+        sl_dvt = sl_de_nghi_map.get(lot.id)
+        row.sl_de_nghi = sl_dvt[0] if sl_dvt else None
+        row.dvt_yeu_cau = sl_dvt[1] if sl_dvt else None
+        row.dieu_chuyen = lot.voucher_id in dc_voucher_ids if lot.voucher_id else False
         nhap.append(row)
 
     # XUẤT = dòng phiếu xuất đã ghi sổ (đích danh lô); giá vốn = giá lô, ẩn nếu thiếu quyền.
@@ -655,8 +700,9 @@ def material_history(
         MaterialXuatRow(
             ngay=r["ngay"], voucher_id=r["voucher_id"], voucher_ma=r["voucher_ma"],
             lot_id=r["lot_id"], ma_lo=r["ma_lo"], so_luong=r["so_luong"],
-            sl_de_nghi=r["sl_de_nghi"],
+            sl_de_nghi=r["sl_de_nghi"], dvt_yeu_cau=r["dvt_yeu_cau"],
             don_gia=r["don_gia"] if can_view_cost else None,
+            dieu_chuyen=r["dieu_chuyen"],
         )
         for r in svc.vouchers.xuat_history(hang, kho_id)
     ]

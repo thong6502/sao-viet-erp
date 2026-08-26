@@ -20,6 +20,7 @@ import {
   type Xl2VatTuTomTat, type Xl2XemTruoc, type XepLichGoiY,
 } from "../api/client";
 import { crud, type Row } from "../api/rebuildCatalog";
+import { tagTone } from "../lib/tagTone";
 import { useDebounced } from "../utils/useDebounced";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
@@ -82,9 +83,29 @@ const QFILTERS: { key: Xl2QLoc; label: string }[] = [
   { key: "gap", label: "Gấp" },
 ];
 const MOI_TRANG = 50; // dòng / trang hàng chờ (cắt trang Ở MÁY CHỦ)
+// Khối "Gợi ý khe rảnh thông minh" trong ngăn kéo bước — user yêu cầu ẨN 25/08/2026.
+// Giữ nguyên mã (state + `onGoiYKhe` + API) để bật lại chỉ bằng một chữ `true`.
+const HIEN_GOI_Y_KHE = false;
+// Khối "Gợi ý máy" (thẻ máy + "N máy không vào được danh sách") — cũng ẩn theo yêu cầu 25/08/2026.
+const HIEN_GOI_Y_MAY = false;
 
 const mucBarCls = (m: Xl2Muc): "dat" | "ph" | "warn" =>
   m === "chan_dat_lich" ? "dat" : m === "chan_phat_hanh" ? "ph" : "warn";
+
+// Câu toast khi cửa PHÁT HÀNH chặn. Backend trả `{loai:"chan_dat_lich", van_de:[...]}` (object) nên
+// `ApiError.message` chỉ còn "Request failed (409)." — đọc xong không biết gỡ cái gì. Từ 25/08/2026
+// phát hành đi CHUNG MỘT CỬA với dải chân (`kiem_phat_hanh`) nên danh sách này đúng bằng danh sách
+// đang bày trên bàn: kể tên vấn đề đầu + đếm phần còn lại là người xếp biết ngay chỗ phải sửa.
+function loiPhatHanh(e: unknown, macDinh: string): string {
+  const chan = xl2ChanDatLich(e);
+  if (chan && chan.length > 0) {
+    const dau = chan[0];
+    const ten = dau.doi_tuong ? `${dau.doi_tuong}: ` : "";
+    const them = chan.length > 1 ? ` (+${chan.length - 1} vấn đề nữa)` : "";
+    return `${macDinh} — ${ten}${dau.mo_ta}${them}`;
+  }
+  return e instanceof ApiError ? e.message : macDinh;
+}
 
 // NHÂN LỰC CỦA BƯỚC — một chỗ tính, ba chỗ hiện (thẻ bước · hộp xác nhận · panel dòng đã xếp).
 // `so` là số BỐ TRÍ (kế hoạch) — đúng con số bàn xếp lịch cân quân số tổ; `db` là ba mốc định biên.
@@ -124,10 +145,14 @@ export function XepLich2Page({
   navigate,
   eventTick,
   onBadgeStale,
+  focusLsxMa,
 }: {
   navigate?: (id: string, params?: Record<string, unknown>) => void;
   eventTick?: number;
   onBadgeStale?: () => void;
+  /** Mã lệnh đi kèm khi tới đây bằng ĐÈN của màn Lệnh SX ("N bước chưa có giờ") — đổ thẳng vào ô
+   *  tìm của hàng chờ để người dùng thấy ngay lệnh vừa bấm, không phải dò giữa cả bàn. */
+  focusLsxMa?: string | null;
 }) {
   const { token } = useAuth();
   const can = useCan();
@@ -161,11 +186,15 @@ export function XepLich2Page({
   // (chip) đi thẳng vào API; `facets` (all/tre/gap) từ máy chủ. Chip "Xung đột" cũ đã BỎ — trùng
   // nghĩa với rổ "thiếu vật tư" đã hiện trực quan; "Chưa giờ" (§10.5) vô nghĩa với hàng chờ vì mọi
   // dòng ở đây đều chưa vào lịch ⇒ thay bằng "Gấp".
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(focusLsxMa ?? "");
   const qd = useDebounced(q, 200);
   const [qFilter, setQFilter] = useState<Xl2QLoc>("all");
   const [trang, setTrang] = useState(1);
   const [queueTab, setQueueTab] = useState<"all" | "xep" | "chan">("all");
+  // Bấm đèn ở màn Lệnh SX lần thứ hai (đang đứng sẵn ở đây) vẫn phải nhảy đúng lệnh mới.
+  useEffect(() => {
+    if (focusLsxMa) setQ(focusLsxMa);
+  }, [focusLsxMa]);
 
   // Chọn: THỰC THỂ (highlight cả chuỗi + đếm phát hành) và DÒNG (panel chi tiết).
   const [selEntity, setSelEntity] = useState<{ nguon: Xl2Nguon; id: number } | null>(null);
@@ -182,6 +211,7 @@ export function XepLich2Page({
   const [phIssues, setPhIssues] = useState<Xl2Issue[] | null>(null);
   const [phErr, setPhErr] = useState(false);
   const [goiPh, setGoiPh] = useState<Xl2GoiPhatHanh | null>(null);   // §4.3 trạng thái gói phát hành
+  const [showVerHist, setShowVerHist] = useState(false);   // xổ lịch sử phiên bản trong dải chân
 
   const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -438,6 +468,8 @@ export function XepLich2Page({
   //  (b) cả chuỗi THỰC THỂ đang chọn (từ kiểm phát hành);
   //  (c) DÒNG đang chọn (từ xem-trước) — nặng nhất về độ ưu tiên nên đặt cuối.
   const selEntityKey = selEntity ? entityKey(selEntity.nguon, selEntity.id) : null;
+  // Đổi thực thể đang chọn → gấp lịch sử phiên bản đang xổ (tránh treo dữ liệu của thực thể cũ).
+  useEffect(() => { setShowVerHist(false); }, [selEntityKey]);
   const barMuc = useMemo(() => {
     const m = new Map<number, Xl2Muc>();
     if (hlMuc && ban) {
@@ -643,7 +675,7 @@ export function XepLich2Page({
       setAskRelease(null);
       reloadAll();
     } catch (e) {
-      setToast({ text: e instanceof ApiError ? e.message : "Không phát hành được" });
+      setToast({ text: loiPhatHanh(e, "Không phát hành được") });
     } finally { setBusy(false); }
   }, [token, askRelease, reloadAll]);
 
@@ -676,7 +708,7 @@ export function XepLich2Page({
       setCapNhatReason("");
       reloadAll();
     } catch (e) {
-      setToast({ text: e instanceof ApiError ? e.message : "Không phát hành cập nhật được" });
+      setToast({ text: loiPhatHanh(e, "Không phát hành cập nhật được") });
     } finally { setBusy(false); }
   }, [token, askCapNhat, capNhatReason, reloadAll]);
 
@@ -1151,9 +1183,40 @@ export function XepLich2Page({
                   // ĐÃ phát hành: cửa đổi sang Phát hành cập nhật (§4.3) + Thu hồi (chặn nếu có việc đã bắt đầu).
                   <>
                     {goiPh.version_hien_tai != null && goiPh.version_hien_tai > 1 && (
-                      <span className="xl2-foot__count" title="Số phiên bản lịch đã phát hành">
-                        <Icon name="history" size={13} /> phiên bản <b>{goiPh.version_hien_tai}</b>
-                      </span>
+                      <div className="xl2-verhist">
+                        <button type="button" className="xl2-foot__count xl2-foot__count--btn"
+                          title="Xem lịch sử các lần phát hành cập nhật"
+                          aria-expanded={showVerHist}
+                          onClick={() => setShowVerHist((v) => !v)}>
+                          <Icon name="history" size={13} /> phiên bản <b>{goiPh.version_hien_tai}</b>
+                        </button>
+                        {showVerHist && (
+                          <div className="xl2-verhist__pop" role="dialog" aria-label="Lịch sử phiên bản">
+                            <div className="xl2-verhist__head">
+                              <span>Lịch sử phiên bản</span>
+                              <button type="button" className="xl2-verhist__x" aria-label="Đóng"
+                                onClick={() => setShowVerHist(false)}>
+                                <Icon name="x" size={13} />
+                              </button>
+                            </div>
+                            {goiPh.phien_bans && goiPh.phien_bans.length > 0 ? (
+                              <ul className="xl2-verhist__list">
+                                {[...goiPh.phien_bans].reverse().map((p) => (
+                                  <li key={p.so} className="xl2-verhist__item">
+                                    <div className="xl2-verhist__row">
+                                      <b>{p.loai === "cap_nhat" ? `Cập nhật · bản ${p.so}` : "Phát hành gốc"}</b>
+                                      <span className="xl2-verhist__khi">{ngayGio(p.luc)}</span>
+                                    </div>
+                                    {p.ly_do && <div className="xl2-verhist__lydo">{p.ly_do}</div>}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <div className="xl2-verhist__empty">Chưa có dữ liệu lịch sử.</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
                     <Button variant="ghost" disabled={!goiPh.cho_phep_thu_hoi}
                       title={goiPh.cho_phep_thu_hoi ? undefined : "Đã có việc bắt đầu — chỉ cập nhật được phần chưa bắt đầu"}
@@ -1353,6 +1416,18 @@ function QueueRow({
       {r.ten_san_pham && (
         <div className="xl2-qrow__product" title={r.ten_san_pham}>
           {r.ten_san_pham}
+        </div>
+      )}
+
+      {/* Hàng 2.5: Tên khách hàng + nhãn (customer_tags thật — Khó tính/Nhạy giá/Ưu tiên...) */}
+      {(r.ten_khach_hang || r.nhan_khach_hang.length > 0) && (
+        <div className="xl2-qrow__tags">
+          {r.ten_khach_hang && (
+            <span className="xl2-qrow__customer" title={r.ten_khach_hang}>{r.ten_khach_hang}</span>
+          )}
+          {r.nhan_khach_hang.map((t) => (
+            <span key={t} className={`xl2-tag xl2-tag--${tagTone(t)}`}>{t}</span>
+          ))}
         </div>
       )}
 
@@ -1866,7 +1941,7 @@ function bacDiem(d: number): "tot" | "kha" | "thuong" {
 // ============================ tự xếp lịch cả lệnh ==========================
 // Người kế hoạch bấm một nút, hệ tự chọn MÁY + GIỜ cho từng bước theo đúng thứ tự routing. Máy chỉ
 // GHI NHẬN đề xuất: mọi bước xếp xong vẫn hiện ra kèm câu vì-sao và các lưu ý, sửa tay lại được.
-function TuXepPanel({ ma, bc, kq, busy, loi, onChay }: {
+function TuXepPanel({ bc, kq, busy, loi, onChay }: {
   ma: string;
   bc: Xl2BoiCanh | null;
   kq: Xl2TuXep | null;
@@ -1883,16 +1958,12 @@ function TuXepPanel({ ma, bc, kq, busy, loi, onChay }: {
   return (
     <div className="xl2-psec xl2-tuxep">
       <div className="xl2-psec__h"><Icon name="zap" size={13} /> Tự xếp lịch cả lệnh</div>
-      <p className="xl2-note">
-        Hệ tự chọn máy · giờ cho {ma} theo đúng thứ tự bước, tính bằng thời lượng <b>trung bình</b>,
-        né trùng máy và vùng khoá máy. Lượt đầu trễ hạn SX thì chạy thêm một lượt ưu tiên máy nhanh nhất.
-      </p>
       <div className="xl2-tuxep__btns">
         <Button variant="accent" block disabled={khoa} onClick={() => onChay(false)}>
-          <Icon name="zap" size={14} /> {busy ? "Đang xếp…" : "Xếp các bước còn trống"}
+           {busy ? "Đang xếp…" : "Xếp các bước còn trống"}
         </Button>
         <Button variant="secondary" block disabled={khoa} onClick={() => onChay(true)}>
-          <Icon name="refresh" size={14} /> Xếp lại toàn bộ chuỗi
+           Xếp lại toàn bộ chuỗi
         </Button>
       </div>
       {ly && <p className="xl2-note">{ly}</p>}
@@ -2069,7 +2140,7 @@ function DongPanel({
         </div>
       )}
 
-      {canUpdate && !dong.is_locked && (
+      {HIEN_GOI_Y_KHE && canUpdate && !dong.is_locked && (
         <div className="xl2-psec">
           <div className="xl2-psec__h xl2-psec__h--flex">
             <span className="xl2-psec__h-left"><Icon name="cpu" size={13} /> Gợi ý khe rảnh thông minh</span>
@@ -2149,11 +2220,8 @@ function DongPanel({
         </div>
       )}
 
-      {goiY && canUpdate && !dong.is_locked && (goiY.goi_y_may.length > 0 || goiY.vi_sao_trong) && (
+      {HIEN_GOI_Y_MAY && goiY && canUpdate && !dong.is_locked && (goiY.goi_y_may.length > 0 || goiY.vi_sao_trong) && (
         <div className="xl2-psec">
-          <div className="xl2-psec__h">
-            <Icon name="activity" size={13} /> Gợi ý máy — xếp đúng thứ tự máy mà tự-xếp sẽ chọn
-          </div>
           <div className="xl2-goiy">
             {goiY.goi_y_may.map((g) => (
               <button key={g.may_id} type="button"

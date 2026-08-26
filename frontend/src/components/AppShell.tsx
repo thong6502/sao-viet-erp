@@ -22,6 +22,7 @@ import {
 import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
+import GiaoHangPage from "../pages/giao-hang/giao-hang";
 import { KeHoachSXPage } from "../pages/KeHoachSXPage";
 import { KeHoachVatTuPage } from "../pages/KeHoachVatTuPage";
 import { BaiGhep2Page } from "../pages/BaiGhep2Page";
@@ -32,16 +33,16 @@ import { PhieuBaoTriPage } from "../pages/PhieuBaoTriPage";
 import { kyThuatMay } from "../api/kyThuatMay";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { DashboardPage } from "../pages/DashboardPage";
-import { DepartmentsPage } from "../pages/DepartmentsPage";
+import { DepartmentsPage } from "../pages/nhan-su-luong/phong-ban";
 import { KhachHangPage } from "../pages/KhachHangPage";
 import { QuyTrinhKinhDoanhPage } from "../pages/QuyTrinhKinhDoanhPage";
-import { ChamCongPage } from "../pages/ChamCongPage";
-import { NghiPhepPage } from "../pages/NghiPhepPage";
-import { TangCaPage } from "../pages/TangCaPage";
-import { LuongPage } from "../pages/LuongPage";
-import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
-import { NoiQuyPage } from "../pages/NoiQuyPage";
-import { NhanSuPage } from "../pages/NhanSuPage";
+import { ChamCongPage } from "../pages/nhan-su-luong/cham-cong";
+import { NghiPhepPage } from "../pages/nhan-su-luong/nghi-phep";
+import { TangCaPage } from "../pages/nhan-su-luong/tang-ca";
+import { LuongPage } from "../pages/nhan-su-luong/luong";
+import { HoSoCuaToiPage } from "../pages/nhan-su-luong/ho-so-cua-toi";
+import { NoiQuyPage } from "../pages/nhan-su-luong/noi-quy";
+import { NhanSuPage } from "../pages/nhan-su-luong/nhan-su";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
 import { KhoTonKhoPage } from "../pages/KhoTonKhoPage";
 import { KhoPage } from "../pages/KhoPage";
@@ -50,15 +51,15 @@ import type { KhoNhapSeed } from "../pages/KhoDeNghiPage";
 
 // Danh mục rebuild (config .tsx — render pill JSX)
 import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
-import { DepartmentPurchaseRequestsPage } from "../pages/DepartmentPurchaseRequestsPage";
-import { PurchaseRequestsPage } from "../pages/PurchaseRequestsPage";
-import { SuppliersPage } from "../pages/SuppliersPage";
-import { AccountingPayablesPage } from "../pages/AccountingPayablesPage";
-import { AccountingReceivablesPage } from "../pages/AccountingReceivablesPage";
-import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPage";
-import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
-import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
-import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
+import { DepartmentPurchaseRequestsPage } from "../pages/mua-hang/yeu-cau-mua-hang";
+import { PurchaseRequestsPage } from "../pages/mua-hang/phieu-mua-hang";
+import { SuppliersPage } from "../pages/mua-hang/nha-cung-cap";
+import { AccountingPayablesPage } from "../pages/ke-toan/cong-no-phai-tra";
+import { AccountingReceivablesPage } from "../pages/ke-toan/cong-no-phai-thu";
+import { AccountingPurchaseInboxPage } from "../pages/ke-toan/don-mua-hang";
+import { PaymentVouchersPage } from "../pages/ke-toan/phieu-chi";
+import { PaymentReceiptsPage } from "../pages/ke-toan/phieu-thu";
+import { AccountingBankAccountsPage } from "../pages/ke-toan/tk-ngan-hang";
 import {
   AUTHENTICATED_NAV_IDS,
   MODULES_BY_NAV_ID,
@@ -322,7 +323,11 @@ export function AppShell() {
     }
     // Badge Chấm công: số phiếu ĐI MUỘN / VỀ SỚM chờ duyệt trong scope (null nếu không duyệt được).
     // Treo ở nav `cham-cong` vì tab phiếu nằm trong màn Chấm công, KHÔNG phải màn Tăng ca.
-    if (readable.has("di_muon")) {
+    // Gác bằng chính màn chứa badge (`cham_cong`), KHÔNG phải khoá cũ `di_muon` — khoá đó đã gộp
+    // về `cham_cong.approve_late_early` (mg 0212) và đang bị gỡ khỏi ma trận quyền. Ai được xem
+    // Chấm công thì hỏi; MÁY CHỦ mới là nơi quyết định có số hay không (trả null nếu không duyệt
+    // được), nên mở rộng cửa ở đây không lộ gì.
+    if (readable.has("cham_cong")) {
       api.lateEarly
         .summary(token)
         .then((s) => {
@@ -556,11 +561,26 @@ export function AppShell() {
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
     if (!token || readable === null || !coTheMoKenhSse(readable)) return;
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("cham_cong") || readable.has("thu_mua") || readable.has("yeu_cau_mua_hang") || readable.has("ke_toan") ||
+      readable.has("phieu_chi") || readable.has("phieu_thu") ||
+      // Tài xế thường CHỈ có ô `giao_hang` — không mở cổng ở đây thì họ không kết nối
+      // SSE, và mọi thông báo chuyến gửi cho họ rơi vào hư không.
+      readable.has("giao_hang"))) return;
 
     const close = connectQuoteEvents(token, (e) => {
       // Có thông báo mới vào chuông → refetch list + badge chuông (độc lập luồng badge module).
       if (e.type === "notification_new") {
         reloadNotifs();
+        return;
+      }
+      // Chuyến giao của CHÍNH tài xế này — máy chủ đẩy đích danh nên không lọc quyền lần nữa.
+      // Tài xế đang ở kho hoặc trên đường, không ngồi canh màn hình (CLAUDE.md: nội bộ = tức thì).
+      if (e.type === "giao_hang_chuyen") {
+        setQuoteTick((n) => n + 1);
+        pushToast(
+          String(e.message ?? "Chuyến giao của bạn vừa cập nhật."),
+          e.viec === "kho_xong" ? "ok" : "info",
+        );
         return;
       }
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
@@ -766,7 +786,7 @@ export function AppShell() {
           e.decision === "approved" ? "ok" : "warn",
         );
         reloadBadges();
-      } else if (readable.has("di_muon") && e.type === "el_pending_changed") {
+      } else if (readable.has("cham_cong") && e.type === "el_pending_changed") {
         // Có phiếu đi muộn mới/hủy → refetch số 'chờ duyệt'; toast khi TĂNG (người duyệt).
         // Badge treo ở nav "cham-cong" (tab phiếu nằm trong màn Chấm công).
         api.lateEarly
@@ -1159,6 +1179,9 @@ export function AppShell() {
         );
       case "don-hang-ban":
         return <DonHangBanPage navigate={navigate} openOrderId={navParams?.openOrderId ?? null} />;
+      case "giao-hang":
+        // `eventTick` tăng mỗi sự kiện SSE ⇒ bảng chuyến tự tươi, không phải F5.
+        return <GiaoHangPage eventTick={quoteTick} />;
       case "ke-hoach-sx":
         return (
           <KeHoachSXPage
@@ -1185,6 +1208,7 @@ export function AppShell() {
             navigate={navigate}
             eventTick={quoteTick}
             onBadgeStale={reloadBadges}
+            focusLsxMa={navParams?.focusLsxMa ?? null}
           />
         );
       case "sua-chua-may":

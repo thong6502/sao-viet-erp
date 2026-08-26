@@ -80,6 +80,26 @@ export function VoucherStatusBadge({ status }: { status: StockVoucherStatus }) {
   );
 }
 
+/** Trạng thái PHIẾU ĐIỀU CHUYỂN (mặt tiền là vế NHẬP đích): chờ kho đích ghi sổ · đã ghi sổ (hoàn
+ *  tất cả tuyến) · đã hủy. Nhãn RIÊNG so với phiếu thường ("Hoàn tất" thay "Đã ghi sổ"). */
+export type TransferStatus = "cho-ghi-so" | "hoan-tat" | "da-huy";
+
+const TRANSFER_STATUS: Record<TransferStatus, Tone> = {
+  "cho-ghi-so": { label: "Chờ ghi sổ", tone: "amber" },
+  "hoan-tat": { label: "Hoàn tất", tone: "moss" },
+  "da-huy": { label: "Đã hủy", tone: "muted" },
+};
+
+export function TransferStatusBadge({ status }: { status: TransferStatus }) {
+  const s = TRANSFER_STATUS[status];
+  return (
+    <span className={`badge-sem badge-sem--${s.tone}`}>
+      <span className={`status-dot status-dot--${s.tone}`} />
+      {s.label}
+    </span>
+  );
+}
+
 /** Nhãn ĐIỀU CHUYỂN — dán lên yêu cầu điều chuyển (NHẬP ở đích) để phân biệt với nhập/xuất thường.
  *  Kèm tên kho nguồn khi có ("Điều chuyển từ «kho»"). Dùng chung ở Hộp yêu cầu · Yêu cầu · drawer. */
 export function DieuChuyenPill({ khoNguonTen }: { khoNguonTen?: string | null }) {

@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { dvNhan, nhanGiaoNhan, type RefRow } from "../pages/LsxRoutingTable";
-import { type EditRow, n, phut, thoiLuong } from "../pages/lsxBuoc";
+import { type EditRow, n, phut, tenBuoc, thoiLuong } from "../pages/lsxBuoc";
 import { Icon } from "./Icons";
 import { LSX_LOAI_BUOC_META } from "../api/client";
 
@@ -12,6 +12,7 @@ export interface DagNodeCardProps {
   isSelected: boolean;
   isConnecting: boolean;
   isHoveredPort: "in" | "out" | null;
+  congDoanRefs: RefRow[] | null;
   toRefs: RefRow[] | null;
   mayRefs: RefRow[] | null;
   warnings: string[];
@@ -36,6 +37,7 @@ export function DagNodeCard({
   isSelected,
   isConnecting: _isConnecting,
   isHoveredPort,
+  congDoanRefs,
   toRefs,
   mayRefs,
   warnings,
@@ -111,8 +113,8 @@ export function DagNodeCard({
       {/* Header của Card */}
       <div className="dag-node__head">
         <span className="dag-node__seq">#{seqNumber}</span>
-        <span className="dag-node__title" title={row.ten}>
-          {row.ten || "Công đoạn"}
+        <span className="dag-node__title" title={tenBuoc(row, congDoanRefs)}>
+          {tenBuoc(row, congDoanRefs) || "Công đoạn"}
         </span>
 
         {maBaiGhep ? (

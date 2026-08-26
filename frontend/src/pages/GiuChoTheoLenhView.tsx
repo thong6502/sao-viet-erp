@@ -1,6 +1,5 @@
-// TAB THEO LỆNH SẢN XUẤT — NEXT-GEN MATERIAL COMMAND CENTER
-// Tích hợp Factory Readiness HUD, Interactive Material Stream Chips,
-// Dual View Modes (Stream Table ↔ Bento Cards), và Detail Drawer.
+// TAB THEO LỆNH SẢN XUẤT — cân đối vật tư và giữ chỗ theo từng lệnh.
+// Thanh lọc + tìm kiếm, hai chế độ xem (bảng dòng chảy ↔ thẻ), và drawer bóc tách.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError,
@@ -18,20 +17,26 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon, type IconName } from "../components/Icons";
 import { BangLoi, ChipGap, EmptyState, Skeleton, ngay, num } from "./keHoachSxShared";
-import { moTaPhieuMua, tomTatPhieuMua } from "./phieuMuaNhan";
+import { moTaPhieuMua, tomTatPhieuMua, vetDangKep } from "./phieuMuaNhan";
 
-/** Nhãn ngắn & màu cho trạng thái vật tư */
-const MAU_VATTU: Record<string, { label: string; cls: string; dotColor: string; bg: string; text: string }> = {
-  xam: { label: "Đã cấp", cls: "khvt-stream-chip--xam", dotColor: "#64748b", bg: "#f1f5f9", text: "#475569" },
-  xanh: { label: "Đủ tồn", cls: "khvt-stream-chip--xanh", dotColor: "#10b981", bg: "#ecfdf5", text: "#065f46" },
-  vang: { label: "Chờ hàng về", cls: "khvt-stream-chip--vang", dotColor: "#f59e0b", bg: "#fffbeb", text: "#92400e" },
-  do: { label: "Thiếu cần mua", cls: "khvt-stream-chip--do", dotColor: "#ef4444", bg: "#fef2f2", text: "#991b1b" },
-  khong_ro: { label: "Chưa rõ ĐVT", cls: "khvt-stream-chip--khongro", dotColor: "#94a3b8", bg: "#f8fafc", text: "#475569" },
-  ve_muon: { label: "Hàng về muộn", cls: "khvt-stream-chip--vemuon", dotColor: "#f97316", bg: "#fff7ed", text: "#9a3412" },
+/** Nhãn ngắn & màu cho trạng thái vật tư.
+ *  Màu lấy THẲNG từ biến hệ thống chứ không gõ mã hex tại chỗ — gõ tay thì màn này trôi khỏi bảng
+ *  màu chung, đúng cái đã xảy ra: nền/chữ ở đây từng là hệ Tailwind rời. Hai ô `bg`/`text` cũ không
+ *  nơi nào đọc (đã grep) nên bỏ; nền/chữ do lớp `cls` lo.
+ *  `dotColor` (chỉ dùng cho icon ở chế độ thẻ) trỏ vào bộ biến TRẠNG THÁI CHUNG `--kh-*` khai ở
+ *  ke-hoach-sx.css — cùng một nguồn với màn "Theo mặt hàng" để hai cách nhìn không lệch tông; các
+ *  trạng thái trung tính (đã cấp / đủ tồn / chưa rõ) giữ token đất cho chìm, chỉ tin xấu mới tươi. */
+const MAU_VATTU: Record<string, { label: string; cls: string; dotColor: string }> = {
+  xam: { label: "Đã cấp", cls: "khvt-stream-chip--xam", dotColor: "var(--ash-2)" },
+  xanh: { label: "Đủ tồn", cls: "khvt-stream-chip--xanh", dotColor: "var(--moss)" },
+  vang: { label: "Chờ hàng về", cls: "khvt-stream-chip--vang", dotColor: "var(--kh-canhbao-fg)" },
+  do: { label: "Thiếu cần mua", cls: "khvt-stream-chip--do", dotColor: "var(--kh-thieu-fg)" },
+  khong_ro: { label: "Chưa rõ ĐVT", cls: "khvt-stream-chip--khongro", dotColor: "var(--steel)" },
+  ve_muon: { label: "Hàng về muộn", cls: "khvt-stream-chip--vemuon", dotColor: "var(--kh-vemuon-fg)" },
 };
 
 function mauVatTu(mau: CanDoiMau) {
-  return MAU_VATTU[mau] ?? { label: String(mau), cls: "khvt-stream-chip--khongro", dotColor: "#94a3b8", bg: "#f8fafc", text: "#475569" };
+  return MAU_VATTU[mau] ?? { label: String(mau), cls: "khvt-stream-chip--khongro", dotColor: "var(--steel)" };
 }
 
 function iconLoaiHang(loai: HangLoai): IconName {
@@ -230,16 +235,12 @@ export function GiuChoTheoLenhView({
   const rows = data?.items ?? [];
   const tomTat = useMemo(
     () => ({
-      tong: rows.length,
       daGiu: rows.filter((r) => r.du).length,
       dangCho: rows.filter((r) => r.bat && !r.du).length,
       chuaBat: rows.filter((r) => !r.bat).length,
-      giuLau: rows.filter((r) => r.giu_lau_chua_chay).length,
     }),
     [rows],
   );
-
-  const readinessPct = tomTat.tong > 0 ? Math.round((tomTat.daGiu / tomTat.tong) * 100) : 0;
 
   const rowsHienThi = useMemo(() => {
     if (filterType === "du") return rows.filter((r) => r.du);
@@ -251,106 +252,7 @@ export function GiuChoTheoLenhView({
 
   return (
     <div className="khvt-view">
-      {/* ── 1. FACTORY READINESS HUD: BENTO COMMAND CARDS Ở ĐẦU TRANG ── */}
-      {data !== null && (
-        <section className="khvt-hud-grid" aria-label="Trung tâm chỉ huy sẵn sàng vật tư">
-          {/* Card 1: Tỷ lệ mở khóa xưởng */}
-          <div
-            className={`khvt-hud-card khvt-hud-card--readiness ${filterType === "du" ? "is-active" : ""}`}
-            onClick={() => setFilterType(filterType === "du" ? "all" : "du")}
-            role="button"
-            tabIndex={0}
-          >
-            <div className="khvt-hud-card__glow" />
-            <div className="khvt-hud-card__head">
-              <span className="khvt-hud-card__badge khvt-hud-card__badge--emerald">
-                <Icon name="check" size={14} /> SẴN SÀNG XẾP LỊCH
-              </span>
-              <span className="khvt-hud-card__rate">{readinessPct}%</span>
-            </div>
-            <div className="khvt-hud-card__main">
-              <span className="khvt-hud-card__value">
-                {num(tomTat.daGiu)} <small>/ {num(tomTat.tong)} lệnh</small>
-              </span>
-              <div className="khvt-hud-card__bar">
-                <div
-                  className="khvt-hud-card__bar-fill--emerald"
-                  style={{ width: `${Math.max(5, readinessPct)}%` }}
-                />
-              </div>
-            </div>
-            <div className="khvt-hud-card__foot">
-              <span>Đã đủ 100% vật tư · Mở khóa vào lịch máy</span>
-            </div>
-          </div>
-
-          {/* Card 2: Đang giữ dở / Chờ bù tồn */}
-          <div
-            className={`khvt-hud-card ${filterType === "dang" ? "is-active" : ""}`}
-            onClick={() => setFilterType(filterType === "dang" ? "all" : "dang")}
-            role="button"
-            tabIndex={0}
-          >
-            <div className="khvt-hud-card__head">
-              <span className="khvt-hud-card__badge khvt-hud-card__badge--amber">
-                <Icon name="clock" size={14} /> ĐANG GIỮ DỞ
-              </span>
-            </div>
-            <div className="khvt-hud-card__main">
-              <span className="khvt-hud-card__value">{num(tomTat.dangCho)}</span>
-              <span className="khvt-hud-card__unit">lệnh chờ bù tồn</span>
-            </div>
-            <div className="khvt-hud-card__foot">
-              <span>Đã bật giữ · Tự động nhặt khi PO về kho</span>
-            </div>
-          </div>
-
-          {/* Card 3: Chưa bật giữ chỗ */}
-          <div
-            className={`khvt-hud-card ${filterType === "tat" ? "is-active" : ""}`}
-            onClick={() => setFilterType(filterType === "tat" ? "all" : "tat")}
-            role="button"
-            tabIndex={0}
-          >
-            <div className="khvt-hud-card__head">
-              <span className="khvt-hud-card__badge khvt-hud-card__badge--slate">
-                <Icon name="lock" size={14} /> CHƯA BẬT GIỮ
-              </span>
-            </div>
-            <div className="khvt-hud-card__main">
-              <span className="khvt-hud-card__value">{num(tomTat.chuaBat)}</span>
-              <span className="khvt-hud-card__unit">lệnh bị chặn lịch</span>
-            </div>
-            <div className="khvt-hud-card__foot">
-              <span>Chưa đăng ký tồn · Bấm giữ chỗ để kích hoạt</span>
-            </div>
-          </div>
-
-          {/* Card 4: Giữ lâu cần thu hồi */}
-          <div
-            className={`khvt-hud-card ${filterType === "giu_lau" ? "is-active" : ""}`}
-            onClick={() => setFilterType(filterType === "giu_lau" ? "all" : "giu_lau")}
-            role="button"
-            tabIndex={0}
-          >
-            <div className="khvt-hud-card__head">
-              <span className="khvt-hud-card__badge khvt-hud-card__badge--rose">
-                <Icon name="alert" size={14} /> GIỮ &gt;7 NGÀY
-              </span>
-              {tomTat.giuLau > 0 && <span className="khvt-pulse-dot" />}
-            </div>
-            <div className="khvt-hud-card__main">
-              <span className="khvt-hud-card__value khvt-text-rose">{num(tomTat.giuLau)}</span>
-              <span className="khvt-hud-card__unit">lệnh chưa đưa vào lịch</span>
-            </div>
-            <div className="khvt-hud-card__foot">
-              <span>Xem lại để nhả tồn nếu chưa sản xuất tới</span>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── 2. UNIFIED TOOLBAR: STATUS TABS + SEARCH + VIEW MODE SWITCH ── */}
+      {/* ── 1. UNIFIED TOOLBAR: STATUS TABS + SEARCH + VIEW MODE SWITCH ── */}
       <div className="khvt-unified-bar">
         <div className="khvt-unified-tabs" role="tablist" aria-label="Bộ lọc lệnh">
           <button
@@ -471,7 +373,7 @@ export function GiuChoTheoLenhView({
 
       {err && <BangLoi text={err} onRetry={load} />}
 
-      {/* ── 3. NỘI DUNG CHÍNH: STREAM TABLE HOẶC BENTO CARDS ── */}
+      {/* ── 2. NỘI DUNG CHÍNH: STREAM TABLE HOẶC BENTO CARDS ── */}
       {data === null ? (
         <div className="khsx__tablewrap">
           <table className="khsx__table">
@@ -514,10 +416,10 @@ export function GiuChoTheoLenhView({
                 <tr>
                   <th style={{ width: 170 }}>Lệnh sản xuất</th>
                   <th style={{ width: 120 }}>Ngày cần</th>
-                  <th>Dòng chảy vật tư (Material Stream Matrix)</th>
+                  <th>Dòng chảy vật tư</th>
                   <th style={{ width: 130 }}>Độ sẵn sàng</th>
                   <th style={{ width: 140 }}>Cửa xếp lịch</th>
-                  <th style={{ width: 170 }}>Hành động</th>
+                  <th style={{ width: 130 }}>Hành động</th>
                 </tr>
               </thead>
               <tbody>
@@ -632,14 +534,16 @@ export function GiuChoTheoLenhView({
                       {/* Cột 4: Độ sẵn sàng */}
                       <td>
                         <div className="khvt-cell-readiness">
-                          <div className="khvt-readiness-info">
-                            <b>{soMonDu}/{tongMon}</b> <small>món ({pctGiu}%)</small>
-                          </div>
-                          <div className="khvt-readiness-bar">
-                            <div
-                              className={`khvt-readiness-bar__fill ${r.du ? "is-full" : r.bat ? "is-partial" : "is-deficit"}`}
-                              style={{ width: `${Math.max(5, pctGiu)}%` }}
-                            />
+                          <div className={`khvt-readiness-badge ${pctGiu >= 100 ? "is-ready" : pctGiu >= 50 ? "is-partial" : "is-deficit"}`}>
+                            {pctGiu >= 100 ? (
+                              <>
+                                <Icon name="check" size={11} /> <b>100%</b> <small>({soMonDu}/{tongMon} món)</small>
+                              </>
+                            ) : (
+                              <>
+                                <b>{soMonDu}/{tongMon} món</b> <small>({pctGiu}%)</small>
+                              </>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -648,15 +552,15 @@ export function GiuChoTheoLenhView({
                       <td>
                         {r.du ? (
                           <span className="khvt-lock-badge khvt-lock-badge--open" title="Đã giữ đủ vật tư — Sẵn sàng xếp lịch">
-                            <Icon name="check" size={13} /> MỞ KHÓA
+                            <Icon name="check" size={12} /> Mở khóa
                           </span>
                         ) : !r.bat ? (
                           <span className="khvt-lock-badge khvt-lock-badge--locked" title="Chưa giữ chỗ — Chặn xếp lịch">
-                            <Icon name="lock" size={13} /> CHẶN LỊCH
+                            <Icon name="lock" size={12} /> Chặn lịch
                           </span>
                         ) : (
                           <span className="khvt-lock-badge khvt-lock-badge--partial" title="Đang giữ dở — Chờ hàng về bù tồn">
-                            <Icon name="clock" size={13} /> CHỜ BÙ TỒN
+                            <Icon name="clock" size={12} /> Chờ bù tồn
                           </span>
                         )}
                       </td>
@@ -696,22 +600,15 @@ export function GiuChoTheoLenhView({
                               <Icon name="cart" size={12} /> Mua ({soDo})
                             </Button>
                           )}
-                          {/* Thiếu hàng mà KHÔNG có nút mua = câu hỏi "sao không cho mua". Giữ nút
-                              tại chỗ, làm mờ, và nói thẳng lô nào đang về ngày nào. Bọc trong
-                              <span> vì nút disabled không nhận hover ⇒ tooltip sẽ không hiện. */}
                           {canDeNghiMua && soDo === 0 && veMuon.length > 0 && (
-                            <span className="khvt-buy-lock" title={lyDoKhoaMua(veMuon)}>
-                              <Button
-                                variant="secondary"
-                                disabled
-                                className="khvt-btn-buy khvt-btn-buy--khoa"
-                              >
-                                <Icon name="truck" size={12} />{" "}
+                            <div className="khvt-po-chip" title={lyDoKhoaMua(veMuon)}>
+                              <Icon name="truck" size={11} />
+                              <span>
                                 {veMuon.length === 1 && veMuon[0].ngay_du_hang
                                   ? `Đã đặt · về ${ngay(veMuon[0].ngay_du_hang)}`
                                   : `Đã đặt (${veMuon.length} món)`}
-                              </Button>
-                            </span>
+                              </span>
+                            </div>
                           )}
                         </div>
                       </td>
@@ -781,7 +678,7 @@ export function GiuChoTheoLenhView({
                     </div>
                     <div className="khvt-bcard__progress">
                       <div
-                        className={`khvt-bcard__progress-fill ${r.du ? "is-full" : r.bat ? "is-partial" : "is-deficit"}`}
+                        className={`khvt-bcard__progress-fill ${r.du ? "is-full" : r.bat ? "is-partial" : pctGiu >= 100 ? "is-ready" : "is-deficit"}`}
                         style={{ width: `${Math.max(5, pctGiu)}%` }}
                       />
                     </div>
@@ -816,7 +713,7 @@ export function GiuChoTheoLenhView({
                   <div className="khvt-bcard__actions" onClick={(e) => e.stopPropagation()}>
                     {!r.bat ? (
                       <Button onClick={() => doiGiuCho(r, true)} disabled={isDangChay} className="khvt-btn-action">
-                        <Icon name="lock" size={13} /> {isDangChay ? "Đang giữ…" : "⚡ Giữ chỗ ngay"}
+                        <Icon name="lock" size={13} /> {isDangChay ? "Đang giữ…" : "Giữ chỗ ngay"}
                       </Button>
                     ) : (
                       <Button variant="secondary" onClick={() => doiGiuCho(r, false)} disabled={isDangChay}>
@@ -885,7 +782,15 @@ export function GiuChoTheoLenhView({
                             h.phieu_mua.length > 0 && (
                               <div className="khvt-bcard__item-po">
                                 <Icon name="cart" size={10} />{" "}
-                                {h.phieu_mua.map((pm) => moTaPhieuMua(pm)).join(" · ")}
+                                {h.phieu_mua.map((pm, i) => (
+                                  <span
+                                    key={pm.ma}
+                                    className={vetDangKep(pm) ? "khvt-po--kep" : undefined}
+                                  >
+                                    {i > 0 ? " · " : ""}
+                                    {moTaPhieuMua(pm)}
+                                  </span>
+                                ))}
                               </div>
                             )
                           )}
@@ -900,7 +805,7 @@ export function GiuChoTheoLenhView({
         </div>
       )}
 
-      {/* ── 4. DRAWER BÓC TÁCH CHI TIẾT LỆNH (LenhVatTuDrawer) ── */}
+      {/* ── 3. DRAWER BÓC TÁCH CHI TIẾT LỆNH (LenhVatTuDrawer) ── */}
       {selectedRow && (
         <LenhVatTuDrawer
           row={selectedRow}
@@ -913,7 +818,7 @@ export function GiuChoTheoLenhView({
         />
       )}
 
-      {/* ── 5. HỘP THOẠI XÁC NHẬN NHẢ CHỖ ── */}
+      {/* ── 4. HỘP THOẠI XÁC NHẬN NHẢ CHỖ ── */}
       <HopNhaCho
         row={hoiNha}
         busy={!!hoiNha && dangChay === khoaChu(hoiNha)}
@@ -991,7 +896,7 @@ function LenhVatTuDrawer({
           </div>
           <button
             type="button"
-            className="rc-drawer__x"
+            className="khvt-drawer__x"
             onClick={onClose}
             aria-label="Đóng"
             title="Đóng (Esc)"
@@ -1002,25 +907,23 @@ function LenhVatTuDrawer({
 
         {/* Body */}
         <div className="rc-drawer__body khvt-drawer__body">
-          {/* Dải KPI Compact (§4 UI_DESIGN.md) */}
-          <div className="khvt-drawer-kpis">
-            <div className="khvt-drawer-kpi">
-              <span className="khvt-drawer-kpi__label">Tổng số món</span>
-              <span className="khvt-drawer-kpi__val">
+          {/* Dải KPI Bento Grid */}
+          <div className="khvt-drawer-kpi-grid">
+            <div className="khvt-bento-kpi">
+              <span className="khvt-bento-kpi__label">TỔNG SỐ MÓN</span>
+              <span className="khvt-bento-kpi__val">
                 <b>{num(tongMon)}</b> <small>món</small>
               </span>
             </div>
-            <div className="khvt-drawer-kpi__sep" aria-hidden="true" />
-            <div className="khvt-drawer-kpi">
-              <span className="khvt-drawer-kpi__label">Đã đủ kho</span>
-              <span className="khvt-drawer-kpi__val">
+            <div className="khvt-bento-kpi">
+              <span className="khvt-bento-kpi__label">ĐÃ ĐỦ KHO</span>
+              <span className="khvt-bento-kpi__val khvt-bento-kpi__val--ok">
                 <b>{num(soMonDu)}</b> <small>món</small>
               </span>
             </div>
-            <div className="khvt-drawer-kpi__sep" aria-hidden="true" />
-            <div className="khvt-drawer-kpi">
-              <span className="khvt-drawer-kpi__label">Cần đặt mua</span>
-              <div className="khvt-drawer-kpi__val">
+            <div className="khvt-bento-kpi">
+              <span className="khvt-bento-kpi__label">CẦN ĐẶT MUA</span>
+              <div className="khvt-bento-kpi__val">
                 {soDo > 0 ? (
                   <span className="khvt-kpi-badge khvt-kpi-badge--deficit">
                     Thiếu <b>{num(soDo)}</b> dòng
@@ -1032,11 +935,10 @@ function LenhVatTuDrawer({
                 )}
               </div>
             </div>
-            <div className="khvt-drawer-kpi__sep" aria-hidden="true" />
-            <div className="khvt-drawer-kpi">
-              <span className="khvt-drawer-kpi__label">Độ sẵn sàng</span>
-              <div className="khvt-drawer-kpi__cov">
-                <span className="khvt-drawer-kpi__cov-pct">{pctGiu}%</span>
+            <div className="khvt-bento-kpi">
+              <span className="khvt-bento-kpi__label">ĐỘ SẴN SÀNG</span>
+              <div className="khvt-bento-kpi__cov">
+                <span className="khvt-bento-kpi__cov-pct">{pctGiu}%</span>
                 <div className="khvt-mini-bar">
                   <div
                     className={`khvt-mini-bar__fill ${pctGiu >= 100 ? "is-full" : soDo > 0 ? "is-deficit" : "is-partial"}`}
@@ -1050,17 +952,17 @@ function LenhVatTuDrawer({
           {/* Smart Message / Guidance Box */}
           {r.du ? (
             <div className="khvt-recommend-box khvt-recommend-box--ok">
-              <div className="khvt-recommend-box__icon">
-                <Icon name="check" size={16} />
+              <div className="khvt-recommend-box__badge khvt-recommend-box__badge--ok">
+                <Icon name="check" size={14} />
               </div>
               <div className="khvt-recommend-box__content">
                 Lệnh đã <b>giữ đủ 100% vật tư</b> trong kho — Cửa xếp lịch sản xuất đã mở!
               </div>
             </div>
           ) : !r.bat ? (
-            <div className="khvt-recommend-box">
-              <div className="khvt-recommend-box__icon">
-                <Icon name="lock" size={16} />
+            <div className="khvt-recommend-box khvt-recommend-box--lock">
+              <div className="khvt-recommend-box__badge khvt-recommend-box__badge--lock">
+                <Icon name="lock" size={14} />
               </div>
               <div className="khvt-recommend-box__content">
                 Lệnh <b>chưa bật giữ chỗ</b> ⇒ Chưa thể xếp lịch chạy máy. Bấm "Giữ chỗ ngay" để đăng ký tồn kho.
@@ -1068,8 +970,8 @@ function LenhVatTuDrawer({
             </div>
           ) : (
             <div className="khvt-recommend-box khvt-recommend-box--warn">
-              <div className="khvt-recommend-box__icon">
-                <Icon name="clock" size={16} />
+              <div className="khvt-recommend-box__badge khvt-recommend-box__badge--warn">
+                <Icon name="clock" size={14} />
               </div>
               <div className="khvt-recommend-box__content">
                 Lệnh đang <b>giữ được {soMonDu}/{tongMon} món</b>. Các món còn thiếu sẽ tự động nhặt bù khi lô mua hàng (PO) nhập kho.
@@ -1080,9 +982,9 @@ function LenhVatTuDrawer({
           {/* Đã mua rồi mà hàng về muộn — việc phải làm là DỜI LỊCH, không phải mua tiếp. Nói
               ngay ở đây thì người dùng khỏi đi tìm nút mua đã bị khoá ở chân drawer. */}
           {veMuon.length > 0 && (
-            <div className="khvt-recommend-box">
-              <div className="khvt-recommend-box__icon">
-                <Icon name="truck" size={16} />
+            <div className="khvt-recommend-box khvt-recommend-box--truck">
+              <div className="khvt-recommend-box__badge khvt-recommend-box__badge--truck">
+                <Icon name="truck" size={14} />
               </div>
               <div className="khvt-recommend-box__content">
                 <strong>Đã đặt mua — không mua thêm:</strong>{" "}
@@ -1126,17 +1028,18 @@ function LenhVatTuDrawer({
                       <tr key={`${h.hang_loai}-${h.hang_id}`}>
                         <td>
                           <div className="khvt-cell-item">
+                            {/* Tên món đứng đầu, KHÔNG kèm mã danh mục — drawer này để xem còn
+                                thiếu gì, mã chỉ làm dày dòng chữ. */}
                             <div className="khvt-cell-item__top">
-                              <span className="khvt-item-code">{h.hang_ma ?? "—"}</span>
+                              <span className="khvt-item-name" title={h.hang_ten ?? undefined}>
+                                {h.hang_ten ?? "(đã gỡ khỏi danh mục)"}
+                              </span>
                               <span className={`khvt-item-tag ${tag.cls}`}>{tag.label}</span>
                               {h.so_buoc > 1 && (
                                 <span className="khvt-bcard__buoc-tag" title="Món này khai ở nhiều công đoạn">
                                   {h.so_buoc} bước
                                 </span>
                               )}
-                            </div>
-                            <div className="khvt-item-name" title={h.hang_ten ?? undefined}>
-                              {h.hang_ten ?? "(đã gỡ khỏi danh mục)"}
                             </div>
                             {h.so_lenh_khac_thieu > 0 && (
                               <div className="khvt-compete-alert">
@@ -1171,8 +1074,20 @@ function LenhVatTuDrawer({
                               {h.phieu_mua
                                 .filter((pm) => pm.ma !== h.phieu_ve)
                                 .map((pm) => (
-                                  <span key={pm.ma}>
-                                    <Icon name="cart" size={10} /> {moTaPhieuMua(pm, { dayDu: true })}
+                                  <span
+                                    key={pm.ma}
+                                    className={vetDangKep(pm) ? "khvt-po--kep" : undefined}
+                                    title={
+                                      vetDangKep(pm)
+                                        ? "Thu mua đã lập đơn cho món này nhưng đơn bị từ chối. Việc đang đứng — chờ thêm cũng không có hàng, cần thu mua lập lại đơn."
+                                        : undefined
+                                    }
+                                  >
+                                    <Icon
+                                      name={vetDangKep(pm) ? "alert" : "cart"}
+                                      size={10}
+                                    />{" "}
+                                    {moTaPhieuMua(pm, { dayDu: true })}
                                   </span>
                                 ))}
                             </div>
@@ -1213,7 +1128,7 @@ function LenhVatTuDrawer({
                 disabled={dangChay}
                 className="khvt-btn-action"
               >
-                <Icon name="lock" size={13} /> {dangChay ? "Đang giữ…" : "⚡ Giữ chỗ ngay"}
+                <Icon name="lock" size={13} /> {dangChay ? "Đang giữ…" : "Giữ chỗ ngay"}
               </Button>
             ) : (
               <Button

@@ -473,23 +473,24 @@ class AttendanceService:
         return self.attendance.list_shifts(active_only=active_only)
 
     def create_shift(self, *, actor, name, start_time, end_time, is_overnight=False,
-                     grace_minutes=5, meal_allowance=25000,
-                     shift_allowance=50000, night_multiplier=1.3, note=None) -> WorkShift:
+                     grace_minutes=5, meal_allowance=25000, shift_allowance=50000,
+                     night_multiplier=1.3, note=None, ca_san_xuat=True) -> WorkShift:
         is_overnight = bool(is_overnight)
         name, sm, em, g = self._validate_shift(name, start_time, end_time, grace_minutes, is_overnight)
         s = self.attendance.create_shift(
             name=name, start_minute=sm, end_minute=em, is_overnight=is_overnight,
             grace_minutes=g, meal_allowance=meal_allowance, shift_allowance=shift_allowance,
             night_multiplier=max(1.0, float(night_multiplier or 1.0)),
-            note=_clean(note), is_active=True,
+            note=_clean(note), is_active=True, ca_san_xuat=bool(ca_san_xuat),
         )
         self.audit.create(actor_user_id=actor.id, action="create_work_shift",
                           target=f"work_shift:{s.id}", detail=f"{name} {start_time}–{end_time}")
         return s
 
     def update_shift(self, *, actor, shift_id, name, start_time, end_time, is_overnight=False,
-                     grace_minutes=5, meal_allowance=25000,
-                     shift_allowance=50000, night_multiplier=1.3, note=None, is_active=True) -> WorkShift:
+                     grace_minutes=5, meal_allowance=25000, shift_allowance=50000,
+                     night_multiplier=1.3, note=None, is_active=True,
+                     ca_san_xuat=True) -> WorkShift:
         s = self.attendance.get_shift(shift_id)
         if s is None:
             raise AttendanceNotFound("Không tìm thấy ca làm việc.")
@@ -499,7 +500,7 @@ class AttendanceService:
             s, name=name, start_minute=sm, end_minute=em, is_overnight=is_overnight,
             grace_minutes=g, meal_allowance=meal_allowance, shift_allowance=shift_allowance,
             night_multiplier=max(1.0, float(night_multiplier or 1.0)),
-            note=_clean(note), is_active=bool(is_active),
+            note=_clean(note), is_active=bool(is_active), ca_san_xuat=bool(ca_san_xuat),
         )
         self.audit.create(actor_user_id=actor.id, action="update_work_shift",
                           target=f"work_shift:{s.id}", detail=f"{name} {start_time}–{end_time}")
@@ -994,6 +995,7 @@ class AttendanceService:
         if not (1 <= month <= 12):
             raise AttendanceValidationError("Tháng phải trong khoảng 1–12.")
         days_in_month = calendar.monthrange(year, month)[1]
+        today = _today_vn()   # mốc "ngày chưa tới" để trải ca nền xem trước (giờ VN)
 
         if only_employee_id is not None:
             allowed: set[int] | None = {only_employee_id}
@@ -1025,9 +1027,18 @@ class AttendanceService:
         # Ngày NGHỈ theo lịch xoay ca (khai tay trên lưới) — chỉ để bảng công phân biệt
         # "nghỉ có kế hoạch" với "vắng". KHÔNG ra tiền, KHÔNG đụng công.
         planned_off_by_emp: dict[int, set[int]] = {}
+        # Ngày ĐÃ XẾP CA nhưng CHƯA chấm (nhất là ngày TƯƠNG LAI) — để ô lịch vẫn hiện "mai làm ca
+        # nào" (chủ chốt 24/08/2026). Trước đây ô chỉ dựng cho ngày có chấm/nghỉ/lễ nên ngày mai
+        # trống trơn. CHỈ lấy ngày có `shift_id` thật (không phải `is_off`); ngày nghỉ đã vào
+        # `planned_off`. Chỉ ngày trong ĐÚNG tháng đang xem.
+        scheduled_by_emp: dict[int, set[int]] = {}
         for (emp_id_k, wd), row_k in shift_day_map.items():
-            if row_k.is_off and wd.year == year and wd.month == month:
+            if wd.year != year or wd.month != month:
+                continue
+            if row_k.is_off:
                 planned_off_by_emp.setdefault(emp_id_k, set()).add(wd.day)
+            elif row_k.shift_id is not None:
+                scheduled_by_emp.setdefault(emp_id_k, set()).add(wd.day)
 
         # employee_id → { day(int) → [(local_dt, check_type)] } theo NGÀY CÔNG, chỉ trong tháng này.
         # Duyệt TUẦN TỰ theo thời gian cho TỪNG NV và giữ "ca đang mở": lượt RA rơi sau nửa đêm được
@@ -1217,15 +1228,47 @@ class AttendanceService:
             night_premium_minutes = 0.0     # Σ (phút đêm TRONG ca × (hệ số ca − 1)) — premium giờ đêm
             ot_night_normal = 0; ot_night_restday = 0; ot_night_holiday = 0  # phút TĂNG CA ĐÊM theo loại ngày
             planned_off = planned_off_by_emp.get(emp_id, set())
+            scheduled = scheduled_by_emp.get(emp_id, set())   # ngày XẾP TAY, chưa chấm → hiện ca
+            # XEM TRƯỚC CA NGÀY CHƯA TỚI (chủ chốt 24/08/2026): "hiện ca lên các ngày chưa đến — để
+            # xem ngày mai làm ca gì". Trải ca nền lên ngày LÀM VIỆC tương lai, KHÔNG lên ngày nghỉ
+            # tuần: tuần chuẩn của chủ là T2–T7, Chủ nhật NGHỈ. Muốn làm Chủ nhật thì tô TAY từng ô
+            # (tạo `EmployeeShiftDay` → vào nhánh `scheduled`, hiện bất kể lịch tuần).
+            #   · CHỈ ngày >= hôm nay (VN): quá khứ không chấm = vắng, không phải "xem trước".
+            #   · CHỈ ngày LÀM VIỆC (lịch tuần công ty) — Chủ nhật không trải ca nền lên.
+            #   · Ngày đã có dòng phân ca (shift/off) để nhánh `scheduled`/`planned_off` lo.
+            # `hist` = mốc ca nền của NV, nạp MỘT LẦN/NV (giống `shift_plan`) rồi resolve trong bộ
+            # nhớ — đừng gọi `base_shift_id_on` mỗi ngày, kẻo lưới N NV × 31 ngày nổ hàng ngàn query.
+            hist = self.employees.list_shift_assignments(emp_id)   # mốc giảm dần theo effective_from
+            xem_truoc: set[int] = set()
+            for dd in range(1, days_in_month + 1):
+                the_d = date(year, month, dd)
+                if the_d < today or (emp_id, the_d) in shift_day_map:
+                    continue
+                if (self._work_calendar is not None
+                        and not self._work_calendar.is_working_day(the_d)):
+                    continue                                       # Chủ nhật: nghỉ mặc định
+                assign = next((h for h in hist if h.effective_from <= the_d), None)
+                sid = (assign.shift_id if assign is not None
+                       else (emp.default_shift_id if not hist else None))
+                if sid is not None:
+                    self._shift_id_cache[(emp_id, the_d)] = sid   # seed: khỏi query per-ngày
+                    xem_truoc.add(dd)
             # Ngày CHỈ có đơn giờ (không chấm công) vẫn hiện ô để HCNS thấy — nó rơi vào nhánh
             # "không phép" bên dưới ⇒ KHÔNG công, KHÔNG tiền (đúng: xin nghỉ 2h mà vắng cả ngày).
-            for d in sorted(set(att_days) | set(lv_days) | emp_holidays | planned_off | set(hl_days)):
+            for d in sorted(set(att_days) | set(lv_days) | emp_holidays | planned_off
+                            | scheduled | xem_truoc | set(hl_days)):
                 cell = _empty_cell()
                 main_out_min_kep = None
                 shift = self._shift_for_day(emp, date(year, month, d), shifts)
                 if shift is not None:
-                    used_shift_ids.add(shift.id)
                     cell.update(shift_id=shift.id, shift_name=shift.name)
+                    # Ngày CHỈ mới xếp ca (tương lai, chưa chấm/nghỉ/lễ) KHÔNG tính vào "ca đã làm"
+                    # của tháng: nó chỉ hiện cho biết "mai làm ca nào". Để nó vào `used_shift_ids`
+                    # thì summary nhảy "Nhiều ca" và `total_cong` ra 0 thay vì trống.
+                    chi_xep_truoc = (d in (scheduled | xem_truoc) and d not in att_days
+                                     and d not in lv_days and d not in emp_holidays)
+                    if not chi_xep_truoc:
+                        used_shift_ids.add(shift.id)
                 if d in planned_off:
                     cell["planned_off"] = True
                 if d in att_days:  # có chấm công → attendance thắng ngày nghỉ/lễ
@@ -1381,9 +1424,9 @@ class AttendanceService:
                                 leave_paid=paid, holiday=True)
                     total_cong += cong
                 elif d not in lv_days:
-                    # Ngày CHỈ mang dấu 'nghỉ theo lịch' (không chấm công, không đơn phép):
-                    # giữ ô để bảng công hiện "nghỉ theo lịch" thay vì để trống giống vắng.
-                    # Không công, không tiền — cell.cong vẫn None.
+                    # Ngày CHỈ mang dấu 'nghỉ theo lịch' HOẶC ngày đã XẾP CA nhưng chưa tới (tương
+                    # lai): giữ ô để bảng công hiện ca / "nghỉ theo lịch" thay vì để trống giống
+                    # vắng. Không công, không tiền — `cell.cong` vẫn None.
                     pass
                 elif (self._work_calendar is not None
                       and not self._work_calendar.is_working_day(date(year, month, d))):
@@ -1850,6 +1893,7 @@ class AttendanceService:
         shifts = {s.id: s for s in self.attendance.list_shifts()}
         emp_cache: dict[int, object] = {}
         actor_id = getattr(actor, "id", None)
+        today = _today_vn()   # mốc khoá quá khứ (giờ VN) — chủ chốt: "cứ quá khứ là không đổi ca nữa"
 
         saved = cleared = 0
         rejected: list[dict] = []
@@ -1899,6 +1943,18 @@ class AttendanceService:
                 continue
             if not _in_headcount_on(emp, wd):
                 _reject(c, "Ngày này nhân viên chưa vào làm hoặc đã nghỉ việc.")
+                continue
+            # ⭐ KHOÁ NGÀY QUÁ KHỨ (chủ chốt 24/08/2026 — "lỗi chí mạng", chủ chốt lại: "quá khứ rồi
+            # thì không cho sửa nữa"): gán một loạt 1–30 mà đè lên ngày đã chấm công / đang chờ đơn
+            # thì công quá khứ bị TÍNH LẠI theo ca mới, sai âm thầm. Đơn giản nhất: ngày < HÔM NAY
+            # thì KHÔNG cho đổi ca. Đây là hàng rào TẦNG DỮ LIỆU — bút hay loạt hay gọi thẳng API
+            # đều dính. (Giao diện còn chặn thêm: kéo loạt tự bỏ ngày quá khứ, không sinh reject.)
+            # ⭐ KHOÁ QUÁ KHỨ (chủ chốt 24/08/2026 — "lỗi chí mạng"; chốt B: "cứ quá khứ là không
+            # cho đổi ca nữa"): ngày < HÔM NAY thì không set/off/inherit được — kể cả tháng cũ chưa
+            # chốt. Đổi ca ngày đã qua ⇒ tính lại công quá khứ (đã chấm / chờ đơn) theo ca mới, sai
+            # âm thầm. Hàng rào TẦNG DỮ LIỆU: bút · loạt · gọi thẳng API đều dính.
+            if wd < today:
+                _reject(c, "Ngày đã qua — không sửa ca được nữa. Chỉ đổi được ca từ hôm nay trở đi.")
                 continue
             if action == "inherit":
                 # Ô về kế thừa ca nền: ca SAU chính là ca nền đang hiệu lực ngày đó.

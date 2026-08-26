@@ -148,6 +148,23 @@
   font-size: 18px;
 }
 
+/* Bảng dòng hàng trong popup Chi tiết đơn — đi KÈM .md-page__table (đồng bộ với bảng Đợt giao /
+   Chứng từ chi cùng popup), thay layout xếp chồng cũ. Chỉ thêm canh phải cột số + dòng Tổng. */
+.purchase__lines-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.purchase__lines-table .purchase__line-src {
+  color: var(--ash-2);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.purchase__lines-table tfoot td {
+  font-weight: 700;
+  border-top: 2px solid var(--rule);
+}
+
 .purchase__actions {
   display: flex;
   flex-wrap: wrap;
@@ -187,28 +204,37 @@
 /* Bảng NCC còn ĐÚNG 5 cột. Trước đây là 8 (tách riêng nhóm · MST · điều khoản TT), và cả
    `min-width` lẫn bộ % đều là số đo của bảng CŨ — tổng chỉ 68% + 150px, phần thừa ~32% bị chia
    theo tỷ lệ nên dồn hết vào cột đầu, còn `min-width: 1220px` thì ép cuộn ngang dù nội dung thừa
-   chỗ. Bộ % dưới đây cộng tròn 100%, và min-width hạ xuống vừa đủ để không bẹp trên màn hẹp. */
+   chỗ. Bộ % dưới đây cộng tròn 100%, và min-width hạ xuống vừa đủ để không bẹp trên màn hẹp.
+
+   26/08/2026 thêm cột ĐÁNH GIÁ (sao máy tự tính) → 5 cột nội dung. Bộ % chia lại: 30+20+25+11+14
+   vẫn cộng tròn 100%; min-width nhích 980→1080px cho vừa dải 5 sao + dòng rã số, đủ gọn trong
+   1440px của laptop (khung nội dung ~1330px sau sidebar) nên KHÔNG sinh cuộn ngang. */
 .supplier__table {
-  min-width: 980px;
+  min-width: 1080px;
   table-layout: fixed;
 }
 
 .supplier__col-name {
-  width: 36%;
+  width: 30%;
+}
+
+/* Dải 5 sao (90×13) + số + dòng rã "Đúng hẹn 6/7 · trễ TB 1 ngày" trên một cột hẹp. */
+.supplier__col-sao {
+  width: 20%;
 }
 
 /* Cột dài nhất sau tên NCC: chứa người liên hệ + điện thoại + email. */
 .supplier__col-contact {
-  width: 29%;
+  width: 25%;
 }
 
 .supplier__col-items {
-  width: 12%;
+  width: 11%;
 }
 
 /* Đủ rộng cho chữ "Hoạt động" / "Tạm ngừng" nằm MỘT dòng — 8% cũ làm badge gãy đôi. */
 .supplier__col-status {
-  width: 13%;
+  width: 14%;
 }
 
 /* Chứa 2 nút ICON dense (Xem/sửa · Ngừng-Mở) không xuống dòng — từ 09/08/2026 không còn nút chữ
@@ -232,8 +258,150 @@
 
 .supplier__name-cell,
 .supplier__contact-cell,
-.supplier__items-cell {
+.supplier__items-cell,
+.supplier__sao-cell {
   min-width: 0;
+}
+
+/* --- SAO ĐÁNH GIÁ NCC (máy tự tính) ---------------------------------------------------------
+   ⚠️ Không có style nào cho "0 sao" ở đây, và đó là CỐ Ý: thang thấp nhất là 1 sao, còn NCC chưa
+   có đơn nào thì hiện chữ (`.supplier__sao--trong`) chứ không vẽ 5 ngôi rỗng. Xem SaoNcc.tsx. */
+.supplier__sao {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.supplier__sao--trong {
+  color: var(--ash);
+  font-size: var(--fs-xs);
+  font-style: italic;
+}
+
+.supplier__sao-svg {
+  flex-shrink: 0;
+  display: block;
+}
+
+/* Nền: 5 ngôi CHƯA tô. Xám nhạt vừa đủ thấy hình mà không tranh chỗ với phần đã tô. */
+.supplier__sao-nen {
+  fill: var(--rule-soft);
+}
+
+/* Phần ĐÃ tô — cắt ngang theo đúng phần lẻ (4,2 sao ⇒ ngôi thứ 5 tô 20%). */
+.supplier__sao-to {
+  fill: var(--amber);
+}
+
+.supplier__sao-so {
+  font-family: var(--ff-num);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  line-height: 1;
+}
+
+/* Dòng rã số dưới dải sao trong bảng — nói NCC đúng hẹn mấy trên mấy, để con số 4,2 không phải
+   một điểm rơi từ trên trời xuống. */
+.supplier__sao-phu {
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tiêu đề cột bấm được. Chỉ cột Đánh giá có — tên/trạng thái đã có ô tìm và ô lọc lo.
+   Padding dời từ `th` xuống `button` để vùng bấm phủ TRỌN ô, không phải mỗi mấy chữ; con số
+   phải bằng đúng `.md-page__table thead th` (--sp-4) thì tiêu đề mới thẳng hàng với 4 cột kia. */
+/* Đè `padding` của `.md-page__table thead th` (đặc trưng CSS cao hơn một `.supplier__th-sort`
+   suông — (0,1,2) so với (0,1,0) — nên phải LẶP tag `thead th` ở đây mới thắng được).
+   Bug đã vá 26/08/2026: thiếu vòng lặp này khiến ô cha VẪN giữ padding 16px, cộng dồn với
+   padding 16px của nút bên trong → hàng tiêu đề cao gấp đôi các cột khác, chữ trôi lệch. */
+.supplier__table thead th.supplier__th-sort {
+  padding: 0;
+}
+
+.supplier__sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  padding: var(--sp-4);
+  border: 0;
+  background: none;
+  /* `font: inherit` CHỈ kéo theo font-size/weight/family/line-height — KHÔNG kéo theo
+     text-transform (hoa) hay letter-spacing (giãn chữ), dù comment cũ ở đây tưởng có đủ ba.
+     `<button>` có UA stylesheet riêng đặt `text-transform: none` nên phải khai tay hai dòng
+     dưới, nếu không "ĐÁNH GIÁ" tụt về "Đánh giá" thường, lệch hẳn ba cột chữ hoa bên cạnh. */
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.supplier__sort-btn:hover {
+  color: var(--moss-deep);
+}
+
+.supplier__sort-btn.is-on {
+  color: var(--moss-deep);
+}
+
+/* Mũi tên chỉ chiều: mờ khi tắt (vẫn nói "bấm được"), quay lên khi xếp tăng dần. */
+.supplier__sort-caret {
+  display: inline-flex;
+  opacity: 0.35;
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+
+.supplier__sort-caret.is-on {
+  opacity: 1;
+}
+
+.supplier__sort-caret.is-up {
+  transform: rotate(180deg);
+}
+
+/* Khối sao trong HỒ SƠ NCC (tab 1 của drawer) — chỉ đọc, không có ô chấm tay. */
+.supplier__sao-box {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  background: var(--paper);
+  padding: 12px 14px;
+}
+
+.supplier__sao-box-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.supplier__sao-box-lbl {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.supplier__sao-box-sub {
+  margin: 8px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.supplier__sao-box-note {
+  margin: 6px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  line-height: 1.5;
 }
 
 .supplier__primary {
@@ -440,13 +608,16 @@
 .purchase__status {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
-  padding: 2px 9px;
-  border-radius: var(--r-pill);
+  width: auto !important;
+  flex-shrink: 0;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill, 12px);
+  font-family: var(--ff-sans) !important;
   font-size: 11px;
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -487,6 +658,793 @@
   background: #e5f6ed;
   color: #166036;
 }
+
+/* --- Ultra-Compact Unified Top Bar (64px Height Alignment) ------------------- */
+.purchase__topbar-unified {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4, 16px);
+  padding-bottom: var(--sp-3, 12px);
+  border-bottom: 1px solid var(--rule-soft, #e2e8f0);
+  margin-bottom: var(--sp-4, 16px);
+  flex-wrap: wrap;
+}
+
+.purchase__topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.purchase__topbar-title {
+  font-family: var(--ff-sans) !important;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.purchase__count-badge {
+  font-family: var(--ff-sans) !important;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ash, #64748b);
+  background: var(--rule-soft, #f1f5f9);
+  padding: 2px 10px;
+  border-radius: var(--r-pill, 12px);
+  font-variant-numeric: tabular-nums;
+}
+
+.purchase__topbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+}
+
+.purchase__topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+/* --- Table Skeleton Shimmer Loading --------------------------------------- */
+.purchase__skeleton-row td {
+  padding: 16px 12px !important;
+}
+
+.purchase__skeleton-bar {
+  height: 16px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #f1f5f9 25%, #cbd5e1 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: purchase-shimmer 1.5s infinite ease-in-out;
+}
+
+@keyframes purchase-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* --- WOW Premium Hero Drawer & Item Spec Cards ---------------------------- */
+.purchase__drawer-780 {
+  width: min(85vw, 900px) !important;
+  max-width: 95vw !important;
+  background: var(--canvas, #fdfcf8) !important;
+}
+
+.purchase__drawer-640,
+.purchase__drawer-wow {
+  width: 640px !important;
+  max-width: 95vw !important;
+  background: var(--canvas, #fdfcf8) !important;
+}
+
+.purchase__drawer-footer {
+  padding: 14px 24px;
+  background: #ffffff;
+  border-top: 1px solid var(--line, #e2e8f0);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* Form đơn mua hàng dựng trong drawer: <form> là lớp flex giữa hero-banner và
+   footer để .rc-drawer__body (flex:1; overflow-y:auto) cuộn được, footer luôn dính đáy. */
+.purchase__drawer-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* --- Slate Hero Modal & Data Entry Table ----------------------------------- */
+.purchase__dialog--request {
+  width: min(90vw, 860px) !important;
+  max-width: 95vw !important;
+}
+
+.purchase__modal-top-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.purchase__input-flat,
+.purchase__textarea-flat {
+  border-radius: 6px !important;
+  border: 1px solid var(--line, #cbd5e1) !important;
+  background: #ffffff !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 13px !important;
+  padding: 8px 12px !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  width: 100% !important;
+}
+
+.purchase__textarea-flat {
+  resize: vertical !important;
+  min-height: 56px !important;
+}
+
+.purchase__input-flat:focus,
+.purchase__textarea-flat:focus {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+}
+
+.purchase__modal-items-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.purchase__modal-table-wrap {
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.purchase__modal-table {
+  width: 100%;
+  margin: 0 !important;
+}
+
+.purchase__modal-table th {
+  background: #f8fafc !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b !important;
+  padding: 10px 12px !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.purchase__modal-table td {
+  padding: 4px 6px !important;
+  vertical-align: middle !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+}
+
+/* --- Seamless Borderless Spreadsheet Inputs ------------------------------- */
+.purchase__modal-table input.input,
+.purchase__modal-table input[type="text"],
+.purchase__modal-table input[type="number"],
+.purchase__modal-table select,
+.purchase__modal-table .purchase__material-combobox input,
+.purchase__modal-table .purchase__readonly-field {
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border-radius: 4px !important;
+  padding: 8px 10px !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 13px !important;
+  color: var(--ink, #0f172a) !important;
+  transition: all 0.12s ease !important;
+  width: 100% !important;
+}
+
+.purchase__modal-table tr:hover td {
+  background: #f8fafc !important;
+}
+
+.purchase__modal-table input:hover,
+.purchase__modal-table select:hover,
+.purchase__modal-table .purchase__material-combobox input:hover {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+.purchase__modal-table input:focus,
+.purchase__modal-table select:focus,
+.purchase__modal-table .purchase__material-combobox input:focus {
+  border-color: #6366f1 !important;
+  background: #ffffff !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2) !important;
+}
+
+.purchase__modal-table tr:last-child td {
+  border-bottom: none !important;
+}
+
+.purchase__add-line-btn {
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-top: 1px dashed var(--line, #e2e8f0);
+  color: #6366f1;
+  font-family: var(--ff-sans) !important;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.purchase__add-line-btn:hover {
+  background: #f5f3ff;
+  color: #4f46e5;
+}
+
+.purchase__icon-trash-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  padding: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.purchase__icon-trash-btn:hover:not(:disabled) {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.purchase__icon-trash-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.purchase__hero-banner {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: #ffffff;
+  padding: 20px 24px 18px 24px;
+  border-bottom: 3px solid #6366f1;
+}
+
+.purchase__hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.purchase__hero-kicker {
+  font-family: var(--ff-sans) !important;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.purchase__hero-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.purchase__hero-code {
+  font-family: var(--ff-sans) !important;
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.purchase__hero-x {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #cbd5e1;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: all 0.15s ease;
+}
+
+.purchase__hero-x:hover {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+}
+
+.purchase__hero-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--ff-sans) !important;
+  font-size: 13px;
+  color: #cbd5e1;
+  margin-top: 10px;
+}
+
+.purchase__hero-dot {
+  color: #64748b;
+}
+
+.purchase__hero-date {
+  color: #fb923c;
+  font-weight: 600;
+}
+
+.purchase__hero-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.purchase__hero-chip {
+  font-family: var(--ff-sans) !important;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+}
+
+.purchase__hero-chip--accent {
+  background: rgba(99, 102, 241, 0.25);
+  color: #a5b4fc;
+  border: 1px solid rgba(165, 180, 252, 0.3);
+}
+
+.purchase__hero-chip--muted {
+  background: transparent;
+  color: #94a3b8;
+  padding: 3px 4px;
+}
+
+.purchase__drawer-body-wow {
+  padding: 20px 24px !important;
+  display: flex;
+  flex-direction: column;
+  gap: 20px !important;
+}
+
+.purchase__drawer-table th,
+.purchase__drawer-table td {
+  vertical-align: middle !important;
+}
+
+.purchase__section-heading {
+  font-family: var(--ff-sans) !important;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ash, #64748b);
+  margin: 0 0 12px 0;
+}
+
+.purchase__item-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.purchase__item-spec-card {
+  background: #ffffff;
+  border: 1px solid var(--rule-soft, #cbd5e1);
+  border-radius: 8px;
+  padding: 14px 16px;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.purchase__item-spec-card:hover {
+  border-color: #94a3b8;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.purchase__item-spec-card.is-cancelled {
+  opacity: 0.6;
+  background: #f8fafc;
+}
+
+.purchase__item-spec-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.purchase__item-spec-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.purchase__item-spec-name {
+  font-family: var(--ff-sans) !important;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink, #0f172a);
+}
+
+.purchase__item-spec-note {
+  font-family: var(--ff-sans) !important;
+  font-size: 12px;
+  color: var(--ash, #64748b);
+  margin: 0;
+}
+
+.purchase__item-spec-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.purchase__item-spec-sub {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--rule-soft, #e2e8f0);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.purchase__spec-tag {
+  font-family: var(--ff-sans) !important;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.purchase__spec-tag--supplier {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.purchase__spec-tag--pmh {
+  background: #e0e7ff;
+  color: #3730a3;
+  font-weight: 600;
+}
+
+/* --- Drawer Meta Bar (Minimalist Typography, No Emoji) ---------------------- */
+.purchase__drawer-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: var(--ff-sans) !important;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink, #1e293b);
+  background: var(--rule-hair, #f8fafc);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  padding: 8px 14px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.purchase__drawer-dot {
+  color: var(--ash, #94a3b8);
+  font-size: 11px;
+}
+
+.purchase__drawer-date {
+  color: #c5400a;
+  font-weight: 600;
+}
+
+/* --- Drawer Fact Card & Item Badges ---------------------------------------- */
+.purchase__fact-card {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px 16px;
+  background: var(--rule-hair, #f8fafc);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.purchase__fact-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.purchase__fact-label {
+  font-family: var(--ff-sans) !important;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ash, #64748b);
+}
+
+.purchase__fact-val {
+  font-family: var(--ff-sans) !important;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink, #0f172a);
+}
+
+.purchase__qty-badge {
+  font-family: var(--ff-sans) !important;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink, #0f172a);
+  background: var(--rule-soft, #e2e8f0);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.purchase__drawer-table {
+  font-family: var(--ff-sans) !important;
+}
+
+.purchase__drawer-table th {
+  font-family: var(--ff-sans) !important;
+  font-size: 11px !important;
+}
+
+/* --- Modern Toolbar (Search & Select Controls) ------------------------------- */
+.purchase__search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.purchase__search-icon {
+  position: absolute;
+  left: 14px;
+  color: var(--ash, #94a3b8);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+
+.purchase__search-input {
+  padding-left: 38px !important;
+  border-radius: var(--r-3) !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 13px !important;
+  border: 1px solid var(--rule-soft, #cbd5e1) !important;
+  background: var(--paper, #ffffff) !important;
+  transition: all 0.2s ease !important;
+  width: 320px;
+  height: 38px;
+}
+
+.purchase__search-input:focus-visible {
+  outline: 2px solid var(--rust); outline-offset: 1px; border-color: var(--ink) !important;
+}
+
+.purchase__select-modern {
+  border-radius: var(--r-3) !important;
+  font-family: var(--ff-sans) !important;
+  font-size: var(--fs-sm) !important;
+  color: var(--ink) !important;
+  border: 1px solid var(--rule) !important;
+  background-color: var(--canvas, #fff) !important;
+  padding: 6px 34px 6px 12px !important;
+  height: 38px;
+  width: auto !important;
+  min-width: 150px;
+  max-width: 220px;
+  cursor: pointer !important;
+  transition: border-color .15s ease, box-shadow .15s ease !important;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+}
+.purchase__select-modern:hover { border-color: var(--ash-2) !important; }
+.purchase__select-modern:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+  border-color: var(--ink) !important;
+}
+
+/* Ô lọc "Nhà cung cấp" là <Select searchable> chứ không phải <select> (danh sách NCC dài, thẻ
+   gốc không gõ tìm được). Nó ĐỘI LỐT `.purchase__select-modern` cho khớp hai ô lọc bên cạnh,
+   nên chỉ cần chỉnh đúng hai chỗ thẻ gốc khác thẻ nút:
+     · thẻ bọc — `.sel` khai `width:100%`, thả trần vào thanh lọc flex là nó chiếm nguyên dòng;
+     · mũi tên — Select tự vẽ caret riêng, để nguyên `background-image` là hiện HAI mũi tên. */
+.purchase__filter-select {
+  flex: 0 0 auto;
+  width: 200px;
+}
+.purchase__filter-select .sel__trigger.purchase__select-modern {
+  width: 100% !important;
+  max-width: none;
+  padding-right: 12px !important;
+  background-image: none !important;
+}
+
+/* --- Modern Table Enhancements (WOW UI/UX - Font Be Vietnam Pro Alignment) --- */
+.purchase__table-modern {
+  width: 100% !important;
+  font-family: var(--ff-sans) !important;
+}
+
+.purchase__table-modern tbody tr {
+  transition: background-color var(--duration-base, 0.15s) ease;
+}
+
+.purchase__table-modern tbody tr:hover {
+  background-color: var(--rule-hair, #f8fafc);
+}
+
+.purchase__code-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.purchase__code-badge {
+  font-family: var(--ff-sans) !important;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--rule-soft, #f1f5f9);
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap !important;
+  flex-shrink: 0;
+  max-width: none !important;
+  overflow: visible !important;
+}
+
+.purchase__source-tag {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--ff-sans) !important;
+  font-size: 11px;
+  font-weight: 600;
+  color: #4f46e5;
+  background: #eef2ff;
+  border: 1px solid #e0e7ff;
+  padding: 1px 6px;
+  border-radius: var(--r-pill, 12px);
+  white-space: nowrap;
+}
+
+.purchase__dept-title {
+  font-weight: var(--fw-medium, 500);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.purchase__status-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.purchase__meta-line {
+  font-size: 12px;
+  color: var(--ash);
+  white-space: nowrap;
+}
+
+.purchase__pmh-inline {
+  font-family: var(--ff-sans) !important;
+  font-weight: 600;
+  color: #0284c7;
+  font-size: 12px;
+}
+
+.purchase__item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.purchase__item-chip {
+  font-family: var(--ff-sans) !important;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--rule-soft, #e2e8f0);
+  padding: 1px 7px;
+  border-radius: var(--r-pill, 10px);
+  white-space: nowrap;
+}
+
+.purchase__item-names {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ash);
+  font-family: var(--ff-sans) !important;
+}
+
+.purchase__money-cell {
+  text-align: right !important;
+  font-family: var(--ff-num);
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.purchase__pmh-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.purchase__pmh-tag {
+  font-family: var(--ff-mono, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  color: #0369a1;
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.purchase__status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.purchase__status-dot--draft { background: var(--steel, #64748b); }
+.purchase__status-dot--pending { background: #d97706; }
+.purchase__status-dot--approved { background: #16a34a; }
+.purchase__status-dot--rejected,
+.purchase__status-dot--cancelled { background: var(--signal, #dc2626); }
+.purchase__status-dot--purchased { background: #0284c7; }
+.purchase__status-dot--partial { background: #d97706; }
+.purchase__status-dot--received { background: #166036; }
 
 .purchase__dialog {
   max-width: min(1120px, calc(100vw - 48px));
@@ -585,11 +1543,11 @@
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-  min-height: 40px;
+  min-height: 38px;
   padding: 4px 6px 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-6);
-  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
 }
 
 .purchase__date-group > span {
@@ -2040,4 +2998,88 @@
    hay "hỏng". */
 .kho-dv__ro--trong {
   color: var(--ash-2);
+}
+
+/* Dòng vật tư ĐÃ BỎ khỏi yêu cầu (mg 0233). Giữ lại trong bảng để tra "ai bỏ · lúc nào · vì sao",
+   nhưng phải nhìn-là-biết nó không còn là việc phải làm: chữ mờ + gạch ngang tên hàng và số lượng.
+   Không gạch phần chú thích lý do — đó là chữ cần ĐỌC ĐƯỢC, gạch vào là phản tác dụng. */
+.purchase__dong-da-bo > td {
+  color: var(--ash-2);
+}
+
+.purchase__dong-da-bo > td > strong,
+.purchase__dong-da-bo > td.pay-num {
+  text-decoration: line-through;
+}
+
+/* ===== Mua hàng (Thu mua) — khoanh vùng .acct-mh / .acct-mh-drawer / .acct-mh__frame =====
+   Học đúng khối .acct-dmh đã duyệt ở accounting.css (Kế toán → Đơn mua hàng). */
+/* KHÔNG khai `overflow: hidden` ở đây (khác `.acct-dmh__frame` bên accounting.css) — ĐÃ THỬ, ĐỪNG
+   THÊM LẠI. Lý do: `.md-page__tablewrap { overflow-x: auto }` (master-data.css, nạp TRƯỚC) và một
+   `overflow: hidden` ở đây CÙNG đặc trưng (0,1,0) — file nạp SAU thắng nên bảng bị CẮT MẤT cột phải
+   thay vì cuộn (đã đo thật: cột Trạng thái biến mất ở 1280px). Khuôn `.acct-dmh__frame > table {
+   overflow-x: auto }` (accounting.css) tưởng vá được nhưng KHÔNG ăn: đã đo thật trên Chrome 148,
+   `overflow-x` không áp dụng lên phần tử `<table>` (display: table) trừ khi ép thêm `display: block`
+   — mà ép `display: block` lên bảng dữ liệu thật (colspan ở tfoot, table-layout) là rủi ro vỡ layout
+   không đáng đánh đổi. Bảng ở đây may mắn không cần: nó nằm GIỮA toolbar/foot (xem hai rule dưới),
+   không chạm góc bo nào của khung — nên bỏ hẳn overflow, để `.md-page__tablewrap` tự lo cuộn ngang
+   như trước giờ, là đủ và AN TOÀN hơn. */
+.acct-mh__frame {
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+}
+.acct-mh__frame > .purchase__source-toolbar {
+  padding: var(--sp-4) var(--sp-5);
+  margin: 0 0 var(--sp-3);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.acct-mh__frame > .purchase__source-foot {
+  padding: var(--sp-3) var(--sp-5);
+  margin: 0;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.acct-mh__frame .md-page__table thead th,
+.acct-mh-drawer .md-page__table thead th {
+  background: var(--paper);
+  border-bottom: 1.5px solid var(--rule);
+}
+.acct-mh__frame .md-page__row:hover { background: var(--rust-soft); }
+.acct-mh__frame .purchase__row--selected {
+  background: var(--rust-soft);
+  box-shadow: inset 3px 0 0 var(--rust);
+}
+.acct-mh__frame th.acct-amount-cell,
+.acct-mh__frame td.acct-amount-cell { text-align: right; }
+
+.acct-mh__state {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: var(--r-pill);
+  background: var(--canvas); border: 1px solid var(--rule-soft); color: var(--ink);
+  font-size: var(--fs-2xs); font-weight: var(--fw-bold); white-space: nowrap;
+}
+.acct-mh__dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 6px; }
+.acct-mh__state--pending .acct-mh__dot { background: var(--amber); }
+.acct-mh__state--draft .acct-mh__dot,
+.acct-mh__state--approved .acct-mh__dot,
+.acct-mh__state--purchased .acct-mh__dot { background: var(--steel); }
+.acct-mh__state--partial .acct-mh__dot,
+.acct-mh__state--received .acct-mh__dot { background: var(--moss); }
+.acct-mh__state--rejected .acct-mh__dot,
+.acct-mh__state--cancelled .acct-mh__dot { background: var(--signal); }
+
+.acct-mh-drawer .purchase__hero-banner { background: var(--charcoal); border-bottom: 0; }
+
+.acct-mh-drawer .pdot__totals-due b {
+  color: var(--ink); font-size: var(--fs-xl); font-weight: var(--fw-medium);
+}
+
+.acct-mh__frame .purchase__source-codes,
+.acct-mh-drawer .purchase__source-codes { color: var(--ash-2); }
+.acct-mh__frame .code-link:hover,
+.acct-mh-drawer .code-link:hover { color: var(--rust); }
+
+@media (max-width: 900px) {
+  .acct-mh__frame > .purchase__source-toolbar { flex-direction: column; align-items: stretch; }
 }

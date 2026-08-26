@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LsxPhuThuocOption } from "../api/client";
 import type { RefRow } from "../pages/LsxRoutingTable";
-import { type EditRow } from "../pages/lsxBuoc";
+import { type EditRow, tenBuoc } from "../pages/lsxBuoc";
 import { DagNodeCard } from "./DagNodeCard";
 import { Icon } from "./Icons";
 import "../pages/dag-routing.css";
@@ -271,7 +271,7 @@ function DagGhostNodeCard({
 
 export function DagRoutingCanvas({
   rows,
-  congDoanRefs: _congDoanRefs,
+  congDoanRefs,
   toRefs,
   mayRefs,
   vatTuRefs: _vatTuRefs,
@@ -654,23 +654,43 @@ export function DagRoutingCanvas({
           </button>
 
           {canUpdate && (() => {
-            // Có node đang chọn ⇒ CHÈN NGAY SAU nó (thu_tu đúng liền); chưa chọn ⇒ thêm ở cuối.
+            // Thêm bước = CHÈN SAU 1 bước đang chọn (thu_tu liền ngay). Không còn nút "thêm ở
+            // cuối" chung chung: bấm chọn 1 node rồi mới hiện "Chèn sau: <bước>". Danh sách RỖNG
+            // là ngoại lệ duy nhất còn nút thêm-bước-đầu — chưa có bước nào để chèn sau. Nhãn dùng
+            // tenBuoc() để bám tên công đoạn đang gắn, không trơ literal "Công đoạn".
             const nodeChon = selectedKey ? rows.find((r) => r.key === selectedKey) : null;
-            const tenChon = nodeChon?.ten?.trim();
-            const tenNgan = tenChon && tenChon.length > 18 ? `${tenChon.slice(0, 17)}…` : tenChon;
+            if (nodeChon) {
+              const tenChon = tenBuoc(nodeChon, congDoanRefs).trim() || "bước đã chọn";
+              const tenNgan = tenChon.length > 18 ? `${tenChon.slice(0, 17)}…` : tenChon;
+              return (
+                <button
+                  type="button"
+                  className="dag-btn-icon"
+                  style={{ background: "#c25e38", color: "#fff", borderColor: "#c25e38" }}
+                  onClick={() => onAddStep(selectedKey ?? undefined)}
+                  title={`Chèn 1 công đoạn ngay sau "${tenChon}"`}
+                >
+                  <Icon name="plus" size={14} /> Chèn sau: {tenNgan}
+                </button>
+              );
+            }
+            if (rows.length === 0) {
+              return (
+                <button
+                  type="button"
+                  className="dag-btn-icon"
+                  style={{ background: "#c25e38", color: "#fff", borderColor: "#c25e38" }}
+                  onClick={() => onAddStep(undefined)}
+                  title="Thêm công đoạn đầu tiên cho lệnh"
+                >
+                  <Icon name="plus" size={14} /> Thêm công đoạn
+                </button>
+              );
+            }
             return (
-              <button
-                type="button"
-                className="dag-btn-icon"
-                style={{ background: "#c25e38", color: "#fff", borderColor: "#c25e38" }}
-                onClick={() => onAddStep(selectedKey ?? undefined)}
-                title={tenChon
-                  ? `Chèn 1 công đoạn ngay sau "${tenChon}"`
-                  : "Thêm công đoạn ở cuối — bấm chọn 1 bước trước để chèn vào giữa"}
-              >
-                <Icon name="plus" size={14} />{" "}
-                {tenNgan ? `Chèn sau: ${tenNgan}` : "Thêm công đoạn"}
-              </button>
+              <span className="dag-toolbar__hint">
+                Bấm chọn 1 bước để chèn công đoạn ngay sau nó
+              </span>
             );
           })()}
         </div>
@@ -913,6 +933,7 @@ export function DagRoutingCanvas({
                 isSelected={selectedKey === r.key}
                 isConnecting={connectingSourceKey !== null}
                 isHoveredPort={null}
+                congDoanRefs={congDoanRefs}
                 toRefs={toRefs}
                 mayRefs={mayRefs}
                 warnings={[]}

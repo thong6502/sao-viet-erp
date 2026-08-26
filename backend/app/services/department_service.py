@@ -49,6 +49,10 @@ class InvalidLevelOrder(DepartmentError):
     """A child unit's level must rank BELOW its parent's level (spec-06 / PBI-4007)."""
 
 
+class KhoanKmInvalid(DepartmentError):
+    """Ba ô khoán km sai luật — hai tỷ lệ không cộng đủ 100, hoặc đơn giá âm (mg 0231)."""
+
+
 class DepartmentBranchHasUsers(DepartmentError):
     """A department branch still has personnel — deletion is blocked (spec-05 / PBI-4005)
     until the people are moved out. `offenders` is a list of (Department, user_count)."""
@@ -193,6 +197,10 @@ class DepartmentService:
                     "la_san_xuat": dept.la_san_xuat,
                     "la_kinh_doanh": dept.la_kinh_doanh,
                     "is_kcs": dept.is_kcs,
+                    "la_giao_hang": dept.la_giao_hang,
+                    "don_gia_km": float(dept.don_gia_km or 0),
+                    "pct_tai_xe": float(dept.pct_tai_xe if dept.pct_tai_xe is not None else 60),
+                    "pct_phu_xe": float(dept.pct_phu_xe if dept.pct_phu_xe is not None else 40),
                     "role_count": own_roles[dept.id],
                     "user_count": own_users[dept.id],
                     "employee_count": own_emps[dept.id],
@@ -227,6 +235,10 @@ class DepartmentService:
             "la_san_xuat": dept.la_san_xuat,
             "la_kinh_doanh": dept.la_kinh_doanh,
             "is_kcs": dept.is_kcs,
+            "la_giao_hang": dept.la_giao_hang,
+            "don_gia_km": float(dept.don_gia_km or 0),
+            "pct_tai_xe": float(dept.pct_tai_xe if dept.pct_tai_xe is not None else 60),
+            "pct_phu_xe": float(dept.pct_phu_xe if dept.pct_phu_xe is not None else 40),
             "role_count": self.roles.count_by_department(dept.id),
             "user_count": self.users.count_by_department(dept.id),
             "employee_count": self.employees.count_by_department(dept.id),
@@ -298,6 +310,10 @@ class DepartmentService:
         la_san_xuat: bool = False,
         la_kinh_doanh: bool = False,
         is_kcs: bool = False,
+        la_giao_hang: bool = False,
+        don_gia_km: float = 0.0,
+        pct_tai_xe: float = 60.0,
+        pct_phu_xe: float = 40.0,
         actor_id: int | None,
     ) -> Department:
         name = name.strip()
@@ -326,6 +342,9 @@ class DepartmentService:
             self.departments.set_la_kinh_doanh(dept, True)
         if is_kcs:
             self.departments.set_is_kcs(dept, True)
+        if la_giao_hang:
+            self.departments.set_la_giao_hang(dept, True)
+        self._dat_khoan_km(dept, don_gia_km, pct_tai_xe, pct_phu_xe)
         self.audit.create(
             actor_user_id=actor_id,
             action="create_department",
@@ -352,6 +371,10 @@ class DepartmentService:
         la_san_xuat: bool = False,
         la_kinh_doanh: object = _KEEP,
         is_kcs: object = _KEEP,
+        la_giao_hang: object = _KEEP,
+        don_gia_km: object = _KEEP,
+        pct_tai_xe: object = _KEEP,
+        pct_phu_xe: object = _KEEP,
     ) -> Department:
         dept = self.departments.get_by_id(dept_id)
         if dept is None:
@@ -405,6 +428,18 @@ class DepartmentService:
         # Cờ KCS: cùng luật "KHÔNG gửi = giữ nguyên" như khối Kinh doanh.
         if is_kcs is not _KEEP:
             self.departments.set_is_kcs(dept, bool(is_kcs))
+        # Cùng luật "KHÔNG gửi = giữ nguyên" như cờ Kinh doanh ngay trên: màn Phòng ban có nhiều
+        # luồng sửa chỉ đụng tên/trưởng phòng, ghi đè mặc định False ở đó là âm thầm gỡ bộ phận
+        # giao hàng, và tab Nhân viên giao hàng trống trơn mà không ai báo.
+        if la_giao_hang is not _KEEP:
+            self.departments.set_la_giao_hang(dept, bool(la_giao_hang))
+        if don_gia_km is not _KEEP or pct_tai_xe is not _KEEP or pct_phu_xe is not _KEEP:
+            self._dat_khoan_km(
+                dept,
+                dept.don_gia_km if don_gia_km is _KEEP else don_gia_km,
+                dept.pct_tai_xe if pct_tai_xe is _KEEP else pct_tai_xe,
+                dept.pct_phu_xe if pct_phu_xe is _KEEP else pct_phu_xe,
+            )
         self.audit.create(
             actor_user_id=actor_id,
             action="update_department",
@@ -412,6 +447,28 @@ class DepartmentService:
             detail=f"{name} (head={head_user_id}, level={level_id}, parent={parent_id})",
         )
         return dept
+
+    def _dat_khoan_km(self, dept, don_gia_km, pct_tai_xe, pct_phu_xe) -> None:
+        """Ghi ba ô khoán km, sau khi kiểm hai tỷ lệ cộng đúng 100 (mg 0231).
+
+        ⭐ Vì sao bắt đúng 100: tiền một chuyến = km × đơn giá, chia cho kíp theo hai tỷ lệ này.
+        Cộng ra 90 thì công ty giữ lại 10% mà không ai khai điều đó ở đâu; cộng ra 110 thì chuyến
+        có phụ xe đắt hơn chuyến đi một mình 10% — cả hai đều là số không giải thích được khi kế
+        toán đối chiếu. Chặn ở đây, một chỗ, cho cả tạo lẫn sửa.
+
+        Dung sai 0,01 vì hai ô là `Numeric(5,2)`: gõ 33,33 / 66,67 phải nhận, không thì không chia
+        được ba phần.
+        """
+        tx, px = float(pct_tai_xe), float(pct_phu_xe)
+        if abs(tx + px - 100.0) > 0.01:
+            raise KhoanKmInvalid(
+                f"% tài xế + % phụ xe phải bằng 100 (đang là {tx:g} + {px:g} = {tx + px:g})."
+            )
+        if float(don_gia_km) < 0:
+            raise KhoanKmInvalid("Đơn giá km không được âm.")
+        dept.don_gia_km = float(don_gia_km)
+        dept.pct_tai_xe = tx
+        dept.pct_phu_xe = px
 
     def _can_head(self, dept_id: int, user_id: int) -> bool:
         """A valid head belongs to the unit OR any unit in its subtree (spec-06 / PBI-4004)."""

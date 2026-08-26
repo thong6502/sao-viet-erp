@@ -1,6 +1,6 @@
 // Báo cáo kho (kế toán) — sổ nhập-xuất (phiếu ĐÃ GHI SỔ) + khóa kỳ THEO KHOẢNG (chốt/mở) +
 // tab Lịch sử thao tác + export MISA. docs/spec-bao-cao-kho.md. Chỉ quyền `close_book` vào.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ApiError,
@@ -15,6 +15,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 import { Select } from "../components/Select";
 import { DateFilterHead, NumFilterHead, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, inDateRange, inNumRange, todayISO, useHeaderTitles } from "./khoShared";
+import { Search } from "lucide-react";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
 
@@ -104,8 +105,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   // Hover tiêu đề cột → hiện tên cột đầy đủ (kể cả khi bị cắt) — 1 ref bọc cả trang, phủ mọi bảng.
   const pageRef = useHeaderTitles<HTMLElement>();
   const [tab, setTab] = useState<Tab>("tong-quan");
-  // Chiều của tab "Sổ kho": Nhập · Xuất. (Điều chuyển KHÔNG vào báo cáo — kế toán tự khai MISA.)
-  const [soChieu, setSoChieu] = useState<"NHAP" | "XUAT">("NHAP");
+  // Chiều của tab "Sổ kho": Nhập · Xuất · Chuyển kho (sổ điều chuyển nội bộ đã ghi sổ).
+  const [soChieu, setSoChieu] = useState<"NHAP" | "XUAT" | "CHUYEN">("NHAP");
   const [khoId, setKhoId] = useState<number | null>(null);
   const [tu, setTu] = useState("");
   const [den, setDen] = useState("");
@@ -120,6 +121,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   const [ttTo, setTtTo] = useState("");
 
   const [rows, setRows] = useState<BaoCaoKhoRow[]>([]);
+  const [chuyenRows, setChuyenRows] = useState<BaoCaoChuyenKhoRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [khoList, setKhoList] = useState<KhoOpt[]>([]);
@@ -168,11 +170,20 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    api.kho.baoCao
-      .dong(token, { tu: tu || null, den: den || null, kho_id: khoId, loai: soChieu })
-      .then((p) => setRows(p.items))
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Không tải được báo cáo."))
-      .finally(() => setLoading(false));
+    // ⚠ `dong`/`exportXlsxBlobUrl` KHÔNG nhận "CHUYEN" (loai = NHAP/XUAT) → branch TRƯỚC khi gọi.
+    if (soChieu === "CHUYEN") {
+      api.kho.baoCao
+        .chuyenKho(token, { tu: tu || null, den: den || null, kho_id: khoId })
+        .then((p) => setChuyenRows(p.items))
+        .catch((e) => setError(e instanceof ApiError ? e.message : "Không tải được báo cáo."))
+        .finally(() => setLoading(false));
+    } else {
+      api.kho.baoCao
+        .dong(token, { tu: tu || null, den: den || null, kho_id: khoId, loai: soChieu })
+        .then((p) => setRows(p.items))
+        .catch((e) => setError(e instanceof ApiError ? e.message : "Không tải được báo cáo."))
+        .finally(() => setLoading(false));
+    }
   }, [token, tu, den, khoId, soChieu]);
   useEffect(() => {
     if (tab === "so") load();
@@ -244,7 +255,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
         cur.sl += r.so_luong ?? 0;
         cur.tien += r.thanh_tien ?? 0;
       }
-      return [...m.values()].sort((a, b) => b.tien - a.tien).slice(0, 8);
+      return [...m.values()].sort((a, b) => b.tien - a.tien).slice(0, 10);
     };
 
     // Chuyển kho (từ dashChuyen): theo TUYẾN (từ kho → đến kho) + TOP mặt hàng chuyển.
@@ -261,7 +272,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
     }
     const chuyenTheoTuyen = [...tuyenAgg.values()]
       .map((t) => ({ tuyen: t.tuyen, giaTri: t.giaTri, phieu: t.phieu.size }))
-      .sort((a, b) => b.giaTri - a.giaTri);
+      .sort((a, b) => b.giaTri - a.giaTri)
+      .slice(0, 10);
     const topChuyenMap = new Map<
       string,
       { ma: string | null; ten: string | null; dvt: string | null; sl: number; tien: number }
@@ -276,7 +288,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       cur.sl += r.so_luong ?? 0;
       cur.tien += r.tien_von ?? 0;
     }
-    const topChuyen = [...topChuyenMap.values()].sort((a, b) => b.tien - a.tien).slice(0, 8);
+    const topChuyen = [...topChuyenMap.values()].sort((a, b) => b.tien - a.tien).slice(0, 10);
 
     // Chuỗi thời gian Nhập/Xuất — mặc định theo NGÀY; tự gộp theo THÁNG nếu quá nhiều ngày (>45)
     // để biểu đồ khỏi tràn/rối.
@@ -334,6 +346,15 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
     };
   }, [dashRows, dashChuyen]);
 
+  // Đồ thị Nhập/Xuất/Chuyển kho theo ngày: mặc định CUỘN TỚI NGÀY MỚI NHẤT (bên phải) khi mở màn /
+  // đổi bộ lọc, thay vì đứng ở ngày cũ nhất — người xem quan tâm gần đây nhất. Dùng useLayoutEffect
+  // để không nhấp nháy (đặt scroll trước khi vẽ).
+  const chartPlotRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = chartPlotRef.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [dash.chuoi, dash.theoThang]);
+
   const khoOptions = useMemo(
     () => [
       { value: "", label: "Tất cả kho" },
@@ -383,6 +404,33 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   const pagedRows = useMemo(
     () => filteredRows.slice((page - 1) * pageSize, page * pageSize),
     [filteredRows, page, pageSize],
+  );
+
+  // Sổ CHUYỂN KHO — cùng bộ lọc (tìm + funnel cột: ngày CT, SL, đơn giá vốn, tiền vốn) như Nhập/Xuất.
+  const filteredChuyen = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return chuyenRows.filter((r) => {
+      if (!inDateRange((r.ngay_ct ?? "").slice(0, 10), { from: ctFrom, to: ctTo })) return false;
+      if (!inNumRange(r.so_luong, { from: slFrom, to: slTo })) return false;
+      if (!inNumRange(r.don_gia_von, { from: dgFrom, to: dgTo })) return false;
+      if (!inNumRange(r.tien_von, { from: ttFrom, to: ttTo })) return false;
+      if (!q) return true;
+      return (
+        (r.so_ct ?? "").toLowerCase().includes(q) ||
+        (r.ma_hang ?? "").toLowerCase().includes(q) ||
+        (r.ten_hang ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [chuyenRows, search, ctFrom, ctTo, slFrom, slTo, dgFrom, dgTo, ttFrom, ttTo]);
+
+  const totalChuyen = useMemo(
+    () => filteredChuyen.reduce((s, r) => s + (r.tien_von ?? 0), 0),
+    [filteredChuyen],
+  );
+  const chuyenPageCount = Math.max(1, Math.ceil(filteredChuyen.length / pageSize));
+  const pagedChuyen = useMemo(
+    () => filteredChuyen.slice((page - 1) * pageSize, page * pageSize),
+    [filteredChuyen, page, pageSize],
   );
 
   // Lọc cho "Lịch sử thao tác" (tìm phạm vi/người/tên kỳ/ngày + lọc hành động Khóa/Mở).
@@ -484,9 +532,16 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   // Mỗi kỳ khóa (bản ghi 'khoa' phủ dòng) một MÀU riêng — index theo thứ tự thời gian (tu_ngay).
   const periodIndex = useMemo(() => {
     const ids: number[] = [];
-    for (const r of rows) {
-      const rec = lockRecordFor(r.kho_id, r.ngay_ghi_so);
+    const push = (khoId: number | null, ngay: string | null) => {
+      const rec = lockRecordFor(khoId, ngay);
       if (rec && !ids.includes(rec.id)) ids.push(rec.id);
+    };
+    for (const r of rows) push(r.kho_id, r.ngay_ghi_so);
+    // Gộp cả Sổ Chuyển kho: mỗi dòng đụng 2 kho → push CẢ kho đích lẫn kho nguồn để màu kỳ khớp
+    // dù khóa riêng kho nào (push tự dedup theo id kỳ khóa).
+    for (const r of chuyenRows) {
+      push(r.kho_nhap_id, r.ngay_ghi_so);
+      push(r.kho_xuat_id, r.ngay_ghi_so);
     }
     ids.sort((a, b) => {
       const la = locks.find((l) => l.id === a);
@@ -496,24 +551,47 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
     const m = new Map<number, number>();
     ids.forEach((id, i) => m.set(id, i));
     return m;
-  }, [rows, lockRecordFor, locks]);
+  }, [rows, chuyenRows, lockRecordFor, locks]);
 
   async function doExport() {
     setExporting(true);
     setError(null);
     try {
-      const url = await api.kho.baoCao.exportXlsxBlobUrl(token, soChieu, {
-        tu: tu || null,
-        den: den || null,
-        kho_id: khoId,
-        q: search || null,
-      });
+      // Tên file DỄ HIỂU thay UUID của blob. Bắt buộc gán a.download tên thật — để rỗng thì trình
+      // duyệt lấy id blob làm tên (khó nhìn). CHUYEN có endpoint export riêng (mẫu MISA "Chuyển kho").
+      const khoang = tu || den ? ` ${tu || "…"} đến ${den || "…"}` : "";
+      // Đắp bộ lọc funnel theo CỘT (Ngày CT · SL · Đơn giá · Thành tiền) đang áp ở bảng → file
+      // Excel = ĐÚNG bảng đang xem, không kéo thừa dòng đã bị lọc. Số rỗng = không chặn.
+      const num = (s: string) => (s.trim() === "" ? null : Number(s));
+      const funnel = {
+        ct_from: ctFrom || null,
+        ct_to: ctTo || null,
+        sl_from: num(slFrom),
+        sl_to: num(slTo),
+        dg_from: num(dgFrom),
+        dg_to: num(dgTo),
+        tt_from: num(ttFrom),
+        tt_to: num(ttTo),
+      };
+      const url =
+        soChieu === "CHUYEN"
+          ? await api.kho.baoCao.chuyenKhoExportXlsxBlobUrl(token, {
+              tu: tu || null,
+              den: den || null,
+              kho_id: khoId,
+              q: search || null,
+              ...funnel,
+            })
+          : await api.kho.baoCao.exportXlsxBlobUrl(token, soChieu, {
+              tu: tu || null,
+              den: den || null,
+              kho_id: khoId,
+              q: search || null,
+              ...funnel,
+            });
       const a = document.createElement("a");
       a.href = url;
-      // Tên file DỄ HIỂU thay UUID của blob: "Báo cáo nhập/xuất kho [khoảng ngày].xlsx".
-      // Bắt buộc gán a.download tên thật — để rỗng thì trình duyệt lấy id blob làm tên (khó nhìn).
-      const chieu = soChieu === "NHAP" ? "nhập" : "xuất";
-      const khoang = tu || den ? ` ${tu || "…"} đến ${den || "…"}` : "";
+      const chieu = soChieu === "NHAP" ? "nhập" : soChieu === "XUAT" ? "xuất" : "chuyển";
       a.download = `Báo cáo ${chieu} kho${khoang}.xlsx`;
       document.body.appendChild(a);
       a.click();
@@ -595,7 +673,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             {tab === "tong-quan"
               ? `${dashRows.length} dòng sổ`
               : tab === "so"
-                ? `${rows.length} dòng`
+                ? `${soChieu === "CHUYEN" ? chuyenRows.length : rows.length} dòng`
                 : tab === "lichsu"
                   ? `${locks.length} thao tác`
                   : `${kyList.length} kỳ`}
@@ -612,7 +690,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             <button
               type="button"
               className="btn btn--secondary kho-export-btn"
-              disabled={exporting || rows.length === 0}
+              disabled={exporting || (soChieu === "CHUYEN" ? chuyenRows.length === 0 : rows.length === 0)}
               onClick={doExport}
               title="Xuất Excel đúng mẫu MISA (theo chiều đang chọn)"
             >
@@ -621,11 +699,6 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             </button>
           )}
         </div>
-        <p className="rc__sub">
-          Sổ kho từ phiếu ĐÃ GHI SỔ (Nhập · Xuất) + khóa/mở kỳ + lịch sử thao tác — cho kế toán kho.
-          Loại nhập/xuất MISA do kế toán tự điền trên Excel dựa theo chiều + kho. (Điều chuyển kho
-          không vào báo cáo — kế toán tự khai bên MISA.)
-        </p>
       </header>
 
       <div className="kho-shell">
@@ -695,33 +768,37 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                   <span className="kho-dash__val">{fmtMoney(dash.tongNhap)} đ</span>
                   <span className="kho-dash__sub">{dash.phieuNhap} phiếu nhập</span>
                 </div>
+
                 <div className="kho-dash__card kho-dash__card--out">
                   <span className="kho-dash__label">Tổng xuất</span>
                   <span className="kho-dash__val">{fmtMoney(dash.tongXuat)} đ</span>
                   <span className="kho-dash__sub">{dash.phieuXuat} phiếu xuất</span>
                 </div>
-                <div className="kho-dash__card">
+
+                <div className="kho-dash__card kho-dash__card--diff">
                   <span className="kho-dash__label">Chênh lệch Nhập − Xuất</span>
                   <span className="kho-dash__val">{fmtMoney(dash.chenhLech)} đ</span>
-                  <span className="kho-dash__sub">= Tổng nhập − Tổng xuất (theo giá trị)</span>
+                  <span className="kho-dash__sub">= Tổng nhập − Tổng xuất (giá trị)</span>
                 </div>
-                <div className="kho-dash__card">
+
+                <div className="kho-dash__card kho-dash__card--items">
                   <span className="kho-dash__label">Mặt hàng luân chuyển</span>
                   <span className="kho-dash__val">{dash.soMatHang}</span>
                   <span className="kho-dash__sub">{dash.soDong} dòng sổ</span>
                 </div>
+
                 {dash.chuyenSoDong > 0 && (
-                  <div className="kho-dash__card">
+                  <div className="kho-dash__card kho-dash__card--move">
                     <span className="kho-dash__label">Chuyển kho nội bộ</span>
                     <span className="kho-dash__val">{fmtMoney(dash.chuyenGiaTri)} đ</span>
                     <span className="kho-dash__sub">
-                      {dash.chuyenSoPhieu} phiếu · {dash.chuyenSoDong} dòng · KHÔNG vào Sổ Nhập/Xuất
+                      {dash.chuyenSoPhieu} phiếu · {dash.chuyenSoDong} dòng
                     </span>
                   </div>
                 )}
               </div>
 
-              {/* Biểu đồ cột Nhập/Xuất theo thời gian — CSS thuần, màu khớp app (nhập xanh/xuất cam). */}
+              {/* Biểu đồ cột Nhập/Xuất theo thời gian — CSS nâng cấp hiện đại */}
               {dash.chuoi.length > 0 && (
                 <section className="rc-sec">
                   <h3 className="rc-sec__title">
@@ -735,7 +812,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                         <span className="kho-chart__leg kho-chart__leg--move">Chuyển kho</span>
                       )}
                     </div>
-                    <div className="kho-chart__plot">
+                    <div className="kho-chart__plot" ref={chartPlotRef}>
                       {dash.chuoi.map((c) => (
                         <div
                           className="kho-chart__grp"
@@ -934,16 +1011,23 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       {tab === "so" && (
         <>
           <div className="rc__toolbar">
-            <div className="kho-picker">
-              <Select
-                ariaLabel="Chiều"
-                value={soChieu}
-                onChange={(v) => setSoChieu((v as "NHAP" | "XUAT") || "NHAP")}
-                options={[
-                  { value: "NHAP", label: "Nhập kho" },
-                  { value: "XUAT", label: "Xuất kho" },
-                ]}
-              />
+            <div className="kho-chieu-segmented">
+              {(
+                [
+                  ["NHAP", "Nhập kho"],
+                  ["XUAT", "Xuất kho"],
+                  ["CHUYEN", "Chuyển kho"],
+                ] as const
+              ).map(([val, lbl]) => (
+                <button
+                  key={val}
+                  type="button"
+                  className={`kho-chieu-btn kho-chieu-btn--${val.toLowerCase()}${soChieu === val ? " is-active" : ""}`}
+                  onClick={() => setSoChieu(val)}
+                >
+                  {lbl}
+                </button>
+              ))}
             </div>
             <div className="kho-picker">
               <Select
@@ -953,16 +1037,117 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                 options={khoOptions}
               />
             </div>
-            <input
-              className="rc-input"
-              style={{ marginLeft: "auto", maxWidth: 260 }}
-              placeholder="Tìm số CT / mã / tên hàng…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+            <div className="rc__search-wrapper" style={{ marginLeft: "auto", width: 260 }}>
+              <Search className="rc__search-icon" style={{ width: 15, height: 15 }} />
+              <input
+                className="rc__search"
+                placeholder="Tìm số CT / mã / tên hàng…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
           </div>
 
-          {
+          {soChieu === "CHUYEN" ? (
+          <>
+          <div className="kho-bc-wrap">
+            <table className="rc__table kho-bc">
+              <thead>
+                <tr>
+                  <DateFilterHead label="Ngày ghi sổ" from={tu} to={den} onChange={(f, t) => { setTu(f); setDen(t); }} />
+                  <DateFilterHead label="Ngày CT" from={ctFrom} to={ctTo} onChange={(f, t) => { setCtFrom(f); setCtTo(t); }} />
+                  <th title="Số chứng từ — mã phiếu xuất điều chuyển">Số CT</th>
+                  <th title="Tuyến điều chuyển: từ kho → đến kho">Tuyến</th>
+                  <th title="Mã vật tư">Mã hàng</th>
+                  <th title="Tên vật tư — di chuột xem đầy đủ nếu dài">Tên hàng</th>
+                  <th title="Đơn vị tính">ĐVT</th>
+                  <NumFilterHead className="kho-bc__num" label="Số lượng" from={slFrom} to={slTo} onChange={(f, t) => { setSlFrom(f); setSlTo(t); }} />
+                  <NumFilterHead className="kho-bc__num" label="Đơn giá vốn" from={dgFrom} to={dgTo} onChange={(f, t) => { setDgFrom(f); setDgTo(t); }} />
+                  <NumFilterHead className="kho-bc__num" label="Tiền vốn" from={ttFrom} to={ttTo} onChange={(f, t) => { setTtFrom(f); setTtTo(t); }} />
+                  <th title="Diễn giải điều chuyển">Diễn giải</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={11} className="rc__empty-state">Đang tải…</td></tr>
+                ) : filteredChuyen.length === 0 ? (
+                  <tr><td colSpan={11} className="rc__empty-state">Không có dòng điều chuyển nào (đã ghi sổ) trong kỳ / bộ lọc.</td></tr>
+                ) : (
+                  pagedChuyen.map((r, i) => {
+                    const rec =
+                      lockRecordFor(r.kho_nhap_id, r.ngay_ghi_so) ??
+                      lockRecordFor(r.kho_xuat_id, r.ngay_ghi_so);
+                    const pIdx = rec ? (periodIndex.get(rec.id) ?? 0) % 3 : -1;
+                    return (
+                    <tr key={`${r.voucher_id}-${i}`} className={rec ? `kho-bc__lock kho-bc__lock-${pIdx}` : undefined}>
+                      <td>
+                        {rec && (
+                          <span title={`Kỳ đã khóa: ${fmtDate(rec.tu_ngay)} – ${fmtDate(rec.den_ngay)}`} style={{ marginRight: 5 }}>
+                            <LockIcon />
+                          </span>
+                        )}
+                        {fmtDate(r.ngay_ghi_so)}
+                      </td>
+                      <td>{fmtDate(r.ngay_ct)}</td>
+                      <td><span className="rc__code-badge">{r.so_ct}</span></td>
+                      <td><span className="kho-bc__name" title={`${r.kho_xuat_ten ?? "—"} → ${r.kho_nhap_ten ?? "—"}`}>{r.kho_xuat_ten ?? "—"} → {r.kho_nhap_ten ?? "—"}</span></td>
+                      <td>{r.ma_hang ?? "—"}</td>
+                      <td><span className="kho-bc__name" title={r.ten_hang ?? ""}>{r.ten_hang ?? "—"}</span></td>
+                      <td>{r.dvt ?? ""}</td>
+                      <td className="kho-bc__num">{fmtQty(r.so_luong)}</td>
+                      <td className="kho-bc__num">{fmtMoney(r.don_gia_von)}</td>
+                      <td className="kho-bc__num">{fmtMoney(r.tien_von)}</td>
+                      <td><span className="kho-bc__name" title={r.dien_giai ?? ""}>{r.dien_giai ?? "—"}</span></td>
+                    </tr>
+                    );
+                  })
+                )}
+                {Array.from({
+                  length: Math.max(0, pageSize - (loading || filteredChuyen.length === 0 ? 1 : pagedChuyen.length)),
+                }).map((_, i) => (
+                  <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={11}>&nbsp;</td></tr>
+                ))}
+              </tbody>
+              {filteredChuyen.length > 0 && (
+                <tfoot>
+                  <tr>
+                    <td colSpan={9} className="kho-bc__num" style={{ fontWeight: 600 }}>
+                      Tổng tiền vốn ({filteredChuyen.length} dòng)
+                    </td>
+                    <td className="kho-bc__num" style={{ fontWeight: 600 }}>{fmtMoney(totalChuyen)}</td>
+                    <td />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+
+          {filteredChuyen.length > 0 && (
+            <div className="kho-bc-pager">
+              <PageSizeSelect value={pageSize} onChange={setPageSize} />
+              <button
+                type="button"
+                className="rc__link-btn"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                ‹ Trước
+              </button>
+              <span>
+                Trang {page}/{chuyenPageCount} · {filteredChuyen.length} dòng
+              </span>
+              <button
+                type="button"
+                className="rc__link-btn"
+                disabled={page >= chuyenPageCount}
+                onClick={() => setPage((p) => Math.min(chuyenPageCount, p + 1))}
+              >
+                Sau ›
+              </button>
+            </div>
+          )}
+          </>
+          ) : (
           <>
           {locks.some((l) => l.hanh_dong === "khoa") && (
             <p className="rc-field__hint" style={{ margin: "0 0 var(--sp-1)" }}>
@@ -1000,7 +1185,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                     <tr key={`${r.voucher_id}-${i}`} className={rec ? `kho-bc__lock kho-bc__lock-${pIdx}` : undefined}>
                       <td>
                         {rec && (
-                          <span title={`Kỳ đã khóa: ${fmtDate(rec.tu_ngay)} – ${fmtDate(rec.den_ngay)}`} style={{ marginRight: 3 }}>
+                          <span title={`Kỳ đã khóa: ${fmtDate(rec.tu_ngay)} – ${fmtDate(rec.den_ngay)}`} style={{ marginRight: 5 }}>
                             <LockIcon />
                           </span>
                         )}
@@ -1024,7 +1209,6 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                     );
                   })
                 )}
-                {/* Dòng đệm giữ bảng CAO ĐỀU 1 trang — KỂ CẢ khi rỗng/đang tải (khỏi bị co lại). */}
                 {Array.from({
                   length: Math.max(0, pageSize - (loading || filteredRows.length === 0 ? 1 : pagedRows.length)),
                 }).map((_, i) => (
@@ -1070,7 +1254,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             </div>
           )}
         </>
-          }
+          )}
         </>
       )}
 
@@ -1090,13 +1274,15 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               ]}
             />
           </div>
-          <input
-            className="rc-input"
-            style={{ marginLeft: "auto", maxWidth: 280 }}
-            placeholder="Tìm phạm vi / người / tên kỳ / ngày…"
-            value={histQuery}
-            onChange={(e) => setHistQuery(e.target.value)}
-          />
+          <div className="rc__search-wrapper" style={{ marginLeft: "auto", width: 280 }}>
+            <Search className="rc__search-icon" style={{ width: 15, height: 15 }} />
+            <input
+              className="rc__search"
+              placeholder="Tìm phạm vi / người / tên kỳ / ngày…"
+              value={histQuery}
+              onChange={(e) => setHistQuery(e.target.value)}
+            />
+          </div>
         </div>
         <div className="kho-bc-wrap">
           <table className="rc__table kho-bc">
@@ -1128,14 +1314,14 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                           style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
                         >
                           <LockIcon open={r.hanh_dong === "mo"} />
-                          {r.hanh_dong === "khoa" ? "Khóa" : "Mở"}
+                          {r.hanh_dong === "khoa" ? "Khóa kỳ" : "Mở kỳ"}
                         </span>
                       )}
                     </td>
-                    <td>{r.pham_vi}</td>
+                    <td><span className="rc__code-badge">{r.pham_vi}</span></td>
                     <td>{r.khoang_ngay ?? "—"}</td>
                     <td>{r.ten_ky ?? "—"}</td>
-                    <td>{r.nguoi_ten ?? "—"}</td>
+                    <td><strong>{r.nguoi_ten ?? "—"}</strong></td>
                   </tr>
                 ))
               )}
@@ -1177,19 +1363,22 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       {tab === "ky" && (
         <>
         <div className="rc__toolbar">
-          <input
-            className="rc-input"
-            style={{ marginLeft: "auto", maxWidth: 280 }}
-            placeholder="Tìm tên kỳ / phạm vi / ngày…"
-            value={kyQuery}
-            onChange={(e) => setKyQuery(e.target.value)}
-          />
+          <div className="rc__search-wrapper" style={{ marginLeft: "auto", width: 280 }}>
+            <Search className="rc__search-icon" style={{ width: 15, height: 15 }} />
+            <input
+              className="rc__search"
+              placeholder="Tìm tên kỳ / phạm vi / ngày…"
+              value={kyQuery}
+              onChange={(e) => setKyQuery(e.target.value)}
+            />
+          </div>
         </div>
         <div className="kho-bc-wrap">
           <table className="rc__table kho-bc">
             <thead>
               <tr>
-                <DateFilterHead label="Khoảng ngày" from={lockTu} to={lockDen} onChange={(f, t) => { setLockTu(f); setLockDen(t); }} />
+                <DateFilterHead label="Khoảng ngày khóa" from={lockTu} to={lockDen} onChange={(f, t) => { setLockTu(f); setLockDen(t); }} />
+                <th title="Trạng thái">Trạng thái</th>
                 <th title="Tên kỳ đặt khi khóa (tuỳ chọn)">Tên kỳ</th>
                 <th title="Toàn kho hay một kho cụ thể">Phạm vi</th>
                 <DateFilterHead label="Khóa lúc" from={klFrom} to={klTo} onChange={(f, t) => { setKlFrom(f); setKlTo(t); }} />
@@ -1199,7 +1388,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             <tbody>
               {filteredKy.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="rc__empty-state">
+                  <td colSpan={6} className="rc__empty-state">
                     {kyList.length === 0
                       ? "Chưa có kỳ nào đang khóa. Bấm “Khóa / mở kỳ” để chốt sổ."
                       : "Không có kỳ nào khớp bộ lọc."}
@@ -1208,7 +1397,16 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               ) : (
                 pagedKy.map((k, i) => (
                   <tr key={`${k.kho_id ?? "all"}-${k.tu_ngay}-${i}`}>
-                    <td>{fmtDate(k.tu_ngay)} – {fmtDate(k.den_ngay)}</td>
+                    <td>
+                      <span className="rc__code-badge" style={{ fontWeight: 600 }}>
+                        {fmtDate(k.tu_ngay)} – {fmtDate(k.den_ngay)}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="badge-sem badge-sem--rust" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <LockIcon size={12} /> Đang khóa
+                      </span>
+                    </td>
                     <td>{k.ten ?? "—"}</td>
                     <td>
                       {k.kho_id == null ? "Toàn kho" : k.kho_ten ?? `Kho #${k.kho_id}`}
@@ -1230,7 +1428,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               {Array.from({
                 length: Math.max(0, pageSize - (filteredKy.length === 0 ? 1 : pagedKy.length)),
               }).map((_, i) => (
-                <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={5}>&nbsp;</td></tr>
+                <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={6}>&nbsp;</td></tr>
               ))}
             </tbody>
           </table>

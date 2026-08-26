@@ -377,6 +377,10 @@ def list_employees(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> EmployeeListOut:
+    # Không có bộ hẹn giờ trong hệ thống ⇒ quét lúc ĐỌC. Đặt ở đây để màn Nhân sự luôn nói đúng
+    # ai đã hết thời gian thử việc. Chạy lại vô hại (đổi xong thì lần sau không bắt lại nữa), và
+    # đây là đường đòi quyền `nhan_su.read` nên NV thường xem hồ sơ mình không kích hoạt gì.
+    svc.tu_danh_dau_het_thu_viec()
     scope = _scope_for(authz, user)
     rows, total = svc.list_employees(
         scope=scope, actor=user, q=q, department_id=department_id, status=status_filter,
@@ -404,6 +408,7 @@ def _kpis(book) -> EmployeeKpis:
         total=len(book),
         active=sum(1 for e in book if e.status == "active"),
         probation=sum(1 for e in book if e.status == "probation"),
+        probation_ended=sum(1 for e in book if e.status == "probation_ended"),
         on_leave=sum(1 for e in book if e.status == "on_leave"),
         resigned=sum(1 for e in book if e.status == "resigned"),
         probation_ending_soon=sum(
@@ -768,7 +773,14 @@ def update_employee(
     try:
         employee, dup_nid, dup_si = svc.update_employee(
             employee_id=employee_id, scope=_scope_for(authz, user), actor=user,
-            fields=body.model_dump(),
+            # `exclude_unset` BẮT BUỘC — đây là PATCH một phần, không phải ghi đè cả hồ sơ.
+            # Thiếu nó thì mọi ô client không gửi vẫn có mặt với giá trị None, nên chỗ nào viết
+            # `clean.get(k, giá_trị_cũ)` cũng nhận None thay vì giá trị cũ (`.get` thấy khoá TỒN
+            # TẠI thì trả None, không rơi về mặc định).
+            # Đã cắn thật 22/08/2026: hồ sơ thử việc ĐÃ khai ngày hết thử việc, HCNS sửa mỗi số
+            # điện thoại ⇒ 400 "phải khai Ngày hết thử việc". Hai đường sửa hồ sơ khác trong file
+            # này (`update_my_contact`, duyệt yêu cầu sửa) vốn đã dùng `exclude_unset`.
+            fields=body.model_dump(exclude_unset=True),
             can_edit_salary=authz.can(user, MODULE, "edit_salary"),
         )
     except EmployeeError as exc:

@@ -67,7 +67,9 @@ export type ActionKey =
   | "can_view_payroll_table"
   | "can_manage_salary_profiles"
   | "can_manage_piece_rates"
-  | "can_manage_leave_types";
+  | "can_manage_leave_types"
+  | "can_plan"
+  | "can_view_drivers";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
 // Dữ liệu vẫn lưu tách (can_create/can_update/can_delete) nên backend không đổi.
@@ -87,16 +89,9 @@ const FINE_ACTIONS: Record<
       label: "Điều chuyển",
       hint: "Chuyển khách sang NV sale khác (đổi người phụ trách) — một khách hoặc hàng loạt. Không có cờ này thì chỉ xem/sửa khách trong phạm vi của mình, không sang tay được.",
     },
-    {
-      key: "can_export",
-      label: "Xuất file",
-      hint: "Xuất danh bạ khách (CSV) + lịch sử mua hàng của khách (Excel). Lịch sử báo giá chưa có nút xuất — BE chưa làm endpoint.",
-    },
-    {
-      key: "can_view_debt",
-      label: "Xem công nợ",
-      hint: "Cho xem thẻ Công nợ của khách (số dư phải thu theo hóa đơn đã ghi nhận + hạn mức đã dùng).",
-    },
+    // "Xuất file" (can_export) + "Xem công nợ" (can_view_debt) đã gỡ khỏi ma trận 24/08/2026:
+    // chốt là 2 tính năng này MẶC ĐỊNH BẬT cho mọi vai có Xem khách — không còn công tắc riêng.
+    // Cột DB + ActionKey giữ nguyên (đảo được: thêm lại entry ở đây là bật lại toggle).
     {
       key: "can_set_credit_terms",
       label: "Thiết lập chính sách tài chính",
@@ -115,11 +110,9 @@ const FINE_ACTIONS: Record<
   ],
   // Đơn hàng bán: duyệt đơn đặc thù (nhập tay/bổ sung) + hủy đơn đã chốt = 1 cờ; ghi cọc = Kế toán.
   don_hang_ban: [
-    {
-      key: "can_approve_exception",
-      label: "Duyệt đơn đặc thù · hủy đơn đã chốt",
-      hint: 'Gộp 2 quyền vào 1 cờ: (1) Duyệt "đơn đặc thù" — đơn nhập tay KHÔNG có giá vốn nên không soi được biên lời/lỗ, Sale phải trình lên; (2) Hủy đơn ĐÃ CHỐT (đã lên trạng thái "ordered"). Thường chỉ TP/GĐ Kinh doanh có — NV Sales không.',
-    },
+    // "Duyệt đơn đặc thù · hủy đơn đã chốt" (can_approve_exception) đã gỡ khỏi ma trận 24/08/2026:
+    // luồng duyệt đơn đặc thù vốn đã bỏ, nay chốt hủy-đơn-đã-chốt MẶC ĐỊNH BẬT cho vai có Sửa đơn.
+    // Cột DB + ActionKey giữ nguyên (đảo được: thêm lại entry ở đây là bật lại toggle).
     {
       key: "can_record_deposit",
       label: "Ghi phiếu thu cọc",
@@ -197,9 +190,18 @@ const FINE_ACTIONS: Record<
       hint: "Mở màn \"Báo cáo kho\": sổ nhập-xuất, xuất Excel theo mẫu MISA, và KHÓA KỲ (chốt sổ) toàn kho / từng kho. Chỉ kế toán kho.",
     },
   ],
-  // DANH MỤC: KHÔNG có quyền chi tiết — mỗi màn danh mục chỉ Xem + Thao tác.
+  // DANH MỤC: đa số KHÔNG có quyền chi tiết — mỗi màn chỉ Xem + Thao tác.
   // (Trước đây bày 5 ô `manage_price` / `clone` / `toggle_active` nhưng KHÔNG endpoint nào kiểm
   //  → tick vào không đổi gì, mà người cấp quyền lại tưởng đã siết được việc sửa giá.)
+  // `can_clone` nối THẬT 26/08/2026 (`POST /{id}/clone`, xem `routers/catalog_base.py`) cho 5 màn
+  // Giấy · Vật tư khác · Máy thiết bị · Công đoạn · Đầu việc khoán — nên RIÊNG 5 khoá này bày ô
+  // "Nhân bản". Không gộp vào `can_create`: vai được TẠO MỚI (gõ tay) chưa chắc nên NHÂN BẢN hàng
+  // cũ (nhân đôi cả giá/công thức đang chạy mà không soát lại từng ô).
+  dm_giay: [{ key: "can_clone", label: "Nhân bản" }],
+  dm_vat_tu: [{ key: "can_clone", label: "Nhân bản" }],
+  dm_thiet_bi: [{ key: "can_clone", label: "Nhân bản" }],
+  dm_cong_doan: [{ key: "can_clone", label: "Nhân bản" }],
+  dm_cong_viec_khoan: [{ key: "can_clone", label: "Nhân bản" }],
   nhan_su: [
     { key: "can_view_salary", label: "Xem lương & BHXH (dữ liệu nhạy cảm)" },
     {
@@ -271,6 +273,24 @@ const FINE_ACTIONS: Record<
       key: "can_manage_leave_types",
       label: "Quản danh mục loại nghỉ",
       hint: "Thêm / sửa / XOÁ các loại nghỉ (phép năm, nghỉ ốm, không lương…) — chính sách dùng chung cho CẢ CÔNG TY, không phải việc của một phòng. Đây chính là ý nghĩa của cột “Thao tác” ở dòng này; cột “Xoá” không dùng tới.",
+    },
+  ],
+  // Giao hàng (19/08/2026) — MỘT Ô = MỘT TAB, cùng luật với Chấm công và Lương.
+  giao_hang: [
+    {
+      key: "can_plan",
+      label: "Lên đơn giao hàng",
+      hint: "Mở tab “Yêu cầu giao” + nút Lên đơn giao hàng (chọn tài xế, giờ lấy, giờ dự kiến giao) + nút Gửi đề nghị xuất hàng sang kho. Tách khỏi cột Thao tác vì gửi yêu cầu giao (Bán hàng làm) và xếp chuyến cho tài xế (Quản lý Giao hàng làm) là việc của hai người — gộp một cột là Bán hàng xếp được lịch tài xế.",
+    },
+    {
+      key: "can_cancel",
+      label: "Huỷ yêu cầu / huỷ chuyến",
+      hint: "Huỷ một yêu cầu giao chưa lên kế hoạch, hoặc huỷ chuyến đã xếp (phải nhập lý do, phiếu ở lại có vết). Tách khỏi cột Thao tác vì tài xế ở phạm vi “Của tôi” vẫn phải nhập được kết quả chuyến, nhưng bỏ chuyến là quyết định của điều phối.",
+    },
+    {
+      key: "can_view_drivers",
+      label: "Nhân viên giao hàng",
+      hint: "Mở tab “Nhân viên giao hàng” — lịch làm việc, chuyến đang chạy, số chuyến hoàn thành và tổng km trong ngày của NGƯỜI KHÁC. Ô riêng vì tài xế ở phạm vi “Của tôi” không được thấy năng suất đồng nghiệp.",
     },
   ],
   // Tách khỏi ô "Chấm bù" của màn Chấm công ngày 11/08/2026.
@@ -346,6 +366,8 @@ const FINE_ACTIONS: Record<
 const MODULE_HINTS: Record<string, string> = {
   self_service:
     "Việc người lao động làm với hồ sơ CỦA CHÍNH MÌNH: tự chấm công, xem công và phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng. Vai mới sinh ra đã bật sẵn ô này. Tắt đi thì người đó không tự chấm công được nữa — cân nhắc trước khi bỏ tick.",
+  giao_hang:
+    "Xem: mở màn Giao hàng — tab “Đơn giao hàng”, lọc theo Phạm vi. Thao tác: gửi yêu cầu giao từ đơn hàng bán, bấm đã lấy hàng, nhập kết quả + số km. Lên đơn giao hàng và tab Nhân viên giao hàng là hai ô riêng bên dưới. Kho KHÔNG cần ô này — nút Duyệt của kho nằm trong Hộp yêu cầu và đi theo ô Kho.",
   nhan_su:
     "Xem: mở Hồ sơ nhân sự (danh sách NV, chi tiết hồ sơ). Chỉnh sửa: thêm/sửa/xóa hồ sơ. Lương & BHXH của NV là dữ liệu nhạy cảm nên tách riêng thành quyền xem và quyền sửa. Màn Chấm công KHÔNG còn nằm trong ô này — nó có ô riêng ngay bên dưới.",
   cham_cong:
@@ -362,12 +384,18 @@ const MODULE_HINTS: Record<string, string> = {
     "Xem: MỞ MÀN Lương — chỉ thấy hai tab của chính mình (Phiếu lương của tôi, Tạm ứng của tôi). Không có ô này là không vào được màn, kể cả để xem phiếu lương của mình, nên vai nào cũng nên bật. Thao tác: gửi đề nghị tạm ứng / xin lương đợt 1 cho chính mình, và ghi ở những tab đã mở. Bảng lương tháng, Lương nhân viên, Lương khoán, Cấu hình, duyệt tạm ứng, chốt kỳ, xuất file — mỗi thứ một ô ở quyền chi tiết bên dưới.",
   thu_mua:
     "Xem: xem danh sách YCMH và PMH trong phạm vi được cấp. Chỉnh sửa: lập/sửa/gửi duyệt PMH, đánh dấu đã mua/đã nhận. Duyệt-từ chối PMH và hủy PMH nằm ở quyền chi tiết.",
+  // Hai chú giải dưới bổ sung 21/08/2026: trước đó hai màn này KHÔNG có dòng nào, người cấp quyền
+  // phải tự đoán "Xem cái này thì thấy gì" (xem docs/RBAC_QUYEN_THEO_MODULE.md §5).
+  yeu_cau_mua_hang:
+    "Xem: mở màn Yêu cầu mua hàng (YCMH của các bộ phận) trong phạm vi được cấp. Màn này CỐ Ý mở cho nhiều nhóm — báo giá, kho, sản xuất, giấy, kế toán, thu mua đều vào được bằng ô Xem của chính họ, nên bật ô này chỉ là MỘT trong bảy đường vào. Chỉnh sửa: lập yêu cầu cho bộ phận mình, sửa khi còn nháp, và hủy yêu cầu. Chuyển YCMH thành phiếu mua hàng là việc của ô Mua hàng.",
+  nha_cung_cap:
+    "Xem: danh mục Nhà cung cấp + bảng mặt hàng NCC đang bán (kèm tải mẫu và xuất Excel). Chỉnh sửa: thêm/sửa NCC, ngừng dùng, và nhập bảng mặt hàng từ Excel. Ô này còn mở TÀI KHOẢN NGÂN HÀNG của nhà cung cấp ở màn Kế toán — người quản danh mục NCC sửa được TK của họ mà không cần ô Tài khoản ngân hàng.",
   khach_hang:
-    "Xem: danh bạ khách + lịch sử giao dịch. Chỉnh sửa: thêm/sửa/xóa khách. Điều chuyển sang sale khác, xuất file, xem công nợ, đặt chính sách tài chính nằm ở quyền chi tiết.",
+    "Xem: danh bạ khách + lịch sử giao dịch (kèm xuất file & thẻ công nợ — mặc định bật). Chỉnh sửa: thêm/sửa/xóa khách. Điều chuyển sang sale khác và đặt chính sách tài chính nằm ở quyền chi tiết.",
   bao_gia:
     "Xem: xem báo giá trong phạm vi. Chỉnh sửa: tạo/sửa báo giá + thao tác vòng đời thường (gửi khách, ghi nhận đồng ý/từ chối, hủy, xuất PDF, tạo bản mới). Riêng báo giá “đặc thù” cần quyền chi tiết để duyệt.",
   don_hang_ban:
-    "Xem: xem đơn hàng bán. Chỉnh sửa: tạo/sửa đơn. Duyệt đơn đặc thù, hủy đơn đã chốt và ghi phiếu thu cọc nằm ở quyền chi tiết.",
+    "Xem: xem đơn hàng bán. Chỉnh sửa: tạo/sửa đơn (kèm hủy đơn đã chốt — mặc định bật). Ghi phiếu thu cọc nằm ở quyền chi tiết.",
   // 6 dòng dưới đây gác 6 MÀN RIÊNG (tách 17/08/2026). Trước đó `san_xuat` mở 4 màn và
   // `ky_thuat_may` mở 2 — nhãn cũ chỉ kể một màn nên người cấp quyền không đoán ra mình vừa mở gì.
   san_xuat:
@@ -421,6 +449,21 @@ export const SCOPES: { value: Scope; label: string }[] = [
 
 // Gom module theo PHÂN HỆ để ma trận quyền đọc được (thu gọn từng nhóm). Module không nằm trong
 // nhóm nào rơi vào "Khác" (fallback an toàn khi backend thêm module mới chưa map).
+// Khoá CŨ đã gộp về nơi khác — ẨN khỏi ma trận, KHÔNG xoá dữ liệu (ĐẢO ĐƯỢC: xoá set này là chúng
+// hiện lại y cũ). Đã soi đủ BA nơi (cổng router · `authz.can` ở service · `can(...)` ở giao diện)
+// + đếm dữ liệu thật ngày 26/08/2026 — không dòng code nào còn đọc chúng:
+//   · `self_service`       — BỎ 15/08/2026. Hằng `MODULE_TU_PHUC_VU` còn khai ở 6 router và
+//                            `SELF_SERVICE_MODULE` còn export ở Sidebar, nhưng KHÔNG nơi nào dùng.
+//                            20/23 vai đang bật ⇒ ẩn mà KHÔNG ai mất quyền (vì không ai đọc).
+//   · `yeu_cau_chinh_cong` — gộp về `cham_cong.approve`. Số khớp: 2 vai ↔ 2 vai.
+//   · `di_muon`            — gộp về `cham_cong.approve_late_early`. Số khớp: 3 vai ↔ 3 vai. Việc
+//                            CUỐI CÙNG của nó (badge phiếu chờ duyệt + kênh SSE) đã chuyển sang
+//                            `cham_cong` cùng ngày; đã đếm: mọi vai có `di_muon` đều đã có
+//                            `cham_cong` nên không ai mất badge.
+// Xoá HẲN (dòng `role_permissions` + khoá ở `seed.py`/`deps.py` + hằng chết) để LƯỢT SAU — việc đó
+// không đảo được nên cần migration + chủ gật.
+const MODULE_DA_NGUNG = new Set(["self_service", "di_muon", "yeu_cau_chinh_cong"]);
+
 const MODULE_GROUPS: {
   key: string;
   label: string;
@@ -433,7 +476,10 @@ const MODULE_GROUPS: {
   {
     key: "kinh_doanh",
     label: "Kinh doanh",
-    modules: ["khach_hang", "bao_gia", "don_hang_ban", "tinh_gia_thanh"],
+    // `giao_hang` đứng ngay sau `don_hang_ban`: nó là khúc SAU của đơn, và người cấp quyền dò
+    // theo màn hình chứ không theo tên kỹ thuật. Thiếu ở đây thì nó rơi vào nhóm "Khác" —
+    // vẫn cấp được, nhưng phải cuộn xuống cuối mới thấy.
+    modules: ["khach_hang", "bao_gia", "don_hang_ban", "giao_hang", "tinh_gia_thanh"],
   },
   // MỘT MÀN = MỘT DÒNG, xếp đúng thứ tự menu "Sản xuất" để người cấp quyền dò theo màn hình.
   // 6 mục menu → 6 dòng; trước 17/08/2026 chỉ có 2, bật đủ 2/2 vẫn không siết được màn nào.
@@ -510,6 +556,7 @@ const MODULE_GROUPS: {
       "dm_chung_loai_giay",
       "dm_giay",
       "dm_vat_tu",
+      "dm_thanh_pham",
       "khuon_be",
       "dm_kho_hang",
     ],
@@ -667,7 +714,8 @@ export function PermissionMatrix({
   /** Mặc định CÒN SỐNG — thà để thừa một ô vô hại còn hơn khoá nhầm một ô đang dùng. */
   const oSong = (moduleKey: string, viec: string): boolean =>
     !viecChet.get(moduleKey)?.has(viec);
-  const byKey = new Map(matrix.map((r) => [r.module_key, r]));
+  const matrixHienThi = matrix.filter((r) => !MODULE_DA_NGUNG.has(r.module_key));
+  const byKey = new Map(matrixHienThi.map((r) => [r.module_key, r]));
   // Nhóm mở/đóng: mặc định mở khi nhóm CÓ quyền; override khi người dùng bấm.
   const [groupOverride, setGroupOverride] = useState<Map<string, boolean>>(new Map());
   // Panel quyền chi tiết bung inline theo module.
@@ -675,7 +723,7 @@ export function PermissionMatrix({
 
   // Dựng danh sách nhóm hiển thị: nhóm đã map + nhóm "Khác" cho module chưa map.
   const mapped = new Set(MODULE_GROUPS.flatMap((g) => g.modules));
-  const orphans = matrix.map((r) => r.module_key).filter((k) => !mapped.has(k));
+  const orphans = matrixHienThi.map((r) => r.module_key).filter((k) => !mapped.has(k));
   const groups = [
     ...MODULE_GROUPS.map((g) => ({
       key: g.key,

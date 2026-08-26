@@ -112,6 +112,18 @@ export function thoiLuong(phut: number | null | undefined): string {
   return `${p} phút`;
 }
 
+/** Thời lượng phút → "1g16" / "45ph" — bản NGẮN cho chỗ chật (thanh Gantt). Chữ dài "1 giờ 16
+ *  phút" ăn hết bề ngang chip rồi bị cắt cụt, nên chip dùng bản này, tooltip/drawer dùng bản dài. */
+export function thoiLuongNgan(phut: number | null | undefined): string {
+  if (phut == null || phut <= 0) return "—";
+  const t = Math.round(phut);
+  const gio = Math.floor(t / 60);
+  const p = t % 60;
+  if (gio && p) return `${gio}g${String(p).padStart(2, "0")}`;
+  if (gio) return `${gio}g`;
+  return `${p}ph`;
+}
+
 /** Pill trạng thái xếp lịch (bo TRÒN, bám .khsx-pill). Suy từ trang_thai + is_locked + co_xung_dot;
  *  ưu tiên Xung đột > Khóa > Đã xếp > Chờ. CÓ CHỮ (không chỉ dựa màu — a11y). */
 export function LichTrangThaiPill({

@@ -50,6 +50,23 @@ def finish_lien_tuc(start: datetime, chiem_may_phut: int) -> datetime:
     return start + timedelta(minutes=int(chiem_may_phut))
 
 
+def tron_phut(moc: datetime | None, *, len_tren: bool = False) -> datetime | None:
+    """Cắt giây/micro giây — mọi mốc Xếp lịch 2 ĐƯA RA hay GHI XUỐNG đều phải TRÒN PHÚT.
+
+    Màn nhập giờ bằng `datetime-local` (chỉ tới phút) nên mốc lẻ giây là thứ người dùng không sửa
+    được mà vẫn phải gánh: mở ngăn kéo là giây bị cắt, đem so với hàng xóm còn nguyên giây thành
+    chồng lấn ảo. Chuẩn hoá để không đẻ thêm mốc lẻ (25/08/2026); mốc CŨ đã lỡ lẻ thì dung sai của
+    `trung_may` đỡ — không đụng vào dữ liệu đang sống.
+
+    `len_tren=True` làm tròn LÊN, dành cho MỐC ỨNG VIÊN của tự-xếp/gợi-ý-khe: sàn ở đó là
+    `max(bây giờ · tiền nhiệm xong · máy vừa nhả)`, cắt xuống là lùi vào trước cái mình đang né.
+    """
+    if moc is None:
+        return None
+    tron = moc.replace(second=0, microsecond=0)
+    return tron + timedelta(minutes=1) if len_tren and tron != moc else tron
+
+
 def ngoai_ca(start: datetime, ca: list[tuple[int, int, bool]]) -> dict | None:
     """Cửa chặn DUY NHẤT của ca (§7.1): GIỜ BẮT ĐẦU phải rơi vào một ca đã cấu hình.
 
@@ -120,10 +137,22 @@ def de_vung_khoa_may(
 
 def trung_may(
     start: datetime, finish: datetime, da_xep: list[tuple[datetime, datetime]],
+    *, dung_sai_phut: int = 1,
 ) -> dict | None:
-    """Trùng việc khác trên CÙNG máy (§7.1). Nối đuôi (chạm mép) KHÔNG tính là trùng."""
+    """Trùng việc khác trên CÙNG máy (§7.1). Nối đuôi (chạm mép) KHÔNG tính là trùng.
+
+    Chừa `dung_sai_phut` phút dung sai, cùng lý lẽ với `sai_tien_nhiem`. Mốc trong DB do auto-xếp
+    sinh từ `now()` nên LẺ GIÂY (`10:54:29.870360`), còn ô nhập giờ của màn là `datetime-local` —
+    chỉ tới PHÚT. Mở ngăn kéo một việc nối đuôi là bản "đang gõ" bắt đầu lúc `10:54:00` và chồm
+    ngược 29,87 giây vào việc trước ⇒ so chặt tới micro giây thì cả chuỗi khít nhau bị hô trùng
+    OAN (25/08/2026). Chồng lấn dưới một phút cũng không có nghĩa với xưởng: người xếp không có
+    đường nào đặt giờ lẻ giây để mà sửa.
+    """
+    dung_sai = timedelta(minutes=dung_sai_phut)
     for o_start, o_finish in da_xep:
         if o_start < finish and start < o_finish:
+            if min(finish, o_finish) - max(start, o_start) <= dung_sai:
+                continue
             return issue(
                 "trung_may", MUC_CHAN_DAT_LICH,
                 "Trùng giờ với một việc khác trên cùng máy.",
@@ -172,6 +201,9 @@ def lan_viec_ke(
     (min↔max): rơi vào nhánh chậm thì đuôi `finish_max` có thể chồm sang việc kế đã xếp. Chỉ nhắc,
     không chặn — chưa chắc chạy tới max, và người xếp có thể chủ động chừa đệm. Không có dải max
     (`finish_max <= finish`) thì không thể lấn thêm.
+
+    `da_xep` ở đây là việc của LỆNH KHÁC (`ctx.khoang_may_lenh_khac`), hẹp hơn nền của `trung_may`:
+    lấn sang bước sau của chính mình thì cả dây trượt theo chứ không ai mất máy.
     """
     if finish is None or finish_max is None or finish_max <= finish:
         return None
@@ -210,15 +242,47 @@ def sap_bao_tri(
     )
 
 
-def phut_ca_moi_ngay(ca: list[tuple[int, int, bool]]) -> int:
-    """Tổng quỹ giờ (PHÚT) một ngày làm việc theo các ca đã khai — mẫu số để đo tải máy/ngày.
+def doan_ca_trong_ngay(ca) -> list[tuple[int, int]]:
+    """Trải các ca thành ĐOẠN nằm gọn trong MỘT ngày `[0, 1440)`.
 
-    Ca đêm (`qua_dem`, `ket_thuc <= bat_dau`) ôm nửa đêm nên độ dài = `(1440 - bat_dau) + ket_thuc`.
-    Giả định các ca không chồng nhau (ca xưởng khai rời) nên cộng thẳng.
+    Ca qua đêm (22:00–06:00) cắt làm hai — `[1320, 1440)` của hôm nay và `[0, 360)` của chính
+    ngày đó: một ngày lịch luôn có đủ cả hai đầu (đầu ca hôm nay + đuôi ca hôm qua), nên đo
+    trên một ngày đại diện là đúng. Các đoạn CÓ THỂ CHỒNG NHAU — bên gọi tự hợp lại.
+    """
+    doan: list[tuple[int, int]] = []
+    for bat_dau, ket_thuc, qua_dem in (ca or []):
+        b = max(0, min(1440, int(bat_dau or 0)))
+        e = max(0, min(1440, int(ket_thuc or 0)))
+        if qua_dem or e <= b:
+            if b < 1440:
+                doan.append((b, 1440))
+            if e > 0:
+                doan.append((0, e))
+        elif e > b:
+            doan.append((b, e))
+    return doan
+
+
+def phut_ca_moi_ngay(ca) -> int:
+    """Quỹ giờ (PHÚT) một ngày làm việc theo ca đã khai — mẫu số để đo tải máy/ngày.
+
+    Đo phần giờ ĐƯỢC PHỦ (HỢP các khoảng ca, chồng nhau chỉ tính MỘT lần), KHÔNG cộng thẳng độ
+    dài từng ca. Cộng thẳng là sai từ gốc vì xưởng khai ca GỐI NHAU: Ca 1 06:00–14:00 + Hành chính
+    08:00–17:00 + Ca 2 14:00–22:00 + Ca 3 22:00–06:00 cộng thẳng ra 1980' cho một ngày chỉ có 1440'
+    (Hành chính nằm GỌN trong Ca 1 + Ca 2, bị đếm hai lần) ⇒ mọi con số tải bị chia cho mẫu số
+    phồng, thấp giả ~27% (7% tải thật ra là 9%).
+
+    Sửa 22/08/2026. Docstring cũ ghi thẳng "giả định các ca không chồng nhau" — giả định đó chết
+    từ khi mg 0226 (bỏ `dung_cho_lich_may`) cho engine đọc TẤT CẢ ca thật của xưởng; trước đó nó
+    rơi về fallback 480'/ngày nên không ai thấy.
     """
     tong = 0
-    for bat_dau, ket_thuc, qua_dem in ca:
-        tong += (1440 - bat_dau + ket_thuc) if qua_dem else (ket_thuc - bat_dau)
+    het = 0
+    for b, e in sorted(doan_ca_trong_ngay(ca)):
+        if e <= het:
+            continue
+        tong += e - max(b, het)
+        het = e
     return tong
 
 

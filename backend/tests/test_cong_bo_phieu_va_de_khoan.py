@@ -41,7 +41,7 @@ def _dept_id(name: str) -> int:
 def _nv_gan_admin(client, h, ten="NV Phieu Luong") -> int:
     """NV nối vào chính tài khoản admin ⇒ gọi `/payslip/me` là ra phiếu của NV này."""
     r = client.post("/api/employees",
-                    json={"full_name": ten, "department_id": _dept_id("Hành chính nhân sự"),
+                    json={"probation_end_date": "2025-12-31", "full_name": ten, "department_id": _dept_id("Hành chính nhân sự"),
                           "hire_date": "2020-01-01"}, headers=h)
     assert r.status_code in (200, 201), r.text
     eid = r.json()["employee"]["id"]
@@ -293,11 +293,10 @@ def test_giao_dien_that_su_noi_vao_hai_tinh_nang_nay():
 
     Backend có endpoint mà màn không gọi thì tính năng coi như không tồn tại — mà test API vẫn
     xanh hết."""
-    from pathlib import Path
+    from tests._fe_source import MAN_LUONG, doc_file_fe, doc_module_fe
 
-    fe = Path(__file__).resolve().parents[2] / "frontend" / "src"
-    client_ts = (fe / "api" / "client.ts").read_text(encoding="utf-8")
-    luong = (fe / "pages" / "LuongPage.tsx").read_text(encoding="utf-8")
+    client_ts = doc_file_fe("api", "client.ts")
+    luong = doc_module_fe(*MAN_LUONG)
 
     for can in ("cong_bo_luc", "dong_phieu_luc", "congBo(", "thuHoi(", "boDeComponent(",
                 "da_de_tay"):
@@ -482,12 +481,13 @@ def test_chua_co_bang_luong_nao_thi_khong_co_gi_de_bao(client):
 def test_giao_dien_that_su_cho_tra_lai_thang_cu():
     """Cùng hàng rào với `test_giao_dien_that_su_noi_vao_hai_tinh_nang_nay`: backend đổi mà màn
     quên thì tính năng coi như không tồn tại, trong khi test API vẫn xanh."""
-    from pathlib import Path
+    from tests._fe_source import (
+        MAN_HO_SO_CUA_TOI, MAN_LUONG, doc_file_fe, doc_module_fe,
+    )
 
-    fe = Path(__file__).resolve().parents[2] / "frontend" / "src"
-    client_ts = (fe / "api" / "client.ts").read_text(encoding="utf-8")
-    luong = (fe / "pages" / "LuongPage.tsx").read_text(encoding="utf-8")
-    ho_so = (fe / "pages" / "HoSoCuaToiPage.tsx").read_text(encoding="utf-8")
+    client_ts = doc_file_fe("api", "client.ts")
+    luong = doc_module_fe(*MAN_LUONG)
+    ho_so = doc_module_fe(*MAN_HO_SO_CUA_TOI)
 
     for can in ("ky_xem_duoc", "cho_phat", "tinh_trang", "KyXemDuoc", "ChoPhat"):
         assert can in client_ts, f"client.ts thiếu {can}"

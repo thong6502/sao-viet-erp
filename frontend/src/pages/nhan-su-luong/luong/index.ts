@@ -1,0 +1,1 @@
+export { LuongPage } from "./LuongPage";

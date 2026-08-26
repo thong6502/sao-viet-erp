@@ -133,7 +133,7 @@ class StockRequestService:
     def create_dieu_chuyen(self, *, user, loai: str, kho_id: int, lines: list[dict],
                            dieu_chuyen: bool = True, kho_nguon_id: int | None = None,
                            xuat_voucher_id: int | None = None, ghi_chu: str | None = None,
-                           notify: bool = False) -> StockRequest:
+                           doc_type: str | None = None, notify: bool = False) -> StockRequest:
         """Tạo yêu cầu cho ĐIỀU CHUYỂN KHO (mô hình 2 yêu cầu — spec-dieu-chuyen-kho §4).
 
         Nhận NHIỀU dòng (điều chuyển hàng loạt gộp vào 1 yêu cầu). Dùng cho CẢ HAI vế: vế XUẤT ở kho
@@ -144,7 +144,9 @@ class StockRequestService:
         if loai not in REQUEST_KINDS:
             raise StockRequestError("Loại yêu cầu không hợp lệ (chỉ NHAP hoặc XUAT).")
         self._validate_lines(lines)
-        doc_type = (
+        # Vế NHẬP đích (đầu mối "Phiếu điều chuyển") lấy số DC… — caller truyền `doc_type`. Vế XUẤT
+        # nguồn (ẩn) giữ mã đề nghị xuất mặc định.
+        doc_type = doc_type or (
             SEQ_DOC_TYPE_STOCK_REQUEST_IN if loai == REQ_NHAP
             else SEQ_DOC_TYPE_STOCK_REQUEST_OUT
         )
@@ -356,16 +358,6 @@ class StockRequestService:
         self._notif_nguoi_tao(req, loai="kho_huy", tieu_de="Yêu cầu đã bị hủy")
         return req
 
-    def revert_if_untouched(self, req: StockRequest) -> StockRequest:
-        """Hủy phiếu nháp cuối cùng (không còn phiếu active) mà CHƯA ứng gì → về 'Cần cấp'
-        (approved) để cấp lại. Đã ứng một phần thì giữ partial. Gọi từ voucher.cancel."""
-        any_issued = any(float(ln.sl_da_ung) > 0 for ln in req.lines)
-        if not any_issued and req.trang_thai in (REQ_RECEIVED, REQ_PREPARING):
-            req.trang_thai = REQ_APPROVED
-            req = self.requests.save(req)
-            self._notify(req, "Phiếu đã hủy — yêu cầu chờ cấp lại")
-        return req
-
     # --- Tồn & đèn tín hiệu -------------------------------------------------
 
     def levels_for(self, hangs: list[tuple[str, int]], kho_id: int) -> dict[tuple[str, int], str]:
@@ -383,6 +375,30 @@ class StockRequestService:
         th = self.thresholds.map_for(hangs, kho_id)
         levels = {h: stock_level(on_hand.get(h, 0.0), th.get(h)) for h in hangs}
         return levels, on_hand
+
+    def goi_y_kho_xuat(self, req) -> int | None:
+        """Gợi ý "Kho (xuất từ)" khi lập phiếu XUẤT: chọn kho có NHIỀU hàng nhất theo THỨ TỰ
+        dòng của yêu cầu — kho nào tồn mặt hàng ĐẦU tiên nhiều nhất thì chọn; hoà thì xét mặt
+        hàng thứ 2, thứ 3… (so sánh từ điển). Không kho nào còn lô của các mặt hàng này → None
+        (giữ nguyên kho đang chọn, không ép bừa). Chỉ đọc — không đụng tồn."""
+        hangs = [(l.hang_loai, int(l.hang_id)) for l in (req.lines or [])
+                 if l.hang_loai and l.hang_id]
+        if not hangs:
+            return None
+        by_kho = self.lots.on_hand_by_kho(hangs)
+        kho_ids = {k for per in by_kho.values() for k in per}
+        if not kho_ids:
+            return None
+
+        def vector(kho_id: int) -> tuple[float, ...]:
+            return tuple(by_kho.get(h, {}).get(kho_id, 0.0) for h in hangs)
+
+        # Vector tồn theo đúng thứ tự dòng: lớn hơn (so từ điển) = ưu tiên. Hoà tất cả → kho_id
+        # nhỏ nhất cho ổn định (−k để max chọn số nhỏ). Toàn 0 ⇒ coi như không gợi ý được.
+        best = max(kho_ids, key=lambda k: (vector(k), -k))
+        if not any(v > 0 for v in vector(best)):
+            return None
+        return best
 
     def suggest_quantity(self, hang: tuple[str, int], department_id: int | None) -> float | None:
         """Gợi ý số lượng = trung bình 3 lần đề nghị gần nhất cùng mặt hàng + cùng bộ phận.

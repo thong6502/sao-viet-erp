@@ -55,11 +55,11 @@ def test_create_quote_from_ptg_one_line_per_product(client):
     assert r.status_code == 201, r.text
     d = r.json()
     assert len(d["items"]) == 2
-    # Giá vốn KHÓA = gia_von_tp; markup mặc định 20% → giá bán = giá vốn / 0.8 = ×1.25.
+    # Giá vốn KHÓA = gia_von_tp; markup mặc định 20% → giá bán = giá vốn × 1.20.
     ruot = next(it for it in d["items"] if it["product_name"] == "Ruột")
     assert ruot["total_cost_snapshot"] == 8_000_000
     assert ruot["quantity"] == 5_000
-    assert round(ruot["selling_price"]) == 10_000_000   # 8tr / (1-0.20)
+    assert round(ruot["selling_price"]) == 9_600_000    # 8tr x 1.20
     assert round(ruot["margin_percent"]) == 20
 
 
@@ -328,7 +328,7 @@ def test_resync_draft_updates_in_place(client):
     it = d["items"][0]
     assert it["total_cost_snapshot"] == 12_000_000    # giá vốn mới
     assert it["quantity"] == 7_000                     # SL mới
-    assert round(it["selling_price"]) == 15_000_000    # 12tr / (1-0.20)
+    assert round(it["selling_price"]) == 14_400_000    # 12tr x 1.20
 
 
 def test_resync_preserves_user_margin_on_draft(client):
@@ -345,7 +345,7 @@ def test_resync_preserves_user_margin_on_draft(client):
     it = client.get(f"/api/quotations/{q['id']}", headers=_h(token)).json()["items"][0]
     assert it["total_cost_snapshot"] == 12_000_000
     assert round(it["margin_percent"]) == 40           # GIỮ markup người dùng
-    assert round(it["selling_price"]) == 20_000_000    # 12tr / (1-0.40)
+    assert round(it["selling_price"]) == 16_800_000    # 12tr x 1.40
 
 
 def test_resync_preserves_margin_across_tp_recreate(client):
@@ -365,7 +365,7 @@ def test_resync_preserves_margin_across_tp_recreate(client):
     it = client.get(f"/api/quotations/{q['id']}", headers=_h(token)).json()["items"][0]
     assert round(it["margin_percent"]) == 40                     # GIỮ markup dù tp_id đổi
     assert it["total_cost_snapshot"] == 12_000_000
-    assert round(it["selling_price"]) == 20_000_000              # 12tr / (1-0.40)
+    assert round(it["selling_price"]) == 16_800_000              # 12tr x 1.40
 
 
 def test_resync_committed_creates_new_version(client):

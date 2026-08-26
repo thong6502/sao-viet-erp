@@ -13,7 +13,7 @@
 - Mỗi máy vừa là **cost center** (mang BHR để tính tiền công) vừa là **spec năng lực** (khổ, số màu, tốc độ...).
 
 ### 1.2 Trách nhiệm
-- Giữ **ràng buộc vật lý** engine bình bài cần: khổ máy (max/min), **nhíp `gripper_mm`**, số units, cho phép tự trở.
+- Giữ **ràng buộc vật lý** engine bình bài cần: khổ máy (max/min), **nhíp giấy `nhip_giay_mm`**, số units, cho phép tự trở.
 - Giữ **đơn giá giờ máy (BHR)** + tốc độ + bù hao để engine tính giá tính tiền công + số lượt + hao giấy.
 - Nối kế toán: tài sản, tài khoản GL, thu thập dữ liệu xưởng (SFDC) để đối soát giờ thực tế.
 
@@ -154,7 +154,7 @@ may_thiet_bi.khoa_class     → giá kẽm trong danh mục Kẽm & khuôn (kem_
 | kho_max_rong ★ | int | mm | | Bình bài | |
 | kho_min_dai ★ | int | mm | | Bình bài | |
 | kho_min_rong ★ | int | mm | | Bình bài | |
-| gripper_mm ★ | int | mm | 12 | Bình bài | cạnh nhíp không in (9,5–15) — **tên khớp `spec-quy-tac-binh-bai.md` §5.0/§13** |
+| nhip_giay_mm ★ | int | mm | 10 | Bình bài | nhíp GIẤY — cạnh máy kẹp tờ, trừ chiều DÀI tờ in (mg 0107). *(Ô cũ "Nhíp kẽm" `gripper_mm` = mép nhíp BẢN KẼM ~44mm đã gỡ mg 0228 — engine bình bài chưa từng đọc nó.)* |
 | le_hong_mm | int | mm | 5 | Bình bài | *(tùy chọn)* lề máy tối thiểu; engine lấy `max(rule.side_margin, máy.le_hong)` |
 | duoi_thang_mau_mm | int | mm | 8 | Bình bài | *(tùy chọn)* đuôi thang màu máy; `max(rule.tail, máy.duoi)` |
 | so_units ★ | int | | | Đếm lượt/kẽm | số đơn vị in (1/2/4/5/6/8…) |
@@ -330,7 +330,7 @@ tien_cong_may = (gio_chay + gio_canh_may) × BHR    [hoặc dùng per-1000-lư�
 
 ## 6. Hợp đồng engine (Máy cấp gì)
 ```
-CHO BÌNH BÀI: { gripper_mm, kho_max/min, so_units, cho_phep_tu_tro, cho_phep_tro_dau_duoi,
+CHO BÌNH BÀI: { nhip_giay_mm, kho_max/min, so_units, cho_phep_tu_tro, cho_phep_tro_dau_duoi,
                 le_hong_mm?, duoi_thang_mau_mm?, truc?{repeat, pitch, dia} }
 CHO TÍNH GIÁ: { BHR / don_gia_ban_gio, toc_do × efficiency, makeready_time,
                 bu_hao_canh_may_per_mau, bu_hao_chay_pct, units_truoc/sau, khoa_class,
@@ -357,7 +357,6 @@ CHO SCHEDULING: { toc_do, lich, so_ca, so_may_song_song, may_thay_the, availabil
 | Code | Điều kiện | Loại |
 |---|---|---|
 | E-MAY-KHO | kho_min > kho_max | chặn |
-| E-MAY-NHIP | gripper_mm ≥ kho_min_rong | chặn |
 | E-MAY-BHR0 | BHR ≤ 0 hoặc gio_tinh_phi ≤ 0 | chặn |
 | E-MAY-SPEED | toc_do / toc_do_min / toc_do_max ≤ 0 | chặn |
 | E-MAY-SPEED-RANGE | min > max, hoặc min > trung bình, hoặc max < trung bình | chặn (chỉ kiểm ô ĐÃ khai — không ép khai đủ ba) |

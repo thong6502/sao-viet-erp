@@ -346,6 +346,26 @@ select.tg-input {
   outline: 2px solid var(--rust);
   outline-offset: 2px;
 }
+
+/* Bước trỏ vào công đoạn đã NGỪNG DÙNG hoặc đã XOÁ khỏi danh mục. Không giấu bước đi (giấu là
+   người lập phiếu tưởng phần mềm nuốt mất), cũng không đổi số — chỉ bày cho thấy chỗ phải thay. */
+.tg-chip--canh {
+  border-color: var(--amber);
+  border-style: dashed;
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+.tg-chip--canh:hover {
+  border-color: var(--amber-deep);
+  background: var(--amber-soft);
+}
+.tg-chip__canh {
+  font-size: 11px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
 .tg-chipgrid__empty {
   font-size: 12.5px;
   color: var(--ash-2);
@@ -2886,8 +2906,29 @@ select.tg-input--sm {
   color: var(--ash-2);
   flex: none;
 }
+/* `‹ Danh sách` và `GIÁ VỐN NỘI BỘ` bị DÍNH LIỀN thành một dòng chữ: `.rdx-cost .eyebrow` ở trên
+   đặt `display: inline-flex`, mà eyebrow này là thẻ div đứng ngay sau nút quay lại ⇒ nó bám luôn vào
+   đuôi nút, ổ khoá chạm chữ "sách". Đọc ra thành một mẩu breadcrumb vô nghĩa, lại nuốt mất chính
+   lời cảnh báo. Trả nó về DÒNG RIÊNG (flex + fit-content — đúng chỗ margin-top vốn dành cho nó)
+   và cho hẳn dáng con dấu "mật", vì việc của dòng này là nhắc: số trong phiếu KHÔNG đưa cho khách. */
 .rdx-cost .tg-head__eyebrow {
-  margin: 7px 0 0;
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  margin: var(--sp-2) 0 2px;
+  padding: 3px 10px 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--rust) 30%, transparent);
+  border-radius: var(--r-pill);
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  font-size: 10px;
+  letter-spacing: 0.13em;
+}
+.rdx-cost .tg-head__eyebrow svg {
+  color: var(--rust);
+  width: 12px;
+  height: 12px;
 }
 
 /* ---- helper text classes ---- */
@@ -3382,3 +3423,161 @@ select.tg-input--sm {
   color: var(--rust-deep);
 }
 
+
+/* ================= Ô CHỌN CÓ TÌM GẦN ĐÚNG (component `Select`) =================
+   Bốn ô ĐVT · Loại sản phẩm · Loại giấy · Máy in và hai ô công đoạn đã bỏ <select> gốc để lấy
+   ô tìm trong danh sách (gõ "may in nho" ra "MÁY IN NHỎ 46×64"). Đổi lại, chúng mang theo bộ
+   mặt slate/indigo của `components/select.css`, lạc hẳn hệ giấy-mực-gỉ của màn này.
+
+   `.sel__trigger` và `.tg-input` CÙNG hạng đặc hiệu (0,1,0) ⇒ ai thắng là tuỳ THỨ TỰ NẠP file,
+   thứ không được phép đoán. Nên mọi luật dưới đây nâng lên ba lớp để chốt phần thắng. */
+.rdx-cost .sel__trigger.tg-input {
+  min-height: 44px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  background: var(--paper-contrast);
+  color: var(--ink);
+  padding: 10px 12px;
+  font-family: var(--ff-sans);
+  font-size: 14px;
+}
+.rdx-cost .sel__trigger.tg-input:hover:not(:disabled) {
+  border-color: var(--ash-2);
+}
+.rdx-cost .sel__trigger.tg-input.is-open,
+.rdx-cost .sel__trigger.tg-input:focus-visible {
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 15%, transparent);
+}
+.rdx-cost .sel__trigger.tg-input .sel__caret {
+  color: var(--ash-2);
+}
+.rdx-cost .sel__trigger.tg-input.is-open .sel__caret {
+  color: var(--rust);
+}
+/* Trong modal sửa sản phẩm, ô nhập rút còn 36px — ô chọn phải rút theo, không thì nó cao hơn
+   hàng xóm nửa centimet và cả lưới nhìn như bị lệch. Bốn lớp để thắng luật 44px ngay trên. */
+.rdx-cost .rc-modal__left-col .sel__trigger.tg-input {
+  min-height: 36px;
+  font-size: 13px;
+  padding: 4px var(--sp-3);
+  border-radius: var(--r-3);
+  background: var(--paper);
+}
+
+/* "+ Thêm công đoạn…" — chip nét đứt ôm chữ. `.sel` mặc định rộng 100% nên phải có thẻ bọc. */
+.tg-chip-add-wrap {
+  display: inline-flex;
+  vertical-align: middle;
+}
+.tg-chip-add-wrap .sel {
+  width: auto;
+}
+.rdx-cost .sel__trigger.tg-chip-add {
+  width: auto;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ash-2);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+}
+.rdx-cost .sel__trigger.tg-chip-add:hover:not(:disabled) {
+  border-color: var(--ash-2);
+  background: var(--rule-hair);
+}
+.rdx-cost .sel__trigger.tg-chip-add.is-open {
+  border-color: var(--rust);
+  color: var(--rust-deep);
+  box-shadow: none;
+}
+.rdx-cost .sel__trigger.tg-chip-add .sel__value--ph,
+.rdx-cost .sel__trigger.tg-chip-add .sel__caret {
+  color: inherit;
+}
+
+/* Mũi tên chèn công đoạn vào GIỮA chuỗi — nút tròn 22px, chỉ có mỗi ký tự ➔. */
+.rdx-cost .tg-timeline-arrow-wrap .sel {
+  width: auto;
+}
+.rdx-cost .sel__trigger.tg-timeline-select-arrow {
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+  justify-content: center;
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  color: var(--ash);
+  line-height: 1;
+}
+.rdx-cost .sel__trigger.tg-timeline-select-arrow .sel__caret {
+  display: none;
+}
+.rdx-cost .sel__trigger.tg-timeline-select-arrow .sel__value--ph {
+  color: inherit;
+  overflow: visible;
+}
+.rdx-cost .sel__trigger.tg-timeline-select-arrow:hover:not(:disabled) {
+  transform: scale(1.15);
+}
+.rdx-cost .sel__trigger.tg-timeline-select-arrow:hover:not(:disabled),
+.rdx-cost .sel__trigger.tg-timeline-select-arrow.is-open {
+  background: var(--rust-soft);
+  border-color: var(--rust);
+  color: var(--rust-deep);
+  box-shadow: 0 2px 4px rgba(20, 19, 15, 0.08);
+}
+
+/* Danh sách bung ra. Bản `portal` treo ở `document.body` ⇒ NẰM NGOÀI `.rdx-cost`, không selector
+   nào của màn với tới được — nên nó mang class riêng `tg-pop` (prop `listClassName`). */
+.sel__list.tg-pop {
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  box-shadow: 0 12px 28px -8px rgba(20, 19, 15, 0.18);
+}
+.sel__list.tg-pop .sel__search {
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-hair);
+}
+.sel__list.tg-pop .sel__searchinput {
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+}
+.sel__list.tg-pop .sel__searchinput:focus {
+  border-color: var(--rust);
+  background: var(--paper);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 15%, transparent);
+}
+.sel__list.tg-pop .sel__empty {
+  color: var(--ash-2);
+}
+.sel__list.tg-pop .sel__opt-label {
+  color: var(--ink);
+  font-size: 13px;
+}
+.sel__list.tg-pop .sel__opt.is-active {
+  background: var(--rule-hair);
+}
+.sel__list.tg-pop .sel__opt.is-selected,
+.sel__list.tg-pop .sel__opt.is-selected.is-active {
+  background: var(--rust-soft);
+}
+.sel__list.tg-pop .sel__opt.is-selected .sel__opt-label {
+  color: var(--rust-deep);
+  font-weight: 600;
+}
+.sel__list.tg-pop .sel__opt-check {
+  color: var(--rust);
+}

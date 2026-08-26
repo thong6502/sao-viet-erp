@@ -22,6 +22,9 @@ export interface EditRow {
   loai_buoc: LsxLoaiBuoc;
   bat_buoc: boolean;
   department_id: number | null;
+  /** Tên tổ phụ trách server RESOLVE lúc đọc (kể cả khi `department_id` null vì lấy tổ mặc định của
+   *  công đoạn). CHỈ ĐỌC — tổ khai ở danh mục Công đoạn, drawer chỉ bày lại, không cho đổi. */
+  department_ten: string | null;
   may_id: number | null;
   /** Hai cờ dụng cụ đọc từ danh mục Công đoạn — CHỈ ĐỌC, không gửi lên. Chúng quyết định bước có
    *  hỏi khuôn không, và `tooling_type` là chiều lọc thứ hai của ô chọn dao.
@@ -167,6 +170,7 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     loai_buoc: cd.loai_buoc,
     bat_buoc: cd.bat_buoc,
     department_id: cd.department_id,
+    department_ten: cd.department_ten ?? null,
     may_id: cd.may_id,
     requires_tooling: !!cd.requires_tooling,
     tooling_type: cd.tooling_type ?? null,
@@ -237,11 +241,28 @@ export function toEdit(cd: LsxCongDoan): EditRow {
   };
 }
 
+/** Tên HIỂN THỊ của một bước. Ưu tiên tên CÔNG ĐOẠN đang gắn (`cong_doan_id` → danh mục) rồi mới
+ *  tới ô chữ tự do `ten`. Lý do: bước chèn tay để trống tên bị `toBody` đóng đinh literal "Công
+ *  đoạn"; nếu sau đó gắn công đoạn (vd "Ghi kẽm CTP") mà `ten` không được đồng bộ thì nhãn trơ
+ *  "Công đoạn" trong khi ô công đoạn đã đúng — tiêu đề/pill/bảng/DAG cùng gọi hàm này để không lệch.
+ *  Công đoạn bị xoá khỏi danh mục (không tìm thấy ref) → lùi về `ten` như dropdown đang làm. */
+export function tenBuoc(
+  r: Pick<EditRow, "cong_doan_id" | "ten"> | null | undefined,
+  congDoanRefs?: { id: number; ten: string }[] | null,
+): string {
+  if (!r) return "";
+  if (r.cong_doan_id != null) {
+    const cd = congDoanRefs?.find((c) => c.id === r.cong_doan_id);
+    if (cd?.ten) return cd.ten;
+  }
+  return r.ten;
+}
+
 export function emptyRow(): EditRow {
   return {
     key: newKey(), id: null, cong_doan_id: null, ten: "", nhom: null, loai_buoc: "may",
     bat_buoc: true,
-    department_id: null, may_id: null,
+    department_id: null, department_ten: null, may_id: null,
     requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ma: null,
     khuon_be_ten: null, khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
     so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to",

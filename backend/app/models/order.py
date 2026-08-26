@@ -25,6 +25,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
+    Numeric,
     BigInteger,
     Boolean,
     Date,
@@ -135,6 +136,18 @@ class Order(Base):
     has_customer_paper: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     vat_pct_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # % HOA HỒNG của đơn này (mg 0227 · docs/redesign-luong-kinh-doanh.md §4.6). PHÂN SỐ:
+    # 0.05 = 5%, cùng quy ước `employee_salaries.commission_pct`.
+    #
+    # CHỤP ẢNH lúc CHỐT đơn từ mức của chính người sales (`employee_salaries.commission_pct`,
+    # versioned). Chụp chứ không đọc-sống: đổi % cho người ta từ tháng sau KHÔNG được làm đổi
+    # hoa hồng của đơn đã chốt tháng trước — tiền đã hứa thì không sửa ngược.
+    #
+    # 0 = đơn này không có hoa hồng (mặc định của mọi đơn).
+    commission_pct: Mapped[float] = mapped_column(
+        Numeric(6, 4), nullable=False, default=0, server_default="0"
+    )
 
     # --- P1: thông tin đặt hàng (Sale nhập khi nháp) ----------------------------
     customer_po_no: Mapped[str | None] = mapped_column(String(100), nullable=True)

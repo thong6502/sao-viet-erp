@@ -69,7 +69,13 @@ def _report_rows(
         .join(StockRequest, StockRequest.id == StockVoucher.request_id, isouter=True)
         .join(KhoHang, KhoHang.id == StockVoucher.kho_id, isouter=True)
         .join(StockLot, StockLot.id == StockVoucherLine.lot_id, isouter=True)
-        .where(StockVoucher.trang_thai == VOUCHER_POSTED)
+        .where(
+            StockVoucher.trang_thai == VOUCHER_POSTED,
+            # ĐIỀU CHUYỂN có chiều "Chuyển kho" RIÊNG (/bao-cao/chuyen-kho) → KHÔNG lẫn vào Sổ
+            # Nhập/Xuất (chuẩn kế toán: nội bộ, không nhập-mua/xuất-bán). 3 chiều tách bạch:
+            # Nhập kho = nhập thật · Xuất kho = xuất thật · Chuyển kho = điều chuyển nội bộ.
+            StockVoucher.dieu_chuyen.is_(False),
+        )
     )
     if loai:
         stmt = stmt.where(StockVoucher.loai == loai)
@@ -207,6 +213,8 @@ def _chuyen_kho_rows(
             tien_von=round(price * qty) if price is not None else None,
             kho_xuat_ten=nguon_map.get(nguon_id),
             kho_nhap_ten=getattr(kho, "ten", None),
+            kho_xuat_id=nguon_id,       # kho nguồn — cho FE tô kỳ đã khóa
+            kho_nhap_id=v.kho_id,       # kho đích (phiếu nhập đích ghi sổ ở đây)
             dien_giai=v.ghi_chu or (req.ghi_chu if req else None),
         )
         if ql and not any(
@@ -541,6 +549,37 @@ def get_lich_su_export(db: Db, _: CloseBookUser) -> list[KhoExportLogRow]:
     return out
 
 
+def _passes_funnel(
+    r, *, ct_from, ct_to, sl_from, sl_to, dg_from, dg_to, tt_from, tt_to,
+    price_attr: str, total_attr: str,
+) -> bool:
+    """Lọc funnel theo CỘT giống hệt bảng FE (inDateRange/inNumRange): khoảng BAO GỒM hai đầu, để
+    trống = không chặn, giá trị None mà đang có chặn = loại. Nhờ vậy 'xuất Excel' ĐÚNG BẰNG những gì
+    màn đang hiển thị, không kéo thừa dòng đã bị lọc cột (Ngày CT · Số lượng · Đơn giá · Thành tiền)."""
+    d = r.ngay_ct
+    if ct_from is not None and (d is None or d < ct_from):
+        return False
+    if ct_to is not None and (d is None or d > ct_to):
+        return False
+
+    def num_ok(v, lo, hi) -> bool:
+        if lo is None and hi is None:
+            return True
+        if v is None:
+            return False
+        if lo is not None and v < lo:
+            return False
+        if hi is not None and v > hi:
+            return False
+        return True
+
+    return (
+        num_ok(r.so_luong, sl_from, sl_to)
+        and num_ok(getattr(r, price_attr), dg_from, dg_to)
+        and num_ok(getattr(r, total_attr), tt_from, tt_to)
+    )
+
+
 @router.get("/bao-cao/export.xlsx")
 def export_bao_cao(
     db: Db,
@@ -550,8 +589,25 @@ def export_bao_cao(
     den: date | None = Query(default=None),
     kho_id: int | None = Query(default=None),
     q: str | None = Query(default=None),
+    ct_from: date | None = Query(default=None),
+    ct_to: date | None = Query(default=None),
+    sl_from: float | None = Query(default=None),
+    sl_to: float | None = Query(default=None),
+    dg_from: float | None = Query(default=None),
+    dg_to: float | None = Query(default=None),
+    tt_from: float | None = Query(default=None),
+    tt_to: float | None = Query(default=None),
 ) -> Response:
+    # `_report_rows` đã LOẠI điều chuyển (chuẩn kế toán: nội bộ, không nhập-mua/xuất-bán) — nên file
+    # MISA nhập/xuất tự động không dính điều chuyển; điều chuyển có mẫu "Chuyển kho" riêng.
     rows = _report_rows(db, tu=tu, den=den, kho_id=kho_id, loai=loai, q=q)
+    # Áp bộ lọc funnel theo cột (nếu FE truyền) → file = đúng bảng đang xem.
+    rows = [
+        r for r in rows
+        if _passes_funnel(r, ct_from=ct_from, ct_to=ct_to, sl_from=sl_from, sl_to=sl_to,
+                          dg_from=dg_from, dg_to=dg_to, tt_from=tt_from, tt_to=tt_to,
+                          price_attr="don_gia", total_attr="thanh_tien")
+    ]
     content = _build_xlsx(rows, loai)
     _log_export(db, user, loai_label="Nhập kho" if loai == VOUCHER_NHAP else "Xuất kho",
                 kho_id=kho_id, tu=tu, den=den)
@@ -603,8 +659,23 @@ def export_chuyen_kho(
     den: date | None = Query(default=None),
     kho_id: int | None = Query(default=None),
     q: str | None = Query(default=None),
+    ct_from: date | None = Query(default=None),
+    ct_to: date | None = Query(default=None),
+    sl_from: float | None = Query(default=None),
+    sl_to: float | None = Query(default=None),
+    dg_from: float | None = Query(default=None),
+    dg_to: float | None = Query(default=None),
+    tt_from: float | None = Query(default=None),
+    tt_to: float | None = Query(default=None),
 ) -> Response:
     rows = _chuyen_kho_rows(db, tu=tu, den=den, kho_id=kho_id, q=q)
+    # Bảng Chuyển kho lọc funnel theo `don_gia_von`/`tien_von` (cột Đơn giá/Thành tiền) — khớp FE.
+    rows = [
+        r for r in rows
+        if _passes_funnel(r, ct_from=ct_from, ct_to=ct_to, sl_from=sl_from, sl_to=sl_to,
+                          dg_from=dg_from, dg_to=dg_to, tt_from=tt_from, tt_to=tt_to,
+                          price_attr="don_gia_von", total_attr="tien_von")
+    ]
     content = _build_chuyen_xlsx(rows)
     _log_export(db, user, loai_label="Chuyển kho", kho_id=kho_id, tu=tu, den=den)
     return Response(

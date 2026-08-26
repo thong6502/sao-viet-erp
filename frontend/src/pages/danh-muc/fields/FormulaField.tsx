@@ -1,92 +1,127 @@
 // Ô CÔNG THỨC — gõ ra chip tiếng Việt, có gợi ý biến, kiểm cú pháp và bảng biến khả dụng.
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useAuth } from "../../../auth/useAuth";
+import { ApiError } from "../../../api/client";
+import { crud, type CongThucLichSuItem } from "../../../api/rebuildCatalog";
 import { catToken } from "../formulaTokens";
 import { traBien, useBienCongThuc, type BienCongThuc } from "../bienCongThuc";
 import { CircleXIcon, XIcon } from "../icons";
+import { nhanThoiGian } from "../nhat-ky/nhatKyNhan";
 
 const MATH_FUNCS = ["ceil", "floor", "round", "max", "min"];
 
-function renderFormulaChips({
-  value,
+/** Vẽ MỘT chip. Trước đây hàm này tự cắt token từ `value` rồi vẽ cả dãy một lượt — nay ô gõ có
+ *  thể nằm CHÈN GIỮA dãy, nên chỗ gọi phải tự cắt đôi mảng token và vẽ từng chip với chỉ số thật.
+ *
+ *  `onDatCaret(i)` = bấm vào chip thì đưa ô gõ về đúng chỗ đó (nửa trái → đứng trước chip, nửa
+ *  phải → đứng sau). Không có nó thì chip chỉ xoá được bằng nút "×", mà nút "×" chỉ mọc trên chip
+ *  BIẾN — gõ nhầm dấu "×" ở giữa công thức là phải xoá lùi từ cuối về, đúng chỗ khó chịu 25/08. */
+function veChip({
+  tok,
+  idx,
   tra,
   validVars,
   whitelist,
-  onRemoveToken,
+  onXoa,
+  onDatCaret,
 }: {
-  value: string;
+  tok: string;
+  idx: number;
   tra: (ma: string) => BienCongThuc | undefined;
   validVars: string[] | null;
   whitelist: string[];
-  onRemoveToken?: (index: number) => void;
+  onXoa?: (index: number) => void;
+  onDatCaret?: (index: number) => void;
 }) {
-  const matches = catToken(value);
+  const info = tra(tok);
+  const isValidVar = validVars ? validVars.includes(tok) : (whitelist.includes(tok) || !!info);
 
-  return matches.map((m, idx) => {
-    if (/^\s+$/.test(m)) {
-      return <span key={idx} className="rc-formula__chip-space">{m}</span>;
-    }
+  // Bấm chip = đặt con trỏ, KHÔNG được để ô gõ mất focus trước đã: blur chốt nốt chữ đang gõ dở
+  // thành chip mới, chỉ số chip lúc ấy đã xê dịch ⇒ con trỏ nhảy sai chỗ. `preventDefault` ở
+  // mousedown giữ focus lại, phần chốt chữ do chính `onDatCaret` lo (nó biết chèn ở đâu).
+  const datCaret = onDatCaret
+    ? (e: React.MouseEvent<HTMLSpanElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const r = e.currentTarget.getBoundingClientRect();
+        onDatCaret(e.clientX < r.left + r.width / 2 ? idx : idx + 1);
+      }
+    : undefined;
 
-    const trimmed = m.trim();
-    const info = tra(trimmed);
-    const isValidVar = validVars ? validVars.includes(trimmed) : (whitelist.includes(trimmed) || !!info);
+  // Phải chặn CẢ `click`, không chỉ `mousedown`: nền ô (`rc-formula__single-stage`) có onClick kéo
+  // con trỏ về cuối để "bấm chỗ trống là gõ tiếp". Cú bấm chip nổi bọt lên tới đó là vừa đặt con
+  // trỏ xong đã bị lôi ngược về cuối — nhìn như bấm chip chẳng ăn thua gì.
+  const chanNoi = (e: React.MouseEvent) => e.stopPropagation();
+  const chung = { onMouseDown: datCaret, onClick: chanNoi };
 
-    if (isValidVar || info) {
-      return (
-        <span
-          key={idx}
-          className="rc-formula__chip-token rc-formula__chip-token--var"
-          title={info ? `${info.nhan} (Mã: ${trimmed})\nĐơn vị: ${info.don_vi}\nNguồn: ${info.nguon}` : `Mã: ${trimmed}`}
-        >
-          <span className="rc-formula__chip-token-label">{info?.nhan ?? trimmed}</span>
-          {onRemoveToken && (
-            <button
-              type="button"
-              className="rc-formula__chip-token-del"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemoveToken(idx);
-              }}
-              title={`Xoá biến ${info?.nhan ?? trimmed}`}
-            >
-              ×
-            </button>
-          )}
-        </span>
-      );
-    }
-
-    if (MATH_FUNCS.includes(trimmed)) {
-      return (
-        <span key={idx} className="rc-formula__chip-token rc-formula__chip-token--func">
-          {trimmed}
-        </span>
-      );
-    }
-
-    if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
-      return (
-        <span key={idx} className="rc-formula__chip-token rc-formula__chip-token--num">
-          {trimmed}
-        </span>
-      );
-    }
-
-    if (/^[\+\-\*\/\(\)\,]$/.test(trimmed)) {
-      const displayOp = trimmed === "*" ? "×" : trimmed === "/" ? "÷" : trimmed === "-" ? "−" : trimmed;
-      return (
-        <span key={idx} className="rc-formula__chip-token rc-formula__chip-token--op">
-          {displayOp}
-        </span>
-      );
-    }
-
+  if (isValidVar || info) {
     return (
-      <span key={idx} className="rc-formula__chip-token rc-formula__chip-token--error" title={`Biến "${trimmed}" chưa hỗ trợ hoặc gõ sai`}>
-        {trimmed}
+      <span
+        key={idx}
+        {...chung}
+        className="rc-formula__chip-token rc-formula__chip-token--var"
+        title={info ? `${info.nhan} (Mã: ${tok})
+Đơn vị: ${info.don_vi}
+Nguồn: ${info.nguon}` : `Mã: ${tok}`}
+      >
+        <span className="rc-formula__chip-token-label">{info?.nhan ?? tok}</span>
+        {onXoa && (
+          <button
+            type="button"
+            className="rc-formula__chip-token-del"
+            // Cũng phải chặn ở mousedown: để blur chạy trước là chữ đang gõ dở chốt thêm một
+            // chip, `idx` xê ra và nút "×" xoá nhầm chip bên cạnh.
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onXoa(idx);
+            }}
+            onClick={chanNoi}
+            title={`Xoá biến ${info?.nhan ?? tok}`}
+          >
+            ×
+          </button>
+        )}
       </span>
     );
-  });
+  }
+
+  if (MATH_FUNCS.includes(tok)) {
+    return (
+      <span key={idx} {...chung} className="rc-formula__chip-token rc-formula__chip-token--func">
+        {tok}
+      </span>
+    );
+  }
+
+  if (/^\d+(?:\.\d+)?$/.test(tok)) {
+    return (
+      <span key={idx} {...chung} className="rc-formula__chip-token rc-formula__chip-token--num">
+        {tok}
+      </span>
+    );
+  }
+
+  if (/^[\+\-\*\/\(\)\,]$/.test(tok)) {
+    const displayOp = tok === "*" ? "×" : tok === "/" ? "÷" : tok === "-" ? "−" : tok;
+    return (
+      <span key={idx} {...chung} className="rc-formula__chip-token rc-formula__chip-token--op">
+        {displayOp}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      key={idx}
+      {...chung}
+      className="rc-formula__chip-token rc-formula__chip-token--error"
+      title={`Biến "${tok}" chưa hỗ trợ hoặc gõ sai`}
+    >
+      {tok}
+    </span>
+  );
 }
 
 export function FormulaField({
@@ -98,6 +133,9 @@ export function FormulaField({
   nhanO = "Công thức tính giá",
   goY = "Nhập công thức tính giá (vd: dai_tp * rong_tp * don_gia)...",
   id = "formula-textarea",
+  recordId = null,
+  truocGiaTri = null,
+  truocSuaLuc = null,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -107,6 +145,14 @@ export function FormulaField({
   nhanO?: React.ReactNode;
   goY?: string;
   id?: string;
+  /** Id của dòng đang sửa — chỉ có khi đang EDIT (đã lưu). Cần để gọi
+   *  `GET /{prefix}/{id}/lich-su-cong-thuc` khi bấm "Xem thêm lịch sử". */
+  recordId?: number | null;
+  /** Giá trị NGAY TRƯỚC lần sửa gần nhất của CHÍNH ô này (mục 3+7). `null` = chưa từng sửa —
+   *  không hiện dòng nhắc. Đọc từ `<field.key>_truoc` trên dòng, xem `routers/catalog_base.py`. */
+  truocGiaTri?: string | null;
+  /** Thời điểm của lần sửa đó (ISO), đi kèm `truocGiaTri`. */
+  truocSuaLuc?: string | null;
 }) {
   const isCd = configPrefix.includes("cong-doan");
   const isGiay = configPrefix.endsWith("/giay");
@@ -122,6 +168,43 @@ export function FormulaField({
     () => (whitelist.length ? [...whitelist] : null),
     [whitelist],
   );
+
+  // ---- CON TRỎ TRONG DÃY CHIP ----
+  // Trước 25/08/2026 ô gõ đóng đinh ở CUỐI: muốn bỏ một dấu hay một biến nằm giữa công thức thì
+  // hoặc bấm trúng nút "×" bé xíu (chỉ chip BIẾN mới có), hoặc xoá lùi sạch từ cuối về. Nay ô gõ
+  // là một con trỏ chạy được: `caret` = số chip đứng TRƯỚC nó.
+  //
+  // Token được CHUẨN HOÁ (bỏ khoảng trắng thừa, nối lại bằng đúng một dấu cách) — chỗ xoá chip cũ
+  // đã làm vậy từ trước, nay cả ô làm một kiểu để chỉ số chip khớp với chuỗi công thức.
+  const toks = useMemo(() => catToken(value).map((t) => t.trim()).filter(Boolean), [value]);
+  const [caret, setCaret] = useState(toks.length);
+  // Chuỗi do CHÍNH ô này vừa ghi ra. Value đổi mà không phải do mình (mở drawer, cha nạp dữ liệu,
+  // bấm nút mẫu) thì con trỏ về cuối; do mình thì giữ nguyên chỗ vừa đặt.
+  const tuMinh = useRef<string | null>(null);
+  useEffect(() => {
+    if (tuMinh.current === value) return;
+    setCaret(catToken(value).map((t) => t.trim()).filter(Boolean).length);
+  }, [value]);
+
+  /** Ghi công thức mới + đặt con trỏ, và nhớ là do mình ghi. */
+  const ghi = (t: string[], caretMoi: number) => {
+    const chuoi = t.join(" ");
+    tuMinh.current = chuoi;
+    onChange(chuoi);
+    setCaret(Math.max(0, Math.min(caretMoi, t.length)));
+  };
+
+  /** Cắt chuỗi thô thành token sạch (một cú bấm có thể sinh nhiều token: "max(" → max + "("). */
+  const catSach = (tho: string) => catToken(tho).map((x) => x.trim()).filter(Boolean);
+
+  /** Chèn vào ĐÚNG chỗ con trỏ — không phải cuối công thức. */
+  const chenTaiCaret = (tho: string) => {
+    const moi = catSach(tho);
+    if (!moi.length) return;
+    const t = [...toks];
+    t.splice(caret, 0, ...moi);
+    ghi(t, caret + moi.length);
+  };
 
   const [showSyntax, setShowSyntax] = useState(false);
   const syntaxBtnRef = useRef<HTMLButtonElement>(null);
@@ -167,7 +250,7 @@ export function FormulaField({
   const commitTypedWord = (textToCommit?: string) => {
     const word = (textToCommit !== undefined ? textToCommit : typedWord).trim();
     if (word) {
-      onChange((value ? value.trimEnd() + " " : "") + word + " ");
+      chenTaiCaret(word);
       setTypedWord("");
       setShowAuto(false);
     }
@@ -182,22 +265,38 @@ export function FormulaField({
   const insertVar = (text: string) => {
     const them = text.trim();
     if (!them) return;
-    const dangGo = typedWord.trim();
-    let goc = value.trimEnd();
-    if (dangGo) goc = (goc ? goc + " " : "") + dangGo;
-    onChange((goc ? goc + " " : "") + them + (them.endsWith("(") ? "" : " "));
+    const moi = [...catSach(typedWord), ...catSach(them)];
+    if (!moi.length) return;
+    const t = [...toks];
+    t.splice(caret, 0, ...moi);
+    ghi(t, caret + moi.length);
     setTypedWord("");
     setShowAuto(false);
     setTimeout(() => oInline()?.focus(), 10);
   };
 
-  /** Bấm "×" trên một chip → bỏ đúng token đó. `idx` là chỉ số trong CÙNG mảng token mà
-   *  `renderFormulaChips` cắt ra từ `value`, nên phải cắt lại y hệt rồi splice. */
+  /** Bỏ đúng token thứ `idx` (nút "×" trên chip, hoặc Backspace/Delete quanh con trỏ). */
   const handleRemoveToken = (idx: number) => {
-    const matches = catToken(value);
-    if (idx < 0 || idx >= matches.length) return;
-    matches.splice(idx, 1);
-    onChange(matches.join("").replace(/\s+/g, " ").trim());
+    if (idx < 0 || idx >= toks.length) return;
+    const t = [...toks];
+    t.splice(idx, 1);
+    ghi(t, idx < caret ? caret - 1 : caret);
+  };
+
+  /** Bấm vào một chip → đưa con trỏ về chỗ đó. Chữ đang gõ dở phải CHỐT trước (không thì nó bay
+   *  mất), và chốt xong thì chỉ số chip xê ra — nên vị trí đích phải bù lại. */
+  const datCaret = (i: number) => {
+    const moi = catSach(typedWord);
+    if (moi.length) {
+      const t = [...toks];
+      t.splice(caret, 0, ...moi);
+      ghi(t, caret <= i ? i + moi.length : i);
+      setTypedWord("");
+      setShowAuto(false);
+    } else {
+      setCaret(Math.max(0, Math.min(i, toks.length)));
+    }
+    setTimeout(() => oInline()?.focus(), 0);
   };
 
   /** Rời ô → chốt nốt chữ đang gõ dở thành chip. Ô inline KHÔNG nằm trong `value`, không chốt thì
@@ -219,7 +318,7 @@ export function FormulaField({
         appended += wordBefore + " ";
       }
       appended += (lastChar === "*" ? " * " : lastChar === "/" ? " / " : lastChar === "-" ? " - " : lastChar === "+" ? " + " : lastChar);
-      onChange((value ? value + " " : "") + appended);
+      chenTaiCaret(appended);
       setTypedWord("");
       setShowAuto(false);
       return;
@@ -233,7 +332,7 @@ export function FormulaField({
     const trimmed = text.trim();
     const conMaDaiHon = whitelist.some((v) => v !== trimmed && v.startsWith(trimmed));
     if (whitelist.includes(trimmed) && !conMaDaiHon) {
-      onChange((value ? value + " " : "") + trimmed + " ");
+      chenTaiCaret(trimmed);
       setTypedWord("");
       setShowAuto(false);
       return;
@@ -248,8 +347,7 @@ export function FormulaField({
   };
 
   const insertSuggestion = (varName: string) => {
-    const prefix = value ? value.trimEnd() + " " : "";
-    onChange(prefix + varName + " ");
+    chenTaiCaret(varName);
     setTypedWord("");
     setShowAuto(false);
     setTimeout(() => {
@@ -289,13 +387,57 @@ export function FormulaField({
       return;
     }
 
-    if (e.key === "Backspace" && !typedWord) {
-        const matches = catToken(value);
-      if (matches.length > 0) {
+    // ---- ĐIỀU HƯỚNG TRONG DÃY CHIP ----
+    // Ô gõ trống ⇒ mũi tên/Backspace/Delete nói về CHIP chứ không về chữ. Còn đang gõ dở thì để
+    // yên cho con trỏ chạy trong chữ như mọi ô nhập bình thường.
+    const el = e.currentTarget;
+    const oDauChu = el.selectionStart === 0 && el.selectionEnd === 0;
+
+    if (!typedWord) {
+      if (e.key === "ArrowLeft" && caret > 0) {
         e.preventDefault();
-        matches.pop();
-        onChange(matches.join(""));
+        setCaret(caret - 1);
+        return;
       }
+      if (e.key === "ArrowRight" && caret < toks.length) {
+        e.preventDefault();
+        setCaret(caret + 1);
+        return;
+      }
+      if (e.key === "Home" && caret > 0) {
+        e.preventDefault();
+        setCaret(0);
+        return;
+      }
+      if (e.key === "End" && caret < toks.length) {
+        e.preventDefault();
+        setCaret(toks.length);
+        return;
+      }
+      if (e.key === "Backspace" && caret > 0) {
+        e.preventDefault();
+        handleRemoveToken(caret - 1);   // xoá chip BÊN TRÁI con trỏ
+        return;
+      }
+      if (e.key === "Delete" && caret < toks.length) {
+        e.preventDefault();
+        handleRemoveToken(caret);       // xoá chip BÊN PHẢI con trỏ
+        return;
+      }
+      return;
+    }
+
+    // Đang gõ dở mà bấm ← ở đầu chữ: chốt chữ thành chip rồi đứng BÊN TRÁI nó, đúng như ô nhập
+    // thường nhảy qua một từ. Không chốt thì chữ vừa gõ bay mất không dấu vết.
+    if (e.key === "ArrowLeft" && oDauChu) {
+      const moi = catSach(typedWord);
+      if (!moi.length) return;
+      e.preventDefault();
+      const t = [...toks];
+      t.splice(caret, 0, ...moi);
+      ghi(t, caret);
+      setTypedWord("");
+      setShowAuto(false);
     }
   };
 
@@ -393,6 +535,21 @@ export function FormulaField({
     return { valid: true, error: null };
   }, [value, validVars]);
 
+  // ---- "LẦN TRƯỚC" (mục 3+7) ----
+  // Dòng nhắc đọc thẳng từ props (đã có sẵn trên response, không tốn request). "Xem thêm lịch sử"
+  // mới gọi API, và chỉ gọi MỘT LẦN — bấm lại lần hai chỉ đóng/mở, không tải lại.
+  const { token } = useAuth();
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<CongThucLichSuItem[] | null>(null);
+  const [historyErr, setHistoryErr] = useState<string | null>(null);
+  const toggleHistory = () => {
+    setShowHistory((s) => !s);
+    if (history !== null || historyErr || !token || recordId == null) return;
+    crud(configPrefix).lichSuCongThuc(token, recordId)
+      .then(setHistory)
+      .catch((e) => setHistoryErr(e instanceof ApiError ? e.message : "Không tải được lịch sử."));
+  };
+
   return (
     <div className="rc-formula">
       {/* 1. Trình soạn thảo công thức ở trên cùng */}
@@ -465,16 +622,26 @@ export function FormulaField({
         <div
           className="rc-formula__single-stage"
           onClick={() => {
-            const el = document.getElementById(id) as HTMLInputElement | null;
-            el?.focus();
+            // Bấm vào KHOẢNG TRỐNG của ô (chip tự chặn cú bấm của mình) = gõ tiếp ở cuối.
+            setCaret(toks.length);
+            oInline()?.focus();
           }}
         >
           <div className="rc-formula__chips-wrap">
-            {value.trim() ? (
-              renderFormulaChips({ value, tra, validVars, whitelist, onRemoveToken: handleRemoveToken })
-            ) : null}
+            {/* Dãy chip bị CẮT ĐÔI ngay chỗ con trỏ: chip bên trái · ô gõ · chip bên phải. */}
+            {toks.slice(0, caret).map((tok, i) =>
+              veChip({ tok, idx: i, tra, validVars, whitelist, onXoa: handleRemoveToken, onDatCaret: datCaret }),
+            )}
 
-            <div className="rc-formula__inline-input-box">
+            <div
+              className={`rc-formula__inline-input-box${caret < toks.length ? " rc-formula__inline-input-box--giua" : ""}`}
+              // Đứng giữa dãy thì ô gõ chỉ được rộng bằng chữ đang gõ — để nguyên `flex:1` là nó
+              // đẩy toàn bộ chip bên phải văng sang lề kia.
+              style={caret < toks.length ? { width: `${Math.max(1, typedWord.length)}ch` } : undefined}
+              // Bấm vào CHÍNH ô gõ thì không được coi là "bấm chỗ trống": nền ô sẽ kéo con trỏ về
+              // cuối, mà con trỏ đang đứng giữa dãy — vừa đặt xong đã bị lôi đi.
+              onClick={(e) => e.stopPropagation()}
+            >
               <input
                 id={id}
                 className="rc-formula__inline-input"
@@ -515,9 +682,57 @@ export function FormulaField({
                 </div>
               )}
             </div>
+
+            {toks.slice(caret).map((tok, i) =>
+              veChip({ tok, idx: caret + i, tra, validVars, whitelist, onXoa: handleRemoveToken, onDatCaret: datCaret }),
+            )}
           </div>
         </div>
       </div>
+
+      {/* 2. "Lần trước" (mục 3+7) — máy chỉ ghi nhận, người tự so sánh và quyết định. */}
+      {truocGiaTri != null && (
+        <div className="rc-formula__lan-truoc">
+          <span className="rc-formula__lan-truoc-nhan">Lần trước:</span>
+          <code className="rc-formula__lan-truoc-gt">{truocGiaTri}</code>
+          {truocSuaLuc && (
+            <span className="rc-formula__lan-truoc-luc">(sửa lúc {nhanThoiGian(truocSuaLuc)})</span>
+          )}
+          {recordId != null && (
+            <button
+              type="button"
+              className="rc-formula__lich-su-toggle"
+              onClick={toggleHistory}
+              aria-expanded={showHistory}
+            >
+              {showHistory ? "Ẩn lịch sử" : "Xem thêm lịch sử"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {showHistory && (
+        <div className="rc-formula__lich-su">
+          {historyErr ? (
+            <div className="rc-formula__lich-su-loi">{historyErr}</div>
+          ) : history === null ? (
+            <div className="rc-formula__lich-su-dang-tai">Đang tải…</div>
+          ) : history.length === 0 ? (
+            <div className="rc-formula__lich-su-rong">Chưa có lịch sử.</div>
+          ) : (
+            <ul className="rc-formula__lich-su-list">
+              {history.map((h) => (
+                <li key={h.id} className="rc-formula__lich-su-item">
+                  <span className="rc-formula__lich-su-item-luc">{nhanThoiGian(h.sua_luc)}</span>
+                  <code className="rc-formula__lich-su-item-cu">{h.gia_tri_cu ?? "(trống)"}</code>
+                  <span className="rc-formula__lich-su-item-mui-ten">→</span>
+                  <code className="rc-formula__lich-su-item-moi">{h.gia_tri_moi ?? "(trống)"}</code>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {!valid && (
         <div className="rc-formula__validation">

@@ -196,7 +196,7 @@ XEM LẠI       → chọn version bất kỳ để xem (v cũ chỉ đọc)
 ```
 FUNCTION usable_area(tờ_in, máy, rule):
     Wu = tờ_in.rộng - 2·rule.side_margin_mm
-    Lu = tờ_in.dài  - máy.gripper_mm - rule.tail_colorbar_mm
+    Lu = tờ_in.dài  - máy.nhip_giay_mm - rule.tail_colorbar_mm
     return (Wu, Lu)
 
 FUNCTION fit_count(Wu, Lu, w, h, gutter, allow_rotate):
@@ -282,7 +282,7 @@ tem_per_m    = tem_per_vòng / (repeat_length/1000)
 INPUT:
   rule_version  : { layout_mode, side_margin, tail_colorbar, gutter, allow_rotate,
                     grain_constraint, bleed_default, <mode fields>, <guardrails> }
-  may_in        : { gripper_mm, max_w, max_h, min_w, min_h, truc?{teeth, pitch, dia} }
+  may_in        : { nhip_giay_mm, max_w, max_h, min_w, min_h, truc?{teeth, pitch, dia} }
   san_pham      : { dài_tp, rộng_tp, bleed?, so_trang?, binding?, cover_separate?, dieline? }
   to_nguyen     : { dài_ng, rộng_ng, gsm, gia_kg, thớ }
   so_luong, so_mau_truoc, so_mau_sau
@@ -487,7 +487,7 @@ Tất cả seed ở **version v1, is_current=true**.
 
 ## 13. Ranh giới (field ở module khác)
 ```
-MÁY IN    : gripper_mm, max_w/max_h/min_w/min_h, trục{teeth, pitch, dia}
+MÁY IN    : nhip_giay_mm, max_w/max_h/min_w/min_h, trục{teeth, pitch, dia}
 SẢN PHẨM  : khổ thành phẩm (dài/rộng), số trang P, binding (ghim/keo/khâu),
             cover_separate, dieline, bleed thật
 SUY RA    : creep (từ binding), số tay, khổ tờ in, số tờ in, %hao

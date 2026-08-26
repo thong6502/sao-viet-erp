@@ -1,12 +1,11 @@
-// Ba thứ của đợt "một khung cho 10 màn" mà HỎNG TRONG IM LẶNG — không có test thì phải mở đúng
+// Hai thứ của đợt "một khung cho 10 màn" mà HỎNG TRONG IM LẶNG — không có test thì phải mở đúng
 // màn, đúng vai, đúng lúc backend chết mới thấy:
 //
 //   1. Bảng NÓI DỐI. Trước 15/08/2026 backend chết là ô trống vẫn in "Chưa có giấy nào trong hệ
 //      thống." — câu đó vừa sai vừa mời người ta đi tạo lại dữ liệu đang có sẵn.
 //   2. Vai chỉ-đọc vẫn thấy đủ nút Thêm / Xóa, bấm xong mới ăn 403.
-//   3. Header rẽ hai nhánh theo `subtitle` (một trường NỘI DUNG quyết định BỐ CỤC) nên hai màn bỏ
-//      trống nó trông như sản phẩm của app khác.
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { CatalogListPage } from "./CatalogListPage";
@@ -108,25 +107,44 @@ describe("nút GHI gác theo quyền module", () => {
   });
 });
 
-describe("header MỘT dạng — `subtitle` chỉ là nội dung, không phải bố cục", () => {
-  it("không có subtitle thì KHÔNG đẻ thẻ <p> rỗng, số đếm vẫn hiện", async () => {
-    stub({ items: [{ id: 1, ma: "G-001", ten: "Couché 150" }] });
-    const { container } = moMan(CFG);
+describe("danh mục do HỆ SINH — `khongTaoTay` / `khongXoa`", () => {
+  // Màn Thành phẩm (mg 0203 · docs/prd-thanh-pham.md L5): dòng ở đó do `OrderService.confirm()`
+  // khai từ dòng đơn, mã theo công thức. Cho gõ tay là mở lại đúng cái cửa mà luật 08/08/2026
+  // của kho đã đóng.
+  const CFG_SINH: CatalogConfig = {
+    ...CFG, moduleQuyen: "dm_giay", softDelete: true, khongTaoTay: true, khongXoa: true,
+  };
+  const DONG = [{ id: 1, ma: "TP-DH-2026-041-11", ten: "Hộp thuốc 10 vỉ" }];
 
-    await screen.findByText("G-001");
-    expect(screen.getByText("1 mục")).toBeTruthy();
-    expect(container.querySelector(".rc__sub")).toBeNull();
+  it("⭐ ĐỦ QUYỀN vẫn KHÔNG thấy Thêm lẫn Xóa", async () => {
+    // Đây là chỗ khác hẳn khối trên: khối kia gác theo QUYỀN, khối này là luật CỦA MÀN — có
+    // quyền tạo cũng không tạo tay được.
+    stub({ items: DONG });
+    moMan(CFG_SINH, [quyen("dm_giay", { can_create: true, can_delete: true, can_update: true })]);
+
+    await screen.findByText("TP-DH-2026-041-11");
+    expect(screen.queryByRole("button", { name: /Thêm giấy/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Xóa/ })).toBeNull();
   });
 
-  it("có subtitle thì thêm ĐÚNG một dòng, phần còn lại của header y hệt", async () => {
-    stub({ items: [{ id: 1, ma: "G-001", ten: "Couché 150" }] });
-    const { container } = moMan({ ...CFG, subtitle: "Từng loại giấy cụ thể." });
+  it("vẫn SỬA được — chỉ chặn tạo và xoá", async () => {
+    // Chặn quá tay thì không ai sửa nổi ĐVT, mà ĐVT chính là ô kho phải sửa được (PRD L5).
+    // Sửa ở màn này là BẤM VÀO DÒNG, không có nút riêng.
+    stub({ items: DONG });
+    moMan(CFG_SINH, [quyen("dm_giay", { can_create: true, can_delete: true, can_update: true })]);
 
-    await screen.findByText("G-001");
-    expect(screen.getByText("1 mục")).toBeTruthy();
-    expect(container.querySelectorAll(".rc__sub")).toHaveLength(1);
-    // Thanh gộp cũ (`rc__unified-bar`) đã bỏ — chỉ còn MỘT khung header cho cả 10 màn.
-    expect(container.querySelector(".rc__unified-bar")).toBeNull();
+    await userEvent.click(await screen.findByText("TP-DH-2026-041-11"));
+    expect(await screen.findByText(/Chỉnh sửa/)).toBeInTheDocument();
+  });
+
+  it("không khai hai cờ ⇒ giữ nguyên hành vi cũ", async () => {
+    stub({ items: DONG });
+    moMan({ ...CFG, moduleQuyen: "dm_giay", softDelete: true },
+          [quyen("dm_giay", { can_create: true, can_delete: true })]);
+
+    await screen.findByText("TP-DH-2026-041-11");
+    expect(screen.getByRole("button", { name: /Thêm giấy/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Xóa/ })).toBeTruthy();
   });
 });
 

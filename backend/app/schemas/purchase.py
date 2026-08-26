@@ -103,6 +103,19 @@ class SupplierRow(BaseModel):
     updated_at: datetime
     items: list[SupplierItemRow] = Field(default_factory=list)
 
+    # --- SAO ĐÁNH GIÁ: máy tự tính từ phiếu mua hàng, không ai chấm tay ------------------------
+    # Luật đầy đủ ở `services/danh_gia_ncc.py`. Ở đây chỉ nhắc một điều dễ làm sai nhất:
+    # ⚠️ `rating = null` nghĩa là CHƯA ĐÁNH GIÁ (chưa có đơn nào đủ điều kiện), KHÔNG phải 0 sao.
+    # Giao diện phải hiện "Chưa đánh giá", đừng vẽ 0 ngôi sao — đó là vu oan cho NCC mới.
+    # Thang sao thấp nhất là 1, nên 0 không bao giờ là một giá trị hợp lệ ở đây.
+    rating: float | None = None
+    #: Số đơn ĐƯỢC TÍNH vào trung bình (không phải tổng số đơn của NCC).
+    rating_count: int = 0
+    on_time_count: int = 0
+    late_count: int = 0
+    #: Trễ trung bình tính TRÊN CÁC ĐƠN TRỄ. `null` = chưa trễ đơn nào.
+    avg_late_days: float | None = None
+
 
 class SupplierListOut(BaseModel):
     items: list[SupplierRow]
@@ -314,6 +327,16 @@ class DepartmentPurchaseRequestLineOut(BaseModel):
     # None = dòng chưa vào phiếu nào, HOẶC phiếu lập trước 05/08/2026 (chưa có nối dòng ↔ dòng).
     # Giao diện phải phân biệt hai ca, đừng hiện như nhau.
     fulfilment: LineFulfilmentOut | None = None
+    # HUỶ TỪNG MÓN (mg 0233). `cancelled_at` khác None = món này đã bị bỏ khỏi yêu cầu; nó vẫn
+    # nằm trong danh sách (gạch ngang + lý do) chứ không biến mất — biến mất là người xem tưởng
+    # mình nhớ nhầm.
+    cancelled_at: datetime | None = None
+    cancelled_by_name: str | None = None
+    cancel_reason: str | None = None
+    # Luật "món này bỏ được không" tính ở máy chủ. `can_cancel=False` kèm `cancel_block_reason`
+    # ⇒ giao diện vẫn BÀY nút, chỉ khoá lại và in đúng câu này (đừng ẩn nút — khoá và nói lý do).
+    can_cancel: bool = False
+    cancel_block_reason: str | None = None
 
 
 class DepartmentRequestPurchaseOut(BaseModel):
@@ -329,7 +352,13 @@ class DepartmentPurchaseRequestOut(BaseModel):
     status: str
     # Trạng thái nghiệp vụ dùng để HIỂN THỊ/LỌC, suy từ các đơn mua con.
     # Không ghi đè `status`: `status` vẫn là trạng thái tổng hợp được lưu để khóa luồng.
+    # Từ mg 0233 nó còn nhận giá trị `partially_cancelled` — ĐÈ lên nhãn tiến độ khi có món bị bỏ.
     workflow_status: str
+    # Nhãn tiến độ THUẦN, không bị "Huỷ một phần" che. Giao diện in nó thành dòng chữ nhỏ dưới huy
+    # hiệu để không mất thông tin "phần còn lại đang tới đâu".
+    progress_status: str
+    cancelled_line_count: int = 0
+    active_line_count: int = 0
     source_type: str
     requesting_department_id: int | None = None
     requesting_department_name: str | None = None

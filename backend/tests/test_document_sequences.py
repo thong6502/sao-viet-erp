@@ -84,3 +84,23 @@ def test_document_sequence_concurrency(client):
     # Verify exact sequential set of codes
     expected_codes = {f"BG26-{i:04d}" for i in range(1, num_requests + 1)}
     assert set(codes) == expected_codes
+
+
+def test_cap_so_khong_tu_commit(client):
+    """Bộ đếm đi CHUNG giao dịch với chứng từ — hỏng thì trả số lại.
+
+    ⚠️ ĐÃ VỠ THẬT — 25/08/2026: `increment_and_get()` tự `commit()`, nên khi phát hành lệnh sản
+    xuất nổ ở bước sau, cú commit đó đã cuốn theo cả `lsx.trang_thai = 'da_phat_hanh'` đang dở
+    và cái vỏ gói rỗng — lệnh kẹt nửa vời, phải vá tay trên DB.
+    """
+    db = SessionLocal()
+    try:
+        service = SequenceService(DocumentSequenceRepository(db))
+        ma_1 = service.generate_code("quotation", at_date=date(2030, 3, 3))
+        db.rollback()  # giao dịch hỏng → số vừa cấp phải mất theo
+        ma_2 = service.generate_code("quotation", at_date=date(2030, 3, 3))
+        assert ma_1 == ma_2, f"số không được giữ lại sau rollback: {ma_1} rồi {ma_2}"
+        assert ma_1.startswith("BG30-")
+        db.rollback()
+    finally:
+        db.close()

@@ -52,6 +52,7 @@ from ..schemas.rbac import (
 from ..services.department_service import (
     DepartmentBranchHasUsers,
     DepartmentCycle,
+    KhoanKmInvalid,
     DepartmentNameTaken,
     InvalidHead,
     InvalidLevelOrder,
@@ -157,11 +158,15 @@ def create_department(
             la_san_xuat=payload.la_san_xuat,
             la_kinh_doanh=payload.la_kinh_doanh,
             is_kcs=payload.is_kcs,
+            la_giao_hang=payload.la_giao_hang,
+            don_gia_km=payload.don_gia_km,
+            pct_tai_xe=payload.pct_tai_xe,
+            pct_phu_xe=payload.pct_phu_xe,
             actor_id=user.id,
         )
     except DepartmentNameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
-    except (DepartmentCycle, InvalidLevelOrder) as e:
+    except (DepartmentCycle, InvalidLevelOrder, KhoanKmInvalid) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     except DeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
@@ -203,6 +208,17 @@ def update_department(
             if "is_kcs" in payload.model_fields_set
             else {}
         )
+        # Cờ bộ phận Giao hàng: cùng luật "không gửi = giữ nguyên" như cờ Kinh doanh ngay trên.
+        gh_kw = (
+            {"la_giao_hang": payload.la_giao_hang}
+            if "la_giao_hang" in payload.model_fields_set
+            else {}
+        )
+        # Ba ô khoán km: cùng luật "không gửi = giữ nguyên". Ghi đè mặc định 0/60/40 ở luồng chỉ
+        # sửa tên phòng là âm thầm xoá đơn giá — tháng sau tài xế nhận 0 đồng km mà không ai biết.
+        for _o in ("don_gia_km", "pct_tai_xe", "pct_phu_xe"):
+            if _o in payload.model_fields_set:
+                gh_kw[_o] = getattr(payload, _o)
         dept = depts.update(
             dept_id=dept_id,
             name=payload.name,
@@ -217,12 +233,13 @@ def update_department(
             **salary_kw,
             **kd_kw,
             **kcs_kw,
+            **gh_kw,
         )
     except (SetHeadForbidden, ReparentForbidden) as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None
     except DepartmentNameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
-    except (InvalidHead, DepartmentCycle, InvalidLevelOrder) as e:
+    except (InvalidHead, DepartmentCycle, InvalidLevelOrder, KhoanKmInvalid) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     except DeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None

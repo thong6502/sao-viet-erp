@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from app.db import SessionLocal
+from app.models.department import Department
 from app.models.lsx import (
     LB_MAY, LB_THUE_NGOAI, LB_TO, Lsx, LsxCongDoan, TT_DA_LAP_KE_HOACH, TT_DA_PHAT_HANH,
 )
@@ -21,7 +22,7 @@ from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.xep_lich_repo import XepLichRepository
 from app.security import create_access_token, hash_password
-from app.services.xep_lich_service import XepLichConflict, _utcnow
+from app.services.xep_lich_service import XepLichConflict, _gio_xuong
 from app.services.xep_lich_van_de_service import XepLichVanDeService
 
 # Fixtures (db/admin/customer/orders/lsx_svc/bg_svc/xl_svc) + helpers dùng chung từ test xếp lịch.
@@ -222,6 +223,13 @@ def test_phat_hanh_gate_ngoai_le_revert(db, orders, lsx_svc, xl_svc, vd_svc, adm
     for lsx in (a, b):
         s = _in_step(db, lsx.id)
         s.setup_phut, s.nang_suat, s.so_luong_vao, s.chay_phut = 0, 5000, 5000, None
+    # Gate KCS-cuối (§4.4) nay đã gác thật ở phát hành: thêm bước KCS cuối routing cho `a` —
+    # đây là ứng viên DUY NHẤT bị phát hành trong test này (`b` không đụng tới).
+    kcs_dept = Department(name="KCS Xưởng", code="KCS-XL-VD", is_kcs=True)
+    db.add(kcs_dept)
+    db.flush()
+    db.add(LsxCongDoan(lsx_id=a.id, thu_tu=999, ten="KCS cuối", nhom="finishing",
+                       department_id=kcs_dept.id))
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=a.id, actor=admin)
     xl_svc.dua_vao_lsx(lsx_id=b.id, actor=admin)
@@ -232,7 +240,7 @@ def test_phat_hanh_gate_ngoai_le_revert(db, orders, lsx_svc, xl_svc, vd_svc, adm
     # bằng giờ THẬT. Ghim cứng một ngày thì tới ngày đó test đỏ vĩnh viễn: sàn vượt `start_at`
     # ⇒ detector `sai_tien_nhiem` bắn thêm xung đột Chặn, gate phát hành không bao giờ mở.
     # ĐÃ NỔ THẬT lúc 2026-07-27 08:00 UTC với mốc cũ `datetime(2026, 7, 27, 8, 0)`.
-    bat_dau = (_utcnow() + timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+    bat_dau = (_gio_xuong() + timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
     xl_svc.gan(dong_id=repo.by_lsx(a.id)[0].id, patch={"may_id": may_id, "start_at": bat_dau}, actor=admin)
     xl_svc.gan(dong_id=repo.by_lsx(b.id)[0].id, patch={"may_id": may_id, "start_at": bat_dau}, actor=admin)
 
@@ -321,7 +329,7 @@ def test_qua_tai_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, custom
     _luon_lam(monkeypatch)
     # Neo "hôm nay" của detector về đúng ngày xếp (cửa sổ 7 ngày mới trùm dòng đã xếp).
     fixed = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr("app.services.xep_lich_van_de_service._utcnow", lambda: fixed)
+    monkeypatch.setattr("app.services.xep_lich_van_de_service._gio_xuong", lambda: fixed)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
     # Ô "Thời gian khác" 12000' (200h) chiếm máy > 7×1440' = 10080' khả dụng → >100% Cao.
@@ -339,7 +347,7 @@ def test_qua_tai_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, custom
     assert step.may_id in qt[0]["impacts"]["may_ids"]
 
     # Dời "hôm nay" ra xa 60 ngày → dòng nằm NGOÀI cửa sổ 7 ngày → hết cảnh báo tải.
-    monkeypatch.setattr("app.services.xep_lich_van_de_service._utcnow",
+    monkeypatch.setattr("app.services.xep_lich_van_de_service._gio_xuong",
                         lambda: datetime(2026, 9, 30, 8, 0, tzinfo=timezone.utc))
     assert _bo_do(vd_svc.liet_ke(), "qua_tai_may") == []
 

@@ -7,6 +7,18 @@
   padding: var(--sp-5) var(--sp-6);
 }
 
+/* Bảng màu TRẠNG THÁI dùng chung cho hai cách nhìn của Kế hoạch vật tư (Theo mặt hàng ↔ Theo lệnh).
+   Trước đây "Theo mặt hàng" gõ hex tươi tận nơi, còn "Theo lệnh" xài token đất/trầm → cùng một ý
+   nghĩa mà hai màn lệch tông. Gom bốn ý nghĩa về đây, cho "Theo lệnh" trỏ vào — hai màn cùng hệ màu.
+   GIÁ TRỊ đồng bộ với hệ màu "Theo mặt hàng" (khvt-badge--*, khvt-coverage-badge, khvt-mini-bar__fill);
+   đổi tông sau này thì sửa cả hai chỗ. */
+.khsx {
+  --kh-ok-bg: #d1fae5;      --kh-ok-fg: #047857;      --kh-ok-bd: #6ee7b7;      --kh-ok-bar: #10b981;   /* đủ / sẵn sàng / mở khoá */
+  --kh-thieu-bg: #ffe4e6;   --kh-thieu-fg: #e11d48;   --kh-thieu-bd: #fecdd3;   --kh-thieu-bar: #f43f5e; /* thiếu, cần mua */
+  --kh-canhbao-bg: #fef3c7; --kh-canhbao-fg: #b45309; --kh-canhbao-bd: #fde68a; --kh-canhbao-bar: #f59e0b; /* chờ hàng / chưa quy đổi / một phần */
+  --kh-vemuon-bg: #dbeafe;  --kh-vemuon-fg: #1d4ed8;  --kh-vemuon-bd: #93c5fd;  --kh-vemuon-bar: #3b82f6; /* hàng về muộn / đang trên đường */
+}
+
 /* button/input KHÔNG kế thừa font của trang → mặc định rơi về Arial, chữ tiếng Việt lệch hẳn
    so với phần còn lại. Ép về font app cho MỌI control trong màn. */
 .khsx button,
@@ -245,6 +257,17 @@
   font-size: var(--fs-xs);
   color: var(--ash);
 }
+.khsx-main-card {
+  background: var(--canvas, #ffffff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  margin-top: 16px;
+}
+.khsx-main-card__body {
+  padding: 0;
+}
 
 .khsx__segrow {
   display: flex;
@@ -253,61 +276,61 @@
 }
 
 /* --- toolbar tab Lệnh ------------------------------------------------------ */
-/* Tabs Bar (Segmented Capsule Tabs) */
-.khsx-tabs-bar {
-  display: flex !important;
-  align-items: center !important;
-  gap: 4px !important;
-  padding: 4px !important;
-  margin: 0 20px 12px 20px !important;
-  background: var(--paper, #f1f5f9) !important;
-  border: 1px solid var(--rule-soft, #e2e8f0) !important;
-  border-radius: 10px !important;
-  overflow-x: auto !important;
-  scrollbar-width: none !important;
+/* Underline Tabs Navigation (Vercel / Stripe Standard) */
+.khsx-underline-tabs {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  border-bottom: 1px solid var(--rule-soft, #e2e8f0);
+  margin-bottom: 16px;
+  padding-bottom: 0;
 }
-.khsx-tabs-bar::-webkit-scrollbar { display: none; }
 
-.khsx-tab-btn {
+.khsx-underline-tab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 13px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--ash, #475569);
+  gap: 8px;
+  padding: 10px 4px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ash, #64748b);
   background: transparent;
   border: none;
-  border-radius: 7px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.15s ease;
 }
-.khsx-tab-btn:hover {
+.khsx-underline-tab:hover {
   color: var(--ink, #0f172a);
-  background: rgba(255, 255, 255, 0.65);
 }
-.khsx-tab-btn.is-active {
-  background: #ffffff;
-  color: var(--ink, #0f172a);
-  border-color: transparent;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
-  font-weight: 700;
+.khsx-underline-tab.is-active {
+  color: var(--rust-deep, #c5400a);
+  font-weight: 600;
+  border-bottom-color: var(--rust, #c5400a);
 }
 
-.khsx-tab-badge {
+.khsx-tab-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  font-size: 10.5px;
-  font-weight: 700;
-  border-radius: 999px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--r-pill);
+  background: #f1f5f9;
+  color: #475569;
+}
+.khsx-underline-tab.is-active .khsx-tab-count {
   background: var(--rust-soft, #f4e2d6);
   color: var(--rust-deep, #8a2d07);
-  border: 1px solid rgba(197, 64, 10, 0.15);
+}
+.khsx-tab-count--alert {
+  background: #ffedd5;
+  color: #c2410c;
 }
 
 .khsx__toolbar {
@@ -315,7 +338,7 @@
   align-items: center;
   gap: var(--sp-3);
   flex-wrap: wrap;
-  margin-bottom: var(--sp-3);
+  margin-bottom: 12px;
 }
 .khsx__spacer { flex: 1 1 auto; }
 
@@ -324,10 +347,10 @@
   align-items: center;
   gap: var(--sp-2);
   padding: 0 var(--sp-3);
-  height: 32px;
+  height: 34px;
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-3);
+  border-radius: 6px;
   color: var(--ash);
 }
 .khsx__search input {
@@ -361,11 +384,11 @@
 
 /* --- bảng ----------------------------------------------------------------- */
 .khsx__tablewrap {
-  overflow-x: auto;                /* KHÔNG dùng overflow:hidden — bảng nhiều cột sẽ cụt */
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  box-shadow: var(--shadow-1);
+  overflow-x: auto;
+  background: var(--canvas, #ffffff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 .khsx__table {
   width: 100%;
@@ -376,16 +399,17 @@
 
 /* Nhãn tiếng Việt CÓ DẤU: dùng sans thường, KHÔNG mono/uppercase/letter-spacing — chữ hoa có
    dấu bị bóp, mono không dựng cho tiếng Việt. Mono chỉ dành cho MÃ và SỐ. */
-.khsx__table thead th,
-.khsx-prev thead th,
-.khsx-rt__table thead th {
-  font-size: var(--fs-xs);
-  color: var(--ash);
-  background: var(--paper);
+.khsx__table thead th {
+  font-size: 11px;
+  color: #334155;
+  background: #f1f5f9;
   text-align: left;
-  font-weight: var(--fw-bold);
-  padding: var(--sp-2) var(--sp-4);
-  border-bottom: 1px solid var(--rule-soft);
+  font-weight: 700;
+  padding: 8px 12px;
+  border-top: 1px solid #cbd5e1;
+  border-bottom: 2px solid #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   white-space: nowrap;
 }
 .khsx-th--num { text-align: right; }
@@ -393,15 +417,22 @@
 .khsx__table td {
   font-size: var(--fs-md);
   color: var(--ink);
-  padding: var(--sp-3) var(--sp-4);
-  border-bottom: 1px solid var(--rule-hair);
-  vertical-align: top;
-  line-height: 1.45;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: middle;
+  line-height: 1.4;
 }
-.khsx__row { cursor: pointer; }
-.khsx__row:hover { background: var(--rule-hair); }
+.khsx__row {
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.khsx__row:hover { background: #f8fafc; }
 .khsx__row:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
-.khsx__row--rush { box-shadow: inset 3px 0 0 var(--rust); }
+.khsx__row--rush {
+  border-left: 3px solid var(--rust);
+  box-shadow: none;
+}
 
 .khsx__code {
   font-family: var(--ff-sans);
@@ -438,12 +469,105 @@
   color: var(--rust);
   white-space: nowrap;
 }
-.khsx__rowcta svg { transform: rotate(-90deg); vertical-align: middle; }
-.khsx__bad { color: var(--signal); font-weight: var(--fw-bold); }
-.khsx__footnote {
-  font-size: var(--fs-xs);
-  color: var(--ash);
-  margin: var(--sp-2) 0 0;
+.khsx-th--center { text-align: center !important; }
+.khsx-th--right { text-align: right !important; }
+.khsx-td--center { text-align: center !important; }
+.khsx-td--right { text-align: right !important; }
+
+.khsx-code-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.khsx-cust-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.khsx-cust-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+.khsx-sale-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #475569;
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+}
+.khsx-prod-tags-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: 360px;
+}
+.khsx-prod-tag {
+  font-size: 12px;
+  font-weight: 500;
+  color: #1e293b;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.khsx-prog-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.khsx-prog-pill.is-pending {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+.khsx-prog-pill.is-done {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+.khsx-time-val {
+  font-size: 12px;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+.khsx-date-val {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.khsx-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rust);
+  background: var(--rust-soft);
+  padding: 5px 12px;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+.khsx__row:hover .khsx-cta-btn {
+  background: var(--rust);
+  color: #ffffff;
 }
 
 .khsx-num {
@@ -617,11 +741,11 @@ td.khsx-num > .khsx-unit {
   z-index: 60;
 }
 .khsx-drawer {
-  width: min(1080px, 96vw);
+  width: min(1180px, 96vw);
   height: 100%;
   background: var(--canvas);
   border-top: 4px solid var(--rust);
-  box-shadow: var(--shadow-lg);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
   display: flex;
   flex-direction: column;
   animation: khsx-slide var(--duration-enter) var(--easing-standard);
@@ -630,42 +754,71 @@ td.khsx-num > .khsx-unit {
   from { transform: translateX(24px); opacity: 0; }
   to { transform: none; opacity: 1; }
 }
+.khsx-badge-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
 .khsx-drawer__head {
   display: flex;
   align-items: flex-start;
   gap: var(--sp-3);
-  padding: var(--sp-4) var(--sp-5);
+  padding: var(--sp-4) var(--sp-6);
   border-bottom: 1px solid var(--rule-soft);
+  background: var(--paper);
 }
 .khsx-drawer__headmain { flex: 1 1 auto; }
 .khsx-drawer__kicker {
-  margin: 0 0 3px;
-  font-family: var(--ff-sans);
-  font-size: 11px;
-  text-transform: uppercase;
-  color: var(--rust);
+  margin: 0 0 6px;
 }
-.khsx-drawer__title { margin: 0; font-size: 20px; color: var(--ink); }
+.khsx-drawer__title { margin: 0; font-size: 20px; color: var(--ink); font-weight: var(--fw-bold); }
 .khsx-drawer__title:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
-.khsx-drawer__meta { margin: 3px 0 0; font-size: var(--fs-sm); color: var(--ash); }
+.khsx-drawer__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin-top: 4px;
+  font-size: var(--fs-sm);
+  color: var(--ash);
+}
+.khsx-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .khsx-drawer__x {
   border: 0;
   background: transparent;
   color: var(--ash);
   cursor: pointer;
   padding: var(--sp-1);
+  border-radius: var(--r-2);
+  transition: background 0.15s ease;
+}
+.khsx-drawer__x:hover {
+  background: var(--rule-hair);
+  color: var(--ink);
 }
 .khsx-drawer__body {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: var(--sp-4) var(--sp-5);
+  padding: var(--sp-4) var(--sp-6);
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
 }
 .khsx-drawer__foot {
   border-top: 1px solid var(--rule-soft);
-  padding: var(--sp-3) var(--sp-5);
+  padding: var(--sp-3) var(--sp-6);
   display: flex;
   align-items: center;
   gap: var(--sp-3);
@@ -678,11 +831,16 @@ td.khsx-num > .khsx-unit {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  margin: 0 0 var(--sp-4);
+  margin: 0 0 var(--sp-2);
   padding: var(--sp-3) var(--sp-4);
   border-radius: var(--r-4);
   font-size: var(--fs-sm);
   line-height: 1.5;
+}
+.khsx-callout--compact {
+  padding: 5px 12px;
+  font-size: 12px;
+  margin-bottom: 4px;
 }
 .khsx-callout--steel {
   background: var(--paper);
@@ -718,44 +876,152 @@ td.khsx-num > .khsx-unit {
 }
 .khsx-warnlist { margin: 0; padding-left: var(--sp-4); }
 
-.khsx-prev { width: 100%; border-collapse: collapse; min-width: 1000px; }
-.khsx-prev td {
-  font-size: var(--fs-md);
-  line-height: 1.45;
-  /* Padding NGANG phải KHỚP header (.khsx-prev thead th dùng sp-4), nếu không cột số căn-phải
-     lệch mép với tiêu đề của nó. */
-  padding: var(--sp-3) var(--sp-4);
-  border-bottom: 1px solid var(--rule-hair);
-  vertical-align: top;
+.khsx-prev { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1000px; }
+.khsx-prev thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f1f5f9;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #334155;
+  border-top: 1px solid #cbd5e1;
+  border-bottom: 2px solid #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
-/* Dòng đã lên lệnh: làm mờ NỀN, giữ chữ --ink để vẫn đọc được. */
-.khsx-prev__row--done { background: var(--rule-hair); }
+.khsx-prev td {
+  font-size: 13px;
+  line-height: 1.35;
+  padding: 5px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: middle;
+}
+.khsx-prev tbody tr:hover td {
+  background: #f8fafc;
+}
+/* Dòng đã lên lệnh */
+.khsx-prev__row--done { background: #f8fafc; opacity: 0.75; }
+.khsx-action-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: #2563eb;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: var(--ff-num, monospace);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+.khsx-action-link:hover {
+  color: #1e40af;
+  text-decoration: underline;
+}
+.khsx-prev__name-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.khsx-prev__name {
+  font-weight: 600;
+  color: var(--ink);
+}
+.khsx-prev thead th.khsx-th--num {
+  text-align: right;
+}
+.khsx-prev thead th:nth-child(3) { min-width: 95px; }
+.khsx-prev thead th:nth-child(4) { min-width: 80px; }
+.khsx-prev thead th:nth-child(5) { min-width: 95px; }
+.khsx-prev thead th:nth-child(6) { min-width: 95px; }
+.khsx-prev thead th:nth-child(7) { min-width: 80px; }
+.khsx-prev thead th:nth-child(8) { min-width: 140px; }
 
-/* Nhóm (ruột + bìa của 1 cuốn): dải tiêu đề gom hiển thị — TỪNG DÒNG VẪN LÀ MỘT LỆNH RIÊNG,
-   nên không có tick ở dải, chỉ là nhãn ngữ cảnh. */
+.khsx-prev td.khsx-num,
+.khsx-prev td.khsx-num--val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.khsx-num__main {
+  font-family: var(--ff-num);
+  font-weight: 600;
+  color: var(--ink);
+}
+.khsx-unit {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 400;
+  margin-left: 2px;
+  display: inline-block;
+  white-space: nowrap;
+}
+.khsx-num__pair {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  white-space: nowrap;
+}
+.khsx-num__sep {
+  color: #cbd5e1;
+  margin: 0 4px;
+  font-weight: normal;
+}
+.khsx-prev__flow-col {
+  white-space: nowrap;
+}
+.khsx-prev__flow-col .khsx-flow {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  gap: 2px;
+}
+.khsx-prev__flow-col .khsx-flow__step {
+  font-size: 11px;
+  padding: 2px 6px;
+  line-height: 1.2;
+}
+
+/* Nhóm sản phẩm */
 .khsx-prev__nhom > td {
-  background: var(--rust-soft);
-  border-top: 1px solid var(--rust);
-  padding-top: 7px;
-  padding-bottom: 7px;
+  background: #fff7ed;
+  border-top: 1px solid #fed7aa;
+  border-bottom: 1px solid #fed7aa;
+  padding: 4px 10px;
+  height: 28px;
 }
 .khsx-prev__nhomTen {
-  font-weight: var(--fw-medium);
-  color: var(--ink);
+  font-weight: 600;
+  font-size: 12px;
+  color: #c2410c;
 }
 .khsx-prev__nhomSub {
   margin-left: 8px;
-  font-size: var(--fs-2xs);
-  color: var(--rust);
+  font-size: 11px;
+  color: #ea580c;
+  background: #ffedd5;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  font-weight: 500;
 }
-/* Thanh ray dọc bên trái chạy suốt các dòng thuộc nhóm → thấy RÕ nhóm bắt đầu và KẾT THÚC ở
-   đâu. Chỉ thụt lề thì dòng ngay sau nhóm trông cũng như thành viên. */
+
+/* Thanh ray dọc bên trái chạy suốt các dòng thuộc nhóm */
 .khsx-prev__row--con > td:first-child {
   box-shadow: inset 3px 0 0 var(--rust-soft);
 }
 .khsx-prev__row--con > td:nth-child(2) { padding-left: 20px; }
 .khsx-prev__row--conCuoi > td { border-bottom: 1px solid var(--rust); }
 .khsx-prev__tickcol { width: 40px; }
+
 /* Sàn cho cột "Công đoạn" (cột 9) để 5-6 chip routing xếp được ~2 chip/dòng thay vì 1 chip/dòng.
    Đặt ở THEAD chứ không phải tbody: dải nhóm ở tbody có `colSpan={9}` nên `nth-child` trên td
    sẽ trỏ nhầm cột, còn thead luôn đủ 10 `th` một-đối-một với cột. */
@@ -930,12 +1196,6 @@ td.khsx-num > .khsx-unit {
   color: #b45309;
   border: 1px solid #fde68a;
   cursor: pointer;
-}
-
-.khsx-topbar__tag--info {
-  background: #f1f5f9;
-  color: #475569;
-  border: 1px solid #cbd5e1;
 }
 
 .khsx-topbar__pop-trigger {
@@ -1964,6 +2224,22 @@ td.khsx-num > .khsx-unit {
   line-height: 1.45;
 }
 .khsx-luuy__foot { margin: var(--sp-2) 0 0; font-size: var(--fs-xs); opacity: 0.75; }
+/* Nút đóng lưu ý — đẩy về mép phải của tiêu đề, chìm cho tới khi rê chuột (không cạnh tranh chú ý
+   với nội dung). Dùng lại tông amber-deep của khối để không kéo thêm màu vào giao diện. */
+.khsx-luuy__x {
+  margin-left: auto;
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--amber-deep);
+  opacity: 0.6;
+  cursor: pointer;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.khsx-luuy__x:hover { opacity: 1; background: color-mix(in srgb, var(--amber-deep) 12%, transparent); }
+.khsx-luuy__x:focus-visible { outline: 2px solid var(--amber-deep); outline-offset: 1px; opacity: 1; }
 
 /* --- drawer chi tiết 1 bước ------------------------------------------------ */
 .khsx-drawer--buoc {
@@ -4574,124 +4850,204 @@ td.khsx-num > .khsx-unit {
 /* ==========================================================================
    TAB VẬT TƯ — bảng cân đối (khối theo mặt hàng, dòng theo ngày cần)
    Mọi rule bọc trong `.khsx` như phần trên; token lấy nguyên từ styles/tokens.css.
-   ========================================================================== */
-
-/* ==========================================================================
-   TAB VẬT TƯ — Smart Factory Control Tower (bảng cân đối theo mặt hàng & theo lệnh)
-   Mọi rule bọc trong `.khsx` như phần trên; token lấy nguyên từ styles/tokens.css.
-   ========================================================================== */
-
-.khsx.khvt-page {
-  max-width: 1320px;
-  margin: 0 auto;
+/* --- Ultra-Compact Topbar Header (~64px Height) --------------------------- */
+.khsx .khvt-header--compact {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+  padding: 10px 0 14px 0 !important;
+  margin-bottom: 0 !important;
+  flex-wrap: wrap !important;
 }
 
-/* --- Header & Live Sync --------------------------------------------------- */
-.khsx .khvt-header {
-  border-bottom: 1px solid var(--rule-soft);
-  padding-bottom: var(--sp-4);
-  margin-bottom: var(--sp-5);
-}
-.khsx .khvt-header__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--sp-2);
-}
-.khsx .khvt-header__badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--rust-deep);
-  background: var(--rust-soft);
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-}
-.khsx .khvt-header__pulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--rust);
-  box-shadow: 0 0 0 2px rgba(197, 64, 10, 0.2);
-}
-.khsx .khvt-header__sync {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--fs-xs);
-  color: var(--moss-deep, #15803d);
-  background: var(--moss-soft, #dcfce7);
-  padding: 3px 9px;
-  border-radius: var(--r-pill);
-  font-weight: 600;
-}
-.khsx .khvt-header__title-row {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--sp-4);
-  flex-wrap: wrap;
-}
-.khsx .khvt-header__title {
-  margin: 0 0 4px 0;
-  font-size: 26px;
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-  letter-spacing: -0.02em;
-}
-.khsx .khvt-header__desc {
-  margin: 0;
-  font-size: var(--fs-sm);
-  color: var(--ash);
+.khsx .khvt-header__left {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
 }
 
-/* --- Segmented Capsule Switch --------------------------------------------- */
+.khsx .khvt-header__left .khvt-header__title {
+  font-size: 19px !important;
+  font-weight: 700 !important;
+  color: #0f172a !important;
+  margin: 0 !important;
+  letter-spacing: -0.02em !important;
+}
+
+.khsx .khvt-header__left .khvt-header__dot {
+  color: #94a3b8 !important;
+  font-size: 14px !important;
+}
+
+.khsx .khvt-header__left .khvt-header__desc {
+  font-size: 13px !important;
+  color: #64748b !important;
+  margin: 0 !important;
+}
+
+.khsx .khvt-header__left .khvt-header__sync {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #059669 !important;
+  background: #ecfdf5 !important;
+  border: 1px solid #a7f3d0 !important;
+  padding: 2px 8px !important;
+  border-radius: 12px !important;
+}
+
+/* --- Segmented Capsule Switch (§2 UI_DESIGN.md) -------------------------- */
 .khsx .khvt-segmented-switch {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 4px;
-  background: var(--paper, #f1f5f9);
-  border: 1px solid var(--rule-soft, #e2e8f0);
-  border-radius: 12px;
+  background: #f1f5f9 !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 999px !important;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
 }
+
 .khsx .khvt-segmented-btn {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
+  gap: 8px;
+  padding: 8px 18px;
   font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--ash);
+  color: #64748b;
   background: transparent;
   border: none;
-  border-radius: 9px;
+  border-radius: 999px !important;
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.15s ease;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   text-align: left;
 }
+
 .khsx .khvt-segmented-btn:hover {
-  color: var(--ink);
+  color: #0f172a;
   background: rgba(255, 255, 255, 0.6);
 }
+
 .khsx .khvt-segmented-btn.is-active {
-  background: var(--canvas, #ffffff);
-  color: var(--ink);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  background: #ffffff !important;
+  color: #0f172a !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12), 0 1px 2px rgba(15, 23, 42, 0.08) !important;
 }
+
 .khsx .khvt-segmented-btn__content {
   display: flex;
   flex-direction: column;
   gap: 1px;
 }
+
 .khsx .khvt-segmented-btn__label {
   font-weight: 700;
   line-height: 1.2;
+}
+
+.khsx .khvt-segmented-btn__sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+.khsx .khvt-segmented-btn.is-active .khvt-segmented-btn__sub {
+  color: #475569;
+}
+
+.khsx .khvt-badge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  font-family: var(--ff-num, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.khsx .khvt-badge-count--alert {
+  background: #ffe4e6;
+  color: #e11d48;
+  border: 1px solid #fecdd3;
+}
+
+.khsx .khvt-badge-count--warn {
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+/* --- Unified Control Bar (StatusTabs + Search in 1 row - §5 UI_DESIGN.md) - */
+.khsx .khvt-unified-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-4);
+}
+
+.khsx .khvt-unified-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.khsx .khvt-utab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: #475569;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.khsx .khvt-utab:hover {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+.khsx .khvt-utab.is-active {
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
+}
+
+.khsx .khvt-utab__count {
+  font-family: var(--ff-num, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.khsx .khvt-utab.is-active .khvt-utab__count {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
 }
 .khsx .khvt-segmented-btn__sub {
   font-size: 11px;
@@ -4700,7 +5056,7 @@ td.khsx-num > .khsx-unit {
   line-height: 1.2;
 }
 .khsx .khvt-segmented-btn.is-active .khvt-segmented-btn__sub {
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2);
 }
 .khsx .khvt-badge-count {
   display: inline-flex;
@@ -4713,17 +5069,20 @@ td.khsx-num > .khsx-unit {
   font-family: var(--ff-num, monospace);
   font-size: 11px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 .khsx .khvt-badge-count--alert {
-  background: var(--signal);
-  color: #ffffff;
+  background: var(--signal-soft);
+  color: var(--signal-deep);
+  border: 1px solid color-mix(in srgb, var(--signal) 24%, var(--signal-soft));
 }
 .khsx .khvt-badge-count--warn {
-  background: var(--amber-deep, #b45309);
-  color: #ffffff;
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  border: 1px solid color-mix(in srgb, var(--amber) 24%, var(--amber-soft));
 }
 
-/* --- Unified Control Bar (StatusTabs + Search in 1 row) ------------------- */
+/* --- Unified Control Bar (StatusTabs + Search in 1 row - §5 UI_DESIGN.md) - */
 .khsx .khvt-unified-bar {
   display: flex;
   align-items: center;
@@ -4754,36 +5113,37 @@ td.khsx-num > .khsx-unit {
   user-select: none;
 }
 .khsx .khvt-utab:hover {
-  background: var(--paper);
-  color: var(--ink);
-  border-color: var(--ash-2);
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  border-color: color-mix(in srgb, var(--rust) 30%, var(--rule));
 }
 .khsx .khvt-utab.is-active {
-  background: var(--charcoal, #0f172a);
-  color: var(--on-charcoal, #f8fafc);
-  border-color: var(--charcoal, #0f172a);
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.15);
+  background: var(--charcoal);
+  color: var(--on-charcoal);
+  border-color: var(--charcoal);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18);
 }
 .khsx .khvt-utab__count {
   font-family: var(--ff-num, monospace);
   font-size: 11px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   padding: 1px 6px;
   border-radius: var(--r-pill);
-  background: rgba(0, 0, 0, 0.07);
-  color: inherit;
+  background: var(--paper);
+  color: var(--ash);
 }
 .khsx .khvt-utab.is-active .khvt-utab__count {
   background: rgba(255, 255, 255, 0.2);
-  color: #ffffff;
+  color: var(--on-charcoal);
 }
 .khsx .khvt-utab__count--do {
-  background: #fee2e2;
+  background: var(--signal-soft);
   color: var(--signal);
 }
 .khsx .khvt-utab.is-active .khvt-utab__count--do {
   background: var(--signal);
-  color: #ffffff;
+  color: var(--canvas);
 }
 .khsx .khvt-utab__count--vemuon {
   background: var(--rust-soft);
@@ -4791,15 +5151,19 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-utab.is-active .khvt-utab__count--vemuon {
   background: var(--rust);
-  color: #ffffff;
+  color: var(--canvas);
 }
 .khsx .khvt-utab__count--khongro {
   background: var(--steel-soft);
   color: var(--steel);
 }
 .khsx .khvt-utab__count--du {
-  background: #dcfce7;
-  color: #15803d;
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+}
+.khsx .khvt-utab.is-active .khvt-utab__count--du {
+  background: var(--moss);
+  color: var(--canvas);
 }
 
 .khsx .khvt-utab__dot {
@@ -4807,11 +5171,12 @@ td.khsx-num > .khsx-unit {
   height: 6px;
   border-radius: 50%;
   background: currentColor;
+  flex-shrink: 0;
 }
 .khsx .khvt-utab--do .khvt-utab__dot { background: var(--signal); }
-.khsx .khvt-utab--vemuon .khvt-utab__dot { background: var(--rust-deep); }
+.khsx .khvt-utab--vemuon .khvt-utab__dot { background: var(--rust); }
 .khsx .khvt-utab--khongro .khvt-utab__dot { background: var(--steel); }
-.khsx .khvt-utab--du .khvt-utab__dot { background: #10b981; }
+.khsx .khvt-utab--du .khvt-utab__dot { background: var(--moss); }
 
 .khsx .khvt-toolbar__search {
   position: relative;
@@ -4824,18 +5189,18 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-toolbar__search svg {
   position: absolute;
-  left: 10px;
-  color: var(--ash-2, #64748b);
+  left: 11px;
+  color: var(--ash-2);
   pointer-events: none;
 }
 .khsx .khvt-toolbar__search input {
   width: 100%;
-  padding: 7px 30px 7px 32px;
+  padding: 7px 30px 7px 34px;
   font-size: var(--fs-xs);
   color: var(--ink);
   background: var(--canvas);
   border: 1px solid var(--rule);
-  border-radius: var(--r-2);
+  border-radius: var(--r-pill);
   outline: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -4845,13 +5210,18 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-toolbar__clear {
   position: absolute;
-  right: 8px;
+  right: 10px;
   border: none;
   background: transparent;
   color: var(--ash);
   cursor: pointer;
   padding: 2px 6px;
   font-size: 11px;
+  border-radius: var(--r-pill);
+}
+.khsx .khvt-toolbar__clear:hover {
+  color: var(--ink);
+  background: var(--rule-hair);
 }
 
 /* --- Inline Alert Strip (Lệnh bỏ qua) ------------------------------------- */
@@ -4859,16 +5229,16 @@ td.khsx-num > .khsx-unit {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 8px 14px;
-  margin-bottom: var(--sp-3);
-  background: #fffbeb;
-  border: 1px solid #fef3c7;
-  border-radius: var(--r-2);
-  color: #92400e;
+  padding: 9px 16px;
+  margin-bottom: var(--sp-4);
+  background: var(--amber-soft);
+  border: 1px solid color-mix(in srgb, var(--amber) 25%, var(--amber-soft));
+  border-radius: var(--r-3);
+  color: var(--amber-deep);
   font-size: var(--fs-xs);
 }
 .khsx .khvt-alert-inline svg {
-  color: #b45309;
+  color: var(--amber);
   flex-shrink: 0;
   transform: translateY(2px);
 }
@@ -4887,38 +5257,59 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-alert-inline__item code {
   font-family: var(--ff-num, monospace);
   font-weight: 700;
-  color: #78350f;
-  background: #fde68a;
-  padding: 1px 4px;
-  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+  color: var(--amber-deep);
+  background: var(--canvas);
+  padding: 1px 6px;
+  border-radius: var(--r-2);
+  border: 1px solid color-mix(in srgb, var(--amber) 20%, transparent);
 }
 
-/* --- Master Table (Bảng Master Mặt Hàng) ----------------------------------- */
+/* --- Master Table (Bảng Master Mặt Hàng - §6 UI_DESIGN.md) ---------------- */
 .khsx .khvt-master-tablewrap {
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-3);
+  border-radius: var(--r-5);
   background: var(--canvas);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
+
+.khsx .khvt-master-tablewrap::-webkit-scrollbar {
+  height: 8px;
+}
+.khsx .khvt-master-tablewrap::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+.khsx .khvt-master-tablewrap::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+.khsx .khvt-master-tablewrap::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
 .khsx .khvt-master-table {
   width: 100%;
+  min-width: 1080px !important;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 13.5px;
 }
 .khsx .khvt-master-table th {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.07em;
   color: var(--ash);
   background: var(--paper);
-  border-bottom: 1.5px solid var(--rule-soft);
+  border-bottom: 1.5px solid var(--rule);
   padding: 10px 14px;
   text-align: left;
   white-space: nowrap;
 }
 .khsx .khvt-master-table td {
-  padding: 10px 14px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--rule-hair);
   vertical-align: middle;
 }
@@ -4927,22 +5318,23 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-master-row {
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background 0.14s ease;
 }
-.khsx .khvt-master-row:hover {
-  background: #f8fafc;
+.khsx .khvt-master-row:hover td {
+  background: var(--paper);
 }
 .khsx .khvt-master-row.khvt-row--thieu {
-  border-left: 3px solid var(--signal);
+  border-left: 3.5px solid var(--signal);
 }
 .khsx .khvt-master-row.khvt-row--vemuon {
-  border-left: 3px solid var(--rust);
+  border-left: 3.5px solid var(--rust);
 }
 .khsx .khvt-master-row.khvt-row--khongro {
-  border-left: 3px solid var(--steel);
+  border-left: 3.5px solid var(--amber);
 }
 .khsx .khvt-master-row.khvt-row--chon td {
   background: var(--rust-soft);
+  box-shadow: inset 3px 0 0 var(--rust);
 }
 
 .khsx .khvt-cell-item {
@@ -4952,31 +5344,24 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-cell-item__top {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
-}
-.khsx .khvt-item-code {
-  font-family: var(--ff-num, monospace);
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ink);
-  letter-spacing: 0.02em;
 }
 .khsx .khvt-item-tag {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  padding: 1px 5px;
+  padding: 2px 7px;
   border-radius: var(--r-pill);
 }
-.khsx .khvt-tag--giay { background: #e0f2fe; color: #0369a1; }
-.khsx .khvt-tag--muc { background: #f3e8ff; color: #7e22ce; }
+.khsx .khvt-tag--giay { background: var(--steel-soft); color: var(--steel); }
+.khsx .khvt-tag--muc { background: var(--plum-soft); color: var(--plum-deep); }
 .khsx .khvt-tag--khuon { background: var(--rust-soft); color: var(--rust-deep); }
-.khsx .khvt-tag--vattu { background: var(--paper); color: var(--ash); }
+.khsx .khvt-tag--vattu { background: var(--paper); color: var(--ash); border: 1px solid var(--rule-soft); }
 
 .khsx .khvt-item-name {
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--ink);
   max-width: 320px;
@@ -4989,7 +5374,7 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-cell-ton-can {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 .khsx .khvt-ton-can-text {
   display: flex;
@@ -5003,63 +5388,154 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-can-val b {
   font-family: var(--ff-num, monospace);
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   color: var(--ink);
+}
+.khsx .khvt-can-sep {
+  color: #cbd5e1;
+  font-weight: 500;
+  font-size: 11px;
 }
 .khsx .khvt-unit-val {
   font-size: 11px;
-  color: var(--ash-2);
+  color: #64748b;
 }
 
 .khsx .khvt-mini-bar {
   width: 100%;
   height: 5px;
-  background: var(--rule-soft);
-  border-radius: var(--r-pill);
+  background: #e2e8f0;
+  border-radius: 4px;
   overflow: hidden;
+  margin-top: 2px;
 }
 .khsx .khvt-mini-bar__fill {
   height: 100%;
-  border-radius: var(--r-pill);
+  border-radius: 4px;
   transition: width 0.3s ease;
 }
-.khsx .khvt-mini-bar__fill.is-full { background: #10b981; }
-.khsx .khvt-mini-bar__fill.is-partial { background: #f59e0b; }
-.khsx .khvt-mini-bar__fill.is-deficit { background: var(--signal); }
+.khsx .khvt-mini-bar__fill.is-full { background: #10b981 !important; }
+.khsx .khvt-mini-bar__fill.is-partial { background: #f59e0b !important; }
+.khsx .khvt-mini-bar__fill.is-deficit { background: #f43f5e !important; }
+.khsx .khvt-mini-bar__fill.is-onway { background: #3b82f6 !important; }
+.khsx .khvt-mini-bar__fill.is-unknown { background: #f59e0b !important; }
 
 .khsx .khvt-coverage-badge {
   display: inline-block;
   font-family: var(--ff-num, monospace);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 700;
-  padding: 2px 7px;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
   border-radius: var(--r-pill);
 }
-.khsx .khvt-coverage-badge.is-ok { background: #dcfce7; color: #15803d; }
-.khsx .khvt-coverage-badge.is-short { background: #fee2e2; color: var(--signal); }
+.khsx .khvt-coverage-badge.is-full { background: #d1fae5 !important; color: #047857 !important; }
+.khsx .khvt-coverage-badge.is-onway { background: #dbeafe !important; color: #1d4ed8 !important; }
+.khsx .khvt-coverage-badge.is-unknown { background: #fef3c7 !important; color: #b45309 !important; }
+.khsx .khvt-coverage-badge.is-deficit { background: #ffe4e6 !important; color: #e11d48 !important; }
 
-/* Cột Lượng thiếu */
+/* Cột Lượng thiếu - Shape Pill 999px đồng bộ với cột Độ phủ & Trạng thái */
 .khsx .khvt-cell-thieu {
   white-space: nowrap;
 }
-.khsx .khvt-deficit-tag {
-  font-family: var(--ff-num, monospace);
-  font-weight: 700;
-  color: var(--signal);
-  display: inline-flex;
-  align-items: baseline;
-  gap: 3px;
-}
-.khsx .khvt-deficit-tag b {
-  font-size: 14px;
-}
-.khsx .khvt-deficit-tag small {
-  font-size: 11px;
-  color: var(--ash);
+.khsx .khvt-deficit-tag,
+.khsx .khvt-deficit-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  font-variant-numeric: tabular-nums !important;
+  color: #e11d48 !important;
+  background: #ffe4e6 !important;
+  border: 1px solid #fecdd3 !important;
+  padding: 2px 10px !important;
+  border-radius: 999px !important;
+  white-space: nowrap !important;
 }
 .khsx .khvt-deficit-zero {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  color: #94a3b8 !important;
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  padding: 2px 10px !important;
+  border-radius: 999px !important;
+  white-space: nowrap !important;
+}
+
+/* Cột Hạn đặt - Shape Date Badge 6px đồng bộ với cột Lệnh sử dụng */
+.khsx .khvt-date-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #e11d48 !important;
+  background: #fff1f2 !important;
+  border: 1px solid #fecdd3 !important;
+  padding: 3px 8px !important;
+  border-radius: 6px !important;
+  white-space: nowrap !important;
+}
+.khsx .khvt-date-badge.is-late,
+.khsx .khsx-date--late {
+  color: #e11d48 !important;
+  background: #fff1f2 !important;
+  border-color: #fecdd3 !important;
+  font-weight: 700 !important;
+  font-family: var(--ff-sans) !important;
+}
+.khsx .khvt-date-empty {
+  color: #cbd5e1 !important;
+  font-size: 13px !important;
+}
+
+.khsx .khvt-status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.khsx .khvt-po-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ash);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  padding: 2px 7px;
+  border-radius: var(--r-2);
+  margin-top: 2px;
+  white-space: nowrap !important;
+  max-width: 175px !important;
+  text-overflow: ellipsis !important;
+  overflow: hidden !important;
+}
+.khsx .khvt-po-note span {
+  white-space: nowrap !important;
+  text-overflow: ellipsis !important;
+  overflow: hidden !important;
+}
+.khsx .khvt-po-note b {
   font-family: var(--ff-num, monospace);
-  font-size: 12px;
-  color: var(--ash-2);
+  font-weight: 700;
+  color: var(--rust-deep);
+}
+
+.khsx .khsx-date--late {
+  color: var(--signal) !important;
+  font-weight: 700 !important;
 }
 
 /* Cột Lệnh sử dụng */
@@ -5071,15 +5547,17 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-lenh-pill {
   font-family: var(--ff-num, monospace);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   color: var(--ink);
   background: var(--paper);
   border: 1px solid var(--rule);
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--r-2);
 }
 .khsx .khvt-lenh-more {
+  font-family: var(--ff-num, monospace);
   font-size: 11px;
   font-weight: 600;
   color: var(--ash);
@@ -5092,21 +5570,22 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-btn-detail {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  font-size: 11px;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--rust-deep);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--r-2);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   white-space: nowrap;
 }
 .khsx .khvt-btn-detail:hover {
   background: var(--rust-soft);
-  border-color: #fed7aa;
+  color: var(--rust-deep);
+  border-color: color-mix(in srgb, var(--rust) 30%, var(--rust-soft));
 }
 
 /* --- Drawer Chi Tiết (VatTuDetailDrawer & LenhVatTuDrawer) ----------------- */
@@ -5125,7 +5604,7 @@ td.khsx-num > .khsx-unit {
   max-width: 820px;
   height: 100vh;
   background: var(--canvas);
-  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.15);
+  box-shadow: -10px 0 30px rgba(15, 23, 42, 0.15);
   display: flex;
   flex-direction: column;
   animation: rc-drawer-slide 0.25s cubic-bezier(0.16, 1, 0.3, 1);
@@ -5148,16 +5627,16 @@ td.khsx-num > .khsx-unit {
 
 /* Chỉ số, mã, ngày tháng dùng font mono */
 .khsx .khvt-drawer .khvt-drawer__code,
-.khsx .khvt-drawer .khvt-item-code,
 .khsx .khvt-drawer .khvt-lsx-code,
 .khsx .khvt-drawer .khvt-lsx-link,
 .khsx .khvt-drawer .khvt-date-val,
 .khsx .khvt-drawer .khvt-drawer-kpi__val b,
 .khsx .khvt-drawer .khvt-drawer-kpi__cov-pct,
 .khsx .khvt-drawer .khvt-kpi-badge--deficit b,
+.khsx .khvt-drawer .khvt-num-primary,
 .khsx .khvt-drawer .khvt-num-primary b,
 .khsx .khvt-drawer .khvt-delta-tag {
-  font-family: var(--ff-num, monospace) !important;
+  font-family: var(--ff-sans) !important;
   font-variant-numeric: tabular-nums;
 }
 
@@ -5168,8 +5647,30 @@ td.khsx-num > .khsx-unit {
   padding: 16px 24px;
   background: var(--paper);
   border-bottom: 1px solid var(--rule-soft);
-  border-top: 4px solid var(--rust);
   flex-shrink: 0;
+}
+/* Nút đóng của hai drawer Kế hoạch vật tư. Trước đây mượn class `rc-drawer__x` của màn Cấu hình
+   danh mục: CSS là global nên mượn class vừa ăn theo style màn kia, vừa bị guard cssKhongCuop
+   bắt (đúng chỗ nó sinh ra để bắt). Nay đứng một mình — gộp luôn `padding:0` và cú xoay lúc rê
+   chuột mà bản cũ thừa hưởng từ họ `rc`, để nút nhìn y hệt trước. */
+.khsx .khvt-drawer__head .khvt-drawer__x {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--ash);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.khsx .khvt-drawer__head .khvt-drawer__x:hover {
+  background: var(--rule-soft);
+  color: var(--ink);
+  transform: rotate(90deg);
 }
 .khsx .khvt-drawer__head .rc-drawer__kicker {
   display: inline-flex;
@@ -5184,8 +5685,8 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-drawer__title {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
   color: var(--ink);
   line-height: 1.3;
 }
@@ -5199,10 +5700,11 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-drawer__code {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
+  font-family: var(--ff-num, monospace) !important;
   color: var(--ink);
-  background: var(--paper-contrast, #ffffff);
-  padding: 1px 6px;
+  background: var(--canvas);
+  padding: 1px 7px;
   border-radius: var(--r-2);
   border: 1px solid var(--rule-soft);
 }
@@ -5215,73 +5717,110 @@ td.khsx-num > .khsx-unit {
   gap: 18px;
 }
 
-/* Dải KPI Compact trong Drawer (§4 UI_DESIGN.md) */
-.khsx .khvt-drawer-kpis {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
+/* Dải Bento KPI Grid trong Drawer */
+.khsx .khvt-drawer-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.khsx .khvt-bento-kpi {
   background: var(--paper);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-pill);
-  flex-wrap: wrap;
-}
-.khsx .khvt-drawer-kpi {
+  border-radius: var(--r-2);
+  padding: 10px 12px;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
-.khsx .khvt-drawer-kpi__sep {
-  width: 1px;
-  height: 18px;
-  background: var(--rule);
-  flex-shrink: 0;
+.khsx .khvt-bento-kpi:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  border-color: var(--rule);
 }
-.khsx .khvt-drawer-kpi__label {
-  font-size: 11px;
-  font-weight: 500;
+.khsx .khvt-bento-kpi__label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--ash);
-  white-space: nowrap;
 }
-.khsx .khvt-drawer-kpi__val {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
-  display: inline-flex;
+.khsx .khvt-bento-kpi__val {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  font-family: var(--ff-sans) !important;
+  color: #0f172a;
+  display: flex;
   align-items: baseline;
   gap: 4px;
 }
-.khsx .khvt-drawer-kpi__val small {
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--ash);
+.khsx .khvt-bento-kpi__val b,
+.khsx .khvt-bento-kpi__val small,
+.khsx .khvt-bento-kpi__val span {
+  font-family: var(--ff-sans) !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
 }
-.khsx .khvt-kpi-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  font-size: 11.5px;
-  font-weight: 500;
-}
-.khsx .khvt-kpi-badge--ok {
-  background: var(--moss-soft);
-  color: var(--moss-deep);
-}
-.khsx .khvt-kpi-badge--deficit {
-  background: var(--signal-soft);
-  color: var(--signal-deep);
-  font-weight: 600;
-}
-.khsx .khvt-drawer-kpi__cov {
+.khsx .khvt-bento-kpi__cov {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.khsx .khvt-drawer-kpi__cov-pct {
-  font-size: 12.5px;
+.khsx .khvt-bento-kpi__cov-pct {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  font-family: var(--ff-sans) !important;
+  color: #0f172a;
+}
+
+/* Ô KPI báo trạng thái bằng badge ("Thiếu -162,5 kg" / "Đủ tồn kho") — dùng ở CẢ hai drawer
+   (chi tiết cân đối + giữ chỗ theo lệnh). Thiếu rule này thì chữ và số dính liền, ô Cân đối
+   trông như chưa nạp CSS. */
+.khsx .khvt-kpi-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 12px;
   font-weight: 700;
-  color: var(--ink);
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.khsx .khvt-kpi-badge b {
+  font-family: var(--ff-num, monospace);
+  font-size: 14px;
+}
+.khsx .khvt-kpi-badge small {
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.khsx .khvt-kpi-badge--deficit {
+  background: var(--kh-thieu-bg);
+  color: var(--kh-thieu-fg);
+  border: 1px solid var(--kh-thieu-bd);
+}
+.khsx .khvt-kpi-badge--ok {
+  background: var(--kh-ok-bg);
+  color: var(--kh-ok-fg);
+  border: 1px solid var(--kh-ok-bd);
+}
+.khsx .khvt-bento-kpi__val--deficit {
+  color: var(--kh-thieu-fg) !important;
+  font-weight: 700;
+}
+.khsx .khvt-bento-kpi__val--deficit b,
+.khsx .khvt-bento-kpi__val--deficit small {
+  color: var(--kh-thieu-fg) !important;
+  font-family: var(--ff-sans) !important;
+}
+.khsx .khvt-bento-kpi__val--ok {
+  color: var(--kh-ok-fg) !important;
+  font-weight: 700;
+}
+.khsx .khvt-bento-kpi__val--ok b,
+.khsx .khvt-bento-kpi__val--ok small {
+  color: var(--kh-ok-fg) !important;
+  font-family: var(--ff-sans) !important;
 }
 
 .khsx .khvt-drawer-breakdown {
@@ -5323,55 +5862,132 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.khsx .khvt-badge--do { background: #ffe4e6 !important; color: #e11d48 !important; border: 1px solid #fecdd3 !important; }
+.khsx .khvt-badge--vemuon { background: #dbeafe !important; color: #1d4ed8 !important; border: 1px solid #93c5fd !important; }
+.khsx .khvt-badge--khongro { background: #fef3c7 !important; color: #b45309 !important; border: 1px solid #fde68a !important; }
+.khsx .khvt-badge--du { background: #d1fae5 !important; color: #047857 !important; border: 1px solid #6ee7b7 !important; }
+
+.khsx .khvt-stream-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;
   border-radius: var(--r-pill);
   white-space: nowrap;
 }
-.khsx .khvt-badge--do { background: #fee2e2; color: var(--signal); border: 1px solid #fecaca; }
-.khsx .khvt-badge--vemuon { background: var(--rust-soft); color: var(--rust-deep); border: 1px solid #fed7aa; }
-.khsx .khvt-badge--khongro { background: var(--steel-soft); color: var(--steel); border: 1px solid #cbd5e1; }
-.khsx .khvt-badge--du { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+.khsx .khvt-stream-chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.khsx .khvt-stream-chip--xam { background: var(--rule-hair); color: var(--ash); border: 1px solid var(--rule-soft); }
+.khsx .khvt-stream-chip--xanh { background: var(--moss-soft); color: var(--moss-deep); border: 1px solid color-mix(in srgb, var(--moss) 24%, var(--moss-soft)); }
+.khsx .khvt-stream-chip--vang { background: var(--kh-canhbao-bg); color: var(--kh-canhbao-fg); border: 1px solid var(--kh-canhbao-bd); }
+.khsx .khvt-stream-chip--do { background: var(--kh-thieu-bg); color: var(--kh-thieu-fg); border: 1px solid var(--kh-thieu-bd); }
+.khsx .khvt-stream-chip--khongro { background: var(--steel-soft); color: var(--steel); border: 1px solid var(--rule); }
+.khsx .khvt-stream-chip--vemuon { background: var(--kh-vemuon-bg); color: var(--kh-vemuon-fg); border: 1px solid var(--kh-vemuon-bd); }
 
-.khsx .khvt-pill--xam { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
-.khsx .khvt-pill--xanh { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
-.khsx .khvt-pill--vang { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
-.khsx .khvt-pill--do { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
-.khsx .khvt-pill--khongro { background: var(--steel-soft); color: var(--steel); border: 1px solid #cbd5e1; }
-.khsx .khvt-pill--vemuon { background: var(--rust-soft); color: var(--rust-deep); border: 1px solid #fed7aa; }
+.khsx .khvt-pill--xam { background: var(--rule-hair); color: var(--ash); border: 1px solid var(--rule-soft); }
+.khsx .khvt-pill--xanh { background: var(--moss-soft); color: var(--moss-deep); border: 1px solid color-mix(in srgb, var(--moss) 24%, var(--moss-soft)); }
+.khsx .khvt-pill--vang { background: var(--amber-soft); color: var(--amber-deep); border: 1px solid color-mix(in srgb, var(--amber) 24%, var(--amber-soft)); }
+.khsx .khvt-pill--do { background: var(--signal-soft); color: var(--signal); border: 1px solid color-mix(in srgb, var(--signal) 24%, var(--signal-soft)); }
+.khsx .khvt-pill--khongro { background: var(--steel-soft); color: var(--steel); border: 1px solid var(--rule); }
+.khsx .khvt-pill--vemuon { background: var(--rust-soft); color: var(--rust-deep); border: 1px solid color-mix(in srgb, var(--rust) 24%, var(--rust-soft)); }
 
-/* Thẻ khuyến nghị điều phối cho ca về muộn */
+/* Thẻ khuyến nghị điều phối / Guidance box hiện đại */
 .khsx .khvt-recommend-box {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--amber-soft);
+  border-left: 4px solid var(--amber);
+  border-top: 1px solid color-mix(in srgb, var(--amber) 20%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--amber) 20%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--amber) 20%, transparent);
   border-radius: var(--r-2);
-  color: #92400e;
-  font-size: var(--fs-xs);
-  line-height: 1.5;
+  color: var(--amber-deep);
+  font-size: 12.5px;
+  line-height: 1.45;
 }
-.khsx .khvt-recommend-box__icon { flex-shrink: 0; color: #b45309; }
+.khsx .khvt-recommend-box--ok {
+  background: var(--moss-soft);
+  border-left-color: var(--moss);
+  border-top-color: color-mix(in srgb, var(--moss) 20%, transparent);
+  border-right-color: color-mix(in srgb, var(--moss) 20%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--moss) 20%, transparent);
+  color: var(--moss-deep);
+}
+.khsx .khvt-recommend-box--lock {
+  background: var(--rust-soft);
+  border-left-color: var(--rust);
+  border-top-color: color-mix(in srgb, var(--rust) 20%, transparent);
+  border-right-color: color-mix(in srgb, var(--rust) 20%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--rust) 20%, transparent);
+  color: var(--rust-deep);
+}
+.khsx .khvt-recommend-box--warn {
+  background: var(--amber-soft);
+  border-left-color: var(--amber);
+  color: var(--amber-deep);
+}
+.khsx .khvt-recommend-box--truck {
+  background: var(--kh-vemuon-bg);
+  border-left-color: var(--kh-vemuon-bar);
+  border-top-color: color-mix(in srgb, var(--kh-vemuon-bar) 20%, transparent);
+  border-right-color: color-mix(in srgb, var(--kh-vemuon-bar) 20%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--kh-vemuon-bar) 20%, transparent);
+  color: var(--kh-vemuon-fg);
+}
+.khsx .khvt-recommend-box__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.khsx .khvt-recommend-box__badge--ok { background: var(--moss); color: #ffffff; }
+.khsx .khvt-recommend-box__badge--lock { background: var(--rust); color: #ffffff; }
+.khsx .khvt-recommend-box__badge--warn { background: var(--amber); color: #ffffff; }
+.khsx .khvt-recommend-box__badge--truck { background: var(--kh-vemuon-bar); color: #ffffff; }
+.khsx .khvt-recommend-box__content {
+  flex: 1;
+  min-width: 0;
+}
 .khsx .khvt-recommend-box__action {
   font-weight: 600;
   text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .khsx .khvt-drawer-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 /* Bảng Tiêu Thụ Từng Lệnh trong Drawer */
 .khsx .khvt-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .khsx .khvt-table th {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10.5px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--ash);
   background: var(--paper);
   border-bottom: 1.5px solid var(--rule);
@@ -5388,14 +6004,13 @@ td.khsx-num > .khsx-unit {
 
 .khsx .khvt-th--tick,
 .khsx .khvt-td--tick { width: 34px; text-align: center; }
-.khsx .khvt-row--chon td { background: var(--paper); }
+.khsx .khvt-row--chon td { background: var(--rust-soft); }
 
 .khsx .khvt-cell-date { white-space: nowrap; }
 .khsx .khvt-date-val { font-weight: 600; color: var(--ink); }
 .khsx .khvt-tam-badge {
   display: block;
-  font-size: 10px;
-  font-style: italic;
+  font-size: var(--fs-xs);
   color: var(--ash-2);
 }
 
@@ -5412,34 +6027,228 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-lsx-link:hover { color: var(--rust); }
 .khsx .khvt-lsx-code { font-weight: 600; color: var(--ink); }
-.khsx .khvt-lsx-sub { font-size: 11px; color: var(--ash); margin-top: 2px; }
+.khsx .khvt-lsx-sub { font-size: var(--fs-xs); color: var(--ash); margin-top: 2px; }
 .khsx .khvt-sub-note--vemuon {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--rust-deep);
   margin-top: 2px;
 }
 
 .khsx .khvt-num-cell { text-align: right; }
-.khsx .khvt-num-primary { font-weight: 600; color: var(--ink); }
-.khsx .khvt-num-sub { font-size: 11px; color: var(--ash); margin-top: 2px; }
-.khsx .khvt-num-sub--ok { color: #15803d; }
+.khsx .khvt-num-primary { font-weight: 700; color: #0f172a; font-family: var(--ff-sans) !important; font-variant-numeric: tabular-nums; }
+.khsx .khvt-num-sub { font-size: var(--fs-xs); color: var(--ash); margin-top: 2px; }
+.khsx .khvt-num-sub--ok { color: var(--moss-deep); }
 .khsx .khvt-num-sub--do { color: var(--signal); font-weight: 600; }
+
+.khsx .khvt-sub-pills {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  margin-top: 3px;
+}
+.khsx .khvt-cap-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.khsx .khvt-cap-pill--ok {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  border: 1px solid color-mix(in srgb, var(--moss) 24%, var(--moss-soft));
+}
+.khsx .khvt-cap-pill--warn {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  border: 1px solid color-mix(in srgb, var(--amber) 24%, var(--amber-soft));
+}
 
 .khsx .khvt-delta-tag {
   display: inline-block;
   font-weight: 600;
 }
 .khsx .khvt-delta-tag.is-neutral { color: var(--ink); }
-.khsx .khvt-delta-tag.is-positive { color: #15803d; }
+.khsx .khvt-delta-tag.is-positive { color: var(--moss-deep); }
 .khsx .khvt-delta-tag.is-negative {
-  background: #fee2e2;
+  background: var(--signal-soft);
   color: var(--signal);
   padding: 2px 6px;
   border-radius: var(--r-2);
+}
+
+/* --- Lock Badges & Readiness Meter for GiuChoTheoLenhView ------------------ */
+.khsx .khvt-lock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.khsx .khvt-lock-badge--open {
+  background: var(--kh-ok-bg);
+  color: var(--kh-ok-fg);
+  border: 1px solid var(--kh-ok-bd);
+}
+.khsx .khvt-lock-badge--locked {
+  background: var(--paper);
+  color: var(--ash);
+  border: 1px solid var(--rule-soft);
+}
+.khsx .khvt-lock-badge--partial {
+  background: var(--kh-canhbao-bg);
+  color: var(--kh-canhbao-fg);
+  border: 1px solid var(--kh-canhbao-bd);
+}
+
+/* Chip loại lệnh sản xuất (ghép, gấp) */
+.khsx .khsx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.khsx .khsx-chip--rush {
+  background: var(--signal-soft);
+  color: var(--signal);
+  border: 1px solid color-mix(in srgb, var(--signal) 24%, var(--signal-soft));
+}
+.khsx .khsx-chip--ngoai {
+  background: var(--plum-soft);
+  color: var(--plum);
+  border: 1px solid color-mix(in srgb, var(--plum) 24%, var(--plum-soft));
+}
+
+/* Thanh độ sẵn sàng (Readiness Bar) */
+.khsx .khvt-cell-readiness {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.khsx .khvt-readiness-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.khsx .khvt-readiness-badge.is-ready {
+  background: var(--kh-ok-bg);
+  color: var(--kh-ok-fg);
+  border: 1px solid var(--kh-ok-bd);
+}
+.khsx .khvt-readiness-badge.is-partial {
+  background: var(--kh-canhbao-bg);
+  color: var(--kh-canhbao-fg);
+  border: 1px solid var(--kh-canhbao-bd);
+}
+.khsx .khvt-readiness-badge.is-deficit {
+  background: var(--kh-thieu-bg);
+  color: var(--kh-thieu-fg);
+  border: 1px solid var(--kh-thieu-bd);
+}
+.khsx .khvt-readiness-badge b {
+  font-family: var(--ff-num, monospace) !important;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.khsx .khvt-readiness-info {
+  font-size: 12px;
+  color: var(--ink);
+}
+.khsx .khvt-readiness-info b {
+  font-family: var(--ff-num, monospace);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.khsx .khvt-readiness-info small {
+  color: var(--ash);
+}
+.khsx .khvt-readiness-bar {
+  width: 100%;
+  max-width: 110px;
+  height: 4px;
+  background: var(--rule-soft);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.khsx .khvt-readiness-bar__fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  transition: width 0.2s ease;
+}
+.khsx .khvt-readiness-bar__fill.is-ready,
+.khsx .khvt-readiness-bar__fill.is-full {
+  background: var(--kh-ok-bar);
+}
+.khsx .khvt-readiness-bar__fill.is-partial {
+  background: var(--kh-canhbao-bar);
+}
+.khsx .khvt-readiness-bar__fill.is-deficit {
+  background: var(--kh-thieu-bar);
+}
+
+/* Nút hành động nhanh trong bảng theo lệnh */
+.khsx .khvt-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+}
+.khsx .khvt-row-actions button,
+.khsx .khvt-row-actions .btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 90px !important;
+  height: 28px !important;
+  padding: 0 8px !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  border-radius: var(--r-pill) !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+}
+.khsx .khvt-po-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 90px;
+  height: 26px;
+  font-size: 10.5px;
+  color: var(--ash);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+.khsx .khvt-btn-buy--khoa {
+  font-size: 11px !important;
+  opacity: 0.85;
 }
 
 .khsx .khvt-cell-item {
@@ -5452,14 +6261,9 @@ td.khsx-num > .khsx-unit {
   align-items: center;
   gap: 6px;
 }
-.khsx .khvt-item-code {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--ash-2);
-}
 .khsx .khvt-item-name {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--ink);
 }
 .khsx .khvt-compete-alert {
@@ -5474,7 +6278,7 @@ td.khsx-num > .khsx-unit {
   margin-top: 2px;
 }
 .khsx .khvt-text-emerald {
-  color: #15803d;
+  color: var(--moss-deep);
   font-weight: 600;
 }
 .khsx .khvt-text-ash {
@@ -5489,8 +6293,8 @@ td.khsx-num > .khsx-unit {
   font-weight: 600;
   color: var(--rust-deep);
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: var(--r-2);
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
   background: var(--rust-soft);
   user-select: none;
 }
@@ -5510,17 +6314,17 @@ td.khsx-num > .khsx-unit {
   display: flex;
   align-items: center;
   gap: var(--sp-4);
-  padding: 10px 20px;
-  background: rgba(255, 255, 255, 0.94);
+  padding: 10px 22px;
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(16px);
   border: 1px solid var(--rule);
   border-radius: var(--r-pill);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-lg);
 }
 .khsx .khvt-floating-dock__info {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 12px;
 }
 .khsx .khvt-floating-dock__count {
   font-size: var(--fs-sm);
@@ -5529,6 +6333,7 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-floating-dock__count b {
   font-family: var(--ff-num, monospace);
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 .khsx .khvt-floating-dock__total {
   font-size: var(--fs-sm);
@@ -5537,6 +6342,7 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-floating-dock__total b {
   font-family: var(--ff-num, monospace);
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 .khsx .khvt-floating-dock__hint {
   font-size: 11px;
@@ -5551,15 +6357,236 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-btn-action {
   background: var(--rust) !important;
-  color: #ffffff !important;
+  color: var(--canvas) !important;
   font-weight: 700 !important;
   display: inline-flex !important;
   align-items: center !important;
   gap: 6px !important;
-  box-shadow: 0 2px 6px rgba(197, 64, 10, 0.3) !important;
+  border-radius: var(--r-pill) !important;
+  box-shadow: 0 3px 10px rgba(197, 64, 10, 0.3) !important;
 }
 .khsx .khvt-btn-action:hover {
   background: var(--rust-deep) !important;
+}
+
+/* --- View Mode Switcher (Bảng ↔ Thẻ) ----------------------------------- */
+.khsx .khvt-view-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+}
+.khsx .khvt-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ash);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.khsx .khvt-view-btn:hover {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.8);
+}
+.khsx .khvt-view-btn.is-active {
+  background: var(--canvas);
+  color: var(--ink);
+  box-shadow: var(--shadow-1);
+}
+
+/* --- Material Stream Chips trong Cột Dòng Chảy ------------------------- */
+.khsx .khvt-material-stream {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.khsx .khvt-stream-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+  transition: all 0.14s ease;
+}
+.khsx .khvt-stream-chip__name {
+  font-weight: 600;
+  color: var(--ink);
+}
+.khsx .khvt-stream-chip__deficit {
+  font-family: var(--ff-num, monospace);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--kh-thieu-fg);
+  background: rgba(255, 255, 255, 0.7);
+  padding: 1px 5px;
+  border-radius: var(--r-2);
+}
+.khsx .khvt-stream-chip__ok {
+  font-family: var(--ff-num, monospace);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ash);
+}
+.khsx .khvt-stream-chip__eta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--ff-num, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--kh-vemuon-fg);
+  background: rgba(255, 255, 255, 0.8);
+  padding: 1px 5px;
+  border-radius: var(--r-2);
+}
+.khsx .khvt-stream-chip__po {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--amber-deep);
+}
+
+/* --- Cột Độ Sẵn Sàng (Readiness Mini Bar 4px) --------------------------- */
+.khsx .khvt-cell-readiness {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.khsx .khvt-readiness-info {
+  font-size: 12px;
+  color: var(--ash);
+  white-space: nowrap;
+}
+.khsx .khvt-readiness-info b {
+  font-family: var(--ff-num, monospace);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.khsx .khvt-readiness-info small {
+  font-family: var(--ff-num, monospace);
+  font-size: 11px;
+  color: var(--ash-2);
+}
+.khsx .khvt-readiness-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--rule-soft);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.khsx .khvt-readiness-bar__fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.khsx .khvt-readiness-bar__fill.is-full,
+.khsx .khvt-readiness-bar__fill.is-ready {
+  background: var(--kh-ok-bar);
+}
+.khsx .khvt-readiness-bar__fill.is-partial {
+  background: var(--kh-canhbao-bar);
+}
+.khsx .khvt-readiness-bar__fill.is-deficit {
+  background: var(--kh-thieu-bar);
+}
+
+/* --- Cột Cửa Xếp Lịch (Scheduling Lock Badges) -------------------------- */
+.khsx .khvt-lock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.khsx .khvt-lock-badge--open {
+  background: var(--kh-ok-bg);
+  color: var(--kh-ok-fg);
+  border: 1px solid var(--kh-ok-bd);
+}
+.khsx .khvt-lock-badge--locked {
+  background: var(--paper);
+  color: var(--ash);
+  border: 1px solid var(--rule);
+}
+.khsx .khvt-lock-badge--partial {
+  background: var(--kh-canhbao-bg);
+  color: var(--kh-canhbao-fg);
+  border: 1px solid var(--kh-canhbao-bd);
+}
+
+/* Nút Mua & Khóa Mua */
+.khsx .khvt-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+}
+.khsx .khvt-btn-buy {
+  background: var(--signal-soft) !important;
+  color: var(--signal) !important;
+  border: 1px solid color-mix(in srgb, var(--signal) 24%, var(--signal-soft)) !important;
+  font-weight: 600 !important;
+  font-size: 11.5px !important;
+  padding: 4px 10px !important;
+  border-radius: var(--r-pill) !important;
+}
+.khsx .khvt-btn-buy:hover:not(:disabled) {
+  background: var(--signal) !important;
+  color: var(--canvas) !important;
+}
+.khsx .khvt-btn-buy--khoa {
+  background: var(--rust-soft) !important;
+  color: var(--rust-deep) !important;
+  border: 1px solid color-mix(in srgb, var(--rust) 24%, var(--rust-soft)) !important;
+  opacity: 0.85 !important;
+  cursor: help !important;
+}
+.khsx .khvt-mini-alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--ff-num, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+  padding: 1px 6px;
+  border-radius: var(--r-2);
+}
+/* Trong BẢNG, nút "Giữ chỗ" lặp lại ở mọi dòng — 20 dòng nền cam đặc liền nhau thì mắt không còn
+   bắt được dòng nào đang cần xử lý. Ở đây hạ xuống cam nhạt có viền; cam ĐẶC để dành cho MỘT
+   hành động chính mỗi màn (thanh dock dưới đáy · nút chốt trong drawer). */
+.khsx .khvt-row-actions .khvt-btn-action {
+  background: var(--rust-soft) !important;
+  color: var(--rust-deep) !important;
+  border: 1px solid color-mix(in srgb, var(--rust) 28%, var(--rust-soft)) !important;
+  box-shadow: none !important;
+}
+.khsx .khvt-row-actions .khvt-btn-action:hover {
+  background: color-mix(in srgb, var(--rust) 16%, var(--rust-soft)) !important;
+  border-color: var(--rust) !important;
 }
 
 @media (max-width: 900px) {
@@ -5840,9 +6867,9 @@ td.khsx-num > .khsx-unit {
 .khsx-vtke__job-tag {
   font-size: 11px;
   font-weight: 600;
-  color: var(--moss-deep);
-  background: var(--moss-soft);
-  border: 1px solid var(--moss-soft);
+  color: var(--ash);
+  background: var(--rule-hair);
+  border: 1px solid var(--rule-soft);
   padding: 2px 8px;
   border-radius: var(--r-pill, 999px);
 }
@@ -6153,7 +7180,7 @@ td.khsx-num > .khsx-unit {
   padding: 1px 5px;
   border-radius: 999px;
   background: var(--signal);
-  color: #fff;
+  color: var(--canvas);
   font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
@@ -6194,138 +7221,6 @@ td.khsx-num > .khsx-unit {
   white-space: nowrap;
 }
 .khsx .gclv-nhac__nut.is-bat { background: var(--amber-deep); color: var(--amber-soft); }
-
-/* ── FACTORY READINESS HUD (BENTO COMMAND STRIP) ─────────────────────────── */
-.khsx .khvt-hud-grid {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr 1.1fr;
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-4);
-}
-
-.khsx .khvt-hud-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 14px 16px;
-  border-radius: var(--r-3);
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
-  cursor: pointer;
-  overflow: hidden;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.khsx .khvt-hud-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
-  border-color: var(--rule);
-}
-.khsx .khvt-hud-card.is-active {
-  border-color: var(--ink);
-  box-shadow: 0 0 0 2px var(--ink), 0 4px 12px rgba(0, 0, 0, 0.08);
-}
-
-.khsx .khvt-hud-card--readiness {
-  background: linear-gradient(145deg, var(--canvas) 0%, rgba(16, 185, 129, 0.04) 100%);
-  border-color: color-mix(in srgb, #10b981 30%, var(--rule-soft));
-}
-
-.khsx .khvt-hud-card__glow {
-  position: absolute;
-  top: -20px;
-  right: -20px;
-  width: 90px;
-  height: 90px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, transparent 70%);
-  pointer-events: none;
-}
-
-.khsx .khvt-hud-card__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.khsx .khvt-hud-card__badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.03em;
-}
-.khsx .khvt-hud-card__badge--emerald { color: #059669; }
-.khsx .khvt-hud-card__badge--amber { color: #d97706; }
-.khsx .khvt-hud-card__badge--slate { color: #475569; }
-.khsx .khvt-hud-card__badge--rose { color: #e11d48; }
-
-.khsx .khvt-hud-card__rate {
-  font-family: var(--ff-num, monospace);
-  font-size: 18px;
-  font-weight: 800;
-  color: #059669;
-}
-
-.khsx .khvt-hud-card__main {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.khsx .khvt-hud-card__value {
-  font-family: var(--ff-num, monospace);
-  font-size: 24px;
-  font-weight: 800;
-  color: var(--ink);
-  line-height: 1.1;
-}
-.khsx .khvt-hud-card__value small {
-  font-size: 13px;
-  font-weight: normal;
-  color: var(--ash);
-}
-.khsx .khvt-hud-card__unit {
-  font-size: var(--fs-xs);
-  color: var(--ash);
-}
-
-.khsx .khvt-hud-card__bar {
-  width: 100%;
-  height: 6px;
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: var(--r-pill);
-  overflow: hidden;
-  margin-top: 4px;
-}
-.khsx .khvt-hud-card__bar-fill--emerald {
-  height: 100%;
-  background: linear-gradient(90deg, #10b981, #059669);
-  border-radius: var(--r-pill);
-  transition: width 0.4s ease;
-}
-
-.khsx .khvt-hud-card__foot {
-  font-size: 11px;
-  color: var(--ash);
-  line-height: 1.3;
-}
-
-.khsx .khvt-pulse-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #e11d48;
-  box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.7);
-  animation: khvt-pulse 1.8s infinite;
-}
-@keyframes khvt-pulse {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(225, 29, 72, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(225, 29, 72, 0); }
-}
 
 /* ── VIEW MODE SWITCHER ──────────────────────────────────────────────────── */
 .khsx .khvt-view-switcher {
@@ -6375,8 +7270,8 @@ td.khsx-num > .khsx-unit {
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: #d97706;
-  background: #fffbeb;
+  color: var(--amber-deep);
+  background: var(--amber-soft);
   padding: 1px 6px;
   border-radius: 4px;
   width: fit-content;
@@ -6418,35 +7313,35 @@ td.khsx-num > .khsx-unit {
 }
 
 .khsx .khvt-stream-chip--xanh {
-  background: #ecfdf5;
-  color: #065f46;
-  border-color: #a7f3d0;
+  background: var(--rule-hair);
+  color: var(--ash);
+  border-color: var(--rule-soft);
 }
 .khsx .khvt-stream-chip--vang {
-  background: #fffbeb;
-  color: #92400e;
-  border-color: #fde68a;
+  background: var(--kh-canhbao-bg);
+  color: var(--kh-canhbao-fg);
+  border-color: var(--kh-canhbao-bd);
 }
 .khsx .khvt-stream-chip--do {
-  background: #fef2f2;
-  color: #991b1b;
-  border-color: #fecaca;
+  background: var(--kh-thieu-bg);
+  color: var(--kh-thieu-fg);
+  border-color: var(--kh-thieu-bd);
   font-weight: var(--fw-bold);
 }
 .khsx .khvt-stream-chip--vemuon {
-  background: #fff7ed;
-  color: #9a3412;
-  border-color: #fed7aa;
+  background: var(--kh-vemuon-bg);
+  color: var(--kh-vemuon-fg);
+  border-color: var(--kh-vemuon-bd);
 }
 .khsx .khvt-stream-chip--xam {
-  background: #f1f5f9;
-  color: #475569;
-  border-color: #e2e8f0;
+  background: var(--rule-hair);
+  color: var(--ash);
+  border-color: var(--rule-soft);
 }
 .khsx .khvt-stream-chip--khongro {
-  background: #f8fafc;
-  color: #64748b;
-  border-color: #e2e8f0;
+  background: var(--paper);
+  color: var(--ash-2);
+  border-color: var(--rule-soft);
 }
 
 .khsx .khvt-stream-chip__name {
@@ -6454,16 +7349,19 @@ td.khsx-num > .khsx-unit {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Con số dính sát tên vật tư thì dấu trừ đọc thành gạch nối ("Couche 150gsm-162,5 kg"). Tách ra
+   một nhịp để "tên" và "thiếu bao nhiêu" là hai mẩu tin riêng. */
 .khsx .khvt-stream-chip__deficit {
-  color: #dc2626;
+  color: var(--kh-thieu-fg);
   font-family: var(--ff-num, monospace);
   font-weight: 700;
-  margin-left: 2px;
+  margin-left: 4px;
 }
 .khsx .khvt-stream-chip__ok {
-  color: #059669;
+  color: var(--ash);
   font-family: var(--ff-num, monospace);
   font-weight: 600;
+  margin-left: 4px;
 }
 
 /* Độ sẵn sàng Cell */
@@ -6492,9 +7390,10 @@ td.khsx-num > .khsx-unit {
   border-radius: var(--r-pill);
   transition: width 0.3s ease;
 }
-.khsx .khvt-readiness-bar__fill.is-full { background: #10b981; }
-.khsx .khvt-readiness-bar__fill.is-partial { background: #f59e0b; }
-.khsx .khvt-readiness-bar__fill.is-deficit { background: #ef4444; }
+.khsx .khvt-readiness-bar__fill.is-full { background: var(--kh-ok-bar); }
+.khsx .khvt-readiness-bar__fill.is-partial { background: var(--kh-canhbao-bar); }
+.khsx .khvt-readiness-bar__fill.is-deficit { background: var(--kh-thieu-bar); }
+.khsx .khvt-readiness-bar__fill.is-ready { background: var(--kh-ok-bar); }
 
 /* Visual Lock / Unlock Badges */
 .khsx .khvt-lock-badge {
@@ -6508,31 +7407,30 @@ td.khsx-num > .khsx-unit {
   letter-spacing: 0.02em;
 }
 .khsx .khvt-lock-badge--open {
-  background: #ecfdf5;
-  color: #059669;
-  border: 1px solid #6ee7b7;
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.15);
+  background: var(--kh-ok-bg);
+  color: var(--kh-ok-fg);
+  border: 1px solid var(--kh-ok-bd);
 }
 .khsx .khvt-lock-badge--locked {
-  background: #f1f5f9;
-  color: #475569;
-  border: 1px solid #cbd5e1;
+  background: var(--rule-hair);
+  color: var(--ash);
+  border: 1px solid var(--rule);
 }
 .khsx .khvt-lock-badge--partial {
-  background: #fffbeb;
-  color: #d97706;
-  border: 1px solid #fcd34d;
+  background: var(--kh-canhbao-bg);
+  color: var(--kh-canhbao-fg);
+  border: 1px solid var(--kh-canhbao-bd);
 }
 
 /* Nút Mua & Cạnh tranh tồn */
 .khsx .khvt-btn-buy {
-  background: #fef2f2 !important;
-  color: #dc2626 !important;
-  border-color: #fca5a5 !important;
+  background: var(--signal-soft) !important;
+  color: var(--signal) !important;
+  border-color: color-mix(in srgb, var(--signal) 30%, var(--signal-soft)) !important;
   font-weight: var(--fw-bold);
 }
 .khsx .khvt-btn-buy:hover {
-  background: #fee2e2 !important;
+  background: color-mix(in srgb, var(--signal) 14%, var(--signal-soft)) !important;
 }
 /* Đã đặt mua rồi, hàng về muộn: nút vẫn ĐỨNG NGUYÊN CHỖ nhưng chuyển sang hệ cam "đang trên
    đường về" và mờ đi — nút biến mất thì người dùng đọc thành "phần mềm không cho mua". */
@@ -6542,9 +7440,9 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-btn-buy--khoa,
 .khsx .khvt-btn-buy--khoa:disabled {
-  background: #fff7ed !important;
-  color: #9a3412 !important;
-  border-color: #fed7aa !important;
+  background: var(--rust-soft) !important;
+  color: var(--rust-deep) !important;
+  border-color: color-mix(in srgb, var(--rust) 24%, var(--rust-soft)) !important;
   opacity: 0.85;
   cursor: help;
 }
@@ -6564,7 +7462,7 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-pill-note {
   margin-top: 4px;
   font-size: 11px;
-  color: #9a3412;
+  color: var(--rust-deep);
   font-family: var(--ff-num, monospace);
 }
 .khsx .khvt-compete-alert {
@@ -6572,7 +7470,7 @@ td.khsx-num > .khsx-unit {
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: #d97706;
+  color: var(--amber-deep);
   margin-top: 3px;
 }
 
@@ -6600,9 +7498,9 @@ td.khsx-num > .khsx-unit {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
   border-color: var(--rule);
 }
-.khsx .khvt-bcard--du { border-left: 4px solid #10b981; }
-.khsx .khvt-bcard--thieu { border-left: 4px solid #ef4444; }
-.khsx .khvt-bcard--tat { border-left: 4px solid #94a3b8; }
+.khsx .khvt-bcard--du { border-left: 4px solid var(--moss); }
+.khsx .khvt-bcard--thieu { border-left: 4px solid var(--signal); }
+.khsx .khvt-bcard--tat { border-left: 4px solid var(--rule); }
 
 .khsx .khvt-bcard__left {
   display: flex;
@@ -6659,9 +7557,10 @@ td.khsx-num > .khsx-unit {
   border-radius: var(--r-pill);
   transition: width 0.3s ease;
 }
-.khsx .khvt-bcard__progress-fill.is-full { background: #10b981; }
-.khsx .khvt-bcard__progress-fill.is-partial { background: #f59e0b; }
-.khsx .khvt-bcard__progress-fill.is-deficit { background: #ef4444; }
+.khsx .khvt-bcard__progress-fill.is-full { background: var(--kh-ok-bar); }
+.khsx .khvt-bcard__progress-fill.is-partial { background: var(--kh-canhbao-bar); }
+.khsx .khvt-bcard__progress-fill.is-deficit { background: var(--kh-thieu-bar); }
+.khsx .khvt-bcard__progress-fill.is-ready { background: var(--kh-ok-bar); }
 
 .khsx .khvt-bcard__actions {
   display: flex;
@@ -6742,12 +7641,10 @@ td.khsx-num > .khsx-unit {
 }
 
 /* Helper colors */
-.khsx .khvt-text-rose { color: #e11d48 !important; }
-.khsx .khvt-text-emerald { color: #059669 !important; font-weight: var(--fw-bold); }
+.khsx .khvt-text-emerald { color: var(--moss-deep) !important; font-weight: var(--fw-bold); }
 .khsx .khvt-text-ash { color: var(--ash) !important; }
 
 @media (max-width: 900px) {
-  .khsx .khvt-hud-grid { grid-template-columns: 1fr 1fr; }
   .khsx .khvt-bcard { grid-template-columns: 1fr; }
   .khsx .khvt-bcard__left { padding-right: 0; border-right: none; border-bottom: 1px solid var(--rule-soft); padding-bottom: var(--sp-3); }
 }
@@ -6850,18 +7747,18 @@ td.khsx-num > .khsx-unit {
 /* Ghi chú dưới badge trạng thái ở BẢNG CÂN ĐỐI (gom theo mặt hàng). */
 .khsx .khvt-po-note {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
   margin-top: 4px;
   font-size: 11px;
-  color: #9a3412;
+  color: var(--rust-deep);
   font-family: var(--ff-num, monospace);
   cursor: help;
 }
 .khsx .khvt-po-note b {
   padding: 0 4px;
   border-radius: 3px;
-  background: #ffedd5;
+  background: var(--rust-soft);
   font-family: var(--ff-sans);
 }
 
@@ -6873,7 +7770,7 @@ td.khsx-num > .khsx-unit {
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: #9a3412;
+  color: var(--rust-deep);
   font-family: var(--ff-num, monospace);
 }
 
@@ -6886,8 +7783,16 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-pill-note--po span {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
+  text-align: right;
+  line-height: 1.4;
   gap: 4px;
+}
+/* Icon giỏ hàng đứng yên ở đầu dòng, không trôi theo chữ khi mã phiếu xuống hàng. */
+.khsx .khvt-pill-note--po span > svg,
+.khsx .khvt-po-note > svg {
+  flex: none;
+  margin-top: 2px;
 }
 
 /* Danh sách phiếu trong khối gợi ý ở drawer bảng cân đối. */
@@ -6901,22 +7806,34 @@ td.khsx-num > .khsx-unit {
   font-family: var(--ff-num, monospace);
 }
 .khsx .khvt-po-list__loai {
-  display: inline-block;
-  min-width: 74px;
-  margin-right: 6px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: #ffedd5;
-  color: #9a3412;
-  font-family: var(--ff-sans);
-  font-size: 10px;
-  font-weight: var(--fw-bold);
-  text-align: center;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin-right: 6px !important;
+  padding: 2px 8px !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  text-align: center !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
 }
 
 /* Dòng "Kế hoạch N người" trên bảng routing khi số bố trí rơi ra ngoài định biên của bước — cùng
    sắc đỏ với `.khsx-labor-warn` trong drawer để hai chỗ nói cùng một tiếng. */
 .khsx-rt__sub2--canhbao {
-  color: var(--danger, #b91c1c);
+  color: var(--signal-deep);
   font-weight: 600;
 }
+
+/* ── "ĐỦ HÀNG" LÀ CHUYỆN BÌNH THƯỜNG — ĐỪNG TÔ MÀU ────────────────────────────
+   Accent của hệ thống là RUST (1288 chỗ dùng); moss/amber/signal chỉ là màu TRẠNG
+   THÁI. Bảng vật tư phần lớn hàng là "đủ", nên tô xanh cho "đủ" = cả màn xanh lá và
+   cái CẦN xử lý (thiếu · chờ hàng · về muộn) chìm mất. Nay thân chip/badge "đủ" để
+   trung tính, chỉ giữ chấm & biểu tượng xanh rêu cho phân biệt với "đã cấp". */
+.khsx .khvt-pill--xanh .khsx-pill__dot { background: var(--moss); }
+.khsx .khvt-stream-chip--xanh > svg,
+.khsx .khvt-badge--du > svg { color: var(--moss); }

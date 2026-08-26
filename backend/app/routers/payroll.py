@@ -19,7 +19,7 @@ from ..deps import (
     get_authorization_service,
     get_department_repository,
     get_employee_repository,
-    get_employee_repository,
+    get_employee_service,
     get_payroll_component_repository,
     get_payroll_component_service,
     get_payroll_service,
@@ -28,6 +28,7 @@ from ..deps import (
     require_any_permission,
     require_permission,
 )
+from ..models.payroll import COMPONENT_CODE_HOA_HONG
 from ..models.user import User
 from ..models.role import SCOPE_ALL
 from ..realtime import hub
@@ -37,6 +38,7 @@ from ..services.payroll_component_service import (
     ComponentValidationError,
     PayrollComponentService,
 )
+from ..services.employee_service import EmployeeService
 from ..services.rbac_service import AuthorizationService
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository
@@ -60,6 +62,8 @@ from ..schemas.payroll import (
     LineComponentOut,
     LineComponentPatchIn,
     LineComponentsOut,
+    KhoanKmChiTietOut,
+    KhoanKmChuyenOut,
     ComponentsOut,
     AdvanceDecisionIn,
     AdvanceIn,
@@ -159,6 +163,8 @@ Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Departments = Annotated[DepartmentRepository, Depends(get_department_repository)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
+#: Chỉ dùng cho MỘT việc: quét "đã qua ngày hết thử việc" trước khi tính lương (xem `generate`).
+EmpService = Annotated[EmployeeService, Depends(get_employee_service)]
 CompService = Annotated[PayrollComponentService, Depends(get_payroll_component_service)]
 CompRepo = Annotated[PayrollComponentRepository, Depends(get_payroll_component_repository)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
@@ -657,7 +663,12 @@ def get_table(svc: Service, employees: Employees, departments: Departments, auth
 
 @router.post("/generate", response_model=TableOut)
 def generate(body: GenerateIn, svc: Service, employees: Employees, departments: Departments,
+             emp_svc: EmpService,
              user: Annotated[User, Depends(require_permission(MODULE, "create"))]) -> TableOut:
+    # Quét TRƯỚC khi tính: nếu tháng này không ai mở màn Nhân sự thì đây là chỗ duy nhất còn lại
+    # để trạng thái kịp đúng. Không đổi tiền (engine coi "hết thử việc" y hệt thử việc) nhưng
+    # đổi cái HIỆN trên bảng lương, và giữ hai màn nói cùng một chuyện.
+    emp_svc.tu_danh_dau_het_thu_viec()
     try:
         svc.generate(year=body.year, month=body.month, actor=user)
     except PayrollError as exc:
@@ -773,13 +784,34 @@ def _xlsx_response(content: bytes, filename: str) -> Response:
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
+def _hoa_hong_total(l: LineOut) -> float:
+    """Cột "Hoa hồng" — TÁCH RIÊNG khỏi "Thưởng" ngày 24/08/2026.
+
+    ⭐ Trước đó hoa hồng bị cộng gộp vào "Thưởng" nên coi như không tồn tại: chủ mở bảng lương tìm
+    cột hoa hồng không thấy, vì nó nằm lẫn trong MỘT con số chung với thưởng nóng. Muốn biết bao
+    nhiêu là hoa hồng thì phải rê chuột vào ô — ai không rê thì không bao giờ biết.
+
+    Luật rút ra: tiền do MÁY tự tính từ phân hệ khác (`source='auto'`) thì phải có cột mang ĐÚNG
+    TÊN nó. Trộn vào cột khai tay là bắt người đọc đoán, mà bảng lương thì không được phép đoán.
+    """
+    return sum(c.amount for c in l.components
+               if c.kind != "tru" and c.code == COMPONENT_CODE_HOA_HONG)
+
+
 def _bonus_total(l: LineOut) -> float:
     """Cột "Thưởng" của bảng/file xuất = khoản PHÁT SINH kỳ này + 6 cột thưởng CŨ.
 
     ⚠️ KHÔNG tính khoản `source='employee'`: nó đã nằm trong `allowance` (cột "Phụ cấp") — cộng cả
-    hai là file xuất ra đếm đôi tiền của cùng một khoản. Giữ ĐỒNG BỘ với `bonusRows()` ở FE."""
+    hai là file xuất ra đếm đôi tiền của cùng một khoản. Giữ ĐỒNG BỘ với `bonusRows()` ở FE.
+
+    `auto` vẫn PHẢI có mặt (nó nằm NGOÀI `allowance`, cộng thẳng vào `gross`) — TRỪ hoa hồng, nay
+    đã có cột riêng `_hoa_hong_total`. Để cả hai là đếm đôi; bỏ cả hai là tiền lọt vào "Tổng" mà
+    không cột nào giải thích được, đúng chuyện đã xảy ra với "Cơm ca"/"Phụ cấp ca" ngày 03/08/2026.
+    """
     return (
-        sum(c.amount for c in l.components if c.kind != "tru" and c.source == "line")
+        sum(c.amount for c in l.components
+            if c.kind != "tru" and c.source in ("line", "auto")
+            and c.code != COMPONENT_CODE_HOA_HONG)
         + float(l.other_bonus) + float(l.thuong_5s) + float(l.thuong_doanh_so)
         + float(l.thuong_thanh_tich) + float(l.phep_nam) + float(l.tra_dong_phuc)
     )
@@ -796,17 +828,17 @@ def _build_table_xlsx(year: int, month: int, lines) -> bytes:
     # quên thêm cột ở đây thì file xuất ra không khớp và kế toán không dò ra chênh ở đâu — đúng
     # chuyện đã xảy ra với "Cơm ca"/"Phụ cấp ca" khi nối hai khoản đó ngày 03/08/2026.
     ws.append(["Mã", "Họ tên", "Phòng/Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
-               "Khoán", "Tăng ca", "Ca đêm", "Ca đêm (giờ×hệ số)", "Cơm ca", "Phụ cấp ca",
-               "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN",
+               "Khoán", "Khoán km", "Tăng ca", "Ca đêm", "Ca đêm (giờ×hệ số)", "Cơm ca", "Phụ cấp ca",
+               "Vi phạm", "Thưởng", "Hoa hồng", "Tổng", "BHXH", "TNCN",
                "Tạm ứng", "Thực lĩnh"])
     for l in lines:
         ws.append([l.employee_code or "", l.employee_name or "", l.department_name or "",
                    "Thử việc" if l.is_probation else "Chính thức", float(l.actual_cong),
-                   int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan),
+                   int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan), int(getattr(l, "khoan_km", 0) or 0),
                    int(l.ot_pay), int(l.night_pay), int(getattr(l, "night_premium_pay", 0) or 0),
                    int(getattr(l, "meal_allowance_pay", 0) or 0),
                    int(getattr(l, "shift_allowance_pay", 0) or 0),
-                   int(l.vi_pham), int(_bonus_total(l)),
+                   int(l.vi_pham), int(_bonus_total(l)), int(_hoa_hong_total(l)),
                    int(l.gross), int(l.bhxh), int(l.pit), int(l.advance_total), int(l.net_pay)])
     buf = BytesIO()
     wb.save(buf)
@@ -1082,6 +1114,19 @@ def list_line_components(line_id: int, svc: Service, authz: Authz,
     except PayrollError as exc:
         _raise(exc)
     return LineComponentsOut(items=[LineComponentOut.model_validate(r) for r in rows])
+
+
+@router.get("/lines/{line_id}/khoan-km", response_model=KhoanKmChiTietOut)
+def chi_tiet_khoan_km(line_id: int, svc: Service, authz: Authz,
+                      user: ConfigViewer) -> KhoanKmChiTietOut:
+    """Bảng đối chiếu khoán km của MỘT dòng lương — HCNS bấm vào cột "Khoán km" để mở."""
+    try:
+        rows = svc.chi_tiet_khoan_km(line_id=line_id,
+                                     scope=_emp_scope_for(authz, user), actor=user)
+    except PayrollError as exc:
+        _raise(exc)
+    return KhoanKmChiTietOut(items=[KhoanKmChuyenOut(**r) for r in rows],
+                             tong=round(sum(r["thanh_tien"] for r in rows), 2))
 
 
 @router.post("/lines/{line_id}/components", response_model=LineComponentOut,

@@ -197,7 +197,7 @@ def test_phieu_tinh_gia_scope(client, auth_headers):
 
 
 def _seed_may_mitsubishi() -> int:
-    """Máy 2 màu Mitsubishi 72×102 như danh mục thật: nhíp KẼM 44, nhíp GIẤY 10, lề hông 5, đuôi 8."""
+    """Máy 2 màu Mitsubishi 72×102 như danh mục thật: nhíp GIẤY 10, lề hông 5, đuôi 8."""
     from app.models.may_thiet_bi import MayThietBi
 
     db = SessionLocal()
@@ -206,7 +206,6 @@ def _seed_may_mitsubishi() -> int:
             ma="IN-TEST-72", ten="Mitsubishi 72x102 test", loai_may="press_offset_sheet",
             kho_max_dai=1020, kho_max_rong=720, kho_min_dai=545, kho_min_rong=390,
             vung_in_dai=1010, vung_in_rong=710,
-            gripper_mm=44,        # nhíp KẼM — KHÔNG được dùng làm chừa giấy
             nhip_giay_mm=10, le_hong_mm=5, duoi_thang_mau_mm=8,
         )
         db.add(may)
@@ -251,3 +250,249 @@ def test_bleed_va_khe_cat_tu_phieu_giam_so_con(client, auth_headers):
     co_bleed = _con_cua(client, auth_headers, giay_id, may_id, bleed_mm=3)
     co_khe = _con_cua(client, auth_headers, giay_id, may_id, khe_cat_mm=5)
     assert co_bleed < goc and co_khe < goc
+
+
+def _lui_moc(pid: int, gio: int = 2) -> None:
+    """Kéo LÙI mốc tính của phiếu + mốc sửa của mọi danh mục về quá khứ.
+
+    Test seed danh mục rồi lập phiếu trong cùng một giây, nên mặc định chẳng có cái gì "cũ hơn"
+    cái gì. Hàm này dựng lại mốc thời gian của đời thật: danh mục khai từ lâu, phiếu tính sau đó,
+    rồi mới tới lượt người dùng vào sửa danh mục.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.bu_hao import BuHao
+    from app.models.may_thiet_bi import MayThietBi
+    from app.models.phieu_tinh_gia import PhieuTinhGia
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    bay_gio = datetime.now(timezone.utc)
+    db = SessionLocal()
+    try:
+        db.get(PhieuTinhGia, pid).updated_at = bay_gio - timedelta(hours=gio)
+        for model in (CongDoan, GiayNguyen, MayThietBi, VatTuInAn, BuHao):
+            for row in db.query(model).all():
+                row.updated_at = bay_gio - timedelta(hours=gio + 1)
+        db.commit()
+    finally:
+        db.close()
+
+
+# ============ Cột "Sản phẩm" ngoài danh sách + lời nhắc danh mục đã đổi ============
+def test_danh_sach_kem_ten_san_pham_ben_trong(client, auth_headers):
+    """Ô tên ở đầu phiếu bỏ trống thì bảng ngoài vẫn phải biết phiếu báo cái gì."""
+    giay_id, cd_id = _seed_catalog()
+    body = {
+        "ten_san_pham": "",          # người lập không gõ gì ở đầu phiếu
+        "so_luong": 1000,
+        "thanh_phans": [
+            {**_component(giay_id, cd_id), "ten": "Ruột sách 160 trang"},
+            {**_component(giay_id), "ten": "Bìa sách"},
+        ],
+    }
+    pid = client.post("/api/phieu-tinh-gia", json=body, headers=auth_headers).json()["id"]
+    ds = client.get("/api/phieu-tinh-gia", headers=auth_headers).json()["items"]
+    dong = next(it for it in ds if it["id"] == pid)
+    assert dong["ten_san_pham"] == ""
+    # Đúng THỨ TỰ khai, để cột ngoài đọc "Ruột sách 160 trang +1" chứ không phải tên ngẫu nhiên.
+    assert dong["ten_thanh_phans"] == ["Ruột sách 160 trang", "Bìa sách"]
+
+
+def test_tim_kiem_cham_ten_san_pham_ben_trong(client, auth_headers):
+    """Nhìn thấy chữ gì ở cột Sản phẩm thì gõ chữ đó phải ra phiếu."""
+    giay_id, cd_id = _seed_catalog()
+    pid = client.post("/api/phieu-tinh-gia", json={
+        "ten_san_pham": "",
+        "so_luong": 500,
+        "thanh_phans": [{**_component(giay_id, cd_id), "ten": "Hộp bồi sóng ghép bộ đôi"}],
+    }, headers=auth_headers).json()["id"]
+    ra = client.get("/api/phieu-tinh-gia?q=bồi sóng", headers=auth_headers).json()
+    assert pid in [it["id"] for it in ra["items"]]
+
+
+def test_nhac_khi_cong_doan_doi_sau_lan_tinh(client, auth_headers):
+    """Sửa công đoạn xong mở phiếu cũ: SỐ giữ nguyên, nhưng phiếu phải tự nói "tôi đã cũ"."""
+    from datetime import datetime, timedelta, timezone
+
+    giay_id, cd_id = _seed_catalog()
+    pid = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000, "thanh_phans": [_component(giay_id, cd_id)],
+    }, headers=auth_headers).json()["id"]
+    _lui_moc(pid)
+    truoc = client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()
+    assert truoc["danh_muc_doi"] is None
+    von_cu = truoc["tong_gia_von"]
+    assert von_cu > 0
+
+    # Nay mới có người vào đổi TÊN công đoạn (không đụng giá).
+    db = SessionLocal()
+    try:
+        cd = db.get(CongDoan, cd_id)
+        cd.ten = "Cán màng bóng (đổi tên)"
+        cd.updated_at = datetime.now(timezone.utc)
+        db.commit()
+    finally:
+        db.close()
+
+    sau = client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()
+    assert sau["danh_muc_doi"] is not None
+    assert sau["danh_muc_doi"]["ten"] == ["Cán màng bóng (đổi tên)"]
+    # Ảnh chụp KHÔNG tự đổi: máy chỉ nhắc, không tự sửa số của phiếu đã lập.
+    assert sau["tong_gia_von"] == von_cu
+
+    # Bấm "Tính giá" (= PUT) → mốc tính mới, lời nhắc tắt.
+    client.put(f"/api/phieu-tinh-gia/{pid}", json={"so_luong": 1000}, headers=auth_headers)
+    lai = client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()
+    assert lai["danh_muc_doi"] is None
+
+
+def test_khong_nhac_khi_danh_muc_khong_lien_quan_doi(client, auth_headers):
+    """Sửa một công đoạn phiếu KHÔNG dùng thì đừng làm phiền — nhắc nhảm là mất tin."""
+    from datetime import datetime, timedelta, timezone
+
+    giay_id, cd_id = _seed_catalog()
+    db = SessionLocal()
+    try:
+        khac = CongDoan(ma="CD-TEST-KHAC", ten="Ép kim (không dùng)", nhom="finishing",
+                        che_do_tinh="theo_san_luong", pricing_basis="per_sheet", kieu_bu_hao="khong")
+        db.add(khac)
+        db.commit()
+        khac_id = khac.id
+    finally:
+        db.close()
+    pid = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000, "thanh_phans": [_component(giay_id, cd_id)],
+    }, headers=auth_headers).json()["id"]
+
+    _lui_moc(pid)
+    db = SessionLocal()
+    try:
+        row = db.get(CongDoan, khac_id)
+        row.ten = "Ép kim (vừa sửa)"
+        row.updated_at = datetime.now(timezone.utc)
+        db.commit()
+    finally:
+        db.close()
+    assert client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()["danh_muc_doi"] is None
+
+
+def test_nhac_khi_bu_hao_doi_sau_lan_tinh(client, auth_headers):
+    """Sửa BẬC BÙ HAO là số tờ hao đổi ⇒ tiền đổi — phiếu cũ phải nhắc, dù bù hao không nằm trên phiếu."""
+    from datetime import datetime, timezone
+
+    from app.models.bu_hao import BuHao
+
+    giay_id, cd_id = _seed_catalog()
+    db = SessionLocal()
+    try:
+        bh = BuHao(ma="BH-TEST", ten="In 3-4 màu (test)",
+                   bac=[{"sl_tu": 0, "sl_den": None, "gia_tri": 150, "don_vi": "to"}])
+        db.add(bh)
+        db.flush()
+        bh_id = bh.id
+        cd = db.get(CongDoan, cd_id)
+        cd.kieu_bu_hao = "theo_bang"
+        cd.bu_hao_id = bh_id
+        db.commit()
+    finally:
+        db.close()
+
+    pid = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000, "thanh_phans": [_component(giay_id, cd_id)],
+    }, headers=auth_headers).json()["id"]
+    _lui_moc(pid)
+    assert client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()["danh_muc_doi"] is None
+
+    db = SessionLocal()
+    try:
+        row = db.get(BuHao, bh_id)
+        row.bac = [{"sl_tu": 0, "sl_den": None, "gia_tri": 300, "don_vi": "to"}]
+        row.updated_at = datetime.now(timezone.utc)
+        db.commit()
+    finally:
+        db.close()
+
+    doi = client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()["danh_muc_doi"]
+    assert doi is not None
+    assert doi["ten"] == ["In 3-4 màu (test)"]
+
+
+def test_nhac_ro_cong_doan_ngung_dung(client, auth_headers):
+    """Bấm "Xóa" công đoạn còn nơi dùng = hệ chỉ TẮT cờ active. Phiếu phải nói "ngừng dùng",
+    không được nói "đã chỉnh sửa" — hai việc phải làm khác hẳn nhau."""
+    from datetime import datetime, timezone
+
+    giay_id, cd_id = _seed_catalog()
+    pid = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000, "thanh_phans": [_component(giay_id, cd_id)],
+    }, headers=auth_headers).json()["id"]
+    _lui_moc(pid)
+
+    db = SessionLocal()
+    try:
+        cd = db.get(CongDoan, cd_id)
+        cd.active = False
+        cd.updated_at = datetime.now(timezone.utc)
+        db.commit()
+    finally:
+        db.close()
+
+    doi = client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()["danh_muc_doi"]
+    assert doi is not None
+    assert doi["ngung"] == ["Cán màng test"]
+    assert doi["ten"] == [] and doi["xoa"] == []
+
+
+def test_nhac_ro_cong_doan_da_xoa_han(client, auth_headers):
+    """Công đoạn bị xoá HẲN: id trong phiếu trỏ vào hư không. Gọi tên bằng tên đã lưu ở dòng phiếu."""
+    giay_id, cd_id = _seed_catalog()
+    pid = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000, "thanh_phans": [_component(giay_id, cd_id)],
+    }, headers=auth_headers).json()["id"]
+    _lui_moc(pid)
+
+    db = SessionLocal()
+    try:
+        db.delete(db.get(CongDoan, cd_id))
+        db.commit()
+    finally:
+        db.close()
+
+    doi = client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()["danh_muc_doi"]
+    assert doi is not None
+    assert len(doi["xoa"]) == 1
+    assert "Cán màng" in doi["xoa"][0]
+    assert doi["ten"] == [] and doi["ngung"] == []
+
+
+def test_list_cot_sl_la_tong_sl_cac_san_pham(client, auth_headers):
+    """Cột SL ngoài bảng = Σ SL các sản phẩm — có vậy SL × giá vốn/đơn mới ra tổng giá vốn.
+
+    Trước đây cột này lấy ô SL mặc định ở đầu phiếu (20.000) trong khi đơn giá lại chia cho Σ SL
+    các sản phẩm (60.000) ⇒ nhìn ba cột cạnh nhau nhân lại không ra nhau.
+    """
+    giay_id, cd_id = _seed_catalog()
+    a = _component(giay_id, cd_id) | {"ten": "Ruột", "so_luong": 4000}
+    b = _component(giay_id, cd_id) | {"ten": "Bìa", "so_luong": 1000}
+    c = _component(giay_id, cd_id) | {"ten": "Nhãn"}          # bỏ trống → rơi về SL mặc định phiếu
+    resp = client.post("/api/phieu-tinh-gia", json={
+        "ten_san_pham": "Sách", "so_luong": 2000, "thanh_phans": [a, b, c],
+    }, headers=auth_headers)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+
+    lst = client.get("/api/phieu-tinh-gia", headers=auth_headers)
+    row = next(it for it in lst.json()["items"] if it["id"] == body["id"])
+    assert row["so_luong"] == 4000 + 1000 + 2000
+    # Ba cột phải khớp nhau: SL × giá vốn/đơn = tổng giá vốn (sai số làm tròn đơn giá).
+    assert row["so_luong"] * row["gia_von_don"] == pytest.approx(row["tong_gia_von"], rel=1e-3)
+
+
+def test_list_phieu_trang_van_lay_sl_dau_phieu(client, auth_headers):
+    """Phiếu chưa có sản phẩm nào thì không có gì để cộng — giữ ô SL người lập vừa gõ."""
+    resp = client.post("/api/phieu-tinh-gia", json={"ten_san_pham": "Nháp", "so_luong": 7000},
+                       headers=auth_headers)
+    pid = resp.json()["id"]
+    lst = client.get("/api/phieu-tinh-gia", headers=auth_headers)
+    row = next(it for it in lst.json()["items"] if it["id"] == pid)
+    assert row["so_luong"] == 7000

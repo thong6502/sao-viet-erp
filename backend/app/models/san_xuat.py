@@ -224,9 +224,10 @@ class SanXuatCongViec(Base):
     la_kcs_cuoi: Mapped[bool] = mapped_column(
         nullable=False, server_default=sa_false(), default=False
     )
-    may_id: Mapped[int | None] = mapped_column(
-        ForeignKey("machines.id", ondelete="SET NULL"), nullable=True
-    )
+    # Khoá MỀM → `may_thiet_bi.id` (danh mục máy ĐANG CHẠY), đúng quy ước của `lsx_cong_doan`
+    # / `xep_lich_cong_doan` / `bai_ghep`. Trước mig `0237` đây là FK CỨNG trỏ `machines` —
+    # danh mục đời tính giá, id lệch hẳn — nên bước dùng máy ngoài dải đó là phát hành VỠ.
+    may_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Thời gian/ca dự kiến (đóng băng từ xep_lich_cong_doan).
     du_kien_bat_dau: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     du_kien_ket_thuc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

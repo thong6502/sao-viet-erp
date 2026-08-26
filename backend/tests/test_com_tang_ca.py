@@ -45,7 +45,7 @@ def _dept_id(name: str) -> int:
 
 def _nv(client, h, ten="NV Com Tang Ca") -> int:
     r = client.post("/api/employees",
-                    json={"full_name": ten, "department_id": _dept_id("Hành chính nhân sự"),
+                    json={"probation_end_date": "2025-12-31", "full_name": ten, "department_id": _dept_id("Hành chính nhân sự"),
                           "hire_date": "2020-01-01"}, headers=h)
     assert r.status_code in (200, 201), r.text
     eid = r.json()["employee"]["id"]
@@ -271,15 +271,18 @@ def test_CHOT_CONG_XONG_tien_com_tang_ca_KHONG_DOI(client):
 
 def test_giao_dien_that_su_hien_va_khai_duoc(client):
     """Máy chủ đổi, giao diện quên — khuôn sai đã lặp 4 lần vòng này."""
-    from pathlib import Path
+    from tests._fe_source import (
+        MAN_CAU_HINH_LUONG, MAN_LUONG, doc_file_fe, doc_module_fe,
+    )
 
-    fe = Path(__file__).resolve().parents[2] / "frontend" / "src"
-    assert "com_tang_ca_pay" in (fe / "api" / "client.ts").read_text(encoding="utf-8")
-    assert "com_tang_ca_muc" in (fe / "api" / "client.ts").read_text(encoding="utf-8")
-    assert "Cơm tăng ca" in (fe / "pages" / "LuongPage.tsx").read_text(encoding="utf-8"), (
+    assert "com_tang_ca_pay" in doc_file_fe("api", "client.ts")
+    assert "com_tang_ca_muc" in doc_file_fe("api", "client.ts")
+    # Màn Cấu hình lương là thư mục con của màn Lương nhưng `doc_module_fe` KHÔNG nuốt nó vào
+    # (nó có `index.ts` riêng) — nhờ vậy hai câu hỏi dưới đây vẫn là HAI câu hỏi khác nhau.
+    assert "Cơm tăng ca" in doc_module_fe(*MAN_LUONG), (
         "phiếu lương không có dòng Cơm tăng ca"
     )
-    cfg = (fe / "pages" / "CauHinhLuongTab.tsx").read_text(encoding="utf-8")
+    cfg = doc_module_fe(*MAN_CAU_HINH_LUONG)
     assert "com_tang_ca_muc" in cfg and "com_tang_ca_nguong_phut" in cfg, (
         "màn Cấu hình lương không khai được hai ô — 'setup động' thành số cứng"
     )

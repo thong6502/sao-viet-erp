@@ -349,7 +349,7 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
   // khách vô chủ tự rơi ra ngoài tầm nhìn — thêm option cho họ chỉ ra danh sách rỗng, gây bối rối.
   const canSeeUnassigned = scopeOf("khach_hang") === "all";
   const canReassign = can("khach_hang", "reassign");
-  const canExport = can("khach_hang", "export");
+  const canExport = true; // Xuất file MẶC ĐỊNH BẬT (gỡ công tắc `export` khách 24/08/2026).
   const canCreate = can("khach_hang", "create");
   const colCount = canReassign ? 7 : 6; // [checkbox] · KH · doanh số · số đơn · TB/đơn · NV · ›
 
@@ -1706,18 +1706,11 @@ function DashboardTab({
   canCredit: boolean;
   onCustomerUpdated: (c: CustomerRow) => void;
 }) {
-  if (!dash.has_data) {
-    return (
-      <div className="kh__empty-panel">
-        <p className="kh__empty-title">Chưa có lịch sử giao dịch</p>
-        <p className="kh__muted">
-          Khách này chưa có đơn hàng hay báo giá nào. Dashboard sẽ tự cập nhật từ dữ liệu thật
-          khi phát sinh giao dịch — không hiển thị số giả.
-        </p>
-      </div>
-    );
-  }
-  const canDebt = useCan()("khach_hang", "view_debt");
+  // Khách MỚI (chưa có đơn/báo giá): KHÔNG chặn cả tab. Chính sách tài chính là dữ liệu CẤU HÌNH
+  // (không dẫn xuất từ giao dịch) nên phải luôn hiện để cấu hình được ngay. KPI/biểu đồ vẫn vẽ đủ
+  // khung nhưng để rỗng (số THẬT = 0, không bịa) — chỉ kèm một dòng note trung thực ở đầu.
+  // Công nợ MẶC ĐỊNH BẬT cho mọi vai xem khách (gỡ công tắc `view_debt` 24/08/2026) — luôn hiện thẻ.
+  const canDebt = true;
   const avgVal = dash.avg_order_value ?? 0;
   const cards: { label: string; value: ReactNode; hint?: string; muted?: boolean }[] = [
     // Không có dữ liệu 24 tháng để so YoY thật → hint trung thực về phạm vi số liệu.
@@ -1743,6 +1736,16 @@ function DashboardTab({
 
   return (
     <div className="kh__dash">
+      {!dash.has_data && (
+        <div className="kh__dash-newnote">
+          <UserPlus size={15} strokeWidth={2} />
+          <span>
+            Khách mới — chưa phát sinh giao dịch. Doanh số, tần suất &amp; cơ cấu sản phẩm sẽ tự
+            cập nhật từ đơn hàng thật; bạn vẫn cấu hình được <strong>Chính sách tài chính</strong>{" "}
+            bên dưới ngay bây giờ.
+          </span>
+        </div>
+      )}
       <div className="kh__kpis">
         {cards.map((c) => (
           <div className="kh__kpi card" key={c.label}>
@@ -2030,7 +2033,7 @@ function OrdersTab({
   code: string;
 }) {
   const { token } = useAuth();
-  const canExport = useCan()("khach_hang", "export");
+  const canExport = true; // Xuất Excel lịch sử mua MẶC ĐỊNH BẬT (gỡ công tắc `export` 24/08/2026).
   const [rows, setRows] = useState<OrderHistoryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -2084,51 +2087,68 @@ function OrdersTab({
     return rows.filter((o) => o.created_at && o.created_at.startsWith(yearFilter));
   }, [rows, yearFilter]);
 
+  // Đơn đã huỷ KHÔNG phải tiền thật đã chi — loại khỏi mọi tổng/biểu đồ tiền, chỉ giữ lại trong
+  // bảng "Toàn bộ đơn hàng" bên dưới để còn thấy dấu vết. Khớp quy ước `_EXCLUDED_ORDER_STATUSES`
+  // bên backend (customer_analytics.py) — trước đây SỐ ĐƠN HOÀN THÀNH loại đơn huỷ nhưng
+  // TỔNG CHI TIÊU/TB-ĐƠN/Đơn lớn nhất/biểu đồ tháng/TOP sản phẩm thì không, nên hễ khách có 1 đơn
+  // huỷ mang tiền là tiền đó vẫn cộng vào "đã chi" dù đơn chưa từng thật.
+  const activeRows = useMemo(
+    () => filteredRows.filter((o) => o.status !== "cancelled"),
+    [filteredRows],
+  );
+
+  // "Hoàn thành" = ĐÃ CHỐT thật (status "ordered"), không tính Nháp/Tạm giữ/Đã đổi — siết chặt
+  // hơn activeRows vì hai trạng thái đó chưa phải đơn xong. TB/ĐƠN + Đơn lớn nhất đi theo cùng
+  // tập này cho khỏi lệch gốc (chia tổng-mọi-đơn cho đếm-riêng-đơn-chốt sẽ ra số sai).
+  const completedRows = useMemo(
+    () => activeRows.filter((o) => o.status === "ordered"),
+    [activeRows],
+  );
+
   const { totalLifetime, completedCount, avgSpend, maxSpend, perMonth, sinceDate } = useMemo(() => {
-    if (filteredRows.length === 0) {
+    if (activeRows.length === 0) {
       return { totalLifetime: 0, completedCount: 0, avgSpend: 0, maxSpend: 0, perMonth: 0, sinceDate: null as string | null };
     }
-    let total = 0;
-    let max = 0;
-    let completed = 0;
-    filteredRows.forEach((o) => {
-      const val = o.total ?? 0;
-      total += val;
-      if (val > max) max = val;
-      if (o.status !== "cancelled") completed += 1;
-    });
+    const total = activeRows.reduce((s, o) => s + (o.total ?? 0), 0);
     // Nhịp đặt/tháng tính trên KHOẢNG THỜI GIAN THẬT của dữ liệu (đơn cũ nhất → mới nhất),
     // không chia bừa cho 12.
-    const dates = filteredRows.map((o) => new Date(o.created_at).getTime()).filter((t) => !Number.isNaN(t));
+    const dates = activeRows.map((o) => new Date(o.created_at).getTime()).filter((t) => !Number.isNaN(t));
     const oldest = Math.min(...dates);
     const newest = Math.max(...dates);
     const spanMonths = Math.max(1, Math.round((newest - oldest) / (30.44 * 86_400_000)) + 1);
+
+    const completed = completedRows.length;
+    const completedTotal = completedRows.reduce((s, o) => s + (o.total ?? 0), 0);
+    const completedMax = completedRows.reduce((m, o) => Math.max(m, o.total ?? 0), 0);
+
     return {
       totalLifetime: total,
       completedCount: completed,
-      avgSpend: completed > 0 ? Math.round(total / completed) : 0,
-      maxSpend: max,
+      avgSpend: completed > 0 ? Math.round(completedTotal / completed) : 0,
+      maxSpend: completedMax,
       perMonth: completed / spanMonths,
       sinceDate: new Date(oldest).toISOString(),
     };
-  }, [filteredRows]);
+  }, [activeRows, completedRows]);
 
   // So sánh THẬT với năm liền trước (chỉ khi đang lọc 1 năm và năm trước có dữ liệu).
   const yoyPct = useMemo(() => {
     if (!rows || !yearFilter) return null;
     const prevYear = String(Number(yearFilter) - 1);
     const sum = (yr: string) =>
-      rows.filter((o) => o.created_at?.startsWith(yr)).reduce((s, o) => s + (o.total ?? 0), 0);
+      rows
+        .filter((o) => o.status !== "cancelled" && o.created_at?.startsWith(yr))
+        .reduce((s, o) => s + (o.total ?? 0), 0);
     const prev = sum(prevYear);
     if (prev <= 0) return null;
     return Math.round(((sum(yearFilter) - prev) / prev) * 100);
   }, [rows, yearFilter]);
 
   // Group by month for chart — trục liên tục tối đa 12 tháng như prototype.
-  const monthlySpend = useMemo(() => monthlySeries(filteredRows), [filteredRows]);
+  const monthlySpend = useMemo(() => monthlySeries(activeRows), [activeRows]);
 
   // Top products mix — TOP 4, cộng theo TIỀN THẬT của từng dòng đơn (xem `gopTienTheoSanPham`).
-  const productMix = useMemo(() => gopTienTheoSanPham(filteredRows), [filteredRows]);
+  const productMix = useMemo(() => gopTienTheoSanPham(activeRows), [activeRows]);
 
   if (error) return <div className="banner banner--error" role="alert">{error}</div>;
   if (rows == null) return <TableSkeleton cols={5} />;
@@ -2390,6 +2410,16 @@ function QuotesTab({
           {/* Chưa chào báo giá nào thì hiện "—", KHÔNG hiện 0%: 0% đọc ra là "chào mãi không ai
               mua", oan cho khách mới toanh. */}
           <span className="kh__kpi-value">{chot.pct === null ? "—" : `${chot.pct}%`}</span>
+          {/* daChao < 3: mẫu quá nhỏ để % có nghĩa (2/2 = "100%" trông chắc như đinh nhưng chỉ
+              từ 2 báo giá) — gắn nhãn cảnh báo thay vì để con số tự tin đánh lừa. */}
+          {chot.pct !== null && chot.daChao < 3 && (
+            <span
+              className="kh__badge kh__badge--warn"
+              style={{ fontSize: "9px", padding: "1px 6px", marginTop: "2px" }}
+            >
+              Mẫu nhỏ
+            </span>
+          )}
           <span className="kh__kpi-hint">
             {chot.pct === null
               ? "Chưa gửi báo giá nào cho khách"

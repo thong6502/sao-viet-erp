@@ -110,9 +110,9 @@ def test_create_one_line_per_product_with_shared_margin(client):
         assert it["margin_percent"] == 25.0        # gói biên áp chung
         assert it["total_cost_snapshot"] > 0       # giá vốn khóa per dòng
 
-    # Giá bán mỗi dòng = giá vốn / (1 − 25%) rồi + VAT 10%
+    # Giá bán mỗi dòng = giá vốn × (1 + 25%) rồi + VAT 10%
     it1 = next(it for it in q["items"] if it["product_name"] == "Catalogue A4")
-    assert abs(it1["selling_price"] - 1_000_000 / 0.75) < 1
+    assert abs(it1["selling_price"] - 1_000_000 * 1.25) < 1
     assert abs(it1["final_amount"] - it1["selling_price"] * 1.10) < 1
 
     # Tổng version = cộng các dòng

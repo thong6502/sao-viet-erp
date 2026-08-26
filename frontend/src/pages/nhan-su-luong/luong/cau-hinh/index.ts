@@ -1,0 +1,1 @@
+export { CauHinhLuongTab } from "./CauHinhLuongTab";

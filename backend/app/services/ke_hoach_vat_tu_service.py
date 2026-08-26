@@ -43,7 +43,13 @@ from ..models.lsx import (
     Lsx,
     LsxCongDoan,
 )
-from ..models.purchase import DPR_IN_PURCHASE, DPR_PENDING_APPROVAL, PR_PENDING
+from ..models.purchase import (
+    DPR_IN_PURCHASE,
+    DPR_OPEN,
+    DPR_PENDING_APPROVAL,
+    PR_DRAFT,
+    PR_PENDING,
+)
 from ..models.stock_request import REQ_DONE
 from ..models.vat_lieu_kho import HANG_GIAY
 from ..repositories.ke_hoach_vat_tu_repo import KeHoachVatTuRepository
@@ -123,6 +129,19 @@ def _hom_nay() -> date:
     return datetime.now(timezone.utc).date()
 
 
+# HAI TRẠNG THÁI CHIP CHỈ CÓ Ở CẤP MÓN — không phải trạng thái của phiếu nào cả.
+#
+# Chủ chốt 24/08/2026 (*"đọc thì phải hiển thị lên ui chứ"*): món đã đi qua thu mua rồi mà hỏng
+# giữa chừng thì KHÔNG được nói "mới đề nghị". `YCMH-260820-JI8X` là ca thật: thu mua đã lập
+# `PMH-260820-YC1U` cho đúng món Couché 300 đó, phiếu bị TỪ CHỐI, việc đang đứng chờ người lập lại
+# — mà chip vẫn báo "mới đề nghị", người lập kế hoạch tưởng chỉ cần chờ.
+#
+# Phải đặt tên riêng chứ không mượn trạng thái PMH: chip mang mã YCMH, dán chữ "rejected" lên đó
+# là người đọc tưởng CHÍNH YÊU CẦU bị từ chối.
+VET_DANG_LAP_DON = "dang_lap_don"
+VET_DON_BI_TU_CHOI = "don_bi_tu_choi"
+
+
 def _xep_vet(v: dict) -> int:
     """Thứ tự CHẮC → LỎNG của một vết mua. Chip vật tư chỉ đủ chỗ MỘT dòng nên nó lấy phần tử đầu;
     thứ tự này quyết định người dùng đọc được câu nào trước.
@@ -135,7 +154,15 @@ def _xep_vet(v: dict) -> int:
         if v.get("trang_thai") == PR_PENDING:
             return 2
         return 0 if v.get("ngay_ve") else 1
-    return {DPR_IN_PURCHASE: 3, DPR_PENDING_APPROVAL: 4}.get(v.get("trang_thai"), 5)
+    # `don_bi_tu_choi` xếp CUỐI đúng theo luật chắc→lỏng: nó là món đang kẹt, chưa ai hứa gì.
+    # Đẩy nó lên đầu thì một mặt hàng vừa có hàng về 30/8 vừa có món kẹt sẽ khoe cái kẹt trước —
+    # tin xấu che mất tin tốt, đúng cái docstring trên vừa cấm.
+    return {
+        DPR_IN_PURCHASE: 3,
+        VET_DANG_LAP_DON: 3,
+        DPR_PENDING_APPROVAL: 4,
+        VET_DON_BI_TU_CHOI: 6,
+    }.get(v.get("trang_thai"), 5)
 
 
 def _khoa_dong(hang_loai, hang_id, d: dict) -> tuple:
@@ -577,7 +604,42 @@ class KeHoachVatTuService:
                 return
             ds.append({"ma": ma, "loai": loai, "trang_thai": trang_thai, "ngay_ve": ngay_ve})
 
-        for phieu in [*self.purchases.dong_dang_ve(), *self.purchases.dong_cho_duyet()]:
+        phieu_song = [*self.purchases.dong_dang_ve(), *self.purchases.dong_cho_duyet()]
+        # DÒNG YÊU CẦU ĐÃ CÓ ĐƠN MUA ĐANG CHẠY. Dựng từ chính danh sách vừa nạp (không thêm query)
+        # để đoạn YCMH bên dưới biết món nào Thu mua đã cầm — TRẢ LỜI THEO TỪNG MÓN, không theo
+        # trạng thái của cả yêu cầu (chủ chốt 24/08/2026: *"phải đi vào trong trạng thái của từng
+        # sản phẩm trong yêu cầu ấy chứ không phải yêu cầu"*). Trước đây yêu cầu 3 món mà Thu mua
+        # mới lập đơn cho 1 món thì CẢ BA món đều đeo chip "đang mua" — hai món kia thực ra vẫn
+        # đang nằm chờ, không ai lo.
+        # Cố ý KHÔNG loại dòng đã nhận đủ ở đây: nhận đủ rồi thì món đó cũng hết "đang chờ Thu mua".
+        dong_yc_da_co_don: set[int] = {
+            int(ln.department_request_line_id)
+            for phieu in phieu_song
+            for ln in phieu.lines
+            if getattr(ln, "department_request_line_id", None) is not None
+        }
+        # DÒNG YÊU CẦU ĐÃ ĐI QUA THU MUA NHƯNG CHƯA THÀNH LỜI HỨA NÀO (24/08/2026).
+        # Phiếu nháp và phiếu bị từ chối không cộng một ký hàng nào, nên chúng KHÔNG nằm trong
+        # `phieu_song` ở trên — và trước hôm nay chúng cũng không nói được câu nào, món rơi thẳng
+        # về nhãn "mới đề nghị" như thể chưa ai đụng vào. Đọc thêm đúng một câu truy vấn để chip
+        # nói được món đang kẹt ở đâu.
+        #
+        # NHÁP THẮNG BỊ-TỪ-CHỐI: thu mua bị trả phiếu rồi mở phiếu mới gõ lại thì việc đang chạy
+        # tiếp, không còn kẹt. Ngược lại thì chip báo kẹt trong khi người ta đang làm.
+        dong_yc_kep: dict[int, str] = {}
+        for phieu in self.purchases.dong_nhap_hoac_bi_tu_choi():
+            nhan_kep = (
+                VET_DANG_LAP_DON if phieu.status == PR_DRAFT else VET_DON_BI_TU_CHOI
+            )
+            for ln in phieu.lines:
+                src = getattr(ln, "department_request_line_id", None)
+                if src is None:
+                    continue
+                if dong_yc_kep.get(int(src)) == VET_DANG_LAP_DON:
+                    continue
+                dong_yc_kep[int(src)] = nhan_kep
+
+        for phieu in phieu_song:
             da_giao = da_giao_theo_dong(phieu)
             for ln in phieu.lines:
                 if not ln.hang_loai or not ln.hang_id:
@@ -599,10 +661,21 @@ class KeHoachVatTuService:
             for ln in yc.lines:
                 if not ln.hang_loai or not ln.hang_id:
                     continue
+                # Món đã bị bộ phận BỎ khỏi yêu cầu (mg 0233) — không còn ai chờ nó nữa.
+                if getattr(ln, "cancelled_at", None) is not None:
+                    continue
+                # Món đã có đơn mua đang chạy → chip PMH ở trên đã nói rồi, nói thêm chip YCMH chỉ
+                # làm người đọc tưởng có hai việc song song.
+                if ln.id in dong_yc_da_co_don:
+                    continue
                 hang = (ln.hang_loai, int(ln.hang_id))
                 if hang not in self._objs:
                     continue
-                _them(hang, yc.code, "ycmh", yc.status, None)
+                # Trạng thái của CHÍNH MÓN NÀY, không phải của yêu cầu cha: tới được đây nghĩa
+                # là chưa đơn mua sống nào cầm nó. Còn nó đang *đứng ở đâu* thì hỏi tiếp đơn cũ —
+                # chưa đơn nào là "mới đề nghị", có đơn nháp là thu mua đang gõ, có đơn bị từ chối
+                # là việc đang kẹt chờ lập lại. Ba tình huống, ba câu khác nhau.
+                _them(hang, yc.code, "ycmh", dong_yc_kep.get(ln.id, DPR_OPEN), None)
 
         for ds in ra.values():
             ds.sort(key=lambda v: (_xep_vet(v), v["ngay_ve"] or date.max, v["ma"]))

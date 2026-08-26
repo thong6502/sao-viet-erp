@@ -372,6 +372,15 @@ class LsxListOut(BaseModel):
     facets: dict[str, int] = {}
 
 
+class BoDauViecOut(BaseModel):
+    """Một bước bị GỠ đầu việc mồ côi khi lưu routing (đầu việc đã ghim không còn thuộc công đoạn
+    ∩ tổ — thường vì danh mục đổi dưới chân lệnh). KHÔNG chặn lưu; báo để mở bước chọn lại."""
+
+    vi_tri: int          # số thứ tự bước trong routing (1-based) để người kế hoạch mở đúng chỗ
+    ten: str             # tên công đoạn của bước
+    dau_viec: str        # tên đầu việc đã bị gỡ
+
+
 class LsxOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -387,6 +396,9 @@ class LsxOut(BaseModel):
     order_id: int
     order_line_id: int
     order_no: str | None = None
+    # Trạng thái ĐƠN (không phải trang_thai của lệnh) — client dùng để ẩn tab Công đoạn khi đơn
+    # đã hủy, xem `_EXCLUDED_ORDER_STATUSES` bên customer_analytics.py cho quy ước cùng gốc.
+    order_status: str | None = None
     customer_name: str | None = None
     customer_po_no: str | None = None
     sale_name: str | None = None
@@ -428,9 +440,9 @@ class LsxOut(BaseModel):
     updated_at: datetime
 
     cong_doans: list[LsxCongDoanOut] = Field(default_factory=list)
-    # Hai rổ TÁCH BẠCH: `thieu` CHẶN "Sẵn sàng lập kế hoạch" (§12); `canh_bao` chỉ tô màu (§14).
+    # `thieu` CHẶN nút "Sẵn sàng lập kế hoạch" (§12). Rổ cảnh báo MỀM §14 (`canh_bao`) đã gỡ
+    # 25/08/2026 — server vẫn tính mỗi lần mở lệnh mà không màn nào đọc.
     thieu: list[str] = Field(default_factory=list)
-    canh_bao: list[str] = Field(default_factory=list)
     lead_time: LeadTimeOut | None = None
     # Công thợ khoán DỰ KIẾN cả lệnh = Σ bước quy đổi được. Là số SÀN: bước chưa chọn đầu việc hoặc
     # thiếu số để quy đổi thì không góp vào — đừng đọc như tổng chi phí nhân công thật.
@@ -441,6 +453,9 @@ class LsxOut(BaseModel):
     # Lệnh đang ghép chung tờ với ai. None = in riêng. Khi có, THÔNG SỐ TỜ (máy in, giấy, khổ tờ
     # in, số con) đọc theo bài — sửa ở màn lệnh không có tác dụng.
     bai_ghep: LsxBaiGhepOut | None = None
+    # Bước bị GỠ đầu việc mồ côi trong LẦN LƯU routing này (rỗng ở mọi cửa đọc khác). Non-blocking:
+    # lưu vẫn thành công, FE bày lưu ý để người kế hoạch mở đúng bước chọn lại đầu việc.
+    bo_dau_viec: list[BoDauViecOut] = Field(default_factory=list)
 
 
 class BuocBiDeOut(BaseModel):

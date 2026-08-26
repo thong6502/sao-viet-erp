@@ -4,8 +4,8 @@ P1: list / get / enums / activity / create (TỪ BÁO GIÁ) / update (khi nháp)
 Cọc/chốt/hủy = P2–P5.
 
 ĐÃ GỠ: nhánh tạo đơn nhập tay + 3 route duyệt đơn đặc thù (submit-approval / approve / reject).
-LƯU Ý quyền `approve_exception`: nghe như của luồng duyệt nhưng nó CÒN gác việc HỦY ĐƠN ĐÃ CHỐT
-(xem route hủy bên dưới) — đừng xoá theo.
+HỦY ĐƠN ĐÃ CHỐT: từ 24/08/2026 MẶC ĐỊNH BẬT cho vai có `update` đơn — công tắc chi tiết
+`approve_exception` (từng gác riêng việc này) đã gỡ khỏi ma trận phân quyền; cột DB giữ nguyên.
 """
 from __future__ import annotations
 
@@ -230,7 +230,7 @@ def release_production(
     return d
 
 
-# --- Hủy đơn (P5) — nháp: `update`; đã chốt: cần `approve_exception` -----------
+# --- Hủy đơn (P5) — nháp hay đã chốt đều cần `update` (hủy đã chốt mặc định bật) ----
 @router.post("/{order_id}/cancel", response_model=OrderDetailOut)
 def cancel_order(
     order_id: int,
@@ -239,7 +239,8 @@ def cancel_order(
     svc: Service,
     authz: Authz,
 ) -> OrderDetailOut:
-    elevated = authz.can(user, MODULE, "approve_exception")
+    # Hủy đơn đã chốt MẶC ĐỊNH BẬT cho vai có `update` đơn (gỡ quyền `approve_exception` 24/08/2026).
+    elevated = True
     try:
         d = svc.cancel(
             order_id=order_id, actor=user, scope=_scope_for(authz, user),

@@ -78,3 +78,25 @@ export const CircleXIcon = ({ size = 12, sw = 3, ...r }: IconProps & { sw?: numb
     <path d="m15 9-6 6M9 9l6 6" />
   </SvgIcon>
 );
+
+/** Ổ khoá — nhóm máy HỆ THỐNG không cho xoá (ô "Nhóm máy" ở màn Thiết bị). */
+export const LockIcon = ({ size = 12, ...r }: IconProps) => (
+  <SvgIcon size={size} {...r}>
+    <rect x="5" y="11" width="14" height="10" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </SvgIcon>
+);
+
+/** Mũi tên xuống + gạch chân — nút "Tải mẫu" (mục 1). */
+export const DownloadIcon = ({ size = 13, ...r }: IconProps) => (
+  <SvgIcon size={size} {...r}>
+    <path d="M12 3v12M7 10l5 5 5-5M4 19h16" />
+  </SvgIcon>
+);
+
+/** Mũi tên lên từ khay — nút "Nhập Excel" (mục 1). */
+export const UploadIcon = ({ size = 13, ...r }: IconProps) => (
+  <SvgIcon size={size} {...r}>
+    <path d="M12 21V9M7 14l5-5 5 5M4 19h16" />
+  </SvgIcon>
+);

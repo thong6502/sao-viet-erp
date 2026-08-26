@@ -21,6 +21,7 @@ import { VoucherDrawer } from "./KhoYeuCauPage";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
+import { Icon } from "../components/Icons";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombobox";
 import { PrintSheet } from "../components/PrintSheet";
@@ -95,7 +96,7 @@ export function KhoDeNghiPage({
   // null = đóng; "new" = soạn mới; {id} = mở yêu cầu đã có; {seed} = tạo lại từ yêu cầu cũ.
   const [drawer, setDrawer] = useState<
     | null
-    | { mode: "new"; seed?: SeedLine[]; loai?: StockRequestKind; ghiChu?: string; ngayCan?: string; locked?: boolean; deliveryId?: number }
+    | { mode: "new"; seed?: SeedLine[]; loai?: StockRequestKind; ghiChu?: string; ngayCan?: string; locked?: boolean; deliveryId?: number; donMuaMa?: string; dotSo?: number }
     | { mode: "open"; id: number }
   >(null);
 
@@ -111,6 +112,8 @@ export function KhoDeNghiPage({
         ngayCan: initialSeed.ngay_can,
         locked: initialSeed.locked,
         deliveryId: initialSeed.deliveryId,
+        donMuaMa: initialSeed.don_mua_ma,
+        dotSo: initialSeed.dot_so,
       });
       onSeedConsumed?.();
     }
@@ -242,7 +245,7 @@ export function KhoDeNghiPage({
               onClick={() => setQ("")}
               aria-label="Xóa tìm kiếm"
             >
-              ✕
+              <Icon name="x" size={13} />
             </button>
           )}
         </div>
@@ -375,7 +378,7 @@ export function KhoDeNghiPage({
                         {first?.hang_ten ?? "—"}
                       </div>
                       {r.lines.length > 1 && (
-                        <span className="badge-sem badge-sem--muted" style={{ marginTop: 3, fontSize: 11 }}>
+                        <span className="badge-sem badge-sem--muted kho-morepill">
                           +{r.lines.length - 1} mặt hàng
                         </span>
                       )}
@@ -402,6 +405,15 @@ export function KhoDeNghiPage({
                 );
               })
             )}
+            {/* Hàng ĐỆM giữ ĐỘ DÀI (chiều cao) bảng cố định — ít yêu cầu (vd 1-5 dòng) bảng vẫn trải
+                đủ pageSize dòng, đồng bộ với bảng Tồn/Phiếu/Báo cáo, không teo lại. */}
+            {Array.from({
+              length: Math.max(0, pageSize - (loading ? 5 : shown.length === 0 ? 1 : shown.length)),
+            }).map((_, i) => (
+              <tr key={`rfiller-${i}`} className="rc__filler" aria-hidden="true">
+                <td colSpan={colCount}>&nbsp;</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -445,6 +457,8 @@ export function KhoDeNghiPage({
           seedNgayCan={drawer.mode === "new" ? drawer.ngayCan : undefined}
           seedLocked={drawer.mode === "new" ? drawer.locked : undefined}
           seedDeliveryId={drawer.mode === "new" ? drawer.deliveryId : undefined}
+          seedDonMuaMa={drawer.mode === "new" ? drawer.donMuaMa : undefined}
+          seedDotSo={drawer.mode === "new" ? drawer.dotSo : undefined}
           canRequest={canRequest}
           onClone={(lines, loai) => setDrawer({ mode: "new", seed: lines, loai })}
           onClose={() => setDrawer(null)}
@@ -699,6 +713,9 @@ export interface KhoNhapSeed {
   locked?: boolean;
   /** Nguồn đợt giao (purchase_deliveries.id) → gắn vào yêu cầu để chặn nhập trùng đợt. */
   deliveryId?: number;
+  /** Mã đơn mua (purchase_requests.code) + số đợt giao — hiện rõ nguồn ngay ở form nhập. */
+  don_mua_ma?: string;
+  dot_so?: number;
 }
 
 interface DraftLine extends SeedLine {
@@ -746,6 +763,8 @@ interface RequestDrawerProps {
   seedNgayCan?: string;
   seedLocked?: boolean;
   seedDeliveryId?: number;
+  seedDonMuaMa?: string;
+  seedDotSo?: number;
   canRequest: boolean;
   onClone: (lines: SeedLine[], loai: StockRequestKind) => void;
   onClose: () => void;
@@ -762,6 +781,8 @@ function RequestDrawer({
   seedNgayCan,
   seedLocked,
   seedDeliveryId,
+  seedDonMuaMa,
+  seedDotSo,
   canRequest,
   onClone,
   onClose,
@@ -993,10 +1014,10 @@ function RequestDrawer({
             <div className="rc-drawer__kicker">{kicker}</div>
             <h2 className="rc-drawer__title kho-drawer-title">{req?.ma ?? "Yêu cầu mới"}</h2>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
+          <div className="kho-headside">
             {req && <RequestStatusBadge status={req.trang_thai} />}
             <button type="button" className="rc-drawer__x" onClick={requestClose} aria-label="Đóng">
-              ✕
+              <Icon name="x" size={16} />
             </button>
           </div>
         </header>
@@ -1008,7 +1029,7 @@ function RequestDrawer({
               return (
                 <div key={idx} className={`kho-stepper__step kho-stepper__step--${cls}`}>
                   <div className="kho-stepper__dot">
-                    {s.done ? "✓" : idx + 1}
+                    {s.done ? <Icon name="check" size={13} /> : idx + 1}
                   </div>
                   <div className="kho-stepper__content">
                     <span className="kho-stepper__label">{s.label}</span>
@@ -1111,6 +1132,15 @@ function RequestDrawer({
                       )}
                     </div>
                   </div>
+                  {seedDonMuaMa && (
+                    <div className="kho-info-item">
+                      <span className="kho-info-item__label">Đơn mua</span>
+                      <div className="kho-info-item__val">
+                        <span className="rc__code-badge">{seedDonMuaMa}</span>
+                        {seedDotSo != null ? ` · Đợt ${seedDotSo}` : ""}
+                      </div>
+                    </div>
+                  )}
                   {req?.bo_phan_ten && (
                     <div className="kho-info-item">
                       <span className="kho-info-item__label">Bộ phận</span>
@@ -1294,7 +1324,7 @@ function RequestDrawer({
                                     );
                                   }}
                                 >
-                                  ✕
+                                  <Icon name="x" size={13} />
                                 </button>
                               </td>
                             )}
@@ -1378,7 +1408,7 @@ function RequestDrawer({
                         </div>
                         <div className="kho-vlink-card__right">
                           <VoucherStatusBadge status={v.trang_thai} />
-                          <span className="kho-vlink-card__arrow" aria-hidden>→</span>
+                          <span className="kho-vlink-card__arrow" aria-hidden><Icon name="arrowRight" size={14} /></span>
                         </div>
                       </button>
                     ))}

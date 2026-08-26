@@ -32,7 +32,7 @@ def _off74(**over):
     base = dict(
         ma="OFF-74-4C", ten="Offset 74 4 màu", loai_may="press_offset_sheet",
         kho_max_dai=740, kho_max_rong=530, kho_min_dai=210, kho_min_rong=280,
-        gripper_mm=12, so_nhan_cong=2,
+        so_nhan_cong=2,
     )
     base.update(over)
     return base
@@ -64,12 +64,10 @@ def test_duplicate_ma_rejected():
         svc.create(_off74(ten="Khác tên"))
 
 
-def test_validate_kho_and_nhip():
+def test_validate_kho_and_loai_may():
     db, svc = _svc()
     with pytest.raises(MayThietBiValidationError):      # E-MAY-KHO
         svc.create(_off74(ma="X1", kho_min_dai=800, kho_max_dai=740))
-    with pytest.raises(MayThietBiValidationError):      # E-MAY-NHIP: gripper ≥ kho_min_rong
-        svc.create(_off74(ma="X2", gripper_mm=300, kho_min_rong=280))
     with pytest.raises(MayThietBiValidationError):      # nhóm máy để trống (loai_may free text nhưng bắt buộc)
         svc.create(_off74(ma="X3", loai_may="  "))
 
@@ -268,6 +266,28 @@ def test_xoa_nhom_khong_ai_dung_thi_duoc():
     row = n.create("Ép kim")
     n.delete(row.id)
     assert n.list() == []
+
+
+def test_nhom_MAY_IN_la_he_thong_chan_xoa_va_lo_co():
+    """"Máy in" là mỏ neo của bình bài + tính giá (`isMayIn()` bật ~8 ô kỹ thuật, cho phép bình
+    bài). Xoá được — kể cả khi tình cờ không còn máy nào thuộc — là mất chỗ chọn cho máy in mới.
+    Nên khoá KỂ CẢ khi danh mục chưa có máy nào, và `NhomMayRow` phải phơi cờ `he_thong` để FE ẩn
+    nút xoá."""
+    from app.schemas.may_thiet_bi import NhomMayRow
+
+    db, svc = _svc()
+    n = _nhom_svc(db)
+    row = n.create("Máy in")            # chưa gán máy nào
+
+    with pytest.raises(MayThietBiValidationError) as e:
+        n.delete(row.id)
+    assert "hệ thống" in str(e.value)
+    assert n.list(), "nhom he thong bi xoa mat"
+
+    # Cờ dẫn xuất: "Máy in" khoá, nhóm thường thì không.
+    assert NhomMayRow.model_validate(row).he_thong is True
+    thuong = n.create("Ép kim")
+    assert NhomMayRow.model_validate(thuong).he_thong is False
 
 
 def test_XOA_nhom_con_may_dung_bi_CHAN_kem_so_may():

@@ -61,7 +61,7 @@ def test_den_may_gio_chua_co_gio_la_VANG_chu_khong_phai_ok():
                                                      "loai_buoc": LB_MAY}]
     den = _den_may(set(), cho, 7)
     assert den["muc"] == MUC_VANG and "1 bước" in den["chu"]
-    assert den["nhay"] == {"man": "xep-lich-cong-doan", "id": 7}
+    assert den["nhay"] == {"man": "xep-lich-cong-doan-2", "id": 7}
     # Chưa vào kế hoạch (không có dòng nào) → im, cột Trạng thái đã nói rồi.
     assert _den_may(set(), [], 7)["muc"] == MUC_OK
 

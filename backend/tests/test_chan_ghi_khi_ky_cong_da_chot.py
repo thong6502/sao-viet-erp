@@ -62,7 +62,7 @@ def _uid(username: str) -> int:
 
 def _nhan_vien(client, h, ten="NV Chot Cong") -> dict:
     r = client.post("/api/employees",
-                    json={"full_name": ten, "department_id": _dept_id("Hành chính nhân sự"),
+                    json={"probation_end_date": "2025-12-31", "full_name": ten, "department_id": _dept_id("Hành chính nhân sự"),
                           "hire_date": "2020-01-01"}, headers=h)
     assert r.status_code in (200, 201), r.text
     emp = r.json()["employee"]
@@ -576,11 +576,10 @@ def test_B_giao_dien_that_su_doc_ly_do_nay():
     """Hàng rào chống đúng khuôn sai đã lặp 4 lần vòng này: máy chủ đổi, giao diện quên.
 
     Cờ có mà màn không đọc thì nút "Chốt" vẫn sáng như cũ — bấm vào ăn 400, không ai biết vì sao."""
-    from pathlib import Path
+    from tests._fe_source import MAN_LUONG, doc_file_fe, doc_module_fe
 
-    fe = Path(__file__).resolve().parents[2] / "frontend" / "src"
-    client_ts = (fe / "api" / "client.ts").read_text(encoding="utf-8")
-    luong = (fe / "pages" / "LuongPage.tsx").read_text(encoding="utf-8")
+    client_ts = doc_file_fe("api", "client.ts")
+    luong = doc_module_fe(*MAN_LUONG)
 
     assert "chan_chot_ly_do" in client_ts, "kiểu PayrollTable chưa khai trường lý do"
     assert "chan_chot_ly_do" in luong, "màn Lương không đọc lý do từ máy chủ"
@@ -669,7 +668,7 @@ def test_L7_khong_bao_dong_gia_voi_nguoi_thang_sau_moi_vao(client):
     h = _h(client)
     _nhan_vien(client, h)
     r = client.post("/api/employees",
-                    json={"full_name": "NV Thang Sau Moi Vao",
+                    json={"probation_end_date": "2025-12-31", "full_name": "NV Thang Sau Moi Vao",
                           "department_id": _dept_id("Hành chính nhân sự"),
                           "hire_date": f"{L1_NAM}-{L1_THANG + 1:02d}-01"}, headers=h)
     assert r.status_code in (200, 201), r.text
@@ -716,11 +715,10 @@ def test_L3_cham_cong_sau_khi_chot_thi_bi_danh_dau(client):
 
 def test_L3_giao_dien_cham_cong_that_su_doc_co_nay():
     """Cùng hàng rào với bên Lương: máy chủ đổi, giao diện quên — khuôn sai đã lặp 4 lần vòng này."""
-    from pathlib import Path
+    from tests._fe_source import MAN_CHAM_CONG, doc_file_fe, doc_module_fe
 
-    fe = Path(__file__).resolve().parents[2] / "frontend" / "src"
-    assert "phat_sinh_sau_chot" in (fe / "api" / "client.ts").read_text(encoding="utf-8")
-    cc = (fe / "pages" / "ChamCongPage.tsx").read_text(encoding="utf-8")
+    assert "phat_sinh_sau_chot" in doc_file_fe("api", "client.ts")
+    cc = doc_module_fe(*MAN_CHAM_CONG)
     assert "phat_sinh_sau_chot" in cc, "màn Chấm công không đọc cờ phát sinh sau chốt"
     assert "chốt lại" in cc, "băng cảnh báo phải nói rõ phải làm gì"
 

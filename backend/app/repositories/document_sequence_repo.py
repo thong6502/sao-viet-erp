@@ -12,8 +12,14 @@ class DocumentSequenceRepository:
 
     def increment_and_get(self, doc_type: str, year: int) -> int:
         """Atomic UPSERT and increment of the sequence for (doc_type, year).
-        
+
         Returns the new incremented sequence number.
+
+        KHÔNG commit: bộ đếm đi CHUNG giao dịch với chứng từ gọi nó. Trước 25/08/2026 hàm này
+        tự `commit()`, nên khi việc lập chứng từ hỏng ở bước sau, mọi thay đổi ORM đang dở
+        (đã bị cú commit đó cuốn theo) nằm lại DB — vụ lệnh sản xuất kẹt `da_phat_hanh` mà
+        không có công việc nào là do đây. Nay hỏng ở đâu cũng rollback trọn vẹn, số cấp dở bị
+        trả lại. Trên Postgres câu UPSERT giữ khoá dòng tới lúc commit ⇒ vẫn không cấp trùng.
         """
         dialect_name = self.db.bind.dialect.name
         
@@ -24,9 +30,7 @@ class DocumentSequenceRepository:
                 index_elements=["doc_type", "year"],
                 set_=dict(current_number=DocumentSequence.current_number + 1)
             ).returning(DocumentSequence.current_number)
-            val = self.db.execute(stmt).scalar_one()
-            self.db.commit()
-            return val
+            return self.db.execute(stmt).scalar_one()
         else:
             # Fallback for SQLite (tests/local development)
             # 1. Insert with 0 if not exists
@@ -53,5 +57,4 @@ class DocumentSequenceRepository:
                 ),
                 {"doc_type": doc_type, "year": year}
             ).scalar_one()
-            self.db.commit()
             return val

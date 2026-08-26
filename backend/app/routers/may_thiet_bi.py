@@ -81,6 +81,18 @@ def trang_thai(
     )
 
 
+# Import Excel (mục 1 "Bảng định mức") — chỉ cột NỀN chung mọi loại máy. Field phụ theo `loai_may`
+# (khổ in, tốc độ…) không đưa vào mẫu: mỗi loại một bộ field khác nhau, khai qua Excel dễ gõ sai
+# cột hơn là mở form; nhập xong sửa tiếp field phụ ngay trên màn.
+IMPORT_COLUMNS_MAY = {
+    "Mã": "ma",
+    "Tên": "ten",
+    "Loại máy": "loai_may",
+    "Hãng sản xuất": "hang_san_xuat",
+    "Model": "model",
+    "Số seri": "so_seri",
+}
+
 make_catalog_router(
     router, ten="may_thiet_bi", ServiceDep=Service, module=MODULE, doc=_DOC,
     InModel=MayThietBiIn, RowModel=MayThietBiRow, ListModel=MayThietBiListOut,
@@ -95,6 +107,10 @@ make_catalog_router(
     # Không mở `/ma-goi-y`: mã máy đánh theo LOẠI (`IN-01`, `CM-03`, `BE-02`), không phải một dãy
     # số duy nhất ⇒ không có "mã kế tiếp" nào đúng. (Bảng đoán tiền tố ở frontend ghi `TB-` —
     # không khớp bất kỳ máy nào đang có trong DB.)
+    enable_clone=True,
+    cong_thuc_truong="cong_thuc_luong",
+    enable_import=True,
+    import_columns=IMPORT_COLUMNS_MAY,
 )
 
 

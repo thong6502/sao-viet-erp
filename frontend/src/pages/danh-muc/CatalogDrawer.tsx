@@ -15,6 +15,7 @@ import { Drawer } from "./components/Drawer";
 import {
   BandsField, ChuanBiKhoanField, DinhMucDauViecField, DonViTocDoField, FormulaField,
   LichBaoTriField, NhomMayField, NhomMayMultiField, RefMultiField, RefSearchField,
+  SelfRefMultiField,
 } from "./fields";
 import { goiYMaTiepTheo } from "./maGoiY";
 import { NhatKyTab } from "./nhat-ky/NhatKyTab";
@@ -50,7 +51,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
       ten: existing?.ten ?? ""
     };
     for (const f of config.fields) {
-      if (f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc") {
+      if (f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc") {
         const ev = existing?.[f.key];
         init[f.key] = Array.isArray(ev) ? ev : [];
       } else if (f.jsonKey) {
@@ -148,7 +149,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     const theoPrefix = new Map<string, Record<string, unknown>>();
     for (const f of config.fields) {
       if (!f.refPrefix) continue;
-      if (!(f.type === "ref" || f.type === "ref-multi" || f.type === "ref-search" || f.type === "ref-search-ma" || f.type === "dau-viec-dinh-muc" || f.type === "don_vi_toc_do" || f.type === "nhom_may" || f.type === "nhom_may-multi")) continue;
+      if (!(f.type === "ref" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "ref-search" || f.type === "ref-search-ma" || f.type === "dau-viec-dinh-muc" || f.type === "don_vi_toc_do" || f.type === "nhom_may" || f.type === "nhom_may-multi")) continue;
       theoPrefix.set(f.refPrefix, { ...(theoPrefix.get(f.refPrefix) ?? {}), ...(f.refParams ?? {}) });
     }
     if (theoPrefix.size === 0) return;
@@ -173,7 +174,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
     const hint = typeof f.hint === "function" ? f.hint(form) : f.hint;
     const laDonVi = config.prefix.includes("don-vi");
-    const isFullWidth = f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
+    const isFullWidth = f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
     // "div" chứ không "label": khối này chứa NHIỀU input, bọc trong <label> là bấm đâu cũng nhảy
     // focus vào ô đầu tiên.
     const Tag = f.type === "formula" || f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" ? "div" : "label";
@@ -259,6 +260,13 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             options={refData[f.refPrefix ?? ""] ?? []}
             onChange={(v) => set(f.key, v)}
           />
+        ) : f.type === "self-ref-multi" ? (
+          <SelfRefMultiField
+            value={Array.isArray(form[f.key]) ? (form[f.key] as number[]) : []}
+            options={(refData[f.refPrefix ?? ""] ?? []).filter(
+              (o) => !isEdit || Number(o.id) !== Number(existing?.id))}
+            onChange={(v) => set(f.key, v)}
+          />
         ) : f.type === "formula" ? (
           <FormulaField value={String(form[f.key] ?? "")} onChange={(v) => set(f.key, v)}
             configPrefix={config.prefix}
@@ -277,7 +285,11 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             nhanO={laDonVi ? "Cách đo của đơn vị này" : cleanLabel}
             goY={laDonVi
               ? "vd: dai_in * rong_in * to_sau_in  (một m² tờ in đo thế nào)"
-              : (hint || undefined)} />
+              : (hint || undefined)}
+            // "Lần trước" (mục 3+7): chỉ có khi ĐANG SỬA — dòng mới tạo chưa có lịch sử.
+            recordId={isEdit && existing ? Number(existing.id) : null}
+            truocGiaTri={existing ? (existing[`${f.key}_truoc`] as string | null | undefined) ?? null : null}
+            truocSuaLuc={existing ? (existing[`${f.key}_sua_luc`] as string | null | undefined) ?? null : null} />
         ) : f.type === "checkbox" ? (
           <label className="rc-switch">
             <input type="checkbox" checked={!!form[f.key]} onChange={(e) => set(f.key, e.target.checked)} />
@@ -314,7 +326,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     if (!config.autoCode || isEdit) body.ma = form.ma;
     for (const f of visibleFields) {
       let v = form[f.key];
-      if (f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc") { body[f.key] = Array.isArray(v) ? v : []; continue; }
+      if (f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc") { body[f.key] = Array.isArray(v) ? v : []; continue; }
       if (v === "" || v === undefined) {
         const kieuChu = !f.type || f.type === "text" || f.type === "date" || f.type === "nhom_may";
         const voonCoGiaTri = isEdit && existing != null && existing[f.key] != null
@@ -369,10 +381,31 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     return () => { huy = true; };
   }, [isEdit, maTre, token, api]);
 
-  const hasFormulaField = useMemo(
-    () => visibleFields.some((f) => f.type === "formula") || config.renderExtra != null,
-    [visibleFields, config.renderExtra]
-  );
+  /** Các TAB CÔNG THỨC. Gom ô `formula` theo `nhanTab`; ô không khai rơi vào tab mặc định (nhãn
+   *  `nhanTabCongThuc`). Nhờ vậy Giấy tách được "Tính giá" / "Tính lượng" mà màn 1 tab vẫn y cũ.
+   *  `renderExtra` (khối quy đổi của Đơn vị) bám tab ĐẦU — chỉ Đơn vị dùng, luôn 1 tab. */
+  const formulaTabs = useMemo(() => {
+    const ff = visibleFields.filter((f) => f.type === "formula");
+    if (ff.length === 0 && config.renderExtra == null) return [];
+    const nhanMacDinh =
+      config.nhanTabCongThuc ?? (config.renderExtra ? "Quy đổi & số lượng" : "Công thức tính giá");
+    const thuTu: string[] = [];
+    const theoNhan = new Map<string, FieldDef[]>();
+    ff.forEach((f) => {
+      const nhan = f.nhanTab ?? nhanMacDinh;
+      if (!theoNhan.has(nhan)) { theoNhan.set(nhan, []); thuTu.push(nhan); }
+      theoNhan.get(nhan)!.push(f);
+    });
+    // Không có ô formula nhưng có renderExtra (Đơn vị) → vẫn cần 1 tab mặc định để chứa khối kia.
+    if (thuTu.length === 0) { thuTu.push(nhanMacDinh); theoNhan.set(nhanMacDinh, []); }
+    return thuTu.map((nhan, i) => ({
+      id: `formula:${i}`,
+      label: nhan,
+      fields: theoNhan.get(nhan)!,
+      coExtra: i === 0,
+    }));
+  }, [visibleFields, config.nhanTabCongThuc, config.renderExtra]);
+  const hasFormulaField = formulaTabs.length > 0;
   // Nhật ký chỉ có nghĩa với bản ghi ĐÃ LƯU — đang thêm mới thì chưa có gì để xem.
   const coNhatKy = isEdit && !!config.nhatKyLoai && !!existing?.id;
 
@@ -395,9 +428,10 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
   const tabKhaiHienTai = tabsKhai
     ? (tabsKhai.find((t) => t.id === formulaTab) ?? tabsKhai[0])
     : null;
+  const laTabCongThuc = formulaTab.startsWith("formula:");
   const dangOTabKhai = !tabsKhai
     ? formulaTab === "info"
-    : formulaTab !== "formula" && formulaTab !== "nhatky";
+    : !laTabCongThuc && formulaTab !== "nhatky";
   const coTabs = hasFormulaField || coNhatKy || (tabsKhai?.length ?? 0) > 1;
 
   const renderFieldsContent = (chiNhom?: string[], keoTheoMaTen = true) => {
@@ -511,16 +545,16 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
                   Khai báo thông tin
                 </button>
               )}
-              {hasFormulaField && (
+              {formulaTabs.map((ft) => (
                 <button
+                  key={ft.id}
                   type="button"
-                  className={`rc-drawer__tab${formulaTab === "formula" ? " is-active" : ""}`}
-                  onClick={() => setFormulaTab("formula")}
+                  className={`rc-drawer__tab${formulaTab === ft.id ? " is-active" : ""}`}
+                  onClick={() => setFormulaTab(ft.id)}
                 >
-                  {config.nhanTabCongThuc
-                    ?? (config.renderExtra ? "Quy đổi & số lượng" : "Công thức tính giá")}
+                  {ft.label}
                 </button>
-              )}
+              ))}
               {coNhatKy && (
                 <button
                   type="button"
@@ -535,14 +569,19 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             {dangOTabKhai && (tabKhaiHienTai
               ? renderFieldsContent(tabKhaiHienTai.groups, tabKhaiHienTai.laDau)
               : renderFieldsContent())}
-            {formulaTab === "formula" && (
-              <div>
-                {visibleFields
-                  .filter((f) => f.type === "formula")
-                  .map(renderField)}
-                {config.renderExtra?.(form, existing)}
-              </div>
-            )}
+            {laTabCongThuc && (() => {
+              // Tab đang chọn có thể vừa biến mất (ô formula bị `showIf` ẩn) → lùi về tab đầu, đừng
+              // hiện khoảng trắng. Chỉ render field của CHÍNH tab này để "Tính giá" và "Tính lượng"
+              // không lẫn sang nhau.
+              const ft = formulaTabs.find((t) => t.id === formulaTab) ?? formulaTabs[0];
+              if (!ft) return null;
+              return (
+                <div>
+                  {ft.fields.map(renderField)}
+                  {ft.coExtra && config.renderExtra?.(form, existing)}
+                </div>
+              );
+            })()}
             {formulaTab === "nhatky" && coNhatKy && (
               <NhatKyTab loai={config.nhatKyLoai!} id={Number(existing!.id)} />
             )}

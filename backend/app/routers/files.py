@@ -40,6 +40,10 @@ _PREFIX_PERMISSION: dict[str, str] = {
     # Ảnh hiện trạng hỏng + ảnh chứng thực sau sửa/bảo trì (12/08/2026). Gác quyền vì ảnh máy móc
     # cho thấy tình trạng nhà xưởng, không phải thứ ai đăng nhập cũng nên xem.
     "ky-thuat-may": "ky_thuat_may",
+    # Hoá đơn / biên nhận khách đã ký của chuyến giao (mg 0230, 22/08/2026). PHẢI gác: trên tờ
+    # hoá đơn có tên khách, mặt hàng và ĐƠN GIÁ — thiếu dòng này thì thư mục rơi vào nhánh
+    # "không có khoá" ở dưới, tức ai đăng nhập cũng đọc được.
+    "giao-hang": "giao_hang",
 }
 
 # Thư mục chứa ảnh của HAI màn khác ô quyền — khoá có dạng `<thư mục>/<loại phiếu>/...` nên soi

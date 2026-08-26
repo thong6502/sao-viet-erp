@@ -72,6 +72,20 @@ class CatalogInUse(CatalogError):
     """Còn nơi dùng nên không xoá được → 409."""
 
 
+def ma_ban_sao(tim, ma_goc: str) -> str:
+    """Tìm mã còn trống cho một bản sao: `<gốc>-COPY`, lệch dần `-COPY2`, `-COPY3`… khi trùng.
+
+    `tim(ma) -> bản ghi | None` — tra cứu mã đã dùng, service con truyền `repo.find_by_ma` (hoặc
+    một closure gắn sẵn `kind` với danh mục nhiều-loại như Vật liệu kho).
+    """
+    ma = f"{ma_goc}-COPY"
+    n = 2
+    while tim(ma) is not None:
+        ma = f"{ma_goc}-COPY{n}"
+        n += 1
+    return ma
+
+
 class CatalogService:
     """Khuôn CRUD của một service danh mục."""
 
@@ -240,3 +254,12 @@ class CatalogService:
         else:
             self.repo.delete(obj)
         self._chot()
+
+    def clone(self, item_id: int, actor_id: int | None = None):
+        """Nhân bản một dòng: copy mọi cột nghiệp vụ, đổi mã + tên để không trùng bản gốc."""
+        goc = self.get(item_id)
+        data = nk.anh_chup(goc)
+        ma_goc = data.get("ma") or ""
+        data["ten"] = f"{data.get('ten', '')} (bản sao)"
+        data["ma"] = "" if self.MA_TU_SINH else ma_ban_sao(self.repo.find_by_ma, ma_goc)
+        return self.create(data, actor_id)

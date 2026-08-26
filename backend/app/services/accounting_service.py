@@ -122,6 +122,69 @@ MAX_ATTACHMENTS_PER_VOUCHER = 20
 # Kỳ càng dài càng phải quét nhiều đơn đã tất toán ⇒ đây cũng là chốt chặn màn chậm dần.
 PAYABLES_PERIOD_MONTHS = 3
 
+# --- PHÂN TUỔI CÔNG NỢ (aging) ---------------------------------------------
+# MỘT nguồn duy nhất cho mốc rổ VÀ nhãn rổ. API trả kèm `label` + `min_days`/`max_days` để giao
+# diện in ra và tự lọc — frontend KHÔNG được gõ lại "1–7" hay số 7/15/30/60 ở đâu cả. Gõ hai nơi
+# là hai nơi lệch nhau ngay lần đầu chủ đổi mốc, mà lệch ở màn tiền thì không ai phát hiện.
+#
+# Đây chỉ là phép NHÓM trên `overdue_days` đã tính sẵn — không có phép tính tiền nào ở đây.
+# `min_days=None` = không có cận dưới (rổ chưa tới hạn), `max_days=None` = không có cận trên.
+AGING_CHUA_TOI_HAN = "chua_toi_han"
+AGING_BUCKETS: tuple[dict, ...] = (
+    # Rổ này gom cả đợt CHƯA TỚI HẠN lẫn đợt KHÔNG CÓ HẠN (`credit_days` NULL ⇒ `han_tra_dot`
+    # trả None ⇒ `overdue_days` = 0). Đó đúng là hành vi `_no_theo_han` vẫn chạy từ 06/08/2026:
+    # đợt không hạn nằm ở `no_han_amount`. Rổ tuổi chỉ XÉ phần quá hạn ra, KHÔNG đổi chỗ của
+    # đợt không-hạn — nó vẫn phải đeo badge "Chưa đặt hạn" ở danh sách chi tiết để không ai
+    # tưởng nó đã được canh.
+    {"key": AGING_CHUA_TOI_HAN, "label": "Chưa tới hạn", "min_days": None, "max_days": 0},
+    {"key": "d1_7", "label": "Trễ 1–7 ngày", "min_days": 1, "max_days": 7},
+    {"key": "d8_15", "label": "Trễ 8–15 ngày", "min_days": 8, "max_days": 15},
+    {"key": "d16_30", "label": "Trễ 16–30 ngày", "min_days": 16, "max_days": 30},
+    {"key": "d31_60", "label": "Trễ 31–60 ngày", "min_days": 31, "max_days": 60},
+    {"key": "d60_plus", "label": "Trễ > 60 ngày", "min_days": 61, "max_days": None},
+)
+AGING_KEYS: tuple[str, ...] = tuple(b["key"] for b in AGING_BUCKETS)
+# 5 rổ TRỄ. Tổng tiền 5 rổ này phải LUÔN bằng `overdue_amount` cũ — hai chỗ nói hai kiểu tiền là
+# lỗi nặng nhất của màn này (test_phan_tuoi_cong_no.py canh đúng bất biến đó).
+AGING_KEYS_TRE: tuple[str, ...] = tuple(k for k in AGING_KEYS if k != AGING_CHUA_TOI_HAN)
+
+
+def ro_tuoi(overdue_days: int) -> str:
+    """Số ngày quá hạn → KHOÁ rổ tuổi. Mốc lấy từ `AGING_BUCKETS`, đừng gõ lại số ở chỗ khác."""
+    for b in AGING_BUCKETS:
+        if (b["min_days"] is None or overdue_days >= b["min_days"]) and (
+            b["max_days"] is None or overdue_days <= b["max_days"]
+        ):
+            return str(b["key"])
+    return AGING_CHUA_TOI_HAN
+
+
+def _aging_rong() -> dict[str, dict[str, int]]:
+    """Bộ rổ rỗng — đủ 6 khoá. NCC không nợ gì vẫn phải trả về đủ rổ = 0, chứ không phải `{}`:
+    thiếu khoá là giao diện đọc ra `undefined` rồi in "NaN đ"."""
+    return {k: {"amount": 0, "count": 0} for k in AGING_KEYS}
+
+
+def _aging_cong(dich: dict[str, dict[str, int]], them: dict[str, dict[str, int]]) -> None:
+    for k, v in them.items():
+        dich[k]["amount"] += v["amount"]
+        dich[k]["count"] += v["count"]
+
+
+def _aging_ra_danh_sach(ro: dict[str, dict[str, int]]) -> list[dict]:
+    """Bộ rổ → danh sách CÓ NHÃN, đúng thứ tự già dần. Giao diện chỉ việc in, không tự đặt tên rổ."""
+    return [
+        {
+            "key": b["key"],
+            "label": b["label"],
+            "min_days": b["min_days"],
+            "max_days": b["max_days"],
+            "amount": ro[str(b["key"])]["amount"],
+            "count": ro[str(b["key"])]["count"],
+        }
+        for b in AGING_BUCKETS
+    ]
+
 
 def _delete_stored_file(file_url: str | None) -> None:
     """Gỡ bytes best-effort — xoá row mới là việc chính, file rác không được làm hỏng request."""
@@ -446,11 +509,47 @@ class AccountingService:
         )
         return qua_han, max(0, con_no - qua_han)
 
+    def _no_theo_ro_tuoi(self, row, con_no: int, hom_nay: date) -> dict[str, dict[str, int]]:
+        """Xé phần còn nợ của MỘT phiếu thành các RỔ TUỔI (tiền + số đợt).
+
+        Chỉ NHÓM, không tính lại đồng nào: cùng danh sách đợt, cùng phép so hạn, cùng phép trừ
+        `con_no − quá hạn` với `_no_theo_han`. Nhờ vậy tổng 5 rổ trễ LUÔN đúng bằng
+        `overdue_amount`, và rổ "chưa tới hạn" đúng bằng `no_han_amount` — hai màn không bao giờ
+        nói hai kiểu tiền. Tự cộng lấy ở đây là mở đúng cái cửa đó.
+
+        Đợt KHÔNG có hạn (`han_tra_dot` trả None) không vào rổ trễ nào; nó ở lại "chưa tới hạn"
+        y như `_no_theo_han` vẫn xếp — giữ nguyên hành vi cũ, chỉ thêm rổ."""
+        ro = _aging_rong()
+        if con_no <= 0:
+            return ro
+        dots, _coc, _du = self._no_tung_dot(row)
+        if not dots:
+            # Phiếu CŨ không theo dõi theo đợt: nợ chỉ quy được về mức PHIẾU, không có hạn ⇒ cả
+            # cục nằm ở "chưa tới hạn" (đúng nhánh `return 0, con_no` của `_no_theo_han`), đếm là
+            # MỘT khoản.
+            ro[AGING_CHUA_TOI_HAN]["amount"] += con_no
+            ro[AGING_CHUA_TOI_HAN]["count"] += 1
+            return ro
+        qua_han = 0
+        for d in dots:
+            if d["con_no"] <= 0:
+                continue
+            if d["due_date"] is not None and d["due_date"] < hom_nay:
+                khoa = ro_tuoi((hom_nay - d["due_date"]).days)
+                ro[khoa]["amount"] += d["con_no"]
+                ro[khoa]["count"] += 1
+                qua_han += d["con_no"]
+            else:
+                ro[AGING_CHUA_TOI_HAN]["count"] += 1
+        ro[AGING_CHUA_TOI_HAN]["amount"] += max(0, con_no - qua_han)
+        return ro
+
     def payables_summary(
         self,
         *,
         q: str | None = None,
         filter_: str = "all",
+        aging_bucket: str | None = None,
         page: int = 1,
         size: int = 20,
     ) -> dict:
@@ -463,7 +562,11 @@ class AccountingService:
 
         `q` = tìm theo tên NCC. Khi có `q` thì lôi ra **mọi** NCC khớp tên, kể cả nợ 0đ và không hề
         giao dịch trong kỳ — dùng để tra một NCC đã im lặng lâu. Lọc ở SERVER chứ không lọc trên
-        danh sách đã dựng, vì NCC đó vốn không có dòng nào để mà lọc."""
+        danh sách đã dựng, vì NCC đó vốn không có dòng nào để mà lọc.
+
+        `aging_bucket` = một khoá trong `AGING_KEYS`: chỉ giữ NCC còn tiền trong RỔ TUỔI đó. Đi
+        cùng đường với `filter_` (lọc trên danh sách đã dựng, sau khi thẻ tổng đã chốt), nên bấm
+        một rổ KHÔNG làm mấy con số tổng ở đầu màn nhảy theo."""
         hom_nay = _business_today()
         moc_ky = hom_nay - timedelta(days=31 * PAYABLES_PERIOD_MONTHS)
         tim = (q or "").strip().lower()
@@ -479,6 +582,8 @@ class AccountingService:
                     "order_count": 0,
                     "overdue_amount": 0,
                     "no_han_amount": 0,
+                    # Rổ tuổi của RIÊNG NCC này. NCC không nợ gì vẫn có đủ 6 rổ = 0.
+                    "aging": _aging_rong(),
                     "paid_in_period": 0,
                     "total_due": 0,
                     "credit_limit": han_muc,
@@ -508,6 +613,8 @@ class AccountingService:
             qua_han, chua_han = self._no_theo_han(row, no["con_no"], hom_nay)
             muc["overdue_amount"] += qua_han
             muc["no_han_amount"] += chua_han
+            # Rổ tuổi = xé chính hai con số trên ra theo `overdue_days`, không cộng lại từ đầu.
+            _aging_cong(muc["aging"], self._no_theo_ro_tuoi(row, no["con_no"], hom_nay))
 
         items = sorted(
             theo_ncc.values(),
@@ -531,6 +638,17 @@ class AccountingService:
             items = [m for m in items if m["no_han_amount"] > 0]
         elif filter_ == "vuot_han_muc":
             items = [m for m in items if m["vuot_han_muc"]]
+        # Lọc theo RỔ TUỔI đi sau, cùng kiểu với `filter_`: khoá lạ thì BỎ QUA (không lọc), y như
+        # `filter_` lạ — cửa lọc không phải chỗ ném 422 vào mặt người đang xem công nợ.
+        if aging_bucket in AGING_KEYS:
+            items = [m for m in items if m["aging"][aging_bucket]["amount"] > 0]
+
+        # Dải rổ tuổi ở ĐẦU MÀN tính trên `tong_hop` — cùng gốc với thẻ "Tổng phải trả"/"Quá hạn",
+        # nên bấm lọc hay lật trang KHÔNG làm nó nhảy. Dải mà nhảy theo trang thì nó đang đo cái
+        # trang, không đo món nợ.
+        tong_ro = _aging_rong()
+        for m in tong_hop:
+            _aging_cong(tong_ro, m["aging"])
 
         page = max(1, page)
         size = max(1, min(size, 200))
@@ -545,7 +663,9 @@ class AccountingService:
             "size": size,
             "pages": pages,
             "total_due": sum(m["total_due"] for m in tong_hop),
+            # GIỮ NGUYÊN: nhiều chỗ đang ăn con số này. Rổ tuổi chỉ XÉ nó ra chứ không thay nó.
             "overdue_amount": sum(m["overdue_amount"] for m in tong_hop),
+            "aging": _aging_ra_danh_sach(tong_ro),
             "paid_in_period": sum(m["paid_in_period"] for m in tong_hop),
             "vuot_han_muc_count": sum(1 for m in tong_hop if m["vuot_han_muc"]),
             "period_months": PAYABLES_PERIOD_MONTHS,
@@ -599,6 +719,13 @@ class AccountingService:
                 for d in dots:
                     if d["con_no"] <= 0:
                         continue
+                    # Tính MỘT lần rồi tái dùng cho cả `overdue_days` lẫn `aging_bucket` — hai
+                    # trường phải luôn khớp nhau, tách ra tính hai lần là mở cửa cho chúng lệch.
+                    so_ngay_tre = (
+                        (hom_nay - d["due_date"]).days
+                        if d["due_date"] is not None and d["due_date"] < hom_nay
+                        else 0
+                    )
                     con_no.append(
                         {
                             "purchase_request_id": row.id,
@@ -609,11 +736,8 @@ class AccountingService:
                             "delivery_date": d["delivery_date"],
                             "due_date": d["due_date"],
                             "chua_dat_han": d["due_date"] is None,
-                            "overdue_days": (
-                                (hom_nay - d["due_date"]).days
-                                if d["due_date"] is not None and d["due_date"] < hom_nay
-                                else 0
-                            ),
+                            "overdue_days": so_ngay_tre,
+                            "aging_bucket": ro_tuoi(so_ngay_tre) if so_ngay_tre > 0 else None,
                             "invoice_number": d["invoice_number"],
                             "invoice_date": d["invoice_date"],
                             "amount": d["amount"],
@@ -636,6 +760,7 @@ class AccountingService:
                         "due_date": None,
                         "chua_dat_han": True,
                         "overdue_days": 0,
+                        "aging_bucket": None,
                         "invoice_number": None,
                         "amount": money["gia_tri_da_giao"],
                         "paid": money["net_paid"],
@@ -684,6 +809,14 @@ class AccountingService:
         # phần dôi ra là khoản phải THU, việc khác, không thuộc màn này.
         tong_no = sum(x["con_no"] for x in con_no)
         tong_coc = sum(x["amount"] for x in coc_chung)
+        # Rổ tuổi của drawer đếm trên ĐÚNG danh sách đang hiện bên dưới nó (`con_no`), nên pill và
+        # bảng không bao giờ chửi nhau. Đợt chưa có hạn có `overdue_days` = 0 ⇒ rơi vào "chưa tới
+        # hạn" và vẫn giữ badge "Chưa đặt hạn" ở cột Hạn trả — nó không bị rổ tuổi nuốt mất.
+        ro_chi_tiet = _aging_rong()
+        for x in con_no:
+            khoa = ro_tuoi(x["overdue_days"])
+            ro_chi_tiet[khoa]["amount"] += x["con_no"]
+            ro_chi_tiet[khoa]["count"] += 1
         return {
             "supplier_id": supplier_id,
             "supplier_name": supplier.name if supplier is not None else "(không rõ NCC)",
@@ -700,6 +833,7 @@ class AccountingService:
             "all_history": all_history,
             "total_due": tong_no,
             "overdue_amount": qua_han_tong,
+            "aging": _aging_ra_danh_sach(ro_chi_tiet),
             "paid_in_period": sum(x["amount"] for x in da_chi),
             "as_of": hom_nay,
         }
@@ -1201,8 +1335,7 @@ class AccountingService:
         if voucher.status != PAYMENT_VOUCHER_PAID:
             raise AccountingConflict("Chỉ Phiếu chi/UNC đã chi mới được lập phiếu thu.")
         prepared = self._prepare_receipt(voucher, values, exclude_receipt_id=None)
-        # Cấp số trước khi chạm ORM object — increment_and_get() tự commit (xem
-        # _next_voucher_doc_no).
+        # Cấp số trước khi chạm ORM object (xem _next_voucher_doc_no).
         doc_no = self.sequences.generate_flat_code(SEQ_DOC_TYPE_PAYMENT_RECEIPT)
         receipt = PaymentReceipt(
             code=self._new_receipt_code(),
@@ -1274,8 +1407,11 @@ class AccountingService:
             currency="VND",
             exchange_rate=1,
             content=_text(content, label="Nội dung thu", max_length=500) or f"Thu cọc đơn {order_no}",
-            debit_account=("1121" if receipt_method == VOUCHER_BANK_TRANSFER else "1111"),
-            credit_account="131",
+            # Nợ/Có ĐỂ TRỐNG (chủ 21/08/2026: "cái nợ và có ấy thì họ điền gì kệ họ"). Hai cột
+            # này không nuôi tính toán nào, chỉ IN ra phiếu — `printTT200` in sẵn dòng chấm khi
+            # trống để kế toán tự ghi. Đúng ý ban đầu, xem mg 2288: "định khoản Nợ/Có NHẬP TAY".
+            debit_account=None,
+            credit_account=None,
             bank_reference=reference,
             company_bank_account_id=(company_account.id if company_account else None),
             company_account_holder_snapshot=(company_account.account_holder if company_account else None),
@@ -1343,7 +1479,6 @@ class AccountingService:
         )
         for key, value in prepared.items():
             setattr(receipt, key, value)
-        receipt.credit_account = receipt.credit_account or "131"
         receipt.company_bank_account_id = account.id if account else None
         receipt.company_account_holder_snapshot = account.account_holder if account else None
         receipt.company_account_number_snapshot = account.account_number if account else None
@@ -2187,7 +2322,9 @@ class AccountingService:
     def _next_voucher_doc_no(self) -> str:
         """Số IN trên mẫu 02-TT (PC00445) — chung bộ đếm cho tiền mặt lẫn UNC.
 
-        LƯU Ý: gọi hàm này SAU khi validate xong và TRƯỚC mọi mutation ORM — nó commit.
+        Bộ đếm nay đi CHUNG giao dịch (không còn tự commit — xem
+        DocumentSequenceRepository.increment_and_get), nên phiếu hỏng thì số cấp dở trả lại.
+        Vẫn giữ nếp gọi SAU khi validate xong: số nhảy vô ích cũng là số mất.
         """
         return self.sequences.generate_flat_code(SEQ_DOC_TYPE_PAYMENT_VOUCHER)
 

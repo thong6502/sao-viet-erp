@@ -71,10 +71,10 @@ export function Xl2MucPill({
 // ============================ TRỤC THỜI GIAN ================================
 // Bề rộng cột nhãn lane + chiều cao thanh (LABEL_W=270 hiển thị trọn vẹn thông số máy, BAR_H=34 hiển thị 2 tầng thông tin).
 export const LABEL_W = 270;
-export const BAR_H = 34;
+export const BAR_H = 40;
 /** Dải overlay (nhiệt tải máy / đỉnh quân số) neo đáy lane, KHÔNG đè thanh việc (F1). */
 export const LANE_OVERLAY_H = 12;
-/** thanh (34) + đệm trên (8) + band overlay đáy (12) = 54. Đồng bộ với `--xl2-lane-h` trong CSS. */
+/** thanh (40) + đệm trên (8) + band overlay đáy (12) = 60. Đồng bộ với `--xl2-lane-h` trong CSS. */
 export const LANE_H = BAR_H + 8 + LANE_OVERLAY_H;
 export const CLUSTER_HEAD_H = 32;
 
@@ -162,19 +162,26 @@ export function dongMa(
   return d.bai_ghep_ma ?? `GB#${d.bai_ghep_id ?? "?"}`;
 }
 
-/** SỐ SERIAL ngắn cho nhãn thanh Gantt (§10.3): bỏ tiền tố năm dùng-chung "LSX26-"/"GB26-" khiến
- *  mọi thanh nhìn giống hệt ⇒ chỉ lấy phần sau dấu "-" ("LSX26-0012" → "0012"). Thiếu mã thật thì
- *  rơi về "#id". Mã đầy đủ vẫn nằm ở tooltip/aria (nên nhãn ngắn không mất thông tin tra cứu). */
+/** SỐ SERIAL ngắn cho nhãn thanh Gantt: giữ tiền tố LSX-/GB- kèm số đuôi (vd "LSX-0012") để người điều độ
+ *  nhìn vào là biết ngay bước thuộc Lệnh sản xuất nào. */
 export function dongSerial(
   d: Pick<Xl2Dong, "nguon" | "lsx_id" | "bai_ghep_id" | "lsx_ma" | "bai_ghep_ma">,
 ): string {
+  const prefix = d.nguon === "lsx" ? "LSX-" : "GB-";
   const raw = d.nguon === "lsx" ? d.lsx_ma : d.bai_ghep_ma;
   if (raw) {
     const i = raw.lastIndexOf("-");
-    return i >= 0 && i < raw.length - 1 ? raw.slice(i + 1) : raw;
+    const num = i >= 0 && i < raw.length - 1 ? raw.slice(i + 1) : raw;
+    return `${prefix}${num}`;
   }
   const id = d.nguon === "lsx" ? d.lsx_id : d.bai_ghep_id;
-  return `#${id ?? "?"}`;
+  return `${prefix}${id ?? "?"}`;
+}
+
+/** Tính Hue (0..359) theo góc Vàng (Golden Angle ~137.5°) để tạo ra bộ HƠN 100 MÀU VÔ TẬN DUY NHẤT, không trùng lặp cho từng LSX/Bài ghép. */
+export function dongHue(d: Pick<Xl2Dong, "nguon" | "lsx_id" | "bai_ghep_id">): number {
+  const id = d.nguon === "lsx" ? (d.lsx_id ?? 0) : (d.bai_ghep_id ?? 0) + 17;
+  return Math.round((id * 137.508) % 360);
 }
 
 /** Đếm SỐ VIỆC trong một tập lane — cluster-head và digest DÙNG CHUNG để "số việc" không lệch nhau

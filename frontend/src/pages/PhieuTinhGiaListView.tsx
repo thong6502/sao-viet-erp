@@ -190,7 +190,9 @@ export function PhieuTinhGiaListView({
                 <SortBtn label="Mã PTG" col="ma" sort={sort} onSort={setSort} />
               </th>
               <th>Sản phẩm</th>
-              <th className="tg-num">
+              {/* SL ở đây là Σ SL CÁC SẢN PHẨM bên trong phiếu (không phải ô SL mặc định đầu
+                  phiếu) — có vậy SL × giá vốn/đơn mới ra tổng giá vốn ngay hàng bên cạnh. */}
+              <th className="tg-num" title="Tổng số lượng của các sản phẩm trong phiếu">
                 <SortBtn label="SL" col="so_luong" sort={sort} onSort={setSort} />
               </th>
               <th className="tg-num">
@@ -253,7 +255,32 @@ export function PhieuTinhGiaListView({
                     {it.ma}
                   </td>
                   <td className="ptg-prod">
-                    <span className="ptg-prod__name">{it.ten_san_pham || "—"}</span>
+                    {/* Tên ở ĐẦU PHIẾU (`ten_san_pham`) là chữ ĐÓNG BĂNG: màn phiếu không còn ô
+                        nào sửa được nó, nên nó không chạy theo tên hàng bên trong. Vì vậy:
+                        · Phiếu 1 MÓN → lấy thẳng tên món đó. Món ấy CHÍNH LÀ phiếu, sửa tên trong
+                          phiếu là ngoài này đổi theo ngay; giữ chữ đầu phiếu chỉ tổ trơ tên cũ.
+                        · Phiếu NHIỀU MÓN → giữ tên cụm ở đầu phiếu (vd "Bộ ấn phẩm khai trương…")
+                          vì không tên món nào gọi được cả cụm; từng món kể ở dòng phụ, và dòng phụ
+                          thì chạy theo tên thật. Một phiếu ba món (ruột · bìa · thẻ) mà nhìn ngoài
+                          chỉ thấy một dòng là chỗ hay nhầm nhất.
+                        · Phiếu CHƯA có món nào → còn gì hiện nấy. */}
+                    {(() => {
+                      const trong = it.ten_thanh_phans ?? [];
+                      const motMon = trong.length === 1;
+                      const chinh = motMon ? trong[0] : it.ten_san_pham || trong[0] || "";
+                      const con = motMon ? [] : it.ten_san_pham ? trong : trong.slice(1);
+                      const ke = con.slice(0, 3).join(" · ") + (con.length > 3 ? " · …" : "");
+                      return (
+                        <>
+                          <span className="ptg-prod__name" title={trong.join(" · ") || undefined}>
+                            {chinh || "—"}
+                          </span>
+                          {con.length > 0 ? (
+                            <span className="ptg-prod__spec">+{con.length} sản phẩm: {ke}</span>
+                          ) : null}
+                        </>
+                      );
+                    })()}
                   </td>
                   <td className="tg-num">{fmt(it.so_luong)}</td>
                   <td className="tg-num">{fmt(it.gia_von_don)} đ</td>

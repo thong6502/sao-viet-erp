@@ -24,10 +24,12 @@ from ..models.employee import (
     PIT_CAM_KET_08,
     PIT_KHAU_TRU_10,
     STATUS_PROBATION,
+    STATUS_PROBATION_ENDED,
     STATUS_RESIGNED,
 )
 from ..models.role import SCOPE_ALL
 from ..models.payroll import (
+    COMPONENT_SOURCE_AUTO,
     COMPONENT_SOURCE_LINE,
     ADV_APPROVED,
     ADV_CANCELLED,
@@ -562,6 +564,39 @@ class PayrollService:
                         "note": row.note})
         return out
 
+    def _hoa_hong_rows(self, employee_id: int, year: int, month: int) -> list[dict]:
+        """Dòng khoản HOA HỒNG KD của kỳ — hệ TỰ TÍNH, không ai gõ (nguồn `auto`).
+
+        Trả `[]` khi không có tiền: đừng đẻ dòng 0 đồng trên phiếu lương của cả trăm người không
+        làm kinh doanh.
+
+        Cờ `is_taxable` lấy từ DANH MỤC chứ không đóng đinh ở đây — đó đúng là lý do khoản thưởng
+        bị bắt đi qua danh mục từ 28/07/2026 (xem `LineUpdateIn`): cờ chịu thuế phải là một quy
+        tắc khai được, không phải hằng số nằm trong engine.
+        """
+        if self.components is None:
+            return []
+        from calendar import monthrange
+
+        from ..models.payroll import COMPONENT_CODE_HOA_HONG
+        from .hoa_hong_service import HoaHongService
+
+        kh = self.components.get_by_code(COMPONENT_CODE_HOA_HONG)
+        if kh is None or not bool(getattr(kh, "is_active", True)):
+            return []                       # chưa khai khoản ⇒ chưa bật tính năng
+
+        tien = HoaHongService(self.components.db).hoa_hong_ky(
+            employee_id,
+            tu_ngay=date(int(year), int(month), 1),
+            den_ngay=date(int(year), int(month), monthrange(int(year), int(month))[1]),
+        )
+        if tien <= 0:
+            return []
+        return [{
+            "component_id": kh.id, "code": kh.code, "name": kh.name, "kind": kh.kind,
+            "is_taxable": bool(kh.is_taxable), "amount": float(tien), "note": None,
+        }]
+
     def _line_extra_components(self, line_id: int | None) -> list[dict]:
         """Khoản PHÁT SINH thêm tay cho riêng kỳ này (thưởng nóng) — Tầng 3.
 
@@ -875,7 +910,7 @@ class PayrollService:
     # --- engine tính 1 dòng -------------------------------------------------
 
     def _compute(self, *, employee, salary, params, actual_cong, standard_cong,
-                 vi_pham=0.0, other_bonus=0.0, khoan=0.0, khoan_defect=0.0,
+                 vi_pham=0.0, other_bonus=0.0, khoan=0.0, khoan_km=0.0, khoan_defect=0.0,
                  ot_minutes=0, night_days=0, holiday_cong=0.0, restday_cong=0.0, plain_cong=0.0,
                  paid_leave_cong=0.0, excused_cong=0.0,
                  ot_holiday_minutes=0, ot_restday_minutes=0,
@@ -891,7 +926,14 @@ class PayrollService:
                   brackets=None, on: date, employee_status: str | None = None,
                   department_id: int | None = None) -> dict:
         effective_status = employee_status or employee.status
-        is_probation = effective_status == STATUS_PROBATION
+        # "Hết thử việc, chờ HCNS xác nhận" ĂN TIỀN Y HỆT THỬ VIỆC (chủ chốt 22/08/2026): vẫn
+        # hệ số `probation_ratio`, vẫn không đóng BHXH, vẫn không trừ đoàn phí. Chủ chốt là tiền
+        # KHÔNG đổi cho tới khi HCNS bấm "Chuyển chính thức" — trạng thái mới chỉ để MÀN HÌNH nói
+        # đúng rằng thời gian thử việc đã hết, không phải để đổi số.
+        # ⚠️ Rủi ro đã ghi rõ cho chủ trước khi chốt: Điều 27 BLLĐ coi người làm tiếp sau thử việc
+        # là ĐÃ chính thức, nên phần 20% giữ lại kể từ ngày hết hạn là trả thiếu. Chủ vẫn chọn
+        # phương án này. ĐỪNG tự "sửa cho đúng luật" — hỏi chủ trước.
+        is_probation = effective_status in (STATUS_PROBATION, STATUS_PROBATION_ENDED)
         ratio = float(params.probation_ratio) if is_probation else 1.0
         dept_id = (getattr(employee, "department_id", None)
                    if department_id is None else department_id)
@@ -1081,7 +1123,10 @@ class PayrollService:
         # (bồi thường/kỷ luật) — KHÔNG giảm thu nhập chịu thuế TNCN, và bị kẹp trần 30% (Điều 102) ở dưới.
         # `extra_thu_line` nằm NGOÀI `allowance` (xem khối khoản danh mục ở trên) nên phải cộng
         # riêng ở đây — cùng cách `update_line` cộng `extra_thu`, để hai đường ra CÙNG một số.
-        gross_pre = (luong_cong + chuyen_can + allowance + float(khoan)
+        # `khoan_km` CỘNG PHẲNG như `khoan`: tài xế ăn NGUYÊN lương chấm công rồi cộng thêm tiền
+        # theo km — không prorate theo công, không nhân hệ số thử việc. Và nó CHỊU TNCN: không nằm
+        # trong `mien_ngoai_danh_muc` nên tự động vào thu nhập chịu thuế, đúng luật.
+        gross_pre = (luong_cong + chuyen_can + allowance + float(khoan) + float(khoan_km)
                      + ot_pay + night_pay + night_premium_pay + float(other_bonus)
                      + meal_allowance_pay + shift_allowance_pay + com_tang_ca_pay
                      + extra_income + extra_thu_line)
@@ -1198,6 +1243,7 @@ class PayrollService:
             "chuyen_can": _round(chuyen_can),
             "allowance": _round(allowance),
             "khoan": _round(khoan),
+            "khoan_km": _round(khoan_km),
             "ot_minutes": int(ot_minutes),
             "ot_pay": ot_pay,
             "night_days": int(night_days),
@@ -1286,6 +1332,16 @@ class PayrollService:
         dot1_map = self.payroll.approved_advance_map(year, month, kind=ADV_KIND_LUONG_DOT_1)
         salary_map = self.payroll.latest_salaries_map(pay_on)
         khoan_map = self.piece.khoan_map(year, month) if self.piece is not None else {}
+        # Khoán km giao hàng (mg 0231) — nạp MỘT lần cho cả kỳ, cùng khuôn `khoan_map`.
+        # Đi qua `self.components.db` vì `PayrollService` không giữ session riêng; khối `try` để
+        # phân hệ Giao hàng chưa dựng bảng (unit test dựng DB tối giản) không làm sập cả kỳ lương.
+        khoan_km_map: dict[int, float] = {}
+        if self.components is not None:
+            from .khoan_km_service import KhoanKmService
+            try:
+                khoan_km_map = KhoanKmService(self.components.db).theo_ky(year, month)
+            except Exception:                                   # noqa: BLE001 — xem ghi chú trên
+                khoan_km_map = {}
         # Trừ lỗi khoán theo NGƯỜI (Điều 102: gộp vào trần khấu trừ 30%).
         defect_map = self.piece.defect_map(year, month) if self.piece is not None else {}
         brackets = self.get_pit_brackets()
@@ -1307,7 +1363,15 @@ class PayrollService:
             employment_status, employment_department_id = self._employment_context_on(emp, pay_on)
             existing = self.payroll.get_line_by_pe(period.id, emp.id)
             m = metrics_map.get(emp.id) or {}   # NV không chấm công → rỗng (KHÔNG KeyError)
-            has_work = bool(m) or emp.id in khoan_map or existing is not None
+            # Hoa hồng tính TRƯỚC cổng dưới: NV kinh doanh nghỉ việc tháng trước, tháng này
+            # mới xuất hoá đơn của đơn họ chốt ⇒ vẫn còn tiền phải trả. Bỏ ra khỏi `has_work` là
+            # họ không có dòng lương nào, tiền bốc hơi mà không một dòng cảnh báo.
+            hoa_hong_rows = self._hoa_hong_rows(emp.id, period.year, period.month)
+            # Khoán km cũng phải nằm TRƯỚC cổng: tài xế nghỉ việc giữa kỳ vẫn còn tiền các
+            # chuyến đã chạy. Bỏ ra khỏi `has_work` là họ không có dòng lương nào — cùng bẫy đã
+            # cắn với hoa hồng.
+            has_work = (bool(m) or emp.id in khoan_map or emp.id in khoan_km_map
+                        or existing is not None or bool(hoa_hong_rows))
             # NV nghỉ việc: CHỈ bỏ khi không có công/khoán/dòng lương trong kỳ — còn làm thì vẫn
             # trả lương tháng cuối (không quỵt).
             if employment_status == STATUS_RESIGNED and not has_work:
@@ -1333,11 +1397,16 @@ class PayrollService:
             vals = self._compute(
                 employee=emp, salary=salary, params=params, actual_cong=actual_cong,
                 standard_cong=std, vi_pham=vi_pham, other_bonus=other_bonus, khoan=khoan,
+                khoan_km=float(khoan_km_map.get(emp.id, 0.0)),
                 khoan_defect=float(defect_map.get(emp.id, 0.0)),
                 # HAI danh sách RIÊNG, đừng nối lại: khoản hồ sơ vào `allowance`, khoản phát sinh
                 # thì không (nếu không "Tính lại" rồi sửa một ô là cộng đôi — xem `_compute`).
                 components=self._components_for(emp),
-                line_components=self._line_extra_components(existing.id if existing else None),
+                # Khoản thêm tay (Tầng 3) + hoa hồng hệ tự tính (nguồn `auto`). Nối vào ĐÂY chứ
+                # không vào `components`: `components` chảy vào `allowance`, mà hoa hồng đổi theo
+                # TỪNG KỲ nên không thuộc về hồ sơ nhân viên.
+                line_components=(self._line_extra_components(existing.id if existing else None)
+                                 + hoa_hong_rows),
                 ot_minutes=ot_minutes, night_days=night_days,
                 holiday_cong=float(m.get("holiday_cong", 0.0)),
                 restday_cong=float(m.get("restday_cong", 0.0)),
@@ -1378,6 +1447,7 @@ class PayrollService:
                 paid_leave_cong=vals["paid_leave_cong"], excused_cong=vals["excused_cong"],
                 chuyen_can=vals["chuyen_can"], allowance=vals["allowance"],
                 phu_cap_tham_nien=vals["phu_cap_tham_nien"], khoan=vals["khoan"],
+                khoan_km=vals["khoan_km"],
                 ot_minutes=vals["ot_minutes"], ot_pay=vals["ot_pay"],
                 night_days=vals["night_days"], night_pay=vals["night_pay"],
                 night_premium_pay=vals["night_premium_pay"],
@@ -1403,6 +1473,12 @@ class PayrollService:
                 line = existing
             else:
                 line = self.payroll.create_line(period_id=period.id, employee_id=emp.id, **fields)
+            # Hoa hồng: ghi lại thành khoản nguồn `auto` — xoá sạch rồi ghi mới mỗi lần tính
+            # lại, vì số chạy theo hoá đơn phát sinh thêm. KHÔNG đụng nguồn `line` (thưởng thêm
+            # tay) lẫn `employee` (khoản hồ sơ).
+            if self.components is not None:
+                self.components.replace_auto_line_components(line.id, hoa_hong_rows)
+
             # SNAPSHOT từng khoản lên dòng lương: phiếu lương in được từng dòng, và đổi cờ
             # "Chịu thuế" ở danh mục về sau KHÔNG sửa số của kỳ này.
             if self.components is not None:
@@ -1493,6 +1569,25 @@ class PayrollService:
         self.chan_ngoai_pham_vi(employee_id=ln.employee_id, scope=scope, actor=actor)
         return self.components.line_components(line_id) if self.components else []
 
+    def chi_tiet_khoan_km(self, *, line_id: int, scope=None, actor=None) -> list[dict]:
+        """Từng chuyến giao đã sinh ra tiền khoán km của dòng lương này (mg 0231).
+
+        ⭐ Vì sao phải có: km là TÀI XẾ TỰ GÕ. Khác hẳn hoa hồng — nguồn của hoa hồng là hoá đơn
+        kế toán đã xuất, đã qua tay người khác. Không cho HCNS soi lại từng chuyến thì khoán km
+        thành tiền tự khai, và cuối tháng không ai đối chiếu được với sổ tài xế.
+
+        Cùng hàng rào phạm vi với bảng lương: tiền của một người là dữ liệu của người đó.
+        """
+        ln = self.payroll.get_line(line_id)
+        if ln is None:
+            raise PayrollNotFound("Không tìm thấy dòng lương.")
+        self.chan_ngoai_pham_vi(employee_id=ln.employee_id, scope=scope, actor=actor)
+        ky = self.payroll.get_period(ln.period_id)
+        if ky is None or self.components is None:
+            return []
+        from .khoan_km_service import KhoanKmService
+        return KhoanKmService(self.components.db).chi_tiet(ln.employee_id, ky.year, ky.month)
+
     def add_line_component(self, *, actor, line_id: int, component_id: int, amount: float, scope=None,
                            note: str | None = None):
         """Thêm khoản chỉ có ở KỲ NÀY. Chép `name`/`kind`/`is_taxable` từ danh mục tại thời điểm
@@ -1518,6 +1613,21 @@ class PayrollService:
         row = self.components.get_line_component(row_id) if self.components else None
         if row is None:
             raise PayrollNotFound("Không tìm thấy khoản trên dòng lương.")
+        # Dòng HỆ TỰ TÍNH (hoa hồng KD) KHÔNG cho gõ tay.
+        #
+        # Đã mở ra rồi ĐÓNG LẠI trong cùng ngày 24/08/2026. Chủ thử xong chốt: *"số tiền hoa hồng
+        # ấy đừng cho sửa tay nữa, kệ nó ăn theo đơn hàng cho chắc"*. Đúng: cho đè tay thì kỳ đó
+        # thôi chạy theo hoá đơn — kế toán xuất thêm hoá đơn sau, tiền không tự cộng, và không ai
+        # nhớ ra để sửa lại. Số bám hoá đơn thì luôn đối chiếu được với sổ bán hàng.
+        #
+        # Cần trả thêm/bớt cho một người ⇒ dùng khoản "Thu nhập khác", đúng chỗ và có ghi chú.
+        if row.source == COMPONENT_SOURCE_AUTO:
+            raise PayrollValidationError(
+                "Hoa hồng do hệ thống tự tính theo hoá đơn bán trong kỳ — không sửa tay ở đây. "
+                "% của đơn được chốt cứng lúc CHỐT ĐƠN theo hồ sơ lương của nhân viên, nên đơn đã "
+                "chốt thì không nắn lại được: cần trả thêm/bớt thì dùng khoản \"Thu nhập khác\". "
+                "Muốn đổi % cho các đơn SAU thì sửa ở Lương → Thiết lập lương."
+            )
         ln = self._line_for_edit(row.line_id, scope=scope, actor=actor)
         fields = {}
         if amount is not None:
@@ -1553,6 +1663,9 @@ class PayrollService:
                 "Khoản phát sinh do người dùng thêm tay — không có 'mức hồ sơ' để trả về. "
                 "Sửa thẳng số tiền, hoặc xoá dòng."
             )
+        # KHÔNG cần nhánh cho `auto`: dòng hệ tự tính không sửa tay được (xem
+        # `update_line_component`) nên không bao giờ mang cờ `da_de_tay`, tức nút "Trả về" không
+        # bao giờ hiện cho nó. Thêm nhánh phòng xa ở đây là code không đường nào chạy tới.
         ln = self._line_for_edit(row.line_id, scope=scope, actor=actor)
         emp = self.employees.get_by_id(ln.employee_id)
         goc = next((c for c in (self._components_for(emp) if emp else [])
@@ -1572,6 +1685,14 @@ class PayrollService:
         row = self.components.get_line_component(row_id) if self.components else None
         if row is None:
             raise PayrollNotFound("Không tìm thấy khoản trên dòng lương.")
+        if row.source == COMPONENT_SOURCE_AUTO:
+            # Báo cho ĐÚNG chỗ: câu dưới chỉ sang "Lương nhân viên", mà hoa hồng không nằm ở đó —
+            # HCNS sẽ đi tìm mỏi mắt. Mà có gỡ được cũng vô nghĩa: "Tính lại" là nó mọc lại.
+            raise PayrollValidationError(
+                "Hoa hồng do hệ thống tự tính theo hoá đơn bán trong kỳ — gỡ ở đây không có tác "
+                "dụng, tính lại là hiện lại. Không muốn tính nữa thì bỏ % hoa hồng của nhân viên "
+                "ở Lương → Thiết lập lương (chỉ ăn vào đơn chốt từ đó trở đi), hoặc huỷ hoá đơn."
+            )
         if row.source != COMPONENT_SOURCE_LINE:
             raise PayrollValidationError(
                 "Khoản chép từ hồ sơ nhân viên không gỡ được ở đây — gỡ ở Lương → Lương nhân viên."
@@ -1677,7 +1798,8 @@ class PayrollService:
         # phụ cấp ca) đã từng bị sót đúng kiểu đó, giống bệnh cũ của `khoan_defect` và
         # `component_deduct`. Thêm số hạng mới vào `_compute` thì thêm CẢ ở đây.
         gross_pre = _round(extra_thu + float(ln.luong_cong) + float(ln.chuyen_can) + float(ln.allowance)
-                           + float(ln.khoan) + float(ln.ot_pay) + float(ln.night_pay)
+                           + float(ln.khoan) + float(getattr(ln, "khoan_km", 0) or 0)
+                           + float(ln.ot_pay) + float(ln.night_pay)
                            + float(getattr(ln, "night_premium_pay", 0) or 0)
                            + ca_mien
                            + float(ln.other_bonus)

@@ -37,7 +37,10 @@ MUC_VANG = "vang"
 MUC_OK = "ok"
 
 MAN_VAT_TU = "ke-hoach-vat-tu"
-MAN_XEP_LICH = "xep-lich-cong-doan"
+# Id ĐƯỜNG DẪN của màn xếp lịch là `xep-lich-cong-doan-2` (màn cũ gỡ 19/08/2026, id `-2`
+# giữ nguyên để không hỏng dấu trang + bản đồ badge — xem chú thích trong Sidebar.tsx).
+# Trỏ vào id cũ = FE không tra ra module nào ⇒ bắn banner 403 dù người dùng là admin.
+MAN_XEP_LICH = "xep-lich-cong-doan-2"
 
 # Vấn đề nào rơi vào đèn nào. Soi TIỀN TỐ `issue_key` (`trung_may:…`) chứ KHÔNG soi `category`:
 # 18/08/2026 `category` đã gom còn 6 loại cho người đọc, nên `may` nay trùm cả bốn thứ trùng-giờ ·

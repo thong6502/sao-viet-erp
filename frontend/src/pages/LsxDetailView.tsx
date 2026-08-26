@@ -7,11 +7,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
-  LSX_CANH_BAO_LABELS,
   LSX_THIEU_LABELS,
   nhanMa,
   api,
   type LsxActivity,
+  type LsxBoDauViec,
   type LsxCongDoanBody,
   type LsxDetail,
   type LsxQuyCachBody,
@@ -191,6 +191,9 @@ export function LsxDetailView({
   const [saving, setSaving] = useState(false);
   const [savingRouting, setSavingRouting] = useState(false);
   const [routingDirty, setRoutingDirty] = useState(false);
+  /** Bước bị GỠ đầu việc mồ côi ở lần lưu routing vừa rồi — lưu VẪN thành công, đây chỉ là lưu ý
+   *  để mở đúng bước chọn lại đầu việc. Xoá khi lưu lại hoặc khi người dùng đóng. */
+  const [boDauViec, setBoDauViec] = useState<LsxBoDauViec[]>([]);
   const [readyErr, setReadyErr] = useState<string | null>(null);
   const [askDelete, setAskDelete] = useState(false);
   const [acts, setActs] = useState<LsxActivity[] | null>(null);
@@ -306,7 +309,7 @@ export function LsxDetailView({
     if (!token) return;
     // Không có quyền đọc danh mục → để null, ô hiện read-only thay vì select rỗng (select rỗng
     // + lưu = xoá trắng dữ liệu).
-    api.congDoan.list(token).then((r) => setCongDoanRefs(r.items.map((c) => ({ id: c.id, ten: c.ten })))).catch(() => setCongDoanRefs(null));
+    api.congDoan.list(token).then((r) => setCongDoanRefs(r.items.map((c) => ({ id: c.id, ten: c.ten, nhomMayChoPhep: c.nhom_may_cho_phep })))).catch(() => setCongDoanRefs(null));
     crud("/api/cong-doan/phong-ban").list(token).then((r) => setToRefs(r.items.map((t) => ({ id: t.id, ten: t.ten })))).catch(() => setToRefs(null));
     // Giữ luôn TỐC ĐỘ + CHUẨN BỊ của máy: form phải tính lại thời lượng ngay khi đổi máy, chứ
     // không đợi lưu rồi server mới trả số về (xem `RefRow`).
@@ -502,6 +505,9 @@ export function LsxDetailView({
       setForm(toForm(r));
       setActs(null);
       setRoutingDirty(false);
+      // Lưu THÀNH CÔNG nhưng server có thể đã gỡ đầu việc mồ côi (danh mục đổi dưới chân lệnh) —
+      // bày lưu ý đích danh bước để mở lại chọn đầu việc, thay cho việc chặn cứng nút Lưu như trước.
+      setBoDauViec(r.bo_dau_viec ?? []);
       api.lsx.phuThuocOptions(token, d.id).then(setPhuThuocRefs).catch(() => {});
       onChanged();
     } catch (e: unknown) {
@@ -578,6 +584,11 @@ export function LsxDetailView({
       </div>
     );
   }
+
+  // Đơn đã hủy → khóa hẳn routing: ẩn tab (không chỉ khóa sửa), khớp server đã chặn PUT
+  // /routing khi order.status = cancelled (lsx_service.replace_routing).
+  const orderCancelled = d.order_status === "cancelled";
+  const visibleTabs = orderCancelled ? TABS.filter((t) => t.key !== "routing") : TABS;
 
   const qc = (d.quy_cach_json ?? {}) as Record<string, unknown>;
   const n = (k: string): number => Number(qc[k] ?? 0);
@@ -761,15 +772,6 @@ export function LsxDetailView({
                 <Icon name="check" size={14} /> Đủ dữ liệu
               </span>
             )}
-
-            {d.canh_bao.length > 0 && (
-              <span
-                className="khsx-topbar__tag khsx-topbar__tag--info"
-                title={d.canh_bao.map((c) => nhanMa(LSX_CANH_BAO_LABELS, c, dvChuoi)).join("; ")}
-              >
-                <Icon name="help" size={13} /> {d.canh_bao.length} lưu ý
-              </span>
-            )}
           </div>
 
           {/* Nút hành động CTA & Nút Lưu khi Form thay đổi */}
@@ -909,10 +911,38 @@ export function LsxDetailView({
       {readyErr && <BangLoi text={readyErr} onRetry={load} />}
       {err && <BangLoi text={err} onRetry={load} />}
 
+      {boDauViec.length > 0 && (
+        <div className="khsx-luuy" role="status">
+          <p className="khsx-luuy__title">
+            <Icon name="alert" size={15} />
+            Đã lưu — nhưng gỡ đầu việc mồ côi ở {boDauViec.length} bước
+            <button
+              type="button"
+              className="khsx-luuy__x"
+              aria-label="Đóng lưu ý"
+              onClick={() => setBoDauViec([])}
+            >
+              <Icon name="x" size={14} />
+            </button>
+          </p>
+          <ul className="khsx-luuy__list">
+            {boDauViec.map((b) => (
+              <li key={b.vi_tri}>
+                <strong>Bước {b.vi_tri} · {b.ten}:</strong>{" "}
+                đầu việc “{b.dau_viec}” không còn thuộc công đoạn/tổ hiện tại nên đã gỡ.
+              </li>
+            ))}
+          </ul>
+          <p className="khsx-luuy__foot">
+            Mở tab Công đoạn, vào từng bước trên để chọn lại đầu việc phù hợp (nếu cần).
+          </p>
+        </div>
+      )}
+
       <div className="khsx-detail__grid">
         <div className="khsx-detail__main">
           <div className="khsx-tabs" role="tablist" aria-label="Nội dung lệnh sản xuất">
-            {TABS.map((t) => (
+            {visibleTabs.map((t) => (
               <button
                 key={t.key}
                 type="button"
@@ -1419,7 +1449,7 @@ export function LsxDetailView({
             </section>
           )}
 
-          {tab === "routing" && (
+          {tab === "routing" && !orderCancelled && (
             <section className="khsx-panel" role="tabpanel" id="khsx-panel-routing" aria-labelledby="khsx-tab-routing" tabIndex={0}>
               <div className="khsx-spec__card">
                 <div className="khsx-spec__card-head">

@@ -17,7 +17,7 @@ ASSIGNABLE = (
     "makeready_time_default",
     "so_nhan_cong",
     "kho_max_dai", "kho_max_rong", "kho_min_dai", "kho_min_rong",
-    "kho_kem_dai", "kho_kem_rong", "vung_in_dai", "vung_in_rong", "gripper_mm", "nhip_giay_mm",
+    "kho_kem_dai", "kho_kem_rong", "vung_in_dai", "vung_in_rong", "nhip_giay_mm",
     "le_hong_mm", "duoi_thang_mau_mm",
     "fields_theo_loai", "active",
 )

@@ -21,6 +21,7 @@ from ..models.employee import (
     EmployeeShiftChangeLog,
     EmployeeShiftDay,
     JobGrade,
+    STATUS_PROBATION,
 )
 from ..models.profile_request import ProfileUpdateRequest
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
@@ -176,6 +177,22 @@ class EmployeeRepository:
         if cond is not None:
             stmt = stmt.where(cond)
         return list(self.db.execute(stmt).scalars())
+
+    def list_probation_qua_han(self, *, moc: date, den_ngay: date) -> list[Employee]:
+        """Hồ sơ ĐANG thử việc mà Ngày hết thử việc đã trôi qua — nguồn cho việc máy tự đánh dấu
+        "Hết thử việc".
+
+        `moc` = ngày bật tính năng. Chỉ lấy hồ sơ có ngày hết hạn TỪ mốc trở đi; ai hết hạn trước
+        mốc là dữ liệu tồn của thời chưa có tính năng, chủ chốt 22/08/2026 là KHÔNG đụng. Ngày để
+        trống ⇒ không có mốc nào để so ⇒ tự rơi ra ngoài."""
+        return list(self.db.execute(
+            select(Employee).where(
+                Employee.status == STATUS_PROBATION,
+                Employee.probation_end_date.is_not(None),
+                Employee.probation_end_date >= moc,
+                Employee.probation_end_date < den_ngay,
+            ).order_by(asc(Employee.probation_end_date))
+        ).scalars())
 
     def list_by_department(self, department_id: int) -> list[Employee]:
         """Mọi hồ sơ thuộc MỘT phòng, sắp theo mã (không phân trang, không lọc scope) —

@@ -34,38 +34,6 @@ progress.md ĐÃ CŨ (dừng ở RBAC) — ĐỪNG tin nó để biết trạng 
 ## Cách làm việc mình muốn (đọc kỹ — đây là chỗ hay bị sai ý)
 
 - ĐANG BÀN THIẾT KẾ thì CHỈ bàn + viết doc. KHÔNG đụng code/schema cho tới khi mình nói "làm đi".
-- TRƯỚC KHI ghi file: hiện nội dung trong chat và chờ mình xác nhận.
-- Tính năng mới → GỘP vào màn/luồng đang có, ĐỪNG dựng màn/loại/luồng riêng. Không rõ gộp vào
-  đâu thì HỎI trước, đừng tự tạo mới.
-- Làm UI theo 2 BƯỚC, 2 AGENT KHÁC NHAU:
-  1. Agent SOI & THIẾT KẾ: đánh giá UI hiện tại TRƯỚC (soi bằng `ui-ux-pro-max`) — UI cũ nhiều
-     chỗ xấu/chưa đúng ý, ĐỪNG bê nguyên; rồi chốt design. Màn MỚI → bám pattern màn đã ưng
-     (list badge + pill + drawer, kiểu RebuildCatalogPage) cho nhất quán. Màn CŨ → soi kỹ, sửa
-     chỗ dở, đừng chép lỗi cũ.
-  2. Agent BUILD (KHÁC agent soi): dựng UI theo design đã chốt. Khi giao phải truyền ĐỦ ngữ cảnh
-     (design đã chốt + luật + dữ liệu + ràng buộc), đừng quăng task cụt.
-- UI/UX: ít thao tác + gợi ý rule-based từ data sẵn có; đừng thêm khối UI vô nghĩa; đừng đánh đổi
-  chất lượng dữ liệu để bớt click.
-
-## Chống over-engineer (rút từ vụ 13/08/2026 — đọc trước khi định "dọn dẹp" cái gì)
-
-Bối cảnh: mình kêu màn Đơn vị có HAI khối công thức nhìn như trùng nhau. Việc cần làm là sửa MÀN
-(2 file FE). Claude đi rút cột `don_vi_quy_doi.cong_thuc` khỏi 11 file backend — trong khi cột đó
-có 4 dòng đang chạy và 3 nơi đang ăn (tiền khoán · kế hoạch vật tư · BOM). Kết quả: 3 lần lỗi dây
-chuyền, lần cuối làm màn Lệnh sản xuất 500 (`_doc_cap` đổi 4→3 phần tử, `_dong_tren_duong` vẫn
-đọc `[3]`). Phải hoàn tác toàn bộ.
-
-- **Sửa ĐÚNG TẦNG được kêu.** Kêu về UI thì sửa UI. Muốn đụng schema/engine phải nói lý do và chờ
-  duyệt — "cho nhất quán" KHÔNG phải lý do.
-- **Trước khi gọi cái gì là "thừa": đếm dữ liệu thật (`count(*)`) + grep nơi gọi.** Không có số thì
-  không được dùng chữ "thừa". (Vụ "chờ kỹ thuật" cùng ngày làm ĐÚNG thứ tự này: 0/24 · 0/10 · 0/14
-  ⇒ xoá an toàn. Vụ này làm ngược ⇒ vỡ.)
-- **Tách "ngưng dùng" khỏi "xoá đi".** Làm cái ĐẢO ĐƯỢC trước (đổi UI, ngưng đẻ dòng mới) rồi DỪNG.
-  Cái không đảo được (rút cột, sửa engine) chờ lượt sau, chờ mình gật.
-- **Test in ra rỗng = CHƯA CHẠY, không phải xanh.** Không thấy dòng `N passed` thì đừng xây tiếp.
-  (Ba lần `pytest` sai thư mục in ra rỗng, bị đọc nhầm thành pass.)
-- **Ngưỡng hỏi tính bằng ĐỘ KHÓ GỠ, không phải độ phân vân.** Trên 3 file, hoặc đụng thứ có dữ liệu
-  sống → hỏi. Còn lại tự quyết, đừng hỏi lại câu mình đã trả lời.
 
 ## Nguyên tắc sản phẩm
 
@@ -84,4 +52,17 @@ chuyền, lần cuối làm màn Lệnh sản xuất 500 (`_doc_cap` đổi 4→
 
 - docs/DOMAIN_NHA_MAY_IN.md — nghiệp vụ in offset (đọc trước khi động vào tính giá).
 - docs/DB_SCHEMA.md — từ điển dữ liệu mọi bảng/cột.
+- docs/CONG_THUC_TINH_LUONG.md — TOÀN BỘ công thức lương đang chạy, neo tới `file:line`. Đọc TRƯỚC
+  khi sửa engine lương. Phần 13 = chỗ engine cố ý làm khác thông lệ (đừng "sửa" thành đúng luật mà
+  không hỏi); Phần 14 = lỗi thật đã biết, kèm bản vá.
+- docs/SO_TAY_TINH_LUONG_KE_TOAN.md — CÙNG nội dung đó nhưng cho KẾ TOÁN đọc: gọi bằng tên màn
+  hình/tên ô, không một dòng code. Sửa công thức thì phải sửa CẢ HAI file, nếu không hai bên nói
+  hai kiểu.
+- docs/RBAC_QUYEN_THEO_MODULE.md — bật ô quyền này thì LÀM ĐƯỢC GÌ, theo từng module. Chỉ 4 phân
+  hệ của mình (Nhân sự & Lương · Mua hàng · Kế toán · Giao hàng). Nguồn là `PermissionMatrix.tsx`.
+- docs/RBAC_VAI_TRO.md — VAI nào đang giữ gì. §4 sinh thẳng từ `seed.ROLES` bằng
+  `backend/scripts/xuat_ma_tran_quyen.py` — đừng sửa tay phần đó, chạy lại script.
+- docs/prd-thanh-pham.md — danh mục Thành phẩm: chốt đơn là hệ TỰ KHAI hàng của đơn vào danh mục
+  để kho nhập/xuất được. §3 giải thích vì sao "menu riêng nhưng CHUNG bảng `vat_tu_in_an`" —
+  đừng tách bảng, tách là kéo theo `hang_loai` thứ ba và phải sửa 8 chỗ trong code bên kho.
 - docs/spec-*.md — spec từng phân hệ (tính giá, công đoạn, máy, sản phẩm, lương, nhân sự, bình bài).

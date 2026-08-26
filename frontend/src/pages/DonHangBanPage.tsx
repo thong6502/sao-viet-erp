@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon, type IconName } from "../components/Icons";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
+import { TaoYeuCauGiaoHang } from "./giao-hang/tao-yeu-cau";
 import {
   api,
   ApiError,
@@ -19,7 +20,7 @@ import {
   type SalesInvoiceListOut,
   type SalesInvoiceRow,
 } from "../api/client";
-import { DeliveryNotePrint } from "./DeliveryNotePrint";
+import { DeliveryNotePrint } from "./giao-hang/phieu-giao-hang";
 import { gopTheoNhom } from "../utils/gop-nhom";
 import "./don-hang-ban.css";
 
@@ -114,7 +115,9 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
   // `create` KHÔNG còn được dùng ở màn này (đơn sinh từ Báo giá) — quyền vẫn tồn tại, gác ở đó.
   const canUpdate = can("don_hang_ban", "update");
   const canRecordDeposit = can("don_hang_ban", "record_deposit");
-  const canApproveException = can("don_hang_ban", "approve_exception");
+  // Hủy đơn đã chốt MẶC ĐỊNH BẬT cho vai có Sửa đơn (gỡ công tắc `approve_exception` 24/08/2026;
+  // luồng "duyệt đơn đặc thù" vốn đã bỏ nên cờ này giờ chỉ còn gác việc hủy đơn đã chốt).
+  const canApproveException = true;
   const canManageStatus = can("don_hang_ban", "manage_status");
 
   const [tab, setTab] = useState("all");
@@ -433,7 +436,9 @@ function OrderDrawer({
   const sxDone = false;
   const sxState: "chua" | "cho_kh" | "chay" =
     !sxReleased ? "chua" : lenhs.length === 0 ? "cho_kh" : "chay";
-  const sxText = { chua: "chưa chuyển", cho_kh: "chờ kế hoạch", chay: "đang chạy" }[sxState];
+  const sxText = order.status === "cancelled"
+    ? "đơn đã hủy"
+    : { chua: "chưa chuyển", cho_kh: "chờ kế hoạch", chay: "đang chạy" }[sxState];
 
   const doneSeg = (isChotDone ? 1 : 0) + (isCocDone ? 1 : 0) + (sxDone ? 1 : 0);
 
@@ -457,9 +462,13 @@ function OrderDrawer({
   }, [token, order.id]);
 
   useEffect(() => {
-    const defaultStep = !isChotDone ? "chot" : !isCocDone ? "coc" : !sxDone ? "sanxuat" : "giao";
+    // Đơn hủy → dừng chuỗi tại "Chốt" (đã có khối lý-do-hủy riêng), đừng để mặc định trôi
+    // xuống bước sau như thể lệnh còn đang chờ xử lý.
+    const defaultStep = order.status === "cancelled"
+      ? "chot"
+      : !isChotDone ? "chot" : !isCocDone ? "coc" : !sxDone ? "sanxuat" : "giao";
     setActiveStep(defaultStep);
-  }, [order.id, isChotDone, isCocDone, sxDone]);
+  }, [order.id, order.status, isChotDone, isCocDone, sxDone]);
 
   return (
     <div
@@ -619,6 +628,17 @@ function OrderDrawer({
                 <ProductionHintEditor order={order} onSaved={onSaved} />
               )}
 
+              {/* Giao hàng (19/08/2026) — khúc SAU của đơn, nên đứng ngay trong màn đơn chứ không
+                  bắt Bán hàng nhớ mã đơn rồi sang màn khác gõ lại. Tự ẩn nếu không có ô `giao_hang`. */}
+              {order.status === "ordered" && (
+                <TaoYeuCauGiaoHang
+                  orderId={order.id}
+                  diaChiMacDinh={order.delivery_address}
+                  nguoiNhanMacDinh={order.delivery_contact_name}
+                  sdtMacDinh={order.delivery_contact_phone}
+                />
+              )}
+
               {/* Vòng đời đơn */}
               <Section title="Vòng đời đơn">
                 <div className="dhb__lifecycle-header">
@@ -762,12 +782,18 @@ function OrderDrawer({
                   <div className="dhb__lifecycle-box">
                     <div className="dhb__lifecycle-box-header">
                       <h4 className="dhb__lifecycle-box-title">Sản xuất</h4>
-                      <span className={`dhb__lifecycle-badge ${sxDone ? "dhb__lifecycle-badge--done" : sxReleased ? "dhb__lifecycle-badge--active" : "dhb__lifecycle-badge--upcoming"}`}>
+                      <span className={`dhb__lifecycle-badge ${order.status === "cancelled" ? "dhb__lifecycle-badge--cancelled" : sxDone ? "dhb__lifecycle-badge--done" : sxReleased ? "dhb__lifecycle-badge--active" : "dhb__lifecycle-badge--upcoming"}`}>
                         {sxText.toUpperCase()}
                       </span>
                     </div>
                     <div style={{ marginTop: 4 }}>
-                      {order.status !== "ordered" ? (
+                      {order.status === "cancelled" ? (
+                        <p style={{ color: "var(--ash)", fontSize: 12, margin: 0 }}>
+                          {sxReleased
+                            ? "Đơn đã hủy — trước đó đã chuyển xuống sản xuất nhưng chưa lên lệnh nào."
+                            : "Đơn đã hủy, chưa từng chuyển xuống sản xuất."}
+                        </p>
+                      ) : order.status !== "ordered" ? (
                         <p style={{ color: "var(--ash)", fontSize: 12, margin: 0 }}>Đơn phải chốt trước mới chuyển xuống sản xuất được.</p>
                       ) : !sxReleased ? (
                         order.deposit_ok ? (
@@ -1153,10 +1179,13 @@ function InvoicePanel({
                   <th>Đã thu</th>
                   <th>Còn nợ</th>
                   <th>Trạng thái</th>
+                  {/* Nút Hủy ĐỨNG CỘT RIÊNG: nhét dưới chip trạng thái làm ô đó cao gấp đôi và
+                      chữ "Hủy" đỏ trông như một trạng thái thứ hai của hóa đơn. */}
+                  <th className="dhb__text-right">Thao tác</th>
                 </tr>
               </thead>
               <tbody>
-                {book.items.length === 0 && <tr><td colSpan={7}>Chưa ghi nhận hóa đơn.</td></tr>}
+                {book.items.length === 0 && <tr><td colSpan={8}>Chưa ghi nhận hóa đơn.</td></tr>}
                 {book.items.map((item) => (
                   <tr key={item.id} className={item.status === "cancelled" ? "is-cancelled" : ""}>
                     <td><strong>{item.invoice_symbol ? `${item.invoice_symbol} · ` : ""}{item.invoice_number}</strong><small>{item.created_by_name ?? "—"}</small></td>
@@ -1169,10 +1198,23 @@ function InvoicePanel({
                       <span className={`dhb__invoice-status ${item.status === "issued" ? "is-issued" : "is-cancelled"}`}>
                         {item.status === "issued" ? "Đã ghi" : "Đã hủy"}
                       </span>
-                      {item.status === "issued" && canCancel && (
+                    </td>
+                    <td className="dhb__text-right">
+                      {/* ĐÃ CÓ PHIẾU THU thì KHÔNG bày nút hủy (chủ 22/08/2026: "đã lập phiếu thu
+                          rồi sao lại cho phép hủy hóa đơn"). Máy chủ vốn đã chặn — "Hóa đơn đã có
+                          phiếu thu gắn vào; hãy hủy phiếu thu trước" — nên bày nút ở đây chỉ là
+                          mời người ta bấm vào một cái báo lỗi.
+                          Dùng `direct_received_amount` chứ không phải `received_amount`: cọc cấn
+                          trừ gắn với ĐƠN, không phải hóa đơn, nên nó không chặn hủy. */}
+                      {item.status === "issued" && canCancel && item.direct_received_amount <= 0 && (
                         <button type="button" className="dhb__invoice-cancel" title="Hủy hóa đơn" onClick={() => { setCancelTarget(item); setCancelReason(""); setFormError(null); }}>
                           Hủy
                         </button>
+                      )}
+                      {item.status === "issued" && canCancel && item.direct_received_amount > 0 && (
+                        <small className="dhb__muted" title="Hủy phiếu thu trước rồi mới hủy được hóa đơn">
+                          đã thu — không hủy
+                        </small>
                       )}
                     </td>
                   </tr>
@@ -1467,7 +1509,20 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
   return (
     <div style={{ display: "grid", gap: 8 }}>
       <Field label="Số PO khách"><input value={po} onChange={(e) => setPo(e.target.value)} className="dhb__input" /></Field>
-      <Field label="% cọc"><input type="number" min={0} max={100} value={depositPct} onChange={(e) => setDepositPct(e.target.value)} placeholder="vd 30" className="dhb__input" /></Field>
+      <Field label="% cọc">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={depositPct}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/[^0-9]/g, "");
+            setDepositPct(digits === "" ? "" : String(Math.min(100, Number(digits))));
+          }}
+          placeholder="vd 30"
+          className="dhb__input"
+        />
+      </Field>
       <Field label="Ngày giao cam kết"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="dhb__input" /></Field>
       {/* Địa chỉ giao + người nhận LUÔN hiện, và LẤY TỪ HỒ SƠ KHÁCH — không gõ tay ở đơn (gõ tay
           là đẻ dữ liệu khách nằm rải rác ngoài hồ sơ). Khách chưa khai thì dropdown vẫn hiện,

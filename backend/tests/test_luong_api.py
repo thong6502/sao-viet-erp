@@ -54,7 +54,11 @@ def _sales_token() -> str:
 def _make_emp(client, token, *, name, payroll_group=None, pay_grade_key=None,
               gender="male", hire_date="2020-01-01", status=None) -> int:
     body = {"full_name": name, "department_id": _dept_id("Hành chính nhân sự"),
-            "hire_date": hire_date, "gender": gender}
+            "hire_date": hire_date, "gender": gender,
+            # Hồ sơ mặc định là THỬ VIỆC và ô ngày này nay là bắt buộc. Chọn mốc TRƯỚC ngày bật
+            # "tự đánh dấu hết thử việc" (22/08/2026) nên hàm quét cố ý bỏ qua — hồ sơ đứng yên ở
+            # "probation" đúng như các test này vẫn giả định.
+            "probation_end_date": "2025-12-31"}
     if payroll_group:
         body["payroll_group"] = payroll_group
     if pay_grade_key:
@@ -273,6 +277,43 @@ def test_probation_no_bhxh(client):
                          standard_cong=26, on=date(2026, 6, 1))
         assert v["bhxh"] == 0 and v["insurance_base"] == 0
         assert v["luong_cong"] == round(12_000_000 * 0.80)   # thử việc 80% (mặc định công ty)
+    finally:
+        db.close()
+
+
+def test_HET_THU_VIEC_cho_xac_nhan_van_an_tien_THU_VIEC(client):
+    """Chủ chốt 22/08/2026: máy đổi trạng thái, KHÔNG đổi tiền.
+
+    "Hết thử việc · chờ xác nhận" phải ra ĐÚNG từng đồng như "Thử việc" — vẫn 80% mức nền, vẫn
+    không đóng BHXH. Chỉ khi HCNS bấm "Chuyển chính thức" (`active`) mới lên nguyên mức.
+    Test này đỏ nếu ai đó gỡ `STATUS_PROBATION_ENDED` khỏi `is_probation` trong engine."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        svc.payroll.create_rule(payroll_group="pb_grp2", monthly_amount=12_000_000,
+                                effective_from=date(2020, 1, 1))
+        params = svc.get_params()
+        chung = dict(hire_date=date(2026, 5, 1), gender="male",
+                     payroll_group="pb_grp2", pay_grade_key=None)
+
+        def tinh(status):
+            return svc._compute(employee=SimpleNamespace(status=status, **chung),
+                                salary=_sal(luong_vi_tri=12_000_000), params=params,
+                                actual_cong=26, standard_cong=26, on=date(2026, 6, 1))
+
+        tv = tinh("probation")
+        het = tinh("probation_ended")
+        ct = tinh("active")
+
+        assert het["luong_cong"] == tv["luong_cong"] == round(12_000_000 * 0.80)
+        assert het["bhxh"] == tv["bhxh"] == 0
+        assert het["insurance_base"] == tv["insurance_base"] == 0
+        assert het["gross"] == tv["gross"]
+        assert het["pit"] == tv["pit"]
+        assert het["is_probation"] is True and tv["is_probation"] is True
+        # Và phải KHÁC người đã chính thức — nếu bằng nhau thì chốt "tiền không đổi" đã vỡ.
+        assert ct["luong_cong"] == 12_000_000 and ct["luong_cong"] != het["luong_cong"]
     finally:
         db.close()
 
@@ -2100,6 +2141,9 @@ def _set_pit_mode(client, token, eid, mode):
     emp = emp.get("employee", emp)
     body = {"full_name": emp["full_name"], "department_id": emp["department_id"],
             "hire_date": emp["hire_date"], "pit_mode": mode,
+            # PUT ghi đè TOÀN PHẦN ⇒ không chép lại ô này là xoá trắng ngày hết thử việc,
+            # mà hồ sơ đang thử việc thì nay bị chặn. Lấy đúng giá trị vừa GET về.
+            "probation_end_date": emp.get("probation_end_date"),
             "dependents_count": emp.get("dependents_count", 0)}
     r = client.put(f"/api/employees/{eid}", json=body, headers=_h(token))
     assert r.status_code == 200, r.text
@@ -2136,7 +2180,8 @@ def test_nguoi_phu_thuoc_lay_muc_tu_cau_hinh(client):
     emp = emp.get("employee", emp)
     assert client.put(f"/api/employees/{eid}", json={
         "full_name": emp["full_name"], "department_id": emp["department_id"],
-        "hire_date": emp["hire_date"], "dependents_count": 2}, headers=_h(token)).status_code == 200
+        "hire_date": emp["hire_date"], "dependents_count": 2,
+        "probation_end_date": emp.get("probation_end_date")}, headers=_h(token)).status_code == 200
     hai_npt = _gen_line(client, token, eid)["pit_taxable"]
     assert khong_npt - hai_npt == 2 * p["deduction_dependent"]
 

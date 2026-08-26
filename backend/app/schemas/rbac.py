@@ -53,6 +53,13 @@ class DepartmentSummaryOut(BaseModel):
     la_kinh_doanh: bool = False
     # Tổ KIỂM TRA CHẤT LƯỢNG (KCS) — cờ ĐÍCH DANH, không kế thừa cây con (module Thực hiện SX §3.1).
     is_kcs: bool = False
+    la_giao_hang: bool = False
+    # --- Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật ------------------
+    #: Đơn giá mỗi km, là số TÀI XẾ ĐƯỢC HƯỞNG (không còn tầng % nào nữa).
+    don_gia_km: float = Field(default=0, ge=0)
+    #: Chia tiền một chuyến cho kíp xe. HAI ô BẮT BUỘC cộng đúng 100 — service chặn.
+    pct_tai_xe: float = Field(default=60, ge=0, le=100)
+    pct_phu_xe: float = Field(default=40, ge=0, le=100)
     role_count: int = 0
     user_count: int = 0
     employee_count: int = 0
@@ -107,6 +114,13 @@ class DepartmentCreate(BaseModel):
     la_kinh_doanh: bool = False
     # Tổ KCS — mặc định không phải KCS.
     is_kcs: bool = False
+    la_giao_hang: bool = False
+    # --- Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật ------------------
+    #: Đơn giá mỗi km, là số TÀI XẾ ĐƯỢC HƯỞNG (không còn tầng % nào nữa).
+    don_gia_km: float = Field(default=0, ge=0)
+    #: Chia tiền một chuyến cho kíp xe. HAI ô BẮT BUỘC cộng đúng 100 — service chặn.
+    pct_tai_xe: float = Field(default=60, ge=0, le=100)
+    pct_phu_xe: float = Field(default=40, ge=0, le=100)
 
 
 class DepartmentUpdate(BaseModel):
@@ -128,6 +142,13 @@ class DepartmentUpdate(BaseModel):
     # Tổ KCS. KHÔNG gửi = giữ nguyên (router lọc theo `model_fields_set`) — cùng lý do như
     # `la_kinh_doanh`: nhiều luồng sửa chỉ đụng tên/trưởng phòng, ghi đè mặc định là âm thầm gỡ cờ.
     is_kcs: bool = False
+    la_giao_hang: bool = False
+    # --- Khoán km giao hàng (mg 0231) — chỉ có nghĩa khi `la_giao_hang` bật ------------------
+    #: Đơn giá mỗi km, là số TÀI XẾ ĐƯỢC HƯỞNG (không còn tầng % nào nữa).
+    don_gia_km: float = Field(default=0, ge=0)
+    #: Chia tiền một chuyến cho kíp xe. HAI ô BẮT BUỘC cộng đúng 100 — service chặn.
+    pct_tai_xe: float = Field(default=60, ge=0, le=100)
+    pct_phu_xe: float = Field(default=40, ge=0, le=100)
     # `ca_lam_ids` ĐÃ BỎ (2026-08-10): ca khai một chỗ duy nhất ở Nhân sự → Ca kíp, không lặp lại
     # ở từng tổ. Cột còn trong DB nhưng không nhận/không trả.
 
@@ -341,6 +362,8 @@ class PermissionRow(BaseModel):
     can_manage_salary_profiles: bool = False  # luong — tab Lương nhân viên
     can_manage_piece_rates: bool = False      # luong — tab Lương khoán
     can_manage_leave_types: bool = False      # nghi_phep — danh mục loại nghỉ
+    can_plan: bool = False                    # giao_hang — tab Lên kế hoạch
+    can_view_drivers: bool = False            # giao_hang — tab Nhân viên giao hàng
     can_approve_exception: bool = False
     can_set_credit_terms: bool = False
     can_record_deposit: bool = False   # don_hang_ban — Kế toán ghi phiếu thu cọc

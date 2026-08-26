@@ -11,9 +11,10 @@ import { useTre } from "../../lib/useTre";
 import { ApiError } from "../../api/client";
 import { crud, type Row } from "../../api/rebuildCatalog";
 import { CatalogDrawer } from "./CatalogDrawer";
+import { ImportExcelDialog } from "./ImportExcelDialog";
 import { OTim } from "./OTim";
 import { XoaDanhMucDialog } from "./XoaDanhMucDialog";
-import { CircleXIcon, PlusIcon, TrashIcon } from "./icons";
+import { CircleXIcon, DownloadIcon, PlusIcon, TrashIcon, UploadIcon } from "./icons";
 import type { CatalogConfig } from "./types";
 import "../rebuild-catalog.css";
 
@@ -32,9 +33,20 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
   // chỉ-đọc vẫn thấy đủ Thêm / Xóa / Bật lại, bấm xong mới ăn 403 — nút bày ra để rồi từ chối.
   // `moduleQuyen` bỏ trống (vd màn dùng trong test) = không gác, hành vi cũ y nguyên.
   const mQuyen = config.moduleQuyen;
-  const duocTao = !mQuyen || can(mQuyen, "create");
-  const duocXoa = !mQuyen || can(mQuyen, "delete");
+  // `khongTaoTay` / `khongXoa` là luật CỦA MÀN, đứng TRƯỚC quyền: có quyền tạo vẫn không tạo
+  // tay được, vì dòng ở đó do hệ sinh (xem `types.ts`).
+  const duocTao = !config.khongTaoTay && (!mQuyen || can(mQuyen, "create"));
+  const duocXoa = !config.khongXoa && (!mQuyen || can(mQuyen, "delete"));
   const duocBatLai = !mQuyen || can(mQuyen, "update");
+  // `enableClone` là luật CỦA MÀN (chỉ 5 danh mục khai tay có route `/clone`); quyền `clone` TÁCH
+  // khỏi `create` — vai được tạo mới (gõ tay) chưa chắc nên nhân bản hàng cũ (nhân đôi giá/công
+  // thức đang chạy mà không soát lại từng ô).
+  const duocClone = Boolean(config.enableClone) && (!mQuyen || can(mQuyen, "clone"));
+  // Import Excel (mục 1) — backend gác `/import-excel` bằng CÙNG quyền với `/create` (không phải
+  // một action "import" riêng), nên tái dùng thẳng `duocTao`. "Tải mẫu" không cần thêm gác: đọc
+  // được danh sách này (đang đứng ở màn) là đủ, backend cũng chỉ gác `/mau-excel` bằng quyền đọc.
+  const duocImport = Boolean(config.enableImport) && duocTao;
+  const [showImport, setShowImport] = useState(false);
   const api = useMemo(() => crud(config.prefix), [config.prefix]);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,18 +131,43 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
   /** Sau khi TẠO / SỬA / XÓA: tải lại cả bảng lẫn dữ liệu phụ. */
   const lamMoi = useCallback(() => { load(); setTick((t) => t + 1); }, [load]);
 
-  // Tab lọc: giữ THỨ TỰ khai sẵn, nối thêm giá trị TỰ DO người dùng đã khai (facet.dynamic) —
-  // nay đọc từ `facets` của máy chủ, vì màn chỉ cầm 20 dòng nên không tự quét ra được nữa.
+  // Danh mục THẬT làm nền cho hàng tab (`facet.source`, vd Nhóm máy). Nạp riêng và nạp lại sau
+  // mỗi lần ghi (`tick`): khai thêm một nhóm trong drawer là hàng tab phải có ngay chỗ của nó.
+  // Trước 22/08/2026 tab chỉ mọc từ SỐ ĐẾM của máy chủ (`GROUP BY` trên chính bảng đang xem), nên
+  // nhóm vừa tạo — chưa dòng nào thuộc về — im lặng như thể không lưu được.
+  const facetSource = config.facet?.source;
+  const [facetDm, setFacetDm] = useState<{ value: string; label: string }[] | null>(null);
+  useEffect(() => {
+    if (!token || !facetSource) { setFacetDm(null); return; }
+    let alive = true;
+    crud(facetSource).list(token, { page: 1, size: 200 })
+      .then((r) => {
+        if (!alive) return;
+        setFacetDm(r.items
+          .map((it) => String(it.ten ?? "").trim())
+          .filter(Boolean)
+          .map((v) => ({ value: v, label: v })));
+      })
+      // Hỏng thì để `null`: hàng tab lùi về đúng những giá trị máy chủ đang đếm được, KHÔNG bịa
+      // ra một danh sách tên nằm sẵn trong code (danh mục là động, tên trong code sớm muộn lệch).
+      .catch(() => { if (alive) setFacetDm(null); });
+    return () => { alive = false; };
+  }, [token, facetSource, tick]);
+
+  // Tab lọc: nền là danh mục thật (`source`) — hoặc danh sách khai cứng (`values`) với màn không
+  // có danh mục — rồi nối thêm giá trị TỰ DO đã có trong dữ liệu mà nền chưa liệt kê
+  // (`facet.dynamic`), đọc từ `facets` của máy chủ vì màn chỉ cầm 20 dòng.
   const facetValues = useMemo(() => {
     const f = config.facet;
     if (!f) return [];
-    if (!f.dynamic) return f.values;
-    const known = new Set(f.values.map((v) => v.value));
+    const nen = facetDm ?? f.values ?? [];
+    if (!f.dynamic) return nen;
+    const known = new Set(nen.map((v) => v.value));
     const them = Object.keys(facets)
       .filter((v) => v && !known.has(v))
       .sort((a, b) => a.localeCompare(b, "vi"));
-    return [...f.values, ...them.map((v) => ({ value: v, label: v }))];
-  }, [config.facet, facets]);
+    return [...nen, ...them.map((v) => ({ value: v, label: v }))];
+  }, [config.facet, facets, facetDm]);
 
   // Số cạnh tiêu đề và số trên tab "Tất cả": tổng theo Ô TÌM, KHÔNG theo tab đang chọn — đứng ở
   // tab "Bế" mà tiêu đề tụt xuống còn 3 thì người ta tưởng danh mục có 3 dòng.
@@ -164,6 +201,37 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
     }
   }
 
+  /** Nhân bản — server copy toàn bộ cột, tự đặt mã/tên "(bản sao)" không trùng. Mở luôn dòng mới
+   *  trong drawer để đổi tên/giá ngay, không bắt tìm lại nó giữa cả bảng. */
+  async function clone(r: Row) {
+    if (!token) return;
+    try {
+      const moi = await api.clone(token, r.id);
+      lamMoi();
+      onMutate?.();
+      setEditing(moi);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Không nhân bản được.");
+    }
+  }
+
+  /** Tải file mẫu Excel (mục 1) — chỉ dòng tiêu đề, không cần dialog riêng. */
+  async function taiMauExcel() {
+    if (!token) return;
+    try {
+      const url = await api.templateBlobUrl(token);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `mau-${config.prefix.split("/").pop()}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Không tải được file mẫu.");
+    }
+  }
+
   const facetCount = (v: string) => facets[v] ?? 0;
 
   return (
@@ -171,28 +239,30 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
     // `KhoHangView` cũng là `<main className="rc">` — đè theo `.rc` là rò ngược sang Kho.
     // Xem khối "GIÀNH LẠI …" ở cuối `rebuild-catalog.css`.
     <main className="rc rc--dm">
-      {/* HEADER — MỘT dạng cho cả 10 màn, ba hàng cố định trên một kẻ ngang:
+      {/* HEADER — MỘT dạng cho cả 13 màn, hai hàng cố định trên một kẻ ngang:
             1. tiêu đề · pill đếm ····· [+ Thêm …]
-            2. (chỉ khi có `subtitle`) một dòng giải thích
-            3. [ô tìm] ····· dải chip lọc │ công tắc "Hiện mục đã ngừng"
-          Trước đây bố cục rẽ theo việc `subtitle` có chữ hay không — một trường NỘI DUNG mà
-          quyết định KHUNG, nên hai màn bỏ trống nó (Công đoạn · Đơn vị) trông như màn của app
-          khác. Nay `subtitle` chỉ quyết định có render dòng chữ đó hay không. */}
+            2. [ô tìm] ····· dải chip lọc │ công tắc "Hiện mục đã ngừng" */}
       <header className="rc__head">
         <div className="rc__headrow">
           <h1 className="rc__title">{config.heading ?? config.title}</h1>
           <span className="rc__count">{tongTheoTim} mục</span>
           <div className="rc__spacer" />
+          {duocImport && (
+            <>
+              <Button variant="ghost" onClick={taiMauExcel} title="Tải file mẫu Excel — điền theo cột tiêu đề rồi nhập lại">
+                <DownloadIcon /> Tải mẫu
+              </Button>
+              <Button variant="ghost" onClick={() => setShowImport(true)}>
+                <UploadIcon /> Nhập Excel
+              </Button>
+            </>
+          )}
           {duocTao && (
             <Button variant="accent" onClick={() => setEditing("new")}>
               <PlusIcon /> Thêm {config.title.toLowerCase()}
             </Button>
           )}
         </div>
-
-        {/* Không có mô tả thì KHÔNG render thẻ rỗng: một `<p>` trống vẫn ăn margin, header của hai
-            màn cạnh nhau tụt lệch nhau vài pixel mà không ai hiểu vì sao. */}
-        {config.subtitle ? <p className="rc__sub">{config.subtitle}</p> : null}
 
         <div className="rc__filterbar">
           <OTim value={q} onChange={setQ} />
@@ -248,10 +318,20 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
           <thead>
             <tr>
               <th style={{ width: "14%" }}>Mã</th>
-              <th style={{ width: "16%" }}>Tên</th>
+              {/* TÊN là cột người ta đọc để nhận ra dòng — cho nó rộng nhất. 16% cũ làm tên sản
+                  phẩm xuống 2–3 dòng trong khi cột bên cạnh bỏ trống. */}
+              <th style={{ width: "24%" }}>Tên</th>
               {config.columns.map((c) => {
                 const isCenter = c.key === "bac" || c.key === "dai" || c.key === "active";
-                const w = c.key === "quy_doi_text" ? "34%" : c.key === "canh_bao" ? "12%" : c.key === "ghi_chu" ? "16%" : undefined;
+                // ⚠️ `table-layout: fixed` + `width: 100%`: cột KHÔNG khai bề rộng ăn TRỌN phần
+                // còn lại. Màn Thành phẩm chỉ có đúng một cột như vậy (ĐVT) nên nó chiếm 46% màn
+                // hình cho một chữ "hộp", còn Tên bị ép xuống 3 dòng (chủ báo 22/08/2026).
+                // ĐVT ở cả ba danh mục (Giấy · Vật tư khác · Thành phẩm) đều là một chip ngắn.
+                const w = c.key === "quy_doi_text" ? "34%"
+                  : c.key === "canh_bao" ? "12%"
+                  : c.key === "ghi_chu" ? "22%"
+                  : c.key === "don_vi_gia" ? "9%"
+                  : undefined;
                 return <th key={c.key} style={w ? { width: w } : undefined} className={isCenter ? "text-center" : ""}>{c.label}</th>;
               })}
               <th className="rc__actcol" style={{ width: "8%", textAlign: "right" }}>Hành động</th>
@@ -299,42 +379,68 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
               </tr>
             ) : rows.map((r) => {
               const noWrapKeys = ["ma", "dai", "bac", "active", "version_no", "gsm", "kho", "don_vi_gia", "don_gia", "kho_max", "so_to_bu_hao"];
+              // Cột chữ PHỤ (không phải định danh) — cắt 1 dòng + "…", đủ chữ xem lúc rê chuột
+              // (title). Thiếu luật này thì dòng nào rơi vào chữ dài (vd Ghi chú) là cao vọt hẳn
+              // lên so với dòng bên cạnh — bảng nhìn lởm chởm dù dữ liệu không có gì bất thường.
+              const clipKeys = [
+                "ghi_chu", "nhom", "don_vi_vao", "kieu_bu_hao",
+                // Cùng dạng "chữ phụ dài": tên khác của Ghi chú/Mô tả/Vị trí/Nhóm ở các danh mục
+                // khác (Công việc khoán, Chủng loại giấy, Lý do & lỗi SX, Kho hàng, Máy, Khuôn).
+                "note", "mo_ta", "vi_tri", "loai_may", "khach_hang_ten", "so_ke",
+                // Khuôn: "Ngày có khuôn" đổi giữa ngày ngắn và "dự kiến DD/MM/YYYY" dài hơn — cột
+                // hẹp nên bản ngắn cũng từng vỡ dòng ở đúng biên pixel; cắt 1 dòng cho chắc.
+                "ngay_ve_du_kien",
+                // Khuôn: "Loại" ("Khuôn ép nhũ / dập nổi") và "Tình trạng" ("Đang đặt làm") là
+                // nhãn ánh xạ nhưng có giá trị dài hơn hẳn số còn lại trong cùng cột — cột hẹp
+                // nên vỡ 2-3 dòng ngay cả khi các giá trị khác vẫn gọn 1 dòng.
+                "loai", "tinh_trang",
+              ];
               return (
                 <tr key={r.id} className={`rc__row${r.active === false ? " rc__row--ngung" : ""}`}
                   onClick={() => setEditing(r)}>
                   <td className="rc__mono rc__nowrap"><span className="rc__code-badge" title={String(r.ma)}>{String(r.ma)}</span></td>
                   <td className="rc__name">
-                    {/* ĐƯỜNG BÀN PHÍM để mở dòng. Cả hàng vẫn bấm được bằng chuột (tiện, quen tay),
-                        nhưng cái mở được bằng Tab + Enter/Space phải là một `<button>` THẬT nằm
-                        trong ô Tên — KHÔNG phải `role="button"` dán lên `<tr>`: gán vai nút cho
-                        hàng là xoá luôn vai "row" của nó, trình đọc màn hình mất cả cấu trúc bảng
-                        (không còn đọc được "cột Ghi chú: …"). Đặt trên TÊN cũng nói rõ chỗ nào
-                        bấm được — trước đây cả hàng bấm được mà không có dấu hiệu nào. */}
-                    <button type="button" className="rc__open"
-                      aria-label={`Mở ${String(r.ten)} (${String(r.ma)})`}
-                      onClick={() => setEditing(r)}>
-                      {String(r.ten)}
-                    </button>
-                    {r.active === false && (
-                      <span className="badge-sem badge-sem--muted" title="Đã ngừng dùng — không hiện ở ô chọn khi tạo mới, nhưng chứng từ cũ vẫn giữ nguyên">
-                        Đã ngừng
-                      </span>
-                    )}
-                    {Boolean(r.tram_dong_giay) && (
-                      <span className="badge-sem badge-sem--steel" title={`Trạm dòng giấy: ${String(r.tram_dong_giay)}`}>
-                        Trạm giấy
-                      </span>
-                    )}
+                    {/* Flex nằm trên DIV con, không phải trên `<td>`: `display:flex` thẳng trên ô
+                        bảng phá vỡ mô hình table-cell (trình duyệt tự bọc nó vào 1 cell ẩn cao
+                        bằng đúng nội dung), nên khi hàng bị kéo cao bởi cột bên cạnh (vd Bậc số
+                        lượng nhiều dòng), Tên bị dính lên đỉnh thay vì căn giữa như các cột khác. */}
+                    <div className="rc__name-inner">
+                      {/* ĐƯỜNG BÀN PHÍM để mở dòng. Cả hàng vẫn bấm được bằng chuột (tiện, quen tay),
+                          nhưng cái mở được bằng Tab + Enter/Space phải là một `<button>` THẬT nằm
+                          trong ô Tên — KHÔNG phải `role="button"` dán lên `<tr>`: gán vai nút cho
+                          hàng là xoá luôn vai "row" của nó, trình đọc màn hình mất cả cấu trúc bảng
+                          (không còn đọc được "cột Ghi chú: …"). Đặt trên TÊN cũng nói rõ chỗ nào
+                          bấm được — trước đây cả hàng bấm được mà không có dấu hiệu nào. */}
+                      <button type="button" className="rc__open"
+                        aria-label={`Mở ${String(r.ten)} (${String(r.ma)})`}
+                        onClick={() => setEditing(r)}>
+                        {String(r.ten)}
+                      </button>
+                      {r.active === false && (
+                        <span className="badge-sem badge-sem--muted" title="Đã ngừng dùng — không hiện ở ô chọn khi tạo mới, nhưng chứng từ cũ vẫn giữ nguyên">
+                          Đã ngừng
+                        </span>
+                      )}
+                      {Boolean(r.tram_dong_giay) && (
+                        <span className="badge-sem badge-sem--steel" title={`Trạm dòng giấy: ${String(r.tram_dong_giay)}`}>
+                          Trạm giấy
+                        </span>
+                      )}
+                    </div>
                   </td>
                   {config.columns.map((c) => {
                     const isCenter = c.key === "bac" || c.key === "dai" || c.key === "active";
+                    const isClip = clipKeys.includes(c.key);
                     const classes = [
                       isCenter ? "text-center" : "",
-                      noWrapKeys.includes(c.key) ? "rc__nowrap" : ""
+                      noWrapKeys.includes(c.key) ? "rc__nowrap" : "",
+                      isClip ? "rc__clip" : "",
                     ].filter(Boolean).join(" ");
+                    const noi = c.render ? c.render(r, extra ? (extra[String(r.id)] ?? null) : undefined) : (r[c.key] == null || r[c.key] === "" ? "" : String(r[c.key]));
+                    const meoChu = isClip && typeof noi === "string" && noi !== "" ? noi : undefined;
                     return (
-                      <td key={c.key} className={classes || undefined}>
-                        {c.render ? c.render(r, extra ? (extra[String(r.id)] ?? null) : undefined) : (r[c.key] == null || r[c.key] === "" ? "—" : String(r[c.key]))}
+                      <td key={c.key} className={classes || undefined} title={meoChu}>
+                        {noi}
                       </td>
                     );
                   })}
@@ -350,12 +456,20 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
                         </button>
                       )
                     ) : (
-                      duocXoa && (
-                        <button type="button" className="rc__link-btn rc__link-btn--danger" onClick={() => remove(r)} title="Xóa">
-                          <TrashIcon size={13} />
-                          <span>Xóa</span>
-                        </button>
-                      )
+                      <>
+                        {duocClone && (
+                          <button type="button" className="rc__link-btn" onClick={() => clone(r)}
+                            title="Nhân bản — tạo một dòng mới sao y dòng này, đổi tên rồi lưu">
+                            <span>Nhân bản</span>
+                          </button>
+                        )}
+                        {duocXoa && (
+                          <button type="button" className="rc__link-btn rc__link-btn--danger" onClick={() => remove(r)} title="Xóa">
+                            <TrashIcon size={13} />
+                            <span>Xóa</span>
+                          </button>
+                        )}
+                      </>
                     )}
                   </td>
                 </tr>
@@ -397,6 +511,16 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
           onClose={() => setConfirmDeleteRow(null)}
           onXong={() => { lamMoi(); onMutate?.(); }}
           onLoi={setError}
+        />
+      )}
+
+      {showImport && token && (
+        <ImportExcelDialog
+          prefix={config.prefix}
+          ten={config.title.toLowerCase()}
+          token={token}
+          onClose={() => setShowImport(false)}
+          onImported={() => { setShowImport(false); lamMoi(); onMutate?.(); }}
         />
       )}
     </main>

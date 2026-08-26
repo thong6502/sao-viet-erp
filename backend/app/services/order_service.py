@@ -34,6 +34,7 @@ from ..repositories.accounting_repo import AccountingRepository
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.order_repo import OrderRepository
 from ..repositories.quotation_repo import QuotationRepository
+from .thanh_pham_khai_bao import khai_cho_don
 from ..schemas.order import (
     EnumOption,
     OrderActivityItem,
@@ -107,6 +108,34 @@ def _unlink_attachment(url: str) -> None:
     key = key_from_url(url)
     if key:
         get_storage().delete(key)
+
+
+def _pct_hoa_hong_cua_sale(db, sale_user_id, *, on: date | None = None) -> float:
+    """% hoa hồng ĐANG hiệu lực của người sales tại ngày `on` (mặc định hôm nay), để chụp vào đơn.
+
+    Đọc `employee_salaries` (bảng versioned) qua `employees.user_id` — đơn ghi USER, mức lương thì
+    treo ở EMPLOYEE. Không tìm được người / chưa khai mức nào ⇒ 0, tức đơn không có hoa hồng.
+
+    ⚠️ PHẢI chặn `effective_from <= on`. Nhân sự khai trước "từ 01/12 lên 20%" là chuyện thường;
+    không chặn thì đơn chốt HÔM NAY chụp luôn mức của tháng sau, tức trả theo lời hứa CHƯA tới
+    hạn. Engine lương tra mức đúng kiểu này (`latest_salaries_map(on)`) — giữ CÙNG một nếp.
+
+    Hoà ngày thì bản lưu SAU thắng (`id` lớn hơn), y như chỗ tra mức lương.
+    """
+    if not sale_user_id:
+        return 0.0
+    from ..models.employee import Employee
+    from ..models.payroll import EmployeeSalary
+
+    emp = db.query(Employee).filter(Employee.user_id == int(sale_user_id)).first()
+    if emp is None:
+        return 0.0
+    ms = (db.query(EmployeeSalary)
+            .filter(EmployeeSalary.employee_id == emp.id,
+                    EmployeeSalary.effective_from <= (on or date.today()))
+            .order_by(EmployeeSalary.effective_from.desc(), EmployeeSalary.id.desc())
+            .first())
+    return float(getattr(ms, "commission_pct", 0) or 0)
 
 
 class OrderService:
@@ -644,6 +673,25 @@ class OrderService:
             quote = self.quotations.get_by_id(order.quotation_id)
             if quote is not None and quote.status != "converted_to_order":
                 quote.status = "converted_to_order"
+        # THÀNH PHẨM vào danh mục (mg 0203 · docs/prd-thanh-pham.md L1).
+        #
+        # Sản phẩm in là hàng ĐẶT RIÊNG — không có sẵn ở danh mục nào. Nhưng kho chỉ xuất được
+        # thứ CÓ trong danh mục (luật 08/08/2026), nên hệ khai hộ ngay lúc chốt: sản xuất xong
+        # là kho nhập kho được, không phải chờ ai đó nghĩ tới việc lập yêu cầu giao.
+        #
+        # CÙNG giao dịch với chốt, cố ý: chốt xong mà khai hỏng thì đơn đã `ordered` nhưng kho
+        # không có gì để nhập, và không ai biết cho tới lúc cần giao.
+        khai_cho_don(self.db, self.repo.get_with_lines(order.id))
+        # CHỤP ẢNH % hoa hồng của người sales vào đơn (mg 0227 · §4.6). Chụp lúc CHỐT chứ không
+        # đọc-sống: đổi % cho người ta từ tháng sau KHÔNG được làm đổi hoa hồng của đơn đã chốt
+        # tháng trước.
+        #
+        # KHÔNG phơi `commission_pct` ra API/giao diện, cố ý (chủ chốt 21/08/2026): cho sale gõ %
+        # trên chính đơn mình bán là để người ta tự viết phiếu lương của mình. % chỉ khai được ở
+        # HỒ SƠ LƯƠNG (Lương → Thiết lập lương), tức do nhân sự đặt, không do người hưởng đặt.
+        # Điều kiện `còn để 0` giữ lại để `confirm` chạy lại cũng không đổi số đã chụp.
+        if not float(order.commission_pct or 0):
+            order.commission_pct = _pct_hoa_hong_cua_sale(self.db, order.sale_user_id)
         self.db.commit()
         self.audit.create(actor_user_id=actor.id, action="confirm_order",
             target=f"order:{order.id}", detail=f"Chốt đơn {order.order_no}")

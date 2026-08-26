@@ -79,8 +79,11 @@ class PhieuMuaTom(BaseModel):
     ma: str
     #: `pmh` | `ycmh`. Hai chuỗi khác nhau, tra ở hai màn khác nhau, nên phải phân biệt được.
     loai: str
-    #: Trạng thái THÔ của chính phiếu đó (`pending_approval`, `approved`, `open`, `in_purchase`…);
-    #: FE tự dịch ra chữ. Gửi chữ Việt sẵn thì hai đầu lệch nhau lúc thêm trạng thái mới.
+    #: Trạng thái THÔ, FE tự dịch ra chữ (gửi chữ Việt sẵn thì hai đầu lệch nhau lúc thêm trạng
+    #: thái mới). Với `pmh` là trạng thái của chính phiếu (`pending_approval`, `approved`…).
+    #: Với `ycmh` là trạng thái của RIÊNG MÓN NÀY, không phải của yêu cầu cha — ngoài `open` còn
+    #: hai giá trị chỉ tồn tại ở cấp món: `dang_lap_don` (thu mua đang gõ phiếu nháp cho nó) và
+    #: `don_bi_tu_choi` (phiếu lập cho nó bị trả, đang chờ lập lại).
     trang_thai: str
     #: Ngày về NCC hẹn — chỉ PMH mới có, và cũng chỉ khi NCC đã chốt ngày.
     ngay_ve: date | None = None

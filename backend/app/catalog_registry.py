@@ -67,6 +67,13 @@ DANH_MUC: tuple[DanhMuc, ...] = (
     DanhMuc("giay", "dm_giay", "Giấy", "giay", model="models.vat_lieu_kho:GiayNguyen"),
     DanhMuc("vat_tu", "dm_vat_tu", "Vật tư khác", "vat-tu-in-an",
             model="models.vat_lieu_kho:VatTuInAn"),
+    # Thành phẩm CHUNG BẢNG với Vật tư khác (`vat_tu_in_an`), chia nhau bằng `customer_id` —
+    # xem docs/prd-thanh-pham.md §3. Bảng riêng thì kho phải học `hang_loai` thứ ba, mà cột đó
+    # nằm trong stock_lots · stock_vouchers · stock_requests · purchase.
+    #
+    # `model=None` là CỐ Ý: bộ đếm "còn ai dùng không" mà trỏ vào VatTuInAn thì nó đếm cả vật tư
+    # thường, trả ra con số sai cho cả hai màn. Không có bộ đếm còn hơn có bộ đếm nói dối.
+    DanhMuc("thanh_pham", "dm_thanh_pham", "Thành phẩm", "thanh-pham"),
     # `khuon_be` KHÔNG có tiền tố `dm_` — chuỗi này đã cấp quyền trong DB thật, đổi cần migration.
     DanhMuc("khuon_be", "khuon_be", "Khuôn bế", "khuon-be", model="models.khuon_be:KhuonBe"),
     DanhMuc("kho_hang", "dm_kho_hang", "Khai báo kho", "khai-bao-kho"),

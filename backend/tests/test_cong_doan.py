@@ -53,6 +53,24 @@ def test_crud_and_duplicate():
         svc.create(dict(ma="IN", ten="khác", nhom="print", pricing_basis="per_sheet"))
 
 
+def test_clone_khong_MA_TU_SINH_dung_hau_to_COPY():
+    """`CongDoanService` không đặt `MA_TU_SINH` ⇒ nhánh `ma_ban_sao()` chạy, không phải nhánh
+    xin mã tự sinh (khác `test_cong_viec_khoan.test_clone_...` — hai danh mục đi hai nhánh)."""
+    db, svc = _svc()
+    cd = svc.create(dict(ma="IN", ten="In offset", nhom="print",
+                         che_do_tinh="theo_san_luong", pricing_basis="per_finished_qty",
+                         first_unit_floor=350000))
+    ban_sao = svc.clone(cd.id)
+    assert ban_sao.id != cd.id
+    assert ban_sao.ma == "IN-COPY"
+    assert ban_sao.ten == "In offset (bản sao)"
+    assert ban_sao.nhom == "print" and ban_sao.pricing_basis == "per_finished_qty"
+
+    # Nhân bản LẦN NỮA từ chính dòng gốc: "-COPY" đã bị chiếm, phải lệch sang "-COPY2".
+    ban_sao_2 = svc.clone(cd.id)
+    assert ban_sao_2.ma == "IN-COPY2"
+
+
 def test_validate_basis():
     db, svc = _svc()
     with pytest.raises(CongDoanValidationError):          # E-CD-BASIS
@@ -112,6 +130,31 @@ def test_cong_doan_to_luu_dinh_muc_theo_dau_viec():
     assert dm.piece_rate_id == rate.id
     assert float(dm.nang_suat_nguoi_gio) == 500
     assert (dm.so_nguoi_tieu_chuan, dm.so_nguoi_toi_da) == (3, 5)
+
+
+def test_dau_viec_options_kem_ten_don_vi():
+    """Bảng định mức phải hiện TÊN đơn vị chứ không mã trần (`ma-0001`).
+
+    `dau_viec_options` lưu MÃ (`don_vi`) nhưng phải kèm `don_vi_ten` như mọi màn khác (Công việc
+    khoán · Máy · Vật tư): bày TÊN cho người khai, chỉ lùi về mã khi mã ngoài danh mục Đơn vị.
+    """
+    db, svc = _svc()
+    from app.models.don_vi_do import DonViDo
+
+    db.add(DonViDo(ma="hg", ten="hộp giấy", ho="khac"))   # tên KHÁC mã để phân biệt hai nhánh
+    to = Department(name="Tổ Gấp", code="PB950", la_san_xuat=True)
+    db.add(to)
+    db.flush()
+    db.add_all([
+        PieceRate(group_name="Tổ Gấp", department_id=to.id, ten="Gấp tay", unit="hg", unit_price=100),
+        PieceRate(group_name="Tổ Gấp", department_id=to.id, ten="Việc mã lạ", unit="mét tới", unit_price=50),
+    ])
+    db.commit()
+
+    opts = {o["ten"]: o for o in svc.dau_viec_options(to.id)}
+    assert opts["Gấp tay"]["don_vi"] == "hg"              # vẫn giữ MÃ cho engine
+    assert opts["Gấp tay"]["don_vi_ten"] == "hộp giấy"    # nhưng bày TÊN cho người khai
+    assert opts["Việc mã lạ"]["don_vi_ten"] is None       # mã ngoài danh mục ⇒ FE lùi về mã trần
 
 
 def test_dinh_muc_luu_dai_nang_suat_don_vi_va_ba_moc_nhan_luc():

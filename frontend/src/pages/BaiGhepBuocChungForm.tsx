@@ -659,7 +659,7 @@ export function BuocChungForm({
                     <option value="">— chọn đầu việc khoán —</option>
                     {dsKhoan.map((k) => (
                       <option key={k.id} value={k.id}>
-                        {k.don_vi ? `${k.ten} — ${num(k.don_gia)} đ/${k.don_vi}` : k.ten}
+                        {k.don_vi ? `${k.ten} — ${num(k.don_gia)} đ/${nhanDonVi(k.don_vi)}` : k.ten}
                       </option>
                     ))}
                   </select>

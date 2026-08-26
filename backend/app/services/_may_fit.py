@@ -1,6 +1,7 @@
 """Kiểm KHẢ NĂNG máy cho 1 công đoạn — soft-check "máy đề xuất, người quyết".
 
-Tách phần xoay-90° từ `lsx_service._may_khong_hop_kho` để xếp lịch dùng chung. Mọi tiêu chí ĐỘC LẬP,
+Tách phần xoay-90° từ `lsx_service._may_khong_hop_kho` (bản gốc đã gỡ 25/08/2026 cùng rổ cảnh
+báo mềm của lệnh) để xếp lịch dùng chung. Mọi tiêu chí ĐỘC LẬP,
 gate theo dữ liệu: thiếu khổ/số màu/định lượng hoặc máy chưa khai spec tương ứng → BỎ tiêu chí đó
 (không đoán, không dựng cảnh báo giả). KHÔNG chặn thao tác — chỉ trả cờ để UI cảnh báo.
 

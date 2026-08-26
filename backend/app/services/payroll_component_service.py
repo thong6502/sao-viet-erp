@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from ..models.employee import STATUS_ACTIVE, STATUS_PROBATION
+from ..models.employee import STATUS_ACTIVE, STATUS_PROBATION, STATUS_PROBATION_ENDED
 from ..models.payroll import COMPONENT_KINDS, COMPONENT_KIND_THU, PayrollComponent
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.payroll_component_repo import PayrollComponentRepository
@@ -43,6 +43,13 @@ _RESERVED: dict[str, str] = {
     # ô tay của chúng đã bị gỡ khỏi màn Sửa lương, nay khai bằng chính danh mục này để cờ
     # "Chịu thuế" khai được (trước bị đóng đinh chịu thuế). Thêm lại là chặn nhầm chính đường
     # duy nhất còn khai được.
+    # Từ mg 0227 hoa hồng KD do ENGINE tự tính theo hoá đơn bán ⇒ gõ tay thêm một khoản
+    # "Hoa hồng" nữa là trả HAI LẦN. Khoản hệ thống tên "Hoa hồng kinh doanh" nên slug đó cũng
+    # phải chặn, không thì tạo được bản sao y hệt nằm cạnh bản gốc.
+    "hoa_hong": "khoản \"Hoa hồng kinh doanh\" — engine tự tính theo hoá đơn bán trong kỳ",
+    "hoa_hong_kd": "khoản \"Hoa hồng kinh doanh\" — engine tự tính theo hoá đơn bán trong kỳ",
+    "hoa_hong_kinh_doanh": "khoản \"Hoa hồng kinh doanh\" — engine tự tính theo hoá đơn bán trong kỳ",
+    "hoa_hong_ban_hang": "khoản \"Hoa hồng kinh doanh\" — engine tự tính theo hoá đơn bán trong kỳ",
     "phep_nam": "tiền ngày nghỉ phép — engine tự tính từ chấm công",
     "tien_phep": "tiền ngày nghỉ phép — engine tự tính từ chấm công",
     "luong_ngay_phep": "tiền ngày nghỉ phép — engine tự tính từ chấm công",
@@ -54,6 +61,22 @@ _RESERVED: dict[str, str] = {
     "tam_ung": "phiếu tạm ứng (màn Lương → Tạm ứng)",
     "luong_dot_1": "phiếu thanh toán lương đợt 1",
 }
+
+
+# Khoản của HỆ THỐNG — engine tự tính, KHÔNG hiện trong màn "Danh mục khoản thu nhập".
+#
+# ⭐ Chốt của chủ 24/08/2026: *"cái danh mục cấu hình này làm khoản trợ cấp hoặc thưởng thôi mà
+# đừng dính cứng nó — mấy cái danh mục này họ thêm được và xoá được nha."* Màn đó là chỗ HCNS khai
+# phụ cấp/thưởng rồi gán cho TỪNG NGƯỜI. Hoa hồng không thuộc loại đó: nó chạy theo hoá đơn, áp
+# cho cả hệ thống.
+#
+# Để lẫn vào đấy sinh ra một cái bẫy thật: bấm nút xoá một "dòng phụ cấp" hoá ra là TẮT TÍNH NĂNG
+# hoa hồng của toàn công ty — `_hoa_hong_rows` kiểm `is_active` trước khi tính, tắt là mọi người
+# mất hoa hồng, không một lời cảnh báo.
+#
+# Giấu ở tầng service (không phải xoá dòng): dòng vẫn phải tồn tại vì `payroll_line_components`
+# cần `component_id` và cần `is_taxable` khai được. Chỉ là màn danh mục không còn nó để xoá nhầm.
+_HE_THONG: frozenset[str] = frozenset({"hoa_hong_kd"})
 
 
 class ComponentError(Exception):
@@ -102,8 +125,18 @@ class PayrollComponentService:
 
     # --- danh mục -----------------------------------------------------------
 
-    def list_components(self, *, active_only: bool = False) -> list[PayrollComponent]:
-        return self.components.list_components(active_only=active_only)
+    def list_components(self, *, active_only: bool = False,
+                        gom_he_thong: bool = False) -> list[PayrollComponent]:
+        """Danh mục cho MÀN HÌNH — mặc định GIẤU khoản hệ thống (xem `_HE_THONG`).
+
+        Engine không đi qua đây (nó tra thẳng `get_by_code`), nên giấu ở đây không tắt tính năng
+        nào. Hai chỗ khác trong hệ cũng gọi `repo.list_components()` trực tiếp để dựng bảng tra
+        id → khoản; chúng PHẢI thấy đủ, và chúng không đi qua hàm này.
+        """
+        rows = self.components.list_components(active_only=active_only)
+        if gom_he_thong:
+            return rows
+        return [c for c in rows if c.code not in _HE_THONG]
 
     def _unique_code(self, name: str) -> str:
         base = _slug(name)
@@ -273,7 +306,9 @@ class PayrollComponentService:
             # "Tất cả" = ĐANG LÀM VIỆC (chính thức + thử việc). Người đã nghỉ việc bị loại —
             # rải phụ cấp cho người đã nghỉ là đẻ tiền cho hồ sơ chết.
             targets = [e for e in in_scope.values()
-                       if e.status in (STATUS_ACTIVE, STATUS_PROBATION)]
+                       # Hết thử việc chờ xác nhận VẪN đang đi làm ⇒ phải nằm trong danh sách,
+                       # nếu không người đó rơi khỏi bảng lương trong im lặng.
+                       if e.status in (STATUS_ACTIVE, STATUS_PROBATION, STATUS_PROBATION_ENDED)]
             skipped_out_of_scope = 0
         else:
             targets = [in_scope[i] for i in employee_ids if i in in_scope]

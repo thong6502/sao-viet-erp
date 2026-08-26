@@ -1,0 +1,1 @@
+export { AccountingBankAccountsPage } from "./AccountingBankAccountsPage";

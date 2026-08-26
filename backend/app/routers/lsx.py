@@ -26,6 +26,7 @@ from ..repositories.document_sequence_repo import DocumentSequenceRepository
 from ..repositories.lsx_repo import LsxRepository
 from ..repositories.org_scope import dept_subtree_ids
 from ..schemas.lsx import (
+    BoDauViecOut,
     BuocMacDinhOut,
     HangChoOut,
     LsxActivityItem,
@@ -438,7 +439,11 @@ def replace_routing(
     except Exception as exc:
         raise _map(exc)
     hub.broadcast({"type": "lsx_changed", "order_id": lsx.order_id})
-    return _out(svc, lsx)
+    out = _out(svc, lsx)
+    # Bước bị GỠ đầu việc mồ côi ngay trong LẦN LƯU này (per-request, không cột DB) → bày lưu ý
+    # một lần. Chỉ cửa lưu routing mới có; mọi cửa đọc khác để rỗng.
+    out.bo_dau_viec = [BoDauViecOut(**x) for x in getattr(svc, "bo_dau_viec_lan_luu", [])]
+    return out
 
 
 @router.post("/{lsx_id}/buoc/{buoc_id}/giao-nhan", response_model=LsxOut)

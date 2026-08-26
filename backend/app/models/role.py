@@ -270,3 +270,14 @@ class RolePermission(Base):
     can_manage_leave_types: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # giao_hang (mg 0199): LÊN KẾ HOẠCH — tab "Yêu cầu chờ lên kế hoạch" + nút phân công tài xế.
+    # Tách khỏi `can_create`: gửi yêu cầu giao (Bán hàng làm) và xếp chuyến cho tài xế (Quản lý
+    # Giao hàng làm) là hai việc của hai người, gộp một cột là Bán hàng xếp được lịch tài xế.
+    can_plan: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # giao_hang (mg 0199): tab "Nhân viên giao hàng" — lịch làm việc + số chuyến + tổng km của
+    # NGƯỜI KHÁC. Ô riêng vì tài xế ở phạm vi "Của tôi" không được thấy năng suất đồng nghiệp.
+    can_view_drivers: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )

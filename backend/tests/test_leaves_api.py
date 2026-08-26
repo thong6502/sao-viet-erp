@@ -361,7 +361,7 @@ def test_quota_prorated_for_mid_year_hire(client):
     dept_id = _dept_id("Hành chính nhân sự")
     role_id = _role_id("Nhân viên", dept_id)
     emp = client.post("/api/employees",
-        json={
+        json={"probation_end_date": "2025-12-31",
             "full_name": "NV Mới",
             "department_id": dept_id,
             "hire_date": f"{y}-07-01",
@@ -477,7 +477,7 @@ def test_loc_theo_nhan_vien_chay_o_may_chu_va_total_theo_bo_loc(client):
     tid = _make_type(client, token)
     mine = _link_admin_employee(client, token)
     other = client.post("/api/employees",
-                        json={"full_name": "NV Khác", "department_id": _dept_id("Sản xuất"),
+                        json={"probation_end_date": "2025-12-31", "full_name": "NV Khác", "department_id": _dept_id("Sản xuất"),
                               "hire_date": "2020-01-01", "gender": "male", "status": "active"},
                         headers=_h(token)).json()["employee"]["id"]
     _seed_leaves(mine, tid, 22)

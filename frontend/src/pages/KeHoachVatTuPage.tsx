@@ -135,63 +135,45 @@ export function KeHoachVatTuPage({
 
   return (
     <main className="khsx khvt-page">
-      <header className="khvt-header">
-        <div className="khvt-header__top">
-          <div className="khvt-header__badge">
-            <span className="khvt-header__pulse" aria-hidden="true" />
-            <span>Sản xuất &amp; Cung ứng</span>
-          </div>
+      <header className="khvt-header khvt-header--compact">
+        <div className="khvt-header__left">
+          <h1 className="khvt-header__title">Kế hoạch vật tư</h1>
+          <span className="khvt-header__dot">•</span>
+          <span className="khvt-header__desc">Bảng cân đối nhu cầu tồn kho &amp; giữ chỗ</span>
           <div className="khvt-header__sync" title="Dữ liệu tự động cập nhật qua kết nối thời gian thực">
             <Icon name="workflow" size={12} />
             <span>Live Sync</span>
           </div>
         </div>
 
-        <div className="khvt-header__title-row">
-          <div>
-            <h1 className="khvt-header__title">Kế hoạch vật tư</h1>
-            <p className="khvt-header__desc">
-              Bảng cân đối nhu cầu tồn kho, cảnh báo thiếu hụt và điều phối giữ chỗ toàn xưởng.
-            </p>
-          </div>
-
-          {/* Công tắc GOM THEO — Segmented Capsule Tabs */}
-          <div className="khvt-segmented-switch" role="group" aria-label="Chế độ xem bảng cân đối">
-            <button
-              type="button"
-              className={`khvt-segmented-btn ${gom === "hang" ? "is-active" : ""}`}
-              aria-pressed={gom === "hang"}
-              onClick={() => setGom("hang")}
-            >
-              <Icon name="packageCheck" size={15} />
-              <div className="khvt-segmented-btn__content">
-                <span className="khvt-segmented-btn__label">Theo mặt hàng</span>
-                <span className="khvt-segmented-btn__sub">còn thiếu gì · mua bao nhiêu</span>
-              </div>
-              {soDo > 0 && (
-                <span className="khvt-badge-count khvt-badge-count--alert" title={`${num(soDo)} dòng cần xử lý`}>
-                  {num(soDo)}
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              className={`khvt-segmented-btn ${gom === "lenh" ? "is-active" : ""}`}
-              aria-pressed={gom === "lenh"}
-              onClick={() => setGom("lenh")}
-            >
-              <Icon name="fileText" size={15} />
-              <div className="khvt-segmented-btn__content">
-                <span className="khvt-segmented-btn__label">Theo lệnh sản xuất</span>
-                <span className="khvt-segmented-btn__sub">giữ chỗ · lệnh nào chạy được</span>
-              </div>
-              {soGiuLau > 0 && (
-                <span className="khvt-badge-count khvt-badge-count--warn" title="Lệnh giữ vật tư lâu chưa vào kế hoạch">
-                  {num(soGiuLau)}
-                </span>
-              )}
-            </button>
-          </div>
+        {/* Công tắc GOM THEO — Segmented Capsule Switch */}
+        <div className="khvt-segmented-switch" role="group" aria-label="Chế độ xem bảng cân đối">
+          <button
+            type="button"
+            className={`khvt-segmented-btn ${gom === "hang" ? "is-active" : ""}`}
+            aria-pressed={gom === "hang"}
+            onClick={() => setGom("hang")}
+          >
+            <span>Theo mặt hàng</span>
+            {soDo > 0 && (
+              <span className="khvt-badge-count khvt-badge-count--alert" title={`${num(soDo)} dòng cần xử lý`}>
+                {num(soDo)}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            className={`khvt-segmented-btn ${gom === "lenh" ? "is-active" : ""}`}
+            aria-pressed={gom === "lenh"}
+            onClick={() => setGom("lenh")}
+          >
+            <span>Theo lệnh sản xuất</span>
+            {soGiuLau > 0 && (
+              <span className="khvt-badge-count khvt-badge-count--warn" title="Lệnh giữ vật tư lâu chưa vào kế hoạch">
+                {num(soGiuLau)}
+              </span>
+            )}
+          </button>
         </div>
       </header>
 

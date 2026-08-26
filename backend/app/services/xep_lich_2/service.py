@@ -153,7 +153,10 @@ class XepLich2Service:
 
     def _tinh(self, dong: XepLichCongDoan, patch: dict) -> dict:
         shadow = self._shadow(dong, patch)
-        start = _aware(patch["start_at"]) if "start_at" in patch else _aware(dong.start_at)
+        # TRÒN PHÚT ngay từ đây: `luu` ghi thẳng `t["start"]`/`t["finish"]` nên chuẩn hoá một chỗ
+        # là cả xem-trước lẫn bản ghi đều sạch giây (xem `C.tron_phut`).
+        start = C.tron_phut(
+            _aware(patch["start_at"]) if "start_at" in patch else _aware(dong.start_at))
         dur = self._thoi_luong_v2(shadow)
         chiem = int(dur.get("chiem_may_phut") or 0)
         chiem_min = int(dur.get("chiem_may_phut_min") or chiem)
@@ -176,10 +179,12 @@ class XepLich2Service:
                          canh_bao, exclude_id, finish_max=None) -> list[dict]:
         """Gom mọi vấn đề của một cách đặt.
 
-        CHẶN ĐẶT LỊCH: ngoài ca · trước ngày vật tư · sai tiền nhiệm · đè khoá máy · trùng máy ·
-        vượt quân số · (khi đã chọn giờ mà) thiếu thời lượng / chưa quy đổi.
-        CẢNH BÁO (chỉ nhắc): sát hạn SX · đệm giao ngắn · lấn việc kế (chạy tới max) · máy sắp bảo
-        trì · tải máy/tổ cao có mức · máy chưa tốc độ / chưa quy đổi lúc còn nháp.
+        CHẶN ĐẶT LỊCH: ngoài ca · trước ngày vật tư · sai tiền nhiệm · trùng máy · (khi đã chọn
+        giờ mà) thiếu thời lượng / chưa quy đổi.
+        CẢNH BÁO (chỉ nhắc): đè khoá máy · vượt quân số tổ (cả hai HẠ từ chặn xuống nhắc ngày
+        21/08/2026 — xưởng vẫn chạy đè được, máy chỉ là kế hoạch) · sát hạn SX · đệm giao ngắn ·
+        lấn việc kế (chạy tới max) · máy sắp bảo trì · tải máy/tổ cao có mức · máy chưa tốc độ /
+        chưa quy đổi lúc còn nháp.
         """
         vd: list[dict] = []
         ca = self.ctx.ca_windows()
@@ -200,7 +205,10 @@ class XepLich2Service:
             for fn in (
                 C.de_vung_khoa_may(start, finish, khoa_may),
                 C.trung_may(start, finish, da_xep),
-                C.lan_viec_ke(finish, finish_max, da_xep),
+                # CỐ Ý khác `trung_may` ở nền soi: bước sau của chính lệnh này không phải "việc
+                # kế phải giữ chỗ" (xem `ctx.khoang_may_lenh_khac`).
+                C.lan_viec_ke(finish, finish_max,
+                              self.ctx.khoang_may_lenh_khac(may_id, exclude_id, dong)),
                 C.sap_bao_tri(finish, khoa_may),
                 C.tai_may_cao(self._tai_may_ngay(may_id, start, finish, da_xep), C.phut_ca_moi_ngay(ca)),
             ):
@@ -580,28 +588,38 @@ class XepLich2Service:
             return None
         return row
 
-    #: Mã CHẶN PHÁT HÀNH mà v2 tự siết CỨNG ngay trước khi uỷ quyền cho service màn cũ. Lọc kèm `muc`
-    #: nên một `tre_han_sx` ĐÃ DUYỆT NGOẠI LỆ (đã bị `kiem_phat_hanh` hạ xuống cảnh báo) KHÔNG còn
-    #: chặn. Thiếu cả hai hạn / còn bước trống giờ là ràng buộc toàn vẹn — không có ngoại lệ. Vật tư
-    #: thì cửa dùng chung màn cũ lo qua `_chan_thieu_vat_tu`, không nhắc lại ở đây.
-    _MA_CHAN_CUNG = frozenset({"thieu_ca_hai_han", "con_buoc_chua_xep", "tre_han_sx"})
+    #: MỨC chặn phát hành — MỘT CỬA DUY NHẤT (25/08/2026). Trước đây v2 chỉ siết ba mã rồi để
+    #: service màn cũ chặn tiếp bằng 12 detector đời cũ: dải chân báo "đủ điều kiện phát hành" (đọc
+    #: `kiem_phat_hanh`) trong khi nút Phát hành trả "còn N xung đột CHẶN" (đọc detector cũ) — hai
+    #: người gác, hai danh sách, người dùng không biết phải gỡ cái gì (LSX26-0029). Nay CHỈ
+    #: `kiem_phat_hanh` quyết, đúng bằng danh sách UI đang bày; phát hành từ màn cũ giữ gác cũ.
+    _MUC_CHAN = (C.MUC_CHAN_PHAT_HANH, C.MUC_CHAN_DAT_LICH)
+
+    def _chan_phat_hanh(self, *, nguon: str, id: int) -> list[dict]:
+        """Vấn đề đang CHẶN phát hành của một lệnh/bài — rỗng nghĩa là phát hành được.
+
+        Cùng NGUỒN với dải chân UI (`kiem_phat_hanh`) nên nút bấm và cái đèn không bao giờ nói khác
+        nhau; FE cũng gate đúng hai mức này. `chan_dat_lich` chặn luôn: một bước còn đè khoá máy hay
+        trùng máy mà thả xuống xưởng thì thợ nhận một lịch không chạy được. `tre_han_sx` đã duyệt
+        ngoại lệ được `kiem_phat_hanh` hạ xuống cảnh báo nên tự lọt qua đây."""
+        return [i for i in self.kiem_phat_hanh(nguon=nguon, id=id) if i["muc"] in self._MUC_CHAN]
 
     def phat_hanh(self, *, nguon: str, id: int, actor):
-        """Phát hành qua cửa dùng chung — uỷ quyền service màn cũ (đã gắn gate vật tư v2 ở §9.3).
+        """Phát hành: v2 gác TOÀN BỘ, service màn cũ chỉ còn lo đổi trạng thái + snapshot + audit.
 
-        v2 siết thêm cửa riêng TRƯỚC khi uỷ quyền: thiếu cả hai hạn · còn bước chưa xếp giờ · TRỄ HẠN
-        SX chưa duyệt ngoại lệ (§7.2). Ngoại lệ còn hiệu lực đã hạ `tre_han_sx` xuống cảnh báo ở
-        `kiem_phat_hanh` nên lọt cửa này. Cửa chỉ chạy trên đường v2, không đụng phát hành màn cũ."""
-        chan = [i for i in self.kiem_phat_hanh(nguon=nguon, id=id)
-                if i["ma"] in self._MA_CHAN_CUNG and i["muc"] == C.MUC_CHAN_PHAT_HANH]
+        Cửa gồm: vật tư chưa giữ đủ · thiếu cả hai hạn · còn bước chưa xếp giờ · trễ hạn SX chưa
+        duyệt ngoại lệ (§7.2) · mọi luật CHẶN ĐẶT LỊCH còn vướng trên từng dòng (trùng máy · sai
+        tiền nhiệm · ngoài ca · chưa có chủ · trước ngày vật tư · thiếu thời lượng/quy đổi/lead thuê
+        ngoài). Gác đời cũ tắt bằng `bo_qua_xung_dot` — xem `XepLichVanDeService._chan_xung_dot`."""
+        chan = self._chan_phat_hanh(nguon=nguon, id=id)
         if chan:
             raise XepLich2Blocked(chan)
         from ..xep_lich_van_de_service import XepLichVanDeService
 
         svc = XepLichVanDeService(self.db, self.audit)
         if nguon == NGUON_LSX:
-            return svc.phat_hanh_lsx(lsx_id=id, actor=actor)
-        return svc.phat_hanh_bai_ghep(bai_ghep_id=id, actor=actor)
+            return svc.phat_hanh_lsx(lsx_id=id, actor=actor, bo_qua_xung_dot=True)
+        return svc.phat_hanh_bai_ghep(bai_ghep_id=id, actor=actor, bo_qua_xung_dot=True)
 
     def duyet_ngoai_le(self, *, nguon: str, id: int, ly_do: str, actor):
         """Duyệt NGOẠI LỆ cho DUY NHẤT `tre_han_sx` (§7.2): trễ hạn SX vẫn cho phát hành, kèm lý do.
@@ -650,11 +668,10 @@ class XepLich2Service:
     def phat_hanh_cap_nhat(self, *, nguon: str, id: int, ly_do: str, actor) -> dict:
         """Tái chụp việc CHƯA bắt đầu theo lịch hiện tại → phiên bản mới (§4.3).
 
-        Siết đúng cửa CHẶN như phát hành lần đầu (thiếu hạn · còn bước chưa xếp giờ · trễ hạn chưa
-        duyệt) — lịch cập nhật phải còn hợp lệ mới cho đóng băng lại. Uỷ nghiệp vụ cho service
-        san_xuat; đổi ValueError của nó sang lỗi v2 để router ánh xạ đúng HTTP."""
-        chan = [i for i in self.kiem_phat_hanh(nguon=nguon, id=id)
-                if i["ma"] in self._MA_CHAN_CUNG and i["muc"] == C.MUC_CHAN_PHAT_HANH]
+        Siết ĐÚNG MỘT CỬA với phát hành lần đầu (`_chan_phat_hanh`) — lịch cập nhật phải còn hợp lệ
+        mới cho đóng băng lại. Uỷ nghiệp vụ cho service san_xuat; đổi ValueError của nó sang lỗi v2
+        để router ánh xạ đúng HTTP."""
+        chan = self._chan_phat_hanh(nguon=nguon, id=id)
         if chan:
             raise XepLich2Blocked(chan)
         from ..san_xuat import release_update
@@ -686,6 +703,10 @@ class XepLich2Service:
         bg_by_id = self.repo.bai_ghep_map(i for (n, i) in refs if n == NGUON_IN_GHEP)
         so_cd_lsx = self.repo.lsx_so_cong_doan_map(lsx_by_id.keys())
         so_cd_bg = self.repo.bai_ghep_so_cong_doan_map(bg_by_id.keys())
+        tags_lsx = self.repo.customer_tags_for_lsx(lsx_by_id.keys())
+        tags_bg = self.repo.customer_tags_for_bai_ghep(bg_by_id.keys())
+        ten_kh_lsx = self.repo.customer_ten_for_lsx(lsx_by_id.keys())
+        ten_kh_bg = self.repo.customer_ten_for_bai_ghep(bg_by_id.keys())
         xep_duoc: list[dict] = []
         bi_chan: list[dict] = []
         for nguon, id in refs:
@@ -703,6 +724,8 @@ class XepLich2Service:
                     "han": self.core._han(lsx),
                     "han_giao": lsx.han_giao_khach,
                     "so_cong_doan_chua_xep": int(so_cd_lsx.get(id, 0)),
+                    "ten_khach_hang": ten_kh_lsx.get(id),
+                    "nhan_khach_hang": tags_lsx.get(id, []),
                     "van_de": vd,
                 }
             else:
@@ -719,6 +742,8 @@ class XepLich2Service:
                     "han": bg.han_hoan_thanh_sx,
                     "han_giao": None,
                     "so_cong_doan_chua_xep": int(so_cd_bg.get(id, 0)),
+                    "ten_khach_hang": ten_kh_bg.get(id),
+                    "nhan_khach_hang": tags_bg.get(id, []),
                     "van_de": vd,
                 }
             (bi_chan if vd else xep_duoc).append(row)

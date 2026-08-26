@@ -19,11 +19,13 @@ import {
   type TinhGiaComponentMeta,
   type TinhGiaPreviewOut,
 } from "../api/client";
-import { congDoan, giay, loaiSanPham, mayThietBi, type Row } from "../api/rebuildCatalog";
+import { congDoan, donViDo, giay, loaiSanPham, mayThietBi, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { MucInHang } from "../components/MucIn";
+import { Select, type SelectOption } from "../components/Select";
+import { ThanhPhamGoiY } from "../components/ThanhPhamGoiY";
 import { ImpositionDiagram } from "./ImpositionDiagram";
 import { heSoChu, nhanDonVi } from "./lsxBuoc";
 import { useNapTenDonVi } from "./tenDonVi";
@@ -44,6 +46,22 @@ const vnd = (v: number | string | null | undefined): string =>
 
 const rowLabel = (r: Row): string => `${r.ma ? `${r.ma} · ` : ""}${r.ten}`;
 const cdName = (r: Row): string => (r.ten_hien_thi ? String(r.ten_hien_thi) : String(r.ten));
+
+/** Lựa chọn cho một ô danh mục: BỎ mục đã ngừng dùng, nhưng GIỮ lại đúng mục phiếu đang dùng
+ *  (kèm chữ "ngừng dùng"). Bỏ hẳn cả mục đang dùng thì mở phiếu cũ ra ô tự về rỗng, người lập
+ *  phiếu tưởng phần mềm nuốt mất dữ liệu — cùng luật với ô ĐVT ngay bên cạnh. */
+function optsConDung(rows: Row[], dangDung: number | null): SelectOption<string>[] {
+  return rows
+    .filter((r) => r.active !== false || r.id === dangDung)
+    .map((r) => ({
+      value: String(r.id),
+      label: r.active === false ? `${rowLabel(r)} (ngừng dùng)` : rowLabel(r),
+    }));
+}
+
+/** Kể tên vài mục rồi gộp phần đuôi — băng nhắc dài quá thì không ai đọc hết. */
+const keTen = (ds: string[], toi = 4): string =>
+  ds.slice(0, toi).join(" · ") + (ds.length > toi ? ` · +${ds.length - toi} mục nữa` : "");
 const numOf = (v: unknown): number => (typeof v === "number" ? v : Number(v) || 0);
 
 /** Số BÀI IN = số trang ÷ trang mỗi tay — dẫn xuất y hệt engine (`thanh_phan_engine`), FE chỉ
@@ -110,7 +128,7 @@ const soKemMoiTay = (muc_a: string[], muc_b: string[], quyCach: string): number 
  *  · RỘNG ← lề hông ×2 (hai bên)
  *
  * Nguồn là DANH MỤC MÁY; phiếu chỉ còn một ô đè `chua_nhip`. Không chọn máy → chừa 0 cả hai chiều.
- * `gripper_mm` là nhíp KẼM — KHÔNG dùng ở đây (dùng nhầm là hụt 14-19% số con). */
+ * Chỉ lấy nhíp GIẤY — mép nhíp trên BẢN KẼM (~44mm) là chuyện khác, dùng nhầm là hụt 14-19% số con. */
 function chuaTheoChieu(
   c: { chua_nhip: number },
   may: Row | null | undefined,
@@ -375,6 +393,28 @@ const DAO_CO_PHI: Record<string, string> = {
  *  Đọc CỜ từ danh mục Công đoạn (`requires_tooling` + `tooling_type`), KHÔNG đoán theo tên bước —
  *  tên là chữ người dùng gõ, đổi lúc nào không ai báo. Dòng tự nhập (không gắn danh mục) thì không
  *  có cờ nào để đọc ⇒ không hỏi phí. */
+/** Tên bước để HIỆN. Dòng có gắn danh mục → gọi theo tên SỐNG trong danh mục, nên xưởng đổi tên
+ *  một công đoạn là phiếu gọi tên mới ngay (tiền vẫn giữ ảnh chụp — xem băng "Danh mục đã đổi").
+ *  Dòng tự nhập (không `cong_doan_id`) mới rơi về tên đã lưu trong phiếu. Cùng luật với engine
+ *  (`thanh_phan_engine._ten_buoc`). */
+function tenBuoc(f: { cong_doan_id: number | null; ten: string }, congDoans: Row[]): string {
+  const cd = f.cong_doan_id == null ? undefined : congDoans.find((x) => x.id === f.cong_doan_id);
+  return (cd ? cdName(cd) : "") || f.ten || "";
+}
+
+/** Bước này còn khớp danh mục không? `null` = bình thường (hoặc dòng tự nhập, không gắn danh mục).
+ *  Hai ca hỏng KHÁC nhau nên phải gọi khác tên: `ngung` = còn trong bảng nhưng đã tắt (chọn lại
+ *  không được nữa) · `mat` = xoá hẳn, id trỏ vào hư không. */
+function tinhTrangBuoc(
+  f: { cong_doan_id: number | null },
+  congDoans: Row[],
+): "ngung" | "mat" | null {
+  if (f.cong_doan_id == null) return null;
+  const cd = congDoans.find((x) => x.id === f.cong_doan_id);
+  if (!cd) return "mat";
+  return cd.active === false ? "ngung" : null;
+}
+
 function daoCuaBuoc(f: { cong_doan_id: number | null }, congDoans: Row[]): string | null {
   if (f.cong_doan_id == null) return null;
   const cd = congDoans.find((x) => x.id === f.cong_doan_id);
@@ -775,6 +815,15 @@ function MucInBlock({
   );
 }
 
+/** Ô số. `thapPhan` = ô ĐO ĐẠC (mm) — nhận số lẻ.
+ *
+ *  Khổ in thật hay lẻ nửa ly (name card 88.9×50.8, thư mời letter 215.9×279.4, bìa cộng gáy
+ *  3.5mm) nên các ô mm phải nhập được số thực. Ô mm KHÔNG dùng `type="number"`: dấu thập phân
+ *  của nó phụ thuộc ngôn ngữ trình duyệt — máy để tiếng Việt gõ "215.9" thì trình duyệt nuốt
+ *  dấu chấm, máy để tiếng Anh gõ "215,9" thì nuốt dấu phẩy, và số lẻ còn bị đánh dấu
+ *  `stepMismatch` vì step mặc định = 1. Dùng ô chữ + `inputMode="decimal"` (bàn phím điện thoại
+ *  vẫn ra bàn số) rồi tự quy dấu phẩy về dấu chấm — gõ kiểu nào cũng ăn.
+ */
 function NumField({
   label,
   value,
@@ -783,6 +832,7 @@ function NumField({
   step,
   opt,
   suffix,
+  thapPhan,
 }: {
   label: string;
   value: number;
@@ -791,6 +841,7 @@ function NumField({
   step?: string;
   opt?: string;
   suffix?: string;
+  thapPhan?: boolean;
 }) {
   const [valStr, setValStr] = useState<string>(String(value ?? 0));
 
@@ -801,7 +852,11 @@ function NumField({
   }, [value]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
+    // Ô mm là ô CHỮ nên chữ cái lọt được vào: lọc ngay tại đây, chỉ giữ số và MỘT dấu thập phân
+    // (đã quy phẩy → chấm). Không lọc thì "21a5" nằm lại trên màn tới lúc rời ô mới bật về 0.
+    const raw = thapPhan
+      ? e.target.value.replace(",", ".").replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1")
+      : e.target.value;
     setValStr(raw);
     if (raw === "") {
       onChange(min);
@@ -832,9 +887,9 @@ function NumField({
       <div className={suffix ? "tg-suffixwrap" : undefined}>
         <input
           className="tg-input tg-input--num"
-          type="number"
-          min={min}
-          step={step}
+          {...(thapPhan
+            ? { type: "text", inputMode: "decimal" as const }
+            : { type: "number", min, step })}
           value={valStr}
           onChange={handleChange}
           onBlur={handleBlur}
@@ -1027,7 +1082,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
 
   // --- Kết quả ---
   const [result, setResult] = useState<TinhGiaPreviewOut | null>(null);
-  const [warnList, setWarnList] = useState<string[]>([]);
   // Nhật ký hoạt động THẬT (ai làm gì · khi nào) — nhiều người cùng sửa 1 phiếu.
   const [acts, setActs] = useState<PtgActivity[]>([]);
   const [showAllActs, setShowAllActs] = useState(false); // UI-only: "Xem tất cả"
@@ -1036,6 +1090,16 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const [err, setErr] = useState<string | null>(null);
   // Chặn cửa khi rời phiếu nháp đang có nội dung (chưa lưu → thoát là mất).
   const [hoiThoat, setHoiThoat] = useState(false);
+  // Danh mục đã sửa SAU lần tính gần nhất (BE so mốc, xem `danh_muc_doi_sau_khi_tinh`). Mở phiếu
+  // là đọc lại ẢNH CHỤP — cố ý, phiếu đã báo cho khách thì không được tự đổi số dưới chân người
+  // ta. Nhưng im hẳn cũng sai: đổi tên/cấu hình công đoạn xong mở phiếu thấy y như cũ thì tưởng
+  // phần mềm hỏng. Nên nói ra + đưa sẵn nút, còn bấm hay không là quyền người lập phiếu.
+  const [danhMucDoi, setDanhMucDoi] = useState<PhieuTinhGiaOut["danh_muc_doi"]>(null);
+  // Ba rổ TÁCH RIÊNG vì việc phải làm khác hẳn nhau: sửa cấu hình (tính lại là xong) · ngừng dùng
+  // (tính lại vẫn ra số nhưng lần sau không chọn lại được) · xoá hẳn (dòng phiếu trỏ vào hư không,
+  // phải thay bước). Gộp cả ba vào một chữ "đã chỉnh sửa" là nói sai việc người dùng vừa làm.
+  const dmNgung = danhMucDoi?.ngung ?? [];
+  const dmXoa = danhMucDoi?.xoa ?? [];
 
   const applyOut = useCallback((out: PhieuTinhGiaOut) => {
     setMa(out.ma);
@@ -1046,7 +1110,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     setLoaiSPId(out.loai_san_pham_id ?? "");
     setComps((out.thanh_phans ?? []).map(fromComponent));
     setResult(out.result);
-    setWarnList(out.result?.warnings ?? out.warnings ?? []);
+    // POST/PUT vừa tính lại xong nên BE luôn trả null → bấm "Tính giá" là băng nhắc tự tắt.
+    setDanhMucDoi(out.danh_muc_doi ?? null);
   }, []);
 
   // Nạp nhật ký hoạt động của phiếu (mới→cũ) từ backend. Nhận id tường minh vì ngay sau lần lưu
@@ -1059,14 +1124,46 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       .catch(() => setActs([]));
   }, [token, pid]);
 
-  // Nạp 4 danh mục 1 lần.
-  useEffect(() => {
+  // Nạp 4 danh mục. Tách ra hàm riêng vì còn gọi lại khi quay về màn (xem effect ngay dưới).
+  const napDanhMuc = useCallback(() => {
     if (!token) return;
     loaiSanPham.list(token).then((r) => setLoaiSPs(r.items)).catch(() => setLoaiSPs([]));
     giay.list(token).then((r) => setGiays(r.items)).catch(() => setGiays([]));
     mayThietBi.list(token).then((r) => setMays(r.items)).catch(() => setMays([]));
     congDoan.list(token).then((r) => setCongDoans(r.items)).catch(() => setCongDoans([]));
   }, [token]);
+  useEffect(() => {
+    napDanhMuc();
+  }, [napDanhMuc]);
+
+  // Sửa/xoá danh mục ở TAB KHÁC (hoặc cửa sổ khác) rồi quay lại tab phiếu ĐANG MỞ: React không tự
+  // biết, danh sách trong bộ nhớ vẫn là bản chụp lúc mở phiếu ⇒ ô tìm "Chuỗi công đoạn" còn thấy
+  // mục đã xoá, băng nhắc "cần tính lại" cũng không hiện. Nghe `focus`/`visibilitychange` để nạp
+  // lại danh mục + hỏi lại BE lời nhắc.
+  // ⚠️ CHỈ lấy `danh_muc_doi`, KHÔNG `applyOut(out)`: applyOut ghi đè cả `comps`, quay lại tab là
+  // mất sạch chỗ đang gõ dở.
+  const moiLamTuoiRef = useRef(0);
+  useEffect(() => {
+    if (!token) return;
+    const lamTuoi = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - moiLamTuoiRef.current < 3000) return; // chống dội khi focus/visibility cùng bắn
+      moiLamTuoiRef.current = now;
+      napDanhMuc();
+      if (pid != null)
+        api.phieuTinhGia
+          .get(token, pid)
+          .then((out) => setDanhMucDoi(out.danh_muc_doi ?? null))
+          .catch(() => {});
+    };
+    window.addEventListener("focus", lamTuoi);
+    document.addEventListener("visibilitychange", lamTuoi);
+    return () => {
+      window.removeEventListener("focus", lamTuoi);
+      document.removeEventListener("visibilitychange", lamTuoi);
+    };
+  }, [token, pid, napDanhMuc]);
 
   // Nạp phiếu. id null = phiếu nháp chưa có gì trên server → form rỗng, không gọi API.
   useEffect(() => {
@@ -1162,7 +1259,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
 
   // Chọn máy → CHỈ gán may_id. KHÔNG copy thông số máy vào phiếu nữa: engine đọc thẳng
   // `nhip_giay_mm` / `le_hong_mm` / `duoi_thang_mau_mm` từ danh mục máy khi bình bài.
-  // (Bản cũ copy `gripper_mm` = nhíp KẼM ~44mm vào `chua_nhip` làm chừa GIẤY rồi trừ cả hai
+  // (Bản cũ copy mép nhíp BẢN KẼM ~44mm vào `chua_nhip` làm chừa GIẤY rồi trừ cả hai
   //  chiều → hụt 14-19% số con. Các ô `chua_*` giờ chỉ còn là ĐÈ thủ công, trống = theo máy.)
   const onPickMay = useCallback(
     (uid: string, mid: number | null) => {
@@ -1497,15 +1594,31 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     for (const s of loaiSPs) map.set(s.id, s);
     return map;
   }, [loaiSPs]);
+  /** Nhãn cột "Loại" — `null` = CHƯA chọn loại sản phẩm, để chỗ hiện nói thẳng ra.
+   *
+   *  Không rơi về `loai_thanh_phan` nữa: màn này không có ô nào cho khai nó, nên mọi sản phẩm
+   *  mới đều mang mặc định `to_roi` ⇒ bảng in "Tờ rời" y như đã chọn loại, trong khi thực tế
+   *  người lập phiếu chưa chọn gì (lỗi 7, 25/08/2026). Chỉ dùng lại nó cho phiếu cũ có khai
+   *  thật (bìa · ruột · thân · nắp…). */
   const loaiLabelOf = useCallback(
-    (c: EditableComponent): string => {
+    (c: EditableComponent): string | null => {
       if (c.loai_san_pham_id != null) {
         const sp = loaiSPById.get(c.loai_san_pham_id);
         if (sp?.ten) return String(sp.ten);
       }
-      return loaiTpLabel(c.loai_thanh_phan);
+      const tp = c.loai_thanh_phan;
+      return tp && tp !== "to_roi" ? loaiTpLabel(tp) : null;
     },
     [loaiSPById],
+  );
+
+  /** Các sản phẩm CHƯA chọn loại — khoá cửa "Báo giá →" lại. Đây là chỗ "ép chọn": loại quyết
+   *  định dòng gộp và nhãn đơn vị trên báo giá gửi khách, để trống là in ra sai nhóm. Khoá tại
+   *  chỗ + gọi tên sản phẩm còn thiếu, KHÔNG ẩn nút (ẩn thì người dùng tưởng hỏng). Vẫn cho
+   *  "Tính giá" bình thường — tính giá vốn không cần loại. */
+  const spThieuLoai = useMemo(
+    () => comps.filter((c) => loaiLabelOf(c) === null).map((c) => c.ten || "(chưa đặt tên)"),
+    [comps, loaiLabelOf],
   );
 
   const summaryRows = useMemo(() => {
@@ -1611,8 +1724,14 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
               variant="primary"
               onClick={openOrCreateQuote}
               loading={quoting}
-              disabled={!token || loading || !daLuu}
-              title={daLuu ? "Tạo / mở báo giá từ phiếu tính giá này" : "Tính giá & lưu phiếu trước khi báo giá"}
+              disabled={!token || loading || !daLuu || spThieuLoai.length > 0}
+              title={
+                !daLuu
+                  ? "Tính giá & lưu phiếu trước khi báo giá"
+                  : spThieuLoai.length > 0
+                    ? `Chọn loại sản phẩm cho: ${keTen(spThieuLoai)} — loại quyết định dòng gộp và nhãn đơn vị trên báo giá.`
+                    : "Tạo / mở báo giá từ phiếu tính giá này"
+              }
             >
               Báo giá →
             </Button>
@@ -1623,6 +1742,42 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       {err ? (
         <div className="banner banner--error" role="alert" style={{ marginTop: "var(--sp-4)" }}>
           <span>{err}</span>
+        </div>
+      ) : null}
+
+      {danhMucDoi ? (
+        <div
+          className={`banner banner--${dmXoa.length ? "error" : "warn"}`}
+          role={dmXoa.length ? "alert" : "status"}
+          style={{ marginTop: "var(--sp-4)" }}
+        >
+          <span>
+            <b>Danh mục đã đổi sau lần tính {fmtActDateTime(danhMucDoi.luc)}</b> — phiếu đang giữ số
+            và tên của lần tính đó.{" "}
+            {[
+              dmXoa.length ? `Đã xoá khỏi danh mục: ${keTen(dmXoa)}` : "",
+              dmNgung.length ? `Đã ngừng dùng: ${keTen(dmNgung)}` : "",
+              danhMucDoi.ten.length ? `Đã sửa: ${keTen(danhMucDoi.ten)}` : "",
+            ]
+              .filter(Boolean)
+              .join(". ")}
+            .
+            {dmXoa.length ? (
+              <>
+                {" "}
+                Mục đã xoá thì tính lại là dòng đó <b>mất cấu hình danh mục</b> — chọn công đoạn/vật
+                tư khác thay vào trước khi tính.
+              </>
+            ) : dmNgung.length ? (
+              <>
+                {" "}
+                Mục ngừng dùng vẫn tính ra số, nhưng lần sau <b>không chọn lại được</b>.
+              </>
+            ) : null}
+          </span>
+          <Button variant="secondary" onClick={calc} loading={calcing} disabled={!token}>
+            Tính giá lại
+          </Button>
         </div>
       ) : null}
 
@@ -1739,7 +1894,19 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                                 )}
                               </td>
                               <td>
-                                <span className="badge neutral"><span className="d" />{loaiLabelOf(c)}</span>
+                                {loaiLabelOf(c) ? (
+                                  <span className="badge neutral">
+                                    <span className="d" />
+                                    {loaiLabelOf(c)}
+                                  </span>
+                                ) : (
+                                  <span
+                                    className="tg-warn-chip"
+                                    title="Chưa chọn loại sản phẩm — mở sản phẩm để chọn, chuỗi công đoạn mặc định cũng bung theo loại."
+                                  >
+                                    <WarnIcon /> chưa chọn loại
+                                  </span>
+                                )}
                               </td>
                               <td className="num mono">{sl > 0 ? fmt(sl) : "—"}</td>
                               <td className="num strong">
@@ -1771,6 +1938,20 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                         const slNhom =
                           node.members[0].so_luong > 0 ? node.members[0].so_luong : phieuSL;
                         const dvt = node.members[0].don_vi_tinh || "cái";
+                        // Gộp là gộp CHO KHÁCH: bản in ghi 1 dòng, SL lấy phần ĐẦU vì khách mua
+                        // 10.000 cuốn chứ không phải 10.000 ruột + 10.000 bìa (`utils/gop-nhom`).
+                        // Quy ước đó chỉ đúng khi các phần CÙNG số lượng, nên bản in nay CHỈ gộp
+                        // các phần cùng SL (chốt 26/08/2026); lệch thì nó tự tách dòng. Ở đây phải
+                        // nói trước con số đó, đừng để tới lúc soạn báo giá mới lộ: dải nhóm hiện
+                        // sẽ in ra mấy dòng, và bỏ trống SL/đơn giá vì cả cụm không còn một con số
+                        // chung nào cả.
+                        const phanSL = node.members.map((m) => ({
+                          ten: m.ten || "(chưa đặt tên)",
+                          sl: m.so_luong > 0 ? m.so_luong : phieuSL,
+                          dvt: (m.don_vi_tinh || "cái").trim(),
+                        }));
+                        const cumIn = new Set(phanSL.map((x) => x.sl));
+                        const lechNhom = cumIn.size > 1;
                         const uids = node.members.map((m) => m.uid);
                         const tickCaNhom = uids.every((u) => chonUids.has(u));
                         return [
@@ -1810,18 +1991,39 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                             <td>
                               <span className="grouphd__ten">{node.ten}</span>
                               <span className="grouphd__sub">
-                                {node.members.length} sản phẩm · gộp 1 dòng khi báo giá
+                                {node.members.length} sản phẩm ·{" "}
+                                {lechNhom
+                                  ? `in ${cumIn.size} dòng khi báo giá`
+                                  : "gộp 1 dòng khi báo giá"}
                               </span>
+                              {lechNhom && (
+                                <span
+                                  className="tg-warn-chip"
+                                  title={`Các phần lệch nhau: ${phanSL
+                                    .map((x) => `${x.ten} ${fmt(x.sl)} ${x.dvt}`)
+                                    .join(
+                                      " · ",
+                                    )}. Chỉ các phần cùng số lượng mới gộp chung, nên bản gửi khách sẽ in ${
+                                    cumIn.size
+                                  } dòng cho nhãn này. Sửa SL cho khớp nếu muốn về 1 dòng.`}
+                                >
+                                  <WarnIcon /> các phần lệch số lượng
+                                </span>
+                              )}
                             </td>
                             <td />
-                            <td className="num mono">{slNhom > 0 ? fmt(slNhom) : "—"}</td>
+                            <td className="num mono">
+                              {lechNhom ? "—" : slNhom > 0 ? fmt(slNhom) : "—"}
+                            </td>
                             <td className="num strong">
                               {tongVon > 0 ? `${fmt(tongVon)} đ` : "—"}
                             </td>
                             <td className="num rust-num">
-                              {tongVon > 0 && slNhom > 0
-                                ? `${fmt(Math.round(tongVon / slNhom))} đ/${dvt}`
-                                : "—"}
+                              {lechNhom
+                                ? "—"
+                                : tongVon > 0 && slNhom > 0
+                                  ? `${fmt(Math.round(tongVon / slNhom))} đ/${dvt}`
+                                  : "—"}
                             </td>
                             <td className="prow__act">
                               <button
@@ -2038,16 +2240,9 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
               )}
             </section>
 
-            {warnList.length > 0 ? (
-              <section className="tg-warn" role="status">
-                <div className="tg-warn__title">Lưu ý ({warnList.length})</div>
-                <ul className="tg-warn__list">
-                  {warnList.map((w, i) => (
-                    <li key={i}>{w}</li>
-                  ))}
-                </ul>
-              </section>
-            ) : null}
+            {/* Khối "Lưu ý (n)" GỠ 25/08/2026 theo yêu cầu chủ chốt. Engine VẪN sinh cảnh báo và
+                BE vẫn lưu `warnings_json` — chỉ thôi bày ở cột phải. Muốn dựng lại thì đọc từ
+                `out.result?.warnings ?? out.warnings`. */}
           </aside>
         </div>
       )}
@@ -2140,6 +2335,39 @@ function ComponentModal({
   addFin: (cuid: string, cong_doan_id?: number | null, ten?: string, insertIndex?: number | null) => void;
   removeFin: (cuid: string, fuid: string) => void;
 }) {
+  // Lấy token tại chỗ thay vì luồn prop qua 16 tham số — ô gợi ý tên sản phẩm cần gọi API
+  // danh mục Thành phẩm.
+  const { token } = useAuth();
+
+  // Danh mục ĐƠN VỊ TÍNH cho ô ĐVT (chủ 21/08/2026: "lấy theo Đơn vị tính trong danh mục cho họ
+  // chọn"). Nạp MỘT lần cho cả khối sản phẩm — mỗi ô tự gọi là mỗi sản phẩm một request.
+  // Lưu TÊN ("cái") chứ không lưu mã ("cai"): chuỗi này chảy thẳng sang Báo giá rồi ra
+  // `order_lines.don_vi_tinh` và IN LÊN GIẤY. Đổi sang mã là mọi báo giá cũ in ra chữ khác.
+  const [dvtOpts, setDvtOpts] = useState<string[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    donViDo
+      .list(token, { active: true, size: 200 })
+      .then((r) => {
+        // Danh mục có cả m² · kg · mm · bản kẽm — đúng cho vật tư, vô nghĩa cho ĐVT sản phẩm.
+        // KHÔNG lọc bỏ (danh mục là của chủ, lọc là tự quyết hộ), chỉ ĐẨY LÊN TRƯỚC những họ
+        // dùng để BÁN: thành phẩm (cái/hộp/cuốn/bộ/con) · tờ (tờ rơi bán theo tờ) · thùng.
+        // Không gom thành optgroup vì họ trong danh mục chỉ có mã thô (`khoi_luong`…), chưa
+        // có nhãn hiển thị — bịa nhãn ở đây là đẻ nguồn sự thật thứ hai.
+        const uu_tien = ["thanh_pham", "to", "thung"];
+        const hang = (ho: string) => {
+          const i = uu_tien.indexOf(ho);
+          return i < 0 ? uu_tien.length : i;
+        };
+        const ds = r.items
+          .map((d: Row) => ({ ten: String(d.ten ?? ""), ho: String(d.ho ?? "") }))
+          .filter((d) => d.ten);
+        ds.sort((a, b) => hang(a.ho) - hang(b.ho) || a.ten.localeCompare(b.ten, "vi"));
+        setDvtOpts(ds.map((d) => d.ten));
+      })
+      .catch(() => setDvtOpts([]));
+  }, [token]);
+
   // uid của sản phẩm đang mở trợ lý "tính số khuôn từ số trang" (mỗi lúc chỉ 1 popover).
   const [calcUid, setCalcUid] = useState<string | null>(null);
   // Bung phân rã bù hao: bước nào trong chuỗi ăn bao nhiêu tờ. Mặc định thu gọn.
@@ -2202,6 +2430,59 @@ function ComponentModal({
     const loc = mays.filter((m) => /(^|\W)in(\W|$)/i.test(String(m.loai_may ?? "")));
     return loc.length > 0 ? loc : mays;
   }, [mays]);
+  // ---- Lựa chọn cho các ô CÓ TÌM GẦN ĐÚNG ----
+  // Bốn danh mục dưới đây dài hàng chục tới hàng trăm dòng; <select> gốc bắt người dùng cuộn hoặc
+  // gõ đúng ký tự ĐẦU mới nhảy tới. Đổi sang `Select` (searchable) để gõ mảnh nào cũng ra: "may in
+  // nho", "duplex 250", "hop giay" — bỏ dấu, tách từ, không cần đúng thứ tự (xem `utils/timGanDung`).
+  // Gom bằng useMemo vì modal render lại theo từng phím gõ ở các ô số bên cạnh.
+  const dvtSelOpts = useMemo<SelectOption<string>[]>(() => {
+    const ds: SelectOption<string>[] = dvtOpts.map((d) => ({ value: d, label: d }));
+    // Giá trị ĐANG DÙNG mà danh mục không có (gõ tay từ trước, hoặc đơn vị vừa bị ngừng) vẫn phải
+    // chọn được — nếu không, mở phiếu cũ ra là ĐVT tự nhảy sang đơn vị khác mà không ai báo.
+    if (c.don_vi_tinh && !dvtOpts.includes(c.don_vi_tinh))
+      ds.unshift({ value: c.don_vi_tinh, label: `${c.don_vi_tinh} (ngoài danh mục)` });
+    return ds;
+  }, [dvtOpts, c.don_vi_tinh]);
+  const loaiSPOpts = useMemo<SelectOption<string>[]>(
+    () => [
+      { value: "", label: "— Chọn loại sản phẩm —" },
+      ...optsConDung(loaiSPs, c.loai_san_pham_id),
+    ],
+    [loaiSPs, c.loai_san_pham_id],
+  );
+  const giayOpts = useMemo<SelectOption<string>[]>(
+    () => [{ value: "", label: "— Chọn giấy —" }, ...optsConDung(giays, c.giay_id)],
+    [giays, c.giay_id],
+  );
+  const mayOpts = useMemo<SelectOption<string>[]>(
+    () => [{ value: "", label: "— Không chọn —" }, ...optsConDung(mayIn, c.may_id)],
+    [mayIn, c.may_id],
+  );
+  // Ô công đoạn là ô HÀNH ĐỘNG (chọn xong thì đẻ chip, ô tự về rỗng) nên không có mục "— Chọn —".
+  // LỌC `active`: bấm "Xóa" một công đoạn còn nơi dùng thì hệ chỉ TẮT cờ `active` (xoá hẳn sẽ
+  // làm hỏng phiếu/lệnh cũ). Danh sách nạp về cố ý KHÔNG lọc — tên cũ vẫn phải tra được để phiếu
+  // cũ gọi đúng tên bước — nhưng ô CHỌN thì phải sạch, không thì công đoạn vừa xoá vẫn mời chọn
+  // lại và nằm cạnh bản thay thế cùng tên (lỗi 9, 25/08/2026).
+  const cdOpts = useMemo<SelectOption<string>[]>(
+    () => [
+      ...congDoans
+        .filter((cd) => cd.active !== false)
+        .map((cd) => ({ value: String(cd.id), label: cdName(cd) })),
+      { value: "__blank", label: "+ Tự nhập…" },
+    ],
+    [congDoans],
+  );
+  // Một đường thêm chip cho CẢ hai chỗ: mũi tên chèn giữa chuỗi và nút "+ Thêm công đoạn" ở cuối.
+  const themCongDoan = (v: string, insertIdx: number | null = null) => {
+    if (!v) return;
+    if (v === "__blank") {
+      addFin(c.uid, null, "", insertIdx);
+      return;
+    }
+    const cd = congDoans.find((x) => String(x.id) === v);
+    addFin(c.uid, cd ? cd.id : null, cd ? cdName(cd) : "", insertIdx);
+  };
+
   // Bình bài chỉ tính được khi có ĐỦ khổ thành phẩm ③ + khổ tờ in ② (khổ in tự lấy từ giấy/máy).
   const canBinhBai =
     c.dai_thanh_pham > 0 && c.rong_thanh_pham > 0 && c.kho_in_dai > 0 && c.kho_in_rong > 0;
@@ -2240,12 +2521,14 @@ function ComponentModal({
               <div className="tg-grid">
                 <label className="tg-field tg-span-6">
                   <span className="tg-microlabel">Tên sản phẩm</span>
-                  <input
-                    className="tg-input"
-                    type="text"
+                  {/* GỢI Ý từ danh mục Thành phẩm, KHÔNG ép chọn — gõ tên mới vẫn được.
+                      Chọn lại đúng tên cũ thì lúc chốt đơn hệ dùng lại đúng dòng danh mục cũ,
+                      không đẻ dòng mới (docs/prd-thanh-pham.md §11). */}
+                  <ThanhPhamGoiY
+                    token={token ?? ""}
                     value={c.ten}
                     placeholder="VD Thân hộp / Ruột / Bìa"
-                    onChange={(e) => patchComp(c.uid, { ten: e.target.value })}
+                    onChange={(ten) => patchComp(c.uid, { ten })}
                   />
                 </label>
                 <div className="tg-span-3">
@@ -2258,12 +2541,15 @@ function ComponentModal({
                 </div>
                 <label className="tg-field tg-span-3">
                   <span className="tg-microlabel">ĐVT</span>
-                  <input
-                    className="tg-input"
-                    type="text"
+                  <Select
+                    options={dvtSelOpts}
                     value={c.don_vi_tinh}
-                    placeholder="cái / tờ / cuốn / hộp…"
-                    onChange={(e) => patchComp(c.uid, { don_vi_tinh: e.target.value })}
+                    onChange={(v) => patchComp(c.uid, { don_vi_tinh: v })}
+                    ariaLabel="Đơn vị tính"
+                    searchable
+                    portal
+                    className="tg-input"
+                    listClassName="tg-pop"
                   />
                 </label>
                 {/* Gộp dòng khi báo giá KHÔNG có ô ở đây: nó là quan hệ giữa các dòng, thao tác
@@ -2272,26 +2558,23 @@ function ComponentModal({
                   <span className="tg-microlabel">
                     Loại sản phẩm <span className="tg-microlabel__opt">tự bung công đoạn mặc định</span>
                   </span>
-                  <select
+                  <Select
+                    options={loaiSPOpts}
+                    value={c.loai_san_pham_id == null ? "" : String(c.loai_san_pham_id)}
+                    onChange={(v) => onPickLoaiSP(c.uid, v === "" ? "" : Number(v))}
+                    ariaLabel="Loại sản phẩm"
+                    searchable
+                    portal
                     className="tg-input"
-                    value={c.loai_san_pham_id ?? ""}
-                    onChange={(e) =>
-                      onPickLoaiSP(c.uid, e.target.value === "" ? "" : Number(e.target.value))
-                    }
-                  >
-                    <option value="">— Chọn loại sản phẩm —</option>
-                    {loaiSPs.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {rowLabel(s)}
-                      </option>
-                    ))}
-                  </select>
+                    listClassName="tg-pop"
+                  />
                 </label>
                 <div className="tg-span-6">
                       <NumField
                         label="Dài chi tiết phẳng"
                         value={c.dai_thanh_pham}
                         onChange={(n) => patchComp(c.uid, { dai_thanh_pham: n })}
+                        thapPhan
                         suffix="mm"
                       />
                     </div>
@@ -2300,6 +2583,7 @@ function ComponentModal({
                         label="Rộng chi tiết phẳng"
                         value={c.rong_thanh_pham}
                         onChange={(n) => patchComp(c.uid, { rong_thanh_pham: n })}
+                        thapPhan
                         suffix="mm"
                       />
                     </div>
@@ -2374,6 +2658,7 @@ function ComponentModal({
                     value={c.bleed_mm}
                     onChange={(n) => patchComp(c.uid, { bleed_mm: n })}
                     opt="mỗi cạnh con · 0 = không tràn lề"
+                    thapPhan
                     suffix="mm"
                   />
                 </div>
@@ -2383,6 +2668,7 @@ function ComponentModal({
                     value={c.khe_cat_mm}
                     onChange={(n) => patchComp(c.uid, { khe_cat_mm: n })}
                     opt="0 = bình sát, cắt chung nhát"
+                    thapPhan
                     suffix="mm"
                   />
                 </div>
@@ -2397,18 +2683,16 @@ function ComponentModal({
               <div className="tg-grid">
                 <label className="tg-field tg-span-6">
                   <span className="tg-microlabel">Loại giấy</span>
-                  <select
+                  <Select
+                    options={giayOpts}
+                    value={c.giay_id == null ? "" : String(c.giay_id)}
+                    onChange={(v) => onPickGiay(c.uid, v === "" ? null : Number(v))}
+                    ariaLabel="Loại giấy"
+                    searchable
+                    portal
                     className="tg-input"
-                    value={c.giay_id ?? ""}
-                    onChange={(e) => onPickGiay(c.uid, e.target.value === "" ? null : Number(e.target.value))}
-                  >
-                    <option value="">— Chọn giấy —</option>
-                    {giays.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {rowLabel(g)}
-                      </option>
-                    ))}
-                  </select>
+                    listClassName="tg-pop"
+                  />
                 </label>
                 {/* GỠ 2026-08-09 (Đợt 4 · K): ô chọn "Nguồn giấy — Công ty / Khách cấp".
                     Công ty luôn cấp giấy, và engine đã thôi đọc cờ đó. Để lại ô mà engine không
@@ -2419,6 +2703,7 @@ function ComponentModal({
                     label="Dài nguyên"
                     value={c.kho_nguyen_dai}
                     onChange={(n) => patchComp(c.uid, { kho_nguyen_dai: n })}
+                    thapPhan
                     suffix="mm"
                   />
                 </div>
@@ -2427,6 +2712,7 @@ function ComponentModal({
                     label="Rộng nguyên"
                     value={c.kho_nguyen_rong}
                     onChange={(n) => patchComp(c.uid, { kho_nguyen_rong: n })}
+                    thapPhan
                     suffix="mm"
                   />
                 </div>
@@ -2457,18 +2743,16 @@ function ComponentModal({
                   <span className="tg-microlabel">
                     Máy in <span className="tg-microlabel__opt">→ khổ tờ in</span>
                   </span>
-                  <select
+                  <Select
+                    options={mayOpts}
+                    value={c.may_id == null ? "" : String(c.may_id)}
+                    onChange={(v) => onPickMay(c.uid, v === "" ? null : Number(v))}
+                    ariaLabel="Máy in"
+                    searchable
+                    portal
                     className="tg-input"
-                    value={c.may_id ?? ""}
-                    onChange={(e) => onPickMay(c.uid, e.target.value === "" ? null : Number(e.target.value))}
-                  >
-                    <option value="">— Không chọn —</option>
-                    {mayIn.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {rowLabel(m)}
-                      </option>
-                    ))}
-                  </select>
+                    listClassName="tg-pop"
+                  />
                 </label>
                 <div className="tg-field tg-span-5">
                   <span className="tg-microlabel">
@@ -2506,6 +2790,7 @@ function ComponentModal({
                     label="Khổ tờ in dài"
                     value={c.kho_in_dai}
                     onChange={(n) => patchComp(c.uid, { kho_in_dai: n })}
+                    thapPhan
                     suffix="mm"
                   />
                 </div>
@@ -2514,6 +2799,7 @@ function ComponentModal({
                     label="Khổ tờ in rộng"
                     value={c.kho_in_rong}
                     onChange={(n) => patchComp(c.uid, { kho_in_rong: n })}
+                    thapPhan
                     suffix="mm"
                   />
                 </div>
@@ -2606,12 +2892,28 @@ function ComponentModal({
                     Chọn loại sản phẩm để tự bung chuỗi, hoặc thêm công đoạn.
                   </p>
                 )}
-                {c.thanh_phams.map((f, fIdx) => (
+                {c.thanh_phams.map((f, fIdx) => {
+                  const canh = tinhTrangBuoc(f, congDoans);
+                  return (
                   <div key={f.uid} className="tg-timeline-item">
-                    <span className="tg-chip">
+                    <span
+                      className={`tg-chip${canh ? " tg-chip--canh" : ""}`}
+                      title={
+                        canh === "mat"
+                          ? "Công đoạn này đã bị xóa khỏi danh mục — chọn công đoạn khác thay vào."
+                          : canh === "ngung"
+                            ? "Công đoạn này đã ngừng dùng — vẫn tính được, nhưng lần sau không chọn lại được."
+                            : undefined
+                      }
+                    >
                       <span className="tg-chip__name">
-                        {f.ten || "(công đoạn)"}
+                        {tenBuoc(f, congDoans) || "(công đoạn)"}
                       </span>
+                      {canh ? (
+                        <span className="tg-chip__canh">
+                          {canh === "mat" ? "đã xóa" : "ngừng dùng"}
+                        </span>
+                      ) : null}
                       <button
                         type="button"
                         className="tg-chip__x"
@@ -2622,60 +2924,42 @@ function ComponentModal({
                         <CloseIcon />
                       </button>
                     </span>
+                    {/* `title` chuyển lên thẻ bọc: `Select` không nhận `title`, mà mũi tên 22px
+                        không có chữ nên mất tooltip là mất luôn manh mối "bấm được". */}
                     {fIdx < c.thanh_phams.length - 1 && (
-                      <div className="tg-timeline-arrow-wrap">
-                        <select
-                          className="tg-timeline-select-arrow"
-                          title="Chèn công đoạn vào giữa"
+                      <div className="tg-timeline-arrow-wrap" title="Chèn công đoạn vào giữa">
+                        <Select
+                          options={cdOpts}
                           value=""
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (!v) return;
-                            const insertIdx = fIdx + 1;
-                            if (v === "__blank") {
-                              addFin(c.uid, null, "", insertIdx);
-                            } else {
-                              const cd = congDoans.find((x) => String(x.id) === v);
-                              addFin(c.uid, cd ? cd.id : null, cd ? cdName(cd) : "", insertIdx);
-                            }
-                          }}
-                        >
-                          <option value="">➔</option>
-                          {congDoans.map((cd) => (
-                            <option key={cd.id} value={cd.id}>
-                              {cdName(cd)}
-                            </option>
-                          ))}
-                          <option value="__blank">+ Tự nhập…</option>
-                        </select>
+                          onChange={(v) => themCongDoan(v, fIdx + 1)}
+                          placeholder="➔"
+                          ariaLabel="Chèn công đoạn vào giữa"
+                          searchable
+                          portal
+                          className="tg-timeline-select-arrow"
+                          listClassName="tg-pop"
+                        />
                       </div>
                     )}
                   </div>
-                ))}
-                <select
-                  className="tg-chip-add"
-                  aria-label="Thêm công đoạn"
-                  value=""
+                  );
+                })}
+                <div
+                  className="tg-chip-add-wrap"
                   style={{ marginLeft: c.thanh_phams.length > 0 ? "8px" : "0" }}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (!v) return;
-                    if (v === "__blank") {
-                      addFin(c.uid);
-                    } else {
-                      const cd = congDoans.find((x) => String(x.id) === v);
-                      addFin(c.uid, cd ? cd.id : null, cd ? cdName(cd) : "");
-                    }
-                  }}
                 >
-                  <option value="">+ Thêm công đoạn…</option>
-                  {congDoans.map((cd) => (
-                    <option key={cd.id} value={cd.id}>
-                      {cdName(cd)}
-                    </option>
-                  ))}
-                  <option value="__blank">+ Tự nhập…</option>
-                </select>
+                  <Select
+                    options={cdOpts}
+                    value=""
+                    onChange={(v) => themCongDoan(v)}
+                    placeholder="+ Thêm công đoạn…"
+                    ariaLabel="Thêm công đoạn"
+                    searchable
+                    portal
+                    className="tg-chip-add"
+                    listClassName="tg-pop"
+                  />
+                </div>
               </div>
 
               {/* PHÍ KHUÔN — chỉ mọc khi chuỗi có bước cần dao lưu kho. Chuỗi toàn bước phẳng thì
@@ -2698,7 +2982,7 @@ function ComponentModal({
                     {daos.map(({ f, dao }) => (
                       <div className="tg-khuon__row" key={f.uid}>
                         <span className="tg-khuon__ten">
-                          {f.ten || "(công đoạn)"}
+                          {tenBuoc(f, congDoans) || "(công đoạn)"}
                           <em>{dao}</em>
                         </span>
                         <div className="tg-khuon__input">
@@ -2709,7 +2993,7 @@ function ComponentModal({
                             step={1000}
                             /* Ô số trần không có <label> nối vào — trình đọc màn hình chỉ đọc
                                "spin button". Ghép tên bước + loại dao thành nhãn. */
-                            aria-label={`Phí ${dao} của bước ${f.ten || "công đoạn"}`}
+                            aria-label={`Phí ${dao} của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
                             value={f.phi_khuon || ""}
                             placeholder="0"
                             onChange={(e) =>
@@ -3019,7 +3303,15 @@ function ComponentModal({
                     </div>
                     {dsKhuon.map((d, i) => (
                       <div className="tg-sheetrow tg-sheetrow--sub" key={`k${i}`}>
-                        <span className="tg-sheetrow__stack">{d.ten}</span>
+                        <span className="tg-sheetrow__stack">
+                          {d.ten}
+                          {/* Không dùng `HaiDongCongThuc`: dòng khuôn không có công thức gốc, và
+                              chuỗi engine trả về đã tự chứa dấu "=" nên thêm "= " nữa là hai dấu
+                              bằng trong một câu. Ở đây chỉ cần vế "÷ SL = đ/sp". */}
+                          {d.congThuc && (
+                            <em className="tg-sheetrow__derive tg-sheetrow__derive--so">{d.congThuc}</em>
+                          )}
+                        </span>
                         <SoDv so={fmt(Math.round(d.tien))} dv="đ" />
                       </div>
                     ))}

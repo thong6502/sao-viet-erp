@@ -50,8 +50,10 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
               <th rowSpan={2} className="rc-col--center" style={{ width: 36 }} />
             </tr>
             <tr className="rc-dinh-muc-table__sub-row">
-              <th className="rc-col--num">Trung bình</th>
+              {/* Thứ tự tối thiểu → trung bình → tối đa: đọc thành một DẢI tăng dần, và khớp luôn
+                  với nhóm "Định mức nhân lực" bên cạnh (tối thiểu · chuẩn · tối đa). */}
               <th className="rc-col--num">Tối thiểu</th>
+              <th className="rc-col--num">Trung bình</th>
               <th className="rc-col--num">Tối đa</th>
               <th className="rc-col--unit">Đơn vị</th>
               <th className="rc-col--num">Tối thiểu</th>
@@ -63,17 +65,18 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
             {allowed.length === 0 ? "Tổ này chưa có đầu việc khoán để liên kết." : "Chưa chọn đầu việc định mức."}
           </td></tr>}{value.map((r, i) => { const opt = options.find((o) => o.id === r.piece_rate_id); const vtIds = r.vat_tu_ids ?? []; const mo = moVatTu === r.piece_rate_id; return <Fragment key={r.piece_rate_id}><tr>
             <td className="rc-col--left rc-dinh-muc-name">{opt ? `${opt.ma} · ${opt.ten}` : `#${r.piece_rate_id}`}</td>
-            <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0.01" step="any" value={r.nang_suat_nguoi_gio} onChange={(e) => patch(i, { nang_suat_nguoi_gio: Number(e.target.value) })} /></td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0.01" step="any" placeholder="—"
               value={r.nang_suat_nguoi_gio_min ?? ""}
               onChange={(e) => patch(i, { nang_suat_nguoi_gio_min: e.target.value === "" ? null : Number(e.target.value) })} /></td>
+            <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0.01" step="any" value={r.nang_suat_nguoi_gio} onChange={(e) => patch(i, { nang_suat_nguoi_gio: Number(e.target.value) })} /></td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0.01" step="any" placeholder="—"
               value={r.nang_suat_nguoi_gio_max ?? ""}
               onChange={(e) => patch(i, { nang_suat_nguoi_gio_max: e.target.value === "" ? null : Number(e.target.value) })} /></td>
             {/* KHOÁ theo đơn vị của ĐƠN GIÁ KHOÁN (chủ chốt 10/08/2026) — chữ, không phải ô chọn.
                 Cùng một đầu việc thì tính tiền và đếm năng suất bằng cùng một thứ; khai ở Lương
-                khoán rồi thì đừng bắt chọn lại. Đổi đơn vị ⇒ sửa ở màn Lương khoán. */}
-            <td className="rc-col--unit rc-dinh-muc-unit">{opt?.don_vi ? `${opt.don_vi}/h` : "—"}</td>
+                khoán rồi thì đừng bắt chọn lại. Đổi đơn vị ⇒ sửa ở màn Lương khoán.
+                Hiện TÊN (server gán `don_vi_ten`), chỉ lùi về mã trần khi mã lạ ngoài danh mục. */}
+            <td className="rc-col--unit rc-dinh-muc-unit">{opt?.don_vi_ten ? `${opt.don_vi_ten}/h` : opt?.don_vi ? `${opt.don_vi}/h` : "—"}</td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_toi_thieu ?? 1} onChange={(e) => patch(i, { so_nguoi_toi_thieu: Number(e.target.value) })} /></td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_tieu_chuan} onChange={(e) => patch(i, { so_nguoi_tieu_chuan: Number(e.target.value) })} /></td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_toi_da} onChange={(e) => patch(i, { so_nguoi_toi_da: Number(e.target.value) })} /></td>
