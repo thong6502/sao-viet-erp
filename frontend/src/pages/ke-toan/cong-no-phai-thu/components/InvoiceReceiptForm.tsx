@@ -88,35 +88,60 @@ export function InvoiceReceiptForm({
     }
   }
 
+  // Popup GIỮA màn hình, không nhét trong bảng nữa — form từng nằm trong <td colSpan> của
+  // bảng hoá đơn nên bị cuộn ngang cắt cùng bảng. Đây là con nằm TRONG ReceivablesDrawer (đã là
+  // một rc-drawer) nên dùng khuôn `.acct-modal` (khối vẫn còn trong accounting.css) thay vì mở
+  // thêm một rc-drawer thứ hai chồng lên drawer đang mở. Đầu popup lấy ĐÚNG dáng hero-banner tối
+  // màu của mọi drawer khác (`purchase__hero-*`) — bản đầu dùng `.acct-modal__head` nền trắng
+  // trơn, không có sức nặng thị giác, đọc như hộp thoại mặc định của trình duyệt ("xấu thế").
+  // ĐÓNG AN TOÀN: nền mờ không bắt click (không vô tình mất nháp đang gõ) — chỉ đóng qua nút ✕
+  // hoặc "Hủy".
   return (
-    <form className="ar-receipt-form" onSubmit={submit}>
-      <div className="ar-receipt-form__head">
-        <div><strong>Thu hóa đơn {item.invoice_number}</strong><small>Còn phải thu {money(item.remaining_amount)}</small></div>
-        <div className="acct-segment" aria-label="Hình thức thu">
-          <button type="button" className={!isBank ? "is-active" : ""} onClick={() => set("receipt_method", "cash" as PaymentVoucherType)}>Tiền mặt</button>
-          <button type="button" className={isBank ? "is-active" : ""} onClick={() => set("receipt_method", "bank_transfer" as PaymentVoucherType)}>Chuyển khoản</button>
-        </div>
+    <div className="acct-modal" role="presentation">
+      <div className="acct-modal__box" role="dialog" aria-modal="true" aria-label={`Thu hóa đơn ${item.invoice_number}`}>
+        <form onSubmit={submit}>
+          <div className="purchase__hero-banner">
+            <div className="purchase__hero-top">
+              <div>
+                <span className="purchase__hero-kicker">Thu tiền</span>
+                <div className="purchase__hero-title-row">
+                  <h2 className="purchase__hero-code">Hóa đơn {item.invoice_number}</h2>
+                </div>
+              </div>
+              <button type="button" className="purchase__hero-x" onClick={onCancel} aria-label="Đóng">✕</button>
+            </div>
+            <div className="purchase__hero-meta">
+              <span>Còn phải thu {money(item.remaining_amount)}</span>
+            </div>
+          </div>
+          <div className="acct-modal__body">
+            <div className="acct-segment" aria-label="Hình thức thu">
+              <button type="button" className={!isBank ? "is-active" : ""} onClick={() => set("receipt_method", "cash" as PaymentVoucherType)}>Tiền mặt</button>
+              <button type="button" className={isBank ? "is-active" : ""} onClick={() => set("receipt_method", "bank_transfer" as PaymentVoucherType)}>Chuyển khoản</button>
+            </div>
+            {error && <div className="banner banner--error" role="alert">{error}</div>}
+            <div className={`ar-receipt-form__grid${isBank ? " ar-receipt-form__grid--bank" : ""}`}>
+              <label className="acct-field"><span>Người nộp <b>*</b></span><input className="input" value={form.payer_name} onChange={(event) => set("payer_name", event.target.value)} /></label>
+              <label className="acct-field"><span>Ngày thu <b>*</b></span><input className="input" type="date" min={item.invoice_date} max={localToday()} value={form.receipt_date} onChange={(event) => set("receipt_date", event.target.value)} /></label>
+              <label className="acct-field"><span>Số tiền <b>*</b></span><input className="input acct-money-input" type="number" min="1" max={item.remaining_amount} step="1" value={form.amount} onChange={(event) => set("amount", Number(event.target.value))} /></label>
+              {isBank && (
+                <label className="acct-field"><span>Tài khoản nhận <b>*</b></span>
+                  <select className="input" value={form.company_bank_account_id ?? ""} disabled={accountsLoading} onChange={(event) => set("company_bank_account_id", event.target.value ? Number(event.target.value) : null)}>
+                    <option value="">Chọn tài khoản công ty</option>
+                    {accounts.map((account) => <option key={account.id} value={account.id}>{account.bank_name} · {account.account_number}</option>)}
+                  </select>
+                </label>
+              )}
+            </div>
+            <label className="acct-field"><span>Nội dung thu <b>*</b></span><input className="input" value={form.content} onChange={(event) => set("content", event.target.value)} /></label>
+            {isBank && <label className="acct-field"><span>Mã giao dịch <b>*</b></span><input className="input" value={form.bank_reference ?? ""} onChange={(event) => set("bank_reference", event.target.value)} /></label>}
+          </div>
+          <div className="acct-modal__foot">
+            <Button type="button" variant="ghost" onClick={onCancel} disabled={saving}>Hủy</Button>
+            <Button type="submit" variant="primary" loading={saving}>Lập phiếu thu</Button>
+          </div>
+        </form>
       </div>
-      {error && <div className="banner banner--error" role="alert">{error}</div>}
-      <div className="ar-receipt-form__grid">
-        <label className="acct-field"><span>Người nộp <b>*</b></span><input className="input" value={form.payer_name} onChange={(event) => set("payer_name", event.target.value)} /></label>
-        <label className="acct-field"><span>Ngày thu <b>*</b></span><input className="input" type="date" min={item.invoice_date} max={localToday()} value={form.receipt_date} onChange={(event) => set("receipt_date", event.target.value)} /></label>
-        <label className="acct-field"><span>Số tiền <b>*</b></span><input className="input acct-money-input" type="number" min="1" max={item.remaining_amount} step="1" value={form.amount} onChange={(event) => set("amount", Number(event.target.value))} /></label>
-        {isBank && (
-          <label className="acct-field"><span>Tài khoản nhận <b>*</b></span>
-            <select className="input" value={form.company_bank_account_id ?? ""} disabled={accountsLoading} onChange={(event) => set("company_bank_account_id", event.target.value ? Number(event.target.value) : null)}>
-              <option value="">Chọn tài khoản công ty</option>
-              {accounts.map((account) => <option key={account.id} value={account.id}>{account.bank_name} · {account.account_number}</option>)}
-            </select>
-          </label>
-        )}
-      </div>
-      <label className="acct-field"><span>Nội dung thu <b>*</b></span><input className="input" value={form.content} onChange={(event) => set("content", event.target.value)} /></label>
-      {isBank && <label className="acct-field"><span>Mã giao dịch <b>*</b></span><input className="input" value={form.bank_reference ?? ""} onChange={(event) => set("bank_reference", event.target.value)} /></label>}
-      <div className="ar-receipt-form__actions">
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={saving}>Hủy</Button>
-        <Button type="submit" variant="primary" loading={saving}>Lập phiếu thu</Button>
-      </div>
-    </form>
+    </div>
   );
 }

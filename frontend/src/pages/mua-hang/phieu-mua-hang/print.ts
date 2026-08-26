@@ -1,5 +1,7 @@
 // Mẫu in phiếu mua hàng khổ A4 (tách từ pages/PurchaseRequestsPage.tsx).
 import type { PurchaseRequestRow } from "../../../api/client";
+import svnLogoUrl from "../../../assets/sao-viet-nhat-logo-mark.png";
+import { COMPANY } from "../../../constants/company";
 // `escapeHtml` nhập dưới tên `html` để không phải sửa ~30 chỗ gọi trong mẫu in. Bản chép tay cũ
 // trong file này đã xoá — hai bản escape song song là kiểu lỗi chỉ lộ ra ở một ký tự hiếm.
 import { escapeHtml as html, fmtDate, money } from "../../../utils/format";
@@ -77,6 +79,8 @@ export function printPurchaseRequest(row: PurchaseRequestRow): boolean {
       padding-bottom: 10px;
       margin-bottom: 16px;
     }
+    .top-brand { display: flex; align-items: center; gap: 10px; }
+    .top-brand img { height: 40px; width: auto; }
     .company { font-weight: 700; text-transform: uppercase; }
     .muted { color: #666; font-size: 11px; margin-top: 2px; }
     .print-meta { text-align: right; color: #444; }
@@ -173,9 +177,9 @@ export function printPurchaseRequest(row: PurchaseRequestRow): boolean {
 </head>
 <body>
   <div class="top">
-    <div>
-      <div class="company">Sao Việt Nhật ERP</div>
-      <div class="muted">Phiếu in từ phân hệ Thu mua</div>
+    <div class="top-brand">
+      <img src="${svnLogoUrl}" alt="" />
+      <div class="company">${html(COMPANY.name)}</div>
     </div>
     <div class="print-meta">
       <div>Ngày in: ${html(printDate)}</div>

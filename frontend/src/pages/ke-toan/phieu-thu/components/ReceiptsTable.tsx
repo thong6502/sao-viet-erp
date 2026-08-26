@@ -29,7 +29,7 @@ export function ReceiptsTable({
   totalPages: number;
 }) {
   return (
-    <section className="card md-page__tablewrap acct-list">
+    <section className="md-page__tablewrap acct-list acct-pt__frame">
       <table className="md-page__table">
         <thead>
           <tr>
@@ -116,13 +116,15 @@ export function ReceiptsTable({
                 </td>
                 <td>
                   <span
-                    className={`acct-voucher-status acct-voucher-status--${STATUS_META[row.status].tone}`}
+                    className={`acct-pt__state acct-pt__state--${STATUS_META[row.status].tone}`}
                   >
+                    <i className="acct-pt__dot" aria-hidden="true" />
                     {STATUS_META[row.status].label}
                   </span>
                   {row.status === "received" &&
                     row.attachment_count === 0 && (
-                      <span className="acct-missing-doc">
+                      <span className="acct-pt__flag">
+                        <i className="acct-pt__dot" aria-hidden="true" />
                         Thiếu chứng từ
                       </span>
                     )}

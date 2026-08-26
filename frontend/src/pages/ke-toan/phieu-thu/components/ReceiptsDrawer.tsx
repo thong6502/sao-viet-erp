@@ -41,10 +41,11 @@ export function ReceiptsDrawer({
   removeAttachment: (attachment: PaymentReceiptAttachment) => Promise<void>;
   actions: (row: PaymentReceiptRow) => ReactNode;
 }) {
+  const footer = actions(selected);
   return (
     <div className="rc-drawer__scrim" onClick={() => setSelectedId(null)}>
       <aside
-        className="rc-drawer purchase__drawer-780"
+        className="rc-drawer purchase__drawer-780 acct-pt-drawer"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -58,13 +59,17 @@ export function ReceiptsDrawer({
                 <h2 className="purchase__hero-code">{selected.code}</h2>
                 <div className="acct-status-stack">
                   <span
-                    className={`acct-voucher-status acct-voucher-status--${STATUS_META[selected.status].tone}`}
+                    className={`acct-pt__state acct-pt__state--${STATUS_META[selected.status].tone}`}
                   >
+                    <i className="acct-pt__dot" aria-hidden="true" />
                     {STATUS_META[selected.status].label}
                   </span>
                   {selected.status === "received" &&
                     selected.attachment_count === 0 && (
-                      <span className="acct-missing-doc">Thiếu chứng từ</span>
+                      <span className="acct-pt__flag">
+                        <i className="acct-pt__dot" aria-hidden="true" />
+                        Thiếu chứng từ
+                      </span>
                     )}
                 </div>
               </div>
@@ -78,24 +83,15 @@ export function ReceiptsDrawer({
               ✕
             </button>
           </div>
-          <div className="purchase__hero-meta">
-            <span>{selected.payer_name}</span>
-            <span className="purchase__hero-dot">•</span>
-            <span>Ngày {fmtDate(selected.receipt_date)}</span>
-            <span className="purchase__hero-dot">•</span>
-            <span>{money(selected.amount_vnd)}</span>
-            <span className="purchase__hero-dot">•</span>
-            <span>{sourceLabel(selected)}</span>
-            {selected.doc_no && (
-              <>
-                <span className="purchase__hero-dot">•</span>
-                <span>Số CT {selected.doc_no}</span>
-              </>
-            )}
-          </div>
         </div>
-        <div className="rc-drawer__body">
+        <div className="rc-drawer__body acct-pt__body">
       <dl className="purchase__facts">
+        {selected.doc_no && (
+          <div>
+            <dt>Số chứng từ</dt>
+            <dd>{selected.doc_no}</dd>
+          </div>
+        )}
         <div>
           <dt>Nguồn thu</dt>
           <dd>{sourceLabel(selected)}</dd>
@@ -284,7 +280,7 @@ export function ReceiptsDrawer({
         </div>
       )}
         </div>
-        <div className="purchase__drawer-footer">{actions(selected)}</div>
+        {footer && <div className="purchase__drawer-footer">{footer}</div>}
       </aside>
     </div>
   );

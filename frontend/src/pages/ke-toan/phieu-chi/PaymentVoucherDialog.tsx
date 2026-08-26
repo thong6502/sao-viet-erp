@@ -2,6 +2,11 @@
 // ⚠️ TIỀN THẬT. Giữ ở đây nguyên văn: `maxAmountVnd` (trần đặt cọc vs công nợ theo đợt),
 // `amountVnd`, và toàn bộ `submit()` — mọi câu chặn trần/tỷ giá/đợt giao. Sáu khối JSX con chỉ
 // là chỗ HIỂN THỊ, nhận state qua props; không khối nào tự tính lại tiền.
+// Vỏ dùng KHUÔN DRAWER của Thu mua (`rc-drawer` + `purchase__hero-banner`) thay `acct-modal`
+// nền trắng giữa màn — chủ chốt 26/08/2026: "sao mỗi nơi một màu". Đây là FORM TIỀN nên đóng
+// AN TOÀN: scrim KHÔNG bắt click, KHÔNG Esc-to-close (tránh mất dữ liệu đang gõ). Drawer lấy
+// bản RỘNG (`acct-drawer-wide`) vì thân form là lưới nhiều cột + bảng phân bổ đợt giao — hẹp
+// lại là vỡ bảng. Việc 26/08 chỉ đổi vỏ: `maxAmountVnd` / `amountVnd` / `submit()` KHÔNG đụng.
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ApiError,
@@ -335,33 +340,38 @@ export function PaymentVoucherDialog({
   }
 
   return (
-    <div
-      className="acct-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="payment-voucher-title"
-    >
-      <form className="acct-modal__box acct-modal__box--wide" onSubmit={submit}>
-        <header className="acct-modal__head">
-          <div>
-            <p className="eyebrow">
-              {voucher ? "Sửa chứng từ" : "Lập chứng từ thanh toán"}
-            </p>
-            <h2 id="payment-voucher-title">
-              {purchase.code} · {purchase.supplier_name}
-            </h2>
+    <div className="rc-drawer__scrim" role="presentation">
+      <aside
+        className="rc-drawer acct-drawer-wide"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="payment-voucher-title"
+      >
+        <div className="purchase__hero-banner">
+          <div className="purchase__hero-top">
+            <div>
+              <span className="purchase__hero-kicker">
+                {voucher ? "Sửa chứng từ" : "Lập chứng từ thanh toán"}
+              </span>
+              <div className="purchase__hero-title-row">
+                <h2 className="purchase__hero-code" id="payment-voucher-title">
+                  {purchase.code} · {purchase.supplier_name}
+                </h2>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="purchase__hero-x"
+              onClick={onClose}
+              aria-label="Đóng"
+            >
+              ✕
+            </button>
           </div>
-          <button
-            type="button"
-            className="acct-modal__x"
-            onClick={onClose}
-            aria-label="Đóng"
-          >
-            ×
-          </button>
-        </header>
-
-        <div className="acct-modal__body">
+        </div>
+        <form className="purchase__drawer-form" onSubmit={submit}>
+        <div className="rc-drawer__body">
           {error && (
             <div className="banner banner--error" role="alert">
               {error}
@@ -426,7 +436,7 @@ export function PaymentVoucherDialog({
           <VoucherRefSection form={form} set={set} />
         </div>
 
-        <footer className="acct-modal__foot">
+        <div className="purchase__drawer-footer">
           <Button
             type="button"
             variant="ghost"
@@ -438,8 +448,9 @@ export function PaymentVoucherDialog({
           <Button type="submit" variant="accent" loading={saving}>
             {voucher ? "Lưu thay đổi" : "Lập chứng từ"}
           </Button>
-        </footer>
-      </form>
+        </div>
+        </form>
+      </aside>
     </div>
   );
 }

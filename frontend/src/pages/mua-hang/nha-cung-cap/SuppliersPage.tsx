@@ -32,6 +32,7 @@ import { SupplierHistoryTab } from "./tabs/SupplierHistoryTab";
 import { SupplierInfoTab } from "./tabs/SupplierInfoTab";
 import { SupplierItemsTab } from "./tabs/SupplierItemsTab";
 import { PAGE_SIZE, REQUIRED_SUPPLIER_FIELDS } from "./shared/constants";
+import type { LocSaoNcc, SortNcc } from "./shared/types";
 import {
   cleanSupplier,
   emptySupplier,
@@ -60,6 +61,10 @@ export function SuppliersPage({
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<"all" | "active" | "inactive">("all");
   const [selectedGroup, setSelectedGroup] = useState<string>("all");
+  // SAO ĐÁNH GIÁ (máy tự tính). Cả hai đi thẳng vào tham số API — sắp xếp và lọc chạy ở SERVER,
+  // không phải sort tại chỗ: bảng có phân trang, xếp mỗi trang một kiểu thì trang 2 vô nghĩa.
+  const [sort, setSort] = useState<SortNcc>("name");
+  const [locSao, setLocSao] = useState<LocSaoNcc>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -186,7 +191,8 @@ export function SuppliersPage({
         q: qDebounced.trim() || undefined,
         status: status === "all" ? null : status,
         supplier_group: selectedGroup === "all" ? null : selectedGroup,
-        sort: "name",
+        rating_min: locSao,
+        sort,
         page,
         size: PAGE_SIZE,
       })
@@ -199,7 +205,7 @@ export function SuppliersPage({
         else setListError("Không tải được danh sách nhà cung cấp.");
       })
       .finally(() => setLoading(false));
-  }, [token, qDebounced, status, selectedGroup, page]);
+  }, [token, qDebounced, status, selectedGroup, locSao, sort, page]);
 
   useEffect(() => {
     loadAll();
@@ -452,6 +458,8 @@ export function SuppliersPage({
         setQ={setQ}
         status={status}
         setStatus={setStatus}
+        locSao={locSao}
+        setLocSao={setLocSao}
         setPage={setPage}
         load={load}
         canCreate={canCreate}
@@ -507,6 +515,8 @@ export function SuppliersPage({
         rows={rows}
         canUpdate={canUpdate}
         openEdit={openEdit}
+        sort={sort}
+        setSort={setSort}
         total={total}
         page={page}
         setPage={setPage}
@@ -614,7 +624,11 @@ export function SuppliersPage({
 
                 {/* TAB 1: Thông tin chung & Pháp lý */}
                 {activeTab === "info" && (
-                  <SupplierInfoTab form={form} setForm={setForm} />
+                  <SupplierInfoTab
+                    form={form}
+                    setForm={setForm}
+                    selected={mode === "edit" ? selected : null}
+                  />
                 )}
 
                 {/* TAB 2: Bảng giá mặt hàng vật tư */}

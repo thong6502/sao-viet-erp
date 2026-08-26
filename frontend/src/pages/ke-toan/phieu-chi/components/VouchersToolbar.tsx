@@ -75,7 +75,7 @@ export function VouchersToolbar({
           ))}
         </select>
         {canApprove && (
-          <Button variant="primary" onClick={() => setStandaloneOpen(true)}>
+          <Button variant="accent" onClick={() => setStandaloneOpen(true)}>
             + Tạo phiếu chi
           </Button>
         )}

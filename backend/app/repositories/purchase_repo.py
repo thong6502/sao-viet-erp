@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Sequence
 
-from sqlalchemy import and_, asc, desc, exists, func, or_, select
+from sqlalchemy import Date, Integer, and_, asc, case, desc, exists, func, literal, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.accounting import PAYMENT_VOUCHER_PAID, PaymentVoucher
@@ -15,6 +15,7 @@ from ..models.purchase import (
     DPR_PENDING_APPROVAL,
     DepartmentPurchaseRequest,
     DepartmentPurchaseRequestLine,
+    NGUONG_SAO_NCC,
     PR_APPROVED,
     PR_DRAFT,
     PR_PENDING,
@@ -22,7 +23,9 @@ from ..models.purchase import (
     PR_PURCHASED,
     PR_RECEIVED,
     PR_REJECTED,
+    SAO_THAP_NHAT,
     SUPPLIER_ACTIVE,
+    TRANG_THAI_TINH_SAO,
     PurchaseDelivery,
     PurchaseRequest,
     PurchaseRequestLine,
@@ -45,11 +48,31 @@ def _quan_he_tien():
     )
 
 
+def _so_ngay(bind, sau, truoc):
+    """SỐ NGÀY giữa hai giá trị DATE, tính NGAY TRONG SQL.
+
+    Phải rẽ nhánh vì hai DB nói hai thứ tiếng: Postgres cho `date - date` ra INTEGER; SQLite lưu
+    DATE thành chuỗi 'YYYY-MM-DD' nên trừ thẳng ra số rác (nó ép chuỗi về 0), phải đi vòng qua
+    `julianday()`. Dev/prod là Postgres, test là SQLite in-memory ⇒ thiếu nhánh nào thì nhánh đó
+    ra sai mà KHÔNG bắn lỗi — chỉ là mọi đơn bỗng "đúng hẹn".
+
+    `.op("-")` chứ không phải `sau - truoc`: SQLAlchemy khai Date − Date = Interval, còn Postgres
+    trả về INTEGER, lệch kiểu là vỡ lúc đọc kết quả.
+    """
+    if (bind.dialect.name or "").startswith("sqlite"):
+        return func.julianday(sau) - func.julianday(truoc)
+    return sau.op("-", return_type=Integer)(truoc)
+
+
 _SUPPLIER_SORTABLE = {
     "name": Supplier.name,
     "tax_code": Supplier.tax_code,
     "created_at": Supplier.created_at,
 }
+
+#: Khoá sắp xếp theo SAO — không phải cột của bảng nên không nằm trong bảng tra ở trên, `list()`
+#: bắt riêng và lấy cột của truy vấn con đánh giá.
+_SORT_SAO = "rating"
 
 _REQUEST_SORTABLE = {
     "code": PurchaseRequest.code,
@@ -97,18 +120,127 @@ class SupplierRepository:
             select(Supplier).where(func.lower(Supplier.tax_code) == tax_code.lower())
         ).scalars().first()
 
+    def _bang_danh_gia(self, hom_nay: date | None = None):
+        """SỔ ĐIỂM đã gộp sẵn theo `supplier_id` — MỘT truy vấn con cho TOÀN BỘ nhà cung cấp.
+
+        Cố ý là truy vấn con chứ không phải vòng lặp: màn Nhà cung cấp tải 500 dòng một lượt, hỏi
+        từng NCC một là 500 lượt đi DB cho một cột hiển thị.
+
+        Luật nghiệp vụ (mốc hẹn · ngày chốt · thang sao) viết ở `services/danh_gia_ncc.py`; ở đây
+        chỉ DỊCH đúng thang ấy sang SQL, và thang thì đọc chung `NGUONG_SAO_NCC` nên không có
+        đường nào để hai bên lệch nhau.
+        """
+        bind = self.db.get_bind()
+        hom_nay = hom_nay or date.today()
+        moc_hom_nay = literal(hom_nay, Date)
+
+        # Ngày giao CUỐI CÙNG của từng phiếu. Gộp trước rồi mới nối, để một phiếu nhiều đợt giao
+        # không nhân dòng lên khi đếm.
+        giao = (
+            select(
+                PurchaseDelivery.purchase_request_id.label("pr_id"),
+                func.max(PurchaseDelivery.delivery_date).label("ngay_giao_cuoi"),
+            )
+            .group_by(PurchaseDelivery.purchase_request_id)
+            .subquery()
+        )
+
+        # Đơn đã nhận đủ ⇒ chốt ở ngày giao cuối. Đơn CHƯA đủ ⇒ chốt ở HÔM NAY: hàng còn nằm bên
+        # NCC thì đồng hồ còn chạy, không thì ôm hàng mãi lại thành sạch sổ.
+        ngay_chot = case(
+            (PurchaseRequest.status == PR_RECEIVED, giao.c.ngay_giao_cuoi),
+            else_=moc_hom_nay,
+        )
+        so_ngay_tre = _so_ngay(bind, ngay_chot, PurchaseRequest.needed_date)
+        sao = case(
+            *[(so_ngay_tre <= tran, diem) for tran, diem in NGUONG_SAO_NCC],
+            else_=SAO_THAP_NHAT,
+        )
+
+        don = (
+            select(
+                PurchaseRequest.supplier_id.label("supplier_id"),
+                sao.label("sao"),
+                case((so_ngay_tre > 0, 1), else_=0).label("tre"),
+                case((so_ngay_tre > 0, so_ngay_tre), else_=0).label("ngay_tre"),
+            )
+            .select_from(PurchaseRequest)
+            .outerjoin(giao, giao.c.pr_id == PurchaseRequest.id)
+            .where(
+                PurchaseRequest.supplier_id.isnot(None),
+                # Thiếu MỐC HẸN thì không có gì để so — bỏ đơn, đừng đoán thành đúng hẹn.
+                PurchaseRequest.needed_date.isnot(None),
+                PurchaseRequest.status.in_(TRANG_THAI_TINH_SAO),
+                or_(
+                    # Đã giao ít nhất một đợt ⇒ có ngày để chấm.
+                    giao.c.ngay_giao_cuoi.isnot(None),
+                    # Hoặc: chưa nhận đủ mà ĐÃ quá hẹn ⇒ chấm tới hôm nay.
+                    # Vế `status != received` chặn luôn ca phiếu cũ ghi "đã nhận" mà không có đợt
+                    # giao nào: không biết hàng về ngày nào thì bỏ qua, chứ tính là trễ tới hôm
+                    # nay thì đổ oan cho một đơn đã xong.
+                    and_(
+                        PurchaseRequest.status != PR_RECEIVED,
+                        PurchaseRequest.needed_date < moc_hom_nay,
+                    ),
+                ),
+            )
+            .subquery()
+        )
+
+        return (
+            select(
+                don.c.supplier_id.label("supplier_id"),
+                func.avg(don.c.sao).label("sao_tb"),
+                func.count().label("so_don"),
+                func.sum(1 - don.c.tre).label("so_dung_hen"),
+                func.sum(don.c.tre).label("so_tre"),
+                func.sum(don.c.ngay_tre).label("tong_ngay_tre"),
+            )
+            .group_by(don.c.supplier_id)
+            .subquery()
+        )
+
+    @staticmethod
+    def _doc_danh_gia(sao_tb, so_don, so_dung_hen, so_tre, tong_ngay_tre) -> dict | None:
+        """Một dòng sổ điểm thô → dict, hoặc `None` khi NCC chưa có đơn nào đủ điều kiện.
+
+        `None` ở đây đi thẳng thành "Chưa đánh giá" ở service. KHÔNG được đổi thành 0.
+        """
+        if sao_tb is None or not so_don:
+            return None
+        return {
+            "sao_tb": float(sao_tb),
+            "so_don": int(so_don),
+            "so_dung_hen": int(so_dung_hen or 0),
+            "so_tre": int(so_tre or 0),
+            "tong_ngay_tre": float(tong_ngay_tre or 0),
+        }
+
+    def danh_gia_mot(self, supplier_id: int) -> dict | None:
+        """Sổ điểm thô của ĐÚNG một NCC — cho các cửa trả về một dòng (tạo · sửa · bật/tắt)."""
+        dg = self._bang_danh_gia()
+        row = self.db.execute(
+            select(dg.c.sao_tb, dg.c.so_don, dg.c.so_dung_hen, dg.c.so_tre, dg.c.tong_ngay_tre)
+            .where(dg.c.supplier_id == supplier_id)
+        ).first()
+        return self._doc_danh_gia(*row) if row is not None else None
+
     def list(
         self,
         *,
         q: str | None = None,
         status: str | None = None,
         supplier_group: str | None = None,
+        # Lọc theo SAO: chỉ lấy NCC có trung bình ≥ mức này. NCC "Chưa đánh giá" (`sao_tb` NULL)
+        # tự rơi ra khỏi kết quả — đúng ý, vì lọc "≥4 sao" là đang hỏi ai ĐÃ chứng minh được.
+        rating_min: float | None = None,
         # MỚI NHẤT TRƯỚC (chủ chốt 12/08/2026). Trước đây xếp theo TÊN — NCC vừa khai xong nằm
         # tận trang 3, người khai phải đi tìm chính thứ mình vừa tạo.
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
-    ) -> tuple[list[Supplier], int]:
+    ) -> tuple[list[tuple[Supplier, dict | None]], int]:
+        danh_gia = self._bang_danh_gia()
         conditions = []
         if q:
             like = f"%{q.strip().lower()}%"
@@ -123,9 +255,28 @@ class SupplierRepository:
             conditions.append(Supplier.status == status)
         if supplier_group:
             conditions.append(Supplier.supplier_group == supplier_group)
+        if rating_min is not None:
+            conditions.append(danh_gia.c.sao_tb >= rating_min)
 
-        stmt = select(Supplier).options(selectinload(Supplier.items))
-        count_stmt = select(func.count()).select_from(Supplier)
+        # Nối sổ điểm bằng OUTER join ở CẢ hai truy vấn: NCC chưa có đơn nào vẫn phải nằm trong
+        # danh sách (và vẫn phải được đếm) — chỉ là cột sao của họ rỗng.
+        stmt = (
+            select(
+                Supplier,
+                danh_gia.c.sao_tb,
+                danh_gia.c.so_don,
+                danh_gia.c.so_dung_hen,
+                danh_gia.c.so_tre,
+                danh_gia.c.tong_ngay_tre,
+            )
+            .options(selectinload(Supplier.items))
+            .outerjoin(danh_gia, danh_gia.c.supplier_id == Supplier.id)
+        )
+        count_stmt = (
+            select(func.count())
+            .select_from(Supplier)
+            .outerjoin(danh_gia, danh_gia.c.supplier_id == Supplier.id)
+        )
         for c in conditions:
             stmt = stmt.where(c)
             count_stmt = count_stmt.where(c)
@@ -136,13 +287,28 @@ class SupplierRepository:
         if key.startswith("-"):
             direction = desc
             key = key[1:]
-        cot = _SUPPLIER_SORTABLE.get(key, Supplier.created_at)
-        # Tie-break đi CÙNG CHIỀU với cột chính: xếp mới-nhất-trước mà `id ASC` thì hai NCC tạo
-        # cùng giây lại đảo ngược nhau ngay trong danh sách vừa xếp giảm dần.
-        stmt = stmt.order_by(direction(cot), direction(Supplier.id))
+        if key == _SORT_SAO:
+            # NCC "Chưa đánh giá" xuống CUỐI ở CẢ HAI CHIỀU: chưa có dữ liệu KHÔNG phải là điểm
+            # thấp nhất, xếp họ lên đầu khi sort tăng dần là đọc thành "đây là mấy ông tệ nhất".
+            # Tự dựng khoá phụ thay vì NULLS LAST — mệnh đề đó không có ở mọi bản SQLite.
+            stmt = stmt.order_by(
+                case((danh_gia.c.sao_tb.is_(None), 1), else_=0).asc(),
+                direction(danh_gia.c.sao_tb),
+                direction(Supplier.id),
+            )
+        else:
+            cot = _SUPPLIER_SORTABLE.get(key, Supplier.created_at)
+            # Tie-break đi CÙNG CHIỀU với cột chính: xếp mới-nhất-trước mà `id ASC` thì hai NCC tạo
+            # cùng giây lại đảo ngược nhau ngay trong danh sách vừa xếp giảm dần.
+            stmt = stmt.order_by(direction(cot), direction(Supplier.id))
         page = max(1, page)
         size = max(1, min(size, 200))
-        rows = list(self.db.execute(stmt.offset((page - 1) * size).limit(size)).scalars())
+        rows = [
+            (sup, self._doc_danh_gia(sao_tb, so_don, so_dung_hen, so_tre, tong_ngay_tre))
+            for sup, sao_tb, so_don, so_dung_hen, so_tre, tong_ngay_tre in self.db.execute(
+                stmt.offset((page - 1) * size).limit(size)
+            ).all()
+        ]
         return rows, total
 
     def create(

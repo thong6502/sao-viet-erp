@@ -72,6 +72,7 @@ from ..repositories.purchase_repo import (
 from ..repositories.rbac_repo import DepartmentRepository
 from ..repositories.user_repo import UserRepository
 from ..storage import get_storage, key_from_url, make_key, url_from_key
+from .danh_gia_ncc import DanhGiaNcc, tu_tong_hop
 from .rbac_service import AuthorizationService
 
 
@@ -581,13 +582,33 @@ class PurchaseService:
         q: str | None = None,
         status: str | None = None,
         supplier_group: str | None = None,
+        rating_min: float | None = None,
         sort: str = "name",
         page: int = 1,
         size: int = 20,
-    ) -> tuple[list[Supplier], int]:
-        return self.suppliers.list(
-            q=q, status=status, supplier_group=supplier_group, sort=sort, page=page, size=size
+    ) -> tuple[list[tuple[Supplier, DanhGiaNcc]], int]:
+        """Danh sách NCC, mỗi dòng kèm SỔ ĐIỂM đã tính sẵn (xem `services/danh_gia_ncc.py`).
+
+        Sao đi kèm ngay trong lượt này chứ không phải một cú gọi riêng: cột sao nằm trên BẢNG danh
+        sách, tách ra là 500 lượt đi DB cho một màn.
+        """
+        rows, total = self.suppliers.list(
+            q=q,
+            status=status,
+            supplier_group=supplier_group,
+            rating_min=rating_min,
+            sort=sort,
+            page=page,
+            size=size,
         )
+        return [(sup, tu_tong_hop(tho)) for sup, tho in rows], total
+
+    def danh_gia_ncc(self, supplier_id: int) -> DanhGiaNcc:
+        """Sổ điểm của MỘT nhà cung cấp — cho các cửa chỉ trả về một dòng (tạo · sửa · bật/tắt).
+
+        Chưa có đơn nào đủ điều kiện ⇒ `DanhGiaNcc.rating is None` ("Chưa đánh giá"), KHÔNG phải 0.
+        """
+        return tu_tong_hop(self.suppliers.danh_gia_mot(supplier_id))
 
     def get_supplier(self, supplier_id: int) -> Supplier:
         supplier = self.suppliers.get_by_id(supplier_id)

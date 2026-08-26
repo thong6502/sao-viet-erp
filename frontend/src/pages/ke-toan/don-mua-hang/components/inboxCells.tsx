@@ -4,7 +4,7 @@ import { money } from "../../../../utils/format";
 
 export function DepositCell({ row }: { row: PurchaseRequestRow }) {
   if ((row.deposit_expected ?? 0) <= 0) {
-    return <span className="md-page__muted">-</span>;
+    return <span className="md-page__muted">—</span>;
   }
   const paid = row.coc_da_chi ?? 0;
   const expected = row.deposit_expected ?? 0;

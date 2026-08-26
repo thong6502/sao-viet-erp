@@ -29,7 +29,7 @@ export function InboxTable({
   totalPages: number;
 }) {
   return (
-    <section className="card md-page__tablewrap acct-list">
+    <section className="md-page__tablewrap acct-list acct-dmh__frame">
       <table className="md-page__table">
         <thead>
           <tr>
@@ -94,30 +94,29 @@ export function InboxTable({
                   >
                     {row.supplier_name || "—"}
                   </td>
-                  <td className="acct-code-cell">{fmtDate(row.created_at)}</td>
+                  <td className="acct-dmh__date">{fmtDate(row.created_at)}</td>
                   <td className="acct-amount-cell">
                     <strong>{money(row.total_estimate)}</strong>
                   </td>
                   <td className="acct-amount-cell">
                     <DepositCell row={row} />
                   </td>
-                  <td className="acct-code-cell">
+                  <td className="acct-dmh__date">
                     {fmtDate(row.needed_date)}
                   </td>
                   <td>
                     <span
-                      className={`purchase__status purchase__status--${status.tone}`}
+                      className={`acct-dmh__state acct-dmh__state--${status.tone}`}
                     >
+                      <i className="acct-dmh__dot" />
                       {status.label}
                     </span>
                   </td>
                   <td>
-                    <span
-                      className={`acct-payment-status acct-payment-status--${payment.tone}`}
-                    >
-                      {payment.label}
-                    </span>
-                    <small>{money(row.outstanding_amount)} còn lại</small>
+                    <strong className="acct-dmh__due">
+                      {money(row.outstanding_amount)}
+                    </strong>
+                    <small>{payment.label}</small>
                   </td>
                 </tr>
               );

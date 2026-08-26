@@ -292,7 +292,7 @@ export function PaymentVouchersPage({
   }
 
   return (
-    <main className="md-page">
+    <main className="md-page acct-pc">
       <header className="md-page__head">
         <p className="eyebrow">Kế toán</p>
         <h1 className="md-page__title">{VOUCHER_PAGE_LABEL}</h1>

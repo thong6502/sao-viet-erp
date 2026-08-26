@@ -212,7 +212,7 @@ export function PurchaseDetailDrawer({
   return (
     <div className="rc-drawer__scrim" onClick={() => setSelectedId(null)}>
       <aside
-        className="rc-drawer purchase__drawer-780"
+        className="rc-drawer purchase__drawer-780 acct-mh-drawer"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -236,19 +236,8 @@ export function PurchaseDetailDrawer({
               ✕
             </button>
           </div>
-          <div className="purchase__hero-meta">
-            <span>{selected.supplier_name || "Chưa chọn"}</span>
-            <span className="purchase__hero-dot">•</span>
-            <span>Người lập {selected.created_by_name || "—"}</span>
-            <span className="purchase__hero-dot">•</span>
-            <span className="purchase__hero-date">
-              Cần {fmtDate(selected.needed_date)}
-            </span>
-            <span className="purchase__hero-dot">•</span>
-            <span>{selected.lines.length} mặt hàng</span>
-          </div>
         </div>
-        <div className="rc-drawer__body">
+        <div className="rc-drawer__body acct-mh__body">
           {noiDung(selected) && (
             <div className="purchase__note" style={{ fontSize: "13px" }}>
               {noiDung(selected)}
@@ -279,6 +268,10 @@ export function PurchaseDetailDrawer({
         <div>
           <dt>Dự kiến nhận hàng</dt>
           <dd>{fmtDate(selected.expected_receipt_date)}</dd>
+        </div>
+        <div>
+          <dt>Người lập</dt>
+          <dd>{selected.created_by_name || "—"}</dd>
         </div>
         <div>
           <dt>Gửi duyệt</dt>

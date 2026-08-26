@@ -21,9 +21,15 @@ export function VoucherRowActions({
   setCancelling: Dispatch<SetStateAction<PaymentVoucherRow | null>>;
   setCancelReason: Dispatch<SetStateAction<string>>;
 }) {
+  const showExport = canExport;
+  const showCancel =
+    canCancel &&
+    row.status === "paid" &&
+    row.receipt_received_amount + row.receipt_pending_amount === 0;
+  if (!showExport && !showCancel) return null;
   return (
     <div className="acct-actions">
-      {canExport && (
+      {showExport && (
         <Button variant="ghost" onClick={() => startPrint(row)}>
           In phiếu
         </Button>
@@ -56,9 +62,7 @@ export function VoucherRowActions({
       {/* HUỶ nay áp cho phiếu ĐÃ CHI — dùng cho ca ghi nhận nhầm. Bắt lý do; server chặn nếu
           phiếu đã có phiếu thu gắn vào (tiền đã hoàn về thì không xoá dấu vết được nữa), nên
           nút vẫn hiện và người dùng nhận đúng câu báo thay vì im lặng không có lối. */}
-      {canCancel &&
-        row.status === "paid" &&
-        row.receipt_received_amount + row.receipt_pending_amount === 0 && (
+      {showCancel && (
           <Button
             variant="danger"
             onClick={() =>

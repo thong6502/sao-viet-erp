@@ -1,17 +1,70 @@
 // Tab 1 của drawer Nhà cung cấp — "Thông tin chung & Pháp lý" (tách từ pages/SuppliersPage.tsx).
 import type { Dispatch, SetStateAction } from "react";
-import type { SupplierInput } from "../../../../api/client";
+import type { SupplierInput, SupplierRow } from "../../../../api/client";
 import { LocalField } from "../components/LocalField";
+import { SaoNcc } from "../components/SaoNcc";
+import { soNgayVi } from "../shared/helpers";
+
+/** Khối SAO — chỉ ĐỌC, nằm trên đầu hồ sơ. KHÔNG có ô chấm tay ở đâu cả: điểm gõ tay là ý kiến,
+ *  còn con số ở đây truy ngược được về từng phiếu mua hàng.
+ *
+ *  Chỉ hiện khi đang MỞ hồ sơ có sẵn (`selected`); lúc thêm mới thì NCC còn chưa tồn tại, treo
+ *  "Chưa đánh giá" ở đó chỉ là một dòng thừa. */
+function KhoiSao({ ncc }: { ncc: SupplierRow }) {
+  const chuaCham = ncc.rating === null;
+  return (
+    <div className="supplier__sao-box" aria-label="Đánh giá nhà cung cấp">
+      <div className="supplier__sao-box-head">
+        <SaoNcc rating={ncc.rating} cao={17} />
+        <span className="supplier__sao-box-lbl">Đánh giá giao hàng</span>
+      </div>
+      <p className="supplier__sao-box-sub">
+        {chuaCham ? (
+          <>
+            Chưa có đơn hàng nào đủ dữ liệu để chấm. Sao sẽ tự hiện sau đơn đầu tiên —{" "}
+            <strong>không phải 0 sao</strong>, chỉ là chưa có gì để nói.
+          </>
+        ) : (
+          <>
+            Tính từ <strong>{ncc.rating_count}</strong> đơn · đúng hẹn{" "}
+            <strong>
+              {ncc.on_time_count}/{ncc.rating_count}
+            </strong>
+            {ncc.late_count > 0 && (
+              <>
+                {" "}· trễ <strong>{ncc.late_count}</strong> đơn, trung bình{" "}
+                <strong>{soNgayVi(ncc.avg_late_days)} ngày</strong>
+              </>
+            )}
+          </>
+        )}
+      </p>
+      <p className="supplier__sao-box-note">
+        Máy tự tính, không ai chấm tay: so ngày giao đủ với <em>Ngày cần hàng</em> trên phiếu mua.
+        Đúng hẹn hoặc sớm = 5 sao; trễ 1–3 ngày = 4; 4–7 = 3; 8–14 = 2; trên 14 ngày = 1.
+      </p>
+    </div>
+  );
+}
 
 export function SupplierInfoTab({
   form,
   setForm,
+  selected,
 }: {
   form: SupplierInput;
   setForm: Dispatch<SetStateAction<SupplierInput>>;
+  /** Hồ sơ đang mở — `null` khi đang THÊM MỚI. Chỉ dùng để đọc sao, không dính vào form. */
+  selected: SupplierRow | null;
 }) {
   return (
                   <div className="md-page__form-grid">
+                    {selected && (
+                      <div className="md-page__form-wide">
+                        <KhoiSao ncc={selected} />
+                      </div>
+                    )}
+
                     <LocalField label="Tên nhà cung cấp" required>
                       <input
                         className="input"

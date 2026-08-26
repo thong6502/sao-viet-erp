@@ -49,6 +49,23 @@ PURCHASE_REQUEST_STATUSES = (
     PR_CANCELLED,
 )
 
+# --- ĐÁNH GIÁ SAO NHÀ CUNG CẤP (máy tự tính, KHÔNG ai chấm tay) -------------------------------
+# Ba con số dưới đây là TỪ ĐIỂN CHUNG của luật tính sao: `services/danh_gia_ncc.py` đọc để tính
+# bằng Python, `repositories/purchase_repo.py` đọc để dựng CASE trong SQL. Để ở models vì đây là
+# hằng của nghiệp vụ mua hàng, và cả hai tầng kia đều đã import models sẵn — đặt ở services thì
+# repository phải import ngược lên services, đặt ở repository thì luật nghiệp vụ nằm sai tầng.
+# Sửa số ở đây là sửa CẢ HAI đường tính; test `test_danh_gia_ncc.py` canh hai đường không lệch.
+
+#: Chỉ ba trạng thái này mới vào sổ điểm: đơn ĐÃ đặt với NCC. Trước đó (`draft`/`pending_approval`/
+#: `approved`) NCC còn chưa nhận đơn — mình duyệt chậm là chuyện nội bộ, đừng ghi vào điểm của họ.
+#: `rejected`/`cancelled` cũng không tính: không có hàng thì không có hẹn nào để mà lỡ.
+TRANG_THAI_TINH_SAO = (PR_PURCHASED, PR_PARTIALLY_RECEIVED, PR_RECEIVED)
+
+#: Thang sao theo SỐ NGÀY TRỄ: (trễ tối đa, số sao). Đọc từ trên xuống, khớp nấc ĐẦU TIÊN.
+#: ≤0 ngày (đúng hẹn/sớm) → 5 · 1–3 → 4 · 4–7 → 3 · 8–14 → 2 · >14 → `SAO_THAP_NHAT`.
+NGUONG_SAO_NCC = ((0, 5), (3, 4), (7, 3), (14, 2))
+SAO_THAP_NHAT = 1
+
 # Loại file đính kèm của mua hàng. `hop_dong` treo ở PMH (delivery_id NULL); `hoa_don` và
 # `bien_ban_giao` treo ở một đợt giao cụ thể.
 PURCHASE_ATTACHMENT_HOP_DONG = "hop_dong"

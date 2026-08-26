@@ -42,10 +42,11 @@ export function VouchersDrawer({
   removeAttachment: (attachment: PaymentVoucherAttachment) => Promise<void>;
   actions: (row: PaymentVoucherRow) => ReactNode;
 }) {
+  const actionNode = actions(selected);
   return (
     <div className="rc-drawer__scrim" onClick={() => setSelectedId(null)}>
       <aside
-        className="rc-drawer purchase__drawer-780"
+        className="rc-drawer purchase__drawer-780 acct-pc-drawer"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -61,13 +62,17 @@ export function VouchersDrawer({
                 <h2 className="purchase__hero-code">{selected.code}</h2>
                 <div className="acct-status-stack">
                   <span
-                    className={`acct-voucher-status acct-voucher-status--${STATUS_META[selected.status].tone}`}
+                    className={`acct-pc__state acct-pc__state--${STATUS_META[selected.status].tone}`}
                   >
+                    <i className="acct-pc__dot" />
                     {STATUS_META[selected.status].label}
                   </span>
                   {selected.status === "paid" &&
                     selected.attachment_count === 0 && (
-                      <span className="acct-missing-doc">Thiếu chứng từ</span>
+                      <span className="acct-pc__flag">
+                        <i className="acct-pc__dot" />
+                        Thiếu chứng từ
+                      </span>
                     )}
                 </div>
               </div>
@@ -81,24 +86,15 @@ export function VouchersDrawer({
               ✕
             </button>
           </div>
-          <div className="purchase__hero-meta">
-            <span>{selected.supplier_name}</span>
-            <span className="purchase__hero-dot">•</span>
-            <span>Ngày {fmtDate(selected.voucher_date)}</span>
-            <span className="purchase__hero-dot">•</span>
-            <span>{money(selected.amount_vnd)}</span>
-            <span className="purchase__hero-dot">•</span>
-            <span>Người lập {selected.created_by_name || "—"}</span>
-            {selected.doc_no && (
-              <>
-                <span className="purchase__hero-dot">•</span>
-                <span>Số CT {selected.doc_no}</span>
-              </>
-            )}
-          </div>
         </div>
-        <div className="rc-drawer__body">
+        <div className="rc-drawer__body acct-pc__body">
       <dl className="purchase__facts">
+        {selected.doc_no && (
+          <div>
+            <dt>Số chứng từ</dt>
+            <dd>{selected.doc_no}</dd>
+          </div>
+        )}
         {selected.source_type === "purchase_request" ? (
           <>
             <div>
@@ -315,7 +311,9 @@ export function VouchersDrawer({
         </div>
       )}
         </div>
-        <div className="purchase__drawer-footer">{actions(selected)}</div>
+        {actionNode && (
+          <div className="purchase__drawer-footer">{actionNode}</div>
+        )}
       </aside>
     </div>
   );
