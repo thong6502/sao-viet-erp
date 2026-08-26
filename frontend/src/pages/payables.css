@@ -181,7 +181,7 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--sp-3);
   margin: 0 0 var(--sp-3);
-  padding: var(--sp-3);
+  padding: var(--sp-4);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-5);
   background: var(--paper);
@@ -215,19 +215,12 @@
   color: var(--moss-deep);
 }
 
-/* Ô tên NCC ở bảng ngoài. Phải CHO XUỐNG DÒNG vì nó còn đeo pill "Vượt hạn mức" — cảnh báo bị
-   cắt cụt thì thà không có. Tên dài vẫn gọn nhờ trần 280px + ngắt từ. */
+/* Ô tên NCC ở bảng ngoài. Tên dài vẫn gọn nhờ trần 280px + ngắt từ. "Vượt hạn mức" đã dời sang
+   cột riêng (26/08/2026) — ô này không còn đeo badge nữa. */
 .pay-supplier-cell {
   max-width: 280px;
   font-size: var(--fs-sm);
   overflow-wrap: anywhere;
-}
-
-.pay-supplier-cell .pay-badge {
-  display: block;
-  width: fit-content;
-  margin-left: 0;
-  margin-top: 4px;
 }
 
 /* --- khối trong drawer --- */
@@ -248,6 +241,7 @@
 .pay-block__head h3 {
   margin: 0;
   font-size: 14px;
+  font-weight: var(--fw-bold);
 }
 
 .pay-block__head strong {
@@ -283,21 +277,33 @@
   font-size: 13px;
 }
 
+/* UI_DESIGN.md §6: nền --paper + kẻ dưới 1.5px là CẶP BẮT BUỘC đi cùng nhau — thiếu một trong
+   hai là header chìm vào thân bảng, mắt không có mốc bám khi quét cột. Trước đây bảng này chỉ có
+   kẻ 1px, không nền — đúng lỗi doc cảnh báo. */
 .pay-table th {
   text-align: left;
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: var(--ash-2);
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--rule-soft);
+  color: var(--ash);
+  padding: 9px 12px;
+  background: var(--paper);
+  border-bottom: 1.5px solid var(--rule);
   font-weight: 500;
 }
 
 .pay-table td {
-  padding: 6px 8px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--rule-hair);
   vertical-align: top;
+}
+
+.pay-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.pay-table tbody tr:hover td {
+  background: var(--rust-soft);
 }
 
 /* Cột tiền: KHÔNG dùng flex trên td (phá hàng của bảng) — cùng luật đã áp ở accounting.css. */
@@ -320,25 +326,52 @@
   color: var(--amber-deep);
 }
 
+/* Pill viền + chấm màu (UI_DESIGN §3) — KHÔNG tô nền cả pill bằng màu ngữ nghĩa. Trước đây
+   3 biến thể tô nền pastel (`*-soft`/`*-deep`) lệch với khuôn badge đã chuẩn hoá ở các màn khác
+   trong cùng đợt dọn UI (26/08/2026) — đổi cho đồng bộ toàn app một kiểu badge duy nhất. */
 .pay-badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   margin-left: 6px;
-  padding: 1px 8px;
-  border-radius: 999px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  color: var(--ink);
   font-size: 11px;
+  font-weight: var(--fw-bold);
   white-space: nowrap;
 }
 
-.pay-badge--danger {
-  background: var(--signal-soft);
-  color: var(--signal-deep);
+.pay-badge__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 6px;
+}
+
+.pay-badge--danger .pay-badge__dot {
+  background: var(--signal);
 }
 
 /* "Chưa đặt hạn" — phiếu không có hạn trả thì KHÔNG BAO GIỜ vào cột Quá hạn. Phải nổi lên, nếu
    không nó lặng lẽ nằm ngoài mọi cảnh báo. */
-.pay-badge--warn {
-  background: var(--amber-soft);
-  color: var(--amber-deep);
+.pay-badge--warn .pay-badge__dot {
+  background: var(--amber);
+}
+
+/* Cọc ĐÃ TRỪ HẾT vào đợt giao — thông tin nền, không cần hành động gì thêm. Ba màu nghĩa của
+   trang này (đầu file): signal = quá hạn, amber = cảnh báo, moss = đã xong. */
+.pay-badge--ok .pay-badge__dot {
+  background: var(--moss);
+}
+
+/* Badge trên nền tối (hero drawer charcoal) — "Vượt hạn mức" ở PayablesDrawer.tsx. */
+.purchase__hero-banner .pay-badge {
+  background: rgba(248, 250, 252, 0.12);
+  border-color: rgba(248, 250, 252, 0.22);
+  color: var(--on-charcoal);
 }
 
 .pay-block--ok .pay-block__head h3,
@@ -363,17 +396,29 @@
 
 /* Một ĐƠN MUA trong drawer công nợ (07/08/2026). Trước đây mọi đợt của mọi đơn đổ phẳng vào một
    bảng — có 3 đơn là ba nhóm đợt trộn lẫn, và dòng cọc ở đáy gộp cọc của cả ba. Gom lại thì mỗi
-   đơn tự mang cọc và tổng nợ của chính nó. */
+   đơn tự mang cọc và tổng nợ của chính nó.
+   Trước 26/08/2026 khối này KHÔNG có khung — hai đơn chỉ cách nhau bằng khoảng trắng, đọc như
+   một luồng chữ liền chứ không phải hai nhóm tách bạch. Giờ là THẺ thật, đúng §6. */
+.pay-don {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: var(--sp-4);
+  box-shadow: var(--shadow-1);
+}
+
 .pay-don + .pay-don {
-  margin-top: var(--sp-4);
+  margin-top: var(--sp-3);
 }
 
 .pay-don__head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: var(--sp-3);
-  padding-bottom: var(--sp-2);
+  padding-bottom: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--rule-hair);
 }
 
 .pay-don__code {
@@ -394,8 +439,103 @@
   font-size: var(--fs-xs);
 }
 
+/* MẶC ĐỊNH mực thường — đỏ trước đây tô CỨNG cho mọi đơn kể cả chưa quá hạn (báo động giả,
+   UI_DESIGN.md §0 "màu ở liều lớn... chỗ không có việc lại nổi hơn chỗ có việc"). Chỉ đơn có
+   ÍT NHẤT một đợt đang trễ mới gắn `--danger` (JSX tính bằng `overdue_days` sẵn có mỗi dòng). */
 .pay-don__due b {
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.pay-don__due b.pay-don__due--danger {
   color: var(--signal);
 }
+
+/* --- Khung trang (.acct-cnt) --- */
+
+/* Bảng NCC ngoài cùng bó sát khung .card — thắng padding var(--sp-8) của .card (global.css,
+   bundle SAU page CSS) bằng độ đặc trưng 2 class, KHÔNG !important (UI_DESIGN §10). */
+.acct-cnt .md-page__tablewrap {
+  padding: 0;
+}
+
+/* --- Hero drawer (.acct-cnt-drawer) — phẳng hoá, KHÔNG sửa .purchase__hero-banner gốc (dùng
+   chung nhiều màn mua hàng). Bỏ gradient + viền indigo 3px, về charcoal phẳng đúng hệ slate. */
+.acct-cnt-drawer .purchase__hero-banner {
+  background: var(--charcoal);
+  border-bottom: 1px solid var(--charcoal-2);
+}
+
+.acct-cnt-drawer .purchase__hero-kicker {
+  font-weight: var(--fw-bold);
+  color: var(--on-charcoal-muted);
+}
+
+.acct-cnt-drawer .purchase__hero-code {
+  font-weight: var(--fw-bold);
+  color: var(--on-charcoal);
+}
+
+.acct-cnt-drawer .purchase__hero-meta {
+  color: var(--on-charcoal-muted);
+}
+
+/* Đồng bộ nhịp ô với các bảng đã dọn khác (Đơn mua hàng/Phiếu chi/Phiếu thu/Mua hàng đều
+   12px 14px) — bảng này trước đó ăn nguyên `.md-page__table tbody td{padding:var(--sp-3)
+   var(--sp-4)}` = 12px 16px, khác biệt nhỏ nhưng đủ để hàng trông không đều tay giữa các màn. */
+.acct-cnt .acct-list td {
+  padding: 12px 14px;
+}
+
+/* `.md-page__pager` dùng chung nhiều màn, không có padding/viền — dính sát mép dưới bảng. */
+.acct-cnt .md-page__pager {
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--rule-soft);
+  background: var(--canvas);
+}
+
+/* --- Khung trang Công nợ phải thu (bảng mang sẵn class `pay-card`, KHÔNG dùng `.acct-cnt` như
+   Công nợ phải trả — <main> màn này chưa gắn class đó). Cùng lý do bẫy cascade ở UI_DESIGN §10:
+   thắng padding var(--sp-8) của .card (global.css, bundle SAU page CSS) bằng độ đặc trưng 2
+   class, KHÔNG !important. */
+.pay-card.md-page__tablewrap {
+  padding: 0;
+}
+
+.ar-summary-table .pay-table th {
+  padding: 10px 14px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  border-bottom: 1.5px solid var(--rule);
+}
+
+.ar-summary-table .pay-table td {
+  padding: 12px 14px;
+}
+
+/* `.md-page__pager` dùng chung nhiều màn, không có padding/viền — dính sát mép dưới bảng. Khoanh
+   vùng bằng `.pay-card` (CHỈ bảng khách hàng ngoài cùng của màn này mang class đó — xem
+   AccountingReceivablesPage.tsx, section bọc <table>+pager). Cùng giá trị với `.acct-cnt
+   .md-page__pager` (Công nợ phải trả) để hai màn khớp nhịp — cùng quy ước với `.acct-dmh`/
+   `.acct-pc`/`.acct-pt` đã áp cho các màn kế toán khác. */
+.pay-card .md-page__pager {
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--rule-soft);
+  background: var(--canvas);
+}
+
+/* Hero drawer phẳng hoá (ReceivablesDrawer) — compound selector TRÊN CÙNG MỘT THẺ, không phải
+   con cháu: InvoiceReceiptForm ("Thu tiền") render `.purchase__hero-banner` riêng trong CÙNG
+   <aside>, nhưng KHÔNG mang class `acct-cnu-hero` — nên selector con cháu kiểu
+   `.acct-cnu-drawer .purchase__hero-banner` sẽ vô tình đổi luôn hero của popup đó. */
+.purchase__hero-banner.acct-cnu-hero {
+  background: var(--charcoal);
+  border-bottom: none;
+}
+
+/* Tuỳ chọn "đồng bộ nền dải tab .rc-drawer__tabs" (thấp ưu tiên trong bản thiết kế) CỐ Ý BỎ QUA:
+   `cssKhongCuop.test.ts` cấm mọi CSS ngoài rebuild-catalog.css khai selector chạm phần tử `rc-*`
+   (kể cả qua selector con cháu như `.acct-cnu-drawer .rc-drawer__tabs`) — nợ đã biết của
+   payables.css là 0. Đây đúng loại lỗi "cướp selector" mà test đó gác. */

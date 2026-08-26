@@ -204,28 +204,37 @@
 /* Bảng NCC còn ĐÚNG 5 cột. Trước đây là 8 (tách riêng nhóm · MST · điều khoản TT), và cả
    `min-width` lẫn bộ % đều là số đo của bảng CŨ — tổng chỉ 68% + 150px, phần thừa ~32% bị chia
    theo tỷ lệ nên dồn hết vào cột đầu, còn `min-width: 1220px` thì ép cuộn ngang dù nội dung thừa
-   chỗ. Bộ % dưới đây cộng tròn 100%, và min-width hạ xuống vừa đủ để không bẹp trên màn hẹp. */
+   chỗ. Bộ % dưới đây cộng tròn 100%, và min-width hạ xuống vừa đủ để không bẹp trên màn hẹp.
+
+   26/08/2026 thêm cột ĐÁNH GIÁ (sao máy tự tính) → 5 cột nội dung. Bộ % chia lại: 30+20+25+11+14
+   vẫn cộng tròn 100%; min-width nhích 980→1080px cho vừa dải 5 sao + dòng rã số, đủ gọn trong
+   1440px của laptop (khung nội dung ~1330px sau sidebar) nên KHÔNG sinh cuộn ngang. */
 .supplier__table {
-  min-width: 980px;
+  min-width: 1080px;
   table-layout: fixed;
 }
 
 .supplier__col-name {
-  width: 36%;
+  width: 30%;
+}
+
+/* Dải 5 sao (90×13) + số + dòng rã "Đúng hẹn 6/7 · trễ TB 1 ngày" trên một cột hẹp. */
+.supplier__col-sao {
+  width: 20%;
 }
 
 /* Cột dài nhất sau tên NCC: chứa người liên hệ + điện thoại + email. */
 .supplier__col-contact {
-  width: 29%;
+  width: 25%;
 }
 
 .supplier__col-items {
-  width: 12%;
+  width: 11%;
 }
 
 /* Đủ rộng cho chữ "Hoạt động" / "Tạm ngừng" nằm MỘT dòng — 8% cũ làm badge gãy đôi. */
 .supplier__col-status {
-  width: 13%;
+  width: 14%;
 }
 
 /* Chứa 2 nút ICON dense (Xem/sửa · Ngừng-Mở) không xuống dòng — từ 09/08/2026 không còn nút chữ
@@ -249,8 +258,150 @@
 
 .supplier__name-cell,
 .supplier__contact-cell,
-.supplier__items-cell {
+.supplier__items-cell,
+.supplier__sao-cell {
   min-width: 0;
+}
+
+/* --- SAO ĐÁNH GIÁ NCC (máy tự tính) ---------------------------------------------------------
+   ⚠️ Không có style nào cho "0 sao" ở đây, và đó là CỐ Ý: thang thấp nhất là 1 sao, còn NCC chưa
+   có đơn nào thì hiện chữ (`.supplier__sao--trong`) chứ không vẽ 5 ngôi rỗng. Xem SaoNcc.tsx. */
+.supplier__sao {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.supplier__sao--trong {
+  color: var(--ash);
+  font-size: var(--fs-xs);
+  font-style: italic;
+}
+
+.supplier__sao-svg {
+  flex-shrink: 0;
+  display: block;
+}
+
+/* Nền: 5 ngôi CHƯA tô. Xám nhạt vừa đủ thấy hình mà không tranh chỗ với phần đã tô. */
+.supplier__sao-nen {
+  fill: var(--rule-soft);
+}
+
+/* Phần ĐÃ tô — cắt ngang theo đúng phần lẻ (4,2 sao ⇒ ngôi thứ 5 tô 20%). */
+.supplier__sao-to {
+  fill: var(--amber);
+}
+
+.supplier__sao-so {
+  font-family: var(--ff-num);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  line-height: 1;
+}
+
+/* Dòng rã số dưới dải sao trong bảng — nói NCC đúng hẹn mấy trên mấy, để con số 4,2 không phải
+   một điểm rơi từ trên trời xuống. */
+.supplier__sao-phu {
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tiêu đề cột bấm được. Chỉ cột Đánh giá có — tên/trạng thái đã có ô tìm và ô lọc lo.
+   Padding dời từ `th` xuống `button` để vùng bấm phủ TRỌN ô, không phải mỗi mấy chữ; con số
+   phải bằng đúng `.md-page__table thead th` (--sp-4) thì tiêu đề mới thẳng hàng với 4 cột kia. */
+/* Đè `padding` của `.md-page__table thead th` (đặc trưng CSS cao hơn một `.supplier__th-sort`
+   suông — (0,1,2) so với (0,1,0) — nên phải LẶP tag `thead th` ở đây mới thắng được).
+   Bug đã vá 26/08/2026: thiếu vòng lặp này khiến ô cha VẪN giữ padding 16px, cộng dồn với
+   padding 16px của nút bên trong → hàng tiêu đề cao gấp đôi các cột khác, chữ trôi lệch. */
+.supplier__table thead th.supplier__th-sort {
+  padding: 0;
+}
+
+.supplier__sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  padding: var(--sp-4);
+  border: 0;
+  background: none;
+  /* `font: inherit` CHỈ kéo theo font-size/weight/family/line-height — KHÔNG kéo theo
+     text-transform (hoa) hay letter-spacing (giãn chữ), dù comment cũ ở đây tưởng có đủ ba.
+     `<button>` có UA stylesheet riêng đặt `text-transform: none` nên phải khai tay hai dòng
+     dưới, nếu không "ĐÁNH GIÁ" tụt về "Đánh giá" thường, lệch hẳn ba cột chữ hoa bên cạnh. */
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.supplier__sort-btn:hover {
+  color: var(--moss-deep);
+}
+
+.supplier__sort-btn.is-on {
+  color: var(--moss-deep);
+}
+
+/* Mũi tên chỉ chiều: mờ khi tắt (vẫn nói "bấm được"), quay lên khi xếp tăng dần. */
+.supplier__sort-caret {
+  display: inline-flex;
+  opacity: 0.35;
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+
+.supplier__sort-caret.is-on {
+  opacity: 1;
+}
+
+.supplier__sort-caret.is-up {
+  transform: rotate(180deg);
+}
+
+/* Khối sao trong HỒ SƠ NCC (tab 1 của drawer) — chỉ đọc, không có ô chấm tay. */
+.supplier__sao-box {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  background: var(--paper);
+  padding: 12px 14px;
+}
+
+.supplier__sao-box-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.supplier__sao-box-lbl {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.supplier__sao-box-sub {
+  margin: 8px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.supplier__sao-box-note {
+  margin: 6px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  line-height: 1.5;
 }
 
 .supplier__primary {
@@ -585,7 +736,7 @@
 
 /* --- WOW Premium Hero Drawer & Item Spec Cards ---------------------------- */
 .purchase__drawer-780 {
-  width: min(85vw, 780px) !important;
+  width: min(85vw, 900px) !important;
   max-width: 95vw !important;
   background: var(--canvas, #fdfcf8) !important;
 }
@@ -1131,6 +1282,22 @@
   outline: 2px solid var(--rust);
   outline-offset: 1px;
   border-color: var(--ink) !important;
+}
+
+/* Ô lọc "Nhà cung cấp" là <Select searchable> chứ không phải <select> (danh sách NCC dài, thẻ
+   gốc không gõ tìm được). Nó ĐỘI LỐT `.purchase__select-modern` cho khớp hai ô lọc bên cạnh,
+   nên chỉ cần chỉnh đúng hai chỗ thẻ gốc khác thẻ nút:
+     · thẻ bọc — `.sel` khai `width:100%`, thả trần vào thanh lọc flex là nó chiếm nguyên dòng;
+     · mũi tên — Select tự vẽ caret riêng, để nguyên `background-image` là hiện HAI mũi tên. */
+.purchase__filter-select {
+  flex: 0 0 auto;
+  width: 200px;
+}
+.purchase__filter-select .sel__trigger.purchase__select-modern {
+  width: 100% !important;
+  max-width: none;
+  padding-right: 12px !important;
+  background-image: none !important;
 }
 
 /* --- Modern Table Enhancements (WOW UI/UX - Font Be Vietnam Pro Alignment) --- */
@@ -2843,4 +3010,76 @@
 .purchase__dong-da-bo > td > strong,
 .purchase__dong-da-bo > td.pay-num {
   text-decoration: line-through;
+}
+
+/* ===== Mua hàng (Thu mua) — khoanh vùng .acct-mh / .acct-mh-drawer / .acct-mh__frame =====
+   Học đúng khối .acct-dmh đã duyệt ở accounting.css (Kế toán → Đơn mua hàng). */
+/* KHÔNG khai `overflow: hidden` ở đây (khác `.acct-dmh__frame` bên accounting.css) — ĐÃ THỬ, ĐỪNG
+   THÊM LẠI. Lý do: `.md-page__tablewrap { overflow-x: auto }` (master-data.css, nạp TRƯỚC) và một
+   `overflow: hidden` ở đây CÙNG đặc trưng (0,1,0) — file nạp SAU thắng nên bảng bị CẮT MẤT cột phải
+   thay vì cuộn (đã đo thật: cột Trạng thái biến mất ở 1280px). Khuôn `.acct-dmh__frame > table {
+   overflow-x: auto }` (accounting.css) tưởng vá được nhưng KHÔNG ăn: đã đo thật trên Chrome 148,
+   `overflow-x` không áp dụng lên phần tử `<table>` (display: table) trừ khi ép thêm `display: block`
+   — mà ép `display: block` lên bảng dữ liệu thật (colspan ở tfoot, table-layout) là rủi ro vỡ layout
+   không đáng đánh đổi. Bảng ở đây may mắn không cần: nó nằm GIỮA toolbar/foot (xem hai rule dưới),
+   không chạm góc bo nào của khung — nên bỏ hẳn overflow, để `.md-page__tablewrap` tự lo cuộn ngang
+   như trước giờ, là đủ và AN TOÀN hơn. */
+.acct-mh__frame {
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+}
+.acct-mh__frame > .purchase__source-toolbar {
+  padding: var(--sp-4) var(--sp-5);
+  margin: 0 0 var(--sp-3);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.acct-mh__frame > .purchase__source-foot {
+  padding: var(--sp-3) var(--sp-5);
+  margin: 0;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.acct-mh__frame .md-page__table thead th,
+.acct-mh-drawer .md-page__table thead th {
+  background: var(--paper);
+  border-bottom: 1.5px solid var(--rule);
+}
+.acct-mh__frame .md-page__row:hover { background: var(--rust-soft); }
+.acct-mh__frame .purchase__row--selected {
+  background: var(--rust-soft);
+  box-shadow: inset 3px 0 0 var(--rust);
+}
+.acct-mh__frame th.acct-amount-cell,
+.acct-mh__frame td.acct-amount-cell { text-align: right; }
+
+.acct-mh__state {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: var(--r-pill);
+  background: var(--canvas); border: 1px solid var(--rule-soft); color: var(--ink);
+  font-size: var(--fs-2xs); font-weight: var(--fw-bold); white-space: nowrap;
+}
+.acct-mh__dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 6px; }
+.acct-mh__state--pending .acct-mh__dot { background: var(--amber); }
+.acct-mh__state--draft .acct-mh__dot,
+.acct-mh__state--approved .acct-mh__dot,
+.acct-mh__state--purchased .acct-mh__dot { background: var(--steel); }
+.acct-mh__state--partial .acct-mh__dot,
+.acct-mh__state--received .acct-mh__dot { background: var(--moss); }
+.acct-mh__state--rejected .acct-mh__dot,
+.acct-mh__state--cancelled .acct-mh__dot { background: var(--signal); }
+
+.acct-mh-drawer .purchase__hero-banner { background: var(--charcoal); border-bottom: 0; }
+
+.acct-mh-drawer .pdot__totals-due b {
+  color: var(--ink); font-size: var(--fs-xl); font-weight: var(--fw-medium);
+}
+
+.acct-mh__frame .purchase__source-codes,
+.acct-mh-drawer .purchase__source-codes { color: var(--ash-2); }
+.acct-mh__frame .code-link:hover,
+.acct-mh-drawer .code-link:hover { color: var(--rust); }
+
+@media (max-width: 900px) {
+  .acct-mh__frame > .purchase__source-toolbar { flex-direction: column; align-items: stretch; }
 }

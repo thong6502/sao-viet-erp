@@ -5467,6 +5467,23 @@ export interface SupplierRow {
   created_at: string;
   updated_at: string;
   items: SupplierItemRow[];
+
+  /** SAO ĐÁNH GIÁ — máy tự tính từ phiếu mua hàng, KHÔNG ai chấm tay.
+   *
+   *  Mốc hẹn là `needed_date` (Ngày cần hàng) của phiếu; giao đủ đúng/sớm hẹn = 5 sao, trễ 1–3
+   *  ngày = 4, 4–7 = 3, 8–14 = 2, trên 14 = 1. Đơn chưa giao đủ mà đã quá hẹn thì tính trễ tới
+   *  hôm nay. Trung bình toàn bộ lịch sử.
+   *
+   *  ⚠️ `null` = **Chưa đánh giá** (chưa có đơn nào đủ điều kiện), KHÔNG phải 0 sao. Giao diện
+   *  phải hiện chữ "Chưa đánh giá" chứ đừng vẽ 5 ngôi sao rỗng — thang sao thấp nhất là 1, nên
+   *  0 không bao giờ là một giá trị hợp lệ. Vẽ 0 là vu oan cho NCC mới. */
+  rating: number | null;
+  /** Số đơn ĐƯỢC TÍNH vào trung bình — không phải tổng số đơn của NCC. */
+  rating_count: number;
+  on_time_count: number;
+  late_count: number;
+  /** Trễ trung bình tính TRÊN CÁC ĐƠN TRỄ. `null` = chưa trễ đơn nào. */
+  avg_late_days: number | null;
 }
 
 export interface SupplierItemCatalogRow {
@@ -5621,6 +5638,9 @@ export interface PayableItemRow {
   due_date: string | null;
   chua_dat_han: boolean;
   overdue_days: number;
+  /** Khoá rổ tuổi (vd "d31_60") — CHỈ có khi overdue_days > 0. Server chụp sẵn bằng cùng hàm
+   *  dùng cho dải phân tuổi tổng, để một đợt không hiện hai mức khẩn khác nhau ở hai màn. */
+  aging_bucket: string | null;
   invoice_number: string | null;
   invoice_date: string | null;
   amount: number;
@@ -10295,12 +10315,23 @@ export const api = {
   suppliers: {
     list(
       token: string,
-      params: { q?: string; status?: string | null; supplier_group?: string | null; sort?: string; page?: number; size?: number } = {},
+      params: {
+        q?: string;
+        status?: string | null;
+        supplier_group?: string | null;
+        /** Chỉ lấy NCC có sao trung bình ≥ mức này. NCC "Chưa đánh giá" rơi ra khỏi kết quả. */
+        rating_min?: number | null;
+        /** `rating` / `-rating` xếp theo sao — NCC chưa đánh giá luôn nằm CUỐI ở cả hai chiều. */
+        sort?: string;
+        page?: number;
+        size?: number;
+      } = {},
     ): Promise<SupplierListOut> {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
       if (params.status) qs.set("status", params.status);
       if (params.supplier_group) qs.set("supplier_group", params.supplier_group);
+      if (params.rating_min != null) qs.set("rating_min", String(params.rating_min));
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));

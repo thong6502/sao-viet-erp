@@ -57,7 +57,11 @@ router = APIRouter(prefix="/api/late-early", tags=["late-early"])
 
 # Khoá `di_muon` GỘP về màn Chấm công 15/08/2026 — nó vốn là một TAB của màn đó, không phải một
 # màn riêng. Duyệt phiếu nay hỏi ô chi tiết `approve_late_early` của `cham_cong`.
-MODULE = "di_muon"          # giữ tên hằng cho các chỗ còn tham chiếu; sẽ gỡ ở lượt dọn khoá cũ
+#
+# Hằng `MODULE = "di_muon"` ĐÃ GỠ 26/08/2026: hai chỗ cuối còn hỏi nó (`summary` và `is_manager`
+# của `cancel`) đã đổi sang `cham_cong.approve_late_early` — số vai khớp 1-1 nên không ai mất việc.
+# Gỡ hẳn hằng để không ai vô tình gác lại bằng khoá đã ngưng. Ô `di_muon` cũng đã ẩn khỏi ma trận
+# quyền (`PermissionMatrix.MODULE_DA_NGUNG`); xoá dòng `role_permissions` để lượt sau.
 MODULE_CHAM_CONG = "cham_cong"
 
 # TỰ PHỤC VỤ (tách 10/08/2026) — một ô quyền cho MỌI việc người lao động làm với hồ sơ của CHÍNH
@@ -198,7 +202,10 @@ def my_requests(svc: Service, employees: Employees, leaves: Leaves, user: SelfUs
 def summary(svc: Service, authz: Authz, user: SelfUser):
     """Badge sidebar + chuông. `pending_in_scope` = None khi người gọi KHÔNG có quyền duyệt."""
     pending = None
-    if authz.can(user, MODULE, "approve"):
+    # Khoá `di_muon` đã GỘP về `cham_cong.approve_late_early` (mg 0212). Đây là chỗ CUỐI CÙNG còn
+    # hỏi khoá cũ — đổi nốt để `di_muon` hết việc, rồi mới ẩn được nó khỏi ma trận quyền.
+    # Số vai khớp 1-1 (3 vai ↔ 3 vai) nên đổi KHÔNG ai mất badge.
+    if authz.can(user, MODULE_CHAM_CONG, "approve_late_early"):
         pending = svc.count_pending(scope=authz.scope_for(user, MODULE_CHAM_CONG) or "own", actor=user)
     return LateEarlySummaryOut(pending_in_scope=pending,
                                my_decided_unseen=svc.my_unseen_count(user=user))
@@ -339,8 +346,10 @@ def update_my_request(request_id: int, body: LateEarlyRequestIn, svc: Service,
 def cancel(request_id: int, svc: Service, employees: Employees, leaves: Leaves,
            authz: Authz, user: SelfOrApprover):
     try:
+        # `is_manager` = được huỷ phiếu của NGƯỜI KHÁC — cùng nghĩa với quyền duyệt, nên đi cùng
+        # khoá đã gộp `cham_cong.approve_late_early` (xem chú thích ở `summary`). Số vai khớp 1-1.
         r = svc.cancel(actor=user, request_id=request_id,
-                       is_manager=authz.can(user, MODULE, "approve"),
+                       is_manager=authz.can(user, MODULE_CHAM_CONG, "approve_late_early"),
                        scope=_scope(authz, user))
     except LateEarlyError as exc:
         _raise(exc)

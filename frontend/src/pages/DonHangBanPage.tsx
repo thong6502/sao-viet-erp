@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon, type IconName } from "../components/Icons";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
-import { TaoYeuCauGiaoHang } from "./TaoYeuCauGiaoHang";
+import { TaoYeuCauGiaoHang } from "./giao-hang/tao-yeu-cau";
 import {
   api,
   ApiError,
@@ -20,7 +20,7 @@ import {
   type SalesInvoiceListOut,
   type SalesInvoiceRow,
 } from "../api/client";
-import { DeliveryNotePrint } from "./DeliveryNotePrint";
+import { DeliveryNotePrint } from "./giao-hang/phieu-giao-hang";
 import { gopTheoNhom } from "../utils/gop-nhom";
 import "./don-hang-ban.css";
 

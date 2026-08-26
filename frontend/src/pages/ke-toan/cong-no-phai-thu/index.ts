@@ -1,0 +1,1 @@
+export { AccountingReceivablesPage } from "./AccountingReceivablesPage";
