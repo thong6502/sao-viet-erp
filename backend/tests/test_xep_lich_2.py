@@ -23,6 +23,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.models.department import Department
 from app.models.lsx import (
     LB_MAY, LB_TO, TT_DA_PHAT_HANH, TT_SAN_SANG, LsxCongDoan, LsxCongDoanPhuThuoc,
 )
@@ -60,6 +61,18 @@ def _utc(y, mo, d, h, m=0) -> datetime:
 
 def _ma(van_de) -> set[str]:
     return {i["ma"] for i in van_de}
+
+
+def _kcs_hoa(db, lsx_id: int) -> None:
+    """Gắn tổ KCS lên bước CUỐI của lệnh, để qua cửa gate §4.4 (chặn thiếu KCS cuối khi phát hành)."""
+    d = Department(name="KCS Xưởng", code="KCS-XL", is_kcs=True)
+    db.add(d)
+    db.flush()
+    buoc = db.query(LsxCongDoan).filter(LsxCongDoan.lsx_id == lsx_id).order_by(
+        LsxCongDoan.thu_tu, LsxCongDoan.id
+    ).all()
+    buoc[-1].department_id = d.id
+    db.commit()
 
 
 def _in_theo_may(db, lsx_id: int) -> LsxCongDoan:
@@ -784,6 +797,7 @@ def test_tre_han_sx_siet_cung_phat_hanh(v2, db, orders, lsx_svc, admin, customer
 
 def test_duyet_ngoai_le_mo_cua_phat_hanh(v2, db, orders, lsx_svc, admin, customer, monkeypatch):
     lsx = _lsx_tre_han_da_xep(v2, db, orders, lsx_svc, admin, customer, monkeypatch)
+    _kcs_hoa(db, lsx.id)
     kq = v2.duyet_ngoai_le(nguon="lsx", id=lsx.id, ly_do="khách đồng ý nhận trễ một ngày", actor=admin)
     assert kq["moc_da_duyet"] is not None                          # mốc đã duyệt được ghi lại
     sau = v2.kiem_phat_hanh(nguon="lsx", id=lsx.id)
@@ -817,6 +831,7 @@ def test_ngoai_le_giu_hieu_luc_khi_doi_som_hon_moc(v2, db, orders, lsx_svc, admi
     """NEO THEO MỐC: dời lịch làm xong SỚM HƠN mốc (dù vẫn trễ hạn SX) KHÔNG bắt duyệt lại — ngoại
     lệ còn hiệu lực vì không vượt mốc đã duyệt."""
     lsx = _lsx_tre_han_da_xep(v2, db, orders, lsx_svc, admin, customer, monkeypatch)   # xếp ~day+14
+    _kcs_hoa(db, lsx.id)
     v2.duyet_ngoai_le(nguon="lsx", id=lsx.id, ly_do="khách đồng ý mốc hiện tại", actor=admin)
     dong = _dong_da_xep(db, lsx.id)
     som = datetime.now(timezone.utc).date() + timedelta(days=12)    # sớm hơn mốc, vẫn > hạn SX (day+10)
@@ -867,6 +882,7 @@ def test_phat_hanh_v2_khong_goi_gac_doi_cu(v2, db, orders, lsx_svc, admin, custo
     """Đường phát hành v2 KHÔNG được chạm `_build()` của service màn cũ — một cửa là một cửa."""
     from app.services.xep_lich_van_de_service import XepLichVanDeService
     lsx, _, _ = _lsx_hai_buoc_da_xep(v2, db, orders, lsx_svc, admin, customer, monkeypatch)
+    _kcs_hoa(db, lsx.id)
     assert v2._chan_phat_hanh(nguon="lsx", id=lsx.id) == [], "lệnh phải sạch trước khi thử"
 
     def _cam(self):
@@ -880,6 +896,7 @@ def test_man_cu_van_giu_gac_cua_no(v2, db, orders, lsx_svc, admin, customer, mon
     """Bỏ gác chỉ áp cho đường v2: phát hành TỪ MÀN CŨ vẫn qua `_build()` như trước."""
     from app.services.xep_lich_van_de_service import XepLichVanDeService
     lsx, _, _ = _lsx_hai_buoc_da_xep(v2, db, orders, lsx_svc, admin, customer, monkeypatch)
+    _kcs_hoa(db, lsx.id)
     da_goi = []
     monkeypatch.setattr(XepLichVanDeService, "_build", lambda self: da_goi.append(1) or [])
     XepLichVanDeService(db, AuditLogRepository(db)).phat_hanh_lsx(lsx_id=lsx.id, actor=admin)

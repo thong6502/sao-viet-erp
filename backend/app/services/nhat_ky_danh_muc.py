@@ -79,6 +79,10 @@ NHAN: dict[str, str] = {
     "don_vi_dong_goi": "Đơn vị đóng gói",
     "quy_cach": "Quy cách",
     "so_luong_dong_goi": "SL đóng gói",
+    # Cột chung `giay_nguyen`/`vat_tu_in_an` (mg 0239) — màn Giấy hiện "Giấy thay thế", màn Vật tư
+    # hiện "Vật tư thay thế" (`rebuildCatalogConfigs.tsx`); NHAN dùng chung một dict cho mọi danh
+    # mục nên gộp về một nhãn trung tính đọc được ở cả hai màn.
+    "thay_the_ids": "Hàng thay thế",
     # Máy · công đoạn · bù hao
     "loai": "Loại",
     # `may_thiet_bi.loai_may` GIỮ giá trị mà màn gọi là "Nhóm máy" (ô chọn `NhomMayField`, danh mục
