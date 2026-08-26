@@ -31,9 +31,10 @@ export function PayablesDrawer({
   const [detail, setDetail] = useState<PayablesDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Bucket>(bucket);
-  // Rổ ✅ mặc định THU GỌN. Mở sẵn khi người dùng bấm thẳng vào con số "Đã trả".
-  const [paidOpen, setPaidOpen] = useState(bucket === "paid");
+  // "paid" chỉ còn ý nghĩa CHỌN TAB (bấm thẳng số "Đã trả" ngoài bảng thì mở sẵn tab lịch sử);
+  // trong tab "Đợt giao còn nợ" chỉ còn hai rổ all/overdue.
+  const [view, setView] = useState<"open" | "history">(bucket === "paid" ? "history" : "open");
+  const [tab, setTab] = useState<Bucket>(bucket === "paid" ? "all" : bucket);
   const [paidShown, setPaidShown] = useState(PAID_PAGE);
   // Nới rổ "đã chi" ra toàn bộ lịch sử. NCC trả hết từ 5 tháng trước thì rổ này rỗng theo kỳ —
   // tra ra "không nợ" mà không thấy đã trả những gì. Nới chỉ cho MỘT NCC nên vẫn nhẹ.
@@ -65,7 +66,6 @@ export function PayablesDrawer({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const hienNo = tab === "all" || tab === "overdue";
   const khoanNo = useMemo(() => {
     const items = detail?.items ?? [];
     return tab === "overdue" ? items.filter((x) => x.overdue_days > 0) : items;
@@ -83,7 +83,7 @@ export function PayablesDrawer({
   return (
     <div className="rc-drawer__scrim" onClick={onClose}>
       <aside
-        className="rc-drawer purchase__drawer-780"
+        className="rc-drawer purchase__drawer-780 acct-cnt-drawer"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -97,6 +97,7 @@ export function PayablesDrawer({
                 <h2 className="purchase__hero-code">{supplierName}</h2>
                 {detail?.vuot_han_muc ? (
                   <span className="pay-badge pay-badge--danger">
+                    <i className="pay-badge__dot" />
                     Vượt hạn mức {money(detail.vuot_bao_nhieu)}
                   </span>
                 ) : null}
@@ -191,40 +192,65 @@ export function PayablesDrawer({
             </div>
           </dl>
 
-          <div className="pay-pills pay-pills--drawer">
-            {(["all", "overdue"] as Bucket[]).map((id) => (
-              <button
-                key={id}
-                type="button"
-                className={`pay-pill${tab === id ? " pay-pill--on" : ""}`}
-                onClick={() => setTab(id)}
-              >
-                {BUCKET_LABEL[id]}
-              </button>
-            ))}
+          {/* Hai tab tách riêng "còn nợ" (việc phải làm) khỏi "đã xong" (lịch sử tra cứu) —
+              trước đây xếp chung một cuộn dài, cuộn quá tay là lẫn hai việc khác nhau vào nhau.
+              Dáng `.rc-drawer__tab` — đúng kiểu tab đang dùng ở RequestDetailDrawer (2 ô đầy
+              ngang, ô đang chọn nổi trắng + đổ bóng nhẹ), không phải `.acct-segment` tối màu. */}
+          <div className="rc-drawer__tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "open"}
+              className={`rc-drawer__tab ${view === "open" ? "is-active" : ""}`}
+              onClick={() => setView("open")}
+            >
+              Đợt giao còn nợ
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "history"}
+              className={`rc-drawer__tab ${view === "history" ? "is-active" : ""}`}
+              onClick={() => setView("history")}
+            >
+              Lịch sử thanh toán
+            </button>
           </div>
 
-          {hienNo && (
-            <DotConNoBlock
+          {view === "open" ? (
+            <>
+              <div className="pay-pills pay-pills--drawer">
+                {(["all", "overdue"] as Bucket[]).map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={`pay-pill${tab === id ? " pay-pill--on" : ""}`}
+                    onClick={() => setTab(id)}
+                  >
+                    {BUCKET_LABEL[id]}
+                  </button>
+                ))}
+              </div>
+
+              <DotConNoBlock
+                detail={detail}
+                tab={tab}
+                khoanNo={khoanNo}
+                chuaDatHan={chuaDatHan}
+                canCreateVoucher={canCreateVoucher}
+                navigate={navigate}
+                onClose={onClose}
+                onChanged={onChanged}
+              />
+            </>
+          ) : (
+            <DaTraBlock
               detail={detail}
-              tab={tab}
-              khoanNo={khoanNo}
-              chuaDatHan={chuaDatHan}
-              canCreateVoucher={canCreateVoucher}
-              navigate={navigate}
-              onClose={onClose}
-              onChanged={onChanged}
+              paidShown={paidShown}
+              setPaidShown={setPaidShown}
+              setXemHetLichSu={setXemHetLichSu}
             />
           )}
-
-          <DaTraBlock
-            detail={detail}
-            paidOpen={paidOpen}
-            setPaidOpen={setPaidOpen}
-            paidShown={paidShown}
-            setPaidShown={setPaidShown}
-            setXemHetLichSu={setXemHetLichSu}
-          />
         </>
       )}
         </div>

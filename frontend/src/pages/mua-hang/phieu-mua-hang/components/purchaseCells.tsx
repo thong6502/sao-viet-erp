@@ -26,7 +26,8 @@ export function DepositCell({ row }: { row: PurchaseRequestRow }) {
 export function StatusBadge({ status }: { status: PurchaseRequestStatus }) {
   const meta = STATUS_META[status];
   return (
-    <span className={`purchase__status purchase__status--${meta.tone}`}>
+    <span className={`acct-mh__state acct-mh__state--${meta.tone}`}>
+      <span className="acct-mh__dot" />
       {meta.label}
     </span>
   );
@@ -39,8 +40,8 @@ export function SourceStatusBadge({
 }) {
   const meta = SOURCE_STATUS_META[status];
   return (
-    <span className={`purchase__status purchase__status--${meta.tone}`}>
-      <span className={`purchase__status-dot purchase__status-dot--${meta.tone}`} />
+    <span className={`acct-mh__state acct-mh__state--${meta.tone}`}>
+      <span className="acct-mh__dot" />
       {meta.label}
     </span>
   );

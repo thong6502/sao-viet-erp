@@ -114,7 +114,7 @@ export function AccountingPayablesPage({
   const soThang = summary?.period_months ?? 3;
 
   return (
-    <main className="md-page">
+    <main className="md-page acct-cnt">
       <header className="md-page__head">
         <p className="eyebrow">Kế toán thu mua</p>
         <h1 className="md-page__title">Công nợ phải trả</h1>
@@ -210,10 +210,12 @@ export function AccountingPayablesPage({
               {/* KHÔNG còn cột "Thao tác": bấm vào DÒNG (hoặc bất kỳ con số nào) mở drawer chi
                   tiết công nợ (24/08/2026 — gộp thao tác vào bản ghi). */}
               <th>Nhà cung cấp</th>
-              <th className="acct-amount-cell">Đơn còn nợ</th>
+              <th className="acct-count-cell">Đơn còn nợ</th>
               <th className="acct-amount-cell">Còn nợ</th>
               <th className="acct-amount-cell">Quá hạn</th>
               <th className="acct-amount-cell">Đã trả ({soThang} tháng)</th>
+              <th className="acct-amount-cell">Hạn mức</th>
+              <th className="acct-amount-cell">Vượt hạn mức</th>
             </tr>
           </thead>
           <tbody>
@@ -225,18 +227,20 @@ export function AccountingPayablesPage({
                   <td><div className="purchase__skeleton-bar" style={{ width: "100px" }} /></td>
                   <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
                   <td><div className="purchase__skeleton-bar" style={{ width: "100px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "80px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "80px" }} /></td>
                 </tr>
               ))}
             {error && !loading && (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={7}>
                   Chưa đọc được số liệu — xem thông báo lỗi ở trên.
                 </td>
               </tr>
             )}
             {biet && rows.length === 0 && (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={7}>
                   {q.trim() ? (
                     <>Không tìm thấy nhà cung cấp nào tên "{q.trim()}".</>
                   ) : filter !== "all" ? (
@@ -253,23 +257,14 @@ export function AccountingPayablesPage({
                   key={row.supplier_id ?? row.supplier_name}
                   onClick={() => setOpen({ row, bucket: "all" })}
                 >
-                  {/* Class RIÊNG, không mượn `.acct-supplier-cell`: ô đó `nowrap` + cắt ở 200px
-                      nên pill "Vượt hạn mức" sẽ bị xén mất. Viết class mới thay vì đè lại — bẫy
-                      cascade ở UI_DESIGN §10. */}
                   <td className="pay-supplier-cell" title={row.supplier_name}>
                     <strong>{row.supplier_name}</strong>
-                    {/* CẢNH BÁO MỀM (Đ6): pill đỏ nói vượt bao nhiêu, không chặn gì cả. */}
-                    {row.vuot_han_muc && (
-                      <span className="pay-badge pay-badge--danger">
-                        Vượt hạn mức {money(row.vuot_bao_nhieu)}
-                      </span>
-                    )}
                     {row.total_due === 0 && row.paid_in_period > 0 && (
                       <small className="pay-ok">Đã trả hết</small>
                     )}
                   </td>
                   {/* Mọi con số bấm được, mở drawer LỌC SẴN đúng rổ đó. */}
-                  <td className="acct-amount-cell">
+                  <td className="acct-count-cell">
                     <PayCell
                       value={row.order_count}
                       row={row}
@@ -304,6 +299,22 @@ export function AccountingPayablesPage({
                       onOpen={setOpen}
                       tone="ok"
                     />
+                  </td>
+                  {/* Không phải PayCell — Hạn mức không lọc rổ nào, chỉ đọc. */}
+                  <td className="acct-amount-cell">
+                    {row.credit_limit > 0 ? money(row.credit_limit) : "—"}
+                  </td>
+                  {/* CẢNH BÁO MỀM (Đ6): số đỏ nói vượt bao nhiêu, không chặn gì cả. Cột riêng
+                      thay vì nhét dưới tên NCC — nhét dưới tên làm hàng cao thấp không đều. */}
+                  <td className="acct-amount-cell">
+                    {row.vuot_han_muc ? (
+                      <span className="pay-badge pay-badge--danger">
+                        <i className="pay-badge__dot" />
+                        {money(row.vuot_bao_nhieu)}
+                      </span>
+                    ) : (
+                      <span className="pay-cell--zero">—</span>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -59,7 +59,7 @@ export function ReceiptsToolbar({
           ))}
         </select>
         {canApprove && (
-          <Button variant="primary" onClick={() => setCreatingOther(true)}>
+          <Button variant="accent" onClick={() => setCreatingOther(true)}>
             + Tạo phiếu thu
           </Button>
         )}

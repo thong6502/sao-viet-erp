@@ -1,5 +1,5 @@
 // Drawer CHI TIẾT công nợ một khách hàng (tách từ pages/AccountingReceivablesPage.tsx).
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ApiError,
   api,
@@ -37,6 +37,10 @@ export function ReceivablesDrawer({
   const [allHistory, setAllHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receiptFor, setReceiptFor] = useState<ReceivableItemRow | null>(null);
+  const [view, setView] = useState<"open" | "history">("open");
+  // Cùng công thức với Công nợ phải trả (PayablesDrawer): còn được nợ = hạn mức trừ đang nợ,
+  // không giới hạn dưới 0.
+  const conDuocNo = detail ? Math.max(0, detail.credit_limit - detail.total_due) : 0;
   const [accounts, setAccounts] = useState<CompanyBankAccountRow[]>([]);
   const [accountsLoading, setAccountsLoading] = useState(false);
 
@@ -98,13 +102,18 @@ export function ReceivablesDrawer({
         aria-modal="true"
         aria-label={row.customer_name}
       >
-        <div className="purchase__hero-banner">
+        <div className="purchase__hero-banner acct-cnu-hero">
           <div className="purchase__hero-top">
             <div>
               <span className="purchase__hero-kicker">Công nợ phải thu</span>
               <div className="purchase__hero-title-row">
                 <h2 className="purchase__hero-code">{row.customer_name}</h2>
-                {detail?.vuot_han_muc ? <span className="acct-voucher-status acct-voucher-status--waiting">Vượt hạn mức</span> : null}
+                {detail?.vuot_han_muc ? (
+                  <span className="pay-badge pay-badge--danger">
+                    <i className="pay-badge__dot" />
+                    Vượt hạn mức {money(detail.vuot_bao_nhieu)}
+                  </span>
+                ) : null}
               </div>
             </div>
             <button
@@ -143,28 +152,74 @@ export function ReceivablesDrawer({
       {!detail && !error && <p>Đang tải chi tiết...</p>}
       {detail && (
         <>
-          {/* Thẻ số thay cho danh sách nhãn–giá trị: số ĐỨNG TRÊN, nhãn nhỏ ở dưới, để mắt bắt
-              được con số trước. Số 0 lùi về dấu "—" mờ — ô này thường có 2–3 số 0, để nguyên thì
-              số thật chìm nghỉm giữa đống số không. */}
-          <div className="ar-stats">
-            <div className="ar-stat">
-              <b className="ar-stat__n">{money(detail.total_due)}</b>
-              <span className="ar-stat__l">Tổng còn phải thu</span>
+          {/* Chính sách "cho nợ" của khách — cùng khuôn `.pay-credit` với Công nợ phải trả, đọc
+              từ Customer.credit_limit/payment_term_days (đã có sẵn, sửa ở màn Khách hàng, quyền
+              `set_credit_terms`) — không phải trường mới. */}
+          <dl className="pay-credit">
+            <div>
+              <dt>Hạn mức công nợ</dt>
+              <dd>
+                {detail.credit_limit > 0 ? (
+                  money(detail.credit_limit)
+                ) : (
+                  <span className="pay-cell--zero">Chưa đặt</span>
+                )}
+              </dd>
             </div>
-            <div className={`ar-stat${detail.overdue_amount > 0 ? " ar-stat--danger" : ""}`}>
-              <b className="ar-stat__n">{detail.overdue_amount > 0 ? money(detail.overdue_amount) : "—"}</b>
-              <span className="ar-stat__l">Quá hạn</span>
+            <div>
+              <dt>Đang nợ</dt>
+              <dd className={detail.vuot_han_muc ? "pay-cell--danger" : ""}>
+                {money(detail.total_due)}
+              </dd>
             </div>
-            <div className="ar-stat">
-              <b className="ar-stat__n">{detail.received_in_period > 0 ? money(detail.received_in_period) : "—"}</b>
-              <span className="ar-stat__l">Đã thu ({detail.period_months} tháng)</span>
+            <div>
+              <dt>Còn được nợ</dt>
+              <dd>
+                {detail.credit_limit > 0 ? (
+                  money(conDuocNo)
+                ) : (
+                  <span className="pay-cell--zero">Không giới hạn</span>
+                )}
+              </dd>
             </div>
-            <div className="ar-stat">
-              <b className="ar-stat__n">{detail.credit_limit > 0 ? money(detail.credit_limit) : "—"}</b>
-              <span className="ar-stat__l">Hạn mức</span>
+            <div>
+              <dt>Số ngày cho nợ</dt>
+              <dd>
+                {detail.payment_term_days == null ? (
+                  <span className="pay-cell--zero">Chưa đặt</span>
+                ) : detail.payment_term_days === 0 ? (
+                  "Trả ngay"
+                ) : (
+                  `${detail.payment_term_days} ngày`
+                )}
+              </dd>
             </div>
+          </dl>
+
+          {/* Hai tab tách "còn phải thu" (việc phải làm) khỏi "lịch sử" (tra cứu) — cùng dáng
+              `.rc-drawer__tab` với Công nợ phải trả, để hai màn đọc như nhau. */}
+          <div className="rc-drawer__tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "open"}
+              className={`rc-drawer__tab ${view === "open" ? "is-active" : ""}`}
+              onClick={() => setView("open")}
+            >
+              Hóa đơn còn phải thu
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === "history"}
+              className={`rc-drawer__tab ${view === "history" ? "is-active" : ""}`}
+              onClick={() => setView("history")}
+            >
+              Lịch sử thanh toán
+            </button>
           </div>
 
+          {view === "open" && (
           <section className="pay-block ar-invoices">
             <div className="pay-block__head"><h3>Hóa đơn còn phải thu</h3><strong>{money(detail.total_due)}</strong></div>
             <p className="pay-block__hint">Tiền cấn cọc và phiếu thu được tách riêng để dễ đối soát.</p>
@@ -187,54 +242,54 @@ export function ReceivablesDrawer({
                 <tbody>
                   {detail.items.length === 0 && <tr><td colSpan={7}>Khách hàng này không còn hóa đơn phải thu.</td></tr>}
                   {detail.items.map((item) => (
-                    <Fragment key={item.invoice_id}>
-                      <tr>
-                        <td>
-                          <strong>{item.invoice_symbol ? `${item.invoice_symbol} · ` : ""}{item.invoice_number}</strong>
-                          <small>
-                            {fmtDate(item.invoice_date)} ·{" "}
-                            <CodeLink code={item.order_code} onOpen={() => navigate("don-hang-ban", { openOrderId: item.order_id })} />
-                          </small>
-                        </td>
-                        <td>
-                          {item.due_date ? fmtDate(item.due_date) : "—"}
-                          {item.chua_dat_han && <small>Chưa đặt hạn</small>}
-                          {item.overdue_days > 0 && <small className="pay-cell--danger">Quá {item.overdue_days} ngày</small>}
-                        </td>
-                        <td className="pay-num">{money(item.amount)}</td>
-                        <td className="pay-num">{money(item.deposit_offset_amount)}</td>
-                        <td className="pay-num">{money(item.direct_received_amount)}</td>
-                        <td className="pay-num"><strong>{money(item.remaining_amount)}</strong></td>
-                        <td>
-                          {canCreateReceipt && item.remaining_amount > 0 && (
-                            <Button variant="ghost" onClick={() => setReceiptFor(receiptFor?.invoice_id === item.invoice_id ? null : item)}>
-                              Thu tiền
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                      {receiptFor?.invoice_id === item.invoice_id && (
-                        <tr className="ar-receipt-form-row">
-                          <td colSpan={7}>
-                            <InvoiceReceiptForm
-                              item={item}
-                              customerName={row.customer_name}
-                              token={token}
-                              accounts={accounts}
-                              accountsLoading={accountsLoading}
-                              onCancel={() => setReceiptFor(null)}
-                              onSaved={afterReceipt}
-                            />
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
+                    <tr
+                      key={item.invoice_id}
+                      className={receiptFor?.invoice_id === item.invoice_id ? "ar-row--active" : undefined}
+                    >
+                      <td>
+                        <strong>{item.invoice_symbol ? `${item.invoice_symbol} · ` : ""}{item.invoice_number}</strong>
+                        <small>
+                          {fmtDate(item.invoice_date)} ·{" "}
+                          <CodeLink code={item.order_code} onOpen={() => navigate("don-hang-ban", { openOrderId: item.order_id })} />
+                        </small>
+                      </td>
+                      <td>
+                        {item.due_date ? fmtDate(item.due_date) : "—"}
+                        {item.chua_dat_han && <small>Chưa đặt hạn</small>}
+                        {item.overdue_days > 0 && <small className="pay-cell--danger">Quá {item.overdue_days} ngày</small>}
+                      </td>
+                      <td className="pay-num">{money(item.amount)}</td>
+                      <td className="pay-num">{money(item.deposit_offset_amount)}</td>
+                      <td className="pay-num">{money(item.direct_received_amount)}</td>
+                      <td className="pay-num"><strong>{money(item.remaining_amount)}</strong></td>
+                      <td>
+                        {canCreateReceipt && item.remaining_amount > 0 && (
+                          <Button variant="ghost" onClick={() => setReceiptFor(receiptFor?.invoice_id === item.invoice_id ? null : item)}>
+                            {receiptFor?.invoice_id === item.invoice_id ? "Đang thu ▲" : "Thu tiền"}
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </section>
+          )}
 
+          {receiptFor && (
+            <InvoiceReceiptForm
+              item={receiptFor}
+              customerName={row.customer_name}
+              token={token}
+              accounts={accounts}
+              accountsLoading={accountsLoading}
+              onCancel={() => setReceiptFor(null)}
+              onSaved={afterReceipt}
+            />
+          )}
+
+          {view === "history" && (
           <section className="pay-block pay-block--ok">
             <div className="pay-block__head"><h3>Lịch sử đã thu / cấn cọc</h3><strong>{money(detail.received_in_period)}</strong></div>
             {/* Rỗng thì nói một câu, ĐỪNG bày 7 tiêu đề cột cho một dòng "chưa có gì" — bảng
@@ -278,6 +333,7 @@ export function ReceivablesDrawer({
               </div>
             )}
           </section>
+          )}
         </>
       )}
         </div>

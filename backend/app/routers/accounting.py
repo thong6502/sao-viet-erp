@@ -172,6 +172,7 @@ def accounting_payables(
     _: Annotated[User, Depends(require_permission(MODULE_CN_TRA, "read"))],
     q: str | None = Query(default=None),
     filter_: str = Query(default="all", alias="filter"),
+    aging_bucket: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> PayablesSummaryOut:
@@ -180,8 +181,13 @@ def accounting_payables(
     #
     # `q` lọc ở SERVER chứ không lọc trên danh sách đã trả về: NCC đã trả hết và im lặng lâu thì
     # KHÔNG có dòng nào trong danh sách để mà lọc — phải để service lôi họ ra.
+    #
+    # `aging_bucket` = một khoá rổ tuổi (`AGING_KEYS`). Router chỉ chuyển tiếp; việc gom rổ và
+    # hiểu khoá nằm ở service.
     return PayablesSummaryOut(
-        **svc.payables_summary(q=q, filter_=filter_, page=page, size=size)
+        **svc.payables_summary(
+            q=q, filter_=filter_, aging_bucket=aging_bucket, page=page, size=size
+        )
     )
 
 

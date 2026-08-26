@@ -7,6 +7,13 @@ import type {
   SupplierItemInput,
 } from "../../../../api/client";
 
+/** Khoá sắp xếp của bảng NCC. `rating`/`-rating` là SAO đánh giá (máy tự tính) — NCC "Chưa đánh
+ *  giá" luôn nằm CUỐI ở cả hai chiều, backend lo phần đó. `name` là mặc định khi tắt sắp xếp sao. */
+export type SortNcc = "name" | "rating" | "-rating";
+
+/** Lọc theo sao: `null` = không lọc, số = chỉ lấy NCC có sao trung bình ≥ số đó. */
+export type LocSaoNcc = number | null;
+
 /** Hệ số quy đổi về đơn vị gốc của MỘT dòng bảng giá — chỉ để hiển thị, không lưu. */
 export interface QuyDoiDongInfo {
   donViGocTen: string;

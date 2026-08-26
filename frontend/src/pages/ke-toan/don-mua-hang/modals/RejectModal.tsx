@@ -33,7 +33,7 @@ export function RejectModal({
   return (
     <div className="rc-drawer__scrim" onClick={() => setRejecting(null)}>
       <aside
-        className="rc-drawer purchase__drawer-640"
+        className="rc-drawer purchase__drawer-640 acct-dmh-drawer"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"

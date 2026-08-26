@@ -1,9 +1,12 @@
 /** In Phiếu thu / Phiếu chi theo mẫu Bộ Tài chính — Thông tư 200/2014/TT-BTC.
  *
  *  Mẫu 01-TT = PHIẾU THU, Mẫu 02-TT = PHIẾU CHI. Hai mẫu chỉ khác vài nhãn và thứ tự
- *  ô ký nên dùng chung một builder. Bố cục bám đúng biểu mẫu giấy công ty đang dùng:
- *  không logo, font Times New Roman, A4.
+ *  ô ký nên dùng chung một builder. Bố cục bám đúng biểu mẫu giấy công ty đang dùng
+ *  (khảo sát 2026-07), font Times New Roman, A4. Logo thêm 26/08/2026 vào ô "đơn vị" —
+ *  Thông tư 200 quy định CÁC Ô cần có, không cấm logo; mẫu giấy khảo sát ban đầu chưa
+ *  có logo chỉ vì bản đó chưa in logo, không phải luật cấm.
  */
+import svnLogoUrl from "../assets/sao-viet-nhat-logo-mark.png";
 import { COMPANY } from "../constants/company";
 import { amountInWords, dmyParts, escapeHtml, money, originalMoney } from "./format";
 
@@ -89,9 +92,9 @@ export function printTT200(data: TT200PrintData): boolean {
 *{box-sizing:border-box}
 body{font:13px "Times New Roman",serif;color:#000;margin:0;position:relative}
 .head{display:flex;justify-content:space-between;gap:24px;align-items:flex-start}
-.unit{max-width:58%}
+.unit{max-width:58%;display:flex;gap:8px;align-items:center}
+.unit img{height:36px;width:auto;flex-shrink:0}
 .unit b{font-size:13.5px}
-.unit div{margin-top:2px}
 .form{text-align:center;min-width:38%}
 .form b{font-size:13.5px}
 .form i{display:block;font-size:11px;margin-top:3px;line-height:1.35}
@@ -118,7 +121,10 @@ h1{font-size:20px;margin:6px 0 2px;letter-spacing:.5px}
 </style></head><body onload="window.print()">
 ${data.cancelled ? '<div class="stamp">ĐÃ HỦY</div>' : ""}
 <div class="head">
-  <div class="unit"><b>${escapeHtml(COMPANY.name)}</b><div>${escapeHtml(COMPANY.address)}</div></div>
+  <div class="unit">
+    <img src="${svnLogoUrl}" alt="" />
+    <b>${escapeHtml(COMPANY.name)}</b>
+  </div>
   <div class="form"><b>${form.formCode}</b>
     <i>(Ban hành theo Thông tư số 200/2014/TT-BTC<br>Ngày 22/12/2014 của Bộ Tài chính)</i>
   </div>

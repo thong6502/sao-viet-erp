@@ -31,7 +31,10 @@ export function DotConNoBlock({
   onChanged: () => void;
 }) {
   return (
-    <section className="pay-block pay-block--danger">
+    // Đỏ CHỈ khi đang xem tab "Quá hạn" (lúc đó đúng nghĩa toàn bộ số hiện ra là nợ trễ). Tab
+    // "Tất cả" gộp cả nợ chưa tới hạn — tô đỏ cả khối lúc đó là báo động giả cho phần lớn số
+    // tiền vốn không có gì bất thường (UI_DESIGN.md §0: màu liều lớn ở chỗ không có việc).
+    <section className={`pay-block${tab === "overdue" ? " pay-block--danger" : ""}`}>
       <header className="pay-block__head">
         <h3>Đợt giao còn nợ</h3>
         <strong>
@@ -44,16 +47,14 @@ export function DotConNoBlock({
       </header>
       <p className="pay-block__hint">
         Hàng đã về tới đâu thì nợ tới đó, gom theo từng đơn mua. Cột{" "}
-        <strong>Đã trả</strong> chỉ đếm tiền trả{" "}
-        <strong>đích danh đợt đó</strong> (khớp sao kê nhà cung cấp).{" "}
-        <strong>Còn nợ</strong> đã trừ cả tiền cọc của đơn — nên có đợt
-        chưa trả đồng nào mà còn nợ vẫn nhỏ hơn giá trị đợt.
+        <strong>Đã trả</strong> chỉ đếm tiền trả đích danh đợt đó (khớp sao
+        kê nhà cung cấp). <strong>Còn nợ</strong> đã trừ cả tiền cọc của đơn —
+        nên có đợt chưa trả đồng nào mà còn nợ vẫn nhỏ hơn giá trị đợt.
         {chuaDatHan > 0 && (
           <>
-            {" "}
-            Có <strong>{chuaDatHan} khoản chưa có hạn trả</strong> —
-            chúng không bao giờ vào cột Quá hạn nên được đẩy lên đầu;
-            khai "Số ngày cho nợ" ở hồ sơ nhà cung cấp để hết ca này.
+            {" "}Có {chuaDatHan} khoản chưa có hạn trả — chúng không bao giờ
+            vào cột Quá hạn nên được đẩy lên đầu; khai "Số ngày cho nợ" ở hồ
+            sơ nhà cung cấp để hết ca này.
           </>
         )}
       </p>
@@ -64,22 +65,38 @@ export function DotConNoBlock({
             : "Không còn khoản nợ nào với nhà cung cấp này."}
         </p>
       ) : (
-        gomTheoDon(khoanNo, detail.coc_chung).map((don) => (
+        gomTheoDon(khoanNo, detail.coc_chung).map((don) => {
+          // Đỏ chỉ khi CHÍNH đơn này có ít nhất một đợt đang trễ — không phải mọi đơn có
+          // "còn nợ" đều đỏ. `overdue_days` mỗi dòng đã tính sẵn ở server (aging_bucket cùng
+          // nguồn), FE chỉ hỏi lại chứ không tự suy hạn.
+          const dangTre = don.items.some((it) => it.overdue_days > 0);
+          return (
           <div className="pay-don" key={don.purchase_request_id}>
             <div className="pay-don__head">
               <strong className="pay-don__code">{don.code}</strong>
               {don.coc && don.coc.amount > 0 && (
-                // Cọc của CHÍNH đơn này, không phải tổng cọc của mọi đơn. `da_dung` nói
-                // rõ nó đã bù vào đâu — thiếu số đó thì người đọc thấy một khoản trừ mà
-                // không biết trừ vào đợt nào.
-                <span className="pay-don__coc">
-                  cọc {money(don.coc.amount)}
-                  {don.coc.da_dung > 0 && ` · đã bù ${money(don.coc.da_dung)}`}
-                  {don.coc.con_du > 0 && ` · còn dư ${money(don.coc.con_du)}`}
+                // Cọc của CHÍNH đơn này, không phải tổng cọc của mọi đơn. Viết thành MỘT câu
+                // theo đúng trạng thái, không chắp "nhãn: số · nhãn: số" — hai số bằng nhau
+                // (trừ hết) đứng cạnh nhau từng khiến người đọc tưởng bị lặp/cộng dồn.
+                // Trừ hết ⇒ badge moss (đã xong, khỏi làm gì thêm). Còn dư/chưa trừ ⇒ badge
+                // amber (tiền đang "trôi nổi", chưa gán đợt nào — đáng để ý).
+                <span
+                  className={`pay-badge pay-badge--${don.coc.con_du > 0 ? "warn" : "ok"}`}
+                >
+                  <i className="pay-badge__dot" />
+                  Cọc {money(don.coc.amount)}
+                  {don.coc.con_du > 0
+                    ? don.coc.da_dung > 0
+                      ? ` · đã trừ ${money(don.coc.da_dung)} vào đợt giao, còn dư ${money(don.coc.con_du)}`
+                      : " · chưa trừ vào đợt giao nào"
+                    : " · đã trừ hết vào đợt giao"}
                 </span>
               )}
               <span className="pay-don__due">
-                còn nợ <b>{money(don.con_no)}</b>
+                còn nợ{" "}
+                <b className={dangTre ? "pay-don__due--danger" : undefined}>
+                  {money(don.con_no)}
+                </b>
               </span>
               {canCreateVoucher && (
                 // MỘT nút cho cả đơn, không phải mỗi đợt một nút: màn đích là hộp lập
@@ -136,7 +153,8 @@ export function DotConNoBlock({
               </tbody>
             </table>
           </div>
-        ))
+          );
+        })
       )}
     </section>
   );

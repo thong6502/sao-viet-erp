@@ -29,7 +29,7 @@ export function VouchersTable({
   totalPages: number;
 }) {
   return (
-    <section className="card md-page__tablewrap acct-list acct-list--voucher">
+    <section className="md-page__tablewrap acct-list acct-list--voucher">
       <table className="md-page__table">
         <thead>
           <tr>
@@ -38,6 +38,7 @@ export function VouchersTable({
             <th>Mã chứng từ</th>
             <th>Đối tượng</th>
             <th>Người lập</th>
+            <th>Lập lúc</th>
             <th className="acct-amount-cell">Số tiền</th>
             <th>Trạng thái</th>
           </tr>
@@ -48,14 +49,15 @@ export function VouchersTable({
               <tr key={`sk-${i}`} className="purchase__skeleton-row">
                 <td><div className="purchase__skeleton-bar" style={{ width: "130px" }} /></td>
                 <td><div className="purchase__skeleton-bar" style={{ width: "150px" }} /></td>
-                <td><div className="purchase__skeleton-bar" style={{ width: "120px" }} /></td>
+                <td><div className="purchase__skeleton-bar" style={{ width: "100px" }} /></td>
+                <td><div className="purchase__skeleton-bar" style={{ width: "110px" }} /></td>
                 <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
                 <td><div className="purchase__skeleton-bar" style={{ width: "80px" }} /></td>
               </tr>
             ))}
           {!loading && rows.length === 0 && (
             <tr>
-              <td colSpan={5}>Chưa có chứng từ phù hợp.</td>
+              <td colSpan={6}>Chưa có chứng từ phù hợp.</td>
             </tr>
           )}
           {!loading &&
@@ -84,8 +86,8 @@ export function VouchersTable({
                     <div title={row.created_by_name ?? undefined}>
                       {row.created_by_name || "—"}
                     </div>
-                    <small>{fmtDateTime(row.created_at)}</small>
                   </td>
+                  <td className="acct-time-cell">{fmtDateTime(row.created_at)}</td>
                   <td
                     className="acct-amount-cell"
                     title={
@@ -98,13 +100,15 @@ export function VouchersTable({
                   </td>
                   <td className="acct-status-cell">
                     <span
-                      className={`acct-voucher-status acct-voucher-status--${STATUS_META[row.status].tone}`}
+                      className={`acct-pc__state acct-pc__state--${STATUS_META[row.status].tone}`}
                     >
+                      <i className="acct-pc__dot" />
                       {STATUS_META[row.status].label}
                     </span>
                     {row.status === "paid" &&
                       row.attachment_count === 0 && (
-                        <span className="acct-missing-doc">
+                        <span className="acct-pc__flag">
+                          <i className="acct-pc__dot" />
                           Thiếu chứng từ
                         </span>
                       )}

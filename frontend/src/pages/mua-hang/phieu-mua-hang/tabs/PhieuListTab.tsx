@@ -103,7 +103,7 @@ export function PhieuListTab({
       </div>
     )}
 
-    <section className="card md-page__tablewrap purchase__list">
+    <section className="md-page__tablewrap acct-mh__frame purchase__list">
       {/* Ô tìm + bộ lọc ngay đầu thẻ, dồn TRÁI; KHÔNG lặp tiêu đề "Đơn mua hàng" — đã có trên tab. */}
       <div className="purchase__list-tools purchase__source-toolbar">
           <form
@@ -228,8 +228,8 @@ export function PhieuListTab({
             <th>Nhà cung cấp</th>
             <th>Ngày tạo</th>
             <th>Cần / Dự kiến nhận</th>
-            <th>Tổng dự kiến</th>
-            <th>Tiền cọc</th>
+            <th className="acct-amount-cell">Tổng dự kiến</th>
+            <th className="acct-amount-cell">Tiền cọc</th>
             <th>Người tạo / duyệt</th>
             <th>Trạng thái</th>
           </tr>
@@ -341,10 +341,10 @@ export function PhieuListTab({
                     </div>
                   )}
                 </td>
-                <td className="md-page__price purchase__money-cell">
+                <td className="md-page__price purchase__money-cell acct-amount-cell">
                   {money(row.total_estimate)}
                 </td>
-                <td className="md-page__price purchase__money-cell">
+                <td className="md-page__price purchase__money-cell acct-amount-cell">
                   <DepositCell row={row} />
                 </td>
                 <td>

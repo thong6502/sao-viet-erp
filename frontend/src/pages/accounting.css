@@ -97,17 +97,32 @@
 }
 
 /* Cột số tiền: số trên một dòng (không gãy giữa chừng), tổng PMH/nguyên tệ
-   xuống dòng phụ — KHÔNG dùng flex trên <td> (phá hàng của bảng). */
-.acct-list th.acct-amount-cell,
-.acct-list td.acct-amount-cell {
-    /* font-family: var(--ff-num); */
+   xuống dòng phụ — KHÔNG dùng flex trên <td> (phá hàng của bảng). Bỏ scope `.acct-list` —
+   dùng chung với bảng danh sách Công nợ phải thu (`.ar-summary-table`), trước đó bảng kia
+   không có right-align/tabular-nums nên số không thẳng cột như bên Công nợ phải trả.
+   TH phải viết đủ `.md-page__table thead th.acct-amount-cell` — đặc trưng CSS (0,1,2) của
+   `.md-page__table thead th{text-align:left}` (master-data.css) THẮNG `th.acct-amount-cell`
+   suông (0,1,1), canh trái đè mất canh phải nếu viết ngắn. */
+.md-page__table thead th.acct-amount-cell,
+td.acct-amount-cell {
+  font-family: var(--ff-num);
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
-.acct-list td.acct-amount-cell small {
+td.acct-amount-cell small {
   font-size: 12px;
+}
+
+/* Cột đếm nhỏ (đơn/hoá đơn còn nợ) — chỉ 1-2 chữ số, để rộng bằng cột tiền thì trống trải,
+   không thuận mắt. Hẹp lại, nhường chỗ cho cột tên NCC/khách hàng. */
+.md-page__table thead th.acct-count-cell,
+td.acct-count-cell {
+  width: 76px;
+  font-family: var(--ff-num);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Mã chứng từ/PMH không gãy giữa mã; danh sách YCMH bên dưới vẫn được xuống dòng. */
@@ -230,16 +245,21 @@
 /* KHÔNG ĐỂ BẢNG CO DƯỚI NGƯỠNG ĐỌC ĐƯỢC (chủ chốt 15/08/2026: "UI bị vỡ, mình có thể dùng
    tablet, mobile nữa chứ").
 
-   Năm cột dưới đây khai width CỨNG: 190 + 180 + 150 + 210 + 64 = 794px. Cột 2 ("Đối tượng")
-   không khai width nên nó ăn PHẦN CÒN LẠI — mà `table-layout: fixed` + `width: 100%` nghĩa là
-   bảng co theo container. Container hẹp hơn 794px thì phần còn lại về 0: tên nhà cung cấp rơi
-   mỗi dòng MỘT CHỮ CÁI, và hai tiêu đề cột (`white-space: nowrap`) tràn chồng lên nhau. Vỡ từ
-   khoảng 1000px trở xuống — tức laptop nhỏ đã dính, chưa cần tới tablet.
+   Sáu cột dưới đây khai width CỨNG: 190 + 115 + 165 + 150 + 236 = 856px (26/08/2026 — tách
+   "Lập lúc" khỏi "Người lập" thành cột riêng, khớp mẫu Phiếu thu (`.acct-time-cell`); Người lập
+   hẹp lại 180→115px — cột này đã có sẵn lưới an toàn `.acct-user-cell > div{max-width:160px;
+   overflow:hidden;text-overflow:ellipsis}` nên tên dài chỉ CẮT GỌN + tooltip, không đẩy hàng
+   cao lên như "Đối tượng" — bớt ở đây để dồn chỗ cho "Đối tượng", cột duy nhất KHÔNG có lưới an
+   toàn, tên NCC dài mà hẹp quá thì XUỐNG DÒNG thật, phá vỡ hàng cao đều 64px). Cột 2 ("Đối
+   tượng") không khai width nên nó ăn PHẦN CÒN LẠI — mà `table-layout: fixed` + `width: 100%`
+   nghĩa là bảng co theo container. Container hẹp hơn 856px + phần Đối tượng tối thiểu thì tên
+   nhà cung cấp rơi mỗi dòng MỘT CHỮ CÁI, và tiêu đề cột (`white-space: nowrap`) tràn chồng lên
+   nhau.
 
    `min-width` chặn đúng chỗ đó. `.md-page__tablewrap` đã có `overflow-x: auto` nên màn hẹp hơn
    thì CUỘN NGANG — bảng tiền 6 cột thì cuộn vẫn đọc được, còn chữ chồng chữ thì không. */
 .acct-list--voucher .md-page__table {
-  min-width: 1000px;
+  min-width: 1090px;
 }
 
 .acct-list--voucher th:nth-child(1),
@@ -249,22 +269,22 @@
 
 .acct-list--voucher th:nth-child(3),
 .acct-list--voucher td:nth-child(3) {
-  width: 180px;
+  width: 115px;
 }
 
 .acct-list--voucher th:nth-child(4),
 .acct-list--voucher td:nth-child(4) {
-  width: 150px;
+  width: 165px;
 }
 
 .acct-list--voucher th:nth-child(5),
 .acct-list--voucher td:nth-child(5) {
-  width: 210px;
+  width: 150px;
 }
 
 .acct-list--voucher th:nth-child(6),
 .acct-list--voucher td:nth-child(6) {
-  width: 64px;
+  width: 236px;
 }
 
 .acct-list--voucher td.acct-code-cell strong,
@@ -275,8 +295,7 @@
 }
 
 .acct-list--voucher td.acct-code-cell small,
-.acct-list--voucher td.acct-target-cell small,
-.acct-list--voucher td.acct-user-cell small {
+.acct-list--voucher td.acct-target-cell small {
   display: block;
   margin-top: 4px;
   color: var(--muted);
@@ -289,16 +308,12 @@
   height: auto;
 }
 
-/* "Thiếu chứng từ" nằm INLINE cạnh badge trạng thái → ô luôn 1 dòng.
-   Ghi đè .acct-list td .acct-missing-doc{display:block} (specificity cao hơn). */
+/* "Thiếu chứng từ" nằm INLINE cạnh badge trạng thái → ô luôn 1 dòng. Đệm phải thu hẹp riêng
+   cột này (12px 16px chung của bảng ăn hết 32px trên khổ cột 210px cố định, không đủ chỗ cho
+   2 badge cạnh nhau — đo thật: cần thêm 15px) — các cột khác giữ nguyên đệm chung. */
 .acct-list--voucher td.acct-status-cell {
   white-space: nowrap;
-}
-
-.acct-list--voucher td .acct-missing-doc {
-  display: inline-flex;
-  margin: 0 0 0 6px;
-  vertical-align: middle;
+  padding-right: 6px;
 }
 
 /* Người lập (dùng chung Phiếu chi + Phiếu thu, KHÔNG khóa theo --voucher):
@@ -903,46 +918,23 @@
   vertical-align: top;
 }
 
-.ar-receipt-form-row > td {
-  padding: 0 !important;
-  background: var(--paper);
+/* Dòng hoá đơn đang mở popup thu tiền — tô nhạt để vẫn biết đang thu hoá đơn nào dù popup
+   giờ nổi lên GIỮA màn hình (khuôn .acct-modal), không còn nằm ngay dưới dòng như trước. */
+.ar-row--active td {
+  background: var(--rust-soft);
 }
 
-.ar-receipt-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-  padding: var(--sp-4);
-  border-left: 3px solid var(--rust);
-}
-
-.ar-receipt-form__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
-}
-
-.ar-receipt-form__head > div:first-child {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.ar-receipt-form__head small {
-  color: var(--ash-2);
-}
-
+/* 3 cột mặc định (Tiền mặt: Người nộp/Ngày thu/Số tiền). Chuyển khoản thêm ô "Tài khoản nhận"
+   nên mới lên 4 cột (--bank) — lưới cố định 4 cột cho cả hai TH từng để hở khoảng trống nơi ô
+   thứ 4 không render. */
 .ar-receipt-form__grid {
   display: grid;
-  grid-template-columns: 1.3fr 1fr 1fr 1.6fr;
+  grid-template-columns: 1.3fr 1fr 1fr;
   gap: var(--sp-3);
 }
 
-.ar-receipt-form__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--sp-2);
+.ar-receipt-form__grid--bank {
+  grid-template-columns: 1.1fr 1fr 1fr 1.4fr;
 }
 
 @media (max-width: 760px) {
@@ -952,19 +944,6 @@
 
   .ar-summary-table .pay-table {
     min-width: 760px;
-  }
-
-  .ar-receipt-form__head {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .ar-receipt-form__head .acct-segment {
-    width: 100%;
-  }
-
-  .ar-receipt-form__head .acct-segment button {
-    flex: 1;
   }
 
   .ar-receipt-form__grid {
@@ -1131,45 +1110,305 @@
   min-width: 190px;
 }
 
-/* --- Thẻ số của ô chi tiết công nợ -------------------------------------------------------
- * Số ĐỨNG TRÊN, nhãn nhỏ ở dưới: mắt bắt con số trước rồi mới đọc nó là gì. Danh sách
- * nhãn–giá trị cũ để số và nhãn cùng cỡ nên không biết đọc cái nào trước. */
-.ar-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-4);
-}
-
-.ar-stat {
-  background: var(--paper);
-  border-radius: var(--r-3);
-  padding: 10px 12px;
-  min-width: 0;
-}
-
-.ar-stat__n {
-  display: block;
-  font-family: var(--ff-num);
-  font-variant-numeric: tabular-nums;
-  font-size: 17px;
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-}
-
-/* Số 0 đã lùi về "—" ở tầng dữ liệu; ở đây chỉ tô ĐỎ khi thật sự có nợ quá hạn. */
-.ar-stat--danger .ar-stat__n {
-  color: var(--signal);
-}
-
-.ar-stat__l {
-  display: block;
-  margin-top: 2px;
-  font-size: 11.5px;
-  color: var(--ash-2);
-}
+/* Ô chi tiết công nợ dùng chung `.pay-kpibar` (payables.css) cho dải chỉ số — xem
+   ReceivablesDrawer.tsx. Bỏ khối thẻ `.ar-stat*` cũ (4 thẻ cao, không đúng UI_DESIGN §4). */
 
 /* Nút "Xem lịch sử thu cũ hơn" — tách khỏi bảng phía trên, không dính sát mép. */
 .ar-more {
   margin-top: var(--sp-3);
 }
+
+/* ===== Kế toán / Đơn mua hàng — khoanh vùng .acct-dmh, KHÔNG sửa class dùng chung =====
+   Khoanh vùng bằng 3 class: `.acct-dmh` (main của AccountingPurchaseInboxPage),
+   `.acct-dmh-drawer` (aside của InboxDrawer/RejectModal), `.acct-dmh__body` (thân drawer).
+   Các class con (`acct-dmh__date`, `acct-dmh__state`, `acct-dmh__dot`, `acct-dmh__due`,
+   `acct-dmh__toolbar`, `acct-dmh__toolrow`) tự khoanh vùng bằng chính TÊN riêng của chúng
+   (UI_DESIGN §11: mỗi màn một tiền tố BEM riêng), không cần lồng thêm ancestor. */
+
+/* `overflow:hidden` từng đặt ở đây để bo góc --r-5 không bị vỡ, NHƯNG đo thật (phát hiện lúc
+   build màn Mua hàng dùng chung khuôn này) cho thấy `overflow-x:auto` không có tác dụng khi đặt
+   trên chính thẻ <table> trần ở trình duyệt này — cùng lúc `overflow:hidden` ở khung ngoài lại
+   THẮNG `overflow-x:auto` sẵn có của `.md-page__tablewrap` (cùng đặc trưng, file nạp sau thắng),
+   kết quả là bảng bị CẮT MẤT cột ở màn hẹp thay vì cuộn được. Bỏ hẳn overflow:hidden — để
+   `.md-page__tablewrap` tự lo cuộn ngang như thiết kế gốc; `.md-page__pager` đã tự có padding
+   riêng nên không đụng bo góc dưới. */
+.acct-dmh .acct-dmh__frame {
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+}
+
+.acct-dmh table thead th {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--ash);
+  text-align: left;
+  padding: 10px 14px;
+  white-space: nowrap;
+  background: var(--paper);
+  border-bottom: 1.5px solid var(--rule);
+}
+.acct-dmh table thead th.acct-amount-cell { text-align: right; }
+.acct-dmh table tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule-hair);
+  vertical-align: middle;
+}
+.acct-dmh table tbody tr:last-child td { border-bottom: 0; }
+.acct-dmh table tbody tr { cursor: pointer; }
+.acct-dmh table tbody tr:hover { background: var(--rust-soft); }
+.acct-dmh table tbody tr.purchase__row--selected {
+  background: var(--rust-soft);
+  box-shadow: inset 3px 0 0 var(--rust);
+}
+
+/* Mã đơn (cột đầu) là MÃ nên dùng font số theo UI_DESIGN §7 — bản thiết kế gọi đây là việc
+   của ".acct-dmh__frame" thay vì đổi tên class riêng cho ô, nên ép trực tiếp qua khung. */
+.acct-dmh .acct-dmh__frame td.acct-code-cell strong {
+  font-family: var(--ff-num);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.acct-dmh__date {
+  font-family: var(--ff-num);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--ash);
+}
+
+/* Badge trạng thái = pill viền + chấm màu, KHÔNG tô nền cả pill bằng màu ngữ nghĩa (UI_DESIGN §3) */
+.acct-dmh__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  color: var(--ink);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+}
+.acct-dmh__dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 6px; }
+/* Ánh xạ ĐÚNG theo tone thật trong STATUS_META / VOUCHER_STATUS_LABEL (shared/constants.ts) —
+   đọc file đó thay vì đoán. Nhóm theo việc kế toán: chờ người quyết = amber; đang chạy
+   (đã duyệt/đang mua) = steel; hàng đã về / đã chi xong = moss; dừng (từ chối/huỷ) = signal;
+   nháp (không xuất hiện thật ở hộp thư này, giữ cho đủ bộ) = steel. */
+.acct-dmh__state--pending .acct-dmh__dot { background: var(--amber); }
+.acct-dmh__state--draft .acct-dmh__dot,
+.acct-dmh__state--approved .acct-dmh__dot,
+.acct-dmh__state--purchased .acct-dmh__dot { background: var(--steel); }
+.acct-dmh__state--partial .acct-dmh__dot,
+.acct-dmh__state--received .acct-dmh__dot,
+.acct-dmh__state--paid .acct-dmh__dot { background: var(--moss); }
+.acct-dmh__state--rejected .acct-dmh__dot,
+.acct-dmh__state--cancelled .acct-dmh__dot { background: var(--signal); }
+
+.acct-dmh__due {
+  display: block;
+  font-family: var(--ff-num);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+/* `.acct-toolbar` (dùng chung) khai `align-items: center` cho layout MỘT hàng cũ — trục
+   cross của nó là DỌC nên center vô hại. Ở đây đổi sang `flex-direction: column` thì trục
+   cross xoay thành NGANG, và center thừa kế sẽ CO mỗi hàng về đúng bề rộng nội dung rồi
+   canh giữa hàng đó trong khung (hàng 2 ít ô hơn hàng 1 → thấy rõ khoảng trống hai bên).
+   Phải ép lại `stretch` để mỗi `.acct-dmh__toolrow` giãn đủ 100% bề ngang rồi tự canh trái
+   bằng `justify-content` mặc định của chính nó. */
+.acct-dmh__toolbar { display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-3); }
+.acct-dmh__toolrow { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); }
+
+.acct-dmh-drawer .acct-dmh__scroll { overflow-x: auto; }
+.acct-dmh-drawer .acct-dmh__lead strong {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-medium);
+}
+
+/* Hero drawer phẳng hoá — có trong bản thiết kế gốc (soi lần 1) nhưng bị sót khi chép sang
+   khối CSS giao cho agent BUILD. `.purchase__hero-banner` gốc (purchase.css) dùng chung 19
+   file nên KHÔNG sửa định nghĩa gốc, chỉ khoanh vùng qua `.acct-dmh-drawer`. */
+.acct-dmh-drawer .purchase__hero-banner {
+  background: var(--charcoal);
+  border-bottom: none;
+}
+
+/* `.md-page__pager` (master-data.css) dùng chung nhiều màn, KHÔNG có padding/border/nền —
+   trong khung bảng mới (`.acct-dmh__frame`, viền + bo góc riêng) nó dính sát mép dưới không
+   có gì tách khỏi thân bảng. Khoanh vùng bằng `.acct-dmh`, không sửa định nghĩa gốc. */
+.acct-dmh .md-page__pager {
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--rule-soft);
+  background: var(--canvas);
+}
+
+@media (max-width: 900px) {
+  .acct-dmh__toolrow { flex-direction: column; align-items: stretch; }
+}
+
+/* ===== Kế toán / Phiếu chi — khoanh vùng .acct-pc ===== */
+.acct-pc .acct-list--voucher {
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  overflow-y: hidden;
+}
+/* Đồng bộ đệm ô với Phiếu thu (`.acct-pt table tbody td{padding:12px 14px}`) — trước ăn nguyên
+   `.md-page__table tbody td{padding:var(--sp-3) var(--sp-4)}` = 12px 16px, hai màn anh em lệch
+   nhau vài px không đáng. Chiều cao dòng CỐ Ý giữ 64px cố định (không đổi theo Phiếu thu) — bảng
+   này có ô 2 dòng + 2 badge trạng thái cần chỗ hơn, xem comment `.acct-list--voucher tbody tr`. */
+.acct-pc .acct-list--voucher td {
+  padding: 12px 14px;
+}
+.acct-pc .md-page__pager {
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--rule-soft);
+  background: var(--canvas);
+}
+.acct-pc strong { font-weight: var(--fw-bold); }
+.acct-pc .acct-list--voucher tbody tr:hover { background: var(--rust-soft); }
+.acct-pc .acct-list--voucher tr.purchase__row--selected {
+  background: var(--rust-soft);
+  box-shadow: inset 3px 0 0 var(--rust);
+}
+.acct-pc td.acct-code-cell strong,
+.acct-pc td.acct-user-cell small {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+}
+.acct-pc__state {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px;
+  border-radius: var(--r-pill); background: var(--canvas); border: 1px solid var(--rule-soft);
+  color: var(--ink); font-size: var(--fs-2xs); font-weight: var(--fw-bold);
+  text-transform: uppercase; letter-spacing: .04em; white-space: nowrap;
+}
+.acct-pc__dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 6px; }
+.acct-pc__state--paid .acct-pc__dot { background: var(--moss); }
+.acct-pc__state--cancelled .acct-pc__dot { background: var(--signal); }
+.acct-pc__flag {
+  display: inline-flex; align-items: center; gap: 6px; width: max-content; margin-top: 4px;
+  padding: 3px 10px; border-radius: var(--r-pill); background: var(--canvas);
+  border: 1px solid var(--rule-soft); color: var(--ink); font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap;
+}
+.acct-pc__flag .acct-pc__dot { background: var(--signal); }
+
+/* Trong bảng danh sách, cột trạng thái (nay là nth-child(6) — dời một bậc từ khi tách thêm
+   cột "Lập lúc" 26/08/2026) chỉ có 236px cho CẢ HAI badge — bản đầy đủ viền+đệm của .acct-pc__flag
+   (dựng cho hero drawer, dư chỗ) tràn mất 14px ở đây nếu để nguyên. Thu gọn RIÊNG trong ngữ cảnh
+   bảng: bỏ viền, giảm đệm, đổi margin-top (dành cho xếp dọc trong drawer) thành margin-left
+   (xếp ngang trong ô). */
+.acct-list--voucher td .acct-pc__flag {
+  margin: 0 0 0 6px;
+  padding: 2px 8px 2px 6px;
+  border: none;
+  background: transparent;
+}
+.acct-list--voucher td .acct-pc__flag .acct-pc__dot {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+}
+
+.acct-pc-drawer .purchase__hero-banner { background: var(--charcoal); border-bottom: none; }
+.acct-pc-drawer .purchase__hero-kicker { color: var(--on-charcoal-muted); }
+/* purchase.css có sẵn !important trên font-family của .purchase__hero-code (dùng chung 19 màn)
+   — phải !important để thắng, không có cách khác đúng luật (đã xác nhận khi soi). */
+.acct-pc-drawer .purchase__hero-code {
+  font-family: var(--ff-num) !important;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.acct-pc-drawer .purchase__hero-banner .acct-pc__state,
+.acct-pc-drawer .purchase__hero-banner .acct-pc__flag {
+  background: rgba(248,250,252,.12); border-color: rgba(248,250,252,.22); color: var(--on-charcoal);
+}
+.acct-pc-drawer .acct-voucher-amount strong {
+  font-size: var(--fs-2xl); font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums; font-weight: var(--fw-bold);
+}
+.acct-pc-drawer .purchase__drawer-footer { background: var(--canvas); border-top: 1px solid var(--rule-soft); }
+
+/* ===== Kế toán / Phiếu thu — khoanh vùng .acct-pt =====
+   `overflow:hidden` KHÔNG đặt ở khung .acct-pt__frame (đo thật ở Mua hàng/Đơn mua hàng:
+   overflow-x:auto trên <table> trần vô tác dụng, overflow:hidden ở khung ngoài lại THẮNG
+   overflow-x:auto sẵn có của .md-page__tablewrap → bảng bị CẮT MẤT cột thay vì cuộn được).
+   Để .md-page__tablewrap tự lo cuộn ngang. */
+.acct-pt .acct-pt__frame {
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+}
+.acct-pt table thead th {
+  font-size: var(--fs-2xs); font-weight: var(--fw-bold); text-transform: uppercase;
+  letter-spacing: .07em; color: var(--ash); text-align: left; padding: 10px 14px;
+  white-space: nowrap; background: var(--paper); border-bottom: 1.5px solid var(--rule);
+}
+.acct-pt table thead th.acct-amount-cell { text-align: right; }
+.acct-pt table tbody td { padding: 12px 14px; border-bottom: 1px solid var(--rule-hair); vertical-align: middle; }
+.acct-pt table tbody tr:last-child td { border-bottom: 0; }
+.acct-pt table tbody tr:hover { background: var(--rust-soft); }
+.acct-pt table tbody tr.purchase__row--selected {
+  background: var(--rust-soft); box-shadow: inset 3px 0 0 var(--rust);
+}
+.acct-pt table td.acct-code-cell strong {
+  font-family: var(--ff-num); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums;
+}
+.acct-pt table td.acct-amount-cell strong { font-weight: var(--fw-bold); }
+.acct-pt__state {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px;
+  border-radius: var(--r-pill); background: var(--canvas); border: 1px solid var(--rule-soft);
+  color: var(--ink); font-size: var(--fs-2xs); font-weight: var(--fw-bold); white-space: nowrap;
+}
+.acct-pt__dot { width: 6px; height: 6px; border-radius: 50%; flex: 0 0 6px; }
+.acct-pt__state--waiting .acct-pt__dot { background: var(--amber); }
+.acct-pt__state--paid .acct-pt__dot { background: var(--moss); }
+.acct-pt__state--cancelled .acct-pt__dot { background: var(--signal); }
+/* "Thiếu chứng từ" — copy khuôn .acct-pc__flag (đã verify ở Phiếu chi): pill viền + chấm đỏ full-size
+   cho hero drawer. .acct-missing-doc cũ (accounting.css phía trên) từng xếp badge này THEO CHIỀU DỌC
+   (display:block, margin-top) dưới badge trạng thái trong bảng; bản .acct-pt__flag chuyển sang nằm
+   CẠNH badge trạng thái (inline), nên bản thu gọn trong bảng đổi margin-top → margin-left, bỏ viền,
+   giảm đệm — đúng khuôn đã verify ở .acct-list--voucher td .acct-pc__flag. */
+.acct-pt__flag {
+  display: inline-flex; align-items: center; gap: 6px; width: max-content; margin-top: 4px;
+  padding: 3px 10px; border-radius: var(--r-pill); background: var(--canvas);
+  border: 1px solid var(--rule-soft); color: var(--ink); font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap;
+}
+.acct-pt__flag .acct-pt__dot { background: var(--signal); }
+.acct-list td .acct-pt__flag {
+  margin: 0 0 0 6px;
+  padding: 2px 8px 2px 6px;
+  border: none;
+  background: transparent;
+}
+.acct-list td .acct-pt__flag .acct-pt__dot {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+}
+.acct-pt .md-page__pager {
+  padding: var(--sp-3) var(--sp-5); border-top: 1px solid var(--rule-soft); background: var(--canvas);
+}
+.acct-pt-drawer .purchase__hero-banner { background: var(--charcoal); border-bottom: none; }
+/* purchase.css có sẵn !important trên font-family của .purchase__hero-code (dùng chung 19 màn)
+   — phải !important để thắng, không có cách khác đúng luật (đã xác nhận khi soi, giống Phiếu chi). */
+.acct-pt-drawer .purchase__hero-code {
+  font-family: var(--ff-num) !important;
+  font-weight: var(--fw-medium); letter-spacing: 0; font-variant-numeric: tabular-nums;
+}
+.acct-pt-drawer .acct-voucher-amount strong {
+  font-family: var(--ff-num); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums;
+}
+.acct-pt-drawer .acct-voucher-amount small {
+  font-family: var(--ff-num); font-variant-numeric: tabular-nums;
+}
+.acct-pt-drawer .acct-pt__body { padding: var(--sp-5) var(--sp-6); gap: var(--sp-5); }

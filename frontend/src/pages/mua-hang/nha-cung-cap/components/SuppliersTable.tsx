@@ -2,6 +2,14 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { SupplierRow } from "../../../../api/client";
 import { EmptyRow } from "../../../../components/EmptyState";
+import { Icon } from "../../../../components/Icons";
+import { SaoNcc } from "./SaoNcc";
+import { soNgayVi } from "../shared/helpers";
+import type { SortNcc } from "../shared/types";
+
+/** Số cột của bảng — dùng cho `colSpan` của các dòng rỗng/lỗi. Đổi cột thì đổi luôn ở đây,
+ *  không thì dòng "Chưa có NCC nào" co lại còn một phần bảng. */
+const SO_COT = 5;
 
 export function SuppliersTable({
   loading,
@@ -10,6 +18,8 @@ export function SuppliersTable({
   rows,
   canUpdate,
   openEdit,
+  sort,
+  setSort,
   total,
   page,
   setPage,
@@ -21,11 +31,21 @@ export function SuppliersTable({
   rows: SupplierRow[];
   canUpdate: boolean;
   openEdit: (row: SupplierRow) => void;
+  sort: SortNcc;
+  setSort: Dispatch<SetStateAction<SortNcc>>;
   total: number;
   page: number;
   setPage: Dispatch<SetStateAction<number>>;
   totalPages: number;
 }) {
+  // Bấm cột Đánh giá: cao→thấp (mặc định khi mới bật, vì câu hỏi thường gặp là "ai đáng tin
+  // nhất") → thấp→cao → tắt, quay về xếp theo tên. Ba nhịp, không có trạng thái nào cụt.
+  const sortSao = sort === "rating" || sort === "-rating";
+  function doiSortSao() {
+    setSort(sort === "-rating" ? "rating" : sort === "rating" ? "name" : "-rating");
+    setPage(1);
+  }
+
   return (
     <>
       {/* Modern Table List */}
@@ -33,6 +53,7 @@ export function SuppliersTable({
         <table className="md-page__table supplier__table">
           <colgroup>
             <col className="supplier__col-name" />
+            <col className="supplier__col-sao" />
             <col className="supplier__col-contact" />
             <col className="supplier__col-items" />
             <col className="supplier__col-status" />
@@ -40,6 +61,35 @@ export function SuppliersTable({
           <thead>
             <tr>
               <th>Nhà cung cấp</th>
+              {/* Cột SẮP XẾP ĐƯỢC duy nhất của bảng. Sao là thứ người mua hàng thật sự muốn
+                  xếp — tên và trạng thái đã có ô tìm/ô lọc lo rồi. */}
+              <th
+                className="supplier__th-sort"
+                aria-sort={
+                  sort === "-rating"
+                    ? "descending"
+                    : sort === "rating"
+                      ? "ascending"
+                      : "none"
+                }
+              >
+                <button
+                  type="button"
+                  className={`supplier__sort-btn${sortSao ? " is-on" : ""}`}
+                  onClick={doiSortSao}
+                  title="Xếp theo sao đánh giá"
+                >
+                  Đánh giá
+                  <span
+                    className={`supplier__sort-caret${sort === "rating" ? " is-up" : ""}${
+                      sortSao ? " is-on" : ""
+                    }`}
+                    aria-hidden="true"
+                  >
+                    <Icon name="chevron" size={13} />
+                  </span>
+                </button>
+              </th>
               <th>Người liên hệ</th>
               <th>Mặt hàng</th>
               <th>Trạng thái</th>
@@ -50,6 +100,7 @@ export function SuppliersTable({
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={`sk-${i}`} className="purchase__skeleton-row">
                   <td><div className="purchase__skeleton-bar" style={{ width: "160px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "110px" }} /></td>
                   <td><div className="purchase__skeleton-bar" style={{ width: "140px" }} /></td>
                   <td><div className="purchase__skeleton-bar" style={{ width: "120px" }} /></td>
                   <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
@@ -57,14 +108,14 @@ export function SuppliersTable({
               ))
             ) : listError ? (
               <EmptyRow
-                colSpan={4}
+                colSpan={SO_COT}
                 trangThai="loi"
                 loi={listError}
                 onThuLai={load}
               />
             ) : rows.length === 0 ? (
               <EmptyRow
-                colSpan={4}
+                colSpan={SO_COT}
                 icon="truck"
                 title="Chưa có nhà cung cấp nào khớp"
                 sub="Khai nhà cung cấp trước, rồi mới khai bảng giá vật tư của họ."
@@ -102,7 +153,21 @@ export function SuppliersTable({
                     </div>
                   </td>
 
-                  {/* Column 2: Contact Person + Phone link / Email */}
+                  {/* Column 2: SAO đánh giá (máy tự tính) + rã số một dòng.
+                      ⚠️ `rating === null` ⇒ "Chưa đánh giá", TUYỆT ĐỐI không vẽ 0 sao — xem
+                      SaoNcc.tsx. Ô này chỉ ĐỌC, không có chỗ nào chấm tay. */}
+                  <td className="supplier__sao-cell">
+                    <SaoNcc rating={row.rating} cao={13} gonKhiTrong />
+                    {row.rating !== null && (
+                      <div className="supplier__sao-phu">
+                        {row.late_count === 0
+                          ? `Đúng hẹn ${row.on_time_count}/${row.rating_count} đơn`
+                          : `Đúng hẹn ${row.on_time_count}/${row.rating_count} · trễ TB ${soNgayVi(row.avg_late_days)} ngày`}
+                      </div>
+                    )}
+                  </td>
+
+                  {/* Column 3: Contact Person + Phone link / Email */}
                   <td className="supplier__contact-cell">
                     <div>
                       <strong>
@@ -151,7 +216,7 @@ export function SuppliersTable({
                     </div>
                   </td>
 
-                  {/* Column 3: Mặt hàng — chỉ hiện số đếm */}
+                  {/* Column 4: Mặt hàng — chỉ hiện số đếm */}
                   <td className="supplier__items-cell">
                     {row.items.length > 0 ? (
                       <span

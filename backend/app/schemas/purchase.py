@@ -103,6 +103,19 @@ class SupplierRow(BaseModel):
     updated_at: datetime
     items: list[SupplierItemRow] = Field(default_factory=list)
 
+    # --- SAO ĐÁNH GIÁ: máy tự tính từ phiếu mua hàng, không ai chấm tay ------------------------
+    # Luật đầy đủ ở `services/danh_gia_ncc.py`. Ở đây chỉ nhắc một điều dễ làm sai nhất:
+    # ⚠️ `rating = null` nghĩa là CHƯA ĐÁNH GIÁ (chưa có đơn nào đủ điều kiện), KHÔNG phải 0 sao.
+    # Giao diện phải hiện "Chưa đánh giá", đừng vẽ 0 ngôi sao — đó là vu oan cho NCC mới.
+    # Thang sao thấp nhất là 1, nên 0 không bao giờ là một giá trị hợp lệ ở đây.
+    rating: float | None = None
+    #: Số đơn ĐƯỢC TÍNH vào trung bình (không phải tổng số đơn của NCC).
+    rating_count: int = 0
+    on_time_count: int = 0
+    late_count: int = 0
+    #: Trễ trung bình tính TRÊN CÁC ĐƠN TRỄ. `null` = chưa trễ đơn nào.
+    avg_late_days: float | None = None
+
 
 class SupplierListOut(BaseModel):
     items: list[SupplierRow]

@@ -44,7 +44,7 @@ export function YeuCauInboxTab({
   openCreatePurchaseRequest: (pickedSource: DepartmentPurchaseRequestRow) => void;
 }) {
   return (
-    <section className="card md-page__tablewrap purchase__source-inbox">
+    <section className="md-page__tablewrap acct-mh__frame purchase__source-inbox">
       {bannerLoi}
 
       <div className="purchase__source-toolbar">
