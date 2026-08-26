@@ -151,11 +151,12 @@ export function AccountingReceivablesPage({
               {/* KHÔNG còn cột "Xem": bấm vào DÒNG mở drawer công nợ, mọi thao tác (Thu tiền từng
                   hóa đơn) nằm TRONG drawer (24/08/2026 — gộp thao tác vào bản ghi). */}
               <th>Khách hàng</th>
-              <th>HĐ còn nợ</th>
-              <th>Tổng phải thu</th>
-              <th>Quá hạn</th>
-              <th>Đã thu</th>
-              <th>Hạn mức</th>
+              <th className="acct-count-cell">HĐ còn nợ</th>
+              <th className="acct-amount-cell">Tổng phải thu</th>
+              <th className="acct-amount-cell">Quá hạn</th>
+              <th className="acct-amount-cell">Đã thu</th>
+              <th className="acct-amount-cell">Hạn mức</th>
+              <th>Vượt hạn mức</th>
             </tr>
           </thead>
           <tbody>
@@ -168,9 +169,10 @@ export function AccountingReceivablesPage({
                   <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
                   <td><div className="purchase__skeleton-bar" style={{ width: "90px" }} /></td>
                   <td><div className="purchase__skeleton-bar" style={{ width: "80px" }} /></td>
+                  <td><div className="purchase__skeleton-bar" style={{ width: "100px" }} /></td>
                 </tr>
               ))}
-            {!loading && rows.length === 0 && <tr><td colSpan={6}>Chưa có khách hàng còn công nợ phải thu phù hợp.</td></tr>}
+            {!loading && rows.length === 0 && <tr><td colSpan={7}>Chưa có khách hàng còn công nợ phải thu phù hợp.</td></tr>}
             {!loading && rows.map((row) => (
               <tr
                 key={row.customer_id ?? `none-${row.customer_name}`}
@@ -182,13 +184,20 @@ export function AccountingReceivablesPage({
                     ra đẳng thức đó, không ngoại lệ. Bày thêm một số suy được là bắt người ta đọc
                     ba số để hiểu hai. */}
                 <td><strong>{row.customer_name}</strong></td>
-                <td>{row.invoice_count}</td>
-                <td><strong>{money(row.total_due)}</strong></td>
-                <td className={row.overdue_amount > 0 ? "pay-cell--danger" : ""}>{money(row.overdue_amount)}</td>
-                <td>{money(row.received_amount)}</td>
+                <td className="acct-count-cell">{row.invoice_count}</td>
+                <td className="acct-amount-cell"><strong>{money(row.total_due)}</strong></td>
+                <td className={`acct-amount-cell${row.overdue_amount > 0 ? " pay-cell--danger" : ""}`}>{money(row.overdue_amount)}</td>
+                <td className="acct-amount-cell">{money(row.received_amount)}</td>
+                <td className="acct-amount-cell">{row.credit_limit > 0 ? money(row.credit_limit) : "—"}</td>
                 <td>
-                  {row.credit_limit > 0 ? money(row.credit_limit) : "—"}
-                  {row.vuot_han_muc && <small className="pay-cell--danger">Vượt {money(row.vuot_bao_nhieu)}</small>}
+                  {row.vuot_han_muc ? (
+                    <span className="pay-badge pay-badge--danger">
+                      <i className="pay-badge__dot" />
+                      {money(row.vuot_bao_nhieu)}
+                    </span>
+                  ) : (
+                    <span className="pay-cell--zero">—</span>
+                  )}
                 </td>
               </tr>
             ))}

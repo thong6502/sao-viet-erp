@@ -86,3 +86,17 @@ export const LockIcon = ({ size = 12, ...r }: IconProps) => (
     <path d="M8 11V7a4 4 0 0 1 8 0v4" />
   </SvgIcon>
 );
+
+/** Mũi tên xuống + gạch chân — nút "Tải mẫu" (mục 1). */
+export const DownloadIcon = ({ size = 13, ...r }: IconProps) => (
+  <SvgIcon size={size} {...r}>
+    <path d="M12 3v12M7 10l5 5 5-5M4 19h16" />
+  </SvgIcon>
+);
+
+/** Mũi tên lên từ khay — nút "Nhập Excel" (mục 1). */
+export const UploadIcon = ({ size = 13, ...r }: IconProps) => (
+  <SvgIcon size={size} {...r}>
+    <path d="M12 21V9M7 14l5-5 5 5M4 19h16" />
+  </SvgIcon>
+);

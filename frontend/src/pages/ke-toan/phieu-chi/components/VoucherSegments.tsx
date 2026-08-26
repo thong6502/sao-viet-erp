@@ -89,7 +89,7 @@ export function VoucherSegments({
         {purchase.coc_da_lap
           .map(
             (c) =>
-              `${c.doc_no ?? c.code} ${money(c.amount)} ngày ${fmtDate(c.voucher_date)}`,
+              `${c.code} ${money(c.amount)} ngày ${fmtDate(c.voucher_date)}`,
           )
           .join(" · ")}
         , tổng <strong>{money(purchase.coc_da_chi)}</strong>. Đây là phiếu cọc

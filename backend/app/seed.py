@@ -128,6 +128,9 @@ DEPARTMENTS = [
     "Ban giám đốc", "Hành chính nhân sự", "Kinh doanh",
     # Phòng ban vận hành Kho (BRD Module Kho §1.4) — để gắn vai trò tiếp cận kho.
     "Kho", "Kế toán", "Sản xuất", "Mua hàng",
+    # Phòng GIAO HÀNG (docs/prd-giao-hang.md §3): nền cho tab "Nhân viên giao hàng" — danh sách
+    # tài xế lấy từ NHÂN SỰ của phòng có cờ `la_giao_hang`, không có bảng tài xế riêng.
+    "Giao hàng",
 ]
 
 # Default org tiers (spec-06 / PBI-4009): (name, rank cao→thấp, head_title). Data, not schema —
@@ -532,6 +535,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "bao_gia": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
             # Đơn hàng bán: TP KD duyệt đơn đặc thù + hủy đơn đã chốt (cùng GĐ KD).
             "don_hang_ban": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
+            "giao_hang": {**_read(SCOPE_DEPARTMENT), "can_create": True, "can_cancel": True},
             "nghi_phep": _leave_self(),
         },
     ),
@@ -545,6 +549,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             **{k: _full(SCOPE_ALL) for k in KD_MODULE_KEYS},
             "bao_gia": _full(SCOPE_ALL, can_approve_exception=True),
             "don_hang_ban": _full(SCOPE_ALL, can_approve_exception=True),
+            # Giao hàng: người bán theo dõi hàng của khách mình tới đâu (PRD §3, persona "Bộ phận
+            # Bán hàng"). Xem + thao tác + huỷ yêu cầu; KHÔNG lên kế hoạch, KHÔNG soi tài xế.
+            "giao_hang": {**_read(SCOPE_ALL), "can_create": True, "can_cancel": True},
             "nghi_phep": _leave_self(),
         },
     ),
@@ -565,6 +572,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # Tính giá: NV Sales tự lập phiếu tính giá của mình; phạm vi "Của tôi" (chỉ thấy phiếu mình lập),
             # TP KD/GĐ scope phòng/tất cả thấy hết (lọc theo `created_by`).
             "tinh_gia_thanh": _rcu(SCOPE_OWN),
+            # Giao hàng (PRD §14): NV Sales tạo yêu cầu giao cho đơn CỦA MÌNH + theo dõi chuyến,
+            # phạm vi "Của tôi". Không lên kế hoạch, không phân công tài xế, không huỷ chuyến.
+            "giao_hang": {**_read(SCOPE_OWN), "can_create": True},
             "nghi_phep": _leave_self(),
         },
     ),
@@ -623,6 +633,44 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_ALL),
             "don_hang_ban": {**_read(SCOPE_ALL), "can_record_deposit": True},
+        },
+    ),
+    # Kế toán tổng hợp (26/08/2026): 5 màn tách khỏi khoá `ke_toan` ngày 10/08/2026 (Phiếu chi ·
+    # Phiếu thu · hai màn Công nợ · Tài khoản ngân hàng) đến nay KHÔNG vai nào cầm ngoài Giám đốc
+    # — người làm kế toán không mở nổi màn của chính mình. Bộ ô bám ĐÚNG vai mẫu `ke_toan` trong
+    # `services/role_templates.py` (thứ ma trận đang chào admin khi tạo vai), thêm cụm Lương vì
+    # kế toán là người CHI lương.
+    (
+        "Kế toán",
+        "Kế toán tổng hợp",
+        {
+            "dashboard": _read(SCOPE_ALL),
+            # Màn "Đơn mua hàng (Kế toán)": CHỈ XEM để đối chiếu. DUYỆT chi vẫn là việc giám đốc
+            # — cùng luật tách vai đã áp cho bộ phận Mua hàng ở dưới (ai đề xuất không tự duyệt).
+            "ke_toan": _read(SCOPE_ALL),
+            # Phiếu chi / Phiếu thu: lập + sửa + HUỶ (để lại vết, không xoá) + xuất file.
+            "phieu_chi": {**_rcu(SCOPE_ALL), "can_cancel": True, "can_export": True},
+            "phieu_thu": {
+                **_rcu(SCOPE_ALL),
+                "can_manage_status": True, "can_cancel": True, "can_export": True,
+            },
+            "cong_no_phai_tra": _read(SCOPE_ALL),
+            "cong_no_phai_thu": _read(SCOPE_ALL),
+            # Tài khoản ngân hàng: sửa số dư / ghi chú, KHÔNG tự mở hay xoá tài khoản.
+            "tk_ngan_hang": {**_read(SCOPE_ALL), "can_update": True},
+            "nha_cung_cap": _read(SCOPE_ALL),
+            "thu_mua": _read(SCOPE_ALL),
+            # Ghi phiếu thu CỌC ngay trên đơn hàng bán (cùng ô của vai "Kế toán bán hàng").
+            "don_hang_ban": {**_read(SCOPE_ALL), "can_record_deposit": True},
+            # Lương: bảng lương cả xưởng (`can_view_payroll_table`) + đánh dấu ĐÃ CHI
+            # (`can_manage_status`) + xuất bảng. `can_create` giữ phần TỰ PHỤC VỤ (xin tạm ứng):
+            # vai nào khai riêng khoá `luong` là ĐÈ MẤT `_luong_self()` mặc định.
+            "luong": {
+                "can_read": True, "can_create": True, "scope": SCOPE_ALL,
+                "can_view_payroll_table": True, "can_view_salary": True,
+                "can_manage_status": True, "can_export": True,
+            },
+            "nghi_phep": _leave_self(),
         },
     ),
     # Kế toán kho: Quản lý kho (đủ cụm: duyệt + ghi sổ + xem tồn/giá vốn + ngưỡng) để đối chiếu,
@@ -718,6 +766,47 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "yeu_cau_mua_hang": {**_full(SCOPE_ALL), "can_approve": False},
         },
     ),
+    # === Khối GIAO HÀNG (docs/prd-giao-hang.md §3 personas · §14 bản đồ ô quyền) =========
+    # Màn Giao hàng dựng 19/08/2026 nhưng CHƯA có vai nào — ngoài Giám đốc thì không ai mở được.
+    # Hai vai theo đúng hai persona của PRD: người ĐIỀU PHỐI và người CHẠY XE.
+    #
+    # ⚠️ Phạm vi phải là `all`, KHÔNG phải "Cả phòng": bộ lọc phạm vi của yêu cầu giao hàng soi
+    # `department_id` của NGƯỜI TẠO (Kinh doanh), nên quản lý giao hàng để scope `department`
+    # (= phòng Giao hàng) sẽ không thấy MỘT yêu cầu nào. Xem
+    # `delivery_service.chan_ngoai_pham_vi_yeu_cau`.
+    (
+        "Giao hàng",
+        "Quản lý giao hàng",
+        {
+            "dashboard": _read(SCOPE_ALL),
+            "giao_hang": {
+                **_rcu(SCOPE_ALL),
+                "can_plan": True,          # tab "Yêu cầu chờ lên kế hoạch" + phân công tài xế
+                "can_view_drivers": True,  # tab "Nhân viên giao hàng" (lịch + KPI)
+                "can_cancel": True,
+            },
+            # Điều phối cần biết đơn giao cho ai, địa chỉ ở đâu — CHỈ TRA, không sửa đơn/khách.
+            "don_hang_ban": _read(SCOPE_ALL),
+            "khach_hang": _read(SCOPE_ALL),
+            "nghi_phep": _leave_self(),
+        },
+    ),
+    # Tài xế: chỉ chuyến CỦA MÌNH (scope own) — xem chuyến, bấm "đã lấy hàng", nhập kết quả + km.
+    # KHÔNG `can_plan` (không tự nhận việc), KHÔNG `can_view_drivers` (không soi KPI đồng nghiệp),
+    # KHÔNG `can_cancel` (huỷ chuyến là quyết định của điều phối).
+    (
+        "Giao hàng",
+        "Nhân viên giao hàng",
+        {
+            "dashboard": _read(SCOPE_OWN),
+            "giao_hang": {**_read(SCOPE_OWN), "can_create": True},
+            # Tự phục vụ như thợ xưởng (không phải giờ hành chính): xin nghỉ, khai tăng ca
+            # cho chuyến chạy tối, xem công của mình.
+            "nghi_phep": _leave_self(),
+            "tang_ca": _ot_self(),
+            "cham_cong": _cham_cong_self(),
+        },
+    ),
 ]
 
 
@@ -747,6 +836,13 @@ def seed_departments(db: Session) -> None:
     kd = depts.get_by_name("Kinh doanh")
     if kd is not None and not kd.la_kinh_doanh:
         depts.set_la_kinh_doanh(kd, True)
+    # Cờ GIAO HÀNG: CHỈ tick trên bộ dữ liệu mẫu. `_ai_la_tai_xe` (routers/delivery.py) hễ thấy
+    # có phòng được tick thì CHỈ lấy người trong phòng đó; tick sẵn trên DB thật (phòng vừa tạo,
+    # chưa có ai) sẽ làm danh sách tài xế TRỐNG TRƠN thay vì lùi về quy tắc theo quyền.
+    if settings.seed_demo:
+        gh = depts.get_by_name("Giao hàng")
+        if gh is not None and not gh.la_giao_hang:
+            depts.set_la_giao_hang(gh, True)
 
 
 def seed_unit_levels(db: Session) -> None:
@@ -755,6 +851,32 @@ def seed_unit_levels(db: Session) -> None:
     for name, rank, head_title in UNIT_LEVELS:
         if levels.get_by_name(name) is None and levels.get_by_rank(rank) is None:
             levels.create(name=name, rank=rank, head_title=head_title)
+
+
+def quyen_mac_dinh() -> dict[str, dict]:
+    """BA Ô MẶC ĐỊNH mọi vai đều được cấp (10/08/2026), khai ở MỘT chỗ chứ không chép tay vào
+    từng preset — chép tay 17 chỗ thì thêm vai mới là quên.
+
+      self_service — việc người lao động làm với hồ sơ CỦA CHÍNH MÌNH (tự chấm công, xem phiếu
+        lương của mình, tự gửi đơn nghỉ / tăng ca / tạm ứng). Trước đây là luật ngầm "ai đăng
+        nhập cũng làm được"; nay là ô thật, cấp sẵn nên không ai mất việc hằng ngày nhưng quản
+        trị TẮT ĐƯỢC cho vai nào cần siết. `_rcu` chứ không `_read`: từ 11/08/2026 ô THAO TÁC
+        (`can_create`) mới là thứ cho chấm công / gửi đơn — chỉ cấp Xem là thợ mở màn ra mà
+        không bấm được gì.
+      noi_quy — nội quy lao động thì ai cũng phải đọc. Cùng lý do: phải là một ô nhìn thấy được,
+        không phải luật ngầm.
+      luong — từ 15/08/2026 màn Lương vào bằng ô THẬT của chính nó, không còn đi cửa
+        `self_service` (ô đó đã gỡ khỏi bảng phân quyền ⇒ HCNS không tắt được). Cấp sẵn phần
+        CỦA TÔI để không ai mất phiếu lương / quyền xin tạm ứng. Xem `_luong_self`.
+
+    Preset nào khai riêng một trong ba khoá này thì bản khai riêng THẮNG (dict sau đè dict trước).
+    `scripts/xuat_ma_tran_quyen.py` cũng gọi hàm này — tài liệu quyền phải kể cả ba ô mặc định,
+    không thì người đọc tưởng vai đó không xem được phiếu lương của chính mình."""
+    return {
+        "self_service": _rcu(SCOPE_OWN),
+        "noi_quy": _read(SCOPE_ALL),
+        "luong": _luong_self(),
+    }
 
 
 def seed_roles(db: Session) -> None:
@@ -767,27 +889,8 @@ def seed_roles(db: Session) -> None:
         role = roles.get_by_name_and_department(role_name, dept.id)
         if role is None:
             role = roles.create(name=role_name, department_id=dept.id)
-        # HAI Ô MẶC ĐỊNH cho MỌI vai (10/08/2026), khai ở đây chứ không chép tay vào từng preset —
-        # chép tay 17 chỗ thì thêm vai mới là quên.
-        #   self_service — việc người lao động làm với hồ sơ CỦA CHÍNH MÌNH (tự chấm công, xem
-        #     phiếu lương của mình, tự gửi đơn nghỉ / tăng ca / tạm ứng). Trước đây là luật ngầm
-        #     "ai đăng nhập cũng làm được"; nay là ô thật, cấp sẵn nên không ai mất việc hằng ngày
-        #     nhưng quản trị TẮT ĐƯỢC cho vai nào cần siết.
-        #   noi_quy — nội quy lao động thì ai cũng phải đọc. Cùng lý do: phải là một ô nhìn thấy
-        #     được, không phải luật ngầm.
-        # Preset nào khai riêng hai khoá này thì bản khai riêng THẮNG (dict sau đè dict trước).
-        du = {
-            # `_rcu` chứ không `_read`: từ 11/08/2026 ô THAO TÁC (`can_create`) mới là thứ
-            # cho chấm công / gửi đơn nghỉ · phiếu tăng ca · xin tạm ứng. Chỉ cấp Xem là
-            # thợ mở màn ra mà không bấm được gì.
-            "self_service": _rcu(SCOPE_OWN),
-            "noi_quy": _read(SCOPE_ALL),
-            # luong — từ 15/08/2026 màn Lương vào bằng ô THẬT của chính nó, không còn đi cửa
-            # `self_service` (ô đó đã gỡ khỏi bảng phân quyền ⇒ HCNS không tắt được). Cấp sẵn
-            # phần CỦA TÔI để không ai mất phiếu lương / quyền xin tạm ứng. Xem `_luong_self`.
-            "luong": _luong_self(),
-            **perms,
-        }
+        # Ba ô mặc định (self_service · noi_quy · luong-của-tôi) — xem `quyen_mac_dinh`.
+        du = {**quyen_mac_dinh(), **perms}
         # Upsert permissions (no-op row-count on re-run; keeps the matrix in sync).
         for module_key, perm in du.items():
             roles.set_permission(role_id=role.id, module_key=module_key, **perm)
@@ -2224,6 +2327,14 @@ def seed_san_xuat_org(db: Session) -> None:
     db.commit()
 
 
+# Sáu TỔ khối Sản xuất → slug đặt username (`tt_<slug>` · `tho_<slug>N`). Dùng chung cho
+# `seed_san_xuat_accounts` và `seed_tai_khoan_va_luong_sx` — hai nơi lệch nhau là đẻ trùng tài khoản.
+_SLUG_TO_SX: dict[str, str] = {
+    "Tổ Chế bản": "cheban", "Tổ In offset": "in", "Tổ Cán màng": "can",
+    "Tổ Bế & Xén": "be", "Tổ Đóng gói": "donggoi", "Tổ KCS": "kcs",
+}
+
+
 def seed_san_xuat_accounts(db: Session) -> None:
     """Tài khoản demo khối SẢN XUẤT (Lát 1) — để đăng nhập XEM LUỒNG phát→hộp tổ→gán→thợ.
     Mỗi tổ: 1 tổ trưởng (đặt `head_user_id` + vai Tổ trưởng SX = read+assign_work) + 2 thợ (vai
@@ -2261,17 +2372,646 @@ def seed_san_xuat_accounts(db: Session) -> None:
     _mk("kehoach", "Kế hoạch sản xuất", sx.id, r_ke_hoach)
     _mk("qc1", "QC / KCS", sx.id, r_qc)
 
-    slugs = {
-        "Tổ Chế bản": "cheban", "Tổ In offset": "in", "Tổ Cán màng": "can",
-        "Tổ Bế & Xén": "be", "Tổ Đóng gói": "donggoi", "Tổ KCS": "kcs",
-    }
-    for tname, slug in slugs.items():
+    for tname, slug in _SLUG_TO_SX.items():
         to = depts.get_by_name(tname)
         if to is None:
             continue
         _mk(f"tt_{slug}", f"Tổ trưởng {tname}", to.id, r_to_truong, head_of=to)
         for i in (1, 2):
             _mk(f"tho_{slug}{i}", f"Thợ {tname} {i}", to.id, r_tho)
+    db.commit()
+
+
+# Hồ sơ demo khối SẢN XUẤT: (họ tên, giới tính, chức danh, mã bậc tay nghề). Mỗi tổ khai ĐỦ 10
+# ứng viên (kể cả tổ đang trống hoàn toàn) — seeder chỉ lấy đúng số còn THIẾU cho đủ
+# `_QUAN_SO_MOI_TO`, tổ nào đã đủ người thật thì không đụng tới. Chức danh bám nghề in offset
+# thật (thợ cả · thợ · phụ máy), không phải "Nhân viên 1/2/3".
+_NHAN_SU_TO_SX: dict[str, list[tuple[str, str, str, str]]] = {
+    "Tổ Chế bản": [
+        ("Nguyễn Hữu Tài", "male", "Kỹ thuật viên chế bản", "bac_1"),
+        ("Trần Thị Mai Lan", "female", "Thợ chế bản", "bac_2"),
+        ("Lê Quang Vinh", "male", "Thợ ghi kẽm CTP", "bac_2"),
+        ("Phạm Văn Đạt", "male", "Thợ chế bản", "bac_3"),
+        ("Đỗ Thị Ngọc Hà", "female", "Nhân viên bình bài", "bac_3"),
+        ("Vũ Minh Khôi", "male", "Phụ chế bản", "bac_4"),
+        ("Ngô Thanh Tùng", "male", "Phụ chế bản", "bac_5"),
+        ("Nguyễn Thị Kiều Trang", "female", "Nhân viên bình bài", "bac_3"),
+        ("Trần Văn Nhựt", "male", "Thợ ghi kẽm CTP", "bac_3"),
+        ("Phạm Anh Duy", "male", "Phụ chế bản", "bac_4"),
+    ],
+    "Tổ In offset": [
+        ("Nguyễn Văn Sáng", "male", "Thợ cả máy in", "bac_1"),
+        ("Trịnh Công Lý", "male", "Thợ in offset", "bac_2"),
+        ("Hoàng Đình Nam", "male", "Thợ in offset", "bac_2"),
+        ("Bùi Thanh Phong", "male", "Thợ pha mực", "bac_3"),
+        ("Đặng Văn Quý", "male", "Phụ máy in", "bac_4"),
+        ("Lý Thị Kim Chi", "female", "Phụ máy in", "bac_4"),
+        ("Phan Hữu Lộc", "male", "Phụ máy in", "bac_5"),
+        ("Nguyễn Trọng Nghĩa", "male", "Thợ in offset", "bac_3"),
+        ("Võ Văn Tú", "male", "Thợ pha mực", "bac_3"),
+        ("Trần Ngọc Hưng", "male", "Phụ máy in", "bac_4"),
+    ],
+    "Tổ Cán màng": [
+        ("Trần Đăng Khoa", "male", "Thợ cả máy cán", "bac_1"),
+        ("Nguyễn Thị Bích Thủy", "female", "Thợ cán màng", "bac_2"),
+        ("Lê Văn Hậu", "male", "Thợ cán màng", "bac_2"),
+        ("Phạm Thị Hồng Nhung", "female", "Thợ ép kim", "bac_3"),
+        ("Võ Thành Trung", "male", "Phụ máy cán", "bac_4"),
+        ("Nguyễn Hoàng Duy", "male", "Phụ máy cán", "bac_4"),
+        ("Đoàn Thị Thu Thảo", "female", "Phụ máy cán", "bac_5"),
+        ("Lê Thị Diễm My", "female", "Thợ cán màng", "bac_3"),
+        ("Nguyễn Văn Cường", "male", "Thợ máy cán", "bac_3"),
+        ("Bùi Thị Kim Anh", "female", "Phụ máy cán", "bac_4"),
+    ],
+    "Tổ Bế & Xén": [
+        ("Nguyễn Văn Thắng", "male", "Thợ cả máy bế", "bac_1"),
+        ("Trương Minh Hải", "male", "Thợ bế", "bac_2"),
+        ("Cao Thị Lệ Quyên", "female", "Thợ xén", "bac_2"),
+        ("Hồ Văn Kiên", "male", "Thợ dán hộp", "bac_3"),
+        ("Nguyễn Thị Tuyết", "female", "Thợ dán hộp", "bac_3"),
+        ("Lâm Quốc Bảo", "male", "Phụ máy bế", "bac_4"),
+        ("Trần Văn Lợi", "male", "Phụ máy bế", "bac_5"),
+        ("Phan Văn Định", "male", "Thợ bế", "bac_3"),
+        ("Nguyễn Thị Thanh Hà", "female", "Thợ xén", "bac_3"),
+        ("Đỗ Minh Nhật", "male", "Phụ máy bế", "bac_4"),
+    ],
+    "Tổ Đóng gói": [
+        ("Nguyễn Thị Hạnh", "female", "Trưởng ca đóng gói", "bac_2"),
+        ("Lê Thị Thanh Trúc", "female", "Nhân viên đóng gói", "bac_3"),
+        ("Phạm Văn Sơn", "male", "Nhân viên đóng gói", "bac_3"),
+        ("Trần Thị Kim Oanh", "female", "Nhân viên vào bìa", "bac_3"),
+        ("Nguyễn Văn Hoà", "male", "Nhân viên đóng gói", "bac_4"),
+        ("Đinh Thị Mỹ Duyên", "female", "Nhân viên đóng gói", "bac_4"),
+        ("Huỳnh Tấn Phát", "male", "Nhân viên đóng gói", "bac_5"),
+        ("Trần Văn Út", "male", "Nhân viên đóng gói", "bac_3"),
+        ("Nguyễn Thị Lan Chi", "female", "Nhân viên vào bìa", "bac_4"),
+        ("Hoàng Thị Ngọc Diệp", "female", "Nhân viên đóng gói", "bac_4"),
+    ],
+    "Tổ KCS": [
+        ("Nguyễn Thị Thu Hương", "female", "Nhân viên KCS", "bac_1"),
+        ("Trần Quốc Việt", "male", "Nhân viên KCS", "bac_2"),
+        ("Lê Thị Ngọc Ánh", "female", "Nhân viên KCS", "bac_2"),
+        ("Phạm Minh Tuấn", "male", "Nhân viên kiểm hàng", "bac_3"),
+        ("Vũ Thị Hoài Thu", "female", "Nhân viên kiểm hàng", "bac_3"),
+        ("Nguyễn Đức Thịnh", "male", "Nhân viên kiểm hàng", "bac_4"),
+        ("Trần Thị Yến Nhi", "female", "Nhân viên kiểm hàng", "bac_5"),
+        ("Lê Minh Trí", "male", "Nhân viên KCS", "bac_3"),
+        ("Nguyễn Thị Phương Dung", "female", "Nhân viên kiểm hàng", "bac_4"),
+        ("Trần Đình Sang", "male", "Nhân viên kiểm hàng", "bac_4"),
+    ],
+}
+
+_QUAN_SO_MOI_TO = 10
+_GHI_CHU_NHAN_SU_DEMO = "Hồ sơ demo tổ sản xuất"
+
+
+def seed_nhan_su_to_san_xuat(db: Session) -> None:
+    """Bù hồ sơ nhân sự cho SÁU TỔ khối Sản xuất cho ĐỦ 10 người/tổ (SEED_DEMO).
+
+    Vì sao cần: `seed_san_xuat_accounts` chỉ đẻ 1 tổ trưởng + 2 thợ mỗi tổ — vừa đủ để đăng nhập
+    xem luồng, nhưng mọi màn đọc quân số (hộp việc của tổ, đỉnh quân số ở Xếp lịch 2, chấm công,
+    khoán) nhìn vào thì tổ nào cũng lèo tèo 3 người. Hàm này thêm thợ có hồ sơ ĐẦY ĐỦ: chức danh ·
+    bậc tay nghề · ca mặc định · CCCD/BHXH/thuế/ngân hàng · quá trình công tác — đúng những ô màn
+    Nhân sự bày ra.
+
+    Idempotent HAI LỚP: tổ đã có hồ sơ mang ghi chú `_GHI_CHU_NHAN_SU_DEMO` thì bỏ qua (xoá tay rồi
+    không bị mọc lại ở lần khởi động sau), và tổ đã đủ 10 người cũng bỏ qua. CHẠY SAU
+    `seed_san_xuat_accounts` (cần cây tổ + 3 tài khoản/tổ) và sau `seed_work_shifts` (cần Ca 1/Ca 2).
+    """
+    from datetime import date, timedelta
+
+    from sqlalchemy import func, select
+
+    from .models.attendance import WorkShift
+    from .models.employee import (
+        EVENT_CONFIRMED,
+        EVENT_HIRED,
+        EVENT_PROMOTED,
+        STATUS_ACTIVE,
+        STATUS_PROBATION,
+        Employee,
+    )
+    from .repositories.employee_repo import EmployeeRepository
+
+    depts = DepartmentRepository(db)
+    repo = EmployeeRepository(db)
+    today = date.today()
+
+    ca = {s.name: s.id for s in db.execute(select(WorkShift)).scalars()}
+    ca_sx = [ca[n] for n in ("Ca 1", "Ca 2") if n in ca]
+
+    ngan_hang = ("Vietcombank", "ACB", "Techcombank", "Agribank")
+    dia_chi = (
+        "12/3 Nguyễn Văn Quá, P. Đông Hưng Thuận, Q.12, TP.HCM",
+        "45 Tô Ký, P. Tân Chánh Hiệp, Q.12, TP.HCM",
+        "78/5 Lê Văn Khương, P. Hiệp Thành, Q.12, TP.HCM",
+        "203 Quang Trung, P. 10, Q. Gò Vấp, TP.HCM",
+        "9 Đường số 7, P. Bình Hoà, TP. Thuận An, Bình Dương",
+    )
+
+    stt = 0
+    for ten_to, ung_vien in _NHAN_SU_TO_SX.items():
+        to = depts.get_by_name(ten_to)
+        if to is None:
+            continue
+        dem = db.execute(
+            select(func.count(Employee.id)).where(Employee.department_id == to.id)
+        ).scalar_one()
+        da_seed = db.execute(
+            select(func.count(Employee.id)).where(
+                Employee.department_id == to.id,
+                Employee.note == _GHI_CHU_NHAN_SU_DEMO,
+            )
+        ).scalar_one()
+        if da_seed or dem >= _QUAN_SO_MOI_TO:
+            continue
+        for ho_ten, gioi, chuc_danh, ma_bac in ung_vien[: _QUAN_SO_MOI_TO - dem]:
+            stt += 1
+            bac = repo.get_job_grade_by_code(ma_bac)
+            # Lính mới (bac_5) để ở diện THỬ VIỆC — màn Nhân sự có sẵn cả hai trạng thái để soi.
+            thu_viec = ma_bac == "bac_5"
+            vao_lam = today - timedelta(days=45 if thu_viec else 210 + stt * 43)
+            nam_sinh = 1986 + (stt * 7) % 18
+            emp = repo.create(
+                full_name=ho_ten,
+                department_id=to.id,
+                position=chuc_danh,
+                job_grade_id=(bac.id if bac is not None else None),
+                status=(STATUS_PROBATION if thu_viec else STATUS_ACTIVE),
+                hire_date=vao_lam,
+                probation_end_date=(vao_lam + timedelta(days=60) if thu_viec else None),
+                gender=gioi,
+                date_of_birth=date(nam_sinh, (stt % 12) + 1, (stt * 3 % 27) + 1),
+                national_id=f"0790{nam_sinh % 100:02d}{100000 + stt * 137:06d}",
+                national_id_date=date(2021, (stt % 12) + 1, (stt % 27) + 1),
+                national_id_place="Cục Cảnh sát QLHC về TTXH",
+                phone=f"09{31000000 + stt * 1237:08d}",
+                permanent_address=dia_chi[stt % len(dia_chi)],
+                current_address=dia_chi[(stt + 2) % len(dia_chi)],
+                emergency_contact_name="Người nhà — liên hệ khi khẩn cấp",
+                emergency_contact_phone=f"09{78000000 + stt * 911:08d}",
+                social_insurance_no=f"79{1000000 + stt * 53:08d}",
+                pit_tax_code=f"83{10000000 + stt * 97:08d}",
+                dependents_count=stt % 3,
+                bank_account=f"0601{1000000 + stt * 271:07d}",
+                bank_name=ngan_hang[stt % len(ngan_hang)],
+                default_shift_id=(ca_sx[stt % len(ca_sx)] if ca_sx else None),
+                note=_GHI_CHU_NHAN_SU_DEMO,
+            )
+            # Quá trình công tác: vào làm → (chính thức) → (nâng bậc) — để tab lịch sử không rỗng.
+            repo.add_event(
+                employee_id=emp.id, event_type=EVENT_HIRED, effective_date=vao_lam,
+                field="status", from_value=None, to_value=STATUS_PROBATION,
+                note="Vào làm", actor_user_id=None,
+            )
+            if not thu_viec:
+                chinh_thuc = vao_lam + timedelta(days=60)
+                repo.add_event(
+                    employee_id=emp.id, event_type=EVENT_CONFIRMED, effective_date=chinh_thuc,
+                    field="status", from_value=STATUS_PROBATION, to_value=STATUS_ACTIVE,
+                    note="Đạt yêu cầu thử việc", actor_user_id=None,
+                )
+                nang_bac = chinh_thuc + timedelta(days=400)
+                if bac is not None and nang_bac <= today:
+                    repo.add_event(
+                        employee_id=emp.id, event_type=EVENT_PROMOTED, effective_date=nang_bac,
+                        field="job_grade", from_value=None, to_value=bac.name,
+                        note="Nâng bậc thợ", actor_user_id=None,
+                    )
+    db.commit()
+
+
+# Khung lương demo khối SẢN XUẤT theo BẬC TAY NGHỀ: mã bậc → LƯƠNG VỊ TRÍ. Chốt 2026-07-20: lương
+# vị trí CHÍNH LÀ lương cơ bản và cũng là MỨC ĐÓNG BH (`payroll_service._resolve_monthly`) — nên
+# tuyệt đối không khai mỗi `base_amount`, khai kiểu đó thì BHXH và đoàn phí ra 0 mà không báo lỗi.
+_LUONG_VI_TRI_THEO_BAC: dict[str, int] = {
+    "bac_1": 12_000_000,   # Thợ lành nghề
+    "bac_2": 10_000_000,   # Thợ vững
+    "bac_3": 8_500_000,    # Thợ thường
+    "bac_4": 7_000_000,    # Tập việc
+    "bac_5": 6_000_000,    # Lính mới (đang thử việc)
+}
+# Hồ sơ chưa khai bậc — 3 tài khoản/tổ do `backfill_employee_profiles` sinh ra (hồ sơ trống).
+_LUONG_VI_TRI_MAC_DINH = 8_500_000
+_GHI_CHU_LUONG_DEMO = "Mức demo khối sản xuất"
+
+
+def seed_tai_khoan_va_luong_sx(db: Session) -> None:
+    """Gán TÀI KHOẢN ĐĂNG NHẬP + MỨC LƯƠNG cho nhân sự khối Sản xuất (SEED_DEMO).
+
+    Hai việc dính nhau nên để chung, chạy ngay sau `seed_nhan_su_to_san_xuat`:
+
+    1. Tài khoản — quy ước "1 hồ sơ = 1 tài khoản". Hồ sơ vừa bù chưa có `user_id` ⇒ không ai
+       đăng nhập được, và `backfill_employee_profiles` (chạy cuối `seed_all`) sẽ đẻ hồ sơ TRỐNG
+       thứ hai nếu ta tạo tài khoản mà quên nối. Ở đây tạo `tho_<tổ><n>` nối tiếp `tho_<tổ>1/2`
+       của `seed_san_xuat_accounts` (cùng mật khẩu `123456`, cùng vai "Thợ SX", phòng ban = chính
+       tổ đó để thợ HIỆN trong drawer gán việc) và NỐI `employee.user_id` ngay.
+    2. Lương — `seed_payroll` chốt cửa bằng `if repo.list_rules(): return` nên nó chỉ chạy đúng
+       MỘT lần, trước khi khối SX có người; hậu quả là cả 6 tổ không ai có dòng lương, màn Lương
+       và bảng lương ra 0đ. Khai mức nền vào `luong_vi_tri` (+ `luong_trach_nhiem` cho tổ
+       trưởng/quản lý), phụ cấp ca · thâm niên · chuyên cần · khác khai phẳng theo từng người.
+
+    Idempotent theo TỪNG NGƯỜI: có `user_id` rồi thì thôi, có dòng lương rồi thì thôi — ai sửa
+    tay trên màn Lương sẽ không bị seeder ghi đè hay cộng thêm dòng ở lần khởi động sau."""
+    from datetime import date
+
+    from sqlalchemy import select
+
+    from .models.employee import STATUS_ACTIVE, Employee, JobGrade
+    from .models.payroll import AMOUNT_MANUAL
+    from .repositories.employee_repo import EmployeeRepository
+    from .repositories.payroll_repo import PayrollRepository
+    from .repositories.rbac_repo import RoleRepository
+    from .security import hash_password as _hash
+
+    depts = DepartmentRepository(db)
+    users = UserRepository(db)
+    roles = RoleRepository(db)
+    emps = EmployeeRepository(db)
+    luong = PayrollRepository(db)
+
+    sx = depts.get_by_name("Sản xuất")
+    if sx is None:
+        return
+    r_tho = roles.get_by_name_and_department("Thợ SX", sx.id)
+    r_tho_id = r_tho.id if r_tho is not None else None
+    ma_bac = {g.id: g.code for g in db.execute(select(JobGrade)).scalars()}
+    today = date.today()
+
+    def _ds(dept_id: int) -> list[Employee]:
+        return (db.query(Employee).filter(Employee.department_id == dept_id)
+                .order_by(Employee.id).all())
+
+    def _muc(emp: Employee, trong_to: bool) -> dict:
+        """Mức nền + phụ cấp của 1 người. Nhận diện tổ trưởng/quản lý qua CHỨC DANH, thiếu thì
+        qua TÊN — 3 hồ sơ backfill mỗi tổ không có `position`, chỉ có tên "Tổ trưởng Tổ ..."."""
+        nhan = f"{emp.position or ''} {emp.full_name or ''}"
+        vi_tri = _LUONG_VI_TRI_THEO_BAC.get(ma_bac.get(emp.job_grade_id or 0, ""),
+                                            _LUONG_VI_TRI_MAC_DINH)
+        trach_nhiem = 0
+        if "Tổ trưởng" in nhan:
+            vi_tri, trach_nhiem = 13_000_000, 2_500_000
+        elif "Quản lý" in nhan or "Kế hoạch" in nhan:
+            vi_tri, trach_nhiem = 12_000_000, 1_500_000
+        elif "QC" in nhan and not trong_to:
+            vi_tri, trach_nhiem = 11_000_000, 1_000_000
+        elif "Thợ cả" in nhan or "Kỹ thuật viên" in nhan:
+            trach_nhiem = 800_000
+        nam = max(0, ((today - emp.hire_date).days // 365)) if emp.hire_date else 0
+        return {
+            "luong_vi_tri": vi_tri,
+            "luong_trach_nhiem": trach_nhiem,
+            # Phụ cấp ca chỉ cho người đứng máy theo ca; khối điều hành ở phòng SX không hưởng.
+            "phu_cap_ca": 500_000 if trong_to else 0,
+            "phu_cap_tham_nien": min(nam, 5) * 200_000,
+            "chuyen_can": 300_000,
+            "allowance": 300_000,   # phụ cấp KHÁC (cơm ca · xăng xe)
+        }
+
+    def _co_muc_nen(emp_id: int) -> bool:
+        """Người này đã có mức nền THẬT chưa. Cẩn thận: dòng `amount_mode="rule"` đời
+        `seed_payroll` để TRỐNG cả `luong_vi_tri` lẫn `base_amount`, mà nhánh tra-bảng-theo-bậc
+        đã bỏ (chủ 2026-07-20) ⇒ `_resolve_monthly` trả 0đ. Dòng như thế coi như CHƯA khai và
+        phải bù — bù bằng bản ghi MỚI cùng ngày hiệu lực (id lớn hơn thắng), KHÔNG sửa bản cũ:
+        bảng này là nhật ký điều chỉnh lương."""
+        ds = luong.list_salaries(emp_id)
+        if not ds:
+            return False
+        moi_nhat = ds[0]
+        return (float(moi_nhat.luong_vi_tri or 0) + float(moi_nhat.luong_trach_nhiem or 0) > 0
+                or moi_nhat.base_amount is not None)
+
+    def _khai_luong(emp: Employee, trong_to: bool) -> None:
+        if _co_muc_nen(emp.id):
+            return
+        luong.create_salary(
+            employee_id=emp.id,
+            # Hiệu lực từ ngày vào làm, nhưng không lùi quá đầu năm tài chính đang chạy — kỳ
+            # lương nào từ 01/2026 trở đi cũng tìm thấy mức, kể cả người vào làm từ 2024.
+            effective_from=max(emp.hire_date or date(2026, 1, 1), date(2026, 1, 1)),
+            amount_mode=AMOUNT_MANUAL,
+            union_member=(emp.status == STATUS_ACTIVE),   # thử việc chưa vào công đoàn
+            apply_self_deduction=True,
+            note=_GHI_CHU_LUONG_DEMO,
+            **_muc(emp, trong_to),
+        )
+
+    for ten_to, slug in _SLUG_TO_SX.items():
+        to = depts.get_by_name(ten_to)
+        if to is None:
+            continue
+        n = 3   # `tho_<slug>1/2` là của `seed_san_xuat_accounts`
+        for emp in _ds(to.id):
+            if emp.user_id is None:
+                while users.get_by_username(f"tho_{slug}{n}") is not None:
+                    n += 1
+                u = users.create(username=f"tho_{slug}{n}", name=emp.full_name,
+                                 password_hash=_hash("123456"))
+                users.set_assignment(u, department_id=to.id, role_id=r_tho_id, is_active=True)
+                emps.update(emp, user_id=u.id)
+                n += 1
+            _khai_luong(emp, True)
+
+    # Người ở thẳng phòng "Sản xuất" (kế hoạch · QC · quản lý) — đã có tài khoản từ trước, chỉ
+    # thiếu mức lương.
+    for emp in _ds(sx.id):
+        _khai_luong(emp, False)
+    db.commit()
+
+
+
+def seed_vai_theo_to(db: Session) -> None:
+    """Mỗi TỔ sản xuất phải có VAI TRÒ CỦA CHÍNH NÓ (SEED_DEMO).
+
+    Vai trò trong hệ này thuộc về ĐÚNG MỘT phòng ban (`roles.department_id`), và màn Phòng ban
+    đổ danh sách vai bằng `GET /api/roles?department_id=<phòng đang mở>`. Nhưng 60 tài khoản của
+    6 tổ lại đang mang vai "Tổ trưởng SX" / "Thợ SX" của phòng CHA ("Sản xuất") — seeder gán
+    thẳng ở tầng repository nên không vướng cửa kiểm của `user_admin_service.assign_role`. Hậu
+    quả trên giao diện:
+      · mở một tổ ⇒ tab Vai trò TRỐNG TRƠN, dù cả 10 người trong tổ đều đang có vai;
+      · hộp chọn vai khi sửa người của tổ không có lựa chọn nào để chọn;
+      · bấm gán lại vai cho một thợ ⇒ 400 "Vai trò không thuộc phòng của người dùng".
+
+    Cách sửa: CHÉP hai vai của phòng "Sản xuất" xuống từng tổ (nguyên bộ ô quyền), rồi trỏ người
+    của tổ sang vai của chính tổ mình. Quyền lúc chạy KHÔNG đổi một ô nào — cùng bộ ô, và
+    `user.department_id` vẫn là tổ nên phạm vi "Cả phòng" vẫn đúng bằng tổ đó. Đây thuần tuý là
+    để màn quản trị NHÌN THẤY và SỬA ĐƯỢC. Vai gốc ở phòng "Sản xuất" giữ nguyên (khối điều hành
+    SX vẫn dùng, và test tra vai theo cặp tên+phòng đó).
+
+    Idempotent: vai đã có thì KHÔNG ghi đè ô quyền (người dùng có thể đã sửa tay); người đã trỏ
+    đúng vai của tổ mình thì bỏ qua."""
+    from .models.role import RolePermission
+
+    depts = DepartmentRepository(db)
+    roles = RoleRepository(db)
+    users = UserRepository(db)
+
+    sx = depts.get_by_name("Sản xuất")
+    if sx is None:
+        return
+    # Vai NGUỒN ở phòng cha. Thiếu cái nào thì bỏ qua cái đó — không dựng vai rỗng không quyền.
+    nguon = [(ten, roles.get_by_name_and_department(ten, sx.id))
+             for ten in ("Tổ trưởng SX", "Thợ SX")]
+    nguon = [(ten, r) for ten, r in nguon if r is not None]
+    if not nguon:
+        return
+    # Chép NGUYÊN hàng quyền: liệt kê cột từ chính bảng để thêm ô mới sau này khỏi phải sửa ở đây.
+    cot = [c.name for c in RolePermission.__table__.columns if c.name not in ("id", "role_id")]
+
+    for to in depts.to_san_xuat():   # định nghĩa "tổ" dùng chung: nút LÁ trong nhánh khối SX
+        if to.id == sx.id:
+            continue
+        doi_vai: dict[int, int] = {}
+        for ten, goc in nguon:
+            vai = roles.get_by_name_and_department(ten, to.id)
+            if vai is None:
+                vai = roles.create(name=ten, department_id=to.id)
+                # `RoleRepository.create` tự bật sẵn self_service + noi_quy. Xoá đi rồi chép
+                # nguyên bộ ô của vai gốc, để hai bên không lệch nhau một ô nào.
+                db.query(RolePermission).filter(RolePermission.role_id == vai.id).delete()
+                for p in roles.permissions_for(goc.id):
+                    db.add(RolePermission(role_id=vai.id, **{c: getattr(p, c) for c in cot}))
+                db.commit()
+            doi_vai[goc.id] = vai.id
+        for u in users.list_by_department(to.id):
+            moi = doi_vai.get(u.role_id or 0)
+            if moi is not None:
+                users.set_role(u, moi)
+    db.commit()
+
+
+# Khối VĂN PHÒNG — mỗi dòng là MỘT vai có người thật cầm: tài khoản đăng nhập + hồ sơ nhân sự +
+# mức lương nền. Trước 26/08/2026 có 5 vai seed ra mà KHÔNG tài khoản nào giữ (hai vai HCNS ·
+# Giám đốc Kinh doanh · Kế toán bán hàng · Trưởng bộ phận mua hàng) ⇒ phân quyền của mấy vai đó
+# chỉ là lý thuyết, không đăng nhập thử được.
+#   `noi_ho_so` = họ tên hồ sơ CÓ SẴN do `seed_employees` đẻ ra, cần NỐI vào tài khoản (quy ước
+#   1 hồ sơ = 1 tài khoản). None = tự tạo hồ sơ mới.
+VAN_PHONG_STAFF: list[dict] = [
+    {"user": "tphcns", "ten": "Trần Văn An", "phong": "Hành chính nhân sự",
+     "vai": "Trưởng phòng HCNS", "chuc_danh": "Trưởng phòng HCNS", "gioi": "male",
+     "vi_tri": 18_000_000, "trach_nhiem": 3_000_000, "noi_ho_so": "Trần Văn An"},
+    {"user": "nvhcns", "ten": "Lê Thị Bình", "phong": "Hành chính nhân sự",
+     "vai": "Nhân viên", "chuc_danh": "Nhân viên nhân sự", "gioi": "female",
+     "vi_tri": 10_000_000, "trach_nhiem": 0, "noi_ho_so": "Lê Thị Bình"},
+    {"user": "sale3", "ten": "Nguyễn Thị Dung", "phong": "Kinh doanh",
+     "vai": "NV Sales", "chuc_danh": "Nhân viên Sales", "gioi": "female",
+     "vi_tri": 8_000_000, "trach_nhiem": 0, "noi_ho_so": "Nguyễn Thị Dung"},
+    {"user": "gdkd", "ten": "Vũ Thanh Hải", "phong": "Kinh doanh",
+     "vai": "Giám đốc Kinh doanh", "chuc_danh": "Giám đốc Kinh doanh", "gioi": "male",
+     "vi_tri": 30_000_000, "trach_nhiem": 6_000_000, "noi_ho_so": None},
+    {"user": "ketoanban", "ten": "Đỗ Thị Kim", "phong": "Kế toán",
+     "vai": "Kế toán bán hàng", "chuc_danh": "Kế toán bán hàng", "gioi": "female",
+     "vi_tri": 11_000_000, "trach_nhiem": 0, "noi_ho_so": None},
+    {"user": "ketoantonghop", "ten": "Mai Thị Lan", "phong": "Kế toán",
+     "vai": "Kế toán tổng hợp", "chuc_danh": "Kế toán tổng hợp", "gioi": "female",
+     "vi_tri": 15_000_000, "trach_nhiem": 1_500_000, "noi_ho_so": None},
+    {"user": "tpmuahang", "ten": "Lý Văn Minh", "phong": "Mua hàng",
+     "vai": "Trưởng bộ phận mua hàng", "chuc_danh": "Trưởng bộ phận mua hàng", "gioi": "male",
+     "vi_tri": 16_000_000, "trach_nhiem": 2_500_000, "noi_ho_so": None},
+    {"user": "qlgiaohang", "ten": "Trịnh Văn Nam", "phong": "Giao hàng",
+     "vai": "Quản lý giao hàng", "chuc_danh": "Điều phối giao hàng", "gioi": "male",
+     "vi_tri": 13_000_000, "trach_nhiem": 2_000_000, "noi_ho_so": None},
+    # Hai tài xế: phải là NHÂN SỰ của phòng "Giao hàng" (cờ `la_giao_hang`) thì tab "Nhân viên
+    # giao hàng" và ô phân công chuyến mới thấy họ — xem `_ai_la_tai_xe` ở routers/delivery.py.
+    {"user": "taixe1", "ten": "Nguyễn Văn Phú", "phong": "Giao hàng",
+     "vai": "Nhân viên giao hàng", "chuc_danh": "Tài xế giao hàng", "gioi": "male",
+     "vi_tri": 9_000_000, "trach_nhiem": 0, "phu_cap": 500_000, "noi_ho_so": None},
+    {"user": "taixe2", "ten": "Hồ Văn Quang", "phong": "Giao hàng",
+     "vai": "Nhân viên giao hàng", "chuc_danh": "Tài xế giao hàng", "gioi": "male",
+     "vi_tri": 9_000_000, "trach_nhiem": 0, "phu_cap": 500_000, "noi_ho_so": None},
+]
+
+
+def seed_van_phong_staff(db: Session) -> None:
+    """Tài khoản + hồ sơ + mức lương cho khối VĂN PHÒNG (SEED_DEMO).
+
+    Cùng lý do với `seed_tai_khoan_va_luong_sx` nhưng cho phía văn phòng: vai trò seed ra mà
+    không ai cầm thì ma trận phân quyền chỉ là lý thuyết — không đăng nhập thử được, và những
+    màn chỉ vai đó mở (Phiếu chi · Phiếu thu · Công nợ · Tài khoản ngân hàng · Giao hàng) trông
+    như chưa ai dùng. Ba việc dính nhau nên làm chung một vòng:
+
+    1. Tài khoản — mật khẩu `settings.default_user_password`, gán đúng phòng + vai.
+    2. Hồ sơ — NỐI vào hồ sơ có sẵn của `seed_employees` khi có (Trần Văn An · Lê Thị Bình ·
+       Nguyễn Thị Dung đang trống `user_id`), còn lại tạo mới. Phải chạy TRƯỚC
+       `backfill_employee_profiles`, không thì mỗi tài khoản ở đây bị đẻ thêm một hồ sơ TRỐNG.
+    3. Lương — `seed_payroll` chốt cửa `if repo.list_rules(): return` nên chỉ chạy đúng một lần,
+       người seed sau không ai có mức; khai thẳng `luong_vi_tri` (+ trách nhiệm) như khối SX.
+
+    Idempotent theo TỪNG NGƯỜI: có tài khoản / hồ sơ / dòng lương rồi thì bỏ qua, không ghi đè
+    thứ người dùng sửa tay."""
+    from datetime import date, timedelta
+
+    from .models.employee import STATUS_ACTIVE, Employee
+    from .models.payroll import AMOUNT_MANUAL
+    from .repositories.attendance_repo import AttendanceRepository
+    from .repositories.employee_repo import EmployeeRepository
+    from .repositories.payroll_repo import PayrollRepository
+    from .repositories.rbac_repo import RoleRepository
+
+    depts = DepartmentRepository(db)
+    users = UserRepository(db)
+    roles = RoleRepository(db)
+    emps = EmployeeRepository(db)
+    luong = PayrollRepository(db)
+    today = date.today()
+    # Ca mặc định của khối văn phòng: giờ hành chính (ca xưởng là việc của khối SX).
+    ca_hc = next(
+        (s.id for s in AttendanceRepository(db).list_shifts() if s.name == "Hành chính"), None
+    )
+
+    def _co_muc_nen(emp_id: int) -> bool:
+        """Đã có mức nền THẬT chưa — dòng `rule` đời `seed_payroll` để trống cả `luong_vi_tri`
+        lẫn `base_amount` nên ra 0đ, coi như CHƯA khai (xem `seed_tai_khoan_va_luong_sx`)."""
+        ds = luong.list_salaries(emp_id)
+        if not ds:
+            return False
+        moi_nhat = ds[0]
+        return (float(moi_nhat.luong_vi_tri or 0) + float(moi_nhat.luong_trach_nhiem or 0) > 0
+                or moi_nhat.base_amount is not None)
+
+    for stt, ng in enumerate(VAN_PHONG_STAFF, start=1):
+        dept = depts.get_by_name(ng["phong"])
+        if dept is None:
+            continue
+        role = roles.get_by_name_and_department(ng["vai"], dept.id)
+        role_id = role.id if role is not None else None
+        u = users.get_by_username(ng["user"])
+        if u is None:
+            u = users.create(
+                username=ng["user"], name=ng["ten"],
+                password_hash=hash_password(settings.default_user_password),
+            )
+        if u.department_id != dept.id or u.role_id != role_id or not u.is_active:
+            users.set_assignment(u, department_id=dept.id, role_id=role_id, is_active=True)
+
+        emp = emps.get_by_user_id(u.id)
+        if emp is None and ng["noi_ho_so"]:
+            emp = (db.query(Employee)
+                   .filter(Employee.full_name == ng["noi_ho_so"], Employee.user_id.is_(None))
+                   .order_by(Employee.id).first())
+            if emp is not None:
+                emps.update(emp, user_id=u.id)
+        if emp is None:
+            vao_lam = today - timedelta(days=300 + stt * 97)
+            emp = emps.create(
+                full_name=ng["ten"], department_id=dept.id, position=ng["chuc_danh"],
+                status=STATUS_ACTIVE, hire_date=vao_lam, user_id=u.id,
+                gender=ng["gioi"], date_of_birth=date(1985 + (stt * 5) % 15, (stt % 12) + 1,
+                                                     (stt * 3 % 27) + 1),
+                phone=f"09{34000000 + stt * 1237:08d}",
+                national_id=f"0790{80 + stt % 15:02d}{200000 + stt * 337:06d}",
+                default_shift_id=ca_hc,
+                note=_GHI_CHU_NHAN_SU_DEMO,
+            )
+        elif emp.default_shift_id is None and ca_hc is not None:
+            emps.update(emp, default_shift_id=ca_hc)
+
+        if not _co_muc_nen(emp.id):
+            nam = max(0, ((today - emp.hire_date).days // 365)) if emp.hire_date else 0
+            luong.create_salary(
+                employee_id=emp.id,
+                effective_from=max(emp.hire_date or date(2026, 1, 1), date(2026, 1, 1)),
+                amount_mode=AMOUNT_MANUAL,
+                union_member=True,
+                apply_self_deduction=True,
+                note=_GHI_CHU_LUONG_DEMO,
+                luong_vi_tri=ng["vi_tri"],
+                luong_trach_nhiem=ng["trach_nhiem"],
+                phu_cap_ca=0,   # khối văn phòng làm giờ hành chính, không hưởng phụ cấp ca
+                phu_cap_tham_nien=min(nam, 5) * 200_000,
+                chuyen_can=300_000,
+                allowance=ng.get("phu_cap", 300_000),   # phụ cấp KHÁC (cơm ca · xăng xe)
+            )
+    db.commit()
+
+
+# Ca nền khối Sản xuất: xưởng chạy HAI ca ngày (6h–14h · 14h–22h), khối điều hành ở phòng
+# "Sản xuất" (kế hoạch · QC · quản lý · kỹ thuật) làm giờ hành chính. "Ca 3" có sẵn trong danh
+# mục nhưng KHÔNG rải sẵn — chạy đêm là quyết định của điều độ, không phải mặc định.
+_CA_XUONG = ("Ca 1", "Ca 2")
+_CA_VAN_PHONG = "Hành chính"
+
+
+def seed_ca_nen_san_xuat(db: Session) -> None:
+    """Gán CA NỀN có MỐC HIỆU LỰC cho cả khối Sản xuất (SEED_DEMO).
+
+    `employees.default_shift_id` chỉ là CACHE tương thích màn cũ: `shift_id_on` chỉ rơi về nó khi
+    người đó chưa có mốc nào. Chấm công vì thế vẫn chạy, nhưng màn Chấm công → Khai ca → "Ca mặc
+    định" và ô Lịch sử ca đều rỗng, và mọi thao tác đổi ca sau này không có mốc gốc để so. Hàm này
+    đặt cho mỗi người ĐÚNG MỘT mốc, hiệu lực từ NGÀY VÀO LÀM — không lùi được xa hơn (service
+    chặn `effective_from < hire_date`) mà cũng không cần: trước ngày đó họ chưa đi làm.
+
+    Ca chọn theo thứ tự: ca đang khai ở hồ sơ (giữ nguyên, kể cả ai đó đã đặt Ca 3) → tổ trưởng
+    vào Ca 1 để giao ban với kế hoạch đầu ngày → còn lại bù vào ca đang MỎNG hơn cho tổ ra 5/5 →
+    người phòng "Sản xuất" vào Hành chính.
+
+    CHẠY CUỐI `seed_all`, sau `backfill_employee_profiles`: ba hồ sơ trống mỗi tổ (tổ trưởng + 2
+    thợ của `seed_san_xuat_accounts`) chỉ có mặt sau bước backfill đó, chạy sớm hơn là bỏ sót 24
+    người. Idempotent theo TỪNG NGƯỜI: ai đã có mốc thì không đụng — kể cả mốc do người dùng tự
+    khai trên màn Gán ca."""
+    from datetime import date
+
+    from sqlalchemy import select
+
+    from .models.attendance import WorkShift
+    from .models.employee import (
+        SHIFT_LOG_ACTION_SET,
+        SHIFT_LOG_KIND_BASE,
+        SHIFT_LOG_ORIGIN_BASE_BULK,
+        Employee,
+    )
+    from .repositories.employee_repo import EmployeeRepository
+
+    depts = DepartmentRepository(db)
+    repo = EmployeeRepository(db)
+
+    ca = {c.name: c.id for c in db.execute(select(WorkShift)).scalars()}
+    ca_xuong = [ca[n] for n in _CA_XUONG if n in ca]
+    if not ca_xuong:
+        return
+
+    def _ds(dept_id: int) -> list[Employee]:
+        return (db.query(Employee).filter(Employee.department_id == dept_id)
+                .order_by(Employee.id).all())
+
+    def _dat(emp: Employee, shift_id: int | None) -> None:
+        if shift_id is None or repo.list_shift_assignments(emp.id):
+            return
+        truoc = emp.default_shift_id
+        hieu_luc = emp.hire_date or date(2026, 1, 1)
+        repo.set_shift_assignment(employee=emp, shift_id=shift_id, effective_from=hieu_luc,
+                                  created_by=None, commit=False)
+        # Ghi nhật ký đúng luật "mọi đường đổi ca đều log" (xem cảnh báo ở `employee_repo`).
+        # `log_shift_change` tự bỏ qua khi TRƯỚC == SAU nên người đã khai sẵn ca ở hồ sơ không
+        # đẻ dòng rỗng; `notified_user_id=None` — seeder không giả vờ báo tin cho ai.
+        repo.log_shift_change(
+            employee_id=emp.id, kind=SHIFT_LOG_KIND_BASE, origin=SHIFT_LOG_ORIGIN_BASE_BULK,
+            action=SHIFT_LOG_ACTION_SET, apply_date=hieu_luc,
+            shift_id_before=truoc, shift_id_after=shift_id, actor_user_id=None,
+        )
+
+    for ten_to in _SLUG_TO_SX:
+        to = depts.get_by_name(ten_to)
+        if to is None:
+            continue
+        ds = _ds(to.id)
+        dem = {sid: 0 for sid in ca_xuong}
+        for e in ds:
+            if e.default_shift_id in dem:
+                dem[e.default_shift_id] += 1
+        for emp in ds:
+            sid = emp.default_shift_id
+            if sid is None:
+                nhan = f"{emp.position or ''} {emp.full_name or ''}"
+                sid = (ca_xuong[0] if "Tổ trưởng" in nhan
+                       else min(dem, key=lambda k: (dem[k], k)))
+                dem[sid] = dem.get(sid, 0) + 1
+            _dat(emp, sid)
+
+    sx = depts.get_by_name("Sản xuất")
+    if sx is not None:
+        for emp in _ds(sx.id):
+            _dat(emp, emp.default_shift_id or ca.get(_CA_VAN_PHONG))
     db.commit()
 
 
@@ -2322,6 +3062,18 @@ def seed_all(db: Session) -> None:
         seed_document_sequences(db)
         seed_san_xuat_org(db)  # nền tổ SX (§13.1): tag "Sản xuất" + cây tổ + gắn công đoạn/thợ
         seed_san_xuat_accounts(db)  # Lát 1: tài khoản tổ trưởng/thợ/kế hoạch/QC + head_user_id
+        # Bù hồ sơ nhân sự cho mỗi tổ SX đủ 10 người (chức danh · bậc · ca · CCCD/BHXH).
+        # SAU accounts: đếm cả 3 tài khoản/tổ ở trên rồi mới bù phần còn thiếu.
+        seed_nhan_su_to_san_xuat(db)
+        # Tài khoản đăng nhập (nối `employee.user_id` — chạy TRƯỚC `backfill_employee_profiles`
+        # để nó khỏi đẻ hồ sơ trống thứ hai) + mức lương cho cả khối SX.
+        seed_tai_khoan_va_luong_sx(db)
+        # Vai trò của TỪNG TỔ (chép từ phòng "Sản xuất") — không có thì màn Phòng ban mở tổ ra
+        # thấy tab Vai trò trống trơn và không gán lại vai cho thợ được. Xem `seed_vai_theo_to`.
+        seed_vai_theo_to(db)
+        # Khối VĂN PHÒNG: mỗi vai trò có một người thật cầm (tài khoản + hồ sơ + lương). Cũng
+        # phải chạy TRƯỚC `backfill_employee_profiles` vì lý do y hệt hàm trên.
+        seed_van_phong_staff(db)
         # Luồng THẬT đầu-cuối (tính giá → báo giá → đơn hàng bán → lệnh SX). CHẠY CUỐI: cần đủ
         # khách + sale + danh mục giấy/công đoạn + tổ SX + tài khoản kế hoạch ở trên.
         from .seed_luong_ban_sx import seed_luong_ban_sx
@@ -2347,3 +3099,6 @@ def seed_all(db: Session) -> None:
     # Chạy NGOÀI khối demo: luật "mọi tài khoản phải có hồ sơ" áp cho mọi DB (dev/live),
     # và phải chạy SAU các seed tài khoản demo ở trên để dọn luôn đám vừa tạo.
     backfill_employee_profiles(db)
+    if settings.seed_demo:
+        # Ca nền khối SX — CUỐI CÙNG: cần cả hồ sơ do backfill ở trên vừa đẻ ra.
+        seed_ca_nen_san_xuat(db)

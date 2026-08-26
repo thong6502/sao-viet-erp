@@ -884,6 +884,11 @@
   color: var(--steel);
 }
 
+.dhb__lifecycle-badge--cancelled {
+  background: var(--signal-soft);
+  color: var(--signal);
+}
+
 .dhb__lifecycle-desc {
   font-size: 12px;
   color: var(--ash);

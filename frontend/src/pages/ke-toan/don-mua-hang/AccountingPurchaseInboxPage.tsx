@@ -284,24 +284,27 @@ export function AccountingPurchaseInboxPage({
   }
 
   function actions(row: PurchaseRequestRow, compact = false) {
-    return (
-      <InboxRowActions
-        row={row}
-        compact={compact}
-        canApprove={canApprove}
-        canCreateVoucher={canCreateVoucher}
-        busy={busy}
-        closeDetailThen={closeDetailThen}
-        approve={approve}
-        setRejecting={setRejecting}
-        setRejectReason={setRejectReason}
-        setVoucherMode={setVoucherMode}
-      />
-    );
+    // Gọi THẲNG hàm component (không qua JSX `<InboxRowActions .../>`) để `null` mà
+    // InboxRowActions trả về (không còn thao tác nào khả dụng) truyền được ra ngoài —
+    // JSX luôn tạo ra một element object có giá trị "truthy", nên bọc qua JSX sẽ làm
+    // `actions(selected)` không bao giờ falsy dù bên trong render null. InboxRowActions
+    // không dùng Hook nào nên gọi trực tiếp là an toàn.
+    return InboxRowActions({
+      row,
+      compact,
+      canApprove,
+      canCreateVoucher,
+      busy,
+      closeDetailThen,
+      approve,
+      setRejecting,
+      setRejectReason,
+      setVoucherMode,
+    });
   }
 
   return (
-    <main className="md-page">
+    <main className="md-page acct-dmh">
       <header className="md-page__head">
         <p className="eyebrow">Kế toán thu mua</p>
         {/* Tên cũ "Yêu cầu mua hàng" SAI: màn này hiển thị PHIẾU MUA HÀNG (PMH), không phải YCMH. */}

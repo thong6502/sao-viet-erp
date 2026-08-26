@@ -959,6 +959,8 @@ export interface Xl2QRow {
   han: string | null;
   han_giao: string | null;
   so_cong_doan_chua_xep: number;
+  ten_khach_hang?: string | null;
+  nhan_khach_hang: string[];
   van_de: Xl2Issue[];
 }
 
@@ -1390,7 +1392,16 @@ export interface SxWorkItem {
   don_vi_vao: string | null;
   don_vi_ra: string | null;
   trang_thai: string;          // "released" | "running" | "paused" | "completed"
+  dinh_muc_vat_tu: SxVatTuDinhMuc[]; // định mức vật tư đóng băng lúc phát hành — KHÁC vật tư (phiếu xuất) ở drawer
   thuc_te: SxThucTeKhoang[];   // lớp thực-tế đè lên thanh kế hoạch (§5.1); phiên mở → ket_thuc=null
+}
+/** Một dòng định mức vật tư của bước (đóng băng lúc phát hành). */
+export interface SxVatTuDinhMuc {
+  vat_tu_id: number | null;
+  ma: string | null;
+  ten: string | null;
+  don_vi: string | null;
+  so_luong: number | null;
 }
 /** Một phiên chạy thực tế để vẽ overlay; `ket_thuc=null` = đang chạy (kéo tới "bây giờ"). */
 export interface SxThucTeKhoang {
@@ -2282,6 +2293,8 @@ export interface LsxDetail {
   nhom: string | null;
   trang_thai: LsxTrangThai;
   order_id: number; order_line_id: number; order_no: string | null;
+  /** Trạng thái ĐƠN gắn với lệnh — dùng để ẩn tab Công đoạn khi đơn đã hủy. */
+  order_status: string | null;
   customer_name: string | null; customer_po_no: string | null; sale_name: string | null;
   quote_version_id: number | null; quote_number: string | null; quote_version_number: number | null;
   phieu_thanh_phan_id: number | null; ptg_id: number | null; ptg_ma: string | null;
@@ -3334,10 +3347,11 @@ export interface PhieuTinhGiaOut {
   thanh_phans: ThanhPhanOut[];
   created_at: string | null;
   updated_at: string | null;
-  /** Danh mục (công đoạn · giấy · máy · vật tư) mà phiếu đang dùng đã có bản sửa SAU lần tính
+  /** Danh mục (công đoạn · giấy · máy · vật tư · bù hao) mà phiếu đang dùng đã lệch SAU lần tính
    *  gần nhất. null = phiếu còn khớp danh mục. Chỉ để NHẮC — số trong phiếu vẫn là ảnh chụp cũ
-   *  cho tới khi người lập bấm "Tính giá". */
-  danh_muc_doi: { luc: string; ten: string[] } | null;
+   *  cho tới khi người lập bấm "Tính giá". Ba rổ tách riêng: `ten` đổi cấu hình · `ngung` bị
+   *  ngừng dùng (không chọn lại được) · `xoa` đã xoá hẳn khỏi danh mục (phải thay bước). */
+  danh_muc_doi: { luc: string; ten: string[]; ngung?: string[]; xoa?: string[] } | null;
 }
 
 /** 1 dòng nhật ký hoạt động của phiếu tính giá — ai làm gì · khi nào. */
@@ -5453,6 +5467,23 @@ export interface SupplierRow {
   created_at: string;
   updated_at: string;
   items: SupplierItemRow[];
+
+  /** SAO ĐÁNH GIÁ — máy tự tính từ phiếu mua hàng, KHÔNG ai chấm tay.
+   *
+   *  Mốc hẹn là `needed_date` (Ngày cần hàng) của phiếu; giao đủ đúng/sớm hẹn = 5 sao, trễ 1–3
+   *  ngày = 4, 4–7 = 3, 8–14 = 2, trên 14 = 1. Đơn chưa giao đủ mà đã quá hẹn thì tính trễ tới
+   *  hôm nay. Trung bình toàn bộ lịch sử.
+   *
+   *  ⚠️ `null` = **Chưa đánh giá** (chưa có đơn nào đủ điều kiện), KHÔNG phải 0 sao. Giao diện
+   *  phải hiện chữ "Chưa đánh giá" chứ đừng vẽ 5 ngôi sao rỗng — thang sao thấp nhất là 1, nên
+   *  0 không bao giờ là một giá trị hợp lệ. Vẽ 0 là vu oan cho NCC mới. */
+  rating: number | null;
+  /** Số đơn ĐƯỢC TÍNH vào trung bình — không phải tổng số đơn của NCC. */
+  rating_count: number;
+  on_time_count: number;
+  late_count: number;
+  /** Trễ trung bình tính TRÊN CÁC ĐƠN TRỄ. `null` = chưa trễ đơn nào. */
+  avg_late_days: number | null;
 }
 
 export interface SupplierItemCatalogRow {
@@ -5607,6 +5638,9 @@ export interface PayableItemRow {
   due_date: string | null;
   chua_dat_han: boolean;
   overdue_days: number;
+  /** Khoá rổ tuổi (vd "d31_60") — CHỈ có khi overdue_days > 0. Server chụp sẵn bằng cùng hàm
+   *  dùng cho dải phân tuổi tổng, để một đợt không hiện hai mức khẩn khác nhau ở hai màn. */
+  aging_bucket: string | null;
   invoice_number: string | null;
   invoice_date: string | null;
   amount: number;
@@ -7653,7 +7687,7 @@ export interface NoiQuyRecord {
 }
 
 /** Tải một file nhị phân về dạng blob URL, tự làm mới token khi 401. */
-async function blobUrl(path: string, token: string): Promise<string> {
+export async function blobUrl(path: string, token: string): Promise<string> {
   const doFetch = (bearer: string) =>
     fetch(`${BASE_URL}${path}`, {
       credentials: "include",
@@ -10281,12 +10315,23 @@ export const api = {
   suppliers: {
     list(
       token: string,
-      params: { q?: string; status?: string | null; supplier_group?: string | null; sort?: string; page?: number; size?: number } = {},
+      params: {
+        q?: string;
+        status?: string | null;
+        supplier_group?: string | null;
+        /** Chỉ lấy NCC có sao trung bình ≥ mức này. NCC "Chưa đánh giá" rơi ra khỏi kết quả. */
+        rating_min?: number | null;
+        /** `rating` / `-rating` xếp theo sao — NCC chưa đánh giá luôn nằm CUỐI ở cả hai chiều. */
+        sort?: string;
+        page?: number;
+        size?: number;
+      } = {},
     ): Promise<SupplierListOut> {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
       if (params.status) qs.set("status", params.status);
       if (params.supplier_group) qs.set("supplier_group", params.supplier_group);
+      if (params.rating_min != null) qs.set("rating_min", String(params.rating_min));
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));

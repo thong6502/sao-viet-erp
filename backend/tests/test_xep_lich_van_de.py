@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from app.db import SessionLocal
+from app.models.department import Department
 from app.models.lsx import (
     LB_MAY, LB_THUE_NGOAI, LB_TO, Lsx, LsxCongDoan, TT_DA_LAP_KE_HOACH, TT_DA_PHAT_HANH,
 )
@@ -222,6 +223,13 @@ def test_phat_hanh_gate_ngoai_le_revert(db, orders, lsx_svc, xl_svc, vd_svc, adm
     for lsx in (a, b):
         s = _in_step(db, lsx.id)
         s.setup_phut, s.nang_suat, s.so_luong_vao, s.chay_phut = 0, 5000, 5000, None
+    # Gate KCS-cuối (§4.4) nay đã gác thật ở phát hành: thêm bước KCS cuối routing cho `a` —
+    # đây là ứng viên DUY NHẤT bị phát hành trong test này (`b` không đụng tới).
+    kcs_dept = Department(name="KCS Xưởng", code="KCS-XL-VD", is_kcs=True)
+    db.add(kcs_dept)
+    db.flush()
+    db.add(LsxCongDoan(lsx_id=a.id, thu_tu=999, ten="KCS cuối", nhom="finishing",
+                       department_id=kcs_dept.id))
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=a.id, actor=admin)
     xl_svc.dua_vao_lsx(lsx_id=b.id, actor=admin)

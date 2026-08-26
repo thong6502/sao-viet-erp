@@ -209,8 +209,10 @@ class QuotationService:
         elif manual_unit_price is not None and manual_unit_price > 0:
             selling_price = float(manual_unit_price) * quantity
         else:
-            m_pct = min(99.99, max(0.0, float(margin_percent)))
-            selling_price = total_cost / (1.0 - m_pct / 100.0)
+            # Markup TRÊN GIÁ VỐN (không phải biên lợi nhuận trên giá bán): gốc 100, markup 20%
+            # → bán 120 (chủ chốt 26/08/2026 — khớp cách sale vẫn hiểu "markup").
+            m_pct = max(0.0, float(margin_percent))
+            selling_price = total_cost * (1.0 + m_pct / 100.0)
 
         # 2. Rounding
         if rounding == "round_up_1000":

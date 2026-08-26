@@ -81,6 +81,45 @@ def test_vat_tu_flat_crud():
         svc.create("vat_tu", dict(ma="MUC-CMYK", ten="khác"))
 
 
+def test_clone_giay_va_vat_tu_hau_to_COPY_khong_lan_sang_loai_khac():
+    """`kind` phải đi kèm khi dò trùng mã: bản sao của Giấy mang mã `C300-COPY` KHÔNG được lẫn với
+    một Vật tư lỡ trùng tiền tố — đây là lý do `clone()` truyền closure gắn sẵn `kind`, không dùng
+    thẳng `repo.find_by_ma` như `CatalogService`."""
+    db, svc = _svc()
+    cl = svc.create("chung_loai_giay", dict(ma="COUCHE", ten="Couché"))
+    g = svc.create("giay", dict(ma="C300", ten="Couché 300", chung_loai_giay_id=cl.id,
+                                kho_dai=860, kho_rong=650, gsm=300, don_vi_gia="kg", don_gia=30000))
+    ban_sao = svc.clone("giay", g.id)
+    assert ban_sao.id != g.id
+    assert ban_sao.ma == "C300-COPY"
+    assert ban_sao.ten == "Couché 300 (bản sao)"
+    assert ban_sao.chung_loai_giay_id == cl.id and ban_sao.gsm == 300
+
+    v = svc.create("vat_tu", dict(ma="MUC-CMYK", ten="Mực process CMYK", don_vi_gia="kg", don_gia=8000))
+    ban_sao_v = svc.clone("vat_tu", v.id)
+    assert ban_sao_v.ma == "MUC-CMYK-COPY" and ban_sao_v.ten == "Mực process CMYK (bản sao)"
+
+
+def test_thay_the_ids_luu_va_sua_duoc_giay_va_vat_tu():
+    """`thay_the_ids` (mg 0239) từng bị nuốt im lặng nếu quên khai ở repo `fields` — bẫy
+    `pydantic-nuot-field-im-lang` đã dính 4 lần trong dự án này, test roundtrip trực tiếp."""
+    db, svc = _svc()
+    cl = svc.create("chung_loai_giay", dict(ma="COUCHE", ten="Couché"))
+    g1 = svc.create("giay", dict(ma="C300", ten="Couché 300", chung_loai_giay_id=cl.id,
+                                 kho_dai=860, kho_rong=650, gsm=300))
+    g2 = svc.create("giay", dict(ma="C250", ten="Couché 250", chung_loai_giay_id=cl.id,
+                                 kho_dai=860, kho_rong=650, gsm=250, thay_the_ids=[g1.id]))
+    assert g2.thay_the_ids == [g1.id]
+    g2b = svc.update("giay", g2.id, dict(ma="C250", ten="Couché 250",
+                                         chung_loai_giay_id=cl.id, gsm=250, thay_the_ids=[]))
+    assert g2b.thay_the_ids == []
+
+    v1 = svc.create("vat_tu", dict(ma="MUC-CMYK", ten="Mực process CMYK", don_vi_gia="kg"))
+    v2 = svc.create("vat_tu", dict(ma="MUC-PANTONE", ten="Mực Pantone", don_vi_gia="kg",
+                                   thay_the_ids=[v1.id]))
+    assert v2.thay_the_ids == [v1.id]
+
+
 # --- đơn vị lấy từ danh mục Đơn vị & quy đổi ----------------------------------
 
 

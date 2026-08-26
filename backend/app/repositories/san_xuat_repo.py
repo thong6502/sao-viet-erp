@@ -275,8 +275,13 @@ class SanXuatRepository:
         return self.db.get(SanXuatCongViec, cong_viec_id)
 
     def cong_viec_hien_tai_cua_nhom(self, nhom_id: int) -> list[SanXuatCongViec]:
-        """Công việc của nhóm ở PHIÊN BẢN đang hiệu lực — bỏ dòng phiên bản cũ bị "Phát hành cập
-        nhật" thay thế (§4.3) và bỏ gói đã thu hồi. Đây là tập việc mà cổng đóng nhóm §16 soi."""
+        """Công việc SỐNG của nhóm — bỏ gói đã thu hồi. Đây là tập việc mà cổng đóng nhóm §16 soi.
+
+        KHÔNG lọc thêm `phien_ban_so == version_hien_tai`: "Phát hành cập nhật" (§4.3) SỬA TRỰC
+        TIẾP dòng `SanXuatCongViec` đã có (không đẻ dòng mới), chỉ bump `phien_ban_so` cho việc
+        CHƯA bắt đầu; việc đã bắt đầu giữ nguyên dòng với `phien_ban_so` cũ. Lọc bằng nhau ở đây
+        từng khiến việc đã chạy trước lần cập nhật bị rớt khỏi xét đóng nhóm — cùng một dòng, cùng
+        đang sống, không phải bản "cũ bị thay thế"."""
         return list(
             self.db.execute(
                 select(SanXuatCongViec)
@@ -284,7 +289,6 @@ class SanXuatRepository:
                 .where(
                     SanXuatCongViec.nhom_id == nhom_id,
                     SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
-                    SanXuatCongViec.phien_ban_so == SanXuatGoiPhatHanh.version_hien_tai,
                 )
                 .order_by(SanXuatCongViec.id)
             ).scalars()

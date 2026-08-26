@@ -198,13 +198,19 @@ class PhieuTinhGiaUpdate(BaseModel):
 
 
 class DanhMucDoi(BaseModel):
-    """Danh mục đã sửa SAU lần tính gần nhất của phiếu — nuôi câu nhắc "bấm Tính giá để cập nhật".
+    """Danh mục đã lệch SAU lần tính gần nhất của phiếu — nuôi câu nhắc "bấm Tính giá để cập nhật".
 
     Chỉ là LỜI NHẮC: số tiền và tên trong phiếu vẫn giữ nguyên ảnh chụp cũ cho tới khi người lập
     phiếu chủ động bấm tính lại. Xem `services.tinh_gia_service.danh_muc_doi_sau_khi_tinh`.
+
+    Ba rổ TÁCH RIÊNG vì việc phải làm khác nhau: `ten` sửa cấu hình (tính lại là xong) · `ngung`
+    bị ngừng dùng (tính lại vẫn ra số nhưng lần sau không chọn lại được) · `xoa` đã xoá hẳn khỏi
+    danh mục (dòng phiếu trỏ vào hư không, phải thay bước).
     """
-    luc: datetime          # mốc tính gần nhất của phiếu
-    ten: list[str]         # tên những mục danh mục đã đổi (công đoạn · giấy · máy · vật tư)
+    luc: datetime                                  # mốc tính gần nhất của phiếu
+    ten: list[str]                                 # mục ĐỔI cấu hình/tên (công đoạn · giấy · máy · vật tư · bù hao)
+    ngung: list[str] = Field(default_factory=list)  # mục bị NGỪNG DÙNG (active = false)
+    xoa: list[str] = Field(default_factory=list)    # mục đã XOÁ HẲN khỏi danh mục
 
 
 class PhieuTinhGiaOut(BaseModel):

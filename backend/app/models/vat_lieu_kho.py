@@ -90,6 +90,9 @@ class GiayNguyen(Base):
     # 13/08/2026 là vô lý; khai ở đây xong thì xoá nó bằng tay trên UI được.
     cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # NVL THAY THẾ (mg 0239) — mảng id GIẤY khác dùng thay được món này. MỘT CHIỀU: khai A→B
+    # không tự suy B→A, cần cả hai chiều thì người khai tự thêm cả hai. NULL = chưa khai.
+    thay_the_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
     # Ảnh minh hoạ vật tư (1 ảnh). Lưu đường `/api/files/materials/…` (đọc qua router có đăng nhập);
     # trang QR công khai serve lại chính key này qua `/api/public/vat-lieu-anh` bằng token QR. NULL = chưa có ảnh.
     anh_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -158,6 +161,9 @@ class VatTuInAn(Base):
     # rồi kho và mua hàng lãnh đủ mấy cái tên đó trong khi họ vẫn cân bằng kg thật.
     cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # NVL THAY THẾ (mg 0239) — mảng id VẬT TƯ KHÁC khác dùng thay được món này. MỘT CHIỀU, xem
+    # ghi chú đầy đủ ở `GiayNguyen.thay_the_ids`. NULL = chưa khai.
+    thay_the_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
 
     # THÀNH PHẨM của một đơn hàng (mg 0203 · docs/prd-thanh-pham.md).
     #

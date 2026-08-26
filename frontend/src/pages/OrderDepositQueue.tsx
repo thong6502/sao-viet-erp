@@ -2,6 +2,12 @@
 // Kế toán (quyền `don_hang_ban:record_deposit`) thấy hàng chờ ghi cọc + LẬP phiếu thu cọc NGAY tại đây.
 // Real-time: chốt đơn → SSE `order_deposit_needed` → popup + hàng chờ nhảy; đủ cọc → đơn rời hàng chờ.
 // Component tự chứa, MOUNT có điều kiện quyền ở PaymentReceiptsPage → "chỉ ai có quyền mới nghe/thấy".
+// 26/08/2026 — vỏ hộp Lập phiếu thu cọc chuyển từ `acct-modal` nền trắng giữa màn sang KHUÔN
+// DRAWER của Thu mua (`rc-drawer` + `purchase__hero-banner` + `purchase__drawer-footer`), chủ
+// chốt: "sao mỗi nơi một màu". Đây là FORM NHẬP SỐ TIỀN CỌC nên đóng AN TOÀN: scrim KHÔNG bắt
+// click, KHÔNG Esc-to-close — chỉ ✕ và nút Hủy. Không bọc `<form>` vì `submit()` là handler của
+// nút (không nhận FormEvent) — bọc lại là phải sửa chữ ký, mà mọi phép tính/validate tiền cọc
+// phải giữ NGUYÊN. Chỉ đổi vỏ.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, connectQuoteEvents, type OrderRow } from "../api/client";
 import { useAuth } from "../auth/useAuth";
@@ -152,20 +158,35 @@ function OrderDepositDialog({
   }
 
   return (
-    <div className="acct-modal" role="dialog" aria-modal="true" aria-labelledby="odq-dialog-title">
-      <div className="acct-modal__box" style={{ maxWidth: 460 }}>
-        <header className="acct-modal__head">
-          <div>
-            <p className="eyebrow">Lập phiếu thu cọc</p>
-            <h2 id="odq-dialog-title">
-              {order.order_no} · {order.customer_name ?? "—"}
-            </h2>
+    <div className="rc-drawer__scrim" role="presentation">
+      <aside
+        className="rc-drawer purchase__drawer-780"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="odq-dialog-title"
+      >
+        <div className="purchase__hero-banner">
+          <div className="purchase__hero-top">
+            <div>
+              <span className="purchase__hero-kicker">Lập phiếu thu cọc</span>
+              <div className="purchase__hero-title-row">
+                <h2 className="purchase__hero-code" id="odq-dialog-title">
+                  {order.order_no}
+                </h2>
+              </div>
+            </div>
+            <button type="button" className="purchase__hero-x" onClick={onClose} aria-label="Đóng">
+              ✕
+            </button>
           </div>
-          <button type="button" className="acct-modal__x" onClick={onClose} aria-label="Đóng">
-            ×
-          </button>
-        </header>
-        <div className="acct-modal__body">
+          <div className="purchase__hero-meta">
+            <span>{order.customer_name ?? "—"}</span>
+            <span className="purchase__hero-dot">•</span>
+            <span>Còn thiếu {money(remaining)}</span>
+          </div>
+        </div>
+        <div className="rc-drawer__body">
           {err && (
             <div className="banner banner--error" role="alert">
               {err}
@@ -222,15 +243,15 @@ function OrderDepositDialog({
             Bấm = lập Phiếu thu THẬT (01-TT) gắn đơn này (Nợ 111/112 · Có 131). Ngày mặc định hôm nay: {fmtDate(new Date().toISOString())}.
           </p>
         </div>
-        <footer className="acct-modal__foot">
+        <div className="purchase__drawer-footer">
           <button type="button" className="btn btn--ghost" onClick={onClose} disabled={saving}>
             Hủy
           </button>
           <button type="button" className="btn btn--primary" onClick={submit} disabled={saving}>
             {saving ? "Đang lập…" : "Lập phiếu thu cọc"}
           </button>
-        </footer>
-      </div>
+        </div>
+      </aside>
     </div>
   );
 }

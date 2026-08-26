@@ -53,12 +53,19 @@ export function HoaDon({ so, ngay }: { so: string | null; ngay?: string | null }
   );
 }
 
+/** Rổ tuổi 31–60 ngày trở lên mới lên mức "danger" — dưới đó (1–7 / 8–15 / 16–30) chỉ "warn".
+ *  Mốc lấy đúng biên `d31_60`/`d60_plus` của `AGING_BUCKETS` (accounting_service.py) — mới trễ
+ *  vài ngày mà tô đỏ y hệt trễ hai tháng thì kế toán hết cách biết cái nào phải xử trước. */
+const AGING_DANGER: ReadonlySet<string> = new Set(["d31_60", "d60_plus"]);
+
 /** Hạn trả của MỘT đợt giao + mức khẩn. Đợt chưa có hạn không bao giờ vào cột Quá hạn nên phải
- *  đeo badge — nó đã được server đẩy lên đầu danh sách, đây là nửa còn lại của việc chống giấu nợ. */
+ *  đeo badge — nó đã được server đẩy lên đầu danh sách, đây là nửa còn lại của việc chống giấu nợ.
+ *  Số ngày trễ GIỮ NGUYÊN chính xác (không quy tròn về khoảng) — chỉ đổi MÀU theo rổ tuổi. */
 export function HanTra({ row }: { row: PayableItemRow }) {
   if (row.chua_dat_han) {
     return (
       <span className="pay-badge pay-badge--warn">
+        <i className="pay-badge__dot" />
         {row.delivery_id == null ? "Đơn không theo đợt" : "Chưa đặt hạn"}
       </span>
     );
@@ -67,7 +74,12 @@ export function HanTra({ row }: { row: PayableItemRow }) {
     <>
       {fmtDate(row.due_date)}
       {row.overdue_days > 0 && (
-        <span className="pay-badge pay-badge--danger">
+        <span
+          className={`pay-badge pay-badge--${
+            row.aging_bucket && AGING_DANGER.has(row.aging_bucket) ? "danger" : "warn"
+          }`}
+        >
+          <i className="pay-badge__dot" />
           Quá hạn {row.overdue_days} ngày
         </span>
       )}

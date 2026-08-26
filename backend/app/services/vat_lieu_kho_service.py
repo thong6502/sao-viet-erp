@@ -20,7 +20,7 @@ from ..repositories.purchase_repo import SupplierRepository
 from ..repositories.vat_lieu_kho_repo import VERSION_SNAPSHOT, VatLieuKhoRepository
 from . import nhat_ky_danh_muc as nk
 from .catalog_base import (
-    CatalogDuplicate, CatalogError, CatalogNotFound, CatalogValidationError,
+    CatalogDuplicate, CatalogError, CatalogNotFound, CatalogValidationError, ma_ban_sao,
 )
 from .quy_doi_service import don_vi_dung_duoc, don_vi_map
 
@@ -176,6 +176,15 @@ class VatLieuKhoService:
         nk.ghi_xoa(self.audit, actor_id=actor_id, loai=kind, obj=obj)
         self.repo.delete(obj)
         self.repo.chot_giao_dich()
+
+    def clone(self, kind: str, item_id: int, actor_id: int | None = None):
+        """Nhân bản một dòng: copy mọi cột nghiệp vụ, đổi mã + tên để không trùng bản gốc."""
+        goc = self.get(kind, item_id)
+        data = nk.anh_chup(goc)
+        ma_goc = data.get("ma") or ""
+        data["ten"] = f"{data.get('ten', '')} (bản sao)"
+        data["ma"] = ma_ban_sao(lambda ma: self.repo.find_by_ma(kind, ma), ma_goc)
+        return self.create(kind, data, actor_id)
 
     def set_anh(self, kind: str, item_id: int, url: str | None):
         """Gắn/gỡ ẢNH minh hoạ cho mặt hàng GỐC (chỉ giấy / vật tư khác — chủng loại không có ảnh).
@@ -397,6 +406,12 @@ class MotDanhMucVatLieu:
         self.goc = goc
         self.kind = kind
 
+    @property
+    def audit(self):
+        """Nền router (`catalog_base.make_catalog_router`) đọc `svc.audit.db` để tra lịch sử công
+        thức — cùng khuôn với `CatalogService`, dù lớp này không phải subclass của nó."""
+        return self.goc.audit
+
     def list(self, **kw):
         return self.goc.list(self.kind, **kw)
 
@@ -446,6 +461,10 @@ class MotDanhMucVatLieu:
     def delete(self, item_id: int, actor_id: int | None = None) -> None:
         self._dung_man(item_id)
         self.goc.delete(self.kind, item_id, actor_id=actor_id)
+
+    def clone(self, item_id: int, actor_id: int | None = None):
+        self._dung_man(item_id)
+        return self.goc.clone(self.kind, item_id, actor_id=actor_id)
 
     def gan_ten_don_vi(self, items) -> None:
         self.goc.gan_ten_don_vi(items)

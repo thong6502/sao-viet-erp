@@ -765,7 +765,7 @@ export function PurchaseRequestsPage({
   ) : null;
 
   return (
-    <main className="md-page">
+    <main className="md-page acct-mh">
       {/* Đầu màn gọn 1 HÀNG như màn "Yêu cầu mua hàng": tiêu đề trái, 2 tab con phải.
           Bỏ eyebrow + đoạn mô tả để không chiếm chiều cao. Số trên tab yêu cầu là số ĐANG
           CHỜ MUA (`open`), KHÁC số dòng bảng bên trong (bảng lọc "Tất cả") — xem `choMua`. */}

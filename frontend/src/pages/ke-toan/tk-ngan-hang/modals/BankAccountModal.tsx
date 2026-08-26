@@ -1,4 +1,7 @@
 // Hộp thêm/sửa TÀI KHOẢN NGÂN HÀNG (tách từ pages/AccountingBankAccountsPage.tsx).
+// Vỏ dùng KHUÔN DRAWER của Thu mua (`rc-drawer` + `purchase__hero-banner`) thay `acct-modal`
+// nền trắng giữa màn — chủ chốt 26/08/2026: "sao mỗi nơi một màu". Đây là FORM NHẬP LIỆU nên
+// đóng AN TOÀN: scrim KHÔNG bắt click, KHÔNG Esc-to-close (tránh mất dữ liệu đang gõ).
 import type { Dispatch, FormEvent, SetStateAction } from "react";
 import type { SupplierRow } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
@@ -28,19 +31,39 @@ export function BankAccountModal({
   save: (event: FormEvent) => Promise<void>;
 }) {
   return (
-    <div className="acct-modal" role="dialog" aria-modal="true">
-      <form className="acct-modal__box" onSubmit={save}>
-        <header className="acct-modal__head">
-          <h2>{editing ? "Sửa tài khoản" : "Thêm tài khoản"}</h2>
-          <button
-            type="button"
-            className="acct-modal__x"
-            onClick={closeModal}
-          >
-            ×
-          </button>
-        </header>
-        <div className="acct-modal__body">
+    <div className="rc-drawer__scrim" role="presentation">
+      <aside
+        className="rc-drawer purchase__drawer-780"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={editing ? "Sửa tài khoản" : "Thêm tài khoản"}
+      >
+        <div className="purchase__hero-banner">
+          <div className="purchase__hero-top">
+            <div>
+              <span className="purchase__hero-kicker">Tài khoản ngân hàng</span>
+              <div className="purchase__hero-title-row">
+                <h2 className="purchase__hero-code">
+                  {editing ? "Sửa tài khoản" : "Thêm tài khoản"}
+                </h2>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="purchase__hero-x"
+              onClick={closeModal}
+              aria-label="Đóng"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="purchase__hero-meta">
+            <span>{tab === "supplier" ? "Của nhà cung cấp" : "Của công ty"}</span>
+          </div>
+        </div>
+        <form className="purchase__drawer-form" onSubmit={save}>
+        <div className="rc-drawer__body">
           {tab === "supplier" && (
             <label className="acct-field">
               <span>
@@ -200,15 +223,16 @@ export function BankAccountModal({
             />
           </label>
         </div>
-        <footer className="acct-modal__foot">
+        <div className="purchase__drawer-footer">
           <Button type="button" variant="ghost" onClick={closeModal}>
             Hủy
           </Button>
           <Button type="submit" variant="accent" loading={busy}>
             Lưu tài khoản
           </Button>
-        </footer>
-      </form>
+        </div>
+        </form>
+      </aside>
     </div>
   );
 }

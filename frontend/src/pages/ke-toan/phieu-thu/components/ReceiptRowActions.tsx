@@ -33,16 +33,26 @@ export function ReceiptRowActions({
   setCancelling: Dispatch<SetStateAction<PaymentReceiptRow | null>>;
   setCancelReason: Dispatch<SetStateAction<string>>;
 }) {
+  const showExport = canExport;
+  const showEdit =
+    canApprove &&
+    row.status === "waiting_receipt" &&
+    row.source_type === "purchase_refund";
+  const showMarkReceived = canMarkReceived && row.status === "waiting_receipt";
+  const showCancel =
+    canCancel &&
+    (row.status === "waiting_receipt" ||
+      ((row.source_type === "other" || row.source_type === "sales_invoice") &&
+        row.status === "received"));
+  if (!showExport && !showEdit && !showMarkReceived && !showCancel) return null;
   return (
     <div className="acct-actions">
-      {canExport && (
+      {showExport && (
         <Button variant="ghost" onClick={() => startPrint(row)}>
           In phiếu
         </Button>
       )}
-      {canApprove &&
-        row.status === "waiting_receipt" &&
-        row.source_type === "purchase_refund" && (
+      {showEdit && (
         <Button
           variant="ghost"
           onClick={() => closeDetailThen(() => openEdit(row))}
@@ -51,7 +61,7 @@ export function ReceiptRowActions({
           Sửa
         </Button>
       )}
-      {canMarkReceived && row.status === "waiting_receipt" && (
+      {showMarkReceived && (
         <Button
           variant="accent"
           onClick={() =>
@@ -64,9 +74,7 @@ export function ReceiptRowActions({
           Xác nhận đã thu
         </Button>
       )}
-      {canCancel &&
-        (row.status === "waiting_receipt" ||
-          ((row.source_type === "other" || row.source_type === "sales_invoice") && row.status === "received")) && (
+      {showCancel && (
         <Button
           variant="danger"
           onClick={() =>

@@ -344,6 +344,27 @@ class SalesInvoiceListOut(BaseModel):
 # Không có bảng công nợ: các số dưới đây SUY RA từ phiếu mua + phiếu chi lúc gọi API.
 
 
+class AgingCellOut(BaseModel):
+    """Một ô rổ tuổi: tiền + SỐ ĐỢT. Thiếu số đợt thì 20 triệu không phân biệt được là một đợt to
+    hay mười đợt vụn — hai ca đó gọi điện đòi nợ khác hẳn nhau."""
+
+    amount: int = 0
+    count: int = 0
+
+
+class AgingBucketOut(AgingCellOut):
+    """Một RỔ TUỔI kèm NHÃN và biên ngày.
+
+    Nhãn/biên do SERVER phát (`accounting_service.AGING_BUCKETS`) — giao diện in thẳng chứ không
+    gõ lại "1–7". Hai nơi gõ tay là hai nơi lệch nhau ngay lần đầu đổi mốc."""
+
+    key: str
+    label: str
+    # None = không có cận (dưới cho rổ "chưa tới hạn", trên cho rổ "> 60 ngày").
+    min_days: int | None = None
+    max_days: int | None = None
+
+
 class PayableSupplierOut(BaseModel):
     supplier_id: int | None = None
     supplier_name: str
@@ -351,6 +372,9 @@ class PayableSupplierOut(BaseModel):
     # Nợ đã QUÁ HẠN trả (theo hạn của từng đợt giao) và phần chưa tới hạn. Cộng lại = `total_due`.
     overdue_amount: int
     no_han_amount: int = 0
+    # Rổ tuổi của RIÊNG NCC này (khoá → tiền + số đợt). Tổng 5 rổ trễ = `overdue_amount`, rổ
+    # "chưa tới hạn" = `no_han_amount` — cùng một phép đếm, chỉ xé nhỏ ra.
+    aging: dict[str, AgingCellOut] = Field(default_factory=dict)
     credit_limit: int = 0
     credit_days: int | None = None
     # Cảnh báo MỀM: chỉ gắn cờ, không chặn lập/duyệt phiếu ở đâu cả (Đ6).
@@ -370,6 +394,9 @@ class PayablesSummaryOut(BaseModel):
     pages: int
     total_due: int
     overdue_amount: int
+    # PHÂN TUỔI toàn màn — tính trên TOÀN BỘ NCC đang nợ, không đổi theo trang hay bộ lọc.
+    # `overdue_amount` ở trên GIỮ NGUYÊN nghĩa cũ và luôn = tổng 5 rổ trễ trong này.
+    aging: list[AgingBucketOut] = Field(default_factory=list)
     paid_in_period: int = 0
     vuot_han_muc_count: int = 0
     period_months: int = 3
@@ -392,6 +419,10 @@ class PayableItemOut(BaseModel):
     due_date: date | None = None
     chua_dat_han: bool = False
     overdue_days: int = 0
+    # Khoá rổ tuổi (`AGING_KEYS` ở accounting_service.py) — CHỈ có giá trị khi `overdue_days > 0`.
+    # Chụp bằng đúng `ro_tuoi()` server dùng cho dải phân tuổi tổng, để một đợt KHÔNG BAO GIỜ hiện
+    # hai mức khẩn khác nhau ở hai màn — đây là đúng bài học "hai chỗ nói hai kiểu tiền" đã trả giá.
+    aging_bucket: str | None = None
     invoice_number: str | None = None
     invoice_date: date | None = None
     amount: int
@@ -462,6 +493,8 @@ class PayablesDetailOut(BaseModel):
     all_history: bool = False
     total_due: int
     overdue_amount: int
+    # Rổ tuổi của RIÊNG NCC này, đếm trên `items` ở trên — pill và bảng dưới nó luôn cùng một số.
+    aging: list[AgingBucketOut] = Field(default_factory=list)
     paid_in_period: int
     as_of: date
 

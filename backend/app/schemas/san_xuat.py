@@ -29,6 +29,16 @@ class ThucTeKhoangOut(BaseModel):
     ket_thuc: datetime | None = None
 
 
+class VatTuDinhMucOut(BaseModel):
+    """Một dòng định mức vật tư của bước — đóng băng lúc phát hành (`vat_tu_json`), KHÁC "vật tư"
+    ở drawer (đó là phiếu XUẤT đã cấp cho cả LSX, không phải định mức theo bước)."""
+    vat_tu_id: int | None = None
+    ma: str | None = None
+    ten: str | None = None
+    don_vi: str | None = None
+    so_luong: float | None = None
+
+
 class WorkItemOut(BaseModel):
     id: int
     goi_id: int
@@ -52,6 +62,8 @@ class WorkItemOut(BaseModel):
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
     trang_thai: str
+    # Định mức vật tư đóng băng lúc phát hành (view "Danh sách") — đọc thẳng `vat_tu_json`.
+    dinh_muc_vat_tu: list[VatTuDinhMucOut] = []
     # Lớp thực-tế đè lên thanh kế hoạch (§5.1): các phiên chạy đã ghi, phiên mở để ket_thuc=None.
     thuc_te: list[ThucTeKhoangOut] = []
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -66,8 +66,11 @@ class Customer(Base):
     contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Credit limit in VND (integer đồng), default 0. This is the LIMIT only; the live
     # outstanding balance is read from Công nợ via SEAM-16, never stored here.
+    # BigInteger (not Integer): hạn mức lớn (vd 3 tỷ) vượt trần int32 (~2.147 tỷ) làm Postgres
+    # từ chối UPDATE → "Lưu không thành công" — cùng lớp lỗi đã vá cho suppliers.credit_limit
+    # (migration 0168). Migration 0238 nới cột hiện có trên DB thật.
     credit_limit: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default="0"
+        BigInteger, nullable=False, default=0, server_default="0"
     )
     # Owning Sale (RBAC scope owner). Nullable so a customer can exist unassigned;
     # indexed because every scoped list query filters on it.

@@ -16,7 +16,7 @@ import re
 import sys
 
 from app.catalog_registry import MODULES_SEED
-from app.seed import MODULES, ROLES
+from app.seed import MODULES, ROLES, quyen_mac_dinh
 
 #: `can_*` → nhãn tiếng Việt. Lấy đúng chữ đang hiện trên ma trận phân quyền ở giao diện, để
 #: người đọc tài liệu dò được sang màn hình mà không phải đoán.
@@ -113,7 +113,13 @@ def main() -> int:
     if not nghia:
         print("⚠️  Không đọc được PermissionMatrix.tsx — in TẤT CẢ cờ, kể cả cờ vô nghĩa.\n")
 
+    mac_dinh = quyen_mac_dinh()
     for phong, vai, quyen in ROLES:
+        # CỘNG ba ô mặc định `seed_roles` cấp cho MỌI vai (self_service · noi_quy · phần
+        # CỦA TÔI của Lương). Trước 26/08/2026 script chỉ đọc preset nên tài liệu bỏ sót
+        # chúng ⇒ §2.3 của RBAC_VAI_TRO.md đi kể hai "lỗ hổng" đã vá từ lâu (vai "Nhân viên"
+        # không vào được màn Lương · chỉ Giám đốc có Nội quy).
+        quyen = {**mac_dinh, **quyen}
         # CHỈ module trong phạm vi tài liệu, xếp đúng thứ tự nhóm ở `PHAM_VI` — thứ tự khai
         # trong seed là ngẫu nhiên với người đọc.
         dong = {

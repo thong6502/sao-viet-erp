@@ -5,6 +5,12 @@ import type {
   SupplierRow,
 } from "../../../../api/client";
 
+/** Số ngày kiểu Việt: 8.5 → "8,5", 3 → "3". Dùng cho "trễ TB … ngày" ở cột Đánh giá và hồ sơ NCC.
+ *  `null` (chưa trễ đơn nào) → "0" — chỗ gọi phải tự quyết có hiện hay không, đừng in "null". */
+export function soNgayVi(v: number | null): string {
+  return (v ?? 0).toLocaleString("vi-VN", { maximumFractionDigits: 1 });
+}
+
 /** Khoá TRÙNG của một mặt hàng = tên + đơn vị, bỏ hoa/thường và khoảng trắng thừa.
  *  Phải khớp `_khoa_vat_tu` bên service — lệch nhau thì máy nói trùng mà màn hình nói không. */
 export function khoaVatTu(item: { item_name: string; unit: string }): string {

@@ -10,6 +10,8 @@ một migration đang chạy trên bảng có dữ liệu sống. Nhãn tiếng 
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -48,6 +50,9 @@ class CongViecKhoanRow(BaseModel):
     unit: str
     unit_price: float
     cong_thuc_luong: str | None = None
+    # "Lần trước công thức lượng" (mục 3+7) — router gán từ `cong_thuc_lich_su`, không có trong DB.
+    cong_thuc_luong_truoc: str | None = None
+    cong_thuc_luong_sua_luc: datetime | None = None
     note: str | None = None
     active: bool
     #: TÊN đọc được của đơn vị, server gán từ danh mục (`to` → "tờ"). Không có mã trong danh mục

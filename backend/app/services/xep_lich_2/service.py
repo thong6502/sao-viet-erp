@@ -703,6 +703,10 @@ class XepLich2Service:
         bg_by_id = self.repo.bai_ghep_map(i for (n, i) in refs if n == NGUON_IN_GHEP)
         so_cd_lsx = self.repo.lsx_so_cong_doan_map(lsx_by_id.keys())
         so_cd_bg = self.repo.bai_ghep_so_cong_doan_map(bg_by_id.keys())
+        tags_lsx = self.repo.customer_tags_for_lsx(lsx_by_id.keys())
+        tags_bg = self.repo.customer_tags_for_bai_ghep(bg_by_id.keys())
+        ten_kh_lsx = self.repo.customer_ten_for_lsx(lsx_by_id.keys())
+        ten_kh_bg = self.repo.customer_ten_for_bai_ghep(bg_by_id.keys())
         xep_duoc: list[dict] = []
         bi_chan: list[dict] = []
         for nguon, id in refs:
@@ -720,6 +724,8 @@ class XepLich2Service:
                     "han": self.core._han(lsx),
                     "han_giao": lsx.han_giao_khach,
                     "so_cong_doan_chua_xep": int(so_cd_lsx.get(id, 0)),
+                    "ten_khach_hang": ten_kh_lsx.get(id),
+                    "nhan_khach_hang": tags_lsx.get(id, []),
                     "van_de": vd,
                 }
             else:
@@ -736,6 +742,8 @@ class XepLich2Service:
                     "han": bg.han_hoan_thanh_sx,
                     "han_giao": None,
                     "so_cong_doan_chua_xep": int(so_cd_bg.get(id, 0)),
+                    "ten_khach_hang": ten_kh_bg.get(id),
+                    "nhan_khach_hang": tags_bg.get(id, []),
                     "van_de": vd,
                 }
             (bi_chan if vd else xep_duoc).append(row)

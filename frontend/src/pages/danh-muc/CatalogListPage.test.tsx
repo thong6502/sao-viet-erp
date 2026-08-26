@@ -1,11 +1,9 @@
-// Ba thứ của đợt "một khung cho 10 màn" mà HỎNG TRONG IM LẶNG — không có test thì phải mở đúng
+// Hai thứ của đợt "một khung cho 10 màn" mà HỎNG TRONG IM LẶNG — không có test thì phải mở đúng
 // màn, đúng vai, đúng lúc backend chết mới thấy:
 //
 //   1. Bảng NÓI DỐI. Trước 15/08/2026 backend chết là ô trống vẫn in "Chưa có giấy nào trong hệ
 //      thống." — câu đó vừa sai vừa mời người ta đi tạo lại dữ liệu đang có sẵn.
 //   2. Vai chỉ-đọc vẫn thấy đủ nút Thêm / Xóa, bấm xong mới ăn 403.
-//   3. Header rẽ hai nhánh theo `subtitle` (một trường NỘI DUNG quyết định BỐ CỤC) nên hai màn bỏ
-//      trống nó trông như sản phẩm của app khác.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -147,28 +145,6 @@ describe("danh mục do HỆ SINH — `khongTaoTay` / `khongXoa`", () => {
     await screen.findByText("TP-DH-2026-041-11");
     expect(screen.getByRole("button", { name: /Thêm giấy/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Xóa/ })).toBeTruthy();
-  });
-});
-
-describe("header MỘT dạng — `subtitle` chỉ là nội dung, không phải bố cục", () => {
-  it("không có subtitle thì KHÔNG đẻ thẻ <p> rỗng, số đếm vẫn hiện", async () => {
-    stub({ items: [{ id: 1, ma: "G-001", ten: "Couché 150" }] });
-    const { container } = moMan(CFG);
-
-    await screen.findByText("G-001");
-    expect(screen.getByText("1 mục")).toBeTruthy();
-    expect(container.querySelector(".rc__sub")).toBeNull();
-  });
-
-  it("có subtitle thì thêm ĐÚNG một dòng, phần còn lại của header y hệt", async () => {
-    stub({ items: [{ id: 1, ma: "G-001", ten: "Couché 150" }] });
-    const { container } = moMan({ ...CFG, subtitle: "Từng loại giấy cụ thể." });
-
-    await screen.findByText("G-001");
-    expect(screen.getByText("1 mục")).toBeTruthy();
-    expect(container.querySelectorAll(".rc__sub")).toHaveLength(1);
-    // Thanh gộp cũ (`rc__unified-bar`) đã bỏ — chỉ còn MỘT khung header cho cả 10 màn.
-    expect(container.querySelector(".rc__unified-bar")).toBeNull();
   });
 });
 

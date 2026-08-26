@@ -396,6 +396,9 @@ class LsxOut(BaseModel):
     order_id: int
     order_line_id: int
     order_no: str | None = None
+    # Trạng thái ĐƠN (không phải trang_thai của lệnh) — client dùng để ẩn tab Công đoạn khi đơn
+    # đã hủy, xem `_EXCLUDED_ORDER_STATUSES` bên customer_analytics.py cho quy ước cùng gốc.
+    order_status: str | None = None
     customer_name: str | None = None
     customer_po_no: str | None = None
     sale_name: str | None = None

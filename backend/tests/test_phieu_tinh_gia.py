@@ -261,6 +261,7 @@ def _lui_moc(pid: int, gio: int = 2) -> None:
     """
     from datetime import datetime, timedelta, timezone
 
+    from app.models.bu_hao import BuHao
     from app.models.may_thiet_bi import MayThietBi
     from app.models.phieu_tinh_gia import PhieuTinhGia
     from app.models.vat_lieu_kho import VatTuInAn
@@ -269,7 +270,7 @@ def _lui_moc(pid: int, gio: int = 2) -> None:
     db = SessionLocal()
     try:
         db.get(PhieuTinhGia, pid).updated_at = bay_gio - timedelta(hours=gio)
-        for model in (CongDoan, GiayNguyen, MayThietBi, VatTuInAn):
+        for model in (CongDoan, GiayNguyen, MayThietBi, VatTuInAn, BuHao):
             for row in db.query(model).all():
                 row.updated_at = bay_gio - timedelta(hours=gio + 1)
         db.commit()
@@ -373,6 +374,95 @@ def test_khong_nhac_khi_danh_muc_khong_lien_quan_doi(client, auth_headers):
     finally:
         db.close()
     assert client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()["danh_muc_doi"] is None
+
+
+def test_nhac_khi_bu_hao_doi_sau_lan_tinh(client, auth_headers):
+    """Sửa BẬC BÙ HAO là số tờ hao đổi ⇒ tiền đổi — phiếu cũ phải nhắc, dù bù hao không nằm trên phiếu."""
+    from datetime import datetime, timezone
+
+    from app.models.bu_hao import BuHao
+
+    giay_id, cd_id = _seed_catalog()
+    db = SessionLocal()
+    try:
+        bh = BuHao(ma="BH-TEST", ten="In 3-4 màu (test)",
+                   bac=[{"sl_tu": 0, "sl_den": None, "gia_tri": 150, "don_vi": "to"}])
+        db.add(bh)
+        db.flush()
+        bh_id = bh.id
+        cd = db.get(CongDoan, cd_id)
+        cd.kieu_bu_hao = "theo_bang"
+        cd.bu_hao_id = bh_id
+        db.commit()
+    finally:
+        db.close()
+
+    pid = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000, "thanh_phans": [_component(giay_id, cd_id)],
+    }, headers=auth_headers).json()["id"]
+    _lui_moc(pid)
+    assert client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()["danh_muc_doi"] is None
+
+    db = SessionLocal()
+    try:
+        row = db.get(BuHao, bh_id)
+        row.bac = [{"sl_tu": 0, "sl_den": None, "gia_tri": 300, "don_vi": "to"}]
+        row.updated_at = datetime.now(timezone.utc)
+        db.commit()
+    finally:
+        db.close()
+
+    doi = client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()["danh_muc_doi"]
+    assert doi is not None
+    assert doi["ten"] == ["In 3-4 màu (test)"]
+
+
+def test_nhac_ro_cong_doan_ngung_dung(client, auth_headers):
+    """Bấm "Xóa" công đoạn còn nơi dùng = hệ chỉ TẮT cờ active. Phiếu phải nói "ngừng dùng",
+    không được nói "đã chỉnh sửa" — hai việc phải làm khác hẳn nhau."""
+    from datetime import datetime, timezone
+
+    giay_id, cd_id = _seed_catalog()
+    pid = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000, "thanh_phans": [_component(giay_id, cd_id)],
+    }, headers=auth_headers).json()["id"]
+    _lui_moc(pid)
+
+    db = SessionLocal()
+    try:
+        cd = db.get(CongDoan, cd_id)
+        cd.active = False
+        cd.updated_at = datetime.now(timezone.utc)
+        db.commit()
+    finally:
+        db.close()
+
+    doi = client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()["danh_muc_doi"]
+    assert doi is not None
+    assert doi["ngung"] == ["Cán màng test"]
+    assert doi["ten"] == [] and doi["xoa"] == []
+
+
+def test_nhac_ro_cong_doan_da_xoa_han(client, auth_headers):
+    """Công đoạn bị xoá HẲN: id trong phiếu trỏ vào hư không. Gọi tên bằng tên đã lưu ở dòng phiếu."""
+    giay_id, cd_id = _seed_catalog()
+    pid = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000, "thanh_phans": [_component(giay_id, cd_id)],
+    }, headers=auth_headers).json()["id"]
+    _lui_moc(pid)
+
+    db = SessionLocal()
+    try:
+        db.delete(db.get(CongDoan, cd_id))
+        db.commit()
+    finally:
+        db.close()
+
+    doi = client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).json()["danh_muc_doi"]
+    assert doi is not None
+    assert len(doi["xoa"]) == 1
+    assert "Cán màng" in doi["xoa"][0]
+    assert doi["ten"] == [] and doi["ngung"] == []
 
 
 def test_list_cot_sl_la_tong_sl_cac_san_pham(client, auth_headers):

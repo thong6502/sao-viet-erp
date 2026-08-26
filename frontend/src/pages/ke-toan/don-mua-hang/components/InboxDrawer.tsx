@@ -32,10 +32,13 @@ export function InboxDrawer({
   openYcmh: (code: string) => void;
   actions: (row: PurchaseRequestRow, compact?: boolean) => ReactNode;
 }) {
+  // Tính trước để chân drawer bỏ hẳn khung `.purchase__drawer-footer` khi không có thao tác
+  // nào khả dụng (thay vì render khung rỗng chiếm ~57px vô ích).
+  const footer = actions(selected);
   return (
     <div className="rc-drawer__scrim" onClick={() => setSelectedId(null)}>
       <aside
-        className="rc-drawer purchase__drawer-780"
+        className="rc-drawer purchase__drawer-780 acct-dmh-drawer"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -48,8 +51,9 @@ export function InboxDrawer({
               <div className="purchase__hero-title-row">
                 <h2 className="purchase__hero-code">{selected.code}</h2>
                 <span
-                  className={`purchase__status purchase__status--${STATUS_META[selected.status].tone}`}
+                  className={`acct-dmh__state acct-dmh__state--${STATUS_META[selected.status].tone}`}
                 >
+                  <i className="acct-dmh__dot" />
                   {STATUS_META[selected.status].label}
                 </span>
               </div>
@@ -63,19 +67,8 @@ export function InboxDrawer({
               ✕
             </button>
           </div>
-          <div className="purchase__hero-meta">
-            <span>{selected.supplier_name}</span>
-            <span className="purchase__hero-dot">•</span>
-            <span>Người lập {selected.created_by_name || "—"}</span>
-            <span className="purchase__hero-dot">•</span>
-            <span className="purchase__hero-date">
-              Cần {fmtDate(selected.needed_date)}
-            </span>
-            <span className="purchase__hero-dot">•</span>
-            <span>{selected.lines.length} mặt hàng</span>
-          </div>
         </div>
-        <div className="rc-drawer__body">
+        <div className="rc-drawer__body acct-dmh__body">
       {/* Nhắc TRƯỚC khi bấm Duyệt, nhưng không khoá nút — người duyệt cầm số liệu rồi tự
           quyết. Chỉ hiện khi NCC thật sự đã vượt: bày cả lúc bình thường là nhiễu. */}
       {credit?.vuot_han_muc && (
@@ -184,7 +177,7 @@ export function InboxDrawer({
           <span>Đã chi ròng</span>
           <strong>{money(selected.net_paid)}</strong>
         </div>
-        <div>
+        <div className="acct-dmh__lead">
           <span>Còn nợ</span>
           <strong>{money(selected.outstanding_amount)}</strong>
         </div>
@@ -216,49 +209,51 @@ export function InboxDrawer({
         {selected.deliveries.length === 0 ? (
           <div className="md-page__muted">Chưa có đợt giao nào.</div>
         ) : (
-          <table className="md-page__table acct-deliveries__table">
-            <thead>
-              <tr>
-                <th>Đợt</th>
-                <th>Ngày giao</th>
-                <th>Hàng đã nhận</th>
-                <th>Hạn thanh toán</th>
-                <th>Giá trị</th>
-                <th>Đã chi</th>
-                <th>Còn nợ</th>
-                <th>Người ghi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {selected.deliveries.map((dot) => (
-                <tr key={dot.id}>
-                  <td>Đợt {dot.seq_no}</td>
-                  <td>{fmtDate(dot.delivery_date)}</td>
-                  <td>
-                    <div className="acct-deliveries__lines">
-                      {dot.lines.map((line) => (
-                        <span key={line.id}>
-                          <strong>{line.item_name}</strong>
-                          {": "}
-                          {line.quantity.toLocaleString("vi-VN")} {line.unit}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td>{dot.chua_dat_han ? "Chưa đặt hạn" : fmtDate(dot.due_date)}</td>
-                  <td className="acct-amount-cell">{money(dot.amount)}</td>
-                  <td className="acct-amount-cell">{money(dot.paid_amount)}</td>
-                  <td className="acct-amount-cell">{money(dot.con_no)}</td>
-                  <td>
-                    {dot.created_by_name || "—"}
-                    {dot.created_at && (
-                      <small>{fmtDate(dot.created_at)}</small>
-                    )}
-                  </td>
+          <div className="acct-dmh__scroll">
+            <table className="md-page__table acct-deliveries__table">
+              <thead>
+                <tr>
+                  <th>Đợt</th>
+                  <th>Ngày giao</th>
+                  <th>Hàng đã nhận</th>
+                  <th>Hạn thanh toán</th>
+                  <th className="acct-amount-cell">Giá trị</th>
+                  <th className="acct-amount-cell">Đã chi</th>
+                  <th className="acct-amount-cell">Còn nợ</th>
+                  <th>Người ghi</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {selected.deliveries.map((dot) => (
+                  <tr key={dot.id}>
+                    <td>Đợt {dot.seq_no}</td>
+                    <td>{fmtDate(dot.delivery_date)}</td>
+                    <td>
+                      <div className="acct-deliveries__lines">
+                        {dot.lines.map((line) => (
+                          <span key={line.id}>
+                            <strong>{line.item_name}</strong>
+                            {": "}
+                            {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td>{dot.chua_dat_han ? "Chưa đặt hạn" : fmtDate(dot.due_date)}</td>
+                    <td className="acct-amount-cell">{money(dot.amount)}</td>
+                    <td className="acct-amount-cell">{money(dot.paid_amount)}</td>
+                    <td className="acct-amount-cell">{money(dot.con_no)}</td>
+                    <td>
+                      {dot.created_by_name || "—"}
+                      {dot.created_at && (
+                        <small>{fmtDate(dot.created_at)}</small>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
       <section className="acct-vouchers">
@@ -268,53 +263,56 @@ export function InboxDrawer({
         ) : vouchers.length === 0 ? (
           <div className="md-page__muted">Chưa lập chứng từ chi nào.</div>
         ) : (
-          <table className="md-page__table acct-vouchers__table">
-            <thead>
-              <tr>
-                <th>Mã chứng từ</th>
-                <th>Loại</th>
-                <th>Đợt thanh toán</th>
-                <th>Ngày chứng từ</th>
-                <th>Số tiền</th>
-                <th>Trạng thái</th>
-                <th>Người lập / chi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {vouchers.map((voucher) => (
-                <tr key={voucher.id}>
-                  <td className="acct-code-cell">
-                    <strong>{voucher.doc_no || voucher.code}</strong>
-                    {voucher.delivery_seq_no && (
-                      <small>Đợt giao {voucher.delivery_seq_no}</small>
-                    )}
-                  </td>
-                  <td>{VOUCHER_TYPE_LABEL[voucher.voucher_type]}</td>
-                  <td>{PAYMENT_STAGE_LABEL[voucher.payment_stage]}</td>
-                  <td>{fmtDate(voucher.voucher_date)}</td>
-                  <td className="acct-amount-cell">
-                    {money(voucher.amount_vnd)}
-                  </td>
-                  <td>
-                    <span
-                      className={`acct-payment-status acct-payment-status--${voucher.status}`}
-                    >
-                      {VOUCHER_STATUS_LABEL[voucher.status]}
-                    </span>
-                  </td>
-                  <td>
-                    {voucher.created_by_name || "—"}
-                    <small>
-                      {fmtDate(voucher.created_at)}
-                      {voucher.paid_by_name
-                        ? ` · Chi bởi ${voucher.paid_by_name}`
-                        : ""}
-                    </small>
-                  </td>
+          <div className="acct-dmh__scroll">
+            <table className="md-page__table acct-vouchers__table">
+              <thead>
+                <tr>
+                  <th>Mã chứng từ</th>
+                  <th>Loại</th>
+                  <th>Đợt thanh toán</th>
+                  <th>Ngày chứng từ</th>
+                  <th className="acct-amount-cell">Số tiền</th>
+                  <th>Trạng thái</th>
+                  <th>Người lập / chi</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {vouchers.map((voucher) => (
+                  <tr key={voucher.id}>
+                    <td className="acct-code-cell">
+                      <strong>{voucher.code}</strong>
+                      {voucher.delivery_seq_no && (
+                        <small>Đợt giao {voucher.delivery_seq_no}</small>
+                      )}
+                    </td>
+                    <td>{VOUCHER_TYPE_LABEL[voucher.voucher_type]}</td>
+                    <td>{PAYMENT_STAGE_LABEL[voucher.payment_stage]}</td>
+                    <td>{fmtDate(voucher.voucher_date)}</td>
+                    <td className="acct-amount-cell">
+                      {money(voucher.amount_vnd)}
+                    </td>
+                    <td>
+                      <span
+                        className={`acct-dmh__state acct-dmh__state--${voucher.status}`}
+                      >
+                        <i className="acct-dmh__dot" />
+                        {VOUCHER_STATUS_LABEL[voucher.status]}
+                      </span>
+                    </td>
+                    <td>
+                      {voucher.created_by_name || "—"}
+                      <small>
+                        {fmtDate(voucher.created_at)}
+                        {voucher.paid_by_name
+                          ? ` · Chi bởi ${voucher.paid_by_name}`
+                          : ""}
+                      </small>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
       <section className="acct-history">
@@ -322,7 +320,7 @@ export function InboxDrawer({
         <PurchaseActivityTimeline items={selected.activity_history} />
       </section>
         </div>
-        <div className="purchase__drawer-footer">{actions(selected)}</div>
+        {footer && <div className="purchase__drawer-footer">{footer}</div>}
       </aside>
     </div>
   );

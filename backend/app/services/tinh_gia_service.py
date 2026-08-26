@@ -247,10 +247,17 @@ def _utc(v: datetime | None) -> datetime | None:
 
 
 def danh_muc_doi_sau_khi_tinh(db: Session, phieu) -> dict | None:
-    """Danh mục mà phiếu đang dùng có bản nào sửa SAU lần tính gần nhất không?
+    """Danh mục mà phiếu đang dùng có gì lệch so với lần tính gần nhất không?
 
-    `None` = phiếu còn khớp danh mục. Ngược lại `{"luc": datetime, "ten": [...]}` — `luc` là mốc
-    tính của phiếu (để câu nhắc gọi được ngày), `ten` là những mục đã đổi.
+    `None` = phiếu còn khớp danh mục. Ngược lại:
+        `{"luc": datetime, "ten": [...], "ngung": [...], "xoa": [...]}`
+
+    BA RỔ TÁCH RIÊNG vì người đọc phải làm ba việc khác nhau:
+      * `ten`   — mục còn dùng được, chỉ ĐỔI cấu hình/tên ⇒ bấm tính lại là xong;
+      * `ngung` — mục bị NGỪNG DÙNG (bấm "Xóa" ở màn danh mục mà mục còn nơi dùng thì hệ chỉ tắt
+        cờ `active`) ⇒ tính lại vẫn ra số, nhưng lần sau không chọn lại được, nên phải thay bước;
+      * `xoa`   — mục đã XOÁ HẲN, id trong phiếu trỏ vào hư không ⇒ tính lại là dòng đó mất cấu
+        hình danh mục. Gộp cả ba vào một chữ "đã chỉnh sửa" là nói sai việc người dùng vừa làm.
 
     Mốc so sánh là `phieu.updated_at`: mọi đường ghi phiếu (POST/PUT) đều chạy
     `compute_phieu_snapshot` ngay trước khi commit, nên ngày sửa phiếu CHÍNH LÀ ngày tính.
@@ -266,6 +273,9 @@ def danh_muc_doi_sau_khi_tinh(db: Session, phieu) -> dict | None:
     may_ids: set[int] = set()
     cd_ids: set[int] = set()
     vt_ids: set[int] = set()
+    # Tên công đoạn ĐÃ LƯU trong dòng phiếu: mục bị xoá hẳn khỏi danh mục thì đây là cái tên DUY
+    # NHẤT còn lại để gọi nó ra ("Cán màng mờ 2 mặt" thay vì "Công đoạn #14").
+    ten_luu_cd: dict[int, str] = {}
     for tp in phieu.thanh_phans:
         if tp.giay_id:
             giay_ids.add(int(tp.giay_id))
@@ -273,24 +283,60 @@ def danh_muc_doi_sau_khi_tinh(db: Session, phieu) -> dict | None:
             may_ids.add(int(tp.may_id))
         for f in tp.thanh_phams:
             if f.cong_doan_id:
-                cd_ids.add(int(f.cong_doan_id))
+                cid = int(f.cong_doan_id)
+                cd_ids.add(cid)
+                if f.ten and cid not in ten_luu_cd:
+                    ten_luu_cd[cid] = str(f.ten)
         for vt in tp.vat_tus:
             if vt.vat_tu_id:
                 vt_ids.add(int(vt.vat_tu_id))
 
-    ten: list[str] = []
-    for model, ids in ((CongDoan, cd_ids), (GiayNguyen, giay_ids), (MayThietBi, may_ids), (VatTuInAn, vt_ids)):
+    # Bù hao KHÔNG nằm trên phiếu: công đoạn trỏ tới nó (`cong_doan.bu_hao_id`), engine tra bậc
+    # theo SL. Sửa bậc bù hao là số tờ hao đổi ⇒ TIỀN đổi — im lặng ở đây thì người dùng chỉnh bù
+    # hao xong mở phiếu thấy y như cũ, không có lấy một chữ báo phải tính lại (lỗi 8, 25/08/2026).
+    bh_ids: set[int] = set()
+    if cd_ids:
+        for (bid,) in db.execute(
+            select(CongDoan.bu_hao_id)
+            .where(CongDoan.id.in_(cd_ids), CongDoan.bu_hao_id.is_not(None))
+        ).all():
+            bh_ids.add(int(bid))
+
+    sua: list[str] = []
+    ngung: list[str] = []
+    xoa: list[str] = []
+    for model, ids, nhan, ten_luu in (
+        (CongDoan, cd_ids, "Công đoạn", ten_luu_cd),
+        (GiayNguyen, giay_ids, "Giấy", {}),
+        (MayThietBi, may_ids, "Máy", {}),
+        (VatTuInAn, vt_ids, "Vật tư", {}),
+        (BuHao, bh_ids, "Bù hao", {}),
+    ):
         if not ids:
             continue
+        con_song: set[int] = set()
         # Lọc mốc bằng Python chứ không bằng WHERE: cột giờ trên SQLite (test) không so được với
         # datetime aware ở tầng SQL, mà số dòng ở đây tối đa vài chục.
-        for row_ten, row_luc in db.execute(
-            select(model.ten, model.updated_at).where(model.id.in_(ids))
+        for row_id, row_ten, row_luc, row_active in db.execute(
+            select(model.id, model.ten, model.updated_at, model.active).where(model.id.in_(ids))
         ).all():
-            luc = _utc(row_luc)
-            if luc is not None and luc > moc and row_ten:
-                ten.append(str(row_ten))
+            rid = int(row_id)
+            con_song.add(rid)
+            ten_muc = (str(row_ten).strip() if row_ten else "") or ten_luu.get(rid) or f"{nhan} #{rid}"
+            if not row_active:
+                ngung.append(ten_muc)
+            else:
+                luc = _utc(row_luc)
+                if luc is not None and luc > moc:
+                    sua.append(ten_muc)
+        for rid in sorted(ids - con_song):
+            xoa.append(ten_luu.get(rid) or f"{nhan} #{rid}")
 
-    if not ten:
+    if not (sua or ngung or xoa):
         return None
-    return {"luc": moc, "ten": sorted(set(ten))}
+    return {
+        "luc": moc,
+        "ten": sorted(set(sua)),
+        "ngung": sorted(set(ngung)),
+        "xoa": sorted(set(xoa)),
+    }

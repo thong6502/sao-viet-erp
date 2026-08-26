@@ -107,6 +107,8 @@ def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None) -> dict:
         "don_vi_vao": cv.don_vi_vao,
         "don_vi_ra": cv.don_vi_ra,
         "trang_thai": cv.trang_thai,
+        # Định mức vật tư đóng băng lúc phát hành (§4.2) — đã đúng hình `VatTuDinhMucOut`, không cần dựng lại.
+        "dinh_muc_vat_tu": cv.vat_tu_json or [],
         # Lớp thực-tế (§5.1): các phiên chạy đã ghi; phiên còn mở giữ ket_thuc=None (FE kéo tới "bây giờ").
         "thuc_te": [
             {"bat_dau": p.bat_dau, "ket_thuc": p.ket_thuc}

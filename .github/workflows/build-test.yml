@@ -37,6 +37,12 @@ jobs:
   backend:
     name: Backend (pytest)
     runs-on: ubuntu-latest
+    # `_gio_xuong()` (xep_lich_service.py) CỐ Ý đọc `datetime.now()` trần rồi dán nhãn UTC, coi đồng
+    # hồ HĐH là giờ tường xưởng (VN) — đúng trên máy dev VN và VPS, nhưng `ubuntu-latest` mặc định
+    # UTC. Không ép TZ thì "bây giờ" trên CI lệch 7 tiếng so với ý định, engine xếp lịch tính sai ca
+    # → test xếp lịch/công đoạn FLAKY quanh biên ca, chỉ lộ khi giờ chạy CI rơi đúng biên.
+    env:
+      TZ: Asia/Ho_Chi_Minh
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

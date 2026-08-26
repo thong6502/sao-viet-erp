@@ -15,6 +15,7 @@ import { Drawer } from "./components/Drawer";
 import {
   BandsField, ChuanBiKhoanField, DinhMucDauViecField, DonViTocDoField, FormulaField,
   LichBaoTriField, NhomMayField, NhomMayMultiField, RefMultiField, RefSearchField,
+  SelfRefMultiField,
 } from "./fields";
 import { goiYMaTiepTheo } from "./maGoiY";
 import { NhatKyTab } from "./nhat-ky/NhatKyTab";
@@ -50,7 +51,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
       ten: existing?.ten ?? ""
     };
     for (const f of config.fields) {
-      if (f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc") {
+      if (f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc") {
         const ev = existing?.[f.key];
         init[f.key] = Array.isArray(ev) ? ev : [];
       } else if (f.jsonKey) {
@@ -148,7 +149,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     const theoPrefix = new Map<string, Record<string, unknown>>();
     for (const f of config.fields) {
       if (!f.refPrefix) continue;
-      if (!(f.type === "ref" || f.type === "ref-multi" || f.type === "ref-search" || f.type === "ref-search-ma" || f.type === "dau-viec-dinh-muc" || f.type === "don_vi_toc_do" || f.type === "nhom_may" || f.type === "nhom_may-multi")) continue;
+      if (!(f.type === "ref" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "ref-search" || f.type === "ref-search-ma" || f.type === "dau-viec-dinh-muc" || f.type === "don_vi_toc_do" || f.type === "nhom_may" || f.type === "nhom_may-multi")) continue;
       theoPrefix.set(f.refPrefix, { ...(theoPrefix.get(f.refPrefix) ?? {}), ...(f.refParams ?? {}) });
     }
     if (theoPrefix.size === 0) return;
@@ -173,7 +174,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
     const hint = typeof f.hint === "function" ? f.hint(form) : f.hint;
     const laDonVi = config.prefix.includes("don-vi");
-    const isFullWidth = f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
+    const isFullWidth = f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
     // "div" chứ không "label": khối này chứa NHIỀU input, bọc trong <label> là bấm đâu cũng nhảy
     // focus vào ô đầu tiên.
     const Tag = f.type === "formula" || f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" ? "div" : "label";
@@ -259,6 +260,13 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             options={refData[f.refPrefix ?? ""] ?? []}
             onChange={(v) => set(f.key, v)}
           />
+        ) : f.type === "self-ref-multi" ? (
+          <SelfRefMultiField
+            value={Array.isArray(form[f.key]) ? (form[f.key] as number[]) : []}
+            options={(refData[f.refPrefix ?? ""] ?? []).filter(
+              (o) => !isEdit || Number(o.id) !== Number(existing?.id))}
+            onChange={(v) => set(f.key, v)}
+          />
         ) : f.type === "formula" ? (
           <FormulaField value={String(form[f.key] ?? "")} onChange={(v) => set(f.key, v)}
             configPrefix={config.prefix}
@@ -277,7 +285,11 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             nhanO={laDonVi ? "Cách đo của đơn vị này" : cleanLabel}
             goY={laDonVi
               ? "vd: dai_in * rong_in * to_sau_in  (một m² tờ in đo thế nào)"
-              : (hint || undefined)} />
+              : (hint || undefined)}
+            // "Lần trước" (mục 3+7): chỉ có khi ĐANG SỬA — dòng mới tạo chưa có lịch sử.
+            recordId={isEdit && existing ? Number(existing.id) : null}
+            truocGiaTri={existing ? (existing[`${f.key}_truoc`] as string | null | undefined) ?? null : null}
+            truocSuaLuc={existing ? (existing[`${f.key}_sua_luc`] as string | null | undefined) ?? null : null} />
         ) : f.type === "checkbox" ? (
           <label className="rc-switch">
             <input type="checkbox" checked={!!form[f.key]} onChange={(e) => set(f.key, e.target.checked)} />
@@ -314,7 +326,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
     if (!config.autoCode || isEdit) body.ma = form.ma;
     for (const f of visibleFields) {
       let v = form[f.key];
-      if (f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc") { body[f.key] = Array.isArray(v) ? v : []; continue; }
+      if (f.type === "ref-multi" || f.type === "self-ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "dau-viec-dinh-muc") { body[f.key] = Array.isArray(v) ? v : []; continue; }
       if (v === "" || v === undefined) {
         const kieuChu = !f.type || f.type === "text" || f.type === "date" || f.type === "nhom_may";
         const voonCoGiaTri = isEdit && existing != null && existing[f.key] != null

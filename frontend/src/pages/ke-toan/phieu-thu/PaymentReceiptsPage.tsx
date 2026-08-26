@@ -297,27 +297,25 @@ export function PaymentReceiptsPage({
   }
 
   function actions(row: PaymentReceiptRow) {
-    return (
-      <ReceiptRowActions
-        row={row}
-        canExport={canExport}
-        startPrint={startPrint}
-        canApprove={canApprove}
-        closeDetailThen={closeDetailThen}
-        openEdit={openEdit}
-        busy={busy}
-        canMarkReceived={canMarkReceived}
-        setMarking={setMarking}
-        setBankReference={setBankReference}
-        canCancel={canCancel}
-        setCancelling={setCancelling}
-        setCancelReason={setCancelReason}
-      />
-    );
+    return ReceiptRowActions({
+      row,
+      canExport,
+      startPrint,
+      canApprove,
+      closeDetailThen,
+      openEdit,
+      busy,
+      canMarkReceived,
+      setMarking,
+      setBankReference,
+      canCancel,
+      setCancelling,
+      setCancelReason,
+    });
   }
 
   return (
-    <main className="md-page">
+    <main className="md-page acct-pt">
       <header className="md-page__head">
         <p className="eyebrow">Kế toán</p>
         <h1 className="md-page__title">Phiếu thu</h1>

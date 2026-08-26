@@ -436,7 +436,9 @@ function OrderDrawer({
   const sxDone = false;
   const sxState: "chua" | "cho_kh" | "chay" =
     !sxReleased ? "chua" : lenhs.length === 0 ? "cho_kh" : "chay";
-  const sxText = { chua: "chưa chuyển", cho_kh: "chờ kế hoạch", chay: "đang chạy" }[sxState];
+  const sxText = order.status === "cancelled"
+    ? "đơn đã hủy"
+    : { chua: "chưa chuyển", cho_kh: "chờ kế hoạch", chay: "đang chạy" }[sxState];
 
   const doneSeg = (isChotDone ? 1 : 0) + (isCocDone ? 1 : 0) + (sxDone ? 1 : 0);
 
@@ -460,9 +462,13 @@ function OrderDrawer({
   }, [token, order.id]);
 
   useEffect(() => {
-    const defaultStep = !isChotDone ? "chot" : !isCocDone ? "coc" : !sxDone ? "sanxuat" : "giao";
+    // Đơn hủy → dừng chuỗi tại "Chốt" (đã có khối lý-do-hủy riêng), đừng để mặc định trôi
+    // xuống bước sau như thể lệnh còn đang chờ xử lý.
+    const defaultStep = order.status === "cancelled"
+      ? "chot"
+      : !isChotDone ? "chot" : !isCocDone ? "coc" : !sxDone ? "sanxuat" : "giao";
     setActiveStep(defaultStep);
-  }, [order.id, isChotDone, isCocDone, sxDone]);
+  }, [order.id, order.status, isChotDone, isCocDone, sxDone]);
 
   return (
     <div
@@ -776,12 +782,18 @@ function OrderDrawer({
                   <div className="dhb__lifecycle-box">
                     <div className="dhb__lifecycle-box-header">
                       <h4 className="dhb__lifecycle-box-title">Sản xuất</h4>
-                      <span className={`dhb__lifecycle-badge ${sxDone ? "dhb__lifecycle-badge--done" : sxReleased ? "dhb__lifecycle-badge--active" : "dhb__lifecycle-badge--upcoming"}`}>
+                      <span className={`dhb__lifecycle-badge ${order.status === "cancelled" ? "dhb__lifecycle-badge--cancelled" : sxDone ? "dhb__lifecycle-badge--done" : sxReleased ? "dhb__lifecycle-badge--active" : "dhb__lifecycle-badge--upcoming"}`}>
                         {sxText.toUpperCase()}
                       </span>
                     </div>
                     <div style={{ marginTop: 4 }}>
-                      {order.status !== "ordered" ? (
+                      {order.status === "cancelled" ? (
+                        <p style={{ color: "var(--ash)", fontSize: 12, margin: 0 }}>
+                          {sxReleased
+                            ? "Đơn đã hủy — trước đó đã chuyển xuống sản xuất nhưng chưa lên lệnh nào."
+                            : "Đơn đã hủy, chưa từng chuyển xuống sản xuất."}
+                        </p>
+                      ) : order.status !== "ordered" ? (
                         <p style={{ color: "var(--ash)", fontSize: 12, margin: 0 }}>Đơn phải chốt trước mới chuyển xuống sản xuất được.</p>
                       ) : !sxReleased ? (
                         order.deposit_ok ? (
@@ -1497,7 +1509,20 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
   return (
     <div style={{ display: "grid", gap: 8 }}>
       <Field label="Số PO khách"><input value={po} onChange={(e) => setPo(e.target.value)} className="dhb__input" /></Field>
-      <Field label="% cọc"><input type="number" min={0} max={100} value={depositPct} onChange={(e) => setDepositPct(e.target.value)} placeholder="vd 30" className="dhb__input" /></Field>
+      <Field label="% cọc">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={depositPct}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/[^0-9]/g, "");
+            setDepositPct(digits === "" ? "" : String(Math.min(100, Number(digits))));
+          }}
+          placeholder="vd 30"
+          className="dhb__input"
+        />
+      </Field>
       <Field label="Ngày giao cam kết"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="dhb__input" /></Field>
       {/* Địa chỉ giao + người nhận LUÔN hiện, và LẤY TỪ HỒ SƠ KHÁCH — không gõ tay ở đơn (gõ tay
           là đẻ dữ liệu khách nằm rải rác ngoài hồ sơ). Khách chưa khai thì dropdown vẫn hiện,

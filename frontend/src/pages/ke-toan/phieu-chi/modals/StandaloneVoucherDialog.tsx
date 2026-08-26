@@ -1,5 +1,9 @@
 // Hộp LẬP PHIẾU CHI ĐỘC LẬP — khoản chi không gắn đơn mua hàng
 // (tách từ pages/PaymentVouchersPage.tsx).
+// Vỏ dùng KHUÔN DRAWER của Thu mua (`rc-drawer` + `purchase__hero-banner`) thay `acct-modal`
+// nền trắng giữa màn — chủ chốt 26/08/2026: "sao mỗi nơi một màu". Đây là FORM TIỀN nên đóng
+// AN TOÀN: scrim KHÔNG bắt click, KHÔNG Esc-to-close (tránh mất dữ liệu đang gõ). Toàn bộ
+// `submit()` / `payload` phía trên giữ NGUYÊN — chỉ đổi vỏ.
 import { useEffect, useState, type FormEvent } from "react";
 import {
   ApiError,
@@ -134,18 +138,39 @@ export function StandaloneVoucherDialog({
   }
 
   return (
-    <div className="acct-modal" role="dialog" aria-modal="true">
-      <form className="acct-modal__box" onSubmit={submit}>
-        <header className="acct-modal__head">
-          <div>
-            <p className="eyebrow">Phiếu chi</p>
-            <h2>Tạo phiếu chi</h2>
+    <div className="rc-drawer__scrim" role="presentation">
+      <aside
+        className="rc-drawer purchase__drawer-780"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Tạo phiếu chi"
+      >
+        <div className="purchase__hero-banner">
+          <div className="purchase__hero-top">
+            <div>
+              <span className="purchase__hero-kicker">Phiếu chi</span>
+              <div className="purchase__hero-title-row">
+                <h2 className="purchase__hero-code">Tạo phiếu chi</h2>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="purchase__hero-x"
+              onClick={onClose}
+              aria-label="Đóng"
+            >
+              ✕
+            </button>
           </div>
-          <button type="button" className="acct-modal__x" onClick={onClose} aria-label="Đóng">
-            ×
-          </button>
-        </header>
-        <div className="acct-modal__body">
+          <div className="purchase__hero-meta">
+            <span>Khoản chi không gắn đơn mua hàng</span>
+            <span className="purchase__hero-dot">•</span>
+            <span>{isBank ? "Chuyển khoản" : "Tiền mặt"}</span>
+          </div>
+        </div>
+        <form className="purchase__drawer-form" onSubmit={submit}>
+        <div className="rc-drawer__body">
           {error && (
             <div className="banner banner--error" role="alert">
               {error}
@@ -306,15 +331,16 @@ export function StandaloneVoucherDialog({
             </div>
           </section>
         </div>
-        <footer className="acct-modal__foot">
+        <div className="purchase__drawer-footer">
           <Button type="button" variant="ghost" onClick={onClose}>
             Hủy
           </Button>
           <Button type="submit" variant="primary" loading={saving}>
             Lưu phiếu
           </Button>
-        </footer>
-      </form>
+        </div>
+        </form>
+      </aside>
     </div>
   );
 }

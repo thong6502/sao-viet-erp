@@ -10661,3 +10661,49 @@ def _migrate_stock_lot_sl_scale(db: Session) -> None:
 
 
 MIGRATIONS.append(("0238_stock_lot_sl_scale", _migrate_stock_lot_sl_scale))
+def _migrate_customer_credit_limit_bigint(db: Session) -> None:
+    """0238 — `customers.credit_limit`: INTEGER → BIGINT.
+
+    Hạn mức công nợ VND từng khai INTEGER (int32, trần ~2.147 tỷ). Khách gõ hạn mức 3 tỷ là
+    vượt trần, Postgres từ chối UPDATE với lỗi không được service bắt riêng → lộ ra FE thành
+    "Lưu không thành công. Thử lại." chung chung. Cùng lớp lỗi đã vá cho `suppliers.credit_limit`
+    (migration 0168, khai thẳng BIGINT); customers thì lỡ khai Integer từ đầu.
+
+    Nới cột (int4 → int8 là cast NGẦM của Postgres, không cần USING, không mất số cũ). Raw SQL
+    đích danh cột, idempotent (bỏ qua nếu đã BIGINT), no-op trên SQLite (affinity đã cho số lớn)."""
+    bind = db.get_bind()
+    if bind.dialect.name == "sqlite":
+        return
+    insp = inspect(bind)
+    if "customers" not in set(insp.get_table_names()):
+        return
+    kieu = {c["name"]: str(c["type"]).upper() for c in insp.get_columns("customers")}
+    if kieu.get("credit_limit", "").startswith("BIGINT"):
+        return
+    db.execute(text("ALTER TABLE customers ALTER COLUMN credit_limit TYPE BIGINT"))
+    db.commit()
+
+
+MIGRATIONS.append(("0238_customer_credit_limit_bigint", _migrate_customer_credit_limit_bigint))
+
+
+def _migrate_vat_lieu_thay_the_ids(db: Session) -> None:
+    """NVL thay thế (mục 5 "Bảng định mức"): thêm `thay_the_ids` (JSON, mảng id) cho
+    `giay_nguyen` và `vat_tu_in_an` — id các dòng CÙNG BẢNG dùng thay được món này. MỘT CHIỀU
+    (khai A→B không tự suy B→A). Nullable, không default. No-op trên DB fresh (create_all đã có
+    cột) / bảng chưa có / cột đã có.
+
+    JSON (KHÔNG JSONB) để khớp `mapped_column(JSON)` của model — xem ghi chú kiểu cột ở
+    `_migrate_piece_rate_cong_doan_mas`.
+    """
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+    for bang in ("giay_nguyen", "vat_tu_in_an"):
+        if bang not in ten_bang:
+            continue
+        if "thay_the_ids" not in _existing_columns(insp, bang):
+            db.execute(text(f"ALTER TABLE {bang} ADD COLUMN thay_the_ids JSON"))
+    db.commit()
+
+
+MIGRATIONS.append(("0239_vat_lieu_thay_the_ids", _migrate_vat_lieu_thay_the_ids))

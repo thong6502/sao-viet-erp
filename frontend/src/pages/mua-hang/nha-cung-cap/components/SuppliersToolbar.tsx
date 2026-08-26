@@ -3,12 +3,15 @@
 import type { Dispatch, SetStateAction } from "react";
 import { Button } from "../../../../components/Button";
 import { Icon } from "../../../../components/Icons";
+import type { LocSaoNcc } from "../shared/types";
 
 export function SuppliersToolbar({
   q,
   setQ,
   status,
   setStatus,
+  locSao,
+  setLocSao,
   setPage,
   load,
   canCreate,
@@ -19,6 +22,8 @@ export function SuppliersToolbar({
   setQ: Dispatch<SetStateAction<string>>;
   status: "all" | "active" | "inactive";
   setStatus: Dispatch<SetStateAction<"all" | "active" | "inactive">>;
+  locSao: LocSaoNcc;
+  setLocSao: Dispatch<SetStateAction<LocSaoNcc>>;
   setPage: Dispatch<SetStateAction<number>>;
   load: () => void;
   canCreate: boolean;
@@ -67,6 +72,22 @@ export function SuppliersToolbar({
             <option value="active">Đang hợp tác</option>
             <option value="inactive">Tạm ngừng hợp tác</option>
             <option value="all">Tất cả trạng thái</option>
+          </select>
+          {/* Lọc theo SAO — sao do máy tự tính từ phiếu mua hàng (xem SaoNcc.tsx).
+              CỐ Ý KHÔNG có mục "Chưa đánh giá": lọc ở đây trả lời câu "ai đáng tin", mà NCC chưa
+              có đơn nào thì chưa trả lời được — họ nằm sẵn ở "Tất cả sao" rồi. */}
+          <select
+            className="input purchase__select-modern"
+            value={locSao === null ? "all" : String(locSao)}
+            onChange={(e) => {
+              setLocSao(e.target.value === "all" ? null : Number(e.target.value));
+              setPage(1);
+            }}
+            title="Lọc theo sao đánh giá"
+          >
+            <option value="all">Tất cả sao</option>
+            <option value="4">Từ 4 sao trở lên</option>
+            <option value="3">Từ 3 sao trở lên</option>
           </select>
         </div>
         {canCreate && (

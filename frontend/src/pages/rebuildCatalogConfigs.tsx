@@ -14,7 +14,7 @@ import { crud, trangThaiMay, type Row, type TrangThaiMay } from "../api/rebuildC
 // ── Bảng nhãn thuần Việt (in ấn) — 1 nguồn cho options + column render ──────────
 type Lbls = Record<string, string>;
 const mapOpt = (m: Lbls) => Object.entries(m).map(([value, label]) => ({ value, label }));
-const lbl = (m: Lbls) => (v: unknown) => (v == null || v === "" ? "—" : (m[String(v)] ?? String(v)));
+const lbl = (m: Lbls) => (v: unknown) => (v == null || v === "" ? "" : (m[String(v)] ?? String(v)));
 
 
 const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia công sau in", other: "Dịch vụ khác" };
@@ -83,7 +83,6 @@ const dvCell = (r: Row) => {
 export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
   title: "Loại sản phẩm",
   moduleQuyen: "dm_loai_san_pham",
-  subtitle: "Khuôn mẫu sản phẩm — gán cách dàn khuôn (bình bài) + chuỗi công đoạn mặc định.",
   prefix: "/api/loai-san-pham",
   nhatKyLoai: "loai_san_pham",
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
@@ -107,7 +106,7 @@ export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
         );
       },
     },
-    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
   ],
   fields: [
     { key: "routing_template", label: "Chuỗi công đoạn mặc định", type: "ref-multi", refPrefix: "/api/cong-doan",
@@ -147,14 +146,15 @@ function nhanDonViTocDo(r: Row): string {
 export const CFG_MAY: CatalogConfig = {
   title: "Thiết bị & Máy móc",
   moduleQuyen: "dm_thiet_bi",
+  enableClone: true,
+  enableImport: true,
   // Máy có cột `active` từ 15/08/2026 (mg `0202`) ⇒ vào được luật xoá chung: còn dùng ở lệnh /
   // công đoạn thì NGỪNG DÙNG, khai nhầm thì xoá hẳn. Trước đó màn này chỉ có xoá cứng.
   softDelete: true,
-  subtitle: "Nhập tự do mọi loại máy (in, cán màng/UV, bồi, bế…). Tự đặt Nhóm máy rồi điền khổ kẽm, khổ giấy, vùng in.",
   prefix: "/api/may-thiet-bi",
   nhatKyLoai: "may_thiet_bi",
   columns: [
-    { key: "loai_may", label: "Nhóm máy", render: (r) => (r.loai_may ? String(r.loai_may) : "—") },
+    { key: "loai_may", label: "Nhóm máy", render: (r) => (r.loai_may ? String(r.loai_may) : "") },
     { key: "thong_so_kho", label: "Khổ máy & Vùng in",
       render: (r) => {
         // `Row` là bản ghi động (`unknown` mọi field) nên phải ép chuỗi trước khi render, và guard
@@ -164,7 +164,7 @@ export const CFG_MAY: CatalogConfig = {
         const hasKhoMax = Boolean(r.kho_max_rong || r.kho_max_dai);
         const hasKem = isMayInType && Boolean(r.kho_kem_rong || r.kho_kem_dai);
         const hasVungIn = isMayInType && Boolean(r.vung_in_rong || r.vung_in_dai);
-        if (!hasKhoMax && !hasKem && !hasVungIn) return "—";
+        if (!hasKhoMax && !hasKem && !hasVungIn) return "";
         return (
           <div style={{ display: "flex", flexDirection: "column", gap: "2px", fontSize: "12.5px" }}>
             {hasKhoMax && (
@@ -174,12 +174,12 @@ export const CFG_MAY: CatalogConfig = {
               </div>
             )}
             {hasKem && (
-              <div style={{ fontSize: "11px", color: "var(--charcoal, #374151)" }}>
-                <span>Kẽm: {so(r.kho_kem_rong)}×{so(r.kho_kem_dai)}</span>
-                {hasVungIn && (
-                  <span style={{ marginLeft: "6px" }}>• In: {so(r.vung_in_rong)}×{so(r.vung_in_dai)}</span>
-                )}
-              </div>
+              // Kẽm + Vùng in TÁCH 2 dòng riêng (trước gộp 1 dòng nối "•") — cột chỉ ~87px,
+              // nối chung dễ vỡ dòng giữa số làm chiều cao hàng nhảy lung tung giữa các máy.
+              <div style={{ fontSize: "11px", color: "var(--charcoal, #374151)" }}>Kẽm: {so(r.kho_kem_rong)}×{so(r.kho_kem_dai)}</div>
+            )}
+            {hasVungIn && (
+              <div style={{ fontSize: "11px", color: "var(--charcoal, #374151)" }}>In: {so(r.vung_in_rong)}×{so(r.vung_in_dai)}</div>
             )}
           </div>
         );
@@ -187,15 +187,17 @@ export const CFG_MAY: CatalogConfig = {
     },
     { key: "chua_le", label: "Chừa lề tờ in",
       render: (r) => {
-        if (!isMayIn(String(r.loai_may ?? ""))) return "—";
+        if (!isMayIn(String(r.loai_may ?? ""))) return "";
         const parts = [];
         if (r.nhip_giay_mm) parts.push(`Nhíp ${r.nhip_giay_mm}mm`);
         if (r.le_hong_mm) parts.push(`Lề ${r.le_hong_mm}mm`);
         if (r.duoi_thang_mau_mm) parts.push(`Đuôi ${r.duoi_thang_mau_mm}mm`);
-        if (parts.length === 0) return "—";
+        if (parts.length === 0) return "";
+        // MỖI phần một dòng riêng (trước nối "•" chung 1 dòng) — cột chỉ ~87px, 3 phần nối
+        // chung dễ vỡ dòng giữa số làm chiều cao hàng nhảy lung tung giữa các máy.
         return (
-          <div style={{ fontSize: "11.5px", color: "var(--charcoal, #4b5563)", lineHeight: "1.4" }}>
-            {parts.join(" • ")}
+          <div style={{ display: "flex", flexDirection: "column", gap: "1px", fontSize: "11.5px", color: "var(--charcoal, #4b5563)", lineHeight: "1.4" }}>
+            {parts.map((p) => <div key={p}>{p}</div>)}
           </div>
         );
       }
@@ -208,10 +210,10 @@ export const CFG_MAY: CatalogConfig = {
         const tongKhoan = Array.isArray(khoan) && khoan.length > 0 ? tongChuanBi(khoan) : 0;
         const totalMakeready = tongKhoan > 0 ? tongKhoan : (Number(r.makeready_time_default) || 0);
 
-        if (!nSpeed && !totalMakeready) return "—";
+        if (!nSpeed && !totalMakeready) return "";
         return (
           <div style={{ display: "flex", flexDirection: "column", gap: "2px", fontSize: "12.5px" }}>
-            {nSpeed ? <div style={{ fontWeight: 600 }}>{nSpeed}</div> : <div style={{ color: "var(--ash)" }}>—</div>}
+            {nSpeed && <div style={{ fontWeight: 600 }}>{nSpeed}</div>}
             {totalMakeready > 0 && (
               <div style={{ fontSize: "11.5px", color: "var(--rust, #c5400a)", fontWeight: 500, display: "flex", alignItems: "center" }}>
                 <ClockIcon size={12} /> Chuẩn bị: {totalMakeready} phút
@@ -385,9 +387,9 @@ export const CFG_MAY: CatalogConfig = {
 
 export const CFG_CONG_DOAN: CatalogConfig = {
   title: "Công đoạn",
-  // Không có `subtitle`: màn này ai vào cũng biết mình đang xem gì. Bỏ trống chỉ làm HỤT một dòng
-  // chữ — khung header vẫn y hệt 9 màn kia (trước 15/08/2026 nó rẽ sang một thanh gộp khác hẳn).
   moduleQuyen: "dm_cong_doan",
+  enableClone: true,
+  enableImport: true,
   prefix: "/api/cong-doan",
   nhatKyLoai: "cong_doan",
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
@@ -414,18 +416,19 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // vướng dụng cụ không" — tách ba cột thì bảng dài mà vẫn phải đọc cả ba mới hiểu.
     { key: "dau_viec_dinh_muc", label: "Ràng buộc",
       render: (r) => {
-        if (!r.requires_tooling) return "—";
+        if (!r.requires_tooling) return "";
+        const chuDayDu = `Cần ${lbl(TOOLING_TYPE)(r.tooling_type).toLowerCase()}`;
         return (
           <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: "12px" }}>
             {!!r.requires_tooling && (
-              <span className="rc__formula-pill">
-                Cần {lbl(TOOLING_TYPE)(r.tooling_type).toLowerCase()}
+              <span className="rc__formula-pill" title={chuDayDu}>
+                {chuDayDu}
               </span>
             )}
           </div>
         );
       } },
-    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
   ],
   fields: [
     { key: "nhom", label: "Giai đoạn", type: "select", required: true, group: "Thông tin", options: mapOpt(NHOM_CD) },
@@ -497,7 +500,8 @@ export const CFG_CONG_DOAN: CatalogConfig = {
 export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
   title: "Công việc khoán",
   moduleQuyen: "dm_cong_viec_khoan",
-  subtitle: "Đơn giá khoán theo tổ — bảng giá mà bước lệnh sản xuất và bảng lương tra để ra tiền khoán.",
+  enableClone: true,
+  enableImport: true,
   prefix: "/api/cong-viec-khoan",
   nhatKyLoai: "cong_viec_khoan",
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì xoá
@@ -519,7 +523,7 @@ export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
     // phải chuyện im lặng bỏ qua.
     { key: "unit", label: "Đơn vị", render: (r) => {
         const ma = r.unit ? String(r.unit) : "";
-        if (!ma) return "—";
+        if (!ma) return "";
         if (r.don_vi_ten) return <span className="rc__formula-pill">{String(r.don_vi_ten)}</span>;
         return (
           <span className="badge-sem badge-sem--muted" title="Đơn vị này không có trong danh mục Đơn vị & quy đổi">
@@ -528,8 +532,8 @@ export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
         );
       } },
     { key: "unit_price", label: "Đơn giá",
-      render: (r) => (Number(r.unit_price) ? `${Number(r.unit_price).toLocaleString("vi-VN")} đ` : "—") },
-    { key: "note", label: "Ghi chú", render: (r) => (r.note ? String(r.note) : "—") },
+      render: (r) => (Number(r.unit_price) ? `${Number(r.unit_price).toLocaleString("vi-VN")} đ` : "") },
+    { key: "note", label: "Ghi chú", render: (r) => (r.note ? String(r.note) : "") },
   ],
   fields: [
     // Tổ lấy từ CÙNG endpoint với ô "Tổ phụ trách" của Công đoạn — nút LÁ trong khối Sản xuất. Một
@@ -555,7 +559,6 @@ export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
 export const CFG_BU_HAO: CatalogConfig = {
   title: "Bù hao",
   moduleQuyen: "dm_bu_hao",
-  subtitle: "Mỗi mã bù hao = danh sách bậc số lượng → số tờ / %. Công đoạn trỏ mã bù hao để tra bậc theo SL.",
   prefix: "/api/bu-hao",
   nhatKyLoai: "bu_hao",
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
@@ -591,7 +594,7 @@ export const CFG_BU_HAO: CatalogConfig = {
       },
     },
     { key: "so_bac", label: "Số bậc", render: (r) => `${Array.isArray(r.bac) ? r.bac.length : 0} bậc` },
-    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
   ],
   fields: [
     { key: "bac", label: "Bậc số lượng → giá trị (tờ / %)", type: "bands", group: "Bậc số lượng" },
@@ -603,14 +606,13 @@ export const CFG_BU_HAO: CatalogConfig = {
 export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
   title: "Chủng loại giấy",
   moduleQuyen: "dm_chung_loai_giay",
-  subtitle: "Phân loại giấy (Couché / Ford / Bristol / Ivory / Duplex / Kraft…). Giấy chọn theo đây.",
   prefix: "/api/vat-lieu-kho/chung-loai-giay",
   nhatKyLoai: "chung_loai_giay",
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
   // xoá hẳn, còn nơi dùng thì chỉ ngừng dùng. Mục đã ngừng xem lại ở công tắc trên dải lọc.
   softDelete: true,
   columns: [
-    { key: "mo_ta", label: "Mô tả", render: (r) => (r.mo_ta ? String(r.mo_ta) : "—") },
+    { key: "mo_ta", label: "Mô tả", render: (r) => (r.mo_ta ? String(r.mo_ta) : "") },
   ],
   fields: [
     { key: "mo_ta", label: "Mô tả", type: "text", group: "Thông số" },
@@ -620,15 +622,16 @@ export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
 export const CFG_GIAY: CatalogConfig = {
   title: "Giấy",
   moduleQuyen: "dm_giay",
-  subtitle: "Từng loại giấy cụ thể — thuộc 1 Chủng loại giấy. Khai định lượng + đơn giá theo cân (đ/kg); khổ giấy nhập ở phiếu tính giá.",
+  enableClone: true,
+  enableImport: true,
   prefix: "/api/vat-lieu-kho/giay",
   nhatKyLoai: "giay",
   softDelete: true,
   columns: [
     { key: "gsm", label: "Định lượng", render: (r) => `${r.gsm} g/m²` },
     { key: "don_vi_gia", label: "ĐVT", render: (r) => dvCell(r) },
-    { key: "don_gia", label: "Đơn giá (đ/kg)", render: (r) => (Number(r.don_gia) ? Number(r.don_gia).toLocaleString("vi-VN") : "—") },
-    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
+    { key: "don_gia", label: "Đơn giá (đ/kg)", render: (r) => (Number(r.don_gia) ? Number(r.don_gia).toLocaleString("vi-VN") : "") },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
   ],
   fields: [
     { key: "chung_loai_giay_id", label: "Chủng loại giấy", type: "ref", required: true,
@@ -651,13 +654,18 @@ export const CFG_GIAY: CatalogConfig = {
       group: "Giá", nhanTab: "Công thức tính lượng",
       hint: "vd: dinh_luong * dai_nguyen * rong_nguyen * to_nguyen — ra số kg giấy phải mua" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
+    // NVL thay thế (mục 5 "Bảng định mức", mg 0239) — tra cứu/gợi ý khi thiếu giấy, MỘT CHIỀU.
+    { key: "thay_the_ids", label: "Giấy thay thế", type: "self-ref-multi",
+      refPrefix: "/api/vat-lieu-kho/giay", group: "Ghi chú",
+      hint: "Giấy khác dùng thay được món này khi thiếu hàng. Chỉ để tra cứu, không tự suy chiều ngược lại." },
   ],
 };
 
 export const CFG_VAT_TU: CatalogConfig = {
   title: "Vật tư khác",
   moduleQuyen: "dm_vat_tu",
-  subtitle: "Mực, bản kẽm, hoá chất, màng, keo… — mã · tên · ĐVT · công thức.",
+  enableClone: true,
+  enableImport: true,
   prefix: "/api/vat-lieu-kho/vat-tu-in-an",
   nhatKyLoai: "vat_tu",
   // Vật tư CHỈ còn 1 tab công thức, ra LƯỢNG (tiêu hao cho kế hoạch vật tư). Ô "Công thức tính
@@ -669,8 +677,8 @@ export const CFG_VAT_TU: CatalogConfig = {
   softDelete: true,
   columns: [
     { key: "don_vi_gia", label: "ĐVT", render: (r) => dvCell(r) },
-    { key: "don_gia", label: "Đơn giá", render: (r) => (Number(r.don_gia) ? Number(r.don_gia).toLocaleString("vi-VN") : "—") },
-    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
+    { key: "don_gia", label: "Đơn giá", render: (r) => (Number(r.don_gia) ? Number(r.don_gia).toLocaleString("vi-VN") : "") },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
   ],
   fields: [
     // Quy cách đóng gói (đơn vị đóng gói + hệ số) ĐÃ BỎ 10/08/2026: khai quy đổi ở hai nơi là bắt
@@ -691,6 +699,10 @@ export const CFG_VAT_TU: CatalogConfig = {
       group: "Giá",
       hint: "vd: sl_ra * 0.02 — lượng tiêu hao của bước, theo ĐVT đã chọn" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
+    // NVL thay thế (mục 5 "Bảng định mức", mg 0239) — tra cứu/gợi ý khi thiếu hàng, MỘT CHIỀU.
+    { key: "thay_the_ids", label: "Vật tư thay thế", type: "self-ref-multi",
+      refPrefix: "/api/vat-lieu-kho/vat-tu-in-an", group: "Ghi chú",
+      hint: "Vật tư khác dùng thay được món này khi thiếu hàng. Chỉ để tra cứu, không tự suy chiều ngược lại." },
   ],
 };
 
@@ -700,7 +712,6 @@ export const CFG_VAT_TU: CatalogConfig = {
 export const CFG_THANH_PHAM: CatalogConfig = {
   title: "Thành phẩm",
   moduleQuyen: "dm_thanh_pham",
-  subtitle: "Tên hàng bán ra — hệ tự khai khi chốt đơn để kho nhập/xuất được. Trùng tên thì dùng lại, không đẻ dòng mới.",
   prefix: "/api/vat-lieu-kho/thanh-pham",
   nhatKyLoai: "thanh_pham",
   // Khai tay ĐƯỢC (nới 19/08/2026) — Bán hàng khai trước một món khách sắp đặt là chuyện thường.
@@ -715,7 +726,7 @@ export const CFG_THANH_PHAM: CatalogConfig = {
     // Công tắc chia hai màn chuyển sang cột `la_thanh_pham` (mg 0228) — repo tự đóng dấu, người
     // dùng không khai, nên bỏ ô này không làm dòng mới rơi sang màn Vật tư.
     { key: "don_vi_gia", label: "ĐVT", render: (r) => dvCell(r) },
-    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
   ],
   fields: [
     { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", ...F_DON_VI, group: "Thông số",
@@ -807,14 +818,13 @@ export const CFG_KHO_HANG: CatalogConfig = {
   title: "Kho hàng",             // danh từ ở nút/lọc: "Thêm kho hàng", "Lọc kho hàng"
   heading: "Khai báo kho",       // H1 khớp menu "Khai báo kho"
   moduleQuyen: "dm_kho_hang",
-  subtitle: "Khai báo kho (tên · vị trí · ghi chú). Kho tạo ở đây tự hiện dưới mục “Kho hàng” trên thanh điều hướng.",
   prefix: "/api/kho",
   nhatKyLoai: "kho_hang",
   softDelete: true,
   autoCode: true,          // mã KHO-#### sinh ngầm ở backend, ẩn ô nhập mã
   columns: [
-    { key: "vi_tri", label: "Vị trí", render: (r) => (r.vi_tri ? String(r.vi_tri) : "—") },
-    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
+    { key: "vi_tri", label: "Vị trí", render: (r) => (r.vi_tri ? String(r.vi_tri) : "") },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
   ],
   fields: [
     { key: "vi_tri", label: "Vị trí kho", type: "text", group: "Thông tin",
@@ -844,7 +854,6 @@ const NHOM_LY_DO: Lbls = {
 export const CFG_LY_DO_SAN_XUAT: CatalogConfig = {
   title: "Lý do & lỗi SX",
   moduleQuyen: "dm_ly_do_san_xuat",
-  subtitle: "Danh mục chuẩn hoá lý do/lỗi sản xuất. Mọi ô chọn ở màn Thực hiện SX (hỏng batch · điều chỉnh bàn giao · mở lại phân bổ…) đổ từ đây, lọc theo Nhóm.",
   prefix: "/api/san-xuat-ly-do",
   nhatKyLoai: "san_xuat_ly_do",
   // Xoá MỀM ở service (`XOA_MEM`): batch/điều chỉnh bàn giao ghim ID thật, ngừng dùng thì lịch sử
@@ -856,8 +865,8 @@ export const CFG_LY_DO_SAN_XUAT: CatalogConfig = {
   facet: { key: "nhom", values: mapOpt(NHOM_LY_DO) },
   columns: [
     { key: "nhom", label: "Nhóm", render: (r) => lbl(NHOM_LY_DO)(r.nhom) },
-    { key: "ten", label: "Tên lý do / lỗi", render: (r) => (r.ten ? String(r.ten) : "—") },
-    { key: "mo_ta", label: "Mô tả", render: (r) => (r.mo_ta ? String(r.mo_ta) : "—") },
+    { key: "ten", label: "Tên lý do / lỗi", render: (r) => (r.ten ? String(r.ten) : "") },
+    { key: "mo_ta", label: "Mô tả", render: (r) => (r.mo_ta ? String(r.mo_ta) : "") },
   ],
   fields: [
     { key: "nhom", label: "Nhóm (dùng vào việc gì)", type: "select", required: true, group: "Thông tin",
@@ -889,11 +898,11 @@ export const TINH_TRANG_KHUON: Lbls = {
   thanh_ly: "Thanh lý",
 };
 
-// Ngày ISO (yyyy-mm-dd) → dd/mm/yyyy để đọc; rỗng → "—".
+// Ngày ISO (yyyy-mm-dd) → dd/mm/yyyy để đọc; rỗng → để trống.
 const fmtDate = (v: unknown): string => {
   const s = String(v ?? "").slice(0, 10);
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : "—";
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "";
 };
 
 // Khai báo KHUÔN BẾ — master data NHẸ, khai TAY. Mỗi khuôn làm riêng cho hình bế của 1
@@ -907,7 +916,6 @@ export const CFG_KHUON_BE: CatalogConfig = {
   // `role_permissions` của DB thật (khớp `components/Sidebar.tsx`). Đổi cho "nhất quán" là mọi vai
   // mất sạch quyền màn này.
   moduleQuyen: "khuon_be",
-  subtitle: "Kho dao của xưởng — khuôn bế và khuôn ép nhũ. Mỗi con dao làm riêng cho 1 ấn phẩm; đơn lặp lại lôi dao cũ ra dùng. Bước cần khuôn ở Lệnh sản xuất chọn dao từ đây.",
   prefix: "/api/khuon-be",
   nhatKyLoai: "khuon_be",
   softDelete: true,
@@ -915,9 +923,9 @@ export const CFG_KHUON_BE: CatalogConfig = {
   facet: { key: "tinh_trang", values: mapOpt(TINH_TRANG_KHUON) },
   columns: [
     { key: "khach_hang_ten", label: "Khách hàng",
-      render: (r) => (r.khach_hang_ten ? String(r.khach_hang_ten) : "—") },
-    { key: "loai", label: "Loại", render: (r) => (r.loai ? lbl(LOAI_KHUON)(r.loai) : "—") },
-    { key: "so_ke", label: "Số kệ", render: (r) => (r.so_ke ? String(r.so_ke) : "—") },
+      render: (r) => (r.khach_hang_ten ? String(r.khach_hang_ten) : "") },
+    { key: "loai", label: "Loại", render: (r) => (r.loai ? lbl(LOAI_KHUON)(r.loai) : "") },
+    { key: "so_ke", label: "Số kệ", render: (r) => (r.so_ke ? String(r.so_ke) : "") },
     // MỘT ngày duy nhất từ mg `0207` (gộp `ngay_lam_khuon` vào đây) — dao đã có thì là ngày nó
     // về / làm xong, dao đang làm thì là ngày dự kiến. Thêm chữ "dự kiến" cho ca sau để không ai
     // đọc nhầm một con số tương lai thành chuyện đã rồi.
@@ -1013,7 +1021,7 @@ export const CFG_DON_VI: CatalogConfig = {
         );
       },
     },
-    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
   ],
   fields: [
     { key: "ghi_chu", label: "Ghi chú", type: "text" },

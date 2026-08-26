@@ -9,15 +9,11 @@ import { HoaDon } from "./payablesCells";
 
 export function DaTraBlock({
   detail,
-  paidOpen,
-  setPaidOpen,
   paidShown,
   setPaidShown,
   setXemHetLichSu,
 }: {
   detail: PayablesDetail;
-  paidOpen: boolean;
-  setPaidOpen: Dispatch<SetStateAction<boolean>>;
   paidShown: number;
   setPaidShown: Dispatch<SetStateAction<number>>;
   setXemHetLichSu: Dispatch<SetStateAction<boolean>>;
@@ -25,21 +21,15 @@ export function DaTraBlock({
   return (
     <section className="pay-block pay-block--ok">
       <header className="pay-block__head">
-        <button
-          type="button"
-          className="pay-toggle"
-          onClick={() => setPaidOpen((v) => !v)}
-        >
-          {paidOpen ? "▾" : "▸"}{" "}
+        <h3>
           {detail.all_history
             ? "Đã trả — toàn bộ lịch sử"
             : `Đã trả (${detail.period_months} tháng)`}{" "}
           ({detail.paid.length} lần)
-        </button>
+        </h3>
         <strong>{money(detail.paid_in_period)}</strong>
       </header>
-      {paidOpen &&
-        (detail.paid.length === 0 ? (
+      {(detail.paid.length === 0 ? (
           <>
             <p className="pay-empty">
               {detail.all_history
@@ -80,7 +70,7 @@ export function DaTraBlock({
                   <tr key={row.voucher_id}>
                     <td>{fmtDate(row.paid_date)}</td>
                     <td>
-                      {row.doc_no ?? row.code}
+                      {row.code}
                       {!row.has_attachment && (
                         // CẢNH BÁO, không chặn — tiền đã ra rồi, chặn ở đây chẳng cứu được gì.
                         <small className="pay-warn">
