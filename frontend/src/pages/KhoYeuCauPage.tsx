@@ -28,6 +28,7 @@ import { crud } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
+import { Icon } from "../components/Icons";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { MaterialCombobox } from "../components/MaterialCombobox";
@@ -308,8 +309,8 @@ export function KhoYeuCauPage({
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
-        {/* LỌC TRẠNG THÁI — dải tab Segmented Control phẳng thay cho dropdown cũ */}
-        <div className="rc__tabs" style={{ margin: 0 }}>
+        {/* LỌC TRẠNG THÁI — cùng dải Filter Chips với màn Yêu cầu nhập xuất cho nhất quán. */}
+        <div className="kho-filter-chips">
           {tabs.map((t) => {
             const count = countOf(t.id);
             const active = tab === t.id;
@@ -317,11 +318,11 @@ export function KhoYeuCauPage({
               <button
                 key={t.id}
                 type="button"
-                className={`rc__tab${active ? " is-active" : ""}`}
+                className={`kho-filter-chip${active ? " is-active" : ""}`}
                 onClick={() => setTab(t.id)}
               >
                 <span>{t.label}</span>
-                {count > 0 && <span className="rc__tab-badge">{count}</span>}
+                <span className="kho-filter-chip__count">{count}</span>
               </button>
             );
           })}
@@ -426,13 +427,13 @@ export function KhoYeuCauPage({
                         <LoaiYeuCauChip loai={r.loai} dieuChuyen={r.dieu_chuyen} />
                       </td>
                       <td>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div className="kho-user-avatar" style={{ width: 22, height: 22, fontSize: 10, flexShrink: 0 }}>
+                        <div className="kho-user-cell">
+                          <div className="kho-user-avatar kho-user-avatar--sm">
                             {(r.nguoi_tao_ten || "U").slice(0, 1).toUpperCase()}
                           </div>
                           <div>
-                            <div style={{ fontWeight: "var(--fw-medium)", color: "var(--ink)" }}>{r.nguoi_tao_ten ?? "—"}</div>
-                            <div className="rc__muted" style={{ fontSize: 11 }}>{r.bo_phan_ten ?? "—"}</div>
+                            <div className="rc__name">{r.nguoi_tao_ten ?? "—"}</div>
+                            <div className="rc__muted">{r.bo_phan_ten ?? "—"}</div>
                           </div>
                         </div>
                       </td>
@@ -444,7 +445,7 @@ export function KhoYeuCauPage({
                           {r.lines[0]?.hang_ten ?? "—"}
                         </div>
                         {r.lines.length > 1 && (
-                          <div className="rc__muted">+{r.lines.length - 1} mã</div>
+                          <span className="badge-sem badge-sem--muted kho-morepill">+{r.lines.length - 1} mã</span>
                         )}
                       </td>
                       <td>{maLenhCuaDeNghi(r)}</td>
@@ -638,7 +639,7 @@ function TransferTable({
         ) : rows.length === 0 ? (
           <EmptyRow
             cols={cols}
-            text="Chưa có phiếu điều chuyển. Tạo bằng nút ⇄ Chuyển kho ở màn tồn kho."
+            text="Chưa có phiếu điều chuyển. Tạo bằng nút Chuyển kho ở màn tồn kho."
           />
         ) : (
           rows.map((r) => {
@@ -654,9 +655,9 @@ function TransferTable({
                   {r.id === newestReqId && <span className="kho-new-pill">Mới</span>}
                 </td>
                 <td>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div className="kho-route">
                     <span className="rc__name">{r.kho_nguon_ten ?? "—"}</span>
-                    <span aria-hidden style={{ color: "var(--ash)" }}>⇄</span>
+                    <span aria-hidden className="kho-route__sep">⇄</span>
                     <span className="rc__name">{r.kho_ten ?? "—"}</span>
                   </div>
                 </td>
@@ -853,10 +854,10 @@ function TransferDrawer({
               <div className="rc-drawer__kicker">PHIẾU ĐIỀU CHUYỂN</div>
               <h2 className="rc-drawer__title">{req?.ma ?? "Đang tải…"}</h2>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
+            <div className="kho-headside">
               {req && <TransferStatusBadge status={status} />}
               <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
-                ✕
+                <Icon name="x" size={16} />
               </button>
             </div>
           </header>
@@ -929,8 +930,8 @@ function TransferDrawer({
                   </div>
                 </section>
 
-                <div className="banner banner--info" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 13 }}>💡 Ghi sổ sẽ <b>TRỪ</b> kho nguồn và <b>CỘNG</b> kho đích cùng lúc.</span>
+                <div className="banner banner--info">
+                  <span>Ghi sổ sẽ <b>TRỪ</b> kho nguồn và <b>CỘNG</b> kho đích cùng lúc.</span>
                 </div>
 
                 <section className="rc-sec">
@@ -1192,10 +1193,10 @@ export function InboxRequestDrawer({
             </div>
             <h2 className="rc-drawer__title">{req?.ma ?? "Đang tải…"}</h2>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
+          <div className="kho-headside">
             {req && <RequestStatusBadge status={req.trang_thai} />}
             <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
-              ✕
+              <Icon name="x" size={16} />
             </button>
           </div>
         </header>
@@ -1207,7 +1208,7 @@ export function InboxRequestDrawer({
               return (
                 <div key={idx} className={`kho-stepper__step kho-stepper__step--${cls}`}>
                   <div className="kho-stepper__dot">
-                    {s.done ? "✓" : idx + 1}
+                    {s.done ? <Icon name="check" size={13} /> : idx + 1}
                   </div>
                   <div className="kho-stepper__content">
                     <span className="kho-stepper__label">{s.label}</span>
@@ -1856,7 +1857,7 @@ function VoucherCreateDrawer({
               </div>
               <h2 className="rc-drawer__title">Ứng theo {request.ma}</h2>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
+            <div className="kho-headside">
               {/* Không badge "Chờ ghi sổ" nữa: tạo = ghi sổ ngay (create & post gộp 1 quyền). */}
               <button
                 type="button"
@@ -1864,7 +1865,7 @@ function VoucherCreateDrawer({
                 onClick={requestClose}
                 aria-label="Đóng"
               >
-                ✕
+                <Icon name="x" size={16} />
               </button>
             </div>
           </header>
@@ -1895,16 +1896,16 @@ function VoucherCreateDrawer({
               <div className="kho-meta-banner">
                 <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                   <div>
-                    <span className="rc-field__label" style={{ display: "block", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>Theo yêu cầu</span>
+                    <span className="kho-microlabel">Theo yêu cầu</span>
                     <span className="kho-meta-banner__badge">{request.ma}</span>
                   </div>
-                  <div style={{ height: 28, width: 1, background: "var(--rule-soft)", margin: "0 4px" }} />
+                  <div className="kho-vdivider" />
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div className="kho-user-avatar" style={{ width: 26, height: 26, fontSize: 11, background: "var(--charcoal)", color: "#fff", flexShrink: 0 }}>
+                    <div className="kho-user-avatar kho-user-avatar--charcoal">
                       {(request.nguoi_tao_ten || "U").slice(0, 1).toUpperCase()}
                     </div>
                     <div>
-                      <span className="rc-field__label" style={{ display: "block", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>Người tạo yêu cầu</span>
+                      <span className="kho-microlabel">Người tạo yêu cầu</span>
                       <div style={{ fontWeight: "var(--fw-medium)", color: "var(--ink)", fontSize: 13 }}>
                         {request.nguoi_tao_ten || "—"} {request.bo_phan_ten ? `(${request.bo_phan_ten})` : ""}
                       </div>
@@ -1914,7 +1915,7 @@ function VoucherCreateDrawer({
 
                 {canViewCost && (
                   <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                    <div style={{ height: 28, width: 1, background: "var(--rule-soft)" }} />
+                    <div className="kho-vdivider" />
                     <div className="kho-top-kpi-pill">
                       <span className="kho-top-kpi-pill__label">Tổng giá vốn ({payload.length} dòng)</span>
                       <span className="kho-top-kpi-pill__val">{money(giaVon)}</span>
@@ -2070,14 +2071,14 @@ function VoucherCreateDrawer({
                 <ul className="kho-att">
                   {files.map((f, i) => (
                     <li key={i} className="kho-att__item">
-                      <span className="kho-att__name">📎 {f.name}</span>
+                      <span className="kho-att__name">{f.name}</span>
                       <button
                         type="button"
                         className="rc-bands__del"
                         aria-label={`Bỏ ${f.name}`}
                         onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
                       >
-                        ✕
+                        <Icon name="x" size={13} />
                       </button>
                     </li>
                   ))}
@@ -2531,7 +2532,7 @@ function AllocRow({
                   className={`kho-alloc__sum${matched ? " kho-alloc__sum--ok" : " kho-alloc__sum--off"}`}
                 >
                   {matched
-                    ? `✓ Lấy đủ ${fmtQty(chosen)} / cần ${fmtQty(targetGoc)}`
+                    ? `Lấy đủ ${fmtQty(chosen)} / cần ${fmtQty(targetGoc)}`
                     : `Lấy ${fmtQty(chosen)} / cần ${fmtQty(targetGoc)} · thiếu ${fmtQty(Math.max(0, targetGoc - chosen))}`}
                 </div>
               </>
@@ -2703,10 +2704,10 @@ export function VoucherDrawer({
               </div>
               <h2 className="rc-drawer__title">{v?.ma ?? "Đang tải…"}</h2>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
+            <div className="kho-headside">
               {v && <VoucherStatusBadge status={v.trang_thai} />}
               <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
-                ✕
+                <Icon name="x" size={16} />
               </button>
             </div>
           </header>
@@ -2746,16 +2747,16 @@ export function VoucherDrawer({
                   <div className="kho-meta-banner">
                     <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                       <div>
-                        <span className="rc-field__label" style={{ display: "block", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>Theo yêu cầu</span>
+                        <span className="kho-microlabel">Theo yêu cầu</span>
                         <span className="kho-meta-banner__badge">{v.request_ma || "—"}</span>
                       </div>
-                      <div style={{ height: 28, width: 1, background: "var(--rule-soft)", margin: "0 4px" }} />
+                      <div className="kho-vdivider" />
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <div className="kho-user-avatar" style={{ width: 26, height: 26, fontSize: 11, background: "var(--charcoal)", color: "#fff", flexShrink: 0 }}>
+                        <div className="kho-user-avatar kho-user-avatar--charcoal">
                           {(v.nguoi_lap_ten || "U").slice(0, 1).toUpperCase()}
                         </div>
                         <div>
-                          <span className="rc-field__label" style={{ display: "block", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>Người lập phiếu</span>
+                          <span className="kho-microlabel">Người lập phiếu</span>
                           <div style={{ fontWeight: "var(--fw-medium)", color: "var(--ink)", fontSize: 13 }}>
                             {v.nguoi_lap_ten || "—"}
                           </div>
@@ -2765,7 +2766,7 @@ export function VoucherDrawer({
 
                     {canViewCost && v.gia_von != null && (
                       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                        <div style={{ height: 28, width: 1, background: "var(--rule-soft)" }} />
+                        <div className="kho-vdivider" />
                         <div className="kho-top-kpi-pill">
                           <span className="kho-top-kpi-pill__label">Tổng giá vốn ({v.lines.length} dòng)</span>
                           <span className="kho-top-kpi-pill__val">{money(v.gia_von)}</span>
@@ -2824,14 +2825,14 @@ export function VoucherDrawer({
                               <div className="kho-lines__code" style={{ fontFamily: "var(--ff-num)", fontSize: 11, color: "var(--ash)" }}>{l.hang_ma ?? ""}</div>
                             </td>
                             <td className="kho-lines__code" style={{ textAlign: "center" }}>{tenDonVi(l.dvt) ?? l.dvt ?? "—"}</td>
-                            <td className="kho-num" style={{ fontFamily: "var(--ff-num)", fontVariantNumeric: "tabular-nums" }}>{fmtQty(l.so_luong)}</td>
+                            <td className="kho-num">{fmtQty(l.so_luong)}</td>
                             {canViewCost && (
-                              <td className="kho-num" style={{ fontFamily: "var(--ff-num)", fontVariantNumeric: "tabular-nums" }}>
+                              <td className="kho-num">
                                 {l.don_gia != null ? money(l.don_gia) : ""}
                               </td>
                             )}
                             {canViewCost && (
-                              <td className="kho-num" style={{ fontFamily: "var(--ff-num)", fontVariantNumeric: "tabular-nums", fontWeight: "var(--fw-bold)" }}>
+                              <td className="kho-num" style={{ fontWeight: "var(--fw-bold)" }}>
                                 {l.thanh_tien != null ? money(l.thanh_tien) : ""}
                               </td>
                             )}
@@ -2861,7 +2862,7 @@ export function VoucherDrawer({
                             rel="noreferrer"
                             className="kho-att__name"
                           >
-                            📎 {a.file_name}
+                            {a.file_name}
                           </a>
                           {canCreate && v.trang_thai !== "cancelled" && (
                             <button
@@ -2871,7 +2872,7 @@ export function VoucherDrawer({
                               disabled={attBusy}
                               onClick={() => removeAtt(a.id)}
                             >
-                              ✕
+                              <Icon name="x" size={13} />
                             </button>
                           )}
                         </li>
@@ -3075,7 +3076,7 @@ export function ThresholdDrawer({
             <h2 className="rc-drawer__title">Ngưỡng tồn</h2>
           </div>
           <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
-            ✕
+            <Icon name="x" size={16} />
           </button>
         </header>
 

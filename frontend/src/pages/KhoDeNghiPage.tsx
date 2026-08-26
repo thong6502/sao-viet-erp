@@ -21,6 +21,7 @@ import { VoucherDrawer } from "./KhoYeuCauPage";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
+import { Icon } from "../components/Icons";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombobox";
 import { PrintSheet } from "../components/PrintSheet";
@@ -244,7 +245,7 @@ export function KhoDeNghiPage({
               onClick={() => setQ("")}
               aria-label="Xóa tìm kiếm"
             >
-              ✕
+              <Icon name="x" size={13} />
             </button>
           )}
         </div>
@@ -377,7 +378,7 @@ export function KhoDeNghiPage({
                         {first?.hang_ten ?? "—"}
                       </div>
                       {r.lines.length > 1 && (
-                        <span className="badge-sem badge-sem--muted" style={{ marginTop: 3, fontSize: 11 }}>
+                        <span className="badge-sem badge-sem--muted kho-morepill">
                           +{r.lines.length - 1} mặt hàng
                         </span>
                       )}
@@ -1013,10 +1014,10 @@ function RequestDrawer({
             <div className="rc-drawer__kicker">{kicker}</div>
             <h2 className="rc-drawer__title kho-drawer-title">{req?.ma ?? "Yêu cầu mới"}</h2>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
+          <div className="kho-headside">
             {req && <RequestStatusBadge status={req.trang_thai} />}
             <button type="button" className="rc-drawer__x" onClick={requestClose} aria-label="Đóng">
-              ✕
+              <Icon name="x" size={16} />
             </button>
           </div>
         </header>
@@ -1028,7 +1029,7 @@ function RequestDrawer({
               return (
                 <div key={idx} className={`kho-stepper__step kho-stepper__step--${cls}`}>
                   <div className="kho-stepper__dot">
-                    {s.done ? "✓" : idx + 1}
+                    {s.done ? <Icon name="check" size={13} /> : idx + 1}
                   </div>
                   <div className="kho-stepper__content">
                     <span className="kho-stepper__label">{s.label}</span>
@@ -1323,7 +1324,7 @@ function RequestDrawer({
                                     );
                                   }}
                                 >
-                                  ✕
+                                  <Icon name="x" size={13} />
                                 </button>
                               </td>
                             )}
@@ -1407,7 +1408,7 @@ function RequestDrawer({
                         </div>
                         <div className="kho-vlink-card__right">
                           <VoucherStatusBadge status={v.trang_thai} />
-                          <span className="kho-vlink-card__arrow" aria-hidden>→</span>
+                          <span className="kho-vlink-card__arrow" aria-hidden><Icon name="arrowRight" size={14} /></span>
                         </div>
                       </button>
                     ))}

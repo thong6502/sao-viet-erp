@@ -1,6 +1,6 @@
 // Báo cáo kho (kế toán) — sổ nhập-xuất (phiếu ĐÃ GHI SỔ) + khóa kỳ THEO KHOẢNG (chốt/mở) +
 // tab Lịch sử thao tác + export MISA. docs/spec-bao-cao-kho.md. Chỉ quyền `close_book` vào.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ApiError,
@@ -345,6 +345,15 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       chuoiMax,
     };
   }, [dashRows, dashChuyen]);
+
+  // Đồ thị Nhập/Xuất/Chuyển kho theo ngày: mặc định CUỘN TỚI NGÀY MỚI NHẤT (bên phải) khi mở màn /
+  // đổi bộ lọc, thay vì đứng ở ngày cũ nhất — người xem quan tâm gần đây nhất. Dùng useLayoutEffect
+  // để không nhấp nháy (đặt scroll trước khi vẽ).
+  const chartPlotRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = chartPlotRef.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [dash.chuoi, dash.theoThang]);
 
   const khoOptions = useMemo(
     () => [
@@ -803,7 +812,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                         <span className="kho-chart__leg kho-chart__leg--move">Chuyển kho</span>
                       )}
                     </div>
-                    <div className="kho-chart__plot">
+                    <div className="kho-chart__plot" ref={chartPlotRef}>
                       {dash.chuoi.map((c) => (
                         <div
                           className="kho-chart__grp"
