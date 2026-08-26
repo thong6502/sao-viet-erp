@@ -3073,17 +3073,17 @@ select.rc-input:focus {
   color: var(--ash, #6b665b);
   min-width: 96px;
 }
-.rc-formula__lich-su-item-cu,
-.rc-formula__lich-su-item-moi {
+.rc-formula__lich-su-item-cu {
   font-size: 12px;
   background: none;
   padding: 0;
-}
-.rc-formula__lich-su-item-cu {
   color: var(--ash, #6b665b);
   text-decoration: line-through;
 }
 .rc-formula__lich-su-item-moi {
+  font-size: 12px;
+  background: none;
+  padding: 0;
   color: var(--moss, #2f5d3a);
   font-weight: 600;
 }
