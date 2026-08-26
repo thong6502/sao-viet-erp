@@ -190,9 +190,18 @@ const FINE_ACTIONS: Record<
       hint: "Mở màn \"Báo cáo kho\": sổ nhập-xuất, xuất Excel theo mẫu MISA, và KHÓA KỲ (chốt sổ) toàn kho / từng kho. Chỉ kế toán kho.",
     },
   ],
-  // DANH MỤC: KHÔNG có quyền chi tiết — mỗi màn danh mục chỉ Xem + Thao tác.
+  // DANH MỤC: đa số KHÔNG có quyền chi tiết — mỗi màn chỉ Xem + Thao tác.
   // (Trước đây bày 5 ô `manage_price` / `clone` / `toggle_active` nhưng KHÔNG endpoint nào kiểm
   //  → tick vào không đổi gì, mà người cấp quyền lại tưởng đã siết được việc sửa giá.)
+  // `can_clone` nối THẬT 26/08/2026 (`POST /{id}/clone`, xem `routers/catalog_base.py`) cho 5 màn
+  // Giấy · Vật tư khác · Máy thiết bị · Công đoạn · Đầu việc khoán — nên RIÊNG 5 khoá này bày ô
+  // "Nhân bản". Không gộp vào `can_create`: vai được TẠO MỚI (gõ tay) chưa chắc nên NHÂN BẢN hàng
+  // cũ (nhân đôi cả giá/công thức đang chạy mà không soát lại từng ô).
+  dm_giay: [{ key: "can_clone", label: "Nhân bản" }],
+  dm_vat_tu: [{ key: "can_clone", label: "Nhân bản" }],
+  dm_thiet_bi: [{ key: "can_clone", label: "Nhân bản" }],
+  dm_cong_doan: [{ key: "can_clone", label: "Nhân bản" }],
+  dm_cong_viec_khoan: [{ key: "can_clone", label: "Nhân bản" }],
   nhan_su: [
     { key: "can_view_salary", label: "Xem lương & BHXH (dữ liệu nhạy cảm)" },
     {
@@ -272,6 +281,11 @@ const FINE_ACTIONS: Record<
       key: "can_plan",
       label: "Lên đơn giao hàng",
       hint: "Mở tab “Yêu cầu giao” + nút Lên đơn giao hàng (chọn tài xế, giờ lấy, giờ dự kiến giao) + nút Gửi đề nghị xuất hàng sang kho. Tách khỏi cột Thao tác vì gửi yêu cầu giao (Bán hàng làm) và xếp chuyến cho tài xế (Quản lý Giao hàng làm) là việc của hai người — gộp một cột là Bán hàng xếp được lịch tài xế.",
+    },
+    {
+      key: "can_cancel",
+      label: "Huỷ yêu cầu / huỷ chuyến",
+      hint: "Huỷ một yêu cầu giao chưa lên kế hoạch, hoặc huỷ chuyến đã xếp (phải nhập lý do, phiếu ở lại có vết). Tách khỏi cột Thao tác vì tài xế ở phạm vi “Của tôi” vẫn phải nhập được kết quả chuyến, nhưng bỏ chuyến là quyết định của điều phối.",
     },
     {
       key: "can_view_drivers",

@@ -57,15 +57,21 @@ def _danh_gia(db: Session, nhom_id: int) -> tuple[SanXuatNhom, list, list[dict]]
 
     # (3) KCS cuối đã phân loại HẾT số đã xác nhận nhận (tỷ lệ classified/received ≥ 1), KHÔNG so
     #     với mục tiêu đơn. Bất biến batch `nhan = dat + khong_dat` nên chỉ vỡ nếu có batch dở.
+    #     "Chưa nhận gì" KHÔNG được ngầm hiểu là "đạt" — release.van_de_phat_hanh (§4.4) đã chặn
+    #     phát hành thiếu KCS cuối nên `co_kcs_cuoi=False` ở đây là dữ liệu tồn từ trước khi có
+    #     gate đó, không phải quy tắc "không cần KCS" (quy tắc đó phải chốt riêng, không suy từ 0).
+    #     `la_kcs_cuoi` chỉ được gán thật khi qua release.phat_hanh (snapshot.danh_dau_kcs_cuoi);
+    #     dữ liệu/test dựng tay chỉ có `la_kcs` (rộng hơn) — dùng lại đúng cách rơi-về đã có ở
+    #     dong_thieu (bên dưới) để không vỡ khi thiếu cờ hẹp.
+    kcs_final_cvs = [cv for cv in cvs if cv.la_kcs_cuoi] or [cv for cv in cvs if cv.la_kcs]
+    co_kcs_cuoi = bool(kcs_final_cvs)
     da_nhan = 0.0
     da_phan_loai = 0.0
-    for cv in cvs:
-        if not cv.la_kcs_cuoi:
-            continue
+    for cv in kcs_final_cvs:
         for b in kcs_repo.cac_kcs_batch(cv.id):
             da_nhan += float(b.so_luong_nhan or 0)
             da_phan_loai += float(b.so_luong_dat or 0) + float(b.so_luong_khong_dat or 0)
-    kcs_du = da_nhan <= _EPS or da_phan_loai + _EPS >= da_nhan
+    kcs_du = co_kcs_cuoi and da_nhan > _EPS and da_phan_loai + _EPS >= da_nhan
 
     # (4) mọi phân bổ lương khoán đã chốt (không còn draft/mở lại).
     chua_chot = [cv for cv in cvs if pb_repo.con_phan_bo_chua_chot(cv.id)]
@@ -92,7 +98,10 @@ def _danh_gia(db: Session, nhom_id: int) -> tuple[SanXuatNhom, list, list[dict]]
             "ten": "KCS cuối đã phân loại hết số nhận",
             "dat": kcs_du,
             "chi_tiet": (
-                f"mới phân loại {da_phan_loai:g}/{da_nhan:g}" if not kcs_du else ""
+                "" if kcs_du else
+                "nhóm chưa xác định bước KCS cuối" if not co_kcs_cuoi else
+                "KCS cuối chưa nhận sản phẩm nào" if da_nhan <= _EPS else
+                f"mới phân loại {da_phan_loai:g}/{da_nhan:g}"
             ),
         },
         {

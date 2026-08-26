@@ -81,6 +81,9 @@
   background: var(--paper);
 }
 .thsx-seg__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   appearance: none;
   border: 0;
   background: transparent;
@@ -642,6 +645,92 @@
 @media (prefers-reduced-motion: reduce) {
   .thsx-bar--running { animation: none; }
   .thsx-actbar--open { animation: none; }
+}
+
+/* ================= CỘT GIỮA — DANH SÁCH (thay Gantt) ======================= */
+.thsx-ds__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-4) var(--sp-5);
+}
+.thsx-ds__sec + .thsx-ds__sec { margin-top: var(--sp-5); }
+.thsx-ds__sech {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ash-2);
+}
+.thsx-ds__sech svg { color: var(--ash-2); }
+.thsx-ds__secn {
+  font-size: var(--fs-2xs);
+  color: var(--ash);
+  font-weight: var(--fw-bold);
+}
+.thsx-ds__tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+  background: var(--canvas);
+}
+.thsx-ds__tbl th {
+  text-align: left;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+  background: var(--paper);
+}
+.thsx-ds__tbl td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--rule-hair);
+  color: var(--ink);
+  vertical-align: top;
+}
+.thsx-ds__tbl th.r, .thsx-ds__tbl td.r { text-align: right; }
+.thsx-ds__tbl tr:last-child td { border-bottom: 0; }
+.thsx-ds__row { cursor: pointer; transition: background var(--duration-fast) ease; }
+.thsx-ds__row:hover { background: var(--paper); }
+.thsx-ds__row:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
+.thsx-ds__row--sel { background: var(--rust-soft); }
+.thsx-ds__row--sel:hover { background: var(--rust-soft); }
+.thsx-ds__row--kcs td:first-child { box-shadow: inset 3px 0 0 var(--plum); }
+.thsx-ds__src {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.thsx-ds__src svg { color: var(--ash-2); flex: none; }
+.thsx-ds__srcten {
+  margin-top: 2px;
+  font-size: var(--fs-2xs);
+  color: var(--ash);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thsx-ds__kcs {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.thsx-ds__vt {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ash);
 }
 
 /* ================= CỘT PHẢI — DRAWER ======================================= */

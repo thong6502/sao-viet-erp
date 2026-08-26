@@ -285,6 +285,30 @@ def test_ngung_dung_va_bat_lai_bang_PATCH_active(client):
     assert client.put(f"{API}/{rid}", json={"active": False}, headers=h).status_code == 422
 
 
+# --- Nhân bản (POST /{id}/clone) ---------------------------------------------
+
+
+def test_clone_copy_toan_bo_cot_ma_moi_ten_them_hau_to(client):
+    """`MA_TU_SINH=True` ở danh mục này ⇒ bản sao KHÔNG lấy `<mã>-COPY`, mà xin mã mới `KH-####`
+    y hệt lúc tạo tay — hai đường sinh mã (tạo mới / nhân bản) không được lệch nhau."""
+    h = _admin(client)
+    goc = _mk(client, h, ten="ZZ Bồi 3 lớp", unit_price=170).json()
+    r = client.post(f"{API}/{goc['id']}/clone", headers=h)
+    assert r.status_code == 201, r.text
+    ban_sao = r.json()
+    assert ban_sao["id"] != goc["id"]
+    assert ban_sao["ma"] != goc["ma"] and ban_sao["ma"].startswith("KH-")
+    assert ban_sao["ten"] == "ZZ Bồi 3 lớp (bản sao)"
+    assert ban_sao["unit_price"] == 170
+    assert ban_sao["department_id"] == goc["department_id"]
+
+
+def test_clone_bao_khong_thay_dong_goc(client):
+    h = _admin(client)
+    r = client.post(f"{API}/999999/clone", headers=h)
+    assert r.status_code == 404, r.text
+
+
 # --- Tab Nhật ký -------------------------------------------------------------
 # Trước 17/08/2026 bảng này KHÔNG ghi dòng nhật ký nào: CRUD của nó nằm ở router Lương, ngoài nền
 # danh mục. Ai đổi đơn giá lúc nào là không tra được — mà đó là TIỀN của công nhân.

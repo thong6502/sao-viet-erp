@@ -284,7 +284,7 @@ and is read via SEAM-16, never stored here.
 | `email` | `String(255)` → `VARCHAR(255)` | — | yes | — | Contact email. |
 | `address` | `String(500)` → `VARCHAR(500)` | — | yes | — | Billing / delivery address. |
 | `contact_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Người liên hệ tại khách (CRM field). |
-| `credit_limit` | `Integer` → `INTEGER` | — | no | `0` | Hạn mức tín dụng (VND integer). Limit only; live balance is read via SEAM-16. |
+| `credit_limit` | `BigInteger` → `BIGINT` | — | no | `0` | Hạn mức tín dụng (VND). Limit only; live balance is read via SEAM-16. Migration 0238 (từng là `Integer`, tràn int32 ở hạn mức lớn). |
 | `sale_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Owning Sale (RBAC scope owner). Nullable; indexed because every scoped list filters on it. |
 | `status` | `String(16)` → `VARCHAR(16)` | — | no | `active` | **DORMANT (redesign spec-06 v2)** — lead/active/inactive đã bỏ khỏi UI + logic; cột giữ default `active` cho dữ liệu cũ, không dùng cho nghiệp vụ mới. |
 | `customer_kind` | `String(12)` → `VARCHAR(12)` | — | no | `cong_ty` | Loại KH (redesign spec-06 v2): `ca_nhan` (cá nhân — form ẩn MST) / `cong_ty` (doanh nghiệp — hiện MST, tùy chọn). Khách cũ mặc định `cong_ty`. Thêm qua migration 0060. |
@@ -3232,7 +3232,9 @@ dùng cho bình bài.
 
 **Purpose:** tờ giấy nguyên (khổ mua) — thuộc 1 chủng loại (`chung_loai_giay_id`, soft int). Một row = một loại giấy cụ thể.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `chung_loai_giay_id`, `kho_dai`, `kho_rong`, `gsm`, `caliper_micron`, `tho`, `don_vi_gia`, `don_gia`, `gia_thi_truong`, `kho_tinh_gia`, `cong_thuc_gia`, `cong_thuc_luong`, `ghi_chu`, `anh_url`, `version_no`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `chung_loai_giay_id`, `kho_dai`, `kho_rong`, `gsm`, `caliper_micron`, `tho`, `don_vi_gia`, `don_gia`, `gia_thi_truong`, `kho_tinh_gia`, `cong_thuc_gia`, `cong_thuc_luong`, `ghi_chu`, `thay_the_ids`, `anh_url`, `version_no`, `active`, `created_at`, `updated_at`.
+
+`thay_the_ids` (JSON nullable, mảng int, mg 0239): **NVL THAY THẾ** — id các dòng `giay_nguyen` KHÁC dùng thay được món này. MỘT CHIỀU (khai A→B không tự suy B→A; cần cả hai chiều thì người khai tự thêm cả hai). Chỉ để tra cứu/gợi ý khi thiếu hàng, không ràng buộc gì ở engine tính giá/kế hoạch vật tư.
 
 `cong_thuc_luong` (TEXT nullable, mg 0195): **CÔNG THỨC RA LƯỢNG** — vế giấy của cặp với `vat_tu_in_an.cong_thuc_luong` (mg 0194). Vd `dinh_luong * dai_in * rong_in * to_dau_vao` = số kg giấy cả lệnh. Có nó thì giấy khai ĐVT `kg` THẬT rồi tự ra kg, khỏi đi vòng qua cạnh quy đổi động `tờ → kg` — cạnh đó là chỗ duy nhất còn giữ "công thức mà lại có đích". `ke_hoach_vat_tu_service._ve_goc` hỏi cột này TRƯỚC, không có mới quy đổi.
 
@@ -3252,7 +3254,9 @@ dùng cho bình bài.
 
 **Purpose:** vật tư in ấn — danh mục PHẲNG (mực/kẽm/hoá chất/màng/keo… chung 1 bảng, phân biệt bằng tên) theo bảng xưởng: Mã · Tên · ĐVT · Giá · Ghi chú. Thay 2 bảng cũ `muc`+`ban_kem`.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `don_vi_gia`, `don_vi_dong_goi`, `he_so_dong_goi`, `don_gia`, `cong_thuc_gia`, `cong_thuc_luong`, `ghi_chu`, `anh_url`, `active`, `created_at`, `updated_at`, `customer_id`, `la_thanh_pham`, `order_id`, `order_line_id`.
+**Tất cả cột:** `id`, `ma`, `ten`, `don_vi_gia`, `don_vi_dong_goi`, `he_so_dong_goi`, `don_gia`, `cong_thuc_gia`, `cong_thuc_luong`, `ghi_chu`, `thay_the_ids`, `anh_url`, `active`, `created_at`, `updated_at`, `customer_id`, `la_thanh_pham`, `order_id`, `order_line_id`.
+
+`thay_the_ids` (JSON nullable, mảng int, mg 0239): **NVL THAY THẾ** — id các dòng `vat_tu_in_an` KHÁC dùng thay được món này. Xem ghi chú đầy đủ ở `giay_nguyen.thay_the_ids` (một chiều, chỉ tra cứu/gợi ý).
 
 `la_thanh_pham` (BOOLEAN NOT NULL default `false`, mg 0228): **CÔNG TẮC chia hai màn danh mục** — `false` ⇒ *Vật tư khác* (`dm_vat_tu`), `true` ⇒ *Thành phẩm* (`dm_thanh_pham`). Người dùng **không khai** ô này: `_VatTuRepo` / `_ThanhPhamRepo` tự đóng dấu ở `_sau_gan`, vì `_gan` chỉ chép cột có trong `fields` nên cờ do nơi gọi đặt sẽ bị nuốt không một tiếng động.
 
@@ -5843,6 +5847,40 @@ cho mọi người có quyền đọc màn đó, không nhân bản theo ngườ
 - Nhiều mốc đọc thuộc một người dùng; không FK cứng tới thông báo cuối để việc dọn thông báo cũ không khóa nhau.
 
 **Tất cả cột:** `id`, `user_id`, `channel`, `last_read_notification_id`, `updated_at`.
+
+---
+
+## Bảng định mức — lịch sử công thức (mục 3+7)
+
+### `cong_thuc_lich_su`
+
+**Purpose:** một lần đổi giá trị ô công thức lượng/sản lượng ở 5 danh mục (Giấy, Vật tư khác, Máy
+thiết bị, Công đoạn, Đầu việc khoán) — 1 dòng / 1 trường / 1 lần lưu thực sự đổi giá trị. Ghi qua
+đúng hook đang ghi `audit_log` (`services/nhat_ky_danh_muc.ghi_sua`), cùng giao dịch nên không bao
+giờ lệch với nhật ký. Router (`routers/catalog_base.make_catalog_router`) đọc dòng mới nhất để hiện
+"Lần trước: …" ngay dưới ô công thức, và có route riêng liệt kê đầy đủ lịch sử một dòng. Bảng mới →
+`create_all` tự tạo, KHÔNG migration (như `xep_lich_van_de` / `machine_unavailable_periods`).
+
+| Column        | Type (SQLAlchemy → SQLite / Postgres)                   | Key    | Null | Default   | Meaning                                                                 |
+| ------------- | -------------------------------------------------------- | ------ | ---- | --------- | ------------------------------------------------------------------------ |
+| `id`          | `Integer` → `INTEGER` / `SERIAL`                          | **PK** | no   | auto      | Surrogate PK.                                                             |
+| `bang`        | `String(40)` → `VARCHAR(40)`                              | **IX** | no   | —         | Tên bảng nguồn (`giay`, `vat_tu`, `may_thiet_bi`, `cong_doan`, `cong_viec_khoan`) — khớp `ten=` của router, không FK cứng vì trỏ tới 5 bảng khác nhau. |
+| `row_id`      | `Integer` → `INTEGER`                                     | **IX** | no   | —         | Soft → id của dòng trong bảng `bang`.                                    |
+| `truong`      | `String(40)` → `VARCHAR(40)`                              | —      | no   | —         | Tên trường đổi (`cong_thuc_luong` hoặc `cong_thuc_san_luong`).           |
+| `gia_tri_cu`  | `Text`                                                    | —      | yes  | —         | Giá trị TRƯỚC khi đổi.                                                    |
+| `gia_tri_moi` | `Text`                                                    | —      | yes  | —         | Giá trị SAU khi đổi.                                                      |
+| `sua_boi`     | `Integer` → `INTEGER`                                     | —      | yes  | —         | Soft → `users.id` — người lưu.                                           |
+| `sua_luc`     | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ`    | —      | no   | now (UTC) | Khi lưu.                                                                  |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `bang`, `row_id`. FK mềm theo convention (trỏ tới 5 bảng khác nhau qua `bang`+`row_id` phẳng, cùng lối `AuditLog.target`).
+
+**Relationships**
+
+- Không FK cấu trúc. Đọc theo (`bang`, `row_id`, `truong`) — xem `repositories/cong_thuc_lich_su_repo.py`.
+
+**Tất cả cột:** `id`, `bang`, `row_id`, `truong`, `gia_tri_cu`, `gia_tri_moi`, `sua_boi`, `sua_luc`.
 
 ---
 

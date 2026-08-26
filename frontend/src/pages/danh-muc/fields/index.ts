@@ -10,3 +10,4 @@ export { LichBaoTriField } from "./LichBaoTri";
 export { NhomMayField, NhomMayMultiField } from "./NhomMay";
 export { RefMultiField, RefSearchField } from "./RefFields";
 export { RowEditor } from "./RowEditor";
+export { SelfRefMultiField } from "./SelfRefMulti";

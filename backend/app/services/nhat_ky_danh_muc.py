@@ -5,9 +5,14 @@ Vì sao gom về đây: 10 màn danh mục đều là CRUD trên một bảng ph
 quên, chỗ đặt tên action khác. Ở đây làm một lần, service chỉ gọi `ghi_tao` / `ghi_sua` / `ghi_xoa`.
 
 Ghi vào bảng `audit_logs` sẵn có (target = `"{loai}:{id}"`, đúng quy ước của khách hàng · nhân sự ·
-lệnh SX), KHÔNG đẻ bảng mới. Nhờ vậy các dòng này cũng chảy vào màn Nhật ký chung.
+lệnh SX). Nhờ vậy các dòng này cũng chảy vào màn Nhật ký chung.
 
 Dòng chi tiết trông như: `Đơn giá 27.800 → 29.000 đ/kg · Định lượng 100 → 120 g/m²`.
+
+Riêng các trường CÔNG THỨC (`CONG_THUC_TRUONG`) còn được ghi THÊM, có cấu trúc, vào bảng
+`cong_thuc_lich_su` (xem `models/cong_thuc_lich_su.py`) — phục vụ mục "Bảng định mức": màn danh
+mục hiện được "lần trước công thức là gì, sửa lúc nào" và link xem lịch sử đầy đủ, thay vì phải
+đọc lại chuỗi `detail` gộp chung của Nhật ký.
 """
 from __future__ import annotations
 
@@ -19,11 +24,16 @@ from typing import Any
 from sqlalchemy import inspect as sa_inspect
 
 from ..repositories.audit_repo import AuditLogRepository
+from ..repositories.cong_thuc_lich_su_repo import CongThucLichSuRepository
 
 # --- Hành động: một tên cho mỗi loại thao tác, frontend dịch sang nhãn + icon --------------
 ACTION_TAO = "dm_tao"
 ACTION_SUA = "dm_sua"
 ACTION_XOA = "dm_xoa"
+
+# Trường công thức — đổi thì ghi thêm 1 dòng có cấu trúc vào `cong_thuc_lich_su` (xem docstring
+# đầu file). Chỉ 2 trường này vì chỉ 2 tên cột công thức tồn tại trên cả 5 danh mục.
+CONG_THUC_TRUONG = frozenset({"cong_thuc_luong", "cong_thuc_san_luong"})
 
 # Cột kỹ thuật — đổi cũng không ai quan tâm, ghi vào chỉ làm nhiễu nhật ký.
 BO_QUA = frozenset({
@@ -455,13 +465,33 @@ def ghi_tao(audit, *, actor_id: int | None, loai: str, obj: Any) -> None:
     _ghi(audit, actor_id=actor_id, action=ACTION_TAO, loai=loai, obj_id=obj.id, detail=str(ten))
 
 
+def _ghi_lich_su_cong_thuc(audit: AuditLogRepository | None, *, actor_id: int | None,
+                            loai: str, obj_id: int, truoc: dict[str, Any],
+                            sau: dict[str, Any]) -> None:
+    """Trường công thức đổi → thêm 1 dòng `cong_thuc_lich_su`. `db.add()` không tự `commit` —
+    cưỡi chung giao dịch với `_ghi()` gọi ngay sau (xem `CongThucLichSuRepository.ghi`)."""
+    if audit is None:
+        return
+    repo = CongThucLichSuRepository(audit.db)
+    for truong in CONG_THUC_TRUONG:
+        if truong not in sau:
+            continue
+        cu, moi = truoc.get(truong), sau.get(truong)
+        if not _khac(cu, moi):
+            continue
+        repo.ghi(bang=loai, row_id=obj_id, truong=truong,
+                 gia_tri_cu=cu, gia_tri_moi=moi, sua_boi=actor_id)
+
+
 def ghi_sua(audit, *, actor_id: int | None, loai: str, obj: Any,
             truoc: dict[str, Any]) -> None:
     """Ghi MỘT dòng cho cả lần lưu — sửa 3 trường vẫn là một lần bấm Lưu, tách ra thì nhật ký
     loãng và mất ngữ cảnh. Không đổi gì thì không ghi (bấm Lưu mà giữ nguyên = không phải sự kiện)."""
-    dong = mo_ta_thay_doi(truoc, anh_chup(obj))
+    sau = anh_chup(obj)
+    dong = mo_ta_thay_doi(truoc, sau)
     if not dong:
         return
+    _ghi_lich_su_cong_thuc(audit, actor_id=actor_id, loai=loai, obj_id=obj.id, truoc=truoc, sau=sau)
     _ghi(audit, actor_id=actor_id, action=ACTION_SUA, loai=loai, obj_id=obj.id,
          detail=" · ".join(dong))
 

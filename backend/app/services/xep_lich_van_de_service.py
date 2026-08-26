@@ -655,6 +655,73 @@ class XepLichVanDeService:
                 + "; ".join(i["mo_ta"] for i in vd)
             )
 
+    def _thanh_phan_phat_hanh(self, seed_lsx_ids: set[int]):
+        """Bao đóng thành phần liên thông (§4.1) từ tập LSX hạt giống — đơn vị phát hành THẬT là
+        cả cụm (cùng nhóm thành phẩm + bài ghép dùng chung + phụ thuộc chéo), không phải một LSX
+        lẻ hay chỉ thành viên trực tiếp của một bài ghép."""
+        from ..repositories.san_xuat_repo import SanXuatRepository
+        from .san_xuat.component import thanh_phan_lien_thong
+
+        return thanh_phan_lien_thong(SanXuatRepository(self.db), set(seed_lsx_ids))
+
+    def _chan_thanh_phan_chua_san_sang(self, thanh_phan) -> None:
+        """Mọi LSX/bài ghép trong cụm liên thông phải ít nhất đã LẬP KẾ HOẠCH — một nhánh còn
+        `nhap`/`san_sang` thì cả cụm CHƯA được phát hành ("Hoặc phát hành toàn bộ, hoặc chưa cho
+        phát hành" — §4.1), không được ép chạy riêng nhánh đã sẵn sàng bỏ lại nhánh kia."""
+        chua_san_sang: list[str] = []
+        for lid in thanh_phan.lsx_ids:
+            lsx = self.xl.lsx_repo.get(lid)
+            if lsx is not None and lsx.trang_thai not in (LSX_DA_LAP, LSX_DA_PHAT_HANH):
+                chua_san_sang.append(f"LSX {lsx.ma}")
+        for bid in thanh_phan.bai_ghep_ids:
+            bg = self.xl.bg_repo.get(bid)
+            if bg is not None and bg.trang_thai not in (BG_DA_LAP, BG_DA_PHAT_HANH):
+                chua_san_sang.append(f"Bài ghép {bg.ma}")
+        if chua_san_sang:
+            raise XepLichConflict(
+                "Không thể phát hành: cùng cụm liên thông (nhóm/phụ thuộc/bài ghép) còn "
+                + ", ".join(chua_san_sang) + " chưa lập kế hoạch."
+            )
+
+    def _chan_thieu_vat_tu_ca_cum(self, thanh_phan) -> None:
+        """Soi vật tư cho CẢ CỤM (§4.1 + §9.3): mỗi bài ghép trong cụm soi một lần (đã gồm thành
+        viên), LSX không thuộc bài ghép nào trong cụm soi riêng — tránh lọt LSX bị kéo vào cụm qua
+        phụ thuộc chéo/cùng nhóm mà chưa từng qua `_chan_thieu_vat_tu`."""
+        from ..repositories.san_xuat_repo import SanXuatRepository
+
+        for bg_id in thanh_phan.bai_ghep_ids:
+            self._chan_thieu_vat_tu(bai_ghep_id=bg_id)
+        covered = SanXuatRepository(self.db).lsx_ids_cua_bai_ghep(thanh_phan.bai_ghep_ids)
+        for lid in thanh_phan.lsx_ids - covered:
+            self._chan_thieu_vat_tu(lsx_id=lid)
+
+    def _chan_thieu_kcs_cuoi(self, thanh_phan) -> None:
+        """Mỗi nhóm thành phẩm trong cụm phải có ĐÚNG MỘT bước KCS cuối trước khi thả xuống xưởng
+        (§4.4) — thiếu thì không rõ ai nghiệm thu, thừa thì không rõ lệnh nào là thân chính."""
+        from .san_xuat.release import van_de_phat_hanh
+
+        van_de = van_de_phat_hanh(self.db, lsx_ids=thanh_phan.lsx_ids,
+                                  bai_ghep_ids=thanh_phan.bai_ghep_ids)
+        if van_de:
+            raise XepLichConflict(
+                "Không thể phát hành: " + "; ".join(v["mo_ta"] for v in van_de)
+            )
+
+    def _phat_hanh_ca_cum(self, thanh_phan, *, actor) -> None:
+        """Chuyển trạng thái + đóng băng snapshot cho TOÀN BỘ cụm liên thông, không chỉ phần
+        người dùng bấm nút (§4.1)."""
+        for lid in thanh_phan.lsx_ids:
+            lsx = self.xl.lsx_repo.get(lid)
+            if lsx is not None and lsx.trang_thai == LSX_DA_LAP:
+                lsx.trang_thai = LSX_DA_PHAT_HANH
+        for bid in thanh_phan.bai_ghep_ids:
+            bg = self.xl.bg_repo.get(bid)
+            if bg is not None and bg.trang_thai == BG_DA_LAP:
+                bg.trang_thai = BG_DA_PHAT_HANH
+        from .san_xuat.release import phat_hanh as _sx_phat_hanh
+        _sx_phat_hanh(self.db, lsx_ids=thanh_phan.lsx_ids,
+                     bai_ghep_ids=thanh_phan.bai_ghep_ids, actor=actor)
+
     def phat_hanh_lsx(self, *, lsx_id: int, actor, bo_qua_xung_dot: bool = False) -> Lsx:
         lsx = self.xl.lsx_repo.get(lsx_id)
         if lsx is None:
@@ -669,14 +736,21 @@ class XepLichVanDeService:
             raise XepLichConflict(f"Lệnh {lsx.ma} chưa lập kế hoạch — không thể phát hành")
         if self.xl.bg_repo.lsx_da_ghep([lsx_id]):
             raise XepLichConflict("Lệnh nằm trong bài ghép — phát hành qua bài ghép")
-        self._chan_thieu_vat_tu(lsx_id=lsx_id)
-        self._chan_xung_dot(lsx_ids={lsx_id}, bg_ids=set(), bo_qua=bo_qua_xung_dot)
-        lsx.trang_thai = LSX_DA_PHAT_HANH
-        # §4.1 — đóng băng gói phát hành (snapshot công việc + nhóm thành phẩm) trong CÙNG giao dịch.
-        from .san_xuat.release import phat_hanh as _sx_phat_hanh
-        _sx_phat_hanh(self.db, lsx_ids={lsx_id}, bai_ghep_ids=set(), actor=actor)
+
+        thanh_phan = self._thanh_phan_phat_hanh({lsx_id})
+        self._chan_thanh_phan_chua_san_sang(thanh_phan)
+        self._chan_thieu_vat_tu_ca_cum(thanh_phan)
+        self._chan_xung_dot(lsx_ids=thanh_phan.lsx_ids, bg_ids=thanh_phan.bai_ghep_ids,
+                            bo_qua=bo_qua_xung_dot)
+        self._chan_thieu_kcs_cuoi(thanh_phan)
+
+        # §4.1 — đóng băng gói phát hành (snapshot công việc + nhóm thành phẩm) trong CÙNG giao
+        # dịch, cho TOÀN BỘ cụm liên thông (không chỉ lệnh vừa bấm).
+        self._phat_hanh_ca_cum(thanh_phan, actor=actor)
         self.audit.create(actor_user_id=getattr(actor, "id", None), action="xep_lich_phat_hanh",
-                          target=f"lsx:{lsx.id}", detail=f"Phát hành lệnh {lsx.ma}")
+                          target=f"lsx:{lsx.id}",
+                          detail=f"Phát hành lệnh {lsx.ma} (cụm {len(thanh_phan.lsx_ids)} LSX + "
+                                 f"{len(thanh_phan.bai_ghep_ids)} bài ghép)")
         self.repo.commit()
         return lsx
 
@@ -692,18 +766,22 @@ class XepLichVanDeService:
                 )
             raise XepLichConflict(f"Bài ghép {bg.ma} chưa lập kế hoạch — không thể phát hành")
         members = {tv.lsx_id for tv in bg.thanh_viens}
-        self._chan_thieu_vat_tu(bai_ghep_id=bai_ghep_id)
-        self._chan_xung_dot(lsx_ids=members, bg_ids={bai_ghep_id}, bo_qua=bo_qua_xung_dot)
-        bg.trang_thai = BG_DA_PHAT_HANH
-        for lid in members:
-            lsx = self.xl.lsx_repo.get(lid)
-            if lsx is not None:
-                lsx.trang_thai = LSX_DA_PHAT_HANH
-        # §4.1 — snapshot: bài ghép = MỘT công việc chung (§3.3) + bước riêng của từng thành viên.
-        from .san_xuat.release import phat_hanh as _sx_phat_hanh
-        _sx_phat_hanh(self.db, lsx_ids=set(members), bai_ghep_ids={bai_ghep_id}, actor=actor)
+
+        thanh_phan = self._thanh_phan_phat_hanh(members)
+        thanh_phan.bai_ghep_ids.add(bai_ghep_id)
+        self._chan_thanh_phan_chua_san_sang(thanh_phan)
+        self._chan_thieu_vat_tu_ca_cum(thanh_phan)
+        self._chan_xung_dot(lsx_ids=thanh_phan.lsx_ids, bg_ids=thanh_phan.bai_ghep_ids,
+                            bo_qua=bo_qua_xung_dot)
+        self._chan_thieu_kcs_cuoi(thanh_phan)
+
+        # §4.1 — snapshot: bài ghép = MỘT công việc chung (§3.3) + bước riêng của từng thành viên,
+        # cho TOÀN BỘ cụm liên thông (không chỉ bài ghép vừa bấm).
+        self._phat_hanh_ca_cum(thanh_phan, actor=actor)
         self.audit.create(actor_user_id=getattr(actor, "id", None), action="xep_lich_phat_hanh",
-                          target=f"bai_ghep:{bg.id}", detail=f"Phát hành bài ghép {bg.ma}")
+                          target=f"bai_ghep:{bg.id}",
+                          detail=f"Phát hành bài ghép {bg.ma} (cụm {len(thanh_phan.lsx_ids)} LSX + "
+                                 f"{len(thanh_phan.bai_ghep_ids)} bài ghép)")
         self.repo.commit()
         return bg
 

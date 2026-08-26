@@ -166,13 +166,19 @@ Mọi thứ còn lại là **ô chi tiết riêng**:
 | **Giao hàng** (`giao_hang`) | màn Giao hàng — tab *Đơn giao hàng*, lọc theo phạm vi | gửi yêu cầu giao từ đơn hàng bán · bấm *Đã lấy hàng* · nhập kết quả + số km |
 
 **Ô chi tiết:** *Lên đơn giao hàng* (`can_plan`) — tab **Yêu cầu giao** + nút phân công tài xế ·
-*Nhân viên giao hàng* (`can_view_drivers`) — tab thứ ba, phơi lịch và KPI của **người khác** nên
-tách ô riêng.
+*Huỷ yêu cầu / huỷ chuyến* (`can_cancel`) — huỷ yêu cầu chưa lên kế hoạch hoặc huỷ chuyến đã xếp,
+bắt nhập lý do và phiếu ở lại có vết · *Nhân viên giao hàng* (`can_view_drivers`) — tab thứ ba,
+phơi lịch và KPI của **người khác** nên tách ô riêng.
+
+Ô *Huỷ* bày lên ma trận 26/08/2026. Trước đó máy chủ đã gác bằng cờ này (`Canceller` ở
+`routers/delivery.py`) và giao diện đã ẩn nút theo nó, nhưng bảng phân quyền **không có ô để
+tick** ⇒ vai tạo tay trên giao diện không bao giờ huỷ được chuyến.
 
 ⚠️ **Kho KHÔNG cần ô `giao_hang`.** Yêu cầu xuất của Giao hàng hiện trong **Hộp yêu cầu của chính
 kho**, đi theo ô **Kho**. Kho không thao tác gì trên màn Giao hàng.
 
-⚠️ **Tài xế chỉ cần *Xem* + *Thao tác*, phạm vi *Của tôi*** — họ tự bấm *Đã lấy hàng* và nhập kết
+⚠️ **Tài xế chỉ cần *Xem* + *Thao tác*, phạm vi *Của tôi*** (không *Huỷ* — bỏ chuyến là
+quyết định của điều phối) — họ tự bấm *Đã lấy hàng* và nhập kết
 quả cho chuyến của mình. Thiếu ô *Thao tác* thì họ vẫn nhận chuyến được, nhưng **quản lý phải bấm
 hộ** (`da-lay-hang` / `ket-qua` gác bằng ô Thao tác, không đòi đúng người được phân).
 

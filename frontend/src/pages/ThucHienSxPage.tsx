@@ -25,6 +25,7 @@ import { BangLoi, EmptyState, ngay, ngayGio } from "./keHoachSxShared";
 import { ngayToWall, type Xl2Zoom } from "./xl2Shared";
 import { wallMinutes, nowWall } from "./gantt-time";
 import { ThsxTimeline } from "./ThsxTimeline";
+import { ThsxDanhSach } from "./ThsxDanhSach";
 import { ThsxDrawer } from "./ThsxDrawer";
 import { type ThsxExec } from "./ThsxExecPanels";
 import { ThsxHopThuBar, type Opt } from "./ThsxG5";
@@ -65,6 +66,15 @@ const ZOOM_KEY = "thsx.zoom";
 function readZoom(): Xl2Zoom {
   const s = typeof localStorage !== "undefined" ? localStorage.getItem(ZOOM_KEY) : null;
   return s === "gio" || s === "ca" || s === "ngay" || s === "tuan" ? s : "ca";
+}
+
+// Kiểu view cột giữa: "lich" (Gantt, mặc định) hay "danh_sach" (bảng — đọc/lọc nhanh nhiều việc).
+type ThsxView = "lich" | "danh_sach";
+const VIEW_KEY = "thsx.view";
+
+function readView(): ThsxView {
+  const s = typeof localStorage !== "undefined" ? localStorage.getItem(VIEW_KEY) : null;
+  return s === "danh_sach" ? "danh_sach" : "lich";
 }
 
 type ReasonKind = "bat_dau" | "tam_dung" | "ket_thuc";
@@ -119,6 +129,8 @@ export function ThucHienSxPage({
   const winDen = useMemo(() => addDays(winTu, WIN_SPAN - 1), [winTu]);
   const [zoom, setZoom] = useState<Xl2Zoom>(readZoom);
   useEffect(() => { localStorage.setItem(ZOOM_KEY, zoom); }, [zoom]);
+  const [view, setView] = useState<ThsxView>(readView);
+  useEffect(() => { localStorage.setItem(VIEW_KEY, view); }, [view]);
 
   const [q, setQ] = useState("");
   const qd = useDebounced(q, 200);
@@ -528,14 +540,26 @@ export function ThucHienSxPage({
             <Icon name="refresh" size={15} />
           </button>
         </div>
-        <div className="thsx-seg" role="group" aria-label="Mật độ trục thời gian">
-          {ZOOMS.map((z) => (
-            <button key={z.key} type="button" className="thsx-seg__btn"
-              aria-pressed={zoom === z.key} onClick={() => setZoom(z.key)}>
-              {z.label}
-            </button>
-          ))}
+        <div className="thsx-seg" role="group" aria-label="Kiểu xem">
+          <button type="button" className="thsx-seg__btn" title="Xem theo lịch (Gantt)"
+            aria-pressed={view === "lich"} onClick={() => setView("lich")}>
+            <Icon name="layout" size={13} /> Lịch
+          </button>
+          <button type="button" className="thsx-seg__btn" title="Xem danh sách bản ghi"
+            aria-pressed={view === "danh_sach"} onClick={() => setView("danh_sach")}>
+            <Icon name="table" size={13} /> Danh sách
+          </button>
         </div>
+        {view === "lich" && (
+          <div className="thsx-seg" role="group" aria-label="Mật độ trục thời gian">
+            {ZOOMS.map((z) => (
+              <button key={z.key} type="button" className="thsx-seg__btn"
+                aria-pressed={zoom === z.key} onClick={() => setZoom(z.key)}>
+                {z.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Thanh phụ: tìm + digest */}
@@ -604,12 +628,28 @@ export function ThucHienSxPage({
           </div>
         </aside>
 
-        {/* CỘT GIỮA — timeline */}
+        {/* CỘT GIỮA — timeline (Gantt) hoặc bảng (Danh sách) */}
         <section className="thsx-center thsx-col--center">
           {err ? (
             <div className="thsx-centerempty"><BangLoi text={err} onRetry={loadItems} /></div>
           ) : items == null ? (
-            <TimelineSkeleton />
+            view === "danh_sach" ? <ListSkeleton /> : <TimelineSkeleton />
+          ) : view === "danh_sach" ? (
+            groups.tong === 0 ? (
+              <div className="thsx-centerempty">
+                <EmptyState icon={q ? "search" : "check"}
+                  title={q ? "Không khớp tìm kiếm" : "Chưa có việc phát hành"}
+                  sub={q ? "Thử đổi từ khoá." : "Khi một gói được phát hành, việc của tổ sẽ hiện ở đây."} />
+              </div>
+            ) : (
+              <ThsxDanhSach
+                timed={groups.timed}
+                outWin={groups.outWin}
+                untimed={groups.untimed}
+                selectedId={selectedId}
+                onPick={pickViec}
+              />
+            )
           ) : clusters.length === 0 ? (
             <div className="thsx-centerempty">
               <EmptyState icon="calendar" title="Không có việc định giờ trong cửa sổ này"

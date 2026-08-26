@@ -47,7 +47,7 @@ from ..models.lsx import (
     LsxCongDoanVatTu,
 )
 from ..models.may_thiet_bi import MayThietBi
-from ..models.order import STATUS_ORDERED, Order, OrderLine
+from ..models.order import STATUS_CANCELLED, STATUS_ORDERED, Order, OrderLine
 from ..models.phieu_tinh_gia import PhieuThanhPhan, PhieuTinhGia
 from ..models.quotation import QuoteVersion
 from ..models.user import User
@@ -2119,6 +2119,7 @@ class LsxService:
         return {
             "nhom": getattr(line, "nhom", None),
             "order_no": order.order_no if order else None,
+            "order_status": order.status if order else None,
             "customer_name": self._customer_name(order) if order else None,
             "customer_po_no": order.customer_po_no if order else None,
             "sale_name": self._user_name(order.sale_user_id) if order else None,
@@ -2699,6 +2700,9 @@ class LsxService:
         lsx = self.get(lsx_id)
         if lsx.trang_thai == TT_DA_LAP_KE_HOACH:
             raise LsxConflict("Lệnh đã lập kế hoạch — gỡ kế hoạch trước khi sửa routing")
+        order = self.db.get(Order, lsx.order_id)
+        if order is not None and order.status == STATUS_CANCELLED:
+            raise LsxConflict("Đơn đã hủy — không thể sửa routing")
         truoc = len(lsx.cong_doans)
         old_by_key = {r.step_key: r for r in lsx.cong_doans}
         rows: list[LsxCongDoan] = []

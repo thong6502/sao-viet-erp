@@ -18,6 +18,13 @@
   .rc { animation: none; }
 }
 
+/* Nhập Excel (mục 1) — dòng chữ phụ trong ImportExcelDialog.tsx. */
+.rc__import-hint {
+  font-size: 12.5px;
+  color: var(--ash);
+  line-height: 1.5;
+}
+
 /* --- Header MỘT DẠNG cho cả 10 màn danh mục (đồng bộ .tg-head/.bg__head) -------------
    Ba hàng nằm TRONG cùng một `<header>`, đóng lại bằng ĐÚNG MỘT kẻ ngang:
      1. tiêu đề 26px · pill đếm ····· nút [+ Thêm …]
@@ -57,15 +64,7 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.rc__sub {
-  color: var(--ash);
-  font-size: 13px;
-  margin: var(--sp-2) 0 0;
-  max-width: 75ch;
-  line-height: 1.5;
-}
-
-/* Hàng 3 của header: ô tìm trái · chip lọc phải · công tắc "đã ngừng" ngoài cùng. */
+/* Hàng 2 của header: ô tìm trái · chip lọc phải · công tắc "đã ngừng" ngoài cùng. */
 .rc__filterbar {
   display: flex;
   align-items: center;
@@ -347,6 +346,16 @@
   word-break: break-word;
   max-width: 100%;
   line-height: 1.45;
+}
+
+/* Trong Ô BẢNG danh mục: giữ pill 1 dòng, cắt "…" khi dài quá cột (đủ chữ xem lúc rê chuột nhờ
+   `title` ở span). Không đổi `.rc__formula-pill` gốc — nơi khác (form/tier) vẫn cần xuống dòng. */
+.rc__table td .rc__formula-pill {
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
 }
 
 /* Cảnh báo MỀM (không chặn lưu) — vd cặp số cố định đè lên đường công thức. MÀU lấy ở
@@ -893,7 +902,13 @@
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-5);
-  overflow-x: auto;
+  overflow: auto;
+  /* Giới hạn chiều cao + cuộn dọc TRONG khung: bảng nhiều cột (Máy, Bù hao, Đơn vị & quy đổi...)
+     cần cuộn ngang mới thấy hết cột, nhưng nếu khung cao tự do theo hết số hàng thì thanh cuộn
+     ngang bị đẩy xuống tận đáy trang, ngoài tầm nhìn màn hình thường (~720-800px) — mở trang lên
+     thấy cột bị cụt mà không biết cuộn đâu. Ép max-height để thanh cuộn ngang luôn nằm ngay dưới
+     các hàng đang thấy. */
+  max-height: calc(100vh - 320px);
   box-shadow: var(--shadow-1);
 }
 .rc__table {
@@ -912,11 +927,21 @@
   color: var(--ash);
   background: var(--paper);
   border-bottom: 1px solid var(--rule);
-  white-space: nowrap;
+  /* KHÔNG nowrap: cột hẹp (vd Máy — 6 cột chia nhau phần còn lại, ~9%/cột) mà tiêu đề dài
+     ("Khổ máy & vùng in") thì nowrap làm chữ tràn đè lên cột bên cạnh, đọc không nổi. */
+  white-space: normal;
+  line-height: 1.3;
+  /* Ghim tiêu đề khi cuộn dọc trong khung (đi cùng max-height ở .rc__tablewrap phía trên). */
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 .rc__table td {
   padding: 10px 14px;
-  border-bottom: 1px solid var(--rule-hair);
+  /* Trước dùng --rule-hair (gần như trắng, khó thấy) + vằn ngựa nền --paper phủ nửa số hàng —
+     bỏ vằn ngựa (đọc thành "trắng xanh xen kẽ"), đổi hẳn sang --rule-soft cho vạch kẻ đủ rõ một
+     mình, không cần tô nền để phân hàng nữa. */
+  border-bottom: 1px solid var(--rule-soft);
   font-size: 13px;
   color: var(--ink);
   vertical-align: middle;
@@ -950,6 +975,14 @@
 }
 
 .rc__nowrap {
+  white-space: nowrap;
+}
+
+/* Cột chữ PHỤ (Giai đoạn/Đơn vị/Bù hao/Ghi chú…) — cắt 1 dòng + "…" thay vì xuống dòng, để chiều
+   cao hàng đều nhau trong `table-layout: fixed`. Đủ chữ xem lúc rê chuột (title trên `<td>`). */
+.rc__clip {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1006,9 +1039,12 @@
   font-weight: 600;
 }
 /* Ô Tên của MÀN DANH MỤC: nút mở + các badge nằm cùng hàng, cách nhau bằng `gap` thay vì
-   `margin-left` dán trên từng badge. Scope `.rc--dm` vì `.rc__name` còn được 3 màn Kho và 2 màn
-   Kỹ thuật máy dùng — trong đó có chỗ `-webkit-line-clamp`, đổi `display` ở cấp global là vỡ. */
-.rc--dm .rc__name {
+   `margin-left` dán trên từng badge. Flex đặt trên DIV con (`.rc__name-inner`), KHÔNG phải trên
+   `<td>` — `display:flex` thẳng trên ô bảng phá mô hình table-cell (trình duyệt tự bọc nó vào 1
+   cell ẩn cao bằng đúng nội dung), làm Tên dính lên đỉnh thay vì căn giữa khi hàng bị kéo cao bởi
+   cột bên cạnh (vd Bậc số lượng nhiều dòng ở Bù hao). Scope `.rc--dm` vì `.rc__name` còn được 3
+   màn Kho và 2 màn Kỹ thuật máy dùng — trong đó có chỗ `-webkit-line-clamp`, đổi ở cấp global là vỡ. */
+.rc--dm .rc__name-inner {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -1031,8 +1067,6 @@
 }
 .rc__open:hover {
   color: var(--rust-deep);
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 .rc__open:focus-visible {
   outline: 2px solid var(--rust);
@@ -2956,6 +2990,105 @@ select.rc-input:focus {
   margin: 0 4px;
   font-size: 14px;
   box-shadow: none;
+}
+
+/* --- "Lần trước" (mục 3+7) — dòng nhắc + lịch sử đầy đủ ---------------------------------- */
+.rc-formula__lan-truoc {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ash, #6b665b) 6%, transparent);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.rc-formula__lan-truoc-nhan {
+  color: var(--ash, #6b665b);
+  font-weight: 600;
+}
+.rc-formula__lan-truoc-gt {
+  font-size: 12px;
+  color: var(--ink, #14130f);
+  background: none;
+  padding: 0;
+}
+.rc-formula__lan-truoc-luc {
+  color: var(--ash, #6b665b);
+}
+.rc-formula__lich-su-toggle {
+  margin-left: auto;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--rust, #c5400a);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rc-formula__lich-su-toggle:hover {
+  opacity: 0.8;
+}
+
+.rc-formula__lich-su {
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--ash, #6b665b) 15%, transparent);
+}
+.rc-formula__lich-su-dang-tai,
+.rc-formula__lich-su-rong {
+  font-size: 12px;
+  color: var(--ash, #6b665b);
+}
+.rc-formula__lich-su-loi {
+  font-size: 12px;
+  color: var(--signal, #8a1f1f);
+}
+.rc-formula__lich-su-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rc-formula__lich-su-item {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ash, #6b665b) 10%, transparent);
+}
+.rc-formula__lich-su-item:last-child {
+  border-bottom: none;
+}
+.rc-formula__lich-su-item-luc {
+  color: var(--ash, #6b665b);
+  min-width: 96px;
+}
+.rc-formula__lich-su-item-cu,
+.rc-formula__lich-su-item-moi {
+  font-size: 12px;
+  background: none;
+  padding: 0;
+}
+.rc-formula__lich-su-item-cu {
+  color: var(--ash, #6b665b);
+  text-decoration: line-through;
+}
+.rc-formula__lich-su-item-moi {
+  color: var(--moss, #2f5d3a);
+  font-weight: 600;
+}
+.rc-formula__lich-su-item-mui-ten {
+  color: var(--ash, #6b665b);
 }
 
 .rc-formula__validation {

@@ -585,6 +585,11 @@ export function LsxDetailView({
     );
   }
 
+  // Đơn đã hủy → khóa hẳn routing: ẩn tab (không chỉ khóa sửa), khớp server đã chặn PUT
+  // /routing khi order.status = cancelled (lsx_service.replace_routing).
+  const orderCancelled = d.order_status === "cancelled";
+  const visibleTabs = orderCancelled ? TABS.filter((t) => t.key !== "routing") : TABS;
+
   const qc = (d.quy_cach_json ?? {}) as Record<string, unknown>;
   const n = (k: string): number => Number(qc[k] ?? 0);
   const s = (k: string): string => (qc[k] == null || qc[k] === "" ? "—" : String(qc[k]));
@@ -937,7 +942,7 @@ export function LsxDetailView({
       <div className="khsx-detail__grid">
         <div className="khsx-detail__main">
           <div className="khsx-tabs" role="tablist" aria-label="Nội dung lệnh sản xuất">
-            {TABS.map((t) => (
+            {visibleTabs.map((t) => (
               <button
                 key={t.key}
                 type="button"
@@ -1444,7 +1449,7 @@ export function LsxDetailView({
             </section>
           )}
 
-          {tab === "routing" && (
+          {tab === "routing" && !orderCancelled && (
             <section className="khsx-panel" role="tabpanel" id="khsx-panel-routing" aria-labelledby="khsx-tab-routing" tabIndex={0}>
               <div className="khsx-spec__card">
                 <div className="khsx-spec__card-head">

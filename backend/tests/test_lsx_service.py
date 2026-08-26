@@ -671,6 +671,24 @@ def test_sua_routing_khong_dung_phieu_tinh_gia_va_khong_anh_huong_lenh_khac(
     assert [r.ten for r in tp.thanh_phams] == ["In offset", "Bế", "Dán hộp"]   # PTG nguyên vẹn
 
 
+def test_sua_routing_bi_chan_khi_don_da_huy(db, orders, lsx_svc, admin, customer):
+    """Đơn hủy rồi thì khóa hẳn routing — chặn ở tầng service, không chỉ ẩn trên UI."""
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    hop, _tem = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
+
+    from app.models.order import FAULT_KHACH
+
+    orders.cancel(order_id=d.id, actor=admin, scope="all", reason="Khách đổi ý",
+                  fault=FAULT_KHACH, can_cancel_ordered=True)
+
+    with pytest.raises(LsxConflict):
+        lsx_svc.replace_routing(lsx_id=hop.id, actor=admin, rows_in=[
+            LsxCongDoanIn(ten="In offset", nhom="print", don_vi_vao="to"),
+        ])
+
+
 def test_san_sang_bi_chan_khi_con_thieu_va_mo_khi_du(db, orders, lsx_svc, admin, customer):
     ptg = _ptg_2_san_pham(db)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)

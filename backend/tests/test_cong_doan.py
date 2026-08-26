@@ -53,6 +53,24 @@ def test_crud_and_duplicate():
         svc.create(dict(ma="IN", ten="khác", nhom="print", pricing_basis="per_sheet"))
 
 
+def test_clone_khong_MA_TU_SINH_dung_hau_to_COPY():
+    """`CongDoanService` không đặt `MA_TU_SINH` ⇒ nhánh `ma_ban_sao()` chạy, không phải nhánh
+    xin mã tự sinh (khác `test_cong_viec_khoan.test_clone_...` — hai danh mục đi hai nhánh)."""
+    db, svc = _svc()
+    cd = svc.create(dict(ma="IN", ten="In offset", nhom="print",
+                         che_do_tinh="theo_san_luong", pricing_basis="per_finished_qty",
+                         first_unit_floor=350000))
+    ban_sao = svc.clone(cd.id)
+    assert ban_sao.id != cd.id
+    assert ban_sao.ma == "IN-COPY"
+    assert ban_sao.ten == "In offset (bản sao)"
+    assert ban_sao.nhom == "print" and ban_sao.pricing_basis == "per_finished_qty"
+
+    # Nhân bản LẦN NỮA từ chính dòng gốc: "-COPY" đã bị chiếm, phải lệch sang "-COPY2".
+    ban_sao_2 = svc.clone(cd.id)
+    assert ban_sao_2.ma == "IN-COPY2"
+
+
 def test_validate_basis():
     db, svc = _svc()
     with pytest.raises(CongDoanValidationError):          # E-CD-BASIS

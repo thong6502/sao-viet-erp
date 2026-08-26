@@ -959,6 +959,8 @@ export interface Xl2QRow {
   han: string | null;
   han_giao: string | null;
   so_cong_doan_chua_xep: number;
+  ten_khach_hang?: string | null;
+  nhan_khach_hang: string[];
   van_de: Xl2Issue[];
 }
 
@@ -1390,7 +1392,16 @@ export interface SxWorkItem {
   don_vi_vao: string | null;
   don_vi_ra: string | null;
   trang_thai: string;          // "released" | "running" | "paused" | "completed"
+  dinh_muc_vat_tu: SxVatTuDinhMuc[]; // định mức vật tư đóng băng lúc phát hành — KHÁC vật tư (phiếu xuất) ở drawer
   thuc_te: SxThucTeKhoang[];   // lớp thực-tế đè lên thanh kế hoạch (§5.1); phiên mở → ket_thuc=null
+}
+/** Một dòng định mức vật tư của bước (đóng băng lúc phát hành). */
+export interface SxVatTuDinhMuc {
+  vat_tu_id: number | null;
+  ma: string | null;
+  ten: string | null;
+  don_vi: string | null;
+  so_luong: number | null;
 }
 /** Một phiên chạy thực tế để vẽ overlay; `ket_thuc=null` = đang chạy (kéo tới "bây giờ"). */
 export interface SxThucTeKhoang {
@@ -2282,6 +2293,8 @@ export interface LsxDetail {
   nhom: string | null;
   trang_thai: LsxTrangThai;
   order_id: number; order_line_id: number; order_no: string | null;
+  /** Trạng thái ĐƠN gắn với lệnh — dùng để ẩn tab Công đoạn khi đơn đã hủy. */
+  order_status: string | null;
   customer_name: string | null; customer_po_no: string | null; sale_name: string | null;
   quote_version_id: number | null; quote_number: string | null; quote_version_number: number | null;
   phieu_thanh_phan_id: number | null; ptg_id: number | null; ptg_ma: string | null;
@@ -3334,10 +3347,11 @@ export interface PhieuTinhGiaOut {
   thanh_phans: ThanhPhanOut[];
   created_at: string | null;
   updated_at: string | null;
-  /** Danh mục (công đoạn · giấy · máy · vật tư) mà phiếu đang dùng đã có bản sửa SAU lần tính
+  /** Danh mục (công đoạn · giấy · máy · vật tư · bù hao) mà phiếu đang dùng đã lệch SAU lần tính
    *  gần nhất. null = phiếu còn khớp danh mục. Chỉ để NHẮC — số trong phiếu vẫn là ảnh chụp cũ
-   *  cho tới khi người lập bấm "Tính giá". */
-  danh_muc_doi: { luc: string; ten: string[] } | null;
+   *  cho tới khi người lập bấm "Tính giá". Ba rổ tách riêng: `ten` đổi cấu hình · `ngung` bị
+   *  ngừng dùng (không chọn lại được) · `xoa` đã xoá hẳn khỏi danh mục (phải thay bước). */
+  danh_muc_doi: { luc: string; ten: string[]; ngung?: string[]; xoa?: string[] } | null;
 }
 
 /** 1 dòng nhật ký hoạt động của phiếu tính giá — ai làm gì · khi nào. */
@@ -7653,7 +7667,7 @@ export interface NoiQuyRecord {
 }
 
 /** Tải một file nhị phân về dạng blob URL, tự làm mới token khi 401. */
-async function blobUrl(path: string, token: string): Promise<string> {
+export async function blobUrl(path: string, token: string): Promise<string> {
   const doFetch = (bearer: string) =>
     fetch(`${BASE_URL}${path}`, {
       credentials: "include",

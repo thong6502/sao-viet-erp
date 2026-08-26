@@ -24,14 +24,14 @@ class _GiayRepo(CatalogRepo):
     model = GiayNguyen
     fields = ("ten", "chung_loai_giay_id", "gsm", "caliper_micron",
               "tho", "don_vi_gia", "don_gia", "gia_thi_truong", "kho_tinh_gia", "ghi_chu",
-              "active", "cong_thuc_gia", "cong_thuc_luong")
+              "active", "cong_thuc_gia", "cong_thuc_luong", "thay_the_ids")
     commit_on_write = False
 
 
 class _VatTuRepo(CatalogRepo):
     model = VatTuInAn
     fields = ("ten", "don_vi_gia", "don_gia", "ghi_chu", "active", "cong_thuc_gia",
-              "cong_thuc_luong")
+              "cong_thuc_luong", "thay_the_ids")
     commit_on_write = False
 
     # THÀNH PHẨM ĐI MÀN RIÊNG (mg 0204 · docs/prd-thanh-pham.md §3). Dòng có `customer_id` là

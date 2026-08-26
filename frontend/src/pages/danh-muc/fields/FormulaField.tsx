@@ -1,9 +1,13 @@
 // Ô CÔNG THỨC — gõ ra chip tiếng Việt, có gợi ý biến, kiểm cú pháp và bảng biến khả dụng.
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useAuth } from "../../../auth/useAuth";
+import { ApiError } from "../../../api/client";
+import { crud, type CongThucLichSuItem } from "../../../api/rebuildCatalog";
 import { catToken } from "../formulaTokens";
 import { traBien, useBienCongThuc, type BienCongThuc } from "../bienCongThuc";
 import { CircleXIcon, XIcon } from "../icons";
+import { nhanThoiGian } from "../nhat-ky/nhatKyNhan";
 
 const MATH_FUNCS = ["ceil", "floor", "round", "max", "min"];
 
@@ -129,6 +133,9 @@ export function FormulaField({
   nhanO = "Công thức tính giá",
   goY = "Nhập công thức tính giá (vd: dai_tp * rong_tp * don_gia)...",
   id = "formula-textarea",
+  recordId = null,
+  truocGiaTri = null,
+  truocSuaLuc = null,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -138,6 +145,14 @@ export function FormulaField({
   nhanO?: React.ReactNode;
   goY?: string;
   id?: string;
+  /** Id của dòng đang sửa — chỉ có khi đang EDIT (đã lưu). Cần để gọi
+   *  `GET /{prefix}/{id}/lich-su-cong-thuc` khi bấm "Xem thêm lịch sử". */
+  recordId?: number | null;
+  /** Giá trị NGAY TRƯỚC lần sửa gần nhất của CHÍNH ô này (mục 3+7). `null` = chưa từng sửa —
+   *  không hiện dòng nhắc. Đọc từ `<field.key>_truoc` trên dòng, xem `routers/catalog_base.py`. */
+  truocGiaTri?: string | null;
+  /** Thời điểm của lần sửa đó (ISO), đi kèm `truocGiaTri`. */
+  truocSuaLuc?: string | null;
 }) {
   const isCd = configPrefix.includes("cong-doan");
   const isGiay = configPrefix.endsWith("/giay");
@@ -520,6 +535,21 @@ export function FormulaField({
     return { valid: true, error: null };
   }, [value, validVars]);
 
+  // ---- "LẦN TRƯỚC" (mục 3+7) ----
+  // Dòng nhắc đọc thẳng từ props (đã có sẵn trên response, không tốn request). "Xem thêm lịch sử"
+  // mới gọi API, và chỉ gọi MỘT LẦN — bấm lại lần hai chỉ đóng/mở, không tải lại.
+  const { token } = useAuth();
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<CongThucLichSuItem[] | null>(null);
+  const [historyErr, setHistoryErr] = useState<string | null>(null);
+  const toggleHistory = () => {
+    setShowHistory((s) => !s);
+    if (history !== null || historyErr || !token || recordId == null) return;
+    crud(configPrefix).lichSuCongThuc(token, recordId)
+      .then(setHistory)
+      .catch((e) => setHistoryErr(e instanceof ApiError ? e.message : "Không tải được lịch sử."));
+  };
+
   return (
     <div className="rc-formula">
       {/* 1. Trình soạn thảo công thức ở trên cùng */}
@@ -659,6 +689,50 @@ export function FormulaField({
           </div>
         </div>
       </div>
+
+      {/* 2. "Lần trước" (mục 3+7) — máy chỉ ghi nhận, người tự so sánh và quyết định. */}
+      {truocGiaTri != null && (
+        <div className="rc-formula__lan-truoc">
+          <span className="rc-formula__lan-truoc-nhan">Lần trước:</span>
+          <code className="rc-formula__lan-truoc-gt">{truocGiaTri}</code>
+          {truocSuaLuc && (
+            <span className="rc-formula__lan-truoc-luc">(sửa lúc {nhanThoiGian(truocSuaLuc)})</span>
+          )}
+          {recordId != null && (
+            <button
+              type="button"
+              className="rc-formula__lich-su-toggle"
+              onClick={toggleHistory}
+              aria-expanded={showHistory}
+            >
+              {showHistory ? "Ẩn lịch sử" : "Xem thêm lịch sử"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {showHistory && (
+        <div className="rc-formula__lich-su">
+          {historyErr ? (
+            <div className="rc-formula__lich-su-loi">{historyErr}</div>
+          ) : history === null ? (
+            <div className="rc-formula__lich-su-dang-tai">Đang tải…</div>
+          ) : history.length === 0 ? (
+            <div className="rc-formula__lich-su-rong">Chưa có lịch sử.</div>
+          ) : (
+            <ul className="rc-formula__lich-su-list">
+              {history.map((h) => (
+                <li key={h.id} className="rc-formula__lich-su-item">
+                  <span className="rc-formula__lich-su-item-luc">{nhanThoiGian(h.sua_luc)}</span>
+                  <code className="rc-formula__lich-su-item-cu">{h.gia_tri_cu ?? "(trống)"}</code>
+                  <span className="rc-formula__lich-su-item-mui-ten">→</span>
+                  <code className="rc-formula__lich-su-item-moi">{h.gia_tri_moi ?? "(trống)"}</code>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {!valid && (
         <div className="rc-formula__validation">

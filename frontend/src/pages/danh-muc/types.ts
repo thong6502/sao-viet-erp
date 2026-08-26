@@ -10,7 +10,9 @@ export interface FieldDef {
   label: string;
   // `ref-search-ma` = như `ref-search` nhưng lưu MÃ (chuỗi) thay vì id — cho cột trỏ danh mục bằng
   // mã như `don_vi_gia` (quy đổi làm việc trên mã `kg`/`to`, không trên id).
-  type?: "text" | "number" | "date" | "select" | "checkbox" | "ref" | "ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "nhom_may" | "nhom_may-multi" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "lich_bao_tri" | "don_vi_toc_do";
+  // `self-ref-multi` = như `ref-multi` nhưng nguồn chọn là CHÍNH danh mục đang mở (NVL thay thế) —
+  // CatalogDrawer tự loại dòng đang sửa khỏi danh sách, người khai không tự chọn được chính mình.
+  type?: "text" | "number" | "date" | "select" | "checkbox" | "ref" | "ref-multi" | "self-ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "nhom_may" | "nhom_may-multi" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "lich_bao_tri" | "don_vi_toc_do";
   options?: { value: string; label: string }[];
   /** Ô `formula`: ÉP bộ chip theo loại này thay vì suy từ màn. Cần khi MỘT màn có hai ô công thức
    *  hỏi hai câu khác nhau — "Công thức tính giá" (ra tiền) vs "Công thức tính lượng" (ra lượng,
@@ -68,11 +70,6 @@ export interface CatalogConfig {
   /** Tiêu đề H1 RIÊNG khi cần KHÁC `title` — vd menu là "Khai báo kho" nhưng danh từ ở nút/lọc vẫn
    *  là "kho hàng" ("Thêm kho hàng", "Lọc kho hàng"). Bỏ trống ⇒ H1 dùng luôn `title`. CHỈ đổi H1. */
   heading?: string;
-  /** Một dòng giải thích dưới tiêu đề. Trường NỘI DUNG thuần — KHÔNG được quyết định bố cục.
-   *  (Trước 15/08/2026 nó là điều kiện của một biểu thức ba ngôi dựng header: màn nào bỏ trống thì
-   *  rơi vào một thanh gộp khác hẳn, khiến Công đoạn + Đơn vị trông như sản phẩm của app khác.)
-   *  Bỏ trống ⇒ không render thẻ `<p>` nào, phần còn lại của header GIỮ NGUYÊN. */
-  subtitle?: string;
   prefix: string;
   /** Khoá module RBAC gác các nút GHI của màn (Thêm = `create` · Xóa = `delete` · Bật lại =
    *  `update`). Lấy đúng chuỗi đang khai ở `components/Sidebar.tsx` — sai một ký tự là vai có
@@ -112,6 +109,16 @@ export interface CatalogConfig {
   /** Giấu nút "Xóa". Cho danh mục mà dòng có thể đang được lô tồn / chứng từ trỏ vào — xoá là
    *  làm mồ côi. Ngừng dùng thì tắt `active`. */
   khongXoa?: boolean;
+  /** Bày nút "Nhân bản" ở mỗi dòng (gọi `crud(prefix).clone`, gác quyền `clone`). Server copy toàn
+   *  bộ cột, tự đặt mã/tên "(bản sao)" không trùng; bấm xong mở luôn drawer bản ghi mới để đổi tên
+   *  ngay. Chỉ bật ở danh mục khai tay, có endpoint `/clone` thật (xem `enable_clone` ở backend). */
+  enableClone?: boolean;
+  /** Bày 2 nút "Tải mẫu" / "Nhập Excel" ở đầu bảng (mục 1). Backend TẠO MỚI trực tiếp từng dòng,
+   *  không có bước xem trước; mã trùng dữ liệu đã có báo lỗi đúng dòng đó, không chặn dòng khác.
+   *  Chỉ bật ở danh mục có `enable_import=True` + `import_columns` khai ở router (xem `catalog_base`
+   *  backend). "Tải mẫu" chỉ cần quyền đọc (đã ngầm định vì đang xem được bảng); "Nhập Excel" gác
+   *  cùng quyền `create` với nút "Thêm" — server cũng gác `/import-excel` bằng đúng quyền đó. */
+  enableImport?: boolean;
   autoCode?: boolean;           // mã sinh NGẦM ở backend → ẩn ô "Mã" lúc tạo, không gửi ma
   /** Tạo xong thì GIỮ drawer mở ở bản ghi vừa tạo. Dùng cho màn có khối con phải gắn vào id (vd
    *  Đơn vị: tạo "tấn" xong khai ngay quy đổi) — đóng phắt là bắt người ta đi tìm lại dòng. */

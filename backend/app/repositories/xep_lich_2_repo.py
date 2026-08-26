@@ -13,7 +13,9 @@ from sqlalchemy import Integer, case, cast, exists, func, literal, select, union
 
 from ..models.bai_ghep import TT_SAN_SANG as BG_SAN_SANG, BaiGhep, BaiGhepThanhVien
 from ..models.bai_ghep_cong_doan import BaiGhepCongDoan
+from ..models.customer import Customer, CustomerTag
 from ..models.lsx import TT_SAN_SANG as LSX_SAN_SANG, Lsx, LsxCongDoan
+from ..models.order import Order
 from ..models.work_calendar import SpecialDay
 from ..models.xep_lich import NGUON_IN_GHEP, NGUON_LSX, TT_DA_XEP, XepLichCongDoan
 from .xep_lich_repo import XepLichRepository
@@ -121,6 +123,73 @@ class XepLich2Repository(XepLichRepository):
             return {}
         q = select(BaiGhepCongDoan.id, BaiGhepCongDoan.ten).where(BaiGhepCongDoan.id.in_(keys))
         return {row_id: ten for row_id, ten in self.db.execute(q)}
+
+    def customer_tags_for_lsx(self, ids: Iterable[int | None]) -> dict[int, list[str]]:
+        """Nhãn khách hàng (`customer_tags`) của mỗi LSX, qua `Lsx.order_id → Order.customer_id` —
+        hàng chờ hiện đúng nhãn NGƯỜI DÙNG đã gắn ở màn Khách hàng (không có khái niệm 'VIP' riêng)."""
+        keys = self._ids(ids)
+        if not keys:
+            return {}
+        rows = self.db.execute(
+            select(Lsx.id, CustomerTag.label)
+            .join(Order, Order.id == Lsx.order_id)
+            .join(CustomerTag, CustomerTag.customer_id == Order.customer_id)
+            .where(Lsx.id.in_(keys))
+            .order_by(CustomerTag.label)
+        ).all()
+        out: dict[int, list[str]] = {}
+        for lsx_id, label in rows:
+            out.setdefault(lsx_id, []).append(label)
+        return out
+
+    def customer_tags_for_bai_ghep(self, ids: Iterable[int | None]) -> dict[int, list[str]]:
+        """Nhãn khách hàng GỘP của một bài ghép — hợp nhãn của mọi LSX thành viên (một bài có thể
+        gộp nhiều đơn/nhiều khách khác nhau nên không có một khách 'chính diện')."""
+        keys = self._ids(ids)
+        if not keys:
+            return {}
+        rows = self.db.execute(
+            select(BaiGhepThanhVien.bai_ghep_id, CustomerTag.label)
+            .join(Lsx, Lsx.id == BaiGhepThanhVien.lsx_id)
+            .join(Order, Order.id == Lsx.order_id)
+            .join(CustomerTag, CustomerTag.customer_id == Order.customer_id)
+            .where(BaiGhepThanhVien.bai_ghep_id.in_(keys))
+        ).all()
+        out: dict[int, set[str]] = {}
+        for bg_id, label in rows:
+            out.setdefault(bg_id, set()).add(label)
+        return {k: sorted(v) for k, v in out.items()}
+
+    def customer_ten_for_lsx(self, ids: Iterable[int | None]) -> dict[int, str]:
+        """Tên khách hàng của mỗi LSX, qua `Lsx.order_id → Order.customer_id`."""
+        keys = self._ids(ids)
+        if not keys:
+            return {}
+        rows = self.db.execute(
+            select(Lsx.id, Customer.name)
+            .join(Order, Order.id == Lsx.order_id)
+            .join(Customer, Customer.id == Order.customer_id)
+            .where(Lsx.id.in_(keys))
+        ).all()
+        return {lsx_id: ten for lsx_id, ten in rows}
+
+    def customer_ten_for_bai_ghep(self, ids: Iterable[int | None]) -> dict[int, str]:
+        """Tên khách hàng GỘP của một bài ghép — nối tên các khách khác nhau của mọi LSX
+        thành viên (một bài có thể gộp nhiều đơn/nhiều khách nên không có một khách 'chính diện')."""
+        keys = self._ids(ids)
+        if not keys:
+            return {}
+        rows = self.db.execute(
+            select(BaiGhepThanhVien.bai_ghep_id, Customer.name)
+            .join(Lsx, Lsx.id == BaiGhepThanhVien.lsx_id)
+            .join(Order, Order.id == Lsx.order_id)
+            .join(Customer, Customer.id == Order.customer_id)
+            .where(BaiGhepThanhVien.bai_ghep_id.in_(keys))
+        ).all()
+        out: dict[int, set[str]] = {}
+        for bg_id, ten in rows:
+            out.setdefault(bg_id, set()).add(ten)
+        return {k: ", ".join(sorted(v)) for k, v in out.items()}
 
     # ================= HÀNG CHỜ — CẮT TRANG + LỌC + ĐẾM Ở MÁY CHỦ (§12.7) ======
     def hang_cho_trang(

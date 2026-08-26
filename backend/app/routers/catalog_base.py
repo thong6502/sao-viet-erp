@@ -25,11 +25,13 @@ from __future__ import annotations
 from inspect import Parameter, Signature
 from typing import Any, Callable
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from pydantic import BaseModel, ValidationError
 
 from ..deps import require_any_permission, require_permission
 from ..models.user import User
+from ..repositories.cong_thuc_lich_su_repo import CongThucLichSuRepository
+from ..schemas.cong_thuc_lich_su import CongThucLichSuOut
 from ..services.catalog_base import (
     CatalogDuplicate, CatalogError, CatalogInUse, CatalogNotFound,
 )
@@ -39,6 +41,22 @@ class MaGoiYOut(BaseModel):
     """Mã kế tiếp cho form khai mới — `{"ma": "KHO-0007"}`."""
 
     ma: str
+
+
+class ImportExcelLoi(BaseModel):
+    """Một dòng lỗi khi nhập Excel — không đoán số, chỉ ra đúng dòng/cột/lý do."""
+
+    dong: int
+    cot: str
+    ly_do: str
+
+
+class ImportExcelOut(BaseModel):
+    """Kết quả nhập Excel — dòng lỗi KHÔNG chặn các dòng khác."""
+
+    tong_dong: int
+    thanh_cong: int
+    loi: list[ImportExcelLoi] = []
 
 
 class _ActiveIn(BaseModel):
@@ -112,6 +130,11 @@ def make_catalog_router(
     dung_rows: Callable[[Any, list], list] | None = None,
     ma_goi_y: bool = False,
     loi_khac: tuple[type[Exception], ...] = (),
+    enable_clone: bool = False,
+    cong_thuc_truong: str | None = None,
+    enable_import: bool = False,
+    import_columns: dict[str, str] | None = None,
+    import_resolve: Callable[[dict, Any], dict] | None = None,
 ) -> APIRouter:
     """GẮN trọn bộ CRUD của một danh mục vào `router` của màn. Trả lại chính `router` đó.
 
@@ -133,6 +156,21 @@ def make_catalog_router(
       riêng — dùng cho CẢ list, get, create, update nên không có chỗ nào lệch nhau.
     * `ma_goi_y` — mở `GET /ma-goi-y`. Chỉ bật cho danh mục có `ma_prefix` ở repo.
     * `loi_khac` — lớp exception NGOÀI họ `Catalog*` mà handler cũng phải bắt.
+    * `enable_clone` — mở `POST /{item_id}/clone`, gác bằng quyền `clone` riêng (không dùng chung
+      `create` — nhân bản là thao tác khác, vai được tạo mới chưa chắc được nhân bản hàng cũ).
+    * `cong_thuc_truong` — tên cột công thức của danh mục này (`"cong_thuc_luong"` hoặc
+      `"cong_thuc_san_luong"`). Bật thì mỗi dòng trả về có thêm `<truong>_truoc` +
+      `<truong>_sua_luc` (giá trị NGAY TRƯỚC lần sửa gần nhất, đọc từ `cong_thuc_lich_su`), và mở
+      thêm `GET /{item_id}/lich-su-cong-thuc` cho lịch sử đầy đủ. Xem
+      `services/nhat_ky_danh_muc._ghi_lich_su_cong_thuc` — nơi ghi vào bảng đó.
+    * `enable_import` — mở `GET /mau-excel` (tải file mẫu) + `POST /import-excel` (nhập). CHỈ TẠO
+      MỚI — mã trùng dòng đã có trong DB là LỖI của riêng dòng đó, không ghi đè, không chặn các
+      dòng khác. Đòi truyền `import_columns`.
+    * `import_columns` — ánh xạ TIÊU ĐỀ cột Excel → tên field của `InModel` (vd `{"Mã": "ma", "Tên":
+      "ten"}`) — dùng để dựng cả file mẫu lẫn đọc file nhập. Cột thừa/thiếu tiêu đề bị bỏ qua.
+    * `import_resolve(du_lieu, svc) -> dict` — chỗ cắm cho danh mục cần DỊCH một cột Excel dạng
+      chữ (tên tổ…) sang FK id trước khi dựng `InModel` (vd Công việc khoán bắt buộc `department_id`
+      lúc tạo). Ném `ValueError(câu lỗi)` thì dòng đó rơi vào `loi`, các dòng khác vẫn chạy tiếp.
     """
     doc = doc or require_permission(module, "read")
     req_create = require_permission(module, "create")
@@ -143,7 +181,16 @@ def make_catalog_router(
     BAT = (CatalogError, *loi_khac)
 
     def _rows(svc, objs) -> list:
-        return dung_rows(svc, objs) if dung_rows else [RowModel.model_validate(o) for o in objs]
+        rows = dung_rows(svc, objs) if dung_rows else [RowModel.model_validate(o) for o in objs]
+        # "Lần trước công thức" (mục 3+7) — 1 truy vấn cho cả trang, giống hệt mẫu `gan_ten_don_vi`.
+        if cong_thuc_truong and rows and getattr(svc, "audit", None) is not None:
+            moi_nhat = CongThucLichSuRepository(svc.audit.db).moi_nhat_nhieu(
+                ten, [r.id for r in rows], cong_thuc_truong)
+            for r in rows:
+                m = moi_nhat.get(r.id)
+                setattr(r, f"{cong_thuc_truong}_truoc", m.gia_tri_cu if m else None)
+                setattr(r, f"{cong_thuc_truong}_sua_luc", m.sua_luc if m else None)
+        return rows
 
     def _mot(svc, obj):
         return _rows(svc, [obj])[0]
@@ -180,6 +227,91 @@ def make_catalog_router(
         _ma_goi_y.__annotations__["_"] = User
         _ma_goi_y.__name__ = f"ma_goi_y_{ten}"
         router.get(f"{goc}/ma-goi-y", response_model=MaGoiYOut, name=f"ma_goi_y_{ten}")(_ma_goi_y)
+
+    # -- GET "/mau-excel" + POST "/import-excel" : PHẢI khai trước "/{item_id}" ---------
+    if enable_import:
+        def _mau_excel(_=Depends(doc)) -> Response:
+            """File mẫu — chỉ có dòng tiêu đề, đúng thứ tự cột `import_columns`."""
+            from io import BytesIO
+
+            # lazy import: thiếu dep chỉ hỏng route này, không sập app (mẫu `export_employees_xlsx`)
+            from openpyxl import Workbook
+            from openpyxl.styles import Font
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = ten[:31]
+            headers = list(import_columns.keys())
+            ws.append(headers)
+            for cell in ws[1]:
+                cell.font = Font(bold=True)
+            for idx in range(1, len(headers) + 1):
+                ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = 22
+            buf = BytesIO()
+            wb.save(buf)
+            return Response(
+                content=buf.getvalue(),
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="mau-{ten}.xlsx"'},
+            )
+        _mau_excel.__annotations__["_"] = User
+        _mau_excel.__name__ = f"mau_excel_{ten}"
+        router.get(f"{goc}/mau-excel", name=f"mau_excel_{ten}")(_mau_excel)
+
+        def _import_excel(svc, user=Depends(req_create), file: UploadFile = File(...)):
+            """Nhập Excel — CHỈ TẠO MỚI. Dòng lỗi không chặn các dòng khác, không đoán số."""
+            from io import BytesIO
+
+            from openpyxl import load_workbook  # lazy import, cùng lý do trên
+
+            try:
+                wb = load_workbook(BytesIO(file.file.read()), read_only=True, data_only=True)
+            except Exception:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                     "Không đọc được file — phải là .xlsx đúng mẫu.") from None
+            hang = wb.active.iter_rows(values_only=True)
+            tieu_de = [str(h).strip() if h is not None else "" for h in next(hang, ())]
+            cot_theo_field = {
+                field: tieu_de.index(nhan) for nhan, field in import_columns.items() if nhan in tieu_de
+            }
+            tong_dong = 0
+            thanh_cong = 0
+            loi: list[ImportExcelLoi] = []
+            for so_dong, hang_du_lieu in enumerate(hang, start=2):
+                if not hang_du_lieu or all(o is None for o in hang_du_lieu):
+                    continue
+                tong_dong += 1
+                du_lieu = {}
+                for field, idx in cot_theo_field.items():
+                    if idx < len(hang_du_lieu):
+                        gt = hang_du_lieu[idx]
+                        if isinstance(gt, str):
+                            gt = gt.strip()
+                        if gt not in (None, ""):
+                            du_lieu[field] = gt
+                if import_resolve:
+                    try:
+                        du_lieu = import_resolve(du_lieu, svc)
+                    except ValueError as e:
+                        loi.append(ImportExcelLoi(dong=so_dong, cot="?", ly_do=str(e)))
+                        continue
+                try:
+                    payload = InModel(**du_lieu)
+                except ValidationError as e:
+                    cot = ", ".join(str(err["loc"][0]) for err in e.errors() if err["loc"])
+                    loi.append(ImportExcelLoi(dong=so_dong, cot=cot or "?", ly_do="Dữ liệu không hợp lệ."))
+                    continue
+                try:
+                    svc.create(payload.model_dump(exclude_unset=True), actor_id=user.id)
+                    thanh_cong += 1
+                except BAT as e:
+                    loi.append(ImportExcelLoi(dong=so_dong, cot="ma", ly_do=str(e)))
+            return ImportExcelOut(tong_dong=tong_dong, thanh_cong=thanh_cong, loi=loi)
+        _import_excel.__annotations__["svc"] = ServiceDep
+        _import_excel.__annotations__["user"] = User
+        _import_excel.__name__ = f"import_excel_{ten}"
+        router.post(f"{goc}/import-excel", response_model=ImportExcelOut,
+                    name=f"import_excel_{ten}")(_import_excel)
 
     # -- GET "/{item_id}" ---------------------------------------------------------------
     def _get(item_id: int, svc, _=Depends(doc)):
@@ -246,6 +378,39 @@ def make_catalog_router(
         _dat_active.__name__ = f"dat_active_{ten}"
         router.patch(goc + "/{item_id}/active", response_model=RowModel,
                      name=f"dat_active_{ten}")(_dat_active)
+
+    # -- POST "/{item_id}/clone" : Nhân bản -----------------------------------------------
+    if enable_clone:
+        req_clone = require_permission(module, "clone")
+
+        def _clone(item_id: int, svc, user=Depends(req_clone)):
+            try:
+                obj = svc.clone(item_id, actor_id=user.id)
+            except BAT as e:
+                raise loi_http(e) from None
+            return _mot(svc, obj)
+        _clone.__annotations__["svc"] = ServiceDep
+        _clone.__annotations__["user"] = User
+        _clone.__name__ = f"clone_{ten}"
+        router.post(goc + "/{item_id}/clone", response_model=RowModel,
+                    status_code=status.HTTP_201_CREATED, name=f"clone_{ten}")(_clone)
+
+    # -- GET "/{item_id}/lich-su-cong-thuc" : lịch sử ĐẦY ĐỦ, không chỉ "lần trước" ------
+    if cong_thuc_truong:
+        def _lich_su_cong_thuc(item_id: int, svc, _=Depends(doc)) -> list[CongThucLichSuOut]:
+            try:
+                svc.get(item_id)  # 404 nếu không có — cùng khuôn `_get`, tránh lộ lịch sử id ma.
+            except BAT as e:
+                raise loi_http(e) from None
+            if getattr(svc, "audit", None) is None:
+                return []
+            rows = CongThucLichSuRepository(svc.audit.db).liet_ke(ten, item_id, cong_thuc_truong)
+            return [CongThucLichSuOut.model_validate(r) for r in rows]
+        _lich_su_cong_thuc.__annotations__["svc"] = ServiceDep
+        _lich_su_cong_thuc.__annotations__["_"] = User
+        _lich_su_cong_thuc.__name__ = f"lich_su_cong_thuc_{ten}"
+        router.get(goc + "/{item_id}/lich-su-cong-thuc", response_model=list[CongThucLichSuOut],
+                   name=f"lich_su_cong_thuc_{ten}")(_lich_su_cong_thuc)
 
     # -- DELETE "/{item_id}" ------------------------------------------------------------
     def _delete(item_id: int, svc, user=Depends(req_delete)):

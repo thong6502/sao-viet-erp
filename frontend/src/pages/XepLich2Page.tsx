@@ -20,6 +20,7 @@ import {
   type Xl2VatTuTomTat, type Xl2XemTruoc, type XepLichGoiY,
 } from "../api/client";
 import { crud, type Row } from "../api/rebuildCatalog";
+import { tagTone } from "../lib/tagTone";
 import { useDebounced } from "../utils/useDebounced";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
@@ -210,6 +211,7 @@ export function XepLich2Page({
   const [phIssues, setPhIssues] = useState<Xl2Issue[] | null>(null);
   const [phErr, setPhErr] = useState(false);
   const [goiPh, setGoiPh] = useState<Xl2GoiPhatHanh | null>(null);   // §4.3 trạng thái gói phát hành
+  const [showVerHist, setShowVerHist] = useState(false);   // xổ lịch sử phiên bản trong dải chân
 
   const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -466,6 +468,8 @@ export function XepLich2Page({
   //  (b) cả chuỗi THỰC THỂ đang chọn (từ kiểm phát hành);
   //  (c) DÒNG đang chọn (từ xem-trước) — nặng nhất về độ ưu tiên nên đặt cuối.
   const selEntityKey = selEntity ? entityKey(selEntity.nguon, selEntity.id) : null;
+  // Đổi thực thể đang chọn → gấp lịch sử phiên bản đang xổ (tránh treo dữ liệu của thực thể cũ).
+  useEffect(() => { setShowVerHist(false); }, [selEntityKey]);
   const barMuc = useMemo(() => {
     const m = new Map<number, Xl2Muc>();
     if (hlMuc && ban) {
@@ -1179,9 +1183,40 @@ export function XepLich2Page({
                   // ĐÃ phát hành: cửa đổi sang Phát hành cập nhật (§4.3) + Thu hồi (chặn nếu có việc đã bắt đầu).
                   <>
                     {goiPh.version_hien_tai != null && goiPh.version_hien_tai > 1 && (
-                      <span className="xl2-foot__count" title="Số phiên bản lịch đã phát hành">
-                        <Icon name="history" size={13} /> phiên bản <b>{goiPh.version_hien_tai}</b>
-                      </span>
+                      <div className="xl2-verhist">
+                        <button type="button" className="xl2-foot__count xl2-foot__count--btn"
+                          title="Xem lịch sử các lần phát hành cập nhật"
+                          aria-expanded={showVerHist}
+                          onClick={() => setShowVerHist((v) => !v)}>
+                          <Icon name="history" size={13} /> phiên bản <b>{goiPh.version_hien_tai}</b>
+                        </button>
+                        {showVerHist && (
+                          <div className="xl2-verhist__pop" role="dialog" aria-label="Lịch sử phiên bản">
+                            <div className="xl2-verhist__head">
+                              <span>Lịch sử phiên bản</span>
+                              <button type="button" className="xl2-verhist__x" aria-label="Đóng"
+                                onClick={() => setShowVerHist(false)}>
+                                <Icon name="x" size={13} />
+                              </button>
+                            </div>
+                            {goiPh.phien_bans && goiPh.phien_bans.length > 0 ? (
+                              <ul className="xl2-verhist__list">
+                                {[...goiPh.phien_bans].reverse().map((p) => (
+                                  <li key={p.so} className="xl2-verhist__item">
+                                    <div className="xl2-verhist__row">
+                                      <b>{p.loai === "cap_nhat" ? `Cập nhật · bản ${p.so}` : "Phát hành gốc"}</b>
+                                      <span className="xl2-verhist__khi">{ngayGio(p.luc)}</span>
+                                    </div>
+                                    {p.ly_do && <div className="xl2-verhist__lydo">{p.ly_do}</div>}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <div className="xl2-verhist__empty">Chưa có dữ liệu lịch sử.</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
                     <Button variant="ghost" disabled={!goiPh.cho_phep_thu_hoi}
                       title={goiPh.cho_phep_thu_hoi ? undefined : "Đã có việc bắt đầu — chỉ cập nhật được phần chưa bắt đầu"}
@@ -1381,6 +1416,18 @@ function QueueRow({
       {r.ten_san_pham && (
         <div className="xl2-qrow__product" title={r.ten_san_pham}>
           {r.ten_san_pham}
+        </div>
+      )}
+
+      {/* Hàng 2.5: Tên khách hàng + nhãn (customer_tags thật — Khó tính/Nhạy giá/Ưu tiên...) */}
+      {(r.ten_khach_hang || r.nhan_khach_hang.length > 0) && (
+        <div className="xl2-qrow__tags">
+          {r.ten_khach_hang && (
+            <span className="xl2-qrow__customer" title={r.ten_khach_hang}>{r.ten_khach_hang}</span>
+          )}
+          {r.nhan_khach_hang.map((t) => (
+            <span key={t} className={`xl2-tag xl2-tag--${tagTone(t)}`}>{t}</span>
+          ))}
         </div>
       )}
 

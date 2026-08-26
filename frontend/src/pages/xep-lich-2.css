@@ -747,6 +747,43 @@
   word-break: break-word;
 }
 
+/* Nhãn khách hàng (customer_tags thật, vd Khó tính/Nhạy giá/Ưu tiên) — cùng thuật toán màu tagTone()
+   với màn Khách hàng nên cùng chữ ra cùng tông; đây là badge ĐỌC, không có nút xoá. */
+.xl2-qrow__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.xl2-qrow__customer {
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+.xl2-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  white-space: nowrap;
+}
+.xl2-tag--indigo   { background: rgba(99, 102, 241, 0.12);  color: #4338ca; border: 1px solid rgba(99, 102, 241, 0.32); }
+.xl2-tag--emerald  { background: rgba(16, 185, 129, 0.12);  color: #047857; border: 1px solid rgba(16, 185, 129, 0.32); }
+.xl2-tag--violet   { background: rgba(139, 92, 246, 0.12);  color: #6d28d9; border: 1px solid rgba(139, 92, 246, 0.32); }
+.xl2-tag--cyan     { background: rgba(14, 165, 233, 0.12);  color: #0369a1; border: 1px solid rgba(14, 165, 233, 0.32); }
+.xl2-tag--amber    { background: rgba(245, 158, 11, 0.12);  color: #b45309; border: 1px solid rgba(245, 158, 11, 0.32); }
+.xl2-tag--rose     { background: rgba(244, 63, 94, 0.12);   color: #be123c; border: 1px solid rgba(244, 63, 94, 0.32); }
+.xl2-tag--fuchsia  { background: rgba(217, 70, 239, 0.12);  color: #a21caf; border: 1px solid rgba(217, 70, 239, 0.32); }
+.xl2-tag--teal     { background: rgba(20, 184, 166, 0.12);  color: #0f766e; border: 1px solid rgba(20, 184, 166, 0.32); }
+
 .xl2-qrow__meta {
   display: flex;
   flex-wrap: wrap;
@@ -2481,8 +2518,96 @@
 .xl2-foot__count--ph svg { color: var(--heat-2); }
 .xl2-foot__count--warn { color: var(--amber-soft); }
 .xl2-foot__count--ok { color: var(--moss-soft); }
+/* Lịch sử phiên bản (§4.3) — nút pill có sẵn, bấm xổ popover NGƯỢC LÊN vì nằm ở dải chân đáy màn. */
+.xl2-verhist { position: relative; }
+.xl2-foot__count--btn {
+  appearance: none;
+  border: 0;
+  cursor: pointer;
+}
+.xl2-foot__count--btn:hover {
+  background: color-mix(in srgb, var(--canvas) 20%, var(--charcoal));
+}
+.xl2-verhist__pop {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  width: 280px;
+  max-height: 320px;
+  overflow-y: auto;
+  border-radius: var(--r-3);
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow-lg);
+}
+.xl2-verhist__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.xl2-verhist__x {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--ash-2);
+  cursor: pointer;
+  display: inline-flex;
+}
+.xl2-verhist__list {
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-1) 0;
+}
+.xl2-verhist__item {
+  padding: var(--sp-2) var(--sp-3);
+}
+.xl2-verhist__item + .xl2-verhist__item {
+  border-top: 1px solid var(--rule);
+}
+.xl2-verhist__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+.xl2-verhist__khi {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+}
+.xl2-verhist__lydo {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+}
+.xl2-verhist__empty {
+  padding: var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--ash);
+}
 .xl2-foot__spacer { flex: 1 1 auto; }
 .xl2-foot__act { display: flex; align-items: center; gap: var(--sp-2); }
+/* `.btn--ghost` mặc định tô chữ var(--ink) cho nền sáng — trùng hệt var(--charcoal) của dải chân
+   này (cả hai đều #0f172a) nên chữ "Thu hồi" biến mất, chỉ còn khối đen. Đổi màu cho nền tối. */
+.xl2-foot__act .btn--ghost {
+  color: var(--canvas);
+  border-color: color-mix(in srgb, var(--canvas) 30%, var(--charcoal));
+}
+.xl2-foot__act .btn--ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--canvas) 14%, var(--charcoal));
+  border-color: color-mix(in srgb, var(--canvas) 45%, var(--charcoal));
+}
 /* Tổng MỨC toàn bàn bấm-được, DỜI xuống dải chân (C1). Tái dùng nút .xl2-digest__muc: pill sáng trên
    nền charcoal đọc rõ, giữ đúng treatment đã duyệt ở thanh trên. Vạch ngăn với khối thực thể. */
 .xl2-foot__muc { display: flex; align-items: center; gap: var(--sp-2); }

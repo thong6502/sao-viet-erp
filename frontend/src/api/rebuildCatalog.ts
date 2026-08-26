@@ -1,6 +1,6 @@
 // API — 10 danh mục Cấu hình danh mục (xem `REBUILD_CONFIGS`). File riêng dùng chung
 // `authed` của client.ts (silent-refresh nhất quán). Wiring Phase E.
-import { authed } from "./client";
+import { authed, blobUrl } from "./client";
 
 export interface ListOut<T> {
   items: T[];
@@ -53,7 +53,43 @@ export function crud(prefix: string) {
     remove(token: string, id: number): Promise<void> {
       return authed<void>(`${prefix}/${id}`, token, { method: "DELETE" });
     },
+    /** Nhân bản một dòng — server copy toàn bộ cột, tự đặt mã/tên "(bản sao)" không trùng. */
+    clone(token: string, id: number): Promise<Row> {
+      return authed<Row>(`${prefix}/${id}/clone`, token, { method: "POST" });
+    },
+    /** Lịch sử ĐẦY ĐỦ một ô công thức (mục 3+7) — "Xem thêm lịch sử" trong `FormulaField`. Chỉ
+     *  danh mục bật `cong_thuc_truong` ở router mới có route này. */
+    lichSuCongThuc(token: string, id: number): Promise<CongThucLichSuItem[]> {
+      return authed<CongThucLichSuItem[]>(`${prefix}/${id}/lich-su-cong-thuc`, token);
+    },
+    /** File mẫu Excel (chỉ dòng tiêu đề) — blob URL, tải về ngay (mục 1). */
+    templateBlobUrl(token: string): Promise<string> {
+      return blobUrl(`${prefix}/mau-excel`, token);
+    },
+    /** Nhập Excel — TẠO MỚI trực tiếp từng dòng, không có bước xem trước (khác luồng NCC). Dòng
+     *  lỗi không chặn các dòng khác. */
+    importExcel(token: string, file: File): Promise<ImportExcelOut> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<ImportExcelOut>(`${prefix}/import-excel`, token, { method: "POST", body: form });
+    },
   };
+}
+
+/** Kết quả một lượt nhập Excel (mục 1) — khớp `ImportExcelOut` ở `catalog_base.py`. */
+export interface ImportExcelOut {
+  tong_dong: number;
+  thanh_cong: number;
+  loi: { dong: number; cot: string; ly_do: string }[];
+}
+
+/** Một mốc trong lịch sử một ô công thức — xem `crud().lichSuCongThuc`. */
+export interface CongThucLichSuItem {
+  id: number;
+  gia_tri_cu: string | null;
+  gia_tri_moi: string | null;
+  sua_boi: number | null;
+  sua_luc: string;
 }
 
 export const mayThietBi = crud("/api/may-thiet-bi");

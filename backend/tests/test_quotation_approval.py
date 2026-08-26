@@ -57,7 +57,7 @@ def _seed_ptg(*, gia_von_tp: int, so_luong=1_000) -> int:
 
 
 def _make_high_value_quote(client, token) -> dict:
-    # giá vốn 1 tỷ, markup 20% → giá bán (subtotal) 1.25 tỷ ≥ 1 tỷ → "giá trị đơn cao".
+    # giá vốn 1 tỷ, markup 20% → giá bán (subtotal) 1.2 tỷ ≥ 1 tỷ → "giá trị đơn cao".
     pid = _seed_ptg(gia_von_tp=1_000_000_000)
     return client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token)).json()
 

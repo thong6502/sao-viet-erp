@@ -73,6 +73,9 @@ class MayThietBiRow(BaseModel):
     # ⚠️ BẪY ĐÃ DÍNH 4 LẦN: service trả thêm field mà schema Out không khai thì Pydantic NUỐT IM
     # LẶNG và FE nhận `undefined`, không lỗi nào. Thêm field phải đi HẾT đường service → schema.
     don_vi_toc_do_ten: str | None = None
+    # "Lần trước công thức lượng" (mục 3+7) — router gán từ `cong_thuc_lich_su`, không có trong DB.
+    cong_thuc_luong_truoc: str | None = None
+    cong_thuc_luong_sua_luc: datetime | None = None
     makeready_time_default: float | None = None
     so_nhan_cong: float = 1
     # Engine bình bài

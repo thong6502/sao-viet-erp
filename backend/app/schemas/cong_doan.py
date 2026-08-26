@@ -92,6 +92,9 @@ class CongDoanRow(BaseModel):
     #: Công thức SẢN LƯỢNG RA của bước NGOÀI dòng giấy (mg `0214`). Bước trên dòng giấy bỏ qua
     #: — số của chúng đến từ chuỗi bù hao ngược.
     cong_thuc_san_luong: str | None = None
+    # "Lần trước công thức" (mục 3+7) — router gán từ `cong_thuc_lich_su`, không có trong DB.
+    cong_thuc_san_luong_truoc: str | None = None
+    cong_thuc_san_luong_sua_luc: datetime | None = None
     kieu_bu_hao: str = "khong"
     bu_hao_id: int | None = None
     so_to_bu_hao: int = 50
