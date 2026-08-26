@@ -4,6 +4,7 @@ import type { PurchaseRequestRow, SupplierRow } from "../../../../api/client";
 import { CodeLink } from "../../../../components/CodeLink";
 import { EmptyRow } from "../../../../components/EmptyState";
 import { Icon } from "../../../../components/Icons";
+import { Select, type SelectOption } from "../../../../components/Select";
 import { fmtDate, money } from "../../../../utils/format";
 import { STATUS_META } from "../shared/constants";
 import { noiDung } from "../shared/helpers";
@@ -75,6 +76,12 @@ export function PhieuListTab({
   total: number;
   totalPages: number;
 }) {
+  // Ô lọc NCC là <Select searchable> chứ không phải <select>: danh sách nhà cung cấp dài, thẻ
+  // gốc không gõ tìm được. Giữ NGUYÊN kiểu giá trị `"all" | number` và thứ tự option cũ.
+  const supplierOptions: SelectOption<number | "all">[] = [
+    { value: "all", label: "Tất cả nhà cung cấp" },
+    ...suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name })),
+  ];
   return (
     <>
     {/* Dải nhắc CHỈ hiện khi có yêu cầu đã quá ngày cần hàng — nó là lời cảnh báo, không phải
@@ -134,21 +141,21 @@ export function PhieuListTab({
               </option>
             ))}
           </select>
-          <select
-            className="input purchase__select-modern"
-            value={supplierFilter}
-            onChange={(e) => {
-              setSupplierFilter(e.target.value === "all" ? "all" : Number(e.target.value));
-              setPage(1);
-            }}
-          >
-            <option value="all">Tất cả nhà cung cấp</option>
-            {suppliers.map((supplier) => (
-              <option key={supplier.id} value={supplier.id}>
-                {supplier.name}
-              </option>
-            ))}
-          </select>
+          <div className="purchase__filter-select">
+            <Select
+              options={supplierOptions}
+              value={supplierFilter}
+              onChange={(v) => {
+                setSupplierFilter(v === "all" ? "all" : Number(v));
+                setPage(1);
+              }}
+              ariaLabel="Lọc nhà cung cấp"
+              searchable
+              searchPlaceholder="Tìm nhà cung cấp…"
+              portal
+              className="purchase__select-modern"
+            />
+          </div>
           <select
             className="input purchase__select-modern"
             value={depositFilter}

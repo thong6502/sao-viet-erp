@@ -21,6 +21,29 @@
   width: 138px !important;
 }
 
+/* Ô lọc "Nhà cung cấp" là <Select searchable> chứ không phải <select> (danh sách NCC dài, thẻ
+   gốc không gõ tìm được). `.sel` khai `width:100%` nên phải có thẻ bọc, không thì nó chiếm
+   nguyên dòng của thanh lọc; bề ngang + dáng ô lấy đúng theo các ô lọc bên cạnh
+   (`.input.acct-toolbar__select`) để nó không lạc lõng. */
+.acct-toolbar__filter-select {
+  flex: 0 0 auto;
+  width: 220px;
+}
+.acct-toolbar__filter-select .sel__trigger {
+  width: 100% !important;
+  min-height: 40px;
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  padding: 10px 12px;
+}
+.acct-toolbar__filter-select .sel__trigger:hover:not(:disabled) {
+  border-color: var(--ash-2);
+}
+
 .acct-toolbar__date-group {
   display: inline-flex;
   align-items: center;
@@ -590,6 +613,19 @@
   cursor: pointer;
 }
 
+/* 26/08/2026 — mọi POPUP của Kế toán đã chuyển sang KHUÔN DRAWER của Thu mua (`.rc-drawer` +
+   `.purchase__hero-banner` + `.purchase__drawer-form` + `.purchase__drawer-footer`), chủ chốt:
+   "sao mỗi nơi một màu". Khối `.acct-modal*` ở trên CÒN LẠI vì `.acct-modal__x` vẫn là dáng nút
+   × nhỏ dùng trong danh sách file đính kèm (`VoucherAttachSection`) — đừng xoá cả khối.
+
+   Khuôn drawer thiếu đúng MỘT thứ: bản RỘNG cho form Phiếu chi/UNC. Thân form đó là lưới nhiều
+   cột + bảng phân bổ theo đợt giao; nhét vào `.purchase__drawer-780` là vỡ bảng. Đây là chỗ
+   thay cho `.acct-modal__box--wide` (1120px) trước kia. */
+.acct-drawer-wide {
+  width: min(94vw, 1040px) !important;
+  max-width: 96vw !important;
+}
+
 .acct-segment,
 .acct-tabs {
   display: inline-flex;
@@ -781,6 +817,7 @@
   }
 
   .acct-toolbar__select,
+  .acct-toolbar__filter-select,
   .acct-toolbar__filters .input {
     width: 100%;
   }

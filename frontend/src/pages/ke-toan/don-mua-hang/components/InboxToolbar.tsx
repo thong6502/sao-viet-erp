@@ -1,6 +1,7 @@
 // Thanh LỌC của màn Đơn mua hàng (Kế toán) — tách từ pages/AccountingPurchaseInboxPage.tsx.
 import type { Dispatch, SetStateAction } from "react";
 import type { SupplierRow } from "../../../../api/client";
+import { Select, type SelectOption } from "../../../../components/Select";
 import { STATUS_META } from "../shared/constants";
 import type { DepositFilter } from "../shared/types";
 
@@ -45,6 +46,12 @@ export function InboxToolbar({
   neededTo: string;
   setNeededTo: Dispatch<SetStateAction<string>>;
 }) {
+  // Ô lọc NCC là <Select searchable> chứ không phải <select>: danh sách nhà cung cấp dài, thẻ
+  // gốc không gõ tìm được. Giữ NGUYÊN kiểu giá trị `"all" | number` và thứ tự option cũ.
+  const supplierOptions: SelectOption<number | "all">[] = [
+    { value: "all", label: "Tất cả nhà cung cấp" },
+    ...suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name })),
+  ];
   return (
     <section className="acct-toolbar">
       <form
@@ -84,21 +91,21 @@ export function InboxToolbar({
             </option>
           ))}
       </select>
-      <select
-        className="input acct-toolbar__select"
-        value={supplierFilter}
-        onChange={(event) => {
-          setSupplierFilter(event.target.value === "all" ? "all" : Number(event.target.value));
-          setPage(1);
-        }}
-      >
-        <option value="all">Tất cả nhà cung cấp</option>
-        {suppliers.map((supplier) => (
-          <option key={supplier.id} value={supplier.id}>
-            {supplier.name}
-          </option>
-        ))}
-      </select>
+      <div className="acct-toolbar__filter-select">
+        <Select
+          options={supplierOptions}
+          value={supplierFilter}
+          onChange={(v) => {
+            setSupplierFilter(v === "all" ? "all" : Number(v));
+            setPage(1);
+          }}
+          ariaLabel="Lọc nhà cung cấp"
+          searchable
+          searchPlaceholder="Tìm nhà cung cấp…"
+          portal
+          className="acct-toolbar__select"
+        />
+      </div>
       <select
         className="input acct-toolbar__select"
         value={depositFilter}

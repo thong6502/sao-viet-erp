@@ -1133,6 +1133,22 @@
   border-color: var(--ink) !important;
 }
 
+/* Ô lọc "Nhà cung cấp" là <Select searchable> chứ không phải <select> (danh sách NCC dài, thẻ
+   gốc không gõ tìm được). Nó ĐỘI LỐT `.purchase__select-modern` cho khớp hai ô lọc bên cạnh,
+   nên chỉ cần chỉnh đúng hai chỗ thẻ gốc khác thẻ nút:
+     · thẻ bọc — `.sel` khai `width:100%`, thả trần vào thanh lọc flex là nó chiếm nguyên dòng;
+     · mũi tên — Select tự vẽ caret riêng, để nguyên `background-image` là hiện HAI mũi tên. */
+.purchase__filter-select {
+  flex: 0 0 auto;
+  width: 200px;
+}
+.purchase__filter-select .sel__trigger.purchase__select-modern {
+  width: 100% !important;
+  max-width: none;
+  padding-right: 12px !important;
+  background-image: none !important;
+}
+
 /* --- Modern Table Enhancements (WOW UI/UX - Font Be Vietnam Pro Alignment) --- */
 .purchase__table-modern {
   width: 100% !important;
