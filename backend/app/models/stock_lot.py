@@ -95,11 +95,14 @@ class StockLot(Base):
         BigInteger, CheckConstraint("don_gia_nhap >= 0"),
         nullable=False, server_default="0", default=0,
     )
+    # Scale 4 chữ số thập phân KHỚP `stock_voucher_lines.sl_goc` (Numeric(14,4)) — số quy về đơn vị
+    # gốc chảy vào lô. Nếu lô chỉ giữ 2dp, Postgres làm tròn sl_goc khi ghi sổ NHẬP ⇒ xuất hết vẫn
+    # dư ~0.005, lô không 'empty', tồn treo bụi. Đồng bộ scale qua migration 0238.
     sl_ban_dau: Mapped[float] = mapped_column(
-        Numeric(14, 2), CheckConstraint("sl_ban_dau > 0"), nullable=False
+        Numeric(14, 4), CheckConstraint("sl_ban_dau > 0"), nullable=False
     )
     sl_con_lai: Mapped[float] = mapped_column(
-        Numeric(14, 2), CheckConstraint("sl_con_lai >= 0"), nullable=False
+        Numeric(14, 4), CheckConstraint("sl_con_lai >= 0"), nullable=False
     )
     # Hạn sử dụng / date in bao bì — nền cho gợi ý FEFO khi xuất.
     hsd: Mapped[date | None] = mapped_column(Date, nullable=True)

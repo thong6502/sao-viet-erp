@@ -94,7 +94,10 @@ class StockLotRepository:
         KHÔNG kiểm tra đủ/thiếu ở đây — service đã chặn trước; repo chỉ ghi.
         """
         lot.sl_con_lai = float(lot.sl_con_lai) - qty
-        if float(lot.sl_con_lai) <= 0:
+        # Ngưỡng epsilon thay vì `<= 0`: lô + dòng phiếu cùng scale 4dp nên xuất hết ra đúng 0, nhưng
+        # phép trừ float từ Decimal có thể để lại bụi ~1e-14 → snap về 0 để lô chuyển 'empty' đúng
+        # (1e-6 nhỏ hơn đơn vị nhỏ nhất 0.0001 nên không nuốt tồn thật).
+        if float(lot.sl_con_lai) <= 1e-6:
             lot.sl_con_lai = 0
             lot.trang_thai = LOT_EMPTY
 
