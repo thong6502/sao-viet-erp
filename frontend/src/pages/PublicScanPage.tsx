@@ -2,7 +2,7 @@
 // Đứng RIÊNG (ngoài AppShell): brand bar + thẻ tóm tắt vật tư + 2 bảng (theo vị trí · lịch sử nhập/xuất).
 // Chỉ đọc dữ liệu công khai từ /api/public/kho-scan (đã bỏ mọi trường tiền ở backend).
 import { useEffect, useMemo, useState } from "react";
-import { ApiError, api, assetUrl, type PublicScan, type PublicScanLot } from "../api/client";
+import { ApiError, api, assetUrl, type PublicScan } from "../api/client";
 import { fmtDateISO } from "../utils/format";
 import { fmtQty } from "./khoShared";
 import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
@@ -15,13 +15,6 @@ const STATUS_META: Record<BinStatus, { label: string }> = {
   du: { label: "Bình thường" },
   het: { label: "Hết hàng" },
 };
-
-interface Bin {
-  key: string;
-  totalRemain: number;
-  activeLots: number;
-  status: BinStatus;
-}
 
 /** Đọc token QR đã ký từ URL (`#s=<payload>.<sig>`). Trả null nếu không phải link tra kho. */
 export function readScanToken(): string | null {
@@ -71,38 +64,14 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
 
   const dvt = data?.dvt ?? "";
 
-  // Gom lô → các ô (theo vị trí): tổng còn, số lô còn>0, HSD gần nhất, trạng thái ô.
-  const { bins, overall } = useMemo(() => {
-    const lots = data?.lots ?? [];
-    const groups = new Map<string, PublicScanLot[]>();
-    for (const lot of lots) {
-      const key = lot.vi_tri && lot.vi_tri.trim() ? lot.vi_tri.trim() : "Chưa gán vị trí";
-      const arr = groups.get(key);
-      if (arr) arr.push(lot);
-      else groups.set(key, [lot]);
-    }
-
-    const list: Bin[] = [];
-    for (const [key, arr] of groups) {
-      const active = arr.filter((l) => l.sl_con_lai > 0);
-      const totalRemain = active.reduce((s, l) => s + l.sl_con_lai, 0);
-      list.push({
-        key,
-        totalRemain,
-        activeLots: active.length,
-        status: totalRemain <= 0 ? "het" : "du",
-      });
-    }
-    // Ô còn hàng lên trước, rồi nhiều SL trước.
-    list.sort((a, b) => {
-      const av = a.totalRemain > 0 ? 0 : 1;
-      const bv = b.totalRemain > 0 ? 0 : 1;
-      return av !== bv ? av - bv : b.totalRemain - a.totalRemain;
-    });
-
+  // Per-lô CÒN TỒN, sắp theo ngày nhập (cũ → mới) — hiện ĐẦY ĐỦ như tab "Lô tồn" (public: KHÔNG giá vốn).
+  const { overall, lotRows } = useMemo(() => {
+    const rows = (data?.lots ?? [])
+      .filter((l) => l.sl_con_lai > 0)
+      .sort((a, b) => (a.ngay_nhap < b.ngay_nhap ? -1 : a.ngay_nhap > b.ngay_nhap ? 1 : 0));
     const onHand = data?.on_hand ?? 0;
     const overall: BinStatus = onHand <= 0 ? "het" : "du";
-    return { bins: list, overall };
+    return { overall, lotRows: rows };
   }, [data]);
 
   const history = data?.history ?? [];
@@ -180,41 +149,44 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
               </div>
             </section>
 
-            {bins.length === 0 && history.length === 0 ? (
+            {lotRows.length === 0 && history.length === 0 ? (
               <div className="pscan__state">
                 <p>Vật tư này hiện chưa có tồn và chưa có phát sinh nhập/xuất tại kho.</p>
               </div>
             ) : (
               <>
-                {bins.length > 0 && (
+                {lotRows.length > 0 && (
                   <section className="pscan__sec">
-                    <h2 className="pscan__sec-title">Vị trí trong kho</h2>
+                    <h2 className="pscan__sec-title">Lô tồn</h2>
                     <div className="pscan__tablewrap">
                       <table className="pscan__table">
                         <thead>
                           <tr>
-                            <th>Ô / vị trí</th>
-                            <th className="pscan__num">SL còn</th>
-                            <th className="pscan__num">Số đợt nhập</th>
-                            <th>Trạng thái</th>
+                            <th>Ngày nhập</th>
+                            <th className="pscan__num">Còn lại</th>
+                            <th>Vị trí</th>
+                            <th>HSD</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {bins.map((bin) => (
-                            <tr key={bin.key}>
-                              <td className="pscan__loc">
-                                <span className={`pscan__dot pscan__dot--${bin.status}`} />
-                                {bin.key}
+                          {lotRows.map((lot, i) => (
+                            <tr key={`${lot.ma_lo ?? "lot"}-${i}`}>
+                              <td>
+                                {lot.ngay_nhap ? fmtDateISO(lot.ngay_nhap) : <span className="pscan__muted">—</span>}
                               </td>
                               <td className="pscan__num pscan__strong">
-                                {fmtQty(bin.totalRemain)}
+                                {fmtQty(lot.sl_con_lai)}
                                 {dvt && <span className="pscan__unit"> {dvt}</span>}
                               </td>
-                              <td className="pscan__num">{bin.activeLots}</td>
+                              <td className="pscan__loc">
+                                {lot.vi_tri && lot.vi_tri.trim() ? (
+                                  lot.vi_tri
+                                ) : (
+                                  <span className="pscan__muted">Chưa gán</span>
+                                )}
+                              </td>
                               <td>
-                                <span className={`pscan__pill pscan__pill--${bin.status}`}>
-                                  {STATUS_META[bin.status].label}
-                                </span>
+                                {lot.hsd ? fmtDateISO(lot.hsd) : <span className="pscan__muted">—</span>}
                               </td>
                             </tr>
                           ))}
