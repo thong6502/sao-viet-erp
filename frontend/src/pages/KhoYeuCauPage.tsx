@@ -42,6 +42,7 @@ import {
 } from "../utils/printStockVoucher";
 import {
   DateFilterHead,
+  DecimalInput,
   LoaiYeuCauChip,
   RequestStatusBadge,
   VoucherStatusBadge,
@@ -695,7 +696,7 @@ function TransferTable({
   );
 }
 
-function TransferDrawer({
+export function TransferDrawer({
   token,
   requestId,
   canCreate,
@@ -2375,14 +2376,11 @@ function AllocRow({
           {settled ? (
             "—"
           ) : isNhap ? (
-            <input
+            <DecimalInput
               id={`cap-${l.id}`}
-              type="number"
-              min={0}
-              step="any"
               className="rc-input kho-num kho-nhap__sl"
-              value={block.cap || ""}
-              onChange={(e) => onCap(Number(e.target.value) || 0)}
+              value={block.cap}
+              onChange={(n) => onCap(n ?? 0)}
               aria-label="SL nhập"
             />
           ) : (
@@ -2522,13 +2520,10 @@ function AllocRow({
                             )}
                             {/* SL lấy: mặc định TỰ LẤY theo FIFO, kho SỬA được nếu cần (cap ở setLotQty). */}
                             <td className="kho-num">
-                              <input
-                                type="number"
-                                min={0}
-                                step="any"
+                              <DecimalInput
                                 className={`rc-input kho-num${block.warnLotId === lot.lot_id ? " rc-input--invalid" : ""}`}
-                                value={lot.so_luong || ""}
-                                onChange={(e) => onLotQty(lot.lot_id, Number(e.target.value))}
+                                value={lot.so_luong}
+                                onChange={(n) => onLotQty(lot.lot_id, n ?? 0)}
                                 aria-label={`SL lấy từ phiếu ${lot.voucher_ma ?? lot.ma_lo}`}
                               />
                             </td>

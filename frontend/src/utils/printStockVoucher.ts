@@ -113,8 +113,8 @@ export function printStockVoucher(data: StockVoucherPrintData): boolean {
     .map(
       (l, i) => `<tr>
         <td class="c">${i + 1}</td>
-        <td>${escapeHtml(l.materialName ?? "")}</td>
         <td class="c">${escapeHtml(l.materialCode ?? "")}</td>
+        <td>${escapeHtml(l.materialName ?? "")}</td>
         <td class="c">${escapeHtml(l.dvt ?? "")}</td>
         <td class="r">${qty(l.soLuongChungTu)}</td>
         <td class="r">${qty(l.soLuong)}</td>
@@ -215,8 +215,8 @@ ${data.cancelled ? '<div class="stamp">ĐÃ HỦY</div>' : ""}
   <thead>
     <tr>
       <th rowspan="2" style="width:28px">STT</th>
-      <th rowspan="2">Tên, nhãn hiệu, quy cách, phẩm chất vật tư</th>
       <th rowspan="2" style="width:76px">Mã số</th>
+      <th rowspan="2">Tên, nhãn hiệu, quy cách, phẩm chất vật tư</th>
       <th rowspan="2" style="width:52px">ĐVT</th>
       <th colspan="2" style="width:150px">Số lượng</th>
       ${showMoney ? '<th rowspan="2" style="width:92px">Đơn giá</th><th rowspan="2" style="width:104px">Thành tiền</th>' : ""}
@@ -288,8 +288,8 @@ export function printTransferVoucher(data: TransferPrintData): boolean {
     .map(
       (l, i) => `<tr>
         <td class="c">${i + 1}</td>
-        <td>${escapeHtml(l.materialName ?? "")}</td>
         <td class="c">${escapeHtml(l.materialCode ?? "")}</td>
+        <td>${escapeHtml(l.materialName ?? "")}</td>
         <td class="c">${escapeHtml(l.dvt ?? "")}</td>
         <td class="r">${qty(l.soLuong)}</td>
         ${showMoney ? `<td class="r">${money(l.donGia ?? 0)}</td><td class="r">${money(l.thanhTien ?? 0)}</td>` : ""}
@@ -390,8 +390,8 @@ ${data.cancelled ? '<div class="stamp">ĐÃ HỦY</div>' : ""}
   <thead>
     <tr>
       <th style="width:28px">STT</th>
-      <th>Tên, nhãn hiệu, quy cách vật tư</th>
       <th style="width:76px">Mã số</th>
+      <th>Tên, nhãn hiệu, quy cách vật tư</th>
       <th style="width:52px">ĐVT</th>
       <th style="width:80px">Số lượng</th>
       ${showMoney ? '<th style="width:92px">Đơn giá vốn</th><th style="width:104px">Thành tiền</th>' : ""}
