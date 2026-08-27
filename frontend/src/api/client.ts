@@ -3238,6 +3238,12 @@ export interface PhieuTinhGiaListOut {
   items: PhieuTinhGiaListItem[];
   total: number;
 }
+/** Đếm cho thanh tab — độc lập trang/tìm kiếm hiện tại. */
+export interface PhieuTinhGiaStatsOut {
+  all: number;
+  draft: number;
+  calculated: number;
+}
 
 /** 1 dòng gia công sau in (finishing) thuộc 1 thành phần. */
 export interface ThanhPhamOut {
@@ -9240,12 +9246,14 @@ export const api = {
     conPhaiGiao(token: string, orderId: number): Promise<ConPhaiGiao> {
       return authed<ConPhaiGiao>(`/api/giao-hang/orders/${orderId}/con-phai-giao`, token);
     },
-    requests(token: string, opts?: { orderId?: number; choLenKeHoach?: boolean }): Promise<{ items: DeliveryRequest[] }> {
+    requests(token: string, opts?: { orderId?: number; choLenKeHoach?: boolean; page?: number; size?: number }): Promise<{ items: DeliveryRequest[]; total: number }> {
       const q = new URLSearchParams();
       if (opts?.orderId != null) q.set("order_id", String(opts.orderId));
       if (opts?.choLenKeHoach) q.set("cho_len_ke_hoach", "true");
+      if (opts?.page != null) q.set("page", String(opts.page));
+      if (opts?.size != null) q.set("size", String(opts.size));
       const s = q.toString();
-      return authed<{ items: DeliveryRequest[] }>(`/api/giao-hang/requests${s ? `?${s}` : ""}`, token);
+      return authed<{ items: DeliveryRequest[]; total: number }>(`/api/giao-hang/requests${s ? `?${s}` : ""}`, token);
     },
     request(token: string, id: number): Promise<DeliveryRequestDetail> {
       return authed<DeliveryRequestDetail>(`/api/giao-hang/requests/${id}`, token);
@@ -9260,9 +9268,13 @@ export const api = {
       return authed<DeliveryRequest>(`/api/giao-hang/requests/${id}/huy`, token, { method: "POST", body: JSON.stringify({ ly_do: lyDo }) });
     },
 
-    trips(token: string, opts?: { dangChay?: boolean }): Promise<{ items: DeliveryTrip[] }> {
-      const q = opts?.dangChay ? "?dang_chay=true" : "";
-      return authed<{ items: DeliveryTrip[] }>(`/api/giao-hang/trips${q}`, token);
+    trips(token: string, opts?: { dangChay?: boolean; page?: number; size?: number }): Promise<{ items: DeliveryTrip[]; total: number }> {
+      const q = new URLSearchParams();
+      if (opts?.dangChay) q.set("dang_chay", "true");
+      if (opts?.page != null) q.set("page", String(opts.page));
+      if (opts?.size != null) q.set("size", String(opts.size));
+      const s = q.toString();
+      return authed<{ items: DeliveryTrip[]; total: number }>(`/api/giao-hang/trips${s ? `?${s}` : ""}`, token);
     },
     plan(token: string, input: PlanInput): Promise<{ trip: DeliveryTrip; canh_bao: string[] }> {
       return authed<{ trip: DeliveryTrip; canh_bao: string[] }>("/api/giao-hang/plans", token, { method: "POST", body: JSON.stringify(input) });
@@ -9363,12 +9375,19 @@ export const api = {
   phieuTinhGia: {
     list(
       token: string,
-      params: { q?: string } = {},
+      params: { q?: string; status?: string; sort?: string; page?: number; size?: number } = {},
     ): Promise<PhieuTinhGiaListOut> {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
+      if (params.status) qs.set("status", params.status);
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
       return authed<PhieuTinhGiaListOut>(`/api/phieu-tinh-gia${suffix}`, token);
+    },
+    stats(token: string): Promise<PhieuTinhGiaStatsOut> {
+      return authed<PhieuTinhGiaStatsOut>("/api/phieu-tinh-gia/stats", token);
     },
     get(token: string, id: number): Promise<PhieuTinhGiaOut> {
       return authed<PhieuTinhGiaOut>(`/api/phieu-tinh-gia/${id}`, token);
@@ -11884,6 +11903,9 @@ export interface DeliveryTrip {
   ghi_chu_phan_cong: string | null;
   trang_thai: DeliveryTripStatus;
   km: number | null;
+  /** TỔNG km cả các lần giao của yêu cầu (không phải riêng chuyến này) — tab "Đơn giao hàng"
+   *  đã gộp theo yêu cầu. */
+  tong_km: number;
   thoi_gian_ket_thuc: string | null;
   nguoi_nhan_thuc_te: string | null;
   ly_do_that_bai: string | null;

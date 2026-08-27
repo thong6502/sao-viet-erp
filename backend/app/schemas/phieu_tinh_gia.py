@@ -269,6 +269,13 @@ class PhieuTinhGiaListOut(BaseModel):
     total: int
 
 
+class PhieuTinhGiaStatsOut(BaseModel):
+    """Đếm cho thanh tab — độc lập với trang/tìm kiếm hiện tại (đúng phạm vi scope người xem)."""
+    all: int
+    draft: int
+    calculated: int
+
+
 # ============================ NHẬT KÝ HOẠT ĐỘNG ============================
 class PtgActivityItem(BaseModel):
     """1 dòng nhật ký hoạt động (ai làm gì · khi nào) của 1 phiếu tính giá."""

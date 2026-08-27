@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from ..models.delivery import (
     LAN_GIAO_CO_HANG_DEN_TAY,
@@ -71,6 +71,8 @@ class DeliveryRepository:
         department_ids: list[int] | None = None,
         created_by: int | None = None,
         chi_cho_len_ke_hoach: bool = False,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[DeliveryRequest]:
         q = (
             select(DeliveryRequest)
@@ -86,7 +88,28 @@ class DeliveryRepository:
             q = q.where(DeliveryRequest.created_by == created_by)
         if chi_cho_len_ke_hoach:
             q = q.where(DeliveryRequest.trang_thai == YC_CHO_LEN_KE_HOACH)
+        if limit is not None:
+            q = q.limit(limit).offset(offset)
         return list(self.db.execute(q).scalars().all())
+
+    def count_requests(
+        self,
+        *,
+        order_id: int | None = None,
+        department_ids: list[int] | None = None,
+        created_by: int | None = None,
+        chi_cho_len_ke_hoach: bool = False,
+    ) -> int:
+        q = select(func.count()).select_from(DeliveryRequest)
+        if order_id is not None:
+            q = q.where(DeliveryRequest.order_id == order_id)
+        if department_ids is not None:
+            q = q.where(DeliveryRequest.department_id.in_(department_ids))
+        if created_by is not None:
+            q = q.where(DeliveryRequest.created_by == created_by)
+        if chi_cho_len_ke_hoach:
+            q = q.where(DeliveryRequest.trang_thai == YC_CHO_LEN_KE_HOACH)
+        return int(self.db.execute(q).scalar() or 0)
 
     def requests_mo_cua_don(self, order_id: int) -> list[DeliveryRequest]:
         """Yêu cầu CHƯA huỷ của một đơn — dùng để chặn đặt vượt số còn phải giao."""
@@ -172,12 +195,36 @@ class DeliveryRepository:
         ).scalar()
         return int(cao_nhat or 0) + 1
 
+    def _loc_chuyen(self, q, *, employee_ids, department_ids, trang_thai, latest_per_request):
+        if employee_ids is not None:
+            q = q.where(DeliveryTrip.employee_id.in_(employee_ids))
+        if department_ids is not None:
+            q = q.where(DeliveryRequest.department_id.in_(department_ids))
+        if trang_thai:
+            q = q.where(DeliveryTrip.trang_thai.in_(trang_thai))
+        if latest_per_request:
+            # Gộp theo yêu cầu — chỉ lấy chuyến MỚI NHẤT (lan_thu lớn nhất) của mỗi yêu cầu, khớp
+            # `gopTheoYeuCau()` phía FE. Từ 22/08/2026 mỗi yêu cầu chỉ còn 1 chuyến sống nên đây
+            # chủ yếu chừa cho dữ liệu cũ (nhiều `lan_thu` một yêu cầu) trước mốc đó.
+            t2 = aliased(DeliveryTrip)
+            max_lan_thu = (
+                select(func.max(t2.lan_thu))
+                .where(t2.request_id == DeliveryTrip.request_id)
+                .correlate(DeliveryTrip)
+                .scalar_subquery()
+            )
+            q = q.where(DeliveryTrip.lan_thu == max_lan_thu)
+        return q
+
     def list_trips(
         self,
         *,
         employee_ids: list[int] | None = None,
         department_ids: list[int] | None = None,
         trang_thai: list[str] | None = None,
+        latest_per_request: bool = False,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[DeliveryTrip]:
         q = (
             select(DeliveryTrip)
@@ -185,13 +232,44 @@ class DeliveryRepository:
             .options(selectinload(DeliveryTrip.lines), selectinload(DeliveryTrip.request))
             .order_by(DeliveryTrip.gio_lay_hang.desc(), DeliveryTrip.id.desc())
         )
-        if employee_ids is not None:
-            q = q.where(DeliveryTrip.employee_id.in_(employee_ids))
-        if department_ids is not None:
-            q = q.where(DeliveryRequest.department_id.in_(department_ids))
-        if trang_thai:
-            q = q.where(DeliveryTrip.trang_thai.in_(trang_thai))
+        q = self._loc_chuyen(q, employee_ids=employee_ids, department_ids=department_ids,
+                             trang_thai=trang_thai, latest_per_request=latest_per_request)
+        if limit is not None:
+            q = q.limit(limit).offset(offset)
         return list(self.db.execute(q).scalars().all())
+
+    def count_trips(
+        self,
+        *,
+        employee_ids: list[int] | None = None,
+        department_ids: list[int] | None = None,
+        trang_thai: list[str] | None = None,
+        latest_per_request: bool = False,
+    ) -> int:
+        q = (
+            select(func.count())
+            .select_from(DeliveryTrip)
+            .join(DeliveryRequest, DeliveryRequest.id == DeliveryTrip.request_id)
+        )
+        q = self._loc_chuyen(q, employee_ids=employee_ids, department_ids=department_ids,
+                             trang_thai=trang_thai, latest_per_request=latest_per_request)
+        return int(self.db.execute(q).scalar() or 0)
+
+    def tong_km_theo_yeu_cau(self, request_ids: list[int]) -> dict[int, int]:
+        """{request_id: TỔNG km cả các lần giao} — không chỉ km của chuyến mới nhất.
+
+        Dùng cho cột "Tổng km" ở tab đã gộp theo yêu cầu; tách khỏi `list_trips(latest_per_request)`
+        vì bản thân dòng hiển thị chỉ còn CHUYẾN MỚI NHẤT, mất km của các lần trước nếu không cộng
+        riêng.
+        """
+        if not request_ids:
+            return {}
+        rows = self.db.execute(
+            select(DeliveryTrip.request_id, func.coalesce(func.sum(DeliveryTrip.km), 0))
+            .where(DeliveryTrip.request_id.in_(request_ids))
+            .group_by(DeliveryTrip.request_id)
+        ).all()
+        return {int(r[0]): int(r[1] or 0) for r in rows}
 
     def trung_lich(
         self,

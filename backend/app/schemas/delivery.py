@@ -81,6 +81,7 @@ class DeliveryRequestOut(BaseModel):
 
 class DeliveryRequestPage(BaseModel):
     items: list[DeliveryRequestOut]
+    total: int = 0
 
 
 # --- Lần giao ------------------------------------------------------------------------------
@@ -149,6 +150,9 @@ class TripOut(BaseModel):
     ghi_chu_phan_cong: str | None = None
     trang_thai: str
     km: int | None = None
+    #: TỔNG km cả các lần giao của yêu cầu (không phải km riêng lần này) — dùng cho tab
+    #: "Đơn giao hàng" đã gộp theo yêu cầu. Mặc định = km của chính chuyến khi không truyền.
+    tong_km: int = 0
     thoi_gian_ket_thuc: datetime | None = None
     nguoi_nhan_thuc_te: str | None = None
     ly_do_that_bai: str | None = None
@@ -168,6 +172,7 @@ class TripOut(BaseModel):
 
 class TripPage(BaseModel):
     items: list[TripOut]
+    total: int = 0
 
 
 class PlanOut(BaseModel):

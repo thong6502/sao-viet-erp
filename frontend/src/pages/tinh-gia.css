@@ -707,10 +707,6 @@ select.tg-input {
   border-color: var(--rust);
   box-shadow: 0 0 0 3px var(--rust-soft);
 }
-.ptg-filter {
-  flex-shrink: 0;
-  min-height: 44px;
-}
 .ptg-tabrow {
   margin-top: var(--sp-4);
 }
@@ -847,11 +843,46 @@ select.tg-input {
   color: var(--ash);
   margin: 0;
 }
-.ptg-foot-note {
+.ptg-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
   margin: var(--sp-3) 0 0;
+}
+
+.ptg-pager__info {
   font-size: 12px;
   color: var(--ash-2);
   font-family: var(--ff-sans);
+}
+
+.ptg-pager__btns {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.ptg-pager__btn {
+  padding: 6px 14px;
+  border-radius: var(--r-3);
+  border: 1px solid var(--rule-soft);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+
+.ptg-pager__btn:hover:not(:disabled) {
+  border-color: var(--ash-2);
+  background: var(--paper-contrast);
+}
+
+.ptg-pager__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* ---- Status badge (dùng chung list + detail) ---- */

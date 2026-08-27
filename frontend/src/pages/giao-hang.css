@@ -338,3 +338,46 @@
   font-size: 12px;
   color: var(--muted, #6b7280);
 }
+
+/* Phân trang máy chủ (tab Đơn giao hàng + Yêu cầu giao) — cùng khuôn với `.dhb__pager`. */
+.gh-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-top: var(--sp-3);
+}
+
+.gh-pager__info {
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  color: var(--ash);
+}
+
+.gh-pager__btns {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.gh-pager__btn {
+  padding: 6px 14px;
+  border-radius: var(--r-3);
+  border: 1px solid var(--rule-soft);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+
+.gh-pager__btn:hover:not(:disabled) {
+  border-color: var(--ash-2);
+  background: var(--paper-contrast);
+}
+
+.gh-pager__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

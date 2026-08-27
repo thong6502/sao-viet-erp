@@ -78,8 +78,8 @@ function stubApi({ trips = [], requests = [], drivers = [], taiXe }: {
       : p.includes("/tai-xe-chon")
         ? { items: taiXe ?? [{ id: 5, code: "NVGH01", full_name: "Trần Văn Hùng",
                                department: "Kho", co_tai_khoan: true, co_thao_tac: true }] }
-        : p.includes("/trips") ? { items: trips }
-          : p.includes("/requests") ? { items: requests }
+        : p.includes("/trips") ? { items: trips, total: trips.length }
+          : p.includes("/requests") ? { items: requests, total: requests.length }
             : p.includes("/nhan-vien") ? { items: drivers }
               : {};
     return Promise.resolve({
@@ -241,34 +241,22 @@ describe("Giao hàng · yêu cầu xuất kho là chứng từ CỦA KHO", () =>
 });
 
 describe("Giao hàng · một yêu cầu = MỘT dòng", () => {
-  const LAN1 = { ...CHUYEN, id: 1, lan_thu: 1, trang_thai: "giao_thieu", km: 10,
-                 gio_lay_hang: "2026-08-21T08:38:00Z" };
-  const LAN2 = { ...CHUYEN, id: 2, lan_thu: 2, trang_thai: "thanh_cong", km: 200,
-                 gio_lay_hang: "2026-08-29T08:39:00Z" };
+  // Gộp theo yêu cầu (lấy lần MỚI NHẤT + cộng km cả các lần) nay làm ở MÁY CHỦ
+  // (`delivery_repo._loc_chuyen`/`tong_km_theo_yeu_cau`, xem `test_09b_...` bên backend) — FE chỉ
+  // còn việc HIỂN THỊ đúng những gì `/trips` trả về, nên stub thẳng MỘT dòng đã gộp sẵn, đúng
+  // hình dạng API thật (PRD §9: 18km lần hỏng + 22km lần thành công ⇒ `tong_km` 40, ở đây dùng
+  // 10 + 200 = 210 để tách bạch với `km` riêng của lần cuối).
+  const DA_GOP = { ...CHUYEN, lan_thu: 2, trang_thai: "thanh_cong", km: 200, tong_km: 210 };
 
-  it("⭐ dữ liệu CŨ có hai chuyến một yêu cầu ⇒ vẫn CHỈ một dòng", async () => {
-    // Từ 22/08/2026 một yêu cầu chỉ có MỘT chuyến (chặn ở service + chỉ số UNIQUE mg 0229), nên
-    // cảnh này chỉ còn ở dữ liệu gieo TRƯỚC ngày đó. Bảng vẫn phải gộp về một dòng, không hiện
-    // hai dòng trùng mã trùng khách.
-    //
-    // Nhãn "2 lần giao" đã bỏ cùng lượt: đếm một thứ luôn bằng 1 là bắt người đọc hỏi vì sao.
-    stubApi({ trips: [LAN2, LAN1] });
-    ve({});
-    await waitFor(() =>
-      expect(screen.getAllByRole("button", { name: "YCGH-260819-A1B2" })).toHaveLength(1));
-    expect(screen.queryByText("2 lần giao")).not.toBeInTheDocument();
-  });
-
-  it("⭐ cột Km là TỔNG cả các lần, không phải km lần cuối", async () => {
-    // PRD §9: lần 1 thất bại 18km + lần 2 thành công 22km ⇒ tổng quãng đường 40km.
-    stubApi({ trips: [LAN2, LAN1] });
+  it("⭐ cột Km hiện TỔNG cả các lần máy chủ gộp, không phải km lần cuối", async () => {
+    stubApi({ trips: [DA_GOP] });
     ve({});
     await waitFor(() => expect(screen.getByText("210")).toBeInTheDocument());
     expect(screen.queryByText("200")).not.toBeInTheDocument();
   });
 
-  it("dòng hiện trạng thái của lần MỚI NHẤT", async () => {
-    stubApi({ trips: [LAN2, LAN1] });
+  it("dòng hiện trạng thái của lần MỚI NHẤT do máy chủ trả về", async () => {
+    stubApi({ trips: [DA_GOP] });
     ve({});
     await waitFor(() => expect(screen.getByText("Giao thành công")).toBeInTheDocument());
     expect(screen.queryByText("Giao thiếu")).not.toBeInTheDocument();

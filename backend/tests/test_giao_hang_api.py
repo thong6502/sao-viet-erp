@@ -419,6 +419,44 @@ def test_09_giao_lai_bang_YEU_CAU_MOI_khong_nhan_doi_so_luong(client):
     assert ct2["request"]["trang_thai"] == "da_giao_du"
 
 
+def test_09b_du_lieu_cu_nhieu_lan_thu_gop_ve_MOT_dong_lay_ban_moi_nhat(client):
+    """Dữ liệu TRƯỚC 22/08/2026 (một yêu cầu nhiều `lan_thu`) — `/trips` phải gộp về MỘT dòng.
+
+    API không còn tạo được cảnh này nữa (mỗi yêu cầu chỉ một chuyến sống), nhưng dòng cũ vẫn còn
+    trong DB thật nên phải chèn thẳng qua session, giống dữ liệu di sản. Dòng hiển thị phải lấy
+    trạng thái/km của `lan_thu` LỚN NHẤT, còn "Tổng km" phải CỘNG cả hai lần.
+    """
+    h = _admin(client)
+    oid, lid = _don_da_chot(suffix="09b", qty=100)
+    yc = _tao_yc(client, h, oid, lid, qty=40)
+    nv = _tai_xe("Tai xe 09b")
+
+    from app.models.delivery import DeliveryTrip
+
+    db = SessionLocal()
+    try:
+        db.add(DeliveryTrip(
+            request_id=yc["id"], lan_thu=1, employee_id=nv,
+            gio_lay_hang=datetime.now(timezone.utc), gio_du_kien_giao=datetime.now(timezone.utc),
+            trang_thai="giao_thieu", km=10,
+        ))
+        db.add(DeliveryTrip(
+            request_id=yc["id"], lan_thu=2, employee_id=nv,
+            gio_lay_hang=datetime.now(timezone.utc), gio_du_kien_giao=datetime.now(timezone.utc),
+            trang_thai="thanh_cong", km=200,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    ds = client.get("/api/giao-hang/trips", headers=h).json()
+    dong = [t for t in ds["items"] if t["request_id"] == yc["id"]]
+    assert len(dong) == 1, "hai lan_thu của cùng một yêu cầu phải gộp về một dòng"
+    assert dong[0]["trang_thai"] == "thanh_cong", "phải lấy trạng thái của lan_thu MỚI NHẤT"
+    assert dong[0]["km"] == 200, "km riêng của dòng vẫn là km của lan_thu mới nhất"
+    assert dong[0]["tong_km"] == 210, "Tổng km phải cộng cả hai lần giao (10 + 200)"
+
+
 # =============================================================================================
 # #10 — mọi lần đổi trạng thái có lịch sử
 # =============================================================================================
