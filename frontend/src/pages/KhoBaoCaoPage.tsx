@@ -1,6 +1,16 @@
 // Báo cáo kho (kế toán) — sổ nhập-xuất (phiếu ĐÃ GHI SỔ) + khóa kỳ THEO KHOẢNG (chốt/mở) +
 // tab Lịch sử thao tác + export MISA. docs/spec-bao-cao-kho.md. Chỉ quyền `close_book` vào.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
 import {
   api,
   ApiError,
@@ -53,6 +63,16 @@ function fmtDateTime(iso: string | null): string {
 function fmtMoney(n: number | null): string {
   return n == null ? "" : n.toLocaleString("vi-VN");
 }
+// Rút gọn tiền cho DẢI KPI (13.840.611.094 → "13,84 tỷ", 111.615.707 → "111,6 tr") để dải gọn,
+// không tràn ô; số đầy đủ để ở tooltip (title). KHÔNG dùng cho Sổ kho / bảng chi tiết.
+function fmtMoneyShort(n: number | null): string {
+  if (n == null) return "";
+  const a = Math.abs(n);
+  if (a >= 1e9) return (n / 1e9).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " tỷ";
+  if (a >= 1e6) return (n / 1e6).toLocaleString("vi-VN", { maximumFractionDigits: 1 }) + " triệu";
+  if (a >= 1e3) return (n / 1e3).toLocaleString("vi-VN", { maximumFractionDigits: 0 }) + " nghìn";
+  return n.toLocaleString("vi-VN");
+}
 
 // Bảng màu lát biểu đồ tròn — dùng đúng biến màu app (moss·rust·plum·amber·signal), ash cho "Khác".
 const DONUT_COLORS = [
@@ -63,6 +83,17 @@ const DONUT_COLORS = [
   "var(--signal)",
   "var(--ash)",
 ];
+
+// Màu series biểu đồ kho — cố định theo LOẠI (không theo thứ hạng): Nhập moss · Xuất rust · Chuyển
+// slate. Đúng --moss/--rust của phân hệ kho; slate cho điều chuyển (dịch nội bộ, tông trung tính).
+const SERIES = {
+  nhapDark: "#2f5d3a",
+  nhapLight: "#6f9e79",
+  xuatDark: "#c5400a",
+  xuatLight: "#e8996a",
+  move: "#64748b",
+} as const;
+const RC_DOT: Record<string, string> = { nhap: SERIES.nhapDark, xuat: SERIES.xuatDark, chuyen: SERIES.move };
 
 type DonutSeg = { label: string; color: string; from: number; to: number; pct: number };
 
@@ -345,15 +376,6 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       chuoiMax,
     };
   }, [dashRows, dashChuyen]);
-
-  // Đồ thị Nhập/Xuất/Chuyển kho theo ngày: mặc định CUỘN TỚI NGÀY MỚI NHẤT (bên phải) khi mở màn /
-  // đổi bộ lọc, thay vì đứng ở ngày cũ nhất — người xem quan tâm gần đây nhất. Dùng useLayoutEffect
-  // để không nhấp nháy (đặt scroll trước khi vẽ).
-  const chartPlotRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const el = chartPlotRef.current;
-    if (el) el.scrollLeft = el.scrollWidth;
-  }, [dash.chuoi, dash.theoThang]);
 
   const khoOptions = useMemo(
     () => [
@@ -761,36 +783,45 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             <div className="rc__empty-state">Chưa có phiếu ghi sổ nào trong phạm vi lọc.</div>
           ) : (
             <div className="kho-dash">
-              {/* Thẻ KPI — Nhập / Xuất / Chênh lệch / Mặt hàng, theo bộ lọc kho + ngày. */}
-              <div className="kho-dash__kpis">
-                <div className="kho-dash__card kho-dash__card--in">
+              {/* Dải KPI ngang liền — Nhập / Xuất / Chênh lệch / Mặt hàng / Chuyển kho, theo bộ lọc kho
+                  + ngày. Số rút gọn cho gọn dải; rê chuột (title) xem số đầy đủ. */}
+              <div className="kho-dash__strip">
+                <div className="kho-dash__seg">
                   <span className="kho-dash__label">Tổng nhập</span>
-                  <span className="kho-dash__val">{fmtMoney(dash.tongNhap)} đ</span>
+                  <span className="kho-dash__val" title={`${fmtMoney(dash.tongNhap)} đ`}>
+                    {fmtMoneyShort(dash.tongNhap)}
+                  </span>
                   <span className="kho-dash__sub">{dash.phieuNhap} phiếu nhập</span>
                 </div>
 
-                <div className="kho-dash__card kho-dash__card--out">
+                <div className="kho-dash__seg">
                   <span className="kho-dash__label">Tổng xuất</span>
-                  <span className="kho-dash__val">{fmtMoney(dash.tongXuat)} đ</span>
+                  <span className="kho-dash__val" title={`${fmtMoney(dash.tongXuat)} đ`}>
+                    {fmtMoneyShort(dash.tongXuat)}
+                  </span>
                   <span className="kho-dash__sub">{dash.phieuXuat} phiếu xuất</span>
                 </div>
 
-                <div className="kho-dash__card kho-dash__card--diff">
+                <div className="kho-dash__seg">
                   <span className="kho-dash__label">Chênh lệch Nhập − Xuất</span>
-                  <span className="kho-dash__val">{fmtMoney(dash.chenhLech)} đ</span>
-                  <span className="kho-dash__sub">= Tổng nhập − Tổng xuất (giá trị)</span>
+                  <span className="kho-dash__val" title={`${fmtMoney(dash.chenhLech)} đ`}>
+                    {fmtMoneyShort(dash.chenhLech)}
+                  </span>
+                  <span className="kho-dash__sub">= Tổng nhập − Tổng xuất</span>
                 </div>
 
-                <div className="kho-dash__card kho-dash__card--items">
+                <div className="kho-dash__seg">
                   <span className="kho-dash__label">Mặt hàng luân chuyển</span>
                   <span className="kho-dash__val">{dash.soMatHang}</span>
                   <span className="kho-dash__sub">{dash.soDong} dòng sổ</span>
                 </div>
 
                 {dash.chuyenSoDong > 0 && (
-                  <div className="kho-dash__card kho-dash__card--move">
+                  <div className="kho-dash__seg">
                     <span className="kho-dash__label">Chuyển kho nội bộ</span>
-                    <span className="kho-dash__val">{fmtMoney(dash.chuyenGiaTri)} đ</span>
+                    <span className="kho-dash__val" title={`${fmtMoney(dash.chuyenGiaTri)} đ`}>
+                      {fmtMoneyShort(dash.chuyenGiaTri)}
+                    </span>
                     <span className="kho-dash__sub">
                       {dash.chuyenSoPhieu} phiếu · {dash.chuyenSoDong} dòng
                     </span>
@@ -798,77 +829,112 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                 )}
               </div>
 
-              {/* Biểu đồ cột Nhập/Xuất theo thời gian — CSS nâng cấp hiện đại */}
+              {/* Biểu đồ theo thời gian — Recharts cột nhóm Nhập/Xuất/Chuyển; trục Y rút gọn, lưới mờ,
+                  tooltip. ResponsiveContainer tự vừa khung — không cuộn tay như bản CSS cũ. */}
               {dash.chuoi.length > 0 && (
                 <section className="rc-sec">
                   <h3 className="rc-sec__title">
                     Nhập / Xuất{dash.chuyenSoDong > 0 ? " / Chuyển kho" : ""} theo {dash.theoThang ? "tháng" : "ngày"}
                   </h3>
-                  <div className="kho-chart">
-                    <div className="kho-chart__legend">
-                      <span className="kho-chart__leg kho-chart__leg--in">Nhập</span>
-                      <span className="kho-chart__leg kho-chart__leg--out">Xuất</span>
-                      {dash.chuyenSoDong > 0 && (
-                        <span className="kho-chart__leg kho-chart__leg--move">Chuyển kho</span>
-                      )}
-                    </div>
-                    <div className="kho-chart__plot" ref={chartPlotRef}>
-                      {dash.chuoi.map((c) => (
-                        <div
-                          className="kho-chart__grp"
-                          key={c.key}
-                          title={`${c.label} — Nhập ${fmtMoney(c.nhap)} đ · Xuất ${fmtMoney(c.xuat)} đ${dash.chuyenSoDong > 0 ? ` · Chuyển kho ${fmtMoney(c.chuyen)} đ` : ""}`}
-                        >
-                          <div className="kho-chart__bars">
-                            <div
-                              className="kho-chart__bar kho-chart__bar--in"
-                              style={{ height: `${(c.nhap / dash.chuoiMax) * 100}%` }}
-                            />
-                            <div
-                              className="kho-chart__bar kho-chart__bar--out"
-                              style={{ height: `${(c.xuat / dash.chuoiMax) * 100}%` }}
-                            />
-                            {dash.chuyenSoDong > 0 && (
-                              <div
-                                className="kho-chart__bar kho-chart__bar--move"
-                                style={{ height: `${(c.chuyen / dash.chuoiMax) * 100}%` }}
-                              />
-                            )}
-                          </div>
-                          <div className="kho-chart__xlab">{c.label}</div>
-                        </div>
-                      ))}
-                    </div>
+                  <div className="kho-rc-legend">
+                    <span className="kho-rc-legitem"><i className="kho-rc-dot" style={{ background: SERIES.nhapDark }} />Nhập</span>
+                    <span className="kho-rc-legitem"><i className="kho-rc-dot" style={{ background: SERIES.xuatDark }} />Xuất</span>
+                    {dash.chuyenSoDong > 0 && (
+                      <span className="kho-rc-legitem"><i className="kho-rc-dot" style={{ background: SERIES.move }} />Chuyển kho</span>
+                    )}
+                  </div>
+                  <div className="kho-rc-chart">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={dash.chuoi} margin={{ top: 8, right: 12, left: 4, bottom: 0 }} barCategoryGap="22%">
+                        <defs>
+                          <linearGradient id="bcNhap" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={SERIES.nhapDark} stopOpacity={0.9} />
+                            <stop offset="95%" stopColor={SERIES.nhapDark} stopOpacity={0.32} />
+                          </linearGradient>
+                          <linearGradient id="bcXuat" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={SERIES.xuatDark} stopOpacity={0.9} />
+                            <stop offset="95%" stopColor={SERIES.xuatDark} stopOpacity={0.32} />
+                          </linearGradient>
+                          <linearGradient id="bcMove" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={SERIES.move} stopOpacity={0.9} />
+                            <stop offset="95%" stopColor={SERIES.move} stopOpacity={0.32} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                        <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: "#cbd5e1" }} tick={{ fontSize: 11, fill: "var(--ash)" }} interval="preserveStartEnd" minTickGap={14} />
+                        <YAxis tickLine={false} axisLine={false} width={52} tickFormatter={(v) => fmtMoneyShort(Number(v))} tick={{ fontSize: 11, fill: "var(--ash)" }} />
+                        <Tooltip
+                          cursor={{ fill: "rgba(15,23,42,0.04)" }}
+                          content={({ active, payload, label }) =>
+                            active && payload && payload.length ? (
+                              <div className="custom-recharts-tooltip">
+                                <div className="custom-recharts-tooltip__title">
+                                  {dash.theoThang ? "Tháng" : "Ngày"} {String(label)}
+                                </div>
+                                {payload.map((e) => (
+                                  <div key={String(e.dataKey)} className="custom-recharts-tooltip__row">
+                                    <span className="kho-rc-ttname">
+                                      <i className="kho-rc-dot" style={{ background: RC_DOT[String(e.dataKey)] }} />
+                                      {e.name}
+                                    </span>
+                                    <b>{fmtMoney(Number(e.value))} đ</b>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null
+                          }
+                        />
+                        <Bar dataKey="nhap" name="Nhập" fill="url(#bcNhap)" stroke={SERIES.nhapDark} radius={[4, 4, 0, 0]} maxBarSize={22} />
+                        <Bar dataKey="xuat" name="Xuất" fill="url(#bcXuat)" stroke={SERIES.xuatDark} radius={[4, 4, 0, 0]} maxBarSize={22} />
+                        {dash.chuyenSoDong > 0 && (
+                          <Bar dataKey="chuyen" name="Chuyển kho" fill="url(#bcMove)" stroke={SERIES.move} radius={[4, 4, 0, 0]} maxBarSize={22} />
+                        )}
+                      </ComposedChart>
+                    </ResponsiveContainer>
                   </div>
                 </section>
               )}
 
-              {/* Nhập / Xuất theo kho */}
-              <section className="rc-sec">
-                <h3 className="rc-sec__title">Nhập / Xuất theo kho</h3>
-                <div className="kho-lines__wrap">
-                  <table className="kho-lines">
-                    <thead>
-                      <tr>
-                        <th>Kho</th>
-                        <th className="kho-num">Giá trị nhập</th>
-                        <th className="kho-num">Giá trị xuất</th>
-                        <th className="kho-num">Số phiếu</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dash.theoKho.map((k, i) => (
-                        <tr key={i}>
-                          <td>{k.ten}</td>
-                          <td className="kho-num">{fmtMoney(k.nhap)}</td>
-                          <td className="kho-num">{fmtMoney(k.xuat)}</td>
-                          <td className="kho-num">{k.phieu}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
+              {/* Nhập / Xuất theo kho — cột NGANG (Recharts) để so sánh trực quan giữa các kho. */}
+              {dash.theoKho.length > 0 && (
+                <section className="rc-sec">
+                  <h3 className="rc-sec__title">Nhập / Xuất theo kho</h3>
+                  <div className="kho-rc-legend">
+                    <span className="kho-rc-legitem"><i className="kho-rc-dot" style={{ background: SERIES.nhapDark }} />Nhập</span>
+                    <span className="kho-rc-legitem"><i className="kho-rc-dot" style={{ background: SERIES.xuatDark }} />Xuất</span>
+                  </div>
+                  <div className="kho-rc-chart" style={{ height: Math.max(140, dash.theoKho.length * 54 + 24) }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={dash.theoKho} layout="vertical" margin={{ top: 4, right: 16, left: 4, bottom: 0 }} barCategoryGap="26%">
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                        <XAxis type="number" tickFormatter={(v) => fmtMoneyShort(Number(v))} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "var(--ash)" }} />
+                        <YAxis type="category" dataKey="ten" width={128} tickLine={false} axisLine={{ stroke: "#cbd5e1" }} tick={{ fontSize: 11, fill: "var(--ink)" }} />
+                        <Tooltip
+                          cursor={{ fill: "rgba(15,23,42,0.04)" }}
+                          content={({ active, payload, label }) =>
+                            active && payload && payload.length ? (
+                              <div className="custom-recharts-tooltip">
+                                <div className="custom-recharts-tooltip__title">{String(label)}</div>
+                                {payload.map((e) => (
+                                  <div key={String(e.dataKey)} className="custom-recharts-tooltip__row">
+                                    <span className="kho-rc-ttname">
+                                      <i className="kho-rc-dot" style={{ background: RC_DOT[String(e.dataKey)] }} />
+                                      {e.name}
+                                    </span>
+                                    <b>{fmtMoney(Number(e.value))} đ</b>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null
+                          }
+                        />
+                        <Bar dataKey="nhap" name="Nhập" fill={SERIES.nhapLight} stroke={SERIES.nhapDark} radius={[0, 4, 4, 0]} maxBarSize={15} />
+                        <Bar dataKey="xuat" name="Xuất" fill={SERIES.xuatLight} stroke={SERIES.xuatDark} radius={[0, 4, 4, 0]} maxBarSize={15} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </section>
+              )}
 
               {/* Chuyển kho nội bộ — theo TUYẾN (từ kho → đến kho) + top mặt hàng chuyển. Chỉ hiện khi
                   có điều chuyển; điều chuyển KHÔNG tính vào Tổng nhập/xuất (mua/bán) ở trên. */}

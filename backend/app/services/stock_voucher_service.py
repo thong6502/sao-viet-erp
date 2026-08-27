@@ -274,8 +274,14 @@ class StockVoucherService:
                 if lot is None:
                     raise StockVoucherError("Không tìm thấy lô của dòng xuất.")
                 if qty > float(lot.sl_con_lai) + 1e-9:
+                    # Hiện TÊN sản phẩm cho dễ nhận biết thay vì mã lô khó đọc (LOT-VT-KEM-74-…);
+                    # fallback về mã lô nếu không tra được tên (mất danh mục gốc).
+                    m = self.hang.map_theo_cap(
+                        [(lot.hang_loai, lot.hang_id)]
+                    ).get((lot.hang_loai, lot.hang_id))
+                    ten = getattr(m, "ten", None) or lot.ma_lo
                     raise StockVoucherError(
-                        f"Lô {lot.ma_lo} chỉ còn {float(lot.sl_con_lai):g} — không đủ để xuất. "
+                        f"{ten} chỉ còn {float(lot.sl_con_lai):g} — không đủ để xuất. "
                         "Kho không cho xuất âm."
                     )
 

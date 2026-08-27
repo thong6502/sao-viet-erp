@@ -1113,25 +1113,29 @@ function RequestDrawer({
               <section className="rc-sec">
                 <h3 className="rc-sec__title">Thông tin chung</h3>
                 <div className="kho-info-grid">
-                  <div className="kho-info-item">
-                    <span className="kho-info-item__label">
-                      {loai === "NHAP" ? "Ngày cần nhập" : "Ngày cần xuất"}
-                    </span>
-                    <div className="kho-info-item__val">
-                      {editable ? (
-                        <input
-                          id="kho-ngay-can"
-                          type="date"
-                          className="rc-input"
-                          value={ngayCan}
-                          min={todayISO()}
-                          onChange={(e) => touch(setNgayCan)(e.target.value)}
-                        />
-                      ) : (
-                        <span>{ngayCan ? fmtDateISO(ngayCan) : "—"}</span>
-                      )}
+                  {/* Điều chuyển nội bộ KHÔNG có "ngày cần" (popup Chuyển kho không nhập, ghi sổ ngay khi
+                      kho đích nhận) → ẩn cho phiếu điều chuyển, chỉ hiện với nhập/xuất thường. */}
+                  {!req?.dieu_chuyen && (
+                    <div className="kho-info-item">
+                      <span className="kho-info-item__label">
+                        {loai === "NHAP" ? "Ngày cần nhập" : "Ngày cần xuất"}
+                      </span>
+                      <div className="kho-info-item__val">
+                        {editable ? (
+                          <input
+                            id="kho-ngay-can"
+                            type="date"
+                            className="rc-input"
+                            value={ngayCan}
+                            min={todayISO()}
+                            onChange={(e) => touch(setNgayCan)(e.target.value)}
+                          />
+                        ) : (
+                          <span>{ngayCan ? fmtDateISO(ngayCan) : "—"}</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
                   {seedDonMuaMa && (
                     <div className="kho-info-item">
                       <span className="kho-info-item__label">Đơn mua</span>
@@ -1562,33 +1566,66 @@ function RequestPrint({
   onClose: () => void;
 }) {
   useNapTenDonVi();
-  const title =
-    req.loai === "NHAP" ? "GIẤY YÊU CẦU NHẬP KHO" : "GIẤY YÊU CẦU LĨNH VẬT TƯ";
+  // Điều chuyển (dieu_chuyen) IN theo mẫu RIÊNG: nó là dịch kho nội bộ, KHÔNG phải "nhập kho" hay
+  // "lĩnh vật tư" → tiêu đề + header (đường đi kho) + cột (SL thực nhận) + chữ ký (2 thủ kho) khác.
+  const isDC = !!req.dieu_chuyen;
+  const title = isDC
+    ? "PHIẾU ĐỀ NGHỊ ĐIỀU CHUYỂN KHO"
+    : req.loai === "NHAP"
+      ? "GIẤY YÊU CẦU NHẬP KHO"
+      : "GIẤY YÊU CẦU LĨNH VẬT TƯ";
   return (
     <PrintSheet title={title} docNo={req.ma} docDate={fmtDate(req.created_at)} onClose={onClose}>
-      <div className="kho-print__meta">
-        <span>
-          <b>Bộ phận:</b> {req.bo_phan_ten ?? "…"}
-        </span>
-        <span>
-          <b>Người yêu cầu:</b> {req.nguoi_tao_ten ?? "…"}
-        </span>
-        <span>
-          <b>Ngày cần:</b> {req.ngay_can ? fmtDateISO(req.ngay_can) : "…"}
-        </span>
-      </div>
-      {/* Trọn chuỗi trách nhiệm trên phiếu in: ai yêu cầu (trên) → ai duyệt (đây). */}
-      <div className="kho-print__meta">
-        <span>
-          <b>Người duyệt:</b>{" "}
-          {req.nguoi_duyet_ten
-            ? `${req.nguoi_duyet_ten}${req.duyet_luc ? ` · ${fmtDate(req.duyet_luc)}` : ""}`
-            : "…"}
-        </span>
-        <span>
-          <b>Lý do:</b> {req.ghi_chu ?? "…"}
-        </span>
-      </div>
+      {isDC ? (
+        <>
+          <div className="kho-print__meta">
+            <span>
+              <b>Đường đi kho:</b> {req.kho_nguon_ten ?? "—"} → {req.kho_ten ?? "Kho đích"}
+            </span>
+          </div>
+          <div className="kho-print__meta">
+            <span>
+              <b>Người đề nghị:</b> {req.nguoi_tao_ten ?? "…"}
+            </span>
+            <span>
+              <b>Bộ phận:</b> {req.bo_phan_ten ?? "…"}
+            </span>
+          </div>
+          {req.ghi_chu && (
+            <div className="kho-print__meta">
+              <span>
+                <b>Lý do / Ghi chú:</b> {req.ghi_chu}
+              </span>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="kho-print__meta">
+            <span>
+              <b>Bộ phận:</b> {req.bo_phan_ten ?? "…"}
+            </span>
+            <span>
+              <b>Người yêu cầu:</b> {req.nguoi_tao_ten ?? "…"}
+            </span>
+            <span>
+              <b>Ngày cần:</b> {req.ngay_can ? fmtDateISO(req.ngay_can) : "…"}
+            </span>
+          </div>
+          {/* Trọn chuỗi trách nhiệm trên phiếu in: ai yêu cầu (trên) → ai duyệt (đây). */}
+          <div className="kho-print__meta">
+            <span>
+              <b>Người duyệt:</b>{" "}
+              {req.nguoi_duyet_ten
+                ? `${req.nguoi_duyet_ten}${req.duyet_luc ? ` · ${fmtDate(req.duyet_luc)}` : ""}`
+                : "…"}
+            </span>
+            <span>
+              <b>Lý do:</b> {req.ghi_chu ?? "…"}
+            </span>
+          </div>
+        </>
+      )}
       <table className="kho-print__table">
         <thead>
           <tr>
@@ -1597,7 +1634,7 @@ function RequestPrint({
             <th style={{ width: 96 }}>Mã</th>
             <th style={{ width: 60 }}>ĐVT</th>
             <th style={{ width: 90 }}>SL yêu cầu</th>
-            <th style={{ width: 90 }}>SL duyệt</th>
+            <th style={{ width: 90 }}>{isDC ? "SL thực nhận" : "SL duyệt"}</th>
           </tr>
         </thead>
         <tbody>
@@ -1608,13 +1645,24 @@ function RequestPrint({
               <td>{l.hang_ma ?? ""}</td>
               <td>{tenDonVi(l.dvt) ?? l.dvt}</td>
               <td style={{ textAlign: "right" }}>{fmtQty(l.sl_de_nghi)}</td>
-              <td style={{ textAlign: "right" }}>{l.sl_duyet > 0 ? fmtQty(l.sl_duyet) : ""}</td>
+              <td style={{ textAlign: "right" }}>
+                {isDC
+                  ? l.sl_da_ung > 0
+                    ? fmtQty(l.sl_da_ung)
+                    : ""
+                  : l.sl_duyet > 0
+                    ? fmtQty(l.sl_duyet)
+                    : ""}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
       <div className="kho-print__signs">
-        {["Người yêu cầu", "Phụ trách bộ phận", "Thủ kho"].map((s) => (
+        {(isDC
+          ? ["Người đề nghị", "Thủ kho xuất (nguồn)", "Thủ kho nhập (đích)"]
+          : ["Người yêu cầu", "Phụ trách bộ phận", "Thủ kho"]
+        ).map((s) => (
           <div className="kho-print__sign" key={s}>
             <b>{s}</b>
             <span>(Ký, họ tên)</span>

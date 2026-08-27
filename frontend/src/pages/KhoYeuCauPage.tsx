@@ -1313,16 +1313,20 @@ export function InboxRequestDrawer({
                       <tr>
                         <th style={{ minWidth: 160 }}>Vật tư</th>
                         <th style={{ width: 60, textAlign: "center" }}>ĐVT</th>
-                        <th className="kho-num" style={{ width: 90 }}>Yêu cầu</th>
-                        <th className="kho-num" style={{ width: 90 }}>Duyệt</th>
+                        <th className="kho-num" style={{ width: 100 }}>Yêu cầu</th>
                         {/* Cột Tồn khả dụng có chiều rộng 140px chuẩn, không bao giờ bị xén */}
                         {canViewStock && <th className="kho-num" style={{ width: 140 }}>Tồn khả dụng</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {req.lines.map((l) => {
-                        const shortage = (l.sl_duyet || 0) - (l.ton_kha_dung || 0);
-                        const isShort = l.ton_kha_dung != null && shortage > 0;
+                        const dvtYc = tenDonVi(l.dvt) ?? l.dvt;   // đơn vị người yêu cầu (Yêu cầu)
+                        const dvtGoc = tenDonVi(l.don_vi_goc ?? l.dvt) ?? l.don_vi_goc ?? l.dvt; // đơn vị gốc lưu kho (Tồn)
+                        // `ton_kha_dung` ở ĐƠN VỊ GỐC (Σ sl_con_lai lô), còn `sl_duyet` ở đơn vị YÊU CẦU
+                        // → quy duyệt về gốc rồi mới so thiếu/đủ, không thì trừ chéo đơn vị (70 tờ − 1 ram).
+                        const heSoVeGoc = l.sl_quy_doi && l.sl_de_nghi ? l.sl_quy_doi / l.sl_de_nghi : 1;
+                        const shortage = (l.sl_duyet || 0) * heSoVeGoc - (l.ton_kha_dung || 0);
+                        const isShort = l.ton_kha_dung != null && shortage > 1e-6;
                         return (
                           <tr key={l.id}>
                             <td>
@@ -1348,17 +1352,18 @@ export function InboxRequestDrawer({
                             <td className="kho-lines__code" style={{ textAlign: "center" }}>
                               {tenDonVi(l.dvt) ?? l.dvt}
                             </td>
-                            <td className="kho-num">{fmtQty(l.sl_de_nghi)}</td>
-                            <td className="kho-num">{fmtQty(l.sl_duyet)}</td>
+                            <td className="kho-num">
+                              {fmtQty(l.sl_de_nghi)} <span className="kho-alloc__unit">{dvtYc}</span>
+                            </td>
                             {canViewStock && (
                               <td className="kho-num">
                                 <div style={{ fontFamily: "var(--ff-num)", fontWeight: "var(--fw-bold)" }}>
-                                  {fmtQty(l.ton_kha_dung ?? 0)}
+                                  {fmtQty(l.ton_kha_dung ?? 0)} <span className="kho-alloc__unit">{dvtGoc}</span>
                                 </div>
                                 {l.ton_kha_dung != null && (
                                   isShort ? (
                                     <span className="kho-priority-badge kho-priority-badge--critical" style={{ fontSize: 10, marginTop: 2 }}>
-                                      Thiếu {fmtQty(shortage)}
+                                      Thiếu {fmtQty(shortage)} {dvtGoc}
                                     </span>
                                   ) : (
                                     <span className="kho-line-badge kho-line-badge--muted" style={{ fontSize: 10, marginTop: 2 }}>
@@ -2236,6 +2241,10 @@ function AllocRow({
   const cappedTon = isNhap ? block.cap : chosen / (block.heSoVeGoc || 1);
   const isShort = l.sl_con_lai > 0 && cappedTon > 0 && cappedTon < l.sl_con_lai - 1e-9;
   const settled = l.sl_con_lai <= 0;
+  // Nhãn đơn vị: SL YC theo đơn vị NGƯỜI YÊU CẦU (`l.dvt`, vd "tờ"); Tồn kho theo đơn vị GỐC lưu
+  // kho (`l.don_vi_goc`, vd "ram") — HAI CỘT KHÁC ĐƠN VỊ nên hiện nhãn để khỏi lẫn (70 tờ vs 1 ram).
+  const dvtYc = tenDonVi(l.dvt) ?? l.dvt;
+  const dvtGoc = tenDonVi(l.don_vi_goc ?? l.dvt) ?? l.don_vi_goc ?? l.dvt;
   // Giá vốn dòng: XUẤT tính đích danh theo lô đã lấy (đơn giá BÌNH QUÂN + tổng tiền); NHẬP theo
   // đơn giá người yêu cầu khai. Đơn giá/tổng của XUẤT là giá vốn → chỉ hiện khi có quyền xem giá.
   const nhapGia = Number(block.donGia || 0);
@@ -2345,12 +2354,21 @@ function AllocRow({
           {settled ? (
             <span className="badge-sem badge-sem--moss">Đã cấp đủ</span>
           ) : (
-            <b>{fmtQty(l.sl_de_nghi)}</b>
+            <>
+              <b>{fmtQty(l.sl_de_nghi)}</b> <span className="kho-alloc__unit">{dvtYc}</span>
+            </>
           )}
         </td>
         <td className="kho-num">
-          {/* Tồn thực tế trong kho này TRƯỚC khi phiếu ghi sổ — biết đang thêm/rút khỏi đâu. */}
-          {tonInfo ? <b>{fmtQty(tonInfo.ton)}</b> : <span className="kho-hint">…</span>}
+          {/* Tồn thực tế trong kho này TRƯỚC khi phiếu ghi sổ — biết đang thêm/rút khỏi đâu. Tồn theo
+              ĐƠN VỊ GỐC (lô lưu theo gốc) nên nhãn là `dvtGoc`, có thể KHÁC đơn vị SL YC. */}
+          {tonInfo ? (
+            <>
+              <b>{fmtQty(tonInfo.ton)}</b> <span className="kho-alloc__unit">{dvtGoc}</span>
+            </>
+          ) : (
+            <span className="kho-hint">…</span>
+          )}
         </td>
         <td className="kho-num">
           {/* Dòng không muốn làm đợt này thì để số lượng 0 là tự bỏ qua — không cần ô tick riêng. */}
