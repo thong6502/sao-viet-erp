@@ -26,7 +26,7 @@ import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombobox";
 import { PrintSheet } from "../components/PrintSheet";
 import { fmtDate, fmtDateISO } from "../utils/format";
-import { DateFilterHead, LoaiYeuCauChip, RequestStatusBadge, VoucherStatusBadge, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, isOverdue, todayISO, useHeaderTitles } from "./khoShared";
+import { DateFilterHead, DecimalInput, LoaiYeuCauChip, RequestStatusBadge, VoucherStatusBadge, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, isOverdue, todayISO, useHeaderTitles } from "./khoShared";
 import { tenDonVi, useNapTenDonVi } from "./tenDonVi";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
@@ -1261,15 +1261,10 @@ function RequestDrawer({
                             </td>
                             <td className="kho-num">
                               {editable ? (
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step="any"
+                                <DecimalInput
                                   className="rc-input kho-num"
-                                  value={l.sl_de_nghi || ""}
-                                  onChange={(e) =>
-                                    patchLine(l.key, { sl_de_nghi: Number(e.target.value) })
-                                  }
+                                  value={l.sl_de_nghi}
+                                  onChange={(n) => patchLine(l.key, { sl_de_nghi: n ?? 0 })}
                                   aria-label="Số lượng yêu cầu"
                                 />
                               ) : (
@@ -1630,8 +1625,8 @@ function RequestPrint({
         <thead>
           <tr>
             <th style={{ width: 40 }}>STT</th>
-            <th>Tên vật tư</th>
             <th style={{ width: 96 }}>Mã</th>
+            <th>Tên vật tư</th>
             <th style={{ width: 60 }}>ĐVT</th>
             <th style={{ width: 90 }}>SL yêu cầu</th>
             <th style={{ width: 90 }}>{isDC ? "SL thực nhận" : "SL duyệt"}</th>
@@ -1641,8 +1636,8 @@ function RequestPrint({
           {lines.map((l, i) => (
             <tr key={l.key}>
               <td>{i + 1}</td>
-              <td>{l.hang_ten ?? ""}</td>
               <td>{l.hang_ma ?? ""}</td>
+              <td>{l.hang_ten ?? ""}</td>
               <td>{tenDonVi(l.dvt) ?? l.dvt}</td>
               <td style={{ textAlign: "right" }}>{fmtQty(l.sl_de_nghi)}</td>
               <td style={{ textAlign: "right" }}>

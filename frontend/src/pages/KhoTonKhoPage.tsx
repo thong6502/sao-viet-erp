@@ -32,6 +32,7 @@ import { qrToSvg } from "../lib/qr";
 import { tenDonVi, useNapTenDonVi } from "./tenDonVi";
 import {
   DateFilterHead,
+  DecimalInput,
   NumFilterHead,
   PageSizeSelect,
   DEFAULT_PAGE_SIZE,
@@ -41,7 +42,7 @@ import {
   todayISO,
   useHeaderTitles,
 } from "./khoShared";
-import { InboxRequestDrawer, VoucherDrawer } from "./KhoYeuCauPage";
+import { InboxRequestDrawer, VoucherDrawer, TransferDrawer } from "./KhoYeuCauPage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
@@ -57,6 +58,7 @@ import {
   Search,
   Printer,
   Check,
+  ChevronDown,
 } from "lucide-react";
 
 import {
@@ -196,6 +198,9 @@ export function KhoTonKhoPage({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [openVoucher, setOpenVoucher] = useState<number | null>(null);
+  // Tab "Điều chuyển": mở MẶT TIỀN phiếu điều chuyển (TransferDrawer, keyed theo yêu cầu DC) thay vì
+  // phiếu nhập/xuất chung — để hiện đúng "PHIẾU ĐIỀU CHUYỂN" + in mẫu điều chuyển, không phải PNK.
+  const [openTransfer, setOpenTransfer] = useState<number | null>(null);
   const [openRequest, setOpenRequest] = useState<number | null>(null);
   // Điều chuyển HÀNG LOẠT: mở popup cho các mã đã tick → gộp vào 1 yêu cầu điều chuyển.
   const [dcBulkOpen, setDcBulkOpen] = useState(false);
@@ -833,7 +838,15 @@ export function KhoTonKhoPage({
                 pagedVouchers.map((v) => {
                   const sumQty = v.lines.reduce((s, l) => s + l.so_luong, 0);
                   return (
-                    <tr key={v.id} className="rc__row" onClick={() => setOpenVoucher(v.id)}>
+                    <tr
+                      key={v.id}
+                      className="rc__row"
+                      onClick={() =>
+                        v.dieu_chuyen && v.loai === "NHAP"
+                          ? setOpenTransfer(v.request_id)
+                          : setOpenVoucher(v.id)
+                      }
+                    >
                       <td className="rc__nowrap">
                         <span className="rc__code-badge">{v.ma}</span>
                         {tab === "dc" && (
@@ -952,6 +965,21 @@ export function KhoTonKhoPage({
           canPost={canPost}
           canViewCost={canViewCost}
           onClose={() => setOpenVoucher(null)}
+          onChanged={() => {
+            loadVouchers();
+            load();
+          }}
+        />
+      )}
+
+      {openTransfer != null && (
+        <TransferDrawer
+          key={`tr-${openTransfer}`}
+          token={token}
+          requestId={openTransfer}
+          canCreate={canCreate}
+          canViewCost={canViewCost}
+          onClose={() => setOpenTransfer(null)}
           onChanged={() => {
             loadVouchers();
             load();
@@ -1375,6 +1403,24 @@ function MaterialHistoryDrawer({
   }
   // Tab MẶC ĐỊNH = "Tổng quan" (đầu tiên) khi mở drawer; giữ nguyên Nhập/Xuất phía sau.
   const [tab, setTab] = useState<"tong_quan" | "lo_ton" | "nhap" | "xuat" | "chuyen">("tong_quan");
+  // Khối "Báo giá NCC quy đổi" THU GỌN được (nó đẩy các tab xuống). Nhớ lựa chọn theo trình duyệt.
+  const [showSupplier, setShowSupplier] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("kho.supplierOpen") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const toggleSupplier = () =>
+    setShowSupplier((v) => {
+      const nv = !v;
+      try {
+        localStorage.setItem("kho.supplierOpen", nv ? "1" : "0");
+      } catch {
+        /* trình duyệt riêng tư — bỏ qua */
+      }
+      return nv;
+    });
   const [page, setPage] = useState(1);
   // Tem QR vật tư: quét ra TRANG TRA KHO CÔNG KHAI (không đăng nhập) qua token đã ký "#s=..".
   const [showQr, setShowQr] = useState(false);
@@ -1502,20 +1548,6 @@ function MaterialHistoryDrawer({
   const chuyenPaged = chuyenRows.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
   const loTonPaged = loTon.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
 
-  const cat = getCategory(material);
-  const catLabel =
-    cat === "giay"
-      ? "GIẤY IN"
-      : cat === "muc"
-      ? "MỰC IN"
-      : cat === "hoa_chat"
-      ? "HÓA CHẤT"
-      : "VẬT TƯ IN";
-  // Icon chủng loại — DÙNG LẠI bộ lucide của bảng tồn (Layers/Droplets/FlaskConical/Box) thay cho
-  // emoji ở kicker, để cả màn chỉ một bộ icon (không lẫn emoji OS-render).
-  const CatIcon =
-    cat === "giay" ? Layers : cat === "muc" ? Droplets : cat === "hoa_chat" ? FlaskConical : Box;
-
   return (
     <>
       <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
@@ -1523,12 +1555,6 @@ function MaterialHistoryDrawer({
           {/* Drawer Header */}
           <header className="rc-drawer__head" style={{ borderBottom: "1px solid var(--rule-soft)", paddingBottom: 16 }}>
             <div>
-              <div
-                className="rc-drawer__kicker"
-                style={{ color: "var(--ash-2)", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}
-              >
-                <CatIcon style={{ width: 13, height: 13 }} aria-hidden="true" /> {catLabel}
-              </div>
               <h2 className="rc-drawer__title" style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>
                 {material.name ?? material.code ?? "—"}
               </h2>
@@ -1664,7 +1690,36 @@ function MaterialHistoryDrawer({
             {/* Bảng so sánh giá Nhà Cung Cấp */}
             {soGia.length > 0 && (
               <div className="supplier-price-card">
-                <div className="supplier-price-card__head">BÁO GIÁ NHÀ CUNG CẤP QUY ĐỔI</div>
+                <button
+                  type="button"
+                  className="supplier-price-card__head"
+                  onClick={toggleSupplier}
+                  aria-expanded={showSupplier}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                    width: "100%",
+                    cursor: "pointer",
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    textAlign: "left",
+                  }}
+                >
+                  <span>BÁO GIÁ NHÀ CUNG CẤP QUY ĐỔI</span>
+                  <ChevronDown
+                    size={15}
+                    aria-hidden="true"
+                    style={{
+                      flex: "none",
+                      transition: "transform .15s ease",
+                      transform: showSupplier ? "rotate(180deg)" : "none",
+                    }}
+                  />
+                </button>
+                {showSupplier && (
                 <table className="rc__table supplier-price-table">
                   <thead>
                     <tr>
@@ -1695,6 +1750,7 @@ function MaterialHistoryDrawer({
                     })}
                   </tbody>
                 </table>
+                )}
               </div>
             )}
 
@@ -2153,13 +2209,11 @@ function DieuChuyenDialog({
                     {fmtQty(it.tonKhaDung)} {it.dvt}
                   </td>
                   <td className="kho-num">
-                    <input
-                      type="number"
-                      min={0}
-                      step="any"
+                    <DecimalInput
                       className="rc-input kho-num"
-                      value={qty[k] ?? ""}
-                      onChange={(e) => setQty((prev) => ({ ...prev, [k]: e.target.value }))}
+                      value={qty[k] ? Number(qty[k]) : null}
+                      allowNull
+                      onChange={(n) => setQty((prev) => ({ ...prev, [k]: n == null ? "" : String(n) }))}
                       aria-label={`SL chuyển ${it.ten}`}
                     />
                   </td>

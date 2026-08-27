@@ -1,7 +1,7 @@
 // Kho — mảnh dùng chung cho MÀN YÊU CẦU và MÀN HỘP YÊU CẦU (spec-kho-de-nghi §D).
 // Hai màn nhìn cùng một chứng từ ở hai đầu luồng nên nhãn/màu trạng thái phải khớp tuyệt
 // đối; để mỗi màn tự khai một bảng là kiểu gì cũng lệch sau vài lần sửa.
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type InputHTMLAttributes } from "react";
 import type { StockRequestKind, StockRequestStatus, StockVoucherStatus } from "../api/client";
 import { Select } from "../components/Select";
 import "./kho-request.css";
@@ -9,6 +9,68 @@ import "./kho-request.css";
 /** Các mức số dòng/trang cho mọi danh sách kho. Mặc định = 10. */
 export const PAGE_SIZES = [10, 15, 20] as const;
 export const DEFAULT_PAGE_SIZE = 10;
+
+// Parse chuỗi người dùng gõ (chấp nhận cả dấu "," VN lẫn ".") thành số; "" / "." / "," → null.
+function parseDecimal(s: string): number | null {
+  const t = s.replace(",", ".").trim();
+  if (t === "" || t === ".") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+// Hiển thị số kiểu VN (dấu phẩy thập phân), KHÔNG chấm ngăn nghìn (chấm nghìn parse lại sẽ vỡ:
+// "1.000" → 1). 0/null coi như rỗng để ô fresh trống. Ô đang sửa hiện số thô; bản chỉ-đọc mới fmtQty.
+function showDecimal(n: number | null): string {
+  return n == null || n === 0 ? "" : String(n).replace(".", ",");
+}
+
+/**
+ * Ô nhập SỐ THẬP PHÂN cho kho. Sửa lỗi `type="number"` + `value={n || ""}` NUỐT MẤT số 0 và trạng
+ * thái đang gõ ("0", "0,", "0,5") — người dùng không gõ được 0,5. Giữ CHUỖI đang gõ làm nguồn hiển
+ * thị, chỉ parse ra số khi hợp lệ; nhận cả "," (VN) lẫn "."; đồng bộ lại từ prop khi KHÔNG focus.
+ * `allowNull`: ô rỗng trả null (cho đơn giá) thay vì 0 (cho số lượng).
+ */
+export function DecimalInput({
+  value,
+  onChange,
+  allowNull = false,
+  ...rest
+}: {
+  value: number | null;
+  onChange: (n: number | null) => void;
+  allowNull?: boolean;
+} & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type">) {
+  const [text, setText] = useState(() => showDecimal(value));
+  const focused = useRef(false);
+  // Đồng bộ prop → ô KHI KHÔNG focus (reset form, seed lại) — không giẫm lên lúc người dùng đang gõ.
+  useEffect(() => {
+    if (!focused.current) setText(showDecimal(value));
+  }, [value]);
+  return (
+    <input
+      {...rest}
+      type="text"
+      inputMode="decimal"
+      value={text}
+      onFocus={(e) => {
+        focused.current = true;
+        rest.onFocus?.(e);
+      }}
+      onBlur={(e) => {
+        focused.current = false;
+        setText(showDecimal(parseDecimal(text))); // rời ô → chuẩn hóa (bỏ "0" trơ, dấu lẻ…)
+        rest.onBlur?.(e);
+      }}
+      onChange={(e) => {
+        const raw = e.target.value;
+        // Chỉ nhận: rỗng hoặc chuỗi số với TỐI ĐA một dấu thập phân (, hoặc .). Chặn ký tự khác.
+        if (raw !== "" && !/^\d*[.,]?\d*$/.test(raw)) return;
+        setText(raw);
+        const n = parseDecimal(raw);
+        onChange(allowNull ? n : n ?? 0);
+      }}
+    />
+  );
+}
 
 /** Bộ chọn số dòng/trang — DROPDOWN mở LÊN TRÊN (drop-up) vì luôn nằm cuối trang/pager, mở xuống
  *  sẽ bị che. Dùng chung ở mọi pager danh sách kho. */
