@@ -123,7 +123,7 @@ export function KhoDeNghiPage({
     if (!token) return;
     setLoading(true);
     // BE-paging: tải ĐÚNG trang theo tab + lọc ngày (cần + tạo); đếm số theo trạng thái riêng.
-    // Sắp theo 'updated' (vừa duyệt/cấp/hủy lên đầu) — khớp sortRequests cũ.
+    // Sắp theo 'id' (mới TẠO lên đầu) — yêu cầu vừa tạo hiện trên cùng.
     const filters = {
       q: q || null,
       loai,
@@ -135,7 +135,7 @@ export function KhoDeNghiPage({
     };
     const tabStatuses = tab === "all" ? undefined : TAB_STATUSES[tab];
     Promise.all([
-      api.kho.deNghi.list(token, { ...filters, trang_thai: tabStatuses, order: "updated", page, size: pageSize }),
+      api.kho.deNghi.list(token, { ...filters, trang_thai: tabStatuses, order: "id", page, size: pageSize }),
       api.kho.deNghi.tabCounts(token, filters),
     ])
       .then(([r, c]) => {
@@ -464,6 +464,9 @@ export function KhoDeNghiPage({
           onClose={() => setDrawer(null)}
           onSaved={() => {
             setDrawer(null);
+            // Về trang 1 để yêu cầu VỪA TẠO (mới nhất, trên cùng vì order=id desc) chắc chắn hiện;
+            // refetch ngay tại chỗ, KHÔNG reload cả trang.
+            setPage(1);
             load();
           }}
         />
