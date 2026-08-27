@@ -190,15 +190,27 @@ OPERATORS = {
     ast.UAdd: operator.pos,
 }
 
+# So sánh — CHỈ dùng làm điều kiện của `if(...)`, không hỗ trợ chuỗi kiểu `1 < x < 10` (đó là AND
+# ẩn, ngoài phạm vi đã chốt: có nhiều điều kiện thì lồng `if` chứ không AND/OR).
+COMPARATORS = {
+    ast.Lt: operator.lt,
+    ast.Gt: operator.gt,
+    ast.LtE: operator.le,
+    ast.GtE: operator.ge,
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+}
+
 FUNCTIONS = {
     'ceil': ceil,
     'floor': floor,
     'round': round,
     'max': max,
     'min': min,
+    'if': lambda dieu_kien, dung, sai: dung if dieu_kien else sai,
 }
 
-MATH_FUNCS = {"ceil", "floor", "round", "max", "min"}
+MATH_FUNCS = {"ceil", "floor", "round", "max", "min", "if"}
 
 
 def _eval_node(node, variables: dict) -> float:
@@ -230,21 +242,43 @@ def _eval_node(node, variables: dict) -> float:
         if not isinstance(node.func, ast.Name):
             raise ValueError("Gọi hàm không hợp lệ")
         func_name = node.func.id
+        if func_name == 'if_':  # 'if' là từ khoá Python, xem ghi chú tại _CHUYEN_TU_IF trong safe_eval
+            func_name = 'if'
         if func_name not in FUNCTIONS:
             raise ValueError(f"Hàm không được hỗ trợ: {func_name}")
         args = [_eval_node(arg, variables) for arg in node.args]
+        if func_name == 'if':
+            return FUNCTIONS['if'](*args)
         return float(FUNCTIONS[func_name](*args))
+    elif isinstance(node, ast.Compare):
+        if len(node.ops) != 1:
+            raise ValueError("Chỉ so sánh 1 điều kiện (vd a > b), không so chuỗi kiểu a > b > c")
+        op_type = type(node.ops[0])
+        if op_type not in COMPARATORS:
+            raise ValueError(f"Toán tử so sánh không được hỗ trợ: {op_type}")
+        left = _eval_node(node.left, variables)
+        right = _eval_node(node.comparators[0], variables)
+        return COMPARATORS[op_type](left, right)
     else:
         raise ValueError(f"Cú pháp không được hỗ trợ: {type(node)}")
+
+
+# `if` là từ khoá Python — ast.parse("if(...)") nổ SyntaxError trước khi kịp vào _eval_node.
+# Đổi tên thành `if_(` chỉ để qua cửa parser; _eval_node dịch ngược lại 'if' khi tra FUNCTIONS.
+_CHUYEN_TU_IF = re.compile(r'\bif\s*\(')
 
 
 def safe_eval(expr_str: str, variables: dict) -> float:
     if not expr_str or not expr_str.strip():
         return 0.0
     expr_str = expr_str.replace('×', '*').replace('÷', '/').replace('−', '-')
+    expr_str = _CHUYEN_TU_IF.sub('if_(', expr_str)
     try:
         node = ast.parse(expr_str.strip(), mode='eval').body
-        return _eval_node(node, variables)
+        result = _eval_node(node, variables)
+        if isinstance(result, bool):
+            raise ValueError("Kết quả là điều kiện đúng/sai — cần bọc trong if(dieu_kien, dung, sai)")
+        return float(result)
     except Exception as e:
         raise ValueError(f"Lỗi công thức: {e}")
 
