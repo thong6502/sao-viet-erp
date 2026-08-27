@@ -790,6 +790,10 @@ class QuotationService:
         terms_text: str | None = None,
         customer_note: str | None = None,
         internal_note: str | None = None,
+        delivery_address: str | None = None,
+        contact_name_snapshot: str | None = None,
+        contact_phone_snapshot: str | None = None,
+        contact_title_snapshot: str | None = None,
         items_payload: list[dict] | None = None,
     ) -> Quote:
         quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
@@ -799,8 +803,9 @@ class QuotationService:
         if valid_until and valid_until < date.today():
             raise QuotationValidationError("Hạn hiệu lực không được ở quá khứ.")
 
-        # Update Header — đổi khách → làm mới liên hệ chính + ĐC giao mặc định (redesign-bao-gia §4).
-        # ĐC giao không sửa được ở màn báo giá → chỉ làm mới khi ĐỔI KHÁCH, ngoài ra giữ nguyên.
+        # Update Header — đổi khách → làm mới liên hệ chính + ĐC giao mặc định (redesign-bao-gia §4),
+        # ĐÈ lên giá trị Sale đã chọn tay cho khách CŨ (khách mới thì chọn cũ không còn hợp lệ).
+        # Không đổi khách → giữ nguyên lựa chọn tay của Sale (FE echo đủ 4 field mỗi lần lưu).
         customer_changed = customer_id != quote.customer_id
         quote.customer_id = customer_id
         quote.customer_name_snapshot = self._customer_display_name(customer_id)
@@ -810,6 +815,11 @@ class QuotationService:
             quote.contact_phone_snapshot = defaults["contact_phone"]
             quote.contact_title_snapshot = defaults["contact_title"]
             quote.delivery_address = defaults["delivery_address"]
+        else:
+            quote.contact_name_snapshot = contact_name_snapshot
+            quote.contact_phone_snapshot = contact_phone_snapshot
+            quote.contact_title_snapshot = contact_title_snapshot
+            quote.delivery_address = delivery_address
         quote.valid_until = valid_until
         quote.terms_text = (terms_text or "").strip() or DEFAULT_TERMS
         quote.customer_note = customer_note

@@ -6,6 +6,8 @@ import {
   ApiError,
   api,
   assetUrl,
+  type CustomerAddress,
+  type CustomerContact,
   type EnumOption,
   type QuotationActivity,
   type QuotationDetail,
@@ -799,6 +801,18 @@ function QuotationDetailView({
   // Ghi chú nội bộ (per-quote, không in cho khách) — sửa được khi NHÁP, lưu cùng điều khoản.
   const [internalNoteEdit, setInternalNoteEdit] = useState<string>("");
 
+  // ĐC giao + người nhận — Sale chọn tay từ danh bạ/điểm giao của khách (đơn hàng sau KẾ THỪA
+  // nguyên, không sửa lại được). pickedAddrId/pickedContactId chỉ phục vụ ô <select>; giá trị
+  // thật nằm ở deliveryAddr/contactName/contactPhone/contactTitle (echo mọi lần lưu header).
+  const [deliveryAddr, setDeliveryAddr] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactTitle, setContactTitle] = useState("");
+  const [pickedAddrId, setPickedAddrId] = useState("");
+  const [pickedContactId, setPickedContactId] = useState("");
+  const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
+  const [contacts, setContacts] = useState<CustomerContact[]>([]);
+
   // Feed Hoạt động — nhật ký tương tác THẬT (ai làm gì) đọc từ backend.
   const [acts, setActs] = useState<QuotationActivity[]>([]);
   // Tạo phiên bản mới: BẮT BUỘC ghi chú → modal nhập lý do trước khi tạo.
@@ -824,6 +838,12 @@ function QuotationDetailView({
         setVerNote((det as any).change_reason ?? "");
         setInternalNoteEdit(det.internal_note ?? "");
         setValidUntilEdit(det.valid_until ?? "");
+        setDeliveryAddr(det.delivery_address ?? "");
+        setContactName(det.contact_name_snapshot ?? "");
+        setContactPhone(det.contact_phone_snapshot ?? "");
+        setContactTitle(det.contact_title_snapshot ?? "");
+        setPickedAddrId("");
+        setPickedContactId("");
         // Hiệu lực (ngày) suy từ valid_until so với ngày tạo bản hiện tại.
         const vr = det.versions.find((v) => v.version === det.version);
         const created = vr?.created_at ?? null;
@@ -845,6 +865,14 @@ function QuotationDetailView({
   useEffect(() => {
     reload(quotationId);
   }, [reload, quotationId]);
+
+  // Danh bạ liên hệ + điểm giao đã lưu của khách hiện tại — nguồn cho 2 dropdown "Địa chỉ giao"/
+  // "Người nhận" (cùng nguồn Đơn hàng bán đang dùng).
+  useEffect(() => {
+    if (!token || !d?.customer_id) { setAddresses([]); setContacts([]); return; }
+    api.customers.addresses(token, d.customer_id).then((r) => setAddresses(r.items)).catch(() => setAddresses([]));
+    api.customers.contacts(token, d.customer_id).then((r) => setContacts(r.items)).catch(() => setContacts([]));
+  }, [token, d?.customer_id]);
 
   // P3: nạp danh sách khách để chọn/đổi khách ngay ở detail (khi còn nháp).
   useEffect(() => {
@@ -904,16 +932,16 @@ function QuotationDetailView({
     costT += c.cost; sellingT += c.selling; netT += c.net; vatT += c.vat; grandT += c.final; discountT += c.disc;
   });
   const profitT = netT - costT;
-  const singleMargin = draftMargin != null ? draftMargin : d.items[0]?.margin_percent ?? 0;
   const singleVat = d.items[0]?.vat_percent ?? 10;
   // Chiết khấu hiển thị ở sidebar: đang gõ thì lấy bản nháp, không thì suy từ dòng đầu (đã lưu).
   const firstSellingSaved = d.items[0] ? d.items[0].total_cost_snapshot * (1 + d.items[0].margin_percent / 100) : 0;
   const singleDiscPct = discPctDraft != null
     ? discPctDraft
     : (d.items[0] && firstSellingSaved > 0 ? Math.round((d.items[0].discount_amount / firstSellingSaved) * 100) : 0);
-  // Markup hiển thị = trên giá bán TRƯỚC chiết khấu (đúng nghĩa "đã đặt markup bao nhiêu"),
-  // KHÔNG lấy theo lợi nhuận sau chiết khấu — không thì chiết khấu cho đơn lại làm sai lệch số markup từng dòng.
-  const aggMarginPct = costT ? Math.round(((sellingT - costT) / costT) * 100) : 0;
+  // Markup hiển thị = Lợi nhuận SAU chiết khấu / Giá vốn — khớp với Lợi nhuận ngay bên dưới trong
+  // cùng khối giá bán đề xuất. Ô "Markup% cho dòng này" (nhập tay) vẫn là số TRƯỚC chiết khấu như cũ,
+  // hai chỗ này tách biệt nên không đụng nhau.
+  const markupPctDisp = costT ? Math.round((profitT / costT) * 100) : 0;
 
   // Tên tóm tắt: dòng đầu thuộc nhóm thì lấy TÊN NHÓM (khách mua "quyển sách", không mua "ruột").
   const productSummary = d.items[0]?.nhom?.trim() || d.items[0]?.product_name || "—";
@@ -933,6 +961,10 @@ function QuotationDetailView({
         valid_until: validUntilEdit || null,
         terms_text: termsText,
         internal_note: internalNoteEdit,
+        delivery_address: deliveryAddr,
+        contact_name_snapshot: contactName,
+        contact_phone_snapshot: contactPhone,
+        contact_title_snapshot: contactTitle,
         items: d.items.map((it) => {
           const patch = items.find((x) => x.id === it.id);
           return {
@@ -969,20 +1001,39 @@ function QuotationDetailView({
     const v = Math.max(0, Math.min(100, val));
     persistItems([{ id: itemId, margin_percent: v }]);
   }
-  /** Giá bán GÕ TAY — làm gốc, kèm markup suy ra để ô Markup% hiển thị đúng số sau khi lưu. */
+  /** % chiết khấu đang áp cho 1 dòng (bám bản nháp đang gõ nếu có, không thì suy từ số đã lưu) —
+   * dùng để GIỮ NGUYÊN % này khi giá bán gõ tay đổi, thay vì để tiền chiết khấu đứng yên và % trôi. */
+  function currentDiscPct(it: QuoteItemDetail): number {
+    if (discPctDraft != null) return discPctDraft;
+    const oldSelling = it.selling_price;
+    return oldSelling > 0 ? (it.discount_amount / oldSelling) * 100 : 0;
+  }
+  /** Giá bán GÕ TAY — làm gốc, kèm markup suy ra để ô Markup% hiển thị đúng số sau khi lưu.
+   * Chiết khấu (%) đã áp phải GIỮ NGUYÊN — tính lại tiền chiết khấu theo giá bán mới. */
   function commitSinglePrice(val: number) {
     if (!editable || !d) return;
     const v = Math.max(0, val);
     const cost = d.items[0]?.total_cost_snapshot ?? 0;
     const impliedMargin = cost > 0 ? ((v / cost) - 1) * 100 : 0;
-    persistItems(d.items.map((it) => ({ id: it.id, margin_percent: impliedMargin, manual_selling_price: v })));
+    persistItems(d.items.map((it) => ({
+      id: it.id,
+      margin_percent: impliedMargin,
+      manual_selling_price: v,
+      discount_amount: Math.round((v * currentDiscPct(it)) / 100),
+    })));
   }
   function commitLinePrice(itemId: number, val: number) {
     if (!editable || !d) return;
     const v = Math.max(0, val);
-    const cost = d.items.find((it) => it.id === itemId)?.total_cost_snapshot ?? 0;
+    const it = d.items.find((x) => x.id === itemId);
+    const cost = it?.total_cost_snapshot ?? 0;
     const impliedMargin = cost > 0 ? ((v / cost) - 1) * 100 : 0;
-    persistItems([{ id: itemId, margin_percent: impliedMargin, manual_selling_price: v }]);
+    persistItems([{
+      id: itemId,
+      margin_percent: impliedMargin,
+      manual_selling_price: v,
+      discount_amount: it ? Math.round((v * currentDiscPct(it)) / 100) : undefined,
+    }]);
   }
   /** Lưu diễn giải quy cách của 1 dòng (rời ô mới lưu). Không đổi thì bỏ qua — khỏi ghi nhật ký thừa. */
   function commitDienGiai(itemId: number) {
@@ -1025,6 +1076,11 @@ function QuotationDetailView({
         valid_until: d.valid_until,
         terms_text: termsText,
         internal_note: internalNoteEdit,
+        // Đổi khách → BE tự làm mới ĐC giao/người nhận theo khách mới (ghi đè giá trị dưới đây).
+        delivery_address: deliveryAddr,
+        contact_name_snapshot: contactName,
+        contact_phone_snapshot: contactPhone,
+        contact_title_snapshot: contactTitle,
         items: null,
       });
       await reload(d.id);
@@ -1046,6 +1102,10 @@ function QuotationDetailView({
         valid_until: validUntilEdit || null,
         terms_text: termsText,
         internal_note: internalNoteEdit,
+        delivery_address: deliveryAddr,
+        contact_name_snapshot: contactName,
+        contact_phone_snapshot: contactPhone,
+        contact_title_snapshot: contactTitle,
         items: null,
       });
       await reload(d.id);
@@ -1054,6 +1114,57 @@ function QuotationDetailView({
       setErr(e instanceof ApiError ? e.message : "Lưu nháp thất bại.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Chọn điểm giao/người nhận đã lưu của khách (redesign-bao-gia §4) — lưu ngay, giống pattern
+  // đổi khách/VAT/chiết khấu ở panel này (khỏi cần nút "Lưu" riêng).
+  async function saveDelivery(next: {
+    delivery_address?: string; contact_name_snapshot?: string;
+    contact_phone_snapshot?: string; contact_title_snapshot?: string;
+  }) {
+    if (!token || !d) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.quotations.update(token, d.id, {
+        customer_id: d.customer_id,
+        valid_until: d.valid_until,
+        terms_text: termsText,
+        internal_note: internalNoteEdit,
+        delivery_address: next.delivery_address ?? deliveryAddr,
+        contact_name_snapshot: next.contact_name_snapshot ?? contactName,
+        contact_phone_snapshot: next.contact_phone_snapshot ?? contactPhone,
+        contact_title_snapshot: next.contact_title_snapshot ?? contactTitle,
+        items: null,
+      });
+      await reload(d.id);
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Lưu địa chỉ giao/người nhận thất bại.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function pickAddress(id: string) {
+    setPickedAddrId(id);
+    const a = addresses.find((x) => String(x.id) === id);
+    if (a) { setDeliveryAddr(a.address); void saveDelivery({ delivery_address: a.address }); }
+  }
+
+  function pickContact(id: string) {
+    setPickedContactId(id);
+    const c = contacts.find((x) => String(x.id) === id);
+    if (c) {
+      setContactName(c.name);
+      setContactPhone(c.phone ?? "");
+      setContactTitle(c.title ?? "");
+      void saveDelivery({
+        contact_name_snapshot: c.name,
+        contact_phone_snapshot: c.phone ?? "",
+        contact_title_snapshot: c.title ?? "",
+      });
     }
   }
 
@@ -1163,7 +1274,7 @@ function QuotationDetailView({
 
 
 
-  const marginPctDisp = multi ? aggMarginPct : Math.round(singleMargin);
+  const marginPctDisp = markupPctDisp;
   const meterW = Math.max(0, Math.min(100, marginPctDisp));
 
   // Khách chốt một phần: chỉ đánh dấu "khách không lấy" khi báo giá ĐÃ chốt VÀ có ít nhất 1 dòng được
@@ -1709,7 +1820,7 @@ function QuotationDetailView({
                       <span key={e.key} className="exc-chip">{e.label}</span>
                     ))}
                     {d.margin_pct != null && (
-                      <span className="exc-chip exc-chip--num">Markup {d.margin_pct}%</span>
+                      <span className="exc-chip exc-chip--num">Biên {d.margin_pct}%</span>
                     )}
                   </div>
                   <div className={`exc-status exc-status--${d.status === "pending_approval" ? "pending" : d.status === "approved" ? "approved" : d.status === "rejected" ? "rejected" : d.exception_status}`}>
@@ -1785,7 +1896,68 @@ function QuotationDetailView({
                   <span className="v">{d.customer?.name ?? "—"}</span>
                 )}
               </div>
-              <div className="irow"><span className="k">Người liên hệ</span><span className="v mono">{[d.contact_name_snapshot, d.contact_phone_snapshot].filter(Boolean).join(" · ") || "—"}</span></div>
+              <div className="irow">
+                <span className="k">Địa chỉ giao</span>
+                {editable ? (
+                  <span className="v">
+                    <select
+                      className="input"
+                      style={{ maxWidth: 220 }}
+                      value={pickedAddrId}
+                      disabled={busy}
+                      onChange={(e) => pickAddress(e.target.value)}
+                    >
+                      <option value="">
+                        {addresses.length > 0 ? "— Chọn điểm giao —" : "— Khách chưa khai điểm giao —"}
+                      </option>
+                      {addresses.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.label}{a.address ? ` · ${a.address}` : ""}{a.is_default ? " (mặc định)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                ) : (
+                  <span className="v mono">{d.delivery_address || "—"}</span>
+                )}
+              </div>
+              {editable && deliveryAddr && (
+                <div className="irow">
+                  <span className="k" />
+                  <span className="v mono" style={{ fontSize: 12, color: "var(--ash)" }}>{deliveryAddr}</span>
+                </div>
+              )}
+              <div className="irow">
+                <span className="k">Người nhận</span>
+                {editable ? (
+                  <span className="v">
+                    <select
+                      className="input"
+                      style={{ maxWidth: 220 }}
+                      value={pickedContactId}
+                      disabled={busy}
+                      onChange={(e) => pickContact(e.target.value)}
+                    >
+                      <option value="">
+                        {contacts.length > 0 ? "— Chọn liên hệ —" : "— Khách chưa có danh bạ —"}
+                      </option>
+                      {contacts.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}{c.phone ? ` · ${c.phone}` : ""}{c.is_primary ? " (chính)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                ) : (
+                  <span className="v mono">{[d.contact_name_snapshot, d.contact_phone_snapshot].filter(Boolean).join(" · ") || "—"}</span>
+                )}
+              </div>
+              {editable && (contactName || contactPhone) && (
+                <div className="irow">
+                  <span className="k" />
+                  <span className="v mono" style={{ fontSize: 12, color: "var(--ash)" }}>{[contactName, contactPhone].filter(Boolean).join(" · ")}</span>
+                </div>
+              )}
               {/* Người duyệt biết báo giá này của NV nào (P8b). */}
               <div className="irow"><span className="k">NV soạn</span><span className="v">{d.salesperson_name ?? "—"}</span></div>
               <div className="irow"><span className="k">MST</span><span className="v mono">{d.customer?.tax_code ?? "—"}</span></div>

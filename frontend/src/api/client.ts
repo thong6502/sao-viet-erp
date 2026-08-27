@@ -3554,7 +3554,8 @@ export interface QuotationDetail {
   cancel_reason: string | null;
   /** Điều khoản in ra phiếu — mỗi dòng = 1 điều khoản (bản in tự đánh số). */
   terms_text: string | null;
-  /** ĐC giao: chỉ-đọc trên báo giá (auto-fill từ hồ sơ khách, không in). */
+  /** ĐC giao + người nhận: Sale chọn tay ở báo giá (dropdown danh bạ/điểm giao của khách); đơn
+   *  hàng KẾ THỪA nguyên các giá trị này khi chốt đơn, không sửa lại được. */
   delivery_address: string | null;
   contact_name_snapshot: string | null;
   contact_phone_snapshot: string | null;
@@ -3628,6 +3629,12 @@ export interface QuotationUpdateInput {
   // Ghi chú đối ngoại/nội bộ đã BỎ khỏi UI — vẫn optional để tương thích payload cũ.
   customer_note?: string | null;
   internal_note?: string | null;
+  /** ĐC giao + người nhận — chọn từ danh bạ/điểm giao của khách. BE overwrite trực tiếp (không giữ
+   *  field cũ khi bỏ trống) → luôn echo giá trị hiện có ở mọi lần gọi update. */
+  delivery_address?: string | null;
+  contact_name_snapshot?: string | null;
+  contact_phone_snapshot?: string | null;
+  contact_title_snapshot?: string | null;
   items: QuoteItemUpdateInput[] | null;
 }
 

@@ -96,11 +96,12 @@ class Quote(Base):
     # Điều khoản báo giá — 1 khối text tự do, MỖI DÒNG = 1 điều khoản (bản in đánh số theo dòng).
     # Tạo mới thì điền sẵn DEFAULT_TERMS để sale sửa; đây là thứ DUY NHẤT in ở mục "Điều khoản".
     terms_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # ĐC giao: auto-fill từ hồ sơ khách, KHÔNG sửa ở màn báo giá (sửa ở Đơn hàng bán) và không in.
-    # Giữ lại vì đơn hàng lấy đây làm địa chỉ giao mặc định khi chốt đơn.
+    # ĐC giao: auto-fill từ hồ sơ khách khi chọn/đổi khách, Sale chọn lại tay được ở màn báo giá
+    # (dropdown điểm giao đã lưu của khách). Đơn hàng KẾ THỪA nguyên giá trị này, không sửa lại được.
     delivery_address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Người liên hệ SNAPSHOT trên báo giá (redesign-bao-gia §4/§5) — auto-fill từ CRM
-    # `CustomerContact.is_primary` khi chọn khách, sửa được; đóng băng để bản in không đổi.
+    # `CustomerContact.is_primary` khi chọn khách, Sale chọn lại tay được (dropdown danh bạ khách);
+    # đóng băng để bản in không đổi. Đơn hàng KẾ THỪA nguyên, không sửa lại được.
     contact_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contact_phone_snapshot: Mapped[str | None] = mapped_column(String(30), nullable=True)
     contact_title_snapshot: Mapped[str | None] = mapped_column(String(120), nullable=True)

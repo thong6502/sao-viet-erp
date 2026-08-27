@@ -555,6 +555,10 @@ def update_quotation(
             terms_text=payload.terms_text,
             customer_note=payload.customer_note,
             internal_note=payload.internal_note,
+            delivery_address=payload.delivery_address,
+            contact_name_snapshot=payload.contact_name_snapshot,
+            contact_phone_snapshot=payload.contact_phone_snapshot,
+            contact_title_snapshot=payload.contact_title_snapshot,
             items_payload=items_payload_list,
         )
     except (QuotationNotFound, QuotationForbidden):

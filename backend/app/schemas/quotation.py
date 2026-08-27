@@ -42,6 +42,12 @@ class QuotationUpdate(BaseModel):
     terms_text: str | None = None         # điều khoản in ra phiếu (mỗi dòng = 1 điều khoản)
     customer_note: str | None = None
     internal_note: str | None = None
+    # ĐC giao + người nhận — Sale chọn tay từ danh bạ/điểm giao của khách (redesign-bao-gia §4).
+    # FE echo đủ 4 field mỗi lần lưu (cùng quy ước terms_text/customer_note): bỏ trống = xoá.
+    delivery_address: str | None = None
+    contact_name_snapshot: str | None = None
+    contact_phone_snapshot: str | None = None
+    contact_title_snapshot: str | None = None
     items: list[QuoteItemUpdate] | None = None
 
 
@@ -158,8 +164,8 @@ class QuotationDetailOut(BaseModel):
     status: str
     cancel_reason: str | None
     terms_text: str | None = None         # điều khoản in ra phiếu (mỗi dòng = 1 điều khoản)
-    # ĐC giao: chỉ-đọc — auto-fill từ hồ sơ khách, không sửa/không in ở báo giá; đơn hàng lấy làm
-    # ĐC giao mặc định khi chốt đơn.
+    # ĐC giao + người nhận: Sale chọn tay ở báo giá (dropdown từ danh bạ/điểm giao của khách);
+    # đơn hàng KẾ THỪA nguyên các giá trị này khi chốt đơn, không sửa lại được ở Đơn hàng.
     delivery_address: str | None = None
     contact_name_snapshot: str | None = None
     contact_phone_snapshot: str | None = None
