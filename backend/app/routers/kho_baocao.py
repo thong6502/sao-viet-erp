@@ -6,7 +6,7 @@ khóa/mở kỳ. Đăng ký TRƯỚC `kho.router` trong main.py vì `/api/kho/kh
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated
@@ -55,6 +55,21 @@ Db = Annotated[Session, Depends(get_db)]
 CloseBookUser = Annotated[User, Depends(require_permission(MODULE, "close_book"))]
 
 
+# Ghi sổ lưu mốc UTC (`ghi_so_luc`); nhưng NGÀY HẠCH TOÁN + phân kỳ sổ phải theo NGÀY LÀM VIỆC
+# giờ VN (+7). Lấy `.date()` thẳng trên UTC sẽ đẩy phiếu ghi sổ lúc 00:00–07:00 VN về hôm trước
+# → lệch ngày hạch toán / rớt khỏi tháng khi lọc. Quy về VN trước khi cắt ngày.
+VN_TZ = timezone(timedelta(hours=7))
+
+
+def _ngay_ghi_so_vn(dt) -> date | None:
+    """Ngày ghi sổ theo giờ VN. `ghi_so_luc` là UTC (naive trên SQLite, aware trên Postgres)."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(VN_TZ).date()
+
+
 # --- Truy vấn dòng nhập-xuất (chỉ phiếu ĐÃ GHI SỔ) -----------------------------
 
 def _report_rows(
@@ -97,7 +112,7 @@ def _report_rows(
     for v, ln, req, kho, lot in results:
         mh = hang_map.get((ln.hang_loai, ln.hang_id))
         # Lọc theo ngày GHI SỔ ở Python (tránh func.date lệ thuộc dialect + parse tz của SQLite).
-        d = v.ghi_so_luc.date() if v.ghi_so_luc else None
+        d = _ngay_ghi_so_vn(v.ghi_so_luc)
         if tu and (d is None or d < tu):
             continue
         if den and (d is None or d > den):
@@ -187,7 +202,7 @@ def _chuyen_kho_rows(
     rows: list[BaoCaoChuyenKhoRow] = []
     for v, ln, req, kho in results:
         mh = hang_map.get((ln.hang_loai, ln.hang_id))
-        d = v.ghi_so_luc.date() if v.ghi_so_luc else None
+        d = _ngay_ghi_so_vn(v.ghi_so_luc)
         if tu and (d is None or d < tu):
             continue
         if den and (d is None or d > den):

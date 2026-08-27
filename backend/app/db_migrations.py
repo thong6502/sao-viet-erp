@@ -10640,6 +10640,27 @@ def _migrate_sx_cong_viec_may_khoa_mem(db: Session) -> None:
 MIGRATIONS.append(("0237_sx_cong_viec_may_khoa_mem", _migrate_sx_cong_viec_may_khoa_mem))
 
 
+def _migrate_stock_lot_sl_scale(db: Session) -> None:
+    """Đồng bộ scale tồn lô với dòng phiếu: `stock_lots.sl_ban_dau/sl_con_lai` NUMERIC(14,2) → (14,4).
+
+    Dòng phiếu `stock_voucher_lines.sl_goc` là NUMERIC(14,4) (số quy về đơn vị gốc chảy vào lô);
+    lô chỉ 14,2 nên khi ghi sổ NHẬP, Postgres LÀM TRÒN sl_goc về 2dp ⇒ xuất hết vẫn dư ~0.005,
+    lô không chuyển 'empty', `SUM(sl_con_lai)` treo bụi (vỡ bất biến tồn = Σ sl_con_lai).
+
+    SQLite KHÔNG ép scale NUMERIC nên no-op ở dev/test; chỉ ALTER trên Postgres. Nới scale (14,2→14,4)
+    là mở rộng, không mất dữ liệu. Idempotent: ALTER về đúng type hiện có là vô hại.
+    """
+    bind = db.get_bind()
+    if (bind.dialect.name or "") != "postgresql":
+        return
+    if "stock_lots" not in inspect(bind).get_table_names():
+        return
+    db.execute(text("ALTER TABLE stock_lots ALTER COLUMN sl_ban_dau TYPE NUMERIC(14,4)"))
+    db.execute(text("ALTER TABLE stock_lots ALTER COLUMN sl_con_lai TYPE NUMERIC(14,4)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0238_stock_lot_sl_scale", _migrate_stock_lot_sl_scale))
 def _migrate_customer_credit_limit_bigint(db: Session) -> None:
     """0238 — `customers.credit_limit`: INTEGER → BIGINT.
 

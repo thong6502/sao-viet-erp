@@ -351,6 +351,10 @@ class StockVoucherService:
         ĐIỀU CHUYỂN (mô hình 2 yêu cầu): phiếu XUẤT nguồn được tạo NHÁP lúc ấn điều chuyển, CHƯA trừ
         tồn. Khi kho đích ghi sổ phiếu NHẬP → ghi sổ LUÔN phiếu xuất nguồn (draft) trong CÙNG một
         giao dịch: **trừ nguồn RỒI cộng đích cùng một nhịp** (không trừ trước lúc chưa ghi sổ)."""
+        # Chặn ghi sổ 2 lần: khóa dòng phiếu TRƯỚC khi đọc trạng thái. Hai request /post song song
+        # (double-click) sẽ tuần tự — request sau chờ request đầu commit rồi đọc thấy 'posted' → dừng
+        # ở guard dưới, không tạo lô/trừ tồn lần hai.
+        self.vouchers.lock_for_update(voucher_id)
         v = self.vouchers.get_with_lines(voucher_id)
         if v is None:
             raise StockVoucherError("Không tìm thấy phiếu.")
@@ -532,12 +536,13 @@ class StockVoucherService:
             raise StockVoucherError(
                 "Phiếu đã ghi sổ không hủy được — hãy lập phiếu điều chỉnh."
             )
-        # ĐIỀU CHUYỂN: KHÔNG hủy riêng vế xuất nguồn (nó gắn cặp với yêu cầu điều chuyển ở đích;
-        # hủy riêng sẽ làm kho đích không nhập được). Vế xuất nguồn cũng đã ẩn khỏi mọi list.
+        # ĐIỀU CHUYỂN đi theo CẶP (xuất nguồn + nhập đích). KHÔNG hủy riêng bất kỳ vế nào qua đây:
+        # hủy riêng vế XUẤT thì kho đích không nhập được; hủy riêng vế NHẬP đích thì phiếu xuất nguồn
+        # mồ côi (không ghi sổ / không hủy được) — phải hủy CẢ CẶP qua `huy_dieu_chuyen`.
         req0 = self.requests.get(v.request_id)
-        if req0 is not None and getattr(req0, "dieu_chuyen", False) and v.loai == VOUCHER_XUAT:
+        if req0 is not None and getattr(req0, "dieu_chuyen", False):
             raise StockVoucherError(
-                "Phiếu xuất điều chuyển không hủy riêng — nó gắn với yêu cầu điều chuyển ở kho đích."
+                "Phiếu điều chuyển không hủy riêng — dùng chức năng Hủy điều chuyển (hủy cả cặp)."
             )
         # Hủy phiếu NHÁP chưa vào sổ → không xét khóa kỳ (phiếu đã ghi sổ vốn không hủy được).
         v.trang_thai = VOUCHER_CANCELLED

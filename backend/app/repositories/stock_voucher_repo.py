@@ -24,6 +24,15 @@ class StockVoucherRepository:
     def get(self, voucher_id: int) -> StockVoucher | None:
         return self.db.get(StockVoucher, voucher_id)
 
+    def lock_for_update(self, voucher_id: int) -> None:
+        """Khóa DÒNG header phiếu (SELECT … FOR UPDATE) để chặn GHI SỔ 2 LẦN song song
+        (double-click / 2 request /post cùng lúc). Postgres: request thứ 2 CHỜ tới khi request đầu
+        commit rồi mới đọc lại — thấy 'posted' và dừng ở guard. SQLite: FOR UPDATE là no-op nhưng
+        SQLite tự khóa ghi cả DB nên vẫn tuần tự. Phải gọi TRƯỚC khi đọc trạng thái phiếu."""
+        self.db.execute(
+            select(StockVoucher.id).where(StockVoucher.id == voucher_id).with_for_update()
+        ).first()
+
     def ma_by_ids(self, ids: list[int]) -> dict[int, str]:
         """Map voucher_id → mã phiếu — cho chỗ hiển thị lô THEO PHIẾU (nạp 1 lượt, tránh N+1)."""
         if not ids:

@@ -5566,8 +5566,8 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | `ngay_nhap` | `Date` → `DATE` | — | no | — | Ngày nhập lô. |
 | `ncc` | `String(150)` → `VARCHAR(150)` | — | yes | — | Nhà cung cấp (text tự do). |
 | `don_gia_nhap` | `BigInteger` → `BIGINT` | — | no | `0` | **Giá vốn của RIÊNG lô này** (VND/đvt). Chỉ vai có `role_permissions.can_view_cost` được xem — router ẩn trường này, kể cả trên bản in. CHECK `>= 0`. |
-| `sl_ban_dau` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Số lượng lúc nhập. CHECK `> 0`. |
-| `sl_con_lai` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Số còn lại của lô. CHECK `>= 0` và `<= sl_ban_dau`. **Tồn của một mã hàng = tổng cột này qua các lô.** |
+| `sl_ban_dau` | `Numeric(14,4)` → `NUMERIC(14,4)` | — | no | — | Số lượng lúc nhập, theo đơn vị gốc. CHECK `> 0`. Scale 4dp KHỚP `stock_voucher_lines.sl_goc` (migration 0238) — tránh làm tròn khi ghi sổ NHẬP. |
+| `sl_con_lai` | `Numeric(14,4)` → `NUMERIC(14,4)` | — | no | — | Số còn lại của lô, đơn vị gốc. CHECK `>= 0` và `<= sl_ban_dau`. **Tồn của một mã hàng = tổng cột này qua các lô.** Scale 4dp khớp `sl_goc` (migration 0238). |
 | `hsd` | `Date` → `DATE` | — | yes | — | Hạn sử dụng / date in bao bì — nền cho gợi ý FEFO khi xuất. |
 | `trang_thai` | `String(16)` → `VARCHAR(16)` | **IX** | no | `available` | `available` (chỉ trạng thái này tính vào TỒN KHẢ DỤNG và được chọn khi xuất) · `hold` giữ chỗ cho đơn/LSX · `qc_wait` chờ KCS · `defect` hàng lỗi · `empty` đã xuất hết. Hàng chờ KCS / lỗi vẫn nằm trong kho (tồn thực tế) nhưng không được xuất. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo lô. |
