@@ -217,8 +217,7 @@ export function KhoTonKhoPage({
   const [vValFrom, setVValFrom] = useState("");
   const [vValTo, setVValTo] = useState("");
 
-  // Bộ lọc Phân loại & Trạng thái Tồn kho Redesign
-  const [categoryFilter, setCategoryFilter] = useState<"all" | "giay" | "muc" | "hoa_chat" | "khac">("all");
+  // Bộ lọc Trạng thái Tồn kho
   const [statusFilter, setStatusFilter] = useState<"all" | "can_mua" | "du" | "du_ton" | "het" | "chuakhai" | "sap_het_han">("all");
 
 
@@ -265,7 +264,6 @@ export function KhoTonKhoPage({
   }, [
     tab,
     q,
-    categoryFilter,
     statusFilter,
     voucherFilter,
     dateFrom,
@@ -281,7 +279,6 @@ export function KhoTonKhoPage({
 
   // Đổi tab → XÓA sạch mọi bộ lọc (khỏi lẫn bộ lọc giữa 2 nhóm tab). Effect RIÊNG chỉ theo [tab].
   useEffect(() => {
-    setCategoryFilter("all");
     setStatusFilter("all");
     setDateFrom("");
     setDateTo("");
@@ -387,12 +384,6 @@ export function KhoTonKhoPage({
       )
         return false;
 
-      // Category Filter
-      if (categoryFilter !== "all") {
-        const cat = getCategory(g);
-        if (cat !== categoryFilter) return false;
-      }
-
       // Status Filter
       if (statusFilter === "can_mua" && g.level !== "can_mua") return false;
       if (statusFilter === "du" && g.level !== "du") return false;
@@ -421,7 +412,7 @@ export function KhoTonKhoPage({
       if (!inNumRange(g.value, { from: gtFrom, to: gtTo })) return false;
       return true;
     });
-  }, [groups, q, categoryFilter, statusFilter, dateFrom, dateTo, tonFrom, tonTo, gtFrom, gtTo]);
+  }, [groups, q, statusFilter, dateFrom, dateTo, tonFrom, tonTo, gtFrom, gtTo]);
 
 
   const shownVouchers = useMemo(() => {
@@ -478,7 +469,6 @@ export function KhoTonKhoPage({
 
   const clearFilters = useCallback(() => {
     setQ("");
-    setCategoryFilter("all");
     setStatusFilter("all");
     setDateFrom("");
     setDateTo("");
@@ -588,21 +578,6 @@ export function KhoTonKhoPage({
 
         {tab === "ton" ? (
           <>
-            <div className="kho-picker" style={{ width: 145 }}>
-              <Select
-                options={[
-                  { value: "all", label: "Mọi chủng loại" },
-                  { value: "giay", label: "Giấy in" },
-                  { value: "muc", label: "Mực in" },
-                  { value: "hoa_chat", label: "Hóa chất / Phủ" },
-                  { value: "khac", label: "Vật tư phụ" },
-                ]}
-                value={categoryFilter}
-                onChange={(v) => v != null && setCategoryFilter(v as any)}
-                ariaLabel="Lọc chủng loại"
-              />
-            </div>
-
             <div className="kho-picker" style={{ width: 155 }}>
               <Select
                 options={[

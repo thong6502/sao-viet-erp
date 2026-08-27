@@ -2772,28 +2772,70 @@ input.kho-num,
   flex-direction: column;
   gap: var(--sp-6, 24px);
 }
-.kho-dash__kpis {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--sp-4, 16px);
-}
-.kho-dash__card {
-  position: relative;
+/* Dải KPI ngang liền — thay lưới thẻ (4+1 lệch) bằng MỘT dải, các chỉ số ngăn nhau bằng vạch mảnh.
+   Màn rộng: một hàng đều (4–5 chỉ số tự co giãn). Màn hẹp (≤800px): xếp DỌC, vạch dọc → vạch ngang
+   để không còn cảnh "2 cột lẻ vạch". `overflow:hidden` cắt vạch theo bo góc. */
+.kho-dash__strip {
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 18px 20px;
+  flex-wrap: wrap;
   background: var(--paper, #ffffff);
   border: 1px solid var(--rule-soft, #e2e8f0);
   border-radius: var(--r-6, 12px);
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.03);
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
+  overflow: hidden;
 }
-.kho-dash__card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
-  border-color: var(--rule, #cbd5e1);
+.kho-dash__seg {
+  flex: 1 1 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 20px;
+  border-left: 1px solid var(--rule-soft, #e2e8f0);
+}
+.kho-dash__seg:first-child {
+  border-left: none;
+}
+@media (max-width: 800px) {
+  .kho-dash__seg {
+    flex-basis: 100%;
+    border-left: none;
+    border-top: 1px solid var(--rule-soft, #e2e8f0);
+  }
+  .kho-dash__seg:first-child {
+    border-top: none;
+  }
+}
+
+/* Biểu đồ Recharts trong dashboard Báo cáo kho — cột theo thời gian + cột ngang theo kho.
+   Legend tự vẽ (chấm màu theo LOẠI) để chủ động màu; tooltip dùng .custom-recharts-tooltip sẵn có. */
+.kho-rc-chart {
+  width: 100%;
+  height: 260px;
+}
+.kho-rc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0 0 10px 2px;
+}
+.kho-rc-legitem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ash-2, #64748b);
+}
+.kho-rc-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  display: inline-block;
+}
+.kho-rc-ttname {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .kho-dash__label {
