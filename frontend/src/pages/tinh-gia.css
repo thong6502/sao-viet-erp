@@ -1117,6 +1117,9 @@ select.tg-input {
   outline: 2px solid var(--rust);
   outline-offset: 2px;
 }
+.prow__act .tg-icon-btn + .tg-icon-btn {
+  margin-left: 4px;
+}
 
 /* ---------- Add button (dashed) ---------- */
 .tg-add {

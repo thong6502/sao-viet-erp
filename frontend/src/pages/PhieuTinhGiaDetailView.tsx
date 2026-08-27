@@ -1233,6 +1233,31 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     setComps((cs) => [...cs, { ...c, ten: `Sản phẩm ${cs.length + 1}` }]);
     setEditingUid(c.uid);
   }, []);
+  // Nhân bản: copy NGUYÊN cấu hình dòng gốc (giấy/máy/mực/công đoạn/vật tư), chèn ngay dưới —
+  // sinh uid MỚI cho dòng và mọi phần tử con để không đụng chéo state với dòng gốc. Không tự vào
+  // dải nhóm của dòng gốc (nhom_bao_gia rỗng) — gộp nhầm ngoài ý muốn khó nhận ra hơn là phải tick lại.
+  const duplicateComp = useCallback((uid: string) => {
+    const uidMoi = nextUid();
+    setComps((cs) => {
+      const idx = cs.findIndex((c) => c.uid === uid);
+      if (idx === -1) return cs;
+      const goc = cs[idx];
+      const banSao: EditableComponent = {
+        ...goc,
+        uid: uidMoi,
+        ten: `${goc.ten || "Sản phẩm"} (bản sao)`,
+        nhom_bao_gia: "",
+        muc_a: [...goc.muc_a],
+        muc_b: [...goc.muc_b],
+        thanh_phams: goc.thanh_phams.map((f) => ({ ...f, uid: nextUid() })),
+        vat_tus: goc.vat_tus.map((v) => ({ ...v, uid: nextUid() })),
+      };
+      const next = [...cs];
+      next.splice(idx + 1, 0, banSao);
+      return next;
+    });
+    setEditingUid(uidMoi);
+  }, []);
 
   // Chọn giấy → đơn giá + đơn vị (CHỐT CỨNG theo danh mục, read-only). Khổ giấy nguyên KHÔNG còn
   // ở danh mục Giấy → người dùng nhập tay khổ ở phiếu (ô Khổ giấy nguyên ①).
@@ -1854,7 +1879,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                         <th className="num">SL</th>
                         <th className="num">Giá vốn</th>
                         <th className="num">Đơn giá</th>
-                        <th className="num" style={{ width: "56px" }} aria-label="Hành động" />
+                        <th className="num" style={{ width: "84px" }} aria-label="Hành động" />
                       </tr>
                     </thead>
                     <tbody>
@@ -1916,6 +1941,15 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                                 {meta && meta.gia_von_don > 0 ? `${fmt(meta.gia_von_don)} đ` : "—"}
                               </td>
                               <td className="prow__act" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  className="tg-icon-btn"
+                                  onClick={() => duplicateComp(c.uid)}
+                                  title="Nhân bản sản phẩm"
+                                  aria-label="Nhân bản sản phẩm"
+                                >
+                                  <CopyIcon />
+                                </button>
                                 <button
                                   type="button"
                                   className="tg-icon-btn tg-icon-btn--danger"
@@ -3399,6 +3433,13 @@ const CloseIcon = () => (
 const TrashIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6" />
+  </svg>
+);
+
+const CopyIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="9" y="9" width="12" height="12" rx="2" />
+    <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
   </svg>
 );
 
