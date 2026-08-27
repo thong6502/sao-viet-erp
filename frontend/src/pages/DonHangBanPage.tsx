@@ -11,6 +11,7 @@ import {
   api,
   ApiError,
   connectQuoteEvents,
+  type CompanyBankAccountRow,
   type CustomerAddress,
   type CustomerContact,
   type LsxListItem,
@@ -1654,9 +1655,28 @@ function DepositForm({ order, onSaved }: { order: OrderDetail; onSaved: (d: Orde
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // TK công ty NHẬN tiền — xem chú thích cùng ô này ở `OrderDepositQueue`. Hai màn lập CÙNG một
+  // phiếu thu cọc, nên thiếu ô ở một bên là phiếu lập từ bên đó không có vết tài khoản.
+  const isBank = method === "bank_transfer";
+  const [bankAccountId, setBankAccountId] = useState<number | null>(null);
+  const [accounts, setAccounts] = useState<CompanyBankAccountRow[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  useEffect(() => {
+    if (!token || !open) return;
+    setLoadingAccounts(true);
+    api.accounting
+      .companyAccounts(token, true, "receive")
+      .then((rows) => setAccounts(rows.filter((r) => r.currency === "VND")))
+      .catch(() => setAccounts([]))
+      .finally(() => setLoadingAccounts(false));
+  }, [token, open]);
 
   async function submit() {
     if (!token) return;
+    if (isBank && accounts.length > 0 && bankAccountId == null) {
+      setErr("Chuyển khoản thì phải chọn tài khoản công ty nhận tiền.");
+      return;
+    }
     setSaving(true);
     setErr(null);
     try {
@@ -1665,6 +1685,7 @@ function DepositForm({ order, onSaved }: { order: OrderDetail; onSaved: (d: Orde
         amount: Number(amount) || 0,
         receipt_date: date || null,
         note: note || null,
+        company_bank_account_id: isBank ? bankAccountId : null,
       });
       onSaved(d);
       setOpen(false);
@@ -1696,6 +1717,29 @@ function DepositForm({ order, onSaved }: { order: OrderDetail; onSaved: (d: Orde
           ))}
         </select>
       </Field>
+      {isBank && (
+        <Field label="Tài khoản công ty nhận tiền">
+          <select
+            value={bankAccountId ?? ""}
+            onChange={(e) => setBankAccountId(e.target.value ? Number(e.target.value) : null)}
+            className="dhb__select"
+            style={{ width: "100%" }}
+            disabled={loadingAccounts}
+          >
+            <option value="">Chọn tài khoản công ty</option>
+            {accounts.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.bank_name} · {row.account_number} · {row.currency}
+              </option>
+            ))}
+          </select>
+          {!loadingAccounts && accounts.length === 0 && (
+            <div style={{ fontSize: 12, color: "var(--ash-2)", marginTop: 2 }}>
+              Chưa có tài khoản công ty VND nào bật "dùng để thu".
+            </div>
+          )}
+        </Field>
+      )}
       <Field label="Số tiền thực thu">
         <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="dhb__input" />
         {Number(amount) > 0 && <div className="dhb__mono" style={{ fontSize: 12, color: "var(--ash-2)", marginTop: 2 }}>= {vnd(Number(amount))}</div>}

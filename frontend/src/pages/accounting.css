@@ -918,6 +918,58 @@ td.acct-count-cell {
   vertical-align: top;
 }
 
+/* --- Bảng "Hóa đơn còn phải thu" — dọn lại 27/08/2026 ------------------------
+   Trước: mỗi dòng cao ~100px và so le nhau vì BA thứ cùng gãy dòng một lúc —
+   nhãn tiêu đề ("Ngày / hạn thu", "Thu trực tiếp"), mã hoá đơn
+   ("DEMO · HHDEMO-DH001"), và chữ trong nút "Thu tiền". Cột tiền lại canh phải
+   trong khi nhãn của chúng canh trái, nên chẳng số nào thẳng hàng với tên cột.
+   Nhãn đã rút gọn ở JSX; phần còn lại chặn gãy dòng tại đây. */
+
+/* Tiêu đề KHÔNG được gãy: một cột gãy là cao gấp đôi cả dải, kéo theo mọi cột khác. */
+.ar-invoice-table th {
+  white-space: nowrap;
+}
+
+/* Canh GIỮA theo chiều dọc: ô một dòng (ngày, tiền, nút) trước đây bị `top` dính lên mép trên
+   trong khi ô Hóa đơn cao hai dòng — nhìn như bảng bị lệch tầng. */
+.ar-invoice-table td {
+  vertical-align: middle;
+}
+
+/* Mã hoá đơn giữ MỘT dòng; hẹp quá thì cắt bằng "…" chứ không tự bẻ đôi. Dòng nhỏ bên dưới
+   (ngày + mã đơn) mới là chỗ được xuống dòng. */
+.ar-invoice-table td:first-child {
+  min-width: 190px;
+}
+
+.ar-invoice-table td:first-child > strong {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Cột ngày/tiền: một dòng, khỏi gãy "25/9/2026" thành hai. */
+.ar-invoice-table td:nth-child(2),
+.ar-invoice-table .pay-num {
+  white-space: nowrap;
+}
+
+/* Cột nút: nút giữ nguyên một dòng và ép sát phải — nó là đầu mút của dòng, để lơ lửng giữa
+   khoảng trống thì mắt phải đi tìm.
+   `th`/`td` viết kèm tên bảng cho đủ 2 hạng: `.pay-table th { text-align: left }` là (0,1,1),
+   một mình `.ar-invoice-table__act` (0,1,0) thua nên nhãn vẫn canh trái trong khi nút canh phải. */
+.ar-invoice-table th.ar-invoice-table__act,
+.ar-invoice-table td.ar-invoice-table__act {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ar-invoice-table__act .btn {
+  white-space: nowrap;
+}
+
 /* Dòng hoá đơn đang mở popup thu tiền — tô nhạt để vẫn biết đang thu hoá đơn nào dù popup
    giờ nổi lên GIỮA màn hình (khuôn .acct-modal), không còn nằm ngay dưới dòng như trước. */
 .ar-row--active td {
@@ -1106,8 +1158,41 @@ td.acct-count-cell {
   color: var(--ash);
 }
 
-.acct-deliveries__table td:nth-child(3) {
-  min-width: 190px;
+/* Cột "Hàng đã nhận" là cột DUY NHẤT được xuống dòng, nên nó quyết chiều cao cả hàng: bóp xuống
+   150px thì "Loa PayLart: 200 cai" vỡ làm 3 dòng, hàng cao 93px. Giữ 200px = 2 dòng = 71px.
+   Bảng này vốn đã cuộn ngang (`.acct-dmh__scroll`), nên đổi CHIỀU CAO lấy chiều rộng là lãi:
+   cuộn ngang vẫn đọc được, còn hàng cao gấp rưỡi thì cả bảng rối. */
+.acct-deliveries__table td:nth-child(2) {
+  min-width: 250px;
+}
+
+/* --- Bảng "Đợt giao hàng" (drawer Kế toán) — dọn lại 27/08/2026 --------------
+   Thêm cột "Trừ cọc" thành 9 cột, nên phải giành lại từng chỗ: bóp đệm ngang, cắt tên người ghi,
+   và chặn ngày/tiền gãy dòng. Trước đó mỗi hàng cao ~111px vì tên "Hồ Thị Minh Châu" vỡ làm ba
+   dòng — cột này KHÔNG mang class `.acct-list` nên lưới an toàn ellipsis ở trên không với tới. */
+.acct-deliveries__table td.acct-user-cell > div {
+  max-width: 96px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Đệm ngang RỘNG hơn mặc định — cùng luật với bảng đợt giao bên Thu mua (xem `.pdot__table`):
+   khối có sẵn `.acct-dmh__scroll`, cuộn ngang còn hơn dồn cột số dính vào nhau.
+   Phải khai CẢ HAI class của chính bảng (`.acct-deliveries__table.md-page__table`) để lên (0,2,2):
+   `.md-page__table tbody td` là (0,1,2) — viết `.acct-deliveries__table tbody td` cũng chỉ (0,1,2),
+   HOÀ, và khi hoà thì thứ tự nạp file quyết định nên đệm vẫn nằm nguyên ở 14px mặc định. */
+.acct-deliveries__table.md-page__table thead th,
+.acct-deliveries__table.md-page__table tbody td {
+  padding-right: 18px;
+  padding-left: 18px;
+}
+
+/* Cột chữ/ngày/tiền giữ MỘT dòng; chỉ "Hàng đã nhận" (cột 2, sau khi Ngày giao gộp vào ô Đợt)
+   được xuống dòng, vì nó là danh sách nhiều mặt hàng. Mắt quét dọc theo cột tiền không bị so le. */
+.acct-deliveries__table th,
+.acct-deliveries__table td:not(:nth-child(2)) {
+  white-space: nowrap;
 }
 
 /* Ô chi tiết công nợ dùng chung `.pay-kpibar` (payables.css) cho dải chỉ số — xem

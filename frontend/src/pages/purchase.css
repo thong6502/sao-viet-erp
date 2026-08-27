@@ -1701,10 +1701,30 @@
   display: flex;
   align-items: center;
   min-height: 38px;
+  /* Không xuống dòng: các ô này nay là THẺ CHỮ (span) chứ không còn là `<input>`, nên nội dung dài
+     sẽ kéo cột rộng ra thay vì gãy đôi — bảng có sẵn cuộn ngang để chịu. */
+  white-space: nowrap;
   background: color-mix(in srgb, var(--paper) 75%, var(--canvas));
   color: var(--ink);
   font-weight: 700;
   cursor: default;
+}
+
+/* THẺ CHỮ chỉ-đọc (ĐVT · Số lượng ở form tạo đơn) — phải cắt gọn được, y như ô tiền.
+   Bỏ `display: flex` của lớp cha: `text-overflow` KHÔNG ăn trên flex container (chuỗi chữ thành
+   flex item ẩn danh), nên "500.000.000" cứ thế tràn ra đè cột bên cạnh. Về `block` thì ellipsis
+   hoạt động; `line-height` thay `align-items: center` để chữ vẫn nằm giữa ô cao 36px.
+   Số/tên đầy đủ luôn có ở `title` — xem PurchaseFormDrawer. */
+span.purchase__readonly-field {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Đệm DỌC về 0 rồi mới canh giữa bằng `line-height`. Giữ đệm 10px của lớp `.input` thì vùng nội
+     dung chỉ còn 18px, mà dòng chữ cao 36px ⇒ nó tràn xuống dưới và chữ nằm sát đáy ô (chủ bắt
+     27/08/2026). `.purchase__line-sum` không dính lỗi này vì vốn đã khai `padding: 0 10px`. */
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 36px;
 }
 
 .purchase__form-section {
@@ -1742,8 +1762,8 @@
   grid-template-columns:
     minmax(170px, 1.7fr) minmax(76px, 0.55fr) minmax(92px, 0.65fr)
     minmax(112px, 0.75fr) minmax(78px, 0.55fr) minmax(112px, 0.75fr)
-    minmax(78px, 0.55fr) minmax(130px, 1fr) minmax(118px, 0.75fr) 40px;
-  min-width: 1040px;
+    minmax(78px, 0.55fr) minmax(130px, 1fr) minmax(158px, 0.95fr) 40px;
+  min-width: 1080px;
   gap: 8px;
   align-items: center;
   padding: 8px 10px;
@@ -1762,8 +1782,8 @@
   grid-template-columns:
     minmax(170px, 1.7fr) minmax(76px, 0.55fr) minmax(92px, 0.65fr)
     minmax(112px, 0.75fr) minmax(78px, 0.55fr) minmax(112px, 0.75fr)
-    minmax(78px, 0.55fr) minmax(130px, 1fr) minmax(118px, 0.75fr) 40px;
-  min-width: 1040px;
+    minmax(78px, 0.55fr) minmax(130px, 1fr) minmax(158px, 0.95fr) 40px;
+  min-width: 1080px;
   gap: 8px;
   align-items: center;
   padding: 8px 10px;
@@ -1773,6 +1793,10 @@
 /* Lúc TẠO phiếu, mỗi dòng tự mang nhà cung cấp của nó (một yêu cầu thường có hàng của nhiều nơi,
    mỗi NCC ra một phiếu). Thêm một cột ⇒ phải khai lại cả bộ, lưới này là cột CỐ ĐỊNH chứ không
    tự co. Cột NCC để rộng vì nó hiện "Tên NCC — 2.200 đ (VAT 8%)". */
+/* Cột CUỐI (Thành tiền) nới 118 → 158px: "10.000.000.000 đ" (tiền tỷ, hoàn toàn bình thường với
+   đơn giấy) cần ~150px, sàn 118px cũ là tràn. KHÔNG dùng `max-content` cho cột này: hàng tiêu đề
+   (`.purchase__line-labels`) và hàng dữ liệu (`.purchase__line-edit`) là HAI grid riêng biệt, mỗi
+   cái tự đo nội dung của mình — cột co theo nội dung là tiêu đề lệch khỏi cột ngay. */
 .purchase__line-editor--tach-ncc .purchase__line-labels,
 .purchase__line-editor--tach-ncc .purchase__line-edit {
   grid-template-columns:
@@ -1781,8 +1805,8 @@
       0.65fr
     )
     minmax(112px, 0.75fr) minmax(78px, 0.55fr) minmax(112px, 0.75fr)
-    minmax(78px, 0.55fr) minmax(130px, 1fr) minmax(118px, 0.75fr) 40px;
-  min-width: 1240px;
+    minmax(78px, 0.55fr) minmax(130px, 1fr) minmax(158px, 0.95fr) 40px;
+  min-width: 1280px;
 }
 
 .purchase__line-editor--request .purchase__line-labels,
@@ -1809,13 +1833,23 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Ô TIỀN của dòng hàng. "5.000.000.000.000 đ" từng GÃY LÀM HAI DÒNG, tràn khỏi ô và thổi cao cả
+   hàng (chủ bắt 27/08/2026). Ba chốt cùng lúc:
+     - `white-space: nowrap` — không bao giờ gãy dòng nữa.
+     - `display: block` + `line-height` thay cho flex — flex thì `text-overflow` KHÔNG ăn (chuỗi
+       chữ thành flex item ẩn danh), mà không có ellipsis thì chữ tràn đè sang cột bên cạnh.
+     - `overflow: hidden` + ellipsis — lưới an toàn cho số vô lý. Số đầy đủ nằm ở `title`.
+   Cột đã nới ở `grid-template-columns` để tiền tỷ hiện TRỌN, ellipsis chỉ để chặn ca cực đoan. */
 .purchase__line-sum {
   font-family: var(--ff-num);
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  display: block;
   min-height: 36px;
   min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: right;
+  line-height: 34px;
   padding: 0 10px;
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-2);
@@ -2290,6 +2324,25 @@
   color: var(--ink);
 }
 
+/* Ô "Cọc dự kiến" khi ĐÃ KHOÁ: là con số để ĐỌC, không phải ô để gõ. Nền giấy + chữ đậm nói ngay
+   "khai xong rồi", khỏi mời người ta bấm vào một ô không gõ được.
+   Đệm DỌC về 0 rồi canh giữa bằng `line-height` — giữ đệm 10px của `.input` thì dòng chữ tràn
+   xuống đáy ô (cùng bẫy đã vá ở `span.purchase__readonly-field`).
+   Viết `span.` cho đủ HAI hạng: global.css nạp SAU file này, nên `.pdot__readonly-money` một class
+   thua `.input { padding: 10px 12px }` — để nguyên thì ô cao 58px trong khi ô "Số hợp đồng" bên
+   cạnh chỉ 40px, hai ô cùng hàng lệch hẳn nhau (UI_DESIGN §10). */
+span.pdot__readonly-money {
+  display: block;
+  min-height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 38px;
+  background: color-mix(in srgb, var(--paper) 75%, var(--canvas));
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+  cursor: default;
+}
+
 .pdot__files {
   display: flex;
   flex-direction: column;
@@ -2409,15 +2462,29 @@
   font-size: var(--fs-2xs);
 }
 
+/* Cột "Hàng đã nhận" là cột DUY NHẤT được xuống dòng ⇒ nó quyết chiều cao cả hàng. Phải đủ rộng
+   cho một dòng "Loa PayLart: 200 cái" nằm trọn; hụt vài chục px là mỗi mặt hàng vỡ làm hai dòng và
+   hàng cao gấp rưỡi. Đệm ngang 16px ăn mất 32px nên số này phải tính CẢ đệm. */
 .pdot__table td:nth-child(3) {
   white-space: normal;
-  min-width: 200px;
+  min-width: 250px;
+}
+
+/* Đệm ngang RỘNG hơn mặc định (chủ chốt 27/08/2026: *"scroll sang ngang được mà nên là cho
+   khoảng cách các cột nó thoải mái lên"*). Bản trước bóp xuống 8px để nhét đủ 10 cột vào khung
+   849px — sai hướng: khối này có sẵn `.pdot__tablewrap { overflow-x: auto }`, nên thà cuộn ngang
+   còn hơn dồn mười cột số dính vào nhau đọc không ra cột nào của cột nào. */
+.pdot__table th,
+.pdot__table td {
+  padding-right: 18px;
+  padding-left: 18px;
 }
 
 .pdot__delivery-lines,
 .acct-deliveries__lines {
   display: grid;
   gap: 3px;
+  font-size: 13px;
 }
 
 .pdot__delivery-lines span,
@@ -2834,7 +2901,12 @@
 }
 
 /* Số ảnh hoá đơn đã đính, hiện ngay cạnh số hoá đơn trong bảng đợt. */
+/* Nhãn "N chứng từ" ở cột Hoá đơn. Icon + số nằm CÙNG một dòng, canh giữa theo chiều dọc —
+   trước đây là emoji 📎 đứng trước số, máy thiếu font emoji thì ra ô vuông tofu. */
 .pdot__clip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   margin-left: var(--sp-1);
   color: var(--ash-2);
   font-size: var(--fs-sm);
@@ -3071,8 +3143,27 @@
 
 .acct-mh-drawer .purchase__hero-banner { background: var(--charcoal); border-bottom: 0; }
 
+/* Dòng tổng "Đã giao · Đã chi · Còn nợ".
+   `--fs-xl` (20px) cạnh hai số 13px là nhảy hai bậc — con số cuối to gấp rưỡi hàng chữ quanh nó,
+   nhìn như lọt từ bảng khác sang. Nhấn bằng ĐẬM + một bậc cỡ (16px) là đủ để mắt biết đâu là kết
+   luận, mà cả dòng vẫn đứng thành một hàng. */
+   KHÔNG khai `font-weight` ở đây: `<b>` mặc định là 700, mà `--fw-bold` chỉ 600 — đặt vào là con
+   số kết luận NHẠT hơn hai số dùng để tính ra nó, ngược đúng thứ tự cần nhấn. */
 .acct-mh-drawer .pdot__totals-due b {
-  color: var(--ink); font-size: var(--fs-xl); font-weight: var(--fw-medium);
+  color: var(--ink);
+  font-size: var(--fs-lg);
+}
+
+/* Nhãn của kết luận cũng phải đậm lên theo, nếu không chữ "Còn nợ" 13px nhạt lại treo lủng lẳng
+   bên cạnh một con số 16px đậm. */
+.acct-mh-drawer .pdot__totals-due {
+  color: var(--ink);
+  font-weight: var(--fw-medium);
+}
+
+/* Hai số dùng để TÍNH RA nó thì lùi lại một bậc màu — đọc lướt là thấy ngay đâu là kết quả. */
+.acct-mh-drawer .pdot__totals {
+  align-items: baseline;
 }
 
 .acct-mh__frame .purchase__source-codes,

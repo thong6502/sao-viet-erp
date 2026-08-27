@@ -1,5 +1,5 @@
 // Khối HỢP ĐỒNG & CHỨNG TỪ trong drawer chi tiết đơn (tách từ pages/PurchaseRequestsPage.tsx).
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ApiError,
   api,
@@ -9,6 +9,7 @@ import {
 } from "../../../../api/client";
 import { useAuth } from "../../../../auth/useAuth";
 import { Button } from "../../../../components/Button";
+import { Icon } from "../../../../components/Icons";
 import { fmtDate, money } from "../../../../utils/format";
 import { ATTACHMENT_IMAGE_TYPES } from "../shared/constants";
 
@@ -43,6 +44,10 @@ export function ContractBlock({
   const [coc, setCoc] = useState(String(row.deposit_expected || ""));
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Input file THẬT bị ẩn; cái người dùng thấy là một nút theo khuôn `.pdot__pick` — cùng nút với
+  // hộp Ghi đợt giao ngay dưới. Ô `<input type=file>` trần ("Chọn tệp | Không có tệp nào được
+  // chọn") là giao diện mặc định của trình duyệt, lạc hẳn khỏi phần còn lại của hộp thoại.
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   // Cọc chỉ sửa được khi phiếu còn ở nháp / chờ duyệt / bị từ chối — khớp chốt bên service.
   const cocKhoa = !["draft", "pending_approval", "rejected"].includes(row.status);
@@ -157,18 +162,26 @@ export function ContractBlock({
         </label>
         <label className="purchase__field">
           <span>Cọc dự kiến{cocKhoa && " (đã duyệt — khoá)"}</span>
-          <input
-            className="input purchase__number-input"
-            type="number"
-            min={0}
-            step={1000}
-            max={tranCoc || undefined}
-            readOnly={!canUpdate || cocKhoa}
-            value={coc}
-            onChange={(e) => setCoc(e.target.value)}
-            placeholder="0"
-            aria-invalid={cocVuot || undefined}
-          />
+          {/* KHOÁ rồi thì đây không còn là ô nhập — in ra như một con số có dấu chấm ngăn nghìn.
+              `type=number` bày "3500000" trần, không ai đọc ra ba triệu rưỡi, mà lại còn giả vờ
+              mời gõ trong khi gõ không được. Còn sửa được thì giữ nguyên ô số. */}
+          {cocKhoa || !canUpdate ? (
+            <span className="input purchase__number-input pdot__readonly-money">
+              {money(Number(coc) || 0)}
+            </span>
+          ) : (
+            <input
+              className="input purchase__number-input"
+              type="number"
+              min={0}
+              step={1000}
+              max={tranCoc || undefined}
+              value={coc}
+              onChange={(e) => setCoc(e.target.value)}
+              placeholder="0"
+              aria-invalid={cocVuot || undefined}
+            />
+          )}
           <small className={`pdot__hint${cocVuot ? " pdot__hint--loi" : ""}`}>
             {cocKhoa ? (
               <>
@@ -219,7 +232,12 @@ export function ContractBlock({
                         alt={a.file_name}
                       />
                     ) : (
-                      <span className="pdot__filename">{a.file_name}</span>
+                      // Ô GIẤY + icon, y như hộp Ghi đợt giao. Trước đây nhồi cả TÊN FILE vào ô
+                      // 76px nên nó ra một mẩu chữ cụt ("CÁC LỖI THƯỜNG GẶP K…") đứng lệch cạnh
+                      // nút ×; tên đầy đủ vốn đã nằm ở `title` của thẻ <a> bao ngoài.
+                      <span className="pdot__thumb pdot__thumb--pdf">
+                        <Icon name="fileText" size={22} />
+                      </span>
                     )}
                   </a>
                   {canUpdate && (
@@ -239,20 +257,33 @@ export function ContractBlock({
           </div>
         )}
         {canUpdate && (
-          <label className="purchase__field">
-            <span>Thêm ảnh / PDF hợp đồng (tối đa 10 MB mỗi file)</span>
+          <>
             <input
-              className="input"
               type="file"
+              hidden
               multiple
               accept="image/*,application/pdf"
-              disabled={uploading}
+              ref={fileRef}
               onChange={(e) => {
                 tai(e.target.files);
                 e.target.value = "";
               }}
             />
-          </label>
+            <button
+              type="button"
+              className="pdot__pick"
+              disabled={uploading}
+              onClick={() => fileRef.current?.click()}
+            >
+              <Icon name="fileText" size={16} />
+              {uploading
+                ? "Đang tải lên…"
+                : hopDong.length > 0
+                  ? "Thêm ảnh / PDF hợp đồng"
+                  : "Chọn ảnh / PDF hợp đồng"}
+            </button>
+            <small className="pdot__hint">Ảnh hoặc PDF, tối đa 10 MB mỗi file.</small>
+          </>
         )}
       </div>
     </section>

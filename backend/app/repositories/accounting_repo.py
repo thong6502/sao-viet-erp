@@ -221,12 +221,21 @@ class AccountingRepository:
             # Gom phiếu cùng PMH đứng cạnh nhau; nhóm có phiếu MỚI NHẤT lên đầu
             # (vừa chi bổ sung cho PMH cũ → cả nhóm nổi lên trang 1), trong nhóm
             # đọc theo trình tự lập: tạm ứng → bổ sung → quyết toán.
-            latest_in_group = func.max(PaymentVoucher.created_at).over(
-                partition_by=PaymentVoucher.purchase_request_id
-            )
+            #
+            # KHÔNG MÀN NÀO ĐANG GỌI (27/08/2026): màn Phiếu chi đã đổi sang `-created_at` vì kiểu
+            # gom này khiến cả bảng trông như chưa sắp xếp — bên trong nhóm xếp TĂNG DẦN nên phiếu
+            # 10/8 nằm trên cả 19/8 lẫn 27/8. Giữ nhánh + test cho ai muốn bật lại.
+            #
+            # `-id` cho phiếu KHÔNG thuộc PMH nào (chi phí nội bộ, tạm ứng lương, UNC độc lập):
+            # mỗi phiếu tự làm một nhóm. Partition thẳng theo cột nullable là SQL gom MỌI phiếu
+            # `purchase_request_id IS NULL` vào CHUNG một nhóm dù chúng chẳng liên quan gì nhau —
+            # nhóm ma đó nổi lên đầu trang rồi lôi theo phiếu cũ nhất lên trên cùng.
+            # Dùng `-id` để không bao giờ đụng một `purchase_request_id` thật (luôn dương).
+            khoa_nhom = func.coalesce(PaymentVoucher.purchase_request_id, -PaymentVoucher.id)
+            latest_in_group = func.max(PaymentVoucher.created_at).over(partition_by=khoa_nhom)
             stmt = stmt.order_by(
                 direction(latest_in_group),
-                direction(PaymentVoucher.purchase_request_id),
+                direction(khoa_nhom),
                 PaymentVoucher.created_at.asc(),
                 PaymentVoucher.id.asc(),
             )

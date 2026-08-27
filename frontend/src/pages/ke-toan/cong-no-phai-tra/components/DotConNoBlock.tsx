@@ -46,10 +46,11 @@ export function DotConNoBlock({
         </strong>
       </header>
       <p className="pay-block__hint">
-        Hàng đã về tới đâu thì nợ tới đó, gom theo từng đơn mua. Cột{" "}
-        <strong>Đã trả</strong> chỉ đếm tiền trả đích danh đợt đó (khớp sao
-        kê nhà cung cấp). <strong>Còn nợ</strong> đã trừ cả tiền cọc của đơn —
-        nên có đợt chưa trả đồng nào mà còn nợ vẫn nhỏ hơn giá trị đợt.
+        Hàng đã về tới đâu thì nợ tới đó, gom theo từng đơn mua, đợt mới nhất lên
+        trước. Cột <strong>Đã trả</strong> chỉ đếm tiền trả đích danh đợt đó (khớp
+        sao kê nhà cung cấp), <strong>Trừ cọc</strong> là phần cọc của cả đơn chiếu
+        xuống — <strong>Còn nợ</strong> đã trừ cả hai. Đợt làm mờ là đợt đã trả
+        xong, để dò được tiền cọc đi đâu.
         {chuaDatHan > 0 && (
           <>
             {" "}Có {chuaDatHan} khoản chưa có hạn trả — chúng không bao giờ
@@ -124,12 +125,19 @@ export function DotConNoBlock({
                   <th>Hạn trả</th>
                   <th className="pay-num">Giá trị</th>
                   <th className="pay-num">Đã trả</th>
+                  {/* Cột RIÊNG, không gộp vào "Đã trả" (chủ chốt 27/08/2026). Gộp thì bảng cộng
+                      trừ khớp nhưng nói dối: đợt hiện "đã trả 100.000" trong khi không ai chuyển
+                      cho nó đồng nào, cầm sao kê NCC dò không ra giao dịch đó. */}
+                  <th className="pay-num">Trừ cọc</th>
                   <th className="pay-num">Còn nợ</th>
                 </tr>
               </thead>
               <tbody>
                 {don.items.map((row) => (
-                  <tr key={row.delivery_id ?? 0}>
+                  <tr
+                    key={row.delivery_id ?? 0}
+                    className={row.da_tat_toan ? "pay-row--done" : undefined}
+                  >
                     <td>
                       <strong>{tenKhoan(row)}</strong>
                     </td>
@@ -141,10 +149,29 @@ export function DotConNoBlock({
                       />
                     </td>
                     <td>
-                      <HanTra row={row} />
+                      {/* Đợt đã trả xong KHÔNG hiện hạn trả: hạn chỉ có nghĩa khi còn nợ, để lại
+                          một ngày quá khứ là trông như đang trễ. */}
+                      {row.da_tat_toan ? (
+                        <span className="pay-cell--zero">đã trả xong</span>
+                      ) : (
+                        <HanTra row={row} />
+                      )}
                     </td>
                     <td className="pay-num">{money(row.amount)}</td>
-                    <td className="pay-num">{money(row.paid)}</td>
+                    <td className="pay-num">
+                      {row.paid > 0 ? (
+                        money(row.paid)
+                      ) : (
+                        <span className="pay-cell--zero">—</span>
+                      )}
+                    </td>
+                    <td className="pay-num">
+                      {row.coc_bu > 0 ? (
+                        money(row.coc_bu)
+                      ) : (
+                        <span className="pay-cell--zero">—</span>
+                      )}
+                    </td>
                     <td className="pay-num">
                       <strong>{money(row.con_no)}</strong>
                     </td>

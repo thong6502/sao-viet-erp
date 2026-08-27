@@ -496,6 +496,53 @@ def test_coc_la_coc_ca_don_khong_thuoc_dot_nao(client):
     assert lai["items"] == [], "đợt đã đủ tiền thì không được nằm ở danh sách CÒN NỢ nữa"
 
 
+def test_dot_bi_coc_nuot_tron_van_liet_ke_de_do_dau_tien_coc(client):
+    """Đợt bị CỌC bù trọn không được biến mất khỏi bảng (chủ chốt 27/08/2026).
+
+    Ca thật chủ bắt được: đơn có cọc 3.500.000, badge ghi *"đã trừ hết vào đợt giao"*, nhưng đợt duy
+    nhất còn hiện chỉ được trừ 100.000 — 3.400.000 kia nằm ở một đợt đã tất toán và bị lọc mất. Người
+    đọc thấy `giá trị 3.800.000 − đã trả 0 = còn nợ 3.700.000` và không dò ngược được đồng nào.
+
+    Nay đơn CÒN NỢ thì liệt kê cả đợt đã tất toán của nó, gắn cờ `da_tat_toan` để màn hình làm mờ và
+    xếp xuống đáy. Đơn tất toán SẠCH thì vẫn im lặng — xem `test_coc_la_coc_ca_don_khong_thuoc_dot_nao`."""
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Coc Nuot Dot")
+    don = _don(client, headers, supplier["id"], coc=900_000)
+    _phieu_chi(client, headers, don["id"], 900_000, stage="advance")
+    _da_mua(client, headers, don["id"])
+    dong = _dong_dau_tien(don)
+    _ghi_dot(client, headers, don["id"], lines=[{"purchase_request_line_id": dong, "quantity": 400}])
+    sau = _ghi_dot(client, headers, don["id"], lines=[{"purchase_request_line_id": dong, "quantity": 300}])
+    d1 = sau["deliveries"][0]["id"]   # 400 x 2.200 = 880.000 ⇒ cọc bù TRỌN
+    d2 = sau["deliveries"][1]["id"]   # 300 x 2.200 = 660.000 ⇒ cọc chỉ còn 20.000 để bù
+
+    chi_tiet = _cong_no_ncc(client, headers, supplier["id"])
+    theo_dot = {x["delivery_id"]: x for x in chi_tiet["items"]}
+    assert set(theo_dot) == {d1, d2}, "đợt bị cọc nuốt trọn vẫn phải có mặt để dò dấu tiền cọc"
+
+    assert theo_dot[d1]["da_tat_toan"] is True
+    assert theo_dot[d1]["paid"] == 0, "không ai trả đích danh đợt này — cột Đã trả phải khớp sao kê"
+    assert theo_dot[d1]["coc_bu"] == 880_000
+    assert theo_dot[d1]["con_no"] == 0
+
+    assert theo_dot[d2]["da_tat_toan"] is False
+    assert theo_dot[d2]["coc_bu"] == 20_000
+    assert theo_dot[d2]["con_no"] == 640_000
+
+    # Cộng ngang phải khớp trên MÀN HÌNH: giá trị − đã trả − trừ cọc = còn nợ. Đây là chính cái
+    # người đọc không tự cộng ra được trước ngày sửa.
+    for x in chi_tiet["items"]:
+        assert x["amount"] - x["paid"] - x["coc_bu"] == x["con_no"]
+
+    # Cọc dò được TRỌN VẸN: 880.000 + 20.000 = 900.000 = số badge đang khoe.
+    assert sum(x["coc_bu"] for x in chi_tiet["items"]) == chi_tiet["coc_chung"][0]["da_dung"] == 900_000
+    # Dòng tất toán không được cộng vào nợ, cũng không được đếm vào rổ tuổi.
+    assert chi_tiet["total_due"] == 640_000
+    assert sum(r["count"] for r in chi_tiet["aging"]) == 1
+    # Xếp MỚI → CŨ, và dòng đã xong luôn nằm dưới cùng.
+    assert [x["delivery_id"] for x in chi_tiet["items"]] == [d2, d1]
+
+
 def test_dong_da_tra_noi_ro_dot_may(client):
     """Rổ "Đã trả" phải ghi ĐỢT MẤY, không được "trả theo đợt" chung chung (chủ 07/08/2026).
 
@@ -723,9 +770,17 @@ def test_tran_thanh_toan_theo_TUNG_DOT_khong_theo_ca_don(client):
 
     # ĐỢT 1 VẪN CÒN NỢ — đây là chỗ trước kia nó biến mất.
     chi_tiet = _cong_no_ncc(client, headers, supplier["id"])
-    assert [x["delivery_id"] for x in chi_tiet["items"]] == [d1]
-    assert chi_tiet["items"][0]["con_no"] == 880_000
+    con_thieu = [x for x in chi_tiet["items"] if not x["da_tat_toan"]]
+    assert [x["delivery_id"] for x in con_thieu] == [d1]
+    assert con_thieu[0]["con_no"] == 880_000
     assert chi_tiet["total_due"] == 880_000
+    # Đợt 2 đã trả xong VẪN liệt kê, nhưng gắn cờ `da_tat_toan` và xếp sau (27/08/2026) — xem
+    # `payables_detail`: đợt bị trả hết mà biến mất thì không dò ngược được tiền đã đi đâu, nhất là
+    # tiền CỌC (cọc bù giao-trước-bù-trước nên hay nuốt trọn đợt sớm).
+    assert [x["delivery_id"] for x in chi_tiet["items"]] == [d1, d2]
+    assert [x["da_tat_toan"] for x in chi_tiet["items"]] == [False, True]
+    # ...nhưng nó KHÔNG được len vào rổ tuổi: pill đếm nợ, không đếm việc đã xong.
+    assert sum(r["count"] for r in chi_tiet["aging"]) == 1
 
 
 def test_coc_khong_bi_tran_dot_chan(client):

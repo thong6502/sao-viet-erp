@@ -20,6 +20,7 @@ import { InboxRowActions } from "./components/InboxRowActions";
 import { InboxTable } from "./components/InboxTable";
 import { InboxToolbar } from "./components/InboxToolbar";
 import { RejectModal } from "./modals/RejectModal";
+import { useNapTenDonVi } from "../../tenDonVi";
 import { PAGE_SIZE } from "./shared/constants";
 import type { DepositFilter } from "./shared/types";
 import "../../accounting.css";
@@ -40,6 +41,10 @@ export function AccountingPurchaseInboxPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
+  // Nạp danh mục Đơn vị MỘT lần cho cả phiên: bảng dòng hàng và bảng đợt giao hiện TÊN đơn vị
+  // ("cái", "tờ") chứ không phải mã (`cai`, `to`). Thiếu dòng này thì `tenDonVi()` luôn rỗng và
+  // hai bảng đó lặng lẽ rơi về mã trần — không lỗi, chỉ xấu.
+  useNapTenDonVi();
   // DUYỆT đơn mua = quyết định CHI TIỀN ⇒ gác bằng `thu_mua:approve`, KHÔNG phải `ke_toan:approve`.
   // Sáng 04/08/2026 đã gỡ ô này khỏi bộ phận Mua hàng nên giờ chỉ giám đốc và người được trao
   // quyền còn. Để `ke_toan:approve` thì kế toán tự duyệt khoản chi rồi tự viết phiếu chi — đúng

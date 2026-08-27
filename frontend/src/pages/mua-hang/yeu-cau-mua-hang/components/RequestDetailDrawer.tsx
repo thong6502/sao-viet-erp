@@ -9,6 +9,8 @@ import { Icon } from "../../../../components/Icons";
 import { RowActionButton } from "../../../../components/RowActionButton";
 import { StatusHistoryTimeline } from "../../../../components/StatusHistoryTimeline";
 import { fmtDate } from "../../../../utils/format";
+// Đơn vị lưu bằng MÃ (`cai`), tên hiển thị ("cái") nằm ở danh mục Đơn vị — xem pages/tenDonVi.ts.
+import { tenDonVi } from "../../../tenDonVi";
 import { dongSong, noiDung } from "../shared/helpers";
 import type { BoMonState } from "../shared/types";
 import { LineFulfilmentCell, SourceStatusBadge } from "./requestCells";
@@ -157,7 +159,8 @@ export function RequestDetailDrawer({
                             </td>
                             <td className="pay-num">
                               <span className="purchase__qty-badge">
-                                {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                                {line.quantity.toLocaleString("vi-VN")}{" "}
+                                {tenDonVi(line.unit) ?? line.unit}
                               </span>
                             </td>
                             <td>
@@ -169,7 +172,7 @@ export function RequestDetailDrawer({
                                   {line.fulfilment?.purchase_code && (
                                     <span className="purchase__spec-tag purchase__spec-tag--pmh" style={{ fontSize: "10px", width: "fit-content" }}>
                                       {line.fulfilment.purchase_code}
-                                      {line.fulfilment.received_quantity ? ` · nhận ${line.fulfilment.received_quantity.toLocaleString("vi-VN")} ${line.unit}` : ""}
+                                      {line.fulfilment.received_quantity ? ` · nhận ${line.fulfilment.received_quantity.toLocaleString("vi-VN")} ${tenDonVi(line.unit) ?? line.unit}` : ""}
                                     </span>
                                   )}
                                 </div>

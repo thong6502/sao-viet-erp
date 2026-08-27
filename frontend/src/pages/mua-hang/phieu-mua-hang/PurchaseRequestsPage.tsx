@@ -29,6 +29,7 @@ import { PurchaseFormDrawer } from "./components/PurchaseFormDrawer";
 import { PurchaseModals } from "./components/PurchaseModals";
 import { PhieuListTab } from "./tabs/PhieuListTab";
 import { YeuCauInboxTab } from "./tabs/YeuCauInboxTab";
+import { useNapTenDonVi } from "../../tenDonVi";
 import { PAGE_SIZE, SOURCE_PAGE_SIZE } from "./shared/constants";
 import {
   chaoGiaChoMatHang,
@@ -68,6 +69,9 @@ export function PurchaseRequestsPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
+  // Nạp danh mục Đơn vị MỘT lần: mọi chỗ hiện số lượng ở màn này (dòng hàng, đợt giao, hộp ghi
+  // đợt, phiếu in) đọc TÊN đơn vị qua `tenDonVi()`. Thiếu dòng này là tất cả rơi về mã trần.
+  useNapTenDonVi();
   const canCreate = can("thu_mua", "create");
   const openYcmh = (code: string) =>
     navigate("yeu-cau-mua-hang", { focusRequestCode: code });

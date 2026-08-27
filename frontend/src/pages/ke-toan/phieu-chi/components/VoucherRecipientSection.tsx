@@ -125,8 +125,6 @@ export function VoucherRecipientSection({
               onChange={(e) => set("beneficiary_bank_name", e.target.value)}
             />
           </label>
-        </div>
-        <div className="acct-form-grid acct-form-grid--3">
           <label className="acct-field">
             <span>Chi nhánh</span>
             <input
@@ -135,24 +133,15 @@ export function VoucherRecipientSection({
               onChange={(e) => set("beneficiary_bank_branch", e.target.value)}
             />
           </label>
-          <label className="acct-field">
-            <span>Bên chịu phí</span>
-            <select
-              className="input"
-              value={form.bank_fee_bearer ?? "payer"}
-              onChange={(e) =>
-                set(
-                  "bank_fee_bearer",
-                  e.target.value as "payer" | "beneficiary" | "shared",
-                )
-              }
-            >
-              <option value="payer">Công ty trả</option>
-              <option value="beneficiary">Người thụ hưởng trả</option>
-              <option value="shared">Chia sẻ phí</option>
-            </select>
-          </label>
         </div>
+        {/* Ô "Bên chịu phí" ĐÃ GỠ (chủ chốt 27/08/2026: *"cảm giác không cần thiết"*). Bắt kế
+            toán chọn cho từng UNC trong khi hệ KHÔNG dùng con số đó vào đâu cả: không in ra phiếu,
+            không hiện ở chi tiết, không vào phép tính nào — đúng kiểu ô ghi-rồi-quên như hai ô
+            Nợ/Có đã gỡ ngày 12/08.
+            Cột `bank_fee_bearer` GIỮ NGUYÊN trong DB và vẫn gửi mặc định "payer" (xem
+            PaymentVoucherDialog / StandaloneVoucherDialog): server còn kiểm giá trị hợp lệ, và
+            phiếu cũ đã khai "người thụ hưởng trả" thì không được âm thầm ghi đè.
+            Cần lại thì mở lại một ô select ba lựa chọn payer / beneficiary / shared. */}
       </section>
     )}
     </>

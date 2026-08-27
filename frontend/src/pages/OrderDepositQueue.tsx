@@ -9,7 +9,13 @@
 // nút (không nhận FormEvent) — bọc lại là phải sửa chữ ký, mà mọi phép tính/validate tiền cọc
 // phải giữ NGUYÊN. Chỉ đổi vỏ.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError, connectQuoteEvents, type OrderRow } from "../api/client";
+import {
+  api,
+  ApiError,
+  connectQuoteEvents,
+  type CompanyBankAccountRow,
+  type OrderRow,
+} from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { money } from "../utils/format";
 import { ToastStack, useToasts } from "./LsxToast";
@@ -129,11 +135,33 @@ function OrderDepositDialog({
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // TK công ty NHẬN tiền — chỉ hỏi khi chuyển khoản. Thiếu ô này thì phiếu thu 01-TT in ra không
+  // nói được tiền về tài khoản nào, mà đó chính là thứ đối chiếu sao kê cần. Cọc đơn bán chỉ nhận
+  // VND (`create_order_receipt` chặn TK ngoại tệ) nên lọc luôn ở đây, đừng đưa lựa chọn sẽ bị từ chối.
+  const isBank = method === "bank_transfer";
+  const [bankAccountId, setBankAccountId] = useState<number | null>(null);
+  const [accounts, setAccounts] = useState<CompanyBankAccountRow[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  useEffect(() => {
+    if (!token) return;
+    setLoadingAccounts(true);
+    api.accounting
+      .companyAccounts(token, true, "receive")
+      .then((rows) => setAccounts(rows.filter((r) => r.currency === "VND")))
+      .catch(() => setAccounts([]))
+      .finally(() => setLoadingAccounts(false));
+  }, [token]);
 
   async function submit() {
     if (!token || saving) return;
     if (!(Number(amount) > 0)) {
       setErr("Số tiền thu phải lớn hơn 0.");
+      return;
+    }
+    // Bắt chọn TK khi CÓ tài khoản để chọn. Công ty chưa khai TK nào thì vẫn cho lập (server để
+    // trường này tùy chọn) — chặn cứng ở đây là khoá luôn việc ghi cọc của một hồ sơ chưa khai TK.
+    if (isBank && accounts.length > 0 && bankAccountId == null) {
+      setErr("Chuyển khoản thì phải chọn tài khoản công ty nhận tiền.");
       return;
     }
     setSaving(true);
@@ -144,6 +172,7 @@ function OrderDepositDialog({
         amount: Number(amount),
         receipt_date: date || null,
         note: note || null,
+        company_bank_account_id: isBank ? bankAccountId : null,
       });
       onSaved(
         d.deposit_ok
@@ -216,6 +245,32 @@ function OrderDepositDialog({
               ))}
             </select>
           </label>
+          {isBank && (
+            <label className="acct-field">
+              <span>
+                Tài khoản công ty nhận tiền <b>*</b>
+              </span>
+              <select
+                className="input"
+                value={bankAccountId ?? ""}
+                onChange={(e) => setBankAccountId(e.target.value ? Number(e.target.value) : null)}
+                disabled={loadingAccounts}
+              >
+                <option value="">Chọn tài khoản công ty</option>
+                {accounts.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.bank_name} · {row.account_number} · {row.currency}
+                  </option>
+                ))}
+              </select>
+              {!loadingAccounts && accounts.length === 0 && (
+                <small>
+                  Chưa có tài khoản công ty VND nào bật "dùng để thu". Khai báo trong mục Tài khoản
+                  ngân hàng thì phiếu thu mới ghi được tiền về đâu.
+                </small>
+              )}
+            </label>
+          )}
           <div className="acct-form-grid acct-form-grid--2">
             <label className="acct-field">
               <span>

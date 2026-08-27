@@ -15,6 +15,8 @@ import { useAuth } from "../../../../auth/useAuth";
 import { ConfirmDialog } from "../../../../components/ConfirmDialog";
 import { Icon } from "../../../../components/Icons";
 import { money } from "../../../../utils/format";
+// Đơn vị lưu bằng MÃ (`cai`), tên hiển thị ("cái") nằm ở danh mục Đơn vị — xem pages/tenDonVi.ts.
+import { tenDonVi } from "../../../tenDonVi";
 import { ATTACHMENT_IMAGE_TYPES } from "../shared/constants";
 import { daGiaoKhac, tienTheoSoLuong, todayInputValue } from "../shared/helpers";
 import type { AnhCho } from "../shared/types";
@@ -368,40 +370,59 @@ export function DeliveryDialog({
             <tbody>
               {row.lines.map((line) => {
                 const con = conLai(line.id);
+                // Dòng ĐÃ NHẬN ĐỦ ở các đợt khác ⇒ KHOÁ hẳn ô nhập, đừng để một ô trống gõ được.
+                // `max` của <input type=number> chỉ là gợi ý: gõ đè vào vẫn được, dải "Ghi vào công
+                // nợ" bên dưới nhảy theo ngay, và người khai tưởng vừa bơm một món nợ ma vào phiếu.
+                // (Lưu thì bị chặn ở cả `submit` lẫn `_clean_dot_lines` bên service — nhưng đó là
+                // chặn SAU khi đã doạ người ta một lần.)
+                //
+                // Vẫn MỞ ô khi đang sửa một đợt mà dòng này có số cũ: khoá lại là người sửa không
+                // xoá/giảm được chính con số của đợt mình đang sửa.
+                const khoaODong = con <= 0 && !(soNhan[line.id] ?? "").trim();
+                const dvt = tenDonVi(line.unit) ?? line.unit;
                 return (
                   <tr key={line.id}>
                     <td>
                       {line.item_name}
-                      <small>{money(line.expected_unit_price)}/{line.unit}</small>
+                      <small>{money(line.expected_unit_price)}/{dvt}</small>
                     </td>
                     <td className="pdot__num">
-                      {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                      {line.quantity.toLocaleString("vi-VN")} {dvt}
                     </td>
                     <td className="pdot__num">
                       {con > 0 ? (
-                        `${con.toLocaleString("vi-VN")} ${line.unit}`
+                        `${con.toLocaleString("vi-VN")} ${dvt}`
                       ) : (
                         <small className="pdot__muted">đã giao đủ</small>
                       )}
                     </td>
                     <td className="pdot__num">
-                      <span className="pdot__qtywrap">
-                        <input
-                          className="input pdot__qty"
-                          type="number"
-                          min={0}
-                          max={con}
-                          step="any"
-                          value={soNhan[line.id] ?? ""}
-                          onChange={(e) =>
-                            setSoNhan((cur) => ({
-                              ...cur,
-                              [line.id]: e.target.value,
-                            }))
-                          }
-                        />
-                        <span className="pdot__unit">{line.unit}</span>
-                      </span>
+                      {khoaODong ? (
+                        <span
+                          className="pdot__muted"
+                          title={`Đã nhận đủ ${line.quantity.toLocaleString("vi-VN")} ${dvt} ở các đợt trước — đợt này không nhận thêm được.`}
+                        >
+                          —
+                        </span>
+                      ) : (
+                        <span className="pdot__qtywrap">
+                          <input
+                            className="input pdot__qty"
+                            type="number"
+                            min={0}
+                            max={con}
+                            step="any"
+                            value={soNhan[line.id] ?? ""}
+                            onChange={(e) =>
+                              setSoNhan((cur) => ({
+                                ...cur,
+                                [line.id]: e.target.value,
+                              }))
+                            }
+                          />
+                          <span className="pdot__unit">{dvt}</span>
+                        </span>
+                      )}
                     </td>
                   </tr>
                 );

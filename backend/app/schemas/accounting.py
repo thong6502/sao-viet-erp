@@ -433,6 +433,10 @@ class PayableItemOut(BaseModel):
     # này số đó. Nhưng `con_no` thì đã trừ CẢ HAI.
     coc_bu: int = 0
     con_no: int
+    # True = đợt đã trả hết (thường do CỌC nuốt trọn, vì cọc bù giao-trước-bù-trước). Vẫn liệt kê
+    # để dò được tiền cọc đi đâu, nhưng màn hình làm mờ và xếp xuống đáy đơn — nó KHÔNG phải việc
+    # phải làm. Chỉ xuất hiện ở đơn còn ít nhất một đợt chưa trả hết.
+    da_tat_toan: bool = False
 
 
 class PayablePaidOut(BaseModel):

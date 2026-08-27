@@ -26,6 +26,7 @@ import { RequestFormDrawer } from "./components/RequestFormDrawer";
 import { RequestModals } from "./components/RequestModals";
 import { RequestsTable } from "./components/RequestsTable";
 import { RequestsToolbar } from "./components/RequestsToolbar";
+import { useNapTenDonVi } from "../../tenDonVi";
 import { PAGE_SIZE } from "./shared/constants";
 import { cleanRequest, emptyRequest, noiDungCu, todayInputValue } from "./shared/helpers";
 import type {
@@ -48,6 +49,8 @@ export function DepartmentPurchaseRequestsPage({
 }: DepartmentPurchaseRequestsPageProps) {
   const { token, user } = useAuth();
   const can = useCan();
+  // Nạp danh mục Đơn vị MỘT lần — bảng dòng hàng trong drawer chi tiết hiện TÊN, không hiện mã.
+  useNapTenDonVi();
   // Huỷ HỘ người khác = quyền quản trị trên chính màn này; người tạo vẫn tự huỷ đơn của mình.
   const canAdminCancel = can("yeu_cau_mua_hang", "cancel");
   // Sửa / huỷ yêu cầu CỦA CHÍNH MÌNH — máy chủ gác `yeu_cau_mua_hang:update`.
