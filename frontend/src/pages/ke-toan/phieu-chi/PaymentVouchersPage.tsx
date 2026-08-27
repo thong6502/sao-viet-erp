@@ -78,8 +78,12 @@ export function PaymentVouchersPage({
         q: q.trim() || undefined,
         status: statusFilter === "all" ? null : statusFilter,
         voucher_type: typeFilter === "all" ? null : typeFilter,
-        // "group": phiếu cùng PMH đứng cạnh nhau, nhóm có phiếu mới nhất lên đầu.
-        sort: "-group",
+        // MỚI NHẤT LÊN ĐẦU, không gom nhóm (chủ chốt 27/08/2026: *"cái nào mới thì cho lên đầu
+        // không cần nhóm"*). Trước đây dùng `-group` — gom phiếu cùng PMH đứng cạnh nhau, nhưng
+        // BÊN TRONG nhóm lại xếp tăng dần (tạm ứng → bổ sung → quyết toán), nên nhìn cả bảng cứ
+        // như không sắp xếp: phiếu 10/8 đứng trên cả 19/8 lẫn 27/8.
+        // Cùng khoá với màn Phiếu thu ⇒ hai màn anh em đọc giống hệt nhau.
+        sort: "-created_at",
         page,
         size: PAGE_SIZE,
       })

@@ -8,6 +8,10 @@ import type {
 import { CodeLink } from "../../../../components/CodeLink";
 import { PurchaseActivityTimeline } from "../../../../components/PurchaseActivityTimeline";
 import { fmtDate, money } from "../../../../utils/format";
+// Đơn vị lưu bằng MÃ (`cai`, `to`, `m2`); tên hiển thị ("cái", "tờ", "m²") nằm ở danh mục Đơn vị.
+// `?? line.unit` cố ý: danh mục chưa nạp xong hoặc mã lạ thì hiện MÃ TRẦN, thà thấy `cai` còn hơn
+// nuốt mất đơn vị của một con số lượng hàng. Xem pages/tenDonVi.ts.
+import { tenDonVi } from "../../../tenDonVi";
 import {
   PAYMENT_STAGE_LABEL,
   STATUS_META,
@@ -152,7 +156,7 @@ export function InboxDrawer({
                 <strong>{line.item_name}</strong>
               </td>
               <td className="num">
-                {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                {line.quantity.toLocaleString("vi-VN")} {tenDonVi(line.unit) ?? line.unit}
               </td>
               <td className="num">{line.vat_percent}%</td>
               <td className="num">
@@ -213,12 +217,23 @@ export function InboxDrawer({
             <table className="md-page__table acct-deliveries__table">
               <thead>
                 <tr>
+                  {/* Ngày giao gộp vào ô "Đợt" thành dòng phụ (đúng lối `acct-code-cell` dùng khắp
+                      các bảng kế toán): số đợt và ngày của chính nó là MỘT thứ, mà tách ra thì
+                      riêng tiêu đề "NGÀY GIAO" đã ăn hơn 100px của một bảng đang phải cuộn ngang. */}
                   <th>Đợt</th>
-                  <th>Ngày giao</th>
                   <th>Hàng đã nhận</th>
-                  <th>Hạn thanh toán</th>
+                  {/* "Hạn trả" — cùng chữ với bảng đợt giao bên Thu mua và cột Hạn trả bên Công
+                      nợ phải trả. "Hạn thanh toán" cũ dài gấp đôi, một mình nó ăn 140px trong khi
+                      nội dung chỉ là một ngày. */}
+                  <th>Hạn trả</th>
                   <th className="acct-amount-cell">Giá trị</th>
                   <th className="acct-amount-cell">Đã chi</th>
+                  {/* TRỪ CỌC — thiếu cột này thì đợt được cọc bù đọc ra vô lý: giá trị 3.400.000,
+                      đã chi 0, mà còn nợ 0. Cọc là tiền chi cho CẢ ĐƠN nên không nằm ở "Đã chi"
+                      của đợt nào; phải có cột riêng thì phép trừ mới hiện ra.
+                      Cùng bộ cột với bảng đợt giao bên Thu mua và khối "Đợt giao còn nợ" bên Công
+                      nợ phải trả — ba màn nói về CÙNG một đợt, lệch cột là lệch cách đọc. */}
+                  <th className="acct-amount-cell">Trừ cọc</th>
                   <th className="acct-amount-cell">Còn nợ</th>
                   <th>Người ghi</th>
                 </tr>
@@ -226,25 +241,46 @@ export function InboxDrawer({
               <tbody>
                 {selected.deliveries.map((dot) => (
                   <tr key={dot.id}>
-                    <td>Đợt {dot.seq_no}</td>
-                    <td>{fmtDate(dot.delivery_date)}</td>
+                    <td className="acct-code-cell">
+                      <strong>Đợt {dot.seq_no}</strong>
+                      <small>{fmtDate(dot.delivery_date)}</small>
+                    </td>
                     <td>
                       <div className="acct-deliveries__lines">
                         {dot.lines.map((line) => (
                           <span key={line.id}>
                             <strong>{line.item_name}</strong>
                             {": "}
-                            {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                            {line.quantity.toLocaleString("vi-VN")}{" "}
+                            {tenDonVi(line.unit) ?? line.unit}
                           </span>
                         ))}
                       </div>
                     </td>
                     <td>{dot.chua_dat_han ? "Chưa đặt hạn" : fmtDate(dot.due_date)}</td>
                     <td className="acct-amount-cell">{money(dot.amount)}</td>
-                    <td className="acct-amount-cell">{money(dot.paid_amount)}</td>
-                    <td className="acct-amount-cell">{money(dot.con_no)}</td>
-                    <td>
-                      {dot.created_by_name || "—"}
+                    {/* 0 đ ở ba cột liền nhau là ba con số không mang tin, át mất cột phải đọc.
+                        Gạch mờ = "chưa có gì ở đây". */}
+                    <td className="acct-amount-cell">
+                      {dot.paid_amount > 0 ? money(dot.paid_amount) : <span className="pay-cell--zero">—</span>}
+                    </td>
+                    <td className="acct-amount-cell">
+                      {dot.coc_bu > 0 ? money(dot.coc_bu) : <span className="pay-cell--zero">—</span>}
+                    </td>
+                    <td className="acct-amount-cell">
+                      {dot.con_no > 0 ? (
+                        <strong>{money(dot.con_no)}</strong>
+                      ) : (
+                        <span className="pay-cell--zero">xong</span>
+                      )}
+                    </td>
+                    {/* Tên dài ("Hồ Thị Minh Châu") trước đây vỡ làm 3 dòng, thổi chiều cao cả
+                        hàng lên gấp đôi. Cắt bằng "…" + tooltip: đây là cột tra cứu, không phải
+                        cột phải đọc trọn từng ký tự. */}
+                    <td className="acct-user-cell">
+                      <div title={dot.created_by_name ?? undefined}>
+                        {dot.created_by_name || "—"}
+                      </div>
                       {dot.created_at && (
                         <small>{fmtDate(dot.created_at)}</small>
                       )}

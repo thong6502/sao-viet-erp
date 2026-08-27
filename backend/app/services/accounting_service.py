@@ -715,14 +715,31 @@ class AccountingService:
                         "con_du": max(0, coc_du),
                     }
                 )
+            # ĐƠN nào còn ít nhất một đợt chưa trả hết thì liệt kê CẢ những đợt đã tất toán của nó
+            # (cờ `da_tat_toan`, màn hình làm mờ). Vì sao (chủ chốt 27/08/2026): cọc bù theo lối
+            # GIAO TRƯỚC BÙ TRƯỚC, nên đợt sớm thường bị cọc nuốt trọn rồi biến mất — người đọc thấy
+            # badge "cọc 3.500.000 đã trừ hết vào đợt giao" mà cả bảng chỉ trừ được 100.000, không
+            # dò ngược được 3.400.000 kia đi đâu.
+            #
+            # Đơn TẤT TOÁN SẠCH thì vẫn im lặng hoàn toàn — khối này tên là "Đợt giao còn nợ", và
+            # `test_coc_la_coc_ca_don_khong_thuoc_dot_nao` chốt đúng điều đó.
+            # `if dots:` phải giữ nguyên hình dạng cũ — đổi thành `if dots and ...` là đơn có đợt
+            # nhưng tất toán sạch sẽ rơi xuống nhánh `elif` bên dưới và hiện lại thành một dòng
+            # "cả đơn", đúng thứ nhánh đó chỉ dành cho dữ liệu CŨ không có đợt nào.
             if dots:
-                for d in dots:
-                    if d["con_no"] <= 0:
-                        continue
+                con_thieu = any(d["con_no"] > 0 for d in dots)
+                for d in dots if con_thieu else []:
+                    da_tat_toan = d["con_no"] <= 0
                     # Tính MỘT lần rồi tái dùng cho cả `overdue_days` lẫn `aging_bucket` — hai
                     # trường phải luôn khớp nhau, tách ra tính hai lần là mở cửa cho chúng lệch.
+                    #
+                    # Đợt ĐÃ TẤT TOÁN luôn 0 ngày trễ: hết nợ thì không thể trễ. Ép ở đây chứ không
+                    # để màn hình tự lọc — `overdue_days` nuôi cả pill "Quá hạn" của drawer lẫn bộ
+                    # lọc tab, để nó > 0 là dòng đã trả xong chui vào tab Quá hạn.
                     so_ngay_tre = (
-                        (hom_nay - d["due_date"]).days
+                        0
+                        if da_tat_toan
+                        else (hom_nay - d["due_date"]).days
                         if d["due_date"] is not None and d["due_date"] < hom_nay
                         else 0
                     )
@@ -735,7 +752,9 @@ class AccountingService:
                             "seq_no": d["seq_no"],
                             "delivery_date": d["delivery_date"],
                             "due_date": d["due_date"],
-                            "chua_dat_han": d["due_date"] is None,
+                            # Cùng lý do: đợt đã tất toán không phải món nợ "chưa đặt hạn" cần ai
+                            # canh, nên không được ghim lên đầu lẫn không được đếm vào lời nhắc.
+                            "chua_dat_han": (not da_tat_toan) and d["due_date"] is None,
                             "overdue_days": so_ngay_tre,
                             "aging_bucket": ro_tuoi(so_ngay_tre) if so_ngay_tre > 0 else None,
                             "invoice_number": d["invoice_number"],
@@ -744,6 +763,7 @@ class AccountingService:
                             "paid": d["paid"],
                             "coc_bu": d["coc_bu"],
                             "con_no": d["con_no"],
+                            "da_tat_toan": da_tat_toan,
                         }
                     )
             elif no["con_no"] > 0:
@@ -765,6 +785,9 @@ class AccountingService:
                         "amount": money["gia_tri_da_giao"],
                         "paid": money["net_paid"],
                         "con_no": no["con_no"],
+                        # Nhánh này chỉ chạy khi CÒN nợ (`elif no["con_no"] > 0`) ⇒ không bao giờ
+                        # là dòng tất toán. Vẫn phải khai khoá: hàm sắp xếp đọc thẳng `x["da_tat_toan"]`.
+                        "da_tat_toan": False,
                     }
                 )
             # Số ĐỢT của từng phiếu chi. Chỉ có `delivery_id` thì màn hình đành ghi "trả theo đợt"
@@ -799,9 +822,21 @@ class AccountingService:
                         "created_by_name": self._user_name(v.created_by_user_id),
                     }
                 )
-        # Sắp theo hạn trả; đợt THIẾU hạn đẩy lên ĐẦU chứ không dìm xuống cuối — chúng không bao giờ
-        # vào được cột Quá hạn nên phải đập vào mắt để còn đi khai số ngày cho nợ của NCC.
-        con_no.sort(key=lambda x: (x["due_date"] is not None, x["due_date"] or hom_nay))
+        # Sắp MỚI NHẤT → CŨ NHẤT theo ngày giao (chủ chốt 27/08/2026): việc vừa xảy ra là việc đang
+        # phải xử, đợt từ mấy tháng trước để xuống dưới.
+        #
+        # HAI ngoại lệ giữ nguyên, đứng TRƯỚC ngày giao trong khoá sắp:
+        #  - Đợt THIẾU hạn trả lên ĐẦU: chúng không bao giờ vào được cột Quá hạn nên phải đập vào
+        #    mắt để còn đi khai "số ngày cho nợ" của NCC. Dìm chúng theo ngày là giấu nợ.
+        #  - Đợt ĐÃ TẤT TOÁN xuống ĐÁY: chúng chỉ ở đây để dò dấu tiền cọc, không phải việc phải làm.
+        con_no.sort(
+            key=lambda x: (
+                x["da_tat_toan"],
+                x["due_date"] is not None,
+                -(x["delivery_date"].toordinal() if x["delivery_date"] else 0),
+                -(x["seq_no"] or 0),
+            )
+        )
         da_chi.sort(key=lambda x: x["paid_date"], reverse=True)
         han_muc = int(getattr(supplier, "credit_limit", 0) or 0) if supplier is not None else 0
         # `con_no` của từng đợt ĐÃ trừ cọc trong `_no_tung_dot` ⇒ cộng thẳng, KHÔNG trừ lần nữa.
@@ -814,6 +849,11 @@ class AccountingService:
         # hạn" và vẫn giữ badge "Chưa đặt hạn" ở cột Hạn trả — nó không bị rổ tuổi nuốt mất.
         ro_chi_tiet = _aging_rong()
         for x in con_no:
+            # Dòng ĐÃ TẤT TOÁN chỉ nằm trong danh sách để dò dấu tiền cọc — nó không phải một khoản
+            # nợ. Cộng 0đ thì vô hại nhưng `count` sẽ nhảy, và pill "chưa tới hạn" đếm luôn cả những
+            # đợt đã trả xong: pill và bảng lại nói hai kiểu.
+            if x["da_tat_toan"]:
+                continue
             khoa = ro_tuoi(x["overdue_days"])
             ro_chi_tiet[khoa]["amount"] += x["con_no"]
             ro_chi_tiet[khoa]["count"] += 1

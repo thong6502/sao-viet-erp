@@ -10,8 +10,11 @@ import {
 } from "../../../../api/client";
 import { useCan } from "../../../../auth/permissions";
 import { Button } from "../../../../components/Button";
+import { Icon } from "../../../../components/Icons";
 import { RowActionButton } from "../../../../components/RowActionButton";
 import { fmtDate, money } from "../../../../utils/format";
+// Đơn vị lưu bằng MÃ (`cai`), tên hiển thị ("cái") nằm ở danh mục Đơn vị — xem pages/tenDonVi.ts.
+import { tenDonVi } from "../../../tenDonVi";
 import { ATTACHMENT_IMAGE_TYPES, GHI_DOT_DUOC } from "../shared/constants";
 
 /**
@@ -95,8 +98,9 @@ export function DeliveriesBlock({
               : "Đơn phải ở trạng thái Đang mua thì mới ghi được đợt giao."}
         </p>
       ) : (
-        // Cuộn ngang trong KHUNG RIÊNG của bảng: 8 cột trên drawer 960px là chật, nhưng để cả
-        // trang cuộn ngang thì hỏng cả màn (laptop-first).
+        // Cuộn ngang trong KHUNG RIÊNG của bảng: 10 cột trên drawer 960px là chật, nhưng để cả
+        // trang cuộn ngang thì hỏng cả màn (laptop-first). Ba cột tiền cuối (Đã trả · Trừ cọc ·
+        // Còn nợ) phải đi liền nhau — tách chúng ra là mất phép trừ.
         <div className="pdot__tablewrap">
         <table className="pay-table pdot__table">
           <thead>
@@ -108,6 +112,12 @@ export function DeliveriesBlock({
               <th>Hóa đơn</th>
               <th>Hạn trả</th>
               <th className="pay-num">Đã trả</th>
+              {/* TRỪ CỌC + CÒN NỢ (chủ chốt 27/08/2026). Trước đây bảng chỉ có "Thành tiền" và
+                  "Đã trả": đợt được cọc bù thì hai số đó không trừ ra nổi số nợ thật, người đọc
+                  chịu chết. Đây đúng bệnh vừa vá ở khối "Đợt giao còn nợ" bên Công nợ phải trả —
+                  hai màn nói về CÙNG một đợt giao nên phải cùng một bộ cột. */}
+              <th className="pay-num">Trừ cọc</th>
+              <th className="pay-num">Còn nợ</th>
               {/* Cột nút không có nhãn nhìn thấy được, nhưng `<th>` rỗng thì trình đọc màn hình
                   đọc ra một ô câm — phải có `aria-label`. */}
               {canUpdate && <th aria-label="Thao tác" />}
@@ -139,7 +149,8 @@ export function DeliveriesBlock({
                         <span key={line.id}>
                           <strong>{line.item_name}</strong>
                           {": "}
-                          {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                          {line.quantity.toLocaleString("vi-VN")}{" "}
+                          {tenDonVi(line.unit) ?? line.unit}
                         </span>
                       ))}
                     </div>
@@ -185,7 +196,11 @@ export function DeliveriesBlock({
                           }
                           title={`Xem ${n} ảnh hoá đơn của đợt ${dot.seq_no}`}
                         >
-                          📎 {n}
+                          {/* Icon SVG chứ KHÔNG dùng emoji 📎: máy không có font emoji thì nó ra
+                              ô vuông tofu, đúng cảnh chủ bắt 27/08/2026. Dùng `fileText` cho khớp
+                              ô xem ảnh/PDF của chính đợt này. */}
+                          <Icon name="fileText" size={13} />
+                          {n}
                         </button>
                       ) : null;
                     })()}
@@ -206,6 +221,21 @@ export function DeliveriesBlock({
                       money(dot.paid_amount)
                     ) : (
                       <small className="pdot__muted">—</small>
+                    )}
+                  </td>
+                  <td className="pay-num">
+                    {dot.coc_bu > 0 ? (
+                      money(dot.coc_bu)
+                    ) : (
+                      <small className="pdot__muted">—</small>
+                    )}
+                  </td>
+                  <td className="pay-num">
+                    {dot.con_no > 0 ? (
+                      <strong>{money(dot.con_no)}</strong>
+                    ) : (
+                      // Đợt trả xong rồi thì nói "xong", đừng bày một số 0 trơ ra giữa cột tiền.
+                      <small className="pdot__muted">xong</small>
                     )}
                   </td>
                   {canUpdate && (

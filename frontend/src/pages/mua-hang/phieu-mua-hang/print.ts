@@ -5,6 +5,9 @@ import { COMPANY } from "../../../constants/company";
 // `escapeHtml` nhập dưới tên `html` để không phải sửa ~30 chỗ gọi trong mẫu in. Bản chép tay cũ
 // trong file này đã xoá — hai bản escape song song là kiểu lỗi chỉ lộ ra ở một ký tự hiếm.
 import { escapeHtml as html, fmtDate, money } from "../../../utils/format";
+// Phiếu GỬI CHO NHÀ CUNG CẤP — càng không được in mã máy (`cai`). Danh mục đã nạp sẵn từ màn gọi
+// hàm này (PurchaseRequestsPage gọi `useNapTenDonVi`), nên tra là có; mã lạ thì in mã trần.
+import { tenDonVi } from "../../tenDonVi";
 import { STATUS_META } from "./shared/constants";
 
 export function printPurchaseRequest(row: PurchaseRequestRow): boolean {
@@ -43,7 +46,7 @@ export function printPurchaseRequest(row: PurchaseRequestRow): boolean {
             <strong>${html(line.item_name)}</strong>
             ${line.note ? `<div class="muted">${html(line.note)}</div>` : ""}
           </td>
-          <td class="center">${html(line.unit)}</td>
+          <td class="center">${html(tenDonVi(line.unit) ?? line.unit)}</td>
           <td class="num">${line.quantity.toLocaleString("vi-VN")}</td>
           <td class="num">${html(money(line.expected_unit_price))}</td>
           <td class="num">${line.discount_percent}%</td>

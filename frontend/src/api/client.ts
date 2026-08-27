@@ -5650,6 +5650,9 @@ export interface PayableItemRow {
    *  trả riêng cho đợt này số đó — nhưng `con_no` đã trừ CẢ HAI. */
   coc_bu: number;
   con_no: number;
+  /** Đợt đã trả hết — có mặt CHỈ để dò được tiền cọc đi đâu (cọc bù giao-trước-bù-trước nên hay
+   *  nuốt trọn đợt sớm). Làm mờ, xếp cuối đơn, không đếm vào rổ tuổi / lời nhắc "chưa đặt hạn". */
+  da_tat_toan: boolean;
 }
 
 /** Một khoản ĐẶT CỌC / ứng trước cho CẢ ĐƠN — không thuộc đợt giao nào. */

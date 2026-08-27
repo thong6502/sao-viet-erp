@@ -231,12 +231,18 @@ export function ReceivablesDrawer({
                         rộng ô, và cột bị đẩy ra ngoài chính là cột NÚT — người dùng phải kéo
                         ngang mới bấm được "Thu tiền". */}
                     <th>Hóa đơn</th>
-                    <th>Ngày / hạn thu</th>
-                    <th>Giá trị</th>
-                    <th>Cấn cọc</th>
-                    <th>Thu trực tiếp</th>
-                    <th>Còn nợ</th>
-                    <th>Thao tác</th>
+                    {/* "Hạn thu" thôi — ngày phát hành hoá đơn đã nằm ở dòng nhỏ dưới mã hoá đơn
+                        rồi. Nhãn "Ngày / hạn thu" cũ vừa lặp vừa dài, gãy làm hai dòng kéo cả dải
+                        tiêu đề cao gấp đôi. */}
+                    <th>Hạn thu</th>
+                    {/* `pay-num` cho CẢ th (UI_DESIGN §6): thiếu nó thì tiêu đề canh trái trong khi
+                        số canh phải — bốn cột tiền lệch hẳn khỏi nhãn của chính chúng. Bên Công nợ
+                        phải trả vốn đã khai đúng, màn này sót. */}
+                    <th className="pay-num">Giá trị</th>
+                    <th className="pay-num">Cấn cọc</th>
+                    <th className="pay-num">Đã thu</th>
+                    <th className="pay-num">Còn nợ</th>
+                    <th className="ar-invoice-table__act">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -254,15 +260,33 @@ export function ReceivablesDrawer({
                         </small>
                       </td>
                       <td>
-                        {item.due_date ? fmtDate(item.due_date) : "—"}
-                        {item.chua_dat_han && <small>Chưa đặt hạn</small>}
+                        {item.chua_dat_han ? (
+                          <span className="pay-cell--zero">Chưa đặt hạn</span>
+                        ) : (
+                          fmtDate(item.due_date)
+                        )}
                         {item.overdue_days > 0 && <small className="pay-cell--danger">Quá {item.overdue_days} ngày</small>}
                       </td>
                       <td className="pay-num">{money(item.amount)}</td>
-                      <td className="pay-num">{money(item.deposit_offset_amount)}</td>
-                      <td className="pay-num">{money(item.direct_received_amount)}</td>
+                      {/* Cấn cọc / Đã thu phần lớn là 0. In "0 đ" cho mỗi dòng là hai cột đầy số
+                          không mang tin, át mất cột thật sự phải đọc (Còn nợ). Gạch mờ = "chưa có
+                          gì ở đây", mắt lướt qua được. */}
+                      <td className="pay-num">
+                        {item.deposit_offset_amount > 0 ? (
+                          money(item.deposit_offset_amount)
+                        ) : (
+                          <span className="pay-cell--zero">—</span>
+                        )}
+                      </td>
+                      <td className="pay-num">
+                        {item.direct_received_amount > 0 ? (
+                          money(item.direct_received_amount)
+                        ) : (
+                          <span className="pay-cell--zero">—</span>
+                        )}
+                      </td>
                       <td className="pay-num"><strong>{money(item.remaining_amount)}</strong></td>
-                      <td>
+                      <td className="ar-invoice-table__act">
                         {canCreateReceipt && item.remaining_amount > 0 && (
                           <Button variant="ghost" onClick={() => setReceiptFor(receiptFor?.invoice_id === item.invoice_id ? null : item)}>
                             {receiptFor?.invoice_id === item.invoice_id ? "Đang thu ▲" : "Thu tiền"}

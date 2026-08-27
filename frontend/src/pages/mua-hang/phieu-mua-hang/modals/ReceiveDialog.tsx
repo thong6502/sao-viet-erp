@@ -3,6 +3,8 @@ import { useState } from "react";
 import { ApiError, api, type PurchaseRequestRow } from "../../../../api/client";
 import { useAuth } from "../../../../auth/useAuth";
 import { ConfirmDialog } from "../../../../components/ConfirmDialog";
+// Đơn vị lưu bằng MÃ (`cai`), tên hiển thị ("cái") nằm ở danh mục Đơn vị — xem pages/tenDonVi.ts.
+import { tenDonVi } from "../../../tenDonVi";
 
 /**
  * Khai SỐ THỰC NHẬN lúc bấm "Đã nhận hàng".
@@ -90,7 +92,7 @@ export function ReceiveDialog({
             <tr key={line.id}>
               <td>{line.item_name}</td>
               <td className="pay-num">
-                {line.quantity} {line.unit}
+                {line.quantity} {tenDonVi(line.unit) ?? line.unit}
               </td>
               <td className="pay-num">
                 <input

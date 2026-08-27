@@ -310,12 +310,24 @@
 .pay-table .pay-num {
   text-align: right;
   white-space: nowrap;
-  font-family: var(--ff-num);
+  /* font-family: var(--ff-num); */
   font-variant-numeric: tabular-nums;
 }
 
 .pay-table small {
   color: var(--ash-2);
+}
+
+/* Đợt ĐÃ TẤT TOÁN — có mặt chỉ để dò dấu tiền cọc (cọc bù giao-trước-bù-trước hay nuốt trọn đợt
+   sớm, khiến nó biến mất và người đọc hụt mất một khúc tiền). Làm mờ chứ KHÔNG gạch ngang: gạch
+   ngang nghĩa là "bỏ/huỷ", còn đây là "đã xong". Vẫn phải đọc được số nên chỉ hạ tương phản. */
+.pay-table tbody tr.pay-row--done td {
+  color: var(--ash-2);
+}
+
+.pay-table tbody tr.pay-row--done strong {
+  color: inherit;
+  font-weight: var(--fw-medium);
 }
 
 .pay-short {

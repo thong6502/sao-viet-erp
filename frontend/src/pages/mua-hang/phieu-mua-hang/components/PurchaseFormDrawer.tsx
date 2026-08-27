@@ -6,6 +6,8 @@ import type { Dispatch, FormEvent, SetStateAction } from "react";
 import type { PurchaseRequestRow, SupplierRow } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
 import { money } from "../../../../utils/format";
+// Đơn vị lưu bằng MÃ (`cai`), tên hiển thị ("cái") nằm ở danh mục Đơn vị — xem pages/tenDonVi.ts.
+import { tenDonVi } from "../../../tenDonVi";
 import {
   applySupplierPrices,
   bestSupplierIdForLines,
@@ -264,23 +266,36 @@ export function PurchaseFormDrawer({
                       }
                     />
                   )}
-                  <input
+                  {/* ĐVT + SỐ LƯỢNG là số liệu bộ phận đề nghị khai, Thu mua KHÔNG sửa được. Nên
+                      để là THẺ CHỮ chứ không phải `<input readOnly>`:
+                       - `<input>` trong bảng này bị ép `width: 100%` của ô, mà bề rộng ô lại do
+                         TIÊU ĐỀ quyết định — nội dung dài hơn thì tràn ra ngoài một cách vô hình
+                         ("500.000.000" cụt còn "500.000."). Thẻ chữ thì cột tự nở vừa nội dung.
+                       - Hộp nhập rỗng mời người ta bấm vào gõ, rồi phát hiện không gõ được.
+                      Đơn vị hiện TÊN ("cái") chứ không phải mã (`cai`); `line.unit` trong state vẫn
+                      giữ mã và đó mới là thứ gửi lên. */}
+                  <span
                     className="input purchase__line-unit purchase__readonly-field"
-                    required
-                    readOnly
                     aria-label="Đơn vị tính"
-                    title="Đơn vị tính do bộ phận đề nghị khai — Thu mua không sửa được"
-                    value={line.unit}
-                  />
-                  <input
+                    title={`${tenDonVi(line.unit) ?? line.unit} — đơn vị tính do bộ phận đề nghị khai, Thu mua không sửa được`}
+                  >
+                    {tenDonVi(line.unit) ?? line.unit}
+                  </span>
+                  <span
                     className="input purchase__number-input purchase__readonly-field"
-                    type="number"
-                    required
-                    readOnly
                     aria-label="Số lượng"
-                    title="Số lượng do bộ phận đề nghị khai — Thu mua không sửa được"
-                    value={line.quantity > 0 ? line.quantity : ""}
-                  />
+                    title={
+                      // Số ĐẦY ĐỦ đứng TRƯỚC: ô hẹp thì chữ bị cắt "…", và thứ người ta rê chuột
+                      // vào để xem là CON SỐ, không phải câu giải thích.
+                      line.quantity > 0
+                        ? `${line.quantity.toLocaleString("vi-VN")} ${tenDonVi(line.unit) ?? line.unit} — số lượng do bộ phận đề nghị khai, Thu mua không sửa được`
+                        : "Số lượng do bộ phận đề nghị khai — Thu mua không sửa được"
+                    }
+                  >
+                    {line.quantity > 0
+                      ? line.quantity.toLocaleString("vi-VN")
+                      : ""}
+                  </span>
                   <input
                     className="input purchase__number-input"
                     type="number"
@@ -348,7 +363,17 @@ export function PurchaseFormDrawer({
                       setLine(index, { note: e.target.value })
                     }
                   />
-                  <strong className="purchase__line-sum">
+                  {/* `title` = số ĐẦY ĐỦ. Ô có cắt gọn "…" cho ca tiền quá lớn (xem
+                      `.purchase__line-sum`), nên phải luôn có đường đọc lại trọn con số — cắt mất
+                      chữ số của một ô TIỀN mà không cách nào xem lại là kiểu giấu số tệ nhất. */}
+                  <strong
+                    className="purchase__line-sum"
+                    title={
+                      line.quantity > 0 && line.expected_unit_price > 0
+                        ? money(lineTotal(line))
+                        : undefined
+                    }
+                  >
                     {line.quantity > 0 && line.expected_unit_price > 0 ? (
                       money(lineTotal(line))
                     ) : (

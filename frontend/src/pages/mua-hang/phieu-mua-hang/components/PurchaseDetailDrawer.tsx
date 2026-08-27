@@ -11,6 +11,8 @@ import { CodeLink } from "../../../../components/CodeLink";
 import { PurchaseActivityTimeline } from "../../../../components/PurchaseActivityTimeline";
 import { RowActionButton } from "../../../../components/RowActionButton";
 import { fmtDate, money } from "../../../../utils/format";
+// Đơn vị lưu bằng MÃ (`cai`), tên hiển thị ("cái") nằm ở danh mục Đơn vị — xem pages/tenDonVi.ts.
+import { tenDonVi } from "../../../tenDonVi";
 import { printPurchaseRequest } from "../print";
 import { GHI_DOT_DUOC } from "../shared/constants";
 import { noiDung } from "../shared/helpers";
@@ -308,7 +310,8 @@ export function PurchaseDetailDrawer({
                 )}
               </td>
               <td className="num">
-                {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                {line.quantity.toLocaleString("vi-VN")}{" "}
+                {tenDonVi(line.unit) ?? line.unit}
               </td>
               <td className="num">{money(line.expected_unit_price)}</td>
               <td className="num">{line.discount_percent}%</td>
