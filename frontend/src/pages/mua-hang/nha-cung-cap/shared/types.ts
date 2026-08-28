@@ -1,5 +1,5 @@
 // Kiểu dùng chung của màn Nhà cung cấp (tách từ pages/SuppliersPage.tsx).
-// Ba kiểu dưới đây viết lại ĐÚNG HÌNH của ba ô state trong shell (`quyDoiDong` · `nhapKetQua` ·
+// Hai kiểu dưới đây viết lại ĐÚNG HÌNH của hai ô state trong shell (`nhapKetQua` ·
 // `filteredFormItems`) để tab con khai props được — shell vẫn giữ nguyên văn khai báo `useState`
 // của nó, TypeScript khớp theo cấu trúc.
 import type {
@@ -13,12 +13,6 @@ export type SortNcc = "name" | "rating" | "-rating";
 
 /** Lọc theo sao: `null` = không lọc, số = chỉ lấy NCC có sao trung bình ≥ số đó. */
 export type LocSaoNcc = number | null;
-
-/** Hệ số quy đổi về đơn vị gốc của MỘT dòng bảng giá — chỉ để hiển thị, không lưu. */
-export interface QuyDoiDongInfo {
-  donViGocTen: string;
-  heSoVeGoc: number;
-}
 
 /** Kết quả một lượt nhập Excel bảng giá vật tư (mới nạp vào form, chưa vào DB). */
 export interface NhapKetQua {

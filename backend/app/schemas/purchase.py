@@ -405,7 +405,12 @@ class PurchaseDeliveryLineOut(BaseModel):
     purchase_request_line_id: int
     item_name: str
     unit: str
+    #: SL thực nhận của đợt. Từ 28/08/2026 ĐƯỢC PHÉP vượt số đặt.
     quantity: float
+    #: Phần sinh tiền của `quantity` (máy chia luỹ kế — xem `phan_bo_du_dot`).
+    quantity_tinh_tien: float = 0
+    #: Phần DƯ, giá 0đ. `quantity_tinh_tien + quantity_du == quantity`.
+    quantity_du: float = 0
     note: str | None = None
 
 
@@ -481,6 +486,8 @@ class PurchaseContractIn(BaseModel):
 
 
 class SupplierCreditOut(BaseModel):
+    #: Điều khoản thanh toán khai ở danh mục NCC — chữ tự do ("Công nợ 30 ngày", "Thanh toán ngay").
+    payment_terms: str | None = None
     credit_limit: int = 0
     credit_days: int | None = None
     no_hien_tai: int = 0

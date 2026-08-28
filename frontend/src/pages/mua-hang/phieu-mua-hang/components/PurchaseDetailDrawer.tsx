@@ -1,5 +1,5 @@
 // Drawer CHI TIẾT ĐƠN MUA + cụm nút thao tác (tách từ pages/PurchaseRequestsPage.tsx).
-import type { Dispatch, SetStateAction } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import {
   api,
   type PurchaseDeliveryRow,
@@ -9,6 +9,7 @@ import { useAuth } from "../../../../auth/useAuth";
 import { useCan } from "../../../../auth/permissions";
 import { CodeLink } from "../../../../components/CodeLink";
 import { PurchaseActivityTimeline } from "../../../../components/PurchaseActivityTimeline";
+import { daGiaoKhac } from "../shared/helpers";
 import { RowActionButton } from "../../../../components/RowActionButton";
 import { fmtDate, money } from "../../../../utils/format";
 // Đơn vị lưu bằng MÃ (`cai`), tên hiển thị ("cái") nằm ở danh mục Đơn vị — xem pages/tenDonVi.ts.
@@ -70,6 +71,12 @@ export function PurchaseDetailDrawer({
   setDeletingDelivery: Dispatch<SetStateAction<DeletingDeliveryState | null>>;
   setCloseModal: Dispatch<SetStateAction<CloseModalState | null>>;
 }) {
+  // HAI TAB (chủ chốt 27/08/2026: *"chia tab ra đi, 1 tab là các thông tin rồi chứng từ hợp đồng
+  // và lịch sử đợt giao, 1 tab là vật tư"*). Hộp thoại này gánh 5 khối chồng nhau nên cuộn mãi
+  // không tới đáy; tách theo CÂU HỎI người dùng đang hỏi:
+  //   • "Thông tin" — đơn này thế nào: thông tin chung, hợp đồng/chứng từ, đợt giao, lịch sử.
+  //   • "Vật tư"    — con số: mua gì, bao nhiêu, thành tiền.
+  const [tab, setTab] = useState<"thong-tin" | "vat-tu">("thong-tin");
   // `user` chỉ cần cho luật "Huỷ phiếu" — luật đó đang ẩn (15/08/2026), bật lại thì lấy kèm.
   const { token, user } = useAuth();
   const can = useCan();
@@ -240,6 +247,31 @@ export function PurchaseDetailDrawer({
           </div>
         </div>
         <div className="rc-drawer__body acct-mh__body">
+          {/* LỚP RIÊNG, thôi mượn `.rc-drawer__tab` (28/08/2026). Lớp đó khai `flex: 1` nên hai
+              tab kéo giãn kín 859px — thành một cái công tắc khổng lồ chứ không phải dải tab.
+              Và `cssKhongCuop.test.ts` CẤM mọi CSS ngoài rebuild-catalog.css chạm selector
+              `rc-*`, kể cả qua ancestor, nên không có đường đè lại: buộc phải có tên riêng. */}
+          <div className="purchase__tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "thong-tin"}
+              className={`purchase__tab ${tab === "thong-tin" ? "is-active" : ""}`}
+              onClick={() => setTab("thong-tin")}
+            >
+              Thông tin
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "vat-tu"}
+              className={`purchase__tab ${tab === "vat-tu" ? "is-active" : ""}`}
+              onClick={() => setTab("vat-tu")}
+            >
+              Vật tư ({selected.lines.length})
+            </button>
+          </div>
+          {tab === "thong-tin" && (<>
           {noiDung(selected) && (
             <div className="purchase__note" style={{ fontSize: "13px" }}>
               {noiDung(selected)}
@@ -289,6 +321,9 @@ export function PurchaseDetailDrawer({
           <strong>Lý do từ chối / huỷ:</strong> {selected.reject_reason}
         </div>
       )}
+      </>)}
+
+      {tab === "vat-tu" && (
       <table className="md-page__table purchase__lines-table">
         <thead>
           <tr>
@@ -301,7 +336,14 @@ export function PurchaseDetailDrawer({
           </tr>
         </thead>
         <tbody>
-          {selected.lines.map((line) => (
+          {selected.lines.map((line) => {
+            // ĐÃ NHẬN / DƯ hiện ngay dưới số ĐẶT, không thành cột riêng: bảng này đã 6 cột trên
+            // một drawer hẹp, thêm cột nữa là đẩy cột tiền ra khỏi tầm mắt. Chỉ hiện khi có DƯ —
+            // đơn giao đúng số đặt thì thêm một dòng chữ chỉ là nhiễu.
+            const daNhan = daGiaoKhac(selected, line.id, null);
+            const du = Math.max(0, daNhan - Number(line.quantity || 0));
+            const dvt = tenDonVi(line.unit) ?? line.unit;
+            return (
             <tr key={line.id}>
               <td>
                 <strong>{line.item_name}</strong>
@@ -310,8 +352,16 @@ export function PurchaseDetailDrawer({
                 )}
               </td>
               <td className="num">
-                {line.quantity.toLocaleString("vi-VN")}{" "}
-                {tenDonVi(line.unit) ?? line.unit}
+                {line.quantity.toLocaleString("vi-VN")} {dvt}
+                {du > 0 && (
+                  <div
+                    className="purchase__line-src"
+                    title={`Các đợt giao đã nhận ${daNhan.toLocaleString("vi-VN")} ${dvt}; ${du.toLocaleString("vi-VN")} vượt số đặt nên tính 0đ.`}
+                  >
+                    đã nhận {daNhan.toLocaleString("vi-VN")} ·{" "}
+                    <em className="pdot__du">{du.toLocaleString("vi-VN")} dư</em>
+                  </div>
+                )}
               </td>
               <td className="num">{money(line.expected_unit_price)}</td>
               <td className="num">{line.discount_percent}%</td>
@@ -320,7 +370,8 @@ export function PurchaseDetailDrawer({
                 <strong>{money(line.line_total)}</strong>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
         <tfoot>
           <tr>
@@ -329,7 +380,9 @@ export function PurchaseDetailDrawer({
           </tr>
         </tfoot>
       </table>
+      )}
 
+      {tab === "thong-tin" && (<>
       <ContractBlock
         row={selected}
         canUpdate={canUpdate}
@@ -359,6 +412,7 @@ export function PurchaseDetailDrawer({
         Lịch sử đơn mua hàng
       </p>
       <PurchaseActivityTimeline items={selected.activity_history} />
+      </>)}
         </div>
         <div className="purchase__drawer-footer">
           {actionButtons(selected)}

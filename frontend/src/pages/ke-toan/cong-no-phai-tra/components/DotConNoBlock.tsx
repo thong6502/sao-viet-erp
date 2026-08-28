@@ -1,5 +1,6 @@
 // Khối "Đợt giao còn nợ" trong drawer Công nợ phải trả
 // (tách từ pages/AccountingPayablesPage.tsx).
+import { useState } from "react";
 import type {
   PayableItemRow,
   PayablesDetail,
@@ -9,6 +10,7 @@ import { Button } from "../../../../components/Button";
 import { fmtDate, money } from "../../../../utils/format";
 import { gomTheoDon, tenKhoan } from "../shared/helpers";
 import type { Bucket } from "../shared/types";
+import { HangCuaDotModal } from "./HangCuaDotModal";
 import { HanTra, HoaDon } from "./payablesCells";
 
 export function DotConNoBlock({
@@ -30,6 +32,8 @@ export function DotConNoBlock({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  // Đợt đang mở popup "hàng đã nhận". Giữ cả MÃ ĐƠN vì popup nằm ngoài vòng lặp gom theo đơn.
+  const [xemHang, setXemHang] = useState<{ item: PayableItemRow; maDon: string } | null>(null);
   return (
     // Đỏ CHỈ khi đang xem tab "Quá hạn" (lúc đó đúng nghĩa toàn bộ số hiện ra là nợ trễ). Tab
     // "Tất cả" gộp cả nợ chưa tới hạn — tô đỏ cả khối lúc đó là báo động giả cho phần lớn số
@@ -133,13 +137,37 @@ export function DotConNoBlock({
                 </tr>
               </thead>
               <tbody>
-                {don.items.map((row) => (
+                {don.items.map((row) => {
+                  // Dòng "cả đơn" (phiếu CŨ, không theo dõi theo đợt) không có hàng nào quy về
+                  // được ⇒ KHÔNG cho bấm. Bày một con trỏ tay rồi mở ra hộp rỗng là hứa hão.
+                  const moDuoc = row.lines.length > 0;
+                  const mo = () => moDuoc && setXemHang({ item: row, maDon: don.code });
+                  return (
                   <tr
                     key={row.delivery_id ?? 0}
-                    className={row.da_tat_toan ? "pay-row--done" : undefined}
+                    className={[
+                      row.da_tat_toan ? "pay-row--done" : "",
+                      moDuoc ? "pay-row--mo" : "",
+                    ].filter(Boolean).join(" ") || undefined}
+                    // Cả DÒNG bấm được cho dễ trúng, nhưng phím vẫn phải đi được: `role=button`
+                    // + `tabIndex` + Enter/Space, nếu không thì người dùng bàn phím mất hẳn
+                    // đường vào danh sách hàng.
+                    role={moDuoc ? "button" : undefined}
+                    tabIndex={moDuoc ? 0 : undefined}
+                    aria-label={moDuoc ? `Xem hàng của ${tenKhoan(row)}` : undefined}
+                    onClick={mo}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        mo();
+                      }
+                    }}
                   >
                     <td>
-                      <strong>{tenKhoan(row)}</strong>
+                      {/* Gạch chân khi rê chuột — dấu hiệu DUY NHẤT báo dòng này bấm được. */}
+                      <strong className={moDuoc ? "pay-row__mo-nhan" : undefined}>
+                        {tenKhoan(row)}
+                      </strong>
                     </td>
                     <td>{fmtDate(row.delivery_date)}</td>
                     <td>
@@ -176,12 +204,20 @@ export function DotConNoBlock({
                       <strong>{money(row.con_no)}</strong>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
           );
         })
+      )}
+      {xemHang && (
+        <HangCuaDotModal
+          item={xemHang.item}
+          maDon={xemHang.maDon}
+          onClose={() => setXemHang(null)}
+        />
       )}
     </section>
   );

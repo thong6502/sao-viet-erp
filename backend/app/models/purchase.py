@@ -395,7 +395,7 @@ class PurchaseDelivery(Base):
     # đơn ghi 5tr — gộp cước, bù chênh, làm tròn theo hợp đồng...). Tự tính khi đó là ra một con số
     # không khớp chứng từ, mà chứng từ mới là thứ đi đối chiếu với NCC.
     #
-    # NULL = chưa khai ⇒ LÙI VỀ số máy tính từ đơn giá (`gia_tri_dot_giao`). Nhờ vậy đợt ghi trước
+    # NULL = chưa khai ⇒ LÙI VỀ số máy tính từ đơn giá (`phan_bo_du_dot`). Nhờ vậy đợt ghi trước
     # thay đổi này giữ nguyên giá trị, và người dùng vẫn được máy gợi ý sẵn khi mở form.
     amount: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)

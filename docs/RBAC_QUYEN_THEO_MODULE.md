@@ -105,7 +105,7 @@ chỉ có ở màn Đơn mua hàng bên kế toán.
 |---|---|---|
 | `ke_toan` | **Duyệt / từ chối PMH** ⚠️ | quyết phiếu có đi tiếp thành khoản chi hay không |
 | `phieu_chi` | Huỷ phiếu chi chờ chi · In / xuất | |
-| `phieu_thu` | Xác nhận đã thu tiền · Huỷ phiếu · In / xuất | |
+| `phieu_thu` | Huỷ phiếu · In / xuất | Ô *Xác nhận đã thu tiền* đã gỡ 27/08/2026 — phiếu thu lập ra là ĐÃ THU, sai thì huỷ rồi lập lại |
 
 ⚠️ **Tách vai vẫn giữ:** có ô *Duyệt PMH* mà **không** có ô **Thêm** của Phiếu chi thì duyệt xong
 vẫn **không tự viết được phiếu chi**. Đó là cố ý.

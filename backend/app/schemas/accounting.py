@@ -403,6 +403,15 @@ class PayablesSummaryOut(BaseModel):
     as_of: date
 
 
+class PayableDeliveryLineOut(BaseModel):
+    """Một mặt hàng trong đợt giao — chỉ để BÀY trong popup, không nuôi phép tính nào."""
+
+    item_name: str
+    #: MÃ đơn vị (`cai`), tên hiển thị ("cái") tra ở danh mục — xem `pages/tenDonVi.ts`.
+    unit: str
+    quantity: float
+
+
 class PayableItemOut(BaseModel):
     """Một khoản CÒN NỢ — thường là một ĐỢT GIAO chưa trả hết.
 
@@ -413,6 +422,8 @@ class PayableItemOut(BaseModel):
     purchase_request_id: int
     code: str
     status: str
+    #: Hàng của đợt. RỖNG với dòng "cả đơn" (phiếu cũ không theo dõi theo đợt).
+    lines: list[PayableDeliveryLineOut] = Field(default_factory=list)
     delivery_id: int | None = None
     seq_no: int | None = None
     delivery_date: date | None = None

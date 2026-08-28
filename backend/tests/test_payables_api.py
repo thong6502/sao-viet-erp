@@ -373,25 +373,72 @@ def test_giao_du_thi_tu_chuyen_sang_da_nhan_hang(client):
     assert ycmh.json()["status"] == "done"
 
 
-def test_khong_cho_giao_vuot_so_dat(client):
-    """Khai vống là bơm thẳng vào công nợ một món nợ chưa từng phát sinh."""
+def test_giao_vuot_so_dat_thi_phan_vuot_gia_0d(client):
+    """NCC giao THÊM mà giá giữ nguyên ⇒ phần vượt vào kho với giá 0đ (chủ chốt 28/08/2026).
+
+    Ca thật từ buổi demo: đơn 500 cái nhưng NCC giao 1000, tiền vẫn nguyên — *"cho điền tự do,
+    nếu điền vượt thì hệ thống tự tính phần dư ra cho dễ"*. Trước ngày đó đợt thứ hai bị chặn
+    cứng, nên 500 cái tặng thêm không có đường nào vào kho, mà lời khuyên của chính câu báo lỗi
+    ("sửa số đặt rồi duyệt lại") lại làm công nợ tăng gấp đôi.
+
+    Chốt của test: chia LUỸ KẾ, phần tính tiền lấp TRƯỚC — nên tổng nợ dừng đúng ở giá trị đơn dù
+    hàng về gấp đôi."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Giao Vuot")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], quantity=500)  # 500 × 2.200 = 1.100.000đ
     _da_mua(client, headers, don["id"])
     dong = _dong_dau_tien(don)
 
-    _ghi_dot(client, headers, don["id"], lines=[{"purchase_request_line_id": dong, "quantity": 900}])
-    r = client.post(
+    _ghi_dot(client, headers, don["id"], lines=[{"purchase_request_line_id": dong, "quantity": 300}])
+    _ghi_dot(client, headers, don["id"], lines=[{"purchase_request_line_id": dong, "quantity": 700}])
+
+    sau = client.get(f"/api/purchase-requests/{don['id']}", headers=headers).json()
+    dots = sorted(sau["deliveries"], key=lambda d: d["seq_no"])
+
+    # Đợt 1 ăn trọn 300; đợt 2 chỉ còn 200 chỗ tính tiền, 500 còn lại là DƯ.
+    assert [d["amount"] for d in dots] == [660_000, 440_000]
+    d2 = dots[1]["lines"][0]
+    assert (d2["quantity"], d2["quantity_tinh_tien"], d2["quantity_du"]) == (700, 200, 500)
+
+    # 1000 cái vào kho, nợ vẫn đúng 1.100.000đ — KHÔNG nhích theo số hàng dư.
+    assert sau["gia_tri_da_giao"] == 1_100_000
+    assert sau["outstanding_amount"] == 1_100_000
+    assert sau["status"] == "received"  # phần tính tiền đã đủ 500
+
+
+def test_giao_vuot_ngay_dot_dau_van_khong_lam_no_phinh(client):
+    """Vượt ngay từ đợt ĐẦU (700 cho đơn 500) — trần tiền phải chặn ngay tại chính đợt đó.
+
+    Ca này khác ca trên ở chỗ KHÔNG có đợt trước để lấp: nếu phép chia luỹ kế viết sai thành
+    "tiền = số nhận × đơn giá" thì nợ phình lên 1.540.000đ ngay lập tức."""
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Vuot Ngay Dot Dau")
+    don = _don(client, headers, supplier["id"], quantity=500)
+    _da_mua(client, headers, don["id"])
+    dong = _dong_dau_tien(don)
+
+    _ghi_dot(client, headers, don["id"], lines=[{"purchase_request_line_id": dong, "quantity": 700}])
+
+    sau = client.get(f"/api/purchase-requests/{don['id']}", headers=headers).json()
+    dot = sau["deliveries"][0]
+    assert dot["amount"] == 1_100_000, "nợ phải chạm trần đơn, KHÔNG phải 700 × 2.200"
+    assert (dot["lines"][0]["quantity_tinh_tien"], dot["lines"][0]["quantity_du"]) == (500, 200)
+    assert sau["outstanding_amount"] == 1_100_000
+
+    # HỆ QUẢ CỦA VIỆC GIAO DƯ NGAY ĐỢT ĐẦU: số đặt đã đủ ⇒ đơn tự sang "đã nhận hàng", và cửa ghi
+    # đợt đóng lại. GIỮ NGUYÊN có chủ ý: "đã nhận đủ" nghĩa là mình đã lấy hết thứ mình đặt, nên
+    # hàng về TIẾP sau đó là một thoả thuận mới — đường đúng là "Mở lại đơn", có bắt lý do và ghi
+    # nhật ký, chứ không phải để cửa mở toang cho mọi đợt lạ chui vào một đơn đã chốt.
+    assert sau["status"] == "received"
+    them = client.post(
         f"/api/purchase-requests/{don['id']}/deliveries",
         json={
             "delivery_date": _hom_nay().isoformat(),
-            "lines": [{"purchase_request_line_id": dong, "quantity": 200}],
+            "lines": [{"purchase_request_line_id": dong, "quantity": 300}],
         },
         headers=headers,
     )
-    assert r.status_code == 422, r.text
-    assert "chỉ còn 100" in r.json()["detail"]
+    assert them.status_code == 409, them.text
 
 
 def test_dong_don_chot_no_theo_so_da_giao(client):
@@ -653,11 +700,11 @@ def test_ung_truoc_roi_nop_lai_phan_thua_thi_het_no(client):
         headers=headers,
     )
     assert receipt.status_code == 201, receipt.text
-    assert client.post(
-        f"/api/accounting/payment-receipts/{receipt.json()['id']}/mark-received",
-        json={"bank_reference": None},
-        headers=headers,
-    ).status_code == 200
+    # Từ 27/08/2026 phiếu thu từ phiếu chi LẬP RA LÀ ĐÃ THU — không còn nhịp "Xác nhận đã thu"
+    # (chủ chốt: *"cứ lập phiếu là ra tiền rồi xác nhận cái gì nữa"*). Gọi `mark-received` ở đây
+    # sẽ ăn 409. Chỗ này cần phiếu ở trạng thái `received` vì chỉ phiếu đã thu mới được trừ ngược
+    # vào tiền đã chi (`phan_bo_tien_dot`) — nay điều đó đúng ngay từ lúc lập.
+    assert receipt.json()["status"] == "received", receipt.text
 
     sau = client.get(f"/api/purchase-requests/{don['id']}", headers=headers).json()
     assert sau["gia_tri_da_giao"] == 8_500_800

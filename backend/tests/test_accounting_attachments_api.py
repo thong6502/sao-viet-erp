@@ -168,7 +168,12 @@ def _upload(client, headers, voucher_id: int, *, name="hoa-don.jpg", data=b"anh-
 
 
 def _paid_receipt(client, headers, supplier_id: int) -> dict:
-    """Phiếu chi đã chi → lập 1 phiếu thu 300k (chờ thu)."""
+    """Phiếu chi đã chi → lập 1 phiếu thu 300k (LẬP LÀ ĐÃ THU).
+
+    Từ 27/08/2026 phiếu thu từ phiếu chi không còn nhịp "Xác nhận đã thu" — lập xong là tiền đã
+    về (chủ chốt: *"cứ lập phiếu là ra tiền rồi xác nhận cái gì nữa"*). Chỉ phiếu thu CỌC ĐƠN BÁN
+    mới còn trạng thái chờ, vì nó lập trước lúc khách chuyển tiền.
+    """
     voucher = _voucher(client, headers, supplier_id)
     assert voucher["status"] == "paid"
     created = client.post(
@@ -406,14 +411,8 @@ def test_receipt_upload_allowed_after_received_blocked_after_cancelled(client):
     headers = _headers(client)
     supplier = _supplier(client, headers)
     received = _paid_receipt(client, headers, supplier["id"])
-    assert (
-        client.post(
-            f"/api/accounting/payment-receipts/{received['id']}/mark-received",
-            json={"bank_reference": None},
-            headers=headers,
-        ).status_code
-        == 200
-    )
+    # KHÔNG gọi `mark-received` nữa: phiếu vừa lập đã ở trạng thái đã thu, gọi thêm sẽ ăn 409.
+    assert received["status"] == "received", received
     after_received = _upload_receipt(client, headers, received["id"])
     assert after_received.status_code == 201, after_received.text  # minh chứng sau khi thu
 

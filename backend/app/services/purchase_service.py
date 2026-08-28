@@ -272,37 +272,82 @@ def qty_thuc_nhan(line, da_giao: dict[int, float] | None = None) -> float:
     return float(line.quantity if line.received_quantity is None else line.received_quantity)
 
 
-def gia_tri_dot_giao(delivery, line_by_id: dict[int, object]) -> int:
-    """Thành tiền của MỘT đợt giao = Σ (SL nhận × đơn giá/CK/VAT đã chốt trên dòng đặt).
+def phan_bo_du_dot(row) -> dict[int, dict]:
+    """Chia số nhận của TỪNG đợt thành phần TÍNH TIỀN và phần DƯ (0đ), theo LUỸ KẾ.
 
-    **MÁY TÍNH, KHÔNG AI GÕ TAY** (chủ chốt 07/08/2026).
+    Chủ chốt 28/08/2026: *"cho điền tự do, nếu điền vượt thì hệ thống tự tính phần dư ra cho dễ"*
+    — NCC giao 1000 cái cho đơn đặt 500 mà giá vẫn giữ nguyên (tặng thêm) là chuyện có thật. Trước
+    đó `_clean_dot_lines` chặn cứng, nên 500 cái kia nằm trong kho mà sổ không ghi nổi; lời khuyên
+    cũ ("sửa số đặt rồi duyệt lại") lại càng sai vì nâng số đặt lên 1000 là công nợ tăng gấp đôi.
 
-    Lịch sử để đời sau khỏi làm lại vòng này: 06/08 từng mở ô "Số tiền theo hoá đơn" cho gõ tay,
-    lý do là NCC hay xuất hoá đơn với số không suy được từ đơn giá. Chủ đảo lại ngay hôm sau —
-    *"không cho sửa nữa, dựa vào số lượng thực tế tính ra tiền luôn"*. Ô tiền gõ tay đẻ ra đúng cái
-    lệch mà chính chủ bắt được: chi tiết PMH hiện 1.000.000 (số khai) còn ngoài bảng 1.100.000 (số
-    tính) — hai con số cho cùng một đợt.
+    LUẬT: phần TÍNH TIỀN luôn được lấp TRƯỚC, theo thứ tự đợt (`delivery_date`, `seq_no`); phần
+    vượt số đặt rơi vào DƯ, giá 0đ. Hai hệ quả cố ý:
 
-    Cột `purchase_deliveries.amount` thành DORMANT: giữ lại vì dự án không có Alembic và xoá là mất
-    dữ liệu, nhưng KHÔNG ĐỌC và KHÔNG GHI nữa. Đừng đọc lại nó nếu chưa hỏi chủ.
+      • Tổng nợ của đơn dừng đúng ở giá trị đơn đã duyệt — gõ thêm bao nhiêu cũng không nhích.
+      • Người ghi đợt KHÔNG có cần gạt nào để biến hàng phải trả tiền thành hàng miễn phí: họ chỉ
+        khai được "về bao nhiêu", còn chia thì máy chia. Đây là chỗ bản thiết kế đầu (một ô "số
+        tặng" gõ tay ở đợt giao) bị chính chủ bác — ô đó cho phép ghi 500 trả tiền + 500 tặng cho
+        một lô mua đủ 1000, chênh lệch thanh toán ngoài sổ.
 
-    Dòng đợt trỏ tới một dòng đặt không còn tồn tại (dữ liệu lỗi) thì BỎ QUA — thà thiếu một dòng
-    còn hơn nổ cả màn công nợ."""
-    tong = 0
-    for dl in delivery.lines:
-        line = line_by_id.get(dl.purchase_request_line_id)
-        if line is None:
-            continue
-        _, _, _, thanh_tien = _purchase_line_amounts(
-            quantity=float(dl.quantity),
-            unit_price=int(line.expected_unit_price),
-            discount_percent=float(line.discount_percent or 0),
-            vat_percent=float(line.vat_percent or 0),
-        )
-        tong += thanh_tien
-    return tong
+    ⚠️ Hệ KHÔNG biết phần dư có thật là hàng tặng hay không — nó chỉ biết "nhận nhiều hơn đặt và
+    không tính tiền". Vì vậy con số dư phải được PHƠI RA ở giao diện (đợt giao + dòng đơn), để ca
+    NCC thực sự có tính tiền phần dư bị bắt lúc đối chiếu hoá đơn, chứ không im lặng ghi thiếu nợ.
+
+    Trả `{delivery_id: {"amount": int, "lines": {delivery_line_id: {"tinh_tien", "du"}}}}`.
+    """
+    line_by_id = {line.id: line for line in row.lines}
+    dots = sorted(
+        getattr(row, "deliveries", []) or [], key=lambda d: (d.delivery_date, d.seq_no)
+    )
+    luy_ke: dict[int, float] = {}
+    out: dict[int, dict] = {}
+    for d in dots:
+        tien = 0
+        chi_tiet: dict[int, dict] = {}
+        for dl in d.lines:
+            line = line_by_id.get(dl.purchase_request_line_id)
+            nhan = float(dl.quantity)
+            if line is None:
+                # Dòng đợt trỏ tới dòng đặt đã bị xoá (dữ liệu lỗi): bỏ qua tiền, thà thiếu một
+                # dòng còn hơn nổ cả màn công nợ. Vẫn khai báo để giao diện không mất dòng.
+                chi_tiet[dl.id] = {"tinh_tien": 0.0, "du": nhan}
+                continue
+            dat = float(line.quantity)
+            truoc = luy_ke.get(line.id, 0.0)
+            sau = truoc + nhan
+            luy_ke[line.id] = sau
+            tinh_tien = max(0.0, min(sau, dat) - min(truoc, dat))
+            chi_tiet[dl.id] = {"tinh_tien": tinh_tien, "du": max(0.0, nhan - tinh_tien)}
+            if tinh_tien <= 0:
+                continue
+            _, _, _, thanh_tien = _purchase_line_amounts(
+                quantity=tinh_tien,
+                unit_price=int(line.expected_unit_price),
+                discount_percent=float(line.discount_percent or 0),
+                vat_percent=float(line.vat_percent or 0),
+            )
+            tien += thanh_tien
+        out[d.id] = {"amount": tien, "lines": chi_tiet}
+    return out
 
 
+def gia_tri_cac_dot(row) -> dict[int, int]:
+    """`{delivery_id: thành tiền}` — vỏ mỏng của `phan_bo_du_dot` cho chỗ chỉ cần tiền.
+
+    KHÔNG còn hàm tính tiền cho MỘT đợt đứng riêng: từ 28/08/2026 tiền của một đợt phụ thuộc các
+    đợt TRƯỚC nó (phần tính tiền lấp trước), nên hỏi "đợt này bao nhiêu tiền" mà không đưa cả đơn
+    là câu hỏi không có đáp án đúng.
+    """
+    return {did: v["amount"] for did, v in phan_bo_du_dot(row).items()}
+
+
+# TIỀN CỦA ĐỢT: MÁY TÍNH, KHÔNG AI GÕ TAY (chủ chốt 07/08/2026). 06/08 từng mở ô "Số tiền theo hoá
+# đơn" cho gõ tay; chủ đảo lại ngay hôm sau — *"không cho sửa nữa, dựa vào số lượng thực tế tính ra
+# tiền luôn"*. Ô tiền gõ tay đẻ ra đúng cái lệch mà chính chủ bắt được: chi tiết PMH hiện 1.000.000
+# (số khai) còn ngoài bảng 1.100.000 (số tính) — hai con số cho cùng một đợt.
+#
+# Cột `purchase_deliveries.amount` thành DORMANT: giữ lại vì dự án không có Alembic và xoá là mất
+# dữ liệu, nhưng KHÔNG ĐỌC và KHÔNG GHI nữa. Đừng đọc lại nó nếu chưa hỏi chủ.
 def phan_bo_tien_dot(row) -> tuple[list[dict], int, int]:
     """Phân tiền đã chi của một phiếu mua về TỪNG ĐỢT GIAO.
 
@@ -324,7 +369,7 @@ def phan_bo_tien_dot(row) -> tuple[list[dict], int, int]:
     )
     if not dots:
         return [], 0, 0
-    line_by_id = {line.id: line for line in row.lines}
+    tien_dot = gia_tri_cac_dot(row)
 
     tra_theo_dot: dict[int, int] = {}
     coc = 0
@@ -346,7 +391,7 @@ def phan_bo_tien_dot(row) -> tuple[list[dict], int, int]:
 
     out: list[dict] = []
     for d in dots:
-        gia_tri = gia_tri_dot_giao(d, line_by_id)
+        gia_tri = tien_dot.get(d.id, 0)
         tra = tra_theo_dot.get(d.id, 0)
         if tra > gia_tri:
             coc += tra - gia_tri
@@ -453,8 +498,7 @@ def purchase_money(row) -> dict:
         # nhận hàng" mới sinh nợ. Không backfill đợt giao cho dữ liệu cũ nên nhánh này phải ở lại.
         gia_tri_da_giao = received_total if row.status == PR_RECEIVED else 0
     else:
-        line_by_id = {line.id: line for line in row.lines}
-        gia_tri_da_giao = sum(gia_tri_dot_giao(d, line_by_id) for d in row.deliveries)
+        gia_tri_da_giao = sum(gia_tri_cac_dot(row).values())
 
     paid_amount = sum(
         int(voucher.amount_vnd)
@@ -1534,7 +1578,7 @@ class PurchaseService:
 
         ⚠️ Cố ý đếm bằng PYTHON, dù mọi con số khác của badge đều COUNT ở DB. `con_no` của một đợt
         KHÔNG phải một cột: nó là kết quả của một chuỗi phép tính có trạng thái —
-        (1) giá trị đợt cộng từ SL nhận × đơn giá/CK/VAT trên dòng đặt (`gia_tri_dot_giao`),
+        (1) giá trị đợt cộng từ SL nhận × đơn giá/CK/VAT trên dòng đặt (`phan_bo_du_dot`),
         (2) phiếu chi không trỏ đợt nào là CỌC CHUNG, trả thừa một đợt chảy ngược vào cọc, tiền
             nộp lại trừ vào cọc,
         (3) cọc chiếu xuống các đợt theo thứ tự GIAO TRƯỚC BÙ TRƯỚC.
@@ -2320,9 +2364,13 @@ class PurchaseService:
         Hai chốt:
         - Mỗi mặt hàng chỉ một dòng trong một đợt (khớp UNIQUE ở DB, nhưng phải báo lỗi tử tế chứ
           không để IntegrityError bắn lên 500).
-        - **Không cho khai vượt số CÒN LẠI của dòng đặt** = số đặt trừ những gì các đợt KHÁC đã
-          nhận. Khai vống là bơm thẳng vào công nợ một món nợ chưa từng phát sinh. NCC giao dư thật
-          thì sửa số đặt trên phiếu rồi duyệt lại — đúng lằn ranh đã áp cho `_ap_so_thuc_nhan`.
+        - **CHO khai vượt số đặt** (chủ chốt 28/08/2026) — NCC giao thêm mà giá giữ nguyên là
+          chuyện có thật. Chặn cứng như trước thì hàng nằm trong kho mà sổ không ghi nổi. Không sợ
+          "bơm nợ chưa từng phát sinh" nữa vì tiền KHÔNG còn đi theo số nhận: `phan_bo_du_dot` lấp
+          phần tính tiền trước rồi cho phần vượt giá 0đ, nên tổng nợ luôn dừng ở giá trị đơn đã
+          duyệt. Trần tiền `_chan_tong_dot_vuot_don` vẫn đứng đó làm lưới cuối.
+          (Đường CŨ `_ap_so_thuc_nhan` — khai nhận thiếu khi KHÔNG có đợt giao — vẫn giữ trần
+          "không quá số đặt": ở đó không có phép chia luỹ kế nào, nhận vượt không có nghĩa tiền.)
         """
         if not raw_lines:
             raise PurchaseValidationError("Đợt giao phải có ít nhất một dòng hàng.")
@@ -2355,12 +2403,6 @@ class PurchaseService:
                     f"'{line.item_name}': số nhận của đợt phải lớn hơn 0. "
                     "Không nhận món nào thì bỏ dòng đó ra khỏi đợt."
                 )
-            con_lai = float(line.quantity) - da_giao_khac.get(line_id, 0.0)
-            if qty > con_lai + 1e-9:
-                raise PurchaseValidationError(
-                    f"'{line.item_name}': nhận {qty:g} nhưng chỉ còn {max(0.0, con_lai):g} chưa giao "
-                    f"(đặt {float(line.quantity):g}). Nhận dư thì sửa số đặt rồi duyệt lại."
-                )
             out.append(
                 {
                     "purchase_request_line_id": line_id,
@@ -2386,7 +2428,7 @@ class PurchaseService:
         if ngay_hd is not None and ngay_hd > _business_today():
             raise PurchaseValidationError("Ngày hóa đơn không được ở tương lai.")
         # KHÔNG nhận số tiền: tiền của đợt do máy tính từ đơn giá đã chốt trên phiếu
-        # (chủ chốt 07/08/2026 — xem `gia_tri_dot_giao`). Cột `amount` để dormant.
+        # (chủ chốt 07/08/2026 — xem `phan_bo_du_dot`). Cột `amount` để dormant.
         return {
             "delivery_date": ngay,
             "due_date": han,
@@ -2517,6 +2559,11 @@ class PurchaseService:
         `credit_limit = 0` nghĩa là KHÔNG đặt hạn mức ⇒ không bao giờ vượt. Đừng đổi thành "hạn mức
         0đ ⇒ mua gì cũng vượt": mọi NCC cũ đều đang để 0."""
         trong = {
+            # `payment_terms` đi kèm từ 28/08/2026: màn Đơn mua hàng bên Kế toán bày cả ba điều
+            # kiện với NCC ở một chỗ, mà nó là trường DUY NHẤT trong ba cái không nằm sẵn ở đây.
+            # Nhét vào đây thay vì gọi thêm `/api/suppliers/{id}`: cùng một câu hỏi ("trả ông này
+            # thế nào") thì đừng bắt màn hình hỏi hai lần.
+            "payment_terms": None,
             "credit_limit": 0,
             "credit_days": None,
             "no_hien_tai": 0,
@@ -2534,6 +2581,7 @@ class PurchaseService:
             for r in self.requests.list_for_payables(supplier_id=supplier_id)
         )
         return {
+            "payment_terms": getattr(supplier, "payment_terms", None),
             "credit_limit": han_muc,
             "credit_days": getattr(supplier, "credit_days", None),
             "no_hien_tai": no,
@@ -2673,8 +2721,7 @@ class PurchaseService:
         Gọi ở MỌI mốc đụng tập đợt giao (thêm/sửa/xoá) — đặt ở đây thay vì ở từng hàm để không có
         cửa nào lọt."""
         money_total = purchase_money(row)["total"]
-        line_by_id = {line.id: line for line in row.lines}
-        tong = sum(gia_tri_dot_giao(d, line_by_id) for d in row.deliveries)
+        tong = sum(gia_tri_cac_dot(row).values())
         if tong > money_total:
             raise PurchaseValidationError(
                 f"Tổng tiền các đợt giao ({tong:,}đ) vượt giá trị đơn đã duyệt "
@@ -3051,6 +3098,8 @@ class PurchaseService:
                 }
             )
         line_by_id = {line.id: line for line in row.lines}
+        # Chia luỹ kế MỘT lần cho cả đơn — tiền của đợt phụ thuộc các đợt trước nó.
+        chia_dot = phan_bo_du_dot(row)
         _pb, _coc, _du = phan_bo_tien_dot(row)
         phan_bo = {m["delivery"].id: m for m in _pb}
         # Phiếu ĐẶT CỌC đã lập cho đơn này. Form lập phiếu chi cần biết để CẢNH BÁO khi kế toán
@@ -3097,7 +3146,7 @@ class PurchaseService:
                 "invoice_number": d.invoice_number,
                 "invoice_date": d.invoice_date,
                 "note": d.note,
-                "amount": gia_tri_dot_giao(d, line_by_id),
+                "amount": chia_dot.get(d.id, {}).get("amount", 0),
                 "paid_amount": phan_bo.get(d.id, {}).get("paid", 0),
                 # Cọc của cả đơn chiếu xuống đợt này, và phần CÒN NỢ sau khi trừ cả hai.
                 # `con_no` chính là TRẦN lập phiếu chi thanh toán cho đợt — form phải bám nó, không
@@ -3123,6 +3172,18 @@ class PurchaseService:
                             else ""
                         ),
                         "quantity": float(dl.quantity),
+                        # SỐ NHẬN tách làm hai: phần sinh tiền và phần DƯ (0đ). Phơi cả hai chứ
+                        # không chỉ phơi tổng — người đọc phải thấy ngay "700 cái, 500 trong đó
+                        # không tính tiền", nếu không thì ca NCC có tính tiền phần dư sẽ trôi
+                        # lọt tới tận lúc đối chiếu hoá đơn.
+                        "quantity_tinh_tien": float(
+                            chia_dot.get(d.id, {}).get("lines", {}).get(dl.id, {}).get(
+                                "tinh_tien", float(dl.quantity)
+                            )
+                        ),
+                        "quantity_du": float(
+                            chia_dot.get(d.id, {}).get("lines", {}).get(dl.id, {}).get("du", 0.0)
+                        ),
                         "note": dl.note,
                     }
                     for dl in d.lines

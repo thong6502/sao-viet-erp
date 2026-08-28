@@ -1198,6 +1198,82 @@ td.acct-count-cell {
 /* Ô chi tiết công nợ dùng chung `.pay-kpibar` (payables.css) cho dải chỉ số — xem
    ReceivablesDrawer.tsx. Bỏ khối thẻ `.ar-stat*` cũ (4 thẻ cao, không đúng UI_DESIGN §4). */
 
+/* ĐIỀU KIỆN THANH TOÁN VỚI NCC (Kế toán · Đơn mua hàng, 28/08/2026).
+   Dáng mượn `.acct-purpose` ngay dưới đây — cùng drawer thì cùng một khuôn khối, đừng đẻ kiểu
+   thứ hai. Khác mỗi phần chia lưới ba số ở cuối. */
+.acct-terms {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  background: var(--rule-hair);
+  border-radius: var(--r-5);
+  margin-bottom: var(--sp-3);
+}
+
+.acct-terms__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+/* Nhãn nhỏ chữ hoa — CHÍNH nhịp `.acct-purpose span` đang dùng trong cùng drawer. */
+.acct-terms span {
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  color: var(--ash-2);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.acct-terms__head strong {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  /* Tên NCC dài thì CẮT, đừng đẩy nhãn bên trái xuống dòng. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acct-terms__row strong {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  font-weight: 400;
+}
+
+.acct-terms__grid {
+  display: grid;
+  /* `minmax(0, 1fr)` chứ không `1fr`: `1fr` mặc định `min-width:auto`, số tiền dài đẩy cột
+     tràn khỏi khung drawer 780px. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-2);
+}
+
+.acct-terms__grid strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+}
+
+/* CHƯA KHAI — mờ đi để mắt lướt qua, nhưng vẫn phải đọc được: đây là chỗ nhắc kế toán rằng
+   danh mục NCC còn thiếu, không phải chỗ để giấu. */
+.acct-terms strong.acct-terms__trong {
+  color: var(--ash-2);
+  font-weight: 400;
+}
+
+.acct-terms strong.acct-terms__vuot {
+  color: var(--signal);
+}
+
 /* Nút "Xem lịch sử thu cũ hơn" — tách khỏi bảng phía trên, không dính sát mép. */
 .ar-more {
   margin-top: var(--sp-3);

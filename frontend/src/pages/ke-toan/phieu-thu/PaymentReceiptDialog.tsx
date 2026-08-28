@@ -319,6 +319,24 @@ export function PaymentReceiptDialog({
             )}
           </div>
 
+          {/* MÃ GIAO DỊCH hỏi ngay tại form lập (27/08/2026). Trước kia ô này nằm ở bước "Xác nhận
+              đã thu"; bỏ bước đó mà không dời ô sang đây là mọi khoản về qua ngân hàng mất sạch
+              dấu đối chiếu sao kê. Server chặn nếu chuyển khoản mà để trống. */}
+          {isBank && (
+            <label className="acct-field">
+              <span>
+                Mã giao dịch / số báo có <b>*</b>
+              </span>
+              <input
+                className="input"
+                maxLength={64}
+                value={form.bank_reference ?? ""}
+                onChange={(e) => set("bank_reference", e.target.value)}
+                placeholder="Số tham chiếu trên sao kê"
+              />
+            </label>
+          )}
+
           <label className="acct-field">
             <span>
               Nội dung thu <b>*</b>

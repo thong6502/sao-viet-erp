@@ -38,12 +38,14 @@ export function ReceiptRowActions({
     canApprove &&
     row.status === "waiting_receipt" &&
     row.source_type === "purchase_refund";
+  // "Xác nhận đã thu" chỉ còn cho phiếu CŨ lỡ nằm lại ở trạng thái chờ — từ 27/08/2026 phiếu thu
+  // lập ra là ĐÃ THU (chủ chốt: *"cứ lập phiếu là ra tiền rồi xác nhận cái gì nữa"*), nên với mọi
+  // phiếu mới nút này không bao giờ hiện. Giữ nhánh chứ không xoá hẳn: xoá là phiếu chờ còn sót
+  // trong DB thật hết đường chốt, mà chúng đang KHÔNG được trừ vào công nợ.
   const showMarkReceived = canMarkReceived && row.status === "waiting_receipt";
-  const showCancel =
-    canCancel &&
-    (row.status === "waiting_receipt" ||
-      ((row.source_type === "other" || row.source_type === "sales_invoice") &&
-        row.status === "received"));
+  // Huỷ được ở mọi trạng thái, mọi nguồn — khớp `cancel_receipt` bên service. Phiếu lập ra đã thu
+  // ngay thì huỷ (có lý do) là đường sửa sai DUY NHẤT; siết lại là phiếu gõ nhầm kẹt vĩnh viễn.
+  const showCancel = canCancel && row.status !== "cancelled";
   if (!showExport && !showEdit && !showMarkReceived && !showCancel) return null;
   return (
     <div className="acct-actions">

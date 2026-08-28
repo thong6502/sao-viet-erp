@@ -162,6 +162,13 @@ export function PurchaseFormDrawer({
                 }
               />
             </LocalField>
+            {/* NGÀY NHẬN HÀNG CHỈ KHAI ĐƯỢC Ở CHẾ ĐỘ SỬA (chủ chốt 28/08/2026).
+                Lúc TẠO, phiếu này tách thành N đơn theo NCC — mà ô ở đây chỉ có MỘT, nên nó
+                đóng cùng một ngày lên cả N đơn dù mỗi NCC hẹn một ngày khác nhau. Không phải
+                lỗi trưng bày: ngày này là "ngày hàng về" của kế hoạch vật tư
+                (`ke_hoach_vat_tu_service.tinh_cung`), chép nhầm là bơm số sai vào đường cung.
+                Chế độ SỬA thì đúng — ở đó một phiếu = một NCC = một ngày. */}
+            {mode === "edit" && (
             <LocalField label="Ngày dự kiến nhận hàng">
               <input
                 className="input"
@@ -176,6 +183,7 @@ export function PurchaseFormDrawer({
                 }
               />
             </LocalField>
+            )}
             {/* MỘT ô thay cho cặp "Mục đích" + "Ghi chú" (chủ chốt 07/08/2026) — xem
                 DepartmentPurchaseRequestsPage cho lý do. */}
             <LocalField label="Nội dung / mục đích" wide required>

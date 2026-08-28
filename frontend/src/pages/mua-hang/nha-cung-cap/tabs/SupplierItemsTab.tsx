@@ -10,13 +10,8 @@ import {
   DonViChonTheoHang,
   MaterialCombobox,
 } from "../../../../components/MaterialCombobox";
-import { money } from "../../../../utils/format";
 import { emptySupplierItem } from "../shared/helpers";
-import type {
-  FormItemRow,
-  NhapKetQua,
-  QuyDoiDongInfo,
-} from "../shared/types";
+import type { FormItemRow, NhapKetQua } from "../shared/types";
 
 export function SupplierItemsTab({
   mode,
@@ -27,8 +22,6 @@ export function SupplierItemsTab({
   itemSearchQ,
   setItemSearchQ,
   setSupplierItem,
-  quyDoiDong,
-  ghiQuyDoiDong,
   fileVatTuRef,
   nhapDang,
   nhapKetQua,
@@ -47,8 +40,6 @@ export function SupplierItemsTab({
     index: number,
     patch: Partial<FormItemRow["item"]>,
   ) => void;
-  quyDoiDong: Record<number, QuyDoiDongInfo | null>;
-  ghiQuyDoiDong: (index: number, info: QuyDoiDongInfo | null) => void;
   fileVatTuRef: MutableRefObject<HTMLInputElement | null>;
   nhapDang: boolean;
   nhapKetQua: NhapKetQua | null;
@@ -65,8 +56,8 @@ export function SupplierItemsTab({
                           Danh mục &amp; Báo giá Vật tư
                         </h3>
                         <p className="md-page__muted">
-                          Khai báo đơn giá &amp; VAT hiện tại để gợi ý tự động
-                          khi lập Phiếu Mua Hàng.
+                          Khai báo đơn giá hiện tại để gợi ý tự động khi lập
+                          Phiếu Mua Hàng.
                         </p>
                       </div>
                       <div className="supplier__items-actions">
@@ -205,48 +196,32 @@ export function SupplierItemsTab({
                       <div
                         className="supplier__item-labels"
                         aria-hidden="true"
-                        style={{
-                          gridTemplateColumns:
-                            "minmax(170px, 1.3fr) minmax(70px, 0.5fr) minmax(105px, 0.75fr) minmax(120px, 0.85fr) minmax(60px, 0.45fr) minmax(110px, 0.75fr) minmax(78px, 0.5fr) minmax(110px, 0.85fr) 36px",
-                        }}
+                        style={{ gridTemplateColumns: "minmax(200px, 2fr) minmax(96px, 0.6fr) minmax(130px, 0.8fr) 36px" }}
                       >
+                        {/* BA CỘT, HẾT (chủ chốt 28/08/2026: "chỉ giữ lại Tên vật tư, đơn vị tính,
+                            đơn giá thôi"). Đã cắt:
+                            • "Giá quy về gốc" — từ 15/08/2026 ĐVT bị khoá về đúng đơn vị gốc của
+                              mặt hàng, nên cột này LUÔN bằng chính đơn giá: một cột chép lại cột
+                              bên cạnh.
+                            • "VAT %" + "Giá sau VAT" — chủ chốt: "kệ nó, so sánh giá là được, kệ
+                              VAT cho đơn giản, cái đó họ tự biết". Bảng này để SO GIÁ.
+                            • "Ghi chú" — không ai đọc tới.
+                            Lưới cũ khai 9 cột nhưng chỉ có 8 ô, nên nút × rơi vào cột 110px còn
+                            cột 36px cuối bỏ không. Nay 4 khai = 4 ô, khớp.
+                            Các trường đã cắt VẪN còn trong API và trong dữ liệu cũ — đây là thôi
+                            bày ra để khai, KHÔNG phải xoá dữ liệu. */}
                         <span>Tên vật tư *</span>
                         <span>ĐVT *</span>
-                        <span>Đơn giá (chưa VAT) *</span>
-                        <span title="Quy giá về đơn vị gốc của mặt hàng để so ngang giữa các NCC (ông báo đ/ram, ông báo đ/kg).">
-                          Giá quy về gốc
-                        </span>
-                        <span>VAT %</span>
-                        <span>Giá sau VAT</span>
-                        {/* BỎ 10/08/2026 cột "Giao (ngày)" (mg 0176): lúc khai danh mục NCC thì
-                            chưa ai biết ông ấy giao mấy ngày — số gõ vào là số đoán, mà kế hoạch
-                            lại dựa vào đó để báo trễ. Cần lại thì SUY từ lịch sử mua (ngày đặt →
-                            ngày nhận thật), đừng bắt khai tay. */}
-                        <span>Ghi chú</span>
+                        <span>Đơn giá *</span>
                         <span></span>
                       </div>
 
                       {filteredFormItems.map(({ item, originalIndex }) => {
-                        const priceAfterVAT =
-                          (item.unit_price || 0) *
-                          (1 + (item.vat_percent || 0) / 100);
-                        // Cùng công thức server dùng ở `/api/supplier-items/so-gia`: 1 đơn vị NCC
-                        // bán bằng `heSoVeGoc` đơn vị gốc ⇒ giá/đơn-vị-gốc = giá ÷ hệ số. Hệ số
-                        // lấy TỪ SERVER (không tự suy ở FE) nên hai nơi không thể lệch.
-                        const quyDoi = quyDoiDong[originalIndex];
-                        const giaVeGoc =
-                          quyDoi && item.unit_price > 0
-                            ? Math.round(item.unit_price / quyDoi.heSoVeGoc)
-                            : null;
-
                         return (
                           <div
                             className="supplier__item-row"
                             key={originalIndex}
-                            style={{
-                              gridTemplateColumns:
-                                "minmax(170px, 1.3fr) minmax(70px, 0.5fr) minmax(105px, 0.75fr) minmax(120px, 0.85fr) minmax(60px, 0.45fr) minmax(110px, 0.75fr) minmax(78px, 0.5fr) minmax(110px, 0.85fr) 36px",
-                            }}
+                            style={{ gridTemplateColumns: "minmax(200px, 2fr) minmax(96px, 0.6fr) minmax(130px, 0.8fr) 36px" }}
                           >
                             {/* CHỌN từ danh mục gốc, không gõ tự do nữa: ghép NCC với kho bằng
                                 chuỗi tên là trượt thầm lặng ("Couche 150" ≠ "Couché 150 79×109"),
@@ -272,9 +247,10 @@ export function SupplierItemsTab({
                                  "con" — cùng một lượng, khác mỗi cách gọi — thì mọi thứ đối chiếu
                                  sang YCMH/kho đều lệch mà không ai thấy.
                                  ĐÁNH ĐỔI ĐÃ BIẾT: NCC báo giá theo ram/tấn nay phải tự quy về
-                                 tờ/kg trước khi nhập; cột "giá về gốc" bên phải vì thế luôn bằng
-                                 chính đơn giá. Máy chủ VẪN nhận đơn vị quy đổi (dòng cũ khai theo
-                                 ram còn nguyên, không bị viết lại) — hàng rào này chỉ ở màn nhập. */
+                                 tờ/kg trước khi nhập. Chính vì đơn vị đã bị khoá về gốc mà cột
+                                 "Giá quy về gốc" luôn bằng đơn giá — nên nó đã bị cắt 28/08/2026.
+                                 Máy chủ VẪN nhận đơn vị quy đổi (dòng cũ khai theo ram còn nguyên,
+                                 không bị viết lại) — hàng rào này chỉ ở màn nhập. */
                               <DonViChonTheoHang
                                 chiDoc
                                 token={token ?? ""}
@@ -284,7 +260,6 @@ export function SupplierItemsTab({
                                 onChange={(ma) =>
                                   setSupplierItem(originalIndex, { unit: ma })
                                 }
-                                onQuyDoi={(info) => ghiQuyDoiDong(originalIndex, info)}
                               />
                             ) : (
                               // Chưa chọn mặt hàng → chưa biết đơn vị. Trước đây cho gõ tự do; gõ
@@ -309,49 +284,6 @@ export function SupplierItemsTab({
                               onChange={(e) =>
                                 setSupplierItem(originalIndex, {
                                   unit_price: Number(e.target.value || 0),
-                                })
-                              }
-                            />
-                            <div
-                              className="supplier-item-vat-calculated"
-                              title={
-                                giaVeGoc
-                                  ? `${money(item.unit_price)} / ${item.unit} ÷ ${quyDoi!.heSoVeGoc} = ${money(giaVeGoc)} / ${quyDoi!.donViGocTen}`
-                                  : "Gắn mặt hàng gốc + chọn đơn vị đổi được thì mới quy đổi được."
-                              }
-                            >
-                              {giaVeGoc
-                                ? `${money(giaVeGoc)}/${quyDoi!.donViGocTen}`
-                                : "—"}
-                            </div>
-                            <input
-                              className="input purchase__number-input"
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="0.01"
-                              placeholder="10"
-                              value={
-                                (item.vat_percent ?? 0) >= 0
-                                  ? item.vat_percent
-                                  : ""
-                              }
-                              onChange={(e) =>
-                                setSupplierItem(originalIndex, {
-                                  vat_percent: Number(e.target.value || 0),
-                                })
-                              }
-                            />
-                            <div className="supplier-item-vat-calculated">
-                              {item.unit_price > 0 ? money(priceAfterVAT) : "—"}
-                            </div>
-                            <input
-                              className="input"
-                              placeholder="Nếu có"
-                              value={item.note ?? ""}
-                              onChange={(e) =>
-                                setSupplierItem(originalIndex, {
-                                  note: e.target.value,
                                 })
                               }
                             />

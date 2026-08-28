@@ -107,7 +107,11 @@ export function DeliveriesBlock({
             <tr>
               <th>Đợt</th>
               <th>Ngày giao</th>
-              <th>Hàng đã nhận</th>
+              {/* TÁCH ĐÔI 28/08/2026 (chủ chốt: *"tách ra 2 cột, tên mặt hàng và số lượng nhận,
+                  chứ đừng nhét chung nhau"*). Trước là một ô "Mini app: 100 cái · Loa: 200 cái" —
+                  mắt phải tự dò dấu hai chấm để tách tên khỏi số. */}
+              <th>Mặt hàng</th>
+              <th className="pay-num">SL nhận</th>
               <th className="pay-num">Thành tiền</th>
               <th>Hóa đơn</th>
               <th>Hạn trả</th>
@@ -143,14 +147,41 @@ export function DeliveriesBlock({
                     </strong>
                   </td>
                   <td>{fmtDate(dot.delivery_date)}</td>
+                  {/* HAI Ô RIÊNG, mỗi ô xếp chồng CÙNG số dòng theo cùng thứ tự — nên dòng thứ n
+                      bên trái luôn là món của dòng thứ n bên phải. Tên hàng bị cấm xuống dòng
+                      (`.pdot__dl-name`): để nó tràn 2 dòng là lệch hàng ngay, đọc thành món này
+                      với số lượng của món kia. Tên đầy đủ nằm ở `title`. */}
                   <td>
                     <div className="pdot__delivery-lines">
                       {dot.lines.map((line) => (
-                        <span key={line.id}>
+                        <span
+                          key={line.id}
+                          className="pdot__dl-name"
+                          title={line.item_name}
+                        >
                           <strong>{line.item_name}</strong>
-                          {": "}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="pay-num">
+                    <div className="pdot__delivery-lines">
+                      {dot.lines.map((line) => (
+                        <span key={line.id} className="pdot__dl-qty">
                           {line.quantity.toLocaleString("vi-VN")}{" "}
                           {tenDonVi(line.unit) ?? line.unit}
+                          {/* PHẦN DƯ — hàng về nhiều hơn số đặt, tính 0đ. Hiện ngay cạnh số nhận
+                              chứ không giấu vào tooltip: nếu NCC thực ra CÓ tính tiền phần này
+                              thì đây là chỗ duy nhất bắt được trước lúc đối chiếu hoá đơn. */}
+                          {line.quantity_du > 0 && (
+                            <em
+                              className="pdot__du"
+                              title={`${line.quantity_tinh_tien.toLocaleString("vi-VN")} tính tiền · ${line.quantity_du.toLocaleString("vi-VN")} vượt số đặt, giá 0đ`}
+                            >
+                              {" · "}
+                              {line.quantity_du.toLocaleString("vi-VN")} dư
+                            </em>
+                          )}
                         </span>
                       ))}
                     </div>

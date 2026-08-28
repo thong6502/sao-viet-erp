@@ -124,7 +124,31 @@ export function DeliveryDialog({
         (a) => a.delivery_id === delivery!.id && a.kind === "hoa_don",
       );
 
-  // THÀNH TIỀN của đợt = Σ số lượng × đơn giá/CK/VAT đã chốt trên phiếu.
+  // CHIA SỐ NHẬN thành phần TÍNH TIỀN và phần DƯ (28/08/2026). NCC giao thêm mà giá giữ nguyên
+  // là chuyện có thật ("đơn 500 cái, họ giao 1000, tiền vẫn 5tr"), nên số nhận được phép vượt số
+  // đặt — nhưng phần vượt giá 0đ. Phần tính tiền luôn được lấp TRƯỚC, nên tổng nợ của đơn dừng
+  // đúng ở giá trị đã duyệt dù hàng về gấp đôi.
+  //
+  // ⚠️ Đây là bản XEM TRƯỚC. Con số THẬT do server chia (`phan_bo_du_dot`) theo thứ tự
+  // (`delivery_date`, `seq_no`) của TOÀN BỘ các đợt. Bản này lấy `daGiaoKhac` = mọi đợt KHÁC làm
+  // phần đã lấp — đúng tuyệt đối khi ghi đợt MỚI (mọi đợt khác đều nằm trước), có thể lệch khi
+  // sửa một đợt CŨ nằm giữa. Nó chỉ để người khai thấy ngay hậu quả của số vừa gõ.
+  const chiaDong = useMemo(() => {
+    const out: Record<number, { tinhTien: number; du: number }> = {};
+    for (const line of row.lines) {
+      const qty = Number(soNhan[line.id]) || 0;
+      const daKhac = daGiaoKhac(row, line.id, delivery?.id ?? null);
+      const dat = Number(line.quantity) || 0;
+      const tinhTien = Math.max(
+        0,
+        Math.min(daKhac + qty, dat) - Math.min(daKhac, dat),
+      );
+      out[line.id] = { tinhTien, du: Math.max(0, qty - tinhTien) };
+    }
+    return out;
+  }, [row, soNhan, delivery]);
+
+  // THÀNH TIỀN của đợt = Σ phần TÍNH TIỀN × đơn giá/CK/VAT đã chốt trên phiếu.
   //
   // KHÔNG có ô nhập tiền (chủ chốt 07/08/2026, đảo lại quyết định 06/08): *"không cho sửa nữa,
   // dựa vào số lượng thực tế tính ra tiền luôn"*. Ô gõ tay đẻ ra đúng cái lệch mà chính chủ bắt
@@ -132,10 +156,10 @@ export function DeliveryDialog({
   const tienDot = useMemo(
     () =>
       row.lines.reduce((sum, line) => {
-        const qty = Number(soNhan[line.id]);
-        return sum + (qty > 0 ? tienTheoSoLuong(line, qty) : 0);
+        const t = chiaDong[line.id]?.tinhTien ?? 0;
+        return sum + (t > 0 ? tienTheoSoLuong(line, t) : 0);
       }, 0),
-    [row.lines, soNhan],
+    [row.lines, chiaDong],
   );
 
   /** Nhận file vào hàng chờ. Chặn ngay tại đây thay vì để server từ chối sau khi đợt đã lưu —
@@ -201,15 +225,11 @@ export function DeliveryDialog({
       );
       return;
     }
-    const vuot = lines.find((l) => l.quantity > conLai(l.purchase_request_line_id) + 1e-9);
-    if (vuot) {
-      const line = row.lines.find((x) => x.id === vuot.purchase_request_line_id)!;
-      setError(
-        `"${line.item_name}": nhận ${vuot.quantity} nhưng chỉ còn ${conLai(line.id)} chưa giao ` +
-          `(đặt ${line.quantity}). Nhận dư thì sửa số đặt trên phiếu rồi duyệt lại.`,
-      );
-      return;
-    }
+    // BỎ 28/08/2026 khối chặn "nhận vượt số còn lại". Nó là bản sao ở giao diện của luật cũ bên
+    // `_clean_dot_lines`; luật đó đã gỡ vì NCC giao thêm mà giá giữ nguyên là chuyện có thật.
+    // Gỡ server mà quên gỡ đây thì hộp thoại vẫn từ chối, chỉ khác là bằng một câu tự bịa —
+    // đúng cái bẫy đã sập một lần: ba nơi cùng canh một luật (`max` của ô nhập, khối này, và
+    // service) mà chỉ sửa hai. Nay số nhận vượt KHÔNG đẻ nợ nữa, phần vượt hiện ngay dưới ô gõ.
     if (!ngayGiao) {
       setError("Đợt giao phải có ngày giao.");
       return;
@@ -370,16 +390,12 @@ export function DeliveryDialog({
             <tbody>
               {row.lines.map((line) => {
                 const con = conLai(line.id);
-                // Dòng ĐÃ NHẬN ĐỦ ở các đợt khác ⇒ KHOÁ hẳn ô nhập, đừng để một ô trống gõ được.
-                // `max` của <input type=number> chỉ là gợi ý: gõ đè vào vẫn được, dải "Ghi vào công
-                // nợ" bên dưới nhảy theo ngay, và người khai tưởng vừa bơm một món nợ ma vào phiếu.
-                // (Lưu thì bị chặn ở cả `submit` lẫn `_clean_dot_lines` bên service — nhưng đó là
-                // chặn SAU khi đã doạ người ta một lần.)
-                //
-                // Vẫn MỞ ô khi đang sửa một đợt mà dòng này có số cũ: khoá lại là người sửa không
-                // xoá/giảm được chính con số của đợt mình đang sửa.
-                const khoaODong = con <= 0 && !(soNhan[line.id] ?? "").trim();
+                // KHÔNG CÒN KHOÁ Ô NHẬP (28/08/2026). Trước đây dòng đã nhận đủ ở các đợt khác
+                // thì ô bị khoá cứng, vì gõ vượt sẽ bơm một món nợ ma vào phiếu. Nay gõ vượt KHÔNG
+                // đẻ nợ nữa — phần vượt giá 0đ — nên khoá lại chỉ còn là chặn đúng ca hợp lệ: NCC
+                // tặng thêm sau khi đã giao đủ số đặt.
                 const dvt = tenDonVi(line.unit) ?? line.unit;
+                const chia = chiaDong[line.id] ?? { tinhTien: 0, du: 0 };
                 return (
                   <tr key={line.id}>
                     <td>
@@ -397,31 +413,34 @@ export function DeliveryDialog({
                       )}
                     </td>
                     <td className="pdot__num">
-                      {khoaODong ? (
-                        <span
-                          className="pdot__muted"
-                          title={`Đã nhận đủ ${line.quantity.toLocaleString("vi-VN")} ${dvt} ở các đợt trước — đợt này không nhận thêm được.`}
-                        >
-                          —
-                        </span>
-                      ) : (
-                        <span className="pdot__qtywrap">
-                          <input
-                            className="input pdot__qty"
-                            type="number"
-                            min={0}
-                            max={con}
-                            step="any"
-                            value={soNhan[line.id] ?? ""}
-                            onChange={(e) =>
-                              setSoNhan((cur) => ({
-                                ...cur,
-                                [line.id]: e.target.value,
-                              }))
-                            }
-                          />
-                          <span className="pdot__unit">{dvt}</span>
-                        </span>
+                      <span className="pdot__qtywrap">
+                        {/* KHÔNG còn `max`: số nhận được phép vượt số đặt. */}
+                        <input
+                          className="input pdot__qty"
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={soNhan[line.id] ?? ""}
+                          onChange={(e) =>
+                            setSoNhan((cur) => ({
+                              ...cur,
+                              [line.id]: e.target.value,
+                            }))
+                          }
+                        />
+                        <span className="pdot__unit">{dvt}</span>
+                      </span>
+                      {/* PHÉP CHIA HIỆN NGAY DƯỚI Ô GÕ, không đợi bấm Lưu. Đây là chỗ DUY NHẤT
+                          người khai còn kịp nhận ra "NCC có tính tiền 500 cái này đấy" trước khi
+                          con số chạy vào công nợ. */}
+                      {chia.du > 0 && (
+                        <small className="pdot__split">
+                          {chia.tinhTien.toLocaleString("vi-VN")} tính tiền
+                          {" · "}
+                          <em className="pdot__du">
+                            {chia.du.toLocaleString("vi-VN")} dư (0đ)
+                          </em>
+                        </small>
                       )}
                     </td>
                   </tr>
@@ -437,7 +456,8 @@ export function DeliveryDialog({
           CÔNG NỢ — người khai phải thấy ngay hậu quả của số lượng mình vừa gõ. */}
       <div className="pdot__moneybar pdot__moneybar--auto">
         <span className="pdot__moneynote">
-          Tính theo số lượng thực nhận × đơn giá đã chốt trên phiếu mua.
+          Tính theo số lượng thực nhận × đơn giá đã chốt trên phiếu mua. Phần nhận
+          vượt số đặt tính 0đ.
         </span>
         <div className="pdot__result">
           <span className="pdot__resultlabel">Ghi vào công nợ</span>

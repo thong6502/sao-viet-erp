@@ -330,6 +330,27 @@
   font-weight: var(--fw-medium);
 }
 
+/* DÒNG BẤM ĐƯỢC — mở popup "hàng đã nhận" của đợt (28/08/2026).
+   Không tô nền sẵn: bảng này đã có dòng đợt-đang-nợ tô hồng và dòng đã-tất-toán làm mờ, thêm một
+   nền thứ ba là ba tầng màu chồng nhau, không ai đọc ra tầng nào nghĩa gì. Dấu hiệu chỉ hiện
+   lúc rê chuột. */
+.pay-table tbody tr.pay-row--mo {
+  cursor: pointer;
+}
+
+.pay-table tbody tr.pay-row--mo:hover .pay-row__mo-nhan,
+.pay-table tbody tr.pay-row--mo:focus-visible .pay-row__mo-nhan {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Vòng nét đứt thay vì viền ngoài: `outline` quanh một <tr> bị các trình duyệt vẽ méo theo từng
+   ô, còn nền nhạt thì đụng đúng ba tầng màu vừa nói. */
+.pay-table tbody tr.pay-row--mo:focus-visible {
+  outline: 2px dashed var(--ash-2);
+  outline-offset: -2px;
+}
+
 .pay-short {
   color: var(--amber-deep);
 }

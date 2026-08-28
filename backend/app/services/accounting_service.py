@@ -66,8 +66,6 @@ from ..repositories.purchase_repo import PurchaseRequestRepository, SupplierRepo
 from ..repositories.user_repo import UserRepository
 from ..storage import get_storage, key_from_url, make_key, url_from_key
 from .purchase_service import (
-    _purchase_line_amounts,
-    gia_tri_dot_giao,
     han_tra_dot,
     phan_bo_tien_dot,
     purchase_money,
@@ -470,8 +468,28 @@ class AccountingService:
         Phiếu chưa có đợt giao nào (dữ liệu cũ) trả `([], 0, 0)`: nợ của nó không quy được về đợt
         nào, màn hình phải hiện ở mức PHIẾU."""
         phan_bo, coc, coc_du = phan_bo_tien_dot(row)
+        # Tên + ĐVT của mặt hàng nằm ở DÒNG ĐẶT, dòng đợt chỉ giữ số lượng ⇒ tra bảng một lần.
+        dong_dat = {ln.id: ln for ln in row.lines}
+
+        def _hang_cua_dot(delivery) -> list[dict]:
+            """Mặt hàng của một đợt — nuôi popup "hàng đã nhận" ở Công nợ phải trả (28/08/2026).
+
+            Kèm sẵn trong payload thay vì đẻ endpoint thứ hai: mỗi đợt vài dòng, mà bấm vào đợt
+            rồi mới đi gọi mạng là người dùng nhìn một hộp thoại rỗng đang quay.
+            """
+            ra = []
+            for dl in delivery.lines:
+                ln = dong_dat.get(dl.purchase_request_line_id)
+                ra.append({
+                    "item_name": ln.item_name if ln is not None else "(dòng đã bị xoá)",
+                    "unit": ln.unit if ln is not None else "",
+                    "quantity": float(dl.quantity),
+                })
+            return ra
+
         out = [
             {
+                "lines": _hang_cua_dot(m["delivery"]),
                 "delivery_id": m["delivery"].id,
                 "seq_no": m["delivery"].seq_no,
                 "delivery_date": m["delivery"].delivery_date,
@@ -748,6 +766,7 @@ class AccountingService:
                             "purchase_request_id": row.id,
                             "code": row.code,
                             "status": row.status,
+                            "lines": d["lines"],
                             "delivery_id": d["delivery_id"],
                             "seq_no": d["seq_no"],
                             "delivery_date": d["delivery_date"],
@@ -1382,7 +1401,17 @@ class AccountingService:
             doc_no=doc_no,
             payment_voucher_id=voucher.id,
             purchase_request_id=voucher.purchase_request_id,
-            status=PAYMENT_RECEIPT_WAITING,
+            # LẬP PHIẾU LÀ ĐÃ THU (chủ chốt 27/08/2026: *"cứ lập phiếu là ra tiền rồi xác nhận cái
+            # gì nữa"*). Trước đây phiếu ra ở `waiting` rồi chờ bấm "Xác nhận đã thu" — bước đó
+            # đúng trên giấy nhưng sai với cách làm thật: kế toán chỉ lập phiếu SAU khi tiền đã về.
+            # Quên bấm nút là công nợ báo mình đã trả nhiều hơn thực tế, vì chỉ phiếu `received`
+            # mới được trừ ngược vào tiền đã chi (`phan_bo_tien_dot`).
+            #
+            # Nay khớp với ba nguồn phiếu thu còn lại (khác · hoá đơn bán · cọc đơn) và với chính
+            # phiếu chi ("lập ra là đã chi", 06/08/2026) — cả sổ quỹ một luật, không còn hai kiểu.
+            status=PAYMENT_RECEIPT_RECEIVED,
+            received_by_user_id=actor.id,
+            received_at=_now(),
             created_by_user_id=actor.id,
         )
         self._apply_receipt(receipt, voucher, prepared)
@@ -1559,8 +1588,14 @@ class AccountingService:
 
     def update_receipt(self, receipt_id: int, *, actor, **values):
         receipt = self._receipt(receipt_id)
+        # Từ 27/08/2026 phiếu thu lập ra là ĐÃ THU nên không còn phiếu nào ở `waiting` để sửa —
+        # nhánh này chỉ còn phục vụ phiếu CŨ lỡ nằm lại ở trạng thái chờ. Muốn sửa một phiếu đã
+        # thu thì HUỶ (có lý do) rồi lập lại: sửa thẳng số tiền của một phiếu đang được trừ vào
+        # công nợ là đổi sổ mà không để lại vết.
         if receipt.status != PAYMENT_RECEIPT_WAITING:
-            raise AccountingConflict("Chỉ phiếu thu đang chờ thu mới được sửa.")
+            raise AccountingConflict(
+                "Phiếu thu đã ghi nhận tiền — huỷ phiếu (có lý do) rồi lập lại, không sửa trực tiếp."
+            )
         if receipt.source_type == RECEIPT_SOURCE_OTHER:
             raise AccountingConflict("Phiếu thu khác đã ghi nhận tiền, không sửa trực tiếp.")
         if receipt.source_type == RECEIPT_SOURCE_ORDER:
@@ -1603,7 +1638,15 @@ class AccountingService:
         receipt = self._receipt(receipt_id)
         if receipt.status == PAYMENT_RECEIPT_CANCELLED:
             raise AccountingConflict("Phiếu thu đã hủy.")
-        if receipt.source_type in (RECEIPT_SOURCE_OTHER, RECEIPT_SOURCE_SALES_INVOICE):
+        # HUỶ ĐƯỢC Ở MỌI TRẠNG THÁI (trừ đã huỷ), cho MỌI nguồn. Từ 27/08/2026 phiếu thu lập ra là
+        # đã thu ⇒ nếu vẫn giữ luật "chỉ huỷ khi đang chờ thu" thì một phiếu gõ nhầm số là kẹt
+        # vĩnh viễn, không sửa được mà cũng không huỷ được, trong khi nó đang trừ vào công nợ.
+        # Huỷ luôn bắt LÝ DO và ghi nhật ký nên vết vẫn còn.
+        if receipt.source_type in (
+            RECEIPT_SOURCE_OTHER,
+            RECEIPT_SOURCE_SALES_INVOICE,
+            RECEIPT_SOURCE_PURCHASE,
+        ):
             cleaned_reason = _text(reason, label="Lý do hủy", required=True, max_length=2000)
             receipt.status = PAYMENT_RECEIPT_CANCELLED
             receipt.cancel_reason = cleaned_reason
@@ -1717,6 +1760,10 @@ class AccountingService:
         content = _text(values.get("content"), label="Nội dung thu", required=True, max_length=500)
 
         company_account = None
+        # MÃ GIAO DỊCH thu ngay tại đây từ 27/08/2026 — trước kia nó chỉ được hỏi ở bước "Xác nhận
+        # đã thu", mà bước đó nay bỏ rồi (phiếu lập ra là ĐÃ THU). Không hỏi ở đây là khoản tiền về
+        # qua ngân hàng mất sạch dấu vết đối chiếu sao kê. Cùng luật với `_prepare_other_receipt`.
+        bank_reference = _text(values.get("bank_reference"), label="Mã giao dịch", max_length=64)
         if receipt_method == VOUCHER_BANK_TRANSFER:
             account_id = values.get("company_bank_account_id")
             company_account = (
@@ -1732,8 +1779,13 @@ class AccountingService:
                 raise AccountingValidationError(
                     "Loại tiền phiếu thu phải khớp tài khoản nhận."
                 )
+            if not bank_reference:
+                raise AccountingValidationError(
+                    "Thu qua ngân hàng phải có mã giao dịch hoặc số báo có."
+                )
 
         return {
+            "bank_reference": bank_reference,
             "payer_name": payer_name,
             "payer_address": _text(
                 values.get("payer_address"), label="Địa chỉ người nộp", max_length=500

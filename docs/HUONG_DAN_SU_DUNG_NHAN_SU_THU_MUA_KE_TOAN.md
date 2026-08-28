@@ -499,9 +499,10 @@ Chức năng tạo mới **Ủy nhiệm chi đang tạm ẩn** trong phiên bả
 Khi tiền đã chi không sử dụng hết, tại Phiếu chi đã chi chọn **Lập Phiếu thu**.
 
 1. Nhập người nộp tiền và số tiền nộp lại.
-2. Chọn tiền mặt hoặc chuyển về tài khoản công ty.
-3. Lưu Phiếu thu ở trạng thái chờ thu.
-4. Khi nhận tiền thực tế, chọn **Xác nhận đã thu**.
+2. Chọn tiền mặt hoặc chuyển về tài khoản công ty — chuyển khoản thì phải nhập **mã giao dịch /
+   số báo có**.
+3. Lưu Phiếu thu → **Đã thu** ngay. Chỉ lập phiếu khi tiền đã thực về; không còn bước
+   *Xác nhận đã thu* (bỏ 27/08/2026). Lập nhầm thì **Hủy** (bắt nhập lý do) rồi lập lại.
 
 Số đã thu làm giảm số tiền chi ròng của PMH và mở lại hạn mức được phép lập Phiếu chi. Tổng Phiếu thu không được vượt số đã chi của Phiếu chi nguồn.
 
