@@ -7,7 +7,7 @@ import type {
 } from "../../../../api/client";
 import { CodeLink } from "../../../../components/CodeLink";
 import { PurchaseActivityTimeline } from "../../../../components/PurchaseActivityTimeline";
-import { fmtDate, money } from "../../../../utils/format";
+import { fmtDate, hanTraTuMoc, money } from "../../../../utils/format";
 // Đơn vị lưu bằng MÃ (`cai`, `to`, `m2`); tên hiển thị ("cái", "tờ", "m²") nằm ở danh mục Đơn vị.
 // `?? line.unit` cố ý: danh mục chưa nạp xong hoặc mã lạ thì hiện MÃ TRẦN, thà thấy `cai` còn hơn
 // nuốt mất đơn vị của một con số lượng hàng. Xem pages/tenDonVi.ts.
@@ -103,6 +103,30 @@ export function InboxDrawer({
             <span>Điều khoản</span>
             <strong className={credit.payment_terms ? "" : "acct-terms__trong"}>
               {credit.payment_terms?.trim() || "Chưa khai"}
+            </strong>
+          </div>
+          {/* MỐC CHỐT CÔNG NỢ — kế toán là người quyết chi nên phải thấy mốc này (chủ chốt
+              28/08/2026). Nó với "Cho nợ" bên dưới là một CẶP: mốc + độ dài mới ra hạn, nên
+              hiện luôn cả hạn suy ra, khỏi bắt người đọc tự cộng ngày trong đầu. */}
+          <div className="acct-terms__row">
+            <span>Chốt công nợ</span>
+            <strong className={selected.debt_cutoff_date ? "" : "acct-terms__trong"}>
+              {selected.debt_cutoff_date ? (
+                <>
+                  {fmtDate(selected.debt_cutoff_date)}
+                  {selected.supplier_credit_days != null && (
+                    <>
+                      {" → hạn trả "}
+                      {hanTraTuMoc(
+                        selected.debt_cutoff_date,
+                        selected.supplier_credit_days,
+                      )}
+                    </>
+                  )}
+                </>
+              ) : (
+                "Chưa báo — hạn trả tính từ ngày hoá đơn từng đợt"
+              )}
             </strong>
           </div>
           <div className="acct-terms__grid">

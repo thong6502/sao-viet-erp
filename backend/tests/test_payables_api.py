@@ -1210,6 +1210,83 @@ def test_so_ngay_cho_no_cua_ncc_suy_ra_han_tra(client):
     assert tong["vuot_han_muc_count"] >= 1
 
 
+def test_ngay_chot_cong_no_quyet_han_tra_thay_cho_ngay_hoa_don(client):
+    """NGÀY CHỐT CÔNG NỢ của đơn + số ngày cho nợ = hạn trả MỌI đợt (chủ chốt 28/08/2026).
+
+    Ca thật: NCC báo *"đơn này chốt công nợ 31/8"*, cho nợ 30 ngày ⇒ phải trả trước **30/9**.
+    Đồng hồ chạy từ mốc CHỐT, không phải từ ngày hoá đơn — nên hàng giao/xuất hoá đơn 05/8 và
+    hàng 28/8 CÙNG hạn 30/9. Luật cũ (`invoice_date + credit_days`) báo cái 05/8 quá hạn từ
+    04/9, sớm hơn thoả thuận thật 26 ngày.
+
+    Chốt của test là chữ CÙNG: hai đợt hai ngày hoá đơn khác nhau phải ra một hạn.
+    """
+    from datetime import date
+
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Chot Cong No")
+    _sua_ncc(client, headers, supplier, credit_limit=0, credit_days=30)
+
+    don = _don(client, headers, supplier["id"], quantity=1000)
+    _da_mua(client, headers, don["id"])
+    dong = _dong_dau_tien(don)
+
+    # Hai đợt, hai ngày hoá đơn CÁCH NHAU 23 ngày — luật cũ sẽ ra hai hạn khác nhau.
+    _ghi_dot(client, headers, don["id"], lines=[{"purchase_request_line_id": dong, "quantity": 400}],
+             ngay="2026-08-05", ngay_hd="2026-08-05")
+    truoc = _ghi_dot(client, headers, don["id"],
+                     lines=[{"purchase_request_line_id": dong, "quantity": 600}],
+                     ngay="2026-08-28", ngay_hd="2026-08-28")
+    han_cu = sorted(d["due_date"] for d in truoc["deliveries"])
+    assert han_cu == ["2026-09-04", "2026-09-27"], han_cu
+
+    # NCC báo ngày chốt ⇒ CẢ HAI đợt dồn về một hạn.
+    r = client.put(
+        f"/api/purchase-requests/{don['id']}/contract",
+        json={"contract_number": None, "deposit_expected": 0, "debt_cutoff_date": "2026-08-31"},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["debt_cutoff_date"] == "2026-08-31"
+    assert {d["due_date"] for d in r.json()["deliveries"]} == {"2026-09-30"}
+
+    # Màn Công nợ phải trả đọc CÙNG con số — hai chỗ lệch hạn là hai chỗ báo quá hạn khác nhau.
+    ct = client.get(f"/api/accounting/payables/{supplier['id']}", headers=headers).json()
+    cua_don = [x for x in ct["items"] if x["code"] == don["code"]]
+    assert cua_don and {x["due_date"] for x in cua_don} == {"2026-09-30"}
+
+    # BỎ ngày chốt ⇒ lùi về luật cũ, không đơn nào kẹt hạn sai vĩnh viễn.
+    r = client.put(
+        f"/api/purchase-requests/{don['id']}/contract",
+        json={"contract_number": None, "deposit_expected": 0, "debt_cutoff_date": None},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert sorted(d["due_date"] for d in r.json()["deliveries"]) == han_cu
+    assert date  # giữ import khỏi bị dọn nhầm
+
+
+def test_ngay_chot_khong_co_so_ngay_cho_no_thi_van_khong_co_han(client):
+    """NCC chưa khai `credit_days` thì dù có ngày chốt vẫn KHÔNG suy ra hạn.
+
+    Ngày chốt là MỐC, số ngày cho nợ là ĐỘ DÀI — thiếu vế nào cũng không ra hạn. Lấy đại ngày
+    chốt làm hạn là bịa ra một mốc quá hạn chưa ai thoả thuận."""
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Chot Khong Ngay No")
+    don = _don(client, headers, supplier["id"])
+    _da_mua(client, headers, don["id"])
+    _ghi_dot(client, headers, don["id"],
+             lines=[{"purchase_request_line_id": _dong_dau_tien(don), "quantity": 1000}])
+    r = client.put(
+        f"/api/purchase-requests/{don['id']}/contract",
+        json={"contract_number": None, "deposit_expected": 0, "debt_cutoff_date": "2026-08-31"},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    dot = r.json()["deliveries"][0]
+    assert dot["due_date"] is None
+    assert dot["chua_dat_han"] is True
+
+
 def test_vuot_han_muc_khong_chan_lap_don_moi(client):
     """Đ6: cảnh báo MỀM. Chặn cứng là đúng lúc gấp nhất thì hệ khoá đường mua."""
     headers = _headers(client)

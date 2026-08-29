@@ -10,7 +10,7 @@ import {
 import { useAuth } from "../../../../auth/useAuth";
 import { Button } from "../../../../components/Button";
 import { Icon } from "../../../../components/Icons";
-import { fmtDate, money } from "../../../../utils/format";
+import { fmtDate, hanTraTuMoc, money } from "../../../../utils/format";
 import { ATTACHMENT_IMAGE_TYPES } from "../shared/constants";
 
 /**
@@ -41,6 +41,7 @@ export function ContractBlock({
 }) {
   const { token } = useAuth();
   const [soHopDong, setSoHopDong] = useState(row.contract_number ?? "");
+  const [ngayChot, setNgayChot] = useState(row.debt_cutoff_date ?? "");
   const [coc, setCoc] = useState(String(row.deposit_expected || ""));
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -60,6 +61,7 @@ export function ContractBlock({
   const hopDong = row.attachments.filter((a) => a.kind === "hop_dong");
   const banDau =
     (row.contract_number ?? "") === soHopDong.trim() &&
+    (row.debt_cutoff_date ?? "") === ngayChot &&
     (row.deposit_expected || 0) === (Number(coc) || 0);
 
   async function luu() {
@@ -70,6 +72,8 @@ export function ContractBlock({
       onChanged(
         await api.purchaseRequests.updateContract(token, row.id, {
           contract_number: soHopDong.trim() || null,
+          // Chuỗi rỗng phải hoá `null`, không gửi "" — server nhận `date | None`, "" là 422.
+          debt_cutoff_date: ngayChot || null,
           // Cọc đã khoá thì gửi lại ĐÚNG số cũ — server chỉ chặn khi số THAY ĐỔI, nhờ vậy sửa
           // riêng số hợp đồng trên đơn đã duyệt vẫn lưu được.
           deposit_expected: cocKhoa
@@ -159,6 +163,41 @@ export function ContractBlock({
             onChange={(e) => setSoHopDong(e.target.value)}
             placeholder="Chưa có hợp đồng"
           />
+        </label>
+        {/* NGÀY CHỐT CÔNG NỢ — đứng CẠNH số hợp đồng, không đứng cạnh cọc, vì nó cùng loại:
+            thứ NCC báo lại SAU khi đơn đã lập. Và như số hợp đồng, nó KHÔNG khoá theo duyệt —
+            nó không đổi đồng tiền nào, chỉ đổi HẠN trả, mà hạn thì NCC có quyền báo muộn hoặc
+            dời. Khoá lại là ép kế toán canh một cái hạn họ biết là sai.
+            KHÔNG đặt ở form TẠO đơn: form đó tách thành N đơn theo NCC mà mỗi NCC báo một mốc
+            chốt khác nhau — đúng cái bẫy đã gỡ với "ngày dự kiến nhận hàng". */}
+        <label className="purchase__field">
+          <span>Ngày chốt công nợ</span>
+          <input
+            className="input"
+            type="date"
+            readOnly={!canUpdate}
+            value={ngayChot}
+            onChange={(e) => setNgayChot(e.target.value)}
+          />
+          <small className="pdot__hint">
+            {ngayChot && (row.supplier_credit_days ?? null) !== null ? (
+              <>
+                NCC cho nợ <strong>{row.supplier_credit_days} ngày</strong> kể từ mốc này ⇒ hạn
+                trả <strong>{hanTraTuMoc(ngayChot, row.supplier_credit_days)}</strong>. Qua ngày đó
+                chưa trả mới tính quá hạn.
+              </>
+            ) : ngayChot ? (
+              <>
+                NCC <strong>chưa khai số ngày cho nợ</strong> nên chưa suy ra hạn trả được — khai
+                ở danh mục Nhà cung cấp.
+              </>
+            ) : (
+              <>
+                Mốc NCC chốt sổ cho đơn này. Bỏ trống thì hạn trả tính từ{" "}
+                <strong>ngày hoá đơn</strong> của từng đợt như cũ.
+              </>
+            )}
+          </small>
         </label>
         <label className="purchase__field">
           <span>Cọc dự kiến{cocKhoa && " (đã duyệt — khoá)"}</span>

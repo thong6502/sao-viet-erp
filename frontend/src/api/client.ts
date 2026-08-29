@@ -6152,6 +6152,9 @@ export interface PurchaseInvoiceAssignInput {
 
 export interface PurchaseContractInput {
   contract_number?: string | null;
+  /** NGÀY CHỐT CÔNG NỢ do NCC báo cho ĐƠN (YYYY-MM-DD). Hạn trả MỌI đợt của đơn = ngày này +
+   *  số ngày cho nợ của NCC. `null` = chưa báo ⇒ hạn lùi về luật cũ (ngày hoá đơn + số ngày). */
+  debt_cutoff_date?: string | null;
   /** Cọc DỰ KIẾN — chỉ để đối chiếu, KHÔNG vào công thức công nợ (cọc thật là phiếu chi). */
   deposit_expected: number;
 }
@@ -6196,6 +6199,11 @@ export interface PurchaseRequestRow {
   created_at: string;
   updated_at: string;
   contract_number: string | null;
+  /** NGÀY CHỐT CÔNG NỢ NCC báo cho đơn. Hạn trả MỌI đợt = ngày này + số ngày cho nợ của NCC —
+   *  đồng hồ chạy từ mốc CHỐT, không phải từ ngày hoá đơn. `null` = chưa báo. */
+  debt_cutoff_date: string | null;
+  /** Chụp `credit_days` của NCC — để suy hạn trả ngay tại ô gõ ngày chốt. `null` = NCC chưa khai. */
+  supplier_credit_days: number | null;
   /** Cọc DỰ KIẾN — chỉ để nhắc, KHÔNG vào công thức công nợ. */
   deposit_expected: number;
   total_estimate: number;

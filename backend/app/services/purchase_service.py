@@ -414,15 +414,28 @@ def phan_bo_tien_dot(row) -> tuple[list[dict], int, int]:
     return out, coc, con_coc
 
 
-def han_tra_dot(delivery, supplier) -> date | None:
-    """Hạn trả của một đợt giao.
+def han_tra_dot(delivery, supplier, ngay_chot: date | None) -> date | None:
+    """Hạn trả của một đợt giao. Thang bốn bậc, bậc trên thắng bậc dưới.
 
-    Hóa đơn là căn cứ công nợ: có ngày hóa đơn thì suy từ ngày hóa đơn trước. `due_date` chỉ còn
-    là hạn đã chốt thủ công/dữ liệu cũ khi chưa đủ dữ liệu để suy; cuối cùng mới lùi về ngày giao.
+    1. **NGÀY CHỐT CÔNG NỢ của đơn** + `credit_days` (chủ chốt 28/08/2026). NCC báo một mốc chốt
+       cho cả đơn rồi cho nợ N ngày kể từ mốc đó — chốt 31/8 + 30 ngày ⇒ phải trả trước 30/9.
+       Đồng hồ chạy từ mốc CHỐT, nên hàng giao 05/8 và 28/8 cùng hạn 30/9; luật cũ (bậc 2) báo
+       cái giao 05/8 quá hạn từ 04/9, sớm hơn thoả thuận thật 26 ngày.
+    2. Ngày hóa đơn + `credit_days` — luật cũ, giữ nguyên cho đơn chưa báo ngày chốt.
+    3. `due_date` — hạn chốt thủ công / dữ liệu cũ, khi chưa đủ dữ liệu để suy.
+    4. Ngày giao + `credit_days`.
+
     `credit_days` NULL = NCC CHƯA ĐẶT hạn ⇒ trả None = đợt này **không bao giờ vào cột Quá hạn**.
     Vì thế màn Công nợ phải đẩy đợt không-có-hạn lên ĐẦU kèm badge, đúng nếp chống giấu nợ đã áp
-    cho phiếu chi thiếu hạn trước đây — im lặng ở đây nghĩa là một món nợ không ai canh."""
+    cho phiếu chi thiếu hạn trước đây — im lặng ở đây nghĩa là một món nợ không ai canh.
+
+    ⚠️ `ngay_chot` là tham số BẮT BUỘC, cố ý không cho mặc định None: nó quyết hạn trả của cả
+    đơn, mà mọi chỗ gọi đều đang cầm sẵn `row`. Để mặc định là mở đường cho một call-site quên
+    truyền rồi âm thầm tính theo luật cũ — sai lệch kiểu đó không ai thấy tới lúc đối chiếu NCC.
+    """
     so_ngay = getattr(supplier, "credit_days", None) if supplier is not None else None
+    if ngay_chot is not None and so_ngay is not None:
+        return ngay_chot + timedelta(days=int(so_ngay))
     if delivery.invoice_date is not None and so_ngay is not None:
         return delivery.invoice_date + timedelta(days=int(so_ngay))
     if delivery.due_date is not None:
@@ -1600,7 +1613,7 @@ class PurchaseService:
             for m in phan_bo:
                 if m["con_no"] <= 0:
                     continue
-                han = han_tra_dot(m["delivery"], row.supplier)
+                han = han_tra_dot(m["delivery"], row.supplier, row.debt_cutoff_date)
                 if han is not None and han < hom_nay:
                     so_dot += 1
         return so_dot
@@ -2592,7 +2605,13 @@ class PurchaseService:
     # --- hợp đồng & đính kèm ------------------------------------------------
 
     def cap_nhat_hop_dong(
-        self, request_id: int, *, contract_number: str | None, deposit_expected: int | None, actor
+        self,
+        request_id: int,
+        *,
+        contract_number: str | None,
+        deposit_expected: int | None,
+        debt_cutoff_date=None,
+        actor,
     ) -> dict:
         """Số hợp đồng + cọc dự kiến.
 
@@ -2626,12 +2645,19 @@ class PurchaseService:
             )
         row.contract_number = so_hd
         row.deposit_expected = coc
+        # NGÀY CHỐT CÔNG NỢ đi cùng số hợp đồng: NCC báo sau khi đơn đã lập, nên KHÔNG khoá theo
+        # duyệt như cọc. Nó không đổi số tiền nào — chỉ đổi HẠN trả, mà hạn thì NCC có quyền báo
+        # muộn hoặc dời. Khoá lại là ép kế toán canh một cái hạn họ biết là sai.
+        row.debt_cutoff_date = debt_cutoff_date
         saved = self.requests.save(row)
         self.audit.create(
             actor_user_id=actor.id,
             action="update_purchase_contract",
             target=f"purchase_request:{row.id}",
-            detail=f"{row.code} — HĐ {so_hd or '(trống)'} · cọc dự kiến {coc:,}đ",
+            detail=(
+                f"{row.code} — HĐ {so_hd or '(trống)'} · cọc dự kiến {coc:,}đ"
+                f" · chốt công nợ {debt_cutoff_date or '(chưa báo)'}"
+            ),
         )
         return self._to_request_out(saved)
 
@@ -3139,10 +3165,10 @@ class PurchaseService:
                 "stock_request_id": _nhap_map.get(d.id, (None, None))[0],
                 "stock_request_ma": _nhap_map.get(d.id, (None, None))[1],
                 "delivery_date": d.delivery_date,
-                "due_date": han_tra_dot(d, row.supplier),
+                "due_date": han_tra_dot(d, row.supplier, row.debt_cutoff_date),
                 # NULL = NCC chưa khai số ngày cho nợ ⇒ đợt này không bao giờ vào cột Quá hạn.
                 # Cờ này để màn hình đẩy nó lên đầu kèm badge thay vì để nó chìm nghỉm.
-                "chua_dat_han": han_tra_dot(d, row.supplier) is None,
+                "chua_dat_han": han_tra_dot(d, row.supplier, row.debt_cutoff_date) is None,
                 "invoice_number": d.invoice_number,
                 "invoice_date": d.invoice_date,
                 "note": d.note,
@@ -3213,6 +3239,13 @@ class PurchaseService:
             "purpose": row.purpose,
             "needed_date": row.needed_date,
             "expected_receipt_date": row.expected_receipt_date,
+            "debt_cutoff_date": row.debt_cutoff_date,
+            # Số ngày cho nợ của NCC đi kèm để màn Thu mua tự suy được hạn trả ngay tại ô gõ
+            # ngày chốt ("chốt 31/8 + 30 ngày ⇒ 30/9"). Không có nó thì người khai gõ xong một
+            # cái ngày rồi phải sang màn khác mới biết hậu quả.
+            "supplier_credit_days": (
+                getattr(row.supplier, "credit_days", None) if row.supplier is not None else None
+            ),
             "created_by_user_id": row.created_by_user_id,
             "created_by_name": self._user_name(row.created_by_user_id),
             "submitted_at": row.submitted_at,

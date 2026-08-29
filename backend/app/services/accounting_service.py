@@ -493,7 +493,7 @@ class AccountingService:
                 "delivery_id": m["delivery"].id,
                 "seq_no": m["delivery"].seq_no,
                 "delivery_date": m["delivery"].delivery_date,
-                "due_date": han_tra_dot(m["delivery"], row.supplier),
+                "due_date": han_tra_dot(m["delivery"], row.supplier, row.debt_cutoff_date),
                 "invoice_number": m["delivery"].invoice_number,
                 "invoice_date": m["delivery"].invoice_date,
                 "amount": m["amount"],

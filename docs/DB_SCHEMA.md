@@ -2228,6 +2228,7 @@ duyệt trực tiếp trên phiếu này trước khi Thu mua mua hàng.
 | `reject_reason`       | `Text` → `TEXT`                                        | —                           | yes  | —              | Lý do **từ chối · huỷ · đóng đơn · mở lại**. Tách hẳn khỏi `content`: trước đây `cancel()` chạy `row.note = reason` ⇒ **ghi đè mất** ghi chú của người lập. Migration 0171. |
 | `needed_date`         | `Date` → `DATE`                                        | —                           | yes  | —              | Ngày cần hàng.                                                                                         |
 | `expected_receipt_date` | `Date` → `DATE`                                        | —                           | yes  | —              | Ngày dự kiến nhận hàng (NCC hẹn giao) — migration 0038.                                                |
+| `debt_cutoff_date`    | `Date` → `DATE`                                        | —                           | yes  | —              | **NGÀY CHỐT CÔNG NỢ** NCC báo cho ĐƠN. Hạn trả của **mọi** đợt giao trong đơn = ngày này + `suppliers.credit_days` — đồng hồ chạy từ mốc CHỐT, không phải từ ngày hoá đơn, nên hàng giao 05/8 và 28/8 cùng chốt 31/8 thì cùng hạn 30/9. NULL = chưa báo ⇒ `han_tra_dot` lùi về luật cũ (ngày hoá đơn + số ngày cho nợ). Migration 0226. |
 | `contract_number`     | `String(64)` → `VARCHAR(64)`                           | —                           | yes  | —              | Số hợp đồng mua. Bản thân hợp đồng là ảnh ở `purchase_attachments` (`kind='hop_dong'`) — cố ý không dựng danh mục hợp đồng. Migration 0168. |
 | `deposit_expected`    | `BigInteger` → `BIGINT`                                | —                           | no   | `0`            | Cọc DỰ KIẾN theo hợp đồng — chỉ để NHẮC, **KHÔNG** vào công thức công nợ. Tiền cọc thật là một Phiếu chi `payment_stage='advance'`; cho số này vào công thức là trừ cọc HAI LẦN. Migration 0168. |
 | `created_by_user_id`  | `Integer` → `INTEGER`                                  | **FK→users.id**, **IX**     | yes  | —              | Người tạo phiếu.                                                                                       |
@@ -3723,7 +3724,7 @@ khoá: `bao_tri` → `phieu_bao_tri`, `yeu_cau` → `yeu_cau_sua_chua` **hoặc*
 
 **Purpose:** Thu mua — phiếu mua hàng (PMH) gửi Kế toán duyệt. One row = 1 PMH.
 
-**Tất cả cột:** `id`, `code`, `status`, `supplier_id`, `purpose`, `needed_date`, `expected_receipt_date`, `created_by_user_id`, `submitted_at`, `approved_by_user_id`, `approved_at`, `note`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `code`, `status`, `supplier_id`, `purpose`, `needed_date`, `expected_receipt_date`, `debt_cutoff_date`, `created_by_user_id`, `submitted_at`, `approved_by_user_id`, `approved_at`, `note`, `created_at`, `updated_at`.
 
 ---
 

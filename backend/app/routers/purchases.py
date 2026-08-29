@@ -861,6 +861,7 @@ def update_purchase_contract(
             request_id,
             contract_number=payload.contract_number,
             deposit_expected=payload.deposit_expected,
+            debt_cutoff_date=payload.debt_cutoff_date,
             actor=user,
         )
     except PurchaseError as exc:
