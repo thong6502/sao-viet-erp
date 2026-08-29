@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
 from ..deps import get_authorization_service, require_permission
-from ..models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia, PhieuVatTu
+from ..models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia, PhieuVatTu, SanPhamTaiBan
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
@@ -33,8 +33,10 @@ from ..schemas.phieu_tinh_gia import (
     PhieuTinhGiaUpdate,
     PtgActivityItem,
     PtgActivityOut,
+    SanPhamTaiBanGoiY,
     ThanhPhanIn,
 )
+from ..services import san_pham_tai_ban_service
 from ..services.rbac_service import AuthorizationService
 from ..services.thanh_phan_engine import chuan_hoa_cot
 from ..services.tinh_gia_service import compute_phieu_snapshot, danh_muc_doi_sau_khi_tinh
@@ -246,6 +248,30 @@ def create_item(
     db.commit()
     db.refresh(p)
     return p
+
+
+@router.get("/san-pham-tai-ban", response_model=list[SanPhamTaiBanGoiY])
+def san_pham_tai_ban_goi_y(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    q: str = Query(default=""),
+    size: int = Query(default=20, ge=1, le=50),
+) -> list[SanPhamTaiBan]:
+    """Gợi ý SẢN PHẨM TÁI BẢN theo tên — dùng chung toàn hệ thống, KHÔNG lọc theo khách hàng
+    (docs/spec-san-pham-tai-ban.md). Đặt TRƯỚC route `/{p_id}` (int) — lý do như `/stats`."""
+    return san_pham_tai_ban_service.tim_kiem(db, q, size)
+
+
+@router.get("/san-pham-tai-ban/{id}", response_model=ThanhPhanIn)
+def san_pham_tai_ban_chi_tiet(
+    id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> dict:
+    row = san_pham_tai_ban_service.lay_chi_tiet(db, id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy sản phẩm tái bản")
+    return row.cau_hinh_json
 
 
 @router.get("/{p_id}", response_model=PhieuTinhGiaOut)

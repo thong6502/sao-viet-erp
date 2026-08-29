@@ -19,6 +19,12 @@ progress.md ĐÃ CŨ (dừng ở RBAC) — ĐỪNG tin nó để biết trạng 
 
 - `./init.ps1` (Windows) = pytest + compileall. Đây là cách verify chuẩn; đừng tự bịa lệnh test khác.
 - Sửa route/schema backend → RESTART uvicorn (ở đây KHÔNG hot-reload đáng tin).
+- Code xong một luồng nghiệp vụ có UI (kể cả chỉ sửa 1 khâu trong luồng nhiều bước) → BẮT BUỘC
+  thao tác lại ĐÚNG luồng đó bằng chuột/bàn phím thật trên dev-browser trước khi báo "xong", KHÔNG
+  dùng API/curl thay bất kỳ bước nào (kể cả để dựng dữ liệu nhanh cho các bước không phải trọng tâm
+  sửa). Nếu vì lý do nào đó buộc phải tắt qua API ở một đoạn, phải tự nói rõ ngay lúc báo cáo —
+  đừng đợi hỏi mới thú nhận. Báo cáo phải liệt kê CỤ THỂ đã bấm gì/gõ gì/thấy gì ở từng bước, không
+  nói chung chung "đã test UI".
 
 ## Bẫy kỹ thuật — sai là vỡ DB thật (BẮT BUỘC nhớ)
 

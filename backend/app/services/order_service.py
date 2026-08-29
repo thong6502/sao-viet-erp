@@ -28,12 +28,14 @@ from ..models.order import (
     Order,
     OrderAttachment,
 )
+from ..models.phieu_tinh_gia import PhieuThanhPhan
 from ..models.quotation import STATUS_ACCEPTED, Quote
 from ..models.user import User
 from ..repositories.accounting_repo import AccountingRepository
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.order_repo import OrderRepository
 from ..repositories.quotation_repo import QuotationRepository
+from . import san_pham_tai_ban_service
 from .thanh_pham_khai_bao import khai_cho_don
 from ..schemas.order import (
     EnumOption,
@@ -673,6 +675,22 @@ class OrderService:
             quote = self.quotations.get_by_id(order.quotation_id)
             if quote is not None and quote.status != "converted_to_order":
                 quote.status = "converted_to_order"
+        order_with_lines = self.repo.get_with_lines(order.id)
+        # SẢN PHẨM TÁI BẢN (docs/spec-san-pham-tai-ban.md) — snapshot cấu hình kỹ thuật của từng
+        # dòng có pin truy vết `phieu_thanh_phan_id` vào kho tra-theo-tên, CÙNG transaction với
+        # chốt. Dòng không có pin (nhập tay / báo giá không qua PTG) bỏ qua, không chặn chốt. Có
+        # pin nhưng bản ghi nguồn đã bị xoá thì ĐÂY MỚI LÀ LỖI — rollback, không chốt nửa vời.
+        for line in order_with_lines.lines:
+            if not line.phieu_thanh_phan_id:
+                continue
+            nguon = self.db.get(PhieuThanhPhan, line.phieu_thanh_phan_id)
+            if nguon is None:
+                self.db.rollback()
+                raise OrderValidationError(
+                    f"Dòng \"{line.description}\" trỏ tới sản phẩm tính giá đã bị xoá — "
+                    "không thể chốt đơn"
+                )
+            san_pham_tai_ban_service.snapshot_tu_thanh_phan(self.db, nguon, actor.id)
         # THÀNH PHẨM vào danh mục (mg 0203 · docs/prd-thanh-pham.md L1).
         #
         # Sản phẩm in là hàng ĐẶT RIÊNG — không có sẵn ở danh mục nào. Nhưng kho chỉ xuất được
@@ -681,7 +699,7 @@ class OrderService:
         #
         # CÙNG giao dịch với chốt, cố ý: chốt xong mà khai hỏng thì đơn đã `ordered` nhưng kho
         # không có gì để nhập, và không ai biết cho tới lúc cần giao.
-        khai_cho_don(self.db, self.repo.get_with_lines(order.id))
+        khai_cho_don(self.db, order_with_lines)
         # CHỤP ẢNH % hoa hồng của người sales vào đơn (mg 0227 · §4.6). Chụp lúc CHỐT chứ không
         # đọc-sống: đổi % cho người ta từ tháng sau KHÔNG được làm đổi hoa hồng của đơn đã chốt
         # tháng trước.

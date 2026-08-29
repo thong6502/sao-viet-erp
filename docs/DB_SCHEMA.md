@@ -3703,6 +3703,18 @@ khoá: `bao_tri` → `phieu_bao_tri`, `yeu_cau` → `yeu_cau_sua_chua` **hoặc*
 
 ---
 
+### `san_pham_tai_ban`
+
+**Purpose:** Kho cấu hình sản phẩm ĐÃ TỪNG chốt đơn — tra theo TÊN để tái bản (spec-san-pham-tai-ban §3). 1 dòng = ảnh chụp NGUYÊN cấu hình kỹ thuật (giấy/in/màu/công đoạn/vật tư, dạng `ThanhPhanIn`) của 1 `phieu_thanh_phan` tại thời điểm CHỐT ĐƠN — KHÔNG có số lượng của đơn, giá vốn đã tính, hay số bài in/số màu dẫn xuất. `ten_chuan_hoa` là khoá DÙNG CHUNG toàn hệ thống, không lọc khách hàng; cùng tên thì lần chốt sau GHI ĐÈ. Nguồn ghi DUY NHẤT là `OrderService.confirm()` (`san_pham_tai_ban_service.snapshot_tu_thanh_phan`, cùng transaction với chốt) — không có API tạo/sửa tay.
+
+**Tất cả cột:** `id`, `ten`, `ten_chuan_hoa`, `cau_hinh_json`, `updated_by`, `updated_at`.
+
+- `ten_chuan_hoa` (`String(255)`, unique index): bỏ dấu tiếng Việt + lowercase + gộp khoảng trắng (`san_pham_tai_ban_service.chuan_hoa_ten`) — khoá tìm kiếm/ghi đè, tách biệt `ten` (nhãn gốc giữ dấu để hiển thị).
+- `cau_hinh_json` (`JSON`): dict dạng `ThanhPhanIn`, gồm cả `thanh_phams`/`vat_tus` con — GET chi tiết trả thẳng dict này (`response_model=ThanhPhanIn`), không mirror sang bảng quan hệ riêng.
+- `updated_by` (`Integer`, soft → `users.id`): người bấm Chốt đơn lần ghi gần nhất.
+
+---
+
 ### `suppliers`
 
 **Purpose:** Thu mua (PR#8) — nhà cung cấp. One row = 1 NCC (thông tin liên hệ + nhóm + điều khoản thanh toán).

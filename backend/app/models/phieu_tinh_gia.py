@@ -224,6 +224,29 @@ class PhieuThanhPham(Base):
     thanh_phan: Mapped["PhieuThanhPhan"] = relationship("PhieuThanhPhan", back_populates="thanh_phams")
 
 
+class SanPhamTaiBan(Base):
+    """Kho cấu hình sản phẩm ĐÃ TỪNG chốt đơn — tra theo TÊN để tái bản (docs/spec-san-pham-tai-ban.md).
+
+    1 dòng = ảnh chụp NGUYÊN cấu hình kỹ thuật của 1 `phieu_thanh_phan` (giấy/in/màu/công đoạn/vật
+    tư) tại thời điểm CHỐT ĐƠN — dạng `ThanhPhanIn`, KHÔNG có số lượng của đơn / giá vốn đã tính /
+    số bài in & số màu dẫn xuất. `ten_chuan_hoa` (bỏ dấu, lowercase, gộp khoảng trắng) là khoá DÙNG
+    CHUNG toàn hệ thống — không lọc khách hàng; cùng tên thì lần chốt sau GHI ĐÈ. Nguồn ghi DUY NHẤT
+    là `OrderService.confirm()` (`san_pham_tai_ban_service.snapshot_tu_thanh_phan`) — không có
+    API tạo/sửa tay.
+    """
+
+    __tablename__ = "san_pham_tai_ban"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ten: Mapped[str] = mapped_column(String(255), nullable=False)
+    ten_chuan_hoa: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    cau_hinh_json: Mapped[dict] = mapped_column(JSON, nullable=False)   # dạng ThanhPhanIn (kèm thanh_phams/vat_tus)
+    updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True)   # → users.id (soft)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
 class PhieuVatTu(Base):
     """1 dòng VẬT TƯ IN ẤN (mực/màng/keo…) của 1 thành phần → NGUYÊN VẬT LIỆU.
 

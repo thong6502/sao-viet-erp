@@ -3425,6 +3425,12 @@ export interface ThanhPhanIn {
   thanh_phams?: ThanhPhamIn[];
   vat_tus?: VatTuLineIn[];
 }
+/** 1 dòng gợi ý Sản phẩm tái bản — nhẹ, chỉ đủ hiển thị danh sách chọn. */
+export interface SanPhamTaiBanGoiY {
+  id: number;
+  ten: string;
+  updated_at: string;
+}
 /** Input 1 dòng vật tư thêm — optional (BE kéo công thức + giá từ danh mục). */
 export interface VatTuLineIn {
   vat_tu_id?: number | null;
@@ -9410,6 +9416,15 @@ export const api = {
     /** Nhật ký hoạt động THẬT (ai làm gì · khi nào) của phiếu tính giá này. */
     activity(token: string, id: number): Promise<{ items: PtgActivity[] }> {
       return authed<{ items: PtgActivity[] }>(`/api/phieu-tinh-gia/${id}/activity`, token);
+    },
+    /** Gợi ý Sản phẩm tái bản theo tên — dùng chung toàn hệ thống, không lọc theo khách hàng. */
+    timSanPhamTaiBan(token: string, q: string, size = 20): Promise<SanPhamTaiBanGoiY[]> {
+      const qs = new URLSearchParams({ q, size: String(size) });
+      return authed<SanPhamTaiBanGoiY[]>(`/api/phieu-tinh-gia/san-pham-tai-ban?${qs.toString()}`, token);
+    },
+    /** Cấu hình kỹ thuật đầy đủ (dạng ThanhPhanIn) của 1 mẫu tái bản. */
+    chiTietSanPhamTaiBan(token: string, id: number): Promise<ThanhPhanIn> {
+      return authed<ThanhPhanIn>(`/api/phieu-tinh-gia/san-pham-tai-ban/${id}`, token);
     },
   },
 

@@ -48,6 +48,16 @@ class ThanhPhamOut(BaseModel):
     phi_khuon: float = 0
 
 
+# ============================ SẢN PHẨM TÁI BẢN (docs/spec-san-pham-tai-ban.md) ============================
+class SanPhamTaiBanGoiY(BaseModel):
+    """1 dòng gợi ý tìm sản phẩm tái bản — nhẹ, chỉ đủ hiển thị danh sách chọn."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ten: str
+    updated_at: datetime
+
+
 # ============================ VẬT TƯ (nguyên vật liệu thêm) ============================
 class VatTuLineIn(BaseModel):
     """1 dòng vật tư in ấn thêm tay (đầu vào — mọi trường optional)."""

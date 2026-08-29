@@ -22,10 +22,11 @@ import {
 import { congDoan, donViDo, giay, loaiSanPham, mayThietBi, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { MucInHang } from "../components/MucIn";
+import { SanPhamTaiBanGoiY as SanPhamTaiBanCombo } from "../components/SanPhamTaiBanGoiY";
 import { Select, type SelectOption } from "../components/Select";
-import { ThanhPhamGoiY } from "../components/ThanhPhamGoiY";
 import { ImpositionDiagram } from "./ImpositionDiagram";
 import { heSoChu, nhanDonVi } from "./lsxBuoc";
 import { useNapTenDonVi } from "./tenDonVi";
@@ -683,6 +684,73 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
   };
 }
 
+/** Nạp cấu hình Sản phẩm tái bản (`cau_hinh_json`, dạng `ThanhPhanIn`) vào thẻ ĐANG SỬA — GIỮ
+ *  `uid` + `so_luong` hiện tại của thẻ (SL đơn cũ KHÔNG được nạp lại, theo plan), điền lại mọi
+ *  thứ khác (tên + toàn bộ kỹ thuật/công đoạn/vật tư). `gia_von_tp` luôn về 0 — chưa tính lại. */
+function fromThanhPhanIn(cfg: ThanhPhanIn, giu: { uid: string; so_luong: number }): EditableComponent {
+  const tapMuc = tapMucCuaComp({
+    muc_a: cfg.muc_a ?? null, muc_b: cfg.muc_b ?? null,
+    so_mau_a: cfg.so_mau_a ?? null, so_mau_b: cfg.so_mau_b ?? null, so_mau_pha: cfg.so_mau_pha ?? null,
+  });
+  return {
+    uid: giu.uid,
+    loai_thanh_phan: cfg.loai_thanh_phan ?? "to_roi",
+    ten: cfg.ten ?? "",
+    dai_thanh_pham: cfg.dai_thanh_pham ?? 0,
+    rong_thanh_pham: cfg.rong_thanh_pham ?? 0,
+    so_to_per_sp: 1,
+    so_trang: cfg.so_trang ?? 1,
+    trang_moi_tay: cfg.trang_moi_tay ?? 1,
+    so_luong: giu.so_luong,
+    don_vi_tinh: cfg.don_vi_tinh ?? "cái",
+    nhom_bao_gia: cfg.nhom_bao_gia ?? "",
+    loai_san_pham_id: cfg.loai_san_pham_id ?? null,
+    giay_id: cfg.giay_id ?? null,
+    kho_nguyen: cfg.kho_nguyen ?? "",
+    kho_nguyen_dai: cfg.kho_nguyen_dai ?? 0,
+    kho_nguyen_rong: cfg.kho_nguyen_rong ?? 0,
+    don_gia_giay: cfg.don_gia_giay ?? 0,
+    don_gia_don_vi: cfg.don_gia_don_vi ?? "to",
+    nguon_giay: cfg.nguon_giay ?? "cong_ty",
+    chua_nhip: cfg.chua_nhip ?? 0,
+    bleed_mm: cfg.bleed_mm ?? 0,
+    khe_cat_mm: cfg.khe_cat_mm ?? 0,
+    quy_cach_in: cfg.quy_cach_in ?? "mot_mat",
+    kho_in_dai: cfg.kho_in_dai ?? 0,
+    kho_in_rong: cfg.kho_in_rong ?? 0,
+    so_con: cfg.so_con ?? 1,
+    con_auto: cfg.con_auto ?? true,
+    may_id: cfg.may_id ?? null,
+    ...tapMuc,
+    so_mau_a: cfg.so_mau_a ?? 0,
+    so_mau_b: cfg.so_mau_b ?? 0,
+    so_mau_pha: cfg.so_mau_pha ?? 0,
+    ghi_chu_ky_thuat: cfg.ghi_chu_ky_thuat ?? "",
+    gia_von_tp: 0,
+    thanh_phams: (cfg.thanh_phams ?? []).map((f) => ({
+      uid: nextUid(),
+      cong_doan_id: f.cong_doan_id ?? null,
+      ten: f.ten ?? "",
+      don_gia: f.don_gia ?? 0,
+      so_luong: f.so_luong ?? 0,
+      bu_hao: !!f.bu_hao,
+      so_mat: f.so_mat ?? 1,
+      so_vi_tri: f.so_vi_tri ?? 0,
+      dien_tich: f.dien_tich ?? 0,
+      nha_cung_cap: f.nha_cung_cap ?? "",
+      ghi_chu: f.ghi_chu ?? "",
+      phi_khuon: f.phi_khuon ?? 0,
+    })),
+    vat_tus: (cfg.vat_tus ?? []).map((v) => ({
+      uid: nextUid(),
+      vat_tu_id: v.vat_tu_id ?? null,
+      ten: v.ten ?? "",
+      don_gia: v.don_gia ?? 0,
+      so_luong: v.so_luong ?? 0,
+      ghi_chu: v.ghi_chu ?? "",
+    })),
+  };
+}
 
 /** Node hiển thị của bảng sản phẩm: 1 nhóm gộp (nhiều dòng) hoặc 1 dòng lẻ. */
 type NodeHienThi =
@@ -2402,6 +2470,40 @@ function ComponentModal({
       .catch(() => setDvtOpts([]));
   }, [token]);
 
+  // ---- Sản phẩm tái bản (docs/spec-san-pham-tai-ban.md) ----
+  // Snapshot lúc MỞ thẻ này — dùng để biết đang có sửa tay CHƯA lưu hay chưa, mới quyết có cần
+  // hỏi trước khi ghi đè hay không. Modal remount mỗi lần mở lại (xem `{editing ? <ComponentModal>
+  // : null}` ở nơi gọi) nên khởi tạo một lần lúc mount là đúng, khỏi cần theo dõi uid đổi.
+  const openSnapRef = useRef(JSON.stringify(toThanhPhanIn(c)));
+  const [taiBanXacNhan, setTaiBanXacNhan] = useState<number | null>(null);
+  const [taiBanBusy, setTaiBanBusy] = useState(false);
+  const [taiBanErr, setTaiBanErr] = useState<string | null>(null);
+  const napTaiBan = useCallback(
+    (id: number, dongXacNhanKhiXong: boolean) => {
+      if (!token) return;
+      setTaiBanBusy(true);
+      setTaiBanErr(null);
+      api.phieuTinhGia
+        .chiTietSanPhamTaiBan(token, id)
+        .then((cfg) => {
+          // GIỮ so_luong hiện tại của thẻ — plan: KHÔNG nạp lại SL đơn cũ.
+          patchComp(c.uid, fromThanhPhanIn(cfg, { uid: c.uid, so_luong: c.so_luong }));
+          if (dongXacNhanKhiXong) setTaiBanXacNhan(null);
+        })
+        .catch((e) => setTaiBanErr(e instanceof ApiError ? e.message : "Không nạp được cấu hình tái bản. Thử lại."))
+        .finally(() => setTaiBanBusy(false));
+    },
+    [token, patchComp, c.uid, c.so_luong],
+  );
+  const chonTaiBan = useCallback(
+    (id: number) => {
+      const dirty = JSON.stringify(toThanhPhanIn(c)) !== openSnapRef.current;
+      if (dirty) setTaiBanXacNhan(id);
+      else napTaiBan(id, false);
+    },
+    [c, napTaiBan],
+  );
+
   // uid của sản phẩm đang mở trợ lý "tính số khuôn từ số trang" (mỗi lúc chỉ 1 popover).
   const [calcUid, setCalcUid] = useState<string | null>(null);
   // Bung phân rã bù hao: bước nào trong chuỗi ăn bao nhiêu tờ. Mặc định thu gọn.
@@ -2532,6 +2634,7 @@ function ComponentModal({
   }, [onClose]);
 
   return (
+    <>
     <div className="rc-modal__scrim" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="rc-modal" onClick={(e) => e.stopPropagation()}>
         <header className="rc-modal__head">
@@ -2555,15 +2658,25 @@ function ComponentModal({
               <div className="tg-grid">
                 <label className="tg-field tg-span-6">
                   <span className="tg-microlabel">Tên sản phẩm</span>
-                  {/* GỢI Ý từ danh mục Thành phẩm, KHÔNG ép chọn — gõ tên mới vẫn được.
-                      Chọn lại đúng tên cũ thì lúc chốt đơn hệ dùng lại đúng dòng danh mục cũ,
-                      không đẻ dòng mới (docs/prd-thanh-pham.md §11). */}
-                  <ThanhPhamGoiY
-                    token={token ?? ""}
+                  <input
+                    className="tg-input"
+                    type="text"
                     value={c.ten}
                     placeholder="VD Thân hộp / Ruột / Bìa"
-                    onChange={(ten) => patchComp(c.uid, { ten })}
+                    autoComplete="off"
+                    onChange={(e) => patchComp(c.uid, { ten: e.target.value })}
                   />
+                </label>
+                <label className="tg-field tg-span-6">
+                  <span className="tg-microlabel">
+                    Sản phẩm tái bản <span className="tg-microlabel__opt">nạp lại cấu hình đã chốt đơn</span>
+                  </span>
+                  {/* Chọn 1 kết quả nạp NGUYÊN giấy/in/màu/công đoạn/vật tư của lần chốt đơn gần
+                      nhất cùng tên — KHÔNG nạp số lượng/giá vốn (docs/spec-san-pham-tai-ban.md). */}
+                  <SanPhamTaiBanCombo token={token ?? ""} onChon={chonTaiBan} />
+                  {taiBanErr && !taiBanXacNhan && (
+                    <div className="banner banner--error" role="alert">{taiBanErr}</div>
+                  )}
                 </label>
                 <div className="tg-span-3">
                   <NumField
@@ -3387,6 +3500,18 @@ function ComponentModal({
         </footer>
       </div>
     </div>
+    <ConfirmDialog
+      open={taiBanXacNhan !== null}
+      title="Nạp cấu hình tái bản?"
+      message="Sản phẩm này đang có thay đổi CHƯA lưu. Nạp cấu hình tái bản sẽ GHI ĐÈ toàn bộ giấy/in/màu/công đoạn/vật tư của thẻ (giữ nguyên số lượng)."
+      confirmLabel="Ghi đè, nạp lại"
+      danger
+      busy={taiBanBusy}
+      error={taiBanErr}
+      onConfirm={() => taiBanXacNhan != null && napTaiBan(taiBanXacNhan, true)}
+      onCancel={() => { setTaiBanXacNhan(null); setTaiBanErr(null); }}
+    />
+    </>
   );
 }
 
