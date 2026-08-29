@@ -12,6 +12,7 @@ import {
   ApiError,
   api,
   assetUrl,
+  type DieuChinhLichSu,
   type HangLoai,
   type StockAllocationLine,
   type StockLot,
@@ -540,6 +541,7 @@ export function KhoYeuCauPage({
           requestId={openRequest}
           canCreate={canCreate}
           canViewStock={canViewStock}
+          canViewCost={canViewCost}
           onClose={() => setOpenRequest(null)}
           onCreateVoucher={openFulfil}
           onOpenVoucher={setOpenVoucher}
@@ -768,6 +770,18 @@ export function TransferDrawer({
     setViTriEdit(init);
   }, [v]);
 
+  // Gợi ý vị trí cất (kệ/ô) đã khai của kho ĐÍCH — chỉ để GỢI Ý (datalist), vẫn gõ tự do được.
+  const [viTriOptions, setViTriOptions] = useState<string[]>([]);
+  useEffect(() => {
+    const kho = v?.kho_id;
+    if (kho == null) { setViTriOptions([]); return; }
+    let alive = true;
+    api.kho.viTri.list(token, kho)
+      .then((r) => { if (alive) setViTriOptions(r.items.map((x) => x.ma)); })
+      .catch(() => { if (alive) setViTriOptions([]); });
+    return () => { alive = false; };
+  }, [token, v?.kho_id]);
+
   const status: TransferStatus =
     req?.trang_thai === "cancelled"
       ? "da-huy"
@@ -831,15 +845,16 @@ export function TransferDrawer({
       nguoiLap: v?.nguoi_lap_ten ?? req.nguoi_tao_ten ?? null,
       nguoiGiaoNhan: v?.nguoi_giao_nhan ?? null,
       lyDo: v?.ghi_chu ?? req.ghi_chu ?? null,
-      tongTien: v?.gia_von ?? null,
+      // In ẩn GIÁ nghiêm theo quyền `view_cost` (không dựa API — API còn nới cho người tạo yêu cầu).
+      tongTien: canViewCost ? (v?.gia_von ?? null) : null,
       cancelled: req.trang_thai === "cancelled",
       lines: (v?.lines ?? []).map((l) => ({
         materialCode: l.hang_ma,
         materialName: l.hang_ten,
         dvt: tenDonVi(l.dvt) ?? l.dvt,
         soLuong: l.so_luong,
-        donGia: l.don_gia,
-        thanhTien: l.thanh_tien,
+        donGia: canViewCost ? l.don_gia : null,
+        thanhTien: canViewCost ? l.thanh_tien : null,
         hsd: l.hsd ?? null,
       })),
     };
@@ -938,6 +953,11 @@ export function TransferDrawer({
                 <section className="rc-sec">
                   <h3 className="rc-sec__title">Dòng điều chuyển (theo lô)</h3>
                   <div className="kho-lines__wrap kho-lines-card">
+                    {viTriOptions.length > 0 && (
+                      <datalist id="kho-vitri-transfer">
+                        {viTriOptions.map((x) => <option key={x} value={x} />)}
+                      </datalist>
+                    )}
                     <table className="kho-lines" style={{ width: "100%", tableLayout: "auto" }}>
                       <thead>
                         <tr>
@@ -983,6 +1003,7 @@ export function TransferDrawer({
                                     className="rc-input"
                                     style={{ minWidth: 150, width: "100%" }}
                                     value={viTriEdit[l.id] ?? ""}
+                                    list={viTriOptions.length > 0 ? "kho-vitri-transfer" : undefined}
                                     onChange={(e) =>
                                       setViTriEdit((m) => ({ ...m, [l.id]: e.target.value }))
                                     }
@@ -1100,6 +1121,7 @@ export function InboxRequestDrawer({
   requestId,
   canCreate,
   canViewStock,
+  canViewCost,
   onClose,
   onCreateVoucher,
   onOpenVoucher,
@@ -1110,6 +1132,8 @@ export function InboxRequestDrawer({
   requestId: number;
   canCreate: boolean;
   canViewStock: boolean;
+  /** Kế toán (view_cost) xem ĐƠN GIÁ + THÀNH TIỀN của dòng yêu cầu; không quyền thì cột biến mất. */
+  canViewCost: boolean;
   onClose: () => void;
   onCreateVoucher: (r: StockRequest) => void;
   /** Mở phiếu ĐÃ lập từ yêu cầu này (kể cả đã ghi sổ) — cha có sẵn VoucherDrawer. Không truyền
@@ -1317,6 +1341,8 @@ export function InboxRequestDrawer({
                         <th className="kho-num" style={{ width: 100 }}>Yêu cầu</th>
                         {/* Cột Tồn khả dụng có chiều rộng 140px chuẩn, không bao giờ bị xén */}
                         {canViewStock && <th className="kho-num" style={{ width: 140 }}>Tồn khả dụng</th>}
+                        {canViewCost && <th className="kho-num" style={{ width: 100 }}>Đơn giá</th>}
+                        {canViewCost && <th className="kho-num" style={{ width: 120 }}>Thành tiền</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -1372,6 +1398,20 @@ export function InboxRequestDrawer({
                                     </span>
                                   )
                                 )}
+                              </td>
+                            )}
+                            {canViewCost && (
+                              <td className="kho-num">
+                                {l.don_gia != null
+                                  ? `${l.don_gia.toLocaleString("vi-VN")} đ`
+                                  : <span className="rc__muted">—</span>}
+                              </td>
+                            )}
+                            {canViewCost && (
+                              <td className="kho-num">
+                                {l.don_gia != null
+                                  ? money(Math.round(l.don_gia * l.sl_de_nghi))
+                                  : <span className="rc__muted">—</span>}
                               </td>
                             )}
                           </tr>
@@ -1589,6 +1629,17 @@ function VoucherCreateDrawer({
   const [dirty, setDirty] = useState(false);
   const [askDiscard, setAskDiscard] = useState(false);
   const [askPost, setAskPost] = useState(false);
+  // Gợi ý VỊ TRÍ cất (kệ/ô) đã khai của kho ĐÍCH — chỉ phiếu NHẬP mới ghi vị trí lô. Chỉ để GỢI Ý
+  // (datalist), thủ kho vẫn gõ tự do được nếu vị trí chưa khai trong danh mục.
+  const [viTriOptions, setViTriOptions] = useState<string[]>([]);
+  useEffect(() => {
+    if (!isNhap || khoId == null) { setViTriOptions([]); return; }
+    let alive = true;
+    api.kho.viTri.list(token, khoId)
+      .then((r) => { if (alive) setViTriOptions(r.items.map((v) => v.ma)); })
+      .catch(() => { if (alive) setViTriOptions([]); });
+    return () => { alive = false; };
+  }, [token, khoId, isNhap]);
 
   // Tự chọn "Kho (xuất từ)" = kho có NHIỀU hàng nhất (ưu tiên mặt hàng đầu tiên) NGAY khi mở phiếu
   // XUẤT — thay vì bê kho đang xem ở toolbar (dễ trỏ vào kho rỗng). Chỉ chạy MỘT LẦN, cho MỌI phiếu
@@ -2016,6 +2067,12 @@ function VoucherCreateDrawer({
                 </div>
               ) : (
                 <div className="kho-lines__wrap kho-lines-card">
+                  {/* Gợi ý vị trí cất (kệ/ô) đã khai của kho — 1 datalist dùng chung cho mọi ô Vị trí. */}
+                  {isNhap && viTriOptions.length > 0 && (
+                    <datalist id="kho-vitri-suggest">
+                      {viTriOptions.map((v) => <option key={v} value={v} />)}
+                    </datalist>
+                  )}
                   {/* Bảng dòng cấp auto-fit chiều rộng Drawer, min-width 240px cho cột Vật tư chống ép chữ */}
                   <table className="kho-lines" style={{ width: "100%", tableLayout: "auto" }}>
                     <thead>
@@ -2043,6 +2100,7 @@ function VoucherCreateDrawer({
                           block={b}
                           isNhap={isNhap}
                           canViewCost={canViewCost}
+                          viTriListId={isNhap && viTriOptions.length > 0 ? "kho-vitri-suggest" : undefined}
                           onCap={(v) => patch(b.line.id, (cur) => ({ ...cur, touched: true, cap: v }))}
                           onLyDo={(v) => patch(b.line.id, (cur) => ({ ...cur, lyDo: v }))}
                           onLotQty={(lotId, v) => setLotQty(b.line.id, lotId, v)}
@@ -2171,6 +2229,7 @@ function AllocRow({
   block,
   isNhap,
   canViewCost,
+  viTriListId,
   idx,
   onCap,
   onLyDo,
@@ -2185,6 +2244,8 @@ function AllocRow({
   block: AllocBlock;
   isNhap: boolean;
   canViewCost: boolean;
+  /** id của <datalist> gợi ý vị trí (kệ/ô) đã khai của kho; undefined = không gợi ý (vẫn gõ tự do). */
+  viTriListId?: string;
   idx: number;
   onCap: (v: number) => void;
   onLyDo: (v: string) => void;
@@ -2436,6 +2497,7 @@ function AllocRow({
               <input
                 className="rc-input kho-nhap__vitri"
                 value={block.viTri}
+                list={viTriListId}
                 onChange={(e) => onViTri(e.target.value)}
                 placeholder="kệ A / ô…"
                 aria-label="Vị trí cất hàng"
@@ -2606,6 +2668,10 @@ export function VoucherDrawer({
   const [attachments, setAttachments] = useState<StockVoucherAttachment[]>([]);
   const [attBusy, setAttBusy] = useState(false);
   const [attError, setAttError] = useState<string | null>(null);
+  // Điều chỉnh phiếu XUẤT đã ghi sổ khi SX dùng ÍT hơn (xuất 10 → 7): sửa giảm số, trả dư về lô.
+  const [adjusting, setAdjusting] = useState(false);
+  const [adjQty, setAdjQty] = useState<Record<number, number>>({});
+  const [adjLyDo, setAdjLyDo] = useState("");   // lý do điều chỉnh (BẮT BUỘC)
 
   useEffect(() => {
     let cancelled = false;
@@ -2634,6 +2700,16 @@ export function VoucherDrawer({
       .catch(() => {});
   }, [token, voucherId]);
   useEffect(loadAtt, [loadAtt]);
+
+  // Lịch sử ĐIỀU CHỈNH phiếu xuất (ai · bộ phận · lúc nào · đổi gì). Rỗng thì ẩn khối.
+  const [dcHistory, setDcHistory] = useState<DieuChinhLichSu[]>([]);
+  const loadDcHistory = useCallback(() => {
+    api.kho.phieu
+      .lichSuDieuChinh(token, voucherId)
+      .then(setDcHistory)
+      .catch(() => setDcHistory([]));
+  }, [token, voucherId]);
+  useEffect(loadDcHistory, [loadDcHistory]);
 
   async function uploadAtt(file: File) {
     setAttBusy(true);
@@ -2677,7 +2753,9 @@ export function VoucherDrawer({
       khoTen: v.kho_ten,
       diaDiem: null,
       lyDo: v.ghi_chu,
-      tongTien: v.gia_von,
+      // In ẩn GIÁ nghiêm theo quyền `view_cost`: KHÔNG có quyền → bỏ Đơn giá/Thành tiền/Tổng (template
+      // tự ẩn 2 cột khi donGia null). Gate ở đây, KHÔNG dựa API — vì API còn nới cho người TẠO yêu cầu.
+      tongTien: canViewCost ? v.gia_von : null,
       cancelled: v.trang_thai === "cancelled",
       lines: v.lines.map((l) => ({
         materialCode: l.hang_ma,
@@ -2686,8 +2764,8 @@ export function VoucherDrawer({
         dvt: tenDonVi(l.dvt) ?? l.dvt,   // TÊN có dấu (tờ/bản kẽm) thay MÃ (to/kem) — khớp bản in điều chuyển
         soLuongChungTu: req?.lines.find((x) => x.id === l.request_line_id)?.sl_duyet ?? null,
         soLuong: l.so_luong,
-        donGia: l.don_gia,
-        thanhTien: l.thanh_tien,
+        donGia: canViewCost ? l.don_gia : null,
+        thanhTien: canViewCost ? l.thanh_tien : null,
       })),
     };
     setPopupBlocked(!printStockVoucher(data));
@@ -2701,6 +2779,47 @@ export function VoucherDrawer({
       onChanged();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : fallback);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startAdjust() {
+    if (!v) return;
+    const seed: Record<number, number> = {};
+    v.lines.forEach((l) => { seed[l.id] = l.so_luong; });
+    setAdjQty(seed);
+    setAdjLyDo("");
+    setError(null);
+    setAdjusting(true);
+  }
+  async function saveAdjust() {
+    if (!v) return;
+    // Chỉ gửi dòng THỰC SỰ giảm; số mới phải > 0 (bỏ hẳn cả dòng không phải việc ở đây).
+    const lines = v.lines
+      .filter((l) => (adjQty[l.id] ?? l.so_luong) < l.so_luong - 1e-9)
+      .map((l) => ({ line_id: l.id, so_luong_moi: adjQty[l.id] ?? l.so_luong }));
+    if (lines.length === 0) {
+      setError("Chưa giảm dòng nào — sửa số ở cột “Số lượng” cho nhỏ hơn rồi lưu.");
+      return;
+    }
+    if (lines.some((x) => x.so_luong_moi <= 0)) {
+      setError("Số lượng mới phải lớn hơn 0.");
+      return;
+    }
+    if (!adjLyDo.trim()) {
+      setError("Phải nhập lý do điều chỉnh.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      setV(await api.kho.phieu.dieuChinhXuat(token, v.id, lines, adjLyDo.trim()));
+      setAdjusting(false);
+      loadDcHistory();   // hiện ngay dòng lịch sử vừa tạo
+      onChanged();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Không điều chỉnh được phiếu.");
     } finally {
       setBusy(false);
     }
@@ -2819,6 +2938,14 @@ export function VoucherDrawer({
 
                 <section className="rc-sec">
                   <h3 className="rc-sec__title">Dòng phiếu</h3>
+                  {adjusting && (
+                    <div className="banner banner--info" style={{ marginBottom: 8 }}>
+                      <span>
+                        SX dùng ít hơn? Sửa <b>GIẢM</b> ô “Số lượng” từng dòng — phần dư trả về lô
+                        nguồn, yêu cầu tính lại phần còn thiếu.
+                      </span>
+                    </div>
+                  )}
                   <div className="kho-lines__wrap kho-lines-card">
                     <table className="kho-lines" style={{ width: "100%", tableLayout: "auto" }}>
                       <thead>
@@ -2838,7 +2965,19 @@ export function VoucherDrawer({
                               <div className="kho-lines__code" style={{ fontFamily: "var(--ff-num)", fontSize: 11, color: "var(--ash)" }}>{l.hang_ma ?? ""}</div>
                             </td>
                             <td className="kho-lines__code" style={{ textAlign: "center" }}>{tenDonVi(l.dvt) ?? l.dvt ?? "—"}</td>
-                            <td className="kho-num">{fmtQty(l.so_luong)}</td>
+                            <td className="kho-num">
+                              {adjusting ? (
+                                <DecimalInput
+                                  className="rc-input rc-input--num"
+                                  style={{ width: 92, textAlign: "right" }}
+                                  value={adjQty[l.id] ?? l.so_luong}
+                                  aria-label={`Số lượng thực dùng — ${l.hang_ten ?? ""}`}
+                                  onChange={(n) => setAdjQty((m) => ({ ...m, [l.id]: n ?? 0 }))}
+                                />
+                              ) : (
+                                fmtQty(l.so_luong)
+                              )}
+                            </td>
                             {canViewCost && (
                               <td className="kho-num">
                                 {l.don_gia != null ? money(l.don_gia) : ""}
@@ -2854,7 +2993,51 @@ export function VoucherDrawer({
                       </tbody>
                     </table>
                   </div>
+                  {adjusting && (
+                    <label className="rc-field rc-field--full" style={{ marginTop: 10 }}>
+                      <span className="rc-field__label">Lý do điều chỉnh <em>*</em></span>
+                      <div className="rc-input-wrapper">
+                        <textarea
+                          className="rc-textarea"
+                          rows={2}
+                          value={adjLyDo}
+                          onChange={(e) => setAdjLyDo(e.target.value)}
+                          placeholder="Vd: SX chỉ dùng 7, trả 3 về kho / khai dư số lượng…"
+                        />
+                      </div>
+                    </label>
+                  )}
                 </section>
+
+                {dcHistory.length > 0 && (
+                  <section className="rc-sec">
+                    <h3 className="rc-sec__title">Lịch sử điều chỉnh</h3>
+                    <div className="kho-lines__wrap kho-lines-card">
+                      <table className="kho-lines" style={{ width: "100%", tableLayout: "auto" }}>
+                        <thead>
+                          <tr>
+                            <th style={{ width: 140 }}>Thời điểm</th>
+                            <th style={{ width: 130 }}>Người điều chỉnh</th>
+                            <th style={{ width: 110 }}>Bộ phận</th>
+                            <th style={{ width: 180 }}>Nội dung</th>
+                            <th>Lý do</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dcHistory.map((h, i) => (
+                            <tr key={i}>
+                              <td>{fmtDateTime(h.thoi_diem)}</td>
+                              <td><strong>{h.nguoi_ten ?? "—"}</strong></td>
+                              <td>{h.bo_phan_ten ?? "—"}</td>
+                              <td>{h.chi_tiet ?? "—"}</td>
+                              <td>{h.ly_do ?? "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                )}
 
                 <section className="rc-sec">
                   <h3 className="rc-sec__title">Chứng từ gốc / Hóa đơn</h3>
@@ -2938,6 +3121,24 @@ export function VoucherDrawer({
               <Button variant="accent" loading={busy} onClick={() => setAskPost(true)}>
                 Ghi sổ
               </Button>
+            )}
+            {/* Điều chỉnh phiếu XUẤT ĐÃ ghi sổ khi SX dùng ít hơn — KHÔNG cho phiếu điều chuyển (vế
+                nội bộ cặp đôi, sửa lệch vỡ cân đối 2 kho; muốn khác thì điều chuyển ngược lại). */}
+            {canCreate && v?.loai === "XUAT" && v?.trang_thai === "posted"
+              && !v?.dieu_chuyen && !adjusting && (
+              <button type="button" className="btn btn--secondary" onClick={startAdjust}>
+                Điều chỉnh (dùng ít hơn)
+              </button>
+            )}
+            {adjusting && (
+              <>
+                <button type="button" className="btn btn--ghost" onClick={() => setAdjusting(false)} disabled={busy}>
+                  Hủy sửa
+                </button>
+                <Button variant="accent" loading={busy} onClick={saveAdjust}>
+                  Lưu điều chỉnh
+                </Button>
+              </>
             )}
             <button type="button" className="btn btn--secondary" onClick={onClose}>
               Đóng

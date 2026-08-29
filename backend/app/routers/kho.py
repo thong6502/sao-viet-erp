@@ -14,13 +14,22 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from fastapi import HTTPException
+
 from ..db import get_db
 from ..deps import require_any_permission, require_permission
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
-from ..schemas.kho_hang import KhoHangIn, KhoHangListOut, KhoHangRow
+from ..repositories.kho_vi_tri_repo import KhoViTriRepository
+from ..schemas.kho_hang import (
+    KhoHangIn, KhoHangListOut, KhoHangRow, KhoViTriIn, KhoViTriListOut, KhoViTriRow,
+)
 from ..services.kho_hang_service import KhoHangNotFound, KhoHangService
+from ..services.kho_vi_tri_service import (
+    KhoViTriDuplicate, KhoViTriKhoNotFound, KhoViTriNotFound, KhoViTriService,
+    KhoViTriValidationError,
+)
 from .catalog_base import loi_http, make_catalog_router
 
 router = APIRouter(prefix="/api/kho", tags=["kho"])
@@ -51,6 +60,49 @@ def delete_check(kho_id: int, svc: Service,
     except KhoHangNotFound as e:
         raise loi_http(e) from None
     return {"can_delete": not blockers, "blockers": blockers}
+
+
+# ── Vị trí cất trong kho (`kho_vi_tri`) ─────────────────────────────────────────────────────
+# Danh sách vị trí (kệ/ô) khai cho TỪNG kho → để khai lô chọn dropdown thay vì gõ tay. ĐỌC mở cho
+# mọi vai chọn kho (`_doc_kho`); THÊM/XÓA là việc khai báo nên gác `dm_kho_hang`.
+def get_vi_tri_service(db: Annotated[Session, Depends(get_db)]) -> KhoViTriService:
+    return KhoViTriService(
+        KhoViTriRepository(db), KhoHangRepository(db), AuditLogRepository(db))
+
+
+ViTriService = Annotated[KhoViTriService, Depends(get_vi_tri_service)]
+
+
+@router.get("/{kho_id}/vi-tri", response_model=KhoViTriListOut)
+def list_vi_tri(kho_id: int, svc: ViTriService, _: Annotated[User, Depends(_doc_kho)]):
+    try:
+        items = svc.list(kho_id)
+    except KhoViTriKhoNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    return {"items": [KhoViTriRow.model_validate(v) for v in items]}
+
+
+@router.post("/{kho_id}/vi-tri", response_model=KhoViTriRow, status_code=201)
+def create_vi_tri(kho_id: int, body: KhoViTriIn, svc: ViTriService,
+                  user: Annotated[User, Depends(require_permission(MODULE, "create"))]):
+    try:
+        obj = svc.create(kho_id, body.ma, body.ghi_chu, actor_id=user.id)
+    except KhoViTriKhoNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    except KhoViTriValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except KhoViTriDuplicate as e:
+        raise HTTPException(status_code=409, detail=str(e)) from None
+    return KhoViTriRow.model_validate(obj)
+
+
+@router.delete("/vi-tri/{vi_tri_id}", status_code=204)
+def delete_vi_tri(vi_tri_id: int, svc: ViTriService,
+                  user: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
+    try:
+        svc.delete(vi_tri_id, actor_id=user.id)
+    except KhoViTriNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
 
 
 make_catalog_router(

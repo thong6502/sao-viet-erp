@@ -7,6 +7,7 @@ Bản in 01-VT/02-VT dùng chính response này nên tự động bỏ 2 cột t
 """
 from __future__ import annotations
 
+import json
 from typing import Annotated
 
 from fastapi import (
@@ -33,10 +34,13 @@ from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.stock_request_repo import StockRequestRepository
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..repositories.stock_voucher_repo import StockVoucherRepository
+from ..repositories.rbac_repo import DepartmentRepository
 from ..repositories.user_repo import UserRepository
 from ..schemas.stock import (
     AllocationLineOut,
     AllocationOut,
+    DieuChinhLichSuRow,
+    DieuChinhXuatIn,
     DieuChuyenIn,
     DieuChuyenOut,
     MaterialHistoryOut,
@@ -70,6 +74,8 @@ threshold_router = APIRouter(prefix="/api/kho/nguong-ton", tags=["kho-nguong"])
 # Điều chuyển kho — prefix RIÊNG (không nhét dưới /phieu) để không bị `/phieu/{voucher_id}` nuốt.
 dieu_chuyen_router = APIRouter(prefix="/api/kho/dieu-chuyen", tags=["kho-dieu-chuyen"])
 MODULE = "kho"
+# Action nhật ký khi ĐIỀU CHỈNH phiếu xuất (SX dùng ít hơn) — đọc lại cho "Lịch sử điều chỉnh".
+_ACTION_DIEU_CHINH_XUAT = "kho_xuat_dieu_chinh"
 
 
 def _hang_service(db: Session) -> VatLieuKhoService:
@@ -360,6 +366,60 @@ def cancel_voucher(
     return _serialize(v, svc=svc, db=db, can_view_cost=authz.can(user, MODULE, "view_cost"))
 
 
+@router.post("/{voucher_id}/dieu-chinh-xuat", response_model=StockVoucherOut)
+def dieu_chinh_xuat(
+    voucher_id: int, payload: DieuChinhXuatIn, svc: Service, db: Db, authz: Authz,
+    # Điều chỉnh phiếu XUẤT đã ghi sổ khi SX dùng ÍT hơn (xuất 10 → 7): trả dư về lô, giảm 'đã cấp'
+    # của yêu cầu. Cùng quyền vận hành phiếu (create) — thủ kho là người biết SX dùng bao nhiêu.
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+) -> StockVoucherOut:
+    """Sửa giảm số đã xuất của phiếu XUẤT đã ghi sổ (SX dùng không hết) — trả phần dư về lô nguồn."""
+    try:
+        v, changes = svc.dieu_chinh_xuat(
+            voucher_id, {ln.line_id: ln.so_luong_moi for ln in payload.lines}, user)
+    except StockVoucherError as e:
+        raise _err(e) from None
+    # Điều chỉnh phiếu ĐÃ ghi sổ = thao tác nhạy cảm (đụng sổ) → ghi nhật ký để truy vết (ai · lúc nào
+    # · đổi gì · VÌ SAO). detail = JSON {noi_dung, ly_do} để lịch sử tách 2 cột.
+    AuditLogRepository(db).create(
+        actor_user_id=user.id, action=_ACTION_DIEU_CHINH_XUAT,
+        target=f"voucher:{voucher_id}",
+        detail=json.dumps({"noi_dung": "; ".join(changes), "ly_do": payload.ly_do},
+                          ensure_ascii=False),
+    )
+    return _serialize(v, svc=svc, db=db, can_view_cost=authz.can(user, MODULE, "view_cost"))
+
+
+@router.get("/{voucher_id}/lich-su-dieu-chinh", response_model=list[DieuChinhLichSuRow])
+def lich_su_dieu_chinh(
+    voucher_id: int, db: Db,
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> list[DieuChinhLichSuRow]:
+    """Lịch sử ĐIỀU CHỈNH của 1 phiếu xuất (ai · bộ phận · lúc nào · đổi gì) — mới nhất trước."""
+    users = UserRepository(db)
+    depts = DepartmentRepository(db)
+    out: list[DieuChinhLichSuRow] = []
+    for r in AuditLogRepository(db).list_by_target(f"voucher:{voucher_id}"):
+        if r.action != _ACTION_DIEU_CHINH_XUAT:
+            continue
+        # detail = JSON {noi_dung, ly_do}; bản ghi CŨ (trước khi bắt lý do) là chuỗi thường → về noi_dung.
+        try:
+            d = json.loads(r.detail or "{}")
+            noi_dung, ly_do = d.get("noi_dung"), d.get("ly_do")
+        except (ValueError, TypeError):
+            noi_dung, ly_do = r.detail or None, None
+        u = users.get_by_id(r.actor_user_id) if r.actor_user_id else None
+        dept = depts.get_by_id(u.department_id) if (u and u.department_id) else None
+        out.append(DieuChinhLichSuRow(
+            thoi_diem=r.created_at,
+            nguoi_ten=getattr(u, "name", None),
+            bo_phan_ten=getattr(dept, "name", None),
+            chi_tiet=noi_dung,
+            ly_do=ly_do,
+        ))
+    return out
+
+
 @router.patch("/lo/{lot_id}/vi-tri")
 def update_lot_vi_tri(
     lot_id: int, payload: StockLotViTriIn, svc: Service,
@@ -456,6 +516,19 @@ def huy_dieu_chuyen(
         svc.huy_dieu_chuyen(req_id, payload.ly_do)
     except StockVoucherError as e:
         raise _err(e) from None
+
+
+@dieu_chuyen_router.get("/by-voucher/{voucher_id}")
+def dc_request_by_voucher(
+    voucher_id: int, svc: Service,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> dict[str, int]:
+    """Từ 1 phiếu điều chuyển (nhập-đích hoặc xuất-nguồn) → id yêu cầu điều chuyển ĐÍCH, để FE mở
+    mặt tiền PHIẾU ĐIỀU CHUYỂN thay vì mẫu nhập/xuất. 404 nếu không phải phiếu điều chuyển."""
+    rid = svc.dc_request_id_for_voucher(voucher_id)
+    if rid is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không phải phiếu điều chuyển.")
+    return {"request_id": rid}
 
 
 # --- Xuất Excel Báo cáo Kho ---

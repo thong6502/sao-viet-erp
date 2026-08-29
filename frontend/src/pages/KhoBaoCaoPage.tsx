@@ -1,6 +1,6 @@
 // Báo cáo kho (kế toán) — sổ nhập-xuất (phiếu ĐÃ GHI SỔ) + khóa kỳ THEO KHOẢNG (chốt/mở) +
 // tab Lịch sử thao tác + export MISA. docs/spec-bao-cao-kho.md. Chỉ quyền `close_book` vào.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -10,33 +10,40 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
+  Legend,
 } from "recharts";
 import {
   api,
   ApiError,
   type BaoCaoChuyenKhoRow,
   type BaoCaoKhoRow,
+  type BaoCaoNXTRow,
+  type HangLoai,
   type KhoaSoKyRow,
   type KhoExportLog,
   type KhoKhoaSoRow,
+  type KyDaTinh,
+  type StockMaterialHistory,
 } from "../api/client";
 import { crud } from "../api/rebuildCatalog";
+import { useCan } from "../auth/permissions";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 import { Select } from "../components/Select";
+import { VoucherDrawer } from "./KhoYeuCauPage";
 import { DateFilterHead, NumFilterHead, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, inDateRange, inNumRange, todayISO, useHeaderTitles } from "./khoShared";
 import { Search } from "lucide-react";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
 
 type KhoOpt = { id: number; ma: string; ten: string };
-type Tab = "tong-quan" | "so" | "lichsu" | "ky";
+type Tab = "tong-quan" | "so" | "nxt" | "ky-da-tinh" | "lichsu" | "ky";
 
 /** 1 dòng "Lịch sử thao tác" — gộp khóa/mở kỳ + xuất Excel. `tu`/`den` chỉ có ở khóa/mở (cho phễu ngày). */
 type HistRow = {
   key: string;
   thoi_diem: string | null;
-  hanh_dong: "khoa" | "mo" | "export";
+  hanh_dong: "khoa" | "mo" | "export" | "tinh_gia";
   pham_vi: string;
   khoang_ngay: string | null;
   ten_ky: string | null;
@@ -132,6 +139,14 @@ function LockIcon({ open = false, size = 13 }: { open?: boolean; size?: number }
   return <Icon name={open ? "lockOpen" : "lock"} size={size} style={{ verticalAlign: "-2px" }} />;
 }
 
+/** [đầu tháng, cuối tháng] hiện tại (ISO yyyy-mm-dd) — kỳ mặc định cho tab Nhập-Xuất-Tồn. */
+function curMonthRange(): [string, string] {
+  const d = new Date();
+  const iso = (x: Date) =>
+    `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
+  return [iso(new Date(d.getFullYear(), d.getMonth(), 1)), iso(new Date(d.getFullYear(), d.getMonth() + 1, 0))];
+}
+
 export function KhoBaoCaoPage({ token }: { token: string }) {
   // Hover tiêu đề cột → hiện tên cột đầy đủ (kể cả khi bị cắt) — 1 ref bọc cả trang, phủ mọi bảng.
   const pageRef = useHeaderTitles<HTMLElement>();
@@ -141,6 +156,14 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   const [khoId, setKhoId] = useState<number | null>(null);
   const [tu, setTu] = useState("");
   const [den, setDen] = useState("");
+  // Tab N-X-T dùng KỲ RIÊNG (không đụng lọc ngày của Sổ/Tổng quan), mặc định THÁNG HIỆN TẠI để
+  // vào tab là thấy số ngay thay vì bảng trống.
+  const [nxtTu, setNxtTu] = useState(() => curMonthRange()[0]);
+  const [nxtDen, setNxtDen] = useState(() => curMonthRange()[1]);
+  // Kỳ (đã khóa) đang chọn ở ô "Kỳ" — index trong kyList; -1 = nhập ngày tay. Khi CÓ chọn kỳ thì
+  // "Từ ngày" khóa cứng (= đầu kỳ), chỉ cho sửa "Đến ngày" (tính giá tới bất kỳ thời điểm trong kỳ).
+  const [nxtKyIdx, setNxtKyIdx] = useState(-1);
+  const [nxtView, setNxtView] = useState<"bang" | "bieudo">("bang");   // Bảng ↔ Biểu đồ
   // Sổ · Ngày CT + các cột SỐ (funnel cột) — khai sớm vì `filteredRows` dùng ngay.
   const [ctFrom, setCtFrom] = useState("");
   const [ctTo, setCtTo] = useState("");
@@ -153,6 +176,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
 
   const [rows, setRows] = useState<BaoCaoKhoRow[]>([]);
   const [chuyenRows, setChuyenRows] = useState<BaoCaoChuyenKhoRow[]>([]);
+  // Tab N-X-T (bình quân gia quyền cuối kỳ) — 1 dòng / mặt hàng / kho.
+  const [nxtRows, setNxtRows] = useState<BaoCaoNXTRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [khoList, setKhoList] = useState<KhoOpt[]>([]);
@@ -166,6 +191,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   // Lịch sử XUẤT EXCEL (gộp vào tab "Lịch sử thao tác" cùng khóa/mở kỳ).
   const [exports, setExports] = useState<KhoExportLog[]>([]);
   const [kyList, setKyList] = useState<KhoaSoKyRow[]>([]);
+  const [kyDaTinhList, setKyDaTinhList] = useState<KyDaTinh[]>([]);
   const [khoaOpen, setKhoaOpen] = useState(false);
   const [khoaScope, setKhoaScope] = useState<"all" | number>("all");
   const [khoaHanhDong, setKhoaHanhDong] = useState<"khoa" | "mo">("khoa");
@@ -196,6 +222,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   // Nạp lịch sử export khi mở tab "Lịch sử thao tác" (export xảy ra ở tab khác → nạp lại cho mới).
   useEffect(() => {
     if (tab === "lichsu") api.kho.baoCao.lichSuExport(token).then(setExports).catch(() => {});
+    if (tab === "ky-da-tinh") api.kho.baoCao.kyDaTinh(token).then(setKyDaTinhList).catch(() => {});
   }, [token, tab]);
 
   const load = useCallback(() => {
@@ -219,6 +246,77 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   useEffect(() => {
     if (tab === "so") load();
   }, [load, tab]);
+
+  // Tab N-X-T: nạp theo kỳ [tu, den] + kho (BẮT BUỘC chọn kỳ). Lọc theo ô Tìm client-side.
+  const [nxtDaTinh, setNxtDaTinh] = useState(false);   // kỳ này đã tính giá (snapshot) chưa
+  const [nxtDaKhoa, setNxtDaKhoa] = useState(false);   // kỳ này đã khóa sổ chưa
+  const loadNxt = useCallback(() => {
+    if (!nxtTu || !nxtDen) { setNxtRows([]); setNxtDaTinh(false); setNxtDaKhoa(false); return; }
+    setLoading(true);
+    setError(null);
+    api.kho.baoCao
+      .nxt(token, { tu: nxtTu, den: nxtDen, kho_id: khoId })
+      .then((p) => { setNxtRows(p.items); setNxtDaTinh(p.da_tinh); setNxtDaKhoa(p.da_khoa); })
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Không tải được báo cáo N-X-T."))
+      .finally(() => setLoading(false));
+  }, [token, nxtTu, nxtDen, khoId]);
+  useEffect(() => {
+    if (tab === "nxt") loadNxt();
+  }, [loadNxt, tab]);
+
+  // "Tính giá kỳ" (bình quân, kiểu MISA) — popup xác nhận rồi chốt tồn cuối kỳ vào snapshot.
+  const [tinhOpen, setTinhOpen] = useState(false);
+  const [tinhTen, setTinhTen] = useState("");
+  const [tinhBusy, setTinhBusy] = useState(false);
+  const [tinhErr, setTinhErr] = useState<string | null>(null);
+  async function tinhGiaKy() {
+    if (!nxtTu || !nxtDen) return;
+    setTinhBusy(true);
+    setTinhErr(null);
+    try {
+      const p = await api.kho.baoCao.tinhGiaKy(token, { tu: nxtTu, den: nxtDen, kho_id: khoId, ten: tinhTen.trim() || null });
+      setNxtRows(p.items);
+      setNxtDaTinh(p.da_tinh);
+      setNxtDaKhoa(p.da_khoa);
+      setTinhOpen(false);
+      api.kho.baoCao.kyDaTinh(token).then(setKyDaTinhList).catch(() => {});  // kỳ mới hiện ở ô "Kỳ"
+    } catch (e) {
+      setTinhErr(e instanceof ApiError ? e.message : "Không tính được giá kỳ.");
+    } finally {
+      setTinhBusy(false);
+    }
+  }
+
+  // Bấm 1 mặt hàng ở bảng N-X-T → popup lô NHẬP + lịch sử XUẤT của mặt hàng đó (tại kho của dòng).
+  const [matInfo, setMatInfo] = useState<
+    { kho_id: number; kho_ten: string | null; hang_loai: HangLoai; hang_id: number; ten: string | null; dvt: string | null } | null
+  >(null);
+  const [matHist, setMatHist] = useState<StockMaterialHistory | null>(null);
+  const [matLoading, setMatLoading] = useState(false);
+  const [matErr, setMatErr] = useState<string | null>(null);
+  function openMatHang(r: BaoCaoNXTRow) {
+    if (r.kho_id == null) return;
+    setMatInfo({ kho_id: r.kho_id, kho_ten: r.kho_ten, hang_loai: r.hang_loai as HangLoai, hang_id: r.hang_id, ten: r.ten_hang, dvt: r.dvt });
+    setMatHist(null);
+    setMatErr(null);
+    setMatLoading(true);
+    api.kho.phieu
+      .lichSuVatTu(token, r.hang_loai as HangLoai, r.hang_id, r.kho_id)
+      .then(setMatHist)
+      .catch((e) => setMatErr(e instanceof ApiError ? e.message : "Không tải được lịch sử mặt hàng."))
+      .finally(() => setMatLoading(false));
+  }
+
+  // Bấm mã phiếu trong popup lô → đóng popup lô, mở PHIẾU đó (chỉ xem — không sửa/ghi sổ ở đây).
+  const can = useCan();
+  const canViewCost = can("kho", "view_cost");
+  const [openVoucherId, setOpenVoucherId] = useState<number | null>(null);
+  function openVoucher(vid: number | null) {
+    if (vid == null) return;
+    setMatInfo(null);
+    setMatHist(null);
+    setOpenVoucherId(vid);
+  }
 
   // Tab "Tổng quan": cần CẢ Nhập + Xuất + Chuyển kho theo cùng bộ lọc kho/ngày. Nhập/Xuất từ Sổ (đã
   // lọc bỏ điều chuyển) → tổng mua/bán KHÔNG bị điều chuyển thổi phồng; Chuyển kho nạp RIÊNG (endpoint
@@ -457,7 +555,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
 
   // Lọc cho "Lịch sử thao tác" (tìm phạm vi/người/tên kỳ/ngày + lọc hành động Khóa/Mở).
   const [histQuery, setHistQuery] = useState("");
-  const [histAction, setHistAction] = useState<"all" | "khoa" | "mo" | "export">("all");
+  const [histAction, setHistAction] = useState<"all" | "khoa" | "mo" | "export" | "tinh_gia">("all");
   // Lọc cho "Kỳ đã khóa" (tìm tên kỳ/phạm vi/ngày).
   const [kyQuery, setKyQuery] = useState("");
   // Lọc theo TỪNG CỘT ngày (funnel ở tiêu đề cột). KHOẢNG NGÀY dùng chung Lịch sử + Kỳ (chồng lấn).
@@ -493,9 +591,9 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       den: l.den_ngay,
     }));
     const fromExports: HistRow[] = exports.map((e, i) => ({
-      key: `exp-${i}-${e.thoi_diem}`,
+      key: `${e.hanh_dong}-${i}-${e.thoi_diem}`,
       thoi_diem: e.thoi_diem,
-      hanh_dong: "export",
+      hanh_dong: e.hanh_dong === "tinh_gia" ? "tinh_gia" : "export",
       pham_vi: e.pham_vi,
       khoang_ngay: e.khoang_ngay,
       ten_ky: e.ten_ky,
@@ -696,9 +794,13 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               ? `${dashRows.length} dòng sổ`
               : tab === "so"
                 ? `${soChieu === "CHUYEN" ? chuyenRows.length : rows.length} dòng`
-                : tab === "lichsu"
-                  ? `${locks.length} thao tác`
-                  : `${kyList.length} kỳ`}
+                : tab === "nxt"
+                  ? `${nxtRows.length} mặt hàng`
+                  : tab === "ky-da-tinh"
+                    ? `${kyDaTinhList.length} kỳ`
+                    : tab === "lichsu"
+                      ? `${locks.length} thao tác`
+                      : `${kyList.length} kỳ`}
           </span>
           <button
             type="button"
@@ -729,6 +831,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             [
               ["tong-quan", "Tổng quan"],
               ["so", "Sổ kho"],
+              ["nxt", "Nhập-Xuất-Tồn"],
+              ["ky-da-tinh", "Kỳ đã tính"],
               ["lichsu", "Lịch sử thao tác"],
               ["ky", "Kỳ đã khóa"],
             ] as const
@@ -1324,6 +1428,325 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
         </>
       )}
 
+      {tab === "nxt" && (() => {
+        // Kiểu MISA: chưa "Tính giá kỳ" (và chưa khóa) thì cột GIÁ TRỊ xuất/cuối kỳ + đơn giá BQ để
+        // TRỐNG (chỉ có sau khi chốt). Đầu kỳ + Nhập vẫn hiện (đầu = chốt kỳ trước, nhập = giá thật).
+        const daChot = nxtDaTinh || nxtDaKhoa;
+        const ql = search.trim().toLowerCase();
+        const filtered = ql
+          ? nxtRows.filter((r) =>
+              (r.ma_hang ?? "").toLowerCase().includes(ql) ||
+              (r.ten_hang ?? "").toLowerCase().includes(ql))
+          : nxtRows;
+        // Gom NHÓM theo kho (đã sort sẵn ở server theo kho → tên hàng).
+        const groups: { kho: string; rows: BaoCaoNXTRow[] }[] = [];
+        for (const r of filtered) {
+          const ten = r.kho_ten ?? "— Chưa gắn kho —";
+          const g = groups[groups.length - 1];
+          if (g && g.kho === ten) g.rows.push(r);
+          else groups.push({ kho: ten, rows: [r] });
+        }
+        // Dữ liệu 2 biểu đồ: (1) Top mặt hàng theo GT tồn cuối kỳ; (2) Nhập vs Xuất (GT) theo kho.
+        const topCuoi = [...filtered]
+          .filter((r) => r.cuoi_gt > 0)
+          .sort((a, b) => b.cuoi_gt - a.cuoi_gt)
+          .slice(0, 12)
+          .map((r) => ({ ten: r.ten_hang ?? r.ma_hang ?? "—", gt: r.cuoi_gt }));
+        const nxTheoKhoMap = new Map<string, { kho: string; nhap: number; xuat: number }>();
+        for (const r of filtered) {
+          const k = r.kho_ten ?? "— Chưa gắn kho —";
+          const e = nxTheoKhoMap.get(k) ?? { kho: k, nhap: 0, xuat: 0 };
+          e.nhap += r.nhap_gt;
+          e.xuat += r.xuat_gt;
+          nxTheoKhoMap.set(k, e);
+        }
+        const nxTheoKho = [...nxTheoKhoMap.values()];
+        return (
+        <>
+          <div className="rc__toolbar">
+            <div className="kho-picker">
+              <Select
+                ariaLabel="Kho"
+                value={khoId == null ? "" : String(khoId)}
+                onChange={(v) => setKhoId(v ? Number(v) : null)}
+                options={khoOptions}
+              />
+            </div>
+            {/* Chọn KỲ ĐÃ KHÓA (khai + đặt tên ở Khóa sổ) → khóa cứng "Từ ngày" = đầu kỳ, chỉ cho sửa
+                "Đến ngày" để tính giá tới bất kỳ thời điểm trong kỳ. Bỏ chọn kỳ → nhập ngày tay tự do. */}
+            <label className="kho-baocao__daterow">
+              <span>Kỳ</span>
+              <select
+                className="rc-input"
+                value={String(nxtKyIdx)}
+                onChange={(e) => {
+                  const i = Number(e.target.value);
+                  setNxtKyIdx(i);
+                  const k = kyList[i];
+                  if (!k) return;   // "— Chọn kỳ —": giữ ngày hiện tại, mở khóa Từ ngày
+                  setNxtTu(k.tu_ngay.slice(0, 10));
+                  setNxtDen(k.den_ngay.slice(0, 10));
+                  setKhoId(k.kho_id ?? null);
+                }}
+              >
+                <option value="-1">{kyList.length ? "— Chọn kỳ đã khóa —" : "— Chưa có kỳ đã khóa —"}</option>
+                {kyList.map((k, i) => (
+                  <option key={i} value={i}>
+                    {(k.ten || "Kỳ")} · {fmtDate(k.tu_ngay)}–{fmtDate(k.den_ngay)}
+                    {k.kho_ten ? ` · ${k.kho_ten}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="kho-baocao__daterow">
+              <span>Từ ngày</span>
+              <input type="date" className="rc-input" value={nxtTu} disabled={nxtKyIdx >= 0}
+                max={nxtDen || undefined} onChange={(e) => setNxtTu(e.target.value)}
+                title={nxtKyIdx >= 0 ? "Đầu kỳ cố định theo kỳ đã chọn" : undefined} />
+            </label>
+            <label className="kho-baocao__daterow">
+              <span>đến</span>
+              <input type="date" className="rc-input" value={nxtDen}
+                min={nxtTu || undefined}
+                max={nxtKyIdx >= 0 ? kyList[nxtKyIdx]?.den_ngay.slice(0, 10) : undefined}
+                onChange={(e) => setNxtDen(e.target.value)} />
+            </label>
+            <button
+              type="button"
+              className="rc__link-btn"
+              onClick={() => { const [a, b] = curMonthRange(); setNxtKyIdx(-1); setNxtTu(a); setNxtDen(b); }}
+            >
+              Tháng này
+            </button>
+            <button
+              type="button"
+              className="btn btn--accent kho-export-btn"
+              disabled={!nxtTu || !nxtDen || tinhBusy}
+              onClick={() => { setTinhTen(""); setTinhErr(null); setTinhOpen(true); }}
+              title="Tính giá bình quân cuối kỳ & chốt tồn cuối kỳ để kỳ sau nối tiếp (như MISA)"
+              style={{ marginLeft: "auto" }}
+            >
+              {nxtDaTinh ? "Tính lại giá kỳ" : "Tính giá kỳ"}
+            </button>
+            {/* Chuyển Bảng ↔ Biểu đồ. */}
+            <div className="kho-chieu-segmented">
+              {(["bang", "bieudo"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={`kho-chieu-btn${nxtView === v ? " is-active" : ""}`}
+                  onClick={() => setNxtView(v)}
+                >
+                  {v === "bang" ? "Bảng" : "Biểu đồ"}
+                </button>
+              ))}
+            </div>
+            <div className="rc__search-wrapper" style={{ width: 260 }}>
+              <Search className="rc__search-icon" style={{ width: 15, height: 15 }} />
+              <input
+                className="rc__search"
+                placeholder="Tìm mã / tên hàng…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {!nxtTu || !nxtDen ? (
+            <div className="banner banner--info" style={{ marginBottom: 8 }}>
+              <span>Chọn <b>kỳ</b> (hoặc Từ ngày / đến ngày) để xem báo cáo Nhập-Xuất-Tồn.</span>
+            </div>
+          ) : nxtDaTinh ? (
+            <div className="banner banner--info" style={{ marginBottom: 8 }}>
+              <span><b>Đã tính giá kỳ</b> (bình quân gia quyền cuối kỳ){nxtDaKhoa ? " · kỳ đã khóa sổ" : ""}. Có phát sinh mới thì bấm “Tính lại giá kỳ”.</span>
+            </div>
+          ) : (
+            <div className="banner banner--warn" style={{ marginBottom: 8 }}>
+              <span><b>Kỳ chưa tính giá</b>{nxtDaKhoa ? " (kỳ đã khóa sổ)" : ""} — cột <b>Giá trị Xuất / Cuối kỳ</b> và <b>Đơn giá BQ</b> đang để trống. Bấm “Tính giá kỳ” để chốt (đầu kỳ sau nối tiếp từ đây).</span>
+            </div>
+          )}
+
+          {nxtView === "bang" && (
+          <div className="kho-bc-wrap">
+            <table className="rc__table kho-bc kho-bc--nxt">
+              <thead>
+                <tr>
+                  <th rowSpan={2}>Mã hàng</th>
+                  <th rowSpan={2}>Tên hàng</th>
+                  <th rowSpan={2}>ĐVT</th>
+                  <th className="kho-bc__num" colSpan={2}>Đầu kỳ</th>
+                  <th className="kho-bc__num" colSpan={2}>Nhập trong kỳ</th>
+                  <th className="kho-bc__num" colSpan={2}>Xuất trong kỳ</th>
+                  <th className="kho-bc__num" colSpan={2}>Cuối kỳ</th>
+                  <th className="kho-bc__num" rowSpan={2} title="Đơn giá bình quân gia quyền của kỳ">Đơn giá BQ</th>
+                </tr>
+                <tr>
+                  <th className="kho-bc__num">SL</th>
+                  <th className="kho-bc__num">Giá trị</th>
+                  <th className="kho-bc__num">SL</th>
+                  <th className="kho-bc__num">Giá trị</th>
+                  <th className="kho-bc__num">SL</th>
+                  <th className="kho-bc__num">Giá trị</th>
+                  <th className="kho-bc__num">SL</th>
+                  <th className="kho-bc__num">Giá trị</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={12} className="rc__empty-state">Đang tải…</td></tr>
+                ) : filtered.length === 0 ? (
+                  <tr><td colSpan={12} className="rc__empty-state">Không có mặt hàng nào phát sinh / còn tồn trong kỳ.</td></tr>
+                ) : (
+                  groups.map((g) => {
+                    const t = g.rows.reduce(
+                      (a, r) => {
+                        a.dau += r.dau_gt; a.nhap += r.nhap_gt; a.xuat += r.xuat_gt; a.cuoi += r.cuoi_gt;
+                        return a;
+                      },
+                      { dau: 0, nhap: 0, xuat: 0, cuoi: 0 },
+                    );
+                    return (
+                      <Fragment key={g.kho}>
+                        <tr className="kho-bc__grouphead">
+                          <td colSpan={12} style={{ fontWeight: "var(--fw-bold)", background: "var(--paper)" }}>
+                            {g.kho} · {g.rows.length} mặt hàng
+                          </td>
+                        </tr>
+                        {g.rows.map((r) => (
+                          <tr
+                            key={`${r.kho_id}-${r.hang_loai}-${r.hang_id}`}
+                            className="kho-bc__rowlink"
+                            title="Xem lô nhập / xuất của mặt hàng"
+                            onClick={() => openMatHang(r)}
+                          >
+                            <td>{r.ma_hang ?? "—"}</td>
+                            <td><span className="kho-bc__name" title={r.ten_hang ?? ""}>{r.ten_hang ?? "—"}</span></td>
+                            <td>{r.dvt ?? ""}</td>
+                            <td className="kho-bc__num">{fmtQty(r.dau_sl)}</td>
+                            <td className="kho-bc__num">{fmtMoney(r.dau_gt)}</td>
+                            <td className="kho-bc__num">{fmtQty(r.nhap_sl)}</td>
+                            <td className="kho-bc__num">{fmtMoney(r.nhap_gt)}</td>
+                            <td className="kho-bc__num">{fmtQty(r.xuat_sl)}</td>
+                            <td className="kho-bc__num">{daChot ? fmtMoney(r.xuat_gt) : ""}</td>
+                            <td className="kho-bc__num">{fmtQty(r.cuoi_sl)}</td>
+                            <td className="kho-bc__num" style={{ fontWeight: "var(--fw-bold)" }}>{daChot ? fmtMoney(r.cuoi_gt) : ""}</td>
+                            <td className="kho-bc__num">{daChot ? (r.don_gia_bq != null ? fmtMoney(Math.round(r.don_gia_bq)) : "—") : ""}</td>
+                          </tr>
+                        ))}
+                        <tr className="kho-bc__grouptotal" style={{ fontWeight: "var(--fw-bold)" }}>
+                          <td colSpan={4} style={{ textAlign: "right" }}>Cộng kho {g.kho}:</td>
+                          <td className="kho-bc__num">{fmtMoney(t.dau)}</td>
+                          <td className="kho-bc__num" />
+                          <td className="kho-bc__num">{fmtMoney(t.nhap)}</td>
+                          <td className="kho-bc__num" />
+                          <td className="kho-bc__num">{daChot ? fmtMoney(t.xuat) : ""}</td>
+                          <td className="kho-bc__num" />
+                          <td className="kho-bc__num">{daChot ? fmtMoney(t.cuoi) : ""}</td>
+                          <td className="kho-bc__num" />
+                        </tr>
+                      </Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          )}
+
+          {nxtView === "bieudo" && (
+            (topCuoi.length === 0 && nxTheoKho.every((k) => k.nhap === 0 && k.xuat === 0)) ? (
+              <div className="rc__empty-state">Không có dữ liệu để vẽ biểu đồ trong kỳ này.</div>
+            ) : (
+            <div style={{ display: "grid", gap: 16 }}>
+              <div className="card" style={{ padding: 16 }}>
+                <div className="rc-sec__title" style={{ marginBottom: 8 }}>
+                  Top mặt hàng theo giá trị tồn cuối kỳ{!nxtDaTinh && <span className="rc__muted" style={{ fontWeight: 400 }}> · số tạm tính</span>}
+                </div>
+                <ResponsiveContainer width="100%" height={Math.max(200, topCuoi.length * 34)}>
+                  <BarChart data={topCuoi} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 4 }} barCategoryGap="28%">
+                    <CartesianGrid horizontal={false} stroke="#eef2f7" />
+                    <XAxis type="number" tickFormatter={(v) => fmtMoneyShort(Number(v))} tick={{ fontSize: 11, fill: "var(--ash)" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} />
+                    <YAxis type="category" dataKey="ten" width={150} tick={{ fontSize: 11, fill: "var(--ink)" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} />
+                    <Tooltip formatter={(v) => [fmtMoney(Number(v)), "Giá trị cuối kỳ"]} />
+                    <Bar dataKey="gt" name="Giá trị cuối kỳ" fill="var(--moss, #2f5d3a)" radius={[0, 4, 4, 0]} maxBarSize={20} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="card" style={{ padding: 16 }}>
+                <div className="rc-sec__title" style={{ marginBottom: 8 }}>
+                  Nhập vs Xuất (giá trị) theo kho{!nxtDaTinh && <span className="rc__muted" style={{ fontWeight: 400 }}> · xuất tạm tính</span>}
+                </div>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={nxTheoKho} margin={{ top: 4, right: 16, left: 8, bottom: 4 }} barGap={4} barCategoryGap="24%">
+                    <CartesianGrid vertical={false} stroke="#eef2f7" />
+                    <XAxis dataKey="kho" tick={{ fontSize: 11, fill: "var(--ink)" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} interval={0} />
+                    <YAxis tickFormatter={(v) => fmtMoneyShort(Number(v))} tick={{ fontSize: 11, fill: "var(--ash)" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} />
+                    <Tooltip formatter={(v, n) => [fmtMoney(Number(v)), n]} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="nhap" name="Nhập" fill="var(--moss, #2f5d3a)" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                    <Bar dataKey="xuat" name="Xuất" fill="var(--rust, #c5400a)" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            )
+          )}
+        </>
+        );
+      })()}
+
+      {tab === "ky-da-tinh" && (
+        <>
+          <div className="banner banner--info" style={{ marginBottom: 8 }}>
+            <span>Các kỳ đã bấm <b>Tính giá kỳ</b> (chốt tồn cuối kỳ). Bấm <b>Xem</b> để mở báo cáo Nhập-Xuất-Tồn của kỳ đó.</span>
+          </div>
+          <div className="kho-bc-wrap">
+            <table className="rc__table kho-bc">
+              <thead>
+                <tr>
+                  <th>Tên kỳ</th>
+                  <th>Khoảng ngày</th>
+                  <th className="kho-bc__num">Số mặt hàng</th>
+                  <th className="kho-bc__num">Số kho</th>
+                  <th className="kho-bc__num">Tổng giá trị cuối</th>
+                  <th>Tính lúc</th>
+                  <th>Trạng thái</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {kyDaTinhList.length === 0 ? (
+                  <tr><td colSpan={8} className="rc__empty-state">Chưa có kỳ nào được tính giá. Vào tab “Nhập-Xuất-Tồn” bấm “Tính giá kỳ”.</td></tr>
+                ) : kyDaTinhList.map((k) => (
+                  <tr key={`${k.tu_ngay}-${k.den_ngay}`}>
+                    <td><strong>{k.ten ?? "—"}</strong></td>
+                    <td>{fmtDate(k.tu_ngay)} – {fmtDate(k.den_ngay)}</td>
+                    <td className="kho-bc__num">{k.so_mat_hang}</td>
+                    <td className="kho-bc__num">{k.so_kho}</td>
+                    <td className="kho-bc__num" style={{ fontWeight: "var(--fw-bold)" }}>{fmtMoney(k.tong_gt_cuoi)}</td>
+                    <td>{fmtDateTime(k.tinh_luc)}</td>
+                    <td>
+                      {k.da_khoa
+                        ? <span className="badge-sem badge-sem--rust" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><LockIcon /> Đã khóa</span>
+                        : <span className="badge-sem badge-sem--moss">Chưa khóa</span>}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="rc__link-btn"
+                        onClick={() => { setNxtTu(k.tu_ngay); setNxtDen(k.den_ngay); setKhoId(null); setTab("nxt"); }}
+                      >
+                        Xem →
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
       {tab === "lichsu" && (
         <>
         <div className="rc__toolbar">
@@ -1331,9 +1754,10 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             <Select
               ariaLabel="Hành động"
               value={histAction}
-              onChange={(v) => setHistAction((v as "all" | "khoa" | "mo" | "export") || "all")}
+              onChange={(v) => setHistAction((v as "all" | "khoa" | "mo" | "export" | "tinh_gia") || "all")}
               options={[
                 { value: "all", label: "Tất cả thao tác" },
+                { value: "tinh_gia", label: "Tính giá kỳ" },
                 { value: "khoa", label: "Khóa kỳ" },
                 { value: "mo", label: "Mở kỳ" },
                 { value: "export", label: "Xuất Excel" },
@@ -1374,6 +1798,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                     <td>
                       {r.hanh_dong === "export" ? (
                         <span className="badge-sem badge-sem--steel">Xuất Excel</span>
+                      ) : r.hanh_dong === "tinh_gia" ? (
+                        <span className="badge-sem badge-sem--plum">Tính giá kỳ</span>
                       ) : (
                         <span
                           className={`badge-sem badge-sem--${r.hanh_dong === "khoa" ? "rust" : "moss"}`}
@@ -1606,7 +2032,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             <LockIcon open={khoaHanhDong === "mo"} size={14} />
             <span>
               {khoaHanhDong === "khoa"
-                ? "Phiếu có NGÀY GHI SỔ (ngày hạch toán) trong khoảng này thuộc kỳ đã chốt — không ghi sổ vào kỳ này được."
+                ? "Phiếu có NGÀY GHI SỔ (ngày hạch toán) trong khoảng này thuộc kỳ đã chốt — không ghi sổ vào kỳ này được. Khóa sổ cũng TỰ chốt giá kỳ (bình quân) cho báo cáo Nhập-Xuất-Tồn."
                 : "Mở lại kỳ để ghi sổ tiếp. Đặt “Đến ngày” = ngày cuối đang khóa. Thao tác nào cũng lưu vào Lịch sử."}
             </span>
           </p>
@@ -1638,6 +2064,165 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             })()}
         </div>
       </ConfirmDialog>
+
+      {/* Popup "Tính giá kỳ" (bình quân cuối kỳ, kiểu MISA) — chốt tồn cuối kỳ vào snapshot. */}
+      <ConfirmDialog
+        open={tinhOpen}
+        title="Tính giá kỳ (bình quân cuối kỳ)"
+        confirmLabel={nxtDaTinh ? "Tính lại" : "Tính giá kỳ"}
+        cancelLabel="Hủy"
+        busy={tinhBusy}
+        error={tinhErr}
+        onConfirm={tinhGiaKy}
+        onCancel={() => setTinhOpen(false)}
+      >
+        <div className="kho-khoa">
+          <p className="kho-hint" style={{ marginTop: 0 }}>
+            Tính đơn giá <b>bình quân gia quyền cuối kỳ</b> cho từng mặt hàng và <b>chốt tồn cuối kỳ</b>;
+            kỳ sau đọc số này làm đầu kỳ. Không đụng giá vốn phiếu xuất (đích danh).
+          </p>
+          {/* Chọn nhanh 1 KỲ ĐÃ KHÓA để tính (điền sẵn khoảng ngày + tên). Vẫn tính được kỳ đang xem
+              nếu không chọn. */}
+          <label className="kho-khoa__field">
+            <span className="kho-khoa__label">Kỳ đã khóa</span>
+            <select
+              className="rc-input"
+              value={String(nxtKyIdx)}
+              onChange={(e) => {
+                const i = Number(e.target.value);
+                setNxtKyIdx(i);
+                const k = kyList[i];
+                if (!k) return;
+                setNxtTu(k.tu_ngay.slice(0, 10));
+                setNxtDen(k.den_ngay.slice(0, 10));
+                setKhoId(k.kho_id ?? null);
+                setTinhTen(k.ten ?? "");
+              }}
+            >
+              <option value="-1">{kyList.length ? "— Kỳ đang xem (không đổi) —" : "— Chưa có kỳ đã khóa —"}</option>
+              {kyList.map((k, i) => (
+                <option key={i} value={i}>
+                  {(k.ten || "Kỳ")} · {fmtDate(k.tu_ngay)}–{fmtDate(k.den_ngay)}
+                  {k.kho_ten ? ` · ${k.kho_ten}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="kho-khoa__field">
+            <span className="kho-khoa__label">Kỳ sẽ tính</span>
+            <div style={{ fontWeight: "var(--fw-medium)", color: "var(--ink)" }}>
+              {nxtTu ? fmtDate(nxtTu) : "—"} → {nxtDen ? fmtDate(nxtDen) : "—"}
+              {" · "}
+              {khoId == null ? "Tất cả kho" : (khoList.find((w) => w.id === khoId)?.ten ?? `Kho #${khoId}`)}
+            </div>
+          </div>
+          <label className="kho-khoa__field">
+            <span className="kho-khoa__label">Tên kỳ (tuỳ chọn)</span>
+            <input
+              className="rc-input"
+              value={tinhTen}
+              placeholder="Vd: Tháng 7/2026"
+              onChange={(e) => setTinhTen(e.target.value)}
+            />
+          </label>
+        </div>
+      </ConfirmDialog>
+
+      {/* Popup lô NHẬP + lịch sử XUẤT của 1 mặt hàng (bấm dòng ở bảng N-X-T). Chỉ xem, không sửa. */}
+      <ConfirmDialog
+        open={matInfo !== null}
+        wide
+        hideConfirm
+        title={`${matInfo?.ten ?? "Mặt hàng"} — Lô nhập / xuất${matInfo?.kho_ten ? ` · ${matInfo.kho_ten}` : ""}`}
+        cancelLabel="Đóng"
+        onConfirm={() => {}}
+        onCancel={() => { setMatInfo(null); setMatHist(null); }}
+      >
+        {matErr && <div className="banner banner--error" style={{ marginBottom: 8 }}>{matErr}</div>}
+        {matLoading || !matHist ? (
+          <p className="kho-hint">Đang tải lịch sử mặt hàng…</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div>
+              <div className="rc-sec__title" style={{ marginBottom: 6 }}>
+                Lô nhập ({matHist.nhap.length}) · Tồn hiện tại: <b>{fmtQty(matHist.on_hand)}</b> {matInfo?.dvt ?? ""}
+              </div>
+              <div className="kho-bc-wrap" style={{ maxHeight: 260 }}>
+                <table className="rc__table kho-bc">
+                  <thead><tr>
+                    <th>Phiếu</th><th>Ngày nhập</th>
+                    <th className="kho-bc__num">SL ban đầu</th><th className="kho-bc__num">SL còn</th>
+                    <th className="kho-bc__num">Đơn giá nhập</th><th>Vị trí</th><th>HSD</th>
+                  </tr></thead>
+                  <tbody>
+                    {matHist.nhap.length === 0 ? (
+                      <tr><td colSpan={7} className="rc__empty-state">Chưa có lô nhập.</td></tr>
+                    ) : matHist.nhap.map((l) => (
+                      <tr key={l.id}>
+                        <td>
+                          {l.voucher_id != null ? (
+                            <button type="button" className="rc__code-badge kho-bc__voucher" onClick={() => openVoucher(l.voucher_id)}>
+                              {l.voucher_ma ?? `#${l.voucher_id}`}
+                            </button>
+                          ) : "—"}
+                        </td>
+                        <td>{fmtDate(l.ngay_nhap)}</td>
+                        <td className="kho-bc__num">{fmtQty(l.sl_ban_dau)}</td>
+                        <td className="kho-bc__num">{fmtQty(l.sl_con_lai)}</td>
+                        <td className="kho-bc__num">{l.don_gia_nhap != null ? fmtMoney(l.don_gia_nhap) : "—"}</td>
+                        <td>{l.vi_tri ?? "—"}</td>
+                        <td>{l.hsd ? fmtDate(l.hsd) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <div className="rc-sec__title" style={{ marginBottom: 6 }}>Lịch sử xuất ({matHist.xuat.length})</div>
+              <div className="kho-bc-wrap" style={{ maxHeight: 260 }}>
+                <table className="rc__table kho-bc">
+                  <thead><tr>
+                    <th>Phiếu</th><th>Ngày</th>
+                    <th className="kho-bc__num">SL xuất</th><th className="kho-bc__num">Đơn giá vốn</th>
+                  </tr></thead>
+                  <tbody>
+                    {matHist.xuat.length === 0 ? (
+                      <tr><td colSpan={4} className="rc__empty-state">Chưa có lượt xuất.</td></tr>
+                    ) : matHist.xuat.map((x, i) => (
+                      <tr key={`${x.voucher_id}-${i}`}>
+                        <td>
+                          {x.voucher_id != null ? (
+                            <button type="button" className="rc__code-badge kho-bc__voucher" onClick={() => openVoucher(x.voucher_id)}>
+                              {x.voucher_ma ?? `#${x.voucher_id}`}
+                            </button>
+                          ) : "—"}
+                        </td>
+                        <td>{fmtDate(x.ngay)}</td>
+                        <td className="kho-bc__num">{fmtQty(x.so_luong)}</td>
+                        <td className="kho-bc__num">{x.don_gia != null ? fmtMoney(x.don_gia) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </ConfirmDialog>
+
+      {/* Mở PHIẾU đã chọn từ popup lô — chỉ XEM (không lập/ghi sổ/điều chỉnh ở màn báo cáo). */}
+      {openVoucherId != null && (
+        <VoucherDrawer
+          token={token}
+          voucherId={openVoucherId}
+          canCreate={false}
+          canPost={false}
+          canViewCost={canViewCost}
+          onClose={() => setOpenVoucherId(null)}
+          onChanged={() => {}}
+        />
+      )}
     </main>
   );
 }

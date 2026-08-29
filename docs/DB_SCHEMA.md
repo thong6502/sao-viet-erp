@@ -3483,6 +3483,22 @@ Thứ phụ thuộc từng mặt hàng ("1 thùng keo = 3 kg" khác "1 thùng m�
 
 **Tất cả cột:** `id`, `ma`, `ten`, `vi_tri`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
+### `kho_vi_tri`
+
+**Purpose:** DANH SÁCH vị trí cất (kệ/ô) khai cho TỪNG kho — để khai lô chọn từ dropdown thay vì gõ tay. KHÔNG ràng buộc cứng lên `stock_lots.vi_tri`/`stock_voucher_lines.vi_tri` (2 cột đó vẫn là chuỗi tự do; danh sách này chỉ làm GỢI Ý/chọn, khỏi vỡ dữ liệu cũ). Bảng mới → `create_all` tự dựng (không migration). Gác quyền module `dm_kho_hang` (như khai báo kho). Xóa mềm `active=false`.
+
+| Cột | Kiểu | Ràng buộc | Null | Default | Ý nghĩa |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` | PK | no | auto | — |
+| `kho_id` | `Integer` → `INTEGER` | **FK→kho_hang.id (CASCADE)**, **IX** | no | — | Kho chứa vị trí này. Xóa kho → xóa vị trí theo. |
+| `ma` | `String(60)` → `VARCHAR(60)` | UNIQUE trong kho | no | — | Tên/mã vị trí ("Kệ A - Ô 1"). |
+| `ghi_chu` | `String(255)` → `VARCHAR(255)` | — | yes | — | Ghi chú tùy chọn. |
+| `active` | `Boolean` → `BOOLEAN` | — | no | `true` | Xóa mềm = false. |
+| `created_at` | `DateTime(tz)` → `TIMESTAMPTZ` | — | no | now | — |
+
+- UNIQUE `(kho_id, ma)` (`uq_kho_vi_tri_kho_ma`) — không trùng tên vị trí trong CÙNG kho; khác kho được trùng.
+- **Tất cả cột:** `id`, `kho_id`, `ma`, `ghi_chu`, `active`, `created_at`.
+
 ### `khuon_be`
 
 **Purpose:** KHO DAO của xưởng — **khuôn bế và khuôn ép nhũ** (nhan đề màn là "Khuôn" từ 16/08/2026; tên bảng + module quyền vẫn `khuon_be`, đổi là mọi vai mất sạch quyền màn này). Mỗi con dao làm riêng cho 1 ấn phẩm; đơn lặp lại thì lôi dao cũ ra dùng. Khai TAY: `ma` (KB-#### sinh ngầm) / `ten` (tên ấn phẩm) / `khach_hang_id` / `loai` / `so_ke` (vị trí lưu — thợ đọc ô này để đi lấy) / `tinh_trang` / `ngay_ve_du_kien` / `ghi_chu`. Xóa mềm (`active=false`) giữ dấu vết.
@@ -5360,6 +5376,37 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 - Bảng độc lập (không quan hệ ORM). Do `create_all` dựng; cấu trúc chốt ở migration `0170` (đổi từ 1 ngày `ngay_khoa` sang khoảng + `hanh_dong`). Thêm cùng Báo cáo kho (docs/spec-bao-cao-kho.md).
 
 **Tất cả cột:** `id`, `kho_id`, `tu_ngay`, `den_ngay`, `hanh_dong`, `nguoi_khoa_id`, `khoa_luc`, `ten`.
+
+### `kho_ky_ton`
+
+**Purpose:** TỒN CUỐI KỲ đã CHỐT khi khóa kỳ (snapshot Nhập-Xuất-Tồn) — mỗi dòng = tồn cuối của 1 mặt hàng / 1 kho ở cuối 1 kỳ đã khóa (`den_ngay`). Chốt lúc bấm Khóa kỳ: `GT cuối = GT đầu (snapshot kỳ trước) + GT nhập − GT xuất(BQ kỳ này)`; kỳ SAU đọc dòng này làm ĐẦU KỲ → "đầu kỳ = cuối kỳ trước" (bình quân gia quyền cuối kỳ, nối chuỗi). Mở lại kỳ → xoá dòng của kỳ đó. LỚP báo cáo — KHÔNG phải nguồn tồn thật (tồn thật Σ `stock_lots.sl_con_lai`). Bảng mới → `create_all`, gác quyền `close_book`.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `kho_id` | `Integer` → `INTEGER` | **FK→kho_hang.id (CASCADE)**, **IX** | no | — | Kho của dòng tồn cuối kỳ. |
+| `hang_loai` | `String(10)` → `VARCHAR(10)` | — | no | — | `giay` \| `vat_tu`. |
+| `hang_id` | `Integer` → `INTEGER` | — | no | — | ID mặt hàng trong danh mục gốc tương ứng `hang_loai`. |
+| `tu_ngay` | `Date` → `DATE` | — | no | — | Đầu kỳ đã chốt (tham chiếu). |
+| `den_ngay` | `Date` → `DATE` | **IX** | no | — | Cuối kỳ = mốc "as-of" snapshot (đầu kỳ sau đọc dòng có `den_ngay < tu` kỳ sau). |
+| `ten_ky` | `String(120)` → `VARCHAR(120)` | — | yes | — | Tên kỳ (chép từ khóa sổ). |
+| `sl_cuoi` | `Numeric(14,4)` → `NUMERIC(14,4)` | — | no | 0 | Số lượng tồn cuối kỳ (ĐVT gốc). |
+| `gt_cuoi` | `BigInteger` → `BIGINT` | — | no | 0 | Giá trị tồn cuối kỳ (đồng). |
+| `don_gia_bq` | `Numeric(18,4)` → `NUMERIC(18,4)` | — | yes | — | Đơn giá bình quân của kỳ (đ/ĐVT gốc). |
+| `khoa_so_id` | `Integer` → `INTEGER` | **FK→kho_khoa_so.id (SET NULL)**, **IX** | yes | — | Bản ghi khóa sổ sinh ra dòng này (truy vết). |
+| `created_at` | `DateTime(tz)` → `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm chốt. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index trên `kho_id`, `den_ngay`, `khoa_so_id`.
+- Foreign keys: `kho_id FK→kho_hang.id (CASCADE)`, `khoa_so_id FK→kho_khoa_so.id (SET NULL)`.
+- UNIQUE `(kho_id, hang_loai, hang_id, den_ngay)` (`uq_kho_ky_ton`) — 1 mặt hàng/kho có đúng 1 tồn cuối cho 1 mốc kỳ; khóa lại kỳ cũ → upsert đè.
+
+**Relationships**
+
+- Bảng độc lập (không quan hệ ORM). Do `create_all` dựng. Thêm cùng Báo cáo N-X-T theo kỳ (docs/spec-bao-cao-kho.md).
+
+**Tất cả cột:** `id`, `kho_id`, `hang_loai`, `hang_id`, `tu_ngay`, `den_ngay`, `ten_ky`, `sl_cuoi`, `gt_cuoi`, `don_gia_bq`, `khoa_so_id`, `created_at`.
 
 ### `notifications`
 

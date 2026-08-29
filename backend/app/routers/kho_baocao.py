@@ -34,6 +34,7 @@ from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
 from ..repositories.kho_khoa_so_repo import KhoKhoaSoRepository
+from ..repositories.kho_ky_ton_repo import KhoKyTonRepository
 from ..repositories.user_repo import UserRepository
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..services.vat_lieu_kho_service import VatLieuKhoService
@@ -42,10 +43,14 @@ from ..schemas.stock import (
     BaoCaoChuyenKhoRow,
     BaoCaoKhoPage,
     BaoCaoKhoRow,
+    BaoCaoNXTPage,
+    BaoCaoNXTRow,
     KhoaSoKyRow,
     KhoExportLogRow,
     KhoKhoaSoIn,
     KhoKhoaSoRow,
+    KyDaTinhRow,
+    TinhGiaKyIn,
 )
 
 router = APIRouter(prefix="/api/kho", tags=["kho-bao-cao"])
@@ -253,6 +258,226 @@ def bao_cao_chuyen_kho(
     return BaoCaoChuyenKhoPage(items=rows, total=len(rows))
 
 
+# --- Nhập-Xuất-Tồn theo kỳ (bình quân gia quyền cuối kỳ) — kiểu MISA "Tính giá kỳ" ------------
+#
+# LỚP BÁO CÁO — KHÔNG đụng engine giá vốn (kho vẫn tính đích danh per-lô). Định giá LẠI theo BÌNH
+# QUÂN GIA QUYỀN CUỐI KỲ:
+#   Đơn giá BQ = (GT đầu kỳ + GT nhập) / (SL đầu kỳ + SL nhập)
+#   GT xuất    = BQ × SL xuất       ·   GT cuối = GT đầu + GT nhập − GT xuất   (SL tương tự)
+#
+# ĐẦU KỲ = CUỐI KỲ TRƯỚC, đọc từ SNAPSHOT `kho_ky_ton` (chốt lúc bấm "Tính giá kỳ") → nối chuỗi
+# CHÍNH XÁC từng kỳ. Chưa có snapshot kỳ trước (kỳ đầu tiên) → đầu kỳ dựng từ luỹ kế trước `tu`
+# (định giá BQ gộp lịch sử trước — chỉ dùng cho lần bootstrap). SL khớp tồn thật (Σ nhập − Σ xuất);
+# GT là bản dựng theo BQ. BAO GỒM điều chuyển (nhập/xuất thật của từng kho).
+
+def _nxt_compute(
+    db: Session, *, tu: date, den: date, kho_ids: list[int] | None,
+) -> dict[tuple, dict]:
+    """Tính N-X-T bình quân cho từng (kho, hàng) trong [tu, den]. Đầu kỳ đọc snapshot kỳ trước;
+    fold thêm chuyển động nằm GIỮA snapshot và `tu` (nếu có 'kẽ hở' chưa chốt). Trả dict[key]→số."""
+    snap_map = KhoKyTonRepository(db).latest_before_map(tu, kho_ids)
+
+    stmt = (
+        select(StockVoucher, StockVoucherLine)
+        .join(StockVoucherLine, StockVoucherLine.voucher_id == StockVoucher.id)
+        .where(StockVoucher.trang_thai == VOUCHER_POSTED)
+    )
+    if kho_ids:
+        stmt = stmt.where(StockVoucher.kho_id.in_(kho_ids))
+    results = db.execute(stmt).all()
+
+    class _Acc:
+        __slots__ = ("gap_nhap_sl", "gap_nhap_gt", "gap_xuat_sl",
+                     "nhap_sl", "nhap_gt", "xuat_sl")
+
+        def __init__(self):
+            self.gap_nhap_sl = self.gap_nhap_gt = self.gap_xuat_sl = 0.0
+            self.nhap_sl = self.nhap_gt = self.xuat_sl = 0.0
+
+    # Mọi key cần xét = key có snapshot ĐẦU KỲ ∪ key có chuyển động.
+    acc: dict[tuple, _Acc] = {k: _Acc() for k in snap_map}
+    for v, ln in results:
+        d = _ngay_ghi_so_vn(v.ghi_so_luc)
+        if d is None or d > den:
+            continue
+        key = (v.kho_id, ln.hang_loai, ln.hang_id)
+        snap = snap_map.get(key)
+        # Chuyển động ĐÃ nằm trong snapshot đầu kỳ (d ≤ ngày chốt snapshot) → bỏ, khỏi đếm 2 lần.
+        if snap is not None and d <= snap.den_ngay:
+            continue
+        a = acc.get(key)
+        if a is None:
+            a = acc[key] = _Acc()
+        sl = float(ln.sl_goc or 0)
+        gt = round(float(ln.don_gia or 0) * float(ln.so_luong or 0)) if v.loai == VOUCHER_NHAP else 0
+        trong_ky = d >= tu   # d ≤ den đã lọc ở trên; d < tu → "kẽ hở" trước kỳ
+        if v.loai == VOUCHER_NHAP:
+            if trong_ky:
+                a.nhap_sl += sl
+                a.nhap_gt += gt
+            else:
+                a.gap_nhap_sl += sl
+                a.gap_nhap_gt += gt
+        else:  # XUẤT
+            if trong_ky:
+                a.xuat_sl += sl
+            else:
+                a.gap_xuat_sl += sl
+
+    out: dict[tuple, dict] = {}
+    for key, a in acc.items():
+        snap = snap_map.get(key)
+        carry_sl = float(snap.sl_cuoi) if snap else 0.0
+        carry_gt = int(snap.gt_cuoi) if snap else 0
+        # Fold "kẽ hở" (snapshot → tu) vào đầu kỳ: định giá BQ gộp rồi trừ phần xuất kẽ hở.
+        if a.gap_nhap_sl or a.gap_xuat_sl or a.gap_nhap_gt:
+            mau_gap = carry_sl + a.gap_nhap_sl
+            bq_gap = ((carry_gt + a.gap_nhap_gt) / mau_gap) if mau_gap > 0 else 0.0
+            dau_sl = carry_sl + a.gap_nhap_sl - a.gap_xuat_sl
+            dau_gt = round(carry_gt + a.gap_nhap_gt - bq_gap * a.gap_xuat_sl)
+        else:
+            dau_sl, dau_gt = carry_sl, carry_gt
+        mau = dau_sl + a.nhap_sl
+        bq = ((dau_gt + a.nhap_gt) / mau) if mau > 0 else 0.0
+        xuat_gt = round(bq * a.xuat_sl)
+        out[key] = dict(
+            dau_sl=dau_sl, dau_gt=dau_gt,
+            nhap_sl=a.nhap_sl, nhap_gt=a.nhap_gt,
+            xuat_sl=a.xuat_sl, xuat_gt=xuat_gt,
+            cuoi_sl=dau_sl + a.nhap_sl - a.xuat_sl,
+            cuoi_gt=dau_gt + a.nhap_gt - xuat_gt,
+            don_gia_bq=round(bq, 4) if mau > 0 else None,
+        )
+    return out
+
+
+def _nxt_rows(
+    db: Session, *, tu: date, den: date, kho_id: int | None, q: str | None = None,
+) -> list[BaoCaoNXTRow]:
+    ql = (q or "").strip().lower()
+    kho_ids = [kho_id] if kho_id else None
+    comp = _nxt_compute(db, tu=tu, den=den, kho_ids=kho_ids)
+
+    hang_svc = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    hang_map = hang_svc.map_theo_cap(list({(hl, hi) for _k, hl, hi in comp}))
+    dv_ten = {d.ma: d.ten for d in DonViDoRepository(db).all_active()}
+    kho_repo = KhoHangRepository(db)
+    kho_ten = {kid: getattr(kho_repo.get(kid), "ten", None) for kid in {k[0] for k in comp}}
+
+    rows: list[BaoCaoNXTRow] = []
+    for (kid, hloai, hid), c in comp.items():
+        # Bỏ dòng RỖNG hoàn toàn (không tồn đầu, không phát sinh).
+        if (abs(c["dau_sl"]) < 1e-9 and abs(c["nhap_sl"]) < 1e-9 and abs(c["xuat_sl"]) < 1e-9
+                and c["dau_gt"] == 0):
+            continue
+        mh = hang_map.get((hloai, hid))
+        row = BaoCaoNXTRow(
+            kho_id=kid, kho_ten=kho_ten.get(kid),
+            hang_loai=hloai, hang_id=hid,
+            ma_hang=getattr(mh, "ma", None), ten_hang=getattr(mh, "ten", None),
+            hang_nhom="Giấy" if hloai == "giay" else "Vật tư",
+            dvt=dv_ten.get(getattr(mh, "don_vi_gia", None), getattr(mh, "don_vi_gia", None)),
+            dau_sl=c["dau_sl"], dau_gt=c["dau_gt"],
+            nhap_sl=c["nhap_sl"], nhap_gt=c["nhap_gt"],
+            xuat_sl=c["xuat_sl"], xuat_gt=c["xuat_gt"],
+            cuoi_sl=c["cuoi_sl"], cuoi_gt=c["cuoi_gt"],
+            don_gia_bq=round(c["don_gia_bq"], 2) if c["don_gia_bq"] is not None else None,
+        )
+        if ql and not any(ql in (val or "").lower() for val in (row.ma_hang, row.ten_hang)):
+            continue
+        rows.append(row)
+    rows.sort(key=lambda r: ((r.kho_ten or "").lower(), (r.ten_hang or "").lower()))
+    return rows
+
+
+def _scope_kho_ids(db: Session, kho_id: int | None, tu: date, den: date) -> list[int] | None:
+    """Kho trong phạm vi 'Tính giá kỳ': 1 kho, hoặc MỌI kho (trừ kho được miễn trong khoảng — nếu
+    kỳ toàn kho có kho mở riêng). None = không lọc (mọi kho)."""
+    if kho_id is not None:
+        return [kho_id]
+    mien_tru = set(KhoKhoaSoRepository(db).exempted_khos(tu, den))
+    all_ids = [r for r in db.execute(select(KhoHang.id)).scalars()]
+    ids = [i for i in all_ids if i not in mien_tru]
+    return ids or None
+
+
+@router.get("/bao-cao/nxt", response_model=BaoCaoNXTPage)
+def bao_cao_nxt(
+    db: Db,
+    _: CloseBookUser,
+    tu: date = Query(...),
+    den: date = Query(...),
+    kho_id: int | None = Query(default=None),
+    q: str | None = Query(default=None),
+) -> BaoCaoNXTPage:
+    """Báo cáo N-X-T theo kỳ (bình quân gia quyền cuối kỳ). Đầu kỳ = snapshot kỳ trước ("Tính giá
+    kỳ"). Kỳ chưa tính → hiện TẠM TÍNH (da_tinh=false). Chỉ kế toán kho (`close_book`)."""
+    rows = _nxt_rows(db, tu=tu, den=den, kho_id=kho_id, q=q)
+    kho_ids = [kho_id] if kho_id else None
+    ky_repo = KhoKyTonRepository(db)
+    da_tinh = ky_repo.count_for_den(den, kho_ids) > 0
+    da_khoa = KhoKhoaSoRepository(db).is_locked(kho_id, den) if kho_id else \
+        KhoKhoaSoRepository(db).is_locked(None, den)
+    return BaoCaoNXTPage(items=rows, total=len(rows), tu=tu, den=den,
+                         da_tinh=da_tinh, da_khoa=da_khoa)
+
+
+def _chot_ky(
+    db: Session, *, tu: date, den: date, ten: str | None, kho_ids: list[int] | None,
+    khoa_so_id: int | None,
+) -> None:
+    """Chốt tồn cuối kỳ vào snapshot `kho_ky_ton` (xoá kỳ cũ rồi ghi mới). KHÔNG commit — caller lo.
+    Dùng chung cho 'Tính giá kỳ' (bấm tay) và 'Khóa sổ' (tự chốt)."""
+    comp = _nxt_compute(db, tu=tu, den=den, kho_ids=kho_ids)
+    ky_repo = KhoKyTonRepository(db)
+    ky_repo.delete_for_den(den, kho_ids)
+    for (kid, hloai, hid), c in comp.items():
+        # Bỏ dòng rỗng hoàn toàn (không tồn cuối, không phát sinh) — khỏi phình snapshot.
+        if (abs(c["cuoi_sl"]) < 1e-9 and c["cuoi_gt"] == 0
+                and abs(c["nhap_sl"]) < 1e-9 and abs(c["xuat_sl"]) < 1e-9
+                and abs(c["dau_sl"]) < 1e-9):
+            continue
+        ky_repo.upsert(
+            kho_id=kid, hang_loai=hloai, hang_id=hid, tu_ngay=tu, den_ngay=den,
+            ten_ky=ten, sl_cuoi=c["cuoi_sl"], gt_cuoi=int(c["cuoi_gt"]),
+            don_gia_bq=c["don_gia_bq"], khoa_so_id=khoa_so_id,
+        )
+
+
+@router.post("/bao-cao/tinh-gia-ky", response_model=BaoCaoNXTPage)
+def tinh_gia_ky(payload: TinhGiaKyIn, db: Db, user: CloseBookUser) -> BaoCaoNXTPage:
+    """TÍNH GIÁ KỲ (bình quân) kiểu MISA: chốt tồn cuối kỳ vào snapshot `kho_ky_ton` để kỳ sau đọc
+    làm đầu kỳ. Chạy lại được (đè) bao nhiêu lần cũng được. KHÔNG đụng phiếu xuất đích danh. Ghi Lịch sử.
+
+    CHO PHÉP tính cả kỳ ĐÃ KHÓA (luồng chốt 29/08/2026: khóa kỳ trước → vào đây chọn kỳ đã khóa rồi
+    tính). An toàn vì kỳ đã khóa thì phiếu đóng băng, tính lại ra đúng số."""
+    tu, den = payload.tu, payload.den
+    kho_ids = _scope_kho_ids(db, payload.kho_id, tu, den)
+    _chot_ky(db, tu=tu, den=den, ten=payload.ten, kho_ids=kho_ids, khoa_so_id=None)
+    db.commit()
+    _log_tinh_gia(db, user, kho_id=payload.kho_id, tu=tu, den=den, ten=payload.ten)
+    rows = _nxt_rows(db, tu=tu, den=den, kho_id=payload.kho_id)
+    return BaoCaoNXTPage(items=rows, total=len(rows), tu=tu, den=den, da_tinh=True, da_khoa=False)
+
+
+@router.get("/bao-cao/ky-da-tinh", response_model=list[KyDaTinhRow])
+def get_ky_da_tinh(db: Db, _: CloseBookUser) -> list[KyDaTinhRow]:
+    """Danh sách các KỲ ĐÃ TÍNH GIÁ (có snapshot) — cho tab 'Kỳ đã tính'. Mới nhất trước."""
+    ky_repo = KhoKyTonRepository(db)
+    khoa_repo = KhoKhoaSoRepository(db)
+    khos_map = ky_repo.khos_by_period()
+    out: list[KyDaTinhRow] = []
+    for r in ky_repo.aggregate_periods():
+        khos = khos_map.get((r.tu_ngay, r.den_ngay), set())
+        da_khoa = any(khoa_repo.is_locked(kid, r.den_ngay) for kid in khos)
+        out.append(KyDaTinhRow(
+            tu_ngay=r.tu_ngay, den_ngay=r.den_ngay, ten=r.ten,
+            so_mat_hang=int(r.so_dong), so_kho=int(r.so_kho),
+            tong_gt_cuoi=int(r.tong_gt), tinh_luc=r.tinh_luc, da_khoa=da_khoa,
+        ))
+    return out
+
+
 # --- Khóa kỳ (chốt sổ) ---------------------------------------------------------
 
 def _khoa_row(db: Session, row) -> KhoKhoaSoRow:
@@ -357,6 +582,8 @@ def set_khoa_so(payload: KhoKhoaSoIn, db: Db, user: CloseBookUser) -> KhoKhoaSoR
         hanh_dong=payload.hanh_dong, nguoi_khoa_id=user.id,
         ten=((payload.ten or "").strip() or None) if payload.hanh_dong == "khoa" else None,
     )
+    # KHÓA sổ CHỈ khai + đóng băng kỳ (không tự tính giá — luồng chốt 29/08/2026): tính giá là bước
+    # RIÊNG, vào tab N-X-T chọn kỳ đã khóa rồi bấm "Tính giá kỳ". Tách bạch cho đỡ rối.
     return _khoa_row(db, row)
 
 
@@ -509,6 +736,26 @@ def _build_xlsx(rows: list[BaoCaoKhoRow], loai: str) -> bytes:
 
 # --- Ghi NHẬT KÝ mỗi lần xuất Excel (vào audit_logs) → hiện ở tab "Lịch sử thao tác" ------------
 _ACTION_EXPORT = "kho_export"
+_ACTION_TINH_GIA = "kho_tinh_gia"
+
+
+def _log_tinh_gia(db: Session, user: User, *, kho_id: int | None,
+                  tu: date, den: date, ten: str | None) -> None:
+    """Ghi 1 dòng nhật ký 'Tính giá kỳ' vào audit_logs → hiện ở tab 'Lịch sử thao tác'."""
+    kho_ten = getattr(KhoHangRepository(db).get(kho_id), "ten", None) if kho_id is not None else None
+    AuditLogRepository(db).create(
+        actor_user_id=getattr(user, "id", None),
+        action=_ACTION_TINH_GIA,
+        target="Tính giá kỳ",
+        detail=json.dumps(
+            {
+                "pham_vi": f"Tính giá kỳ · {kho_ten or 'Tất cả kho'}",
+                "khoang_ngay": f"{_fmt_date(tu)} – {_fmt_date(den)}",
+                "ten_ky": ten,
+            },
+            ensure_ascii=False,
+        ),
+    )
 
 
 def _log_export(db: Session, user: User, *, loai_label: str,
@@ -544,23 +791,31 @@ def _log_export(db: Session, user: User, *, loai_label: str,
 
 @router.get("/bao-cao/lich-su-export", response_model=list[KhoExportLogRow])
 def get_lich_su_export(db: Db, _: CloseBookUser) -> list[KhoExportLogRow]:
-    """Lịch sử các lần XUẤT EXCEL báo cáo kho (mới nhất trước) — gộp vào tab 'Lịch sử thao tác'."""
+    """Lịch sử thao tác báo cáo kho: XUẤT EXCEL + TÍNH GIÁ KỲ (mới nhất trước) — cho tab 'Lịch sử'."""
     users = UserRepository(db)
+    audit = AuditLogRepository(db)
     out: list[KhoExportLogRow] = []
-    for r in AuditLogRepository(db).list_by_action(_ACTION_EXPORT, limit=200):
-        try:
-            d = json.loads(r.detail or "{}")
-        except (ValueError, TypeError):
-            d = {}
-        u = users.get_by_id(r.actor_user_id) if r.actor_user_id else None
-        out.append(KhoExportLogRow(
-            thoi_diem=r.created_at,
-            loai=r.target or "Xuất Excel",
-            pham_vi=d.get("pham_vi") or r.target or "—",
-            khoang_ngay=d.get("khoang_ngay"),
-            ten_ky=d.get("ten_ky"),
-            nguoi_ten=getattr(u, "name", None),
-        ))
+    # (action, hành động discriminator, nhãn mặc định)
+    for action, hd, nhan in (
+        (_ACTION_EXPORT, "export", "Xuất Excel"),
+        (_ACTION_TINH_GIA, "tinh_gia", "Tính giá kỳ"),
+    ):
+        for r in audit.list_by_action(action, limit=200):
+            try:
+                d = json.loads(r.detail or "{}")
+            except (ValueError, TypeError):
+                d = {}
+            u = users.get_by_id(r.actor_user_id) if r.actor_user_id else None
+            out.append(KhoExportLogRow(
+                thoi_diem=r.created_at,
+                hanh_dong=hd,
+                loai=r.target or nhan,
+                pham_vi=d.get("pham_vi") or r.target or "—",
+                khoang_ngay=d.get("khoang_ngay"),
+                ten_ky=d.get("ten_ky"),
+                nguoi_ten=getattr(u, "name", None),
+            ))
+    out.sort(key=lambda x: x.thoi_diem, reverse=True)
     return out
 
 

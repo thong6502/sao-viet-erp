@@ -242,11 +242,12 @@ def _read(scope: str) -> dict:
 # Cụm quyền KHO — ĐÃ GỘP (bỏ SoD): người có quyền LẬP PHIẾU (can_create) tự GHI SỔ + HỦY luôn.
 # Không còn tách "thủ kho lập" và "QL/kế toán ghi sổ" (theo vận hành). `can_post` KHÔNG còn gác ở
 # endpoint nào nữa — giữ cột trong DB cho tương thích nhưng là quyền chết.
-#   _KHO_VIEW = xem tồn + xem giá vốn/giá trị tồn + khai ngưỡng tồn.
+#   _KHO_VIEW = xem tồn + khai ngưỡng tồn. KHÔNG kèm giá vốn (tách 29/08/2026) — CHỈ Kế toán kho
+#     (+ Giám đốc) mới có `can_view_cost` (thấy đơn giá/giá vốn); thủ kho & QL kho xem tồn KHÔNG thấy giá.
 #   _KHO_QL   = _KHO_VIEW (không còn khác biệt — giữ tên cho các chỗ gọi cũ).
 # KHÔNG kèm `can_approve` — DUYỆT đề nghị là việc của quản lý bộ phận đề nghị, kho KHÔNG tự duyệt.
 _KHO_VIEW = {
-    "can_view_stock": True, "can_view_cost": True, "can_set_threshold": True,
+    "can_view_stock": True, "can_set_threshold": True,
 }
 _KHO_QL = {**_KHO_VIEW}
 
@@ -572,7 +573,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
     # GỘP QUYỀN (2026-07-29, mentor): 5 cột kho (duyệt · ghi sổ · xem tồn · xem giá vốn · khai
     # ngưỡng) = 1 công tắc "Quản lý kho" trên ma trận → vai làm việc với kho bật cả cụm. `_KHO_QL`
     # = cụm đó. Người đề nghị scope `own` (chỉ đèn tín hiệu, không thấy tồn/giá).
-    # Thủ kho: LẬP PHIẾU + XEM KHO (tồn/giá vốn/ngưỡng) — KHÔNG ghi sổ (SoD: QL kho / Kế toán kho
+    # Thủ kho: LẬP PHIẾU + XEM KHO (tồn/ngưỡng; KHÔNG xem giá vốn — chỉ kế toán) — KHÔNG ghi sổ (SoD: QL kho / Kế toán kho
     # chốt tồn). Khai rõ create/update/delete để công tắc "Lập phiếu" trên ma trận hiện ĐÚNG là bật.
     (
         "Kho",
@@ -597,7 +598,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "yeu_cau_mua_hang": _ycmh_lap(SCOPE_ALL),
         },
     ),
-    # Quản lý kho: LẬP PHIẾU + Quản lý kho (ghi sổ + xem tồn/giá vốn + ngưỡng). KHÔNG duyệt đề nghị
+    # Quản lý kho: LẬP PHIẾU + Quản lý kho (ghi sổ + xem tồn + ngưỡng; KHÔNG xem giá vốn — chỉ kế toán). KHÔNG duyệt đề nghị
     # (việc của quản lý bộ phận đề nghị) và KHÔNG tự tạo đề nghị (kho cấp phát, không xin).
     (
         "Kho",
@@ -632,8 +633,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Kế toán kho",
         {
             "dashboard": _read(SCOPE_ALL),
-            # Kế toán kho: thêm KHÓA KỲ (chốt sổ) + Báo cáo kho + export MISA (can_close_book).
-            "kho": {**_read(SCOPE_ALL), **_KHO_QL, "can_close_book": True},
+            # Kế toán kho: XEM GIÁ VỐN (can_view_cost — tách riêng khỏi xem tồn) + KHÓA KỲ (chốt sổ)
+            # + Báo cáo kho + export MISA (can_close_book). Chỉ vai này (+ GĐ) thấy giá.
+            "kho": {**_read(SCOPE_ALL), **_KHO_QL, "can_view_cost": True, "can_close_book": True},
             # Đối chiếu giá vốn cần TRA danh mục, không sửa.
             **{k: _read(SCOPE_ALL) for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu")},
         },

@@ -7096,6 +7096,52 @@ export interface BaoCaoChuyenKhoParams extends BaoCaoFunnel {
   q?: string | null;
 }
 
+/** 1 dòng Nhập-Xuất-Tồn theo kỳ (bình quân gia quyền cuối kỳ) của 1 mặt hàng tại 1 kho. */
+export interface BaoCaoNXTRow {
+  kho_id: number | null;
+  kho_ten: string | null;
+  hang_loai: string;
+  hang_id: number;
+  ma_hang: string | null;
+  ten_hang: string | null;
+  hang_nhom: string | null;
+  dvt: string | null;
+  dau_sl: number;
+  dau_gt: number;
+  nhap_sl: number;
+  nhap_gt: number;
+  xuat_sl: number;
+  xuat_gt: number;
+  cuoi_sl: number;
+  cuoi_gt: number;
+  don_gia_bq: number | null;
+}
+
+export interface BaoCaoNXTPage {
+  items: BaoCaoNXTRow[];
+  total: number;
+  tu: string | null;
+  den: string | null;
+  /** Kỳ này ĐÃ tính giá (có snapshot chốt) chưa. false = đang tạm tính live. */
+  da_tinh: boolean;
+  /** Kỳ này (theo ngày cuối) đã khóa sổ chưa — đã khóa thì không tính lại. */
+  da_khoa: boolean;
+}
+
+export interface BaoCaoNXTParams {
+  tu: string;
+  den: string;
+  kho_id?: number | null;
+  q?: string | null;
+}
+
+export interface TinhGiaKyInput {
+  tu: string;
+  den: string;
+  ten?: string | null;
+  kho_id?: number | null;
+}
+
 /** Khóa/mở kỳ kế toán kho — 1 thao tác trên KHOẢNG ngày. kho_id null = toàn kho. Append-only = lịch sử. */
 export interface KhoKhoaSoRow {
   id: number;
@@ -7121,7 +7167,8 @@ export interface KhoKhoaSoInput {
 /** 1 lần XUẤT EXCEL báo cáo kho — cho tab "Lịch sử thao tác". */
 export interface KhoExportLog {
   thoi_diem: string;
-  loai: string;                 // "Nhập kho" / "Xuất kho" / "Chuyển kho"
+  hanh_dong: string;            // "export" (xuất Excel) | "tinh_gia" (tính giá kỳ)
+  loai: string;                 // "Nhập kho" / "Xuất kho" / "Chuyển kho" / "Tính giá kỳ"
   pham_vi: string;              // loại · kho
   khoang_ngay: string | null;
   ten_ky: string | null;        // tên kỳ nếu khoảng ngày trùng kỳ đã khóa; "Toàn bộ" nếu ko lọc ngày
@@ -7138,6 +7185,18 @@ export interface KhoaSoKyRow {
   ten: string | null;
   /** (Kỳ TOÀN KHO) tên các kho đã MỞ RIÊNG trong kỳ này → hiển thị "Toàn kho — trừ: …". */
   mien_tru?: string[];
+}
+
+/** 1 kỳ ĐÃ TÍNH GIÁ (có snapshot) — cho tab "Kỳ đã tính". */
+export interface KyDaTinh {
+  tu_ngay: string;
+  den_ngay: string;
+  ten: string | null;
+  so_mat_hang: number;
+  so_kho: number;
+  tong_gt_cuoi: number;
+  tinh_luc: string;
+  da_khoa: boolean;
 }
 
 /** Ô chọn vật tư khi lập đề nghị — 4 trường tối thiểu, KHÔNG có giá. */
@@ -7593,6 +7652,24 @@ export interface StockThreshold {
   nguong_can_ton: number | null;
   nguong_toi_da: number | null;
   canh_bao: boolean;
+}
+
+/** 1 lần ĐIỀU CHỈNH phiếu xuất — cho "Lịch sử điều chỉnh" trong drawer phiếu. */
+export interface DieuChinhLichSu {
+  thoi_diem: string;
+  nguoi_ten: string | null;
+  bo_phan_ten: string | null;
+  chi_tiet: string | null;
+  ly_do: string | null;
+}
+
+/** 1 VỊ TRÍ cất (kệ/ô) đã khai của một kho — danh sách để khai lô chọn dropdown. */
+export interface KhoViTriRow {
+  id: number;
+  kho_id: number;
+  ma: string;
+  ghi_chu: string | null;
+  active: boolean;
 }
 
 /** 1 dòng phiếu XUẤT đã ghi sổ của mã hàng — theo dõi xuất riêng với nhập (lô). */
@@ -11230,6 +11307,20 @@ export const api = {
       ghiSo(token: string, id: number): Promise<StockVoucher> {
         return authed<StockVoucher>(`/api/kho/phieu/${id}/ghi-so`, token, { method: "POST" });
       },
+      /** Điều chỉnh phiếu XUẤT đã ghi sổ khi SX dùng ÍT hơn (xuất 10 → 7): trả phần dư về lô nguồn,
+       *  giảm 'đã cấp' của yêu cầu. `lines` = các dòng GIẢM (line_id → số lượng mới). */
+      dieuChinhXuat(
+        token: string, id: number, lines: { line_id: number; so_luong_moi: number }[], lyDo: string,
+      ): Promise<StockVoucher> {
+        return authed<StockVoucher>(`/api/kho/phieu/${id}/dieu-chinh-xuat`, token, {
+          method: "POST",
+          body: JSON.stringify({ lines, ly_do: lyDo }),
+        });
+      },
+      /** Lịch sử điều chỉnh của 1 phiếu xuất (ai · bộ phận · lúc nào · đổi gì) — mới nhất trước. */
+      lichSuDieuChinh(token: string, id: number): Promise<DieuChinhLichSu[]> {
+        return authed<DieuChinhLichSu[]>(`/api/kho/phieu/${id}/lich-su-dieu-chinh`, token);
+      },
       /** Hủy phiếu nháp — BẮT BUỘC lý do; đề nghị chuyển "Đã hủy" kèm lý do (kết thúc). */
       huy(token: string, id: number, lyDo: string): Promise<StockVoucher> {
         return authed<StockVoucher>(`/api/kho/phieu/${id}/huy`, token, {
@@ -11358,6 +11449,30 @@ export const api = {
           body: JSON.stringify({ ly_do: lyDo }),
         });
       },
+      /** Từ 1 phiếu điều chuyển (nhập-đích/xuất-nguồn) → id yêu cầu điều chuyển ĐÍCH, để mở mặt tiền
+       *  PHIẾU ĐIỀU CHUYỂN. 404 nếu không phải phiếu điều chuyển. */
+      byVoucher(token: string, voucherId: number): Promise<{ request_id: number }> {
+        return authed<{ request_id: number }>(`/api/kho/dieu-chuyen/by-voucher/${voucherId}`, token);
+      },
+    },
+
+    /** Vị trí cất (kệ/ô) khai cho TỪNG kho — danh sách để khai lô chọn dropdown thay vì gõ tay.
+     *  ĐỌC mở cho vai chọn kho; THÊM/XÓA gác `dm_kho_hang`. */
+    viTri: {
+      list(token: string, khoId: number): Promise<{ items: KhoViTriRow[] }> {
+        return authed<{ items: KhoViTriRow[] }>(`/api/kho/${khoId}/vi-tri`, token);
+      },
+      create(
+        token: string, khoId: number, body: { ma: string; ghi_chu?: string | null },
+      ): Promise<KhoViTriRow> {
+        return authed<KhoViTriRow>(`/api/kho/${khoId}/vi-tri`, token, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      },
+      remove(token: string, id: number): Promise<void> {
+        return authed<void>(`/api/kho/vi-tri/${id}`, token, { method: "DELETE" });
+      },
     },
 
     nguongTon: {
@@ -11394,6 +11509,22 @@ export const api = {
         const q = qs.toString();
         return authed<BaoCaoChuyenKhoPage>(`/api/kho/bao-cao/chuyen-kho${q ? `?${q}` : ""}`, token);
       },
+      /** Báo cáo Nhập-Xuất-Tồn theo kỳ (bình quân gia quyền cuối kỳ) — 1 dòng / mặt hàng / kho.
+       *  Đầu kỳ = snapshot kỳ trước (đã "Tính giá kỳ"); kỳ chưa tính → da_tinh=false (tạm tính). */
+      nxt(token: string, params: BaoCaoNXTParams): Promise<BaoCaoNXTPage> {
+        const qs = new URLSearchParams({ tu: params.tu, den: params.den });
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.q) qs.set("q", params.q);
+        return authed<BaoCaoNXTPage>(`/api/kho/bao-cao/nxt?${qs.toString()}`, token);
+      },
+      /** Tính giá kỳ (bình quân) kiểu MISA: chốt tồn cuối kỳ vào snapshot để kỳ sau đọc làm đầu kỳ.
+       *  Chạy lại được (đè) tới khi khóa sổ. Không đụng phiếu xuất đích danh. */
+      tinhGiaKy(token: string, body: TinhGiaKyInput): Promise<BaoCaoNXTPage> {
+        return authed<BaoCaoNXTPage>("/api/kho/bao-cao/tinh-gia-ky", token, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      },
       khoaSo(token: string): Promise<KhoKhoaSoRow[]> {
         return authed<KhoKhoaSoRow[]>("/api/kho/khoa-so", token);
       },
@@ -11404,6 +11535,10 @@ export const api = {
       /** Các kỳ CÒN đang khóa (đã gộp khoảng) — cho tab "Kỳ đã khóa". */
       ky(token: string): Promise<KhoaSoKyRow[]> {
         return authed<KhoaSoKyRow[]>("/api/kho/khoa-so/ky", token);
+      },
+      /** Các kỳ ĐÃ TÍNH GIÁ (có snapshot) — cho tab "Kỳ đã tính". */
+      kyDaTinh(token: string): Promise<KyDaTinh[]> {
+        return authed<KyDaTinh[]>("/api/kho/bao-cao/ky-da-tinh", token);
       },
       setKhoaSo(token: string, body: KhoKhoaSoInput): Promise<KhoKhoaSoRow> {
         return authed<KhoKhoaSoRow>("/api/kho/khoa-so", token, {
