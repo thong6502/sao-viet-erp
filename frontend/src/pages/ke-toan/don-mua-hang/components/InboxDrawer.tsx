@@ -83,6 +83,57 @@ export function InboxDrawer({
           không chặn duyệt.
         </div>
       )}
+      {/* ĐIỀU KIỆN THANH TOÁN VỚI NCC — khối RIÊNG, cố ý không nhét vào `purchase__facts` ngay
+          dưới (chủ chốt 28/08/2026: *"thiết kế hiển thị sao cho đẹp chứ đừng nhét bừa"*).
+          Bảng đó gồm 6 mục nói về ĐƠN NÀY (ngày cần hàng, người lập, gửi duyệt, yêu cầu nguồn…);
+          ba số ở đây nói về NHÀ CUNG CẤP. Trộn vào là "Hạn mức nợ" đứng ngang hàng "Người lập",
+          thành một danh sách 9 dòng phẳng lì không có chỗ cho mắt dừng.
+
+          "Đang nợ" được thêm dù chủ chốt chỉ xin ba trường: "hạn mức 100 triệu" đứng một mình là
+          con số chết, câu kế toán thật sự đang hỏi trước nút Duyệt là *còn được nợ bao nhiêu
+          nữa*. Số đó server đã tính sẵn (`no_hien_tai`), trước chỉ lôi ra khi vượt hạn mức.
+          (Thanh đo % hạn mức đã dựng rồi bỏ theo yêu cầu — đừng dựng lại.) */}
+      {credit && (
+        <section className="acct-terms">
+          <header className="acct-terms__head">
+            <span>Điều kiện thanh toán</span>
+            <strong>{selected.supplier_name || "—"}</strong>
+          </header>
+          <div className="acct-terms__row">
+            <span>Điều khoản</span>
+            <strong className={credit.payment_terms ? "" : "acct-terms__trong"}>
+              {credit.payment_terms?.trim() || "Chưa khai"}
+            </strong>
+          </div>
+          <div className="acct-terms__grid">
+            <div>
+              <span>Cho nợ</span>
+              {/* BA ca khác hẳn nhau: chưa khai · 0 = trả ngay · N ngày. Ép `null` thành 0 là
+                  biến "chưa đặt hạn" thành "phải trả ngay hôm nay". */}
+              <strong className={credit.credit_days == null ? "acct-terms__trong" : ""}>
+                {credit.credit_days == null
+                  ? "Chưa đặt hạn"
+                  : credit.credit_days === 0
+                    ? "Trả ngay"
+                    : `${credit.credit_days} ngày`}
+              </strong>
+            </div>
+            <div>
+              <span>Hạn mức</span>
+              {/* 0 = KHÔNG đặt hạn mức (mọi NCC cũ đều để 0), không phải "hạn mức 0đ". */}
+              <strong className={credit.credit_limit > 0 ? "" : "acct-terms__trong"}>
+                {credit.credit_limit > 0 ? money(credit.credit_limit) : "Không đặt"}
+              </strong>
+            </div>
+            <div>
+              <span>Đang nợ</span>
+              <strong className={credit.vuot_han_muc ? "acct-terms__vuot" : ""}>
+                {money(credit.no_hien_tai)}
+              </strong>
+            </div>
+          </div>
+        </section>
+      )}
       <dl className="purchase__facts">
         <div>
           <dt>Nhà cung cấp</dt>
@@ -253,6 +304,19 @@ export function InboxDrawer({
                             {": "}
                             {line.quantity.toLocaleString("vi-VN")}{" "}
                             {tenDonVi(line.unit) ?? line.unit}
+                            {/* PHẦN DƯ — nhận nhiều hơn số đặt nên tính 0đ (28/08/2026). Kế toán
+                                PHẢI thấy con số này: đây là màn quyết chi, mà "thành tiền" bên
+                                cạnh đã trừ phần dư ra rồi. Không hiện thì hoá đơn NCC ghi 700 cái
+                                còn hệ ghi 200 cái, không ai giải thích nổi vênh ở đâu. */}
+                            {line.quantity_du > 0 && (
+                              <em
+                                className="pdot__du"
+                                title={`${line.quantity_tinh_tien.toLocaleString("vi-VN")} tính tiền · ${line.quantity_du.toLocaleString("vi-VN")} vượt số đặt, giá 0đ`}
+                              >
+                                {" · "}
+                                {line.quantity_du.toLocaleString("vi-VN")} dư
+                              </em>
+                            )}
                           </span>
                         ))}
                       </div>

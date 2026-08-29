@@ -593,7 +593,8 @@ export function PurchaseRequestsPage({
           source_request_ids: payload.source_request_ids,
           content: payload.content,
           needed_date: payload.needed_date,
-          expected_receipt_date: payload.expected_receipt_date,
+          // KHÔNG gửi `expected_receipt_date`: lô này đẻ ra N đơn theo NCC và server đóng cùng
+          // một ngày lên tất cả. Ngày giao khai riêng cho từng đơn ở màn Sửa (28/08/2026).
           note: payload.note,
           lines: payload.lines.map((line) => ({
             item_name: line.item_name,

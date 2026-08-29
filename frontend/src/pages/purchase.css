@@ -160,9 +160,54 @@
   font-size: 12px;
   margin-top: 2px;
 }
+/* CHÂN BẢNG: nhãn canh PHẢI, sát ngay con số. Canh trái thì "Tổng dự kiến" dính mép bảng còn
+   số nằm mép kia, giữa là bốn cột trống — đọc thành hai thứ rời chứ không thành một dòng tổng.
+   Vạch mảnh đi (2px → 1.5px): một dòng tổng không cần cái gạch dày bằng đường kẻ bảng. */
 .purchase__lines-table tfoot td {
   font-weight: 700;
-  border-top: 2px solid var(--rule);
+  border-top: 1.5px solid var(--rule);
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.purchase__lines-table tfoot td:first-child {
+  text-align: right;
+  padding-right: var(--sp-3);
+}
+
+/* DẢI TAB của drawer Chi tiết đơn mua (28/08/2026).
+   Dáng GẠCH CHÂN chứ không phải nút bấm: hộp thoại này đã có dải tiêu đề cam ngay trên, thêm
+   một cụm nút to nữa là hai khối tranh nhau chỗ đứng đầu. Tab co theo CHỮ, dồn trái — hai tab
+   kéo giãn kín bề ngang trông như công tắc bật/tắt, không ra dải tab. */
+.purchase__tabs {
+  display: flex;
+  gap: var(--sp-4);
+  border-bottom: 1px solid var(--rule-soft);
+  margin-bottom: var(--sp-4);
+}
+
+.purchase__tab {
+  padding: 6px 2px 9px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ash-2);
+  /* Gạch chân trong suốt sẵn + `margin-bottom:-1px` để tab hoạt động đè lên đường kẻ dưới —
+     không thì lúc đổi tab cả dải nhảy lên xuống 2px. */
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s ease;
+}
+
+.purchase__tab:hover {
+  color: var(--ink);
+}
+
+.purchase__tab.is-active {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
 }
 
 .purchase__actions {
@@ -2490,6 +2535,42 @@ span.pdot__readonly-money {
 .pdot__delivery-lines span,
 .acct-deliveries__lines span {
   overflow-wrap: anywhere;
+}
+
+/* HAI CỘT "Mặt hàng" / "SL nhận" phải THẲNG HÀNG nhau (28/08/2026).
+   Chúng là hai <td> riêng, mỗi ô một lưới dọc — nên chỉ cần một bên xuống dòng là lệch hết, đọc
+   thành món này với số lượng của món kia. Chốt: cùng `line-height`, và tên hàng CẤM xuống dòng.
+   ⚠️ Phải viết đủ `.pdot__delivery-lines span.pdot__dl-name` — `.pdot__dl-name` trần là (0,1,0),
+   thua `.pdot__delivery-lines span` (0,1,1) ở ngay trên, `overflow-wrap: anywhere` sẽ thắng. */
+.pdot__delivery-lines span.pdot__dl-name,
+.pdot__delivery-lines span.pdot__dl-qty {
+  line-height: 20px;
+}
+.pdot__delivery-lines span.pdot__dl-name {
+  overflow-wrap: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pdot__delivery-lines span.pdot__dl-qty {
+  white-space: nowrap;
+}
+
+/* Dòng chia "200 tính tiền · 500 dư (0đ)" ngay dưới ô gõ số nhận ở hộp Ghi đợt giao. */
+.pdot__split {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ash-2);
+  white-space: nowrap;
+}
+
+/* PHẦN DƯ — hàng vượt số đặt, giá 0đ. Màu hổ phách: đây là điều BẤT THƯỜNG cần người đọc dừng
+   mắt lại, nhưng không phải lỗi nên không dùng màu đỏ. */
+.pdot__du {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--amber-deep);
 }
 
 .pdot__rowbtns {

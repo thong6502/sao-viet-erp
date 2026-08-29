@@ -732,11 +732,12 @@ def test_receipt_cannot_exceed_voucher_amount(client):
     assert first.status_code == 201, first.text
     receipt = first.json()
     assert receipt["code"].startswith("PT-")
-    assert receipt["status"] == "waiting_receipt"
+    # LẬP LÀ ĐÃ THU (27/08/2026) — bỏ trạng thái chờ, xem `create_receipt`.
+    assert receipt["status"] == "received"
     assert receipt["payment_voucher_code"] == voucher["code"]
     assert receipt["payer_name"] == "Nguyễn Văn Mua"
 
-    # Phiếu thu đang chờ vẫn chiếm chỗ trong hạn mức thu.
+    # Phiếu thu đã lập vẫn chiếm chỗ trong hạn mức thu.
     second_over = client.post(
         f"/api/accounting/payment-vouchers/{voucher['id']}/receipts",
         json=_receipt_payload(2_000_000),
@@ -744,14 +745,30 @@ def test_receipt_cannot_exceed_voucher_amount(client):
     )
     assert second_over.status_code == 422
 
-    # Update chính phiếu đó lên full số đã chi được (exclude self).
+    # SỬA thì KHÔNG còn: phiếu đã ghi nhận tiền, muốn đổi số thì huỷ (có lý do) rồi lập lại — sửa
+    # thẳng số tiền đang được trừ vào công nợ là đổi sổ mà không để lại vết.
     full = client.put(
         f"/api/accounting/payment-receipts/{receipt['id']}",
         json=_receipt_payload(2_200_000),
         headers=headers,
     )
-    assert full.status_code == 200, full.text
-    assert full.json()["amount_vnd"] == 2_200_000
+    assert full.status_code == 409, full.text
+    assert "huỷ phiếu" in full.json()["detail"]
+
+    # Huỷ rồi lập lại đúng số — đường sửa sai duy nhất, và nó phải thông.
+    huy = client.post(
+        f"/api/accounting/payment-receipts/{receipt['id']}/cancel",
+        json={"reason": "Gõ nhầm số"},
+        headers=headers,
+    )
+    assert huy.status_code == 200, huy.text
+    lai = client.post(
+        f"/api/accounting/payment-vouchers/{voucher['id']}/receipts",
+        json=_receipt_payload(2_200_000),
+        headers=headers,
+    )
+    assert lai.status_code == 201, lai.text
+    assert lai.json()["amount_vnd"] == 2_200_000
 
 
 def test_receipt_received_reopens_purchase_available(client):
@@ -778,18 +795,10 @@ def test_receipt_received_reopens_purchase_available(client):
         json=_receipt_payload(300_000),
         headers=headers,
     ).json()
-
-    waiting_state = client.get(f"/api/purchase-requests/{purchase['id']}", headers=headers).json()
-    assert waiting_state["tran_dat_coc"] == 0  # chờ thu: tiền chưa về
-    assert waiting_state["receipt_received_amount"] == 0
-
-    received = client.post(
-        f"/api/accounting/payment-receipts/{receipt['id']}/mark-received",
-        json={"bank_reference": None},
-        headers=headers,
-    )
-    assert received.status_code == 200, received.text
-    assert received.json()["status"] == "received"
+    # 27/08/2026: bỏ bước "Xác nhận đã thu" — lập phiếu là tiền đã về, ăn vào sổ NGAY. Trước đây
+    # đoạn này còn một chặng `waiting` (tran_dat_coc = 0, receipt_received_amount = 0) rồi mới bấm
+    # `mark-received`; nay phiếu ra thẳng `received`.
+    assert receipt["status"] == "received"
 
     after = client.get(f"/api/purchase-requests/{purchase['id']}", headers=headers).json()
     assert after["paid_amount"] == 2_200_000  # số thô giữ nguyên
@@ -850,30 +859,33 @@ def test_receipt_payer_and_method_validation(client):
     assert bank_missing_account.status_code == 422
 
     company, _beneficiary = _bank_accounts(client, headers, supplier["id"])
-    bank_ok = client.post(
+    # MÃ GIAO DỊCH nay hỏi NGAY LÚC LẬP (27/08/2026), không còn bước "Xác nhận đã thu" để hỏi sau.
+    # Thiếu nó là khoản tiền về qua ngân hàng không dò được sao kê ⇒ chặn từ đầu vào.
+    bank_missing_reference = client.post(
         receipts_url,
         json=_receipt_payload(
             100_000, receipt_method="bank_transfer", company_bank_account_id=company["id"]
         ),
         headers=headers,
     )
+    assert bank_missing_reference.status_code == 422, bank_missing_reference.text
+    assert "mã giao dịch" in bank_missing_reference.json()["detail"].lower()
+
+    bank_ok = client.post(
+        receipts_url,
+        json=_receipt_payload(
+            100_000,
+            receipt_method="bank_transfer",
+            company_bank_account_id=company["id"],
+            bank_reference="VCB-BAOCO-001",
+        ),
+        headers=headers,
+    )
     assert bank_ok.status_code == 201, bank_ok.text
     body = bank_ok.json()
     assert body["company_account_number"] == "123456789"
-
-    missing_reference = client.post(
-        f"/api/accounting/payment-receipts/{body['id']}/mark-received",
-        json={"bank_reference": None},
-        headers=headers,
-    )
-    assert missing_reference.status_code == 422
-    received = client.post(
-        f"/api/accounting/payment-receipts/{body['id']}/mark-received",
-        json={"bank_reference": "VCB-BAOCO-001"},
-        headers=headers,
-    )
-    assert received.status_code == 200, received.text
-    assert received.json()["bank_reference"] == "VCB-BAOCO-001"
+    assert body["status"] == "received"
+    assert body["bank_reference"] == "VCB-BAOCO-001"
 
 
 def test_receipt_update_cancel_lifecycle_and_listing(client):
@@ -883,16 +895,20 @@ def test_receipt_update_cancel_lifecycle_and_listing(client):
     voucher = _paid_cash_voucher(client, headers, purchase["id"], 2_200_000)
     receipts_url = f"/api/accounting/payment-vouchers/{voucher['id']}/receipts"
 
+    # 27/08/2026 — phiếu lập ra là ĐÃ THU, nên vòng đời rút còn: lập → (sai thì) huỷ có lý do →
+    # lập lại. Không còn chặng `waiting` để sửa tại chỗ.
     receipt = client.post(receipts_url, json=_receipt_payload(500_000), headers=headers).json()
+    assert receipt["status"] == "received"
+
+    # SỬA bị chặn: phiếu đang được trừ vào công nợ, đổi số mà không để vết là đổi sổ.
     updated = client.put(
         f"/api/accounting/payment-receipts/{receipt['id']}",
         json=_receipt_payload(700_000, payer_name="Trần Thị Nộp"),
         headers=headers,
     )
-    assert updated.status_code == 200, updated.text
-    assert updated.json()["amount_vnd"] == 700_000
-    assert updated.json()["payer_name"] == "Trần Thị Nộp"
+    assert updated.status_code == 409, updated.text
 
+    # HUỶ thì phải được — kể cả khi đã thu. Siết lại là phiếu gõ nhầm kẹt vĩnh viễn.
     cancelled = client.post(
         f"/api/accounting/payment-receipts/{receipt['id']}/cancel",
         json={"reason": "Lập nhầm số tiền"},
@@ -904,26 +920,13 @@ def test_receipt_update_cancel_lifecycle_and_listing(client):
     # Hủy xong thì hạn mức thu được trả lại — lập full số đã chi được.
     fresh = client.post(receipts_url, json=_receipt_payload(2_200_000), headers=headers)
     assert fresh.status_code == 201, fresh.text
-    received = client.post(
-        f"/api/accounting/payment-receipts/{fresh.json()['id']}/mark-received",
-        json={"bank_reference": None},
-        headers=headers,
-    )
-    assert received.status_code == 200
+    assert fresh.json()["status"] == "received"
 
-    # Đã thu rồi thì không sửa/hủy được nữa.
-    assert (
-        client.put(
-            f"/api/accounting/payment-receipts/{fresh.json()['id']}",
-            json=_receipt_payload(1_000_000),
-            headers=headers,
-        ).status_code
-        == 409
-    )
+    # Huỷ hai lần thì chặn — đó là ranh giới duy nhất còn lại.
     assert (
         client.post(
-            f"/api/accounting/payment-receipts/{fresh.json()['id']}/cancel",
-            json={"reason": "thử hủy"},
+            f"/api/accounting/payment-receipts/{receipt['id']}/cancel",
+            json={"reason": "huỷ lần nữa"},
             headers=headers,
         ).status_code
         == 409

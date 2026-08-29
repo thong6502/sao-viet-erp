@@ -350,11 +350,14 @@ const FINE_ACTIONS: Record<
   // Phân hệ Kế toán tách mỗi màn một khoá (10/08/2026). Ô "Lập phiếu" nay là cột **Thêm** của
   // chính màn đó, không còn núp dưới tên `can_approve` — nên ở đây chỉ còn các quyền phụ.
   phieu_chi: [
-    { key: "can_cancel", label: "Hủy phiếu chi chờ chi" },
+    { key: "can_cancel", label: "Hủy phiếu chi" },
     { key: "can_export", label: "In / xuất phiếu chi" },
   ],
+  // Ô "Xác nhận đã thu tiền" (`can_manage_status`) ĐÃ GỠ 27/08/2026: phiếu thu nay lập ra là ĐÃ
+  // THU, không còn trạng thái chờ nên không còn gì để xác nhận. Khoá quyền vẫn tồn tại ở server
+  // (`mark-received`) cho phiếu CŨ lỡ nằm lại ở trạng thái chờ, nhưng không bày thành ô bật/tắt
+  // nữa — bày một ô cho cái nút không bao giờ hiện chỉ tổ làm người cấp quyền đoán mò.
   phieu_thu: [
-    { key: "can_manage_status", label: "Xác nhận đã thu tiền" },
     { key: "can_cancel", label: "Hủy phiếu thu" },
     { key: "can_export", label: "In / xuất phiếu thu" },
   ],
@@ -425,7 +428,7 @@ const MODULE_HINTS: Record<string, string> = {
   phieu_chi:
     "Xem: mở màn Phiếu chi / UNC. Thêm: LẬP phiếu cọc, phiếu thanh toán và gán chứng từ. Hủy phiếu và in/xuất nằm ở quyền chi tiết.",
   phieu_thu:
-    "Xem: mở màn Phiếu thu. Thêm: LẬP / sửa phiếu thu và gán chứng từ. Xác nhận đã thu tiền, hủy phiếu, in/xuất nằm ở quyền chi tiết.",
+    "Xem: mở màn Phiếu thu. Thêm: LẬP phiếu thu và gán chứng từ — phiếu lập ra là ĐÃ THU, sai thì hủy rồi lập lại. Hủy phiếu, in/xuất nằm ở quyền chi tiết.",
   cong_no_phai_tra:
     "Xem: mở màn Công nợ phải trả (số còn nợ từng nhà cung cấp). Số liệu tính ra từ PMH + phiếu chi nên không có gì để sửa ở đây.",
   cong_no_phai_thu:

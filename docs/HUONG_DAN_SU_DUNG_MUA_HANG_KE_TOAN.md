@@ -174,15 +174,20 @@ Trên một **Phiếu chi đã chi** (menu **Kế toán → Phiếu chi / UNC**)
    thu” hiển thị mức tối đa cho phép.
 3. **Hình thức:** *Nhập quỹ tiền mặt* hoặc *Về TK ngân hàng công ty*.
 4. **Định khoản Nợ / Có** (tùy chọn — in trên phiếu, vd Nợ `1111` · Có `141`).
-5. **Nội dung, ngày thu.** Bấm **Lập phiếu thu** → số phiếu `PT00027`, trạng thái **Chờ thu**.
+5. **Mã giao dịch / số báo có** — bắt buộc khi thu *Về TK ngân hàng* (đây là số dò sao kê).
+6. **Nội dung, ngày thu.** Bấm **Lập phiếu thu** → số phiếu `PT00027`, trạng thái **Đã thu** ngay.
 
 ### 4.2. Quản lý phiếu thu
 
 Menu: **Kế toán → Phiếu thu** — danh sách mọi phiếu thu.
-- **Xác nhận đã thu:** khi nhận được tiền thật (UNC phải nhập mã giao dịch). → trạng thái
-  **Đã thu**; lúc này số tiền mới được cộng lại “Còn được lập” của PMH.
-- **Sửa / Hủy:** chỉ khi còn ở trạng thái **Chờ thu** (Hủy phải nhập lý do). Phiếu **Đã thu**
-  là bất biến.
+- **Lập phiếu là ĐÃ THU** (đổi 27/08/2026). Trước đây phiếu ra ở trạng thái *Chờ thu* rồi phải bấm
+  thêm **Xác nhận đã thu**; nay bỏ bước đó — chỉ lập phiếu khi tiền đã thực về, nên tiền cộng lại
+  “Còn được lập” của PMH **ngay lúc lập**. Quên bấm nút xác nhận từng làm công nợ báo mình đã trả
+  nhiều hơn thực tế. Giờ mọi nguồn phiếu thu và cả phiếu chi chung một luật.
+  *(Nút **Xác nhận đã thu** chỉ còn hiện với phiếu CŨ lỡ nằm lại ở trạng thái Chờ thu.)*
+- **Sửa:** không còn. Phiếu đã ghi nhận tiền thì **Hủy** (bắt nhập lý do) rồi **lập lại** —
+  sửa thẳng số tiền đang được trừ vào công nợ là đổi sổ mà không để lại vết.
+- **Hủy:** làm được ở mọi trạng thái, trừ phiếu đã hủy rồi.
 - **Đính kèm ảnh minh chứng đã thu** và **In phiếu**: thao tác **y hệt phiếu chi** (Phần 3.5 và
   3.6); bản in theo **Mẫu số 01 - TT** (ô ký: Giám đốc · Kế toán trưởng · **Người nộp tiền** ·
   Người lập phiếu · Thủ quỹ). Phiếu **Đã thu mà chưa có ảnh** cũng hiện badge **“Thiếu chứng từ”**.
@@ -248,8 +253,8 @@ là Giám đốc/Quản trị).
 |---|---|:---:|
 | **Xem** | Thấy menu + xem mọi phiếu chi/thu, tài khoản ngân hàng | Mọi vai trò kế toán |
 | **Duyệt PMH & lập Phiếu chi/UNC** | Duyệt PMH, lập/sửa phiếu chi, **lập/sửa phiếu thu**, đính kèm/xóa ảnh | Kế toán thanh toán |
-| **Xác nhận đã chi** | Bấm “Xác nhận đã chi” / “Xác nhận đã thu” | Kế toán thanh toán (hoặc kế toán trưởng) |
-| **Hủy chứng từ chờ chi** | Hủy phiếu chi/phiếu thu đang chờ | Kế toán trưởng |
+| **Xác nhận đã chi** | Chỉ còn dùng cho phiếu thu CŨ nằm lại ở trạng thái Chờ thu — phiếu mới lập ra đã là “đã chi” / “đã thu” | Kế toán thanh toán (hoặc kế toán trưởng) |
+| **Hủy chứng từ** | Hủy phiếu chi/phiếu thu (bắt nhập lý do) | Kế toán trưởng |
 | **In / xuất chứng từ** | Nút “In phiếu” | Mọi vai trò kế toán |
 | **Sửa** (Tài khoản ngân hàng) | Thêm/sửa tài khoản ngân hàng công ty | Kế toán trưởng |
 

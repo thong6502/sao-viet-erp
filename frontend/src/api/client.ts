@@ -5628,10 +5628,21 @@ export interface PayablesSummary {
  * Phiếu cũ (lập trước 06/08/2026, không theo dõi theo đợt) hiện ở mức PHIẾU: `delivery_id` null,
  * `chua_dat_han` true. Không có hạn trả nên không bao giờ vào cột Quá hạn — vì thế nó phải nổi
  * lên ĐẦU danh sách chứ không được chìm. */
+/** Một mặt hàng trong đợt giao — chỉ để bày trong popup "hàng đã nhận" ở Công nợ phải trả. */
+export interface PayableDeliveryLineRow {
+  item_name: string;
+  /** MÃ đơn vị (`cai`); tên hiển thị ("cái") tra qua `tenDonVi()`. */
+  unit: string;
+  quantity: number;
+}
+
 export interface PayableItemRow {
   purchase_request_id: number;
   code: string;
   status: PurchaseRequestStatus;
+  /** Hàng của đợt. RỖNG với dòng "cả đơn" — phiếu cũ không theo dõi theo đợt nên không có hàng
+   *  nào quy về được; màn hình phải KHÔNG cho bấm mở popup ở dòng đó. */
+  lines: PayableDeliveryLineRow[];
   delivery_id: number | null;
   seq_no: number | null;
   delivery_date: string | null;
@@ -6053,7 +6064,15 @@ export interface PurchaseDeliveryLineRow {
   purchase_request_line_id: number;
   item_name: string;
   unit: string;
+  /** SL THỰC NHẬN của đợt. Từ 28/08/2026 ĐƯỢC PHÉP vượt số đặt (NCC giao thêm, giá giữ nguyên). */
   quantity: number;
+  /** Phần của `quantity` có sinh tiền. Server chia LUỸ KẾ theo thứ tự đợt, lấp phần tính tiền
+   *  trước — xem `phan_bo_du_dot` bên backend. */
+  quantity_tinh_tien: number;
+  /** Phần DƯ, giá 0đ. `quantity_tinh_tien + quantity_du === quantity`.
+   *  PHẢI hiện ra chứ đừng chỉ hiện tổng: hệ không biết phần dư có thật là hàng tặng hay không,
+   *  nên phải để người đọc bắt được ca NCC thực ra CÓ tính tiền phần dư. */
+  quantity_du: number;
   note: string | null;
 }
 
@@ -6139,7 +6158,12 @@ export interface PurchaseContractInput {
 
 /** Hạn mức công nợ của NCC so với nợ hiện tại — CẢNH BÁO MỀM, không chặn gì (Đ6). */
 export interface SupplierCredit {
+  /** Điều khoản thanh toán (chữ tự do). `null` = NCC chưa khai. */
+  payment_terms: string | null;
+  /** `0` = KHÔNG đặt hạn mức ⇒ không bao giờ báo vượt. Đừng đọc thành "hạn mức 0đ". */
   credit_limit: number;
+  /** `null` = chưa đặt hạn (đợt giao không vào cột Quá hạn) · `0` = TRẢ NGAY. Hai ca khác hẳn
+   *  nhau, đừng gộp — xem chú thích ở form khai NCC (`SupplierInfoTab`). */
   credit_days: number | null;
   no_hien_tai: number;
   vuot_han_muc: boolean;

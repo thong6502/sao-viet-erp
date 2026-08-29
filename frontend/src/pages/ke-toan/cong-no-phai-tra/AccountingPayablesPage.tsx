@@ -11,6 +11,8 @@ import type { NavigateFn } from "../../../components/AppShell";
 import { Button } from "../../../components/Button";
 import { Icon } from "../../../components/Icons";
 import { money } from "../../../utils/format";
+// Đơn vị lưu bằng MÃ (`cai`), tên hiển thị ("cái") nằm ở danh mục Đơn vị.
+import { useNapTenDonVi } from "../../tenDonVi";
 import { PayablesDrawer } from "./components/PayablesDrawer";
 import { PayCell } from "./components/payablesCells";
 import { LIST_FILTERS, PAGE_SIZE } from "./shared/constants";
@@ -55,6 +57,11 @@ export function AccountingPayablesPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
+  // NẠP danh mục đơn vị (một lần/phiên) cho popup "hàng đã nhận" của đợt giao. Thiếu dòng này
+  // thì popup in ra MÃ trần — "100 cai" thay vì "100 cái"; `tenDonVi()` đọc từ cache mà cache
+  // chỉ được đổ bởi chính hook này. Gọi ở TRANG chứ không ở popup: hook chạy khi popup mở thì
+  // lần vẽ đầu vẫn kịp hiện mã trần rồi mới nhảy sang tên.
+  useNapTenDonVi();
   // Nút "Lập phiếu chi" trên màn Công nợ ⇒ hỏi quyền của MÀN PHIẾU CHI, không phải màn này.
   const canCreateVoucher = can("phieu_chi", "create");
   const [summary, setSummary] = useState<PayablesSummary | null>(null);
