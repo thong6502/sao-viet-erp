@@ -24,6 +24,23 @@ export function fmtDate(value?: string | null): string {
   return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString("vi-VN");
 }
 
+/** HẠN TRẢ suy từ MỐC CHỐT CÔNG NỢ: mốc + số ngày NCC cho nợ (chủ chốt 28/08/2026).
+ *
+ *  Chốt 31/8 + 30 ngày ⇒ 30/9. Để ở đây chứ không để mỗi màn tự cộng: cùng một con hạn mà màn
+ *  Thu mua và màn Kế toán tính lệch nhau thì hai bên báo quá hạn hai ngày khác nhau.
+ *  CHỈ để XEM TRƯỚC — con số thật do server tính (`han_tra_dot`), hai bên phải ra cùng kết quả.
+ *  Thiếu vế nào cũng trả "—": mốc là ĐIỂM, số ngày là ĐỘ DÀI, không có đủ thì không ra hạn. */
+export function hanTraTuMoc(
+  moc?: string | null,
+  soNgay?: number | null,
+): string {
+  if (!moc || soNgay == null) return "—";
+  const d = new Date(`${moc}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return "—";
+  d.setDate(d.getDate() + soNgay);
+  return d.toLocaleDateString("vi-VN");
+}
+
 /** Đếm ngược hạn giao → nhãn + mức khẩn (đổi màu). So 2 dữ kiện có sẵn (hạn vs hôm nay) — máy CHỈ
  *  trình bày theo data, KHÔNG mô hình dự đoán. `over` = quá/đúng hạn, `soon` = ≤3 ngày, `ok` = còn xa.
  *  Rỗng/không parse được → null (không hiện pill). Dùng chung: card tổ · list · detail. */

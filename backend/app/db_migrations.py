@@ -1625,6 +1625,20 @@ def _migrate_purchase_request_expected_receipt_date(db: Session) -> None:
     db.commit()
 
 
+def _migrate_purchase_debt_cutoff_date(db: Session) -> None:
+    """Thu mua: thêm `purchase_requests.debt_cutoff_date` — NGÀY CHỐT CÔNG NỢ do NCC báo cho đơn.
+
+    Hạn trả mọi đợt của đơn = ngày chốt + `suppliers.credit_days`, thay vì `invoice_date +
+    credit_days` như trước. Nullable Date, KHÔNG backfill: đơn cũ để NULL là tự lùi về luật cũ,
+    nên không có món nợ nào đổi hạn sau lượt nâng cấp này. No-op trên DB fresh / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "purchase_requests" not in insp.get_table_names():
+        return
+    if "debt_cutoff_date" not in _existing_columns(insp, "purchase_requests"):
+        db.execute(text("ALTER TABLE purchase_requests ADD COLUMN debt_cutoff_date DATE"))
+    db.commit()
+
+
 def _migrate_drop_payment_refunds_renamed(db: Session) -> None:
     """Kế toán: bảng `payment_refunds` được ĐỔI TÊN thành `payment_receipts` (Phiếu thu)
     TRƯỚC khi tính năng ship — bảng cũ chỉ tồn tại trên dev với dữ liệu thử. Drop
@@ -9562,6 +9576,9 @@ def _migrate_module_yeu_cau_sua_chua(db: Session) -> None:
 
 MIGRATIONS.append(
     ("0225_module_yeu_cau_sua_chua", _migrate_module_yeu_cau_sua_chua)
+)
+MIGRATIONS.append(
+    ("0226_purchase_debt_cutoff_date", _migrate_purchase_debt_cutoff_date)
 )
 def _migrate_dieu_chuyen_kho(db) -> None:
     """Điều chuyển kho (mô hình 2 yêu cầu) — thêm cột đánh dấu/nối, KHÔNG đụng CheckConstraint loai

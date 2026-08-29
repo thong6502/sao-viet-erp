@@ -209,6 +209,18 @@ class PurchaseRequest(Base):
     reject_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     needed_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     expected_receipt_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # NGÀY CHỐT CÔNG NỢ do NCC báo cho ĐƠN NÀY (chủ chốt 28/08/2026).
+    #
+    # Hạn trả của MỌI đợt giao trong đơn = ngày chốt + `suppliers.credit_days`. Điểm mấu chốt:
+    # đồng hồ chạy từ mốc CHỐT, không phải từ ngày hoá đơn — nên hàng giao 05/8 và hàng giao
+    # 28/8 cùng chốt 31/8 thì cùng hạn 30/9, đúng nếp NCC gom cả kỳ thành một lần thanh toán.
+    # Trước đó hệ tính `invoice_date + credit_days` nên cái giao 05/8 bị báo quá hạn sớm hơn
+    # thoả thuận thật tới 26 ngày.
+    #
+    # Khai ở ĐƠN chứ không ở từng đợt (chủ chốt: *"họ báo cho mình theo đơn hàng"*) — kể cả khi
+    # đơn giao vắt qua hai tháng thì mọi đợt vẫn chung một hạn.
+    # NULL = NCC chưa báo ⇒ `han_tra_dot` lùi về luật cũ, đơn cũ không vỡ cái nào.
+    debt_cutoff_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     # Số hợp đồng mua. Bản thân hợp đồng là ẢNH đính kèm (`purchase_attachments.kind='hop_dong'`) —
     # cố ý KHÔNG dựng danh mục hợp đồng (chủ chốt 06/08/2026, Đ3).
     contract_number: Mapped[str | None] = mapped_column(String(64), nullable=True)

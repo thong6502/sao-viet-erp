@@ -481,6 +481,9 @@ class PurchaseInvoiceAssignIn(BaseModel):
 
 class PurchaseContractIn(BaseModel):
     contract_number: str | None = Field(default=None, max_length=64)
+    # NGÀY CHỐT CÔNG NỢ do NCC báo cho ĐƠN. Bỏ trống = chưa báo ⇒ hạn trả lùi về luật cũ
+    # (ngày hoá đơn + số ngày cho nợ), không đơn nào đổi hạn ngoài ý muốn.
+    debt_cutoff_date: date | None = None
     # Cọc DỰ KIẾN — chỉ để đối chiếu, KHÔNG vào công thức công nợ (cọc thật là phiếu chi).
     deposit_expected: int = Field(default=0, ge=0)
 
@@ -513,6 +516,10 @@ class PurchaseRequestOut(BaseModel):
     purpose: str | None = None
     needed_date: date | None = None
     expected_receipt_date: date | None = None
+    #: Ngày chốt công nợ NCC báo cho đơn — hạn trả MỌI đợt = ngày này + `suppliers.credit_days`.
+    debt_cutoff_date: date | None = None
+    #: Chụp `suppliers.credit_days` để màn hình suy hạn trả ngay tại chỗ gõ ngày chốt.
+    supplier_credit_days: int | None = None
     created_by_user_id: int | None = None
     created_by_name: str | None = None
     submitted_at: datetime | None = None
