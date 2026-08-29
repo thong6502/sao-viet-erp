@@ -58,6 +58,17 @@ function fmtDate(iso: string | null): string {
   const [y, m, d] = iso.slice(0, 10).split("-");
   return d && m && y ? `${d}/${m}/${y}` : iso;
 }
+// Tên kỳ TỰ SINH từ khoảng ngày: trọn 1 tháng dương lịch → "Tháng M/YYYY"; ngược lại → "DD/MM/YYYY–DD/MM/YYYY".
+function autoTenKy(tu: string | null, den: string | null): string {
+  if (!tu || !den) return "";
+  const t = tu.slice(0, 10);
+  const d = den.slice(0, 10);
+  const [ty, tm, td] = t.split("-").map(Number);
+  const [dy, dm, dd] = d.split("-").map(Number);
+  const lastDay = new Date(ty, tm, 0).getDate();  // tm 1-based + day 0 = ngày cuối tháng tm
+  if (ty === dy && tm === dm && td === 1 && dd === lastDay) return `Tháng ${tm}/${ty}`;
+  return `${fmtDate(t)}–${fmtDate(d)}`;
+}
 function fmtDateTime(iso: string | null): string {
   if (!iso) return "—";
   // Backend lưu UTC nhưng serialize KHÔNG kèm offset (naive) → thêm 'Z' để đổi về giờ máy cho đúng.
@@ -266,15 +277,33 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
 
   // "Tính giá kỳ" (bình quân, kiểu MISA) — popup xác nhận rồi chốt tồn cuối kỳ vào snapshot.
   const [tinhOpen, setTinhOpen] = useState(false);
-  const [tinhTen, setTinhTen] = useState("");
   const [tinhBusy, setTinhBusy] = useState(false);
   const [tinhErr, setTinhErr] = useState<string | null>(null);
+  // Mở popup Tính giá: BẮT BUỘC dựa trên 1 KỲ ĐÃ KHÓA. Chưa chọn kỳ mà có kỳ đã khóa → chọn sẵn
+  // kỳ khớp khoảng đang xem, không thì kỳ mới nhất (index 0).
+  function openTinhPopup() {
+    setTinhErr(null);
+    if (nxtKyIdx < 0 && kyList.length) {
+      const match = kyList.findIndex((k) => k.tu_ngay.slice(0, 10) === nxtTu && k.den_ngay.slice(0, 10) === nxtDen);
+      const i = match >= 0 ? match : 0;
+      const k = kyList[i];
+      setNxtKyIdx(i);
+      setNxtTu(k.tu_ngay.slice(0, 10));
+      setNxtDen(k.den_ngay.slice(0, 10));
+      setKhoId(k.kho_id ?? null);
+    }
+    setTinhOpen(true);
+  }
   async function tinhGiaKy() {
     if (!nxtTu || !nxtDen) return;
+    if (nxtKyIdx < 0) { setTinhErr("Chọn một kỳ đã khóa để tính giá."); return; }
     setTinhBusy(true);
     setTinhErr(null);
     try {
-      const p = await api.kho.baoCao.tinhGiaKy(token, { tu: nxtTu, den: nxtDen, kho_id: khoId, ten: tinhTen.trim() || null });
+      // Tên kỳ = tên của kỳ ĐÃ KHÓA đang chọn (kỳ khóa không đặt tên thì suy từ khoảng ngày).
+      const kSel = kyList[nxtKyIdx];
+      const ten = (kSel?.ten?.trim() || autoTenKy(nxtTu, nxtDen)) || null;
+      const p = await api.kho.baoCao.tinhGiaKy(token, { tu: nxtTu, den: nxtDen, kho_id: khoId, ten });
       setNxtRows(p.items);
       setNxtDaTinh(p.da_tinh);
       setNxtDaKhoa(p.da_khoa);
@@ -1429,9 +1458,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       )}
 
       {tab === "nxt" && (() => {
-        // Kiểu MISA: chưa "Tính giá kỳ" (và chưa khóa) thì cột GIÁ TRỊ xuất/cuối kỳ + đơn giá BQ để
-        // TRỐNG (chỉ có sau khi chốt). Đầu kỳ + Nhập vẫn hiện (đầu = chốt kỳ trước, nhập = giá thật).
-        const daChot = nxtDaTinh || nxtDaKhoa;
+        // Chưa "Tính giá kỳ" (chưa chốt): Đơn giá BQ + Giá trị xuất VẪN HIỆN (số TẠM TÍNH live), chỉ
+        // riêng GIÁ TRỊ CUỐI KỲ để TRỐNG cho tới khi bấm Tính giá (vì cuối kỳ là số chốt → đầu kỳ sau).
         const ql = search.trim().toLowerCase();
         const filtered = ql
           ? nxtRows.filter((r) =>
@@ -1522,7 +1550,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               type="button"
               className="btn btn--accent kho-export-btn"
               disabled={!nxtTu || !nxtDen || tinhBusy}
-              onClick={() => { setTinhTen(""); setTinhErr(null); setTinhOpen(true); }}
+              onClick={openTinhPopup}
               title="Tính giá bình quân cuối kỳ & chốt tồn cuối kỳ để kỳ sau nối tiếp (như MISA)"
               style={{ marginLeft: "auto" }}
             >
@@ -1562,7 +1590,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             </div>
           ) : (
             <div className="banner banner--warn" style={{ marginBottom: 8 }}>
-              <span><b>Kỳ chưa tính giá</b>{nxtDaKhoa ? " (kỳ đã khóa sổ)" : ""} — cột <b>Giá trị Xuất / Cuối kỳ</b> và <b>Đơn giá BQ</b> đang để trống. Bấm “Tính giá kỳ” để chốt (đầu kỳ sau nối tiếp từ đây).</span>
+              <span><b>Kỳ chưa tính giá</b>{nxtDaKhoa ? " (kỳ đã khóa sổ)" : ""} — <b>Đơn giá BQ</b> và <b>Giá trị xuất</b> là số <b>tạm tính</b>; riêng <b>Giá trị cuối kỳ</b> để trống tới khi bấm “Tính giá kỳ” (chốt số này làm đầu kỳ sau).</span>
             </div>
           )}
 
@@ -1627,10 +1655,10 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                             <td className="kho-bc__num">{fmtQty(r.nhap_sl)}</td>
                             <td className="kho-bc__num">{fmtMoney(r.nhap_gt)}</td>
                             <td className="kho-bc__num">{fmtQty(r.xuat_sl)}</td>
-                            <td className="kho-bc__num">{daChot ? fmtMoney(r.xuat_gt) : ""}</td>
+                            <td className="kho-bc__num">{fmtMoney(r.xuat_gt)}</td>
                             <td className="kho-bc__num">{fmtQty(r.cuoi_sl)}</td>
-                            <td className="kho-bc__num" style={{ fontWeight: "var(--fw-bold)" }}>{daChot ? fmtMoney(r.cuoi_gt) : ""}</td>
-                            <td className="kho-bc__num">{daChot ? (r.don_gia_bq != null ? fmtMoney(Math.round(r.don_gia_bq)) : "—") : ""}</td>
+                            <td className="kho-bc__num" style={{ fontWeight: "var(--fw-bold)" }}>{nxtDaTinh ? fmtMoney(r.cuoi_gt) : ""}</td>
+                            <td className="kho-bc__num">{r.don_gia_bq != null ? fmtMoney(Math.round(r.don_gia_bq)) : "—"}</td>
                           </tr>
                         ))}
                         <tr className="kho-bc__grouptotal" style={{ fontWeight: "var(--fw-bold)" }}>
@@ -1639,9 +1667,9 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                           <td className="kho-bc__num" />
                           <td className="kho-bc__num">{fmtMoney(t.nhap)}</td>
                           <td className="kho-bc__num" />
-                          <td className="kho-bc__num">{daChot ? fmtMoney(t.xuat) : ""}</td>
+                          <td className="kho-bc__num">{fmtMoney(t.xuat)}</td>
                           <td className="kho-bc__num" />
-                          <td className="kho-bc__num">{daChot ? fmtMoney(t.cuoi) : ""}</td>
+                          <td className="kho-bc__num">{nxtDaTinh ? fmtMoney(t.cuoi) : ""}</td>
                           <td className="kho-bc__num" />
                         </tr>
                       </Fragment>
@@ -1654,42 +1682,50 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
           )}
 
           {nxtView === "bieudo" && (
-            (topCuoi.length === 0 && nxTheoKho.every((k) => k.nhap === 0 && k.xuat === 0)) ? (
-              <div className="rc__empty-state">Không có dữ liệu để vẽ biểu đồ trong kỳ này.</div>
-            ) : (
             <div style={{ display: "grid", gap: 16 }}>
+              {/* Biểu đồ 1 — Giá trị tồn CUỐI KỲ: chỉ khi ĐÃ TÍNH (số chốt), khớp cột cuối kỳ ở bảng. */}
               <div className="card" style={{ padding: 16 }}>
                 <div className="rc-sec__title" style={{ marginBottom: 8 }}>
-                  Top mặt hàng theo giá trị tồn cuối kỳ{!nxtDaTinh && <span className="rc__muted" style={{ fontWeight: 400 }}> · số tạm tính</span>}
+                  Top mặt hàng theo giá trị tồn cuối kỳ
                 </div>
-                <ResponsiveContainer width="100%" height={Math.max(200, topCuoi.length * 34)}>
-                  <BarChart data={topCuoi} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 4 }} barCategoryGap="28%">
-                    <CartesianGrid horizontal={false} stroke="#eef2f7" />
-                    <XAxis type="number" tickFormatter={(v) => fmtMoneyShort(Number(v))} tick={{ fontSize: 11, fill: "var(--ash)" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} />
-                    <YAxis type="category" dataKey="ten" width={150} tick={{ fontSize: 11, fill: "var(--ink)" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} />
-                    <Tooltip formatter={(v) => [fmtMoney(Number(v)), "Giá trị cuối kỳ"]} />
-                    <Bar dataKey="gt" name="Giá trị cuối kỳ" fill="var(--moss, #2f5d3a)" radius={[0, 4, 4, 0]} maxBarSize={20} />
-                  </BarChart>
-                </ResponsiveContainer>
+                {!nxtDaTinh ? (
+                  <div className="rc__empty-state">Kỳ chưa tính giá — bấm “Tính giá kỳ” để xem Top giá trị tồn cuối kỳ.</div>
+                ) : topCuoi.length === 0 ? (
+                  <div className="rc__empty-state">Không có mặt hàng còn tồn cuối kỳ.</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={Math.max(200, topCuoi.length * 34)}>
+                    <BarChart data={topCuoi} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 4 }} barCategoryGap="28%">
+                      <CartesianGrid horizontal={false} stroke="#eef2f7" />
+                      <XAxis type="number" tickFormatter={(v) => fmtMoneyShort(Number(v))} tick={{ fontSize: 11, fill: "var(--ash)" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} />
+                      <YAxis type="category" dataKey="ten" width={150} tick={{ fontSize: 11, fill: "var(--ink)" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} />
+                      <Tooltip formatter={(v) => [fmtMoney(Number(v)), "Giá trị cuối kỳ"]} />
+                      <Bar dataKey="gt" name="Giá trị cuối kỳ" fill="var(--moss, #2f5d3a)" radius={[0, 4, 4, 0]} maxBarSize={20} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
+              {/* Biểu đồ 2 — Nhập vs Xuất (giá trị) theo kho: luôn hiện (số đã biết / tạm tính). */}
               <div className="card" style={{ padding: 16 }}>
                 <div className="rc-sec__title" style={{ marginBottom: 8 }}>
                   Nhập vs Xuất (giá trị) theo kho{!nxtDaTinh && <span className="rc__muted" style={{ fontWeight: 400 }}> · xuất tạm tính</span>}
                 </div>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={nxTheoKho} margin={{ top: 4, right: 16, left: 8, bottom: 4 }} barGap={4} barCategoryGap="24%">
-                    <CartesianGrid vertical={false} stroke="#eef2f7" />
-                    <XAxis dataKey="kho" tick={{ fontSize: 11, fill: "var(--ink)" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} interval={0} />
-                    <YAxis tickFormatter={(v) => fmtMoneyShort(Number(v))} tick={{ fontSize: 11, fill: "var(--ash)" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} />
-                    <Tooltip formatter={(v, n) => [fmtMoney(Number(v)), n]} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="nhap" name="Nhập" fill="var(--moss, #2f5d3a)" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                    <Bar dataKey="xuat" name="Xuất" fill="var(--rust, #c5400a)" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                  </BarChart>
-                </ResponsiveContainer>
+                {nxTheoKho.every((k) => k.nhap === 0 && k.xuat === 0) ? (
+                  <div className="rc__empty-state">Không có phát sinh nhập / xuất trong kỳ.</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={nxTheoKho} margin={{ top: 4, right: 16, left: 8, bottom: 4 }} barGap={4} barCategoryGap="24%">
+                      <CartesianGrid vertical={false} stroke="#eef2f7" />
+                      <XAxis dataKey="kho" tick={{ fontSize: 11, fill: "var(--ink)" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} interval={0} />
+                      <YAxis tickFormatter={(v) => fmtMoneyShort(Number(v))} tick={{ fontSize: 11, fill: "var(--ash)" }} axisLine={{ stroke: "#cbd5e1" }} tickLine={false} />
+                      <Tooltip formatter={(v, n) => [fmtMoney(Number(v)), n]} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Bar dataKey="nhap" name="Nhập" fill="var(--moss, #2f5d3a)" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                      <Bar dataKey="xuat" name="Xuất" fill="var(--rust, #c5400a)" radius={[4, 4, 0, 0]} maxBarSize={40} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
-            )
           )}
         </>
         );
@@ -2065,11 +2101,13 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
         </div>
       </ConfirmDialog>
 
-      {/* Popup "Tính giá kỳ" (bình quân cuối kỳ, kiểu MISA) — chốt tồn cuối kỳ vào snapshot. */}
+      {/* Popup "Tính giá kỳ" (bình quân cuối kỳ, kiểu MISA) — chốt tồn cuối kỳ vào snapshot.
+          BẮT BUỘC dựa trên 1 KỲ ĐÃ KHÓA (khóa sổ trước rồi mới tính). */}
       <ConfirmDialog
         open={tinhOpen}
         title="Tính giá kỳ (bình quân cuối kỳ)"
         confirmLabel={nxtDaTinh ? "Tính lại" : "Tính giá kỳ"}
+        confirmDisabled={nxtKyIdx < 0 || !nxtTu || !nxtDen}
         cancelLabel="Hủy"
         busy={tinhBusy}
         error={tinhErr}
@@ -2081,50 +2119,65 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             Tính đơn giá <b>bình quân gia quyền cuối kỳ</b> cho từng mặt hàng và <b>chốt tồn cuối kỳ</b>;
             kỳ sau đọc số này làm đầu kỳ. Không đụng giá vốn phiếu xuất (đích danh).
           </p>
-          {/* Chọn nhanh 1 KỲ ĐÃ KHÓA để tính (điền sẵn khoảng ngày + tên). Vẫn tính được kỳ đang xem
-              nếu không chọn. */}
-          <label className="kho-khoa__field">
-            <span className="kho-khoa__label">Kỳ đã khóa</span>
-            <select
-              className="rc-input"
-              value={String(nxtKyIdx)}
-              onChange={(e) => {
-                const i = Number(e.target.value);
-                setNxtKyIdx(i);
-                const k = kyList[i];
-                if (!k) return;
-                setNxtTu(k.tu_ngay.slice(0, 10));
-                setNxtDen(k.den_ngay.slice(0, 10));
-                setKhoId(k.kho_id ?? null);
-                setTinhTen(k.ten ?? "");
-              }}
-            >
-              <option value="-1">{kyList.length ? "— Kỳ đang xem (không đổi) —" : "— Chưa có kỳ đã khóa —"}</option>
-              {kyList.map((k, i) => (
-                <option key={i} value={i}>
-                  {(k.ten || "Kỳ")} · {fmtDate(k.tu_ngay)}–{fmtDate(k.den_ngay)}
-                  {k.kho_ten ? ` · ${k.kho_ten}` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="kho-khoa__field">
-            <span className="kho-khoa__label">Kỳ sẽ tính</span>
-            <div style={{ fontWeight: "var(--fw-medium)", color: "var(--ink)" }}>
-              {nxtTu ? fmtDate(nxtTu) : "—"} → {nxtDen ? fmtDate(nxtDen) : "—"}
-              {" · "}
-              {khoId == null ? "Tất cả kho" : (khoList.find((w) => w.id === khoId)?.ten ?? `Kho #${khoId}`)}
+          {kyList.length === 0 ? (
+            <div className="banner banner--warn" style={{ marginBottom: 0, alignItems: "flex-start" }}>
+              <span>
+                Chưa có <b>kỳ nào được khóa sổ</b>. Phải <b>khóa sổ kỳ</b> trước rồi mới tính giá cho kỳ đó.
+                <button
+                  type="button"
+                  className="rc__link-btn"
+                  style={{ display: "block", marginTop: 6 }}
+                  onClick={() => { setTinhOpen(false); openKhoa(); }}
+                >
+                  Khóa sổ kỳ ngay →
+                </button>
+              </span>
             </div>
-          </div>
-          <label className="kho-khoa__field">
-            <span className="kho-khoa__label">Tên kỳ (tuỳ chọn)</span>
-            <input
-              className="rc-input"
-              value={tinhTen}
-              placeholder="Vd: Tháng 7/2026"
-              onChange={(e) => setTinhTen(e.target.value)}
-            />
-          </label>
+          ) : (
+            <>
+              {/* Chọn 1 KỲ ĐÃ KHÓA để tính (điền sẵn khoảng ngày + tên kỳ). */}
+              <label className="kho-khoa__field">
+                <span className="kho-khoa__label">Kỳ đã khóa</span>
+                <select
+                  className="rc-input"
+                  value={String(nxtKyIdx)}
+                  onChange={(e) => {
+                    const i = Number(e.target.value);
+                    setNxtKyIdx(i);
+                    const k = kyList[i];
+                    if (!k) return;
+                    setNxtTu(k.tu_ngay.slice(0, 10));
+                    setNxtDen(k.den_ngay.slice(0, 10));
+                    setKhoId(k.kho_id ?? null);
+                  }}
+                >
+                  <option value="-1" disabled>— Chọn kỳ đã khóa —</option>
+                  {kyList.map((k, i) => (
+                    <option key={i} value={i}>
+                      {(k.ten || "Kỳ")} · {fmtDate(k.tu_ngay)}–{fmtDate(k.den_ngay)}
+                      {k.kho_ten ? ` · ${k.kho_ten}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="kho-khoa__field">
+                <span className="kho-khoa__label">Kỳ sẽ tính</span>
+                <div style={{ fontWeight: "var(--fw-medium)", color: "var(--ink)" }}>
+                  {nxtTu ? fmtDate(nxtTu) : "—"} → {nxtDen ? fmtDate(nxtDen) : "—"}
+                  {" · "}
+                  {khoId == null ? "Tất cả kho" : (khoList.find((w) => w.id === khoId)?.ten ?? `Kho #${khoId}`)}
+                </div>
+              </div>
+              {/* Tên kỳ = tên của kỳ ĐÃ KHÓA đang chọn (kỳ khóa không đặt tên → suy từ khoảng ngày). */}
+              <div className="kho-khoa__field">
+                <span className="kho-khoa__label">Tên kỳ</span>
+                <div style={{ fontWeight: "var(--fw-medium)", color: "var(--ink)" }}>
+                  {(nxtKyIdx >= 0 ? kyList[nxtKyIdx]?.ten?.trim() : "") || autoTenKy(nxtTu, nxtDen) || "—"}
+                  <span className="rc__muted" style={{ fontWeight: 400 }}> · theo kỳ đã khóa</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </ConfirmDialog>
 

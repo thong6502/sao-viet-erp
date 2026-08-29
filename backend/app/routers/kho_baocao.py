@@ -584,6 +584,12 @@ def set_khoa_so(payload: KhoKhoaSoIn, db: Db, user: CloseBookUser) -> KhoKhoaSoR
     )
     # KHÓA sổ CHỈ khai + đóng băng kỳ (không tự tính giá — luồng chốt 29/08/2026): tính giá là bước
     # RIÊNG, vào tab N-X-T chọn kỳ đã khóa rồi bấm "Tính giá kỳ". Tách bạch cho đỡ rối.
+    # MỞ sổ → BỎ CHỐT giá: xoá snapshot của kỳ vừa mở (den_ngay trong khoảng mở) để khoá lại phải
+    # tính lại, không giữ số cũ (khớp luật "phải khoá mới tính" — user 2026-08-29).
+    if payload.hanh_dong == "mo":
+        kho_ids = [payload.kho_id] if payload.kho_id else None
+        KhoKyTonRepository(db).delete_range(payload.tu_ngay, payload.den_ngay, kho_ids)
+        db.commit()
     return _khoa_row(db, row)
 
 

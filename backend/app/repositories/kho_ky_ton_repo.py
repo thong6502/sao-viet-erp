@@ -115,3 +115,12 @@ class KhoKyTonRepository:
             cond = and_(cond, KhoKyTon.kho_id.in_(kho_ids))
         res = self.db.execute(delete(KhoKyTon).where(cond))
         return res.rowcount or 0
+
+    def delete_range(self, tu: date, den: date, kho_ids: list[int] | None = None) -> int:
+        """Xoá snapshot có `den_ngay` trong [tu, den] — gọi khi MỞ SỔ kỳ đó: bỏ chốt giá để khoá lại
+        phải tính lại (khớp luật 'phải khoá mới tính', không giữ số cũ). `kho_ids` None = mọi kho."""
+        cond = and_(KhoKyTon.den_ngay >= tu, KhoKyTon.den_ngay <= den)
+        if kho_ids:
+            cond = and_(cond, KhoKyTon.kho_id.in_(kho_ids))
+        res = self.db.execute(delete(KhoKyTon).where(cond))
+        return res.rowcount or 0
