@@ -12,6 +12,7 @@ import type { NavigateFn } from "../../../components/AppShell";
 import { Button } from "../../../components/Button";
 import { Icon } from "../../../components/Icons";
 import { money } from "../../../utils/format";
+import { AgingStrip } from "../components/AgingStrip";
 import { ReceivablesDrawer } from "./components/ReceivablesDrawer";
 import { LIST_FILTERS, PAGE_SIZE } from "./shared/constants";
 import { kpi } from "./shared/helpers";
@@ -32,6 +33,8 @@ export function AccountingReceivablesPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<ListFilter>("all");
+  // Rổ tuổi đang lọc — xem chú thích cùng tên ở màn Công nợ phải trả, hai màn một luật.
+  const [roTuoi, setRoTuoi] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [sentQ, setSentQ] = useState("");
@@ -42,7 +45,7 @@ export function AccountingReceivablesPage({
     setLoading(true);
     setError(null);
     api.accounting
-      .receivables(token, { q: sentQ, filter, page, size: PAGE_SIZE })
+      .receivables(token, { q: sentQ, filter, aging: roTuoi, page, size: PAGE_SIZE })
       .then((data) => {
         setSummary(data);
         if (data.page !== page) setPage(data.page);
@@ -52,7 +55,7 @@ export function AccountingReceivablesPage({
         setError(cause instanceof ApiError ? cause.message : "Không tải được công nợ phải thu.");
       })
       .finally(() => setLoading(false));
-  }, [token, sentQ, filter, page]);
+  }, [token, sentQ, filter, roTuoi, page]);
 
   useEffect(() => {
     load();
@@ -114,6 +117,19 @@ export function AccountingReceivablesPage({
           <span className="pay-kpibar__label">Khách vượt hạn mức</span>
         </div>
       </section>
+      {/* DẢI PHÂN TUỔI NỢ — server gom rổ từ lâu nhưng tới 29/08/2026 chưa màn nào vẽ ra, nên
+          khoản trễ 3 ngày và khoản trễ 90 ngày cùng nằm trong một ô "Quá hạn". Đặt DƯỚI dải KPI
+          và TRÊN thanh công cụ: KPI trả lời "tổng bao nhiêu", dải này trả lời "nặng tới đâu",
+          rồi mới tới chỗ lọc/tìm. */}
+      <AgingStrip
+        buckets={summary?.aging ?? []}
+        dangChon={roTuoi}
+        onChon={(khoa) => {
+          setRoTuoi(khoa);
+          setPage(1);
+        }}
+      />
+
 
       <section className="acct-toolbar">
         <form className="md-page__search" onSubmit={(event) => event.preventDefault()}>

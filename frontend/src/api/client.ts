@@ -5609,6 +5609,21 @@ export interface PayableSupplierRow {
   total_due: number;
 }
 
+/** Một RỔ TUỔI NỢ. Sáu rổ: chưa tới hạn · trễ 1–7 · 8–15 · 16–30 · 31–60 · >60 ngày.
+ *  Mốc do server giữ (`AGING_BUCKETS`) — đừng gõ lại số ngày ở giao diện. */
+export interface AgingBucket {
+  key: string;
+  label: string;
+  amount: number;
+  count: number;
+}
+
+/** Rổ tuổi của MỘT nhà cung cấp / khách hàng — dạng bảng tra theo khoá rổ. */
+export interface AgingCell {
+  amount: number;
+  count: number;
+}
+
 export interface PayablesSummary {
   items: PayableSupplierRow[];
   total: number;
@@ -5619,6 +5634,8 @@ export interface PayablesSummary {
   overdue_amount: number;
   paid_in_period: number;
   vuot_han_muc_count: number;
+  /** Rổ tuổi TOÀN MÀN. Tổng 5 rổ trễ luôn đúng bằng `overdue_amount`. */
+  aging: AgingBucket[];
   period_months: number;
   as_of: string;
 }
@@ -5717,6 +5734,8 @@ export interface PayablesDetail {
   all_history: boolean;
   total_due: number;
   overdue_amount: number;
+  /** Rổ tuổi của riêng NCC này, dựng từ chính `items`. */
+  aging: AgingBucket[];
   paid_in_period: number;
   as_of: string;
 }
@@ -5735,6 +5754,8 @@ export interface ReceivableCustomerRow {
   payment_term_days: number | null;
   vuot_han_muc: boolean;
   vuot_bao_nhieu: number;
+  /** Rổ tuổi của RIÊNG khách này, tra theo khoá rổ. Khách không nợ vẫn đủ 6 khoá = 0. */
+  aging: Record<string, AgingCell>;
   received_in_period: number;
 }
 
@@ -5748,6 +5769,8 @@ export interface ReceivablesSummary {
   overdue_amount: number;
   received_in_period: number;
   vuot_han_muc_count: number;
+  /** Rổ tuổi TOÀN MÀN. Tổng 5 rổ trễ luôn đúng bằng `overdue_amount`. */
+  aging: AgingBucket[];
   period_months: number;
   as_of: string;
 }
@@ -5764,6 +5787,9 @@ export interface ReceivableItemRow {
   due_date: string | null;
   chua_dat_han: boolean;
   overdue_days: number;
+  /** Khoá rổ tuổi — CHỈ có khi `overdue_days > 0`. Server chụp sẵn bằng cùng hàm dùng cho dải
+   *  tổng, để một hoá đơn không hiện hai mức khẩn khác nhau ở hai màn. */
+  aging_bucket: string | null;
   amount: number;
   direct_received_amount: number;
   deposit_offset_amount: number;
@@ -5847,6 +5873,8 @@ export interface ReceivablesDetail {
   all_history: boolean;
   total_due: number;
   overdue_amount: number;
+  /** Rổ tuổi của riêng khách này, dựng từ chính `items`. */
+  aging: AgingBucket[];
   received_in_period: number;
   as_of: string;
 }
@@ -10753,11 +10781,20 @@ export const api = {
         `q` lọc ở SERVER: NCC đã trả hết và im lặng lâu thì không có dòng nào để lọc phía màn. */
     payables(
       token: string,
-      params: { q?: string; filter?: string; page?: number; size?: number } = {},
+      params: {
+        q?: string;
+        filter?: string;
+        /** Khoá rổ tuổi — lọc danh sách theo rổ. Tên tham số PHẢI là `aging_bucket`, hai màn
+         *  dùng chung một tên để chép URL qua lại vẫn chạy. */
+        aging?: string | null;
+        page?: number;
+        size?: number;
+      } = {},
     ): Promise<PayablesSummary> {
       const qs = new URLSearchParams();
       if (params.q?.trim()) qs.set("q", params.q.trim());
       if (params.filter && params.filter !== "all") qs.set("filter", params.filter);
+      if (params.aging) qs.set("aging_bucket", params.aging);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
@@ -10774,11 +10811,20 @@ export const api = {
     },
     receivables(
       token: string,
-      params: { q?: string; filter?: string; page?: number; size?: number } = {},
+      params: {
+        q?: string;
+        filter?: string;
+        /** Khoá rổ tuổi — lọc danh sách theo rổ. Tên tham số PHẢI là `aging_bucket`, hai màn
+         *  dùng chung một tên để chép URL qua lại vẫn chạy. */
+        aging?: string | null;
+        page?: number;
+        size?: number;
+      } = {},
     ): Promise<ReceivablesSummary> {
       const qs = new URLSearchParams();
       if (params.q?.trim()) qs.set("q", params.q.trim());
       if (params.filter && params.filter !== "all") qs.set("filter", params.filter);
+      if (params.aging) qs.set("aging_bucket", params.aging);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";

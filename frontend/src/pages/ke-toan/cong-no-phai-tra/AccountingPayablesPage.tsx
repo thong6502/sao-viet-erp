@@ -13,6 +13,7 @@ import { Icon } from "../../../components/Icons";
 import { money } from "../../../utils/format";
 // Đơn vị lưu bằng MÃ (`cai`), tên hiển thị ("cái") nằm ở danh mục Đơn vị.
 import { useNapTenDonVi } from "../../tenDonVi";
+import { AgingStrip } from "../components/AgingStrip";
 import { PayablesDrawer } from "./components/PayablesDrawer";
 import { PayCell } from "./components/payablesCells";
 import { LIST_FILTERS, PAGE_SIZE } from "./shared/constants";
@@ -68,6 +69,9 @@ export function AccountingPayablesPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<ListFilter>("all");
+  // Rổ tuổi đang lọc. `null` = không lọc. Tách khỏi `filter` chứ không gộp: hai bộ lọc này
+  // CHỒNG nhau được (vd "vượt hạn mức" + "trễ > 60 ngày"), gộp làm một là mất đúng cái giao đó.
+  const [roTuoi, setRoTuoi] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [timDaGui, setTimDaGui] = useState("");
@@ -81,7 +85,7 @@ export function AccountingPayablesPage({
     setLoading(true);
     setError(null);
     api.accounting
-      .payables(token, { q: timDaGui, filter, page, size: PAGE_SIZE })
+      .payables(token, { q: timDaGui, filter, aging: roTuoi, page, size: PAGE_SIZE })
       .then((data) => {
         setSummary(data);
         if (data.page !== page) setPage(data.page);
@@ -96,7 +100,7 @@ export function AccountingPayablesPage({
         );
       })
       .finally(() => setLoading(false));
-  }, [token, timDaGui, filter, page]);
+  }, [token, timDaGui, filter, roTuoi, page]);
 
   useEffect(() => {
     load();
@@ -177,6 +181,19 @@ export function AccountingPayablesPage({
           <span className="pay-kpibar__label">NCC vượt hạn mức</span>
         </div>
       </section>
+      {/* DẢI PHÂN TUỔI NỢ — server gom rổ từ lâu nhưng tới 29/08/2026 chưa màn nào vẽ ra, nên
+          khoản trễ 3 ngày và khoản trễ 90 ngày cùng nằm trong một ô "Quá hạn". Đặt DƯỚI dải KPI
+          và TRÊN thanh công cụ: KPI trả lời "tổng bao nhiêu", dải này trả lời "nặng tới đâu",
+          rồi mới tới chỗ lọc/tìm. */}
+      <AgingStrip
+        buckets={summary?.aging ?? []}
+        dangChon={roTuoi}
+        onChon={(khoa) => {
+          setRoTuoi(khoa);
+          setPage(1);
+        }}
+      />
+
 
       <section className="acct-toolbar">
         <form

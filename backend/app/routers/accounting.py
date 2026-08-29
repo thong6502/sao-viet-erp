@@ -209,11 +209,16 @@ def accounting_receivables(
     _: Annotated[User, Depends(require_permission(MODULE_CN_THU, "read"))],
     q: str | None = Query(default=None),
     filter_: str = Query(default="all", alias="filter"),
+    # CÙNG TÊN với bên phải trả (`aging_bucket`), đừng đặt tên khác: hai màn song sinh mà tham
+    # số lệch tên là chỗ người ta chép URL từ màn này sang màn kia rồi bộ lọc im lặng không chạy.
+    aging_bucket: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> ReceivablesSummaryOut:
     return ReceivablesSummaryOut(
-        **svc.receivables_summary(q=q, filter_=filter_, page=page, size=size)
+        **svc.receivables_summary(
+            q=q, filter_=filter_, aging_bucket=aging_bucket, page=page, size=size
+        )
     )
 
 
