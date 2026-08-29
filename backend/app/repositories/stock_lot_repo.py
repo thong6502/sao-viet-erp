@@ -14,7 +14,7 @@ from datetime import date
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
 
-from ..models.stock_lot import LOT_EMPTY, LOT_ISSUABLE, StockLot, StockThreshold
+from ..models.stock_lot import LOT_AVAILABLE, LOT_EMPTY, LOT_ISSUABLE, StockLot, StockThreshold
 
 # (hang_loai, hang_id) — một mặt hàng gốc.
 Hang = tuple[str, int]
@@ -100,6 +100,18 @@ class StockLotRepository:
         if float(lot.sl_con_lai) <= 1e-6:
             lot.sl_con_lai = 0
             lot.trang_thai = LOT_EMPTY
+
+    def restore(self, lot: StockLot, qty: float) -> None:
+        """TRẢ `qty` về lô (điều chỉnh xuất — SX dùng ít hơn số đã xuất). Ngược với `consume`.
+
+        Lô đã xuất hết (`empty`) → CỘNG lại thì bật về `available` để xuất tiếp được; lô còn
+        `available` thì chỉ cộng số. KHÔNG kiểm tra gì (service đã chặn); KHÔNG commit (service gom
+        1 transaction). Chỉ bật lại từ `empty`: `hold`/`qc_wait`/`defect` là trạng thái CỐ Ý của
+        người dùng, không tự đạp về `available`.
+        """
+        lot.sl_con_lai = float(lot.sl_con_lai) + qty
+        if float(lot.sl_con_lai) > 1e-6 and lot.trang_thai == LOT_EMPTY:
+            lot.trang_thai = LOT_AVAILABLE
 
     def on_hand(self, hang: Hang, kho_id: int | None = None) -> float:
         """**Tồn khả dụng** = Σ sl_con_lai của lô ở trạng thái xuất được, theo ĐƠN VỊ GỐC.

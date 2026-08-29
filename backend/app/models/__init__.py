@@ -95,8 +95,9 @@ from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
 from .cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu
 from .bu_hao import BuHao
 from .don_vi_do import DonViDo, DonViQuyDoi
-from .kho_hang import KhoHang
+from .kho_hang import KhoHang, KhoViTri
 from .kho_khoa_so import KhoKhoaSo
+from .kho_ky_ton import KhoKyTon
 from .notification import Notification
 from .delivery import (
     DeliveryRequest,
@@ -260,7 +261,9 @@ __all__ = [
     "PhieuThanhPhan",
     "PhieuThanhPham",
     "KhoHang",
+    "KhoViTri",
     "KhoKhoaSo",
+    "KhoKyTon",
     "Notification",
     "DeliveryRequest",
     "DeliveryRequestLine",

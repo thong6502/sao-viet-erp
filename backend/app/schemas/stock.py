@@ -208,6 +208,59 @@ class BaoCaoChuyenKhoPage(BaseModel):
     total: int
 
 
+class BaoCaoNXTRow(BaseModel):
+    """1 dòng Nhập-Xuất-Tồn theo kỳ (bình quân gia quyền cuối kỳ) của MỘT mặt hàng tại MỘT kho.
+
+    Đơn giá BQ = (GT đầu kỳ + GT nhập)/(SL đầu kỳ + SL nhập); GT xuất = BQ × SL xuất; GT cuối =
+    GT đầu + GT nhập − GT xuất (SL cũng vậy). Đầu kỳ = luỹ kế TỒN + GT của MỌI chuyển động TRƯỚC
+    `tu` (định giá BQ trên toàn lịch sử trước kỳ) — 'đầu kỳ này = cuối kỳ trước'. SL theo ĐVT gốc."""
+
+    kho_id: int | None = None
+    kho_ten: str | None = None
+    hang_loai: str
+    hang_id: int
+    ma_hang: str | None = None
+    ten_hang: str | None = None
+    hang_nhom: str | None = None          # "Giấy" | "Vật tư" — cho FE gom nhóm
+    dvt: str | None = None
+    dau_sl: float = 0
+    dau_gt: int = 0
+    nhap_sl: float = 0
+    nhap_gt: int = 0
+    xuat_sl: float = 0
+    xuat_gt: int = 0
+    cuoi_sl: float = 0
+    cuoi_gt: int = 0
+    don_gia_bq: float | None = None       # đơn giá bình quân của kỳ (đ/ĐVT gốc)
+
+
+class BaoCaoNXTPage(BaseModel):
+    items: list[BaoCaoNXTRow]
+    total: int
+    tu: date | None = None
+    den: date | None = None
+    # Kỳ này ĐÃ tính giá (có snapshot chốt) chưa. False = đang tạm tính live (chưa bấm Tính giá kỳ).
+    da_tinh: bool = False
+    # Kỳ này (theo ngày `den`) đã bị KHÓA sổ chưa — đã khóa thì không tính lại được.
+    da_khoa: bool = False
+
+
+class TinhGiaKyIn(BaseModel):
+    """Body 'Tính giá kỳ (bình quân)' — chốt tồn cuối kỳ vào snapshot. kho_id null = mọi kho."""
+
+    tu: date
+    den: date
+    ten: str | None = Field(default=None, max_length=120)
+    kho_id: int | None = None
+
+    @model_validator(mode="after")
+    def _chk(self) -> "TinhGiaKyIn":
+        if self.den < self.tu:
+            raise ValueError("Ngày đến phải ≥ ngày từ.")
+        self.ten = (self.ten or "").strip() or None
+        return self
+
+
 class KhoKhoaSoIn(BaseModel):
     kho_id: int | None = None             # None = TOÀN KHO
     tu_ngay: date
@@ -235,9 +288,11 @@ class KhoKhoaSoRow(BaseModel):
 
 
 class KhoExportLogRow(BaseModel):
-    """1 lần XUẤT EXCEL báo cáo kho — cho tab 'Lịch sử thao tác' (ghi vào audit_logs)."""
+    """1 dòng nhật ký thao tác báo cáo kho (XUẤT EXCEL hoặc TÍNH GIÁ KỲ) — cho tab 'Lịch sử thao tác'."""
     thoi_diem: datetime
-    loai: str                             # "Nhập kho" / "Xuất kho" / "Chuyển kho" / "Tồn kho"
+    # Loại thao tác để FE tô badge: "export" (xuất Excel) | "tinh_gia" (tính giá kỳ).
+    hanh_dong: str = "export"
+    loai: str                             # nhãn: "Nhập kho"/"Xuất kho"/… hoặc "Tính giá kỳ"
     pham_vi: str                          # loại báo cáo · kho (vd "Nhập kho · Kho nguyên vật liệu")
     khoang_ngay: str | None = None        # "01/08/2026 – 18/08/2026" hoặc None
     ten_ky: str | None = None             # tên kỳ đã khóa nếu khoảng ngày trùng kỳ; "Toàn bộ" nếu ko lọc ngày
@@ -255,6 +310,18 @@ class KhoaSoKyRow(BaseModel):
     mien_tru: list[str] = []              # (kỳ TOÀN KHO) tên các kho đã MỞ RIÊNG trong kỳ này
 
 
+class KyDaTinhRow(BaseModel):
+    """1 kỳ ĐÃ TÍNH GIÁ (có snapshot `kho_ky_ton`) — cho tab 'Kỳ đã tính' chọn nhanh + đối chiếu."""
+    tu_ngay: date
+    den_ngay: date
+    ten: str | None = None                # tên kỳ đã đặt khi tính (đại diện)
+    so_mat_hang: int                      # số dòng snapshot = số (kho × mặt hàng)
+    so_kho: int                           # số kho có tồn cuối kỳ
+    tong_gt_cuoi: int                     # tổng giá trị tồn cuối kỳ (đồng)
+    tinh_luc: datetime                    # lần tính gần nhất
+    da_khoa: bool = False                 # kỳ (theo ngày cuối) đã khóa sổ chưa
+
+
 class StockVoucherCancel(BaseModel):
     """Body khi HỦY phiếu nháp — BẮT BUỘC lý do; yêu cầu chuyển 'Đã hủy' kèm lý do này."""
 
@@ -265,6 +332,39 @@ class StockVoucherCancel(BaseModel):
         self.ly_do = self.ly_do.strip()
         if not self.ly_do:
             raise ValueError("Phải nhập lý do hủy.")
+        return self
+
+
+class DieuChinhLichSuRow(BaseModel):
+    """1 lần ĐIỀU CHỈNH phiếu xuất — cho 'Lịch sử điều chỉnh' trong drawer phiếu (ai · bộ phận · lúc nào)."""
+    thoi_diem: datetime
+    nguoi_ten: str | None = None
+    bo_phan_ten: str | None = None
+    chi_tiet: str | None = None           # "Bản kẽm 74: 19 → 7; …"
+    ly_do: str | None = None              # lý do điều chỉnh (bắt buộc khi thao tác)
+
+
+class DieuChinhXuatLineIn(BaseModel):
+    """1 dòng phiếu XUẤT điều chỉnh GIẢM: `line_id` + số lượng MỚI (theo ĐVT của dòng, ≤ hiện tại)."""
+
+    line_id: int = Field(gt=0)
+    so_luong_moi: float = Field(gt=0)
+
+
+class DieuChinhXuatIn(BaseModel):
+    """Body điều chỉnh phiếu XUẤT đã ghi sổ khi SX dùng ÍT hơn số đã xuất (xuất 10 → dùng 7).
+
+    Chỉ liệt kê dòng CÓ ĐỔI; dòng không gửi giữ nguyên. Server chặn nếu không dòng nào giảm thật.
+    BẮT BUỘC `ly_do` — điều chỉnh phiếu đã ghi sổ là thao tác đụng sổ, phải ghi rõ vì sao."""
+
+    lines: list[DieuChinhXuatLineIn] = Field(min_length=1)
+    ly_do: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def _strip_ly_do(self) -> "DieuChinhXuatIn":
+        self.ly_do = self.ly_do.strip()
+        if not self.ly_do:
+            raise ValueError("Phải nhập lý do điều chỉnh.")
         return self
 
 

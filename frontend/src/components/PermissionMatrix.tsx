@@ -165,9 +165,13 @@ const FINE_ACTIONS: Record<
     { key: "can_set_head", label: "Đặt trưởng phòng" },
     { key: "can_reparent", label: "Đổi cấp trên (cây tổ chức)" },
   ],
-  // Kho: 2 ô chi tiết + công tắc chung Xem (can_read) + Lập phiếu (= TẠO + GHI SỔ + HỦY, can_create).
+  // Kho: các ô chi tiết + công tắc chung Xem (can_read) + Lập phiếu (= TẠO + GHI SỔ + HỦY, can_create).
   //   · Tạo yêu cầu (can_request) — người XIN nhập/lĩnh vật tư.
-  //   · Xem kho (1 công tắc = 3 cột): xem tồn + xem giá vốn + khai ngưỡng.
+  //   · Xem tồn kho (can_view_stock + can_set_threshold): xem số tồn + khai ngưỡng — KHÔNG kèm giá.
+  //   · Xem giá vốn (can_view_cost) — Ô RIÊNG (tách 29/08/2026): CHỈ kế toán thấy đơn giá/giá vốn.
+  //     Trước đây gộp chung vào "Xem tất cả kho" nên thủ kho cũng thấy giá; nay tách để chỉ kế toán
+  //     xem giá. LƯU Ý: role cũ đã bật ô gộp thì `can_view_cost` vẫn = true trong DB — muốn thủ kho
+  //     hết thấy giá phải VÀO BỎ TICK ô "Xem giá vốn" cho role đó.
   // ĐÃ GỘP (bỏ SoD): "Ghi sổ" + "Hủy" nhập chung vào "Lập phiếu" — KHÔNG còn công tắc Ghi sổ riêng.
   // Ai có Lập phiếu là tạo + ghi sổ + hủy được. KHÔNG có Duyệt: ĐÃ BỎ BƯỚC DUYỆT yêu cầu kho
   // (chủ 06/08/2026) — tạo yêu cầu là 'approved' luôn, không ai duyệt nữa (cột `can_approve` giữ
@@ -180,14 +184,19 @@ const FINE_ACTIONS: Record<
     },
     {
       key: "can_view_stock",
-      keys: ["can_view_stock", "can_view_cost", "can_set_threshold"],
-      label: "Xem tất cả kho",
-      hint: "MỘT công tắc gộp 3 quyền XEM/QUẢN của kho: XEM số tồn · XEM giá vốn & giá trị tồn · KHAI ngưỡng tồn. Ai làm kho bật ô này.",
+      keys: ["can_view_stock", "can_set_threshold"],
+      label: "Xem tồn kho",
+      hint: "XEM số tồn từng kho + KHAI ngưỡng tồn (đèn cảnh báo). KHÔNG kèm giá — muốn thấy đơn giá/giá vốn phải bật thêm ô \"Xem giá vốn\". Thủ kho / ai làm kho bật ô này.",
+    },
+    {
+      key: "can_view_cost",
+      label: "Xem giá thành",
+      hint: "Thấy ĐƠN GIÁ · THÀNH TIỀN · ở mọi bước kho (yêu cầu · phiếu nhập/xuất · tồn · lô · báo cáo). CHỈ kế toán kho bật — thủ kho thường KHÔNG có ô này. Ẩn ở cả máy chủ, không chỉ ẩn giao diện.",
     },
     {
       key: "can_close_book",
       label: "Báo cáo kho + khóa kỳ (kế toán)",
-      hint: "Mở màn \"Báo cáo kho\": sổ nhập-xuất, xuất Excel theo mẫu MISA, và KHÓA KỲ (chốt sổ) toàn kho / từng kho. Chỉ kế toán kho.",
+      hint: "Mở màn \"Báo cáo kho\": sổ nhập-xuất, Nhập-Xuất-Tồn, tính giá kỳ, xuất Excel theo mẫu MISA, và KHÓA KỲ (chốt sổ) toàn kho / từng kho. Chỉ kế toán kho.",
     },
   ],
   // DANH MỤC: đa số KHÔNG có quyền chi tiết — mỗi màn chỉ Xem + Thao tác.

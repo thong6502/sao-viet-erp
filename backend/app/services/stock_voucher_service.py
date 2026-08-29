@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 import secrets
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from ..models.document_sequence import (
@@ -397,6 +397,120 @@ class StockVoucherService:
         self.request_service.refresh_fulfillment(req)
         return v
 
+    def dieu_chinh_xuat(self, voucher_id: int, so_luong_moi: dict[int, float], user=None):
+        """ĐIỀU CHỈNH phiếu XUẤT đã ghi sổ khi SX dùng ÍT hơn số đã xuất (xuất 10 → dùng 7).
+
+        Sửa THẲNG dòng phiếu (giảm `so_luong`/`sl_goc`), TRẢ phần dư về LÔ nguồn (`sl_con_lai +=`),
+        và GIẢM `sl_da_ung` của dòng yêu cầu tương ứng → yêu cầu quay lại 'còn N chưa cấp'
+        (Option 2 chốt 2026-08-28). CỐ Ý phá nguyên tắc phiếu-đã-ghi-sổ-bất-biến (BRD §1.5) cho ĐÚNG
+        ca này; mọi thay đổi khác của phiếu posted vẫn cấm ở `cancel`/`set_*`.
+
+        Chặn: chỉ phiếu XUẤT thường (không điều chuyển), đã ghi sổ, kỳ chưa khóa; mỗi dòng chỉ được
+        GIẢM (0 < mới ≤ hiện tại) và phải có ÍT NHẤT một dòng giảm thật. `so_luong_moi`: line_id →
+        số lượng mới (theo ĐVT người khai, như `so_luong` trên dòng).
+        """
+        # Khóa dòng phiếu trước khi đọc trạng thái — chặn điều chỉnh chồng lấn (như `post`).
+        self.vouchers.lock_for_update(voucher_id)
+        v = self.vouchers.get_with_lines(voucher_id)
+        if v is None:
+            raise StockVoucherError("Không tìm thấy phiếu.")
+        if v.loai != VOUCHER_XUAT:
+            raise StockVoucherError("Chỉ điều chỉnh được phiếu XUẤT.")
+        if v.trang_thai != VOUCHER_POSTED:
+            raise StockVoucherError("Chỉ điều chỉnh được phiếu đã ghi sổ.")
+        req = self.requests.get_with_lines(v.request_id)
+        if req is None:
+            raise StockVoucherError("Không tìm thấy yêu cầu của phiếu.")
+        # Điều chuyển: vế xuất nguồn là bút toán nội bộ cặp đôi (trừ nguồn ↔ cộng đích) — sửa lệch một
+        # vế sẽ vỡ cân đối 2 kho. Muốn sai khác thì điều chuyển ngược lại.
+        if getattr(req, "dieu_chuyen", False) or self.requests.by_xuat_voucher_id(v.id) is not None:
+            raise StockVoucherError(
+                "Phiếu điều chuyển không điều chỉnh trực tiếp — hãy điều chuyển ngược lại.")
+        # Điều chỉnh SỬA THẲNG dòng phiếu (dated theo NGÀY GHI SỔ của phiếu) → chặn nếu KỲ CỦA PHIẾU
+        # đã khóa sổ (không phải hôm nay). Khóa rồi thì không đụng được phiếu của kỳ đó nữa.
+        vn = timezone(timedelta(hours=7))
+        gs = v.ghi_so_luc
+        if gs is not None:
+            ngay_phieu = (gs if gs.tzinfo else gs.replace(tzinfo=timezone.utc)).astimezone(vn).date()
+        else:
+            ngay_phieu = v.ngay or date.today()
+        self._assert_period_open(v.kho_id, ngay_phieu)
+
+        lines_by_vid = {ln.id: ln for ln in v.lines}
+        rlines = {rl.id: rl for rl in req.lines}
+        # Màn ĐỌC gộp các dòng lô lẻ theo `request_line_id` thành 1 dòng/mặt hàng (đơn giá bình quân),
+        # `id` = dòng ĐẦU nhóm. Nên `so_luong_moi` khoá theo id dòng đầu = TỔNG MỚI của cả nhóm →
+        # phải gom lại theo nhóm rồi PHÂN BỔ phần giảm xuống từng dòng lô (không thì so 12 với 1 lô 9
+        # rồi báo "tăng"). Giữ thứ tự lô để trả DÒNG CUỐI trước (undo phân bổ gần nhất).
+        groups: dict[int, list] = {}
+        for ln in v.lines:
+            groups.setdefault(ln.request_line_id, []).append(ln)
+
+        # --- Pha 1: kiểm tra TOÀN BỘ, chưa ghi gì ---
+        ke_hoach: list[tuple] = []   # (grp, rl, tong_cu, moi)
+        co_giam = False
+        for ln_id, moi in so_luong_moi.items():
+            head = lines_by_vid.get(ln_id)
+            if head is None:
+                raise StockVoucherError("Dòng điều chỉnh không thuộc phiếu này.")
+            grp = groups[head.request_line_id]
+            tong_cu = sum(float(l.so_luong) for l in grp)
+            moi = float(moi)
+            if moi <= 0:
+                raise StockVoucherError(
+                    "Số lượng mới phải lớn hơn 0 — muốn bỏ hẳn thì đây không phải chỗ.")
+            if moi > tong_cu + 1e-9:
+                raise StockVoucherError("Chỉ được GIẢM số đã xuất, không tăng.")
+            if moi < tong_cu - 1e-9:
+                co_giam = True
+            rl = rlines.get(head.request_line_id)
+            if rl is None:
+                raise StockVoucherError("Dòng phiếu trỏ vào yêu cầu khác.")
+            ke_hoach.append((grp, rl, tong_cu, moi))
+        if not co_giam:
+            raise StockVoucherError("Chưa có dòng nào giảm — không có gì để điều chỉnh.")
+
+        # --- Pha 2: ghi + gom tóm tắt thay đổi (nhật ký đọc được: "tên: tổng cũ → tổng mới") ---
+        changes: list[str] = []
+        for grp, rl, tong_cu, moi in ke_hoach:
+            con_bo = tong_cu - moi          # tổng cần BỎ (đơn vị người khai)
+            if con_bo <= 1e-9:
+                continue
+            mh = self.hang.get(rl.hang_loai, rl.hang_id)
+            ten = getattr(mh, "ten", None) or f"#{rl.hang_id}"
+            changes.append(f"{ten}: {tong_cu:g} → {moi:g}")
+            # Phân bổ phần giảm: trừ từ dòng lô CUỐI về đầu, trả `sl_goc` dư về đúng lô của dòng đó.
+            remaining = con_bo
+            for ln in reversed(grp):
+                if remaining <= 1e-9:
+                    break
+                cur_ln = float(ln.so_luong)
+                giam = min(cur_ln, remaining)
+                if giam <= 1e-9:
+                    continue
+                new_ln = cur_ln - giam
+                new_goc = float(ln.sl_goc) * new_ln / cur_ln if cur_ln else 0.0
+                lot = self.lots.get(ln.lot_id) if ln.lot_id else None
+                if lot is not None:
+                    self.lots.restore(lot, float(ln.sl_goc) - new_goc)
+                if new_ln <= 1e-9:
+                    # Dòng lô này trả HẾT → xoá dòng (constraint so_luong/sl_goc > 0, không để 0).
+                    self.vouchers.db.delete(ln)
+                else:
+                    ln.so_luong = new_ln
+                    ln.sl_goc = new_goc
+                remaining -= giam
+            rl.sl_da_ung = max(0.0, float(rl.sl_da_ung) - con_bo)  # yêu cầu: 'còn N chưa cấp'
+
+        # Trả hàng về tồn tự do → lệnh khác đang chờ (giữ chỗ) có thể nhặt thêm ngay.
+        if self.giu_cho is not None:
+            self.giu_cho.nhat_them()
+
+        self.vouchers.db.commit()
+        self.vouchers.db.refresh(v)
+        self.request_service.refresh_fulfillment(req)
+        return v, changes
+
     @staticmethod
     def _gom_theo_hang_va_chu_the(v, lines_by_id: dict) -> dict[tuple, float]:
         """`{((hang_loai, hang_id), (lsx_id, bai_ghep_id)): Σ sl_goc}` của phiếu.
@@ -592,6 +706,18 @@ class StockVoucherService:
                 self.request_service.cancel_by_kho(src_req, ly_do)
         self.request_service.cancel_by_kho(dest_req, ly_do)
         return dest_req
+
+    def dc_request_id_for_voucher(self, voucher_id: int) -> int | None:
+        """Từ MỘT phiếu điều chuyển → id yêu cầu ĐIỀU CHUYỂN (mặt tiền DC), để FE mở đúng PHIẾU ĐIỀU
+        CHUYỂN thay vì mẫu nhập/xuất. Phiếu NHẬP-đích = chính `request_id`; phiếu XUẤT-nguồn = yêu cầu
+        DC đích có `xuat_voucher_id` = phiếu. None nếu KHÔNG phải phiếu điều chuyển / không truy được."""
+        v = self.vouchers.get(voucher_id)
+        if v is None or not getattr(v, "dieu_chuyen", False):
+            return None
+        if v.loai == VOUCHER_NHAP:
+            return v.request_id
+        dest = self.requests.by_xuat_voucher_id(v.id)
+        return dest.id if dest else None
 
     def set_lot_vi_tri(self, lot_id: int, vi_tri: str | None):
         """Thủ kho sửa VỊ TRÍ cất lô (kệ/ô) trong kho — người cầm hàng quản vị trí vật lý."""

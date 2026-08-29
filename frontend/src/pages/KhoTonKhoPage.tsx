@@ -198,10 +198,22 @@ export function KhoTonKhoPage({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [openVoucher, setOpenVoucher] = useState<number | null>(null);
+  // Bump khi 1 phiếu đổi (điều chỉnh / ghi sổ / điều chuyển) → popup Lịch sử mặt hàng đang mở nạp lại
+  // tồn + lịch sử NGAY (không bắt đóng-mở / reload trang).
+  const [matTick, setMatTick] = useState(0);
   // Tab "Điều chuyển": mở MẶT TIỀN phiếu điều chuyển (TransferDrawer, keyed theo yêu cầu DC) thay vì
   // phiếu nhập/xuất chung — để hiện đúng "PHIẾU ĐIỀU CHUYỂN" + in mẫu điều chuyển, không phải PNK.
   const [openTransfer, setOpenTransfer] = useState<number | null>(null);
   const [openRequest, setOpenRequest] = useState<number | null>(null);
+  // Từ MỘT phiếu điều chuyển (nhập-đích hoặc XUẤT-nguồn "chuyển đi") → mở mặt tiền PHIẾU ĐIỀU CHUYỂN.
+  // Vế XUẤT-nguồn: phiếu KHÔNG mang id yêu cầu DC đích, phải hỏi BE tra ngược qua `xuat_voucher_id`.
+  // Nếu không phải phiếu điều chuyển (404) → fallback mở phiếu thường.
+  const openTransferByVoucher = useCallback((voucherId: number) => {
+    api.kho.dieuChuyen
+      .byVoucher(token, voucherId)
+      .then((r) => setOpenTransfer(r.request_id))
+      .catch(() => setOpenVoucher(voucherId));
+  }, [token]);
   // Điều chuyển HÀNG LOẠT: mở popup cho các mã đã tick → gộp vào 1 yêu cầu điều chuyển.
   const [dcBulkOpen, setDcBulkOpen] = useState(false);
   // Hover tiêu đề cột → hiện tên cột đầy đủ (kể cả khi bị cắt). Bảng Tồn + bảng Phiếu (mỗi bảng 1 ref).
@@ -842,8 +854,10 @@ export function KhoTonKhoPage({
                       key={v.id}
                       className="rc__row"
                       onClick={() =>
-                        v.dieu_chuyen && v.loai === "NHAP"
-                          ? setOpenTransfer(v.request_id)
+                        v.dieu_chuyen
+                          ? v.loai === "NHAP"
+                            ? setOpenTransfer(v.request_id) // nhập-đích: request_id CHÍNH là DC đích
+                            : openTransferByVoucher(v.id) // xuất-nguồn: hỏi BE tra DC đích
                           : setOpenVoucher(v.id)
                       }
                     >
@@ -937,13 +951,16 @@ export function KhoTonKhoPage({
           material={openMaterial}
           threshold={thresholds[openMaterial.key]}
           canViewCost={canViewCost}
+          refreshTick={matTick}
           // Kho ĐÍCH khi điều chuyển = mọi kho khác kho hiện tại.
           khoDich={khoOptions.filter((w) => w.id !== khoId)}
           onOpenVoucher={setOpenVoucher}
+          onOpenTransfer={openTransferByVoucher}
           // Điều chuyển xong TRỪ TỒN NGUỒN NGAY → nạp lại tồn + phiếu để bảng phản ánh tức thì.
           onDieuChuyenDone={() => {
             load();
             loadVouchers();
+            setMatTick((t) => t + 1);
           }}
           onClose={() => setOpenMaterial(null)}
           onAnhChanged={(hl, hid, url) =>
@@ -968,6 +985,7 @@ export function KhoTonKhoPage({
           onChanged={() => {
             loadVouchers();
             load();
+            setMatTick((t) => t + 1);   // popup Lịch sử mặt hàng (nếu đang mở) nạp lại tồn ngay
           }}
         />
       )}
@@ -983,6 +1001,7 @@ export function KhoTonKhoPage({
           onChanged={() => {
             loadVouchers();
             load();
+            setMatTick((t) => t + 1);   // popup Lịch sử mặt hàng (nếu đang mở) nạp lại tồn ngay
           }}
         />
       )}
@@ -997,6 +1016,7 @@ export function KhoTonKhoPage({
           requestId={openRequest}
           canCreate={false}
           canViewStock={canViewStock}
+          canViewCost={canViewCost}
           onClose={() => setOpenRequest(null)}
           onCreateVoucher={() => {}}
         />
@@ -1332,7 +1352,9 @@ function MaterialHistoryDrawer({
   threshold,
   canViewCost,
   khoDich,
+  refreshTick,
   onOpenVoucher,
+  onOpenTransfer,
   onDieuChuyenDone,
   onClose,
   onAnhChanged,
@@ -1343,9 +1365,13 @@ function MaterialHistoryDrawer({
   material: MaterialGroup;
   threshold: StockThreshold | undefined;
   canViewCost: boolean;
+  /** Cha bump khi phiếu đổi (điều chỉnh/ghi sổ) → popup nạp lại tồn + lịch sử ngay, khỏi reload. */
+  refreshTick?: number;
   /** Kho ĐÍCH khả dĩ khi điều chuyển (đã loại kho hiện tại). Rỗng → ẩn nút "Chuyển kho". */
   khoDich: { id: number; ma: string; ten: string }[];
   onOpenVoucher: (voucherId: number) => void;
+  /** Bấm phiếu ở tab "Lịch sử chuyển kho" → mở mặt tiền PHIẾU ĐIỀU CHUYỂN (không phải mẫu nhập/xuất). */
+  onOpenTransfer: (voucherId: number) => void;
   /** Điều chuyển thành công → cha nạp lại tồn + phiếu (tồn nguồn đã bị trừ ngay). */
   onDieuChuyenDone: () => void;
   onClose: () => void;
@@ -1468,13 +1494,17 @@ function MaterialHistoryDrawer({
     return () => {
       alive = false;
     };
-  }, [token, khoId, material.hang_loai, material.hang_id]);
+    // `refreshTick`: cha bump sau khi phiếu đổi (điều chỉnh / ghi sổ) → tồn + lịch sử nạp lại NGAY,
+    // không bắt đóng mở lại popup.
+  }, [token, khoId, material.hang_loai, material.hang_id, refreshTick]);
 
   // NCC bán mặt hàng này + giá đã quy về đơn vị gốc (Đợt 4). Gộp vào ĐÂY chứ không dựng màn
   // so-giá riêng: đây là lúc người ta vừa thấy hàng sắp hết, câu hỏi tiếp theo luôn là "mua của
   // ai" — bắt họ đi sang màn khác rồi tìm lại đúng mặt hàng là thao tác thừa.
   const [soGia, setSoGia] = useState<SoGiaRow[]>([]);
   useEffect(() => {
+    // Báo giá NCC là GIÁ → không có quyền xem giá vốn thì khỏi tải (server cũng chặn).
+    if (!canViewCost) { setSoGia([]); return; }
     let alive = true;
     api.matHang
       .soGia(token, material.hang_loai, material.hang_id)
@@ -1487,7 +1517,7 @@ function MaterialHistoryDrawer({
     return () => {
       alive = false;
     };
-  }, [token, material.hang_loai, material.hang_id]);
+  }, [token, material.hang_loai, material.hang_id, canViewCost]);
 
   // Mỗi tab phân trang riêng, 10 dòng/trang; đổi tab → về trang 1.
   useEffect(() => {
@@ -1687,8 +1717,8 @@ function MaterialHistoryDrawer({
               </div>
             </div>
 
-            {/* Bảng so sánh giá Nhà Cung Cấp */}
-            {soGia.length > 0 && (
+            {/* Bảng so sánh giá Nhà Cung Cấp — chỉ vai XEM GIÁ VỐN (view_cost) mới thấy giá. */}
+            {canViewCost && soGia.length > 0 && (
               <div className="supplier-price-card">
                 <button
                   type="button"
@@ -1973,7 +2003,7 @@ function MaterialHistoryDrawer({
                         {r.voucher_id != null ? (
                           <CodeLink
                             code={r.voucher_ma ?? "—"}
-                            onOpen={() => onOpenVoucher(r.voucher_id!)}
+                            onOpen={() => onOpenTransfer(r.voucher_id!)}
                           />
                         ) : (
                           r.voucher_ma ?? "—"

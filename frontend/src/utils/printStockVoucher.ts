@@ -104,11 +104,11 @@ export function printStockVoucher(data: StockVoucherPrintData): boolean {
   // nên path phải kèm origin mới tải được. `onload=print` đợi ảnh tải xong rồi mới in.
   const logoSrc = logoUrl.startsWith("data:") ? logoUrl : window.location.origin + logoUrl;
   const { d, m, y } = dmyParts(data.docDate);
-  // Thiếu quyền xem giá vốn → API trả null ở mọi dòng → bỏ hẳn 2 cột tiền.
+  // Thiếu quyền xem giá vốn → GIỮ NGUYÊN 2 cột Đơn giá/Thành tiền (đúng mẫu 02-VT: A·B·C·D·1·2·3·4)
+  // nhưng ĐỂ TRỐNG giá — không xoá cột để bố cục phiếu không đổi.
   const showMoney = data.lines.some((l) => l.donGia !== null && l.donGia !== undefined);
   const words = showMoney && data.tongTien !== null ? amountInWords(data.tongTien) : "";
 
-  const colCount = showMoney ? 8 : 6;
   const body = data.lines
     .map(
       (l, i) => `<tr>
@@ -118,14 +118,13 @@ export function printStockVoucher(data: StockVoucherPrintData): boolean {
         <td class="c">${escapeHtml(l.dvt ?? "")}</td>
         <td class="r">${qty(l.soLuongChungTu)}</td>
         <td class="r">${qty(l.soLuong)}</td>
-        ${showMoney ? `<td class="r">${money(l.donGia ?? 0)}</td><td class="r">${money(l.thanhTien ?? 0)}</td>` : ""}
+        <td class="r">${showMoney ? money(l.donGia ?? 0) : ""}</td>
+        <td class="r">${showMoney ? money(l.thanhTien ?? 0) : ""}</td>
       </tr>`,
     )
     .join("");
 
-  const totalRow = showMoney
-    ? `<tr class="tot"><td colspan="7" class="r"><b>Cộng</b></td><td class="r"><b>${money(data.tongTien ?? 0)}</b></td></tr>`
-    : `<tr class="tot"><td colspan="${colCount}" class="r"><b>Cộng</b></td></tr>`;
+  const totalRow = `<tr class="tot"><td colspan="7" class="r"><b>Cộng</b></td><td class="r"><b>${showMoney ? money(data.tongTien ?? 0) : ""}</b></td></tr>`;
 
   const signers = form.signers
     .map(
@@ -219,7 +218,7 @@ ${data.cancelled ? '<div class="stamp">ĐÃ HỦY</div>' : ""}
       <th rowspan="2">Tên, nhãn hiệu, quy cách, phẩm chất vật tư</th>
       <th rowspan="2" style="width:52px">ĐVT</th>
       <th colspan="2" style="width:150px">Số lượng</th>
-      ${showMoney ? '<th rowspan="2" style="width:92px">Đơn giá</th><th rowspan="2" style="width:104px">Thành tiền</th>' : ""}
+      <th rowspan="2" style="width:92px">Đơn giá</th><th rowspan="2" style="width:104px">Thành tiền</th>
     </tr>
     <tr>
       <th style="width:75px">${form.qtyDocLabel}</th>
@@ -292,15 +291,15 @@ export function printTransferVoucher(data: TransferPrintData): boolean {
         <td>${escapeHtml(l.materialName ?? "")}</td>
         <td class="c">${escapeHtml(l.dvt ?? "")}</td>
         <td class="r">${qty(l.soLuong)}</td>
-        ${showMoney ? `<td class="r">${money(l.donGia ?? 0)}</td><td class="r">${money(l.thanhTien ?? 0)}</td>` : ""}
+        <td class="r">${showMoney ? money(l.donGia ?? 0) : ""}</td>
+        <td class="r">${showMoney ? money(l.thanhTien ?? 0) : ""}</td>
         <td class="c">${escapeHtml(ddmy(l.hsd))}</td>
       </tr>`,
     )
     .join("");
 
-  const totalRow = showMoney
-    ? `<tr class="tot"><td colspan="6" class="r"><b>Cộng</b></td><td class="r"><b>${money(data.tongTien ?? 0)}</b></td><td></td></tr>`
-    : `<tr class="tot"><td colspan="6" class="r"><b>Cộng</b></td></tr>`;
+  // GIỮ 2 cột giá (để trống khi thiếu quyền view_cost) — bố cục phiếu không đổi.
+  const totalRow = `<tr class="tot"><td colspan="6" class="r"><b>Cộng</b></td><td class="r"><b>${showMoney ? money(data.tongTien ?? 0) : ""}</b></td><td></td></tr>`;
 
   const signerNames = [
     "Người lập phiếu",
@@ -394,7 +393,7 @@ ${data.cancelled ? '<div class="stamp">ĐÃ HỦY</div>' : ""}
       <th>Tên, nhãn hiệu, quy cách vật tư</th>
       <th style="width:52px">ĐVT</th>
       <th style="width:80px">Số lượng</th>
-      ${showMoney ? '<th style="width:92px">Đơn giá vốn</th><th style="width:104px">Thành tiền</th>' : ""}
+      <th style="width:92px">Đơn giá vốn</th><th style="width:104px">Thành tiền</th>
       <th style="width:82px">HSD</th>
     </tr>
   </thead>

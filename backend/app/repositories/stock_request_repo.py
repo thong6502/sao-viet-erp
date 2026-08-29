@@ -98,6 +98,13 @@ class StockRequestRepository:
             select(StockRequest).where(func.upper(StockRequest.ma) == ma.strip().upper())
         ).scalars().first()
 
+    def by_xuat_voucher_id(self, voucher_id: int) -> StockRequest | None:
+        """Yêu cầu ĐIỀU CHUYỂN đích (dieu_chuyen NHẬP) có `xuat_voucher_id` = phiếu này — để từ PHIẾU
+        XUẤT NGUỒN của điều chuyển truy NGƯỢC về mặt tiền phiếu điều chuyển. None nếu không có."""
+        return self.db.execute(
+            select(StockRequest).where(StockRequest.xuat_voucher_id == voucher_id)
+        ).scalars().first()
+
     def get_with_lines(self, request_id: int) -> StockRequest | None:
         return self.db.execute(
             select(StockRequest)

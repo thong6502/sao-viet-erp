@@ -7,6 +7,7 @@ import type { CatalogConfig, ChuanBiKhoanRow } from "./RebuildCatalogPage";
 import { ClockIcon, isMayIn, tongChuanBi } from "./RebuildCatalogPage";
 import { nhanTo } from "./danh-muc/nhanTo";
 import { QuyDoiCuaDonVi } from "./QuyDoiCuaDonVi";
+import { KhoViTriPanel } from "./KhoViTriPanel";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ApiError, authed } from "../api/client";
 import { crud, trangThaiMay, type Row, type TrangThaiMay } from "../api/rebuildCatalog";
@@ -831,6 +832,12 @@ export const CFG_KHO_HANG: CatalogConfig = {
       hint: "Nơi đặt kho, vd: Tầng 1 — xưởng A" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Thông tin" },
   ],
+  // Tab thứ 2 trong drawer: khai DANH SÁCH vị trí cất (kệ/ô) của kho — để lập lô/phiếu chọn dropdown
+  // thay vì gõ tay. Dùng lại điểm mở rộng `renderExtra` (như bảng quy đổi của Đơn vị). `moLaiSauKhiTao`
+  // giữ drawer mở sau khi TẠO kho để khai vị trí ngay (panel cần id, tạo mới chưa có).
+  nhanTabCongThuc: "Vị trí kho",
+  moLaiSauKhiTao: true,
+  renderExtra: (_form, existing) => <KhoViTriPanel kho={existing} />,
   renderDeleteDialog: (row, ctx) => <KhoDeleteDialog row={row} {...ctx} />,
 };
 

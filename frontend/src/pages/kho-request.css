@@ -111,6 +111,48 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+/* Dòng mặt hàng bấm được (mở popup lô nhập/xuất). Nền hover đã có ở `.kho-bc tbody tr:hover`. */
+.kho-bc__rowlink {
+  cursor: pointer;
+}
+/* Mã phiếu bấm được trong popup lô (mở phiếu). Dùng chung nền badge `.rc__code-badge`, thêm con trỏ
+   + đổi màu khi rê chuột cho biết bấm được. */
+.kho-bc__voucher {
+  cursor: pointer;
+}
+.kho-bc__voucher:hover {
+  border-color: var(--moss, #2f5d3a);
+  color: var(--moss, #2f5d3a);
+}
+
+/* Bảng Nhập-Xuất-Tồn có header HAI DÒNG (nhóm cột Đầu/Nhập/Xuất/Cuối + hàng con SL/Giá trị). Ghim CẢ
+   hai khi cuộn: dòng 2 phải đẩy xuống ĐÚNG chiều cao dòng 1 — để chung top:0 thì hai dòng đè nhau,
+   nhìn như header "thu nhỏ" mất hàng SL/Giá trị. Ghim chiều cao header cố định để bù trừ khớp.
+   Dùng `.kho-bc.kho-bc--nxt` (2 class họ "kho", KHÔNG mượn "rc") — đủ độ ưu tiên + đứng sau khối
+   `.rc__table.kho-bc` nên đè đúng thuộc tính top/z-index. */
+.kho-bc.kho-bc--nxt {
+  --kho-nxt-hh: 33px;
+}
+.kho-bc.kho-bc--nxt thead tr {
+  height: var(--kho-nxt-hh);
+}
+.kho-bc.kho-bc--nxt thead th {
+  position: sticky;
+  z-index: 3;
+  background: var(--rule-hair, #f8fafc);
+}
+.kho-bc.kho-bc--nxt thead tr:first-child th {
+  top: 0;
+}
+.kho-bc.kho-bc--nxt thead tr:nth-child(2) th {
+  top: var(--kho-nxt-hh);
+}
+/* Dòng nhóm kho ("Kho gia công · N mặt hàng") cũng dính dưới header cột để biết đang xem kho nào. */
+.kho-bc.kho-bc--nxt tbody tr.kho-bc__grouphead td {
+  position: sticky;
+  top: calc(var(--kho-nxt-hh) * 2);
+  z-index: 2;
+}
 /* Tên hàng dài → thu gọn 1 dòng + "…"; di chuột (title) xem đầy đủ. */
 .kho-bc__name {
   display: inline-block;
@@ -1697,7 +1739,12 @@ input.kho-num,
   background: var(--canvas);
   border: 1px solid var(--rule);
   border-radius: var(--r-5);
-  overflow: hidden;
+  /* Bảng DANH SÁCH yêu cầu (KhoDeNghiPage): cuộn NGANG khi hẹp, nhưng KHÔNG cap chiều cao — phải
+     nở đủ số dòng theo pageSize rồi cuộn CẢ TRANG. `overflow-x:auto` (kéo overflow-y về auto) vẫn bo
+     góc; `max-height:none` GHI ĐÈ `.rc__tablewrap{max-height:calc(100vh-320px)}` (rule đó dành cho
+     bảng NHIỀU cột như định mức) — `.kho-table-card` nạp SAU nên thắng theo thứ tự nguồn. */
+  overflow-x: auto;
+  max-height: none;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
 }
 .kho-table-card .rc__table {
