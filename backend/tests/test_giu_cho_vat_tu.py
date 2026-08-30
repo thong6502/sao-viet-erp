@@ -1006,3 +1006,27 @@ def test_huy_pmh_nha_sach_giu_cho_dang_ve(db, svc, kh, customer):
                    if getattr(r, "purchase_request_line_id", None)), (
         "huỷ PMH phải nhả hết phần giữ hứa bám phiếu đó"
     )
+
+
+# ================== NHẬP KHO CHUYỂN HỨA → THẬT ==================
+
+
+def test_chuyen_dang_ve_sang_kho_go_khoa_ngay(db, svc, kh, customer):
+    """Hàng đang về (hứa, khoá lịch tới `ngay_ve`) nhập kho xong phải chuyển thành `nguon=kho`
+    (không ngày nào khoá nữa) — không thì lệnh vẫn bị chặn lịch dù hàng đã nằm trong kho."""
+    from app.models.vat_tu_giu_cho import NGUON_DANG_VE, NGUON_KHO
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)   # ≈ 16,77 kg
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+    svc.bat(lsx_id=a.id)
+    tt_truoc = svc.trang_thai(lsx_id=a.id)
+    assert tt_truoc["xep_som_nhat"] is not None, "đang giữ hứa nên phải có ngày khoá lịch"
+
+    svc.chuyen_dang_ve_sang_kho(_giay_hang(g), 100)
+
+    rows = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
+    assert all(r.nguon == NGUON_KHO for r in rows), "phải chuyển hết sang kho"
+    assert not any(r.nguon == NGUON_DANG_VE for r in rows)
+    tt_sau = svc.trang_thai(lsx_id=a.id)
+    assert tt_sau["xep_som_nhat"] is None, "hàng đã có thật thì không còn ngày nào khoá lịch nữa"

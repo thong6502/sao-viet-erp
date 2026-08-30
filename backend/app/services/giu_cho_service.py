@@ -551,6 +551,49 @@ class GiuChoService:
         self.repo.them(moi)
         return len(moi)
 
+    def chuyen_dang_ve_sang_kho(self, hang: Hang, so_luong: float) -> None:
+        """Hàng NHẬP KHO xong: phần đang giữ HỨA (`dang_ve`) của CHÍNH mặt hàng đó phải chuyển
+        thành giữ THẬT (`kho`) — không thì chủ thể vẫn bị `xep_som_nhat` khoá tới một `ngay_ve`
+        đã lỗi thời, dù hàng nó bám vào đang nằm ngay trong kho.
+
+        `nhat_them()` KHÔNG tự làm việc này: nó chỉ ĐẺ THÊM dòng cho phần còn `thieu`, không đụng
+        tới dòng CŨ đã đủ — một chủ thể đã giữ đủ từ `dang_ve` thì `nhat_them()` không bao giờ
+        chạm lại vào dòng đó.
+
+        Cũ nhất trước (`created_at` tăng dần) — cùng luật "cam kết cũ được bảo vệ" của mọi chỗ nhả
+        khác trong file này. Cố ý KHÔNG neo theo `purchase_request_line_id` cụ thể: giữ chỗ chỉ ăn
+        theo (mặt hàng, số lượng), không đích danh lô/dòng phiếu nào (luật ② docstring model).
+        """
+        con = round(float(so_luong), 2)
+        if con <= 0:
+            return
+        rows = (
+            self.db.query(VatTuGiuCho)
+            .filter(VatTuGiuCho.hang_loai == hang[0], VatTuGiuCho.hang_id == hang[1],
+                    VatTuGiuCho.nguon == NGUON_DANG_VE)
+            .order_by(VatTuGiuCho.created_at.asc())
+            .all()
+        )
+        for r in rows:
+            if con <= 0:
+                break
+            bot = round(min(con, _f(r.so_luong)), 2)
+            if bot <= 0:
+                continue
+            con -= bot
+            if _f(r.so_luong) - bot <= 0.004:
+                r.nguon = NGUON_KHO
+                r.ngay_ve = None
+                r.purchase_request_line_id = None
+            else:
+                r.so_luong = round(_f(r.so_luong) - bot, 2)
+                self.db.add(VatTuGiuCho(
+                    hang_loai=hang[0], hang_id=hang[1], lsx_id=r.lsx_id,
+                    bai_ghep_id=r.bai_ghep_id, so_luong=bot, nguon=NGUON_KHO, ngay_ve=None,
+                    purchase_request_line_id=None,
+                ))
+        self.db.commit()
+
     # ================== KHO GỌI VÀO ==================
 
     def kiem_xuat(self, *, hang: Hang, so_luong: float,

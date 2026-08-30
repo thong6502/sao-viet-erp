@@ -343,6 +343,11 @@ class StockVoucherService:
                         self.giu_cho.tieu_thu(hang=hang, so_luong=sl,
                                               lsx_id=chu[0], bai_ghep_id=chu[1])
             else:
+                # Hàng vừa vào kho: TRƯỚC hết, phần đang giữ HỨA của đúng mặt hàng này (nếu có)
+                # phải chuyển thành giữ THẬT — không thì lệnh bị khoá lịch theo một ngày về đã
+                # thành quá khứ dù hàng đã nằm trong kho (xem `chuyen_dang_ve_sang_kho`).
+                for hang, sl in self._gom_theo_hang_nhap(v).items():
+                    self.giu_cho.chuyen_dang_ve_sang_kho(hang, sl)
                 self.giu_cho.nhat_them()
 
         v.trang_thai = VOUCHER_POSTED
@@ -510,6 +515,16 @@ class StockVoucherService:
         self.vouchers.db.refresh(v)
         self.request_service.refresh_fulfillment(req)
         return v, changes
+
+    @staticmethod
+    def _gom_theo_hang_nhap(v) -> dict[tuple, float]:
+        """`{(hang_loai, hang_id): Σ sl_goc}` của MỘT phiếu NHẬP — vào kho bao nhiêu, theo mặt
+        hàng, không cần biết chủ thể (nhập kho không gắn lệnh nào)."""
+        ra: dict[tuple, float] = {}
+        for ln in v.lines:
+            h = (ln.hang_loai, ln.hang_id)
+            ra[h] = ra.get(h, 0.0) + float(ln.sl_goc)
+        return ra
 
     @staticmethod
     def _gom_theo_hang_va_chu_the(v, lines_by_id: dict) -> dict[tuple, float]:
