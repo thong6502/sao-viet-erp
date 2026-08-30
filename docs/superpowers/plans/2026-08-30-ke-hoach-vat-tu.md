@@ -248,7 +248,7 @@ git commit -m "Giữ chỗ: thêm cột purchase_request_line_id (mg 0245) để
 
 **Files:**
 - Modify: `backend/app/services/ke_hoach_vat_tu_service.py:501-551` (`_hang_dang_ve`)
-- Modify: `backend/app/services/giu_cho_service.py:555-601` (`_lo_dang_ve`, `nhat_them`, `_dong`)
+- Modify: `backend/app/services/giu_cho_service.py:441` (`nhat_them`), `:555-601` (`_lo_dang_ve`, `_dong`)
 - Test: `backend/tests/test_giu_cho_vat_tu.py`, `backend/tests/test_ke_hoach_vat_tu.py`
 
 **Interfaces:**
@@ -627,8 +627,8 @@ git commit -m "Giữ chỗ: đối soát dang_ve theo dòng phiếu mua khi PMH 
 **Files:**
 - Modify: `backend/app/services/purchase_service.py:563-586,2758-2809,2930-2963`
 - Modify: `backend/app/deps.py:688-713`
-- Test: `backend/tests/test_purchase_delivery.py` hoặc file test PMH liên quan (tạo test mới nếu
-  không có file khớp — kiểm bằng `Glob "backend/tests/test_purchase*"` trước khi quyết định)
+- Test: `backend/tests/test_purchases_api.py` (file test PMH thật — `test_purchase_delivery.py`
+  KHÔNG tồn tại, đừng tìm)
 
 **Interfaces:**
 - Consumes: `GiuChoService.doi_soat_dang_ve_don(purchase_request_id: int) -> None` (Task 3).
@@ -1297,7 +1297,11 @@ Thêm vào `backend/app/services/giu_cho_service.py`, ngay sau `_thu_tu_chu_the`
                     }
                     for n in tt["nguon_dang_ve"].get(hang, [])
                 ]
-                con = max(0.0, round(h["thieu"], 4))
+                # SỬA khi cài (30/08/2026): bản đầu viết `con = h["thieu"]` — SAI. `thieu` là
+                # thiếu theo `can_doi()` (đã so tồn TOÀN HỆ), nên khi tồn đủ nó = 0 và
+                # "có thể giữ" ra 0 đúng lúc câu hỏi có nghĩa nhất. Phần còn CHƯA GIỮ của
+                # chính chủ thể mới là thứ cần đo.
+                con = max(0.0, round(_f(h["can"]) - da_kho - da_ve, 4))
                 co_kho = round(min(con, _f(tu_do.get(hang))), 4)
                 co_ve = round(min(con - co_kho, _f(ve_tong.get(hang))), 4)
                 h["co_the_giu_kho"] = co_kho
@@ -1742,7 +1746,7 @@ git commit -m "LSX: chặn sửa SL/quy cách/routing/xoá lệnh khi đang gi�
 ### Task 10: Xuất kho — quy LSX đã ghép về bài đại diện
 
 **Files:**
-- Modify: `backend/app/services/stock_voucher_service.py:514-532` (`_gom_theo_hang_va_chu_the`)
+- Modify: `backend/app/services/stock_voucher_service.py:515-532` (`_gom_theo_hang_va_chu_the`)
 - Test: `backend/tests/test_giu_cho_vat_tu.py` hoặc file test kho có sẵn dựng `StockVoucherService`
 
 **Interfaces:**
@@ -1931,7 +1935,8 @@ method + thêm logic quy đổi CÓ KIỂM NHU CẦU THẬT (không chỉ theo c
                     .where(BaiGhepThanhVien.lsx_id.in_(lsx_can_tra))
                 ).all())
             if ghep_cua:
-                nhu_cau = self.giu_cho.kh._nhu_cau_theo_chu_the(self.giu_cho.kh.can_doi())
+                # SỬA khi cài: `_nhu_cau_theo_chu_the` nằm trên GiuChoService, KHÔNG phải `kh`.
+                nhu_cau = self.giu_cho._nhu_cau_theo_chu_the(self.giu_cho.kh.can_doi())
 
         ra: dict[tuple, float] = {}
         for ln in v.lines:
@@ -2442,3 +2447,297 @@ hình xác nhận nhãn mới hiển thị đúng.
 Liệt kê CỤ THỂ từng bước đã bấm/gõ/thấy ở Task 15 (không nói chung chung "đã test UI") — theo đúng
 yêu cầu CLAUDE.md. Nếu bất kỳ luồng nào phải tắt qua API để dựng dữ liệu (vd tạo PMH/phiếu mua
 nhanh vì UI luồng đó không phải trọng tâm), phải khai rõ NGAY trong báo cáo, không đợi hỏi.
+
+---
+
+# PHẦN B — Đề nghị cấp vật tư theo công đoạn (bổ sung 30/08/2026)
+
+> ## ⛔ PHẦN B ĐÃ BỊ THAY THẾ — ĐỪNG THI CÔNG TASK 16–22
+>
+> Chủ dự án chốt lại thiết kế ngày **31/08/2026**. Bản chốt đó nằm ở
+> `docs/spec-de-nghi-cap-vat-tu-cong-doan.md`, plan thi công ở
+> `docs/superpowers/plans/2026-08-31-de-nghi-cap-vat-tu-cong-doan.md`.
+>
+> Phần B dưới đây **mâu thuẫn** với bản chốt ở bốn điểm, không phải chỉ khác cách viết:
+>
+> 1. Nối kho ở **mức DÒNG** (`stock_request_lines.sx_cong_viec_id`) — bản chốt nối ở **mức PHIẾU**
+>    (`san_xuat_vat_tu_de_nghi.stock_request_id`, 1–1).
+> 2. Điều chỉnh thực xuất bằng cách **hạ `sl_duyet`** — bản chốt giữ nguyên `sl_duyet` và ghi cột
+>    mới `sl_chot_thuc_xuat`, vì hạ `sl_duyet` làm xin-100-xuất-70 và xin-70-xuất-70 không phân
+>    biệt được nữa.
+> 3. Nguồn kế hoạch gọi `vat_tu_theo_buoc` — bản chốt gọi
+>    `KeHoachVatTuService.nhu_cau_cua_cong_viec`.
+> 4. Không có `lan_so` / `loai` (lần đầu vs bổ sung) / `dvt_goc` / `sl_*_goc`, và không có luồng
+>    huỷ-khi-về-0 rồi khôi phục giữ mã.
+>
+> Migration `0246` ở Task 16 cũng **không phải** migration `0246` của bản chốt — cùng số, khác nội
+> dung. Chỉ có MỘT `0246` được tồn tại: bản của plan 31/08.
+>
+> Phần A (Task 1–15) **vẫn còn hiệu lực** và đã thi công xong.
+
+
+**Goal:** Gộp chức năng yêu cầu vật tư vào khối **Vật tư** của công đoạn đang có ở màn Thực hiện sản
+xuất. Tổ trưởng chủ động tạo/sửa đề nghị; hệ thống tự điền theo kế hoạch; kho tiếp tục xử lý bằng
+luồng đề nghị → phiếu xuất hiện tại. KHÔNG màn mới, KHÔNG cho người lập kế hoạch tham gia, KHÔNG
+thêm bước duyệt hay trạng thái "Đã soạn xong".
+
+**Architecture:** Một bảng đối chiếu MỚI ở phía sản xuất (`san_xuat_vat_tu_de_nghi` +
+`..._dong`) giữ quyết định của tổ trưởng — kể cả quyết định "không cần cấp" (số `0`). Phần **dương**
+của bảng đó đẻ ra `StockRequest`/`StockRequestLine` hiện có (tự duyệt), nên kho không học luồng mới.
+Nguồn tự điền là `KeHoachVatTuService.can_doi()` chiếu xuống đúng `buoc_id` — cùng khuôn với
+`vat_tu_hieu_luc()` đã có tại [ke_hoach_vat_tu_service.py:725](../../../backend/app/services/ke_hoach_vat_tu_service.py:725),
+không viết đường tính nhu cầu thứ hai.
+
+## Kết luận nghiệp vụ đã khóa (Phần B)
+
+1. Không chặn bắt đầu sản xuất vì chưa có đề nghị hoặc chưa nhận vật tư.
+2. Không có màn báo cáo tổng hợp trong đợt này; truy vết nằm ngay tại công đoạn.
+3. Không lưu phiên bản từng lần sửa đề nghị — chỉ giữ người tạo, người sửa cuối và dữ liệu mới nhất.
+4. Không có bước duyệt, không có trạng thái "Đã soạn xong".
+5. Mỗi công đoạn tối đa MỘT đề nghị đang sửa được; kho đã lập bất kỳ phiếu nào thì khóa, muốn thêm
+   thì tạo **đề nghị bổ sung**.
+6. Toàn bộ dòng bằng `0` ⇒ chỉ lưu quyết định sản xuất, kho không nhận yêu cầu rỗng.
+7. Mọi so sánh số lượng làm ở **đơn vị gốc**; form vẫn mặc định đơn vị quen dùng trong kế hoạch.
+
+## Va chạm với luật đang chạy — phải xử đúng chỗ, đừng nới bừa
+
+Ba chỗ dưới đây là lý do Phần B không thể "cắm thẳng" vào luồng kho. Đọc trước khi viết code.
+
+1. **"Đã duyệt là khoá" — và mọi yêu cầu kho ở hệ này SINH RA đã `approved`.** Bước duyệt đã bị bỏ
+   từ 06/08/2026: `StockRequestService.create()` set thẳng `REQ_APPROVED` + `sl_duyet = sl_de_nghi`
+   ngay lúc tạo ([stock_request_service.py:117-127](../../../backend/app/services/stock_request_service.py:117)),
+   với lý do ghi trong code là "tạo xong khoá luôn". Mà `update()` mở đầu bằng `_require_editable()`
+   ⇒ chỉ `draft`/`pending` mới qua ([stock_request_service.py:172](../../../backend/app/services/stock_request_service.py:172),
+   `REQUEST_EDITABLE` tại [stock_request.py:54](../../../backend/app/models/stock_request.py:54)).
+   Nghĩa là **không có yêu cầu nào sửa được qua cửa update của kho**, chứ không phải "sửa được lúc
+   còn nháp". Phần B lại đòi *vẫn sửa được cho tới khi kho lập phiếu*. **Không nới `REQUEST_EDITABLE`**
+   — nới là mở cửa cho mọi module sửa yêu cầu đã duyệt. Đường đi: cửa sửa nằm ở service SẢN XUẤT,
+   thao tác trên đề nghị SX rồi ĐỒNG BỘ xuống `stock_request_lines` của đúng yêu cầu do chính nó
+   sinh ra (gọi `requests.replace_lines` / sửa `req.lines` trực tiếp, KHÔNG qua `update()`), và chỉ
+   khi yêu cầu đó **chưa có phiếu nào trỏ tới**. Đổi `sl_de_nghi` thì phải đổi `sl_duyet` cùng lúc —
+   `sl_duyet` mới là mốc kho được ứng tới.
+2. **`sl_de_nghi > 0` là CheckConstraint DB**
+   ([stock_request.py:191](../../../backend/app/models/stock_request.py:191)). Dòng `0` KHÔNG thể tồn
+   tại bên kho — khớp với luật 6 ở trên: dòng `0` sống ở bảng SX, không đẩy sang kho. Đừng "sửa" ràng
+   buộc này.
+3. **`dieu_chinh_xuat` hiện GIẢM `sl_da_ung`**
+   ([stock_voucher_service.py:503](../../../backend/app/services/stock_voucher_service.py:503)) — đó
+   là "Option 2 chốt 2026-08-28": trả hàng xong thì yêu cầu quay lại *"còn N chưa cấp"*. Phần B **đảo
+   quyết định đó**: hạ **mốc hoàn tất** (`sl_duyet`) xuống số thực xuất để đề nghị ĐÓNG. Task 20 làm
+   việc này và phải giữ nguyên ca "kho cấp thiếu, chưa có thao tác trả" vẫn ở `partial`.
+
+**Ghi chú cơ hội (NGOÀI phạm vi đợt này, đừng tự làm):** khi `stock_request_lines` mang được chiều
+BƯỚC (Task 16), điều kiện để gỡ "Hệ quả CHƯA XỬ" ở
+[`_da_cap_dang_linh()`](../../../backend/app/services/ke_hoach_vat_tu_service.py:455) — khoá 3 phần
+tử làm lệnh ăn cùng một món ở hai bước bị trừ "đã cấp" hai lần — mới bắt đầu có. Ghi lại ở đây để
+lần sau không phải tìm lại; muốn làm thì mở đợt riêng.
+
+**Ràng buộc verify:** giữ nguyên Global Constraints ở đầu plan (verify bằng `pytest <file>::<test>`
+nhắm đúng file vừa sửa, không tự chạy `./init.ps1` toàn bộ). Bản mô tả gốc của Phần B ghi "chạy xác
+minh duy nhất `./init.ps1`" — chỉ chạy bộ đầy đủ khi chủ dự án yêu cầu.
+
+---
+
+### Task 16: Bảng đối chiếu vật tư theo công đoạn + chiều BƯỚC cho dòng yêu cầu kho
+
+**Files:**
+- Create: `backend/app/models/san_xuat_vat_tu.py` (2 bảng mới)
+- Modify: `backend/app/models/stock_request.py` (thêm `sx_cong_viec_id` vào `StockRequestLine`)
+- Modify: `backend/app/db_migrations.py` (migration `0246`, thêm cuối file)
+- Modify: `docs/DB_SCHEMA.md` — 2 bảng mới + cột mới ở mục `stock_request_lines` (`:5479`)
+- Test: `backend/tests/test_san_xuat_vat_tu_de_nghi.py` (mới)
+
+**Interfaces:**
+- Produces `SanXuatVatTuDeNghi`: `cong_viec_id` (FK `san_xuat_cong_viec`, CASCADE), `lan` (1 = lần
+  đầu, ≥2 = bổ sung), `can_luc` (DateTime tz — thời điểm cần vật tư), `stock_request_id` (soft ref,
+  NULL khi toàn bộ dòng bằng `0`), `nguoi_tao_id`, `nguoi_sua_id`, `created_at`, `updated_at`.
+- Produces `SanXuatVatTuDeNghiDong`: `de_nghi_id`, `hang_loai`, `hang_id`, `dvt`, `sl_ke_hoach`,
+  `sl_yeu_cau` (**cho phép `0`** — khác `stock_request_lines`), `ly_do_chenh_lech`,
+  `stock_request_line_id` (soft ref, NULL với dòng `0`).
+- Produces cột `StockRequestLine.sx_cong_viec_id: int | None` — soft ref `san_xuat_cong_viec.id`,
+  index; NULL với mọi dòng cũ và mọi dòng không sinh từ màn công đoạn.
+
+- [ ] **Step 1: Viết test thất bại** — 2 bảng mới tồn tại sau `create_all`; `sl_yeu_cau = 0` lưu
+  được; cột `sx_cong_viec_id` có mặt trên `stock_request_lines`; chạy lại `run_migrations` không vỡ.
+- [ ] **Step 2: Chạy test — phải FAIL.**
+- [ ] **Step 3: Dựng 2 model mới.** Bảng MỚI thì `create_all` tự dựng, không cần migration (xem ghi
+  chú [stock_request.py:12](../../../backend/app/models/stock_request.py:12)). Numeric dùng
+  `Numeric(14, 2)` cho khớp dòng yêu cầu kho. `sl_yeu_cau >= 0` (KHÔNG `> 0`).
+- [ ] **Step 4: Thêm cột `sx_cong_viec_id` + migration `0246`.** Migration số kế tiếp sau `0245` của
+  Phần A — nếu Phần A chưa chạy thì vẫn giữ thứ tự này, không đổi số. Soft ref (không FK cứng), cùng
+  khuôn `purchase_delivery_id`/`delivery_trip_id` đã có.
+- [ ] **Step 5: Cập nhật `docs/DB_SCHEMA.md`** cùng lúc — guard test bắt mọi cột phải có mặt.
+- [ ] **Step 6: Chạy lại test — PASS.**
+
+---
+
+### Task 17: Nguồn tự điền — chiếu `can_doi()` xuống đúng công đoạn
+
+**Files:**
+- Modify: `backend/app/services/ke_hoach_vat_tu_service.py` (thêm phép chiếu theo bước)
+- Test: `backend/tests/test_ke_hoach_vat_tu.py`
+
+**Interfaces:**
+- Produces `KeHoachVatTuService.vat_tu_theo_buoc(*, lsx_id, bai_ghep_id, buoc_id) -> list[dict]` —
+  mỗi phần tử `{hang_loai, hang_id, ma, ten, dvt_goi_y, sl_ke_hoach}`.
+
+- [ ] **Step 1: Test thất bại** — công đoạn của LSX trả đúng vật tư bước riêng; công đoạn chung của
+  bài ghép trả GIẤY + vật tư bước chung; một lệnh ăn cùng món ở hai bước thì mỗi bước chỉ thấy phần
+  của mình.
+- [ ] **Step 2: Chạy test — FAIL.**
+- [ ] **Step 3: Cài đặt** bằng cách lọc `can_doi()["items"] → dong` theo `buoc_id` (dòng nhu cầu đã
+  mang sẵn `buoc_id`, xem [:753](../../../backend/app/services/ke_hoach_vat_tu_service.py:753)) —
+  KHÔNG đọc `vat_tu_json`, KHÔNG viết phép tính nhu cầu thứ hai. `dvt_goi_y` = đơn vị hiển thị mà kế
+  hoạch đang dùng; `sl_ke_hoach` giữ ở **đơn vị gốc** để so sánh, phần hiển thị quy sau.
+- [ ] **Step 4: Nối vào phía sản xuất** — công việc snapshot mang `lsx_cong_doan_id` /
+  `bai_ghep_cong_doan_id`, đó là `buoc_id` cần truyền vào.
+- [ ] **Step 5: Chạy test — PASS.**
+
+---
+
+### Task 18: Service + API tạo/sửa đề nghị cấp vật tư
+
+**Files:**
+- Create: `backend/app/services/san_xuat/vat_tu_de_nghi.py`
+- Modify: `backend/app/routers/san_xuat.py`
+- Modify: `backend/app/schemas/san_xuat.py`
+- Test: `backend/tests/test_san_xuat_vat_tu_de_nghi.py`
+
+**Interfaces:**
+- `POST /api/san-xuat/work-items/{id}/material-requests`
+- `PUT  /api/san-xuat/work-items/{id}/material-requests/{request_id}`
+- Payload: `{can_luc, dong: [{hang_loai, hang_id, dvt, sl_yeu_cau, ly_do_chenh_lech}]}`.
+
+- [ ] **Step 1: Test thất bại cho toàn bộ luật:**
+  - Tổ trưởng ĐÚNG tổ tạo được; người lập kế hoạch / quản lý ngoài tổ / thiếu quyền bị chặn.
+  - Khớp kế hoạch ⇒ không cần lý do. Tăng / giảm / bỏ / thêm ngoài kế hoạch ⇒ **bắt buộc** lý do.
+    Mọi dòng của đề nghị **bổ sung** ⇒ bắt buộc lý do.
+  - Toàn bộ `0` ⇒ lưu được, `stock_request_id` NULL, kho không thấy gì.
+  - Kho chưa lập phiếu ⇒ `PUT` sửa được, số bên kho đổi theo.
+  - Kho đã lập phiếu ⇒ `PUT` bị chặn, phải tạo đề nghị bổ sung (`lan + 1`).
+  - Mỗi công đoạn tối đa một đề nghị đang sửa được.
+- [ ] **Step 2: Chạy test — FAIL.**
+- [ ] **Step 3: Gate quyền.** Cần `san_xuat:assign_work` **và** đang là tổ trưởng đúng tổ — dùng lại
+  `_gate` ở [thuc_thi.py](../../../backend/app/services/san_xuat/thuc_thi.py), KHÔNG đòi `kho:request`.
+- [ ] **Step 4: Ghi bảng SX trước, sinh yêu cầu kho sau — QUA `StockRequestService.create()`.**
+  Chỉ dòng `sl_yeu_cau > 0` mới xuống kho. **Đừng dựng `StockRequest` bằng ORM thẳng**: `create()`
+  là chỗ sinh mã `DNX…` (`generate_flat_code`), chạy `_validate_lines` (mặt hàng có thật + đơn vị quy
+  được về gốc + không trùng mặt hàng), tự duyệt, rồi `_notify` + `_notif_kho_moi` để Hộp yêu cầu kho
+  nhảy badge ngay. Bỏ qua nó là mất cả năm thứ.
+  Tham số: `loai=REQ_XUAT`, `lines=[...]`, `ngay_can` = phần NGÀY của `can_luc`, và **`bo_phan_id`
+  truyền TƯỜNG MINH** = tổ của công đoạn — mặc định của `create()` là `user.department_id` (bộ phận
+  người tạo), không phải tổ thực hiện. Phần "tự duyệt" KHÔNG cần viết lại: `create()` đã làm.
+  Dòng mang `lsx_id`/`bai_ghep_id` đúng chủ thể của công đoạn + `sx_cong_viec_id`.
+- [ ] **Step 5: Sửa đề nghị.** Chặn khi yêu cầu kho đã có bất kỳ `StockVoucherLine` nào trỏ tới
+  (không phân biệt nháp/đã ghi sổ). **Không gọi `StockRequestService.update()`** — nó vấp
+  `_require_editable` (xem va chạm 1). Sửa dòng trực tiếp: cập nhật `sl_de_nghi` **và** `sl_duyet`
+  cùng lúc, xoá dòng về `0`, thêm dòng mới; chạy lại `_validate_lines` cho dòng mới thêm để không lọt
+  mặt hàng lạ. Ghi `nguoi_sua_id` + `updated_at`; KHÔNG lưu phiên bản.
+- [ ] **Step 6: Chạy test — PASS.**
+
+---
+
+### Task 19: Chi tiết công đoạn trả bảng đối chiếu + lọc phiếu theo công đoạn + SSE
+
+**Files:**
+- Modify: `backend/app/services/san_xuat/board.py:396` (khối `vat_tu`)
+- Modify: `backend/app/repositories/san_xuat_san_luong_repo.py:299` (`voucher_xuat_cua_lsx`)
+- Modify: `backend/app/schemas/san_xuat.py` (`WorkItemChiTietOut` — **bắt buộc**, xem cảnh báo dưới)
+- Modify: `backend/app/routers/san_xuat.py` (phát SSE)
+- Modify: `frontend/src/api/client.ts` (type `SxWorkItemChiTiet` + khai type sự kiện mới)
+
+⚠️ `/work-items/{id}` có `response_model=WorkItemChiTietOut`
+([routers/san_xuat.py:365](../../../backend/app/routers/san_xuat.py:365)). Field service trả về mà
+schema Out không khai thì Pydantic **bỏ im lặng, không báo lỗi** — FE nhận `undefined`. Thêm
+`vat_tu_de_nghi` phải đi đủ 4 chặng: dict ở `board.py` → `WorkItemChiTietOut` → type TS → chỗ dùng.
+- Test: `backend/tests/test_san_xuat_vat_tu_de_nghi.py`
+
+- [ ] **Step 1: Test thất bại** — chi tiết công đoạn trả `vat_tu_de_nghi` gồm: các lần đề nghị +
+  trạng thái kho, bảng đối chiếu `kế hoạch – tổng yêu cầu – thực xuất`, chênh lệch + lý do + người
+  chịu trách nhiệm + thời điểm, và hai cờ `co_the_sua` / `co_the_bo_sung`. Nhiều lần bổ sung phải
+  **cộng dồn** đúng ở cột "tổng yêu cầu".
+- [ ] **Step 2: Chạy test — FAIL.**
+- [ ] **Step 3: Lọc phiếu theo công đoạn — VÀ vá luôn lỗ bài ghép.** Hai lỗi cùng chỗ:
+  (a) `voucher_xuat_cua_lsx` join theo `StockRequestLine.lsx_id` ⇒ phiếu của công đoạn A hiện cả ở
+  công đoạn B cùng LSX; (b) [board.py:306](../../../backend/app/services/san_xuat/board.py:306) gọi
+  `sl.voucher_xuat_cua_lsx(cv.lsx_id) **if cv.lsx_id else []**` ⇒ công việc CHUNG của bài ghép
+  (`lsx_id = None`, `bai_ghep_id` mới có giá trị) **luôn trả khối vật tư rỗng** — đúng những công
+  đoạn ăn giấy nhiều nhất lại không thấy phiếu nào. Đổi thành một hàm nhận cả hai chiều: ưu tiên
+  `sx_cong_viec_id ==` công việc đang mở; dòng CŨ chưa có liên kết thì **fallback theo `lsx_id`
+  HOẶC `bai_ghep_id`** tuỳ công việc (không mất dữ liệu cũ).
+- [ ] **Step 4: SSE.** Luồng TẠO đã có sẵn real-time nhờ `_notify` + `_notif_kho_moi` bên trong
+  `StockRequestService.create()` — không phát thêm, phát thêm là kho nhận hai lần. Chỉ cần thêm sự
+  kiện cho luồng **SỬA** (không đi qua `create()`). Dùng đúng khuôn 7 chỗ phát SSE đã có trong
+  router — phát SAU commit. Khai type ở `client.ts` (union sự kiện hiện thiếu nhiều loại
+  `san_xuat_*`, đừng thêm mà không khai).
+- [ ] **Step 5: Chạy test — PASS.**
+
+---
+
+### Task 20: Trả vật tư — hạ mốc hoàn tất thay vì mở lại "còn thiếu"
+
+**Files:**
+- Modify: `backend/app/services/stock_voucher_service.py:400-510` (`dieu_chinh_xuat`)
+- Test: `backend/tests/test_kho_de_nghi.py` — thêm mục mới. ⚠️ Hiện **KHÔNG có test nào chạm
+  `dieu_chinh_xuat`** (grep toàn `backend/tests` trả rỗng), nên Task này viết test đầu tiên cho nó;
+  `test_kho_phieu.py` không tồn tại, đừng tìm.
+
+- [ ] **Step 1: Test thất bại:**
+  - Yêu cầu 100, kho xuất 100, thủ kho điều chỉnh còn 70 ⇒ lô `+30`; `sl_de_nghi` giữ **100**;
+    `sl_da_ung = 70`; `sl_duyet` hạ xuống **70**; yêu cầu chuyển `done`, KHÔNG báo "còn thiếu 30".
+  - Yêu cầu 100, kho mới cấp 70, **chưa** điều chỉnh ⇒ vẫn `partial`, `sl_duyet` giữ **100**.
+- [ ] **Step 2: Chạy test — FAIL** (hiện `sl_da_ung` bị giảm ⇒ quay lại "còn 30 chưa cấp").
+- [ ] **Step 3: Đổi luật.** Thay vì `rl.sl_da_ung -= con_bo`
+  ([:503](../../../backend/app/services/stock_voucher_service.py:503)), giữ nguyên `sl_da_ung` = số
+  thực xuất sau điều chỉnh và hạ `rl.sl_duyet` xuống bằng nó. Sửa docstring "Option 2 chốt
+  2026-08-28" cho khớp quyết định mới, ghi rõ ngày đảo và lý do — đừng để hai câu chuyện trong một
+  file. Giữ nguyên phần trả tồn về lô và `giu_cho.nhat_them()`.
+- [ ] **Step 4: Giữ audit hiện có** — người sửa, thời điểm, `100 → 70`, lý do. Chỉ thủ kho thao tác;
+  không cần tổ trưởng xác nhận, không tạo phiếu trả riêng.
+- [ ] **Step 5: Chạy test — PASS.**
+
+---
+
+### Task 21: FE — khối Vật tư của công đoạn
+
+**Files:**
+- Modify: `frontend/src/pages/ThsxExecPanels.tsx:767` (khối "Vật tư nhận")
+- Modify: `frontend/src/pages/ThucHienSxPage.tsx` (state + gọi API + `eventTick`)
+- Modify: `frontend/src/pages/KhoYeuCauPage.tsx` — màn "Hộp yêu cầu kho"; đã có cột Bộ phận
+  (`bo_phan_ten`) và "Cần ngày" (`ngay_can`), cần thêm **công đoạn** và **giờ**
+
+- [ ] **Step 1: Bỏ `if (vt.length === 0) return null`** tại
+  [ThsxExecPanels.tsx:773](../../../frontend/src/pages/ThsxExecPanels.tsx:773) — khối Vật tư LUÔN
+  hiện, kể cả chưa có phiếu nào.
+- [ ] **Step 2: Bảng đối chiếu** `Kế hoạch | Tổ trưởng yêu cầu | Kho thực xuất | Chênh lệch | Lý do`.
+- [ ] **Step 3: Hành động theo trạng thái** — `Yêu cầu cấp vật tư` / `Sửa đề nghị` / `Yêu cầu bổ
+  sung`; `Xác nhận nhận` giữ nguyên hành vi cũ.
+- [ ] **Step 4: Form ngay trong drawer công đoạn** — tự điền vật tư + giờ bắt đầu dự kiến, cho tìm
+  thêm giấy/vật tư từ danh mục chung, chỉ mở ô lý do khi có chênh lệch.
+- [ ] **Step 5: Màn kho** hiện tổ, công đoạn, giờ cần; KHÔNG hiện quy trình duyệt, KHÔNG bắt kho đọc
+  lý do nghiệp vụ của tổ. ⚠️ **`stock_requests.ngay_can` là kiểu `Date`, không có giờ**
+  ([stock_request.py:90](../../../backend/app/models/stock_request.py:90)). "Giờ cần" phải đọc
+  `can_luc` của đề nghị SX qua liên kết `sx_cong_viec_id` — KHÔNG thêm cột giờ vào `stock_requests`
+  (kho không có nghiệp vụ nào cần giờ ngoài ca này).
+- [ ] **Step 6: Quy trình hai agent cho UI** — agent soi–thiết kế trước, agent build riêng; sau build
+  kiểm bằng dev-browser và styleseed.
+
+---
+
+### Task 22: Nghiệm thu Phần B qua dev-browser thật
+
+**Files:** không sửa code.
+
+- [ ] **Step 1: Restart uvicorn** (đổi route/schema) + FE dev server.
+- [ ] **Step 2:** Đăng nhập bằng tài khoản **tổ trưởng** (không phải admin) để kiểm gate thật.
+- [ ] **Step 3:** Mở một công đoạn → khối Vật tư → `Yêu cầu cấp vật tư`: xác nhận tự điền đúng giấy +
+  vật tư của công đoạn (LSX và bài ghép kiểm riêng hai ca).
+- [ ] **Step 4:** Sửa một dòng lệch kế hoạch mà KHÔNG nhập lý do ⇒ phải bị chặn; nhập lý do ⇒ lưu được.
+- [ ] **Step 5:** Đặt toàn bộ về `0`, lưu ⇒ mở màn Kho xác nhận **không** có yêu cầu nào mới.
+- [ ] **Step 6:** Tạo đề nghị dương ⇒ màn Kho thấy ngay (không F5). Sửa lại khi kho chưa lập phiếu ⇒
+  kho tải lại thấy số mới. Kho lập phiếu ⇒ quay lại công đoạn, nút đã đổi sang `Yêu cầu bổ sung`.
+- [ ] **Step 7:** Mở một công đoạn KHÁC cùng LSX ⇒ phiếu của công đoạn trên không xuất hiện nhầm.
+- [ ] **Step 8:** Kho điều chỉnh phiếu `100 → 70` ⇒ tồn lô `+30`, đề nghị đóng ở thực xuất `70`,
+  không báo còn thiếu.
+- [ ] **Step 9: Báo cáo** liệt kê cụ thể đã bấm gì / gõ gì / thấy gì ở từng bước. Nếu có đoạn nào
+  phải tắt qua API, khai rõ ngay trong báo cáo.
