@@ -1332,7 +1332,7 @@ def test_khoa_nguon_khong_loi_va_theo_thu_tu_on_dinh(db, svc):
     dịch (mô phỏng `nhat_them()` rồi `kiem_xuat()` cùng chạm một mặt hàng trong một lượt xử lý).
 
     SQLite (test) coi `FOR UPDATE` là no-op — cùng giới hạn đã ghi nhận ở
-    `stock_voucher_repo.py::khoa_de_ghi_so` — nên test này chỉ xác nhận KHÔNG VỠ, không xác nhận
+    `stock_voucher_repo.py::lock_for_update` — nên test này chỉ xác nhận KHÔNG VỠ, không xác nhận
     chặn concurrent thật (chỉ Postgres dev/prod mới khoá thật)."""
     g1 = _giay(db, ma="GY-1")
     g2 = _giay(db, ma="GY-2")

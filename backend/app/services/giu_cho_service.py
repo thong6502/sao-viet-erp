@@ -687,7 +687,7 @@ class GiuChoService:
         Neo vào bảng GỐC chứ không phải `vat_tu_giu_cho`: một mặt hàng CHƯA từng được giữ chỗ thì
         không có dòng `vat_tu_giu_cho` nào để khoá, nhưng dòng gốc (mặt hàng ở danh mục) luôn có
         sẵn. Cùng khuôn với khoá header phiếu kho chống ghi sổ hai lần
-        (`stock_voucher_repo.py::khoa_de_ghi_so`) — SQLite (test) coi FOR UPDATE là no-op,
+        (`stock_voucher_repo.py::lock_for_update`) — SQLite (test) coi FOR UPDATE là no-op,
         Postgres (dev/prod) khoá thật.
         """
         from sqlalchemy import select as _select
