@@ -227,6 +227,7 @@ class GiuChoService:
         gio = datetime.now(timezone.utc)
 
         self._them_mo_coi(gom)
+        self.giu_theo_chu_the_hang(bang, gom)
         dang_thieu = self._chu_the_dang_thieu(gom)
 
         rows: list[dict] = []
@@ -714,6 +715,92 @@ class GiuChoService:
                 if chu != (None, None) and chu not in ra:
                     ra.append(chu)
         return ra
+
+    @staticmethod
+    def _mau_giu(mau: str, da_kho: float, da_ve: float, can: float) -> str:
+        """Nhãn 6 mức: Chưa rõ → Thiếu → Về muộn → Có thể giữ → Đã giữ → Đã cấp.
+
+        `khong_ro`/`do`/`ve_muon` là SỰ THẬT về hàng (từ `can_doi()`), giữ chỗ không đổi được gì —
+        pass-through nguyên vẹn (`do` đổi tên hiển thị thành `thieu` cho khớp bộ từ mới). `xam` =
+        kho ĐÃ CẤP (xuất rồi) — giữ chỗ không còn ý nghĩa, luôn `da_cap`. Chỉ `xanh`/`vang` (đủ
+        THEO can_doi(), tức hệ THỪA sức lo) mới cần hỏi tiếp CHÍNH chủ thể này đã thật sự giữ được
+        phần của nó chưa: giữ đủ ⇒ `da_giu`, chưa ⇒ `co_the_giu`.
+        """
+        if mau == "do":
+            return "thieu"
+        if mau in ("khong_ro", "ve_muon"):
+            return mau
+        if mau == "xam":
+            return "da_cap"
+        return "da_giu" if (da_kho + da_ve) + 1e-6 >= can else "co_the_giu"
+
+    def giu_theo_chu_the_hang(self, bang: dict, gom: dict[tuple, dict] | None = None) -> None:
+        """Với MỖI (chủ thể, mặt hàng) trong `gom`, gắn thêm `da_giu_kho`/`da_giu_dang_ve` (đã
+        giữ, tách nguồn), `co_the_giu_kho`/`co_the_giu_dang_ve` (NẾU bật giữ chỗ NGAY BÂY GIỜ thì
+        giữ được thêm bao nhiêu), `trang_thai_giu` (nhãn 6 mức) và `nguon_dang_ve` (mã PMH cụ thể
+        đang góp cho phần hứa — spec §4) — MUTATE thẳng vào `gom`.
+
+        "Có thể giữ" là câu hỏi ĐỘC LẬP theo từng chủ thể: so với tồn tự do / lô đang về CÒN TRỐNG
+        HIỆN TẠI — con số này đã trừ hết mọi chỗ đang giữ THẬT của MỌI chủ thể khác rồi (xem
+        `ton_tu_do`/`_lo_dang_ve`), nên KHÔNG cần mô phỏng nhiều chủ thể tranh nhau nữa: "nếu CHỈ
+        MÌNH tôi bật thì được bao nhiêu", không phải "nếu MỌI người cùng bật thì ai được bao
+        nhiêu" (đó là việc CỦA `nhat_them()` khi nó thật sự chạy, theo đúng thứ tự ngày cần).
+
+        Tra `ma_pmh` GỘP MỘT LẦN cho toàn bộ `gom` (không phải mỗi dòng một query) — `theo_chu_the()`
+        gọi hàm này cho MỌI chủ thể trong bảng, N+1 ở đây là N có thể lên tới hàng trăm lệnh.
+        """
+        from sqlalchemy import select as _select
+
+        from ..models.purchase import PurchaseRequest, PurchaseRequestLine
+
+        if gom is None:
+            gom = self._gom_theo_chu_the(bang)
+        hangs = sorted({h for o in gom.values() for h in o["hang"]})
+        tu_do = self.ton_tu_do(hangs)
+        ve_tong: dict[Hang, float] = {
+            h: sum(sl for _, sl, _lid in ds) for h, ds in self._lo_dang_ve(bang, hangs).items()
+        }
+        tt_by_chu: dict[tuple, dict] = {}
+        line_ids: set[int] = set()
+        for chu in gom:
+            lsx_id, bg_id = chu
+            tt = self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang)
+            tt_by_chu[chu] = tt
+            for ds in tt["nguon_dang_ve"].values():
+                line_ids.update(n["purchase_request_line_id"] for n in ds)
+        ma_pmh: dict[int, str | None] = {}
+        if line_ids:
+            ma_pmh = dict(self.db.execute(
+                _select(PurchaseRequestLine.id, PurchaseRequest.code)
+                .join(PurchaseRequest, PurchaseRequest.id == PurchaseRequestLine.purchase_request_id)
+                .where(PurchaseRequestLine.id.in_(line_ids))
+            ).all())
+        for chu, o in gom.items():
+            tt = tt_by_chu[chu]
+            for hang, h in o["hang"].items():
+                da_kho = round(_f(tt["da_giu_kho"].get(hang)), 4)
+                da_ve = round(_f(tt["da_giu_dang_ve"].get(hang)), 4)
+                h["da_giu_kho"] = da_kho
+                h["da_giu_dang_ve"] = da_ve
+                h["nguon_dang_ve"] = [
+                    {
+                        "purchase_request_line_id": n["purchase_request_line_id"],
+                        "ma_pmh": ma_pmh.get(n["purchase_request_line_id"]),
+                        "so_luong": n["so_luong"],
+                    }
+                    for n in tt["nguon_dang_ve"].get(hang, [])
+                ]
+                # ⚠️ KHÔNG lấy `h["thieu"]` — đó là câu trả lời của can_doi() (đủ theo TỒN THÔ
+                # trong sổ, không biết ai đã giữ chỗ), nên với dòng `xanh`/`vang` nó ĐÃ LÀ 0 dù
+                # CHỦ THỂ NÀY chưa hề bấm giữ (0 vì can_doi() coi tồn thô đã bao được, không phải
+                # vì đã có ai giữ thật). Phải hỏi lại từ CHÍNH chủ thể: phần `can` nó còn CHƯA
+                # giữ được (`can − đã giữ`) mới là phần cần so với tồn tự do/lô đang về CÒN TRỐNG.
+                con = max(0.0, round(h["can"] - da_kho - da_ve, 4))
+                co_kho = round(min(con, _f(tu_do.get(hang))), 4)
+                co_ve = round(min(con - co_kho, _f(ve_tong.get(hang))), 4)
+                h["co_the_giu_kho"] = co_kho
+                h["co_the_giu_dang_ve"] = co_ve
+                h["trang_thai_giu"] = self._mau_giu(h["trang_thai"], da_kho, da_ve, h["can"])
 
     @staticmethod
     def _dong(chu: tuple, hang: Hang, sl: float, nguon: str, ngay: date | None,

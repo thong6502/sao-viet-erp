@@ -7343,6 +7343,10 @@ export type HangLoai = "giay" | "vat_tu";
  *  ca xử ngược nhau: đỏ thì đi mua, về muộn thì dời lịch. Gộp một màu là mời người ta mua đúp. */
 export type CanDoiMau = "xam" | "xanh" | "vang" | "do" | "khong_ro" | "ve_muon";
 
+/** Trạng thái GIỮ CHỖ 6 mức — khác `CanDoiMau` (3 mức trung tính gộp lại): ở đây tách được "đã
+ *  giữ" khỏi "có thể giữ nhưng chưa bật" khỏi "đã cấp thật". */
+export type TrangThaiGiu = "khong_ro" | "thieu" | "ve_muon" | "co_the_giu" | "da_giu" | "da_cap";
+
 export interface CanDoiDong {
   /** `vat_tu` = so tồn · `cong_cu` = khuôn bế, KHÔNG so tồn (chỉ hỏi sẵn sàng đúng lúc chưa). */
   loai: "vat_tu" | "cong_cu";
@@ -7481,6 +7485,14 @@ export interface TheoLenhHang {
   can: number;
   thieu: number;
   dang_giu: number;
+  /** [MỚI 30/08/2026] Tách nguồn phần đã giữ + trạng thái giữ 6 mức — xem `TrangThaiGiu`. */
+  da_giu_kho: number;
+  da_giu_dang_ve: number;
+  co_the_giu_kho: number;
+  co_the_giu_dang_ve: number;
+  trang_thai_giu: TrangThaiGiu;
+  /** Mã PMH cụ thể đang góp cho `da_giu_dang_ve` — để hiện "đang bám đơn nào". */
+  nguon_dang_ve: { purchase_request_line_id: number; ma_pmh: string | null; so_luong: number }[];
   /** >1 nghĩa là con số trên đã GỘP nhiều công đoạn — hiện ra để không ai tưởng đó là một bước. */
   so_buoc: number;
   /** Màu NẶNG NHẤT trong các bước. Thẻ chỉ hiện được một màu. */

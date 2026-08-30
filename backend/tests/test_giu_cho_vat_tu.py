@@ -1059,3 +1059,55 @@ def test_trang_thai_tach_da_giu_kho_va_dang_ve(db, svc, kh, customer):
     nguon = tt["nguon_dang_ve"].get(hang, [])
     assert nguon and all(n["purchase_request_line_id"] == line.id for n in nguon)
     assert sum(n["so_luong"] for n in nguon) == pytest.approx(tt["da_giu_dang_ve"][hang], abs=0.01)
+
+
+# ================== TRẠNG THÁI GIỮ 6 MỨC ==================
+
+
+def test_giu_theo_chu_the_hang_co_the_giu_roi_thanh_da_giu(db, svc, kh, customer):
+    """Chưa bật giữ chỗ nhưng tồn đủ ⇒ `co_the_giu` (chưa giữ, biết là giữ được). Bật xong ⇒
+    `da_giu`. Không tồn/không đủ để giữ ⇒ vẫn `thieu`/`ve_muon`/`khong_ro` như can_doi() gốc."""
+    g = _giay(db)
+    _ton(db, _giay_hang(g), 100)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)   # ≈ 16,77 kg
+    hang = _giay_hang(g)
+
+    bang = kh.can_doi()
+    gom = svc._gom_theo_chu_the(bang)
+    svc.giu_theo_chu_the_hang(bang, gom)
+    h = gom[(a.id, None)]["hang"][hang]
+    assert h["trang_thai_giu"] == "co_the_giu", h
+    assert h["co_the_giu_kho"] == pytest.approx(16.77, abs=0.05)
+    assert h["da_giu_kho"] == 0 and h["da_giu_dang_ve"] == 0
+
+    svc.bat(lsx_id=a.id)
+    bang2 = kh.can_doi()
+    gom2 = svc._gom_theo_chu_the(bang2)
+    svc.giu_theo_chu_the_hang(bang2, gom2)
+    h2 = gom2[(a.id, None)]["hang"][hang]
+    assert h2["trang_thai_giu"] == "da_giu", h2
+    assert h2["da_giu_kho"] == pytest.approx(16.77, abs=0.05)
+    assert h2["co_the_giu_kho"] == 0
+
+
+def test_giu_theo_chu_the_hang_lo_ma_pmh_dang_bam(db, svc, kh, customer):
+    """Phần giữ HỨA phải lộ ra ĐÚNG mã PMH đang góp cho nó (spec §4: 'để FE hiện được đang bám đơn
+    nào') — không chỉ số lượng trần."""
+    from app.models.purchase import PurchaseRequest, PurchaseRequestLine
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)   # ≈ 16,77 kg
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+    phieu = db.query(PurchaseRequest).order_by(PurchaseRequest.id.desc()).first()
+    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
+    hang = _giay_hang(g)
+
+    svc.bat(lsx_id=a.id)
+    bang = kh.can_doi()
+    gom = svc._gom_theo_chu_the(bang)
+    svc.giu_theo_chu_the_hang(bang, gom)
+
+    nguon = gom[(a.id, None)]["hang"][hang]["nguon_dang_ve"]
+    assert nguon, "phải liệt kê nguồn PMH đang bám"
+    assert nguon[0]["purchase_request_line_id"] == line.id
+    assert nguon[0]["ma_pmh"] == phieu.code
