@@ -23,14 +23,16 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# Điều khoản MẶC ĐỊNH điền sẵn khi tạo báo giá — sale sửa thoải mái trước khi gửi khách.
-# Mỗi dòng = 1 điều khoản; bản in tự đánh số 1..N theo thứ tự dòng (không tự gõ số vào đây).
+# Điều khoản MẶC ĐỊNH điền sẵn khi tạo báo giá (khớp DEFAULT_TERMS frontend BaoGiaPage.tsx) —
+# sale sửa thoải mái trước khi gửi khách. Mỗi dòng = 1 điều khoản; bản in tự đánh số 1..N theo
+# thứ tự dòng (không tự gõ số vào đây).
 DEFAULT_TERMS = "\n".join([
-    "Hiệu lực báo giá: áp dụng từ ngày báo giá cho đến khi có thông báo mới.",
-    "Giá đã bao gồm chi phí vận chuyển đến kho của Quý khách.",
-    "Đơn giá trong bảng chưa gồm thuế GTGT; thuế GTGT 10% được cộng ở phần tổng.",
-    "Thời gian giao hàng: 7–10 ngày kể từ khi nhận đơn hàng.",
-    "Thời hạn thanh toán: theo thỏa thuận.",
+    "Bản báo giá có hiệu lực trong vòng 30 ngày kể từ ngày báo giá.",
+    "Thời gian giao mẫu 5 ngày kể từ khi duyệt file.",
+    "Thời gian giao hàng từ 7 - 10 ngày kể từ ngày duyệt mẫu in.",
+    "Đơn giá trên đã bao gồm phí vận chuyển tận nơi đến khách hàng.",
+    "Thời hạn thanh toán: 60 ngày kể từ ngày giao hàng và xuất hóa đơn tài chính.",
+    "Để biết thêm chi tiết về sản phẩm vui lòng liên hệ: Mr Sơn – Mobile: 093.313.4668",
 ])
 
 # Status constants for Quote (7 trạng thái nghiệp vụ, xem docs/redesign-bao-gia.md §3).
@@ -105,6 +107,7 @@ class Quote(Base):
     contact_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contact_phone_snapshot: Mapped[str | None] = mapped_column(String(30), nullable=True)
     contact_title_snapshot: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    contact_email_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
     customer_note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     internal_note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     cancel_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -279,8 +282,9 @@ class QuoteApproval(Base):
     total: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     subtotal: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     cost: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    margin_pct_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    min_margin_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Cổng BÁO GIÁ soi MARKUP (lợi nhuận / GIÁ VỐN) — khác `order_approvals` còn soi biên.
+    markup_pct_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    min_markup_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
     high_value_threshold: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     decided_by: Mapped[int | None] = mapped_column(

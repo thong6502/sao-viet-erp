@@ -265,6 +265,7 @@ def _detail(
         contact_name_snapshot=_contact["name"],
         contact_phone_snapshot=_contact["phone"],
         contact_title_snapshot=_contact["title"],
+        contact_email_snapshot=_contact["email"],
         customer_note=q.customer_note,
         internal_note=q.internal_note,
         total_cost=total_cost,
@@ -283,9 +284,9 @@ def _detail(
 
 
 def _gate_fields(svc: QuotationService, q: Quote, can_see_numbers: bool = True) -> dict:
-    """Khối 'báo giá đặc thù' cho detail. Số biên (`margin_pct`) HIỆN cho mọi vai đọc được báo giá:
-    NV Sales tự set biên khi soạn (thanh gói biên/slider) nên không còn giấu con số (redesign-bao-gia
-    §10, cập nhật sau P7). Giữ tham số cũ để không phải sửa toàn bộ call-site."""
+    """Khối 'báo giá đặc thù' cho detail. Số markup (`markup_pct`, % trên GIÁ VỐN) HIỆN cho mọi vai
+    đọc được báo giá: NV Sales tự gõ markup khi soạn nên không còn giấu con số (redesign-bao-gia §10,
+    cập nhật sau P7). Giữ tham số cũ để không phải sửa toàn bộ call-site."""
     del can_see_numbers  # không còn strip theo vai
     return svc.quote_gate(q)
 
@@ -559,6 +560,7 @@ def update_quotation(
             contact_name_snapshot=payload.contact_name_snapshot,
             contact_phone_snapshot=payload.contact_phone_snapshot,
             contact_title_snapshot=payload.contact_title_snapshot,
+            contact_email_snapshot=payload.contact_email_snapshot,
             items_payload=items_payload_list,
         )
     except (QuotationNotFound, QuotationForbidden):

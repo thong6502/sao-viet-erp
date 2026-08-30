@@ -95,7 +95,7 @@ const FINE_ACTIONS: Record<
     {
       key: "can_set_credit_terms",
       label: "Thiết lập chính sách tài chính",
-      hint: 'Sửa chính sách tài chính khách: hạn mức công nợ + số ngày công nợ tối đa (từ ngày xuất HĐ) + rào chiết khấu/biên min–max. Ai cũng XEM, chỉ cờ này mới SỬA. Đây là rào mà "Duyệt báo giá đặc thù" dùng để chặn báo giá vượt ngưỡng.',
+      hint: 'Sửa chính sách tài chính khách: hạn mức công nợ + số ngày công nợ tối đa (từ ngày xuất HĐ) + rào chiết khấu/markup min–max. Ai cũng XEM, chỉ cờ này mới SỬA. Đây là rào mà "Duyệt báo giá đặc thù" dùng để chặn báo giá vượt ngưỡng.',
     },
   ],
   // Báo giá: thao tác vòng đời THƯỜNG (gửi khách · ghi nhận Khách đồng ý/từ chối · hủy · PDF · tạo bản mới)
@@ -105,7 +105,7 @@ const FINE_ACTIONS: Record<
     {
       key: "can_approve_exception",
       label: "Duyệt báo giá đặc thù",
-      hint: 'Duyệt / từ chối báo giá "đặc thù" — báo giá biên thấp hoặc vượt rào chiết khấu/biên (đặt ở chính sách tài chính khách) mà sale trình lên; duyệt xong mới gửi khách được. Loại thường thì ai Sửa được báo giá đều làm; riêng loại đặc thù cần cờ này. Thường chỉ TP/GĐ Kinh doanh.',
+      hint: 'Duyệt / từ chối báo giá "đặc thù" — báo giá markup thấp hoặc vượt rào chiết khấu/markup (đặt ở chính sách tài chính khách) mà sale trình lên; duyệt xong mới gửi khách được. Loại thường thì ai Sửa được báo giá đều làm; riêng loại đặc thù cần cờ này. Thường chỉ TP/GĐ Kinh doanh.',
     },
   ],
   // Đơn hàng bán: duyệt đơn đặc thù (nhập tay/bổ sung) + hủy đơn đã chốt = 1 cờ; ghi cọc = Kế toán.

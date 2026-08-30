@@ -1813,7 +1813,7 @@ function DashboardTab({
 }
 
 // --- Chính sách tài chính (inline view/edit, redesign spec-06 v2) -------------
-// Điều khoản thanh toán đã BỎ theo yêu cầu — chỉ còn Hạn mức + rào Chiết khấu/Biên.
+// Điều khoản thanh toán đã BỎ theo yêu cầu — chỉ còn Hạn mức + rào Chiết khấu/Markup.
 
 function rangeText(min?: number | null, max?: number | null): string {
   if (min == null && max == null) return "Chưa đặt";
@@ -1840,8 +1840,8 @@ function FinancialPolicyCard({
     payment_term_days: "",
     discount_min_pct: "",
     discount_max_pct: "",
-    margin_min_pct: "",
-    margin_max_pct: "",
+    markup_min_pct: "",
+    markup_max_pct: "",
   });
 
   function openEdit() {
@@ -1851,8 +1851,8 @@ function FinancialPolicyCard({
       payment_term_days: numStr(customer.payment_term_days),
       discount_min_pct: numStr(customer.discount_min_pct),
       discount_max_pct: numStr(customer.discount_max_pct),
-      margin_min_pct: numStr(customer.margin_min_pct),
-      margin_max_pct: numStr(customer.margin_max_pct),
+      markup_min_pct: numStr(customer.markup_min_pct),
+      markup_max_pct: numStr(customer.markup_max_pct),
     });
     setErr(null);
     setEditing(true);
@@ -1870,8 +1870,8 @@ function FinancialPolicyCard({
       payment_term_days: daysOrNull(f.payment_term_days),
       discount_min_pct: numOrNull(f.discount_min_pct),
       discount_max_pct: numOrNull(f.discount_max_pct),
-      margin_min_pct: numOrNull(f.margin_min_pct),
-      margin_max_pct: numOrNull(f.margin_max_pct),
+      markup_min_pct: numOrNull(f.markup_min_pct),
+      markup_max_pct: numOrNull(f.markup_max_pct),
     };
     try {
       const res = await api.customers.updateFinancial(token, customer.id, input);
@@ -1918,8 +1918,8 @@ function FinancialPolicyCard({
             <span>{rangeText(customer.discount_min_pct, customer.discount_max_pct)}</span>
           </div>
           <div className="kh__fin-row">
-            <span className="kh__fin-label">Biên lợi nhuận</span>
-            <span>{rangeText(customer.margin_min_pct, customer.margin_max_pct)}</span>
+            <span className="kh__fin-label" title="Markup = lợi nhuận / giá vốn — đúng ô Markup% trên báo giá">Markup (trên giá vốn)</span>
+            <span>{rangeText(customer.markup_min_pct, customer.markup_max_pct)}</span>
           </div>
           {!canEdit && (
             <p className="kh__lock-note">Cần quyền “Thiết lập chính sách tài chính” để sửa.</p>
@@ -1950,14 +1950,14 @@ function FinancialPolicyCard({
                 onChange={(e) => set("discount_max_pct", e.target.value)} />
             </label>
             <label className="field">
-              <span className="field__label">Biên tối thiểu (%)</span>
-              <input className="input" type="number" min={0} max={100} value={f.margin_min_pct}
-                onChange={(e) => set("margin_min_pct", e.target.value)} />
+              <span className="field__label">Markup tối thiểu (%)</span>
+              <input className="input" type="number" min={0} max={100} value={f.markup_min_pct}
+                onChange={(e) => set("markup_min_pct", e.target.value)} />
             </label>
             <label className="field">
-              <span className="field__label">Biên tối đa (%)</span>
-              <input className="input" type="number" min={0} max={100} value={f.margin_max_pct}
-                onChange={(e) => set("margin_max_pct", e.target.value)} />
+              <span className="field__label">Markup tối đa (%)</span>
+              <input className="input" type="number" min={0} max={100} value={f.markup_max_pct}
+                onChange={(e) => set("markup_max_pct", e.target.value)} />
             </label>
           </div>
           {err && <p className="kh__err" role="alert">{err}</p>}

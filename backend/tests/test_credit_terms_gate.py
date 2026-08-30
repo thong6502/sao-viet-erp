@@ -70,7 +70,7 @@ def test_new_customer_safe_financial_default(client):
     cid = _create(client, token, name="KH Mới", credit_limit=99_000_000)
     c = client.get(f"/api/customers/{cid}", headers=_h(token)).json()["customer"]
     assert c["credit_limit"] == 0
-    assert c["discount_max_pct"] is None and c["margin_min_pct"] is None
+    assert c["discount_max_pct"] is None and c["markup_min_pct"] is None
 
 
 # --- người CÓ quyền: set thẳng qua /financial, không bước duyệt --------------
@@ -85,7 +85,7 @@ def test_manager_can_set_financial(client):
             "credit_limit": 30_000_000,
             "payment_term_days": 30,
             "discount_min_pct": 0, "discount_max_pct": 10,
-            "margin_min_pct": 15, "margin_max_pct": 40,
+            "markup_min_pct": 15, "markup_max_pct": 40,
         },
         headers=_h(token),
     )
@@ -93,7 +93,7 @@ def test_manager_can_set_financial(client):
     c = r.json()["customer"]
     assert c["credit_limit"] == 30_000_000
     assert c["payment_term_days"] == 30            # net terms round-trips
-    assert c["discount_max_pct"] == 10 and c["margin_min_pct"] == 15
+    assert c["discount_max_pct"] == 10 and c["markup_min_pct"] == 15
 
 
 def test_financial_validation(client):
@@ -106,7 +106,7 @@ def test_financial_validation(client):
     assert r.status_code == 422
     # biên min > max → 422.
     r = client.put(f"/api/customers/{cid}/financial", json={
-        "credit_limit": 0, "margin_min_pct": 40, "margin_max_pct": 15,
+        "credit_limit": 0, "markup_min_pct": 40, "markup_max_pct": 15,
     }, headers=_h(token))
     assert r.status_code == 422
     # số ngày công nợ âm → 422 (net terms ≥ 0).
@@ -125,7 +125,7 @@ def test_sale_forbidden_on_financial_but_can_view_and_edit_identity(client):
     # Quản lý lập khách giao sale1 + đặt rào.
     cid = _create(client, admin, name="KH Của Sale", sale_user_id=sale_id)
     client.put(f"/api/customers/{cid}/financial", json={
-        "credit_limit": 50_000_000, "discount_max_pct": 10, "margin_min_pct": 15,
+        "credit_limit": 50_000_000, "discount_max_pct": 10, "markup_min_pct": 15,
     }, headers=_h(admin))
 
     sale_token = create_access_token(str(sale_id))
@@ -136,7 +136,7 @@ def test_sale_forbidden_on_financial_but_can_view_and_edit_identity(client):
     # Nhưng sale VẪN XEM được (cho xem hết).
     c = client.get(f"/api/customers/{cid}", headers=_h(sale_token)).json()["customer"]
     assert c["credit_limit"] == 50_000_000
-    assert c["discount_max_pct"] == 10 and c["margin_min_pct"] == 15
+    assert c["discount_max_pct"] == 10 and c["markup_min_pct"] == 15
 
     # Sale SỬA ĐỊNH DANH (đổi tên) được, và KHÔNG đụng tài chính (không bị xóa).
     r = client.put(f"/api/customers/{cid}", json={"name": "KH Của Sale (đổi tên)"}, headers=_h(sale_token))

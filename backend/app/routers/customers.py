@@ -141,7 +141,7 @@ def _row(
     *,
     tags: list[str] | None = None,
 ) -> CustomerRow:
-    # customer_kind + rào chiết khấu/biên + điều khoản tự nạp từ ORM (from_attributes).
+    # customer_kind + rào chiết khấu/markup + điều khoản tự nạp từ ORM (from_attributes).
     # Redesign spec-06 v2: mọi số tài chính AI CŨNG XEM (không ẩn); bỏ tier.
     row = CustomerRow.model_validate(customer)
     row.tags = tags or []
@@ -650,7 +650,7 @@ def export_customers_csv(
 
     header = [
         "Mã KH", *_IMPORT_HEADERS, "NV phụ trách", "Hạn mức (VND)", "Số ngày công nợ",
-        "CK tối thiểu (%)", "CK tối đa (%)", "Biên tối thiểu (%)", "Biên tối đa (%)",
+        "CK tối thiểu (%)", "CK tối đa (%)", "Markup tối thiểu (%)", "Markup tối đa (%)",
     ]
     rows: list[list] = [header]
     for c in book:
@@ -662,8 +662,8 @@ def export_customers_csv(
             c.payment_term_days if c.payment_term_days is not None else "",
             c.discount_min_pct if c.discount_min_pct is not None else "",
             c.discount_max_pct if c.discount_max_pct is not None else "",
-            c.margin_min_pct if c.margin_min_pct is not None else "",
-            c.margin_max_pct if c.margin_max_pct is not None else "",
+            c.markup_min_pct if c.markup_min_pct is not None else "",
+            c.markup_max_pct if c.markup_max_pct is not None else "",
         ])
     return _csv_response(rows, "danh-ba-khach-hang.csv")
 
@@ -1091,7 +1091,7 @@ def update_customer_financial(
     users: Users,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> CustomerDetailOut:
-    """Sửa CHÍNH SÁCH TÀI CHÍNH khách (hạn mức + số ngày công nợ tối đa + rào chiết khấu/biên)
+    """Sửa CHÍNH SÁCH TÀI CHÍNH khách (hạn mức + số ngày công nợ tối đa + rào chiết khấu/markup)
     — endpoint RIÊNG (redesign spec-06 v2), gate quyền chi tiết `set_credit_terms`. Ai cũng
     XEM qua GET detail; chỉ quyền này mới SỬA (thiếu → 403, KHÔNG đụng field định danh)."""
     if not authz.can(user, MODULE, "set_credit_terms"):
@@ -1109,8 +1109,8 @@ def update_customer_financial(
             payment_term_days=payload.payment_term_days,
             discount_min_pct=payload.discount_min_pct,
             discount_max_pct=payload.discount_max_pct,
-            margin_min_pct=payload.margin_min_pct,
-            margin_max_pct=payload.margin_max_pct,
+            markup_min_pct=payload.markup_min_pct,
+            markup_max_pct=payload.markup_max_pct,
         )
     except CustomerValidationError as e:
         raise HTTPException(

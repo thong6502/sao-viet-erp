@@ -48,6 +48,7 @@ class QuotationUpdate(BaseModel):
     contact_name_snapshot: str | None = None
     contact_phone_snapshot: str | None = None
     contact_title_snapshot: str | None = None
+    contact_email_snapshot: str | None = None
     items: list[QuoteItemUpdate] | None = None
 
 
@@ -170,6 +171,7 @@ class QuotationDetailOut(BaseModel):
     contact_name_snapshot: str | None = None
     contact_phone_snapshot: str | None = None
     contact_title_snapshot: str | None = None
+    contact_email_snapshot: str | None = None
     customer_note: str | None
     internal_note: str | None
     
@@ -185,13 +187,13 @@ class QuotationDetailOut(BaseModel):
     allowed_transitions: list[str] = Field(default_factory=list)
     can_approve: bool = False
     # BG-2 — báo giá đặc thù (GĐ duyệt trước khi gửi khách). `exceptions` = nhãn định tính (an toàn);
-    # `margin_pct` nhạy cảm (router STRIP nếu người xem không có quyền duyệt đặc thù).
+    # `markup_pct` = lợi nhuận / GIÁ VỐN (đúng ô "Markup %" Sale gõ), KHÔNG phải biên trên giá bán.
     exception_required: bool = False
     exception_status: str = "none"        # none|pending|approved|rejected|stale
     exception_cleared: bool = True
     exceptions: list[dict] = Field(default_factory=list)   # [{key,label}]
     exception_note: str | None = None
-    margin_pct: int | None = None
+    markup_pct: int | None = None
     # Ai SOẠN (để người duyệt biết báo giá của NV nào) + ai ĐÃ DUYỆT/từ chối (để NV biết ai xử lý).
     salesperson_id: int | None = None
     salesperson_name: str | None = None
@@ -221,8 +223,8 @@ class QuoteApprovalOut(BaseModel):
     total: int
     subtotal: int
     cost: int | None = None
-    margin_pct_snapshot: int | None = None
-    min_margin_pct: int | None = None
+    markup_pct_snapshot: int | None = None   # GHIM số markup (%/giá vốn) lúc GĐ ký
+    min_markup_pct: int | None = None        # sàn markup của khách đang hiệu lực lúc ký
     high_value_threshold: int | None = None
     note: str | None = None
     decided_by: int | None = None

@@ -170,21 +170,22 @@ class CustomerService:
         *,
         discount_min_pct: float | None,
         discount_max_pct: float | None,
-        margin_min_pct: float | None,
-        margin_max_pct: float | None,
+        markup_min_pct: float | None,
+        markup_max_pct: float | None,
     ) -> dict:
-        """Rào chiết khấu/biên (spec-06 v2): mỗi % ∈ [0,100], min ≤ max; None = chưa đặt."""
+        """Rào chiết khấu/markup (spec-06 v2): mỗi % ∈ [0,100], min ≤ max; None = chưa đặt.
+        MARKUP = lợi nhuận / giá vốn — cổng đặc thù của báo giá soi trục này (xem exception_gate)."""
         dmin = self._validate_pct(discount_min_pct, "Chiết khấu tối thiểu")
         dmax = self._validate_pct(discount_max_pct, "Chiết khấu tối đa")
-        mmin = self._validate_pct(margin_min_pct, "Biên lợi nhuận tối thiểu")
-        mmax = self._validate_pct(margin_max_pct, "Biên lợi nhuận tối đa")
+        mmin = self._validate_pct(markup_min_pct, "Markup tối thiểu")
+        mmax = self._validate_pct(markup_max_pct, "Markup tối đa")
         if dmin is not None and dmax is not None and dmin > dmax:
             raise CustomerValidationError("Chiết khấu tối thiểu không được lớn hơn tối đa.")
         if mmin is not None and mmax is not None and mmin > mmax:
-            raise CustomerValidationError("Biên lợi nhuận tối thiểu không được lớn hơn tối đa.")
+            raise CustomerValidationError("Markup tối thiểu không được lớn hơn tối đa.")
         return dict(
             discount_min_pct=dmin, discount_max_pct=dmax,
-            margin_min_pct=mmin, margin_max_pct=mmax,
+            markup_min_pct=mmin, markup_max_pct=mmax,
         )
 
     # --- reads --------------------------------------------------------------
@@ -431,23 +432,23 @@ class CustomerService:
         payment_term_days: int | None = None,
         discount_min_pct: float | None = None,
         discount_max_pct: float | None = None,
-        margin_min_pct: float | None = None,
-        margin_max_pct: float | None = None,
+        markup_min_pct: float | None = None,
+        markup_max_pct: float | None = None,
     ) -> Customer:
         """Ghi ĐẦY ĐỦ chính sách tài chính (hạn mức công nợ + số ngày công nợ tối đa + rào
-        chiết khấu/biên) — redesign spec-06 v2. Router chỉ gọi khi caller có quyền
+        chiết khấu/markup) — redesign spec-06 v2. Router chỉ gọi khi caller có quyền
         `set_credit_terms` (chặn 403 nếu thiếu). Ghi cả nhóm nên None = "chưa đặt"."""
         customer = self.get_customer(customer_id=customer_id, scope=scope, actor=actor)
         credit_limit = self._validate_credit_limit(credit_limit)
         credit_days = self._validate_credit_days(payment_term_days)
         bounds = self._validate_bounds(
             discount_min_pct=discount_min_pct, discount_max_pct=discount_max_pct,
-            margin_min_pct=margin_min_pct, margin_max_pct=margin_max_pct,
+            markup_min_pct=markup_min_pct, markup_max_pct=markup_max_pct,
         )
         old = (
             customer.credit_limit, customer.payment_term_days,
             customer.discount_min_pct, customer.discount_max_pct,
-            customer.margin_min_pct, customer.margin_max_pct,
+            customer.markup_min_pct, customer.markup_max_pct,
         )
         self.customers.update(
             customer, credit_limit=credit_limit, payment_term_days=credit_days, **bounds
@@ -455,7 +456,7 @@ class CustomerService:
         new = (
             credit_limit, credit_days,
             bounds["discount_min_pct"], bounds["discount_max_pct"],
-            bounds["margin_min_pct"], bounds["margin_max_pct"],
+            bounds["markup_min_pct"], bounds["markup_max_pct"],
         )
         if old != new:
             self.audit.create(

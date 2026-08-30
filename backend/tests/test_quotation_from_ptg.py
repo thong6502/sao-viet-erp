@@ -175,7 +175,7 @@ def test_consecutive_updates_collapse_in_activity(client):
 
 
 def test_terms_text_prefilled_and_editable(client):
-    """Điều khoản: tạo mới → điền sẵn bộ mặc định (5 dòng) để sale sửa; sửa xong lưu lại nguyên văn."""
+    """Điều khoản: tạo mới → điền sẵn bộ mặc định (6 dòng) để sale sửa; sửa xong lưu lại nguyên văn."""
     from app.models.quotation import DEFAULT_TERMS
     token = _token(client)
     pid = _seed_ptg()
@@ -183,7 +183,7 @@ def test_terms_text_prefilled_and_editable(client):
     assert r.status_code == 201, r.text
     q = r.json()
     assert q["terms_text"] == DEFAULT_TERMS
-    assert len(DEFAULT_TERMS.splitlines()) == 5
+    assert len(DEFAULT_TERMS.splitlines()) == 6
 
     mine = "Thanh toán 100% trước khi giao.\nGiao tại kho Bình Dương."
     r = client.put(f"/api/quotations/{q['id']}", json={"terms_text": mine}, headers=_h(token))
