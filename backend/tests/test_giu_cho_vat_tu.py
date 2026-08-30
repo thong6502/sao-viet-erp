@@ -1182,3 +1182,22 @@ def test_xoa_lsx_khi_dang_giu_cho_bi_chan(db, svc, customer):
     admin = db.query(__import__("app.models.user", fromlist=["User"]).User).first()
     with pytest.raises(LsxConflict, match="giữ chỗ"):
         lsx_svc.xoa(lsx_id=a.id, actor=admin)
+
+
+def test_sua_routing_khi_dang_giu_cho_bi_chan(db, svc, customer):
+    """`replace_routing` phải chặn NGANG NHAU cho cả lưu thật (commit=True) và xem trước
+    (`xem_truoc_routing` gọi commit=False) — số trên màn xem trước đã dùng để người dùng quyết
+    định có nhả chỗ hay không, cho preview chạy qua thì màn nói dối, bấm Lưu thật mới báo lỗi."""
+    from app.services.lsx_service import LsxConflict
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    _ton(db, _giay_hang(g), 100)
+    svc.bat(lsx_id=a.id)
+
+    lsx_svc = _lsx_svc(db)
+    admin = db.query(__import__("app.models.user", fromlist=["User"]).User).first()
+    with pytest.raises(LsxConflict, match="giữ chỗ"):
+        lsx_svc.replace_routing(lsx_id=a.id, rows_in=[], actor=admin)
+    with pytest.raises(LsxConflict, match="giữ chỗ"):
+        lsx_svc.replace_routing(lsx_id=a.id, rows_in=[], actor=admin, commit=False)
