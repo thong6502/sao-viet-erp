@@ -54,9 +54,12 @@ from tests.test_san_xuat_board import (  # noqa: F401
 
 # --- Dàn cảnh dùng chung --------------------------------------------------------------------
 def _to_khoan(db, admin, ma="TO-TT") -> Department:
-    """Tổ sản xuất bật lương khoán, admin làm tổ trưởng (để qua GATE §6 khi gọi service)."""
+    """Tổ sản xuất bật lương khoán, admin làm tổ trưởng (để qua GATE §6 khi gọi service).
+
+    `name` khai theo `ma` — `name` UNIQUE nên test gọi hàm này NHIỀU LẦN (2 tổ khác nhau trong
+    cùng một test) phải truyền `ma` khác nhau, không thì đụng UNIQUE constraint."""
     d = Department(
-        name="Tổ Thực Thi", code=ma, la_san_xuat=True,
+        name=f"Tổ Thực Thi {ma}", code=ma, la_san_xuat=True,
         has_piece_work=True, head_user_id=admin.id,
     )
     db.add(d)

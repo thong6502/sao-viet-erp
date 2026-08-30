@@ -195,3 +195,36 @@ def test_ket_qua_nhanh_model_tao_duoc(db):
     db.refresh(kq)
     assert kq.id is not None
     assert kq.ban_giao_id is None
+
+
+def test_toa_san_luong_hai_nhanh_dung_ty_le(db, orders, lsx_svc, admin, customer):
+    from app.models.san_xuat import SanXuatPhuThuoc
+    from app.models.san_xuat_san_luong import BG_XAC_NHAN, SanXuatBanGiao
+    from tests.test_san_xuat_ban_giao import _hai_cv
+
+    _to1, cv_nguon, cv_a, lsx_a = _hai_cv(db, orders, lsx_svc, admin, customer, ma="TO-TOA-1")
+    _to2, cv_b, _cv_b2, lsx_b = _hai_cv(db, orders, lsx_svc, admin, customer, ma="TO-TOA-2")
+    cv_a.lsx_id = lsx_a
+    cv_b.lsx_id = lsx_b
+    db.add(SanXuatPhuThuoc(
+        goi_id=cv_nguon.goi_id, phien_ban_so=cv_nguon.phien_ban_so, nhom_id=cv_nguon.nhom_id,
+        nguon_cong_viec_id=cv_nguon.id, dich_cong_viec_id=cv_a.id,
+        ty_le_ghep=1.5, don_vi_nguon="tờ", don_vi_dich="con",
+    ))
+    db.add(SanXuatPhuThuoc(
+        goi_id=cv_nguon.goi_id, phien_ban_so=cv_nguon.phien_ban_so, nhom_id=cv_nguon.nhom_id,
+        nguon_cong_viec_id=cv_nguon.id, dich_cong_viec_id=cv_b.id,
+        ty_le_ghep=1.0, don_vi_nguon="tờ", don_vi_dich="con",
+    ))
+    db.commit()
+
+    res = san_luong.tao_batch(
+        db, user=admin, cong_viec_id=cv_nguon.id,
+        bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=120, tot=120,
+    )
+    ket_qua = {k["lsx_id"]: k for k in res["ket_qua_lsx"]}
+    assert ket_qua[lsx_a]["so_luong"] == 180.0
+    assert ket_qua[lsx_b]["so_luong"] == 120.0
+    bg_a = db.get(SanXuatBanGiao, ket_qua[lsx_a]["ban_giao_id"])
+    assert bg_a.trang_thai == BG_XAC_NHAN
+    assert bg_a.nguon_cong_viec_id == cv_nguon.id and bg_a.dich_cong_viec_id == cv_a.id
