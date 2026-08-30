@@ -392,10 +392,10 @@ def chuan_hoa_cot(result: dict | None) -> dict | None:
 # Loại dụng cụ ĐƯỢC PHÉP mang phí khuôn — dao lưu kho, mua một lần rồi cất kho dùng lại.
 # `kem` (bản kẽm) CỐ Ý ĐỨNG NGOÀI: nó là vật tư tiêu hao, mỗi bài phơi mới, và tiền nó đã nằm
 # trong công thức của bước chế bản (`so_kem × đơn giá`). Cho nó ô phí nữa là tính hai lần.
-TOOLING_CO_PHI = frozenset({"khuon_be", "khuon_ep"})
+TOOLING_CO_PHI = frozenset({"khuon_be", "khuon_ep", "khung_lua"})
 # Nhãn đọc được của loại dao — vào thẳng tên dòng tiền ("Xén 3 mặt · phí khuôn bế"). Khớp
 # `DAO_CO_PHI` bên frontend; lệch thì hai màn gọi cùng một con dao bằng hai tên.
-TOOLING_NHAN = {"khuon_be": "khuôn bế", "khuon_ep": "khuôn ép nhũ / dập nổi"}
+TOOLING_NHAN = {"khuon_be": "khuôn bế", "khuon_ep": "khuôn ép nhũ / dập nổi", "khung_lua": "khung lụa"}
 
 
 def _pre(name: str, label: str) -> str:
@@ -945,6 +945,12 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         _b_nay = buoc.get(idx_buoc)
         ctx["sl_vao"] = ceil(_b_nay["vao"]) if _b_nay else to_dau_vao
         ctx["sl_ra"] = ceil(_b_nay["ra"]) if _b_nay else to_dau_vao
+        # Kích thước/số lượng khung lụa của CHÍNH bước — ba ô nhập riêng ở phiếu, TÁCH BIỆT với
+        # `phi_khuon`. Bơm cho MỌI bước (không chỉ bước khung lụa): công thức không gõ tới thì vô
+        # hại, gõ tới mà không bơm mới là thứ nổ `KeyError` ở vòng `MA_TANG_BUOC_TIEN` dưới đây.
+        ctx["dai_khung_lua"] = _f(row.get("dai_khung_lua"))
+        ctx["rong_khung_lua"] = _f(row.get("rong_khung_lua"))
+        ctx["so_khung_lua"] = _f(row.get("so_khung_lua"))
         # so_mat: dòng IN (nhom=print) LUÔN theo số mặt cách in (passes) — KHÔNG để field mặc định=1
         # nuốt (N2: model so_mat default=1 khiến fallback passes thành code chết). Finishing tự set
         # so_mat (cán 1/2 mặt); ≤0 → dùng passes.

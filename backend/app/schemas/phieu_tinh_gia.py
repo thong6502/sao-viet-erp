@@ -27,6 +27,10 @@ class ThanhPhamIn(BaseModel):
     ghi_chu: str | None = None
     # Phí làm khuôn của CHÍNH bước này — MỘT LẦN, không nhân SL. 0 = dùng lại dao cũ.
     phi_khuon: float | None = Field(default=None, ge=0)
+    # Kích thước/số lượng khung lụa — TÁCH BIỆT với `phi_khuon`, chỉ ăn vào công thức của công đoạn.
+    dai_khung_lua: float | None = Field(default=None, ge=0)
+    rong_khung_lua: float | None = Field(default=None, ge=0)
+    so_khung_lua: int | None = Field(default=None, ge=0)
 
 
 class ThanhPhamOut(BaseModel):
@@ -46,6 +50,9 @@ class ThanhPhamOut(BaseModel):
     nha_cung_cap: str | None = None
     ghi_chu: str | None = None
     phi_khuon: float = 0
+    dai_khung_lua: float = 0
+    rong_khung_lua: float = 0
+    so_khung_lua: int = 0
 
 
 # ============================ SẢN PHẨM TÁI BẢN (docs/spec-san-pham-tai-ban.md) ============================

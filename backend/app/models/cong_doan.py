@@ -43,7 +43,7 @@ PRICING_BASIS = (
 # Dụng cụ DÙNG CHUNG mà bước phải mượn từ kho khuôn. Bật `requires_tooling` nghĩa là: lệnh PHẢI
 # gán một dòng khuôn có thật, và hai lệnh mượn cùng một khuôn không được xếp trùng giờ.
 #
-TOOLING_TYPE = ("khuon_be", "khuon_ep")
+TOOLING_TYPE = ("khuon_be", "khuon_ep", "khung_lua")
 # Cách công đoạn tính bù hao: không / tra bảng (trỏ 1 mã bù hao ở module Bù hao → tra bậc SL) /
 # cộng cố định `so_to_bu_hao` tờ (ép kim, UV… — không theo bảng).
 KIEU_BU_HAO = ("khong", "tra_bang", "co_dinh")

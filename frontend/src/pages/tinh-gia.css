@@ -2770,6 +2770,26 @@ select.tg-input--sm {
   font-size: 11px;
   color: var(--ash);
 }
+/* Ba ô kích thước/số lượng khung lụa — con của MỘT bước khung lụa, thụt vào dưới dòng phí chính
+   để không lẫn với phí khuôn của bước khác trong cùng khối. */
+.tg-khuon__kl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 6px 12px;
+  padding-left: 8px;
+  border-left: 2px solid var(--rule-soft);
+}
+.tg-khuon__kl .tg-khuon__row {
+  padding: 2px 0;
+}
+.tg-khuon__kl .tg-khuon__ten {
+  font-size: 12px;
+  color: var(--ash);
+}
+.tg-khuon__kl .tg-khuon__num {
+  width: 90px;
+}
 .rc-modal__right-col .tg-step-card__details {
   display: flex;
   flex-direction: column;

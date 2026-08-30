@@ -22,7 +22,11 @@ const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia c�
 // Dụng cụ DÙNG CHUNG mà bước phải mượn từ kho khuôn — khớp `cong_doan.TOOLING_TYPE` ở backend
 // (service chặn giá trị ngoài danh sách). "Bản kẽm" đã gỡ 16/08/2026: kẽm là vật tư tiêu hao,
 // không có dòng nào trong kho khuôn để trỏ tới — xem lý do đầy đủ ở `models/cong_doan.TOOLING_TYPE`.
-const TOOLING_TYPE: Lbls = { khuon_be: "Khuôn bế", khuon_ep: "Khuôn ép nhũ / dập nổi" };
+const TOOLING_TYPE: Lbls = {
+  khuon_be: "Khuôn bế",
+  khuon_ep: "Khuôn ép nhũ / dập nổi",
+  khung_lua: "Khung lụa",
+};
 
 // NHÃN đọc cho mã đơn vị hay gặp ở công đoạn — KHÔNG còn là danh sách chọn (11/08/2026).
 //
@@ -83,6 +87,7 @@ const dvCell = (r: Row) => {
 export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
   title: "Loại sản phẩm",
   moduleQuyen: "dm_loai_san_pham",
+  enableImport: true,
   prefix: "/api/loai-san-pham",
   nhatKyLoai: "loai_san_pham",
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
@@ -435,10 +440,9 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "department_id", label: "Phòng ban / Tổ phụ trách", type: "ref", refPrefix: "/api/cong-doan/phong-ban", group: "Thông tin" },
 
     // ── Nguồn nuôi thẳng thời lượng bước ở Lệnh sản xuất ──────────────────────────────────────
-    { key: "requires_tooling", label: "Bước này cần khuôn riêng", type: "checkbox",
-      group: "Giá",
-      hint: "Bật ⇒ phiếu tính giá hỏi thêm ô PHÍ KHUÔN ở bước này (để trống = dùng lại dao cũ)." },
-    { key: "tooling_type", label: "Loại khuôn", type: "select", group: "Giá",
+    { key: "requires_tooling", label: "Bước này cần khung, khuôn", type: "checkbox",
+      group: "Khuôn & dụng cụ",},
+    { key: "tooling_type", label: "Loại khuôn", type: "select", group: "Khuôn & dụng cụ",
       options: mapOpt(TOOLING_TYPE), showIf: (f) => !!f.requires_tooling },
     { key: "dau_viec_dinh_muc", label: "Đầu việc và định mức của tổ", type: "dau-viec-dinh-muc",
       refPrefix: "/api/cong-doan/dau-viec", group: "Lệnh sản xuất" },
@@ -559,6 +563,7 @@ export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
 export const CFG_BU_HAO: CatalogConfig = {
   title: "Bù hao",
   moduleQuyen: "dm_bu_hao",
+  enableImport: true,
   prefix: "/api/bu-hao",
   nhatKyLoai: "bu_hao",
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
@@ -606,6 +611,7 @@ export const CFG_BU_HAO: CatalogConfig = {
 export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
   title: "Chủng loại giấy",
   moduleQuyen: "dm_chung_loai_giay",
+  enableImport: true,
   prefix: "/api/vat-lieu-kho/chung-loai-giay",
   nhatKyLoai: "chung_loai_giay",
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
@@ -712,6 +718,7 @@ export const CFG_VAT_TU: CatalogConfig = {
 export const CFG_THANH_PHAM: CatalogConfig = {
   title: "Thành phẩm",
   moduleQuyen: "dm_thanh_pham",
+  enableImport: true,
   prefix: "/api/vat-lieu-kho/thanh-pham",
   nhatKyLoai: "thanh_pham",
   // Khai tay ĐƯỢC (nới 19/08/2026) — Bán hàng khai trước một món khách sắp đặt là chuyện thường.
@@ -818,6 +825,7 @@ export const CFG_KHO_HANG: CatalogConfig = {
   title: "Kho hàng",             // danh từ ở nút/lọc: "Thêm kho hàng", "Lọc kho hàng"
   heading: "Khai báo kho",       // H1 khớp menu "Khai báo kho"
   moduleQuyen: "dm_kho_hang",
+  enableImport: true,
   prefix: "/api/kho",
   nhatKyLoai: "kho_hang",
   softDelete: true,
@@ -854,6 +862,7 @@ const NHOM_LY_DO: Lbls = {
 export const CFG_LY_DO_SAN_XUAT: CatalogConfig = {
   title: "Lý do & lỗi SX",
   moduleQuyen: "dm_ly_do_san_xuat",
+  enableImport: true,
   prefix: "/api/san-xuat-ly-do",
   nhatKyLoai: "san_xuat_ly_do",
   // Xoá MỀM ở service (`XOA_MEM`): batch/điều chỉnh bàn giao ghim ID thật, ngừng dùng thì lịch sử
@@ -916,6 +925,7 @@ export const CFG_KHUON_BE: CatalogConfig = {
   // `role_permissions` của DB thật (khớp `components/Sidebar.tsx`). Đổi cho "nhất quán" là mọi vai
   // mất sạch quyền màn này.
   moduleQuyen: "khuon_be",
+  enableImport: true,
   prefix: "/api/khuon-be",
   nhatKyLoai: "khuon_be",
   softDelete: true,
@@ -964,6 +974,7 @@ export const CFG_KHUON_BE: CatalogConfig = {
 export const CFG_DON_VI: CatalogConfig = {
   title: "Đơn vị & quy đổi",
   moduleQuyen: "dm_don_vi",
+  enableImport: true,
   prefix: "/api/don-vi",
   nhatKyLoai: "don_vi_do",
   softDelete: true,

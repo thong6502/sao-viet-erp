@@ -203,9 +203,10 @@ class PhieuThanhPham(Base):
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # PHÍ KHUÔN của CHÍNH bước này — khoản MỘT LẦN (không nhân số lượng).
     #
-    # Chỉ có nghĩa khi công đoạn nguồn bật `requires_tooling` với `tooling_type` là dao lưu kho
-    # (`khuon_be` · `khuon_ep`). `kem` KHÔNG có ô: bản kẽm là vật tư tiêu hao, mỗi bài phơi mới, và
-    # tiền nó đã nằm trong công thức của bước chế bản (`so_kem × đơn giá`) — thêm ô là tính hai lần.
+    # Chỉ có nghĩa khi công đoạn nguồn bật `requires_tooling` với `tooling_type` là dao/dụng cụ lưu
+    # kho (`khuon_be` · `khuon_ep` · `khung_lua`). `kem` KHÔNG có ô: bản kẽm là vật tư tiêu hao, mỗi
+    # bài phơi mới, và tiền nó đã nằm trong công thức của bước chế bản (`so_kem × đơn giá`) — thêm
+    # ô là tính hai lần.
     #
     # 0 / để trống = DÙNG LẠI dao cũ ⇒ không tính tiền. Đúng thông lệ ngành: phí dao thu ở đơn đầu,
     # dao giữ lại trong kho, đơn tái đặt không thu lại.
@@ -215,6 +216,14 @@ class PhieuThanhPham(Base):
     # con dao 734.300đ, đơn 500 cuốn gánh 1.469 đ/cuốn còn đơn 5.000 cuốn chỉ 147 đ/cuốn. Đây là
     # đánh đổi đã biết và đã chọn, KHÔNG phải lỗi — đừng "sửa" bằng cách rút nó ra khỏi giá vốn.
     phi_khuon: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    # Kích thước/số lượng khung lụa dùng ở CHÍNH bước này — CHỈ có nghĩa khi bước dùng công đoạn
+    # `tooling_type = "khung_lua"`. BA Ô NÀY TÁCH BIỆT với `phi_khuon` ở trên: không dùng để tự
+    # tính phí, chỉ bơm vào công thức của công đoạn (chip `dai_khung_lua`/`rong_khung_lua`/
+    # `so_khung_lua`, xem `bien_cong_thuc.py`) để NGƯỜI DÙNG tự quy ra tiền theo công thức họ khai
+    # (vd đơn giá/m² × dài × rộng × số khung). 0 = chưa khai, công thức không dùng thì bỏ qua.
+    dai_khung_lua: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    rong_khung_lua: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    so_khung_lua: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

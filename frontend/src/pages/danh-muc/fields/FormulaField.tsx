@@ -129,6 +129,7 @@ export function FormulaField({
   onChange,
   configPrefix,
   bienGoiY,
+  an,
   loaiO: loaiOEp,
   nhanO = "Công thức tính giá",
   goY = "Nhập công thức tính giá (vd: dai_tp * rong_tp * don_gia)...",
@@ -141,6 +142,9 @@ export function FormulaField({
   onChange: (v: string) => void;
   configPrefix: string;
   bienGoiY?: string[];
+  /** Danh sách mã biến CẦN ẨN khỏi bảng chip gợi ý, dù `loaiO` cho phép — dùng khi biến chỉ có
+   *  nghĩa với MỘT số bản ghi trong cùng loại ô. Không ảnh hưởng `bienGoiY`. */
+  an?: string[];
   loaiO?: string;
   nhanO?: React.ReactNode;
   goY?: string;
@@ -160,10 +164,10 @@ export function FormulaField({
   const loaiO = loaiOEp ?? (isDonVi ? "quy_doi" : isCd ? "cong_doan" : isGiay ? "giay" : "vat_tu");
   const tuDien = useBienCongThuc();
   const tra = useMemo(() => traBien(tuDien), [tuDien]);
-  const whitelist = useMemo(
-    () => bienGoiY ?? tuDien.filter((b) => b.loai.includes(loaiO)).map((b) => b.ma),
-    [bienGoiY, tuDien, loaiO],
-  );
+  const whitelist = useMemo(() => {
+    const goc = bienGoiY ?? tuDien.filter((b) => b.loai.includes(loaiO)).map((b) => b.ma);
+    return an && an.length ? goc.filter((ma) => !an.includes(ma)) : goc;
+  }, [bienGoiY, tuDien, loaiO, an]);
   const validVars = useMemo(
     () => (whitelist.length ? [...whitelist] : null),
     [whitelist],
