@@ -10908,8 +10908,6 @@ def _dung_lai_giu_cho_dang_ve(db: Session) -> None:
     nên mọi bảng/cột mà `KeHoachVatTuService`/`GiuChoService` cần đọc (routing, stock_lots,
     purchase_request_lines...) đã ở trạng thái đã-migrate-đủ trước khi hàm này chạy.
     """
-    from .models.bai_ghep import BaiGhep
-    from .models.lsx import Lsx
     from .repositories.bai_ghep_repo import BaiGhepRepository
     from .repositories.don_vi_do_repo import DonViDoRepository
     from .repositories.lsx_repo import LsxRepository
@@ -10929,10 +10927,7 @@ def _dung_lai_giu_cho_dang_ve(db: Session) -> None:
         don_vi=DonViDoRepository(db),
     )
     giu = GiuChoService(db, kh)
-    for lsx_id in [r[0] for r in db.query(Lsx.id).filter(Lsx.giu_cho_bat.is_(True)).all()]:
-        giu.nhat_them(chi_chu_the=(lsx_id, None))
-    for bai_id in [r[0] for r in db.query(BaiGhep.id).filter(BaiGhep.giu_cho_bat.is_(True)).all()]:
-        giu.nhat_them(chi_chu_the=(None, bai_id))
+    giu.nhat_them()
 
 
 MIGRATIONS.append(("0245_giu_cho_purchase_request_line_id",
