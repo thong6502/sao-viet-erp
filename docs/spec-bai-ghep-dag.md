@@ -355,3 +355,102 @@ kèm `PHAM_VI_CHO_PHEP` khoá `["all"]` cho khớp `SCOPELESS_MODULES`).
   - Hai chỗ phải sửa trước khi xoá được: `_map` (lỗi nghiệp vụ → mã HTTP) vốn `import` NGƯỢC từ
     router cũ, đã dời hẳn vào `routers/bai_ghep_2.py`; `bai-ghep.css` là tài sản chung nên GIỮ,
     `BaiGhepBuocChungForm` đang nạp nó.
+
+---
+
+## 11. Một khuôn – một chuỗi chung – một điểm tỏa (chốt 30/08/2026, CÀI ĐẶT XONG 30/08/2026)
+
+> Siết chặt mô hình §10: một bài ghép là **một khuôn/tờ vật lý**, không chỉ "vài bước tiện thì gộp".
+> Bắt buộc có ≥1 công đoạn chung chạy trên giấy, mọi bước chung phủ hết thành viên, CTP/kẽm/vật tư
+> setup ghi một lần cho cả bài, chỉ tách sản lượng về LSX sau bước chung CUỐI. Phần cơ chế **tỏa
+> sản lượng theo mẻ** (điểm tỏa → nhiều LSX) thuộc lớp thực thi, xem `docs/spec-thuc-hien-san-xuat.md`
+> §11.4. Không xây layout 2D/nhíp/khe/tràn xén — kiểm xếp tờ chỉ là cửa hợp lý cơ bản.
+
+Toàn bộ §11 đã lên code qua plan `docs/superpowers/plans/2026-08-30-bai-ghep-diem-toa.md` (15 task).
+Các mục dưới đây mô tả ĐÚNG những gì đang chạy, không còn là dự kiến.
+
+### 11.1 Cửa kiểm tra "Sẵn sàng" — CHẶN chứ không cảnh báo
+
+`BaiGhepService.thieu_cua()` (`bai_ghep_service.py:1872-1933`) trả về danh sách mã lỗi CHẶN (khác
+`canh_bao_cua()` — cảnh báo MỀM, không chặn, xem §D3). 6 mã MỚI thêm vào các mã cũ
+(`thieu_thanh_vien`/`thieu_giay`/`thieu_kho_in`/`thieu_ups`/`thieu_buoc_chung`/`thieu_so_to`):
+
+| Mã | Điều kiện chặn | Ý nghĩa |
+|---|---|---|
+| `khac_giay` | Giấy khai ở một thành viên khác giấy khai ở bài | Bài ghép in CHUNG một tờ — giấy lệch là dữ liệu cũ/nhập nhầm (đổi giấy ở LSX sau khi đã ghép) |
+| `thieu_ke_hoach_buoc_chung` | Một bước chung chưa gán tổ/máy | Gộp xong phải LẬP LẠI kế hoạch cho lượt chạy chung — không thừa kế mù từ lệnh nào |
+| `buoc_chung_thieu_thanh_vien` | Một bước chung không phủ hết `bg.thanh_viens` hiện tại | Thêm thành viên sau khi đã gộp mà quên gộp bước của người mới → hao/kẽm tính THIẾU một lệnh trong im lặng |
+| `thieu_buoc_chung_tren_giay` | Không bước chung nào chạy `tren_dong_giay()` | Bài chỉ gộp CTP/ghi kẽm (không đụng dòng giấy) thì chưa có "điểm toả" nào để tính |
+| `vuot_con_toi_da` | `so_con_tren_to` khai tay > `_con_toi_da()` (ước lượng hình học) | Số con vượt xa mức khả thi là gõ nhầm, không phải một lựa chọn hợp lệ |
+| `vuot_dien_tich` | `fill_pct > 100` | Tổng diện tích thành phẩm × con/tờ vượt diện tích tờ ghép — các con đang chồng lên nhau |
+
+FE (`BaiGhepBuocChungForm` và màn danh sách) tiêu thụ đúng các mã này để hiện checklist chặn nút
+"Sẵn sàng"/xếp lịch — không phải toast cảnh báo có thể bỏ qua.
+
+Riêng gate "khác đơn vị vào-ra / khác kiểu in" ở dòng cuối bảng cũ đã CHUYỂN LÊN chặn ngay lúc bấm
+Gộp (xem §11.2), không còn là điều kiện của `thieu_cua()` — gộp lệch thì không tạo được bước chung
+ngay từ đầu, không cần chặn lại ở đây.
+
+### 11.2 Kẽm, màu và kiểu in của khuôn chung — ĐÃ VÁ
+
+**Đã có từ trước:** `bai_ghep_service.py:1694-1756` — `_qc_bai` hợp tập màu lớn nhất theo từng mặt,
+`muc_gop` gọi đúng hàm engine tính giá (`so_mau_dan_xuat`/`so_kem_moi_tay`, không tự cộng dồn),
+`_qc_bien_bai` bơm số này vào công thức bước chung. CMYK + Pantone trên cùng mặt ra đúng 5 kẽm qua
+đường này (bug "Ghi kẽm CTP ra 0/0" đã vá trước đó).
+
+**Đã vá thêm (30/08/2026):**
+- `gop()` (`bai_ghep_service.py:713-794`) giờ CHẶN ngay lúc bấm Gộp nếu các bước chọn khác
+  `(don_vi_vao, don_vi_ra)` hoặc khác `quy_cach_in` (một mặt/tự trở/trở nhíp) — gộp lệch đơn vị
+  từng làm thẻ chung tính sai chuỗi tờ↔cái, gộp lệch kiểu in từng làm số kẽm/chờ kỹ thuật tính
+  nhầm luật cho một bên.
+- `_kieu_in_bai()` (`bai_ghep_service.py:1746`, dùng chung ở cả `muc_gop` và `detail_dict`) không
+  còn "đoán" theo thành viên đầu tiên tìm thấy — trả về TẬP kiểu in đang khai trên các thành viên;
+  khác 0 hoặc nhiều hơn 1 phần tử thì coi là chưa xác định (rỗng) thay vì đoán bừa. Vì `gop()` đã
+  chặn lệch kiểu in từ lúc gộp, tập này trong thực tế luôn có đúng 1 phần tử sau khi gộp thành công.
+- Gate `thieu_buoc_chung_tren_giay` (§11.1) không đòi bước chung phải LÀ CTP — bất kỳ bước chung
+  nào chạy trên dòng giấy (`tren_dong_giay()`) đều tính, CTP/ghi kẽm không tính vì không đụng dòng
+  giấy. Đây là câu trả lời cho câu hỏi "bước nào cũng được, miễn có" từng để ngỏ.
+
+**Còn mở, NGOÀI phạm vi plan này** (chưa rà, cần probe riêng khi đụng tới):
+- Khi CTP KHÔNG được khai chung, mỗi LSX vẫn đếm kẽm riêng ở `lsx_cong_doan` — chưa kiểm có bị đếm
+  **trùng** với `muc_gop` khi CTP vừa chung vừa còn dòng riêng sót lại hay không.
+
+### 11.3 Máy, tổ, vật tư bước chung — ĐÃ CÀI nguồn số lượng
+
+**Đã có từ trước:** `BaiGhepCongDoan.may_id` (`bai_ghep_cong_doan.py:71`), `department_id` (`:70`),
+`nha_cung_cap` (`:112`) — "một tổ, một máy, một NCC" đã là hiện trạng. Vật tư chung có bảng riêng
+`BaiGhepCongDoanVatTu` (`:172-196`).
+
+**Đã cài (30/08/2026):** cột `nguon_so_luong: dinh_muc | thu_cong` trên `BaiGhepCongDoanVatTu`
+(`:190-192`, migration `0243_bai_ghep_vat_tu_nguon_so_luong` trong `db_migrations.py:10779-10795`,
+`server_default='thu_cong'`). `_thay_vat_tu_chung()` nhận cờ này thẳng từ payload (không suy đoán),
+chặn giá trị lạ. Hàm mới `_ap_dinh_muc_vat_tu()` (`bai_ghep_service.py:979-995`) chỉ TÍNH LẠI số
+lượng của dòng `dinh_muc` mỗi khi bài đổi thành viên/con-tờ/khổ/màu — dòng `thu_cong` GIỮ NGUYÊN,
+cùng nguyên tắc "không đè cái người vừa gõ" như `_ghim_khoan_chung`. FE đọc thẳng cờ server để hiện
+badge nguồn số lượng, không còn so khớp số hiện tại với gợi ý (heuristic không đáng tin, đã bỏ).
+
+### 11.4 MRP nguồn vật tư — CHƯA xác nhận, NGOÀI phạm vi plan này
+
+Spec yêu cầu MRP chỉ lấy giấy + vật tư bước chung ở cấp bài, vật tư bước riêng ở cấp LSX. Plan
+`2026-08-30-bai-ghep-diem-toa` KHÔNG đụng `ke_hoach_vat_tu_service.py` — vẫn phải đọc lại khi bắt
+tay việc này xem hiện đã đọc `BaiGhepCongDoanVatTu` chưa hay còn gộp nhầm vào nhu cầu LSX (nguy cơ
+đếm trùng y hệt kẽm ở §11.2).
+
+### 11.5 Điểm toả — PERSISTED thành cạnh `san_xuat_phu_thuoc`, khác `_toa_tai` cũ
+
+**Trước 30/08/2026:** điểm toả chỉ tồn tại như một HÀM THUẦN trong bộ nhớ (`_toa_tai`, dùng để tính
+`so_con_tren_to` mỗi thành viên lúc lập kế hoạch) — không có bản ghi DB nào đánh dấu "đây là nơi
+chuỗi chung tách ra", nên pha Thực hiện sản xuất không có cách nào tự tách sản lượng theo LSX.
+
+**Từ 30/08/2026:** lúc PHÁT HÀNH, `dung_diem_toa()` (`services/san_xuat/snapshot.py`, gọi từ
+`release.py:phat_hanh`) duyệt routing đã snapshot của từng LSX thành viên, tìm bước dùng-chung CUỐI
+CÙNG chạy trên dòng giấy (dùng đúng `tren_dong_giay()` đã có ở §11.1/§11.2 — bước như CTP/ghi kẽm
+không tính), rồi ghi PERSISTED một dòng `SanXuatPhuThuoc` (bảng đã có sẵn cho phụ thuộc chéo
+LSX-LSX, tái dùng cho phụ thuộc điểm-toả): nguồn = công việc điểm toả, đích = bước RIÊNG đầu tiên
+ngay sau đó của chính LSX đó, `ty_le_ghep` = `so_con_tren_to` của LSX (snapshot tại lúc phát hành,
+KHÔNG đọc lại routing sống về sau). LSX không còn bước riêng nào sau bước chung cuối (mọi bước đều
+dùng chung, hoặc bài chưa có bước chung nào trên dòng giấy) thì bỏ qua — không phải lỗi.
+
+Cơ chế server TỰ TÁCH sản lượng theo cạnh này khi ghi batch tại đúng công việc điểm-toả (bàn giao
+thẳng dạng đã xác nhận, chặn LSX dùng nhầm phần đã toả của LSX khác) thuộc lớp thực thi — xem
+`docs/spec-thuc-hien-san-xuat.md` §11.4.
