@@ -1510,3 +1510,52 @@ def test_vat_tu_chung_mac_dinh_thu_cong(db, orders, lsx_svc, bg_svc, admin, cust
     db.commit()
     db.refresh(vt)
     assert vt.nguon_so_luong == NGUON_SL_THU_CONG
+
+
+def test_thay_vat_tu_chung_luu_nguon_so_luong(db, orders, lsx_svc, bg_svc, admin, customer):
+    from app.models.bai_ghep_cong_doan import NGUON_SL_DINH_MUC, NGUON_SL_THU_CONG
+    a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
+    created = bg_svc._get(bg.id)
+    lsx_map = bg_svc._lsx_map(created)
+    cd_a = next(cd for cd in lsx_map[a.id].cong_doans if cd.loai_buoc == "may")
+    cd_b = next(cd for cd in lsx_map[b.id].cong_doans if cd.cong_doan_id == cd_a.cong_doan_id)
+    bg_svc.gop(bai_ghep_id=bg.id, step_keys=[cd_a.step_key, cd_b.step_key], actor=admin)
+    chung = bg_svc._buoc_chungs(bg_svc._get(bg.id))[0]
+
+    bg_svc._thay_vat_tu_chung(chung, [
+        {"vat_tu_id": 1, "so_luong": 2.0, "nguon_so_luong": NGUON_SL_THU_CONG},
+        {"vat_tu_id": 2, "so_luong": 3.0, "nguon_so_luong": NGUON_SL_DINH_MUC},
+    ])
+    db.commit()
+
+    by_id = {v.vat_tu_id: v for v in chung.vat_tus}
+    assert by_id[1].nguon_so_luong == NGUON_SL_THU_CONG
+    assert by_id[2].nguon_so_luong == NGUON_SL_DINH_MUC
+
+
+def test_ap_dinh_muc_giu_nguyen_dong_thu_cong(db, orders, lsx_svc, bg_svc, admin, customer):
+    from app.models.bai_ghep_cong_doan import NGUON_SL_THU_CONG
+    a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
+    created = bg_svc._get(bg.id)
+    lsx_map = bg_svc._lsx_map(created)
+    cd_a = next(cd for cd in lsx_map[a.id].cong_doans if cd.loai_buoc == "may")
+    cd_b = next(cd for cd in lsx_map[b.id].cong_doans if cd.cong_doan_id == cd_a.cong_doan_id)
+    bg_svc.gop(bai_ghep_id=bg.id, step_keys=[cd_a.step_key, cd_b.step_key], actor=admin)
+    chung = bg_svc._buoc_chungs(bg_svc._get(bg.id))[0]
+    bg_svc._thay_vat_tu_chung(chung, [
+        {"vat_tu_id": 1, "so_luong": 777.0, "nguon_so_luong": NGUON_SL_THU_CONG},
+    ])
+    db.commit()
+
+    bg = bg_svc._get(bg.id)
+    tv = next(t for t in bg.thanh_viens if t.lsx_id == a.id)
+    tv.so_con_tren_to = int(tv.so_con_tren_to or 1) + 1  # đổi số con → kích _ap_so_luong_chung
+    db.commit()
+    bg_svc._tinh_lai(bg)
+    db.commit()
+
+    chung2 = bg_svc._buoc_chungs(bg_svc._get(bg.id))[0]
+    vt = next(v for v in chung2.vat_tus if v.vat_tu_id == 1)
+    assert float(vt.so_luong) == 777.0  # dòng thủ công KHÔNG bị tính lại đè số

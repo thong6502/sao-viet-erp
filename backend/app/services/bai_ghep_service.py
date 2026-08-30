@@ -19,6 +19,7 @@ from ..models.bai_ghep import (
 )
 from ..models.bai_ghep_cong_doan import (
     BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCongDoanVatTu,
+    NGUON_SL_DINH_MUC, NGUON_SL_THU_CONG,
 )
 from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan
@@ -961,6 +962,9 @@ class BaiGhepService:
             if not mat.active and mat.id not in dang_co:
                 raise BaiGhepValidationError(
                     f"Vật tư “{mat.ten}” đã ngừng dùng — chọn vật tư khác")
+            nguon_so_luong = str(v.get("nguon_so_luong") or NGUON_SL_THU_CONG)
+            if nguon_so_luong not in (NGUON_SL_DINH_MUC, NGUON_SL_THU_CONG):
+                raise BaiGhepValidationError("Nguồn số lượng không hợp lệ")
             chung.vat_tus.append(BaiGhepCongDoanVatTu(
                 # `don_vi_gia`, KHÔNG phải `don_vi` — `VatTuInAn` không có cột nào tên `don_vi`.
                 # Gõ nhầm ở đây là AttributeError lúc chạy, 500 ngay khi bấm Lưu; bước lệnh
@@ -969,7 +973,26 @@ class BaiGhepService:
                 # cột snapshot này NOT NULL — không chặn thì IntegrityError 500 lúc bấm Lưu.
                 vat_tu_id=mat.id, vat_tu_ma_snapshot=mat.ma, vat_tu_ten_snapshot=mat.ten,
                 don_vi_snapshot=mat.don_vi_gia or "", so_luong=_f(v.get("so_luong")), thu_tu=i,
+                nguon_so_luong=nguon_so_luong,
             ))
+
+    def _ap_dinh_muc_vat_tu(self, chung: BaiGhepCongDoan, qc_bien: dict) -> None:
+        """Tính lại SỐ LƯỢNG các dòng vật tư `dinh_muc` của bước chung theo quy cách MỚI NHẤT.
+
+        Dòng `thu_cong` giữ nguyên — người đã gõ tay thì không bị bài ghép tính lại đè số mỗi khi
+        đổi số con/khổ tờ (khớp `_ghim_khoan_chung` — cùng nguyên tắc "không đè cái người vừa gõ")."""
+        if not chung.vat_tus:
+            return
+        goi_y = {
+            g["vat_tu_id"]: g["so_luong"]
+            for g in self._lsx_svc()._goi_y_luong_vat_tu(chung, qc_bien)
+        }
+        for vt in chung.vat_tus:
+            if vt.nguon_so_luong != NGUON_SL_DINH_MUC:
+                continue
+            moi = goi_y.get(vt.vat_tu_id)
+            if moi is not None:
+                vt.so_luong = moi
 
     def _sap_lai_thu_tu(self, bg: BaiGhep) -> None:
         """Đánh lại `thu_tu` các bước chung theo THỨ TỰ TOPO của đồ thị đã co.
@@ -1532,6 +1555,8 @@ class BaiGhepService:
             c.he_so_quy_doi = r["he_so_quy_doi"]
             c.hao_hut = r["hao_hut"]
             c.hao_hut_pct = r["hao_hut_pct"]
+        for c in chungs:
+            self._ap_dinh_muc_vat_tu(c, qc_bien)
 
     def _node_chungs(
         self, bg: BaiGhep, chungs: list[BaiGhepCongDoan], lsx_map: dict[int, Lsx],
