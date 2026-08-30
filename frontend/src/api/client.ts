@@ -1617,12 +1617,19 @@ export interface SxWorkItemChiTiet {
 }
 
 // --- Kết quả các mặt GHI G3/G4 (đủ để cập nhật lạc quan; drawer refetch để lấy chi tiết) ---
+export interface SxKetQuaNhanh {
+  lsx_id: number;
+  so_luong: number;
+  don_vi: string;
+  ban_giao_id: number | null;
+}
 export interface SxSanLuongKetQua {
   cong_viec_id: number;
   department_id: number | null;
   trang_thai: string;
   version: number;
   batch_id?: number | null;
+  ket_qua_lsx?: SxKetQuaNhanh[];
 }
 export interface SxBanGiaoKetQua {
   ban_giao_id: number;

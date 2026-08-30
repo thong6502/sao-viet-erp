@@ -273,3 +273,13 @@ def test_chan_lsx_khac_dung_lot_diem_toa(db, orders, lsx_svc, admin, customer):
             bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=1, tot=1,
             lot_vao=[{"nguon_loai": "batch", "nguon_batch_id": batch_nguon_id, "so_luong": 1}],
         )
+
+
+def test_schema_san_luong_ket_qua_giu_ket_qua_lsx():
+    from app.schemas.san_xuat import SanLuongKetQuaOut
+    obj = SanLuongKetQuaOut(
+        cong_viec_id=1, department_id=None, trang_thai="dang_chay", version=1, batch_id=1,
+        ket_qua_lsx=[{"lsx_id": 9, "so_luong": 12.5, "don_vi": "con", "ban_giao_id": 3}],
+    )
+    assert obj.ket_qua_lsx[0].lsx_id == 9
+    assert obj.ket_qua_lsx[0].so_luong == 12.5
