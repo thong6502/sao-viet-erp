@@ -224,3 +224,183 @@ def test_nhu_cau_cong_viec_bai_ghep_ra_dung_bai_qua_theo_ids(db, orders, lsx_svc
     assert ra, "công việc mang bai_ghep_id phải ra dòng nhu cầu (nhánh vừa sửa)"
     assert all(d["sl"] > 0 for d in ra)
     assert {(d["hang_loai"], d["hang_id"]) for d in ra} == {("giay", g.id)}
+
+
+# --- Task 3: repository + luật tạo đề nghị --------------------------------------------------
+
+def test_tao_luu_ca_dong_xin_0_va_chi_gui_kho_dong_duong(
+    db, orders, lsx_svc, admin, customer,
+):
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT3")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    assert len(kh) >= 1
+
+    lines = [{"hang_loai": kh[0]["hang_loai"], "hang_id": kh[0]["hang_id"],
+              "dvt": kh[0]["dvt"], "sl_yeu_cau": 0, "ly_do_chenh_lech": "Tổ còn tồn tại chỗ"}]
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+
+    dn = db.get(SanXuatVatTuDeNghi, ra["de_nghi_id"])
+    assert dn.lan_so == 1 and dn.loai == DN_LAN_DAU
+    assert len(dn.dongs) == len(kh)          # lưu MỌI vật tư kế hoạch, kể cả dòng 0
+    assert dn.stock_request_id is None       # không dòng dương ⇒ KHÔNG đẻ chứng từ kho
+
+
+def test_tao_co_dong_duong_thi_de_yeu_cau_kho_approved(db, orders, lsx_svc, admin, customer):
+    from app.models.stock_request import REQ_APPROVED, REQ_XUAT, StockRequest
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT4")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+
+    req = db.get(StockRequest, ra["stock_request_id"])
+    assert req.loai == REQ_XUAT
+    assert req.trang_thai == REQ_APPROVED
+    assert req.bo_phan_id == cv.department_id     # tổ của CÔNG ĐOẠN, không phải phòng của user
+    assert req.nguoi_tao_id == admin.id
+    assert req.ngay_can == _T0.date()
+    assert all(float(l.sl_de_nghi) > 0 for l in req.lines)
+
+
+def test_khop_ke_hoach_thi_khong_doi_ly_do(db, orders, lsx_svc, admin, customer):
+    """Xin đúng số kế hoạch (sau quy đổi) ⇒ không phải giải thích gì."""
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT8")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)  # không raise
+
+    dn = db.get(SanXuatVatTuDeNghi, ra["de_nghi_id"])
+    assert all(d.ly_do_chenh_lech is None for d in dn.dongs)
+
+
+def test_lech_ke_hoach_ma_thieu_ly_do_thi_chan(db, orders, lsx_svc, admin, customer):
+    from app.services.san_xuat.vat_tu_de_nghi import VatTuDeNghiError
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT5")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": kh[0]["hang_loai"], "hang_id": kh[0]["hang_id"],
+              "dvt": kh[0]["dvt"], "sl_yeu_cau": kh[0]["sl"] * 1.5}]
+    with pytest.raises(VatTuDeNghiError) as e:
+        V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    assert "lý do" in str(e.value).lower()
+
+
+def test_khong_phai_to_truong_thi_chan(db, orders, lsx_svc, admin, customer):
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT6")
+    to.head_user_id = None          # không ai là tổ trưởng ⇒ kể cả admin cũng không ghi được
+    db.commit()
+    with pytest.raises(PermissionError):
+        V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=[])
+
+
+def test_dang_co_de_nghi_sua_duoc_thi_khong_tao_them(db, orders, lsx_svc, admin, customer):
+    from app.services.san_xuat.vat_tu_de_nghi import VatTuDeNghiError
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT7")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    with pytest.raises(VatTuDeNghiError) as e:
+        V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    assert "sửa" in str(e.value).lower()
+
+
+# --- Ruling 10: quy đổi giấy "tờ" không có cạnh tĩnh sang gốc --------------------------------
+
+def test_giu_nguyen_don_vi_ke_hoach_thi_quy_goc_theo_ti_le_cua_lenh(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Giấy khai bằng "tờ": cầu quy đổi tĩnh KHÔNG có cạnh tờ→tấn, nhưng bản đối chiếu vẫn phải
+    có `sl_yeu_cau_goc` đúng — lấy theo tỉ lệ kế hoạch của chính lệnh này."""
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT9")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    k0 = kh[0]
+    lines = [{"hang_loai": k0["hang_loai"], "hang_id": k0["hang_id"], "dvt": k0["dvt"],
+              "sl_yeu_cau": k0["sl"] / 2, "ly_do_chenh_lech": "Chia hai lần cấp"}]
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+
+    dn = db.get(SanXuatVatTuDeNghi, ra["de_nghi_id"])
+    d0 = next(d for d in dn.dongs
+              if (d.hang_loai, d.hang_id) == (k0["hang_loai"], k0["hang_id"]))
+    # `sl_yeu_cau_goc` là cột Numeric(18, 3) — đọc lại sau `db.commit()` (expire_on_commit) nên
+    # so KHÔNG được đòi khớp tuyệt đối, chỉ khớp trong nửa đơn vị làm tròn của chính cột đó
+    # (0.0005), không thì mọi test đụng cột Numeric đều đỏ vì lượng tử hoá của DB, không phải bug.
+    assert float(d0.sl_yeu_cau_goc) == pytest.approx(float(k0["sl_goc"]) / 2, abs=0.0006)
+    assert d0.dvt_goc == k0["dvt_goc"]
+
+
+def test_yeu_cau_kho_gui_bang_don_vi_goc_chu_khong_phai_to(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Ảnh chiếu sang kho phải là đơn vị GỐC — gửi "tờ" thì `StockRequestService.create` chặn."""
+    from app.models.stock_request import StockRequest
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTB")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+
+    req = db.get(StockRequest, ra["stock_request_id"])
+    k0 = next(k for k in kh if k["hang_loai"] == "giay")
+    ln = next(l for l in req.lines if (l.hang_loai, l.hang_id) == (k0["hang_loai"], k0["hang_id"]))
+    assert ln.dvt == k0["dvt_goc"] and ln.dvt != k0["dvt"]
+    # `StockRequestLine.sl_de_nghi` là cột Numeric(14, 2) — thô hơn cột SX (3 số lẻ), nên dung
+    # sai phải rộng hơn theo đúng nửa đơn vị làm tròn của CỘT NÀY (0.005), lý do y hệt test trên.
+    assert float(ln.sl_de_nghi) == pytest.approx(float(k0["sl_goc"]), abs=0.006)
+
+
+def test_doi_don_vi_khong_quy_duoc_thi_bao_loi_ro_chu_khong_ghi_0(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Tổ tự đổi sang đơn vị không có cầu quy đổi ⇒ BE không biết họ xin bao nhiêu. Phải nổ
+    `VatTuDeNghiError` với câu người dùng đọc được, KHÔNG lặng lẽ ghi 0 vào yêu cầu kho."""
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTA")
+    to.head_user_id = admin.id
+    db.commit()
+    k0 = _kh_service(db).nhu_cau_cua_cong_viec(cv)[0]
+    lines = [{"hang_loai": k0["hang_loai"], "hang_id": k0["hang_id"],
+              "dvt": "đơn-vị-không-có-thật", "sl_yeu_cau": 5, "ly_do_chenh_lech": "thử"}]
+    with pytest.raises(V.VatTuDeNghiError):
+        V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
