@@ -731,7 +731,15 @@ class BaiGhepService:
         cds = [theo_key[k][0] for k in keys]
         if len({cd.cong_doan_id for cd in cds}) != 1 or cds[0].cong_doan_id is None:
             raise BaiGhepValidationError("Chỉ gộp được các bước CÙNG một công đoạn")
+        if len({(cd.don_vi_vao, cd.don_vi_ra) for cd in cds}) != 1:
+            raise BaiGhepValidationError("Các bước chọn gộp phải CÙNG đơn vị vào/ra")
         lsx_ids = [theo_key[k][1].id for k in keys]
+        kieu_ins = {
+            str((theo_key[k][1].quy_cach_json or {}).get("quy_cach_in") or "")
+            for k in keys
+        }
+        if len(kieu_ins) != 1:
+            raise BaiGhepValidationError("Các lệnh chọn gộp phải CÙNG kiểu in (một mặt/tự trở/trở nhíp)")
         if len(set(lsx_ids)) != len(lsx_ids):
             raise BaiGhepValidationError("Mỗi lệnh chỉ góp một bước vào một lượt chạy chung")
         da_gop = set(self._de_len(self._buoc_chungs(bg)))

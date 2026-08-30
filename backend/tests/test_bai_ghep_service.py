@@ -467,6 +467,21 @@ def _them_buoc_hao_sau_in(db, lsx_svc, lsx, actor, *, so_to_bu_hao: int):
     return cd
 
 
+def _resync_don_vi(lsx_svc, lsx_id, actor) -> None:
+    """Lưu lại NGUYÊN routing hiện có để ép đơn vị của lệnh đọc lại danh mục công đoạn mới nhất.
+
+    Đơn vị của một bước là BẢN SAO chỉ đồng bộ lại khi CHÍNH lệnh đó được ghi — dùng khi test vừa
+    đổi đơn vị ở một công đoạn DÙNG CHUNG cho lệnh khác, còn lệnh này chưa đụng gì tới nên vẫn giữ
+    bản sao cũ (xem `LsxService._ap_chuoi_nguoc`)."""
+    from app.schemas.lsx import LsxCongDoanIn
+
+    cu = sorted(lsx_svc.get(lsx_id).cong_doans, key=lambda c: c.thu_tu)
+    lsx_svc.replace_routing(lsx_id=lsx_id, actor=actor, rows_in=[
+        LsxCongDoanIn(step_key=c.step_key, ten=c.ten, nhom=c.nhom, cong_doan_id=c.cong_doan_id)
+        for c in cu
+    ])
+
+
 def test_so_to_gom_hao_cac_buoc_sau_in(db, orders, lsx_svc, bg_svc, admin, customer):
     """Thêm bước sau in hao 300 tờ → bài phải cấp thêm đúng 300 tờ, không còn `ceil(SL/con)`."""
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)   # A=20k, B=8k
@@ -969,7 +984,12 @@ def test_so_do_giu_routing_day_du_va_khong_luu_canh(db, orders, lsx_svc, bg_svc,
     """Sơ đồ: mỗi lệnh giữ routing ĐẦY ĐỦ; bước đã gộp được đánh dấu `gop_step_key`, không biến mất."""
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     lsx_a = next(l for l in created if l.so_luong_dat == 20_000)
+    lsx_b = next(l for l in created if l.id != lsx_a.id)
     _them_buoc_hao_sau_in(db, lsx_svc, lsx_svc.get(lsx_a.id), admin, so_to_bu_hao=0)
+    # `_them_buoc_hao_sau_in` khai to→cái cho công đoạn IN DÙNG CHUNG của cả 2 lệnh, nhưng chỉ
+    # lưu lại lsx_a — lsx_b vẫn giữ bản sao đơn vị cũ (rỗng) cho tới khi CHÍNH nó được ghi lại.
+    # Gộp 2 bước in mà một bên còn bản sao cũ là chặn nhầm gộp thật — đồng bộ lsx_b trước.
+    _resync_don_vi(lsx_svc, lsx_b.id, admin)
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
     _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
 
