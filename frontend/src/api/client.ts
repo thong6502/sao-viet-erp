@@ -536,6 +536,11 @@ export const BAI_GHEP_THIEU_LABELS: Record<string, string> = {
   thieu_buoc_chung: "Chưa gộp bước nào — chọn bước cùng công đoạn ở các lệnh rồi bấm Gộp",
   thieu_ke_hoach_buoc_chung: "Lượt chạy chung chưa có tổ / máy / năng suất",
   thieu_so_to: "Chưa tính được số tờ",
+  khac_giay: "Giấy của bài lệch giấy đang khai ở một thành viên",
+  buoc_chung_thieu_thanh_vien: "Bước dùng chung chưa gộp đủ mọi thành viên trong bài",
+  thieu_buoc_chung_tren_giay: "Chưa có bước dùng chung nào nằm trên dòng giấy (điểm toả)",
+  vuot_con_toi_da: "Số con/tờ vượt khả năng khổ tờ ghép",
+  vuot_dien_tich: "Diện tích thành phẩm vượt quá tờ ghép",
 };
 
 /** Cảnh báo MỀM — chỉ tô màu, không chặn. Chỉ còn tín hiệu về TRẠNG THÁI đơn/lệnh.
@@ -2757,8 +2762,8 @@ export interface CustomerRow {
   payment_term_days?: number | null;
   discount_min_pct?: number | null;
   discount_max_pct?: number | null;
-  margin_min_pct?: number | null;
-  margin_max_pct?: number | null;
+  markup_min_pct?: number | null;
+  markup_max_pct?: number | null;
   /** Nhãn thủ công (#7) — sales gán tay. */
   tags?: string[];
 }
@@ -3060,8 +3065,8 @@ export interface CustomerFinancialInput {
   payment_term_days?: number | null;
   discount_min_pct?: number | null;
   discount_max_pct?: number | null;
-  margin_min_pct?: number | null;
-  margin_max_pct?: number | null;
+  markup_min_pct?: number | null;
+  markup_max_pct?: number | null;
 }
 
 /** Một ghi chú tự do của team về khách (tab Ghi chú). */
@@ -3265,6 +3270,11 @@ export interface ThanhPhamOut {
    *  chọn 15/08/2026 để báo giá chỉ còn MỘT dòng — đừng "sửa" bằng cách rút nó ra khỏi giá vốn.
    *  0 = dùng lại dao cũ. Chỉ có nghĩa ở bước mà công đoạn nguồn cần dao lưu kho (bế / ép nhũ). */
   phi_khuon: number;
+  /** Ba ô riêng của bước khung lụa (`tooling_type = "khung_lua"`) — kích thước/số lượng khung, TÁCH
+   *  BIỆT với `phi_khuon`: không tự tính ra tiền, chỉ bơm vào công thức của CHÍNH công đoạn đó. */
+  dai_khung_lua: number;
+  rong_khung_lua: number;
+  so_khung_lua: number;
 }
 
 /** 1 thành phần giấy (paper component): giấy + kỹ thuật in + màu + list gia công. */
@@ -3381,6 +3391,9 @@ export interface ThanhPhamIn {
   nha_cung_cap?: string | null;
   ghi_chu?: string | null;
   phi_khuon?: number;
+  dai_khung_lua?: number;
+  rong_khung_lua?: number;
+  so_khung_lua?: number;
 }
 /** Input 1 thành phần — mọi field optional + list gia công. */
 export interface ThanhPhanIn {
@@ -3572,6 +3585,7 @@ export interface QuotationDetail {
   contact_name_snapshot: string | null;
   contact_phone_snapshot: string | null;
   contact_title_snapshot: string | null;
+  contact_email_snapshot: string | null;
   customer_note: string | null;
   internal_note: string | null;
   
@@ -3586,14 +3600,14 @@ export interface QuotationDetail {
   can_approve: boolean;
   versions: VersionRow[];
   items: QuoteItemDetail[];
-  // BG-2 — báo giá đặc thù (GĐ duyệt trước khi gửi khách). `margin_pct` null nếu người xem không có
-  // quyền duyệt đặc thù (không rò biên cho Sales).
+  // BG-2 — báo giá đặc thù (GĐ duyệt trước khi gửi khách). `markup_pct` = lợi nhuận / GIÁ VỐN —
+  // ĐÚNG con số ô "Markup %" trong bảng dòng, không phải biên trên giá bán.
   exception_required: boolean;
   exception_status: "none" | "pending" | "approved" | "rejected" | "stale";
   exception_cleared: boolean;
   exceptions: { key: string; label: string }[];
   exception_note: string | null;
-  margin_pct: number | null;
+  markup_pct: number | null;
   // Ai SOẠN (người duyệt biết báo giá của NV nào) + ai ĐÃ DUYỆT/từ chối (NV biết ai xử lý).
   salesperson_id?: number | null;
   salesperson_name?: string | null;
@@ -3647,6 +3661,7 @@ export interface QuotationUpdateInput {
   contact_name_snapshot?: string | null;
   contact_phone_snapshot?: string | null;
   contact_title_snapshot?: string | null;
+  contact_email_snapshot?: string | null;
   items: QuoteItemUpdateInput[] | null;
 }
 
