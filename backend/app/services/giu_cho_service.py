@@ -486,6 +486,12 @@ class GiuChoService:
             return
         hang = (held[0].hang_loai, held[0].hang_id)
         self._khoa_nguon([hang])
+        # `_hang_dang_ve()` đòi `self.kh._objs` đã nạp (do `can_doi()` set) — gọi thẳng như
+        # `nhat_them()`/`bat()` vẫn làm. Instance `kh_vt` mà router `deps.py` ráp cho MỖI request
+        # là hàng mới tinh, chưa từng chạy `can_doi()`, nên đối soát đứng một mình (đợt giao/huỷ/
+        # đóng đơn) phải tự dựng bảng trước khi đọc `_hang_dang_ve()`, không thì vỡ AttributeError.
+        if getattr(self.kh, "_objs", None) is None:
+            self.kh.can_doi()
         con_ve, ngay_ve = 0.0, None
         for ngay, sl, _ma, line_id in self.kh._hang_dang_ve().get(hang, []):
             if line_id == purchase_request_line_id:
