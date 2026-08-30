@@ -52,6 +52,10 @@ def _cols(eng, table):
     return {c["name"] for c in inspect(eng).get_columns(table)}
 
 
+def _index_names(eng, table):
+    return {ix["name"] for ix in inspect(eng).get_indexes(table)}
+
+
 def test_them_cot_khong_loi_va_dung_kieu():
     eng = _old_schema_engine()
     with Session(eng) as db:
@@ -62,6 +66,12 @@ def test_them_cot_khong_loi_va_dung_kieu():
     assert {"la_kcs", "kcs_tieu_chi_bo_sung_json"} <= _cols(eng, "bai_ghep_cong_doan")
     assert "kcs_tieu_chi_json" in _cols(eng, "san_xuat_cong_viec")
     assert {"loai", "kcs_department_id", "checklist_json"} <= _cols(eng, "san_xuat_kcs_batch")
+
+    # Model khai `index=True` cho `kcs_department_id` — ALTER thủ công phải tự tạo index cùng
+    # tên SQLAlchemy tự sinh (`ix_<table>_<cot>`), không chỉ thêm cột suông (bug đã vá: FK có
+    # nhưng thiếu index thật trên DB dev/prod, nơi bảng đã tồn tại từ trước nên create_all
+    # không tự sinh index cho cột mới).
+    assert "ix_san_xuat_kcs_batch_kcs_department_id" in _index_names(eng, "san_xuat_kcs_batch")
 
     with eng.connect() as con:
         # Dòng cũ đọc ra false/NULL đúng nghĩa "chưa khai" — không suy diễn gì thêm ở migration này.
@@ -86,6 +96,9 @@ def test_chay_lai_lan_hai_khong_loi_khong_doi_du_lieu():
 
     with Session(eng) as db:
         _migrate_kcs_kiem_nhiem_cot_nen(db)  # KHÔNG được raise (cột đã có → guard bỏ qua)
+
+    # Guard theo cột bỏ qua cả ALTER lẫn CREATE INDEX ở lượt hai — index vẫn phải còn đó.
+    assert "ix_san_xuat_kcs_batch_kcs_department_id" in _index_names(eng, "san_xuat_kcs_batch")
 
     with eng.connect() as con:
         assert con.execute(text("SELECT la_kcs FROM cong_doan WHERE id = 1")).scalar() in (1, True)

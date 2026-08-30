@@ -10927,6 +10927,14 @@ def _migrate_kcs_kiem_nhiem_cot_nen(db: Session) -> None:
                 "ALTER TABLE san_xuat_kcs_batch ADD COLUMN kcs_department_id "
                 "INTEGER REFERENCES departments(id) ON DELETE SET NULL"
             ))
+            # Model khai `index=True` (đúng tên SQLAlchemy tự sinh cho create_all trên DB trắng:
+            # `ix_<table>_<cot>`) — ALTER thủ công ở đây phải tự tạo index cùng tên, nếu không
+            # DB dev/prod (bảng đã tồn tại từ trước, create_all không đụng lại) có FK nhưng
+            # KHÔNG có index thật.
+            db.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_san_xuat_kcs_batch_kcs_department_id "
+                "ON san_xuat_kcs_batch (kcs_department_id)"
+            ))
         if "checklist_json" not in cols:
             db.execute(text("ALTER TABLE san_xuat_kcs_batch ADD COLUMN checklist_json JSON"))
 
