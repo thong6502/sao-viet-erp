@@ -59,16 +59,15 @@ def phat_hanh(
     repo.flush()
 
     nhom_by_lsx = dam_bao_nhom(repo, lsx_ids)
-    kcs = repo.kcs_department_ids()
 
     cv_by_step = dung_cong_viec(
         repo, goi=goi, phien_ban_so=1,
         lsx_ids=lsx_ids, bai_ghep_ids=bai_ghep_ids,
-        nhom_by_lsx=nhom_by_lsx, kcs_depts=kcs,
+        nhom_by_lsx=nhom_by_lsx,
     )
     than_chinh = danh_dau_kcs_cuoi(
         repo, lsx_ids=lsx_ids, nhom_by_lsx=nhom_by_lsx,
-        cv_by_step=cv_by_step, kcs_depts=kcs,
+        cv_by_step=cv_by_step,
     )
     for nhom_id, lsx_id in than_chinh.items():
         grp = nhom_by_lsx.get(lsx_id)
@@ -108,6 +107,9 @@ def van_de_phat_hanh(
     lsx_ids = set(lsx_ids)
     repo = SanXuatRepository(db)
     kcs = repo.kcs_department_ids()
+    # Đọc routing MỘT LẦN cho mỗi LSX — dùng lại cho cả suy KCS-cuối lẫn luật 5 dưới đây, khỏi
+    # query trùng cùng một bảng cho cùng một lsx_id.
+    steps_by_lsx = {lsx_id: repo.routing_steps(lsx_id) for lsx_id in lsx_ids}
 
     # Gom LSX theo (order_id, khoa) — không đụng DB.
     from .nhom import _khoa
@@ -126,8 +128,8 @@ def van_de_phat_hanh(
     for key, members in nhom_lsx.items():
         so_kcs_cuoi = 0
         for lsx_id in members:
-            steps = repo.routing_steps(lsx_id)
-            if steps and steps[-1].department_id in kcs:
+            steps = steps_by_lsx[lsx_id]
+            if steps and steps[-1].la_kcs:
                 so_kcs_cuoi += 1
         ten = nhan.get(key, "")
         if so_kcs_cuoi == 0:
@@ -142,4 +144,21 @@ def van_de_phat_hanh(
                 f"Nhóm thành phẩm “{ten}” có {so_kcs_cuoi} bước KCS cuối — mập mờ lệnh thân chính.",
                 goi_y="Chỉ giữ KCS cuối trên MỘT lệnh thân chính; các lệnh khác kết ở bước ghép.",
             ))
+
+    # Luật 5: bước khai la_kcs=true nhưng TỔ thực hiện không có năng lực KCS (department.is_kcs) —
+    # sai cấu hình phải CHẶN phát hành, chỉ đích danh bước + tổ (không chỉ "cấu hình sai" chung
+    # chung). Quét TOÀN BỘ bước của TOÀN BỘ LSX trong `lsx_ids` (không riêng bước cuối) — bước dùng
+    # chung của bài ghép NGOÀI phạm vi Task 2 (chưa có ca thật nào KCS sống trong bài ghép).
+    sai_to = [
+        cd for steps in steps_by_lsx.values() for cd in steps
+        if cd.la_kcs and cd.department_id not in kcs
+    ]
+    ten_to_by_id = repo.to_ten_nhan({cd.department_id for cd in sai_to if cd.department_id})
+    for cd in sai_to:
+        ten_to = ten_to_by_id.get(cd.department_id) or "(chưa gán tổ)"
+        van_de.append(issue(
+            "kcs_sai_to", MUC_CHAN_PHAT_HANH,
+            f"Bước “{cd.ten}” khai là KCS nhưng tổ “{ten_to}” không có năng lực KCS.",
+            goi_y="Bật cờ KCS cho tổ này ở danh mục Phòng ban, hoặc bỏ cờ KCS khỏi bước.",
+        ))
     return van_de

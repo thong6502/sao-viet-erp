@@ -4402,7 +4402,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `nhom_cong_doan` | `String(24)` | — | yes | — | prepress/print/finishing. |
 | `loai_buoc` | `String(16)` | — | no | `may` | `may`/`to`/`thue_ngoai`. |
 | `department_id` | `Integer` FK→`departments.id` | IX | yes | — | Snapshot tổ thực hiện (§2.2). |
-| `la_kcs` | `Boolean` | — | no | `false` | Snapshot: thực hiện tại tổ KCS. |
+| `la_kcs` | `Boolean` | — | no | `false` | Snapshot cờ CỦA BƯỚC routing (`lsx_cong_doan.la_kcs`/`bai_ghep_cong_doan.la_kcs`) — Task 2: KHÔNG còn suy theo `department_id`/tổ KCS, đọc thẳng cờ bước. |
 | `la_kcs_cuoi` | `Boolean` | — | no | `false` | KCS cuối của nhóm (đúng một/nhóm — §2.2). |
 | `kcs_tieu_chi_json` | `JSON` | — | yes | — | Module KCS kiêm nhiệm (mg `0250`): SNAPSHOT ĐẦY ĐỦ checklist (danh mục + bổ sung LSX/bài ghép) tại lúc PHÁT HÀNH — khác `lsx_cong_doan.kcs_tieu_chi_bo_sung_json` (chỉ phần bổ sung). Task 3 mới thực sự ghi; NULL = chưa qua luồng phát hành mới. |
 | `may_id` | `Integer` | — | yes | — | Snapshot máy — soft → `may_thiet_bi.id`. Migration `0237` GỠ khoá ngoại cứng cũ trỏ `machines`: máy của bước lấy từ danh mục đang chạy `may_thiet_bi`, id lệch hẳn `machines` (danh mục đời tính giá) nên lệnh nào có bước chạy máy ngoài dải đó cũng vỡ lúc phát hành, kẹt lại `da_phat_hanh` mà không có công việc. |

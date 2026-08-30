@@ -1406,6 +1406,9 @@ class LsxService:
             # Đầu việc khoán của bước: điền sẵn khi bảng giá của tổ chỉ khớp MỘT dòng. Nhiều dòng
             # (bế tay / bế máy) hoặc tổ không ăn khoán → None, kế hoạch tự chọn ở drawer.
             "khoan_json": khoan,
+            # KCS kiêm nhiệm (mg 0250, Task 2): snapshot NGUYÊN cờ của danh mục Công đoạn xuống
+            # bước — nguồn thật để suy KCS-cuối/phát hành là CỜ NÀY, không phải department.is_kcs.
+            "la_kcs": bool(cd_obj.la_kcs) if cd_obj else False,
         }
 
     def _bung_vat_tu_dau_viec(self, lsx: Lsx, quy_cach: dict) -> None:
@@ -2691,6 +2694,9 @@ class LsxService:
         "nha_cung_cap", "sl_gui", "ngay_gui_dk", "van_chuyen_ngay", "gia_cong_ngay",
         "ngay_nhan_dk", "hao_hut_cho_phep", "don_gia_gia_cong", "yeu_cau_ky_thuat",
         "ghi_chu",
+        # KCS kiêm nhiệm (mg 0250, Task 2): cờ kế thừa từ danh mục Công đoạn lúc bung routing lần
+        # đầu (`_default_buoc`) — CÙNG cơ chế trên, sửa đè được nếu client gửi lại field này.
+        "la_kcs",
     )
     _ROUTING_FIELD_NULLABLE = {
         "may_id", "khuon_be_id", "chay_phut", "nha_cung_cap", "ngay_gui_dk", "ngay_nhan_dk",

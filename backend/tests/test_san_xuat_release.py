@@ -18,6 +18,7 @@ from app.models.san_xuat import (
 )
 from app.repositories.san_xuat_repo import SanXuatRepository
 from app.services.san_xuat import component, release
+from app.services.xep_lich_2.constraint import MUC_CHAN_PHAT_HANH
 
 # Fixtures + helper dùng chung từ test xếp lịch.
 from tests.test_xep_lich_service import (  # noqa: F401
@@ -49,6 +50,26 @@ def _kcs_dept(db) -> Department:
     db.add(d)
     db.flush()
     return d
+
+
+def _dept_khong_kcs(db, *, ten="Tổ Thành Phẩm XL", ma="TO-TP-XL") -> Department:
+    d = Department(name=ten, code=ma, la_san_xuat=True)
+    db.add(d)
+    db.flush()
+    return d
+
+
+def _them_buoc(db, lsx_id, *, thu_tu, ten, department_id, la_kcs) -> LsxCongDoan:
+    """Thêm MỘT bước routing thủ công vào LSX — tái dùng cho mọi test soi cờ `la_kcs` (Task 2):
+    engine giá không cần chạy lại, chỉ cần một `LsxCongDoan` mang đúng cờ/tổ để soi snapshot."""
+    buoc = LsxCongDoan(
+        lsx_id=lsx_id, thu_tu=thu_tu, ten=ten, nhom="finishing", loai_buoc=LB_MAY,
+        department_id=department_id, la_kcs=la_kcs,
+        so_luong_vao=1000, so_luong_ra=1000, don_vi_vao="cai", don_vi_ra="cai",
+    )
+    db.add(buoc)
+    db.flush()
+    return buoc
 
 
 # --- Snapshot gói phát hành: mỗi công đoạn LSX một công việc, có gói + phiên bản ------------
@@ -97,7 +118,11 @@ def test_kcs_cuoi_danh_dau_va_than_chinh(db, orders, lsx_svc, admin, customer):
     a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     kcs = _kcs_dept(db)
     steps = _steps(db, a.id)
+    # Nguồn XÁC ĐỊNH KCS-cuối là CỜ `la_kcs` của bước (Task 2), KHÔNG còn suy theo
+    # `department_id in kcs_depts` — set cả hai cho khớp cấu hình hợp lệ (luật 5: bước la_kcs=true
+    # phải nằm ở tổ is_kcs=true).
     steps[-1].department_id = kcs.id
+    steps[-1].la_kcs = True
     db.commit()
 
     goi = release.phat_hanh(db, lsx_ids={a.id}, actor=admin)
@@ -121,9 +146,77 @@ def test_van_de_phat_hanh_bao_thieu_kcs_cuoi(db, orders, lsx_svc, admin, custome
     assert any(i["ma"] == "kcs_cuoi_thieu" for i in vd)
 
     kcs = _kcs_dept(db)
-    _steps(db, a.id)[-1].department_id = kcs.id
+    cuoi = _steps(db, a.id)[-1]
+    cuoi.department_id = kcs.id
+    cuoi.la_kcs = True
     db.commit()
     assert release.van_de_phat_hanh(db, lsx_ids={a.id}) == []
+
+
+# --- KCS kiêm nhiệm (Task 2): nguồn ĐÚNG là cờ của BƯỚC, không phải department.is_kcs ---------
+def test_snapshot_la_kcs_theo_tung_buoc_khong_theo_to(db, orders, lsx_svc, admin, customer):
+    """Dán và Kiểm tra cuối CÙNG một tổ (is_kcs=true) nhưng khai `la_kcs` khác nhau ở danh mục —
+    snapshot phát hành phải theo TỪNG BƯỚC, không đồng nhất theo tổ (luật 1/2/4 spec §2.1)."""
+    a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    kcs = _kcs_dept(db)
+    _them_buoc(db, a.id, thu_tu=1, ten="Dán", department_id=kcs.id, la_kcs=False)
+    _them_buoc(db, a.id, thu_tu=2, ten="Kiểm tra cuối", department_id=kcs.id, la_kcs=True)
+    db.commit()
+
+    # Case bình thường: đúng một KCS-cuối/nhóm → không có vấn đề chặn phát hành.
+    assert release.van_de_phat_hanh(db, lsx_ids={a.id}) == []
+
+    goi = release.phat_hanh(db, lsx_ids={a.id}, actor=admin)
+    db.commit()
+
+    steps = _steps(db, a.id)
+    dan_step = next(s for s in steps if s.ten == "Dán")
+    kt_step = next(s for s in steps if s.ten == "Kiểm tra cuối")
+    cv_dan = db.query(SanXuatCongViec).filter_by(goi_id=goi.id, step_key=dan_step.step_key).one()
+    cv_kt = db.query(SanXuatCongViec).filter_by(goi_id=goi.id, step_key=kt_step.step_key).one()
+
+    assert cv_dan.department_id == kcs.id and cv_dan.la_kcs is False
+    assert cv_kt.department_id == kcs.id and cv_kt.la_kcs is True and cv_kt.la_kcs_cuoi is True
+
+
+def test_buoc_la_kcs_sai_to_chan_phat_hanh(db, orders, lsx_svc, admin, customer):
+    """Luật 5: bước khai `la_kcs=true` nhưng tổ thực hiện KHÔNG có `is_kcs=true` — sai cấu hình
+    phải CHẶN phát hành và chỉ rõ TÊN bước + TÊN tổ, không phải câu chung chung."""
+    a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    to_sai = _dept_khong_kcs(db)
+    _them_buoc(db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=to_sai.id, la_kcs=True)
+    db.commit()
+
+    vd = release.van_de_phat_hanh(db, lsx_ids={a.id})
+    loi = next(i for i in vd if i["ma"] == "kcs_sai_to")
+    assert loi["muc"] == MUC_CHAN_PHAT_HANH
+    assert "Kiểm tra cuối" in loi["mo_ta"] and to_sai.name in loi["mo_ta"]
+
+
+def test_kcs_trung_gian_khong_bi_danh_kcs_cuoi(db, orders, lsx_svc, admin, customer):
+    """Bước `la_kcs=true` nằm GIỮA routing (không phải bước cuối) là KCS TRUNG GIAN hợp lệ — nó
+    vẫn là công việc KCS (`la_kcs=True`), nhưng KHÔNG được đánh `la_kcs_cuoi`. Bước cuối vẫn
+    `la_kcs=false` nên hành vi CŨ (thiếu KCS-cuối bị chặn) phải còn nguyên."""
+    a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    kcs = _kcs_dept(db)
+    to_thuong = _dept_khong_kcs(db, ten="Tổ Đóng Gói XL", ma="TO-DG-XL")
+    _them_buoc(db, a.id, thu_tu=1, ten="Kiểm tra giữa", department_id=kcs.id, la_kcs=True)
+    _them_buoc(db, a.id, thu_tu=2, ten="Đóng gói", department_id=to_thuong.id, la_kcs=False)
+    db.commit()
+
+    vd = release.van_de_phat_hanh(db, lsx_ids={a.id})
+    assert any(i["ma"] == "kcs_cuoi_thieu" for i in vd)          # hành vi CŨ vẫn đúng
+    assert not any(i["ma"] == "kcs_sai_to" for i in vd)          # bước giữa khai đúng tổ KCS
+
+    goi = release.phat_hanh(db, lsx_ids={a.id}, actor=admin)
+    db.commit()
+
+    giua_step = next(s for s in _steps(db, a.id) if s.ten == "Kiểm tra giữa")
+    cv_giua = db.query(SanXuatCongViec).filter_by(
+        goi_id=goi.id, step_key=giua_step.step_key
+    ).one()
+    assert cv_giua.la_kcs is True and cv_giua.la_kcs_cuoi is False
+    assert db.query(SanXuatCongViec).filter_by(goi_id=goi.id, la_kcs_cuoi=True).count() == 0
 
 
 # --- Idempotent ở mức gói: phát hành lại KHÔNG đẻ gói trùng (versioning §4.3 để lát sau) -----

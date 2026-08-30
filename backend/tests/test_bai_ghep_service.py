@@ -297,6 +297,29 @@ def test_tao_bai_ghep_va_tinh_so_to(db, orders, lsx_svc, bg_svc, admin, customer
     assert d2["giay_id"] is not None and d2["kho_in_dai"] == 650
 
 
+def test_gop_chep_la_kcs_tu_buoc_mau(db, orders, lsx_svc, bg_svc, admin, customer):
+    """`gop()` phải chép cờ `la_kcs` của BƯỚC MẪU (`cds[0]`) xuống `BaiGhepCongDoan` (Task 2) —
+    mọi bước chọn gộp đã được validate CÙNG `cong_doan_id` nên `la_kcs` của chúng giống nhau."""
+    from app.models.bai_ghep_cong_doan import BaiGhepCongDoan
+
+    ptg = _ptg_2_in(db)
+    cd_in = db.query(CongDoan).filter(CongDoan.nhom == "print").one()
+    cd_in.la_kcs = True                     # "In offset" khai la_kcs=true ở danh mục
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    created = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
+    for l in created:
+        lsx_svc.set_trang_thai(lsx_id=l.id, trang_thai=TT_SAN_SANG, actor=admin)
+
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+
+    chung = db.query(BaiGhepCongDoan).filter(BaiGhepCongDoan.bai_ghep_id == bg.id).one()
+    assert chung.la_kcs is True
+
+
 def test_guard_mot_lsx_toi_da_mot_bai(db, orders, lsx_svc, bg_svc, admin, customer):
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     a = created[0].id

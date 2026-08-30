@@ -66,7 +66,6 @@ def dung_cong_viec(
     lsx_ids: set[int],
     bai_ghep_ids: set[int],
     nhom_by_lsx: dict[int, SanXuatNhom],
-    kcs_depts: set[int],
 ) -> dict[str, SanXuatCongViec]:
     """Đẻ công việc cho gói phát hành; trả map `step_key` → công việc (để nối phụ thuộc).
 
@@ -95,7 +94,7 @@ def dung_cong_viec(
                 nhom_id=nhom_id, lsx_id=None, bai_ghep_id=bg_id,
                 bai_ghep_cong_doan_id=cd.id, step_key=cd.step_key,
                 ten_cong_doan=cd.ten, nhom_cong_doan=cd.nhom, loai_buoc=cd.loai_buoc or BUOC_MAY,
-                department_id=cd.department_id, la_kcs=(cd.department_id in kcs_depts),
+                department_id=cd.department_id, la_kcs=bool(cd.la_kcs),
                 may_id=may_id or cd.may_id,
                 du_kien_bat_dau=start, du_kien_ket_thuc=finish,
                 so_luong_vao=cd.so_luong_vao, so_luong_ra=cd.so_luong_ra,
@@ -121,7 +120,7 @@ def dung_cong_viec(
                 nhom_id=grp.id if grp else None, lsx_id=lsx_id, bai_ghep_id=None,
                 lsx_cong_doan_id=cd.id, step_key=cd.step_key,
                 ten_cong_doan=cd.ten, nhom_cong_doan=cd.nhom, loai_buoc=cd.loai_buoc or BUOC_MAY,
-                department_id=cd.department_id, la_kcs=(cd.department_id in kcs_depts),
+                department_id=cd.department_id, la_kcs=bool(cd.la_kcs),
                 may_id=may_id or cd.may_id,
                 du_kien_bat_dau=start, du_kien_ket_thuc=finish,
                 so_luong_vao=cd.so_luong_vao, so_luong_ra=cd.so_luong_ra,
@@ -142,7 +141,6 @@ def danh_dau_kcs_cuoi(
     lsx_ids: set[int],
     nhom_by_lsx: dict[int, SanXuatNhom],
     cv_by_step: dict[str, SanXuatCongViec],
-    kcs_depts: set[int],
 ) -> dict[int, int]:
     """Suy KCS-cuối của MỖI nhóm (spec §3.2/§4.4): bước KCS nằm ở CUỐI routing của một LSX thành
     viên. Đúng một ứng viên/nhóm → đánh `la_kcs_cuoi` + chốt LSX thân chính. Không có / nhiều hơn
@@ -159,7 +157,7 @@ def danh_dau_kcs_cuoi(
         if not steps:
             continue
         cuoi = steps[-1]  # đã sort theo thu_tu, id
-        if cuoi.department_id in kcs_depts and cuoi.step_key in cv_by_step:
+        if cuoi.la_kcs and cuoi.step_key in cv_by_step:
             ung_vien.setdefault(grp.id, []).append((lsx_id, cuoi.step_key))
 
     than_chinh: dict[int, int] = {}

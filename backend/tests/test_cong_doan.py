@@ -106,6 +106,22 @@ def test_nang_suat_luu_va_sua_duoc():
                            pricing_basis="per_finished_qty")).nang_suat is None
 
 
+def test_la_kcs_luu_va_sua_duoc():
+    """Cờ `la_kcs` (Task 2) phải nằm trong whitelist `ASSIGNABLE` — cùng bẫy "nuốt im lặng" như
+    `nang_suat`: thiếu khỏi tuple là form gửi lên, API 200, mà cờ không vào DB."""
+    db, svc = _svc()
+    cd = svc.create(dict(ma="KTC", ten="Kiểm tra cuối", nhom="finishing",
+                         pricing_basis="per_finished_qty", la_kcs=True))
+    assert cd.la_kcs is True
+
+    sua = svc.update(cd.id, dict(ma="KTC", ten="Kiểm tra cuối", nhom="finishing",
+                                 pricing_basis="per_finished_qty", la_kcs=False))
+    assert sua.la_kcs is False
+    # Không khai vẫn hợp lệ → mặc định False (không tự nhận KCS).
+    assert svc.create(dict(ma="DAN2", ten="Dán", nhom="finishing",
+                           pricing_basis="per_finished_qty")).la_kcs is False
+
+
 def test_cong_doan_to_luu_dinh_muc_theo_dau_viec():
     db, svc = _svc()
     to = Department(name="Tổ Bồi", code="PB900", la_san_xuat=True)

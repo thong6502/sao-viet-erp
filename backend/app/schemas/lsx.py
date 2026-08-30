@@ -155,6 +155,11 @@ class LsxCongDoanIn(BaseModel):
     nhom: str | None = None
     loai_buoc: str | None = None
     bat_buoc: bool | None = None
+    # KCS kiêm nhiệm (mg 0250, Task 2): cờ kế thừa từ danh mục Công đoạn lúc bung routing lần đầu
+    # (`_default_buoc`) — khai ở đây để client sửa đè được tại bước qua `_ROUTING_FIELD_THUAN`.
+    # Không khai field này thì `model_dump(exclude_unset=True)` không bao giờ có khoá "la_kcs",
+    # cơ chế sửa đè coi như chết (đúng bẫy "Pydantic nuốt field im lặng").
+    la_kcs: bool | None = None
     department_id: int | None = None
     may_id: int | None = None
     #: Con dao của bước (`khuon_be.id`). Gửi null = bỏ gán.
