@@ -10936,3 +10936,28 @@ def _dung_lai_giu_cho_dang_ve(db: Session) -> None:
 
 MIGRATIONS.append(("0245_giu_cho_purchase_request_line_id",
                    _migrate_giu_cho_purchase_request_line_id))
+
+
+def _migrate_sx_vat_tu_de_nghi(db: Session) -> None:
+    """`stock_request_lines.sl_chot_thuc_xuat` — số kho CHỐT đã thực xuất cho một dòng yêu cầu.
+
+    Hai bảng `san_xuat_vat_tu_de_nghi*` là bảng MỚI nên `create_all` tự dựng; migration này chỉ lo
+    cột thêm vào bảng CŨ (spec-de-nghi-cap-vat-tu-cong-doan §2.3).
+
+    Hàng CŨ giữ NULL = "chưa điều chỉnh lần nào" ⇒ mục tiêu hiệu lực của chúng vẫn là `sl_duyet`,
+    tức mọi yêu cầu đang chạy KHÔNG đổi trạng thái một li nào sau migration. Đừng backfill về
+    `sl_da_ung`: làm thế là tuyên bố mọi yêu cầu cấp dở dang đều "đã chốt xong", xoá sạch phần
+    còn thiếu của chúng.
+    """
+    insp = inspect(db.get_bind())
+    if "stock_request_lines" not in set(insp.get_table_names()):
+        return
+    if "sl_chot_thuc_xuat" in _existing_columns(insp, "stock_request_lines"):
+        return
+    db.execute(text(
+        "ALTER TABLE stock_request_lines ADD COLUMN sl_chot_thuc_xuat NUMERIC(14,2)"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0249_sx_vat_tu_de_nghi", _migrate_sx_vat_tu_de_nghi))

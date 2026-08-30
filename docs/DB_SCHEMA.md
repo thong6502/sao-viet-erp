@@ -4946,6 +4946,49 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 
 ---
 
+### `san_xuat_vat_tu_de_nghi`
+
+**Purpose:** một LẦN tổ SX đề nghị cấp vật tư cho một công đoạn (docs/spec-de-nghi-cap-vat-tu-cong-doan.md §2). Bảng MỚI (`create_all`). Giữ bản đối chiếu ĐẦY ĐỦ — kể cả khi tổ xin 0 mọi mặt hàng (khi đó `stock_request_id` để trống, không đẻ chứng từ kho rỗng). `loai` phân biệt `lan_dau` (ảnh của kế hoạch) và `bo_sung` (phát sinh sau khi kho đã lập phiếu cho lần trước).
+
+| Column | Type | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` | **PK** | no | auto | Surrogate PK. |
+| `cong_viec_id` | `Integer` FK→`san_xuat_cong_viec.id` (CASCADE) | IX | no | — | Công việc/công đoạn được đề nghị cấp vật tư. |
+| `lan_so` | `Integer` | **U** (cặp `cong_viec_id`) | no | `1` | Số thứ tự lần đề nghị của công việc này. |
+| `loai` | `String(12)` | — | no | `lan_dau` | `lan_dau` \| `bo_sung`. |
+| `can_luc` | `DateTime(timezone=True)` | — | no | — | GIỜ cần thật (không chỉ ngày) — ca chiều cần lúc 13h30 khác ca sáng cần lúc 6h. |
+| `stock_request_id` | `Integer` FK→`stock_requests.id` (SET NULL) | **U** | yes | — | Yêu cầu kho ảnh chiếu. NULL khi mọi dòng bằng 0. Unique: một yêu cầu kho chỉ thuộc đúng một lần đề nghị. |
+| `created_by_id` | `Integer` FK→`users.id` | — | yes | — | Người tạo lần đề nghị. |
+| `updated_by_id` | `Integer` FK→`users.id` | — | yes | — | Người sửa gần nhất. |
+| `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
+| `updated_at` | `DateTime(timezone=True)` | — | no | now (UTC) | onupdate = now. |
+
+**Tất cả cột:** `id`, `cong_viec_id`, `lan_so`, `loai`, `can_luc`, `stock_request_id`, `created_by_id`, `updated_by_id`, `created_at`, `updated_at`.
+
+---
+
+### `san_xuat_vat_tu_de_nghi_dong`
+
+**Purpose:** một mặt hàng trong một lần đề nghị (docs/spec-de-nghi-cap-vat-tu-cong-doan.md §2). Bảng MỚI (`create_all`). Lần ĐẦU lưu MỌI vật tư kế hoạch, kể cả dòng tổ xin 0 (`sl_yeu_cau=0`) — để đọc lại được "kế hoạch có, tổ không lấy", câu không suy ngược được từ yêu cầu kho (yêu cầu kho chỉ chứa dòng dương). Vật tư ngoài kế hoạch: `sl_ke_hoach=0`. Bốn con số `sl_*`/`sl_*_goc` so được hai thang: đơn vị người khai (tờ, ram…) để bản in đúng chữ, đơn vị gốc để MÁY so lệch.
+
+| Column | Type | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` | **PK** | no | auto | Surrogate PK. |
+| `de_nghi_id` | `Integer` FK→`san_xuat_vat_tu_de_nghi.id` (CASCADE) | IX, **U** (cặp `hang_loai`+`hang_id`) | no | — | Lần đề nghị chứa dòng này. |
+| `hang_loai` | `String(8)` | **U** (cặp) | no | — | Loại mặt hàng gốc: `giay` \| `vat_tu`. |
+| `hang_id` | `Integer` | **U** (cặp) | no | — | Id trong `giay_nguyen` / `vat_tu_in_an`. Soft ref (2 bảng đích nên không FK thật được). |
+| `dvt` | `String(24)` | — | no | — | Đơn vị người khai nhìn thấy (tờ, ram, thùng…). |
+| `dvt_goc` | `String(24)` | — | no | — | Đơn vị gốc của mặt hàng — dùng để MÁY so lệch. |
+| `sl_ke_hoach` | `Numeric(18,3)` | — | no | `0` | Số kế hoạch, theo `dvt`. |
+| `sl_ke_hoach_goc` | `Numeric(18,3)` | — | no | `0` | Số kế hoạch, theo `dvt_goc`. |
+| `sl_yeu_cau` | `Numeric(18,3)` | — | no | `0` | Số tổ đề nghị, theo `dvt`. |
+| `sl_yeu_cau_goc` | `Numeric(18,3)` | — | no | `0` | Số tổ đề nghị, theo `dvt_goc`. |
+| `ly_do_chenh_lech` | `String(500)` | — | yes | — | Lý do lệch kế hoạch ↔ đề nghị. Không chuyển sang yêu cầu kho (kho không cần thấy — spec §7). |
+
+**Tất cả cột:** `id`, `de_nghi_id`, `hang_loai`, `hang_id`, `dvt`, `dvt_goc`, `sl_ke_hoach`, `sl_ke_hoach_goc`, `sl_yeu_cau`, `sl_yeu_cau_goc`, `ly_do_chenh_lech`.
+
+---
+
 ## Nhân sự & Lương — bậc tay nghề · danh mục khoán · lịch sử ca
 
 ### `job_grades`
@@ -5497,6 +5540,7 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | `sl_de_nghi` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Số người đề nghị xin. CHECK `> 0`. |
 | `sl_duyet` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | Số người duyệt CHO. CHECK `>= 0`. |
 | `sl_da_ung` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | Số kho ĐÃ cấp/nhập qua các phiếu. CHECK `>= 0`; service chặn vượt `sl_duyet`. |
+| `sl_chot_thuc_xuat` | `Numeric(14,2)` → `NUMERIC` | — | yes | — | Số kho CHỐT đã thực xuất cho dòng này sau khi điều chỉnh phiếu xuất. NULL = chưa điều chỉnh. Mục tiêu hiệu lực của dòng = `coalesce(sl_chot_thuc_xuat, sl_duyet)`; `còn lại = max(mục tiêu − sl_da_ung, 0)`. Thêm qua migration `0249`. |
 | `don_gia` | `Integer` → `INTEGER` | — | yes | — | Đơn giá NHẬP do NGƯỜI ĐỀ NGHỊ khai (chỉ đề nghị NHẬP — họ biết giá NCC). Phiếu KẾ THỪA giá này khi ghi sổ; **kho KHÔNG sửa**. Null với đề nghị XUẤT (giá = giá vốn đích danh của lô). |
 | `don_vi_phu` | `String(16)` → `VARCHAR(16)` | — | yes | — | Quy đổi đơn vị do NGƯỜI ĐỀ NGHỊ khai (1 `don_vi_phu` = `he_so_quy_doi` × dvt tồn). Hàng mới → kho tạo mã kèm quy đổi này; hàng có mã → prefill từ mặt hàng. Kho KHÔNG khai lại ở phiếu. |
 | `he_so_quy_doi` | `Numeric(14,4)` → `NUMERIC(14,4)` | — | yes | — | Hệ số đi kèm `don_vi_phu`. |

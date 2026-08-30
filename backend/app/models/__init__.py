@@ -165,6 +165,7 @@ from .san_xuat_kho import (
     SanXuatKhoLot,
     SanXuatNhapKhoYc,
 )
+from .san_xuat_vat_tu import SanXuatVatTuDeNghi, SanXuatVatTuDeNghiDong
 from .cong_doan_tag import CongDoanTag, CongDoanTagCatalog
 
 __all__ = [
@@ -326,4 +327,6 @@ __all__ = [
     "SanXuatKhoHang",
     "SanXuatKhoLot",
     "SanXuatNhapKhoYc",
+    "SanXuatVatTuDeNghi",
+    "SanXuatVatTuDeNghiDong",
 ]
