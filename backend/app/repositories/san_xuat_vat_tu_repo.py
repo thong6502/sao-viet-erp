@@ -4,7 +4,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..models.san_xuat_vat_tu import SanXuatVatTuDeNghi, SanXuatVatTuDeNghiDong
+from ..models.san_xuat_vat_tu import SanXuatVatTuDeNghi
 from ..models.stock_voucher import StockVoucher
 
 

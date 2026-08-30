@@ -359,16 +359,23 @@ def test_giu_nguyen_don_vi_ke_hoach_thi_quy_goc_theo_ti_le_cua_lenh(
     # `sl_yeu_cau_goc` là cột Numeric(18, 3) — đọc lại sau `db.commit()` (expire_on_commit) nên
     # so KHÔNG được đòi khớp tuyệt đối, chỉ khớp trong nửa đơn vị làm tròn của chính cột đó
     # (0.0005), không thì mọi test đụng cột Numeric đều đỏ vì lượng tử hoá của DB, không phải bug.
-    assert float(d0.sl_yeu_cau_goc) == pytest.approx(float(k0["sl_goc"]) / 2, abs=0.0006)
+    assert float(d0.sl_yeu_cau_goc) == pytest.approx(float(k0["sl_goc"]) / 2, abs=0.0005)
     assert d0.dvt_goc == k0["dvt_goc"]
 
 
-def test_yeu_cau_kho_gui_bang_don_vi_goc_chu_khong_phai_to(
+def test_yeu_cau_kho_gui_bang_don_vi_thich_hop_khong_phai_to_cung_khong_phai_tan(
     db, orders, lsx_svc, admin, customer,
 ):
-    """Ảnh chiếu sang kho phải là đơn vị GỐC — gửi "tờ" thì `StockRequestService.create` chặn."""
+    """Ảnh chiếu sang kho KHÔNG còn gửi thẳng đơn vị GỐC (Ruling 11b, thay Ruling 11 cũ): giấy gốc
+    là "tấn", mà `StockRequestLine.sl_de_nghi` là `Numeric(14, 2)` — vài trăm kg quy sang tấn bị
+    ép về bước lượng tử 0.01 TẤN ≈ 33 tờ, lệch xa số tổ khai. `_don_vi_gui_kho` phải lùi xuống
+    đơn vị THÔ NHẤT mà lượng vẫn ≥ 1 — với giấy là "kg", không phải "tờ" (không có cạnh quy đổi
+    tĩnh) cũng không phải "tấn" (đơn vị gốc, quá thô cho cột 2 số lẻ)."""
     from app.models.stock_request import StockRequest
+    from app.repositories.don_vi_do_repo import DonViDoRepository
+    from app.repositories.vat_lieu_kho_repo import VatLieuKhoRepository
     from app.services.san_xuat import vat_tu_de_nghi as V
+    from app.services.vat_lieu_kho_service import VatLieuKhoService
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTB")
@@ -382,10 +389,65 @@ def test_yeu_cau_kho_gui_bang_don_vi_goc_chu_khong_phai_to(
     req = db.get(StockRequest, ra["stock_request_id"])
     k0 = next(k for k in kh if k["hang_loai"] == "giay")
     ln = next(l for l in req.lines if (l.hang_loai, l.hang_id) == (k0["hang_loai"], k0["hang_id"]))
-    assert ln.dvt == k0["dvt_goc"] and ln.dvt != k0["dvt"]
-    # `StockRequestLine.sl_de_nghi` là cột Numeric(14, 2) — thô hơn cột SX (3 số lẻ), nên dung
-    # sai phải rộng hơn theo đúng nửa đơn vị làm tròn của CỘT NÀY (0.005), lý do y hệt test trên.
-    assert float(ln.sl_de_nghi) == pytest.approx(float(k0["sl_goc"]), abs=0.006)
+    assert ln.dvt == "kg" and ln.dvt != k0["dvt"] and ln.dvt != k0["dvt_goc"]
+
+    # Hệ số kg→gốc là DỮ LIỆU DANH MỤC — lấy động, đừng gõ cứng 1000.
+    hang = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    he_so_kg = next(
+        d["he_so_ve_goc"] for d in hang.don_vi_cua_mat_hang(k0["hang_loai"], k0["hang_id"])["ds"]
+        if d["ma"] == "kg"
+    )
+    # `StockRequestLine.sl_de_nghi` là cột Numeric(14, 2) — dung sai đúng bằng nửa bước lượng tử
+    # của CỘT NÀY (0.005), không cần nới rộng hơn (đo thật trên ~335 kg).
+    assert float(ln.sl_de_nghi) == pytest.approx(float(k0["sl_goc"]) / he_so_kg, abs=0.005)
+
+
+def test_xin_luong_rat_nho_van_tao_duoc_yeu_cau_kho(db, orders, lsx_svc, admin, customer):
+    """Trước fix (Ruling 11 cũ, gửi kho bằng đơn vị GỐC "tấn"): 10 tờ giấy ("Ivory 350") ≈ 0.00301
+    tấn — Postgres ép `Numeric(14, 2)` về 0.00 và vỡ `CheckConstraint("sl_de_nghi > 0")` —
+    `IntegrityError` thoát ra thành 500 (SQLite của test không ép scale nên không lộ). Sau fix,
+    `_don_vi_gui_kho` lùi xuống "kg" (≈ 3 kg, thừa xa nửa bước lượng tử) nên vẫn ra số dương ghi
+    được và thật sự đẻ được yêu cầu kho (khác lượng nhỏ hơn NỮA — dưới `_EPS` — bị `_lines_kho`
+    coi là "không đáng gửi" và bỏ qua ngay từ đầu, không phải lỗi Numeric)."""
+    from app.models.stock_request import StockRequest
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTE")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    k0 = next(k for k in kh if k["hang_loai"] == "giay")
+    lines = [{"hang_loai": k0["hang_loai"], "hang_id": k0["hang_id"], "dvt": k0["dvt"],
+              "sl_yeu_cau": 10, "ly_do_chenh_lech": "Xin thử một lượng rất ít"}]
+
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)  # không raise
+
+    assert ra["stock_request_id"] is not None
+    req = db.get(StockRequest, ra["stock_request_id"])
+    ln = next(l for l in req.lines if (l.hang_loai, l.hang_id) == (k0["hang_loai"], k0["hang_id"]))
+    assert ln.dvt == "kg"
+    assert float(ln.sl_de_nghi) > 0.005
+
+
+def test_don_vi_gui_kho_vat_tu_dem_duoc_giu_nguyen_don_vi_goc(db):
+    """`_don_vi_gui_kho` chỉ nên đổi thang khi đơn vị gốc biến lượng thành số lẻ dưới 1 (ca giấy).
+    Vật tư đếm bằng "cái" — mặt hàng vừa tạo, KHÔNG có cạnh quy đổi phụ nào coarser hơn chính nó —
+    phải giữ NGUYÊN đơn vị gốc: 50 cái vẫn là "cái", không bị dò xuống đơn vị khác. Đây là chốt
+    chặn để `_don_vi_gui_kho` không làm loạn các mặt hàng vốn đang gửi kho tốt trước giờ."""
+    from app.models.vat_lieu_kho import VatTuInAn
+    from app.repositories.don_vi_do_repo import DonViDoRepository
+    from app.repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+    from app.services.san_xuat.vat_tu_de_nghi import _don_vi_gui_kho
+    from app.services.vat_lieu_kho_service import VatLieuKhoService
+
+    vt = VatTuInAn(ma="VT-DEM-CAI", ten="Đinh ghim", don_vi_gia="cai")
+    db.add(vt)
+    db.commit()
+
+    hang = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    dvt, sl = _don_vi_gui_kho(hang, "vat_tu", vt.id, 50.0)
+    assert (dvt, sl) == ("cai", 50.0)
 
 
 def test_doi_don_vi_khong_quy_duoc_thi_bao_loi_ro_chu_khong_ghi_0(
@@ -404,3 +466,85 @@ def test_doi_don_vi_khong_quy_duoc_thi_bao_loi_ro_chu_khong_ghi_0(
               "dvt": "đơn-vị-không-có-thật", "sl_yeu_cau": 5, "ly_do_chenh_lech": "thử"}]
     with pytest.raises(V.VatTuDeNghiError):
         V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+
+
+# --- Vòng sửa 1: Minor -------------------------------------------------------------------------
+
+def test_so_am_thi_chan(db, orders, lsx_svc, admin, customer):
+    """`sl_yeu_cau` âm không có nghĩa cho "xin cấp" — trước fix nó lọt qua `_chuan_hoa`, được lưu
+    vào bản đối chiếu (bảng sản xuất ghi được "−50 tờ"), rồi mới bị `_lines_kho` âm thầm loại vì
+    `sl_yeu_cau_goc <= _EPS`. Phải chặn NGAY ở `_chuan_hoa`, không để lọt vào bảng."""
+    from app.services.san_xuat.vat_tu_de_nghi import VatTuDeNghiError
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTC")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": kh[0]["hang_loai"], "hang_id": kh[0]["hang_id"],
+              "dvt": kh[0]["dvt"], "sl_yeu_cau": -50, "ly_do_chenh_lech": "thử số âm"}]
+
+    with pytest.raises(VatTuDeNghiError) as e:
+        V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    assert "âm" in str(e.value).lower()
+
+    # Không có gì được lưu — kể cả bảng đối chiếu SX (khác luật cũ: lọt vào bảng rồi mới bị
+    # `_lines_kho` loại).
+    assert V.SanXuatVatTuRepository(db).cac_de_nghi(cv.id) == []
+
+
+def test_lan_dau_khong_dong_duong_van_bi_chan_tao_them_khong_kep_cung(
+    db, orders, lsx_svc, admin, customer,
+):
+    """`co_voucher(None)` phải trả `False` TƯỜNG MINH: lần 1 xin 0 hết không đẻ yêu cầu kho
+    (`stock_request_id=None`). Guard ở `tao()` vẫn phải đọc đúng nghĩa "đề nghị này CHƯA có phiếu,
+    còn sửa được" và chặn tạo LẦN MỚI chồng lên (hướng người dùng đi sửa lần 1) — nếu `co_voucher`
+    lỡ coi `None` là "có phiếu rồi" thì `tao()` sẽ vô tình cho tạo lần 2, và lần 1 (đã chiếm
+    `lan_so=1`) sẽ không bao giờ sửa được nữa vì không ai còn trỏ tới nó — đó mới là khoá cứng
+    thật."""
+    from app.services.san_xuat.vat_tu_de_nghi import VatTuDeNghiError
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTD")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": kh[0]["hang_loai"], "hang_id": kh[0]["hang_id"],
+              "dvt": kh[0]["dvt"], "sl_yeu_cau": 0, "ly_do_chenh_lech": "Tổ còn tồn tại chỗ"}]
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+
+    dn = db.get(SanXuatVatTuDeNghi, ra["de_nghi_id"])
+    assert dn.stock_request_id is None
+    assert V.SanXuatVatTuRepository(db).co_voucher(dn.stock_request_id) is False
+
+    with pytest.raises(VatTuDeNghiError) as e:
+        V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    assert "sửa" in str(e.value).lower()
+
+
+def test_dong_ngoai_ke_hoach_xin_0_thi_khong_luu(db, orders, lsx_svc, admin, customer):
+    """Dòng NGOÀI kế hoạch (không nằm trong `nhu_cau_cua_cong_viec`) mà xin 0 là vô nghĩa — không
+    được lưu vào bản đối chiếu. Khác dòng TRONG kế hoạch xin 0 (luôn phải lưu, để tổ còn thấy đủ
+    danh mục kế hoạch kể cả phần không lấy)."""
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTG")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    ngoai_id = max(k["hang_id"] for k in kh) + 999_999   # chắc chắn KHÔNG có trong kế hoạch
+    # Khai ĐÚNG số kế hoạch cho mọi mặt hàng TRONG kế hoạch (khỏi vướng luật "lệch phải có lý
+    # do") — chỉ cố tình thêm MỘT dòng NGOÀI kế hoạch xin 0 để cô lập đúng nhánh đang test.
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    lines.append({"hang_loai": kh[0]["hang_loai"], "hang_id": ngoai_id,
+                   "dvt": kh[0]["dvt"], "sl_yeu_cau": 0})
+
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)  # không raise
+
+    dn = db.get(SanXuatVatTuDeNghi, ra["de_nghi_id"])
+    assert len(dn.dongs) == len(kh)                       # không thêm dòng nào cho mặt hàng ngoài
+    assert all(d.hang_id != ngoai_id for d in dn.dongs)
