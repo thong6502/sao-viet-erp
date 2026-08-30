@@ -2,6 +2,11 @@
 
 Hai bảng SẢN XUẤT giữ bản đối chiếu ĐẦY ĐỦ (kể cả dòng xin 0); yêu cầu kho là ẢNH CHIẾU chỉ chứa
 dòng dương. Test file này chốt: cấu trúc, luật lý do, luật khoá, luật quyền, và luật "sửa hết về 0".
+
+Fixture `db` (+ `admin`/`customer`/`orders`/`lsx_svc`) KHÔNG khai lại ở đây — tái xuất từ
+`tests.test_san_xuat_thuc_thi`, nơi dựng đúng luồng thật (đơn → SX → sẵn sàng → phát hành vào tổ)
+mà `_kh_service`/`nhu_cau_cua_cong_viec` cần để có LSX/routing thật. Khai một fixture `db` cục bộ
+KHÁC ở đây là hai định nghĩa `db` chồng nhau trong cùng module — cái sau âm thầm che cái trước.
 """
 from __future__ import annotations
 
@@ -10,25 +15,46 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.db import Base, SessionLocal, engine
 from app.models.san_xuat_vat_tu import (
     DN_BO_SUNG, DN_LAN_DAU, SanXuatVatTuDeNghi, SanXuatVatTuDeNghiDong,
+)
+from tests.test_san_xuat_thuc_thi import (  # noqa: F401
+    _mot_cv, admin, customer, db, lsx_svc, orders,
 )
 
 _T0 = datetime(2026, 8, 31, 8, 0, tzinfo=timezone.utc)
 
 
-@pytest.fixture
-def db():
-    # `create_all` chỉ dựng bảng, KHÔNG áp migration — test này không cần: các test dựa vào id
-    # giả (cong_viec_id=1, stock_request_id=555) mà conftest không bật PRAGMA foreign_keys nên
-    # khoá ngoại không bị ép; ràng buộc đang kiểm là UNIQUE, không phải FK.
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    s = SessionLocal()
-    yield s
-    s.close()
+def _kh_service(db):
+    """Dựng `KeHoachVatTuService` đúng bộ repo như `routers/ke_hoach_vat_tu.py::get_service()`.
 
+    Ghép THIẾU một repo là engine im lặng trả rỗng (không lỗi, không cảnh báo) — nên copy nguyên
+    danh sách từ router, không tự rút gọn.
+    """
+    from app.repositories.bai_ghep_repo import BaiGhepRepository
+    from app.repositories.don_vi_do_repo import DonViDoRepository
+    from app.repositories.lsx_repo import LsxRepository
+    from app.repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
+    from app.repositories.stock_lot_repo import StockLotRepository
+    from app.repositories.stock_request_repo import StockRequestRepository
+    from app.repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+    from app.services.ke_hoach_vat_tu_service import KeHoachVatTuService
+    from app.services.vat_lieu_kho_service import VatLieuKhoService
+
+    return KeHoachVatTuService(
+        db,
+        lsx_repo=LsxRepository(db),
+        bai_ghep_repo=BaiGhepRepository(db),
+        hang=VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db)),
+        lots=StockLotRepository(db),
+        requests=StockRequestRepository(db),
+        purchases=PurchaseRequestRepository(db),
+        suppliers=SupplierRepository(db),
+        don_vi=DonViDoRepository(db),
+    )
+
+
+# --- Task 1: hai bảng + cột mới (giữ nguyên, chạy lại để chắc còn xanh sau khi đổi fixture) ---
 
 def test_mot_cong_viec_khong_co_hai_lan_cung_so(db):
     for _ in range(2):
@@ -72,3 +98,68 @@ def test_dong_yeu_cau_kho_mac_dinh_chua_chot_thuc_xuat(db):
 def test_migration_0249_co_trong_danh_sach():
     from app.db_migrations import MIGRATIONS
     assert any(ma == "0249_sx_vat_tu_de_nghi" for ma, _fn in MIGRATIONS)
+
+
+# --- Task 2: nhu_cau_cua_cong_viec — nguồn kế hoạch của một công đoạn -------------------------
+
+def test_nhu_cau_cua_cong_viec_tra_ca_hai_thang_don_vi(db, orders, lsx_svc, admin, customer):
+    """Bước IN của một lệnh phải ra dòng GIẤY, kèm cả đơn vị kế hoạch lẫn đơn vị gốc.
+
+    KHÔNG lấy từ `SanXuatCongViec.vat_tu_json`: snapshot đó chỉ có vật tư khai TAY ở bước, không
+    có giấy — mà giấy mới là thứ tổ in cần xin.
+    """
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT1")
+    kh = _kh_service(db)          # helper của file này, dựng đúng chuỗi như routers/ke_hoach_vat_tu.py
+    ra = kh.nhu_cau_cua_cong_viec(cv)
+
+    assert ra, "bước phải có ít nhất một dòng nhu cầu"
+    d = ra[0]
+    assert set(d) >= {"hang_loai", "hang_id", "ten", "dvt", "sl", "dvt_goc", "sl_goc"}
+    assert d["sl"] > 0 and d["sl_goc"] > 0
+
+
+def test_nhu_cau_gop_trung_theo_mat_hang(db, orders, lsx_svc, admin, customer):
+    """Hai dòng cùng mặt hàng (vd khai tay trùng loại giấy) phải gộp thành MỘT sau khi về đơn vị
+    gốc — không thì tổ nhìn thấy hai dòng y hệt và không biết sửa dòng nào."""
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT2")
+    ra = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    khoa = [(d["hang_loai"], d["hang_id"]) for d in ra]
+    assert len(khoa) == len(set(khoa))
+
+
+def test_nhu_cau_cong_viec_khong_thuoc_lenh_bai_nao_tra_rong(db, orders, lsx_svc, admin, customer):
+    """Công việc không mang `lsx_id`/`bai_ghep_id` (vd việc phụ trợ) thì không có nguồn kế hoạch
+    để suy — trả rỗng, không phải lỗi."""
+    from types import SimpleNamespace
+
+    kh = _kh_service(db)
+    cv = SimpleNamespace(lsx_id=None, bai_ghep_id=None, lsx_cong_doan_id=None,
+                         bai_ghep_cong_doan_id=None)
+    assert kh.nhu_cau_cua_cong_viec(cv) == []
+
+
+def test_ve_don_vi_goc_quy_dung_va_bao_loi_ro_khi_khong_quy_duoc(db, orders, lsx_svc, admin, customer):
+    """`ve_don_vi_goc` là wrapper công khai quanh `_ve_goc` — Task 3 dựa vào số này để so lệch kế
+    hoạch. Mặt hàng không có trong danh mục thì phải NÉM LỖI, không trả 0 im lặng.
+
+    Đổi kg → tấn (cặp TĨNH "1 tấn = 1.000 kg" đã seed, xem `seed_rebuild._QUY_DOI_SEED`) — quy đổi
+    này KHÔNG cần khổ giấy nên đường tĩnh đủ dùng. Khác nhánh "tờ → kg" của giấy: nhánh đó chỉ chạy
+    qua công thức lượng của LỆNH (`_ve_goc(..., tong_lenh=True)`, dùng trong `nhu_cau_cua_cong_viec`)
+    — `ve_don_vi_goc` không có ngữ cảnh lệnh nên KHÔNG dùng nhánh đó, đúng theo chữ ký đã chốt.
+    """
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT3")
+    ra = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    assert ra, "cần một dòng thật để lấy đúng mặt hàng"
+    d = ra[0]
+
+    # Instance MỚI, CHƯA gọi `nhu_cau_cua_cong_viec`/`can_doi` nào — `ve_don_vi_goc` phải tự nạp
+    # `_objs`/`_dvs` cho riêng mặt hàng này, không dựa vào một lượt gọi trước đó.
+    kh2 = _kh_service(db)
+    sl_goc, ten_dv_goc = kh2.ve_don_vi_goc(d["hang_loai"], d["hang_id"], "kg", 1000)
+    assert sl_goc == pytest.approx(1.0)
+    assert ten_dv_goc == "tấn"
+
+    from app.services.ke_hoach_vat_tu_service import KeHoachVatTuError
+
+    with pytest.raises(KeHoachVatTuError):
+        kh2.ve_don_vi_goc("giay", 999_999, "tờ", 10)

@@ -795,6 +795,103 @@ class KeHoachVatTuService:
             "bo_qua": [row for row in can_doi["bo_qua"] if row.get("ma") in ma_hieu_luc],
         }
 
+    def nhu_cau_cua_cong_viec(self, cv) -> list[dict]:
+        """Vật tư KẾ HOẠCH của MỘT công việc sản xuất (spec-de-nghi-cap-vat-tu-cong-doan §3).
+
+        Đi qua ĐÚNG `_gom_nhu_cau` mà bảng cân đối đang dùng, rồi LỌC về đúng bước — không viết
+        lại MRP. Hai nguồn tính nhu cầu thì sớm muộn lệch, và lệch ở đây là tổ xin sai số vật tư.
+
+        KHÔNG đọc `cv.vat_tu_json`: snapshot ấy chỉ có vật tư khai TAY ở bước, không có giấy.
+
+        Giấy neo ở bước ĐẦU TIÊN thật sự tiêu thụ giấy (`_buoc_dau_dong_giay`), nên chỉ công việc
+        của bước đó mới thấy dòng giấy — đúng nghiệp vụ: tổ cán màng không đi xin giấy in.
+        """
+        lsx_id = cv.lsx_id
+        bai_id = cv.bai_ghep_id
+        if not lsx_id and not bai_id:
+            return []
+
+        # `_gom_nhu_cau` (qua `_dong_lenh`/`_dong_bai`) đọc `self._qc_cache`/`self._start_buoc*` —
+        # nạp đủ nền như `can_doi()` làm, chỉ thu hẹp phạm vi về đúng lệnh của công việc này.
+        self._nap_don_vi()
+        lenh = self._lenh_trong_pham_vi({lsx_id} if lsx_id else None)
+        lenh_map = {l.id: l for l in lenh}
+        bais = self._bai_trong_pham_vi(set(lenh_map))
+        if bai_id and not any(b.id == bai_id for b in bais):
+            # Công việc mang `bai_ghep_id` nhưng lệnh thành viên vừa lọc không kéo được đúng bài
+            # đó vào phạm vi (vd `lsx_id` rỗng) — mở lại phạm vi bài theo chính lệnh này.
+            bais = self._bai_trong_pham_vi({lsx_id} if lsx_id else set()) or bais
+        thanh_vien = {tv.lsx_id for b in bais for tv in b.thanh_viens}
+
+        self._nap_thoi_luong(lenh)
+        self._nap_lich(set(lenh_map), {b.id for b in bais})
+
+        tho, _bo_qua = self._gom_nhu_cau(lenh, lenh_map, bais, thanh_vien)
+
+        # Neo về ĐÚNG bước: dòng lệnh so `buoc_id` với `lsx_cong_doan_id`, dòng bài so với
+        # `bai_ghep_cong_doan_id` (hai không gian id khác nhau — cặp `(lsx_id, bai_ghep_id)` trên
+        # dòng đã phân biệt sẵn, xem chú thích `_dong_bai`).
+        neo_lsx = cv.lsx_cong_doan_id
+        neo_bg = cv.bai_ghep_cong_doan_id
+        cua_buoc = [
+            d for d in tho
+            if (d["bai_ghep_id"] and neo_bg and d["buoc_id"] == neo_bg)
+            or (d["lsx_id"] and neo_lsx and d["lsx_id"] == lsx_id and d["buoc_id"] == neo_lsx)
+        ]
+        if not cua_buoc:
+            return []
+
+        self._nap_mat_hang(cua_buoc)
+        self._quy_doi_dong(cua_buoc)
+
+        # Gộp trùng SAU khi đã về đơn vị gốc — gộp trước là cộng 100 tờ với 12 kg.
+        # `_nap_mat_hang`/`_quy_doi_dong` không đặt khoá `ten_hang`/`dvt_goc`/`sl_goc` lên dòng:
+        # tên lấy thẳng từ `self._objs`, đơn vị gốc là `obj.don_vi_gia`, số gốc là `d["nhu_cau"]`
+        # (khoá do `_quy_doi_dong` đặt).
+        gom: dict[tuple, dict] = {}
+        for d in cua_buoc:
+            loai, hid = d["hang"]
+            k = (loai, int(hid))
+            obj = self._objs.get(d["hang"])
+            ten = obj.ten if obj is not None else f"#{hid}"
+            dvt_goc = getattr(obj, "don_vi_gia", None) if obj is not None else None
+            sl_goc = float(d.get("nhu_cau") or 0)
+            cu = gom.get(k)
+            if cu is None:
+                gom[k] = {
+                    "hang_loai": loai, "hang_id": int(hid), "ten": ten,
+                    "dvt": d["dvt"], "sl": float(d["sl"] or 0),
+                    "dvt_goc": dvt_goc or d["dvt"], "sl_goc": sl_goc,
+                }
+            else:
+                cu["sl_goc"] += sl_goc
+                # Đơn vị hiển thị chỉ cộng được khi TRÙNG; khác đơn vị thì bày theo đơn vị GỐC,
+                # đừng cộng bừa hai thang rồi in ra một con số không có nghĩa.
+                if cu["dvt"] == d["dvt"]:
+                    cu["sl"] += float(d["sl"] or 0)
+                else:
+                    cu["dvt"] = cu["dvt_goc"]
+                    cu["sl"] = cu["sl_goc"]
+        return list(gom.values())
+
+    def ve_don_vi_goc(self, hang_loai: str, hang_id: int, dvt: str, sl: float) -> tuple[float, str]:
+        """Quy `sl` từ `dvt` về đơn vị GỐC của mặt hàng `(hang_loai, hang_id)`.
+
+        Wrapper CÔNG KHAI mỏng quanh `_ve_goc` — Task 3 (đề nghị cấp vật tư) dùng nó để BE tự quy
+        đổi lại số client gửi lên, không tin số của client. Tự nạp `self._objs` cho mặt hàng này
+        nếu chưa có (gọi thẳng từ ngoài `can_doi()`/`nhu_cau_cua_cong_viec` là bình thường — vd
+        dòng khai thêm ngoài kế hoạch).
+
+        Ném `KeHoachVatTuError` khi không quy đổi được, KHÔNG trả 0 im lặng: Task 3 dùng con số
+        này để so lệch kế hoạch, trả 0 âm thầm là một dòng "lệch" giả.
+        """
+        hang = (hang_loai, int(hang_id))
+        self.nap_nen_quy_doi([hang])
+        kq = self._ve_goc(hang, dvt, float(sl))
+        if "loi" in kq:
+            raise KeHoachVatTuError(kq["loi"])
+        return float(kq["sl"]), kq["don_vi_goc_ten"]
+
     # ---- (a) ----------------------------------------------------------------
 
     def _nap_thoi_luong(self, lenh: list[Lsx]) -> None:
