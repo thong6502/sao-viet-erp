@@ -185,3 +185,13 @@ def test_them_lot_bo_sung(db, orders, lsx_svc, admin, customer):
     )
     lots = db.query(SanXuatBatchLotVao).filter_by(batch_id=r2["batch_id"]).all()
     assert len(lots) == 1 and lots[0].nguon_batch_id == r1["batch_id"]
+
+
+def test_ket_qua_nhanh_model_tao_duoc(db):
+    from app.models.san_xuat_san_luong import SanXuatKetQuaNhanh
+    kq = SanXuatKetQuaNhanh(batch_id=1, lsx_id=1, so_luong=10, don_vi="con")
+    db.add(kq)
+    db.commit()
+    db.refresh(kq)
+    assert kq.id is not None
+    assert kq.ban_giao_id is None

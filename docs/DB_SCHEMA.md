@@ -4621,6 +4621,24 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 
 ---
 
+### `san_xuat_ket_qua_nhanh`
+
+**Purpose:** sản lượng RIÊNG từng LSX tách ra từ một batch của công việc ĐIỂM TOẢ bài ghép (§ điểm toả). Bảng MỚI (`create_all`), CHỈ-THÊM. Ghi khi `san_luong.tao_batch` phát hiện công việc vừa ghi có cạnh `san_xuat_phu_thuoc` toả đi — mỗi cạnh một dòng: `so_luong` = `tot` của batch × `ty_le_ghep` (số con/tờ) của LSX đích. `ban_giao_id` neo bàn giao TỰ ĐỘNG-XÁC-NHẬN tương ứng (số suy một chiều từ `tot`, không thể vượt). Dùng làm sổ cái quota để chặn LSX khác dùng nhầm phần đã toả.
+
+| Column | Type | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` | **PK** | no | auto | Surrogate PK. |
+| `batch_id` | `Integer` FK→`san_xuat_batch.id` (CASCADE) | IX | no | — | Batch điểm-toả đã tách ra dòng này. |
+| `lsx_id` | `Integer` FK→`lsx.id` (CASCADE) | IX | no | — | LSX nhận phần sản lượng toả. |
+| `so_luong` | `Numeric(18,3)` | — | no | — | Sản lượng riêng của LSX = `tot` batch × `ty_le_ghep`. |
+| `don_vi` | `String(24)` | — | no | — | Đơn vị. |
+| `ban_giao_id` | `Integer` FK→`san_xuat_ban_giao.id` (SET NULL) | IX | yes | — | Bàn giao tự-xác-nhận tương ứng. |
+| `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
+
+**Tất cả cột:** `id`, `batch_id`, `lsx_id`, `so_luong`, `don_vi`, `ban_giao_id`, `created_at`.
+
+---
+
 ### `san_xuat_ho_tro`
 
 **Purpose:** THỎA THUẬN hỗ trợ chéo giữa hai tổ cho một công đoạn (§9.1, Giai đoạn 4). Bảng MỚI (`create_all`). Người hỗ trợ + tổ gốc + tổ thực hiện + công đoạn + ngày + tỷ lệ %, xác nhận HAI tổ trưởng. Tỷ lệ do người nhập — KHÔNG hard-code/mặc định/giới hạn 7%. Trạng thái: `pending_both` → `confirmed` → `cancelled`.

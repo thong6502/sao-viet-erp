@@ -144,6 +144,7 @@ from .san_xuat_san_luong import (
     SanXuatBanGiaoDieuChinh,
     SanXuatBatch,
     SanXuatBatchLotVao,
+    SanXuatKetQuaNhanh,
     SanXuatVatTuNhan,
 )
 from .san_xuat_phan_bo import (
@@ -310,6 +311,7 @@ __all__ = [
     "SanXuatBanGiao",
     "SanXuatBanGiaoDieuChinh",
     "SanXuatVatTuNhan",
+    "SanXuatKetQuaNhanh",
     "SanXuatHoTro",
     "SanXuatPhanBo",
     "SanXuatPhanBoDong",
