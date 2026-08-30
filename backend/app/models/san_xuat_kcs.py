@@ -21,12 +21,27 @@ TÍNH LÚC ĐỌC ở service (§16) — không cache cột.
 
 Bảng MỚI → `create_all` tự dựng, KHÔNG migration. Bảng nghiệp vụ (batch, lỗi) mang `version`
 chống bấm trùng; bảng LỊCH SỬ chỉ-thêm (ảnh) không có `version`.
+
+--- Module KCS KIÊM NHIỆM (2026-08-31, mg `0250`) — Task 1 chỉ dựng NỀN SCHEMA -----------------
+
+`SanXuatKcsBatch` được CỘNG THÊM `loai`/`kcs_department_id`/`checklist_json` (ALTER — bảng này đã
+tồn tại trong DB dev/prod hiện tại nên đi qua `db_migrations.py`, KHÔNG như hai bảng mới dưới đây).
+
+Hai bảng MỚI (`create_all` tự dựng, KHÔNG migration) là danh mục CHECKLIST tiêu chí KCS:
+
+  san_xuat_kcs_tieu_chi          — một TIÊU CHÍ kiểm tra chuẩn hoá (mã, tên, hướng dẫn, bắt buộc).
+  san_xuat_kcs_tieu_chi_cong_doan — tiêu chí này áp cho công đoạn nào (nhiều-nhiều với `cong_doan`).
+
+Task 1 CHỈ khai hai bảng này — CRUD/API/UI thuộc Task 3.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import (
+    Boolean, DateTime, ForeignKey, Integer, JSON, Numeric, String, UniqueConstraint,
+    true as sa_true,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -42,6 +57,11 @@ TN_CHO = "pending"          # chờ tổ phụ trách phản hồi
 TN_CHAP_NHAN = "accepted"   # tổ nhận trách nhiệm → tính vào chất lượng tổ
 TN_TU_CHOI = "rejected"     # tổ từ chối kèm lý do → không quy trách nhiệm nhưng GIỮ đủ bằng chứng
 TRANG_THAI_TRACH_NHIEM = (TN_CHO, TN_CHAP_NHAN, TN_TU_CHOI)
+
+# --- Loại batch KCS (module KCS kiêm nhiệm, mg `0250`) ---------------------------------------
+KCS_LOAI_ROUTING = "routing"    # KCS đứng SẴN trong routing/bài ghép của lệnh (cách cũ, duy nhất)
+KCS_LOAI_DOT_XUAT = "dot_xuat"  # KCS kiêm nhiệm — tổ SX khác được giao kiểm ĐỘT XUẤT, không sẵn ở routing
+LOAI_KCS_BATCH = (KCS_LOAI_ROUTING, KCS_LOAI_DOT_XUAT)  # validate ở service, KHÔNG CHECK constraint
 
 
 def _utcnow() -> datetime:
@@ -82,6 +102,22 @@ class SanXuatKcsBatch(Base):
     don_vi: Mapped[str] = mapped_column(String(24), nullable=False)
     ket_luan: Mapped[str] = mapped_column(String(16), nullable=False, default=KCS_DAT)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # --- KCS kiêm nhiệm (mg `0250`) — cột CỘNG THÊM, KHÔNG động vào các cột legacy phía trên ---
+    # `routing` (mặc định) = batch của công việc KCS ĐÃ có sẵn trong routing/bài ghép (cách cũ, duy
+    # nhất trước đây — backfill set cứng giá trị này cho mọi dòng cũ). `dot_xuat` = tổ SX khác được
+    # GIAO kiểm đột xuất, không đứng sẵn trong routing. Validate ở service — String trần không CHECK,
+    # cùng phong cách `ket_luan`/`trang_thai` ở trên.
+    loai: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=KCS_LOAI_ROUTING, default=KCS_LOAI_ROUTING
+    )
+    # Tổ KCS SỞ HỮU kết quả — khác `cong_viec_id` (qua đó suy ra tổ THỰC HIỆN công việc gốc): kiểm
+    # đột xuất thì người kiểm thuộc tổ khác tổ đang chạy việc. SET NULL giữ bản ghi KCS nếu tổ bị gỡ.
+    kcs_department_id: Mapped[int | None] = mapped_column(
+        ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Snapshot checklist đã áp dụng cho batch này — cùng hình dạng `san_xuat_cong_viec.kcs_tieu_chi_json`.
+    # NULL = batch cũ (trước module này) hoặc chưa gắn checklist. Task 3 mới thực sự GHI.
+    checklist_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -146,3 +182,48 @@ class SanXuatKcsLoiAnh(Base):
     file_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     uploaded_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class SanXuatKcsTieuChi(Base):
+    """Danh mục TIÊU CHÍ kiểm tra KCS chuẩn hoá (module KCS kiêm nhiệm, mg `0250`) — vd
+    "Chồng màu đúng", "Không lệch viền nhìn thấy". Nhiều-nhiều với `cong_doan` qua
+    `SanXuatKcsTieuChiCongDoan`: một tiêu chí áp cho nhiều công đoạn, một công đoạn có nhiều
+    tiêu chí. `bat_buoc` là mặc định khi gắn vào công đoạn — LSX/bài ghép có thể bổ sung thêm
+    tiêu chí riêng (`kcs_tieu_chi_bo_sung_json`), không sửa được tiêu chí danh mục tại lệnh.
+
+    Bảng MỚI → `create_all` tự dựng, KHÔNG migration. CRUD/API/UI thuộc Task 3."""
+
+    __tablename__ = "san_xuat_kcs_tieu_chi"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
+    ten: Mapped[str] = mapped_column(String(200), nullable=False)
+    huong_dan: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    bat_buoc: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
+    thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
+class SanXuatKcsTieuChiCongDoan(Base):
+    """Bảng nối `san_xuat_kcs_tieu_chi` ↔ `cong_doan` (module KCS kiêm nhiệm, mg `0250`) — tiêu
+    chí nào áp cho công đoạn nào. Một cặp (tiêu chí, công đoạn) chỉ khai MỘT lần (unique).
+
+    Bảng MỚI → `create_all` tự dựng, KHÔNG migration."""
+
+    __tablename__ = "san_xuat_kcs_tieu_chi_cong_doan"
+    __table_args__ = (
+        UniqueConstraint("tieu_chi_id", "cong_doan_id", name="uq_kcs_tieu_chi_cong_doan"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tieu_chi_id: Mapped[int] = mapped_column(
+        ForeignKey("san_xuat_kcs_tieu_chi.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    cong_doan_id: Mapped[int] = mapped_column(
+        ForeignKey("cong_doan.id", ondelete="CASCADE"), nullable=False, index=True
+    )
