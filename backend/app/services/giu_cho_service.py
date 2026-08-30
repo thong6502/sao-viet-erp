@@ -482,6 +482,7 @@ class GiuChoService:
         if not held:
             return
         hang = (held[0].hang_loai, held[0].hang_id)
+        self._khoa_nguon([hang])
         con_ve, ngay_ve = 0.0, None
         for ngay, sl, _ma, line_id in self.kh._hang_dang_ve().get(hang, []):
             if line_id == purchase_request_line_id:
@@ -533,6 +534,7 @@ class GiuChoService:
         bat_lsx, bat_bai = self.repo.dang_bat()
 
         hangs = sorted({h for m in nhu_cau.values() for h in m})
+        self._khoa_nguon(hangs)
         tu_do = self.ton_tu_do(hangs)
         ve = self._lo_dang_ve(bang, hangs)
 
@@ -588,6 +590,7 @@ class GiuChoService:
         con = round(float(so_luong), 2)
         if con <= 0:
             return
+        self._khoa_nguon([hang])
         rows = (
             self.db.query(VatTuGiuCho)
             .filter(VatTuGiuCho.hang_loai == hang[0], VatTuGiuCho.hang_id == hang[1],
@@ -629,6 +632,7 @@ class GiuChoService:
         Xuất KHÔNG gắn lệnh nào (`lsx_id`/`bai_ghep_id` đều trống — lĩnh chung, bù hao, mẫu) thì
         chỉ được ăn phần tự do.
         """
+        self._khoa_nguon([hang])
         tu_do = _f(self.ton_tu_do([hang]).get(hang))
         cua_minh = 0.0
         if lsx_id is not None or bai_ghep_id is not None:
@@ -673,6 +677,26 @@ class GiuChoService:
         return float(so_luong) - con
 
     # ================== phụ ==================
+
+    def _khoa_nguon(self, hangs: list[Hang]) -> None:
+        """Khoá DÒNG GỐC (danh mục Giấy/Vật tư khác) của từng mặt hàng — `SELECT ... FOR UPDATE`,
+        sắp theo (hang_loai, hang_id) TĂNG DẦN trước khi khoá. Thứ tự cố định: hai giao dịch cùng
+        đụng một tập mặt hàng, dù gọi theo thứ tự khác nhau, luôn khoá theo CÙNG một trình tự —
+        không bao giờ khoá chéo (deadlock).
+
+        Neo vào bảng GỐC chứ không phải `vat_tu_giu_cho`: một mặt hàng CHƯA từng được giữ chỗ thì
+        không có dòng `vat_tu_giu_cho` nào để khoá, nhưng dòng gốc (mặt hàng ở danh mục) luôn có
+        sẵn. Cùng khuôn với khoá header phiếu kho chống ghi sổ hai lần
+        (`stock_voucher_repo.py::khoa_de_ghi_so`) — SQLite (test) coi FOR UPDATE là no-op,
+        Postgres (dev/prod) khoá thật.
+        """
+        from sqlalchemy import select as _select
+
+        from ..models.vat_lieu_kho import GiayNguyen, VatTuInAn
+
+        for hang_loai, hang_id in sorted(set(hangs)):
+            model = GiayNguyen if hang_loai == "giay" else VatTuInAn
+            self.db.execute(_select(model.id).where(model.id == hang_id).with_for_update())
 
     def _lo_dang_ve(self, bang: dict, hangs: list[Hang]) -> dict[Hang, list[tuple[date, float, int]]]:
         """Lô đang về CÒN TRỐNG chỗ = số đang về − phần đã có chủ (`nguon='dang_ve'`).

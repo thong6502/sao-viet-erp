@@ -1321,3 +1321,21 @@ def test_gom_theo_hang_va_chu_the_mo_ho_chan_ghi_so(db, kh, customer):
         assert False, "phải raise StockVoucherError vì mơ hồ, không được đoán"
     except StockVoucherError:
         pass
+
+
+# ================== KHOÁ NGUỒN — GIAO DỊCH MỘT LẦN ==================
+
+
+def test_khoa_nguon_khong_loi_va_theo_thu_tu_on_dinh(db, svc):
+    """`_khoa_nguon` phải chạy được (không lỗi) khi truyền LỘN thứ tự — tự sắp lại theo
+    (hang_loai, hang_id) TĂNG DẦN trước khi khoá — và không lỗi khi gọi LẦN HAI trong CÙNG giao
+    dịch (mô phỏng `nhat_them()` rồi `kiem_xuat()` cùng chạm một mặt hàng trong một lượt xử lý).
+
+    SQLite (test) coi `FOR UPDATE` là no-op — cùng giới hạn đã ghi nhận ở
+    `stock_voucher_repo.py::khoa_de_ghi_so` — nên test này chỉ xác nhận KHÔNG VỠ, không xác nhận
+    chặn concurrent thật (chỉ Postgres dev/prod mới khoá thật)."""
+    g1 = _giay(db, ma="GY-1")
+    g2 = _giay(db, ma="GY-2")
+
+    svc._khoa_nguon([("giay", g2.id), ("giay", g1.id)])
+    svc._khoa_nguon([("giay", g1.id)])
