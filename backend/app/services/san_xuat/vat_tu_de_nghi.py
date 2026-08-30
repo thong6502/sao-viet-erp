@@ -151,10 +151,18 @@ def _lines_kho(hang, cv, dongs: list[dict]) -> list[dict]:
 
     Bản đối chiếu (bảng sản xuất) giữ NGUYÊN đơn vị tổ khai để tổ đọc đúng thứ họ gõ; chỉ ảnh
     chiếu sang kho mới đổi thang — xem `_don_vi_gui_kho` để biết vì sao không dùng thẳng đơn vị gốc.
+
+    Lọc "có xin hay không" phải xét theo `sl_yeu_cau` (đơn vị TỔ KHAI — đúng thang với ô tổ gõ),
+    KHÔNG phải `sl_yeu_cau_goc` (đơn vị GỐC, có thể lệch thang cả nghìn lần: 0.0005 tấn ≈ 1.6 tờ).
+    Trước fix (ruling 14), lọc theo `sl_yeu_cau_goc` khiến tổ xin 1 tờ bị loại IM LẶNG — nếu đó là
+    dòng dương duy nhất thì không yêu cầu kho nào được đẻ ra mà tổ không hề biết. Sau fix, mọi dòng
+    tổ thật sự xin (`sl_yeu_cau > _EPS`) đều đi qua `_don_vi_gui_kho`; nếu lượng quy đổi vẫn quá
+    nhỏ để kho ghi được thì rơi vào chốt chặn `round(sl, 2) <= 0` bên dưới — NỔ lỗi đọc được, không
+    còn đường thứ ba nào âm thầm bỏ dòng.
     """
     ra = []
     for d in dongs:
-        if d["sl_yeu_cau_goc"] <= _EPS:
+        if d["sl_yeu_cau"] <= _EPS:
             continue
         dvt, sl = _don_vi_gui_kho(hang, d["hang_loai"], d["hang_id"], d["sl_yeu_cau_goc"])
         # Cột kho là `Numeric(14, 2)` + `CHECK > 0`: lượng nhỏ hơn nửa đơn vị làm tròn sẽ thành
@@ -310,3 +318,74 @@ def tao(db: Session, *, user, cong_viec_id: int, can_luc: datetime,
     hub.broadcast({"type": "san_xuat_vat_tu_de_nghi_changed",
                    "cong_viec_id": cong_viec_id})
     return {"de_nghi_id": dn.id, "stock_request_id": dn.stock_request_id, "lan_so": lan_so}
+
+
+def sua(db: Session, *, user, cong_viec_id: int, de_nghi_id: int,
+        can_luc: datetime, lines: list[dict], kh_svc=None, req_svc=None) -> dict:
+    """Sửa một lần đề nghị CHƯA bị kho lập phiếu (spec §5.2–§5.4).
+
+    Kiểm khoá phải chạy TRONG transaction, ngay trước khi ghi — kiểm ở router rồi mới vào service
+    là mở đúng khe cho kho bấm "lập phiếu" ở giữa hai thời điểm đó (`co_voucher` bên dưới đọc lại
+    ngay trước khi ghi bảng SX).
+
+    Ba nhánh đích cho yêu cầu kho, theo đúng combo (đã-có-yêu-cầu?, còn-dòng-dương?):
+      · CHƯA có `stock_request_id`, giờ có dòng dương ⇒ lần đầu toàn 0 nay xin lại — mới đẻ
+        chứng từ kho (giống `tao()`).
+      · ĐÃ có `stock_request_id`, còn dòng dương ⇒ đồng bộ/khôi phục ĐÈ lên chính yêu cầu cũ
+        (`khoi_phuc_tu_san_xuat`, giữ nguyên mã dù yêu cầu đang `approved` hay đã `cancelled`).
+      · ĐÃ có `stock_request_id`, hết dòng dương ⇒ huỷ yêu cầu (`huy_tu_san_xuat`), giữ mã + link
+        để tổ nhập lại số dương sau này khôi phục đúng chứng từ đó.
+    """
+    repo = SanXuatRepository(db)
+    cv = repo.cong_viec(cong_viec_id)
+    if cv is None:
+        raise ValueError("Không tìm thấy công việc.")
+    _gate_to_truong(db, user, cv.department_id)
+
+    vt_repo = SanXuatVatTuRepository(db)
+    dn = vt_repo.de_nghi(de_nghi_id)
+    if dn is None or dn.cong_viec_id != cong_viec_id:
+        raise ValueError("Không tìm thấy đề nghị của công đoạn này.")
+    if vt_repo.co_voucher(dn.stock_request_id):
+        raise VatTuDeNghiError("Kho đã lập phiếu cho đề nghị này — hãy tạo yêu cầu bổ sung.")
+
+    hang = _hang_service(db)
+    kh_svc = kh_svc or _kh_service(db, hang)
+    dongs = _chuan_hoa(kh_svc, cv, lines, bat_buoc_ly_do=(dn.loai == DN_BO_SUNG))
+
+    dn.dongs.clear()
+    db.flush()
+    for d in dongs:
+        db.add(SanXuatVatTuDeNghiDong(de_nghi_id=dn.id, **{
+            k: v for k, v in d.items() if k != "ten"
+        }))
+    dn.can_luc = can_luc
+    dn.updated_by_id = getattr(user, "id", None)
+
+    kho_lines = _lines_kho(hang, cv, dongs)
+    req_svc = req_svc or _req_service(db, hang)
+    if dn.stock_request_id is None:
+        # Lần đầu toàn 0, nay có số dương ⇒ giờ mới đẻ chứng từ kho.
+        if kho_lines:
+            req = req_svc.create(
+                user=user, loai=REQ_XUAT, lines=kho_lines, bo_phan_id=cv.department_id,
+                ngay_can=can_luc.date(),
+                ghi_chu=f"Cấp vật tư công đoạn «{cv.ten_cong_doan}» (lần {dn.lan_so}).",
+            )
+            dn.stock_request_id = req.id
+    elif kho_lines:
+        req_svc.khoi_phuc_tu_san_xuat(dn.stock_request_id, kho_lines,
+                                      user=user, ngay_can=can_luc.date())
+    else:
+        req_svc.huy_tu_san_xuat(dn.stock_request_id, user=user)
+
+    AuditLogRepository(db).create(
+        actor_user_id=getattr(user, "id", None), action="san_xuat_sua_de_nghi_vat_tu",
+        target=f"san_xuat_vat_tu_de_nghi:{dn.id}",
+        detail=f"{len(kho_lines)} dòng gửi kho",
+    )
+    db.commit()
+    hub.broadcast({"type": "san_xuat_vat_tu_de_nghi_changed", "cong_viec_id": cong_viec_id})
+    # Bắn LẠI tín hiệu kho: con số trên màn thủ kho vừa đổi (spec §7 phần realtime).
+    hub.broadcast({"type": "stock_request_pending_changed"})
+    return {"de_nghi_id": dn.id, "stock_request_id": dn.stock_request_id}

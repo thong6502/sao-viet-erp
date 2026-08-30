@@ -251,6 +251,69 @@ class StockRequestService:
                 "Yêu cầu đã duyệt không sửa được. Hãy hủy và tạo yêu cầu mới."
             )
 
+    # --- ĐỒNG BỘ TỪ SẢN XUẤT (spec-de-nghi-cap-vat-tu-cong-doan §5.2–§5.3) -------------------
+    # KHÔNG tái dùng `update()`: nó chạy `_require_editable`, mà yêu cầu do sản xuất tạo đã ở
+    # `approved` ngay từ đầu (create tự duyệt). Ba hàm dưới là đường RIÊNG, chỉ tầng
+    # `services/san_xuat/vat_tu_de_nghi.py` được gọi — mọi cửa khác vẫn giữ luật "đã duyệt là khoá".
+
+    def dong_bo_tu_san_xuat(self, req_id: int, lines: list[dict], *, user, ngay_can) -> StockRequest:
+        """Thay TOÀN BỘ dòng bằng dữ liệu mới, giữ nguyên mã và id.
+
+        Khoá + đọc lại TRONG transaction, ngay trước khi ghi: kiểm ở router rồi mới vào service là
+        mở đúng khe cho kho bấm "lập phiếu" ở giữa hai thời điểm đó."""
+        self.requests.lock_for_update(req_id)
+        req = self.requests.get_with_lines(req_id)
+        if req is None:
+            raise StockRequestError("Không tìm thấy yêu cầu.")
+        if self.requests.co_voucher(req.id):
+            raise StockRequestError("Kho đã lập phiếu cho yêu cầu này — không sửa được nữa.")
+        # Nương tay với mặt hàng vốn đã có trên đề nghị nhưng danh mục đã ngừng dùng — cùng luật
+        # `update()` áp cho cửa kho thường.
+        dang_co = {(ln.hang_loai, int(ln.hang_id))
+                   for ln in (req.lines or []) if ln.hang_loai and ln.hang_id}
+        self._validate_lines(lines, dang_co)
+        self.requests.replace_lines(req, lines)
+        # Đặt lại `sl_duyet` cho MỌI dòng mới: bỏ bước này là `sl_duyet = 0` (giá trị mặc định của
+        # cột), và `refresh_fulfillment` sẽ thấy `sl_da_ung (=0) >= sl_duyet (=0)` đúng ngay lập
+        # tức rồi đóng yêu cầu thành "Hoàn tất" dù kho chưa cấp gì.
+        for ln in req.lines:
+            ln.sl_duyet = ln.sl_de_nghi
+        req.ngay_can = ngay_can
+        # `co_voucher` ở trên đã bảo đảm chưa có phiếu nào nên `sl_da_ung` toàn 0 — set thẳng
+        # `approved` mà không cần tính lại (đúng cho cả trường hợp yêu cầu đang `cancelled` được
+        # khôi phục lẫn trường hợp đang `approved` được sửa số).
+        req.trang_thai = REQ_APPROVED
+        req.ly_do_huy = None
+        req = self.requests.save(req)
+        # Hộp yêu cầu kho phải thấy con số mới NGAY — số cũ đang nằm trên màn của thủ kho.
+        self._notify(req, "Yêu cầu vừa được cập nhật", targeted=False)
+        return req
+
+    def huy_tu_san_xuat(self, req_id: int, *, user) -> StockRequest:
+        """Tổ xác nhận không cần cấp gì: xoá dòng, chuyển `cancelled`, GIỮ mã và link."""
+        self.requests.lock_for_update(req_id)
+        req = self.requests.get_with_lines(req_id)
+        if req is None:
+            raise StockRequestError("Không tìm thấy yêu cầu.")
+        if req.trang_thai in (REQ_DONE, REQ_CANCELLED):
+            raise StockRequestError("Yêu cầu đã kết thúc — không hủy được.")
+        if self.requests.co_voucher(req.id):
+            raise StockRequestError("Kho đã lập phiếu cho yêu cầu này — không hủy được nữa.")
+        req.lines.clear()
+        req.trang_thai = REQ_CANCELLED
+        req.ly_do_huy = "Tổ xác nhận không cần cấp"
+        req = self.requests.save(req)
+        self._notify(req, "Tổ xác nhận không cần cấp", targeted=False)
+        return req
+
+    def khoi_phuc_tu_san_xuat(self, req_id: int, lines: list[dict], *, user, ngay_can) -> StockRequest:
+        """Tổ nhập lại số dương sau khi đã về 0 — dựng lại dòng trên CHÍNH yêu cầu đó.
+
+        Không đẻ mã mới: một lần đề nghị của tổ là một chứng từ, tổ đổi ý ba lần trước khi kho
+        động tay không phải là ba chứng từ.
+        """
+        return self.dong_bo_tu_san_xuat(req_id, lines, user=user, ngay_can=ngay_can)
+
     # --- Vòng đời ----------------------------------------------------------
 
     def submit(self, req: StockRequest) -> StockRequest:
