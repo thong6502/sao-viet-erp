@@ -245,6 +245,9 @@ export const NAV: NavSection[] = [
       // (hỏng batch · điều chỉnh bàn giao · mở lại phân bổ…). Quyền RIÊNG `dm_ly_do_san_xuat`
       // (mg 0221 chép từ `san_xuat`). Đứng cuối nhóm — nó là dữ liệu vận hành SX, không phải master.
       { id: "ly-do-san-xuat", label: "Lý do & lỗi SX", icon: "alert", module: "dm_ly_do_san_xuat" },
+      // Tiêu chí KCS (module KCS kiêm nhiệm, mg 0250): checklist chuẩn hoá + công đoạn nào áp
+      // dụng — dùng để chụp (snapshot) checklist khi phát hành lệnh (Task 3).
+      { id: "kcs-tieu-chi", label: "Tiêu chí KCS", icon: "fileCheck", module: "dm_kcs_tieu_chi" },
     ],
   },
   {

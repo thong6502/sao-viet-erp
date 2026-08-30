@@ -16,8 +16,12 @@ from app.models.san_xuat import (
     SanXuatPhienBan,
     SanXuatPhuThuoc,
 )
+from app.repositories.cong_doan_repo import CongDoanRepository
+from app.repositories.san_xuat_kcs_tieu_chi_repo import SanXuatKcsTieuChiRepository
 from app.repositories.san_xuat_repo import SanXuatRepository
+from app.services.cong_doan_service import CongDoanService
 from app.services.san_xuat import component, release
+from app.services.san_xuat_kcs_tieu_chi_service import SanXuatKcsTieuChiService
 from app.services.xep_lich_2.constraint import MUC_CHAN_PHAT_HANH
 
 # Fixtures + helper dùng chung từ test xếp lịch.
@@ -52,6 +56,23 @@ def _kcs_dept(db) -> Department:
     return d
 
 
+def _cong_doan(db, ma: str):
+    """Công đoạn danh mục tối thiểu (Task 3) — mượn CongDoanService cho đúng validate thay vì
+    ORM trần, để `checklist_theo_cong_doan()` join đúng chỗ khi phát hành."""
+    svc = CongDoanService(CongDoanRepository(db))
+    return svc.create(dict(
+        ma=ma, ten=ma, nhom="print",
+        che_do_tinh="theo_san_luong", pricing_basis="per_finished_qty", first_unit_floor=0,
+    ))
+
+
+def _tieu_chi(db, ma: str, *, active=True, thu_tu=0, cong_doan_ids=()):
+    svc = SanXuatKcsTieuChiService(SanXuatKcsTieuChiRepository(db))
+    return svc.create(dict(
+        ma=ma, ten=ma, active=active, thu_tu=thu_tu, cong_doan_ids=list(cong_doan_ids),
+    ))
+
+
 def _dept_khong_kcs(db, *, ten="Tổ Thành Phẩm XL", ma="TO-TP-XL") -> Department:
     d = Department(name=ten, code=ma, la_san_xuat=True)
     db.add(d)
@@ -59,12 +80,18 @@ def _dept_khong_kcs(db, *, ten="Tổ Thành Phẩm XL", ma="TO-TP-XL") -> Depart
     return d
 
 
-def _them_buoc(db, lsx_id, *, thu_tu, ten, department_id, la_kcs) -> LsxCongDoan:
+def _them_buoc(
+    db, lsx_id, *, thu_tu, ten, department_id, la_kcs, cong_doan_id=None,
+    kcs_tieu_chi_bo_sung_json=None,
+) -> LsxCongDoan:
     """Thêm MỘT bước routing thủ công vào LSX — tái dùng cho mọi test soi cờ `la_kcs` (Task 2):
-    engine giá không cần chạy lại, chỉ cần một `LsxCongDoan` mang đúng cờ/tổ để soi snapshot."""
+    engine giá không cần chạy lại, chỉ cần một `LsxCongDoan` mang đúng cờ/tổ để soi snapshot.
+    `cong_doan_id`/`kcs_tieu_chi_bo_sung_json` (Task 3): neo tới danh mục công đoạn để checklist
+    KCS gắn đúng chỗ, và mang tiêu chí bổ sung riêng lệnh khi cần."""
     buoc = LsxCongDoan(
         lsx_id=lsx_id, thu_tu=thu_tu, ten=ten, nhom="finishing", loai_buoc=LB_MAY,
-        department_id=department_id, la_kcs=la_kcs,
+        department_id=department_id, la_kcs=la_kcs, cong_doan_id=cong_doan_id,
+        kcs_tieu_chi_bo_sung_json=kcs_tieu_chi_bo_sung_json,
         so_luong_vao=1000, so_luong_ra=1000, don_vi_vao="cai", don_vi_ra="cai",
     )
     db.add(buoc)
@@ -303,3 +330,83 @@ def test_dung_diem_toa_sinh_canh_theo_so_con(db, orders, lsx_svc, bg_svc, admin,
     assert len(nguon_ids) == 1  # cùng một công việc chung là điểm toả cho cả hai nhánh
     cv_nguon = db.get(SanXuatCongViec, next(iter(nguon_ids)))
     assert cv_nguon.bai_ghep_id == bg.id
+
+
+# --- Checklist KCS đóng băng vào snapshot khi phát hành (Task 3) -----------------------------
+def test_snapshot_checklist_chi_lay_tieu_chi_active(db, orders, lsx_svc, admin, customer):
+    """Bước `la_kcs=true` neo `cong_doan_id` tới danh mục có 2 tiêu chí (1 active, 1 đã ngừng) —
+    snapshot chỉ đóng băng tiêu chí ACTIVE, nguồn `danh_muc`."""
+    a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    kcs = _kcs_dept(db)
+    cd = _cong_doan(db, "CD-KT-CUOI")
+    tc_on = _tieu_chi(db, "TC-ON", active=True, thu_tu=1, cong_doan_ids=[cd.id])
+    _tieu_chi(db, "TC-OFF", active=False, thu_tu=2, cong_doan_ids=[cd.id])
+    buoc = _them_buoc(
+        db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=kcs.id, la_kcs=True,
+        cong_doan_id=cd.id,
+    )
+    db.commit()
+
+    goi = release.phat_hanh(db, lsx_ids={a.id}, actor=admin)
+    db.commit()
+
+    cv = db.query(SanXuatCongViec).filter_by(goi_id=goi.id, step_key=buoc.step_key).one()
+    assert cv.kcs_tieu_chi_json == [{
+        "tieu_chi_id": tc_on.id, "ma": "TC-ON", "ten": "TC-ON", "huong_dan": None,
+        "bat_buoc": True, "nguon": "danh_muc", "thu_tu": 1,
+    }]
+
+
+def test_snapshot_checklist_gop_bo_sung_lsx_sau_danh_muc(db, orders, lsx_svc, admin, customer):
+    """`kcs_tieu_chi_bo_sung_json` của LSX được cộng THÊM vào SAU tiêu chí danh mục, đúng
+    `nguon="bo_sung_lsx"` và `thu_tu` bắt đầu từ 1000 (brief §D)."""
+    a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    kcs = _kcs_dept(db)
+    cd = _cong_doan(db, "CD-KT-CUOI-2")
+    tc = _tieu_chi(db, "TC-CHUAN", active=True, thu_tu=1, cong_doan_ids=[cd.id])
+    buoc = _them_buoc(
+        db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=kcs.id, la_kcs=True,
+        cong_doan_id=cd.id,
+        kcs_tieu_chi_bo_sung_json=[{"ten": "Đối chiếu mẫu màu", "huong_dan": None, "bat_buoc": True}],
+    )
+    db.commit()
+
+    goi = release.phat_hanh(db, lsx_ids={a.id}, actor=admin)
+    db.commit()
+
+    cv = db.query(SanXuatCongViec).filter_by(goi_id=goi.id, step_key=buoc.step_key).one()
+    checklist = cv.kcs_tieu_chi_json
+    assert len(checklist) == 2
+    assert checklist[0]["tieu_chi_id"] == tc.id and checklist[0]["nguon"] == "danh_muc"
+    assert checklist[1]["nguon"] == "bo_sung_lsx" and checklist[1]["thu_tu"] == 1000
+    assert checklist[1]["ten"] == "Đối chiếu mẫu màu" and checklist[1]["tieu_chi_id"] is None
+
+
+def test_snapshot_checklist_bat_bien_sau_khi_sua_danh_muc(db, orders, lsx_svc, admin, customer):
+    """Snapshot đã phát hành PHẢI đứng yên — sửa danh mục (ngừng active) SAU khi phát hành không
+    được lan ngược vào `SanXuatCongViec.kcs_tieu_chi_json` đã đóng băng."""
+    a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    kcs = _kcs_dept(db)
+    cd = _cong_doan(db, "CD-KT-CUOI-3")
+    tc = _tieu_chi(db, "TC-BAT-BIEN", active=True, thu_tu=1, cong_doan_ids=[cd.id])
+    buoc = _them_buoc(
+        db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=kcs.id, la_kcs=True,
+        cong_doan_id=cd.id,
+    )
+    db.commit()
+
+    goi = release.phat_hanh(db, lsx_ids={a.id}, actor=admin)
+    db.commit()
+
+    truoc = db.query(SanXuatCongViec).filter_by(goi_id=goi.id, step_key=buoc.step_key).one()
+    checklist_truoc = truoc.kcs_tieu_chi_json
+    assert len(checklist_truoc) == 1
+
+    # Ngừng dùng tiêu chí ở danh mục SAU khi đã phát hành.
+    tc_svc = SanXuatKcsTieuChiService(SanXuatKcsTieuChiRepository(db))
+    tc_svc.dat_active(tc.id, False)
+    db.commit()
+    db.expire_all()   # đọc lại THẬT từ DB, không phải cache Python đang giữ
+
+    sau = db.query(SanXuatCongViec).filter_by(goi_id=goi.id, step_key=buoc.step_key).one()
+    assert sau.kcs_tieu_chi_json == checklist_truoc

@@ -181,6 +181,14 @@ def _bu_hao(db: Session, obj) -> ThamChieu:
         _dem(db, CongDoan, CongDoan.bu_hao_id == obj.id), "công đoạn tra mã này")))
 
 
+def _san_xuat_kcs_tieu_chi(db: Session, obj) -> ThamChieu:
+    from ..models.san_xuat_kcs import SanXuatKcsTieuChiCongDoan
+
+    return ThamChieu(chan=_gom(_cau(
+        _dem(db, SanXuatKcsTieuChiCongDoan, SanXuatKcsTieuChiCongDoan.tieu_chi_id == obj.id),
+        "công đoạn đang gắn tiêu chí này")))
+
+
 def _khuon_be(db: Session, obj) -> ThamChieu:
     """Kho khuôn nay KHÔNG có ai tham chiếu ⇒ xoá không bị chặn.
 
@@ -319,6 +327,7 @@ DEM_THEO_LOAI = {
     "chung_loai_giay": _chung_loai_giay,
     "giay": lambda db, obj: _mat_hang(db, obj, "giay"),
     "vat_tu": lambda db, obj: _mat_hang(db, obj, "vat_tu"),
+    "san_xuat_kcs_tieu_chi": _san_xuat_kcs_tieu_chi,
 }
 
 

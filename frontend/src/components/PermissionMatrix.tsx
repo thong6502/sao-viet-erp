@@ -555,7 +555,9 @@ const MODULE_GROUPS: {
     key: "danh_muc",
     label: "Danh mục",
     // MỘT MÀN = MỘT DÒNG, xếp đúng thứ tự menu "Cấu hình danh mục" để người cấp quyền dò theo
-    // màn hình. 11 mục menu → 11 dòng; trước đây chỉ có 5, bật đủ 5/5 vẫn thiếu màn.
+    // màn hình. 13 mục menu → 13 dòng; trước đây chỉ có 5, bật đủ 5/5 vẫn thiếu màn.
+    // (Ghi chú: mảng dưới đây đang THIẾU "dm_ly_do_san_xuat" từ trước Task 3 — lỗ hổng có sẵn,
+    // không sửa ở đây, xem ledger.)
     modules: [
       "dm_loai_san_pham",
       "dm_thiet_bi",
@@ -571,6 +573,7 @@ const MODULE_GROUPS: {
       "dm_thanh_pham",
       "khuon_be",
       "dm_kho_hang",
+      "dm_kcs_tieu_chi",
     ],
     noScope: true,
   },

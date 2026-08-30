@@ -160,6 +160,9 @@ class LsxCongDoanIn(BaseModel):
     # Không khai field này thì `model_dump(exclude_unset=True)` không bao giờ có khoá "la_kcs",
     # cơ chế sửa đè coi như chết (đúng bẫy "Pydantic nuốt field im lặng").
     la_kcs: bool | None = None
+    # Tiêu chí KCS BỔ SUNG riêng cho lệnh này (Task 3) — không sửa được checklist danh mục ở đây,
+    # chỉ thêm/bớt vài dòng chỉ áp cho lệnh này. `[]` để XOÁ SẠCH (không gửi field = giữ nguyên).
+    kcs_tieu_chi_bo_sung_json: list | None = None
     department_id: int | None = None
     may_id: int | None = None
     #: Con dao của bước (`khuon_be.id`). Gửi null = bỏ gán.
@@ -217,6 +220,14 @@ class LsxCongDoanOut(BaseModel):
     nhom: str | None = None
     loai_buoc: str
     bat_buoc: bool = True
+    # KCS kiêm nhiệm (mg 0250, Task 3): FE cần `la_kcs` để ẩn/hiện khối "Tiêu chí KCS bổ sung"
+    # trong drawer bước — chỉ hiện khi bước thật sự là KCS. `kcs_tieu_chi_bo_sung_json` là tiêu
+    # chí RIÊNG của lệnh này (không sửa được danh mục tại đây). ⚠️ Thêm field vào schema THÔI CHƯA
+    # ĐỦ — `LsxCongDoanOut` được dựng bằng dict thủ công ở `lsx_service._cong_doan_dict()`, không
+    # phải `from_attributes` tự động; PHẢI copy hai khoá này vào dict đó (đúng bẫy "Pydantic nuốt
+    # field im lặng" mà Task 2 đã gặp ở chiều INPUT).
+    la_kcs: bool = False
+    kcs_tieu_chi_bo_sung_json: list | None = None
     department_id: int | None = None
     department_ten: str | None = None
     may_id: int | None = None

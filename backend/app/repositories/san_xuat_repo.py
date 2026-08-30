@@ -28,6 +28,7 @@ from ..models.san_xuat import (
     SanXuatPhienBan,
     SanXuatPhuThuoc,
 )
+from ..models.san_xuat_kcs import SanXuatKcsTieuChi, SanXuatKcsTieuChiCongDoan
 from ..models.xep_lich import XepLichCongDoan
 
 
@@ -221,6 +222,24 @@ class SanXuatRepository:
             select(Department.id).where(Department.is_kcs.is_(True))
         ).scalars()
         return set(rows)
+
+    def checklist_theo_cong_doan(self, cong_doan_ids: set[int]) -> dict[int, list[SanXuatKcsTieuChi]]:
+        """{cong_doan_id: [tiêu chí active, sort thu_tu rồi id]} — MỘT truy vấn cho cả gói phát hành."""
+        if not cong_doan_ids:
+            return {}
+        rows = self.db.execute(
+            select(SanXuatKcsTieuChiCongDoan.cong_doan_id, SanXuatKcsTieuChi)
+            .join(SanXuatKcsTieuChi, SanXuatKcsTieuChi.id == SanXuatKcsTieuChiCongDoan.tieu_chi_id)
+            .where(
+                SanXuatKcsTieuChiCongDoan.cong_doan_id.in_(cong_doan_ids),
+                SanXuatKcsTieuChi.active.is_(True),
+            )
+            .order_by(SanXuatKcsTieuChi.thu_tu, SanXuatKcsTieuChi.id)
+        ).all()
+        out: dict[int, list[SanXuatKcsTieuChi]] = {}
+        for cd_id, tc in rows:
+            out.setdefault(cd_id, []).append(tc)
+        return out
 
     # ================= GHI SNAPSHOT =================
 

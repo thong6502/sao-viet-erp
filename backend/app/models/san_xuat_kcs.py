@@ -42,7 +42,7 @@ from sqlalchemy import (
     Boolean, DateTime, ForeignKey, Integer, JSON, Numeric, String, UniqueConstraint,
     true as sa_true,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 
@@ -208,6 +208,18 @@ class SanXuatKcsTieuChi(Base):
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
 
+    # Công đoạn nào áp dụng tiêu chí này — nhiều-nhiều qua bảng nối. CRUD/API/UI ở Task 3.
+    cong_doan_links: Mapped[list["SanXuatKcsTieuChiCongDoan"]] = relationship(
+        "SanXuatKcsTieuChiCongDoan", back_populates="tieu_chi",
+        order_by="SanXuatKcsTieuChiCongDoan.id", cascade="all, delete-orphan",
+    )
+
+    @property
+    def cong_doan_ids(self) -> list[int]:
+        """Danh sách id công đoạn — hình dạng API dùng (`SanXuatKcsTieuChiRow` đọc qua
+        from_attributes), y hệt `CongDoanDauViec.vat_tu_ids`."""
+        return [l.cong_doan_id for l in self.cong_doan_links]
+
 
 class SanXuatKcsTieuChiCongDoan(Base):
     """Bảng nối `san_xuat_kcs_tieu_chi` ↔ `cong_doan` (module KCS kiêm nhiệm, mg `0250`) — tiêu
@@ -226,4 +238,8 @@ class SanXuatKcsTieuChiCongDoan(Base):
     )
     cong_doan_id: Mapped[int] = mapped_column(
         ForeignKey("cong_doan.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    tieu_chi: Mapped["SanXuatKcsTieuChi"] = relationship(
+        "SanXuatKcsTieuChi", back_populates="cong_doan_links"
     )

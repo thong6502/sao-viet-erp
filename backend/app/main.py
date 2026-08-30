@@ -64,6 +64,7 @@ from .routers import (
     ky_thuat_may,
     san_xuat,
     san_xuat_ly_do,
+    san_xuat_kcs_tieu_chi,
     cong_doan_tag,
 )
 from .seed import seed_all
@@ -163,6 +164,7 @@ app.include_router(vat_lieu_kho.router)
 app.include_router(cong_doan.router)
 app.include_router(cong_viec_khoan.router)     # đơn giá khoán theo tổ (trước ở tab của màn Lương)
 app.include_router(san_xuat_ly_do.router)      # danh mục Lý do & lỗi SX (module quyền `dm_ly_do_san_xuat`)
+app.include_router(san_xuat_kcs_tieu_chi.router)   # danh mục Tiêu chí KCS (module quyền `dm_kcs_tieu_chi`)
 app.include_router(bu_hao.router)
 app.include_router(don_vi_do.router)
 app.include_router(bien_cong_thuc.router)

@@ -2237,6 +2237,9 @@ class LsxService:
         return {
             "id": cd.id, "step_key": cd.step_key, "thu_tu": cd.thu_tu, "cong_doan_id": cd.cong_doan_id,
             "ten": cd.ten, "nhom": cd.nhom, "loai_buoc": cd.loai_buoc, "bat_buoc": bool(cd.bat_buoc),
+            # KCS kiêm nhiệm (Task 3): FE ẩn/hiện khối "Tiêu chí KCS bổ sung" theo `la_kcs`. PHẢI
+            # copy tay ở đây — output này là dict thủ công, KHÔNG chạy `from_attributes`.
+            "la_kcs": bool(cd.la_kcs), "kcs_tieu_chi_bo_sung_json": cd.kcs_tieu_chi_bo_sung_json,
             "department_id": cd.department_id,
             "department_ten": dept_names.get(cd.department_id),
             "may_id": cd.may_id, "may_ten": may_names.get(cd.may_id),
@@ -2697,6 +2700,10 @@ class LsxService:
         # KCS kiêm nhiệm (mg 0250, Task 2): cờ kế thừa từ danh mục Công đoạn lúc bung routing lần
         # đầu (`_default_buoc`) — CÙNG cơ chế trên, sửa đè được nếu client gửi lại field này.
         "la_kcs",
+        # KCS kiêm nhiệm (mg 0250, Task 3): tiêu chí BỔ SUNG riêng của lệnh này (không sửa được
+        # checklist danh mục ở đây). KHÔNG vào `_ROUTING_FIELD_NULLABLE` — gửi `[]` để xoá sạch đã
+        # đủ, không cần gửi `null`.
+        "kcs_tieu_chi_bo_sung_json",
     )
     _ROUTING_FIELD_NULLABLE = {
         "may_id", "khuon_be_id", "chay_phut", "nha_cung_cap", "ngay_gui_dk", "ngay_nhan_dk",

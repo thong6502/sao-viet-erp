@@ -60,10 +60,26 @@ def phat_hanh(
 
     nhom_by_lsx = dam_bao_nhom(repo, lsx_ids)
 
+    # Checklist KCS (Task 3): gom cong_doan_id của MỌI bước trong gói (LSX riêng + bài ghép chung)
+    # rồi tra MỘT LẦN — tránh N+1 (mỗi bước một truy vấn) trong vòng lặp của `dung_cong_viec`.
+    cong_doan_ids = {
+        cd.cong_doan_id
+        for lsx_id in lsx_ids
+        for cd in repo.routing_steps(lsx_id)
+        if cd.cong_doan_id
+    } | {
+        cd.cong_doan_id
+        for bg_id in bai_ghep_ids
+        for cd in repo.bai_ghep_cong_doans(bg_id)
+        if cd.cong_doan_id
+    }
+    tieu_chi_theo_cd = repo.checklist_theo_cong_doan(cong_doan_ids)
+
     cv_by_step = dung_cong_viec(
         repo, goi=goi, phien_ban_so=1,
         lsx_ids=lsx_ids, bai_ghep_ids=bai_ghep_ids,
         nhom_by_lsx=nhom_by_lsx,
+        tieu_chi_theo_cd=tieu_chi_theo_cd,
     )
     than_chinh = danh_dau_kcs_cuoi(
         repo, lsx_ids=lsx_ids, nhom_by_lsx=nhom_by_lsx,

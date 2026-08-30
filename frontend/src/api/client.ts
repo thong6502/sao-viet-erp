@@ -2083,6 +2083,11 @@ export interface LsxGiaoNhanFields {
 export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   id: number; step_key: string; thu_tu: number; cong_doan_id: number | null;
   ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc; bat_buoc: boolean;
+  /** KCS kiêm nhiệm (mg 0250): bước này có phải KCS không — quyết định khối "Tiêu chí KCS bổ
+   *  sung" có hiện trong drawer hay không. */
+  la_kcs: boolean;
+  /** Tiêu chí KCS BỔ SUNG riêng cho LỆNH này (không sửa được checklist danh mục ở đây). */
+  kcs_tieu_chi_bo_sung_json: { ten: string; huong_dan: string | null; bat_buoc: boolean }[] | null;
   department_id: number | null; department_ten: string | null;
   may_id: number | null; may_ten: string | null;
   /** Hai CỜ đọc từ danh mục Công đoạn — quyết định bước có hỏi khuôn không; `tooling_type` còn là
@@ -2160,6 +2165,8 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   piece_rate_id?: number | null;
   step_key?: string; thu_tu?: number; cong_doan_id?: number | null; ten?: string; nhom?: string | null;
   loai_buoc?: LsxLoaiBuoc; bat_buoc?: boolean;
+  la_kcs?: boolean;
+  kcs_tieu_chi_bo_sung_json?: { ten: string; huong_dan: string | null; bat_buoc: boolean }[] | null;
   department_id?: number | null; may_id?: number | null;
   /** Con dao của bước (`khuon_be.id`). null = bỏ gán. */
   khuon_be_id?: number | null;

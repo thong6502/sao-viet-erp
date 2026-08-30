@@ -58,6 +58,25 @@ def _vat_tu(cd) -> list[dict]:
     return out
 
 
+def _checklist(cd, tieu_chi_theo_cd: dict[int, list]) -> list[dict] | None:
+    """Ghép checklist danh mục (theo cong_doan_id của bước) + bổ sung riêng của bước, đúng thứ tự.
+    None nếu bước không phải KCS — cột chỉ có ý nghĩa với `la_kcs=True`."""
+    if not cd.la_kcs:
+        return None
+    out: list[dict] = []
+    for tc in tieu_chi_theo_cd.get(cd.cong_doan_id, []) if cd.cong_doan_id else []:
+        out.append({
+            "tieu_chi_id": tc.id, "ma": tc.ma, "ten": tc.ten, "huong_dan": tc.huong_dan,
+            "bat_buoc": bool(tc.bat_buoc), "nguon": "danh_muc", "thu_tu": tc.thu_tu,
+        })
+    for i, bs in enumerate(getattr(cd, "kcs_tieu_chi_bo_sung_json", None) or []):
+        out.append({
+            "tieu_chi_id": None, "ma": None, "ten": bs.get("ten"), "huong_dan": bs.get("huong_dan"),
+            "bat_buoc": bool(bs.get("bat_buoc", True)), "nguon": "bo_sung_lsx", "thu_tu": 1000 + i,
+        })
+    return out
+
+
 def dung_cong_viec(
     repo: SanXuatRepository,
     *,
@@ -66,6 +85,7 @@ def dung_cong_viec(
     lsx_ids: set[int],
     bai_ghep_ids: set[int],
     nhom_by_lsx: dict[int, SanXuatNhom],
+    tieu_chi_theo_cd: dict[int, list] | None = None,
 ) -> dict[str, SanXuatCongViec]:
     """Đẻ công việc cho gói phát hành; trả map `step_key` → công việc (để nối phụ thuộc).
 
@@ -73,6 +93,7 @@ def dung_cong_viec(
     chéo neo vào đúng bản ghi thực hiện chung.
     """
     cv_by_step: dict[str, SanXuatCongViec] = {}
+    tieu_chi_theo_cd = tieu_chi_theo_cd or {}
 
     # (1) Bước dùng chung của bài ghép — MỘT công việc mỗi bước, phủ nhiều bước LSX.
     covered_step_keys: set[str] = set()
@@ -100,6 +121,7 @@ def dung_cong_viec(
                 so_luong_vao=cd.so_luong_vao, so_luong_ra=cd.so_luong_ra,
                 don_vi_vao=cd.don_vi_vao, don_vi_ra=cd.don_vi_ra, he_so_quy_doi=cd.he_so_quy_doi,
                 dinh_muc_json=_dinh_muc(cd), khoan_json=cd.khoan_json, vat_tu_json=_vat_tu(cd),
+                kcs_tieu_chi_json=_checklist(cd, tieu_chi_theo_cd),
                 trang_thai=CV_PHAT_HANH,
             )
             repo.add(cv)
@@ -126,6 +148,7 @@ def dung_cong_viec(
                 so_luong_vao=cd.so_luong_vao, so_luong_ra=cd.so_luong_ra,
                 don_vi_vao=cd.don_vi_vao, don_vi_ra=cd.don_vi_ra, he_so_quy_doi=cd.he_so_quy_doi,
                 dinh_muc_json=_dinh_muc(cd), khoan_json=cd.khoan_json, vat_tu_json=_vat_tu(cd),
+                kcs_tieu_chi_json=_checklist(cd, tieu_chi_theo_cd),
                 trang_thai=CV_PHAT_HANH,
             )
             repo.add(cv)
