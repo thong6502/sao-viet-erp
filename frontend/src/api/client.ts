@@ -431,6 +431,8 @@ export type QuoteEvent =
       trang_thai?: string | null;
       kieu?: string | null;
     }
+  // Bảng giữ chỗ vật tư (Kế hoạch vật tư) đổi — bật/tắt/nhặt thêm/chuyển kho/đối soát — gửi
+  // BROADCAST (không riêng ai), chỉ để báo "tự tải lại", không mang state.
   | { type: "ke_hoach_vat_tu_thay_doi" };
 
 // --- Trung tâm thông báo (chuông Topbar) -------------------------------------
