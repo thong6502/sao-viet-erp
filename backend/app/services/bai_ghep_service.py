@@ -1718,6 +1718,15 @@ class BaiGhepService:
             "muc_a": sorted(muc_a), "muc_b": sorted(muc_b),
         }
 
+    def _kieu_in_bai(self, bg: BaiGhep, lsx_map: dict[int, Lsx]) -> list[str]:
+        """Tập `quy_cach_in` đang khai trên các thành viên — rỗng hoặc nhiều hơn 1 phần tử nghĩa
+        là bài CHƯA có một kiểu in thống nhất để tính kẽm gộp/chờ kỹ thuật theo kiểu in."""
+        return sorted({
+            k for tv in bg.thanh_viens
+            if (k := ((lsx_map[tv.lsx_id].quy_cach_json or {}) if tv.lsx_id in lsx_map else {})
+                .get("quy_cach_in"))
+        })
+
     def muc_gop(self, bg: BaiGhep, lsx_map: dict[int, Lsx]) -> dict:
         """Số màu + số kẽm của CẢ BÀI — `{so_mau_a, so_mau_b, so_mau_pha, so_kem}`.
 
@@ -1738,15 +1747,12 @@ class BaiGhepService:
             a, b = tap_muc_tu_so(qc.get("so_mau_a"), qc.get("so_mau_b"), 0)
         if not a and not b:
             return {}
-        kieu = next(
-            (k for tv in bg.thanh_viens
-             if (k := ((lsx_map.get(tv.lsx_id).quy_cach_json or {}) if lsx_map.get(tv.lsx_id)
-                       else {}).get("quy_cach_in"))),
-            "mot_mat",
-        )
+        kieu_in = self._kieu_in_bai(bg, lsx_map)
+        if len(kieu_in) != 1:
+            return {}
         sa, sb, sp = so_mau_dan_xuat(a, b)
         return {"so_mau_a": sa, "so_mau_b": sb, "so_mau_pha": sp,
-                "so_kem": so_kem_moi_tay(a, b, str(kieu))}
+                "so_kem": so_kem_moi_tay(a, b, kieu_in[0])}
 
     def _qc_bien_bai(self, bg: BaiGhep, lsx_map: dict[int, Lsx],
                      so_to: dict | None = None) -> dict:
@@ -2042,11 +2048,7 @@ class BaiGhepService:
         # thì bài CMYK ghép với bìa có Pantone vẫn hiện 4 kẽm trong khi xưởng phải ra 5.
         qc_bai = self._qc_bai(bg, lsx_map)
         muc = self.muc_gop(bg, lsx_map)
-        kieu_in = sorted({
-            k for tv in bg.thanh_viens
-            if (k := ((lsx_map[tv.lsx_id].quy_cach_json or {}) if tv.lsx_id in lsx_map else {})
-                .get("quy_cach_in"))
-        })
+        kieu_in = self._kieu_in_bai(bg, lsx_map)
 
         return {
             "id": bg.id, "ma": bg.ma, "ten": bg.ten,
