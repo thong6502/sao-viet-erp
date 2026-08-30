@@ -500,6 +500,8 @@ export function PurchaseRequestsPage({
         note: trimOptional(line.note),
         supplier_id: line.supplier_id ?? null,
         department_request_line_id: line.department_request_line_id ?? null,
+        hang_loai: line.hang_loai ?? null,
+        hang_id: line.hang_id ?? null,
       })),
     };
   }

@@ -5639,6 +5639,9 @@ export interface PurchaseRequestLineInput {
   note?: string | null;
   /** Dòng YCMH đẻ ra dòng này — nền cho "tình trạng từng sản phẩm" ở chi tiết yêu cầu. */
   department_request_line_id?: number | null;
+  /** Liên kết mặt hàng gốc (mg 0174). Không gửi thì server tự kế thừa từ dòng YCMH nguồn. */
+  hang_loai?: HangLoai | null;
+  hang_id?: number | null;
 }
 
 // --- Công nợ phải trả ------------------------------------------------------
@@ -5981,6 +5984,8 @@ export interface PurchaseRequestLineOut {
   vat_amount: number;
   line_total: number;
   note: string | null;
+  /** Dòng YCMH đẻ ra dòng này (mg 0174b) — form SỬA cần đọc lại để gửi đúng liên kết. */
+  department_request_line_id: number | null;
   /** Liên kết mặt hàng gốc (mg 0174) — Nhập kho từ đợt giao auto-điền vật tư. Null = chỉ tên chữ. */
   hang_loai: HangLoai | null;
   hang_id: number | null;

@@ -3106,6 +3106,7 @@ class PurchaseService:
                     "vat_amount": vat_amount,
                     "line_total": line_total,
                     "note": line.note,
+                    "department_request_line_id": line.department_request_line_id,
                     "hang_loai": line.hang_loai,
                     "hang_id": line.hang_id,
                     "hang_ma": getattr(_hmap.get((line.hang_loai, line.hang_id)), "ma", None),
