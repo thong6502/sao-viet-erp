@@ -2591,6 +2591,12 @@ td.khsx-num > .khsx-unit {
 /* --- a11y ----------------------------------------------------------------- */
 .khsx .sr-only {
   position: absolute;
+  /* NEO VÀO GÓC TRÁI-TRÊN. Thiếu `left/top`, thẻ giữ VỊ TRÍ TĨNH của nó — mà nhiều thẻ sr-only
+     nằm trong bảng rộng 880px bên trong khung cuộn ngang. Khối chứa của `absolute` (không có tổ
+     tiên positioned) là khung nhìn gốc, nên nó KHÔNG bị khung cuộn cắt: `html` phình tới 885px và
+     cả trang mọc thanh cuộn ngang ở màn hẹp. Thẻ chỉ 1px + clip nên neo về 0,0 vô hại. */
+  left: 0;
+  top: 0;
   width: 1px;
   height: 1px;
   padding: 0;

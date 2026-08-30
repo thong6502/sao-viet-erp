@@ -21,6 +21,10 @@ interface TopbarProps {
   onOpenNotif?: (n: AppNotification) => void;
   /** Đánh dấu đã đọc hết. */
   onMarkAllRead?: () => void;
+  /** Mở/đóng ngăn kéo điều hướng (chỉ hiện ở màn hẹp — xem `.topbar__nav-toggle`). */
+  onToggleNav?: () => void;
+  /** Ngăn kéo điều hướng đang mở? — nuôi `aria-expanded` của nút hamburger. */
+  navOpen?: boolean;
 }
 
 export function Topbar({
@@ -31,9 +35,22 @@ export function Topbar({
   notifUnread = 0,
   onOpenNotif,
   onMarkAllRead,
+  onToggleNav,
+  navOpen = false,
 }: TopbarProps) {
   return (
     <header className="topbar">
+      {/* Hamburger: CSS ẩn ở màn rộng (sidebar cố định), hiện khi sidebar hoá ngăn kéo. */}
+      <button
+        type="button"
+        className="topbar__nav-toggle"
+        onClick={onToggleNav}
+        aria-label={navOpen ? "Đóng menu điều hướng" : "Mở menu điều hướng"}
+        aria-expanded={navOpen}
+      >
+        <Icon name={navOpen ? "x" : "menu"} size={20} />
+      </button>
+      <div className="topbar__spacer" />
       <NotificationBell
         leaveUnseen={leaveUnseen}
         onOpenLeave={onOpenLeave}

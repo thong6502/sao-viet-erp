@@ -333,9 +333,55 @@
   background: var(--signal-soft);
 }
 
+/* ---- Nút hamburger (mở ngăn kéo điều hướng) -------------------------------
+   Ẩn ở màn rộng vì sidebar luôn hiện; chỉ bật cùng breakpoint với ngăn kéo (sidebar.css). */
+.topbar__nav-toggle {
+  display: none;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+.topbar__nav-toggle:hover {
+  background: var(--rust-soft);
+}
+.topbar__nav-toggle:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+/* Đẩy chuông + người dùng về phải khi đã có nút trái (topbar dùng justify-content:flex-end). */
+.topbar__spacer {
+  flex: 1 1 auto;
+}
+
 /* ---- Responsive: hide the trigger text on a narrow viewport --------------- */
+@media (max-width: 1024px) {
+  .topbar__nav-toggle {
+    display: inline-flex;
+  }
+}
+
 @media (max-width: 768px) {
+  .topbar {
+    padding: 0 var(--sp-3);
+    gap: var(--sp-2);
+  }
   .tb-user__trigger-text {
     display: none;
+  }
+  /* Dropdown chuông/tài khoản: neo mép phải và không rộng quá màn hình. */
+  .tb-notif,
+  .tb-user__dropdown {
+    right: 0;
+    left: auto;
+    width: min(340px, calc(100vw - 20px));
+    max-width: calc(100vw - 20px);
+    min-width: 0;
   }
 }

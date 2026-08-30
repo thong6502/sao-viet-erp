@@ -2150,3 +2150,34 @@ button.ns__kpi {
   font-size: 12px;
   color: var(--ash-2);
 }
+
+/* ==========================================================================
+   §RESPONSIVE — màn hẹp. Đặt CUỐI FILE vì media query không cộng specificity,
+   để giữa file sẽ bị các khối phía sau đè.
+   ========================================================================== */
+@media (max-width: 900px) {
+  /* `.ns__head` là flex một hàng, cụm nút khai `flex-shrink:0` ⇒ ở 375px cột tiêu đề bị bóp
+     còn ~50px, chữ "Hồ sơ nhân sự" gãy mỗi dòng một từ và hai nút vẫn tràn khỏi màn. */
+  .ns__head {
+    flex-wrap: wrap;
+  }
+  .ns__head > :first-child {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .ns2__headact,
+  .ns-head-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 1024px) {
+  /* `overflow:hidden` (để bo góc) CẮT CỤT bảng 12 cột mà không cho cuộn — người dùng không có
+     cách nào xem cột bên phải. Đổi sang cuộn ngang: vẫn bo góc, vẫn tới được mọi cột. */
+  .ns-table-wrapper {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+}

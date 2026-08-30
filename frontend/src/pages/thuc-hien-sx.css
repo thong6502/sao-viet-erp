@@ -1605,3 +1605,25 @@
 .thsx-x-toa-close:hover {
   opacity: 0.7;
 }
+
+/* ---------------- Màn hẹp: XẾP CHỒNG hai cột ------------------------------
+   Ở ≤1180px cột phải (bảng thao tác) đã hoá drawer trượt. Nhưng hai cột còn lại vẫn nằm
+   ngang: ở 375px cột danh sách chiếm 240-300px, timeline còn ~75px — vô dụng. Dưới 820px
+   xếp CHỒNG: danh sách trên (cuộn trong), timeline dưới (cuộn trong). Không dùng cuộn
+   trang vì đây là màn thao tác tại tổ, thanh công cụ trên cùng phải luôn nhìn thấy. */
+@media (max-width: 820px) {
+  .thsx-grid,
+  .thsx-grid.is-panel {
+    grid-template-columns: minmax(0, 1fr);
+    /* Thanh công cụ trên đã ăn ~300px ở 375px; nếu ép cả hai ô vào phần còn lại thì timeline
+       chỉ còn ~60px. Cho lưới tự cuộn dọc, mỗi ô giữ một chiều cao tối thiểu dùng được.
+       Dòng phải khai bằng `minmax(...)` chứ KHÔNG `auto`: `.thsx-list__body` là `flex:1 1 auto;
+       min-height:0` nên trong dòng `auto` nó co về 0 và danh sách việc biến mất. */
+    grid-template-rows: minmax(180px, 40vh) minmax(360px, 1fr);
+    overflow-y: auto;
+  }
+  .thsx-list {
+    border-right: 0;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+}

@@ -226,6 +226,7 @@ const ICONS = {
   ),
   // Affordance
   chevron: <path d="m6 9 6 6 6-6" />,
+  menu: <path d="M4 7h16M4 12h16M4 17h16" />,
   plus: <path d="M12 5v14M5 12h14" />,
   search: (
     <>

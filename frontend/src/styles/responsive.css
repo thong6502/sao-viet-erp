@@ -1,0 +1,190 @@
+/* ============================================================================
+   responsive.css — LỚP THÍCH ỨNG MÀN HẸP, dùng chung cho toàn hệ thống.
+   ----------------------------------------------------------------------------
+   NƠI ĐẶT: `main.tsx` nạp file này SAU CÙNG (sau `import { App }` nên CSS của mọi màn đã
+   chèn xong, rồi mới tới global.css và file này) — nhờ vậy đè được CSS của từng màn mà
+   không phải rải `!important` khắp nơi.
+
+   NGUYÊN TẮC:
+   • MỌI luật ở đây nằm TRONG `@media (max-width: …)`. Màn rộng KHÔNG đổi một pixel.
+   • Ba mốc:
+       ≤1024px  máy tính bảng / laptop nhỏ — sidebar hoá ngăn kéo, bảng lấy trọn bề ngang.
+       ≤768px   điện thoại nằm ngang / tablet dọc — thanh công cụ xuống dòng, hộp thoại nở to.
+       ≤480px   điện thoại dọc — mọi ô nhập chiếm trọn dòng, chữ/đệm co lại.
+   • Bảng nhiều cột KHÔNG ép xuống dạng thẻ: nghiệp vụ ở đây là so sánh số theo cột.
+     Thay vào đó bảo đảm bảng nằm trong KHUNG CUỘN NGANG riêng, không đẩy cả trang.
+   ========================================================================== */
+
+/* ---- 1. Bộ khung: màn che sau ngăn kéo điều hướng -------------------------- */
+/* Nút (không phải div) để bàn phím đóng được; chỉ render khi ngăn kéo mở. */
+.shell__scrim {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .shell__scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 110;
+    padding: 0;
+    border: 0;
+    cursor: pointer;
+    background: rgba(20, 19, 15, 0.45);
+    -webkit-backdrop-filter: blur(1px);
+    backdrop-filter: blur(1px);
+  }
+}
+
+/* ---- 2. Khung trang: bớt đệm để lấy lại bề ngang --------------------------- */
+@media (max-width: 768px) {
+  .md-page,
+  .rc {
+    padding: var(--sp-5) var(--sp-4);
+  }
+}
+
+@media (max-width: 480px) {
+  .md-page,
+  .rc {
+    padding: var(--sp-4) var(--sp-3);
+    gap: var(--sp-4);
+  }
+}
+
+/* ---- 3. Thanh công cụ: xuống dòng thay vì tràn ----------------------------- */
+/* Các thanh này ở màn rộng là MỘT hàng ngang (tìm kiếm · bộ lọc · nút hành động).
+   Màn hẹp không đủ chỗ nên chúng đẩy cả trang sinh thanh cuộn ngang — cho xuống dòng. */
+@media (max-width: 768px) {
+  .rc__unified-bar,
+  .rc__unified-right,
+  .rc__toolbar,
+  .rc__headrow,
+  .rc__filterbar,
+  .md-page__toolbar,
+  .acct-toolbar__filters,
+  .acct-dmh__toolrow,
+  .purchase__topbar-controls,
+  .pay-pills {
+    flex-wrap: wrap;
+  }
+
+  /* Ô tìm kiếm chiếm trọn dòng — 260px cố định là thủ phạm tràn ở đa số màn. */
+  .rc__search-wrapper,
+  .md-page__search,
+  .md-page__search .input,
+  .md-page__filter {
+    width: 100%;
+    max-width: 100%;
+    flex: 1 1 100%;
+  }
+
+  /* Dải nút hành động bên phải: về trái, giãn đều, không ép một hàng. */
+  .rc__unified-right {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  /* Ô chọn (select) trong thanh công cụ: tự co, không giữ bề ngang cứng. */
+  .purchase__select-modern,
+  .acct-toolbar__select {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+
+/* ---- 4. Dải tab / chip lọc: CUỘN NGANG trong khung, không đẩy trang -------- */
+/* Đây là lỗi hay gặp nhất: một dải 6-8 tab dài 900px làm CẢ TRANG cuộn ngang.
+   Cho chính dải đó cuộn (`overflow-x:auto`) thì trang đứng yên, tab vẫn tới được. */
+@media (max-width: 1024px) {
+  .rc__tabs,
+  .rc__segs,
+  .khsx-underline-tabs,
+  .khvt-segmented-switch,
+  .kho-shell__dirs,
+  .kho-shell__fns,
+  .cc-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .rc__tabs > *,
+  .rc__segs > *,
+  .khsx-underline-tabs > *,
+  .khvt-segmented-switch > *,
+  .kho-shell__dirs > *,
+  .kho-shell__fns > *,
+  .cc-tabs > * {
+    flex: 0 0 auto;
+  }
+}
+
+/* ---- 5. Bảng: khung cuộn ngang riêng --------------------------------------- */
+/* Các khung bảng dưới đây đặt `overflow: hidden` chỉ để BO GÓC. Ở màn rộng bảng vừa khung
+   nên không ai thấy; màn hẹp thì bảng rộng 800-1000px bị CẮT CỤT, cột cuối không tới được.
+   Đổi sang cuộn ngang trong khung: góc vẫn bo, cột vẫn tới được, trang vẫn đứng yên. */
+@media (max-width: 1024px) {
+  .cc-table-card,
+  .cl-table__wrap,
+  .kh__tablewrap,
+  .khsx-vattu-table-wrap,
+  .lg-emp-table-wrapper,
+  .ns__tablewrap,
+  .pdot__tablecard,
+  .purchase__modal-table-wrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 1024px) {
+  .rc__tablewrap,
+  .md-page__tablewrap {
+    /* Bỏ trần chiều cao ở màn hẹp: màn chỉ cao ~700px, trừ 320px thì còn lại một khe
+       nhìn 4 dòng — cuộn dọc cả trang dễ chịu hơn cuộn dọc trong khung. */
+    max-height: none;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 480px) {
+  .rc__table,
+  .md-page__table {
+    font-size: 13px;
+  }
+}
+
+/* ---- 6. Hộp thoại: gần như toàn màn hình ---------------------------------- */
+@media (max-width: 768px) {
+  .md-page__overlay {
+    padding: var(--sp-4) var(--sp-3);
+    align-items: flex-start;
+  }
+  .md-page__dialog,
+  .md-page__dialog--sm {
+    max-width: 100%;
+  }
+  .md-page__dialog-head,
+  .md-page__dialog-body {
+    padding-left: var(--sp-4);
+    padding-right: var(--sp-4);
+  }
+  /* Lưới form 2 cột → 1 cột. */
+  .md-page__form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- 7. Bảng phân trang -------------------------------------------------- */
+@media (max-width: 480px) {
+  .md-page__pager {
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    justify-content: center;
+  }
+}

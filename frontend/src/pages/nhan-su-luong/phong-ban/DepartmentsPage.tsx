@@ -1617,7 +1617,19 @@ export function DepartmentsPage({
           </div>
         </div>
 
-        <div className="rdx-dept__body" style={{ gridTemplateColumns: viewMode === "tree" ? "380px minmax(0, 1fr)" : (selectedId != null ? "1fr 440px" : "1fr") }}>
+        {/* Bề ngang hai cột khai bằng LỚP, không phải `style` inline: style inline thắng mọi
+            luật CSS (trừ !important) nên khối @media ≤1024px trong redesign-phong-ban.css bị vô
+            hiệu — ở điện thoại cột trái vẫn giữ 380px trong khung 296px và đẩy cả trang trượt
+            ngang. Ba biến thể tương ứng ba nhánh cũ của biểu thức inline. */}
+        <div
+          className={`rdx-dept__body ${
+            viewMode === "tree"
+              ? "rdx-dept__body--tree"
+              : selectedId != null
+                ? "rdx-dept__body--org-sel"
+                : "rdx-dept__body--org"
+          }`}
+        >
           {viewMode === "tree" ? (
             /* ── CỘT TRÁI: cây tổ chức dạng Danh sách Thẻ Card ──────────── */
             <aside className="rdx-dept__master" aria-label="Cây phòng ban">
