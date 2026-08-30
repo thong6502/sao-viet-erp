@@ -153,9 +153,21 @@ class GiuChoService:
         dang = self.repo.cua_chu_the(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
 
         giu_theo_hang: dict[Hang, float] = {}
+        giu_kho: dict[Hang, float] = {}
+        giu_dang_ve: dict[Hang, float] = {}
+        nguon_dang_ve: dict[Hang, list[dict]] = {}
         for r in dang:
             h = (r.hang_loai, r.hang_id)
             giu_theo_hang[h] = giu_theo_hang.get(h, 0.0) + _f(r.so_luong)
+            if r.nguon == NGUON_KHO:
+                giu_kho[h] = giu_kho.get(h, 0.0) + _f(r.so_luong)
+            else:
+                giu_dang_ve[h] = giu_dang_ve.get(h, 0.0) + _f(r.so_luong)
+                if r.purchase_request_line_id is not None:
+                    nguon_dang_ve.setdefault(h, []).append({
+                        "purchase_request_line_id": r.purchase_request_line_id,
+                        "so_luong": _f(r.so_luong),
+                    })
 
         thieu: dict[Hang, float] = {}
         khong_ro = False
@@ -173,6 +185,14 @@ class GiuChoService:
             "khong_ro": khong_ro,
             "thieu": thieu,
             "dang_giu": giu_theo_hang,
+            # [MỚI 30/08/2026] Tách theo nguồn — màn "Theo lệnh" cần biết phần nào CHẮC (kho) và
+            # phần nào còn TREO theo ngày về (dang_ve). `dang_giu` (tổng) giữ nguyên cho chỗ đã
+            # dùng cũ (`xep_lich_2`, `_them_mo_coi`).
+            "da_giu_kho": giu_kho,
+            "da_giu_dang_ve": giu_dang_ve,
+            # Dòng PMH cụ thể đang góp cho phần hứa — CHƯA có mã PMH (tra gộp ở tầng gọi, xem
+            # `giu_theo_chu_the_hang`/`gan_giu_cho_vao_bang`, Task 7/8).
+            "nguon_dang_ve": nguon_dang_ve,
             "xep_som_nhat": max(ngay_ve) if ngay_ve else None,
             # Dòng giữ chỗ CŨ NHẤT — mốc đếm "giữ bao lâu rồi". Lấy min chứ không lấy max: nhặt
             # thêm khi hàng về đẻ dòng mới, lấy max là mỗi lần bù hàng lại reset đồng hồ về 0 và

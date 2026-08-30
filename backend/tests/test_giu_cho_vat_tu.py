@@ -1030,3 +1030,32 @@ def test_chuyen_dang_ve_sang_kho_go_khoa_ngay(db, svc, kh, customer):
     assert not any(r.nguon == NGUON_DANG_VE for r in rows)
     tt_sau = svc.trang_thai(lsx_id=a.id)
     assert tt_sau["xep_som_nhat"] is None, "hàng đã có thật thì không còn ngày nào khoá lịch nữa"
+
+
+# ================== TÁCH NGUỒN TRONG trang_thai() ==================
+
+
+def test_trang_thai_tach_da_giu_kho_va_dang_ve(db, svc, kh, customer):
+    """`trang_thai()` phải tách được giữ THẬT (kho) và giữ HỨA (đang về), VÀ trả ra ĐÚNG dòng PMH
+    nào đang góp cho phần hứa đó — không thì màn không biết phần nào đã chắc, phần nào còn treo
+    theo ngày về, và không biết đang bám đơn nào để hối NCC."""
+    from app.models.purchase import PurchaseRequestLine
+
+    g = _giay(db)
+    _ton(db, _giay_hang(g), 5)   # đủ 5 kg thật, còn thiếu phải bám hàng đang về
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)   # ≈ 16,77 kg
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
+
+    tt = svc.bat(lsx_id=a.id)
+
+    hang = _giay_hang(g)
+    assert tt["da_giu_kho"].get(hang, 0) == pytest.approx(5, abs=0.01)
+    assert tt["da_giu_dang_ve"].get(hang, 0) == pytest.approx(16.77 - 5, abs=0.05)
+    # Tổng hai nguồn phải khớp `dang_giu` cũ — không phá số cũ, chỉ tách thêm.
+    assert tt["da_giu_kho"][hang] + tt["da_giu_dang_ve"][hang] == pytest.approx(
+        tt["dang_giu"][hang], abs=0.01
+    )
+    nguon = tt["nguon_dang_ve"].get(hang, [])
+    assert nguon and all(n["purchase_request_line_id"] == line.id for n in nguon)
+    assert sum(n["so_luong"] for n in nguon) == pytest.approx(tt["da_giu_dang_ve"][hang], abs=0.01)
