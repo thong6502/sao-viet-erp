@@ -1201,3 +1201,123 @@ def test_sua_routing_khi_dang_giu_cho_bi_chan(db, svc, customer):
         lsx_svc.replace_routing(lsx_id=a.id, rows_in=[], actor=admin)
     with pytest.raises(LsxConflict, match="giữ chỗ"):
         lsx_svc.replace_routing(lsx_id=a.id, rows_in=[], actor=admin, commit=False)
+
+
+# ================== XUẤT KHO QUY LSX ĐÃ GHÉP VỀ BÀI ==================
+
+
+def _dung_svcv(db, kh):
+    from app.repositories.stock_voucher_repo import StockVoucherRepository
+    from app.services.giu_cho_service import GiuChoService
+    from app.services.stock_voucher_service import StockVoucherService
+
+    return StockVoucherService(
+        vouchers=StockVoucherRepository(db), requests=None, lots=None, sequence=None,
+        request_service=None, hang=kh.hang, giu_cho=GiuChoService(db, kh),
+    )
+
+
+def _dung_phieu_xuat(db, hang, *, lsx_id, bai_ghep_id, kho_id=None):
+    """Dựng thẳng 1 StockRequest (1 dòng) + 1 StockVoucher XUẤT khớp dòng đó — trả `(voucher,
+    {request_line_id: request_line})` để gọi thẳng `_gom_theo_hang_va_chu_the`."""
+    from app.models.stock_request import REQ_APPROVED, REQ_XUAT, StockRequest, StockRequestLine
+    from app.models.stock_voucher import VOUCHER_DRAFT, VOUCHER_XUAT, StockVoucher, StockVoucherLine
+
+    if kho_id is None:
+        kho = db.query(KhoHang).first()
+        if kho is None:
+            kho = KhoHang(ma="K1", ten="Kho test")
+            db.add(kho)
+            db.flush()
+        kho_id = kho.id
+
+    n = db.query(StockRequest).count() + 1
+    req = StockRequest(ma=f"DNX-TEST-{n}", loai=REQ_XUAT, nguoi_tao_id=1,
+                       kho_id=kho_id, trang_thai=REQ_APPROVED)
+    db.add(req)
+    db.flush()
+    rl = StockRequestLine(request_id=req.id, hang_loai=hang[0], hang_id=hang[1], dvt="kg",
+                          sl_de_nghi=10, sl_duyet=10, sl_da_ung=0,
+                          lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+    db.add(rl)
+    db.commit()
+
+    v = StockVoucher(ma=f"PXK-TEST-{n}", loai=VOUCHER_XUAT, request_id=req.id, kho_id=req.kho_id,
+                     ngay=HOM_NAY, nguoi_lap_id=1, trang_thai=VOUCHER_DRAFT)
+    db.add(v)
+    db.flush()
+    db.add(StockVoucherLine(voucher_id=v.id, request_line_id=rl.id, hang_loai=hang[0],
+                            hang_id=hang[1], so_luong=10, sl_goc=10, lot_id=None))
+    db.commit()
+    return v, {rl.id: rl}
+
+
+def test_gom_theo_hang_va_chu_the_quy_ve_bai_ghep(db, kh, customer):
+    """Dòng yêu cầu kho khai `lsx_id` (lúc lập yêu cầu, lệnh còn ĐỘC LẬP) nhưng LSX đó SAU ĐÓ bị
+    cuốn vào bài ghép — giấy LUÔN thuộc bài một khi đã ghép (spec §2: "Giấy... thuộc bài ghép"), nên
+    `can_doi()` không còn nhu cầu riêng `(a.id, None)` cho giấy nữa. `kiem_xuat`/`tieu_thu` phải tra
+    ĐÚNG chủ thể BÀI (nơi giữ chỗ dồn về), chứ không phải LSX đơn lẻ (nơi không còn giữ gì)."""
+    from app.models.bai_ghep import BaiGhep, BaiGhepThanhVien
+
+    g = _giay(db)
+    hang = _giay_hang(g)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    # `giay_id`/`kho_in_dai`/`kho_in_rong` BẮT BUỘC để bài thật sự sinh dòng nhu cầu giấy của
+    # RIÊNG NÓ (`_gom_nhu_cau`: thiếu `giay_id` thì bài rơi vào `bo_qua`, không có dòng nào cả) —
+    # thiếu thì cả hai bên `(a.id, None)` lẫn `(None, bg.id)` đều rỗng, hoá thành ca "mơ hồ" oan,
+    # đúng bẫy mà `test_bai_ghep_la_CHU_THE_giu_cho` (file này) đã dặn qua cách dựng dữ liệu.
+    bg = BaiGhep(ma="GB-1", ten="Bài 1", trang_thai="nhap",
+                giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
+    db.add(bg)
+    db.flush()
+    db.add(BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id))
+    db.commit()
+
+    svcv = _dung_svcv(db, kh)
+    v, lines_by_id = _dung_phieu_xuat(db, hang, lsx_id=a.id, bai_ghep_id=None)
+    ra = svcv._gom_theo_hang_va_chu_the(v, lines_by_id)
+    assert (hang, (None, bg.id)) in ra, f"phải quy về bài ghép, thực tế: {ra}"
+    assert (hang, (a.id, None)) not in ra
+
+
+def test_gom_theo_hang_va_chu_the_khong_ghep_giu_nguyen_chu_the_lsx(db, kh, customer):
+    """LSX KHÔNG nằm trong bài ghép nào (`ghep_cua` rỗng) — dòng yêu cầu khai `lsx_id` phải giữ
+    NGUYÊN chủ thể LSX, không bị đụng tới. Đây là ca phổ biến nhất (đa số LSX không ghép) và cũng
+    chứng minh nhánh "vật tư riêng không bị quy nhầm": vì `a` không hề thuộc bài nào, guard
+    `lsx_id in ghep_cua` sai ngay từ đầu, không có cơ hội quy nhầm."""
+    g = _giay(db)
+    hang = _giay_hang(g)
+    a = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=200)
+    db.commit()
+
+    svcv = _dung_svcv(db, kh)
+    v, lines_by_id = _dung_phieu_xuat(db, hang, lsx_id=a.id, bai_ghep_id=None)
+    ra = svcv._gom_theo_hang_va_chu_the(v, lines_by_id)
+    assert (hang, (a.id, None)) in ra
+    assert all(chu != (None, None) for _, chu in ra)
+
+
+def test_gom_theo_hang_va_chu_the_mo_ho_chan_ghi_so(db, kh, customer):
+    """LSX đã ghép, nhưng mặt hàng trên dòng yêu cầu KHÔNG khớp nhu cầu riêng của LSX lẫn nhu cầu
+    của bài (hàng lạ, không nằm trong routing của ai) — mơ hồ, phải chặn ghi sổ thay vì đoán, đúng
+    spec §2 "trường hợp mơ hồ phải cảnh báo"."""
+    from app.models.bai_ghep import BaiGhep, BaiGhepThanhVien
+    from app.services.stock_voucher_service import StockVoucherError
+
+    g = _giay(db)
+    g_la = _giay(db, ma="GIAY-LA")  # giấy khác, KHÔNG nằm trong routing của `a` hay của bài
+    hang_la = _giay_hang(g_la)
+    a = _lenh(db, customer, ma="LSX-C", giay_id=g.id, so_to_nguyen=200)
+    bg = BaiGhep(ma="GB-2", ten="Bài 2", trang_thai="nhap")
+    db.add(bg)
+    db.flush()
+    db.add(BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id))
+    db.commit()
+
+    svcv = _dung_svcv(db, kh)
+    v, lines_by_id = _dung_phieu_xuat(db, hang_la, lsx_id=a.id, bai_ghep_id=None)
+    try:
+        svcv._gom_theo_hang_va_chu_the(v, lines_by_id)
+        assert False, "phải raise StockVoucherError vì mơ hồ, không được đoán"
+    except StockVoucherError:
+        pass
