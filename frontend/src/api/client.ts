@@ -430,7 +430,8 @@ export type QuoteEvent =
       order_id?: number | null;
       trang_thai?: string | null;
       kieu?: string | null;
-    };
+    }
+  | { type: "ke_hoach_vat_tu_thay_doi" };
 
 // --- Trung tâm thông báo (chuông Topbar) -------------------------------------
 export interface AppNotification {
