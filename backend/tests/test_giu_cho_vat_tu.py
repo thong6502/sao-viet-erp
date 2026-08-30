@@ -308,6 +308,28 @@ def test_hai_lenh_KHONG_cung_bam_mot_lo_dang_ve(db, svc, customer):
     assert svc.bat(lsx_id=b.id)["du"] is False, "lô 20 kg chỉ đủ cho một lệnh"
 
 
+# ================== HÀNG ĐANG VỀ MANG ĐÚNG DÒNG PHIẾU ==================
+
+
+def test_nhat_them_gan_dung_purchase_request_line_id(db, svc, kh, customer):
+    """Dòng giữ `dang_ve` mới đẻ ra phải bám ĐÚNG dòng phiếu mua đã sinh ra lô đang về đó — không
+    thì đối soát sau này (Task 3) không biết nhả theo dòng nào."""
+    from app.models.purchase import PurchaseRequestLine
+    from app.models.vat_tu_giu_cho import NGUON_DANG_VE
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)   # ≈ 16,77 kg
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
+
+    svc.bat(lsx_id=a.id)
+
+    rows = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
+    ve = [r for r in rows if r.nguon == NGUON_DANG_VE]
+    assert ve, "phải giữ được từ lô đang về"
+    assert all(r.purchase_request_line_id == line.id for r in ve)
+
+
 # ================== GỘP CÁC BƯỚC (cùng họ lỗi ① Đợt 1) ==================
 
 

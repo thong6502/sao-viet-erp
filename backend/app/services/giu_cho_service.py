@@ -478,12 +478,12 @@ class GiuChoService:
                 # 2) Còn thiếu thì bám lô ĐANG VỀ, sớm trước.
                 i = 0
                 while con > 0 and i < len(ve.get(hang, [])):
-                    ngay, sl = ve[hang][i]
+                    ngay, sl, line_id = ve[hang][i]
                     lay = round(min(con, sl), 2)
                     if lay > 0:
-                        ve[hang][i] = (ngay, sl - lay)
+                        ve[hang][i] = (ngay, sl - lay, line_id)
                         con -= lay
-                        moi.append(self._dong(chu, hang, lay, NGUON_DANG_VE, ngay))
+                        moi.append(self._dong(chu, hang, lay, NGUON_DANG_VE, ngay, line_id))
                     # Lô còn ≤0.004 coi như cạn (đúng biên Numeric(14,2), khớp `tieu_thu`) → sang lô
                     # kế; không thì đã lấp đủ `con`, dừng.
                     if ve[hang][i][1] <= 0.004:
@@ -552,14 +552,17 @@ class GiuChoService:
 
     # ================== phụ ==================
 
-    def _lo_dang_ve(self, bang: dict, hangs: list[Hang]) -> dict[Hang, list[tuple[date, float]]]:
+    def _lo_dang_ve(self, bang: dict, hangs: list[Hang]) -> dict[Hang, list[tuple[date, float, int]]]:
         """Lô đang về CÒN TRỐNG chỗ = số đang về − phần đã có chủ (`nguon='dang_ve'`).
 
         Trừ phần đã giữ hứa, không thì hai lệnh cùng bám một lô và cả hai đều tưởng mình có hàng.
         Đơn giản hoá có chủ ý: trừ theo TỔNG rồi cắt dần từ lô sớm nhất, không truy từng lô ai giữ
         — bảng giữ chỗ cố ý không neo lô nào (xem docstring model).
+
+        Mang theo `line_id` của CHÍNH dòng phiếu còn lại đó — `nhat_them()` cần nó để ghi đúng
+        `purchase_request_line_id` lên dòng giữ chỗ mới, cho đối soát sau này bám đúng dòng.
         """
-        ra: dict[Hang, list[tuple[date, float]]] = {}
+        ra: dict[Hang, list[tuple[date, float, int]]] = {}
         da_hua = {h: 0.0 for h in hangs}
         for r in self.db.query(VatTuGiuCho).filter(VatTuGiuCho.nguon == NGUON_DANG_VE).all():
             h = (r.hang_loai, r.hang_id)
@@ -569,14 +572,12 @@ class GiuChoService:
             if hang not in set(hangs):
                 continue
             con_hua = da_hua.get(hang, 0.0)
-            con_lai: list[tuple[date, float]] = []
-            # `_hang_dang_ve` trả kèm mã phiếu; ở đây chỉ cần (ngày, số) — chỗ giữ hứa cố ý
-            # KHÔNG neo vào lô nào (xem docstring model), nên mã phiếu không có việc gì.
-            for ngay, sl, *_ in ds:
+            con_lai: list[tuple[date, float, int]] = []
+            for ngay, sl, _ma, line_id in ds:
                 bot = min(con_hua, sl)
                 con_hua -= bot
                 if sl - bot > 0:
-                    con_lai.append((ngay, sl - bot))
+                    con_lai.append((ngay, sl - bot, line_id))
             ra[hang] = con_lai
         return ra
 
@@ -594,10 +595,12 @@ class GiuChoService:
         return ra
 
     @staticmethod
-    def _dong(chu: tuple, hang: Hang, sl: float, nguon: str, ngay: date | None) -> VatTuGiuCho:
+    def _dong(chu: tuple, hang: Hang, sl: float, nguon: str, ngay: date | None,
+              purchase_request_line_id: int | None = None) -> VatTuGiuCho:
         return VatTuGiuCho(
             hang_loai=hang[0], hang_id=hang[1], lsx_id=chu[0], bai_ghep_id=chu[1],
             so_luong=round(sl, 2), nguon=nguon, ngay_ve=ngay,
+            purchase_request_line_id=purchase_request_line_id,
         )
 
     def _co_bat(self, *, lsx_id: int | None, bai_ghep_id: int | None) -> bool:
