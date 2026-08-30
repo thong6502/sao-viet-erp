@@ -64,7 +64,12 @@ def _ma(van_de) -> set[str]:
 
 
 def _kcs_hoa(db, lsx_id: int) -> None:
-    """Gắn tổ KCS lên bước CUỐI của lệnh, để qua cửa gate §4.4 (chặn thiếu KCS cuối khi phát hành)."""
+    """Gắn tổ KCS lên bước CUỐI của lệnh, để qua cửa gate §4.4 (chặn thiếu KCS cuối khi phát hành).
+
+    Module KCS kiêm nhiệm (Task 2, mg `0250`): KCS-cuối nay suy theo cờ bước `la_kcs`, KHÔNG còn
+    theo `department_id in {tổ is_kcs=True}` — thiếu `la_kcs=True` ở đây thì gate §4.4 lại báo
+    "chưa có bước KCS cuối" y hệt trước khi gán tổ, dù đã gán đúng tổ KCS.
+    """
     d = Department(name="KCS Xưởng", code="KCS-XL", is_kcs=True)
     db.add(d)
     db.flush()
@@ -72,6 +77,7 @@ def _kcs_hoa(db, lsx_id: int) -> None:
         LsxCongDoan.thu_tu, LsxCongDoan.id
     ).all()
     buoc[-1].department_id = d.id
+    buoc[-1].la_kcs = True
     db.commit()
 
 

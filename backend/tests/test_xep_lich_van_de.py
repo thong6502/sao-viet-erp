@@ -233,11 +233,13 @@ def test_phat_hanh_gate_ngoai_le_revert(db, orders, lsx_svc, xl_svc, vd_svc, adm
         s.setup_phut, s.nang_suat, s.so_luong_vao, s.chay_phut = 0, 5000, 5000, None
     # Gate KCS-cuối (§4.4) nay đã gác thật ở phát hành: thêm bước KCS cuối routing cho `a` —
     # đây là ứng viên DUY NHẤT bị phát hành trong test này (`b` không đụng tới).
+    # Module KCS kiêm nhiệm (Task 2, mg `0250`): KCS-cuối suy theo cờ bước `la_kcs`, không còn theo
+    # `department_id` — thiếu `la_kcs=True` thì gate vẫn báo thiếu KCS cuối dù đã gán đúng tổ KCS.
     kcs_dept = Department(name="KCS Xưởng", code="KCS-XL-VD", is_kcs=True)
     db.add(kcs_dept)
     db.flush()
     db.add(LsxCongDoan(lsx_id=a.id, thu_tu=999, ten="KCS cuối", nhom="finishing",
-                       department_id=kcs_dept.id))
+                       department_id=kcs_dept.id, la_kcs=True))
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=a.id, actor=admin)
     xl_svc.dua_vao_lsx(lsx_id=b.id, actor=admin)
