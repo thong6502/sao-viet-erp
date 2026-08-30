@@ -7377,6 +7377,14 @@ export interface CanDoiDong {
   /** Phần thiếu RIÊNG của dòng (không phải luỹ kế) — tick nhiều dòng rồi cộng vẫn đúng. */
   thieu: number | null;
   trang_thai: CanDoiMau;
+  /** [MỚI 30/08/2026] Giữ chỗ gộp theo (chủ thể, mặt hàng) — KHÔNG phải phần riêng của dòng khi
+   *  cùng chủ thể ăn cùng món ở nhiều bước. */
+  da_giu_kho: number | null;
+  da_giu_dang_ve: number | null;
+  co_the_giu_kho: number | null;
+  co_the_giu_dang_ve: number | null;
+  trang_thai_giu: TrangThaiGiu | null;
+  nguon_dang_ve: { purchase_request_line_id: number; ma_pmh: string | null; so_luong: number }[] | null;
   /** Ngày về của lô ĐỦ ĐỂ PHỦ chỗ thiếu — chỉ có ở dòng `ve_muon`. Không phải lô gần nhất: dời
    *  lịch theo lô gần nhất mà nó chỉ có 1 kg thì tới nơi vẫn không đủ hàng. */
   ngay_du_hang: string | null;

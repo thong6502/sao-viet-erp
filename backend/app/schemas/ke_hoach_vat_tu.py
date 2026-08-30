@@ -52,6 +52,14 @@ class CanDoiDong(BaseModel):
     #: Hai ca có cách xử NGƯỢC NHAU — đỏ thì đi mua, về muộn thì phải DỜI LỊCH bước tiêu thụ. Gộp
     #: một màu thì người dùng tick đi mua lần nữa, tức MUA ĐÚP đúng lô đang trên đường về.
     trang_thai: str = "xam"
+    # [MỚI 30/08/2026] Giữ chỗ gộp theo (chủ thể, mặt hàng) của DÒNG này — KHÔNG phải phần riêng
+    # của dòng khi cùng chủ thể ăn cùng món ở nhiều bước (xem `GiuChoService.gan_giu_cho_vao_bang`).
+    da_giu_kho: float | None = None
+    da_giu_dang_ve: float | None = None
+    co_the_giu_kho: float | None = None
+    co_the_giu_dang_ve: float | None = None
+    trang_thai_giu: str | None = None
+    nguon_dang_ve: list[dict] | None = None
     #: Ngày về của lô ĐỦ ĐỂ PHỦ chỗ thiếu — chỉ có ở dòng `ve_muon`.
     #:
     #: ⚠️ KHÔNG phải lô gần nhất. Lô gần nhất có thể chỉ mang 1 kg trong khi lệnh thiếu 400 kg —

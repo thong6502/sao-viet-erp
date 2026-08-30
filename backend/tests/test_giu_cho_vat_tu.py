@@ -1111,3 +1111,27 @@ def test_giu_theo_chu_the_hang_lo_ma_pmh_dang_bam(db, svc, kh, customer):
     assert nguon, "phải liệt kê nguồn PMH đang bám"
     assert nguon[0]["purchase_request_line_id"] == line.id
     assert nguon[0]["ma_pmh"] == phieu.code
+
+
+# ================== GẮN GIỮ CHỖ VÀO BẢNG /can-doi ==================
+
+
+def test_gan_giu_cho_vao_bang_dan_dung_dong(db, svc, kh, customer):
+    """Mỗi dòng của bảng /can-doi phải nhận đúng con số giữ-chỗ của (chủ thể, mặt hàng) nó thuộc
+    về — dòng nào không thuộc chủ thể nào (mồ côi cả hai) thì bỏ qua, không lỗi."""
+    g = _giay(db)
+    _ton(db, _giay_hang(g), 100)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    svc.bat(lsx_id=a.id)
+
+    bang = kh.can_doi()
+    svc.gan_giu_cho_vao_bang(bang)
+
+    dong = [d for nhom in bang["items"] if nhom["loai_nhom"] == "vat_tu"
+            for d in nhom["dong"] if d.get("lsx_id") == a.id]
+    assert dong, "phải có ít nhất một dòng của lệnh A"
+    assert dong[0]["trang_thai_giu"] == "da_giu"
+    assert dong[0]["da_giu_kho"] == pytest.approx(16.77, abs=0.05)
+
+    from app.schemas.ke_hoach_vat_tu import CanDoiOut
+    CanDoiOut(**bang)  # phải KHÔNG raise — xác nhận field mới không làm vỡ response_model của router thật

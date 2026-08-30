@@ -86,12 +86,15 @@ ThuMua = Annotated[PurchaseService, Depends(get_purchase_service)]
 @router.get("/can-doi", response_model=CanDoiOut)
 def can_doi(
     svc: Service,
+    giu: GiuCho,
     _user: Annotated[object, Depends(require_permission(MODULE, "read"))],
     q: str | None = Query(default=None, description="Mã lệnh / mã hoặc tên mặt hàng"),
     chi_thieu: bool = Query(default=False, description="Chỉ nhóm có dòng đỏ"),
 ) -> CanDoiOut:
     try:
-        return CanDoiOut(**svc.can_doi(q=q, chi_thieu=chi_thieu))
+        bang = svc.can_doi(q=q, chi_thieu=chi_thieu)
+        giu.gan_giu_cho_vao_bang(bang)
+        return CanDoiOut(**bang)
     except KeHoachVatTuError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
 

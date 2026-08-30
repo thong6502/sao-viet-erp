@@ -809,6 +809,39 @@ class GiuChoService:
                 h["trang_thai_giu"] = self._mau_giu(h["trang_thai"], da_kho, da_ve, h["can"])
         return tt_by_chu
 
+    def gan_giu_cho_vao_bang(self, bang: dict) -> None:
+        """Gắn 6 trường giữ-chỗ (`da_giu_kho`, `da_giu_dang_ve`, `co_the_giu_kho`,
+        `co_the_giu_dang_ve`, `trang_thai_giu`, `nguon_dang_ve`) vào TỪNG DÒNG của bảng `/can-doi`
+        — MUTATE thẳng vào `bang`.
+
+        Giữ chỗ gộp theo (chủ thể, mặt hàng), KHÔNG theo TỪNG BƯỚC — một chủ thể ăn cùng món ở
+        hai bước thì CÙNG một chỗ giữ trả lời cho CẢ HAI dòng (giữ hộ cả chuỗi, không tách được ai
+        giữ phần nào). Mỗi dòng vì vậy nhận NGUYÊN con số gộp của (chủ thể, mặt hàng) nó thuộc về
+        — không phải phần RIÊNG của dòng đó. Muốn số RIÊNG từng lệnh, xem màn "Theo lệnh"
+        (`theo_chu_the`).
+        """
+        gom = self._gom_theo_chu_the(bang)
+        self.giu_theo_chu_the_hang(bang, gom)
+        tra_cuu: dict[tuple, dict] = {}
+        for chu, o in gom.items():
+            for hang, h in o["hang"].items():
+                tra_cuu[(chu, hang)] = h
+        for nhom in bang.get("items", []):
+            if nhom.get("loai_nhom") != "vat_tu":
+                continue
+            hang = (nhom["hang_loai"], nhom["hang_id"])
+            for d in nhom.get("dong", []):
+                chu = (d.get("lsx_id"), d.get("bai_ghep_id"))
+                h = tra_cuu.get((chu, hang))
+                if h is None:
+                    continue
+                d["da_giu_kho"] = h["da_giu_kho"]
+                d["da_giu_dang_ve"] = h["da_giu_dang_ve"]
+                d["co_the_giu_kho"] = h["co_the_giu_kho"]
+                d["co_the_giu_dang_ve"] = h["co_the_giu_dang_ve"]
+                d["trang_thai_giu"] = h["trang_thai_giu"]
+                d["nguon_dang_ve"] = h["nguon_dang_ve"]
+
     @staticmethod
     def _dong(chu: tuple, hang: Hang, sl: float, nguon: str, ngay: date | None,
               purchase_request_line_id: int | None = None) -> VatTuGiuCho:
