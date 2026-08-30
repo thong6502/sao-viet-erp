@@ -1564,3 +1564,44 @@
   .thsx-panel { transition: none; }
   .thsx-grid { transition: none; }
 }
+
+.thsx-x-toa-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #b7d9c4;
+  background: #eef8f1;
+  font-size: 12.5px;
+  color: #1f4b32;
+}
+.thsx-x-toa-banner__title {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.thsx-x-toa-list {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.thsx-x-toa-list li {
+  line-height: 1.4;
+}
+.thsx-x-toa-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  color: #1f4b32;
+  padding: 0 2px;
+}
+.thsx-x-toa-close:hover {
+  opacity: 0.7;
+}
