@@ -430,7 +430,10 @@ export type QuoteEvent =
       order_id?: number | null;
       trang_thai?: string | null;
       kieu?: string | null;
-    };
+    }
+  // [MOI 30/08/2026] Ke hoach vat tu: bat/tat giu cho, nhat them, nhap kho chuyen hua->that,
+  // doi soat khi PMH doi. Tin hieu NHE (khong mang id) — man dang mo tu refetch qua quoteTick.
+  | { type: "ke_hoach_vat_tu_thay_doi" };
 
 // --- Trung tâm thông báo (chuông Topbar) -------------------------------------
 export interface AppNotification {
@@ -5627,6 +5630,9 @@ export type DepartmentPurchaseSourceType =
   | "khac";
 
 export interface PurchaseRequestLineInput {
+  /** Mặt hàng gốc (mg 0174). Gửi lên thì server tôn trọng; bỏ trống thì nó kế thừa từ dòng YCMH. */
+  hang_loai?: HangLoai | null;
+  hang_id?: number | null;
   item_name: string;
   unit: string;
   quantity: number;
@@ -5983,6 +5989,8 @@ export interface PurchaseRequestLineOut {
   hang_id: number | null;
   hang_ma: string | null;
   hang_ten: string | null;
+  /** Dòng YCMH đẻ ra dòng này — form sửa phải gửi lại, không thì liên kết mặt hàng đứt. */
+  department_request_line_id: number | null;
 }
 
 /** Một dòng yêu cầu đã vào phiếu nào, của NCC nào, tới đâu rồi. */
@@ -7343,6 +7351,10 @@ export type HangLoai = "giay" | "vat_tu";
  *  ca xử ngược nhau: đỏ thì đi mua, về muộn thì dời lịch. Gộp một màu là mời người ta mua đúp. */
 export type CanDoiMau = "xam" | "xanh" | "vang" | "do" | "khong_ro" | "ve_muon";
 
+/** Trạng thái GIỮ CHỖ 6 mức — khác `CanDoiMau` (3 mức trung tính gộp lại): ở đây tách được "đã
+ *  giữ" khỏi "có thể giữ nhưng chưa bật" khỏi "đã cấp thật". */
+export type TrangThaiGiu = "khong_ro" | "thieu" | "ve_muon" | "co_the_giu" | "da_giu" | "da_cap";
+
 export interface CanDoiDong {
   /** `vat_tu` = so tồn · `cong_cu` = khuôn bế, KHÔNG so tồn (chỉ hỏi sẵn sàng đúng lúc chưa). */
   loai: "vat_tu" | "cong_cu";
@@ -7373,6 +7385,14 @@ export interface CanDoiDong {
   /** Phần thiếu RIÊNG của dòng (không phải luỹ kế) — tick nhiều dòng rồi cộng vẫn đúng. */
   thieu: number | null;
   trang_thai: CanDoiMau;
+  /** [MỚI 30/08/2026] Giữ chỗ gộp theo (chủ thể, mặt hàng) — KHÔNG phải phần riêng của dòng khi
+   *  cùng chủ thể ăn cùng món ở nhiều bước. */
+  da_giu_kho: number | null;
+  da_giu_dang_ve: number | null;
+  co_the_giu_kho: number | null;
+  co_the_giu_dang_ve: number | null;
+  trang_thai_giu: TrangThaiGiu | null;
+  nguon_dang_ve: { purchase_request_line_id: number; ma_pmh: string | null; so_luong: number }[] | null;
   /** Ngày về của lô ĐỦ ĐỂ PHỦ chỗ thiếu — chỉ có ở dòng `ve_muon`. Không phải lô gần nhất: dời
    *  lịch theo lô gần nhất mà nó chỉ có 1 kg thì tới nơi vẫn không đủ hàng. */
   ngay_du_hang: string | null;
@@ -7481,6 +7501,14 @@ export interface TheoLenhHang {
   can: number;
   thieu: number;
   dang_giu: number;
+  /** [MỚI 30/08/2026] Tách nguồn phần đã giữ + trạng thái giữ 6 mức — xem `TrangThaiGiu`. */
+  da_giu_kho: number;
+  da_giu_dang_ve: number;
+  co_the_giu_kho: number;
+  co_the_giu_dang_ve: number;
+  trang_thai_giu: TrangThaiGiu;
+  /** Mã PMH cụ thể đang góp cho `da_giu_dang_ve` — để hiện "đang bám đơn nào". */
+  nguon_dang_ve: { purchase_request_line_id: number; ma_pmh: string | null; so_luong: number }[];
   /** >1 nghĩa là con số trên đã GỘP nhiều công đoạn — hiện ra để không ai tưởng đó là một bước. */
   so_buoc: number;
   /** Màu NẶNG NHẤT trong các bước. Thẻ chỉ hiện được một màu. */

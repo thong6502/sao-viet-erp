@@ -4002,13 +4002,14 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `hang_id` | `Integer` | IX¹ | no | — | → `giay_nguyen.id` hoặc `vat_tu_in_an.id` tuỳ `hang_loai`. |
 | `lsx_id` | `Integer` | **FK→lsx.id** (CASCADE), IX | yes | — | Chủ thể giữ chỗ khi lệnh in RIÊNG. |
 | `bai_ghep_id` | `Integer` | **FK→bai_ghep.id** (CASCADE), IX | yes | — | Chủ thể giữ chỗ khi lệnh đã GHÉP — bài đại diện, lệnh thành viên không giữ riêng. |
+| `purchase_request_line_id` | `Integer` | **FK→purchase_request_lines.id** (SET NULL), IX | yes | — | [MỚI 30/08/2026] Dòng phiếu mua làm phát sinh phần giữ — CHỈ có ý nghĩa khi `nguon='dang_ve'`. Để đối soát đúng dòng khi PMH đổi thay vì đoán theo mặt hàng. |
 | `so_luong` | `Numeric(14,2)` | — | no | — | Theo **ĐƠN VỊ GỐC** của mặt hàng (`don_vi_gia`) — cùng thang `stock_lots.sl_con_lai`, khỏi quy đổi lần nữa khi trừ tồn tự do. |
 | `nguon` | `String(10)` | — | no | `kho` | `kho` = hàng đang nằm trong kho ⇒ lệnh xếp lịch ngày nào cũng được. `dang_ve` = bám vào lô đang mua ⇒ lịch **không được đặt trước `ngay_ve`**. |
 | `ngay_ve` | `Date` | — | yes | — | Chỉ có nghĩa khi `nguon='dang_ve'` — ngày lô về tới kho, là **CHẶN DƯỚI của lịch**. Trống thì KHÔNG thành giữ chỗ: hàng không có ngày về thì không hứa được với lệnh nào (cùng luật `_hang_dang_ve` ở bảng cân đối). |
 | `created_at` | `DateTime(timezone=True)` | — | no | now | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now/onupdate | |
 
-**Tất cả cột:** `id`, `hang_loai`, `hang_id`, `lsx_id`, `bai_ghep_id`, `so_luong`, `nguon`, `ngay_ve`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `hang_loai`, `hang_id`, `lsx_id`, `bai_ghep_id`, `purchase_request_line_id`, `so_luong`, `nguon`, `ngay_ve`, `created_at`, `updated_at`.
 
 ¹ Index gộp `ix_giu_cho_hang (hang_loai, hang_id)` — tra "mặt hàng này ai đang giữ, tổng bao nhiêu", chạy mỗi lần tính tồn tự do.
 

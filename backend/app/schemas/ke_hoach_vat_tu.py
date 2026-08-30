@@ -52,6 +52,14 @@ class CanDoiDong(BaseModel):
     #: Hai ca có cách xử NGƯỢC NHAU — đỏ thì đi mua, về muộn thì phải DỜI LỊCH bước tiêu thụ. Gộp
     #: một màu thì người dùng tick đi mua lần nữa, tức MUA ĐÚP đúng lô đang trên đường về.
     trang_thai: str = "xam"
+    #: [MỚI 30/08/2026] Giữ chỗ gộp theo (chủ thể, mặt hàng) của DÒNG này — KHÔNG phải phần riêng
+    #: của dòng khi cùng chủ thể ăn cùng món ở nhiều bước (xem `GiuChoService.gan_giu_cho_vao_bang`).
+    da_giu_kho: float | None = None
+    da_giu_dang_ve: float | None = None
+    co_the_giu_kho: float | None = None
+    co_the_giu_dang_ve: float | None = None
+    trang_thai_giu: str | None = None
+    nguon_dang_ve: list[dict] | None = None
     #: Ngày về của lô ĐỦ ĐỂ PHỦ chỗ thiếu — chỉ có ở dòng `ve_muon`.
     #:
     #: ⚠️ KHÔNG phải lô gần nhất. Lô gần nhất có thể chỉ mang 1 kg trong khi lệnh thiếu 400 kg —
@@ -161,6 +169,15 @@ class TheoLenhHang(BaseModel):
     can: float = 0
     thieu: float = 0
     dang_giu: float = 0
+    #: [MỚI 30/08/2026] Tách nguồn + trạng thái giữ 6 mức. Xem `GiuChoService.giu_theo_chu_the_hang`.
+    da_giu_kho: float = 0
+    da_giu_dang_ve: float = 0
+    co_the_giu_kho: float = 0
+    co_the_giu_dang_ve: float = 0
+    trang_thai_giu: str = "xam"
+    #: Mã PMH cụ thể đang góp cho phần `da_giu_dang_ve` (spec §4 "để FE hiện được đang bám đơn
+    #: nào") — mỗi phần tử {"purchase_request_line_id": int, "ma_pmh": str|None, "so_luong": float}.
+    nguon_dang_ve: list[dict] = Field(default_factory=list)
     #: Bao nhiêu công đoạn của lệnh này ăn món đó — >1 là lời nhắc rằng con số đã gộp.
     so_buoc: int = 0
     #: Màu NẶNG NHẤT trong các bước. Thẻ chỉ hiện được một màu, và phải là màu tệ nhất.

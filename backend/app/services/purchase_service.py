@@ -572,6 +572,7 @@ class PurchaseService:
         authz: AuthorizationService,
         lich_su: PurchaseStatusHistoryRepository,
         hang=None,
+        giu_cho=None,
     ) -> None:
         self.lich_su = lich_su
         self.suppliers = suppliers
@@ -584,6 +585,11 @@ class PurchaseService:
         # `VatLieuKhoService` — tra danh mục gốc + quy đổi đơn vị, để bảng giá NCC gắn được về
         # mặt hàng và so được giá. None → bỏ qua phần gắn (giữ tương thích với test cũ).
         self.hang = hang
+        # `GiuChoService` — TUỲ CHỌN (30/08/2026), cùng nếp với `hang`. Vắng thì PMH chạy y như
+        # trước (test cũ không phải kéo theo cả bảng cân đối); có mặt thì đợt giao đổi / huỷ đơn /
+        # đóng đơn / mở lại đơn tự đối lại phần giữ HỨA đã bám đúng dòng phiếu — xem
+        # `_doi_soat_giu_cho`.
+        self.giu_cho = giu_cho
 
     # --- suppliers ---------------------------------------------------------
 
@@ -2761,6 +2767,14 @@ class PurchaseService:
         self._suy_trang_thai_nhan_hang(row)
         for link in row.sources:
             self._tinh_lai_trang_thai_ycmh(link.department_request)
+        self._doi_soat_giu_cho(row)
+
+    def _doi_soat_giu_cho(self, row: PurchaseRequest) -> None:
+        """Đợt giao vừa đổi (ghi/sửa/xoá), hoặc đơn vừa đóng/huỷ/mở lại ⇒ giữ chỗ đối lại phần
+        hứa đã bám PHIẾU này. TUỲ CHỌN — vắng `giu_cho` thì bỏ qua, PMH chạy y như trước
+        30/08/2026."""
+        if self.giu_cho is not None:
+            self.giu_cho.doi_soat_dang_ve_don(row.id)
 
     def dong_don(self, request_id: int, *, reason: str | None, actor) -> dict:
         """ĐÓNG ĐƠN — NCC không giao nữa, chốt số thực nhận = số đã giao.
@@ -2800,6 +2814,7 @@ class PurchaseService:
         for link in row.sources:
             self._tinh_lai_trang_thai_ycmh(link.department_request)
         saved = self.requests.save(row)
+        self._doi_soat_giu_cho(row)
         self.audit.create(
             actor_user_id=actor.id,
             action="close_purchase_request",
@@ -2959,6 +2974,7 @@ class PurchaseService:
         for link in row.sources:
             self._tinh_lai_trang_thai_ycmh(link.department_request)
         saved = self.requests.save(row)
+        self._doi_soat_giu_cho(row)
         self.audit.create(actor_user_id=actor.id, action="cancel_purchase_request", target=f"purchase_request:{row.id}", detail=row.code)
         return self._to_request_out(saved)
 
@@ -3094,6 +3110,7 @@ class PurchaseService:
                     "hang_id": line.hang_id,
                     "hang_ma": getattr(_hmap.get((line.hang_loai, line.hang_id)), "ma", None),
                     "hang_ten": getattr(_hmap.get((line.hang_loai, line.hang_id)), "ten", None),
+                    "department_request_line_id": line.department_request_line_id,
                 }
             )
         sources = []

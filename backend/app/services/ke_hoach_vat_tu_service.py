@@ -498,8 +498,28 @@ class KeHoachVatTuService:
                     bang[khoa] = bang.get(khoa, 0.0) + kq["sl"]
         return da_cap, dang_linh
 
-    def _hang_dang_ve(self) -> dict[tuple, list[tuple[date, float, str | None]]]:
-        """`{hang: [(ngày về, số còn về, mã phiếu mua)]}` đã sắp theo ngày — đơn vị GỐC.
+    def nap_nen_quy_doi(self, hangs: list[tuple]) -> None:
+        """Nạp ĐỦ nền để `_ve_goc()` chạy được NGOÀI `can_doi()`.
+
+        `_objs` (object mặt hàng) và `_dvs`/`_cap` (danh mục đơn vị + đồ thị cặp quy đổi) chỉ được
+        nạp bên trong `can_doi()`. Đường ĐỐI SOÁT giữ chỗ (`GiuChoService.doi_soat_dang_ve`, chạy
+        khi PMH huỷ/đóng/đổi đợt giao) chỉ hỏi MỘT mặt hàng: dựng cả bảng cân đối ở đó là chạy
+        nguyên engine cho TOÀN kế hoạch chỉ để đọc một con số. Nạp đúng phần cần, không gọi
+        `can_doi()`.
+
+        Bỏ hàm này thì `_hang_dang_ve()` nổ `AttributeError: '_objs'` — `deps.py` bơm một
+        `KeHoachVatTuService` VỪA DỰNG vào `PurchaseService`, nó chưa từng dựng bảng.
+        """
+        if not hasattr(self, "_dvs"):
+            self._nap_don_vi()
+        if not hasattr(self, "_objs"):
+            self._objs = {}
+        thieu = [h for h in hangs if h not in self._objs]
+        if thieu:
+            self._objs.update(self.hang.map_theo_cap(thieu))
+
+    def _hang_dang_ve(self) -> dict[tuple, list[tuple[date, float, str | None, int]]]:
+        """`{hang: [(ngày về, số còn về, mã phiếu mua, id dòng phiếu)]}` đã sắp theo ngày — đơn vị GỐC.
 
         Mã phiếu đi kèm để dòng `ve_muon` GỌI TÊN được lô đang trên đường về. Câu "đã có hàng
         đang về" trần thì người đọc không tra được đơn nào, mà việc phải làm (hối NCC hay dời
@@ -514,7 +534,7 @@ class KeHoachVatTuService:
         """
         from .purchase_service import da_giao_theo_dong
 
-        ra: dict[tuple, list[tuple[date, float, str | None]]] = {}
+        ra: dict[tuple, list[tuple[date, float, str | None, int]]] = {}
         for phieu in self.purchases.dong_dang_ve():
             ngay_ve = phieu.expected_receipt_date
             if ngay_ve is None:
@@ -545,7 +565,7 @@ class KeHoachVatTuService:
                 kq = self._ve_goc(hang, ln.unit, con_ve)
                 if "sl" in kq:
                     ra.setdefault(hang, []).append(
-                        (ngay_ve, kq["sl"], getattr(phieu, "code", None)))
+                        (ngay_ve, kq["sl"], getattr(phieu, "code", None), int(ln.id)))
         for ds in ra.values():
             ds.sort(key=lambda x: x[0])
         return ra
@@ -1112,7 +1132,7 @@ class KeHoachVatTuService:
                 phieu_ve = None
                 if mau == MAU_DO and ngay is not None:
                     luy_ke = 0.0
-                    for ngay_lo, sl_lo, ma_lo in ve[i:]:
+                    for ngay_lo, sl_lo, ma_lo, _line_id in ve[i:]:
                         luy_ke += sl_lo
                         if con_lai + luy_ke >= 0:
                             mau = MAU_VE_MUON

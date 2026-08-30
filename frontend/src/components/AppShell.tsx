@@ -187,6 +187,10 @@ export function AppShell() {
   const lastKhoPending = useRef(0);
   const lastOtPending = useRef(0);
   const lastElPending = useRef(0);
+  // Một cú bấm Bật/Nhả giữ chỗ đẻ HAI event (`bat()` báo công tắc đổi, `nhat_them()` báo vừa
+  // nhặt được dòng mới) — cả hai đều cần cho máy khác đang mở màn, nhưng người bấm thì thấy
+  // hai toast giống hệt nhau. Gộp trong 2 giây.
+  const lastKhvtToast = useRef(0);
   const activeIdRef = useRef(activeId);
   const moduleNotificationRevision = useRef<Record<ModuleNotificationChannel, number>>({
     thu_mua: 0,
@@ -576,7 +580,7 @@ export function AppShell() {
   useEffect(() => {
     if (!token || readable === null || !coTheMoKenhSse(readable)) return;
     if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("cham_cong") || readable.has("thu_mua") || readable.has("yeu_cau_mua_hang") || readable.has("ke_toan") ||
-      readable.has("phieu_chi") || readable.has("phieu_thu") ||
+      readable.has("phieu_chi") || readable.has("phieu_thu") || readable.has("ke_hoach_vat_tu") ||
       // Tài xế thường CHỈ có ô `giao_hang` — không mở cổng ở đây thì họ không kết nối
       // SSE, và mọi thông báo chuyến gửi cho họ rơi vào hư không.
       readable.has("giao_hang"))) return;
@@ -599,6 +603,16 @@ export function AppShell() {
       }
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
       setQuoteTick((n) => n + 1);
+      // Giữ chỗ vật tư vừa đổi (bật/tắt/nhặt thêm/hàng về/đối soát PMH) — tick ở trên đã bump nên
+      // màn Kế hoạch vật tư tự tải lại; chỉ cần báo cho người đang mở màn khác biết số đã đổi.
+      if (e.type === "ke_hoach_vat_tu_thay_doi") {
+        const gio = Date.now();
+        if (gio - lastKhvtToast.current > 2000) {
+          lastKhvtToast.current = gio;
+          pushToast("Kế hoạch vật tư vừa cập nhật.", "info");
+        }
+        return;
+      }
       if (e.type === "quote_decision") {
         pushToast(
           e.decision === "approved"
@@ -1336,6 +1350,7 @@ export function AppShell() {
         {toasts.length > 0 && (
           <div
             aria-live="polite"
+            className="apx-toastwrap"
             style={{
               position: "fixed", top: 16, right: 16, zIndex: 9999,
               display: "flex", flexDirection: "column", gap: 8, maxWidth: 340,

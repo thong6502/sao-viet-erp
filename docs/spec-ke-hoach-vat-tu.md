@@ -171,8 +171,10 @@ nêu ở §2.
   tạo SAU trước** (LIFO theo `created_at`, ngược với thứ tự cấp phát khi nhận hàng) — không tự
   chuyển ngay sang nguồn khác, chỉ nhả và để `theo_chu_the()`/đèn vật tư báo thiếu lại như bình
   thường; người lập kế hoạch tự quyết bật giữ lại hoặc chờ.
-- Ghi nhận đợt giao nhưng Kho chưa ghi sổ: vẫn là hàng chờ nhập (đứng ở bước `StockRequest`
-  chưa duyệt/chưa cấp), chưa phải tồn thật — không đổi gì ở `_hang_dang_ve()`.
+- Ghi nhận đợt giao là ghi nhận HÀNG ĐÃ VỀ TỪ NCC (dù Kho chưa lập phiếu nhập) —
+  `da_giao_theo_dong()` cộng nó vào "đã giao" ngay, nên `con_ve` giảm ngay khi đợt giao được ghi,
+  không đợi Kho ghi sổ. Nó vẫn CHƯA là tồn thật (tồn chỉ tăng khi Kho ghi sổ phiếu nhập), nên trong
+  khoảng giữa hai mốc đó phần hứa co lại mà tồn chưa lên — đúng chỗ `doi_soat_dang_ve()` phải chạy.
 
 ### 3.6 Nhu cầu thay đổi khi đang giữ — **[MỚI, chặn cứng]**
 

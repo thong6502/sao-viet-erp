@@ -11,6 +11,7 @@ import pytest
 from app.db import SessionLocal
 from app.models.role import SCOPE_ALL, SCOPE_OWN
 from app.models.purchase import Supplier, SupplierItem
+from app.models.vat_lieu_kho import GiayNguyen
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
@@ -2278,3 +2279,117 @@ def test_o_Thao_tac_LA_DU_de_dao_trang_thai_don(client, auth_headers):
     r = client.post(f"/api/purchase-requests/{pr['id']}/undo-received",
                     json={"reason": "dem lai"}, headers=h)
     assert r.status_code == 200, f"có ô Thao tác mà vẫn không lùi được: {r.text}"
+
+
+def _giay_co_ncc() -> tuple[int, int, str]:
+    """Một tờ giấy trong danh mục + NCC đang khai bán CHÍNH nó. Trả `(giay_id, supplier_id, tên)`."""
+    db = SessionLocal()
+    try:
+        g = db.query(GiayNguyen).filter(GiayNguyen.ma == "GY-LINK").first()
+        if g is None:
+            g = GiayNguyen(
+                ma="GY-LINK",
+                ten="Giay Couche 150 79x109",
+                gsm=150,
+                kho_dai=1090,
+                kho_rong=790,
+                don_vi_gia="kg",
+            )
+            db.add(g)
+            db.commit()
+        sup = db.query(Supplier).filter(Supplier.name == "NCC Giay Link").first()
+        if sup is None:
+            sup = Supplier(
+                name="NCC Giay Link",
+                tax_code="0100000777",
+                phone="0900000777",
+                supplier_group="paper",
+                status="active",
+            )
+            sup.items = [
+                SupplierItem(
+                    hang_loai="giay",
+                    hang_id=g.id,
+                    item_name=g.ten,
+                    unit="kg",
+                    unit_price=25000,
+                    vat_percent=8,
+                )
+            ]
+            db.add(sup)
+            db.commit()
+        return g.id, sup.id, g.ten
+    finally:
+        db.close()
+
+
+def test_sua_don_mua_khong_lam_dut_lien_ket_mat_hang(client, auth_headers):
+    """Sửa đơn mua PHẢI giữ nguyên `(hang_loai, hang_id)` của dòng.
+
+    Mất cặp đó là bảng cân đối vật tư không thấy lô này trong "hàng đang về" nữa ⇒ nó giục mua
+    thêm một lô giấy thứ hai. Đúng cái bug mg 0174 sinh ra để chữa, chỉ khác đường vào: lần này
+    đứt ở FORM SỬA chứ không phải lúc lập phiếu.
+
+    Form sửa dựng lại payload từ CHÍNH bản API trả về, nên hợp đồng nằm ở cả hai chiều: bản trả
+    về phải mang đủ thứ cần để nối lại (`department_request_line_id` — trước 31/08/2026 thiếu),
+    và server phải nhận lại được đúng thứ đó.
+    """
+    giay_id, supplier_id, ten = _giay_co_ncc()
+
+    ycmh_payload = _department_request_payload()
+    ycmh_payload["lines"] = [
+        {
+            "item_name": ten,
+            "unit": "kg",
+            "quantity": 100,
+            "hang_loai": "giay",
+            "hang_id": giay_id,
+        }
+    ]
+    ycmh = client.post(
+        "/api/department-purchase-requests", json=ycmh_payload, headers=auth_headers
+    )
+    assert ycmh.status_code == 201, ycmh.text
+    source = ycmh.json()
+    src_line_id = source["lines"][0]["id"]
+
+    payload = _request_payload(supplier_id)
+    payload["source_request_ids"] = [source["id"]]
+    payload["lines"] = [
+        {
+            "item_name": ten,
+            "unit": "kg",
+            "quantity": 100,
+            "expected_unit_price": 25000,
+            "department_request_line_id": src_line_id,
+        }
+    ]
+    created = client.post("/api/purchase-requests", json=payload, headers=auth_headers)
+    assert created.status_code == 201, created.text
+    pr = created.json()
+    line = pr["lines"][0]
+    assert (line["hang_loai"], line["hang_id"]) == ("giay", giay_id)
+    assert line["department_request_line_id"] == src_line_id
+
+    payload["lines"] = [
+        {
+            "item_name": line["item_name"],
+            "unit": line["unit"],
+            "quantity": line["quantity"],
+            "expected_unit_price": line["expected_unit_price"],
+            "discount_percent": line["discount_percent"],
+            "vat_percent": line["vat_percent"],
+            "note": line["note"],
+            "hang_loai": line["hang_loai"],
+            "hang_id": line["hang_id"],
+            "department_request_line_id": line["department_request_line_id"],
+        }
+    ]
+    payload["expected_receipt_date"] = (date.today() + timedelta(days=10)).isoformat()
+    updated = client.put(
+        f"/api/purchase-requests/{pr['id']}", json=payload, headers=auth_headers
+    )
+    assert updated.status_code == 200, updated.text
+    after = updated.json()["lines"][0]
+    assert (after["hang_loai"], after["hang_id"]) == ("giay", giay_id)
+    assert after["department_request_line_id"] == src_line_id
