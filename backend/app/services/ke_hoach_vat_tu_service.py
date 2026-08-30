@@ -811,16 +811,24 @@ class KeHoachVatTuService:
         if not lsx_id and not bai_id:
             return []
 
-        # `_gom_nhu_cau` (qua `_dong_lenh`/`_dong_bai`) đọc `self._qc_cache`/`self._start_buoc*` —
-        # nạp đủ nền như `can_doi()` làm, chỉ thu hẹp phạm vi về đúng lệnh của công việc này.
         self._nap_don_vi()
-        lenh = self._lenh_trong_pham_vi({lsx_id} if lsx_id else None)
+        # Phạm vi HẸP thật: đúng lệnh/bài của công việc này. Đừng quay lại `_lenh_trong_pham_vi`
+        # — nó đi qua `cho_mrp`, hàm luôn OR thêm `trang_thai IN TRANG_THAI_TINH`, nên nó kéo về
+        # mọi lệnh còn sống của xưởng và biến một lần mở form thành một lần `can_doi()` toàn bảng.
+        if bai_id:
+            b = self.bai_ghep_repo.get(bai_id)
+            bais = [b] if b is not None else []
+        elif lsx_id:
+            # Lệnh có thể là thành viên một bài ghép: khi đó giấy nằm ở dòng BÀI, không ở dòng
+            # lệnh (xem `_dong_bai`). Vẫn phải tìm bài chứa nó, nếu không `thanh_vien` rỗng và
+            # lệnh sẽ tự đẻ một dòng giấy thứ hai theo khổ của riêng nó.
+            bais = self._bai_trong_pham_vi({int(lsx_id)})
+        else:
+            bais = []
+        lsx_ids = {int(lsx_id)} if lsx_id else set()
+        lsx_ids |= {tv.lsx_id for b in bais for tv in b.thanh_viens}
+        lenh = self.lsx_repo.theo_ids(lsx_ids)
         lenh_map = {l.id: l for l in lenh}
-        bais = self._bai_trong_pham_vi(set(lenh_map))
-        if bai_id and not any(b.id == bai_id for b in bais):
-            # Công việc mang `bai_ghep_id` nhưng lệnh thành viên vừa lọc không kéo được đúng bài
-            # đó vào phạm vi (vd `lsx_id` rỗng) — mở lại phạm vi bài theo chính lệnh này.
-            bais = self._bai_trong_pham_vi({lsx_id} if lsx_id else set()) or bais
         thanh_vien = {tv.lsx_id for b in bais for tv in b.thanh_viens}
 
         self._nap_thoi_luong(lenh)

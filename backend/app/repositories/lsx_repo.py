@@ -110,6 +110,25 @@ class LsxRepository:
             ).scalars()
         )
 
+    def theo_ids(self, ids: set[int]) -> list[Lsx]:
+        """Đúng những lệnh được gọi tên — KHÔNG kèm bộ lọc trạng thái.
+
+        `cho_mrp` luôn OR thêm `trang_thai IN TRANG_THAI_TINH` (đúng cho MRP toàn xưởng) nên nó
+        KHÔNG dùng được cho đường "nhu cầu của MỘT công việc": mỗi lần mở form đề nghị cấp vật tư
+        sẽ kéo về mọi lệnh còn sống. Đây là đường hẹp cho đúng ca đó.
+        """
+        ids = {int(i) for i in (ids or set()) if i}
+        if not ids:
+            return []
+        return list(
+            self.db.execute(
+                select(Lsx)
+                .options(selectinload(Lsx.cong_doans))
+                .where(Lsx.id.in_(ids))
+                .order_by(Lsx.created_at.desc(), Lsx.id.desc())
+            ).scalars()
+        )
+
     def by_order_lines(self, order_line_ids: list[int]) -> dict[int, Lsx]:
         """order_line_id → LSX 'sản xuất mới' đã tạo (nguồn của guard chống sinh trùng)."""
         if not order_line_ids:

@@ -163,3 +163,64 @@ def test_ve_don_vi_goc_quy_dung_va_bao_loi_ro_khi_khong_quy_duoc(db, orders, lsx
 
     with pytest.raises(KeHoachVatTuError):
         kh2.ve_don_vi_goc("giay", 999_999, "tờ", 10)
+
+
+# --- Vòng sửa 1: phạm vi HẸP thật (2 phát hiện Important của người rà) -----------------------
+
+def test_theo_ids_dung_lenh_goi_ten_khong_bi_loc_trang_thai(db, orders, lsx_svc, admin, customer):
+    """`theo_ids` là đường HẸP thật cho một công việc — khác `cho_mrp`, hàm luôn OR thêm điều
+    kiện `trang_thai IN TRANG_THAI_TINH` (đúng cho MRP toàn xưởng, sai cho một công việc: kéo về
+    mọi lệnh còn sống). Ép lệnh về một trạng thái NGOÀI `TRANG_THAI_TINH` (`TT_NHAP`) để chứng
+    minh `theo_ids` không hề đọc cột `trang_thai` — nếu ai đó lỡ tay thêm điều kiện lọc vào, lệnh
+    NHAP sẽ biến mất khỏi kết quả và test này đỏ.
+    """
+    from app.models.lsx import TT_NHAP, Lsx
+    from app.repositories.lsx_repo import LsxRepository
+
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT4")
+    lsx_id = cv.lsx_id
+    lsx = db.get(Lsx, lsx_id)
+    lsx.trang_thai = TT_NHAP
+    db.commit()
+
+    repo = LsxRepository(db)
+    ra = repo.theo_ids({lsx_id})
+    assert [l.id for l in ra] == [lsx_id]
+    assert repo.theo_ids(set()) == []
+
+
+def test_nhu_cau_cong_viec_bai_ghep_ra_dung_bai_qua_theo_ids(db, orders, lsx_svc, admin, customer):
+    """Công việc mang `bai_ghep_id` (nhánh trước đây chưa test nào chạm) vẫn phải chạy được:
+    `bais` lấy đích danh bài bằng `bai_ghep_repo.get(bai_id)`, rồi `lsx_repo.theo_ids` nạp đúng
+    các lệnh thành viên (không đi qua `cho_mrp`). Test chạy QUA nhánh thật (không phải đọc
+    thuộc tính rồi assert hằng số): dựng một bài ghép tối thiểu (2 lệnh + 1 bước chung), gọi
+    `nhu_cau_cua_cong_viec` với `cv` giả neo đúng `bai_ghep_id`/`bai_ghep_cong_doan_id`, và đòi
+    kết quả THẬT (dòng giấy, sl > 0) — không phải danh sách rỗng do lỗi âm thầm nuốt phạm vi.
+    """
+    from types import SimpleNamespace
+
+    from app.models.bai_ghep import BaiGhep, BaiGhepThanhVien
+    from app.models.bai_ghep_cong_doan import BaiGhepCongDoan
+    from tests.test_ke_hoach_vat_tu import _giay, _lenh
+
+    g = _giay(db, ma="GY-BAI-VT")
+    a = _lenh(db, customer, ma="LSX-BAI-VT-A", giay_id=g.id, so_to_nguyen=1_000)
+    b = _lenh(db, customer, ma="LSX-BAI-VT-B", giay_id=g.id, so_to_nguyen=1_000)
+    bg = BaiGhep(ma="GB-VT-001", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
+    db.add(bg)
+    db.flush()
+    db.add_all([
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id, so_con_tren_to=1),
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=b.id, so_con_tren_to=1),
+    ])
+    chung = BaiGhepCongDoan(bai_ghep_id=bg.id, thu_tu=1, ten="In chung", nhom="print", loai_buoc="may")
+    db.add(chung)
+    db.commit()
+
+    cv = SimpleNamespace(lsx_id=None, bai_ghep_id=bg.id, lsx_cong_doan_id=None,
+                         bai_ghep_cong_doan_id=chung.id)
+    ra = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+
+    assert ra, "công việc mang bai_ghep_id phải ra dòng nhu cầu (nhánh vừa sửa)"
+    assert all(d["sl"] > 0 for d in ra)
+    assert {(d["hang_loai"], d["hang_id"]) for d in ra} == {("giay", g.id)}
