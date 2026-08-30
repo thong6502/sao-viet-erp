@@ -815,3 +815,46 @@ def test_the_lenh_goi_ten_phieu_dang_chay_cua_tung_mon(db, svc, customer):
     ]
     assert sau["thieu"] == pytest.approx(truoc["thieu"])
     assert sau["dang_giu"] == pytest.approx(truoc["dang_giu"])
+
+
+# ================== MIGRATION 0245 ==================
+
+
+def test_migration_them_cot_purchase_request_line_id(db):
+    """Cột mới phải tồn tại, nullable, và chạy lại migration không vỡ (idempotent)."""
+    from sqlalchemy import inspect
+
+    from app.db_migrations import run_migrations
+
+    insp = inspect(db.get_bind())
+    cols = {c["name"] for c in insp.get_columns("vat_tu_giu_cho")}
+    assert "purchase_request_line_id" in cols
+
+    # Chạy lại lần hai — no-op, không raise.
+    run_migrations(db)
+
+
+def test_migration_backfill_dung_lai_nhat_them_cho_chu_the_dang_bat(db, kh, customer):
+    """Chủ thể đã BẬT giữ chỗ từ trước (cờ `giu_cho_bat=true`), dòng `dang_ve` của nó vừa bị
+    migration xoá sạch — hàm backfill `_dung_lai_giu_cho_dang_ve` phải tự gọi lại `nhat_them()`
+    cho chủ thể đó, không để nó "trắng tay" tới lần Nhập kho/Bật-Tắt kế tiếp."""
+    from app.db_migrations import _dung_lai_giu_cho_dang_ve
+    from app.services.giu_cho_service import GiuChoService
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+
+    # Mô phỏng "đã bật từ trước migration": bật cờ THẲNG qua ORM, KHÔNG gọi svc.bat() (gọi bat()
+    # sẽ tự nhat_them() ngay, làm mất ý nghĩa của test — ta cần trạng thái "cờ bật nhưng CHƯA có
+    # dòng giữ", đúng như sau khi migration xoá sạch dang_ve).
+    a.giu_cho_bat = True
+    db.commit()
+
+    svc = GiuChoService(db, kh)
+    assert not svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None), "chưa gọi nhat_them nên phải trống"
+
+    _dung_lai_giu_cho_dang_ve(db)
+
+    rows = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
+    assert rows, "backfill phải tự dựng lại giữ chỗ cho chủ thể đang bật"
