@@ -547,7 +547,8 @@ class StockVoucherService:
         """
         from sqlalchemy import select
 
-        from ..models.bai_ghep import BaiGhepThanhVien
+        from ..models.bai_ghep import BaiGhep, BaiGhepThanhVien
+        from ..models.lsx import Lsx
 
         nhu_cau = None
         ghep_cua: dict[int, int] = {}
@@ -578,9 +579,21 @@ class StockVoucherService:
                     if hang in nhu_cau.get((None, bid), {}):
                         lsx_id, bg_id = None, bid
                     else:
+                        # Hiện TÊN/MÃ dễ đọc thay vì id thô — cùng lý do cửa kiểm lô ngay trên đã
+                        # dặn (dòng ~279): người xem lỗi này là kho, họ đọc mã "LSX-A"/"GB-1", không
+                        # đọc id nội bộ. Fallback về id khi không tra được (danh mục/lệnh đã mất).
+                        ten_hang = getattr(
+                            self.hang.map_theo_cap([hang]).get(hang), "ten", None
+                        ) or f"{hang[0]}#{hang[1]}"
+                        ma_lsx = getattr(
+                            self.vouchers.db.get(Lsx, lsx_id), "ma", None
+                        ) or f"lệnh #{lsx_id}"
+                        ma_bai = getattr(
+                            self.vouchers.db.get(BaiGhep, bid), "ma", None
+                        ) or f"bài ghép #{bid}"
                         raise StockVoucherError(
-                            f"Không xác định được {hang[0]}#{hang[1]} thuộc lệnh #{lsx_id} riêng "
-                            f"hay bài ghép #{bid} — vào Kế hoạch vật tư kiểm lại trước khi ghi sổ."
+                            f"Không xác định được {ten_hang} thuộc {ma_lsx} riêng hay {ma_bai} — "
+                            "vào Kế hoạch vật tư kiểm lại trước khi ghi sổ."
                         )
             khoa = (hang, (lsx_id, bg_id))
             ra[khoa] = ra.get(khoa, 0.0) + float(ln.sl_goc)
