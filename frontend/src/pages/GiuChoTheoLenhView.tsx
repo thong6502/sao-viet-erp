@@ -5,7 +5,6 @@ import {
   ApiError,
   api,
   type CanDoiKhoaDong,
-  type CanDoiMau,
   type DeNghiMuaXemTruoc,
   type HangLoai,
   type TheoLenhHang,
@@ -20,31 +19,15 @@ import { Icon, type IconName } from "../components/Icons";
 import { BangLoi, ChipGap, EmptyState, Skeleton, ngay, num } from "./keHoachSxShared";
 import { moTaPhieuMua, tomTatPhieuMua, vetDangKep } from "./phieuMuaNhan";
 
-/** Nhãn ngắn & màu cho trạng thái vật tư.
+/** Nhãn ngắn & màu cho trạng thái GIỮ CHỖ 6 mức — đây LÀ màn "giữ chỗ theo lệnh":
+ *  `co_the_giu`/`da_giu`/`da_cap` mới đúng câu hỏi màn này trả lời ("lệnh này chạy được chưa"),
+ *  không phải `xanh`/`vang`/`xam` của can_doi() (chỉ nói "hệ CÓ đủ hàng không", không nói "CHÍNH
+ *  LỆNH NÀY đã giữ được chưa").
  *  Màu lấy THẲNG từ biến hệ thống chứ không gõ mã hex tại chỗ — gõ tay thì màn này trôi khỏi bảng
- *  màu chung, đúng cái đã xảy ra: nền/chữ ở đây từng là hệ Tailwind rời. Hai ô `bg`/`text` cũ không
- *  nơi nào đọc (đã grep) nên bỏ; nền/chữ do lớp `cls` lo.
- *  `dotColor` (chỉ dùng cho icon ở chế độ thẻ) trỏ vào bộ biến TRẠNG THÁI CHUNG `--kh-*` khai ở
- *  ke-hoach-sx.css — cùng một nguồn với màn "Theo mặt hàng" để hai cách nhìn không lệch tông; các
- *  trạng thái trung tính (đã cấp / đủ tồn / chưa rõ) giữ token đất cho chìm, chỉ tin xấu mới tươi. */
-const MAU_VATTU: Record<string, { label: string; cls: string; dotColor: string }> = {
-  xam: { label: "Đã cấp", cls: "khvt-stream-chip--xam", dotColor: "var(--ash-2)" },
-  xanh: { label: "Đủ tồn", cls: "khvt-stream-chip--xanh", dotColor: "var(--moss)" },
-  vang: { label: "Chờ hàng về", cls: "khvt-stream-chip--vang", dotColor: "var(--kh-canhbao-fg)" },
-  do: { label: "Thiếu cần mua", cls: "khvt-stream-chip--do", dotColor: "var(--kh-thieu-fg)" },
-  khong_ro: { label: "Chưa rõ ĐVT", cls: "khvt-stream-chip--khongro", dotColor: "var(--steel)" },
-  ve_muon: { label: "Hàng về muộn", cls: "khvt-stream-chip--vemuon", dotColor: "var(--kh-vemuon-fg)" },
-};
-
-// @ts-ignore TS6133 — Giữ cho backward compatibility; có chỗ khác trong file/repo còn dùng trang_thai.
-function mauVatTu(mau: CanDoiMau) {
-  return MAU_VATTU[mau] ?? { label: String(mau), cls: "khvt-stream-chip--khongro", dotColor: "var(--steel)" };
-}
-
-/** [MỚI 30/08/2026] Nhãn/màu cho trạng thái GIỮ CHỖ 6 mức — thay `MAU_VATTU`/`mauVatTu` ở màn này,
- *  vì đây LÀ màn "giữ chỗ theo lệnh": `co_the_giu`/`da_giu`/`da_cap` mới đúng câu hỏi màn này trả
- *  lời ("lệnh này chạy được chưa"), không phải `xanh`/`vang`/`xam` của can_doi() (chỉ nói "hệ CÓ
- *  đủ hàng không", không nói "CHÍNH LỆNH NÀY đã giữ được chưa"). */
+ *  màu chung. `dotColor` (chỉ dùng cho icon ở chế độ thẻ) trỏ vào bộ biến TRẠNG THÁI CHUNG `--kh-*`
+ *  khai ở ke-hoach-sx.css — cùng một nguồn với màn "Theo mặt hàng" để hai cách nhìn không lệch
+ *  tông; các trạng thái trung tính (đã cấp / có thể giữ / chưa rõ) giữ token đất cho chìm, chỉ tin
+ *  xấu mới tươi. */
 const MAU_VATTU_GIU: Record<string, { label: string; cls: string; dotColor: string }> = {
   khong_ro: { label: "Chưa rõ ĐVT", cls: "khvt-stream-chip--khongro", dotColor: "var(--steel)" },
   thieu: { label: "Thiếu cần mua", cls: "khvt-stream-chip--do", dotColor: "var(--kh-thieu-fg)" },
