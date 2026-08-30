@@ -2510,6 +2510,9 @@ export interface Department {
   don_gia_km?: number;
   pct_tai_xe?: number;
   pct_phu_xe?: number;
+  /** Đánh dấu tổ KCS đích danh (§3.1, §14) — KHÔNG kế thừa cây con. Gate phát hành bài ghép
+   *  yêu cầu bước KCS cuối nằm ở một phòng có cờ này. */
+  is_kcs?: boolean;
 }
 
 /** Cơ chế ra mức lương của một phòng ban (Pha 1). */
@@ -7869,6 +7872,8 @@ export const api = {
       /** Ba ô khoán km. Cùng luật `undefined` = KHÔNG gửi ⇒ giữ nguyên: luồng chỉ sửa tên phòng
        *  mà gửi kèm 0 là âm thầm xoá đơn giá, tháng sau tài xế nhận 0 đồng km. */
       khoanKm?: { don_gia_km?: number; pct_tai_xe?: number; pct_phu_xe?: number },
+      /** Cờ tổ KCS đích danh. Cùng luật `undefined` = KHÔNG gửi ⇒ backend giữ nguyên. */
+      isKcs?: boolean,
     ): Promise<Department> {
       return authed<Department>(`/api/departments/${id}`, token, {
         method: "PUT",
@@ -7883,6 +7888,7 @@ export const api = {
           ...(laKinhDoanh === undefined ? {} : { la_kinh_doanh: laKinhDoanh }),
           ...(laGiaoHang === undefined ? {} : { la_giao_hang: laGiaoHang }),
           ...(khoanKm ?? {}),
+          ...(isKcs === undefined ? {} : { is_kcs: isKcs }),
         }),
       });
     },

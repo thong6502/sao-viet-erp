@@ -53,6 +53,7 @@ import {
   ChevronDown,
   Move,
   ShieldCheck,
+  Coins,
   ArrowRightLeft,
   X,
   CheckCircle2,
@@ -295,6 +296,11 @@ export function DepartmentsPage({
   const [editLaGiaoHang, setEditLaGiaoHang] = useState(false);
   // Khoán km giao hàng (đơn giá + %) ĐÃ DỜI sang Cấu hình lương → Cơ chế lương theo bộ phận
   // (chủ chốt 24/08/2026). Ở đây chỉ còn CỜ bật/tắt Bộ phận Giao hàng.
+  // Cờ tổ KCS đích danh (§3.1/§14 spec bài ghép) — KHÔNG kế thừa cây con, khác 3 cờ trên.
+  const [editIsKcs, setEditIsKcs] = useState(false);
+  // Cờ LƯƠNG KHOÁN của tổ — mọi người trong tổ cùng chế độ (board.nhan_vien_chon suy
+  // `la_luong_khoan` thẳng từ cờ này). Bước nội bộ (loai_buoc="to") chỉ nhận thợ khoán.
+  const [editHasPieceWork, setEditHasPieceWork] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -662,6 +668,8 @@ export function DepartmentsPage({
     setEditLaSanXuat(dept?.la_san_xuat ?? false);
     setEditLaKinhDoanh(dept?.la_kinh_doanh ?? false);
     setEditLaGiaoHang(dept?.la_giao_hang ?? false);
+    setEditIsKcs(dept?.is_kcs ?? false);
+    setEditHasPieceWork(dept?.has_piece_work ?? false);
     if (!token || selectedId == null) {
       setMembers([]);
       setRoles([]);
@@ -719,6 +727,8 @@ export function DepartmentsPage({
     setEditLaSanXuat(currentDept?.la_san_xuat ?? false);
     setEditLaKinhDoanh(currentDept?.la_kinh_doanh ?? false);
     setEditLaGiaoHang(currentDept?.la_giao_hang ?? false);
+    setEditIsKcs(currentDept?.is_kcs ?? false);
+    setEditHasPieceWork(currentDept?.has_piece_work ?? false);
     setSaveError(null);
     setDirty(false);
     setInfoOpen(true);
@@ -877,11 +887,14 @@ export function DepartmentsPage({
         {
           salary_mechanism: currentDept?.salary_mechanism ?? "cung",
           probation_ratio: currentDept?.probation_ratio ?? 0.8,
+          has_piece_work: editHasPieceWork,
         },
         editLaSanXuat,
         editLaKinhDoanh,
         editLaGiaoHang,
         // Khoán km (đơn giá + %) ĐÃ DỜI sang Cấu hình lương — không gửi từ đây nữa.
+        undefined,
+        editIsKcs,
       );
       await refresh(selectedId);
       setDirty(false);
@@ -1754,6 +1767,9 @@ export function DepartmentsPage({
                       )}
                       {currentDept.la_giao_hang && (
                         <span className="rdx-drawer__pill rdx-drawer__pill--gh">Giao hàng</span>
+                      )}
+                      {currentDept.is_kcs && (
+                        <span className="rdx-drawer__pill rdx-drawer__pill--gh">KCS</span>
                       )}
                     </div>
                   </div>
@@ -2666,6 +2682,64 @@ export function DepartmentsPage({
                     <span className="rdx-switch-card__desc">
                       Người trong khối là tài xế — hiện ở tab Nhân viên giao hàng để phân chuyến và
                       theo dõi km
+                    </span>
+                  </div>
+                </div>
+                <div className="rdx-toggle-switch" aria-hidden="true" />
+              </div>
+            </div>
+
+            {/* Switch Card "Tổ KCS đích danh" — KHÔNG kế thừa cây con (khác 3 cờ trên). Gate
+                phát hành bài ghép (spec §3.1/§14) yêu cầu bước KCS cuối nằm ở một phòng có cờ
+                này mới cho chốt nghiệm thu. */}
+            <div className="field depts__field--full">
+              <div
+                className={`rdx-switch-card${editIsKcs ? " is-checked" : ""}`}
+                onClick={() => {
+                  setEditIsKcs(!editIsKcs);
+                  setDirty(true);
+                }}
+              >
+                <div className="rdx-switch-card__left">
+                  <div className="rdx-switch-card__icon">
+                    <ShieldCheck size={20} />
+                  </div>
+                  <div className="rdx-switch-card__main">
+                    <span className="rdx-switch-card__title">
+                      Tổ KCS đích danh
+                      <InfoHint label="Đánh dấu ĐÍCH DANH phòng/tổ này là KCS — KHÔNG kế thừa cho cây con. Dùng để chốt bước kiểm tra chất lượng cuối trong routing sản xuất; bài ghép chỉ phát hành được khi có bước KCS cuối nằm ở một phòng có cờ này." />
+                    </span>
+                    <span className="rdx-switch-card__desc">
+                      Bắt buộc để bước KCS cuối trong routing sản xuất được công nhận khi phát hành
+                    </span>
+                  </div>
+                </div>
+                <div className="rdx-toggle-switch" aria-hidden="true" />
+              </div>
+            </div>
+
+            {/* Switch Card "Lương khoán" — mọi người trong tổ CÙNG chế độ (board.nhan_vien_chon
+                suy `la_luong_khoan` thẳng từ cờ này, không phải thuộc tính riêng từng người).
+                Bước nội bộ (loai_buoc="to") chỉ nhận thợ khoán vào TỔ THỰC HIỆN. */}
+            <div className="field depts__field--full">
+              <div
+                className={`rdx-switch-card${editHasPieceWork ? " is-checked" : ""}`}
+                onClick={() => {
+                  setEditHasPieceWork(!editHasPieceWork);
+                  setDirty(true);
+                }}
+              >
+                <div className="rdx-switch-card__left">
+                  <div className="rdx-switch-card__icon">
+                    <Coins size={20} />
+                  </div>
+                  <div className="rdx-switch-card__main">
+                    <span className="rdx-switch-card__title">
+                      Tổ hưởng lương khoán
+                      <InfoHint label="Đánh dấu CẢ TỔ hưởng lương khoán theo sản phẩm — mọi người trong tổ cùng chế độ, không khai riêng từng người. Bước nội bộ trong routing sản xuất chỉ nhận thợ khoán vào ô 'Giao người'; tổ không bật cờ này thì không ai trong tổ giao được vào bước nội bộ." />
+                    </span>
+                    <span className="rdx-switch-card__desc">
+                      Bắt buộc để giao được người vào bước nội bộ (Tổ thực hiện) khi thực hiện SX
                     </span>
                   </div>
                 </div>
