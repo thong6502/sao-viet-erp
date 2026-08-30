@@ -227,13 +227,13 @@ class GiuChoService:
         gio = datetime.now(timezone.utc)
 
         self._them_mo_coi(gom)
-        self.giu_theo_chu_the_hang(bang, gom)
+        tt_by_chu = self.giu_theo_chu_the_hang(bang, gom)
         dang_thieu = self._chu_the_dang_thieu(gom)
 
         rows: list[dict] = []
         for chu, o in gom.items():
             lsx_id, bg_id = chu
-            tt = self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang)
+            tt = tt_by_chu[chu]
             hangs = list(o["hang"].values())
             for h in hangs:
                 k = (h["hang_loai"], h["hang_id"])
@@ -734,7 +734,9 @@ class GiuChoService:
             return "da_cap"
         return "da_giu" if (da_kho + da_ve) + 1e-6 >= can else "co_the_giu"
 
-    def giu_theo_chu_the_hang(self, bang: dict, gom: dict[tuple, dict] | None = None) -> None:
+    def giu_theo_chu_the_hang(
+        self, bang: dict, gom: dict[tuple, dict] | None = None
+    ) -> dict[tuple, dict]:
         """Với MỖI (chủ thể, mặt hàng) trong `gom`, gắn thêm `da_giu_kho`/`da_giu_dang_ve` (đã
         giữ, tách nguồn), `co_the_giu_kho`/`co_the_giu_dang_ve` (NẾU bật giữ chỗ NGAY BÂY GIỜ thì
         giữ được thêm bao nhiêu), `trang_thai_giu` (nhãn 6 mức) và `nguon_dang_ve` (mã PMH cụ thể
@@ -748,6 +750,10 @@ class GiuChoService:
 
         Tra `ma_pmh` GỘP MỘT LẦN cho toàn bộ `gom` (không phải mỗi dòng một query) — `theo_chu_the()`
         gọi hàm này cho MỌI chủ thể trong bảng, N+1 ở đây là N có thể lên tới hàng trăm lệnh.
+
+        Trả về `tt_by_chu` (kết quả `trang_thai()` đã tính cho mỗi chủ thể) để `theo_chu_the()`
+        TÁI DÙNG luôn — không gọi lại `trang_thai()` lần hai cho cùng chủ thể (mỗi lần gọi kéo
+        theo 1 query `repo.cua_chu_the()`, N chủ thể là nhân đôi số query một cách vô ích).
         """
         from sqlalchemy import select as _select
 
@@ -801,6 +807,7 @@ class GiuChoService:
                 h["co_the_giu_kho"] = co_kho
                 h["co_the_giu_dang_ve"] = co_ve
                 h["trang_thai_giu"] = self._mau_giu(h["trang_thai"], da_kho, da_ve, h["can"])
+        return tt_by_chu
 
     @staticmethod
     def _dong(chu: tuple, hang: Hang, sl: float, nguon: str, ngay: date | None,
