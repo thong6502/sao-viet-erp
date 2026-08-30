@@ -167,6 +167,10 @@ class CatalogService:
         `NotImplementedError` — router dịch thành 404 chứ không 500."""
         return self.repo.next_ma()
 
+    def find_by_ma(self, ma: str):
+        """Tra bản ghi theo mã — dùng cho import Excel UPSERT (`catalog_base.py` router)."""
+        return self.repo.find_by_ma(ma)
+
     # -- ghi ----------------------------------------------------------------------------
 
     def _chot(self) -> None:

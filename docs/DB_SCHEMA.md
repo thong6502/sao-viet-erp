@@ -296,8 +296,8 @@ and is read via SEAM-16, never stored here.
 | `discount_buyer_pct` | `Float` → `FLOAT` | — | yes | — | **DORMANT (redesign spec-06 v2)** — như trên. Cột giữ lại, không dùng. |
 | `discount_min_pct` | `Float` → `FLOAT` | — | yes | — | Sàn chiết khấu cho phép (%) — rào chắn báo giá (redesign spec-06 v2). % ∈ [0,100], `min ≤ max`; NULL = chưa đặt. Sửa cần `set_credit_terms`. Thêm qua migration 0060. |
 | `discount_max_pct` | `Float` → `FLOAT` | — | yes | — | Trần chiết khấu cho phép (%). Thêm qua migration 0060. |
-| `margin_min_pct` | `Float` → `FLOAT` | — | yes | — | Sàn biên lợi nhuận yêu cầu (%). Thêm qua migration 0060. |
-| `margin_max_pct` | `Float` → `FLOAT` | — | yes | — | Trần biên lợi nhuận (%). Thêm qua migration 0060. |
+| `markup_min_pct` | `Float` → `FLOAT` | — | yes | — | Sàn **MARKUP** yêu cầu (%) — markup = lợi nhuận / **giá vốn** (đúng ô "Markup %" trên báo giá), KHÔNG phải biên trên giá bán. Cổng đặc thù của báo giá soi rào này (`exception_gate.evaluate_quote`). Thêm qua migration 0060 (tên cũ `margin_min_pct`), đổi tên qua migration 0242. |
+| `markup_max_pct` | `Float` → `FLOAT` | — | yes | — | Trần **MARKUP** (%) — cùng trục với `markup_min_pct`. Thêm qua migration 0060 (tên cũ `margin_max_pct`), đổi tên qua migration 0242. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the customer row was created. |
 
 **Keys & indexes**
@@ -601,6 +601,7 @@ phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header 
 | `contact_name_snapshot` | `String(255)` | — | yes | — | **redesign-bao-gia §5**: người liên hệ snapshot (auto-fill CRM `CustomerContact.is_primary`). Migration 0052. |
 | `contact_phone_snapshot` | `String(30)` | — | yes | — | SĐT người liên hệ snapshot. Migration 0052. |
 | `contact_title_snapshot` | `String(120)` | — | yes | — | Chức vụ người liên hệ snapshot. Migration 0052. |
+| `contact_email_snapshot` | `String(255)` | — | yes | — | Email người liên hệ snapshot (in trên bản in báo giá). Migration 0241. |
 | `customer_note` | `String(1000)` | — | yes | — | Ghi chú hiện cho khách. |
 | `internal_note` | `String(1000)` | — | yes | — | Ghi chú nội bộ. |
 | `cancel_reason` | `String(500)` | — | yes | — | Lý do hủy (bắt buộc khi cancelled). |
@@ -894,19 +895,19 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 
 ### `quote_approvals`
 
-**Purpose:** BG-2 — GĐ duyệt "báo giá ĐẶC THÙ" (biên thấp / bán dưới vốn / giá trị cao) → chặn "gửi khách" tới khi duyệt. **Song sinh** với `order_approvals` (cùng máy `services/exception_gate.py`), khóa theo `quote_id`. GHIM số + ngưỡng lúc quyết định để re-check "bao phủ" (báo giá đổi xấu đi → trình lại) + audit. Bản GẦN NHẤT quyết định cổng. Đơn hàng tạo từ báo giá đã duyệt "bao phủ" → A2 tự thông. Bảng MỚI do `create_all` dựng. Portable across SQLite và Postgres.
+**Purpose:** BG-2 — GĐ duyệt "báo giá ĐẶC THÙ" (markup ngoài rào của khách / chiết khấu ngoài rào / bán dưới vốn / giá trị cao) → chặn "gửi khách" tới khi duyệt. **Song sinh** với `order_approvals` (cùng máy `services/exception_gate.py`), khóa theo `quote_id`. GHIM số + ngưỡng lúc quyết định để re-check "bao phủ" (báo giá đổi xấu đi → trình lại) + audit. Bản GẦN NHẤT quyết định cổng. Đơn hàng tạo từ báo giá đã duyệt "bao phủ" → A2 tự thông. Bảng MỚI do `create_all` dựng. Portable across SQLite và Postgres.
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
 | `quote_id` | `Integer` → `INTEGER` | **FK→quotes.id**, **IX** | no | — | Báo giá được duyệt (ON DELETE CASCADE). |
 | `decision` | `String(16)` → `VARCHAR(16)` | — | no | — | `approved` (duyệt, mở "gửi khách" nếu bao phủ) / `rejected` (từ chối). |
-| `triggers_json` | `JSON` → `JSON` | — | yes | — | Điều kiện đặc thù đang bật lúc quyết định (`['high_value','low_margin','below_cost']`). |
+| `triggers_json` | `JSON` → `JSON` | — | yes | — | Điều kiện đặc thù đang bật lúc quyết định (`['high_value','below_cost','discount_out','markup_out']`; bản duyệt trước 29/08/2026 còn key `margin_out`/`low_margin`). |
 | `total` | `BigInteger` → `BIGINT` | — | no | `0` | GHIM tổng GỒM VAT lúc quyết định (mốc quy mô khi re-check bao phủ). |
-| `subtotal` | `BigInteger` → `BIGINT` | — | no | `0` | GHIM subtotal TRƯỚC VAT (base biên) lúc quyết định. |
-| `cost` | `BigInteger` → `BIGINT` | — | yes | — | GHIM tổng giá vốn lúc quyết định (null nếu không soi được biên). |
-| `margin_pct_snapshot` | `Integer` → `INTEGER` | — | yes | — | GHIM biên (%) lúc quyết định — hiển thị/audit. |
-| `min_margin_pct` | `Integer` → `INTEGER` | — | yes | — | Ngưỡng biên đang HIỆU LỰC lúc GĐ ký. |
+| `subtotal` | `BigInteger` → `BIGINT` | — | no | `0` | GHIM subtotal TRƯỚC VAT (sau chiết khấu) lúc quyết định. |
+| `cost` | `BigInteger` → `BIGINT` | — | yes | — | GHIM tổng giá vốn lúc quyết định — cũng là BASE của markup (null nếu không soi được). |
+| `markup_pct_snapshot` | `Integer` → `INTEGER` | — | yes | — | GHIM **MARKUP** (%/giá vốn) lúc quyết định — hiển thị/audit. Tên cũ `margin_pct_snapshot`, đổi tên qua migration 0242 khi cổng chuyển sang trục markup (29/08/2026). |
+| `min_markup_pct` | `Integer` → `INTEGER` | — | yes | — | Sàn **MARKUP** của khách đang HIỆU LỰC lúc GĐ ký (đổi rào sau vẫn còn căn cứ audit). Tên cũ `min_margin_pct`, đổi tên qua migration 0242. |
 | `high_value_threshold` | `BigInteger` → `BIGINT` | — | yes | — | Ngưỡng giá-trị-cao đang HIỆU LỰC lúc GĐ ký. |
 | `note` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Lý do GĐ (khuyến nghị khi từ chối). |
 | `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người quyết định (GĐ). ON DELETE SET NULL. |
@@ -3706,9 +3707,11 @@ khoá: `bao_tri` → `phieu_bao_tri`, `yeu_cau` → `yeu_cau_sua_chua` **hoặc*
 
 **Purpose:** 1 dòng công đoạn gia công sau in (finishing) của 1 thành phần — con của `phieu_thanh_phan` (`thanh_phan_id` FK thật, cascade xoá). Hoặc tính giá PHẲNG (`don_gia` > 0 × số lượng — `so_luong`=0 nghĩa dùng SL đặt của phiếu) hoặc dùng cấu hình công đoạn danh mục (`cong_doan_id`, soft FK) qua `routing_engine.compute_step_cost` với `so_mat`/`so_vi_tri`/`dien_tich`. `nha_cung_cap` → nhãn thuê ngoài. `bu_hao` cờ báo dòng có góp hao. (Không cột lợi nhuận — đây là giá vốn.)
 
-**Tất cả cột:** `id`, `thanh_phan_id`, `thu_tu`, `cong_doan_id`, `ten`, `don_gia`, `so_luong`, `bu_hao`, `so_mat`, `so_vi_tri`, `dien_tich`, `nha_cung_cap`, `ghi_chu`, `phi_khuon`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `thanh_phan_id`, `thu_tu`, `cong_doan_id`, `ten`, `don_gia`, `so_luong`, `bu_hao`, `so_mat`, `so_vi_tri`, `dien_tich`, `nha_cung_cap`, `ghi_chu`, `phi_khuon`, `dai_khung_lua`, `rong_khung_lua`, `so_khung_lua`, `created_at`, `updated_at`.
 
-`phi_khuon` (NUMERIC(18,2) NOT NULL DEFAULT 0, migration `0202`) = phí làm khuôn của CHÍNH bước đó — khoản **MỘT LẦN**. Chỉ có nghĩa khi công đoạn nguồn bật `requires_tooling` với `tooling_type` là dao lưu kho (`khuon_be` · `khuon_ep`); `kem` KHÔNG nhận (bản kẽm là vật tư tiêu hao, tiền đã nằm trong công thức chế bản `so_kem × đơn giá` — lấy thêm là tính hai lần). 0 = **dùng lại dao cũ**, không tính tiền: thông lệ ngành in là thu phí dao ở đơn ĐẦU, dao giữ lại kho, đơn tái đặt không thu lại. ⚠️ **KHÔNG cộng vào `gia_von_tp`** và không chia theo số lượng — engine trả riêng ở `meta.components[].phi_khuon`. Nhét vào giá vốn là nó bị chia: cùng con dao 2 triệu, đơn 100 cái đội 20.000 đ/cái còn đơn 5.000 cái chỉ 400 đ/cái.
+`phi_khuon` (NUMERIC(18,2) NOT NULL DEFAULT 0, migration `0202`) = phí làm khuôn của CHÍNH bước đó — khoản **MỘT LẦN**. Chỉ có nghĩa khi công đoạn nguồn bật `requires_tooling` với `tooling_type` là dao/dụng cụ lưu kho (`khuon_be` · `khuon_ep` · `khung_lua`, migration `0240`); `kem` KHÔNG nhận (bản kẽm là vật tư tiêu hao, tiền đã nằm trong công thức chế bản `so_kem × đơn giá` — lấy thêm là tính hai lần). 0 = **dùng lại dao cũ**, không tính tiền: thông lệ ngành in là thu phí dao ở đơn ĐẦU, dao giữ lại kho, đơn tái đặt không thu lại. ⚠️ **CÓ cộng vào `gia_von_tp`** (chốt 15/08/2026 — gộp để báo giá chỉ còn MỘT dòng), nghĩa là tiền dao BỊ CHIA theo sản lượng: cùng con dao 2 triệu, đơn 100 cái đội 20.000 đ/cái còn đơn 5.000 cái chỉ 400 đ/cái — đây là đánh đổi đã biết và đã chọn.
+
+`dai_khung_lua`/`rong_khung_lua` (NUMERIC(10,2) NOT NULL DEFAULT 0) + `so_khung_lua` (INTEGER NOT NULL DEFAULT 0), migration `0240` = kích thước (mm) và số khung lụa dùng ở CHÍNH bước đó. Chỉ có nghĩa khi bước dùng công đoạn `tooling_type = "khung_lua"`. TÁCH BIỆT với `phi_khuon`: ba ô này không tự tính phí, chỉ bơm vào công thức của công đoạn (chip `dai_khung_lua`/`rong_khung_lua`/`so_khung_lua`, xem `bien_cong_thuc.py`) để người khai công thức tự quy ra tiền (vd đơn giá/m² × dài × rộng × số khung).
 
 ---
 
@@ -3717,6 +3720,18 @@ khoá: `bao_tri` → `phieu_bao_tri`, `yeu_cau` → `yeu_cau_sua_chua` **hoặc*
 **Purpose:** 1 dòng VẬT TƯ IN ẤN (mực/màng/keo…) thêm tay của 1 thành phần → NGUYÊN VẬT LIỆU (song song giấy) — con của `phieu_thanh_phan` (`thanh_phan_id` FK thật, cascade xoá). Trỏ 1 mã `vat_tu_id` (soft → `vat_tu_in_an.id`); engine kéo `cong_thuc_gia` + `don_gia` + `don_vi_gia` từ danh mục rồi thế biến vào công thức — HỆT giấy. `don_gia` = ghi đè (0 → lấy danh mục); `so_luong` (0 → SL đặt) cho công thức nếu cần; `ten` nhãn hiển thị; `ghi_chu` ghi chú.
 
 **Tất cả cột:** `id`, `thanh_phan_id`, `thu_tu`, `vat_tu_id`, `ten`, `don_gia`, `so_luong`, `ghi_chu`, `created_at`, `updated_at`.
+
+---
+
+### `san_pham_tai_ban`
+
+**Purpose:** Kho cấu hình sản phẩm ĐÃ TỪNG chốt đơn — tra theo TÊN để tái bản (spec-san-pham-tai-ban §3). 1 dòng = ảnh chụp NGUYÊN cấu hình kỹ thuật (giấy/in/màu/công đoạn/vật tư, dạng `ThanhPhanIn`) của 1 `phieu_thanh_phan` tại thời điểm CHỐT ĐƠN — KHÔNG có số lượng của đơn, giá vốn đã tính, hay số bài in/số màu dẫn xuất. `ten_chuan_hoa` là khoá DÙNG CHUNG toàn hệ thống, không lọc khách hàng; cùng tên thì lần chốt sau GHI ĐÈ. Nguồn ghi DUY NHẤT là `OrderService.confirm()` (`san_pham_tai_ban_service.snapshot_tu_thanh_phan`, cùng transaction với chốt) — không có API tạo/sửa tay.
+
+**Tất cả cột:** `id`, `ten`, `ten_chuan_hoa`, `cau_hinh_json`, `updated_by`, `updated_at`.
+
+- `ten_chuan_hoa` (`String(255)`, unique index): bỏ dấu tiếng Việt + lowercase + gộp khoảng trắng (`san_pham_tai_ban_service.chuan_hoa_ten`) — khoá tìm kiếm/ghi đè, tách biệt `ten` (nhãn gốc giữ dấu để hiển thị).
+- `cau_hinh_json` (`JSON`): dict dạng `ThanhPhanIn`, gồm cả `thanh_phams`/`vat_tus` con — GET chi tiết trả thẳng dict này (`response_model=ThanhPhanIn`), không mirror sang bảng quan hệ riêng.
+- `updated_by` (`Integer`, soft → `users.id`): người bấm Chốt đơn lần ghi gần nhất.
 
 ---
 
@@ -4172,6 +4187,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `don_vi_snapshot` | `String(16)` | — | no | — | Đơn vị chốt lúc lập kế hoạch. |
 | `so_luong` | `Numeric(14,3)` | — | no | — | Định mức cho cả lượt chung. |
 | `thu_tu` | `Integer` | — | no | `0` | Thứ tự hiển thị. |
+| `nguon_so_luong` | `String(16)` | — | no | `'thu_cong'` | Nguồn số lượng: `dinh_muc` (server tự tính lại) hoặc `thu_cong` (người khai tay, giữ nguyên khi tính lại). |
 
 **Keys & indexes**
 
@@ -4619,6 +4635,24 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 
 **Tất cả cột:** `id`, `voucher_id`, `department_id`, `xac_nhan_by_id`, `xac_nhan_luc`, `ghi_chu`, `version`, `created_at`.
+
+---
+
+### `san_xuat_ket_qua_nhanh`
+
+**Purpose:** sản lượng RIÊNG từng LSX tách ra từ một batch của công việc ĐIỂM TOẢ bài ghép (§ điểm toả). Bảng MỚI (`create_all`), CHỈ-THÊM. Ghi khi `san_luong.tao_batch` phát hiện công việc vừa ghi có cạnh `san_xuat_phu_thuoc` toả đi — mỗi cạnh một dòng: `so_luong` = `tot` của batch × `ty_le_ghep` (số con/tờ) của LSX đích. `ban_giao_id` neo bàn giao TỰ ĐỘNG-XÁC-NHẬN tương ứng (số suy một chiều từ `tot`, không thể vượt). Dùng làm sổ cái quota để chặn LSX khác dùng nhầm phần đã toả.
+
+| Column | Type | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` | **PK** | no | auto | Surrogate PK. |
+| `batch_id` | `Integer` FK→`san_xuat_batch.id` (CASCADE) | IX | no | — | Batch điểm-toả đã tách ra dòng này. |
+| `lsx_id` | `Integer` FK→`lsx.id` (CASCADE) | IX | no | — | LSX nhận phần sản lượng toả. |
+| `so_luong` | `Numeric(18,3)` | — | no | — | Sản lượng riêng của LSX = `tot` batch × `ty_le_ghep`. |
+| `don_vi` | `String(24)` | — | no | — | Đơn vị. |
+| `ban_giao_id` | `Integer` FK→`san_xuat_ban_giao.id` (SET NULL) | IX | yes | — | Bàn giao tự-xác-nhận tương ứng. |
+| `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
+
+**Tất cả cột:** `id`, `batch_id`, `lsx_id`, `so_luong`, `don_vi`, `ban_giao_id`, `created_at`.
 
 ---
 

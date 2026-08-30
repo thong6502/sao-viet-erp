@@ -3,7 +3,7 @@
 import type { DeliveryTrip } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
 import { fmtDateTime } from "../../../../utils/format";
-import { gopTheoYeuCau, nhanChuyen, toneChuyen } from "../shared/helpers";
+import { nhanChuyen, toneChuyen } from "../shared/helpers";
 import { KhoangTrong, Pill } from "../components/giaoHangCells";
 
 // =============================================================================
@@ -28,7 +28,6 @@ export function BangKeHoach({
   onKetQua?: (t: DeliveryTrip) => void;
   onDaTra?: (t: DeliveryTrip) => void;
 }) {
-  const dong = gopTheoYeuCau(trips);
   if (!loading && trips.length === 0)
     return (
       <KhoangTrong
@@ -61,7 +60,7 @@ export function BangKeHoach({
               <td colSpan={9}>Đang tải…</td>
             </tr>
           )}
-          {dong.map(({ moi: t, tongKm }) => (
+          {trips.map((t) => (
             <tr key={t.request_id}>
               <td>
                 <button type="button" className="gh-link" onClick={() => onMo(t.request_id)}>
@@ -81,7 +80,7 @@ export function BangKeHoach({
                   tone={toneChuyen(t.trang_thai)}
                 />
               </td>
-              <td className="gh-num">{tongKm || "—"}</td>
+              <td className="gh-num">{t.tong_km || "—"}</td>
               <td>
                 {/* Hàng ra khỏi kho phải có phiếu kho — giao khách không ngoại lệ. Nút này
                     lập một YÊU CẦU XUẤT KHO thật, kho lập phiếu bằng luồng sẵn có. */}

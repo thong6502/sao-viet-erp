@@ -354,12 +354,20 @@ class ThemLotIn(BaseModel):
     don_vi: str | None = None
 
 
+class KetQuaNhanhOut(BaseModel):
+    lsx_id: int
+    so_luong: float
+    don_vi: str
+    ban_giao_id: int | None = None
+
+
 class SanLuongKetQuaOut(BaseModel):
     cong_viec_id: int
     department_id: int | None = None
     trang_thai: str
     version: int
     batch_id: int | None = None
+    ket_qua_lsx: list[KetQuaNhanhOut] = []
 
 
 class BanGiaoDeXuatIn(BaseModel):

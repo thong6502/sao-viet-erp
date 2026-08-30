@@ -1,16 +1,19 @@
 // MASTER của "Tính giá" — danh sách phiếu tính giá (giá vốn). Bấm dòng → detail. Nút "+ Lập phiếu
 // tính giá" tạo nháp rồi mở detail. StatusTabs lọc theo tab; search debounce. Bám pattern list nhà
 // (RebuildCatalogPage): row hover, code mono badge, số liệu mono/tabular/vi-VN căn phải.
-import { useCallback, useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   api,
   ApiError,
   type PhieuTinhGiaListItem,
+  type PhieuTinhGiaStatsOut,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { StatusTabs } from "../components/StatusTabs";
 import "./tinh-gia.css";
+
+const PAGE_SIZE = 20;
 
 const fmt = (v: number | null | undefined): string =>
   typeof v === "number" ? Math.round(v).toLocaleString("vi-VN") : "—";
@@ -52,8 +55,11 @@ export function PhieuTinhGiaListView({
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [items, setItems] = useState<PhieuTinhGiaListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<PhieuTinhGiaStatsOut | null>(null);
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [sort, setSort] = useState("-ngay");
@@ -64,63 +70,38 @@ export function PhieuTinhGiaListView({
     return () => clearTimeout(t);
   }, [q]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQ, statusFilter, sort]);
+
   const load = useCallback(() => {
     if (!token) return;
     setLoading(true);
     setError(null);
     api.phieuTinhGia
-      .list(token, { q: debouncedQ })
+      .list(token, {
+        q: debouncedQ || undefined,
+        status: statusFilter === "all" ? undefined : statusFilter,
+        sort,
+        page,
+        size: PAGE_SIZE,
+      })
       .then((r) => {
         setItems(r.items);
+        setTotal(r.total);
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : "Không tải được danh sách phiếu."))
       .finally(() => setLoading(false));
-  }, [token, debouncedQ]);
+    api.phieuTinhGia.stats(token).then(setStats).catch(() => setStats(null));
+  }, [token, debouncedQ, statusFilter, sort, page]);
   useEffect(() => {
     load();
   }, [load]);
 
-  // Filter and sort items client-side
-  const filteredAndSortedItems = useMemo(() => {
-    // 1. Filter by status tab
-    let result = items;
-    if (statusFilter === "calculated") {
-      result = result.filter((it) => it.so_thanh_phan > 0);
-    } else if (statusFilter === "draft") {
-      result = result.filter((it) => it.so_thanh_phan === 0);
-    }
-
-    // 2. Sort client-side
-    if (!sort) return result;
-    const isDesc = sort.startsWith("-");
-    const key = isDesc ? sort.substring(1) : sort;
-
-    return [...result].sort((a, b) => {
-      let valA = a[key as keyof PhieuTinhGiaListItem];
-      let valB = b[key as keyof PhieuTinhGiaListItem];
-
-      // Handle null/undefined values
-      if (valA == null) return isDesc ? 1 : -1;
-      if (valB == null) return isDesc ? -1 : 1;
-
-      // Handle string columns
-      if (typeof valA === "string" && typeof valB === "string") {
-        return isDesc ? valB.localeCompare(valA) : valA.localeCompare(valB);
-      }
-
-      // Handle numeric columns
-      if (typeof valA === "number" && typeof valB === "number") {
-        return isDesc ? valB - valA : valA - valB;
-      }
-
-      return 0;
-    });
-  }, [items, statusFilter, sort]);
-
-  // Tab counts based on currently loaded items
-  const allCount = items.length;
-  const calculatedCount = items.filter(it => it.so_thanh_phan > 0).length;
-  const draftCount = items.filter(it => it.so_thanh_phan === 0).length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const allCount = stats?.all ?? 0;
+  const calculatedCount = stats?.calculated ?? 0;
+  const draftCount = stats?.draft ?? 0;
 
   return (
     <main className="rdx-cost tg-page">
@@ -151,9 +132,6 @@ export function PhieuTinhGiaListView({
             aria-label="Tìm phiếu tính giá"
           />
         </div>
-        <button type="button" className="btn btn--secondary ptg-filter" disabled title="Sắp có">
-          Lọc theo tiêu chí
-        </button>
       </div>
 
       <div style={{ margin: "4px 0 8px" }}>
@@ -216,7 +194,7 @@ export function PhieuTinhGiaListView({
                   Đang tải dữ liệu…
                 </td>
               </tr>
-            ) : filteredAndSortedItems.length === 0 ? (
+            ) : items.length === 0 ? (
               <tr>
                 <td colSpan={7} className="ptg-empty-td">
                   <div className="ptg-empty">
@@ -237,7 +215,7 @@ export function PhieuTinhGiaListView({
                 </td>
               </tr>
             ) : (
-              filteredAndSortedItems.map((it) => (
+              items.map((it) => (
                 <tr
                   key={it.id}
                   className="ptg-row"
@@ -309,10 +287,30 @@ export function PhieuTinhGiaListView({
         </table>
       </div>
 
-      {!loading && filteredAndSortedItems.length > 0 ? (
-        <p className="ptg-foot-note">
-          Tìm thấy {fmt(filteredAndSortedItems.length)} phiếu trong bộ lọc hiện tại.
-        </p>
+      {!loading && items.length > 0 ? (
+        <div className="ptg-pager">
+          <span className="ptg-pager__info">
+            Tìm thấy {fmt(total)} phiếu · Trang {page}/{totalPages}
+          </span>
+          <div className="ptg-pager__btns">
+            <button
+              type="button"
+              className="ptg-pager__btn"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              ‹ Trước
+            </button>
+            <button
+              type="button"
+              className="ptg-pager__btn"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Sau ›
+            </button>
+          </div>
+        </div>
       ) : null}
     </main>
   );

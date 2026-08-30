@@ -1,6 +1,6 @@
 """Thực hiện sản xuất — SẢN LƯỢNG · LOT ĐẦU VÀO · BÀN GIAO · XÁC NHẬN VẬT TƯ (Giai đoạn 3, §10–§11).
 
-Năm bảng GHI đứng SAU khung phiên-chạy (Giai đoạn 2) và neo lên snapshot công việc
+Sáu bảng GHI đứng SAU khung phiên-chạy (Giai đoạn 2) và neo lên snapshot công việc
 (`san_xuat_cong_viec`). Chúng KHÔNG chép lại công việc — chỉ ghi kết quả thực tế:
 
   san_xuat_batch           — một BATCH sản lượng (§11.1): khoảng thời gian + tổng/tốt/hỏng + đơn vị
@@ -16,6 +16,9 @@ Năm bảng GHI đứng SAU khung phiên-chạy (Giai đoạn 2) và neo lên sn
   san_xuat_vat_tu_nhan     — TỔ XÁC NHẬN đã nhận vật tư của MỘT phiếu xuất đã ghi sổ (§10.1). Xác nhận
                              phiếu NGUYÊN TRẠNG (không đẻ con số "tổ nhận" đối nghịch "kho giao"). Chỉ
                              phần đã xác nhận mới coi là khả dụng.
+  san_xuat_ket_qua_nhanh  — SẢN LƯỢNG RIÊNG từng LSX tách ra từ một batch điểm-toả bài ghép (§
+                             điểm toả): `tot` của batch × `ty_le_ghep` (số con/tờ) của LSX đó.
+                             CHỈ-THÊM, không sửa — batch mới thì đẻ dòng mới.
 
 NEO snapshot: batch/bàn giao trỏ `san_xuat_cong_viec.id` (bản đóng băng, ổn định). Số dẫn xuất
 (sản lượng còn lại, đầu vào khả dụng, % hoàn thành) TÍNH LÚC ĐỌC ở service — không cache cột.
@@ -195,4 +198,30 @@ class SanXuatVatTuNhan(Base):
     xac_nhan_luc: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class SanXuatKetQuaNhanh(Base):
+    """Sản lượng RIÊNG từng LSX tách ra từ một batch của công việc ĐIỂM TOẢ bài ghép.
+
+    Ghi khi `san_luong.tao_batch` phát hiện công việc vừa ghi có cạnh `san_xuat_phu_thuoc` toả đi
+    (nguồn = chính công việc này) — mỗi cạnh một dòng: `so_luong` = `tot` của batch × `ty_le_ghep`
+    (số con/tờ) của LSX đích. `ban_giao_id` neo bàn giao TỰ ĐỘNG-XÁC-NHẬN tương ứng (§11.2 biến
+    thể: số suy MỘT CHIỀU từ `tot`, không thể vượt, nên bỏ qua vòng đề xuất/xác nhận hai bên).
+    Bảng CHỈ-THÊM — dùng làm sổ cái quota để chặn LSX khác dùng nhầm phần đã toả (§10.3 biến thể)."""
+
+    __tablename__ = "san_xuat_ket_qua_nhanh"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[int] = mapped_column(
+        ForeignKey("san_xuat_batch.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    lsx_id: Mapped[int] = mapped_column(
+        ForeignKey("lsx.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    so_luong: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False)
+    don_vi: Mapped[str] = mapped_column(String(24), nullable=False)
+    ban_giao_id: Mapped[int | None] = mapped_column(
+        ForeignKey("san_xuat_ban_giao.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

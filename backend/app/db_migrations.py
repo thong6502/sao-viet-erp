@@ -10724,3 +10724,110 @@ def _migrate_vat_lieu_thay_the_ids(db: Session) -> None:
 
 
 MIGRATIONS.append(("0239_vat_lieu_thay_the_ids", _migrate_vat_lieu_thay_the_ids))
+
+
+def _migrate_phieu_thanh_pham_khung_lua(db: Session) -> None:
+    """Khung lụa: thêm `dai_khung_lua`/`rong_khung_lua` (NUMERIC(10,2)) + `so_khung_lua`
+    (INTEGER) vào `phieu_thanh_pham` — ba ô nhập TÁCH BIỆT với `phi_khuon`, chỉ bơm vào công
+    thức của công đoạn (xem `bien_cong_thuc._TANG_BUOC`). NOT NULL DEFAULT 0: dòng cũ chưa khai
+    khung lụa đọc ra 0, công thức không gõ tới thì vô hại. No-op DB fresh / bảng chưa có / cột
+    đã có.
+    """
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_pham" not in insp.get_table_names():
+        return
+    co = _existing_columns(insp, "phieu_thanh_pham")
+    if "dai_khung_lua" not in co:
+        db.execute(text(
+            "ALTER TABLE phieu_thanh_pham ADD COLUMN dai_khung_lua NUMERIC(10,2) NOT NULL DEFAULT 0"
+        ))
+    if "rong_khung_lua" not in co:
+        db.execute(text(
+            "ALTER TABLE phieu_thanh_pham ADD COLUMN rong_khung_lua NUMERIC(10,2) NOT NULL DEFAULT 0"
+        ))
+    if "so_khung_lua" not in co:
+        db.execute(text(
+            "ALTER TABLE phieu_thanh_pham ADD COLUMN so_khung_lua INTEGER NOT NULL DEFAULT 0"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0240_phieu_thanh_pham_khung_lua", _migrate_phieu_thanh_pham_khung_lua))
+
+
+def _migrate_quote_contact_email_snapshot(db: Session) -> None:
+    """Email người liên hệ SNAPSHOT trên báo giá — 4th field cùng bộ với
+    contact_name/phone/title_snapshot (`_migrate_quote_bao_gia_fields`), thiếu sót khi làm
+    tính năng chọn tay người liên hệ (bug: bản in báo giá không có Email). No-op nếu cột đã có."""
+    insp = inspect(db.get_bind())
+    if "quotes" in insp.get_table_names():
+        if "contact_email_snapshot" not in _existing_columns(insp, "quotes"):
+            db.execute(text("ALTER TABLE quotes ADD COLUMN contact_email_snapshot VARCHAR(255)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0241_quote_contact_email_snapshot", _migrate_quote_contact_email_snapshot))
+
+
+def _migrate_doi_ten_cot_markup(db: Session) -> None:
+    """Đổi tên cột cho khớp TRỤC MỚI của cổng "báo giá đặc thù": từ 29/08/2026 cổng soi
+    **MARKUP** (lợi nhuận / GIÁ VỐN — đúng ô "Markup %" Sale gõ) thay cho **biên** (lợi nhuận /
+    giá bán), nên tên `margin_*` nói SAI nghĩa dữ liệu đang chứa.
+
+    · `customers.margin_min_pct|margin_max_pct` → `markup_min_pct|markup_max_pct`
+    · `quote_approvals.margin_pct_snapshot|min_margin_pct` → `markup_pct_snapshot|min_markup_pct`
+
+    `order_approvals` GIỮ NGUYÊN `margin_pct_snapshot`/`min_margin_pct`: cổng Đơn hàng bán vẫn
+    soi biên (ngưỡng chung 15%, `exception_gate.evaluate`) — đừng "dọn cho đồng bộ".
+
+    Hai đường:
+    · DB CŨ (chỉ có tên cũ) → RENAME COLUMN, giữ nguyên rào khách đã khai + bản duyệt đã ký.
+    · DB FRESH → create_all đã dựng tên MỚI, nhưng migration 0060 (đã ship, không sửa id/thân)
+      vẫn chạy và thêm lại `margin_min/max_pct` RỖNG ⇒ gặp cả hai tên thì DROP cột cũ.
+    """
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+    doi_ten = {
+        "customers": (
+            ("margin_min_pct", "markup_min_pct"),
+            ("margin_max_pct", "markup_max_pct"),
+        ),
+        "quote_approvals": (
+            ("margin_pct_snapshot", "markup_pct_snapshot"),
+            ("min_margin_pct", "min_markup_pct"),
+        ),
+    }
+    for bang, cap in doi_ten.items():
+        if bang not in ten_bang:
+            continue
+        cols = _existing_columns(insp, bang)
+        for cu, moi in cap:
+            if cu not in cols:
+                continue
+            if moi in cols:
+                db.execute(text(f"ALTER TABLE {bang} DROP COLUMN {cu}"))
+            else:
+                db.execute(text(f"ALTER TABLE {bang} RENAME COLUMN {cu} TO {moi}"))
+    db.commit()
+
+
+MIGRATIONS.append(("0242_doi_ten_cot_markup", _migrate_doi_ten_cot_markup))
+
+
+def _migrate_bai_ghep_vat_tu_nguon_so_luong(db: Session) -> None:
+    """Bài ghép: thêm `bai_ghep_cong_doan_vat_tu.nguon_so_luong` — phân biệt dòng vật tư SERVER tự
+    tính lại theo công thức (`dinh_muc`) với dòng người khai TAY (`thu_cong`, giữ nguyên qua mọi
+    lần tính lại). NOT NULL DEFAULT 'thu_cong': dòng cũ coi như đã khai tay — an toàn hơn coi nhầm
+    là định mức rồi tự ý ghi đè số người đã chốt. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "bai_ghep_cong_doan_vat_tu" not in insp.get_table_names():
+        return
+    if "nguon_so_luong" not in _existing_columns(insp, "bai_ghep_cong_doan_vat_tu"):
+        db.execute(text(
+            "ALTER TABLE bai_ghep_cong_doan_vat_tu "
+            "ADD COLUMN nguon_so_luong VARCHAR(16) NOT NULL DEFAULT 'thu_cong'"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0243_bai_ghep_vat_tu_nguon_so_luong", _migrate_bai_ghep_vat_tu_nguon_so_luong))

@@ -21,6 +21,7 @@ from ..schemas.san_xuat_ly_do import (
     SanXuatLyDoIn, SanXuatLyDoListOut, SanXuatLyDoRow,
 )
 from ..services.san_xuat_ly_do_service import SanXuatLyDoService
+from ..services.catalog_excel_specs import SAN_XUAT_LY_DO
 from .catalog_base import make_catalog_router
 
 router = APIRouter(prefix="/api/san-xuat-ly-do", tags=["san-xuat-ly-do"])
@@ -42,6 +43,7 @@ Service = Annotated[SanXuatLyDoService, Depends(get_service)]
 make_catalog_router(
     router, ten="san_xuat_ly_do", ServiceDep=Service, module=MODULE, doc=_DOC,
     InModel=SanXuatLyDoIn, RowModel=SanXuatLyDoRow, ListModel=SanXuatLyDoListOut,
+    excel_spec=SAN_XUAT_LY_DO,
     # Tab lọc = NHÓM. Giá trị là khoá `nhom` (`loi`, `tam_dung`…).
     loc="nhom",
     facets=lambda svc, kw: svc.repo.dem_theo_nhom(**kw),

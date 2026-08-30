@@ -4,7 +4,7 @@
 // trong drawer có SƠ ĐỒ BÌNH BÀI live. Auto + override giữ nguyên. "Tính giá" = create (lần đầu,
 // khi phiếu còn nháp) hoặc update(pid) — BE replace-all + tính lại + snapshot → refresh từ Out.
 // LƯU = TÍNH, và phiếu KHÔNG vào DB cho tới lần lưu đầu tiên (chống phiếu rỗng bỏ lại).
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   api,
   ApiError,
@@ -22,10 +22,11 @@ import {
 import { congDoan, donViDo, giay, loaiSanPham, mayThietBi, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { MucInHang } from "../components/MucIn";
+import { SanPhamTaiBanGoiY as SanPhamTaiBanCombo } from "../components/SanPhamTaiBanGoiY";
 import { Select, type SelectOption } from "../components/Select";
-import { ThanhPhamGoiY } from "../components/ThanhPhamGoiY";
 import { ImpositionDiagram } from "./ImpositionDiagram";
 import { heSoChu, nhanDonVi } from "./lsxBuoc";
 import { useNapTenDonVi } from "./tenDonVi";
@@ -386,6 +387,7 @@ function humanizeFormula(s: string, tra: TraBien): string {
 const DAO_CO_PHI: Record<string, string> = {
   khuon_be: "khuôn bế",
   khuon_ep: "khuôn ép nhũ / dập nổi",
+  khung_lua: "khung lụa",
 };
 
 /** Bước này có cần dao lưu kho không → trả NHÃN loại dao, hoặc `null` nếu không hỏi phí.
@@ -422,6 +424,15 @@ function daoCuaBuoc(f: { cong_doan_id: number | null }, congDoans: Row[]): strin
   return DAO_CO_PHI[String(cd.tooling_type ?? "")] ?? null;
 }
 
+/** Mã LOẠI dụng cụ trần (vd "khung_lua"), khác `daoCuaBuoc` trả nhãn tiếng Việt để hiện — khối
+ *  PHÍ KHUÔN cần mã trần để biết có vẽ thêm 3 ô kích thước khung lụa hay không. */
+function loaiDaoCuaBuoc(f: { cong_doan_id: number | null }, congDoans: Row[]): string | null {
+  if (f.cong_doan_id == null) return null;
+  const cd = congDoans.find((x) => x.id === f.cong_doan_id);
+  if (!cd || !cd.requires_tooling) return null;
+  return cd.tooling_type ? String(cd.tooling_type) : null;
+}
+
 // ------------------------------- Editable model -------------------------------
 interface EditableFinishing {
   uid: string;
@@ -439,6 +450,12 @@ interface EditableFinishing {
    *  nhân SL). Engine CÓ cộng nó vào giá vốn sản phẩm, nên nó vẫn bị chia ra đ/sản phẩm ở dòng
    *  tổng. 0 = dùng lại dao cũ. Chỉ hỏi ở bước có cờ dụng cụ là dao lưu kho (xem `daoCuaBuoc`). */
   phi_khuon: number;
+  /** Ba ô riêng của bước khung lụa (`tooling_type = "khung_lua"`) — kích thước/số lượng khung, TÁCH
+   *  BIỆT với `phi_khuon`: không tự tính ra tiền, chỉ bơm vào công thức của CHÍNH công đoạn đó
+   *  (biến `dai_khung_lua`/`rong_khung_lua`/`so_khung_lua`, xem `bien_cong_thuc.py`). 0 = chưa khai. */
+  dai_khung_lua: number;
+  rong_khung_lua: number;
+  so_khung_lua: number;
 }
 interface EditableVatTu {
   uid: string;
@@ -511,6 +528,9 @@ function blankFinishing(ten = "", cong_doan_id: number | null = null): EditableF
     nha_cung_cap: "",
     ghi_chu: "",
     phi_khuon: 0,
+    dai_khung_lua: 0,
+    rong_khung_lua: 0,
+    so_khung_lua: 0,
   };
 }
 function blankComponent(ten = ""): EditableComponent {
@@ -569,6 +589,9 @@ function fromFinishing(f: ThanhPhamOut): EditableFinishing {
     nha_cung_cap: f.nha_cung_cap ?? "",
     ghi_chu: f.ghi_chu ?? "",
     phi_khuon: f.phi_khuon ?? 0,
+    dai_khung_lua: f.dai_khung_lua ?? 0,
+    rong_khung_lua: f.rong_khung_lua ?? 0,
+    so_khung_lua: f.so_khung_lua ?? 0,
   };
 }
 function fromVatTu(v: VatTuLineOut): EditableVatTu {
@@ -672,6 +695,9 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
       nha_cung_cap: f.nha_cung_cap.trim() || null,
       ghi_chu: f.ghi_chu.trim() || null,
       phi_khuon: f.phi_khuon,
+      dai_khung_lua: f.dai_khung_lua,
+      rong_khung_lua: f.rong_khung_lua,
+      so_khung_lua: f.so_khung_lua,
     })),
     vat_tus: c.vat_tus.map((v) => ({
       vat_tu_id: v.vat_tu_id,
@@ -683,6 +709,76 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
   };
 }
 
+/** Nạp cấu hình Sản phẩm tái bản (`cau_hinh_json`, dạng `ThanhPhanIn`) vào thẻ ĐANG SỬA — GIỮ
+ *  `uid` + `so_luong` hiện tại của thẻ (SL đơn cũ KHÔNG được nạp lại, theo plan), điền lại mọi
+ *  thứ khác (tên + toàn bộ kỹ thuật/công đoạn/vật tư). `gia_von_tp` luôn về 0 — chưa tính lại. */
+function fromThanhPhanIn(cfg: ThanhPhanIn, giu: { uid: string; so_luong: number }): EditableComponent {
+  const tapMuc = tapMucCuaComp({
+    muc_a: cfg.muc_a ?? null, muc_b: cfg.muc_b ?? null,
+    so_mau_a: cfg.so_mau_a ?? null, so_mau_b: cfg.so_mau_b ?? null, so_mau_pha: cfg.so_mau_pha ?? null,
+  });
+  return {
+    uid: giu.uid,
+    loai_thanh_phan: cfg.loai_thanh_phan ?? "to_roi",
+    ten: cfg.ten ?? "",
+    dai_thanh_pham: cfg.dai_thanh_pham ?? 0,
+    rong_thanh_pham: cfg.rong_thanh_pham ?? 0,
+    so_to_per_sp: 1,
+    so_trang: cfg.so_trang ?? 1,
+    trang_moi_tay: cfg.trang_moi_tay ?? 1,
+    so_luong: giu.so_luong,
+    don_vi_tinh: cfg.don_vi_tinh ?? "cái",
+    nhom_bao_gia: cfg.nhom_bao_gia ?? "",
+    loai_san_pham_id: cfg.loai_san_pham_id ?? null,
+    giay_id: cfg.giay_id ?? null,
+    kho_nguyen: cfg.kho_nguyen ?? "",
+    kho_nguyen_dai: cfg.kho_nguyen_dai ?? 0,
+    kho_nguyen_rong: cfg.kho_nguyen_rong ?? 0,
+    don_gia_giay: cfg.don_gia_giay ?? 0,
+    don_gia_don_vi: cfg.don_gia_don_vi ?? "to",
+    nguon_giay: cfg.nguon_giay ?? "cong_ty",
+    chua_nhip: cfg.chua_nhip ?? 0,
+    bleed_mm: cfg.bleed_mm ?? 0,
+    khe_cat_mm: cfg.khe_cat_mm ?? 0,
+    quy_cach_in: cfg.quy_cach_in ?? "mot_mat",
+    kho_in_dai: cfg.kho_in_dai ?? 0,
+    kho_in_rong: cfg.kho_in_rong ?? 0,
+    so_con: cfg.so_con ?? 1,
+    con_auto: cfg.con_auto ?? true,
+    may_id: cfg.may_id ?? null,
+    ...tapMuc,
+    so_mau_a: cfg.so_mau_a ?? 0,
+    so_mau_b: cfg.so_mau_b ?? 0,
+    so_mau_pha: cfg.so_mau_pha ?? 0,
+    ghi_chu_ky_thuat: cfg.ghi_chu_ky_thuat ?? "",
+    gia_von_tp: 0,
+    thanh_phams: (cfg.thanh_phams ?? []).map((f) => ({
+      uid: nextUid(),
+      cong_doan_id: f.cong_doan_id ?? null,
+      ten: f.ten ?? "",
+      don_gia: f.don_gia ?? 0,
+      so_luong: f.so_luong ?? 0,
+      bu_hao: !!f.bu_hao,
+      so_mat: f.so_mat ?? 1,
+      so_vi_tri: f.so_vi_tri ?? 0,
+      dien_tich: f.dien_tich ?? 0,
+      nha_cung_cap: f.nha_cung_cap ?? "",
+      ghi_chu: f.ghi_chu ?? "",
+      phi_khuon: f.phi_khuon ?? 0,
+      dai_khung_lua: f.dai_khung_lua ?? 0,
+      rong_khung_lua: f.rong_khung_lua ?? 0,
+      so_khung_lua: f.so_khung_lua ?? 0,
+    })),
+    vat_tus: (cfg.vat_tus ?? []).map((v) => ({
+      uid: nextUid(),
+      vat_tu_id: v.vat_tu_id ?? null,
+      ten: v.ten ?? "",
+      don_gia: v.don_gia ?? 0,
+      so_luong: v.so_luong ?? 0,
+      ghi_chu: v.ghi_chu ?? "",
+    })),
+  };
+}
 
 /** Node hiển thị của bảng sản phẩm: 1 nhóm gộp (nhiều dòng) hoặc 1 dòng lẻ. */
 type NodeHienThi =
@@ -1233,6 +1329,31 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     setComps((cs) => [...cs, { ...c, ten: `Sản phẩm ${cs.length + 1}` }]);
     setEditingUid(c.uid);
   }, []);
+  // Nhân bản: copy NGUYÊN cấu hình dòng gốc (giấy/máy/mực/công đoạn/vật tư), chèn ngay dưới —
+  // sinh uid MỚI cho dòng và mọi phần tử con để không đụng chéo state với dòng gốc. Không tự vào
+  // dải nhóm của dòng gốc (nhom_bao_gia rỗng) — gộp nhầm ngoài ý muốn khó nhận ra hơn là phải tick lại.
+  const duplicateComp = useCallback((uid: string) => {
+    const uidMoi = nextUid();
+    setComps((cs) => {
+      const idx = cs.findIndex((c) => c.uid === uid);
+      if (idx === -1) return cs;
+      const goc = cs[idx];
+      const banSao: EditableComponent = {
+        ...goc,
+        uid: uidMoi,
+        ten: `${goc.ten || "Sản phẩm"} (bản sao)`,
+        nhom_bao_gia: "",
+        muc_a: [...goc.muc_a],
+        muc_b: [...goc.muc_b],
+        thanh_phams: goc.thanh_phams.map((f) => ({ ...f, uid: nextUid() })),
+        vat_tus: goc.vat_tus.map((v) => ({ ...v, uid: nextUid() })),
+      };
+      const next = [...cs];
+      next.splice(idx + 1, 0, banSao);
+      return next;
+    });
+    setEditingUid(uidMoi);
+  }, []);
 
   // Chọn giấy → đơn giá + đơn vị (CHỐT CỨNG theo danh mục, read-only). Khổ giấy nguyên KHÔNG còn
   // ở danh mục Giấy → người dùng nhập tay khổ ở phiếu (ô Khổ giấy nguyên ①).
@@ -1402,7 +1523,9 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       //
       // ⚠️ LUẬT CHUNG: thêm bất kỳ ô nhập nào ảnh hưởng số của engine thì phải khai vào chữ ký này.
       gid: c.giay_id, may: c.may_id,
-      cds: c.thanh_phams.map((f) => [f.cong_doan_id, f.phi_khuon]),
+      cds: c.thanh_phams.map((f) => [
+        f.cong_doan_id, f.phi_khuon, f.dai_khung_lua, f.rong_khung_lua, f.so_khung_lua,
+      ]),
     });
   }, [editingComp, phieuSL]);
   useEffect(() => {
@@ -1854,7 +1977,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                         <th className="num">SL</th>
                         <th className="num">Giá vốn</th>
                         <th className="num">Đơn giá</th>
-                        <th className="num" style={{ width: "56px" }} aria-label="Hành động" />
+                        <th className="num" style={{ width: "84px" }} aria-label="Hành động" />
                       </tr>
                     </thead>
                     <tbody>
@@ -1916,6 +2039,15 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                                 {meta && meta.gia_von_don > 0 ? `${fmt(meta.gia_von_don)} đ` : "—"}
                               </td>
                               <td className="prow__act" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  className="tg-icon-btn"
+                                  onClick={() => duplicateComp(c.uid)}
+                                  title="Nhân bản sản phẩm"
+                                  aria-label="Nhân bản sản phẩm"
+                                >
+                                  <CopyIcon />
+                                </button>
                                 <button
                                   type="button"
                                   className="tg-icon-btn tg-icon-btn--danger"
@@ -2368,6 +2500,40 @@ function ComponentModal({
       .catch(() => setDvtOpts([]));
   }, [token]);
 
+  // ---- Sản phẩm tái bản (docs/spec-san-pham-tai-ban.md) ----
+  // Snapshot lúc MỞ thẻ này — dùng để biết đang có sửa tay CHƯA lưu hay chưa, mới quyết có cần
+  // hỏi trước khi ghi đè hay không. Modal remount mỗi lần mở lại (xem `{editing ? <ComponentModal>
+  // : null}` ở nơi gọi) nên khởi tạo một lần lúc mount là đúng, khỏi cần theo dõi uid đổi.
+  const openSnapRef = useRef(JSON.stringify(toThanhPhanIn(c)));
+  const [taiBanXacNhan, setTaiBanXacNhan] = useState<number | null>(null);
+  const [taiBanBusy, setTaiBanBusy] = useState(false);
+  const [taiBanErr, setTaiBanErr] = useState<string | null>(null);
+  const napTaiBan = useCallback(
+    (id: number, dongXacNhanKhiXong: boolean) => {
+      if (!token) return;
+      setTaiBanBusy(true);
+      setTaiBanErr(null);
+      api.phieuTinhGia
+        .chiTietSanPhamTaiBan(token, id)
+        .then((cfg) => {
+          // GIỮ so_luong hiện tại của thẻ — plan: KHÔNG nạp lại SL đơn cũ.
+          patchComp(c.uid, fromThanhPhanIn(cfg, { uid: c.uid, so_luong: c.so_luong }));
+          if (dongXacNhanKhiXong) setTaiBanXacNhan(null);
+        })
+        .catch((e) => setTaiBanErr(e instanceof ApiError ? e.message : "Không nạp được cấu hình tái bản. Thử lại."))
+        .finally(() => setTaiBanBusy(false));
+    },
+    [token, patchComp, c.uid, c.so_luong],
+  );
+  const chonTaiBan = useCallback(
+    (id: number) => {
+      const dirty = JSON.stringify(toThanhPhanIn(c)) !== openSnapRef.current;
+      if (dirty) setTaiBanXacNhan(id);
+      else napTaiBan(id, false);
+    },
+    [c, napTaiBan],
+  );
+
   // uid của sản phẩm đang mở trợ lý "tính số khuôn từ số trang" (mỗi lúc chỉ 1 popover).
   const [calcUid, setCalcUid] = useState<string | null>(null);
   // Bung phân rã bù hao: bước nào trong chuỗi ăn bao nhiêu tờ. Mặc định thu gọn.
@@ -2498,6 +2664,7 @@ function ComponentModal({
   }, [onClose]);
 
   return (
+    <>
     <div className="rc-modal__scrim" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="rc-modal" onClick={(e) => e.stopPropagation()}>
         <header className="rc-modal__head">
@@ -2521,15 +2688,25 @@ function ComponentModal({
               <div className="tg-grid">
                 <label className="tg-field tg-span-6">
                   <span className="tg-microlabel">Tên sản phẩm</span>
-                  {/* GỢI Ý từ danh mục Thành phẩm, KHÔNG ép chọn — gõ tên mới vẫn được.
-                      Chọn lại đúng tên cũ thì lúc chốt đơn hệ dùng lại đúng dòng danh mục cũ,
-                      không đẻ dòng mới (docs/prd-thanh-pham.md §11). */}
-                  <ThanhPhamGoiY
-                    token={token ?? ""}
+                  <input
+                    className="tg-input"
+                    type="text"
                     value={c.ten}
                     placeholder="VD Thân hộp / Ruột / Bìa"
-                    onChange={(ten) => patchComp(c.uid, { ten })}
+                    autoComplete="off"
+                    onChange={(e) => patchComp(c.uid, { ten: e.target.value })}
                   />
+                </label>
+                <label className="tg-field tg-span-6">
+                  <span className="tg-microlabel">
+                    Sản phẩm tái bản <span className="tg-microlabel__opt">nạp lại cấu hình đã chốt đơn</span>
+                  </span>
+                  {/* Chọn 1 kết quả nạp NGUYÊN giấy/in/màu/công đoạn/vật tư của lần chốt đơn gần
+                      nhất cùng tên — KHÔNG nạp số lượng/giá vốn (docs/spec-san-pham-tai-ban.md). */}
+                  <SanPhamTaiBanCombo token={token ?? ""} onChon={chonTaiBan} />
+                  {taiBanErr && !taiBanXacNhan && (
+                    <div className="banner banner--error" role="alert">{taiBanErr}</div>
+                  )}
                 </label>
                 <div className="tg-span-3">
                   <NumField
@@ -2969,7 +3146,7 @@ function ComponentModal({
                   mất luôn nghĩa "kéo thả thứ tự". Nên tách thành khối con ngay dưới dãy chip. */}
               {(() => {
                 const daos = c.thanh_phams
-                  .map((f) => ({ f, dao: daoCuaBuoc(f, congDoans) }))
+                  .map((f) => ({ f, dao: daoCuaBuoc(f, congDoans), loai: loaiDaoCuaBuoc(f, congDoans) }))
                   .filter((x) => x.dao !== null);
                 if (daos.length === 0) return null;
                 const tong = daos.reduce((s, x) => s + (Number(x.f.phi_khuon) || 0), 0);
@@ -2979,32 +3156,101 @@ function ComponentModal({
                       <span className="tg-khuon__title">Phí khuôn</span>
                       <span className="tg-khuon__note">một lần · không chia theo số lượng</span>
                     </div>
-                    {daos.map(({ f, dao }) => (
-                      <div className="tg-khuon__row" key={f.uid}>
-                        <span className="tg-khuon__ten">
-                          {tenBuoc(f, congDoans) || "(công đoạn)"}
-                          <em>{dao}</em>
-                        </span>
-                        <div className="tg-khuon__input">
-                          <input
-                            className="tg-khuon__num"
-                            type="number"
-                            min={0}
-                            step={1000}
-                            /* Ô số trần không có <label> nối vào — trình đọc màn hình chỉ đọc
-                               "spin button". Ghép tên bước + loại dao thành nhãn. */
-                            aria-label={`Phí ${dao} của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
-                            value={f.phi_khuon || ""}
-                            placeholder="0"
-                            onChange={(e) =>
-                              patchFin(c.uid, f.uid, {
-                                phi_khuon: Math.max(0, Number(e.target.value) || 0),
-                              })
-                            }
-                          />
-                          <small>đ</small>
+                    {daos.map(({ f, dao, loai }) => (
+                      <Fragment key={f.uid}>
+                        <div className="tg-khuon__row">
+                          <span className="tg-khuon__ten">
+                            {tenBuoc(f, congDoans) || "(công đoạn)"}
+                            <em>{dao}</em>
+                          </span>
+                          <div className="tg-khuon__input">
+                            <input
+                              className="tg-khuon__num"
+                              type="number"
+                              min={0}
+                              step={1000}
+                              /* Ô số trần không có <label> nối vào — trình đọc màn hình chỉ đọc
+                                 "spin button". Ghép tên bước + loại dao thành nhãn. */
+                              aria-label={`Phí ${dao} của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
+                              value={f.phi_khuon || ""}
+                              placeholder="0"
+                              onChange={(e) =>
+                                patchFin(c.uid, f.uid, {
+                                  phi_khuon: Math.max(0, Number(e.target.value) || 0),
+                                })
+                              }
+                            />
+                            <small>đ</small>
+                          </div>
                         </div>
-                      </div>
+                        {loai === "khung_lua" && (
+                          /* Kích thước/số khung TÁCH RIÊNG khỏi phí ở trên — không cộng dồn vào
+                             Σ phí khuôn, chỉ bơm vào công thức của chính công đoạn này (xem
+                             dai_khung_lua/rong_khung_lua/so_khung_lua ở bien_cong_thuc.py). */
+                          <div className="tg-khuon__kl">
+                            <div className="tg-khuon__row">
+                              <span className="tg-khuon__ten">Dài khung lụa</span>
+                              <div className="tg-khuon__input">
+                                <input
+                                  className="tg-khuon__num"
+                                  type="number"
+                                  min={0}
+                                  step={1}
+                                  aria-label={`Dài khung lụa của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
+                                  value={f.dai_khung_lua || ""}
+                                  placeholder="0"
+                                  onChange={(e) =>
+                                    patchFin(c.uid, f.uid, {
+                                      dai_khung_lua: Math.max(0, Number(e.target.value) || 0),
+                                    })
+                                  }
+                                />
+                                <small>mm</small>
+                              </div>
+                            </div>
+                            <div className="tg-khuon__row">
+                              <span className="tg-khuon__ten">Rộng khung lụa</span>
+                              <div className="tg-khuon__input">
+                                <input
+                                  className="tg-khuon__num"
+                                  type="number"
+                                  min={0}
+                                  step={1}
+                                  aria-label={`Rộng khung lụa của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
+                                  value={f.rong_khung_lua || ""}
+                                  placeholder="0"
+                                  onChange={(e) =>
+                                    patchFin(c.uid, f.uid, {
+                                      rong_khung_lua: Math.max(0, Number(e.target.value) || 0),
+                                    })
+                                  }
+                                />
+                                <small>mm</small>
+                              </div>
+                            </div>
+                            <div className="tg-khuon__row">
+                              <span className="tg-khuon__ten">Số khung lụa sử dụng</span>
+                              <div className="tg-khuon__input">
+                                <input
+                                  className="tg-khuon__num"
+                                  type="number"
+                                  min={0}
+                                  step={1}
+                                  aria-label={`Số khung lụa sử dụng của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
+                                  value={f.so_khung_lua || ""}
+                                  placeholder="0"
+                                  onChange={(e) =>
+                                    patchFin(c.uid, f.uid, {
+                                      so_khung_lua: Math.max(0, Number(e.target.value) || 0),
+                                    })
+                                  }
+                                />
+                                <small>khung</small>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </Fragment>
                     ))}
                     <div className="tg-khuon__foot">
                       {/* Σ cộng SỐNG theo lúc gõ: hai bước có thể dùng chung một con dao, gõ cả hai
@@ -3353,6 +3599,18 @@ function ComponentModal({
         </footer>
       </div>
     </div>
+    <ConfirmDialog
+      open={taiBanXacNhan !== null}
+      title="Nạp cấu hình tái bản?"
+      message="Sản phẩm này đang có thay đổi CHƯA lưu. Nạp cấu hình tái bản sẽ GHI ĐÈ toàn bộ giấy/in/màu/công đoạn/vật tư của thẻ (giữ nguyên số lượng)."
+      confirmLabel="Ghi đè, nạp lại"
+      danger
+      busy={taiBanBusy}
+      error={taiBanErr}
+      onConfirm={() => taiBanXacNhan != null && napTaiBan(taiBanXacNhan, true)}
+      onCancel={() => { setTaiBanXacNhan(null); setTaiBanErr(null); }}
+    />
+    </>
   );
 }
 
@@ -3399,6 +3657,13 @@ const CloseIcon = () => (
 const TrashIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V6" />
+  </svg>
+);
+
+const CopyIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="9" y="9" width="12" height="12" rx="2" />
+    <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
   </svg>
 );
 

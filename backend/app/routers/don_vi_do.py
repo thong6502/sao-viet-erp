@@ -31,6 +31,7 @@ from ..services.don_vi_do_service import (
     CapQuyDoiService, DonViDoService,
 )
 from ..services.quy_doi_service import BIEN, _so, don_vi_map, doi_theo_quy_cach
+from ..services.catalog_excel_specs import DON_VI_DO
 from .catalog_base import make_catalog_router
 
 router = APIRouter(prefix="/api/don-vi", tags=["don-vi"])
@@ -132,6 +133,7 @@ make_catalog_router(
 make_catalog_router(
     router, ten="don_vi_do", ServiceDep=Service, module=MODULE, doc=_doc_don_vi,
     InModel=DonViDoIn, RowModel=DonViDoRow, ListModel=DonViDoListOut,
+    excel_spec=DON_VI_DO,
     loc="ho",
     dung_rows=_dung_rows,
     # Không mở `/ma-goi-y`: mã đơn vị là chữ (`kg`, `to`, `m2`), không phải dãy số — repo không

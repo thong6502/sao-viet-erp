@@ -37,6 +37,7 @@ from ..services.may_thiet_bi_service import (
     NhomMayService,
 )
 from ..services.may_trang_thai import trang_thai_may
+from ..services.catalog_excel_specs import MAY_THIET_BI
 from .catalog_base import make_catalog_router
 
 router = APIRouter(prefix="/api/may-thiet-bi", tags=["may-thiet-bi"])
@@ -80,19 +81,6 @@ def trang_thai(
         items={k: TrangThaiMayRow(**v) for k, v in trang_thai_may(db, may_ids).items()}
     )
 
-
-# Import Excel (mục 1 "Bảng định mức") — chỉ cột NỀN chung mọi loại máy. Field phụ theo `loai_may`
-# (khổ in, tốc độ…) không đưa vào mẫu: mỗi loại một bộ field khác nhau, khai qua Excel dễ gõ sai
-# cột hơn là mở form; nhập xong sửa tiếp field phụ ngay trên màn.
-IMPORT_COLUMNS_MAY = {
-    "Mã": "ma",
-    "Tên": "ten",
-    "Loại máy": "loai_may",
-    "Hãng sản xuất": "hang_san_xuat",
-    "Model": "model",
-    "Số seri": "so_seri",
-}
-
 make_catalog_router(
     router, ten="may_thiet_bi", ServiceDep=Service, module=MODULE, doc=_DOC,
     InModel=MayThietBiIn, RowModel=MayThietBiRow, ListModel=MayThietBiListOut,
@@ -109,8 +97,7 @@ make_catalog_router(
     # không khớp bất kỳ máy nào đang có trong DB.)
     enable_clone=True,
     cong_thuc_truong="cong_thuc_luong",
-    enable_import=True,
-    import_columns=IMPORT_COLUMNS_MAY,
+    excel_spec=MAY_THIET_BI,
 )
 
 

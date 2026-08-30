@@ -55,7 +55,7 @@ from ..models.vat_lieu_kho import HANG_GIAY
 from ..repositories.ke_hoach_vat_tu_repo import KeHoachVatTuRepository
 from ..repositories.purchase_repo import DepartmentPurchaseRequestRepository
 from .bien_cong_thuc import quy_cach_bien, quy_cach_bien_bai
-from .bien_cong_thuc import ngu_canh_lenh
+from .bien_cong_thuc import KHUNG_LUA_MAC_DINH, ngu_canh_lenh
 from .thanh_phan_engine import safe_eval
 from .quy_doi_service import _so, bien_trong, cap_map, doi, don_vi_map
 
@@ -319,7 +319,7 @@ class KeHoachVatTuService:
         ct = (getattr(obj, "cong_thuc_luong", None) or "").strip() if (
             tong_lenh and hang[0] == HANG_GIAY) else ""
         if ct:
-            ctx = ngu_canh_lenh(qc)
+            ctx = {**ngu_canh_lenh(qc), **KHUNG_LUA_MAC_DINH}
             thieu = [b for b in bien_trong(ct) if _f(ctx.get(b)) <= 0]
             if thieu:
                 return {"loi": f"Chưa biết {', '.join(thieu)} nên chưa tính được lượng {obj.ten}."}

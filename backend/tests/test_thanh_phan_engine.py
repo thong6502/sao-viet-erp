@@ -960,6 +960,38 @@ def test_cong_thuc_khong_nhac_don_gia_thi_KHONG_suy_luong():
     assert luong_tu_cong_thuc("khong_ton_tai * don_gia", ctx) is None  # lỗi công thức ⇒ im, không nổ
 
 
+# ============================ Hàm if + so sánh (27/08/2026) ============================
+def test_ham_if_va_so_sanh_re_nhanh_theo_dieu_kien():
+    """`if(dieu_kien, dung, sai)` — nhánh theo so sánh, if lồng nhau khi có hơn 2 nhánh."""
+    from app.services.thanh_phan_engine import safe_eval
+
+    ctx = {"so_luong": 1500}
+    assert safe_eval("if(so_luong > 1000, 100, 200)", ctx) == 100
+    assert safe_eval("if(so_luong > 2000, 100, 200)", ctx) == 200
+    assert safe_eval("if(so_luong >= 1500, 1, 0)", ctx) == 1
+    assert safe_eval("if(so_luong == 1500, 1, 0)", ctx) == 1
+    assert safe_eval("if(so_luong != 1500, 1, 0)", ctx) == 0
+    # Lồng if — nhiều hơn 2 nhánh, đúng như đã chốt (không làm AND/OR).
+    ct = "if(so_luong > 2000, 300, if(so_luong > 1000, 200, 100))"
+    assert safe_eval(ct, ctx) == 200
+
+
+def test_so_sanh_ma_khong_boc_trong_if_bao_loi_ro():
+    """Quên bọc `if(...)` thì phải báo lỗi, không được âm thầm trả 1.0/0.0 làm tiền."""
+    from app.services.thanh_phan_engine import safe_eval
+
+    with pytest.raises(ValueError):
+        safe_eval("so_luong > 1000", {"so_luong": 1500})
+
+
+def test_so_sanh_chuoi_khong_duoc_ho_tro():
+    """`1 < x < 10` là AND ẩn — ngoài phạm vi đã chốt (nhiều điều kiện thì lồng if, không AND/OR)."""
+    from app.services.thanh_phan_engine import safe_eval
+
+    with pytest.raises(ValueError):
+        safe_eval("if(1 < so_luong < 10, 1, 0)", {"so_luong": 5})
+
+
 def test_dong_vat_tu_phoi_luong_va_don_vi_ra_ngoai():
     """Engine trả `luong` + `luong_don_vi` + `vat_tu_id` để kế hoạch đọc mà không phải tính lại."""
     tp = _component()

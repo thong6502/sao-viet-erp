@@ -19,6 +19,7 @@ from ..models.bai_ghep import (
 )
 from ..models.bai_ghep_cong_doan import (
     BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCongDoanVatTu,
+    NGUON_SL_DINH_MUC, NGUON_SL_THU_CONG,
 )
 from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan
@@ -731,7 +732,15 @@ class BaiGhepService:
         cds = [theo_key[k][0] for k in keys]
         if len({cd.cong_doan_id for cd in cds}) != 1 or cds[0].cong_doan_id is None:
             raise BaiGhepValidationError("Chỉ gộp được các bước CÙNG một công đoạn")
+        if len({(cd.don_vi_vao, cd.don_vi_ra) for cd in cds}) != 1:
+            raise BaiGhepValidationError("Các bước chọn gộp phải CÙNG đơn vị vào/ra")
         lsx_ids = [theo_key[k][1].id for k in keys]
+        kieu_ins = {
+            str((theo_key[k][1].quy_cach_json or {}).get("quy_cach_in") or "")
+            for k in keys
+        }
+        if len(kieu_ins) != 1:
+            raise BaiGhepValidationError("Các lệnh chọn gộp phải CÙNG kiểu in (một mặt/tự trở/trở nhíp)")
         if len(set(lsx_ids)) != len(lsx_ids):
             raise BaiGhepValidationError("Mỗi lệnh chỉ góp một bước vào một lượt chạy chung")
         da_gop = set(self._de_len(self._buoc_chungs(bg)))
@@ -953,6 +962,9 @@ class BaiGhepService:
             if not mat.active and mat.id not in dang_co:
                 raise BaiGhepValidationError(
                     f"Vật tư “{mat.ten}” đã ngừng dùng — chọn vật tư khác")
+            nguon_so_luong = str(v.get("nguon_so_luong") or NGUON_SL_THU_CONG)
+            if nguon_so_luong not in (NGUON_SL_DINH_MUC, NGUON_SL_THU_CONG):
+                raise BaiGhepValidationError("Nguồn số lượng không hợp lệ")
             chung.vat_tus.append(BaiGhepCongDoanVatTu(
                 # `don_vi_gia`, KHÔNG phải `don_vi` — `VatTuInAn` không có cột nào tên `don_vi`.
                 # Gõ nhầm ở đây là AttributeError lúc chạy, 500 ngay khi bấm Lưu; bước lệnh
@@ -961,7 +973,26 @@ class BaiGhepService:
                 # cột snapshot này NOT NULL — không chặn thì IntegrityError 500 lúc bấm Lưu.
                 vat_tu_id=mat.id, vat_tu_ma_snapshot=mat.ma, vat_tu_ten_snapshot=mat.ten,
                 don_vi_snapshot=mat.don_vi_gia or "", so_luong=_f(v.get("so_luong")), thu_tu=i,
+                nguon_so_luong=nguon_so_luong,
             ))
+
+    def _ap_dinh_muc_vat_tu(self, chung: BaiGhepCongDoan, qc_bien: dict) -> None:
+        """Tính lại SỐ LƯỢNG các dòng vật tư `dinh_muc` của bước chung theo quy cách MỚI NHẤT.
+
+        Dòng `thu_cong` giữ nguyên — người đã gõ tay thì không bị bài ghép tính lại đè số mỗi khi
+        đổi số con/khổ tờ (khớp `_ghim_khoan_chung` — cùng nguyên tắc "không đè cái người vừa gõ")."""
+        if not chung.vat_tus:
+            return
+        goi_y = {
+            g["vat_tu_id"]: g["so_luong"]
+            for g in self._lsx_svc()._goi_y_luong_vat_tu(chung, qc_bien)
+        }
+        for vt in chung.vat_tus:
+            if vt.nguon_so_luong != NGUON_SL_DINH_MUC:
+                continue
+            moi = goi_y.get(vt.vat_tu_id)
+            if moi is not None:
+                vt.so_luong = moi
 
     def _sap_lai_thu_tu(self, bg: BaiGhep) -> None:
         """Đánh lại `thu_tu` các bước chung theo THỨ TỰ TOPO của đồ thị đã co.
@@ -1524,6 +1555,8 @@ class BaiGhepService:
             c.he_so_quy_doi = r["he_so_quy_doi"]
             c.hao_hut = r["hao_hut"]
             c.hao_hut_pct = r["hao_hut_pct"]
+        for c in chungs:
+            self._ap_dinh_muc_vat_tu(c, qc_bien)
 
     def _node_chungs(
         self, bg: BaiGhep, chungs: list[BaiGhepCongDoan], lsx_map: dict[int, Lsx],
@@ -1660,7 +1693,7 @@ class BaiGhepService:
                 "vat_tus": [
                     {"vat_tu_id": v.vat_tu_id, "ma": v.vat_tu_ma_snapshot,
                      "ten": v.vat_tu_ten_snapshot, "don_vi": v.don_vi_snapshot,
-                     "so_luong": _f(v.so_luong)}
+                     "so_luong": _f(v.so_luong), "nguon_so_luong": v.nguon_so_luong}
                     for v in c.vat_tus
                 ],
                 # Lượng tính sẵn cho MỌI vật tư theo lượt chung. Nay truyền `qc_bien` (quy cách TỜ
@@ -1710,6 +1743,15 @@ class BaiGhepService:
             "muc_a": sorted(muc_a), "muc_b": sorted(muc_b),
         }
 
+    def _kieu_in_bai(self, bg: BaiGhep, lsx_map: dict[int, Lsx]) -> list[str]:
+        """Tập `quy_cach_in` đang khai trên các thành viên — rỗng hoặc nhiều hơn 1 phần tử nghĩa
+        là bài CHƯA có một kiểu in thống nhất để tính kẽm gộp/chờ kỹ thuật theo kiểu in."""
+        return sorted({
+            k for tv in bg.thanh_viens
+            if (k := ((lsx_map[tv.lsx_id].quy_cach_json or {}) if tv.lsx_id in lsx_map else {})
+                .get("quy_cach_in"))
+        })
+
     def muc_gop(self, bg: BaiGhep, lsx_map: dict[int, Lsx]) -> dict:
         """Số màu + số kẽm của CẢ BÀI — `{so_mau_a, so_mau_b, so_mau_pha, so_kem}`.
 
@@ -1730,15 +1772,12 @@ class BaiGhepService:
             a, b = tap_muc_tu_so(qc.get("so_mau_a"), qc.get("so_mau_b"), 0)
         if not a and not b:
             return {}
-        kieu = next(
-            (k for tv in bg.thanh_viens
-             if (k := ((lsx_map.get(tv.lsx_id).quy_cach_json or {}) if lsx_map.get(tv.lsx_id)
-                       else {}).get("quy_cach_in"))),
-            "mot_mat",
-        )
+        kieu_in = self._kieu_in_bai(bg, lsx_map)
+        if len(kieu_in) != 1:
+            return {}
         sa, sb, sp = so_mau_dan_xuat(a, b)
         return {"so_mau_a": sa, "so_mau_b": sb, "so_mau_pha": sp,
-                "so_kem": so_kem_moi_tay(a, b, str(kieu))}
+                "so_kem": so_kem_moi_tay(a, b, kieu_in[0])}
 
     def _qc_bien_bai(self, bg: BaiGhep, lsx_map: dict[int, Lsx],
                      so_to: dict | None = None) -> dict:
@@ -1842,18 +1881,55 @@ class BaiGhepService:
             thieu.append("thieu_kho_in")
         if any(int(tv.so_con_tren_to or 0) <= 0 for tv in bg.thanh_viens):
             thieu.append("thieu_ups")
+        # Giấy của bài PHẢI khớp giấy đang khai ở mỗi thành viên — bài ghép in CHUNG một tờ nên
+        # giấy lệch là dữ liệu cũ/nhập nhầm (đổi giấy ở lệnh sau khi đã ghép), không phải "chọn
+        # giấy khác cho vui".
+        giay_khac_tv = {
+            gid for tv in bg.thanh_viens if tv.lsx_id in lsx_map
+            and (gid := (lsx_map[tv.lsx_id].quy_cach_json or {}).get("giay_id")) is not None
+        }
+        if bg.giay_id and giay_khac_tv and any(gid != bg.giay_id for gid in giay_khac_tv):
+            thieu.append("khac_giay")
         # Chưa gộp bước nào thì chưa có gì chạy chung — đó là N lệnh rời, không phải bài ghép.
         chungs = self._buoc_chungs(bg)
         if not chungs:
             thieu.append("thieu_buoc_chung")
-        # Gộp rồi thì lượt chạy chung phải được LẬP KẾ HOẠCH lại: một tổ, một máy, một năng suất.
-        elif any(self._thieu_buoc_chung(c) for c in chungs):
-            thieu.append("thieu_ke_hoach_buoc_chung")
+        else:
+            # Gộp rồi thì lượt chạy chung phải được LẬP KẾ HOẠCH lại: một tổ, một máy, một năng suất.
+            if any(self._thieu_buoc_chung(c) for c in chungs):
+                thieu.append("thieu_ke_hoach_buoc_chung")
+            # Mỗi bước dùng chung phải phủ ĐỦ mọi thành viên đang có trong bài — thêm thành viên
+            # sau khi đã gộp mà quên gộp bước của người mới thì lượt chung tính hao/kẽm THIẾU một
+            # lệnh trong im lặng.
+            lsx_ids_all = {tv.lsx_id for tv in bg.thanh_viens}
+            if any({m.lsx_id for m in c.thanh_phans} != lsx_ids_all for c in chungs):
+                thieu.append("buoc_chung_thieu_thanh_vien")
+            # ÍT NHẤT một bước dùng chung phải nằm TRÊN DÒNG GIẤY (đếm được số tờ) — bài chỉ gộp
+            # bước CTP/ghi kẽm (không đụng dòng giấy) thì chưa có "điểm toả" nào để tính, và số tờ
+            # cả bài vẫn có thể về 0 trong im lặng (xem gate `thieu_so_to` dưới).
+            tram = self._tram()
+            if not any(tren_dong_giay(c.don_vi_vao, c.don_vi_ra, tram, nhom=c.nhom) for c in chungs):
+                thieu.append("thieu_buoc_chung_tren_giay")
         # Số tờ chạy = MAX nhu cầu các thành viên, nên không thành viên nào có thể thiếu tờ —
         # "thiếu giấy" trước đây là hệ quả của công thức cũ (lấy SL đặt, bỏ hao các bước sau in),
         # sửa công thức là hết, không cần thêm cổng chặn.
-        if self.tinh_so_to(bg, lsx_map)["so_to_tot"] <= 0:
+        so_to = self.tinh_so_to(bg, lsx_map)
+        if so_to["so_to_tot"] <= 0:
             thieu.append("thieu_so_to")
+        # Con/tờ do người bình bài gõ tay — không bị ép theo `_con_toi_da` (ước lượng THÔ), nhưng
+        # vượt xa mức hình học khả thi là dữ liệu gõ nhầm, không phải một lựa chọn hợp lệ.
+        if any(
+            (con := int(tv.so_con_tren_to or 0)) > 0
+            and (cap := self._con_toi_da(lsx_map.get(tv.lsx_id), bg)) > 0
+            and con > cap
+            for tv in bg.thanh_viens
+        ):
+            thieu.append("vuot_con_toi_da")
+        # Tổng diện tích thành phẩm các thành viên (theo con/tờ đang khai) không được vượt quá tờ
+        # ghép — vượt nghĩa là các con đang chồng lên nhau, một hình không thể in ra giấy thật.
+        fill_pct = so_to.get("fill_pct")
+        if fill_pct is not None and fill_pct > 100:
+            thieu.append("vuot_dien_tich")
         return thieu
 
     def canh_bao_cua(self, bg: BaiGhep, lsx_map: dict[int, Lsx] | None = None,
@@ -1997,11 +2073,7 @@ class BaiGhepService:
         # thì bài CMYK ghép với bìa có Pantone vẫn hiện 4 kẽm trong khi xưởng phải ra 5.
         qc_bai = self._qc_bai(bg, lsx_map)
         muc = self.muc_gop(bg, lsx_map)
-        kieu_in = sorted({
-            k for tv in bg.thanh_viens
-            if (k := ((lsx_map[tv.lsx_id].quy_cach_json or {}) if tv.lsx_id in lsx_map else {})
-                .get("quy_cach_in"))
-        })
+        kieu_in = self._kieu_in_bai(bg, lsx_map)
 
         return {
             "id": bg.id, "ma": bg.ma, "ten": bg.ten,

@@ -172,6 +172,49 @@ def test_gop_bg2_chi_ke_thua_nhan_dien_danh_muc_don_vi_va_thu_tu(
     assert list(chung.vat_tus) == []
 
 
+def test_gop_chan_khac_don_vi_vao_ra(db, orders, lsx_svc, admin, customer):
+    a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg_svc = _bg2_svc(db)
+    bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
+    created = bg_svc._get(bg.id)
+    lsx_map = bg_svc._lsx_map(created)
+    cd_a = next(cd for cd in lsx_map[a.id].cong_doans if cd.loai_buoc == "may")
+    cd_b = next(cd for cd in lsx_map[b.id].cong_doans if cd.cong_doan_id == cd_a.cong_doan_id)
+    cd_b.don_vi_ra = (cd_a.don_vi_ra or "to") + "_khac"
+    db.commit()
+    with pytest.raises(BaiGhepValidationError, match="CÙNG đơn vị vào/ra"):
+        bg_svc.gop(bai_ghep_id=bg.id, step_keys=[cd_a.step_key, cd_b.step_key], actor=admin)
+
+
+def test_gop_chan_khac_kieu_in(db, orders, lsx_svc, admin, customer):
+    a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg_svc = _bg2_svc(db)
+    bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
+    created = bg_svc._get(bg.id)
+    lsx_map = bg_svc._lsx_map(created)
+    cd_a = next(cd for cd in lsx_map[a.id].cong_doans if cd.loai_buoc == "may")
+    cd_b = next(cd for cd in lsx_map[b.id].cong_doans if cd.cong_doan_id == cd_a.cong_doan_id)
+    lsx_map[a.id].quy_cach_json = {**(lsx_map[a.id].quy_cach_json or {}), "quy_cach_in": "mot_mat"}
+    lsx_map[b.id].quy_cach_json = {**(lsx_map[b.id].quy_cach_json or {}), "quy_cach_in": "tu_tro"}
+    db.commit()
+    with pytest.raises(BaiGhepValidationError, match="CÙNG kiểu in"):
+        bg_svc.gop(bai_ghep_id=bg.id, step_keys=[cd_a.step_key, cd_b.step_key], actor=admin)
+
+
+def test_muc_gop_rong_khi_lech_kieu_in(db, orders, lsx_svc, admin, customer):
+    a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg_svc = _bg2_svc(db)
+    bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
+    created = bg_svc._get(bg.id)
+    lsx_map = bg_svc._lsx_map(created)
+    lsx_map[a.id].quy_cach_json = {**(lsx_map[a.id].quy_cach_json or {}), "quy_cach_in": "mot_mat"}
+    lsx_map[b.id].quy_cach_json = {**(lsx_map[b.id].quy_cach_json or {}), "quy_cach_in": "tu_tro"}
+    db.commit()
+    created = bg_svc._get(bg.id)
+    lsx_map = bg_svc._lsx_map(created)
+    assert bg_svc.muc_gop(created, lsx_map) == {}
+
+
 def test_bai_dang_giu_cho_chan_doi_cau_truc_vat_tu_nhung_khong_chan_metadata(
     db, orders, lsx_svc, admin, customer,
 ):

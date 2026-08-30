@@ -4,12 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../../auth/useAuth";
 import { ApiError } from "../../../api/client";
 import { crud, type CongThucLichSuItem } from "../../../api/rebuildCatalog";
-import { catToken } from "../formulaTokens";
+import { catToken, laToanTu } from "../formulaTokens";
 import { traBien, useBienCongThuc, type BienCongThuc } from "../bienCongThuc";
 import { CircleXIcon, XIcon } from "../icons";
 import { nhanThoiGian } from "../nhat-ky/nhatKyNhan";
 
-const MATH_FUNCS = ["ceil", "floor", "round", "max", "min"];
+const MATH_FUNCS = ["ceil", "floor", "round", "max", "min", "if"];
 
 /** Vẽ MỘT chip. Trước đây hàm này tự cắt token từ `value` rồi vẽ cả dãy một lượt — nay ô gõ có
  *  thể nằm CHÈN GIỮA dãy, nên chỗ gọi phải tự cắt đôi mảng token và vẽ từng chip với chỉ số thật.
@@ -103,7 +103,7 @@ Nguồn: ${info.nguon}` : `Mã: ${tok}`}
     );
   }
 
-  if (/^[\+\-\*\/\(\)\,]$/.test(tok)) {
+  if (laToanTu(tok)) {
     const displayOp = tok === "*" ? "×" : tok === "/" ? "÷" : tok === "-" ? "−" : tok;
     return (
       <span key={idx} {...chung} className="rc-formula__chip-token rc-formula__chip-token--op">
@@ -129,6 +129,7 @@ export function FormulaField({
   onChange,
   configPrefix,
   bienGoiY,
+  an,
   loaiO: loaiOEp,
   nhanO = "Công thức tính giá",
   goY = "Nhập công thức tính giá (vd: dai_tp * rong_tp * don_gia)...",
@@ -141,6 +142,9 @@ export function FormulaField({
   onChange: (v: string) => void;
   configPrefix: string;
   bienGoiY?: string[];
+  /** Danh sách mã biến CẦN ẨN khỏi bảng chip gợi ý, dù `loaiO` cho phép — dùng khi biến chỉ có
+   *  nghĩa với MỘT số bản ghi trong cùng loại ô. Không ảnh hưởng `bienGoiY`. */
+  an?: string[];
   loaiO?: string;
   nhanO?: React.ReactNode;
   goY?: string;
@@ -160,10 +164,10 @@ export function FormulaField({
   const loaiO = loaiOEp ?? (isDonVi ? "quy_doi" : isCd ? "cong_doan" : isGiay ? "giay" : "vat_tu");
   const tuDien = useBienCongThuc();
   const tra = useMemo(() => traBien(tuDien), [tuDien]);
-  const whitelist = useMemo(
-    () => bienGoiY ?? tuDien.filter((b) => b.loai.includes(loaiO)).map((b) => b.ma),
-    [bienGoiY, tuDien, loaiO],
-  );
+  const whitelist = useMemo(() => {
+    const goc = bienGoiY ?? tuDien.filter((b) => b.loai.includes(loaiO)).map((b) => b.ma);
+    return an && an.length ? goc.filter((ma) => !an.includes(ma)) : goc;
+  }, [bienGoiY, tuDien, loaiO, an]);
   const validVars = useMemo(
     () => (whitelist.length ? [...whitelist] : null),
     [whitelist],
@@ -523,7 +527,7 @@ export function FormulaField({
         !validVars.includes(trimmed) &&
         !MATH_FUNCS.includes(trimmed) &&
         !/^\d+(?:\.\d+)?$/.test(trimmed) &&
-        !/^[+\-*/(),]$/.test(trimmed)
+        !laToanTu(trimmed)
       ) {
         return {
           valid: false,
@@ -587,8 +591,14 @@ export function FormulaField({
                   <tr><td><code>-x</code></td><td>dấu âm đơn</td></tr>
                   <tr><td><code>,</code></td><td>ngăn tham số hàm</td></tr>
                 </tbody></table>
-                <div className="rc-syntax__sec-title">Hàm — đúng 5</div>
+                <div className="rc-syntax__sec-title">So sánh — chỉ dùng trong if(...)</div>
                 <table className="rc-syntax__tbl"><tbody>
+                  <tr><td><code>&gt; &lt; &gt;= &lt;=</code></td><td>lớn hơn · nhỏ hơn · ≥ · ≤</td></tr>
+                  <tr><td><code>== !=</code></td><td>bằng · khác</td></tr>
+                </tbody></table>
+                <div className="rc-syntax__sec-title">Hàm</div>
+                <table className="rc-syntax__tbl"><tbody>
+                  <tr><td><code>if(dk, dung, sai)</code></td><td>đúng điều kiện thì lấy vế 1, sai thì vế 2 — lồng được nhiều lớp</td></tr>
                   <tr><td><code>max(a,b)</code></td><td>lớn nhất — giá sàn</td></tr>
                   <tr><td><code>min(a,b)</code></td><td>nhỏ nhất — giá trần</td></tr>
                   <tr><td><code>round(x)</code></td><td>làm tròn</td></tr>
@@ -613,9 +623,16 @@ export function FormulaField({
           <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(" / ")} title="Chia">÷</button>
           <button type="button" className="rc-formula__op-btn" onClick={() => insertVar("(")} title="Mở ngoặc">(</button>
           <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(")")} title="Đóng ngoặc">)</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(" > ")} title="Lớn hơn">&gt;</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(" < ")} title="Nhỏ hơn">&lt;</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(" >= ")} title="Lớn hơn hoặc bằng">&gt;=</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(" <= ")} title="Nhỏ hơn hoặc bằng">&lt;=</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(" == ")} title="Bằng">==</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(" != ")} title="Khác">!=</button>
           <button type="button" className="rc-formula__op-btn" onClick={() => insertVar("max(")} title="Hàm max">max</button>
           <button type="button" className="rc-formula__op-btn" onClick={() => insertVar("min(")} title="Hàm min">min</button>
           <button type="button" className="rc-formula__op-btn" onClick={() => insertVar("round(")} title="Hàm round">round</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar("if(")} title="Hàm if — điều kiện">if</button>
         </div>
 
         {/* Ô công thức Chip Tiếng Việt duy nhất (Inline Chip Editor Container) */}

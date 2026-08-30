@@ -22,6 +22,7 @@ from ..models.san_xuat_san_luong import (
     SanXuatBanGiaoDieuChinh,
     SanXuatBatch,
     SanXuatBatchLotVao,
+    SanXuatKetQuaNhanh,
     SanXuatVatTuNhan,
 )
 from ..models.stock_request import StockRequestLine
@@ -237,6 +238,54 @@ class SanXuatSanLuongRepository:
                 )
             )
         )
+
+    def canh_toa_di_tu(self, nguon_cong_viec_id: int) -> list[SanXuatPhuThuoc]:
+        """Cạnh TOẢ xuất phát từ một công việc (nó là điểm toả bài ghép). Rỗng với công việc
+        thường → `_toa_san_luong` là no-op, an toàn cho mọi batch không phải điểm toả."""
+        return list(
+            self.db.scalars(
+                select(SanXuatPhuThuoc).where(
+                    SanXuatPhuThuoc.nguon_cong_viec_id == nguon_cong_viec_id
+                )
+            )
+        )
+
+    def co_ket_qua_nhanh(self, batch_id: int) -> bool:
+        """Batch này có phải điểm toả (đã tách ra ≥1 nhánh LSX) hay không."""
+        return self.db.scalar(
+            select(SanXuatKetQuaNhanh.id).where(SanXuatKetQuaNhanh.batch_id == batch_id).limit(1)
+        ) is not None
+
+    def ket_qua_nhanh_cua(self, batch_id: int, lsx_id: int) -> SanXuatKetQuaNhanh | None:
+        """Phần đã toả cho MỘT lsx cụ thể của một batch điểm toả — None nghĩa là lsx đó KHÔNG có
+        phần trong batch này (không phải nhánh hợp lệ của điểm toả)."""
+        return self.db.scalars(
+            select(SanXuatKetQuaNhanh).where(
+                SanXuatKetQuaNhanh.batch_id == batch_id, SanXuatKetQuaNhanh.lsx_id == lsx_id
+            )
+        ).first()
+
+    def ket_qua_nhanh_cua_batch(self, batch_id: int) -> list[SanXuatKetQuaNhanh]:
+        return list(
+            self.db.scalars(
+                select(SanXuatKetQuaNhanh).where(SanXuatKetQuaNhanh.batch_id == batch_id)
+            )
+        )
+
+    def da_dung_nhanh(self, batch_id: int, lsx_id: int) -> float:
+        """Tổng số lượng LSX này đã LẤY từ batch điểm-toả `batch_id` qua các lot đầu vào (§10.3) —
+        cộng dồn mọi batch của LSX đó có lot trỏ về `batch_id`."""
+        tong = self.db.scalar(
+            select(func.coalesce(func.sum(SanXuatBatchLotVao.so_luong), 0))
+            .select_from(SanXuatBatchLotVao)
+            .join(SanXuatBatch, SanXuatBatch.id == SanXuatBatchLotVao.batch_id)
+            .join(SanXuatCongViec, SanXuatCongViec.id == SanXuatBatch.cong_viec_id)
+            .where(
+                SanXuatBatchLotVao.nguon_batch_id == batch_id,
+                SanXuatCongViec.lsx_id == lsx_id,
+            )
+        )
+        return float(tong or 0)
 
     # --- Xác nhận vật tư (§10.1) -------------------------------------------------------------
     def voucher(self, voucher_id: int) -> StockVoucher | None:

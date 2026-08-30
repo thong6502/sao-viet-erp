@@ -101,17 +101,20 @@ class Customer(Base):
     prepay_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     payment_term_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # DORMANT (redesign spec-06 v2): "chiết khấu mặc định" (trade/buyer) đã BỎ, thay bằng
-    # rào chiết khấu/biên min–max bên dưới. Cột giữ lại (SQLite không drop gọn); đừng dùng.
+    # rào chiết khấu/markup min–max bên dưới. Cột giữ lại (SQLite không drop gọn); đừng dùng.
     discount_trade_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     discount_buyer_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
-    # --- Chính sách CHIẾT KHẤU & BIÊN LỢI NHUẬN (rào chắn báo giá, redesign spec-06 v2).
+    # --- Chính sách CHIẾT KHẤU & MARKUP (rào chắn báo giá, redesign spec-06 v2).
     # % ∈ [0,100], min ≤ max; None = chưa đặt rào. Sửa cần quyền `set_credit_terms` (đã mở
-    # rộng nghĩa = "chính sách tài chính"). Đợt này chỉ LƯU + HIỂN THỊ; việc CHẶN/cảnh báo
-    # khi lập báo giá là chỗ nối engine Báo giá (SEAM để lại).
+    # rộng nghĩa = "chính sách tài chính"). Cổng đặc thù của Báo giá soi 2 rào này
+    # (`services/exception_gate.evaluate_quote`).
+    # `markup_min_pct` / `markup_max_pct` = **MARKUP** (lợi nhuận / GIÁ VỐN — đúng ô "Markup %"
+    # Sale gõ), KHÔNG phải biên (lợi nhuận / giá bán). Trục biên đã bỏ khỏi cổng báo giá
+    # 29/08/2026; cột đổi tên từ `margin_*` qua migration 0242.
     discount_min_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     discount_max_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
-    margin_min_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
-    margin_max_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    markup_min_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    markup_max_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

@@ -21,6 +21,7 @@ from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.cong_doan_repo import CongDoanRepository
 from ..schemas.cong_doan import CongDoanIn, CongDoanListOut, CongDoanRow, RefOption, RefOptionListOut
 from ..services.cong_doan_service import CongDoanService
+from ..services.catalog_excel_specs import CONG_DOAN
 from .catalog_base import make_catalog_router
 
 router = APIRouter(prefix="/api/cong-doan", tags=["cong-doan"])
@@ -78,53 +79,6 @@ def list_dau_viec_options(
     items = svc.dau_viec_options(department_id)
     return {"items": items, "total": len(items), "page": 1, "size": max(len(items), 1)}
 
-
-# Import Excel (mục 1 "Bảng định mức") — bỏ `bu_hao_id`/`nhom_may_cho_phep`/`department_id`: đều là
-# FK/mảng id, không gõ tay được trong Excel; khai qua dropdown ở màn sau khi đã có dòng.
-IMPORT_COLUMNS_CONG_DOAN = {
-    "Mã": "ma",
-    "Tên": "ten",
-    "Tên hiển thị": "ten_hien_thi",
-    "Nhóm": "nhom",
-    "Đơn vị vào": "don_vi_vao",
-    "Đơn vị ra": "don_vi_ra",
-    "Công thức sản lượng": "cong_thuc_san_luong",
-}
-
-# "Nhóm" là 1 trong 4 mã cố định (`models/cong_doan.NHOM`) nhưng người khai không gõ mã tiếng Anh —
-# màn (dropdown) hiện nhãn tiếng Việt của `rebuildCatalogConfigs.tsx:NHOM_CD`. Nhận CẢ nhãn tiếng
-# Việt LẪN mã gốc (ai quen mã thì gõ mã vẫn qua), dịch trước khi vào Pydantic.
-_NHOM_NHAN = {
-    "che ban": "prepress", "in": "print",
-    "gia cong sau in": "finishing", "dich vu khac": "other",
-}
-
-
-def _bo_dau(s: str) -> str:
-    import unicodedata
-    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
-
-
-def _resolve_nhom(du_lieu: dict, svc: CongDoanService) -> dict:
-    from ..models.cong_doan import NHOM
-
-    gia_tri = du_lieu.get("nhom")
-    if gia_tri not in (None, ""):
-        goc = str(gia_tri).strip()
-        if goc not in NHOM:
-            khoa = _bo_dau(goc).lower()
-            ma = _NHOM_NHAN.get(khoa)
-            if not ma:
-                raise ValueError(
-                    f'Nhóm "{goc}" không hợp lệ — chọn: Chế bản, In, Gia công sau in, Dịch vụ khác.')
-            du_lieu["nhom"] = ma
-    # `che_do_tinh`/`pricing_basis` không phải ô người khai gõ — màn hiện tại LUÔN ép hai giá trị
-    # này (`rebuildCatalogConfigs.tsx` transformSubmit, "CHỈ TÍNH THEO CÔNG THỨC"). Thiếu là
-    # `_validate` chặn "[E-CD-BASIS]"; import theo đúng luật màn đang chạy, không hỏi lại người khai.
-    du_lieu["che_do_tinh"] = "theo_san_luong"
-    du_lieu["pricing_basis"] = "per_other"
-    return du_lieu
-
 make_catalog_router(
     router, ten="cong_doan", ServiceDep=Service, module=MODULE, doc=_DOC,
     InModel=CongDoanIn, RowModel=CongDoanRow, ListModel=CongDoanListOut,
@@ -134,7 +88,5 @@ make_catalog_router(
     ma_goi_y=True,      # repo khai `ma_prefix = "CD-"`
     enable_clone=True,
     cong_thuc_truong="cong_thuc_san_luong",
-    enable_import=True,
-    import_columns=IMPORT_COLUMNS_CONG_DOAN,
-    import_resolve=_resolve_nhom,
+    excel_spec=CONG_DOAN,
 )

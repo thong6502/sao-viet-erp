@@ -42,10 +42,15 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
   // khỏi `create` — vai được tạo mới (gõ tay) chưa chắc nên nhân bản hàng cũ (nhân đôi giá/công
   // thức đang chạy mà không soát lại từng ô).
   const duocClone = Boolean(config.enableClone) && (!mQuyen || can(mQuyen, "clone"));
-  // Import Excel (mục 1) — backend gác `/import-excel` bằng CÙNG quyền với `/create` (không phải
-  // một action "import" riêng), nên tái dùng thẳng `duocTao`. "Tải mẫu" không cần thêm gác: đọc
-  // được danh sách này (đang đứng ở màn) là đủ, backend cũng chỉ gác `/mau-excel` bằng quyền đọc.
-  const duocImport = Boolean(config.enableImport) && duocTao;
+  // Excel — HAI nút, HAI mức quyền khác nhau, đừng gộp làm một:
+  //   · "Xuất Excel" chỉ cần quyền ĐỌC (đang đứng ở màn là đã đủ) — backend cũng gác `/mau-excel`
+  //     bằng đúng dependency đọc của màn. Gộp chung với nhập là giấu mất đường lấy file khỏi
+  //     người chỉ có quyền xem, trong khi họ chẳng ghi được gì.
+  //   · "Nhập Excel" đòi CẢ `create` LẪN `update`: một dòng có thể là tạo mới hay cập nhật, mà
+  //     lúc gác thì chưa ai biết — biết được thì đã đọc xong file rồi. Thiếu một trong hai mà vẫn
+  //     hiện nút là mời bấm để ăn 403 giữa luồng.
+  const duocXuatExcel = Boolean(config.enableImport);
+  const duocImport = duocXuatExcel && duocTao && duocBatLai;
   const [showImport, setShowImport] = useState(false);
   const api = useMemo(() => crud(config.prefix), [config.prefix]);
   const [rows, setRows] = useState<Row[]>([]);
@@ -215,20 +220,22 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
     }
   }
 
-  /** Tải file mẫu Excel (mục 1) — chỉ dòng tiêu đề, không cần dialog riêng. */
-  async function taiMauExcel() {
+  /** Xuất Excel — CHỈ dòng đang dùng, nhưng ĐỦ ô cấu hình hiện hành: mọi công thức, bậc tính và bảng
+   *  con đi ra sheet riêng đọc được. Danh mục rỗng thì chỉ còn dòng tiêu đề, tự đóng vai file mẫu —
+   *  nên không còn nút "Tải mẫu" riêng. */
+  async function xuatExcel() {
     if (!token) return;
     try {
       const url = await api.templateBlobUrl(token);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `mau-${config.prefix.split("/").pop()}.xlsx`;
+      a.download = `xuat-${config.prefix.split("/").pop()}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Không tải được file mẫu.");
+      setError(e instanceof ApiError ? e.message : "Không xuất được file.");
     }
   }
 
@@ -247,15 +254,15 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
           <h1 className="rc__title">{config.heading ?? config.title}</h1>
           <span className="rc__count">{tongTheoTim} mục</span>
           <div className="rc__spacer" />
+          {duocXuatExcel && (
+            <Button variant="ghost" onClick={xuatExcel} title="Xuất toàn bộ cấu hình đang dùng ra Excel — sửa rồi nhập lại để cập nhật hàng loạt">
+              <DownloadIcon /> Xuất Excel
+            </Button>
+          )}
           {duocImport && (
-            <>
-              <Button variant="ghost" onClick={taiMauExcel} title="Tải file mẫu Excel — điền theo cột tiêu đề rồi nhập lại">
-                <DownloadIcon /> Tải mẫu
-              </Button>
-              <Button variant="ghost" onClick={() => setShowImport(true)}>
-                <UploadIcon /> Nhập Excel
-              </Button>
-            </>
+            <Button variant="ghost" onClick={() => setShowImport(true)}>
+              <UploadIcon /> Nhập Excel
+            </Button>
           )}
           {duocTao && (
             <Button variant="accent" onClick={() => setEditing("new")}>
