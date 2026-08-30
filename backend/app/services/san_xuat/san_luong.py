@@ -110,7 +110,9 @@ def _toa_san_luong(
     return ket_qua
 
 
-def _chuan_hoa_lot(repo: SanXuatSanLuongRepository, cong_viec_id: int, don_vi_mac_dinh: str, raw: dict) -> SanXuatBatchLotVao:
+def _chuan_hoa_lot(
+    repo: SanXuatSanLuongRepository, dich_cv, don_vi_mac_dinh: str, raw: dict,
+) -> SanXuatBatchLotVao:
     """Dựng một dòng lot đầu vào từ payload thô, kiểm §10.3. KHÔNG add vào session (caller làm)."""
     nguon_loai = (raw.get("nguon_loai") or LOT_TU_BATCH).strip()
     if nguon_loai not in NGUON_LOT:
@@ -130,8 +132,21 @@ def _chuan_hoa_lot(repo: SanXuatSanLuongRepository, cong_viec_id: int, don_vi_ma
         nguon = repo.batch(int(nguon_batch_id))
         if nguon is None:
             raise ValueError("Không tìm thấy batch nguồn của lot đầu vào.")
-        if nguon.cong_viec_id == cong_viec_id:
+        if nguon.cong_viec_id == dich_cv.id:
             raise ValueError("Batch nguồn không được trùng chính công việc đang ghi.")
+        # Batch nguồn là điểm toả bài ghép (đã tách theo LSX) — công việc đang ghi phải THUỘC một
+        # LSX có phần trong đó, và không được dùng vượt phần đã toả cho LSX của chính nó.
+        if dich_cv.lsx_id is not None and repo.co_ket_qua_nhanh(nguon.id):
+            kq = repo.ket_qua_nhanh_cua(nguon.id, dich_cv.lsx_id)
+            if kq is None:
+                raise ValueError(
+                    "Batch nguồn đã toả theo từng lệnh sản xuất — lệnh này không có phần trong đó."
+                )
+            da_dung = repo.da_dung_nhanh(nguon.id, dich_cv.lsx_id)
+            if da_dung + so_luong > float(kq.so_luong) + _EPS:
+                raise ValueError(
+                    f"Vượt phần đã toả cho lệnh sản xuất này ({float(kq.so_luong):g} {kq.don_vi})."
+                )
         nguon_lot_id = None
     else:  # LOT_TU_KHO
         if not nguon_lot_id:
@@ -204,7 +219,7 @@ def tao_batch(
     # Dựng lot TRƯỚC khi add batch để bắt lỗi sớm (chưa chạm session cho tới khi hợp lệ hết).
     don_vi_lot_mac_dinh = (cv.don_vi_vao or don_vi_batch or "").strip()
     cac_lot = [
-        _chuan_hoa_lot(repo, cong_viec_id, don_vi_lot_mac_dinh, r)
+        _chuan_hoa_lot(repo, cv, don_vi_lot_mac_dinh, r)
         for r in (lot_vao or [])
     ]
 
@@ -263,7 +278,7 @@ def them_lot(
     don_vi_lot_mac_dinh = (cv.don_vi_vao or batch.don_vi or "").strip()
     lot = _chuan_hoa_lot(
         repo,
-        cv.id,
+        cv,
         don_vi_lot_mac_dinh,
         {
             "nguon_loai": nguon_loai,

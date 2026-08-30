@@ -228,3 +228,48 @@ def test_toa_san_luong_hai_nhanh_dung_ty_le(db, orders, lsx_svc, admin, customer
     bg_a = db.get(SanXuatBanGiao, ket_qua[lsx_a]["ban_giao_id"])
     assert bg_a.trang_thai == BG_XAC_NHAN
     assert bg_a.nguon_cong_viec_id == cv_nguon.id and bg_a.dich_cong_viec_id == cv_a.id
+
+
+def test_chan_lsx_khac_dung_lot_diem_toa(db, orders, lsx_svc, admin, customer):
+    from app.models.san_xuat import SanXuatPhuThuoc
+    from tests.test_san_xuat_ban_giao import _hai_cv
+
+    _to1, cv_nguon, cv_a, lsx_a = _hai_cv(db, orders, lsx_svc, admin, customer, ma="TO-TOA-A1")
+    _to2, cv_b, _cv_b2, lsx_b = _hai_cv(db, orders, lsx_svc, admin, customer, ma="TO-TOA-A2")
+    _to3, cv_c, _cv_c2, lsx_c = _hai_cv(db, orders, lsx_svc, admin, customer, ma="TO-TOA-A3")
+    cv_a.lsx_id, cv_b.lsx_id, cv_c.lsx_id = lsx_a, lsx_b, lsx_c
+    db.add(SanXuatPhuThuoc(
+        goi_id=cv_nguon.goi_id, phien_ban_so=cv_nguon.phien_ban_so, nhom_id=cv_nguon.nhom_id,
+        nguon_cong_viec_id=cv_nguon.id, dich_cong_viec_id=cv_a.id,
+        ty_le_ghep=1.0, don_vi_nguon="tờ", don_vi_dich="con",
+    ))
+    db.commit()
+    res = san_luong.tao_batch(
+        db, user=admin, cong_viec_id=cv_nguon.id,
+        bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=100, tot=100,
+    )
+    batch_nguon_id = res["batch_id"]
+
+    # (1) LSX B có phần (100 con) → dùng trong hạn mức là được.
+    ok = san_luong.tao_batch(
+        db, user=admin, cong_viec_id=cv_a.id,
+        bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=60, tot=60,
+        lot_vao=[{"nguon_loai": "batch", "nguon_batch_id": batch_nguon_id, "so_luong": 60}],
+    )
+    assert ok["batch_id"] is not None
+
+    # (2) Vượt phần đã toả cho lsx_a (100) — 60 đã dùng + 60 nữa = 120 > 100 → chặn.
+    with pytest.raises(ValueError, match="Vượt phần đã toả"):
+        san_luong.tao_batch(
+            db, user=admin, cong_viec_id=cv_a.id,
+            bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=60, tot=60,
+            lot_vao=[{"nguon_loai": "batch", "nguon_batch_id": batch_nguon_id, "so_luong": 60}],
+        )
+
+    # (3) LSX C không có cạnh toả nào từ batch_nguon_id → không có phần, bị chặn dù số nhỏ.
+    with pytest.raises(ValueError, match="không có phần"):
+        san_luong.tao_batch(
+            db, user=admin, cong_viec_id=cv_c.id,
+            bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1), tong=1, tot=1,
+            lot_vao=[{"nguon_loai": "batch", "nguon_batch_id": batch_nguon_id, "so_luong": 1}],
+        )
