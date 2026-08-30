@@ -22,6 +22,7 @@ from ...models.san_xuat import (
     SanXuatPhuThuoc,
 )
 from ...repositories.san_xuat_repo import SanXuatRepository
+from ..dong_giay import ban_do_tram, tren_dong_giay
 
 
 def _num(x) -> float | None:
@@ -200,6 +201,74 @@ def dung_phu_thuoc(
             nhom_id=grp.id,
             nguon_cong_viec_id=nguon.id, dich_cong_viec_id=dich.id,
             don_vi_nguon=truoc.don_vi_ra, don_vi_dich=sau.don_vi_vao,
+        ))
+        dem += 1
+    repo.flush()
+    return dem
+
+
+def dung_diem_toa(
+    repo: SanXuatRepository,
+    *,
+    goi: SanXuatGoiPhatHanh,
+    phien_ban_so: int,
+    lsx_ids: set[int],
+    bai_ghep_ids: set[int],
+    nhom_by_lsx: dict[int, SanXuatNhom],
+    cv_by_step: dict[str, SanXuatCongViec],
+) -> int:
+    """Chụp cạnh TOẢ từ điểm-toả bài ghép sang từng nhánh LSX riêng thành `san_xuat_phu_thuoc`.
+
+    Điểm toả = bước dùng chung CUỐI CÙNG trên dòng giấy của một LSX thành viên (theo `thu_tu`
+    routing); đích = bước RIÊNG đầu tiên ngay sau đó của chính LSX đó. Chỉ nhận bước dùng chung
+    nằm TRÊN DÒNG GIẤY (`tren_dong_giay`) — bước như ghi kẽm/CTP không đếm, tránh lấy nhầm điểm
+    toả. LSX không còn bước riêng nào sau bước chung cuối (mọi bước đều dùng chung, hoặc bài ghép
+    chưa có bước chung nào trên dòng giấy) thì không có gì để toả — bỏ qua, không phải lỗi."""
+    if not bai_ghep_ids:
+        return 0
+    so_con = repo.thanh_vien_so_con(bai_ghep_ids)
+    tram = ban_do_tram(repo.db)
+    dem = 0
+    for lsx_id in sorted(lsx_ids):
+        con = so_con.get(lsx_id)
+        if not con or con <= 0:
+            continue
+        steps = repo.routing_steps(lsx_id)
+        diem_toa_idx = None
+        for i, cd in enumerate(steps):
+            cv = cv_by_step.get(cd.step_key)
+            if cv is None or cv.bai_ghep_id is None:
+                continue
+            if not tren_dong_giay(cd.don_vi_vao, cd.don_vi_ra, tram, nhom=cd.nhom):
+                continue
+            diem_toa_idx = i
+        if diem_toa_idx is None:
+            continue
+        nguon_cv = cv_by_step[steps[diem_toa_idx].step_key]
+        dich_cd = next(
+            (
+                cd for cd in steps[diem_toa_idx + 1:]
+                if cv_by_step.get(cd.step_key) and cv_by_step[cd.step_key].bai_ghep_id is None
+            ),
+            None,
+        )
+        if dich_cd is None:
+            continue
+        dich_cv = cv_by_step[dich_cd.step_key]
+        grp = nhom_by_lsx.get(lsx_id)
+        if grp is None:
+            continue
+        don_vi_ra = steps[diem_toa_idx].don_vi_ra
+        don_vi_vao = dich_cd.don_vi_vao
+        repo.add(SanXuatPhuThuoc(
+            goi_id=goi.id, phien_ban_so=phien_ban_so,
+            nhom_id=grp.id,
+            nguon_cong_viec_id=nguon_cv.id, dich_cong_viec_id=dich_cv.id,
+            ty_le_ghep=float(con),
+            don_vi_nguon=don_vi_ra, don_vi_dich=don_vi_vao,
+            quy_tac_quy_doi=(
+                f"Điểm toả bài ghép: 1 {don_vi_ra or '?'} chung → {con} {don_vi_vao or '?'} riêng của lệnh"
+            ),
         ))
         dem += 1
     repo.flush()
