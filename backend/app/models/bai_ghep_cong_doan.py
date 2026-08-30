@@ -41,6 +41,10 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+NGUON_SL_DINH_MUC = "dinh_muc"   # số lượng do server TỰ TÍNH lại theo công thức mỗi khi bài đổi số
+NGUON_SL_THU_CONG = "thu_cong"   # người khai tay — không bị ghi đè khi bài đổi số
+
+
 class BaiGhepCongDoan(Base):
     """1 công đoạn chạy CHUNG của bài — cùng hình dạng kế hoạch với `LsxCongDoan`."""
 
@@ -181,6 +185,11 @@ class BaiGhepCongDoanVatTu(Base):
     don_vi_snapshot: Mapped[str] = mapped_column(String(16), nullable=False)
     so_luong: Mapped[float] = mapped_column(Numeric(14, 3), nullable=False)
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # `dinh_muc` = server tự tính lại theo công thức mỗi khi bài đổi số lượng/quy cách; `thu_cong` =
+    # người khai tay, GIỮ NGUYÊN qua mọi lần tính lại (xem `_ap_dinh_muc_vat_tu`).
+    nguon_so_luong: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=NGUON_SL_THU_CONG, server_default=NGUON_SL_THU_CONG
+    )
 
     buoc_chung: Mapped["BaiGhepCongDoan"] = relationship(
         "BaiGhepCongDoan", back_populates="vat_tus"

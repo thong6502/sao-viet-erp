@@ -1488,3 +1488,25 @@ def test_so_do_chung_mang_bang_boc_tach_gio_va_goi_y_vat_tu(
     # Số của LƯỢT CHUNG (tờ ghép), không phải số của một lệnh thành viên nào.
     assert goi_y[muc.id]["so_luong"] == pytest.approx(chung["so_luong_vao"] / 1000, rel=1e-6)
     assert goi_y[muc.id]["dien_giai"], "phải kèm câu công thức = thay số = kết quả"
+
+
+def test_vat_tu_chung_mac_dinh_thu_cong(db, orders, lsx_svc, bg_svc, admin, customer):
+    from app.models.bai_ghep_cong_doan import NGUON_SL_THU_CONG, BaiGhepCongDoanVatTu
+
+    a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
+    created = bg_svc._get(bg.id)
+    lsx_map = bg_svc._lsx_map(created)
+    cd_a = next(cd for cd in lsx_map[a.id].cong_doans if cd.loai_buoc == "may")
+    cd_b = next(cd for cd in lsx_map[b.id].cong_doans if cd.cong_doan_id == cd_a.cong_doan_id)
+    bg_svc.gop(bai_ghep_id=bg.id, step_keys=[cd_a.step_key, cd_b.step_key], actor=admin)
+    chung = bg_svc._buoc_chungs(bg_svc._get(bg.id))[0]
+    vt = BaiGhepCongDoanVatTu(
+        bai_ghep_cong_doan_id=chung.id, vat_tu_id=1,
+        vat_tu_ma_snapshot="MUC-01", vat_tu_ten_snapshot="Mực đen", don_vi_snapshot="kg",
+        so_luong=1.5, thu_tu=0,
+    )
+    db.add(vt)
+    db.commit()
+    db.refresh(vt)
+    assert vt.nguon_so_luong == NGUON_SL_THU_CONG
