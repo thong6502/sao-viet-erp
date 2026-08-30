@@ -372,8 +372,16 @@ _COLS = {
         # "thuê ngoài" đi liền TÊN BƯỚC (xem dưới) để đọc một dòng là biết ai làm.
         {"key": "cong_thuc", "label": "Công thức thế số", "align": "left", "kind": "formula"},
     ],
+    # GIAO HÀNG — nhóm thứ ba, CHỈ mọc khi sản phẩm có khai phí (xem `compute_phieu`). Cùng bộ cột
+    # với Công đoạn vì cùng bản chất "một khoản tiền + diễn giải", không có số tờ để bày.
+    "giao_hang": [
+        {"key": "ten", "label": "Giao hàng", "align": "left", "kind": "text"},
+        {"key": "thanh_tien", "label": "Số tiền", "align": "right", "kind": "money"},
+        {"key": "gia_don_sp", "label": "đ/TP", "align": "right", "kind": "money"},
+        {"key": "cong_thuc", "label": "Công thức thế số", "align": "left", "kind": "formula"},
+    ],
 }
-_NAMES = {"nvl": "Nguyên vật liệu", "cong_doan": "Công đoạn"}
+_NAMES = {"nvl": "Nguyên vật liệu", "cong_doan": "Công đoạn", "giao_hang": "Giao hàng"}
 
 
 def chuan_hoa_cot(result: dict | None) -> dict | None:
@@ -824,7 +832,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     )
 
     # 2 nhóm: nvl (giấy + vật tư) · cong_doan (chế bản/in/gia công theo thứ tự routing).
-    rows: dict[str, list[dict]] = {"nvl": [], "cong_doan": []}
+    rows: dict[str, list[dict]] = {"nvl": [], "cong_doan": [], "giao_hang": []}
 
     # --- Giấy (Nguyên vật liệu) ---
     # GỠ 2026-08-09 (Đợt 4 · K): nhánh "khách cấp giấy → 0đ". Cột `nguon_giay` còn trong DB nhưng
@@ -1055,12 +1063,36 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             f"dùng lại khuôn cũ thì bỏ qua."
         )
 
+    # --- PHÍ GIAO HÀNG: khoản MỘT LẦN của CẢ SẢN PHẨM, GỘP vào giá vốn --------------------------
+    #
+    # Người lập phiếu gõ TỔNG tiền chở hàng cho toàn bộ sản lượng của sản phẩm này (v1: số phẳng
+    # nhập tay — chưa tính theo vùng/km/khối lượng). Cộng vào giá vốn ⇒ sang Báo giá nó chịu markup
+    # cùng phần còn lại, đúng ý "phí giao hàng là một phần giá thành", KHÔNG phải khoản thu hộ.
+    #
+    # KHÔNG gắn vào bước nào nên đứng thành NHÓM RIÊNG: nhét chung nhóm Công đoạn thì nó lọt vào
+    # danh sách "các bước chạy máy" ở panel sản phẩm và bị đếm thành một công đoạn.
+    #
+    # 0 = không thu ⇒ KHÔNG đẻ dòng: dòng 0đ chỉ tổ làm dài bảng, và nhóm rỗng ở bản in đọc như
+    # "có giao hàng mà quên nhập tiền".
+    phi_gh = _f(tp.get("phi_giao_hang"))
+    if phi_gh > 0:
+        rows["giao_hang"].append({
+            "loai": "giao_hang",
+            "ten": _pre(name, "Giao hàng"),
+            "thanh_tien": _r(phi_gh),
+            # Cũng quy ra đ/sp — hệt tiền dao, khoản này KHÔNG co giãn theo sản lượng nên đơn nhỏ
+            # gánh nặng hơn đơn lớn; giấu con số bị chia đi thì đúng lúc cần thấy nhất lại không thấy.
+            "gia_don_sp": _r(phi_gh / sl) if sl > 0 else 0.0,
+            "cong_thuc": _ct(f"{_vi(_r(phi_gh))}đ phí giao hàng, một lần", phi_gh, sl),
+        })
+
     total = sum(_f(r.get("thanh_tien")) for grp in rows.values() for r in grp)
     return {
         "name": name,
         "rows": rows,
         "phi_khuon_dong": khuon_dong,
         "phi_khuon": _r(sum(_f(d["thanh_tien"]) for d in khuon_dong)),
+        "phi_giao_hang": _r(phi_gh),
         "total": _r(total),
         "meta": {
             "so_luong": sl, "gia_von_don": _r(total / sl) if sl > 0 else 0.0,
@@ -1095,14 +1127,14 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[d
     so_luong = _i(so_luong)
     flags: dict = {}
 
-    grouped: dict[str, list[dict]] = {"nvl": [], "cong_doan": []}
+    grouped: dict[str, list[dict]] = {"nvl": [], "cong_doan": [], "giao_hang": []}
     components: list[dict] = []
 
     bu_hao_list = bu_hao_rows or []
 
     for i, tp in enumerate(thanh_phans or []):
         one = _compute_one(tp, so_luong, warns, flags, bu_hao_list)
-        for idx in ("nvl", "cong_doan"):
+        for idx in ("nvl", "cong_doan", "giao_hang"):
             grouped[idx].extend(one["rows"][idx])
         components.append({
             "idx": i, "name": one["name"], "gia_von_tp": one["total"],
@@ -1111,6 +1143,10 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[d
             # có bao nhiêu tiền dao"; cộng thêm lần nữa là tính hai lần, mà báo giá lấy thẳng
             # `gia_von_tp` làm giá vốn khoá nên sai sẽ chạy tới tận hoá đơn.
             "phi_khuon": one["phi_khuon"], "phi_khuon_dong": one["phi_khuon_dong"],
+            # ⚠️ Phí giao hàng CŨNG đã nằm trong `gia_von_tp` (một dòng của nhóm Giao hàng). Khoá
+            # này chỉ để BÀY RA, cộng thêm lần nữa là tính hai lần — mà Báo giá lấy thẳng
+            # `gia_von_tp` làm giá vốn khoá nên sai sẽ chạy tới tận hoá đơn.
+            "phi_giao_hang": one["phi_giao_hang"],
             **one["meta"],
         })
 
@@ -1119,8 +1155,12 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[d
 
     groups = []
     grand_total = 0.0
-    for idx in ("nvl", "cong_doan"):
+    for idx in ("nvl", "cong_doan", "giao_hang"):
         rws = grouped[idx]
+        # Nhóm Giao hàng chỉ tồn tại khi CÓ phí: phiếu cũ và phiếu không thu tiền chở phải ra đúng
+        # hai nhóm như trước, không thêm một khối rỗng vào bảng chi tiết lẫn bản in.
+        if idx == "giao_hang" and not rws:
+            continue
         subtotal = sum(_f(r.get("thanh_tien")) for r in rws)
         grand_total += subtotal
         groups.append({"idx": idx, "name": _NAMES[idx], "columns": _COLS[idx],

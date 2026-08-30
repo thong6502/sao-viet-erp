@@ -1057,3 +1057,74 @@ def test_anh_chup_cu_bo_lai_cot_da_go():
     assert moi["groups"][0]["rows"] == [{"ten": "Bế"}]      # SỐ của ảnh chụp không bị đụng
     assert cu["groups"][0]["columns"][1]["key"] == "ghi_chu"  # trả bản mới, không sửa bản gốc
     assert chuan_hoa_cot(None) is None
+
+
+# ============================ ⑤ PHÍ GIAO HÀNG ============================
+# Khoản MỘT LẦN cho TOÀN BỘ sản lượng của MỘT sản phẩm, cộng thẳng vào giá vốn (⇒ chịu markup khi
+# sang Báo giá). Khác `phi_khuon` ở chỗ nó KHÔNG gắn với bước nào — nó là của cả sản phẩm, nên
+# đứng thành NHÓM RIÊNG chứ không lẫn vào nhóm Công đoạn.
+
+
+def test_phi_giao_hang_0_khong_de_nhom_va_khong_doi_mot_dong_nao():
+    """Phiếu cũ / sản phẩm không khai phí phải ra Y HỆT trước: không nhóm rỗng, không lệch tiền."""
+    goc = compute_phieu(so_luong=5000, thanh_phans=[_component()])
+    khong = compute_phieu(so_luong=5000, thanh_phans=[{**_component(), "phi_giao_hang": 0}])
+
+    assert [g["idx"] for g in goc["groups"]] == ["nvl", "cong_doan"]
+    assert [g["idx"] for g in khong["groups"]] == ["nvl", "cong_doan"]
+    assert khong["grand_total"] == goc["grand_total"]
+    assert khong["meta"]["components"][0]["gia_von_tp"] == goc["meta"]["components"][0]["gia_von_tp"]
+    assert khong["meta"]["components"][0]["phi_giao_hang"] == 0
+
+
+def test_phi_giao_hang_duong_cong_DUNG_MOT_LAN_vao_gia_von():
+    goc = compute_phieu(so_luong=5000, thanh_phans=[_component()])
+    co = compute_phieu(so_luong=5000, thanh_phans=[{**_component(), "phi_giao_hang": 2_000_000}])
+
+    gh = _grp(co, "giao_hang")
+    assert gh["name"] == "Giao hàng"
+    assert len(gh["rows"]) == 1
+    assert gh["rows"][0]["thanh_tien"] == 2_000_000
+    assert gh["rows"][0]["gia_don_sp"] == pytest.approx(400)      # 2.000.000 ÷ 5.000
+    # Diễn giải phải nói rõ "một lần" rồi mới chia — người đọc thấy ngay khoản này KHÔNG co giãn.
+    assert "một lần" in gh["rows"][0]["cong_thuc"]
+    assert "÷ 5.000" in gh["rows"][0]["cong_thuc"]
+    assert gh["subtotal"] == 2_000_000
+
+    m0, m1 = goc["meta"]["components"][0], co["meta"]["components"][0]
+    assert m1["phi_giao_hang"] == 2_000_000
+    assert m1["gia_von_tp"] - m0["gia_von_tp"] == pytest.approx(2_000_000, abs=0.01)
+    assert co["grand_total"] - goc["grand_total"] == pytest.approx(2_000_000, abs=0.01)
+    assert m1["gia_von_don"] - m0["gia_von_don"] == pytest.approx(400, abs=0.01)
+    # `grand_total` vẫn = Σ MỌI nhóm (nhóm mới cũng phải được cộng, không đứng ngoài).
+    assert sum(g["subtotal"] for g in co["groups"]) == pytest.approx(co["grand_total"], abs=0.01)
+
+
+def test_phi_giao_hang_moi_san_pham_mot_khoan_khong_lan_sang_nhau():
+    ruot = {**_component(), "ten": "Ruột", "so_luong": 5000, "phi_giao_hang": 1_000_000}
+    bia = {**_component(), "ten": "Bìa", "so_luong": 2000, "phi_giao_hang": 300_000}
+    khong = [{**ruot, "phi_giao_hang": 0}, {**bia, "phi_giao_hang": 0}]
+
+    res = compute_phieu(so_luong=5000, thanh_phans=[ruot, bia])
+    goc = compute_phieu(so_luong=5000, thanh_phans=khong)
+
+    gh = _grp(res, "giao_hang")
+    assert [(r["ten"], r["thanh_tien"]) for r in gh["rows"]] == [
+        ("Ruột · Giao hàng", 1_000_000), ("Bìa · Giao hàng", 300_000)]
+    assert gh["subtotal"] == 1_300_000
+
+    c = res["meta"]["components"]
+    assert [x["phi_giao_hang"] for x in c] == [1_000_000, 300_000]
+    # Phí của sản phẩm nào chỉ đội giá vốn của sản phẩm đó.
+    for i, phi in enumerate((1_000_000, 300_000)):
+        assert c[i]["gia_von_tp"] - goc["meta"]["components"][i]["gia_von_tp"] == pytest.approx(phi, abs=0.01)
+    assert res["grand_total"] - goc["grand_total"] == pytest.approx(1_300_000, abs=0.01)
+
+
+def test_anh_chup_cu_duoc_dap_cot_cho_nhom_giao_hang():
+    """`chuan_hoa_cot` phải biết nhóm mới, không thì bảng chi tiết của phiếu đã lưu mất cột."""
+    res = compute_phieu(so_luong=5000, thanh_phans=[{**_component(), "phi_giao_hang": 500_000}])
+    cu = {**res, "groups": [{**g, "columns": [{"key": "ten", "label": "Cũ"}]} for g in res["groups"]]}
+    moi = chuan_hoa_cot(cu)
+    gh = next(g for g in moi["groups"] if g["idx"] == "giao_hang")
+    assert [c["key"] for c in gh["columns"]] == ["ten", "thanh_tien", "gia_don_sp", "cong_thuc"]

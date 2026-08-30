@@ -62,6 +62,7 @@ def _cau_hinh_tu_thanh_phan(tp: PhieuThanhPhan) -> dict:
         muc_a=list(tp.muc_a or []),
         muc_b=list(tp.muc_b or []),
         ghi_chu_ky_thuat=tp.ghi_chu_ky_thuat,
+        phi_giao_hang=tp.phi_giao_hang,
         thanh_phams=[
             ThanhPhamIn(
                 cong_doan_id=cd.cong_doan_id,

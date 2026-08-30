@@ -155,6 +155,17 @@ class PhieuThanhPhan(Base):
     # xuống lệnh sản xuất (drawer chi tiết ấn phẩm). Khác `production_note` cấp đơn.
     ghi_chu_ky_thuat: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # PHÍ GIAO HÀNG của CẢ SẢN PHẨM — khoản MỘT LẦN cho toàn bộ sản lượng, KHÔNG nhân số lượng và
+    # KHÔNG gắn với bước nào (khác `phieu_thanh_pham.phi_khuon` — cái đó là của một BƯỚC).
+    #
+    # v1: số PHẲNG người lập phiếu gõ tay. Chưa tính theo vùng/km/khối lượng — xem docs/spec-tinh-gia.md §4.9.
+    #
+    # ⚠️ CÓ cộng vào `gia_von_tp` (engine đẻ nó thành một dòng của nhóm "Giao hàng") ⇒ sang Báo giá
+    # nó chịu markup cùng phần còn lại. Hệ quả giống tiền dao: khoản này KHÔNG co giãn theo sản
+    # lượng nên khi bị chia, đơn nhỏ gánh nặng hơn đơn lớn. Đây là chủ ý, đừng "sửa" bằng cách rút
+    # nó ra khỏi giá vốn. 0 = không thu tiền chở.
+    phi_giao_hang: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+
     gia_von_tp: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

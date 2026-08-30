@@ -138,6 +138,9 @@ class ThanhPhanIn(BaseModel):
     so_mau_b: int | None = None
     so_mau_pha: int | None = Field(default=None, ge=0)
     ghi_chu_ky_thuat: str | None = None   # note KỸ THUẬT/SX theo sản phẩm (canh màu/kẽm cũ/bù hao) → drawer lệnh
+    # ⑤ Phí giao hàng: TỔNG tiền chở cho toàn bộ sản lượng của sản phẩm này — khoản MỘT LẦN, cộng
+    # thẳng vào giá vốn (⇒ chịu markup ở Báo giá). 0 = không thu.
+    phi_giao_hang: float | None = Field(default=None, ge=0)
     thanh_phams: list[ThanhPhamIn] | None = None
     vat_tus: list[VatTuLineIn] | None = None
 
@@ -188,6 +191,7 @@ class ThanhPhanOut(BaseModel):
     so_mau_b: int
     so_mau_pha: int = 0
     ghi_chu_ky_thuat: str | None = None   # note KỸ THUẬT/SX theo sản phẩm → drawer lệnh
+    phi_giao_hang: float = 0
     gia_von_tp: float
     thanh_phams: list[ThanhPhamOut] = Field(default_factory=list)
     vat_tus: list[VatTuLineOut] = Field(default_factory=list)

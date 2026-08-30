@@ -86,6 +86,8 @@ _TP_SCALAR_FIELDS = (
     # đi cùng ở đây chỉ để đọc lại phiếu cũ chưa backfill; engine LUÔN tính lại chúng từ tập rồi
     # ghi đè xuống DB (`_ghi_so_mau_dan_xuat`), nên đừng tin số client gửi lên.
     "muc_a", "muc_b", "so_mau_a", "so_mau_b", "so_mau_pha",
+    # ⑤ Phí giao hàng của CẢ sản phẩm — engine cộng thẳng vào giá vốn (nhóm "Giao hàng").
+    "phi_giao_hang",
 )
 _ROW_SCALAR_FIELDS = (
     "thu_tu", "cong_doan_id", "ten", "don_gia", "so_luong", "bu_hao",

@@ -567,3 +567,62 @@ def test_stats_dem_doc_lap_voi_trang_hien_tai(client, auth_headers):
     assert stats["all"] == lst["total"] == draft_count + calc_count
     assert stats["draft"] == draft_count
     assert stats["calculated"] == calc_count
+
+
+# ============================ ⑤ PHÍ GIAO HÀNG (mục ⑤ của modal sản phẩm) ============================
+
+
+def test_phi_giao_hang_luu_mo_lai_va_cong_vao_gia_von(client, auth_headers):
+    giay_id, cd_id = _seed_catalog()
+    khong = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 5000, "thanh_phans": [_component(giay_id, cd_id)],
+    }, headers=auth_headers).json()
+
+    tp = {**_component(giay_id, cd_id), "phi_giao_hang": 1_200_000}
+    resp = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 5000, "thanh_phans": [tp],
+    }, headers=auth_headers)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["thanh_phans"][0]["phi_giao_hang"] == 1_200_000
+    assert body["tong_gia_von"] == pytest.approx(khong["tong_gia_von"] + 1_200_000, abs=0.01)
+    # Nhóm kết quả mới có mặt trong ảnh chụp để bảng chi tiết + bản in vẽ được.
+    gh = next(g for g in body["result"]["groups"] if g["idx"] == "giao_hang")
+    assert gh["subtotal"] == 1_200_000
+
+    # MỞ LẠI: giá trị đã lưu còn nguyên (không phải chỉ sống trong response của lần POST).
+    got = client.get(f"/api/phieu-tinh-gia/{body['id']}", headers=auth_headers).json()
+    assert got["thanh_phans"][0]["phi_giao_hang"] == 1_200_000
+
+    # SỬA lại phí → tính lại đúng, và bỏ về 0 thì nhóm Giao hàng biến mất.
+    sua = client.put(f"/api/phieu-tinh-gia/{body['id']}", json={
+        "so_luong": 5000,
+        "thanh_phans": [{**_component(giay_id, cd_id), "phi_giao_hang": 0}],
+    }, headers=auth_headers).json()
+    assert sua["thanh_phans"][0]["phi_giao_hang"] == 0
+    assert [g["idx"] for g in sua["result"]["groups"]] == ["nvl", "cong_doan"]
+    assert sua["tong_gia_von"] == pytest.approx(khong["tong_gia_von"], abs=0.01)
+
+
+def test_phi_giao_hang_am_bi_tra_422(client, auth_headers):
+    giay_id, _ = _seed_catalog()
+    resp = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000,
+        "thanh_phans": [{**_component(giay_id), "phi_giao_hang": -1}],
+    }, headers=auth_headers)
+    assert resp.status_code == 422, resp.text
+
+
+def test_preview_live_tra_nhom_giao_hang(client, auth_headers):
+    """Panel bên phải modal đọc `/api/tinh-gia/preview` — phí phải chảy qua đó, không đợi bấm Lưu."""
+    giay_id, cd_id = _seed_catalog()
+    r = client.post("/api/tinh-gia/preview", json={
+        "so_luong": 4000,
+        "thanh_phans": [{**_component(giay_id, cd_id), "phi_giao_hang": 800_000}],
+    }, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    res = r.json()
+    assert res["meta"]["components"][0]["phi_giao_hang"] == 800_000
+    gh = next(g for g in res["groups"] if g["idx"] == "giao_hang")
+    assert gh["rows"][0]["thanh_tien"] == 800_000
+    assert gh["rows"][0]["gia_don_sp"] == pytest.approx(200)   # 800.000 ÷ 4.000

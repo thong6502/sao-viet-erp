@@ -317,6 +317,28 @@ function dongKhuon(groups: PhieuTinhGiaGroupOut[] | null): DongTien[] {
   return ra;
 }
 
+/** Dòng PHÍ GIAO HÀNG — nhóm riêng `giao_hang`, engine CHỈ phát khi phí > 0.
+ *
+ *  Nhóm riêng chứ không lẫn vào `cong_doan` (như phí khuôn đang phải lẫn) vì chở hàng không phải
+ *  một bước trong chuỗi: để chung thì "Công đoạn · 6 bước" đếm thành 7. Backend chưa restart ⇒
+ *  không có nhóm ⇒ danh sách rỗng ⇒ khối không mọc, màn hình y như trước. */
+function dongGiaoHang(groups: PhieuTinhGiaGroupOut[] | null): DongTien[] {
+  const grp = groups?.find((g) => g.idx === "giao_hang");
+  const ra: DongTien[] = [];
+  for (const r of grp?.rows ?? []) {
+    const tien = _so(r.thanh_tien);
+    if (tien === null) continue;
+    ra.push({
+      // `ten` mang tiền tố tên sản phẩm (`_pre`) — bỏ đi, ở đây đang đứng trong sản phẩm đó rồi.
+      ten: _chuoi(r.ten).split(" · ").pop() ?? "",
+      tien,
+      congThuc: _chuoi(r.cong_thuc),
+      congThucGoc: "",
+    });
+  }
+  return ra;
+}
+
 /** Tiền của TỪNG BƯỚC, tra theo `buoc_idx` — khóa do engine phát ra ở CẢ hai danh sách
  *  (`groups.cong_doan[].buoc_idx` và `bu_hao_chi_tiet[].buoc_idx`).
  *
@@ -509,6 +531,10 @@ interface EditableComponent {
   so_mau_b: number;
   so_mau_pha: number;
   ghi_chu_ky_thuat: string; // Lưu ý SX / ghi chú kỹ thuật theo sản phẩm → drawer lệnh SX
+  /** ⑤ Phí giao hàng: TỔNG tiền chở cho toàn bộ sản lượng của SẢN PHẨM này — khoản MỘT LẦN, không
+   *  nhân SL và không gắn với bước nào (khác `phi_khuon` của bước). Engine cộng nó vào giá vốn nên
+   *  nó vẫn bị chia ra đ/sản phẩm ở dòng tổng. 0 = không thu tiền chở. */
+  phi_giao_hang: number;
   gia_von_tp: number; // read-only từ lần tính gần nhất
   thanh_phams: EditableFinishing[];
   vat_tus: EditableVatTu[];
@@ -569,6 +595,7 @@ function blankComponent(ten = ""): EditableComponent {
     so_mau_b: 0,
     so_mau_pha: 0,
     ghi_chu_ky_thuat: "",
+    phi_giao_hang: 0,
     gia_von_tp: 0,
     thanh_phams: [],
     vat_tus: [],
@@ -641,6 +668,7 @@ function fromComponent(c: ThanhPhanOut): EditableComponent {
     so_mau_b: c.so_mau_b ?? 0,
     so_mau_pha: c.so_mau_pha ?? 0,
     ghi_chu_ky_thuat: c.ghi_chu_ky_thuat ?? "",
+    phi_giao_hang: c.phi_giao_hang ?? 0,
     gia_von_tp: c.gia_von_tp ?? 0,
     thanh_phams: (c.thanh_phams ?? []).map(fromFinishing),
     vat_tus: (c.vat_tus ?? []).map(fromVatTu),
@@ -683,6 +711,7 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
     so_mau_b: c.so_mau_b,
     so_mau_pha: c.so_mau_pha,
     ghi_chu_ky_thuat: c.ghi_chu_ky_thuat.trim() || null,
+    phi_giao_hang: c.phi_giao_hang,
     thanh_phams: c.thanh_phams.map((f) => ({
       cong_doan_id: f.cong_doan_id,
       ten: f.ten,
@@ -751,6 +780,9 @@ function fromThanhPhanIn(cfg: ThanhPhanIn, giu: { uid: string; so_luong: number 
     so_mau_b: cfg.so_mau_b ?? 0,
     so_mau_pha: cfg.so_mau_pha ?? 0,
     ghi_chu_ky_thuat: cfg.ghi_chu_ky_thuat ?? "",
+    // Nạp lại NGUYÊN phí giao hàng của lần chốt trước (khác `so_luong` — cái đó cố ý giữ của thẻ
+    // đang sửa). Bỏ sót thì đơn tái bản tự nhiên rẻ đi một khoản mà không ai được báo.
+    phi_giao_hang: cfg.phi_giao_hang ?? 0,
     gia_von_tp: 0,
     thanh_phams: (cfg.thanh_phams ?? []).map((f) => ({
       uid: nextUid(),
@@ -1522,7 +1554,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       // nên hai bên lệch nhau mà nhìn thoáng qua tưởng đã cập nhật.)
       //
       // ⚠️ LUẬT CHUNG: thêm bất kỳ ô nhập nào ảnh hưởng số của engine thì phải khai vào chữ ký này.
-      gid: c.giay_id, may: c.may_id,
+      gid: c.giay_id, may: c.may_id, pgh: c.phi_giao_hang,
       cds: c.thanh_phams.map((f) => [
         f.cong_doan_id, f.phi_khuon, f.dai_khung_lua, f.rong_khung_lua, f.so_khung_lua,
       ]),
@@ -2200,7 +2232,9 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
               <section className="panel">
                 <div className="panel__hd">
                   <h3><RowsIcon /> Chi tiết dòng giá vốn</h3>
-                  <span className="tag">Nguyên vật liệu · Công đoạn</span>
+                  {/* Đọc TÊN NHÓM THẬT của kết quả, không gõ cứng: nhóm "Giao hàng" chỉ mọc khi
+                      có phí, gõ cứng hai nhóm là nhãn nói thiếu đúng lúc bảng có ba khối. */}
+                  <span className="tag">{result.groups.map((g) => g.name).join(" · ")}</span>
                 </div>
                 {result.groups.map((g, gi) => (
                   <div key={g.idx}>
@@ -2549,6 +2583,12 @@ function ComponentModal({
   const dsCongDoan = useMemo(() => dongCongDoan(liveGia), [liveGia]);
   const dsKhuon = useMemo(() => dongKhuon(liveGia), [liveGia]);
   const tienKhuon = useMemo(() => dsKhuon.reduce((s2, d) => s2 + d.tien, 0), [dsKhuon]);
+  const dsGiaoHang = useMemo(() => dongGiaoHang(liveGia), [liveGia]);
+  const tienGiaoHang = useMemo(() => dsGiaoHang.reduce((s2, d) => s2 + d.tien, 0), [dsGiaoHang]);
+  // SL HIỆU LỰC để chia phí giao hàng: engine đã giải quyết "SL sản phẩm = 0 thì lấy SL đầu phiếu"
+  // nên đọc `liveMeta.so_luong`; chỉ khi chưa có preview mới lùi về số của chính thẻ.
+  const slHieuLuc = liveMeta?.so_luong || c.so_luong || 0;
+  const phiGhMoiDv = slHieuLuc > 0 ? c.phi_giao_hang / slHieuLuc : 0;
   const nvl = useMemo(() => nvlTheoLoai(liveGia), [liveGia]);
   const tienCongDoan = useMemo(
     () => [...mapTien.values()].reduce((s, d) => s + d.tien, 0), [mapTien],
@@ -2558,12 +2598,12 @@ function ComponentModal({
   // hai, rồi hai màn ra hai con số trên cùng một phiếu. Nhưng CÓ đối chiếu: lệch quá 1đ nghĩa là
   // có dòng engine tính mà panel chưa hiện ⇒ nói thẳng ra thay vì để người xem tự cộng rồi ngờ.
   const lechTien = liveMeta
-    ? Math.abs(liveMeta.gia_von_tp - (tienNvl + tienCongDoan + tienKhuon))
+    ? Math.abs(liveMeta.gia_von_tp - (tienNvl + tienCongDoan + tienKhuon + tienGiaoHang))
     : 0;
   // Chưa có số (chưa nhập đủ) hoặc backend đời cũ chưa gửi nhóm tiền ⇒ không dựng khối rỗng.
   const coTien = !!liveMeta
     && (nvl.giay.length > 0 || nvl.vatTu.length > 0
-        || dsCongDoan.length > 0 || dsKhuon.length > 0);
+        || dsCongDoan.length > 0 || dsKhuon.length > 0 || dsGiaoHang.length > 0);
   // ĐƠN VỊ CỦA CHÍNH CHUỖI NÀY (12/08/2026) — trước đó khối này gọi cứng "tờ" và "con/tờ", trong
   // khi công đoạn khai `tờ → cái` / `tờ → tay sách`. Hệ quả thấy ngay trên màn: cùng số 99 mà dòng
   // trên ghi "99 con/tờ" còn dòng bù hao ghi "1 tờ = 99 cái" — mà `con` và `cái` là HAI đơn vị khác
@@ -3267,6 +3307,51 @@ function ComponentModal({
 
             </section>
 
+            {/* ⑤ GIAO HÀNG — khoản MỘT LẦN của CẢ sản phẩm. KHÔNG gộp được vào khối "Phí khuôn" ở
+                trên: khối đó mọc theo BƯỚC có cờ dao lưu kho, còn chở hàng không phải một bước
+                trong chuỗi và xảy ra SAU khi chuỗi đã xong — nên đứng thành mục riêng, cuối cùng. */}
+            <section className="rc-sec">
+              <div className="rc-sec__title">
+                <span className="tg-step-badge">5</span> Giao hàng
+              </div>
+              <div className="tg-khuon">
+                <div className="tg-khuon__head">
+                  <span className="tg-khuon__title">Chi phí giao hàng</span>
+                  <span className="tg-khuon__note">một lần · cho cả sản lượng</span>
+                </div>
+                <div className="tg-khuon__row">
+                  <span className="tg-khuon__ten">
+                    Tổng phí chở hàng
+                    {/* Số phân bổ đ/ĐVT: khoản này KHÔNG co giãn theo sản lượng nhưng ĐANG bị chia
+                        vào giá vốn — giấu con số bị chia đi thì đơn nhỏ gánh nặng bao nhiêu người
+                        lập phiếu không thấy, mà đó đúng là lúc cần thấy nhất. */}
+                    {phiGhMoiDv > 0 && <em>{fmt(Math.round(phiGhMoiDv))} đ/{c.don_vi_tinh || "cái"}</em>}
+                  </span>
+                  <div className="tg-khuon__input">
+                    <input
+                      className="tg-khuon__num"
+                      type="number"
+                      min={0}
+                      step={1000}
+                      /* Ô số trần không có <label> nối vào — trình đọc màn hình chỉ đọc "spin
+                         button". Nhãn phải nói rõ đây là phí của cả sản phẩm, không phải một bước. */
+                      aria-label="Chi phí giao hàng cho cả sản lượng của sản phẩm này"
+                      value={c.phi_giao_hang || ""}
+                      placeholder="0"
+                      onChange={(e) =>
+                        patchComp(c.uid, { phi_giao_hang: Math.max(0, Number(e.target.value) || 0) })
+                      }
+                    />
+                    <small>đ</small>
+                  </div>
+                </div>
+                <p className="tg-khuon__hint">
+                  Để trống = không thu tiền chở. Khoản này cộng vào giá vốn nên sang Báo giá được
+                  tính lãi như phần còn lại.
+                </p>
+              </div>
+            </section>
+
           </div>
 
           {/* Cột phải: Trực quan hóa và Số liệu ước lượng */}
@@ -3563,6 +3648,21 @@ function ComponentModal({
                     ))}
                   </>
                 )}
+                {/* GIAO HÀNG — đứng SAU phí khuôn, ngay trên dòng tổng. Cùng kiểu "một lần" như
+                    khuôn, nhưng là khoản của CẢ sản phẩm nên chỉ một dòng, không phân rã theo bước. */}
+                {dsGiaoHang.map((d, i) => (
+                  <div className="tg-sheetrow tg-sheetrow--group" key={`gh${i}`}>
+                    <span className="tg-sheetrow__stack">
+                      <span>Giao hàng <small>một lần</small></span>
+                      {/* Không dùng `HaiDongCongThuc`: dòng này không có công thức gốc, chuỗi engine
+                          trả về đã tự chứa dấu "=" — thêm "= " nữa là hai dấu bằng trong một câu. */}
+                      {d.congThuc && (
+                        <em className="tg-sheetrow__derive tg-sheetrow__derive--so">{d.congThuc}</em>
+                      )}
+                    </span>
+                    <SoDv so={fmt(Math.round(d.tien))} dv="đ" />
+                  </div>
+                ))}
                 <div className="tg-sheetrow tg-sheetrow--total">
                   <span className="tg-sheetrow__stack">
                     = Giá vốn sản phẩm

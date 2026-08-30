@@ -10831,3 +10831,36 @@ def _migrate_bai_ghep_vat_tu_nguon_so_luong(db: Session) -> None:
 
 
 MIGRATIONS.append(("0243_bai_ghep_vat_tu_nguon_so_luong", _migrate_bai_ghep_vat_tu_nguon_so_luong))
+
+
+def _migrate_phi_giao_hang_san_pham(db: Session) -> None:
+    """`phieu_thanh_phan.phi_giao_hang` — TỔNG phí giao hàng của cả sản lượng MỘT sản phẩm.
+
+    Vì sao gắn vào SẢN PHẨM chứ không vào phiếu: một phiếu có thể gồm ruột + bìa + hộp giao ba nơi
+    khác nhau, mà báo giá lấy `gia_von_tp` của TỪNG sản phẩm rồi markup riêng — treo một khoản
+    chung ở đầu phiếu thì không có đường chia về đúng dòng nào.
+
+    Vì sao KHÔNG gắn vào bước (khác `phieu_thanh_pham.phi_khuon`): chở hàng không phải một công
+    đoạn trong routing, không có cờ `requires_tooling` nào sinh ra nó, và nó xảy ra SAU khi chuỗi
+    công đoạn đã xong.
+
+    ⚠️ CÓ cộng vào `gia_von_tp` (một dòng của nhóm kết quả `giao_hang`) ⇒ sang Báo giá nó chịu
+    markup cùng phần còn lại — chốt: phí giao hàng là một phần GIÁ THÀNH, không phải khoản thu hộ.
+
+    v1 là số PHẲNG nhập tay; tính theo vùng/km/khối lượng vẫn ngoài phạm vi (docs/spec-tinh-gia.md §4.9).
+
+    Cột NOT NULL DEFAULT 0 nên mọi dòng cũ về 0 = "không thu tiền chở" ⇒ giá vốn phiếu cũ KHÔNG
+    nhúc nhích một đồng nào. No-op khi bảng chưa có / cột đã có.
+    """
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in set(insp.get_table_names()):
+        return
+    if "phi_giao_hang" in _existing_columns(insp, "phieu_thanh_phan"):
+        return
+    db.execute(text(
+        "ALTER TABLE phieu_thanh_phan ADD COLUMN phi_giao_hang NUMERIC(18,2) NOT NULL DEFAULT 0"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0244_phi_giao_hang_san_pham", _migrate_phi_giao_hang_san_pham))

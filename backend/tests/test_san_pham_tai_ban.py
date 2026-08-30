@@ -72,7 +72,7 @@ def _customer(db, code="KH-T"):
 _ma_seq = 0
 
 
-def _thanh_phan(db, *, ten="Card visit 350gsm", giay_id=101, may_id=201) -> PhieuThanhPhan:
+def _thanh_phan(db, *, ten="Card visit 350gsm", giay_id=101, may_id=201, phi_giao_hang=0) -> PhieuThanhPhan:
     """Dựng 1 PhieuTinhGia + 1 PhieuThanhPhan (kèm 2 công đoạn + 1 vật tư) — nguồn để snapshot."""
     global _ma_seq
     _ma_seq += 1
@@ -87,7 +87,7 @@ def _thanh_phan(db, *, ten="Card visit 350gsm", giay_id=101, may_id=201) -> Phie
         co_in=True, quy_cach_in="hai_mat", kho_in_dai=430, kho_in_rong=650,
         so_con=8, con_auto=True, may_id=may_id, don_gia_cong_in=500,
         muc_a=["C", "M", "Y", "K"], muc_b=["C", "M", "Y", "K"],
-        so_mau_a=4, so_mau_b=4, gia_von_tp=1_234_000,
+        so_mau_a=4, so_mau_b=4, gia_von_tp=1_234_000, phi_giao_hang=phi_giao_hang,
     )
     db.add(tp)
     db.flush()
@@ -237,3 +237,18 @@ def test_tim_kiem_bo_dau_va_lay_chi_tiet(svc, admin, db):
     assert chi_tiet is not None
     assert chi_tiet.cau_hinh_json["ten"] == "Áo thun cotton"
     assert chi_tiet.cau_hinh_json["giay_id"] == 101
+
+
+def test_snapshot_giu_phi_giao_hang(svc, admin, db):
+    """Tái bản nạp lại NGUYÊN cấu hình — bỏ sót phí giao hàng thì đơn tái bản tự nhiên rẻ đi một
+    khoản mà không ai được báo."""
+    cust = _customer(db, code="KH-GH")
+    tp = _thanh_phan(db, ten="Hộp giao tận nơi", phi_giao_hang=750_000)
+    q = _quote_for(db, cust, tp)
+    d = _confirm_ready_order(svc, db, admin, q)
+    svc.confirm(order_id=d.id, actor=admin, scope="all")
+
+    row = db.query(SanPhamTaiBan).filter(
+        SanPhamTaiBan.ten_chuan_hoa == san_pham_tai_ban_service.chuan_hoa_ten(tp.ten)
+    ).one()
+    assert row.cau_hinh_json["phi_giao_hang"] == 750_000

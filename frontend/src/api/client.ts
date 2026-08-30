@@ -3155,6 +3155,9 @@ export interface TinhGiaComponentMeta {
   phi_khuon?: number;
   /** Phân rã theo bước: bước nào con dao nào bao nhiêu tiền. */
   phi_khuon_dong?: { ten: string; loai: string | null; thanh_tien: number }[];
+  /** Phí giao hàng của sản phẩm này — khoản MỘT LẦN cho cả sản lượng. CŨNG đã nằm trong
+   *  `gia_von_tp` (một dòng của nhóm kết quả `giao_hang`), nên ĐỪNG cộng lại lần nữa. */
+  phi_giao_hang?: number;
   bu_hao_tay?: number; // ô "+ Bù thêm" đã bỏ → engine luôn trả 0
   hao_tay?: number; // ô "− Hao" đã bỏ → engine luôn trả 0
 }
@@ -3340,6 +3343,7 @@ export interface ThanhPhanOut {
   so_mau_b: number;
   so_mau_pha: number;
   ghi_chu_ky_thuat: string | null; // note KỸ THUẬT/SX theo sản phẩm → drawer lệnh
+  phi_giao_hang: number; // ⑤ phí giao hàng — khoản MỘT LẦN, ĐÃ nằm trong `gia_von_tp`
   gia_von_tp: number;
   thanh_phams: ThanhPhamOut[];
   vat_tus: VatTuLineOut[];
@@ -3446,6 +3450,9 @@ export interface ThanhPhanIn {
   so_mau_b?: number;
   so_mau_pha?: number;
   ghi_chu_ky_thuat?: string | null; // note KỸ THUẬT/SX theo sản phẩm → drawer lệnh
+  /** ⑤ Phí giao hàng: TỔNG tiền chở cho toàn bộ sản lượng của sản phẩm này — khoản MỘT LẦN,
+   *  cộng thẳng vào giá vốn (⇒ chịu markup ở Báo giá). 0 = không thu. */
+  phi_giao_hang?: number;
   thanh_phams?: ThanhPhamIn[];
   vat_tus?: VatTuLineIn[];
 }
