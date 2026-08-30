@@ -880,3 +880,66 @@ def test_migration_backfill_dung_lai_nhat_them_cho_chu_the_dang_bat(db, kh, cust
 
     rows = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
     assert rows, "backfill phải tự dựng lại giữ chỗ cho chủ thể đang bật"
+
+
+# ================== ĐỐI SOÁT KHI PMH ĐỔI ==================
+
+
+def _dot_giao(db, phieu, line, *, so_luong) -> None:
+    """Ghi MỘT đợt giao cho dòng phiếu — đủ để `da_giao_theo_dong()` cộng vào 'đã giao', khớp
+    hành vi `PurchaseService.ghi_dot_giao` mà không phải dựng toàn bộ service."""
+    from app.models.purchase import PurchaseDelivery, PurchaseDeliveryLine
+
+    dot = PurchaseDelivery(purchase_request_id=phieu.id, seq_no=1, delivery_date=HOM_NAY)
+    db.add(dot)
+    db.flush()
+    db.add(PurchaseDeliveryLine(delivery_id=dot.id, purchase_request_line_id=line.id,
+                                quantity=so_luong))
+    db.commit()
+
+
+def test_doi_soat_nha_moi_nhat_truoc_khi_con_ve_co_lai(db, svc, kh, customer):
+    """Bảo vệ cam kết CŨ: khi phần hứa co lại, dòng giữ MỚI TẠO bị nhả trước, dòng CŨ giữ nguyên."""
+    from app.models.purchase import PurchaseRequestLine
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1000)  # cần nhiều, ăn hết lô
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=200, ngay_ve=MAI)
+    phieu = db.query(PurchaseRequest).order_by(PurchaseRequest.id.desc()).first()
+    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
+
+    svc.bat(lsx_id=a.id)
+    truoc = sum(float(r.so_luong) for r in svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None))
+    assert truoc > 0, "phải giữ được từ lô đang về"
+
+    # NCC chỉ giao 50/200 — con_ve giảm còn 150.
+    _dot_giao(db, phieu, line, so_luong=50)
+
+    svc.doi_soat_dang_ve(line.id)
+
+    sau = sum(float(r.so_luong) for r in svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None))
+    assert sau == pytest.approx(min(truoc, 150), abs=0.01), (
+        f"phải nhả bớt xuống còn tối đa 150 (con_ve mới), thực tế còn {sau}"
+    )
+
+
+def test_doi_soat_nha_sach_khi_dong_khong_con_trong_hang_dang_ve(db, svc, kh, customer):
+    """Phiếu rời khỏi trạng thái 'đang về' (đóng/huỷ) ⇒ `_hang_dang_ve()` không còn dòng nào của
+    nó ⇒ đối soát phải nhả SẠCH phần đã giữ theo dòng đó."""
+    from app.models.purchase import PR_CANCELLED, PurchaseRequestLine
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+    phieu = db.query(PurchaseRequest).order_by(PurchaseRequest.id.desc()).first()
+    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
+    svc.bat(lsx_id=a.id)
+    assert svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None), "phải giữ được trước đã"
+
+    phieu.status = PR_CANCELLED   # mô phỏng PurchaseService.cancel() đã đổi trạng thái
+    db.commit()
+
+    svc.doi_soat_dang_ve(line.id)
+
+    con = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
+    assert not any(r.purchase_request_line_id == line.id for r in con)

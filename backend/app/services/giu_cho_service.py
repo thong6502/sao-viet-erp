@@ -438,6 +438,64 @@ class GiuChoService:
         self._doi_co(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id, bat=False)
         return self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
 
+    def doi_soat_dang_ve(self, purchase_request_line_id: int) -> None:
+        """PMH đổi (đợt giao mới/sửa/xoá, huỷ đơn, đóng đơn, dời ngày) ⇒ đối lại phần giữ HỨA
+        (`nguon='dang_ve'`) đã bám DÒNG PHIẾU này.
+
+        CHỈ NHẢ, không bao giờ tự thêm: phần hứa GIÃN ra (đơn mở lại, giao ít hơn ban đầu dự
+        kiến...) là việc của `nhat_them()` ở lần hàng-về/bật-giữ kế tiếp, không phải việc của hàm
+        đối soát này. Nhả THEO MỚI NHẤT trước (`created_at` giảm dần) — bảo vệ cam kết CŨ, đúng
+        mặc định đã khoá "cam kết cũ được bảo vệ; chỗ mới hơn bị nhả trước".
+
+        Đọc lại `KeHoachVatTuService._hang_dang_ve()` (nguồn DUY NHẤT của "còn về bao nhiêu", đã
+        quy đổi đơn vị gốc + trừ đúng luật `da_giao_theo_dong`) thay vì tính lại — tái dùng, không
+        đẻ đường tính thứ hai sẽ có lúc lệch.
+        """
+        held = (
+            self.db.query(VatTuGiuCho)
+            .filter(VatTuGiuCho.purchase_request_line_id == purchase_request_line_id,
+                    VatTuGiuCho.nguon == NGUON_DANG_VE)
+            .order_by(VatTuGiuCho.created_at.desc())
+            .all()
+        )
+        if not held:
+            return
+        hang = (held[0].hang_loai, held[0].hang_id)
+        con_ve, ngay_ve = 0.0, None
+        for ngay, sl, _ma, line_id in self.kh._hang_dang_ve().get(hang, []):
+            if line_id == purchase_request_line_id:
+                con_ve, ngay_ve = sl, ngay
+                break
+        da_giu = sum(_f(r.so_luong) for r in held)
+        thua = round(da_giu - con_ve, 4)
+        con_lai = held
+        if thua > 0:
+            con_lai = []
+            for r in held:
+                if thua > 0:
+                    bot = min(thua, _f(r.so_luong))
+                    thua = round(thua - bot, 4)
+                    if _f(r.so_luong) - bot <= 0.004:
+                        self.db.delete(r)
+                        continue
+                    r.so_luong = round(_f(r.so_luong) - bot, 2)
+                con_lai.append(r)
+        if ngay_ve is not None:
+            for r in con_lai:
+                r.ngay_ve = ngay_ve
+        self.db.commit()
+
+    def doi_soat_dang_ve_don(self, purchase_request_id: int) -> None:
+        """Đối lại MỌI dòng của MỘT PMH — gọi khi sự kiện xảy ra ở CẤP ĐƠN (huỷ, đóng, mở lại, đợt
+        giao đổi) mà không rõ trước dòng nào bị ảnh hưởng, nên đối hết cho chắc."""
+        from ..models.purchase import PurchaseRequestLine
+
+        for ln in (self.db.query(PurchaseRequestLine)
+                   .filter(PurchaseRequestLine.purchase_request_id == purchase_request_id)
+                   .all()):
+            if ln.hang_loai and ln.hang_id:
+                self.doi_soat_dang_ve(ln.id)
+
     def nhat_them(self, *, chi_chu_the: tuple | None = None, bang: dict | None = None) -> int:
         """Bù thêm cho MỌI chủ thể đang bật công tắc mà chưa giữ đủ. Trả số dòng giữ chỗ đẻ ra.
 
