@@ -943,3 +943,66 @@ def test_doi_soat_nha_sach_khi_dong_khong_con_trong_hang_dang_ve(db, svc, kh, cu
 
     con = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
     assert not any(r.purchase_request_line_id == line.id for r in con)
+
+
+# ================== HOOK PurchaseService ⇄ GIỮ CHỖ (30/08/2026, Task 4) ==================
+
+
+def _thu_mua(db, kh) -> "PurchaseService":
+    """Dựng `PurchaseService` NGOÀI FastAPI DI, soi đúng cách `deps.get_purchase_service` ráp —
+    KHÔNG đoán tên module: `AuthorizationService` nằm ở `rbac_service` (không phải
+    `authorization_service` — file đó không tồn tại), `DepartmentRepository`/`RoleRepository`
+    nằm chung `rbac_repo`, và `DepartmentPurchaseRequestRepository`/`PurchaseStatusHistoryRepository`
+    nằm chung `purchase_repo` với `SupplierRepository`/`PurchaseRequestRepository` đã import ở
+    đầu file này (không có file `department_purchase_repo.py`/`department_repo.py` riêng)."""
+    from app.repositories.audit_repo import AuditLogRepository
+    from app.repositories.purchase_repo import (
+        DepartmentPurchaseRequestRepository,
+        PurchaseStatusHistoryRepository,
+    )
+    from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
+    from app.repositories.user_repo import UserRepository
+    from app.services.purchase_service import PurchaseService
+    from app.services.rbac_service import AuthorizationService
+
+    return PurchaseService(
+        suppliers=SupplierRepository(db),
+        department_requests=DepartmentPurchaseRequestRepository(db),
+        requests=PurchaseRequestRepository(db),
+        users=UserRepository(db),
+        departments=DepartmentRepository(db),
+        audit=AuditLogRepository(db),
+        authz=AuthorizationService(RoleRepository(db)),
+        lich_su=PurchaseStatusHistoryRepository(db),
+        giu_cho=GiuChoService(db, kh),
+    )
+
+
+def test_huy_pmh_nha_sach_giu_cho_dang_ve(db, svc, kh, customer):
+    """Huỷ PMH → PMH rời khỏi trạng thái 'đang về' → `GiuChoService.doi_soat_dang_ve_don` phải tự
+    chạy và nhả sạch phần giữ hứa bám phiếu đó, KHÔNG cần ai gọi tay `nhat_them`/`doi_soat_dang_ve`.
+
+    Actor dùng user `admin` đã seed sẵn (KHÔNG dùng actor giả `type("A", (), {"id": 1})()` như bản
+    nháp đầu của test này): `_phieu_mua()` dựng PMH thẳng ở trạng thái `PR_PURCHASED`, nên
+    `PurchaseService.cancel()` đòi actor có quyền `ke_toan:approve` — nhánh "tự huỷ phiếu NHÁP do
+    chính mình lập" không áp được vì phiếu không ở `PR_DRAFT`. Một actor giả chỉ có `.id` còn vỡ
+    sớm hơn nữa: `AuthorizationService.can()` đọc `user.role_id`, actor giả không có thuộc tính đó
+    nên ném `AttributeError` trước khi kịp bàn tới việc có quyền hay không."""
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+    phieu = db.query(PurchaseRequest).order_by(PurchaseRequest.id.desc()).first()
+    svc.bat(lsx_id=a.id)
+    assert svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None), "phải giữ được trước đã"
+
+    thu_mua = _thu_mua(db, kh)
+    from app.models.user import User
+
+    admin = db.query(User).filter(User.username == "admin").first()
+    thu_mua.cancel(phieu.id, reason="Không mua nữa", actor=admin)
+
+    con = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
+    assert not any(float(r.so_luong) > 0 for r in con
+                   if getattr(r, "purchase_request_line_id", None)), (
+        "huỷ PMH phải nhả hết phần giữ hứa bám phiếu đó"
+    )
