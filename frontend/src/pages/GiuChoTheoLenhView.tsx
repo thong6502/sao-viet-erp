@@ -11,6 +11,7 @@ import {
   type TheoLenhHang,
   type TheoLenhOut,
   type TheoLenhRow,
+  type TrangThaiGiu,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
@@ -35,8 +36,26 @@ const MAU_VATTU: Record<string, { label: string; cls: string; dotColor: string }
   ve_muon: { label: "Hàng về muộn", cls: "khvt-stream-chip--vemuon", dotColor: "var(--kh-vemuon-fg)" },
 };
 
+// @ts-ignore TS6133 — Giữ cho backward compatibility; có chỗ khác trong file/repo còn dùng trang_thai.
 function mauVatTu(mau: CanDoiMau) {
   return MAU_VATTU[mau] ?? { label: String(mau), cls: "khvt-stream-chip--khongro", dotColor: "var(--steel)" };
+}
+
+/** [MỚI 30/08/2026] Nhãn/màu cho trạng thái GIỮ CHỖ 6 mức — thay `MAU_VATTU`/`mauVatTu` ở màn này,
+ *  vì đây LÀ màn "giữ chỗ theo lệnh": `co_the_giu`/`da_giu`/`da_cap` mới đúng câu hỏi màn này trả
+ *  lời ("lệnh này chạy được chưa"), không phải `xanh`/`vang`/`xam` của can_doi() (chỉ nói "hệ CÓ
+ *  đủ hàng không", không nói "CHÍNH LỆNH NÀY đã giữ được chưa"). */
+const MAU_VATTU_GIU: Record<string, { label: string; cls: string; dotColor: string }> = {
+  khong_ro: { label: "Chưa rõ ĐVT", cls: "khvt-stream-chip--khongro", dotColor: "var(--steel)" },
+  thieu: { label: "Thiếu cần mua", cls: "khvt-stream-chip--do", dotColor: "var(--kh-thieu-fg)" },
+  ve_muon: { label: "Hàng về muộn", cls: "khvt-stream-chip--vemuon", dotColor: "var(--kh-vemuon-fg)" },
+  co_the_giu: { label: "Có thể giữ", cls: "khvt-stream-chip--vang", dotColor: "var(--kh-canhbao-fg)" },
+  da_giu: { label: "Đã giữ", cls: "khvt-stream-chip--xanh", dotColor: "var(--moss)" },
+  da_cap: { label: "Đã cấp", cls: "khvt-stream-chip--xam", dotColor: "var(--ash-2)" },
+};
+
+function mauVatTuGiu(mau: TrangThaiGiu) {
+  return MAU_VATTU_GIU[mau] ?? { label: String(mau), cls: "khvt-stream-chip--khongro", dotColor: "var(--steel)" };
 }
 
 function iconLoaiHang(loai: HangLoai): IconName {
@@ -427,7 +446,7 @@ export function GiuChoTheoLenhView({
                   const k = khoaChu(r);
                   const soDo = r.hang.reduce((s, h) => s + h.khoa_do.length, 0);
                   const veMuon = monVeMuon(r);
-                  const soMonDu = r.hang.filter((h) => h.trang_thai === "xanh" || h.trang_thai === "xam").length;
+                  const soMonDu = r.hang.filter((h) => h.trang_thai_giu === "da_cap" || h.trang_thai_giu === "da_giu").length;
                   const tongMon = r.hang.length;
                   const pctGiu = tongMon > 0 ? Math.round((soMonDu / tongMon) * 100) : 0;
                   const isDangChay = dangChay === k;
@@ -484,7 +503,7 @@ export function GiuChoTheoLenhView({
                       <td>
                         <div className="khvt-material-stream">
                           {r.hang.map((h) => {
-                            const meta = mauVatTu(h.trang_thai);
+                            const meta = mauVatTuGiu(h.trang_thai_giu);
                             const icon = iconLoaiHang(h.hang_loai);
                             // Chỉ bày ở món CÒN PHẢI LO. Món đã đủ kho mà vẫn đeo mã phiếu
                             // thì cả hàng chip toàn chữ, và cái cần đọc chìm mất; ai muốn
@@ -626,7 +645,7 @@ export function GiuChoTheoLenhView({
             const k = khoaChu(r);
             const soDo = r.hang.reduce((s, h) => s + h.khoa_do.length, 0);
             const veMuon = monVeMuon(r);
-            const soMonDu = r.hang.filter((h) => h.trang_thai === "xanh" || h.trang_thai === "xam").length;
+            const soMonDu = r.hang.filter((h) => h.trang_thai_giu === "da_cap" || h.trang_thai_giu === "da_giu").length;
             const tongMon = r.hang.length;
             const pctGiu = tongMon > 0 ? Math.round((soMonDu / tongMon) * 100) : 0;
             const isDangChay = dangChay === k;
@@ -743,7 +762,7 @@ export function GiuChoTheoLenhView({
                   </div>
                   <ul className="khvt-bcard__item-list">
                     {r.hang.map((h) => {
-                      const meta = mauVatTu(h.trang_thai);
+                      const meta = mauVatTuGiu(h.trang_thai_giu);
                       const icon = iconLoaiHang(h.hang_loai);
                       return (
                         <li key={`${h.hang_loai}-${h.hang_id}`} className="khvt-bcard__item">
@@ -851,7 +870,7 @@ function LenhVatTuDrawer({
 }) {
   const soDo = r.hang.reduce((s, h) => s + h.khoa_do.length, 0);
   const veMuon = monVeMuon(r);
-  const soMonDu = r.hang.filter((h) => h.trang_thai === "xanh" || h.trang_thai === "xam").length;
+  const soMonDu = r.hang.filter((h) => h.trang_thai_giu === "da_cap" || h.trang_thai_giu === "da_giu").length;
   const tongMon = r.hang.length;
   const pctGiu = tongMon > 0 ? Math.round((soMonDu / tongMon) * 100) : 0;
 
@@ -1022,7 +1041,7 @@ function LenhVatTuDrawer({
                 </thead>
                 <tbody>
                   {r.hang.map((h) => {
-                    const meta = mauVatTu(h.trang_thai);
+                    const meta = mauVatTuGiu(h.trang_thai_giu);
                     const tag = nhanLoaiHang(h.hang_loai);
                     return (
                       <tr key={`${h.hang_loai}-${h.hang_id}`}>
