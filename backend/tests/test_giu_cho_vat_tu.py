@@ -1135,3 +1135,50 @@ def test_gan_giu_cho_vao_bang_dan_dung_dong(db, svc, kh, customer):
 
     from app.schemas.ke_hoach_vat_tu import CanDoiOut
     CanDoiOut(**bang)  # phải KHÔNG raise — xác nhận field mới không làm vỡ response_model của router thật
+
+
+# ================== CHẶN SỬA KHI ĐANG GIỮ CHỖ (LSX) ==================
+
+
+def _lsx_svc(db) -> "LsxService":
+    from app.repositories.audit_repo import AuditLogRepository
+    from app.repositories.document_sequence_repo import DocumentSequenceRepository
+    from app.repositories.lsx_repo import LsxRepository
+    from app.services.lsx_service import LsxService
+    from app.services.sequence_service import SequenceService
+
+    return LsxService(
+        db, LsxRepository(db), AuditLogRepository(db),
+        SequenceService(DocumentSequenceRepository(db)),
+    )
+
+
+def test_sua_so_luong_dat_khi_dang_giu_cho_bi_chan(db, svc, customer):
+    """Đang giữ chỗ mà sửa SL đặt là đổi luôn số vật tư cần ⇒ phải chặn, giống cách bài ghép đã
+    chặn thêm/rút thành viên khi đang giữ (`BaiGhepService._chan_dang_giu_cho`)."""
+    from app.services.lsx_service import LsxConflict
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    _ton(db, _giay_hang(g), 100)
+    svc.bat(lsx_id=a.id)
+
+    lsx_svc = _lsx_svc(db)
+    payload = type("P", (), {"model_dump": lambda self, exclude_unset=True: {"so_luong_dat": 2000}})()
+    admin = db.query(__import__("app.models.user", fromlist=["User"]).User).first()
+    with pytest.raises(LsxConflict, match="giữ chỗ"):
+        lsx_svc.update(lsx_id=a.id, payload=payload, actor=admin)
+
+
+def test_xoa_lsx_khi_dang_giu_cho_bi_chan(db, svc, customer):
+    from app.services.lsx_service import LsxConflict
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    _ton(db, _giay_hang(g), 100)
+    svc.bat(lsx_id=a.id)
+
+    lsx_svc = _lsx_svc(db)
+    admin = db.query(__import__("app.models.user", fromlist=["User"]).User).first()
+    with pytest.raises(LsxConflict, match="giữ chỗ"):
+        lsx_svc.xoa(lsx_id=a.id, actor=admin)
