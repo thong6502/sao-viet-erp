@@ -45,6 +45,7 @@ from sqlalchemy.orm import Session
 from ..models.bai_ghep import BaiGhep
 from ..models.lsx import Lsx
 from ..models.vat_tu_giu_cho import NGUON_DANG_VE, NGUON_KHO, VatTuGiuCho
+from ..realtime import hub
 from ..repositories.giu_cho_repo import GiuChoRepository
 
 Hang = tuple[str, int]
@@ -451,12 +452,14 @@ class GiuChoService:
         # bảng giữ chỗ nên các dòng vừa nhặt không làm nó cũ đi.
         bang = self.kh.can_doi()
         self.nhat_them(chi_chu_the=(lsx_id, bai_ghep_id), bang=bang)
+        hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
         return self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id, bang=bang)
 
     def tat(self, *, lsx_id: int | None = None, bai_ghep_id: int | None = None) -> dict:
         """Nhả HẾT. Không phải hoàn tác — bật lại có thể chẳng còn gì, nơi gọi phải hỏi trước."""
         self.repo.xoa_cua_chu_the(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
         self._doi_co(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id, bat=False)
+        hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
         return self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
 
     def doi_soat_dang_ve(self, purchase_request_line_id: int) -> None:
@@ -506,6 +509,7 @@ class GiuChoService:
             for r in con_lai:
                 r.ngay_ve = ngay_ve
         self.db.commit()
+        hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
 
     def doi_soat_dang_ve_don(self, purchase_request_id: int) -> None:
         """Đối lại MỌI dòng của MỘT PMH — gọi khi sự kiện xảy ra ở CẤP ĐƠN (huỷ, đóng, mở lại, đợt
@@ -572,6 +576,8 @@ class GiuChoService:
                     else:
                         break
         self.repo.them(moi)
+        if moi:
+            hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
         return len(moi)
 
     def chuyen_dang_ve_sang_kho(self, hang: Hang, so_luong: float) -> None:
@@ -617,6 +623,7 @@ class GiuChoService:
                     purchase_request_line_id=None,
                 ))
         self.db.commit()
+        hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
 
     # ================== KHO GỌI VÀO ==================
 
