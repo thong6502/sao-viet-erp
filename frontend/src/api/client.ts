@@ -694,7 +694,8 @@ export interface BaiGhepSoDoBuocChung {
   khoan_dien_giai: string | null;
   khoan_thieu: string[];
   khoan_ly_do: string | null;
-  vat_tus: { vat_tu_id: number; ma: string; ten: string; don_vi: string; so_luong: number }[];
+  vat_tus: { vat_tu_id: number; ma: string; ten: string; don_vi: string; so_luong: number;
+             nguon_so_luong: string }[];
   /** Lượng TÍNH SẴN cho mọi vật tư theo lượt chung — cùng hợp đồng với bước lệnh. Món chưa tính
    *  ra được vẫn có mặt (`so_luong: null`) kèm `ly_do` chỉ chỗ khai công thức. */
   vat_tu_goi_y: { vat_tu_id: number; so_luong: number | null;
@@ -774,7 +775,7 @@ export interface BaiGhepBuocChungBody {
   /** Ô DUY NHẤT còn gõ được (2026-08-04): chuẩn bị + tốc độ kế thừa SỐNG từ máy đang gán. */
   phat_sinh_phut?: number; so_luot_chay?: number;
   ghi_chu?: string | null;
-  vat_tus?: { vat_tu_id: number; so_luong: number }[];
+  vat_tus?: { vat_tu_id: number; so_luong: number; nguon_so_luong?: string }[];
   nha_cung_cap?: string | null; sl_gui?: number | null; ngay_gui_dk?: string | null;
   van_chuyen_ngay?: number | null; gia_cong_ngay?: number | null; ngay_nhan_dk?: string | null;
   hao_hut_cho_phep?: number | null; don_gia_gia_cong?: number | null;

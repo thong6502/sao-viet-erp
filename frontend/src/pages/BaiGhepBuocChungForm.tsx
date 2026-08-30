@@ -161,8 +161,11 @@ export function BuocChungForm({
   const dvSlHien = optLive ? dvSlLive : g.khoan_don_vi_sl;
 
   // Vật tư sửa theo LÔ: giữ nguyên danh sách hiện có rồi thay cả cụm khi lưu (API là replace-all).
-  const vtHienTai = (f.vat_tus ?? g.vat_tus.map((v) => ({ vat_tu_id: v.vat_tu_id, so_luong: v.so_luong })));
-  const datVatTu = (rows: { vat_tu_id: number; so_luong: number }[]) => setF({ ...f, vat_tus: rows });
+  const vtHienTai = (f.vat_tus ?? g.vat_tus.map((v) => (
+    { vat_tu_id: v.vat_tu_id, so_luong: v.so_luong, nguon_so_luong: v.nguon_so_luong }
+  )));
+  const datVatTu = (rows: { vat_tu_id: number; so_luong: number; nguon_so_luong?: string }[]) =>
+    setF({ ...f, vat_tus: rows });
 
   // Bung vật tư của đầu việc khoán vào danh sách — như bước lệnh. Model bước chung không mang cờ
   // `tu_dong` nên gộp theo `vat_tu_id`: CHỈ thêm mã chưa có, không đè số người đã khai tay.
@@ -790,7 +793,7 @@ export function BuocChungForm({
                           const next = vtHienTai.map((row) => {
                             const goiY = g.vat_tu_goi_y.find((x) => x.vat_tu_id === row.vat_tu_id);
                             return goiY?.so_luong != null
-                              ? { ...row, so_luong: goiY.so_luong }
+                              ? { ...row, so_luong: goiY.so_luong, nguon_so_luong: "dinh_muc" }
                               : row;
                           });
                           datVatTu(next);
@@ -836,6 +839,7 @@ export function BuocChungForm({
                         const soLuu = Number(row.so_luong);
                         const khop = soMay !== null && Number.isFinite(soLuu) && Math.abs(soMay - soLuu) <= 0.0005;
                         const lech = soMay !== null && Number.isFinite(soLuu) && !khop;
+                        const laDinhMuc = (row.nguon_so_luong ?? "thu_cong") === "dinh_muc";
                         return (
                           <tr className="khsx-vattu-tr" key={`${row.vat_tu_id}_${i}`}>
                             <td className="khsx-vattu-td khsx-vattu-td--info">
@@ -858,7 +862,7 @@ export function BuocChungForm({
                                           onClick={() => {
                                             setVtGo({ ...vtGo, [row.vat_tu_id]: String(soMay) });
                                             const next = [...vtHienTai];
-                                            next[i] = { ...row, so_luong: Number(soMay) };
+                                            next[i] = { ...row, so_luong: Number(soMay), nguon_so_luong: "dinh_muc" };
                                             datVatTu(next);
                                           }}
                                         >
@@ -875,8 +879,8 @@ export function BuocChungForm({
                               )}
                             </td>
                             <td className="khsx-vattu-td khsx-vattu-td--status">
-                              <span className={`khsx-vattu-src-badge ${khop ? "is-auto" : "is-manual"}`}>
-                                {khop ? "Tự tính" : "Đã sửa"}
+                              <span className={`khsx-vattu-src-badge ${laDinhMuc ? "is-auto" : "is-manual"}`}>
+                                {laDinhMuc ? "Tự tính" : "Đã sửa"}
                               </span>
                             </td>
                             <td className="khsx-vattu-td khsx-vattu-td--input">
@@ -892,7 +896,7 @@ export function BuocChungForm({
                                   onChange={(e) => {
                                     setVtGo({ ...vtGo, [row.vat_tu_id]: e.target.value });
                                     const next = [...vtHienTai];
-                                    next[i] = { ...row, so_luong: Number(e.target.value) || 0 };
+                                    next[i] = { ...row, so_luong: Number(e.target.value) || 0, nguon_so_luong: "thu_cong" };
                                     datVatTu(next);
                                   }}
                                 />
@@ -933,7 +937,10 @@ export function BuocChungForm({
                                 const item = vtRefs.find((v) => v.id === Number(e.target.value));
                                 if (!item || vtHienTai.some((v) => v.vat_tu_id === item.id)) return;
                                 const goiYMoi = g.vat_tu_goi_y.find((x) => x.vat_tu_id === item.id);
-                                datVatTu([...vtHienTai, { vat_tu_id: item.id, so_luong: goiYMoi?.so_luong ?? 0 }]);
+                                datVatTu([...vtHienTai, {
+                                  vat_tu_id: item.id, so_luong: goiYMoi?.so_luong ?? 0,
+                                  nguon_so_luong: goiYMoi?.so_luong != null ? "dinh_muc" : "thu_cong",
+                                }]);
                               }}
                             >
                               <option value="">— Thêm vật tư vào lượt chung —</option>

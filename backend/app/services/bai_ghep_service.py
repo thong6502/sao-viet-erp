@@ -1693,7 +1693,7 @@ class BaiGhepService:
                 "vat_tus": [
                     {"vat_tu_id": v.vat_tu_id, "ma": v.vat_tu_ma_snapshot,
                      "ten": v.vat_tu_ten_snapshot, "don_vi": v.don_vi_snapshot,
-                     "so_luong": _f(v.so_luong)}
+                     "so_luong": _f(v.so_luong), "nguon_so_luong": v.nguon_so_luong}
                     for v in c.vat_tus
                 ],
                 # Lượng tính sẵn cho MỌI vật tư theo lượt chung. Nay truyền `qc_bien` (quy cách TỜ
