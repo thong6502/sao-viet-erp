@@ -113,11 +113,19 @@ export interface CatalogConfig {
    *  bộ cột, tự đặt mã/tên "(bản sao)" không trùng; bấm xong mở luôn drawer bản ghi mới để đổi tên
    *  ngay. Chỉ bật ở danh mục khai tay, có endpoint `/clone` thật (xem `enable_clone` ở backend). */
   enableClone?: boolean;
-  /** Bày 2 nút "Tải mẫu" / "Nhập Excel" ở đầu bảng (mục 1). Backend TẠO MỚI trực tiếp từng dòng,
-   *  không có bước xem trước; mã trùng dữ liệu đã có báo lỗi đúng dòng đó, không chặn dòng khác.
-   *  Chỉ bật ở danh mục có `enable_import=True` + `import_columns` khai ở router (xem `catalog_base`
-   *  backend). "Tải mẫu" chỉ cần quyền đọc (đã ngầm định vì đang xem được bảng); "Nhập Excel" gác
-   *  cùng quyền `create` với nút "Thêm" — server cũng gác `/import-excel` bằng đúng quyền đó. */
+  /** Bày 2 nút "Xuất Excel" / "Nhập Excel" ở đầu bảng.
+   *
+   *  "Xuất Excel" ra CHỈ dòng đang dùng nhưng ĐỦ ô cấu hình hiện hành — mọi công thức, bậc tính và
+   *  bảng con nằm ở sheet riêng đọc được (không JSON thô), không kèm lịch sử. Danh mục rỗng thì chỉ
+   *  còn dòng tiêu đề, tự đóng vai file mẫu; vì thế KHÔNG còn nút "Tải mẫu" riêng.
+   *
+   *  "Nhập Excel" là UPSERT theo mã, HAI BƯỚC (xem trước → xác nhận) và CẢ FILE LÀ MỘT GIAO DỊCH:
+   *  còn một dòng lỗi thì không ghi gì cả. Chỉ bật ở danh mục có `CatalogExcelSpec` khai ở
+   *  `services/catalog_excel_specs.py` (hiện đủ 13 màn).
+   *
+   *  HAI mức quyền khác nhau: "Xuất Excel" chỉ cần quyền ĐỌC (đã ngầm định vì đang xem được bảng);
+   *  "Nhập Excel" đòi CẢ `create` LẪN `update` — một dòng có thể là tạo mới hoặc cập nhật, server
+   *  cũng gác `/import-excel` bằng đúng cặp quyền đó. */
   enableImport?: boolean;
   autoCode?: boolean;           // mã sinh NGẦM ở backend → ẩn ô "Mã" lúc tạo, không gửi ma
   /** Tạo xong thì GIỮ drawer mở ở bản ghi vừa tạo. Dùng cho màn có khối con phải gắn vào id (vd

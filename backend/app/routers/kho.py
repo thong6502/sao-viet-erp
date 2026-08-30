@@ -21,6 +21,7 @@ from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
 from ..schemas.kho_hang import KhoHangIn, KhoHangListOut, KhoHangRow
 from ..services.kho_hang_service import KhoHangNotFound, KhoHangService
+from ..services.catalog_excel_specs import KHO_HANG
 from .catalog_base import loi_http, make_catalog_router
 
 router = APIRouter(prefix="/api/kho", tags=["kho"])
@@ -56,5 +57,6 @@ def delete_check(kho_id: int, svc: Service,
 make_catalog_router(
     router, ten="kho_hang", ServiceDep=Service, module=MODULE, doc=_doc_kho,
     InModel=KhoHangIn, RowModel=KhoHangRow, ListModel=KhoHangListOut,
+    excel_spec=KHO_HANG,
     ma_goi_y=True,      # repo khai `ma_prefix = "KHO-"`
 )

@@ -62,25 +62,42 @@ export function crud(prefix: string) {
     lichSuCongThuc(token: string, id: number): Promise<CongThucLichSuItem[]> {
       return authed<CongThucLichSuItem[]>(`${prefix}/${id}/lich-su-cong-thuc`, token);
     },
-    /** File mẫu Excel (chỉ dòng tiêu đề) — blob URL, tải về ngay (mục 1). */
+    /** Xuất Excel — blob URL, tải về ngay. CHỈ dòng đang dùng, nhưng ĐỦ ô cấu hình hiện hành:
+     *  mọi công thức, bậc tính và bảng con (bậc bù hao, đầu việc, gói bảo trì…) đi ra sheet con
+     *  đọc được. Không kèm lịch sử. Danh mục rỗng thì chỉ còn dòng tiêu đề, tự đóng vai file mẫu. */
     templateBlobUrl(token: string): Promise<string> {
       return blobUrl(`${prefix}/mau-excel`, token);
     },
-    /** Nhập Excel — TẠO MỚI trực tiếp từng dòng, không có bước xem trước (khác luồng NCC). Dòng
-     *  lỗi không chặn các dòng khác. */
-    importExcel(token: string, file: File): Promise<ImportExcelOut> {
+    /** Nhập Excel — UPSERT theo mã, CẢ FILE là MỘT giao dịch.
+     *
+     *  `mode="preview"` chạy y hệt `commit` rồi rollback, nên con số xem trước là con số THẬT
+     *  (kể cả lỗi chỉ lộ ra lúc service validate) — không phải một bản kiểm sơ bộ dễ dãi hơn,
+     *  thứ khiến người dùng bấm Xác nhận rồi mới ăn lỗi. `mode="commit"` mới ghi, và chỉ ghi khi
+     *  KHÔNG còn dòng lỗi nào. */
+    importExcel(token: string, file: File, mode: "preview" | "commit"): Promise<ImportExcelOut> {
       const form = new FormData();
       form.append("file", file);
-      return authed<ImportExcelOut>(`${prefix}/import-excel`, token, { method: "POST", body: form });
+      return authed<ImportExcelOut>(`${prefix}/import-excel?mode=${mode}`, token, {
+        method: "POST", body: form,
+      });
     },
   };
 }
 
-/** Kết quả một lượt nhập Excel (mục 1) — khớp `ImportExcelOut` ở `catalog_base.py`. */
+/** Kết quả một lượt nhập Excel — khớp `ImportExcelOut` ở `catalog_base.py`.
+ *
+ *  `preview` và `commit` trả CÙNG một hình dạng; khác nhau đúng ở `da_ghi`. */
 export interface ImportExcelOut {
+  /** Không còn dòng lỗi nào. `false` ⇒ chắc chắn chưa ghi gì cả. */
+  hop_le: boolean;
   tong_dong: number;
-  thanh_cong: number;
-  loi: { dong: number; cot: string; ly_do: string }[];
+  tao_moi: number;
+  cap_nhat: number;
+  /** Dòng không đổi một ô nào — KHÔNG gọi service, nên cũng không đẻ dòng nhật ký. */
+  khong_doi: number;
+  /** Đã thực sự ghi xuống DB. Luôn `false` ở `mode=preview`. */
+  da_ghi: boolean;
+  loi: { sheet: string; dong: number; cot: string; ly_do: string }[];
 }
 
 /** Một mốc trong lịch sử một ô công thức — xem `crud().lichSuCongThuc`. */

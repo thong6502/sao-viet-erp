@@ -16,6 +16,7 @@ from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.loai_san_pham_repo import LoaiSanPhamRepository
 from ..schemas.loai_san_pham import LoaiSanPhamIn, LoaiSanPhamListOut, LoaiSanPhamRow
 from ..services.loai_san_pham_service import LoaiSanPhamService
+from ..services.catalog_excel_specs import LOAI_SAN_PHAM
 from .catalog_base import make_catalog_router
 
 router = APIRouter(prefix="/api/loai-san-pham", tags=["loai-san-pham"])
@@ -39,6 +40,7 @@ Service = Annotated[LoaiSanPhamService, Depends(get_service)]
 make_catalog_router(
     router, ten="loai_san_pham", ServiceDep=Service, module=MODULE, doc=_DOC,
     InModel=LoaiSanPhamIn, RowModel=LoaiSanPhamRow, ListModel=LoaiSanPhamListOut,
+    excel_spec=LOAI_SAN_PHAM,
     loc="structural_type",
     ma_goi_y=True,      # repo khai `ma_prefix = "LSP-"`
 )

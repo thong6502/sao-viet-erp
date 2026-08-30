@@ -625,6 +625,27 @@ def require_any_permission(*grants: tuple[str, str]):
     return dependency
 
 
+def require_all_permissions(*grants: tuple[str, str]):
+    """Like `require_permission`, but allows the request only if EVERY one of the
+    (module_key, action) pairs is granted — for endpoints that branch between two
+    actions per-row and can't know in advance which one applies (e.g. Excel import
+    UPSERT: mỗi dòng có thể là tạo mới hoặc cập nhật, không biết trước khi đọc file)."""
+    O_QUYEN_DUOC_GAC.update(grants)
+
+    def dependency(
+        user: CurrentUser,
+        authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+    ) -> User:
+        if not all(authz.can(user, module_key, action) for module_key, action in grants):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bạn không có quyền thực hiện thao tác này",
+            )
+        return user
+
+    return dependency
+
+
 def get_product_type_catalog_repository(
     db: Annotated[Session, Depends(get_db)],
 ) -> ProductTypeCatalogRepository:
