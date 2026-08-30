@@ -379,6 +379,14 @@ def _gop_in_va_san_sang(db, bg_svc, bg, admin, keys=None):
             bai_ghep_id=bg.id, gang_step_key=c.step_key, actor=admin,
             patch={"department_id": to_id, "may_id": mau.may_id},
         )
+    # `so_con_tren_to` khởi tạo từ `lsx.so_con` — số con khi lệnh còn đứng RIÊNG, tự tính như thể
+    # được cả tờ. Ghép N lệnh cùng tờ mà giữ nguyên số đó là chồng diện tích → gate `vuot_dien_tich`
+    # chặn đúng — chia đều cho số thành viên trước khi đòi sẵn sàng.
+    for tv in bg_svc._get(bg.id).thanh_viens:
+        bg_svc.sua_thanh_vien(
+            bai_ghep_id=bg.id, thanh_vien_id=tv.id, actor=admin,
+            so_con_tren_to=max(1, int(tv.so_con_tren_to or 1) // len(tvs)),
+        )
     ra = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
     # Bài ghép là CHỦ THỂ giữ chỗ của các lệnh thành viên — bật ở đây, sau khi gộp xong, vì gộp làm
     # đổi số giấy cần (đó chính là lý do bài đang giữ chỗ thì không cho thêm/rút thành viên).
@@ -423,6 +431,11 @@ def test_moi_buoc_chung_mot_dong_lich_khong_bi_boc_hoi(
         bg_svc.lap_ke_hoach_buoc_chung(
             bai_ghep_id=bg.id, gang_step_key=c.step_key, actor=admin,
             patch={"department_id": to_id, "may_id": mau.may_id},
+        )
+    for tv in bg_svc._get(bg.id).thanh_viens:
+        bg_svc.sua_thanh_vien(
+            bai_ghep_id=bg.id, thanh_vien_id=tv.id, actor=admin,
+            so_con_tren_to=max(1, int(tv.so_con_tren_to or 1) // len(tvs)),
         )
     bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
     _giu_cho_du(db, bai_ghep_ids=[bg.id])       # tiền đề mới: giữ đủ vật tư mới vào kế hoạch
