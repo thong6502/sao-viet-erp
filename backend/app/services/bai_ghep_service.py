@@ -1842,18 +1842,55 @@ class BaiGhepService:
             thieu.append("thieu_kho_in")
         if any(int(tv.so_con_tren_to or 0) <= 0 for tv in bg.thanh_viens):
             thieu.append("thieu_ups")
+        # Giấy của bài PHẢI khớp giấy đang khai ở mỗi thành viên — bài ghép in CHUNG một tờ nên
+        # giấy lệch là dữ liệu cũ/nhập nhầm (đổi giấy ở lệnh sau khi đã ghép), không phải "chọn
+        # giấy khác cho vui".
+        giay_khac_tv = {
+            gid for tv in bg.thanh_viens if tv.lsx_id in lsx_map
+            and (gid := (lsx_map[tv.lsx_id].quy_cach_json or {}).get("giay_id")) is not None
+        }
+        if bg.giay_id and giay_khac_tv and any(gid != bg.giay_id for gid in giay_khac_tv):
+            thieu.append("khac_giay")
         # Chưa gộp bước nào thì chưa có gì chạy chung — đó là N lệnh rời, không phải bài ghép.
         chungs = self._buoc_chungs(bg)
         if not chungs:
             thieu.append("thieu_buoc_chung")
-        # Gộp rồi thì lượt chạy chung phải được LẬP KẾ HOẠCH lại: một tổ, một máy, một năng suất.
-        elif any(self._thieu_buoc_chung(c) for c in chungs):
-            thieu.append("thieu_ke_hoach_buoc_chung")
+        else:
+            # Gộp rồi thì lượt chạy chung phải được LẬP KẾ HOẠCH lại: một tổ, một máy, một năng suất.
+            if any(self._thieu_buoc_chung(c) for c in chungs):
+                thieu.append("thieu_ke_hoach_buoc_chung")
+            # Mỗi bước dùng chung phải phủ ĐỦ mọi thành viên đang có trong bài — thêm thành viên
+            # sau khi đã gộp mà quên gộp bước của người mới thì lượt chung tính hao/kẽm THIẾU một
+            # lệnh trong im lặng.
+            lsx_ids_all = {tv.lsx_id for tv in bg.thanh_viens}
+            if any({m.lsx_id for m in c.thanh_phans} != lsx_ids_all for c in chungs):
+                thieu.append("buoc_chung_thieu_thanh_vien")
+            # ÍT NHẤT một bước dùng chung phải nằm TRÊN DÒNG GIẤY (đếm được số tờ) — bài chỉ gộp
+            # bước CTP/ghi kẽm (không đụng dòng giấy) thì chưa có "điểm toả" nào để tính, và số tờ
+            # cả bài vẫn có thể về 0 trong im lặng (xem gate `thieu_so_to` dưới).
+            tram = self._tram()
+            if not any(tren_dong_giay(c.don_vi_vao, c.don_vi_ra, tram, nhom=c.nhom) for c in chungs):
+                thieu.append("thieu_buoc_chung_tren_giay")
         # Số tờ chạy = MAX nhu cầu các thành viên, nên không thành viên nào có thể thiếu tờ —
         # "thiếu giấy" trước đây là hệ quả của công thức cũ (lấy SL đặt, bỏ hao các bước sau in),
         # sửa công thức là hết, không cần thêm cổng chặn.
-        if self.tinh_so_to(bg, lsx_map)["so_to_tot"] <= 0:
+        so_to = self.tinh_so_to(bg, lsx_map)
+        if so_to["so_to_tot"] <= 0:
             thieu.append("thieu_so_to")
+        # Con/tờ do người bình bài gõ tay — không bị ép theo `_con_toi_da` (ước lượng THÔ), nhưng
+        # vượt xa mức hình học khả thi là dữ liệu gõ nhầm, không phải một lựa chọn hợp lệ.
+        if any(
+            (con := int(tv.so_con_tren_to or 0)) > 0
+            and (cap := self._con_toi_da(lsx_map.get(tv.lsx_id), bg)) > 0
+            and con > cap
+            for tv in bg.thanh_viens
+        ):
+            thieu.append("vuot_con_toi_da")
+        # Tổng diện tích thành phẩm các thành viên (theo con/tờ đang khai) không được vượt quá tờ
+        # ghép — vượt nghĩa là các con đang chồng lên nhau, một hình không thể in ra giấy thật.
+        fill_pct = so_to.get("fill_pct")
+        if fill_pct is not None and fill_pct > 100:
+            thieu.append("vuot_dien_tich")
         return thieu
 
     def canh_bao_cua(self, bg: BaiGhep, lsx_map: dict[int, Lsx] | None = None,

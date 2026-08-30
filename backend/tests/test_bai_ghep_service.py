@@ -332,12 +332,75 @@ def test_san_sang_ok_va_sua_thanh_vien_ha_ve_nhap(db, orders, lsx_svc, bg_svc, a
     # Gộp rồi mà chưa gán tổ/máy cho lượt chung → vẫn chặn.
     assert "thieu_ke_hoach_buoc_chung" in bg_svc.thieu_cua(bg_svc._get(bg.id))
     _lap_ke_hoach_moi_buoc_chung(db, bg_svc, bg, admin)
+    # `so_con_tren_to` khởi tạo từ `lsx.so_con` — số con khi lệnh còn đứng RIÊNG, tự tính như thể
+    # được cả tờ. Ghép 2 lệnh cùng tờ mà giữ nguyên cả hai số đó là chồng diện tích → gate mới
+    # `vuot_dien_tich` chặn đúng, người bình bài phải TỰ chia lại tờ trước khi sẵn sàng.
+    d = bg_svc.detail_dict(bg_svc._get(bg.id))
+    a_tv = _by_sl(d, 20_000)["thanh_vien_id"]
+    b_tv = _by_sl(d, 8_000)["thanh_vien_id"]
+    bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=a_tv, so_con_tren_to=4, actor=admin)
+    bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=b_tv, so_con_tren_to=2, actor=admin)
 
     bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
     assert bg.trang_thai == TT_SAN_SANG
     tv0 = bg_svc.detail_dict(bg)["thanh_vien"][0]["thanh_vien_id"]
     bg = bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv0, so_con_tren_to=6, actor=admin)
     assert bg.trang_thai == "nhap"  # sửa thành viên khi đã sẵn sàng → tự rớt nháp
+
+
+def test_thieu_cua_khac_giay(db, orders, lsx_svc, bg_svc, admin, customer):
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    b = created[1]
+    qc_b = dict(b.quy_cach_json or {})
+    qc_b["giay_id"] = (qc_b.get("giay_id") or 0) + 9999
+    b.quy_cach_json = qc_b
+    db.commit()
+    bg = bg_svc._get(bg.id)
+    assert "khac_giay" in bg_svc.thieu_cua(bg)
+
+
+def test_thieu_cua_buoc_chung_thieu_thanh_vien(db, orders, lsx_svc, bg_svc, admin, customer):
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer, sl_them=(5000,))
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created[:2], admin)  # chỉ gộp 2/3 thành viên
+    bg = bg_svc._get(bg.id)
+    assert "buoc_chung_thieu_thanh_vien" in bg_svc.thieu_cua(bg)
+
+
+def test_thieu_cua_buoc_chung_tren_giay(db, orders, lsx_svc, bg_svc, admin, customer):
+    from app.models.lsx import LsxCongDoan
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    db.query(LsxCongDoan).filter(
+        LsxCongDoan.lsx_id.in_([l.id for l in created])
+    ).update(
+        {LsxCongDoan.don_vi_vao: "khong_ton_tai", LsxCongDoan.don_vi_ra: "khong_ton_tai"},
+        synchronize_session=False,
+    )
+    db.commit()
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+    bg = bg_svc._get(bg.id)
+    assert "thieu_buoc_chung_tren_giay" in bg_svc.thieu_cua(bg)
+
+
+def test_thieu_cua_vuot_con_toi_da(db, orders, lsx_svc, bg_svc, admin, customer):
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    bg.thanh_viens[0].so_con_tren_to = 9999
+    db.commit()
+    bg = bg_svc._get(bg.id)
+    assert "vuot_con_toi_da" in bg_svc.thieu_cua(bg)
+
+
+def test_thieu_cua_vuot_dien_tich(db, orders, lsx_svc, bg_svc, admin, customer):
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    bg.kho_in_dai = 1
+    bg.kho_in_rong = 1
+    db.commit()
+    bg = bg_svc._get(bg.id)
+    assert "vuot_dien_tich" in bg_svc.thieu_cua(bg)
 
 
 def test_xoa_lsx_dang_ghep_bi_chan(db, orders, lsx_svc, bg_svc, admin, customer):
