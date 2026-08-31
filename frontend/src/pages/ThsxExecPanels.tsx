@@ -1061,22 +1061,42 @@ function vtCanLyDo(d: VtDongForm, loai: "lan_dau" | "bo_sung"): { hien: boolean;
     const batBuoc = d.sl_yeu_cau > VT_EPS;
     return { hien: batBuoc, batBuoc };
   }
-  // Món kế hoạch CHƯA khai đơn vị mà tổ để 0: không có mốc nào để nói lệch (BE gắn cờ
-  // "không đối chiếu được" và miễn luật lý do cho đúng ca này) ⇒ đừng gắn dấu `*` đòi bắt buộc.
-  // Vẫn MỞ ô để ai muốn ghi chú thì ghi — chữ đó nay đi được tới BE (xem `vtPayloadLines`).
-  if (d.tuKeHoach && !d.dvt && d.sl_yeu_cau <= VT_EPS) return { hien: true, batBuoc: false };
+  // Đơn vị HIỆU LỰC — phải gộp ĐÚNG như BE gộp (`vat_tu_de_nghi.py:_chuan_hoa`:
+  // `dvt = ln.dvt or k_row.dvt or ""`). Chỉ xét `d.dvt` là FE↔BE lệch thật: mode `sua` của một lần
+  // `lan_dau`, dòng ĐÃ LƯU mang `dvt=""` (lưu từ chính payload mới) trong khi kế hoạch hiện tại đã
+  // có đơn vị ⇒ `vtDongKhoiTao` cho `d.dvt=""` + `d.dvtKeHoach="to"` ⇒ FE không gắn `*`, người
+  // dùng gửi không lý do, BE gộp `"" or "to"` = `"to"` ⇒ không phải ca "không đối chiếu được" ⇒
+  // 400 «…» lệch kế hoạch — phải ghi lý do, ngay sau khi ô Lý do vừa ghi "Tuỳ chọn".
+  const dvtHieuLuc = d.dvt || d.dvtKeHoach;
+  // Món kế hoạch mà KẾ HOẠCH cũng không có đơn vị, và tổ để 0: không có mốc nào để nói lệch ⇒ BE
+  // miễn luật lý do cho đúng ca này ⇒ đừng gắn dấu `*` đòi bắt buộc. Vẫn MỞ ô để ai muốn ghi chú
+  // thì ghi — chữ đó nay đi được tới BE (xem `vtPayloadLines`).
+  // BE tự TÍNH LẠI vị ngữ này (biến `khong_doi_chieu`), nó KHÔNG đọc cờ `CB_KHONG_DOI_CHIEU` —
+  // cờ đó chỉ sống trong bảng cân đối (`ke_hoach_vat_tu_service.py:1139`, đọc lại ở `:1210`). Sửa
+  // cờ mà tưởng đang sửa luật lý do là sửa nhầm file.
+  if (d.tuKeHoach && !dvtHieuLuc && d.sl_yeu_cau <= VT_EPS) return { hien: true, batBuoc: false };
   if (!d.tuKeHoach) {
     const co = d.sl_yeu_cau > VT_EPS;
     return { hien: co, batBuoc: co };
   }
-  if (d.dvt !== d.dvtKeHoach) return { hien: true, batBuoc: false }; // đổi đơn vị — không đoán được
+  // Đổi đơn vị thật (tổ khai bằng đơn vị khác kế hoạch) — FE không quy đổi được nên KHÔNG đoán,
+  // để BE phán. Dùng đơn vị HIỆU LỰC: `dvt` rỗng không phải "đổi đơn vị", nó chỉ là "dòng đã lưu
+  // chưa mang đơn vị" — BE khi đó so thẳng theo đơn vị kế hoạch, và FE phải so y hệt.
+  if (dvtHieuLuc !== d.dvtKeHoach) return { hien: true, batBuoc: false };
   const lech = Math.abs(d.sl_yeu_cau - d.sl_ke_hoach) > VT_EPS;
   return { hien: lech, batBuoc: lech };
 }
 
-/** Dòng đã chọn được mặt hàng nhưng mặt hàng đó CHƯA khai đơn vị gốc (`don_vi_goc` null trong danh
- *  mục). BE không nhận nổi dòng như vậy (nó không biết quy ra đơn vị kho), và im lặng vứt ở FE thì
- *  tổ trưởng thấy toast xanh "Đã gửi" trong khi kho không bao giờ thấy món đó. */
+/** Dòng đã chọn được mặt hàng nhưng Ô ĐƠN VỊ CỦA CHÍNH DÒNG ĐÓ đang trống. BE không nhận nổi một
+ *  dòng như vậy khi tổ xin số dương (nó không biết quy ra đơn vị kho), và im lặng vứt ở FE thì tổ
+ *  trưởng thấy toast xanh "Đã gửi" trong khi kho không bao giờ thấy món đó.
+ *
+ *  CỐ Ý chỉ xét `d.dvt`, KHÔNG gộp `d.dvtKeHoach` như `vtCanLyDo` — hai hàm trả lời hai câu hỏi
+ *  khác nhau. `vtCanLyDo` hỏi "BE có đòi lý do không" nên phải gộp y hệt BE gộp. Hàm này hỏi "ô
+ *  đơn vị trên màn có chữ gì không" — và màn đang hiện đúng `{d.dvt || "—"}`. Gộp vào đây là cho
+ *  tổ gõ một số dương vào ô đơn vị hiện "—" rồi để BE âm thầm đọc nó theo đơn vị KẾ HOẠCH: đổi
+ *  một lần chặn thừa lấy một lần lệch thang im lặng, tệ hơn. Lần chặn thừa cũng không phải ngõ
+ *  cụt — câu của `vtCanTro` chỉ ngay đường thoát ("đưa dòng đó về 0 rồi gửi phần còn lại"). */
 function vtThieuDonVi(d: VtDongForm): boolean {
   return d.hang_id > 0 && !d.dvt;
 }
@@ -1087,12 +1107,15 @@ function vtCanTro(
   dongs: VtDongForm[], lines: SxVatTuDeNghiDongIn[],
   mode: VtFormMode, loai: "lan_dau" | "bo_sung",
 ): string | null {
-  // CHỈ chặn khi tổ đang THẬT SỰ xin món đó. Dòng kế hoạch cũng có thể thiếu đơn vị (danh mục chưa
-  // khai) — chặn cả khi nó đang để 0 là để một món hỏng khoá chết cả công đoạn, mà dòng kế hoạch
-  // lại không xoá được nên tổ trưởng hết đường. Đường thoát thật: đưa món đó về 0, gửi phần còn lại.
+  // CHỈ chặn khi tổ đang THẬT SỰ xin món đó. Dòng kế hoạch cũng có thể trống đơn vị — chặn cả khi
+  // nó đang để 0 là để một món hỏng khoá chết cả công đoạn, mà dòng kế hoạch lại không xoá được nên
+  // tổ trưởng hết đường. Đường thoát thật: đưa món đó về 0, gửi phần còn lại.
+  // Cùng cách nói với băng cảnh báo trên thẻ dòng và với câu lỗi BE (`vat_tu_de_nghi.py`): KHÔNG
+  // đóng đinh nguyên nhân vào "danh mục chưa khai" — ô đơn vị còn trống được vì snapshot của bước,
+  // vì routing của dòng giấy, chứ không riêng danh mục.
   if (dongs.some((d) => vtThieuDonVi(d) && d.sl_yeu_cau > VT_EPS)) {
-    return "Mặt hàng chưa khai đơn vị gốc thì chưa xin được — đưa dòng đó về 0 rồi gửi phần còn lại, "
-      + "hoặc nhờ kỹ thuật khai đơn vị rồi xin lại.";
+    return "Còn mặt hàng chưa có đơn vị tính nên chưa xin được — đưa dòng đó về 0 rồi gửi phần còn "
+      + "lại, hoặc nhờ kỹ thuật kiểm lại đơn vị rồi xin lại.";
   }
   // Gõ số rồi quên chọn mặt hàng: cũng là một dòng sẽ bị loại trước khi rời trình duyệt.
   if (dongs.some((d) => d.hang_id <= 0 && d.sl_yeu_cau > VT_EPS)) {
@@ -1120,12 +1143,20 @@ function vtCanTro(
 }
 
 function vtPayloadLines(dongs: VtDongForm[], loai: "lan_dau" | "bo_sung"): SxVatTuDeNghiDongIn[] {
-  // Dòng KẾ HOẠCH giữ lại kể cả khi `dvt` rỗng (danh mục chưa khai đơn vị gốc): BE nhận được
+  // Dòng KẾ HOẠCH giữ lại kể cả khi `dvt` rỗng (danh mục, snapshot của bước, hay routing của dòng
+  // giấy — nguyên nhân nào cũng vậy): BE nhận được
   // `dvt=""` với số 0 và miễn luật lý do cho đúng ca đó. Lọc thẳng `!!d.dvt` như trước là vứt HẲN
   // dòng — kéo theo cả chữ người dùng vừa gõ vào ô Lý do (mà giao diện lại đang gắn dấu `*` đòi
   // bắt buộc), và bản đối chiếu thì ghi thiếu thứ họ khai.
-  // Dòng NGOÀI kế hoạch vẫn phải có đơn vị: `vtCanTro` chặn nút Gửi khi nó đang xin số dương, còn
-  // khi nó ở 0 thì bộ lọc dưới bỏ nó — không có ngách nào lọt xuống BE.
+  // Dòng NGOÀI kế hoạch vẫn phải có đơn vị, và chính bộ lọc NÀY vứt nó ở MỌI số lượng: nó có
+  // `tuKeHoach === false` nên vế `(!!d.dvt || d.tuKeHoach)` rút về đúng `!!d.dvt` — nó không bao
+  // giờ đi tới bộ lọc thứ hai. Bộ lọc thứ hai chỉ lo chuyện số 0. Thêm một lớp nữa: `vtCanTro`
+  // tắt nút Gửi khi dòng như vậy đang xin số dương. Không có ngách nào lọt xuống BE.
+  // KHÔNG gộp `d.dvtKeHoach` vào đây như `vtCanLyDo`: câu hỏi ở đây khác ("dòng này có được gửi
+  // xuống BE không", không phải "có phải ghi lý do không"), và gộp cũng là no-op — dòng kế hoạch
+  // đã được `d.tuKeHoach` giữ rồi, còn dòng ngoài kế hoạch thì `dvtKeHoach` luôn BẰNG `dvt`
+  // (`themDong` và `MaterialCombobox.onPick` đặt cả hai cùng lúc; `vtDongKhoiTao` mode `sua` rơi
+  // về `?? d.dvt` khi mặt hàng không có trong kế hoạch).
   const giu = dongs.filter((d) => d.hang_id > 0 && (!!d.dvt || d.tuKeHoach))
     // lần đầu: giữ MỌI dòng gốc kế hoạch kể cả 0 ("kế hoạch có, tổ không lấy"); dòng ngoài kế
     // hoạch mà = 0 thì bỏ. Bổ sung: chỉ dòng dương.
@@ -1275,12 +1306,25 @@ function VatTuDeNghiForm({
               )}
             </div>
 
-            {vtThieuDonVi(d) && (
+            {/* Giọng đi theo SỐ ĐANG XIN, không theo "có đơn vị hay không". Ở 0 thì dòng này hợp
+             *  lệ — BE nhận và miễn cả luật lý do, ô Lý do ngay dưới ghi "Tuỳ chọn" — băng ĐỎ ở
+             *  đó là hai câu đọc ngược nhau. Có số dương mới là chặn thật: `vtCanTro` đang tắt
+             *  nút Gửi vì đúng dòng này, nên phải nói ra.
+             *  Không đóng đinh nguyên nhân vào "danh mục chưa khai": ô đơn vị còn trống được vì
+             *  snapshot của bước chốt trước lúc kỹ thuật khai, hoặc vì routing chưa đủ để suy ra
+             *  đơn vị đếm giấy — cùng lý do câu lỗi BE đã bỏ cách nói đó. */}
+            {vtThieuDonVi(d) && (d.sl_yeu_cau > VT_EPS ? (
               <div className="thsx-x-vtline__err">
                 <Icon name="alert" size={12} />
-                Mặt hàng này chưa khai đơn vị gốc — báo kỹ thuật trước khi xin.
+                Chưa có đơn vị tính nên chưa xin được — nhờ kỹ thuật kiểm lại đơn vị, hoặc để dòng
+                này ở 0 rồi gửi những món còn lại.
               </div>
-            )}
+            ) : (
+              <div className="thsx-x-vtline__ref">
+                Chưa có đơn vị tính — để ở 0 thì vẫn gửi được. Muốn xin món này thì nhờ kỹ thuật
+                kiểm lại đơn vị.
+              </div>
+            ))}
 
             {d.tuKeHoach && (
               <div className="thsx-x-vtline__ref">Kế hoạch: {num(d.sl_ke_hoach)} {d.dvtKeHoach}</div>

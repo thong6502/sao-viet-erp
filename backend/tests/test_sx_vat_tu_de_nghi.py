@@ -1429,10 +1429,14 @@ def test_mat_hang_ke_hoach_thieu_don_vi_khong_khoa_ca_cong_doan(
 ):
     """MỘT món thiếu đơn vị trong danh mục KHÔNG được khoá chết cả công đoạn.
 
-    Payload ở đây là payload FE THẬT SỰ gửi: `vtPayloadLines` lọc `!!d.dvt` nên dòng thiếu đơn vị
-    **vắng mặt hoàn toàn** khỏi `lines`, KHÔNG kèm lý do. Bản trước của test này gửi dòng đó kèm
-    `ly_do_chenh_lech` — một payload giao diện không bao giờ sinh ra — nên nó XANH trong khi luồng
-    thật vẫn tắc ở `«X» lệch kế hoạch — phải ghi lý do`.
+    Đây là ca "dòng VẮNG MẶT khỏi `lines`" — dạng payload của FE **TRƯỚC** `a58320d`, khi
+    `vtPayloadLines` còn lọc thẳng `!!d.dvt`. Từ `a58320d` bộ lọc đã đổi thành
+    `(!!d.dvt || d.tuKeHoach)` nên FE hôm nay GIỮ dòng đó (`dvt=""`, số 0, không lý do) — dạng ấy
+    do `test_dong_thieu_don_vi_gui_kem_so_0_khong_doi_ly_do_va_giu_ghi_chu` canh, không phải test
+    này. Giữ cả hai vì BE phải chịu được CẢ HAI dạng: bản đối chiếu vẫn đủ danh mục kế hoạch dù
+    client cũ hay mới gửi. (Bản trước nữa của test này gửi dòng đó kèm `ly_do_chenh_lech` — payload
+    giao diện không bao giờ sinh ra — nên nó XANH trong khi luồng thật vẫn tắc ở
+    `«X» lệch kế hoạch — phải ghi lý do`.)
 
     Đường đi của lỗi: `ln = None` ⇒ `sl = 0`; `_ve_goc_dong` trượt nhánh (1) vì `kh_goc = 0` (món
     chưa khai công thức lượng thì `_quy_doi_dong` ép `nhu_cau = 0` + cờ `CB_KHONG_DOI_CHIEU`) rồi
@@ -1455,6 +1459,9 @@ def test_mat_hang_ke_hoach_thieu_don_vi_khong_khoa_ca_cong_doan(
     assert k_thieu["dvt"] == ""            # tiền đề của test — kế hoạch thật sự không có đơn vị
     assert k_thieu["sl"] > 0               # …và nó CÓ số kế hoạch, tức `lech` thật sự bật lên
     k_giay = next(k for k in kh if k["hang_loai"] == "giay")
+    # Khoá giả định đang ngầm: test chỉ gửi DÒNG GIẤY, nên nếu fixture đẻ thêm một dòng kế hoạch
+    # CÓ đơn vị thì dòng đó vắng mặt ⇒ `lech` ⇒ đòi lý do ⇒ test vỡ với câu lỗi lạc đề.
+    assert len(kh) == 2, "kế hoạch phải đúng {giấy, món thiếu đơn vị} — xem chú thích trên"
 
     # Tổ chỉ xin món CÓ đơn vị. Món thiếu đơn vị KHÔNG có mặt trong payload — không lý do, không
     # dòng, đúng như giao diện gửi.
@@ -1472,40 +1479,64 @@ def test_mat_hang_ke_hoach_thieu_don_vi_khong_khoa_ca_cong_doan(
     assert [l.hang_id for l in req.lines] == [k_giay["hang_id"]]
 
 
-def test_dong_thieu_don_vi_gui_kem_so_0_va_ghi_chu_thi_giu_nguyen_ghi_chu(
+def test_dong_thieu_don_vi_gui_kem_so_0_khong_doi_ly_do_va_giu_ghi_chu(
     db, orders, lsx_svc, admin, customer,
 ):
-    """Payload FE gửi SAU mục 2 vòng sửa 3: dòng thiếu đơn vị ĐƯỢC giữ trong `lines` với `dvt` rỗng
-    và số 0, không bắt buộc lý do nhưng ghi chú người dùng gõ thì phải còn.
+    """Payload FE THẬT SỰ gửi từ `a58320d` trở đi: dòng thiếu đơn vị NẰM TRONG `lines` với
+    `dvt=""` + số 0, và MẶC ĐỊNH là KHÔNG kèm lý do (ô Lý do của dòng đó ghi "Tuỳ chọn").
 
-    Trước mục 2, `vtPayloadLines` vứt hẳn dòng này nên chữ người dùng vừa gõ vào ô Lý do (mà chính
-    giao diện đang gắn dấu `*` đòi bắt buộc) bốc hơi không dấu vết."""
+    Hai vế đi CHUNG một lần gửi vì chúng là hai nhánh của cùng một luật, và vì tách ra thì vế thứ
+    hai đứng một mình là một test xanh dối:
+
+      · món GỬI TRẦN (không `ly_do_chenh_lech`) ⇒ phải lưu được, không ném «… lệch kế hoạch — phải
+        ghi lý do». Đây là vế CÓ RĂNG: đưa `can_ly_do` về đúng dạng `cf180f1` (bỏ
+        `not khong_doi_chieu and` ở `vat_tu_de_nghi.py:156-157`) là test này ĐỎ ngay ở món đó.
+      · món GỬI KÈM ghi chú tổ tự gõ ⇒ chữ đó phải còn nguyên trong bản đối chiếu (trước mục 2 vòng
+        3, `vtPayloadLines` vứt hẳn dòng nên chữ vừa gõ bốc hơi). Vế này MỘT MÌNH không có răng:
+        có lý do thì `if can_ly_do and not ly_do` không nổ được, nên nó xanh cả trên `cf180f1` —
+        đó chính là lỗi của bản trước của test này.
+    """
     from app.services.san_xuat import vat_tu_de_nghi as V
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
     to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTFX6")
     to.head_user_id = admin.id
     db.commit()
-    thieu = _khai_them_vat_tu_vao_buoc(
+    tran = _khai_them_vat_tu_vao_buoc(
         db, cv, ma="VT-NODVT-3", ten="Keo gáy chưa khai đơn vị", so_luong=5, dvt="",
     )
+    co_ghi_chu = _khai_them_vat_tu_vao_buoc(
+        db, cv, ma="VT-NODVT-4", ten="Chỉ khâu chưa khai đơn vị", so_luong=7, dvt="",
+    )
+
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    assert len(kh) == 3                    # giấy + hai món thiếu đơn vị
+    for k in kh:
+        if k["hang_loai"] != "vat_tu":
+            continue
+        assert k["dvt"] == ""              # tiền đề — kế hoạch thật sự không có đơn vị
+        assert k["sl"] > 0                 # …và CÓ số kế hoạch, tức `lech` thật sự bật lên
 
     lines = []
     for k in kh:
         ln = {"hang_loai": k["hang_loai"], "hang_id": k["hang_id"], "dvt": k["dvt"],
               "sl_yeu_cau": k["sl"]}
-        if k["hang_id"] == thieu.id and k["hang_loai"] == "vat_tu":
-            ln["sl_yeu_cau"] = 0                      # tổ để 0, KHÔNG bị đòi lý do…
-            ln["ly_do_chenh_lech"] = "Tổ có sẵn, không cần lấy"   # …nhưng vẫn tự ghi chú
+        if k["hang_loai"] == "vat_tu" and k["hang_id"] == tran.id:
+            ln["sl_yeu_cau"] = 0                                  # dòng CÓ MẶT, không lý do
+        elif k["hang_loai"] == "vat_tu" and k["hang_id"] == co_ghi_chu.id:
+            ln["sl_yeu_cau"] = 0
+            ln["ly_do_chenh_lech"] = "Tổ có sẵn, không cần lấy"   # tổ tự ghi chú
         lines.append(ln)
 
     ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
 
     dn = db.get(SanXuatVatTuDeNghi, ra["de_nghi_id"])
-    d_thieu = next(d for d in dn.dongs if d.hang_id == thieu.id)
-    assert float(d_thieu.sl_yeu_cau) == 0
-    assert d_thieu.ly_do_chenh_lech == "Tổ có sẵn, không cần lấy"
+    d_tran = next(d for d in dn.dongs if d.hang_loai == "vat_tu" and d.hang_id == tran.id)
+    assert float(d_tran.sl_yeu_cau) == 0
+    assert d_tran.ly_do_chenh_lech is None       # BE không tự bịa lý do thay tổ
+    d_ghi = next(d for d in dn.dongs if d.hang_loai == "vat_tu" and d.hang_id == co_ghi_chu.id)
+    assert float(d_ghi.sl_yeu_cau) == 0
+    assert d_ghi.ly_do_chenh_lech == "Tổ có sẵn, không cần lấy"
 
 
 def test_xin_so_duong_cho_mat_hang_thieu_don_vi_van_bao_loi_doc_duoc(

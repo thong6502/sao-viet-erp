@@ -120,15 +120,30 @@ def _chuan_hoa(kh_svc, cv, lines: list[dict], *, bat_buoc_ly_do: bool) -> list[d
         #
         # Nhưng CHỈ ném khi tổ THẬT SỰ đang xin dòng này (`sl > _EPS`) — cùng nguyên tắc "soi theo
         # cái tổ khai" như luật bỏ qua dòng ngoài kế hoạch số 0 ngay trên và như `can_ly_do` bên
-        # dưới. Dòng TRONG kế hoạch hoàn toàn có thể mang `dvt` rỗng: `lsx_service.py` chốt
-        # `don_vi_snapshot = mat.don_vi_gia or ""` vì đơn vị gốc nullable còn cột snapshot NOT NULL.
-        # Ném vô điều kiện là để MỘT món thiếu đơn vị trong danh mục khoá chết cả công đoạn — tổ
-        # trưởng không gửi nổi cái gì, kể cả những món chẳng liên quan.
+        # dưới. Ném vô điều kiện là để MỘT món thiếu đơn vị khoá chết cả công đoạn — tổ trưởng
+        # không gửi nổi cái gì, kể cả những món chẳng liên quan.
+        #
+        # `dvt` rỗng KHÔNG đồng nghĩa "danh mục chưa khai đơn vị gốc" — có ÍT NHẤT BA nguyên nhân,
+        # nên câu lỗi dưới đây cố ý KHÔNG chỉ đích danh một chỗ sửa duy nhất:
+        #   · danh mục thật sự chưa khai `don_vi_gia` (đơn vị gốc nullable từ 2026-08-08);
+        #   · snapshot ĐÔNG CỨNG: `lsx_service.py` chốt `don_vi_snapshot = mat.don_vi_gia or ""`
+        #     LÚC tạo bước (cột snapshot NOT NULL) — kỹ thuật khai `don_vi_gia` SAU đó thì snapshot
+        #     vẫn rỗng dù danh mục nay đã đủ;
+        #   · dòng GIẤY: `_dv_giay` (`ke_hoach_vat_tu_service.py:382-399`) đọc đơn vị đếm giấy từ
+        #     ROUTING và cố ý trả `None` khi danh mục có nhiều hơn một khả năng ⇒ `k_row["dvt"]`
+        #     rỗng dù tờ giấy có `don_vi_gia` đầy đủ; chỗ phải sửa là routing / danh mục Đơn vị.
+        # Với hai ca sau, bảo tổ trưởng "khai đơn vị gốc cho mặt hàng" là chỉ SAI CHỖ. Câu lỗi vì
+        # thế chỉ nói NHỜ AI (kỹ thuật) LÀM GÌ (kiểm lại đơn vị) + đường thoát tại chỗ (để dòng đó
+        # ở 0, gửi phần còn lại) — tổ trưởng không có quyền vào bất kỳ chỗ nào trong ba chỗ trên.
+        # GIỮ NGUYÊN cụm "báo kỹ thuật": hai test assert đúng cụm đó để có răng
+        # (`test_dong_ngoai_ke_hoach_thieu_don_vi_ra_loi_doc_duoc`,
+        # `test_xin_so_duong_cho_mat_hang_thieu_don_vi_van_bao_loi_doc_duoc`) — đổi là gỡ răng.
         dvt = (ln or {}).get("dvt") or (k_row or {}).get("dvt") or ""
         if not dvt and sl > _EPS:
             raise VatTuDeNghiError(
-                f"«{ten}» chưa khai đơn vị — báo kỹ thuật khai đơn vị gốc cho mặt hàng này "
-                f"trước khi xin cấp."
+                f"«{ten}» chưa có đơn vị tính nên chưa xin được — báo kỹ thuật kiểm lại đơn vị "
+                f"của mặt hàng này rồi xin lại. Trong lúc chờ, để dòng này ở 0 rồi gửi những "
+                f"món còn lại."
             )
         sl_goc, dvt_goc, theo_goc = _ve_goc_dong(kh_svc, k, k_row, dvt, sl)
         kh_goc = _f((k_row or {}).get("sl_goc"))
@@ -146,12 +161,15 @@ def _chuan_hoa(kh_svc, cv, lines: list[dict], *, bat_buoc_ly_do: bool) -> list[d
         # do cho chúng ⇒ đường bổ sung tắc hẳn. Đổi lại, mọi dòng KHÁC 0 của lần bổ sung đều phải
         # giải thích (xin thêm là một quyết định mới), nên không nới lỏng gì.
         # Lần ĐẦU giữ nguyên luật cũ: lệch kế hoạch, hoặc ngoài kế hoạch + số dương — TRỪ đúng một
-        # ca: món TRONG kế hoạch chưa khai đơn vị mà tổ để 0. Món như vậy không có mốc nào để nói
-        # lệch hay không lệch (`_quy_doi_dong` gắn sẵn cờ `CB_KHONG_DOI_CHIEU` cho đúng ngữ nghĩa
-        # đó, và `nhu_cau` bị ép về 0), nên `_ve_goc_dong` trả `theo_goc=False` và `lech` hoá thành
+        # ca: món TRONG kế hoạch mà kế hoạch KHÔNG có đơn vị hiển thị (`dvt` rỗng vì bất kỳ nguyên
+        # nhân nào trong ba nguyên nhân kể ở chốt chặn trên — danh mục, snapshot, hay routing của
+        # dòng giấy) và tổ để 0. Món như vậy không có mốc nào để nói lệch hay không lệch
+        # (`_quy_doi_dong` gắn sẵn cờ `CB_KHONG_DOI_CHIEU` cho đúng ngữ nghĩa đó, và `nhu_cau` bị
+        # ép về 0), nên `_ve_goc_dong` trả `theo_goc=False` và `lech` hoá thành
         # `|0 − sl_kế_hoạch|` — luôn True. Đòi giải thích ở đây là ngõ cụt kín: đường thoát duy
         # nhất là "đưa về 0", mà nó ĐANG ở 0 và chính cái 0 đó đẻ ra `lech`; dòng kế hoạch không
-        # xoá được; và tổ trưởng không có quyền sửa danh mục vật tư.
+        # xoá được; và CẢ BA nguyên nhân đều nằm ngoài tay tổ trưởng (họ không có quyền vào danh
+        # mục vật tư, cũng không sửa được routing hay snapshot đã chốt của bước).
         khong_doi_chieu = k_row is not None and not dvt and sl <= _EPS
         can_ly_do = (sl > _EPS) if bat_buoc_ly_do \
             else (not khong_doi_chieu and (lech or (k_row is None and sl > _EPS)))
