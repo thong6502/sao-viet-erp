@@ -135,6 +135,11 @@ const FINE_ACTIONS: Record<
       label: "Bàn giao / nhận",
       hint: "Tổ trưởng GIAO số sang tổ kế + XÁC NHẬN NHẬN (2 con dấu, lệch được để truy thất thoát). Không gate cứng chặn tổ nhận chạy.",
     },
+    {
+      key: "can_export",
+      label: "Xuất Excel báo cáo KCS",
+      hint: "Tải file .xlsx báo cáo KCS (kết quả + checklist). Dữ liệu xuất ra theo ĐÚNG phạm vi tổ mà vai này đang thấy ở màn báo cáo — không mở rộng thêm.",
+    },
   ],
   // ⚠️ THÊM 17/08/2026 cùng lúc tách khoá. Hai bit này CÓ THẬT ở máy chủ từ lâu
   // (`routers/xep_lich_2.py` gác các endpoint phát hành bằng `approve` + duyệt ngoại lệ bằng
@@ -555,7 +560,9 @@ const MODULE_GROUPS: {
     key: "danh_muc",
     label: "Danh mục",
     // MỘT MÀN = MỘT DÒNG, xếp đúng thứ tự menu "Cấu hình danh mục" để người cấp quyền dò theo
-    // màn hình. 11 mục menu → 11 dòng; trước đây chỉ có 5, bật đủ 5/5 vẫn thiếu màn.
+    // màn hình. 13 mục menu → 13 dòng; trước đây chỉ có 5, bật đủ 5/5 vẫn thiếu màn.
+    // (Ghi chú: mảng dưới đây đang THIẾU "dm_ly_do_san_xuat" từ trước Task 3 — lỗ hổng có sẵn,
+    // không sửa ở đây, xem ledger.)
     modules: [
       "dm_loai_san_pham",
       "dm_thiet_bi",
@@ -571,6 +578,7 @@ const MODULE_GROUPS: {
       "dm_thanh_pham",
       "khuon_be",
       "dm_kho_hang",
+      "dm_kcs_tieu_chi",
     ],
     noScope: true,
   },

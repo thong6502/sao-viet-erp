@@ -64,7 +64,11 @@ def _ma(van_de) -> set[str]:
 
 
 def _kcs_hoa(db, lsx_id: int) -> None:
-    """Gắn tổ KCS lên bước CUỐI của lệnh, để qua cửa gate §4.4 (chặn thiếu KCS cuối khi phát hành)."""
+    """Gắn tổ KCS lên bước CUỐI của lệnh, để qua cửa gate §4.4 (chặn thiếu KCS cuối khi phát hành).
+
+    KCS-cuối suy TỰ ĐỘNG (2026-08-31, mg `0252`): bước CUỐI routing + tổ thực hiện có
+    `is_kcs=true` — không còn cờ `la_kcs` khai tay để set song song.
+    """
     d = Department(name="KCS Xưởng", code="KCS-XL", is_kcs=True)
     db.add(d)
     db.flush()

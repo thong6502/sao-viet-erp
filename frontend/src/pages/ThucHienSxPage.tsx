@@ -14,7 +14,7 @@ import {
   type SxWorkItem, type SxWorkItemChiTiet, type SxNhanVienChon,
   type SxHoTroUngVien, type SxLyDo,
   type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien,
-  type SxKcsHopThu, type SxKhoHopThu,
+  type SxKhoHopThu,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
@@ -97,6 +97,7 @@ function reasonTitle(r: { kind: ReasonKind; tre: boolean; soNguoi?: unknown }): 
 export function ThucHienSxPage({
   teamId,
   tenTo,
+  mode = "production",
   eventTick,
   vatTuDeNghiDem,
   onXemCongViec,
@@ -104,6 +105,7 @@ export function ThucHienSxPage({
 }: {
   teamId: number;
   tenTo?: string;
+  mode?: "production" | "kcs";
   eventTick?: number;
   /** Số lần đề nghị cấp vật tư đổi, ĐẾM THEO công việc (SSE, mắc ở AppShell). CỐ TÌNH không đi qua
    *  `eventTick`: sự kiện này broadcast TOÀN HỆ, nếu bump tick chung thì mỗi lần bất kỳ tổ nào
@@ -130,7 +132,6 @@ export function ThucHienSxPage({
   const [kcsCt, setKcsCt] = useState<SxKcsChiTiet | null>(null);
   const [khoCt, setKhoCt] = useState<SxKhoChiTiet | null>(null);
   const [dieuKien, setDieuKien] = useState<SxDongNhomDieuKien | null>(null);
-  const [kcsHopThu, setKcsHopThu] = useState<SxKcsHopThu | null>(null);
   const [khoHopThu, setKhoHopThu] = useState<SxKhoHopThu | null>(null);
   const [g5Tick, setG5Tick] = useState(0); // nhịp refetch riêng cho G5 sau mỗi lệnh ghi
 
@@ -162,12 +163,12 @@ export function ThucHienSxPage({
   const loadItems = useCallback(() => {
     if (!token) return;
     setErr(null);
-    api.sanXuat.workItems(token, teamId)
+    api.sanXuat.workItems(token, teamId, mode)
       .then((r) => { setItems(r.cong_viec); setErr(null); })
       .catch((e: unknown) => setErr(e instanceof ApiError
         ? (e.isForbidden ? "Tổ này ngoài phạm vi của bạn." : e.message)
         : String(e)));
-  }, [token, teamId]);
+  }, [token, teamId, mode]);
 
   useEffect(() => { loadItems(); }, [loadItems, eventTick]);
 
@@ -315,15 +316,9 @@ export function ThucHienSxPage({
     return () => { alive = false; };
   }, [token, selNhom, isKcsCuoi, eventTick, g5Tick]);
 
-  // Hộp thư LỖI KCS — việc tổ mình bị yêu cầu nhận/từ chối (server lọc theo tổ trưởng đang đăng nhập).
-  useEffect(() => {
-    if (!token) { setKcsHopThu(null); return; }
-    let alive = true;
-    api.sanXuat.kcsHopThu(token)
-      .then((r) => { if (alive) setKcsHopThu(r); })
-      .catch(() => { if (alive) setKcsHopThu(null); });
-    return () => { alive = false; };
-  }, [token, teamId, eventTick, g5Tick]);
+  // Hộp thư LỖI KCS đã GỠ khỏi màn production (Task 9 §6.4, mg 0250 kiêm nhiệm) — luồng phản hồi
+  // trách nhiệm cũ (pending/accepted/rejected) không còn hiện ở UI mới; hồ sơ cũ vẫn đọc được qua
+  // drawer lịch sử nếu cần, chỉ KHÔNG polling/hiện thanh cảnh báo ở bàn tổ thường nữa.
 
   // Hộp thư KHO — yêu cầu nhập/nhận chờ xác nhận (chỉ khi có quyền đọc kho).
   useEffect(() => {
@@ -643,9 +638,11 @@ export function ThucHienSxPage({
         </div>
       </div>
 
-      {/* Hộp thư mức trang (§13/§14) — chỉ hiện khi CÓ việc chờ; real-time qua eventTick/g5Tick */}
+      {/* Hộp thư mức trang (§14) — chỉ hiện khi CÓ việc chờ; real-time qua eventTick/g5Tick.
+          Cột KCS đã GỠ khỏi màn production (Task 9 §6.4) — `kcsItems` cố định rỗng, luồng phản hồi
+          trách nhiệm lỗi KCS legacy không còn hiện ở đây nữa (module KCS mới không dùng luồng đó). */}
       <ThsxHopThuBar
-        kcsItems={kcsHopThu?.loi ?? []}
+        kcsItems={[]}
         khoHopThu={khoHopThu}
         canKhoRead={canKhoRead}
         canKhoCreate={canKhoCreate}

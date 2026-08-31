@@ -233,6 +233,8 @@ def test_phat_hanh_gate_ngoai_le_revert(db, orders, lsx_svc, xl_svc, vd_svc, adm
         s.setup_phut, s.nang_suat, s.so_luong_vao, s.chay_phut = 0, 5000, 5000, None
     # Gate KCS-cuối (§4.4) nay đã gác thật ở phát hành: thêm bước KCS cuối routing cho `a` —
     # đây là ứng viên DUY NHẤT bị phát hành trong test này (`b` không đụng tới).
+    # KCS-cuối suy TỰ ĐỘNG (2026-08-31, mg `0252`): bước CUỐI routing (thu_tu=999 cao nhất) + tổ
+    # thực hiện có `is_kcs=true` — không còn cờ `la_kcs` khai tay.
     kcs_dept = Department(name="KCS Xưởng", code="KCS-XL-VD", is_kcs=True)
     db.add(kcs_dept)
     db.flush()

@@ -14,7 +14,7 @@ phần 100/90/10), `_hoan_thanh_het` (đánh dấu mọi việc của nhóm xong
 from __future__ import annotations
 
 from app.models.san_xuat import NHOM_DONG_DU
-from app.models.san_xuat_kcs import TN_CHAP_NHAN
+from app.models.san_xuat_kcs import TN_CHAP_NHAN, TN_CHO, SanXuatKcsLoi, SanXuatKcsLoiAnh
 from app.models.san_xuat_kho import PL_NHAP_BTP, YC_CHO_KHO
 from app.repositories.san_xuat_repo import SanXuatRepository
 from app.routers.san_xuat import _thu_dong_nhom
@@ -23,7 +23,6 @@ from app.services.san_xuat import dong_nhom, kcs, kho
 # Fixtures + helper dàn cảnh từ các test G5 (kéo cả cây fixture xếp lịch).
 from tests.test_san_xuat_dong_nhom import _hoan_thanh_het
 from tests.test_san_xuat_kcs import (  # noqa: F401
-    _anh,
     _batch,
     _ly_do,
     _to_chiu,
@@ -39,6 +38,24 @@ def _trang_thai_nhom(db, nhom_id):
     return SanXuatRepository(db).nhom(nhom_id).trang_thai
 
 
+def _ghi_loi_cho(db, *, admin, kcs_batch_id, nhom_loi_id, to_chiu_id):
+    """Lỗi kiểu CŨ (trang_thai=pending), chèn thẳng qua model — các test dưới đây soi luồng
+    phản hồi legacy (chốt chặn `het_loi_kcs_cho` + `phan_hoi_loi`). KHÔNG qua `kcs.ghi_loi()`
+    vì lỗi MỚI ghi `recorded`, không còn vào `pending` nữa (Task 11.5) — xem cùng lý do ở
+    `tests/test_san_xuat_kcs.py::_mot_loi`."""
+    loi = SanXuatKcsLoi(
+        kcs_batch_id=kcs_batch_id, nhom_loi_id=nhom_loi_id, to_chiu_id=to_chiu_id,
+        so_luong=6, don_vi="cái", trang_thai=TN_CHO, created_by=admin.id,
+    )
+    db.add(loi)
+    db.flush()
+    db.add(SanXuatKcsLoiAnh(loi_id=loi.id, file_name="loi.jpg",
+                             file_url="/api/files/san-xuat/kcs-loi/1/x_loi.jpg",
+                             file_type="image/jpeg", uploaded_by=admin.id))
+    db.commit()
+    return loi.id
+
+
 # --- §16 + §17: chốt chặn router hội tụ khi gỡ điều kiện CUỐI --------------------------------
 def test_phan_hoi_loi_la_chot_cuoi_thi_router_tu_dong_dong_du(db, orders, lsx_svc, admin, customer):
     """Lỗi KCS chờ là chốt DUY NHẤT còn treo; tổ bị yêu cầu phản hồi CHẤP NHẬN → endpoint gọi
@@ -47,15 +64,14 @@ def test_phan_hoi_loi_la_chot_cuoi_thi_router_tu_dong_dong_du(db, orders, lsx_sv
     _hoan_thanh_het(db, cv.nhom_id)
     ld = _ly_do(db)
     to2, tt2 = _to_chiu(db)
-    loi = kcs.ghi_loi(
-        db, user=admin, kcs_batch_id=rb["kcs_batch_id"], nhom_loi_id=ld.id,
-        to_chiu_id=to2.id, anh=_anh(),
+    loi_id = _ghi_loi_cho(
+        db, admin=admin, kcs_batch_id=rb["kcs_batch_id"], nhom_loi_id=ld.id, to_chiu_id=to2.id,
     )
 
     # Còn lỗi chờ → chưa hội đủ, chốt chặn không đóng.
     assert dong_nhom.tu_dong_dong_neu_du(db, nhom_id=cv.nhom_id) is None
 
-    ph = kcs.phan_hoi_loi(db, user=tt2, loi_id=loi["loi_id"], chap_nhan=True)
+    ph = kcs.phan_hoi_loi(db, user=tt2, loi_id=loi_id, chap_nhan=True)
     assert ph["trang_thai"] == TN_CHAP_NHAN
     # Router chốt chặn (đúng nơi endpoint phan_hoi_loi gọi) lần ra nhóm qua cong_viec_id.
     _thu_dong_nhom(db, ph, user=tt2, su_kien="phan_hoi_loi_kcs")
@@ -87,16 +103,15 @@ def test_chot_chan_la_cong_VA_go_mot_chot_chua_du(db, orders, lsx_svc, admin, cu
     _hoan_thanh_het(db, cv.nhom_id)
     ld = _ly_do(db)
     to2, tt2 = _to_chiu(db)
-    loi = kcs.ghi_loi(
-        db, user=admin, kcs_batch_id=rb["kcs_batch_id"], nhom_loi_id=ld.id,
-        to_chiu_id=to2.id, anh=_anh(),
+    loi_id = _ghi_loi_cho(
+        db, admin=admin, kcs_batch_id=rb["kcs_batch_id"], nhom_loi_id=ld.id, to_chiu_id=to2.id,
     )
     lb = kho.phan_loai_btp_du(
         db, user=admin, cong_viec_id=cv.id, so_luong=5, phan_loai=PL_NHAP_BTP
     )
 
     # Gỡ chốt lỗi trước; BTP vẫn treo → chốt chặn KHÔNG đóng non.
-    ph = kcs.phan_hoi_loi(db, user=tt2, loi_id=loi["loi_id"], chap_nhan=True)
+    ph = kcs.phan_hoi_loi(db, user=tt2, loi_id=loi_id, chap_nhan=True)
     _thu_dong_nhom(db, ph, user=tt2, su_kien="phan_hoi_loi_kcs")
     assert _trang_thai_nhom(db, cv.nhom_id) != NHOM_DONG_DU
 
@@ -114,9 +129,8 @@ def test_loi_kcs_cho_khong_chan_nhap_kho_phan_dat_nhung_chan_dong_nhom(db, order
     _hoan_thanh_het(db, cv.nhom_id)
     ld = _ly_do(db)
     to2, tt2 = _to_chiu(db)
-    kcs.ghi_loi(
-        db, user=admin, kcs_batch_id=rb["kcs_batch_id"], nhom_loi_id=ld.id,
-        to_chiu_id=to2.id, anh=_anh(),
+    _ghi_loi_cho(
+        db, admin=admin, kcs_batch_id=rb["kcs_batch_id"], nhom_loi_id=ld.id, to_chiu_id=to2.id,
     )
 
     # Đường nhập kho phần ĐẠT vẫn chạy: lỗi (số không đạt) không liên quan số đạt.

@@ -7780,6 +7780,12 @@ td.khsx-num > .khsx-unit {
   font-family: var(--ff-num, monospace);
 }
 
+/* "Có thể giữ ngay" — tin TỐT (còn cửa để giữ trước), không phải cảnh báo, nên tông xanh riêng
+   thay vì màu rust-deep dùng chung cho mọi note khác (về muộn / phiếu mua đang chờ). */
+.khsx .khvt-note--giu-ngay {
+  color: var(--moss-deep);
+}
+
 /* Bản nhiều dòng ở drawer thẻ lệnh: mỗi phiếu một dòng, đọc hết không phải hover. */
 .khsx .khvt-pill-note--po {
   display: flex;

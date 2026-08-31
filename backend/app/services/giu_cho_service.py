@@ -102,6 +102,12 @@ class GiuChoService:
         self.db = db
         self.kh = kh_vt
         self.repo = repo or GiuChoRepository(db)
+        # Cache 1 slot cho `_nhu_cau_theo_chu_the`, khoá bằng DANH TÍNH của `bang` (so `is`, giữ
+        # luôn tham chiếu — KHÔNG dùng `id(bang)` làm khoá vì id có thể bị tái sử dụng sau khi bang
+        # cũ bị GC, gây trùng khoá giả). An toàn vì một instance service chỉ sống trong đúng một
+        # lần gọi/request; nơi nào hỏi nhiều chủ thể trên CÙNG một `bang` (`giu_theo_chu_the_hang`,
+        # `lsx_tong_quan._dung_vat_tu`) là dựng lại từ đầu O(số dòng) mỗi lần mà không cần thiết.
+        self._nhu_cau_cache: tuple[dict, dict[tuple, dict]] | None = None
 
     # ================== ĐỌC ==================
 
@@ -127,7 +133,14 @@ class GiuChoService:
         `khong_ro` = dòng KHÔNG quy đổi được đơn vị. `nhu_cau` của nó là 0 vì máy chưa tính nổi,
         KHÔNG phải vì không cần — nên không giữ được gì, và chủ thể đó KHÔNG bao giờ được tính là
         "đủ". Coi nó là 0 rồi mở khoá xếp lịch là mở cho một lệnh chưa ai biết cần bao nhiêu.
+
+        Nhớ tạm theo đúng `bang` (xem `self._nhu_cau_cache`): `trang_thai()` gọi hàm này cho MỖI
+        chủ thể, mà `giu_theo_chu_the_hang()`/`lsx_tong_quan._dung_vat_tu` hỏi hàng trăm chủ thể
+        trên CÙNG một `bang` — không cache thì dựng lại O(số dòng) hàng trăm lần cho cùng một kết
+        quả.
         """
+        if self._nhu_cau_cache is not None and self._nhu_cau_cache[0] is bang:
+            return self._nhu_cau_cache[1]
         ra: dict[tuple, dict] = {}
         for nhom in bang.get("items", []):
             if nhom.get("loai_nhom") != "vat_tu":
@@ -141,10 +154,11 @@ class GiuChoService:
                 o["can"] += _f(d.get("con_phai_co"))
                 if d.get("trang_thai") == "khong_ro":
                     o["khong_ro"] = True
+        self._nhu_cau_cache = (bang, ra)
         return ra
 
     def trang_thai(self, *, lsx_id: int | None = None, bai_ghep_id: int | None = None,
-                   bang: dict | None = None) -> dict:
+                   bang: dict | None = None, dang: list[VatTuGiuCho] | None = None) -> dict:
         """Kết quả sau khi bấm — ba trạng thái người dùng thấy.
 
         `du` = giữ đủ 100% ⇒ xếp lịch mở khoá. `xep_som_nhat` = ngày sớm nhất được xếp bước tiêu
@@ -157,12 +171,19 @@ class GiuChoService:
         để mặc mỗi chủ thể tự gọi là bình phương số lần chạy theo số lệnh. Bảng KHÔNG phụ thuộc vào
         bảng giữ chỗ (nó đọc tồn thật, không đọc tồn tự do) nên dùng lại là số y hệt, không phải
         bản chụp cũ.
+
+        `dang` = dòng giữ chỗ CỦA CHÍNH chủ thể này, DÙNG LẠI nếu nơi gọi đã tra sẵn — tương tự lý
+        do trên nhưng cho `repo.cua_chu_the()`: `giu_theo_chu_the_hang()` hỏi hàng trăm chủ thể một
+        lượt, để mặc mỗi chủ thể tự bắn 1 query là N round-trip DB không cần thiết (xem
+        `repo.cua_nhieu_chu_the`). Vắng thì tự query như cũ — chỗ gọi đơn lẻ (`du_chua`,
+        `lsx_tong_quan`) không cần đổi gì.
         """
         chu = (lsx_id, bai_ghep_id)
         if bang is None:
             bang = self.kh.can_doi()
         can = self._nhu_cau_theo_chu_the(bang).get(chu, {})
-        dang = self.repo.cua_chu_the(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+        if dang is None:
+            dang = self.repo.cua_chu_the(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
 
         giu_theo_hang: dict[Hang, float] = {}
         giu_kho: dict[Hang, float] = {}
@@ -203,7 +224,7 @@ class GiuChoService:
             "da_giu_kho": giu_kho,
             "da_giu_dang_ve": giu_dang_ve,
             # Dòng PMH cụ thể đang góp cho phần hứa — CHƯA có mã PMH (tra gộp ở tầng gọi, xem
-            # `giu_theo_chu_the_hang`).
+            # `giu_theo_chu_the_hang`/`gan_giu_cho_vao_bang`, Task 7/8).
             "nguon_dang_ve": nguon_dang_ve,
             "xep_som_nhat": max(ngay_ve) if ngay_ve else None,
             # Dòng giữ chỗ CŨ NHẤT — mốc đếm "giữ bao lâu rồi". Lấy min chứ không lấy max: nhặt
@@ -239,13 +260,13 @@ class GiuChoService:
         gio = datetime.now(timezone.utc)
 
         self._them_mo_coi(gom)
-        self.giu_theo_chu_the_hang(bang, gom)
+        tt_by_chu = self.giu_theo_chu_the_hang(bang, gom)
         dang_thieu = self._chu_the_dang_thieu(gom)
 
         rows: list[dict] = []
         for chu, o in gom.items():
             lsx_id, bg_id = chu
-            tt = self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang)
+            tt = tt_by_chu[chu]
             hangs = list(o["hang"].values())
             for h in hangs:
                 k = (h["hang_loai"], h["hang_id"])
@@ -462,7 +483,10 @@ class GiuChoService:
         # MỘT lượt dựng bảng cho cả ba việc (nhặt · soi lại · trả kết quả). Bảng không phụ thuộc
         # bảng giữ chỗ nên các dòng vừa nhặt không làm nó cũ đi.
         bang = self.kh.can_doi()
-        self.nhat_them(chi_chu_the=(lsx_id, bai_ghep_id), bang=bang)
+        # broadcast=False: bat() TỰ bắn một lần ngay dưới đây, bắn cả khi nhat_them() không nhặt
+        # thêm được gì (bật công tắc cũng là một thay đổi thật) — không thì bắn hai lần cho MỘT
+        # cú bấm khi nhat_them() có nhặt thêm (toast đúp trên AppShell).
+        self.nhat_them(chi_chu_the=(lsx_id, bai_ghep_id), bang=bang, broadcast=False)
         hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
         return self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id, bang=bang)
 
@@ -473,7 +497,7 @@ class GiuChoService:
         hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
         return self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
 
-    def doi_soat_dang_ve(self, purchase_request_line_id: int) -> None:
+    def doi_soat_dang_ve(self, purchase_request_line_id: int, *, broadcast: bool = True) -> bool:
         """PMH đổi (đợt giao mới/sửa/xoá, huỷ đơn, đóng đơn, dời ngày) ⇒ đối lại phần giữ HỨA
         (`nguon='dang_ve'`) đã bám DÒNG PHIẾU này.
 
@@ -485,6 +509,10 @@ class GiuChoService:
         Đọc lại `KeHoachVatTuService._hang_dang_ve()` (nguồn DUY NHẤT của "còn về bao nhiêu", đã
         quy đổi đơn vị gốc + trừ đúng luật `da_giao_theo_dong`) thay vì tính lại — tái dùng, không
         đẻ đường tính thứ hai sẽ có lúc lệch.
+
+        `broadcast=False` cho `doi_soat_dang_ve_don()` tự gộp lại BẮN MỘT LẦN cho cả PMH thay vì
+        một lần mỗi dòng. Trả `True` nếu có dòng `held` để đối (có làm việc), `False` nếu no-op —
+        để nơi gọi theo dõi "có ai vừa đổi thật không" mà không cần đọc lại DB.
         """
         held = (
             self.db.query(VatTuGiuCho)
@@ -494,10 +522,14 @@ class GiuChoService:
             .all()
         )
         if not held:
-            return
+            return False
         hang = (held[0].hang_loai, held[0].hang_id)
         self._khoa_nguon([hang])
-        # `_hang_dang_ve()` cần nền quy đổi mà chỉ `can_doi()` nạp; đường này KHÔNG dựng bảng.
+        # `_hang_dang_ve()` đòi `self.kh._objs`/`_dvs`/`_cap` đã nạp, mà cả ba chỉ được set bên
+        # trong `can_doi()`. Instance `kh_vt` mà `deps.py` ráp cho MỖI request là hàng mới tinh,
+        # chưa từng dựng bảng, nên đối soát đứng một mình (đợt giao/huỷ/đóng đơn) vỡ
+        # `AttributeError: '_objs'`. Nạp ĐÚNG phần cần cho MỘT mặt hàng thay vì gọi `can_doi()` —
+        # dựng cả bảng cân đối ở đây là chạy nguyên engine cho TOÀN kế hoạch chỉ để đọc một con số.
         self.kh.nap_nen_quy_doi([hang])
         con_ve, ngay_ve = 0.0, None
         for ngay, sl, _ma, line_id in self.kh._hang_dang_ve().get(hang, []):
@@ -522,20 +554,33 @@ class GiuChoService:
             for r in con_lai:
                 r.ngay_ve = ngay_ve
         self.db.commit()
-        hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
+        if broadcast:
+            hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
+        return True
 
     def doi_soat_dang_ve_don(self, purchase_request_id: int) -> None:
         """Đối lại MỌI dòng của MỘT PMH — gọi khi sự kiện xảy ra ở CẤP ĐƠN (huỷ, đóng, mở lại, đợt
-        giao đổi) mà không rõ trước dòng nào bị ảnh hưởng, nên đối hết cho chắc."""
+        giao đổi) mà không rõ trước dòng nào bị ảnh hưởng, nên đối hết cho chắc.
+
+        Gộp broadcast: PMH nhiều dòng, mỗi dòng đối xong tự bắn một lần thì MỘT lần Save đợt giao
+        bắn N lần SSE cho N mặt hàng — bắn đúng MỘT LẦN cho cả đơn nếu có ít nhất một dòng thật sự
+        đối (tránh toast đúp trên AppShell), im lặng nếu không dòng nào có gì để đối."""
         from ..models.purchase import PurchaseRequestLine
 
+        co_doi = False
         for ln in (self.db.query(PurchaseRequestLine)
                    .filter(PurchaseRequestLine.purchase_request_id == purchase_request_id)
                    .all()):
             if ln.hang_loai and ln.hang_id:
-                self.doi_soat_dang_ve(ln.id)
+                if self.doi_soat_dang_ve(ln.id, broadcast=False):
+                    co_doi = True
+        if co_doi:
+            hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
 
-    def nhat_them(self, *, chi_chu_the: tuple | None = None, bang: dict | None = None) -> int:
+    def nhat_them(
+        self, *, chi_chu_the: tuple | None = None, bang: dict | None = None,
+        broadcast: bool = True,
+    ) -> int:
         """Bù thêm cho MỌI chủ thể đang bật công tắc mà chưa giữ đủ. Trả số dòng giữ chỗ đẻ ra.
 
         Gọi khi HÀNG VỀ NHẬP KHO — đó là toàn bộ lý do "bật = đăng ký" chứ không phải chụp một lần.
@@ -589,7 +634,7 @@ class GiuChoService:
                     else:
                         break
         self.repo.them(moi)
-        if moi:
+        if moi and broadcast:
             hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
         return len(moi)
 
@@ -707,7 +752,7 @@ class GiuChoService:
         Neo vào bảng GỐC chứ không phải `vat_tu_giu_cho`: một mặt hàng CHƯA từng được giữ chỗ thì
         không có dòng `vat_tu_giu_cho` nào để khoá, nhưng dòng gốc (mặt hàng ở danh mục) luôn có
         sẵn. Cùng khuôn với khoá header phiếu kho chống ghi sổ hai lần
-        (`stock_voucher_repo.py::khoa_de_ghi_so`) — SQLite (test) coi FOR UPDATE là no-op,
+        (`stock_voucher_repo.py::lock_for_update`) — SQLite (test) coi FOR UPDATE là no-op,
         Postgres (dev/prod) khoá thật.
         """
         from sqlalchemy import select as _select
@@ -778,7 +823,9 @@ class GiuChoService:
             return "da_cap"
         return "da_giu" if (da_kho + da_ve) + EPS_GIU >= can else "co_the_giu"
 
-    def giu_theo_chu_the_hang(self, bang: dict, gom: dict[tuple, dict] | None = None) -> None:
+    def giu_theo_chu_the_hang(
+        self, bang: dict, gom: dict[tuple, dict] | None = None
+    ) -> dict[tuple, dict]:
         """Với MỖI (chủ thể, mặt hàng) trong `gom`, gắn thêm `da_giu_kho`/`da_giu_dang_ve` (đã
         giữ, tách nguồn), `co_the_giu_kho`/`co_the_giu_dang_ve` (NẾU bật giữ chỗ NGAY BÂY GIỜ thì
         giữ được thêm bao nhiêu), `trang_thai_giu` (nhãn 6 mức) và `nguon_dang_ve` (mã PMH cụ thể
@@ -791,7 +838,14 @@ class GiuChoService:
         nhiêu" (đó là việc CỦA `nhat_them()` khi nó thật sự chạy, theo đúng thứ tự ngày cần).
 
         Tra `ma_pmh` GỘP MỘT LẦN cho toàn bộ `gom` (không phải mỗi dòng một query) — `theo_chu_the()`
-        gọi hàm này cho MỌI chủ thể trong bảng, N+1 ở đây là N có thể lên tới hàng trăm lệnh.
+        gọi hàm này cho MỌI chủ thể trong bảng, N+1 ở đây là N có thể lên tới hàng trăm lệnh. Cùng
+        lý do, dòng giữ chỗ của TỪNG chủ thể (`repo.cua_chu_the()` bên trong `trang_thai()`) cũng
+        được tra GỘP MỘT LẦN qua `repo.cua_nhieu_chu_the()` rồi truyền vào, thay vì để mỗi lần gọi
+        `trang_thai()` tự bắn query riêng.
+
+        Trả về `tt_by_chu` (kết quả `trang_thai()` đã tính cho mỗi chủ thể) để `theo_chu_the()`
+        TÁI DÙNG luôn — không gọi lại `trang_thai()` lần hai cho cùng chủ thể (mỗi lần gọi kéo
+        theo 1 query `repo.cua_chu_the()`, N chủ thể là nhân đôi số query một cách vô ích).
         """
         from sqlalchemy import select as _select
 
@@ -806,9 +860,11 @@ class GiuChoService:
         }
         tt_by_chu: dict[tuple, dict] = {}
         line_ids: set[int] = set()
+        dang_by_chu = self.repo.cua_nhieu_chu_the(list(gom.keys()))
         for chu in gom:
             lsx_id, bg_id = chu
-            tt = self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang)
+            tt = self.trang_thai(
+                lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang, dang=dang_by_chu.get(chu, []))
             tt_by_chu[chu] = tt
             for ds in tt["nguon_dang_ve"].values():
                 line_ids.update(n["purchase_request_line_id"] for n in ds)
@@ -834,9 +890,11 @@ class GiuChoService:
                     }
                     for n in tt["nguon_dang_ve"].get(hang, [])
                 ]
-                # Phần CÒN CHƯA GIỮ của chính chủ thể này = `can` − đã giữ. KHÔNG dùng `h["thieu"]`
-                # (thiếu theo `can_doi()`, tức sau khi so tồn TOÀN HỆ): tồn đủ thì `thieu` = 0 và
-                # "có thể giữ" sẽ luôn ra 0 đúng vào lúc câu hỏi có nghĩa nhất.
+                # ⚠️ KHÔNG lấy `h["thieu"]` — đó là câu trả lời của can_doi() (đủ theo TỒN THÔ
+                # trong sổ, không biết ai đã giữ chỗ), nên với dòng `xanh`/`vang` nó ĐÃ LÀ 0 dù
+                # CHỦ THỂ NÀY chưa hề bấm giữ (0 vì can_doi() coi tồn thô đã bao được, không phải
+                # vì đã có ai giữ thật). Phải hỏi lại từ CHÍNH chủ thể: phần `can` nó còn CHƯA
+                # giữ được (`can − đã giữ`) mới là phần cần so với tồn tự do/lô đang về CÒN TRỐNG.
                 con = max(0.0, round(_f(h["can"]) - da_kho - da_ve, 4))
                 if con <= EPS_GIU:   # dư dưới biên Numeric(14,2) — không ai giữ thêm được nữa
                     con = 0.0
@@ -845,6 +903,7 @@ class GiuChoService:
                 h["co_the_giu_kho"] = co_kho
                 h["co_the_giu_dang_ve"] = co_ve
                 h["trang_thai_giu"] = self._mau_giu(h["trang_thai"], da_kho, da_ve, h["can"])
+        return tt_by_chu
 
     def gan_giu_cho_vao_bang(self, bang: dict) -> None:
         """Gắn 6 trường giữ-chỗ (`da_giu_kho`, `da_giu_dang_ve`, `co_the_giu_kho`,

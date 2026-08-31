@@ -436,8 +436,8 @@ export type QuoteEvent =
   // cổng lọc nằm hết ở FE (xem AppShell): gác quyền đọc `san_xuat` trước khi toast, và chỉ nạp
   // lại drawer khi `cong_viec_id` trùng việc đang mở. Payload đúng HAI khoá, không hơn.
   | { type: "san_xuat_vat_tu_de_nghi_changed"; cong_viec_id: number }
-  // [MOI 30/08/2026] Ke hoach vat tu: bat/tat giu cho, nhat them, nhap kho chuyen hua->that,
-  // doi soat khi PMH doi. Tin hieu NHE (khong mang id) — man dang mo tu refetch qua quoteTick.
+  // Bảng giữ chỗ vật tư (Kế hoạch vật tư) đổi — bật/tắt/nhặt thêm/chuyển kho/đối soát — gửi
+  // BROADCAST (không riêng ai), chỉ để báo "tự tải lại", không mang state.
   | { type: "ke_hoach_vat_tu_thay_doi" };
 
 // --- Trung tâm thông báo (chuông Topbar) -------------------------------------
@@ -1399,6 +1399,10 @@ export interface SxTeam {
   ma: string;
   la_kcs: boolean;
   so_viec_cho: number;
+  // Task 4 (mg 0250) — badge/cổng board KCS kiêm nhiệm, đọc theo `SanXuatCongViec.la_kcs` (cấp
+  // CÔNG VIỆC) — KHÁC `la_kcs` phía trên (đó là `Department.is_kcs`, cấp TỔ).
+  so_viec_kcs_cho: number;
+  co_viec_kcs: boolean;
 }
 export interface SxTeamsOut {
   teams: SxTeam[];
@@ -1902,6 +1906,11 @@ export interface SxKcsLoi {
   anh: SxKcsAnh[];
 }
 export type SxKcsKetLuan = "dat" | "dat_mot_phan" | "khong_dat";
+/** loai batch: "routing" (đứng sẵn trong quy trình, có thể gửi kho) | "dot_xuat" (kiểm kiêm nhiệm). */
+export type SxKcsBatchLoai = "routing" | "dot_xuat";
+/** Trạng thái gửi kho suy từ các yêu cầu nhập kho neo vào batch — "khong_ap_dung" cho batch
+ *  dot_xuat (không bao giờ gửi kho được). */
+export type SxKcsTrangThaiGuiKho = "chua_gui" | "dang_cho" | "da_nhap" | "khong_ap_dung";
 export interface SxKcsBatchChiTiet {
   id: number;
   batch_id?: number | null;
@@ -1917,14 +1926,37 @@ export interface SxKcsBatchChiTiet {
   ghi_chu?: string | null;
   version: number;
   loi: SxKcsLoi[];
+  loai: SxKcsBatchLoai;
+  /** Tên hiển thị người tạo batch — null nếu không xác định được. */
+  nguoi_ghi?: string | null;
+  trang_thai_gui_kho: SxKcsTrangThaiGuiKho;
+}
+/** Một dòng snapshot tiêu chí checklist KCS (chụp lúc phát hành LSX) — xem `kcs_tieu_chi_json`. */
+export interface SxKcsChiTietTieuChi {
+  tieu_chi_id?: number | null;
+  ma?: string | null;
+  ten?: string | null;
+  huong_dan?: string | null;
+  bat_buoc: boolean;
+  thu_tu: number;
 }
 export interface SxKcsChiTiet {
   cong_viec_id: number;
   la_kcs: boolean;
+  checklist: SxKcsChiTietTieuChi[];
+  /** Tổng đã bàn giao XÁC NHẬN tới công việc này — số BE dùng để chặn "vượt số bàn giao" khi ghi
+   *  batch KCS. Dùng số này (KHÔNG dùng `so_luong_vao` tĩnh) để tính "Còn chờ" cho khớp giới hạn
+   *  thật. */
+  da_ban_giao_xac_nhan: number;
   batch: SxKcsBatchChiTiet[];
 }
 export interface SxKcsHopThu {
   loi: SxKcsLoi[];
+}
+export interface SxKcsChecklistKetQuaIn {
+  thu_tu: number;
+  dat: boolean;
+  ghi_chu?: string | null;
 }
 export interface SxKcsBatchIn {
   bat_dau: string;
@@ -1935,6 +1967,7 @@ export interface SxKcsBatchIn {
   co_mau?: number | null;
   don_vi?: string | null;
   ghi_chu?: string | null;
+  checklist_ket_qua?: SxKcsChecklistKetQuaIn[] | null;
 }
 export interface SxKcsBatchKetQua {
   cong_viec_id: number;
@@ -1967,6 +2000,74 @@ export interface SxKcsPhanHoiKetQua {
   kcs_batch_id: number;
   cong_viec_id?: number | null;
   version: number;
+}
+/** Kết quả kiểm đột xuất (mg 0250, kiêm nhiệm). `batch_id` LUÔN null — không gộp vào sản lượng
+ * nền của tổ bị kiểm; `loi_id` chỉ có khi gửi kèm lỗi (>0 không đạt) trong cùng request. */
+export interface SxKcsDotXuatKetQua {
+  cong_viec_id: number;
+  department_id?: number | null;
+  nhom_id?: number | null;
+  kcs_batch_id: number;
+  batch_id?: number | null;
+  loi_id?: number | null;
+  version: number;
+}
+export interface SxKcsDieuChinhIn {
+  so_luong_dat: number;
+  so_luong_khong_dat: number;
+  checklist_ket_qua?: SxKcsChecklistKetQuaIn[] | null;
+  ghi_chu?: string | null;
+  expected_version: number;
+}
+export interface SxKcsDieuChinhKetQua {
+  kcs_batch_id: number;
+  cong_viec_id: number;
+  so_luong_nhan: number;
+  so_luong_dat: number;
+  so_luong_khong_dat: number;
+  ket_luan: SxKcsKetLuan;
+  version: number;
+}
+export interface SxKcsBaoCaoTheoNgayRow {
+  ngay: string;
+  tong_nhan: number;
+  tong_dat: number;
+  tong_loi: number;
+}
+export interface SxKcsBaoCaoNhomLoiRow {
+  nhom_loi_id?: number | null;
+  ten: string;
+  tong_so_luong: number;
+}
+export interface SxKcsBaoCaoCongDoanRow {
+  ten_cong_doan: string;
+  tong_so_luong: number;
+}
+export interface SxKcsBaoCaoToRow {
+  to_id: number;
+  ten: string;
+  tong_so_luong: number;
+}
+export interface SxKcsBaoCao {
+  tong_luot: number;
+  tong_nhan: number;
+  tong_dat: number;
+  tong_loi: number;
+  ty_le_dat?: number | null;
+  theo_ngay: SxKcsBaoCaoTheoNgayRow[];
+  nhom_loi: SxKcsBaoCaoNhomLoiRow[];
+  cong_doan: SxKcsBaoCaoCongDoanRow[];
+  to: SxKcsBaoCaoToRow[];
+}
+export interface SxKcsBaoCaoParams {
+  tu?: string | null;
+  den?: string | null;
+  kcs_department_id?: number | null;
+  lsx_id?: number | null;
+  tu_khoa?: string | null;
+  cong_doan_id?: number | null;
+  loai?: SxKcsBatchLoai | null;
+  nhom_loi_id?: number | null;
 }
 
 // ── G5: Kho §14 ──────────────────────────────────────────────────────────────
@@ -2201,6 +2302,11 @@ export interface LsxGiaoNhanFields {
 export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   id: number; step_key: string; thu_tu: number; cong_doan_id: number | null;
   ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc; bat_buoc: boolean;
+  /** KCS kiêm nhiệm (mg 0250): bước này có phải KCS không — quyết định khối "Tiêu chí KCS bổ
+   *  sung" có hiện trong drawer hay không. */
+  la_kcs: boolean;
+  /** Tiêu chí KCS BỔ SUNG riêng cho LỆNH này (không sửa được checklist danh mục ở đây). */
+  kcs_tieu_chi_bo_sung_json: { ten: string; huong_dan: string | null; bat_buoc: boolean }[] | null;
   department_id: number | null; department_ten: string | null;
   may_id: number | null; may_ten: string | null;
   /** Hai CỜ đọc từ danh mục Công đoạn — quyết định bước có hỏi khuôn không; `tooling_type` còn là
@@ -2278,6 +2384,8 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   piece_rate_id?: number | null;
   step_key?: string; thu_tu?: number; cong_doan_id?: number | null; ten?: string; nhom?: string | null;
   loai_buoc?: LsxLoaiBuoc; bat_buoc?: boolean;
+  la_kcs?: boolean;
+  kcs_tieu_chi_bo_sung_json?: { ten: string; huong_dan: string | null; bat_buoc: boolean }[] | null;
   department_id?: number | null; may_id?: number | null;
   /** Con dao của bước (`khuon_be.id`). null = bỏ gán. */
   khuon_be_id?: number | null;
@@ -5782,6 +5890,21 @@ export interface PayableSupplierRow {
   total_due: number;
 }
 
+/** Một RỔ TUỔI NỢ. Sáu rổ: chưa tới hạn · trễ 1–7 · 8–15 · 16–30 · 31–60 · >60 ngày.
+ *  Mốc do server giữ (`AGING_BUCKETS`) — đừng gõ lại số ngày ở giao diện. */
+export interface AgingBucket {
+  key: string;
+  label: string;
+  amount: number;
+  count: number;
+}
+
+/** Rổ tuổi của MỘT nhà cung cấp / khách hàng — dạng bảng tra theo khoá rổ. */
+export interface AgingCell {
+  amount: number;
+  count: number;
+}
+
 export interface PayablesSummary {
   items: PayableSupplierRow[];
   total: number;
@@ -5792,6 +5915,8 @@ export interface PayablesSummary {
   overdue_amount: number;
   paid_in_period: number;
   vuot_han_muc_count: number;
+  /** Rổ tuổi TOÀN MÀN. Tổng 5 rổ trễ luôn đúng bằng `overdue_amount`. */
+  aging: AgingBucket[];
   period_months: number;
   as_of: string;
 }
@@ -5890,6 +6015,8 @@ export interface PayablesDetail {
   all_history: boolean;
   total_due: number;
   overdue_amount: number;
+  /** Rổ tuổi của riêng NCC này, dựng từ chính `items`. */
+  aging: AgingBucket[];
   paid_in_period: number;
   as_of: string;
 }
@@ -5908,6 +6035,8 @@ export interface ReceivableCustomerRow {
   payment_term_days: number | null;
   vuot_han_muc: boolean;
   vuot_bao_nhieu: number;
+  /** Rổ tuổi của RIÊNG khách này, tra theo khoá rổ. Khách không nợ vẫn đủ 6 khoá = 0. */
+  aging: Record<string, AgingCell>;
   received_in_period: number;
 }
 
@@ -5921,6 +6050,8 @@ export interface ReceivablesSummary {
   overdue_amount: number;
   received_in_period: number;
   vuot_han_muc_count: number;
+  /** Rổ tuổi TOÀN MÀN. Tổng 5 rổ trễ luôn đúng bằng `overdue_amount`. */
+  aging: AgingBucket[];
   period_months: number;
   as_of: string;
 }
@@ -5937,6 +6068,9 @@ export interface ReceivableItemRow {
   due_date: string | null;
   chua_dat_han: boolean;
   overdue_days: number;
+  /** Khoá rổ tuổi — CHỈ có khi `overdue_days > 0`. Server chụp sẵn bằng cùng hàm dùng cho dải
+   *  tổng, để một hoá đơn không hiện hai mức khẩn khác nhau ở hai màn. */
+  aging_bucket: string | null;
   amount: number;
   direct_received_amount: number;
   deposit_offset_amount: number;
@@ -6020,6 +6154,8 @@ export interface ReceivablesDetail {
   all_history: boolean;
   total_due: number;
   overdue_amount: number;
+  /** Rổ tuổi của riêng khách này, dựng từ chính `items`. */
+  aging: AgingBucket[];
   received_in_period: number;
   as_of: string;
 }
@@ -6099,13 +6235,13 @@ export interface PurchaseRequestLineOut {
   vat_amount: number;
   line_total: number;
   note: string | null;
+  /** Dòng YCMH đẻ ra dòng này (mg 0174b) — form SỬA cần đọc lại để gửi đúng liên kết. */
+  department_request_line_id: number | null;
   /** Liên kết mặt hàng gốc (mg 0174) — Nhập kho từ đợt giao auto-điền vật tư. Null = chỉ tên chữ. */
   hang_loai: HangLoai | null;
   hang_id: number | null;
   hang_ma: string | null;
   hang_ten: string | null;
-  /** Dòng YCMH đẻ ra dòng này — form sửa phải gửi lại, không thì liên kết mặt hàng đứt. */
-  department_request_line_id: number | null;
 }
 
 /** Một dòng yêu cầu đã vào phiếu nào, của NCC nào, tới đâu rồi. */
@@ -10172,9 +10308,10 @@ export const api = {
     hoTroUngVien(token: string, teamId: number): Promise<SxHoTroUngVienListOut> {
       return authed<SxHoTroUngVienListOut>(`/api/san-xuat/teams/${teamId}/ho-tro-ung-vien`, token);
     },
-    /** Công việc đã phát hành của MỘT tổ (timeline). 403 nếu tổ ngoài phạm vi. */
-    workItems(token: string, teamId: number): Promise<SxWorkItemsOut> {
-      const suffix = qs({ team_id: teamId });
+    /** Công việc đã phát hành của MỘT tổ (timeline), lọc theo `mode` (Task 4). 403 nếu tổ ngoài
+     * phạm vi. `mode` omitted ⇒ BE tự mặc định "production" (khớp hành vi cũ). */
+    workItems(token: string, teamId: number, mode?: "production" | "kcs"): Promise<SxWorkItemsOut> {
+      const suffix = qs({ team_id: teamId, mode });
       return authed<SxWorkItemsOut>(`/api/san-xuat/work-items${suffix}`, token);
     },
     /** Drawer một công việc: thanh kế hoạch + roster + phiên chạy + khoảng tham gia. */
@@ -10393,6 +10530,71 @@ export const api = {
       return authed<SxKcsPhanHoiKetQua>(`/api/san-xuat/kcs/loi/${loiId}/phan-hoi`, token, {
         method: "POST", body: JSON.stringify(body),
       });
+    },
+    /** KCS kiêm nhiệm (mg 0250): tổ KHÁC kiểm đột xuất một việc đang chạy/tạm dừng, không đứng sẵn
+     * trong routing — multipart vì có thể kèm lỗi + ảnh NGAY một lượt (khác routing tách 2 bước). */
+    taoKiemDotXuat(
+      token: string,
+      body: {
+        cong_viec_id: number;
+        kcs_department_id: number;
+        bat_dau: string;
+        ket_thuc: string;
+        so_luong_nhan: number;
+        so_luong_dat: number;
+        so_luong_khong_dat?: number;
+        co_mau?: number | null;
+        don_vi?: string | null;
+        ghi_chu?: string | null;
+        checklist_ket_qua?: SxKcsChecklistKetQuaIn[] | null;
+        nhom_loi_id?: number | null;
+        loi_mo_ta?: string | null;
+        to_chiu_id?: number | null;
+        cong_doan_ref_id?: number | null;
+        files?: File[];
+      },
+    ): Promise<SxKcsDotXuatKetQua> {
+      const fd = new FormData();
+      fd.append("cong_viec_id", String(body.cong_viec_id));
+      fd.append("kcs_department_id", String(body.kcs_department_id));
+      fd.append("bat_dau", body.bat_dau);
+      fd.append("ket_thuc", body.ket_thuc);
+      fd.append("so_luong_nhan", String(body.so_luong_nhan));
+      fd.append("so_luong_dat", String(body.so_luong_dat));
+      if (body.so_luong_khong_dat != null) fd.append("so_luong_khong_dat", String(body.so_luong_khong_dat));
+      if (body.co_mau != null) fd.append("co_mau", String(body.co_mau));
+      if (body.don_vi) fd.append("don_vi", body.don_vi);
+      if (body.ghi_chu) fd.append("ghi_chu", body.ghi_chu);
+      if (body.checklist_ket_qua) fd.append("checklist_ket_qua_json", JSON.stringify(body.checklist_ket_qua));
+      if (body.nhom_loi_id != null) fd.append("nhom_loi_id", String(body.nhom_loi_id));
+      if (body.loi_mo_ta) fd.append("loi_mo_ta", body.loi_mo_ta);
+      if (body.to_chiu_id != null) fd.append("to_chiu_id", String(body.to_chiu_id));
+      if (body.cong_doan_ref_id != null) fd.append("cong_doan_ref_id", String(body.cong_doan_ref_id));
+      for (const f of body.files ?? []) fd.append("files", f);
+      return authed<SxKcsDotXuatKetQua>(`/api/san-xuat/kcs/dot-xuat`, token, {
+        method: "POST", body: fd,
+      });
+    },
+    /** Điều chỉnh kết quả một batch KCS đã ghi (§4.3, §5.5) — không xoá, ghi audit trước/sau. */
+    dieuChinhKcs(token: string, kcsBatchId: number, body: SxKcsDieuChinhIn): Promise<SxKcsDieuChinhKetQua> {
+      return authed<SxKcsDieuChinhKetQua>(`/api/san-xuat/kcs/${kcsBatchId}`, token, {
+        method: "PATCH", body: JSON.stringify(body),
+      });
+    },
+    /** Một-bấm tạo yêu cầu nhập kho từ một batch KCS ĐẠT (routing, bước cuối) — số lượng do BE tự
+     * tính (số đạt còn chưa gửi), không nhận số từ client (§14, Global Constraint). */
+    taoYeuCauKhoMotNut(token: string, kcsBatchId: number): Promise<SxNhapKhoYcKetQua> {
+      return authed<SxNhapKhoYcKetQua>(`/api/san-xuat/kcs/${kcsBatchId}/yeu-cau-nhap-kho`, token, {
+        method: "POST",
+      });
+    },
+    /** Báo cáo/dashboard KCS theo bộ lọc (§5.7, §6.2) — KPI + 3 biểu đồ. */
+    baoCaoKcs(token: string, params: SxKcsBaoCaoParams = {}): Promise<SxKcsBaoCao> {
+      return authed<SxKcsBaoCao>(`/api/san-xuat/kcs/bao-cao${qs({ ...params })}`, token);
+    },
+    /** Xuất Excel báo cáo KCS — CÙNG filter với `baoCaoKcs` (§9 mục 10: cùng lọc phải ra cùng tổng). */
+    exportBaoCaoKcsBlobUrl(token: string, params: SxKcsBaoCaoParams = {}): Promise<string> {
+      return blobUrl(`/api/san-xuat/kcs/bao-cao/export.xlsx${qs({ ...params })}`, token);
     },
 
     // --- Giai đoạn 5: Kho thành phẩm/BTP §14 ----------------------------------------------
@@ -11078,11 +11280,20 @@ export const api = {
         `q` lọc ở SERVER: NCC đã trả hết và im lặng lâu thì không có dòng nào để lọc phía màn. */
     payables(
       token: string,
-      params: { q?: string; filter?: string; page?: number; size?: number } = {},
+      params: {
+        q?: string;
+        filter?: string;
+        /** Khoá rổ tuổi — lọc danh sách theo rổ. Tên tham số PHẢI là `aging_bucket`, hai màn
+         *  dùng chung một tên để chép URL qua lại vẫn chạy. */
+        aging?: string | null;
+        page?: number;
+        size?: number;
+      } = {},
     ): Promise<PayablesSummary> {
       const qs = new URLSearchParams();
       if (params.q?.trim()) qs.set("q", params.q.trim());
       if (params.filter && params.filter !== "all") qs.set("filter", params.filter);
+      if (params.aging) qs.set("aging_bucket", params.aging);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
@@ -11099,11 +11310,20 @@ export const api = {
     },
     receivables(
       token: string,
-      params: { q?: string; filter?: string; page?: number; size?: number } = {},
+      params: {
+        q?: string;
+        filter?: string;
+        /** Khoá rổ tuổi — lọc danh sách theo rổ. Tên tham số PHẢI là `aging_bucket`, hai màn
+         *  dùng chung một tên để chép URL qua lại vẫn chạy. */
+        aging?: string | null;
+        page?: number;
+        size?: number;
+      } = {},
     ): Promise<ReceivablesSummary> {
       const qs = new URLSearchParams();
       if (params.q?.trim()) qs.set("q", params.q.trim());
       if (params.filter && params.filter !== "all") qs.set("filter", params.filter);
+      if (params.aging) qs.set("aging_bucket", params.aging);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";

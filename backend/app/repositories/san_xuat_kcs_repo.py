@@ -11,12 +11,14 @@ from sqlalchemy.orm import Session
 
 from ..models.san_xuat import SanXuatCongViec
 from ..models.san_xuat_kcs import (
+    KCS_LOAI_ROUTING,
     TN_CHO,
     SanXuatKcsBatch,
     SanXuatKcsLoi,
     SanXuatKcsLoiAnh,
 )
 from ..models.san_xuat_ly_do import SanXuatLyDo
+from ..models.san_xuat_san_luong import BG_DIEU_CHINH, BG_XAC_NHAN, SanXuatBanGiao
 
 
 class SanXuatKcsRepository:
@@ -150,6 +152,33 @@ class SanXuatKcsRepository:
         return int(
             self.db.scalar(
                 select(func.count(SanXuatKcsLoiAnh.id)).where(SanXuatKcsLoiAnh.loi_id == loi_id)
+            )
+            or 0
+        )
+
+    # --- Tổng số lượng (KCS kiêm nhiệm, mg 0250) ----------------------------------------------
+    def tong_ban_giao_xac_nhan(self, cong_viec_id: int) -> float:
+        """Tổng đã bàn giao TỚI công việc này ở trạng thái confirmed/adjusted (§11.2) — `proposed`
+        chưa chốt nên KHÔNG tính vào lượng có thể kiểm (mục 4)."""
+        return float(
+            self.db.scalar(
+                select(func.coalesce(func.sum(SanXuatBanGiao.so_luong), 0)).where(
+                    SanXuatBanGiao.dich_cong_viec_id == cong_viec_id,
+                    SanXuatBanGiao.trang_thai.in_((BG_XAC_NHAN, BG_DIEU_CHINH)),
+                )
+            )
+            or 0
+        )
+
+    def tong_kcs_routing_da_ghi(self, cong_viec_id: int) -> float:
+        """Tổng `so_luong_nhan` của mọi batch KCS loại routing đã ghi cho công việc này (nhiều đợt,
+        mục 2) — dùng để chặn TỔNG các đợt vượt số đã bàn giao (mục 3)."""
+        return float(
+            self.db.scalar(
+                select(func.coalesce(func.sum(SanXuatKcsBatch.so_luong_nhan), 0)).where(
+                    SanXuatKcsBatch.cong_viec_id == cong_viec_id,
+                    SanXuatKcsBatch.loai == KCS_LOAI_ROUTING,
+                )
             )
             or 0
         )

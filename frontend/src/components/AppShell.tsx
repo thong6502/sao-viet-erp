@@ -28,6 +28,7 @@ import { KeHoachVatTuPage } from "../pages/KeHoachVatTuPage";
 import { BaiGhep2Page } from "../pages/BaiGhep2Page";
 import { XepLich2Page } from "../pages/XepLich2Page";
 import { ThucHienSxPage } from "../pages/ThucHienSxPage";
+import { ThucHienKcsPage } from "../pages/kcs/ThucHienKcsPage";
 import { SuaChuaMayPage } from "../pages/SuaChuaMayPage";
 import { PhieuBaoTriPage } from "../pages/PhieuBaoTriPage";
 import { kyThuatMay } from "../api/kyThuatMay";
@@ -583,7 +584,10 @@ export function AppShell() {
     if (!teamList.length) return;
     setBadges((prev) => {
       const next = { ...prev };
-      for (const t of teamList) next[`thuc-hien-sx:${t.id}`] = t.so_viec_cho;
+      for (const t of teamList) {
+        next[`thuc-hien-sx:${t.id}`] = t.so_viec_cho;
+        next[`thuc-hien-sx-kcs:${t.id}`] = t.so_viec_kcs_cho;
+      }
       return next;
     });
   }, [teamList]);
@@ -740,15 +744,22 @@ export function AppShell() {
         // NGAY; `quoteTick` đã bump ở đầu handler nên bàn đang mở tự refetch (không refresh).
         // `teams` mang cả `so_viec_cho` nên reloadTeams lo luôn badge — không gọi API badge riêng.
         reloadTeams();
+      } else if (readable.has("san_xuat") && e.type === "san_xuat_kcs_changed") {
+        // KCS ghi/điều chỉnh kết quả (routing/đột xuất) → badge "KCS chờ" + "việc chờ" của tổ liên
+        // quan đổi NGAY; `quoteTick` đã bump ở đầu handler nên bàn KCS đang mở tự refetch (không
+        // refresh). `teams` mang cả hai badge nên reloadTeams lo hết — không cần đọc `team_id` từ
+        // payload để lọc: reloadTeams() luôn tải lại TOÀN BỘ danh sách tổ, không phải API theo tổ.
+        reloadTeams();
       } else if (e.type === "san_xuat_duoc_giao_viec") {
         // Đẩy đích danh tới người vừa được giao việc (chỉ người có tài khoản nhận) — toast cá nhân.
         pushToast("🔔 Bạn được giao việc sản xuất mới", "info");
       } else if (e.type === "san_xuat_kcs_loi") {
-        // Lỗi KCS là tương tác GIỮA hai tổ (§13.2) — đẩy ĐÍCH DANH. `pending` tới tổ trưởng bị yêu cầu
-        // (cần phản hồi); `accepted`/`rejected` tới người ghi KCS (đã có kết luận). `quoteTick` đã bump
-        // nên panel/hộp thư đang mở tự tươi; toast chỉ để "ting" khi không mở màn.
+        // Lỗi KCS là tương tác GIỮA hai tổ (§13.2) — đẩy ĐÍCH DANH. `pending` = thông báo MỘT CHIỀU
+        // (§3.3: UI mới không có hộp thư/nút Nhận-Từ chối, chỉ "ting"); `accepted`/`rejected` vẫn
+        // là kết luận thật từ luồng legacy `phan_hoi_loi_kcs` (mục 6, còn giữ). `quoteTick` đã bump
+        // nên panel đang mở tự tươi; toast chỉ để báo khi không mở màn.
         if (e.trang_thai === "pending") {
-          pushToast("⚠️ Tổ bạn bị KCS báo lỗi — cần phản hồi trách nhiệm", "warn");
+          pushToast("🔔 KCS vừa ghi nhận lỗi liên quan tới tổ bạn", "warn");
         } else if (e.trang_thai === "accepted") {
           pushToast("✓ Tổ bị yêu cầu đã NHẬN trách nhiệm lỗi KCS", "ok");
         } else if (e.trang_thai === "rejected") {
@@ -1081,7 +1092,12 @@ export function AppShell() {
   const isKhoView = baseId === "kho-item";
   const moduleKeys =
     MODULES_BY_NAV_ID[baseId] ??
-    (baseId === "thuc-hien-sx" ? ["san_xuat"] : isKhoView ? ["kho"] : undefined);
+    // "thuc-hien-sx-kcs" là node lá ĐỘNG y hệt "thuc-hien-sx" (khác id để tách route/badge, Task
+    // 4) — không nằm trong NAV tĩnh của Sidebar nên MODULES_BY_NAV_ID không có, phải khai tay ở
+    // đây như node "thuc-hien-sx" gốc, nếu không bàn KCS sẽ luôn hiện "không có quyền truy cập".
+    (baseId === "thuc-hien-sx" || baseId === "thuc-hien-sx-kcs"
+      ? ["san_xuat"]
+      : isKhoView ? ["kho"] : undefined);
   const allowed =
     AUTHENTICATED_NAV_IDS.has(baseId) ||
     (moduleKeys != null &&
@@ -1102,9 +1118,20 @@ export function AppShell() {
   // bàn "Thực hiện sản xuất" lọc theo tổ. teamList chỉ có dữ liệu khi có quyền `san_xuat`, nên
   // thiếu quyền thì không đổ node nào.
   if (teamList.length) {
-    dynamicItems["san-xuat"] = teamList.map((t): NavItem => ({
-      id: `thuc-hien-sx:${t.id}`, label: t.ten, icon: "users", module: "san_xuat",
-    }));
+    // Node "KCS · {tổ}" đứng NGAY SAU node sản xuất của CÙNG tổ đó, CHỈ khi tổ đang có việc KCS
+    // đang hoạt động (`co_viec_kcs`, Task 4 §18 mục 6) — điều kiện RỘNG HƠN badge (bàn giao/chưa
+    // kiểm): còn hiện khi KCS đang làm dở, chỉ ẩn khi tổ không còn việc KCS nào đang chạy.
+    dynamicItems["san-xuat"] = teamList.flatMap((t): NavItem[] => {
+      const items: NavItem[] = [
+        { id: `thuc-hien-sx:${t.id}`, label: t.ten, icon: "users", module: "san_xuat" },
+      ];
+      if (t.co_viec_kcs) {
+        items.push({
+          id: `thuc-hien-sx-kcs:${t.id}`, label: `KCS · ${t.ten}`, icon: "users", module: "san_xuat",
+        });
+      }
+      return items;
+    });
   }
   // Mục "Kho" chỉ cần `kho:read`; tab "Phiếu từ đề nghị" (cần create/view_stock) tự ẩn trong KhoPage.
   const hiddenIds = new Set<string>();
@@ -1178,9 +1205,27 @@ export function AppShell() {
           key={`thsx-${teamId}`}
           teamId={teamId}
           tenTo={t?.ten}
+          mode="production"
           eventTick={quoteTick}
           vatTuDeNghiDem={vatTuDeNghiDem}
           onXemCongViec={datCvDangMo}
+          onBadgeStale={reloadTeams}
+        />
+      );
+    }
+    // Bàn KCS kiêm nhiệm của 1 tổ (node lá "thuc-hien-sx-kcs:<teamId>", Task 4 nav + Task 9 trang).
+    // Route id GIỮ NGUYÊN "thuc-hien-sx-kcs" (Ruling 5, docs/design-kcs-kiem-nhiem-ui.md mục 5) dù
+    // trang render giờ là `ThucHienKcsPage` — trang MỚI hoàn toàn, không còn nhánh `mode="kcs"` của
+    // `ThucHienSxPage` (trang đó chỉ còn phục vụ `mode="production"`).
+    if (baseId === "thuc-hien-sx-kcs") {
+      const teamId = Number(activeId.split(":")[1]);
+      const t = teamList.find((x) => x.id === teamId);
+      return (
+        <ThucHienKcsPage
+          key={`kcs-${teamId}`}
+          teamId={teamId}
+          tenTo={t?.ten}
+          eventTick={quoteTick}
           onBadgeStale={reloadTeams}
         />
       );

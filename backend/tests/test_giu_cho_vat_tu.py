@@ -308,6 +308,28 @@ def test_hai_lenh_KHONG_cung_bam_mot_lo_dang_ve(db, svc, customer):
     assert svc.bat(lsx_id=b.id)["du"] is False, "lô 20 kg chỉ đủ cho một lệnh"
 
 
+# ================== HÀNG ĐANG VỀ MANG ĐÚNG DÒNG PHIẾU ==================
+
+
+def test_nhat_them_gan_dung_purchase_request_line_id(db, svc, kh, customer):
+    """Dòng giữ `dang_ve` mới đẻ ra phải bám ĐÚNG dòng phiếu mua đã sinh ra lô đang về đó — không
+    thì đối soát sau này (Task 3) không biết nhả theo dòng nào."""
+    from app.models.purchase import PurchaseRequestLine
+    from app.models.vat_tu_giu_cho import NGUON_DANG_VE
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)   # ≈ 16,77 kg
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
+
+    svc.bat(lsx_id=a.id)
+
+    rows = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
+    ve = [r for r in rows if r.nguon == NGUON_DANG_VE]
+    assert ve, "phải giữ được từ lô đang về"
+    assert all(r.purchase_request_line_id == line.id for r in ve)
+
+
 # ================== GỘP CÁC BƯỚC (cùng họ lỗi ① Đợt 1) ==================
 
 
@@ -817,197 +839,339 @@ def test_the_lenh_goi_ten_phieu_dang_chay_cua_tung_mon(db, svc, customer):
     assert sau["dang_giu"] == pytest.approx(truoc["dang_giu"])
 
 
-# ================== KHOÁ NGUỒN — GIAO DỊCH MỘT LẦN ==================
+# ================== MIGRATION 0245 ==================
 
 
-def test_khoa_nguon_khong_loi_va_theo_thu_tu_on_dinh(db, svc):
-    """`_khoa_nguon` phải chạy được (không lỗi) khi truyền LỘN thứ tự — tự sắp lại theo
-    (hang_loai, hang_id) TĂNG DẦN trước khi khoá — và không lỗi khi gọi LẦN HAI trong CÙNG giao
-    dịch (mô phỏng `nhat_them()` rồi `kiem_xuat()` cùng chạm một mặt hàng trong một lượt xử lý).
+def test_migration_them_cot_purchase_request_line_id(db):
+    """Cột mới phải tồn tại, nullable, và chạy lại migration không vỡ (idempotent)."""
+    from sqlalchemy import inspect
 
-    SQLite (test) coi `FOR UPDATE` là no-op — cùng giới hạn đã ghi nhận ở
-    `stock_voucher_repo.py::khoa_de_ghi_so` — nên test này chỉ xác nhận KHÔNG VỠ, không xác nhận
-    chặn concurrent thật (chỉ Postgres dev/prod mới khoá thật)."""
-    g1 = _giay(db, ma="GY-1")
-    g2 = _giay(db, ma="GY-2")
+    from app.db_migrations import run_migrations
 
-    svc._khoa_nguon([("giay", g2.id), ("giay", g1.id)])
-    svc._khoa_nguon([("giay", g1.id)])
+    insp = inspect(db.get_bind())
+    cols = {c["name"] for c in insp.get_columns("vat_tu_giu_cho")}
+    assert "purchase_request_line_id" in cols
 
-
-# ================== XUẤT KHO QUY LSX ĐÃ GHÉP VỀ BÀI ==================
+    # Chạy lại lần hai — no-op, không raise.
+    run_migrations(db)
 
 
-def _dung_svcv(db, kh):
-    from app.repositories.stock_voucher_repo import StockVoucherRepository
-    from app.services.stock_voucher_service import StockVoucherService
+def test_migration_them_cot_purchase_request_line_id_tao_index(db):
+    """Migration 0245 phải tự tạo INDEX cho cột mới — DB thật (dev/prod) không chạy lại
+    create_all() nên nếu migration không tự tạo, index sẽ KHÔNG BAO GIỜ xuất hiện, và mọi
+    doi_soat_dang_ve()/doi_soat_dang_ve_don() filter trên cột này full-scan dưới khoá FOR UPDATE.
 
-    return StockVoucherService(
-        vouchers=StockVoucherRepository(db), requests=None, lots=None, sequence=None,
-        request_service=None, hang=kh.hang, giu_cho=GiuChoService(db, kh),
+    KHÔNG dùng `ALTER TABLE ... DROP COLUMN` trên bảng đã create_all(): SQLite từ chối thẳng
+    ("unknown column ... in foreign key definition") vì cột này có ràng buộc FK cấp-bảng
+    (`FOREIGN KEY(purchase_request_line_id) REFERENCES purchase_request_lines(id)`) — hạn chế cấu
+    trúc của SQLite (không liên quan `PRAGMA foreign_keys`, đã xác minh riêng). Thay vào đó DROP +
+    CREATE lại đúng bảng `vat_tu_giu_cho` KHÔNG có cột/index đó, giữ nguyên mọi bảng khác (lsx,
+    bai_ghep, purchase_request_lines...) nguyên vẹn từ create_all() của fixture `db` — không bảng
+    nào khác có FK trỏ VÀO `vat_tu_giu_cho` nên an toàn drop/recreate riêng bảng này, và
+    `_dung_lai_giu_cho_dang_ve()` bên trong migration (backfill gọi `GiuChoService.nhat_them()`)
+    vẫn chạy được bình thường vì mọi bảng nó cần đọc vẫn còn nguyên."""
+    from sqlalchemy import inspect, text
+
+    from app.db_migrations import _migrate_giu_cho_purchase_request_line_id
+
+    db.execute(text("DROP TABLE vat_tu_giu_cho"))
+    db.execute(text(
+        "CREATE TABLE vat_tu_giu_cho ("
+        "id INTEGER PRIMARY KEY, hang_loai VARCHAR(8) NOT NULL, hang_id INTEGER NOT NULL, "
+        "lsx_id INTEGER, bai_ghep_id INTEGER, so_luong NUMERIC(14,2) NOT NULL, "
+        "nguon VARCHAR(10) NOT NULL, ngay_ve DATE, "
+        "created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)"
+    ))
+    db.commit()
+
+    insp = inspect(db.get_bind())
+    cols_truoc = {c["name"] for c in insp.get_columns("vat_tu_giu_cho")}
+    assert "purchase_request_line_id" not in cols_truoc
+
+    _migrate_giu_cho_purchase_request_line_id(db)
+
+    insp = inspect(db.get_bind())
+    cols = {c["name"] for c in insp.get_columns("vat_tu_giu_cho")}
+    assert "purchase_request_line_id" in cols
+    idx_cols = [tuple(i["column_names"]) for i in insp.get_indexes("vat_tu_giu_cho")]
+    assert ("purchase_request_line_id",) in idx_cols, (
+        f"thiếu index trên purchase_request_line_id — indexes hiện có: {idx_cols}"
     )
 
 
-def _dung_phieu_xuat(db, hang, *, lsx_id, bai_ghep_id, kho_id=None):
-    """Dựng thẳng 1 StockRequest (1 dòng) + 1 StockVoucher XUẤT khớp dòng đó — trả `(voucher,
-    {request_line_id: request_line})` để gọi thẳng `_gom_theo_hang_va_chu_the`."""
-    from app.models.stock_request import REQ_APPROVED, REQ_XUAT, StockRequest, StockRequestLine
-    from app.models.stock_voucher import VOUCHER_XUAT, StockVoucher, StockVoucherLine
-    from app.models.user import User
+def test_migration_backfill_dung_lai_nhat_them_cho_chu_the_dang_bat(db, kh, customer):
+    """Chủ thể đã BẬT giữ chỗ từ trước (cờ `giu_cho_bat=true`), dòng `dang_ve` của nó vừa bị
+    migration xoá sạch — hàm backfill `_dung_lai_giu_cho_dang_ve` phải tự gọi lại `nhat_them()`
+    cho chủ thể đó, không để nó "trắng tay" tới lần Nhập kho/Bật-Tắt kế tiếp."""
+    from app.db_migrations import _dung_lai_giu_cho_dang_ve
+    from app.services.giu_cho_service import GiuChoService
 
-    if kho_id is None:
-        kho = db.query(KhoHang).first()
-        if kho is None:
-            kho = KhoHang(ma="K1", ten="Kho test")
-            db.add(kho)
-            db.flush()
-        kho_id = kho.id
-    uid = db.query(User).first().id
-    req = StockRequest(ma=f"YC-{db.query(StockRequest).count() + 1}", loai=REQ_XUAT,
-                       trang_thai=REQ_APPROVED, kho_id=kho_id, nguoi_tao_id=uid)
-    db.add(req)
-    db.flush()
-    rl = StockRequestLine(request_id=req.id, hang_loai=hang[0], hang_id=hang[1], sl_de_nghi=10,
-                          sl_duyet=10, sl_da_ung=0, dvt="kg", lsx_id=lsx_id,
-                          bai_ghep_id=bai_ghep_id)
-    db.add(rl)
-    db.commit()
-
-    v = StockVoucher(ma=f"PX-{db.query(StockVoucher).count() + 1}", request_id=req.id,
-                     loai=VOUCHER_XUAT, kho_id=req.kho_id, ngay=HOM_NAY, nguoi_lap_id=uid)
-    db.add(v)
-    db.flush()
-    db.add(StockVoucherLine(voucher_id=v.id, request_line_id=rl.id, hang_loai=hang[0],
-                            hang_id=hang[1], so_luong=10, sl_goc=10, lot_id=None))
-    db.commit()
-    return v, {rl.id: rl}
-
-
-def test_gom_theo_hang_va_chu_the_quy_ve_bai_ghep(db, kh, customer):
-    """Dòng yêu cầu kho khai `lsx_id` (lúc lập yêu cầu, lệnh còn ĐỘC LẬP) nhưng LSX đó SAU ĐÓ bị
-    cuốn vào bài ghép — giấy LUÔN thuộc bài một khi đã ghép (spec §2: "Giấy... thuộc bài ghép"), nên
-    `can_doi()` không còn nhu cầu riêng `(a.id, None)` cho giấy nữa. `kiem_xuat`/`tieu_thu` phải tra
-    ĐÚNG chủ thể BÀI (nơi giữ chỗ dồn về), chứ không phải LSX đơn lẻ (nơi không còn giữ gì)."""
     g = _giay(db)
-    hang = _giay_hang(g)
     a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
-    bg = BaiGhep(ma="GB-1", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
-    db.add(bg)
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+
+    # Mô phỏng "đã bật từ trước migration": bật cờ THẲNG qua ORM, KHÔNG gọi svc.bat() (gọi bat()
+    # sẽ tự nhat_them() ngay, làm mất ý nghĩa của test — ta cần trạng thái "cờ bật nhưng CHƯA có
+    # dòng giữ", đúng như sau khi migration xoá sạch dang_ve).
+    a.giu_cho_bat = True
+    db.commit()
+
+    svc = GiuChoService(db, kh)
+    assert not svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None), "chưa gọi nhat_them nên phải trống"
+
+    _dung_lai_giu_cho_dang_ve(db)
+
+    rows = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
+    assert rows, "backfill phải tự dựng lại giữ chỗ cho chủ thể đang bật"
+
+
+# ================== ĐỐI SOÁT KHI PMH ĐỔI ==================
+
+
+def _dot_giao(db, phieu, line, *, so_luong) -> None:
+    """Ghi MỘT đợt giao cho dòng phiếu — đủ để `da_giao_theo_dong()` cộng vào 'đã giao', khớp
+    hành vi `PurchaseService.ghi_dot_giao` mà không phải dựng toàn bộ service."""
+    from app.models.purchase import PurchaseDelivery, PurchaseDeliveryLine
+
+    dot = PurchaseDelivery(purchase_request_id=phieu.id, seq_no=1, delivery_date=HOM_NAY)
+    db.add(dot)
     db.flush()
-    db.add(BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id, so_con_tren_to=1))
+    db.add(PurchaseDeliveryLine(delivery_id=dot.id, purchase_request_line_id=line.id,
+                                quantity=so_luong))
     db.commit()
 
-    svcv = _dung_svcv(db, kh)
-    v, lines_by_id = _dung_phieu_xuat(db, hang, lsx_id=a.id, bai_ghep_id=None)
-    ra = svcv._gom_theo_hang_va_chu_the(v, lines_by_id)
-    assert (hang, (None, bg.id)) in ra, f"phải quy về bài ghép, thực tế: {ra}"
-    assert (hang, (a.id, None)) not in ra
 
+def test_doi_soat_nha_moi_nhat_truoc_khi_con_ve_co_lai(db, svc, kh, customer):
+    """Bảo vệ cam kết CŨ: khi phần hứa co lại, dòng giữ MỚI TẠO bị nhả trước, dòng CŨ giữ nguyên."""
+    from app.models.purchase import PurchaseRequestLine
 
-def test_gom_theo_hang_va_chu_the_khong_ghep_giu_nguyen_chu_the_lsx(db, kh, customer):
-    """LSX KHÔNG nằm trong bài ghép nào (`ghep_cua` rỗng) — dòng yêu cầu khai `lsx_id` phải giữ
-    NGUYÊN chủ thể LSX, không bị đụng tới. Đây là ca phổ biến nhất (đa số LSX không ghép) và cũng
-    chứng minh nhánh "vật tư riêng không bị quy nhầm": vì `a` không hề thuộc bài nào, guard
-    `lsx_id in ghep_cua` sai ngay từ đầu, không có cơ hội quy nhầm."""
     g = _giay(db)
-    hang = _giay_hang(g)
-    a = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=200)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1000)  # cần nhiều, ăn hết lô
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=200, ngay_ve=MAI)
+    phieu = db.query(PurchaseRequest).order_by(PurchaseRequest.id.desc()).first()
+    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
+
+    svc.bat(lsx_id=a.id)
+    truoc = sum(float(r.so_luong) for r in svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None))
+    assert truoc > 0, "phải giữ được từ lô đang về"
+
+    # NCC chỉ giao 50/200 — con_ve giảm còn 150.
+    _dot_giao(db, phieu, line, so_luong=50)
+
+    svc.doi_soat_dang_ve(line.id)
+
+    sau = sum(float(r.so_luong) for r in svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None))
+    assert sau == pytest.approx(min(truoc, 150), abs=0.01), (
+        f"phải nhả bớt xuống còn tối đa 150 (con_ve mới), thực tế còn {sau}"
+    )
+
+
+def test_doi_soat_nha_sach_khi_dong_khong_con_trong_hang_dang_ve(db, svc, kh, customer):
+    """Phiếu rời khỏi trạng thái 'đang về' (đóng/huỷ) ⇒ `_hang_dang_ve()` không còn dòng nào của
+    nó ⇒ đối soát phải nhả SẠCH phần đã giữ theo dòng đó."""
+    from app.models.purchase import PR_CANCELLED, PurchaseRequestLine
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+    phieu = db.query(PurchaseRequest).order_by(PurchaseRequest.id.desc()).first()
+    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
+    svc.bat(lsx_id=a.id)
+    assert svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None), "phải giữ được trước đã"
+
+    phieu.status = PR_CANCELLED   # mô phỏng PurchaseService.cancel() đã đổi trạng thái
     db.commit()
 
-    svcv = _dung_svcv(db, kh)
-    v, lines_by_id = _dung_phieu_xuat(db, hang, lsx_id=a.id, bai_ghep_id=None)
-    ra = svcv._gom_theo_hang_va_chu_the(v, lines_by_id)
-    assert (hang, (a.id, None)) in ra
-    assert all(chu != (None, None) for _, chu in ra)
+    svc.doi_soat_dang_ve(line.id)
+
+    con = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
+    assert not any(r.purchase_request_line_id == line.id for r in con)
 
 
-def test_gom_theo_hang_va_chu_the_mo_ho_chan_ghi_so(db, kh, customer):
-    """LSX đã ghép, nhưng mặt hàng trên dòng yêu cầu KHÔNG khớp nhu cầu riêng của LSX lẫn nhu cầu
-    của bài (hàng lạ, không nằm trong routing của ai) — mơ hồ, phải chặn ghi sổ thay vì đoán, đúng
-    spec §2 "trường hợp mơ hồ phải cảnh báo"."""
-    from app.services.stock_voucher_service import StockVoucherError
+def test_doi_soat_dang_ve_don_ban_sse_dung_mot_lan_du_nhieu_mat_hang(db, svc, kh, customer, monkeypatch):
+    """Một PMH có NHIỀU dòng, mỗi dòng đang giữ hứa `dang_ve` cho MỘT mặt hàng khác nhau —
+    `doi_soat_dang_ve_don()` lặp gọi `doi_soat_dang_ve()` cho TỪNG dòng, nhưng phải bắn SSE
+    ĐÚNG MỘT LẦN cho cả đợt, không phải N lần cho N mặt hàng (một lần Save đợt giao/huỷ/đóng đơn
+    không được nổ N toast đúp trên AppShell)."""
+    from app.services import giu_cho_service
 
-    g = _giay(db)
-    g_la = _giay(db, ma="GIAY-LA")  # giấy khác, KHÔNG nằm trong routing của `a` hay của bài
-    hang_la = _giay_hang(g_la)
-    a = _lenh(db, customer, ma="LSX-C", giay_id=g.id, so_to_nguyen=200)
-    bg = BaiGhep(ma="GB-2", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
-    db.add(bg)
+    g1 = _giay(db, ma="GY-1")
+    g2 = _giay(db, ma="GY-2")
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g1.id, so_to_nguyen=200)
+    b = _lenh(db, customer, ma="LSX-B", giay_id=g2.id, so_to_nguyen=200)
+
+    p = PurchaseRequest(code="PMH-MULTI", status=PR_PURCHASED, expected_receipt_date=MAI)
+    db.add(p)
     db.flush()
-    db.add(BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id, so_con_tren_to=1))
+    ln1 = PurchaseRequestLine(purchase_request_id=p.id, item_name="Giấy 1", hang_loai="giay",
+                               hang_id=g1.id, unit="kg", quantity=100, expected_unit_price=1)
+    ln2 = PurchaseRequestLine(purchase_request_id=p.id, item_name="Giấy 2", hang_loai="giay",
+                               hang_id=g2.id, unit="kg", quantity=100, expected_unit_price=1)
+    db.add_all([ln1, ln2])
     db.commit()
 
-    svcv = _dung_svcv(db, kh)
-    v, lines_by_id = _dung_phieu_xuat(db, hang_la, lsx_id=a.id, bai_ghep_id=None)
-    with pytest.raises(StockVoucherError):
-        svcv._gom_theo_hang_va_chu_the(v, lines_by_id)
+    svc.bat(lsx_id=a.id)
+    svc.bat(lsx_id=b.id)
+    assert any(r.purchase_request_line_id == ln1.id
+               for r in svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)), "phải giữ hứa mặt hàng 1 trước đã"
+    assert any(r.purchase_request_line_id == ln2.id
+               for r in svc.repo.cua_chu_the(lsx_id=b.id, bai_ghep_id=None)), "phải giữ hứa mặt hàng 2 trước đã"
+
+    calls: list[dict] = []
+    monkeypatch.setattr(giu_cho_service.hub, "broadcast", lambda e: calls.append(e))
+
+    svc.doi_soat_dang_ve_don(p.id)
+
+    assert len(calls) == 1, f"phải bắn đúng 1 lần cho cả PMH (2 mặt hàng), thực tế {len(calls)} lần: {calls}"
 
 
-# ================== CHẶN SỬA KHI ĐANG GIỮ CHỖ (LSX) ==================
+# ================== HOOK PurchaseService ⇄ GIỮ CHỖ (30/08/2026, Task 4) ==================
 
 
-def _lsx_svc(db):
+def _thu_mua(db, kh) -> "PurchaseService":
+    """Dựng `PurchaseService` NGOÀI FastAPI DI, soi đúng cách `deps.get_purchase_service` ráp —
+    KHÔNG đoán tên module: `AuthorizationService` nằm ở `rbac_service` (không phải
+    `authorization_service` — file đó không tồn tại), `DepartmentRepository`/`RoleRepository`
+    nằm chung `rbac_repo`, và `DepartmentPurchaseRequestRepository`/`PurchaseStatusHistoryRepository`
+    nằm chung `purchase_repo` với `SupplierRepository`/`PurchaseRequestRepository` đã import ở
+    đầu file này (không có file `department_purchase_repo.py`/`department_repo.py` riêng)."""
     from app.repositories.audit_repo import AuditLogRepository
-    from app.repositories.document_sequence_repo import DocumentSequenceRepository
-    from app.services.lsx_service import LsxService
-    from app.services.sequence_service import SequenceService
+    from app.repositories.purchase_repo import (
+        DepartmentPurchaseRequestRepository,
+        PurchaseStatusHistoryRepository,
+    )
+    from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
+    from app.repositories.user_repo import UserRepository
+    from app.services.purchase_service import PurchaseService
+    from app.services.rbac_service import AuthorizationService
 
-    return LsxService(db, LsxRepository(db), AuditLogRepository(db),
-                      SequenceService(DocumentSequenceRepository(db)))
+    return PurchaseService(
+        suppliers=SupplierRepository(db),
+        department_requests=DepartmentPurchaseRequestRepository(db),
+        requests=PurchaseRequestRepository(db),
+        users=UserRepository(db),
+        departments=DepartmentRepository(db),
+        audit=AuditLogRepository(db),
+        authz=AuthorizationService(RoleRepository(db)),
+        lich_su=PurchaseStatusHistoryRepository(db),
+        giu_cho=GiuChoService(db, kh),
+    )
 
 
-def test_sua_so_luong_dat_khi_dang_giu_cho_bi_chan(db, svc, customer):
-    """Đang giữ chỗ mà sửa SL đặt là đổi luôn số vật tư cần ⇒ phải chặn, giống cách bài ghép đã
-    chặn thêm/rút thành viên khi đang giữ (`BaiGhepService._chan_dang_giu_cho`)."""
+def test_huy_pmh_nha_sach_giu_cho_dang_ve(db, svc, kh, customer):
+    """Huỷ PMH → PMH rời khỏi trạng thái 'đang về' → `GiuChoService.doi_soat_dang_ve_don` phải tự
+    chạy và nhả sạch phần giữ hứa bám phiếu đó, KHÔNG cần ai gọi tay `nhat_them`/`doi_soat_dang_ve`.
+
+    Actor dùng user `admin` đã seed sẵn (KHÔNG dùng actor giả `type("A", (), {"id": 1})()` như bản
+    nháp đầu của test này): `_phieu_mua()` dựng PMH thẳng ở trạng thái `PR_PURCHASED`, nên
+    `PurchaseService.cancel()` đòi actor có quyền `ke_toan:approve` — nhánh "tự huỷ phiếu NHÁP do
+    chính mình lập" không áp được vì phiếu không ở `PR_DRAFT`. Một actor giả chỉ có `.id` còn vỡ
+    sớm hơn nữa: `AuthorizationService.can()` đọc `user.role_id`, actor giả không có thuộc tính đó
+    nên ném `AttributeError` trước khi kịp bàn tới việc có quyền hay không."""
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+    phieu = db.query(PurchaseRequest).order_by(PurchaseRequest.id.desc()).first()
+    svc.bat(lsx_id=a.id)
+    assert svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None), "phải giữ được trước đã"
+
+    thu_mua = _thu_mua(db, kh)
     from app.models.user import User
-    from app.services.lsx_service import LsxConflict
 
-    g = _giay(db)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
-    _ton(db, _giay_hang(g), 100)
-    svc.bat(lsx_id=a.id)
+    admin = db.query(User).filter(User.username == "admin").first()
+    thu_mua.cancel(phieu.id, reason="Không mua nữa", actor=admin)
 
-    lsx_svc = _lsx_svc(db)
-    payload = type("P", (), {"model_dump": lambda self, exclude_unset=True: {"so_luong_dat": 2000}})()
-    admin = db.query(User).first()
-    with pytest.raises(LsxConflict, match="giữ chỗ"):
-        lsx_svc.update(lsx_id=a.id, payload=payload, actor=admin)
+    con = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
+    assert not any(float(r.so_luong) > 0 for r in con
+                   if getattr(r, "purchase_request_line_id", None)), (
+        "huỷ PMH phải nhả hết phần giữ hứa bám phiếu đó"
+    )
 
 
-def test_xoa_lsx_khi_dang_giu_cho_bi_chan(db, svc, customer):
+def test_mark_received_nha_sach_giu_cho_dang_ve(db, svc, kh, customer):
+    """`mark_received` — ĐƯỜNG CŨ cho PMH không theo dõi đợt giao — đánh dấu "Đã nhận hàng" thì
+    PMH rời khỏi trạng thái 'đang về' (`_hang_dang_ve()` chỉ đếm APPROVED/PURCHASED/
+    PARTIALLY_RECEIVED). Trước bản vá này, `mark_received` không gọi `_doi_soat_giu_cho` như 5 chỗ
+    khác đã làm (`_sau_khi_doi_dot`/`dong_don`/`cancel`), nên dòng giữ hứa `dang_ve` bám dòng phiếu
+    này bị bỏ quên vĩnh viễn — hàng vừa về bị giữ HAI LẦN (một lần ma ở đây, một lần thật khi nhập
+    kho), `ton_tu_do` hụt mãi bằng đúng số vừa nhận."""
+    from app.models.purchase import PurchaseRequestLine
     from app.models.user import User
-    from app.services.lsx_service import LsxConflict
 
     g = _giay(db)
     a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
-    _ton(db, _giay_hang(g), 100)
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+    phieu = db.query(PurchaseRequest).order_by(PurchaseRequest.id.desc()).first()
+    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
+    assert not phieu.deliveries, "test này phải đi đúng đường cũ — PMH không có đợt giao"
+
     svc.bat(lsx_id=a.id)
+    assert any(r.purchase_request_line_id == line.id
+               for r in svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)), (
+        "phải giữ được hứa từ PMH trước đã"
+    )
 
-    lsx_svc = _lsx_svc(db)
-    admin = db.query(User).first()
-    with pytest.raises(LsxConflict, match="giữ chỗ"):
-        lsx_svc.xoa(lsx_id=a.id, actor=admin)
+    thu_mua = _thu_mua(db, kh)
+    admin = db.query(User).filter(User.username == "admin").first()
+    thu_mua.mark_received(phieu.id, actor=admin)
+
+    con = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
+    assert not any(r.purchase_request_line_id == line.id for r in con), (
+        "đánh dấu 'Đã nhận hàng' phải tự đối soát nhả sạch phần giữ hứa bám dòng phiếu này"
+    )
 
 
-# ================== GẮN GIỮ CHỖ VÀO BẢNG /can-doi ==================
+# ================== NHẬP KHO CHUYỂN HỨA → THẬT ==================
 
 
-def test_gan_giu_cho_vao_bang_dan_dung_dong(db, svc, kh, customer):
-    """Mỗi dòng của bảng /can-doi phải nhận đúng con số giữ-chỗ của (chủ thể, mặt hàng) nó thuộc
-    về — dòng nào không thuộc chủ thể nào (mồ côi cả hai) thì bỏ qua, không lỗi."""
+def test_chuyen_dang_ve_sang_kho_go_khoa_ngay(db, svc, kh, customer):
+    """Hàng đang về (hứa, khoá lịch tới `ngay_ve`) nhập kho xong phải chuyển thành `nguon=kho`
+    (không ngày nào khoá nữa) — không thì lệnh vẫn bị chặn lịch dù hàng đã nằm trong kho."""
+    from app.models.vat_tu_giu_cho import NGUON_DANG_VE, NGUON_KHO
+
     g = _giay(db)
-    _ton(db, _giay_hang(g), 100)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)   # ≈ 16,77 kg
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
     svc.bat(lsx_id=a.id)
+    tt_truoc = svc.trang_thai(lsx_id=a.id)
+    assert tt_truoc["xep_som_nhat"] is not None, "đang giữ hứa nên phải có ngày khoá lịch"
 
-    bang = kh.can_doi()
-    svc.gan_giu_cho_vao_bang(bang)
+    svc.chuyen_dang_ve_sang_kho(_giay_hang(g), 100)
 
-    dong = [d for nhom in bang["items"] if nhom["loai_nhom"] == "vat_tu"
-            for d in nhom["dong"] if d.get("lsx_id") == a.id]
-    assert dong, "phải có ít nhất một dòng của lệnh A"
-    assert dong[0]["trang_thai_giu"] == "da_giu"
-    assert dong[0]["da_giu_kho"] == pytest.approx(16.77, abs=0.05)
+    rows = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
+    assert all(r.nguon == NGUON_KHO for r in rows), "phải chuyển hết sang kho"
+    assert not any(r.nguon == NGUON_DANG_VE for r in rows)
+    tt_sau = svc.trang_thai(lsx_id=a.id)
+    assert tt_sau["xep_som_nhat"] is None, "hàng đã có thật thì không còn ngày nào khoá lịch nữa"
+
+
+# ================== TÁCH NGUỒN TRONG trang_thai() ==================
+
+
+def test_trang_thai_tach_da_giu_kho_va_dang_ve(db, svc, kh, customer):
+    """`trang_thai()` phải tách được giữ THẬT (kho) và giữ HỨA (đang về), VÀ trả ra ĐÚNG dòng PMH
+    nào đang góp cho phần hứa đó — không thì màn không biết phần nào đã chắc, phần nào còn treo
+    theo ngày về, và không biết đang bám đơn nào để hối NCC."""
+    from app.models.purchase import PurchaseRequestLine
+
+    g = _giay(db)
+    _ton(db, _giay_hang(g), 5)   # đủ 5 kg thật, còn thiếu phải bám hàng đang về
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)   # ≈ 16,77 kg
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
+
+    tt = svc.bat(lsx_id=a.id)
+
+    hang = _giay_hang(g)
+    assert tt["da_giu_kho"].get(hang, 0) == pytest.approx(5, abs=0.01)
+    assert tt["da_giu_dang_ve"].get(hang, 0) == pytest.approx(16.77 - 5, abs=0.05)
+    # Tổng hai nguồn phải khớp `dang_giu` cũ — không phá số cũ, chỉ tách thêm.
+    assert tt["da_giu_kho"][hang] + tt["da_giu_dang_ve"][hang] == pytest.approx(
+        tt["dang_giu"][hang], abs=0.01
+    )
+    nguon = tt["nguon_dang_ve"].get(hang, [])
+    assert nguon and all(n["purchase_request_line_id"] == line.id for n in nguon)
+    assert sum(n["so_luong"] for n in nguon) == pytest.approx(tt["da_giu_dang_ve"][hang], abs=0.01)
 
 
 # ================== TRẠNG THÁI GIỮ 6 MỨC ==================
@@ -1060,6 +1224,258 @@ def test_giu_theo_chu_the_hang_lo_ma_pmh_dang_bam(db, svc, kh, customer):
     assert nguon[0]["ma_pmh"] == phieu.code
 
 
+# ================== GẮN GIỮ CHỖ VÀO BẢNG /can-doi ==================
+
+
+def test_gan_giu_cho_vao_bang_dan_dung_dong(db, svc, kh, customer):
+    """Mỗi dòng của bảng /can-doi phải nhận đúng con số giữ-chỗ của (chủ thể, mặt hàng) nó thuộc
+    về — dòng nào không thuộc chủ thể nào (mồ côi cả hai) thì bỏ qua, không lỗi."""
+    g = _giay(db)
+    _ton(db, _giay_hang(g), 100)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    svc.bat(lsx_id=a.id)
+
+    bang = kh.can_doi()
+    svc.gan_giu_cho_vao_bang(bang)
+
+    dong = [d for nhom in bang["items"] if nhom["loai_nhom"] == "vat_tu"
+            for d in nhom["dong"] if d.get("lsx_id") == a.id]
+    assert dong, "phải có ít nhất một dòng của lệnh A"
+    assert dong[0]["trang_thai_giu"] == "da_giu"
+    assert dong[0]["da_giu_kho"] == pytest.approx(16.77, abs=0.05)
+
+    from app.schemas.ke_hoach_vat_tu import CanDoiOut
+    CanDoiOut(**bang)  # phải KHÔNG raise — xác nhận field mới không làm vỡ response_model của router thật
+
+
+# ================== CHẶN SỬA KHI ĐANG GIỮ CHỖ (LSX) ==================
+
+
+def _lsx_svc(db) -> "LsxService":
+    from app.repositories.audit_repo import AuditLogRepository
+    from app.repositories.document_sequence_repo import DocumentSequenceRepository
+    from app.repositories.lsx_repo import LsxRepository
+    from app.services.lsx_service import LsxService
+    from app.services.sequence_service import SequenceService
+
+    return LsxService(
+        db, LsxRepository(db), AuditLogRepository(db),
+        SequenceService(DocumentSequenceRepository(db)),
+    )
+
+
+def test_sua_so_luong_dat_khi_dang_giu_cho_bi_chan(db, svc, customer):
+    """Đang giữ chỗ mà sửa SL đặt là đổi luôn số vật tư cần ⇒ phải chặn, giống cách bài ghép đã
+    chặn thêm/rút thành viên khi đang giữ (`BaiGhepService._chan_dang_giu_cho`)."""
+    from app.services.lsx_service import LsxConflict
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    _ton(db, _giay_hang(g), 100)
+    svc.bat(lsx_id=a.id)
+
+    lsx_svc = _lsx_svc(db)
+    payload = type("P", (), {"model_dump": lambda self, exclude_unset=True: {"so_luong_dat": 2000}})()
+    admin = db.query(__import__("app.models.user", fromlist=["User"]).User).first()
+    with pytest.raises(LsxConflict, match="giữ chỗ"):
+        lsx_svc.update(lsx_id=a.id, payload=payload, actor=admin)
+
+
+def test_xoa_lsx_khi_dang_giu_cho_bi_chan(db, svc, customer):
+    from app.services.lsx_service import LsxConflict
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    _ton(db, _giay_hang(g), 100)
+    svc.bat(lsx_id=a.id)
+
+    lsx_svc = _lsx_svc(db)
+    admin = db.query(__import__("app.models.user", fromlist=["User"]).User).first()
+    with pytest.raises(LsxConflict, match="giữ chỗ"):
+        lsx_svc.xoa(lsx_id=a.id, actor=admin)
+
+
+def test_sua_routing_khi_dang_giu_cho_bi_chan(db, svc, customer):
+    """`replace_routing` phải chặn NGANG NHAU cho cả lưu thật (commit=True) và xem trước
+    (`xem_truoc_routing` gọi commit=False) — số trên màn xem trước đã dùng để người dùng quyết
+    định có nhả chỗ hay không, cho preview chạy qua thì màn nói dối, bấm Lưu thật mới báo lỗi."""
+    from app.services.lsx_service import LsxConflict
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    _ton(db, _giay_hang(g), 100)
+    svc.bat(lsx_id=a.id)
+
+    lsx_svc = _lsx_svc(db)
+    admin = db.query(__import__("app.models.user", fromlist=["User"]).User).first()
+    with pytest.raises(LsxConflict, match="giữ chỗ"):
+        lsx_svc.replace_routing(lsx_id=a.id, rows_in=[], actor=admin)
+    with pytest.raises(LsxConflict, match="giữ chỗ"):
+        lsx_svc.replace_routing(lsx_id=a.id, rows_in=[], actor=admin, commit=False)
+
+
+# ================== XUẤT KHO QUY LSX ĐÃ GHÉP VỀ BÀI ==================
+
+
+def _dung_svcv(db, kh):
+    from app.repositories.stock_voucher_repo import StockVoucherRepository
+    from app.services.giu_cho_service import GiuChoService
+    from app.services.stock_voucher_service import StockVoucherService
+
+    return StockVoucherService(
+        vouchers=StockVoucherRepository(db), requests=None, lots=None, sequence=None,
+        request_service=None, hang=kh.hang, giu_cho=GiuChoService(db, kh),
+    )
+
+
+def _dung_phieu_xuat(db, hang, *, lsx_id, bai_ghep_id, kho_id=None):
+    """Dựng thẳng 1 StockRequest (1 dòng) + 1 StockVoucher XUẤT khớp dòng đó — trả `(voucher,
+    {request_line_id: request_line})` để gọi thẳng `_gom_theo_hang_va_chu_the`."""
+    from app.models.stock_request import REQ_APPROVED, REQ_XUAT, StockRequest, StockRequestLine
+    from app.models.stock_voucher import VOUCHER_DRAFT, VOUCHER_XUAT, StockVoucher, StockVoucherLine
+
+    if kho_id is None:
+        kho = db.query(KhoHang).first()
+        if kho is None:
+            kho = KhoHang(ma="K1", ten="Kho test")
+            db.add(kho)
+            db.flush()
+        kho_id = kho.id
+
+    n = db.query(StockRequest).count() + 1
+    req = StockRequest(ma=f"DNX-TEST-{n}", loai=REQ_XUAT, nguoi_tao_id=1,
+                       kho_id=kho_id, trang_thai=REQ_APPROVED)
+    db.add(req)
+    db.flush()
+    rl = StockRequestLine(request_id=req.id, hang_loai=hang[0], hang_id=hang[1], dvt="kg",
+                          sl_de_nghi=10, sl_duyet=10, sl_da_ung=0,
+                          lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+    db.add(rl)
+    db.commit()
+
+    v = StockVoucher(ma=f"PXK-TEST-{n}", loai=VOUCHER_XUAT, request_id=req.id, kho_id=req.kho_id,
+                     ngay=HOM_NAY, nguoi_lap_id=1, trang_thai=VOUCHER_DRAFT)
+    db.add(v)
+    db.flush()
+    db.add(StockVoucherLine(voucher_id=v.id, request_line_id=rl.id, hang_loai=hang[0],
+                            hang_id=hang[1], so_luong=10, sl_goc=10, lot_id=None))
+    db.commit()
+    return v, {rl.id: rl}
+
+
+def test_gom_theo_hang_va_chu_the_quy_ve_bai_ghep(db, kh, customer):
+    """Dòng yêu cầu kho khai `lsx_id` (lúc lập yêu cầu, lệnh còn ĐỘC LẬP) nhưng LSX đó SAU ĐÓ bị
+    cuốn vào bài ghép — giấy LUÔN thuộc bài một khi đã ghép (spec §2: "Giấy... thuộc bài ghép"), nên
+    `can_doi()` không còn nhu cầu riêng `(a.id, None)` cho giấy nữa. `kiem_xuat`/`tieu_thu` phải tra
+    ĐÚNG chủ thể BÀI (nơi giữ chỗ dồn về), chứ không phải LSX đơn lẻ (nơi không còn giữ gì)."""
+    from app.models.bai_ghep import BaiGhep, BaiGhepThanhVien
+
+    g = _giay(db)
+    hang = _giay_hang(g)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    # `giay_id`/`kho_in_dai`/`kho_in_rong` BẮT BUỘC để bài thật sự sinh dòng nhu cầu giấy của
+    # RIÊNG NÓ (`_gom_nhu_cau`: thiếu `giay_id` thì bài rơi vào `bo_qua`, không có dòng nào cả) —
+    # thiếu thì cả hai bên `(a.id, None)` lẫn `(None, bg.id)` đều rỗng, hoá thành ca "mơ hồ" oan,
+    # đúng bẫy mà `test_bai_ghep_la_CHU_THE_giu_cho` (file này) đã dặn qua cách dựng dữ liệu.
+    bg = BaiGhep(ma="GB-1", ten="Bài 1", trang_thai="nhap",
+                giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
+    db.add(bg)
+    db.flush()
+    db.add(BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id))
+    db.commit()
+
+    svcv = _dung_svcv(db, kh)
+    v, lines_by_id = _dung_phieu_xuat(db, hang, lsx_id=a.id, bai_ghep_id=None)
+    ra = svcv._gom_theo_hang_va_chu_the(v, lines_by_id)
+    assert (hang, (None, bg.id)) in ra, f"phải quy về bài ghép, thực tế: {ra}"
+    assert (hang, (a.id, None)) not in ra
+
+
+def test_gom_theo_hang_va_chu_the_khong_ghep_giu_nguyen_chu_the_lsx(db, kh, customer):
+    """LSX KHÔNG nằm trong bài ghép nào (`ghep_cua` rỗng) — dòng yêu cầu khai `lsx_id` phải giữ
+    NGUYÊN chủ thể LSX, không bị đụng tới. Đây là ca phổ biến nhất (đa số LSX không ghép) và cũng
+    chứng minh nhánh "vật tư riêng không bị quy nhầm": vì `a` không hề thuộc bài nào, guard
+    `lsx_id in ghep_cua` sai ngay từ đầu, không có cơ hội quy nhầm."""
+    g = _giay(db)
+    hang = _giay_hang(g)
+    a = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=200)
+    db.commit()
+
+    svcv = _dung_svcv(db, kh)
+    v, lines_by_id = _dung_phieu_xuat(db, hang, lsx_id=a.id, bai_ghep_id=None)
+    ra = svcv._gom_theo_hang_va_chu_the(v, lines_by_id)
+    assert (hang, (a.id, None)) in ra
+    assert all(chu != (None, None) for _, chu in ra)
+
+
+def test_gom_theo_hang_va_chu_the_mo_ho_chan_ghi_so(db, kh, customer):
+    """LSX đã ghép, nhưng mặt hàng trên dòng yêu cầu KHÔNG khớp nhu cầu riêng của LSX lẫn nhu cầu
+    của bài (hàng lạ, không nằm trong routing của ai) — mơ hồ, phải chặn ghi sổ thay vì đoán, đúng
+    spec §2 "trường hợp mơ hồ phải cảnh báo"."""
+    from app.models.bai_ghep import BaiGhep, BaiGhepThanhVien
+    from app.services.stock_voucher_service import StockVoucherError
+
+    g = _giay(db)
+    g_la = _giay(db, ma="GIAY-LA")  # giấy khác, KHÔNG nằm trong routing của `a` hay của bài
+    hang_la = _giay_hang(g_la)
+    a = _lenh(db, customer, ma="LSX-C", giay_id=g.id, so_to_nguyen=200)
+    bg = BaiGhep(ma="GB-2", ten="Bài 2", trang_thai="nhap")
+    db.add(bg)
+    db.flush()
+    db.add(BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id))
+    db.commit()
+
+    svcv = _dung_svcv(db, kh)
+    v, lines_by_id = _dung_phieu_xuat(db, hang_la, lsx_id=a.id, bai_ghep_id=None)
+    try:
+        svcv._gom_theo_hang_va_chu_the(v, lines_by_id)
+        assert False, "phải raise StockVoucherError vì mơ hồ, không được đoán"
+    except StockVoucherError:
+        pass
+
+
+# ================== KHOÁ NGUỒN — GIAO DỊCH MỘT LẦN ==================
+
+
+def test_khoa_nguon_khong_loi_va_theo_thu_tu_on_dinh(db, svc, monkeypatch):
+    """`_khoa_nguon` phải chạy được (không lỗi) khi truyền LỘN thứ tự — VÀ THẬT SỰ khoá theo
+    (hang_loai, hang_id) TĂNG DẦN, không chỉ "không raise". Khoá lộn xộn giữa hai giao dịch cùng
+    đụng chung tập mặt hàng là khoá CHÉO (deadlock) trên Postgres thật — SQLite (test) im lặng vì
+    `FOR UPDATE` là no-op ở đây, nên phải soi TRỰC TIẾP chuỗi id đã khoá bằng spy trên `db.execute`;
+    "không raise" không chứng minh được thứ tự đúng, chỉ chứng minh SQLite không phàn nàn.
+
+    Cũng xác nhận không lỗi khi gọi LẦN HAI trong CÙNG giao dịch (mô phỏng `nhat_them()` rồi
+    `kiem_xuat()` cùng chạm một mặt hàng trong một lượt xử lý)."""
+    g1 = _giay(db, ma="GY-1")
+    g2 = _giay(db, ma="GY-2")
+    g3 = _giay(db, ma="GY-3")
+    # `_giay()` commit → SQLAlchemy EXPIRE mọi thuộc tính sau commit (mặc định
+    # `expire_on_commit=True`). Đọc `.id` TRƯỚC khi gắn spy — đọc SAU spy sẽ khiến spy bắt luôn
+    # 3 lượt tự "load lại" (expired-attribute reload) của chính bước đọc `.id`, không phải của
+    # `_khoa_nguon`, và trộn lẫn 3 dòng `where.right.value == None` vào kết quả.
+    id1, id2, id3 = g1.id, g2.id, g3.id
+
+    da_khoa: list[int] = []
+    goc_execute = db.execute
+
+    def spy(stmt, *a, **kw):
+        where = getattr(stmt, "whereclause", None)
+        if where is not None:
+            da_khoa.append(where.right.value)
+        return goc_execute(stmt, *a, **kw)
+
+    monkeypatch.setattr(db, "execute", spy)
+
+    svc._khoa_nguon([("giay", id3), ("giay", id1), ("giay", id2)])
+
+    assert da_khoa == sorted([id1, id2, id3]), (
+        f"phải khoá THEO THỨ TỰ id tăng dần bất kể thứ tự truyền vào, thực tế: {da_khoa}"
+    )
+
+    # Gọi lần hai trong CÙNG giao dịch — không được lỗi.
+    svc._khoa_nguon([("giay", id1)])
+
+
 # ================== SAI SỐ LÀM TRÒN 2 SỐ LẺ ==================
 
 
@@ -1091,166 +1507,6 @@ def test_giu_DU_khi_nhu_cau_le_hon_hai_so_thap_phan(db, svc, kh, customer):
     assert h["trang_thai_giu"] == "da_giu", h
     assert h["co_the_giu_kho"] == 0 and h["co_the_giu_dang_ve"] == 0
 
-
-# ================== TÁCH NGUỒN TRONG trang_thai() ==================
-
-
-def test_trang_thai_tach_da_giu_kho_va_dang_ve(db, svc, kh, customer):
-    """`trang_thai()` phải tách được giữ THẬT (kho) và giữ HỨA (đang về), VÀ trả ra ĐÚNG dòng PMH
-    nào đang góp cho phần hứa đó — không thì màn không biết phần nào đã chắc, phần nào còn treo
-    theo ngày về, và không biết đang bám đơn nào để hối NCC."""
-    g = _giay(db)
-    _ton(db, _giay_hang(g), 5)   # đủ 5 kg thật, còn thiếu phải bám hàng đang về
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)   # ≈ 16,77 kg
-    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
-    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
-
-    tt = svc.bat(lsx_id=a.id)
-
-    hang = _giay_hang(g)
-    assert tt["da_giu_kho"].get(hang, 0) == pytest.approx(5, abs=0.01)
-    assert tt["da_giu_dang_ve"].get(hang, 0) == pytest.approx(16.77 - 5, abs=0.05)
-    # Tổng hai nguồn phải khớp `dang_giu` cũ — không phá số cũ, chỉ tách thêm.
-    assert tt["da_giu_kho"][hang] + tt["da_giu_dang_ve"][hang] == pytest.approx(
-        tt["dang_giu"][hang], abs=0.01
-    )
-    nguon = tt["nguon_dang_ve"].get(hang, [])
-    assert nguon and all(n["purchase_request_line_id"] == line.id for n in nguon)
-    assert sum(n["so_luong"] for n in nguon) == pytest.approx(tt["da_giu_dang_ve"][hang], abs=0.01)
-
-
-# ================== NHẬP KHO CHUYỂN HỨA → THẬT ==================
-
-
-def test_chuyen_dang_ve_sang_kho_go_khoa_ngay(db, svc, kh, customer):
-    """Hàng đang về (hứa, khoá lịch tới `ngay_ve`) nhập kho xong phải chuyển thành `nguon=kho`
-    (không ngày nào khoá nữa) — không thì lệnh vẫn bị chặn lịch dù hàng đã nằm trong kho."""
-    from app.models.vat_tu_giu_cho import NGUON_DANG_VE, NGUON_KHO
-
-    g = _giay(db)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)   # ≈ 16,77 kg
-    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
-    svc.bat(lsx_id=a.id)
-    tt_truoc = svc.trang_thai(lsx_id=a.id)
-    assert tt_truoc["xep_som_nhat"] is not None, "đang giữ hứa nên phải có ngày khoá lịch"
-
-    svc.chuyen_dang_ve_sang_kho(_giay_hang(g), 100)
-
-    rows = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
-    assert all(r.nguon == NGUON_KHO for r in rows), "phải chuyển hết sang kho"
-    assert not any(r.nguon == NGUON_DANG_VE for r in rows)
-    tt_sau = svc.trang_thai(lsx_id=a.id)
-    assert tt_sau["xep_som_nhat"] is None, "hàng đã có thật thì không còn ngày nào khoá lịch nữa"
-
-
-# ================== HOOK PurchaseService ⇄ GIỮ CHỖ ==================
-
-
-def _thu_mua(db, kh):
-    from app.repositories.audit_repo import AuditLogRepository
-    from app.repositories.purchase_repo import (
-        DepartmentPurchaseRequestRepository,
-        PurchaseStatusHistoryRepository,
-    )
-    from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
-    from app.repositories.user_repo import UserRepository
-    from app.services.purchase_service import PurchaseService
-    from app.services.rbac_service import AuthorizationService
-
-    return PurchaseService(
-        suppliers=SupplierRepository(db),
-        department_requests=DepartmentPurchaseRequestRepository(db),
-        requests=PurchaseRequestRepository(db),
-        users=UserRepository(db),
-        departments=DepartmentRepository(db),
-        audit=AuditLogRepository(db),
-        authz=AuthorizationService(RoleRepository(db)),
-        lich_su=PurchaseStatusHistoryRepository(db),
-        giu_cho=GiuChoService(db, kh),
-    )
-
-
-def test_huy_pmh_nha_sach_giu_cho_dang_ve(db, svc, kh, customer):
-    """Huỷ PMH → PMH rời khỏi trạng thái 'đang về' → GiuChoService.doi_soat_dang_ve_don phải chạy
-    và nhả sạch phần giữ hứa theo phiếu đó, KHÔNG cần ai gọi tay `nhat_them`/`doi_soat_dang_ve`."""
-    from app.models.user import User
-
-    g = _giay(db)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
-    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
-    phieu = db.query(PurchaseRequest).order_by(PurchaseRequest.id.desc()).first()
-    svc.bat(lsx_id=a.id)
-    assert svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None), "phải giữ được trước đã"
-
-    thu_mua = _thu_mua(db, kh)
-    admin = db.query(User).filter_by(username="admin").first()
-    thu_mua.cancel(phieu.id, reason="Không mua nữa", actor=admin)
-
-    con = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
-    assert not [r for r in con if getattr(r, "purchase_request_line_id", None)], (
-        "huỷ PMH phải nhả hết phần giữ hứa bám phiếu đó"
-    )
-
-
-# ================== ĐỐI SOÁT KHI PMH ĐỔI ==================
-
-
-def _dot_giao(db, phieu, line, *, so_luong) -> None:
-    """Ghi MỘT đợt giao cho dòng phiếu — đủ để `da_giao_theo_dong()` cộng vào 'đã giao', khớp
-    hành vi `PurchaseService.ghi_dot_giao` mà không phải dựng toàn bộ service."""
-    from app.models.purchase import PurchaseDelivery, PurchaseDeliveryLine
-
-    dot = PurchaseDelivery(purchase_request_id=phieu.id, seq_no=1, delivery_date=HOM_NAY)
-    db.add(dot)
-    db.flush()
-    db.add(PurchaseDeliveryLine(delivery_id=dot.id, purchase_request_line_id=line.id,
-                                quantity=so_luong))
-    db.commit()
-
-
-def test_doi_soat_nha_moi_nhat_truoc_khi_con_ve_co_lai(db, svc, kh, customer):
-    """Bảo vệ cam kết CŨ: khi phần hứa co lại, dòng giữ MỚI TẠO bị nhả trước, dòng CŨ giữ nguyên."""
-    g = _giay(db)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1000)  # cần nhiều, ăn hết lô
-    _phieu_mua(db, hang=_giay_hang(g), so_luong=200, ngay_ve=MAI)
-    phieu = db.query(PurchaseRequest).order_by(PurchaseRequest.id.desc()).first()
-    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
-
-    svc.bat(lsx_id=a.id)
-    truoc = sum(float(r.so_luong) for r in svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None))
-    assert truoc > 0, "phải giữ được từ lô đang về"
-
-    # NCC chỉ giao 50/200 — con_ve giảm còn 150.
-    _dot_giao(db, phieu, line, so_luong=50)
-
-    svc.doi_soat_dang_ve(line.id)
-
-    sau = sum(float(r.so_luong) for r in svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None))
-    assert sau == pytest.approx(min(truoc, 150), abs=0.01), (
-        f"phải nhả bớt xuống còn tối đa 150 (con_ve mới), thực tế còn {sau}"
-    )
-
-
-def test_doi_soat_nha_sach_khi_dong_khong_con_trong_hang_dang_ve(db, svc, kh, customer):
-    """Phiếu rời khỏi trạng thái 'đang về' (đóng/huỷ) ⇒ `_hang_dang_ve()` không còn dòng nào của
-    nó ⇒ đối soát phải nhả SẠCH phần đã giữ theo dòng đó."""
-    from app.models.purchase import PR_CANCELLED
-
-    g = _giay(db)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
-    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
-    phieu = db.query(PurchaseRequest).order_by(PurchaseRequest.id.desc()).first()
-    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
-    svc.bat(lsx_id=a.id)
-    assert svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None), "phải giữ được trước đã"
-
-    phieu.status = PR_CANCELLED   # mô phỏng PurchaseService.cancel() đã đổi trạng thái
-    db.commit()
-
-    svc.doi_soat_dang_ve(line.id)
-
-    con = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
-    assert not any(r.purchase_request_line_id == line.id for r in con)
 
 
 def test_doi_soat_chay_duoc_tren_service_CHUA_TUNG_dung_bang(db, svc, customer):
@@ -1286,66 +1542,3 @@ def test_doi_soat_chay_duoc_tren_service_CHUA_TUNG_dung_bang(db, svc, customer):
         "trả rỗng vì thiếu nền quy đổi"
     )
 
-
-# ================== HÀNG ĐANG VỀ MANG ĐÚNG DÒNG PHIẾU ==================
-
-
-def test_nhat_them_gan_dung_purchase_request_line_id(db, svc, kh, customer):
-    """Dòng giữ `dang_ve` mới đẻ ra phải bám ĐÚNG dòng phiếu mua đã sinh ra lô đang về đó — không
-    thì đối soát sau này (Task 3) không biết nhả theo dòng nào."""
-    from app.models.purchase import PurchaseRequestLine
-    from app.models.vat_tu_giu_cho import NGUON_DANG_VE
-
-    g = _giay(db)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)   # ≈ 16,77 kg
-    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
-    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
-
-    svc.bat(lsx_id=a.id)
-
-    rows = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
-    ve = [r for r in rows if r.nguon == NGUON_DANG_VE]
-    assert ve, "phải giữ được từ lô đang về"
-    assert all(r.purchase_request_line_id == line.id for r in ve)
-
-
-# ================== MIGRATION 0245 ==================
-
-
-def test_migration_them_cot_purchase_request_line_id(db):
-    """Cột mới phải tồn tại, nullable, và chạy lại migration không vỡ (idempotent)."""
-    from sqlalchemy import inspect
-
-    from app.db_migrations import run_migrations
-
-    insp = inspect(db.get_bind())
-    cols = {c["name"] for c in insp.get_columns("vat_tu_giu_cho")}
-    assert "purchase_request_line_id" in cols
-
-    # Chạy lại lần hai — no-op, không raise.
-    run_migrations(db)
-
-
-def test_migration_backfill_dung_lai_nhat_them_cho_chu_the_dang_bat(db, kh, customer):
-    """Chủ thể đã BẬT giữ chỗ từ trước (cờ `giu_cho_bat=true`), dòng `dang_ve` của nó vừa bị
-    migration xoá sạch — hàm backfill `_dung_lai_giu_cho_dang_ve` phải tự gọi lại `nhat_them()`
-    cho chủ thể đó, không để nó "trắng tay" tới lần Nhập kho/Bật-Tắt kế tiếp."""
-    from app.db_migrations import _dung_lai_giu_cho_dang_ve
-
-    g = _giay(db)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
-    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
-
-    # Mô phỏng "đã bật từ trước migration": bật cờ THẲNG qua ORM, KHÔNG gọi svc.bat() (gọi bat()
-    # sẽ tự nhat_them() ngay, làm mất ý nghĩa của test — ta cần trạng thái "cờ bật nhưng CHƯA có
-    # dòng giữ", đúng như sau khi migration xoá sạch dang_ve).
-    a.giu_cho_bat = True
-    db.commit()
-
-    svc = GiuChoService(db, kh)
-    assert not svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None), "chưa gọi nhat_them nên phải trống"
-
-    _dung_lai_giu_cho_dang_ve(db)
-
-    rows = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
-    assert rows, "backfill phải tự dựng lại giữ chỗ cho chủ thể đang bật"

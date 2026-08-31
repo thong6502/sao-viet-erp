@@ -530,6 +530,8 @@ class ReceivableCustomerOut(BaseModel):
     payment_term_days: int | None = None
     vuot_han_muc: bool = False
     vuot_bao_nhieu: int = 0
+    #: 6 rổ tuổi nợ của RIÊNG khách này. Khách không nợ gì vẫn đủ 6 khoá = 0.
+    aging: dict[str, AgingCellOut] = Field(default_factory=dict)
     received_in_period: int = 0
 
 
@@ -543,6 +545,9 @@ class ReceivablesSummaryOut(BaseModel):
     overdue_amount: int
     received_in_period: int = 0
     vuot_han_muc_count: int = 0
+    #: Rổ tuổi TOÀN MÀN. Tổng 5 rổ trễ luôn bằng `overdue_amount`, rổ "chưa tới hạn" bằng phần
+    #: còn lại — hai chỗ nói hai kiểu tiền là lỗi nặng nhất của màn này.
+    aging: list[AgingBucketOut] = Field(default_factory=list)
     period_months: int = 3
     as_of: date
 
@@ -559,6 +564,10 @@ class ReceivableItemOut(BaseModel):
     due_date: date | None = None
     chua_dat_han: bool = False
     overdue_days: int = 0
+    # Khoá rổ tuổi (`AGING_KEYS`) — CHỈ có giá trị khi `overdue_days > 0`. Chụp bằng đúng
+    # `ro_tuoi()` server dùng cho dải tổng, để một hoá đơn KHÔNG BAO GIỜ hiện hai mức khẩn khác
+    # nhau ở hai màn — cùng bài học đã trả giá bên phải trả.
+    aging_bucket: str | None = None
     amount: int
     direct_received_amount: int = 0
     deposit_offset_amount: int = 0
@@ -597,5 +606,7 @@ class ReceivablesDetailOut(BaseModel):
     all_history: bool = False
     total_due: int
     overdue_amount: int
+    #: Rổ tuổi của riêng khách này, dựng từ chính `items` — không tính lại đồng nào.
+    aging: list[AgingBucketOut] = Field(default_factory=list)
     received_in_period: int
     as_of: date

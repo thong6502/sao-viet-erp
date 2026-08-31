@@ -21,6 +21,12 @@ export interface EditRow {
   nhom: string | null;
   loai_buoc: LsxLoaiBuoc;
   bat_buoc: boolean;
+  /** KCS kiêm nhiệm (mg 0250): bước này có phải KCS không — quyết định khối "Tiêu chí KCS bổ
+   *  sung" có hiện trong drawer hay không. */
+  la_kcs: boolean;
+  /** Tiêu chí KCS BỔ SUNG riêng cho LỆNH này (không sửa được checklist danh mục ở đây) — sửa qua
+   *  chính helper `set("kcs_tieu_chi_bo_sung_json", …)`, giống khuôn `vat_tus`. */
+  kcs_tieu_chi_bo_sung_json: { ten: string; huong_dan: string | null; bat_buoc: boolean }[];
   department_id: number | null;
   /** Tên tổ phụ trách server RESOLVE lúc đọc (kể cả khi `department_id` null vì lấy tổ mặc định của
    *  công đoạn). CHỈ ĐỌC — tổ khai ở danh mục Công đoạn, drawer chỉ bày lại, không cho đổi. */
@@ -169,6 +175,8 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     nhom: cd.nhom,
     loai_buoc: cd.loai_buoc,
     bat_buoc: cd.bat_buoc,
+    la_kcs: !!cd.la_kcs,
+    kcs_tieu_chi_bo_sung_json: cd.kcs_tieu_chi_bo_sung_json ?? [],
     department_id: cd.department_id,
     department_ten: cd.department_ten ?? null,
     may_id: cd.may_id,
@@ -262,6 +270,7 @@ export function emptyRow(): EditRow {
   return {
     key: newKey(), id: null, cong_doan_id: null, ten: "", nhom: null, loai_buoc: "may",
     bat_buoc: true,
+    la_kcs: false, kcs_tieu_chi_bo_sung_json: [],
     department_id: null, department_ten: null, may_id: null,
     requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ma: null,
     khuon_be_ten: null, khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
@@ -309,6 +318,10 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       nhom: r.nhom,
       loai_buoc: r.loai_buoc,
       bat_buoc: r.bat_buoc,
+      // Tiêu chí KCS BỔ SUNG riêng của lệnh — KHÔNG gửi `la_kcs` ở đây: Task 3 chưa có ô sửa cờ
+      // này trên drawer (kế thừa nguyên từ danh mục Công đoạn lúc bung routing), gửi lại giá trị
+      // cũ vô nghĩa mà thêm rủi ro ghi nhầm nếu sau này FE thêm ô sửa mà quên đồng bộ đây.
+      kcs_tieu_chi_bo_sung_json: r.kcs_tieu_chi_bo_sung_json,
       // Để TRỐNG tổ → server tự lấy tổ mặc định của công đoạn (không ép khai lại).
       department_id: r.department_id,
       may_id: r.may_id,

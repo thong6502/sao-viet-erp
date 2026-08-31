@@ -59,16 +59,31 @@ def phat_hanh(
     repo.flush()
 
     nhom_by_lsx = dam_bao_nhom(repo, lsx_ids)
-    kcs = repo.kcs_department_ids()
+
+    # Checklist KCS (Task 3): gom cong_doan_id của MỌI bước trong gói (LSX riêng + bài ghép chung)
+    # rồi tra MỘT LẦN — tránh N+1 (mỗi bước một truy vấn) trong vòng lặp của `dung_cong_viec`.
+    cong_doan_ids = {
+        cd.cong_doan_id
+        for lsx_id in lsx_ids
+        for cd in repo.routing_steps(lsx_id)
+        if cd.cong_doan_id
+    } | {
+        cd.cong_doan_id
+        for bg_id in bai_ghep_ids
+        for cd in repo.bai_ghep_cong_doans(bg_id)
+        if cd.cong_doan_id
+    }
+    tieu_chi_theo_cd = repo.checklist_theo_cong_doan(cong_doan_ids)
 
     cv_by_step = dung_cong_viec(
         repo, goi=goi, phien_ban_so=1,
         lsx_ids=lsx_ids, bai_ghep_ids=bai_ghep_ids,
-        nhom_by_lsx=nhom_by_lsx, kcs_depts=kcs,
+        nhom_by_lsx=nhom_by_lsx,
+        tieu_chi_theo_cd=tieu_chi_theo_cd,
     )
     than_chinh = danh_dau_kcs_cuoi(
         repo, lsx_ids=lsx_ids, nhom_by_lsx=nhom_by_lsx,
-        cv_by_step=cv_by_step, kcs_depts=kcs,
+        cv_by_step=cv_by_step,
     )
     for nhom_id, lsx_id in than_chinh.items():
         grp = nhom_by_lsx.get(lsx_id)
@@ -108,6 +123,9 @@ def van_de_phat_hanh(
     lsx_ids = set(lsx_ids)
     repo = SanXuatRepository(db)
     kcs = repo.kcs_department_ids()
+    # Đọc routing MỘT LẦN cho mỗi LSX — dùng lại cho cả suy KCS-cuối lẫn luật 5 dưới đây, khỏi
+    # query trùng cùng một bảng cho cùng một lsx_id.
+    steps_by_lsx = {lsx_id: repo.routing_steps(lsx_id) for lsx_id in lsx_ids}
 
     # Gom LSX theo (order_id, khoa) — không đụng DB.
     from .nhom import _khoa
@@ -126,7 +144,7 @@ def van_de_phat_hanh(
     for key, members in nhom_lsx.items():
         so_kcs_cuoi = 0
         for lsx_id in members:
-            steps = repo.routing_steps(lsx_id)
+            steps = steps_by_lsx[lsx_id]
             if steps and steps[-1].department_id in kcs:
                 so_kcs_cuoi += 1
         ten = nhan.get(key, "")
@@ -142,4 +160,8 @@ def van_de_phat_hanh(
                 f"Nhóm thành phẩm “{ten}” có {so_kcs_cuoi} bước KCS cuối — mập mờ lệnh thân chính.",
                 goi_y="Chỉ giữ KCS cuối trên MỘT lệnh thân chính; các lệnh khác kết ở bước ghép.",
             ))
+
+    # Luật 5 (chặn "bước khai la_kcs=true nhưng tổ không có is_kcs") ĐÃ BỎ: từ khi la_kcs suy TỰ
+    # ĐỘNG thẳng từ department.is_kcs (không còn khai tay), tình huống lệch cấu hình này không còn
+    # xảy ra được nữa — xem docs/superpowers/plans/2026-08-31-kcs-kiem-nhiem-suy-tu-dong.md.
     return van_de

@@ -83,6 +83,10 @@ DANH_MUC: tuple[DanhMuc, ...] = (
     # (mg `0221` chép quyền từ `san_xuat`); `model=None` như `kho_hang` — luồng xoá dùng chặn mềm
     # ở service, không cần bộ đếm nơi-dùng.
     DanhMuc("san_xuat_ly_do", "dm_ly_do_san_xuat", "Lý do & lỗi SX", "ly-do-san-xuat"),
+    # Checklist KCS kiêm nhiệm (mg 0250, Task 3): tiêu chí kiểm tra chuẩn hoá + công đoạn nào áp
+    # dụng. `model=` để bộ đếm "còn ai dùng không" có gì mà đếm (xem `danh_muc_tham_chieu._san_xuat_kcs_tieu_chi`).
+    DanhMuc("san_xuat_kcs_tieu_chi", "dm_kcs_tieu_chi", "Tiêu chí KCS", "kcs-tieu-chi",
+            model="models.san_xuat_kcs:SanXuatKcsTieuChi"),
 )
 
 #: 11 khoá quyền của nhóm danh mục, đúng thứ tự menu.

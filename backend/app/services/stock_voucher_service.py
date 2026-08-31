@@ -357,7 +357,12 @@ class StockVoucherService:
         return req
 
     def post(self, voucher_id: int, user=None):
-        """Ghi sổ phiếu — điểm DUY NHẤT tồn kho đổi. Chạy trong 1 transaction.
+        """Ghi sổ phiếu — điểm DUY NHẤT tồn kho đổi.
+
+        ⚠️ KHÔNG chạy nguyên trong 1 transaction rollback-safe: phần giữ chỗ (nếu `self.giu_cho`
+        có gắn) — `chuyen_dang_ve_sang_kho()`, `doi_soat_dang_ve()`, `nhat_them()` — tự
+        `db.commit()` giữa chừng, cùng kiểu pre-existing với chính hàm này. Lỗi nửa chừng SAU một
+        commit con thì phần đã commit đó KHÔNG rollback theo.
 
         ĐIỀU CHUYỂN (mô hình 2 yêu cầu): phiếu XUẤT nguồn được tạo NHÁP lúc ấn điều chuyển, CHƯA trừ
         tồn. Khi kho đích ghi sổ phiếu NHẬP → ghi sổ LUÔN phiếu xuất nguồn (draft) trong CÙNG một
@@ -558,7 +563,8 @@ class StockVoucherService:
         """
         from sqlalchemy import select
 
-        from ..models.bai_ghep import BaiGhepThanhVien
+        from ..models.bai_ghep import BaiGhep, BaiGhepThanhVien
+        from ..models.lsx import Lsx
 
         nhu_cau = None
         ghep_cua: dict[int, int] = {}
@@ -589,9 +595,21 @@ class StockVoucherService:
                     if hang in nhu_cau.get((None, bid), {}):
                         lsx_id, bg_id = None, bid
                     else:
+                        # Hiện TÊN/MÃ dễ đọc thay vì id thô — cùng lý do cửa kiểm lô ngay trên đã
+                        # dặn (dòng ~279): người xem lỗi này là kho, họ đọc mã "LSX-A"/"GB-1", không
+                        # đọc id nội bộ. Fallback về id khi không tra được (danh mục/lệnh đã mất).
+                        ten_hang = getattr(
+                            self.hang.map_theo_cap([hang]).get(hang), "ten", None
+                        ) or f"{hang[0]}#{hang[1]}"
+                        ma_lsx = getattr(
+                            self.vouchers.db.get(Lsx, lsx_id), "ma", None
+                        ) or f"lệnh #{lsx_id}"
+                        ma_bai = getattr(
+                            self.vouchers.db.get(BaiGhep, bid), "ma", None
+                        ) or f"bài ghép #{bid}"
                         raise StockVoucherError(
-                            f"Không xác định được {hang[0]}#{hang[1]} thuộc lệnh #{lsx_id} riêng "
-                            f"hay bài ghép #{bid} — vào Kế hoạch vật tư kiểm lại trước khi ghi sổ."
+                            f"Không xác định được {ten_hang} thuộc {ma_lsx} riêng hay {ma_bai} — "
+                            "vào Kế hoạch vật tư kiểm lại trước khi ghi sổ."
                         )
             khoa = (hang, (lsx_id, bg_id))
             ra[khoa] = ra.get(khoa, 0.0) + float(ln.sl_goc)
