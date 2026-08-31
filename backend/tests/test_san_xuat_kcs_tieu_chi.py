@@ -131,3 +131,27 @@ def test_validate_cong_doan_id_khong_ton_tai_bi_chan():
     db, svc = _svc()
     with pytest.raises(SanXuatKcsTieuChiValidationError):
         svc.create(dict(ma="TC-SAI", ten="X", cong_doan_ids=[999]))
+
+
+def test_dat_active_khong_xoa_cong_doan_ids():
+    """Regression — Fix round 1 (xác minh UI thật, xem task-3-report.md): PATCH .../active (nút
+    "Ngừng dùng"/"Bật lại") chỉ gửi `{"active": bool}` một khoá, KHÔNG đụng `cong_doan_ids`.
+    Trước bản vá, `_sau_gan` đọc khoá vắng mặt thành "xoá trọn" (`data.get(...) or []`) nên bấm
+    Ngừng dùng/Bật lại xoá sạch công đoạn đang gắn."""
+    db, svc = _svc()
+    cd1 = _cong_doan(db, "CD-ACT-1")
+    cd2 = _cong_doan(db, "CD-ACT-2")
+    tc = svc.create(dict(ma="TC-ACT", ten="Kiểm độ bám mực", cong_doan_ids=[cd1.id, cd2.id]))
+    assert sorted(tc.cong_doan_ids) == sorted([cd1.id, cd2.id])
+
+    tc = svc.dat_active(tc.id, False)
+    assert tc.active is False
+    assert sorted(tc.cong_doan_ids) == sorted([cd1.id, cd2.id])
+
+    tc = svc.dat_active(tc.id, True)
+    assert tc.active is True
+    assert sorted(tc.cong_doan_ids) == sorted([cd1.id, cd2.id])
+
+    # Đọc lại từ DB — chắc bảng nối THẬT sự còn nguyên, không phải chỉ còn trên instance cache.
+    lai = svc.get(tc.id)
+    assert sorted(lai.cong_doan_ids) == sorted([cd1.id, cd2.id])

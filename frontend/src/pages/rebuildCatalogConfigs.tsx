@@ -920,7 +920,12 @@ export const CFG_KCS_TIEU_CHI: CatalogConfig = {
   ],
   fields: [
     { key: "huong_dan", label: "Hướng dẫn", type: "text", group: "Nội dung" },
-    { key: "bat_buoc", label: "Bắt buộc phải đạt", type: "checkbox", group: "Nội dung" },
+    // `default: true` PHẢI khai — khớp `SanXuatKcsTieuChiIn.bat_buoc: bool = True` ở backend. Thiếu
+    // dòng này thì toggle "Thêm mới" hiện "Không" (falsy mặc định của field checkbox), nhưng nếu
+    // người dùng không đụng vào, `submit()` bỏ hẳn key rỗng khỏi body (dòng ~334-339) → backend áp
+    // default `True` của schema → bản ghi lưu THẬT là "Bắt buộc" dù màn vừa hiện "Không". Phát hiện
+    // khi xác minh UI thật (Fix round 1, Task 3) — xem task-3-report.md.
+    { key: "bat_buoc", label: "Bắt buộc phải đạt", type: "checkbox", group: "Nội dung", default: true },
     { key: "thu_tu", label: "Thứ tự hiển thị", type: "number", group: "Nội dung" },
     { key: "cong_doan_ids", label: "Áp dụng cho công đoạn", type: "ref-multi",
       refPrefix: "/api/cong-doan", group: "Áp dụng", hint: "Công đoạn nào cần kiểm tiêu chí này" },

@@ -27,7 +27,16 @@ class SanXuatKcsTieuChiRepository(CatalogRepo):
         ).all()}
 
     def _sau_gan(self, obj, data: dict) -> None:
-        self._replace_cong_doan_links(obj, data.get("cong_doan_ids") or [])
+        # BẮT BUỘC canh khoá CÓ MẶT trong `data`, không phải giá trị của nó: `CatalogRepo.update()`
+        # gọi `_sau_gan` VÔ ĐIỀU KIỆN trên mọi update — kể cả PATCH .../active (bật/tắt "Ngừng
+        # dùng") chỉ gửi `{"active": bool}` một khoá duy nhất. Trước bản vá này, thiếu khoá bị đọc
+        # thành "người dùng muốn xoá trọn hết công đoạn" (`data.get(...) or []` ⇒ `[]`) nên bấm
+        # Ngừng dùng/Bật lại xoá sạch `cong_doan_ids` đang gắn — phát hiện khi xác minh UI thật
+        # (Fix round 1, Task 3, xem task-3-report.md). Form tạo/sửa qua CatalogDrawer luôn gửi
+        # khoá này (kể cả rỗng `[]`, xem CatalogDrawer.tsx submit() dòng ~333) nên guard này không
+        # ảnh hưởng nhánh tạo/sửa bình thường.
+        if "cong_doan_ids" in data:
+            self._replace_cong_doan_links(obj, data.get("cong_doan_ids") or [])
 
     def _replace_cong_doan_links(self, obj, cong_doan_ids: list[int]) -> None:
         # BẮT BUỘC clear() + flush() TRƯỚC khi thêm lại — giống hệt lý do ở
