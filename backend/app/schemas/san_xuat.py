@@ -700,6 +700,9 @@ class KcsBatchChiTietOut(BaseModel):
     # Task 9 (mg 0250) — lộ `loai` để FE phân biệt batch định tuyến (routing, có thể gửi kho) với
     # batch kiểm đột xuất (dot_xuat, không gửi kho được) mà không phải đoán qua field khác.
     loai: str = "routing"
+    # Task 9 fix round 1 (I1) — khối "Kết quả đã ghi" (§6.2) cần 2 cột này.
+    nguoi_ghi: str | None = None
+    trang_thai_gui_kho: str = "khong_ap_dung"   # chua_gui | dang_cho | da_nhap | khong_ap_dung
 
 
 class KcsChiTietTieuChiOut(BaseModel):

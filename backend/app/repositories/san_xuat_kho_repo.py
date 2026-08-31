@@ -152,6 +152,20 @@ class SanXuatKhoRepository:
             )
         )
 
+    def cac_yc_cua_nhieu_batch(self, kcs_batch_ids: list[int]) -> dict[int, list[SanXuatNhapKhoYc]]:
+        """Bulk `cac_yc_cua_batch` cho N batch — 1 query (đọc mặt "Trạng thái gửi kho", §6.2)."""
+        if not kcs_batch_ids:
+            return {}
+        rows = self.db.scalars(
+            select(SanXuatNhapKhoYc)
+            .where(SanXuatNhapKhoYc.kcs_batch_id.in_(kcs_batch_ids))
+            .order_by(SanXuatNhapKhoYc.id)
+        )
+        out: dict[int, list[SanXuatNhapKhoYc]] = {}
+        for r in rows:
+            out.setdefault(r.kcs_batch_id, []).append(r)
+        return out
+
     def cac_yc_cua_nhom(self, nhom_id: int) -> list[SanXuatNhapKhoYc]:
         return list(
             self.db.scalars(

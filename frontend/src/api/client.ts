@@ -1790,6 +1790,9 @@ export interface SxKcsLoi {
 export type SxKcsKetLuan = "dat" | "dat_mot_phan" | "khong_dat";
 /** loai batch: "routing" (đứng sẵn trong quy trình, có thể gửi kho) | "dot_xuat" (kiểm kiêm nhiệm). */
 export type SxKcsBatchLoai = "routing" | "dot_xuat";
+/** Trạng thái gửi kho suy từ các yêu cầu nhập kho neo vào batch — "khong_ap_dung" cho batch
+ *  dot_xuat (không bao giờ gửi kho được). */
+export type SxKcsTrangThaiGuiKho = "chua_gui" | "dang_cho" | "da_nhap" | "khong_ap_dung";
 export interface SxKcsBatchChiTiet {
   id: number;
   batch_id?: number | null;
@@ -1806,6 +1809,9 @@ export interface SxKcsBatchChiTiet {
   version: number;
   loi: SxKcsLoi[];
   loai: SxKcsBatchLoai;
+  /** Tên hiển thị người tạo batch — null nếu không xác định được. */
+  nguoi_ghi?: string | null;
+  trang_thai_gui_kho: SxKcsTrangThaiGuiKho;
 }
 /** Một dòng snapshot tiêu chí checklist KCS (chụp lúc phát hành LSX) — xem `kcs_tieu_chi_json`. */
 export interface SxKcsChiTietTieuChi {

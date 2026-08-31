@@ -22,7 +22,7 @@ import { useAuth } from "../../auth/useAuth";
 import { useCan } from "../../auth/permissions";
 import { num, ngayGio } from "../keHoachSxShared";
 import { KcsDashboard, KCS_DASH_FILTERS_RONG, type KcsDashFilters } from "./KcsDashboard";
-import { KcsResultDrawer, type KcsSavedRow } from "./KcsResultDrawer";
+import { KCS_TRANG_THAI_GUI_KHO_LABEL, KcsResultDrawer, type KcsSavedRow } from "./KcsResultDrawer";
 import "../rebuild-catalog.css";
 import "./kcs.css";
 
@@ -44,6 +44,9 @@ interface KetQuaRow {
   tenCongDoan: string;
   /** null = không mở được drawer "xem" (đột xuất phiên này — chưa có API đọc lại chi tiết theo id). */
   view: { item: SxWorkItem; batch: SxKcsBatchChiTiet } | null;
+  /** null cho dòng đột xuất-trong-phiên (không có API đọc lại — xem comment đầu file). */
+  nguoiGhi: string | null;
+  trangThaiGuiKho: string | null;
 }
 
 type DrawerState =
@@ -133,6 +136,8 @@ export function ThucHienKcsPage({
           tenNguon: item.nguon_ten,
           tenCongDoan: item.ten_cong_doan,
           view: { item, batch: b },
+          nguoiGhi: b.nguoi_ghi ?? null,
+          trangThaiGuiKho: b.trang_thai_gui_kho,
         });
       }
     }
@@ -146,6 +151,8 @@ export function ThucHienKcsPage({
       tenNguon: r.tenNguon,
       tenCongDoan: r.tenCongDoan,
       view: null,
+      nguoiGhi: null,
+      trangThaiGuiKho: null,
     }));
     return [...fromRouting, ...fromDotXuat].sort((a, b) => (a.luc < b.luc ? 1 : -1));
   }, [items, chiTietMap, dotXuatPhien]);
@@ -297,7 +304,7 @@ export function ThucHienKcsPage({
             <table className="rc__table kcs-table--ketqua">
               <tbody>
                 {Array.from({ length: 3 }).map((_, i) => (
-                  <tr key={i} className="rc-skel__row"><td colSpan={5}><span className="rc-skel" style={{ width: "70%" }} /></td></tr>
+                  <tr key={i} className="rc-skel__row"><td colSpan={7}><span className="rc-skel" style={{ width: "70%" }} /></td></tr>
                 ))}
               </tbody>
             </table>
@@ -322,6 +329,8 @@ export function ThucHienKcsPage({
                   <th className="num">Đạt</th>
                   <th className="num">Lỗi</th>
                   <th>Loại</th>
+                  <th>Trạng thái gửi kho</th>
+                  <th>Người ghi</th>
                 </tr>
               </thead>
               <tbody>
@@ -340,6 +349,8 @@ export function ThucHienKcsPage({
                         {r.loai === "routing" ? "Routing" : "Đột xuất"}
                       </span>
                     </td>
+                    <td>{r.trangThaiGuiKho ? (KCS_TRANG_THAI_GUI_KHO_LABEL[r.trangThaiGuiKho] ?? r.trangThaiGuiKho) : "—"}</td>
+                    <td>{r.nguoiGhi ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>

@@ -19,6 +19,13 @@ import { Drawer } from "../danh-muc/components/Drawer";
 import { Select, type SelectOption } from "../../components/Select";
 import { num } from "../keHoachSxShared";
 
+export const KCS_TRANG_THAI_GUI_KHO_LABEL: Record<string, string> = {
+  chua_gui: "Chưa gửi kho",
+  dang_cho: "Đang chờ kho xác nhận",
+  da_nhap: "Đã nhập kho",
+  khong_ap_dung: "Không áp dụng",
+};
+
 type SavedInfo = { kcsBatchId: number; version: number; ctaEligible: boolean; soDat: number; donVi: string };
 
 /** Tóm tắt một lượt vừa lưu — trả lên `ThucHienKcsPage` để cập nhật "Kết quả đã ghi" ngay, không
@@ -251,6 +258,10 @@ export function KcsResultDrawer(props: Props) {
             <div className="kcs-drawer__soluong">
               <label>Số đạt<input type="number" value={b.so_luong_dat} disabled /></label>
               <label>Số lỗi<input type="number" value={b.so_luong_khong_dat} disabled /></label>
+            </div>
+            <div className="kcs-drawer__ctx-row">
+              Người ghi: {b.nguoi_ghi ?? "—"} · Trạng thái gửi kho:{" "}
+              {KCS_TRANG_THAI_GUI_KHO_LABEL[b.trang_thai_gui_kho] ?? b.trang_thai_gui_kho}
             </div>
           </div>
           {b.loi.length > 0 && (

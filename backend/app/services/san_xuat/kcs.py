@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...models.department import Department
@@ -34,8 +35,9 @@ from ...models.san_xuat_kcs import (
     SanXuatKcsLoi,
     SanXuatKcsLoiAnh,
 )
-from ...models.san_xuat_kho import YC_HUY
+from ...models.san_xuat_kho import YC_CHO_KHO, YC_HUY, YC_MOT_PHAN, SanXuatNhapKhoYc
 from ...models.san_xuat_san_luong import SanXuatBatch
+from ...models.user import User
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
@@ -662,6 +664,19 @@ def _loi_ra(loi: SanXuatKcsLoi, anh: list[SanXuatKcsLoiAnh], ten_loi: str | None
     }
 
 
+def _trang_thai_gui_kho(loai: str, requests: list[SanXuatNhapKhoYc]) -> str:
+    """Suy trạng thái gửi kho của MỘT batch từ các yêu cầu nhập kho neo vào nó (§14.1, §6.2). Batch
+    `dot_xuat` không bao giờ gửi được (`kho.py:212` chặn) → luôn "khong_ap_dung"."""
+    if loai != KCS_LOAI_ROUTING:
+        return "khong_ap_dung"
+    active = [r for r in requests if r.trang_thai != YC_HUY]
+    if not active:
+        return "chua_gui"
+    if any(r.trang_thai in (YC_CHO_KHO, YC_MOT_PHAN) for r in active):
+        return "dang_cho"
+    return "da_nhap"
+
+
 def chi_tiet_kcs(db: Session, user, cong_viec_id: int) -> dict:
     """Danh sách batch kiểm tra + lỗi + ảnh của MỘT công việc KCS (mặt đọc cho panel drawer §13)."""
     repo = SanXuatKcsRepository(db)
@@ -676,6 +691,14 @@ def chi_tiet_kcs(db: Session, user, cong_viec_id: int) -> dict:
     all_loi = [l for ls in loi_map.values() for l in ls]
     anh_map = repo.anh_cua_loi_nhieu([l.id for l in all_loi])
     ten_loi = repo.nhan_ly_do({l.nhom_loi_id for l in all_loi})
+
+    kho_repo = SanXuatKhoRepository(db)
+    yc_map = kho_repo.cac_yc_cua_nhieu_batch(batch_ids)
+    nguoi_ids = {b.created_by for b in batches if b.created_by}
+    nguoi_ten = (
+        {u.id: u.name for u in db.scalars(select(User).where(User.id.in_(nguoi_ids)))}
+        if nguoi_ids else {}
+    )
 
     out = []
     for b in batches:
@@ -696,6 +719,8 @@ def chi_tiet_kcs(db: Session, user, cong_viec_id: int) -> dict:
             "version": b.version,
             "loi": [_loi_ra(l, anh_map.get(l.id, []), ten_loi.get(l.nhom_loi_id)) for l in loi_list],
             "loai": b.loai,
+            "nguoi_ghi": nguoi_ten.get(b.created_by),
+            "trang_thai_gui_kho": _trang_thai_gui_kho(b.loai, yc_map.get(b.id, [])),
         })
     return {
         "cong_viec_id": cong_viec_id,
