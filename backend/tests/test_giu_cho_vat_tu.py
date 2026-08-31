@@ -856,6 +856,49 @@ def test_migration_them_cot_purchase_request_line_id(db):
     run_migrations(db)
 
 
+def test_migration_them_cot_purchase_request_line_id_tao_index(db):
+    """Migration 0245 phải tự tạo INDEX cho cột mới — DB thật (dev/prod) không chạy lại
+    create_all() nên nếu migration không tự tạo, index sẽ KHÔNG BAO GIỜ xuất hiện, và mọi
+    doi_soat_dang_ve()/doi_soat_dang_ve_don() filter trên cột này full-scan dưới khoá FOR UPDATE.
+
+    KHÔNG dùng `ALTER TABLE ... DROP COLUMN` trên bảng đã create_all(): SQLite từ chối thẳng
+    ("unknown column ... in foreign key definition") vì cột này có ràng buộc FK cấp-bảng
+    (`FOREIGN KEY(purchase_request_line_id) REFERENCES purchase_request_lines(id)`) — hạn chế cấu
+    trúc của SQLite (không liên quan `PRAGMA foreign_keys`, đã xác minh riêng). Thay vào đó DROP +
+    CREATE lại đúng bảng `vat_tu_giu_cho` KHÔNG có cột/index đó, giữ nguyên mọi bảng khác (lsx,
+    bai_ghep, purchase_request_lines...) nguyên vẹn từ create_all() của fixture `db` — không bảng
+    nào khác có FK trỏ VÀO `vat_tu_giu_cho` nên an toàn drop/recreate riêng bảng này, và
+    `_dung_lai_giu_cho_dang_ve()` bên trong migration (backfill gọi `GiuChoService.nhat_them()`)
+    vẫn chạy được bình thường vì mọi bảng nó cần đọc vẫn còn nguyên."""
+    from sqlalchemy import inspect, text
+
+    from app.db_migrations import _migrate_giu_cho_purchase_request_line_id
+
+    db.execute(text("DROP TABLE vat_tu_giu_cho"))
+    db.execute(text(
+        "CREATE TABLE vat_tu_giu_cho ("
+        "id INTEGER PRIMARY KEY, hang_loai VARCHAR(8) NOT NULL, hang_id INTEGER NOT NULL, "
+        "lsx_id INTEGER, bai_ghep_id INTEGER, so_luong NUMERIC(14,2) NOT NULL, "
+        "nguon VARCHAR(10) NOT NULL, ngay_ve DATE, "
+        "created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL)"
+    ))
+    db.commit()
+
+    insp = inspect(db.get_bind())
+    cols_truoc = {c["name"] for c in insp.get_columns("vat_tu_giu_cho")}
+    assert "purchase_request_line_id" not in cols_truoc
+
+    _migrate_giu_cho_purchase_request_line_id(db)
+
+    insp = inspect(db.get_bind())
+    cols = {c["name"] for c in insp.get_columns("vat_tu_giu_cho")}
+    assert "purchase_request_line_id" in cols
+    idx_cols = [tuple(i["column_names"]) for i in insp.get_indexes("vat_tu_giu_cho")]
+    assert ("purchase_request_line_id",) in idx_cols, (
+        f"thiếu index trên purchase_request_line_id — indexes hiện có: {idx_cols}"
+    )
+
+
 def test_migration_backfill_dung_lai_nhat_them_cho_chu_the_dang_bat(db, kh, customer):
     """Chủ thể đã BẬT giữ chỗ từ trước (cờ `giu_cho_bat=true`), dòng `dang_ve` của nó vừa bị
     migration xoá sạch — hàm backfill `_dung_lai_giu_cho_dang_ve` phải tự gọi lại `nhat_them()`
@@ -945,6 +988,43 @@ def test_doi_soat_nha_sach_khi_dong_khong_con_trong_hang_dang_ve(db, svc, kh, cu
     assert not any(r.purchase_request_line_id == line.id for r in con)
 
 
+def test_doi_soat_dang_ve_don_ban_sse_dung_mot_lan_du_nhieu_mat_hang(db, svc, kh, customer, monkeypatch):
+    """Một PMH có NHIỀU dòng, mỗi dòng đang giữ hứa `dang_ve` cho MỘT mặt hàng khác nhau —
+    `doi_soat_dang_ve_don()` lặp gọi `doi_soat_dang_ve()` cho TỪNG dòng, nhưng phải bắn SSE
+    ĐÚNG MỘT LẦN cho cả đợt, không phải N lần cho N mặt hàng (một lần Save đợt giao/huỷ/đóng đơn
+    không được nổ N toast đúp trên AppShell)."""
+    from app.services import giu_cho_service
+
+    g1 = _giay(db, ma="GY-1")
+    g2 = _giay(db, ma="GY-2")
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g1.id, so_to_nguyen=200)
+    b = _lenh(db, customer, ma="LSX-B", giay_id=g2.id, so_to_nguyen=200)
+
+    p = PurchaseRequest(code="PMH-MULTI", status=PR_PURCHASED, expected_receipt_date=MAI)
+    db.add(p)
+    db.flush()
+    ln1 = PurchaseRequestLine(purchase_request_id=p.id, item_name="Giấy 1", hang_loai="giay",
+                               hang_id=g1.id, unit="kg", quantity=100, expected_unit_price=1)
+    ln2 = PurchaseRequestLine(purchase_request_id=p.id, item_name="Giấy 2", hang_loai="giay",
+                               hang_id=g2.id, unit="kg", quantity=100, expected_unit_price=1)
+    db.add_all([ln1, ln2])
+    db.commit()
+
+    svc.bat(lsx_id=a.id)
+    svc.bat(lsx_id=b.id)
+    assert any(r.purchase_request_line_id == ln1.id
+               for r in svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)), "phải giữ hứa mặt hàng 1 trước đã"
+    assert any(r.purchase_request_line_id == ln2.id
+               for r in svc.repo.cua_chu_the(lsx_id=b.id, bai_ghep_id=None)), "phải giữ hứa mặt hàng 2 trước đã"
+
+    calls: list[dict] = []
+    monkeypatch.setattr(giu_cho_service.hub, "broadcast", lambda e: calls.append(e))
+
+    svc.doi_soat_dang_ve_don(p.id)
+
+    assert len(calls) == 1, f"phải bắn đúng 1 lần cho cả PMH (2 mặt hàng), thực tế {len(calls)} lần: {calls}"
+
+
 # ================== HOOK PurchaseService ⇄ GIỮ CHỖ (30/08/2026, Task 4) ==================
 
 
@@ -1005,6 +1085,39 @@ def test_huy_pmh_nha_sach_giu_cho_dang_ve(db, svc, kh, customer):
     assert not any(float(r.so_luong) > 0 for r in con
                    if getattr(r, "purchase_request_line_id", None)), (
         "huỷ PMH phải nhả hết phần giữ hứa bám phiếu đó"
+    )
+
+
+def test_mark_received_nha_sach_giu_cho_dang_ve(db, svc, kh, customer):
+    """`mark_received` — ĐƯỜNG CŨ cho PMH không theo dõi đợt giao — đánh dấu "Đã nhận hàng" thì
+    PMH rời khỏi trạng thái 'đang về' (`_hang_dang_ve()` chỉ đếm APPROVED/PURCHASED/
+    PARTIALLY_RECEIVED). Trước bản vá này, `mark_received` không gọi `_doi_soat_giu_cho` như 5 chỗ
+    khác đã làm (`_sau_khi_doi_dot`/`dong_don`/`cancel`), nên dòng giữ hứa `dang_ve` bám dòng phiếu
+    này bị bỏ quên vĩnh viễn — hàng vừa về bị giữ HAI LẦN (một lần ma ở đây, một lần thật khi nhập
+    kho), `ton_tu_do` hụt mãi bằng đúng số vừa nhận."""
+    from app.models.purchase import PurchaseRequestLine
+    from app.models.user import User
+
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    _phieu_mua(db, hang=_giay_hang(g), so_luong=100, ngay_ve=MAI)
+    phieu = db.query(PurchaseRequest).order_by(PurchaseRequest.id.desc()).first()
+    line = db.query(PurchaseRequestLine).order_by(PurchaseRequestLine.id.desc()).first()
+    assert not phieu.deliveries, "test này phải đi đúng đường cũ — PMH không có đợt giao"
+
+    svc.bat(lsx_id=a.id)
+    assert any(r.purchase_request_line_id == line.id
+               for r in svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)), (
+        "phải giữ được hứa từ PMH trước đã"
+    )
+
+    thu_mua = _thu_mua(db, kh)
+    admin = db.query(User).filter(User.username == "admin").first()
+    thu_mua.mark_received(phieu.id, actor=admin)
+
+    con = svc.repo.cua_chu_the(lsx_id=a.id, bai_ghep_id=None)
+    assert not any(r.purchase_request_line_id == line.id for r in con), (
+        "đánh dấu 'Đã nhận hàng' phải tự đối soát nhả sạch phần giữ hứa bám dòng phiếu này"
     )
 
 
@@ -1326,16 +1439,35 @@ def test_gom_theo_hang_va_chu_the_mo_ho_chan_ghi_so(db, kh, customer):
 # ================== KHOÁ NGUỒN — GIAO DỊCH MỘT LẦN ==================
 
 
-def test_khoa_nguon_khong_loi_va_theo_thu_tu_on_dinh(db, svc):
-    """`_khoa_nguon` phải chạy được (không lỗi) khi truyền LỘN thứ tự — tự sắp lại theo
-    (hang_loai, hang_id) TĂNG DẦN trước khi khoá — và không lỗi khi gọi LẦN HAI trong CÙNG giao
-    dịch (mô phỏng `nhat_them()` rồi `kiem_xuat()` cùng chạm một mặt hàng trong một lượt xử lý).
+def test_khoa_nguon_khong_loi_va_theo_thu_tu_on_dinh(db, svc, monkeypatch):
+    """`_khoa_nguon` phải chạy được (không lỗi) khi truyền LỘN thứ tự — VÀ THẬT SỰ khoá theo
+    (hang_loai, hang_id) TĂNG DẦN, không chỉ "không raise". Khoá lộn xộn giữa hai giao dịch cùng
+    đụng chung tập mặt hàng là khoá CHÉO (deadlock) trên Postgres thật — SQLite (test) im lặng vì
+    `FOR UPDATE` là no-op ở đây, nên phải soi TRỰC TIẾP chuỗi id đã khoá bằng spy trên `db.execute`;
+    "không raise" không chứng minh được thứ tự đúng, chỉ chứng minh SQLite không phàn nàn.
 
-    SQLite (test) coi `FOR UPDATE` là no-op — cùng giới hạn đã ghi nhận ở
-    `stock_voucher_repo.py::lock_for_update` — nên test này chỉ xác nhận KHÔNG VỠ, không xác nhận
-    chặn concurrent thật (chỉ Postgres dev/prod mới khoá thật)."""
+    Cũng xác nhận không lỗi khi gọi LẦN HAI trong CÙNG giao dịch (mô phỏng `nhat_them()` rồi
+    `kiem_xuat()` cùng chạm một mặt hàng trong một lượt xử lý)."""
     g1 = _giay(db, ma="GY-1")
     g2 = _giay(db, ma="GY-2")
+    g3 = _giay(db, ma="GY-3")
 
-    svc._khoa_nguon([("giay", g2.id), ("giay", g1.id)])
+    da_khoa: list[int] = []
+    goc_execute = db.execute
+
+    def spy(stmt, *a, **kw):
+        where = getattr(stmt, "whereclause", None)
+        if where is not None:
+            da_khoa.append(where.right.value)
+        return goc_execute(stmt, *a, **kw)
+
+    monkeypatch.setattr(db, "execute", spy)
+
+    svc._khoa_nguon([("giay", g3.id), ("giay", g1.id), ("giay", g2.id)])
+
+    assert da_khoa == sorted([g1.id, g2.id, g3.id]), (
+        f"phải khoá THEO THỨ TỰ id tăng dần bất kể thứ tự truyền vào, thực tế: {da_khoa}"
+    )
+
+    # Gọi lần hai trong CÙNG giao dịch — không được lỗi.
     svc._khoa_nguon([("giay", g1.id)])

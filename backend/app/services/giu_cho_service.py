@@ -451,7 +451,10 @@ class GiuChoService:
         # MỘT lượt dựng bảng cho cả ba việc (nhặt · soi lại · trả kết quả). Bảng không phụ thuộc
         # bảng giữ chỗ nên các dòng vừa nhặt không làm nó cũ đi.
         bang = self.kh.can_doi()
-        self.nhat_them(chi_chu_the=(lsx_id, bai_ghep_id), bang=bang)
+        # broadcast=False: bat() TỰ bắn một lần ngay dưới đây, bắn cả khi nhat_them() không nhặt
+        # thêm được gì (bật công tắc cũng là một thay đổi thật) — không thì bắn hai lần cho MỘT
+        # cú bấm khi nhat_them() có nhặt thêm (toast đúp trên AppShell).
+        self.nhat_them(chi_chu_the=(lsx_id, bai_ghep_id), bang=bang, broadcast=False)
         hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
         return self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id, bang=bang)
 
@@ -462,7 +465,7 @@ class GiuChoService:
         hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
         return self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
 
-    def doi_soat_dang_ve(self, purchase_request_line_id: int) -> None:
+    def doi_soat_dang_ve(self, purchase_request_line_id: int, *, broadcast: bool = True) -> bool:
         """PMH đổi (đợt giao mới/sửa/xoá, huỷ đơn, đóng đơn, dời ngày) ⇒ đối lại phần giữ HỨA
         (`nguon='dang_ve'`) đã bám DÒNG PHIẾU này.
 
@@ -474,6 +477,10 @@ class GiuChoService:
         Đọc lại `KeHoachVatTuService._hang_dang_ve()` (nguồn DUY NHẤT của "còn về bao nhiêu", đã
         quy đổi đơn vị gốc + trừ đúng luật `da_giao_theo_dong`) thay vì tính lại — tái dùng, không
         đẻ đường tính thứ hai sẽ có lúc lệch.
+
+        `broadcast=False` cho `doi_soat_dang_ve_don()` tự gộp lại BẮN MỘT LẦN cho cả PMH thay vì
+        một lần mỗi dòng. Trả `True` nếu có dòng `held` để đối (có làm việc), `False` nếu no-op —
+        để nơi gọi theo dõi "có ai vừa đổi thật không" mà không cần đọc lại DB.
         """
         held = (
             self.db.query(VatTuGiuCho)
@@ -483,7 +490,7 @@ class GiuChoService:
             .all()
         )
         if not held:
-            return
+            return False
         hang = (held[0].hang_loai, held[0].hang_id)
         self._khoa_nguon([hang])
         # `_hang_dang_ve()` đòi `self.kh._objs` đã nạp (do `can_doi()` set) — gọi thẳng như
@@ -515,20 +522,33 @@ class GiuChoService:
             for r in con_lai:
                 r.ngay_ve = ngay_ve
         self.db.commit()
-        hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
+        if broadcast:
+            hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
+        return True
 
     def doi_soat_dang_ve_don(self, purchase_request_id: int) -> None:
         """Đối lại MỌI dòng của MỘT PMH — gọi khi sự kiện xảy ra ở CẤP ĐƠN (huỷ, đóng, mở lại, đợt
-        giao đổi) mà không rõ trước dòng nào bị ảnh hưởng, nên đối hết cho chắc."""
+        giao đổi) mà không rõ trước dòng nào bị ảnh hưởng, nên đối hết cho chắc.
+
+        Gộp broadcast: PMH nhiều dòng, mỗi dòng đối xong tự bắn một lần thì MỘT lần Save đợt giao
+        bắn N lần SSE cho N mặt hàng — bắn đúng MỘT LẦN cho cả đơn nếu có ít nhất một dòng thật sự
+        đối (tránh toast đúp trên AppShell), im lặng nếu không dòng nào có gì để đối."""
         from ..models.purchase import PurchaseRequestLine
 
+        co_doi = False
         for ln in (self.db.query(PurchaseRequestLine)
                    .filter(PurchaseRequestLine.purchase_request_id == purchase_request_id)
                    .all()):
             if ln.hang_loai and ln.hang_id:
-                self.doi_soat_dang_ve(ln.id)
+                if self.doi_soat_dang_ve(ln.id, broadcast=False):
+                    co_doi = True
+        if co_doi:
+            hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
 
-    def nhat_them(self, *, chi_chu_the: tuple | None = None, bang: dict | None = None) -> int:
+    def nhat_them(
+        self, *, chi_chu_the: tuple | None = None, bang: dict | None = None,
+        broadcast: bool = True,
+    ) -> int:
         """Bù thêm cho MỌI chủ thể đang bật công tắc mà chưa giữ đủ. Trả số dòng giữ chỗ đẻ ra.
 
         Gọi khi HÀNG VỀ NHẬP KHO — đó là toàn bộ lý do "bật = đăng ký" chứ không phải chụp một lần.
@@ -582,7 +602,7 @@ class GiuChoService:
                     else:
                         break
         self.repo.them(moi)
-        if moi:
+        if moi and broadcast:
             hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
         return len(moi)
 

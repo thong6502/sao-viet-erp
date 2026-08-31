@@ -10886,6 +10886,10 @@ def _migrate_giu_cho_purchase_request_line_id(db: Session) -> None:
     db.execute(text(
         "ALTER TABLE vat_tu_giu_cho ADD COLUMN purchase_request_line_id INTEGER"
     ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_vat_tu_giu_cho_purchase_request_line_id "
+        "ON vat_tu_giu_cho (purchase_request_line_id)"
+    ))
     db.execute(text("DELETE FROM vat_tu_giu_cho WHERE nguon = 'dang_ve'"))
     db.commit()
     _dung_lai_giu_cho_dang_ve(db)
