@@ -91,6 +91,12 @@ class GiuChoService:
         self.db = db
         self.kh = kh_vt
         self.repo = repo or GiuChoRepository(db)
+        # Cache 1 slot cho `_nhu_cau_theo_chu_the`, khoá bằng DANH TÍNH của `bang` (so `is`, giữ
+        # luôn tham chiếu — KHÔNG dùng `id(bang)` làm khoá vì id có thể bị tái sử dụng sau khi bang
+        # cũ bị GC, gây trùng khoá giả). An toàn vì một instance service chỉ sống trong đúng một
+        # lần gọi/request; nơi nào hỏi nhiều chủ thể trên CÙNG một `bang` (`giu_theo_chu_the_hang`,
+        # `lsx_tong_quan._dung_vat_tu`) là dựng lại từ đầu O(số dòng) mỗi lần mà không cần thiết.
+        self._nhu_cau_cache: tuple[dict, dict[tuple, dict]] | None = None
 
     # ================== ĐỌC ==================
 
@@ -116,7 +122,14 @@ class GiuChoService:
         `khong_ro` = dòng KHÔNG quy đổi được đơn vị. `nhu_cau` của nó là 0 vì máy chưa tính nổi,
         KHÔNG phải vì không cần — nên không giữ được gì, và chủ thể đó KHÔNG bao giờ được tính là
         "đủ". Coi nó là 0 rồi mở khoá xếp lịch là mở cho một lệnh chưa ai biết cần bao nhiêu.
+
+        Nhớ tạm theo đúng `bang` (xem `self._nhu_cau_cache`): `trang_thai()` gọi hàm này cho MỖI
+        chủ thể, mà `giu_theo_chu_the_hang()`/`lsx_tong_quan._dung_vat_tu` hỏi hàng trăm chủ thể
+        trên CÙNG một `bang` — không cache thì dựng lại O(số dòng) hàng trăm lần cho cùng một kết
+        quả.
         """
+        if self._nhu_cau_cache is not None and self._nhu_cau_cache[0] is bang:
+            return self._nhu_cau_cache[1]
         ra: dict[tuple, dict] = {}
         for nhom in bang.get("items", []):
             if nhom.get("loai_nhom") != "vat_tu":
@@ -130,10 +143,11 @@ class GiuChoService:
                 o["can"] += _f(d.get("con_phai_co"))
                 if d.get("trang_thai") == "khong_ro":
                     o["khong_ro"] = True
+        self._nhu_cau_cache = (bang, ra)
         return ra
 
     def trang_thai(self, *, lsx_id: int | None = None, bai_ghep_id: int | None = None,
-                   bang: dict | None = None) -> dict:
+                   bang: dict | None = None, dang: list[VatTuGiuCho] | None = None) -> dict:
         """Kết quả sau khi bấm — ba trạng thái người dùng thấy.
 
         `du` = giữ đủ 100% ⇒ xếp lịch mở khoá. `xep_som_nhat` = ngày sớm nhất được xếp bước tiêu
@@ -146,12 +160,19 @@ class GiuChoService:
         để mặc mỗi chủ thể tự gọi là bình phương số lần chạy theo số lệnh. Bảng KHÔNG phụ thuộc vào
         bảng giữ chỗ (nó đọc tồn thật, không đọc tồn tự do) nên dùng lại là số y hệt, không phải
         bản chụp cũ.
+
+        `dang` = dòng giữ chỗ CỦA CHÍNH chủ thể này, DÙNG LẠI nếu nơi gọi đã tra sẵn — tương tự lý
+        do trên nhưng cho `repo.cua_chu_the()`: `giu_theo_chu_the_hang()` hỏi hàng trăm chủ thể một
+        lượt, để mặc mỗi chủ thể tự bắn 1 query là N round-trip DB không cần thiết (xem
+        `repo.cua_nhieu_chu_the`). Vắng thì tự query như cũ — chỗ gọi đơn lẻ (`du_chua`,
+        `lsx_tong_quan`) không cần đổi gì.
         """
         chu = (lsx_id, bai_ghep_id)
         if bang is None:
             bang = self.kh.can_doi()
         can = self._nhu_cau_theo_chu_the(bang).get(chu, {})
-        dang = self.repo.cua_chu_the(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+        if dang is None:
+            dang = self.repo.cua_chu_the(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
 
         giu_theo_hang: dict[Hang, float] = {}
         giu_kho: dict[Hang, float] = {}
@@ -806,7 +827,10 @@ class GiuChoService:
         nhiêu" (đó là việc CỦA `nhat_them()` khi nó thật sự chạy, theo đúng thứ tự ngày cần).
 
         Tra `ma_pmh` GỘP MỘT LẦN cho toàn bộ `gom` (không phải mỗi dòng một query) — `theo_chu_the()`
-        gọi hàm này cho MỌI chủ thể trong bảng, N+1 ở đây là N có thể lên tới hàng trăm lệnh.
+        gọi hàm này cho MỌI chủ thể trong bảng, N+1 ở đây là N có thể lên tới hàng trăm lệnh. Cùng
+        lý do, dòng giữ chỗ của TỪNG chủ thể (`repo.cua_chu_the()` bên trong `trang_thai()`) cũng
+        được tra GỘP MỘT LẦN qua `repo.cua_nhieu_chu_the()` rồi truyền vào, thay vì để mỗi lần gọi
+        `trang_thai()` tự bắn query riêng.
 
         Trả về `tt_by_chu` (kết quả `trang_thai()` đã tính cho mỗi chủ thể) để `theo_chu_the()`
         TÁI DÙNG luôn — không gọi lại `trang_thai()` lần hai cho cùng chủ thể (mỗi lần gọi kéo
@@ -825,9 +849,11 @@ class GiuChoService:
         }
         tt_by_chu: dict[tuple, dict] = {}
         line_ids: set[int] = set()
+        dang_by_chu = self.repo.cua_nhieu_chu_the(list(gom.keys()))
         for chu in gom:
             lsx_id, bg_id = chu
-            tt = self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang)
+            tt = self.trang_thai(
+                lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang, dang=dang_by_chu.get(chu, []))
             tt_by_chu[chu] = tt
             for ds in tt["nguon_dang_ve"].values():
                 line_ids.update(n["purchase_request_line_id"] for n in ds)
