@@ -436,7 +436,7 @@ def tao_de_nghi_vat_tu(
     body: VatTuDeNghiIn,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
-):
+) -> dict:
     """Tổ đề nghị cấp vật tư cho công đoạn (spec-de-nghi-cap-vat-tu-cong-doan §6).
 
     Bit `assign_work` chỉ là cổng THÔ — ranh giới thật ("đúng tổ trưởng của tổ nào") nằm trong
@@ -462,7 +462,7 @@ def sua_de_nghi_vat_tu(
     body: VatTuDeNghiIn,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
-):
+) -> dict:
     """`de_nghi_id` là id ĐỀ NGHỊ SẢN XUẤT, không phải id yêu cầu kho — đừng nhầm hai không gian id."""
     try:
         return vat_tu_de_nghi.sua(
