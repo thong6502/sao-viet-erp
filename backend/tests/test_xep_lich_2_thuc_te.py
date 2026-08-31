@@ -221,3 +221,33 @@ def test_ban_lam_viec_mang_theo_lop_thuc_te(db, orders, lsx_svc, admin, customer
     assert "thuc_te" in thanh[d.id]
     assert thanh[d.id]["thuc_te"]["tong_tot"] == 400.0
     assert thanh[d.id]["thuc_te"]["phan_tram"] == pytest.approx(40.0)
+
+
+def test_thanh_chua_phat_hanh_van_mang_khoa_thuc_te_bang_none(db, orders, lsx_svc, admin, customer):
+    """Thanh CHƯA phát hành xuống tổ vẫn phải CÓ khoá `thuc_te`, giá trị `None`.
+
+    Phải đứng ở tầng `workspace()` chứ không phải `nap_thuc_te()`: tầng dưới trả map thưa là ĐÚNG
+    thiết kế (`test_khong_co_cong_viec_thi_khong_co_khoa`), còn hợp đồng "mọi thanh đều có khoá"
+    chỉ tồn tại ở `_dong_view`. Chỗ dễ vỡ là ai đó gắn khoá có ĐIỀU KIỆN — đúng lối `boc_tach`/
+    `muc` đang làm ngay cạnh — và FE (`Xl2Dong.thuc_te` khai bắt buộc) nhận `undefined` im lặng.
+    """
+    from app.repositories.audit_repo import AuditLogRepository
+    from app.repositories.xep_lich_2_repo import XepLich2Repository
+    from app.services.xep_lich_2 import XepLich2Service
+
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-TT6")
+    d = _dong_lich(db, cv)
+    # Thanh thứ hai: cùng lệnh, nhưng trỏ vào một bước KHÔNG có công việc nào đang chạy.
+    chua = XepLichCongDoan(
+        nguon=NGUON_LSX, lsx_id=cv.lsx_id, lsx_cong_doan_id=999_999,
+        source_thu_tu=1, loai_buoc="to", trang_thai=TT_DA_XEP,
+        start_at=_T0 + timedelta(hours=5), finish_at=_T0 + timedelta(hours=6),
+    )
+    db.add(chua)
+    db.commit()
+
+    svc = XepLich2Service(db, XepLich2Repository(db), AuditLogRepository(db))
+    ban = svc.workspace(tu=_T0.date(), den=(_T0 + timedelta(days=1)).date())
+    thanh = {row["id"]: row for row in ban["dong"]}
+    assert "thuc_te" in thanh[chua.id] and thanh[chua.id]["thuc_te"] is None
+    assert thanh[d.id]["thuc_te"] is not None      # thanh có việc vẫn ra dữ liệu như thường
