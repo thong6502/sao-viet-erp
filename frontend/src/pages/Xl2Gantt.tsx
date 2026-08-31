@@ -12,7 +12,7 @@ import type { IconName } from "../components/Icons";
 import type {
   Xl2Ca, Xl2CaNhan, Xl2Dong, Xl2KhoaMay, Xl2Muc, Xl2NgayLe, Xl2QRow, Xl2TaiMay, Xl2TaiTo,
 } from "../api/client";
-import { ngayGio, thoiLuong, thoiLuongNgan } from "./keHoachSxShared";
+import { ngayGio, num, thoiLuong, thoiLuongNgan } from "./keHoachSxShared";
 import {
   BAR_H, CLUSTER_HEAD_H, LANE_H, LABEL_W, buildLinearScale, demViecLanes, dongHue, dongEntityKey, dongNhanParts,
   dongSerial, ngayToWall, wallToNaive, type Xl2Zoom,
@@ -79,6 +79,9 @@ const SNAP_MIN: Record<Xl2Zoom, number> = { gio: 5, ca: 15, ngay: 30, tuan: 60 }
 const TICK_MIN: Record<Xl2Zoom, number> = { gio: 60, ca: 180, ngay: 360, tuan: 1440 };
 const DRAG_THRESH = 4;
 const PACK_W = 100; // bề rộng chip "chưa đặt giờ"
+// Ngưỡng lệch giờ (phút) tính là "trễ đáng kể" khi vẽ lớp thực tế — PHẢI khớp
+// NGUONG_LECH_THUC_TE_PHUT bên backend (backend/app/services/xep_lich_van_de_service.py).
+const NGUONG_LECH_THUC_TE_PHUT = 60;
 
 interface DragState {
   dongId: number;
@@ -771,6 +774,32 @@ export function Xl2Gantt({
                       const slackPx = timed && bt && btUncertain && chiem > 0
                         ? Math.min(Math.max(((chiem - bt.chiem_may_phut_min) / chiem) * inner, 6), inner * 0.5)
                         : 0;
+                      // ── LỚP THỰC TẾ (spec-thuc-te-vs-ke-hoach §2.1) ────────────────────────
+                      // Vẽ NẰM TRONG thanh, cùng ngôn ngữ hình với `__setup` / `__slack` — không
+                      // treo râu dưới thanh (râu dưới trên màn này chỉ có một nghĩa: phụ thuộc).
+                      const tt = dong.thuc_te;
+                      const tienDoPx = timed && tt && tt.phan_tram != null
+                        ? Math.min(Math.max(tt.phan_tram, 0), 100) / 100 * inner
+                        : 0;
+                      // Đuôi sọc: ĐANG CHẠY mà đã quá mốc kết thúc dự kiến (spec §2.2, vế 2).
+                      // Ba điều kiện, thiếu cái nào cũng nói dối: đã VÀO việc (lệnh mới phát hành
+                      // mà chưa ai đụng thì chưa "quá giờ" — đó là rủi ro kế hoạch, việc của bộ dò
+                      // `nguy_co_tre`), CHƯA đóng (việc xong muộn thì cái trễ đã nằm ở thanh sau,
+                      // vẽ nữa là đếm hai lần), và quá ngưỡng. Cùng bộ điều kiện với
+                      // `_lech_thuc_te` bên backend — hai bên lệch nhau thì bàn Gantt và hàng đèn
+                      // đỏ hai chỗ khác nhau.
+                      const quaGio = !!tt && tt.bat_dau_thuc != null && tt.ket_thuc_thuc == null
+                        && (tt.tre_ket_thuc_phut ?? 0) >= NGUONG_LECH_THUC_TE_PHUT;
+                      const ttTitle = tt
+                        // "95/91 tờ" chứ không "95 tờ/91": đơn vị đứng SAU cả cặp số, nếu không
+                        // mắt đọc "95 tờ" rồi mới vấp vào "/91" và phải quay lại đọc lần hai.
+                        ? ` · thực tế: ${num(tt.tong_tot)}`
+                          + (tt.muc_tieu != null ? `/${num(tt.muc_tieu)}` : "")
+                          + (tt.don_vi ? ` ${tt.don_vi}` : "")
+                          + (tt.con_thieu ? ` · còn thiếu ${num(tt.con_thieu)}` : "")
+                          + ((tt.tre_bat_dau_phut ?? 0) >= NGUONG_LECH_THUC_TE_PHUT ? ` · vào muộn ${thoiLuongNgan(tt.tre_bat_dau_phut!)}` : "")
+                          + (quaGio ? ` · quá giờ ${thoiLuongNgan(tt.tre_ket_thuc_phut!)}` : "")
+                        : "";
                       const durLabel = chiem ? thoiLuongNgan(chiem) : null;
                       //  Máy có khai nhanh–chậm ⇒ in thẳng DẢI GIỜ ("1g05–1g40") thay vì con số giữa:
                       //  đọc ra ngay là còn xê dịch, khỏi phải đoán bằng hình.
@@ -789,9 +818,9 @@ export function Xl2Gantt({
                         <button
                           key={dong.id}
                           type="button"
-                          className={`xl2-bar${isNcc ? " xl2-bar--ncc" : ""}${mucCls}${sel ? " xl2-bar--sel" : ""}${chain ? " xl2-bar--chain" : ""}${isHoveredChain ? " xl2-bar--chain-hover" : ""}${isDimmed ? " xl2-bar--dimmed" : ""}${dong.is_locked ? " xl2-bar--locked" : ""}${canDrag ? " xl2-bar--draggable" : ""}${!timed ? " xl2-bar--pack" : ""}`}
+                          className={`xl2-bar${isNcc ? " xl2-bar--ncc" : ""}${mucCls}${sel ? " xl2-bar--sel" : ""}${chain ? " xl2-bar--chain" : ""}${isHoveredChain ? " xl2-bar--chain-hover" : ""}${isDimmed ? " xl2-bar--dimmed" : ""}${dong.is_locked ? " xl2-bar--locked" : ""}${canDrag ? " xl2-bar--draggable" : ""}${!timed ? " xl2-bar--pack" : ""}${quaGio ? " xl2-bar--qua-gio" : ""}`}
                           style={{ left, width, "--lsx-h": hue } as CSSProperties}
-                          title={`${nhan.ma}${nhan.congDoan ? ` · ${nhan.congDoan}` : ""}${nhan.sanPham ? ` · ${nhan.sanPham}` : ""}${dong.start_at ? ` · ${ngayGio(dong.start_at)}` : " · chưa đặt giờ"}${dong.is_locked ? " · đã khóa" : ""}${btTitle}`}
+                          title={`${nhan.ma}${nhan.congDoan ? ` · ${nhan.congDoan}` : ""}${nhan.sanPham ? ` · ${nhan.sanPham}` : ""}${dong.start_at ? ` · ${ngayGio(dong.start_at)}` : " · chưa đặt giờ"}${dong.is_locked ? " · đã khóa" : ""}${btTitle}${ttTitle}`}
                           aria-label={`${nhan.ma}${nhan.congDoan ? `, ${nhan.congDoan}` : ""}${nhan.sanPham ? `, ${nhan.sanPham}` : ""}${dong.start_at ? `, bắt đầu ${ngayGio(dong.start_at)}` : ", chưa đặt giờ"}`}
                           onPointerDown={canDrag ? (e) => onBarDown(dong, e) : undefined}
                           onClick={() => onBarClick(dong)}
@@ -801,6 +830,20 @@ export function Xl2Gantt({
                         >
                           {/* Accent chỉ báo trạng thái mép trái */}
                           <span className="xl2-bar__accent" />
+
+                          {/* Vệt tiến độ thật: nền mờ chạy từ mép trái, KHÔNG đè chữ. */}
+                          {tienDoPx > 0 && tt && (
+                            <span
+                              className="xl2-bar__thuc-te"
+                              style={{ width: tienDoPx }}
+                              title={`Đã chạy ${num(tt.phan_tram)}%`}
+                              aria-hidden="true"
+                            />
+                          )}
+                          {/* Đuôi sọc "còn đang chạy quá giờ" — mọc ra ngoài mép phải. */}
+                          {quaGio && (
+                            <span className="xl2-bar__qua-gio" aria-hidden="true" />
+                          )}
 
                           {/* Đầu chip: quãng CHUẨN BỊ MÁY — mảng đậm + vạch ngăn, KHÔNG dùng sọc chéo
                               (sọc chéo trên màn này chỉ có một nghĩa: ngoài ca / máy bị khoá). */}

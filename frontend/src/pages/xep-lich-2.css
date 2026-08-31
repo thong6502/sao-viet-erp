@@ -1506,6 +1506,46 @@
   pointer-events: none;
 }
 
+/* Lớp THỰC TẾ đè lên thanh kế hoạch — nền mờ, nằm DƯỚI chữ (z-index thấp hơn __body).
+   Màu lấy từ bộ token của app (`--moss`), KHÔNG đặt biến riêng: `--xl2-thuc-te` không tồn
+   tại ở đâu cả nên chỉ có giá trị dự phòng chạy, mà xanh #22c55e chói lệch hẳn khỏi bảng
+   màu trầm của màn này (`--moss` / `--signal`, xem `.xl2-vt--ok` / `.xl2-vt--bad`). */
+.xl2-bar__thuc-te {
+  position: absolute;
+  left: 4px; /* chừa dải accent mép trái */
+  top: 0;
+  bottom: 0;
+  /* Cùng mức 1 với `__body`: nằm TRÊN mảng chuẩn bị máy và đuôi xê dịch (cả hai mức auto,
+     vẽ sau trong DOM nên nếu không nâng mức thì chúng phủ mất vệt thực tế — thanh 63 phút
+     có 45 phút chuẩn bị thì 71% vệt biến mất), nhưng vẫn DƯỚI chữ vì `__body` đứng sau. */
+  z-index: 1;
+  background: color-mix(in srgb, var(--moss) 22%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--moss) 65%, transparent);
+  pointer-events: none;
+}
+
+/* Đang chạy mà đã quá mốc kết thúc: đuôi sọc ở MÉP PHẢI, nằm TRONG thanh.
+   `.xl2-bar` có `overflow: hidden` nên bất cứ thứ gì đặt ngoài mép phải đều bị cắt sạch —
+   bản đầu treo đuôi ra ngoài (`right: -14px`) nên không bao giờ hiện, dù dữ liệu đúng.
+   `z-index: 1` để lớp trắng `__slack` (vẽ SAU trong DOM) không phủ mất sọc; `__body` cũng
+   ở mức 1 nhưng đứng sau nên chữ vẫn nằm trên cùng. */
+.xl2-bar__qua-gio {
+  position: absolute;
+  right: 0;
+  top: 25%;
+  bottom: 25%;
+  width: 10px;
+  z-index: 1;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--signal) 0 3px,
+    transparent 3px 6px
+  );
+  pointer-events: none;
+}
+
+.xl2-bar--qua-gio { outline: 1px solid color-mix(in srgb, var(--signal) 55%, transparent); }
+
 .xl2-bar__body {
   position: relative; /* nổi trên mảng chuẩn bị máy + đuôi xê dịch (cả hai là absolute) */
   z-index: 1;

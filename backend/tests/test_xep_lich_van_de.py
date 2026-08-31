@@ -527,6 +527,31 @@ def test_lech_thuc_te_viec_da_xong_thi_thoi_bao(db, orders, lsx_svc, admin, cust
     assert f"{K_LECH_THUC_TE}:{dong.id}" not in keys
 
 
+def test_lech_thuc_te_chua_ai_vao_viec_thi_khong_bao_qua_gio(db, orders, lsx_svc, admin, customer):
+    """Lệnh đã phát hành nhưng CHƯA ai bấm vào việc, mốc kết thúc dự kiến đã trôi qua từ lâu
+    ⇒ bộ dò này im.
+
+    Spec §2.2 nêu đúng hai vế, cả hai đều đòi có hoạt động thật: "đã bắt đầu MUỘN hơn
+    `du_kien_bat_dau`" và "ĐANG CHẠY mà đã quá `du_kien_ket_thuc`". Một công việc `released`
+    chưa ai đụng tới không rơi vào vế nào — cái đó là việc của `nguy_co_tre` (rủi ro kế hoạch),
+    không phải của bộ dò thực tế. Bỏ điều kiện "đã vào việc" thì mọi lệnh cũ chưa chạy đều bị
+    dán nhãn "vẫn đang chạy và đã quá mốc" — sai sự thật, và trên dữ liệu thật nó nhuộm đỏ quá
+    nửa bàn xếp lịch.
+    """
+    from app.models.san_xuat import CV_PHAT_HANH
+    from app.services.xep_lich_van_de_service import K_LECH_THUC_TE
+
+    dong, cv = _dong_va_cong_viec(db, orders, lsx_svc, admin, customer)
+    cv.trang_thai = CV_PHAT_HANH
+    cv.du_kien_bat_dau = dong.start_at
+    # Mốc kết thúc dự kiến đã trôi qua 10 tiếng, nhưng không có phiên chạy nào.
+    cv.du_kien_ket_thuc = _gio_xuong() - timedelta(hours=10)
+    db.commit()
+
+    keys = {i["issue_key"] for i in _van_de_svc(db).liet_ke()["items"]}
+    assert f"{K_LECH_THUC_TE}:{dong.id}" not in keys
+
+
 def test_lech_thuc_te_dung_gio_thi_im_lang(db, orders, lsx_svc, admin, customer):
     from datetime import timedelta
 

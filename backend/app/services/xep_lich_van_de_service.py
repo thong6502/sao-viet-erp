@@ -403,14 +403,19 @@ class XepLichVanDeService:
             if t["trang_thai"] == CV_HOAN_THANH:
                 continue
             tre_bd = t["tre_bat_dau_phut"] or 0
-            # Quá giờ chỉ tính khi việc CHƯA đóng — việc đã xong muộn là chuyện đã rồi, nó đã
-            # phản ánh vào mốc bắt đầu của bước sau; báo hai lần là nhân đôi cùng một cái trễ.
-            tre_kt = (t["tre_ket_thuc_phut"] or 0) if t["ket_thuc_thuc"] is None else 0
+            # Quá giờ chỉ tính khi việc ĐÃ VÀO và CHƯA đóng — đúng vế thứ hai của spec §2.2
+            # ("đang chạy mà đã quá `du_kien_ket_thuc`"). Bỏ vế "đã vào" thì mọi lệnh mới phát
+            # hành mà chưa ai đụng tới đều bị báo "vẫn đang chạy và đã quá mốc" — vừa sai sự
+            # thật (chưa ai chạy) vừa lấn sân `nguy_co_tre`, và trên dữ liệu thật nó nhuộm đỏ
+            # quá nửa bàn. Việc đã xong muộn cũng không tính: cái trễ đó đã phản ánh vào mốc
+            # bắt đầu của bước sau, báo lần nữa là nhân đôi cùng một cái trễ.
+            dang_do = t["bat_dau_thuc"] is not None and t["ket_thuc_thuc"] is None
+            tre_kt = (t["tre_ket_thuc_phut"] or 0) if dang_do else 0
             if max(tre_bd, tre_kt) < NGUONG_LECH_THUC_TE_PHUT:
                 continue
             if tre_kt >= tre_bd:
                 txt = f"quá giờ dự kiến {_phut_str(tre_kt)}"
-                ly_do = f"Bước vẫn đang chạy và đã quá mốc kết thúc dự kiến {_phut_str(tre_kt)}."
+                ly_do = f"Bước đã vào việc, chưa đóng, và đã quá mốc kết thúc dự kiến {_phut_str(tre_kt)}."
             else:
                 txt = f"vào việc muộn {_phut_str(tre_bd)}"
                 ly_do = f"Tổ bắt đầu muộn hơn mốc đã xếp {_phut_str(tre_bd)}."
