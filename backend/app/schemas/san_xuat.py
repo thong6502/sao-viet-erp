@@ -70,6 +70,9 @@ class WorkItemOut(BaseModel):
     dinh_muc_vat_tu: list[VatTuDinhMucOut] = []
     # Lớp thực-tế đè lên thanh kế hoạch (§5.1): các phiên chạy đã ghi, phiên mở để ket_thuc=None.
     thuc_te: list[ThucTeKhoangOut] = []
+    # Còn thiếu so với mục tiêu bước (`so_luong_ra`) — DẪN XUẤT, không lưu (§2.3). Chỗ gọi không
+    # nạp map (khối "cong_viec" của drawer) thì cứ None, không bịa số.
+    con_thieu: float | None = None
 
 
 class WorkItemsOut(BaseModel):
@@ -204,6 +207,11 @@ class BatchOut(BaseModel):
 class SanLuongOut(BaseModel):
     tong_tot: float
     da_giao: float
+    # Mục tiêu của BƯỚC (`san_xuat_cong_viec.so_luong_ra`) và phần chưa đạt — DẪN XUẤT, không lưu.
+    # Không khai ở đây là Pydantic nuốt IM LẶNG: service trả dict, FE nhận undefined, không ai lỗi.
+    muc_tieu: float | None = None
+    con_thieu: float | None = None
+    don_vi: str | None = None
     batches: list[BatchOut]
 
 
@@ -931,6 +939,12 @@ class DongNhomDieuKienOut(BaseModel):
     du_dong_du: bool
     du_dong_thieu: bool
     dieu_kien: list[DongNhomDieuKienItemOut]
+    # Còn thiếu CỦA CẢ NHÓM (§2.3) — DẪN XUẤT, chỉ để BÀY, không phải điều kiện thứ 7. `muc_tieu`
+    # None khi nhóm chưa xác định bước KCS cuối nào có khai `so_luong_ra` — `da_dat`/`con_thieu`
+    # cũng None theo (đừng bịa "đã đạt 0", đó là "không biết", khác hẳn "biết là 0").
+    muc_tieu: float | None = None
+    da_dat: float | None = None
+    con_thieu: float | None = None
 
 
 class DongThieuIn(BaseModel):

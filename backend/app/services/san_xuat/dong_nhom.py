@@ -32,6 +32,7 @@ from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
 from ...repositories.san_xuat_phan_bo_repo import SanXuatPhanBoRepository
 from ...repositories.san_xuat_repo import SanXuatRepository
+from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from .kcs import _EPS
 
 # Điều kiện KHÔNG thuộc "hoàn thành" — đóng thiếu vẫn phải thoả (§13.3).
@@ -128,7 +129,24 @@ def _danh_gia(db: Session, nhom_id: int) -> tuple[SanXuatNhom, list, list[dict]]
 
 def dieu_kien_dong_nhom(db: Session, nhom_id: int) -> dict:
     """Đọc tình trạng cổng đóng nhóm — FE hiện checklist "vì sao chưa đóng" + bật nút đóng thiếu."""
-    nhom, _cvs, dk = _danh_gia(db, nhom_id)
+    nhom, cvs, dk = _danh_gia(db, nhom_id)
+    # Con số CÒN THIẾU của cả nhóm — CHỈ ĐỂ BÀY (spec-thuc-te-vs-ke-hoach §2.3).
+    # `_danh_gia` vẫn giữ nguyên 6 điều kiện: nó đo "đã phân loại / đã nhận", CỐ Ý không so mục
+    # tiêu đơn (chú thích dòng 63). Người bấm "đóng thiếu" trước đây bấm mù — nay thấy thiếu bao
+    # nhiêu, nhưng quyền đóng không đổi.
+    # Tập KCS cuối dùng ĐÚNG biểu thức rơi-về đã có ở `_danh_gia` (dòng ~67) và `dong_thieu` (dòng
+    # ~217) trong chính module này: `la_kcs_cuoi` chỉ được gán thật khi qua release.phat_hanh
+    # (snapshot.danh_dau_kcs_cuoi); dữ liệu/test dựng tay chỉ có `la_kcs` (rộng hơn). Lọc theo
+    # `so_luong_ra is not None` PHẢI làm SAU khi đã chọn xong tập bằng `or`, không nhét vào vế
+    # trái — nhét vào sẽ rơi-về sai khi nhóm có `la_kcs_cuoi` nhưng chưa khai số. Đổi luật rơi-về
+    # thì phải sửa cả BA chỗ (đây + hai chỗ trên), không chỉ chỗ này.
+    kcs_final_cvs = [c for c in cvs if c.la_kcs_cuoi] or [c for c in cvs if c.la_kcs]
+    kcs_cuoi = [c for c in kcs_final_cvs if c.so_luong_ra is not None]
+    tot_map = SanXuatSanLuongRepository(db).tong_tot_nhieu([c.id for c in kcs_cuoi])
+    muc_tieu = sum(float(c.so_luong_ra) for c in kcs_cuoi) if kcs_cuoi else None
+    da_dat = (
+        sum(tot_map.get(c.id, 0.0) for c in kcs_cuoi) if muc_tieu is not None else None
+    )
     return {
         "nhom_id": nhom.id,
         "order_id": nhom.order_id,
@@ -137,6 +155,9 @@ def dieu_kien_dong_nhom(db: Session, nhom_id: int) -> dict:
         "du_dong_du": all(d["dat"] for d in dk),
         "du_dong_thieu": all(d["dat"] for d in dk if d["ma"] != _MA_HOAN_THANH),
         "dieu_kien": dk,
+        "muc_tieu": muc_tieu,
+        "da_dat": da_dat,
+        "con_thieu": max(muc_tieu - da_dat, 0.0) if muc_tieu is not None else None,
     }
 
 

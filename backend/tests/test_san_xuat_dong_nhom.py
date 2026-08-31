@@ -233,6 +233,8 @@ def test_dieu_kien_shape_va_du_dong_thieu(db, orders, lsx_svc, admin, customer):
     assert set(dk) == {
         "nhom_id", "order_id", "trang_thai", "version",
         "du_dong_du", "du_dong_thieu", "dieu_kien",
+        # Con số CÒN THIẾU của nhóm (§2.3, Task 5) — dẫn xuất, chỉ để BÀY, không phải điều kiện.
+        "muc_tieu", "da_dat", "con_thieu",
     }
     mas = {d["ma"] for d in dk["dieu_kien"]}
     assert mas == {

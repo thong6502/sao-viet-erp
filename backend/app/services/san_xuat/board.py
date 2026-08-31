@@ -84,7 +84,28 @@ def _num(x) -> float | None:
     return None if x is None else float(x)
 
 
-def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None) -> dict:
+def _con_thieu(cv, tong_tot: float) -> tuple[float | None, float | None]:
+    """(mục tiêu, còn thiếu) của MỘT bước — dẫn xuất, KHÔNG lưu cột (spec-thuc-te-vs-ke-hoach §2.3).
+
+    Mục tiêu là `so_luong_ra` (snapshot lúc phát hành, đã đúng `don_vi_ra`), nên số này so được
+    thẳng với `tong_tot` mà không cần quy đổi. Bước không khai mục tiêu ⇒ trả None, đừng bịa 0:
+    "còn thiếu 0" và "không biết thiếu bao nhiêu" là hai câu khác hẳn nhau.
+
+    Chạy DƯ thì kẹp về 0 — số âm ở ô "còn thiếu" chỉ làm người đọc dừng lại đoán nghĩa.
+    """
+    if cv.so_luong_ra is None:
+        return None, None
+    muc_tieu = float(cv.so_luong_ra)
+    return muc_tieu, max(muc_tieu - float(tong_tot), 0.0)
+
+
+def _con_thieu_map(rows, tot_map: dict[int, float]) -> dict[int, float | None]:
+    """{cong_viec_id: còn thiếu} cho một danh sách công việc — dùng lại `_con_thieu` mức bước,
+    nạp GỘP một lần cho cả bàn tổ (tránh gọi `tong_tot` theo từng dòng)."""
+    return {cv.id: _con_thieu(cv, tot_map.get(cv.id, 0.0))[1] for cv in rows}
+
+
+def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, con_thieu_map=None) -> dict:
     """Một dòng công việc trên timeline — nhãn nguồn/nhóm/máy đã resolve theo lô (§18)."""
     if cv.bai_ghep_id and cv.bai_ghep_id in bg_map:
         nguon_ma, nguon_ten = bg_map[cv.bai_ghep_id]
@@ -121,6 +142,9 @@ def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None) -> dict:
         "don_vi_vao": cv.don_vi_vao,
         "don_vi_ra": cv.don_vi_ra,
         "trang_thai": cv.trang_thai,
+        # Còn thiếu so với mục tiêu bước (`so_luong_ra`) — dẫn xuất, chỉ để BÀY (§2.3). Chỗ gọi
+        # không nạp `con_thieu_map` (vd. khối "cong_viec" của drawer) thì cứ None, không bịa số.
+        "con_thieu": (con_thieu_map or {}).get(cv.id),
         # Định mức vật tư đóng băng lúc phát hành (§4.2) — đã đúng hình `VatTuDinhMucOut`, không cần dựng lại.
         "dinh_muc_vat_tu": cv.vat_tu_json or [],
         # Lớp thực-tế (§5.1): các phiên chạy đã ghi; phiên còn mở giữ ket_thuc=None (FE kéo tới "bây giờ").
@@ -152,7 +176,14 @@ def work_items(
     nhom_map = repo.nhom_nhan({cv.nhom_id for cv in rows if cv.nhom_id})
     # Lớp thực-tế: phiên chạy của cả gói trong MỘT truy vấn (§5.1), tránh N+1 theo từng việc.
     phien_map = SanXuatThucThiRepository(db).phien_theo_cong_viec({cv.id for cv in rows})
-    items = [_item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map) for cv in rows]
+    # Còn thiếu (§2.3): nạp tổng TỐT gộp cho cả bàn tổ rồi tính tại chỗ — không gọi `tong_tot`
+    # (một truy vấn/việc) theo từng dòng, bàn tổ có thể có hàng chục công việc.
+    tot_map = SanXuatSanLuongRepository(db).tong_tot_nhieu({cv.id for cv in rows})
+    con_thieu_map = _con_thieu_map(rows, tot_map)
+    items = [
+        _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map, con_thieu_map)
+        for cv in rows
+    ]
     return {"team_id": team_id, "cong_viec": items}
 
 
@@ -407,6 +438,8 @@ def chi_tiet_cong_viec(
     # --- Sản lượng · bàn giao · vật tư (Giai đoạn 3) -----------------------------------------
     sl = SanXuatSanLuongRepository(db)
     batches = sl.cac_batch(cv.id)
+    _tong_tot_cv = sl.tong_tot(cv.id)
+    _muc_tieu_cv, _con_thieu_cv = _con_thieu(cv, _tong_tot_cv)
     # Tính LẠI cờ chặn chốt + cảnh báo cho từng phân bổ CHƯA chốt (§7.3/§12): chấm công có thể vừa
     # được bổ sung / loại trừ vừa đổi ⇒ trạng thái can_chot phải phản ánh hiện tại, không đóng băng.
     batch_by_id = {b.id: b for b in batches}
@@ -447,7 +480,12 @@ def chi_tiet_cong_viec(
     goi_y_to_ten = repo.to_ten_nhan({c.department_id for c in goi_y if c.department_id})
 
     return {
-        "cong_viec": _item_dict(cv, lsx_map, bg_map, may_map, nhom_map),
+        # Vòng sửa 1, mục 2: truyền đúng `con_thieu_map` đã tính (`_con_thieu_cv`, dòng ~442) — nếu
+        # không, "cong_viec.con_thieu" trả null trong khi "san_luong.con_thieu" ngay bên dưới có số,
+        # hai giá trị khác nhau cho CÙNG một khái niệm trong CÙNG một response là nói dối.
+        "cong_viec": _item_dict(
+            cv, lsx_map, bg_map, may_map, nhom_map, con_thieu_map={cv.id: _con_thieu_cv}
+        ),
         "trang_thai": cv.trang_thai,
         "version": cv.version,
         "phan_cong": [
@@ -485,8 +523,12 @@ def chi_tiet_cong_viec(
             for k in khoang
         ],
         "san_luong": {
-            "tong_tot": sl.tong_tot(cv.id),
+            "tong_tot": _tong_tot_cv,
             "da_giao": sl.tong_da_giao(cv.id),
+            # Mục tiêu bước + còn thiếu (§2.3) — dẫn xuất, chỉ để BÀY, không đổi cổng đóng nhóm.
+            "muc_tieu": _muc_tieu_cv,
+            "con_thieu": _con_thieu_cv,
+            "don_vi": cv.don_vi_ra,
             "batches": [
                 {
                     "id": b.id,

@@ -129,6 +129,23 @@ class SanXuatSanLuongRepository:
             or 0
         )
 
+    def tong_tot_nhieu(self, cong_viec_ids) -> dict[int, float]:
+        """{cong_viec_id: tổng TỐT} cho một TẬP công việc — MỘT truy vấn GỘP, khác `tong_tot` ở
+        trên vốn chỉ phục vụ MỘT công việc (drawer). Bàn tổ liệt kê hàng chục công việc và cổng
+        đóng nhóm duyệt nhiều bước KCS cuối cùng lúc — gọi `tong_tot` theo từng dòng ở đó là N+1.
+
+        Id không có batch nào thì KHÔNG có mặt trong dict (bên gọi tự `.get(id, 0.0)`). Rỗng đầu
+        vào ⇒ trả `{}` mà không đụng DB."""
+        ids = [i for i in set(cong_viec_ids) if i]
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(SanXuatBatch.cong_viec_id, func.coalesce(func.sum(SanXuatBatch.tot), 0))
+            .where(SanXuatBatch.cong_viec_id.in_(ids))
+            .group_by(SanXuatBatch.cong_viec_id)
+        )
+        return {cvid: float(tong or 0) for cvid, tong in rows}
+
     def batch_ids_cua(self, cong_viec_id: int) -> list[int]:
         return list(
             self.db.scalars(
