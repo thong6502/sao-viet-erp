@@ -815,6 +815,30 @@ def test_huy_tu_san_xuat_goi_hai_lan_lien_tiep_lan_hai_khong_nem(
     assert ra.trang_thai == REQ_CANCELLED
 
 
+def test_huy_tu_san_xuat_tren_yeu_cau_da_cap_xong_thi_van_chan(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Nửa còn lại của Important 1: lũy đẳng CHỈ áp cho `cancelled`. `done` vẫn phải ném — kho đã
+    cấp hàng ra khỏi lô rồi, tổ không được rút yêu cầu về như chưa có gì.
+
+    Đặt trạng thái thẳng tay: `done` thật chỉ tới sau khi có phiếu ĐÃ GHI SỔ, mà chốt `co_voucher`
+    nằm SAU chốt này — nên dựng qua phiếu sẽ không chứng minh được chốt nào đã bắt. Thứ tự đó là cố
+    ý: người dùng cần đọc "đã cấp xong", không phải "kho đã lập phiếu".
+    """
+    from app.models.stock_request import REQ_DONE, StockRequest
+    from app.services.stock_request_service import StockRequestError
+
+    dn_id, req_id, _ma, kh = _tao_de_nghi(db, orders, lsx_svc, admin, customer, "TO-VTS4B")
+    req = db.get(StockRequest, req_id)
+    req.trang_thai = REQ_DONE
+    db.commit()
+
+    with pytest.raises(StockRequestError) as e:
+        _req_svc(db).huy_tu_san_xuat(req_id, user=admin)
+    assert "cấp xong" in str(e.value).lower()
+    assert db.get(StockRequest, req_id).trang_thai == REQ_DONE
+
+
 def test_dong_bo_chan_yeu_cau_do_kho_huy_giu_nguyen_ly_do_roi_khoi_phuc_yeu_cau_do_sx_huy(
     db, orders, lsx_svc, admin, customer,
 ):
