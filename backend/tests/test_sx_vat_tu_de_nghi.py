@@ -1190,14 +1190,17 @@ def test_kho_huy_thi_khoa_sua_nhung_bo_sung_phai_chay_that(db, orders, lsx_svc, 
 def test_doi_chieu_so_lech_bang_thang_goc_khong_phai_thang_to_khai(
     db, orders, lsx_svc, admin, customer,
 ):
-    """Important 2+3: kế hoạch khai 1 ram (= 500 tờ gốc), tổ khai 400 tờ trên một mặt hàng NGOÀI
-    kế hoạch (để hàng `gom` dựng thẳng từ dòng đề nghị, không bị `ke_hoach` ghi đè `sl_ke_hoach`).
-    So bằng thang tổ khai ra 400 − 1 = 399 — vô nghĩa (so 400 tờ với 1 ram). Đúng phải là
-    400 − 500 = −100 theo thang GỐC (`models/san_xuat_vat_tu.py:85-87`).
+    """Important 2+3: một mặt hàng NGOÀI kế hoạch (để hàng `gom` dựng thẳng từ dòng đề nghị, không
+    bị `ke_hoach` ghi đè `sl_ke_hoach`), khai bằng ram trong khi đơn vị gốc là tờ — 1 ram = 500 tờ.
+    Kế hoạch 1 ram (= 500 tờ), tổ xin 0,8 ram (= 400 tờ).
 
-    Ca cùng đơn vị (dvt == dvt_goc) không bắt được lỗi này vì hai công thức trùng số — nên dựng
-    thẳng ở tầng ORM (không qua `tao()`/`_chuan_hoa`, vốn ép tổ xin giấy phải giữ nguyên đơn vị kế
-    hoạch) để có đúng cặp `dvt != dvt_goc` cần thiết.
+    So bằng thang TỔ KHAI ra 0,8 − 1 = −0,2: con số đó không nói được gì, đơn vị của nó là ram
+    trong khi `sl_thuc_xuat` của kho là tờ. Đúng phải là 400 − 500 = **−100 tờ**, thang GỐC
+    (`models/san_xuat_vat_tu.py:85-87`).
+
+    Ca mà mọi số khai TRÙNG số gốc thì hai công thức ra cùng một kết quả — test rỗng. Phải dựng
+    thẳng ở tầng ORM chứ không qua `tao()`/`_chuan_hoa`: đường đó ép tổ xin giấy giữ nguyên đơn vị
+    kế hoạch, nên không đặt được cặp lệch thang này.
     """
     from app.services.san_xuat import board
 
@@ -1211,9 +1214,10 @@ def test_doi_chieu_so_lech_bang_thang_goc_khong_phai_thang_to_khai(
     db.flush()
     db.add(SanXuatVatTuDeNghiDong(
         de_nghi_id=dn.id, hang_loai="vat_tu", hang_id=9001,
-        dvt="tờ", dvt_goc="tờ",
-        sl_ke_hoach=1, sl_ke_hoach_goc=500,     # "1" ghi theo ram, quy gốc đúng ra 500 tờ
-        sl_yeu_cau=400, sl_yeu_cau_goc=400,     # tổ khai thẳng 400 tờ — đã là thang gốc
+        # Hàng NHẤT QUÁN: 1 ram = 500 tờ. Kế hoạch 1 ram (=500 tờ), tổ xin 0,8 ram (=400 tờ).
+        dvt="ram", dvt_goc="tờ",
+        sl_ke_hoach=1, sl_ke_hoach_goc=500,
+        sl_yeu_cau=0.8, sl_yeu_cau_goc=400,
         ly_do_chenh_lech="Ngoài kế hoạch — test thang gốc",
     ))
     db.commit()
