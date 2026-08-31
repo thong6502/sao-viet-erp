@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError, api,
-  type SxKcsBatchChiTiet, type SxKcsChiTiet, type SxWorkItem,
+  type CongDoanLite, type SxKcsBatchChiTiet, type SxKcsChiTiet, type SxWorkItem,
 } from "../../api/client";
 import { useAuth } from "../../auth/useAuth";
 import { useCan } from "../../auth/permissions";
@@ -73,6 +73,15 @@ export function ThucHienKcsPage({
   const canExport = can("san_xuat", "export");
 
   const [filters, setFilters] = useState<KcsDashFilters>(KCS_DASH_FILTERS_RONG);
+
+  // Danh sách công đoạn cho dropdown filter — fetch một lần ở đây (không fetch trùng lần thứ hai
+  // trong KcsDashboard), dùng cho cả prop truyền xuống dashboard lẫn để lọc `ketQuaLoc` theo tên
+  // công đoạn snapshot bên dưới.
+  const [congDoanOpts, setCongDoanOpts] = useState<CongDoanLite[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    api.congDoan.list(token).then((r) => setCongDoanOpts(r.items)).catch(() => setCongDoanOpts([]));
+  }, [token]);
 
   const [items, setItems] = useState<SxWorkItem[] | null>(null);
   const [chiTietMap, setChiTietMap] = useState<Record<number, SxKcsChiTiet>>({});
@@ -157,20 +166,33 @@ export function ThucHienKcsPage({
     return [...fromRouting, ...fromDotXuat].sort((a, b) => (a.luc < b.luc ? 1 : -1));
   }, [items, chiTietMap, dotXuatPhien]);
 
-  // Bộ lọc dashboard (loai/tu_khoa) áp luôn cho bảng lịch sử — Task 9 để mỗi khối tự lọc trên tập
-  // đã tải (KHÔNG gọi lại API riêng); Task 10 mới bắt buộc hợp nhất filter dashboard+bảng+Excel
-  // thành một nguồn thật (xem docs/design-kcs-kiem-nhiem-ui.md mục 7).
+  // Bộ lọc dashboard (tu/den/loai/congDoanId/tuKhoa) áp luôn cho bảng lịch sử — MỘT bộ filter duy
+  // nhất cho KPI/biểu đồ (server-side, qua KcsDashboard) + lịch sử (client-side trên tập đã tải) +
+  // Excel (server-side, qua xuatExcel) — đúng yêu cầu mục 1 của Task 10.
   const ketQuaLoc = useMemo(() => {
+    const congDoanTen = filters.congDoanId != null
+      ? congDoanOpts.find((c) => c.id === filters.congDoanId)?.ten ?? null
+      : null;
     return ketQuaRows.filter((r) => {
       if (filters.loai && r.loai !== filters.loai) return false;
       if (filters.tuKhoa.trim()) {
         const q = filters.tuKhoa.trim().toLowerCase();
         if (!`${r.maNguon} ${r.tenNguon}`.toLowerCase().includes(q)) return false;
       }
+      // So khớp theo TÊN snapshot công đoạn — cùng cách backend lọc `cong_doan_id` trong
+      // kcs_bao_cao.py (`_hang_kcs_theo_scope`, Ruling 3): công đoạn neo LỎNG qua id không ổn
+      // định, tên snapshot là cái duy nhất còn đúng qua thời gian.
+      if (congDoanTen && r.tenCongDoan !== congDoanTen) return false;
+      // r.luc là chuỗi datetime "naive" giờ VN (cùng quy ước hiển thị `ngayGio()` đang dùng cho
+      // cột "Thời điểm") — so ngày bằng cách cắt 10 ký tự đầu, đúng tiền lệ đã dùng ở
+      // KhoBaoCaoPage.tsx (`iso.slice(0, 10)`), KHÔNG parse qua Date/timezone.
+      const ngay = r.luc.slice(0, 10);
+      if (filters.tu && ngay < filters.tu) return false;
+      if (filters.den && ngay > filters.den) return false;
       return true;
     });
-  }, [ketQuaRows, filters.loai, filters.tuKhoa]);
-  const dangLocKetQua = !!filters.loai || !!filters.tuKhoa.trim();
+  }, [ketQuaRows, filters.loai, filters.tuKhoa, filters.congDoanId, filters.tu, filters.den, congDoanOpts]);
+  const dangLocKetQua = !!filters.loai || !!filters.tuKhoa.trim() || !!filters.tu || !!filters.den || filters.congDoanId != null;
 
   const [drawer, setDrawer] = useState<DrawerState | null>(null);
 
@@ -237,7 +259,10 @@ export function ThucHienKcsPage({
         </div>
       )}
 
-      <KcsDashboard teamId={teamId} filters={filters} onFiltersChange={setFilters} refreshKey={dashRefreshKey} />
+      <KcsDashboard
+        teamId={teamId} filters={filters} onFiltersChange={setFilters} refreshKey={dashRefreshKey}
+        congDoanOpts={congDoanOpts}
+      />
 
       <section className="kcs-section">
         <h2>Chờ KCS <span className="rc__count">{choRows.length}</span></h2>

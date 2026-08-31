@@ -37,7 +37,7 @@ function fmtNgay(iso: string): string {
 }
 
 export function KcsDashboard({
-  teamId, filters, onFiltersChange, refreshKey,
+  teamId, filters, onFiltersChange, refreshKey, congDoanOpts,
 }: {
   /** Tổ đang mở màn — mặc định phạm vi báo cáo về ĐÚNG tổ này (header "KCS · Tổ …"), không gộp
    *  toàn nhà máy. Không phơi ra ô lọc riêng (đúng "bộ lọc gọn" §6.2) vì đã ngầm định bởi trang. */
@@ -47,17 +47,14 @@ export function KcsDashboard({
   /** Đổi giá trị (page bump sau mỗi lần "Lưu kết quả") ⇒ gọi lại `bao-cao` dù filters không đổi —
    *  nếu không KPI/biểu đồ đứng yên sau khi vừa ghi kết quả (chỉ 2 bảng Chờ/Đã ghi tự làm mới). */
   refreshKey?: number;
+  /** Danh sách công đoạn cho dropdown lọc — fetch ở `ThucHienKcsPage` (dùng chung để lọc cả bảng
+   *  "Kết quả đã ghi"), truyền xuống đây thay vì fetch trùng lần thứ hai. */
+  congDoanOpts: CongDoanLite[];
 }) {
   const { token } = useAuth();
   const [data, setData] = useState<SxKcsBaoCao | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [congDoanOpts, setCongDoanOpts] = useState<CongDoanLite[]>([]);
-
-  useEffect(() => {
-    if (!token) return;
-    api.congDoan.list(token).then((r) => setCongDoanOpts(r.items)).catch(() => setCongDoanOpts([]));
-  }, [token]);
 
   useEffect(() => {
     if (!token) return;
