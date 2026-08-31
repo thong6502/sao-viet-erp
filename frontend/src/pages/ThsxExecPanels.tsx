@@ -11,7 +11,8 @@ import type {
   SxBatchIn, SxBanGiaoDeXuatIn, SxBanGiaoSuaIn, SxBanGiaoDieuChinhIn,
   SxHoTroDeXuatIn, SxBuTruIn, SxLoaiTruIn, SxGoLoaiTruIn,
   SxKcsBatchIn, SxNhapKhoYeuCauIn, SxHuyPhanChuaNhanIn, SxPhanLoaiBtpIn, SxDongThieuIn,
-  SxKetQuaNhanh, SxVatTuCap, SxVatTuCapLan, SxVatTuDeNghiIn, SxVatTuDeNghiDongIn,
+  SxKetQuaNhanh, SxVatTuCap, SxVatTuCapLan, SxVatTuCapDoiChieu,
+  SxVatTuDeNghiIn, SxVatTuDeNghiDongIn,
 } from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
@@ -824,7 +825,13 @@ function VatTuSection({
   const vt = chiTiet.vat_tu;
   const cap = chiTiet.vat_tu_cap;
   const cta = ctaMode(cap);
+  const cvId = chiTiet.cong_viec.id;
   const lanSua = cap.cac_de_nghi.find((d) => d.id === cap.de_nghi_co_the_sua_id) ?? null;
+
+  // Drawer KHÔNG remount khi bấm sang việc khác (`ThsxDrawer` render không có `key`, `loadChiTiet`
+  // không đặt `chiTiet = null` giữa chừng) nên khối này sống xuyên suốt: form đang mở dở của việc A
+  // vẫn còn nguyên khi màn đã là việc B ⇒ bấm Gửi là B nhận vật tư của A. Đóng form khi đổi việc.
+  useEffect(() => { setFormMode(null); }, [cvId]);
 
   return (
     <section className="thsx-psec thsx-x">
@@ -873,7 +880,7 @@ function VatTuSection({
                 {/* `sl_thuc_xuat` đọc thẳng từ dòng chứng từ nên LUÔN ở thang GỐC (board.py:
                     `_vat_tu_cap`) — dán nhãn `dvt` (thang tổ khai) vào đây là in sai đơn vị. */}
                 <td className="r thsx-num">{num(d.sl_thuc_xuat)}<span className="thsx-x-unit"> {d.dvt_goc}</span></td>
-                <td className="r"><VtDeltaCell keHoach={d.lech_ke_hoach} thucTe={d.lech_thuc_te} dvtGoc={d.dvt_goc} /></td>
+                <td className="r"><VtDeltaCell d={d} /></td>
                 <td><VtLyDoCacLanCell ds={d.cac_ly_do} /></td>
               </tr>
             ))}
@@ -883,7 +890,10 @@ function VatTuSection({
 
       {formMode != null && (
         <VatTuDeNghiForm
-          key={`${formMode}-${lanSua?.id ?? 0}`}
+          // `cvId` nằm trong key để dựng lại state form khi đổi việc — hai việc cùng chưa có đề
+          // nghị thì `"moi-0"` giống hệt nhau, một mình `setFormMode(null)` ở trên vẫn hở nếu về
+          // sau có đường nào mở form mà không đi qua nút CTA.
+          key={`${cvId}-${formMode}-${lanSua?.id ?? 0}`}
           cv={chiTiet.cong_viec} cap={cap} mode={formMode} lanSua={lanSua} busy={busy}
           onHuy={() => setFormMode(null)} onXong={() => setFormMode(null)} exec={exec} />
       )}
@@ -929,23 +939,33 @@ function VatTuSection({
 }
 
 /** Ô "Chênh lệch": HAI độ lệch có nghĩa khác nhau nên KHÔNG gộp thành một số — xếp chồng, ẩn dòng
- *  bằng 0. Cả hai đều tính trên thang GỐC ở BE, nên chú thích đơn vị theo `dvt_goc`. */
-function VtDeltaCell({ keHoach, thucTe, dvtGoc }: { keHoach: number; thucTe: number; dvtGoc: string }) {
-  if (Math.abs(keHoach) <= VT_EPS && Math.abs(thucTe) <= VT_EPS) {
+ *  bằng 0. MỖI số in kèm đơn vị NGAY TRONG ô: hai số này không cùng thang, và tổ trưởng đứng ngoài
+ *  xưởng dùng máy bảng thì không có chuột để hover xem `title`.
+ *
+ *  "so KH" tính lại ở thang TỔ KHAI (`sl_yeu_cau − sl_ke_hoach`, đơn vị `dvt`) để đứng cạnh hai cột
+ *  "Kế hoạch"/"Đã yêu cầu" mà trừ nhẩm được: BE tính đúng hiệu số đó nhưng ở thang GỐC, nên giấy ra
+ *  "+0,07" nằm cạnh hai cột "tờ". Không đổi cách BE tính — chỉ đổi thang HIỂN THỊ, và trong một
+ *  hàng thì `sl_ke_hoach`/`sl_yeu_cau` chắc chắn cùng `dvt` (`board.py::_vat_tu_cap` hạ CẢ HAI về
+ *  thang gốc khi hàng lẫn đơn vị).
+ *  "so YC" là số MÁY so (kho thực xuất ↔ đã yêu cầu) — giữ nguyên số BE, thang gốc, nhãn `dvt_goc`. */
+function VtDeltaCell({ d }: { d: SxVatTuCapDoiChieu }) {
+  const soKh = d.sl_yeu_cau - d.sl_ke_hoach;
+  const soYc = d.lech_thuc_te;
+  if (Math.abs(soKh) <= VT_EPS && Math.abs(soYc) <= VT_EPS) {
     return <span className="thsx-x-unit">khớp</span>;
   }
   return (
-    <div className="thsx-x-vt-delta" title={`Chênh lệch tính theo đơn vị gốc (${dvtGoc})`}>
-      {Math.abs(keHoach) > VT_EPS && (
-        <span className={`thsx-x-vt-delta__row ${keHoach > 0 ? "is-up" : "is-down"}`}>
+    <div className="thsx-x-vt-delta">
+      {Math.abs(soKh) > VT_EPS && (
+        <span className={`thsx-x-vt-delta__row ${soKh > 0 ? "is-up" : "is-down"}`}>
           <span className="thsx-x-vt-delta__lbl">so KH</span>
-          {keHoach > 0 ? "+" : ""}{num(keHoach)}
+          {soKh > 0 ? "+" : ""}{num(soKh)}<span className="thsx-x-unit"> {d.dvt}</span>
         </span>
       )}
-      {Math.abs(thucTe) > VT_EPS && (
-        <span className={`thsx-x-vt-delta__row ${thucTe > 0 ? "is-up" : "is-down"}`}>
+      {Math.abs(soYc) > VT_EPS && (
+        <span className={`thsx-x-vt-delta__row ${soYc > 0 ? "is-up" : "is-down"}`}>
           <span className="thsx-x-vt-delta__lbl">so YC</span>
-          {thucTe > 0 ? "+" : ""}{num(thucTe)}
+          {soYc > 0 ? "+" : ""}{num(soYc)}<span className="thsx-x-unit"> {d.dvt_goc}</span>
         </span>
       )}
     </div>
@@ -1050,7 +1070,50 @@ function vtCanLyDo(d: VtDongForm, loai: "lan_dau" | "bo_sung"): { hien: boolean;
   return { hien: lech, batBuoc: lech };
 }
 
+/** Dòng đã chọn được mặt hàng nhưng mặt hàng đó CHƯA khai đơn vị gốc (`don_vi_goc` null trong danh
+ *  mục). BE không nhận nổi dòng như vậy (nó không biết quy ra đơn vị kho), và im lặng vứt ở FE thì
+ *  tổ trưởng thấy toast xanh "Đã gửi" trong khi kho không bao giờ thấy món đó. */
+function vtThieuDonVi(d: VtDongForm): boolean {
+  return d.hang_id > 0 && !d.dvt;
+}
+
+/** Câu giải thích vì sao nút Gửi đang tắt — `null` nghĩa là gửi được. KHÔNG bao giờ để nút disabled
+ *  câm: người dùng không đoán được mình thiếu gì. */
+function vtCanTro(
+  dongs: VtDongForm[], lines: SxVatTuDeNghiDongIn[],
+  mode: VtFormMode, loai: "lan_dau" | "bo_sung",
+): string | null {
+  if (dongs.some(vtThieuDonVi)) {
+    return "Còn mặt hàng chưa khai đơn vị gốc — bỏ dòng đó, hoặc nhờ kỹ thuật khai đơn vị rồi xin lại.";
+  }
+  // Gõ số rồi quên chọn mặt hàng: cũng là một dòng sẽ bị loại trước khi rời trình duyệt.
+  if (dongs.some((d) => d.hang_id <= 0 && d.sl_yeu_cau > VT_EPS)) {
+    return "Còn dòng đã điền số nhưng chưa chọn mặt hàng.";
+  }
+  // Trùng mặt hàng: dùng ĐÚNG câu BE trả, để hai bên không nói hai kiểu về cùng một lỗi.
+  const dem = new Map<string, number>();
+  for (const d of dongs) {
+    if (d.hang_id <= 0) continue;
+    const k = `${d.hang_loai}:${d.hang_id}`;
+    dem.set(k, (dem.get(k) ?? 0) + 1);
+  }
+  if ([...dem.values()].some((n) => n > 1)) {
+    return "Một mặt hàng chỉ được khai một dòng — gộp số lượng lại.";
+  }
+  // Sửa được phép đưa HẾT về 0 (đó là đường tự huỷ yêu cầu, spec §5.3) nên không đòi số dương.
+  // Tạo mới thì phải có cái gì đó để gửi: một lần đề nghị RỖNG vẫn thành `de_nghi_co_the_sua_id`
+  // và khoá luôn đường "Yêu cầu bổ sung" cho tới khi sửa.
+  if (mode !== "sua" && lines.length === 0) {
+    return loai === "bo_sung"
+      ? "Đề nghị bổ sung phải có ít nhất một mặt hàng với số lớn hơn 0."
+      : "Chưa có dòng nào để gửi — thêm mặt hàng và điền số trước khi gửi.";
+  }
+  return null;
+}
+
 function vtPayloadLines(dongs: VtDongForm[], loai: "lan_dau" | "bo_sung"): SxVatTuDeNghiDongIn[] {
+  // Lọc `!!d.dvt` giữ lại như CHỐT CUỐI, nhưng `vtCanTro` đã chặn nút Gửi trước đó nên nó không
+  // còn là đường vứt dòng âm thầm nữa.
   const giu = dongs.filter((d) => d.hang_id > 0 && !!d.dvt)
     // lần đầu: giữ MỌI dòng gốc kế hoạch kể cả 0 ("kế hoạch có, tổ không lấy"); dòng ngoài kế
     // hoạch mà = 0 thì bỏ. Bổ sung: chỉ dòng dương.
@@ -1142,9 +1205,12 @@ function VatTuDeNghiForm({
   }
 
   const lines = vtPayloadLines(dongs, loaiHieuLuc);
-  // Chỉ chặn khi THẬT SỰ rỗng dữ liệu — không bao giờ chặn vì "đoán là thiếu lý do".
-  // `moi`/`sua` (lần đầu) cho gửi TOÀN 0: đó chính là "tổ xác nhận không cần cấp" (spec §5.3).
-  const hopLe = !!canLuc && (loaiHieuLuc !== "bo_sung" || lines.length > 0);
+  // Chỉ chặn khi có thứ NÓI RA ĐƯỢC là thiếu — không bao giờ chặn vì "đoán là thiếu lý do"
+  // (luật lý do thật nằm ở BE, và BE trả câu tiếng Việt cụ thể).
+  // `moi`/`sua` (lần đầu) vẫn cho gửi TOÀN 0 khi công đoạn CÓ kế hoạch: đó chính là "tổ xác nhận
+  // không cần cấp" (spec §5.3) — dòng kế hoạch vẫn nằm trong `lines` nên không bị chặn.
+  const canTro = vtCanTro(dongs, lines, mode, loaiHieuLuc);
+  const hopLe = !!canLuc && canTro == null;
 
   async function luu() {
     const body: SxVatTuDeNghiIn = { can_luc: canLuc, lines };
@@ -1197,6 +1263,13 @@ function VatTuDeNghiForm({
               )}
             </div>
 
+            {vtThieuDonVi(d) && (
+              <div className="thsx-x-vtline__err">
+                <Icon name="alert" size={12} />
+                Mặt hàng này chưa khai đơn vị gốc — báo kỹ thuật trước khi xin.
+              </div>
+            )}
+
             {d.tuKeHoach && (
               <div className="thsx-x-vtline__ref">Kế hoạch: {num(d.sl_ke_hoach)} {d.dvtKeHoach}</div>
             )}
@@ -1214,7 +1287,13 @@ function VatTuDeNghiForm({
                 value={d.slText} disabled={busy} aria-label={`Số lượng xin cấp${d.ten ? ` — ${d.ten}` : ""}`}
                 onChange={(e) => sua(d.key, {
                   slText: e.target.value, sl_yeu_cau: Math.max(0, toNum(e.target.value)),
-                })} />
+                })}
+                // Rời ô thì chữ trong ô phải bằng ĐÚNG số sắp gửi. Gõ "-5" là ô hiện −5 mà payload
+                // gửi 0 — mà 0 có nghĩa nghiệp vụ hẳn hoi ("tổ xác nhận không cần cấp"), tức một
+                // dấu trừ gõ nhầm âm thầm đưa dòng kế hoạch về 0. Cùng lý do cho "1." bỏ dở, "1,5"
+                // dán kiểu Việt, hay ô xoá trắng: `<input type="number">` trả "" cho mọi giá trị
+                // chưa hợp lệ, nên số thật đã là 0 rồi.
+                onBlur={() => sua(d.key, { slText: String(d.sl_yeu_cau) })} />
               <button type="button" className="thsx-x-vt-qty__btn" aria-label="Tăng" disabled={busy}
                 onClick={() => datSl(d.key, d.sl_yeu_cau + 1)}>
                 <Icon name="plus" size={13} />
@@ -1241,6 +1320,12 @@ function VatTuDeNghiForm({
           <Icon name="plus" size={13} /> Thêm mặt hàng
         </Button>
       </div>
+
+      {canTro && (
+        <p className="thsx-note thsx-note--warn">
+          <Icon name="alert" size={12} /> {canTro}
+        </p>
+      )}
 
       <div className="thsx-x-act">
         <Button variant="ghost" onClick={onHuy} disabled={busy}>Huỷ</Button>

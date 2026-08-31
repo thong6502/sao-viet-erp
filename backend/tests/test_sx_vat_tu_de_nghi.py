@@ -1297,3 +1297,120 @@ def test_hang_gom_lan_hai_dvt_thi_hien_bang_thang_goc(db, orders, lsx_svc, admin
                if r["hang_loai"] == "vat_tu" and r["hang_id"] == 9002)
     assert row["dvt"] == row["dvt_goc"] == "tờ"
     assert row["sl_yeu_cau"] == pytest.approx(700)   # 500 + 200 (thang gốc) — không phải 1 + 200
+
+
+# --- Vòng sửa 1 (Task 9): hai lỗ ở `_chuan_hoa` ------------------------------------------------
+
+def _khai_them_vat_tu_vao_buoc(db, cv, *, ma, ten, so_luong, dvt="kg"):
+    """Khai TAY một vật tư vào ĐÚNG bước của `cv` ⇒ kế hoạch công đoạn có HAI mặt hàng.
+
+    Fixture `_mot_cv` chỉ sinh MỘT dòng kế hoạch (giấy), nên mọi test bổ sung đang có đều tình cờ
+    phủ TRỌN kế hoạch bằng `kh[0]` — không ca nào chạm nhánh "kế hoạch còn dòng KHÁC mà lần bổ
+    sung không gửi". Đó đúng là chỗ lỗi nấp suốt.
+    """
+    from app.models.lsx import LsxCongDoanVatTu
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    vt = VatTuInAn(ma=ma, ten=ten, don_vi_gia=dvt)
+    db.add(vt)
+    db.flush()
+    db.add(LsxCongDoanVatTu(
+        lsx_cong_doan_id=cv.lsx_cong_doan_id, vat_tu_id=vt.id, vat_tu_ma_snapshot=vt.ma,
+        vat_tu_ten_snapshot=vt.ten, don_vi_snapshot=dvt, so_luong=so_luong,
+    ))
+    db.commit()
+    return vt
+
+
+def test_bo_sung_chi_gui_mot_mat_hang_khong_bi_chan_vi_dong_ke_hoach_khac(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Lần BỔ SUNG không lấy kế hoạch làm mốc — dòng kế hoạch KHÔNG gửi không phải "lệch".
+
+    Trước fix: `_chuan_hoa` luôn duyệt TOÀN BỘ kế hoạch, nên dòng giấy vắng mặt trong payload ra
+    `sl = 0` ⇒ `lech = |0 − kh_goc| > _EPS` là True ⇒ ném «Giấy…» lệch kế hoạch — phải ghi lý do.
+    Tổ trưởng chỉ xin thêm 1 lọ mực mà ăn 400 nêu tên một mặt hàng họ không đụng, và form bổ sung
+    cũng không có ô nào để ghi lý do cho nó ⇒ ngõ cụt thật.
+    """
+    from app.models.stock_request import StockRequest
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTFX1")
+    to.head_user_id = admin.id
+    db.commit()
+    assert cv.lsx_cong_doan_id, "công việc phải neo vào một bước lệnh thì mới có kế hoạch vật tư"
+    muc = _khai_them_vat_tu_vao_buoc(db, cv, ma="VT-MUC-FX1", ten="Mực đen", so_luong=5)
+
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    assert len(kh) >= 2, "test này chỉ có nghĩa khi kế hoạch có từ 2 mặt hàng trở lên"
+    k_muc = next(k for k in kh if k["hang_loai"] == "vat_tu" and k["hang_id"] == muc.id)
+    k_giay = next(k for k in kh if k["hang_loai"] == "giay")
+
+    # Lần ĐẦU: xin đúng kế hoạch cho CẢ HAI mặt hàng.
+    lan_dau = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=[
+        {"hang_loai": k["hang_loai"], "hang_id": k["hang_id"], "dvt": k["dvt"],
+         "sl_yeu_cau": k["sl"]} for k in kh
+    ])
+    _lap_phieu_nhap_kho_cho(db, lan_dau["stock_request_id"])   # kho đã soạn ⇒ khoá đường sửa
+
+    # Lần BỔ SUNG: chỉ gửi ĐÚNG một dòng — mặt hàng thứ hai — kèm lý do. Giấy không gửi.
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=[
+        {"hang_loai": k_muc["hang_loai"], "hang_id": k_muc["hang_id"], "dvt": k_muc["dvt"],
+         "sl_yeu_cau": 2, "ly_do_chenh_lech": "Máy ăn mực hơn dự tính"},
+    ])
+
+    assert ra["lan_so"] == 2
+    dn = db.get(SanXuatVatTuDeNghi, ra["de_nghi_id"])
+    assert dn.loai == DN_BO_SUNG
+    # Bản đối chiếu vẫn giữ ĐỦ danh mục kế hoạch, dòng giấy nằm đó với số 0.
+    d_giay = next(d for d in dn.dongs if d.hang_loai == "giay" and d.hang_id == k_giay["hang_id"])
+    assert float(d_giay.sl_yeu_cau) == 0
+    # …nhưng yêu cầu kho của lần bổ sung CHỈ chứa dòng dương — kho không đi lấy lại giấy.
+    req = db.get(StockRequest, ra["stock_request_id"])
+    assert len(req.lines) == 1
+    assert req.lines[0].hang_id == muc.id
+
+
+def test_bo_sung_van_bat_ly_do_cho_dong_khac_0(db, orders, lsx_svc, admin, customer):
+    """Nới `lech` cho lần bổ sung KHÔNG được nới luôn luật lý do: mọi dòng khác 0 của lần bổ sung
+    vẫn phải giải thích (xin thêm là một quyết định mới, kế hoạch đã tiêu ở lần đầu)."""
+    from app.services.san_xuat.vat_tu_de_nghi import VatTuDeNghiError
+    from app.services.san_xuat import vat_tu_de_nghi as V
+
+    dn_id, req_id, _ma, kh = _tao_de_nghi(db, orders, lsx_svc, admin, customer, "TO-VTFX3")
+    _lap_phieu_nhap_kho_cho(db, req_id)
+    with pytest.raises(VatTuDeNghiError) as e:
+        V.tao(db, user=admin, cong_viec_id=_cv_id(db, dn_id), can_luc=_T0, lines=[
+            {"hang_loai": kh[0]["hang_loai"], "hang_id": kh[0]["hang_id"], "dvt": kh[0]["dvt"],
+             "sl_yeu_cau": 10},          # thiếu `ly_do_chenh_lech`
+        ])
+    assert "lý do" in str(e.value).lower()
+
+
+def test_dong_ngoai_ke_hoach_thieu_don_vi_ra_loi_doc_duoc(db, orders, lsx_svc, admin, customer):
+    """Dòng NGOÀI kế hoạch với `dvt` rỗng: trước fix là `{}["dvt"]` ⇒ KeyError ⇒ **500**.
+
+    Ca này có thật — mặt hàng chưa khai đơn vị gốc thì ô đơn vị trên form hiện "—" và giao diện
+    không có gì để điền vào đây. Phải là lỗi NGHIỆP VỤ đọc được, nêu đích danh mặt hàng.
+    """
+    from app.services.san_xuat.vat_tu_de_nghi import VatTuDeNghiError
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTFX2")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    ngoai_id = max(k["hang_id"] for k in kh) + 999_999      # chắc chắn KHÔNG có trong kế hoạch
+
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    lines.append({"hang_loai": "vat_tu", "hang_id": ngoai_id, "dvt": "",
+                  "sl_yeu_cau": 3, "ly_do_chenh_lech": "Xin thêm ngoài kế hoạch"})
+
+    with pytest.raises(VatTuDeNghiError) as e:      # KeyError sẽ KHÔNG lọt qua chỗ này
+        V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    loi = str(e.value)
+    assert "đơn vị" in loi.lower()
+    assert f"#{ngoai_id}" in loi                    # nêu đích danh mặt hàng đang thiếu đơn vị

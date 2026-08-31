@@ -176,12 +176,13 @@ export function AppShell() {
   // `quoteTick` tăng mỗi event → truyền xuống BaoGiaPage cho nó refetch list/stats. Kênh SSE vẫn
   // DUY NHẤT ở đây (trang con mở kênh riêng = tốn kết nối + lệch trạng thái).
   const [quoteTick, setQuoteTick] = useState(0);
-  // Tín hiệu ĐÍCH DANH cho bàn tổ: đề nghị cấp vật tư của công việc `congViecId` vừa đổi. Tách
+  // Tín hiệu ĐÍCH DANH cho bàn tổ: SỐ LẦN đề nghị cấp vật tư đổi, ĐẾM THEO TỪNG công việc. Tách
   // khỏi `quoteTick` có chủ đích — sự kiện này broadcast toàn hệ, đẩy vào tick chung là bắt mọi
   // màn đang mở của cả nhà máy gọi lại API mỗi lần một tổ bấm gửi (xem nhánh SSE bên dưới).
-  const [vatTuDeNghiTick, setVatTuDeNghiTick] = useState<{ n: number; congViecId: number | null }>(
-    { n: 0, congViecId: null },
-  );
+  // Đếm theo công việc chứ không phải một `{n, congViecId}` chung: hai sự kiện rơi cùng một nhịp
+  // React thì cái sau ghi đè `congViecId` của cái trước, và nếu cái bị đè đúng là việc đang mở thì
+  // drawer im luôn. Dạng bản đồ cũng khỏi cần cửa sổ "mấy sự kiện chưa xem" ở phía nhận.
+  const [vatTuDeNghiDem, setVatTuDeNghiDem] = useState<Record<number, number>>({});
   const [toasts, setToasts] = useState<{ id: number; text: string; tone: "ok" | "warn" | "info" }[]>([]);
   const toastSeq = useRef(0);
   const lastPending = useRef(0);
@@ -197,6 +198,13 @@ export function AppShell() {
   // nhặt được dòng mới) — cả hai đều cần cho máy khác đang mở màn, nhưng người bấm thì thấy
   // hai toast giống hệt nhau. Gộp trong 2 giây.
   const lastKhvtToast = useRef(0);
+  // CÙNG khuôn throttle với `lastKhvtToast` (mốc thời gian + cửa 2 giây), nhưng mốc RIÊNG: dùng
+  // chung một mốc cho hai loại toast khác nhau là chúng nuốt lẫn của nhau.
+  const lastVatTuToast = useRef(0);
+  // Công việc mà bàn "Thực hiện sản xuất" đang mở drawer. Không bắn toast cho chính việc đó:
+  // drawer đã tự nạp lại (đếm bên dưới), còn người vừa bấm thì đã ăn toast của `mutate` rồi.
+  const cvDangMo = useRef<number | null>(null);
+  const datCvDangMo = useCallback((id: number | null) => { cvDangMo.current = id; }, []);
   const activeIdRef = useRef(activeId);
   const moduleNotificationRevision = useRef<Record<ModuleNotificationChannel, number>>({
     thu_mua: 0,
@@ -615,8 +623,16 @@ export function AppShell() {
       //      một lần tổ gửi đề nghị thành một lượt gọi API cho MỌI màn đang mở của cả nhà máy.
       if (e.type === "san_xuat_vat_tu_de_nghi_changed") {
         if (readable.has("san_xuat")) {
-          setVatTuDeNghiTick((t) => ({ n: t.n + 1, congViecId: e.cong_viec_id }));
-          pushToast("📦 Đề nghị cấp vật tư của công đoạn vừa cập nhật", "info");
+          const cv = e.cong_viec_id;
+          setVatTuDeNghiDem((m) => ({ ...m, [cv]: (m[cv] ?? 0) + 1 }));
+          // Cổng thứ 3: KHÔNG toast cho việc người này đang mở (drawer vừa tươi, và nếu chính họ
+          // bấm thì `mutate` đã toast rồi) và gộp trong 2 giây — không thì mỗi lần bất kỳ tổ nào
+          // trong nhà máy bấm gửi là mọi người có `san_xuat:read` ăn một toast.
+          const gio = Date.now();
+          if (cv !== cvDangMo.current && gio - lastVatTuToast.current > 2000) {
+            lastVatTuToast.current = gio;
+            pushToast("📦 Đề nghị cấp vật tư của công đoạn vừa cập nhật", "info");
+          }
         }
         return;
       }
@@ -1163,7 +1179,8 @@ export function AppShell() {
           teamId={teamId}
           tenTo={t?.ten}
           eventTick={quoteTick}
-          vatTuDeNghiTick={vatTuDeNghiTick}
+          vatTuDeNghiDem={vatTuDeNghiDem}
+          onXemCongViec={datCvDangMo}
           onBadgeStale={reloadTeams}
         />
       );

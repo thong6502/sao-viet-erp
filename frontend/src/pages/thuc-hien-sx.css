@@ -1253,6 +1253,12 @@
 .thsx-x-vtline + .thsx-x-vtline { margin-top: var(--sp-2); }
 .thsx-x-vtline__h { display: flex; align-items: center; gap: 6px; }
 .thsx-x-vtline__ref { font-size: var(--fs-2xs); color: var(--ash); }
+/* Cảnh báo ĐỎ ngay trên thẻ dòng: mặt hàng chưa khai đơn vị gốc thì không gửi được — nói ra chỗ
+   người dùng đang nhìn, đừng để họ đoán vì sao nút Gửi tắt. */
+.thsx-x-vtline__err {
+  display: flex; align-items: center; gap: 4px;
+  font-size: var(--fs-2xs); color: var(--rust);
+}
 .thsx-x-vtline__del { flex: none; color: var(--ash); background: none; border: none; cursor: pointer; padding: 2px; }
 .thsx-x-vtline__del:hover:not(:disabled) { color: var(--rust); }
 .thsx-x-vtline__del:disabled { opacity: 0.4; cursor: not-allowed; }

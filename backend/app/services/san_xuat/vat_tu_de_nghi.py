@@ -113,7 +113,16 @@ def _chuan_hoa(kh_svc, cv, lines: list[dict], *, bat_buoc_ly_do: bool) -> list[d
         # Dòng NGOÀI kế hoạch mà xin 0 là vô nghĩa — không lưu (§4).
         if k_row is None and (ln is None or sl <= _EPS):
             continue
-        dvt = (ln or {}).get("dvt") or (k_row or {})["dvt"]
+        # `k_row` là None cho dòng NGOÀI kế hoạch, nên `(k_row or {})["dvt"]` là KeyError ⇒ 500
+        # ngay khi client gửi một dòng khai thêm với `dvt` rỗng (mặt hàng chưa khai đơn vị gốc thì
+        # ô đơn vị trên form hiện "—" và FE không có gì để điền vào đây). Đó là lỗi NGHIỆP VỤ, phải
+        # trả câu đọc được nêu đích danh mặt hàng chứ không phải một 500 câm.
+        dvt = (ln or {}).get("dvt") or (k_row or {}).get("dvt") or ""
+        if not dvt:
+            raise VatTuDeNghiError(
+                f"«{ten}» chưa khai đơn vị — báo kỹ thuật khai đơn vị gốc cho mặt hàng này "
+                f"trước khi xin cấp."
+            )
         sl_goc, dvt_goc, theo_goc = _ve_goc_dong(kh_svc, k, k_row, dvt, sl)
         kh_goc = _f((k_row or {}).get("sl_goc"))
         ly_do = ((ln or {}).get("ly_do_chenh_lech") or "").strip() or None
@@ -123,9 +132,15 @@ def _chuan_hoa(kh_svc, cv, lines: list[dict], *, bat_buoc_ly_do: bool) -> list[d
         lech = (abs(sl_goc - kh_goc) > _EPS) if theo_goc \
             else (abs(sl - _f((k_row or {}).get("sl"))) > _EPS)
         # "Có xin" xét theo SỐ TỔ KHAI, không theo `sl_goc`.
-        # Ngoài kế hoạch + số dương ⇒ luôn phải giải thích. Bổ sung ⇒ mọi dòng khác 0 phải giải
-        # thích (kế hoạch đã dùng hết ở lần đầu, xin thêm là một quyết định mới).
-        can_ly_do = lech or (k_row is None and sl > _EPS) or (bat_buoc_ly_do and sl > _EPS)
+        # Lần BỔ SUNG không lấy kế hoạch làm mốc: kế hoạch đã "tiêu" ở lần đầu, lần này nghĩa là
+        # "ngoài những gì đã xin, tôi cần THÊM bấy nhiêu". Nên một dòng kế hoạch mà tổ không gửi
+        # (sl = 0) là "món này không cần thêm" — không có gì để giải thích. Nếu vẫn tính `lech` ở
+        # đây thì mọi dòng kế hoạch không gửi đều ném lỗi, mà form bổ sung lại không có chỗ ghi lý
+        # do cho chúng ⇒ đường bổ sung tắc hẳn. Đổi lại, mọi dòng KHÁC 0 của lần bổ sung đều phải
+        # giải thích (xin thêm là một quyết định mới), nên không nới lỏng gì.
+        # Lần ĐẦU giữ nguyên luật cũ: lệch kế hoạch, hoặc ngoài kế hoạch + số dương.
+        can_ly_do = (sl > _EPS) if bat_buoc_ly_do \
+            else (lech or (k_row is None and sl > _EPS))
         if can_ly_do and not ly_do:
             raise VatTuDeNghiError(f"«{ten}» lệch kế hoạch — phải ghi lý do.")
         ra.append({

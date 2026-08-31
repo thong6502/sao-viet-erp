@@ -98,17 +98,20 @@ export function ThucHienSxPage({
   teamId,
   tenTo,
   eventTick,
-  vatTuDeNghiTick,
+  vatTuDeNghiDem,
+  onXemCongViec,
   onBadgeStale,
 }: {
   teamId: number;
   tenTo?: string;
   eventTick?: number;
-  /** Đề nghị cấp vật tư của MỘT công đoạn vừa đổi (SSE, mắc ở AppShell). CỐ TÌNH không đi qua
+  /** Số lần đề nghị cấp vật tư đổi, ĐẾM THEO công việc (SSE, mắc ở AppShell). CỐ TÌNH không đi qua
    *  `eventTick`: sự kiện này broadcast TOÀN HỆ, nếu bump tick chung thì mỗi lần bất kỳ tổ nào
-   *  trong nhà máy gửi đề nghị là drawer của mọi người gọi lại API. Chỉ nạp lại khi `congViecId`
-   *  TRÙNG việc đang mở — một sự kiện, nhiều nhất MỘT lượt gọi lại. */
-  vatTuDeNghiTick?: { n: number; congViecId: number | null };
+   *  trong nhà máy gửi đề nghị là drawer của mọi người gọi lại API. Chỉ nạp lại khi số đếm CỦA
+   *  RIÊNG việc đang mở tăng — một sự kiện, nhiều nhất MỘT lượt gọi lại. */
+  vatTuDeNghiDem?: Record<number, number>;
+  /** Báo lên AppShell việc đang mở drawer, để nó khỏi bắn toast cho chính việc đó. */
+  onXemCongViec?: (id: number | null) => void;
   onBadgeStale?: () => void;
 }) {
   const { token } = useAuth();
@@ -211,16 +214,28 @@ export function ThucHienSxPage({
 
   useEffect(() => { void loadChiTiet(selectedId); }, [loadChiTiet, selectedId, eventTick]);
 
-  // Đề nghị vật tư đổi (SSE): CHỈ nạp lại khi đúng việc đang mở. `vtTickDaXem` chặn chạy lại khi
-  // effect re-run vì đổi việc/đổi hàm — một sự kiện chỉ ăn một lượt gọi.
-  const vtTickDaXem = useRef(0);
+  // Đề nghị vật tư đổi (SSE): CHỈ nạp lại khi số đếm CỦA RIÊNG việc đang mở tăng. So theo cặp
+  // (việc, số đếm) nên đổi việc KHÔNG kéo theo một lượt gọi thừa — effect ngay trên vừa nạp rồi.
+  const vtDaXem = useRef<{ cv: number | null; dem: number }>({ cv: null, dem: 0 });
+  // Mốc lượt nạp lại GẦN NHẤT do chính người này gây ra (`mutate` đặt) — để tín hiệu SSE vọng về
+  // ngay sau đó không bắt nạp lần hai đúng dữ liệu vừa lấy.
+  const vuaTuNap = useRef(0);
+  const vtDem = selectedId != null ? (vatTuDeNghiDem?.[selectedId] ?? 0) : 0;
   useEffect(() => {
-    const t = vatTuDeNghiTick;
-    if (!t || t.n === vtTickDaXem.current) return;
-    vtTickDaXem.current = t.n;
-    if (t.congViecId == null || t.congViecId !== selectedId) return;
+    const truoc = vtDaXem.current;
+    vtDaXem.current = { cv: selectedId, dem: vtDem };
+    if (selectedId == null || truoc.cv !== selectedId || vtDem === truoc.dem) return;
+    // Người VỪA bấm đã được `mutate` nạp lại xong, rồi sự kiện SSE của chính họ vọng về ngay sau
+    // đó: nạp lần hai là một lượt gọi API thừa cho đúng dữ liệu vừa lấy.
+    if (Date.now() - vuaTuNap.current < 2000) return;
     void loadChiTiet(selectedId);
-  }, [vatTuDeNghiTick, selectedId, loadChiTiet]);
+  }, [vtDem, selectedId, loadChiTiet]);
+
+  // Cho AppShell biết drawer đang mở việc nào — nó dùng để KHÔNG bắn toast cho chính việc đó.
+  useEffect(() => {
+    onXemCongViec?.(selectedId);
+    return () => onXemCongViec?.(null);
+  }, [onXemCongViec, selectedId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -362,6 +377,10 @@ export function ThucHienSxPage({
       const r = await run();
       setReason(null);
       setReasonText("");
+      // Mốc đặt TRƯỚC khi chờ nạp, không phải sau: BE bắn sự kiện SSE của chính cú bấm này ngay
+      // trong `run()`, nên nó thường về lúc `loadChiTiet` còn đang bay — đặt mốc sau khi chờ xong
+      // là mở cửa 2 giây MUỘN HƠN đúng tín hiệu cần chặn, và lượt nạp thừa vẫn xảy ra.
+      vuaTuNap.current = Date.now();
       await loadChiTiet(selectedId);
       loadItems();
       onBadgeStale?.();
