@@ -622,6 +622,42 @@ class KcsDieuChinhKetQuaOut(BaseModel):
     version: int
 
 
+class KcsBaoCaoTheoNgayRow(BaseModel):
+    ngay: date
+    tong_nhan: float
+    tong_dat: float
+    tong_loi: float
+
+
+class KcsBaoCaoNhomLoiRow(BaseModel):
+    nhom_loi_id: int | None = None
+    ten: str
+    tong_so_luong: float
+
+
+class KcsBaoCaoCongDoanRow(BaseModel):
+    ten_cong_doan: str
+    tong_so_luong: float
+
+
+class KcsBaoCaoToRow(BaseModel):
+    to_id: int
+    ten: str
+    tong_so_luong: float
+
+
+class KcsBaoCaoOut(BaseModel):
+    tong_luot: int
+    tong_nhan: float
+    tong_dat: float
+    tong_loi: float
+    ty_le_dat: float | None = None
+    theo_ngay: list[KcsBaoCaoTheoNgayRow]
+    nhom_loi: list[KcsBaoCaoNhomLoiRow]
+    cong_doan: list[KcsBaoCaoCongDoanRow]
+    to: list[KcsBaoCaoToRow]
+
+
 class KcsAnhOut(BaseModel):
     id: int
     file_name: str

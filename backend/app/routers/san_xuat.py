@@ -12,7 +12,7 @@ Phân công / phiên chạy / sản lượng (ghi) là các lát sau, thêm bả
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal
 
 from fastapi import (
@@ -53,6 +53,7 @@ from ..schemas.san_xuat import (
     HoTroKetQuaOut,
     HoTroXacNhanIn,
     KcsAnhThemKetQuaOut,
+    KcsBaoCaoOut,
     KcsBatchIn,
     KcsBatchKetQuaOut,
     KcsChiTietOut,
@@ -101,6 +102,7 @@ from ..services.san_xuat import (
     dong_nhom,
     ho_tro,
     kcs,
+    kcs_bao_cao,
     kho,
     phan_bo,
     san_luong,
@@ -953,6 +955,63 @@ def dieu_chinh_kcs(
     ))
     _phat_sse_kcs(res)
     return res
+
+
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _xlsx_response(content: bytes, filename: str) -> Response:
+    return Response(
+        content=content, media_type=_XLSX_MEDIA,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/kcs/bao-cao", response_model=KcsBaoCaoOut)
+def bao_cao_kcs(
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    tu: date | None = Query(default=None),
+    den: date | None = Query(default=None),
+    kcs_department_id: int | None = Query(default=None),
+    lsx_id: int | None = Query(default=None),
+    tu_khoa: str | None = Query(default=None),
+    cong_doan_id: int | None = Query(default=None),
+    loai: str | None = Query(default=None),
+    nhom_loi_id: int | None = Query(default=None),
+) -> dict:
+    """Tổng hợp KCS theo filter + scope (§5.7, §6.2 KPI/biểu đồ). Đọc quyền `read` — xem báo cáo
+    không cần quyền xuất file."""
+    return kcs_bao_cao.bao_cao_kcs(
+        db, user, authz, tu=tu, den=den, kcs_department_id=kcs_department_id,
+        lsx_id=lsx_id, tu_khoa=tu_khoa, cong_doan_id=cong_doan_id, loai=loai,
+        nhom_loi_id=nhom_loi_id,
+    )
+
+
+@router.get("/kcs/bao-cao/export.xlsx")
+def export_bao_cao_kcs(
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "export"))],
+    tu: date | None = Query(default=None),
+    den: date | None = Query(default=None),
+    kcs_department_id: int | None = Query(default=None),
+    lsx_id: int | None = Query(default=None),
+    tu_khoa: str | None = Query(default=None),
+    cong_doan_id: int | None = Query(default=None),
+    loai: str | None = Query(default=None),
+    nhom_loi_id: int | None = Query(default=None),
+) -> Response:
+    """Xuất Excel — gác riêng `export` (§4.4), KHÁC `read` của endpoint JSON ở trên. Dùng CHUNG
+    hàm lấy dòng với `/kcs/bao-cao` (§9 mục 10: cùng filter phải trả cùng tổng)."""
+    content, filename = kcs_bao_cao.xuat_excel_kcs(
+        db, user, authz, tu=tu, den=den, kcs_department_id=kcs_department_id,
+        lsx_id=lsx_id, tu_khoa=tu_khoa, cong_doan_id=cong_doan_id, loai=loai,
+        nhom_loi_id=nhom_loi_id,
+    )
+    return _xlsx_response(content, filename)
 
 
 # --- KHO SẢN XUẤT (§14) ---------------------------------------------------------------------

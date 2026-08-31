@@ -135,6 +135,11 @@ const FINE_ACTIONS: Record<
       label: "Bàn giao / nhận",
       hint: "Tổ trưởng GIAO số sang tổ kế + XÁC NHẬN NHẬN (2 con dấu, lệch được để truy thất thoát). Không gate cứng chặn tổ nhận chạy.",
     },
+    {
+      key: "can_export",
+      label: "Xuất Excel báo cáo KCS",
+      hint: "Tải file .xlsx báo cáo KCS (kết quả + checklist). Dữ liệu xuất ra theo ĐÚNG phạm vi tổ mà vai này đang thấy ở màn báo cáo — không mở rộng thêm.",
+    },
   ],
   // ⚠️ THÊM 17/08/2026 cùng lúc tách khoá. Hai bit này CÓ THẬT ở máy chủ từ lâu
   // (`routers/xep_lich_2.py` gác các endpoint phát hành bằng `approve` + duyệt ngoại lệ bằng
