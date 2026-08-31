@@ -286,6 +286,25 @@ class SanXuatRepository:
         """Một công việc theo id — router dùng để lần ra `nhom_id` khi bắn chốt-chặn đóng nhóm."""
         return self.db.get(SanXuatCongViec, cong_viec_id)
 
+    def khoa_cong_viec(self, cong_viec_id: int) -> None:
+        """Khoá DÒNG công việc (SELECT … FOR UPDATE) để hai lượt ghi lên CÙNG công đoạn phải xếp
+        hàng. Cùng khuôn `StockRequestRepository.lock_for_update`: Postgres cho lượt sau CHỜ rồi
+        đọc lại trạng thái mới; SQLite coi `FOR UPDATE` là no-op nhưng tự khoá ghi cả DB nên vẫn
+        tuần tự.
+
+        Người gọi đầu tiên là `vat_tu_de_nghi.tao()`: tổ trưởng bấm "Gửi đề nghị" hai lần thì hai
+        lượt cùng đọc `lan_ke_tiep = 1`, cả hai đẻ yêu cầu kho (repo kho tự COMMIT), rồi một lượt
+        vỡ `UniqueConstraint("cong_viec_id", "lan_so")` — để lại một yêu cầu kho MỒ CÔI không có
+        `SanXuatVatTuDeNghi` nào trỏ tới, tức thủ kho thấy một yêu cầu không rõ công đoạn/giờ cần
+        và vẫn soạn hàng lần thứ hai. Vì thế phải gọi TRƯỚC khi đọc `lan_ke_tiep`, không phải
+        trước khi ghi.
+        """
+        self.db.execute(
+            select(SanXuatCongViec.id)
+            .where(SanXuatCongViec.id == cong_viec_id)
+            .with_for_update()
+        ).first()
+
     def cong_viec_hien_tai_cua_nhom(self, nhom_id: int) -> list[SanXuatCongViec]:
         """Công việc SỐNG của nhóm — bỏ gói đã thu hồi. Đây là tập việc mà cổng đóng nhóm §16 soi.
 

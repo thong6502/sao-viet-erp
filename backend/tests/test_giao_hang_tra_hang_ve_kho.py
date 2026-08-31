@@ -145,6 +145,55 @@ def test_22_BAM_HAI_LAN_khong_nhap_kho_hai_lan(client):
     assert n == 1, f"đẻ ra {n} phiếu nhập trả hàng cho một chuyến"
 
 
+def test_KHO_DIEU_CHINH_XUAT_thi_tra_ve_theo_so_CHOT_khong_theo_so_duyet(client):
+    """⭐ Kho hạ số thực xuất rồi thì "đã xuất" là `sl_chot_thuc_xuat`, không phải `sl_duyet`.
+
+    `sl_duyet` giữ nguyên con số ban đầu có chủ đích (spec §2.3: hạ nó đi thì xin-500-xuất-460 và
+    xin-460-xuất-460 hoá ra không phân biệt được), nên cộng nó vào đây là đếm cả phần CHƯA BAO GIỜ
+    rời kho. Duyệt 500 · kho chốt xuất 460 · khách nhận 440 ⇒ chỉ 20 quay về; lấy `sl_duyet` ra 60,
+    tức kho tự cộng thêm 40 đơn vị ma kèm lô giá vốn dựng theo số đó.
+
+    Dựng số thẳng trên dòng yêu cầu thay vì đi qua cả luồng phiếu — đi hết luồng chỉ để có đúng một
+    con số là dựng cảnh, không phải kiểm luật. Nhưng phải dựng ĐÚNG hình hậu điều kiện mà
+    `stock_voucher_service.dieu_chinh_xuat` để lại, nếu không thì test khoá một trạng thái DB không
+    đường nào đẻ ra được: hàm đó hạ `sl_da_ung` theo phần bỏ rồi mới
+    `rl.sl_chot_thuc_xuat = float(rl.sl_da_ung)` (`stock_voucher_service.py:513,519`) ⇒ sau điều
+    chỉnh, `sl_chot_thuc_xuat` LUÔN BẰNG `sl_da_ung`. Bản trước chỉ đặt `sl_chot_thuc_xuat = 460`
+    và để `sl_da_ung` nguyên ở 0 (fixture dừng ở bước GỬI yêu cầu xuất kho, chưa lập phiếu nào) —
+    tổ hợp đó còn không qua nổi cổng `da_cap_du` của chính hàm điều chỉnh.
+
+    Đặt CẢ HAI về 460 không làm nhẹ điều đang chứng minh: `_hang_tra_ve_kho` đọc
+    `muc_tieu_hieu_luc` (= `sl_chot_thuc_xuat` ?? `sl_duyet`) và không hề đụng `sl_da_ung`, nên lấy
+    `sl_duyet` vẫn ra 60 y như trước. Phiếu xuất thật thì cảnh này phải có; test cố ý không dựng vì
+    chỗ duy nhất đọc dòng phiếu là `_gia_von_da_xuat` — nó chỉ điền `don_gia`, thứ test không assert.
+    """
+    h = _admin(client)
+    trip, lid = _chuyen(client, h, suffix="tv6", qty=500)
+
+    yc_xuat = _yc_kho(trip, REQ_XUAT)
+    db = SessionLocal()
+    try:
+        yc = db.query(StockRequest).filter(StockRequest.id == yc_xuat.id).one()
+        assert len(yc.lines) == 1
+        assert float(yc.lines[0].sl_duyet) == 500.0
+        # Kho điều chỉnh phiếu xuất 500 → 460: `dieu_chinh_xuat` hạ `sl_da_ung` TRƯỚC rồi chốt
+        # bằng chính nó, nên hai cột đi cùng nhau. `sl_duyet` giữ nguyên 500 (spec §2.3).
+        yc.lines[0].sl_da_ung = 460
+        yc.lines[0].sl_chot_thuc_xuat = 460
+        db.commit()
+    finally:
+        db.close()
+
+    _ket_qua(client, h, trip, ket_qua="giao_thieu", nguoi_nhan_thuc_te="Chi Lan",
+             so_thuc_nhan=[{"order_line_id": lid, "qty": 440}])
+    r = client.post(f"/api/giao-hang/trips/{trip}/da-tra-hang", headers=h)
+    assert r.status_code == 200, r.text
+
+    assert list(_so_tra_ve(trip).values()) == [20.0], (
+        f"trả về kho {_so_tra_ve(trip)} — chỉ 460 rời kho, khách giữ 440, nên 20 mới là số thật"
+    )
+
+
 def test_yeu_cau_XUAT_cua_chuyen_khong_bi_lan_sang_phieu_NHAP(client):
     """⭐ Một chuyến nay treo HAI yêu cầu cùng `delivery_trip_id`. Hàm tra "yêu cầu xuất của
     chuyến" mà không lọc loại thì sau khi trả hàng nó trả nhầm phiếu nhập — mọi chỗ hỏi "chuyến

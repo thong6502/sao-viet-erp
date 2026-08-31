@@ -397,6 +397,16 @@ def tao(db: Session, *, user, cong_viec_id: int, can_luc: datetime,
     cv = repo.cong_viec(cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc.")
+    # Khoá công đoạn TRƯỚC khi đọc bất cứ thứ gì mình sắp ghi đè lên (`cac_de_nghi`, `lan_ke_tiep`).
+    # `sua()` đã có khoá của nó (`StockRequestRepository.lock_for_update`), `tao()` thì trước đây
+    # không khoá gì: tổ trưởng bấm "Gửi đề nghị" hai lần lúc mạng chậm là hai lượt cùng đọc
+    # `lan_ke_tiep = 1`, cả hai gọi `req_svc.create()` (repo kho TỰ COMMIT) rồi một lượt vỡ
+    # `UniqueConstraint("cong_viec_id", "lan_so")` — thủ kho ôm một yêu cầu kho MỒ CÔI mà
+    # `boi_canh_san_xuat` không trả nổi công đoạn/giờ cần, và vẫn soạn giấy lần thứ hai.
+    # Khoá ở đây thì lượt sau chờ, đọc lại, thấy lần trước còn mở và ăn đúng câu lỗi nghiệp vụ
+    # ngay bên dưới. Khoá này CHỈ có tác dụng nhờ `commit=False` ở lời gọi `req_svc.create` bên
+    # dưới — bất kỳ `commit()` nào chen vào giữa cũng nhả khoá và mở lại nguyên ca đua trên.
+    repo.khoa_cong_viec(cong_viec_id)
     _gate_to_truong(db, user, cv.department_id)
 
     vt_repo = SanXuatVatTuRepository(db)
@@ -419,19 +429,31 @@ def tao(db: Session, *, user, cong_viec_id: int, can_luc: datetime,
     dongs = _chuan_hoa(kh_svc, cv, lines, bat_buoc_ly_do=(loai == DN_BO_SUNG))
     kho_lines = _lines_kho(hang, cv, dongs)
 
-    # Tạo yêu cầu kho TRƯỚC khi đụng tới hai bảng SX (ruling minor-5): `stock_request_repo.create`
-    # / `save` tự COMMIT. Nếu tạo yêu cầu kho SAU khi đã `db.add()` đề nghị SX, commit nội bộ đó
-    # ghi luôn đề nghị SX (còn thiếu `stock_request_id`) VÀ yêu cầu kho trong cùng một nhát — chết
-    # giữa chừng (giữa commit đó và `db.commit()` cuối) để lại CẢ hai bên mồ côi: đề nghị đã chiếm
-    # `lan_so` nhưng `stock_request_id` mãi NULL, mà `co_voucher(None)` lại khoá cứng không cho
-    # sửa/tạo lần mới. Tạo kho trước: chết giữa chừng khi đó chỉ để lại một yêu cầu kho THỪA —
-    # `SanXuatVatTuDeNghi` của lượt này chưa hề tồn tại, `lan_so` vẫn trống, tổ gọi lại `tao()` là
-    # xong, không kẹt.
+    # `commit=False` là điều kiện SỐNG CÒN của khoá ở đầu hàm, không phải tối ưu: mặc định
+    # `StockRequestRepository.create`/`save` tự `commit()` trên CHÍNH session `db` này, mà commit
+    # là NHẢ khoá hàng. Nhả xong thì lượt B chen vào khoá được, đọc `cac_de_nghi` vẫn RỖNG (lượt A
+    # chưa `db.add(dn)` bên dưới) nên cũng lấy `lan_so` đó, đẻ yêu cầu kho thứ hai, rồi một lượt vỡ
+    # `UniqueConstraint("cong_viec_id","lan_so")` — thủ kho ôm một yêu cầu kho MỒ CÔI mà
+    # `boi_canh_san_xuat` không trả nổi công đoạn/giờ cần.
+    #
+    # Với `commit=False`, toàn bộ `tao()` là MỘT giao dịch: khoá giữ liên tục từ `khoa_cong_viec`
+    # tới lúc chốt, lượt B chờ thật rồi đọc lại thật và dừng ở câu lỗi nghiệp vụ "Đang có đề nghị
+    # chưa được kho lập phiếu". Chết giữa chừng cũng hết mồ côi: rollback xoá sạch cả yêu cầu kho
+    # lẫn hai bảng SX, tổ gọi lại `tao()` là xong.
+    #
+    # ⚠️ RANH GIỚI THẬT của giao dịch đó là `AuditLogRepository.create` bên dưới, KHÔNG phải
+    # `db.commit()` đứng sau nó: `audit_repo.create` tự `commit()` trong thân hàm (`audit_repo.py`),
+    # nên tới dòng audit là khoá đã nhả và `db.commit()` chỉ còn là cái chốt rỗng. Muốn thêm một
+    # lệnh ghi vào giao dịch này thì phải đặt nó TRƯỚC dòng audit — đặt vào giữa audit và
+    # `db.commit()` là rơi ra ngoài khoá mà không có gì báo.
+    #
+    # Thứ tự "kho trước, SX sau" vì thế không còn gánh vai trò an toàn nào nữa — giữ nguyên chỉ vì
+    # `dn.stock_request_id` cần `req.id` (ruling minor-5).
     req = None
     if kho_lines:
         req_svc = req_svc or _req_service(db, hang)
         req = req_svc.create(
-            user=user, loai=REQ_XUAT, lines=kho_lines,
+            user=user, loai=REQ_XUAT, lines=kho_lines, commit=False,
             # `bo_phan_id` phải khai TAY: mặc định của `create` là `user.department_id` — phòng của
             # người bấm, không phải TỔ của công đoạn. Để mặc định là yêu cầu hiện sai bộ phận trên
             # bản in và lệch scope `department` của kho.
@@ -458,6 +480,11 @@ def tao(db: Session, *, user, cong_viec_id: int, can_luc: datetime,
         detail=f"lần {lan_so} · {len(kho_lines)} dòng gửi kho",
     )
     db.commit()
+    # Báo kho SAU khi giao dịch đã chốt, không sớm hơn: `create(commit=False)` cố ý IM LẶNG vì tin
+    # bắn lúc hàng chưa commit sẽ khiến trình duyệt refetch trên một connection khác mà không thấy
+    # gì — badge bỏ nhịp và SSE không tự thử lại (xem `StockRequestService.thong_bao_yeu_cau_moi`).
+    if req is not None:
+        req_svc.thong_bao_yeu_cau_moi(req)
     hub.broadcast({"type": "san_xuat_vat_tu_de_nghi_changed",
                    "cong_viec_id": cong_viec_id})
     return {"de_nghi_id": dn.id, "stock_request_id": dn.stock_request_id, "lan_so": lan_so}
@@ -505,23 +532,34 @@ def sua(db: Session, *, user, cong_viec_id: int, de_nghi_id: int,
     dongs = _chuan_hoa(kh_svc, cv, lines, bat_buoc_ly_do=(dn.loai == DN_BO_SUNG))
     kho_lines = _lines_kho(hang, cv, dongs)
 
-    # Khối `req_svc` chạy TRƯỚC khi đụng `dn.dongs` (ruling task-4 minor-5, cùng lý do `tao()` đã
-    # vá): các hàm dưới đây tự COMMIT bên trong (`stock_request_repo.create`/`save`). Nếu `dn.dongs`
-    # đã bị xoá/dựng lại ở phía TRÊN thì một commit nội bộ giữa chừng của `req_svc` ghi luôn phần
-    # dở đó vào DB — chết giữa chừng để lại một yêu cầu kho ĐÃ đổi số nhưng bảng SX vẫn dở dang.
-    # Làm req_svc trước: chết giữa chừng chỉ để lại đúng NỬA đầu (yêu cầu kho), `dn.dongs` của lần
-    # sửa vẫn chưa động tới — tổ gọi lại `sua()` với cùng số là xong, không mồ côi.
+    # KHÁC `tao()`: `sua()` KHÔNG chạy trọn trong một giao dịch, và cố ý dừng ở đó. Ba nhánh đồng
+    # bộ/hủy bên dưới kết bằng `requests.save()` mặc định — tức TỰ COMMIT giữa hàm, nhả luôn cái
+    # `lock_for_update` mà chính chúng vừa lấy. Gỡ được chỗ đó phải đưa `commit=False` xuyên qua cả
+    # ba hàm `*_tu_san_xuat` VÀ hoãn phần đẩy tin của chúng; đó là một việc riêng, chưa làm.
+    #
+    # Vì thế khối `req_svc` phải chạy TRƯỚC khi đụng `dn.dongs` (ruling task-4 minor-5, cùng lý do
+    # `tao()` đã vá): nếu `dn.dongs` đã bị xoá/dựng lại ở phía TRÊN thì một commit nội bộ giữa chừng
+    # của `req_svc` ghi luôn phần dở đó vào DB. Làm req_svc trước thì chết giữa chừng chỉ để lại
+    # đúng NỬA đầu (yêu cầu kho), `dn.dongs` của lần sửa vẫn chưa động tới — tổ gọi lại `sua()` với
+    # cùng số là xong, không mồ côi.
+    #
+    # RIÊNG nhánh ĐẺ MỚI thì đi `commit=False` được ngay và có lợi thật: nó không cầm
+    # `lock_for_update` nào để mà nhả, còn `create` tự commit ở đó lại đẻ đúng con MỒ CÔI mà `tao()`
+    # vừa bịt — yêu cầu kho nằm trong hộp thư thủ kho mà không `SanXuatVatTuDeNghi` nào trỏ tới,
+    # nếu phần ghi bảng SX ngay dưới đổ. Đổi lại, tin báo kho phải dời xuống sau `db.commit()`.
     req_svc = req_svc or _req_service(db, hang)
     req_id_moi = None
+    req_moi = None       # yêu cầu kho vừa đẻ — báo kho ở CUỐI hàm, sau khi đã chốt giao dịch
     if dn.stock_request_id is None:
         # Lần đầu toàn 0, nay có số dương ⇒ giờ mới đẻ chứng từ kho.
         if kho_lines:
-            req = req_svc.create(
-                user=user, loai=REQ_XUAT, lines=kho_lines, bo_phan_id=cv.department_id,
+            req_moi = req_svc.create(
+                user=user, loai=REQ_XUAT, lines=kho_lines, commit=False,
+                bo_phan_id=cv.department_id,
                 ngay_can=_ngay_vn(can_luc),
                 ghi_chu=f"Cấp vật tư công đoạn «{cv.ten_cong_doan}» (lần {dn.lan_so}).",
             )
-            req_id_moi = req.id
+            req_id_moi = req_moi.id
     elif kho_lines:
         if truoc_do_toan_0:
             req_svc.khoi_phuc_tu_san_xuat(dn.stock_request_id, kho_lines,
@@ -551,9 +589,12 @@ def sua(db: Session, *, user, cong_viec_id: int, de_nghi_id: int,
         detail=f"{len(kho_lines)} dòng gửi kho",
     )
     db.commit()
+    # Nhánh đẻ mới đi `commit=False` nên `create` KHÔNG tự đẩy tin — báo kho ở đây, sau khi chốt.
+    if req_moi is not None:
+        req_svc.thong_bao_yeu_cau_moi(req_moi)
     hub.broadcast({"type": "san_xuat_vat_tu_de_nghi_changed", "cong_viec_id": cong_viec_id})
     # KHÔNG broadcast thêm `stock_request_pending_changed` toàn hệ ở đây (ruling task-4 minor-6):
-    # mỗi nhánh `req_svc` ở trên đã tự `_notify(..., targeted=False)`, mà `_notify` cố ý đẩy THEO
-    # PHẠM VI (xem `stock_request_service.py`), không broadcast toàn hệ. `tao()` cũng không có
-    # dòng này.
+    # ba nhánh đồng bộ/hủy đã tự `_notify(..., targeted=False)` bên trong, nhánh đẻ mới thì
+    # `thong_bao_yeu_cau_moi` ngay trên — mà `_notify` cố ý đẩy THEO PHẠM VI (xem
+    # `stock_request_service.py`), không broadcast toàn hệ. `tao()` cũng không có dòng này.
     return {"de_nghi_id": dn.id, "stock_request_id": dn.stock_request_id}

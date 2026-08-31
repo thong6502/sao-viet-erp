@@ -108,8 +108,53 @@ const VT_TT: Record<string, { txt: string; cls: string }> = {
   rejected: { txt: "từ chối", cls: "thsx-x-pill--bad" },
   cancelled: { txt: "đã hủy", cls: "thsx-x-pill--off" },
 };
-/** Ngưỡng "coi như bằng nhau" — khớp `_EPS` phía BE, để hàng khớp không hiện chênh lệch rác. */
+/** Ngưỡng "coi như bằng nhau" — khớp `_EPS` phía BE, để hàng khớp không hiện chênh lệch rác.
+ *  Dùng cho số CÙNG THANG TỔ KHAI (kế hoạch ↔ đã yêu cầu, "số này có > 0 không"). */
 const VT_EPS = 0.0005;
+/** Ngưỡng riêng cho phép so ĐÃ QUA KHO. Hai bên lưu hai thang khác nhau: SX giữ 3 chữ số
+ *  (`sl_yeu_cau_goc` là `Numeric(18,3)`), kho giữ 2 (`sl_de_nghi` là `Numeric(14,2)`), nên chỉ
+ *  riêng làm tròn đã đẻ ra sai khác tới 0,005 — gấp 10 lần `VT_EPS`. Đo thật lúc nghiệm thu: tổ
+ *  xin 554 tờ = 166,967 kg, kho cấp đúng 166,97 kg, `lech_thuc_te` ra +0,003 và dòng đeo badge
+ *  vàng VĨNH VIỄN dù không ai làm gì sai. Giấy gần như không bao giờ ra số tròn 2 chữ số nên mọi
+ *  dòng giấy đều dính, mà cờ lệch lại là tín hiệu DUY NHẤT của cả tính năng đối chiếu.
+ *  0,005 = nửa bước lượng tử của `Numeric(_, 2)`: đúng phần sai khác mà cấu trúc bắt buộc phải có.
+ *  KHÔNG nới `VT_EPS` lên bằng nó — hằng kia còn gác luật "có xin món này không" (`vtCanLyDo`,
+ *  `vtCanTro`, `vtPayloadLines`), nới là đổi luôn luật bắt buộc ghi lý do. */
+const VT_EPS_KHO = 0.005;
+
+/** Số LẦN đề nghị CÓ XIN món này — nhân tử của dung sai `VT_EPS_KHO` (xem `vtCoLechThucTe`).
+ *  Khớp theo cặp `hang_loai` + `hang_id`, đúng khoá mà `board.py::_vat_tu_cap` dùng để gom.
+ *
+ *  Dòng số 0 KHÔNG tính, dù nó vẫn nằm trong lần đề nghị đó: bản đối chiếu của sản xuất giữ cả
+ *  dòng xin 0 (tổ đã sửa món đó về 0), nhưng `_lines_kho` không đẻ dòng kho cho chúng nên chúng
+ *  không đi qua bước làm tròn về `Numeric(14,2)` nào — đếm vào là nới dung sai thêm 0,005 cho một
+ *  lần không đóng góp sai số nào, tức bịt bớt cờ lệch THẬT. Xét ở thang GỐC (`sl_yeu_cau_goc`),
+ *  đúng thang mà `board.py` cộng dồn để ra `lech_thuc_te`. */
+export function vtSoLanCoMon(
+  cacDeNghi: { dongs: { hang_loai: string; hang_id: number; sl_yeu_cau_goc: number }[] }[],
+  d: { hang_loai: string; hang_id: number },
+): number {
+  return cacDeNghi.filter(
+    (l) => l.dongs.some(
+      (x) => x.hang_loai === d.hang_loai && x.hang_id === d.hang_id && x.sl_yeu_cau_goc > 0,
+    ),
+  ).length;
+}
+
+/** Kho thực xuất có LỆCH so với số tổ đã xin không — so ở thang KHO (`VT_EPS_KHO`).
+ *  Tách khỏi JSX để test được: đây là vị ngữ quyết định badge vàng của cả bảng đối chiếu.
+ *
+ *  `soLan` = số lần đề nghị có chứa món này. `VT_EPS_KHO` là dung sai của MỘT lần làm tròn, nhưng
+ *  `board.py` CỘNG DỒN `sl_yeu_cau_goc` qua mọi lần đề nghị của cùng một món, nên sai khác do làm
+ *  tròn cũng cộng dồn: ba lần bổ sung mỗi lần lệch 0,004 là tổng 0,012 > 0,005 và badge vàng giả
+ *  quay lại y như trước bản vá. Nhân dung sai theo số lần cộng vào là đúng chiều tích lũy đó.
+ *  Sàn 1: món chưa có lần đề nghị nào (dòng kế hoạch thuần) vẫn phải giữ dung sai một lần. */
+export function vtCoLechThucTe(
+  d: Pick<SxVatTuCapDoiChieu, "lech_thuc_te">,
+  soLan = 1,
+): boolean {
+  return Math.abs(d.lech_thuc_te) > VT_EPS_KHO * Math.max(1, soLan);
+}
 
 // ============================ khối chính ====================================
 export function ThsxExecPanels({ chiTiet, canAssign, busy, hoTroUngVien, loadLyDo, exec }: Props) {
@@ -869,21 +914,25 @@ function VatTuSection({
             </tr>
           </thead>
           <tbody>
-            {cap.doi_chieu.map((d) => (
+            {cap.doi_chieu.map((d) => {
+              // Dung sai làm tròn cộng dồn theo số LẦN đề nghị có món này — xem `vtCoLechThucTe`.
+              const soLan = vtSoLanCoMon(cap.cac_de_nghi, d);
+              return (
               // Tô nền hàng kho xuất KHÁC số đã xin: đó là chỗ tổ trưởng KHÔNG chủ động được,
               // đáng chú ý hơn lệch kế-hoạch↔yêu-cầu (vốn là quyết định của chính tổ).
               <tr key={`${d.hang_loai}:${d.hang_id}`}
-                className={Math.abs(d.lech_thuc_te) > VT_EPS ? "is-lech" : undefined}>
+                className={vtCoLechThucTe(d, soLan) ? "is-lech" : undefined}>
                 <td>{d.ten}</td>
                 <td className="r thsx-num">{num(d.sl_ke_hoach)}<span className="thsx-x-unit"> {d.dvt}</span></td>
                 <td className="r thsx-num">{num(d.sl_yeu_cau)}<span className="thsx-x-unit"> {d.dvt}</span></td>
                 {/* `sl_thuc_xuat` đọc thẳng từ dòng chứng từ nên LUÔN ở thang GỐC (board.py:
                     `_vat_tu_cap`) — dán nhãn `dvt` (thang tổ khai) vào đây là in sai đơn vị. */}
                 <td className="r thsx-num">{num(d.sl_thuc_xuat)}<span className="thsx-x-unit"> {d.dvt_goc}</span></td>
-                <td className="r"><VtDeltaCell d={d} /></td>
+                <td className="r"><VtDeltaCell d={d} soLan={soLan} /></td>
                 <td><VtLyDoCacLanCell ds={d.cac_ly_do} /></td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -948,10 +997,15 @@ function VatTuSection({
  *  hàng thì `sl_ke_hoach`/`sl_yeu_cau` chắc chắn cùng `dvt` (`board.py::_vat_tu_cap` hạ CẢ HAI về
  *  thang gốc khi hàng lẫn đơn vị).
  *  "so YC" là số MÁY so (kho thực xuất ↔ đã yêu cầu) — giữ nguyên số BE, thang gốc, nhãn `dvt_goc`. */
-function VtDeltaCell({ d }: { d: SxVatTuCapDoiChieu }) {
+function VtDeltaCell({ d, soLan }: { d: SxVatTuCapDoiChieu; soLan: number }) {
   const soKh = d.sl_yeu_cau - d.sl_ke_hoach;
   const soYc = d.lech_thuc_te;
-  if (Math.abs(soKh) <= VT_EPS && Math.abs(soYc) <= VT_EPS) {
+  // Hai số, HAI ngưỡng: "so KH" là hai con số tổ tự khai cùng một thang (dung sai `VT_EPS` như BE),
+  // còn "so YC" bắc qua ranh giới SX↔kho nên phải dùng `VT_EPS_KHO` × số lần đề nghị — xem chú
+  // giải của hằng đó và của `vtCoLechThucTe`. Ô này và badge vàng của hàng phải dùng CÙNG một vị
+  // ngữ, nếu không sẽ có hàng tô vàng mà ô "Chênh lệch" ghi "khớp".
+  const lechYc = vtCoLechThucTe(d, soLan);
+  if (Math.abs(soKh) <= VT_EPS && !lechYc) {
     return <span className="thsx-x-unit">khớp</span>;
   }
   return (
@@ -962,7 +1016,7 @@ function VtDeltaCell({ d }: { d: SxVatTuCapDoiChieu }) {
           {soKh > 0 ? "+" : ""}{num(soKh)}<span className="thsx-x-unit"> {d.dvt}</span>
         </span>
       )}
-      {Math.abs(soYc) > VT_EPS && (
+      {lechYc && (
         <span className={`thsx-x-vt-delta__row ${soYc > 0 ? "is-up" : "is-down"}`}>
           <span className="thsx-x-vt-delta__lbl">so YC</span>
           {soYc > 0 ? "+" : ""}{num(soYc)}<span className="thsx-x-unit"> {d.dvt_goc}</span>
@@ -1179,6 +1233,33 @@ export function vtPayloadLines(dongs: VtDongForm[], loai: "lan_dau" | "bo_sung")
   }));
 }
 
+/** Đơn vị mà lần đề nghị GẦN NHẤT đã dùng cho ĐÚNG mặt hàng này — `null` khi chưa lần nào xin nó.
+ *
+ *  Dùng làm đơn vị mặc định lúc tổ chọn mặt hàng ở form bổ sung. Trước đây dòng mới luôn nhận
+ *  `don_vi_goc`, mà bảng đối chiếu lại gộp theo `(hang_loai, hang_id)` KHÔNG kèm đơn vị: một mặt
+ *  hàng ôm hai `dvt` khác nhau thì `board.py` buộc phải hạ CẢ HÀNG về thang gốc (đúng — cộng 554
+ *  tờ với 12 kg rồi in ra mới là nói dối). Hậu quả: tổ gõ lần 1 "554 tờ", xin bổ sung chút giấy
+ *  mà form chỉ cho gõ kg, thế là cả dòng lật từ "554 to" sang "166,967 kg" rồi "178,967 kg" — tổ
+ *  trưởng vốn nghĩ bằng tờ mở lại thấy đề nghị của chính mình ghi bằng kg. Bám theo đơn vị lần
+ *  trước thì hàng vẫn một thang và không có gì phải lật.
+ *
+ *  Nhiều lần trước dùng nhiều đơn vị khác nhau ⇒ lấy của lần `lan_so` LỚN NHẤT (thói quen mới
+ *  nhất của tổ). Dòng lưu với `dvt` rỗng KHÔNG tính là một câu trả lời — nó chỉ nghĩa là lúc đó
+ *  routing/danh mục chưa nói được đơn vị, chép lại là chép cái trống. */
+export function vtDvtLanTruoc(
+  cacDeNghi: { lan_so: number; dongs: { hang_loai: string; hang_id: number; dvt: string }[] }[],
+  hangLoai: string, hangId: number,
+): string | null {
+  let tot: { lanSo: number; dvt: string } | null = null;
+  for (const lan of cacDeNghi) {
+    for (const d of lan.dongs) {
+      if (d.hang_loai !== hangLoai || d.hang_id !== hangId || !d.dvt) continue;
+      if (tot == null || lan.lan_so > tot.lanSo) tot = { lanSo: lan.lan_so, dvt: d.dvt };
+    }
+  }
+  return tot?.dvt ?? null;
+}
+
 function vtDongKhoiTao(cap: SxVatTuCap, mode: VtFormMode, lanSua: SxVatTuCapLan | null): VtDongForm[] {
   const kh = new Map(cap.ke_hoach.map((k) => [`${k.hang_loai}:${k.hang_id}`, k]));
   // Bổ sung: RỖNG — chỉ thêm đúng mặt hàng đang thiếu; liệt kê lại cả kế hoạch rồi bắt gõ lý do
@@ -1307,10 +1388,19 @@ function VatTuDeNghiForm({
               ) : (
                 <MaterialCombobox
                   token={token ?? ""} hangTen={d.ten || null} disabled={busy}
-                  onPick={(m) => sua(d.key, {
-                    hang_loai: m.hang_loai, hang_id: m.hang_id, ten: m.ten,
-                    dvt: m.don_vi_goc ?? "", dvtKeHoach: m.don_vi_goc ?? "",
-                  })} />
+                  onPick={(m) => {
+                    // Ưu tiên đơn vị lần trước của CHÍNH mặt hàng này, chỉ rơi về đơn vị gốc khi
+                    // nó chưa từng được xin (xem `vtDvtLanTruoc`). KHÔNG gác thêm theo `mode`:
+                    // lần "moi" chưa có đề nghị nào nên hàm trả `null` và mọi thứ y như cũ, còn
+                    // lần "sua"/"bo_sung" thì bám lần trước mới là thứ đúng — thêm điều kiện mode
+                    // chỉ có thể làm dòng lật đơn vị trở lại.
+                    const dv = vtDvtLanTruoc(cap.cac_de_nghi, m.hang_loai, m.hang_id)
+                      ?? m.don_vi_goc ?? "";
+                    sua(d.key, {
+                      hang_loai: m.hang_loai, hang_id: m.hang_id, ten: m.ten,
+                      dvt: dv, dvtKeHoach: dv,
+                    });
+                  }} />
               )}
               <span className="thsx-x-item__spacer" />
               {!d.tuKeHoach && (

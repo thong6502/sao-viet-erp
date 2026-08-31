@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.models.san_xuat_vat_tu import (
@@ -398,6 +399,240 @@ def test_dang_co_de_nghi_sua_duoc_thi_khong_tao_them(db, orders, lsx_svc, admin,
     assert "sửa" in str(e.value).lower()
 
 
+def test_tao_khoa_cong_doan_truoc_khi_doc_lan_ke_tiep(
+    db, orders, lsx_svc, admin, customer, monkeypatch,
+):
+    """`tao()` phải khoá dòng công việc TRƯỚC khi đọc `lan_ke_tiep` — không phải trước khi ghi.
+
+    Ca hỏng thật: tổ trưởng bấm "Gửi đề nghị" hai lần lúc mạng chậm. Không khoá thì hai lượt cùng
+    đọc `lan_ke_tiep = 1`, cả hai gọi `req_svc.create()` (repo kho TỰ COMMIT nên yêu cầu kho ra đời
+    NGAY, không chờ commit cuối), rồi một lượt vỡ `UniqueConstraint("cong_viec_id", "lan_so")`.
+    Yêu cầu kho thừa đó không có `SanXuatVatTuDeNghi` nào trỏ tới ⇒ `boi_canh_san_xuat` không trả
+    được công đoạn/giờ cần, thủ kho soạn giấy lần hai cho một phiếu không rõ của ai.
+
+    Test chốt tới ĐÂU: chỉ tới THỨ TỰ GỌI, không dựng được ca đua thật. Fixture `db` chạy trên
+    `sqlite:///:memory:` một kết nối duy nhất (`conftest.py`), nên không có tiến trình thứ hai để
+    chen vào giữa hai mốc; và chính `SELECT … FOR UPDATE` cũng là no-op trên SQLite (khoá thật do
+    SQLite tự khoá ghi cả DB). Thứ khoá được ở đây là hợp đồng "khoá đứng TRƯỚC lượt đọc" — dời
+    `khoa_cong_viec` xuống dưới `lan_ke_tiep` (hoặc bỏ hẳn) là test này đỏ, và đó đúng là cách
+    lỗi cũ quay lại. Vế "hai lượt liên tiếp không đẻ yêu cầu kho thừa" nằm ở test kế bên.
+    """
+    from app.repositories.san_xuat_repo import SanXuatRepository
+    from app.repositories.san_xuat_vat_tu_repo import SanXuatVatTuRepository
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-LOCK")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+
+    vet: list[str] = []
+    goc_khoa = SanXuatRepository.khoa_cong_viec
+    goc_lan = SanXuatVatTuRepository.lan_ke_tiep
+
+    def khoa(self, cong_viec_id):
+        vet.append("khoa_cong_viec")
+        return goc_khoa(self, cong_viec_id)
+
+    def lan(self, cong_viec_id):
+        vet.append("lan_ke_tiep")
+        return goc_lan(self, cong_viec_id)
+
+    monkeypatch.setattr(SanXuatRepository, "khoa_cong_viec", khoa)
+    monkeypatch.setattr(SanXuatVatTuRepository, "lan_ke_tiep", lan)
+
+    V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+
+    assert vet == ["khoa_cong_viec", "lan_ke_tiep"], (
+        f"thứ tự gọi thật: {vet} — khoá phải đứng TRƯỚC lượt đọc `lan_ke_tiep`, khoá sau khi đã "
+        "đọc thì hai lượt song song vẫn cùng thấy một số lần"
+    )
+
+
+def test_cong_chan_de_nghi_con_mo_dung_truoc_khi_de_yeu_cau_kho(
+    db, orders, lsx_svc, admin, customer, monkeypatch,
+):
+    """Cổng `if cac:` ("đang có đề nghị chưa được kho lập phiếu") phải đứng TRƯỚC `req_svc.create()`.
+
+    ĐÂY KHÔNG PHẢI test ca đua — tên cũ (`..._gui_hai_lan_lien_tiep_...`) nói quá thứ nó chứng
+    minh: fixture `db` chạy `sqlite:///:memory:` MỘT kết nối (`conftest.py`), hai lượt ở đây là hai
+    lời gọi TUẦN TỰ trên cùng session, nên gỡ sạch `khoa_cong_viec` test vẫn xanh. Ca đua thật
+    không dựng được ở tầng test này; vế "một giao dịch duy nhất" — thứ làm khoá có tác dụng — nằm ở
+    `test_tao_chay_trong_mot_giao_dich_hong_giua_chung_khong_de_lai_gi`.
+
+    Thứ test này khoá là ĐẾM SỐ LẦN `StockRequestService.create` được gọi. Từ khi `tao()` chạy
+    `commit=False` + test này `db.rollback()`, chỉ soi hàng `StockRequest` còn lại KHÔNG đủ răng
+    nữa: dời cổng xuống dưới `req_svc.create()` thì yêu cầu thừa vẫn được dựng, chỉ là rollback
+    quét sạch nên bảng vẫn sạch và test vẫn xanh. Đếm lời gọi thì bắt được đúng cái sai đó — lượt
+    hai phải bị chặn TRƯỚC khi chạm vào tầng kho, không phải "dựng rồi vứt".
+
+    Lượt hai gửi KÈM LÝ DO cho mọi dòng, và đó là chi tiết SỐNG CÒN của test: bỏ cổng đi thì lượt
+    hai thành `lan_so = 2` ⇒ `loai = bo_sung` ⇒ `_chuan_hoa(bat_buoc_ly_do=True)` ném "phải ghi lý
+    do" TRƯỚC khi tới tầng kho, và test đo được đúng… một cái cổng khác. Gửi kèm lý do thì cổng
+    `if cac:` là thứ DUY NHẤT còn có thể dừng lượt hai.
+    """
+    from app.models.stock_request import REQ_XUAT, StockRequest
+    from app.services.san_xuat.vat_tu_de_nghi import VatTuDeNghiError
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from app.services.stock_request_service import StockRequestService
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-2CLICK")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    lines2 = [{**ln, "ly_do_chenh_lech": "Bù hao khi canh máy"} for ln in lines]
+
+    goi: list[int] = []
+    goc_create = StockRequestService.create
+
+    def dem(self, **kw):
+        goi.append(1)
+        return goc_create(self, **kw)
+
+    monkeypatch.setattr(StockRequestService, "create", dem)
+
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    assert len(goi) == 1, "lượt một phải đẻ đúng một yêu cầu kho — test mất răng nếu không"
+    with pytest.raises(VatTuDeNghiError) as e:
+        V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines2)
+    assert "lập phiếu" in str(e.value), (
+        f"lượt hai bị chặn bởi một luật KHÁC («{e.value}») — test không còn đo cổng `if cac:` nữa"
+    )
+    db.rollback()
+
+    assert len(goi) == 1, (
+        "lượt hai vẫn gọi `req_svc.create()` — cổng `if cac:` đang đứng DƯỚI nó, tức yêu cầu kho "
+        "thừa đã được dựng rồi mới bị ném lỗi; ở Postgres thật chỉ cần một `commit()` chen vào "
+        "giữa là nó ở lại trong hộp thư thủ kho"
+    )
+    reqs = list(db.scalars(select(StockRequest).where(StockRequest.loai == REQ_XUAT)))
+    assert [r.id for r in reqs] == [ra["stock_request_id"]], (
+        "lượt hai để lại yêu cầu kho thừa — thủ kho sẽ soạn hàng hai lần cho cùng một công đoạn"
+    )
+    co_chu = set(db.scalars(select(SanXuatVatTuDeNghi.stock_request_id)))
+    assert all(r.id in co_chu for r in reqs), "có yêu cầu kho XUẤT không lần ra được công đoạn nào"
+
+
+def test_tao_chay_trong_mot_giao_dich_hong_giua_chung_khong_de_lai_gi(
+    db, orders, lsx_svc, admin, customer, monkeypatch,
+):
+    """`tao()` phải là MỘT giao dịch: hỏng ở bất kỳ đâu ⇒ rollback xoá sạch CẢ HAI bên.
+
+    Đây là cái răng thật của khoá `khoa_cong_viec`. Khoá là `SELECT … FOR UPDATE`, mà khoá hàng chỉ
+    sống tới `COMMIT` — nên chừng nào `StockRequestRepository.create`/`save` còn TỰ COMMIT trên
+    chính session này thì khoá bị nhả ngay giữa hàm: lượt B chen vào, đọc `cac_de_nghi` vẫn rỗng vì
+    lượt A chưa `db.add(dn)`, và cả hai cùng lấy một `lan_so`. `commit=False` bịt đúng chỗ đó.
+    (Phần đẩy tin — `_notify` + `_notif_kho_moi`, mà `NotificationRepository.add_many` cũng tự
+    commit — nay nằm HẲN ngoài giao dịch: `create(commit=False)` không gọi tới nó nữa, `tao()` gọi
+    `thong_bao_yeu_cau_moi` sau khi chốt. Xem test kế bên.)
+
+    Ép lỗi ở khe hẹp nhất: SAU `req_svc.create()`, TRƯỚC `db.commit()` cuối — tức tại
+    `AuditLogRepository.create`. Với code CŨ test này ĐỎ (repo kho đã commit nên `StockRequest`
+    sống sót thành yêu cầu MỒ CÔI trong hộp thư thủ kho); với `commit=False` thì không còn gì.
+    """
+    from app.models.stock_request import StockRequest
+    from app.repositories.audit_repo import AuditLogRepository
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-1TX")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    assert any(ln["sl_yeu_cau"] > 0 for ln in lines), (
+        "kế hoạch toàn 0 thì `tao()` không gọi `req_svc.create()` — test mất răng"
+    )
+    truoc = db.query(StockRequest).count()
+
+    def no(self, **kw):
+        raise RuntimeError("hỏng giữa chừng")
+
+    monkeypatch.setattr(AuditLogRepository, "create", no)
+
+    with pytest.raises(RuntimeError):
+        V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    db.rollback()
+
+    assert db.query(StockRequest).count() == truoc, (
+        "yêu cầu kho sống sót sau rollback — repo kho vẫn tự commit, khoá công đoạn bị nhả giữa "
+        "chừng và thủ kho ôm một yêu cầu không lần ra được công đoạn nào"
+    )
+    assert db.scalars(
+        select(SanXuatVatTuDeNghi).where(SanXuatVatTuDeNghi.cong_viec_id == cv.id)
+    ).all() == [], "đề nghị SX sống sót sau rollback — `lan_so` bị chiếm bởi một lượt đã hỏng"
+
+
+def test_tao_hong_giua_chung_thi_khong_day_tin_nao_cho_kho(
+    db, orders, lsx_svc, admin, customer, monkeypatch,
+):
+    """Giao dịch của `tao()` đổ ⇒ KHÔNG một tin nào được đẩy cho kho.
+
+    `create(commit=False)` cố ý IM LẶNG. Bắn tin lúc yêu cầu mới `flush()` chứ chưa `commit()` là
+    bắn vào khoảng trống: trình duyệt nhận SSE rồi refetch trên một CONNECTION KHÁC, connection đó
+    chưa thấy hàng chưa commit nên trả rỗng — mà SSE chỉ báo một lần, badge bỏ nhịp luôn và không
+    tự thử lại. Ca dưới đây là bản cực đoan của chính lỗ đó: giao dịch đổ hẳn, tin đã đi rồi mà
+    yêu cầu thì không bao giờ tồn tại.
+
+    Đếm ở CẢ HAI cửa đẩy tin (`_notify` = toast SSE, `_notif_kho_moi` = tin vào chuông thủ kho):
+    trả bất kỳ lời gọi nào về lại trong thân `create` khi `commit=False` là test này đỏ. Nửa sau
+    là ĐỐI CHỨNG — đường thành công vẫn phải đẩy đủ hai tin, nếu không thì khẳng định "đếm = 0"
+    chỉ đang đo một hàm đã chết.
+    """
+    from app.repositories.audit_repo import AuditLogRepository
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from app.services.stock_request_service import StockRequestService
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-TIN")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    assert any(ln["sl_yeu_cau"] > 0 for ln in lines), (
+        "kế hoạch toàn 0 thì `tao()` không gọi `req_svc.create()` — test mất răng"
+    )
+
+    tin: list[str] = []
+    monkeypatch.setattr(StockRequestService, "_notify",
+                        lambda self, req, message, **kw: tin.append(f"sse:{message}"))
+    monkeypatch.setattr(StockRequestService, "_notif_kho_moi",
+                        lambda self, req: tin.append("chuong"))
+
+    hong = {"on": True}
+    goc_audit = AuditLogRepository.create
+
+    def audit(self, **kw):
+        if hong["on"]:
+            raise RuntimeError("hỏng giữa chừng")
+        return goc_audit(self, **kw)
+
+    monkeypatch.setattr(AuditLogRepository, "create", audit)
+
+    with pytest.raises(RuntimeError):
+        V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    db.rollback()
+
+    assert tin == [], (
+        f"đã đẩy {tin} cho kho trong khi giao dịch đổ — thủ kho nhận toast/chuông về một yêu cầu "
+        "không tồn tại, và badge 'chờ cấp' nhảy rồi refetch ra rỗng"
+    )
+
+    hong["on"] = False
+    V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    assert tin == ["sse:Yêu cầu mới — chờ kho cấp", "chuong"], (
+        f"đường thành công đẩy {tin} — thiếu tin nào là Hộp yêu cầu kho không tự nhảy nữa"
+    )
+
+
 # --- Ruling 10: quy đổi giấy "tờ" không có cạnh tĩnh sang gốc --------------------------------
 
 def test_giu_nguyen_don_vi_ke_hoach_thi_quy_goc_theo_ti_le_cua_lenh(
@@ -725,6 +960,78 @@ def test_nhap_lai_so_duong_thi_khoi_phuc_dung_yeu_cau_cu(db, orders, lsx_svc, ad
     assert req.trang_thai == REQ_APPROVED
     assert req.ma == ma_cu            # KHÔNG đẻ mã mới
     assert len(req.lines) == len(kh)
+
+
+def test_sua_de_nghi_toan_0_thanh_so_duong_de_yeu_cau_kho_va_bao_kho_dung_mot_lan(
+    db, orders, lsx_svc, admin, customer, monkeypatch,
+):
+    """Nhánh ĐẺ MỚI của `sua()` (lần đầu toàn 0 ⇒ chưa có `stock_request_id`, nay tổ xin số dương).
+
+    Nhánh này đi `create(commit=False)` — cùng đường mà `tao()` dùng — nên nó phải tự chịu hai
+    trách nhiệm: (1) yêu cầu kho và phần ghi bảng SX cùng sống hoặc cùng chết, (2) tin báo kho đi
+    SAU khi chốt, đúng MỘT lần. Không có `commit=False` thì `create` tự commit và phần ghi bảng SX
+    ngay dưới mà đổ sẽ để lại một yêu cầu kho MỒ CÔI trong hộp thư thủ kho — đúng con mà `tao()`
+    vừa bịt.
+    """
+    from app.models.stock_request import StockRequest
+    from app.repositories.audit_repo import AuditLogRepository
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from app.services.stock_request_service import StockRequestService
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-0LEN")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    ve0 = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"], "dvt": k["dvt"],
+            "sl_yeu_cau": 0, "ly_do_chenh_lech": "Chờ giấy về"} for k in kh]
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=ve0)
+    assert ra["stock_request_id"] is None, "lần đầu toàn 0 mà đã đẻ yêu cầu kho — test sai nhánh"
+
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"], "dvt": k["dvt"],
+              "sl_yeu_cau": k["sl"]} for k in kh]
+    assert any(ln["sl_yeu_cau"] > 0 for ln in lines), "kế hoạch toàn 0 — test mất răng"
+
+    tin: list[str] = []
+    monkeypatch.setattr(StockRequestService, "_notify",
+                        lambda self, req, message, **kw: tin.append(f"sse:{message}"))
+    monkeypatch.setattr(StockRequestService, "_notif_kho_moi",
+                        lambda self, req: tin.append("chuong"))
+
+    hong = {"on": True}
+    goc_audit = AuditLogRepository.create
+
+    def audit(self, **kw):
+        if hong["on"]:
+            raise RuntimeError("hỏng giữa chừng")
+        return goc_audit(self, **kw)
+
+    monkeypatch.setattr(AuditLogRepository, "create", audit)
+
+    truoc = db.query(StockRequest).count()
+    with pytest.raises(RuntimeError):
+        V.sua(db, user=admin, cong_viec_id=cv.id, de_nghi_id=ra["de_nghi_id"],
+              can_luc=_T0, lines=lines)
+    db.rollback()
+    assert db.query(StockRequest).count() == truoc, (
+        "yêu cầu kho sống sót sau rollback — `create` vẫn tự commit, thủ kho ôm một yêu cầu không "
+        "`SanXuatVatTuDeNghi` nào trỏ tới"
+    )
+    assert tin == [], f"đã đẩy {tin} cho kho trong khi giao dịch đổ"
+
+    hong["on"] = False
+    kq = V.sua(db, user=admin, cong_viec_id=cv.id, de_nghi_id=ra["de_nghi_id"],
+               can_luc=_T0, lines=lines)
+
+    assert kq["stock_request_id"] is not None
+    dn = db.get(SanXuatVatTuDeNghi, ra["de_nghi_id"])
+    assert dn.stock_request_id == kq["stock_request_id"], (
+        "bảng SX không nối được sang yêu cầu kho vừa đẻ"
+    )
+    assert db.get(StockRequest, kq["stock_request_id"]).lines != []
+    assert tin == ["sse:Yêu cầu mới — chờ kho cấp", "chuong"], (
+        f"đẩy {tin} — Hộp yêu cầu kho phải nhận đúng một lượt tin, và chỉ sau khi đã chốt"
+    )
 
 
 def test_co_phieu_roi_thi_sua_bi_chan_va_khong_doi_gi(db, orders, lsx_svc, admin, customer):

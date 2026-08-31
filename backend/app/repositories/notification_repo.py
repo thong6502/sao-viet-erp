@@ -29,7 +29,12 @@ class NotificationRepository:
 
     def add_many(self, user_ids, *, loai: str, tieu_de: str, noi_dung: str | None = None,
                  link_loai: str | None = None, link_id: int | None = None) -> None:
-        """Gửi cùng 1 thông báo cho NHIỀU người (vd mọi thủ kho trong phạm vi). 1 commit."""
+        """Gửi cùng 1 thông báo cho NHIỀU người (vd mọi thủ kho trong phạm vi). 1 commit.
+
+        LUÔN commit, và đó là hợp đồng chứ không phải chi tiết cài đặt: thông báo chỉ được ghi khi
+        việc mà nó báo đã chốt xong. Người gọi đang ôm một giao dịch có khoá hàng
+        (`SELECT … FOR UPDATE`) thì đừng gọi vào đây giữa chừng — hãy gọi SAU khi commit.
+        """
         rows = [
             Notification(user_id=uid, loai=loai, tieu_de=tieu_de, noi_dung=noi_dung,
                          link_loai=link_loai, link_id=link_id)

@@ -1187,7 +1187,25 @@ export function InboxRequestDrawer({
   const totalSKU = reqLines.length;
   const totalDeNghi = reqLines.reduce((acc, l) => acc + (Number(l.sl_de_nghi) || 0), 0);
   const totalDuyet = reqLines.reduce((acc, l) => acc + (Number(l.sl_duyet) || 0), 0);
-  const percentDone = totalDeNghi > 0 ? Math.min(100, Math.round((totalDuyet / totalDeNghi) * 100)) : 0;
+  // Mục tiêu HIỆU LỰC — CÙNG công thức `StockRequestService.muc_tieu_hieu_luc`: kho đã chốt thực
+  // xuất thì lấy số chốt, chưa thì `sl_duyet` (NULL ≠ 0 — NULL là "chưa điều chỉnh lần nào", 0 là
+  // "chốt rằng không xuất gì"). Gộp hai số này vào một KPI "Đã duyệt/cấp" là mâu thuẫn với chính
+  // badge dòng ngay bên dưới: PXK điều chỉnh 166,97 → 120 thì KPI khoe "166,97 (100%)" kèm thanh
+  // xanh đầy, ba dòng sau lại ghi "Thực xuất 120/166,97 · Hoàn tất".
+  const totalChotCap = reqLines.reduce(
+    (acc, l) => acc + (Number(l.sl_chot_thuc_xuat ?? l.sl_duyet) || 0), 0);
+  const coDieuChinh = Math.abs(totalChotCap - totalDuyet) > 1e-9;
+  // Thanh tiến độ = MỤC TIÊU HIỆU LỰC / tổng đề nghị — "kho còn cam kết cấp bao nhiêu phần của
+  // lượng đã xin, sau khi đã điều chỉnh". KHÔNG phải "đã rời kho bao nhiêu": số thật sự giao là
+  // `sl_da_ung`, không có mặt trong công thức này. Ca thường (kho chưa điều chỉnh) số này BẰNG
+  // `totalDuyet` nên thanh không đổi gì; ca đã điều chỉnh thì thanh và pill "Chốt cấp" nói cùng
+  // một con số, và % luôn đứng cạnh đúng con số nó đang đo.
+  //
+  // Pill này KHÔNG được gọi là "Thực xuất": tổng cộng gộp dòng kho ĐÃ chốt với dòng kho CHƯA đụng
+  // tới (rơi về `sl_duyet`), nên một phiếu 2 dòng — chốt 30 kg giấy, còn 100 kg mực chưa xuất —
+  // ra 130 mà chỉ 30 rời kho thật. Badge từng dòng bên dưới mới được mang chữ "Thực xuất", vì ở
+  // cấp dòng `sl_chot_thuc_xuat` đúng là lượng kho đã xuất.
+  const percentDone = totalDeNghi > 0 ? Math.min(100, Math.round((totalChotCap / totalDeNghi) * 100)) : 0;
 
   const showStepper = req && req.trang_thai !== "cancelled" && req.trang_thai !== "rejected";
   const stepperSteps = [
@@ -1263,10 +1281,19 @@ export function InboxRequestDrawer({
               <div className="kho-kpi-pill">
                 Tổng YC: <strong>{fmtQty(totalDeNghi)}</strong>
               </div>
-              <div className={`kho-kpi-pill ${percentDone >= 100 ? "kho-kpi-pill--moss" : ""}`}>
-                Đã duyệt/cấp: <strong>{fmtQty(totalDuyet)}</strong>
-                {totalDeNghi > 0 && <span style={{ opacity: 0.85 }}>({percentDone}%)</span>}
+              <div className={`kho-kpi-pill ${!coDieuChinh && percentDone >= 100 ? "kho-kpi-pill--moss" : ""}`}>
+                Đã duyệt: <strong>{fmtQty(totalDuyet)}</strong>
+                {!coDieuChinh && totalDeNghi > 0 && <span style={{ opacity: 0.85 }}>({percentDone}%)</span>}
               </div>
+              {/* Chỉ hiện khi kho ĐÃ chốt khác số duyệt — ca thường hai số bằng nhau, thêm một pill
+                  nữa chỉ là con số thừa bắt người đọc so hai ô giống hệt. % đi theo pill này vì
+                  nó mới là con số thanh tiến độ đang đo. */}
+              {coDieuChinh && (
+                <div className={`kho-kpi-pill ${percentDone >= 100 ? "kho-kpi-pill--moss" : ""}`}>
+                  Chốt cấp: <strong>{fmtQty(totalChotCap)}</strong>
+                  {totalDeNghi > 0 && <span style={{ opacity: 0.85 }}>({percentDone}%)</span>}
+                </div>
+              )}
             </div>
             {totalDeNghi > 0 && (
               <div className="kho-kpi-progress-track">

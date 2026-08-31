@@ -89,7 +89,17 @@ class StockRequestService:
     # --- Tạo / sửa ---------------------------------------------------------
 
     def create(self, *, user, loai: str, lines: list[dict], ma: str | None = None,
-               **header) -> StockRequest:
+               commit: bool = True, **header) -> StockRequest:
+        """`commit=False` = KHÔNG tự chốt giao dịch, chỉ `flush()` xuống DB.
+
+        Dành cho người gọi đang ôm một giao dịch lớn hơn (`san_xuat/vat_tu_de_nghi.tao()` khoá công
+        đoạn bằng `SELECT … FOR UPDATE` rồi mới ghi hai bảng SX; một `commit()` ở đây là nhả khoá
+        giữa chừng). Khai TƯỜNG MINH thành tham số keyword, KHÔNG để lọt vào `**header` — `header`
+        đi thẳng xuống repo và chỉ được chứa cột của `StockRequest`.
+
+        Đẩy tin thì KHÔNG chạy khi `commit=False` — xem `thong_bao_yeu_cau_moi`, người gọi phải tự
+        gọi nó SAU khi chốt giao dịch. Với `commit=True` (mọi cửa cũ) hành vi y như trước.
+        """
         if loai not in REQUEST_KINDS:
             raise StockRequestError("Loại yêu cầu không hợp lệ (chỉ NHAP hoặc XUAT).")
         self._validate_lines(lines)
@@ -112,7 +122,7 @@ class StockRequestService:
         else:
             ma_clean = self.sequence.generate_flat_code(doc_type)
         req = self.requests.create(
-            ma=ma_clean, loai=loai, nguoi_tao_id=user.id, lines=lines, **header
+            ma=ma_clean, loai=loai, nguoi_tao_id=user.id, lines=lines, commit=commit, **header
         )
         # BỎ BƯỚC DUYỆT (chủ 06/08/2026): tạo yêu cầu là DUYỆT LUÔN — bộ phận xin là kho cấp ngay,
         # không còn "Chờ duyệt". `approved` cũng là trạng thái KHOÁ (BRD §1.5) nên yêu cầu vừa tạo
@@ -124,11 +134,27 @@ class StockRequestService:
         req.trang_thai = REQ_APPROVED
         req.nguoi_duyet_id = user.id
         req.duyet_luc = datetime.now(timezone.utc)
-        req = self.requests.save(req)
-        # Đẩy real-time để Hộp yêu cầu kho thấy yêu cầu mới ngay (badge nhảy), không bắt F5.
+        req = self.requests.save(req, commit=commit)
+        # `commit=True`: hàng đã nằm trong DB ⇒ đẩy tin ngay tại chỗ, y như trước.
+        # `commit=False`: giao dịch còn đang mở ⇒ IM LẶNG. Người gọi tự gọi `thong_bao_yeu_cau_moi`
+        # sau khi chốt (xem docstring hàm đó để biết vì sao không được bắn sớm).
+        if commit:
+            self.thong_bao_yeu_cau_moi(req)
+        return req
+
+    def thong_bao_yeu_cau_moi(self, req: StockRequest) -> None:
+        """Báo kho có yêu cầu MỚI: toast real-time (badge nhảy, không bắt F5) + tin vào chuông thủ kho.
+
+        Tách khỏi `create` để người gọi đang ôm một giao dịch lớn hơn (`create(commit=False)`) đẩy
+        được tin ĐÚNG NHỊP — tức SAU `commit()` của chính họ. Bắn sớm là bắn vào khoảng trống: trình
+        duyệt nhận SSE rồi refetch trên một CONNECTION KHÁC, connection đó chưa thấy hàng chưa
+        commit nên trả về rỗng; SSE chỉ báo một lần nên badge bỏ nhịp luôn, không tự thử lại. Tệ hơn
+        nữa là giao dịch ngoài đổ: tin đã đi rồi mà yêu cầu thì không bao giờ tồn tại.
+
+        Gọi hàm này khi và chỉ khi giao dịch đã chốt và yêu cầu chắc chắn còn sống.
+        """
         self._notify(req, "Yêu cầu mới — chờ kho cấp", targeted=False)
         self._notif_kho_moi(req)  # lưu vào chuông thủ kho
-        return req
 
     def create_dieu_chuyen(self, *, user, loai: str, kho_id: int, lines: list[dict],
                            dieu_chuyen: bool = True, kho_nguon_id: int | None = None,
@@ -551,7 +577,12 @@ class StockRequestService:
     # --- Thông báo lưu vào chuông (trung tâm thông báo) — song song với toast SSE ---------------
     def _notif_kho_moi(self, req: StockRequest) -> None:
         """Lưu thông báo 'yêu cầu mới chờ cấp' cho THỦ KHO trong phạm vi (trừ người tạo) + đẩy SSE
-        để badge chuông nhảy ngay. Bấm → mở Hộp yêu cầu tại đúng yêu cầu (link_loai='kho_inbox')."""
+        để badge chuông nhảy ngay. Bấm → mở Hộp yêu cầu tại đúng yêu cầu (link_loai='kho_inbox').
+
+        `add_many` TỰ COMMIT trên CÙNG session người gọi, nên hàm này CHỈ được chạy khi giao dịch
+        nghiệp vụ đã chốt — nếu không, commit của nó nhả luôn khoá `SELECT … FOR UPDATE` mà người
+        gọi đang giữ. Đó là lý do `create(commit=False)` không gọi tới đây; cửa duy nhất đi vào là
+        `thong_bao_yeu_cau_moi`, và nó chỉ được gọi sau `commit()`."""
         db = self.requests.db
         creator = UserRepository(db).get_by_id(req.nguoi_tao_id) if req.nguoi_tao_id else None
         dept = DepartmentRepository(db).get_by_id(req.bo_phan_id) if req.bo_phan_id else None

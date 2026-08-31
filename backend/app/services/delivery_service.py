@@ -30,6 +30,7 @@ import secrets
 import string
 from datetime import date, datetime, timedelta, timezone
 
+from .stock_request_service import StockRequestService
 from .thanh_pham_khai_bao import khai_mot_dong
 from ..realtime import hub
 from ..models.delivery import (
@@ -932,12 +933,17 @@ class DeliveryService:
         if yc_xuat is None:
             return []                       # chưa từng xuất kho ⇒ không có gì để trả
 
-        # Số đã DUYỆT xuất cho chuyến, theo mặt hàng (yêu cầu tạo là duyệt luôn nên đây là số thật).
+        # Số THẬT SỰ rời kho cho chuyến, theo mặt hàng. Phải đi qua `muc_tieu_hieu_luc` chứ KHÔNG
+        # cộng thẳng `sl_duyet`: mệnh đề cũ ("tạo là duyệt luôn nên `sl_duyet` là số thật") hết đúng
+        # từ khi có `stock_voucher_service.dieu_chinh_xuat` — kho hạ số xuống thì số chốt nằm ở
+        # `sl_chot_thuc_xuat`, `sl_duyet` giữ nguyên con số ban đầu. Lấy `sl_duyet` là trả về kho
+        # phần chưa bao giờ rời kho: xuất 500 → điều chỉnh 460 → khách nhận 440 ra 60 thay vì 20,
+        # tức tồn phình 40 đơn vị ma kèm lô giá vốn dựng theo số đó.
         da_xuat: dict[tuple[str, int], float] = {}
         gia: dict[tuple[str, int], int] = {}
         for rl in yc_xuat.lines:
             khoa = (rl.hang_loai, rl.hang_id)
-            da_xuat[khoa] = da_xuat.get(khoa, 0.0) + float(rl.sl_duyet or 0)
+            da_xuat[khoa] = da_xuat.get(khoa, 0.0) + StockRequestService.muc_tieu_hieu_luc(rl)
 
         # Số khách THỰC NHẬN của chính chuyến này, quy về mặt hàng qua dòng yêu cầu giao.
         hang_cua_dong = {ln.order_line_id: (ln.hang_loai, ln.hang_id) for ln in req.lines}

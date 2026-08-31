@@ -338,7 +338,14 @@ class StockRequestRepository:
         return [(ln, tt) for ln, tt in self.db.execute(stmt)]
 
     def create(self, *, ma: str, loai: str, nguoi_tao_id: int, lines: list[dict],
-               **header) -> StockRequest:
+               commit: bool = True, **header) -> StockRequest:
+        """`commit=False` = chỉ `flush()`, để người gọi ở NGOÀI tự chốt giao dịch.
+
+        Cần cho những luồng phải chạy TRỌN VẸN trong MỘT giao dịch (ví dụ
+        `san_xuat/vat_tu_de_nghi.tao()`: nó khoá công đoạn bằng `SELECT … FOR UPDATE` rồi mới ghi,
+        mà một `commit()` ở đây là NHẢ khoá đó ra giữa chừng). `flush()` vẫn đẩy INSERT xuống DB nên
+        `refresh(obj)` bên dưới lấy được id và các default của server như thường.
+        """
         obj = StockRequest(ma=ma, loai=loai, nguoi_tao_id=nguoi_tao_id)
         for k in _HEADER_FIELDS:
             if k in header:
@@ -346,7 +353,10 @@ class StockRequestRepository:
         for ln in lines:
             obj.lines.append(_build_line(ln, loai))
         self.db.add(obj)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
         self.db.refresh(obj)
         return obj
 
@@ -364,8 +374,12 @@ class StockRequestRepository:
                 setattr(obj, k, data[k])
         return obj
 
-    def save(self, obj: StockRequest) -> StockRequest:
-        self.db.commit()
+    def save(self, obj: StockRequest, *, commit: bool = True) -> StockRequest:
+        """`commit=False`: chỉ `flush()` — xem docstring `create` để biết vì sao cần."""
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
         self.db.refresh(obj)
         return obj
 
