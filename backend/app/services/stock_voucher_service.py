@@ -357,7 +357,12 @@ class StockVoucherService:
         return req
 
     def post(self, voucher_id: int, user=None):
-        """Ghi sổ phiếu — điểm DUY NHẤT tồn kho đổi. Chạy trong 1 transaction.
+        """Ghi sổ phiếu — điểm DUY NHẤT tồn kho đổi.
+
+        ⚠️ KHÔNG chạy nguyên trong 1 transaction rollback-safe: phần giữ chỗ (nếu `self.giu_cho`
+        có gắn) — `chuyen_dang_ve_sang_kho()`, `doi_soat_dang_ve()`, `nhat_them()` — tự
+        `db.commit()` giữa chừng, cùng kiểu pre-existing với chính hàm này. Lỗi nửa chừng SAU một
+        commit con thì phần đã commit đó KHÔNG rollback theo.
 
         ĐIỀU CHUYỂN (mô hình 2 yêu cầu): phiếu XUẤT nguồn được tạo NHÁP lúc ấn điều chuyển, CHƯA trừ
         tồn. Khi kho đích ghi sổ phiếu NHẬP → ghi sổ LUÔN phiếu xuất nguồn (draft) trong CÙNG một
