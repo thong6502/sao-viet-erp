@@ -180,7 +180,7 @@ class StockVoucherService:
         # Luật 2: không ứng vượt số đã duyệt. + Cấp/nhập THIẾU (SL < còn phải cấp) phải có LÝ DO.
         for rl_id, qty in wanted.items():
             rl = lines_by_id[rl_id]
-            con_lai = float(rl.sl_duyet) - float(rl.sl_da_ung)
+            con_lai = self.request_service.con_lai(rl)
             if qty > con_lai + 1e-9:
                 raise StockVoucherError(
                     "Ứng vượt số đã duyệt. Muốn cấp thêm thì phải tạo yêu cầu mới."
@@ -256,7 +256,7 @@ class StockVoucherService:
             rl = lines_by_id.get(rl_id)
             if rl is None:
                 raise StockVoucherError("Dòng phiếu trỏ vào yêu cầu khác.")
-            con_lai = float(rl.sl_duyet) - float(rl.sl_da_ung)
+            con_lai = self.request_service.con_lai(rl)
             if qty > con_lai + 1e-9:
                 raise StockVoucherError("Ứng vượt số đã duyệt — không ghi sổ được.")
 
@@ -509,7 +509,7 @@ class StockVoucherService:
             # xuất 60) mà điều chỉnh 60→50 thì "còn lại" phải vẫn là 50, không được thành 0 rồi
             # đóng yêu cầu — 50 tờ kia chưa hề xuất. So với mục tiêu HIỆU LỰC chứ không `sl_duyet`,
             # để điều chỉnh lần hai (100→80→60) vẫn chốt tiếp được.
-            da_cap_du = float(rl.sl_da_ung) >= self.request_service.muc_tieu_hieu_luc(rl)
+            da_cap_du = float(rl.sl_da_ung) >= self.request_service.muc_tieu_hieu_luc(rl) - 1e-9
             rl.sl_da_ung = max(0.0, float(rl.sl_da_ung) - con_bo)  # yêu cầu: 'còn N chưa cấp'
             if da_cap_du:
                 # CHỐT = TỔNG đã xuất hiện tại của dòng yêu cầu, không phải hiệu của riêng lần

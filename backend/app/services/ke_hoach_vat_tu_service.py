@@ -58,6 +58,7 @@ from .bien_cong_thuc import quy_cach_bien, quy_cach_bien_bai
 from .bien_cong_thuc import KHUNG_LUA_MAC_DINH, ngu_canh_lenh
 from .thanh_phan_engine import safe_eval
 from .quy_doi_service import _so, bien_trong, cap_map, doi, don_vi_map
+from .stock_request_service import StockRequestService
 
 # Lệnh ở ba trạng thái này là thứ kế hoạch phải lo giấy: đã chốt kỹ thuật, chỉ còn chờ chạy.
 # `nhap`/`cho_bo_sung` chưa chốt quy cách nên số tờ còn xê dịch — đưa vào bảng là mua theo số sắp đổi.
@@ -487,7 +488,7 @@ class KeHoachVatTuService:
                 (_f(ln.sl_da_ung), da_cap),
                 # Đề nghị đã DONE thì phần chênh duyệt−ứng là phần kho chốt KHÔNG cấp nữa (giao
                 # thiếu, đóng phiếu), không phải hàng đang trên đường ra khỏi kho.
-                (0.0 if trang_thai == REQ_DONE else max(0.0, _f(ln.sl_duyet) - _f(ln.sl_da_ung)),
+                (0.0 if trang_thai == REQ_DONE else StockRequestService.con_lai(ln),
                  dang_linh),
             ):
                 if nguon <= 0:

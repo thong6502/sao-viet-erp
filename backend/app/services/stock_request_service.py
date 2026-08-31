@@ -612,7 +612,7 @@ class StockRequestService:
 
         NULL ≠ 0: NULL là "kho chưa điều chỉnh lần nào", 0 là "chốt rằng không xuất gì".
         """
-        chot = getattr(ln, "sl_chot_thuc_xuat", None)
+        chot = ln.sl_chot_thuc_xuat
         return float(chot) if chot is not None else float(ln.sl_duyet)
 
     @staticmethod
@@ -624,6 +624,7 @@ class StockRequestService:
         Đã cấp một phần. Gọi từ `stock_voucher_service` sau khi cộng `sl_da_ung`."""
         if not req.lines:
             return req
+        truoc = req.trang_thai
         done = all(float(ln.sl_da_ung) >= self.muc_tieu_hieu_luc(ln) for ln in req.lines)
         any_issued = any(float(ln.sl_da_ung) > 0 for ln in req.lines)
         if done:
@@ -636,6 +637,8 @@ class StockRequestService:
         if getattr(req, "dieu_chuyen", False) and req.loai == REQ_XUAT:
             return req
         self._notify(req, "Hoàn tất yêu cầu" if done else "Kho đã cấp một phần")
-        if done:  # chỉ báo chuông khi ĐỦ (hoàn tất); cấp một phần chưa phải kết quả cuối
+        # Chỉ reo chuông ở lượt CHUYỂN sang hoàn tất — điều chỉnh xuất (100→70) trên yêu cầu ĐÃ
+        # `done` từ trước thì `done` vẫn đúng nhưng trạng thái không đổi, không reo lại.
+        if done and truoc != REQ_DONE:
             self._notif_nguoi_tao(req, loai="kho_hoan_tat", tieu_de="Yêu cầu đã hoàn tất")
         return req
