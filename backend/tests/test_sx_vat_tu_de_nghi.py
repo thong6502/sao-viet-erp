@@ -272,6 +272,36 @@ def test_tao_co_dong_duong_thi_de_yeu_cau_kho_approved(db, orders, lsx_svc, admi
     assert all(float(l.sl_de_nghi) > 0 for l in req.lines)
 
 
+def test_ngay_can_tinh_theo_gio_vn_khong_phai_utc(db, orders, lsx_svc, admin, customer):
+    """`ngay_can` phải là ngày CỦA GIỜ VIỆT NAM mà `can_luc` rơi vào, không phải ngày UTC.
+
+    `can_luc` = 02/09 18:00 UTC ⇒ giờ VN (+7h) = 03/09 01:00 — đã SANG NGÀY HÔM SAU. Trước đây
+    `ngay_can = can_luc.date()` lấy thẳng ngày UTC ra "02/09", trong khi màn kho hiện GIỜ VN
+    (`fmtDateTime` quy về `Asia/Ho_Chi_Minh`) ra "03/09 01:00" — thủ kho lọc khoảng "03/09 → 03/09"
+    (đúng ngày nhìn thấy trên màn) sẽ KHÔNG ra dòng này, mất phiếu (task-8-review.md Minor 8, xếp
+    BẮT BUỘC ở vòng sửa 1 dù nằm ngoài diff Task 8 vì đây là lỗi đúng-sai của chính plan này)."""
+    from datetime import date
+
+    from app.models.stock_request import StockRequest
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VT-TZ")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    can_luc_toi_muon = datetime(2026, 9, 2, 18, 0, tzinfo=timezone.utc)
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=can_luc_toi_muon, lines=lines)
+
+    req = db.get(StockRequest, ra["stock_request_id"])
+    assert req.ngay_can == date(2026, 9, 3), (
+        f"can_luc=02/09 18:00 UTC = 03/09 01:00 giờ VN, nhưng ngay_can lưu {req.ngay_can} "
+        "(lọc theo ngày VN sẽ mất phiếu này)"
+    )
+
+
 def test_khop_ke_hoach_thi_khong_doi_ly_do(db, orders, lsx_svc, admin, customer):
     """Xin đúng số kế hoạch (sau quy đổi) ⇒ không phải giải thích gì."""
     from app.services.san_xuat import vat_tu_de_nghi as V

@@ -414,7 +414,7 @@ export function KhoYeuCauPage({
                 <>
                   {pageRequests.map((r) => {
                   const p = progressOf(r);
-                  const overdue = isOverdue(r.ngay_can, r.trang_thai);
+                  const overdue = isOverdue(r.ngay_can, r.trang_thai, r.can_luc);
                   return (
                     <tr
                       key={r.id}
@@ -1310,8 +1310,17 @@ export function InboxRequestDrawer({
                 <h3 className="rc-sec__title">Thông tin yêu cầu</h3>
                 <div className="kho-info-grid">
                   <div className="kho-info-item">
-                    <span className="kho-info-item__label">Ngày cần</span>
-                    <div className="kho-info-item__val">{req.ngay_can ? fmtDateISO(req.ngay_can) : "—"}</div>
+                    {/* Ưu tiên GIỜ cần thật (`can_luc`, từ đề nghị sản xuất) như cột danh sách — trả field
+                        về mà drawer vẫn chỉ hiện ngày trơn thì mất luôn thông tin giờ vừa thấy ở danh
+                        sách khi bấm mở chi tiết (task-8-review.md Minor 6). */}
+                    <span className="kho-info-item__label">{req.can_luc ? "Cần lúc" : "Ngày cần"}</span>
+                    <div className="kho-info-item__val">
+                      {req.can_luc
+                        ? fmtDateTime(req.can_luc)
+                        : req.ngay_can
+                          ? fmtDateISO(req.ngay_can)
+                          : "—"}
+                    </div>
                   </div>
                   <div className="kho-info-item">
                     <span className="kho-info-item__label">Người đề nghị</span>
@@ -1356,11 +1365,18 @@ export function InboxRequestDrawer({
                       {req.lines.map((l) => {
                         const dvtYc = tenDonVi(l.dvt) ?? l.dvt;   // đơn vị người yêu cầu (Yêu cầu)
                         const dvtGoc = tenDonVi(l.don_vi_goc ?? l.dvt) ?? l.don_vi_goc ?? l.dvt; // đơn vị gốc lưu kho (Tồn)
-                        // `ton_kha_dung` ở ĐƠN VỊ GỐC (Σ sl_con_lai lô), còn `sl_duyet` ở đơn vị YÊU CẦU
-                        // → quy duyệt về gốc rồi mới so thiếu/đủ, không thì trừ chéo đơn vị (70 tờ − 1 ram).
+                        // `ton_kha_dung` ở ĐƠN VỊ GỐC (Σ sl_con_lai lô), còn `sl_con_lai` (dòng yêu cầu)
+                        // ở đơn vị YÊU CẦU → quy về gốc rồi mới so thiếu/đủ, không thì trừ chéo đơn vị
+                        // (70 tờ − 1 ram). DÙNG `sl_con_lai`, KHÔNG dùng `sl_duyet`: mục tiêu còn phải
+                        // cấp sau khi kho CHỐT (điều chỉnh xuất) là `coalesce(sl_chot_thuc_xuat,
+                        // sl_duyet) - sl_da_ung` kẹp ≥ 0 — MỘT đường tính duy nhất ở
+                        // `StockRequestService.con_lai` (backend/app/services/stock_request_service.py:610),
+                        // trả sẵn qua field này. Xin 100 · xuất 100 · điều chỉnh còn 70 ⇒ `sl_con_lai` =
+                        // 0 ⇒ hết thiếu, không còn "Thiếu N" đá nhau với badge xanh "Hoàn tất" cạnh nó
+                        // (task-8-review.md Important 3).
                         const heSoVeGoc = l.sl_quy_doi && l.sl_de_nghi ? l.sl_quy_doi / l.sl_de_nghi : 1;
-                        const shortage = (l.sl_duyet || 0) * heSoVeGoc - (l.ton_kha_dung || 0);
-                        const isShort = l.ton_kha_dung != null && shortage > 1e-6;
+                        const shortage = (l.sl_con_lai || 0) * heSoVeGoc - (l.ton_kha_dung || 0);
+                        const isShort = l.sl_con_lai > 0 && l.ton_kha_dung != null && shortage > 1e-6;
                         return (
                           <tr key={l.id}>
                             <td>
@@ -1390,14 +1406,19 @@ export function InboxRequestDrawer({
                               {fmtQty(l.sl_de_nghi)} <span className="kho-alloc__unit">{dvtYc}</span>
                               {/* Kho đã CHỐT thực xuất (điều chỉnh phiếu xuất) → hiện "thực xuất N / yêu
                                   cầu M" + Hoàn tất, KHÔNG hiện "còn thiếu" (kho không xử lý lý do lệch kế
-                                  hoạch — task-8-ruling-man-kho). */}
+                                  hoạch — task-8-ruling-man-kho). Mẫu số `sl_de_nghi` khớp con số ngay
+                                  trên cùng ô (cột "Yêu cầu") — nhưng nếu người duyệt đã hạ số duyệt khác
+                                  `sl_de_nghi` thì đó chưa từng là mục tiêu thật, nên chua thêm "(duyệt N)"
+                                  (task-8-review.md Minor 5). */}
                               {l.sl_chot_thuc_xuat != null && (
                                 <div>
                                   <span
                                     className="kho-line-badge kho-line-badge--moss"
                                     style={{ fontSize: 10, marginTop: 2 }}
                                   >
-                                    Thực xuất {fmtQty(l.sl_chot_thuc_xuat)}/{fmtQty(l.sl_de_nghi)} {dvtYc} · Hoàn tất
+                                    Thực xuất {fmtQty(l.sl_chot_thuc_xuat)}/{fmtQty(l.sl_de_nghi)} {dvtYc}
+                                    {l.sl_duyet !== l.sl_de_nghi ? ` (duyệt ${fmtQty(l.sl_duyet)})` : ""}
+                                    {" "}· Hoàn tất
                                   </span>
                                 </div>
                               )}

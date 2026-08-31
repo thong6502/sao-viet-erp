@@ -8,7 +8,7 @@ BA thang đơn vị chạy song song trong `tao()` — xem docstring của hàm 
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
@@ -26,10 +26,28 @@ from ..ke_hoach_vat_tu_service import KeHoachVatTuError
 from .vat_tu_nhan import _gate_to_truong
 
 _EPS = 0.0005      # cùng dung sai làm tròn với `san_luong.tao_batch`
+# Việt Nam không có giờ mùa hè (DST) → offset cố định là đủ, không cần `ZoneInfo`. Cùng quy ước với
+# `stock_voucher_service.py:436`.
+_VN_TZ = timezone(timedelta(hours=7))
 
 
 class VatTuDeNghiError(Exception):
     """Lỗi NGHIỆP VỤ (400) — khác `PermissionError` (403)."""
+
+
+def _ngay_vn(can_luc: datetime) -> date:
+    """Ngày mà `can_luc` rơi vào, tính theo GIỜ VIỆT NAM — KHÔNG phải UTC.
+
+    Trước đây gọi thẳng `can_luc.date()`: trên một datetime AWARE, `.date()` lấy ngày theo múi giờ
+    ĐÃ GẮN trên chính giá trị đó — ở đây là UTC (client gửi ISO có offset, hoặc SQLite trả naive mà
+    ta coi = UTC, cùng quy ước `_aware()` toàn hệ thống). `can_luc` = 02/09 18:00 UTC ⇒ ngày UTC là
+    "2/9", nhưng màn kho hiện GIỜ VN (`fmtDateTime` quy về `Asia/Ho_Chi_Minh`) ra "3/9 01:00" — lưu
+    `ngay_can = 2/9` trong khi thủ kho nhìn thấy "3/9" và lọc khoảng ngày cũng theo lịch VN ⇒ lọc
+    đúng "03/09 → 03/09" mà KHÔNG ra dòng đó, mất phiếu (task-8-review.md Minor 8). Naive coi = UTC
+    trước khi quy đổi, cùng quy ước `_aware()` (`giu_cho_service.py:88`, `may_trang_thai.py:51`).
+    """
+    aware = can_luc if can_luc.tzinfo is not None else can_luc.replace(tzinfo=timezone.utc)
+    return aware.astimezone(_VN_TZ).date()
 
 
 def _f(v) -> float:
@@ -331,7 +349,7 @@ def tao(db: Session, *, user, cong_viec_id: int, can_luc: datetime,
             # người bấm, không phải TỔ của công đoạn. Để mặc định là yêu cầu hiện sai bộ phận trên
             # bản in và lệch scope `department` của kho.
             bo_phan_id=cv.department_id,
-            ngay_can=can_luc.date(),
+            ngay_can=_ngay_vn(can_luc),
             ghi_chu=f"Cấp vật tư công đoạn «{cv.ten_cong_doan}» (lần {lan_so}).",
         )
 
@@ -413,19 +431,19 @@ def sua(db: Session, *, user, cong_viec_id: int, de_nghi_id: int,
         if kho_lines:
             req = req_svc.create(
                 user=user, loai=REQ_XUAT, lines=kho_lines, bo_phan_id=cv.department_id,
-                ngay_can=can_luc.date(),
+                ngay_can=_ngay_vn(can_luc),
                 ghi_chu=f"Cấp vật tư công đoạn «{cv.ten_cong_doan}» (lần {dn.lan_so}).",
             )
             req_id_moi = req.id
     elif kho_lines:
         if truoc_do_toan_0:
             req_svc.khoi_phuc_tu_san_xuat(dn.stock_request_id, kho_lines,
-                                          user=user, ngay_can=can_luc.date())
+                                          user=user, ngay_can=_ngay_vn(can_luc))
         else:
             # Trước đó vẫn còn dòng dương ⇒ sản xuất chưa hủy gì. Đi đường đồng bộ thường; nếu
             # yêu cầu đang `cancelled` thì đó là kho hủy và `dong_bo_tu_san_xuat` sẽ chặn.
             req_svc.dong_bo_tu_san_xuat(dn.stock_request_id, kho_lines,
-                                        user=user, ngay_can=can_luc.date())
+                                        user=user, ngay_can=_ngay_vn(can_luc))
     else:
         req_svc.huy_tu_san_xuat(dn.stock_request_id, user=user)
 

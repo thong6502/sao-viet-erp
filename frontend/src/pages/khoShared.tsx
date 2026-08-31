@@ -227,8 +227,19 @@ export function todayISO(): string {
 /** Trạng thái đã đóng sổ — quá hạn thì cũng không còn ý nghĩa cảnh báo. */
 const CLOSED: StockRequestStatus[] = ["done", "rejected", "cancelled"];
 
-export function isOverdue(ngayCan: string | null, status: StockRequestStatus): boolean {
-  if (!ngayCan || CLOSED.includes(status)) return false;
+/** `canLuc` (giờ cần thật, từ đề nghị sản xuất) ưu tiên khi có — so THEO GIỜ, không theo ngày:
+ *  cột hiển thị đã đổi nhãn "Cần lúc" và hiện giờ (task-8-ruling-man-kho), nên tín hiệu trễ phải
+ *  khớp — ca sáng cần 06:00 mà tới chiều vẫn chưa "Quá hạn" thì đá ngay với chính cột vừa hiện giờ
+ *  cạnh nó (task-8-review.md Important 4). Không có `canLuc` (yêu cầu kho thường) → giữ NGUYÊN
+ *  hành vi cũ, so theo ngày trơn. */
+export function isOverdue(
+  ngayCan: string | null,
+  status: StockRequestStatus,
+  canLuc?: string | null,
+): boolean {
+  if (CLOSED.includes(status)) return false;
+  if (canLuc) return new Date(canLuc).getTime() < Date.now();
+  if (!ngayCan) return false;
   return ngayCan < todayISO();
 }
 

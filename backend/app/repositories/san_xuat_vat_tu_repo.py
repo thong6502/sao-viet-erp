@@ -52,6 +52,10 @@ class SanXuatVatTuRepository:
             .join(SanXuatCongViec, SanXuatCongViec.id == SanXuatVatTuDeNghi.cong_viec_id)
             .where(SanXuatVatTuDeNghi.stock_request_id.in_(ids))
         )
+        # Dict comprehension lấy dòng CUỐI nếu trùng `rid` — an toàn vì KHÔNG THỂ trùng: có
+        # `UniqueConstraint("stock_request_id", ...)` ở `models/san_xuat_vat_tu.py:74` chặn hai
+        # `SanXuatVatTuDeNghi` cùng trỏ một `stock_request_id` ngay ở tầng DB. Ai gỡ ràng buộc đó
+        # sau này phải quay lại đây: dict sẽ âm thầm mất một dòng theo thứ tự DB trả, không lỗi.
         return {
             rid: {"can_luc": can_luc, "cong_viec_id": cv_id, "cong_doan_ten": ten}
             for rid, can_luc, cv_id, ten in rows
