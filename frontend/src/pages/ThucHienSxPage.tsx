@@ -223,12 +223,26 @@ export function ThucHienSxPage({
   const vtDem = selectedId != null ? (vatTuDeNghiDem?.[selectedId] ?? 0) : 0;
   useEffect(() => {
     const truoc = vtDaXem.current;
-    vtDaXem.current = { cv: selectedId, dem: vtDem };
-    if (selectedId == null || truoc.cv !== selectedId || vtDem === truoc.dem) return;
+    if (selectedId == null || truoc.cv !== selectedId || vtDem === truoc.dem) {
+      vtDaXem.current = { cv: selectedId, dem: vtDem };
+      return;
+    }
+    const nap = () => {
+      vtDaXem.current = { cv: selectedId, dem: vtDem };
+      void loadChiTiet(selectedId);
+    };
     // Người VỪA bấm đã được `mutate` nạp lại xong, rồi sự kiện SSE của chính họ vọng về ngay sau
-    // đó: nạp lần hai là một lượt gọi API thừa cho đúng dữ liệu vừa lấy.
-    if (Date.now() - vuaTuNap.current < 2000) return;
-    void loadChiTiet(selectedId);
+    // đó: nạp ngay là một lượt gọi API thừa cho đúng dữ liệu vừa lấy.
+    const con = 2000 - (Date.now() - vuaTuNap.current);
+    if (con <= 0) { nap(); return; }
+    // …nhưng KHÔNG được vứt sự kiện rơi vào cửa đó. Cửa mở vì thao tác của CHÍNH mình, mà sự kiện
+    // rơi vào có thể là của tổ trưởng khác — bỏ qua rồi đánh dấu "đã xem" là drawer đứng số cũ vô
+    // thời hạn, không toast (AppShell im vì đúng việc đang mở) và không tự sửa theo thời gian.
+    // Nên: hẹn ĐÚNG phần còn lại của cửa rồi nạp một lượt. `vtDaXem` chỉ ghi khi thật sự nạp, nên
+    // nếu effect chạy lại giữa chừng thì sự kiện vẫn còn nguyên là "chưa xem". Một hẹn duy nhất —
+    // không vòng lặp thăm dò, và vẫn đúng "một sự kiện nhiều nhất một lượt gọi API".
+    const h = setTimeout(nap, con);
+    return () => clearTimeout(h);
   }, [vtDem, selectedId, loadChiTiet]);
 
   // Cho AppShell biết drawer đang mở việc nào — nó dùng để KHÔNG bắn toast cho chính việc đó.

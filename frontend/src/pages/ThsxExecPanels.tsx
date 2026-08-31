@@ -1061,6 +1061,10 @@ function vtCanLyDo(d: VtDongForm, loai: "lan_dau" | "bo_sung"): { hien: boolean;
     const batBuoc = d.sl_yeu_cau > VT_EPS;
     return { hien: batBuoc, batBuoc };
   }
+  // Món kế hoạch CHƯA khai đơn vị mà tổ để 0: không có mốc nào để nói lệch (BE gắn cờ
+  // "không đối chiếu được" và miễn luật lý do cho đúng ca này) ⇒ đừng gắn dấu `*` đòi bắt buộc.
+  // Vẫn MỞ ô để ai muốn ghi chú thì ghi — chữ đó nay đi được tới BE (xem `vtPayloadLines`).
+  if (d.tuKeHoach && !d.dvt && d.sl_yeu_cau <= VT_EPS) return { hien: true, batBuoc: false };
   if (!d.tuKeHoach) {
     const co = d.sl_yeu_cau > VT_EPS;
     return { hien: co, batBuoc: co };
@@ -1116,9 +1120,13 @@ function vtCanTro(
 }
 
 function vtPayloadLines(dongs: VtDongForm[], loai: "lan_dau" | "bo_sung"): SxVatTuDeNghiDongIn[] {
-  // Lọc `!!d.dvt` giữ lại như CHỐT CUỐI, nhưng `vtCanTro` đã chặn nút Gửi trước đó nên nó không
-  // còn là đường vứt dòng âm thầm nữa.
-  const giu = dongs.filter((d) => d.hang_id > 0 && !!d.dvt)
+  // Dòng KẾ HOẠCH giữ lại kể cả khi `dvt` rỗng (danh mục chưa khai đơn vị gốc): BE nhận được
+  // `dvt=""` với số 0 và miễn luật lý do cho đúng ca đó. Lọc thẳng `!!d.dvt` như trước là vứt HẲN
+  // dòng — kéo theo cả chữ người dùng vừa gõ vào ô Lý do (mà giao diện lại đang gắn dấu `*` đòi
+  // bắt buộc), và bản đối chiếu thì ghi thiếu thứ họ khai.
+  // Dòng NGOÀI kế hoạch vẫn phải có đơn vị: `vtCanTro` chặn nút Gửi khi nó đang xin số dương, còn
+  // khi nó ở 0 thì bộ lọc dưới bỏ nó — không có ngách nào lọt xuống BE.
+  const giu = dongs.filter((d) => d.hang_id > 0 && (!!d.dvt || d.tuKeHoach))
     // lần đầu: giữ MỌI dòng gốc kế hoạch kể cả 0 ("kế hoạch có, tổ không lấy"); dòng ngoài kế
     // hoạch mà = 0 thì bỏ. Bổ sung: chỉ dòng dương.
     .filter((d) => (loai === "lan_dau" ? d.tuKeHoach || d.sl_yeu_cau > VT_EPS : d.sl_yeu_cau > VT_EPS));

@@ -1412,8 +1412,10 @@ def test_dong_ngoai_ke_hoach_thieu_don_vi_ra_loi_doc_duoc(db, orders, lsx_svc, a
     with pytest.raises(VatTuDeNghiError) as e:      # KeyError sẽ KHÔNG lọt qua chỗ này
         V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
     loi = str(e.value)
-    assert "đơn vị" in loi.lower()
     assert f"#{ngoai_id}" in loi                    # nêu đích danh mặt hàng đang thiếu đơn vị
+    # Bắt phần ĐẶC TRƯNG của chốt chặn này. Chỉ assert chữ "đơn vị" là test không có răng: gỡ hẳn
+    # chốt ra thì `ve_don_vi_goc` vẫn ném một câu dự phòng cũng chứa "đơn vị", test vẫn xanh.
+    assert "báo kỹ thuật" in loi
 
 
 # --- Vòng sửa 2 (Task 9): dòng TRONG kế hoạch thiếu đơn vị ------------------------------------
@@ -1427,9 +1429,14 @@ def test_mat_hang_ke_hoach_thieu_don_vi_khong_khoa_ca_cong_doan(
 ):
     """MỘT món thiếu đơn vị trong danh mục KHÔNG được khoá chết cả công đoạn.
 
-    Vòng sửa 1 đặt `if not dvt: raise` trong vòng lặp duyệt TOÀN BỘ kế hoạch, nên nó ném lỗi kể cả
-    khi tổ để món đó ở 0 và chỉ xin những món khác ⇒ tổ trưởng không gửi được gì, không đường thoát.
-    Đúng họ lỗi mà C1 và M5 vừa phải gỡ.
+    Payload ở đây là payload FE THẬT SỰ gửi: `vtPayloadLines` lọc `!!d.dvt` nên dòng thiếu đơn vị
+    **vắng mặt hoàn toàn** khỏi `lines`, KHÔNG kèm lý do. Bản trước của test này gửi dòng đó kèm
+    `ly_do_chenh_lech` — một payload giao diện không bao giờ sinh ra — nên nó XANH trong khi luồng
+    thật vẫn tắc ở `«X» lệch kế hoạch — phải ghi lý do`.
+
+    Đường đi của lỗi: `ln = None` ⇒ `sl = 0`; `_ve_goc_dong` trượt nhánh (1) vì `kh_goc = 0` (món
+    chưa khai công thức lượng thì `_quy_doi_dong` ép `nhu_cau = 0` + cờ `CB_KHONG_DOI_CHIEU`) rồi
+    rơi nhánh (3) trả `theo_goc = False` ⇒ `lech = |0 − 5|` ⇒ đòi lý do cho món tổ không hề xin.
     """
     from app.models.stock_request import StockRequest
     from app.services.san_xuat import vat_tu_de_nghi as V
@@ -1446,15 +1453,14 @@ def test_mat_hang_ke_hoach_thieu_don_vi_khong_khoa_ca_cong_doan(
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     k_thieu = next(k for k in kh if k["hang_loai"] == "vat_tu" and k["hang_id"] == thieu.id)
     assert k_thieu["dvt"] == ""            # tiền đề của test — kế hoạch thật sự không có đơn vị
+    assert k_thieu["sl"] > 0               # …và nó CÓ số kế hoạch, tức `lech` thật sự bật lên
     k_giay = next(k for k in kh if k["hang_loai"] == "giay")
 
-    # Tổ xin bình thường món CÓ đơn vị, để 0 cho món thiếu đơn vị (kèm lý do — luật lệch kế hoạch
-    # của lần đầu vẫn nguyên, vòng này không đụng tới).
+    # Tổ chỉ xin món CÓ đơn vị. Món thiếu đơn vị KHÔNG có mặt trong payload — không lý do, không
+    # dòng, đúng như giao diện gửi.
     ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=[
         {"hang_loai": k_giay["hang_loai"], "hang_id": k_giay["hang_id"], "dvt": k_giay["dvt"],
          "sl_yeu_cau": k_giay["sl"]},
-        {"hang_loai": k_thieu["hang_loai"], "hang_id": k_thieu["hang_id"], "dvt": "",
-         "sl_yeu_cau": 0, "ly_do_chenh_lech": "Món này chưa khai đơn vị, kho không xuất được"},
     ])
 
     dn = db.get(SanXuatVatTuDeNghi, ra["de_nghi_id"])
@@ -1464,6 +1470,42 @@ def test_mat_hang_ke_hoach_thieu_don_vi_khong_khoa_ca_cong_doan(
     # …và yêu cầu kho vẫn đi, chỉ mang món xin được.
     req = db.get(StockRequest, ra["stock_request_id"])
     assert [l.hang_id for l in req.lines] == [k_giay["hang_id"]]
+
+
+def test_dong_thieu_don_vi_gui_kem_so_0_va_ghi_chu_thi_giu_nguyen_ghi_chu(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Payload FE gửi SAU mục 2 vòng sửa 3: dòng thiếu đơn vị ĐƯỢC giữ trong `lines` với `dvt` rỗng
+    và số 0, không bắt buộc lý do nhưng ghi chú người dùng gõ thì phải còn.
+
+    Trước mục 2, `vtPayloadLines` vứt hẳn dòng này nên chữ người dùng vừa gõ vào ô Lý do (mà chính
+    giao diện đang gắn dấu `*` đòi bắt buộc) bốc hơi không dấu vết."""
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTFX6")
+    to.head_user_id = admin.id
+    db.commit()
+    thieu = _khai_them_vat_tu_vao_buoc(
+        db, cv, ma="VT-NODVT-3", ten="Keo gáy chưa khai đơn vị", so_luong=5, dvt="",
+    )
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+
+    lines = []
+    for k in kh:
+        ln = {"hang_loai": k["hang_loai"], "hang_id": k["hang_id"], "dvt": k["dvt"],
+              "sl_yeu_cau": k["sl"]}
+        if k["hang_id"] == thieu.id and k["hang_loai"] == "vat_tu":
+            ln["sl_yeu_cau"] = 0                      # tổ để 0, KHÔNG bị đòi lý do…
+            ln["ly_do_chenh_lech"] = "Tổ có sẵn, không cần lấy"   # …nhưng vẫn tự ghi chú
+        lines.append(ln)
+
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+
+    dn = db.get(SanXuatVatTuDeNghi, ra["de_nghi_id"])
+    d_thieu = next(d for d in dn.dongs if d.hang_id == thieu.id)
+    assert float(d_thieu.sl_yeu_cau) == 0
+    assert d_thieu.ly_do_chenh_lech == "Tổ có sẵn, không cần lấy"
 
 
 def test_xin_so_duong_cho_mat_hang_thieu_don_vi_van_bao_loi_doc_duoc(
@@ -1493,5 +1535,5 @@ def test_xin_so_duong_cho_mat_hang_thieu_don_vi_van_bao_loi_doc_duoc(
     with pytest.raises(VatTuDeNghiError) as e:
         V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
     loi = str(e.value)
-    assert "đơn vị" in loi.lower()
     assert "Keo gáy chưa khai đơn vị" in loi
+    assert "báo kỹ thuật" in loi        # phần ĐẶC TRƯNG của chốt chặn — xem chú thích test trên

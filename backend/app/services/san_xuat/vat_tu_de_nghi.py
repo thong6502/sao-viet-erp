@@ -145,9 +145,16 @@ def _chuan_hoa(kh_svc, cv, lines: list[dict], *, bat_buoc_ly_do: bool) -> list[d
         # đây thì mọi dòng kế hoạch không gửi đều ném lỗi, mà form bổ sung lại không có chỗ ghi lý
         # do cho chúng ⇒ đường bổ sung tắc hẳn. Đổi lại, mọi dòng KHÁC 0 của lần bổ sung đều phải
         # giải thích (xin thêm là một quyết định mới), nên không nới lỏng gì.
-        # Lần ĐẦU giữ nguyên luật cũ: lệch kế hoạch, hoặc ngoài kế hoạch + số dương.
+        # Lần ĐẦU giữ nguyên luật cũ: lệch kế hoạch, hoặc ngoài kế hoạch + số dương — TRỪ đúng một
+        # ca: món TRONG kế hoạch chưa khai đơn vị mà tổ để 0. Món như vậy không có mốc nào để nói
+        # lệch hay không lệch (`_quy_doi_dong` gắn sẵn cờ `CB_KHONG_DOI_CHIEU` cho đúng ngữ nghĩa
+        # đó, và `nhu_cau` bị ép về 0), nên `_ve_goc_dong` trả `theo_goc=False` và `lech` hoá thành
+        # `|0 − sl_kế_hoạch|` — luôn True. Đòi giải thích ở đây là ngõ cụt kín: đường thoát duy
+        # nhất là "đưa về 0", mà nó ĐANG ở 0 và chính cái 0 đó đẻ ra `lech`; dòng kế hoạch không
+        # xoá được; và tổ trưởng không có quyền sửa danh mục vật tư.
+        khong_doi_chieu = k_row is not None and not dvt and sl <= _EPS
         can_ly_do = (sl > _EPS) if bat_buoc_ly_do \
-            else (lech or (k_row is None and sl > _EPS))
+            else (not khong_doi_chieu and (lech or (k_row is None and sl > _EPS)))
         if can_ly_do and not ly_do:
             raise VatTuDeNghiError(f"«{ten}» lệch kế hoạch — phải ghi lý do.")
         ra.append({
