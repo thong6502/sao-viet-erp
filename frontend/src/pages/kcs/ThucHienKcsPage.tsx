@@ -54,6 +54,17 @@ type DrawerState =
   | { mode: "dot_xuat" }
   | { mode: "xem"; item: SxWorkItem; batch: SxKcsBatchChiTiet };
 
+/** Ngày theo LỊCH VN (không phải lát cắt chuỗi UTC thô) — khớp `_ngay_vn()` phía backend
+ *  (`kcs_bao_cao.py`) dùng để bucket KPI/biểu đồ/Excel theo ngày. `r.luc` LUÔN có offset (cột DB
+ *  `bat_dau`/`ket_thuc` khai `DateTime(timezone=True)`; nhánh đột xuất dùng `toISOString()`) nên
+ *  không cần nhánh xử lý "naive" như `fmtDateTime()` ở utils/format.ts (nguồn khác, có thể naive).
+ *  Việt Nam không có DST nên phép này tương đương toán học với `ZoneInfo("Asia/Bangkok")` phía
+ *  Python — không có rủi ro trôi giữa 2 ngôn ngữ. Batch ghi 00:00–07:00 giờ VN rơi vào NGÀY HÔM
+ *  TRƯỚC theo UTC — cắt chuỗi thô (bản round 1) lệch 1 ngày với backend đúng vào khung ca đêm. */
+function ngayVN(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date(iso));
+}
+
 export function ThucHienKcsPage({
   teamId, tenTo, eventTick, onBadgeStale,
 }: {
@@ -183,10 +194,10 @@ export function ThucHienKcsPage({
       // kcs_bao_cao.py (`_hang_kcs_theo_scope`, Ruling 3): công đoạn neo LỎNG qua id không ổn
       // định, tên snapshot là cái duy nhất còn đúng qua thời gian.
       if (congDoanTen && r.tenCongDoan !== congDoanTen) return false;
-      // r.luc là chuỗi datetime "naive" giờ VN (cùng quy ước hiển thị `ngayGio()` đang dùng cho
-      // cột "Thời điểm") — so ngày bằng cách cắt 10 ký tự đầu, đúng tiền lệ đã dùng ở
-      // KhoBaoCaoPage.tsx (`iso.slice(0, 10)`), KHÔNG parse qua Date/timezone.
-      const ngay = r.luc.slice(0, 10);
+      // r.luc LUÔN có offset (không phải "naive giờ VN" — nhầm lẫn ở round 1, xem `ngayVN()` phía
+      // trên) — phải quy đổi tường minh về lịch VN, không được cắt 10 ký tự đầu của chuỗi UTC thô
+      // (bản round 1 làm vậy, sai lệch 1 ngày với batch ghi trong khung giờ VN 00:00–07:00).
+      const ngay = ngayVN(r.luc);
       if (filters.tu && ngay < filters.tu) return false;
       if (filters.den && ngay > filters.den) return false;
       return true;
