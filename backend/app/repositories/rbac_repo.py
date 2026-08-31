@@ -439,8 +439,12 @@ class RoleRepository:
         can_set_threshold: bool = False,
         can_post: bool = False,
         can_close_book: bool = False,
+        commit: bool = True,
     ) -> RolePermission:
-        """Upsert the (role, module) permission row."""
+        """Upsert the (role, module) permission row.
+
+        `commit=False` cho người gọi HÀNG LOẠT tự chốt MỘT lần ở cuối (xem `seed.seed_roles`).
+        """
         perm = self.get_permission(role_id, module_key)
         if perm is None:
             perm = RolePermission(role_id=role_id, module_key=module_key)
@@ -496,8 +500,13 @@ class RoleRepository:
         perm.can_set_threshold = can_set_threshold
         perm.can_post = can_post
         perm.can_close_book = can_close_book
-        self.db.commit()
-        self.db.refresh(perm)
+        if commit:
+            self.db.commit()
+            self.db.refresh(perm)
+        else:
+            # Chỉ đẩy xuống DB, KHÔNG chốt giao dịch. `seed_roles` gọi hàm này 277 lượt mỗi lần
+            # dựng DB; commit + refresh từng lượt là pha tốn nhất của bộ test (≈2,5s mỗi test).
+            self.db.flush()
         return perm
 
     def count(self) -> int:

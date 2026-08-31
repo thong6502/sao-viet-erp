@@ -20,7 +20,9 @@ _BCRYPT_MAX_BYTES = 72
 
 def hash_password(plain: str) -> str:
     pw = plain.encode("utf-8")[:_BCRYPT_MAX_BYTES]
-    return bcrypt.hashpw(pw, bcrypt.gensalt()).decode("utf-8")
+    # Số vòng lấy từ cấu hình (mặc định 12). `verify_password` đọc số vòng TỪ CHÍNH chuỗi băm
+    # nên hạ/nâng cấu hình không làm hỏng mật khẩu đã lưu — xem `Settings.bcrypt_rounds`.
+    return bcrypt.hashpw(pw, bcrypt.gensalt(settings.bcrypt_rounds)).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
