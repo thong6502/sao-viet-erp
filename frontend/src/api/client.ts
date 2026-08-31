@@ -7007,6 +7007,10 @@ export interface StockRequestLine {
   sl_duyet: number;
   sl_da_ung: number;
   sl_con_lai: number;
+  /** Kho đã CHỐT thực xuất bao nhiêu (điều chỉnh phiếu xuất). Null = kho CHƯA điều chỉnh lần
+   *  nào — khác hẳn 0 (đã chốt là không xuất gì). Có giá trị → hiện "thực xuất N / yêu cầu M"
+   *  thay vì "còn thiếu". */
+  sl_chot_thuc_xuat: number | null;
   /** Đơn giá NHẬP người đề nghị khai — phiếu kế thừa (kho chỉ đọc). Null với đề nghị XUẤT. */
   don_gia: number | null;
   /** Kho phản hồi: lý do kho cấp/nhập thiếu so với còn phải cấp (nếu có). */
@@ -7048,6 +7052,12 @@ export interface StockRequest {
   kho_nguon_id: number | null;
   kho_nguon_ten: string | null;
   xuat_voucher_id: number | null;
+  /** Yêu cầu SINH TỪ đề nghị cấp vật tư công đoạn — ba trường đều null với yêu cầu kho THƯỜNG
+   *  (không do sản xuất lập), khỏi phải phân nhánh ở FE. */
+  /** GIỜ cần thật (từ đề nghị sản xuất). `ngay_can` chỉ có DATE nên không diễn đạt được ca chiều. */
+  can_luc: string | null;
+  san_xuat_cong_viec_id: number | null;
+  san_xuat_cong_doan_ten: string | null;
   created_at: string;
   /** Lần đổi gần nhất (tạo/cấp/hoàn tất/hủy) — xếp yêu cầu vừa có phản hồi lên đầu. */
   updated_at: string;

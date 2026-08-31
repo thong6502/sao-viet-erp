@@ -23,6 +23,7 @@ from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.document_sequence_repo import DocumentSequenceRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
 from ..repositories.rbac_repo import DepartmentRepository
+from ..repositories.san_xuat_vat_tu_repo import SanXuatVatTuRepository
 from ..repositories.stock_lot_repo import StockLotRepository, StockThresholdRepository
 from ..repositories.stock_request_repo import StockRequestRepository
 from ..repositories.stock_voucher_repo import StockVoucherRepository
@@ -95,7 +96,8 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
                open_voucher_id: int | None = None,
                hang_map: dict | None = None,
                hang_svc: VatLieuKhoService | None = None,
-               lenh_map: dict | None = None) -> StockRequestOut:
+               lenh_map: dict | None = None,
+               boi_canh: dict | None = None) -> StockRequestOut:
     """Dựng payload + ÁP quyền hiển thị.
 
     `muc_ton` (đèn 5 màu) trả cho mọi vai vì không kèm con số; `ton_kha_dung` chỉ set khi
@@ -103,7 +105,8 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
     trong response.
 
     `hang_map` ((loai,id) → bản ghi danh mục) dựng SẴN theo cả trang để tránh N+1 khi list;
-    gọi lẻ 1 đề nghị thì để None, hàm tự nạp.
+    gọi lẻ 1 đề nghị thì để None, hàm tự nạp. `boi_canh` (request_id → tổ/công đoạn/giờ cần từ
+    đề nghị cấp vật tư công đoạn — task-8-ruling-man-kho) theo ĐÚNG khuôn đó.
     """
     hang_svc = hang_svc or _hang_service(db)
     users = UserRepository(db)
@@ -112,6 +115,9 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
         hang_map = hang_svc.map_theo_cap(cap)
     if lenh_map is None:
         lenh_map = _lenh_map(db, [req])
+    if boi_canh is None:
+        boi_canh = SanXuatVatTuRepository(db).boi_canh_san_xuat([req.id])
+    bc = boi_canh.get(req.id) or {}
     lines: list[StockRequestLineOut] = []
     for ln in req.lines:
         key = (ln.hang_loai, ln.hang_id)
@@ -145,6 +151,8 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
             sl_duyet=float(ln.sl_duyet),
             sl_da_ung=float(ln.sl_da_ung),
             sl_con_lai=StockRequestService.con_lai(ln),
+            sl_chot_thuc_xuat=(float(ln.sl_chot_thuc_xuat)
+                               if ln.sl_chot_thuc_xuat is not None else None),
             don_gia=ln.don_gia,
             ly_do_thieu=ln.ly_do_thieu,
             ghi_chu=ln.ghi_chu,
@@ -176,6 +184,9 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
         kho_nguon_id=kho_nguon_id,
         kho_nguon_ten=getattr(kho_nguon, "ten", None),
         xuat_voucher_id=getattr(req, "xuat_voucher_id", None),
+        can_luc=bc.get("can_luc"),
+        san_xuat_cong_viec_id=bc.get("cong_viec_id"),
+        san_xuat_cong_doan_ten=bc.get("cong_doan_ten"),
         created_at=req.created_at, updated_at=req.updated_at, lines=lines,
     )
 
@@ -248,13 +259,17 @@ def list_requests(
         [(ln.hang_loai, ln.hang_id) for r in rows for ln in r.lines]
     )
     lenh_map = _lenh_map(db, rows)
+    # Tổ/công đoạn/giờ cần (đề nghị cấp vật tư công đoạn) của CẢ TRANG trong 1 query — tránh N+1
+    # trên đường mở màn chính của thủ kho (task-8-ruling-man-kho, Ruling 32/34).
+    boi_canh = SanXuatVatTuRepository(db).boi_canh_san_xuat([r.id for r in rows])
     items = []
     for r in rows:
         # List KHÔNG hiện tồn khả dụng/đèn (chỉ drawer chi tiết hiện) → khỏi tính, tránh N+1 query.
         levels, on_hand = None, None
         items.append(_serialize(r, db=db, can_view_stock=can_view_stock,
                                 levels=levels, on_hand=on_hand, lenh_map=lenh_map,
-                                open_voucher_id=draft_map.get(r.id), hang_map=hang_map, hang_svc=hang_svc))
+                                open_voucher_id=draft_map.get(r.id), hang_map=hang_map,
+                                hang_svc=hang_svc, boi_canh=boi_canh))
     return StockRequestPage(items=items, total=total)
 
 

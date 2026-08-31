@@ -387,7 +387,7 @@ export function KhoYeuCauPage({
                 <th style={{ width: "11%" }}>Cho lệnh</th>
                 <th style={{ width: "12%" }}>Tiến độ</th>
                 <DateFilterHead
-                  label="Cần ngày"
+                  label="Cần lúc"
                   from={dNeed.from}
                   to={dNeed.to}
                   onChange={(from, to) => setDNeed({ from, to })}
@@ -435,7 +435,12 @@ export function KhoYeuCauPage({
                           </div>
                           <div>
                             <div className="rc__name">{r.nguoi_tao_ten ?? "—"}</div>
-                            <div className="rc__muted">{r.bo_phan_ten ?? "—"}</div>
+                            <div className="rc__muted">
+                              {r.bo_phan_ten ?? "—"}
+                              {/* Yêu cầu SINH TỪ đề nghị cấp vật tư công đoạn → thêm tên công đoạn cho
+                                  thủ kho biết đang soạn cho khâu nào (task-8-ruling-man-kho). */}
+                              {r.san_xuat_cong_doan_ten ? ` · ${r.san_xuat_cong_doan_ten}` : ""}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -465,7 +470,9 @@ export function KhoYeuCauPage({
                         </div>
                       </td>
                       <td className={`rc__nowrap${overdue ? " kho-overdue" : ""}`}>
-                        <div>{r.ngay_can ? fmtDateISO(r.ngay_can) : "—"}</div>
+                        {/* GIỜ cần thật (từ đề nghị sản xuất) ưu tiên trước — `ngay_can` chỉ có DATE
+                            nên không diễn đạt được ca chiều (task-8-ruling-man-kho). */}
+                        <div>{r.can_luc ? fmtDateTime(r.can_luc) : r.ngay_can ? fmtDateISO(r.ngay_can) : "—"}</div>
                         {overdue && <span className="kho-priority-badge kho-priority-badge--critical" style={{ marginTop: 2 }}>Quá hạn</span>}
                       </td>
                       <td>
@@ -1381,6 +1388,19 @@ export function InboxRequestDrawer({
                             </td>
                             <td className="kho-num">
                               {fmtQty(l.sl_de_nghi)} <span className="kho-alloc__unit">{dvtYc}</span>
+                              {/* Kho đã CHỐT thực xuất (điều chỉnh phiếu xuất) → hiện "thực xuất N / yêu
+                                  cầu M" + Hoàn tất, KHÔNG hiện "còn thiếu" (kho không xử lý lý do lệch kế
+                                  hoạch — task-8-ruling-man-kho). */}
+                              {l.sl_chot_thuc_xuat != null && (
+                                <div>
+                                  <span
+                                    className="kho-line-badge kho-line-badge--moss"
+                                    style={{ fontSize: 10, marginTop: 2 }}
+                                  >
+                                    Thực xuất {fmtQty(l.sl_chot_thuc_xuat)}/{fmtQty(l.sl_de_nghi)} {dvtYc} · Hoàn tất
+                                  </span>
+                                </div>
+                              )}
                             </td>
                             {canViewStock && (
                               <td className="kho-num">

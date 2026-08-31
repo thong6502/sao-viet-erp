@@ -736,3 +736,126 @@ def test_dinh_kem_hoa_don_vao_phieu(client):
     )
     assert bad.status_code == 400
     assert client.delete(f"/api/kho/phieu/{vid}/attachments/{aid}", headers=tk).status_code == 204
+
+
+# --- Task 8: màn kho hiện tổ/công đoạn/giờ cần (task-8-ruling-man-kho) -------
+
+def _gan_boi_canh_san_xuat(stock_request_id: int, *, can_luc, ten_cong_doan: str, ma_goi: str) -> int:
+    """Trỏ MỘT yêu cầu kho đã có sẵn vào một 'lần đề nghị cấp vật tư công đoạn' — dựng TẮT qua
+    `SessionLocal()` thay vì đi hết luồng sản xuất thật (phát hành gói → tổ đề nghị), luồng đó
+    cần LSX/routing/phân công tổ trưởng đầy đủ, quá nặng cho file test KHO này (task-8-ruling-man-kho,
+    Ruling 34 cho phép). Chỉ dựng đủ NOT NULL tối thiểu của `SanXuatGoiPhatHanh`/`SanXuatCongViec`
+    để `boi_canh_san_xuat` join ra được `ten_cong_doan`. Trả `cong_viec_id` để test đối chiếu.
+    """
+    from app.models.san_xuat import SanXuatCongViec, SanXuatGoiPhatHanh
+    from app.models.san_xuat_vat_tu import DN_LAN_DAU, SanXuatVatTuDeNghi
+
+    db = SessionLocal()
+    try:
+        goi = SanXuatGoiPhatHanh(ma=ma_goi)
+        db.add(goi)
+        db.flush()
+        cv = SanXuatCongViec(goi_id=goi.id, ten_cong_doan=ten_cong_doan)
+        db.add(cv)
+        db.flush()
+        dn = SanXuatVatTuDeNghi(
+            cong_viec_id=cv.id, lan_so=1, loai=DN_LAN_DAU, can_luc=can_luc,
+            stock_request_id=stock_request_id,
+        )
+        db.add(dn)
+        db.commit()
+        return cv.id
+    finally:
+        db.close()
+
+
+def test_api_yeu_cau_sinh_tu_san_xuat_co_can_luc_va_cong_doan(client):
+    """Yêu cầu SINH TỪ đề nghị cấp vật tư công đoạn: GET trả `can_luc`/`san_xuat_cong_viec_id`/
+    `san_xuat_cong_doan_ten`, và dòng phản chiếu đúng `sl_chot_thuc_xuat`/`sl_con_lai` sau khi kho
+    điều chỉnh (xin 100 · xuất 100 · điều chỉnh còn 70 ⇒ chốt 70, còn lại 0)."""
+    from datetime import datetime, timezone
+
+    kho_id, mat_id = _setup(client)
+    nhap = _nhap(client, kho_id=kho_id, mat_id=mat_id, qty=100, gia=1_000)
+    lot_id = nhap["lines"][0]["lot_id"]
+    req = _approved_request(client, kho_id=kho_id, loai="XUAT", mat_id=mat_id, qty=100)
+    can_luc = datetime(2026, 8, 31, 13, 30, tzinfo=timezone.utc)
+    cv_id = _gan_boi_canh_san_xuat(
+        req["id"], can_luc=can_luc, ten_cong_doan="In offset 4 màu", ma_goi="GOI-T8-1")
+
+    tk = _login(client, "t_thukho")
+    r = client.post("/api/kho/phieu", headers=tk, json={
+        "request_id": req["id"], "kho_id": kho_id,
+        "lines": [{"request_line_id": req["lines"][0]["id"], "so_luong": 100, "lot_id": lot_id}],
+    })
+    assert r.status_code == 201, r.text
+    vid = r.json()["id"]
+    r = client.post(f"/api/kho/phieu/{vid}/ghi-so", headers=tk)
+    assert r.status_code == 200, r.text
+    line_id = r.json()["lines"][0]["id"]
+    r = client.post(f"/api/kho/phieu/{vid}/dieu-chinh-xuat", headers=tk, json={
+        "lines": [{"line_id": line_id, "so_luong_moi": 70}],
+        "ly_do": "SX dùng không hết, trả lại 30",
+    })
+    assert r.status_code == 200, r.text
+
+    r = client.get(f"/api/kho/de-nghi/{req['id']}", headers=tk)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["can_luc"] is not None and body["can_luc"].startswith("2026-08-31")
+    assert body["san_xuat_cong_viec_id"] == cv_id
+    assert body["san_xuat_cong_doan_ten"] == "In offset 4 màu"
+    assert body["lines"][0]["sl_chot_thuc_xuat"] == 70
+    assert body["lines"][0]["sl_con_lai"] == 0
+
+
+def test_api_yeu_cau_kho_thuong_khong_co_boi_canh_san_xuat(client):
+    """Yêu cầu do bộ phận khác lập (không sinh từ đề nghị cấp vật tư công đoạn) vẫn trả 3 field
+    đó nhưng đều null — FE không phải phân nhánh."""
+    kho_id, mat_id = _setup(client)
+    req = _approved_request(client, kho_id=kho_id, loai="XUAT", mat_id=mat_id, qty=10)
+    tk = _login(client, "t_thukho")
+
+    r = client.get(f"/api/kho/de-nghi/{req['id']}", headers=tk)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["can_luc"] is None
+    assert body["san_xuat_cong_viec_id"] is None
+    assert body["san_xuat_cong_doan_ten"] is None
+    assert body["lines"][0]["sl_chot_thuc_xuat"] is None
+
+
+def test_api_danh_sach_yeu_cau_sinh_tu_sx_khong_n_plus_1(client, monkeypatch):
+    """Đường DANH SÁCH (hộp yêu cầu kho) với ÍT NHẤT 3 yêu cầu sinh từ sản xuất phải nạp bối cảnh
+    (tổ/công đoạn/giờ cần) qua ĐÚNG MỘT lần gọi `boi_canh_san_xuat`, không phải N lần theo từng
+    yêu cầu — N+1 với N=1 nhìn y hệt truy vấn gộp nên phải dựng ÍT NHẤT 3 (task-8-ruling-man-kho,
+    Ruling 34). Đếm số lần GỌI hàm gộp (không đếm được số truy vấn SQL từ tầng test HTTP)."""
+    from datetime import datetime, timezone
+
+    import app.repositories.san_xuat_vat_tu_repo as sxvt_repo
+
+    kho_id, mat_id = _setup(client)
+    can_luc = datetime(2026, 8, 31, 8, 0, tzinfo=timezone.utc)
+    req_ids = []
+    for i in range(3):
+        req = _approved_request(client, kho_id=kho_id, loai="XUAT", mat_id=mat_id, qty=10 + i)
+        _gan_boi_canh_san_xuat(
+            req["id"], can_luc=can_luc, ten_cong_doan=f"Công đoạn {i}", ma_goi=f"GOI-T8-NP1-{i}")
+        req_ids.append(req["id"])
+
+    calls: list[list[int]] = []
+    goc = sxvt_repo.SanXuatVatTuRepository.boi_canh_san_xuat
+
+    def _dem(self, ids):
+        calls.append(list(ids))
+        return goc(self, ids)
+
+    monkeypatch.setattr(sxvt_repo.SanXuatVatTuRepository, "boi_canh_san_xuat", _dem)
+
+    tk = _login(client, "t_thukho")
+    r = client.get("/api/kho/de-nghi", headers=tk, params={"loai": "XUAT", "size": 200})
+    assert r.status_code == 200, r.text
+    items = {it["id"]: it for it in r.json()["items"] if it["id"] in req_ids}
+    assert len(items) == 3
+    assert all(items[i]["san_xuat_cong_doan_ten"] for i in req_ids)
+    assert len(calls) == 1, f"boi_canh_san_xuat phải gọi ĐÚNG 1 lần cho cả trang, gọi {len(calls)} lần"

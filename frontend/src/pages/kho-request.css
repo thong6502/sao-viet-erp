@@ -3450,6 +3450,13 @@ input.kho-num,
   color: var(--ash);
   border: 1px solid var(--rule-soft);
 }
+/* Dòng đã CHỐT thực xuất (task-8-ruling-man-kho) — kho đã điều chỉnh xong, không còn gì phải cấp
+   thêm cho dòng này nữa. */
+.kho-line-badge--moss {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  border: 1px solid color-mix(in srgb, var(--moss) 25%, transparent);
+}
 
 /* Recharts Custom Overview Container */
 .recharts-overview-box {

@@ -100,6 +100,9 @@ class StockRequestLineOut(BaseModel):
     ghi_chu: str | None = None
     # Tính, không lưu — xem models/stock_request.py.
     sl_con_lai: float = 0.0
+    # Kho đã CHỐT thực xuất bao nhiêu (điều chỉnh phiếu xuất — spec-de-nghi-cap-vat-tu-cong-doan
+    # §5.5). NULL = kho CHƯA điều chỉnh lần nào, KHÁC hẳn 0 (đã chốt là không xuất gì).
+    sl_chot_thuc_xuat: float | None = None
     # Đèn tín hiệu 5 màu: AI CŨNG nhận được (không kèm số nên không lộ tồn).
     muc_ton: str | None = None
     # CHỈ khi có `can_view_stock`; router xóa nếu thiếu quyền.
@@ -143,6 +146,13 @@ class StockRequestOut(BaseModel):
     kho_nguon_id: int | None = None
     kho_nguon_ten: str | None = None
     xuat_voucher_id: int | None = None
+    # Yêu cầu SINH TỪ ĐỀ NGHỊ CẤP VẬT TƯ CÔNG ĐOẠN (spec-de-nghi-cap-vat-tu-cong-doan) — ba trường
+    # đều None với yêu cầu kho THƯỜNG (không do sản xuất lập), FE không phải phân nhánh.
+    # GIỜ cần thật. `ngay_can` chỉ có DATE nên không diễn đạt được ca chiều cần hàng lúc 13h30
+    # khác hẳn ca sáng cần lúc 6h.
+    can_luc: datetime | None = None
+    san_xuat_cong_viec_id: int | None = None
+    san_xuat_cong_doan_ten: str | None = None
     lines: list[StockRequestLineOut] = []
 
 
