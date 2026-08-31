@@ -1451,6 +1451,11 @@ def test_khoa_nguon_khong_loi_va_theo_thu_tu_on_dinh(db, svc, monkeypatch):
     g1 = _giay(db, ma="GY-1")
     g2 = _giay(db, ma="GY-2")
     g3 = _giay(db, ma="GY-3")
+    # `_giay()` commit → SQLAlchemy EXPIRE mọi thuộc tính sau commit (mặc định
+    # `expire_on_commit=True`). Đọc `.id` TRƯỚC khi gắn spy — đọc SAU spy sẽ khiến spy bắt luôn
+    # 3 lượt tự "load lại" (expired-attribute reload) của chính bước đọc `.id`, không phải của
+    # `_khoa_nguon`, và trộn lẫn 3 dòng `where.right.value == None` vào kết quả.
+    id1, id2, id3 = g1.id, g2.id, g3.id
 
     da_khoa: list[int] = []
     goc_execute = db.execute
@@ -1463,11 +1468,11 @@ def test_khoa_nguon_khong_loi_va_theo_thu_tu_on_dinh(db, svc, monkeypatch):
 
     monkeypatch.setattr(db, "execute", spy)
 
-    svc._khoa_nguon([("giay", g3.id), ("giay", g1.id), ("giay", g2.id)])
+    svc._khoa_nguon([("giay", id3), ("giay", id1), ("giay", id2)])
 
-    assert da_khoa == sorted([g1.id, g2.id, g3.id]), (
+    assert da_khoa == sorted([id1, id2, id3]), (
         f"phải khoá THEO THỨ TỰ id tăng dần bất kể thứ tự truyền vào, thực tế: {da_khoa}"
     )
 
     # Gọi lần hai trong CÙNG giao dịch — không được lỗi.
-    svc._khoa_nguon([("giay", g1.id)])
+    svc._khoa_nguon([("giay", id1)])
