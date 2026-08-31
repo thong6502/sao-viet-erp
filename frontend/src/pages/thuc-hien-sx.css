@@ -1241,7 +1241,10 @@
 .thsx-x-vt-delta { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; }
 .thsx-x-vt-delta--left { align-items: flex-start; }
 .thsx-x-vt-delta__row { font-size: var(--fs-2xs); white-space: nowrap; }
-.thsx-x-vt-delta__row.is-up { color: var(--moss-deep); }
+/* Lệch DƯƠNG không phải tin vui: "so KH +" là tổ xin quá kế hoạch, "so YC +" là kho xuất dư —
+   cả hai đều đáng nhìn lại, không phải "đạt". Xanh lá ở đây đọc thành "ổn rồi" nên dùng vàng
+   (đáng chú ý) cho dư và đỏ (chặn việc) cho thiếu. Hai mức, không phải hai chiều. */
+.thsx-x-vt-delta__row.is-up { color: var(--amber-deep); }
 .thsx-x-vt-delta__row.is-down { color: var(--rust-deep); }
 .thsx-x-vt-delta__lbl { color: var(--ash); margin-right: 3px; }
 
