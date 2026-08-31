@@ -20,11 +20,19 @@ from types import SimpleNamespace
 import pytest
 
 from app.models.department import Department
-from app.models.san_xuat import CV_DANG_CHAY, CV_PHAT_HANH
+from app.models.san_xuat import (
+    CV_DANG_CHAY,
+    CV_HOAN_THANH,
+    CV_PHAT_HANH,
+    CV_TAM_DUNG,
+    SanXuatCongViec,
+)
 from app.models.san_xuat_kcs import (
     KCS_DAT,
     KCS_DAT_MOT_PHAN,
     KCS_KHONG_DAT,
+    KCS_LOAI_DOT_XUAT,
+    KCS_LOAI_ROUTING,
     TN_CHAP_NHAN,
     TN_CHO,
     TN_TU_CHOI,
@@ -33,7 +41,7 @@ from app.models.san_xuat_kcs import (
     SanXuatKcsLoiAnh,
 )
 from app.models.san_xuat_ly_do import NHOM_LOI, NHOM_TAM_DUNG, SanXuatLyDo
-from app.models.san_xuat_san_luong import SanXuatBatch
+from app.models.san_xuat_san_luong import BG_DE_XUAT, BG_XAC_NHAN, SanXuatBanGiao, SanXuatBatch
 from app.models.user import User
 from app.repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from app.services.san_xuat import kcs
@@ -96,6 +104,40 @@ def _batch(db, orders, lsx_svc, admin, customer, *, nhan=100, dat=90, khong_dat=
         so_luong_nhan=nhan, so_luong_dat=dat, so_luong_khong_dat=khong_dat,
     )
     return to, cv, res
+
+
+def _ban_giao(db, *, dich_cong_viec_id, so_luong, trang_thai=BG_XAC_NHAN):
+    """Một dòng bàn giao TỚI công việc — dựng thẳng bằng ORM (test không cần đi qua flow bàn giao
+    đầy đủ, chỉ cần đúng SHAPE mà `tong_ban_giao_xac_nhan` đọc). `nguon_cong_viec_id` không NULL
+    được — dùng tạm cùng id với đích, test không quan tâm nguồn thật."""
+    bg = SanXuatBanGiao(nguon_cong_viec_id=dich_cong_viec_id, dich_cong_viec_id=dich_cong_viec_id,
+                         so_luong=so_luong, don_vi="cái", trang_thai=trang_thai)
+    db.add(bg)
+    db.flush()
+    return bg
+
+
+def _to_kiem(db, ten="Tổ Kiểm Đột Xuất", ma="TO-KIEM") -> tuple[Department, User]:
+    """Một tổ SX KHÁC được GIAO kiểm đột xuất + MỘT thành viên (`department_id` trỏ đúng tổ —
+    KHÔNG cần là tổ trưởng, vì `_gate_member` cho phép bất kỳ thành viên nào của tổ, khác gate
+    tổ-trưởng-only `_gate`/`_gate_to` của routing/phản hồi lỗi)."""
+    d = Department(name=ten, code=ma, la_san_xuat=True)
+    db.add(d)
+    db.flush()
+    u = User(username=f"tv_{ma.lower()}", name="Thành viên tổ kiểm", password_hash="x",
+             department_id=d.id)
+    db.add(u)
+    db.flush()
+    return d, u
+
+
+def _cv_production(db, orders, lsx_svc, admin, customer, *, ma="TO-SX-DX", trang_thai=CV_DANG_CHAY):
+    """Một công việc SẢN XUẤT THƯỜNG (`la_kcs=False`, KHÔNG qua `_cv_kcs`) đang chạy/tạm dừng —
+    mục tiêu của kiểm đột xuất (mục 5: đột xuất KHÔNG đòi công việc phải là bước KCS)."""
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma=ma)
+    cv.trang_thai = trang_thai
+    db.commit()
+    return to, cv
 
 
 # --- Batch kiểm tra (§13.1) -----------------------------------------------------------------
@@ -177,6 +219,61 @@ def test_gate_chi_to_truong_kcs(db, orders, lsx_svc, admin, customer):
             db, user=nguoi_la, cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1,
             so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
         )
+
+
+# --- KCS kiêm nhiệm (mg 0250) — chặn tổng vượt bàn giao trên ROUTING (mục 2-4) ---------------
+def test_routing_nhieu_dot_cong_don_cung_cong_viec(db, orders, lsx_svc, admin, customer):
+    to, cv = _cv_kcs(db, orders, lsx_svc, admin, customer)
+    _ban_giao(db, dich_cong_viec_id=cv.id, so_luong=100)
+    kcs.tao_batch_kcs(db, user=admin, cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1,
+                       so_luong_nhan=40, so_luong_dat=40, so_luong_khong_dat=0)
+    kcs.tao_batch_kcs(db, user=admin, cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1,
+                       so_luong_nhan=30, so_luong_dat=30, so_luong_khong_dat=0)
+    repo = SanXuatKcsRepository(db)
+    batches = repo.cac_kcs_batch(cv.id)
+    assert len(batches) == 2
+    assert all(b.loai == KCS_LOAI_ROUTING for b in batches)    # mặc định "routing", KHÔNG set tay
+
+
+def test_routing_tong_cac_dot_vuot_ban_giao_bi_chan(db, orders, lsx_svc, admin, customer):
+    to, cv = _cv_kcs(db, orders, lsx_svc, admin, customer)
+    _ban_giao(db, dich_cong_viec_id=cv.id, so_luong=50)
+    kcs.tao_batch_kcs(db, user=admin, cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1,
+                       so_luong_nhan=40, so_luong_dat=40, so_luong_khong_dat=0)
+    with pytest.raises(ValueError, match="vượt số đã bàn giao"):
+        kcs.tao_batch_kcs(db, user=admin, cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1,
+                           so_luong_nhan=20, so_luong_dat=20, so_luong_khong_dat=0)
+
+
+def test_routing_ban_giao_proposed_khong_tinh_vao_da_giao(db, orders, lsx_svc, admin, customer):
+    to, cv = _cv_kcs(db, orders, lsx_svc, admin, customer)
+    _ban_giao(db, dich_cong_viec_id=cv.id, so_luong=100, trang_thai=BG_DE_XUAT)
+    repo = SanXuatKcsRepository(db)
+    assert repo.tong_ban_giao_xac_nhan(cv.id) == 0            # proposed CHƯA chốt → không tính
+    res = kcs.tao_batch_kcs(db, user=admin, cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1,
+                             so_luong_nhan=100, so_luong_dat=100, so_luong_khong_dat=0)
+    assert res["kcs_batch_id"]                                 # KHÔNG bị chặn
+
+
+# --- KCS kiêm nhiệm (mg 0250) — checklist bắt buộc dùng CHUNG routing + đột xuất (mục 7) -----
+_TIEU_CHI_BAT_BUOC = [{"tieu_chi_id": 1, "ma": "TC1", "ten": "x", "huong_dan": None,
+                       "bat_buoc": True, "nguon": "danh_muc", "thu_tu": 1}]
+
+
+def test_routing_checklist_bat_buoc_chan_khi_thieu_ket_qua(db, orders, lsx_svc, admin, customer):
+    to, cv = _cv_kcs(db, orders, lsx_svc, admin, customer)
+    cv.kcs_tieu_chi_json = _TIEU_CHI_BAT_BUOC
+    db.commit()
+    with pytest.raises(ValueError, match="tiêu chí"):
+        kcs.tao_batch_kcs(db, user=admin, cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1,
+                           so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0)
+    res = kcs.tao_batch_kcs(
+        db, user=admin, cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T1,
+        so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
+        checklist_ket_qua=[{"thu_tu": 1, "dat": True}],
+    )
+    kb = db.get(SanXuatKcsBatch, res["kcs_batch_id"])
+    assert kb.checklist_json == [{"thu_tu": 1, "dat": True}]
 
 
 # --- Lỗi + ảnh (§13.2) ----------------------------------------------------------------------
@@ -309,6 +406,163 @@ def test_loi_cho_chan_dong_du_nhom(db, orders, lsx_svc, admin, customer):
     assert repo.co_loi_chua_tra_loi(cv.nhom_id) is True    # còn lỗi chờ → chặn (§16)
     kcs.phan_hoi_loi(db, user=tt2, loi_id=loi_id, chap_nhan=True)
     assert repo.co_loi_chua_tra_loi(cv.nhom_id) is False   # hết chờ → mở
+
+
+# --- KCS kiêm nhiệm (mg 0250): kiểm ĐỘT XUẤT, không đứng sẵn trong routing -------------------
+def test_dot_xuat_khong_can_cong_viec_la_kcs(db, orders, lsx_svc, admin, customer):
+    to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer)
+    to_kiem, tv = _to_kiem(db)
+    assert cv.la_kcs is False                              # việc production BÌNH THƯỜNG
+
+    res = kcs.tao_kiem_dot_xuat(
+        db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+        bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
+        don_vi="cái",
+    )
+    kb = db.get(SanXuatKcsBatch, res["kcs_batch_id"])
+    assert kb.loai == KCS_LOAI_DOT_XUAT and kb.kcs_department_id == to_kiem.id
+    assert cv.la_kcs is False                              # vẫn KHÔNG đổi (mục 5)
+
+
+def test_dot_xuat_khong_tao_san_xuat_batch(db, orders, lsx_svc, admin, customer):
+    to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer)
+    to_kiem, tv = _to_kiem(db)
+    truoc = db.query(SanXuatBatch).count()
+
+    res = kcs.tao_kiem_dot_xuat(
+        db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+        bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
+        don_vi="cái",
+    )
+    assert db.query(SanXuatBatch).count() == truoc         # KHÔNG đẻ kèm batch sản lượng (mục 6)
+    assert res["batch_id"] is None
+
+
+def test_dot_xuat_checklist_bat_buoc_dung_chung_ham_validate(db, orders, lsx_svc, admin, customer):
+    to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer)
+    to_kiem, tv = _to_kiem(db)
+    cv.kcs_tieu_chi_json = _TIEU_CHI_BAT_BUOC
+    db.commit()
+
+    with pytest.raises(ValueError, match="tiêu chí"):
+        kcs.tao_kiem_dot_xuat(
+            db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+            bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
+            don_vi="cái",
+        )
+    res = kcs.tao_kiem_dot_xuat(
+        db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+        bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
+        don_vi="cái", checklist_ket_qua=[{"thu_tu": 1, "dat": True}],
+    )
+    assert res["kcs_batch_id"]
+
+
+def test_dot_xuat_khong_dat_bat_buoc_nhom_loi_va_anh(db, orders, lsx_svc, admin, customer):
+    to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer)
+    to_kiem, tv = _to_kiem(db)
+
+    with pytest.raises(ValueError, match="chọn nhóm lỗi"):
+        kcs.tao_kiem_dot_xuat(
+            db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+            bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=5, so_luong_khong_dat=5,
+            don_vi="cái",
+        )
+    ld = _ly_do(db)
+    with pytest.raises(ValueError, match="ảnh bằng chứng"):
+        kcs.tao_kiem_dot_xuat(
+            db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+            bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=5, so_luong_khong_dat=5,
+            don_vi="cái", nhom_loi_id=ld.id, anh=None,
+        )
+    res = kcs.tao_kiem_dot_xuat(
+        db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+        bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=5, so_luong_khong_dat=5,
+        don_vi="cái", nhom_loi_id=ld.id, anh=_anh(),
+    )
+    assert res["loi_id"] is not None
+    repo = SanXuatKcsRepository(db)
+    assert repo.loi(res["loi_id"]) is not None
+
+
+def test_routing_khong_bi_doi_hoi_nhom_loi_khi_khong_dat(db, orders, lsx_svc, admin, customer):
+    """Routing GIỮ NGUYÊN flow 2 bước — batch cũ `khong_dat=10` không kèm lỗi vẫn PASS (Ruling 2:
+    y hệt `test_ket_luan_khong_dat_khi_khong_co_dat`, chạy lại để xác nhận KHÔNG bị retrofit)."""
+    _to, _cv, r = _batch(db, orders, lsx_svc, admin, customer, nhan=40, dat=0, khong_dat=40)
+    assert db.get(SanXuatKcsBatch, r["kcs_batch_id"]).ket_luan == KCS_KHONG_DAT
+
+
+def test_dot_xuat_luat_so_khong_am_va_tong_khop(db, orders, lsx_svc, admin, customer):
+    to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer)
+    to_kiem, tv = _to_kiem(db)
+
+    with pytest.raises(ValueError):                        # số lượng nhận âm
+        kcs.tao_kiem_dot_xuat(
+            db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+            bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=-10, so_luong_dat=-10, so_luong_khong_dat=0,
+            don_vi="cái",
+        )
+    with pytest.raises(ValueError):                        # dat + khong_dat ≠ nhan
+        kcs.tao_kiem_dot_xuat(
+            db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+            bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=8, so_luong_khong_dat=1,
+            don_vi="cái",
+        )
+    with pytest.raises(ValueError):                        # nhan = 0
+        kcs.tao_kiem_dot_xuat(
+            db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+            bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=0, so_luong_dat=0, so_luong_khong_dat=0,
+            don_vi="cái",
+        )
+
+
+def test_dot_xuat_chi_cho_dang_chay_hoac_tam_dung(db, orders, lsx_svc, admin, customer):
+    to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer, trang_thai=CV_HOAN_THANH)
+    to_kiem, tv = _to_kiem(db)
+
+    with pytest.raises(ValueError, match="đang chạy hoặc tạm dừng"):
+        kcs.tao_kiem_dot_xuat(
+            db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+            bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
+            don_vi="cái",
+        )
+
+    cv.trang_thai = CV_TAM_DUNG                            # khác routing — routing CHO PHÉP
+    db.commit()                                             # HOAN_THANH, đột xuất THÌ KHÔNG (Ruling 4)
+    res = kcs.tao_kiem_dot_xuat(
+        db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+        bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
+        don_vi="cái",
+    )
+    assert res["kcs_batch_id"]
+
+
+def test_dot_xuat_khong_sua_trang_thai_cong_viec(db, orders, lsx_svc, admin, customer):
+    to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer)
+    to_kiem, tv = _to_kiem(db)
+    cv_id = cv.id
+
+    kcs.tao_kiem_dot_xuat(
+        db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+        bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
+        don_vi="cái",
+    )
+    # Đọc lại từ DB (không dùng object Python cũ) — trạng thái/sản lượng/kho KHÔNG đổi (mục 11).
+    # "Không đụng kho" tự kiểm bằng đọc `tao_kiem_dot_xuat`: nó không import gì từ `stock`/`kho`,
+    # không cần bảng kho riêng cho test này (không tạo san_xuat_batch đã phủ ở test trên).
+    lai = db.get(SanXuatCongViec, cv_id)
+    assert lai.trang_thai == CV_DANG_CHAY
+
+
+def test_dot_xuat_gate_chi_thanh_vien_dung_to(db, orders, lsx_svc, admin, customer):
+    to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer)
+    to_kiem, tv = _to_kiem(db)
+    with pytest.raises(PermissionError):
+        kcs.tao_kiem_dot_xuat(
+            db, user=admin, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,   # admin NGOÀI tổ kiểm
+            bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
+            don_vi="cái",
+        )
 
 
 # --- Đường dây HTTP ---------------------------------------------------------------------------

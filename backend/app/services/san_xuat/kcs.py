@@ -25,6 +25,8 @@ from ...models.san_xuat_kcs import (
     KCS_DAT,
     KCS_DAT_MOT_PHAN,
     KCS_KHONG_DAT,
+    KCS_LOAI_DOT_XUAT,
+    KCS_LOAI_ROUTING,
     TN_CHAP_NHAN,
     TN_CHO,
     TN_TU_CHOI,
@@ -41,6 +43,8 @@ from .thuc_thi import _aware, _gate, _moc
 _EPS = 0.0005
 # Chỉ ghi KCS cho công việc ĐÃ khởi động (đang chạy / tạm dừng / đã xong).
 _TRANG_THAI_GHI_DUOC = (CV_DANG_CHAY, CV_TAM_DUNG, CV_HOAN_THANH)
+# KCS kiêm nhiệm đột xuất (mg 0250): CHỈ đang chạy / tạm dừng — KHÔNG gồm HOAN_THANH (mục 10).
+_TRANG_THAI_DOT_XUAT = (CV_DANG_CHAY, CV_TAM_DUNG)
 
 
 def _so_khong_am(x, ten: str) -> float:
@@ -62,6 +66,51 @@ def _gate_to(db: Session, user, department_id: int | None) -> None:
     uid = getattr(user, "id", None)
     if dept is None or dept.head_user_id is None or dept.head_user_id != uid:
         raise PermissionError("Chỉ tổ trưởng của tổ được yêu cầu mới được phản hồi lỗi này.")
+
+
+def _gate_member(db: Session, user, department_id: int | None) -> None:
+    """Chỉ THÀNH VIÊN của tổ `department_id` (không cần là trưởng) mới thao tác được — dùng RIÊNG
+    cho kiểm đột xuất KCS kiêm nhiệm: bất kỳ ai trong tổ được giao kiểm cũng ghi được. KHÁC
+    `_gate`/`_gate_to` (chỉ tổ trưởng) đang gác routing/phản hồi lỗi — hai gate đó GIỮ NGUYÊN."""
+    if department_id is None or getattr(user, "department_id", None) != department_id:
+        raise PermissionError("Chỉ thành viên của tổ được giao kiểm đột xuất mới được thao tác.")
+
+
+def _validate_so_luong(nhan, dat, khong_dat, co_mau) -> tuple[float, float, float, float | None]:
+    """Luật số DÙNG CHUNG cho cả hai luồng batch KCS (mục 9): không âm, nhan>0, nhan=dat+khong_dat,
+    cỡ mẫu ≤ nhận. Tách khỏi `tao_batch_kcs` để `tao_kiem_dot_xuat` không LẶP nguyên khối luật."""
+    nhan_f = _so_khong_am(nhan, "Số lượng nhận")
+    dat_f = _so_khong_am(dat, "Số lượng đạt")
+    khong_dat_f = _so_khong_am(khong_dat, "Số lượng không đạt")
+    if nhan_f <= 0:
+        raise ValueError("Số lượng nhận phải lớn hơn 0.")
+    if abs(nhan_f - (dat_f + khong_dat_f)) > _EPS:
+        raise ValueError("Số lượng nhận phải bằng Đạt + Không đạt.")
+    co_mau_f = None
+    if co_mau is not None and str(co_mau) != "":
+        co_mau_f = _so_khong_am(co_mau, "Cỡ mẫu")
+        if co_mau_f > nhan_f + _EPS:
+            raise ValueError("Cỡ mẫu không được vượt số lượng nhận.")
+    return nhan_f, dat_f, khong_dat_f, co_mau_f
+
+
+def _validate_checklist_bat_buoc(cv, checklist_ket_qua: list[dict] | None) -> list[dict] | None:
+    """Mọi tiêu chí `bat_buoc=True` trong snapshot `cv.kcs_tieu_chi_json` phải có MỘT kết quả gửi
+    kèm — khớp theo `thu_tu` (khoá ổn định kể cả mục bổ sung không có `tieu_chi_id`). Không có
+    checklist (None/rỗng, hoặc bước không phải KCS) ⇒ không có gì bắt buộc, no-op. Dùng CHUNG cho
+    routing lẫn đột xuất (mục 7) — batch cũ trước module này gọi hàm với `checklist_ket_qua=None`
+    và KHÔNG có `kcs_tieu_chi_json` nên luôn no-op, không phá test cũ."""
+    snap = getattr(cv, "kcs_tieu_chi_json", None) or []
+    bat_buoc_thu_tu = {it["thu_tu"] for it in snap if it.get("bat_buoc")}
+    if not bat_buoc_thu_tu:
+        return checklist_ket_qua
+    da_co = {
+        int(kq["thu_tu"]) for kq in (checklist_ket_qua or [])
+        if kq.get("thu_tu") is not None
+    }
+    if bat_buoc_thu_tu - da_co:
+        raise ValueError("Còn tiêu chí kiểm tra bắt buộc chưa ghi kết quả.")
+    return checklist_ket_qua
 
 
 def _ket_luan(dat: float, khong_dat: float) -> str:
@@ -97,6 +146,7 @@ def tao_batch_kcs(
     co_mau=None,
     don_vi: str | None = None,
     ghi_chu: str | None = None,
+    checklist_ket_qua: list[dict] | None = None,
 ) -> dict:
     """Ghi MỘT batch kiểm tra KCS (§13.1) + đẻ kèm batch sản lượng nền cho phân bổ năng suất KCS.
 
@@ -112,18 +162,9 @@ def tao_batch_kcs(
     if cv.trang_thai not in _TRANG_THAI_GHI_DUOC:
         raise ValueError("Chỉ ghi kiểm tra cho công việc KCS đã bắt đầu.")
 
-    nhan = _so_khong_am(so_luong_nhan, "Số lượng nhận")
-    dat = _so_khong_am(so_luong_dat, "Số lượng đạt")
-    khong_dat = _so_khong_am(so_luong_khong_dat, "Số lượng không đạt")
-    if nhan <= 0:
-        raise ValueError("Số lượng nhận phải lớn hơn 0.")
-    if abs(nhan - (dat + khong_dat)) > _EPS:
-        raise ValueError("Số lượng nhận phải bằng Đạt + Không đạt.")
-    co_mau_f = None
-    if co_mau is not None and str(co_mau) != "":
-        co_mau_f = _so_khong_am(co_mau, "Cỡ mẫu")
-        if co_mau_f > nhan + _EPS:
-            raise ValueError("Cỡ mẫu không được vượt số lượng nhận.")
+    nhan, dat, khong_dat, co_mau_f = _validate_so_luong(
+        so_luong_nhan, so_luong_dat, so_luong_khong_dat, co_mau
+    )
 
     if bat_dau is None or ket_thuc is None:
         raise ValueError("Batch kiểm tra phải có khoảng thời gian bắt đầu và kết thúc.")
@@ -133,6 +174,20 @@ def tao_batch_kcs(
     don_vi_kcs = (don_vi or cv.don_vi_ra or "").strip()
     if not don_vi_kcs:
         raise ValueError("Batch kiểm tra chưa có đơn vị.")
+
+    checklist_ket_qua = _validate_checklist_bat_buoc(cv, checklist_ket_qua)
+
+    # Chặn TỔNG các đợt vượt số đã bàn giao xác nhận (mục 2-4). Chỉ áp khi công việc này CÓ ít
+    # nhất một dòng bàn giao — công việc chưa nối bàn giao (vd fixture test cũ, hoặc KCS nhận thẳng
+    # từ kho không qua bàn giao nội bộ) thì chưa có gì để chặn theo, giữ nguyên hành vi cũ.
+    da_ban_giao = repo.tong_ban_giao_xac_nhan(cv.id)
+    if da_ban_giao > _EPS:
+        da_ghi_truoc = repo.tong_kcs_routing_da_ghi(cv.id)
+        if da_ghi_truoc + nhan > da_ban_giao + _EPS:
+            raise ValueError(
+                f"Tổng số đã kiểm ({da_ghi_truoc + nhan:.3f}) vượt số đã bàn giao xác nhận "
+                f"({da_ban_giao:.3f})."
+            )
 
     # Batch sản lượng nền: tot = so_luong_nhan (nền năng suất KCS §13.1), hong = 0 (số không đạt là
     # LỖI SẢN PHẨM ghi ở lỗi KCS, KHÔNG phải hỏng do KCS). Pipeline phân bổ đọc batch.tot → chia đúng.
@@ -163,6 +218,7 @@ def tao_batch_kcs(
         don_vi=don_vi_kcs,
         ket_luan=_ket_luan(dat, khong_dat),
         ghi_chu=(ghi_chu or "").strip() or None,
+        checklist_json=checklist_ket_qua,
         created_by=getattr(user, "id", None),
     )
     repo.add(kcs)
@@ -176,6 +232,127 @@ def tao_batch_kcs(
     )
     db.commit()
     return _kq_batch(cv, kcs)
+
+
+def tao_kiem_dot_xuat(
+    db: Session,
+    *,
+    user,
+    cong_viec_id: int,
+    kcs_department_id: int,
+    bat_dau: datetime,
+    ket_thuc: datetime,
+    so_luong_nhan,
+    so_luong_dat,
+    so_luong_khong_dat=0,
+    co_mau=None,
+    don_vi: str | None = None,
+    ghi_chu: str | None = None,
+    checklist_ket_qua: list[dict] | None = None,
+    nhom_loi_id: int | None = None,
+    loi_mo_ta: str | None = None,
+    to_chiu_id: int | None = None,
+    cong_doan_ref_id: int | None = None,
+    anh: list[dict] | None = None,
+) -> dict:
+    """KCS KIÊM NHIỆM (mg 0250) — một tổ SX KHÁC kiểm ĐỘT XUẤT một công việc đang chạy/tạm dừng,
+    KHÔNG đứng sẵn trong routing (khác `tao_batch_kcs` — cách cũ, cố định trong routing/bài ghép).
+
+    Khác routing ở BA điểm CỐ Ý:
+      · không đòi `la_kcs`/"đã bắt đầu" kiểu routing — chỉ đòi running/tạm dừng (mục 5, 10).
+      · KHÔNG đẻ kèm `san_xuat_batch` sản lượng, KHÔNG đụng `trang_thai`/kho (mục 6, 11) — đây là
+        bản ghi CHẤT LƯỢNG thuần, không phải nền năng suất/tồn kho.
+      · `so_luong_khong_dat > 0` bắt buộc ghi lỗi (nhóm lỗi + ≥1 ảnh) NGAY trong CÙNG lệnh gọi —
+        routing tách hai bước (`tao_batch_kcs` rồi `ghi_loi` riêng); đột xuất gộp một (mục 8)."""
+    repo = SanXuatKcsRepository(db)
+    cv = repo.cong_viec(cong_viec_id)
+    if cv is None:
+        raise ValueError("Không tìm thấy công việc.")
+    _gate_member(db, user, kcs_department_id)
+    if cv.trang_thai not in _TRANG_THAI_DOT_XUAT:
+        raise ValueError("Chỉ kiểm đột xuất cho công việc đang chạy hoặc tạm dừng.")
+
+    nhan, dat, khong_dat, co_mau_f = _validate_so_luong(
+        so_luong_nhan, so_luong_dat, so_luong_khong_dat, co_mau
+    )
+    if bat_dau is None or ket_thuc is None:
+        raise ValueError("Batch kiểm tra phải có khoảng thời gian bắt đầu và kết thúc.")
+    if _aware(ket_thuc) < _aware(bat_dau):
+        raise ValueError("Kết thúc kiểm tra không được trước khi bắt đầu.")
+    don_vi_kcs = (don_vi or cv.don_vi_ra or "").strip()
+    if not don_vi_kcs:
+        raise ValueError("Batch kiểm tra chưa có đơn vị.")
+    checklist_ket_qua = _validate_checklist_bat_buoc(cv, checklist_ket_qua)
+
+    if khong_dat > _EPS:
+        if not nhom_loi_id:
+            raise ValueError("Không đạt lớn hơn 0 bắt buộc chọn nhóm lỗi.")
+        if not anh:
+            raise ValueError("Không đạt lớn hơn 0 bắt buộc kèm ít nhất một ảnh bằng chứng.")
+        ld = repo.ly_do(int(nhom_loi_id))
+        if ld is None or ld.nhom != NHOM_LOI:
+            raise ValueError("Nhóm lỗi không hợp lệ (phải là một lỗi trong danh mục).")
+        if to_chiu_id and db.get(Department, int(to_chiu_id)) is None:
+            raise ValueError("Không tìm thấy tổ bị yêu cầu nhận trách nhiệm.")
+        if cong_doan_ref_id and repo.cong_viec(int(cong_doan_ref_id)) is None:
+            raise ValueError("Không tìm thấy công đoạn liên đới.")
+
+    # KHÔNG đẻ san_xuat_batch, KHÔNG đụng cv.trang_thai/kho (mục 6, 11) — batch_id giữ NULL.
+    kcs = SanXuatKcsBatch(
+        cong_viec_id=cv.id,
+        batch_id=None,
+        nhom_id=cv.nhom_id,
+        bat_dau=_aware(bat_dau),
+        ket_thuc=_aware(ket_thuc),
+        so_luong_nhan=nhan,
+        co_mau=co_mau_f,
+        so_luong_dat=dat,
+        so_luong_khong_dat=khong_dat,
+        don_vi=don_vi_kcs,
+        ket_luan=_ket_luan(dat, khong_dat),
+        ghi_chu=(ghi_chu or "").strip() or None,
+        loai=KCS_LOAI_DOT_XUAT,
+        kcs_department_id=int(kcs_department_id),
+        checklist_json=checklist_ket_qua,
+        created_by=getattr(user, "id", None),
+    )
+    repo.add(kcs)
+    repo.flush()
+
+    loi_id = None
+    if khong_dat > _EPS:
+        cac_anh = [_chuan_hoa_anh(r, getattr(user, "id", None)) for r in (anh or [])]
+        loi = SanXuatKcsLoi(
+            kcs_batch_id=kcs.id,
+            nhom_loi_id=int(nhom_loi_id),
+            mo_ta=(loi_mo_ta or "").strip() or None,
+            to_chiu_id=int(to_chiu_id) if to_chiu_id else None,
+            cong_doan_ref_id=int(cong_doan_ref_id) if cong_doan_ref_id else None,
+            so_luong=khong_dat,
+            don_vi=don_vi_kcs,
+            trang_thai=TN_CHO,
+            created_by=getattr(user, "id", None),
+        )
+        repo.add(loi)
+        repo.flush()
+        for a in cac_anh:
+            a.loi_id = loi.id
+            repo.add(a)
+        loi_id = loi.id
+
+    AuditLogRepository(db).create(
+        actor_user_id=getattr(user, "id", None),
+        action="san_xuat_kcs_dot_xuat",
+        target=f"san_xuat_kcs_batch:{kcs.id}",
+        detail=(
+            f"cong_viec={cv.id} kcs_to={kcs_department_id} nhan={nhan} dat={dat} "
+            f"khong_dat={khong_dat}"
+        ),
+    )
+    db.commit()
+    res = _kq_batch(cv, kcs)
+    res["loi_id"] = loi_id
+    return res
 
 
 # --- Lỗi + ảnh (§13.2) ----------------------------------------------------------------------

@@ -11,6 +11,8 @@ Phân công / phiên chạy / sản lượng (ghi) là các lát sau, thêm bả
 """
 from __future__ import annotations
 
+import json
+from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import (
@@ -54,6 +56,7 @@ from ..schemas.san_xuat import (
     KcsBatchIn,
     KcsBatchKetQuaOut,
     KcsChiTietOut,
+    KcsDotXuatKetQuaOut,
     KcsHopThuOut,
     KcsLoiKetQuaOut,
     KcsPhanHoiKetQuaOut,
@@ -782,12 +785,15 @@ def tao_batch_kcs(
 ) -> dict:
     """Ghi một batch kiểm tra KCS (§13.1): số nhận = đạt + không đạt; đẻ kèm batch sản lượng nền cho
     phân bổ năng suất KCS. Chỉ công việc KCS đã bắt đầu."""
+    checklist_ket_qua = (
+        [kq.model_dump() for kq in body.checklist_ket_qua] if body.checklist_ket_qua else None
+    )
     res = _chay(lambda: kcs.tao_batch_kcs(
         db, user=user, cong_viec_id=cong_viec_id,
         bat_dau=body.bat_dau, ket_thuc=body.ket_thuc,
         so_luong_nhan=body.so_luong_nhan, so_luong_dat=body.so_luong_dat,
         so_luong_khong_dat=body.so_luong_khong_dat, co_mau=body.co_mau,
-        don_vi=body.don_vi, ghi_chu=body.ghi_chu,
+        don_vi=body.don_vi, ghi_chu=body.ghi_chu, checklist_ket_qua=checklist_ket_qua,
     ))
     _phat_sse_kcs(res)
     return res
@@ -823,6 +829,53 @@ def ghi_loi_kcs(
         _don_anh(keys)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     _phat_sse_kcs(res, notify_uids=[res.get("to_chiu_head_user_id")])
+    return res
+
+
+@router.post("/kcs/dot-xuat", response_model=KcsDotXuatKetQuaOut, status_code=status.HTTP_201_CREATED)
+def tao_kiem_dot_xuat(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    cong_viec_id: int = Form(...),
+    kcs_department_id: int = Form(...),
+    bat_dau: datetime = Form(...),
+    ket_thuc: datetime = Form(...),
+    so_luong_nhan: float = Form(...),
+    so_luong_dat: float = Form(...),
+    so_luong_khong_dat: float = Form(default=0),
+    co_mau: float | None = Form(default=None),
+    don_vi: str | None = Form(default=None),
+    ghi_chu: str | None = Form(default=None),
+    checklist_ket_qua_json: str | None = Form(default=None),
+    nhom_loi_id: int | None = Form(default=None),
+    loi_mo_ta: str | None = Form(default=None),
+    to_chiu_id: int | None = Form(default=None),
+    cong_doan_ref_id: int | None = Form(default=None),
+    files: list[UploadFile] | None = File(default=None),
+) -> dict:
+    """KCS KIÊM NHIỆM (mg 0250): tổ SX khác kiểm đột xuất một việc đang chạy/tạm dừng, không đứng
+    sẵn trong routing. Multipart vì có thể kèm ảnh lỗi NGAY một lượt (khác routing tách hai bước)."""
+    try:
+        checklist_ket_qua = json.loads(checklist_ket_qua_json) if checklist_ket_qua_json else None
+    except (ValueError, TypeError):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "checklist_ket_qua_json không hợp lệ.")
+    anh, keys = _luu_anh_kcs(cong_viec_id, files) if files else ([], [])
+    try:
+        res = kcs.tao_kiem_dot_xuat(
+            db, user=user, cong_viec_id=cong_viec_id, kcs_department_id=kcs_department_id,
+            bat_dau=bat_dau, ket_thuc=ket_thuc, so_luong_nhan=so_luong_nhan,
+            so_luong_dat=so_luong_dat, so_luong_khong_dat=so_luong_khong_dat, co_mau=co_mau,
+            don_vi=don_vi, ghi_chu=ghi_chu, checklist_ket_qua=checklist_ket_qua,
+            nhom_loi_id=nhom_loi_id, loi_mo_ta=loi_mo_ta, to_chiu_id=to_chiu_id,
+            cong_doan_ref_id=cong_doan_ref_id, anh=anh,
+        )
+    except PermissionError as exc:
+        _don_anh(keys)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        _don_anh(keys)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    _phat_sse_kcs(res)
     return res
 
 

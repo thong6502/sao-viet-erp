@@ -530,6 +530,13 @@ class BuTruKetQuaOut(BaseModel):
 
 
 # --- KCS: batch kiểm tra · lỗi · phản hồi trách nhiệm (Giai đoạn 5, §13) ---------------------
+class KcsChecklistKetQuaIn(BaseModel):
+    """Một kết quả checklist khớp theo `thu_tu` của snapshot `kcs_tieu_chi_json` (mg 0250)."""
+    thu_tu: int
+    dat: bool
+    ghi_chu: str | None = None
+
+
 class KcsBatchIn(BaseModel):
     """Ghi một batch kiểm tra KCS (§13.1). `so_luong_nhan = dat + khong_dat` (service kiểm)."""
     bat_dau: datetime
@@ -540,6 +547,7 @@ class KcsBatchIn(BaseModel):
     co_mau: float | None = None          # cỡ mẫu kiểm (≤ số nhận); trống ⇒ không ghi
     don_vi: str | None = None            # trống ⇒ đơn vị ra của công việc
     ghi_chu: str | None = None
+    checklist_ket_qua: list[KcsChecklistKetQuaIn] | None = None   # kết quả checklist (mg 0250)
 
 
 class KcsBatchKetQuaOut(BaseModel):
@@ -548,6 +556,18 @@ class KcsBatchKetQuaOut(BaseModel):
     nhom_id: int | None = None
     kcs_batch_id: int
     batch_id: int | None = None          # batch sản lượng nền cho phân bổ năng suất KCS (§13.1)
+    version: int
+
+
+class KcsDotXuatKetQuaOut(BaseModel):
+    """Kết quả kiểm đột xuất (mg 0250). `batch_id` LUÔN None (mục 6) — giữ field để FE dùng CHUNG
+    shape với `KcsBatchKetQuaOut`."""
+    cong_viec_id: int
+    department_id: int | None = None
+    nhom_id: int | None = None
+    kcs_batch_id: int
+    batch_id: int | None = None
+    loi_id: int | None = None
     version: int
 
 
