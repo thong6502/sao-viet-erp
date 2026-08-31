@@ -202,6 +202,8 @@ def _phat_sse_kcs(res: dict, notify_uids: list[int | None] | None = None) -> Non
         "kcs_batch_id": res.get("kcs_batch_id"),
         "loi_id": res.get("loi_id"),
         "trang_thai": res.get("trang_thai"),
+        "team_id": res.get("kcs_department_id") or res.get("department_id"),
+        "loai": res.get("loai"),
     })
     for uid in notify_uids or []:
         if uid:

@@ -142,6 +142,8 @@ def _kq_batch(cv, kcs: SanXuatKcsBatch) -> dict:
         "kcs_batch_id": kcs.id,
         "batch_id": kcs.batch_id,
         "version": kcs.version,
+        "kcs_department_id": kcs.kcs_department_id,
+        "loai": kcs.loai,
     }
 
 
@@ -446,6 +448,9 @@ def dieu_chinh_ket_qua(
         "kcs_batch_id": kcs.id, "cong_viec_id": cv.id, "so_luong_nhan": nhan,
         "so_luong_dat": dat_f, "so_luong_khong_dat": khong_dat_f, "ket_luan": kcs.ket_luan,
         "version": kcs.version,
+        "department_id": cv.department_id,
+        "kcs_department_id": kcs.kcs_department_id,
+        "loai": kcs.loai,
     }
 
 
@@ -546,6 +551,9 @@ def ghi_loi(
         "to_chiu_head_user_id": to_chiu.head_user_id if to_chiu else None,
         "trang_thai": loi.trang_thai,
         "version": loi.version,
+        "department_id": cv.department_id,
+        "kcs_department_id": kcs.kcs_department_id,
+        "loai": kcs.loai,
     }
 
 

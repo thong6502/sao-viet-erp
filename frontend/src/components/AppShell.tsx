@@ -695,15 +695,22 @@ export function AppShell() {
         // NGAY; `quoteTick` đã bump ở đầu handler nên bàn đang mở tự refetch (không refresh).
         // `teams` mang cả `so_viec_cho` nên reloadTeams lo luôn badge — không gọi API badge riêng.
         reloadTeams();
+      } else if (readable.has("san_xuat") && e.type === "san_xuat_kcs_changed") {
+        // KCS ghi/điều chỉnh kết quả (routing/đột xuất) → badge "KCS chờ" + "việc chờ" của tổ liên
+        // quan đổi NGAY; `quoteTick` đã bump ở đầu handler nên bàn KCS đang mở tự refetch (không
+        // refresh). `teams` mang cả hai badge nên reloadTeams lo hết — không cần đọc `team_id` từ
+        // payload để lọc: reloadTeams() luôn tải lại TOÀN BỘ danh sách tổ, không phải API theo tổ.
+        reloadTeams();
       } else if (e.type === "san_xuat_duoc_giao_viec") {
         // Đẩy đích danh tới người vừa được giao việc (chỉ người có tài khoản nhận) — toast cá nhân.
         pushToast("🔔 Bạn được giao việc sản xuất mới", "info");
       } else if (e.type === "san_xuat_kcs_loi") {
-        // Lỗi KCS là tương tác GIỮA hai tổ (§13.2) — đẩy ĐÍCH DANH. `pending` tới tổ trưởng bị yêu cầu
-        // (cần phản hồi); `accepted`/`rejected` tới người ghi KCS (đã có kết luận). `quoteTick` đã bump
-        // nên panel/hộp thư đang mở tự tươi; toast chỉ để "ting" khi không mở màn.
+        // Lỗi KCS là tương tác GIỮA hai tổ (§13.2) — đẩy ĐÍCH DANH. `pending` = thông báo MỘT CHIỀU
+        // (§3.3: UI mới không có hộp thư/nút Nhận-Từ chối, chỉ "ting"); `accepted`/`rejected` vẫn
+        // là kết luận thật từ luồng legacy `phan_hoi_loi_kcs` (mục 6, còn giữ). `quoteTick` đã bump
+        // nên panel đang mở tự tươi; toast chỉ để báo khi không mở màn.
         if (e.trang_thai === "pending") {
-          pushToast("⚠️ Tổ bạn bị KCS báo lỗi — cần phản hồi trách nhiệm", "warn");
+          pushToast("🔔 KCS vừa ghi nhận lỗi liên quan tới tổ bạn", "warn");
         } else if (e.trang_thai === "accepted") {
           pushToast("✓ Tổ bị yêu cầu đã NHẬN trách nhiệm lỗi KCS", "ok");
         } else if (e.trang_thai === "rejected") {
