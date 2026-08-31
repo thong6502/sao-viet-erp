@@ -117,8 +117,15 @@ def _chuan_hoa(kh_svc, cv, lines: list[dict], *, bat_buoc_ly_do: bool) -> list[d
         # ngay khi client gửi một dòng khai thêm với `dvt` rỗng (mặt hàng chưa khai đơn vị gốc thì
         # ô đơn vị trên form hiện "—" và FE không có gì để điền vào đây). Đó là lỗi NGHIỆP VỤ, phải
         # trả câu đọc được nêu đích danh mặt hàng chứ không phải một 500 câm.
+        #
+        # Nhưng CHỈ ném khi tổ THẬT SỰ đang xin dòng này (`sl > _EPS`) — cùng nguyên tắc "soi theo
+        # cái tổ khai" như luật bỏ qua dòng ngoài kế hoạch số 0 ngay trên và như `can_ly_do` bên
+        # dưới. Dòng TRONG kế hoạch hoàn toàn có thể mang `dvt` rỗng: `lsx_service.py` chốt
+        # `don_vi_snapshot = mat.don_vi_gia or ""` vì đơn vị gốc nullable còn cột snapshot NOT NULL.
+        # Ném vô điều kiện là để MỘT món thiếu đơn vị trong danh mục khoá chết cả công đoạn — tổ
+        # trưởng không gửi nổi cái gì, kể cả những món chẳng liên quan.
         dvt = (ln or {}).get("dvt") or (k_row or {}).get("dvt") or ""
-        if not dvt:
+        if not dvt and sl > _EPS:
             raise VatTuDeNghiError(
                 f"«{ten}» chưa khai đơn vị — báo kỹ thuật khai đơn vị gốc cho mặt hàng này "
                 f"trước khi xin cấp."

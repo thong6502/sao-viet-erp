@@ -1414,3 +1414,84 @@ def test_dong_ngoai_ke_hoach_thieu_don_vi_ra_loi_doc_duoc(db, orders, lsx_svc, a
     loi = str(e.value)
     assert "đơn vị" in loi.lower()
     assert f"#{ngoai_id}" in loi                    # nêu đích danh mặt hàng đang thiếu đơn vị
+
+
+# --- Vòng sửa 2 (Task 9): dòng TRONG kế hoạch thiếu đơn vị ------------------------------------
+#
+# `lsx_service.py` chốt `don_vi_snapshot = mat.don_vi_gia or ""` (đơn vị gốc nullable từ
+# 2026-08-08, cột snapshot NOT NULL) ⇒ một dòng CÓ trong kế hoạch hoàn toàn có thể mang `dvt = ""`.
+
+
+def test_mat_hang_ke_hoach_thieu_don_vi_khong_khoa_ca_cong_doan(
+    db, orders, lsx_svc, admin, customer,
+):
+    """MỘT món thiếu đơn vị trong danh mục KHÔNG được khoá chết cả công đoạn.
+
+    Vòng sửa 1 đặt `if not dvt: raise` trong vòng lặp duyệt TOÀN BỘ kế hoạch, nên nó ném lỗi kể cả
+    khi tổ để món đó ở 0 và chỉ xin những món khác ⇒ tổ trưởng không gửi được gì, không đường thoát.
+    Đúng họ lỗi mà C1 và M5 vừa phải gỡ.
+    """
+    from app.models.stock_request import StockRequest
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTFX4")
+    to.head_user_id = admin.id
+    db.commit()
+    # `dvt=""` ⇒ cả `don_vi_gia` lẫn `don_vi_snapshot` đều rỗng: đúng ca danh mục chưa khai đơn vị.
+    thieu = _khai_them_vat_tu_vao_buoc(
+        db, cv, ma="VT-NODVT-1", ten="Keo gáy chưa khai đơn vị", so_luong=5, dvt="",
+    )
+
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    k_thieu = next(k for k in kh if k["hang_loai"] == "vat_tu" and k["hang_id"] == thieu.id)
+    assert k_thieu["dvt"] == ""            # tiền đề của test — kế hoạch thật sự không có đơn vị
+    k_giay = next(k for k in kh if k["hang_loai"] == "giay")
+
+    # Tổ xin bình thường món CÓ đơn vị, để 0 cho món thiếu đơn vị (kèm lý do — luật lệch kế hoạch
+    # của lần đầu vẫn nguyên, vòng này không đụng tới).
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=[
+        {"hang_loai": k_giay["hang_loai"], "hang_id": k_giay["hang_id"], "dvt": k_giay["dvt"],
+         "sl_yeu_cau": k_giay["sl"]},
+        {"hang_loai": k_thieu["hang_loai"], "hang_id": k_thieu["hang_id"], "dvt": "",
+         "sl_yeu_cau": 0, "ly_do_chenh_lech": "Món này chưa khai đơn vị, kho không xuất được"},
+    ])
+
+    dn = db.get(SanXuatVatTuDeNghi, ra["de_nghi_id"])
+    assert len(dn.dongs) == len(kh)                       # bản đối chiếu vẫn đủ danh mục kế hoạch
+    d_thieu = next(d for d in dn.dongs if d.hang_id == thieu.id)
+    assert float(d_thieu.sl_yeu_cau) == 0
+    # …và yêu cầu kho vẫn đi, chỉ mang món xin được.
+    req = db.get(StockRequest, ra["stock_request_id"])
+    assert [l.hang_id for l in req.lines] == [k_giay["hang_id"]]
+
+
+def test_xin_so_duong_cho_mat_hang_thieu_don_vi_van_bao_loi_doc_duoc(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Nới cho dòng số 0 KHÔNG được nới luôn dòng đang xin thật: xin số dương một món chưa khai đơn
+    vị thì vẫn phải là lỗi nghiệp vụ đọc được, nêu đích danh món đó (giữ nguyên mục 2 vòng sửa 1)."""
+    from app.services.san_xuat.vat_tu_de_nghi import VatTuDeNghiError
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTFX5")
+    to.head_user_id = admin.id
+    db.commit()
+    thieu = _khai_them_vat_tu_vao_buoc(
+        db, cv, ma="VT-NODVT-2", ten="Keo gáy chưa khai đơn vị", so_luong=5, dvt="",
+    )
+
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    for ln in lines:                       # xin số DƯƠNG cho đúng món thiếu đơn vị
+        if ln["hang_id"] == thieu.id:
+            ln["sl_yeu_cau"] = 3
+            ln["ly_do_chenh_lech"] = "Cần thêm keo"
+
+    with pytest.raises(VatTuDeNghiError) as e:
+        V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    loi = str(e.value)
+    assert "đơn vị" in loi.lower()
+    assert "Keo gáy chưa khai đơn vị" in loi

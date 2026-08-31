@@ -217,8 +217,8 @@ export function ThucHienSxPage({
   // Đề nghị vật tư đổi (SSE): CHỈ nạp lại khi số đếm CỦA RIÊNG việc đang mở tăng. So theo cặp
   // (việc, số đếm) nên đổi việc KHÔNG kéo theo một lượt gọi thừa — effect ngay trên vừa nạp rồi.
   const vtDaXem = useRef<{ cv: number | null; dem: number }>({ cv: null, dem: 0 });
-  // Mốc lượt nạp lại GẦN NHẤT do chính người này gây ra (`mutate` đặt) — để tín hiệu SSE vọng về
-  // ngay sau đó không bắt nạp lần hai đúng dữ liệu vừa lấy.
+  // Mốc thao tác ghi GẦN NHẤT của chính người này (`mutate` đặt HAI lần: trước khi gọi API và sau
+  // khi nạp lại xong) — để tín hiệu SSE vọng về từ chính cú bấm đó không bắt nạp lần hai.
   const vuaTuNap = useRef(0);
   const vtDem = selectedId != null ? (vatTuDeNghiDem?.[selectedId] ?? 0) : 0;
   useEffect(() => {
@@ -373,15 +373,18 @@ export function ThucHienSxPage({
   const mutate = useCallback(async <T,>(run: () => Promise<T>, ok: string): Promise<T | null> => {
     if (!token || selectedId == null) return null;
     setBusy(true);
+    // Mốc đặt TRƯỚC cả `run()`: BE gọi `hub.broadcast(...)` TRƯỚC khi `return`, nên gói SSE của
+    // chính cú bấm này có thể tới trình duyệt SỚM HƠN lúc `run()` resolve. Mốc đặt sau `run()` là
+    // đã muộn — tín hiệu cần chặn đã đi qua cửa rồi.
+    vuaTuNap.current = Date.now();
     try {
       const r = await run();
       setReason(null);
       setReasonText("");
-      // Mốc đặt TRƯỚC khi chờ nạp, không phải sau: BE bắn sự kiện SSE của chính cú bấm này ngay
-      // trong `run()`, nên nó thường về lúc `loadChiTiet` còn đang bay — đặt mốc sau khi chờ xong
-      // là mở cửa 2 giây MUỘN HƠN đúng tín hiệu cần chặn, và lượt nạp thừa vẫn xảy ra.
-      vuaTuNap.current = Date.now();
       await loadChiTiet(selectedId);
+      // Đặt LẠI sau khi nạp xong: mốc đầu phủ khoảng sự kiện về SỚM, mốc này phủ khoảng nó về
+      // MUỘN hơn lượt nạp. Cùng cửa 2 giây, không đẻ cơ chế mới.
+      vuaTuNap.current = Date.now();
       loadItems();
       onBadgeStale?.();
       setToast(ok);

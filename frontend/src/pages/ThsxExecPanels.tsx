@@ -1083,8 +1083,12 @@ function vtCanTro(
   dongs: VtDongForm[], lines: SxVatTuDeNghiDongIn[],
   mode: VtFormMode, loai: "lan_dau" | "bo_sung",
 ): string | null {
-  if (dongs.some(vtThieuDonVi)) {
-    return "Còn mặt hàng chưa khai đơn vị gốc — bỏ dòng đó, hoặc nhờ kỹ thuật khai đơn vị rồi xin lại.";
+  // CHỈ chặn khi tổ đang THẬT SỰ xin món đó. Dòng kế hoạch cũng có thể thiếu đơn vị (danh mục chưa
+  // khai) — chặn cả khi nó đang để 0 là để một món hỏng khoá chết cả công đoạn, mà dòng kế hoạch
+  // lại không xoá được nên tổ trưởng hết đường. Đường thoát thật: đưa món đó về 0, gửi phần còn lại.
+  if (dongs.some((d) => vtThieuDonVi(d) && d.sl_yeu_cau > VT_EPS)) {
+    return "Mặt hàng chưa khai đơn vị gốc thì chưa xin được — đưa dòng đó về 0 rồi gửi phần còn lại, "
+      + "hoặc nhờ kỹ thuật khai đơn vị rồi xin lại.";
   }
   // Gõ số rồi quên chọn mặt hàng: cũng là một dòng sẽ bị loại trước khi rời trình duyệt.
   if (dongs.some((d) => d.hang_id <= 0 && d.sl_yeu_cau > VT_EPS)) {
