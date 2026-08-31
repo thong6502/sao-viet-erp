@@ -897,3 +897,35 @@ def test_sua_qua_kho_huy_roi_nhap_so_duong_thi_chan_khong_ghi_nua_voi(
     assert req_sau.ly_do_huy == "Kho hết hàng, không cấp"
     dongs_sau = [(d.hang_id, float(d.sl_yeu_cau)) for d in db.get(SanXuatVatTuDeNghi, dn_id).dongs]
     assert dongs_sau == dongs_truoc
+
+
+# --- Task 6: route chỉ gác `assign_work`, không đòi `kho:request` (ruling 6/21) ----------------
+# `sua()` phải để `StockRequestError` xuyên thẳng ra ngoài (không bọc thành `VatTuDeNghiError`) —
+# đã CHỐT ở đây rồi, KHÔNG cần thêm test: `test_sua_qua_kho_huy_roi_nhap_so_duong_thi_chan_khong_ghi_nua_voi`
+# (ngay phía trên) gọi thẳng `V.sua()` và `pytest.raises(StockRequestError)` — router Task 6 chỉ
+# việc thêm `except (VatTuDeNghiError, StockRequestError)` để dịch nó thành 400.
+
+
+def test_khong_can_quyen_kho_de_tao_de_nghi(db, orders, lsx_svc, admin, customer):
+    """`tao()`/`sua()` không hề hỏi RBAC — ranh giới an ninh DUY NHẤT là `_gate_to_truong` (đúng
+    `department.head_user_id`). Mọi test khác trong file này gọi `V.tao(..., user=admin)`, mà
+    `admin` (Giám đốc) lại CÓ `kho.can_request=True` qua `_full()` (`app/seed.py`) — nên tự chúng
+    không chứng minh được "route Task 6 không cần bit kho:request". Test này dựng một tổ trưởng
+    THẬT SỰ trắng RBAC (`role_id=None`, không một bit quyền nào — không riêng gì kho) và xác nhận
+    `tao()` vẫn tạo được đề nghị + yêu cầu kho bình thường."""
+    from app.models.user import User
+    from app.services.san_xuat import vat_tu_de_nghi as V
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTKHO")
+    to_truong = User(username="to_truong_khong_quyen_kho", name="Tổ trưởng không quyền kho",
+                      password_hash="x")
+    db.add(to_truong)
+    db.flush()
+    to.head_user_id = to_truong.id
+    db.commit()
+
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    ra = V.tao(db, user=to_truong, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    assert ra["de_nghi_id"] and ra["stock_request_id"]

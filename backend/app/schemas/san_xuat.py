@@ -772,3 +772,18 @@ class DongNhomKetQuaOut(BaseModel):
     kieu: str                            # du | thieu
     ly_do_id: int | None = None
     version: int
+
+
+# --- Tổ đề nghị cấp vật tư công đoạn (spec-de-nghi-cap-vat-tu-cong-doan §6) ------------------
+class VatTuDeNghiDongIn(BaseModel):
+    hang_loai: str
+    hang_id: int
+    dvt: str
+    sl_yeu_cau: float = 0.0
+    ly_do_chenh_lech: str | None = None
+
+
+class VatTuDeNghiIn(BaseModel):
+    # GIỜ cần, không phải ngày: kho soạn theo ca. `stock_requests.ngay_can` chỉ lưu phần DATE.
+    can_luc: datetime
+    lines: list[VatTuDeNghiDongIn] = []

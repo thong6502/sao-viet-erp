@@ -84,6 +84,7 @@ from ..schemas.san_xuat import (
     TamDungIn,
     TeamsOut,
     ThemLotIn,
+    VatTuDeNghiIn,
     VatTuNhanKetQuaOut,
     VatTuXacNhanIn,
     WorkItemChiTietOut,
@@ -100,8 +101,11 @@ from ..services.san_xuat import (
     phan_bo,
     san_luong,
     thuc_thi,
+    vat_tu_de_nghi,
     vat_tu_nhan,
 )
+from ..services.san_xuat.vat_tu_de_nghi import VatTuDeNghiError
+from ..services.stock_request_service import StockRequestError
 
 router = APIRouter(prefix="/api/san-xuat", tags=["san-xuat"])
 MODULE = "san_xuat"
@@ -423,6 +427,54 @@ def go_phan_cong(
     ))
     _phat_sse(res)
     return res
+
+
+@router.post("/work-items/{cong_viec_id}/material-requests",
+             status_code=status.HTTP_201_CREATED, response_model=None)
+def tao_de_nghi_vat_tu(
+    cong_viec_id: int,
+    body: VatTuDeNghiIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+):
+    """Tổ đề nghị cấp vật tư cho công đoạn (spec-de-nghi-cap-vat-tu-cong-doan §6).
+
+    Bit `assign_work` chỉ là cổng THÔ — ranh giới thật ("đúng tổ trưởng của tổ nào") nằm trong
+    service, giống hệt `phan-cong`. KHÔNG đòi `kho:request`: kho không duyệt yêu cầu này.
+    """
+    try:
+        return vat_tu_de_nghi.tao(
+            db, user=user, cong_viec_id=cong_viec_id, can_luc=body.can_luc,
+            lines=[l.model_dump() for l in body.lines],
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except (VatTuDeNghiError, StockRequestError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.put("/work-items/{cong_viec_id}/material-requests/{de_nghi_id}", response_model=None)
+def sua_de_nghi_vat_tu(
+    cong_viec_id: int,
+    de_nghi_id: int,
+    body: VatTuDeNghiIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+):
+    """`de_nghi_id` là id ĐỀ NGHỊ SẢN XUẤT, không phải id yêu cầu kho — đừng nhầm hai không gian id."""
+    try:
+        return vat_tu_de_nghi.sua(
+            db, user=user, cong_viec_id=cong_viec_id, de_nghi_id=de_nghi_id,
+            can_luc=body.can_luc, lines=[l.model_dump() for l in body.lines],
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except (VatTuDeNghiError, StockRequestError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
 @router.post("/work-items/{cong_viec_id}/bat-dau", response_model=LenhKetQuaOut)
