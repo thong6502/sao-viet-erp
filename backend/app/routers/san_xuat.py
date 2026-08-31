@@ -998,6 +998,27 @@ def tao_yeu_cau_nhap_thanh_pham(
     return res
 
 
+@router.post("/kcs/{kcs_batch_id}/yeu-cau-nhap-kho", response_model=NhapKhoYcKetQuaOut,
+             status_code=status.HTTP_201_CREATED)
+def tao_yeu_cau_kho_mot_nut(
+    kcs_batch_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+) -> dict:
+    """Gửi kho MỘT NÚT (§5.6) — server tự tính số đạt chưa gửi, không nhận số từ client. Chỉ batch
+    routing + công việc KCS cuối. 409 nếu không còn số đạt chưa gửi."""
+    try:
+        res = kho.tao_yeu_cau_kho_mot_nut(db, user=user, kcs_batch_id=kcs_batch_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except kho.KhongConSoDuGuiKho as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    _phat_sse_kho(res)
+    return res
+
+
 @router.post("/kho/yeu-cau/{yc_id}/xac-nhan", response_model=KhoXacNhanNhapKetQuaOut)
 def kho_xac_nhan_nhap(
     yc_id: int,

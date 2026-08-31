@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from ...models.san_xuat_kcs import KCS_LOAI_ROUTING
 from ...models.san_xuat_kho import (
     HANG_BTP,
     HANG_THANH_PHAM,
@@ -38,6 +39,12 @@ from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
 from ..sequence_service import SequenceService
 from .kcs import _EPS, _so_khong_am
 from .thuc_thi import _gate, _moc
+
+
+class KhongConSoDuGuiKho(ValueError):
+    """Không còn số đạt chưa gửi kho cho batch này — router dịch thành 409 (khác ValueError thường
+    dịch 400). Kế thừa ValueError để nếu lỡ không được bắt riêng, `_chay` vẫn dịch 400, không bao
+    giờ rơi thành 500 không rõ nguyên nhân."""
 
 
 # --- Registry hàng sản xuất (§14.2) ---------------------------------------------------------
@@ -85,40 +92,19 @@ def _get_or_create_hang(
 
 
 # --- Yêu cầu nhập kho thành phẩm (§14.1) ----------------------------------------------------
-def tao_yeu_cau_nhap_thanh_pham(
-    db: Session,
+def _tao_yc_tu_batch(
+    repo: SanXuatKhoRepository,
     *,
     user,
-    kcs_batch_id: int,
-    so_luong,
+    kcs,
+    cv,
+    so: float,
     quy_cach: str | None = None,
     ghi_chu: str | None = None,
 ) -> dict:
-    """KCS tạo MỘT yêu cầu nhập kho thành phẩm từ một batch ĐẠT (§14.1).
-
-    Gate tổ trưởng KCS (theo công việc của batch). Trần: tổng yêu cầu chưa-huỷ của batch + số mới
-    ≤ `batch.so_luong_dat`. Danh tính thành phẩm = registry (đơn + nhóm)."""
-    repo = SanXuatKhoRepository(db)
-    kcs = repo.kcs_batch(kcs_batch_id)
-    if kcs is None:
-        raise ValueError("Không tìm thấy batch kiểm tra.")
-    cv = repo.cong_viec(kcs.cong_viec_id)
-    if cv is None:
-        raise ValueError("Không tìm thấy công việc của batch kiểm tra.")
-    _gate(db, user, cv)
-
-    so = _so_khong_am(so_luong, "Số lượng nhập kho")
-    if so <= 0:
-        raise ValueError("Số lượng nhập kho phải lớn hơn 0.")
-    dat = float(kcs.so_luong_dat or 0)
-    if dat <= 0:
-        raise ValueError("Batch này không có số lượng đạt để nhập kho.")
-    da_yeu_cau = repo.tong_yeu_cau_cua_batch(kcs_batch_id)
-    if da_yeu_cau + so > dat + _EPS:
-        raise ValueError(
-            f"Tổng yêu cầu nhập kho ({da_yeu_cau + so:g}) vượt số lượng KCS đã chấp nhận ({dat:g})."
-        )
-
+    """Tạo MỘT `SanXuatNhapKhoYc` cho `so` đơn vị của một batch KCS đã qua đủ kiểm tra ở caller
+    (gate/số lượng/loai/la_kcs_cuoi đã validate trước khi gọi hàm này) — dùng chung cho cả luồng
+    thủ công (`tao_yeu_cau_nhap_thanh_pham`) lẫn luồng một nút (`tao_yeu_cau_kho_mot_nut`, §5.6)."""
     nhom = repo.nhom(kcs.nhom_id) if kcs.nhom_id else None
     if nhom is None:
         raise ValueError("Batch kiểm tra chưa gắn nhóm thành phẩm nên chưa thể nhập kho.")
@@ -151,14 +137,6 @@ def tao_yeu_cau_nhap_thanh_pham(
     )
     repo.add(yc)
     repo.flush()
-
-    AuditLogRepository(db).create(
-        actor_user_id=getattr(user, "id", None),
-        action="san_xuat_kho_yeu_cau_nhap",
-        target=f"san_xuat_nhap_kho_yc:{yc.id}",
-        detail=f"kcs_batch={kcs.id} hang={hang.id} so_luong={so:g}",
-    )
-    db.commit()
     return {
         "yc_id": yc.id,
         "kcs_batch_id": kcs.id,
@@ -168,6 +146,90 @@ def tao_yeu_cau_nhap_thanh_pham(
         "trang_thai": yc.trang_thai,
         "version": yc.version,
     }
+
+
+def tao_yeu_cau_nhap_thanh_pham(
+    db: Session,
+    *,
+    user,
+    kcs_batch_id: int,
+    so_luong,
+    quy_cach: str | None = None,
+    ghi_chu: str | None = None,
+) -> dict:
+    """KCS tạo MỘT yêu cầu nhập kho thành phẩm THỦ CÔNG từ một batch ĐẠT (§14.1, không đổi hành vi
+    — chỉ tái cấu trúc phần tạo dòng ra `_tao_yc_tu_batch` dùng chung với luồng một nút §5.6).
+
+    Gate tổ trưởng KCS (theo công việc của batch). Trần: tổng yêu cầu chưa-huỷ của batch + số mới
+    ≤ `batch.so_luong_dat`. Danh tính thành phẩm = registry (đơn + nhóm)."""
+    repo = SanXuatKhoRepository(db)
+    kcs = repo.kcs_batch(kcs_batch_id)
+    if kcs is None:
+        raise ValueError("Không tìm thấy batch kiểm tra.")
+    cv = repo.cong_viec(kcs.cong_viec_id)
+    if cv is None:
+        raise ValueError("Không tìm thấy công việc của batch kiểm tra.")
+    _gate(db, user, cv)
+
+    so = _so_khong_am(so_luong, "Số lượng nhập kho")
+    if so <= 0:
+        raise ValueError("Số lượng nhập kho phải lớn hơn 0.")
+    dat = float(kcs.so_luong_dat or 0)
+    if dat <= 0:
+        raise ValueError("Batch này không có số lượng đạt để nhập kho.")
+    da_yeu_cau = repo.tong_yeu_cau_cua_batch(kcs_batch_id)
+    if da_yeu_cau + so > dat + _EPS:
+        raise ValueError(
+            f"Tổng yêu cầu nhập kho ({da_yeu_cau + so:g}) vượt số lượng KCS đã chấp nhận ({dat:g})."
+        )
+
+    ket = _tao_yc_tu_batch(repo, user=user, kcs=kcs, cv=cv, so=so, quy_cach=quy_cach, ghi_chu=ghi_chu)
+
+    AuditLogRepository(db).create(
+        actor_user_id=getattr(user, "id", None),
+        action="san_xuat_kho_yeu_cau_nhap",
+        target=f"san_xuat_nhap_kho_yc:{ket['yc_id']}",
+        detail=f"kcs_batch={kcs.id} hang={ket['hang_id']} so_luong={so:g}",
+    )
+    db.commit()
+    return ket
+
+
+def tao_yeu_cau_kho_mot_nut(db: Session, *, user, kcs_batch_id: int) -> dict:
+    """Gửi kho MỘT NÚT (§5.6) — server tự tính 'số đạt chưa gửi' của batch KCS routing CUỐI, KHÔNG
+    nhận số từ client. Khóa dòng batch (`with_for_update`) TRƯỚC khi đọc số để double-click không
+    tạo 2 yêu cầu song song. Chỉ `loai=routing` + công việc `la_kcs_cuoi=true`."""
+    repo = SanXuatKhoRepository(db)
+    repo.khoa_batch_kcs(kcs_batch_id)          # khóa TRƯỚC khi đọc — chặn race double-click
+    kcs = repo.kcs_batch(kcs_batch_id)
+    if kcs is None:
+        raise ValueError("Không tìm thấy batch kiểm tra.")
+    cv = repo.cong_viec(kcs.cong_viec_id)
+    if cv is None:
+        raise ValueError("Không tìm thấy công việc của batch kiểm tra.")
+    _gate(db, user, cv)
+
+    if kcs.loai != KCS_LOAI_ROUTING:
+        raise ValueError("Chỉ batch kiểm theo routing mới gửi kho theo lối một nút.")
+    if not cv.la_kcs_cuoi:
+        raise ValueError("Chỉ công việc KCS cuối mới được gửi kho.")
+
+    dat = float(kcs.so_luong_dat or 0)
+    da_yeu_cau = repo.tong_yeu_cau_cua_batch(kcs_batch_id)
+    con_lai = dat - da_yeu_cau
+    if con_lai <= _EPS:
+        raise KhongConSoDuGuiKho("Không còn số đạt chưa gửi kho cho batch này.")
+
+    ket = _tao_yc_tu_batch(repo, user=user, kcs=kcs, cv=cv, so=con_lai)
+
+    AuditLogRepository(db).create(
+        actor_user_id=getattr(user, "id", None),
+        action="san_xuat_kho_yeu_cau_nhap_mot_nut",
+        target=f"san_xuat_nhap_kho_yc:{ket['yc_id']}",
+        detail=f"kcs_batch={kcs.id} hang={ket['hang_id']} so_luong={con_lai:g} (tu_dong)",
+    )
+    db.commit()
+    return ket
 
 
 def _trang_thai_yc(yeu_cau: float, xac_nhan: float) -> str:
