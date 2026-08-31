@@ -987,8 +987,11 @@ def test_doi_chieu_gom_ca_ba_con_so(db, orders, lsx_svc, admin, customer):
     assert set(d) >= {"hang_loai", "hang_id", "ten", "dvt",
                       "sl_ke_hoach", "sl_yeu_cau", "sl_thuc_xuat",
                       "lech_ke_hoach", "lech_thuc_te", "cac_ly_do"}
-    assert d["lech_ke_hoach"] == pytest.approx(d["sl_yeu_cau"] - d["sl_ke_hoach"])
-    assert d["lech_thuc_te"] == pytest.approx(d["sl_thuc_xuat"] - d["sl_yeu_cau"])
+    # Vòng sửa 1, Important 2+3: MÁY so bằng thang GỐC (`models/san_xuat_vat_tu.py:85-87`), không
+    # phải thang tổ khai — hai dòng dưới theo ĐÚNG công thức mới (`_goc`); thang lệch được test
+    # riêng ở `test_doi_chieu_so_lech_bang_thang_goc_khong_phai_thang_to_khai`.
+    assert d["lech_ke_hoach"] == pytest.approx(d["sl_yeu_cau_goc"] - d["sl_ke_hoach_goc"])
+    assert d["lech_thuc_te"] == pytest.approx(d["sl_thuc_xuat"] - d["sl_yeu_cau_goc"])
     assert any(row["sl_thuc_xuat"] > 0 for row in ct["vat_tu_cap"]["doi_chieu"])
     assert ct["vat_tu_cap"]["du_lieu_cu"] is False
 
@@ -1154,3 +1157,109 @@ def test_cac_de_nghi_dongs_la_rieng_lan_khong_phai_cong_don(
 
     lan_dau = vt["cac_de_nghi"][0]
     assert lan_dau["dongs"][0]["sl_yeu_cau"] == pytest.approx(k0["sl"])   # RIÊNG lần 1
+
+
+# --- Task 7 vòng sửa 1: 3 Important từ task-7-fix-1.md ------------------------------------------
+
+def test_kho_huy_thi_khoa_sua_nhung_bo_sung_phai_chay_that(db, orders, lsx_svc, admin, customer):
+    """Important 1: vòng trước chỉ đặt CỜ `co_the_tao_bo_sung=True` đúng, nhưng cổng thật của
+    `tao()` (`cac and not co_voucher(...)` ⇒ ném) không phân biệt "kho hủy" với "đang có đề nghị
+    dở dang chưa lập phiếu" — kho hủy thì KHÔNG có phiếu, nên `tao()` vẫn ném, tổ bấm nút Bổ sung
+    rồi ăn 400. Test giữ CẢ HAI đầu: cờ đúng VÀ `V.tao(...)` phải CHẠY THẬT."""
+    from app.models.stock_request import StockRequest
+    from app.services.san_xuat import board
+    from app.services.san_xuat import vat_tu_de_nghi as V
+
+    dn_id, req_id, _ma, kh = _tao_de_nghi(db, orders, lsx_svc, admin, customer, "TO-VC10")
+    cv_id = _cv_id(db, dn_id)
+    _req_svc(db).cancel_by_kho(db.get(StockRequest, req_id), "Kho hết hàng, không cấp")
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv_id)
+    vt = ct["vat_tu_cap"]
+    assert vt["de_nghi_co_the_sua_id"] is None
+    assert vt["co_the_tao_bo_sung"] is True
+
+    k0 = kh[0]
+    lines2 = [{"hang_loai": k0["hang_loai"], "hang_id": k0["hang_id"], "dvt": k0["dvt"],
+               "sl_yeu_cau": k0["sl"], "ly_do_chenh_lech": "Kho đã hủy, xin lại"}]
+    ra = V.tao(db, user=admin, cong_viec_id=cv_id, can_luc=_T0, lines=lines2)  # KHÔNG được ném
+    assert ra["de_nghi_id"] is not None
+    assert ra["lan_so"] == 2
+
+
+def test_doi_chieu_so_lech_bang_thang_goc_khong_phai_thang_to_khai(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Important 2+3: kế hoạch khai 1 ram (= 500 tờ gốc), tổ khai 400 tờ trên một mặt hàng NGOÀI
+    kế hoạch (để hàng `gom` dựng thẳng từ dòng đề nghị, không bị `ke_hoach` ghi đè `sl_ke_hoach`).
+    So bằng thang tổ khai ra 400 − 1 = 399 — vô nghĩa (so 400 tờ với 1 ram). Đúng phải là
+    400 − 500 = −100 theo thang GỐC (`models/san_xuat_vat_tu.py:85-87`).
+
+    Ca cùng đơn vị (dvt == dvt_goc) không bắt được lỗi này vì hai công thức trùng số — nên dựng
+    thẳng ở tầng ORM (không qua `tao()`/`_chuan_hoa`, vốn ép tổ xin giấy phải giữ nguyên đơn vị kế
+    hoạch) để có đúng cặp `dvt != dvt_goc` cần thiết.
+    """
+    from app.services.san_xuat import board
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VC11")
+    to.head_user_id = admin.id
+    db.commit()
+
+    dn = SanXuatVatTuDeNghi(cong_viec_id=cv.id, lan_so=1, loai=DN_LAN_DAU, can_luc=_T0,
+                             created_by_id=admin.id, updated_by_id=admin.id)
+    db.add(dn)
+    db.flush()
+    db.add(SanXuatVatTuDeNghiDong(
+        de_nghi_id=dn.id, hang_loai="vat_tu", hang_id=9001,
+        dvt="tờ", dvt_goc="tờ",
+        sl_ke_hoach=1, sl_ke_hoach_goc=500,     # "1" ghi theo ram, quy gốc đúng ra 500 tờ
+        sl_yeu_cau=400, sl_yeu_cau_goc=400,     # tổ khai thẳng 400 tờ — đã là thang gốc
+        ly_do_chenh_lech="Ngoài kế hoạch — test thang gốc",
+    ))
+    db.commit()
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
+    row = next(r for r in ct["vat_tu_cap"]["doi_chieu"]
+               if r["hang_loai"] == "vat_tu" and r["hang_id"] == 9001)
+    assert row["lech_ke_hoach"] == pytest.approx(400 - 500)   # thang GỐC, KHÔNG phải 400 - 1
+    assert row["lech_thuc_te"] == pytest.approx(0 - 400)      # chưa có phiếu xuất nào cho dòng này
+
+
+def test_hang_gom_lan_hai_dvt_thi_hien_bang_thang_goc(db, orders, lsx_svc, admin, customer):
+    """2c: một mặt hàng NGOÀI kế hoạch được khai qua hai lần, mỗi lần một `dvt` khác nhau (ram rồi
+    tờ) — khoá gom là `(hang_loai, hang_id)`, không có `dvt`, nên cộng thẳng hai con số khác thang
+    (1 + 200) là nói dối. Hàng lẫn đơn vị phải hiện bằng thang GỐC, số cộng dồn cũng phải theo gốc
+    (500 + 200 = 700), không phải cộng theo số tổ khai."""
+    from app.services.san_xuat import board
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VC12")
+    to.head_user_id = admin.id
+    db.commit()
+
+    dn1 = SanXuatVatTuDeNghi(cong_viec_id=cv.id, lan_so=1, loai=DN_LAN_DAU, can_luc=_T0,
+                              created_by_id=admin.id, updated_by_id=admin.id)
+    db.add(dn1)
+    db.flush()
+    db.add(SanXuatVatTuDeNghiDong(
+        de_nghi_id=dn1.id, hang_loai="vat_tu", hang_id=9002,
+        dvt="ram", dvt_goc="tờ", sl_ke_hoach=0, sl_ke_hoach_goc=0,
+        sl_yeu_cau=1, sl_yeu_cau_goc=500,
+        ly_do_chenh_lech="Ngoài kế hoạch — xin theo ram",
+    ))
+    dn2 = SanXuatVatTuDeNghi(cong_viec_id=cv.id, lan_so=2, loai=DN_BO_SUNG, can_luc=_T0,
+                              created_by_id=admin.id, updated_by_id=admin.id)
+    db.add(dn2)
+    db.flush()
+    db.add(SanXuatVatTuDeNghiDong(
+        de_nghi_id=dn2.id, hang_loai="vat_tu", hang_id=9002,
+        dvt="tờ", dvt_goc="tờ", sl_ke_hoach=0, sl_ke_hoach_goc=0,
+        sl_yeu_cau=200, sl_yeu_cau_goc=200,
+        ly_do_chenh_lech="Bổ sung thêm — xin theo tờ",
+    ))
+    db.commit()
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
+    row = next(r for r in ct["vat_tu_cap"]["doi_chieu"]
+               if r["hang_loai"] == "vat_tu" and r["hang_id"] == 9002)
+    assert row["dvt"] == row["dvt_goc"] == "tờ"
+    assert row["sl_yeu_cau"] == pytest.approx(700)   # 500 + 200 (thang gốc) — không phải 1 + 200

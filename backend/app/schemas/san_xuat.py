@@ -310,13 +310,21 @@ class PhanBoChiTietOut(BaseModel):
 
 class VatTuCapDoiChieuOut(BaseModel):
     """Một mặt hàng trong bản đối chiếu (spec-de-nghi-cap-vat-tu-cong-doan §6): kế hoạch / đã yêu
-    cầu / kho thực xuất, cộng dồn qua MỌI lần đề nghị."""
+    cầu / kho thực xuất, cộng dồn qua MỌI lần đề nghị.
+
+    `dvt`/`sl_ke_hoach`/`sl_yeu_cau` là thang NGƯỜI KHAI, để bản in đúng chữ; `dvt_goc`/
+    `sl_ke_hoach_goc`/`sl_yeu_cau_goc` là thang GỐC MÁY so lệch (`lech_ke_hoach`/`lech_thuc_te`
+    tính trên hai cột `_goc` — vòng sửa 1, Important 2+3, theo đúng docstring
+    `models/san_xuat_vat_tu.py:85-87`)."""
     hang_loai: str
     hang_id: int
     ten: str
     dvt: str
+    dvt_goc: str
     sl_ke_hoach: float
+    sl_ke_hoach_goc: float
     sl_yeu_cau: float
+    sl_yeu_cau_goc: float
     sl_thuc_xuat: float
     lech_ke_hoach: float
     lech_thuc_te: float
@@ -326,13 +334,17 @@ class VatTuCapDoiChieuOut(BaseModel):
 class VatTuCapDongOut(BaseModel):
     """Một dòng CỦA RIÊNG một lần đề nghị (ruling task-7 47) — KHÁC `VatTuCapDoiChieuOut.sl_yeu_cau`
     (cộng dồn qua mọi lần): form "Sửa đề nghị" thay THẾ toàn bộ dòng của đúng lần đang sửa, nên
-    phải điền đúng số của lần đó, không phải tổng."""
+    phải điền đúng số của lần đó, không phải tổng. Mang cả cột `_goc` (vòng sửa 1) để form điền
+    sẵn không bao giờ phải đoán thang."""
     hang_loai: str
     hang_id: int
     ten: str
     dvt: str
+    dvt_goc: str
     sl_ke_hoach: float
+    sl_ke_hoach_goc: float
     sl_yeu_cau: float
+    sl_yeu_cau_goc: float
     ly_do_chenh_lech: str | None = None
 
 

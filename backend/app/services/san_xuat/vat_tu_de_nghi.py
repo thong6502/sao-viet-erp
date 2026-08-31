@@ -15,9 +15,10 @@ from sqlalchemy.orm import Session
 from ...models.san_xuat_vat_tu import (
     DN_BO_SUNG, DN_LAN_DAU, SanXuatVatTuDeNghi, SanXuatVatTuDeNghiDong,
 )
-from ...models.stock_request import REQ_XUAT
+from ...models.stock_request import REQ_CANCELLED, REQ_XUAT
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_repo import SanXuatRepository
+from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from ...repositories.san_xuat_vat_tu_repo import SanXuatVatTuRepository
 from ...repositories.stock_request_repo import StockRequestRepository
 from ...realtime import hub
@@ -127,6 +128,26 @@ def moi_dong_deu_0(dn) -> bool:
     dùng nó để biết có mở ô "sửa lần cuối" cho tổ hay không (Task 7 — ruling task-7 27: kho ĐÃ hủy
     thì `sua()` sẽ ném lỗi, mời tổ bấm sửa để rồi ăn 400 là lỗi giao diện)."""
     return all(float(d.sl_yeu_cau or 0) <= _EPS for d in (dn.dongs or []))
+
+
+def lan_con_mo(dn, *, co_voucher: bool, trang_thai_kho: str | None) -> bool:
+    """Lần đề nghị `dn` còn ĐANG MỞ — tức còn sửa được, và vì thế CHƯA được mở lần bổ sung.
+
+    Ba trạng thái, đừng gộp hai cái sau làm một:
+      · kho đã lập phiếu ⇒ ĐÓNG (sửa nữa là sửa sau lưng chứng từ);
+      · KHO hủy ⇒ ĐÓNG (`sua()` ném, và chính câu lỗi của nó bảo hãy tạo lần bổ sung);
+      · TỔ tự đưa mọi dòng về 0 ⇒ vẫn MỞ (nhập lại số dương là khôi phục, giữ nguyên mã).
+
+    Hàm THUẦN: người gọi tự đưa vào hai dữ kiện họ đã có sẵn, để board không phải hỏi DB thêm lần
+    nào (ruling 25/36). `tao()` và board dùng CHUNG hàm này (vòng sửa 1, Important 1) — hai bên
+    lệch nhau đúng một số hạng là đẻ ra nút bấm-rồi-báo-lỗi, đó chính là lỗi vòng đó đã sửa."""
+    if dn is None:
+        return False
+    if co_voucher:
+        return False
+    if trang_thai_kho == REQ_CANCELLED and not moi_dong_deu_0(dn):
+        return False
+    return True
 
 
 def _don_vi_gui_kho(hang, hang_loai, hang_id, sl_goc: float) -> tuple[str, float]:
@@ -275,9 +296,16 @@ def tao(db: Session, *, user, cong_viec_id: int, can_luc: datetime,
 
     vt_repo = SanXuatVatTuRepository(db)
     cac = vt_repo.cac_de_nghi(cong_viec_id)
-    if cac and not StockRequestRepository(db).co_voucher(cac[-1].stock_request_id):
-        raise VatTuDeNghiError(
-            "Đang có đề nghị chưa được kho lập phiếu — hãy sửa đề nghị đó thay vì tạo lần mới.")
+    if cac:
+        cuoi = cac[-1]
+        # `yeu_cau_tom_tat` là hàm GỘP đã viết ở Task 7 (`SanXuatSanLuongRepository`) — tái dùng,
+        # không đẻ thêm phương thức repo mới chỉ để đọc một trạng thái (vòng sửa 1, Important 1).
+        tt = SanXuatSanLuongRepository(db).yeu_cau_tom_tat([cuoi.stock_request_id]).get(
+            cuoi.stock_request_id, {}).get("trang_thai")
+        if lan_con_mo(cuoi, co_voucher=StockRequestRepository(db).co_voucher(cuoi.stock_request_id),
+                      trang_thai_kho=tt):
+            raise VatTuDeNghiError(
+                "Đang có đề nghị chưa được kho lập phiếu — hãy sửa đề nghị đó thay vì tạo lần mới.")
 
     lan_so = vt_repo.lan_ke_tiep(cong_viec_id)
     loai = DN_LAN_DAU if lan_so == 1 else DN_BO_SUNG

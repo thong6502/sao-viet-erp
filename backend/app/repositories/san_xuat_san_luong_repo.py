@@ -51,6 +51,17 @@ class SanXuatSanLuongRepository:
     def cong_viec(self, cong_viec_id: int) -> SanXuatCongViec | None:
         return self.db.get(SanXuatCongViec, cong_viec_id)
 
+    def cong_viec_nhieu(self, ids) -> dict[int, SanXuatCongViec]:
+        """`{id: công việc}` — MỘT truy vấn cho cả tập (vòng sửa 1, Minor 4: N+1 hình dạng ở
+        `board.chi_tiet_cong_viec`'s `doi_tac_map`, quy mô nhỏ — 0-5 đối tác bàn giao mỗi công
+        đoạn — nhưng rẻ để gộp theo đúng khuôn `*_nhieu` Task 7 đã dựng). Rỗng ⇒ `{}` mà không
+        chạm DB."""
+        ids = [i for i in set(ids) if i]
+        if not ids:
+            return {}
+        rows = self.db.scalars(select(SanXuatCongViec).where(SanXuatCongViec.id.in_(ids)))
+        return {r.id: r for r in rows}
+
     def cong_viec_sau_goi_y(self, cv: SanXuatCongViec) -> list[SanXuatCongViec]:
         """Công việc KHÁC cùng gói phát hành + cùng LSX/bài ghép — GỢI Ý đích bàn giao (§11.2).
 

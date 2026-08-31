@@ -15,7 +15,6 @@ from sqlalchemy.orm import Session
 from ...models.department import Department
 from ...models.role import SCOPE_ALL, SCOPE_DEPARTMENT
 from ...models.san_xuat_phan_bo import PB_DA_CHOT
-from ...models.stock_request import REQ_CANCELLED
 from ...models.user import User
 from ...repositories.org_scope import dept_subtree_ids
 from ...repositories.rbac_repo import DepartmentRepository
@@ -28,7 +27,7 @@ from ...repositories.stock_request_repo import StockRequestRepository
 from ...services.rbac_service import AuthorizationService
 from .phan_bo import _tinh_batch
 from .thuc_thi import _aware
-from .vat_tu_de_nghi import _hang_service, _kh_service, moi_dong_deu_0
+from .vat_tu_de_nghi import _hang_service, _kh_service, lan_con_mo
 
 MODULE = "san_xuat"
 
@@ -253,8 +252,10 @@ def _vat_tu_cap(db: Session, sl, kh_svc, cv, cac_dn, du_lieu_cu: bool) -> dict:
     for k in ke_hoach:
         gom[(k["hang_loai"], k["hang_id"])] = {
             "hang_loai": k["hang_loai"], "hang_id": k["hang_id"], "ten": k["ten"],
-            "dvt": k["dvt"], "sl_ke_hoach": k["sl"], "sl_yeu_cau": 0.0,
-            "sl_thuc_xuat": 0.0, "cac_ly_do": [],
+            "dvt": k["dvt"], "dvt_goc": k["dvt_goc"],
+            "sl_ke_hoach": k["sl"], "sl_ke_hoach_goc": k["sl_goc"],
+            "sl_yeu_cau": 0.0, "sl_yeu_cau_goc": 0.0,
+            "sl_thuc_xuat": 0.0, "cac_ly_do": [], "_cac_dvt": {k["dvt"]},
         }
     # Ruling task-7 47: `doi_chieu[].sl_yeu_cau` cộng dồn qua MỌI lần (đúng cho khối đối chiếu),
     # nhưng form "Sửa đề nghị" cần đúng dòng CỦA RIÊNG lần đang sửa — `sua()` THAY THẾ toàn bộ dòng
@@ -267,17 +268,21 @@ def _vat_tu_cap(db: Session, sl, kh_svc, cv, cac_dn, du_lieu_cu: bool) -> dict:
             key = (d.hang_loai, d.hang_id)
             row = gom.setdefault(key, {
                 "hang_loai": d.hang_loai, "hang_id": d.hang_id,
-                "ten": ten_map.get(key) or f"#{d.hang_id}", "dvt": d.dvt,
-                "sl_ke_hoach": float(d.sl_ke_hoach), "sl_yeu_cau": 0.0,
-                "sl_thuc_xuat": 0.0, "cac_ly_do": [],
+                "ten": ten_map.get(key) or f"#{d.hang_id}", "dvt": d.dvt, "dvt_goc": d.dvt_goc,
+                "sl_ke_hoach": float(d.sl_ke_hoach), "sl_ke_hoach_goc": float(d.sl_ke_hoach_goc),
+                "sl_yeu_cau": 0.0, "sl_yeu_cau_goc": 0.0,
+                "sl_thuc_xuat": 0.0, "cac_ly_do": [], "_cac_dvt": set(),
             })
             row["sl_yeu_cau"] += float(d.sl_yeu_cau)
+            row["sl_yeu_cau_goc"] += float(d.sl_yeu_cau_goc)
+            row["_cac_dvt"].add(d.dvt)
             if d.ly_do_chenh_lech:
                 row["cac_ly_do"].append({"lan_so": dn.lan_so, "ly_do": d.ly_do_chenh_lech})
             dongs_theo_lan[dn.id].append({
                 "hang_loai": d.hang_loai, "hang_id": d.hang_id,
-                "ten": ten_map.get(key) or f"#{d.hang_id}", "dvt": d.dvt,
-                "sl_ke_hoach": float(d.sl_ke_hoach), "sl_yeu_cau": float(d.sl_yeu_cau),
+                "ten": ten_map.get(key) or f"#{d.hang_id}", "dvt": d.dvt, "dvt_goc": d.dvt_goc,
+                "sl_ke_hoach": float(d.sl_ke_hoach), "sl_ke_hoach_goc": float(d.sl_ke_hoach_goc),
+                "sl_yeu_cau": float(d.sl_yeu_cau), "sl_yeu_cau_goc": float(d.sl_yeu_cau_goc),
                 "ly_do_chenh_lech": d.ly_do_chenh_lech,
             })
     for key, sl_ra in thuc_xuat.items():
@@ -286,21 +291,30 @@ def _vat_tu_cap(db: Session, sl, kh_svc, cv, cac_dn, du_lieu_cu: bool) -> dict:
 
     doi_chieu = []
     for row in gom.values():
-        row["lech_ke_hoach"] = row["sl_yeu_cau"] - row["sl_ke_hoach"]
-        row["lech_thuc_te"] = row["sl_thuc_xuat"] - row["sl_yeu_cau"]
+        # MÁY so bằng thang GỐC (models/san_xuat_vat_tu.py:85-87); `sl_thuc_xuat` (từ
+        # `StockVoucherLine.sl_goc`) vốn đã là thang gốc — so nó với `sl_yeu_cau` (thang tổ khai)
+        # là so 100 tờ với 12 kg (vòng sửa 1, Important 2+3).
+        row["lech_ke_hoach"] = row["sl_yeu_cau_goc"] - row["sl_ke_hoach_goc"]
+        row["lech_thuc_te"] = row["sl_thuc_xuat"] - row["sl_yeu_cau_goc"]
+        # Khoá gom là (hang_loai, hang_id) — KHÔNG có đơn vị, nên một hàng có thể ôm dòng kế hoạch
+        # khai "ram" và dòng tổ khai "tờ". Cộng hai số đó lại rồi in ra là nói dối. Thang gốc là
+        # thứ DUY NHẤT chắc chắn chung, nên hàng lẫn đơn vị thì hiện bằng nó (vòng sửa 1, 2c).
+        if len(row.pop("_cac_dvt")) > 1:
+            row["dvt"] = row["dvt_goc"]
+            row["sl_ke_hoach"] = row["sl_ke_hoach_goc"]
+            row["sl_yeu_cau"] = row["sl_yeu_cau_goc"]
         doi_chieu.append(row)
 
     lan_cuoi = cac_dn[-1] if cac_dn else None
     req_repo = StockRequestRepository(db)
     tt = tom_tat.get(lan_cuoi.stock_request_id, {}).get("trang_thai") if lan_cuoi else None
-    # Kho hủy yêu cầu rồi thì `sua()` sẽ ném — đừng mời tổ bấm sửa để rồi ăn 400 (ruling task-7
-    # 27). Còn `cancelled` do CHÍNH tổ đưa mọi dòng về 0 thì vẫn sửa lại được (nhập số dương là
-    # khôi phục) — `moi_dong_deu_0` là ĐÚNG vị ngữ `sua()` dùng, không viết lại lần hai.
-    kho_da_huy = tt == REQ_CANCELLED and not moi_dong_deu_0(lan_cuoi)
-    con_sua_duoc = (
-        bool(lan_cuoi)
-        and not req_repo.co_voucher(lan_cuoi.stock_request_id)
-        and not kho_da_huy
+    # `lan_con_mo` là vị ngữ DÙNG CHUNG với cổng thật của `tao()` (vòng sửa 1, Important 1) — hai
+    # bên tính TỪ CÙNG một hàm nên không lệch nhau được nữa: `co_the_tao_bo_sung` giờ là phủ định
+    # ĐÚNG BẰNG điều kiện ném của `tao()`, theo cấu trúc chứ không theo trí nhớ.
+    con_mo = lan_con_mo(
+        lan_cuoi,
+        co_voucher=req_repo.co_voucher(lan_cuoi.stock_request_id) if lan_cuoi else False,
+        trang_thai_kho=tt,
     )
     return {
         "ke_hoach": ke_hoach,
@@ -314,8 +328,8 @@ def _vat_tu_cap(db: Session, sl, kh_svc, cv, cac_dn, du_lieu_cu: bool) -> dict:
             "dongs": dongs_theo_lan[d.id],
         } for d in cac_dn],
         "doi_chieu": doi_chieu,
-        "de_nghi_co_the_sua_id": lan_cuoi.id if con_sua_duoc else None,
-        "co_the_tao_bo_sung": (not cac_dn) or (not con_sua_duoc),
+        "de_nghi_co_the_sua_id": lan_cuoi.id if con_mo else None,
+        "co_the_tao_bo_sung": not con_mo,
         "du_lieu_cu": du_lieu_cu,
     }
 
@@ -395,11 +409,10 @@ def chi_tiet_cong_viec(
     doi_tac_ids = {b.dich_cong_viec_id for b in bg_di if b.dich_cong_viec_id} | {
         b.nguon_cong_viec_id for b in bg_den
     }
-    doi_tac_map: dict[int, str] = {}
-    for did in doi_tac_ids:
-        dcv = sl.cong_viec(did)
-        if dcv is not None:
-            doi_tac_map[did] = dcv.ten_cong_doan
+    # Vòng sửa 1, Minor 4: gộp một truy vấn cho cả tập đối tác thay vì `db.get` từng cái (N+1 về
+    # HÌNH DẠNG — `doi_tac_ids` thường 0-5 phần tử, không phải chỗ nghẽn, nhưng rẻ để sửa đúng
+    # khuôn `*_nhieu` Task 7 vừa dựng).
+    doi_tac_map = {i: cv.ten_cong_doan for i, cv in sl.cong_viec_nhieu(doi_tac_ids).items()}
     vt_repo = SanXuatVatTuRepository(db)
     cac_dn = vt_repo.cac_de_nghi(cv.id)
     req_ids = [d.stock_request_id for d in cac_dn if d.stock_request_id]
