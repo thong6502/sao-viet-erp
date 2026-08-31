@@ -4828,7 +4828,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 
 ### `san_xuat_kcs_loi`
 
-**Purpose:** một LỖI phát hiện trong batch KCS (§13.2, Giai đoạn 5). Bảng MỚI (`create_all`), nghiệp vụ (đổi trạng thái nhận-trách-nhiệm) → mang `version`. `nhom_loi_id` trỏ danh mục lỗi chuẩn hoá (nhóm `loi`); `to_chiu_id` là tổ bị yêu cầu nhận trách nhiệm, `cong_doan_ref_id` là công việc liên đới (tuỳ chọn). Tổ trưởng phụ trách CHẤP NHẬN (`accepted`) hoặc TỪ CHỐI (`rejected` + `ly_do_tu_choi`) — chung thẩm. Lỗi CHỜ (`pending`) không chặn nhập kho phần đạt nhưng CHẶN đóng đủ nhóm (§16).
+**Purpose:** một LỖI phát hiện trong batch KCS (§13.2, Giai đoạn 5). Bảng MỚI (`create_all`), nghiệp vụ (đổi trạng thái nhận-trách-nhiệm) → mang `version`. `nhom_loi_id` trỏ danh mục lỗi chuẩn hoá (nhóm `loi`); `to_chiu_id` là tổ bị yêu cầu nhận trách nhiệm, `cong_doan_ref_id` là công việc liên đới (tuỳ chọn). Hồ sơ kiểu CŨ: tổ trưởng phụ trách CHẤP NHẬN (`accepted`) hoặc TỪ CHỐI (`rejected` + `ly_do_tu_choi`) — chung thẩm; lỗi CHỜ (`pending`) không chặn nhập kho phần đạt nhưng CHẶN đóng đủ nhóm (§16). Lỗi ghi qua KCS KIÊM NHIỆM (mg 0250, §2.3 kế hoạch `2026-08-31-kcs-kiem-nhiem`) có `trang_thai="recorded"` ngay khi tạo — MỘT CHIỀU, không tạo `pending`, không chờ phản hồi, KHÔNG chặn đóng nhóm.
 
 | Column | Type | Key | Null | Default | Meaning |
 | --- | --- | --- | --- | --- | --- |
@@ -4840,7 +4840,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `cong_doan_ref_id` | `Integer` FK→`san_xuat_cong_viec.id` (SET NULL) | IX | yes | — | Công việc/công đoạn liên đới. |
 | `so_luong` | `Numeric(18,3)` | — | no | `0` | Số lượng dính lỗi. |
 | `don_vi` | `String(24)` | — | yes | — | Đơn vị. |
-| `trang_thai` | `String(16)` | — | no | `pending` | `pending` \| `accepted` \| `rejected`. |
+| `trang_thai` | `String(16)` | — | no | `pending` | `pending` (chờ phản hồi, kiểu cũ) \| `accepted` \| `rejected` \| `recorded` (ghi một chiều, KCS kiêm nhiệm mg 0250, §2.3). |
 | `phan_hoi_by_id` | `Integer` FK→`users.id` | — | yes | — | Tổ trưởng phản hồi. |
 | `phan_hoi_luc` | `DateTime(timezone=True)` | — | yes | — | Thời điểm phản hồi. |
 | `ly_do_tu_choi` | `String(500)` | — | yes | — | Lý do từ chối (bắt buộc khi `rejected`). |
