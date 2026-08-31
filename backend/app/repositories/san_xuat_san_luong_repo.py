@@ -25,13 +25,14 @@ from ..models.san_xuat_san_luong import (
     SanXuatKetQuaNhanh,
     SanXuatVatTuNhan,
 )
-from ..models.stock_request import StockRequestLine
+from ..models.stock_request import StockRequest, StockRequestLine
 from ..models.stock_voucher import (
     VOUCHER_POSTED,
     VOUCHER_XUAT,
     StockVoucher,
     StockVoucherLine,
 )
+from ..models.vat_lieu_kho import HANG_GIAY, HANG_VAT_TU, GiayNguyen, VatTuInAn
 
 
 class SanXuatSanLuongRepository:
@@ -329,3 +330,79 @@ class SanXuatSanLuongRepository:
             select(SanXuatVatTuNhan).where(SanXuatVatTuNhan.voucher_id.in_(voucher_ids))
         )
         return {r.voucher_id: r for r in rows}
+
+    # --- Task 7: khối đối chiếu `vat_tu_cap` (spec-de-nghi-cap-vat-tu-cong-doan §6) -----------
+    def voucher_xuat_cua_cong_viec(
+        self, cv: SanXuatCongViec, stock_request_ids: list[int]
+    ) -> tuple[list[StockVoucher], bool]:
+        """Phiếu XUẤT đã ghi sổ mà tổ của CÔNG ĐOẠN này cần xác nhận.
+
+        Công đoạn đã có đề nghị ⇒ CHỈ lấy phiếu của các yêu cầu liên kết. Đường lùi theo `lsx_id`
+        chỉ dành cho công đoạn CHƯA TỪNG có đề nghị (dữ liệu trước 31/08/2026) — trộn hai đường là
+        cho tổ in thấy cả phiếu của tổ cán màng chỉ vì chung một LSX.
+
+        Bài ghép KHÔNG có đường lùi: dòng yêu cầu cũ khai `lsx_id`, mà bước chung của bài không
+        thuộc LSX nào — lùi ở đây là trả về danh sách sai chứ không phải danh sách thiếu.
+
+        Trả `(phiếu, la_du_lieu_cu)`.
+        """
+        if stock_request_ids:
+            return list(self.db.scalars(
+                select(StockVoucher)
+                .where(StockVoucher.loai == VOUCHER_XUAT,
+                       StockVoucher.trang_thai == VOUCHER_POSTED,
+                       StockVoucher.request_id.in_(stock_request_ids))
+                .order_by(StockVoucher.id)
+            )), False
+        if cv.bai_ghep_id or not cv.lsx_id:
+            return [], False
+        return self.voucher_xuat_cua_lsx(cv.lsx_id), True
+
+    def thuc_xuat_theo_hang(self, stock_request_ids: list[int]) -> dict[tuple[str, int], float]:
+        """{(hang_loai, hang_id): tổng `sl_goc`} của DÒNG phiếu XUẤT `posted` thuộc các yêu cầu
+        này — MỘT truy vấn GỘP cho cả danh sách, không theo từng yêu cầu (ruling task-7 25).
+        Danh sách rỗng trả `{}` mà KHÔNG chạm DB."""
+        if not stock_request_ids:
+            return {}
+        rows = self.db.execute(
+            select(StockVoucherLine.hang_loai, StockVoucherLine.hang_id,
+                   func.sum(StockVoucherLine.sl_goc))
+            .select_from(StockVoucherLine)
+            .join(StockVoucher, StockVoucher.id == StockVoucherLine.voucher_id)
+            .where(StockVoucher.loai == VOUCHER_XUAT,
+                   StockVoucher.trang_thai == VOUCHER_POSTED,
+                   StockVoucher.request_id.in_(stock_request_ids))
+            .group_by(StockVoucherLine.hang_loai, StockVoucherLine.hang_id)
+        )
+        return {(loai, int(hid)): float(tong or 0) for loai, hid, tong in rows}
+
+    def yeu_cau_tom_tat(self, request_ids: list[int]) -> dict[int, dict]:
+        """`{request_id: {"ma", "trang_thai"}}` — MỘT truy vấn cho cả danh sách. Drawer công đoạn
+        cần mã + trạng thái của mọi lần đề nghị; hỏi từng cái là N+1 ngay trên đường mở drawer
+        (ruling task-7 25). Danh sách rỗng trả `{}` mà KHÔNG chạm DB."""
+        ids = [i for i in set(request_ids) if i]
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(StockRequest.id, StockRequest.ma, StockRequest.trang_thai)
+            .where(StockRequest.id.in_(ids))
+        )
+        return {rid: {"ma": ma, "trang_thai": tt} for rid, ma, tt in rows}
+
+    def ten_hang_nhieu(self, keys: set[tuple[str, int]]) -> dict[tuple[str, int], str]:
+        """`{(hang_loai, hang_id): tên}` — MỘT truy vấn MỖI `hang_loai`, không phải mỗi mặt hàng
+        (ruling task-7 25). Danh sách rỗng trả `{}` mà KHÔNG chạm DB."""
+        theo_loai: dict[str, set[int]] = {}
+        for loai, hid in keys:
+            theo_loai.setdefault(loai, set()).add(int(hid))
+        out: dict[tuple[str, int], str] = {}
+        for loai, ids in theo_loai.items():
+            if not ids:
+                continue
+            model = GiayNguyen if loai == HANG_GIAY else VatTuInAn if loai == HANG_VAT_TU else None
+            if model is None:
+                continue
+            rows = self.db.execute(select(model.id, model.ten).where(model.id.in_(ids)))
+            for hid, ten in rows:
+                out[(loai, hid)] = ten
+        return out

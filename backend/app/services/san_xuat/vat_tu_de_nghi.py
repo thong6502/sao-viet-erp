@@ -120,6 +120,15 @@ def _chuan_hoa(kh_svc, cv, lines: list[dict], *, bat_buoc_ly_do: bool) -> list[d
     return ra
 
 
+def moi_dong_deu_0(dn) -> bool:
+    """Mọi dòng của lần đề nghị này đều xin 0 ⇒ yêu cầu kho (nếu đang `cancelled`) là do CHÍNH SẢN
+    XUẤT tự đưa về 0, không phải kho hủy. Hai bên đọc cùng một vị ngữ: `sua()` dùng nó để chọn
+    đường khôi phục (`khoi_phuc_tu_san_xuat` so với `dong_bo_tu_san_xuat`), `board._vat_tu_cap`
+    dùng nó để biết có mở ô "sửa lần cuối" cho tổ hay không (Task 7 — ruling task-7 27: kho ĐÃ hủy
+    thì `sua()` sẽ ném lỗi, mời tổ bấm sửa để rồi ăn 400 là lỗi giao diện)."""
+    return all(float(d.sl_yeu_cau or 0) <= _EPS for d in (dn.dongs or []))
+
+
 def _don_vi_gui_kho(hang, hang_loai, hang_id, sl_goc: float) -> tuple[str, float]:
     """Chọn đơn vị gửi kho cho một lượng đã quy về gốc. Trả `(dvt, so_luong_theo_dvt)`.
 
@@ -356,7 +365,7 @@ def sua(db: Session, *, user, cong_viec_id: int, de_nghi_id: int,
 
     # Chụp TRƯỚC khi xoá dòng cũ: dùng để biết cái `cancelled` (nếu có) là do sản xuất tự đưa về 0
     # hay do kho hủy. Xoá xong mới hỏi là mất luôn câu trả lời (ruling task-4 important-2).
-    truoc_do_toan_0 = all(float(d.sl_yeu_cau or 0) <= _EPS for d in (dn.dongs or []))
+    truoc_do_toan_0 = moi_dong_deu_0(dn)
 
     hang = _hang_service(db)
     kh_svc = kh_svc or _kh_service(db, hang)

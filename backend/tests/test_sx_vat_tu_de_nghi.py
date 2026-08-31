@@ -929,3 +929,228 @@ def test_khong_can_quyen_kho_de_tao_de_nghi(db, orders, lsx_svc, admin, customer
               "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
     ra = V.tao(db, user=to_truong, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
     assert ra["de_nghi_id"] and ra["stock_request_id"]
+
+
+# --- Task 7: khối đối chiếu `vat_tu_cap` trong drawer + đổi nguồn phiếu theo công việc ---------
+# task-7-brief.md + task-7-ruling-doi-chieu.md (BỐN đính chính: 24 dùng model_validate thay
+# client_admin; 25 gộp `ma_yeu_cau`/`trang_thai_yeu_cau`/`ten_hang` thành 2 hàm GỘP gọi 1 lần;
+# 26 `co_voucher` chỉ còn ở `StockRequestRepository`; 27 rút vị ngữ `moi_dong_deu_0` dùng chung).
+
+def _authz(db):
+    """`chi_tiet_cong_viec(db, user, authz, *, cong_viec_id)` — `authz` nhận `RoleRepository`,
+    KHÔNG nhận `Session` (dựng đúng như `deps.get_authorization_service`, `backend/app/deps.py:190`)."""
+    from app.repositories.rbac_repo import RoleRepository
+    from app.services.rbac_service import AuthorizationService
+
+    return AuthorizationService(RoleRepository(db))
+
+
+def _phieu_xuat_khop_yeu_cau(db, admin, req, *, ma):
+    """Dựng 1 `StockVoucher` XUẤT đã `posted` với dòng khớp TOÀN BỘ dòng của `req` — mô phỏng kho
+    đã thực xuất đúng số đề nghị. Trả về voucher."""
+    from app.models.stock_voucher import (
+        VOUCHER_POSTED, VOUCHER_XUAT, StockVoucher, StockVoucherLine,
+    )
+
+    v = StockVoucher(ma=ma, loai=VOUCHER_XUAT, request_id=req.id, kho_id=1,
+                      ngay=_T0.date(), nguoi_lap_id=admin.id, trang_thai=VOUCHER_POSTED)
+    db.add(v)
+    db.flush()
+    for ln in req.lines:
+        db.add(StockVoucherLine(
+            voucher_id=v.id, request_line_id=ln.id,
+            hang_loai=ln.hang_loai, hang_id=ln.hang_id,
+            so_luong=ln.sl_de_nghi, sl_goc=ln.sl_de_nghi,
+        ))
+    db.commit()
+    return v
+
+
+def test_doi_chieu_gom_ca_ba_con_so(db, orders, lsx_svc, admin, customer):
+    """Kế hoạch / đã yêu cầu / kho thực xuất — mỗi mặt hàng một dòng."""
+    from app.models.stock_request import StockRequest
+    from app.services.san_xuat import board
+    from app.services.san_xuat import vat_tu_de_nghi as V
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VC1")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    req = db.get(StockRequest, ra["stock_request_id"])
+    _phieu_xuat_khop_yeu_cau(db, admin, req, ma="PXK-VC1")
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
+    d = ct["vat_tu_cap"]["doi_chieu"][0]
+    assert set(d) >= {"hang_loai", "hang_id", "ten", "dvt",
+                      "sl_ke_hoach", "sl_yeu_cau", "sl_thuc_xuat",
+                      "lech_ke_hoach", "lech_thuc_te", "cac_ly_do"}
+    assert d["lech_ke_hoach"] == pytest.approx(d["sl_yeu_cau"] - d["sl_ke_hoach"])
+    assert d["lech_thuc_te"] == pytest.approx(d["sl_thuc_xuat"] - d["sl_yeu_cau"])
+    assert any(row["sl_thuc_xuat"] > 0 for row in ct["vat_tu_cap"]["doi_chieu"])
+    assert ct["vat_tu_cap"]["du_lieu_cu"] is False
+
+
+def test_cong_doan_co_de_nghi_thi_khong_lay_phieu_theo_lsx(db, orders, lsx_svc, admin, customer):
+    """Công đoạn đã nối link mới KHÔNG được trộn đường lùi — nếu không, tổ in thấy cả phiếu của
+    tổ cán màng chỉ vì hai bên cùng một LSX."""
+    from app.models.stock_request import (
+        REQ_APPROVED, REQ_XUAT, StockRequest, StockRequestLine,
+    )
+    from app.models.stock_voucher import (
+        VOUCHER_POSTED, VOUCHER_XUAT, StockVoucher, StockVoucherLine,
+    )
+    from app.services.san_xuat import board
+    from app.services.san_xuat import vat_tu_de_nghi as V
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VC2")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+    req_cua_de_nghi = db.get(StockRequest, ra["stock_request_id"])
+    v_de_nghi = _phieu_xuat_khop_yeu_cau(db, admin, req_cua_de_nghi, ma="PXK-VC2-A")
+
+    # Phiếu KHÁC — theo đường lùi lsx_id, mô phỏng dữ liệu "tổ khác cùng LSX" trước 31/08/2026.
+    req_theo_lsx = StockRequest(ma="YC-VC2-LSX", loai=REQ_XUAT, nguoi_tao_id=admin.id,
+                                trang_thai=REQ_APPROVED, bo_phan_id=to.id, ngay_can=_T0.date())
+    db.add(req_theo_lsx)
+    db.flush()
+    db.add(StockRequestLine(request_id=req_theo_lsx.id, hang_loai=kh[0]["hang_loai"],
+                            hang_id=kh[0]["hang_id"], lsx_id=cv.lsx_id, dvt=kh[0]["dvt"],
+                            sl_de_nghi=5))
+    db.commit()
+    ln0 = req_theo_lsx.lines[0]
+    v_lsx = StockVoucher(ma="PXK-VC2-B", loai=VOUCHER_XUAT, request_id=req_theo_lsx.id, kho_id=1,
+                         ngay=_T0.date(), nguoi_lap_id=admin.id, trang_thai=VOUCHER_POSTED)
+    db.add(v_lsx)
+    db.flush()
+    db.add(StockVoucherLine(voucher_id=v_lsx.id, request_line_id=ln0.id,
+                            hang_loai=ln0.hang_loai, hang_id=ln0.hang_id, so_luong=5, sl_goc=5))
+    db.commit()
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
+    assert {v["voucher_id"] for v in ct["vat_tu"]} == {v_de_nghi.id}
+    assert ct["vat_tu_cap"]["du_lieu_cu"] is False
+
+
+def test_cong_doan_chua_tung_co_de_nghi_thi_lui_ve_lsx_va_danh_dau(
+    db, orders, lsx_svc, admin, customer,
+):
+    from app.models.stock_request import (
+        REQ_APPROVED, REQ_XUAT, StockRequest, StockRequestLine,
+    )
+    from app.models.stock_voucher import (
+        VOUCHER_POSTED, VOUCHER_XUAT, StockVoucher, StockVoucherLine,
+    )
+    from app.services.san_xuat import board
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VC3")
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+
+    req = StockRequest(ma="YC-VC3", loai=REQ_XUAT, nguoi_tao_id=admin.id,
+                       trang_thai=REQ_APPROVED, bo_phan_id=to.id, ngay_can=_T0.date())
+    db.add(req)
+    db.flush()
+    db.add(StockRequestLine(request_id=req.id, hang_loai=kh[0]["hang_loai"],
+                            hang_id=kh[0]["hang_id"], lsx_id=cv.lsx_id, dvt=kh[0]["dvt"],
+                            sl_de_nghi=5))
+    db.commit()
+    ln0 = req.lines[0]
+    v = StockVoucher(ma="PXK-VC3", loai=VOUCHER_XUAT, request_id=req.id, kho_id=1,
+                     ngay=_T0.date(), nguoi_lap_id=admin.id, trang_thai=VOUCHER_POSTED)
+    db.add(v)
+    db.flush()
+    db.add(StockVoucherLine(voucher_id=v.id, request_line_id=ln0.id,
+                            hang_loai=ln0.hang_loai, hang_id=ln0.hang_id, so_luong=5, sl_goc=5))
+    db.commit()
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
+    assert ct["vat_tu_cap"]["du_lieu_cu"] is True
+    assert {vv["voucher_id"] for vv in ct["vat_tu"]} == {v.id}
+
+
+def test_vat_tu_cap_khong_bi_schema_nuot(db, orders, lsx_svc, admin, customer):
+    """`WorkItemChiTietOut` CÓ response_model ⇒ field chưa khai bị bỏ IM LẶNG (service trả đủ, FE
+    nhận undefined, không lỗi ở đâu). Ép qua schema thật mới bắt được (ruling 24 — `db`/`client`
+    loại trừ nhau trên cùng engine SQLite in-memory, không dựng `client_admin` như brief gốc)."""
+    from app.schemas.san_xuat import WorkItemChiTietOut
+    from app.services.san_xuat import board
+    from app.services.san_xuat import vat_tu_de_nghi as V
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VC4")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
+    ra = WorkItemChiTietOut.model_validate(ct)
+    assert ra.vat_tu_cap.doi_chieu, "khối đối chiếu phải sống sót qua schema"
+    assert ra.vat_tu_cap.du_lieu_cu is False
+
+
+def test_kho_huy_thi_khong_mo_o_sua_nhung_van_them_bo_sung_duoc(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Ruling 27: kho hủy yêu cầu (`cancel_by_kho`) ⇒ `sua()` sẽ ném lỗi nếu FE mời tổ bấm sửa —
+    drawer phải khoá `de_nghi_co_the_sua_id`, nhưng vẫn phải chừa đường bổ sung."""
+    from app.models.stock_request import StockRequest
+    from app.services.san_xuat import board
+
+    dn_id, req_id, _ma, kh = _tao_de_nghi(db, orders, lsx_svc, admin, customer, "TO-VC5")
+    cv_id = _cv_id(db, dn_id)
+    _req_svc(db).cancel_by_kho(db.get(StockRequest, req_id), "Kho hết hàng, không cấp")
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv_id)
+    vt = ct["vat_tu_cap"]
+    assert vt["de_nghi_co_the_sua_id"] is None
+    assert vt["co_the_tao_bo_sung"] is True
+
+
+# --- Ruling task-7 47: `cac_de_nghi[].dongs` — dòng CỦA RIÊNG lần đó, không phải số cộng dồn ----
+# Phát hiện lúc rà thiết kế: `doi_chieu[].sl_yeu_cau` cộng dồn qua MỌI lần, còn form "Sửa đề nghị"
+# (PUT .../material-requests/{de_nghi_id}) THAY THẾ toàn bộ dòng của ĐÚNG lần đó — điền số cộng
+# dồn vào form sửa sẽ âm thầm thổi phồng lần đang sửa lên bằng tổng mọi lần.
+
+def test_cac_de_nghi_dongs_la_rieng_lan_khong_phai_cong_don(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Hai lần đề nghị trên CÙNG một mặt hàng: lần 1 xin đúng kế hoạch (1112), lần 2 bổ sung xin
+    thêm 30. `doi_chieu[0]["sl_yeu_cau"]` phải là tổng cộng dồn (1142), nhưng
+    `cac_de_nghi[-1]["dongs"][0]["sl_yeu_cau"]` phải là số CỦA RIÊNG lần 2 (30), không phải 1142."""
+    from app.services.san_xuat import board
+
+    dn_id, req_id, _ma, kh = _tao_de_nghi(db, orders, lsx_svc, admin, customer, "TO-VC6")
+    k0 = kh[0]
+    _lap_phieu_nhap_kho_cho(db, req_id)          # mở khoá cho lần bổ sung
+    cv_id = _cv_id(db, dn_id)
+    lines2 = [{"hang_loai": k0["hang_loai"], "hang_id": k0["hang_id"], "dvt": k0["dvt"],
+              "sl_yeu_cau": 30, "ly_do_chenh_lech": "Bổ sung thêm do bù hao"}]
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    V.tao(db, user=admin, cong_viec_id=cv_id, can_luc=_T0, lines=lines2)
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv_id)
+    vt = ct["vat_tu_cap"]
+    d0 = vt["doi_chieu"][0]
+    assert d0["hang_loai"] == k0["hang_loai"] and d0["hang_id"] == k0["hang_id"]
+    assert d0["sl_yeu_cau"] == pytest.approx(k0["sl"] + 30)      # cộng dồn qua MỌI lần
+
+    assert len(vt["cac_de_nghi"]) == 2
+    lan_cuoi = vt["cac_de_nghi"][-1]
+    assert lan_cuoi["lan_so"] == 2
+    assert len(lan_cuoi["dongs"]) == 1
+    dong_lan2 = lan_cuoi["dongs"][0]
+    assert dong_lan2["hang_loai"] == k0["hang_loai"] and dong_lan2["hang_id"] == k0["hang_id"]
+    assert dong_lan2["sl_yeu_cau"] == pytest.approx(30)          # RIÊNG lần 2 — không phải 1142
+    assert dong_lan2["ly_do_chenh_lech"] == "Bổ sung thêm do bù hao"
+
+    lan_dau = vt["cac_de_nghi"][0]
+    assert lan_dau["dongs"][0]["sl_yeu_cau"] == pytest.approx(k0["sl"])   # RIÊNG lần 1

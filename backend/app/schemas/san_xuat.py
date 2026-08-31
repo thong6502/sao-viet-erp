@@ -308,6 +308,62 @@ class PhanBoChiTietOut(BaseModel):
     bu_tru: list[BuTruDongOut]
 
 
+class VatTuCapDoiChieuOut(BaseModel):
+    """Một mặt hàng trong bản đối chiếu (spec-de-nghi-cap-vat-tu-cong-doan §6): kế hoạch / đã yêu
+    cầu / kho thực xuất, cộng dồn qua MỌI lần đề nghị."""
+    hang_loai: str
+    hang_id: int
+    ten: str
+    dvt: str
+    sl_ke_hoach: float
+    sl_yeu_cau: float
+    sl_thuc_xuat: float
+    lech_ke_hoach: float
+    lech_thuc_te: float
+    cac_ly_do: list[dict] = []
+
+
+class VatTuCapDongOut(BaseModel):
+    """Một dòng CỦA RIÊNG một lần đề nghị (ruling task-7 47) — KHÁC `VatTuCapDoiChieuOut.sl_yeu_cau`
+    (cộng dồn qua mọi lần): form "Sửa đề nghị" thay THẾ toàn bộ dòng của đúng lần đang sửa, nên
+    phải điền đúng số của lần đó, không phải tổng."""
+    hang_loai: str
+    hang_id: int
+    ten: str
+    dvt: str
+    sl_ke_hoach: float
+    sl_yeu_cau: float
+    ly_do_chenh_lech: str | None = None
+
+
+class VatTuCapLanOut(BaseModel):
+    """Một LẦN tổ đề nghị (lịch sử) trên drawer."""
+    id: int
+    lan_so: int
+    loai: str
+    can_luc: datetime
+    stock_request_id: int | None = None
+    stock_request_ma: str | None = None
+    stock_request_trang_thai: str | None = None
+    created_by_id: int | None = None
+    updated_by_id: int | None = None
+    created_at: datetime
+    updated_at: datetime
+    dongs: list[VatTuCapDongOut] = []
+
+
+class VatTuCapOut(BaseModel):
+    """Khối vật tư cấp của drawer công đoạn (spec-de-nghi-cap-vat-tu-cong-doan §6)."""
+    ke_hoach: list[dict] = []
+    cac_de_nghi: list[VatTuCapLanOut] = []
+    doi_chieu: list[VatTuCapDoiChieuOut] = []
+    de_nghi_co_the_sua_id: int | None = None
+    co_the_tao_bo_sung: bool = True
+    # Công đoạn chưa từng có đề nghị nên phiếu đang lấy theo đường lùi `lsx_id` — UI phải nói rõ
+    # đây là dữ liệu trước 31/08/2026, đừng để người đọc tưởng nó cùng độ tin cậy.
+    du_lieu_cu: bool = False
+
+
 class WorkItemChiTietOut(BaseModel):
     cong_viec: WorkItemOut
     trang_thai: str
@@ -320,6 +376,7 @@ class WorkItemChiTietOut(BaseModel):
     ban_giao_den: list[BanGiaoOut]
     ban_giao_goi_y: list[BanGiaoDichGoiYOut]
     vat_tu: list[VatTuNhanOut]
+    vat_tu_cap: VatTuCapOut = VatTuCapOut()
     ho_tro: list[HoTroChiTietOut]
     phan_bo: list[PhanBoChiTietOut]
 
