@@ -74,17 +74,23 @@ def _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to_id: int):
 
 
 def _phat_hanh_vao_to_co_kcs(db, orders, lsx_svc, admin, customer, to_id: int):
-    """Giống `_phat_hanh_vao_to` nhưng đánh bước CUỐI của LSX `a` là KCS (`la_kcs=True`) TRƯỚC khi
-    phát hành — dựng dữ liệu có CẢ việc sản xuất lẫn việc KCS trong CÙNG một tổ (KCS kiêm nhiệm:
-    tổ này không cần `is_kcs=True`, đúng cách `_kcs_hoa()` của `test_xep_lich_2.py` làm)."""
+    """Giống `_phat_hanh_vao_to` nhưng tổ `to_id` được bật `is_kcs=True` VÀ LSX `a` được thêm một
+    bước ĐẦU (trước bước gốc "In offset") — dựng dữ liệu có CẢ việc sản xuất (bước không phải cuối)
+    lẫn việc KCS (bước CUỐI của mỗi LSX) trong CÙNG một tổ. `la_kcs` từ 2026-08-31 suy TỰ ĐỘNG
+    (bước cuối routing + `departments.is_kcs`), không còn khai tay trên `LsxCongDoan` — xem
+    `docs/superpowers/plans/2026-08-31-kcs-kiem-nhiem-suy-tu-dong.md`."""
+    db.query(Department).filter(Department.id == to_id).update({"is_kcs": True})
     a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     db.query(LsxCongDoan).filter(LsxCongDoan.lsx_id.in_([a.id, b.id])).update(
         {LsxCongDoan.department_id: to_id}, synchronize_session=False
     )
-    buoc_cuoi = db.query(LsxCongDoan).filter(LsxCongDoan.lsx_id == a.id).order_by(
+    buoc_goc = db.query(LsxCongDoan).filter(LsxCongDoan.lsx_id == a.id).order_by(
         LsxCongDoan.thu_tu, LsxCongDoan.id
-    ).all()[-1]
-    buoc_cuoi.la_kcs = True
+    ).first()
+    db.add(LsxCongDoan(
+        lsx_id=a.id, thu_tu=(buoc_goc.thu_tu or 0) - 1, ten="Chuẩn bị", nhom="prepress",
+        department_id=to_id,
+    ))
     db.commit()
     goi = release.phat_hanh(db, lsx_ids={a.id, b.id}, actor=admin)
     db.commit()
@@ -203,6 +209,24 @@ def test_scope_own_chi_thay_to_minh(db, orders, lsx_svc, admin, customer):
     user = SimpleNamespace(id=admin.id, department_id=to.id, role_id=admin.role_id)
     ts = board.teams(db, user, _FakeAuthz(SCOPE_OWN))
     assert {t["id"] for t in ts} == {to.id}
+
+
+def test_scope_own_them_to_kiem_nhiem(db, orders, lsx_svc, admin, customer):
+    """Tổ trưởng KIÊM NHIỆM (`Department.head_user_id` trỏ tới user) phải thấy được tổ đó dù
+    ngoài phòng nhà của mình — nếu không, `_gate` (thuc_thi.py) đã cho GHI việc của tổ đó nhưng
+    sidebar/board lại không có lối vào để XEM (bug đã vá)."""
+    nha = _to_moi(db, "Tổ Nhà", "TO-NHA")
+    kiem = _to_moi(db, "Tổ Kiêm Nhiệm", "TO-KIEM")
+    kiem.head_user_id = admin.id
+    db.commit()
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, kiem.id)
+
+    user = SimpleNamespace(id=admin.id, department_id=nha.id, role_id=admin.role_id)
+    ts = board.teams(db, user, _FakeAuthz(SCOPE_OWN))
+    assert {t["id"] for t in ts} == {nha.id, kiem.id}
+
+    res = board.work_items(db, user, _FakeAuthz(SCOPE_OWN), team_id=kiem.id)
+    assert res["team_id"] == kiem.id and len(res["cong_viec"]) > 0
 
 
 def test_work_items_ngoai_pham_vi_bi_chan(db, orders, lsx_svc, admin, customer):

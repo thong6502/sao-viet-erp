@@ -22,7 +22,6 @@ from app.repositories.san_xuat_repo import SanXuatRepository
 from app.services.cong_doan_service import CongDoanService
 from app.services.san_xuat import component, release
 from app.services.san_xuat_kcs_tieu_chi_service import SanXuatKcsTieuChiService
-from app.services.xep_lich_2.constraint import MUC_CHAN_PHAT_HANH
 
 # Fixtures + helper dùng chung từ test xếp lịch.
 from tests.test_xep_lich_service import (  # noqa: F401
@@ -73,24 +72,20 @@ def _tieu_chi(db, ma: str, *, active=True, thu_tu=0, cong_doan_ids=()):
     ))
 
 
-def _dept_khong_kcs(db, *, ten="Tổ Thành Phẩm XL", ma="TO-TP-XL") -> Department:
-    d = Department(name=ten, code=ma, la_san_xuat=True)
-    db.add(d)
-    db.flush()
-    return d
-
-
 def _them_buoc(
-    db, lsx_id, *, thu_tu, ten, department_id, la_kcs, cong_doan_id=None,
+    db, lsx_id, *, thu_tu, ten, department_id, cong_doan_id=None,
     kcs_tieu_chi_bo_sung_json=None,
 ) -> LsxCongDoan:
-    """Thêm MỘT bước routing thủ công vào LSX — tái dùng cho mọi test soi cờ `la_kcs` (Task 2):
-    engine giá không cần chạy lại, chỉ cần một `LsxCongDoan` mang đúng cờ/tổ để soi snapshot.
+    """Thêm MỘT bước routing thủ công vào LSX — tái dùng cho mọi test soi KCS kiêm nhiệm: engine
+    giá không cần chạy lại, chỉ cần một `LsxCongDoan` mang đúng tổ để soi snapshot. `la_kcs` không
+    còn khai tay (bỏ 2026-08-31, mg `0252`) — nay suy TỰ ĐỘNG lúc `phat_hanh` từ "bước này có phải
+    CUỐI routing của LSX" + `department_id` có `is_kcs=true` hay không, xem `_them_buoc`'s caller
+    và `docs/superpowers/plans/2026-08-31-kcs-kiem-nhiem-suy-tu-dong.md`.
     `cong_doan_id`/`kcs_tieu_chi_bo_sung_json` (Task 3): neo tới danh mục công đoạn để checklist
     KCS gắn đúng chỗ, và mang tiêu chí bổ sung riêng lệnh khi cần."""
     buoc = LsxCongDoan(
         lsx_id=lsx_id, thu_tu=thu_tu, ten=ten, nhom="finishing", loai_buoc=LB_MAY,
-        department_id=department_id, la_kcs=la_kcs, cong_doan_id=cong_doan_id,
+        department_id=department_id, cong_doan_id=cong_doan_id,
         kcs_tieu_chi_bo_sung_json=kcs_tieu_chi_bo_sung_json,
         so_luong_vao=1000, so_luong_ra=1000, don_vi_vao="cai", don_vi_ra="cai",
     )
@@ -145,11 +140,9 @@ def test_kcs_cuoi_danh_dau_va_than_chinh(db, orders, lsx_svc, admin, customer):
     a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     kcs = _kcs_dept(db)
     steps = _steps(db, a.id)
-    # Nguồn XÁC ĐỊNH KCS-cuối là CỜ `la_kcs` của bước (Task 2), KHÔNG còn suy theo
-    # `department_id in kcs_depts` — set cả hai cho khớp cấu hình hợp lệ (luật 5: bước la_kcs=true
-    # phải nằm ở tổ is_kcs=true).
+    # Nguồn XÁC ĐỊNH KCS-cuối, từ 2026-08-31: bước CUỐI routing + tổ thực hiện có `is_kcs=true`
+    # (mg `0252`) — không còn cờ `la_kcs` khai tay để set song song.
     steps[-1].department_id = kcs.id
-    steps[-1].la_kcs = True
     db.commit()
 
     goi = release.phat_hanh(db, lsx_ids={a.id}, actor=admin)
@@ -175,19 +168,18 @@ def test_van_de_phat_hanh_bao_thieu_kcs_cuoi(db, orders, lsx_svc, admin, custome
     kcs = _kcs_dept(db)
     cuoi = _steps(db, a.id)[-1]
     cuoi.department_id = kcs.id
-    cuoi.la_kcs = True
     db.commit()
     assert release.van_de_phat_hanh(db, lsx_ids={a.id}) == []
 
 
-# --- KCS kiêm nhiệm (Task 2): nguồn ĐÚNG là cờ của BƯỚC, không phải department.is_kcs ---------
+# --- KCS kiêm nhiệm: nguồn suy la_kcs là VỊ TRÍ (bước cuối), không đồng nhất theo tổ ------------
 def test_snapshot_la_kcs_theo_tung_buoc_khong_theo_to(db, orders, lsx_svc, admin, customer):
-    """Dán và Kiểm tra cuối CÙNG một tổ (is_kcs=true) nhưng khai `la_kcs` khác nhau ở danh mục —
-    snapshot phát hành phải theo TỪNG BƯỚC, không đồng nhất theo tổ (luật 1/2/4 spec §2.1)."""
+    """Dán và Kiểm tra cuối CÙNG một tổ (is_kcs=true) nhưng khác VỊ TRÍ trong routing — snapshot
+    phát hành phải theo TỪNG BƯỚC (chỉ bước CUỐI mới là KCS), không đồng nhất theo tổ."""
     a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     kcs = _kcs_dept(db)
-    _them_buoc(db, a.id, thu_tu=1, ten="Dán", department_id=kcs.id, la_kcs=False)
-    _them_buoc(db, a.id, thu_tu=2, ten="Kiểm tra cuối", department_id=kcs.id, la_kcs=True)
+    _them_buoc(db, a.id, thu_tu=1, ten="Dán", department_id=kcs.id)
+    _them_buoc(db, a.id, thu_tu=2, ten="Kiểm tra cuối", department_id=kcs.id)
     db.commit()
 
     # Case bình thường: đúng một KCS-cuối/nhóm → không có vấn đề chặn phát hành.
@@ -204,46 +196,6 @@ def test_snapshot_la_kcs_theo_tung_buoc_khong_theo_to(db, orders, lsx_svc, admin
 
     assert cv_dan.department_id == kcs.id and cv_dan.la_kcs is False
     assert cv_kt.department_id == kcs.id and cv_kt.la_kcs is True and cv_kt.la_kcs_cuoi is True
-
-
-def test_buoc_la_kcs_sai_to_chan_phat_hanh(db, orders, lsx_svc, admin, customer):
-    """Luật 5: bước khai `la_kcs=true` nhưng tổ thực hiện KHÔNG có `is_kcs=true` — sai cấu hình
-    phải CHẶN phát hành và chỉ rõ TÊN bước + TÊN tổ, không phải câu chung chung."""
-    a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
-    to_sai = _dept_khong_kcs(db)
-    _them_buoc(db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=to_sai.id, la_kcs=True)
-    db.commit()
-
-    vd = release.van_de_phat_hanh(db, lsx_ids={a.id})
-    loi = next(i for i in vd if i["ma"] == "kcs_sai_to")
-    assert loi["muc"] == MUC_CHAN_PHAT_HANH
-    assert "Kiểm tra cuối" in loi["mo_ta"] and to_sai.name in loi["mo_ta"]
-
-
-def test_kcs_trung_gian_khong_bi_danh_kcs_cuoi(db, orders, lsx_svc, admin, customer):
-    """Bước `la_kcs=true` nằm GIỮA routing (không phải bước cuối) là KCS TRUNG GIAN hợp lệ — nó
-    vẫn là công việc KCS (`la_kcs=True`), nhưng KHÔNG được đánh `la_kcs_cuoi`. Bước cuối vẫn
-    `la_kcs=false` nên hành vi CŨ (thiếu KCS-cuối bị chặn) phải còn nguyên."""
-    a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
-    kcs = _kcs_dept(db)
-    to_thuong = _dept_khong_kcs(db, ten="Tổ Đóng Gói XL", ma="TO-DG-XL")
-    _them_buoc(db, a.id, thu_tu=1, ten="Kiểm tra giữa", department_id=kcs.id, la_kcs=True)
-    _them_buoc(db, a.id, thu_tu=2, ten="Đóng gói", department_id=to_thuong.id, la_kcs=False)
-    db.commit()
-
-    vd = release.van_de_phat_hanh(db, lsx_ids={a.id})
-    assert any(i["ma"] == "kcs_cuoi_thieu" for i in vd)          # hành vi CŨ vẫn đúng
-    assert not any(i["ma"] == "kcs_sai_to" for i in vd)          # bước giữa khai đúng tổ KCS
-
-    goi = release.phat_hanh(db, lsx_ids={a.id}, actor=admin)
-    db.commit()
-
-    giua_step = next(s for s in _steps(db, a.id) if s.ten == "Kiểm tra giữa")
-    cv_giua = db.query(SanXuatCongViec).filter_by(
-        goi_id=goi.id, step_key=giua_step.step_key
-    ).one()
-    assert cv_giua.la_kcs is True and cv_giua.la_kcs_cuoi is False
-    assert db.query(SanXuatCongViec).filter_by(goi_id=goi.id, la_kcs_cuoi=True).count() == 0
 
 
 # --- Idempotent ở mức gói: phát hành lại KHÔNG đẻ gói trùng (versioning §4.3 để lát sau) -----
@@ -334,15 +286,15 @@ def test_dung_diem_toa_sinh_canh_theo_so_con(db, orders, lsx_svc, bg_svc, admin,
 
 # --- Checklist KCS đóng băng vào snapshot khi phát hành (Task 3) -----------------------------
 def test_snapshot_checklist_chi_lay_tieu_chi_active(db, orders, lsx_svc, admin, customer):
-    """Bước `la_kcs=true` neo `cong_doan_id` tới danh mục có 2 tiêu chí (1 active, 1 đã ngừng) —
-    snapshot chỉ đóng băng tiêu chí ACTIVE, nguồn `danh_muc`."""
+    """Bước KCS (cuối routing, tổ `is_kcs=true`) neo `cong_doan_id` tới danh mục có 2 tiêu chí
+    (1 active, 1 đã ngừng) — snapshot chỉ đóng băng tiêu chí ACTIVE, nguồn `danh_muc`."""
     a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     kcs = _kcs_dept(db)
     cd = _cong_doan(db, "CD-KT-CUOI")
     tc_on = _tieu_chi(db, "TC-ON", active=True, thu_tu=1, cong_doan_ids=[cd.id])
     _tieu_chi(db, "TC-OFF", active=False, thu_tu=2, cong_doan_ids=[cd.id])
     buoc = _them_buoc(
-        db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=kcs.id, la_kcs=True,
+        db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=kcs.id,
         cong_doan_id=cd.id,
     )
     db.commit()
@@ -365,7 +317,7 @@ def test_snapshot_checklist_gop_bo_sung_lsx_sau_danh_muc(db, orders, lsx_svc, ad
     cd = _cong_doan(db, "CD-KT-CUOI-2")
     tc = _tieu_chi(db, "TC-CHUAN", active=True, thu_tu=1, cong_doan_ids=[cd.id])
     buoc = _them_buoc(
-        db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=kcs.id, la_kcs=True,
+        db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=kcs.id,
         cong_doan_id=cd.id,
         kcs_tieu_chi_bo_sung_json=[{"ten": "Đối chiếu mẫu màu", "huong_dan": None, "bat_buoc": True}],
     )
@@ -390,7 +342,7 @@ def test_snapshot_checklist_bat_bien_sau_khi_sua_danh_muc(db, orders, lsx_svc, a
     cd = _cong_doan(db, "CD-KT-CUOI-3")
     tc = _tieu_chi(db, "TC-BAT-BIEN", active=True, thu_tu=1, cong_doan_ids=[cd.id])
     buoc = _them_buoc(
-        db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=kcs.id, la_kcs=True,
+        db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=kcs.id,
         cong_doan_id=cd.id,
     )
     db.commit()

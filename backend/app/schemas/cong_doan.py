@@ -69,10 +69,6 @@ class CongDoanIn(BaseModel):
     tooling_type: str | None = None
     spoilage_pct: float = Field(default=0, ge=0, le=100)
     inline_flag: bool = False
-    # KCS kiêm nhiệm (mg 0250): bước THUỘC công đoạn này có phải bước KIỂM TRA CHẤT LƯỢNG không —
-    # KHÔNG suy theo tên công đoạn, KHÔNG suy theo tổ (`department.is_kcs`) — khai đích danh tại
-    # đây rồi snapshot xuống bước routing/bài ghép lúc dựng (xem `services/san_xuat/snapshot.py`).
-    la_kcs: bool = False
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
     active: bool = True
@@ -122,7 +118,6 @@ class CongDoanRow(BaseModel):
     tooling_type: str | None = None
     spoilage_pct: float
     inline_flag: bool
-    la_kcs: bool
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
     active: bool

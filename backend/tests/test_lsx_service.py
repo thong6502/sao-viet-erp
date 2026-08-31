@@ -637,56 +637,6 @@ def test_dong_khong_co_phieu_tinh_gia_van_tao_duoc_lenh_o_cho_bo_sung(
     assert lsx.cong_doans == []
 
 
-# --- KCS kiêm nhiệm (Task 2): danh mục Công đoạn snapshot cờ `la_kcs` xuống bước khi dựng lệnh ---
-def test_bung_routing_snapshot_la_kcs_tu_danh_muc_tung_cong_doan(db, orders, lsx_svc, admin, customer):
-    """`_default_buoc` phải chép NGUYÊN cờ `la_kcs` của TỪNG `CongDoan` xuống `LsxCongDoan` khi
-    bung routing lần đầu — không đồng nhất theo tổ (hai công đoạn "Bế"/"Dán hộp" CÙNG department
-    nhưng khác `la_kcs`)."""
-    ptg = _ptg_2_san_pham(db)
-    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
-    cd_dan.la_kcs = True                    # "Dán hộp" khai la_kcs=true ở danh mục
-    db.commit()
-
-    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
-    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
-    hop, tem = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
-
-    by_ten = {cd.ten: cd.la_kcs for cd in hop.cong_doans}
-    assert by_ten["In offset"] is False and by_ten["Bế"] is False   # danh mục không khai la_kcs
-    assert by_ten["Dán hộp"] is True
-    # "Bế" xuất hiện lại ở `tem` (cùng CongDoan, khác LSX) — cờ vẫn theo ĐÚNG công đoạn, không
-    # bị nhiễm bởi lệnh khác vừa lấy "Dán hộp" la_kcs=True.
-    assert {cd.ten: cd.la_kcs for cd in tem.cong_doans} == {"Bế": False}
-
-
-def test_replace_routing_sua_de_la_kcs_khi_client_gui_lai(db, orders, lsx_svc, admin, customer):
-    """Nhánh PUT `/routing` (`_ROUTING_FIELD_THUAN`): gửi lại `la_kcs` cho một bước đã có phải
-    SỬA ĐÈ được cờ đã snapshot — kế thừa là MẶC ĐỊNH, không phải read-only, cùng cơ chế các field
-    khác trong tuple đó."""
-    ptg = _ptg_2_san_pham(db)
-    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
-    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
-    hop, _tem = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
-    assert all(cd.la_kcs is False for cd in hop.cong_doans)    # danh mục gốc không khai la_kcs
-
-    # Gửi lại ĐÚNG step_key hiện có (nhánh cập nhật tại chỗ, không phải tạo mới) — chỉ "Dán hộp"
-    # kèm `la_kcs=True`, các bước khác không gửi field này (giữ nguyên False).
-    rows_in = [
-        LsxCongDoanIn(
-            step_key=cd.step_key, cong_doan_id=cd.cong_doan_id, ten=cd.ten, nhom=cd.nhom,
-            department_id=cd.department_id, loai_buoc=cd.loai_buoc,
-            la_kcs=True if cd.ten == "Dán hộp" else None,
-        )
-        for cd in hop.cong_doans
-    ]
-    lsx_svc.replace_routing(lsx_id=hop.id, actor=admin, rows_in=rows_in)
-
-    hop2 = lsx_svc.get(hop.id)
-    by_ten = {cd.ten: cd.la_kcs for cd in hop2.cong_doans}
-    assert by_ten["Dán hộp"] is True
-    assert by_ten["In offset"] is False and by_ten["Bế"] is False
-
-
 # ============================ Sửa routing / trạng thái ============================
 def test_sua_routing_khong_dung_phieu_tinh_gia_va_khong_anh_huong_lenh_khac(
     db, orders, lsx_svc, admin, customer

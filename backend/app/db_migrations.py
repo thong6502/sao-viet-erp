@@ -11016,3 +11016,31 @@ def _migrate_kcs_kiem_nhiem_backfill_la_kcs(db: Session) -> None:
 
 
 MIGRATIONS.append(("0251_kcs_kiem_nhiem_backfill_la_kcs", _migrate_kcs_kiem_nhiem_backfill_la_kcs))
+
+
+def _migrate_kcs_kiem_nhiem_bo_cot_la_kcs(db: Session) -> None:
+    """Bỏ cờ `la_kcs` khai TAY — thiết kế lại (2026-08-31,
+    `docs/superpowers/plans/2026-08-31-kcs-kiem-nhiem-suy-tu-dong.md`): Task 1 dự kiến một ô danh
+    mục để bật cờ này nhưng CHƯA TỪNG được build (không đường sống tạo mới qua UI thật), và thực tế
+    xưởng không có ca "một tổ vừa có bước KCS vừa có bước thường" — nên KCS kiêm nhiệm nay suy TỰ
+    ĐỘNG lúc phát hành/đọc routing: bước CUỐI của routing + tổ thực hiện có `departments.is_kcs`,
+    không cần lưu cột nào nữa (xem `services/san_xuat/snapshot.py::dung_cong_viec` +
+    `services/lsx_service.py::_cong_doan_dict`).
+
+    Chạy SAU `0251` (không sửa lại `0251` — giữ nguyên lịch sử backfill). `kcs_tieu_chi_bo_sung_json`
+    trên `lsx_cong_doan`/`bai_ghep_cong_doan` KHÔNG bị đụng — checklist bổ sung riêng của bước vẫn
+    còn ý nghĩa, chỉ đổi điều kiện "bước có phải KCS" để quyết có áp checklist hay không.
+
+    Guard theo cột ⇒ idempotent; no-op nếu bảng/cột không còn (đã drop lần trước, hoặc bảng chưa
+    từng tồn tại)."""
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+
+    for table in ("cong_doan", "lsx_cong_doan", "bai_ghep_cong_doan"):
+        if table in tables and "la_kcs" in _existing_columns(insp, table):
+            db.execute(text(f"ALTER TABLE {table} DROP COLUMN la_kcs"))
+
+    db.commit()
+
+
+MIGRATIONS.append(("0252_kcs_kiem_nhiem_bo_cot_la_kcs", _migrate_kcs_kiem_nhiem_bo_cot_la_kcs))

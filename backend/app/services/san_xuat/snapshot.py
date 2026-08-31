@@ -58,10 +58,11 @@ def _vat_tu(cd) -> list[dict]:
     return out
 
 
-def _checklist(cd, tieu_chi_theo_cd: dict[int, list]) -> list[dict] | None:
+def _checklist(cd, tieu_chi_theo_cd: dict[int, list], la_kcs: bool) -> list[dict] | None:
     """Ghép checklist danh mục (theo cong_doan_id của bước) + bổ sung riêng của bước, đúng thứ tự.
-    None nếu bước không phải KCS — cột chỉ có ý nghĩa với `la_kcs=True`."""
-    if not cd.la_kcs:
+    None nếu bước không phải KCS — `la_kcs` đã được tính sẵn ở `dung_cong_viec` (suy tự động, xem
+    đó), không đọc cột nào ở đây."""
+    if not la_kcs:
         return None
     out: list[dict] = []
     for tc in tieu_chi_theo_cd.get(cd.cong_doan_id, []) if cd.cong_doan_id else []:
@@ -95,6 +96,16 @@ def dung_cong_viec(
     cv_by_step: dict[str, SanXuatCongViec] = {}
     tieu_chi_theo_cd = tieu_chi_theo_cd or {}
 
+    # KCS kiêm nhiệm — suy TỰ ĐỘNG (không còn khai tay ở danh mục Công đoạn): một bước là KCS khi
+    # nó là bước CUỐI CÙNG trong routing của một LSX VÀ tổ thực hiện có `Department.is_kcs=true`
+    # (xem docs/superpowers/plans/2026-08-31-kcs-kiem-nhiem-suy-tu-dong.md). Nạp trước "bước cuối
+    # của mỗi LSX" một lần để tra O(1) ở cả hai nhánh dưới (LSX riêng + bước dùng chung bài ghép).
+    kcs_dept_ids = repo.kcs_department_ids()
+    steps_by_lsx = {lsx_id: repo.routing_steps(lsx_id) for lsx_id in lsx_ids}
+    buoc_cuoi_key_by_lsx = {
+        lid: steps[-1].step_key for lid, steps in steps_by_lsx.items() if steps
+    }
+
     # (1) Bước dùng chung của bài ghép — MỘT công việc mỗi bước, phủ nhiều bước LSX.
     covered_step_keys: set[str] = set()
     for bg_id in sorted(bai_ghep_ids):
@@ -102,26 +113,32 @@ def dung_cong_viec(
             may_id, start, finish = repo.thoi_gian_bg_step(cd.id)
             covered = repo.covered_step_keys_of_cd(cd.id)
             covered_step_keys |= covered
+            covered_lsx_ids = repo.lsx_ids_covered_by_cd(cd.id)
             # Nhóm của công việc chung: nếu mọi LSX được phủ cùng một nhóm thì gán nhóm đó, khác
             # nhau (bài ghép nối nhiều nhóm) thì để trống — phân bổ sản lượng theo nhóm ở pha sau.
             nhom_ids = {
                 nhom_by_lsx[lid].id
-                for lid in repo.lsx_ids_covered_by_cd(cd.id)
+                for lid in covered_lsx_ids
                 if lid in nhom_by_lsx
             }
             nhom_id = next(iter(nhom_ids)) if len(nhom_ids) == 1 else None
+            # KCS: bước chung này có phải bước cuối của ÍT NHẤT MỘT LSX nó phủ, VÀ tổ thực hiện
+            # (của chính lượt chạy chung — gán lúc lập kế hoạch gộp) có `is_kcs=true`.
+            la_kcs = cd.department_id in kcs_dept_ids and any(
+                buoc_cuoi_key_by_lsx.get(lid) in covered for lid in covered_lsx_ids
+            )
             cv = SanXuatCongViec(
                 goi_id=goi.id, phien_ban_so=phien_ban_so,
                 nhom_id=nhom_id, lsx_id=None, bai_ghep_id=bg_id,
                 bai_ghep_cong_doan_id=cd.id, step_key=cd.step_key,
                 ten_cong_doan=cd.ten, nhom_cong_doan=cd.nhom, loai_buoc=cd.loai_buoc or BUOC_MAY,
-                department_id=cd.department_id, la_kcs=bool(cd.la_kcs),
+                department_id=cd.department_id, la_kcs=la_kcs,
                 may_id=may_id or cd.may_id,
                 du_kien_bat_dau=start, du_kien_ket_thuc=finish,
                 so_luong_vao=cd.so_luong_vao, so_luong_ra=cd.so_luong_ra,
                 don_vi_vao=cd.don_vi_vao, don_vi_ra=cd.don_vi_ra, he_so_quy_doi=cd.he_so_quy_doi,
                 dinh_muc_json=_dinh_muc(cd), khoan_json=cd.khoan_json, vat_tu_json=_vat_tu(cd),
-                kcs_tieu_chi_json=_checklist(cd, tieu_chi_theo_cd),
+                kcs_tieu_chi_json=_checklist(cd, tieu_chi_theo_cd, la_kcs),
                 trang_thai=CV_PHAT_HANH,
             )
             repo.add(cv)
@@ -133,22 +150,24 @@ def dung_cong_viec(
     # (2) Bước RIÊNG của từng LSX — bỏ bước đã bị bài ghép phủ.
     for lsx_id in sorted(lsx_ids):
         grp = nhom_by_lsx.get(lsx_id)
-        for cd in repo.routing_steps(lsx_id):
+        buoc_cuoi_key = buoc_cuoi_key_by_lsx.get(lsx_id)
+        for cd in steps_by_lsx.get(lsx_id) or []:
             if cd.step_key in covered_step_keys:
                 continue
             may_id, start, finish = repo.thoi_gian_lsx_step(cd.id)
+            la_kcs = cd.step_key == buoc_cuoi_key and cd.department_id in kcs_dept_ids
             cv = SanXuatCongViec(
                 goi_id=goi.id, phien_ban_so=phien_ban_so,
                 nhom_id=grp.id if grp else None, lsx_id=lsx_id, bai_ghep_id=None,
                 lsx_cong_doan_id=cd.id, step_key=cd.step_key,
                 ten_cong_doan=cd.ten, nhom_cong_doan=cd.nhom, loai_buoc=cd.loai_buoc or BUOC_MAY,
-                department_id=cd.department_id, la_kcs=bool(cd.la_kcs),
+                department_id=cd.department_id, la_kcs=la_kcs,
                 may_id=may_id or cd.may_id,
                 du_kien_bat_dau=start, du_kien_ket_thuc=finish,
                 so_luong_vao=cd.so_luong_vao, so_luong_ra=cd.so_luong_ra,
                 don_vi_vao=cd.don_vi_vao, don_vi_ra=cd.don_vi_ra, he_so_quy_doi=cd.he_so_quy_doi,
                 dinh_muc_json=_dinh_muc(cd), khoan_json=cd.khoan_json, vat_tu_json=_vat_tu(cd),
-                kcs_tieu_chi_json=_checklist(cd, tieu_chi_theo_cd),
+                kcs_tieu_chi_json=_checklist(cd, tieu_chi_theo_cd, la_kcs),
                 trang_thai=CV_PHAT_HANH,
             )
             repo.add(cv)
@@ -171,6 +190,7 @@ def danh_dau_kcs_cuoi(
 
     Trả map nhom_id → lsx_id thân chính (chỉ nhóm xác định được).
     """
+    kcs_dept_ids = repo.kcs_department_ids()
     ung_vien: dict[int, list[tuple[int, str]]] = {}  # nhom_id → [(lsx_id, step_key)]
     for lsx_id in lsx_ids:
         grp = nhom_by_lsx.get(lsx_id)
@@ -180,7 +200,7 @@ def danh_dau_kcs_cuoi(
         if not steps:
             continue
         cuoi = steps[-1]  # đã sort theo thu_tu, id
-        if cuoi.la_kcs and cuoi.step_key in cv_by_step:
+        if cuoi.department_id in kcs_dept_ids and cuoi.step_key in cv_by_step:
             ung_vien.setdefault(grp.id, []).append((lsx_id, cuoi.step_key))
 
     than_chinh: dict[int, int] = {}

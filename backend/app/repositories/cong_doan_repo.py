@@ -20,7 +20,7 @@ ASSIGNABLE = (
     "allowed_defect_pct", "allowed_defect_abs",
     "che_do_tinh", "pricing_basis", "setup_cost", "setup_time", "nang_suat",
     "run_rate", "rate_tiers", "size_tiers", "first_unit_floor", "min_charge", "requires_tooling",
-    "tooling_type", "spoilage_pct", "inline_flag", "la_kcs", "ghi_chu", "active", "cong_thuc_gia",
+    "tooling_type", "spoilage_pct", "inline_flag", "ghi_chu", "active", "cong_thuc_gia",
 )
 
 

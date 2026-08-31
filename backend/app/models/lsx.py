@@ -215,13 +215,6 @@ class LsxCongDoan(Base):
     bat_buoc: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_true(), default=True
     )
-    # KCS kiêm nhiệm (mg `0250`): SNAPSHOT `cong_doan.la_kcs` lúc dựng routing của lệnh — bước này
-    # có phải một bước KIỂM TRA CHẤT LƯỢNG hay không. Đổi cờ ở danh mục về sau KHÔNG lay lệnh đã
-    # dựng (đúng lối snapshot của cả file này). Task 2 mới viết logic snapshot/kế thừa; ở đây CHỈ
-    # khai cột, mặc định `false` để lệnh cũ đọc ra "không phải KCS" — đúng thực tế trước khi có tính năng.
-    la_kcs: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=sa_false(), default=False
-    )
 
     # --- Số lượng & hao hụt ---
     # Đơn vị VÀO ≠ RA là chuyện thường ở ranh giới xén/bế: 5.170 tờ vào → 20.680 con ra (hệ số 4).

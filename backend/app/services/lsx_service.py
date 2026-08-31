@@ -992,6 +992,19 @@ class LsxService:
         ).all()
         return {i: n for i, n in rows}
 
+    def _kcs_dept_ids(self, ids: set[int]) -> set[int]:
+        """Tập con của `ids` có `Department.is_kcs=true` — suy `la_kcs` (KCS kiêm nhiệm) dùng
+        "bước cuối routing + tổ thực hiện có is_kcs" thay vì đọc cờ khai tay đã bỏ, xem
+        docs/superpowers/plans/2026-08-31-kcs-kiem-nhiem-suy-tu-dong.md."""
+        from ..models.department import Department
+
+        if not ids:
+            return set()
+        rows = self.db.execute(
+            select(Department.id).where(Department.id.in_(ids), Department.is_kcs.is_(True))
+        ).scalars()
+        return set(rows)
+
     def khuon_chon_duoc(self, lsx: Lsx, *, loai: str | None, dang_chon: int | None) -> list[dict]:
         """Dao mà bước của lệnh này CHỌN ĐƯỢC — đã lọc sẵn hai chiều: khách của lệnh + loại của bước.
 
@@ -1406,9 +1419,6 @@ class LsxService:
             # Đầu việc khoán của bước: điền sẵn khi bảng giá của tổ chỉ khớp MỘT dòng. Nhiều dòng
             # (bế tay / bế máy) hoặc tổ không ăn khoán → None, kế hoạch tự chọn ở drawer.
             "khoan_json": khoan,
-            # KCS kiêm nhiệm (mg 0250, Task 2): snapshot NGUYÊN cờ của danh mục Công đoạn xuống
-            # bước — nguồn thật để suy KCS-cuối/phát hành là CỜ NÀY, không phải department.is_kcs.
-            "la_kcs": bool(cd_obj.la_kcs) if cd_obj else False,
         }
 
     def _bung_vat_tu_dau_viec(self, lsx: Lsx, quy_cach: dict) -> None:
@@ -2116,9 +2126,15 @@ class LsxService:
         # tự đổi dưới chân người kế hoạch còn tệ hơn số cũ — máy đề xuất, người quyết.
         moi = {r["idx"]: r for r in self.tinh_nguoc_routing(lsx)}
         thu_tu_idx = {id(c): i for i, c in enumerate(sorted(lsx.cong_doans, key=lambda x: x.thu_tu))}
+        # KCS kiêm nhiệm — suy TỰ ĐỘNG: bước cuối (theo thu_tu, id — cùng thứ tự `routing_steps`
+        # dùng khi phát hành) của tổ có `is_kcs=true`. Tính MỘT LẦN cho cả routing, không phải mỗi
+        # bước một truy vấn.
+        kcs_dept_ids = self._kcs_dept_ids(dept_ids)
+        buoc_cuoi = max(lsx.cong_doans, key=lambda x: (x.thu_tu, x.id)) if lsx.cong_doans else None
         buoc_dicts = [
             self._cong_doan_dict(cd, dept_names, may_names, qc_bien,
-                                 moi.get(thu_tu_idx.get(id(cd), -1)), khuon_map)
+                                 moi.get(thu_tu_idx.get(id(cd), -1)), khuon_map,
+                                 la_kcs=(cd is buoc_cuoi and cd.department_id in kcs_dept_ids))
             for cd in lsx.cong_doans
         ]
         return {
@@ -2220,7 +2236,7 @@ class LsxService:
 
     def _cong_doan_dict(self, cd, dept_names: dict, may_names: dict,
                         quy_cach: dict | None = None, moi: dict | None = None,
-                        khuon_map: dict | None = None) -> dict:
+                        khuon_map: dict | None = None, *, la_kcs: bool = False) -> dict:
         vao = _f(cd.so_luong_vao)
         may_cd = self._may_cua_buoc(cd)
         t = thoi_luong_buoc(cd, may_cd, self.sl_tinh_cua_buoc(cd, may_cd, quy_cach))
@@ -2237,9 +2253,11 @@ class LsxService:
         return {
             "id": cd.id, "step_key": cd.step_key, "thu_tu": cd.thu_tu, "cong_doan_id": cd.cong_doan_id,
             "ten": cd.ten, "nhom": cd.nhom, "loai_buoc": cd.loai_buoc, "bat_buoc": bool(cd.bat_buoc),
-            # KCS kiêm nhiệm (Task 3): FE ẩn/hiện khối "Tiêu chí KCS bổ sung" theo `la_kcs`. PHẢI
-            # copy tay ở đây — output này là dict thủ công, KHÔNG chạy `from_attributes`.
-            "la_kcs": bool(cd.la_kcs), "kcs_tieu_chi_bo_sung_json": cd.kcs_tieu_chi_bo_sung_json,
+            # KCS kiêm nhiệm — suy TỰ ĐỘNG (không còn khai tay): FE ẩn/hiện khối "Tiêu chí KCS bổ
+            # sung" theo `la_kcs`, do caller (`detail_dict`) tính sẵn = bước cuối routing + tổ có
+            # `is_kcs=true`. PHẢI truyền tay ở đây — output này là dict thủ công, KHÔNG chạy
+            # `from_attributes`.
+            "la_kcs": la_kcs, "kcs_tieu_chi_bo_sung_json": cd.kcs_tieu_chi_bo_sung_json,
             "department_id": cd.department_id,
             "department_ten": dept_names.get(cd.department_id),
             "may_id": cd.may_id, "may_ten": may_names.get(cd.may_id),
@@ -2697,9 +2715,6 @@ class LsxService:
         "nha_cung_cap", "sl_gui", "ngay_gui_dk", "van_chuyen_ngay", "gia_cong_ngay",
         "ngay_nhan_dk", "hao_hut_cho_phep", "don_gia_gia_cong", "yeu_cau_ky_thuat",
         "ghi_chu",
-        # KCS kiêm nhiệm (mg 0250, Task 2): cờ kế thừa từ danh mục Công đoạn lúc bung routing lần
-        # đầu (`_default_buoc`) — CÙNG cơ chế trên, sửa đè được nếu client gửi lại field này.
-        "la_kcs",
         # KCS kiêm nhiệm (mg 0250, Task 3): tiêu chí BỔ SUNG riêng của lệnh này (không sửa được
         # checklist danh mục ở đây). KHÔNG vào `_ROUTING_FIELD_NULLABLE` — gửi `[]` để xoá sạch đã
         # đủ, không cần gửi `null`.

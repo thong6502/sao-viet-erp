@@ -35,7 +35,10 @@ def _to_thay_duoc(
     """(danh sách tổ = node lá Khối SX mà user được thấy, tập id của chúng) theo scope `san_xuat`.
 
     `to_san_xuat()` là ĐỊNH NGHĨA CHUNG của "tổ" (node lá khối SX). Lọc thêm theo scope: cấp
-    xưởng (`all`) thấy hết; tổ trưởng (`department`/`own`) chỉ cây con phòng mình.
+    xưởng (`all`) thấy hết; tổ trưởng (`department`/`own`) chỉ cây con phòng mình — CỘNG THÊM mọi
+    tổ mà user đứng `head_user_id` (kiêm nhiệm tổ trưởng một tổ ngoài phòng mình): nếu không, tổ
+    trưởng kiêm nhiệm được `_gate` (thuc_thi.py) cho GHI việc của tổ đó nhưng sidebar lại không có
+    lối vào để XEM — user bị khoá ngoài bàn tổ chính mình đứng đầu.
     """
     tos = DepartmentRepository(db).to_san_xuat()
     scope = authz.scope_for(user, MODULE) or SCOPE_ALL
@@ -43,9 +46,9 @@ def _to_thay_duoc(
         pass
     elif scope == SCOPE_DEPARTMENT:
         cho_phep = dept_subtree_ids(db, user.department_id) or set()
-        tos = [d for d in tos if d.id in cho_phep]
+        tos = [d for d in tos if d.id in cho_phep or d.head_user_id == user.id]
     else:  # own
-        tos = [d for d in tos if d.id == user.department_id]
+        tos = [d for d in tos if d.id == user.department_id or d.head_user_id == user.id]
     return tos, {d.id for d in tos}
 
 

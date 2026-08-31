@@ -1,14 +1,17 @@
 """Model nền module KCS kiêm nhiệm — Task 1/12 (`.superpowers/sdd/2026-08-31-kcs-kiem-nhiem`).
 
 Soi TẦNG MODEL (không service, không HTTP — Task 1 chỉ dựng schema):
-  · cờ `la_kcs` (mặc định false) trên 3 bảng ĐANG TỒN TẠI: `cong_doan`, `lsx_cong_doan`,
-    `bai_ghep_cong_doan`;
   · cột JSON checklist (nullable) trên `lsx_cong_doan`/`bai_ghep_cong_doan`
     (`kcs_tieu_chi_bo_sung_json`) và `san_xuat_cong_viec` (`kcs_tieu_chi_json`);
   · 3 cột mới trên `san_xuat_kcs_batch` (`loai` mặc định `routing`, `kcs_department_id`,
     `checklist_json`) — KHÔNG động tới cột legacy;
   · 2 bảng danh mục checklist MỚI: `san_xuat_kcs_tieu_chi` + `san_xuat_kcs_tieu_chi_cong_doan`
     (unique theo cặp tiêu_chi×công_đoạn).
+
+Cờ `la_kcs` khai TAY trên `cong_doan`/`lsx_cong_doan`/`bai_ghep_cong_doan` ĐÃ BỎ (2026-08-31, mg
+`0252`) — KCS kiêm nhiệm nay suy TỰ ĐỘNG (bước cuối routing + `departments.is_kcs`), xem
+`services/san_xuat/snapshot.py::dung_cong_viec`. `SanXuatCongViec.la_kcs`/`la_kcs_cuoi` (công việc
+ĐÃ PHÁT HÀNH) không đổi cấu trúc, chỉ đổi nguồn suy ra.
 
 Dùng `init_db()` (create_all, KHÔNG seed) trên DB in-memory của bộ test — đủ để dựng schema từ
 model, không cần chạy migration (DB fresh)."""
@@ -43,39 +46,27 @@ def db():
         session.close()
 
 
-def test_cong_doan_la_kcs_mac_dinh_false(db):
-    cd = CongDoan(ma="CD-KCS-TEST-1", ten="In offset", nhom="print")
-    db.add(cd)
-    db.commit()
-    db.refresh(cd)
-    assert cd.la_kcs is False
-
-
-def test_lsx_cong_doan_la_kcs_va_checklist_bo_sung(db):
+def test_lsx_cong_doan_checklist_bo_sung(db):
     buoc = LsxCongDoan(lsx_id=1)
     db.add(buoc)
     db.commit()
     db.refresh(buoc)
-    assert buoc.la_kcs is False
     assert buoc.kcs_tieu_chi_bo_sung_json is None
 
-    buoc.la_kcs = True
     buoc.kcs_tieu_chi_bo_sung_json = [
         {"tieu_chi_id": None, "ma": None, "ten": "Đối chiếu mẫu màu khách duyệt",
          "huong_dan": None, "bat_buoc": True, "nguon": "bo_sung_lsx", "thu_tu": 1000}
     ]
     db.commit()
     db.refresh(buoc)
-    assert buoc.la_kcs is True
     assert buoc.kcs_tieu_chi_bo_sung_json[0]["nguon"] == "bo_sung_lsx"
 
 
-def test_bai_ghep_cong_doan_la_kcs_va_checklist_bo_sung(db):
+def test_bai_ghep_cong_doan_checklist_bo_sung_mac_dinh_none(db):
     buoc = BaiGhepCongDoan(bai_ghep_id=1)
     db.add(buoc)
     db.commit()
     db.refresh(buoc)
-    assert buoc.la_kcs is False
     assert buoc.kcs_tieu_chi_bo_sung_json is None
 
 

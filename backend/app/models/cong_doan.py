@@ -121,11 +121,6 @@ class CongDoan(Base):
     # Phòng ban / tổ phụ trách công đoạn (soft-ref → departments.id). Khi phát Lệnh SX, mỗi bước
     # công đoạn đẩy xuống đúng tổ này. Nullable: công đoạn cũ chưa gán vẫn hợp lệ.
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → departments.id (soft)
-    # KCS kiêm nhiệm (module KCS kiêm nhiệm, mg `0250`): công đoạn này TỰ THÂN là một bước KIỂM TRA
-    # CHẤT LƯỢNG (khác `department_id` — tổ nào làm bước; đây là bước làm GÌ). Khai ở DANH MỤC nên
-    # mọi lệnh dựng routing từ công đoạn này về sau đều snapshot cờ xuống `lsx_cong_doan.la_kcs`/
-    # `bai_ghep_cong_doan.la_kcs` (logic snapshot/kế thừa là việc của Task 2 — ở đây CHỈ khai cột).
-    la_kcs: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_false(), default=False)
     # Lương khoán: công đoạn này có tính khoán không — nguoi (ghi Phiếu sản lượng theo từng người
     # → cột Khoán bảng lương) / khong (không khoán). Không còn 'theo tổ' (đã bỏ tầng sổ khoán).
     khoan_ghi_theo: Mapped[str] = mapped_column(String(8), nullable=False, server_default="khong", default="khong")

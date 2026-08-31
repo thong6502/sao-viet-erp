@@ -69,13 +69,6 @@ class BaiGhepCongDoan(Base):
     bat_buoc: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_true(), default=True
     )
-    # KCS kiêm nhiệm (mg `0250`): SNAPSHOT lúc GỘP bài — mirror `LsxCongDoan.la_kcs` cùng lý do
-    # (đổi danh mục về sau không lay bài đã gộp). Task 2 viết logic snapshot khi gộp; ở đây CHỈ
-    # khai cột, mặc định `false`.
-    la_kcs: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=sa_false(), default=False
-    )
-
     # --- Phân công: MỘT lượt chạy thì một tổ, một máy, một kíp ---
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)

@@ -758,9 +758,6 @@ class BaiGhepService:
             bai_ghep_id=bg.id,
             cong_doan_id=mau.cong_doan_id, ten=mau.ten, nhom=mau.nhom,
             loai_buoc=mau.loai_buoc, bat_buoc=bool(mau.bat_buoc),
-            # KCS kiêm nhiệm (mg 0250, Task 2): mọi `cd` trong `cds` đã được validate CÙNG
-            # `cong_doan_id` ở trên nên `la_kcs` của chúng giống nhau — chép của bước mẫu là đủ.
-            la_kcs=bool(mau.la_kcs),
             # CHƯA gán tổ/máy: gộp xong là phải lập lại kế hoạch cho lượt chạy chung, không thừa
             # kế mù của bất kỳ lệnh nào — hai lệnh có thể đang khai hai máy khác nhau.
             so_nhan_cong_tieu_chuan=1,

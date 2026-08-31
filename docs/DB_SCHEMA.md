@@ -3290,11 +3290,9 @@ dùng cho bình bài.
 
 `spoilage_pct` là cột CŨ, chỉ `routing_engine` của hệ tính giá cũ dùng; không có ô nhập và Lệnh SX KHÔNG đọc — hao hụt đi qua module `bu_hao` (mỗi bậc tự chọn `to`|`pct`).
 
-**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `don_vi_vao`, `don_vi_ra`, `he_so_ngoai_dong`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `nhom_may_cho_phep`, `department_id`, `la_kcs`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `nang_suat`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `cong_thuc_san_luong`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `don_vi_vao`, `don_vi_ra`, `he_so_ngoai_dong`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `nhom_may_cho_phep`, `department_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `nang_suat`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `cong_thuc_san_luong`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 `nhom_may_cho_phep` (JSON list, nullable, mg 0168): tên nhóm máy (`may_thiet_bi.loai_may`) làm được công đoạn này — chặn gán máy sai loại ở bước bài ghép (vd Ghi kẽm CTP không cho gán máy Bế). NULL/`[]` = chưa khai = không ràng buộc. Trục `loai_may` mịn hơn `nhom(3)` nên phân biệt được Bế với Cán màng.
-
-`la_kcs` (BOOLEAN NOT NULL DEFAULT false, mg `0250`, module KCS kiêm nhiệm): công đoạn này TỰ THÂN có phải một bước KIỂM TRA CHẤT LƯỢNG hay không — khai ở DANH MỤC, khác `department_id` (tổ nào làm) hay `departments.is_kcs` (tổ có phải tổ KCS). Mọi lệnh dựng routing từ công đoạn này về sau snapshot cờ xuống `lsx_cong_doan.la_kcs`/`bai_ghep_cong_doan.la_kcs` (logic snapshot là Task 2). Migration `0251` backfill `true` cho các công đoạn ĐÃ CHỨNG MINH là KCS cuối theo dữ liệu cũ (`san_xuat_cong_viec.la_kcs_cuoi`), không suy diễn rộng hơn.
 
 ### `cong_doan_dau_viec`
 
@@ -3931,8 +3929,7 @@ Trả về BA số bằng cách thay `toc_do` bằng `toc_do_max` / `toc_do` / `
 | `khuon_be_id` | `Integer` | IX | yes | — | Soft → `khuon_be.id` — con dao của CHÍNH bước này (mg `0205`). Chỉ hỏi ở bước mà công đoạn nguồn bật `requires_tooling`. Để trống là hợp lệ, KHÔNG chặn phát hành lệnh. **Lịch sử:** cột này từng bị xoá hẳn sáng 16/08 (mg `0203`, 0/14 bước có gán) rồi dựng lại chiều cùng ngày với hình dạng khác — cũ là một select trống không có đường tạo dao mới nên ai cũng bỏ qua; mới là hai nhánh *dùng dao có sẵn* (lọc theo khách của lệnh + loại của bước) / *làm dao mới* (tạo thẳng dòng `khuon_be` ở `dang_dat_lam`). |
 | `loai_buoc` | `String(12)` | — | no | `may` | Snapshot `may|to|thue_ngoai`. |
 | `bat_buoc` | `Boolean` → `BOOLEAN` | — | no | `true` | Bước bắt buộc hay tùy chọn (§4.1). |
-| `la_kcs` | `Boolean` → `BOOLEAN` | — | no | `false` | Module KCS kiêm nhiệm (mg `0250`): SNAPSHOT `cong_doan.la_kcs` lúc dựng routing — bước này có phải KIỂM TRA CHẤT LƯỢNG. Đổi danh mục về sau không lay lệnh đã dựng. |
-| `kcs_tieu_chi_bo_sung_json` | `JSON` | — | yes | — | Checklist KCS BỔ SUNG khai riêng ở lệnh (cộng vào checklist chuẩn của danh mục, không thay thế). Chỉ có nghĩa khi `la_kcs=true`. Task 3 mới thực sự ghi. |
+| `kcs_tieu_chi_bo_sung_json` | `JSON` | — | yes | — | Checklist KCS BỔ SUNG khai riêng ở lệnh (cộng vào checklist chuẩn của danh mục, không thay thế). Chỉ có nghĩa khi bước này là KCS — từ 2026-08-31 (mg `0252`) suy TỰ ĐỘNG (bước cuối routing + `departments.is_kcs`, xem `lsx_service._cong_doan_dict`), không còn cột `la_kcs` khai tay. |
 | `so_luong_vao` | `Numeric(14,2)` | — | no | `0` | SL đầu vào bước. |
 | `so_luong_ra` | `Numeric(14,2)` | — | no | `0` | SL đầu ra bước. |
 | `don_vi_vao` | `String(24)` | — | no | `to` | Mã trong `don_vi_do` — kế thừa từ `cong_doan.don_vi_vao` khi bung lệnh. Bước có nằm trên dòng giấy hay không đọc cờ `don_vi_do.tram_dong_giay`, KHÔNG suy từ "có khai đơn vị hay không" (mg `0186` nới từ 12). |
@@ -3975,7 +3972,7 @@ Trả về BA số bằng cách thay `toc_do` bằng `toc_do_max` / `toc_do` / `
 > **Derived, KHÔNG lưu cột** (engine `lsx_service.thoi_luong_buoc(cd, may)` tính): `chiem_may_phut = phat_sinh + chuẩn bị(máy) + chạy(theo tốc độ máy)` · `chiem_may_phut_min`/`_max` theo `toc_do_max`/`toc_do_min` · `tong_phut = chiem_may_phut` (chờ/di chuyển đã bỏ) · `ty_le_hao_hut = hao_hut / so_luong_vao` · lead time cả lệnh.
 > **Đã BỎ ở migration `0093`:** `thue_ngoai` (tập con của `loai_buoc`) · `don_vi` (tách thành `don_vi_vao`/`don_vi_ra`).
 
-**Tất cả cột:** `id`, `step_key`, `lsx_id`, `thu_tu`, `cong_doan_id`, `ten`, `nhom`, `department_id`, `may_id`, `loai_buoc`, `bat_buoc`, `la_kcs`, `kcs_tieu_chi_bo_sung_json`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `hao_hut`, `hao_hut_pct`, `so_luot_chay`, `setup_phut`, `nang_suat`, `don_vi_nang_suat`, `chay_phut`, `ve_sinh_phut`, `phat_sinh_phut`, `cho_phut`, `di_chuyen_phut`, `so_nhan_cong`, `so_nhan_cong_tieu_chuan`, `so_nhan_cong_toi_da`, `so_nhan_cong_toi_thieu`, `so_nhan_cong_toi_thieu`, `khoan_json`, `nha_cung_cap`, `sl_gui`, `ngay_gui_dk`, `van_chuyen_ngay`, `gia_cong_ngay`, `ngay_nhan_dk`, `hao_hut_cho_phep`, `don_gia_gia_cong`, `yeu_cau_ky_thuat`, `nguoi_giao_id`, `giao_luc`, `sl_giao_thuc`, `nguoi_nhan_id`, `nhan_luc`, `sl_nhan_thuc`, `ghi_chu`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `step_key`, `lsx_id`, `thu_tu`, `cong_doan_id`, `ten`, `nhom`, `department_id`, `may_id`, `loai_buoc`, `bat_buoc`, `kcs_tieu_chi_bo_sung_json`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `hao_hut`, `hao_hut_pct`, `so_luot_chay`, `setup_phut`, `nang_suat`, `don_vi_nang_suat`, `chay_phut`, `ve_sinh_phut`, `phat_sinh_phut`, `cho_phut`, `di_chuyen_phut`, `so_nhan_cong`, `so_nhan_cong_tieu_chuan`, `so_nhan_cong_toi_da`, `so_nhan_cong_toi_thieu`, `so_nhan_cong_toi_thieu`, `khoan_json`, `nha_cung_cap`, `sl_gui`, `ngay_gui_dk`, `van_chuyen_ngay`, `gia_cong_ngay`, `ngay_nhan_dk`, `hao_hut_cho_phep`, `don_gia_gia_cong`, `yeu_cau_ky_thuat`, `nguoi_giao_id`, `giao_luc`, `sl_giao_thuc`, `nguoi_nhan_id`, `nhan_luc`, `sl_nhan_thuc`, `ghi_chu`, `created_at`, `updated_at`.
 
 ### `lsx_cong_doan_vat_tu`
 
@@ -4104,7 +4101,6 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `nhom` | `String(12)` | — | yes | — | Nhóm công đoạn (snapshot) — `truoc_in` / `in` / `sau_in`… |
 | `loai_buoc` | `String(12)` | — | no | `may` | `may` / `thu_cong` / `thue_ngoai` — cùng bộ giá trị `lsx_cong_doan.loai_buoc`. |
 | `bat_buoc` | `Boolean` | — | no | `true` | Bước bắt buộc (snapshot). |
-| `la_kcs` | `Boolean` | — | no | `false` | Module KCS kiêm nhiệm (mg `0250`): SNAPSHOT lúc GỘP bài — mirror `lsx_cong_doan.la_kcs`. |
 | `kcs_tieu_chi_bo_sung_json` | `JSON` | — | yes | — | Checklist KCS bổ sung của lượt gộp — mirror `lsx_cong_doan.kcs_tieu_chi_bo_sung_json`. |
 | `department_id` | `Integer` | IX | yes | — | Soft → `departments.id`. Một lượt chạy chung = MỘT tổ. NULL = chưa lập kế hoạch (thẻ hiện chip ⚠️). |
 | `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id`. Một lượt chạy chung = MỘT máy. |
@@ -4152,7 +4148,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 - Một `bai_ghep` có nhiều `bai_ghep_cong_doan`. Mỗi dòng có nhiều `bai_ghep_cong_doan_map` (đè lên bước nào của lệnh nào) và nhiều `bai_ghep_cong_doan_vat_tu` — cả hai cascade delete.
 - **GHI ĐÈ, KHÔNG PHÁ GỐC:** bước của LSX vẫn còn nguyên trong `lsx_cong_doan` với số của nó; tách gộp là số cũ quay lại, không phải khôi phục từ đâu. Engine chỉ việc "chỗ nào bị đè thì lấy số của bài".
 
-**Tất cả cột:** `id`, `step_key`, `bai_ghep_id`, `thu_tu`, `cong_doan_id`, `ten`, `nhom`, `loai_buoc`, `bat_buoc`, `la_kcs`, `kcs_tieu_chi_bo_sung_json`, `department_id`, `may_id`, `so_nhan_cong`, `so_nhan_cong_tieu_chuan`, `so_nhan_cong_toi_da`, `so_nhan_cong_toi_thieu`, `so_nhan_cong_toi_thieu`, `khoan_json`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `hao_hut`, `hao_hut_pct`, `so_luot_chay`, `setup_phut`, `nang_suat`, `don_vi_nang_suat`, `chay_phut`, `ve_sinh_phut`, `phat_sinh_phut`, `cho_phut`, `di_chuyen_phut`, `nha_cung_cap`, `sl_gui`, `ngay_gui_dk`, `van_chuyen_ngay`, `gia_cong_ngay`, `ngay_nhan_dk`, `hao_hut_cho_phep`, `don_gia_gia_cong`, `yeu_cau_ky_thuat`, `ghi_chu`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `step_key`, `bai_ghep_id`, `thu_tu`, `cong_doan_id`, `ten`, `nhom`, `loai_buoc`, `bat_buoc`, `kcs_tieu_chi_bo_sung_json`, `department_id`, `may_id`, `so_nhan_cong`, `so_nhan_cong_tieu_chuan`, `so_nhan_cong_toi_da`, `so_nhan_cong_toi_thieu`, `so_nhan_cong_toi_thieu`, `khoan_json`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `hao_hut`, `hao_hut_pct`, `so_luot_chay`, `setup_phut`, `nang_suat`, `don_vi_nang_suat`, `chay_phut`, `ve_sinh_phut`, `phat_sinh_phut`, `cho_phut`, `di_chuyen_phut`, `nha_cung_cap`, `sl_gui`, `ngay_gui_dk`, `van_chuyen_ngay`, `gia_cong_ngay`, `ngay_nhan_dk`, `hao_hut_cho_phep`, `don_gia_gia_cong`, `yeu_cau_ky_thuat`, `ghi_chu`, `created_at`, `updated_at`.
 
 ---
 
@@ -4402,7 +4398,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `nhom_cong_doan` | `String(24)` | — | yes | — | prepress/print/finishing. |
 | `loai_buoc` | `String(16)` | — | no | `may` | `may`/`to`/`thue_ngoai`. |
 | `department_id` | `Integer` FK→`departments.id` | IX | yes | — | Snapshot tổ thực hiện (§2.2). |
-| `la_kcs` | `Boolean` | — | no | `false` | Snapshot cờ CỦA BƯỚC routing (`lsx_cong_doan.la_kcs`/`bai_ghep_cong_doan.la_kcs`) — Task 2: KHÔNG còn suy theo `department_id`/tổ KCS, đọc thẳng cờ bước. |
+| `la_kcs` | `Boolean` | — | no | `false` | Bước này có phải KIỂM TRA CHẤT LƯỢNG — từ 2026-08-31 suy TỰ ĐỘNG lúc `phat_hanh` (`services/san_xuat/snapshot.py::dung_cong_viec`): bước CUỐI của routing (LSX riêng hoặc ít nhất một LSX mà bước ghép của bài ghép phủ tới) **và** tổ thực hiện có `departments.is_kcs=true`. KHÔNG còn đọc từ cờ khai tay `lsx_cong_doan.la_kcs`/`bai_ghep_cong_doan.la_kcs` (đã bỏ, mg `0252`). |
 | `la_kcs_cuoi` | `Boolean` | — | no | `false` | KCS cuối của nhóm (đúng một/nhóm — §2.2). |
 | `kcs_tieu_chi_json` | `JSON` | — | yes | — | Module KCS kiêm nhiệm (mg `0250`): SNAPSHOT ĐẦY ĐỦ checklist (danh mục + bổ sung LSX/bài ghép) tại lúc PHÁT HÀNH — khác `lsx_cong_doan.kcs_tieu_chi_bo_sung_json` (chỉ phần bổ sung). Task 3 mới thực sự ghi; NULL = chưa qua luồng phát hành mới. |
 | `may_id` | `Integer` | — | yes | — | Snapshot máy — soft → `may_thiet_bi.id`. Migration `0237` GỠ khoá ngoại cứng cũ trỏ `machines`: máy của bước lấy từ danh mục đang chạy `may_thiet_bi`, id lệch hẳn `machines` (danh mục đời tính giá) nên lệnh nào có bước chạy máy ngoài dải đó cũng vỡ lúc phát hành, kẹt lại `da_phat_hanh` mà không có công việc. |

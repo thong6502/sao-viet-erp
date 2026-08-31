@@ -98,6 +98,10 @@ export function ThucHienKcsPage({
   const [chiTietMap, setChiTietMap] = useState<Record<number, SxKcsChiTiet>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Đếm số việc mà kcsChiTiet() lỗi (thường là 403 do không đúng tổ trưởng của tổ đó — xem
+  // `_gate` ở thuc_thi.py). Trước đây các lỗi này bị nuốt im lặng, khiến "còn chờ" hiện 0 dù
+  // thực ra chỉ là không tải được dữ liệu — không phân biệt được với hàng thật sự trống.
+  const [chiTietFailCount, setChiTietFailCount] = useState(0);
 
   const load = useCallback(() => {
     if (!token) return;
@@ -105,18 +109,23 @@ export function ThucHienKcsPage({
     setLoadError(null);
     api.sanXuat.workItems(token, teamId, "kcs")
       .then(async (r) => {
+        let failCount = 0;
         const entries = await Promise.all(
           r.cong_viec.map((cv): Promise<[number, SxKcsChiTiet]> =>
             api.sanXuat.kcsChiTiet(token, cv.id)
               .then((ct): [number, SxKcsChiTiet] => [cv.id, ct])
-              .catch((): [number, SxKcsChiTiet] => [
-                cv.id,
-                { cong_viec_id: cv.id, la_kcs: cv.la_kcs, checklist: [], da_ban_giao_xac_nhan: 0, batch: [] },
-              ]),
+              .catch((): [number, SxKcsChiTiet] => {
+                failCount += 1;
+                return [
+                  cv.id,
+                  { cong_viec_id: cv.id, la_kcs: cv.la_kcs, checklist: [], da_ban_giao_xac_nhan: 0, batch: [] },
+                ];
+              }),
           ),
         );
         setItems(r.cong_viec);
         setChiTietMap(Object.fromEntries(entries));
+        setChiTietFailCount(failCount);
         setLoading(false);
       })
       .catch((e) => {
@@ -267,6 +276,15 @@ export function ThucHienKcsPage({
       {exportError && (
         <div className="banner banner--error" role="alert">
           <span>{exportError}</span>
+        </div>
+      )}
+
+      {chiTietFailCount > 0 && (
+        <div className="banner banner--error" role="alert">
+          <span>
+            Không tải được chi tiết {chiTietFailCount} việc — số "còn chờ" bên dưới có thể THIẾU.{" "}
+            <button type="button" className="btn btn--ghost btn--sm" onClick={load}>Tải lại</button>
+          </span>
         </div>
       )}
 

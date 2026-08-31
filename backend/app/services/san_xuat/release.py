@@ -145,7 +145,7 @@ def van_de_phat_hanh(
         so_kcs_cuoi = 0
         for lsx_id in members:
             steps = steps_by_lsx[lsx_id]
-            if steps and steps[-1].la_kcs:
+            if steps and steps[-1].department_id in kcs:
                 so_kcs_cuoi += 1
         ten = nhan.get(key, "")
         if so_kcs_cuoi == 0:
@@ -161,20 +161,7 @@ def van_de_phat_hanh(
                 goi_y="Chỉ giữ KCS cuối trên MỘT lệnh thân chính; các lệnh khác kết ở bước ghép.",
             ))
 
-    # Luật 5: bước khai la_kcs=true nhưng TỔ thực hiện không có năng lực KCS (department.is_kcs) —
-    # sai cấu hình phải CHẶN phát hành, chỉ đích danh bước + tổ (không chỉ "cấu hình sai" chung
-    # chung). Quét TOÀN BỘ bước của TOÀN BỘ LSX trong `lsx_ids` (không riêng bước cuối) — bước dùng
-    # chung của bài ghép NGOÀI phạm vi Task 2 (chưa có ca thật nào KCS sống trong bài ghép).
-    sai_to = [
-        cd for steps in steps_by_lsx.values() for cd in steps
-        if cd.la_kcs and cd.department_id not in kcs
-    ]
-    ten_to_by_id = repo.to_ten_nhan({cd.department_id for cd in sai_to if cd.department_id})
-    for cd in sai_to:
-        ten_to = ten_to_by_id.get(cd.department_id) or "(chưa gán tổ)"
-        van_de.append(issue(
-            "kcs_sai_to", MUC_CHAN_PHAT_HANH,
-            f"Bước “{cd.ten}” khai là KCS nhưng tổ “{ten_to}” không có năng lực KCS.",
-            goi_y="Bật cờ KCS cho tổ này ở danh mục Phòng ban, hoặc bỏ cờ KCS khỏi bước.",
-        ))
+    # Luật 5 (chặn "bước khai la_kcs=true nhưng tổ không có is_kcs") ĐÃ BỎ: từ khi la_kcs suy TỰ
+    # ĐỘNG thẳng từ department.is_kcs (không còn khai tay), tình huống lệch cấu hình này không còn
+    # xảy ra được nữa — xem docs/superpowers/plans/2026-08-31-kcs-kiem-nhiem-suy-tu-dong.md.
     return van_de
