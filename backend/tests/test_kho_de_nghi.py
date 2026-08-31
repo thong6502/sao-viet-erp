@@ -893,3 +893,42 @@ def test_api_danh_sach_yeu_cau_sinh_tu_sx_khong_n_plus_1(client, monkeypatch):
         f"boi_canh_san_xuat phải là ĐÚNG 1 câu SQL chạm san_xuat_vat_tu_de_nghi cho cả trang, "
         f"chạm {len(cham_bang)} câu:\n" + "\n---\n".join(cham_bang)
     )
+
+
+def test_api_can_luc_ve_gio_nha_may_du_db_tra_aware(client, monkeypatch):
+    """`san_xuat_vat_tu_de_nghi.can_luc` là cột `DateTime(timezone=True)`: Postgres `timestamptz`
+    trả về datetime AWARE (`+00:00`), SQLite của bộ test luôn trả naive. API PHẢI cắt tzinfo trước
+    khi ra JSON — FE kho (`fmtGioCan`, `isOverdue`) đọc naive = giờ NHÀ MÁY, gặp chuỗi có `Z` là
+    `new Date()` dịch thêm +7h và thủ kho thấy "cần lúc 20:30" cho ca chiều 13:30.
+
+    Ép `boi_canh_san_xuat` trả AWARE để tái hiện đúng thứ Postgres trả — chạy trên SQLite thì
+    không có đường nào khác chạm được ca này (đã đo trên Postgres thật, DB dùng-một-lần).
+    """
+    from datetime import datetime, timezone
+
+    import app.repositories.san_xuat_vat_tu_repo as sxvt_repo
+
+    kho_id, mat_id = _setup(client)
+    req = _approved_request(client, kho_id=kho_id, loai="XUAT", mat_id=mat_id, qty=10)
+    cv_id = _gan_boi_canh_san_xuat(
+        req["id"], can_luc=datetime(2026, 9, 2, 13, 30),
+        ten_cong_doan="Cán màng", ma_goi="GOI-T10-TZ")
+
+    goc = sxvt_repo.SanXuatVatTuRepository.boi_canh_san_xuat
+
+    def _aware(self, ids):
+        ra = goc(self, ids)
+        for v in ra.values():
+            if v.get("can_luc") is not None and v["can_luc"].tzinfo is None:
+                v["can_luc"] = v["can_luc"].replace(tzinfo=timezone.utc)
+        return ra
+
+    monkeypatch.setattr(sxvt_repo.SanXuatVatTuRepository, "boi_canh_san_xuat", _aware)
+
+    tk = _login(client, "t_thukho")
+    r = client.get(f"/api/kho/de-nghi/{req['id']}", headers=tk)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["san_xuat_cong_viec_id"] == cv_id
+    # Không "Z", không "+07:00", không "+00:00" — chuỗi trần đúng giờ tổ trưởng gõ.
+    assert body["can_luc"] == "2026-09-02T13:30:00", body["can_luc"]

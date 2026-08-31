@@ -39,6 +39,7 @@ from ..schemas.stock import (
     StockRequestUpdate,
 )
 from ..services.rbac_service import AuthorizationService
+from ..services.san_xuat.vat_tu_de_nghi import can_luc_hien_thi
 from ..services.sequence_service import SequenceService
 from ..services.stock_request_service import StockRequestError, StockRequestService
 from ..services.vat_lieu_kho_service import HANG_NHAN, VatLieuKhoError, VatLieuKhoService
@@ -184,7 +185,9 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
         kho_nguon_id=kho_nguon_id,
         kho_nguon_ten=getattr(kho_nguon, "ten", None),
         xuat_voucher_id=getattr(req, "xuat_voucher_id", None),
-        can_luc=bc.get("can_luc"),
+        # Gỡ nhãn UTC trước khi ra JSON: Postgres trả `can_luc` AWARE, còn FE (`fmtGioCan`,
+        # `isOverdue`) đọc naive = giờ NHÀ MÁY — để nguyên là thủ kho thấy giờ cần lệch +7h.
+        can_luc=can_luc_hien_thi(bc.get("can_luc")),
         san_xuat_cong_viec_id=bc.get("cong_viec_id"),
         san_xuat_cong_doan_ten=bc.get("cong_doan_ten"),
         created_at=req.created_at, updated_at=req.updated_at, lines=lines,

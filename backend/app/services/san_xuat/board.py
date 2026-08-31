@@ -27,7 +27,7 @@ from ...repositories.stock_request_repo import StockRequestRepository
 from ...services.rbac_service import AuthorizationService
 from .phan_bo import _tinh_batch
 from .thuc_thi import _aware
-from .vat_tu_de_nghi import _hang_service, _kh_service, lan_con_mo
+from .vat_tu_de_nghi import _hang_service, _kh_service, can_luc_hien_thi, lan_con_mo
 
 MODULE = "san_xuat"
 
@@ -319,7 +319,9 @@ def _vat_tu_cap(db: Session, sl, kh_svc, cv, cac_dn, du_lieu_cu: bool) -> dict:
     return {
         "ke_hoach": ke_hoach,
         "cac_de_nghi": [{
-            "id": d.id, "lan_so": d.lan_so, "loai": d.loai, "can_luc": d.can_luc,
+            # `can_luc_hien_thi` gỡ nhãn UTC: Postgres trả AWARE, để nguyên là FE dịch thêm +7h.
+            "id": d.id, "lan_so": d.lan_so, "loai": d.loai,
+            "can_luc": can_luc_hien_thi(d.can_luc),
             "stock_request_id": d.stock_request_id,
             "stock_request_ma": tom_tat.get(d.stock_request_id, {}).get("ma"),
             "stock_request_trang_thai": tom_tat.get(d.stock_request_id, {}).get("trang_thai"),

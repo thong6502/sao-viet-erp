@@ -53,6 +53,31 @@ def _ngay_vn(can_luc: datetime) -> date:
     return can_luc.astimezone(_VN_TZ).date()
 
 
+def _can_luc_luu(can_luc: datetime) -> datetime:
+    """Khuôn LƯU của `can_luc`: wall-clock giờ nhà máy, gắn NHÃN UTC — đúng khuôn `_aware()` mà cả
+    phân hệ sản xuất đang dùng cho `start_at`/`bat_dau`/`ket_thuc`.
+
+    Cột là `DateTime(timezone=True)`. Gán thẳng một datetime NAIVE vào đó chạy êm trên SQLite
+    (naive vào, naive ra) nhưng trên Postgres `timestamptz` thì đo thật: ghi 31/08 17:56 naive,
+    đọc lại ra `2026-08-31T17:56:00+00:00`, FE `new Date(...)` ở VN hiện 00:56 ngày 01/09 — lệch
+    +7h, và lệch NGƯỢC hướng với `ngay_can` mà `_ngay_vn` vừa tính ra (31/08). Gắn nhãn ngay lúc
+    ghi thì `can_luc_hien_thi()` gỡ nhãn ra là về lại đúng con số tổ trưởng gõ.
+
+    Client gửi AWARE (ISO kèm offset) thì quy về giờ VN TRƯỚC rồi mới gỡ nhãn — cùng đúng một
+    phép mà `_ngay_vn` làm để lấy ngày, nếu không thì giờ lưu và ngày lưu nói hai chuyện khác nhau.
+    """
+    if can_luc.tzinfo is not None:
+        can_luc = can_luc.astimezone(_VN_TZ).replace(tzinfo=None)
+    return can_luc.replace(tzinfo=timezone.utc)
+
+
+def can_luc_hien_thi(dt: datetime | None) -> datetime | None:
+    """Khuôn TRẢ RA của `can_luc` — bỏ tzinfo để serialize dạng wall-clock, giống
+    `xep_lich_service._naive`. FE (`ngayGio`, `fmtGioCan`, `isOverdue`) đọc naive = giờ nhà máy;
+    để nguyên `+00:00` là nó dịch múi thêm +7h. CHỈ cho ĐẦU RA, không cho tính toán."""
+    return dt.replace(tzinfo=None) if dt is not None else None
+
+
 def _f(v) -> float:
     try:
         return float(v or 0)
@@ -226,18 +251,30 @@ def _don_vi_gui_kho(hang, hang_loai, hang_id, sl_goc: float) -> tuple[str, float
     0.00 và vỡ ràng buộc ngay lúc commit — SQLite của test không ép scale nên test không thấy.
     Cả khi không về 0 thì bước lượng tử 0.01 tấn cũng ≈ 33 tờ giấy, đủ để số kho lệch số tổ khai.
 
-    Luật chọn: trong các đơn vị mà chính danh mục cho phép quy về gốc, lấy đơn vị THÔ NHẤT mà
-    lượng vẫn ≥ 1. Vật tư đếm bằng "cái"/"kg" giữ nguyên đơn vị gốc như trước (50 cái vẫn là
-    "cái"); chỉ khi đơn vị gốc biến lượng thành số lẻ dưới 1 mới bước xuống đơn vị mịn hơn
-    (0.335 tấn → 335.14 kg). Không đơn vị nào đạt ≥ 1 thì lấy đơn vị mịn nhất.
+    Luật chọn: chỉ được đi TỪ ĐƠN VỊ GỐC XUỐNG MỊN HƠN, không bao giờ lên thô hơn. Trong các đơn
+    vị mịn-hơn-hoặc-bằng gốc, lấy cái THÔ NHẤT mà lượng vẫn ≥ 1. Vật tư đếm bằng "cái"/"kg" giữ
+    nguyên đơn vị gốc như trước (50 cái vẫn là "cái"); chỉ khi đơn vị gốc biến lượng thành số lẻ
+    dưới 1 mới bước xuống đơn vị mịn hơn (0.335 tấn → 335.14 kg). Không đơn vị nào đạt ≥ 1 thì
+    lấy đơn vị mịn nhất.
+
+    Cái trần "không lên thô hơn gốc" là bắt buộc, không phải cho gọn: danh mục THẬT khai giấy gốc
+    = "kg" (`seed_rebuild`, mọi dòng `don_vi_gia="kg"`) và có cạnh `("tan","kg",1000)`, nên bản
+    trước — vốn dò từ đơn vị thô nhất xuống — chọn "tấn" cho mọi đề nghị ≥ 1.000 kg: 2 314,5 kg
+    thành 2,31 tấn = 2 310 kg, kho soạn thiếu 4,5 kg mà không ai thấy con số nào sai. Lên thô hơn
+    gốc CHỈ làm mất số ở cột `Numeric(14, 2)`, không bao giờ cứu được gì.
     """
     ra = hang.don_vi_cua_mat_hang(hang_loai, hang_id)
     ds = [d for d in (ra.get("ds") or []) if float(d.get("he_so_ve_goc") or 0) > 0]
     if not ds:
         return (ra.get("don_vi_goc") or ""), float(sl_goc)
     # `sl_goc = so_luong_theo_dvt * he_so_ve_goc` ⇒ đảo lại để ra số theo từng đơn vị.
-    cap = sorted(((float(d["he_so_ve_goc"]), d) for d in ds), key=lambda x: -x[0])
-    for he_so, d in cap:                      # thô → mịn
+    # `he_so_ve_goc <= 1` = mịn hơn hoặc CHÍNH LÀ gốc; > 1 là thô hơn gốc, loại thẳng (xem docstring).
+    cap = sorted(((float(d["he_so_ve_goc"]), d) for d in ds if float(d["he_so_ve_goc"]) <= 1.0),
+                 key=lambda x: -x[0])
+    if not cap:
+        # Danh mục không khai nổi CHÍNH đơn vị gốc trong `ds` (dữ liệu cũ) — về nước đi an toàn.
+        return (ra.get("don_vi_goc") or ""), float(sl_goc)
+    for he_so, d in cap:                      # gốc → mịn dần
         sl = float(sl_goc) / he_so
         if sl >= 1.0:
             return d["ma"], sl
@@ -404,7 +441,7 @@ def tao(db: Session, *, user, cong_viec_id: int, can_luc: datetime,
         )
 
     dn = SanXuatVatTuDeNghi(
-        cong_viec_id=cong_viec_id, lan_so=lan_so, loai=loai, can_luc=can_luc,
+        cong_viec_id=cong_viec_id, lan_so=lan_so, loai=loai, can_luc=_can_luc_luu(can_luc),
         stock_request_id=(req.id if req is not None else None),
         created_by_id=getattr(user, "id", None), updated_by_id=getattr(user, "id", None),
     )
@@ -503,7 +540,7 @@ def sua(db: Session, *, user, cong_viec_id: int, de_nghi_id: int,
         db.add(SanXuatVatTuDeNghiDong(de_nghi_id=dn.id, **{
             k: v for k, v in d.items() if k != "ten"
         }))
-    dn.can_luc = can_luc
+    dn.can_luc = _can_luc_luu(can_luc)
     dn.updated_by_id = getattr(user, "id", None)
     if req_id_moi is not None:
         dn.stock_request_id = req_id_moi

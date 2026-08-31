@@ -10,7 +10,7 @@ KHÁC ở đây là hai định nghĩa `db` chồng nhau trong cùng module — 
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -1602,3 +1602,81 @@ def test_xin_so_duong_cho_mat_hang_thieu_don_vi_van_bao_loi_doc_duoc(
     loi = str(e.value)
     assert "Keo gáy chưa khai đơn vị" in loi
     assert "báo kỹ thuật" in loi        # phần ĐẶC TRƯNG của chốt chặn — xem chú thích test trên
+
+
+# --- Vá sau nghiệm thu trên Postgres thật (DB dùng-một-lần svn_erp_wt_denghi) ----------------
+
+def test_don_vi_gui_kho_khong_bao_gio_len_don_vi_tho_hon_goc(db):
+    """Danh mục THẬT khai giấy gốc = "kg" (`seed_rebuild`, mọi dòng `don_vi_gia="kg"`) và có cạnh
+    ("tan","kg",1000). Bản trước dò từ đơn vị THÔ NHẤT xuống nên mọi đề nghị ≥ 1.000 kg bị đẩy
+    lên "tấn": 2 314,5 kg → 2,3145 tấn → cột `Numeric(14, 2)` chốt 2,31 tấn = 2 310 kg. Kho soạn
+    THIẾU 4,5 kg mà không màn nào hiện một con số sai — đo thật trên Postgres, không suy đoán.
+
+    Fixture giấy của bộ test này khai gốc = "tấn" nên KHÔNG chạm được ca đó; mặt hàng dựng ở đây
+    cố ý khai gốc "kg" đúng như danh mục thật.
+    """
+    from app.models.vat_lieu_kho import VatTuInAn
+    from app.repositories.don_vi_do_repo import DonViDoRepository
+    from app.repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+    from app.services.san_xuat.vat_tu_de_nghi import _don_vi_gui_kho
+    from app.services.vat_lieu_kho_service import VatLieuKhoService
+
+    vt = VatTuInAn(ma="VT-GOC-KG", ten="Mực đen", don_vi_gia="kg")
+    db.add(vt)
+    db.commit()
+
+    hang = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    ds = {d["ma"]: float(d["he_so_ve_goc"]) for d in hang.don_vi_cua_mat_hang("vat_tu", vt.id)["ds"]}
+    # Nếu danh mục nền hết cạnh tấn→kg thì test này không còn soi được gì — nói ra ngay, đừng để
+    # nó xanh giả.
+    assert ds.get("tan") == 1000.0, f"cần cạnh tấn→kg để test có nghĩa, ds={ds}"
+
+    assert _don_vi_gui_kho(hang, "vat_tu", vt.id, 2314.5) == ("kg", 2314.5)
+    # Vẫn phải lùi xuống đơn vị mịn hơn khi chính đơn vị gốc quá thô (luật cũ, không được vỡ).
+    assert _don_vi_gui_kho(hang, "vat_tu", vt.id, 0.4) == ("g", 400.0)
+
+
+def test_can_luc_luu_la_wall_clock_gan_nhan_utc(db):
+    """`can_luc` lưu vào cột `DateTime(timezone=True)` phải theo ĐÚNG khuôn cả phân hệ SX đang
+    dùng: giờ nhà máy, gắn nhãn UTC. Ghi NAIVE trần thì SQLite không thấy gì (naive vào, naive ra)
+    nhưng Postgres `timestamptz` trả về `+00:00` và FE `new Date()` dịch thêm +7h."""
+    from app.services.san_xuat.vat_tu_de_nghi import _can_luc_luu
+
+    ca_chieu = datetime(2026, 8, 31, 13, 30)          # tổ trưởng gõ ở ô `datetime-local`
+    ra = _can_luc_luu(ca_chieu)
+    assert ra.tzinfo is timezone.utc
+    assert ra.replace(tzinfo=None) == ca_chieu        # KHÔNG được dịch giờ
+
+    # Client gửi AWARE kèm offset: quy về giờ VN TRƯỚC rồi mới gắn nhãn — cùng một phép mà
+    # `_ngay_vn` làm để ra `ngay_can`, nếu lệch thì giờ lưu và ngày lưu nói hai chuyện khác nhau.
+    aware_vn = datetime(2026, 8, 31, 13, 30, tzinfo=timezone(timedelta(hours=7)))
+    assert _can_luc_luu(aware_vn).replace(tzinfo=None) == datetime(2026, 8, 31, 13, 30)
+    assert _can_luc_luu(_T0).replace(tzinfo=None) == datetime(2026, 8, 31, 15, 0)  # 08:00Z = 15:00 VN
+
+
+def test_board_tra_can_luc_naive_du_db_tra_aware(db, orders, lsx_svc, admin, customer):
+    """Khối vật tư của drawer công đoạn phải trả `can_luc` NAIVE (wall-clock) kể cả khi DB trả
+    AWARE — đúng ca Postgres. Ép `can_luc` thành aware ngay trên đối tượng đã nạp để tái hiện thứ
+    `timestamptz` trả về, vì SQLite của bộ test không bao giờ trả aware."""
+    from app.repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
+    from app.repositories.san_xuat_vat_tu_repo import SanXuatVatTuRepository
+    from app.services.san_xuat import board as B
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
+
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-VTTZ")
+    to.head_user_id = admin.id
+    db.commit()
+    kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"],
+              "dvt": k["dvt"], "sl_yeu_cau": k["sl"]} for k in kh]
+    V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
+
+    cac_dn = SanXuatVatTuRepository(db).cac_de_nghi(cv.id)
+    for dn in cac_dn:
+        dn.can_luc = datetime(2026, 8, 31, 15, 0, tzinfo=timezone.utc)   # y như Postgres trả ra
+
+    ra = B._vat_tu_cap(db, SanXuatSanLuongRepository(db), _kh_service(db), cv, cac_dn, False)
+    gio = ra["cac_de_nghi"][0]["can_luc"]
+    assert gio.tzinfo is None, "còn tzinfo là FE dịch thêm +7h"
+    assert gio == datetime(2026, 8, 31, 15, 0)
