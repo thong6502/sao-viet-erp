@@ -697,11 +697,32 @@ class KcsBatchChiTietOut(BaseModel):
     ghi_chu: str | None = None
     version: int
     loi: list[KcsLoiOut]
+    # Task 9 (mg 0250) — lộ `loai` để FE phân biệt batch định tuyến (routing, có thể gửi kho) với
+    # batch kiểm đột xuất (dot_xuat, không gửi kho được) mà không phải đoán qua field khác.
+    loai: str = "routing"
+
+
+class KcsChiTietTieuChiOut(BaseModel):
+    """Một dòng snapshot tiêu chí KCS (chụp lúc phát hành LSX) — xem `kcs_tieu_chi_json`."""
+    tieu_chi_id: int | None = None
+    ma: str | None = None
+    ten: str | None = None
+    huong_dan: str | None = None
+    bat_buoc: bool = False
+    thu_tu: int = 0
 
 
 class KcsChiTietOut(BaseModel):
     cong_viec_id: int
     la_kcs: bool
+    # Task 9 (mg 0250) — snapshot tiêu chí checklist để FE hiện khối "Checklist" khi ghi kết quả
+    # KCS theo lộ trình; rỗng nếu công việc không có tiêu chí (hoặc là kiểm đột xuất).
+    checklist: list[KcsChiTietTieuChiOut] = []
+    # Task 9 (mg 0250) — tổng đã bàn giao XÁC NHẬN tới công việc này (`SanXuatBanGiao` trạng thái
+    # confirmed/adjusted — giống hệt số `tao_batch_kcs` dùng để chặn "vượt số bàn giao"). KHÁC
+    # `so_luong_vao` (kế hoạch tĩnh lúc phát hành, không tự đồng bộ khi bàn giao chạy dần từng đợt)
+    # — FE dùng số NÀY để tính "Còn chờ" cho khớp giới hạn thật, tránh cho phép nhập rồi bị 400.
+    da_ban_giao_xac_nhan: float = 0.0
     batch: list[KcsBatchChiTietOut]
 
 

@@ -1788,6 +1788,8 @@ export interface SxKcsLoi {
   anh: SxKcsAnh[];
 }
 export type SxKcsKetLuan = "dat" | "dat_mot_phan" | "khong_dat";
+/** loai batch: "routing" (đứng sẵn trong quy trình, có thể gửi kho) | "dot_xuat" (kiểm kiêm nhiệm). */
+export type SxKcsBatchLoai = "routing" | "dot_xuat";
 export interface SxKcsBatchChiTiet {
   id: number;
   batch_id?: number | null;
@@ -1803,14 +1805,34 @@ export interface SxKcsBatchChiTiet {
   ghi_chu?: string | null;
   version: number;
   loi: SxKcsLoi[];
+  loai: SxKcsBatchLoai;
+}
+/** Một dòng snapshot tiêu chí checklist KCS (chụp lúc phát hành LSX) — xem `kcs_tieu_chi_json`. */
+export interface SxKcsChiTietTieuChi {
+  tieu_chi_id?: number | null;
+  ma?: string | null;
+  ten?: string | null;
+  huong_dan?: string | null;
+  bat_buoc: boolean;
+  thu_tu: number;
 }
 export interface SxKcsChiTiet {
   cong_viec_id: number;
   la_kcs: boolean;
+  checklist: SxKcsChiTietTieuChi[];
+  /** Tổng đã bàn giao XÁC NHẬN tới công việc này — số BE dùng để chặn "vượt số bàn giao" khi ghi
+   *  batch KCS. Dùng số này (KHÔNG dùng `so_luong_vao` tĩnh) để tính "Còn chờ" cho khớp giới hạn
+   *  thật. */
+  da_ban_giao_xac_nhan: number;
   batch: SxKcsBatchChiTiet[];
 }
 export interface SxKcsHopThu {
   loi: SxKcsLoi[];
+}
+export interface SxKcsChecklistKetQuaIn {
+  thu_tu: number;
+  dat: boolean;
+  ghi_chu?: string | null;
 }
 export interface SxKcsBatchIn {
   bat_dau: string;
@@ -1821,6 +1843,7 @@ export interface SxKcsBatchIn {
   co_mau?: number | null;
   don_vi?: string | null;
   ghi_chu?: string | null;
+  checklist_ket_qua?: SxKcsChecklistKetQuaIn[] | null;
 }
 export interface SxKcsBatchKetQua {
   cong_viec_id: number;
@@ -1853,6 +1876,74 @@ export interface SxKcsPhanHoiKetQua {
   kcs_batch_id: number;
   cong_viec_id?: number | null;
   version: number;
+}
+/** Kết quả kiểm đột xuất (mg 0250, kiêm nhiệm). `batch_id` LUÔN null — không gộp vào sản lượng
+ * nền của tổ bị kiểm; `loi_id` chỉ có khi gửi kèm lỗi (>0 không đạt) trong cùng request. */
+export interface SxKcsDotXuatKetQua {
+  cong_viec_id: number;
+  department_id?: number | null;
+  nhom_id?: number | null;
+  kcs_batch_id: number;
+  batch_id?: number | null;
+  loi_id?: number | null;
+  version: number;
+}
+export interface SxKcsDieuChinhIn {
+  so_luong_dat: number;
+  so_luong_khong_dat: number;
+  checklist_ket_qua?: SxKcsChecklistKetQuaIn[] | null;
+  ghi_chu?: string | null;
+  expected_version: number;
+}
+export interface SxKcsDieuChinhKetQua {
+  kcs_batch_id: number;
+  cong_viec_id: number;
+  so_luong_nhan: number;
+  so_luong_dat: number;
+  so_luong_khong_dat: number;
+  ket_luan: SxKcsKetLuan;
+  version: number;
+}
+export interface SxKcsBaoCaoTheoNgayRow {
+  ngay: string;
+  tong_nhan: number;
+  tong_dat: number;
+  tong_loi: number;
+}
+export interface SxKcsBaoCaoNhomLoiRow {
+  nhom_loi_id?: number | null;
+  ten: string;
+  tong_so_luong: number;
+}
+export interface SxKcsBaoCaoCongDoanRow {
+  ten_cong_doan: string;
+  tong_so_luong: number;
+}
+export interface SxKcsBaoCaoToRow {
+  to_id: number;
+  ten: string;
+  tong_so_luong: number;
+}
+export interface SxKcsBaoCao {
+  tong_luot: number;
+  tong_nhan: number;
+  tong_dat: number;
+  tong_loi: number;
+  ty_le_dat?: number | null;
+  theo_ngay: SxKcsBaoCaoTheoNgayRow[];
+  nhom_loi: SxKcsBaoCaoNhomLoiRow[];
+  cong_doan: SxKcsBaoCaoCongDoanRow[];
+  to: SxKcsBaoCaoToRow[];
+}
+export interface SxKcsBaoCaoParams {
+  tu?: string | null;
+  den?: string | null;
+  kcs_department_id?: number | null;
+  lsx_id?: number | null;
+  tu_khoa?: string | null;
+  cong_doan_id?: number | null;
+  loai?: SxKcsBatchLoai | null;
+  nhom_loi_id?: number | null;
 }
 
 // ── G5: Kho §14 ──────────────────────────────────────────────────────────────
@@ -10234,6 +10325,71 @@ export const api = {
       return authed<SxKcsPhanHoiKetQua>(`/api/san-xuat/kcs/loi/${loiId}/phan-hoi`, token, {
         method: "POST", body: JSON.stringify(body),
       });
+    },
+    /** KCS kiêm nhiệm (mg 0250): tổ KHÁC kiểm đột xuất một việc đang chạy/tạm dừng, không đứng sẵn
+     * trong routing — multipart vì có thể kèm lỗi + ảnh NGAY một lượt (khác routing tách 2 bước). */
+    taoKiemDotXuat(
+      token: string,
+      body: {
+        cong_viec_id: number;
+        kcs_department_id: number;
+        bat_dau: string;
+        ket_thuc: string;
+        so_luong_nhan: number;
+        so_luong_dat: number;
+        so_luong_khong_dat?: number;
+        co_mau?: number | null;
+        don_vi?: string | null;
+        ghi_chu?: string | null;
+        checklist_ket_qua?: SxKcsChecklistKetQuaIn[] | null;
+        nhom_loi_id?: number | null;
+        loi_mo_ta?: string | null;
+        to_chiu_id?: number | null;
+        cong_doan_ref_id?: number | null;
+        files?: File[];
+      },
+    ): Promise<SxKcsDotXuatKetQua> {
+      const fd = new FormData();
+      fd.append("cong_viec_id", String(body.cong_viec_id));
+      fd.append("kcs_department_id", String(body.kcs_department_id));
+      fd.append("bat_dau", body.bat_dau);
+      fd.append("ket_thuc", body.ket_thuc);
+      fd.append("so_luong_nhan", String(body.so_luong_nhan));
+      fd.append("so_luong_dat", String(body.so_luong_dat));
+      if (body.so_luong_khong_dat != null) fd.append("so_luong_khong_dat", String(body.so_luong_khong_dat));
+      if (body.co_mau != null) fd.append("co_mau", String(body.co_mau));
+      if (body.don_vi) fd.append("don_vi", body.don_vi);
+      if (body.ghi_chu) fd.append("ghi_chu", body.ghi_chu);
+      if (body.checklist_ket_qua) fd.append("checklist_ket_qua_json", JSON.stringify(body.checklist_ket_qua));
+      if (body.nhom_loi_id != null) fd.append("nhom_loi_id", String(body.nhom_loi_id));
+      if (body.loi_mo_ta) fd.append("loi_mo_ta", body.loi_mo_ta);
+      if (body.to_chiu_id != null) fd.append("to_chiu_id", String(body.to_chiu_id));
+      if (body.cong_doan_ref_id != null) fd.append("cong_doan_ref_id", String(body.cong_doan_ref_id));
+      for (const f of body.files ?? []) fd.append("files", f);
+      return authed<SxKcsDotXuatKetQua>(`/api/san-xuat/kcs/dot-xuat`, token, {
+        method: "POST", body: fd,
+      });
+    },
+    /** Điều chỉnh kết quả một batch KCS đã ghi (§4.3, §5.5) — không xoá, ghi audit trước/sau. */
+    dieuChinhKcs(token: string, kcsBatchId: number, body: SxKcsDieuChinhIn): Promise<SxKcsDieuChinhKetQua> {
+      return authed<SxKcsDieuChinhKetQua>(`/api/san-xuat/kcs/${kcsBatchId}`, token, {
+        method: "PATCH", body: JSON.stringify(body),
+      });
+    },
+    /** Một-bấm tạo yêu cầu nhập kho từ một batch KCS ĐẠT (routing, bước cuối) — số lượng do BE tự
+     * tính (số đạt còn chưa gửi), không nhận số từ client (§14, Global Constraint). */
+    taoYeuCauKhoMotNut(token: string, kcsBatchId: number): Promise<SxNhapKhoYcKetQua> {
+      return authed<SxNhapKhoYcKetQua>(`/api/san-xuat/kcs/${kcsBatchId}/yeu-cau-nhap-kho`, token, {
+        method: "POST",
+      });
+    },
+    /** Báo cáo/dashboard KCS theo bộ lọc (§5.7, §6.2) — KPI + 3 biểu đồ. */
+    baoCaoKcs(token: string, params: SxKcsBaoCaoParams = {}): Promise<SxKcsBaoCao> {
+      return authed<SxKcsBaoCao>(`/api/san-xuat/kcs/bao-cao${qs({ ...params })}`, token);
+    },
+    /** Xuất Excel báo cáo KCS — CÙNG filter với `baoCaoKcs` (§9 mục 10: cùng lọc phải ra cùng tổng). */
+    exportBaoCaoKcsBlobUrl(token: string, params: SxKcsBaoCaoParams = {}): Promise<string> {
+      return blobUrl(`/api/san-xuat/kcs/bao-cao/export.xlsx${qs({ ...params })}`, token);
     },
 
     // --- Giai đoạn 5: Kho thành phẩm/BTP §14 ----------------------------------------------

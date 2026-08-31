@@ -28,6 +28,7 @@ import { KeHoachVatTuPage } from "../pages/KeHoachVatTuPage";
 import { BaiGhep2Page } from "../pages/BaiGhep2Page";
 import { XepLich2Page } from "../pages/XepLich2Page";
 import { ThucHienSxPage } from "../pages/ThucHienSxPage";
+import { ThucHienKcsPage } from "../pages/kcs/ThucHienKcsPage";
 import { SuaChuaMayPage } from "../pages/SuaChuaMayPage";
 import { PhieuBaoTriPage } from "../pages/PhieuBaoTriPage";
 import { kyThuatMay } from "../api/kyThuatMay";
@@ -1154,16 +1155,18 @@ export function AppShell() {
         />
       );
     }
-    // Bàn "Thực hiện sản xuất" chế độ KCS của 1 tổ (node lá "thuc-hien-sx-kcs:<teamId>", Task 4).
+    // Bàn KCS kiêm nhiệm của 1 tổ (node lá "thuc-hien-sx-kcs:<teamId>", Task 4 nav + Task 9 trang).
+    // Route id GIỮ NGUYÊN "thuc-hien-sx-kcs" (Ruling 5, docs/design-kcs-kiem-nhiem-ui.md mục 5) dù
+    // trang render giờ là `ThucHienKcsPage` — trang MỚI hoàn toàn, không còn nhánh `mode="kcs"` của
+    // `ThucHienSxPage` (trang đó chỉ còn phục vụ `mode="production"`).
     if (baseId === "thuc-hien-sx-kcs") {
       const teamId = Number(activeId.split(":")[1]);
       const t = teamList.find((x) => x.id === teamId);
       return (
-        <ThucHienSxPage
-          key={`thsx-kcs-${teamId}`}
+        <ThucHienKcsPage
+          key={`kcs-${teamId}`}
           teamId={teamId}
           tenTo={t?.ten}
-          mode="kcs"
           eventTick={quoteTick}
           onBadgeStale={reloadTeams}
         />

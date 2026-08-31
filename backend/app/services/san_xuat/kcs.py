@@ -695,8 +695,15 @@ def chi_tiet_kcs(db: Session, user, cong_viec_id: int) -> dict:
             "ghi_chu": b.ghi_chu,
             "version": b.version,
             "loi": [_loi_ra(l, anh_map.get(l.id, []), ten_loi.get(l.nhom_loi_id)) for l in loi_list],
+            "loai": b.loai,
         })
-    return {"cong_viec_id": cong_viec_id, "la_kcs": cv.la_kcs, "batch": out}
+    return {
+        "cong_viec_id": cong_viec_id,
+        "la_kcs": cv.la_kcs,
+        "checklist": cv.kcs_tieu_chi_json or [],
+        "da_ban_giao_xac_nhan": repo.tong_ban_giao_xac_nhan(cong_viec_id),
+        "batch": out,
+    }
 
 
 def hop_thu_loi(db: Session, user) -> list[dict]:
