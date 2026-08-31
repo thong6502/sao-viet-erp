@@ -431,6 +431,11 @@ export type QuoteEvent =
       trang_thai?: string | null;
       kieu?: string | null;
     }
+  // Đề nghị cấp vật tư của MỘT công đoạn vừa đổi (tạo/sửa lần đề nghị — `services/san_xuat/
+  // vat_tu_de_nghi.py`). Backend `hub.broadcast` gửi cho MỌI kết nối, KHÔNG theo phạm vi, nên hai
+  // cổng lọc nằm hết ở FE (xem AppShell): gác quyền đọc `san_xuat` trước khi toast, và chỉ nạp
+  // lại drawer khi `cong_viec_id` trùng việc đang mở. Payload đúng HAI khoá, không hơn.
+  | { type: "san_xuat_vat_tu_de_nghi_changed"; cong_viec_id: number }
   // [MOI 30/08/2026] Ke hoach vat tu: bat/tat giu cho, nhat them, nhap kho chuyen hua->that,
   // doi soat khi PMH doi. Tin hieu NHE (khong mang id) — man dang mo tu refetch qua quoteTick.
   | { type: "ke_hoach_vat_tu_thay_doi" };
@@ -1535,6 +1540,94 @@ export interface SxVatTuNhan {
   xac_nhan_luc: string | null;
 }
 
+// --- Đề nghị cấp vật tư theo công đoạn (spec-de-nghi-cap-vat-tu-cong-doan §6) -------------
+// Khối `vat_tu_cap` TÁCH HẲN với `vat_tu` ở trên: `vat_tu` là các phiếu kho ĐÃ ghi sổ chờ tổ xác
+// nhận NHẬN; `vat_tu_cap` là các LẦN tổ ĐỀ NGHỊ + bản đối chiếu kế hoạch/yêu cầu/thực xuất.
+/** Một dòng nhu cầu KẾ HOẠCH của công đoạn (MRP). `_goc` = thang đơn vị gốc của danh mục. */
+export interface SxVatTuCapKeHoach {
+  hang_loai: string;
+  hang_id: number;
+  ten: string;
+  dvt: string;
+  sl: number;
+  dvt_goc: string;
+  sl_goc: number;
+}
+/** Một dòng CỦA RIÊNG một lần đề nghị — dùng điền sẵn form "Sửa đề nghị".
+ *  KHÔNG lẫn với `SxVatTuCapDoiChieu.sl_yeu_cau` (cộng dồn qua MỌI lần). */
+export interface SxVatTuCapDong {
+  hang_loai: string;
+  hang_id: number;
+  ten: string;
+  dvt: string;
+  dvt_goc: string;
+  sl_ke_hoach: number;
+  sl_ke_hoach_goc: number;
+  sl_yeu_cau: number;
+  sl_yeu_cau_goc: number;
+  ly_do_chenh_lech: string | null;
+}
+/** Một LẦN tổ gửi đề nghị. `loai`: "lan_dau" | "bo_sung". `stock_request_*` null khi mọi dòng = 0
+ *  (tổ xác nhận không cần cấp ⇒ không đẻ yêu cầu kho). */
+export interface SxVatTuCapLan {
+  id: number;
+  lan_so: number;
+  loai: string;
+  can_luc: string;
+  stock_request_id: number | null;
+  stock_request_ma: string | null;
+  stock_request_trang_thai: string | null;
+  created_by_id: number | null;
+  updated_by_id: number | null;
+  created_at: string;
+  updated_at: string;
+  dongs: SxVatTuCapDong[];
+}
+/** Một mặt hàng trong bản đối chiếu — số CỘNG DỒN qua mọi lần đề nghị. */
+export interface SxVatTuCapDoiChieu {
+  hang_loai: string;
+  hang_id: number;
+  ten: string;
+  dvt: string;
+  dvt_goc: string;
+  sl_ke_hoach: number;
+  sl_ke_hoach_goc: number;
+  sl_yeu_cau: number;
+  sl_yeu_cau_goc: number;
+  sl_thuc_xuat: number;
+  lech_ke_hoach: number;
+  lech_thuc_te: number;
+  cac_ly_do: { lan_so: number; ly_do: string }[];
+}
+export interface SxVatTuCap {
+  ke_hoach: SxVatTuCapKeHoach[];
+  cac_de_nghi: SxVatTuCapLan[];
+  doi_chieu: SxVatTuCapDoiChieu[];
+  /** Có giá trị ⇒ hiện nút "Sửa đề nghị" trỏ đúng lần đó; null ⇒ ẩn nút Sửa. */
+  de_nghi_co_the_sua_id: number | null;
+  /** true ⇒ hiện nút "Gửi đề nghị bổ sung". Loại trừ nhau với `de_nghi_co_the_sua_id`. */
+  co_the_tao_bo_sung: boolean;
+  /** true ⇒ kế hoạch lấy theo đường lùi từ LSX (trước 31/08/2026) — UI phải nói rõ. */
+  du_lieu_cu: boolean;
+}
+export interface SxVatTuDeNghiDongIn {
+  hang_loai: string;
+  hang_id: number;
+  dvt: string;
+  sl_yeu_cau: number;
+  ly_do_chenh_lech: string | null;
+}
+export interface SxVatTuDeNghiIn {
+  /** GIỜ cần (ISO datetime), không phải ngày: kho soạn theo ca. */
+  can_luc: string;
+  lines: SxVatTuDeNghiDongIn[];
+}
+export interface SxVatTuDeNghiKetQua {
+  de_nghi_id: number;
+  stock_request_id: number | null;
+  lan_so?: number;
+}
+
 // --- Giai đoạn 4: hỗ trợ chéo · phân bổ sản lượng → lương khoán ---------------------------
 export interface SxHoTro {
   id: number;
@@ -1615,6 +1708,7 @@ export interface SxWorkItemChiTiet {
   ban_giao_den: SxBanGiao[];
   ban_giao_goi_y: SxBanGiaoGoiY[];
   vat_tu: SxVatTuNhan[];
+  vat_tu_cap: SxVatTuCap;
   ho_tro: SxHoTro[];
   phan_bo: SxPhanBo[];
 }
@@ -10144,6 +10238,24 @@ export const api = {
       return authed<SxVatTuNhanKetQua>(`/api/san-xuat/stock/xac-nhan`, token, {
         method: "POST", body: JSON.stringify(body),
       });
+    },
+    /** Tổ gửi MỘT lần đề nghị cấp vật tư cho công đoạn (lần đầu hoặc bổ sung). 400 = vi phạm
+     *  nghiệp vụ (câu tiếng Việt trong `detail` — hiện NGUYÊN VĂN); 403 = không phải tổ trưởng
+     *  đúng tổ; 404 = không thấy công việc. */
+    deNghiVatTu(token: string, congViecId: number, body: SxVatTuDeNghiIn): Promise<SxVatTuDeNghiKetQua> {
+      return authed<SxVatTuDeNghiKetQua>(`/api/san-xuat/work-items/${congViecId}/material-requests`, token, {
+        method: "POST", body: JSON.stringify(body),
+      });
+    },
+    /** Sửa một lần đề nghị CHƯA bị kho lập phiếu. `deNghiId` là id ĐỀ NGHỊ SẢN XUẤT (không phải
+     *  id yêu cầu kho — hai không gian id khác nhau). Thân dòng THAY THẾ toàn bộ dòng của lần đó. */
+    suaDeNghiVatTu(
+      token: string, congViecId: number, deNghiId: number, body: SxVatTuDeNghiIn,
+    ): Promise<SxVatTuDeNghiKetQua> {
+      return authed<SxVatTuDeNghiKetQua>(
+        `/api/san-xuat/work-items/${congViecId}/material-requests/${deNghiId}`, token,
+        { method: "PUT", body: JSON.stringify(body) },
+      );
     },
 
     // --- Giai đoạn 4: hỗ trợ chéo · phân bổ ------------------------------------------------

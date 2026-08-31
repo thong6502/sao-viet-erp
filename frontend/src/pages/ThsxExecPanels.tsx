@@ -4,17 +4,19 @@
 //
 // Component KHÔNG tự gọi API: mọi mặt GHI đi qua `exec.*` (controller lo khoá lạc quan + refetch +
 // toast). Lý do/lỗi (§15) nạp từ danh mục `san_xuat_ly_do` qua `loadLyDo(nhom)` — KHÔNG hardcode.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
   SxWorkItemChiTiet, SxBatch, SxBanGiao, SxPhanBo, SxHoTro, SxHoTroUngVien, SxLyDo,
   SxBatchIn, SxBanGiaoDeXuatIn, SxBanGiaoSuaIn, SxBanGiaoDieuChinhIn,
   SxHoTroDeXuatIn, SxBuTruIn, SxLoaiTruIn, SxGoLoaiTruIn,
   SxKcsBatchIn, SxNhapKhoYeuCauIn, SxHuyPhanChuaNhanIn, SxPhanLoaiBtpIn, SxDongThieuIn,
-  SxKetQuaNhanh,
+  SxKetQuaNhanh, SxVatTuCap, SxVatTuCapLan, SxVatTuDeNghiIn, SxVatTuDeNghiDongIn,
 } from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
+import { MaterialCombobox } from "../components/MaterialCombobox";
+import { useAuth } from "../auth/useAuth";
 import { num, ngayGio, ngay } from "./keHoachSxShared";
 
 // ============================ hợp đồng hành động (controller cấp) ============================
@@ -25,6 +27,9 @@ export interface ThsxExec {
   xacNhanBanGiao: (banGiaoId: number, version: number) => Promise<boolean>;
   dieuChinhBanGiao: (banGiaoId: number, body: SxBanGiaoDieuChinhIn) => Promise<boolean>;
   xacNhanVatTu: (voucherId: number) => Promise<boolean>;
+  // Đề nghị cấp vật tư theo công đoạn — `deNghiId` là id ĐỀ NGHỊ SẢN XUẤT, không phải id yêu cầu kho.
+  deNghiVatTu: (congViecId: number, body: SxVatTuDeNghiIn) => Promise<boolean>;
+  suaDeNghiVatTu: (congViecId: number, deNghiId: number, body: SxVatTuDeNghiIn) => Promise<boolean>;
   deXuatHoTro: (body: SxHoTroDeXuatIn) => Promise<boolean>;
   xacNhanHoTro: (hoTroId: number, version: number) => Promise<boolean>;
   huyHoTro: (hoTroId: number, lyDo: string, version: number) => Promise<boolean>;
@@ -70,6 +75,11 @@ export function todayYmd(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+/** "Bây giờ" theo khuôn `datetime-local` — chỗ dựa khi công việc chưa có mốc dự kiến. */
+function nowDtLocal(): string {
+  const d = new Date();
+  return `${todayYmd()}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
 
 const BG_TT: Record<string, { txt: string; cls: string }> = {
   proposed: { txt: "chờ xác nhận", cls: "thsx-x-pill--wait" },
@@ -86,6 +96,19 @@ const PB_TT: Record<string, { txt: string; cls: string }> = {
   finalized: { txt: "đã chốt", cls: "thsx-x-pill--ok" },
   reopened: { txt: "mở lại", cls: "thsx-x-pill--adj" },
 };
+// Trạng thái YÊU CẦU KHO của một lần đề nghị — nhãn giữ Y HỆT `REQUEST_STATUS` (khoShared.tsx),
+// chỉ đổi sang chữ thường cho khớp văn phong pill của file này. Đừng bịa nhãn khác cho cùng trạng thái.
+const VT_TT: Record<string, { txt: string; cls: string }> = {
+  approved: { txt: "chờ xử lý", cls: "thsx-x-pill--adj" },
+  received: { txt: "kho tiếp nhận", cls: "thsx-x-pill--adj" },
+  preparing: { txt: "đang chuẩn bị", cls: "thsx-x-pill--adj" },
+  partial: { txt: "đã cấp một phần", cls: "thsx-x-pill--bad" },
+  done: { txt: "hoàn tất", cls: "thsx-x-pill--ok" },
+  rejected: { txt: "từ chối", cls: "thsx-x-pill--bad" },
+  cancelled: { txt: "đã hủy", cls: "thsx-x-pill--off" },
+};
+/** Ngưỡng "coi như bằng nhau" — khớp `_EPS` phía BE, để hàng khớp không hiện chênh lệch rác. */
+const VT_EPS = 0.0005;
 
 // ============================ khối chính ====================================
 export function ThsxExecPanels({ chiTiet, canAssign, busy, hoTroUngVien, loadLyDo, exec }: Props) {
@@ -107,7 +130,7 @@ export function ThsxExecPanels({ chiTiet, canAssign, busy, hoTroUngVien, loadLyD
       <BanGiaoSection
         chiTiet={chiTiet} canAssign={canAssign} busy={busy}
         conLai={conLai} loadLyDo={loadLyDo} exec={exec} />
-      <VatTuSection chiTiet={chiTiet} canAssign={canAssign} busy={busy} exec={exec} />
+      <VatTuSection chiTiet={chiTiet} canAssign={canAssign} busy={busy} exec={exec} tenNguoi={tenNguoi} />
       <HoTroSection
         chiTiet={chiTiet} canAssign={canAssign} busy={busy}
         hoTroUngVien={hoTroUngVien} exec={exec} />
@@ -763,39 +786,470 @@ function DieuChinhForm({
   );
 }
 
-// ─────────────────────────── VẬT TƯ (nhận về tổ) ──────────────────────────
+// ────────────── VẬT TƯ: đề nghị cấp theo công đoạn + phiếu nhận về tổ ──────────────
+// Khối này LUÔN hiện, kể cả chưa có phiếu nào: bản cũ `if (vt.length === 0) return null;` khiến tổ
+// trưởng không có cửa nào để bắt đầu xin vật tư (spec §7).
+//
+// Hai luồng dữ liệu KHÁC NHAU cùng nằm một section:
+//   · `chiTiet.vat_tu_cap` — các LẦN tổ ĐỀ NGHỊ + bản đối chiếu kế hoạch/yêu cầu/thực xuất.
+//   · `chiTiet.vat_tu`     — phiếu kho ĐÃ ghi sổ, chờ tổ xác nhận NHẬN (giữ nguyên như cũ).
+//
+// Vật tư KHÔNG BAO GIỜ chặn bắt đầu/kết thúc công đoạn (spec §8) — không có gì ở đây gài vào
+// `disabled` của hai nút đó.
+type VtFormMode = "moi" | "sua" | "bo_sung";
+
+/** Đúng MỘT nút CTA hiện ở header. Thứ tự kiểm là CỐ ĐỊNH: `de_nghi_co_the_sua_id` trước, rồi
+ *  "chưa từng đề nghị", cuối cùng mới tới bổ sung — `co_the_tao_bo_sung` có thể `true` ngay cả khi
+ *  chưa có lần nào, đảo thứ tự là mời tổ trưởng "bổ sung" cho công đoạn chưa xin gì. */
+function ctaMode(vt: SxVatTuCap): VtFormMode | null {
+  if (vt.de_nghi_co_the_sua_id != null) return "sua";
+  if (vt.cac_de_nghi.length === 0) return "moi";
+  if (vt.co_the_tao_bo_sung) return "bo_sung";
+  return null;
+}
+
+const VT_CTA: Record<VtFormMode, { txt: string; icon: "send" | "pencil" | "plus" }> = {
+  moi: { txt: "Yêu cầu cấp vật tư", icon: "send" },
+  sua: { txt: "Sửa đề nghị", icon: "pencil" },
+  bo_sung: { txt: "Yêu cầu bổ sung", icon: "plus" },
+};
+
 function VatTuSection({
-  chiTiet, canAssign, busy, exec,
+  chiTiet, canAssign, busy, exec, tenNguoi,
 }: {
   chiTiet: SxWorkItemChiTiet; canAssign: boolean; busy: boolean; exec: ThsxExec;
+  tenNguoi: Map<number, string>;
 }) {
+  const [formMode, setFormMode] = useState<VtFormMode | null>(null);
   const vt = chiTiet.vat_tu;
-  if (vt.length === 0) return null;
+  const cap = chiTiet.vat_tu_cap;
+  const cta = ctaMode(cap);
+  const lanSua = cap.cac_de_nghi.find((d) => d.id === cap.de_nghi_co_the_sua_id) ?? null;
+
   return (
     <section className="thsx-psec thsx-x">
       <div className="thsx-psec__h">
-        <span className="thsx-psec__title"><Icon name="warehouse" size={13} /> Vật tư nhận</span>
+        <span className="thsx-psec__title"><Icon name="warehouse" size={13} /> Vật tư</span>
+        {canAssign && cta != null && formMode == null && (
+          <Button variant="accent" onClick={() => setFormMode(cta)} disabled={busy}>
+            <Icon name={VT_CTA[cta].icon} size={13} /> {VT_CTA[cta].txt}
+          </Button>
+        )}
       </div>
-      <ul className="thsx-x-list">
-        {vt.map((v) => (
-          <li key={v.voucher_id} className="thsx-x-vt">
-            <Icon name={v.da_nhan ? "packageCheck" : "box"} size={13}
-              className={v.da_nhan ? "thsx-x-vt__ic is-ok" : "thsx-x-vt__ic"} />
-            <span className="thsx-x-vt__ma">{v.ma}</span>
-            <span className="thsx-x-item__spacer" />
-            {v.da_nhan ? (
-              <span className="thsx-x-vt__at thsx-num">{v.xac_nhan_luc ? ngayGio(v.xac_nhan_luc) : "đã nhận"}</span>
-            ) : canAssign ? (
-              <Button variant="secondary" onClick={() => void exec.xacNhanVatTu(v.voucher_id)} disabled={busy}>
-                <Icon name="packageCheck" size={13} /> Xác nhận nhận
-              </Button>
-            ) : (
-              <span className="thsx-x-pill thsx-x-pill--wait">chờ nhận</span>
-            )}
-          </li>
-        ))}
-      </ul>
+
+      {cap.du_lieu_cu && (
+        <p className="thsx-note thsx-note--warn">
+          <Icon name="alert" size={12} />
+          Dữ liệu trước 31/08/2026 — công đoạn này chưa từng gửi đề nghị nên phiếu đang lấy theo
+          lệnh sản xuất cũ, có thể thiếu hoặc lẫn phiếu của công đoạn khác cùng lệnh.
+        </p>
+      )}
+
+      {cap.doi_chieu.length === 0 ? (
+        <p className="thsx-note">
+          Công đoạn này không có nhu cầu vật tư theo kế hoạch. Vẫn gửi đề nghị được nếu tổ cần xin thêm.
+        </p>
+      ) : (
+        <table className="thsx-x-tbl">
+          <thead>
+            <tr>
+              <th>Vật tư</th>
+              <th className="r">Kế hoạch</th>
+              <th className="r">Đã yêu cầu</th>
+              <th className="r">Kho thực xuất</th>
+              <th className="r">Chênh lệch</th>
+              <th>Lý do</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cap.doi_chieu.map((d) => (
+              // Tô nền hàng kho xuất KHÁC số đã xin: đó là chỗ tổ trưởng KHÔNG chủ động được,
+              // đáng chú ý hơn lệch kế-hoạch↔yêu-cầu (vốn là quyết định của chính tổ).
+              <tr key={`${d.hang_loai}:${d.hang_id}`}
+                className={Math.abs(d.lech_thuc_te) > VT_EPS ? "is-lech" : undefined}>
+                <td>{d.ten}</td>
+                <td className="r thsx-num">{num(d.sl_ke_hoach)}<span className="thsx-x-unit"> {d.dvt}</span></td>
+                <td className="r thsx-num">{num(d.sl_yeu_cau)}<span className="thsx-x-unit"> {d.dvt}</span></td>
+                {/* `sl_thuc_xuat` đọc thẳng từ dòng chứng từ nên LUÔN ở thang GỐC (board.py:
+                    `_vat_tu_cap`) — dán nhãn `dvt` (thang tổ khai) vào đây là in sai đơn vị. */}
+                <td className="r thsx-num">{num(d.sl_thuc_xuat)}<span className="thsx-x-unit"> {d.dvt_goc}</span></td>
+                <td className="r"><VtDeltaCell keHoach={d.lech_ke_hoach} thucTe={d.lech_thuc_te} dvtGoc={d.dvt_goc} /></td>
+                <td><VtLyDoCacLanCell ds={d.cac_ly_do} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {formMode != null && (
+        <VatTuDeNghiForm
+          key={`${formMode}-${lanSua?.id ?? 0}`}
+          cv={chiTiet.cong_viec} cap={cap} mode={formMode} lanSua={lanSua} busy={busy}
+          onHuy={() => setFormMode(null)} onXong={() => setFormMode(null)} exec={exec} />
+      )}
+
+      <div className="thsx-x-sub">Lịch sử đề nghị</div>
+      {cap.cac_de_nghi.length === 0 ? (
+        <p className="thsx-note">Chưa gửi đề nghị nào.</p>
+      ) : (
+        <ul className="thsx-x-list">
+          {/* Mới nhất lên đầu (BE trả theo `lan_so` tăng dần) — khớp quy ước màn Kho. */}
+          {[...cap.cac_de_nghi].reverse().map((d) => (
+            <VtDeNghiLanRow key={d.id} d={d} tenNguoi={tenNguoi} />
+          ))}
+        </ul>
+      )}
+
+      {vt.length > 0 && (
+        <>
+          <div className="thsx-x-sub">Phiếu kho đã xuất</div>
+          <ul className="thsx-x-list">
+            {vt.map((v) => (
+              <li key={v.voucher_id} className="thsx-x-vt">
+                <Icon name={v.da_nhan ? "packageCheck" : "box"} size={13}
+                  className={v.da_nhan ? "thsx-x-vt__ic is-ok" : "thsx-x-vt__ic"} />
+                <span className="thsx-x-vt__ma">{v.ma}</span>
+                <span className="thsx-x-item__spacer" />
+                {v.da_nhan ? (
+                  <span className="thsx-x-vt__at thsx-num">{v.xac_nhan_luc ? ngayGio(v.xac_nhan_luc) : "đã nhận"}</span>
+                ) : canAssign ? (
+                  <Button variant="secondary" onClick={() => void exec.xacNhanVatTu(v.voucher_id)} disabled={busy}>
+                    <Icon name="packageCheck" size={13} /> Xác nhận nhận
+                  </Button>
+                ) : (
+                  <span className="thsx-x-pill thsx-x-pill--wait">chờ nhận</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </section>
+  );
+}
+
+/** Ô "Chênh lệch": HAI độ lệch có nghĩa khác nhau nên KHÔNG gộp thành một số — xếp chồng, ẩn dòng
+ *  bằng 0. Cả hai đều tính trên thang GỐC ở BE, nên chú thích đơn vị theo `dvt_goc`. */
+function VtDeltaCell({ keHoach, thucTe, dvtGoc }: { keHoach: number; thucTe: number; dvtGoc: string }) {
+  if (Math.abs(keHoach) <= VT_EPS && Math.abs(thucTe) <= VT_EPS) {
+    return <span className="thsx-x-unit">khớp</span>;
+  }
+  return (
+    <div className="thsx-x-vt-delta" title={`Chênh lệch tính theo đơn vị gốc (${dvtGoc})`}>
+      {Math.abs(keHoach) > VT_EPS && (
+        <span className={`thsx-x-vt-delta__row ${keHoach > 0 ? "is-up" : "is-down"}`}>
+          <span className="thsx-x-vt-delta__lbl">so KH</span>
+          {keHoach > 0 ? "+" : ""}{num(keHoach)}
+        </span>
+      )}
+      {Math.abs(thucTe) > VT_EPS && (
+        <span className={`thsx-x-vt-delta__row ${thucTe > 0 ? "is-up" : "is-down"}`}>
+          <span className="thsx-x-vt-delta__lbl">so YC</span>
+          {thucTe > 0 ? "+" : ""}{num(thucTe)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function VtLyDoCacLanCell({ ds }: { ds: { lan_so: number; ly_do: string }[] }) {
+  if (ds.length === 0) return <span className="thsx-x-unit">—</span>;
+  return (
+    <div className="thsx-x-vt-delta thsx-x-vt-delta--left">
+      {ds.map((d, i) => (
+        <span key={i} className="thsx-x-butru__mo">Lần {d.lan_so}: {d.ly_do}</span>
+      ))}
+    </div>
+  );
+}
+
+function VtDeNghiLanRow({ d, tenNguoi }: { d: SxVatTuCapLan; tenNguoi: Map<number, string> }) {
+  const [mo, setMo] = useState(false);
+  const st = d.stock_request_trang_thai ? VT_TT[d.stock_request_trang_thai] : null;
+  const ten = (id: number | null) => (id == null ? "—" : tenNguoi.get(id) ?? `NV #${id}`);
+  return (
+    <li className="thsx-x-item">
+      <button type="button" className="thsx-x-item__h" onClick={() => setMo((o) => !o)} aria-expanded={mo}>
+        <Icon name="chevron" size={12} className={mo ? "" : "thsx-rot-90"} />
+        <span className="thsx-x-item__q">Lần {d.lan_so}</span>
+        {d.loai === "bo_sung" && <span className="thsx-x-tag-ht">bổ sung</span>}
+        <span className="thsx-x-item__spacer" />
+        <span className="thsx-x-item__time thsx-num">{ngayGio(d.can_luc)}</span>
+        {d.stock_request_ma ? (
+          <span className={`thsx-x-pill ${st?.cls ?? "thsx-x-pill--wait"}`}>
+            {st?.txt ?? d.stock_request_trang_thai}
+          </span>
+        ) : (
+          <span className="thsx-x-pill thsx-x-pill--off">không cần cấp</span>
+        )}
+      </button>
+      {mo && (
+        <div className="thsx-x-item__body">
+          <div className="thsx-x-kv"><span>Mã yêu cầu kho</span><span>{d.stock_request_ma ?? "—"}</span></div>
+          <div className="thsx-x-kv"><span>Người tạo</span>
+            <span>{ten(d.created_by_id)} · {ngayGio(d.created_at)}</span></div>
+          {d.updated_by_id != null && d.updated_by_id !== d.created_by_id && (
+            <div className="thsx-x-kv"><span>Người sửa cuối</span>
+              <span>{ten(d.updated_by_id)} · {ngayGio(d.updated_at)}</span></div>
+          )}
+          {d.dongs.length > 0 && (
+            <table className="thsx-x-tbl" style={{ marginTop: 8 }}>
+              <thead><tr><th>Vật tư</th><th className="r">Xin cấp</th><th>Lý do</th></tr></thead>
+              <tbody>
+                {d.dongs.map((x) => (
+                  <tr key={`${x.hang_loai}:${x.hang_id}`}>
+                    <td>{x.ten}</td>
+                    <td className="r thsx-num">{num(x.sl_yeu_cau)}<span className="thsx-x-unit"> {x.dvt}</span></td>
+                    <td><span className="thsx-x-butru__mo">{x.ly_do_chenh_lech || "—"}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+// ---- Form đề nghị (dùng chung cho 3 mode) ---------------------------------------------------
+interface VtDongForm {
+  key: string;
+  hang_loai: string;
+  hang_id: number;          // 0 = dòng vừa thêm, chưa chọn mặt hàng
+  ten: string;
+  dvt: string;
+  /** Đơn vị của dòng KẾ HOẠCH cùng mặt hàng — để biết tổ có đang khai bằng đơn vị khác không. */
+  dvtKeHoach: string;
+  sl_ke_hoach: number;
+  sl_yeu_cau: number;
+  /** Chuỗi THÔ đang gõ trong ô số. Giữ riêng vì `<input type="number">` điều khiển bằng SỐ sẽ nuốt
+   *  dấu chấm đang gõ dở ("0." → trình duyệt trả "" → về 0), tức là không gõ nổi số lẻ — mà vật tư
+   *  cân theo kg thì số lẻ là chuyện thường. */
+  slText: string;
+  ly_do_chenh_lech: string;
+  /** Dòng đến TỪ kế hoạch: lần đầu phải lưu đủ kể cả khi = 0, nên không cho xoá (dùng "Về 0"). */
+  tuKeHoach: boolean;
+}
+
+/** Hiện/bắt buộc ô Lý do — CHỈ để ra mắt sớm ô nhập, KHÔNG bao giờ dùng làm `disabled` nút gửi.
+ *  Quy đổi đơn vị thật nằm ở BE (spec §3: BE không tin số client), nên so bằng số thô ở đây sai
+ *  một chút cũng không sao: người dùng vẫn gõ tay được, còn thiếu lý do thật thì BE trả 400 kèm
+ *  câu tiếng Việt cụ thể. */
+function vtCanLyDo(d: VtDongForm, loai: "lan_dau" | "bo_sung"): { hien: boolean; batBuoc: boolean } {
+  if (loai === "bo_sung") {
+    const batBuoc = d.sl_yeu_cau > VT_EPS;
+    return { hien: batBuoc, batBuoc };
+  }
+  if (!d.tuKeHoach) {
+    const co = d.sl_yeu_cau > VT_EPS;
+    return { hien: co, batBuoc: co };
+  }
+  if (d.dvt !== d.dvtKeHoach) return { hien: true, batBuoc: false }; // đổi đơn vị — không đoán được
+  const lech = Math.abs(d.sl_yeu_cau - d.sl_ke_hoach) > VT_EPS;
+  return { hien: lech, batBuoc: lech };
+}
+
+function vtPayloadLines(dongs: VtDongForm[], loai: "lan_dau" | "bo_sung"): SxVatTuDeNghiDongIn[] {
+  const giu = dongs.filter((d) => d.hang_id > 0 && !!d.dvt)
+    // lần đầu: giữ MỌI dòng gốc kế hoạch kể cả 0 ("kế hoạch có, tổ không lấy"); dòng ngoài kế
+    // hoạch mà = 0 thì bỏ. Bổ sung: chỉ dòng dương.
+    .filter((d) => (loai === "lan_dau" ? d.tuKeHoach || d.sl_yeu_cau > VT_EPS : d.sl_yeu_cau > VT_EPS));
+  return giu.map((d) => ({
+    hang_loai: d.hang_loai, hang_id: d.hang_id, dvt: d.dvt,
+    sl_yeu_cau: d.sl_yeu_cau, ly_do_chenh_lech: d.ly_do_chenh_lech.trim() || null,
+  }));
+}
+
+function vtDongKhoiTao(cap: SxVatTuCap, mode: VtFormMode, lanSua: SxVatTuCapLan | null): VtDongForm[] {
+  const kh = new Map(cap.ke_hoach.map((k) => [`${k.hang_loai}:${k.hang_id}`, k]));
+  // Bổ sung: RỖNG — chỉ thêm đúng mặt hàng đang thiếu; liệt kê lại cả kế hoạch rồi bắt gõ lý do
+  // cho từng dòng 0 là phiền vô ích (chỉ lần ĐẦU mới cần lưu đủ kế hoạch).
+  if (mode === "bo_sung") return [];
+  if (mode === "moi") {
+    return cap.ke_hoach.map((k) => ({
+      key: `${k.hang_loai}:${k.hang_id}`,
+      hang_loai: k.hang_loai, hang_id: k.hang_id, ten: k.ten,
+      dvt: k.dvt, dvtKeHoach: k.dvt,
+      sl_ke_hoach: k.sl, sl_yeu_cau: k.sl, slText: String(k.sl),
+      ly_do_chenh_lech: "", tuKeHoach: true,
+    }));
+  }
+  // Sửa: điền số CỦA RIÊNG lần đang sửa (`dongs`), KHÔNG phải số cộng dồn của `doi_chieu` —
+  // dùng nhầm là thổi phồng lần đang sửa bằng số của các lần trước.
+  const ds: VtDongForm[] = (lanSua?.dongs ?? []).map((d) => {
+    const k = `${d.hang_loai}:${d.hang_id}`;
+    return {
+      key: k,
+      hang_loai: d.hang_loai, hang_id: d.hang_id, ten: d.ten,
+      dvt: d.dvt, dvtKeHoach: kh.get(k)?.dvt ?? d.dvt,
+      sl_ke_hoach: d.sl_ke_hoach, sl_yeu_cau: d.sl_yeu_cau, slText: String(d.sl_yeu_cau),
+      ly_do_chenh_lech: d.ly_do_chenh_lech ?? "", tuKeHoach: kh.has(k),
+    };
+  });
+  // Sửa LẦN ĐẦU: kế hoạch có thể đã thêm mặt hàng sau lúc gửi — bù nốt vào (số xin = 0) để lần
+  // đầu vẫn lưu đủ mọi vật tư kế hoạch.
+  if (lanSua?.loai === "lan_dau") {
+    const co = new Set(ds.map((d) => d.key));
+    for (const k of cap.ke_hoach) {
+      const key = `${k.hang_loai}:${k.hang_id}`;
+      if (co.has(key)) continue;
+      ds.push({
+        key, hang_loai: k.hang_loai, hang_id: k.hang_id, ten: k.ten,
+        dvt: k.dvt, dvtKeHoach: k.dvt, sl_ke_hoach: k.sl, sl_yeu_cau: 0, slText: "0",
+        ly_do_chenh_lech: "", tuKeHoach: true,
+      });
+    }
+  }
+  return ds;
+}
+
+function VatTuDeNghiForm({
+  cv, cap, mode, lanSua, busy, onHuy, onXong, exec,
+}: {
+  cv: SxWorkItemChiTiet["cong_viec"]; cap: SxVatTuCap; mode: VtFormMode;
+  lanSua: SxVatTuCapLan | null; busy: boolean;
+  onHuy: () => void; onXong: () => void; exec: ThsxExec;
+}) {
+  const { token } = useAuth();
+  // Loại HIỆU LỰC quyết luật lý do + luật lọc dòng: sửa thì theo `loai` của chính lần đang sửa.
+  const loaiHieuLuc: "lan_dau" | "bo_sung" =
+    mode === "bo_sung" ? "bo_sung" : mode === "sua" ? (lanSua?.loai === "bo_sung" ? "bo_sung" : "lan_dau") : "lan_dau";
+  // Giờ cần: sửa = giờ CỦA CHÍNH lần đó (chỉnh lại cái tổ đã chọn, không quay về mốc gốc).
+  const [canLuc, setCanLuc] = useState(
+    (mode === "sua" ? toDtLocal(lanSua?.can_luc) : toDtLocal(cv.du_kien_bat_dau)) || nowDtLocal(),
+  );
+  const [dongs, setDongs] = useState<VtDongForm[]>(() => vtDongKhoiTao(cap, mode, lanSua));
+  const seq = useRef(0);
+
+  // "Đã yêu cầu luỹ kế" cho dòng bổ sung — nền để tổ trưởng biết mình đang xin thêm trên cái gì.
+  const luyKe = new Map(cap.doi_chieu.map((d) => [`${d.hang_loai}:${d.hang_id}`, d]));
+
+  function sua(key: string, patch: Partial<VtDongForm>) {
+    setDongs((ds) => ds.map((d) => (d.key === key ? { ...d, ...patch } : d)));
+  }
+  /** Đặt số lượng bằng NÚT (±1 / Về 0): số và chuỗi hiển thị đi cùng nhau. */
+  function datSl(key: string, sl: number) {
+    const v = Math.max(0, sl);
+    sua(key, { sl_yeu_cau: v, slText: String(v) });
+  }
+  function themDong() {
+    seq.current += 1;
+    setDongs((ds) => [...ds, {
+      key: `moi-${seq.current}`, hang_loai: "", hang_id: 0, ten: "", dvt: "", dvtKeHoach: "",
+      sl_ke_hoach: 0, sl_yeu_cau: 0, slText: "", ly_do_chenh_lech: "", tuKeHoach: false,
+    }]);
+  }
+
+  const lines = vtPayloadLines(dongs, loaiHieuLuc);
+  // Chỉ chặn khi THẬT SỰ rỗng dữ liệu — không bao giờ chặn vì "đoán là thiếu lý do".
+  // `moi`/`sua` (lần đầu) cho gửi TOÀN 0: đó chính là "tổ xác nhận không cần cấp" (spec §5.3).
+  const hopLe = !!canLuc && (loaiHieuLuc !== "bo_sung" || lines.length > 0);
+
+  async function luu() {
+    const body: SxVatTuDeNghiIn = { can_luc: canLuc, lines };
+    // Sửa mà không tra ra lần nào ⇒ THOÁT, tuyệt đối không rơi sang nhánh tạo mới: đó là đẻ thêm
+    // một lần đề nghị nữa (cộng dồn vào bản đối chiếu) thay vì sửa lần đang mở.
+    if (mode === "sua" && lanSua == null) return;
+    const ok = mode === "sua" && lanSua != null
+      ? await exec.suaDeNghiVatTu(cv.id, lanSua.id, body)
+      : await exec.deNghiVatTu(cv.id, body);
+    if (ok) onXong();
+  }
+
+  return (
+    <div className="thsx-x-form">
+      <Field label="Giờ cần">
+        <input type="datetime-local" className="thsx-x-in" value={canLuc}
+          onChange={(e) => setCanLuc(e.target.value)} />
+      </Field>
+
+      {dongs.length === 0 && (
+        <p className="thsx-x-hint">
+          {loaiHieuLuc === "bo_sung"
+            ? "Thêm đúng mặt hàng đang thiếu — đề nghị bổ sung là xin THÊM trên nền đã yêu cầu."
+            : "Công đoạn chưa có nhu cầu vật tư theo kế hoạch — thêm mặt hàng nếu tổ cần xin."}
+        </p>
+      )}
+
+      {dongs.map((d) => {
+        const ly = vtCanLyDo(d, loaiHieuLuc);
+        const lk = luyKe.get(`${d.hang_loai}:${d.hang_id}`);
+        return (
+          <div key={d.key} className="thsx-x-vtline">
+            <div className="thsx-x-vtline__h">
+              {d.tuKeHoach ? (
+                <span className="thsx-x-item__q">{d.ten}</span>
+              ) : (
+                <MaterialCombobox
+                  token={token ?? ""} hangTen={d.ten || null} disabled={busy}
+                  onPick={(m) => sua(d.key, {
+                    hang_loai: m.hang_loai, hang_id: m.hang_id, ten: m.ten,
+                    dvt: m.don_vi_goc ?? "", dvtKeHoach: m.don_vi_goc ?? "",
+                  })} />
+              )}
+              <span className="thsx-x-item__spacer" />
+              {!d.tuKeHoach && (
+                <button type="button" className="thsx-x-vtline__del" aria-label="Bỏ dòng" disabled={busy}
+                  onClick={() => setDongs((ds) => ds.filter((x) => x.key !== d.key))}>
+                  <Icon name="x" size={13} />
+                </button>
+              )}
+            </div>
+
+            {d.tuKeHoach && (
+              <div className="thsx-x-vtline__ref">Kế hoạch: {num(d.sl_ke_hoach)} {d.dvtKeHoach}</div>
+            )}
+            {loaiHieuLuc === "bo_sung" && lk && (
+              <div className="thsx-x-vtline__ref">Đã yêu cầu luỹ kế: {num(lk.sl_yeu_cau)} {lk.dvt}</div>
+            )}
+
+            <div className="thsx-x-vt-qty">
+              {/* Bước ±1 ĐƠN VỊ ĐANG CHỌN — không đoán bước theo loại vật tư; số lẻ thì gõ tay. */}
+              <button type="button" className="thsx-x-vt-qty__btn" aria-label="Giảm" disabled={busy || d.sl_yeu_cau <= 0}
+                onClick={() => datSl(d.key, d.sl_yeu_cau - 1)}>
+                <Icon name="minus" size={13} />
+              </button>
+              <input type="number" min={0} className="thsx-x-in" inputMode="decimal"
+                value={d.slText} disabled={busy} aria-label={`Số lượng xin cấp${d.ten ? ` — ${d.ten}` : ""}`}
+                onChange={(e) => sua(d.key, {
+                  slText: e.target.value, sl_yeu_cau: Math.max(0, toNum(e.target.value)),
+                })} />
+              <button type="button" className="thsx-x-vt-qty__btn" aria-label="Tăng" disabled={busy}
+                onClick={() => datSl(d.key, d.sl_yeu_cau + 1)}>
+                <Icon name="plus" size={13} />
+              </button>
+              <span className="thsx-x-unit">{d.dvt || "—"}</span>
+              {/* "Về 0" là hành động có CHỦ Ý ("tổ xác nhận không cần cấp"), không gộp vào nút giảm. */}
+              <button type="button" className="thsx-x-linkbtn" disabled={busy || d.sl_yeu_cau <= 0}
+                onClick={() => datSl(d.key, 0)}>Về 0</button>
+            </div>
+
+            {ly.hien && (
+              <Field label={<>Lý do{ly.batBuoc && <span className="thsx-x-vt-req">*</span>}</>}>
+                <input type="text" className="thsx-x-in" value={d.ly_do_chenh_lech} disabled={busy}
+                  onChange={(e) => sua(d.key, { ly_do_chenh_lech: e.target.value })}
+                  placeholder={ly.batBuoc ? "Bắt buộc — vì sao khác kế hoạch" : "Tuỳ chọn"} />
+              </Field>
+            )}
+          </div>
+        );
+      })}
+
+      <div className="thsx-x-act thsx-x-act--row">
+        <Button variant="ghost" onClick={themDong} disabled={busy}>
+          <Icon name="plus" size={13} /> Thêm mặt hàng
+        </Button>
+      </div>
+
+      <div className="thsx-x-act">
+        <Button variant="ghost" onClick={onHuy} disabled={busy}>Huỷ</Button>
+        <Button variant="accent" onClick={luu} disabled={busy || !hopLe}>
+          <Icon name={mode === "sua" ? "check" : "send"} size={13} />
+          {mode === "sua" ? " Lưu thay đổi" : " Gửi đề nghị"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -950,7 +1404,7 @@ function HoTroRow({
 }
 
 // ============================ nguyên liệu dùng chung ========================
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
     <label className="thsx-x-fld">
       <span className="thsx-x-fld__l">{label}</span>

@@ -176,6 +176,12 @@ export function AppShell() {
   // `quoteTick` tăng mỗi event → truyền xuống BaoGiaPage cho nó refetch list/stats. Kênh SSE vẫn
   // DUY NHẤT ở đây (trang con mở kênh riêng = tốn kết nối + lệch trạng thái).
   const [quoteTick, setQuoteTick] = useState(0);
+  // Tín hiệu ĐÍCH DANH cho bàn tổ: đề nghị cấp vật tư của công việc `congViecId` vừa đổi. Tách
+  // khỏi `quoteTick` có chủ đích — sự kiện này broadcast toàn hệ, đẩy vào tick chung là bắt mọi
+  // màn đang mở của cả nhà máy gọi lại API mỗi lần một tổ bấm gửi (xem nhánh SSE bên dưới).
+  const [vatTuDeNghiTick, setVatTuDeNghiTick] = useState<{ n: number; congViecId: number | null }>(
+    { n: 0, congViecId: null },
+  );
   const [toasts, setToasts] = useState<{ id: number; text: string; tone: "ok" | "warn" | "info" }[]>([]);
   const toastSeq = useRef(0);
   const lastPending = useRef(0);
@@ -599,6 +605,19 @@ export function AppShell() {
           String(e.message ?? "Chuyến giao của bạn vừa cập nhật."),
           e.viec === "kho_xong" ? "ok" : "info",
         );
+        return;
+      }
+      // Đề nghị cấp vật tư của MỘT công đoạn vừa đổi. `hub.broadcast` gửi cho MỌI kết nối chứ
+      // không theo phạm vi, nên cả hai cổng lọc nằm ở đây:
+      //   1) toast gác quyền đọc `san_xuat` — không thì kế toán, lái xe cũng ăn toast của tổ in;
+      //   2) KHÔNG bump `quoteTick` (tick chung của mọi màn) — chỉ đẩy đích danh `cong_viec_id`
+      //      xuống bàn tổ để đúng drawer đang mở việc đó nạp lại. Bump tick chung ở đây là biến
+      //      một lần tổ gửi đề nghị thành một lượt gọi API cho MỌI màn đang mở của cả nhà máy.
+      if (e.type === "san_xuat_vat_tu_de_nghi_changed") {
+        if (readable.has("san_xuat")) {
+          setVatTuDeNghiTick((t) => ({ n: t.n + 1, congViecId: e.cong_viec_id }));
+          pushToast("📦 Đề nghị cấp vật tư của công đoạn vừa cập nhật", "info");
+        }
         return;
       }
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
@@ -1144,6 +1163,7 @@ export function AppShell() {
           teamId={teamId}
           tenTo={t?.ten}
           eventTick={quoteTick}
+          vatTuDeNghiTick={vatTuDeNghiTick}
           onBadgeStale={reloadTeams}
         />
       );

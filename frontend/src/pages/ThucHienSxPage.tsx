@@ -98,11 +98,17 @@ export function ThucHienSxPage({
   teamId,
   tenTo,
   eventTick,
+  vatTuDeNghiTick,
   onBadgeStale,
 }: {
   teamId: number;
   tenTo?: string;
   eventTick?: number;
+  /** Đề nghị cấp vật tư của MỘT công đoạn vừa đổi (SSE, mắc ở AppShell). CỐ TÌNH không đi qua
+   *  `eventTick`: sự kiện này broadcast TOÀN HỆ, nếu bump tick chung thì mỗi lần bất kỳ tổ nào
+   *  trong nhà máy gửi đề nghị là drawer của mọi người gọi lại API. Chỉ nạp lại khi `congViecId`
+   *  TRÙNG việc đang mở — một sự kiện, nhiều nhất MỘT lượt gọi lại. */
+  vatTuDeNghiTick?: { n: number; congViecId: number | null };
   onBadgeStale?: () => void;
 }) {
   const { token } = useAuth();
@@ -204,6 +210,17 @@ export function ThucHienSxPage({
   }, [token]);
 
   useEffect(() => { void loadChiTiet(selectedId); }, [loadChiTiet, selectedId, eventTick]);
+
+  // Đề nghị vật tư đổi (SSE): CHỈ nạp lại khi đúng việc đang mở. `vtTickDaXem` chặn chạy lại khi
+  // effect re-run vì đổi việc/đổi hàm — một sự kiện chỉ ăn một lượt gọi.
+  const vtTickDaXem = useRef(0);
+  useEffect(() => {
+    const t = vatTuDeNghiTick;
+    if (!t || t.n === vtTickDaXem.current) return;
+    vtTickDaXem.current = t.n;
+    if (t.congViecId == null || t.congViecId !== selectedId) return;
+    void loadChiTiet(selectedId);
+  }, [vatTuDeNghiTick, selectedId, loadChiTiet]);
 
   useEffect(() => {
     if (!toast) return;
@@ -491,6 +508,10 @@ export function ThucHienSxPage({
       xacNhanBanGiao: (id, v) => ok(mutate(() => api.sanXuat.xacNhanBanGiao(token!, id, { expected_version: v }), "Đã xác nhận bàn giao.")),
       dieuChinhBanGiao: (id, b) => ok(mutate(() => api.sanXuat.dieuChinhBanGiao(token!, id, b), "Đã điều chỉnh bàn giao.")),
       xacNhanVatTu: (voucherId) => ok(mutate(() => api.sanXuat.xacNhanVatTu(token!, { voucher_id: voucherId, department_id: teamId }), "Đã xác nhận nhận vật tư.")),
+      // Đề nghị cấp vật tư: 400 = vi phạm nghiệp vụ, `handleErr` hiện NGUYÊN VĂN câu tiếng Việt
+      // của BE (kho đã lập phiếu, đề nghị đã huỷ…) — không nuốt thành "Có lỗi xảy ra".
+      deNghiVatTu: (cvId, b) => ok(mutate(() => api.sanXuat.deNghiVatTu(token!, cvId, b), "Đã gửi đề nghị cấp vật tư.")),
+      suaDeNghiVatTu: (cvId, dnId, b) => ok(mutate(() => api.sanXuat.suaDeNghiVatTu(token!, cvId, dnId, b), "Đã lưu đề nghị cấp vật tư.")),
       deXuatHoTro: (b) => ok(mutate(() => api.sanXuat.deXuatHoTro(token!, selectedId!, b), "Đã đề xuất hỗ trợ.")),
       xacNhanHoTro: (id, v) => ok(mutate(() => api.sanXuat.xacNhanHoTro(token!, id, { expected_version: v }), "Đã xác nhận hỗ trợ.")),
       huyHoTro: (id, lyDo, v) => ok(mutate(() => api.sanXuat.huyHoTro(token!, id, { ly_do: lyDo || null, expected_version: v }), "Đã huỷ hỗ trợ.")),

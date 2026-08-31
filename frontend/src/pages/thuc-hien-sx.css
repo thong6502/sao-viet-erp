@@ -1234,6 +1234,43 @@
 .thsx-x-vt__ma { font-size: var(--fs-sm); color: var(--ink); }
 .thsx-x-vt__at { font-size: var(--fs-2xs); color: var(--moss-deep); }
 
+/* --- vật tư CẤP: bảng đối chiếu + form đề nghị --- */
+/* hàng kho xuất khác số đã xin — chỗ tổ trưởng KHÔNG chủ động được */
+.thsx-x-tbl tr.is-lech td { background: var(--amber-soft); }
+
+.thsx-x-vt-delta { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; }
+.thsx-x-vt-delta--left { align-items: flex-start; }
+.thsx-x-vt-delta__row { font-size: var(--fs-2xs); white-space: nowrap; }
+.thsx-x-vt-delta__row.is-up { color: var(--moss-deep); }
+.thsx-x-vt-delta__row.is-down { color: var(--rust-deep); }
+.thsx-x-vt-delta__lbl { color: var(--ash); margin-right: 3px; }
+
+/* một THẺ mỗi dòng vật tư (drawer hẹp — bảng nhiều cột trong khung cuộn là bẫy đã biết) */
+.thsx-x-vtline {
+  border: 1px solid var(--rule-soft); border-radius: var(--r-3); background: var(--canvas);
+  padding: var(--sp-2) var(--sp-3); display: flex; flex-direction: column; gap: 6px;
+}
+.thsx-x-vtline + .thsx-x-vtline { margin-top: var(--sp-2); }
+.thsx-x-vtline__h { display: flex; align-items: center; gap: 6px; }
+.thsx-x-vtline__ref { font-size: var(--fs-2xs); color: var(--ash); }
+.thsx-x-vtline__del { flex: none; color: var(--ash); background: none; border: none; cursor: pointer; padding: 2px; }
+.thsx-x-vtline__del:hover:not(:disabled) { color: var(--rust); }
+.thsx-x-vtline__del:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.thsx-x-vt-qty { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.thsx-x-vt-qty__btn {
+  flex: none; width: 26px; height: 26px; display: inline-flex; align-items: center;
+  justify-content: center; border: 1px solid var(--rule-soft); border-radius: var(--r-2);
+  background: var(--paper); color: var(--ash-2); cursor: pointer;
+}
+.thsx-x-vt-qty__btn:hover:not(:disabled) { border-color: var(--rust); color: var(--rust); }
+.thsx-x-vt-qty__btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.thsx-x-vt-qty .thsx-x-in { width: 88px; text-align: right; }
+/* nút chữ "Về 0" đứng trong hàng số, không đẩy sang mép phải như dùng ở khối kho */
+.thsx-x-vt-qty .thsx-x-linkbtn { margin-left: 2px; }
+
+.thsx-x-vt-req { color: var(--rust-deep); margin-left: 3px; }
+
 /* --- hỗ trợ chéo --- */
 .thsx-x-ht { border: 1px solid var(--rule-soft); border-radius: var(--r-3); background: var(--canvas); padding: var(--sp-2) var(--sp-3); }
 .thsx-x-ht__main { display: flex; align-items: center; gap: 6px; }
