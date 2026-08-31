@@ -728,3 +728,146 @@ def test_xin_1_to_khong_bi_am_tham_bo_dong(db, orders, lsx_svc, admin, customer)
     assert ra["stock_request_id"] is not None
     req = db.get(StockRequest, ra["stock_request_id"])
     assert any((l.hang_loai, l.hang_id) == (k0["hang_loai"], k0["hang_id"]) for l in req.lines)
+
+
+# --- Task 4 vòng sửa 1: chốt chặn DƯỚI KHOÁ ở tầng StockRequestService (ruling important-3) ------
+# Cả 5 test Task 4 phía trên đi qua `sua()`, mà `sua()` bị chặn sớm hơn ở chốt NGOÀI
+# (`vt_repo.co_voucher`, không khoá). Nhóm test dưới đây gọi THẲNG `StockRequestService`, dựng
+# `StockVoucher` thật trỏ `request_id` để bật đúng cái khoá `lock_for_update`/`co_voucher` mà
+# `dong_bo_tu_san_xuat`/`huy_tu_san_xuat`/`khoi_phuc_tu_san_xuat` tự kiểm bên trong.
+
+def _req_svc(db):
+    from app.services.san_xuat.vat_tu_de_nghi import _hang_service, _req_service
+
+    return _req_service(db, _hang_service(db))
+
+
+def _kho_lines_tu_req(db, req_id):
+    """Dòng kho HỢP LỆ để gọi thẳng `dong_bo_tu_san_xuat`/`khoi_phuc_tu_san_xuat` trong test — phải
+    theo đúng thang đơn vị KHO (vd "kg" cho giấy), không phải thang TỔ KHAI (vd "tờ") mà
+    `VatLieuKhoService.quy_ve_goc` không quy tĩnh được (ruling 10: không có cạnh quy đổi tờ→gốc,
+    xem `_ve_goc_dong`). Lấy lại từ CHÍNH dòng yêu cầu kho đã có sẵn (do `_tao_de_nghi` tạo qua
+    `tao()`, vốn đã đi qua `_lines_kho`/`_don_vi_gui_kho`) — PHẢI gọi TRƯỚC khi yêu cầu bị
+    `huy_tu_san_xuat` xoá sạch dòng.
+    """
+    from app.models.stock_request import StockRequest
+
+    req = db.get(StockRequest, req_id)
+    return [{"hang_loai": l.hang_loai, "hang_id": l.hang_id, "dvt": l.dvt,
+             "sl_de_nghi": float(l.sl_de_nghi), "lsx_id": l.lsx_id, "bai_ghep_id": l.bai_ghep_id}
+            for l in req.lines]
+
+
+def test_dong_bo_tu_san_xuat_khi_da_co_phieu_thi_chan_va_khong_doi_gi(
+    db, orders, lsx_svc, admin, customer,
+):
+    from app.models.stock_request import StockRequest
+    from app.services.stock_request_service import StockRequestError
+
+    dn_id, req_id, _ma, kh = _tao_de_nghi(db, orders, lsx_svc, admin, customer, "TO-VTS1")
+    lines = _kho_lines_tu_req(db, req_id)
+    _lap_phieu_nhap_kho_cho(db, req_id)
+    truoc = [(l.id, float(l.sl_de_nghi)) for l in db.get(StockRequest, req_id).lines]
+
+    with pytest.raises(StockRequestError) as e:
+        _req_svc(db).dong_bo_tu_san_xuat(req_id, lines, user=admin, ngay_can=_T0.date())
+    assert "phiếu" in str(e.value).lower()
+    assert [(l.id, float(l.sl_de_nghi)) for l in db.get(StockRequest, req_id).lines] == truoc
+
+
+def test_huy_tu_san_xuat_tren_yeu_cau_approved_thanh_cong(db, orders, lsx_svc, admin, customer):
+    """`approved` KHÔNG nằm trong `REQUEST_EDITABLE` (draft/pending) — `huy_tu_san_xuat` phải chạy
+    được trên yêu cầu do sản xuất tạo (luôn `approved` ngay từ `create()`), khác hẳn `cancel()`
+    thường (chặn cứng ngoài draft/pending)."""
+    from app.models.stock_request import REQ_APPROVED, REQ_CANCELLED, StockRequest
+
+    dn_id, req_id, _ma, kh = _tao_de_nghi(db, orders, lsx_svc, admin, customer, "TO-VTS2")
+    assert db.get(StockRequest, req_id).trang_thai == REQ_APPROVED
+
+    ra = _req_svc(db).huy_tu_san_xuat(req_id, user=admin)
+    assert ra.trang_thai == REQ_CANCELLED
+
+
+def test_huy_tu_san_xuat_khi_da_co_phieu_thi_chan(db, orders, lsx_svc, admin, customer):
+    from app.services.stock_request_service import StockRequestError
+
+    dn_id, req_id, _ma, kh = _tao_de_nghi(db, orders, lsx_svc, admin, customer, "TO-VTS3")
+    _lap_phieu_nhap_kho_cho(db, req_id)
+
+    with pytest.raises(StockRequestError) as e:
+        _req_svc(db).huy_tu_san_xuat(req_id, user=admin)
+    assert "phiếu" in str(e.value).lower()
+
+
+def test_huy_tu_san_xuat_goi_hai_lan_lien_tiep_lan_hai_khong_nem(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Important 1: hủy lần hai trên yêu cầu ĐÃ `cancelled` là lũy đẳng — không được ném lỗi, nếu
+    không tổ sửa lần hai (vd chỉ sửa lý do) khi vẫn để 0 sẽ rơi vào ngõ cụt."""
+    from app.models.stock_request import REQ_CANCELLED
+
+    dn_id, req_id, _ma, kh = _tao_de_nghi(db, orders, lsx_svc, admin, customer, "TO-VTS4")
+    svc = _req_svc(db)
+    svc.huy_tu_san_xuat(req_id, user=admin)
+    ra = svc.huy_tu_san_xuat(req_id, user=admin)          # lần hai — KHÔNG được ném
+    assert ra.trang_thai == REQ_CANCELLED
+
+
+def test_dong_bo_chan_yeu_cau_do_kho_huy_giu_nguyen_ly_do_roi_khoi_phuc_yeu_cau_do_sx_huy(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Important 2, hai nửa của cùng luật phân biệt AI hủy:
+      · Kho hủy (`cancel_by_kho`) ⇒ `dong_bo_tu_san_xuat` phải CHẶN, và `ly_do_huy` của kho phải
+        còn nguyên — sản xuất không được lật quyết định của kho, cũng không xoá mất lý do.
+      · Sản xuất tự hủy (`huy_tu_san_xuat`) ⇒ `khoi_phuc_tu_san_xuat` phải cho khôi phục lại
+        `approved`, và `ly_do_huy` (vốn do `huy_tu_san_xuat` ghi) phải về `None`.
+    """
+    from app.models.stock_request import REQ_APPROVED, StockRequest
+    from app.services.stock_request_service import StockRequestError
+
+    # Nửa 1: kho hủy.
+    dn_id, req_id, _ma, kh = _tao_de_nghi(db, orders, lsx_svc, admin, customer, "TO-VTS5")
+    lines1 = _kho_lines_tu_req(db, req_id)
+    svc = _req_svc(db)
+    svc.cancel_by_kho(db.get(StockRequest, req_id), "Kho hết hàng, không cấp")
+
+    with pytest.raises(StockRequestError):
+        svc.dong_bo_tu_san_xuat(req_id, lines1, user=admin, ngay_can=_T0.date())
+    assert db.get(StockRequest, req_id).ly_do_huy == "Kho hết hàng, không cấp"
+
+    # Nửa 2: chính sản xuất hủy (công việc khác, để không lẫn state với nửa 1).
+    dn_id2, req_id2, _ma2, kh2 = _tao_de_nghi(db, orders, lsx_svc, admin, customer, "TO-VTS5B")
+    lines2 = _kho_lines_tu_req(db, req_id2)     # lấy TRƯỚC khi huỷ xoá sạch dòng
+    svc.huy_tu_san_xuat(req_id2, user=admin)
+    ra = svc.khoi_phuc_tu_san_xuat(req_id2, lines2, user=admin, ngay_can=_T0.date())
+    assert ra.trang_thai == REQ_APPROVED
+    assert ra.ly_do_huy is None
+
+
+def test_sua_qua_kho_huy_roi_nhap_so_duong_thi_chan_khong_ghi_nua_voi(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Ca đầu-cuối của Important 2 qua đúng cửa `sua()` (không gọi thẳng service): kho hủy → tổ
+    sửa lại số dương → phải nhận lỗi (đây là `StockRequestError` không được `sua()` bọc lại thành
+    `VatTuDeNghiError` — ruling task-4-fix-1 chấp nhận cả hai, miễn router dịch được), và KHÔNG
+    bảng SX nào bị ghi nửa vời (rollback trọn transaction, dòng đối chiếu cũ còn nguyên)."""
+    from app.models.stock_request import StockRequest
+    from app.services.san_xuat import vat_tu_de_nghi as V
+    from app.services.stock_request_service import StockRequestError
+
+    dn_id, req_id, _ma, kh = _tao_de_nghi(db, orders, lsx_svc, admin, customer, "TO-VTS6")
+    _req_svc(db).cancel_by_kho(db.get(StockRequest, req_id), "Kho hết hàng, không cấp")
+    dongs_truoc = [(d.hang_id, float(d.sl_yeu_cau))
+                   for d in db.get(SanXuatVatTuDeNghi, dn_id).dongs]
+
+    lines = [{"hang_loai": k["hang_loai"], "hang_id": k["hang_id"], "dvt": k["dvt"],
+              "sl_yeu_cau": k["sl"] * 2, "ly_do_chenh_lech": "Chạy bù mẻ hỏng"} for k in kh]
+    with pytest.raises(StockRequestError):
+        V.sua(db, user=admin, cong_viec_id=_cv_id(db, dn_id), de_nghi_id=dn_id,
+              can_luc=_T0, lines=lines)
+    db.rollback()
+
+    req_sau = db.get(StockRequest, req_id)
+    assert req_sau.ly_do_huy == "Kho hết hàng, không cấp"
+    dongs_sau = [(d.hang_id, float(d.sl_yeu_cau)) for d in db.get(SanXuatVatTuDeNghi, dn_id).dongs]
+    assert dongs_sau == dongs_truoc

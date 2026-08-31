@@ -70,10 +70,16 @@ class StockRequestRepository:
             select(StockRequest.id).where(StockRequest.id == request_id).with_for_update()
         ).first()
 
-    def co_voucher(self, request_id: int) -> bool:
+    def co_voucher(self, request_id: int | None) -> bool:
         """Yêu cầu đã có BẤT KỲ phiếu nào chưa — kể cả nháp, kể cả đã huỷ. Dùng để chặn sửa/hủy
         từ tầng sản xuất (`StockRequestService.dong_bo_tu_san_xuat`/`huy_tu_san_xuat`) khi kho đã
-        bắt tay soạn phiếu — số đã đi vào đầu người soạn, sửa sau lưng họ là nguồn đẻ chênh lệch."""
+        bắt tay soạn phiếu — số đã đi vào đầu người soạn, sửa sau lưng họ là nguồn đẻ chênh lệch.
+
+        `request_id` có thể `None` (đề nghị SX chưa từng đẻ yêu cầu kho) — trả `False` NGAY thay vì
+        chạy truy vấn `request_id IS NULL` (dù `StockVoucher.request_id` NOT NULL nên vẫn ra đúng
+        kết quả, chặn tường minh ở đây đỡ phải dựa vào ràng buộc DB để suy luận đúng)."""
+        if not request_id:
+            return False
         return self.db.scalar(
             select(func.count()).select_from(StockVoucher)
             .where(StockVoucher.request_id == request_id)

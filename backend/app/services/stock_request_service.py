@@ -256,17 +256,30 @@ class StockRequestService:
     # `approved` ngay từ đầu (create tự duyệt). Ba hàm dưới là đường RIÊNG, chỉ tầng
     # `services/san_xuat/vat_tu_de_nghi.py` được gọi — mọi cửa khác vẫn giữ luật "đã duyệt là khoá".
 
-    def dong_bo_tu_san_xuat(self, req_id: int, lines: list[dict], *, user, ngay_can) -> StockRequest:
+    def dong_bo_tu_san_xuat(self, req_id: int, lines: list[dict], *, user, ngay_can,
+                            cho_phep_khoi_phuc: bool = False) -> StockRequest:
         """Thay TOÀN BỘ dòng bằng dữ liệu mới, giữ nguyên mã và id.
 
         Khoá + đọc lại TRONG transaction, ngay trước khi ghi: kiểm ở router rồi mới vào service là
-        mở đúng khe cho kho bấm "lập phiếu" ở giữa hai thời điểm đó."""
+        mở đúng khe cho kho bấm "lập phiếu" ở giữa hai thời điểm đó.
+
+        `user` giữ chỗ cho móc audit sau này (Task 6 sẽ truyền theo chữ ký đã chốt) — chưa dùng
+        trong thân hàm, không phải tham số sót lại.
+        """
         self.requests.lock_for_update(req_id)
         req = self.requests.get_with_lines(req_id)
         if req is None:
             raise StockRequestError("Không tìm thấy yêu cầu.")
         if self.requests.co_voucher(req.id):
             raise StockRequestError("Kho đã lập phiếu cho yêu cầu này — không sửa được nữa.")
+        if req.trang_thai == REQ_CANCELLED and not cho_phep_khoi_phuc:
+            # Yêu cầu này do KHO hủy (sản xuất chỉ hủy khi chính nó đưa mọi dòng về 0, và lúc đó
+            # `sua()` gọi qua `khoi_phuc_tu_san_xuat`). `cancel_by_kho` đã ghi thành văn rằng hủy
+            # là KẾT THÚC, không trả về "chờ cấp" — lật nó ở đây còn xoá luôn `ly_do_huy`, ô duy
+            # nhất nói vì sao kho từ chối.
+            raise StockRequestError(
+                "Kho đã hủy yêu cầu này — không sửa lại được. Hãy tạo đề nghị bổ sung."
+            )
         # Nương tay với mặt hàng vốn đã có trên đề nghị nhưng danh mục đã ngừng dùng — cùng luật
         # `update()` áp cho cửa kho thường.
         dang_co = {(ln.hang_loai, int(ln.hang_id))
@@ -279,24 +292,37 @@ class StockRequestService:
         for ln in req.lines:
             ln.sl_duyet = ln.sl_de_nghi
         req.ngay_can = ngay_can
+        if req.trang_thai == REQ_CANCELLED:
+            req.ly_do_huy = None      # đang khôi phục đúng cái sản xuất đã hủy (đã qua chốt trên)
         # `co_voucher` ở trên đã bảo đảm chưa có phiếu nào nên `sl_da_ung` toàn 0 — set thẳng
-        # `approved` mà không cần tính lại (đúng cho cả trường hợp yêu cầu đang `cancelled` được
-        # khôi phục lẫn trường hợp đang `approved` được sửa số).
+        # `approved` mà không cần tính lại. Đúng cho CẢ BA ca: yêu cầu đang `approved` được sửa số,
+        # yêu cầu đang `cancelled` do CHÍNH sản xuất hủy được khôi phục (`cho_phep_khoi_phuc`), và
+        # yêu cầu đang `received`/`preparing` (kho đã đọc/đã nhận) — nội dung vừa đổi nên trạng
+        # thái "đã xử lý" đó thành cũ, đẩy về `approved` là CỐ Ý để kho biết cần xem lại; `_notify`
+        # ngay dưới đây báo lại cho đúng thủ kho đang cầm yêu cầu này.
         req.trang_thai = REQ_APPROVED
-        req.ly_do_huy = None
         req = self.requests.save(req)
         # Hộp yêu cầu kho phải thấy con số mới NGAY — số cũ đang nằm trên màn của thủ kho.
         self._notify(req, "Yêu cầu vừa được cập nhật", targeted=False)
         return req
 
     def huy_tu_san_xuat(self, req_id: int, *, user) -> StockRequest:
-        """Tổ xác nhận không cần cấp gì: xoá dòng, chuyển `cancelled`, GIỮ mã và link."""
+        """Tổ xác nhận không cần cấp gì: xoá dòng, chuyển `cancelled`, GIỮ mã và link.
+
+        `user` giữ chỗ cho móc audit sau này (Task 6 sẽ truyền theo chữ ký đã chốt) — chưa dùng
+        trong thân hàm, không phải tham số sót lại.
+        """
         self.requests.lock_for_update(req_id)
         req = self.requests.get_with_lines(req_id)
         if req is None:
             raise StockRequestError("Không tìm thấy yêu cầu.")
-        if req.trang_thai in (REQ_DONE, REQ_CANCELLED):
-            raise StockRequestError("Yêu cầu đã kết thúc — không hủy được.")
+        if req.trang_thai == REQ_CANCELLED:
+            # Lũy đẳng: tổ sửa lần hai mà vẫn để 0 thì trạng thái đích đã đạt rồi. Ném lỗi ở đây là
+            # biến "sửa lý do trên một đề nghị đã về 0" thành ngõ cụt — rollback luôn cả phần ghi
+            # bảng SX mà lần sửa đó thực sự muốn ghi.
+            return req
+        if req.trang_thai == REQ_DONE:
+            raise StockRequestError("Yêu cầu đã cấp xong — không hủy được.")
         if self.requests.co_voucher(req.id):
             raise StockRequestError("Kho đã lập phiếu cho yêu cầu này — không hủy được nữa.")
         req.lines.clear()
@@ -310,9 +336,11 @@ class StockRequestService:
         """Tổ nhập lại số dương sau khi đã về 0 — dựng lại dòng trên CHÍNH yêu cầu đó.
 
         Không đẻ mã mới: một lần đề nghị của tổ là một chứng từ, tổ đổi ý ba lần trước khi kho
-        động tay không phải là ba chứng từ.
+        động tay không phải là ba chứng từ. Chỉ hồi sinh yêu cầu mà CHÍNH sản xuất đã hủy — gọi
+        `cho_phep_khoi_phuc=True` để `dong_bo_tu_san_xuat` bỏ qua chốt chặn "kho đã hủy".
         """
-        return self.dong_bo_tu_san_xuat(req_id, lines, user=user, ngay_can=ngay_can)
+        return self.dong_bo_tu_san_xuat(req_id, lines, user=user, ngay_can=ngay_can,
+                                        cho_phep_khoi_phuc=True)
 
     # --- Vòng đời ----------------------------------------------------------
 

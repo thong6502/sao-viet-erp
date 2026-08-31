@@ -19,6 +19,7 @@ from ...models.stock_request import REQ_XUAT
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_repo import SanXuatRepository
 from ...repositories.san_xuat_vat_tu_repo import SanXuatVatTuRepository
+from ...repositories.stock_request_repo import StockRequestRepository
 from ...realtime import hub
 from ..ke_hoach_vat_tu_service import KeHoachVatTuError
 from .vat_tu_nhan import _gate_to_truong
@@ -265,7 +266,7 @@ def tao(db: Session, *, user, cong_viec_id: int, can_luc: datetime,
 
     vt_repo = SanXuatVatTuRepository(db)
     cac = vt_repo.cac_de_nghi(cong_viec_id)
-    if cac and not vt_repo.co_voucher(cac[-1].stock_request_id):
+    if cac and not StockRequestRepository(db).co_voucher(cac[-1].stock_request_id):
         raise VatTuDeNghiError(
             "Đang có đề nghị chưa được kho lập phiếu — hãy sửa đề nghị đó thay vì tạo lần mới.")
 
@@ -331,8 +332,12 @@ def sua(db: Session, *, user, cong_viec_id: int, de_nghi_id: int,
     Ba nhánh đích cho yêu cầu kho, theo đúng combo (đã-có-yêu-cầu?, còn-dòng-dương?):
       · CHƯA có `stock_request_id`, giờ có dòng dương ⇒ lần đầu toàn 0 nay xin lại — mới đẻ
         chứng từ kho (giống `tao()`).
-      · ĐÃ có `stock_request_id`, còn dòng dương ⇒ đồng bộ/khôi phục ĐÈ lên chính yêu cầu cũ
-        (`khoi_phuc_tu_san_xuat`, giữ nguyên mã dù yêu cầu đang `approved` hay đã `cancelled`).
+      · ĐÃ có `stock_request_id`, còn dòng dương, VÀ bản TRƯỚC KHI SỬA toàn 0 ⇒ chính sản xuất đã
+        hủy yêu cầu đó — khôi phục qua `khoi_phuc_tu_san_xuat`.
+      · ĐÃ có `stock_request_id`, còn dòng dương, nhưng bản TRƯỚC KHI SỬA còn dòng dương (sản xuất
+        chưa hủy gì) ⇒ đồng bộ thường qua `dong_bo_tu_san_xuat`; nếu yêu cầu đang `cancelled` thì
+        đó là KHO hủy (ruling task-4 important-2) và hàm này tự chặn, không cho lật quyết định
+        của kho.
       · ĐÃ có `stock_request_id`, hết dòng dương ⇒ huỷ yêu cầu (`huy_tu_san_xuat`), giữ mã + link
         để tổ nhập lại số dương sau này khôi phục đúng chứng từ đó.
     """
@@ -346,12 +351,46 @@ def sua(db: Session, *, user, cong_viec_id: int, de_nghi_id: int,
     dn = vt_repo.de_nghi(de_nghi_id)
     if dn is None or dn.cong_viec_id != cong_viec_id:
         raise ValueError("Không tìm thấy đề nghị của công đoạn này.")
-    if vt_repo.co_voucher(dn.stock_request_id):
+    if StockRequestRepository(db).co_voucher(dn.stock_request_id):
         raise VatTuDeNghiError("Kho đã lập phiếu cho đề nghị này — hãy tạo yêu cầu bổ sung.")
+
+    # Chụp TRƯỚC khi xoá dòng cũ: dùng để biết cái `cancelled` (nếu có) là do sản xuất tự đưa về 0
+    # hay do kho hủy. Xoá xong mới hỏi là mất luôn câu trả lời (ruling task-4 important-2).
+    truoc_do_toan_0 = all(float(d.sl_yeu_cau or 0) <= _EPS for d in (dn.dongs or []))
 
     hang = _hang_service(db)
     kh_svc = kh_svc or _kh_service(db, hang)
     dongs = _chuan_hoa(kh_svc, cv, lines, bat_buoc_ly_do=(dn.loai == DN_BO_SUNG))
+    kho_lines = _lines_kho(hang, cv, dongs)
+
+    # Khối `req_svc` chạy TRƯỚC khi đụng `dn.dongs` (ruling task-4 minor-5, cùng lý do `tao()` đã
+    # vá): các hàm dưới đây tự COMMIT bên trong (`stock_request_repo.create`/`save`). Nếu `dn.dongs`
+    # đã bị xoá/dựng lại ở phía TRÊN thì một commit nội bộ giữa chừng của `req_svc` ghi luôn phần
+    # dở đó vào DB — chết giữa chừng để lại một yêu cầu kho ĐÃ đổi số nhưng bảng SX vẫn dở dang.
+    # Làm req_svc trước: chết giữa chừng chỉ để lại đúng NỬA đầu (yêu cầu kho), `dn.dongs` của lần
+    # sửa vẫn chưa động tới — tổ gọi lại `sua()` với cùng số là xong, không mồ côi.
+    req_svc = req_svc or _req_service(db, hang)
+    req_id_moi = None
+    if dn.stock_request_id is None:
+        # Lần đầu toàn 0, nay có số dương ⇒ giờ mới đẻ chứng từ kho.
+        if kho_lines:
+            req = req_svc.create(
+                user=user, loai=REQ_XUAT, lines=kho_lines, bo_phan_id=cv.department_id,
+                ngay_can=can_luc.date(),
+                ghi_chu=f"Cấp vật tư công đoạn «{cv.ten_cong_doan}» (lần {dn.lan_so}).",
+            )
+            req_id_moi = req.id
+    elif kho_lines:
+        if truoc_do_toan_0:
+            req_svc.khoi_phuc_tu_san_xuat(dn.stock_request_id, kho_lines,
+                                          user=user, ngay_can=can_luc.date())
+        else:
+            # Trước đó vẫn còn dòng dương ⇒ sản xuất chưa hủy gì. Đi đường đồng bộ thường; nếu
+            # yêu cầu đang `cancelled` thì đó là kho hủy và `dong_bo_tu_san_xuat` sẽ chặn.
+            req_svc.dong_bo_tu_san_xuat(dn.stock_request_id, kho_lines,
+                                        user=user, ngay_can=can_luc.date())
+    else:
+        req_svc.huy_tu_san_xuat(dn.stock_request_id, user=user)
 
     dn.dongs.clear()
     db.flush()
@@ -361,23 +400,8 @@ def sua(db: Session, *, user, cong_viec_id: int, de_nghi_id: int,
         }))
     dn.can_luc = can_luc
     dn.updated_by_id = getattr(user, "id", None)
-
-    kho_lines = _lines_kho(hang, cv, dongs)
-    req_svc = req_svc or _req_service(db, hang)
-    if dn.stock_request_id is None:
-        # Lần đầu toàn 0, nay có số dương ⇒ giờ mới đẻ chứng từ kho.
-        if kho_lines:
-            req = req_svc.create(
-                user=user, loai=REQ_XUAT, lines=kho_lines, bo_phan_id=cv.department_id,
-                ngay_can=can_luc.date(),
-                ghi_chu=f"Cấp vật tư công đoạn «{cv.ten_cong_doan}» (lần {dn.lan_so}).",
-            )
-            dn.stock_request_id = req.id
-    elif kho_lines:
-        req_svc.khoi_phuc_tu_san_xuat(dn.stock_request_id, kho_lines,
-                                      user=user, ngay_can=can_luc.date())
-    else:
-        req_svc.huy_tu_san_xuat(dn.stock_request_id, user=user)
+    if req_id_moi is not None:
+        dn.stock_request_id = req_id_moi
 
     AuditLogRepository(db).create(
         actor_user_id=getattr(user, "id", None), action="san_xuat_sua_de_nghi_vat_tu",
@@ -386,6 +410,8 @@ def sua(db: Session, *, user, cong_viec_id: int, de_nghi_id: int,
     )
     db.commit()
     hub.broadcast({"type": "san_xuat_vat_tu_de_nghi_changed", "cong_viec_id": cong_viec_id})
-    # Bắn LẠI tín hiệu kho: con số trên màn thủ kho vừa đổi (spec §7 phần realtime).
-    hub.broadcast({"type": "stock_request_pending_changed"})
+    # KHÔNG broadcast thêm `stock_request_pending_changed` toàn hệ ở đây (ruling task-4 minor-6):
+    # mỗi nhánh `req_svc` ở trên đã tự `_notify(..., targeted=False)`, mà `_notify` cố ý đẩy THEO
+    # PHẠM VI (xem `stock_request_service.py`), không broadcast toàn hệ. `tao()` cũng không có
+    # dòng này.
     return {"de_nghi_id": dn.id, "stock_request_id": dn.stock_request_id}

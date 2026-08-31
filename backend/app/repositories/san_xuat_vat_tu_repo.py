@@ -5,7 +5,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.san_xuat_vat_tu import SanXuatVatTuDeNghi
-from ..models.stock_voucher import StockVoucher
 
 
 class SanXuatVatTuRepository:
@@ -35,14 +34,11 @@ class SanXuatVatTuRepository:
         return int(cao or 0) + 1
 
     def co_voucher(self, stock_request_id: int | None) -> bool:
-        """Yêu cầu kho đã có BẤT KỲ phiếu nào chưa — kể cả nháp, kể cả đã huỷ.
-
-        Không lọc trạng thái phiếu: kho đã bắt tay soạn (dù nháp) thì con số đã đi vào đầu người
-        soạn; sửa sau lưng họ là nguồn đẻ ra chênh lệch mà không ai truy được.
+        """Uỷ quyền cho `StockRequestRepository.co_voucher` (ruling task-4-fix-1 minor-7): trước
+        đây hai repo tự viết CÙNG một câu SELECT — giữ method này lại chỉ để không phá cửa gọi
+        thẳng qua `SanXuatVatTuRepository` đang có (kể cả trong test), nhưng chỉ còn ĐÚNG MỘT
+        truy vấn thật, nằm ở repo yêu cầu kho.
         """
-        if not stock_request_id:
-            return False
-        return self.db.scalar(
-            select(func.count()).select_from(StockVoucher)
-            .where(StockVoucher.request_id == stock_request_id)
-        ) > 0
+        from .stock_request_repo import StockRequestRepository
+
+        return StockRequestRepository(self.db).co_voucher(stock_request_id)
