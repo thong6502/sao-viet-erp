@@ -1062,11 +1062,11 @@ function vtCanLyDo(d: VtDongForm, loai: "lan_dau" | "bo_sung"): { hien: boolean;
     return { hien: batBuoc, batBuoc };
   }
   // Đơn vị HIỆU LỰC — phải gộp ĐÚNG như BE gộp (`vat_tu_de_nghi.py:_chuan_hoa`:
-  // `dvt = ln.dvt or k_row.dvt or ""`). Chỉ xét `d.dvt` là FE↔BE lệch thật: mode `sua` của một lần
-  // `lan_dau`, dòng ĐÃ LƯU mang `dvt=""` (lưu từ chính payload mới) trong khi kế hoạch hiện tại đã
-  // có đơn vị ⇒ `vtDongKhoiTao` cho `d.dvt=""` + `d.dvtKeHoach="to"` ⇒ FE không gắn `*`, người
-  // dùng gửi không lý do, BE gộp `"" or "to"` = `"to"` ⇒ không phải ca "không đối chiếu được" ⇒
-  // 400 «…» lệch kế hoạch — phải ghi lý do, ngay sau khi ô Lý do vừa ghi "Tuỳ chọn".
+  // `dvt = ln.dvt or k_row.dvt or ""`). Từ vòng vá gốc, `vtDongKhoiTao` mode `sua` đã tự gộp
+  // `d.dvt` với đơn vị kế hoạch ngay lúc dựng dòng, nên tới đây `d.dvt` thường ĐÃ mang đơn vị
+  // hiệu lực và dòng dưới thành lớp THỪA cho ca đó. GIỮ NGUYÊN, đừng xoá vì tưởng dead code —
+  // đây là lớp phòng thủ CÓ CHỦ ĐÍCH, khoá hợp đồng "FE xét đúng thứ BE xét" bất kể dòng được
+  // dựng bằng đường nào (kể cả đường dựng khác sau này không đi qua `vtDongKhoiTao`).
   const dvtHieuLuc = d.dvt || d.dvtKeHoach;
   // Món kế hoạch mà KẾ HOẠCH cũng không có đơn vị, và tổ để 0: không có mốc nào để nói lệch ⇒ BE
   // miễn luật lý do cho đúng ca này ⇒ đừng gắn dấu `*` đòi bắt buộc. Vẫn MỞ ô để ai muốn ghi chú
@@ -1096,7 +1096,13 @@ function vtCanLyDo(d: VtDongForm, loai: "lan_dau" | "bo_sung"): { hien: boolean;
  *  đơn vị trên màn có chữ gì không" — và màn đang hiện đúng `{d.dvt || "—"}`. Gộp vào đây là cho
  *  tổ gõ một số dương vào ô đơn vị hiện "—" rồi để BE âm thầm đọc nó theo đơn vị KẾ HOẠCH: đổi
  *  một lần chặn thừa lấy một lần lệch thang im lặng, tệ hơn. Lần chặn thừa cũng không phải ngõ
- *  cụt — câu của `vtCanTro` chỉ ngay đường thoát ("đưa dòng đó về 0 rồi gửi phần còn lại"). */
+ *  cụt — câu của `vtCanTro` chỉ ngay đường thoát ("đưa dòng đó về 0 rồi gửi phần còn lại").
+ *
+ *  Từ vòng vá gốc, ca "dòng đã lưu `dvt=""`, kế hoạch nay có đơn vị" không còn rơi vào hàm này
+ *  nữa: `vtDongKhoiTao` mode `sua` đã gộp đơn vị kế hoạch vào `d.dvt` ngay lúc dựng dòng, nên
+ *  `d.dvt` ở đây tự nhiên có chữ và hàm trả `false` — KHÔNG cần sửa thân hàm. Hàm chỉ còn trả
+ *  `true` cho ca thật sự không có mốc nào để gộp (dòng ngoài kế hoạch hiện tại, hoặc chính kế
+ *  hoạch cũng chưa có đơn vị). */
 function vtThieuDonVi(d: VtDongForm): boolean {
   return d.hang_id > 0 && !d.dvt;
 }
@@ -1188,7 +1194,10 @@ function vtDongKhoiTao(cap: SxVatTuCap, mode: VtFormMode, lanSua: SxVatTuCapLan 
     return {
       key: k,
       hang_loai: d.hang_loai, hang_id: d.hang_id, ten: d.ten,
-      dvt: d.dvt, dvtKeHoach: kh.get(k)?.dvt ?? d.dvt,
+      // Vá GỐC (không phải triệu chứng): dòng đã lưu có thể mang `dvt=""` (routing mập mờ lúc
+      // gửi lần đầu) trong khi kế hoạch nay đã có đơn vị. BE gộp `ln.dvt or k_row.dvt` nên FE
+      // phải hiện ĐÚNG thứ BE sẽ dùng — không được hiện "—" trên màn rồi tính theo "to" ở BE.
+      dvt: d.dvt || (kh.get(k)?.dvt ?? d.dvt), dvtKeHoach: kh.get(k)?.dvt ?? d.dvt,
       sl_ke_hoach: d.sl_ke_hoach, sl_yeu_cau: d.sl_yeu_cau, slText: String(d.sl_yeu_cau),
       ly_do_chenh_lech: d.ly_do_chenh_lech ?? "", tuKeHoach: kh.has(k),
     };
