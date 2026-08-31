@@ -1427,9 +1427,11 @@ export interface SxWorkItem {
   du_kien_ket_thuc: string | null;
   du_kien_so_nguoi: number | null;  // số người dự kiến (§7.1) — so với roster để đòi lý do lệch
   so_luong_vao: number | null;
-  so_luong_ra: number | null;
+  so_luong_ra: number | null;  // mục tiêu của bước — đã có sẵn, KHÔNG đẻ khoá `muc_tieu_ra` thứ hai
   don_vi_vao: string | null;
   don_vi_ra: string | null;
+  /** max(so_luong_ra − tổng tốt, 0). null khi bước không khai mục tiêu — KHÁC hẳn với 0. */
+  con_thieu: number | null;
   trang_thai: string;          // "released" | "running" | "paused" | "completed"
   dinh_muc_vat_tu: SxVatTuDinhMuc[]; // định mức vật tư đóng băng lúc phát hành — KHÁC vật tư (phiếu xuất) ở drawer
   thuc_te: SxThucTeKhoang[];   // lớp thực-tế đè lên thanh kế hoạch (§5.1); phiên mở → ket_thuc=null
@@ -1539,6 +1541,11 @@ export interface SxSanLuong {
   tong_tot: number;
   da_giao: number;
   batches: SxBatch[];
+  /** Mục tiêu của bước (`so_luong_ra` lúc phát hành) — null khi bước không khai. */
+  muc_tieu: number | null;
+  /** max(mục tiêu − tổng tốt, 0). null khi không có mục tiêu — KHÁC hẳn với 0. */
+  con_thieu: number | null;
+  don_vi: string | null;
 }
 export interface SxBanGiao {
   id: number;
@@ -2179,6 +2186,12 @@ export interface SxDongNhomDieuKien {
   du_dong_du: boolean;
   du_dong_thieu: boolean;
   dieu_kien: SxDongNhomDieuKienItem[];
+  /** Mức NHÓM: Σ so_luong_ra của các công việc KCS cuối. null khi không xác định được bước KCS cuối nào khai số. */
+  muc_tieu: number | null;
+  /** Σ tong_tot của chính các công việc KCS cuối đó. */
+  da_dat: number | null;
+  /** max(muc_tieu − da_dat, 0). Không có đơn vị ở mức nhóm (nhiều bước có thể khác đơn vị). */
+  con_thieu: number | null;
 }
 export interface SxDongThieuIn {
   ly_do_id: number;

@@ -214,6 +214,20 @@ function SanLuongSection({
         <span className="thsx-x-stat__it">đã giao <b className="thsx-num">{num(sl.da_giao)}</b></span>
         <span className="thsx-x-stat__sep">·</span>
         <span className="thsx-x-stat__it">còn <b className="thsx-num">{num(Math.max(0, sl.tong_tot - sl.da_giao))}</b></span>
+        {sl.muc_tieu != null && (
+          <>
+            <span className="thsx-x-stat__sep">·</span>
+            <span className="thsx-x-stat__it">mục tiêu <b className="thsx-num">{num(sl.muc_tieu)}</b></span>
+            <span className="thsx-x-stat__sep">·</span>
+            {sl.con_thieu ? (
+              <span className="thsx-x-pill thsx-x-pill--bad">
+                còn thiếu {num(sl.con_thieu)}{sl.don_vi ? ` ${sl.don_vi}` : ""}
+              </span>
+            ) : (
+              <span className="thsx-x-stat__it">đủ mục tiêu</span>
+            )}
+          </>
+        )}
       </div>
 
       {ketQuaToa && ketQuaToa.length > 0 && (

@@ -651,6 +651,20 @@ export function ThsxDongNhomPanel({
         <Pill map={NHOM_TT} k={dieuKien.trang_thai} />
       </div>
 
+      {dieuKien.muc_tieu != null && (
+        <div className="thsx-x-stat">
+          <span className="thsx-x-stat__it">mục tiêu <b className="thsx-num">{num(dieuKien.muc_tieu)}</b></span>
+          <span className="thsx-x-stat__sep">·</span>
+          <span className="thsx-x-stat__it">đã đạt <b className="thsx-num">{num(dieuKien.da_dat)}</b></span>
+          <span className="thsx-x-stat__sep">·</span>
+          {dieuKien.con_thieu ? (
+            <span className="thsx-x-pill thsx-x-pill--bad">còn thiếu {num(dieuKien.con_thieu)}</span>
+          ) : (
+            <span className="thsx-x-stat__it">đủ mục tiêu</span>
+          )}
+        </div>
+      )}
+
       <ul className="thsx-x-check">
         {dieuKien.dieu_kien.map((d) => (
           <li key={d.ma} className={`thsx-x-check__it${d.dat ? " is-ok" : ""}`}>
