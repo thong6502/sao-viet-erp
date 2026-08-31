@@ -517,7 +517,9 @@ def test_lan_dau_khong_dong_duong_van_bi_chan_tao_them_khong_kep_cung(
 
     dn = db.get(SanXuatVatTuDeNghi, ra["de_nghi_id"])
     assert dn.stock_request_id is None
-    assert V.SanXuatVatTuRepository(db).co_voucher(dn.stock_request_id) is False
+    # Hỏi ĐÚNG cửa mà `tao()` dùng (`StockRequestRepository`) — hỏi qua một facade khác thì test
+    # vẫn xanh dù bản thật đổi hành vi.
+    assert V.StockRequestRepository(db).co_voucher(dn.stock_request_id) is False
 
     with pytest.raises(VatTuDeNghiError) as e:
         V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)

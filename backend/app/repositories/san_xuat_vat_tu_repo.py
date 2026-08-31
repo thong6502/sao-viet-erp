@@ -33,12 +33,7 @@ class SanXuatVatTuRepository:
         )
         return int(cao or 0) + 1
 
-    def co_voucher(self, stock_request_id: int | None) -> bool:
-        """Uỷ quyền cho `StockRequestRepository.co_voucher` (ruling task-4-fix-1 minor-7): trước
-        đây hai repo tự viết CÙNG một câu SELECT — giữ method này lại chỉ để không phá cửa gọi
-        thẳng qua `SanXuatVatTuRepository` đang có (kể cả trong test), nhưng chỉ còn ĐÚNG MỘT
-        truy vấn thật, nằm ở repo yêu cầu kho.
-        """
-        from .stock_request_repo import StockRequestRepository
-
-        return StockRequestRepository(self.db).co_voucher(stock_request_id)
+    # `co_voucher` KHÔNG ở đây: "yêu cầu này đã có phiếu chưa" là câu hỏi của phía KHO, và bản duy
+    # nhất nằm ở `StockRequestRepository.co_voucher` (ruling task-4-fix-1 minor-7). Trước đây hai
+    # repo tự viết CÙNG một câu SELECT; một facade uỷ quyền cũng vẫn là hai cửa để hai bên trôi
+    # khỏi nhau, nên bỏ hẳn — mọi chỗ gọi thẳng repo kho.
