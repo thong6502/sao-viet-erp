@@ -36,18 +36,21 @@ class VatTuDeNghiError(Exception):
 
 
 def _ngay_vn(can_luc: datetime) -> date:
-    """Ngày mà `can_luc` rơi vào, tính theo GIỜ VIỆT NAM — KHÔNG phải UTC.
+    """Ngày mà `can_luc` rơi vào, theo lịch mà NGƯỜI DÙNG hai đầu cùng nhìn thấy.
 
-    Trước đây gọi thẳng `can_luc.date()`: trên một datetime AWARE, `.date()` lấy ngày theo múi giờ
-    ĐÃ GẮN trên chính giá trị đó — ở đây là UTC (client gửi ISO có offset, hoặc SQLite trả naive mà
-    ta coi = UTC, cùng quy ước `_aware()` toàn hệ thống). `can_luc` = 02/09 18:00 UTC ⇒ ngày UTC là
-    "2/9", nhưng màn kho hiện GIỜ VN (`fmtDateTime` quy về `Asia/Ho_Chi_Minh`) ra "3/9 01:00" — lưu
-    `ngay_can = 2/9` trong khi thủ kho nhìn thấy "3/9" và lọc khoảng ngày cũng theo lịch VN ⇒ lọc
-    đúng "03/09 → 03/09" mà KHÔNG ra dòng đó, mất phiếu (task-8-review.md Minor 8). Naive coi = UTC
-    trước khi quy đổi, cùng quy ước `_aware()` (`giu_cho_service.py:88`, `may_trang_thai.py:51`).
+    `can_luc` NAIVE = giờ nhà máy (wall-clock), KHÔNG phải UTC. Nó đi ra từ ô `datetime-local`
+    ở màn Thực hiện SX, và cả phân hệ sản xuất ghi/đọc naive theo quy ước wall-clock — nói rõ
+    ở `xep_lich_service._naive`: "bỏ tzinfo để serialize dạng WALL-CLOCK (giờ nhà máy) — FE
+    `new Date(iso)` KHÔNG dịch múi (tránh lệch +7h)". Bản trước coi naive = UTC rồi +7h: tổ
+    trưởng gõ 31/08 17:56 mà kho lưu `ngay_can = 01/09` — lùi hạn của thủ kho đi một ngày,
+    đúng cái ca chiều mà `can_luc` sinh ra để diễn đạt. Lọc theo ngày cũng trượt luôn.
+
+    AWARE (client gửi ISO kèm offset) thì quy về giờ VN rồi mới lấy ngày — `.date()` trên một
+    datetime aware lấy ngày theo múi ĐÃ GẮN, để nguyên là ra ngày UTC.
     """
-    aware = can_luc if can_luc.tzinfo is not None else can_luc.replace(tzinfo=timezone.utc)
-    return aware.astimezone(_VN_TZ).date()
+    if can_luc.tzinfo is None:
+        return can_luc.date()
+    return can_luc.astimezone(_VN_TZ).date()
 
 
 def _f(v) -> float:

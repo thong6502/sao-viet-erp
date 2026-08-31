@@ -51,6 +51,7 @@ import {
   type TransferStatus,
   PageSizeSelect,
   DEFAULT_PAGE_SIZE,
+  fmtGioCan,
   fmtQty,
   isOverdue,
   readStoredKho,
@@ -472,7 +473,7 @@ export function KhoYeuCauPage({
                       <td className={`rc__nowrap${overdue ? " kho-overdue" : ""}`}>
                         {/* GIỜ cần thật (từ đề nghị sản xuất) ưu tiên trước — `ngay_can` chỉ có DATE
                             nên không diễn đạt được ca chiều (task-8-ruling-man-kho). */}
-                        <div>{r.can_luc ? fmtDateTime(r.can_luc) : r.ngay_can ? fmtDateISO(r.ngay_can) : "—"}</div>
+                        <div>{r.can_luc ? fmtGioCan(r.can_luc) : r.ngay_can ? fmtDateISO(r.ngay_can) : "—"}</div>
                         {overdue && <span className="kho-priority-badge kho-priority-badge--critical" style={{ marginTop: 2 }}>Quá hạn</span>}
                       </td>
                       <td>
@@ -1316,7 +1317,7 @@ export function InboxRequestDrawer({
                     <span className="kho-info-item__label">{req.can_luc ? "Cần lúc" : "Ngày cần"}</span>
                     <div className="kho-info-item__val">
                       {req.can_luc
-                        ? fmtDateTime(req.can_luc)
+                        ? fmtGioCan(req.can_luc)
                         : req.ngay_can
                           ? fmtDateISO(req.ngay_can)
                           : "—"}

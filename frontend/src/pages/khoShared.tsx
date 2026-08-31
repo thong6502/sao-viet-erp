@@ -227,6 +227,21 @@ export function todayISO(): string {
 /** Trạng thái đã đóng sổ — quá hạn thì cũng không còn ý nghĩa cảnh báo. */
 const CLOSED: StockRequestStatus[] = ["done", "rejected", "cancelled"];
 
+/** GIỜ cần của đề nghị sản xuất, hiện ĐÚNG con số tổ trưởng đã gõ.
+ *
+ *  `can_luc` naive = giờ nhà máy (wall-clock), không phải UTC — quy ước của cả phân hệ sản xuất,
+ *  ghi rõ ở `xep_lich_service._naive`. `fmtDateTime` dùng chung thì gắn thêm "Z" rồi quy về
+ *  `Asia/Ho_Chi_Minh`, nên tổ gõ 31/08 17:56 mà kho đọc ra "1/9 00:56": lệch 7 tiếng, sang ngày,
+ *  và đá ngay với badge "Quá hạn" ngồi cạnh — `isOverdue` bên dưới dùng `new Date()` trần nên
+ *  tính đúng 17:56. Một ô không được nói hai giờ. Ở đây đọc wall-clock, khớp `isOverdue`.
+ */
+export function fmtGioCan(canLuc: string | null | undefined): string {
+  if (!canLuc) return "—";
+  const d = new Date(canLuc);
+  if (Number.isNaN(d.getTime())) return canLuc;
+  return `${d.toLocaleDateString("vi-VN")} ${d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
 /** `canLuc` (giờ cần thật, từ đề nghị sản xuất) ưu tiên khi có — so THEO GIỜ, không theo ngày:
  *  cột hiển thị đã đổi nhãn "Cần lúc" và hiện giờ (task-8-ruling-man-kho), nên tín hiệu trễ phải
  *  khớp — ca sáng cần 06:00 mà tới chiều vẫn chưa "Quá hạn" thì đá ngay với chính cột vừa hiện giờ
