@@ -606,12 +606,25 @@ class StockRequestService:
 
     # --- Đồng bộ trạng thái theo tiến độ ứng phiếu ---------------------------
 
+    @staticmethod
+    def muc_tieu_hieu_luc(ln) -> float:
+        """Mục tiêu HIỆU LỰC của một dòng: kho đã chốt thực xuất thì lấy số chốt, chưa thì `sl_duyet`.
+
+        NULL ≠ 0: NULL là "kho chưa điều chỉnh lần nào", 0 là "chốt rằng không xuất gì".
+        """
+        chot = getattr(ln, "sl_chot_thuc_xuat", None)
+        return float(chot) if chot is not None else float(ln.sl_duyet)
+
+    @staticmethod
+    def con_lai(ln) -> float:
+        return max(StockRequestService.muc_tieu_hieu_luc(ln) - float(ln.sl_da_ung), 0.0)
+
     def refresh_fulfillment(self, req: StockRequest) -> StockRequest:
         """Tính lại trạng thái sau khi 1 phiếu ghi sổ: ứng đủ hết → Hoàn tất, còn dở →
         Đã cấp một phần. Gọi từ `stock_voucher_service` sau khi cộng `sl_da_ung`."""
         if not req.lines:
             return req
-        done = all(float(ln.sl_da_ung) >= float(ln.sl_duyet) for ln in req.lines)
+        done = all(float(ln.sl_da_ung) >= self.muc_tieu_hieu_luc(ln) for ln in req.lines)
         any_issued = any(float(ln.sl_da_ung) > 0 for ln in req.lines)
         if done:
             req.trang_thai = REQ_DONE

@@ -505,7 +505,18 @@ class StockVoucherService:
                     ln.so_luong = new_ln
                     ln.sl_goc = new_goc
                 remaining -= giam
+            # Chụp TRƯỚC khi trừ: chỉ dòng đã cấp ĐỦ mới được chốt. Kho đang cấp dở (xin 100 mới
+            # xuất 60) mà điều chỉnh 60→50 thì "còn lại" phải vẫn là 50, không được thành 0 rồi
+            # đóng yêu cầu — 50 tờ kia chưa hề xuất. So với mục tiêu HIỆU LỰC chứ không `sl_duyet`,
+            # để điều chỉnh lần hai (100→80→60) vẫn chốt tiếp được.
+            da_cap_du = float(rl.sl_da_ung) >= self.request_service.muc_tieu_hieu_luc(rl)
             rl.sl_da_ung = max(0.0, float(rl.sl_da_ung) - con_bo)  # yêu cầu: 'còn N chưa cấp'
+            if da_cap_du:
+                # CHỐT = TỔNG đã xuất hiện tại của dòng yêu cầu, không phải hiệu của riêng lần
+                # điều chỉnh cuối — 100→80→60 phải ra 60, không ra 20. Ghi cột riêng thay vì hạ
+                # `sl_duyet`: hạ `sl_duyet` thì xin-100-xuất-70 và xin-70-xuất-70 hoá ra không
+                # phân biệt được (spec §2.3).
+                rl.sl_chot_thuc_xuat = float(rl.sl_da_ung)
 
         # Trả hàng về tồn tự do → lệnh khác đang chờ (giữ chỗ) có thể nhặt thêm ngay.
         if self.giu_cho is not None:
