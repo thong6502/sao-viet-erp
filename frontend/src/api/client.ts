@@ -1084,6 +1084,25 @@ export interface Xl2BocTach {
   canh_bao: string | null;
 }
 
+/** Lớp THỰC TẾ đè lên thanh Gantt — CHỈ ĐỌC. null khi bước chưa phát hành xuống tổ. */
+export interface Xl2ThucTe {
+  cong_viec_id: number;
+  /** "released" | "running" | "paused" | "completed" (CV_* của model). */
+  trang_thai: string;
+  bat_dau_thuc: string | null;
+  ket_thuc_thuc: string | null;
+  tong_tot: number;
+  tong_hong: number;
+  /** Mục tiêu của BƯỚC (`san_xuat_cong_viec.so_luong_ra`), theo `don_vi`. */
+  muc_tieu: number | null;
+  don_vi: string | null;
+  con_thieu: number | null;
+  /** 0–100+; null khi bước không khai mục tiêu. */
+  phan_tram: number | null;
+  tre_bat_dau_phut: number | null;
+  tre_ket_thuc_phut: number | null;
+}
+
 /** Một dòng lịch đã đưa vào kế hoạch (bản `_dong_view`). Giờ NAIVE (không hậu tố múi). Nhãn dẫn xuất
  *  (mã lệnh/bài · tên sản phẩm · tên công đoạn · thứ tự bước) đính kèm sẵn để thanh đọc được. */
 export interface Xl2Dong {
@@ -1118,6 +1137,8 @@ export interface Xl2Dong {
   /** Mức NẶNG NHẤT của thanh tại chỗ đang đặt (`chan_dat_lich` | `canh_bao` | null) — dùng chung
    *  detector với panel/xem-trước để dải chân bàn đếm theo mức. null nếu dòng chưa đặt giờ. */
   muc?: Xl2Muc | null;
+  /** Tiến độ THẬT của bước (spec-thuc-te-vs-ke-hoach §2.1). null = chưa phát hành. */
+  thuc_te: Xl2ThucTe | null;
 }
 
 /** Ca nền của xưởng: `[bat_dau_phut, ket_thuc_phut, qua_dem]` — chỉ soi GIỜ BẮT ĐẦU (§7.1). */

@@ -195,3 +195,29 @@ def test_khong_co_cong_viec_thi_khong_co_khoa(db):
 
 def test_danh_sach_rong_khong_chay_query(db):
     assert nap_thuc_te(db, []) == {}
+
+
+def test_ban_lam_viec_mang_theo_lop_thuc_te(db, orders, lsx_svc, admin, customer):
+    """`workspace()` phải gắn `thuc_te` vào từng thanh — và MỌI thanh đều có khoá đó (None nếu
+    chưa phát hành), để FE khỏi phải phân biệt 'thiếu khoá' với 'chưa chạy'."""
+    from app.repositories.audit_repo import AuditLogRepository
+    from app.repositories.xep_lich_2_repo import XepLich2Repository
+    from app.services.xep_lich_2 import XepLich2Service
+
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-TT5")
+    cv.trang_thai = CV_DANG_CHAY
+    cv.du_kien_bat_dau = _T0
+    cv.du_kien_ket_thuc = _T0 + timedelta(hours=4)
+    cv.so_luong_ra = 1000
+    cv.don_vi_ra = "tờ"
+    d = _dong_lich(db, cv)
+    db.add(SanXuatBatch(cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1),
+                        tong=400, tot=400, hong=0, don_vi="tờ"))
+    db.commit()
+
+    svc = XepLich2Service(db, XepLich2Repository(db), AuditLogRepository(db))
+    ban = svc.workspace(tu=_T0.date(), den=(_T0 + timedelta(days=1)).date())
+    thanh = {row["id"]: row for row in ban["dong"]}
+    assert "thuc_te" in thanh[d.id]
+    assert thanh[d.id]["thuc_te"]["tong_tot"] == 400.0
+    assert thanh[d.id]["thuc_te"]["phan_tram"] == pytest.approx(40.0)

@@ -34,6 +34,7 @@ from ..xep_lich_service import XepLichNotFound, XepLichService, _aware, _naive
 from . import constraint as C
 from . import auto, chan_doan, overlay, release, suggestion
 from .context import XepLich2Context
+from .thuc_te import nap_thuc_te
 
 # Mã CHẶN tương ứng khi ĐÃ chọn giờ mà engine không tính nổi thời lượng: thiếu dữ liệu này biến
 # lịch thành vô nghĩa ⇒ nâng từ cảnh báo lên CHẶN ĐẶT LỊCH (spec §7.1). Lúc mới tạo nháp (chưa có
@@ -892,7 +893,7 @@ class XepLich2Service:
             "con_ranh": qs["so_nguoi"] - dinh,
         }
 
-    def _dong_view(self, r: XepLichCongDoan, nhan: "_NhanMaps") -> dict:
+    def _dong_view(self, r: XepLichCongDoan, nhan: "_NhanMaps", tt: dict[int, dict] | None = None) -> dict:
         # Nhãn dẫn xuất: dòng chỉ neo id nên tra mã lệnh + tên sản phẩm + tên công đoạn từ các map
         # đã nạp theo lô (không join trong vòng lặp). LSX ăn nhánh lsx_*, bài ghép ăn nhánh bg_*.
         if r.nguon == NGUON_LSX:
@@ -931,6 +932,9 @@ class XepLich2Service:
             # chung detector `_van_de_dat_lich` với panel/xem-trước nên dải chân bàn khớp từng thanh.
             # Chỉ tính cho dòng đã có giờ (nháp chưa-giờ không có thanh để đếm mức).
             "muc": _muc_worst(self._tinh(r, {})["van_de"]) if r.start_at is not None else None,
+            # Lớp THỰC TẾ — CHỈ ĐỌC, không bao giờ dời thanh (spec-thuc-te-vs-ke-hoach §2.1).
+            # None = chưa phát hành / phát hành phiên bản khác ⇒ FE vẽ thanh trơn như trước.
+            "thuc_te": (tt or {}).get(r.id),
         }
 
     def dong_view(self, r: XepLichCongDoan) -> dict:
@@ -981,8 +985,10 @@ class XepLich2Service:
         nhap = self.repo.nhap_chua_gio()
         co_gio = [r for r in da_xep if r.start_at is not None]
         nhan = self._nap_nhan(da_xep + nhap)  # gom id CẢ hai nhóm rồi tra map một lượt
-        dong = [self._dong_view(r, nhan) for r in da_xep]
-        dong += [self._dong_view(r, nhan) for r in nhap]
+        # Nạp GỘP một lượt cho cả bàn — cùng lý do `_nap_nhan` tồn tại: bàn vài trăm thanh.
+        tt = nap_thuc_te(self.db, da_xep + nhap)
+        dong = [self._dong_view(r, nhan, tt) for r in da_xep]
+        dong += [self._dong_view(r, nhan, tt) for r in nhap]
         pl_may = [(r.may_id, _aware(r.start_at), _aware(r.finish_at)) for r in co_gio if r.may_id]
         pl_to = [(r.department_id, _aware(r.start_at), _aware(r.finish_at), self.ctx._so_nguoi(r))
                  for r in co_gio if r.department_id]
