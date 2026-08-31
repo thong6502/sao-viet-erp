@@ -97,11 +97,13 @@ function reasonTitle(r: { kind: ReasonKind; tre: boolean; soNguoi?: unknown }): 
 export function ThucHienSxPage({
   teamId,
   tenTo,
+  mode = "production",
   eventTick,
   onBadgeStale,
 }: {
   teamId: number;
   tenTo?: string;
+  mode?: "production" | "kcs";
   eventTick?: number;
   onBadgeStale?: () => void;
 }) {
@@ -153,12 +155,12 @@ export function ThucHienSxPage({
   const loadItems = useCallback(() => {
     if (!token) return;
     setErr(null);
-    api.sanXuat.workItems(token, teamId)
+    api.sanXuat.workItems(token, teamId, mode)
       .then((r) => { setItems(r.cong_viec); setErr(null); })
       .catch((e: unknown) => setErr(e instanceof ApiError
         ? (e.isForbidden ? "Tổ này ngoài phạm vi của bạn." : e.message)
         : String(e)));
-  }, [token, teamId]);
+  }, [token, teamId, mode]);
 
   useEffect(() => { loadItems(); }, [loadItems, eventTick]);
 

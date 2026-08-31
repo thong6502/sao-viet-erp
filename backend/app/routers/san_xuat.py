@@ -11,7 +11,7 @@ Phân công / phiên chạy / sản lượng (ghi) là các lát sau, thêm bả
 """
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import (
     APIRouter,
@@ -354,10 +354,14 @@ def work_items(
     authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     team_id: int = Query(..., ge=1),
+    mode: Literal["production", "kcs"] = Query("production"),
 ) -> WorkItemsOut:
-    """Công việc đã phát hành của MỘT tổ (§18 /work-items). 403 nếu tổ ngoài phạm vi quyền."""
+    """Công việc đã phát hành của MỘT tổ, lọc theo `mode` (§18 /work-items, Task 4).
+    403 nếu tổ ngoài phạm vi quyền."""
     try:
-        return WorkItemsOut.model_validate(board.work_items(db, user, authz, team_id=team_id))
+        return WorkItemsOut.model_validate(
+            board.work_items(db, user, authz, team_id=team_id, mode=mode)
+        )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
 

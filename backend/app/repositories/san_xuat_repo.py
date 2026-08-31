@@ -28,7 +28,8 @@ from ..models.san_xuat import (
     SanXuatPhienBan,
     SanXuatPhuThuoc,
 )
-from ..models.san_xuat_kcs import SanXuatKcsTieuChi, SanXuatKcsTieuChiCongDoan
+from ..models.san_xuat_kcs import SanXuatKcsBatch, SanXuatKcsTieuChi, SanXuatKcsTieuChiCongDoan
+from ..models.san_xuat_san_luong import BG_DIEU_CHINH, BG_XAC_NHAN, SanXuatBanGiao
 from ..models.xep_lich import XepLichCongDoan
 
 
@@ -328,10 +329,16 @@ class SanXuatRepository:
     # ================= ĐỌC BÀN THỰC HIỆN TẠI TỔ (§11, §18 /work-items) =================
 
     def cong_viec_cua_to(
-        self, department_ids: set[int], *, chi_chua_xong: bool = False
+        self,
+        department_ids: set[int],
+        *,
+        chi_chua_xong: bool = False,
+        la_kcs: bool | None = None,
     ) -> list[SanXuatCongViec]:
         """Công việc ĐÃ PHÁT HÀNH mà tổ (`department_id`) phải làm — timeline bàn tổ. Chỉ đọc gói
-        đang hiệu lực (bỏ gói đã thu hồi). Sắp theo giờ dự kiến (chưa xếp giờ dồn cuối), rồi id."""
+        đang hiệu lực (bỏ gói đã thu hồi). Sắp theo giờ dự kiến (chưa xếp giờ dồn cuối), rồi id.
+
+        `la_kcs`: lọc theo mode board (Task 4, §18 mục 6) — None = không lọc (giữ hành vi cũ)."""
         if not department_ids:
             return []
         q = (
@@ -344,12 +351,15 @@ class SanXuatRepository:
         )
         if chi_chua_xong:
             q = q.where(SanXuatCongViec.trang_thai != CV_HOAN_THANH)
+        if la_kcs is not None:
+            q = q.where(SanXuatCongViec.la_kcs.is_(la_kcs))
         rows = list(self.db.execute(q).scalars())
         rows.sort(key=lambda cv: (cv.du_kien_bat_dau is None, cv.du_kien_bat_dau, cv.id))
         return rows
 
     def dem_cho_lam_theo_to(self, department_ids: set[int]) -> dict[int, int]:
-        """Số việc CHƯA XONG mỗi tổ (badge navbar §2.1) — chỉ đếm gói đang hiệu lực."""
+        """Số việc SẢN XUẤT (không tính KCS) CHƯA XONG mỗi tổ (badge navbar §2.1) — chỉ đếm gói
+        đang hiệu lực. Task 4: loại việc `la_kcs=true` — badge KCS riêng ở `dem_kcs_cho_kiem_theo_to`."""
         if not department_ids:
             return {}
         from sqlalchemy import func
@@ -360,11 +370,60 @@ class SanXuatRepository:
             .where(
                 SanXuatCongViec.department_id.in_(department_ids),
                 SanXuatCongViec.trang_thai != CV_HOAN_THANH,
+                SanXuatCongViec.la_kcs.is_(False),
                 SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
             )
             .group_by(SanXuatCongViec.department_id)
         ).all()
         return {dept_id: n for dept_id, n in rows if dept_id is not None}
+
+    def dem_kcs_cho_kiem_theo_to(self, department_ids: set[int]) -> dict[int, int]:
+        """Badge KCS (§18, Task 4): số việc KCS CÒN BÀN GIAO XÁC NHẬN nhưng CHƯA KIỂM mỗi tổ — tổ
+        nào cũng có thể có (KCS kiêm nhiệm). 'Còn bàn giao xác nhận' = có `san_xuat_ban_giao` ĐẾN
+        việc này ở trạng thái confirmed/adjusted (đầu vào đã chốt). 'Chưa kiểm' = chưa có
+        `san_xuat_kcs_batch` nào neo việc này."""
+        if not department_ids:
+            return {}
+        from sqlalchemy import func, exists
+
+        ban_giao_toi = exists().where(
+            SanXuatBanGiao.dich_cong_viec_id == SanXuatCongViec.id,
+            SanXuatBanGiao.trang_thai.in_((BG_XAC_NHAN, BG_DIEU_CHINH)),
+        )
+        chua_kiem = ~exists().where(SanXuatKcsBatch.cong_viec_id == SanXuatCongViec.id)
+        rows = self.db.execute(
+            select(SanXuatCongViec.department_id, func.count(SanXuatCongViec.id))
+            .join(SanXuatGoiPhatHanh, SanXuatCongViec.goi_id == SanXuatGoiPhatHanh.id)
+            .where(
+                SanXuatCongViec.department_id.in_(department_ids),
+                SanXuatCongViec.la_kcs.is_(True),
+                SanXuatCongViec.trang_thai != CV_HOAN_THANH,
+                SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
+                ban_giao_toi,
+                chua_kiem,
+            )
+            .group_by(SanXuatCongViec.department_id)
+        ).all()
+        return {dept_id: n for dept_id, n in rows if dept_id is not None}
+
+    def to_co_viec_kcs(self, department_ids: set[int]) -> set[int]:
+        """Tổ nào đang có ÍT NHẤT MỘT việc KCS đang hoạt động (gói hiệu lực, chưa hoàn thành) —
+        cổng sinh node "KCS · {tổ}" (§18 mục 6, Task 4). RỘNG HƠN badge
+        (`dem_kcs_cho_kiem_theo_to`): không đòi hỏi đã bàn giao/chưa kiểm, chỉ cần CÓ việc KCS
+        đang chạy, để node còn hiện khi KCS đang làm/đã xong-đang chờ việc khác tới."""
+        if not department_ids:
+            return set()
+        rows = self.db.execute(
+            select(SanXuatCongViec.department_id.distinct())
+            .join(SanXuatGoiPhatHanh, SanXuatCongViec.goi_id == SanXuatGoiPhatHanh.id)
+            .where(
+                SanXuatCongViec.department_id.in_(department_ids),
+                SanXuatCongViec.la_kcs.is_(True),
+                SanXuatCongViec.trang_thai != CV_HOAN_THANH,
+                SanXuatGoiPhatHanh.trang_thai == GOI_DANG_PHAT_HANH,
+            )
+        ).scalars()
+        return {d for d in rows if d is not None}
 
     def lsx_nhan(self, lsx_ids: set[int]) -> dict[int, tuple[str, str]]:
         """{lsx_id: (mã, tên)} để gắn nhãn công việc — không có thì bỏ khỏi map."""

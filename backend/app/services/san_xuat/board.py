@@ -50,10 +50,16 @@ def _to_thay_duoc(
 
 
 def teams(db: Session, user: User, authz: AuthorizationService) -> list[dict]:
-    """Danh sách tổ sản xuất hiệu lực + badge số việc chưa xong (§18 `/teams`, §2.1 navbar)."""
+    """Danh sách tổ sản xuất hiệu lực + badge sản xuất + badge/cổng KCS (§18 `/teams`, §2.1 navbar).
+
+    `la_kcs` ở đây là `Department.is_kcs` ("tổ KCS chuyên trách") — KHÁC `la_kcs` của công việc
+    (`SanXuatCongViec.la_kcs`, cấp TỪNG bước, do tổ bất kỳ đảm nhiệm — KCS kiêm nhiệm). Field mới
+    Task 4 (`so_viec_kcs_cho`, `co_viec_kcs`) đọc theo cờ công việc, KHÔNG theo `is_kcs`."""
     repo = SanXuatRepository(db)
     tos, ids = _to_thay_duoc(db, user, authz)
     badge = repo.dem_cho_lam_theo_to(ids)
+    kcs_badge = repo.dem_kcs_cho_kiem_theo_to(ids)
+    co_kcs = repo.to_co_viec_kcs(ids)
     return [
         {
             "id": d.id,
@@ -61,6 +67,8 @@ def teams(db: Session, user: User, authz: AuthorizationService) -> list[dict]:
             "ma": d.code,
             "la_kcs": bool(getattr(d, "is_kcs", False)),
             "so_viec_cho": badge.get(d.id, 0),
+            "so_viec_kcs_cho": kcs_badge.get(d.id, 0),
+            "co_viec_kcs": d.id in co_kcs,
         }
         for d in tos
     ]
@@ -117,14 +125,21 @@ def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None) -> dict:
     }
 
 
-def work_items(db: Session, user: User, authz: AuthorizationService, *, team_id: int) -> dict:
-    """Công việc đã phát hành của MỘT tổ (timeline). Chặn nếu tổ ngoài phạm vi quyền của user."""
+def work_items(
+    db: Session, user: User, authz: AuthorizationService, *, team_id: int,
+    mode: str = "production",
+) -> dict:
+    """Công việc đã phát hành của MỘT tổ (timeline), lọc theo `mode` (Task 4, §18 mục 6):
+    - "production" (mặc định) → chỉ việc SẢN XUẤT (`la_kcs=false`).
+    - "kcs" → chỉ việc KCS (`la_kcs=true`).
+    Chặn nếu tổ ngoài phạm vi quyền của user. Router ép kiểu `mode` bằng `Literal` trước khi gọi
+    xuống đây — service nhận `str` thô là đủ."""
     repo = SanXuatRepository(db)
     _tos, ids = _to_thay_duoc(db, user, authz)
     if team_id not in ids:
         raise PermissionError("Ngoài phạm vi tổ được phép xem.")
 
-    rows = repo.cong_viec_cua_to({team_id})
+    rows = repo.cong_viec_cua_to({team_id}, la_kcs=(mode == "kcs"))
     lsx_map = repo.lsx_nhan({cv.lsx_id for cv in rows if cv.lsx_id})
     bg_map = repo.bai_ghep_nhan({cv.bai_ghep_id for cv in rows if cv.bai_ghep_id})
     may_map = repo.may_nhan({cv.may_id for cv in rows if cv.may_id})

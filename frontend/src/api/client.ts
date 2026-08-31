@@ -1370,6 +1370,10 @@ export interface SxTeam {
   ma: string;
   la_kcs: boolean;
   so_viec_cho: number;
+  // Task 4 (mg 0250) — badge/cổng board KCS kiêm nhiệm, đọc theo `SanXuatCongViec.la_kcs` (cấp
+  // CÔNG VIỆC) — KHÁC `la_kcs` phía trên (đó là `Department.is_kcs`, cấp TỔ).
+  so_viec_kcs_cho: number;
+  co_viec_kcs: boolean;
 }
 export interface SxTeamsOut {
   teams: SxTeam[];
@@ -10026,9 +10030,10 @@ export const api = {
     hoTroUngVien(token: string, teamId: number): Promise<SxHoTroUngVienListOut> {
       return authed<SxHoTroUngVienListOut>(`/api/san-xuat/teams/${teamId}/ho-tro-ung-vien`, token);
     },
-    /** Công việc đã phát hành của MỘT tổ (timeline). 403 nếu tổ ngoài phạm vi. */
-    workItems(token: string, teamId: number): Promise<SxWorkItemsOut> {
-      const suffix = qs({ team_id: teamId });
+    /** Công việc đã phát hành của MỘT tổ (timeline), lọc theo `mode` (Task 4). 403 nếu tổ ngoài
+     * phạm vi. `mode` omitted ⇒ BE tự mặc định "production" (khớp hành vi cũ). */
+    workItems(token: string, teamId: number, mode?: "production" | "kcs"): Promise<SxWorkItemsOut> {
+      const suffix = qs({ team_id: teamId, mode });
       return authed<SxWorkItemsOut>(`/api/san-xuat/work-items${suffix}`, token);
     },
     /** Drawer một công việc: thanh kế hoạch + roster + phiên chạy + khoảng tham gia. */
