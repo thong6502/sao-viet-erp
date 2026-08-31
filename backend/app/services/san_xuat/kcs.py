@@ -42,6 +42,8 @@ from ...models.user import User
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
+from ...services.rbac_service import AuthorizationService
+from .board import _to_thay_duoc
 from .thuc_thi import _aware, _gate, _moc
 
 # Dung sai làm tròn (cột Numeric(18,3)) — như san_luong.
@@ -688,13 +690,23 @@ def _trang_thai_gui_kho(loai: str, requests: list[SanXuatNhapKhoYc]) -> str:
     return "da_nhap"
 
 
-def chi_tiet_kcs(db: Session, user, cong_viec_id: int) -> dict:
-    """Danh sách batch kiểm tra + lỗi + ảnh của MỘT công việc KCS (mặt đọc cho panel drawer §13)."""
+def chi_tiet_kcs(
+    db: Session, user, authz: AuthorizationService, cong_viec_id: int
+) -> dict:
+    """Danh sách batch kiểm tra + lỗi + ảnh của MỘT công việc KCS (mặt đọc cho panel drawer §13).
+
+    Gác theo phạm vi ĐỌC (`_to_thay_duoc`) — CÙNG phạm vi với `board.chi_tiet_cong_viec`, không
+    phải `_gate`. `_gate` là cổng GHI: nó đòi user đứng `head_user_id` của đúng tổ. Đem cổng ghi
+    gác một mặt đọc thì ai không phải tổ trưởng tổ đó — kể cả quản đốc scope `all` — mở trang KCS
+    là 403 hàng loạt, dù `/work-items?mode=kcs` ngay bên cạnh đã cho họ thấy chính những việc ấy.
+    """
     repo = SanXuatKcsRepository(db)
     cv = repo.cong_viec(cong_viec_id)
     if cv is None:
         raise ValueError("Không tìm thấy công việc.")
-    _gate(db, user, cv)
+    _tos, ids = _to_thay_duoc(db, user, authz)
+    if cv.department_id not in ids:
+        raise PermissionError("Ngoài phạm vi tổ được phép xem.")
 
     batches = repo.cac_kcs_batch(cong_viec_id)
     batch_ids = [b.id for b in batches]

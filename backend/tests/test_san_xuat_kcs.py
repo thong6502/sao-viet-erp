@@ -20,6 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.models.department import Department
+from app.models.role import SCOPE_ALL, SCOPE_OWN
 from app.models.san_xuat import (
     CV_DANG_CHAY,
     CV_HOAN_THANH,
@@ -94,6 +95,16 @@ def _to_chiu(db, ten="Tổ Bế Bị Đổ", ma="TO-CHIU") -> tuple[Department, 
     db.add(d)
     db.flush()
     return d, u
+
+
+class _Authz:
+    """Ép cứng scope đọc — soi `chi_tiet_kcs` mà không lệ thuộc tên role seed (như test board)."""
+
+    def __init__(self, scope: str | None = None) -> None:
+        self._scope = scope
+
+    def scope_for(self, user, module_key):  # noqa: D401 - stub
+        return self._scope
 
 
 def _anh() -> list[dict]:
@@ -410,12 +421,34 @@ def test_phan_hoi_chung_tham(db, orders, lsx_svc, admin, customer):
 # --- Đọc: chi tiết + hộp thư + trần đóng nhóm (§13, §16) -------------------------------------
 def test_chi_tiet_kcs_gom_batch_loi_anh(db, orders, lsx_svc, admin, customer):
     cv, loi_id, to2, tt2 = _mot_loi(db, orders, lsx_svc, admin, customer)
-    ct = kcs.chi_tiet_kcs(db, admin, cv.id)
+    ct = kcs.chi_tiet_kcs(db, admin, _Authz(SCOPE_ALL), cv.id)
     assert ct["la_kcs"] is True and len(ct["batch"]) == 1
     b0 = ct["batch"][0]
     assert b0["so_luong_nhan"] == 100 and len(b0["loi"]) == 1
     assert b0["loi"][0]["trang_thai"] == TN_CHO and len(b0["loi"][0]["anh"]) == 1
     assert b0["loi"][0]["nhom_loi_ten"] == "Bong tróc mực"
+
+
+def test_chi_tiet_kcs_cho_nguoi_khong_phai_to_truong(db, orders, lsx_svc, admin, customer):
+    """Người có quyền ĐỌC phạm vi `all` nhưng KHÔNG đứng đầu tổ vẫn phải xem được chi tiết KCS.
+
+    Trước đây mặt đọc này gác bằng `_gate` (cổng GHI, đòi `head_user_id`), nên quản đốc mở trang
+    KCS là 403 hàng loạt trong khi `/work-items?mode=kcs` ngay cạnh vẫn liệt kê đúng những việc đó
+    — FE phải dựng băng "Không tải được chi tiết N việc" để che.
+    """
+    cv, _loi_id, _to2, tt2 = _mot_loi(db, orders, lsx_svc, admin, customer)
+    assert db.get(Department, cv.department_id).head_user_id != tt2.id
+
+    ct = kcs.chi_tiet_kcs(db, tt2, _Authz(SCOPE_ALL), cv.id)
+    assert ct["cong_viec_id"] == cv.id and len(ct["batch"]) == 1
+
+
+def test_chi_tiet_kcs_van_chan_khi_ngoai_pham_vi_to(db, orders, lsx_svc, admin, customer):
+    """Nới cổng GHI thành cổng ĐỌC không có nghĩa là mở toang: scope `own` ở tổ khác vẫn bị chặn."""
+    cv, _loi_id, to2, tt2 = _mot_loi(db, orders, lsx_svc, admin, customer)
+    nguoi = SimpleNamespace(id=tt2.id, department_id=to2.id, role_id=1)
+    with pytest.raises(PermissionError):
+        kcs.chi_tiet_kcs(db, nguoi, _Authz(SCOPE_OWN), cv.id)
 
 
 def test_hop_thu_loi_theo_to_truong(db, orders, lsx_svc, admin, customer):

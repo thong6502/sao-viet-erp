@@ -98,9 +98,11 @@ export function ThucHienKcsPage({
   const [chiTietMap, setChiTietMap] = useState<Record<number, SxKcsChiTiet>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // Đếm số việc mà kcsChiTiet() lỗi (thường là 403 do không đúng tổ trưởng của tổ đó — xem
-  // `_gate` ở thuc_thi.py). Trước đây các lỗi này bị nuốt im lặng, khiến "còn chờ" hiện 0 dù
-  // thực ra chỉ là không tải được dữ liệu — không phân biệt được với hàng thật sự trống.
+  // Đếm số việc mà kcsChiTiet() lỗi. Trước đây các lỗi này bị nuốt im lặng, khiến "còn chờ" hiện
+  // 0 dù thực ra chỉ là không tải được dữ liệu — không phân biệt được với hàng thật sự trống.
+  // Nguồn 403 hàng loạt cũ (mặt đọc `/work-items/{id}/kcs` gác bằng cổng GHI `_gate`, đòi phải là
+  // tổ trưởng đúng tổ) ĐÃ VÁ: giờ nó gác cùng phạm vi đọc với `/work-items`. Băng dưới vẫn giữ —
+  // nó bắt mọi hỏng khác (mạng, 500), và im lặng khi không có việc nào lỗi.
   const [chiTietFailCount, setChiTietFailCount] = useState(0);
 
   const load = useCallback(() => {

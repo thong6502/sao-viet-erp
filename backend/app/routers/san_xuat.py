@@ -814,11 +814,13 @@ def go_loai_tru(
 def chi_tiet_kcs(
     cong_viec_id: int,
     db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> dict:
-    """Batch kiểm tra + lỗi + ảnh của MỘT công việc KCS (panel drawer §13). 403 nếu ngoài tổ."""
+    """Batch kiểm tra + lỗi + ảnh của MỘT công việc KCS (panel drawer §13). 403 nếu ngoài PHẠM VI
+    ĐỌC — cùng phạm vi với `GET /work-items/{id}`, không đòi phải là tổ trưởng tổ đó."""
     try:
-        return kcs.chi_tiet_kcs(db, user, cong_viec_id)
+        return kcs.chi_tiet_kcs(db, user, authz, cong_viec_id)
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except ValueError as exc:
