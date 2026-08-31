@@ -56,6 +56,8 @@ from ..schemas.san_xuat import (
     KcsBatchIn,
     KcsBatchKetQuaOut,
     KcsChiTietOut,
+    KcsDieuChinhIn,
+    KcsDieuChinhKetQuaOut,
     KcsDotXuatKetQuaOut,
     KcsHopThuOut,
     KcsLoiKetQuaOut,
@@ -929,6 +931,27 @@ def phan_hoi_loi_kcs(
     ))
     _phat_sse_kcs(res, notify_uids=[res.get("nguoi_ghi_id")])
     _thu_dong_nhom(db, res, user=user, su_kien="kcs_phan_hoi_loi")
+    return res
+
+
+@router.patch("/kcs/{kcs_batch_id}", response_model=KcsDieuChinhKetQuaOut)
+def dieu_chinh_kcs(
+    kcs_batch_id: int,
+    body: KcsDieuChinhIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+) -> dict:
+    """Điều chỉnh kết quả batch KCS đã ghi (§4.3, §5.5) — không xoá, ghi audit trước/sau, kiểm
+    expected_version. Chặn khi kho đã đụng vào (xác nhận dù một phần) hoặc còn yêu cầu chưa hủy."""
+    checklist_ket_qua = (
+        [kq.model_dump() for kq in body.checklist_ket_qua] if body.checklist_ket_qua else None
+    )
+    res = _chay(lambda: kcs.dieu_chinh_ket_qua(
+        db, user=user, kcs_batch_id=kcs_batch_id, so_luong_dat=body.so_luong_dat,
+        so_luong_khong_dat=body.so_luong_khong_dat, checklist_ket_qua=checklist_ket_qua,
+        ghi_chu=body.ghi_chu, expected_version=body.expected_version,
+    ))
+    _phat_sse_kcs(res)
     return res
 
 

@@ -34,9 +34,11 @@ from ...models.san_xuat_kcs import (
     SanXuatKcsLoi,
     SanXuatKcsLoiAnh,
 )
+from ...models.san_xuat_kho import YC_HUY
 from ...models.san_xuat_san_luong import SanXuatBatch
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
+from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
 from .thuc_thi import _aware, _gate, _moc
 
 # Dung sai làm tròn (cột Numeric(18,3)) — như san_luong.
@@ -74,6 +76,15 @@ def _gate_member(db: Session, user, department_id: int | None) -> None:
     `_gate`/`_gate_to` (chỉ tổ trưởng) đang gác routing/phản hồi lỗi — hai gate đó GIỮ NGUYÊN."""
     if department_id is None or getattr(user, "department_id", None) != department_id:
         raise PermissionError("Chỉ thành viên của tổ được giao kiểm đột xuất mới được thao tác.")
+
+
+def _gate_dieu_chinh(db: Session, user, kcs: SanXuatKcsBatch, cv) -> None:
+    """Trưởng tổ KCS mới sửa được kết quả (§4.3) — với routing là tổ đang chạy việc (`cv.department_id`,
+    `_gate`), với đột xuất là tổ đi kiểm (`kcs.kcs_department_id`, `_gate_to`) — KHÁC tổ bị kiểm."""
+    if kcs.loai == KCS_LOAI_DOT_XUAT:
+        _gate_to(db, user, kcs.kcs_department_id)
+    else:
+        _gate(db, user, cv)
 
 
 def _validate_so_luong(nhan, dat, khong_dat, co_mau) -> tuple[float, float, float, float | None]:
@@ -353,6 +364,87 @@ def tao_kiem_dot_xuat(
     res = _kq_batch(cv, kcs)
     res["loi_id"] = loi_id
     return res
+
+
+def _con_yeu_cau_kho_chan(db: Session, kcs_batch_id: int) -> bool:
+    """Còn dòng `SanXuatNhapKhoYc` nào KHÁC `YC_HUY` của batch này (§4.3): gộp CẢ HAI điều kiện chặn
+    (đã xác nhận dù một phần / chưa nhận nhưng chưa huỷ) về MỘT check — `YC_CHO_KHO`/`YC_MOT_PHAN`/
+    `YC_DA_NHAP` đều chặn, chỉ `YC_HUY` (huỷ khi CHƯA nhận gì) mở khoá."""
+    rows = SanXuatKhoRepository(db).cac_yc_cua_batch(kcs_batch_id)
+    return any(r.trang_thai != YC_HUY for r in rows)
+
+
+def dieu_chinh_ket_qua(
+    db: Session,
+    *,
+    user,
+    kcs_batch_id: int,
+    so_luong_dat,
+    so_luong_khong_dat,
+    checklist_ket_qua: list[dict] | None = None,
+    ghi_chu: str | None = None,
+    expected_version: int,
+) -> dict:
+    """Điều chỉnh kết quả một batch KCS đã ghi (§4.3, §5.5) — KHÔNG xoá, sửa tại chỗ + audit
+    trước/sau + kiểm `expected_version`. Số NHẬN giữ NGUYÊN — chỉ đổi cách phân loại đạt/không đạt
+    trong CÙNG số đã kiểm. Chặn TUYỆT ĐỐI nếu kho đã đụng vào (xác nhận dù một phần) hoặc còn yêu
+    cầu chưa hủy — sửa sai phải hủy yêu cầu chưa nhận trước (§4.3 trình tự sửa sai bước 1), hàm này
+    KHÔNG tự hủy giúp."""
+    repo = SanXuatKcsRepository(db)
+    kcs = repo.kcs_batch(kcs_batch_id)
+    if kcs is None:
+        raise ValueError("Không tìm thấy batch kiểm tra.")
+    cv = repo.cong_viec(kcs.cong_viec_id)
+    if cv is None:
+        raise ValueError("Không tìm thấy công việc của batch kiểm tra.")
+
+    _gate_dieu_chinh(db, user, kcs, cv)
+
+    if expected_version != kcs.version:
+        raise ValueError("Phiên bản không khớp — kết quả vừa được cập nhật, hãy tải lại.")
+
+    if _con_yeu_cau_kho_chan(db, kcs.id):
+        raise ValueError(
+            "Không thể điều chỉnh: còn yêu cầu nhập kho chưa hủy hoặc đã được kho xác nhận (dù một "
+            "phần). Hủy phần chưa nhận rồi điều chỉnh, sau đó tạo lại yêu cầu nếu cần."
+        )
+
+    dat_f = _so_khong_am(so_luong_dat, "Số lượng đạt")
+    khong_dat_f = _so_khong_am(so_luong_khong_dat, "Số lượng không đạt")
+    nhan = float(kcs.so_luong_nhan)
+    if abs(nhan - (dat_f + khong_dat_f)) > _EPS:
+        raise ValueError(
+            "Đạt + Không đạt phải bằng đúng số đã nhận — điều chỉnh không đổi số nhận."
+        )
+    checklist_ket_qua = _validate_checklist_bat_buoc(cv, checklist_ket_qua)
+
+    truoc_dat, truoc_khong_dat, truoc_ket_luan = (
+        float(kcs.so_luong_dat), float(kcs.so_luong_khong_dat), kcs.ket_luan
+    )
+    kcs.so_luong_dat = dat_f
+    kcs.so_luong_khong_dat = khong_dat_f
+    kcs.ket_luan = _ket_luan(dat_f, khong_dat_f)
+    if checklist_ket_qua is not None:
+        kcs.checklist_json = checklist_ket_qua
+    if ghi_chu is not None:
+        kcs.ghi_chu = ghi_chu.strip() or None
+    kcs.version += 1
+
+    AuditLogRepository(db).create(
+        actor_user_id=getattr(user, "id", None),
+        action="san_xuat_kcs_dieu_chinh",
+        target=f"san_xuat_kcs_batch:{kcs.id}",
+        detail=(
+            f"truoc(dat={truoc_dat}, khong_dat={truoc_khong_dat}, ket_luan={truoc_ket_luan}) "
+            f"sau(dat={dat_f}, khong_dat={khong_dat_f}, ket_luan={kcs.ket_luan})"
+        ),
+    )
+    db.commit()
+    return {
+        "kcs_batch_id": kcs.id, "cong_viec_id": cv.id, "so_luong_nhan": nhan,
+        "so_luong_dat": dat_f, "so_luong_khong_dat": khong_dat_f, "ket_luan": kcs.ket_luan,
+        "version": kcs.version,
+    }
 
 
 # --- Lỗi + ảnh (§13.2) ----------------------------------------------------------------------

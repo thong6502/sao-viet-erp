@@ -601,6 +601,27 @@ class KcsPhanHoiKetQuaOut(BaseModel):
     version: int
 
 
+class KcsDieuChinhIn(BaseModel):
+    """Điều chỉnh kết quả một batch KCS đã ghi (§4.3, §5.5). `so_luong_dat + so_luong_khong_dat`
+    PHẢI khớp đúng `so_luong_nhan` hiện có trên batch (không đổi số nhận khi điều chỉnh)."""
+    so_luong_dat: float
+    so_luong_khong_dat: float
+    checklist_ket_qua: list[KcsChecklistKetQuaIn] | None = None
+    ghi_chu: str | None = None
+    expected_version: int          # BẮT BUỘC (khác các endpoint khác coi optional) — Global
+                                    # Constraint "mọi sửa... kiểm expected_version" áp cho MỌI request
+
+
+class KcsDieuChinhKetQuaOut(BaseModel):
+    kcs_batch_id: int
+    cong_viec_id: int
+    so_luong_nhan: float
+    so_luong_dat: float
+    so_luong_khong_dat: float
+    ket_luan: str
+    version: int
+
+
 class KcsAnhOut(BaseModel):
     id: int
     file_name: str

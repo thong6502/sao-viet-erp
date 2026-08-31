@@ -40,11 +40,14 @@ from app.models.san_xuat_kcs import (
     SanXuatKcsLoi,
     SanXuatKcsLoiAnh,
 )
+from app.models.san_xuat_kho import YC_CHO_KHO, YC_DA_NHAP, YC_MOT_PHAN
 from app.models.san_xuat_ly_do import NHOM_LOI, NHOM_TAM_DUNG, SanXuatLyDo
 from app.models.san_xuat_san_luong import BG_DE_XUAT, BG_XAC_NHAN, SanXuatBanGiao, SanXuatBatch
 from app.models.user import User
+from app.repositories.audit_repo import AuditLogRepository
 from app.repositories.san_xuat_kcs_repo import SanXuatKcsRepository
-from app.services.san_xuat import kcs
+from app.repositories.san_xuat_kho_repo import SanXuatKhoRepository
+from app.services.san_xuat import kcs, kho
 
 # Fixtures + helper luồng thật (kéo cả cây fixture xếp lịch).
 from tests.test_san_xuat_thuc_thi import (  # noqa: F401
@@ -127,6 +130,18 @@ def _to_kiem(db, ten="Tổ Kiểm Đột Xuất", ma="TO-KIEM") -> tuple[Departm
     u = User(username=f"tv_{ma.lower()}", name="Thành viên tổ kiểm", password_hash="x",
              department_id=d.id)
     db.add(u)
+    db.flush()
+    return d, u
+
+
+def _to_kiem_truong(db, ten="Tổ Kiểm Đột Xuất TT", ma="TO-KIEM-TT") -> tuple[Department, User]:
+    """Tổ đi kiểm đột xuất CÓ trưởng tổ (khác `_to_kiem` chỉ có thành viên thường) — dùng cho test
+    gate điều chỉnh (`_gate_to` đòi đúng `head_user_id`, khác `_gate_member` chỉ đòi cùng phòng)."""
+    u = User(username=f"tt_{ma.lower()}", name="Trưởng Tổ Kiểm", password_hash="x")
+    db.add(u)
+    db.flush()
+    d = Department(name=ten, code=ma, la_san_xuat=True, head_user_id=u.id)
+    db.add(d)
     db.flush()
     return d, u
 
@@ -563,6 +578,141 @@ def test_dot_xuat_gate_chi_thanh_vien_dung_to(db, orders, lsx_svc, admin, custom
             bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
             don_vi="cái",
         )
+
+
+# --- Điều chỉnh có audit (Task 6, §4.3, §5.5) -------------------------------------------------
+def test_dieu_chinh_gate_routing_chi_truong_to(db, orders, lsx_svc, admin, customer):
+    to, cv, res = _batch(db, orders, lsx_svc, admin, customer)     # admin = tổ trưởng (_to_khoan)
+
+    out = kcs.dieu_chinh_ket_qua(
+        db, user=admin, kcs_batch_id=res["kcs_batch_id"],
+        so_luong_dat=95, so_luong_khong_dat=5, expected_version=res["version"],
+    )
+    assert out["so_luong_dat"] == 95 and out["so_luong_khong_dat"] == 5
+
+    nguoi_la = SimpleNamespace(id=admin.id + 99_999)               # không phải head_user_id của tổ
+    with pytest.raises(PermissionError):
+        kcs.dieu_chinh_ket_qua(
+            db, user=nguoi_la, kcs_batch_id=res["kcs_batch_id"],
+            so_luong_dat=90, so_luong_khong_dat=10, expected_version=out["version"],
+        )
+
+
+def test_dieu_chinh_gate_dot_xuat_chi_truong_to(db, orders, lsx_svc, admin, customer):
+    to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer)
+    to_kiem, u_truong = _to_kiem_truong(db)
+    thanh_vien = User(username="tv_to_kiem_tt", name="Thành viên tổ kiểm", password_hash="x",
+                       department_id=to_kiem.id)
+    db.add(thanh_vien)
+    db.flush()
+    # Ghi batch đột xuất bằng thành viên thường (`_gate_member` — đúng luồng ghi Task 5).
+    res = kcs.tao_kiem_dot_xuat(
+        db, user=thanh_vien, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+        bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
+        don_vi="cái",
+    )
+
+    # Điều chỉnh: chỉ TRƯỞNG tổ kiểm (`_gate_to`) mới sửa được, KHÁC gate ghi (`_gate_member`).
+    out = kcs.dieu_chinh_ket_qua(
+        db, user=u_truong, kcs_batch_id=res["kcs_batch_id"],
+        so_luong_dat=8, so_luong_khong_dat=2, expected_version=res["version"],
+    )
+    assert out["so_luong_dat"] == 8 and out["so_luong_khong_dat"] == 2
+
+    with pytest.raises(PermissionError):                            # thành viên thường bị chặn
+        kcs.dieu_chinh_ket_qua(
+            db, user=thanh_vien, kcs_batch_id=res["kcs_batch_id"],
+            so_luong_dat=7, so_luong_khong_dat=3, expected_version=out["version"],
+        )
+
+
+def test_dieu_chinh_version_lech_bi_chan(db, orders, lsx_svc, admin, customer):
+    to, cv, res = _batch(db, orders, lsx_svc, admin, customer)
+    with pytest.raises(ValueError, match="Phiên bản"):
+        kcs.dieu_chinh_ket_qua(
+            db, user=admin, kcs_batch_id=res["kcs_batch_id"],
+            so_luong_dat=95, so_luong_khong_dat=5, expected_version=res["version"] + 1,
+        )
+
+
+def test_dieu_chinh_thanh_cong_khi_chua_gui_kho(db, orders, lsx_svc, admin, customer):
+    to, cv, res = _batch(db, orders, lsx_svc, admin, customer)     # nhan=100, dat=90, khong_dat=10
+    out = kcs.dieu_chinh_ket_qua(
+        db, user=admin, kcs_batch_id=res["kcs_batch_id"],
+        so_luong_dat=95, so_luong_khong_dat=5, expected_version=res["version"],
+    )
+    kb = SanXuatKcsRepository(db).kcs_batch(res["kcs_batch_id"])
+    assert float(kb.so_luong_dat) == 95 and float(kb.so_luong_khong_dat) == 5
+    assert kb.ket_luan == KCS_DAT_MOT_PHAN
+    assert kb.version == res["version"] + 1 == out["version"]
+    assert float(kb.so_luong_nhan) == 100                            # số nhận KHÔNG đổi
+
+
+def test_dieu_chinh_chan_khi_con_yeu_cau_kho_chua_huy(db, orders, lsx_svc, admin, customer):
+    to, cv, res = _batch(db, orders, lsx_svc, admin, customer)
+    yc = kho.tao_yeu_cau_nhap_thanh_pham(
+        db, user=admin, kcs_batch_id=res["kcs_batch_id"], so_luong=50)   # còn YC_CHO_KHO
+    assert yc["trang_thai"] == YC_CHO_KHO
+    with pytest.raises(ValueError, match="yêu cầu nhập kho"):
+        kcs.dieu_chinh_ket_qua(
+            db, user=admin, kcs_batch_id=res["kcs_batch_id"],
+            so_luong_dat=95, so_luong_khong_dat=5, expected_version=res["version"],
+        )
+
+
+def test_dieu_chinh_chan_tuyet_doi_khi_kho_da_nhan_mot_phan(db, orders, lsx_svc, admin, customer):
+    to, cv, res = _batch(db, orders, lsx_svc, admin, customer)
+    yc = kho.tao_yeu_cau_nhap_thanh_pham(
+        db, user=admin, kcs_batch_id=res["kcs_batch_id"], so_luong=50)
+    kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=20)   # kho nhận MỘT PHẦN
+    y = SanXuatKhoRepository(db).yc(yc["yc_id"])
+    assert y.trang_thai == YC_MOT_PHAN
+    with pytest.raises(ValueError, match="yêu cầu nhập kho"):
+        kcs.dieu_chinh_ket_qua(
+            db, user=admin, kcs_batch_id=res["kcs_batch_id"],
+            so_luong_dat=95, so_luong_khong_dat=5, expected_version=res["version"],
+        )
+
+    kho.huy_phan_chua_nhan(db, user=admin, yc_id=yc["yc_id"])   # KCS huỷ phần CHƯA nhận
+    y = SanXuatKhoRepository(db).yc(yc["yc_id"])
+    assert y.trang_thai == YC_DA_NHAP                            # KHÔNG PHẢI YC_HUY — không quay lại
+    with pytest.raises(ValueError, match="yêu cầu nhập kho"):    # vẫn bị chặn — "tuyệt đối"
+        kcs.dieu_chinh_ket_qua(
+            db, user=admin, kcs_batch_id=res["kcs_batch_id"],
+            so_luong_dat=95, so_luong_khong_dat=5, expected_version=res["version"],
+        )
+
+
+def test_dieu_chinh_khong_bypass_luat_giu_anh_cuoi(db, orders, lsx_svc, admin, customer):
+    to, cv, res = _batch(db, orders, lsx_svc, admin, customer, nhan=100, dat=90, khong_dat=10)
+    ld = _ly_do(db)
+    loi = kcs.ghi_loi(db, user=admin, kcs_batch_id=res["kcs_batch_id"],
+                       nhom_loi_id=ld.id, anh=_anh())               # đúng 1 ảnh
+
+    out = kcs.dieu_chinh_ket_qua(
+        db, user=admin, kcs_batch_id=res["kcs_batch_id"],
+        so_luong_dat=85, so_luong_khong_dat=15,                     # vẫn khong_dat > 0
+        expected_version=res["version"],
+    )
+    assert out["so_luong_khong_dat"] == 15
+
+    anh = db.query(SanXuatKcsLoiAnh).filter_by(loi_id=loi["loi_id"]).first()
+    with pytest.raises(ValueError, match="ảnh cuối"):                # luật cũ VẪN đứng, không bị bypass
+        kcs.xoa_anh_loi(db, user=admin, anh_id=anh.id)
+
+
+def test_dieu_chinh_ghi_audit_truoc_sau(db, orders, lsx_svc, admin, customer):
+    to, cv, res = _batch(db, orders, lsx_svc, admin, customer)     # dat=90, khong_dat=10
+    kcs.dieu_chinh_ket_qua(
+        db, user=admin, kcs_batch_id=res["kcs_batch_id"],
+        so_luong_dat=95, so_luong_khong_dat=5, expected_version=res["version"],
+    )
+    vet = AuditLogRepository(db).list_by_target(f"san_xuat_kcs_batch:{res['kcs_batch_id']}", limit=20)
+    dong = [r for r in vet if r.action == "san_xuat_kcs_dieu_chinh"]
+    assert len(dong) == 1
+    detail = dong[0].detail or ""
+    assert "dat=90" in detail and "khong_dat=10" in detail           # TRƯỚC
+    assert "dat=95" in detail and "khong_dat=5" in detail            # SAU
 
 
 # --- Đường dây HTTP ---------------------------------------------------------------------------
