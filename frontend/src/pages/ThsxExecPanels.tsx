@@ -1148,7 +1148,7 @@ function vtCanTro(
   return null;
 }
 
-function vtPayloadLines(dongs: VtDongForm[], loai: "lan_dau" | "bo_sung"): SxVatTuDeNghiDongIn[] {
+export function vtPayloadLines(dongs: VtDongForm[], loai: "lan_dau" | "bo_sung"): SxVatTuDeNghiDongIn[] {
   // Dòng KẾ HOẠCH giữ lại kể cả khi `dvt` rỗng (danh mục, snapshot của bước, hay routing của dòng
   // giấy — nguyên nhân nào cũng vậy): BE nhận được
   // `dvt=""` với số 0 và miễn luật lý do cho đúng ca đó. Lọc thẳng `!!d.dvt` như trước là vứt HẲN
@@ -1169,7 +1169,13 @@ function vtPayloadLines(dongs: VtDongForm[], loai: "lan_dau" | "bo_sung"): SxVat
     .filter((d) => (loai === "lan_dau" ? d.tuKeHoach || d.sl_yeu_cau > VT_EPS : d.sl_yeu_cau > VT_EPS));
   return giu.map((d) => ({
     hang_loai: d.hang_loai, hang_id: d.hang_id, dvt: d.dvt,
-    sl_yeu_cau: d.sl_yeu_cau, ly_do_chenh_lech: d.ly_do_chenh_lech.trim() || null,
+    sl_yeu_cau: d.sl_yeu_cau,
+    // Ô Lý do ĐÓNG lại thì chữ cũ trong state phải thôi đi theo. Kéo một dòng đang lệch về đúng
+    // kế hoạch (hoặc về 0 rồi xin lại đủ) làm ô biến mất, nhưng `d.ly_do_chenh_lech` vẫn giữ câu
+    // gõ lần trước — gửi lên thì bảng đối chiếu ghi "554/554, không lệch" mà vẫn kèm lý do giải
+    // thích một chỗ lệch KHÔNG CÒN TỒN TẠI (thấy khi nghiệm thu Task 10: hủy về 0 kèm lý do rồi
+    // xin lại đủ 554, dòng vẫn đeo "tổ chưa cần cấp giấy"). Dùng ĐÚNG vị ngữ mà ô dùng để hiện.
+    ly_do_chenh_lech: vtCanLyDo(d, loai).hien ? d.ly_do_chenh_lech.trim() || null : null,
   }));
 }
 
