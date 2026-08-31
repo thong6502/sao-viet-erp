@@ -343,6 +343,11 @@ class StockVoucherService:
                         self.giu_cho.tieu_thu(hang=hang, so_luong=sl,
                                               lsx_id=chu[0], bai_ghep_id=chu[1])
             else:
+                # Hàng vừa vào kho: TRƯỚC hết, phần đang giữ HỨA của đúng mặt hàng này (nếu có)
+                # phải chuyển thành giữ THẬT — không thì lệnh bị khoá lịch theo một ngày về đã
+                # thành quá khứ dù hàng đã nằm trong kho (xem `chuyen_dang_ve_sang_kho`).
+                for hang, sl in self._gom_theo_hang_nhap(v).items():
+                    self.giu_cho.chuyen_dang_ve_sang_kho(hang, sl)
                 self.giu_cho.nhat_them()
 
         v.trang_thai = VOUCHER_POSTED
@@ -352,7 +357,12 @@ class StockVoucherService:
         return req
 
     def post(self, voucher_id: int, user=None):
-        """Ghi sổ phiếu — điểm DUY NHẤT tồn kho đổi. Chạy trong 1 transaction.
+        """Ghi sổ phiếu — điểm DUY NHẤT tồn kho đổi.
+
+        ⚠️ KHÔNG chạy nguyên trong 1 transaction rollback-safe: phần giữ chỗ (nếu `self.giu_cho`
+        có gắn) — `chuyen_dang_ve_sang_kho()`, `doi_soat_dang_ve()`, `nhat_them()` — tự
+        `db.commit()` giữa chừng, cùng kiểu pre-existing với chính hàm này. Lỗi nửa chừng SAU một
+        commit con thì phần đã commit đó KHÔNG rollback theo.
 
         ĐIỀU CHUYỂN (mô hình 2 yêu cầu): phiếu XUẤT nguồn được tạo NHÁP lúc ấn điều chuyển, CHƯA trừ
         tồn. Khi kho đích ghi sổ phiếu NHẬP → ghi sổ LUÔN phiếu xuất nguồn (draft) trong CÙNG một
@@ -512,7 +522,16 @@ class StockVoucherService:
         return v, changes
 
     @staticmethod
-    def _gom_theo_hang_va_chu_the(v, lines_by_id: dict) -> dict[tuple, float]:
+    def _gom_theo_hang_nhap(v) -> dict[tuple, float]:
+        """`{(hang_loai, hang_id): Σ sl_goc}` của MỘT phiếu NHẬP — vào kho bao nhiêu, theo mặt
+        hàng, không cần biết chủ thể (nhập kho không gắn lệnh nào)."""
+        ra: dict[tuple, float] = {}
+        for ln in v.lines:
+            h = (ln.hang_loai, ln.hang_id)
+            ra[h] = ra.get(h, 0.0) + float(ln.sl_goc)
+        return ra
+
+    def _gom_theo_hang_va_chu_the(self, v, lines_by_id: dict) -> dict[tuple, float]:
         """`{((hang_loai, hang_id), (lsx_id, bai_ghep_id)): Σ sl_goc}` của phiếu.
 
         Gộp theo ĐƠN VỊ GỐC (`sl_goc`) vì giữ chỗ đếm bằng đơn vị gốc — so `so_luong` (đơn vị người
@@ -520,14 +539,68 @@ class StockVoucherService:
 
         Chủ thể lấy từ DÒNG YÊU CẦU: phiếu kho không tự biết xuất cho lệnh nào, `stock_request_lines`
         mới là chỗ khai.
+
+        [MỚI 30/08/2026] Dòng yêu cầu có thể khai `lsx_id` từ lúc lệnh còn ĐỘC LẬP, nhưng lệnh đó
+        SAU ĐÓ bị cuốn vào bài ghép. Giữ chỗ theo NHU CẦU THẬT (`can_doi()`), KHÔNG theo cấu trúc
+        bảng ghép: vật tư RIÊNG bước của LSX thành viên vẫn thuộc LSX dù đã ghép (spec §2); chỉ vật
+        tư CHUNG (giấy + vật tư bước chung) mới thuộc bài. Vì vậy CHỈ quy `(lsx_id, None)` sang
+        `(None, bai_ghep_id)` khi `can_doi()` KHÔNG còn nhu cầu riêng của đúng LSX cho đúng mặt hàng
+        này — nếu vẫn còn, giữ nguyên chủ thể LSX (không quy nhầm vật tư riêng sang bài). Mơ hồ
+        (không khớp nhu cầu riêng LẪN nhu cầu bài) → chặn ghi sổ, không đoán (spec §2). Chỉ chạy khi
+        có `self.giu_cho` — không giữ chỗ thì không có gì phải bảo vệ, giữ hành vi CŨ (đọc thẳng
+        `lsx_id`/`bai_ghep_id` từ dòng yêu cầu).
         """
+        from sqlalchemy import select
+
+        from ..models.bai_ghep import BaiGhep, BaiGhepThanhVien
+        from ..models.lsx import Lsx
+
+        nhu_cau = None
+        ghep_cua: dict[int, int] = {}
+        if self.giu_cho is not None:
+            lsx_can_tra = {
+                getattr(rl, "lsx_id", None)
+                for rl in lines_by_id.values()
+                if getattr(rl, "lsx_id", None) is not None
+                and getattr(rl, "bai_ghep_id", None) is None
+            }
+            if lsx_can_tra:
+                ghep_cua = dict(self.vouchers.db.execute(
+                    select(BaiGhepThanhVien.lsx_id, BaiGhepThanhVien.bai_ghep_id)
+                    .where(BaiGhepThanhVien.lsx_id.in_(lsx_can_tra))
+                ).all())
+            if ghep_cua:
+                nhu_cau = self.giu_cho._nhu_cau_theo_chu_the(self.giu_cho.kh.can_doi())
+
         ra: dict[tuple, float] = {}
         for ln in v.lines:
             rl = lines_by_id.get(ln.request_line_id)
-            khoa = (
-                (ln.hang_loai, ln.hang_id),
-                (getattr(rl, "lsx_id", None), getattr(rl, "bai_ghep_id", None)),
-            )
+            lsx_id = getattr(rl, "lsx_id", None)
+            bg_id = getattr(rl, "bai_ghep_id", None)
+            hang = (ln.hang_loai, ln.hang_id)
+            if nhu_cau is not None and lsx_id is not None and bg_id is None and lsx_id in ghep_cua:
+                if hang not in nhu_cau.get((lsx_id, None), {}):
+                    bid = ghep_cua[lsx_id]
+                    if hang in nhu_cau.get((None, bid), {}):
+                        lsx_id, bg_id = None, bid
+                    else:
+                        # Hiện TÊN/MÃ dễ đọc thay vì id thô — cùng lý do cửa kiểm lô ngay trên đã
+                        # dặn (dòng ~279): người xem lỗi này là kho, họ đọc mã "LSX-A"/"GB-1", không
+                        # đọc id nội bộ. Fallback về id khi không tra được (danh mục/lệnh đã mất).
+                        ten_hang = getattr(
+                            self.hang.map_theo_cap([hang]).get(hang), "ten", None
+                        ) or f"{hang[0]}#{hang[1]}"
+                        ma_lsx = getattr(
+                            self.vouchers.db.get(Lsx, lsx_id), "ma", None
+                        ) or f"lệnh #{lsx_id}"
+                        ma_bai = getattr(
+                            self.vouchers.db.get(BaiGhep, bid), "ma", None
+                        ) or f"bài ghép #{bid}"
+                        raise StockVoucherError(
+                            f"Không xác định được {ten_hang} thuộc {ma_lsx} riêng hay {ma_bai} — "
+                            "vào Kế hoạch vật tư kiểm lại trước khi ghi sổ."
+                        )
+            khoa = (hang, (lsx_id, bg_id))
             ra[khoa] = ra.get(khoa, 0.0) + float(ln.sl_goc)
         return ra
 

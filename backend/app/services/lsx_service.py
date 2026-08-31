@@ -2671,6 +2671,11 @@ class LsxService:
             if field in data and getattr(lsx, field) != data[field]:
                 setattr(lsx, field, data[field])
                 changed.append(field)
+        # Đổi SL đặt / quy cách là đổi luôn số vật tư cần — chặn khi đang giữ chỗ, cùng luật với
+        # routing (`replace_routing`) và xoá lệnh (`xoa`). Field khác (tên, ghi chú, người phụ
+        # trách...) không đụng vật tư nên KHÔNG chặn.
+        if ("so_luong_dat" in changed or data.get("quy_cach")):
+            self._chan_dang_giu_cho(lsx)
         # THÔNG SỐ (ảnh chụp) đổi → trộn vào rồi tính lại mọi số dẫn xuất. Đặt TRƯỚC chuỗi ngược
         # vì nó có thể đổi `so_con` (bình bài lại) — thứ chuỗi ngược lấy làm hệ số cầu.
         if data.get("quy_cach"):
@@ -2725,6 +2730,24 @@ class LsxService:
         "ghi_chu",
     }
 
+    def _chan_dang_giu_cho(self, lsx: Lsx) -> None:
+        """Lệnh đang giữ chỗ vật tư → không đổi số lượng/quy cách/routing, không xoá.
+
+        Đối xứng với `BaiGhepService._chan_dang_giu_cho`/`_chan_lenh_dang_giu_cho` ở phía bài ghép
+        — nới ở phía lệnh sẽ vô hiệu hoá khoá phía bài (LSX đứng riêng vẫn đổi được số vật tư cần
+        mà giữ chỗ không hay biết). Có ĐƯỜNG LÙI: nhả chỗ ở màn Kế hoạch vật tư rồi làm — chặn
+        cứng không lối ra sẽ biến giữ chỗ thành cái khoá vĩnh viễn.
+
+        Chặn CẢ preview (`replace_routing(commit=False)`, tức `xem_truoc_routing`): số trên màn
+        xem trước đã dùng để người dùng QUYẾT ĐỊNH có nhả chỗ hay không — cho preview chạy qua thì
+        màn nói dối, bấm Lưu thật mới báo lỗi.
+        """
+        if getattr(lsx, "giu_cho_bat", False):
+            raise LsxConflict(
+                f"Lệnh {lsx.ma} đang giữ chỗ vật tư — nhả chỗ ở màn Kế hoạch vật tư trước khi sửa "
+                "số lượng, quy cách, routing hoặc xoá lệnh."
+            )
+
     def replace_routing(self, *, lsx_id: int, rows_in, actor, ly_do: str | None = None,
                         commit: bool = True) -> Lsx:
         lsx = self.get(lsx_id)
@@ -2733,6 +2756,7 @@ class LsxService:
         order = self.db.get(Order, lsx.order_id)
         if order is not None and order.status == STATUS_CANCELLED:
             raise LsxConflict("Đơn đã hủy — không thể sửa routing")
+        self._chan_dang_giu_cho(lsx)
         truoc = len(lsx.cong_doans)
         old_by_key = {r.step_key: r for r in lsx.cong_doans}
         rows: list[LsxCongDoan] = []
@@ -3080,6 +3104,7 @@ class LsxService:
         ).scalars().first()
         if ghep_ma:
             raise LsxConflict(f"LSX đang trong bài ghép {ghep_ma} — gỡ khỏi bài trước khi xoá")
+        self._chan_dang_giu_cho(lsx)
         order_id, ma = lsx.order_id, lsx.ma
         self.repo.delete(lsx)
         self.audit.create(

@@ -10866,6 +10866,78 @@ def _migrate_phi_giao_hang_san_pham(db: Session) -> None:
 MIGRATIONS.append(("0244_phi_giao_hang_san_pham", _migrate_phi_giao_hang_san_pham))
 
 
+def _migrate_giu_cho_purchase_request_line_id(db: Session) -> None:
+    """`vat_tu_giu_cho.purchase_request_line_id` — dòng PHIẾU MUA làm phát sinh phần giữ hứa
+    (`nguon='dang_ve'`), để đối soát khi PMH đổi (dời ngày, giảm/huỷ SL, đóng đơn) biết CHÍNH XÁC
+    dòng nào bị ảnh hưởng thay vì đoán theo mặt hàng (docs/spec-ke-hoach-vat-tu.md §3.1, §3.5).
+
+    Dòng `dang_ve` CŨ (trước migration) không tra ngược được về đúng dòng phiếu nào — XOÁ SẠCH rồi
+    để `nhat_them()` tự dựng lại theo luật mới ở lần chạy kế tiếp. Dữ liệu demo (`SEED_DEMO`),
+    không phải số liệu khách hàng thật (docs/spec-ke-hoach-vat-tu.md, "Quyết định đã chốt
+    30/08/2026"). Dòng `nguon='kho'` giữ nguyên — không liên quan tới cột này.
+
+    No-op khi bảng chưa có / cột đã có.
+    """
+    insp = inspect(db.get_bind())
+    if "vat_tu_giu_cho" not in insp.get_table_names():
+        return
+    if "purchase_request_line_id" in _existing_columns(insp, "vat_tu_giu_cho"):
+        return
+    db.execute(text(
+        "ALTER TABLE vat_tu_giu_cho ADD COLUMN purchase_request_line_id INTEGER"
+    ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_vat_tu_giu_cho_purchase_request_line_id "
+        "ON vat_tu_giu_cho (purchase_request_line_id)"
+    ))
+    db.execute(text("DELETE FROM vat_tu_giu_cho WHERE nguon = 'dang_ve'"))
+    db.commit()
+    _dung_lai_giu_cho_dang_ve(db)
+
+
+def _dung_lai_giu_cho_dang_ve(db: Session) -> None:
+    """Sau khi xoá sạch dòng `dang_ve` cũ (không tra được `purchase_request_line_id`), dựng lại
+    đúng theo cột mới cho MỌI chủ thể đang bật giữ chỗ — đúng "Quyết định đã chốt 30/08/2026"
+    (docs/spec-ke-hoach-vat-tu.md §3.1: "...rồi gọi lại GiuChoService.nhat_them() cho mọi chủ thể
+    đang giu_cho_bat=true để dựng lại đúng theo cột mới"). Không gọi thì chủ thể đó "mất" phần
+    hứa cho tới lần Nhập kho/Bật-Tắt kế tiếp mới được bù lại — im lặng suốt khoảng đó.
+
+    Import cục bộ vào tầng service — LỆ RIÊNG của hàm này, không phải quy ước chung của
+    `db_migrations.py` (mọi migration khác trong file chỉ động DDL/backfill SQL thuần). Đây là
+    backfill NGHIỆP VỤ (nhặt lại đúng tồn tự do + lô đang về theo luật `nhat_them()`), không phải
+    một câu UPDATE cột đơn thuần, nên buộc phải dựng lại đúng chuỗi service như
+    `routers/ke_hoach_vat_tu.py::get_service()` — không tính tay lại một đường khác sẽ có lúc lệch.
+
+    An toàn gọi ở thời điểm boot: migration chạy TUẦN TỰ, 0245 là migration hiện tại CUỐI CÙNG,
+    nên mọi bảng/cột mà `KeHoachVatTuService`/`GiuChoService` cần đọc (routing, stock_lots,
+    purchase_request_lines...) đã ở trạng thái đã-migrate-đủ trước khi hàm này chạy.
+    """
+    from .repositories.bai_ghep_repo import BaiGhepRepository
+    from .repositories.don_vi_do_repo import DonViDoRepository
+    from .repositories.lsx_repo import LsxRepository
+    from .repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
+    from .repositories.stock_lot_repo import StockLotRepository
+    from .repositories.stock_request_repo import StockRequestRepository
+    from .repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+    from .services.giu_cho_service import GiuChoService
+    from .services.ke_hoach_vat_tu_service import KeHoachVatTuService
+    from .services.vat_lieu_kho_service import VatLieuKhoService
+
+    hang = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    kh = KeHoachVatTuService(
+        db, lsx_repo=LsxRepository(db), bai_ghep_repo=BaiGhepRepository(db), hang=hang,
+        lots=StockLotRepository(db), requests=StockRequestRepository(db),
+        purchases=PurchaseRequestRepository(db), suppliers=SupplierRepository(db),
+        don_vi=DonViDoRepository(db),
+    )
+    giu = GiuChoService(db, kh)
+    giu.nhat_them()
+
+
+MIGRATIONS.append(("0245_giu_cho_purchase_request_line_id",
+                    _migrate_giu_cho_purchase_request_line_id))
+
+
 def _migrate_kcs_kiem_nhiem_cot_nen(db: Session) -> None:
     """Nền schema module KCS KIÊM NHIỆM — Task 1/12 (`.superpowers/sdd/2026-08-31-kcs-kiem-nhiem`).
 

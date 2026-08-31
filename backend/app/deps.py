@@ -702,14 +702,34 @@ def get_purchase_service(
     db: Annotated[Session, Depends(get_db)] = None,  # type: ignore[assignment]
 ) -> PurchaseService:
     # `hang` = danh mục gốc (Giấy + Vật tư khác): bảng giá NCC gắn về mặt hàng và so giá qua đó.
+    from .repositories.bai_ghep_repo import BaiGhepRepository
     from .repositories.don_vi_do_repo import DonViDoRepository
+    from .repositories.lsx_repo import LsxRepository
+    from .repositories.stock_lot_repo import StockLotRepository
+    from .repositories.stock_request_repo import StockRequestRepository
     from .repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+    from .services.giu_cho_service import GiuChoService
+    from .services.ke_hoach_vat_tu_service import KeHoachVatTuService
     from .services.vat_lieu_kho_service import VatLieuKhoService
 
     hang = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    # `GiuChoService` (30/08/2026) — huỷ/đóng đơn/đổi đợt giao phải tự đối lại phần giữ hứa. Dựng
+    # đúng cách `routers/ke_hoach_vat_tu.py::get_service()` dựng, để không lệch số với màn Kế
+    # hoạch vật tư.
+    kh_vt = KeHoachVatTuService(
+        db,
+        lsx_repo=LsxRepository(db),
+        bai_ghep_repo=BaiGhepRepository(db),
+        hang=hang,
+        lots=StockLotRepository(db),
+        requests=StockRequestRepository(db),
+        purchases=requests,
+        suppliers=suppliers,
+        don_vi=DonViDoRepository(db),
+    )
     return PurchaseService(
         suppliers, department_requests, requests, users, departments, audit, authz, lich_su,
-        hang=hang,
+        hang=hang, giu_cho=GiuChoService(db, kh_vt),
     )
 
 

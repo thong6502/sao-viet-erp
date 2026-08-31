@@ -1181,9 +1181,24 @@ class AccountingService:
         *,
         q: str | None = None,
         filter_: str = "all",
+        aging_bucket: str | None = None,
         page: int = 1,
         size: int = 20,
     ) -> dict:
+        """Công nợ phải thu gom theo khách hàng.
+
+        PHÂN TUỔI NỢ thêm 29/08/2026 — trước đó chỉ có MỘT ô "Quá hạn" gộp tất, nên khoản trễ 3
+        ngày và khoản trễ 90 ngày nằm chung, nhìn vào không biết đòi cái nào trước. Dùng lại y
+        nguyên bộ rổ của phải trả (`AGING_BUCKETS` · `ro_tuoi`): hai màn cùng mốc thì một khoản
+        không thể hiện hai mức khẩn khác nhau ở hai chỗ.
+
+        Hoá đơn KHÔNG CÓ HẠN (khách chưa khai `payment_term_days` ⇒ `due_date` NULL) nằm ở rổ
+        "Chưa tới hạn", đúng y bên phải trả và đúng y nhánh `no_han_amount` vẫn chạy — thêm rổ
+        chứ KHÔNG đổi chỗ của khoản nào (chủ chốt 29/08/2026: *"chưa tới hạn như phải trả"*).
+
+        `aging_bucket` lọc trên danh sách ĐÃ dựng, sau khi thẻ tổng đã chốt — bấm một rổ không
+        làm mấy con số tổng ở đầu màn nhảy theo. Cùng đường với `filter_`.
+        """
         hom_nay = _business_today()
         moc_ky = hom_nay - timedelta(days=31 * PAYABLES_PERIOD_MONTHS)
         tim = (q or "").strip().lower()
@@ -1214,6 +1229,9 @@ class AccountingService:
                     "total_due": 0,
                     "overdue_amount": 0,
                     "no_han_amount": 0,
+                    # Khách không nợ gì vẫn có đủ 6 rổ = 0, không phải `{}` — thiếu khoá là giao
+                    # diện đọc ra `undefined` rồi in "NaN đ".
+                    "aging": _aging_rong(),
                     "credit_limit": row["credit_limit"],
                     "payment_term_days": row["payment_term_days"],
                     "received_in_period": 0,
@@ -1226,10 +1244,23 @@ class AccountingService:
                 continue
             bucket["invoice_count"] += 1
             bucket["total_due"] += con_no
-            if row["due_date"] is not None and row["due_date"] < hom_nay:
+            # Tính MỘT lần rồi dùng cho cả hai: `overdue/no_han` và RỔ TUỔI phải luôn khớp
+            # nhau. Tách ra so hạn hai lần là mở đúng cửa cho chúng lệch.
+            so_ngay_tre = (
+                (hom_nay - row["due_date"]).days
+                if row["due_date"] is not None and row["due_date"] < hom_nay
+                else 0
+            )
+            if so_ngay_tre > 0:
                 bucket["overdue_amount"] += con_no
             else:
+                # Gồm cả hoá đơn CHƯA TỚI HẠN lẫn hoá đơn KHÔNG CÓ HẠN (khách chưa khai số ngày
+                # thanh toán). `ro_tuoi(0)` trả đúng khoá "chưa tới hạn" nên hai nhánh này rơi
+                # cùng một rổ — giữ nguyên hành vi cũ của `no_han_amount`.
                 bucket["no_han_amount"] += con_no
+            khoa = ro_tuoi(so_ngay_tre)
+            bucket["aging"][khoa]["amount"] += con_no
+            bucket["aging"][khoa]["count"] += 1
 
         for cid, amount in thu_theo_khach.items():
             if cid in theo_khach:
@@ -1255,6 +1286,12 @@ class AccountingService:
             items = [i for i in items if i["no_han_amount"] > 0]
         elif filter_ == "vuot_han_muc":
             items = [i for i in items if i["vuot_han_muc"]]
+        if aging_bucket in AGING_KEYS:
+            items = [i for i in items if i["aging"][aging_bucket]["amount"] > 0]
+
+        tong_ro = _aging_rong()
+        for i in tong_hop:
+            _aging_cong(tong_ro, i["aging"])
 
         page = max(1, page)
         size = max(1, min(size, 200))
@@ -1272,6 +1309,7 @@ class AccountingService:
             "overdue_amount": sum(i["overdue_amount"] for i in tong_hop),
             "received_in_period": sum(i["received_in_period"] for i in tong_hop),
             "vuot_han_muc_count": sum(1 for i in tong_hop if i["vuot_han_muc"]),
+            "aging": _aging_ra_danh_sach(tong_ro),
             "period_months": PAYABLES_PERIOD_MONTHS,
             "as_of": hom_nay,
         }
@@ -1305,6 +1343,10 @@ class AccountingService:
                         if row["due_date"] is not None and row["due_date"] < hom_nay
                         else 0
                     ),
+                    # KHOÁ RỔ TUỔI của chính hoá đơn này — chụp bằng đúng `ro_tuoi()` server
+                    # dùng cho dải tổng, để một hoá đơn KHÔNG BAO GIỜ hiện hai mức khẩn khác nhau
+                    # ở hai màn. Chỉ có giá trị khi thật sự trễ; chưa trễ thì None.
+                    "aging_bucket": None,
                     "amount": row["amount"],
                     "direct_received_amount": row["direct_received_amount"],
                     "deposit_offset_amount": row["deposit_offset_amount"],
@@ -1312,6 +1354,12 @@ class AccountingService:
                     "remaining_amount": con_no,
                 }
             )
+        ro_chi_tiet = _aging_rong()
+        for it in items:
+            khoa = ro_tuoi(it["overdue_days"])
+            it["aging_bucket"] = khoa if it["overdue_days"] > 0 else None
+            ro_chi_tiet[khoa]["amount"] += it["remaining_amount"]
+            ro_chi_tiet[khoa]["count"] += 1
         items.sort(key=lambda x: (x["due_date"] is not None, x["due_date"] or hom_nay))
         paid = self._receipts_for_receivable_rows(rows, since=moc_ky)
         total_due = sum(i["remaining_amount"] for i in items)
@@ -1330,6 +1378,7 @@ class AccountingService:
             "all_history": all_history,
             "total_due": total_due,
             "overdue_amount": overdue_amount,
+            "aging": _aging_ra_danh_sach(ro_chi_tiet),
             "received_in_period": sum(p["amount"] for p in paid),
             "as_of": hom_nay,
         }

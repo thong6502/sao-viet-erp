@@ -1,7 +1,7 @@
 """Truy vấn bảng GIỮ CHỖ vật tư. Không luật nghiệp vụ nào ở đây — xem `giu_cho_service`."""
 from __future__ import annotations
 
-from sqlalchemy import delete, func, select, tuple_
+from sqlalchemy import delete, func, or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from ..models.vat_tu_giu_cho import VatTuGiuCho
@@ -35,6 +35,31 @@ class GiuChoRepository:
         stmt = (stmt.where(VatTuGiuCho.lsx_id == lsx_id) if lsx_id is not None
                 else stmt.where(VatTuGiuCho.bai_ghep_id == bai_ghep_id))
         return list(self.db.execute(stmt.order_by(VatTuGiuCho.id.asc())).scalars())
+
+    def cua_nhieu_chu_the(
+        self, chu_the: list[tuple[int | None, int | None]]
+    ) -> dict[tuple[int | None, int | None], list[VatTuGiuCho]]:
+        """Gộp `cua_chu_the()` cho NHIỀU chủ thể một lượt — 1 query thay vì N.
+
+        `giu_theo_chu_the_hang()` gọi `trang_thai()` cho từng chủ thể trong bảng; để mỗi lần tự
+        query riêng thì N chủ thể (có thể tới hàng trăm lệnh) là N round-trip DB không cần thiết.
+        """
+        lsx_ids = [c[0] for c in chu_the if c[0] is not None]
+        bai_ids = [c[1] for c in chu_the if c[1] is not None]
+        if not lsx_ids and not bai_ids:
+            return {}
+        dieu_kien = []
+        if lsx_ids:
+            dieu_kien.append(VatTuGiuCho.lsx_id.in_(lsx_ids))
+        if bai_ids:
+            dieu_kien.append(VatTuGiuCho.bai_ghep_id.in_(bai_ids))
+        rows = self.db.execute(
+            select(VatTuGiuCho).where(or_(*dieu_kien)).order_by(VatTuGiuCho.id.asc())
+        ).scalars()
+        ra: dict[tuple[int | None, int | None], list[VatTuGiuCho]] = {}
+        for r in rows:
+            ra.setdefault((r.lsx_id, r.bai_ghep_id), []).append(r)
+        return ra
 
     def xoa_cua_chu_the(self, *, lsx_id: int | None, bai_ghep_id: int | None) -> int:
         stmt = delete(VatTuGiuCho)

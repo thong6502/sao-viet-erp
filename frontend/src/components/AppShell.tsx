@@ -580,7 +580,7 @@ export function AppShell() {
   useEffect(() => {
     if (!token || readable === null || !coTheMoKenhSse(readable)) return;
     if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("cham_cong") || readable.has("thu_mua") || readable.has("yeu_cau_mua_hang") || readable.has("ke_toan") ||
-      readable.has("phieu_chi") || readable.has("phieu_thu") ||
+      readable.has("phieu_chi") || readable.has("phieu_thu") || readable.has("ke_hoach_vat_tu") ||
       // Tài xế thường CHỈ có ô `giao_hang` — không mở cổng ở đây thì họ không kết nối
       // SSE, và mọi thông báo chuyến gửi cho họ rơi vào hư không.
       readable.has("giao_hang"))) return;
@@ -603,6 +603,10 @@ export function AppShell() {
       }
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
       setQuoteTick((n) => n + 1);
+      if (e.type === "ke_hoach_vat_tu_thay_doi") {
+        pushToast("Kế hoạch vật tư vừa cập nhật.", "info");
+        return;
+      }
       if (e.type === "quote_decision") {
         pushToast(
           e.decision === "approved"

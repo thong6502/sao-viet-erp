@@ -319,6 +319,99 @@ def test_invoice_without_payment_terms_is_due_but_not_overdue(client):
     assert detail["overdue_amount"] == 0
 
 
+def test_phan_tuoi_no_phai_thu_xe_dung_ro_va_tong_luon_khop(client):
+    """PHÂN TUỔI NỢ phải thu (chủ chốt 29/08/2026) — trước đó chỉ có MỘT ô "Quá hạn" gộp tất.
+
+    Dựng ba hoá đơn trễ ba mức khác nhau + một hoá đơn CHƯA tới hạn, rồi soi hai bất biến:
+
+      1. Mỗi hoá đơn rơi ĐÚNG rổ theo số ngày trễ.
+      2. Tổng 5 rổ TRỄ = đúng `overdue_amount`. Đây là bất biến sống còn: hai chỗ nói hai kiểu
+         tiền là lỗi nặng nhất của màn công nợ (`test_phan_tuoi_cong_no.py` canh y hệt điều đó
+         cho bên phải trả).
+    """
+    headers = _headers(client)
+    # `term_days=0` ⇒ hạn = chính ngày hoá đơn, nên lùi ngày hoá đơn bao nhiêu là trễ bấy nhiêu.
+    # Đơn phải đủ to cho 4 hoá đơn 1tr — server chặn xuất quá phần chưa xuất hoá đơn.
+    order_id, customer_id = _sales_order(total=4_000_000, term_days=0, suffix="tuoi")
+    mong = {"d1_7": 5, "d16_30": 20, "d60_plus": 90}
+    for i, (ro, tre) in enumerate(mong.items(), start=40):
+        payload = _invoice_payload(order_id, number=f"000000{i}", amount=1_000_000)
+        payload["invoice_date"] = (_hom_nay() - timedelta(days=tre)).isoformat()
+        r = client.post("/api/accounting/sales-invoices", json=payload, headers=headers)
+        assert r.status_code == 201, (ro, r.text)
+    # Một hoá đơn CHƯA tới hạn để rổ đầu không rỗng.
+    chua = _invoice_payload(order_id, number="00000049", amount=1_000_000)
+    chua["invoice_date"] = _hom_nay().isoformat()
+    assert client.post(
+        "/api/accounting/sales-invoices", json=chua, headers=headers
+    ).status_code == 201
+
+    tong = client.get("/api/accounting/receivables", headers=headers).json()
+    khach = next(i for i in tong["items"] if i["customer_id"] == customer_id)
+
+    for ro, _tre in mong.items():
+        assert khach["aging"][ro]["amount"] == 1_000_000, (ro, khach["aging"])
+        assert khach["aging"][ro]["count"] == 1, ro
+    assert khach["aging"]["chua_toi_han"]["amount"] == 1_000_000
+
+    tre = sum(
+        v["amount"] for k, v in khach["aging"].items() if k != "chua_toi_han"
+    )
+    assert tre == khach["overdue_amount"] == 3_000_000
+    assert khach["aging"]["chua_toi_han"]["amount"] == khach["no_han_amount"]
+
+    # Dải rổ TOÀN MÀN phải cộng ra cùng con số.
+    ro_man = {b["key"]: b["amount"] for b in tong["aging"]}
+    assert sum(v for k, v in ro_man.items() if k != "chua_toi_han") == tong["overdue_amount"]
+
+    # Lọc theo rổ: chỉ giữ khách còn tiền trong rổ đó, và KHÔNG làm tổng đầu màn nhảy.
+    # Tên tham số là `aging_bucket`, CÙNG tên với màn phải trả. Gõ `aging=` thì server lặng lẽ
+    # bỏ qua và trả nguyên danh sách — bộ lọc "chạy" mà không lọc gì, đúng cái bẫy lượt
+    # `init.ps1` 29/08/2026 bắt được.
+    loc = client.get(
+        "/api/accounting/receivables?aging_bucket=d60_plus", headers=headers
+    ).json()
+    assert any(i["customer_id"] == customer_id for i in loc["items"])
+    assert loc["total_due"] == tong["total_due"]
+    trong = client.get(
+        "/api/accounting/receivables?aging_bucket=d31_60", headers=headers
+    ).json()
+    assert all(i["customer_id"] != customer_id for i in trong["items"])
+
+    # Màn CHI TIẾT của khách phải ra cùng bộ rổ — hai màn lệch là một khoản hiện hai mức khẩn.
+    ct = client.get(f"/api/accounting/receivables/{customer_id}", headers=headers).json()
+    assert {b["key"]: b["amount"] for b in ct["aging"]} == {
+        b["key"]: b["amount"] for b in tong["aging"]
+    }
+
+
+def test_hoa_don_khong_co_han_nam_o_ro_chua_toi_han(client):
+    """Khách chưa khai số ngày thanh toán ⇒ hoá đơn không có hạn ⇒ rổ "Chưa tới hạn".
+
+    Chủ chốt 29/08/2026 chọn y hệt bên phải trả: *"chưa tới hạn như phải trả"*. Thêm rổ KHÔNG
+    được đổi chỗ của khoản nào — nó vẫn phải nằm đúng chỗ `no_han_amount` vẫn xếp, và vẫn đeo cờ
+    `chua_dat_han` ở màn chi tiết để không ai tưởng nó đã được canh."""
+    headers = _headers(client)
+    order_id, customer_id = _sales_order(term_days=None, suffix="khhan")
+    assert client.post(
+        "/api/accounting/sales-invoices",
+        json=_invoice_payload(order_id, number="00000051"),
+        headers=headers,
+    ).status_code == 201
+
+    tong = client.get("/api/accounting/receivables", headers=headers).json()
+    khach = next(i for i in tong["items"] if i["customer_id"] == customer_id)
+    assert khach["aging"]["chua_toi_han"]["amount"] == khach["total_due"]
+    assert khach["overdue_amount"] == 0
+    assert all(
+        v["amount"] == 0 for k, v in khach["aging"].items() if k != "chua_toi_han"
+    )
+
+    ct = client.get(f"/api/accounting/receivables/{customer_id}", headers=headers).json()
+    assert ct["items"][0]["chua_dat_han"] is True
+    assert ct["items"][0]["aging_bucket"] is None
+
+
 def test_invoice_validation_requires_traceable_identity_and_valid_date(client):
     headers = _headers(client)
     order_id, _ = _sales_order()

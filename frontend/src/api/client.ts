@@ -430,7 +430,10 @@ export type QuoteEvent =
       order_id?: number | null;
       trang_thai?: string | null;
       kieu?: string | null;
-    };
+    }
+  // Bảng giữ chỗ vật tư (Kế hoạch vật tư) đổi — bật/tắt/nhặt thêm/chuyển kho/đối soát — gửi
+  // BROADCAST (không riêng ai), chỉ để báo "tự tải lại", không mang state.
+  | { type: "ke_hoach_vat_tu_thay_doi" };
 
 // --- Trung tâm thông báo (chuông Topbar) -------------------------------------
 export interface AppNotification {
@@ -5744,6 +5747,9 @@ export interface PurchaseRequestLineInput {
   note?: string | null;
   /** Dòng YCMH đẻ ra dòng này — nền cho "tình trạng từng sản phẩm" ở chi tiết yêu cầu. */
   department_request_line_id?: number | null;
+  /** Liên kết mặt hàng gốc (mg 0174). Không gửi thì server tự kế thừa từ dòng YCMH nguồn. */
+  hang_loai?: HangLoai | null;
+  hang_id?: number | null;
 }
 
 // --- Công nợ phải trả ------------------------------------------------------
@@ -5769,6 +5775,21 @@ export interface PayableSupplierRow {
   total_due: number;
 }
 
+/** Một RỔ TUỔI NỢ. Sáu rổ: chưa tới hạn · trễ 1–7 · 8–15 · 16–30 · 31–60 · >60 ngày.
+ *  Mốc do server giữ (`AGING_BUCKETS`) — đừng gõ lại số ngày ở giao diện. */
+export interface AgingBucket {
+  key: string;
+  label: string;
+  amount: number;
+  count: number;
+}
+
+/** Rổ tuổi của MỘT nhà cung cấp / khách hàng — dạng bảng tra theo khoá rổ. */
+export interface AgingCell {
+  amount: number;
+  count: number;
+}
+
 export interface PayablesSummary {
   items: PayableSupplierRow[];
   total: number;
@@ -5779,6 +5800,8 @@ export interface PayablesSummary {
   overdue_amount: number;
   paid_in_period: number;
   vuot_han_muc_count: number;
+  /** Rổ tuổi TOÀN MÀN. Tổng 5 rổ trễ luôn đúng bằng `overdue_amount`. */
+  aging: AgingBucket[];
   period_months: number;
   as_of: string;
 }
@@ -5877,6 +5900,8 @@ export interface PayablesDetail {
   all_history: boolean;
   total_due: number;
   overdue_amount: number;
+  /** Rổ tuổi của riêng NCC này, dựng từ chính `items`. */
+  aging: AgingBucket[];
   paid_in_period: number;
   as_of: string;
 }
@@ -5895,6 +5920,8 @@ export interface ReceivableCustomerRow {
   payment_term_days: number | null;
   vuot_han_muc: boolean;
   vuot_bao_nhieu: number;
+  /** Rổ tuổi của RIÊNG khách này, tra theo khoá rổ. Khách không nợ vẫn đủ 6 khoá = 0. */
+  aging: Record<string, AgingCell>;
   received_in_period: number;
 }
 
@@ -5908,6 +5935,8 @@ export interface ReceivablesSummary {
   overdue_amount: number;
   received_in_period: number;
   vuot_han_muc_count: number;
+  /** Rổ tuổi TOÀN MÀN. Tổng 5 rổ trễ luôn đúng bằng `overdue_amount`. */
+  aging: AgingBucket[];
   period_months: number;
   as_of: string;
 }
@@ -5924,6 +5953,9 @@ export interface ReceivableItemRow {
   due_date: string | null;
   chua_dat_han: boolean;
   overdue_days: number;
+  /** Khoá rổ tuổi — CHỈ có khi `overdue_days > 0`. Server chụp sẵn bằng cùng hàm dùng cho dải
+   *  tổng, để một hoá đơn không hiện hai mức khẩn khác nhau ở hai màn. */
+  aging_bucket: string | null;
   amount: number;
   direct_received_amount: number;
   deposit_offset_amount: number;
@@ -6007,6 +6039,8 @@ export interface ReceivablesDetail {
   all_history: boolean;
   total_due: number;
   overdue_amount: number;
+  /** Rổ tuổi của riêng khách này, dựng từ chính `items`. */
+  aging: AgingBucket[];
   received_in_period: number;
   as_of: string;
 }
@@ -6086,6 +6120,8 @@ export interface PurchaseRequestLineOut {
   vat_amount: number;
   line_total: number;
   note: string | null;
+  /** Dòng YCMH đẻ ra dòng này (mg 0174b) — form SỬA cần đọc lại để gửi đúng liên kết. */
+  department_request_line_id: number | null;
   /** Liên kết mặt hàng gốc (mg 0174) — Nhập kho từ đợt giao auto-điền vật tư. Null = chỉ tên chữ. */
   hang_loai: HangLoai | null;
   hang_id: number | null;
@@ -7451,6 +7487,10 @@ export type HangLoai = "giay" | "vat_tu";
  *  ca xử ngược nhau: đỏ thì đi mua, về muộn thì dời lịch. Gộp một màu là mời người ta mua đúp. */
 export type CanDoiMau = "xam" | "xanh" | "vang" | "do" | "khong_ro" | "ve_muon";
 
+/** Trạng thái GIỮ CHỖ 6 mức — khác `CanDoiMau` (3 mức trung tính gộp lại): ở đây tách được "đã
+ *  giữ" khỏi "có thể giữ nhưng chưa bật" khỏi "đã cấp thật". */
+export type TrangThaiGiu = "khong_ro" | "thieu" | "ve_muon" | "co_the_giu" | "da_giu" | "da_cap";
+
 export interface CanDoiDong {
   /** `vat_tu` = so tồn · `cong_cu` = khuôn bế, KHÔNG so tồn (chỉ hỏi sẵn sàng đúng lúc chưa). */
   loai: "vat_tu" | "cong_cu";
@@ -7481,6 +7521,14 @@ export interface CanDoiDong {
   /** Phần thiếu RIÊNG của dòng (không phải luỹ kế) — tick nhiều dòng rồi cộng vẫn đúng. */
   thieu: number | null;
   trang_thai: CanDoiMau;
+  /** [MỚI 30/08/2026] Giữ chỗ gộp theo (chủ thể, mặt hàng) — KHÔNG phải phần riêng của dòng khi
+   *  cùng chủ thể ăn cùng món ở nhiều bước. */
+  da_giu_kho: number | null;
+  da_giu_dang_ve: number | null;
+  co_the_giu_kho: number | null;
+  co_the_giu_dang_ve: number | null;
+  trang_thai_giu: TrangThaiGiu | null;
+  nguon_dang_ve: { purchase_request_line_id: number; ma_pmh: string | null; so_luong: number }[] | null;
   /** Ngày về của lô ĐỦ ĐỂ PHỦ chỗ thiếu — chỉ có ở dòng `ve_muon`. Không phải lô gần nhất: dời
    *  lịch theo lô gần nhất mà nó chỉ có 1 kg thì tới nơi vẫn không đủ hàng. */
   ngay_du_hang: string | null;
@@ -7589,6 +7637,14 @@ export interface TheoLenhHang {
   can: number;
   thieu: number;
   dang_giu: number;
+  /** [MỚI 30/08/2026] Tách nguồn phần đã giữ + trạng thái giữ 6 mức — xem `TrangThaiGiu`. */
+  da_giu_kho: number;
+  da_giu_dang_ve: number;
+  co_the_giu_kho: number;
+  co_the_giu_dang_ve: number;
+  trang_thai_giu: TrangThaiGiu;
+  /** Mã PMH cụ thể đang góp cho `da_giu_dang_ve` — để hiện "đang bám đơn nào". */
+  nguon_dang_ve: { purchase_request_line_id: number; ma_pmh: string | null; so_luong: number }[];
   /** >1 nghĩa là con số trên đã GỘP nhiều công đoạn — hiện ra để không ai tưởng đó là một bước. */
   so_buoc: number;
   /** Màu NẶNG NHẤT trong các bước. Thẻ chỉ hiện được một màu. */
@@ -11081,11 +11137,20 @@ export const api = {
         `q` lọc ở SERVER: NCC đã trả hết và im lặng lâu thì không có dòng nào để lọc phía màn. */
     payables(
       token: string,
-      params: { q?: string; filter?: string; page?: number; size?: number } = {},
+      params: {
+        q?: string;
+        filter?: string;
+        /** Khoá rổ tuổi — lọc danh sách theo rổ. Tên tham số PHẢI là `aging_bucket`, hai màn
+         *  dùng chung một tên để chép URL qua lại vẫn chạy. */
+        aging?: string | null;
+        page?: number;
+        size?: number;
+      } = {},
     ): Promise<PayablesSummary> {
       const qs = new URLSearchParams();
       if (params.q?.trim()) qs.set("q", params.q.trim());
       if (params.filter && params.filter !== "all") qs.set("filter", params.filter);
+      if (params.aging) qs.set("aging_bucket", params.aging);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
@@ -11102,11 +11167,20 @@ export const api = {
     },
     receivables(
       token: string,
-      params: { q?: string; filter?: string; page?: number; size?: number } = {},
+      params: {
+        q?: string;
+        filter?: string;
+        /** Khoá rổ tuổi — lọc danh sách theo rổ. Tên tham số PHẢI là `aging_bucket`, hai màn
+         *  dùng chung một tên để chép URL qua lại vẫn chạy. */
+        aging?: string | null;
+        page?: number;
+        size?: number;
+      } = {},
     ): Promise<ReceivablesSummary> {
       const qs = new URLSearchParams();
       if (params.q?.trim()) qs.set("q", params.q.trim());
       if (params.filter && params.filter !== "all") qs.set("filter", params.filter);
+      if (params.aging) qs.set("aging_bucket", params.aging);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
