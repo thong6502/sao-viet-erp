@@ -30,6 +30,7 @@ from ...models.san_xuat_kcs import (
     KCS_LOAI_ROUTING,
     TN_CHAP_NHAN,
     TN_CHO,
+    TN_RECORDED,
     TN_TU_CHOI,
     SanXuatKcsBatch,
     SanXuatKcsLoi,
@@ -345,7 +346,7 @@ def tao_kiem_dot_xuat(
             cong_doan_ref_id=int(cong_doan_ref_id) if cong_doan_ref_id else None,
             so_luong=khong_dat,
             don_vi=don_vi_kcs,
-            trang_thai=TN_CHO,
+            trang_thai=TN_RECORDED,
             created_by=getattr(user, "id", None),
         )
         repo.add(loi)
@@ -484,7 +485,9 @@ def ghi_loi(
     """Ghi MỘT lỗi phát hiện trong batch KCS (§13.2) + ≥1 ảnh bằng chứng (bắt buộc).
 
     Người ghi = tổ trưởng tổ KCS (gate theo công việc KCS). `nhom_loi_id` phải là lý do nhóm `loi`.
-    `to_chiu_id` (tổ bị yêu cầu nhận trách nhiệm) mặc định `pending` chờ tổ đó phản hồi."""
+    `to_chiu_id` (tổ liên đới, tùy chọn) chỉ để tra cứu — lỗi ghi `trang_thai="recorded"` MỘT
+    CHIỀU, không tạo `pending` và không chờ phản hồi (§2.3; khác luồng `phan_hoi_loi` cũ áp cho
+    hồ sơ `pending` từ trước, xem `TN_CHO`/`TRANG_THAI_TRACH_NHIEM`)."""
     repo = SanXuatKcsRepository(db)
     kcs = repo.kcs_batch(kcs_batch_id)
     if kcs is None:
@@ -527,7 +530,7 @@ def ghi_loi(
         cong_doan_ref_id=int(cong_doan_ref_id) if cong_doan_ref_id else None,
         so_luong=so_luong_f,
         don_vi=(don_vi or kcs.don_vi or "").strip() or None,
-        trang_thai=TN_CHO,
+        trang_thai=TN_RECORDED,
         created_by=getattr(user, "id", None),
     )
     repo.add(loi)

@@ -56,6 +56,7 @@ KET_LUAN_KCS = (KCS_DAT, KCS_DAT_MOT_PHAN, KCS_KHONG_DAT)
 TN_CHO = "pending"          # chờ tổ phụ trách phản hồi
 TN_CHAP_NHAN = "accepted"   # tổ nhận trách nhiệm → tính vào chất lượng tổ
 TN_TU_CHOI = "rejected"     # tổ từ chối kèm lý do → không quy trách nhiệm nhưng GIỮ đủ bằng chứng
+TN_RECORDED = "recorded"    # lỗi MỚI (kiêm nhiệm, mg 0250) — ghi một chiều, không chờ phản hồi
 TRANG_THAI_TRACH_NHIEM = (TN_CHO, TN_CHAP_NHAN, TN_TU_CHOI)
 
 # --- Loại batch KCS (module KCS kiêm nhiệm, mg `0250`) ---------------------------------------

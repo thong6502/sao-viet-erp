@@ -35,6 +35,7 @@ from app.models.san_xuat_kcs import (
     KCS_LOAI_ROUTING,
     TN_CHAP_NHAN,
     TN_CHO,
+    TN_RECORDED,
     TN_TU_CHOI,
     SanXuatKcsBatch,
     SanXuatKcsLoi,
@@ -303,7 +304,7 @@ def test_ghi_loi_kem_anh_va_neo_to_chiu(db, orders, lsx_svc, admin, customer):
     )
 
     loi = db.get(SanXuatKcsLoi, res["loi_id"])
-    assert loi.trang_thai == TN_CHO and loi.to_chiu_id == to2.id
+    assert loi.trang_thai == TN_RECORDED and loi.to_chiu_id == to2.id
     assert loi.nhom_loi_id == ld.id and float(loi.so_luong) == 6
     # Đẩy SSE tới tổ trưởng tổ BỊ yêu cầu.
     assert res["to_chiu_head_user_id"] == tt2.id
@@ -354,12 +355,23 @@ def test_them_roi_xoa_anh(db, orders, lsx_svc, admin, customer):
 
 # --- Phản hồi trách nhiệm (§13.2) -----------------------------------------------------------
 def _mot_loi(db, orders, lsx_svc, admin, customer):
+    """Lỗi kiểu CŨ (trang_thai=pending), chèn thẳng qua model — dùng để test luồng phản hồi legacy
+    (§7: hồ sơ cũ pending/accepted/rejected giữ nguyên để đọc lịch sử). KHÔNG qua `kcs.ghi_loi()`
+    vì lỗi MỚI ghi `recorded`, không còn đi vào trạng thái `pending` nữa (Task 11.5)."""
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
     ld = _ly_do(db)
     to2, tt2 = _to_chiu(db)
-    res = kcs.ghi_loi(db, user=admin, kcs_batch_id=rb["kcs_batch_id"],
-                      nhom_loi_id=ld.id, to_chiu_id=to2.id, anh=_anh())
-    return cv, res["loi_id"], to2, tt2
+    loi = SanXuatKcsLoi(
+        kcs_batch_id=rb["kcs_batch_id"], nhom_loi_id=ld.id, to_chiu_id=to2.id,
+        so_luong=6, don_vi="cái", trang_thai=TN_CHO, created_by=admin.id,
+    )
+    db.add(loi)
+    db.flush()
+    db.add(SanXuatKcsLoiAnh(loi_id=loi.id, file_name="loi.jpg",
+                             file_url="/api/files/san-xuat/kcs-loi/1/x_loi.jpg",
+                             file_type="image/jpeg", uploaded_by=admin.id))
+    db.commit()
+    return cv, loi.id, to2, tt2
 
 
 def test_phan_hoi_chap_nhan(db, orders, lsx_svc, admin, customer):
