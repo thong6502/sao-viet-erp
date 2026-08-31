@@ -34,8 +34,8 @@ Bảng `customers`, thêm:
 | `customer_kind` | VARCHAR(12) NOT NULL | `'cong_ty'` | `ca_nhan` \| `cong_ty` — quyết định hiện/ẩn MST. |
 | `discount_min_pct` | FLOAT NULL | — | Sàn chiết khấu cho phép (%). |
 | `discount_max_pct` | FLOAT NULL | — | Trần chiết khấu cho phép (%). |
-| `margin_min_pct` | FLOAT NULL | — | Sàn biên lợi nhuận yêu cầu (%). |
-| `margin_max_pct` | FLOAT NULL | — | Trần biên lợi nhuận (%). |
+| `markup_min_pct` | FLOAT NULL | — | Sàn **markup** yêu cầu (%) — markup = lợi nhuận / giá vốn (đổi trục + đổi tên cột từ `margin_min_pct` ngày 29/08/2026, migration 0242). |
+| `markup_max_pct` | FLOAT NULL | — | Trần **markup** (%). |
 
 **Dormant (giữ cột, NGỪNG dùng — SQLite không drop gọn):** `status`,
 `discount_trade_pct`, `discount_buyer_pct`. Cập nhật `docs/DB_SCHEMA.md` cùng lúc (guard test).
@@ -103,7 +103,7 @@ Thay `section` widget "Thanh toán" fake bằng card **"Chính sách tài chính
 │ Hạn mức công nợ        50.000.000 đ                         │
 │ Số ngày công nợ tối đa 30 ngày kể từ ngày xuất HĐ           │
 │ Chiết khấu cho phép    0% – 10%                             │
-│ Biên lợi nhuận         ≥ 15% (tối đa 40%)                   │
+│ Markup (trên giá vốn)  ≥ 15% (tối đa 40%)                   │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -162,5 +162,6 @@ Thay `section` widget "Thanh toán" fake bằng card **"Chính sách tài chính
 - **Cột dormant** (status, discount_trade/buyer): không xóa (SQLite + guard doc); chỉ ngừng
   dùng — ghi rõ "dormant" trong model + DB_SCHEMA để không hiểu nhầm.
 - Bỏ tier đụng nhiều test (`test_customer_analytics_api`, `test_customers_api`) → sửa kèm.
-- **Chưa nối engine Báo giá** với rào chiết khấu/biên — đợt này chỉ lưu+hiển thị (SEAM để lại).
+- ~~Chưa nối engine Báo giá~~ — ĐÃ NỐI: `exception_gate.evaluate_quote` soi rào chiết khấu + **markup**
+  của khách; ngoài khoảng → báo giá "đặc thù", phải GĐ duyệt mới gửi khách (29/08/2026).
 - Có session khác trên repo → commit chỉ file mình đụng.

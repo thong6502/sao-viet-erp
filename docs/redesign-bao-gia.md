@@ -19,7 +19,7 @@ PhieuTinhGia** — nhưng backend + màn detail vẫn còn dấu vết cũ, đ�
 
 | # | Quyết định | Ghi chú |
 |---|---|---|
-| Q1 | Duyệt nội bộ ("Chờ duyệt → Đã duyệt") **chỉ áp báo giá ĐẶC THÙ** | biên < 15% / dưới giá vốn / ≥ 1 tỷ; tái dùng `exception_gate` + `QuoteApproval` (BG‑2) |
+| Q1 | Duyệt nội bộ ("Chờ duyệt → Đã duyệt") **chỉ áp báo giá ĐẶC THÙ** | **markup / chiết khấu ngoài rào của KHÁCH** (thay ngưỡng 15% cứng, và soi bằng MARKUP trên giá vốn — không phải biên, chốt 29/08/2026) / dưới giá vốn / ≥ 1 tỷ; tái dùng `exception_gate` + `QuoteApproval` (BG‑2) |
 | Q2 | **KHÔNG** tách trạng thái "Đã gửi khách" | `sent` gánh luôn nghĩa "Đã duyệt" (đã sẵn sàng/đã gửi, chờ khách) — đúng **7 trạng thái** |
 | Q3 | Đổi lớn (SL/chất liệu/gia công/giá vốn) → **HỦY + báo giá mới**; đổi nhỏ → sửa tại chỗ khi Nháp | **gỡ** luồng đa‑phiên‑bản (`requote`/so sánh version) |
 | Q4 | GĐ từ chối duyệt → **quay về Nháp** + banner lý do | giữ 7 trạng thái (không đẻ status thứ 8) |

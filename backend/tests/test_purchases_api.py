@@ -1904,6 +1904,114 @@ def test_chi_tiet_ycmh_hien_so_da_giao_theo_dot(client, auth_headers):
     assert ff2["received_quantity"] == 750
 
 
+def test_sua_pmh_khong_duoc_xoa_lien_ket_mat_hang_goc(client, auth_headers):
+    """Regression cho commit 959617c: `PurchaseRequestLineOut` từng THIẾU
+    `department_request_line_id`, và form Sửa đơn mua không gửi lại `hang_loai`/`hang_id` —
+    round-trip Đọc rồi Lưu (kể cả chỉ đổi ngày dự kiến nhận hàng, không đụng dòng hàng) âm thầm
+    xoá liên kết mặt hàng gốc, cắt đứt "hàng đang về" khỏi Kế hoạch vật tư (phát hiện qua thao
+    tác dev-browser thật ở Task 15). Test mô phỏng ĐÚNG round-trip đó qua HTTP: GET lại
+    `PurchaseRequestLineOut`, build payload PUT giống hệt cách `fromRequest()` +
+    `PurchaseRequestsPage.tsx` submit builder làm (đọc lại department_request_line_id/hang_loai/
+    hang_id từ dòng cũ), rồi xác nhận liên kết còn nguyên sau Lưu."""
+    from app.models.vat_lieu_kho import GiayNguyen
+
+    db = SessionLocal()
+    try:
+        giay = GiayNguyen(
+            ma="GY-RT", ten="Giay round-trip", gsm=150, kho_dai=860, kho_rong=650,
+            don_vi_gia="kg",
+            cong_thuc_luong="dinh_luong * dai_nguyen * rong_nguyen * to_nguyen",
+        )
+        db.add(giay)
+        db.commit()
+        giay_id = giay.id
+    finally:
+        db.close()
+
+    # ĐVT "kg" — trùng `don_vi_gia` của giấy nên khỏi vướng quy đổi tờ↔kg (không phải trọng tâm
+    # test này, trọng tâm là liên kết hang_loai/hang_id/department_request_line_id sống sót
+    # qua vòng Đọc-rồi-Lưu).
+    supplier = _supplier(
+        client, auth_headers, name="NCC Round Trip Mat Hang Goc",
+        items=[{
+            "hang_loai": "giay", "hang_id": giay_id,
+            "item_name": "Giay round-trip", "unit": "kg",
+            "unit_price": 22000, "vat_percent": 8,
+        }],
+    )
+
+    dept_payload = {
+        "source_type": "kinh_doanh",
+        "related_document_type": "sales_order",
+        "related_document_code": "DH-260710-002",
+        "purpose": "Thieu giay cho don hang round-trip",
+        "needed_date": (date.today() + timedelta(days=30)).isoformat(),
+        "note": "Test round-trip mat hang goc",
+        "lines": [{
+            "item_name": "Giay round-trip", "unit": "kg", "quantity": 50,
+            "hang_loai": "giay", "hang_id": giay_id,
+        }],
+    }
+    source = client.post(
+        "/api/department-purchase-requests", json=dept_payload, headers=auth_headers
+    ).json()
+    assert source["lines"][0]["hang_loai"] == "giay"
+    assert source["lines"][0]["hang_id"] == giay_id
+
+    # PMH lập từ YCMH: dòng KHÔNG tự khai hang_loai/hang_id — kế thừa qua
+    # `department_request_line_id` (`_chot_noi_dong`), đúng như nút "Tạo đơn" thật làm.
+    payload = _request_payload(supplier["id"])
+    payload["source_request_ids"] = [source["id"]]
+    payload["lines"] = [{
+        "item_name": "Giay round-trip", "unit": "kg",
+        "quantity": 50, "expected_unit_price": 22000,
+        "department_request_line_id": source["lines"][0]["id"],
+    }]
+    pr = client.post("/api/purchase-requests", json=payload, headers=auth_headers).json()
+    assert pr["lines"][0]["hang_loai"] == "giay", "phải kế thừa mặt hàng gốc từ YCMH lúc tạo"
+    assert pr["lines"][0]["hang_id"] == giay_id
+    assert pr["lines"][0]["department_request_line_id"] == source["lines"][0]["id"]
+
+    # Đọc lại đúng như FE mở form Sửa: GET chi tiết đơn.
+    fetched = client.get(f"/api/purchase-requests/{pr['id']}", headers=auth_headers).json()
+    dong = fetched["lines"][0]
+    assert dong["hang_loai"] == "giay" and dong["hang_id"] == giay_id
+    assert dong["department_request_line_id"] == source["lines"][0]["id"]
+
+    # Build payload PUT — round-trip MỌI field FormLine đọc lại từ PurchaseRequestLineOut, chỉ
+    # đổi MỘT field không liên quan (ngày dự kiến nhận hàng — đúng kịch bản đã gây mất liên kết).
+    update_payload = {
+        "supplier_id": fetched["supplier_id"],
+        "source_request_ids": [source["id"]],
+        "purpose": fetched["purpose"],
+        "needed_date": fetched["needed_date"],
+        "expected_receipt_date": (date.today() + timedelta(days=40)).isoformat(),
+        "note": fetched["note"],
+        "lines": [{
+            "item_name": dong["item_name"],
+            "unit": dong["unit"],
+            "quantity": dong["quantity"],
+            "expected_unit_price": dong["expected_unit_price"],
+            "discount_percent": dong["discount_percent"],
+            "vat_percent": dong["vat_percent"],
+            "note": dong["note"],
+            "department_request_line_id": dong["department_request_line_id"],
+            "hang_loai": dong["hang_loai"],
+            "hang_id": dong["hang_id"],
+        }],
+    }
+    updated = client.put(
+        f"/api/purchase-requests/{pr['id']}", json=update_payload, headers=auth_headers
+    )
+    assert updated.status_code == 200, updated.text
+
+    sau = client.get(f"/api/purchase-requests/{pr['id']}", headers=auth_headers).json()
+    dong_sau = sau["lines"][0]
+    assert dong_sau["hang_loai"] == "giay", "Sửa đơn (dù chỉ đổi ngày) không được xoá mặt hàng gốc"
+    assert dong_sau["hang_id"] == giay_id
+    assert dong_sau["department_request_line_id"] == source["lines"][0]["id"]
+
+
 def test_lich_su_don_mua_co_cac_moc_dot_giao_va_so_luong(client, auth_headers):
     """Đợt giao không nhất thiết đổi trạng thái, nhưng bắt buộc hiện trong lịch sử Đơn mua."""
     supplier = _supplier(client, auth_headers)

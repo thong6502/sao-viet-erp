@@ -254,7 +254,7 @@ def _request_out(db: Session, svc: DeliveryService, req) -> DeliveryRequestOut:
 # giao hàng không dùng vào việc gì — PRD §quyết định #1 vốn đã nói rõ là KHÔNG chặn theo nó.
 
 
-def _trip_out(db: Session, svc: DeliveryService, trip) -> TripOut:
+def _trip_out(db: Session, svc: DeliveryService, trip, *, tong_km: int | None = None) -> TripOut:
     req = svc.deliveries.get_request(trip.request_id)
     order = OrderRepository(db).get_by_id(req.order_id) if req is not None else None
     emp = EmployeeRepository(db).get_by_id(trip.employee_id)
@@ -282,6 +282,7 @@ def _trip_out(db: Session, svc: DeliveryService, trip) -> TripOut:
         ghi_chu_phan_cong=trip.ghi_chu_phan_cong,
         trang_thai=trip.trang_thai,
         km=trip.km,
+        tong_km=tong_km if tong_km is not None else (trip.km or 0),
         thoi_gian_ket_thuc=trip.thoi_gian_ket_thuc,
         nguoi_nhan_thuc_te=trip.nguoi_nhan_thuc_te,
         ly_do_that_bai=trip.ly_do_that_bai,
@@ -324,20 +325,35 @@ def danh_sach_yeu_cau(
     svc: Service, db: Db, authz: Authz, user: Reader,
     order_id: int | None = Query(None),
     cho_len_ke_hoach: bool = Query(False),
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=200),
 ):
     scope = _scope(authz, user)
     phong = svc._phong_duoc_xem(scope=scope, actor=user)
     nguoi_tao = user.id if scope == SCOPE_OWN else None
+    dept_ids = None if scope != SCOPE_DEPARTMENT else phong
+    # `trang_thai` trả về là TRẠNG THÁI TÍNH (svc.trang_thai_yeu_cau — nhiều bảng), không phải cột
+    # thô, nên `cho_len_ke_hoach=True` phải lọc SAU khi dựng đủ item — không trang hoá được ở SQL.
+    # `order_id` (màn Tạo yêu cầu, phạm vi 1 đơn) cũng giữ lấy TRỌN như cũ. Chỉ đường mặc định
+    # (danh sách chung, không lọc) mới trang hoá thật ở SQL.
+    phan_trang = order_id is None and not cho_len_ke_hoach
     reqs = svc.deliveries.list_requests(
         order_id=order_id,
-        department_ids=None if scope != SCOPE_DEPARTMENT else phong,
+        department_ids=dept_ids,
         created_by=nguoi_tao,
         chi_cho_len_ke_hoach=False,
+        limit=size if phan_trang else None,
+        offset=(page - 1) * size if phan_trang else 0,
     )
     items = [_request_out(db, svc, r) for r in reqs]
     if cho_len_ke_hoach:
         items = [i for i in items if i.trang_thai == "cho_len_ke_hoach"]
-    return DeliveryRequestPage(items=items)
+    total = (
+        svc.deliveries.count_requests(order_id=order_id, department_ids=dept_ids,
+                                      created_by=nguoi_tao)
+        if phan_trang else len(items)
+    )
+    return DeliveryRequestPage(items=items, total=total)
 
 
 @router.get("/requests/{request_id}", response_model=RequestDetailOut)
@@ -515,7 +531,9 @@ def huy_ke_hoach(trip_id: int, body: LyDoIn, svc: Service, db: Db,
 # =================================================================================
 @router.get("/trips", response_model=TripPage)
 def danh_sach_chuyen(svc: Service, db: Db, authz: Authz, user: Reader,
-                     dang_chay: bool = Query(False)):
+                     dang_chay: bool = Query(False),
+                     page: int = Query(1, ge=1),
+                     size: int = Query(20, ge=1, le=200)):
     scope = _scope(authz, user)
     emp_ids = None
     dept_ids = None
@@ -524,11 +542,23 @@ def danh_sach_chuyen(svc: Service, db: Db, authz: Authz, user: Reader,
         emp_ids = [eid] if eid is not None else [-1]
     elif scope == SCOPE_DEPARTMENT:
         dept_ids = svc._phong_duoc_xem(scope=scope, actor=user)
+    trang_thai = list(LAN_GIAO_DANG_CHAY) if dang_chay else None
+    # Tab "Đơn giao hàng" gộp theo yêu cầu (1 dòng = chuyến MỚI NHẤT) — trang hoá thật ở SQL trên
+    # chính danh sách đã gộp đó, không phải trang hoá rồi mới gộp (sai tổng/sai trang).
     trips = svc.deliveries.list_trips(
-        employee_ids=emp_ids, department_ids=dept_ids,
-        trang_thai=list(LAN_GIAO_DANG_CHAY) if dang_chay else None,
+        employee_ids=emp_ids, department_ids=dept_ids, trang_thai=trang_thai,
+        latest_per_request=True, limit=size, offset=(page - 1) * size,
     )
-    return TripPage(items=[_trip_out(db, svc, t) for t in trips])
+    total = svc.deliveries.count_trips(
+        employee_ids=emp_ids, department_ids=dept_ids, trang_thai=trang_thai,
+        latest_per_request=True,
+    )
+    tong_km_map = svc.deliveries.tong_km_theo_yeu_cau([t.request_id for t in trips])
+    return TripPage(
+        items=[_trip_out(db, svc, t, tong_km=tong_km_map.get(t.request_id, t.km or 0))
+               for t in trips],
+        total=total,
+    )
 
 
 @router.post("/trips/{trip_id}/da-lay-hang", response_model=TripOut)

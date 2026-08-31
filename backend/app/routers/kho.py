@@ -30,6 +30,7 @@ from ..services.kho_vi_tri_service import (
     KhoViTriDuplicate, KhoViTriKhoNotFound, KhoViTriNotFound, KhoViTriService,
     KhoViTriValidationError,
 )
+from ..services.catalog_excel_specs import KHO_HANG
 from .catalog_base import loi_http, make_catalog_router
 
 router = APIRouter(prefix="/api/kho", tags=["kho"])
@@ -108,5 +109,6 @@ def delete_vi_tri(vi_tri_id: int, svc: ViTriService,
 make_catalog_router(
     router, ten="kho_hang", ServiceDep=Service, module=MODULE, doc=_doc_kho,
     InModel=KhoHangIn, RowModel=KhoHangRow, ListModel=KhoHangListOut,
+    excel_spec=KHO_HANG,
     ma_goi_y=True,      # repo khai `ma_prefix = "KHO-"`
 )

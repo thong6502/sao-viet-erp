@@ -3929,3 +3929,55 @@
   background: var(--brand-soft, #eff6ff);
   border-style: solid;
 }
+
+/* ==========================================================================
+   §RESPONSIVE — màn hẹp (điện thoại / tablet dọc)
+   Đặt CUỐI FILE: file này có nhiều lớp override nối đuôi (§2942 đè lại
+   `.rdx-compact-kpi` của §33), mà media query KHÔNG cộng specificity.
+   ========================================================================== */
+@media (max-width: 768px) {
+  /* Dải chỉ số "14 Phòng ban │ 86 Nhân sự │ 8 …" là MỘT viên pill `inline-flex` một hàng:
+     ở 375px nó dài ~590px và ĐẨY CẢ TRANG trượt ngang. Cho xuống dòng + bo góc chữ nhật
+     (viên pill 99px trông gãy khi cao 2-3 dòng). */
+  .rdx-compact-kpi {
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: 6px;
+    border-radius: var(--r-5, 12px);
+    padding: 8px 14px;
+  }
+  /* Vạch ngăn dọc giữa các chỉ số vô nghĩa khi đã xuống dòng. */
+  .rdx-ckpi-divider {
+    display: none;
+  }
+}
+
+/* Bề ngang hai cột của thân màn — TRƯỚC ĐÂY khai bằng `style` inline trong DepartmentsPage.tsx,
+   nên không khối @media nào đè được. Ba lớp dưới đây thay đúng ba nhánh cũ. */
+.rdx-dept__body--tree {
+  grid-template-columns: 380px minmax(0, 1fr);
+}
+.rdx-dept__body--org-sel {
+  grid-template-columns: minmax(0, 1fr) 440px;
+}
+.rdx-dept__body--org {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 1024px) {
+  /* Một cột cho cả ba biến thể. */
+  .rdx-dept__body--tree,
+  .rdx-dept__body--org-sel,
+  .rdx-dept__body--org {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Lưới đã về 1 cột (§2497) nhưng ô lưới giữ `min-width:auto`: cột trái (cây tổ chức) lấy
+     bề rộng nội dung 380px thay vì 296px của khung ⇒ trang trượt ngang. `overflow:hidden` của
+     chính nó KHÔNG cứu, vì min-content vẫn tính theo nội dung khi min-width là auto. */
+  .rdx-dept__body > *,
+  .rdx-dept__master,
+  .rdx-dept__detail,
+  .rdx-drawer {
+    min-width: 0;
+  }
+}

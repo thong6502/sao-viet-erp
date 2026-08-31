@@ -430,7 +430,10 @@ export type QuoteEvent =
       order_id?: number | null;
       trang_thai?: string | null;
       kieu?: string | null;
-    };
+    }
+  // Bảng giữ chỗ vật tư (Kế hoạch vật tư) đổi — bật/tắt/nhặt thêm/chuyển kho/đối soát — gửi
+  // BROADCAST (không riêng ai), chỉ để báo "tự tải lại", không mang state.
+  | { type: "ke_hoach_vat_tu_thay_doi" };
 
 // --- Trung tâm thông báo (chuông Topbar) -------------------------------------
 export interface AppNotification {
@@ -536,6 +539,11 @@ export const BAI_GHEP_THIEU_LABELS: Record<string, string> = {
   thieu_buoc_chung: "Chưa gộp bước nào — chọn bước cùng công đoạn ở các lệnh rồi bấm Gộp",
   thieu_ke_hoach_buoc_chung: "Lượt chạy chung chưa có tổ / máy / năng suất",
   thieu_so_to: "Chưa tính được số tờ",
+  khac_giay: "Giấy của bài lệch giấy đang khai ở một thành viên",
+  buoc_chung_thieu_thanh_vien: "Bước dùng chung chưa gộp đủ mọi thành viên trong bài",
+  thieu_buoc_chung_tren_giay: "Chưa có bước dùng chung nào nằm trên dòng giấy (điểm toả)",
+  vuot_con_toi_da: "Số con/tờ vượt khả năng khổ tờ ghép",
+  vuot_dien_tich: "Diện tích thành phẩm vượt quá tờ ghép",
 };
 
 /** Cảnh báo MỀM — chỉ tô màu, không chặn. Chỉ còn tín hiệu về TRẠNG THÁI đơn/lệnh.
@@ -689,7 +697,8 @@ export interface BaiGhepSoDoBuocChung {
   khoan_dien_giai: string | null;
   khoan_thieu: string[];
   khoan_ly_do: string | null;
-  vat_tus: { vat_tu_id: number; ma: string; ten: string; don_vi: string; so_luong: number }[];
+  vat_tus: { vat_tu_id: number; ma: string; ten: string; don_vi: string; so_luong: number;
+             nguon_so_luong: string }[];
   /** Lượng TÍNH SẴN cho mọi vật tư theo lượt chung — cùng hợp đồng với bước lệnh. Món chưa tính
    *  ra được vẫn có mặt (`so_luong: null`) kèm `ly_do` chỉ chỗ khai công thức. */
   vat_tu_goi_y: { vat_tu_id: number; so_luong: number | null;
@@ -769,7 +778,7 @@ export interface BaiGhepBuocChungBody {
   /** Ô DUY NHẤT còn gõ được (2026-08-04): chuẩn bị + tốc độ kế thừa SỐNG từ máy đang gán. */
   phat_sinh_phut?: number; so_luot_chay?: number;
   ghi_chu?: string | null;
-  vat_tus?: { vat_tu_id: number; so_luong: number }[];
+  vat_tus?: { vat_tu_id: number; so_luong: number; nguon_so_luong?: string }[];
   nha_cung_cap?: string | null; sl_gui?: number | null; ngay_gui_dk?: string | null;
   van_chuyen_ngay?: number | null; gia_cong_ngay?: number | null; ngay_nhan_dk?: string | null;
   hao_hut_cho_phep?: number | null; don_gia_gia_cong?: number | null;
@@ -1611,12 +1620,19 @@ export interface SxWorkItemChiTiet {
 }
 
 // --- Kết quả các mặt GHI G3/G4 (đủ để cập nhật lạc quan; drawer refetch để lấy chi tiết) ---
+export interface SxKetQuaNhanh {
+  lsx_id: number;
+  so_luong: number;
+  don_vi: string;
+  ban_giao_id: number | null;
+}
 export interface SxSanLuongKetQua {
   cong_viec_id: number;
   department_id: number | null;
   trang_thai: string;
   version: number;
   batch_id?: number | null;
+  ket_qua_lsx?: SxKetQuaNhanh[];
 }
 export interface SxBanGiaoKetQua {
   ban_giao_id: number;
@@ -2497,6 +2513,9 @@ export interface Department {
   don_gia_km?: number;
   pct_tai_xe?: number;
   pct_phu_xe?: number;
+  /** Đánh dấu tổ KCS đích danh (§3.1, §14) — KHÔNG kế thừa cây con. Gate phát hành bài ghép
+   *  yêu cầu bước KCS cuối nằm ở một phòng có cờ này. */
+  is_kcs?: boolean;
 }
 
 /** Cơ chế ra mức lương của một phòng ban (Pha 1). */
@@ -2757,8 +2776,8 @@ export interface CustomerRow {
   payment_term_days?: number | null;
   discount_min_pct?: number | null;
   discount_max_pct?: number | null;
-  margin_min_pct?: number | null;
-  margin_max_pct?: number | null;
+  markup_min_pct?: number | null;
+  markup_max_pct?: number | null;
   /** Nhãn thủ công (#7) — sales gán tay. */
   tags?: string[];
 }
@@ -3060,8 +3079,8 @@ export interface CustomerFinancialInput {
   payment_term_days?: number | null;
   discount_min_pct?: number | null;
   discount_max_pct?: number | null;
-  margin_min_pct?: number | null;
-  margin_max_pct?: number | null;
+  markup_min_pct?: number | null;
+  markup_max_pct?: number | null;
 }
 
 /** Một ghi chú tự do của team về khách (tab Ghi chú). */
@@ -3139,6 +3158,9 @@ export interface TinhGiaComponentMeta {
   phi_khuon?: number;
   /** Phân rã theo bước: bước nào con dao nào bao nhiêu tiền. */
   phi_khuon_dong?: { ten: string; loai: string | null; thanh_tien: number }[];
+  /** Phí giao hàng của sản phẩm này — khoản MỘT LẦN cho cả sản lượng. CŨNG đã nằm trong
+   *  `gia_von_tp` (một dòng của nhóm kết quả `giao_hang`), nên ĐỪNG cộng lại lần nữa. */
+  phi_giao_hang?: number;
   bu_hao_tay?: number; // ô "+ Bù thêm" đã bỏ → engine luôn trả 0
   hao_tay?: number; // ô "− Hao" đã bỏ → engine luôn trả 0
 }
@@ -3238,6 +3260,12 @@ export interface PhieuTinhGiaListOut {
   items: PhieuTinhGiaListItem[];
   total: number;
 }
+/** Đếm cho thanh tab — độc lập trang/tìm kiếm hiện tại. */
+export interface PhieuTinhGiaStatsOut {
+  all: number;
+  draft: number;
+  calculated: number;
+}
 
 /** 1 dòng gia công sau in (finishing) thuộc 1 thành phần. */
 export interface ThanhPhamOut {
@@ -3259,6 +3287,11 @@ export interface ThanhPhamOut {
    *  chọn 15/08/2026 để báo giá chỉ còn MỘT dòng — đừng "sửa" bằng cách rút nó ra khỏi giá vốn.
    *  0 = dùng lại dao cũ. Chỉ có nghĩa ở bước mà công đoạn nguồn cần dao lưu kho (bế / ép nhũ). */
   phi_khuon: number;
+  /** Ba ô riêng của bước khung lụa (`tooling_type = "khung_lua"`) — kích thước/số lượng khung, TÁCH
+   *  BIỆT với `phi_khuon`: không tự tính ra tiền, chỉ bơm vào công thức của CHÍNH công đoạn đó. */
+  dai_khung_lua: number;
+  rong_khung_lua: number;
+  so_khung_lua: number;
 }
 
 /** 1 thành phần giấy (paper component): giấy + kỹ thuật in + màu + list gia công. */
@@ -3313,6 +3346,7 @@ export interface ThanhPhanOut {
   so_mau_b: number;
   so_mau_pha: number;
   ghi_chu_ky_thuat: string | null; // note KỸ THUẬT/SX theo sản phẩm → drawer lệnh
+  phi_giao_hang: number; // ⑤ phí giao hàng — khoản MỘT LẦN, ĐÃ nằm trong `gia_von_tp`
   gia_von_tp: number;
   thanh_phams: ThanhPhamOut[];
   vat_tus: VatTuLineOut[];
@@ -3375,6 +3409,9 @@ export interface ThanhPhamIn {
   nha_cung_cap?: string | null;
   ghi_chu?: string | null;
   phi_khuon?: number;
+  dai_khung_lua?: number;
+  rong_khung_lua?: number;
+  so_khung_lua?: number;
 }
 /** Input 1 thành phần — mọi field optional + list gia công. */
 export interface ThanhPhanIn {
@@ -3416,8 +3453,17 @@ export interface ThanhPhanIn {
   so_mau_b?: number;
   so_mau_pha?: number;
   ghi_chu_ky_thuat?: string | null; // note KỸ THUẬT/SX theo sản phẩm → drawer lệnh
+  /** ⑤ Phí giao hàng: TỔNG tiền chở cho toàn bộ sản lượng của sản phẩm này — khoản MỘT LẦN,
+   *  cộng thẳng vào giá vốn (⇒ chịu markup ở Báo giá). 0 = không thu. */
+  phi_giao_hang?: number;
   thanh_phams?: ThanhPhamIn[];
   vat_tus?: VatTuLineIn[];
+}
+/** 1 dòng gợi ý Sản phẩm tái bản — nhẹ, chỉ đủ hiển thị danh sách chọn. */
+export interface SanPhamTaiBanGoiY {
+  id: number;
+  ten: string;
+  updated_at: string;
 }
 /** Input 1 dòng vật tư thêm — optional (BE kéo công thức + giá từ danh mục). */
 export interface VatTuLineIn {
@@ -3554,11 +3600,13 @@ export interface QuotationDetail {
   cancel_reason: string | null;
   /** Điều khoản in ra phiếu — mỗi dòng = 1 điều khoản (bản in tự đánh số). */
   terms_text: string | null;
-  /** ĐC giao: chỉ-đọc trên báo giá (auto-fill từ hồ sơ khách, không in). */
+  /** ĐC giao + người nhận: Sale chọn tay ở báo giá (dropdown danh bạ/điểm giao của khách); đơn
+   *  hàng KẾ THỪA nguyên các giá trị này khi chốt đơn, không sửa lại được. */
   delivery_address: string | null;
   contact_name_snapshot: string | null;
   contact_phone_snapshot: string | null;
   contact_title_snapshot: string | null;
+  contact_email_snapshot: string | null;
   customer_note: string | null;
   internal_note: string | null;
   
@@ -3573,14 +3621,14 @@ export interface QuotationDetail {
   can_approve: boolean;
   versions: VersionRow[];
   items: QuoteItemDetail[];
-  // BG-2 — báo giá đặc thù (GĐ duyệt trước khi gửi khách). `margin_pct` null nếu người xem không có
-  // quyền duyệt đặc thù (không rò biên cho Sales).
+  // BG-2 — báo giá đặc thù (GĐ duyệt trước khi gửi khách). `markup_pct` = lợi nhuận / GIÁ VỐN —
+  // ĐÚNG con số ô "Markup %" trong bảng dòng, không phải biên trên giá bán.
   exception_required: boolean;
   exception_status: "none" | "pending" | "approved" | "rejected" | "stale";
   exception_cleared: boolean;
   exceptions: { key: string; label: string }[];
   exception_note: string | null;
-  margin_pct: number | null;
+  markup_pct: number | null;
   // Ai SOẠN (người duyệt biết báo giá của NV nào) + ai ĐÃ DUYỆT/từ chối (NV biết ai xử lý).
   salesperson_id?: number | null;
   salesperson_name?: string | null;
@@ -3628,6 +3676,13 @@ export interface QuotationUpdateInput {
   // Ghi chú đối ngoại/nội bộ đã BỎ khỏi UI — vẫn optional để tương thích payload cũ.
   customer_note?: string | null;
   internal_note?: string | null;
+  /** ĐC giao + người nhận — chọn từ danh bạ/điểm giao của khách. BE overwrite trực tiếp (không giữ
+   *  field cũ khi bỏ trống) → luôn echo giá trị hiện có ở mọi lần gọi update. */
+  delivery_address?: string | null;
+  contact_name_snapshot?: string | null;
+  contact_phone_snapshot?: string | null;
+  contact_title_snapshot?: string | null;
+  contact_email_snapshot?: string | null;
   items: QuoteItemUpdateInput[] | null;
 }
 
@@ -5584,6 +5639,9 @@ export interface PurchaseRequestLineInput {
   note?: string | null;
   /** Dòng YCMH đẻ ra dòng này — nền cho "tình trạng từng sản phẩm" ở chi tiết yêu cầu. */
   department_request_line_id?: number | null;
+  /** Liên kết mặt hàng gốc (mg 0174). Không gửi thì server tự kế thừa từ dòng YCMH nguồn. */
+  hang_loai?: HangLoai | null;
+  hang_id?: number | null;
 }
 
 // --- Công nợ phải trả ------------------------------------------------------
@@ -5954,6 +6012,8 @@ export interface PurchaseRequestLineOut {
   vat_amount: number;
   line_total: number;
   note: string | null;
+  /** Dòng YCMH đẻ ra dòng này (mg 0174b) — form SỬA cần đọc lại để gửi đúng liên kết. */
+  department_request_line_id: number | null;
   /** Liên kết mặt hàng gốc (mg 0174) — Nhập kho từ đợt giao auto-điền vật tư. Null = chỉ tên chữ. */
   hang_loai: HangLoai | null;
   hang_id: number | null;
@@ -7319,6 +7379,10 @@ export type HangLoai = "giay" | "vat_tu";
  *  ca xử ngược nhau: đỏ thì đi mua, về muộn thì dời lịch. Gộp một màu là mời người ta mua đúp. */
 export type CanDoiMau = "xam" | "xanh" | "vang" | "do" | "khong_ro" | "ve_muon";
 
+/** Trạng thái GIỮ CHỖ 6 mức — khác `CanDoiMau` (3 mức trung tính gộp lại): ở đây tách được "đã
+ *  giữ" khỏi "có thể giữ nhưng chưa bật" khỏi "đã cấp thật". */
+export type TrangThaiGiu = "khong_ro" | "thieu" | "ve_muon" | "co_the_giu" | "da_giu" | "da_cap";
+
 export interface CanDoiDong {
   /** `vat_tu` = so tồn · `cong_cu` = khuôn bế, KHÔNG so tồn (chỉ hỏi sẵn sàng đúng lúc chưa). */
   loai: "vat_tu" | "cong_cu";
@@ -7349,6 +7413,14 @@ export interface CanDoiDong {
   /** Phần thiếu RIÊNG của dòng (không phải luỹ kế) — tick nhiều dòng rồi cộng vẫn đúng. */
   thieu: number | null;
   trang_thai: CanDoiMau;
+  /** [MỚI 30/08/2026] Giữ chỗ gộp theo (chủ thể, mặt hàng) — KHÔNG phải phần riêng của dòng khi
+   *  cùng chủ thể ăn cùng món ở nhiều bước. */
+  da_giu_kho: number | null;
+  da_giu_dang_ve: number | null;
+  co_the_giu_kho: number | null;
+  co_the_giu_dang_ve: number | null;
+  trang_thai_giu: TrangThaiGiu | null;
+  nguon_dang_ve: { purchase_request_line_id: number; ma_pmh: string | null; so_luong: number }[] | null;
   /** Ngày về của lô ĐỦ ĐỂ PHỦ chỗ thiếu — chỉ có ở dòng `ve_muon`. Không phải lô gần nhất: dời
    *  lịch theo lô gần nhất mà nó chỉ có 1 kg thì tới nơi vẫn không đủ hàng. */
   ngay_du_hang: string | null;
@@ -7457,6 +7529,14 @@ export interface TheoLenhHang {
   can: number;
   thieu: number;
   dang_giu: number;
+  /** [MỚI 30/08/2026] Tách nguồn phần đã giữ + trạng thái giữ 6 mức — xem `TrangThaiGiu`. */
+  da_giu_kho: number;
+  da_giu_dang_ve: number;
+  co_the_giu_kho: number;
+  co_the_giu_dang_ve: number;
+  trang_thai_giu: TrangThaiGiu;
+  /** Mã PMH cụ thể đang góp cho `da_giu_dang_ve` — để hiện "đang bám đơn nào". */
+  nguon_dang_ve: { purchase_request_line_id: number; ma_pmh: string | null; so_luong: number }[];
   /** >1 nghĩa là con số trên đã GỘP nhiều công đoạn — hiện ra để không ai tưởng đó là một bước. */
   so_buoc: number;
   /** Màu NẶNG NHẤT trong các bước. Thẻ chỉ hiện được một màu. */
@@ -7967,6 +8047,8 @@ export const api = {
       /** Ba ô khoán km. Cùng luật `undefined` = KHÔNG gửi ⇒ giữ nguyên: luồng chỉ sửa tên phòng
        *  mà gửi kèm 0 là âm thầm xoá đơn giá, tháng sau tài xế nhận 0 đồng km. */
       khoanKm?: { don_gia_km?: number; pct_tai_xe?: number; pct_phu_xe?: number },
+      /** Cờ tổ KCS đích danh. Cùng luật `undefined` = KHÔNG gửi ⇒ backend giữ nguyên. */
+      isKcs?: boolean,
     ): Promise<Department> {
       return authed<Department>(`/api/departments/${id}`, token, {
         method: "PUT",
@@ -7981,6 +8063,7 @@ export const api = {
           ...(laKinhDoanh === undefined ? {} : { la_kinh_doanh: laKinhDoanh }),
           ...(laGiaoHang === undefined ? {} : { la_giao_hang: laGiaoHang }),
           ...(khoanKm ?? {}),
+          ...(isKcs === undefined ? {} : { is_kcs: isKcs }),
         }),
       });
     },
@@ -9373,12 +9456,14 @@ export const api = {
     conPhaiGiao(token: string, orderId: number): Promise<ConPhaiGiao> {
       return authed<ConPhaiGiao>(`/api/giao-hang/orders/${orderId}/con-phai-giao`, token);
     },
-    requests(token: string, opts?: { orderId?: number; choLenKeHoach?: boolean }): Promise<{ items: DeliveryRequest[] }> {
+    requests(token: string, opts?: { orderId?: number; choLenKeHoach?: boolean; page?: number; size?: number }): Promise<{ items: DeliveryRequest[]; total: number }> {
       const q = new URLSearchParams();
       if (opts?.orderId != null) q.set("order_id", String(opts.orderId));
       if (opts?.choLenKeHoach) q.set("cho_len_ke_hoach", "true");
+      if (opts?.page != null) q.set("page", String(opts.page));
+      if (opts?.size != null) q.set("size", String(opts.size));
       const s = q.toString();
-      return authed<{ items: DeliveryRequest[] }>(`/api/giao-hang/requests${s ? `?${s}` : ""}`, token);
+      return authed<{ items: DeliveryRequest[]; total: number }>(`/api/giao-hang/requests${s ? `?${s}` : ""}`, token);
     },
     request(token: string, id: number): Promise<DeliveryRequestDetail> {
       return authed<DeliveryRequestDetail>(`/api/giao-hang/requests/${id}`, token);
@@ -9393,9 +9478,13 @@ export const api = {
       return authed<DeliveryRequest>(`/api/giao-hang/requests/${id}/huy`, token, { method: "POST", body: JSON.stringify({ ly_do: lyDo }) });
     },
 
-    trips(token: string, opts?: { dangChay?: boolean }): Promise<{ items: DeliveryTrip[] }> {
-      const q = opts?.dangChay ? "?dang_chay=true" : "";
-      return authed<{ items: DeliveryTrip[] }>(`/api/giao-hang/trips${q}`, token);
+    trips(token: string, opts?: { dangChay?: boolean; page?: number; size?: number }): Promise<{ items: DeliveryTrip[]; total: number }> {
+      const q = new URLSearchParams();
+      if (opts?.dangChay) q.set("dang_chay", "true");
+      if (opts?.page != null) q.set("page", String(opts.page));
+      if (opts?.size != null) q.set("size", String(opts.size));
+      const s = q.toString();
+      return authed<{ items: DeliveryTrip[]; total: number }>(`/api/giao-hang/trips${s ? `?${s}` : ""}`, token);
     },
     plan(token: string, input: PlanInput): Promise<{ trip: DeliveryTrip; canh_bao: string[] }> {
       return authed<{ trip: DeliveryTrip; canh_bao: string[] }>("/api/giao-hang/plans", token, { method: "POST", body: JSON.stringify(input) });
@@ -9496,12 +9585,19 @@ export const api = {
   phieuTinhGia: {
     list(
       token: string,
-      params: { q?: string } = {},
+      params: { q?: string; status?: string; sort?: string; page?: number; size?: number } = {},
     ): Promise<PhieuTinhGiaListOut> {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
+      if (params.status) qs.set("status", params.status);
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
       return authed<PhieuTinhGiaListOut>(`/api/phieu-tinh-gia${suffix}`, token);
+    },
+    stats(token: string): Promise<PhieuTinhGiaStatsOut> {
+      return authed<PhieuTinhGiaStatsOut>("/api/phieu-tinh-gia/stats", token);
     },
     get(token: string, id: number): Promise<PhieuTinhGiaOut> {
       return authed<PhieuTinhGiaOut>(`/api/phieu-tinh-gia/${id}`, token);
@@ -9524,6 +9620,15 @@ export const api = {
     /** Nhật ký hoạt động THẬT (ai làm gì · khi nào) của phiếu tính giá này. */
     activity(token: string, id: number): Promise<{ items: PtgActivity[] }> {
       return authed<{ items: PtgActivity[] }>(`/api/phieu-tinh-gia/${id}/activity`, token);
+    },
+    /** Gợi ý Sản phẩm tái bản theo tên — dùng chung toàn hệ thống, không lọc theo khách hàng. */
+    timSanPhamTaiBan(token: string, q: string, size = 20): Promise<SanPhamTaiBanGoiY[]> {
+      const qs = new URLSearchParams({ q, size: String(size) });
+      return authed<SanPhamTaiBanGoiY[]>(`/api/phieu-tinh-gia/san-pham-tai-ban?${qs.toString()}`, token);
+    },
+    /** Cấu hình kỹ thuật đầy đủ (dạng ThanhPhanIn) của 1 mẫu tái bản. */
+    chiTietSanPhamTaiBan(token: string, id: number): Promise<ThanhPhanIn> {
+      return authed<ThanhPhanIn>(`/api/phieu-tinh-gia/san-pham-tai-ban/${id}`, token);
     },
   },
 
@@ -12093,6 +12198,9 @@ export interface DeliveryTrip {
   ghi_chu_phan_cong: string | null;
   trang_thai: DeliveryTripStatus;
   km: number | null;
+  /** TỔNG km cả các lần giao của yêu cầu (không phải riêng chuyến này) — tab "Đơn giao hàng"
+   *  đã gộp theo yêu cầu. */
+  tong_km: number;
   thoi_gian_ket_thuc: string | null;
   nguoi_nhan_thuc_te: string | null;
   ly_do_that_bai: string | null;

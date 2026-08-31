@@ -164,13 +164,19 @@ class QuotationService:
         """Auto-fill từ CRM (redesign-bao-gia §4): người liên hệ CHÍNH (`CustomerContact.is_primary`)
         + ĐC giao MẶC ĐỊNH (`CustomerAddress.is_default`). Repo list_* đã xếp is_primary/is_default
         lên đầu; fallback phần tử đầu nếu chưa đặt cờ. Rỗng nếu không có khách/repo."""
-        out = {"contact_name": None, "contact_phone": None, "contact_title": None, "delivery_address": None}
+        out = {
+            "contact_name": None, "contact_phone": None, "contact_title": None,
+            "contact_email": None, "delivery_address": None,
+        }
         if customer_id is None or self._customers is None:
             return out
         contacts = list(getattr(self._customers, "list_contacts", lambda _cid: [])(customer_id))
         primary = next((c for c in contacts if c.is_primary), contacts[0] if contacts else None)
         if primary is not None:
-            out.update(contact_name=primary.name, contact_phone=primary.phone, contact_title=primary.title)
+            out.update(
+                contact_name=primary.name, contact_phone=primary.phone,
+                contact_title=primary.title, contact_email=primary.email,
+            )
         else:
             # Chưa có danh bạ liên hệ riêng → lấy tạm liên hệ ngay trên hồ sơ khách
             # (Customer.contact_name / phone) để ô "Người liên hệ" không trống.
@@ -179,6 +185,7 @@ class QuotationService:
                 out.update(
                     contact_name=getattr(cust, "contact_name", None),
                     contact_phone=getattr(cust, "phone", None),
+                    contact_email=getattr(cust, "email", None),
                 )
         addrs = list(getattr(self._customers, "list_addresses", lambda _cid: [])(customer_id))
         default_addr = next((a for a in addrs if a.is_default), addrs[0] if addrs else None)
@@ -348,9 +355,13 @@ class QuotationService:
                 "name": quote.contact_name_snapshot,
                 "phone": quote.contact_phone_snapshot,
                 "title": quote.contact_title_snapshot,
+                "email": quote.contact_email_snapshot,
             }
         d = self._customer_defaults(quote.customer_id)
-        return {"name": d["contact_name"], "phone": d["contact_phone"], "title": d["contact_title"]}
+        return {
+            "name": d["contact_name"], "phone": d["contact_phone"],
+            "title": d["contact_title"], "email": d["contact_email"],
+        }
 
     def version_history(self, quote: Quote) -> list[QuoteVersion]:
         return self.quotations.versions_of(quote.quote_number)
@@ -452,6 +463,7 @@ class QuotationService:
             contact_name_snapshot=defaults["contact_name"],
             contact_phone_snapshot=defaults["contact_phone"],
             contact_title_snapshot=defaults["contact_title"],
+            contact_email_snapshot=defaults["contact_email"],
             customer_note=customer_note,
             internal_note=internal_note,
             created_by=actor.id,
@@ -615,8 +627,11 @@ class QuotationService:
     def exception_eval(self, quote: Quote) -> dict:
         """Soi 'báo giá đặc thù' trên VERSION HIỆN TẠI — cổng **theo TỪNG KHÁCH HÀNG** (redesign):
         - LUÔN áp (chung): Giá trị đơn ≥ 1 tỷ · Bán dưới vốn.
-        - Theo rào của KH (bỏ ngưỡng 15% cứng): CHIẾT KHẤU vượt `discount_max_pct` · BIÊN dưới
-          `margin_min_pct`. KH chưa đặt rào (None) → bỏ qua cổng đó; KH null (khách lẻ) → chỉ 2 cổng chung.
+        - Theo rào của KH (bỏ ngưỡng 15% cứng): CHIẾT KHẤU ngoài `discount_min/max_pct` · **MARKUP**
+          (lợi nhuận / GIÁ VỐN — đúng con số Sale gõ ở ô Markup%) ngoài `margin_min/max_pct`. Trục
+          BIÊN (lợi nhuận / giá bán) đã BỎ 29/08/2026: markup 10% ⇔ biên 9,1% nên soi bằng biên thì
+          báo giá gõ đúng rào vẫn bị bắt trình duyệt. KH chưa đặt rào (None) → bỏ qua cổng đó;
+          KH null (khách lẻ) → chỉ 2 cổng chung.
         Số lấy từ tổng đã lưu của version: subtotal NET (trước VAT, sau CK) · gross (trước CK) · discount ·
         total gồm VAT · cost. (Cổng công nợ HOÃN tới khi build phân hệ Công nợ/AR.)"""
         version = (
@@ -638,8 +653,8 @@ class QuotationService:
             discount_amount=discount, subtotal_gross=subtotal_gross,
             discount_min_pct=(cust.discount_min_pct if cust else None),
             discount_max_pct=(cust.discount_max_pct if cust else None),
-            margin_min_pct=(cust.margin_min_pct if cust else None),
-            margin_max_pct=(cust.margin_max_pct if cust else None),
+            markup_min_pct=(cust.markup_min_pct if cust else None),
+            markup_max_pct=(cust.markup_max_pct if cust else None),
         )
 
     def approval_status(self, quote: Quote, exc: dict | None = None) -> dict:
@@ -654,7 +669,7 @@ class QuotationService:
         return _exc_approval_status(exc, latest)
 
     def quote_gate(self, quote: Quote) -> dict:
-        """Khối 'báo giá đặc thù' cho output/UI (nhãn định tính + margin_pct nhạy cảm — router strip).
+        """Khối 'báo giá đặc thù' cho output/UI (nhãn định tính + `markup_pct` = % trên GIÁ VỐN).
         Kèm AI đã quyết định gần nhất (tên + thời điểm) để UI hiện 'đã được X duyệt/từ chối'."""
         exc = self.exception_eval(quote)
         appr = self.approval_status(quote, exc)
@@ -668,7 +683,7 @@ class QuotationService:
             "exception_cleared": appr["cleared"],
             "exceptions": exc["triggers"],
             "exception_note": appr["note"],
-            "margin_pct": exc["margin_pct"],
+            "markup_pct": exc["markup_pct"],
             "exception_decision": row.decision if row is not None else None,
             "exception_decided_by_name": decided_by_name,
             "exception_decided_at": row.decided_at if row is not None else None,
@@ -703,8 +718,8 @@ class QuotationService:
             total=exc["total_gross"],
             subtotal=exc["subtotal"],
             cost=exc["cost"],
-            margin_pct_snapshot=exc["margin_pct"],
-            min_margin_pct=exc["min_margin_pct"],
+            markup_pct_snapshot=exc["markup_pct"],
+            min_markup_pct=exc["markup_min_pct"],
             high_value_threshold=exc["high_value_threshold"],
             note=note,
             decided_by=actor.id,
@@ -790,6 +805,11 @@ class QuotationService:
         terms_text: str | None = None,
         customer_note: str | None = None,
         internal_note: str | None = None,
+        delivery_address: str | None = None,
+        contact_name_snapshot: str | None = None,
+        contact_phone_snapshot: str | None = None,
+        contact_title_snapshot: str | None = None,
+        contact_email_snapshot: str | None = None,
         items_payload: list[dict] | None = None,
     ) -> Quote:
         quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
@@ -799,8 +819,9 @@ class QuotationService:
         if valid_until and valid_until < date.today():
             raise QuotationValidationError("Hạn hiệu lực không được ở quá khứ.")
 
-        # Update Header — đổi khách → làm mới liên hệ chính + ĐC giao mặc định (redesign-bao-gia §4).
-        # ĐC giao không sửa được ở màn báo giá → chỉ làm mới khi ĐỔI KHÁCH, ngoài ra giữ nguyên.
+        # Update Header — đổi khách → làm mới liên hệ chính + ĐC giao mặc định (redesign-bao-gia §4),
+        # ĐÈ lên giá trị Sale đã chọn tay cho khách CŨ (khách mới thì chọn cũ không còn hợp lệ).
+        # Không đổi khách → giữ nguyên lựa chọn tay của Sale (FE echo đủ 4 field mỗi lần lưu).
         customer_changed = customer_id != quote.customer_id
         quote.customer_id = customer_id
         quote.customer_name_snapshot = self._customer_display_name(customer_id)
@@ -809,7 +830,14 @@ class QuotationService:
             quote.contact_name_snapshot = defaults["contact_name"]
             quote.contact_phone_snapshot = defaults["contact_phone"]
             quote.contact_title_snapshot = defaults["contact_title"]
+            quote.contact_email_snapshot = defaults["contact_email"]
             quote.delivery_address = defaults["delivery_address"]
+        else:
+            quote.contact_name_snapshot = contact_name_snapshot
+            quote.contact_phone_snapshot = contact_phone_snapshot
+            quote.contact_title_snapshot = contact_title_snapshot
+            quote.contact_email_snapshot = contact_email_snapshot
+            quote.delivery_address = delivery_address
         quote.valid_until = valid_until
         quote.terms_text = (terms_text or "").strip() or DEFAULT_TERMS
         quote.customer_note = customer_note

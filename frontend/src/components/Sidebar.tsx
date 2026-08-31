@@ -335,9 +335,11 @@ interface SidebarProps {
   /** Item ẩn hẳn dù có quyền Read module — cho mục cần quyền CHI TIẾT (vd "Hộp yêu cầu kho"
    *  cần `can_create`/`can_view_stock`). Sidebar không biết ma trận quyền nên AppShell tính sẵn. */
   hiddenIds?: ReadonlySet<string>;
+  /** Đóng ngăn kéo — CHỈ dùng ở màn hẹp (≤1024px), nút ✕ ẩn hoàn toàn ở màn rộng. */
+  onClose?: () => void;
 }
 
-export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicItems, badges, hiddenIds }: SidebarProps) {
+export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicItems, badges, hiddenIds, onClose }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -385,6 +387,16 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
 
   return (
     <aside className="sidebar">
+      {/* ✕ chỉ hiện khi sidebar là NGĂN KÉO (màn hẹp): lúc đó nó phủ lên Topbar nên nút
+          hamburger khuất, người dùng cần một đường đóng nhìn thấy được ngoài việc chạm màn che. */}
+      <button
+        type="button"
+        className="sidebar__close"
+        onClick={onClose}
+        aria-label="Đóng menu điều hướng"
+      >
+        <Icon name="x" size={18} />
+      </button>
       <a className="sidebar__brand" href="#" aria-label="Sao Việt Nhật — Hệ thống ERP">
         <span className="sidebar__logo">
           <img src={logoUrl} alt="" width={28} height={28} />

@@ -115,6 +115,25 @@ _BANG: tuple[tuple[str, str, str, str, str, tuple[str, ...]], ...] = (
     ("sl_ra", "SL ra của công đoạn", "Số lượng RA của chính bước đang tính",
      "đơn vị của bước", "chuỗi bù hao ngược — có sau khi engine chạy xong",
      (LOAI_CONG_DOAN, LOAI_QUY_DOI)),
+    # Ba biến khung lụa — TẦNG BƯỚC như `sl_vao`/`sl_ra`. Nguồn thật: 3 ô nhập ở phiếu tính giá
+    # (`PhieuThanhPham.dai_khung_lua/rong_khung_lua/so_khung_lua`), TÁCH BIỆT với `phi_khuon` —
+    # không dùng để tự tính phí, chỉ để công thức của công đoạn tự quy ra tiền.
+    #
+    # MỞ CHO CẢ Ô QUY ĐỔI 29/08/2026 (yêu cầu người dùng): ô Quy đổi (Công thức sản lượng ra ·
+    # Cách đo lượng khoán/tốc độ máy · Công thức tính lượng của Giấy/Vật tư) chạy ở TẦNG LỆNH, nơi
+    # không có khái niệm "khung lụa của bước" (dữ liệu chỉ khai per-phiếu-tính-giá) — nên MỌI nơi
+    # bơm `ngu_canh_lenh` phải bơm thêm `KHUNG_LUA_MAC_DINH` (mặc định 0.0) ngay sau, giống hệt cách
+    # `sl_vao`/`sl_ra` được bơm thêm ở từng nơi gọi. Gõ chip này vào công thức quy đổi thì luôn ra 0
+    # — đúng như đã hứa "không fill được thì coi như 0", KHÔNG NameError.
+    ("dai_khung_lua", "Dài khung lụa", "Chiều dài khung lụa dùng ở bước này", "mm",
+     "ô Dài khung lụa của bước, khai ở phiếu tính giá — 0 ở công thức quy đổi (không có ở tầng lệnh)",
+     (LOAI_CONG_DOAN, LOAI_QUY_DOI)),
+    ("rong_khung_lua", "Rộng khung lụa", "Chiều rộng khung lụa dùng ở bước này", "mm",
+     "ô Rộng khung lụa của bước, khai ở phiếu tính giá — 0 ở công thức quy đổi (không có ở tầng lệnh)",
+     (LOAI_CONG_DOAN, LOAI_QUY_DOI)),
+    ("so_khung_lua", "Số khung lụa", "Số khung lụa sử dụng ở bước này", "khung",
+     "ô Số khung lụa của bước, khai ở phiếu tính giá — 0 ở công thức quy đổi (không có ở tầng lệnh)",
+     (LOAI_CONG_DOAN, LOAI_QUY_DOI)),
     ("don_gia_vat_tu", "Đơn giá vật tư",
      "Đơn giá của CHÍNH vật tư đang mở — đã quy về đơn vị công thức đang đếm", "đ",
      "ô Đơn giá của dòng vật tư, quy về đơn vị cơ sở (khai đ/tấn thì máy ÷ 1.000)",
@@ -138,7 +157,9 @@ _THEO_MA = {b["ma"]: b for b in BIEN}
 # phiếu (`ngu_canh_phieu` chạy một lần cho cả thành phần, trước vòng lặp bước). Trừ chúng ra khỏi
 # `MA_NGU_CANH_PHIEU` để cái chốt "khai mà quên bơm ⇒ nổ ngay" vẫn canh được đúng tầng của nó:
 # tầng phiếu vẫn assert khít, tầng bước có chốt riêng ở nơi bơm.
-_TANG_BUOC: frozenset[str] = frozenset({"sl_vao", "sl_ra"})
+_TANG_BUOC: frozenset[str] = frozenset(
+    {"sl_vao", "sl_ra", "dai_khung_lua", "rong_khung_lua", "so_khung_lua"}
+)
 
 MA_NGU_CANH_PHIEU: tuple[str, ...] = tuple(
     b["ma"] for b in BIEN
@@ -151,6 +172,14 @@ MA_NGU_CANH_PHIEU: tuple[str, ...] = tuple(
 MA_TANG_BUOC_TIEN: tuple[str, ...] = tuple(
     b["ma"] for b in BIEN if set(b["loai"]) & set(_TIEN) and b["ma"] in _TANG_BUOC
 )
+
+# Ba biến khung lụa mặc định 0 ở TẦNG LỆNH (`ngu_canh_lenh`) — tầng này không có nguồn tương đương
+# phiếu tính giá, nên MỌI nơi gọi `ngu_canh_lenh` rồi `safe_eval` một công thức quy_doi phải bơm
+# thêm bộ này (`{**ngu_canh_lenh(...), **KHUNG_LUA_MAC_DINH}`), y hệt cách `sl_vao`/`sl_ra` được bơm
+# — thiếu thì công thức lỡ gọi tới các chip này vỡ NameError thay vì ra 0 như đã hứa.
+KHUNG_LUA_MAC_DINH: dict[str, float] = {
+    "dai_khung_lua": 0.0, "rong_khung_lua": 0.0, "so_khung_lua": 0.0,
+}
 
 
 def bien_cho(loai: str) -> list[dict]:

@@ -261,7 +261,7 @@ EXC_LOW_MARGIN = "low_margin"
 EXC_BELOW_COST = "below_cost"
 EXC_NO_COST = "no_cost"            # nhập tay không giá vốn (luôn cần duyệt)
 EXC_DISCOUNT_OUT = "discount_out"
-EXC_MARGIN_OUT = "margin_out"
+EXC_MARKUP_OUT = "markup_out"    # markup (lợi nhuận/GIÁ VỐN) ngoài rào của khách — cổng BÁO GIÁ
 
 
 class OrderApproval(Base):

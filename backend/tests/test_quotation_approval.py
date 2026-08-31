@@ -4,6 +4,9 @@ Báo giá đặc thù (giá trị cao ≥100tr…) → chặn "gửi khách"/"kh
 thường gửi thẳng. Đơn hàng tạo từ báo giá đã duyệt → A2 TỰ THÔNG (không hỏi duyệt lại). RBAC (cập nhật
 sau P7): NV Sales soạn + tự TRÌNH DUYỆT (có manage_status) + thấy số biên; DUYỆT đặc thù = TP KD HOẶC
 Giám đốc Kinh doanh (approve_exception); NV Sales không được duyệt.
+
+Cổng theo RÀO CỦA KHÁCH soi trục **MARKUP** (lợi nhuận / GIÁ VỐN — đúng ô "Markup %" Sale gõ),
+KHÔNG phải biên trên giá bán (chủ đầu tư chốt 29/08/2026).
 """
 from __future__ import annotations
 
@@ -182,7 +185,7 @@ def test_sales_can_submit_own_quote_for_approval(client):
     q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(sales)).json()
     assert q["exception_required"] is True
     # NV Sales tự set biên khi soạn → thấy số biên (không còn giấu).
-    assert q["margin_pct"] is not None
+    assert q["markup_pct"] is not None
     # Có manage_status → tự Trình duyệt (draft → pending_approval).
     r = client.post(f"/api/quotations/{q['id']}/transition",
                     json={"to_status": "pending_approval"}, headers=_h(sales))
@@ -270,9 +273,101 @@ def test_double_approval_locked(client):
     assert r2.status_code == 422 and "Chờ duyệt" in r2.json()["detail"]
 
 
-def test_gd_sees_margin_number(client):
+def test_gd_sees_markup_number(client):
     token = _token(client)
     q = _make_high_value_quote(client, token)
-    # GĐ có approve_exception → thấy số biên.
-    assert q["margin_pct"] is not None
+    # GĐ có approve_exception → thấy số markup.
+    assert q["markup_pct"] is not None
     assert {e["key"] for e in q["exceptions"]} == {"high_value"}
+
+
+# --- cổng theo RÀO CỦA KHÁCH: trục MARKUP (không phải biên) -------------------
+
+def _customer_with_markup_bounds(client, token, *, name: str, mmin=None, mmax=None) -> int:
+    cid = client.post("/api/customers", json={"name": name}, headers=_h(token)).json()["customer"]["id"]
+    r = client.put(f"/api/customers/{cid}/financial",
+                   json={"credit_limit": 0, "markup_min_pct": mmin, "markup_max_pct": mmax},
+                   headers=_h(token))
+    assert r.status_code == 200, r.text
+    return cid
+
+
+def _quote(client, token, *, customer_id: int, markup: float, cost=10_000_000) -> dict:
+    pid = _seed_ptg(gia_von_tp=cost)
+    r = client.post("/api/quotations",
+                    json={"phieu_tinh_gia_id": pid, "customer_id": customer_id, "margin_percent": markup},
+                    headers=_h(token))
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
+def test_markup_bang_dung_san_thi_khong_dac_thu(client):
+    """Rào khách 10–20%: Sale gõ Markup 10% → ĐẠT, KHÔNG phải trình duyệt.
+    (Trục biên cũ sẽ ra 9,1% và bắt trình duyệt oan — đây là ca chốt của lần sửa này.)"""
+    token = _token(client)
+    cid = _customer_with_markup_bounds(client, token, name="KH Rào Markup", mmin=10, mmax=20)
+    q = _quote(client, token, customer_id=cid, markup=10)
+    assert q["markup_pct"] == 10
+    assert q["exception_required"] is False
+    assert q["exceptions"] == []
+
+
+def test_markup_duoi_san_va_vuot_tran_deu_dac_thu(client):
+    token = _token(client)
+    cid = _customer_with_markup_bounds(client, token, name="KH Rào 2 Chiều", mmin=10, mmax=20)
+    duoi = _quote(client, token, customer_id=cid, markup=9)
+    assert duoi["markup_pct"] == 9
+    assert duoi["exception_required"] is True
+    assert {e["key"] for e in duoi["exceptions"]} == {"markup_out"}
+    tren = _quote(client, token, customer_id=cid, markup=25)
+    assert tren["markup_pct"] == 25
+    assert {e["key"] for e in tren["exceptions"]} == {"markup_out"}
+    # Trần đúng bằng 20% → vẫn ĐẠT (biên giới tính vào trong khoảng).
+    dung_tran = _quote(client, token, customer_id=cid, markup=20)
+    assert dung_tran["exception_required"] is False
+
+
+def test_khach_chua_dat_rao_thi_khong_soi_markup(client):
+    token = _token(client)
+    cid = _customer_with_markup_bounds(client, token, name="KH Không Rào")
+    q = _quote(client, token, customer_id=cid, markup=3)
+    assert q["markup_pct"] == 3
+    assert q["exception_required"] is False
+
+
+def test_ha_markup_sau_khi_duyet_thi_het_bao_phu(client):
+    """Báo giá đã duyệt MỞ LẠI được qua "đồng bộ từ phiếu tính giá" (→ về Nháp, bản duyệt cũ còn
+    nguyên). Hạ markup 9% → 2% thì bản duyệt cũ KHÔNG còn bao phủ: trạng thái phải là `stale`
+    ("đã đổi so với lần duyệt trước"), không được hiện "đã duyệt" chỉ vì tổng tiền giảm.
+
+    Gửi khách vốn đã bị chặn ở tầng khác (`exception_required`) — test này giữ cho BẢNG BÁO nói
+    đúng sự thật, chứ không phải chặn thay."""
+    token = _token(client)
+    cid = _customer_with_markup_bounds(client, token, name="KH Bao Phu", mmin=10, mmax=20)
+    pid = _seed_ptg(gia_von_tp=10_000_000)
+    qid = client.post("/api/quotations",
+                      json={"phieu_tinh_gia_id": pid, "customer_id": cid, "margin_percent": 9},
+                      headers=_h(token)).json()["id"]
+    client.post(f"/api/quotations/{qid}/transition",
+                json={"to_status": "pending_approval"}, headers=_h(token))
+    r = client.post(f"/api/quotations/{qid}/approval",
+                    json={"decision": "approved", "note": "khách quen"}, headers=_h(token))
+    assert r.status_code == 200 and r.json()["exception_status"] == "approved"
+    # Sửa thẳng khi ĐÃ DUYỆT: KHÓA (chỉ sửa được ở Nháp).
+    assert client.put(f"/api/quotations/{qid}", json={"customer_id": cid, "items": []},
+                      headers=_h(token)).status_code == 409
+    # Đồng bộ lại từ phiếu tính giá → đẻ phiên bản mới, báo giá về Nháp (markup giữ nguyên 9%).
+    assert client.post(f"/api/quotations/resync-from-ptg/{pid}", headers=_h(token)).status_code == 200
+    d = client.get(f"/api/quotations/{qid}", headers=_h(token)).json()
+    assert d["status"] == "draft" and d["markup_pct"] == 9
+    assert d["exception_status"] == "approved"      # chưa đổi gì → bản duyệt cũ còn bao phủ
+    # HẠ markup 9% → 2%: tổng tiền GIẢM (qua được cap quy mô) nhưng lợi nhuận tụt.
+    it = d["items"][0]
+    assert client.put(f"/api/quotations/{qid}",
+                      json={"customer_id": cid,
+                            "items": [{"id": it["id"], "margin_percent": 2.0, "vat_percent": 10.0}]},
+                      headers=_h(token)).status_code == 200
+    d2 = client.get(f"/api/quotations/{qid}", headers=_h(token)).json()
+    assert d2["markup_pct"] == 2
+    assert d2["exception_status"] == "stale"
+    assert d2["exception_cleared"] is False

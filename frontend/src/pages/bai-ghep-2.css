@@ -202,7 +202,10 @@
 .bg2-tablewrap {
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-3);
-  overflow: hidden;
+  /* `overflow: hidden` (bo góc) CẮT MẤT bảng rộng ở màn hẹp — bảng dùng chung
+     `.khsx__tablewrap` vốn có `overflow-x: auto` nhưng luật này nạp sau nên đè mất. */
+  overflow-x: auto;
+  overflow-y: hidden;
   background: var(--canvas);
   box-shadow: var(--shadow-sm);
 }

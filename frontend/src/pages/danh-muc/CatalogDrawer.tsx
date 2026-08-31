@@ -273,6 +273,10 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             // Ô tự khai loại (vd "Công thức tính lượng" ở Vật tư/Giấy) thì ÉP bộ chip theo nó —
             // một màn có thể có hai ô công thức hỏi hai câu khác nhau.
             loaiO={f.loaiO}
+            // Ba chip khung lụa (dai_khung_lua/rong_khung_lua/so_khung_lua) từng bị ẩn trừ khi
+            // "Loại khuôn" = Khung lụa. Bỏ ẩn theo yêu cầu 29/08/2026: engine đã bơm 3 biến này
+            // cho MỌI bước và mặc định 0 khi phiếu chưa khai (xem thanh_phan_engine.py) nên hiện
+            // sẵn không có rủi ro tính sai, chỉ đỡ người khai phải bật "Loại khuôn" mới thấy chip.
             id={`formula-${f.key}`}
             // Nhãn TRONG khung đi theo nhãn của CHÍNH field. Trước 17/08/2026 nó đóng đinh
             // "Công thức tính giá", chấp nhận được khi mỗi màn chỉ có một ô; nay Giấy và Vật tư

@@ -5828,3 +5828,42 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ==========================================================================
+   §RESPONSIVE — màn hẹp. Đặt CUỐI FILE (media query không cộng specificity).
+   ========================================================================== */
+@media (max-width: 992px) {
+  /* Lưới đã về 1 cột từ trước, nhưng ô lưới mặc định `min-width:auto` = KHÔNG co dưới
+     bề rộng nội dung nhỏ nhất. Nội dung ở đây có SVG radar viewBox 400×180 → bề rộng nội
+     tại 400px, kéo cả cột lên 543px và đẩy trang trượt ngang dù SVG đã khai `width:100%`. */
+  .cc-checkin-grid-layout > *,
+  .cc-checkin-left-col,
+  .cc-checkin-right-col {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  /* Dải 3 chỉ số dưới radar: nhãn khai `nowrap`, ba ô 1fr cộng lại ~486px > khung 269px.
+     Cho tự chia cột theo chỗ còn và mở khoá co (`min-width:0`) thay vì ép đúng 3 cột. */
+  .cc-radar-map-metrics-strip {
+    grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
+    gap: 8px;
+  }
+  .cc-radar-metric-chip {
+    min-width: 0;
+  }
+  .cc-radar-metric-label {
+    white-space: normal;
+    text-align: center;
+  }
+  /* Chú giải màu: 3 mục một hàng ngang → cho xuống dòng. */
+  .cc-radar-map-legend {
+    flex-wrap: wrap;
+    gap: 6px 14px;
+  }
+  /* Tiêu đề + nút làm mới: nhóm chữ phải co được, không thì đẩy nút ra ngoài. */
+  .cc-radar-map-title-group {
+    min-width: 0;
+  }
+}

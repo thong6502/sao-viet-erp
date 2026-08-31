@@ -11,6 +11,7 @@ import type {
   SxBatchIn, SxBanGiaoDeXuatIn, SxBanGiaoSuaIn, SxBanGiaoDieuChinhIn,
   SxHoTroDeXuatIn, SxBuTruIn, SxLoaiTruIn, SxGoLoaiTruIn,
   SxKcsBatchIn, SxNhapKhoYeuCauIn, SxHuyPhanChuaNhanIn, SxPhanLoaiBtpIn, SxDongThieuIn,
+  SxKetQuaNhanh,
 } from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
@@ -18,7 +19,7 @@ import { num, ngayGio, ngay } from "./keHoachSxShared";
 
 // ============================ hợp đồng hành động (controller cấp) ============================
 export interface ThsxExec {
-  taoBatch: (body: SxBatchIn) => Promise<boolean>;
+  taoBatch: (body: SxBatchIn) => Promise<SxKetQuaNhanh[] | null>;
   deXuatBanGiao: (body: SxBanGiaoDeXuatIn) => Promise<boolean>;
   suaBanGiao: (banGiaoId: number, body: SxBanGiaoSuaIn) => Promise<boolean>;
   xacNhanBanGiao: (banGiaoId: number, version: number) => Promise<boolean>;
@@ -125,6 +126,7 @@ function SanLuongSection({
   const sl = chiTiet.san_luong;
   const cv = chiTiet.cong_viec;
   const [formOpen, setFormOpen] = useState(false);
+  const [ketQuaToa, setKetQuaToa] = useState<SxKetQuaNhanh[] | null>(null);
 
   return (
     <section className="thsx-psec thsx-x">
@@ -145,9 +147,30 @@ function SanLuongSection({
         <span className="thsx-x-stat__it">còn <b className="thsx-num">{num(Math.max(0, sl.tong_tot - sl.da_giao))}</b></span>
       </div>
 
+      {ketQuaToa && ketQuaToa.length > 0 && (
+        <div className="thsx-x-toa-banner">
+          <span className="thsx-x-toa-banner__title">Đã tự toả sang các lệnh sản xuất:</span>
+          <ul className="thsx-x-toa-list">
+            {ketQuaToa.map((k) => (
+              <li key={k.lsx_id}>
+                LSX #{k.lsx_id}: <b>{num(k.so_luong)}</b> {k.don_vi}
+                {k.ban_giao_id != null ? " · đã tự bàn giao" : ""}
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button" className="thsx-x-toa-close" aria-label="Đóng"
+            onClick={() => setKetQuaToa(null)}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {formOpen && (
         <BatchForm cv={cv} busy={busy} loadLyDo={loadLyDo}
-          onXong={() => setFormOpen(false)} exec={exec} />
+          onXong={(kq) => { setFormOpen(false); setKetQuaToa(kq.length ? kq : null); }}
+          exec={exec} />
       )}
 
       {sl.batches.length === 0 ? (
@@ -169,7 +192,7 @@ function BatchForm({
   cv, busy, loadLyDo, onXong, exec,
 }: {
   cv: SxWorkItemChiTiet["cong_viec"]; busy: boolean;
-  loadLyDo: Props["loadLyDo"]; onXong: () => void; exec: ThsxExec;
+  loadLyDo: Props["loadLyDo"]; onXong: (ketQua: SxKetQuaNhanh[]) => void; exec: ThsxExec;
 }) {
   const [batDau, setBatDau] = useState(toDtLocal(cv.du_kien_bat_dau));
   const [ketThuc, setKetThuc] = useState(toDtLocal(cv.du_kien_ket_thuc));
@@ -195,7 +218,8 @@ function BatchForm({
       mo_ta_loi: hong > 0 && moTaLoi.trim() ? moTaLoi.trim() : null,
       ghi_chu: ghiChu.trim() || null,
     };
-    if (await exec.taoBatch(body)) onXong();
+    const ketQua = await exec.taoBatch(body);
+    if (ketQua) onXong(ketQua);
   }
 
   return (
@@ -237,7 +261,7 @@ function BatchForm({
           placeholder="Tuỳ chọn" />
       </Field>
       <div className="thsx-x-act">
-        <Button variant="ghost" onClick={onXong} disabled={busy}>Huỷ</Button>
+        <Button variant="ghost" onClick={() => onXong([])} disabled={busy}>Huỷ</Button>
         <Button variant="accent" onClick={luu} disabled={busy || !hopLe}>
           <Icon name="check" size={13} /> Ghi mẻ
         </Button>

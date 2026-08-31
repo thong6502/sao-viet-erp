@@ -112,7 +112,7 @@ from .stock_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLin
 from .khuon_be import KhuonBe
 from .vat_tu_giu_cho import VatTuGiuCho
 from .loai_san_pham import LoaiSanPham
-from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
+from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham, SanPhamTaiBan
 from .lsx import Lsx, LsxCongDoan, LsxCongDoanVatTu, LsxCongDoanPhuThuoc
 from .bai_ghep import BaiGhep, BaiGhepThanhVien
 from .bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCongDoanVatTu
@@ -145,6 +145,7 @@ from .san_xuat_san_luong import (
     SanXuatBanGiaoDieuChinh,
     SanXuatBatch,
     SanXuatBatchLotVao,
+    SanXuatKetQuaNhanh,
     SanXuatVatTuNhan,
 )
 from .san_xuat_phan_bo import (
@@ -260,6 +261,7 @@ __all__ = [
     "PhieuTinhGia",
     "PhieuThanhPhan",
     "PhieuThanhPham",
+    "SanPhamTaiBan",
     "KhoHang",
     "KhoViTri",
     "KhoKhoaSo",
@@ -312,6 +314,7 @@ __all__ = [
     "SanXuatBanGiao",
     "SanXuatBanGiaoDieuChinh",
     "SanXuatVatTuNhan",
+    "SanXuatKetQuaNhanh",
     "SanXuatHoTro",
     "SanXuatPhanBo",
     "SanXuatPhanBoDong",

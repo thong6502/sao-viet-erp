@@ -175,7 +175,7 @@ def test_consecutive_updates_collapse_in_activity(client):
 
 
 def test_terms_text_prefilled_and_editable(client):
-    """Điều khoản: tạo mới → điền sẵn bộ mặc định (5 dòng) để sale sửa; sửa xong lưu lại nguyên văn."""
+    """Điều khoản: tạo mới → điền sẵn bộ mặc định (6 dòng) để sale sửa; sửa xong lưu lại nguyên văn."""
     from app.models.quotation import DEFAULT_TERMS
     token = _token(client)
     pid = _seed_ptg()
@@ -183,7 +183,7 @@ def test_terms_text_prefilled_and_editable(client):
     assert r.status_code == 201, r.text
     q = r.json()
     assert q["terms_text"] == DEFAULT_TERMS
-    assert len(DEFAULT_TERMS.splitlines()) == 5
+    assert len(DEFAULT_TERMS.splitlines()) == 6
 
     mine = "Thanh toán 100% trước khi giao.\nGiao tại kho Bình Dương."
     r = client.put(f"/api/quotations/{q['id']}", json={"terms_text": mine}, headers=_h(token))
@@ -508,3 +508,21 @@ def test_nhom_bao_gia_trong_thi_khong_gan_nhan(client):
     q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token))
     assert q.status_code == 201, q.text
     assert q.json()["items"][0]["nhom"] is None
+
+
+def test_bao_gia_khoa_gia_von_da_gom_phi_giao_hang(client):
+    """Phí giao hàng nằm TRONG `gia_von_tp` ⇒ Báo giá markup luôn cả nó (chốt: phí giao hàng là một
+    phần giá thành, không phải khoản thu hộ)."""
+    token = _token(client)
+    ptg = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1_000,
+        "thanh_phans": [{"ten": "Tờ rơi giao tận nơi", "so_luong": 1_000,
+                         "co_in": False, "phi_giao_hang": 500_000}],
+    }, headers=_h(token)).json()
+    assert ptg["thanh_phans"][0]["gia_von_tp"] == 500_000
+
+    r = client.post("/api/quotations", json={"phieu_tinh_gia_id": ptg["id"]}, headers=_h(token))
+    assert r.status_code == 201, r.text
+    item = r.json()["items"][0]
+    assert item["total_cost_snapshot"] == 500_000
+    assert round(item["selling_price"]) == 600_000     # 500k × 1.20 (markup mặc định)

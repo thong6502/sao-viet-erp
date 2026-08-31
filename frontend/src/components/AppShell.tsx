@@ -137,6 +137,8 @@ export function AppShell() {
   const { token, user } = useAuth();
   const [activeId, setActiveId] = useState("dashboard");
   const [navParams, setNavParams] = useState<NavParams | null>(null);
+  // Ngăn kéo điều hướng ở màn hẹp (≤1024px). Màn rộng: sidebar cố định, cờ này vô hại.
+  const [navOpen, setNavOpen] = useState(false);
   const [readable, setReadable] = useState<Set<string> | null>(null);
   const [caps, setCaps] = useState<Capabilities>(new Map());
   // Badge số theo nav id (vd "nghi-phep": số đơn chờ duyệt) — chỉ người có quyền duyệt.
@@ -206,7 +208,19 @@ export function AppShell() {
   const navigate = useCallback<NavigateFn>((id, params) => {
     setActiveId(id);
     setNavParams(params ?? null);
+    // Chọn xong một mục thì đóng ngăn kéo — không thì ở điện thoại nó che hết màn vừa mở.
+    setNavOpen(false);
   }, []);
+
+  // Esc đóng ngăn kéo (bàn phím + máy đọc màn hình đều cần đường thoát ngoài nút hamburger).
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setNavOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navOpen]);
 
   useEffect(() => {
     activeIdRef.current = activeId;
@@ -562,7 +576,7 @@ export function AppShell() {
   useEffect(() => {
     if (!token || readable === null || !coTheMoKenhSse(readable)) return;
     if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("cham_cong") || readable.has("thu_mua") || readable.has("yeu_cau_mua_hang") || readable.has("ke_toan") ||
-      readable.has("phieu_chi") || readable.has("phieu_thu") ||
+      readable.has("phieu_chi") || readable.has("phieu_thu") || readable.has("ke_hoach_vat_tu") ||
       // Tài xế thường CHỈ có ô `giao_hang` — không mở cổng ở đây thì họ không kết nối
       // SSE, và mọi thông báo chuyến gửi cho họ rơi vào hư không.
       readable.has("giao_hang"))) return;
@@ -585,6 +599,10 @@ export function AppShell() {
       }
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
       setQuoteTick((n) => n + 1);
+      if (e.type === "ke_hoach_vat_tu_thay_doi") {
+        pushToast("Kế hoạch vật tư vừa cập nhật.", "info");
+        return;
+      }
       if (e.type === "quote_decision") {
         pushToast(
           e.decision === "approved"
@@ -1284,7 +1302,16 @@ export function AppShell() {
 
   return (
     <PermissionsProvider caps={caps}>
-      <div className="shell">
+      <div className={`shell${navOpen ? " is-nav-open" : ""}`}>
+        {/* Màn che sau ngăn kéo — chỉ tồn tại khi ngăn kéo mở (màn hẹp). */}
+        {navOpen && (
+          <button
+            type="button"
+            className="shell__scrim"
+            aria-label="Đóng menu điều hướng"
+            onClick={() => setNavOpen(false)}
+          />
+        )}
         <Sidebar
           activeId={activeId}
           onSelect={(id) => navigate(id)}
@@ -1293,6 +1320,7 @@ export function AppShell() {
           dynamicItems={dynamicItems}
           badges={badges}
           hiddenIds={hiddenIds}
+          onClose={() => setNavOpen(false)}
         />
         <div className="shell__main">
           <Topbar
@@ -1303,6 +1331,8 @@ export function AppShell() {
             notifUnread={notifUnread}
             onOpenNotif={openNotif}
             onMarkAllRead={markAllNotifs}
+            onToggleNav={() => setNavOpen((v) => !v)}
+            navOpen={navOpen}
           />
           <div className="shell__content">{renderContent()}</div>
         </div>

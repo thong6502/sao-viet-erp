@@ -10724,3 +10724,215 @@ def _migrate_vat_lieu_thay_the_ids(db: Session) -> None:
 
 
 MIGRATIONS.append(("0239_vat_lieu_thay_the_ids", _migrate_vat_lieu_thay_the_ids))
+
+
+def _migrate_phieu_thanh_pham_khung_lua(db: Session) -> None:
+    """Khung lụa: thêm `dai_khung_lua`/`rong_khung_lua` (NUMERIC(10,2)) + `so_khung_lua`
+    (INTEGER) vào `phieu_thanh_pham` — ba ô nhập TÁCH BIỆT với `phi_khuon`, chỉ bơm vào công
+    thức của công đoạn (xem `bien_cong_thuc._TANG_BUOC`). NOT NULL DEFAULT 0: dòng cũ chưa khai
+    khung lụa đọc ra 0, công thức không gõ tới thì vô hại. No-op DB fresh / bảng chưa có / cột
+    đã có.
+    """
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_pham" not in insp.get_table_names():
+        return
+    co = _existing_columns(insp, "phieu_thanh_pham")
+    if "dai_khung_lua" not in co:
+        db.execute(text(
+            "ALTER TABLE phieu_thanh_pham ADD COLUMN dai_khung_lua NUMERIC(10,2) NOT NULL DEFAULT 0"
+        ))
+    if "rong_khung_lua" not in co:
+        db.execute(text(
+            "ALTER TABLE phieu_thanh_pham ADD COLUMN rong_khung_lua NUMERIC(10,2) NOT NULL DEFAULT 0"
+        ))
+    if "so_khung_lua" not in co:
+        db.execute(text(
+            "ALTER TABLE phieu_thanh_pham ADD COLUMN so_khung_lua INTEGER NOT NULL DEFAULT 0"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0240_phieu_thanh_pham_khung_lua", _migrate_phieu_thanh_pham_khung_lua))
+
+
+def _migrate_quote_contact_email_snapshot(db: Session) -> None:
+    """Email người liên hệ SNAPSHOT trên báo giá — 4th field cùng bộ với
+    contact_name/phone/title_snapshot (`_migrate_quote_bao_gia_fields`), thiếu sót khi làm
+    tính năng chọn tay người liên hệ (bug: bản in báo giá không có Email). No-op nếu cột đã có."""
+    insp = inspect(db.get_bind())
+    if "quotes" in insp.get_table_names():
+        if "contact_email_snapshot" not in _existing_columns(insp, "quotes"):
+            db.execute(text("ALTER TABLE quotes ADD COLUMN contact_email_snapshot VARCHAR(255)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0241_quote_contact_email_snapshot", _migrate_quote_contact_email_snapshot))
+
+
+def _migrate_doi_ten_cot_markup(db: Session) -> None:
+    """Đổi tên cột cho khớp TRỤC MỚI của cổng "báo giá đặc thù": từ 29/08/2026 cổng soi
+    **MARKUP** (lợi nhuận / GIÁ VỐN — đúng ô "Markup %" Sale gõ) thay cho **biên** (lợi nhuận /
+    giá bán), nên tên `margin_*` nói SAI nghĩa dữ liệu đang chứa.
+
+    · `customers.margin_min_pct|margin_max_pct` → `markup_min_pct|markup_max_pct`
+    · `quote_approvals.margin_pct_snapshot|min_margin_pct` → `markup_pct_snapshot|min_markup_pct`
+
+    `order_approvals` GIỮ NGUYÊN `margin_pct_snapshot`/`min_margin_pct`: cổng Đơn hàng bán vẫn
+    soi biên (ngưỡng chung 15%, `exception_gate.evaluate`) — đừng "dọn cho đồng bộ".
+
+    Hai đường:
+    · DB CŨ (chỉ có tên cũ) → RENAME COLUMN, giữ nguyên rào khách đã khai + bản duyệt đã ký.
+    · DB FRESH → create_all đã dựng tên MỚI, nhưng migration 0060 (đã ship, không sửa id/thân)
+      vẫn chạy và thêm lại `margin_min/max_pct` RỖNG ⇒ gặp cả hai tên thì DROP cột cũ.
+    """
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+    doi_ten = {
+        "customers": (
+            ("margin_min_pct", "markup_min_pct"),
+            ("margin_max_pct", "markup_max_pct"),
+        ),
+        "quote_approvals": (
+            ("margin_pct_snapshot", "markup_pct_snapshot"),
+            ("min_margin_pct", "min_markup_pct"),
+        ),
+    }
+    for bang, cap in doi_ten.items():
+        if bang not in ten_bang:
+            continue
+        cols = _existing_columns(insp, bang)
+        for cu, moi in cap:
+            if cu not in cols:
+                continue
+            if moi in cols:
+                db.execute(text(f"ALTER TABLE {bang} DROP COLUMN {cu}"))
+            else:
+                db.execute(text(f"ALTER TABLE {bang} RENAME COLUMN {cu} TO {moi}"))
+    db.commit()
+
+
+MIGRATIONS.append(("0242_doi_ten_cot_markup", _migrate_doi_ten_cot_markup))
+
+
+def _migrate_bai_ghep_vat_tu_nguon_so_luong(db: Session) -> None:
+    """Bài ghép: thêm `bai_ghep_cong_doan_vat_tu.nguon_so_luong` — phân biệt dòng vật tư SERVER tự
+    tính lại theo công thức (`dinh_muc`) với dòng người khai TAY (`thu_cong`, giữ nguyên qua mọi
+    lần tính lại). NOT NULL DEFAULT 'thu_cong': dòng cũ coi như đã khai tay — an toàn hơn coi nhầm
+    là định mức rồi tự ý ghi đè số người đã chốt. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "bai_ghep_cong_doan_vat_tu" not in insp.get_table_names():
+        return
+    if "nguon_so_luong" not in _existing_columns(insp, "bai_ghep_cong_doan_vat_tu"):
+        db.execute(text(
+            "ALTER TABLE bai_ghep_cong_doan_vat_tu "
+            "ADD COLUMN nguon_so_luong VARCHAR(16) NOT NULL DEFAULT 'thu_cong'"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0243_bai_ghep_vat_tu_nguon_so_luong", _migrate_bai_ghep_vat_tu_nguon_so_luong))
+
+
+def _migrate_phi_giao_hang_san_pham(db: Session) -> None:
+    """`phieu_thanh_phan.phi_giao_hang` — TỔNG phí giao hàng của cả sản lượng MỘT sản phẩm.
+
+    Vì sao gắn vào SẢN PHẨM chứ không vào phiếu: một phiếu có thể gồm ruột + bìa + hộp giao ba nơi
+    khác nhau, mà báo giá lấy `gia_von_tp` của TỪNG sản phẩm rồi markup riêng — treo một khoản
+    chung ở đầu phiếu thì không có đường chia về đúng dòng nào.
+
+    Vì sao KHÔNG gắn vào bước (khác `phieu_thanh_pham.phi_khuon`): chở hàng không phải một công
+    đoạn trong routing, không có cờ `requires_tooling` nào sinh ra nó, và nó xảy ra SAU khi chuỗi
+    công đoạn đã xong.
+
+    ⚠️ CÓ cộng vào `gia_von_tp` (một dòng của nhóm kết quả `giao_hang`) ⇒ sang Báo giá nó chịu
+    markup cùng phần còn lại — chốt: phí giao hàng là một phần GIÁ THÀNH, không phải khoản thu hộ.
+
+    v1 là số PHẲNG nhập tay; tính theo vùng/km/khối lượng vẫn ngoài phạm vi (docs/spec-tinh-gia.md §4.9).
+
+    Cột NOT NULL DEFAULT 0 nên mọi dòng cũ về 0 = "không thu tiền chở" ⇒ giá vốn phiếu cũ KHÔNG
+    nhúc nhích một đồng nào. No-op khi bảng chưa có / cột đã có.
+    """
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in set(insp.get_table_names()):
+        return
+    if "phi_giao_hang" in _existing_columns(insp, "phieu_thanh_phan"):
+        return
+    db.execute(text(
+        "ALTER TABLE phieu_thanh_phan ADD COLUMN phi_giao_hang NUMERIC(18,2) NOT NULL DEFAULT 0"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0244_phi_giao_hang_san_pham", _migrate_phi_giao_hang_san_pham))
+
+
+def _migrate_giu_cho_purchase_request_line_id(db: Session) -> None:
+    """`vat_tu_giu_cho.purchase_request_line_id` — dòng PHIẾU MUA làm phát sinh phần giữ hứa
+    (`nguon='dang_ve'`), để đối soát khi PMH đổi (dời ngày, giảm/huỷ SL, đóng đơn) biết CHÍNH XÁC
+    dòng nào bị ảnh hưởng thay vì đoán theo mặt hàng (docs/spec-ke-hoach-vat-tu.md §3.1, §3.5).
+
+    Dòng `dang_ve` CŨ (trước migration) không tra ngược được về đúng dòng phiếu nào — XOÁ SẠCH rồi
+    để `nhat_them()` tự dựng lại theo luật mới ở lần chạy kế tiếp. Dữ liệu demo (`SEED_DEMO`),
+    không phải số liệu khách hàng thật (docs/spec-ke-hoach-vat-tu.md, "Quyết định đã chốt
+    30/08/2026"). Dòng `nguon='kho'` giữ nguyên — không liên quan tới cột này.
+
+    No-op khi bảng chưa có / cột đã có.
+    """
+    insp = inspect(db.get_bind())
+    if "vat_tu_giu_cho" not in insp.get_table_names():
+        return
+    if "purchase_request_line_id" in _existing_columns(insp, "vat_tu_giu_cho"):
+        return
+    db.execute(text(
+        "ALTER TABLE vat_tu_giu_cho ADD COLUMN purchase_request_line_id INTEGER"
+    ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_vat_tu_giu_cho_purchase_request_line_id "
+        "ON vat_tu_giu_cho (purchase_request_line_id)"
+    ))
+    db.execute(text("DELETE FROM vat_tu_giu_cho WHERE nguon = 'dang_ve'"))
+    db.commit()
+    _dung_lai_giu_cho_dang_ve(db)
+
+
+def _dung_lai_giu_cho_dang_ve(db: Session) -> None:
+    """Sau khi xoá sạch dòng `dang_ve` cũ (không tra được `purchase_request_line_id`), dựng lại
+    đúng theo cột mới cho MỌI chủ thể đang bật giữ chỗ — đúng "Quyết định đã chốt 30/08/2026"
+    (docs/spec-ke-hoach-vat-tu.md §3.1: "...rồi gọi lại GiuChoService.nhat_them() cho mọi chủ thể
+    đang giu_cho_bat=true để dựng lại đúng theo cột mới"). Không gọi thì chủ thể đó "mất" phần
+    hứa cho tới lần Nhập kho/Bật-Tắt kế tiếp mới được bù lại — im lặng suốt khoảng đó.
+
+    Import cục bộ vào tầng service — LỆ RIÊNG của hàm này, không phải quy ước chung của
+    `db_migrations.py` (mọi migration khác trong file chỉ động DDL/backfill SQL thuần). Đây là
+    backfill NGHIỆP VỤ (nhặt lại đúng tồn tự do + lô đang về theo luật `nhat_them()`), không phải
+    một câu UPDATE cột đơn thuần, nên buộc phải dựng lại đúng chuỗi service như
+    `routers/ke_hoach_vat_tu.py::get_service()` — không tính tay lại một đường khác sẽ có lúc lệch.
+
+    An toàn gọi ở thời điểm boot: migration chạy TUẦN TỰ, 0245 là migration hiện tại CUỐI CÙNG,
+    nên mọi bảng/cột mà `KeHoachVatTuService`/`GiuChoService` cần đọc (routing, stock_lots,
+    purchase_request_lines...) đã ở trạng thái đã-migrate-đủ trước khi hàm này chạy.
+    """
+    from .repositories.bai_ghep_repo import BaiGhepRepository
+    from .repositories.don_vi_do_repo import DonViDoRepository
+    from .repositories.lsx_repo import LsxRepository
+    from .repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
+    from .repositories.stock_lot_repo import StockLotRepository
+    from .repositories.stock_request_repo import StockRequestRepository
+    from .repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+    from .services.giu_cho_service import GiuChoService
+    from .services.ke_hoach_vat_tu_service import KeHoachVatTuService
+    from .services.vat_lieu_kho_service import VatLieuKhoService
+
+    hang = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    kh = KeHoachVatTuService(
+        db, lsx_repo=LsxRepository(db), bai_ghep_repo=BaiGhepRepository(db), hang=hang,
+        lots=StockLotRepository(db), requests=StockRequestRepository(db),
+        purchases=PurchaseRequestRepository(db), suppliers=SupplierRepository(db),
+        don_vi=DonViDoRepository(db),
+    )
+    giu = GiuChoService(db, kh)
+    giu.nhat_them()
+
+
+MIGRATIONS.append(("0245_giu_cho_purchase_request_line_id",
+                    _migrate_giu_cho_purchase_request_line_id))

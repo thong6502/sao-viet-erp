@@ -252,6 +252,12 @@ migration (migration chạy cả trên prod, mà prod chưa bao giờ có mấy 
 
 ## 11. Gợi ý tên ở phiếu tính giá — mắt xích khép vòng
 
+> **Cập nhật 30/08/2026:** đã GỠ dropdown gợi ý (`ThanhPhamGoiY`) khỏi ô "Tên sản phẩm" — chủ dự
+> án thấy thừa/rối sau khi có ô "Sản phẩm tái bản" riêng (docs/spec-san-pham-tai-ban.md) làm việc
+> nạp cấu hình mạnh hơn nhiều. Ô "Tên sản phẩm" giờ là input text thường. Cơ chế dedup-theo-tên ở
+> `order_service.py:428` KHÔNG đổi — vẫn so khớp chuỗi thuần, chỉ mất phần UI gợi ý gõ đúng tên
+> cũ; gõ trùng tên (kể cả lệch chữ hoa/dấu, vì có chuẩn hoá) vẫn dùng lại đúng dòng danh mục cũ.
+
 Dedup theo tên đã chuẩn hoá bắt được hầu hết ca đặt lại, nhưng vẫn là **suy đoán từ chữ**: khách
 đổi cách mô tả là ra dòng mới.
 

@@ -2919,6 +2919,10 @@ input.kho-num,
 }
 @media (max-width: 860px) {
   .kho-dash__cols { grid-template-columns: 1fr; }
+  /* Ô lưới mặc định `min-width:auto` ⇒ KHÔNG co dưới bề rộng nội dung: bảng bên trong rộng hơn
+     khung là cả trang trượt ngang, dù `.kho-lines__wrap` đã có overflow-x. `min-width:0` mở khoá
+     cho ô co lại đúng khung, lúc đó khung cuộn mới ăn. */
+  .kho-dash__cols > * { min-width: 0; }
 }
 
 /* Format các section trong tab Tổng Quan thành các card container khoa học có chiều cao đồng đều */
@@ -4152,3 +4156,13 @@ button.hero-del-img-btn {
 }
 
 
+
+/* ── Màn hẹp: khối QR 240px trong drawer lịch sử vật tư xuống dòng ─────────── */
+@media (max-width: 720px) {
+  .drawer-top-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .drawer-top-grid > * {
+    min-width: 0;
+  }
+}

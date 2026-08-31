@@ -1,6 +1,7 @@
 // Kiểu dữ liệu riêng của màn Mua hàng (tách từ pages/PurchaseRequestsPage.tsx).
 import type {
   DepartmentPurchaseWorkflowStatus,
+  HangLoai,
   PurchaseDeliveryRow,
   PurchaseRequestInput,
   PurchaseRequestLineInput,
@@ -29,6 +30,9 @@ export type FormLine = PurchaseRequestLineInput & {
   supplier_id?: number | null;
   /** Dòng YCMH đẻ ra dòng này — gửi lên để chi tiết yêu cầu hiện được tình trạng từng sản phẩm. */
   department_request_line_id?: number | null;
+  /** Liên kết mặt hàng gốc (mg 0174) — form SỬA phải đọc lại từ phiếu, không thì lưu đè thành rỗng. */
+  hang_loai?: HangLoai | null;
+  hang_id?: number | null;
 };
 
 export type FormState = Omit<PurchaseRequestInput, "lines"> & { lines: FormLine[] };

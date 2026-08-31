@@ -327,3 +327,22 @@ def test_nhom_may_tra_du_phong_bi_phan_trang(client):
     assert r.status_code == 200, r.text
     assert {"items", "total", "page", "size"} <= set(r.json()), sorted(r.json())
     assert r.json()["size"] == len(r.json()["items"])
+
+
+def test_gan_go_anh_mat_hang_khong_co_that_tra_404(client):
+    """Ảnh minh hoạ của mặt hàng đã bị xoá ⇒ 404 kèm câu tiếng Việt, KHÔNG phải 500.
+
+    Hai handler ảnh (`POST|DELETE /{loai}/{id}/anh`) từng gọi `_err(e)` — một tên không tồn tại
+    trong module — nên nhánh "không tìm thấy mặt hàng" nổ `NameError` thành 500 trắng thay vì
+    404. Người dùng gặp đúng lúc hai người cùng mở một mặt hàng, một người xoá xong người kia
+    mới bấm gắn ảnh.
+    """
+    h = _admin(client)
+    anh = ("anh.png", b"\x89PNG\r\n\x1a\n" + b"0" * 32, "image/png")
+    r = client.post("/api/vat-lieu-kho/giay/99999999/anh", headers=h, files={"file": anh})
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"], "404 phải kèm câu giải thích"
+
+    r = client.delete("/api/vat-lieu-kho/vat_tu/99999999/anh", headers=h)
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"]

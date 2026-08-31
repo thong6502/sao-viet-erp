@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -35,6 +35,9 @@ from ..services.vat_lieu_kho_service import (
     MotDanhMucVatLieu, VatLieuKhoNotFound, VatLieuKhoService, VatLieuKhoValidationError,
 )
 from ..storage import get_storage, key_from_url, make_key, url_from_key
+from ..services.catalog_excel_specs import (
+    CHUNG_LOAI_GIAY, GIAY, THANH_PHAM, VAT_TU,
+)
 from .catalog_base import loi_http, make_catalog_router
 
 router = APIRouter(prefix="/api/vat-lieu-kho", tags=["vat-lieu-kho"])
@@ -101,57 +104,9 @@ def _rows_thanh_pham(svc: MotDanhMucVatLieu, objs: list, RowModel) -> list:
     return rows
 
 
-# Import Excel (mục 1 "Bảng định mức") — chỉ TẠO MỚI, xem `catalog_base.make_catalog_router`.
-# Bỏ `active`/`thay_the_ids`: mảng id không phải thứ gõ tay được trong Excel.
-# `chung_loai_giay_id` KHÔNG bỏ được như các FK khác — `VatLieuKhoService._validate` bắt buộc nó
-# khi tạo giấy ("Phải chọn Chủng loại giấy."), thiếu là import rớt 100%. Nhận TÊN/MÃ (gõ được) rồi
-# dịch sang id qua `_resolve_chung_loai`, cùng cơ chế với "Tổ" ở `cong_viec_khoan.py`.
-IMPORT_COLUMNS_GIAY = {
-    "Mã": "ma",
-    "Tên": "ten",
-    "Chủng loại giấy": "chung_loai_giay_id",
-    "Định lượng (gsm)": "gsm",
-    "Độ dày (micron)": "caliper_micron",
-    "Thớ giấy": "tho",
-    "Đơn vị giá": "don_vi_gia",
-    "Đơn giá": "don_gia",
-    "Giá thị trường": "gia_thi_truong",
-    "Ghi chú": "ghi_chu",
-    "Công thức giá": "cong_thuc_gia",
-    "Công thức lượng": "cong_thuc_luong",
-}
-IMPORT_COLUMNS_VAT_TU = {
-    "Mã": "ma",
-    "Tên": "ten",
-    "Đơn vị giá": "don_vi_gia",
-    "Đơn giá": "don_gia",
-    "Ghi chú": "ghi_chu",
-    "Công thức giá": "cong_thuc_gia",
-    "Công thức lượng": "cong_thuc_luong",
-}
-
-
-def _resolve_chung_loai(du_lieu: dict, svc) -> dict:
-    ten = du_lieu.get("chung_loai_giay_id")
-    if ten in (None, ""):
-        return du_lieu
-    from ..models.vat_lieu_kho import ChungLoaiGiay
-
-    ten = str(ten).strip()
-    match = (
-        svc.goc.repo.db.query(ChungLoaiGiay.id)
-        .filter((ChungLoaiGiay.ma.ilike(ten)) | (ChungLoaiGiay.ten.ilike(ten)))
-        .first()
-    )
-    if not match:
-        raise ValueError(f'Không tìm thấy chủng loại giấy "{ten}".')
-    du_lieu["chung_loai_giay_id"] = match[0]
-    return du_lieu
-
 
 def _khai(kind: str, InModel, RowModel, path: str, *, kem_don_vi: bool, enable_clone: bool = False,
-          cong_thuc_truong: str | None = None, import_columns: dict[str, str] | None = None,
-          import_resolve=None):
+          cong_thuc_truong: str | None = None, excel_spec=None):
     mod = MODULE_BY_KIND[kind]
     make_catalog_router(
         router, goc=f"/{path}", ten=kind, ServiceDep=_mot(kind), module=mod,
@@ -170,22 +125,21 @@ def _khai(kind: str, InModel, RowModel, path: str, *, kem_don_vi: bool, enable_c
         # `COUCHE-300-65x86`), không phải một dãy số ⇒ không có "mã kế tiếp" nào đúng.
         enable_clone=enable_clone,
         cong_thuc_truong=cong_thuc_truong,
-        enable_import=import_columns is not None,
-        import_columns=import_columns,
-        import_resolve=import_resolve,
+        excel_spec=excel_spec,
     )
 
 
-_khai("chung_loai_giay", ChungLoaiGiayIn, ChungLoaiGiayRow, "chung-loai-giay", kem_don_vi=False)
+_khai("chung_loai_giay", ChungLoaiGiayIn, ChungLoaiGiayRow, "chung-loai-giay",
+      kem_don_vi=False, excel_spec=CHUNG_LOAI_GIAY)
 _khai("giay", GiayIn, GiayRow, "giay", kem_don_vi=True, enable_clone=True,
-      cong_thuc_truong="cong_thuc_luong", import_columns=IMPORT_COLUMNS_GIAY,
-      import_resolve=_resolve_chung_loai)
+      cong_thuc_truong="cong_thuc_luong", excel_spec=GIAY)
 _khai("vat_tu", VatTuIn, VatTuRow, "vat-tu-in-an", kem_don_vi=True, enable_clone=True,
-      cong_thuc_truong="cong_thuc_luong", import_columns=IMPORT_COLUMNS_VAT_TU)
+      cong_thuc_truong="cong_thuc_luong", excel_spec=VAT_TU)
 # Thành phẩm: CÙNG nền CRUD, nhưng `VatLieuKhoService._chan_go_tay` chặn tạo/xoá — dòng ở
 # đây chỉ do `OrderService.confirm()` sinh ra (docs/prd-thanh-pham.md L1, L5). Không nhân bản được
 # vì cùng lý do: đây không phải danh mục khai tay.
-_khai("thanh_pham", ThanhPhamIn, ThanhPhamRow, "thanh-pham", kem_don_vi="khach")
+_khai("thanh_pham", ThanhPhamIn, ThanhPhamRow, "thanh-pham", kem_don_vi="khach",
+      excel_spec=THANH_PHAM)
 
 
 # -- MẶT HÀNG GỐC: hai cửa Kho + NCC dùng để chọn hàng và chọn đơn vị --
@@ -295,7 +249,7 @@ def set_vat_lieu_anh(
     try:
         obj = svc.get(loai, item_id)
     except VatLieuKhoNotFound as e:
-        raise _err(e) from None
+        raise loi_http(e) from None
     old_key = key_from_url(getattr(obj, "anh_url", None))
     key, _name = make_key("materials", f"{loai}-{item_id}", file.filename)
     get_storage().save(key, data, file.content_type)
@@ -317,7 +271,7 @@ def clear_vat_lieu_anh(
     try:
         obj = svc.get(loai, item_id)
     except VatLieuKhoNotFound as e:
-        raise _err(e) from None
+        raise loi_http(e) from None
     old_key = key_from_url(getattr(obj, "anh_url", None))
     svc.set_anh(loai, item_id, None)
     if old_key:

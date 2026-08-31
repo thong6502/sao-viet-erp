@@ -332,12 +332,75 @@ def test_san_sang_ok_va_sua_thanh_vien_ha_ve_nhap(db, orders, lsx_svc, bg_svc, a
     # Gộp rồi mà chưa gán tổ/máy cho lượt chung → vẫn chặn.
     assert "thieu_ke_hoach_buoc_chung" in bg_svc.thieu_cua(bg_svc._get(bg.id))
     _lap_ke_hoach_moi_buoc_chung(db, bg_svc, bg, admin)
+    # `so_con_tren_to` khởi tạo từ `lsx.so_con` — số con khi lệnh còn đứng RIÊNG, tự tính như thể
+    # được cả tờ. Ghép 2 lệnh cùng tờ mà giữ nguyên cả hai số đó là chồng diện tích → gate mới
+    # `vuot_dien_tich` chặn đúng, người bình bài phải TỰ chia lại tờ trước khi sẵn sàng.
+    d = bg_svc.detail_dict(bg_svc._get(bg.id))
+    a_tv = _by_sl(d, 20_000)["thanh_vien_id"]
+    b_tv = _by_sl(d, 8_000)["thanh_vien_id"]
+    bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=a_tv, so_con_tren_to=4, actor=admin)
+    bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=b_tv, so_con_tren_to=2, actor=admin)
 
     bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
     assert bg.trang_thai == TT_SAN_SANG
     tv0 = bg_svc.detail_dict(bg)["thanh_vien"][0]["thanh_vien_id"]
     bg = bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv0, so_con_tren_to=6, actor=admin)
     assert bg.trang_thai == "nhap"  # sửa thành viên khi đã sẵn sàng → tự rớt nháp
+
+
+def test_thieu_cua_khac_giay(db, orders, lsx_svc, bg_svc, admin, customer):
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    b = created[1]
+    qc_b = dict(b.quy_cach_json or {})
+    qc_b["giay_id"] = (qc_b.get("giay_id") or 0) + 9999
+    b.quy_cach_json = qc_b
+    db.commit()
+    bg = bg_svc._get(bg.id)
+    assert "khac_giay" in bg_svc.thieu_cua(bg)
+
+
+def test_thieu_cua_buoc_chung_thieu_thanh_vien(db, orders, lsx_svc, bg_svc, admin, customer):
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer, sl_them=(5000,))
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created[:2], admin)  # chỉ gộp 2/3 thành viên
+    bg = bg_svc._get(bg.id)
+    assert "buoc_chung_thieu_thanh_vien" in bg_svc.thieu_cua(bg)
+
+
+def test_thieu_cua_buoc_chung_tren_giay(db, orders, lsx_svc, bg_svc, admin, customer):
+    from app.models.lsx import LsxCongDoan
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    db.query(LsxCongDoan).filter(
+        LsxCongDoan.lsx_id.in_([l.id for l in created])
+    ).update(
+        {LsxCongDoan.don_vi_vao: "khong_ton_tai", LsxCongDoan.don_vi_ra: "khong_ton_tai"},
+        synchronize_session=False,
+    )
+    db.commit()
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+    bg = bg_svc._get(bg.id)
+    assert "thieu_buoc_chung_tren_giay" in bg_svc.thieu_cua(bg)
+
+
+def test_thieu_cua_vuot_con_toi_da(db, orders, lsx_svc, bg_svc, admin, customer):
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    bg.thanh_viens[0].so_con_tren_to = 9999
+    db.commit()
+    bg = bg_svc._get(bg.id)
+    assert "vuot_con_toi_da" in bg_svc.thieu_cua(bg)
+
+
+def test_thieu_cua_vuot_dien_tich(db, orders, lsx_svc, bg_svc, admin, customer):
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    bg.kho_in_dai = 1
+    bg.kho_in_rong = 1
+    db.commit()
+    bg = bg_svc._get(bg.id)
+    assert "vuot_dien_tich" in bg_svc.thieu_cua(bg)
 
 
 def test_xoa_lsx_dang_ghep_bi_chan(db, orders, lsx_svc, bg_svc, admin, customer):
@@ -402,6 +465,21 @@ def _them_buoc_hao_sau_in(db, lsx_svc, lsx, actor, *, so_to_bu_hao: int):
         LsxCongDoanIn(ten="Cán màng", nhom="finishing", cong_doan_id=cd.id),
     ])
     return cd
+
+
+def _resync_don_vi(lsx_svc, lsx_id, actor) -> None:
+    """Lưu lại NGUYÊN routing hiện có để ép đơn vị của lệnh đọc lại danh mục công đoạn mới nhất.
+
+    Đơn vị của một bước là BẢN SAO chỉ đồng bộ lại khi CHÍNH lệnh đó được ghi — dùng khi test vừa
+    đổi đơn vị ở một công đoạn DÙNG CHUNG cho lệnh khác, còn lệnh này chưa đụng gì tới nên vẫn giữ
+    bản sao cũ (xem `LsxService._ap_chuoi_nguoc`)."""
+    from app.schemas.lsx import LsxCongDoanIn
+
+    cu = sorted(lsx_svc.get(lsx_id).cong_doans, key=lambda c: c.thu_tu)
+    lsx_svc.replace_routing(lsx_id=lsx_id, actor=actor, rows_in=[
+        LsxCongDoanIn(step_key=c.step_key, ten=c.ten, nhom=c.nhom, cong_doan_id=c.cong_doan_id)
+        for c in cu
+    ])
 
 
 def test_so_to_gom_hao_cac_buoc_sau_in(db, orders, lsx_svc, bg_svc, admin, customer):
@@ -906,7 +984,12 @@ def test_so_do_giu_routing_day_du_va_khong_luu_canh(db, orders, lsx_svc, bg_svc,
     """Sơ đồ: mỗi lệnh giữ routing ĐẦY ĐỦ; bước đã gộp được đánh dấu `gop_step_key`, không biến mất."""
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     lsx_a = next(l for l in created if l.so_luong_dat == 20_000)
+    lsx_b = next(l for l in created if l.id != lsx_a.id)
     _them_buoc_hao_sau_in(db, lsx_svc, lsx_svc.get(lsx_a.id), admin, so_to_bu_hao=0)
+    # `_them_buoc_hao_sau_in` khai to→cái cho công đoạn IN DÙNG CHUNG của cả 2 lệnh, nhưng chỉ
+    # lưu lại lsx_a — lsx_b vẫn giữ bản sao đơn vị cũ (rỗng) cho tới khi CHÍNH nó được ghi lại.
+    # Gộp 2 bước in mà một bên còn bản sao cũ là chặn nhầm gộp thật — đồng bộ lsx_b trước.
+    _resync_don_vi(lsx_svc, lsx_b.id, admin)
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
     _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
 
@@ -1405,3 +1488,74 @@ def test_so_do_chung_mang_bang_boc_tach_gio_va_goi_y_vat_tu(
     # Số của LƯỢT CHUNG (tờ ghép), không phải số của một lệnh thành viên nào.
     assert goi_y[muc.id]["so_luong"] == pytest.approx(chung["so_luong_vao"] / 1000, rel=1e-6)
     assert goi_y[muc.id]["dien_giai"], "phải kèm câu công thức = thay số = kết quả"
+
+
+def test_vat_tu_chung_mac_dinh_thu_cong(db, orders, lsx_svc, bg_svc, admin, customer):
+    from app.models.bai_ghep_cong_doan import NGUON_SL_THU_CONG, BaiGhepCongDoanVatTu
+
+    a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
+    created = bg_svc._get(bg.id)
+    lsx_map = bg_svc._lsx_map(created)
+    cd_a = next(cd for cd in lsx_map[a.id].cong_doans if cd.loai_buoc == "may")
+    cd_b = next(cd for cd in lsx_map[b.id].cong_doans if cd.cong_doan_id == cd_a.cong_doan_id)
+    bg_svc.gop(bai_ghep_id=bg.id, step_keys=[cd_a.step_key, cd_b.step_key], actor=admin)
+    chung = bg_svc._buoc_chungs(bg_svc._get(bg.id))[0]
+    vt = BaiGhepCongDoanVatTu(
+        bai_ghep_cong_doan_id=chung.id, vat_tu_id=1,
+        vat_tu_ma_snapshot="MUC-01", vat_tu_ten_snapshot="Mực đen", don_vi_snapshot="kg",
+        so_luong=1.5, thu_tu=0,
+    )
+    db.add(vt)
+    db.commit()
+    db.refresh(vt)
+    assert vt.nguon_so_luong == NGUON_SL_THU_CONG
+
+
+def test_thay_vat_tu_chung_luu_nguon_so_luong(db, orders, lsx_svc, bg_svc, admin, customer):
+    from app.models.bai_ghep_cong_doan import NGUON_SL_DINH_MUC, NGUON_SL_THU_CONG
+    a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
+    created = bg_svc._get(bg.id)
+    lsx_map = bg_svc._lsx_map(created)
+    cd_a = next(cd for cd in lsx_map[a.id].cong_doans if cd.loai_buoc == "may")
+    cd_b = next(cd for cd in lsx_map[b.id].cong_doans if cd.cong_doan_id == cd_a.cong_doan_id)
+    bg_svc.gop(bai_ghep_id=bg.id, step_keys=[cd_a.step_key, cd_b.step_key], actor=admin)
+    chung = bg_svc._buoc_chungs(bg_svc._get(bg.id))[0]
+
+    bg_svc._thay_vat_tu_chung(chung, [
+        {"vat_tu_id": 1, "so_luong": 2.0, "nguon_so_luong": NGUON_SL_THU_CONG},
+        {"vat_tu_id": 2, "so_luong": 3.0, "nguon_so_luong": NGUON_SL_DINH_MUC},
+    ])
+    db.commit()
+
+    by_id = {v.vat_tu_id: v for v in chung.vat_tus}
+    assert by_id[1].nguon_so_luong == NGUON_SL_THU_CONG
+    assert by_id[2].nguon_so_luong == NGUON_SL_DINH_MUC
+
+
+def test_ap_dinh_muc_giu_nguyen_dong_thu_cong(db, orders, lsx_svc, bg_svc, admin, customer):
+    from app.models.bai_ghep_cong_doan import NGUON_SL_THU_CONG
+    a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
+    created = bg_svc._get(bg.id)
+    lsx_map = bg_svc._lsx_map(created)
+    cd_a = next(cd for cd in lsx_map[a.id].cong_doans if cd.loai_buoc == "may")
+    cd_b = next(cd for cd in lsx_map[b.id].cong_doans if cd.cong_doan_id == cd_a.cong_doan_id)
+    bg_svc.gop(bai_ghep_id=bg.id, step_keys=[cd_a.step_key, cd_b.step_key], actor=admin)
+    chung = bg_svc._buoc_chungs(bg_svc._get(bg.id))[0]
+    bg_svc._thay_vat_tu_chung(chung, [
+        {"vat_tu_id": 1, "so_luong": 777.0, "nguon_so_luong": NGUON_SL_THU_CONG},
+    ])
+    db.commit()
+
+    bg = bg_svc._get(bg.id)
+    tv = next(t for t in bg.thanh_viens if t.lsx_id == a.id)
+    tv.so_con_tren_to = int(tv.so_con_tren_to or 1) + 1  # đổi số con → kích _ap_so_luong_chung
+    db.commit()
+    bg_svc._tinh_lai(bg)
+    db.commit()
+
+    chung2 = bg_svc._buoc_chungs(bg_svc._get(bg.id))[0]
+    vt = next(v for v in chung2.vat_tus if v.vat_tu_id == 1)
+    assert float(vt.so_luong) == 777.0  # dòng thủ công KHÔNG bị tính lại đè số

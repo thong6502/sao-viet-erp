@@ -55,7 +55,7 @@ from ..models.vat_lieu_kho import HANG_GIAY
 from ..repositories.ke_hoach_vat_tu_repo import KeHoachVatTuRepository
 from ..repositories.purchase_repo import DepartmentPurchaseRequestRepository
 from .bien_cong_thuc import quy_cach_bien, quy_cach_bien_bai
-from .bien_cong_thuc import ngu_canh_lenh
+from .bien_cong_thuc import KHUNG_LUA_MAC_DINH, ngu_canh_lenh
 from .thanh_phan_engine import safe_eval
 from .quy_doi_service import _so, bien_trong, cap_map, doi, don_vi_map
 
@@ -319,7 +319,7 @@ class KeHoachVatTuService:
         ct = (getattr(obj, "cong_thuc_luong", None) or "").strip() if (
             tong_lenh and hang[0] == HANG_GIAY) else ""
         if ct:
-            ctx = ngu_canh_lenh(qc)
+            ctx = {**ngu_canh_lenh(qc), **KHUNG_LUA_MAC_DINH}
             thieu = [b for b in bien_trong(ct) if _f(ctx.get(b)) <= 0]
             if thieu:
                 return {"loi": f"Chưa biết {', '.join(thieu)} nên chưa tính được lượng {obj.ten}."}
@@ -498,8 +498,8 @@ class KeHoachVatTuService:
                     bang[khoa] = bang.get(khoa, 0.0) + kq["sl"]
         return da_cap, dang_linh
 
-    def _hang_dang_ve(self) -> dict[tuple, list[tuple[date, float, str | None]]]:
-        """`{hang: [(ngày về, số còn về, mã phiếu mua)]}` đã sắp theo ngày — đơn vị GỐC.
+    def _hang_dang_ve(self) -> dict[tuple, list[tuple[date, float, str | None, int]]]:
+        """`{hang: [(ngày về, số còn về, mã phiếu mua, id dòng phiếu)]}` đã sắp theo ngày — đơn vị GỐC.
 
         Mã phiếu đi kèm để dòng `ve_muon` GỌI TÊN được lô đang trên đường về. Câu "đã có hàng
         đang về" trần thì người đọc không tra được đơn nào, mà việc phải làm (hối NCC hay dời
@@ -545,7 +545,7 @@ class KeHoachVatTuService:
                 kq = self._ve_goc(hang, ln.unit, con_ve)
                 if "sl" in kq:
                     ra.setdefault(hang, []).append(
-                        (ngay_ve, kq["sl"], getattr(phieu, "code", None)))
+                        (ngay_ve, kq["sl"], getattr(phieu, "code", None), int(ln.id)))
         for ds in ra.values():
             ds.sort(key=lambda x: x[0])
         return ra
@@ -1112,7 +1112,7 @@ class KeHoachVatTuService:
                 phieu_ve = None
                 if mau == MAU_DO and ngay is not None:
                     luy_ke = 0.0
-                    for ngay_lo, sl_lo, ma_lo in ve[i:]:
+                    for ngay_lo, sl_lo, ma_lo, *_ in ve[i:]:
                         luy_ke += sl_lo
                         if con_lai + luy_ke >= 0:
                             mau = MAU_VE_MUON

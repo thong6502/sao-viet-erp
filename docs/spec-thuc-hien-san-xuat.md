@@ -388,6 +388,72 @@ Số lượng đã xác nhận đồng thời là:
 - Không cho chốt phân bổ hoặc đóng nhóm khi còn không nhất quán.
 - Lỗi phát hiện ở công đoạn sau không tự động trừ sản lượng hoặc tiền lương đã chấp nhận của công đoạn trước.
 
+### 11.4. Tỏa sản lượng bài ghép xuống LSX nhánh (chốt 30/08/2026, CÀI ĐẶT XONG 30/08/2026)
+
+> Chi tiết hoá §3.3: "sản lượng ánh xạ về LSX nhánh theo cấu hình đã snapshot". Mô hình khuôn chung
+> ở `docs/spec-bai-ghep-dag.md` §11 quyết định đâu là **điểm tỏa** (bước chung cuối cùng trên chuỗi
+> giấy của bài ghép, PERSISTED thành một cạnh `SanXuatPhuThuoc` lúc phát hành — xem §11.5 ở đó);
+> mục này nói cơ chế server tự sinh kết quả từng LSX khi ghi batch tại đúng công việc đó.
+
+**Cạnh nguồn của cơ chế tỏa:** `SanXuatPhuThuoc` (`san_xuat.py:251-278`, bảng vốn có sẵn cho phụ
+thuộc chéo công-việc↔công-việc) được `dung_diem_toa()` (`services/san_xuat/snapshot.py`, gọi từ
+`release.py:phat_hanh` lúc phát hành) ghi thêm một dòng cho mỗi LSX thành viên có điểm toả: nguồn =
+công việc điểm toả, đích = bước RIÊNG đầu tiên của chính LSX đó, `ty_le_ghep` = `so_con_tren_to`
+snapshot tại lúc phát hành. Mục này chỉ dùng lại cạnh đó, không tạo thêm bảng phụ thuộc nào khác.
+
+**Bảng sổ cái sản lượng nhánh:** `SanXuatKetQuaNhanh` (`models/san_xuat_san_luong.py`, bảng MỚI
+`create_all`) — `id`, `batch_id` (FK `san_xuat_batch`, CASCADE), `lsx_id` (FK `lsx`, CASCADE),
+`so_luong`, `don_vi`, `ban_giao_id` (FK `san_xuat_ban_giao`, SET NULL, neo bàn giao tự-xác-nhận
+tương ứng), `created_at`. CHỈ-THÊM — không có ràng buộc unique `batch_id+lsx_id`; mỗi lần ghi một
+batch tại công việc điểm-toả thì đẻ ĐÚNG một dòng mới cho mỗi cạnh toả (không sửa dòng cũ), nên
+"kết quả nhánh của một batch" luôn là join theo `batch_id`, "tổng đã toả cho một LSX" là cộng dồn
+qua nhiều batch.
+
+**Cơ chế (`_toa_san_luong()`, `services/san_xuat/san_luong.py`, gọi từ `tao_batch()` ngay trước
+`db.commit()`):**
+
+- Khi ghi batch cho một công việc: tra `canh_toa_di_tu(cv.id)` — cạnh `SanXuatPhuThuoc` có nguồn là
+  chính công việc này. RỖNG với công việc thường (không phải điểm toả) → no-op, hàm không đụng gì —
+  an toàn cho mọi batch không phải điểm toả, không cần cờ đánh dấu riêng công việc nào là "điểm
+  toả".
+- Với mỗi cạnh: `so_luong` nhánh = `tot` của batch × `ty_le_ghep` (làm tròn 3 chữ số thập phân).
+  Cạnh nào ra `so_luong <= 0` thì bỏ qua (không sinh dòng rác).
+- Mỗi cạnh sinh MỘT dòng `SanXuatKetQuaNhanh` + MỘT dòng `SanXuatBanGiao` **đã ở trạng thái
+  `BG_XAC_NHAN`** ngay khi tạo (`de_xuat_by_id`/`xac_nhan_by_id` cùng là actor ghi mẻ, cùng thời
+  điểm) — KHÔNG qua vòng đề xuất rồi chờ bên nhận xác nhận như bàn giao thường (§11.2/§11.3): số
+  này suy MỘT CHIỀU từ `tot` theo `ty_le_ghep` đã snapshot, không ai có thể "sửa" hay "từ chối" một
+  phép nhân, nên vòng thương lượng hai bên là thừa. `ket_qua.ban_giao_id` trỏ ngược lại dòng bàn
+  giao này.
+- Ví dụ cộng dồn qua nhiều mẻ (LSX A: `ty_le_ghep=1.5`, LSX B: `ty_le_ghep=1.0`, cùng nguồn tờ):
+  mẻ `tot=120` tờ → A nhận batch mới +180 con (đã xác nhận), B +120 con; mẻ sau `tot` khác lại sinh
+  batch nhánh MỚI, không cộng vào dòng cũ — tổng khả dụng của A/B là tổng các dòng `so_luong` của
+  chúng qua mọi batch điểm-toả liên quan.
+- Bước chung TRUNG GIAN (chưa tới điểm toả — không có cạnh `SanXuatPhuThuoc`-toả nào xuất phát từ
+  nó) thì `canh_toa_di_tu()` trả rỗng, `_toa_san_luong()` là no-op: ghi batch ở đó đi theo đường
+  bàn giao thường sang bước chung kế tiếp (`dung_phu_thuoc`, đã có từ trước Task này) — không bị
+  cơ chế tỏa ở mục này đụng tới.
+- Hoàn thành bước điểm-toả không tự đánh dấu LSX hoàn thành; công đoạn riêng của mỗi LSX nhận từng
+  batch nhánh ngay khi được tạo, không chờ cả bài ghép xong.
+
+**Chặn dùng vượt/nhầm phần đã toả (`_chuan_hoa_lot()`, cùng file):** khi một lot đầu vào của batch
+đang ghi trỏ `nguon_batch_id` về một batch mà `co_ket_qua_nhanh(nguon.id)` là `true` (tức batch
+nguồn LÀ điểm toả, đã tách theo LSX):
+- Công việc đang ghi (`dich_cv`) phải THUỘC một LSX có dòng `SanXuatKetQuaNhanh` ứng với
+  `nguon.id` — không có thì chặn `"Batch nguồn đã toả theo từng lệnh sản xuất — lệnh này không có
+  phần trong đó."` (LSX C không nằm trong bài ghép đó, hoặc bài ghép không toả tới LSX này).
+- Tổng đã dùng từ batch nguồn đó của đúng LSX này (`da_dung_nhanh()` — cộng dồn `so_luong` mọi lot
+  trỏ `nguon_batch_id` này, qua các batch có `cong_viec.lsx_id` khớp) cộng số lượng lot đang thêm
+  không được vượt `so_luong` đã cấp cho LSX đó (dung sai `_EPS`) — vượt thì chặn `"Vượt phần đã
+  toả cho lệnh sản xuất này (…)."`. LSX A không thể mượn/dùng vượt phần của chính nó, và không thể
+  chạm phần của LSX B dù cùng một batch nguồn.
+
+**API + FE:** `tao_batch()` trả thêm `ket_qua_lsx: [{lsx_id, so_luong, don_vi, ban_giao_id}, …]`
+trong response (rỗng nếu không phải điểm toả). Màn Thực hiện sản xuất (`ThsxExecPanels.tsx`) hiện
+banner `.thsx-x-toa-banner` ngay sau khi ghi mẻ thành công tại một điểm toả, liệt kê từng LSX đích +
+số lượng đã tỏa + nhãn "đã tự bàn giao", có nút đóng. Phía LSX nhận, công việc riêng đầu tiên sau
+điểm toả hiện dòng "NHẬN VỀ" ở trạng thái đã xác nhận ngay (không phải "chờ xác nhận") trong khối
+Bàn giao — khác các dòng bàn giao thường phải tự tay xác nhận.
+
 ---
 
 ## 12. Phân bổ sản lượng và lương khoán

@@ -831,10 +831,26 @@ td.acct-count-cell {
     flex-direction: column;
   }
 
+  /* `!important` là BẮT BUỘC ở đây, không phải thói quen xấu: luật gốc ở đầu file khai
+     `width: 220px !important` (và `.acct-toolbar__date` 138px !important) nên bản 100% không
+     kèm important THUA — đó chính là lý do thanh lọc màn "Đơn mua hàng" vẫn tràn 35px ở 375px
+     dù khối media này đã có từ trước. */
   .acct-toolbar__select,
   .acct-toolbar__filter-select,
   .acct-toolbar__filters .input {
+    width: 100% !important;
+  }
+
+  /* Cụm "Từ [ngày] đến [ngày]": hai ô 138px cứng + nhãn + đệm > bề ngang điện thoại. */
+  .acct-toolbar__date-group {
+    display: flex;
+    flex-wrap: wrap;
     width: 100%;
+  }
+  .acct-toolbar__date {
+    flex: 1 1 120px;
+    width: auto !important;
+    min-width: 0;
   }
 
   .acct-form-grid--2,

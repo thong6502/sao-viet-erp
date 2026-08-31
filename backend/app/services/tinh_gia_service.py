@@ -86,12 +86,17 @@ _TP_SCALAR_FIELDS = (
     # đi cùng ở đây chỉ để đọc lại phiếu cũ chưa backfill; engine LUÔN tính lại chúng từ tập rồi
     # ghi đè xuống DB (`_ghi_so_mau_dan_xuat`), nên đừng tin số client gửi lên.
     "muc_a", "muc_b", "so_mau_a", "so_mau_b", "so_mau_pha",
+    # ⑤ Phí giao hàng của CẢ sản phẩm — engine cộng thẳng vào giá vốn (nhóm "Giao hàng").
+    "phi_giao_hang",
 )
 _ROW_SCALAR_FIELDS = (
     "thu_tu", "cong_doan_id", "ten", "don_gia", "so_luong", "bu_hao",
     "so_mat", "so_vi_tri", "dien_tich", "nha_cung_cap", "ghi_chu",
     # Phí khuôn của bước — engine CÓ cộng vào giá vốn (một dòng tiền trong nhóm Công đoạn).
     "phi_khuon",
+    # Kích thước/số lượng khung lụa — TÁCH BIỆT với `phi_khuon`, chỉ để công thức của công đoạn
+    # (bước dùng `tooling_type = "khung_lua"`) tự quy ra tiền. Xem `bien_cong_thuc._TANG_BUOC`.
+    "dai_khung_lua", "rong_khung_lua", "so_khung_lua",
 )
 
 

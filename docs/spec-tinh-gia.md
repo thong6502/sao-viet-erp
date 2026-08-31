@@ -197,6 +197,19 @@ PROOF:            tùy chọn — proof số/proof ướt × số lần × đơn
 GIAO HÀNG = phẳng | theo khoảng cách | theo khối lượng/thể tích (tùy chọn)
 ```
 
+**v1 ĐÃ CÀI (mg `0244`) — chỉ nhánh PHẲNG, nhập tay theo SẢN PHẨM.** Mục ⑤ "Giao hàng" trong modal
+sản phẩm của Tính giá: một ô tiền `phieu_thanh_phan.phi_giao_hang` = TỔNG phí chở cho toàn bộ sản
+lượng của sản phẩm đó (khoản MỘT LẦN, không nhân SL). Engine đẻ nó thành nhóm kết quả `giao_hang`
+(chỉ xuất hiện khi phí > 0), cộng thẳng vào `gia_von_tp` ⇒ **chịu markup** khi sang Báo giá — chốt:
+phí giao hàng là một phần GIÁ THÀNH, không phải khoản thu hộ. Đơn giá hiện kèm phép chia
+`phí ÷ SL` để thấy đơn nhỏ đang gánh bao nhiêu.
+
+Gắn vào SẢN PHẨM (không phải phiếu) vì Báo giá markup theo từng `gia_von_tp`; gắn vào sản phẩm
+(không phải BƯỚC như `phi_khuon`) vì chở hàng không nằm trong routing.
+
+**NGOÀI phạm vi v1:** ĐÓNG GÓI (thùng/màng/dây) và hai nhánh tính GIAO HÀNG theo vùng·km·khối
+lượng — vẫn cần danh mục ở TODO cuối file.
+
 ---
 
 ## 5. Công thức từng dòng
@@ -413,7 +426,7 @@ Chủ sở hữu: engine bình bài (spec-quy-tac-binh-bai). Kẽm & bình bài 
 
 ### TODO nhỏ còn lại (chưa vào spec — làm khi build)
 - `coverage/độ_phủ` per mặt trên JobSpec + bảng band trên Kho mực (mực chính xác hơn).
-- Danh mục **Đóng gói/Giao hàng** (thùng→giá, SP/thùng, cước theo vùng/kg) cho §4.9.
+- Danh mục **Đóng gói/Giao hàng** (thùng→giá, SP/thùng, cước theo vùng/kg) cho §4.9 — v1 đã có ô phí giao hàng PHẲNG nhập tay theo sản phẩm, còn thiếu đúng phần danh mục này.
 - Dòng **AA/PE** (sửa của khách tính tiền / lỗi nhà in miễn phí) + **rush surcharge**.
 - Module **Chính sách giá** sở hữu overhead_cty/he_so_lai/chiết khấu/MOQ (global + override theo khách).
 - Điều khoản báo giá: đặt cọc, thanh toán, hiệu lực, tiền tệ → vào §9 output.

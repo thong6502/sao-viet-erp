@@ -7,13 +7,14 @@ gói (chưa làm versioning cập nhật). Tái dùng fixtures + helper của te
 from __future__ import annotations
 
 from app.models.department import Department
-from app.models.lsx import LsxCongDoan
+from app.models.lsx import LB_MAY, LsxCongDoan
 from app.models.order import OrderLine
 from app.models.san_xuat import (
     SanXuatCongViec,
     SanXuatGoiPhatHanh,
     SanXuatNhom,
     SanXuatPhienBan,
+    SanXuatPhuThuoc,
 )
 from app.repositories.san_xuat_repo import SanXuatRepository
 from app.services.san_xuat import component, release
@@ -163,3 +164,49 @@ def test_bai_ghep_mot_cong_viec_khong_de_trung(db, orders, lsx_svc, bg_svc, admi
         SanXuatCongViec.goi_id == goi.id, SanXuatCongViec.lsx_id.is_not(None)
     ).all()
     assert all(cv.step_key not in covered for cv in lsx_cvs)
+
+
+def test_dung_diem_toa_sinh_canh_theo_so_con(db, orders, lsx_svc, bg_svc, admin, customer):
+    from tests.test_xep_lich_van_de import _gop_in_va_san_sang
+
+    a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    # Mỗi lệnh thêm bước "Xả tờ" (sau in) để còn bước RIÊNG cho điểm toả tách sản lượng vào.
+    for lsx in (a, b):
+        db.add(LsxCongDoan(
+            lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
+            may_id=_in_step(db, lsx.id).may_id, so_luong_vao=5000, nang_suat=3000,
+            don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to",
+        ))
+    db.commit()
+    _nha_cho(db, [a.id, b.id])
+    bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
+    _gop_in_va_san_sang(db, bg_svc, bg, admin)
+    bg = bg_svc._get(bg.id)
+    for tv in bg.thanh_viens:
+        tv.so_con_tren_to = 8 if tv.lsx_id == a.id else 4
+    db.commit()
+
+    repo = SanXuatRepository(db)
+    covered = repo.step_keys_da_ghep(bg.id)
+    goi = release.phat_hanh(db, lsx_ids={a.id, b.id}, bai_ghep_ids={bg.id}, actor=admin)
+    db.commit()
+
+    cvs_a = [
+        cv for cv in db.query(SanXuatCongViec).filter_by(goi_id=goi.id, lsx_id=a.id).all()
+    ]
+    cvs_b = [
+        cv for cv in db.query(SanXuatCongViec).filter_by(goi_id=goi.id, lsx_id=b.id).all()
+    ]
+    assert cvs_a and cvs_b  # mỗi LSX còn ít nhất một bước RIÊNG sau bước chung
+    canh_a = db.query(SanXuatPhuThuoc).filter(
+        SanXuatPhuThuoc.dich_cong_viec_id.in_([cv.id for cv in cvs_a])
+    ).all()
+    canh_b = db.query(SanXuatPhuThuoc).filter(
+        SanXuatPhuThuoc.dich_cong_viec_id.in_([cv.id for cv in cvs_b])
+    ).all()
+    assert len(canh_a) == 1 and float(canh_a[0].ty_le_ghep) == 8.0
+    assert len(canh_b) == 1 and float(canh_b[0].ty_le_ghep) == 4.0
+    nguon_ids = {c.nguon_cong_viec_id for c in canh_a + canh_b}
+    assert len(nguon_ids) == 1  # cùng một công việc chung là điểm toả cho cả hai nhánh
+    cv_nguon = db.get(SanXuatCongViec, next(iter(nguon_ids)))
+    assert cv_nguon.bai_ghep_id == bg.id

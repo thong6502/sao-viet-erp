@@ -58,7 +58,7 @@ from ..services.dong_giay import (
     ban_do_tram, dich_chuoi, don_vi_chuoi, ma_cua_tram, tram_cua, tren_dong_giay,
 )
 from ..models.don_vi_do import DonViDo
-from ..services.bien_cong_thuc import ngu_canh_lenh, quy_cach_bien
+from ..services.bien_cong_thuc import KHUNG_LUA_MAC_DINH, ngu_canh_lenh, quy_cach_bien
 from ..services.don_vi_do_service import cong_thuc_chu, cong_thuc_the_so
 from ..services.piece_work_service import dau_viec_khop, khoan_snapshot
 from ..services.quy_doi_service import (
@@ -580,7 +580,8 @@ class LsxService:
         }
         # Bơm SỐ CỦA CHÍNH BƯỚC lên trên ngữ cảnh lệnh — `sl_vao`/`sl_ra` chỉ tồn tại ở tầng này.
         # Bơm SAU `ngu_canh_lenh` vì hàm đó assert bộ khoá của nó phải khớp `MA_NGU_CANH_PHIEU`.
-        ctx = {**ngu_canh_lenh(quy_cach or {}),
+        # Khung lụa mặc định 0 — tầng lệnh không có nguồn tương đương phiếu tính giá.
+        ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUNG_LUA_MAC_DINH,
                "sl_vao": sl, "sl_ra": _f(getattr(buoc, "so_luong_ra", 0))}
         ra: list[dict] = []
         canh_bao: list[str] = []
@@ -623,7 +624,8 @@ class LsxService:
             return []
         # Bơm SỐ CỦA CHÍNH BƯỚC lên trên ngữ cảnh lệnh — `sl_vao`/`sl_ra` chỉ tồn tại ở tầng này.
         # Bơm SAU `ngu_canh_lenh` vì hàm đó assert bộ khoá của nó phải khớp `MA_NGU_CANH_PHIEU`.
-        ctx = {**ngu_canh_lenh(quy_cach or {}),
+        # Khung lụa mặc định 0 — tầng lệnh không có nguồn tương đương phiếu tính giá.
+        ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUNG_LUA_MAC_DINH,
                "sl_vao": sl, "sl_ra": _f(getattr(buoc, "so_luong_ra", 0))}
         ra: list[dict] = []
         for mat in self.db.execute(
@@ -841,7 +843,7 @@ class LsxService:
 
         # ⓿ công thức RIÊNG của máy / của đầu việc khoán.
         if (ct_rieng := (ct_rieng or "").strip()):
-            ctx0 = {**ngu_canh_lenh(quy_cach or {}),
+            ctx0 = {**ngu_canh_lenh(quy_cach or {}), **KHUNG_LUA_MAC_DINH,
                     "sl_vao": sl, "sl_ra": _f(cd.so_luong_ra)}
             try:
                 gt0 = float(safe_eval(ct_rieng, dict(ctx0)))
@@ -1757,7 +1759,7 @@ class LsxService:
         if not ct:
             return None
         try:
-            ra_ngoai = float(safe_eval(ct, dict(ngu_canh_lenh(quy_cach or {}))))
+            ra_ngoai = float(safe_eval(ct, {**ngu_canh_lenh(quy_cach or {}), **KHUNG_LUA_MAC_DINH}))
         except (ValueError, ZeroDivisionError):
             return None
         if ra_ngoai <= 0:
@@ -2199,7 +2201,7 @@ class LsxService:
         ct = (getattr(cd_obj, "cong_thuc_san_luong", None) or "").strip()
         if not ct:
             return None
-        ctx = ngu_canh_lenh(quy_cach or {})
+        ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUNG_LUA_MAC_DINH}
         try:
             gt = float(safe_eval(ct, dict(ctx)))
         except (ValueError, ZeroDivisionError):
@@ -2645,6 +2647,11 @@ class LsxService:
             if field in data and getattr(lsx, field) != data[field]:
                 setattr(lsx, field, data[field])
                 changed.append(field)
+        # Đổi SL đặt / quy cách là đổi luôn số vật tư cần — chặn khi đang giữ chỗ, cùng luật với
+        # routing (`replace_routing`) và xoá lệnh (`xoa`). Field khác (tên, ghi chú, người phụ
+        # trách...) không đụng vật tư nên KHÔNG chặn.
+        if ("so_luong_dat" in changed or data.get("quy_cach")):
+            self._chan_dang_giu_cho(lsx)
         # THÔNG SỐ (ảnh chụp) đổi → trộn vào rồi tính lại mọi số dẫn xuất. Đặt TRƯỚC chuỗi ngược
         # vì nó có thể đổi `so_con` (bình bài lại) — thứ chuỗi ngược lấy làm hệ số cầu.
         if data.get("quy_cach"):
@@ -2695,6 +2702,24 @@ class LsxService:
         "ghi_chu",
     }
 
+    def _chan_dang_giu_cho(self, lsx: Lsx) -> None:
+        """Lệnh đang giữ chỗ vật tư → không đổi số lượng/quy cách/routing, không xoá.
+
+        Đối xứng với `BaiGhepService._chan_dang_giu_cho`/`_chan_lenh_dang_giu_cho` ở phía bài ghép
+        — nới ở phía lệnh sẽ vô hiệu hoá khoá phía bài (LSX đứng riêng vẫn đổi được số vật tư cần
+        mà giữ chỗ không hay biết). Có ĐƯỜNG LÙI: nhả chỗ ở màn Kế hoạch vật tư rồi làm — chặn
+        cứng không lối ra sẽ biến giữ chỗ thành cái khoá vĩnh viễn.
+
+        Chặn CẢ preview (`replace_routing(commit=False)`, tức `xem_truoc_routing`): số trên màn
+        xem trước đã dùng để người dùng QUYẾT ĐỊNH có nhả chỗ hay không — cho preview chạy qua thì
+        màn nói dối, bấm Lưu thật mới báo lỗi.
+        """
+        if getattr(lsx, "giu_cho_bat", False):
+            raise LsxConflict(
+                f"Lệnh {lsx.ma} đang giữ chỗ vật tư — nhả chỗ ở màn Kế hoạch vật tư trước khi sửa "
+                "số lượng, quy cách, routing hoặc xoá lệnh."
+            )
+
     def replace_routing(self, *, lsx_id: int, rows_in, actor, ly_do: str | None = None,
                         commit: bool = True) -> Lsx:
         lsx = self.get(lsx_id)
@@ -2703,6 +2728,7 @@ class LsxService:
         order = self.db.get(Order, lsx.order_id)
         if order is not None and order.status == STATUS_CANCELLED:
             raise LsxConflict("Đơn đã hủy — không thể sửa routing")
+        self._chan_dang_giu_cho(lsx)
         truoc = len(lsx.cong_doans)
         old_by_key = {r.step_key: r for r in lsx.cong_doans}
         rows: list[LsxCongDoan] = []
@@ -3050,6 +3076,7 @@ class LsxService:
         ).scalars().first()
         if ghep_ma:
             raise LsxConflict(f"LSX đang trong bài ghép {ghep_ma} — gỡ khỏi bài trước khi xoá")
+        self._chan_dang_giu_cho(lsx)
         order_id, ma = lsx.order_id, lsx.ma
         self.repo.delete(lsx)
         self.audit.create(

@@ -12,12 +12,12 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
 from ..deps import get_authorization_service, require_permission
-from ..models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia, PhieuVatTu
+from ..models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia, PhieuVatTu, SanPhamTaiBan
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
@@ -29,11 +29,14 @@ from ..schemas.phieu_tinh_gia import (
     PhieuTinhGiaListItem,
     PhieuTinhGiaListOut,
     PhieuTinhGiaOut,
+    PhieuTinhGiaStatsOut,
     PhieuTinhGiaUpdate,
     PtgActivityItem,
     PtgActivityOut,
+    SanPhamTaiBanGoiY,
     ThanhPhanIn,
 )
+from ..services import san_pham_tai_ban_service
 from ..services.rbac_service import AuthorizationService
 from ..services.thanh_phan_engine import chuan_hoa_cot
 from ..services.tinh_gia_service import compute_phieu_snapshot, danh_muc_doi_sau_khi_tinh
@@ -105,12 +108,45 @@ def _replace_children(p: PhieuTinhGia, thanh_phans: list[ThanhPhanIn] | None) ->
         p.thanh_phans.append(_build_thanh_phan(tp_in, i))
 
 
+# SL hiển thị ngoài bảng = Σ SL các sản phẩm bên trong phiếu, sản phẩm bỏ trống SL rơi về SL mặc
+# định đầu phiếu (in lại đúng công thức Python trong vòng lặp bên dưới, để sort server-side khớp
+# với số hiển thị). Không có sản phẩm nào (phiếu nháp) → SL mặc định đầu phiếu.
+_SO_LUONG_EXPR = (
+    select(
+        func.coalesce(
+            func.sum(
+                case(
+                    (PhieuThanhPhan.so_luong != 0, PhieuThanhPhan.so_luong),
+                    else_=PhieuTinhGia.so_luong,
+                )
+            ),
+            PhieuTinhGia.so_luong,
+        )
+    )
+    .where(PhieuThanhPhan.phieu_id == PhieuTinhGia.id)
+    .correlate(PhieuTinhGia)
+    .scalar_subquery()
+)
+
+_SORT_COLUMNS = {
+    "ma": PhieuTinhGia.ma,
+    "so_luong": _SO_LUONG_EXPR,
+    "gia_von_don": PhieuTinhGia.gia_von_don,
+    "tong_gia_von": PhieuTinhGia.tong_gia_von,
+    "ngay": PhieuTinhGia.created_at,
+}
+
+
 @router.get("", response_model=PhieuTinhGiaListOut)
 def list_items(
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     q: str | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
+    sort: str = Query(default="-ngay"),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=200),
 ) -> PhieuTinhGiaListOut:
     stmt = select(PhieuTinhGia)
     owner_ids = _owner_ids_for_scope(db, user, authz)
@@ -128,9 +164,23 @@ def list_items(
                 select(PhieuThanhPhan.phieu_id).where(PhieuThanhPhan.ten.ilike(like))
             ),
         ))
+    # "Nháp"/"Đã tính giá" không phải cột DB — phiếu KHÔNG có sản phẩm nào bên trong = nháp
+    # (đồng nhất với so_thanh_phan == 0 mà FE dùng để tô badge, xem vòng lặp bên dưới).
+    has_thanh_phan = select(PhieuThanhPhan.id).where(PhieuThanhPhan.phieu_id == PhieuTinhGia.id).exists()
+    if status_filter == "draft":
+        stmt = stmt.where(~has_thanh_phan)
+    elif status_filter == "calculated":
+        stmt = stmt.where(has_thanh_phan)
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+
+    sort_key = sort.lstrip("-") if sort else "ngay"
+    sort_col = _SORT_COLUMNS.get(sort_key, PhieuTinhGia.created_at)
+    is_desc = not sort or sort.startswith("-")
     rows = db.execute(
-        stmt.options(selectinload(PhieuTinhGia.thanh_phans)).order_by(PhieuTinhGia.created_at.desc())
+        stmt.options(selectinload(PhieuTinhGia.thanh_phans))
+        .order_by(sort_col.desc() if is_desc else sort_col.asc())
+        .offset((page - 1) * size)
+        .limit(size)
     ).scalars().all()
     items = []
     for r in rows:
@@ -148,6 +198,24 @@ def list_items(
         it.ten_thanh_phans = [tp.ten for tp in sorted(r.thanh_phans, key=lambda x: x.thu_tu) if tp.ten]
         items.append(it)
     return PhieuTinhGiaListOut(items=items, total=total)
+
+
+@router.get("/stats", response_model=PhieuTinhGiaStatsOut)
+def stats(
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> PhieuTinhGiaStatsOut:
+    """Đếm cho thanh tab — phải đặt TRƯỚC route `/{p_id}` (int) trong file, không thì FastAPI
+    thử ép "stats" thành int và 422 trước khi kịp rơi xuống route này."""
+    stmt = select(PhieuTinhGia.id)
+    owner_ids = _owner_ids_for_scope(db, user, authz)
+    if owner_ids is not None:
+        stmt = stmt.where(PhieuTinhGia.created_by.in_(owner_ids))
+    has_thanh_phan = select(PhieuThanhPhan.id).where(PhieuThanhPhan.phieu_id == PhieuTinhGia.id).exists()
+    total_all = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
+    total_draft = db.scalar(select(func.count()).select_from(stmt.where(~has_thanh_phan).subquery())) or 0
+    return PhieuTinhGiaStatsOut(all=total_all, draft=total_draft, calculated=total_all - total_draft)
 
 
 @router.post("", response_model=PhieuTinhGiaOut, status_code=status.HTTP_201_CREATED)
@@ -180,6 +248,30 @@ def create_item(
     db.commit()
     db.refresh(p)
     return p
+
+
+@router.get("/san-pham-tai-ban", response_model=list[SanPhamTaiBanGoiY])
+def san_pham_tai_ban_goi_y(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    q: str = Query(default=""),
+    size: int = Query(default=20, ge=1, le=50),
+) -> list[SanPhamTaiBan]:
+    """Gợi ý SẢN PHẨM TÁI BẢN theo tên — dùng chung toàn hệ thống, KHÔNG lọc theo khách hàng
+    (docs/spec-san-pham-tai-ban.md). Đặt TRƯỚC route `/{p_id}` (int) — lý do như `/stats`."""
+    return san_pham_tai_ban_service.tim_kiem(db, q, size)
+
+
+@router.get("/san-pham-tai-ban/{id}", response_model=ThanhPhanIn)
+def san_pham_tai_ban_chi_tiet(
+    id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> dict:
+    row = san_pham_tai_ban_service.lay_chi_tiet(db, id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy sản phẩm tái bản")
+    return row.cau_hinh_json
 
 
 @router.get("/{p_id}", response_model=PhieuTinhGiaOut)

@@ -9,14 +9,16 @@
  *  rồi dùng chung — hai chỗ gọi xen kẽ là kết quả nhảy cóc. Ở đây mỗi lần cắt tạo một regex mới.
  */
 
-/** Ký tự được coi là toán tử/dấu ngăn trong công thức. */
-export const TOAN_TU = ["+", "-", "*", "/", "(", ")", ","] as const;
+/** Ký tự được coi là toán tử/dấu ngăn trong công thức. Gồm cả so sánh (chỉ dùng trong `if(...)`). */
+export const TOAN_TU = ["+", "-", "*", "/", "(", ")", ",", ">=", "<=", "==", "!=", ">", "<"] as const;
 
 /** Hàm toán được phép — khớp với bộ `safe_eval` bên backend (`services/thanh_phan_engine.py`). */
-export const HAM_TOAN = ["ceil", "floor", "round", "max", "min", "abs"] as const;
+export const HAM_TOAN = ["ceil", "floor", "round", "max", "min", "abs", "if"] as const;
 
 function regexMoi(): RegExp {
-  return /[a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[+\-*/(),]|\s+/g;
+  // So sánh 2 ký tự (>=, <=, ==, !=) phải đứng TRƯỚC lớp ký tự đơn — không thì ">=" bị cắt vụn
+  // thành ">" rồi "=" rời (mỗi lần chạy alternation, JS thử theo đúng thứ tự viết).
+  return /[a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|>=|<=|==|!=|[+\-*/(),<>]|\s+/g;
 }
 
 /** Chuỗi công thức → mảng token (giữ cả khoảng trắng để chỗ vẽ chip dựng lại đúng hình). */

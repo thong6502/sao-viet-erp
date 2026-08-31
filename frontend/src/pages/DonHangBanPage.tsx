@@ -12,8 +12,6 @@ import {
   ApiError,
   connectQuoteEvents,
   type CompanyBankAccountRow,
-  type CustomerAddress,
-  type CustomerContact,
   type LsxListItem,
   type OrderDetail,
   type OrderRow,
@@ -77,6 +75,12 @@ const TABS: TabDef[] = [
   { id: "cancelled", label: "Hủy", status: "cancelled", countKey: "cancelled" },
 ];
 
+const PAGE_SIZE = 20;
+// "Chờ cọc"/"Sẵn sàng chốt" lọc theo deposit_ok — số TÍNH (gộp cọc thu + VAT + dòng đơn ở
+// order_service._money(), không phải cột DB) nên không lọc/phân trang được ở SQL mà không chép
+// lại công thức tiền (rủi ro lệch số). Tải một cửa sổ "draft" đủ rộng rồi lọc + phân trang ở đây.
+const CLIENT_FILTER_WINDOW = 200;
+
 function Chip({ icon, label, tone }: { icon: IconName; label: string; tone: "warn" | "muted" | "info" | "rush" }) {
   return (
     <span className={`dhb__chip tone--${tone}`}>
@@ -123,6 +127,7 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
 
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -138,24 +143,44 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
     const t = TABS.find((x) => x.id === tab) ?? TABS[0];
     setLoading(true);
     setErr(null);
-    api.orders
-      .list(token, {
-        q: q || undefined, status: t.status,
-        sort: "-created_at", page: 1, size: 50,
-      })
-      .then((r) => {
-        const rows = t.clientFilter ? r.items.filter(t.clientFilter) : r.items;
-        setRows(rows);
-        setTotal(t.clientFilter ? rows.length : r.total);
-      })
-      .catch((e) => setErr(String(e?.message ?? e)))
-      .finally(() => setLoading(false));
+    if (t.clientFilter) {
+      api.orders
+        .list(token, {
+          q: q || undefined, status: t.status,
+          sort: "-created_at", page: 1, size: CLIENT_FILTER_WINDOW,
+        })
+        .then((r) => {
+          const filtered = r.items.filter(t.clientFilter!);
+          setTotal(filtered.length);
+          setRows(filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE));
+        })
+        .catch((e) => setErr(String(e?.message ?? e)))
+        .finally(() => setLoading(false));
+    } else {
+      api.orders
+        .list(token, {
+          q: q || undefined, status: t.status,
+          sort: "-created_at", page, size: PAGE_SIZE,
+        })
+        .then((r) => {
+          setRows(r.items);
+          setTotal(r.total);
+        })
+        .catch((e) => setErr(String(e?.message ?? e)))
+        .finally(() => setLoading(false));
+    }
     api.orders.stats(token).then(setStats).catch(() => {});
-  }, [token, q, tab]);
+  }, [token, q, tab, page]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [tab, q]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   function openDetail(id: number) {
     if (!token) return;
@@ -278,7 +303,31 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
           </tbody>
         </table>
       </div>
-      <p style={{ color: "var(--ash)", fontSize: 12, marginTop: 8 }}>{total} đơn</p>
+      {!loading && rows.length > 0 && (
+        <div className="dhb__pager">
+          <span className="dhb__pager-info">
+            Tổng {total} đơn · Trang {page}/{totalPages}
+          </span>
+          <div className="dhb__pager-btns">
+            <button
+              type="button"
+              className="dhb__pager-btn"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              ‹ Trước
+            </button>
+            <button
+              type="button"
+              className="dhb__pager-btn"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Sau ›
+            </button>
+          </div>
+        </div>
+      )}
 
       {selected && (
         <OrderDrawer
@@ -1429,59 +1478,12 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
   const { token } = useAuth();
   const [po, setPo] = useState(order.customer_po_no ?? "");
   const [date, setDate] = useState(order.delivery_committed_date ?? "");
-  const [addr, setAddr] = useState(order.delivery_address ?? "");
-  const [contactName, setContactName] = useState(order.delivery_contact_name ?? "");
-  const [contactPhone, setContactPhone] = useState(order.delivery_contact_phone ?? "");
-  const [pickedContactId, setPickedContactId] = useState("");
-  const [contacts, setContacts] = useState<CustomerContact[]>([]);
-  const [pickedAddrId, setPickedAddrId] = useState("");
-  const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
   const [deliveryNote, setDeliveryNote] = useState(order.delivery_note ?? "");
   const [productionNote, setProductionNote] = useState(order.production_note ?? "");
   const [isRush, setIsRush] = useState(order.is_rush);
   const [depositPct, setDepositPct] = useState(order.deposit_pct != null ? String(order.deposit_pct) : "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
-  // Xổ danh bạ + điểm giao của khách → AUTO-FILL người liên hệ CHÍNH + địa chỉ MẶC ĐỊNH khi ô đang
-  // trống (đơn chưa có sẵn). Vẫn cho Sale đổi/sửa tay. Không đè giá trị đã lưu trên đơn.
-  useEffect(() => {
-    if (!token || order.customer_id == null) return;
-    api.customers.contacts(token, order.customer_id).then((r) => {
-      setContacts(r.items);
-      const primary = r.items.find((c) => c.is_primary) ?? r.items[0];
-      if (primary && !order.delivery_contact_name && !order.delivery_contact_phone) {
-        setContactName((v) => v || primary.name);
-        setContactPhone((v) => v || (primary.phone ?? ""));
-        setPickedContactId(String(primary.id));
-      }
-    }).catch(() => {});
-    api.customers.addresses(token, order.customer_id).then((r) => {
-      setAddresses(r.items);
-      const def = r.items.find((a) => a.is_default) ?? r.items[0];
-      if (def && !order.delivery_address) {
-        setAddr((v) => v || def.address);
-        setPickedAddrId(String(def.id));
-      }
-    }).catch(() => {});
-  }, [token, order.customer_id, order.delivery_contact_name, order.delivery_contact_phone, order.delivery_address]);
-
-  // Chọn 1 liên hệ trong danh bạ → điền tên + SĐT (vẫn cho sửa tay 2 ô bên dưới).
-  function pickContact(id: string) {
-    setPickedContactId(id);
-    const c = contacts.find((x) => String(x.id) === id);
-    if (c) {
-      setContactName(c.name);
-      setContactPhone(c.phone ?? "");
-    }
-  }
-
-  // Chọn 1 điểm giao đã lưu → điền địa chỉ (vẫn sửa tay được).
-  function pickAddress(id: string) {
-    setPickedAddrId(id);
-    const a = addresses.find((x) => String(x.id) === id);
-    if (a) setAddr(a.address);
-  }
 
   async function save() {
     if (!token) return;
@@ -1491,9 +1493,6 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
       const d = await api.orders.update(token, order.id, {
         customer_po_no: po || null,
         delivery_committed_date: date || null,
-        delivery_address: addr || null,
-        delivery_contact_name: contactName.trim() || null,
-        delivery_contact_phone: contactPhone.trim() || null,
         delivery_note: deliveryNote.trim() || null,
         production_note: productionNote.trim() || null,
         is_rush: isRush,
@@ -1525,48 +1524,15 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
         />
       </Field>
       <Field label="Ngày giao cam kết"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="dhb__input" /></Field>
-      {/* Địa chỉ giao + người nhận LUÔN hiện, và LẤY TỪ HỒ SƠ KHÁCH — không gõ tay ở đơn (gõ tay
-          là đẻ dữ liệu khách nằm rải rác ngoài hồ sơ). Khách chưa khai thì dropdown vẫn hiện,
-          sổ xuống rỗng kèm lời nhắc sang màn Khách hàng khai trước. */}
+      {/* Địa chỉ giao + người nhận: KẾ THỪA từ báo giá gốc (Sale chọn ở màn Báo giá) — chỉ đọc ở
+          đây, không sửa lại được trên đơn. */}
       <Field label="Địa chỉ giao">
-        <select
-          value={pickedAddrId}
-          onChange={(e) => pickAddress(e.target.value)}
-          className="dhb__select"
-          style={{ width: "100%" }}
-        >
-          <option value="">
-            {addresses.length > 0 ? "— Chọn điểm giao —" : "— Khách chưa khai điểm giao —"}
-          </option>
-          {addresses.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.label}{a.address ? ` · ${a.address}` : ""}{a.is_default ? " (mặc định)" : ""}
-            </option>
-          ))}
-        </select>
-        {addr && <div className="dhb__pick-echo">{addr}</div>}
+        <div className="dhb__pick-echo">{order.delivery_address || "—"}</div>
       </Field>
       <Field label="Người nhận">
-        <select
-          value={pickedContactId}
-          onChange={(e) => pickContact(e.target.value)}
-          className="dhb__select"
-          style={{ width: "100%" }}
-        >
-          <option value="">
-            {contacts.length > 0 ? "— Chọn liên hệ —" : "— Khách chưa có danh bạ liên hệ —"}
-          </option>
-          {contacts.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}{c.phone ? ` · ${c.phone}` : ""}{c.is_primary ? " (liên hệ chính)" : ""}
-            </option>
-          ))}
-        </select>
-        {(contactName || contactPhone) && (
-          <div className="dhb__pick-echo">
-            {[contactName, contactPhone].filter(Boolean).join(" · ")}
-          </div>
-        )}
+        <div className="dhb__pick-echo">
+          {[order.delivery_contact_name, order.delivery_contact_phone].filter(Boolean).join(" · ") || "—"}
+        </div>
       </Field>
       <Field label="Lưu ý giao hàng"><textarea value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} placeholder="Dặn tài xế / khâu giao (giờ giao, tầng, gọi trước…)" className="dhb__input" style={{ minHeight: 56, resize: "vertical" }} /></Field>
       <Field label="Lưu ý sản xuất"><textarea value={productionNote} onChange={(e) => setProductionNote(e.target.value)} placeholder="Dặn tổ in / xưởng (canh màu, cấn bế, gia công…)" className="dhb__input" style={{ minHeight: 56, resize: "vertical" }} /></Field>

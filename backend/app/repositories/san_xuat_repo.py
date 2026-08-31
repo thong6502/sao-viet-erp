@@ -48,6 +48,18 @@ class SanXuatRepository:
         ).scalars()
         return set(rows)
 
+    def thanh_vien_so_con(self, bg_ids: set[int]) -> dict[int, int]:
+        """`lsx_id → so_con_tren_to` của thành viên trong tập bài ghép — tỷ lệ toả sản lượng khi
+        điểm toả tách batch chung thành sản lượng riêng từng LSX (§ điểm toả)."""
+        if not bg_ids:
+            return {}
+        rows = self.db.execute(
+            select(BaiGhepThanhVien.lsx_id, BaiGhepThanhVien.so_con_tren_to).where(
+                BaiGhepThanhVien.bai_ghep_id.in_(bg_ids)
+            )
+        ).all()
+        return {lsx_id: int(con or 0) for lsx_id, con in rows}
+
     def lsx_ids_cua_bai_ghep(self, bg_ids: set[int]) -> set[int]:
         """Toàn bộ LSX thành viên của các bài ghép này."""
         if not bg_ids:

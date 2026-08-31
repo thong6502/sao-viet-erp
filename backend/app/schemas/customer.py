@@ -37,7 +37,7 @@ class CustomerUpdate(_CustomerIdentity):
 class CustomerFinancialIn(BaseModel):
     """Chính sách tài chính khách (redesign spec-06 v2) — endpoint /financial, gate
     `set_credit_terms`. Ghi ĐẦY ĐỦ nhóm này: hạn mức công nợ (tiền) + số ngày công nợ tối đa
-    (net terms, kể từ ngày xuất HĐ) + rào chiết khấu/biên min–max. Lưu + hiển thị; chặn báo
+    (net terms, kể từ ngày xuất HĐ) + rào chiết khấu/markup min–max. Lưu + hiển thị; chặn báo
     giá / cảnh báo quá hạn là SEAM."""
 
     credit_limit: int = Field(default=0, ge=0)
@@ -45,8 +45,8 @@ class CustomerFinancialIn(BaseModel):
     payment_term_days: int | None = Field(default=None, ge=0)
     discount_min_pct: float | None = Field(default=None, ge=0, le=100)
     discount_max_pct: float | None = Field(default=None, ge=0, le=100)
-    margin_min_pct: float | None = Field(default=None, ge=0, le=100)
-    margin_max_pct: float | None = Field(default=None, ge=0, le=100)
+    markup_min_pct: float | None = Field(default=None, ge=0, le=100)
+    markup_max_pct: float | None = Field(default=None, ge=0, le=100)
 
 
 class DuplicateRef(BaseModel):
@@ -72,7 +72,7 @@ class CustomerRow(BaseModel):
     Công nợ (SEAM-16) is built — never a fabricated 0. `revenue_12m` / `orders_total` /
     `last_order_at` are DERIVED FROM REAL ORDERS, default to honest zero/None when the
     customer has no history. Redesign spec-06 v2: bỏ `tier` (tự phân loại) + `status` +
-    chiết khấu mặc định cũ; thêm `customer_kind` + rào chiết khấu/biên. Chính sách tài
+    chiết khấu mặc định cũ; thêm `customer_kind` + rào chiết khấu/markup. Chính sách tài
     chính AI CŨNG XEM (không ẩn); sửa gate `set_credit_terms` ở service."""
 
     model_config = ConfigDict(from_attributes=True)
@@ -99,11 +99,12 @@ class CustomerRow(BaseModel):
     revenue_12m: int = 0
     orders_total: int = 0
     last_order_at: date | None = None
-    # --- Rào chiết khấu / biên lợi nhuận (spec-06 v2) — hiển thị cho mọi người ---
+    # --- Rào chiết khấu / MARKUP (spec-06 v2) — hiển thị cho mọi người.
+    # markup = lợi nhuận / GIÁ VỐN (không phải biên trên giá bán). ---
     discount_min_pct: float | None = None
     discount_max_pct: float | None = None
-    margin_min_pct: float | None = None
-    margin_max_pct: float | None = None
+    markup_min_pct: float | None = None
+    markup_max_pct: float | None = None
     # --- Nhãn thủ công (#7) — sales gán tay, chips trên danh bạ ---
     tags: list[str] = []
 

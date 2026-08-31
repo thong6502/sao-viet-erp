@@ -26,6 +26,7 @@ from .nhom import dam_bao_nhom
 from .snapshot import (
     danh_dau_kcs_cuoi,
     dung_cong_viec,
+    dung_diem_toa,
     dung_phu_thuoc,
 )
 
@@ -80,6 +81,11 @@ def phat_hanh(
     dung_phu_thuoc(
         repo, goi=goi, phien_ban_so=1,
         lsx_ids=lsx_ids, nhom_by_lsx=nhom_by_lsx, cv_by_step=cv_by_step,
+    )
+    dung_diem_toa(
+        repo, goi=goi, phien_ban_so=1,
+        lsx_ids=lsx_ids, bai_ghep_ids=bai_ghep_ids,
+        nhom_by_lsx=nhom_by_lsx, cv_by_step=cv_by_step,
     )
     repo.flush()
     return goi

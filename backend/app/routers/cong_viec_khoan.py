@@ -23,6 +23,7 @@ from ..schemas.cong_viec_khoan import (
     CongViecKhoanIn, CongViecKhoanListOut, CongViecKhoanRow,
 )
 from ..services.cong_viec_khoan_service import CongViecKhoanService
+from ..services.catalog_excel_specs import CONG_VIEC_KHOAN
 from .catalog_base import make_catalog_router
 
 router = APIRouter(prefix="/api/cong-viec-khoan", tags=["cong-viec-khoan"])
@@ -57,38 +58,6 @@ def _dung_rows(svc: CongViecKhoanService, objs: list) -> list[CongViecKhoanRow]:
     svc.gan_ten_don_vi(objs)
     return [CongViecKhoanRow.model_validate(o) for o in objs]
 
-
-# Import Excel (mục 1 "Bảng định mức") — Tổ BẮT BUỘC lúc tạo (`CongViecKhoanService._validate`
-# chặn "Chưa chọn tổ" khi thiếu), nên không bỏ được như các FK khác: nhận TÊN tổ (gõ được, đọc
-# được) rồi dịch sang `department_id` qua `_resolve_to` — người khai không cần biết id số.
-IMPORT_COLUMNS_CONG_VIEC_KHOAN = {
-    "Mã": "ma",
-    "Tên": "ten",
-    "Tổ": "department_id",
-    "Đơn vị": "unit",
-    "Đơn giá": "unit_price",
-    "Công thức lượng": "cong_thuc_luong",
-    "Ghi chú": "note",
-}
-
-
-def _resolve_to(du_lieu: dict, svc: CongViecKhoanService) -> dict:
-    ten = du_lieu.get("department_id")
-    if ten in (None, ""):
-        return du_lieu
-    from ..models.department import Department
-
-    ten = str(ten).strip()
-    match = (
-        svc.repo.db.query(Department.id)
-        .filter(Department.name.ilike(ten))
-        .first()
-    )
-    if not match:
-        raise ValueError(f'Không tìm thấy tổ "{ten}".')
-    du_lieu["department_id"] = match[0]
-    return du_lieu
-
 make_catalog_router(
     router, ten="cong_viec_khoan", ServiceDep=Service, module=MODULE, doc=_DOC,
     InModel=CongViecKhoanIn, RowModel=CongViecKhoanRow, ListModel=CongViecKhoanListOut,
@@ -100,7 +69,5 @@ make_catalog_router(
     ma_goi_y=True,      # repo khai `ma_prefix = "KH-"`
     enable_clone=True,
     cong_thuc_truong="cong_thuc_luong",
-    enable_import=True,
-    import_columns=IMPORT_COLUMNS_CONG_VIEC_KHOAN,
-    import_resolve=_resolve_to,
+    excel_spec=CONG_VIEC_KHOAN,
 )

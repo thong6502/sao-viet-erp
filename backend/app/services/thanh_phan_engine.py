@@ -190,15 +190,27 @@ OPERATORS = {
     ast.UAdd: operator.pos,
 }
 
+# So sánh — CHỈ dùng làm điều kiện của `if(...)`, không hỗ trợ chuỗi kiểu `1 < x < 10` (đó là AND
+# ẩn, ngoài phạm vi đã chốt: có nhiều điều kiện thì lồng `if` chứ không AND/OR).
+COMPARATORS = {
+    ast.Lt: operator.lt,
+    ast.Gt: operator.gt,
+    ast.LtE: operator.le,
+    ast.GtE: operator.ge,
+    ast.Eq: operator.eq,
+    ast.NotEq: operator.ne,
+}
+
 FUNCTIONS = {
     'ceil': ceil,
     'floor': floor,
     'round': round,
     'max': max,
     'min': min,
+    'if': lambda dieu_kien, dung, sai: dung if dieu_kien else sai,
 }
 
-MATH_FUNCS = {"ceil", "floor", "round", "max", "min"}
+MATH_FUNCS = {"ceil", "floor", "round", "max", "min", "if"}
 
 
 def _eval_node(node, variables: dict) -> float:
@@ -230,21 +242,43 @@ def _eval_node(node, variables: dict) -> float:
         if not isinstance(node.func, ast.Name):
             raise ValueError("Gọi hàm không hợp lệ")
         func_name = node.func.id
+        if func_name == 'if_':  # 'if' là từ khoá Python, xem ghi chú tại _CHUYEN_TU_IF trong safe_eval
+            func_name = 'if'
         if func_name not in FUNCTIONS:
             raise ValueError(f"Hàm không được hỗ trợ: {func_name}")
         args = [_eval_node(arg, variables) for arg in node.args]
+        if func_name == 'if':
+            return FUNCTIONS['if'](*args)
         return float(FUNCTIONS[func_name](*args))
+    elif isinstance(node, ast.Compare):
+        if len(node.ops) != 1:
+            raise ValueError("Chỉ so sánh 1 điều kiện (vd a > b), không so chuỗi kiểu a > b > c")
+        op_type = type(node.ops[0])
+        if op_type not in COMPARATORS:
+            raise ValueError(f"Toán tử so sánh không được hỗ trợ: {op_type}")
+        left = _eval_node(node.left, variables)
+        right = _eval_node(node.comparators[0], variables)
+        return COMPARATORS[op_type](left, right)
     else:
         raise ValueError(f"Cú pháp không được hỗ trợ: {type(node)}")
+
+
+# `if` là từ khoá Python — ast.parse("if(...)") nổ SyntaxError trước khi kịp vào _eval_node.
+# Đổi tên thành `if_(` chỉ để qua cửa parser; _eval_node dịch ngược lại 'if' khi tra FUNCTIONS.
+_CHUYEN_TU_IF = re.compile(r'\bif\s*\(')
 
 
 def safe_eval(expr_str: str, variables: dict) -> float:
     if not expr_str or not expr_str.strip():
         return 0.0
     expr_str = expr_str.replace('×', '*').replace('÷', '/').replace('−', '-')
+    expr_str = _CHUYEN_TU_IF.sub('if_(', expr_str)
     try:
         node = ast.parse(expr_str.strip(), mode='eval').body
-        return _eval_node(node, variables)
+        result = _eval_node(node, variables)
+        if isinstance(result, bool):
+            raise ValueError("Kết quả là điều kiện đúng/sai — cần bọc trong if(dieu_kien, dung, sai)")
+        return float(result)
     except Exception as e:
         raise ValueError(f"Lỗi công thức: {e}")
 
@@ -338,8 +372,16 @@ _COLS = {
         # "thuê ngoài" đi liền TÊN BƯỚC (xem dưới) để đọc một dòng là biết ai làm.
         {"key": "cong_thuc", "label": "Công thức thế số", "align": "left", "kind": "formula"},
     ],
+    # GIAO HÀNG — nhóm thứ ba, CHỈ mọc khi sản phẩm có khai phí (xem `compute_phieu`). Cùng bộ cột
+    # với Công đoạn vì cùng bản chất "một khoản tiền + diễn giải", không có số tờ để bày.
+    "giao_hang": [
+        {"key": "ten", "label": "Giao hàng", "align": "left", "kind": "text"},
+        {"key": "thanh_tien", "label": "Số tiền", "align": "right", "kind": "money"},
+        {"key": "gia_don_sp", "label": "đ/TP", "align": "right", "kind": "money"},
+        {"key": "cong_thuc", "label": "Công thức thế số", "align": "left", "kind": "formula"},
+    ],
 }
-_NAMES = {"nvl": "Nguyên vật liệu", "cong_doan": "Công đoạn"}
+_NAMES = {"nvl": "Nguyên vật liệu", "cong_doan": "Công đoạn", "giao_hang": "Giao hàng"}
 
 
 def chuan_hoa_cot(result: dict | None) -> dict | None:
@@ -358,10 +400,10 @@ def chuan_hoa_cot(result: dict | None) -> dict | None:
 # Loại dụng cụ ĐƯỢC PHÉP mang phí khuôn — dao lưu kho, mua một lần rồi cất kho dùng lại.
 # `kem` (bản kẽm) CỐ Ý ĐỨNG NGOÀI: nó là vật tư tiêu hao, mỗi bài phơi mới, và tiền nó đã nằm
 # trong công thức của bước chế bản (`so_kem × đơn giá`). Cho nó ô phí nữa là tính hai lần.
-TOOLING_CO_PHI = frozenset({"khuon_be", "khuon_ep"})
+TOOLING_CO_PHI = frozenset({"khuon_be", "khuon_ep", "khung_lua"})
 # Nhãn đọc được của loại dao — vào thẳng tên dòng tiền ("Xén 3 mặt · phí khuôn bế"). Khớp
 # `DAO_CO_PHI` bên frontend; lệch thì hai màn gọi cùng một con dao bằng hai tên.
-TOOLING_NHAN = {"khuon_be": "khuôn bế", "khuon_ep": "khuôn ép nhũ / dập nổi"}
+TOOLING_NHAN = {"khuon_be": "khuôn bế", "khuon_ep": "khuôn ép nhũ / dập nổi", "khung_lua": "khung lụa"}
 
 
 def _pre(name: str, label: str) -> str:
@@ -790,7 +832,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     )
 
     # 2 nhóm: nvl (giấy + vật tư) · cong_doan (chế bản/in/gia công theo thứ tự routing).
-    rows: dict[str, list[dict]] = {"nvl": [], "cong_doan": []}
+    rows: dict[str, list[dict]] = {"nvl": [], "cong_doan": [], "giao_hang": []}
 
     # --- Giấy (Nguyên vật liệu) ---
     # GỠ 2026-08-09 (Đợt 4 · K): nhánh "khách cấp giấy → 0đ". Cột `nguon_giay` còn trong DB nhưng
@@ -911,6 +953,12 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         _b_nay = buoc.get(idx_buoc)
         ctx["sl_vao"] = ceil(_b_nay["vao"]) if _b_nay else to_dau_vao
         ctx["sl_ra"] = ceil(_b_nay["ra"]) if _b_nay else to_dau_vao
+        # Kích thước/số lượng khung lụa của CHÍNH bước — ba ô nhập riêng ở phiếu, TÁCH BIỆT với
+        # `phi_khuon`. Bơm cho MỌI bước (không chỉ bước khung lụa): công thức không gõ tới thì vô
+        # hại, gõ tới mà không bơm mới là thứ nổ `KeyError` ở vòng `MA_TANG_BUOC_TIEN` dưới đây.
+        ctx["dai_khung_lua"] = _f(row.get("dai_khung_lua"))
+        ctx["rong_khung_lua"] = _f(row.get("rong_khung_lua"))
+        ctx["so_khung_lua"] = _f(row.get("so_khung_lua"))
         # so_mat: dòng IN (nhom=print) LUÔN theo số mặt cách in (passes) — KHÔNG để field mặc định=1
         # nuốt (N2: model so_mat default=1 khiến fallback passes thành code chết). Finishing tự set
         # so_mat (cán 1/2 mặt); ≤0 → dùng passes.
@@ -1015,12 +1063,36 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             f"dùng lại khuôn cũ thì bỏ qua."
         )
 
+    # --- PHÍ GIAO HÀNG: khoản MỘT LẦN của CẢ SẢN PHẨM, GỘP vào giá vốn --------------------------
+    #
+    # Người lập phiếu gõ TỔNG tiền chở hàng cho toàn bộ sản lượng của sản phẩm này (v1: số phẳng
+    # nhập tay — chưa tính theo vùng/km/khối lượng). Cộng vào giá vốn ⇒ sang Báo giá nó chịu markup
+    # cùng phần còn lại, đúng ý "phí giao hàng là một phần giá thành", KHÔNG phải khoản thu hộ.
+    #
+    # KHÔNG gắn vào bước nào nên đứng thành NHÓM RIÊNG: nhét chung nhóm Công đoạn thì nó lọt vào
+    # danh sách "các bước chạy máy" ở panel sản phẩm và bị đếm thành một công đoạn.
+    #
+    # 0 = không thu ⇒ KHÔNG đẻ dòng: dòng 0đ chỉ tổ làm dài bảng, và nhóm rỗng ở bản in đọc như
+    # "có giao hàng mà quên nhập tiền".
+    phi_gh = _f(tp.get("phi_giao_hang"))
+    if phi_gh > 0:
+        rows["giao_hang"].append({
+            "loai": "giao_hang",
+            "ten": _pre(name, "Giao hàng"),
+            "thanh_tien": _r(phi_gh),
+            # Cũng quy ra đ/sp — hệt tiền dao, khoản này KHÔNG co giãn theo sản lượng nên đơn nhỏ
+            # gánh nặng hơn đơn lớn; giấu con số bị chia đi thì đúng lúc cần thấy nhất lại không thấy.
+            "gia_don_sp": _r(phi_gh / sl) if sl > 0 else 0.0,
+            "cong_thuc": _ct(f"{_vi(_r(phi_gh))}đ phí giao hàng, một lần", phi_gh, sl),
+        })
+
     total = sum(_f(r.get("thanh_tien")) for grp in rows.values() for r in grp)
     return {
         "name": name,
         "rows": rows,
         "phi_khuon_dong": khuon_dong,
         "phi_khuon": _r(sum(_f(d["thanh_tien"]) for d in khuon_dong)),
+        "phi_giao_hang": _r(phi_gh),
         "total": _r(total),
         "meta": {
             "so_luong": sl, "gia_von_don": _r(total / sl) if sl > 0 else 0.0,
@@ -1055,14 +1127,14 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[d
     so_luong = _i(so_luong)
     flags: dict = {}
 
-    grouped: dict[str, list[dict]] = {"nvl": [], "cong_doan": []}
+    grouped: dict[str, list[dict]] = {"nvl": [], "cong_doan": [], "giao_hang": []}
     components: list[dict] = []
 
     bu_hao_list = bu_hao_rows or []
 
     for i, tp in enumerate(thanh_phans or []):
         one = _compute_one(tp, so_luong, warns, flags, bu_hao_list)
-        for idx in ("nvl", "cong_doan"):
+        for idx in ("nvl", "cong_doan", "giao_hang"):
             grouped[idx].extend(one["rows"][idx])
         components.append({
             "idx": i, "name": one["name"], "gia_von_tp": one["total"],
@@ -1071,6 +1143,10 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[d
             # có bao nhiêu tiền dao"; cộng thêm lần nữa là tính hai lần, mà báo giá lấy thẳng
             # `gia_von_tp` làm giá vốn khoá nên sai sẽ chạy tới tận hoá đơn.
             "phi_khuon": one["phi_khuon"], "phi_khuon_dong": one["phi_khuon_dong"],
+            # ⚠️ Phí giao hàng CŨNG đã nằm trong `gia_von_tp` (một dòng của nhóm Giao hàng). Khoá
+            # này chỉ để BÀY RA, cộng thêm lần nữa là tính hai lần — mà Báo giá lấy thẳng
+            # `gia_von_tp` làm giá vốn khoá nên sai sẽ chạy tới tận hoá đơn.
+            "phi_giao_hang": one["phi_giao_hang"],
             **one["meta"],
         })
 
@@ -1079,8 +1155,12 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[d
 
     groups = []
     grand_total = 0.0
-    for idx in ("nvl", "cong_doan"):
+    for idx in ("nvl", "cong_doan", "giao_hang"):
         rws = grouped[idx]
+        # Nhóm Giao hàng chỉ tồn tại khi CÓ phí: phiếu cũ và phiếu không thu tiền chở phải ra đúng
+        # hai nhóm như trước, không thêm một khối rỗng vào bảng chi tiết lẫn bản in.
+        if idx == "giao_hang" and not rws:
+            continue
         subtotal = sum(_f(r.get("thanh_tien")) for r in rws)
         grand_total += subtotal
         groups.append({"idx": idx, "name": _NAMES[idx], "columns": _COLS[idx],

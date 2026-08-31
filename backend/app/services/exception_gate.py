@@ -2,7 +2,8 @@
 
 MỘT nguồn định nghĩa (chống trôi lệch giữa 2 nơi — phản biện kiến trúc):
 - 3 điều kiện: **giá trị cao** (subtotal trước VAT ≥ ngưỡng) · **biên thấp** (0 ≤ biên < ngưỡng) ·
-  **bán dưới giá vốn** (biên < 0).
+  **bán dưới giá vốn** (biên < 0). Riêng BÁO GIÁ (`evaluate_quote`) soi trục **MARKUP** (trên giá vốn)
+  theo rào của từng khách, KHÔNG dùng biên — xem docstring hàm đó.
 - Cơ chế **"bao phủ"**: bản GĐ-duyệt còn hiệu lực nếu tình trạng hiện tại KHÔNG rủi ro hơn mức đã ký
   (tổng ≤ tổng-đã-ký AND biên ≥ biên-đã-ký, nhân chéo số nguyên).
 
@@ -18,7 +19,7 @@ from ..models.order import (
     EXC_DISCOUNT_OUT,
     EXC_HIGH_VALUE,
     EXC_LOW_MARGIN,
-    EXC_MARGIN_OUT,
+    EXC_MARKUP_OUT,
 )
 
 DECISIONS = (DECISION_APPROVED, DECISION_REJECTED)
@@ -32,7 +33,7 @@ _LABELS = {
     EXC_LOW_MARGIN: "Biên lợi nhuận thấp",
     EXC_BELOW_COST: "Bán dưới giá vốn",
     EXC_DISCOUNT_OUT: "Chiết khấu ngoài mức cho phép của khách",
-    EXC_MARGIN_OUT: "Biên lợi nhuận ngoài mức cho phép của khách",
+    EXC_MARKUP_OUT: "Markup ngoài mức cho phép của khách",
 }
 
 
@@ -73,35 +74,41 @@ def evaluate_quote(
     subtotal_gross: float = 0.0,
     discount_min_pct: float | None = None,
     discount_max_pct: float | None = None,
-    margin_min_pct: float | None = None,
-    margin_max_pct: float | None = None,
+    markup_min_pct: float | None = None,
+    markup_max_pct: float | None = None,
     high_value_threshold: int = DEFAULT_HIGH_VALUE_THRESHOLD,
 ) -> dict:
     """Cổng đặc thù cho **BÁO GIÁ** — rào theo TỪNG KHÁCH HÀNG (Đơn hàng vẫn dùng `evaluate` ngưỡng chung).
 
+    Trục lợi nhuận ở đây là **MARKUP** (lợi nhuận / GIÁ VỐN) — CÙNG con số Sale gõ ở ô "Markup %"
+    trên màn Báo giá, KHÔNG phải biên (lợi nhuận / giá bán). Hai số này khác mẫu: markup 10% ⇔
+    biên 9,1%; soi bằng biên thì Sale gõ đúng rào vẫn bị bắt trình duyệt (chủ đầu tư chốt 29/08/2026).
+
     Trigger (dính bất kỳ → gửi duyệt):
     - **Giá trị cao** (subtotal TRƯỚC VAT ≥ ngưỡng) và **Bán dưới vốn**: LUÔN áp (chung, không đổi).
     - **Chiết khấu NGOÀI khoảng [min,max] của KH** (dưới min HOẶC vượt max).
-    - **Biên NGOÀI khoảng [min,max] của KH** (dưới min HOẶC vượt max) — thay ngưỡng 15% cứng cũ.
+    - **Markup NGOÀI khoảng [min,max] của KH** (dưới min HOẶC vượt max).
     Rào nào KH để None → KHÔNG soi chiều đó (chỉ chặn phía đã đặt). So sánh nhân chéo (không chia).
 
-    `subtotal` = NET (sau CK, trước VAT, base biên); `subtotal_gross` = tổng giá bán TRƯỚC CK (base %CK);
-    `discount_amount` = tổng chiết khấu; `total_gross` = gồm VAT (mốc quy mô)."""
+    `subtotal` = NET (sau CK, trước VAT); `subtotal_gross` = tổng giá bán TRƯỚC CK (base %CK);
+    `discount_amount` = tổng chiết khấu; `total_gross` = gồm VAT (mốc quy mô); `cost` = giá vốn
+    (base markup — cost ≤ 0 thì KHÔNG soi được markup, bỏ qua cổng đó)."""
     triggers: list[dict] = []
     if subtotal > 0 and subtotal >= high_value_threshold:
         triggers.append({"key": EXC_HIGH_VALUE, "label": _LABELS[EXC_HIGH_VALUE]})
 
-    margin_pct = None
+    markup_pct = None
     if cost is not None and subtotal > 0:
-        margin_pct = round((subtotal - cost) * 100 / subtotal)
         profit = subtotal - cost
+        if cost > 0:
+            markup_pct = round(profit * 100 / cost)                      # % TRÊN GIÁ VỐN
         if cost > subtotal:                                              # dưới vốn — LUÔN áp
             triggers.append({"key": EXC_BELOW_COST, "label": _LABELS[EXC_BELOW_COST]})
-        else:
-            below = margin_min_pct is not None and profit * 100 < margin_min_pct * subtotal
-            above = margin_max_pct is not None and profit * 100 > margin_max_pct * subtotal
+        elif cost > 0:                                                   # giá vốn 0 → markup vô định
+            below = markup_min_pct is not None and profit * 100 < markup_min_pct * cost
+            above = markup_max_pct is not None and profit * 100 > markup_max_pct * cost
             if below or above:
-                triggers.append({"key": EXC_MARGIN_OUT, "label": _LABELS[EXC_MARGIN_OUT]})
+                triggers.append({"key": EXC_MARKUP_OUT, "label": _LABELS[EXC_MARKUP_OUT]})
 
     disc_pct = None
     if subtotal_gross and subtotal_gross > 0:
@@ -116,9 +123,9 @@ def evaluate_quote(
         "subtotal": subtotal,
         "total_gross": total_gross,
         "cost": cost,
-        "margin_pct": margin_pct,
-        "min_margin_pct": int(round(margin_min_pct)) if margin_min_pct is not None else None,
-        "margin_max_pct": margin_max_pct,
+        "markup_pct": markup_pct,
+        "markup_min_pct": int(round(markup_min_pct)) if markup_min_pct is not None else None,
+        "markup_max_pct": markup_max_pct,
         "high_value_threshold": high_value_threshold,
         "disc_pct": disc_pct,
         "discount_min_pct": discount_min_pct,
@@ -129,12 +136,17 @@ def evaluate_quote(
 
 def covers(exc: dict, *, appr_total, appr_subtotal, appr_cost) -> bool:
     """Bản duyệt 'approved' (đã ghim appr_*) có BAO PHỦ tình trạng hiện tại (`exc`) không: hiện tại KHÔNG
-    rủi ro hơn mức đã ký. Cap quy mô tuyệt đối cho MỌI trục (tổng ≤ tổng đã ký). Trục biên: nhân chéo số
-    nguyên (mẫu dương giữ chiều bất đẳng thức, đúng cả khi lỗ). Thiếu giá vốn để so → fail-đóng."""
+    rủi ro hơn mức đã ký. Cap quy mô tuyệt đối cho MỌI trục (tổng ≤ tổng đã ký). Trục lợi nhuận: nhân chéo
+    số nguyên (mẫu dương giữ chiều bất đẳng thức, đúng cả khi lỗ). Thiếu giá vốn để so → fail-đóng.
+
+    `markup_out` (cổng BÁO GIÁ) cũng phải soi trục lợi nhuận: thiếu nó thì báo giá mở lại (đồng bộ từ
+    phiếu tính giá → về Nháp) rồi HẠ markup vẫn báo "đã bao phủ" chỉ vì tổng tiền giảm. Phép so viết
+    theo BIÊN nhưng dùng chung được cho markup: cả hai đơn điệu theo giá bán/giá vốn
+    (biên = markup / (1+markup)), nên "biên ≥ biên đã ký" ⇔ "markup ≥ markup đã ký"."""
     keys = {t["key"] for t in exc["triggers"]}
     if exc["total_gross"] > (appr_total or 0):
         return False
-    if EXC_LOW_MARGIN in keys or EXC_BELOW_COST in keys:
+    if keys & {EXC_LOW_MARGIN, EXC_BELOW_COST, EXC_MARKUP_OUT}:
         cur_sub, cur_cost = exc["subtotal"], exc["cost"]
         if cur_cost is None or appr_cost is None or cur_sub <= 0 or (appr_subtotal or 0) <= 0:
             return False

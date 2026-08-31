@@ -18,6 +18,7 @@ from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.bu_hao_repo import BuHaoRepository
 from ..schemas.bu_hao import BuHaoIn, BuHaoListOut, BuHaoRow
 from ..services.bu_hao_service import BuHaoService
+from ..services.catalog_excel_specs import BU_HAO
 from .catalog_base import make_catalog_router
 
 router = APIRouter(prefix="/api/bu-hao", tags=["bu-hao"])
@@ -45,6 +46,7 @@ Service = Annotated[BuHaoService, Depends(get_service)]
 make_catalog_router(
     router, ten="bu_hao", ServiceDep=Service, module=MODULE, doc=_DOC,
     InModel=BuHaoIn, RowModel=BuHaoRow, ListModel=BuHaoListOut,
+    excel_spec=BU_HAO,
     # Không mở `/ma-goi-y`: mã bù hao do người khai tự đặt (BH-GIAY, BH-MANG…), repo không khai
     # `ma_prefix` nên chẳng có mã kế tiếp nào để gợi ý.
 )

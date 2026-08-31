@@ -18,6 +18,28 @@
   border-right: 1px solid var(--sb-edge);
 }
 
+/* Nút đóng ngăn kéo — ẩn ở màn rộng, bật lại trong @media dưới cùng file. */
+.sidebar__close {
+  display: none;
+  position: absolute;
+  top: 12px;
+  right: 10px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--sb-edge);
+  border-radius: var(--r-2);
+  background: rgba(248, 250, 252, 0.06);
+  color: var(--sb-text);
+  cursor: pointer;
+}
+.sidebar__close:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
 /* ---- Brand ---------------------------------------------------------------- */
 .sidebar__brand {
   display: flex;
@@ -251,40 +273,43 @@
   border-radius: var(--r-pill);
 }
 
-/* ---- Responsive: collapse to an icon rail --------------------------------- */
-@media (max-width: 768px) {
+/* ---- Responsive: ngăn kéo trượt (≤1024px) ---------------------------------
+   TRƯỚC ĐÂY co thành thanh 64px chỉ còn icon — 58 mục icon na ná nhau, không nhãn, không ai
+   dò ra mục cần. Nay sidebar RỜI khỏi dòng chảy, trượt vào từ trái với ĐỦ NHÃN, mở bằng nút
+   hamburger ở Topbar; chọn xong một mục là tự đóng (AppShell.navigate). Nhờ rời dòng chảy,
+   phần nội dung lấy trọn bề ngang màn hình thay vì mất 64px. */
+@media (max-width: 1024px) {
   .sidebar {
-    flex-basis: 64px;
-    width: 64px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 120;
+    flex-basis: auto;
+    width: min(280px, 84vw);
+    transform: translateX(-100%);
+    transition: transform var(--duration-base, 180ms) var(--easing-standard, ease);
+    box-shadow: none;
   }
-  .sidebar__brand {
-    justify-content: center;
-    padding-left: 0;
-    padding-right: 0;
+  .shell.is-nav-open .sidebar {
+    transform: translateX(0);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.42);
   }
-  .sidebar__brandtext,
-  .sidebar__sectionhead,
-  .sidebar__label,
-  .sidebar__sub,
-  .sidebar__link .sidebar__caret {
-    display: none;
-  }
-  .sidebar__nav {
-    padding: var(--sp-4) var(--sp-2);
-  }
+  /* Vùng chạm ≥44px cho ngón tay (WCAG 2.5.8) — màn hẹp thao tác bằng tay, không phải chuột. */
   .sidebar__link {
-    justify-content: center;
-    gap: 0;
-    padding-left: 0;
-    padding-right: 0;
+    min-height: 44px;
   }
-  .sidebar__badge {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    min-width: 17px;
-    height: 17px;
-    padding: 0 4px;
-    font-size: 10px;
+  .sidebar__close {
+    display: inline-flex;
+  }
+  /* Chừa chỗ cho nút ✕ để nó không đè lên chữ "Sao Việt Nhật". */
+  .sidebar__brand {
+    padding-right: 54px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
   }
 }

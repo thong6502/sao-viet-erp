@@ -86,6 +86,16 @@ class VatTuGiuCho(Base):
     bai_ghep_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("bai_ghep.id", ondelete="CASCADE"), index=True, nullable=True
     )
+    # [MỚI 30/08/2026] Dòng PHIẾU MUA (`purchase_request_lines.id`) làm phát sinh phần giữ NÀY —
+    # CHỈ có ý nghĩa khi `nguon = dang_ve`. Để `GiuChoService.doi_soat_dang_ve()` tra NGƯỢC lại
+    # đúng dòng khi PMH đổi (dời ngày, giảm/huỷ SL, đóng đơn) — không phải đoán theo mặt hàng.
+    # SET NULL: xoá dòng phiếu (hiếm) không kéo theo xoá chỗ giữ, chỉ để nó thành "mồ côi". Không
+    # có đối soát/`nhat_them()` nào tự dọn dòng mồ côi này — nằm lại vô hạn cho tới khi có chỗ nào
+    # đó chủ động truy vấn và xử lý (chưa có).
+    purchase_request_line_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("purchase_request_lines.id", ondelete="SET NULL"),
+        index=True, nullable=True,
+    )
 
     #: Theo ĐƠN VỊ GỐC của mặt hàng — cùng thang `stock_lots.sl_con_lai`, khỏi quy đổi khi trừ.
     so_luong: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)

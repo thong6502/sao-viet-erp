@@ -26,9 +26,9 @@ from inspect import Parameter, Signature
 from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
-from ..deps import require_any_permission, require_permission
+from ..deps import require_all_permissions, require_any_permission, require_permission
 from ..models.user import User
 from ..repositories.cong_thuc_lich_su_repo import CongThucLichSuRepository
 from ..schemas.cong_thuc_lich_su import CongThucLichSuOut
@@ -44,18 +44,33 @@ class MaGoiYOut(BaseModel):
 
 
 class ImportExcelLoi(BaseModel):
-    """Một dòng lỗi khi nhập Excel — không đoán số, chỉ ra đúng dòng/cột/lý do."""
+    """Một dòng lỗi khi nhập Excel — không đoán số, chỉ ra đúng SHEET/dòng/cột/lý do."""
 
+    sheet: str = ""
     dong: int
     cot: str
     ly_do: str
 
 
 class ImportExcelOut(BaseModel):
-    """Kết quả nhập Excel — dòng lỗi KHÔNG chặn các dòng khác."""
+    """Kết quả nhập Excel — CÙNG một phong bì cho `mode=preview` lẫn `mode=commit`.
 
-    tong_dong: int
-    thanh_cong: int
+    Khác bản trước 29/08/2026 ở hai điểm, và cả hai đều là chủ ý:
+
+    * `hop_le` + `da_ghi` thay `thanh_cong`. Cả file là MỘT giao dịch: một dòng hỏng là không dòng
+      nào được ghi. "Thành công 7/9" là câu của thời mỗi dòng ghi riêng — nay nó vừa vô nghĩa vừa
+      dối, vì 7 dòng kia đã rollback.
+    * `tao_moi` / `cap_nhat` / `khong_doi` thay một con số gộp. `preview` phải trả lời được "bấm
+      Xác nhận thì hệ đổi những gì", mà "sẽ ghi 40 dòng" trong khi 38 dòng y hệt cũ là câu trả lời
+      làm người ta sợ chứ không làm họ hiểu.
+    """
+
+    hop_le: bool = True
+    tong_dong: int = 0
+    tao_moi: int = 0
+    cap_nhat: int = 0
+    khong_doi: int = 0
+    da_ghi: bool = False
     loi: list[ImportExcelLoi] = []
 
 
@@ -132,9 +147,7 @@ def make_catalog_router(
     loi_khac: tuple[type[Exception], ...] = (),
     enable_clone: bool = False,
     cong_thuc_truong: str | None = None,
-    enable_import: bool = False,
-    import_columns: dict[str, str] | None = None,
-    import_resolve: Callable[[dict, Any], dict] | None = None,
+    excel_spec: Any = None,
 ) -> APIRouter:
     """GẮN trọn bộ CRUD của một danh mục vào `router` của màn. Trả lại chính `router` đó.
 
@@ -163,19 +176,33 @@ def make_catalog_router(
       `<truong>_sua_luc` (giá trị NGAY TRƯỚC lần sửa gần nhất, đọc từ `cong_thuc_lich_su`), và mở
       thêm `GET /{item_id}/lich-su-cong-thuc` cho lịch sử đầy đủ. Xem
       `services/nhat_ky_danh_muc._ghi_lich_su_cong_thuc` — nơi ghi vào bảng đó.
-    * `enable_import` — mở `GET /mau-excel` (tải file mẫu) + `POST /import-excel` (nhập). CHỈ TẠO
-      MỚI — mã trùng dòng đã có trong DB là LỖI của riêng dòng đó, không ghi đè, không chặn các
-      dòng khác. Đòi truyền `import_columns`.
-    * `import_columns` — ánh xạ TIÊU ĐỀ cột Excel → tên field của `InModel` (vd `{"Mã": "ma", "Tên":
-      "ten"}`) — dùng để dựng cả file mẫu lẫn đọc file nhập. Cột thừa/thiếu tiêu đề bị bỏ qua.
-    * `import_resolve(du_lieu, svc) -> dict` — chỗ cắm cho danh mục cần DỊCH một cột Excel dạng
-      chữ (tên tổ…) sang FK id trước khi dựng `InModel` (vd Công việc khoán bắt buộc `department_id`
-      lúc tạo). Ném `ValueError(câu lỗi)` thì dòng đó rơi vào `loi`, các dòng khác vẫn chạy tiếp.
+    * `excel_spec` — một `CatalogExcelSpec` (`services/catalog_excel_specs`). Bật thì mở
+      `GET /mau-excel` (XUẤT workbook: chỉ dòng ĐANG DÙNG, nhưng đủ mọi ô cấu hình và công thức,
+      kèm sheet con cho dữ liệu con) + `POST /import-excel?mode=preview|commit`. Router chỉ điều
+      phối; toàn bộ luật đọc/ghi nằm ở `services/catalog_excel`.
+
+      Quyền: XUẤT gác bằng `doc` (ai đọc được màn thì xuất được); NHẬP cần CẢ `create` lẫn
+      `update` — đọc xong file mới biết dòng nào mới, dòng nào cũ.
+
+    ⚠️ CHỈ XUẤT DÒNG ĐANG DÙNG (đổi 29/08/2026, trước đó xuất tất). File xuất là ẢNH CẤU HÌNH ĐANG
+    CHẠY, không phải bản kết xuất DB: kéo cả dòng đã ngừng vào là người khai sửa nhầm dòng chết rồi
+    tưởng mình vừa đổi cấu hình thật. Muốn ngừng một dòng thì đặt `Trạng thái=FALSE` rồi nhập.
+
+    ⚠️ CẢ FILE LÀ MỘT GIAO DỊCH. Một dòng hỏng ⇒ `hop_le=false`, `da_ghi=false`, KHÔNG dòng nào
+    được ghi — kể cả dòng hỏng nằm ở cuối file. Nhập nửa vời một bảng công thức là để lại một cấu
+    hình chưa từng ai duyệt, mà không ai biết nó dừng ở dòng nào.
+
+    ⚠️ Ô TRỐNG KHI CẬP NHẬT = XOÁ giá trị, NHƯNG chỉ với cột CÓ mặt trong tiêu đề file — cột vắng
+    mặt (file đời cũ, thiếu cột mới thêm sau) thì bỏ qua, giữ nguyên giá trị cũ. Nhánh TẠO MỚI thì
+    ô trống vẫn như cũ: bỏ qua, để `InModel` tự áp default.
     """
     doc = doc or require_permission(module, "read")
     req_create = require_permission(module, "create")
     req_update = require_permission(module, "update")
     req_delete = require_permission(module, "delete")
+    # Import Excel UPSERT: mỗi dòng có thể là tạo mới hoặc cập nhật, không biết trước khi đọc file
+    # xong — cần CẢ hai quyền, không phải một trong hai (khác `req_bat_tat` bên dưới).
+    req_import = require_all_permissions((module, "create"), (module, "update"))
     # Bắt ĐÚNG họ exception nghiệp vụ của danh mục — KHÔNG bắt `Exception` trần, không thì lỗi lập
     # trình (AttributeError, TypeError) cũng hoá 422 và nằm im.
     BAT = (CatalogError, *loi_khac)
@@ -229,84 +256,44 @@ def make_catalog_router(
         router.get(f"{goc}/ma-goi-y", response_model=MaGoiYOut, name=f"ma_goi_y_{ten}")(_ma_goi_y)
 
     # -- GET "/mau-excel" + POST "/import-excel" : PHẢI khai trước "/{item_id}" ---------
-    if enable_import:
-        def _mau_excel(_=Depends(doc)) -> Response:
-            """File mẫu — chỉ có dòng tiêu đề, đúng thứ tự cột `import_columns`."""
-            from io import BytesIO
+    if excel_spec is not None:
+        from ..services.catalog_excel import ExcelSaiMan, nhap_excel, xuat_excel
 
-            # lazy import: thiếu dep chỉ hỏng route này, không sập app (mẫu `export_employees_xlsx`)
-            from openpyxl import Workbook
-            from openpyxl.styles import Font
+        def _mau_excel(svc, _=Depends(doc)) -> Response:
+            """Xuất workbook cấu hình — CHỈ dòng đang dùng, nhưng ĐỦ ô cấu hình + sheet con.
 
-            wb = Workbook()
-            ws = wb.active
-            ws.title = ten[:31]
-            headers = list(import_columns.keys())
-            ws.append(headers)
-            for cell in ws[1]:
-                cell.font = Font(bold=True)
-            for idx in range(1, len(headers) + 1):
-                ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = 22
-            buf = BytesIO()
-            wb.save(buf)
+            Danh mục rỗng thì chỉ còn dòng tiêu đề, tự đóng vai file mẫu. Không kèm lịch sử (nhật
+            ký sửa đổi, phiên bản giá, "lần trước công thức") — xem `services/catalog_excel_specs`.
+            """
             return Response(
-                content=buf.getvalue(),
+                content=xuat_excel(excel_spec, svc),
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                headers={"Content-Disposition": f'attachment; filename="mau-{ten}.xlsx"'},
+                headers={"Content-Disposition": f'attachment; filename="{ten}.xlsx"'},
             )
+        _mau_excel.__annotations__["svc"] = ServiceDep
         _mau_excel.__annotations__["_"] = User
         _mau_excel.__name__ = f"mau_excel_{ten}"
         router.get(f"{goc}/mau-excel", name=f"mau_excel_{ten}")(_mau_excel)
 
-        def _import_excel(svc, user=Depends(req_create), file: UploadFile = File(...)):
-            """Nhập Excel — CHỈ TẠO MỚI. Dòng lỗi không chặn các dòng khác, không đoán số."""
-            from io import BytesIO
+        def _import_excel(svc, user=Depends(req_import), file: UploadFile = File(...),
+                          mode: str = Query(default="preview", pattern="^(preview|commit)$")):
+            """Nhập workbook — UPSERT theo mã, CẢ FILE là một giao dịch.
 
-            from openpyxl import load_workbook  # lazy import, cùng lý do trên
-
+            `mode=preview` chạy y hệt `commit` rồi rollback, nên con số xem trước là con số THẬT
+            (kể cả lỗi chỉ lộ ra lúc service validate) chứ không phải một bản kiểm sơ bộ dễ dãi
+            hơn — thứ khiến người dùng bấm Xác nhận rồi mới ăn lỗi.
+            """
             try:
-                wb = load_workbook(BytesIO(file.file.read()), read_only=True, data_only=True)
-            except Exception:
-                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                                     "Không đọc được file — phải là .xlsx đúng mẫu.") from None
-            hang = wb.active.iter_rows(values_only=True)
-            tieu_de = [str(h).strip() if h is not None else "" for h in next(hang, ())]
-            cot_theo_field = {
-                field: tieu_de.index(nhan) for nhan, field in import_columns.items() if nhan in tieu_de
-            }
-            tong_dong = 0
-            thanh_cong = 0
-            loi: list[ImportExcelLoi] = []
-            for so_dong, hang_du_lieu in enumerate(hang, start=2):
-                if not hang_du_lieu or all(o is None for o in hang_du_lieu):
-                    continue
-                tong_dong += 1
-                du_lieu = {}
-                for field, idx in cot_theo_field.items():
-                    if idx < len(hang_du_lieu):
-                        gt = hang_du_lieu[idx]
-                        if isinstance(gt, str):
-                            gt = gt.strip()
-                        if gt not in (None, ""):
-                            du_lieu[field] = gt
-                if import_resolve:
-                    try:
-                        du_lieu = import_resolve(du_lieu, svc)
-                    except ValueError as e:
-                        loi.append(ImportExcelLoi(dong=so_dong, cot="?", ly_do=str(e)))
-                        continue
-                try:
-                    payload = InModel(**du_lieu)
-                except ValidationError as e:
-                    cot = ", ".join(str(err["loc"][0]) for err in e.errors() if err["loc"])
-                    loi.append(ImportExcelLoi(dong=so_dong, cot=cot or "?", ly_do="Dữ liệu không hợp lệ."))
-                    continue
-                try:
-                    svc.create(payload.model_dump(exclude_unset=True), actor_id=user.id)
-                    thanh_cong += 1
-                except BAT as e:
-                    loi.append(ImportExcelLoi(dong=so_dong, cot="ma", ly_do=str(e)))
-            return ImportExcelOut(tong_dong=tong_dong, thanh_cong=thanh_cong, loi=loi)
+                kq = nhap_excel(excel_spec, svc, InModel, file.file.read(),
+                                actor_id=user.id, ghi=(mode == "commit"), bat_loi=BAT)
+            except ExcelSaiMan as e:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
+            return ImportExcelOut(
+                hop_le=kq.hop_le, tong_dong=kq.tong_dong, tao_moi=kq.tao_moi,
+                cap_nhat=kq.cap_nhat, khong_doi=kq.khong_doi, da_ghi=kq.da_ghi,
+                loi=[ImportExcelLoi(sheet=x.sheet, dong=x.dong, cot=x.cot, ly_do=x.ly_do)
+                     for x in kq.loi],
+            )
         _import_excel.__annotations__["svc"] = ServiceDep
         _import_excel.__annotations__["user"] = User
         _import_excel.__name__ = f"import_excel_{ten}"

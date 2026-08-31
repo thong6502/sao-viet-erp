@@ -1,11 +1,13 @@
 // Báo giá (Quotation / Quote) — spec-09, Phase 2B/2C/2D.
 // Danh sách phiếu (mã+version, khách, tổng giá bán, trạng thái, hạn hiệu lực) + Tạo/Sửa
 // (H-V-I structure, multi-quantity spreadsheet pricing table, version timeline, PDF preview & Order handoff).
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   ApiError,
   api,
   assetUrl,
+  type CustomerAddress,
+  type CustomerContact,
   type EnumOption,
   type QuotationActivity,
   type QuotationDetail,
@@ -62,24 +64,25 @@ import "./bao-gia.css";
 // Điều khoản MẶC ĐỊNH điền sẵn khi tạo báo giá (khớp DEFAULT_TERMS backend). Mỗi dòng = 1 điều
 // khoản; bản in tự đánh số 1..N theo dòng. Sale sửa thoải mái trước khi gửi khách.
 const DEFAULT_TERMS = [
-  "Hiệu lực báo giá: áp dụng từ ngày báo giá cho đến khi có thông báo mới.",
-  "Giá đã bao gồm chi phí vận chuyển đến kho của Quý khách.",
-  "Đơn giá trong bảng chưa gồm thuế GTGT; thuế GTGT 10% được cộng ở phần tổng.",
-  "Thời gian giao hàng: 7–10 ngày kể từ khi nhận đơn hàng.",
-  "Thời hạn thanh toán: theo thỏa thuận.",
+  "Bản báo giá có hiệu lực trong vòng 30 ngày kể từ ngày báo giá.",
+  "Thời gian giao mẫu 5 ngày kể từ khi duyệt file.",
+  "Thời gian giao hàng từ 7 - 10 ngày kể từ ngày duyệt mẫu in.",
+  "Đơn giá trên đã bao gồm phí vận chuyển tận nơi đến khách hàng.",
+  "Thời hạn thanh toán: 60 ngày kể từ ngày giao hàng và xuất hóa đơn tài chính.",
+  "Để biết thêm chi tiết về sản phẩm vui lòng liên hệ: Mr Sơn – Mobile: 093.313.4668"
 ].join("\n");
 
-// Thông tin công ty in trên báo giá — Sao Việt Nhật.
-// Luật dự án "không hardcode số liệu": các trường pháp lý để trống chờ khảo sát,
-// điền giá trị thật khi có (địa chỉ/MST/điện thoại/email đăng ký kinh doanh).
+// Thông tin công ty in trên báo giá — Sao Việt Nhật. Số liệu lấy từ letterhead thật của công ty.
 const SVN_COMPANY = {
   name: "CÔNG TY CỔ PHẦN IN SAO VIỆT NHẬT",
   nameEn: "Sao Viet Nhat",
-  address: "—",
-  taxCode: "—",
-  phone: "—",
-  email: "—",
-  website: "—",
+  address: "1/473, Khu phố Hòa Lân 2, Phường Thuận Giao, TP. Hồ Chí Minh, VN",
+  taxCode: "0312514000",
+  phone: "0274 2460 048",
+  email: "inansaovietnhat@gmail.com",
+  website: "www.saovietnhat.com",
+  // Địa danh ban hành ghi trên dòng ngày tháng — theo đúng letterhead công ty đang dùng.
+  placeOfIssue: "Bình Dương",
   sender: "—",
   senderEmail: "—",
 };
@@ -762,7 +765,7 @@ function QuotationDetailView({
   // State machine (`change_order`) vẫn chặn đúng trạng thái.
   const canRequote = useCan()("bao_gia", "update");
   // Lưu ý: layout 2 cột (main) không còn nút Hủy báo giá — quyền `cancel` vẫn chặn ở backend.
-  // BG-2: duyệt "báo giá đặc thù" — CHỈ Giám đốc. Người có quyền này cũng thấy số biên.
+  // BG-2: duyệt "báo giá đặc thù" — CHỈ Giám đốc. Người có quyền này cũng thấy số markup.
   const canApproveException = useCan()("bao_gia", "approve_exception");
   // Lên đơn từ báo giá đã chốt → cần quyền TẠO ở module Đơn hàng bán (nút chỉ hiện khi có).
   const canCreateOrder = useCan()("don_hang_ban", "create");
@@ -799,6 +802,20 @@ function QuotationDetailView({
   // Ghi chú nội bộ (per-quote, không in cho khách) — sửa được khi NHÁP, lưu cùng điều khoản.
   const [internalNoteEdit, setInternalNoteEdit] = useState<string>("");
 
+  // ĐC giao + người nhận — Sale chọn tay từ danh bạ/điểm giao của khách (đơn hàng sau KẾ THỪA
+  // nguyên, không sửa lại được). pickedAddrId/pickedContactId chỉ phục vụ ô combobox hiển thị
+  // đúng lựa chọn đã lưu; giá trị thật nằm ở deliveryAddr/contactName/contactPhone/contactTitle/
+  // contactEmail (echo mọi lần lưu header) — đồng bộ ngược ở effect bên dưới theo [[d, addresses/contacts]].
+  const [deliveryAddr, setDeliveryAddr] = useState("");
+  const [contactName, setContactName] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactTitle, setContactTitle] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [pickedAddrId, setPickedAddrId] = useState("");
+  const [pickedContactId, setPickedContactId] = useState("");
+  const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
+  const [contacts, setContacts] = useState<CustomerContact[]>([]);
+
   // Feed Hoạt động — nhật ký tương tác THẬT (ai làm gì) đọc từ backend.
   const [acts, setActs] = useState<QuotationActivity[]>([]);
   // Tạo phiên bản mới: BẮT BUỘC ghi chú → modal nhập lý do trước khi tạo.
@@ -824,6 +841,11 @@ function QuotationDetailView({
         setVerNote((det as any).change_reason ?? "");
         setInternalNoteEdit(det.internal_note ?? "");
         setValidUntilEdit(det.valid_until ?? "");
+        setDeliveryAddr(det.delivery_address ?? "");
+        setContactName(det.contact_name_snapshot ?? "");
+        setContactPhone(det.contact_phone_snapshot ?? "");
+        setContactTitle(det.contact_title_snapshot ?? "");
+        setContactEmail(det.contact_email_snapshot ?? "");
         // Hiệu lực (ngày) suy từ valid_until so với ngày tạo bản hiện tại.
         const vr = det.versions.find((v) => v.version === det.version);
         const created = vr?.created_at ?? null;
@@ -845,6 +867,31 @@ function QuotationDetailView({
   useEffect(() => {
     reload(quotationId);
   }, [reload, quotationId]);
+
+  // Danh bạ liên hệ + điểm giao đã lưu của khách hiện tại — nguồn cho 2 dropdown "Địa chỉ giao"/
+  // "Người nhận" (cùng nguồn Đơn hàng bán đang dùng).
+  useEffect(() => {
+    if (!token || !d?.customer_id) { setAddresses([]); setContacts([]); return; }
+    api.customers.addresses(token, d.customer_id).then((r) => setAddresses(r.items)).catch(() => setAddresses([]));
+    api.customers.contacts(token, d.customer_id).then((r) => setContacts(r.items)).catch(() => setContacts([]));
+  }, [token, d?.customer_id]);
+
+  // Đồng bộ ngược pickedAddrId/pickedContactId từ dữ liệu đã lưu (khớp theo giá trị, không theo
+  // id) mỗi khi d hoặc danh sách đổi — thiếu bước này thì combobox chọn xong sẽ chớp rồi rỗng lại
+  // ngay khi reload() chạy xong (reload không biết id, chỉ có chuỗi delivery_address/snapshot).
+  useEffect(() => {
+    if (!d) { setPickedAddrId(""); return; }
+    const match = addresses.find((a) => a.address === d.delivery_address);
+    setPickedAddrId(match ? String(match.id) : "");
+  }, [d, addresses]);
+
+  useEffect(() => {
+    if (!d) { setPickedContactId(""); return; }
+    const match = contacts.find(
+      (c) => c.name === d.contact_name_snapshot && (c.phone ?? "") === (d.contact_phone_snapshot ?? ""),
+    );
+    setPickedContactId(match ? String(match.id) : "");
+  }, [d, contacts]);
 
   // P3: nạp danh sách khách để chọn/đổi khách ngay ở detail (khi còn nháp).
   useEffect(() => {
@@ -904,16 +951,16 @@ function QuotationDetailView({
     costT += c.cost; sellingT += c.selling; netT += c.net; vatT += c.vat; grandT += c.final; discountT += c.disc;
   });
   const profitT = netT - costT;
-  const singleMargin = draftMargin != null ? draftMargin : d.items[0]?.margin_percent ?? 0;
   const singleVat = d.items[0]?.vat_percent ?? 10;
   // Chiết khấu hiển thị ở sidebar: đang gõ thì lấy bản nháp, không thì suy từ dòng đầu (đã lưu).
   const firstSellingSaved = d.items[0] ? d.items[0].total_cost_snapshot * (1 + d.items[0].margin_percent / 100) : 0;
   const singleDiscPct = discPctDraft != null
     ? discPctDraft
     : (d.items[0] && firstSellingSaved > 0 ? Math.round((d.items[0].discount_amount / firstSellingSaved) * 100) : 0);
-  // Markup hiển thị = trên giá bán TRƯỚC chiết khấu (đúng nghĩa "đã đặt markup bao nhiêu"),
-  // KHÔNG lấy theo lợi nhuận sau chiết khấu — không thì chiết khấu cho đơn lại làm sai lệch số markup từng dòng.
-  const aggMarginPct = costT ? Math.round(((sellingT - costT) / costT) * 100) : 0;
+  // Markup hiển thị = Lợi nhuận SAU chiết khấu / Giá vốn — khớp với Lợi nhuận ngay bên dưới trong
+  // cùng khối giá bán đề xuất. Ô "Markup% cho dòng này" (nhập tay) vẫn là số TRƯỚC chiết khấu như cũ,
+  // hai chỗ này tách biệt nên không đụng nhau.
+  const markupPctDisp = costT ? Math.round((profitT / costT) * 100) : 0;
 
   // Tên tóm tắt: dòng đầu thuộc nhóm thì lấy TÊN NHÓM (khách mua "quyển sách", không mua "ruột").
   const productSummary = d.items[0]?.nhom?.trim() || d.items[0]?.product_name || "—";
@@ -933,6 +980,11 @@ function QuotationDetailView({
         valid_until: validUntilEdit || null,
         terms_text: termsText,
         internal_note: internalNoteEdit,
+        delivery_address: deliveryAddr,
+        contact_name_snapshot: contactName,
+        contact_phone_snapshot: contactPhone,
+        contact_title_snapshot: contactTitle,
+        contact_email_snapshot: contactEmail,
         items: d.items.map((it) => {
           const patch = items.find((x) => x.id === it.id);
           return {
@@ -969,20 +1021,39 @@ function QuotationDetailView({
     const v = Math.max(0, Math.min(100, val));
     persistItems([{ id: itemId, margin_percent: v }]);
   }
-  /** Giá bán GÕ TAY — làm gốc, kèm markup suy ra để ô Markup% hiển thị đúng số sau khi lưu. */
+  /** % chiết khấu đang áp cho 1 dòng (bám bản nháp đang gõ nếu có, không thì suy từ số đã lưu) —
+   * dùng để GIỮ NGUYÊN % này khi giá bán gõ tay đổi, thay vì để tiền chiết khấu đứng yên và % trôi. */
+  function currentDiscPct(it: QuoteItemDetail): number {
+    if (discPctDraft != null) return discPctDraft;
+    const oldSelling = it.selling_price;
+    return oldSelling > 0 ? (it.discount_amount / oldSelling) * 100 : 0;
+  }
+  /** Giá bán GÕ TAY — làm gốc, kèm markup suy ra để ô Markup% hiển thị đúng số sau khi lưu.
+   * Chiết khấu (%) đã áp phải GIỮ NGUYÊN — tính lại tiền chiết khấu theo giá bán mới. */
   function commitSinglePrice(val: number) {
     if (!editable || !d) return;
     const v = Math.max(0, val);
     const cost = d.items[0]?.total_cost_snapshot ?? 0;
     const impliedMargin = cost > 0 ? ((v / cost) - 1) * 100 : 0;
-    persistItems(d.items.map((it) => ({ id: it.id, margin_percent: impliedMargin, manual_selling_price: v })));
+    persistItems(d.items.map((it) => ({
+      id: it.id,
+      margin_percent: impliedMargin,
+      manual_selling_price: v,
+      discount_amount: Math.round((v * currentDiscPct(it)) / 100),
+    })));
   }
   function commitLinePrice(itemId: number, val: number) {
     if (!editable || !d) return;
     const v = Math.max(0, val);
-    const cost = d.items.find((it) => it.id === itemId)?.total_cost_snapshot ?? 0;
+    const it = d.items.find((x) => x.id === itemId);
+    const cost = it?.total_cost_snapshot ?? 0;
     const impliedMargin = cost > 0 ? ((v / cost) - 1) * 100 : 0;
-    persistItems([{ id: itemId, margin_percent: impliedMargin, manual_selling_price: v }]);
+    persistItems([{
+      id: itemId,
+      margin_percent: impliedMargin,
+      manual_selling_price: v,
+      discount_amount: it ? Math.round((v * currentDiscPct(it)) / 100) : undefined,
+    }]);
   }
   /** Lưu diễn giải quy cách của 1 dòng (rời ô mới lưu). Không đổi thì bỏ qua — khỏi ghi nhật ký thừa. */
   function commitDienGiai(itemId: number) {
@@ -1025,6 +1096,12 @@ function QuotationDetailView({
         valid_until: d.valid_until,
         terms_text: termsText,
         internal_note: internalNoteEdit,
+        // Đổi khách → BE tự làm mới ĐC giao/người nhận theo khách mới (ghi đè giá trị dưới đây).
+        delivery_address: deliveryAddr,
+        contact_name_snapshot: contactName,
+        contact_phone_snapshot: contactPhone,
+        contact_title_snapshot: contactTitle,
+        contact_email_snapshot: contactEmail,
         items: null,
       });
       await reload(d.id);
@@ -1046,6 +1123,11 @@ function QuotationDetailView({
         valid_until: validUntilEdit || null,
         terms_text: termsText,
         internal_note: internalNoteEdit,
+        delivery_address: deliveryAddr,
+        contact_name_snapshot: contactName,
+        contact_phone_snapshot: contactPhone,
+        contact_title_snapshot: contactTitle,
+        contact_email_snapshot: contactEmail,
         items: null,
       });
       await reload(d.id);
@@ -1054,6 +1136,60 @@ function QuotationDetailView({
       setErr(e instanceof ApiError ? e.message : "Lưu nháp thất bại.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Chọn điểm giao/người nhận đã lưu của khách (redesign-bao-gia §4) — lưu ngay, giống pattern
+  // đổi khách/VAT/chiết khấu ở panel này (khỏi cần nút "Lưu" riêng).
+  async function saveDelivery(next: {
+    delivery_address?: string; contact_name_snapshot?: string;
+    contact_phone_snapshot?: string; contact_title_snapshot?: string; contact_email_snapshot?: string;
+  }) {
+    if (!token || !d) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.quotations.update(token, d.id, {
+        customer_id: d.customer_id,
+        valid_until: d.valid_until,
+        terms_text: termsText,
+        internal_note: internalNoteEdit,
+        delivery_address: next.delivery_address ?? deliveryAddr,
+        contact_name_snapshot: next.contact_name_snapshot ?? contactName,
+        contact_phone_snapshot: next.contact_phone_snapshot ?? contactPhone,
+        contact_title_snapshot: next.contact_title_snapshot ?? contactTitle,
+        contact_email_snapshot: next.contact_email_snapshot ?? contactEmail,
+        items: null,
+      });
+      await reload(d.id);
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Lưu địa chỉ giao/người nhận thất bại.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function pickAddress(id: string) {
+    setPickedAddrId(id);
+    const a = addresses.find((x) => String(x.id) === id);
+    if (a) { setDeliveryAddr(a.address); void saveDelivery({ delivery_address: a.address }); }
+  }
+
+  function pickContact(id: string) {
+    setPickedContactId(id);
+    const c = contacts.find((x) => String(x.id) === id);
+    if (c) {
+      setContactName(c.name);
+      setContactPhone(c.phone ?? "");
+      setContactTitle(c.title ?? "");
+      setContactEmail(c.email ?? "");
+      void saveDelivery({
+        contact_name_snapshot: c.name,
+        contact_phone_snapshot: c.phone ?? "",
+        contact_title_snapshot: c.title ?? "",
+        contact_email_snapshot: c.email ?? "",
+      });
     }
   }
 
@@ -1163,7 +1299,7 @@ function QuotationDetailView({
 
 
 
-  const marginPctDisp = multi ? aggMarginPct : Math.round(singleMargin);
+  const marginPctDisp = markupPctDisp;
   const meterW = Math.max(0, Math.min(100, marginPctDisp));
 
   // Khách chốt một phần: chỉ đánh dấu "khách không lấy" khi báo giá ĐÃ chốt VÀ có ít nhất 1 dòng được
@@ -1526,7 +1662,6 @@ function QuotationDetailView({
                     rows={3}
                     value={internalNoteEdit}
                     onChange={(e) => setInternalNoteEdit(e.target.value)}
-                    placeholder="Lưu ý nội bộ cho SX/kế toán — KHÔNG in cho khách."
                   />
                 ) : (
                   <p className="internal-note-text">
@@ -1708,8 +1843,8 @@ function QuotationDetailView({
                     {d.exceptions.map((e) => (
                       <span key={e.key} className="exc-chip">{e.label}</span>
                     ))}
-                    {d.margin_pct != null && (
-                      <span className="exc-chip exc-chip--num">Markup {d.margin_pct}%</span>
+                    {d.markup_pct != null && (
+                      <span className="exc-chip exc-chip--num">Markup {d.markup_pct}%</span>
                     )}
                   </div>
                   <div className={`exc-status exc-status--${d.status === "pending_approval" ? "pending" : d.status === "approved" ? "approved" : d.status === "rejected" ? "rejected" : d.exception_status}`}>
@@ -1773,11 +1908,22 @@ function QuotationDetailView({
                 <span className="k">Công ty</span>
                 {editable ? (
                   <span className="v">
-                    <CustomerCombobox
-                      customers={customers}
-                      value={d.customer_id ?? null}
-                      onChange={changeCustomer}
+                    <SearchCombobox
+                      items={customers}
+                      value={d.customer_id != null ? String(d.customer_id) : ""}
+                      onChange={(id) => changeCustomer(id ? Number(id) : null)}
+                      getId={(c) => String(c.id)}
+                      getSearchText={(c) => `${c.name} ${c.code}`}
+                      getDisplayValue={(c) => c.name}
+                      renderRow={(c) => (
+                        <>
+                          <span className="cc-name">{c.name}</span>
+                          {c.code && <span className="cc-code">{c.code}</span>}
+                        </>
+                      )}
                       disabled={busy}
+                      placeholder="— Chọn khách hàng —"
+                      emptyPlaceholder="Không tìm thấy khách phù hợp"
                       maxWidth={200}
                     />
                   </span>
@@ -1785,7 +1931,58 @@ function QuotationDetailView({
                   <span className="v">{d.customer?.name ?? "—"}</span>
                 )}
               </div>
-              <div className="irow"><span className="k">Người liên hệ</span><span className="v mono">{[d.contact_name_snapshot, d.contact_phone_snapshot].filter(Boolean).join(" · ") || "—"}</span></div>
+              <div className="irow">
+                <span className="k">Địa chỉ giao</span>
+                {editable ? (
+                  <span className="v">
+                    <SearchCombobox
+                      items={addresses}
+                      value={pickedAddrId}
+                      onChange={(id) => pickAddress(id)}
+                      getId={(a) => String(a.id)}
+                      getSearchText={(a) => `${a.label} ${a.address}`}
+                      getDisplayValue={(a) => `${a.label}${a.address ? ` · ${a.address}` : ""}`}
+                      renderRow={(a) => (
+                        <span className="cc-name">
+                          {a.label}{a.address ? ` · ${a.address}` : ""}{a.is_default ? " (mặc định)" : ""}
+                        </span>
+                      )}
+                      disabled={busy}
+                      placeholder={addresses.length > 0 ? "— Chọn điểm giao —" : "— Khách chưa khai điểm giao —"}
+                      emptyPlaceholder="Không tìm thấy điểm giao phù hợp"
+                      maxWidth={200}
+                    />
+                  </span>
+                ) : (
+                  <span className="v mono">{d.delivery_address || "—"}</span>
+                )}
+              </div>
+              <div className="irow">
+                <span className="k">Người nhận</span>
+                {editable ? (
+                  <span className="v">
+                    <SearchCombobox
+                      items={contacts}
+                      value={pickedContactId}
+                      onChange={(id) => pickContact(id)}
+                      getId={(c) => String(c.id)}
+                      getSearchText={(c) => `${c.name} ${c.phone ?? ""}`}
+                      getDisplayValue={(c) => `${c.name}${c.phone ? ` · ${c.phone}` : ""}`}
+                      renderRow={(c) => (
+                        <span className="cc-name">
+                          {c.name}{c.phone ? ` · ${c.phone}` : ""}{c.is_primary ? " (chính)" : ""}
+                        </span>
+                      )}
+                      disabled={busy}
+                      placeholder={contacts.length > 0 ? "— Chọn liên hệ —" : "— Khách chưa có danh bạ —"}
+                      emptyPlaceholder="Không tìm thấy liên hệ phù hợp"
+                      maxWidth={200}
+                    />
+                  </span>
+                ) : (
+                  <span className="v mono">{[d.contact_name_snapshot, d.contact_phone_snapshot].filter(Boolean).join(" · ") || "—"}</span>
+                )}
+              </div>
               {/* Người duyệt biết báo giá này của NV nào (P8b). */}
               <div className="irow"><span className="k">NV soạn</span><span className="v">{d.salesperson_name ?? "—"}</span></div>
               <div className="irow"><span className="k">MST</span><span className="v mono">{d.customer?.tax_code ?? "—"}</span></div>
@@ -1967,7 +2164,7 @@ function QuotationDetailView({
         );
       })()}
 
-      {showPrint && <QuotationPrintModal d={d} validUntil={validUntilEdit} canDownload={canExport} onClose={() => setShowPrint(false)} />}
+      {showPrint && <QuotationPrintModal d={d} canDownload={canExport} onClose={() => setShowPrint(false)} />}
     </main>
   );
 }
@@ -1975,32 +2172,41 @@ function QuotationDetailView({
 // ---- Bản in báo giá (một ngôn ngữ — tiếng Việt) ----------------------------
 function QuotationPrintModal({
   d,
-  validUntil,
   canDownload,
   onClose,
 }: {
   d: QuotationDetail;
-  /** Hạn hiệu lực đang hiển thị trên màn (kể cả đang gõ, chưa lưu) — bản in phải khớp cái đang xem. */
-  validUntil: string;
   /** Quyền chi tiết `export`: thiếu thì chỉ xem trước, ẩn nút In. */
   canDownload: boolean;
   onClose: () => void;
 }) {
+  // Có quyền export thì bấm "Xem bản in" ra thẳng hộp thoại in luôn, khỏi bắt xem trước rồi
+  // bấm thêm nút "In / Lưu PDF" — đợi ảnh logo tải xong (lần đầu vào trang, ảnh chưa kịp cache)
+  // rồi mới in, không thì bản in bị thiếu logo. In xong (hoặc bấm huỷ) đóng luôn khung xem trước.
+  // `firedRef` chặn StrictMode gọi effect 2 lần (dev) ra 2 hộp thoại in liên tiếp.
+  const firedRef = useRef(false);
+  useEffect(() => {
+    if (!canDownload || firedRef.current) return;
+    firedRef.current = true;
+    const img = document.querySelector<HTMLImageElement>(".qpdf .q-logo img");
+    const doPrint = () => window.print();
+    window.addEventListener("afterprint", onClose);
+    if (img && !img.complete) {
+      img.addEventListener("load", doPrint, { once: true });
+      img.addEventListener("error", doPrint, { once: true });
+    } else {
+      doPrint();
+    }
+    return () => window.removeEventListener("afterprint", onClose);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const now = new Date();
   const p2 = (n: number) => (n < 10 ? "0" : "") + n;
-  const qdate = `${p2(now.getDate())}/${p2(now.getMonth() + 1)}/${now.getFullYear()}`;
-  // Mã in ra phải Y HỆT mã trong hệ thống: bóc dấu gạch thành "BG260024" là khách đọc lại mã đó
-  // gọi lên thì tra không ra phiếu nào.
-  const qno = d.code.trim();
   const money = (v: number) => Math.round(v).toLocaleString("vi-VN");
   // Đơn giá KHÔNG làm tròn: dòng gộp (ruột + bìa) hay ra số lẻ .5, làm tròn xong khách nhân
   // Số lượng × Đơn giá ra khác Thành tiền. Giữ tối đa 2 số lẻ để phép nhân trên giấy luôn khớp.
   const donGia = (v: number) => v.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
-  // Mọi ngày trên tờ dùng CHUNG một định dạng dd/mm/yyyy — không để chỗ dd/mm chỗ ISO.
-  const ngayVN = (iso: string) => {
-    const [y, m, dd] = iso.split("-");
-    return y && m && dd ? `${dd}/${m}/${y}` : iso;
-  };
 
   // Bảng hiển thị giá CHƯA VAT; VAT + tổng thanh toán ở panel dưới (bám dữ liệu thật của báo giá).
   // GỘP NHÓM: ruột + bìa cùng nhãn `nhom` in ra 1 dòng "quyển sách" (khách mua 1 cuốn, không phải
@@ -2033,7 +2239,7 @@ function QuotationPrintModal({
     .filter(Boolean);
 
   return (
-    <div className="bg__overlay" onClick={onClose}>
+    <div className={`bg__overlay${canDownload ? " q-print-silent" : ""}`} onClick={onClose}>
       {/* Rộng đủ ôm tờ A4 (210mm ≈ 794px). Việc CUỘN nằm ở khung này, không nằm ở tờ — tờ luôn
           giữ đúng khổ A4 để xem trước ra sao thì in ra vậy. */}
       <div
@@ -2046,36 +2252,35 @@ function QuotationPrintModal({
           <button type="button" className="bg__close" onClick={onClose} aria-label="Đóng"><X size={18} /></button>
         </div>
         <div className="qpdf">
-          {/* HEADER: logo hộp | tiêu đề giữa | số & ngày phải */}
+          {/* LETTERHEAD: tên công ty đỏ + logo/thông tin liên hệ, viền kép xanh chốt đầu trang */}
           <header className="q-mh">
-            <div className="q-logo"><img src={svnLogoUrl} alt="Sao Việt Nhật" /></div>
-            <div className="q-th">
-              <h1>BẢNG BÁO GIÁ</h1>
-              <div className="q-cty">{SVN_COMPANY.name}</div>
-            </div>
-            <div className="q-meta-r">
-              <div>Số báo giá: <b>{qno}</b></div>
-              <div>Ngày: <b>{qdate}</b></div>
+            <div className="q-brand">{SVN_COMPANY.name}</div>
+            <div className="q-brand-row">
+              <div className="q-logo"><img src={svnLogoUrl} alt="Sao Việt Nhật" /></div>
+              <div className="q-brand-info">
+                <div className="full"><span className="q-blbl">Trụ sở</span><span>{SVN_COMPANY.address}</span></div>
+                <div><span className="q-blbl">Điện thoại</span><span>{SVN_COMPANY.phone}</span></div>
+                <div><span className="q-blbl">MST</span><span>{SVN_COMPANY.taxCode}</span></div>
+                <div><span className="q-blbl">Email</span><span>{SVN_COMPANY.email}</span></div>
+                <div><span className="q-blbl">Website</span><span>{SVN_COMPANY.website}</span></div>
+              </div>
             </div>
           </header>
 
-          {/* DẢI THÔNG TIN: khách hàng (trái) + bên bán (phải) */}
-          <div className="q-info">
-            <div className="q-info-grid">
-              <div className="q-info-col">
-                <div><span className="q-lbl">Kính gửi:</span> <b>{d.customer?.name ?? "—"}</b></div>
-                <div><span className="q-lbl">MST:</span> {d.customer?.tax_code ?? "—"}</div>
-              </div>
-              <div className="q-info-col">
-                <div><span className="q-lbl">Hiệu lực đến:</span> {validUntil ? ngayVN(validUntil) : "Đến khi có thông báo mới"}</div>
-              </div>
-            </div>
+          <div className="q-date-line">{SVN_COMPANY.placeOfIssue}, ngày {p2(now.getDate())} tháng {p2(now.getMonth() + 1)} năm {now.getFullYear()}</div>
+
+          {/* KÍNH GỬI — tên + địa chỉ giao hàng của báo giá (Sale đã chọn tay khi lập phiếu) */}
+          <div className="q-salut">
+            <div><span className="q-salut-lbl">Kính gửi</span>: <b>{d.customer?.name ?? "—"}</b></div>
+            <div>Địa chỉ: {d.delivery_address || "—"}</div>
           </div>
+
+          <div className="q-th"><h1>BẢN BÁO GIÁ</h1></div>
 
           <div className="q-intro">Cảm ơn Quý khách đã quan tâm sản phẩm của {SVN_COMPANY.name}. Chúng tôi xin gửi bảng báo giá chi tiết như sau:</div>
 
-          {/* CHI TIẾT: header xám, viền mảnh, cột tiền căn phải + tfoot Cộng/VAT */}
-          <div className="q-sec">Chi tiết báo giá</div>
+          {/* CHI TIẾT: đã có "BẢN BÁO GIÁ" ở trên nên bỏ tiêu đề mục lặp nghĩa; vào bảng luôn.
+              Header xám, viền mảnh, cột tiền căn phải + tfoot Cộng/VAT */}
           <table className="q-tbl">
             {/* Bỏ 2 cột không mang tin: "Kích thước" (khổ đã nằm ở dòng đầu phần diễn giải) và
                 "Mã hàng" (dòng gộp ruột+bìa có 2 mã khác nhau nên luôn để trống — mà báo giá kiểu
@@ -2136,17 +2341,16 @@ function QuotationPrintModal({
                 <td className="q-sub-lbl" colSpan={5}>Thuế GTGT {vatPct}%</td>
                 <td className="r">{money(vatAmount)}</td>
               </tr>
+              {/* Gộp thẳng vào bảng thay vì tách khung riêng — cùng font/cỡ Times với 2 dòng cộng
+                  phía trên, chỉ nổi bật bằng viền đôi + cỡ chữ lớn hơn. */}
+              <tr className="q-grand-row">
+                <td className="q-sub-lbl" colSpan={5}>
+                  Tổng thanh toán<span className="q-gt-sub">đã gồm VAT</span>
+                </td>
+                <td className="r">{money(grand)}<span className="q-u">đ</span></td>
+              </tr>
             </tfoot>
           </table>
-
-          {/* PANEL TỔNG THANH TOÁN (đóng khung, nhãn trái + số lớn phải) */}
-          <div className="q-grand">
-            <div>
-              <div className="q-gt">Tổng thanh toán <span className="q-gt-sub">đã gồm VAT</span></div>
-              <div className="q-gs">Tiền hàng {money(netSubtotal)}đ + Thuế GTGT {money(vatAmount)}đ</div>
-            </div>
-            <div className="q-ga">{money(grand)}<span className="q-u">đ</span></div>
-          </div>
 
           {/* ĐIỀU KHOẢN — bám dữ liệu thật (terms_text), tự đánh số theo dòng */}
           <div className="q-sec">Điều khoản</div>
@@ -2154,16 +2358,11 @@ function QuotationPrintModal({
             {termLines.map((t, i) => <li key={i}>{t}</li>)}
           </ol>
 
-          {/* CHỮ KÝ 2 cột */}
+          {/* CHỮ KÝ — chỉ bên bán; khách xác nhận trên đơn hàng, không ký tay ở bản báo giá này */}
           <div className="q-signs">
             <div>
-              <div className="q-role">Khách hàng xác nhận</div>
-              <div className="q-hint">(Ký, ghi rõ họ tên)</div>
-              <div className="q-sp" />
-            </div>
-            <div>
-              <div className="q-role">Đại diện bên bán</div>
-              <div className="q-hint">(Ký, ghi rõ họ tên)</div>
+              <div className="q-role">{SVN_COMPANY.name}</div>
+              <div className="q-role-title">T. GIÁM ĐỐC</div>
               <div className="q-sp" />
             </div>
           </div>
@@ -2190,19 +2389,31 @@ function normVi(s: string): string {
     .trim();
 }
 
-function CustomerCombobox({
-  customers,
+// Combobox gõ-tìm dùng chung cho Công ty/Địa chỉ giao/Người nhận (panel Khách hàng) — cùng một
+// kiểu thao tác gõ vài ký tự để lọc thay vì cuộn <select> dài.
+function SearchCombobox<T>({
+  items,
   value,
   onChange,
+  getId,
+  getSearchText,
+  getDisplayValue,
+  renderRow,
   disabled,
-  placeholder = "— Chọn khách hàng —",
+  placeholder,
+  emptyPlaceholder,
   maxWidth,
 }: {
-  customers: { id: number; name: string; code: string }[];
-  value: number | null;
-  onChange: (id: number | null) => void;
+  items: T[];
+  value: string;
+  onChange: (id: string, item: T | null) => void;
+  getId: (item: T) => string;
+  getSearchText: (item: T) => string;
+  getDisplayValue: (item: T) => string;
+  renderRow?: (item: T) => ReactNode;
   disabled?: boolean;
-  placeholder?: string;
+  placeholder: string;
+  emptyPlaceholder: string;
   maxWidth?: number;
 }) {
   const [query, setQuery] = useState("");
@@ -2210,11 +2421,11 @@ function CustomerCombobox({
   const [active, setActive] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const selected = customers.find((c) => c.id === value) ?? null;
+  const selected = items.find((it) => getId(it) === value) ?? null;
   const q = normVi(query);
   const matches = (q
-    ? customers.filter((c) => normVi(`${c.name} ${c.code}`).includes(q))
-    : customers
+    ? items.filter((it) => normVi(getSearchText(it)).includes(q))
+    : items
   ).slice(0, 50);
 
   // Đóng dropdown khi bấm ra ngoài.
@@ -2227,8 +2438,8 @@ function CustomerCombobox({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
 
-  function pick(id: number | null) {
-    onChange(id);
+  function pick(item: T | null) {
+    onChange(item ? getId(item) : "", item);
     setQuery("");
     setOpen(false);
   }
@@ -2239,13 +2450,13 @@ function CustomerCombobox({
         className="input cust-combo__in"
         disabled={disabled}
         placeholder={placeholder}
-        value={open ? query : selected?.name ?? ""}
+        value={open ? query : selected ? getDisplayValue(selected) : ""}
         onFocus={() => { setOpen(true); setActive(0); }}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); setActive(0); }}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, matches.length - 1)); }
           else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
-          else if (e.key === "Enter") { e.preventDefault(); if (open && matches[active]) pick(matches[active].id); }
+          else if (e.key === "Enter") { e.preventDefault(); if (open && matches[active]) pick(matches[active]); }
           else if (e.key === "Escape") { setOpen(false); }
         }}
       />
@@ -2255,18 +2466,20 @@ function CustomerCombobox({
             type="button" className="cust-combo__opt cust-combo__opt--clear"
             onMouseDown={(e) => { e.preventDefault(); pick(null); }}
           >— Bỏ chọn —</button>
-          {matches.length === 0 && <div className="cust-combo__empty">Không tìm thấy khách phù hợp</div>}
-          {matches.map((c, i) => (
-            <button
-              key={c.id} type="button"
-              className={`cust-combo__opt${i === active ? " active" : ""}${c.id === value ? " sel" : ""}`}
-              onMouseEnter={() => setActive(i)}
-              onMouseDown={(e) => { e.preventDefault(); pick(c.id); }}
-            >
-              <span className="cc-name">{c.name}</span>
-              {c.code && <span className="cc-code">{c.code}</span>}
-            </button>
-          ))}
+          {matches.length === 0 && <div className="cust-combo__empty">{emptyPlaceholder}</div>}
+          {matches.map((it, i) => {
+            const id = getId(it);
+            return (
+              <button
+                key={id} type="button"
+                className={`cust-combo__opt${i === active ? " active" : ""}${id === value ? " sel" : ""}`}
+                onMouseEnter={() => setActive(i)}
+                onMouseDown={(e) => { e.preventDefault(); pick(it); }}
+              >
+                {renderRow ? renderRow(it) : <span className="cc-name">{getDisplayValue(it)}</span>}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

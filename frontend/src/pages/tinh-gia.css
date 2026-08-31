@@ -707,10 +707,6 @@ select.tg-input {
   border-color: var(--rust);
   box-shadow: 0 0 0 3px var(--rust-soft);
 }
-.ptg-filter {
-  flex-shrink: 0;
-  min-height: 44px;
-}
 .ptg-tabrow {
   margin-top: var(--sp-4);
 }
@@ -847,11 +843,46 @@ select.tg-input {
   color: var(--ash);
   margin: 0;
 }
-.ptg-foot-note {
+.ptg-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
   margin: var(--sp-3) 0 0;
+}
+
+.ptg-pager__info {
   font-size: 12px;
   color: var(--ash-2);
   font-family: var(--ff-sans);
+}
+
+.ptg-pager__btns {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.ptg-pager__btn {
+  padding: 6px 14px;
+  border-radius: var(--r-3);
+  border: 1px solid var(--rule-soft);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+
+.ptg-pager__btn:hover:not(:disabled) {
+  border-color: var(--ash-2);
+  background: var(--paper-contrast);
+}
+
+.ptg-pager__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* ---- Status badge (dùng chung list + detail) ---- */
@@ -1116,6 +1147,9 @@ select.tg-input {
 .tg-icon-btn:focus-visible {
   outline: 2px solid var(--rust);
   outline-offset: 2px;
+}
+.prow__act .tg-icon-btn + .tg-icon-btn {
+  margin-left: 4px;
 }
 
 /* ---------- Add button (dashed) ---------- */
@@ -2735,6 +2769,26 @@ select.tg-input--sm {
   margin: 4px 0 0;
   font-size: 11px;
   color: var(--ash);
+}
+/* Ba ô kích thước/số lượng khung lụa — con của MỘT bước khung lụa, thụt vào dưới dòng phí chính
+   để không lẫn với phí khuôn của bước khác trong cùng khối. */
+.tg-khuon__kl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 6px 12px;
+  padding-left: 8px;
+  border-left: 2px solid var(--rule-soft);
+}
+.tg-khuon__kl .tg-khuon__row {
+  padding: 2px 0;
+}
+.tg-khuon__kl .tg-khuon__ten {
+  font-size: 12px;
+  color: var(--ash);
+}
+.tg-khuon__kl .tg-khuon__num {
+  width: 90px;
 }
 .rc-modal__right-col .tg-step-card__details {
   display: flex;

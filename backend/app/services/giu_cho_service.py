@@ -45,6 +45,7 @@ from sqlalchemy.orm import Session
 from ..models.bai_ghep import BaiGhep
 from ..models.lsx import Lsx
 from ..models.vat_tu_giu_cho import NGUON_DANG_VE, NGUON_KHO, VatTuGiuCho
+from ..realtime import hub
 from ..repositories.giu_cho_repo import GiuChoRepository
 
 Hang = tuple[str, int]
@@ -90,6 +91,12 @@ class GiuChoService:
         self.db = db
         self.kh = kh_vt
         self.repo = repo or GiuChoRepository(db)
+        # Cache 1 slot cho `_nhu_cau_theo_chu_the`, khoá bằng DANH TÍNH của `bang` (so `is`, giữ
+        # luôn tham chiếu — KHÔNG dùng `id(bang)` làm khoá vì id có thể bị tái sử dụng sau khi bang
+        # cũ bị GC, gây trùng khoá giả). An toàn vì một instance service chỉ sống trong đúng một
+        # lần gọi/request; nơi nào hỏi nhiều chủ thể trên CÙNG một `bang` (`giu_theo_chu_the_hang`,
+        # `lsx_tong_quan._dung_vat_tu`) là dựng lại từ đầu O(số dòng) mỗi lần mà không cần thiết.
+        self._nhu_cau_cache: tuple[dict, dict[tuple, dict]] | None = None
 
     # ================== ĐỌC ==================
 
@@ -115,7 +122,14 @@ class GiuChoService:
         `khong_ro` = dòng KHÔNG quy đổi được đơn vị. `nhu_cau` của nó là 0 vì máy chưa tính nổi,
         KHÔNG phải vì không cần — nên không giữ được gì, và chủ thể đó KHÔNG bao giờ được tính là
         "đủ". Coi nó là 0 rồi mở khoá xếp lịch là mở cho một lệnh chưa ai biết cần bao nhiêu.
+
+        Nhớ tạm theo đúng `bang` (xem `self._nhu_cau_cache`): `trang_thai()` gọi hàm này cho MỖI
+        chủ thể, mà `giu_theo_chu_the_hang()`/`lsx_tong_quan._dung_vat_tu` hỏi hàng trăm chủ thể
+        trên CÙNG một `bang` — không cache thì dựng lại O(số dòng) hàng trăm lần cho cùng một kết
+        quả.
         """
+        if self._nhu_cau_cache is not None and self._nhu_cau_cache[0] is bang:
+            return self._nhu_cau_cache[1]
         ra: dict[tuple, dict] = {}
         for nhom in bang.get("items", []):
             if nhom.get("loai_nhom") != "vat_tu":
@@ -129,10 +143,11 @@ class GiuChoService:
                 o["can"] += _f(d.get("con_phai_co"))
                 if d.get("trang_thai") == "khong_ro":
                     o["khong_ro"] = True
+        self._nhu_cau_cache = (bang, ra)
         return ra
 
     def trang_thai(self, *, lsx_id: int | None = None, bai_ghep_id: int | None = None,
-                   bang: dict | None = None) -> dict:
+                   bang: dict | None = None, dang: list[VatTuGiuCho] | None = None) -> dict:
         """Kết quả sau khi bấm — ba trạng thái người dùng thấy.
 
         `du` = giữ đủ 100% ⇒ xếp lịch mở khoá. `xep_som_nhat` = ngày sớm nhất được xếp bước tiêu
@@ -145,17 +160,36 @@ class GiuChoService:
         để mặc mỗi chủ thể tự gọi là bình phương số lần chạy theo số lệnh. Bảng KHÔNG phụ thuộc vào
         bảng giữ chỗ (nó đọc tồn thật, không đọc tồn tự do) nên dùng lại là số y hệt, không phải
         bản chụp cũ.
+
+        `dang` = dòng giữ chỗ CỦA CHÍNH chủ thể này, DÙNG LẠI nếu nơi gọi đã tra sẵn — tương tự lý
+        do trên nhưng cho `repo.cua_chu_the()`: `giu_theo_chu_the_hang()` hỏi hàng trăm chủ thể một
+        lượt, để mặc mỗi chủ thể tự bắn 1 query là N round-trip DB không cần thiết (xem
+        `repo.cua_nhieu_chu_the`). Vắng thì tự query như cũ — chỗ gọi đơn lẻ (`du_chua`,
+        `lsx_tong_quan`) không cần đổi gì.
         """
         chu = (lsx_id, bai_ghep_id)
         if bang is None:
             bang = self.kh.can_doi()
         can = self._nhu_cau_theo_chu_the(bang).get(chu, {})
-        dang = self.repo.cua_chu_the(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+        if dang is None:
+            dang = self.repo.cua_chu_the(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
 
         giu_theo_hang: dict[Hang, float] = {}
+        giu_kho: dict[Hang, float] = {}
+        giu_dang_ve: dict[Hang, float] = {}
+        nguon_dang_ve: dict[Hang, list[dict]] = {}
         for r in dang:
             h = (r.hang_loai, r.hang_id)
             giu_theo_hang[h] = giu_theo_hang.get(h, 0.0) + _f(r.so_luong)
+            if r.nguon == NGUON_KHO:
+                giu_kho[h] = giu_kho.get(h, 0.0) + _f(r.so_luong)
+            else:
+                giu_dang_ve[h] = giu_dang_ve.get(h, 0.0) + _f(r.so_luong)
+                if r.purchase_request_line_id is not None:
+                    nguon_dang_ve.setdefault(h, []).append({
+                        "purchase_request_line_id": r.purchase_request_line_id,
+                        "so_luong": _f(r.so_luong),
+                    })
 
         thieu: dict[Hang, float] = {}
         khong_ro = False
@@ -173,6 +207,14 @@ class GiuChoService:
             "khong_ro": khong_ro,
             "thieu": thieu,
             "dang_giu": giu_theo_hang,
+            # [MỚI 30/08/2026] Tách theo nguồn — màn "Theo lệnh" cần biết phần nào CHẮC (kho) và
+            # phần nào còn TREO theo ngày về (dang_ve). `dang_giu` (tổng) giữ nguyên cho chỗ đã
+            # dùng cũ (`xep_lich_2`, `_them_mo_coi`).
+            "da_giu_kho": giu_kho,
+            "da_giu_dang_ve": giu_dang_ve,
+            # Dòng PMH cụ thể đang góp cho phần hứa — CHƯA có mã PMH (tra gộp ở tầng gọi, xem
+            # `giu_theo_chu_the_hang`/`gan_giu_cho_vao_bang`, Task 7/8).
+            "nguon_dang_ve": nguon_dang_ve,
             "xep_som_nhat": max(ngay_ve) if ngay_ve else None,
             # Dòng giữ chỗ CŨ NHẤT — mốc đếm "giữ bao lâu rồi". Lấy min chứ không lấy max: nhặt
             # thêm khi hàng về đẻ dòng mới, lấy max là mỗi lần bù hàng lại reset đồng hồ về 0 và
@@ -207,12 +249,13 @@ class GiuChoService:
         gio = datetime.now(timezone.utc)
 
         self._them_mo_coi(gom)
+        tt_by_chu = self.giu_theo_chu_the_hang(bang, gom)
         dang_thieu = self._chu_the_dang_thieu(gom)
 
         rows: list[dict] = []
         for chu, o in gom.items():
             lsx_id, bg_id = chu
-            tt = self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang)
+            tt = tt_by_chu[chu]
             hangs = list(o["hang"].values())
             for h in hangs:
                 k = (h["hang_loai"], h["hang_id"])
@@ -429,16 +472,104 @@ class GiuChoService:
         # MỘT lượt dựng bảng cho cả ba việc (nhặt · soi lại · trả kết quả). Bảng không phụ thuộc
         # bảng giữ chỗ nên các dòng vừa nhặt không làm nó cũ đi.
         bang = self.kh.can_doi()
-        self.nhat_them(chi_chu_the=(lsx_id, bai_ghep_id), bang=bang)
+        # broadcast=False: bat() TỰ bắn một lần ngay dưới đây, bắn cả khi nhat_them() không nhặt
+        # thêm được gì (bật công tắc cũng là một thay đổi thật) — không thì bắn hai lần cho MỘT
+        # cú bấm khi nhat_them() có nhặt thêm (toast đúp trên AppShell).
+        self.nhat_them(chi_chu_the=(lsx_id, bai_ghep_id), bang=bang, broadcast=False)
+        hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
         return self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id, bang=bang)
 
     def tat(self, *, lsx_id: int | None = None, bai_ghep_id: int | None = None) -> dict:
         """Nhả HẾT. Không phải hoàn tác — bật lại có thể chẳng còn gì, nơi gọi phải hỏi trước."""
         self.repo.xoa_cua_chu_the(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
         self._doi_co(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id, bat=False)
+        hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
         return self.trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
 
-    def nhat_them(self, *, chi_chu_the: tuple | None = None, bang: dict | None = None) -> int:
+    def doi_soat_dang_ve(self, purchase_request_line_id: int, *, broadcast: bool = True) -> bool:
+        """PMH đổi (đợt giao mới/sửa/xoá, huỷ đơn, đóng đơn, dời ngày) ⇒ đối lại phần giữ HỨA
+        (`nguon='dang_ve'`) đã bám DÒNG PHIẾU này.
+
+        CHỈ NHẢ, không bao giờ tự thêm: phần hứa GIÃN ra (đơn mở lại, giao ít hơn ban đầu dự
+        kiến...) là việc của `nhat_them()` ở lần hàng-về/bật-giữ kế tiếp, không phải việc của hàm
+        đối soát này. Nhả THEO MỚI NHẤT trước (`created_at` giảm dần) — bảo vệ cam kết CŨ, đúng
+        mặc định đã khoá "cam kết cũ được bảo vệ; chỗ mới hơn bị nhả trước".
+
+        Đọc lại `KeHoachVatTuService._hang_dang_ve()` (nguồn DUY NHẤT của "còn về bao nhiêu", đã
+        quy đổi đơn vị gốc + trừ đúng luật `da_giao_theo_dong`) thay vì tính lại — tái dùng, không
+        đẻ đường tính thứ hai sẽ có lúc lệch.
+
+        `broadcast=False` cho `doi_soat_dang_ve_don()` tự gộp lại BẮN MỘT LẦN cho cả PMH thay vì
+        một lần mỗi dòng. Trả `True` nếu có dòng `held` để đối (có làm việc), `False` nếu no-op —
+        để nơi gọi theo dõi "có ai vừa đổi thật không" mà không cần đọc lại DB.
+        """
+        held = (
+            self.db.query(VatTuGiuCho)
+            .filter(VatTuGiuCho.purchase_request_line_id == purchase_request_line_id,
+                    VatTuGiuCho.nguon == NGUON_DANG_VE)
+            .order_by(VatTuGiuCho.created_at.desc())
+            .all()
+        )
+        if not held:
+            return False
+        hang = (held[0].hang_loai, held[0].hang_id)
+        self._khoa_nguon([hang])
+        # `_hang_dang_ve()` đòi `self.kh._objs` đã nạp (do `can_doi()` set) — gọi thẳng như
+        # `nhat_them()`/`bat()` vẫn làm. Instance `kh_vt` mà router `deps.py` ráp cho MỖI request
+        # là hàng mới tinh, chưa từng chạy `can_doi()`, nên đối soát đứng một mình (đợt giao/huỷ/
+        # đóng đơn) phải tự dựng bảng trước khi đọc `_hang_dang_ve()`, không thì vỡ AttributeError.
+        if getattr(self.kh, "_objs", None) is None:
+            self.kh.can_doi()
+        con_ve, ngay_ve = 0.0, None
+        for ngay, sl, _ma, line_id in self.kh._hang_dang_ve().get(hang, []):
+            if line_id == purchase_request_line_id:
+                con_ve, ngay_ve = sl, ngay
+                break
+        da_giu = sum(_f(r.so_luong) for r in held)
+        thua = round(da_giu - con_ve, 4)
+        con_lai = held
+        if thua > 0:
+            con_lai = []
+            for r in held:
+                if thua > 0:
+                    bot = min(thua, _f(r.so_luong))
+                    thua = round(thua - bot, 4)
+                    if _f(r.so_luong) - bot <= 0.004:
+                        self.db.delete(r)
+                        continue
+                    r.so_luong = round(_f(r.so_luong) - bot, 2)
+                con_lai.append(r)
+        if ngay_ve is not None:
+            for r in con_lai:
+                r.ngay_ve = ngay_ve
+        self.db.commit()
+        if broadcast:
+            hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
+        return True
+
+    def doi_soat_dang_ve_don(self, purchase_request_id: int) -> None:
+        """Đối lại MỌI dòng của MỘT PMH — gọi khi sự kiện xảy ra ở CẤP ĐƠN (huỷ, đóng, mở lại, đợt
+        giao đổi) mà không rõ trước dòng nào bị ảnh hưởng, nên đối hết cho chắc.
+
+        Gộp broadcast: PMH nhiều dòng, mỗi dòng đối xong tự bắn một lần thì MỘT lần Save đợt giao
+        bắn N lần SSE cho N mặt hàng — bắn đúng MỘT LẦN cho cả đơn nếu có ít nhất một dòng thật sự
+        đối (tránh toast đúp trên AppShell), im lặng nếu không dòng nào có gì để đối."""
+        from ..models.purchase import PurchaseRequestLine
+
+        co_doi = False
+        for ln in (self.db.query(PurchaseRequestLine)
+                   .filter(PurchaseRequestLine.purchase_request_id == purchase_request_id)
+                   .all()):
+            if ln.hang_loai and ln.hang_id:
+                if self.doi_soat_dang_ve(ln.id, broadcast=False):
+                    co_doi = True
+        if co_doi:
+            hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
+
+    def nhat_them(
+        self, *, chi_chu_the: tuple | None = None, bang: dict | None = None,
+        broadcast: bool = True,
+    ) -> int:
         """Bù thêm cho MỌI chủ thể đang bật công tắc mà chưa giữ đủ. Trả số dòng giữ chỗ đẻ ra.
 
         Gọi khi HÀNG VỀ NHẬP KHO — đó là toàn bộ lý do "bật = đăng ký" chứ không phải chụp một lần.
@@ -454,6 +585,7 @@ class GiuChoService:
         bat_lsx, bat_bai = self.repo.dang_bat()
 
         hangs = sorted({h for m in nhu_cau.values() for h in m})
+        self._khoa_nguon(hangs)
         tu_do = self.ton_tu_do(hangs)
         ve = self._lo_dang_ve(bang, hangs)
 
@@ -478,12 +610,12 @@ class GiuChoService:
                 # 2) Còn thiếu thì bám lô ĐANG VỀ, sớm trước.
                 i = 0
                 while con > 0 and i < len(ve.get(hang, [])):
-                    ngay, sl = ve[hang][i]
+                    ngay, sl, line_id = ve[hang][i]
                     lay = round(min(con, sl), 2)
                     if lay > 0:
-                        ve[hang][i] = (ngay, sl - lay)
+                        ve[hang][i] = (ngay, sl - lay, line_id)
                         con -= lay
-                        moi.append(self._dong(chu, hang, lay, NGUON_DANG_VE, ngay))
+                        moi.append(self._dong(chu, hang, lay, NGUON_DANG_VE, ngay, line_id))
                     # Lô còn ≤0.004 coi như cạn (đúng biên Numeric(14,2), khớp `tieu_thu`) → sang lô
                     # kế; không thì đã lấp đủ `con`, dừng.
                     if ve[hang][i][1] <= 0.004:
@@ -491,7 +623,54 @@ class GiuChoService:
                     else:
                         break
         self.repo.them(moi)
+        if moi and broadcast:
+            hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
         return len(moi)
+
+    def chuyen_dang_ve_sang_kho(self, hang: Hang, so_luong: float) -> None:
+        """Hàng NHẬP KHO xong: phần đang giữ HỨA (`dang_ve`) của CHÍNH mặt hàng đó phải chuyển
+        thành giữ THẬT (`kho`) — không thì chủ thể vẫn bị `xep_som_nhat` khoá tới một `ngay_ve`
+        đã lỗi thời, dù hàng nó bám vào đang nằm ngay trong kho.
+
+        `nhat_them()` KHÔNG tự làm việc này: nó chỉ ĐẺ THÊM dòng cho phần còn `thieu`, không đụng
+        tới dòng CŨ đã đủ — một chủ thể đã giữ đủ từ `dang_ve` thì `nhat_them()` không bao giờ
+        chạm lại vào dòng đó.
+
+        Cũ nhất trước (`created_at` tăng dần) — cùng luật "cam kết cũ được bảo vệ" của mọi chỗ nhả
+        khác trong file này. Cố ý KHÔNG neo theo `purchase_request_line_id` cụ thể: giữ chỗ chỉ ăn
+        theo (mặt hàng, số lượng), không đích danh lô/dòng phiếu nào (luật ② docstring model).
+        """
+        con = round(float(so_luong), 2)
+        if con <= 0:
+            return
+        self._khoa_nguon([hang])
+        rows = (
+            self.db.query(VatTuGiuCho)
+            .filter(VatTuGiuCho.hang_loai == hang[0], VatTuGiuCho.hang_id == hang[1],
+                    VatTuGiuCho.nguon == NGUON_DANG_VE)
+            .order_by(VatTuGiuCho.created_at.asc())
+            .all()
+        )
+        for r in rows:
+            if con <= 0:
+                break
+            bot = round(min(con, _f(r.so_luong)), 2)
+            if bot <= 0:
+                continue
+            con -= bot
+            if _f(r.so_luong) - bot <= 0.004:
+                r.nguon = NGUON_KHO
+                r.ngay_ve = None
+                r.purchase_request_line_id = None
+            else:
+                r.so_luong = round(_f(r.so_luong) - bot, 2)
+                self.db.add(VatTuGiuCho(
+                    hang_loai=hang[0], hang_id=hang[1], lsx_id=r.lsx_id,
+                    bai_ghep_id=r.bai_ghep_id, so_luong=bot, nguon=NGUON_KHO, ngay_ve=None,
+                    purchase_request_line_id=None,
+                ))
+        self.db.commit()
+        hub.broadcast({"type": "ke_hoach_vat_tu_thay_doi"})
 
     # ================== KHO GỌI VÀO ==================
 
@@ -507,6 +686,7 @@ class GiuChoService:
         Xuất KHÔNG gắn lệnh nào (`lsx_id`/`bai_ghep_id` đều trống — lĩnh chung, bù hao, mẫu) thì
         chỉ được ăn phần tự do.
         """
+        self._khoa_nguon([hang])
         tu_do = _f(self.ton_tu_do([hang]).get(hang))
         cua_minh = 0.0
         if lsx_id is not None or bai_ghep_id is not None:
@@ -552,14 +732,37 @@ class GiuChoService:
 
     # ================== phụ ==================
 
-    def _lo_dang_ve(self, bang: dict, hangs: list[Hang]) -> dict[Hang, list[tuple[date, float]]]:
+    def _khoa_nguon(self, hangs: list[Hang]) -> None:
+        """Khoá DÒNG GỐC (danh mục Giấy/Vật tư khác) của từng mặt hàng — `SELECT ... FOR UPDATE`,
+        sắp theo (hang_loai, hang_id) TĂNG DẦN trước khi khoá. Thứ tự cố định: hai giao dịch cùng
+        đụng một tập mặt hàng, dù gọi theo thứ tự khác nhau, luôn khoá theo CÙNG một trình tự —
+        không bao giờ khoá chéo (deadlock).
+
+        Neo vào bảng GỐC chứ không phải `vat_tu_giu_cho`: một mặt hàng CHƯA từng được giữ chỗ thì
+        không có dòng `vat_tu_giu_cho` nào để khoá, nhưng dòng gốc (mặt hàng ở danh mục) luôn có
+        sẵn. Cùng khuôn với khoá header phiếu kho chống ghi sổ hai lần
+        (`stock_voucher_repo.py::lock_for_update`) — SQLite (test) coi FOR UPDATE là no-op,
+        Postgres (dev/prod) khoá thật.
+        """
+        from sqlalchemy import select as _select
+
+        from ..models.vat_lieu_kho import GiayNguyen, VatTuInAn
+
+        for hang_loai, hang_id in sorted(set(hangs)):
+            model = GiayNguyen if hang_loai == "giay" else VatTuInAn
+            self.db.execute(_select(model.id).where(model.id == hang_id).with_for_update())
+
+    def _lo_dang_ve(self, bang: dict, hangs: list[Hang]) -> dict[Hang, list[tuple[date, float, int]]]:
         """Lô đang về CÒN TRỐNG chỗ = số đang về − phần đã có chủ (`nguon='dang_ve'`).
 
         Trừ phần đã giữ hứa, không thì hai lệnh cùng bám một lô và cả hai đều tưởng mình có hàng.
         Đơn giản hoá có chủ ý: trừ theo TỔNG rồi cắt dần từ lô sớm nhất, không truy từng lô ai giữ
         — bảng giữ chỗ cố ý không neo lô nào (xem docstring model).
+
+        Mang theo `line_id` của CHÍNH dòng phiếu còn lại đó — `nhat_them()` cần nó để ghi đúng
+        `purchase_request_line_id` lên dòng giữ chỗ mới, cho đối soát sau này bám đúng dòng.
         """
-        ra: dict[Hang, list[tuple[date, float]]] = {}
+        ra: dict[Hang, list[tuple[date, float, int]]] = {}
         da_hua = {h: 0.0 for h in hangs}
         for r in self.db.query(VatTuGiuCho).filter(VatTuGiuCho.nguon == NGUON_DANG_VE).all():
             h = (r.hang_loai, r.hang_id)
@@ -569,14 +772,12 @@ class GiuChoService:
             if hang not in set(hangs):
                 continue
             con_hua = da_hua.get(hang, 0.0)
-            con_lai: list[tuple[date, float]] = []
-            # `_hang_dang_ve` trả kèm mã phiếu; ở đây chỉ cần (ngày, số) — chỗ giữ hứa cố ý
-            # KHÔNG neo vào lô nào (xem docstring model), nên mã phiếu không có việc gì.
-            for ngay, sl, *_ in ds:
+            con_lai: list[tuple[date, float, int]] = []
+            for ngay, sl, _ma, line_id in ds:
                 bot = min(con_hua, sl)
                 con_hua -= bot
                 if sl - bot > 0:
-                    con_lai.append((ngay, sl - bot))
+                    con_lai.append((ngay, sl - bot, line_id))
             ra[hang] = con_lai
         return ra
 
@@ -594,10 +795,143 @@ class GiuChoService:
         return ra
 
     @staticmethod
-    def _dong(chu: tuple, hang: Hang, sl: float, nguon: str, ngay: date | None) -> VatTuGiuCho:
+    def _mau_giu(mau: str, da_kho: float, da_ve: float, can: float) -> str:
+        """Nhãn 6 mức: Chưa rõ → Thiếu → Về muộn → Có thể giữ → Đã giữ → Đã cấp.
+
+        `khong_ro`/`do`/`ve_muon` là SỰ THẬT về hàng (từ `can_doi()`), giữ chỗ không đổi được gì —
+        pass-through nguyên vẹn (`do` đổi tên hiển thị thành `thieu` cho khớp bộ từ mới). `xam` =
+        kho ĐÃ CẤP (xuất rồi) — giữ chỗ không còn ý nghĩa, luôn `da_cap`. Chỉ `xanh`/`vang` (đủ
+        THEO can_doi(), tức hệ THỪA sức lo) mới cần hỏi tiếp CHÍNH chủ thể này đã thật sự giữ được
+        phần của nó chưa: giữ đủ ⇒ `da_giu`, chưa ⇒ `co_the_giu`.
+        """
+        if mau == "do":
+            return "thieu"
+        if mau in ("khong_ro", "ve_muon"):
+            return mau
+        if mau == "xam":
+            return "da_cap"
+        return "da_giu" if (da_kho + da_ve) + 1e-6 >= can else "co_the_giu"
+
+    def giu_theo_chu_the_hang(
+        self, bang: dict, gom: dict[tuple, dict] | None = None
+    ) -> dict[tuple, dict]:
+        """Với MỖI (chủ thể, mặt hàng) trong `gom`, gắn thêm `da_giu_kho`/`da_giu_dang_ve` (đã
+        giữ, tách nguồn), `co_the_giu_kho`/`co_the_giu_dang_ve` (NẾU bật giữ chỗ NGAY BÂY GIỜ thì
+        giữ được thêm bao nhiêu), `trang_thai_giu` (nhãn 6 mức) và `nguon_dang_ve` (mã PMH cụ thể
+        đang góp cho phần hứa — spec §4) — MUTATE thẳng vào `gom`.
+
+        "Có thể giữ" là câu hỏi ĐỘC LẬP theo từng chủ thể: so với tồn tự do / lô đang về CÒN TRỐNG
+        HIỆN TẠI — con số này đã trừ hết mọi chỗ đang giữ THẬT của MỌI chủ thể khác rồi (xem
+        `ton_tu_do`/`_lo_dang_ve`), nên KHÔNG cần mô phỏng nhiều chủ thể tranh nhau nữa: "nếu CHỈ
+        MÌNH tôi bật thì được bao nhiêu", không phải "nếu MỌI người cùng bật thì ai được bao
+        nhiêu" (đó là việc CỦA `nhat_them()` khi nó thật sự chạy, theo đúng thứ tự ngày cần).
+
+        Tra `ma_pmh` GỘP MỘT LẦN cho toàn bộ `gom` (không phải mỗi dòng một query) — `theo_chu_the()`
+        gọi hàm này cho MỌI chủ thể trong bảng, N+1 ở đây là N có thể lên tới hàng trăm lệnh. Cùng
+        lý do, dòng giữ chỗ của TỪNG chủ thể (`repo.cua_chu_the()` bên trong `trang_thai()`) cũng
+        được tra GỘP MỘT LẦN qua `repo.cua_nhieu_chu_the()` rồi truyền vào, thay vì để mỗi lần gọi
+        `trang_thai()` tự bắn query riêng.
+
+        Trả về `tt_by_chu` (kết quả `trang_thai()` đã tính cho mỗi chủ thể) để `theo_chu_the()`
+        TÁI DÙNG luôn — không gọi lại `trang_thai()` lần hai cho cùng chủ thể (mỗi lần gọi kéo
+        theo 1 query `repo.cua_chu_the()`, N chủ thể là nhân đôi số query một cách vô ích).
+        """
+        from sqlalchemy import select as _select
+
+        from ..models.purchase import PurchaseRequest, PurchaseRequestLine
+
+        if gom is None:
+            gom = self._gom_theo_chu_the(bang)
+        hangs = sorted({h for o in gom.values() for h in o["hang"]})
+        tu_do = self.ton_tu_do(hangs)
+        ve_tong: dict[Hang, float] = {
+            h: sum(sl for _, sl, _lid in ds) for h, ds in self._lo_dang_ve(bang, hangs).items()
+        }
+        tt_by_chu: dict[tuple, dict] = {}
+        line_ids: set[int] = set()
+        dang_by_chu = self.repo.cua_nhieu_chu_the(list(gom.keys()))
+        for chu in gom:
+            lsx_id, bg_id = chu
+            tt = self.trang_thai(
+                lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang, dang=dang_by_chu.get(chu, []))
+            tt_by_chu[chu] = tt
+            for ds in tt["nguon_dang_ve"].values():
+                line_ids.update(n["purchase_request_line_id"] for n in ds)
+        ma_pmh: dict[int, str | None] = {}
+        if line_ids:
+            ma_pmh = dict(self.db.execute(
+                _select(PurchaseRequestLine.id, PurchaseRequest.code)
+                .join(PurchaseRequest, PurchaseRequest.id == PurchaseRequestLine.purchase_request_id)
+                .where(PurchaseRequestLine.id.in_(line_ids))
+            ).all())
+        for chu, o in gom.items():
+            tt = tt_by_chu[chu]
+            for hang, h in o["hang"].items():
+                da_kho = round(_f(tt["da_giu_kho"].get(hang)), 4)
+                da_ve = round(_f(tt["da_giu_dang_ve"].get(hang)), 4)
+                h["da_giu_kho"] = da_kho
+                h["da_giu_dang_ve"] = da_ve
+                h["nguon_dang_ve"] = [
+                    {
+                        "purchase_request_line_id": n["purchase_request_line_id"],
+                        "ma_pmh": ma_pmh.get(n["purchase_request_line_id"]),
+                        "so_luong": n["so_luong"],
+                    }
+                    for n in tt["nguon_dang_ve"].get(hang, [])
+                ]
+                # ⚠️ KHÔNG lấy `h["thieu"]` — đó là câu trả lời của can_doi() (đủ theo TỒN THÔ
+                # trong sổ, không biết ai đã giữ chỗ), nên với dòng `xanh`/`vang` nó ĐÃ LÀ 0 dù
+                # CHỦ THỂ NÀY chưa hề bấm giữ (0 vì can_doi() coi tồn thô đã bao được, không phải
+                # vì đã có ai giữ thật). Phải hỏi lại từ CHÍNH chủ thể: phần `can` nó còn CHƯA
+                # giữ được (`can − đã giữ`) mới là phần cần so với tồn tự do/lô đang về CÒN TRỐNG.
+                con = max(0.0, round(h["can"] - da_kho - da_ve, 4))
+                co_kho = round(min(con, _f(tu_do.get(hang))), 4)
+                co_ve = round(min(con - co_kho, _f(ve_tong.get(hang))), 4)
+                h["co_the_giu_kho"] = co_kho
+                h["co_the_giu_dang_ve"] = co_ve
+                h["trang_thai_giu"] = self._mau_giu(h["trang_thai"], da_kho, da_ve, h["can"])
+        return tt_by_chu
+
+    def gan_giu_cho_vao_bang(self, bang: dict) -> None:
+        """Gắn 6 trường giữ-chỗ (`da_giu_kho`, `da_giu_dang_ve`, `co_the_giu_kho`,
+        `co_the_giu_dang_ve`, `trang_thai_giu`, `nguon_dang_ve`) vào TỪNG DÒNG của bảng `/can-doi`
+        — MUTATE thẳng vào `bang`.
+
+        Giữ chỗ gộp theo (chủ thể, mặt hàng), KHÔNG theo TỪNG BƯỚC — một chủ thể ăn cùng món ở
+        hai bước thì CÙNG một chỗ giữ trả lời cho CẢ HAI dòng (giữ hộ cả chuỗi, không tách được ai
+        giữ phần nào). Mỗi dòng vì vậy nhận NGUYÊN con số gộp của (chủ thể, mặt hàng) nó thuộc về
+        — không phải phần RIÊNG của dòng đó. Muốn số RIÊNG từng lệnh, xem màn "Theo lệnh"
+        (`theo_chu_the`).
+        """
+        gom = self._gom_theo_chu_the(bang)
+        self.giu_theo_chu_the_hang(bang, gom)
+        tra_cuu: dict[tuple, dict] = {}
+        for chu, o in gom.items():
+            for hang, h in o["hang"].items():
+                tra_cuu[(chu, hang)] = h
+        for nhom in bang.get("items", []):
+            if nhom.get("loai_nhom") != "vat_tu":
+                continue
+            hang = (nhom["hang_loai"], nhom["hang_id"])
+            for d in nhom.get("dong", []):
+                chu = (d.get("lsx_id"), d.get("bai_ghep_id"))
+                h = tra_cuu.get((chu, hang))
+                if h is None:
+                    continue
+                d["da_giu_kho"] = h["da_giu_kho"]
+                d["da_giu_dang_ve"] = h["da_giu_dang_ve"]
+                d["co_the_giu_kho"] = h["co_the_giu_kho"]
+                d["co_the_giu_dang_ve"] = h["co_the_giu_dang_ve"]
+                d["trang_thai_giu"] = h["trang_thai_giu"]
+                d["nguon_dang_ve"] = h["nguon_dang_ve"]
+
+    @staticmethod
+    def _dong(chu: tuple, hang: Hang, sl: float, nguon: str, ngay: date | None,
+              purchase_request_line_id: int | None = None) -> VatTuGiuCho:
         return VatTuGiuCho(
             hang_loai=hang[0], hang_id=hang[1], lsx_id=chu[0], bai_ghep_id=chu[1],
             so_luong=round(sl, 2), nguon=nguon, ngay_ve=ngay,
+            purchase_request_line_id=purchase_request_line_id,
         )
 
     def _co_bat(self, *, lsx_id: int | None, bai_ghep_id: int | None) -> bool:

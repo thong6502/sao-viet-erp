@@ -17,11 +17,14 @@ from sqlalchemy.orm import Session
 from ...models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, CV_TAM_DUNG
 from ...models.san_xuat_ly_do import NHOM_LOI
 from ...models.san_xuat_san_luong import (
+    BG_XAC_NHAN,
     LOT_TU_BATCH,
     LOT_TU_KHO,
     NGUON_LOT,
+    SanXuatBanGiao,
     SanXuatBatch,
     SanXuatBatchLotVao,
+    SanXuatKetQuaNhanh,
 )
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from .thuc_thi import _aware, _gate, _moc
@@ -46,17 +49,70 @@ def _so_khong_am(x, ten: str) -> float:
     return v
 
 
-def _ket_qua_batch(cv, batch: SanXuatBatch | None) -> dict:
+def _ket_qua_batch(cv, batch: SanXuatBatch | None, ket_qua_lsx: list[dict] | None = None) -> dict:
     return {
         "cong_viec_id": cv.id,
         "department_id": cv.department_id,
         "trang_thai": cv.trang_thai,
         "version": cv.version,
         "batch_id": batch.id if batch is not None else None,
+        "ket_qua_lsx": ket_qua_lsx or [],
     }
 
 
-def _chuan_hoa_lot(repo: SanXuatSanLuongRepository, cong_viec_id: int, don_vi_mac_dinh: str, raw: dict) -> SanXuatBatchLotVao:
+def _toa_san_luong(
+    db: Session, repo: SanXuatSanLuongRepository, *, cv, batch: SanXuatBatch, tot: float, actor,
+) -> list[dict]:
+    """Tự TOẢ sản lượng TỐT của một batch điểm-toả sang các nhánh LSX riêng (§ điểm toả bài ghép).
+
+    Mỗi cạnh `SanXuatPhuThuoc` xuất phát từ `cv` (điểm toả, do `dung_diem_toa` sinh lúc phát hành)
+    mang `ty_le_ghep` = số con/tờ của lệnh đích — nhân thẳng với `tot` ra sản lượng nhánh, rồi bàn
+    giao THẲNG dạng đã xác nhận (không qua đề xuất/xác nhận hai bên): số này suy MỘT CHIỀU từ
+    `tot`, không thể vượt, nên không cần vòng thương lượng như bàn giao người khai tay (§11.2)."""
+    if tot <= 0:
+        return []
+    canh = repo.canh_toa_di_tu(cv.id)
+    if not canh:
+        return []
+    ket_qua: list[dict] = []
+    now = _moc()
+    for c in canh:
+        dich_cv = repo.cong_viec(c.dich_cong_viec_id)
+        if dich_cv is None or dich_cv.lsx_id is None or not c.ty_le_ghep:
+            continue
+        sl_nhanh = round(tot * float(c.ty_le_ghep), 3)
+        if sl_nhanh <= 0:
+            continue
+        don_vi_nhanh = c.don_vi_dich or dich_cv.don_vi_vao or batch.don_vi
+        kq = SanXuatKetQuaNhanh(
+            batch_id=batch.id, lsx_id=dich_cv.lsx_id, so_luong=sl_nhanh, don_vi=don_vi_nhanh,
+        )
+        repo.add(kq)
+        bg = SanXuatBanGiao(
+            nguon_cong_viec_id=cv.id,
+            dich_cong_viec_id=dich_cv.id,
+            cung_to=False,
+            so_luong=sl_nhanh,
+            don_vi=don_vi_nhanh,
+            trang_thai=BG_XAC_NHAN,
+            de_xuat_by_id=getattr(actor, "id", None),
+            de_xuat_luc=now,
+            xac_nhan_by_id=getattr(actor, "id", None),
+            xac_nhan_luc=now,
+        )
+        repo.add(bg)
+        repo.flush()
+        kq.ban_giao_id = bg.id
+        ket_qua.append({
+            "lsx_id": dich_cv.lsx_id, "so_luong": sl_nhanh, "don_vi": don_vi_nhanh,
+            "ban_giao_id": bg.id,
+        })
+    return ket_qua
+
+
+def _chuan_hoa_lot(
+    repo: SanXuatSanLuongRepository, dich_cv, don_vi_mac_dinh: str, raw: dict,
+) -> SanXuatBatchLotVao:
     """Dựng một dòng lot đầu vào từ payload thô, kiểm §10.3. KHÔNG add vào session (caller làm)."""
     nguon_loai = (raw.get("nguon_loai") or LOT_TU_BATCH).strip()
     if nguon_loai not in NGUON_LOT:
@@ -76,8 +132,21 @@ def _chuan_hoa_lot(repo: SanXuatSanLuongRepository, cong_viec_id: int, don_vi_ma
         nguon = repo.batch(int(nguon_batch_id))
         if nguon is None:
             raise ValueError("Không tìm thấy batch nguồn của lot đầu vào.")
-        if nguon.cong_viec_id == cong_viec_id:
+        if nguon.cong_viec_id == dich_cv.id:
             raise ValueError("Batch nguồn không được trùng chính công việc đang ghi.")
+        # Batch nguồn là điểm toả bài ghép (đã tách theo LSX) — công việc đang ghi phải THUỘC một
+        # LSX có phần trong đó, và không được dùng vượt phần đã toả cho LSX của chính nó.
+        if dich_cv.lsx_id is not None and repo.co_ket_qua_nhanh(nguon.id):
+            kq = repo.ket_qua_nhanh_cua(nguon.id, dich_cv.lsx_id)
+            if kq is None:
+                raise ValueError(
+                    "Batch nguồn đã toả theo từng lệnh sản xuất — lệnh này không có phần trong đó."
+                )
+            da_dung = repo.da_dung_nhanh(nguon.id, dich_cv.lsx_id)
+            if da_dung + so_luong > float(kq.so_luong) + _EPS:
+                raise ValueError(
+                    f"Vượt phần đã toả cho lệnh sản xuất này ({float(kq.so_luong):g} {kq.don_vi})."
+                )
         nguon_lot_id = None
     else:  # LOT_TU_KHO
         if not nguon_lot_id:
@@ -150,7 +219,7 @@ def tao_batch(
     # Dựng lot TRƯỚC khi add batch để bắt lỗi sớm (chưa chạm session cho tới khi hợp lệ hết).
     don_vi_lot_mac_dinh = (cv.don_vi_vao or don_vi_batch or "").strip()
     cac_lot = [
-        _chuan_hoa_lot(repo, cong_viec_id, don_vi_lot_mac_dinh, r)
+        _chuan_hoa_lot(repo, cv, don_vi_lot_mac_dinh, r)
         for r in (lot_vao or [])
     ]
 
@@ -180,8 +249,9 @@ def tao_batch(
         target=f"san_xuat_batch:{batch.id}",
         detail=f"cong_viec={cv.id} tot={tot_f} hong={hong_f}",
     )
+    ket_qua_lsx = _toa_san_luong(db, repo, cv=cv, batch=batch, tot=tot_f, actor=user)
     db.commit()
-    return _ket_qua_batch(cv, batch)
+    return _ket_qua_batch(cv, batch, ket_qua_lsx)
 
 
 def them_lot(
@@ -208,7 +278,7 @@ def them_lot(
     don_vi_lot_mac_dinh = (cv.don_vi_vao or batch.don_vi or "").strip()
     lot = _chuan_hoa_lot(
         repo,
-        cv.id,
+        cv,
         don_vi_lot_mac_dinh,
         {
             "nguon_loai": nguon_loai,

@@ -61,6 +61,11 @@ def _to_san_xuat(db) -> Department:
 
 
 def _may_in(db) -> MayThietBi:
+    """`ma` UNIQUE — query-or-create để test nào cần dựng cảnh HAI LẦN (2 tổ/2 lô) trong cùng một
+    test không đụng constraint, giống `cd_in` bên `_ptg_2_in`."""
+    may = db.query(MayThietBi).filter(MayThietBi.ma == "MAY-IN-XL").first()
+    if may is not None:
+        return may
     may = MayThietBi(
         ma="MAY-IN-XL", ten="Máy in 4 màu", loai_may="press_offset_sheet",
         toc_do=5_000, don_vi_toc_do="to_gio", makeready_time_default=30,
@@ -72,7 +77,10 @@ def _may_in(db) -> MayThietBi:
 
 
 def _quote_from_ptg(db, customer, ptg: PhieuTinhGia) -> Quote:
-    q = Quote(quote_number="XL-QUOTE", customer_id=customer.id, status=STATUS_ACCEPTED,
+    # `quote_number` UNIQUE — đánh số tự tăng để gọi HÀM NÀY NHIỀU LẦN trong cùng một test không
+    # đụng constraint (xem `_ptg_2_in`).
+    stt = db.query(Quote).count() + 1
+    q = Quote(quote_number=f"XL-QUOTE-{stt:04d}", customer_id=customer.id, status=STATUS_ACCEPTED,
               phieu_tinh_gia_id=ptg.id)
     db.add(q)
     db.flush()
@@ -108,16 +116,20 @@ def _don_da_chuyen_sx(db, orders, admin, customer, ptg):
 
 
 def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000) -> PhieuTinhGia:
-    giay = GiayNguyen(
-        ma="G-IV350X", ten="Ivory 350", gsm=350, don_gia=25_000, don_vi_gia="tan",
-        cong_thuc_gia="to_nguyen * dai_nguyen * rong_nguyen * dinh_luong * don_gia / 1000",
-        # CÔNG THỨC LƯỢNG — mọi giấy thật đều có (mg `0197` điền cho dòng cũ, seed điền cho dòng
-        # mới). Test dựng bằng `create_all` nên migration không chạy ⇒ phải khai tay, không thì
-        # bảng cân đối không quy được tờ → tấn và detector "thiếu vật tư" im.
-        # `/ 1000` vì giấy này bán theo TẤN: kết quả công thức đọc theo đúng `don_vi_gia`.
-        cong_thuc_luong="dinh_luong * dai_nguyen * rong_nguyen * to_nguyen / 1000",
-    )
-    db.add(giay)
+    # `ma` UNIQUE — query-or-create để gọi HAI LẦN trong cùng một test (2 tổ/2 lô) không đụng
+    # constraint, giống `cd_in` ngay dưới.
+    giay = db.query(GiayNguyen).filter(GiayNguyen.ma == "G-IV350X").first()
+    if giay is None:
+        giay = GiayNguyen(
+            ma="G-IV350X", ten="Ivory 350", gsm=350, don_gia=25_000, don_vi_gia="tan",
+            cong_thuc_gia="to_nguyen * dai_nguyen * rong_nguyen * dinh_luong * don_gia / 1000",
+            # CÔNG THỨC LƯỢNG — mọi giấy thật đều có (mg `0197` điền cho dòng cũ, seed điền cho
+            # dòng mới). Test dựng bằng `create_all` nên migration không chạy ⇒ phải khai tay,
+            # không thì bảng cân đối không quy được tờ → tấn và detector "thiếu vật tư" im.
+            # `/ 1000` vì giấy này bán theo TẤN: kết quả công thức đọc theo đúng `don_vi_gia`.
+            cong_thuc_luong="dinh_luong * dai_nguyen * rong_nguyen * to_nguyen / 1000",
+        )
+        db.add(giay)
     to_id = _to_san_xuat(db).id
     may = _may_in(db)
     cd_in = db.query(CongDoan).filter(CongDoan.nhom == "print").first()
@@ -144,7 +156,10 @@ def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000) -> PhieuTinhGia:
         )
         return sp
 
-    p = PhieuTinhGia(ma="PTG-XL-0001", ten_san_pham="2 hộp ghép", so_luong=sl_a)
+    # `ma` UNIQUE — đánh số tự tăng để gọi HÀM NÀY NHIỀU LẦN trong cùng một test (2 tổ/2 lô) không
+    # đụng constraint; mỗi test có DB riêng (drop_all/create_all) nên đếm luôn bắt đầu từ 1.
+    stt = db.query(PhieuTinhGia).count() + 1
+    p = PhieuTinhGia(ma=f"PTG-XL-{stt:04d}", ten_san_pham="2 hộp ghép", so_luong=sl_a)
     p.thanh_phans.extend([_sp(0, "Hộp A", sl_a, 200, 150), _sp(1, "Hộp B", sl_b, 180, 120)])
     db.add(p)
     db.commit()
@@ -379,6 +394,14 @@ def _gop_in_va_san_sang(db, bg_svc, bg, admin, keys=None):
             bai_ghep_id=bg.id, gang_step_key=c.step_key, actor=admin,
             patch={"department_id": to_id, "may_id": mau.may_id},
         )
+    # `so_con_tren_to` khởi tạo từ `lsx.so_con` — số con khi lệnh còn đứng RIÊNG, tự tính như thể
+    # được cả tờ. Ghép N lệnh cùng tờ mà giữ nguyên số đó là chồng diện tích → gate `vuot_dien_tich`
+    # chặn đúng — chia đều cho số thành viên trước khi đòi sẵn sàng.
+    for tv in bg_svc._get(bg.id).thanh_viens:
+        bg_svc.sua_thanh_vien(
+            bai_ghep_id=bg.id, thanh_vien_id=tv.id, actor=admin,
+            so_con_tren_to=max(1, int(tv.so_con_tren_to or 1) // len(tvs)),
+        )
     ra = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
     # Bài ghép là CHỦ THỂ giữ chỗ của các lệnh thành viên — bật ở đây, sau khi gộp xong, vì gộp làm
     # đổi số giấy cần (đó chính là lý do bài đang giữ chỗ thì không cho thêm/rút thành viên).
@@ -423,6 +446,11 @@ def test_moi_buoc_chung_mot_dong_lich_khong_bi_boc_hoi(
         bg_svc.lap_ke_hoach_buoc_chung(
             bai_ghep_id=bg.id, gang_step_key=c.step_key, actor=admin,
             patch={"department_id": to_id, "may_id": mau.may_id},
+        )
+    for tv in bg_svc._get(bg.id).thanh_viens:
+        bg_svc.sua_thanh_vien(
+            bai_ghep_id=bg.id, thanh_vien_id=tv.id, actor=admin,
+            so_con_tren_to=max(1, int(tv.so_con_tren_to or 1) // len(tvs)),
         )
     bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
     _giu_cho_du(db, bai_ghep_ids=[bg.id])       # tiền đề mới: giữ đủ vật tư mới vào kế hoạch

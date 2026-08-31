@@ -155,6 +155,17 @@ class PhieuThanhPhan(Base):
     # xuống lệnh sản xuất (drawer chi tiết ấn phẩm). Khác `production_note` cấp đơn.
     ghi_chu_ky_thuat: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # PHÍ GIAO HÀNG của CẢ SẢN PHẨM — khoản MỘT LẦN cho toàn bộ sản lượng, KHÔNG nhân số lượng và
+    # KHÔNG gắn với bước nào (khác `phieu_thanh_pham.phi_khuon` — cái đó là của một BƯỚC).
+    #
+    # v1: số PHẲNG người lập phiếu gõ tay. Chưa tính theo vùng/km/khối lượng — xem docs/spec-tinh-gia.md §4.9.
+    #
+    # ⚠️ CÓ cộng vào `gia_von_tp` (engine đẻ nó thành một dòng của nhóm "Giao hàng") ⇒ sang Báo giá
+    # nó chịu markup cùng phần còn lại. Hệ quả giống tiền dao: khoản này KHÔNG co giãn theo sản
+    # lượng nên khi bị chia, đơn nhỏ gánh nặng hơn đơn lớn. Đây là chủ ý, đừng "sửa" bằng cách rút
+    # nó ra khỏi giá vốn. 0 = không thu tiền chở.
+    phi_giao_hang: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+
     gia_von_tp: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -203,9 +214,10 @@ class PhieuThanhPham(Base):
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # PHÍ KHUÔN của CHÍNH bước này — khoản MỘT LẦN (không nhân số lượng).
     #
-    # Chỉ có nghĩa khi công đoạn nguồn bật `requires_tooling` với `tooling_type` là dao lưu kho
-    # (`khuon_be` · `khuon_ep`). `kem` KHÔNG có ô: bản kẽm là vật tư tiêu hao, mỗi bài phơi mới, và
-    # tiền nó đã nằm trong công thức của bước chế bản (`so_kem × đơn giá`) — thêm ô là tính hai lần.
+    # Chỉ có nghĩa khi công đoạn nguồn bật `requires_tooling` với `tooling_type` là dao/dụng cụ lưu
+    # kho (`khuon_be` · `khuon_ep` · `khung_lua`). `kem` KHÔNG có ô: bản kẽm là vật tư tiêu hao, mỗi
+    # bài phơi mới, và tiền nó đã nằm trong công thức của bước chế bản (`so_kem × đơn giá`) — thêm
+    # ô là tính hai lần.
     #
     # 0 / để trống = DÙNG LẠI dao cũ ⇒ không tính tiền. Đúng thông lệ ngành: phí dao thu ở đơn đầu,
     # dao giữ lại trong kho, đơn tái đặt không thu lại.
@@ -215,6 +227,14 @@ class PhieuThanhPham(Base):
     # con dao 734.300đ, đơn 500 cuốn gánh 1.469 đ/cuốn còn đơn 5.000 cuốn chỉ 147 đ/cuốn. Đây là
     # đánh đổi đã biết và đã chọn, KHÔNG phải lỗi — đừng "sửa" bằng cách rút nó ra khỏi giá vốn.
     phi_khuon: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    # Kích thước/số lượng khung lụa dùng ở CHÍNH bước này — CHỈ có nghĩa khi bước dùng công đoạn
+    # `tooling_type = "khung_lua"`. BA Ô NÀY TÁCH BIỆT với `phi_khuon` ở trên: không dùng để tự
+    # tính phí, chỉ bơm vào công thức của công đoạn (chip `dai_khung_lua`/`rong_khung_lua`/
+    # `so_khung_lua`, xem `bien_cong_thuc.py`) để NGƯỜI DÙNG tự quy ra tiền theo công thức họ khai
+    # (vd đơn giá/m² × dài × rộng × số khung). 0 = chưa khai, công thức không dùng thì bỏ qua.
+    dai_khung_lua: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    rong_khung_lua: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    so_khung_lua: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -222,6 +242,29 @@ class PhieuThanhPham(Base):
     )
 
     thanh_phan: Mapped["PhieuThanhPhan"] = relationship("PhieuThanhPhan", back_populates="thanh_phams")
+
+
+class SanPhamTaiBan(Base):
+    """Kho cấu hình sản phẩm ĐÃ TỪNG chốt đơn — tra theo TÊN để tái bản (docs/spec-san-pham-tai-ban.md).
+
+    1 dòng = ảnh chụp NGUYÊN cấu hình kỹ thuật của 1 `phieu_thanh_phan` (giấy/in/màu/công đoạn/vật
+    tư) tại thời điểm CHỐT ĐƠN — dạng `ThanhPhanIn`, KHÔNG có số lượng của đơn / giá vốn đã tính /
+    số bài in & số màu dẫn xuất. `ten_chuan_hoa` (bỏ dấu, lowercase, gộp khoảng trắng) là khoá DÙNG
+    CHUNG toàn hệ thống — không lọc khách hàng; cùng tên thì lần chốt sau GHI ĐÈ. Nguồn ghi DUY NHẤT
+    là `OrderService.confirm()` (`san_pham_tai_ban_service.snapshot_tu_thanh_phan`) — không có
+    API tạo/sửa tay.
+    """
+
+    __tablename__ = "san_pham_tai_ban"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ten: Mapped[str] = mapped_column(String(255), nullable=False)
+    ten_chuan_hoa: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    cau_hinh_json: Mapped[dict] = mapped_column(JSON, nullable=False)   # dạng ThanhPhanIn (kèm thanh_phams/vat_tus)
+    updated_by: Mapped[int | None] = mapped_column(Integer, nullable=True)   # → users.id (soft)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
 
 
 class PhieuVatTu(Base):

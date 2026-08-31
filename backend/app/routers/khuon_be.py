@@ -16,6 +16,7 @@ from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.khuon_be_repo import KhuonBeRepository
 from ..schemas.khuon_be import KhuonBeIn, KhuonBeListOut, KhuonBeRow
 from ..services.khuon_be_service import KhuonBeService
+from ..services.catalog_excel_specs import KHUON_BE
 from .catalog_base import make_catalog_router
 
 router = APIRouter(prefix="/api/khuon-be", tags=["khuon-be"])
@@ -31,6 +32,7 @@ Service = Annotated[KhuonBeService, Depends(get_service)]
 make_catalog_router(
     router, ten="khuon_be", ServiceDep=Service, module=MODULE,
     InModel=KhuonBeIn, RowModel=KhuonBeRow, ListModel=KhuonBeListOut,
+    excel_spec=KHUON_BE,
     # Tab lọc của màn Khuôn bế (Còn dùng · Hỏng · Trả khách…). Trước 14/08/2026 màn tự lọc trong
     # JS trên toàn bộ danh mục đã tải về; nay bảng chỉ cầm 20 dòng nên việc lọc phải về máy chủ.
     loc="tinh_trang",

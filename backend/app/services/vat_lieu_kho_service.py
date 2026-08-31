@@ -415,6 +415,10 @@ class MotDanhMucVatLieu:
     def list(self, **kw):
         return self.goc.list(self.kind, **kw)
 
+    def find_by_ma(self, ma: str):
+        """Tra bản ghi theo mã, riêng trong `self.kind` — dùng cho import Excel UPSERT."""
+        return self.goc.repo.find_by_ma(self.kind, ma)
+
     def _dung_man(self, item_id: int) -> None:
         """Chặn tra CHÉO id giữa hai màn dùng chung bảng `vat_tu_in_an`.
 

@@ -6698,6 +6698,21 @@
   .kh__pager-btns {
     margin-left: auto;
   }
+  /* `flex-shrink:0` + hai cụm `nowrap` (dòng "Tổng … · Trang x/y" và ô "Hiển thị N dòng"
+     min-width 96px) cộng lại > bề ngang điện thoại ⇒ ĐẨY CẢ VÙNG NỘI DUNG trượt ngang.
+     Cho phép co + xuống dòng thì pager tự gãy hàng, bảng bên trên vẫn cuộn trong khung. */
+  .kh__pager-left {
+    flex-shrink: 1;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    min-width: 0;
+  }
+  .kh__pager-info {
+    white-space: normal;
+  }
+  .kh__pager-divider {
+    display: none;
+  }
 }
 
 
@@ -7288,4 +7303,23 @@
   cursor: not-allowed;
   box-shadow: none;
   transform: none;
+}
+
+/* ── Bàn giao khách: 2 cột co lại rồi xuống dòng khi màn hẹp ───────────────── */
+.kh__transfer-col {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .kh__transfer-duo {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .kh__transfer-arrow-hub {
+    flex-direction: row;
+    padding-top: 0;
+  }
+  .kh__transfer-arrow-ic {
+    transform: rotate(90deg);
+  }
 }

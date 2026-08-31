@@ -496,3 +496,133 @@ def test_list_phieu_trang_van_lay_sl_dau_phieu(client, auth_headers):
     lst = client.get("/api/phieu-tinh-gia", headers=auth_headers)
     row = next(it for it in lst.json()["items"] if it["id"] == pid)
     assert row["so_luong"] == 7000
+
+
+def test_list_phan_trang_server_side(client, auth_headers):
+    """page/size cắt đúng ở SQL — total vẫn đếm TOÀN BỘ, không phải số dòng trả về."""
+    for i in range(5):
+        client.post("/api/phieu-tinh-gia", json={"ten_san_pham": f"Trang {i}"}, headers=auth_headers)
+    trang1 = client.get("/api/phieu-tinh-gia?page=1&size=2", headers=auth_headers).json()
+    trang2 = client.get("/api/phieu-tinh-gia?page=2&size=2", headers=auth_headers).json()
+    assert len(trang1["items"]) == 2 and len(trang2["items"]) == 2
+    assert trang1["total"] == trang2["total"] >= 5
+    ids1 = {it["id"] for it in trang1["items"]}
+    ids2 = {it["id"] for it in trang2["items"]}
+    assert ids1.isdisjoint(ids2)
+
+
+def test_list_loc_trang_thai_nhap_da_tinh(client, auth_headers):
+    """status=draft/calculated lọc đúng phiếu CÓ/KHÔNG sản phẩm bên trong — không lộ phiếu sai tab."""
+    giay_id, cd_id = _seed_catalog()
+    nhap = client.post("/api/phieu-tinh-gia", json={"ten_san_pham": "Nháp trắng"},
+                       headers=auth_headers).json()
+    da_tinh = client.post("/api/phieu-tinh-gia", json={
+        "ten_san_pham": "Đã tính", "so_luong": 1000, "thanh_phans": [_component(giay_id, cd_id)],
+    }, headers=auth_headers).json()
+
+    only_draft = client.get("/api/phieu-tinh-gia?status=draft&size=200", headers=auth_headers).json()
+    ids_draft = {it["id"] for it in only_draft["items"]}
+    assert nhap["id"] in ids_draft and da_tinh["id"] not in ids_draft
+    assert all(it["so_thanh_phan"] == 0 for it in only_draft["items"])
+
+    only_calc = client.get("/api/phieu-tinh-gia?status=calculated&size=200", headers=auth_headers).json()
+    ids_calc = {it["id"] for it in only_calc["items"]}
+    assert da_tinh["id"] in ids_calc and nhap["id"] not in ids_calc
+    assert all(it["so_thanh_phan"] > 0 for it in only_calc["items"])
+
+
+def test_list_sap_xep_theo_so_luong(client, auth_headers):
+    """sort=so_luong/-so_luong dùng ĐÚNG cột phái sinh (Σ SL sản phẩm, không phải SL đầu phiếu)."""
+    giay_id, cd_id = _seed_catalog()
+    nho = client.post("/api/phieu-tinh-gia", json={
+        "ten_san_pham": "SL nhỏ", "so_luong": 100,
+        "thanh_phans": [_component(giay_id, cd_id) | {"so_luong": 500}],
+    }, headers=auth_headers).json()
+    lon = client.post("/api/phieu-tinh-gia", json={
+        "ten_san_pham": "SL lớn", "so_luong": 100,
+        "thanh_phans": [_component(giay_id, cd_id) | {"so_luong": 9000}],
+    }, headers=auth_headers).json()
+
+    asc = client.get("/api/phieu-tinh-gia?sort=so_luong&size=200", headers=auth_headers).json()["items"]
+    pos_asc = {it["id"]: i for i, it in enumerate(asc)}
+    assert pos_asc[nho["id"]] < pos_asc[lon["id"]]
+
+    desc = client.get("/api/phieu-tinh-gia?sort=-so_luong&size=200", headers=auth_headers).json()["items"]
+    pos_desc = {it["id"]: i for i, it in enumerate(desc)}
+    assert pos_desc[lon["id"]] < pos_desc[nho["id"]]
+
+
+def test_stats_dem_doc_lap_voi_trang_hien_tai(client, auth_headers):
+    """`/stats` đếm toàn bộ theo scope, không bị page/size hiện tại bó hẹp."""
+    giay_id, cd_id = _seed_catalog()
+    client.post("/api/phieu-tinh-gia", json={"ten_san_pham": "Nháp X"}, headers=auth_headers)
+    client.post("/api/phieu-tinh-gia", json={
+        "ten_san_pham": "Tính Y", "so_luong": 500, "thanh_phans": [_component(giay_id, cd_id)],
+    }, headers=auth_headers)
+
+    stats = client.get("/api/phieu-tinh-gia/stats", headers=auth_headers).json()
+    lst = client.get("/api/phieu-tinh-gia?size=200", headers=auth_headers).json()
+    draft_count = sum(1 for it in lst["items"] if it["so_thanh_phan"] == 0)
+    calc_count = sum(1 for it in lst["items"] if it["so_thanh_phan"] > 0)
+    assert stats["all"] == lst["total"] == draft_count + calc_count
+    assert stats["draft"] == draft_count
+    assert stats["calculated"] == calc_count
+
+
+# ============================ ⑤ PHÍ GIAO HÀNG (mục ⑤ của modal sản phẩm) ============================
+
+
+def test_phi_giao_hang_luu_mo_lai_va_cong_vao_gia_von(client, auth_headers):
+    giay_id, cd_id = _seed_catalog()
+    khong = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 5000, "thanh_phans": [_component(giay_id, cd_id)],
+    }, headers=auth_headers).json()
+
+    tp = {**_component(giay_id, cd_id), "phi_giao_hang": 1_200_000}
+    resp = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 5000, "thanh_phans": [tp],
+    }, headers=auth_headers)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["thanh_phans"][0]["phi_giao_hang"] == 1_200_000
+    assert body["tong_gia_von"] == pytest.approx(khong["tong_gia_von"] + 1_200_000, abs=0.01)
+    # Nhóm kết quả mới có mặt trong ảnh chụp để bảng chi tiết + bản in vẽ được.
+    gh = next(g for g in body["result"]["groups"] if g["idx"] == "giao_hang")
+    assert gh["subtotal"] == 1_200_000
+
+    # MỞ LẠI: giá trị đã lưu còn nguyên (không phải chỉ sống trong response của lần POST).
+    got = client.get(f"/api/phieu-tinh-gia/{body['id']}", headers=auth_headers).json()
+    assert got["thanh_phans"][0]["phi_giao_hang"] == 1_200_000
+
+    # SỬA lại phí → tính lại đúng, và bỏ về 0 thì nhóm Giao hàng biến mất.
+    sua = client.put(f"/api/phieu-tinh-gia/{body['id']}", json={
+        "so_luong": 5000,
+        "thanh_phans": [{**_component(giay_id, cd_id), "phi_giao_hang": 0}],
+    }, headers=auth_headers).json()
+    assert sua["thanh_phans"][0]["phi_giao_hang"] == 0
+    assert [g["idx"] for g in sua["result"]["groups"]] == ["nvl", "cong_doan"]
+    assert sua["tong_gia_von"] == pytest.approx(khong["tong_gia_von"], abs=0.01)
+
+
+def test_phi_giao_hang_am_bi_tra_422(client, auth_headers):
+    giay_id, _ = _seed_catalog()
+    resp = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000,
+        "thanh_phans": [{**_component(giay_id), "phi_giao_hang": -1}],
+    }, headers=auth_headers)
+    assert resp.status_code == 422, resp.text
+
+
+def test_preview_live_tra_nhom_giao_hang(client, auth_headers):
+    """Panel bên phải modal đọc `/api/tinh-gia/preview` — phí phải chảy qua đó, không đợi bấm Lưu."""
+    giay_id, cd_id = _seed_catalog()
+    r = client.post("/api/tinh-gia/preview", json={
+        "so_luong": 4000,
+        "thanh_phans": [{**_component(giay_id, cd_id), "phi_giao_hang": 800_000}],
+    }, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    res = r.json()
+    assert res["meta"]["components"][0]["phi_giao_hang"] == 800_000
+    gh = next(g for g in res["groups"] if g["idx"] == "giao_hang")
+    assert gh["rows"][0]["thanh_tien"] == 800_000
+    assert gh["rows"][0]["gia_don_sp"] == pytest.approx(200)   # 800.000 ÷ 4.000
