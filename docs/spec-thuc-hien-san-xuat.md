@@ -14,7 +14,7 @@
 | 2 | Khung thực hiện tại tổ (timeline, drawer, phân công, phiên chạy, khoảng tham gia, chấm công/OT, actual overlay) | ✅ BE ĐỌC+GHI + FE "một bàn làm việc" XONG (chờ nghiệm thu cuối) — Đọc: `board.teams`/`work_items`/`chi_tiet_cong_viec` (drawer: roster + phiên chạy + khoảng tham gia; nhãn resolve theo lô) + endpoint picker riêng gác `san_xuat` `GET /teams/{id}/nhan-vien` (KHÔNG mượn `/api/employees` vì nó đòi quyền `nhan_su` → tổ trưởng 403). Ghi: 3 bảng mới create_all `san_xuat_phan_cong`/`san_xuat_phien_chay`/`san_xuat_khoang_tham_gia`, repo + service `services/san_xuat/thuc_thi.py` (snapshot cờ khoán từ `departments.has_piece_work`; bước nội bộ chỉ nhận thợ khoán; GATE §6 chỉ `head_user_id` đúng tổ; bắt đầu cần ≥1 khoán; trễ/tạm dừng bắt buộc lý do; không hai khoảng chồng giờ; version chống bấm trùng; máy chủ + naive/aware). Router 6 endpoint ghi gác `san_xuat:assign_work` + SSE sau commit; KHÔNG migration. **FE**: 5 file `ThucHienSxPage`/`ThsxTimeline`/`ThsxDrawer`/`thsxShared`/`thuc-hien-sx.css` (bám pattern XepLich2, timeline tái dùng `xl2Shared`, KHÔNG kéo-thả), nối `api.sanXuat` (9 method) + AppShell (Kho-pattern: teamList/badge/dynamicItems/render/SSE) + `permissions` (`assign_work`); styleseed **94/100 A**, `npx tsc` sạch. 15 test `test_san_xuat_thuc_thi.py` + 7 board + 4 api xanh. **Khoảng trống chờ pha sau:** (b) §7.3 chấm công-OT dẫn xuất; (c) actual overlay (cần trường mốc thực trên `WorkItemOut`); (d) §7.1 "số người thực tế ≠ dự kiến → lý do" (chờ nguồn số người dự kiến) |
 | 3 | Đầu vào, sản lượng & bàn giao (xác nhận vật tư, chọn lot BTP, batch sản lượng, bàn giao, overconsumption) | ✅ BE XONG (chờ FE + nghiệm thu cuối) — 6 bảng mới create_all (`san_xuat_ly_do`, `san_xuat_batch`, `san_xuat_batch_lot_vao`, `san_xuat_ban_giao`, `san_xuat_ban_giao_dieu_chinh`, `san_xuat_vat_tu_nhan`) + repo `san_xuat_san_luong_repo.py`. **Sản lượng** `services/san_xuat/san_luong.py`: batch `tong=tot+hong`, hong>0 bắt nhóm lỗi chuẩn (`nhom='loi'`), chỉ ghi khi cv đã khởi động, GATE §6, `tong_tot` = nền trần bàn giao; lot đầu vào §10.3 (batch công đoạn trước, không trỏ chính mình) + `them_lot`. **Bàn giao** `services/san_xuat/ban_giao.py`: cùng-tổ-cùng-LSX tự `confirmed` (notify None), khác tổ→`proposed`→bên NHẬN xác nhận (gate ĐÍCH, nguồn không tự xác nhận), trần `tong_tot−đã_giao`, sửa chỉ khi `proposed`, điều chỉnh đẻ lịch sử + cờ `khong_nhat_quan` khi giảm dưới lượng đã dùng (§11.3), bắt buộc lý do nhóm `dieu_chinh_ban_giao`. **Vật tư** `services/san_xuat/vat_tu_nhan.py`: xác nhận phiếu XUẤT posted NGUYÊN TRẠNG (§10.1), 1 phiếu/1 lần (`voucher_id` UNIQUE), gate tổ trưởng. **Danh mục Lý do & lỗi SX** = catalog thứ 12 trên màn Cấu hình danh mục (module quyền riêng `dm_ly_do_san_xuat`, mg 0221 chép quyền từ `san_xuat`), KHÔNG đẻ màn mới. Router `san_xuat.py` + schema mặt GHI đã khai (LotVaoIn/BatchIn/BanGiao*/VatTu*). **44 test san_xuat (G1–G3) chạy chung xanh** (9 san_luong + 8 ban_giao + 4 vat_tu_nhan mới) + `test_schema_documented` + `test_catalog_registry` xanh; KHÔNG migration cột (chỉ bảng mới). **Còn: FE drawer** (nhập batch + picker lot đầu vào + UI bàn giao + xác nhận vật tư, gắn vào `ThsxDrawer` chỗ placeholder "Pha sau") + FE cấu hình catalog lý do; qua 2-agent + styleseed + dev-browser |
 | 4 | Hỗ trợ & phân bổ (hỗ trợ 2 tổ, hệ số bậc, phân bổ theo batch, chốt/mở lại, nối PieceWork) | ⏳ Chưa bắt đầu |
-| 5 | KCS & kho (batch KCS, lỗi+ảnh, trách nhiệm, đóng thiếu, TP/BTP theo đơn, nhập kho một phần, tự đóng nhóm) | ⏳ Chưa bắt đầu |
+| 5 | KCS & kho (batch KCS, lỗi+ảnh, trách nhiệm, đóng thiếu, TP/BTP theo đơn, nhập kho một phần, tự đóng nhóm) | ✅ XONG — nền batch/lỗi/ảnh/trách nhiệm + kho BTP/thành phẩm + tự đóng nhóm đã có TRƯỚC module KCS kiêm nhiệm (`services/san_xuat/kcs.py`, `kho.py`; test `test_san_xuat_kcs.py`/`test_san_xuat_kho.py`/`test_san_xuat_dong_nhom.py`/`test_san_xuat_g5_tich_hop.py`). Module **KCS kiêm nhiệm** (mg `0250`, 2026-08-31) sau đó mở rộng thêm luồng ghi song song trên nền này (routing 2 bước + đột xuất 1 bước, checklist, gửi kho một nút, dashboard/Excel) — chi tiết ở §13 (viết lại 2026-08-31) |
 | 6 | Real-time & hoàn thiện (SSE toàn sự kiện, badge/toast, audit, chống trùng, test tích hợp) | ⏳ Chưa bắt đầu |
 
 Quy tắc verify: giữa dòng dùng `pytest` nhắm file + `npx tsc`; chạy `./init.ps1` một lần ở cuối cùng.
@@ -504,61 +504,193 @@ Quy tắc:
 
 ## 13. KCS
 
-### 13.1. Ghi nhận kiểm tra
+> Mục này viết lại 2026-08-31 cho ĐÚNG code đang chạy sau module **KCS kiêm nhiệm** (mg `0250`, spec
+> gốc `docs/superpowers/plans/2026-08-31-kcs-kiem-nhiem.md`). Bản trước đó mô tả một luồng DUY NHẤT
+> (routing cố định + Nhận/Từ chối trách nhiệm) — luồng đó vẫn còn TRONG DỮ LIỆU CŨ (§13.9) nhưng
+> KHÔNG còn là cách ghi kết quả KCS cho phiếu mới. Từ đây hệ thống có HAI luồng ghi sống song song
+> (§13.3) trên nền ba khái niệm cờ khác nhau (§13.1) và một danh mục checklist mới (§13.2).
 
-KCS làm việc theo từng batch nhận vào và ghi:
+Một tổ có `departments.is_kcs=true` có thể có HAI cửa làm việc trên CÙNG tổ/quyền/dữ liệu/SSE —
+không tạo tổ ảo, không nhân đôi công việc:
 
-- Số lượng nhận.
-- Cỡ mẫu kiểm tra.
-- Số lượng đạt.
-- Số lượng không đạt.
-- Kết luận.
-- Người kiểm tra.
-- Thời điểm kết luận.
+- **Sản xuất**: node sidebar `thuc-hien-sx:{teamId}`, nhãn = tên tổ, badge `so_viec_cho`.
+- **KCS**: node sidebar `thuc-hien-sx-kcs:{teamId}`, nhãn `KCS · {tên tổ}`, badge `so_viec_kcs_cho`,
+  trang riêng `ThucHienKcsPage`/`KcsResultDrawer` (KHÔNG dùng lại Gantt/timeline của trang sản xuất).
 
-Cơ sở tính năng suất KCS là toàn bộ số lượng KCS đã nhận và đã kết luận, không phải cỡ mẫu và không phải chỉ số lượng đạt.
+Node KCS chỉ hiện khi tổ **đang có việc KCS hoạt động** — xem `co_viec_kcs` ở §13.1, đây KHÔNG đơn
+giản là "tổ có `is_kcs=true`".
 
-Ví dụ:
+### 13.1. Ba khái niệm KCS — đừng nhầm
 
-- Nhận 1.000.
-- Lấy mẫu 100.
-- Kết luận 900 đạt, 100 không đạt.
-- Năng suất KCS dùng để phân bổ là 1.000.
+Có BA thứ tên gần giống nhau, mỗi thứ đứng một tầng khác nhau; nhầm tầng là nhầm luôn hành vi:
 
-Nhân sự KCS vẫn được chia sản lượng theo cơ chế batch, thời gian thực tế và hệ số tay nghề.
+1. **`Department.is_kcs`** — cột DB tĩnh, khai ở danh mục Phòng ban: tổ có NĂNG LỰC KCS. Không đổi
+   theo việc đang chạy. Vai trò thật của cờ này là điều kiện CẤU HÌNH lúc phát hành: một bước routing
+   khai `la_kcs=true` chỉ hợp lệ khi tổ thực hiện có `is_kcs=true` — sai thì `services/san_xuat/
+   release.py` (luật 5, dòng 164–179) chặn phát hành và chỉ đích danh bước + tên tổ sai cấu hình.
+   `is_kcs` KHÔNG trực tiếp quyết định badge hay node sidebar (xem mục 3).
+2. **`SanXuatCongViec.la_kcs`** — cột DB, snapshot lúc phát hành: cờ BƯỚC, đánh dấu MỘT công việc cụ
+   thể có thuộc "mặt bàn KCS" hay không. Nguồn kế thừa: `CongDoan.la_kcs` (danh mục) → snapshot xuống
+   `LsxCongDoan.la_kcs` lúc dựng routing → `BaiGhepCongDoan.la_kcs` lúc gộp bài → `SanXuatCongViec.la_kcs`
+   lúc phát hành — KHÔNG suy theo `department_id`/`is_kcs` của tổ thực hiện, đọc thẳng cờ bước đã
+   đóng băng. Đây là cờ dùng để lọc `GET /api/san-xuat/work-items?team_id=&mode=production|kcs`:
+   `mode=kcs` chỉ trả việc `la_kcs=true`, `mode=production` chỉ trả `la_kcs=false`.
+3. **`co_viec_kcs`** — tính ĐỘNG lúc đọc, KHÔNG phải cột DB: tổ có đang có ÍT NHẤT MỘT việc
+   `la_kcs=true`, chưa hoàn thành (`trang_thai != hoàn thành`), thuộc gói ĐANG phát hành hay không
+   (`SanXuatRepository.to_co_viec_kcs`, `backend/app/repositories/san_xuat_repo.py:409-426`). Đây MỚI
+   là cổng sinh node sidebar `KCS · {tổ}` (`frontend/src/components/AppShell.tsx:1071-1082`) — RỘNG
+   HƠN badge `so_viec_kcs_cho` (badge còn đòi thêm điều kiện "đã có bàn giao xác nhận tới việc đó
+   nhưng chưa ghi batch KCS nào" — `SanXuatRepository.dem_kcs_cho_kiem_theo_to`); `co_viec_kcs` chỉ
+   cần tồn tại việc KCS đang hoạt động, kể cả đã ghi đủ mọi đợt — nên node không biến mất ngay sau
+   khi KCS ghi xong, chỉ ẩn khi tổ không còn việc KCS nào đang chạy.
 
-### 13.2. Lỗi KCS
+Vì release chặn cấu hình sai (mục 1), trong thực tế một việc `la_kcs=true` chỉ rơi vào tổ
+`is_kcs=true` — nhưng đó là HỆ QUẢ của gate lúc phát hành, không phải vì badge/node tự đọc `is_kcs`
+khi tính toán; cả badge lẫn `co_viec_kcs` đọc thẳng `SanXuatCongViec.la_kcs`, không đụng `is_kcs`.
 
-Mỗi lỗi bắt buộc có:
+### 13.2. Danh mục checklist
 
-- Nhóm lỗi từ danh mục chung.
-- Mô tả.
-- Tổ/công đoạn được yêu cầu nhận trách nhiệm.
-- Số lượng lỗi.
-- Ít nhất một ảnh bằng hệ thống lưu file hiện có.
+- `SanXuatKcsTieuChi` (mã, tên, hướng dẫn, `bat_buoc`, thứ tự, `active`, `version`) — một tiêu chí áp
+  cho nhiều công đoạn qua bảng nối nhiều-nhiều `SanXuatKcsTieuChiCongDoan` (unique theo cặp tiêu
+  chí+công đoạn). Gộp vào màn Cấu hình danh mục hiện có, không tạo màn riêng.
+- Bổ sung tiêu chí riêng theo lệnh: `LsxCongDoan.kcs_tieu_chi_bo_sung_json` /
+  `BaiGhepCongDoan.kcs_tieu_chi_bo_sung_json` (cộng vào checklist chuẩn của danh mục, không thay).
+- `SanXuatCongViec.kcs_tieu_chi_json` là snapshot ĐẦY ĐỦ (danh mục + bổ sung) tại lúc phát hành —
+  đổi danh mục sau đó KHÔNG ảnh hưởng phiếu đã phát hành (không đọc sống danh mục khi ghi/xem phiếu
+  cũ). Đây là điều kiện kịch bản nghiệm thu "checklist danh mục đổi sau phát hành nhưng phiếu cũ
+  không đổi" (plan §9 mục 9).
+- Khi ghi kết quả, mọi tiêu chí `bat_buoc=true` trong snapshot phải có MỘT kết quả gửi kèm — khớp
+  theo `thu_tu` (khoá ổn định kể cả mục bổ sung không có `tieu_chi_id`); thiếu thì chặn với thông
+  báo "Còn tiêu chí kiểm tra bắt buộc chưa ghi kết quả." Luật này DÙNG CHUNG cho cả routing lẫn đột
+  xuất (`_validate_checklist_bat_buoc` trong `services/san_xuat/kcs.py`). Không có checklist bắt buộc
+  nào trong snapshot (batch cũ trước module này, hoặc bước không phải KCS) thì no-op.
+- Mỗi kết quả checklist gửi lên chỉ gồm `thu_tu` + `dat` (boolean) + `ghi_chu` tuỳ chọn
+  (`KcsChecklistKetQuaIn`) — ĐƠN GIẢN HƠN bản nháp ban đầu của kế hoạch (không có giá trị thứ ba
+  "không áp dụng"; không lặp lại mã/tên tiêu chí trong từng kết quả, tra ngược qua snapshot
+  `kcs_tieu_chi_json` của công việc khi cần hiển thị).
 
-Tổ trưởng bị quy trách nhiệm được chọn:
+### 13.3. Ghi kết quả — routing (hai bước) và đột xuất (một bước)
 
-- Chấp nhận.
-- Từ chối kèm lý do.
+Hai luồng SỐNG dùng bảng `SanXuatKcsBatch`/`SanXuatKcsLoi` chung, phân biệt bằng `loai` (`routing` |
+`dot_xuat`):
 
-Kết quả này là cuối cùng trong phiên bản đầu:
+**Routing** — công việc `la_kcs=true` đã đứng SẴN trong routing/bài ghép, tách HAI bước gọi API:
 
-- Không có bước quản lý phân xử.
-- Chấp nhận thì tính vào chỉ số chất lượng của tổ.
-- Từ chối thì không tính trách nhiệm cho tổ, nhưng vẫn giữ toàn bộ bằng chứng và lịch sử.
-- Lỗi đang chờ phản hồi không chặn yêu cầu nhập kho cho phần đạt.
-- Lỗi đang chờ phản hồi chặn đóng hoàn toàn nhóm thành phẩm.
+1. `POST /api/san-xuat/work-items/{cong_viec_id}/kcs` (`kcs.tao_batch_kcs`) — ghi batch: `bat_dau`,
+   `ket_thuc` (FE luôn gửi `= thời điểm hiện tại`, form không hiện ô giờ cho người dùng chọn),
+   `so_luong_nhan`, `so_luong_dat`, `so_luong_khong_dat` (`nhan = dat + khong_dat`, kiểm ở service),
+   `don_vi`, `ghi_chu`, `checklist_ket_qua`. Chỉ ghi được cho công việc `la_kcs=true` đã bắt đầu
+   (`dang_chay`/`tam_dung`/`hoan_thanh`). Tổng các đợt đã ghi (kể cả đợt này) không được vượt tổng
+   bàn giao `confirmed`/`adjusted` đã xác nhận tới công việc đó (chỉ áp khi công việc đã có ít nhất
+   một dòng bàn giao — công việc chưa nối bàn giao thì chưa có gì để chặn theo).
+2. Nếu có Lỗi (`so_luong_khong_dat > 0`): gọi tiếp `POST /api/san-xuat/kcs/{kcs_batch_id}/loi`
+   (`kcs.ghi_loi`, multipart) — nhóm lỗi + mô tả + tổ/công đoạn liên đới (tuỳ chọn) + ≥1 ảnh bắt
+   buộc. Đây là lệnh RIÊNG, không gộp vào bước 1.
 
-### 13.3. Phần không đạt và đóng thiếu
+**Đột xuất (kiêm nhiệm, mg `0250`)** — một tổ SX KHÁC kiểm một công việc ĐANG CHẠY/TẠM DỪNG, KHÔNG
+cần đứng sẵn trong routing (`cv.la_kcs` có thể `false`), gộp MỘT bước: `POST /api/san-xuat/kcs/dot-xuat`
+(`kcs.tao_kiem_dot_xuat`, multipart) nhận `cong_viec_id`, `kcs_department_id` (tổ đi kiểm), số
+lượng, checklist, VÀ (nếu `so_luong_khong_dat > 0`) nhóm lỗi + mô tả + tổ chịu + ảnh — tất cả trong
+CÙNG một lệnh gọi. Khác routing ở ba điểm cố ý: không đòi `la_kcs`/"đã bắt đầu" mà chỉ đòi
+`dang_chay`/`tam_dung` (KHÔNG gồm `hoan_thanh`, khác routing); KHÔNG đẻ kèm `SanXuatBatch` sản lượng
+(`batch_id` giữ `NULL`), không đụng `trang_thai`/kho của công việc đích; nhóm lỗi + ảnh bắt buộc NGAY
+trong cùng lệnh thay vì tách bước.
 
-- Phần không đạt được giữ lại.
-- Không tự sinh luồng sửa hàng.
-- Không tự tạo LSX bù.
-- Trưởng KCS được phép đóng thiếu nhóm mà không cần Kế hoạch sản xuất duyệt.
-- Đóng thiếu bắt buộc có lý do.
-- Hệ thống gửi thông báo real-time cho Kế hoạch sản xuất và Sale.
-- Đóng thiếu vẫn phải thỏa mãn các điều kiện đóng nhóm khác.
+Cả hai luồng: `SanXuatBatch` sản lượng nền (routing) có `tot = so_luong_nhan`, `hong = 0` — NĂNG SUẤT
+KCS lấy nền theo SỐ NHẬN (đạt + không đạt), không phải chỉ số đạt, để tái dùng nguyên pipeline phân
+bổ lương (§12). Batch đột xuất là bản ghi CHẤT LƯỢNG thuần, không tạo batch năng suất, không phân bổ
+lương khoán.
+
+**Quyền ghi khác nhau giữa hai luồng** (router gác cùng bit thô `assign_work`, ranh giới thật ở
+service): routing (`tao_batch_kcs`/`ghi_loi`) CHỈ tổ trưởng đúng tổ đang chạy việc đó mới ghi được
+(`_gate`, cùng gate §6 dùng cho sản xuất — không mở rộng cho mọi thành viên); đột xuất
+(`tao_kiem_dot_xuat`) cho phép BẤT KỲ THÀNH VIÊN nào của tổ `kcs_department_id` được chọn, không cần
+là trưởng tổ (`_gate_member`).
+
+### 13.4. Lỗi KCS — ghi một chiều, không còn Nhận/Từ chối cho phiếu mới
+
+- Khi `so_luong_khong_dat > 0`: bắt buộc chọn nhóm lỗi từ danh mục `san_xuat_ly_do.nhom="loi"`, bắt
+  buộc ≥1 ảnh bằng hệ thống lưu file hiện có; `to_chiu_id` (tổ liên đới) và `cong_doan_ref_id` là
+  TUỲ CHỌN vì có thể chưa thống nhất trách nhiệm ngoài đời.
+- Mọi `SanXuatKcsLoi` tạo mới đều nhận `trang_thai="recorded"` (`TN_RECORDED`) — MỘT CHIỀU, không
+  còn cách nào tạo lỗi ở trạng thái `pending` nữa. Khác hẳn thiết kế trước đây (bản mục 13 cũ mà tài
+  liệu này thay thế): KHÔNG có bước tổ bị yêu cầu Chấp nhận/Từ chối cho phiếu mới, không phân xử.
+- Nếu có `to_chiu_id`, sau khi ghi hệ thống phát SSE `san_xuat_kcs_changed` VÀ đẩy thông báo MỘT
+  CHIỀU tới `head_user_id` của tổ đó ("KCS đã ghi nhận lỗi liên quan tới tổ") — không tạo badge hộp
+  thư chờ phản hồi, không nút Nhận/Từ chối cho lỗi mới.
+- Endpoint `POST /api/san-xuat/kcs/loi/{loi_id}/phan-hoi` (`kcs.phan_hoi_loi`) VẪN CÒN trong code
+  nguyên vẹn, nhưng giờ chỉ có tác dụng với hồ sơ CŨ còn `trang_thai="pending"` (tạo trước mg `0250`)
+  — gọi trên một lỗi đã `recorded` sẽ không tìm thấy gì để xử lý vì hàm chỉ nhận `pending`. Không có
+  lối vào endpoint này từ `KcsResultDrawer`/`ThucHienKcsPage` (UI mới); hồ sơ `pending`/`accepted`/
+  `rejected` cũ chỉ còn hiển thị qua `ThsxKcsPanel` trong drawer màn Thực hiện sản xuất CŨ
+  (`ThsxDrawer.tsx`/`ThsxG5.tsx`) — xem §13.9.
+
+### 13.5. Điều chỉnh kết quả
+
+- Chỉ `Department.head_user_id` mới điều chỉnh được — với batch `routing` là tổ trưởng của tổ ĐANG
+  CHẠY việc (`cv.department_id`), với batch `dot_xuat` là tổ trưởng của tổ ĐI KIỂM
+  (`kcs.kcs_department_id`) — hai gate khác nhau, chọn theo `kcs.loai` (`_gate_dieu_chinh`).
+- `PATCH /api/san-xuat/kcs/{kcs_batch_id}` (`kcs.dieu_chinh_ket_qua`) đổi lại Đạt/Không đạt/checklist
+  NHƯNG số NHẬN giữ nguyên — `so_luong_dat + so_luong_khong_dat` gửi lên phải khớp đúng
+  `so_luong_nhan` hiện có trên batch, không đổi qua điều chỉnh.
+- Chặn TUYỆT ĐỐI nếu còn yêu cầu nhập kho của batch CHƯA HUỶ (dù đã kho xác nhận chỉ một phần, hay
+  còn chờ kho mà chưa huỷ) — trình tự sửa sai: huỷ phần yêu cầu kho chưa nhận bằng luồng hiện có →
+  điều chỉnh kết quả KCS → tạo lại yêu cầu nếu cần.
+- Không xoá kết quả KCS. Mọi điều chỉnh ghi audit trước/sau (`san_xuat_kcs_dieu_chinh`) và kiểm
+  `expected_version`.
+
+### 13.6. Gửi kho một nút
+
+- `POST /api/san-xuat/kcs/{kcs_batch_id}/yeu-cau-nhap-kho` (`kho.tao_yeu_cau_kho_mot_nut`) — CHỈ cho
+  batch `loai=routing` và công việc `la_kcs_cuoi=true`; không nhận số lượng từ client.
+- Server tự tính "số đạt chưa gửi" = `kcs_batch.so_luong_dat` − tổng yêu cầu CHƯA HUỶ của batch đó,
+  khoá dòng batch (`with_for_update`) TRƯỚC khi đọc số để double-click không tạo hai yêu cầu song
+  song. Hết số đạt chưa gửi → `409` (`KhongConSoDuGuiKho`), không phải lỗi chung `400`.
+- SSE tới Kho và node KCS sau commit.
+- Endpoint thủ công cũ `POST /api/san-xuat/kho/yeu-cau-nhap` (`kho.tao_yeu_cau_nhap_thanh_pham`,
+  NHẬN số lượng tuỳ ý từ client, không giới hạn `la_kcs_cuoi`) vẫn còn — dùng cho nhập kho từng
+  phần thủ công; nút MỘT-BẤM ở trên là lối đi mới cho KCS cuối, không thay thế endpoint cũ.
+
+### 13.7. Chọn việc để kiểm đột xuất
+
+Không có endpoint "projection" riêng để liệt kê việc đang chạy cho kiểm đột xuất — FE
+(`KcsResultDrawer`, mode `dot_xuat`) chọn tổ qua `api.sanXuat.teams()` rồi liệt kê việc SẢN XUẤT của
+tổ đó bằng chính `GET /api/san-xuat/work-items?team_id=&mode=production` (endpoint dùng chung với
+timeline sản xuất bình thường), người kiểm chọn một việc đang chạy/tạm dừng trong danh sách đó.
+Không mở quyền sửa, giao người, ghi sản lượng hay điều khiển công việc đích; không trừ sản lượng,
+không giữ lô, không dừng việc, không tạo yêu cầu kho từ batch đột xuất.
+
+### 13.8. Dashboard và Excel
+
+- `GET /api/san-xuat/kcs/bao-cao` (JSON, quyền `read`) và `GET /api/san-xuat/kcs/bao-cao/export.xlsx`
+  (quyền `export` riêng — xem báo cáo không cần quyền xuất file) DÙNG CHUNG một hàm lọc hàng
+  (`_hang_kcs_theo_scope` trong `services/san_xuat/kcs_bao_cao.py`) — cùng bộ filter luôn trả cùng
+  tổng giữa hai kênh (plan §9 mục 10).
+- Filter: `tu`, `den`, `kcs_department_id`, `lsx_id`, `tu_khoa`, `cong_doan_id`, `loai`,
+  `nhom_loi_id`.
+- KPI: tổng lượt, tổng nhận, tổng đạt, tổng lỗi, tỷ lệ đạt = **tổng đạt / tổng nhận** (không phải
+  trung bình từng đợt); kèm phân bố theo ngày, xếp hạng nhóm lỗi/công đoạn/tổ nhiều lỗi nhất.
+- Excel hai sheet: `Kết quả KCS` (một dòng/kết quả) + `Chi tiết checklist` (một dòng/tiêu chí/kết
+  quả) — freeze header, autofilter, giờ theo Asia/Bangkok, số tối đa ba chữ số thập phân, tên file
+  `bao-cao-kcs-{tu}_{den}.xlsx` (`toanbo` nếu bỏ trống ngày).
+
+### 13.9. Luồng legacy (trước mg `0250`) — vẫn đọc được, không còn lối vào cho phiếu mới
+
+Trước module kiêm nhiệm, KCS chỉ có MỘT luồng: theo bước routing cố định, mỗi lỗi tạo bản ghi
+`trang_thai="pending"` chờ tổ bị yêu cầu trách nhiệm phản hồi Chấp nhận/Từ chối qua
+`phan_hoi_loi` — đây là đúng thiết kế mà bản mục 13 trước khi viết lại tài liệu này mô tả.
+
+- Hồ sơ `pending`/`accepted`/`rejected` cũ VẪN đọc và (nếu còn `pending`) VẪN phản hồi được —
+  `phan_hoi_loi` không bị xoá, chỉ không còn cách nào tạo dòng `pending` MỚI (§13.4).
+- UI mới (`ThucHienKcsPage`/`KcsResultDrawer`) không hiển thị lối Nhận/Từ chối. Hồ sơ cũ chỉ còn xem
+  qua `ThsxKcsPanel` trong drawer màn Thực hiện sản xuất CŨ (`ThsxDrawer.tsx`, dùng lại ở
+  `ThsxG5.tsx`) — không bị ép người dùng mới đi vào luồng này.
+- Màn sản xuất cũ (`ThucHienSxPage`) gọi `work-items?mode=production`, nên việc KCS
+  (`la_kcs=true`) không còn xuất hiện trong timeline/danh sách của màn đó nữa — tách hẳn khỏi trải
+  nghiệm sản xuất thường.
+- `GET /api/san-xuat/work-items/{cong_viec_id}/kcs` (`kcs.chi_tiet_kcs`) là mặt ĐỌC dùng CHUNG cho
+  cả batch cũ lẫn mới của một công việc (nguồn cho cả panel drawer cũ lẫn `ThucHienKcsPage`), không
+  phân biệt theo module UI đang gọi.
 
 ---
 
