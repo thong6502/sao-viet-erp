@@ -423,6 +423,129 @@ def test_thue_ngoai_tre_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, cus
     assert not any(k.startswith("thue_ngoai_thieu") for k in keys)  # đã đủ NCC + ngày
 
 
+# --- Detector: lệch thực tế (J) ----------------------------------------------
+def _dong_va_cong_viec(db, orders, lsx_svc, admin, customer):
+    """Một dòng lịch đã gán máy + giờ, cộng một công việc sản xuất ĐANG PHÁT HÀNH nối vào đúng
+    dòng đó qua `lsx_cong_doan_id` — nền dùng chung cho các test lệch thực tế bên dưới.
+
+    KHÔNG đi qua `xl_svc.gan()` (tính `finish_at` theo giờ làm việc, cần `_luon_lam(monkeypatch)`
+    né ngày nghỉ) — ở đây chỉ cần MỘT dòng đã có máy + mốc giờ để `nap_thuc_te` có cái mà so, nên
+    gán thẳng lên ORM. Mốc neo vào `_gio_xuong()` (giờ xưởng "bây giờ" của chính module này) thay
+    vì ghim ngày cứng, cùng lý do `test_phat_hanh_gate_ngoai_le_revert` đã ghi chú: ghim cứng một
+    ngày thì hôm đó trôi qua là test đỏ vĩnh viễn — ở đây còn tệ hơn, vì "quá giờ dự kiến" đo tới
+    BÂY GIỜ thật (`nap_thuc_te` không truyền `bay_gio`), mốc quá khứ càng xa "bây giờ" càng bơm
+    `tre_ket_thuc_phut` giả lên hàng chục nghìn phút.
+    """
+    from app.models.san_xuat import SanXuatCongViec, SanXuatGoiPhatHanh
+    from app.models.xep_lich import TT_DA_XEP
+    from app.services.xep_lich_service import XepLichService
+
+    xl = XepLichService(db, XepLichRepository(db), AuditLogRepository(db))
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    step = _in_step(db, lsx.id)
+    step.setup_phut, step.nang_suat, step.so_luong_vao, step.chay_phut = 0, 5000, 5000, None
+    db.commit()
+    xl.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
+    dong = XepLichRepository(db).by_lsx(lsx.id)[0]
+    dong.may_id = step.may_id
+    dong.start_at = _gio_xuong()
+    dong.finish_at = dong.start_at + timedelta(hours=1)
+    dong.trang_thai = TT_DA_XEP
+    db.commit()
+
+    goi = SanXuatGoiPhatHanh(ma=f"GOI-VD-{dong.id}")
+    db.add(goi)
+    db.flush()
+    cv = SanXuatCongViec(goi_id=goi.id, lsx_id=lsx.id, lsx_cong_doan_id=dong.lsx_cong_doan_id,
+                        ten_cong_doan=step.ten or "In")
+    db.add(cv)
+    db.commit()
+    return dong, cv
+
+
+def _van_de_svc(db):
+    return XepLichVanDeService(db, AuditLogRepository(db))
+
+
+def test_lech_thuc_te_bat_dau_muon_thi_bao_luu_y(db, orders, lsx_svc, admin, customer):
+    """Tổ vào việc muộn hơn 1 tiếng so với kế hoạch ⇒ có vấn đề `lech_thuc_te`, mức Nên xem.
+
+    KHÔNG BAO GIỜ là mức Chặn: lệnh đã phát hành rồi mới có thực tế — chặn ở đây là chặn muộn.
+    """
+    from datetime import timedelta
+
+    from app.models.san_xuat import CV_DANG_CHAY
+    from app.models.san_xuat_thuc_thi import SanXuatPhienChay
+    from app.services.xep_lich_van_de_service import (
+        CAT_HAN, K_LECH_THUC_TE, SEV_LUU_Y,
+    )
+
+    dong, cv = _dong_va_cong_viec(db, orders, lsx_svc, admin, customer)  # helper của file này
+    cv.trang_thai = CV_DANG_CHAY
+    cv.du_kien_bat_dau = dong.start_at
+    cv.du_kien_ket_thuc = dong.finish_at
+    db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1,
+                            bat_dau=dong.start_at + timedelta(hours=3)))
+    db.commit()
+
+    svc = _van_de_svc(db)  # helper của file này
+    items = svc.liet_ke()["items"]
+    it = next(i for i in items if i["issue_key"] == f"{K_LECH_THUC_TE}:{dong.id}")
+    assert it["severity"] == SEV_LUU_Y
+    assert it["category"] == CAT_HAN
+    assert it["delay_phut"] == 180
+    assert "muộn" in it["nguyen_nhan"]
+    # Dùng CHUNG `_phut_str` với 12 bộ dò kia — một danh sách mà hai bộ dò viết độ trễ hai kiểu
+    # ("3 giờ" vs "3g00") là bắt người đọc học hai bảng chữ cái cho cùng một con số.
+    assert "3 giờ" in it["nguyen_nhan"]
+
+
+def test_lech_thuc_te_viec_da_xong_thi_thoi_bao(db, orders, lsx_svc, admin, customer):
+    """Vào việc muộn nhưng ĐÃ XONG ⇒ rời hàng đèn.
+
+    `XepLichRepository.list_dong()` không lọc việc đã hoàn thành bao giờ, nên không có guard này
+    thì một bước vào việc muộn 3 tiếng hồi tháng trước nằm MÃI trong danh sách vấn đề — hàng đèn
+    chỉ phình ra, đúng cái bệnh mà ngưỡng 60 phút sinh ra để tránh. Cái muộn đó cũng đã nằm trong
+    mốc bắt đầu THẬT của bước sau rồi.
+    """
+    from datetime import timedelta
+
+    from app.models.san_xuat import CV_HOAN_THANH
+    from app.models.san_xuat_thuc_thi import SanXuatPhienChay
+    from app.services.xep_lich_van_de_service import K_LECH_THUC_TE
+
+    dong, cv = _dong_va_cong_viec(db, orders, lsx_svc, admin, customer)
+    cv.trang_thai = CV_HOAN_THANH
+    cv.du_kien_bat_dau = dong.start_at
+    cv.du_kien_ket_thuc = dong.finish_at
+    db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1,
+                            bat_dau=dong.start_at + timedelta(hours=3),
+                            ket_thuc=dong.start_at + timedelta(hours=5)))
+    db.commit()
+
+    keys = {i["issue_key"] for i in _van_de_svc(db).liet_ke()["items"]}
+    assert f"{K_LECH_THUC_TE}:{dong.id}" not in keys
+
+
+def test_lech_thuc_te_dung_gio_thi_im_lang(db, orders, lsx_svc, admin, customer):
+    from datetime import timedelta
+
+    from app.models.san_xuat import CV_DANG_CHAY
+    from app.models.san_xuat_thuc_thi import SanXuatPhienChay
+    from app.services.xep_lich_van_de_service import K_LECH_THUC_TE
+
+    dong, cv = _dong_va_cong_viec(db, orders, lsx_svc, admin, customer)
+    cv.trang_thai = CV_DANG_CHAY
+    cv.du_kien_bat_dau = dong.start_at
+    cv.du_kien_ket_thuc = dong.finish_at
+    db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1,
+                            bat_dau=dong.start_at + timedelta(minutes=15)))
+    db.commit()
+
+    keys = {i["issue_key"] for i in _van_de_svc(db).liet_ke()["items"]}
+    assert f"{K_LECH_THUC_TE}:{dong.id}" not in keys
+
+
 # --- Gate: duyệt ngoại lệ đòi approve_exception (tách khỏi approve) ----------
 def test_ngoai_le_gate_doi_approve_exception(client):
     """Vai chỉ có `approve` (phát hành) mà THIẾU `approve_exception` → duyệt ngoại lệ 403;

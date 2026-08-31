@@ -23,6 +23,7 @@ from ..models.lsx import (
     LB_THUE_NGOAI, TT_DA_LAP_KE_HOACH as LSX_DA_LAP,
     TT_DA_PHAT_HANH as LSX_DA_PHAT_HANH, Lsx,
 )
+from ..models.san_xuat import CV_HOAN_THANH
 from ..models.xep_lich_van_de import (
     TT_DANG_XU_LY, TT_DA_XU_LY, TT_MOI, TT_NGOAI_LE, TT_TAM_HOAN, TT_TIEP_NHAN,
 )
@@ -69,6 +70,11 @@ K_HAN_BAI_GHEP = "han_bai_ghep"
 K_THIEU_VAT_TU = "thieu_vat_tu"              # F: bảng cân đối có dòng đỏ cho lệnh/bài này
 K_THIEU_NGUOI = "thieu_nguoi"                # G: tổ bố trí dưới số người tối thiểu
 K_QUA_TAI_TO = "qua_tai_to"                  # I: Σ người các việc cùng lúc > quân số có mặt của tổ
+K_LECH_THUC_TE = "lech_thuc_te"               # J: tổ chạy lệch mốc kế hoạch (vào muộn / quá giờ)
+
+# Lệch bao nhiêu phút thì mới đáng nói. Dưới ngưỡng là nhiễu: ca sản xuất vốn xê dịch 15–30 phút
+# vì bàn giao ca, vệ sinh máy, chờ pallet. Báo mọi lệch = người điều độ tắt hẳn hàng đèn.
+NGUONG_LECH_THUC_TE_PHUT = 60
 
 # §3.1 ngưỡng tải máy trên CỬA SỔ TRƯỢT (§6 dùng hằng cấu hình thay bảng planning_issue_rules):
 # 85–100% → "sát công suất", >100% → "VƯỢT công suất" — nay phân biệt bằng CHỮ trong tiêu đề
@@ -167,6 +173,7 @@ class XepLichVanDeService:
         issues += self._thieu_nguoi(rows)
         issues += self._qua_tai_to(rows)
         issues += self._thieu_vat_tu(rows)
+        issues += self._lech_thuc_te(rows)
         self._merge_state(issues)
         return issues
 
@@ -371,6 +378,52 @@ class XepLichVanDeService:
                 "impacts": self._impact(rs),
                 "delay_phut": round(delay) if delay else None,
                 "group_key": f"lsx:{lid}",
+            })
+        return out
+
+    def _lech_thuc_te(self, rows: list[dict]) -> list[dict]:
+        """Thực tế ở xưởng lệch mốc đã xếp — CHỈ BÁO, không tự dời lịch.
+
+        Mức luôn Nên xem. Lệnh đã phát hành mới có thực tế, nên chặn ở đây không cứu được gì; việc
+        của điều độ là biết mà kéo lại tay (spec-thuc-te-vs-ke-hoach §2.2).
+        """
+        from .xep_lich_2.thuc_te import nap_thuc_te
+
+        tt = nap_thuc_te(self.db, rows)
+        out: list[dict] = []
+        for r in rows:
+            t = tt.get(r["id"])
+            if not t:
+                continue
+            # Việc đã ĐÓNG thì im hẳn. Cái muộn của nó đã nằm trong mốc bắt đầu THẬT của bước
+            # sau, và điều độ không kéo lại được nữa — nó là lịch sử, không phải việc phải làm.
+            # Không có guard này thì một bước vào việc muộn 3 tiếng hồi tháng trước nằm MÃI trong
+            # hàng đèn: `XepLichRepository.list_dong()` không lọc việc đã xong bao giờ, nên hàng
+            # đèn chỉ có phình ra. Đúng lối lập luận đã dùng cho `tre_kt` ngay dưới đây.
+            if t["trang_thai"] == CV_HOAN_THANH:
+                continue
+            tre_bd = t["tre_bat_dau_phut"] or 0
+            # Quá giờ chỉ tính khi việc CHƯA đóng — việc đã xong muộn là chuyện đã rồi, nó đã
+            # phản ánh vào mốc bắt đầu của bước sau; báo hai lần là nhân đôi cùng một cái trễ.
+            tre_kt = (t["tre_ket_thuc_phut"] or 0) if t["ket_thuc_thuc"] is None else 0
+            if max(tre_bd, tre_kt) < NGUONG_LECH_THUC_TE_PHUT:
+                continue
+            if tre_kt >= tre_bd:
+                txt = f"quá giờ dự kiến {_phut_str(tre_kt)}"
+                ly_do = f"Bước vẫn đang chạy và đã quá mốc kết thúc dự kiến {_phut_str(tre_kt)}."
+            else:
+                txt = f"vào việc muộn {_phut_str(tre_bd)}"
+                ly_do = f"Tổ bắt đầu muộn hơn mốc đã xếp {_phut_str(tre_bd)}."
+            ma = r.get("lsx_ma") or r.get("bai_ghep_ma") or f"#{r['id']}"
+            out.append({
+                "issue_key": f"{K_LECH_THUC_TE}:{r['id']}",
+                "category": CAT_HAN, "severity": SEV_LUU_Y,
+                "title": f"{ma} · {r.get('cong_doan_ten') or 'bước'}: {txt}",
+                "nguyen_nhan": ly_do,
+                "impacts": self._impact([r]),
+                "delay_phut": max(tre_bd, tre_kt),
+                "group_key": (f"lsx:{r['lsx_id']}" if r.get("lsx_id")
+                              else f"bai_ghep:{r.get('bai_ghep_id')}"),
             })
         return out
 

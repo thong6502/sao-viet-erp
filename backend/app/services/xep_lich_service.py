@@ -2143,6 +2143,8 @@ class XepLichService:
             items.append({
                 "id": r.id, "nguon": r.nguon,
                 "lsx_id": r.lsx_id, "bai_ghep_id": r.bai_ghep_id,
+                "lsx_cong_doan_id": r.lsx_cong_doan_id,
+                "bai_ghep_cong_doan_id": r.bai_ghep_cong_doan_id,
                 "lsx_ma": ma, "cong_doan_ten": ten, "loai_buoc": r.loai_buoc,
                 "so_luong_vao": _f(lcd.so_luong_vao) if lcd else None,
                 "don_vi_vao": lcd.don_vi_vao if lcd else None,
