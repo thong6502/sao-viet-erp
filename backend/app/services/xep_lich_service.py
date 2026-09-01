@@ -1366,17 +1366,25 @@ class XepLichService:
             if gang:
                 floor = max(floor, gang)
             pred_finishes: list[datetime] = []
+            # `pred_that` = CHỈ tiền nhiệm ĐÃ CÓ GIỜ THẬT. Tiền nhiệm còn nháp (`finish_at` NULL)
+            # rơi về `earliest_finish`, mà giá trị đó dẫn xuất từ sàn "bây giờ" của
+            # `_san_thoi_gian` — nhét nó vào `som_nhat_tu_truoc` là để cái sàn chui ngược vào và
+            # bộ dò lại kết tội "chạy trước bước trước" cho một bước không hề sai thứ tự.
+            pred_that: list[datetime] = []
             for pid in preds[rid]:
                 pr = row_by_id[pid]
-                pfinish = _aware(pr.finish_at) or info[pid]["earliest_finish"]
+                that = _aware(pr.finish_at)
+                pfinish = that or info[pid]["earliest_finish"]
                 lag = dur[pid]["tong_phut"] - dur[pid]["chiem_may_phut"]
                 pred_finishes.append(pfinish + timedelta(minutes=lag))
+                if that is not None:
+                    pred_that.append(that + timedelta(minutes=lag))
             es = max([floor, *pred_finishes])
             # `som_nhat` gộp HAI thứ khác hẳn nhau: mốc do TIỀN NHIỆM đẩy ra, và cái sàn "không xếp
             # vào quá khứ" của `_san_thoi_gian`. Bên đọc cần phân biệt để nói đúng chuyện — lệnh xếp
             # từ tuần trước chưa ai đụng thì lỗi là "lịch đã trôi qua", không phải "chạy trước bước
             # trước". Giữ riêng phần do tiền nhiệm; None = bước này không có tiền nhiệm nào đẩy.
-            truoc = [*pred_finishes] + ([gang] if gang else [])
+            truoc = [*pred_that] + ([gang] if gang else [])
             chiem = dur[rid]["chiem_may_phut"]
             ef = _cong_gio_lam(es, chiem, self._lich_dong(r)) if chiem > 0 else es
             info[rid] = {"som_nhat": es, "earliest_finish": ef,
