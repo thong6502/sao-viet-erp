@@ -810,9 +810,23 @@ export function Xl2Gantt({
                       // Thanh hẹp thì rụng thời lượng trước — bề rộng thanh vốn đã nói lên thời lượng,
                       // còn không thấy mã lệnh thì cả bàn Gantt thành một dãy ô vô danh.
                       const buocLabel = dong.buoc_thu_tu != null ? `B${dong.buoc_thu_tu + 1}` : "";
+                      // Thanh của công đoạn ĐÃ TÁCH phải tự nói ra nó là lần chạy thứ mấy — không
+                      // thì hai thanh cùng mã cùng bước nằm hai chỗ trông y hệt lỗi trùng lịch.
+                      const phanDoanLabel = dong.phan_doan_tong > 1
+                        ? `${dong.phan_doan_so}/${dong.phan_doan_tong}`
+                        : "";
+                      const phanDoanSuffix = phanDoanLabel ? `·${phanDoanLabel}` : "";
                       const serialNgan = serial.replace(/^(?:LSX|GB)-/, "");
-                      const maBuoc = `${serial}${buocLabel ? `·${buocLabel}` : ""}`;
-                      const maBuocNgan = `${serialNgan}${buocLabel ? `·${buocLabel}` : ""}`;
+                      const maBuoc = `${serial}${buocLabel ? `·${buocLabel}` : ""}${phanDoanSuffix}`;
+                      const maBuocNgan = `${serialNgan}${buocLabel ? `·${buocLabel}` : ""}${phanDoanSuffix}`;
+                      // Phần việc của CHÍNH thanh này — chỉ có nghĩa khi bước đã chia, dòng trọn
+                      // bước để NULL nên không có gì để nói.
+                      const slTitle = dong.so_luong != null
+                        ? ` · lần chạy ${phanDoanLabel}, ${dong.so_luong.toLocaleString("vi-VN")}`
+                        : "";
+                      const slAria = dong.so_luong != null
+                        ? `, lần chạy ${dong.phan_doan_so} trên ${dong.phan_doan_tong}, ${dong.so_luong.toLocaleString("vi-VN")}`
+                        : "";
 
                       return (
                         <button
@@ -820,8 +834,8 @@ export function Xl2Gantt({
                           type="button"
                           className={`xl2-bar${isNcc ? " xl2-bar--ncc" : ""}${mucCls}${sel ? " xl2-bar--sel" : ""}${chain ? " xl2-bar--chain" : ""}${isHoveredChain ? " xl2-bar--chain-hover" : ""}${isDimmed ? " xl2-bar--dimmed" : ""}${dong.is_locked ? " xl2-bar--locked" : ""}${canDrag ? " xl2-bar--draggable" : ""}${!timed ? " xl2-bar--pack" : ""}${quaGio ? " xl2-bar--qua-gio" : ""}`}
                           style={{ left, width, "--lsx-h": hue } as CSSProperties}
-                          title={`${nhan.ma}${nhan.congDoan ? ` · ${nhan.congDoan}` : ""}${nhan.sanPham ? ` · ${nhan.sanPham}` : ""}${dong.start_at ? ` · ${ngayGio(dong.start_at)}` : " · chưa đặt giờ"}${dong.is_locked ? " · đã khóa" : ""}${btTitle}${ttTitle}`}
-                          aria-label={`${nhan.ma}${nhan.congDoan ? `, ${nhan.congDoan}` : ""}${nhan.sanPham ? `, ${nhan.sanPham}` : ""}${dong.start_at ? `, bắt đầu ${ngayGio(dong.start_at)}` : ", chưa đặt giờ"}`}
+                          title={`${nhan.ma}${nhan.congDoan ? ` · ${nhan.congDoan}` : ""}${nhan.sanPham ? ` · ${nhan.sanPham}` : ""}${slTitle}${dong.start_at ? ` · ${ngayGio(dong.start_at)}` : " · chưa đặt giờ"}${dong.is_locked ? " · đã khóa" : ""}${btTitle}${ttTitle}`}
+                          aria-label={`${nhan.ma}${nhan.congDoan ? `, ${nhan.congDoan}` : ""}${nhan.sanPham ? `, ${nhan.sanPham}` : ""}${slAria}${dong.start_at ? `, bắt đầu ${ngayGio(dong.start_at)}` : ", chưa đặt giờ"}`}
                           onPointerDown={canDrag ? (e) => onBarDown(dong, e) : undefined}
                           onClick={() => onBarClick(dong)}
                           onKeyDown={(e) => onBarKey(dong, e)}
@@ -873,6 +887,12 @@ export function Xl2Gantt({
                                   <span className="xl2-bar__code" title={maBuoc}>{serial}</span>
                                   {buocLabel && (
                                     <span className="xl2-bar__step-pill">{buocLabel}</span>
+                                  )}
+                                  {phanDoanLabel && (
+                                    <span className="xl2-bar__run-pill"
+                                      title={`Lần chạy ${phanDoanLabel}${dong.so_luong != null ? ` · ${dong.so_luong.toLocaleString("vi-VN")}` : ""}`}>
+                                      {phanDoanLabel}
+                                    </span>
                                   )}
                                   {durRange && width >= 150 ? (
                                     <span className="xl2-bar__dur xl2-bar__dur--range">{durRange}</span>

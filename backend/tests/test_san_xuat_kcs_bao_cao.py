@@ -30,6 +30,7 @@ from app.models.lsx import Lsx
 from app.models.role import SCOPE_ALL, SCOPE_OWN
 from app.models.san_xuat_kcs import KCS_LOAI_DOT_XUAT, KCS_LOAI_ROUTING, SanXuatKcsBatch
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
+from app.models.user import User
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
 from app.services.san_xuat import kcs, kcs_bao_cao
@@ -157,10 +158,24 @@ def test_batch_routing_loc_theo_kcs_department_id_dung_to_dang_chay(db, orders, 
     assert out_y["tong_luot"] == 0                     # tổ khác — KHÔNG thấy
 
 
+def _tra_to_truong(db, to) -> None:
+    """Trả tổ về cho một tổ trưởng KHÁC admin.
+
+    `_to_khoan` (helper dùng chung) gán `head_user_id=admin.id` cho MỌI tổ nó dựng, mà scope `own`
+    còn cho tổ trưởng thấy tổ mình đứng đầu ngoài phòng mình ("kiêm nhiệm" — `board._to_thay_duoc`).
+    Để nguyên thì tổ Y cũng thuộc phạm vi của user_x và phép thử scope không thử được gì."""
+    u = User(username=f"tt_{to.code.lower()}", name="Tổ Trưởng Khác", password_hash="x")
+    db.add(u)
+    db.flush()
+    to.head_user_id = u.id
+    db.commit()
+
+
 # --- §4.1: scope `own` chỉ thấy báo cáo tổ mình -------------------------------------------------
 def test_scope_own_chi_thay_bao_cao_to_minh(db, orders, lsx_svc, admin, customer):
     to_x, _cv_x, _res_x = _batch(db, orders, lsx_svc, admin, customer, ma="KCS-SC-X")
-    _to_y, _cv_y, _res_y = _batch(db, orders, lsx_svc, admin, customer, ma="KCS-SC-Y")
+    to_y, _cv_y, _res_y = _batch(db, orders, lsx_svc, admin, customer, ma="KCS-SC-Y")
+    _tra_to_truong(db, to_y)
 
     user_x = SimpleNamespace(id=admin.id, department_id=to_x.id)
     out = kcs_bao_cao.bao_cao_kcs(db, user_x, _FakeAuthz(SCOPE_OWN))
@@ -247,7 +262,8 @@ def test_export_yeu_cau_quyen_export_rieng_voi_read(client):
 # --- §9 mục 10: Excel áp đúng scope như dashboard (cùng filter → cùng tổng) ---------------------
 def test_export_ap_dung_scope_giong_dashboard(db, orders, lsx_svc, admin, customer):
     to_x, _cv_x, _res_x = _batch(db, orders, lsx_svc, admin, customer, ma="KCS-SC8-X")
-    _to_y, _cv_y, _res_y = _batch(db, orders, lsx_svc, admin, customer, ma="KCS-SC8-Y")
+    to_y, _cv_y, _res_y = _batch(db, orders, lsx_svc, admin, customer, ma="KCS-SC8-Y")
+    _tra_to_truong(db, to_y)
 
     user_x = SimpleNamespace(id=admin.id, department_id=to_x.id)
     authz_own = _FakeAuthz(SCOPE_OWN)

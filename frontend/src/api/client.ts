@@ -1132,6 +1132,14 @@ export interface Xl2Dong {
   cong_doan_ten: string | null;
   /** Thứ tự bước trong chuỗi routing (snapshot `source_thu_tu`). */
   buoc_thu_tu: number;
+  /** Phần việc của CHÍNH thanh này khi công đoạn bị tách. null = chưa tách (trọn bước) — KHÁC 0. */
+  so_luong: number | null;
+  /** Lần chạy thứ mấy / mấy lần. Chưa tách = 1/1. */
+  phan_doan_so: number;
+  phan_doan_tong: number;
+  /** SL VÀO của CẢ bước — tổng đem đi chia khi bấm Tách. Dòng chưa tách có `so_luong` null nên đây
+   *  mới là con số dùng được; 0 = bước chưa khai số lượng ⇒ chưa tách được. */
+  so_luong_buoc: number | null;
   /** Bóc tách thời lượng cho "râu" trên thanh — null nếu dòng chưa đặt giờ (§8, B5). */
   boc_tach: Xl2BocTach | null;
   /** Mức NẶNG NHẤT của thanh tại chỗ đang đặt (`chan_dat_lich` | `canh_bao` | null) — dùng chung
@@ -1367,6 +1375,9 @@ export interface Xl2CapNhatOut {
   so_giu_nguyen: number;
   so_huy_phan_cong: number;
   so_huy_ho_tro: number;
+  /** Số việc KHÔNG cập nhật được vì bước đã tách thêm / gộp lại sau phát hành: không còn lần chạy
+   *  tương ứng để lấy giờ + máy. Chúng giữ nguyên snapshot cũ — muốn khớp lại phải thu hồi gói. */
+  so_lech_phan_doan: number;
 }
 
 /** Detail của 409 CHẶN ĐẶT LỊCH (router `_map`: `XepLich2Blocked`). Phân biệt với 409 khoá-lạc-quan
@@ -10273,6 +10284,20 @@ export const api = {
     luu(token: string, dongId: number, body: Xl2LuuBody): Promise<Xl2Dong> {
       return authed<Xl2Dong>(`/api/xep-lich-2/dong/${dongId}`, token, {
         method: "PUT", body: JSON.stringify(body),
+      });
+    },
+    /** Tách một công đoạn thành nhiều LẦN CHẠY: gửi ĐÚNG các con số muốn chia (không gửi "số phần").
+     *  Mọi luật — ít nhất 2 phần · mỗi phần dương · tổng khớp SL bước — do BE phán, 400 kèm câu
+     *  tiếng Việt đọc được. Trả CẢ CỤM vì tách đẻ thêm thanh ở khay "chưa đặt giờ". */
+    tach(token: string, dongId: number, cacPhan: number[]): Promise<{ dong: Xl2Dong[] }> {
+      return authed<{ dong: Xl2Dong[] }>(`/api/xep-lich-2/dong/${dongId}/tach`, token, {
+        method: "POST", body: JSON.stringify({ cac_phan: cacPhan }),
+      });
+    },
+    /** Gộp cả cụm lần chạy về MỘT dòng (giữ id gốc). Nhận id của phân đoạn bất kỳ trong cụm. */
+    gop(token: string, dongId: number): Promise<{ dong: Xl2Dong }> {
+      return authed<{ dong: Xl2Dong }>(`/api/xep-lich-2/dong/${dongId}/gop`, token, {
+        method: "POST",
       });
     },
     /** Danh sách vấn đề CHẶN PHÁT HÀNH (rỗng ⇒ phát hành được). */

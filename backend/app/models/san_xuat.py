@@ -211,6 +211,16 @@ class SanXuatCongViec(Base):
     lsx_cong_doan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bai_ghep_cong_doan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     step_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # LẦN CHẠY của bước (mg `0254`). Một bước tách N lần chạy ở Xếp lịch 2 ⇒ N công việc CÙNG
+    # `step_key`; cặp số này là thứ DUY NHẤT phân biệt chúng. Bước chưa tách = 1/1.
+    # Không có nó thì "Phát hành cập nhật" phải đoán: nó lấy dòng lịch đầu tiên rồi dập giờ/máy
+    # của lần 1 lên cả N công việc — lần 2 trở đi mang giờ của lần 1, tổ ra máy sai ca.
+    phan_doan_so: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1", default=1
+    )
+    phan_doan_tong: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1", default=1
+    )
     ten_cong_doan: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     nhom_cong_doan: Mapped[str | None] = mapped_column(String(24), nullable=True)
     loai_buoc: Mapped[str] = mapped_column(String(16), nullable=False, default=BUOC_MAY)

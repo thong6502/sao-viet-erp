@@ -36,6 +36,7 @@ from ...models.san_xuat_kcs import (
 from ...models.user import User
 from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from ...services.rbac_service import AuthorizationService
+from ..gio_xuong import lich_hien_thi
 from .board import _to_thay_duoc
 from .thuc_thi import _aware
 
@@ -149,7 +150,7 @@ def _checklist_rows_cho_batch(kcs: SanXuatKcsBatch, cv: SanXuatCongViec) -> list
         tc = tieu_chi.get(kq.get("thu_tu")) or {}
         out.append({
             "kcs_batch_id": kcs.id,
-            "thoi_diem": kcs.bat_dau,
+            "thoi_diem": lich_hien_thi(kcs.bat_dau),
             "ma": tc.get("ma"),
             "ten": tc.get("ten"),
             "bat_buoc": tc.get("bat_buoc"),

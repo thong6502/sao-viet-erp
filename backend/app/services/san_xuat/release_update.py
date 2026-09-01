@@ -64,13 +64,36 @@ def _da_bat_dau_ids(
     return da
 
 
-def _thoi_gian_nguon(repo: SanXuatRepository, cv: SanXuatCongViec):
-    """(may_id, start, finish) hiện tại từ lịch của công đoạn nguồn của công việc."""
+def _lich_nguon(repo: SanXuatRepository, cv: SanXuatCongViec) -> list[tuple]:
+    """MỌI phân đoạn đang xếp của công đoạn nguồn, theo `phan_doan_so`.
+
+    Mỗi phần tử `(may_id, start, finish, phan_doan_so, so_luong)` — xem `repo.lich_lsx_step`."""
     if cv.bai_ghep_cong_doan_id is not None:
-        return repo.thoi_gian_bg_step(cv.bai_ghep_cong_doan_id)
+        return repo.lich_bg_step(cv.bai_ghep_cong_doan_id)
     if cv.lsx_cong_doan_id is not None:
-        return repo.thoi_gian_lsx_step(cv.lsx_cong_doan_id)
-    return (None, None, None)
+        return repo.lich_lsx_step(cv.lsx_cong_doan_id)
+    return []
+
+
+def _thoi_gian_nguon(repo: SanXuatRepository, cv: SanXuatCongViec):
+    """(may_id, start, finish) của ĐÚNG lần chạy mà công việc này đại diện — hoặc `None` khi lịch
+    không còn phân đoạn đó.
+
+    Một bước tách N lần chạy đẻ N công việc cùng `step_key` (mg `0254`); khớp bằng `phan_doan_so`.
+    Bản trước gọi `thoi_gian_*_step` — hàm đó trả DÒNG ĐẦU TIÊN — nên phát hành cập nhật dập giờ
+    và máy của lần 1 lên cả N việc: lần 2 mất ca của mình mà không ai báo.
+
+    Trả `None` (thay vì đoán một dòng khác) khi số lần chạy đã đổi sau phát hành — tách thêm hoặc
+    gộp lại. Việc đó giữ nguyên snapshot cũ và được ĐẾM RIÊNG để nói ra, vì lúc ấy tập công việc
+    không còn ánh xạ 1-1 với lịch: muốn khớp lại phải thu hồi gói rồi phát hành lần đầu.
+    """
+    lich = _lich_nguon(repo, cv)
+    if not lich:
+        return (None, None, None)
+    for may_id, start, finish, phan_doan_so, _sl in lich:
+        if phan_doan_so == cv.phan_doan_so:
+            return (may_id, start, finish)
+    return None
 
 
 def _huy_phan_cong_ho_tro(
@@ -163,8 +186,13 @@ def phat_hanh_cap_nhat(db: Session, *, nguon: str, id: int, ly_do: str, actor) -
     goi.version += 1
 
     so_huy_pc = so_huy_ht = 0
+    so_lech_phan_doan = 0
     for cv in chua:
-        may_id, start, finish = _thoi_gian_nguon(repo, cv)
+        moc = _thoi_gian_nguon(repo, cv)
+        if moc is None:                 # lịch đã tách thêm/gộp lại — không còn lần chạy này
+            so_lech_phan_doan += 1
+            continue
+        may_id, start, finish = moc
         if may_id is not None:          # giữ máy cũ nếu lịch mới chưa gán (bước tổ/thuê ngoài)
             cv.may_id = may_id
         cv.du_kien_bat_dau = start
@@ -173,24 +201,30 @@ def phat_hanh_cap_nhat(db: Session, *, nguon: str, id: int, ly_do: str, actor) -
         n_pc, n_ht = _huy_phan_cong_ho_tro(db, thuc, cv, actor_uid)
         so_huy_pc += n_pc
         so_huy_ht += n_ht
+    so_cap_nhat = len(chua) - so_lech_phan_doan
 
     AuditLogRepository(db).create(
         actor_user_id=actor_uid,
         action="san_xuat.phat_hanh_cap_nhat",
         target=f"san_xuat_goi:{goi.id}",
-        detail=(f"Cập nhật lịch → phiên bản {new_ver}: tái chụp {len(chua)} việc chưa bắt đầu, "
+        detail=(f"Cập nhật lịch → phiên bản {new_ver}: tái chụp {so_cap_nhat} việc chưa bắt đầu, "
                 f"giữ nguyên {len(da_bat_dau)} việc đã bắt đầu; huỷ {so_huy_pc} phân công + "
-                f"{so_huy_ht} hỗ trợ. Lý do: {ly_do[:200]}"),
+                f"{so_huy_ht} hỗ trợ"
+                + (f"; {so_lech_phan_doan} việc lệch lần chạy (lịch đã tách/gộp lại) giữ nguyên"
+                   if so_lech_phan_doan else "")
+                + f". Lý do: {ly_do[:200]}"),
     )
     repo.commit()
     return {
         "goi_id": goi.id,
         "ma": goi.ma,
         "version_hien_tai": new_ver,
-        "so_cong_viec_cap_nhat": len(chua),
+        "so_cong_viec_cap_nhat": so_cap_nhat,
         "so_giu_nguyen": len(da_bat_dau),
         "so_huy_phan_cong": so_huy_pc,
         "so_huy_ho_tro": so_huy_ht,
+        # >0 ⇒ số lần chạy đã đổi sau phát hành; những việc đó KHÔNG được cập nhật, UI phải nói ra.
+        "so_lech_phan_doan": so_lech_phan_doan,
     }
 
 

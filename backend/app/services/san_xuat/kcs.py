@@ -43,6 +43,7 @@ from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_kcs_repo import SanXuatKcsRepository
 from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
 from ...services.rbac_service import AuthorizationService
+from ..gio_xuong import lich_hien_thi, thuc_te_hien_thi
 from .board import _to_thay_duoc
 from .thuc_thi import _aware, _gate, _moc
 
@@ -671,7 +672,7 @@ def _loi_ra(loi: SanXuatKcsLoi, anh: list[SanXuatKcsLoiAnh], ten_loi: str | None
         "don_vi": loi.don_vi,
         "trang_thai": loi.trang_thai,
         "ly_do_tu_choi": loi.ly_do_tu_choi,
-        "phan_hoi_luc": loi.phan_hoi_luc,
+        "phan_hoi_luc": thuc_te_hien_thi(loi.phan_hoi_luc),
         "version": loi.version,
         "anh": [_anh_ra(a) for a in anh],
     }
@@ -730,8 +731,9 @@ def chi_tiet_kcs(
             "id": b.id,
             "batch_id": b.batch_id,
             "nhom_id": b.nhom_id,
-            "bat_dau": b.bat_dau,
-            "ket_thuc": b.ket_thuc,
+            # Người kiểm GÕ hai mốc này (`KcsBatchIn`) → thang LỊCH như batch sản lượng.
+            "bat_dau": lich_hien_thi(b.bat_dau),
+            "ket_thuc": lich_hien_thi(b.ket_thuc),
             "so_luong_nhan": float(b.so_luong_nhan or 0),
             "co_mau": float(b.co_mau) if b.co_mau is not None else None,
             "so_luong_dat": float(b.so_luong_dat or 0),

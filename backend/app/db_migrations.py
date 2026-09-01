@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -11141,3 +11142,97 @@ def _migrate_kcs_kiem_nhiem_bo_cot_la_kcs(db: Session) -> None:
 
 
 MIGRATIONS.append(("0252_kcs_kiem_nhiem_bo_cot_la_kcs", _migrate_kcs_kiem_nhiem_bo_cot_la_kcs))
+
+
+def _migrate_xep_lich_phan_doan(db: Session) -> None:
+    """`xep_lich_cong_doan`: 4 cột cho phép TÁCH một công đoạn thành nhiều lần chạy.
+
+    Bảng này vốn không có chiều số lượng — một công đoạn = một thanh = một khoảng giờ = một máy,
+    nên không cách nào diễn đạt "in 10.000 tờ: 6.000 máy A hôm nay, 4.000 máy B ngày mai"
+    (spec-thuc-te-vs-ke-hoach §1.3).
+
+    Hàng CŨ giữ `so_luong = NULL` (nghĩa: trọn bước) và `1/1`. KHÔNG backfill `so_luong` bằng số
+    thật của bước: số đó tính lúc đọc từ routing + quy cách, viết cứng vào đây là đẻ nguồn số thứ
+    hai, và hai nguồn thì sớm muộn lệch.
+
+    Không dùng ORM ở đây — full-select sẽ kéo cả cột do migration SAU thêm và vỡ trên DB trung gian.
+    """
+    insp = inspect(db.get_bind())
+    if "xep_lich_cong_doan" not in set(insp.get_table_names()):
+        return
+    co = _existing_columns(insp, "xep_lich_cong_doan")
+    if "so_luong" not in co:
+        db.execute(text(
+            "ALTER TABLE xep_lich_cong_doan ADD COLUMN so_luong NUMERIC(18,3)"))
+    if "phan_doan_so" not in co:
+        db.execute(text(
+            "ALTER TABLE xep_lich_cong_doan ADD COLUMN phan_doan_so INTEGER NOT NULL DEFAULT 1"))
+    if "phan_doan_tong" not in co:
+        db.execute(text(
+            "ALTER TABLE xep_lich_cong_doan ADD COLUMN phan_doan_tong INTEGER NOT NULL DEFAULT 1"))
+    if "goc_dong_id" not in co:
+        db.execute(text(
+            "ALTER TABLE xep_lich_cong_doan ADD COLUMN goc_dong_id INTEGER"))
+    # Index đứng NGOÀI guard theo cột: lần chạy trước hỏng giữa chừng (cột đã thêm, index chưa
+    # kịp) thì DB đó vĩnh viễn không bao giờ được tạo index — mỗi lần tra cụm phân đoạn là một
+    # lượt quét cả bảng lịch. `IF NOT EXISTS` lo phần chạy lại.
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_xep_lich_cong_doan_goc_dong_id "
+        "ON xep_lich_cong_doan (goc_dong_id)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0253_xep_lich_phan_doan", _migrate_xep_lich_phan_doan))
+
+
+# Hậu tố tên công việc do `san_xuat/snapshot._ten_phan_doan` gắn: "In offset (lần 2/2)". Đây là
+# nơi DUY NHẤT còn giữ số phân đoạn của hàng phát hành trước mg `0254`.
+_RE_LAN_CHAY = re.compile(r"\(lần (\d+)/(\d+)\)$")
+
+
+def _migrate_cong_viec_phan_doan(db: Session) -> None:
+    """`san_xuat_cong_viec`: `phan_doan_so` / `phan_doan_tong` — công việc thuộc LẦN CHẠY nào.
+
+    Từ mg `0253` một bước tách được N lần chạy, và phát hành đẻ N công việc CÙNG `step_key`. Không
+    có cặp số này thì "Phát hành cập nhật" (`san_xuat/release_update.py`) không phân biệt nổi
+    chúng: nó đọc dòng lịch đầu tiên rồi dập giờ + máy của lần 1 lên cả N việc — lần 2 trở đi ra
+    máy sai ca mà bàn tổ không báo gì.
+
+    Hàng CŨ phát hành TRƯỚC `0253` là bước trọn vẹn ⇒ mặc định `1/1` đã đúng. Nhưng hàng phát
+    hành trong khoảng GIỮA `0253` và `0254` thì đã tách lần chạy mà chưa có cột để ghi: cả N việc
+    cùng đeo `1/1`, và cập nhật lịch lại dập giờ lần 1 lên hết. Số phân đoạn của chúng còn nằm
+    trong tên ("In offset (lần 2/2)") nên backfill đọc lại từ đó.
+
+    Không dùng ORM: full-select kéo cả cột do migration SAU thêm, vỡ trên DB trung gian. Ở đây
+    raw SQL chỉ chạm đúng 3 cột, và lọc sẵn theo LIKE nên không quét cả bảng.
+    """
+    insp = inspect(db.get_bind())
+    if "san_xuat_cong_viec" not in set(insp.get_table_names()):
+        return
+    co = _existing_columns(insp, "san_xuat_cong_viec")
+    if "phan_doan_so" not in co:
+        db.execute(text(
+            "ALTER TABLE san_xuat_cong_viec ADD COLUMN phan_doan_so INTEGER NOT NULL DEFAULT 1"))
+    if "phan_doan_tong" not in co:
+        db.execute(text(
+            "ALTER TABLE san_xuat_cong_viec ADD COLUMN phan_doan_tong INTEGER NOT NULL DEFAULT 1"))
+    db.commit()
+
+    rows = db.execute(text(
+        "SELECT id, ten_cong_doan FROM san_xuat_cong_viec"
+        " WHERE ten_cong_doan LIKE '%(lần %/%)'"
+    )).all()
+    for cv_id, ten in rows:
+        m = _RE_LAN_CHAY.search(ten or "")
+        if not m:
+            continue
+        db.execute(
+            text("UPDATE san_xuat_cong_viec SET phan_doan_so = :so, phan_doan_tong = :tong"
+                 " WHERE id = :id"),
+            {"so": int(m.group(1)), "tong": int(m.group(2)), "id": cv_id},
+        )
+    if rows:
+        db.commit()
+
+
+MIGRATIONS.append(("0254_cong_viec_phan_doan", _migrate_cong_viec_phan_doan))

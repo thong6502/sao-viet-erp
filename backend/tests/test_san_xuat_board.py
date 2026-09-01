@@ -193,6 +193,100 @@ def test_work_items_lop_thuc_te_theo_phien_chay(db, orders, lsx_svc, admin, cust
     assert tt[1]["ket_thuc"] is None          # phiên 2 còn mở → kéo tới "bây giờ"
 
 
+def test_work_items_ten_may_lay_tu_danh_muc_dang_chay(db, orders, lsx_svc, admin, customer):
+    """Cột "Máy" của bàn tổ phải ra TÊN, không rỗng.
+
+    `san_xuat_cong_viec.may_id` là soft-key sang `may_thiet_bi` (mg `0237`), nhưng `may_nhan` từng
+    tra trong `machines` — danh mục đời tính giá, id lệch hẳn — nên join không bao giờ trúng và ô
+    máy trống trơn với MỌI công việc có máy."""
+    from app.models.may_thiet_bi import MayThietBi
+
+    to = _to_moi(db)
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
+    may = MayThietBi(ma="MAY-BOARD-1", ten="Máy in offset 4 màu", loai_may="in")
+    db.add(may)
+    db.flush()
+    cvid = db.query(SanXuatCongViec.id).filter_by(department_id=to.id).order_by(
+        SanXuatCongViec.id
+    ).first()[0]
+    db.query(SanXuatCongViec).filter_by(id=cvid).update({"may_id": may.id})
+    db.commit()
+
+    res = board.work_items(db, admin, _authz(db), team_id=to.id)
+    item = next(w for w in res["cong_viec"] if w["id"] == cvid)
+    assert item["may"] == "Máy in offset 4 màu"
+
+
+def test_item_dict_gio_khong_lech_khi_db_tra_aware():
+    """Bản vá giờ phải đo được TRÊN POSTGRES, nơi lỗi thật xảy ra.
+
+    SQLite trả datetime naive dù cột khai `timezone=True`, nên một test đi qua `work_items` ở đây
+    không bao giờ thấy `+00:00` — đúng lý do bug sống sót lâu. Gọi thẳng `_item_dict` với giá trị
+    AWARE (khuôn Postgres trả về) mới bắt được: mốc kế hoạch phải rụng nhãn UTC nguyên con số, mốc
+    phiên chạy (UTC THẬT) phải được kéo về giờ xưởng trước khi rụng nhãn."""
+    from datetime import timedelta
+
+    from app.services.san_xuat.board import _item_dict
+
+    ke_hoach = datetime(2026, 8, 20, 18, 34, tzinfo=timezone.utc)
+    moc_that = datetime(2026, 8, 20, 11, 34, tzinfo=timezone.utc)
+    cv = SimpleNamespace(
+        id=7, goi_id=1, phien_ban_so=1, nhom_id=None, lsx_id=None, bai_ghep_id=None,
+        ten_cong_doan="In offset (lần 1/2)", nhom_cong_doan="print", loai_buoc="may",
+        la_kcs=False, la_kcs_cuoi=False, may_id=None,
+        du_kien_bat_dau=ke_hoach, du_kien_ket_thuc=ke_hoach + timedelta(hours=1),
+        dinh_muc_json=None, so_luong_vao=400, so_luong_ra=316, don_vi_vao="tờ", don_vi_ra="tờ",
+        trang_thai="released", vat_tu_json=None,
+    )
+    phien = SimpleNamespace(bat_dau=moc_that, ket_thuc=None)
+
+    item = _item_dict(cv, {}, {}, {}, {}, phien_map={7: [phien]})
+
+    assert item["du_kien_bat_dau"] == ke_hoach.replace(tzinfo=None), "giữ nguyên giờ người xếp thấy"
+    # Mốc thực tế quy về đồng hồ xưởng rồi mới rụng nhãn — viết theo múi MÁY CHỦ, không cứng +7h.
+    assert item["thuc_te"][0]["bat_dau"] == moc_that.astimezone().replace(tzinfo=None)
+    assert item["thuc_te"][0]["ket_thuc"] is None
+
+
+def test_work_items_moi_moc_gio_cung_mot_thang(db, orders, lsx_svc, admin, customer):
+    """Mốc KẾ HOẠCH và mốc THỰC TẾ phải ra cùng thang wall-clock giờ xưởng, và KHÔNG mang tzinfo.
+
+    Hai lớp này chồng lên nhau trên cùng một thanh Gantt (`ThsxTimeline`), mà FE đo bằng
+    `gantt-time.wallMinutes` — hàm đọc thành phần ISO, không dịch múi. Trả kèm `+00:00` là màn
+    danh sách (`ngayGio` dùng `new Date`) cộng thêm offset máy: bàn Xếp lịch hiện 18:34 thì bàn tổ
+    hiện 01:34 hôm sau. Trả UTC THẬT cho `thuc_te` thì thanh thực-tế lùi đúng một offset."""
+    from datetime import timedelta
+
+    from app.models.san_xuat_thuc_thi import SanXuatPhienChay
+    from app.services.gio_xuong import gio_xuong
+
+    to = _to_moi(db)
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
+    cvid = db.query(SanXuatCongViec.id).filter_by(department_id=to.id).order_by(
+        SanXuatCongViec.id
+    ).first()[0]
+    ke_hoach = datetime(2026, 8, 20, 18, 34, tzinfo=timezone.utc)   # giờ TƯỜNG dán nhãn UTC
+    db.query(SanXuatCongViec).filter_by(id=cvid).update({
+        "du_kien_bat_dau": ke_hoach, "du_kien_ket_thuc": ke_hoach + timedelta(hours=1),
+    })
+    # Phiên chạy ghi bằng UTC THẬT (`thuc_thi._moc`) — mốc "bây giờ" của hai thang lệch nhau đúng
+    # offset máy chủ, nên dựng bằng chính cặp hàm đó thay vì viết cứng +7h.
+    db.add(SanXuatPhienChay(cong_viec_id=cvid, so_thu_tu=1,
+                            bat_dau=datetime.now(timezone.utc), ket_thuc=None))
+    db.commit()
+
+    item = next(
+        w for w in board.work_items(db, admin, _authz(db), team_id=to.id)["cong_viec"]
+        if w["id"] == cvid
+    )
+    assert item["du_kien_bat_dau"].tzinfo is None
+    assert item["du_kien_bat_dau"] == ke_hoach.replace(tzinfo=None)   # đúng con số người xếp thấy
+    thuc = item["thuc_te"][0]["bat_dau"]
+    assert thuc.tzinfo is None
+    # Cùng thang với `du_kien_*`: lệch dưới một phút so với đồng hồ xưởng, không lệch cả offset.
+    assert abs((thuc - gio_xuong().replace(tzinfo=None)).total_seconds()) < 60
+
+
 # --- Phạm vi quyền: all / department / own --------------------------------------------------
 def test_scope_department_thay_cay_con(db, orders, lsx_svc, admin, customer):
     to = _to_moi(db)

@@ -4206,7 +4206,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 
 ### `xep_lich_cong_doan`
 
-**Purpose:** 1 dòng kế hoạch xếp lịch cho 1 công đoạn (operation của lệnh) HOẶC 1 lần in chung của bài ghép. Chỉ lưu QUYẾT ĐỊNH của người (máy/tổ/NCC · ca · giờ · trạng thái · khóa); số dẫn xuất tính lúc đọc. Bảng mới → `create_all` tự tạo (không migration).
+**Purpose:** 1 dòng kế hoạch xếp lịch cho 1 công đoạn (operation của lệnh) HOẶC 1 lần in chung của bài ghép. Chỉ lưu QUYẾT ĐỊNH của người (máy/tổ/NCC · ca · giờ · trạng thái · khóa); số dẫn xuất tính lúc đọc. Bảng mới → `create_all` tự tạo; từ `0253` có thêm cột phân đoạn nên **có** migration.
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 | --- | --- | --- | --- | --- | --- |
@@ -4218,6 +4218,10 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `bai_ghep_cong_doan_id` | `Integer` | IX | yes | — | Soft → `bai_ghep_cong_doan.id` — dòng này là bước CHẠY CHUNG nào. Bài gộp nhiều công đoạn (CTP·in·cán·bế) nên MỖI bước chung là MỘT dòng; thiếu neo này thì gộp 3 bước mà chỉ đẻ 1 dòng, 2 bước kia bốc hơi khỏi board. NULL = dòng cũ trước migration `0151` (chạy nhánh thời lượng theo máy của bài). |
 | `source_thu_tu` | `Integer` | — | no | `0` | Snapshot `lsx_cong_doan.thu_tu` — sắp chuỗi + suy bước trước/sau. |
 | `loai_buoc` | `String(12)` | — | no | `may` | Snapshot loại bước (`may`/`to`/`thue_ngoai`). |
+| `so_luong` | `Numeric(18,3)` → `NUMERIC` | — | yes | — | Phần việc của CHÍNH dòng này (đơn vị vào của bước) khi công đoạn bị TÁCH thành nhiều lần chạy. NULL = chưa tách, dòng mang trọn số lượng bước — KHÁC hẳn 0. Thêm qua migration `0253`. |
+| `phan_doan_so` | `Integer` | — | no | `1` | Thứ tự phân đoạn 1..N. Dòng chưa tách = 1. Thêm qua migration `0253`. |
+| `phan_doan_tong` | `Integer` | — | no | `1` | Tổng số phân đoạn của công đoạn. Dòng chưa tách = 1. Thêm qua migration `0253`. |
+| `goc_dong_id` | `Integer` | IX | yes | — | Dòng gốc đã tách ra dòng này. Phân đoạn ĐẦU giữ id gốc + NULL ở đây; các phân đoạn sau trỏ về nó. Thêm qua migration `0253`. |
 | `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` — máy được gán. |
 | `department_id` | `Integer` | IX | yes | — | Soft → `departments.id` — tổ (bước `to`/`kcs`). |
 | `nha_cung_cap` | `String(150)` | — | yes | — | NCC khi thuê ngoài — text tự do (như `lsx_cong_doan.nha_cung_cap`). |
@@ -4236,13 +4240,13 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 
 **Keys & indexes**
 
-- Primary key: `id`. Foreign keys: `lsx_id` FK→`lsx.id` (on delete CASCADE), `bai_ghep_id` FK→`bai_ghep.id` (on delete CASCADE). Indexes: `lsx_id`, `lsx_cong_doan_id`, `bai_ghep_id`, `may_id`, `department_id`, `work_shift_id`, tổ hợp `ix_xep_lich_may_thoigian` (`may_id`, `start_at`).
+- Primary key: `id`. Foreign keys: `lsx_id` FK→`lsx.id` (on delete CASCADE), `bai_ghep_id` FK→`bai_ghep.id` (on delete CASCADE). Indexes: `lsx_id`, `lsx_cong_doan_id`, `bai_ghep_id`, `may_id`, `department_id`, `work_shift_id`, `goc_dong_id` (`ix_xep_lich_cong_doan_goc_dong_id`, mg `0253` — tra CẢ CỤM phân đoạn của một bước), tổ hợp `ix_xep_lich_may_thoigian` (`may_id`, `start_at`).
 
 **Relationships**
 
 - Neo `lsx_cong_doan_id` là SOFT (không FK) — an toàn vì routing bị khóa khi lệnh `da_lap_ke_hoach`. Cấu trúc (`lsx_id`/`bai_ghep_id`) là FK THẬT + CASCADE (lớp chặn cuối DB); vòng đời "gỡ kế hoạch" xóa dòng TRƯỚC khi mở lại routing nên không mồ côi.
 
-**Tất cả cột:** `id`, `nguon`, `lsx_id`, `lsx_cong_doan_id`, `bai_ghep_id`, `bai_ghep_cong_doan_id`, `source_thu_tu`, `loai_buoc`, `may_id`, `department_id`, `nha_cung_cap`, `work_shift_id`, `start_at`, `finish_at`, `trang_thai`, `is_locked`, `blocked_reason`, `ghi_chu`, `created_by`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `nguon`, `lsx_id`, `lsx_cong_doan_id`, `bai_ghep_id`, `bai_ghep_cong_doan_id`, `source_thu_tu`, `loai_buoc`, `so_luong`, `phan_doan_so`, `phan_doan_tong`, `goc_dong_id`, `may_id`, `department_id`, `nha_cung_cap`, `work_shift_id`, `start_at`, `finish_at`, `trang_thai`, `is_locked`, `blocked_reason`, `ghi_chu`, `created_by`, `created_at`, `updated_at`.
 
 ---
 
@@ -4395,7 +4399,9 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `lsx_cong_doan_id` | `Integer` | — | yes | — | Neo LỎNG công đoạn LSX nguồn (không FK). |
 | `bai_ghep_cong_doan_id` | `Integer` | — | yes | — | Neo LỎNG công đoạn Bài ghép (không FK). |
 | `step_key` | `String(80)` | — | yes | — | Khoá công đoạn ổn định (từ `lsx_cong_doan.step_key`). |
-| `ten_cong_doan` | `String(255)` | — | no | `""` | Tên công đoạn snapshot. |
+| `phan_doan_so` | `Integer` | — | no | `1` | LẦN CHẠY thứ mấy của bước (mg `0254`). Một bước tách N lần chạy ở Xếp lịch 2 (`xep_lich_cong_doan.phan_doan_so`) đẻ N công việc CÙNG `step_key`; cặp `phan_doan_so`/`phan_doan_tong` là thứ duy nhất phân biệt chúng. `Phát hành cập nhật` khớp công việc ↔ dòng lịch bằng số này; thiếu nó thì nó lấy dòng lịch đầu và dập giờ/máy của lần 1 lên cả N việc. Bước chưa tách = `1`. |
+| `phan_doan_tong` | `Integer` | — | no | `1` | Tổng số lần chạy của bước lúc phát hành — phần mẫu của nhãn “(lần 1/2)” trong `ten_cong_doan`. Bước chưa tách = `1`. |
+| `ten_cong_doan` | `String(255)` | — | no | `""` | Tên công đoạn snapshot; bước đã tách mang hậu tố “(lần k/N)”. |
 | `nhom_cong_doan` | `String(24)` | — | yes | — | prepress/print/finishing. |
 | `loai_buoc` | `String(16)` | — | no | `may` | `may`/`to`/`thue_ngoai`. |
 | `department_id` | `Integer` FK→`departments.id` | IX | yes | — | Snapshot tổ thực hiện (§2.2). |
@@ -4418,7 +4424,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now/onupdate | |
 
-**Tất cả cột:** `id`, `goi_id`, `phien_ban_so`, `nhom_id`, `lsx_id`, `bai_ghep_id`, `lsx_cong_doan_id`, `bai_ghep_cong_doan_id`, `step_key`, `ten_cong_doan`, `nhom_cong_doan`, `loai_buoc`, `department_id`, `la_kcs`, `la_kcs_cuoi`, `kcs_tieu_chi_json`, `may_id`, `du_kien_bat_dau`, `du_kien_ket_thuc`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `dinh_muc_json`, `khoan_json`, `vat_tu_json`, `trang_thai`, `version`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `goi_id`, `phien_ban_so`, `nhom_id`, `lsx_id`, `bai_ghep_id`, `lsx_cong_doan_id`, `bai_ghep_cong_doan_id`, `step_key`, `phan_doan_so`, `phan_doan_tong`, `ten_cong_doan`, `nhom_cong_doan`, `loai_buoc`, `department_id`, `la_kcs`, `la_kcs_cuoi`, `kcs_tieu_chi_json`, `may_id`, `du_kien_bat_dau`, `du_kien_ket_thuc`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `dinh_muc_json`, `khoan_json`, `vat_tu_json`, `trang_thai`, `version`, `created_at`, `updated_at`.
 
 ### `san_xuat_phu_thuoc`
 

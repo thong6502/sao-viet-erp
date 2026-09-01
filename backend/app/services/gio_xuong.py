@@ -37,3 +37,25 @@ def ve_gio_xuong(dt: datetime | None) -> datetime | None:
         return None
     d = dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
     return d.astimezone().replace(tzinfo=timezone.utc)
+
+
+def lich_hien_thi(dt: datetime | None) -> datetime | None:
+    """Khuôn TRẢ RA cho mốc thang LỊCH (`du_kien_bat_dau/ket_thuc`, `can_luc`…): bỏ tzinfo để
+    serialize dạng wall-clock giờ nhà máy — giống `xep_lich_service._naive`.
+
+    Giá trị trong DB vốn đã là giờ tường dán nhãn UTC; để nguyên nhãn thì Postgres trả
+    `+00:00`, FE `new Date(iso)` dịch thêm +7h (bàn Xếp lịch hiện 18:34, bàn tổ hiện 01:34 hôm
+    sau). CHỈ cho ĐẦU RA, không cho tính toán.
+    """
+    return dt.replace(tzinfo=None) if dt is not None else None
+
+
+def thuc_te_hien_thi(dt: datetime | None) -> datetime | None:
+    """Khuôn TRẢ RA cho mốc THỰC THI (`san_xuat_phien_chay.bat_dau`, batch, bàn giao, xác nhận…),
+    thứ mà `thuc_thi._moc()` ghi bằng UTC THẬT.
+
+    Đưa về thang giờ xưởng rồi bỏ nhãn, để FE nhận CÙNG một thang với `du_kien_*`: thanh thực-tế
+    và thanh kế hoạch trên cùng một Gantt phải đo bằng một cây thước (`gantt-time.wallMinutes`
+    đọc thành phần ISO, không dịch múi — trả UTC thật vào đó là thanh thực-tế lùi 7 tiếng).
+    """
+    return lich_hien_thi(ve_gio_xuong(dt))

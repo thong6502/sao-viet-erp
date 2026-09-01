@@ -58,6 +58,59 @@ def _vat_tu(cd) -> list[dict]:
     return out
 
 
+def _chia(tong, ty_les: list[float]) -> list[float | None]:
+    """Chia `tong` theo `ty_les`; phần CUỐI gánh phần lẻ làm tròn ⇒ Σ khép ĐÚNG `tong`.
+
+    Cùng cách khép tổng với `phan_doan.tach`: cột là NUMERIC(18,3), làm tròn từng phần rồi cộng
+    lại là tổng trôi một tờ — mà lệch một tờ là lệch cả bảng cân đối vật tư lẫn định mức khoán.
+    """
+    if tong is None:
+        return [None] * len(ty_les)
+    t = float(tong)
+    ra = [round(t * r, 3) for r in ty_les]
+    ra[-1] = round(t - sum(ra[:-1]), 3)
+    return ra
+
+
+def _chia_theo_phan_doan(lich: list[tuple], cd) -> list[tuple]:
+    """Số `(vào, ra)` của TỪNG phân đoạn lịch, Σ khép đúng số của bước.
+
+    Tỉ lệ lấy từ CHÍNH CỤM (Σ `so_luong` của các dòng) — cùng MỘT đường với
+    `phan_doan.ty_le_trong_cum` mà engine thời lượng đang dùng, đừng đẻ đường thứ hai:
+
+      · suy từ `phan_doan_tong` kiểu 1/N là sai ngay khi ai đó chia 6.000 + 4.000;
+      · lấy `so_luong_vao` của bước làm mẫu số thì bước chưa khai số (0) sẽ cho MỖI phân đoạn ăn
+        TRỌN số của bước — nhân bản sản lượng, im lặng.
+
+    Chia CẢ hai cột theo cùng tỉ lệ, không gán thẳng `so_luong` của dòng vào `so_luong_vao`: bước
+    có hệ số quy đổi (in: vào tờ, ra con) mà chỉ chia một cột là hai cột nói hai thang khác nhau.
+    """
+    if len(lich) == 1 and lich[0][4] is None:
+        # Bước CHƯA tách — giữ NGUYÊN số của bước (Decimal), không đi vòng qua float. Đây là
+        # đường của mọi lệnh đang chạy, đừng để nó lệch một phần nghìn so với trước.
+        return [(cd.so_luong_vao, cd.so_luong_ra)]
+    n = len(lich)
+    tong_cum = sum(float(r[4] or 0) for r in lich)
+    ty_les = (
+        [float(r[4] or 0) / tong_cum for r in lich] if tong_cum > 0 else [1.0 / n] * n
+    )
+    return list(zip(_chia(cd.so_luong_vao, ty_les), _chia(cd.so_luong_ra, ty_les)))
+
+
+def _ten_phan_doan(ten: str | None, phan_doan_so: int, phan_doan_tong: int) -> str:
+    """Tên công việc của một phân đoạn — bước chưa tách giữ nguyên tên bước.
+
+    Tổ nhìn hai thẻ cùng công đoạn mà không có hậu tố thì không biết thẻ nào là mẻ nào. Cột
+    `ten_cong_doan` là String(255) nên cắt phần TÊN chứ đừng cắt hậu tố: mất "lần 2/2" là mất
+    đúng thứ dùng để phân biệt.
+    """
+    goc = ten or ""
+    if phan_doan_tong <= 1:
+        return goc
+    hau_to = f" (lần {phan_doan_so}/{phan_doan_tong})"
+    return goc[: 255 - len(hau_to)] + hau_to
+
+
 def _checklist(cd, tieu_chi_theo_cd: dict[int, list], la_kcs: bool) -> list[dict] | None:
     """Ghép checklist danh mục (theo cong_doan_id của bước) + bổ sung riêng của bước, đúng thứ tự.
     None nếu bước không phải KCS — `la_kcs` đã được tính sẵn ở `dung_cong_viec` (suy tự động, xem
@@ -78,6 +131,61 @@ def _checklist(cd, tieu_chi_theo_cd: dict[int, list], la_kcs: bool) -> list[dict
     return out
 
 
+def _cong_viec_theo_phan_doan(
+    repo: SanXuatRepository,
+    *,
+    lich: list[tuple],
+    cd,
+    tieu_chi_theo_cd: dict[int, list],
+    la_kcs: bool,
+    chung: dict,
+) -> list[SanXuatCongViec]:
+    """Đẻ MỘT công việc cho MỖI phân đoạn lịch của một bước; trả danh sách theo `phan_doan_so`.
+
+    Dùng chung cho cả hai nhánh (bước riêng của lệnh + bước chạy chung của bài ghép) vì hai bên
+    chỉ khác ở mấy khoá neo — gom vào `chung`. `lich` là kết quả `repo.lich_lsx_step` /
+    `lich_bg_step`: mỗi phần tử `(may_id, start, finish, phan_doan_so, so_luong)`.
+
+    Bước CHƯA vào kế hoạch (không dòng lịch nào) vẫn phải ra đúng một công việc — trước đây
+    `thoi_gian_*_step` trả `(None, None, None)` và snapshot vẫn ghi; giữ nguyên hành vi đó bằng
+    một phần tử giả, không thì lệnh phát hành khi chưa xếp giờ sẽ RỖNG bàn tổ.
+
+    `la_kcs` tính MỘT LẦN cho cả bước rồi áp cho mọi phân đoạn: KCS là tính chất của BƯỚC (vị trí
+    trong routing + tổ), không phải của lần chạy.
+    """
+    if not lich:
+        lich = [(None, None, None, 1, None)]
+    tong = len(lich)
+    so_luongs = _chia_theo_phan_doan(lich, cd)
+    ra: list[SanXuatCongViec] = []
+    for (may_id, start, finish, phan_doan_so, _sl), (sl_vao, sl_ra) in zip(lich, so_luongs):
+        cv = SanXuatCongViec(
+            **chung,
+            step_key=cd.step_key,
+            # Cặp số phân đoạn ghi THÀNH CỘT chứ không chỉ nằm trong tên: "Phát hành cập nhật"
+            # phải khớp công việc ↔ dòng lịch bằng số, không bằng cách đọc lại nhãn tiếng Việt.
+            phan_doan_so=phan_doan_so, phan_doan_tong=tong,
+            ten_cong_doan=_ten_phan_doan(cd.ten, phan_doan_so, tong),
+            nhom_cong_doan=cd.nhom, loai_buoc=cd.loai_buoc or BUOC_MAY,
+            department_id=cd.department_id, la_kcs=la_kcs,
+            may_id=may_id or cd.may_id,
+            du_kien_bat_dau=start, du_kien_ket_thuc=finish,
+            so_luong_vao=sl_vao, so_luong_ra=sl_ra,
+            don_vi_vao=cd.don_vi_vao, don_vi_ra=cd.don_vi_ra, he_so_quy_doi=cd.he_so_quy_doi,
+            # Định mức/khoán/vật tư KHÔNG chia theo phân đoạn: chúng là ĐỊNH MỨC (trên một đơn vị
+            # / trên một lượt), chia nữa là chia hai lần. Sản lượng đã mang phần của phân đoạn.
+            dinh_muc_json=_dinh_muc(cd), khoan_json=cd.khoan_json, vat_tu_json=_vat_tu(cd),
+            # Gọi lại `_checklist` cho TỪNG phân đoạn: mỗi dòng phải giữ bản JSON riêng, dùng
+            # chung một list Python là sửa checklist của mẻ này lan sang mẻ kia.
+            kcs_tieu_chi_json=_checklist(cd, tieu_chi_theo_cd, la_kcs),
+            trang_thai=CV_PHAT_HANH,
+        )
+        repo.add(cv)
+        repo.flush()
+        ra.append(cv)
+    return ra
+
+
 def dung_cong_viec(
     repo: SanXuatRepository,
     *,
@@ -87,13 +195,18 @@ def dung_cong_viec(
     bai_ghep_ids: set[int],
     nhom_by_lsx: dict[int, SanXuatNhom],
     tieu_chi_theo_cd: dict[int, list] | None = None,
-) -> dict[str, SanXuatCongViec]:
-    """Đẻ công việc cho gói phát hành; trả map `step_key` → công việc (để nối phụ thuộc).
+) -> dict[str, list[SanXuatCongViec]]:
+    """Đẻ công việc cho gói phát hành; trả map `step_key` → DANH SÁCH công việc theo phân đoạn.
 
-    Với bước LSX bị bài ghép phủ, `step_key` của nó cũng trỏ về công việc CHUNG — cạnh phụ thuộc
-    chéo neo vào đúng bản ghi thực hiện chung.
+    Trước 31/08/2026 map này là `step_key` → MỘT công việc, vì một bước chỉ có một dòng lịch. Từ
+    khi tách được LẦN CHẠY (spec-thuc-te-vs-ke-hoach §2.4), một bước có N dòng lịch ⇒ N công việc,
+    xếp theo `phan_doan_so`. Bước chưa tách vẫn ra danh sách MỘT phần tử — bên gọi không cần phân
+    biệt hai trường hợp.
+
+    Với bước LSX bị bài ghép phủ, `step_key` của nó cũng trỏ về danh sách công việc CHUNG — cạnh
+    phụ thuộc chéo neo vào đúng bản ghi thực hiện chung.
     """
-    cv_by_step: dict[str, SanXuatCongViec] = {}
+    cv_by_step: dict[str, list[SanXuatCongViec]] = {}
     tieu_chi_theo_cd = tieu_chi_theo_cd or {}
 
     # KCS kiêm nhiệm — suy TỰ ĐỘNG (không còn khai tay ở danh mục Công đoạn): một bước là KCS khi
@@ -110,7 +223,6 @@ def dung_cong_viec(
     covered_step_keys: set[str] = set()
     for bg_id in sorted(bai_ghep_ids):
         for cd in repo.bai_ghep_cong_doans(bg_id):
-            may_id, start, finish = repo.thoi_gian_bg_step(cd.id)
             covered = repo.covered_step_keys_of_cd(cd.id)
             covered_step_keys |= covered
             covered_lsx_ids = repo.lsx_ids_covered_by_cd(cd.id)
@@ -127,25 +239,18 @@ def dung_cong_viec(
             la_kcs = cd.department_id in kcs_dept_ids and any(
                 buoc_cuoi_key_by_lsx.get(lid) in covered for lid in covered_lsx_ids
             )
-            cv = SanXuatCongViec(
-                goi_id=goi.id, phien_ban_so=phien_ban_so,
-                nhom_id=nhom_id, lsx_id=None, bai_ghep_id=bg_id,
-                bai_ghep_cong_doan_id=cd.id, step_key=cd.step_key,
-                ten_cong_doan=cd.ten, nhom_cong_doan=cd.nhom, loai_buoc=cd.loai_buoc or BUOC_MAY,
-                department_id=cd.department_id, la_kcs=la_kcs,
-                may_id=may_id or cd.may_id,
-                du_kien_bat_dau=start, du_kien_ket_thuc=finish,
-                so_luong_vao=cd.so_luong_vao, so_luong_ra=cd.so_luong_ra,
-                don_vi_vao=cd.don_vi_vao, don_vi_ra=cd.don_vi_ra, he_so_quy_doi=cd.he_so_quy_doi,
-                dinh_muc_json=_dinh_muc(cd), khoan_json=cd.khoan_json, vat_tu_json=_vat_tu(cd),
-                kcs_tieu_chi_json=_checklist(cd, tieu_chi_theo_cd, la_kcs),
-                trang_thai=CV_PHAT_HANH,
+            cvs = _cong_viec_theo_phan_doan(
+                repo, lich=repo.lich_bg_step(cd.id), cd=cd,
+                tieu_chi_theo_cd=tieu_chi_theo_cd, la_kcs=la_kcs,
+                chung=dict(
+                    goi_id=goi.id, phien_ban_so=phien_ban_so,
+                    nhom_id=nhom_id, lsx_id=None, bai_ghep_id=bg_id,
+                    bai_ghep_cong_doan_id=cd.id,
+                ),
             )
-            repo.add(cv)
-            repo.flush()
-            cv_by_step[cd.step_key] = cv
+            cv_by_step[cd.step_key] = cvs
             for sk in covered:
-                cv_by_step[sk] = cv
+                cv_by_step[sk] = cvs
 
     # (2) Bước RIÊNG của từng LSX — bỏ bước đã bị bài ghép phủ.
     for lsx_id in sorted(lsx_ids):
@@ -154,25 +259,16 @@ def dung_cong_viec(
         for cd in steps_by_lsx.get(lsx_id) or []:
             if cd.step_key in covered_step_keys:
                 continue
-            may_id, start, finish = repo.thoi_gian_lsx_step(cd.id)
             la_kcs = cd.step_key == buoc_cuoi_key and cd.department_id in kcs_dept_ids
-            cv = SanXuatCongViec(
-                goi_id=goi.id, phien_ban_so=phien_ban_so,
-                nhom_id=grp.id if grp else None, lsx_id=lsx_id, bai_ghep_id=None,
-                lsx_cong_doan_id=cd.id, step_key=cd.step_key,
-                ten_cong_doan=cd.ten, nhom_cong_doan=cd.nhom, loai_buoc=cd.loai_buoc or BUOC_MAY,
-                department_id=cd.department_id, la_kcs=la_kcs,
-                may_id=may_id or cd.may_id,
-                du_kien_bat_dau=start, du_kien_ket_thuc=finish,
-                so_luong_vao=cd.so_luong_vao, so_luong_ra=cd.so_luong_ra,
-                don_vi_vao=cd.don_vi_vao, don_vi_ra=cd.don_vi_ra, he_so_quy_doi=cd.he_so_quy_doi,
-                dinh_muc_json=_dinh_muc(cd), khoan_json=cd.khoan_json, vat_tu_json=_vat_tu(cd),
-                kcs_tieu_chi_json=_checklist(cd, tieu_chi_theo_cd, la_kcs),
-                trang_thai=CV_PHAT_HANH,
+            cv_by_step[cd.step_key] = _cong_viec_theo_phan_doan(
+                repo, lich=repo.lich_lsx_step(cd.id), cd=cd,
+                tieu_chi_theo_cd=tieu_chi_theo_cd, la_kcs=la_kcs,
+                chung=dict(
+                    goi_id=goi.id, phien_ban_so=phien_ban_so,
+                    nhom_id=grp.id if grp else None, lsx_id=lsx_id, bai_ghep_id=None,
+                    lsx_cong_doan_id=cd.id,
+                ),
             )
-            repo.add(cv)
-            repo.flush()
-            cv_by_step[cd.step_key] = cv
 
     return cv_by_step
 
@@ -182,11 +278,18 @@ def danh_dau_kcs_cuoi(
     *,
     lsx_ids: set[int],
     nhom_by_lsx: dict[int, SanXuatNhom],
-    cv_by_step: dict[str, SanXuatCongViec],
+    cv_by_step: dict[str, list[SanXuatCongViec]],
 ) -> dict[int, int]:
     """Suy KCS-cuối của MỖI nhóm (spec §3.2/§4.4): bước KCS nằm ở CUỐI routing của một LSX thành
     viên. Đúng một ứng viên/nhóm → đánh `la_kcs_cuoi` + chốt LSX thân chính. Không có / nhiều hơn
     một → để engine kiểm-phát-hành báo (không tự đoán).
+
+    Bước KCS-cuối bị TÁCH lần chạy: đánh dấu MỌI phân đoạn, không riêng phân đoạn cuối. `la_kcs_cuoi`
+    là tính chất của BƯỚC, và ba chỗ đọc nó đều đọc theo TẬP: `kho.tao_yeu_cau_kho_mot_nut` chặn
+    thẳng công việc thiếu cờ (bỏ cờ ở lần chạy 1 ⇒ số ĐẠT của mẻ đầu không có đường vào kho), còn
+    `dong_nhom` cộng `so_luong_ra` + gom batch KCS trên đúng tập ấy (thiếu một phân đoạn ⇒ mục tiêu
+    nhóm tụt đúng phần của nó). "Nhóm chỉ đóng khi mẻ cuối xong" vẫn giữ, do điều kiện "mọi công
+    việc đã hoàn thành" của `dong_nhom._danh_gia` lo.
 
     Trả map nhom_id → lsx_id thân chính (chỉ nhóm xác định được).
     """
@@ -208,7 +311,8 @@ def danh_dau_kcs_cuoi(
         if len(ds) != 1:
             continue
         lsx_id, step_key = ds[0]
-        cv_by_step[step_key].la_kcs_cuoi = True
+        for cv in cv_by_step[step_key]:
+            cv.la_kcs_cuoi = True
         than_chinh[nhom_id] = lsx_id
     return than_chinh
 
@@ -220,19 +324,25 @@ def dung_phu_thuoc(
     phien_ban_so: int,
     lsx_ids: set[int],
     nhom_by_lsx: dict[int, SanXuatNhom],
-    cv_by_step: dict[str, SanXuatCongViec],
+    cv_by_step: dict[str, list[SanXuatCongViec]],
 ) -> int:
     """Chụp cạnh phụ thuộc CHÉO giữa các LSX trong gói thành `san_xuat_phu_thuoc` (bước ghép §3.2).
 
     Chỉ nối cạnh mà CẢ hai đầu đều có công việc trong gói này; neo về công việc chung nếu đầu đó đã
     bị bài ghép phủ (nhờ `cv_by_step` đã map cả step_key bị phủ). Nhóm lấy từ LSX ĐÍCH (luôn có
     trong gói) — `cong_viec.nhom_id` có thể trống nếu đầu đó là bước dùng chung nối nhiều nhóm, mà
-    cột `san_xuat_phu_thuoc.nhom_id` NOT NULL. Tỷ lệ ghép để trống — kế hoạch tinh chỉnh ở pha sau."""
+    cột `san_xuat_phu_thuoc.nhom_id` NOT NULL. Tỷ lệ ghép để trống — kế hoạch tinh chỉnh ở pha sau.
+
+    Bước đã TÁCH lần chạy: nguồn là phân đoạn CUỐI, đích là phân đoạn ĐẦU. Nối vào phân đoạn đầu
+    của nguồn là cho bước sau chạy khi mới xong 60% — đúng thứ mà tách lần chạy sinh ra để tránh."""
     dem = 0
     for truoc, sau in repo.cross_lsx_edges_chi_tiet(lsx_ids):
-        nguon = cv_by_step.get(truoc.step_key)
-        dich = cv_by_step.get(sau.step_key)
-        if nguon is None or dich is None or nguon.id == dich.id:
+        nguon_ds = cv_by_step.get(truoc.step_key) or []
+        dich_ds = cv_by_step.get(sau.step_key) or []
+        if not nguon_ds or not dich_ds:
+            continue
+        nguon, dich = nguon_ds[-1], dich_ds[0]
+        if nguon.id == dich.id:
             continue
         grp = nhom_by_lsx.get(sau.lsx_id) or nhom_by_lsx.get(truoc.lsx_id)
         if grp is None:
@@ -256,7 +366,7 @@ def dung_diem_toa(
     lsx_ids: set[int],
     bai_ghep_ids: set[int],
     nhom_by_lsx: dict[int, SanXuatNhom],
-    cv_by_step: dict[str, SanXuatCongViec],
+    cv_by_step: dict[str, list[SanXuatCongViec]],
 ) -> int:
     """Chụp cạnh TOẢ từ điểm-toả bài ghép sang từng nhánh LSX riêng thành `san_xuat_phu_thuoc`.
 
@@ -264,7 +374,12 @@ def dung_diem_toa(
     routing); đích = bước RIÊNG đầu tiên ngay sau đó của chính LSX đó. Chỉ nhận bước dùng chung
     nằm TRÊN DÒNG GIẤY (`tren_dong_giay`) — bước như ghi kẽm/CTP không đếm, tránh lấy nhầm điểm
     toả. LSX không còn bước riêng nào sau bước chung cuối (mọi bước đều dùng chung, hoặc bài ghép
-    chưa có bước chung nào trên dòng giấy) thì không có gì để toả — bỏ qua, không phải lỗi."""
+    chưa có bước chung nào trên dòng giấy) thì không có gì để toả — bỏ qua, không phải lỗi.
+
+    Điểm toả bị TÁCH lần chạy: MỖI phân đoạn một cạnh. Cạnh này không phải cổng chặn mà là đường
+    tự chia sản lượng (`san_luong._toa_san_luong` chạy theo từng batch của CÔNG VIỆC NGUỒN) — chỉ
+    nối phân đoạn cuối thì số của mẻ đầu không bao giờ toả xuống nhánh, mất im lặng. Đích thì
+    ngược lại, chỉ MỘT: phân đoạn đầu của bước riêng."""
     if not bai_ghep_ids:
         return 0
     so_con = repo.thanh_vien_so_con(bai_ghep_ids)
@@ -277,40 +392,42 @@ def dung_diem_toa(
         steps = repo.routing_steps(lsx_id)
         diem_toa_idx = None
         for i, cd in enumerate(steps):
-            cv = cv_by_step.get(cd.step_key)
-            if cv is None or cv.bai_ghep_id is None:
+            cvs = cv_by_step.get(cd.step_key)
+            if not cvs or cvs[0].bai_ghep_id is None:
                 continue
             if not tren_dong_giay(cd.don_vi_vao, cd.don_vi_ra, tram, nhom=cd.nhom):
                 continue
             diem_toa_idx = i
         if diem_toa_idx is None:
             continue
-        nguon_cv = cv_by_step[steps[diem_toa_idx].step_key]
+        nguon_cvs = cv_by_step[steps[diem_toa_idx].step_key]
         dich_cd = next(
             (
                 cd for cd in steps[diem_toa_idx + 1:]
-                if cv_by_step.get(cd.step_key) and cv_by_step[cd.step_key].bai_ghep_id is None
+                if (cv_by_step.get(cd.step_key)
+                    and cv_by_step[cd.step_key][0].bai_ghep_id is None)
             ),
             None,
         )
         if dich_cd is None:
             continue
-        dich_cv = cv_by_step[dich_cd.step_key]
+        dich_cv = cv_by_step[dich_cd.step_key][0]
         grp = nhom_by_lsx.get(lsx_id)
         if grp is None:
             continue
         don_vi_ra = steps[diem_toa_idx].don_vi_ra
         don_vi_vao = dich_cd.don_vi_vao
-        repo.add(SanXuatPhuThuoc(
-            goi_id=goi.id, phien_ban_so=phien_ban_so,
-            nhom_id=grp.id,
-            nguon_cong_viec_id=nguon_cv.id, dich_cong_viec_id=dich_cv.id,
-            ty_le_ghep=float(con),
-            don_vi_nguon=don_vi_ra, don_vi_dich=don_vi_vao,
-            quy_tac_quy_doi=(
-                f"Điểm toả bài ghép: 1 {don_vi_ra or '?'} chung → {con} {don_vi_vao or '?'} riêng của lệnh"
-            ),
-        ))
-        dem += 1
+        for nguon_cv in nguon_cvs:
+            repo.add(SanXuatPhuThuoc(
+                goi_id=goi.id, phien_ban_so=phien_ban_so,
+                nhom_id=grp.id,
+                nguon_cong_viec_id=nguon_cv.id, dich_cong_viec_id=dich_cv.id,
+                ty_le_ghep=float(con),
+                don_vi_nguon=don_vi_ra, don_vi_dich=don_vi_vao,
+                quy_tac_quy_doi=(
+                    f"Điểm toả bài ghép: 1 {don_vi_ra or '?'} chung → {con} {don_vi_vao or '?'} riêng của lệnh"
+                ),
+            ))
+            dem += 1
     repo.flush()
     return dem

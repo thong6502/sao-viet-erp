@@ -25,6 +25,7 @@ from ...repositories.san_xuat_thuc_thi_repo import SanXuatThucThiRepository
 from ...repositories.san_xuat_vat_tu_repo import SanXuatVatTuRepository
 from ...repositories.stock_request_repo import StockRequestRepository
 from ...services.rbac_service import AuthorizationService
+from ..gio_xuong import lich_hien_thi, thuc_te_hien_thi
 from .phan_bo import _tinh_batch
 from .thuc_thi import _aware
 from .vat_tu_de_nghi import _hang_service, _kh_service, can_luc_hien_thi, lan_con_mo
@@ -202,8 +203,11 @@ def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, so_map=No
         "la_kcs": cv.la_kcs,
         "la_kcs_cuoi": cv.la_kcs_cuoi,
         "may": may_map.get(cv.may_id or 0, ""),
-        "du_kien_bat_dau": cv.du_kien_bat_dau,
-        "du_kien_ket_thuc": cv.du_kien_ket_thuc,
+        # Hai thang giờ khác nhau gặp nhau ở ĐÂY (xem `services/gio_xuong.py`): mốc kế hoạch là
+        # giờ tường dán nhãn UTC, mốc phiên chạy là UTC THẬT. Cùng quy về wall-clock giờ xưởng
+        # rồi mới trả — không thì cùng một thanh Gantt đo bằng hai cây thước lệch nhau 7 tiếng.
+        "du_kien_bat_dau": lich_hien_thi(cv.du_kien_bat_dau),
+        "du_kien_ket_thuc": lich_hien_thi(cv.du_kien_ket_thuc),
         # Số người dự kiến chốt lúc phát hành (§7.1) — FE so với roster để đòi lý do khi lệch.
         "du_kien_so_nguoi": (
             cv.dinh_muc_json.get("so_nhan_cong_tieu_chuan")
@@ -225,7 +229,7 @@ def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, so_map=No
         "dinh_muc_vat_tu": cv.vat_tu_json or [],
         # Lớp thực-tế (§5.1): các phiên chạy đã ghi; phiên còn mở giữ ket_thuc=None (FE kéo tới "bây giờ").
         "thuc_te": [
-            {"bat_dau": p.bat_dau, "ket_thuc": p.ket_thuc}
+            {"bat_dau": thuc_te_hien_thi(p.bat_dau), "ket_thuc": thuc_te_hien_thi(p.ket_thuc)}
             for p in (phien_map or {}).get(cv.id, [])
         ],
     }
@@ -456,7 +460,8 @@ def _vat_tu_cap(db: Session, sl, kh_svc, cv, cac_dn, du_lieu_cu: bool) -> dict:
             "stock_request_ma": tom_tat.get(d.stock_request_id, {}).get("ma"),
             "stock_request_trang_thai": tom_tat.get(d.stock_request_id, {}).get("trang_thai"),
             "created_by_id": d.created_by_id, "updated_by_id": d.updated_by_id,
-            "created_at": d.created_at, "updated_at": d.updated_at,
+            "created_at": thuc_te_hien_thi(d.created_at),
+            "updated_at": thuc_te_hien_thi(d.updated_at),
             "dongs": dongs_theo_lan[d.id],
         } for d in cac_dn],
         "doi_chieu": doi_chieu,
@@ -593,8 +598,8 @@ def chi_tiet_cong_viec(
             {
                 "id": p.id,
                 "so_thu_tu": p.so_thu_tu,
-                "bat_dau": p.bat_dau,
-                "ket_thuc": p.ket_thuc,
+                "bat_dau": thuc_te_hien_thi(p.bat_dau),
+                "ket_thuc": thuc_te_hien_thi(p.ket_thuc),
                 "loai_dong": p.loai_dong,
                 "ly_do_bat_dau_tre": p.ly_do_bat_dau_tre,
                 "ly_do": p.ly_do,
@@ -607,8 +612,8 @@ def chi_tiet_cong_viec(
                 "phien_chay_id": k.phien_chay_id,
                 "employee_id": k.employee_id,
                 "ho_ten": ten_map.get(k.employee_id, ("", None))[0],
-                "bat_dau": k.bat_dau,
-                "ket_thuc": k.ket_thuc,
+                "bat_dau": thuc_te_hien_thi(k.bat_dau),
+                "ket_thuc": thuc_te_hien_thi(k.ket_thuc),
             }
             for k in khoang
         ],
@@ -624,8 +629,10 @@ def chi_tiet_cong_viec(
             "batches": [
                 {
                     "id": b.id,
-                    "bat_dau": b.bat_dau,
-                    "ket_thuc": b.ket_thuc,
+                    # Batch do TỔ GÕ ở ô `datetime-local` → `_aware()` gắn nhãn UTC lên giờ
+                    # tường: thang LỊCH, không phải mốc máy chủ. Gỡ nhãn là xong.
+                    "bat_dau": lich_hien_thi(b.bat_dau),
+                    "ket_thuc": lich_hien_thi(b.ket_thuc),
                     "tong": float(b.tong),
                     "tot": float(b.tot),
                     "hong": float(b.hong),
@@ -659,7 +666,7 @@ def chi_tiet_cong_viec(
                 "ten_cong_doan": c.ten_cong_doan,
                 "to_id": c.department_id,
                 "to_ten": goi_y_to_ten.get(c.department_id) if c.department_id else None,
-                "du_kien_bat_dau": c.du_kien_bat_dau,
+                "du_kien_bat_dau": lich_hien_thi(c.du_kien_bat_dau),
             }
             for c in goi_y
         ],
@@ -668,7 +675,9 @@ def chi_tiet_cong_viec(
                 "voucher_id": v.id,
                 "ma": v.ma,
                 "da_nhan": v.id in nhan_map,
-                "xac_nhan_luc": nhan_map[v.id].xac_nhan_luc if v.id in nhan_map else None,
+                "xac_nhan_luc": (
+                    thuc_te_hien_thi(nhan_map[v.id].xac_nhan_luc) if v.id in nhan_map else None
+                ),
             }
             for v in vouchers
         ],

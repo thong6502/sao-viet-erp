@@ -16,7 +16,7 @@ from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
 from ..models.department import Department
 from ..models.employee import Employee
 from ..models.lsx import Lsx, LsxCongDoan, LsxCongDoanPhuThuoc
-from ..models.machine import Machine
+from ..models.may_thiet_bi import MayThietBi
 from ..models.order import OrderLine
 from ..models.san_xuat import (
     CV_HOAN_THANH,
@@ -205,19 +205,52 @@ class SanXuatRepository:
         ).scalars()
         return set(rows)
 
-    def thoi_gian_lsx_step(self, lsx_cong_doan_id: int) -> tuple[int | None, object, object]:
-        row = self.db.execute(
-            select(XepLichCongDoan.may_id, XepLichCongDoan.start_at, XepLichCongDoan.finish_at)
-            .where(XepLichCongDoan.lsx_cong_doan_id == lsx_cong_doan_id)
-        ).first()
-        return tuple(row) if row is not None else (None, None, None)
+    def lich_lsx_step(
+        self, lsx_cong_doan_id: int
+    ) -> list[tuple[int | None, object, object, int, object]]:
+        """MỌI phân đoạn đã xếp của một bước lệnh, sắp theo `phan_doan_so`.
 
-    def thoi_gian_bg_step(self, bai_ghep_cong_doan_id: int) -> tuple[int | None, object, object]:
-        row = self.db.execute(
-            select(XepLichCongDoan.may_id, XepLichCongDoan.start_at, XepLichCongDoan.finish_at)
-            .where(XepLichCongDoan.bai_ghep_cong_doan_id == bai_ghep_cong_doan_id)
-        ).first()
-        return tuple(row) if row is not None else (None, None, None)
+        Trước đây một bước = một dòng lịch nên `thoi_gian_lsx_step` trả đúng một bộ. Từ khi tách
+        được lần chạy (spec-thuc-te-vs-ke-hoach §2.4), một bước có N dòng — phát hành phải đẻ N
+        công việc, không thì phân đoạn 2 trở đi biến mất khỏi bàn tổ mà không ai báo.
+
+        Mỗi phần tử: `(may_id, start_at, finish_at, phan_doan_so, so_luong)`. `so_luong` là Decimal
+        hoặc None; None = dòng chưa tách, mang TRỌN số lượng của bước — KHÁC 0, chỗ gọi phải phân
+        biệt chứ đừng ép về 0.
+        """
+        return [
+            (r.may_id, r.start_at, r.finish_at, r.phan_doan_so, r.so_luong)
+            for r in self.db.execute(
+                select(
+                    XepLichCongDoan.may_id,
+                    XepLichCongDoan.start_at,
+                    XepLichCongDoan.finish_at,
+                    XepLichCongDoan.phan_doan_so,
+                    XepLichCongDoan.so_luong,
+                )
+                .where(XepLichCongDoan.lsx_cong_doan_id == lsx_cong_doan_id)
+                .order_by(XepLichCongDoan.phan_doan_so, XepLichCongDoan.id)
+            )
+        ]
+
+    def lich_bg_step(
+        self, bai_ghep_cong_doan_id: int
+    ) -> list[tuple[int | None, object, object, int, object]]:
+        """Như `lich_lsx_step` nhưng cho bước chạy chung của bài ghép."""
+        return [
+            (r.may_id, r.start_at, r.finish_at, r.phan_doan_so, r.so_luong)
+            for r in self.db.execute(
+                select(
+                    XepLichCongDoan.may_id,
+                    XepLichCongDoan.start_at,
+                    XepLichCongDoan.finish_at,
+                    XepLichCongDoan.phan_doan_so,
+                    XepLichCongDoan.so_luong,
+                )
+                .where(XepLichCongDoan.bai_ghep_cong_doan_id == bai_ghep_cong_doan_id)
+                .order_by(XepLichCongDoan.phan_doan_so, XepLichCongDoan.id)
+            )
+        ]
 
     def kcs_department_ids(self) -> set[int]:
         rows = self.db.execute(
@@ -498,12 +531,18 @@ class SanXuatRepository:
         return {bid: (ma, ten) for bid, ma, ten in rows}
 
     def may_nhan(self, may_ids: set[int]) -> dict[int, str]:
+        """{may_id: tên máy} cho bàn tổ.
+
+        Tra trong `may_thiet_bi` — ĐÚNG danh mục mà `san_xuat_cong_viec.may_id` trỏ tới kể từ mg
+        `0237` (trước đó là FK cứng sang `machines`, danh mục đời tính giá). Bản cũ còn tra
+        `machines` nên cột "Máy" của bàn tổ luôn rỗng: id là của bảng này, tên đi tìm ở bảng kia.
+        """
         if not may_ids:
             return {}
         rows = self.db.execute(
-            select(Machine.id, Machine.name).where(Machine.id.in_(may_ids))
+            select(MayThietBi.id, MayThietBi.ten).where(MayThietBi.id.in_(may_ids))
         ).all()
-        return {mid: name for mid, name in rows}
+        return {mid: ten for mid, ten in rows}
 
     def nhom_nhan(self, nhom_ids: set[int]) -> dict[int, str]:
         """{nhom_id: nhãn nhóm thành phẩm} — ưu tiên `nhom_label`, rồi `ten`, rồi `khoa`."""

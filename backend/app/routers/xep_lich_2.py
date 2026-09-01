@@ -24,7 +24,7 @@ from ..models.xep_lich import NGUON_IN_GHEP, NGUON_LSX
 from ..realtime import hub
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.xep_lich_2_repo import XepLich2Repository
-from ..schemas.xep_lich_2 import DuyetNgoaiLeIn, LuuIn, PhatHanhCapNhatIn
+from ..schemas.xep_lich_2 import DuyetNgoaiLeIn, LuuIn, PhatHanhCapNhatIn, TachDongIn
 from ..services.xep_lich_2 import (
     XepLich2Blocked,
     XepLich2Conflict,
@@ -279,6 +279,43 @@ def luu(
         raise _map(exc)
     hub.broadcast({"type": "xep_lich_changed"})
     return svc.dong_view(saved)
+
+
+# --- Tách / gộp lần chạy của một công đoạn ----------------------------------
+@router.post("/dong/{dong_id}/tach", response_model=None)
+def tach_dong(
+    dong_id: int,
+    payload: TachDongIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> dict:
+    """Tách một công đoạn thành nhiều LẦN CHẠY (spec-thuc-te-vs-ke-hoach §2.4).
+
+    Cùng quyền `update` với sửa một dòng — tách là một cách xếp lịch, không phải thẩm quyền mới.
+    Trả CẢ CỤM: phân đoạn đầu giữ id gốc, các phân đoạn sau là thanh mới ở khay CHỜ XẾP."""
+    svc = _svc(db)
+    try:
+        cum = svc.tach_dong(dong_id=dong_id, cac_phan=payload.cac_phan, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "xep_lich_changed"})
+    return {"dong": cum}
+
+
+@router.post("/dong/{dong_id}/gop", response_model=None)
+def gop_dong(
+    dong_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> dict:
+    """Gộp cả cụm phân đoạn về lại MỘT dòng — nhận id bất kỳ phân đoạn nào trong cụm."""
+    svc = _svc(db)
+    try:
+        dong = svc.gop_dong(dong_id=dong_id, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "xep_lich_changed"})
+    return {"dong": dong}
 
 
 # --- Kiểm phát hành + phát hành / thu hồi (cửa vật tư dùng chung) ------------
