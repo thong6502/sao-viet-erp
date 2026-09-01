@@ -18,6 +18,7 @@ import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
 import { MaterialCombobox } from "../components/MaterialCombobox";
 import { useAuth } from "../auth/useAuth";
+import { GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapHopLe } from "../lib/gioNhap";
 import { num, ngayGio, ngay } from "./keHoachSxShared";
 
 // ============================ hợp đồng hành động (controller cấp) ============================
@@ -289,7 +290,9 @@ function BatchForm({
   const hong = Math.max(0, nTong - nTot);
   const donVi = cv.don_vi_ra ?? cv.don_vi_vao ?? null;
 
-  const hopLe = !!batDau && !!ketThuc && ketThuc > batDau
+  // `gioNhapHopLe` chứ không phải `!!`: ô ngày-giờ của trình duyệt nhận cả năm 6 chữ số, gửi lên
+  // là backend trả 422 mà tổ chỉ thấy "không ghi được".
+  const hopLe = gioNhapHopLe(batDau) && gioNhapHopLe(ketThuc) && ketThuc > batDau
     && nTong > 0 && nTot >= 0 && nTot <= nTong
     && (hong === 0 || nhomLoiId != null);
 
@@ -309,10 +312,12 @@ function BatchForm({
     <div className="thsx-x-form">
       <div className="thsx-x-grid2">
         <Field label="Bắt đầu">
-          <input type="datetime-local" className="thsx-x-in" value={batDau} onChange={(e) => setBatDau(e.target.value)} />
+          <input type="datetime-local" className="thsx-x-in" min={GIO_NHAP_MIN} max={GIO_NHAP_MAX}
+            value={batDau} onChange={(e) => setBatDau(e.target.value)} />
         </Field>
         <Field label="Kết thúc">
-          <input type="datetime-local" className="thsx-x-in" value={ketThuc} onChange={(e) => setKetThuc(e.target.value)} />
+          <input type="datetime-local" className="thsx-x-in" min={GIO_NHAP_MIN} max={GIO_NHAP_MAX}
+            value={ketThuc} onChange={(e) => setKetThuc(e.target.value)} />
         </Field>
       </div>
       <div className="thsx-x-grid2">
@@ -1363,7 +1368,7 @@ function VatTuDeNghiForm({
   // `moi`/`sua` (lần đầu) vẫn cho gửi TOÀN 0 khi công đoạn CÓ kế hoạch: đó chính là "tổ xác nhận
   // không cần cấp" (spec §5.3) — dòng kế hoạch vẫn nằm trong `lines` nên không bị chặn.
   const canTro = vtCanTro(dongs, lines, mode, loaiHieuLuc);
-  const hopLe = !!canLuc && canTro == null;
+  const hopLe = gioNhapHopLe(canLuc) && canTro == null;
 
   async function luu() {
     const body: SxVatTuDeNghiIn = { can_luc: canLuc, lines };
@@ -1379,8 +1384,8 @@ function VatTuDeNghiForm({
   return (
     <div className="thsx-x-form">
       <Field label="Giờ cần">
-        <input type="datetime-local" className="thsx-x-in" value={canLuc}
-          onChange={(e) => setCanLuc(e.target.value)} />
+        <input type="datetime-local" className="thsx-x-in" min={GIO_NHAP_MIN} max={GIO_NHAP_MAX}
+          value={canLuc} onChange={(e) => setCanLuc(e.target.value)} />
       </Field>
 
       {dongs.length === 0 && (

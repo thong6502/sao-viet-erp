@@ -17,6 +17,7 @@ import type {
 import { assetUrl } from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
+import { GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapHopLe } from "../lib/gioNhap";
 import { num, ngayGio } from "./keHoachSxShared";
 import { Field, LyDoSelect, toNum, toDtLocal, type ThsxExec } from "./ThsxExecPanels";
 
@@ -127,7 +128,7 @@ function KcsBatchForm({
   const kd = Math.max(0, nNhan - nDat);
   const donVi = cv.don_vi_ra ?? cv.don_vi_vao ?? null;
   const ketLuan = nNhan <= 0 ? "" : nDat >= nNhan ? "dat" : nDat <= 0 ? "khong_dat" : "dat_mot_phan";
-  const hopLe = !!batDau && !!ketThuc && ketThuc > batDau
+  const hopLe = gioNhapHopLe(batDau) && gioNhapHopLe(ketThuc) && ketThuc > batDau
     && nNhan > 0 && nDat >= 0 && nDat <= nNhan && nMau <= nNhan;
 
   async function luu() {
@@ -142,10 +143,12 @@ function KcsBatchForm({
     <div className="thsx-x-form">
       <div className="thsx-x-grid2">
         <Field label="Bắt đầu">
-          <input type="datetime-local" className="thsx-x-in" value={batDau} onChange={(e) => setBatDau(e.target.value)} />
+          <input type="datetime-local" className="thsx-x-in" min={GIO_NHAP_MIN} max={GIO_NHAP_MAX}
+            value={batDau} onChange={(e) => setBatDau(e.target.value)} />
         </Field>
         <Field label="Kết thúc">
-          <input type="datetime-local" className="thsx-x-in" value={ketThuc} onChange={(e) => setKetThuc(e.target.value)} />
+          <input type="datetime-local" className="thsx-x-in" min={GIO_NHAP_MIN} max={GIO_NHAP_MAX}
+            value={ketThuc} onChange={(e) => setKetThuc(e.target.value)} />
         </Field>
         <Field label={`Số nhận${donVi ? ` (${donVi})` : ""}`}>
           <input type="number" min={0} className="thsx-x-in" value={nhan} onChange={(e) => setNhan(e.target.value)} placeholder="0" />

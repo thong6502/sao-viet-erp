@@ -14,6 +14,7 @@ import { LSX_LOAI_BUOC_META, type LsxLoaiBuoc } from "../api/client";
 import { Button } from "../components/Button";
 import { TagPicker } from "../components/TagPicker";
 import { dvNhan as dvNhanChung, type RefRow } from "./LsxRoutingTable";
+import { GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapSai } from "../lib/gioNhap";
 import { ngayGio, num } from "./keHoachSxShared";
 import {
   type EditRow,
@@ -189,6 +190,12 @@ export function LsxBuocDrawer({
 
   async function luuGiaoNhan() {
     if (!gnMo || row.id == null) return;
+    // Ô trống = "lúc bấm nút" (BE tự lấy giờ). Nhưng gõ dở/năm 6 chữ số thì `new Date(...)` ra
+    // Invalid Date và `.toISOString()` NÉM lỗi — người dùng chỉ thấy "không ghi được, thử lại".
+    if (gioNhapSai(gnLuc)) {
+      setGnLoi("Giờ không đọc được — năm phải 4 chữ số, trong khoảng 2000–2099.");
+      return;
+    }
     setGnDangGhi(true);
     setGnLoi(null);
     try {
@@ -2070,6 +2077,8 @@ export function LsxBuocDrawer({
                         <input
                           type="datetime-local"
                           className="khsx-input-std"
+                          min={GIO_NHAP_MIN}
+                          max={GIO_NHAP_MAX}
                           value={gnLuc}
                           onChange={(e) => setGnLuc(e.target.value)}
                         />
