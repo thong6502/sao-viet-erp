@@ -14,9 +14,12 @@ from datetime import datetime, timezone
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from ...models.san_xuat import GOI_DANG_PHAT_HANH, SanXuatCongViec, SanXuatGoiPhatHanh
+from ...models.san_xuat import (
+    CV_HOAN_THANH, GOI_DANG_PHAT_HANH, SanXuatCongViec, SanXuatGoiPhatHanh,
+)
 from ...models.san_xuat_thuc_thi import SanXuatPhienChay
 from ...models.san_xuat_san_luong import SanXuatBatch
+from ..gio_xuong import gio_xuong, ve_gio_xuong
 
 
 def _aware(dt: datetime | None) -> datetime | None:
@@ -116,13 +119,20 @@ def nap_thuc_te(db: Session, rows: list, *, bay_gio: datetime | None = None) -> 
         ).all()
     }
 
-    now = _aware(bay_gio) or datetime.now(timezone.utc)
+    # `du_kien_*` là GIỜ XƯỞNG (snapshot chép từ `xep_lich_cong_doan`), còn `san_xuat_phien_chay`
+    # là UTC THẬT — phải quy về CÙNG một thang trước khi trừ, nếu không lệch đúng offset máy chủ
+    # (VN: 7 tiếng) theo chiều khoan dung rồi bị `_phut()` kẹp thành 0. Xem `services/gio_xuong.py`.
+    now = _aware(bay_gio) or gio_xuong()
     ra: dict[int, dict] = {}
     for khoa, cv in cv_theo_neo.items():
         tot, hong = sl_map.get(cv.id, (0.0, 0.0))
         bd, kt, con_mo = moc_map.get(cv.id, (None, None, 0))
-        # Phiên còn mở ⇒ chưa xong, đừng lấy `max(ket_thuc)` của các phiên đã đóng làm giờ kết thúc.
-        ket_thuc = None if con_mo else _aware(kt)
+        bd, kt = ve_gio_xuong(bd), ve_gio_xuong(kt)
+        # XONG là do TRẠNG THÁI công việc nói, không phải do "hết phiên mở": `tam_dung()` cũng đóng
+        # phiên đang mở, nên chỉ soi `con_mo` thì việc đang tạm dừng bị đọc thành đã kết thúc — thanh
+        # Gantt hết đỏ đúng lúc hết ca, và `tre_ket_thuc_phut` ngừng tăng trong suốt lúc việc nằm im.
+        xong = cv.trang_thai == CV_HOAN_THANH and not con_mo
+        ket_thuc = kt if xong else None
         muc_tieu = float(cv.so_luong_ra) if cv.so_luong_ra is not None else None
         con_thieu = max(muc_tieu - tot, 0.0) if muc_tieu is not None else None
         phan_tram = round(tot / muc_tieu * 100, 1) if muc_tieu else None
@@ -131,7 +141,7 @@ def nap_thuc_te(db: Session, rows: list, *, bay_gio: datetime | None = None) -> 
         thong_tin = {
             "cong_viec_id": cv.id,
             "trang_thai": cv.trang_thai,
-            "bat_dau_thuc": _aware(bd),
+            "bat_dau_thuc": bd,
             "ket_thuc_thuc": ket_thuc,
             "tong_tot": tot,
             "tong_hong": hong,

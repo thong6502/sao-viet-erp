@@ -22,6 +22,7 @@ from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.xep_lich_repo import XepLichRepository
 from app.security import create_access_token, hash_password
+from app.services.gio_xuong import ve_gio_xuong  # noqa: F401  (đối xứng với `_thuc`)
 from app.services.xep_lich_service import XepLichConflict, _gio_xuong
 from app.services.xep_lich_van_de_service import XepLichVanDeService
 
@@ -39,6 +40,14 @@ from tests.test_xep_lich_service import (  # noqa: F401
     orders,
     xl_svc,
 )
+
+
+def _thuc(t: datetime) -> datetime:
+    """Mốc GIỜ XƯỞNG `t` ứng với mốc UTC THẬT nào — `san_xuat_phien_chay.bat_dau/ket_thuc` do
+    `thuc_thi._moc()` ghi bằng UTC thật, còn `du_kien_*`/`start_at` là giờ tường nhà máy. Dựng cả
+    hai từ cùng một hằng là bỏ lọt đúng chỗ hai thang gặp nhau. Xem `app/services/gio_xuong.py`."""
+    return t - (datetime.now().astimezone().utcoffset() or timedelta(0))
+
 
 
 @pytest.fixture
@@ -503,7 +512,7 @@ def test_lech_thuc_te_bat_dau_muon_thi_bao_luu_y(db, orders, lsx_svc, admin, cus
     cv.du_kien_bat_dau = dong.start_at
     cv.du_kien_ket_thuc = dong.finish_at
     db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1,
-                            bat_dau=dong.start_at + timedelta(hours=3)))
+                            bat_dau=_thuc(dong.start_at + timedelta(hours=3))))
     db.commit()
 
     svc = _van_de_svc(db)  # helper của file này
@@ -537,8 +546,8 @@ def test_lech_thuc_te_viec_da_xong_thi_thoi_bao(db, orders, lsx_svc, admin, cust
     cv.du_kien_bat_dau = dong.start_at
     cv.du_kien_ket_thuc = dong.finish_at
     db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1,
-                            bat_dau=dong.start_at + timedelta(hours=3),
-                            ket_thuc=dong.start_at + timedelta(hours=5)))
+                            bat_dau=_thuc(dong.start_at + timedelta(hours=3)),
+                            ket_thuc=_thuc(dong.start_at + timedelta(hours=5))))
     db.commit()
 
     keys = {i["issue_key"] for i in _van_de_svc(db).liet_ke()["items"]}
@@ -582,7 +591,7 @@ def test_lech_thuc_te_dung_gio_thi_im_lang(db, orders, lsx_svc, admin, customer)
     cv.du_kien_bat_dau = dong.start_at
     cv.du_kien_ket_thuc = dong.finish_at
     db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1,
-                            bat_dau=dong.start_at + timedelta(minutes=15)))
+                            bat_dau=_thuc(dong.start_at + timedelta(minutes=15))))
     db.commit()
 
     keys = {i["issue_key"] for i in _van_de_svc(db).liet_ke()["items"]}
@@ -652,7 +661,7 @@ def test_sai_tien_nhiem_im_khi_to_da_vao_viec(db, orders, lsx_svc, admin, custom
     cv.du_kien_bat_dau = dong.start_at
     cv.du_kien_ket_thuc = dong.finish_at
     db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1,
-                            bat_dau=dong.start_at + timedelta(minutes=10)))
+                            bat_dau=_thuc(dong.start_at + timedelta(minutes=10))))
     db.commit()
 
     keys = {i["issue_key"] for i in _van_de_svc(db).liet_ke()["items"]}

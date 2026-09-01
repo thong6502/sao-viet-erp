@@ -42,6 +42,7 @@ from ...models.san_xuat_thuc_thi import (
 from ...repositories.audit_repo import AuditLogRepository
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from ...repositories.san_xuat_thuc_thi_repo import SanXuatThucThiRepository
+from ..gio_xuong import ve_gio_xuong
 
 
 def _moc() -> datetime:
@@ -257,7 +258,10 @@ def bat_dau(
             )
 
     now = _moc()
-    if cv.du_kien_bat_dau is not None and now > _aware(cv.du_kien_bat_dau) and not (ly_do_tre or "").strip():
+    # `du_kien_*` là GIỜ XƯỞNG còn `_moc()` là UTC THẬT — so thẳng thì cổng "trễ" khoan dung đúng
+    # bằng offset máy chủ (VN: 7 tiếng). Quy về cùng thang trước khi so (`services/gio_xuong.py`).
+    if (cv.du_kien_bat_dau is not None and ve_gio_xuong(now) > _aware(cv.du_kien_bat_dau)
+            and not (ly_do_tre or "").strip()):
         raise ValueError("Bắt đầu trễ so với dự kiến — bắt buộc chọn lý do.")
 
     # Không ai được đang mở khoảng ở việc khác (§7.1) — kiểm TRƯỚC khi mở loạt.
@@ -353,7 +357,8 @@ def ket_thuc(
         raise ValueError("Chỉ công việc đang chạy hoặc tạm dừng mới kết thúc được.")
 
     now = _moc()
-    tre = cv.du_kien_ket_thuc is not None and now > _aware(cv.du_kien_ket_thuc)
+    # Cùng lý do như ở `bat_dau`: quy `now` (UTC thật) về giờ xưởng trước khi so với `du_kien_*`.
+    tre = cv.du_kien_ket_thuc is not None and ve_gio_xuong(now) > _aware(cv.du_kien_ket_thuc)
     da_giai_thich = any(
         p.loai_dong == PHIEN_TAM_DUNG and (p.ly_do or "").strip()
         for p in repo.cac_phien(cv.id)

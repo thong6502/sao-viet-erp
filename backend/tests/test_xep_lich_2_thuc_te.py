@@ -10,7 +10,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, SanXuatCongViec
+from app.models.san_xuat import (
+    CV_DANG_CHAY, CV_HOAN_THANH, CV_TAM_DUNG, SanXuatCongViec,
+)
 from app.models.san_xuat_thuc_thi import SanXuatPhienChay
 from app.models.san_xuat_san_luong import SanXuatBatch
 from app.models.xep_lich import NGUON_LSX, TT_DA_XEP, XepLichCongDoan
@@ -22,6 +24,16 @@ from tests.test_san_xuat_thuc_thi import (  # noqa: F401
 )
 
 _T0 = datetime(2026, 8, 19, 8, 0, tzinfo=timezone.utc)
+
+
+def _thuc(t: datetime) -> datetime:
+    """Mốc GIỜ XƯỞNG `t` tương ứng với mốc UTC THẬT nào — đúng cách production ghi:
+    `du_kien_*` là giờ tường nhà máy (chép từ `xep_lich_cong_doan`), còn
+    `san_xuat_phien_chay.bat_dau/ket_thuc` do `thuc_thi._moc()` ghi bằng UTC thật. Dựng cả hai từ
+    CÙNG một hằng như trước là bỏ qua đúng chỗ hai thang gặp nhau — lỗi lệch 7 tiếng chui lọt vì
+    thế (phát hiện 01/09/2026). Xem `app/services/gio_xuong.py`.
+    """
+    return t - (datetime.now().astimezone().utcoffset() or timedelta(0))
 
 
 def _dong_lich(db, cv) -> XepLichCongDoan:
@@ -60,7 +72,7 @@ def test_dang_chay_co_batch_thi_tinh_phan_tram_va_con_thieu(db, orders, lsx_svc,
     cv.so_luong_ra = 10000
     cv.don_vi_ra = "tờ"
     d = _dong_lich(db, cv)
-    db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1, bat_dau=_T0 + timedelta(hours=2)))
+    db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1, bat_dau=_thuc(_T0 + timedelta(hours=2))))
     db.add(SanXuatBatch(cong_viec_id=cv.id, bat_dau=_T0 + timedelta(hours=2),
                         ket_thuc=_T0 + timedelta(hours=3), tong=6000, tot=5800, hong=200,
                         don_vi="tờ"))
@@ -82,7 +94,7 @@ def test_qua_gio_du_kien_ma_van_chay_thi_bao_tre_ket_thuc(db, orders, lsx_svc, a
     cv.so_luong_ra = 100
     cv.don_vi_ra = "tờ"
     d = _dong_lich(db, cv)
-    db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1, bat_dau=_T0))
+    db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1, bat_dau=_thuc(_T0)))
     db.commit()
 
     ra = nap_thuc_te(db, [d], bay_gio=_T0 + timedelta(hours=7))[d.id]
@@ -99,10 +111,10 @@ def test_xong_roi_thi_lay_moc_ket_thuc_phien_cuoi(db, orders, lsx_svc, admin, cu
     cv.don_vi_ra = "tờ"
     d = _dong_lich(db, cv)
     db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1,
-                            bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1)))
+                            bat_dau=_thuc(_T0), ket_thuc=_thuc(_T0 + timedelta(hours=1))))
     db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=2,
-                            bat_dau=_T0 + timedelta(hours=2),
-                            ket_thuc=_T0 + timedelta(hours=5)))
+                            bat_dau=_thuc(_T0 + timedelta(hours=2)),
+                            ket_thuc=_thuc(_T0 + timedelta(hours=5))))
     db.add(SanXuatBatch(cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=5),
                         tong=100, tot=100, hong=0, don_vi="tờ"))
     db.commit()
@@ -175,9 +187,9 @@ def test_phien_moi_con_mo_giua_nhieu_phien_thi_chua_tinh_ket_thuc(db, orders, ls
     cv.don_vi_ra = "tờ"
     d = _dong_lich(db, cv)
     db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1,
-                            bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=1)))   # đã đóng
+                            bat_dau=_thuc(_T0), ket_thuc=_thuc(_T0 + timedelta(hours=1))))   # đã đóng
     db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=2,
-                            bat_dau=_T0 + timedelta(hours=2)))                  # còn mở
+                            bat_dau=_thuc(_T0 + timedelta(hours=2))))                  # còn mở
     db.commit()
 
     ra = nap_thuc_te(db, [d])[d.id]
@@ -251,3 +263,49 @@ def test_thanh_chua_phat_hanh_van_mang_khoa_thuc_te_bang_none(db, orders, lsx_sv
     thanh = {row["id"]: row for row in ban["dong"]}
     assert "thuc_te" in thanh[chua.id] and thanh[chua.id]["thuc_te"] is None
     assert thanh[d.id]["thuc_te"] is not None      # thanh có việc vẫn ra dữ liệu như thường
+
+
+def test_moc_thuc_te_ghi_bang_utc_that_van_do_dung_so_phut_muon(
+    db, orders, lsx_svc, admin, customer
+):
+    """HỢP ĐỒNG HAI ĐỒNG HỒ (phát hiện 01/09/2026). `du_kien_*` là GIỜ XƯỞNG, còn
+    `san_xuat_phien_chay.bat_dau` do `thuc_thi._moc()` ghi bằng UTC THẬT. Trước khi vá,
+    `nap_thuc_te` trừ thẳng hai thang nên hụt đúng offset máy chủ (VN: 7 tiếng) rồi bị `_phut()`
+    kẹp về 0 — cảnh báo "vào việc muộn" chỉ kêu khi muộn quá 8 tiếng, và con số in ra vẫn sai.
+    Test này dựng đúng như production ghi nên nó ĐỎ khi lỗi còn."""
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-TT9")
+    cv.trang_thai = CV_DANG_CHAY
+    cv.du_kien_bat_dau = _T0
+    cv.du_kien_ket_thuc = _T0 + timedelta(hours=4)
+    cv.so_luong_ra = 100
+    cv.don_vi_ra = "tờ"
+    d = _dong_lich(db, cv)
+    # Tổ trưởng bấm Bắt đầu lúc 11:00 giờ XƯỞNG — muộn 3 tiếng so với mốc 08:00.
+    db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1,
+                            bat_dau=_thuc(_T0 + timedelta(hours=3))))
+    db.commit()
+
+    ra = nap_thuc_te(db, [d], bay_gio=_T0 + timedelta(hours=3))[d.id]
+    assert ra["tre_bat_dau_phut"] == 180
+    assert ra["bat_dau_thuc"].replace(tzinfo=timezone.utc) == _T0 + timedelta(hours=3)
+
+
+def test_tam_dung_khong_bi_doc_thanh_da_xong(db, orders, lsx_svc, admin, customer):
+    """`tam_dung()` ĐÓNG phiên đang mở rồi đặt `CV_TAM_DUNG`, nên sau đó không còn phiên nào
+    `ket_thuc IS NULL`. Nếu chỉ soi "hết phiên mở" thì việc đang nằm im bị báo cáo là ĐÃ KẾT THÚC:
+    thanh Gantt hết đỏ đúng khoảnh khắc hết ca, và `tre_ket_thuc_phut` ngừng tăng suốt thời gian
+    việc đứng — đúng lúc điều độ cần thấy nó phình ra."""
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-TT10")
+    cv.trang_thai = CV_TAM_DUNG
+    cv.du_kien_bat_dau = _T0
+    cv.du_kien_ket_thuc = _T0 + timedelta(hours=4)
+    cv.so_luong_ra = 100
+    cv.don_vi_ra = "tờ"
+    d = _dong_lich(db, cv)
+    db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1, bat_dau=_thuc(_T0),
+                            ket_thuc=_thuc(_T0 + timedelta(hours=6))))
+    db.commit()
+
+    ra = nap_thuc_te(db, [d], bay_gio=_T0 + timedelta(hours=10))[d.id]
+    assert ra["ket_thuc_thuc"] is None       # tạm dừng ≠ xong
+    assert ra["tre_ket_thuc_phut"] == 360    # đo tới BÂY GIỜ, không dừng ở mốc bấm tạm dừng
