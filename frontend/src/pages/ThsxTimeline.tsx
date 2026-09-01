@@ -8,7 +8,7 @@
 // một ruy-băng moss mảnh ngay dưới thanh — cùng trục giờ nên lệch trái/phải = lệch bắt-đầu/kết-thúc
 // so kế hoạch; phiên mở kéo tới "bây giờ". Chi tiết từng phiên vẫn ở DRAWER. Component CHỈ ĐỌC +
 // phát `onChonViec(id)` khi bấm thanh.
-import { useEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "../components/Icons";
 import { ngayGio } from "./keHoachSxShared";
 import { LABEL_W, BAR_H, buildLinearScale, ngayToWall, type Xl2Zoom } from "./xl2Shared";
@@ -72,6 +72,21 @@ export function ThsxTimeline({ clusters, winTu, winDen, zoom, selectedId, onChon
     return n >= winStart && n <= winEnd ? scale.xOf(n) : null;
   }, [winStart, winEnd, scale]);
 
+  // Cột nhãn 270px vừa vặn trên máy bàn, nhưng ở 375px nó ăn gần hết bề ngang: phần vẽ thanh
+  // chỉ còn khoảng 105px trên một trục dài hơn 11.000px — mở ra là một dải trống. Màn hẹp rút
+  // cột nhãn còn 140px; tên máy/công đoạn dài thì cắt bằng "…" (đã có `title` đầy đủ khi chạm
+  // giữ). Cùng ngưỡng 820px với chỗ CSS xếp chồng hai cột.
+  const [labelW, setLabelW] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia("(max-width: 820px)").matches ? 140 : LABEL_W);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 820px)");
+    const apDung = () => setLabelW(mq.matches ? 140 : LABEL_W);
+    apDung();
+    mq.addEventListener("change", apDung);
+    return () => mq.removeEventListener("change", apDung);
+  }, []);
+
   // Cuộn ngang tới thanh đang chọn (bấm dòng trái → thấy thanh; §3 "scroll-to").
   const scrollRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -87,13 +102,13 @@ export function ThsxTimeline({ clusters, winTu, winDen, zoom, selectedId, onChon
     const sW = wallMinutes(start);
     if (!Number.isFinite(sW)) return;
     const barLeft = scale.xOf(sW);
-    const target = LABEL_W + barLeft - el.clientWidth / 2;
+    const target = labelW + barLeft - el.clientWidth / 2;
     el.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
-  }, [selectedId, clusters, scale]);
+  }, [selectedId, clusters, scale, labelW]);
 
-  const fullW = LABEL_W + scale.width;
+  const fullW = labelW + scale.width;
   const laneStyle: CSSProperties = {
-    "--thsx-label-w": `${LABEL_W}px`, "--thsx-bar-h": `${BAR_H}px`,
+    "--thsx-label-w": `${labelW}px`, "--thsx-bar-h": `${BAR_H}px`,
   } as CSSProperties;
 
   return (
@@ -103,12 +118,12 @@ export function ThsxTimeline({ clusters, winTu, winDen, zoom, selectedId, onChon
         <div className="thsx-ruler" style={{ width: fullW }}>
           <div className="thsx-ruler__spacer" />
           {ruler.days.map((d, i) => (
-            <div key={`d${i}`} className="thsx-ruler__day" style={{ left: LABEL_W + d.x, width: d.w }}>
+            <div key={`d${i}`} className="thsx-ruler__day" style={{ left: labelW + d.x, width: d.w }}>
               {d.label}
             </div>
           ))}
           {ruler.ticks.map((t, i) => (
-            <div key={`t${i}`} className="thsx-ruler__tick" style={{ left: LABEL_W + t.x }}>
+            <div key={`t${i}`} className="thsx-ruler__tick" style={{ left: labelW + t.x }}>
               {t.label}
             </div>
           ))}

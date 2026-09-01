@@ -1393,6 +1393,7 @@ export interface SxWorkItem {
   la_kcs: boolean;
   la_kcs_cuoi: boolean;
   may: string;
+  may_id: number | null;       // máy HIỆN TẠI — dựng ô chọn "Đổi máy" (§7.2 mở rộng)
   du_kien_bat_dau: string | null;
   du_kien_ket_thuc: string | null;
   du_kien_so_nguoi: number | null;  // số người dự kiến (§7.1) — so với roster để đòi lý do lệch
@@ -1455,6 +1456,13 @@ export interface SxLenhKetQua {
   version: number;
 }
 
+/** Như `SxLenhKetQua` + con trỏ sang yêu cầu sửa chữa vừa gửi — để toast nói được
+ *  "đã gửi YC-0042 tới tổ sửa chữa" thay vì một câu chung chung. */
+export interface SxSuCoKetQua extends SxLenhKetQua {
+  yeu_cau_id: number;
+  yeu_cau_ma: string;
+}
+
 export interface SxPhanCongItem {
   id: number;
   employee_id: number;
@@ -1466,9 +1474,11 @@ export interface SxPhanCongItem {
 export interface SxPhienChay {
   id: number;
   so_thu_tu: number;
+  may_id: number | null;       // máy CHẠY TRONG PHIÊN NÀY — có thể khác phiên trước nếu đã đổi máy
+  may_ten: string | null;
   bat_dau: string;
   ket_thuc: string | null;
-  loai_dong: string | null;    // "tam_dung" | "ket_thuc"
+  loai_dong: string | null;    // "tam_dung" | "doi_may" | "ket_thuc"
   ly_do_bat_dau_tre: string | null;
   ly_do: string | null;
 }
@@ -1718,8 +1728,19 @@ export interface SxLyDo {
 export interface SxPhanCongIn { employee_id: number; expected_version?: number | null }
 export interface SxGoPhanCongIn { ly_do?: string | null; expected_version?: number | null }
 export interface SxBatDauIn { ly_do_tre?: string | null; ly_do_so_nguoi?: string | null; expected_version?: number | null }
+export interface SxDoiMayIn { may_id: number; ly_do?: string | null; expected_version?: number | null }
 export interface SxTamDungIn { ly_do: string; expected_version?: number | null }
 export interface SxKetThucIn { ly_do_tre?: string | null; expected_version?: number | null }
+/** Báo sự cố tại tổ (31/08/2026) → ghi thẳng vào hộp thư "Báo máy hỏng" của tổ sửa chữa.
+ *  KHÔNG có ô "máy": server lấy đúng máy của công việc đang chạy. `mo_ta` bắt buộc khi
+ *  `dung_san_xuat` (mốc mất giờ máy của lệnh). `muc_do` lấy từ `NHAN_MUC_DO` của kyThuatMay. */
+export interface SxSuCoIn {
+  bo_phan_hong: string;
+  mo_ta?: string | null;
+  muc_do: string;
+  dung_san_xuat: boolean;
+  expected_version?: number | null;
+}
 
 // Body G3/G4
 export interface SxLotVaoIn {
@@ -1868,6 +1889,9 @@ export interface SxNhapKhoYc {
   con_lai: number;
   don_vi: string;
   quy_cach?: string | null;
+  /** Kho KCS ĐỀ NGHỊ (có thể trống) — kho THẬT nằm trên từng lot. */
+  kho_id?: number | null;
+  kho_ten?: string | null;
   trang_thai: SxNhapKhoTrangThai;
   ghi_chu?: string | null;
   version: number;
@@ -1883,6 +1907,9 @@ export interface SxKhoLot {
   so_luong: number;
   don_vi: string;
   phan_loai?: SxPhanLoaiBtp | null;
+  /** Kho ĐÃ NHẬN lot này (mẫu lưu / phế và lot cũ trước mg 0249 để trống). */
+  kho_id?: number | null;
+  kho_ten?: string | null;
   kho_xac_nhan: boolean;
   quy_cach?: string | null;
   ghi_chu?: string | null;
@@ -1905,6 +1932,8 @@ export interface SxNhapKhoYeuCauIn {
 }
 export interface SxKhoXacNhanNhapIn {
   so_luong: number;
+  /** KHO ĐÍCH — BẮT BUỘC. Không chọn kho thì lot thành phẩm không tra được tồn theo kho. */
+  kho_id: number;
   expected_version?: number | null;
 }
 export interface SxHuyPhanChuaNhanIn {
@@ -1922,6 +1951,8 @@ export interface SxKhoXacNhanNhapKetQua {
   lot_id: number;
   kcs_batch_id: number;
   nhom_id?: number | null;
+  /** Kho đã nhận lot vừa đẻ. */
+  kho_id: number;
   trang_thai: SxNhapKhoTrangThai;
   so_luong_xac_nhan: number;
   version: number;
@@ -10074,9 +10105,24 @@ export const api = {
         method: "POST", body: JSON.stringify(body),
       });
     },
+    /** Đổi máy giữa chừng (§7.2 mở rộng 31/08/2026). CHẠY → đóng phiên máy cũ + mở phiên mới
+     *  CÙNG mốc (giờ máy cũ không mất); TẠM DỪNG → chỉ đổi máy phân công, không mở phiên. */
+    doiMay(token: string, congViecId: number, body: SxDoiMayIn): Promise<SxLenhKetQua> {
+      return authed<SxLenhKetQua>(`/api/san-xuat/work-items/${congViecId}/doi-may`, token, {
+        method: "POST", body: JSON.stringify(body),
+      });
+    },
     /** Tạm dừng: đóng phiên + khoảng tham gia. `ly_do` BẮT BUỘC. */
     tamDung(token: string, congViecId: number, body: SxTamDungIn): Promise<SxLenhKetQua> {
       return authed<SxLenhKetQua>(`/api/san-xuat/work-items/${congViecId}/tam-dung`, token, {
+        method: "POST", body: JSON.stringify(body),
+      });
+    },
+    /** Báo sự cố máy ngay tại tổ (31/08/2026): ghi vào hộp thư "Báo máy hỏng" của tổ sửa chữa,
+     *  kèm neo về công việc/lệnh. `dung_san_xuat` → công việc chuyển Tạm dừng + đóng phiên máy
+     *  trong CÙNG một giao dịch; "Vẫn chạy" → chỉ gửi yêu cầu, đồng hồ máy không dừng. */
+    baoSuCo(token: string, congViecId: number, body: SxSuCoIn): Promise<SxSuCoKetQua> {
+      return authed<SxSuCoKetQua>(`/api/san-xuat/work-items/${congViecId}/su-co`, token, {
         method: "POST", body: JSON.stringify(body),
       });
     },

@@ -2415,7 +2415,7 @@ function QuotesTab({
           {chot.pct !== null && chot.daChao < 3 && (
             <span
               className="kh__badge kh__badge--warn"
-              style={{ fontSize: "9px", padding: "1px 6px", marginTop: "2px" }}
+              style={{ fontSize: "12px", padding: "1px 6px", marginTop: "2px" }}
             >
               Mẫu nhỏ
             </span>
@@ -4297,7 +4297,7 @@ function CareTab({ customerId, onCareChanged }: { customerId: number; onCareChan
               <button
                 type="button"
                 className="kh__linkbtn"
-                style={{ marginLeft: "auto", fontSize: 11 }}
+                style={{ marginLeft: "auto", fontSize: 12 }}
                 onClick={() => setShowCancelled((v) => !v)}
               >
                 {showCancelled ? "Ẩn đã huỷ" : `Hiện đã huỷ (${cancelledCount})`}
@@ -4307,7 +4307,7 @@ function CareTab({ customerId, onCareChanged }: { customerId: number; onCareChan
 
           {visibleHistory.length === 0 ? (
             <p className="kh__muted kh__chart-empty" style={{ background: "var(--canvas)", border: "1px solid var(--rule-soft)", borderRadius: "var(--r-5)", padding: "var(--sp-6)", textAlign: "center" }}>
-              Chưa có hoạt động nào — đặt hẹn ở lịch trên, tick tròn khi làm xong để lưu lịch sử.
+              Chưa có hoạt động nào — đặt hẹn ở lịch trên<span className="cc__hint-tick">, tick tròn khi làm xong</span> để lưu lịch sử.
             </p>
           ) : (
             <div className="care-timeline">
@@ -4592,7 +4592,7 @@ function ContactsTab({ customerId }: { customerId: number }) {
                       <h4 className="kh__contact-name">
                         {c.name}
                         {c.is_primary && (
-                          <span className="kh__badge kh__badge--moss" style={{ fontSize: "9px", padding: "1px 6px", display: "inline-flex", alignItems: "center", gap: "2px", marginLeft: "6px" }}>
+                          <span className="kh__badge kh__badge--moss" style={{ fontSize: "12px", padding: "1px 6px", display: "inline-flex", alignItems: "center", gap: "2px", marginLeft: "6px" }}>
                             <CheckCircle2 size={10} /> Chính
                           </span>
                         )}
@@ -4857,7 +4857,7 @@ function AddressesTab({ customerId }: { customerId: number }) {
                     <MapPin size={16} />
                     {a.label}
                     {a.is_default && (
-                      <span className="kh__badge kh__badge--moss" style={{ fontSize: "9px", padding: "1px 6px", display: "inline-flex", alignItems: "center", gap: "2px", marginLeft: "6px" }}>
+                      <span className="kh__badge kh__badge--moss" style={{ fontSize: "12px", padding: "1px 6px", display: "inline-flex", alignItems: "center", gap: "2px", marginLeft: "6px" }}>
                         <CheckCircle2 size={10} /> Mặc định
                       </span>
                     )}
@@ -5046,7 +5046,7 @@ function AttachmentsTab({ customerId }: { customerId: number }) {
                     <span>
                       <Calendar size={10} /> {fmtDate(a.uploaded_at)}
                     </span>
-                    <span className="kh__badge" style={{ fontSize: "9px", padding: "0 6px" }}>
+                    <span className="kh__badge" style={{ fontSize: "12px", padding: "0 6px" }}>
                       {DOC_KIND_LABELS[a.doc_kind] ?? a.doc_kind}
                     </span>
                   </div>

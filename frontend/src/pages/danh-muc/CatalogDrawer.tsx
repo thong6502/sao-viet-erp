@@ -452,7 +452,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
               disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
           </div>
           {!isEdit && typedMa && (
-            <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
+            <span style={{ fontSize: "12px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
               {isMaDuplicate ? "Mã đã tồn tại!" : "Mã hợp lệ!"}
             </span>
           )}

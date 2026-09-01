@@ -76,7 +76,7 @@
 .dmodal__subtitle {
   margin-top: 3px;
   font-size: 12.5px;
-  color: #64748b;
+  color: var(--ash-2);
   line-height: 1.4;
 }
 
@@ -95,7 +95,7 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #64748b;
+  color: var(--ash-2);
   font-size: 20px;
   display: inline-flex;
   align-items: center;

@@ -186,9 +186,14 @@ def tong_quan(db: Session, lsx_ids: list[int]) -> list[dict]:
 
     # --- Nguồn 2: giữ chỗ vật tư, một bảng cân đối dùng chung cả trang ---
     giu = bang = None
+    giu_theo_lsx: dict[int, list] = {}
     loi_vt = ""
     try:
         giu, bang = _dung_vat_tu(db)
+        # Dòng giữ chỗ của CẢ TRANG trong MỘT câu. Không có nó thì `trang_thai()` bên dưới tự đi
+        # lấy — tức một câu SELECT cho MỖI lệnh, và hàm này lại là nguồn đèn vật tư của màn danh
+        # sách lệnh. Bài canh: `test_lenh_sx_api.test_so_cau_sql_hang_tren_truc_lenh`.
+        giu_theo_lsx = giu.repo.cua_nhieu_lsx(ids)
     except Exception as exc:                                            # noqa: BLE001
         loi_vt = f"Chưa đọc được vật tư ({type(exc).__name__})"
 
@@ -196,7 +201,9 @@ def tong_quan(db: Session, lsx_ids: list[int]) -> list[dict]:
     for i in ids:
         if giu is not None:
             try:
-                den_vt = _den_vat_tu(giu.trang_thai(lsx_id=i, bang=bang), i)
+                den_vt = _den_vat_tu(
+                    giu.trang_thai(lsx_id=i, bang=bang, dang_theo_lsx=giu_theo_lsx), i
+                )
             except Exception as exc:                                    # noqa: BLE001
                 den_vt = _den(MUC_OK, f"Chưa đọc được vật tư ({type(exc).__name__})")
         else:

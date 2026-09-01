@@ -1190,6 +1190,17 @@ select.input {
 .qpdf .q-brand-info > div { display: flex; gap: var(--q-sp-1); }
 .qpdf .q-blbl { font-weight: 700; }
 .qpdf .q-blbl::after { content: ":"; margin-right: var(--q-sp-1); }
+/* Huy hiệu chứng nhận (FSC/SMETA-Sedex/ISO) — giữ màu gốc như letterhead giấy thật, KHÔNG ép về
+   đen/trắng: đây là phần mở rộng của đúng ngoại lệ "logo+tên đã có màu sẵn" ở trên, không phải
+   một ngoại lệ mới. Xếp lưới 2×2 (FSC/SMETA hàng trên, 2 ISO hàng dưới) cạnh khối thông tin liên hệ. */
+.qpdf .q-badges {
+  flex: none; display: grid; grid-template-columns: repeat(2, auto); gap: var(--q-sp-2) var(--q-sp-3);
+  align-items: center; justify-items: center;
+}
+/* Ép chung một khung 56×40 + object-fit: contain — 4 ảnh gốc tỉ lệ khung hình khác hẳn nhau
+   (SMETA/Sedex nằm ngang, FSC/ISO gần vuông); nếu chỉ khoá height thì SMETA/Sedex kéo rộng ra
+   trông "to" hẳn so với 3 cái kia. Khoá cả khung mới đều nhau. */
+.qpdf .q-badges img { width: 56px; height: 40px; object-fit: contain; }
 
 .qpdf .q-date-line { text-align: right; font-style: italic; font-size: var(--q-fs-small); margin: var(--q-sp-3) 0 0; }
 
@@ -1202,12 +1213,12 @@ select.input {
    đậm — chữ bệt, viền lởm, in ra càng lộ. Cả tờ chỉ dùng đúng 400 và 700. */
 .qpdf .q-th h1 { font-size: var(--q-fs-title); font-weight: 700; line-height: 1.15; }
 .qpdf .q-en { font-style: italic; }
-.qpdf .q-intro { font-style: italic; margin: var(--q-sp-3) 0 0; font-size: var(--q-fs-body); }
+.qpdf .q-intro { margin: var(--q-sp-3) 0 0; font-size: var(--q-fs-body); }
 
 /* tiêu đề mục — chỉ chữ hoa đậm, KHÔNG kẻ gạch chân (bỏ theo yêu cầu, đỡ rối mắt). */
 .qpdf .q-sec {
   font-weight: 700; font-size: var(--q-fs-lead); text-transform: uppercase;
-  margin: var(--q-sp-6) 0 var(--q-sp-2);
+  margin: var(--q-sp-4) 0 var(--q-sp-2);
 }
 .qpdf .q-sec .q-sec-en { font-weight: 400; font-size: var(--q-fs-micro); text-transform: none; letter-spacing: 0; font-style: italic; }
 
@@ -1278,11 +1289,11 @@ select.input {
 
 /* điều khoản */
 .qpdf ol.q-notes { margin: 0; padding-left: var(--q-sp-4); font-size: var(--q-fs-body); }
-.qpdf ol.q-notes li { margin-bottom: var(--q-sp-1); line-height: 1.55; }
+.qpdf ol.q-notes li { margin-bottom: var(--q-sp-1); line-height: 1.4; }
 
 /* chữ ký — chỉ còn bên bán (khách xác nhận trên đơn hàng, không ký tay ở bản báo giá này nữa);
    chốt bên phải trang như thể thức thư mời, chừa khoảng ký rồi KẺ NÉT để biết ký lên đâu. */
-.qpdf .q-signs { display: flex; justify-content: flex-end; margin-top: var(--q-sp-6); text-align: center; }
+.qpdf .q-signs { display: flex; justify-content: flex-end; margin-top: var(--q-sp-4); text-align: center; }
 .qpdf .q-signs > div { width: 50%; }
 /* Tên công ty + chức danh người ký — cùng cỡ, đậm, to hơn thân bài (theo đúng letterhead thật). */
 .qpdf .q-signs .q-role { font-weight: 700; font-size: var(--q-fs-lead); }
@@ -1680,7 +1691,7 @@ select.input {
   padding: 3px 10px;
   border-radius: 12px;
   background: var(--paper-contrast, #f1f5f9);
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   border: 1px solid var(--rule, #cbd5e1);
 }
 
@@ -1706,7 +1717,7 @@ select.input {
 
 .rdx-quote .terms-section__hint {
   font-size: 11.5px;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   font-style: italic;
 }
 
@@ -1807,7 +1818,7 @@ select.input {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
 }
 
 .rdx-quote .validity-val-row {
@@ -1891,7 +1902,7 @@ select.input {
 .rdx-quote .verline-box {
   margin-top: 10px;
   font-size: 12px;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   display: flex;
   gap: 6px;
 }

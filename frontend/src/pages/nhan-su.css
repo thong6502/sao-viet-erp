@@ -533,11 +533,11 @@ button.ns__kpi {
 }
 
 .ns-cell-title {
-  color: #64748b;
+  color: var(--ash-2);
 }
 
 .ns-cell-date {
-  color: #64748b;
+  color: var(--ash-2);
   font-size: 13px;
 }
 
@@ -571,7 +571,7 @@ button.ns__kpi {
 .ns-cell-phone {
   font-family: var(--ff-sans);
   font-size: 12px;
-  color: #64748b;
+  color: var(--ash-2);
 }
 
 /* Warm Earth & Primary Rust Initial Avatar Palettes */
@@ -619,7 +619,7 @@ button.ns__kpi {
 .ns-badge--ok { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
 .ns-badge--warn { background: #fffbeb; color: #b45309; border-color: #fde68a; }
 .ns-badge--info { background: #f3e8ff; color: #7e22ce; border-color: #e9d5ff; }
-.ns-badge--muted { background: #f8fafc; color: #64748b; border-color: #e2e8f0; }
+.ns-badge--muted { background: #f8fafc; color: var(--ash-2); border-color: #e2e8f0; }
 /* "Hết thử việc · chờ xác nhận" — cam ĐẬM hơn `--warn` (thử việc) để tách hai cái cạnh nhau,
    nhưng chưa phải đỏ `--danger`: đây là việc TỒN cần bấm, không phải sự cố. */
 .ns-badge--due { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }

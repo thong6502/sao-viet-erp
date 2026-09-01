@@ -736,7 +736,7 @@
   font-family: var(--ff-sans) !important;
   font-size: 12px;
   font-weight: 600;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   background: var(--rule-soft, #f1f5f9);
   padding: 2px 10px;
   border-radius: var(--r-pill, 12px);
@@ -874,7 +874,7 @@
   font-weight: 700 !important;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #64748b !important;
+  color: var(--ash-2) !important;
   padding: 10px 12px !important;
   border-bottom: 1px solid #e2e8f0 !important;
 }
@@ -933,7 +933,9 @@
   background: transparent;
   border: none;
   border-top: 1px dashed var(--line, #e2e8f0);
-  color: #6366f1;
+  /* indigo-500 trên nền trắng chỉ được 4,47:1, thiếu một chút so với ngưỡng 4,5:1.
+     Xuống indigo-600 được 6,0:1. */
+  color: #4f46e5;
   font-family: var(--ff-sans) !important;
   font-size: 13px;
   font-weight: 600;
@@ -952,7 +954,7 @@
 .purchase__icon-trash-btn {
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--ash-2);
   padding: 6px;
   border-radius: 4px;
   cursor: pointer;
@@ -992,7 +994,7 @@
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: var(--ash-2);
 }
 
 .purchase__hero-title-row {
@@ -1042,7 +1044,7 @@
 }
 
 .purchase__hero-dot {
-  color: #64748b;
+  color: var(--ash-2);
 }
 
 .purchase__hero-date {
@@ -1076,7 +1078,7 @@
 
 .purchase__hero-chip--muted {
   background: transparent;
-  color: #94a3b8;
+  color: var(--ash-2);
   padding: 3px 4px;
 }
 
@@ -1098,7 +1100,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   margin: 0 0 12px 0;
 }
 
@@ -1118,7 +1120,7 @@
 }
 
 .purchase__item-spec-card:hover {
-  border-color: #94a3b8;
+  border-color: var(--ash-2);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 
@@ -1150,7 +1152,7 @@
 .purchase__item-spec-note {
   font-family: var(--ff-sans) !important;
   font-size: 12px;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   margin: 0;
 }
 
@@ -1239,7 +1241,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
 }
 
 .purchase__fact-val {
@@ -1482,7 +1484,7 @@
   flex-shrink: 0;
 }
 
-.purchase__status-dot--draft { background: var(--steel, #64748b); }
+.purchase__status-dot--draft { background: var(--steel, var(--ash-2)); }
 .purchase__status-dot--pending { background: #d97706; }
 .purchase__status-dot--approved { background: #16a34a; }
 .purchase__status-dot--rejected,

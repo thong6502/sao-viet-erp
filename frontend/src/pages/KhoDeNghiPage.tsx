@@ -1257,7 +1257,7 @@ function RequestDrawer({
                                   }
                                 />
                               ) : (
-                                <span className="badge-sem badge-sem--muted" style={{ fontSize: 11 }}>
+                                <span className="badge-sem badge-sem--muted" style={{ fontSize: 12 }}>
                                   {tenDonVi(l.dvt) || l.dvt || "—"}
                                 </span>
                               )}

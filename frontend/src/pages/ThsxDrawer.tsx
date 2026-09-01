@@ -15,6 +15,7 @@ import type {
   SxNhanVienChon, SxWorkItemChiTiet, SxHoTroUngVien, SxLyDo,
   SxKcsChiTiet, SxKhoChiTiet, SxDongNhomDieuKien,
 } from "../api/client";
+import { NHAN_MUC_DO, type MayChon } from "../api/kyThuatMay";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
 import { num, ngayGio } from "./keHoachSxShared";
@@ -30,6 +31,8 @@ interface Props {
   candidates: SxNhanVienChon[];
   /** Ứng viên HỖ TRỢ CHÉO (§9) — thợ tổ SX khác đang làm (endpoint riêng module). */
   hoTroUngVien: SxHoTroUngVien[];
+  /** Máy chọn được cho ô "Đổi máy" (`may-chon` — không đòi quyền `dm_thiet_bi` như thợ đứng máy). */
+  mayOptions: MayChon[];
   /** Nạp danh mục lý do/lỗi (§15) theo nhóm — có cache ở controller. */
   loadLyDo: (nhom: string) => Promise<SxLyDo[]>;
   /** Hợp đồng các mặt GHI của Giai đoạn 3+4+5. */
@@ -54,25 +57,65 @@ interface Props {
   onClose: () => void;
 }
 
-const DONG_LABEL: Record<string, string> = { tam_dung: "tạm dừng", ket_thuc: "kết thúc" };
+const DONG_LABEL: Record<string, string> = {
+  tam_dung: "tạm dừng",
+  ket_thuc: "kết thúc",
+  // Đổi máy giữa chừng KHÔNG phải tạm dừng thật (§7.2 mở rộng 31/08/2026, review vòng 1) — nhãn
+  // riêng để người xem lịch sử phiên không hiểu lầm công việc đã dừng.
+  doi_may: "đổi máy",
+};
+
+// Mức độ sự cố: KHÔNG khai lại chuỗi mới ở màn này — đọc thẳng `NHAN_MUC_DO` của module Sửa chữa
+// máy (nguồn là `models.ky_thuat_may.MUC_DO`), để thêm/đổi mức là hai màn tự đúng theo nhau.
+const MUC_DO_OPTS = Object.entries(NHAN_MUC_DO);
+// Mặc định trùng `MUC_DO_TRUNG_BINH` bên BE; nếu ai đổi danh mục thì lùi về mức đầu tiên còn lại
+// thay vì gửi lên một chuỗi không còn hợp lệ.
+const MUC_DO_MAC_DINH =
+  "trung_binh" in NHAN_MUC_DO ? "trung_binh" : (MUC_DO_OPTS[0]?.[0] ?? "trung_binh");
 
 export function ThsxDrawer({
-  chiTiet, loading, canAssign, candidates, hoTroUngVien, loadLyDo, exec, busy,
+  chiTiet, loading, canAssign, candidates, hoTroUngVien, mayOptions, loadLyDo, exec, busy,
   kcsCt, khoCt, dieuKien, toChiuOpts, congDoanRefOpts,
   onGiao, onRut, onBatDau, onTamDung, onKetThuc, onClose,
 }: Props) {
   const [giaoOpen, setGiaoOpen] = useState(false);
   const [q, setQ] = useState("");
   const [moKhoang, setMoKhoang] = useState(false);
+  const [doiMayOpen, setDoiMayOpen] = useState(false);
+  const [mayChonId, setMayChonId] = useState<number | "">("");
+  const [lyDoMay, setLyDoMay] = useState("");
+  // Báo sự cố (§7.2 mở rộng 31/08/2026). Mức độ mặc định "trung_binh" — cùng mặc định với BE
+  // (`models.ky_thuat_may.MUC_DO_TRUNG_BINH`), để tổ trưởng không phải chọn khi không chắc.
+  const [suCoOpen, setSuCoOpen] = useState(false);
+  const [scChoHong, setScChoHong] = useState("");
+  const [scMoTa, setScMoTa] = useState("");
+  const [scMucDo, setScMucDo] = useState(MUC_DO_MAC_DINH);
+  const [scDung, setScDung] = useState(true);
 
   const cv = chiTiet?.cong_viec ?? null;
   const tt = chiTiet?.trang_thai ?? cv?.trang_thai ?? "released";
   const isTo = cv?.loai_buoc === "to";
+  // Đổi máy §7.2: chỉ bước gắn MÁY mới có khái niệm này (bước "to"/"thue_ngoai" không có).
+  const isMay = cv?.loai_buoc === "may";
+  const canDoiMay = canAssign && !busy && (tt === "running" || tt === "paused") && isMay;
+  // Báo sự cố: cùng điều kiện với Đổi máy (bước có MÁY, việc đang chạy hoặc tạm dừng) — không có
+  // máy thì không có gì để báo hỏng, BE cũng chặn đúng như vậy.
+  const canBaoSuCo = canDoiMay;
+  // Cửa gửi, khớp luật BE: phải nêu chỗ hỏng; chọn "Dừng sản xuất" thì mô tả BẮT BUỘC (đây là
+  // mốc mất giờ máy của lệnh). BE vẫn là trọng tài — chỗ này chỉ để không bấm rồi mới ăn lỗi.
+  const scSanSang = !busy && scChoHong.trim() !== "" && (!scDung || scMoTa.trim() !== "");
 
   // Roster đang làm + điều kiện bật nút (khớp tiền điều kiện service; BE vẫn là trọng tài).
   const rosterActive = useMemo(
     () => (chiTiet?.phan_cong ?? []).filter((p) => p.trang_thai === "active"),
     [chiTiet],
+  );
+  // Loại máy ĐANG CHẠY khỏi danh sách chọn — "đổi máy" nghĩa là đổi SANG máy khác, không phải
+  // chọn lại chính nó (review vòng 1, Minor 6). BE đã tự chặn same-machine (Important 2/4 cũ),
+  // đây chỉ đỡ người dùng khỏi bấm nhầm rồi bị BE trả lỗi.
+  const mayOptionsKhaDung = useMemo(
+    () => mayOptions.filter((m) => m.id !== cv?.may_id),
+    [mayOptions, cv?.may_id],
   );
   const hasKhoan = rosterActive.some((p) => p.la_luong_khoan);
   const done = tt === "completed";
@@ -95,6 +138,33 @@ export function ThsxDrawer({
     onGiao(c.id);
     setGiaoOpen(false);
     setQ("");
+  }
+
+  async function xacNhanDoiMay() {
+    if (mayChonId === "") return;
+    const ok = await exec.doiMay(mayChonId, lyDoMay.trim() || null);
+    if (ok) {
+      setDoiMayOpen(false);
+      setMayChonId("");
+      setLyDoMay("");
+    }
+  }
+
+  async function xacNhanSuCo() {
+    if (!scSanSang) return;
+    const ok = await exec.baoSuCo({
+      bo_phan_hong: scChoHong.trim(),
+      mo_ta: scMoTa.trim() || null,
+      muc_do: scMucDo,
+      dung_san_xuat: scDung,
+    });
+    if (ok) {
+      setSuCoOpen(false);
+      setScChoHong("");
+      setScMoTa("");
+      setScMucDo(MUC_DO_MAC_DINH);
+      setScDung(true);
+    }
   }
 
   const serial = cv ? sxSerial(cv.nguon_ma) : "";
@@ -248,11 +318,136 @@ export function ThsxDrawer({
                     )}
                   </>
                 )}
+                {isMay && (
+                  <Button variant="ghost" onClick={() => setDoiMayOpen((o) => !o)} disabled={!canDoiMay}
+                    aria-expanded={doiMayOpen}>
+                    <Icon name="cpu" size={14} /> Đổi máy
+                  </Button>
+                )}
+                {isMay && (
+                  <Button variant="ghost" onClick={() => setSuCoOpen((o) => !o)} disabled={!canBaoSuCo}
+                    aria-expanded={suCoOpen}>
+                    <Icon name="alert" size={14} /> Báo sự cố
+                  </Button>
+                )}
               </div>
               {!hasKhoan && !done && tt !== "running" && (
                 <p className="thsx-note thsx-note--warn">
                   <Icon name="alert" size={13} /> Cần ≥1 thợ lương khoán mới bắt đầu được.
                 </p>
+              )}
+
+              {doiMayOpen && (
+                <div className="thsx-x-form thsx-x-form--sub">
+                  <div className="thsx-x-grid2">
+                    <label className="thsx-x-fld">
+                      <span className="thsx-x-fld__l">Máy mới</span>
+                      <select className="thsx-x-sel" value={mayChonId} disabled={mayOptionsKhaDung.length === 0}
+                        onChange={(e) => setMayChonId(e.target.value ? Number(e.target.value) : "")}>
+                        <option value="">— Chọn máy —</option>
+                        {mayOptionsKhaDung.map((m) => (
+                          <option key={m.id} value={m.id}>{m.ma}{m.ten ? ` — ${m.ten}` : ""}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="thsx-x-fld">
+                      <span className="thsx-x-fld__l">Lý do (không bắt buộc)</span>
+                      <input className="thsx-x-in" value={lyDoMay} onChange={(e) => setLyDoMay(e.target.value)}
+                        placeholder="Máy hỏng, đổi ca…" />
+                    </label>
+                  </div>
+                  {/* Review vòng 1, Minor 7: trước đây nút chỉ im lặng bị khoá khi rỗng, không
+                      giải thích vì sao — hai nguyên nhân khác hẳn nhau nên tách hai thông báo:
+                      danh mục KHÔNG tải được (thường do thiếu quyền đọc `ky_thuat_may`/`bao_tri`)
+                      so với danh mục tải được nhưng chỉ có đúng máy đang chạy, không còn máy khác. */}
+                  {mayOptions.length === 0 ? (
+                    <p className="thsx-note thsx-note--warn">
+                      <Icon name="alert" size={13} /> Không tải được danh mục Máy — kiểm tra lại
+                      quyền xem Máy, hoặc thử tải lại trang.
+                    </p>
+                  ) : mayOptionsKhaDung.length === 0 && (
+                    <p className="thsx-note thsx-note--warn">
+                      <Icon name="alert" size={13} /> Không còn máy nào khác ngoài máy đang chạy để đổi sang.
+                    </p>
+                  )}
+                  {tt === "running" ? (
+                    <p className="thsx-note">
+                      Đang CHẠY: đóng phiên máy cũ + mở phiên mới cùng mốc — giờ máy cũ không mất.
+                    </p>
+                  ) : (
+                    <p className="thsx-note">Đang TẠM DỪNG: chỉ đổi máy phân công, không mở phiên mới.</p>
+                  )}
+                  <div className="thsx-run">
+                    <Button variant="ghost" onClick={() => { setDoiMayOpen(false); setMayChonId(""); setLyDoMay(""); }}>
+                      Huỷ
+                    </Button>
+                    <Button variant="accent" onClick={xacNhanDoiMay} disabled={busy || mayChonId === ""}>
+                      Xác nhận đổi máy
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {suCoOpen && (
+                <div className="thsx-x-form thsx-x-form--sub">
+                  <div className="thsx-x-grid2">
+                    <label className="thsx-x-fld">
+                      <span className="thsx-x-fld__l">Chỗ hỏng</span>
+                      <input className="thsx-x-in" value={scChoHong} maxLength={150}
+                        onChange={(e) => setScChoHong(e.target.value)}
+                        placeholder="Đầu cắn giấy, motor…" />
+                    </label>
+                    <label className="thsx-x-fld">
+                      <span className="thsx-x-fld__l">Mức độ</span>
+                      <select className="thsx-x-sel" value={scMucDo} onChange={(e) => setScMucDo(e.target.value)}>
+                        {MUC_DO_OPTS.map(([ma, nhan]) => (
+                          <option key={ma} value={ma}>{nhan}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="thsx-x-grid2">
+                    <label className="thsx-x-fld">
+                      <span className="thsx-x-fld__l">Máy còn chạy được không</span>
+                      <select className="thsx-x-sel" value={scDung ? "dung" : "chay"}
+                        onChange={(e) => setScDung(e.target.value === "dung")}>
+                        <option value="dung">Dừng sản xuất</option>
+                        <option value="chay">Vẫn chạy</option>
+                      </select>
+                    </label>
+                    <label className="thsx-x-fld">
+                      <span className="thsx-x-fld__l">Mô tả {scDung ? "(bắt buộc)" : "(không bắt buộc)"}</span>
+                      <input className="thsx-x-in" value={scMoTa} onChange={(e) => setScMoTa(e.target.value)}
+                        placeholder="Kể rõ hiện tượng cho thợ sửa…" />
+                    </label>
+                  </div>
+                  {/* Hai lựa chọn khác nhau ở HỆ QUẢ chứ không chỉ ở chữ, nên nói thẳng ra: chọn
+                      "Dừng sản xuất" là mốc mất giờ máy của lệnh (đóng phiên + tạm dừng công việc),
+                      chọn "Vẫn chạy" thì chỉ là một yêu cầu gửi sang tổ sửa chữa. */}
+                  {scDung ? (
+                    <p className="thsx-note thsx-note--warn">
+                      <Icon name="alert" size={13} />{" "}
+                      {tt === "running"
+                        ? "Công việc sẽ TẠM DỪNG và phiên máy đóng lại — giờ máy ngừng tính từ lúc gửi."
+                        : "Công việc đang tạm dừng nên chỉ gửi yêu cầu sửa chữa, không đóng thêm phiên nào."}
+                    </p>
+                  ) : (
+                    <p className="thsx-note">
+                      Máy vẫn chạy: chỉ gửi yêu cầu sang tổ sửa chữa, công việc và phiên máy giữ nguyên.
+                    </p>
+                  )}
+                  <div className="thsx-run">
+                    <Button variant="ghost" onClick={() => {
+                      setSuCoOpen(false); setScChoHong(""); setScMoTa("");
+                      setScMucDo(MUC_DO_MAC_DINH); setScDung(true);
+                    }}>
+                      Huỷ
+                    </Button>
+                    <Button variant="accent" onClick={xacNhanSuCo} disabled={!scSanSang}>
+                      Gửi tổ sửa chữa
+                    </Button>
+                  </div>
+                </div>
               )}
 
               {chiTiet.phien_chay.length === 0 ? (
@@ -267,6 +462,7 @@ export function ThsxDrawer({
                         <span className="thsx-phien__time thsx-kv__v--num">
                           {ngayGio(ph.bat_dau)} → {dang ? "đang chạy" : ngayGio(ph.ket_thuc)}
                         </span>
+                        {ph.may_ten && <span className="thsx-tag">{ph.may_ten}</span>}
                         {ph.loai_dong && (
                           <span className="thsx-phien__dong">{DONG_LABEL[ph.loai_dong] ?? ph.loai_dong}</span>
                         )}

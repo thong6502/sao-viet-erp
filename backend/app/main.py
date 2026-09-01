@@ -65,6 +65,7 @@ from .routers import (
     san_xuat,
     san_xuat_ly_do,
     cong_doan_tag,
+    lenh_san_xuat,
 )
 from .seed import seed_all
 
@@ -197,6 +198,7 @@ app.include_router(ke_hoach_vat_tu.router)   # bảng cân đối vật tư (cù
 app.include_router(ky_thuat_may.router)      # sửa chữa + phiếu bảo trì (module quyền `ky_thuat_may`)
 app.include_router(san_xuat.router)          # bàn Thực hiện sản xuất tại tổ (cùng module quyền `san_xuat`)
 app.include_router(cong_doan_tag.router)     # nhãn gán cho bước công đoạn — dùng chung LSX + Bài ghép (module quyền `san_xuat`)
+app.include_router(lenh_san_xuat.router)    # màn Lệnh sản xuất (danh sách + KPI) — module quyền `lenh_san_xuat`, phạm vi theo NGƯỜI BÁN
 
 
 

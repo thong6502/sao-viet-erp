@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TeamOut(BaseModel):
@@ -54,6 +54,7 @@ class WorkItemOut(BaseModel):
     la_kcs: bool
     la_kcs_cuoi: bool
     may: str
+    may_id: int | None = None    # máy HIỆN TẠI — FE cần để dựng ô chọn "Đổi máy" (§7.2 mở rộng)
     du_kien_bat_dau: datetime | None = None
     du_kien_ket_thuc: datetime | None = None
     du_kien_so_nguoi: int | None = None      # số người dự kiến (§7.1) — so với roster để đòi lý do lệch
@@ -118,6 +119,13 @@ class BatDauIn(BaseModel):
     expected_version: int | None = None
 
 
+class DoiMayIn(BaseModel):
+    """Đổi máy giữa chừng (§7.2 mở rộng 31/08/2026) — xem `services/san_xuat/thuc_thi.doi_may`."""
+    may_id: int
+    ly_do: str | None = None
+    expected_version: int | None = None
+
+
 class TamDungIn(BaseModel):
     ly_do: str                          # bắt buộc (§7.2)
     expected_version: int | None = None
@@ -128,12 +136,36 @@ class KetThucIn(BaseModel):
     expected_version: int | None = None
 
 
+class SuCoIn(BaseModel):
+    """Báo sự cố tại tổ (31/08/2026) — xem `services/san_xuat/su_co.bao_su_co`.
+
+    KHÔNG có ô "máy": server lấy đúng máy của công việc đang chạy. `cong_viec_id`/`lsx_id` cũng
+    do server chốt — client khai được là mở cửa hậu treo yêu cầu hỏng máy lên lệnh của tổ khác.
+    `mo_ta` BẮT BUỘC khi `dung_san_xuat` (mốc mất giờ máy của lệnh), service là trọng tài.
+    """
+    bo_phan_hong: str = Field(min_length=1, max_length=150)
+    mo_ta: str | None = None
+    # nhe | trung_binh | nghiem_trong (models.ky_thuat_may.MUC_DO). `min_length=1` vì `str` bắt
+    # buộc vẫn nhận `""`, mà rỗng lọt xuống thì bị đặt ngầm thành `trung_binh` — mức không ai chọn
+    # nhưng lại chen trên các yêu cầu Nhẹ thật trong hàng chờ (review vòng 1, Minor 4).
+    muc_do: str = Field(min_length=1)
+    dung_san_xuat: bool = False
+    expected_version: int | None = None
+
+
 class LenhKetQuaOut(BaseModel):
     """Kết quả một lệnh ghi — đủ để FE cập nhật thanh + version lạc quan."""
     cong_viec_id: int
     department_id: int | None = None
     trang_thai: str
     version: int
+
+
+class SuCoKetQuaOut(LenhKetQuaOut):
+    """Như `LenhKetQuaOut` + con trỏ sang yêu cầu sửa chữa vừa gửi — để màn hình nói được
+    "đã gửi YC-0042 tới tổ sửa chữa" thay vì một câu chung chung."""
+    yeu_cau_id: int
+    yeu_cau_ma: str
 
 
 # --- Drawer chi tiết: roster + phiên + khoảng tham gia --------------------------------------
@@ -149,6 +181,8 @@ class PhanCongItemOut(BaseModel):
 class PhienChayOut(BaseModel):
     id: int
     so_thu_tu: int
+    may_id: int | None = None    # máy CHẠY TRONG PHIÊN NÀY — đổi máy đẻ phiên khác (mg 0247)
+    may_ten: str | None = None
     bat_dau: datetime
     ket_thuc: datetime | None = None
     loai_dong: str | None = None
@@ -641,6 +675,7 @@ class NhapKhoYeuCauIn(BaseModel):
 class KhoXacNhanNhapIn(BaseModel):
     """Kho xác nhận nhận một phần yêu cầu (§14.1)."""
     so_luong: float
+    kho_id: int                          # KHO ĐÍCH — BẮT BUỘC, không có mặc định ngầm (31/08/2026)
     expected_version: int | None = None
 
 
@@ -663,6 +698,7 @@ class KhoXacNhanNhapKetQuaOut(BaseModel):
     lot_id: int
     kcs_batch_id: int
     nhom_id: int | None = None
+    kho_id: int                          # kho ĐÃ nhận lot vừa đẻ
     trang_thai: str
     so_luong_xac_nhan: float
     version: int
@@ -704,6 +740,8 @@ class NhapKhoYcOut(BaseModel):
     con_lai: float
     don_vi: str
     quy_cach: str | None = None
+    kho_id: int | None = None            # kho KCS ĐỀ NGHỊ (kho thật nằm trên từng lot)
+    kho_ten: str | None = None
     trang_thai: str
     ghi_chu: str | None = None
     version: int
@@ -720,6 +758,8 @@ class KhoLotOut(BaseModel):
     so_luong: float
     don_vi: str
     phan_loai: str | None = None         # BTP dư: nhap_btp | mau_luu | phe
+    kho_id: int | None = None            # kho ĐÃ NHẬN lot (mẫu lưu/phế + lot cũ để trống)
+    kho_ten: str | None = None
     kho_xac_nhan: bool
     quy_cach: str | None = None
     ghi_chu: str | None = None

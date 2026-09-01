@@ -14,8 +14,10 @@ import {
   type SxWorkItem, type SxWorkItemChiTiet, type SxNhanVienChon,
   type SxHoTroUngVien, type SxLyDo,
   type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien,
-  type SxKcsHopThu, type SxKhoHopThu,
+  type SxKcsHopThu, type SxKhoHopThu, type SxSuCoIn,
 } from "../api/client";
+import { crud } from "../api/rebuildCatalog";
+import { kyThuatMay, type MayChon } from "../api/kyThuatMay";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { useDebounced } from "../utils/useDebounced";
@@ -74,7 +76,13 @@ const VIEW_KEY = "thsx.view";
 
 function readView(): ThsxView {
   const s = typeof localStorage !== "undefined" ? localStorage.getItem(VIEW_KEY) : null;
-  return s === "danh_sach" ? "danh_sach" : "lich";
+  if (s === "danh_sach" || s === "lich") return s;
+  // Chưa từng chọn: trên màn hẹp mặc định là BẢNG, không phải Gantt. Ở 375px cột nhãn của
+  // timeline đã ăn 240px, phần vẽ thanh còn ~105px trên một trục dài hơn 11.000px — mở ra là
+  // một dải trống, phải lướt ngang rất lâu mới thấy việc. Cùng ngưỡng 820px với chỗ CSS xếp
+  // chồng hai cột. Người dùng bấm sang "Lịch" một lần là nhớ, không ép lại.
+  if (typeof window !== "undefined" && window.matchMedia("(max-width: 820px)").matches) return "danh_sach";
+  return "lich";
 }
 
 type ReasonKind = "bat_dau" | "tam_dung" | "ket_thuc";
@@ -115,6 +123,7 @@ export function ThucHienSxPage({
   const [err, setErr] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<SxNhanVienChon[]>([]);
   const [hoTroUngVien, setHoTroUngVien] = useState<SxHoTroUngVien[]>([]);
+  const [mayOptions, setMayOptions] = useState<MayChon[]>([]);
   const lyDoCache = useRef<Record<string, SxLyDo[]>>({});
 
   // ---- Giai đoạn 5: KCS §13 · Kho §14 · Đóng nhóm §16 (nạp theo việc/nhóm đang chọn) ----
@@ -123,6 +132,10 @@ export function ThucHienSxPage({
   const [dieuKien, setDieuKien] = useState<SxDongNhomDieuKien | null>(null);
   const [kcsHopThu, setKcsHopThu] = useState<SxKcsHopThu | null>(null);
   const [khoHopThu, setKhoHopThu] = useState<SxKhoHopThu | null>(null);
+  // Kho ĐÍCH chọn được lúc xác nhận nhập. `null` = CHƯA ĐỌC ĐƯỢC danh mục (đang tải / lỗi mạng /
+  // không có quyền đọc); `[]` = đọc được nhưng danh mục RỖNG THẬT. Hai chuyện khác hẳn nhau ⇒ hai
+  // câu nhắc khác nhau, đừng gộp (xem `KhoNhapHopThuRow`).
+  const [khoOpts, setKhoOpts] = useState<Opt[] | null>(null);
   const [g5Tick, setG5Tick] = useState(0); // nhịp refetch riêng cho G5 sau mỗi lệnh ghi
 
   const [winTu, setWinTu] = useState<string>(() => mondayOf(new Date()));
@@ -177,6 +190,15 @@ export function ThucHienSxPage({
       .then((r) => setHoTroUngVien(r.nhan_vien))
       .catch(() => setHoTroUngVien([]));
   }, [token, teamId]);
+
+  // Máy chọn được cho "Đổi máy" §7.2 — endpoint hẹp `may-chon` (KHÔNG dùng `mayThietBi.list`: đòi
+  // quyền `dm_thiet_bi` mà thợ đứng máy không có). Danh mục máy CHUNG toàn hệ thống, không theo tổ.
+  useEffect(() => {
+    if (!token) return;
+    kyThuatMay.mayChon(token)
+      .then(setMayOptions)
+      .catch(() => setMayOptions([]));
+  }, [token]);
 
   // Danh mục lý do/lỗi (§15) nạp-lười theo nhóm, cache trong phiên (KHÔNG hardcode danh sách ở FE).
   const loadLyDo = useCallback(async (nhom: string): Promise<SxLyDo[]> => {
@@ -288,6 +310,23 @@ export function ThucHienSxPage({
       .catch(() => { if (alive) setKhoHopThu(null); });
     return () => { alive = false; };
   }, [token, canKhoRead, eventTick, g5Tick]);
+
+  // Danh mục KHO ĐÍCH cho ô chọn lúc xác nhận nhập thành phẩm (31/08/2026). `GET /api/kho` mở cho
+  // quyền `kho:read` (xem `routers/kho.py::_doc_kho`) nên nhân viên kho đọc được. CHỈ kho đang dùng
+  // — không bày kho đã ngừng ra cho người ta chọn nhầm. Danh mục nền, không theo tổ ⇒ nạp một lần.
+  useEffect(() => {
+    if (!token || !canKhoRead) { setKhoOpts(null); return; }
+    let alive = true;
+    crud("/api/kho").list(token, { active: true })
+      .then((r) => {
+        if (!alive) return;
+        setKhoOpts(r.items.map((w) => ({ id: Number(w.id), ten: String(w.ten) })));
+      })
+      // Hỏng thì về `null` chứ KHÔNG về `[]`: `[]` nghĩa là "danh mục rỗng, đi khai kho đi" — sai
+      // hẳn nguyên nhân khi thật ra `GET /api/kho` vừa 500 hoặc rớt mạng.
+      .catch(() => { if (alive) setKhoOpts(null); });
+    return () => { alive = false; };
+  }, [token, canKhoRead]);
 
   // ---- lọc + gom nhóm cột trái / cluster timeline ----
   const winStartW = useMemo(() => ngayToWall(winTu), [winTu]);
@@ -402,9 +441,10 @@ export function ThucHienSxPage({
     }), chapNhan ? "Đã nhận trách nhiệm lỗi." : "Đã từ chối lỗi.");
   }, [mutateInbox, token]);
 
-  const onKhoXacNhanNhap = useCallback((ycId: number, soLuong: number, version: number) => {
+  // `khoId` BẮT BUỘC — lot thành phẩm phải biết nó nằm kho nào (31/08/2026).
+  const onKhoXacNhanNhap = useCallback((ycId: number, soLuong: number, khoId: number, version: number) => {
     void mutateInbox(() => api.sanXuat.khoXacNhanNhap(token!, ycId, {
-      so_luong: soLuong, expected_version: version,
+      so_luong: soLuong, kho_id: khoId, expected_version: version,
     }), "Kho đã xác nhận nhập.");
   }, [mutateInbox, token]);
 
@@ -425,6 +465,23 @@ export function ThucHienSxPage({
     void mutate(() => api.sanXuat.rut(token!, phanCongId, { expected_version: ver() }),
       "Đã rút người khỏi việc.");
   }, [mutate, token, selectedId, chiTiet]);
+
+  // Đổi máy §7.2 mở rộng — `ver()` cần `chiTiet` tươi trong deps (khác các mặt exec khác vốn nhận
+  // version qua tham số của người gọi), nên tách riêng thay vì viết trực tiếp trong `exec` useMemo.
+  const onDoiMay = useCallback((mayId: number, lyDo?: string | null) => mutate(() => api.sanXuat.doiMay(token!, selectedId!, {
+    may_id: mayId, ly_do: lyDo ?? null, expected_version: ver(),
+  }), "Đã đổi máy.").then((r) => r != null), [mutate, token, selectedId, chiTiet]);
+
+  // Báo sự cố §7.2 mở rộng — cùng lý do tách riêng như `onDoiMay`: cần `chiTiet` tươi cho `ver()`.
+  // Toast gọi tên MÃ YÊU CẦU vừa sinh để tổ trưởng bám theo được ở màn Sửa chữa máy; `mutate` chỉ
+  // nhận chuỗi cố định nên tự đặt toast sau khi có kết quả.
+  const onBaoSuCo = useCallback((body: SxSuCoIn) => mutate(
+    () => api.sanXuat.baoSuCo(token!, selectedId!, { ...body, expected_version: ver() }),
+    "Đã gửi báo sự cố tới tổ sửa chữa.",
+  ).then((r) => {
+    if (r) setToast(`Đã gửi ${r.yeu_cau_ma} tới tổ sửa chữa${body.dung_san_xuat ? " · công việc đã tạm dừng" : ""}.`);
+    return r != null;
+  }), [mutate, token, selectedId, chiTiet]);
 
   // Bắt đầu: TRỄ (§7.2) và/hoặc số người thực tế ≠ dự kiến (§7.1) → hỏi lý do; khớp giờ+người → thẳng.
   const onBatDau = useCallback(() => {
@@ -484,6 +541,8 @@ export function ThucHienSxPage({
   const exec = useMemo<ThsxExec>(() => {
     const ok = (p: Promise<unknown | null>) => p.then((r) => r != null);
     return {
+      doiMay: onDoiMay,
+      baoSuCo: onBaoSuCo,
       taoBatch: (b) => mutate(() => api.sanXuat.taoBatch(token!, selectedId!, b), "Đã ghi mẻ sản lượng.")
         .then((r) => (r ? r.ket_qua_lsx ?? [] : null)),
       deXuatBanGiao: (b) => ok(mutate(() => api.sanXuat.deXuatBanGiao(token!, selectedId!, b), "Đã đề xuất bàn giao.")),
@@ -510,7 +569,7 @@ export function ThucHienSxPage({
       phanLoaiBtp: (b) => mutateG5(() => api.sanXuat.phanLoaiBtp(token!, b), "Đã ghi phân loại BTP."),
       dongThieu: (nhomId, b) => mutateG5(() => api.sanXuat.dongThieu(token!, nhomId, b), "Đã đóng thiếu nhóm."),
     };
-  }, [mutate, mutateG5, token, selectedId, teamId]);
+  }, [mutate, mutateG5, token, selectedId, teamId, onDoiMay, onBaoSuCo]);
 
   const panelOpen = selectedId != null;
 
@@ -590,6 +649,7 @@ export function ThucHienSxPage({
       <ThsxHopThuBar
         kcsItems={kcsHopThu?.loi ?? []}
         khoHopThu={khoHopThu}
+        khoOpts={khoOpts}
         canKhoRead={canKhoRead}
         canKhoCreate={canKhoCreate}
         busy={busy}
@@ -673,11 +733,17 @@ export function ThucHienSxPage({
           aria-label="Chi tiết công việc đang chọn">
           {panelOpen && (
             <ThsxDrawer
+              // `key`: đổi công việc chọn phải REMOUNT cả drawer, không chỉ đổi prop — review vòng
+              // 1, Minor 5. State nội bộ (`doiMayOpen`/`mayChonId`/`lyDoMay`, `giaoOpen`/`moKhoang`)
+              // trước đây sống qua lần đổi `selectedId` vì component không unmount, để lại form
+              // "Đổi máy" còn mở hoặc còn chọn dở máy của công việc TRƯỚC khi bấm sang việc khác.
+              key={selectedId}
               chiTiet={chiTiet}
               loading={ctLoading}
               canAssign={canAssign}
               candidates={candidates}
               hoTroUngVien={hoTroUngVien}
+              mayOptions={mayOptions}
               loadLyDo={loadLyDo}
               exec={exec}
               busy={busy}

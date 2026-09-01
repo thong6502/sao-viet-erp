@@ -204,7 +204,7 @@
 .tg-pantone-popover__input-wrap svg {
   position: absolute;
   left: 9px;
-  color: #94a3b8;
+  color: var(--ash-2);
   pointer-events: none;
 }
 
@@ -224,7 +224,7 @@
 }
 
 .tg-pantone-popover__input::placeholder {
-  color: #94a3b8;
+  color: var(--ash-2);
   font-weight: 400;
 }
 
@@ -264,7 +264,7 @@
 
 .tg-pantone-popover__submit:disabled {
   background: #e2e8f0;
-  color: #94a3b8;
+  color: var(--ash-2);
   cursor: not-allowed;
 }
 
@@ -280,7 +280,7 @@
   font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: 700;
-  color: #64748b;
+  color: var(--ash-2);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }

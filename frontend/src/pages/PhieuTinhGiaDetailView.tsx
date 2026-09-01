@@ -3054,7 +3054,7 @@ function ComponentModal({
                           <AutoIcon /> tự bình bài
                         </span>
                       ) : (
-                        <span className="tg-tag tg-tag--todo" style={{ fontSize: "9px" }}>nhập khổ để tự tính</span>
+                        <span className="tg-tag tg-tag--todo" style={{ fontSize: "12px" }}>nhập khổ để tự tính</span>
                       )
                     ) : (
                       <button

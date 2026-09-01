@@ -170,6 +170,16 @@ class YeuCauSuaChua(Base):
     ma: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)  # YC-0001
     may_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)  # soft → may_thiet_bi.id
 
+    # NEO SẢN XUẤT (31/08/2026). Yêu cầu báo từ màn Thực hiện SX mang theo công việc đang chạy
+    # lúc máy hỏng — nhờ đó hồ sơ lệnh kể được "sự cố này ăn mất bao lâu của lệnh nào", còn tổ
+    # sửa chữa biết máy đang cắm vào việc gì mà xếp ưu tiên. Yêu cầu báo từ màn Sửa chữa máy
+    # (người ngoài xưởng) để trống hai cột này — nullable, không phải FK cứng, theo convention
+    # soft-ref của repo. SERVER chốt hai giá trị này từ công việc đang chạy: chúng đi bằng THAM SỐ
+    # RIÊNG của `tao_yeu_cau`/`create_yeu_cau`, không đọc từ dict thân request — nên client có gửi
+    # `cong_viec_id` lên cũng không có đường tới bản ghi.
+    cong_viec_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    lsx_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+
     # Người báo mô tả CHỖ HỎNG bằng lời của họ ("cụm cấp giấy", "không biết"). Vẫn bắt nhập vì một
     # yêu cầu chỉ có tên máy thì tổ sửa chữa phải đi hỏi lại từ đầu.
     bo_phan_hong: Mapped[str] = mapped_column(String(150), nullable=False)

@@ -347,7 +347,7 @@
 
 .cc-radar-map-sub {
   font-size: 11.5px;
-  color: #64748b;
+  color: var(--ash-2);
 }
 
 .cc-radar-grid-container {
@@ -384,7 +384,7 @@
 
 .cc-radar-metric-label {
   font-size: 10px;
-  color: #64748b;
+  color: var(--ash-2);
   white-space: nowrap;
 }
 
@@ -533,7 +533,7 @@
 
 .cc-proximity-metric-label {
   font-size: 10.5px;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   white-space: nowrap;
 }
 
@@ -563,7 +563,7 @@
   display: flex;
   justify-content: space-between;
   font-size: 10px;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   font-weight: var(--fw-medium, 500);
 }
 
@@ -1020,7 +1020,7 @@
 
 .cc-radar-map-sub {
   font-size: 12px;
-  color: #64748b;
+  color: var(--ash-2);
 }
 
 .cc-geo-status-refresh {
@@ -5207,7 +5207,7 @@
 
 .cc-status-dot-pill.is-off {
   background: var(--paper, #f8fafc);
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   border: 1px solid var(--rule-soft, #e2e8f0);
 }
 
@@ -5224,7 +5224,7 @@
 }
 
 .cc-status-indicator-dot.is-off {
-  background: var(--ash-2, #64748b);
+  background: var(--ash-2, var(--ash-2));
 }
 
 .cc-employee-sub-chip {
@@ -5382,7 +5382,7 @@
 .cc-radar-metric-label {
   font-size: 11px;
   font-weight: var(--fw-bold, 600);
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -5454,7 +5454,7 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 10.5px;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 
 .cc-today-shift-tag {
@@ -5487,7 +5487,7 @@
 .cc-today-metric-label {
   font-size: 10px;
   font-weight: var(--fw-bold, 600);
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   letter-spacing: 0.06em;
 }
 
@@ -5702,7 +5702,7 @@
   border-radius: 6px;
   font-size: 11px;
   font-family: var(--ff-num, "JetBrains Mono", monospace);
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 
 /* Custom slim scrollbar for My History Modal */
@@ -5721,7 +5721,7 @@
 }
 
 .cc-history-modal-body::-webkit-scrollbar-thumb:hover {
-  background: var(--ash-2, #64748b);
+  background: var(--ash-2, var(--ash-2));
 }
 
 .cc-history-modal-head {

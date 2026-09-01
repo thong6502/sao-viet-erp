@@ -176,16 +176,16 @@ export const CFG_MAY: CatalogConfig = {
             {hasKhoMax && (
               <div>
                 <span style={{ fontWeight: 600 }}>{so(r.kho_max_rong)}×{so(r.kho_max_dai)}</span>
-                <span style={{ fontSize: "11px", color: "var(--ash, #8a8577)", marginLeft: "4px" }}>(giấy max)</span>
+                <span style={{ fontSize: "12px", color: "var(--ash, #8a8577)", marginLeft: "4px" }}>(giấy max)</span>
               </div>
             )}
             {hasKem && (
               // Kẽm + Vùng in TÁCH 2 dòng riêng (trước gộp 1 dòng nối "•") — cột chỉ ~87px,
               // nối chung dễ vỡ dòng giữa số làm chiều cao hàng nhảy lung tung giữa các máy.
-              <div style={{ fontSize: "11px", color: "var(--charcoal, #374151)" }}>Kẽm: {so(r.kho_kem_rong)}×{so(r.kho_kem_dai)}</div>
+              <div style={{ fontSize: "12px", color: "var(--charcoal, #374151)" }}>Kẽm: {so(r.kho_kem_rong)}×{so(r.kho_kem_dai)}</div>
             )}
             {hasVungIn && (
-              <div style={{ fontSize: "11px", color: "var(--charcoal, #374151)" }}>In: {so(r.vung_in_rong)}×{so(r.vung_in_dai)}</div>
+              <div style={{ fontSize: "12px", color: "var(--charcoal, #374151)" }}>In: {so(r.vung_in_rong)}×{so(r.vung_in_dai)}</div>
             )}
           </div>
         );
@@ -202,7 +202,7 @@ export const CFG_MAY: CatalogConfig = {
         // MỖI phần một dòng riêng (trước nối "•" chung 1 dòng) — cột chỉ ~87px, 3 phần nối
         // chung dễ vỡ dòng giữa số làm chiều cao hàng nhảy lung tung giữa các máy.
         return (
-          <div style={{ display: "flex", flexDirection: "column", gap: "1px", fontSize: "11.5px", color: "var(--charcoal, #4b5563)", lineHeight: "1.4" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "1px", fontSize: "12px", color: "var(--charcoal, #4b5563)", lineHeight: "1.4" }}>
             {parts.map((p) => <div key={p}>{p}</div>)}
           </div>
         );
@@ -221,7 +221,7 @@ export const CFG_MAY: CatalogConfig = {
           <div style={{ display: "flex", flexDirection: "column", gap: "2px", fontSize: "12.5px" }}>
             {nSpeed && <div style={{ fontWeight: 600 }}>{nSpeed}</div>}
             {totalMakeready > 0 && (
-              <div style={{ fontSize: "11.5px", color: "var(--rust, #c5400a)", fontWeight: 500, display: "flex", alignItems: "center" }}>
+              <div style={{ fontSize: "12px", color: "var(--rust, #c5400a)", fontWeight: 500, display: "flex", alignItems: "center" }}>
                 <ClockIcon size={12} /> Chuẩn bị: {totalMakeready} phút
               </div>
             )}

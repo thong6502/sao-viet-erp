@@ -11,7 +11,7 @@ import type {
   SxBatchIn, SxBanGiaoDeXuatIn, SxBanGiaoSuaIn, SxBanGiaoDieuChinhIn,
   SxHoTroDeXuatIn, SxBuTruIn, SxLoaiTruIn, SxGoLoaiTruIn,
   SxKcsBatchIn, SxNhapKhoYeuCauIn, SxHuyPhanChuaNhanIn, SxPhanLoaiBtpIn, SxDongThieuIn,
-  SxKetQuaNhanh,
+  SxKetQuaNhanh, SxSuCoIn,
 } from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
@@ -19,6 +19,12 @@ import { num, ngayGio, ngay } from "./keHoachSxShared";
 
 // ============================ hợp đồng hành động (controller cấp) ============================
 export interface ThsxExec {
+  // Đổi máy giữa chừng (§7.2 mở rộng 31/08/2026) — CHẠY thì đóng phiên máy cũ + mở phiên mới
+  // CÙNG mốc (giờ máy cũ không mất); TẠM DỪNG thì chỉ đổi máy phân công, không mở phiên.
+  doiMay: (mayId: number, lyDo?: string | null) => Promise<boolean>;
+  // Báo sự cố tại tổ (31/08/2026) — KHÔNG có bảng sự cố riêng: ghi thẳng vào hộp thư "Báo máy
+  // hỏng" của tổ sửa chữa, kèm neo về công việc/lệnh. Nhánh "Dừng sản xuất" gộp luôn cú tạm dừng.
+  baoSuCo: (body: SxSuCoIn) => Promise<boolean>;
   taoBatch: (body: SxBatchIn) => Promise<SxKetQuaNhanh[] | null>;
   deXuatBanGiao: (body: SxBanGiaoDeXuatIn) => Promise<boolean>;
   suaBanGiao: (banGiaoId: number, body: SxBanGiaoSuaIn) => Promise<boolean>;

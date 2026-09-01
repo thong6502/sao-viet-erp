@@ -297,6 +297,9 @@ class PurchaseRequestLineOut(BaseModel):
     hang_id: int | None = None
     hang_ma: str | None = None
     hang_ten: str | None = None
+    # Dòng YCMH đẻ ra dòng này. Form SỬA đơn dựng lại payload từ chính bản trả về, nên thiếu nó ở
+    # đây là sửa đơn một cái làm ĐỨT liên kết mặt hàng (server hết đường kế thừa lại).
+    department_request_line_id: int | None = None
 
 
 class LineFulfilmentOut(BaseModel):

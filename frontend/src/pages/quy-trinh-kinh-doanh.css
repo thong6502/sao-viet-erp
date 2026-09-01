@@ -250,7 +250,7 @@
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  fill: var(--ash, #64748b);
+  fill: var(--ash, var(--ash-2));
   transition: fill 0.2s ease;
 }
 
@@ -339,7 +339,7 @@
   font-family: var(--ff-sans, system-ui, sans-serif);
   font-size: 8px;
   font-weight: 500;
-  fill: var(--ash, #64748b);
+  fill: var(--ash, var(--ash-2));
   pointer-events: none;
 }
 
@@ -378,7 +378,7 @@
   stroke: #cbd5e1;
   stroke-dasharray: 5 4;
 }
-.qtkd-node--soon .qtkd-label { fill: #64748b; }
+.qtkd-node--soon .qtkd-label { fill: var(--ash-2); }
 
 /* Interactive Hover & Connection states */
 .qtkd-node.is-hovered,
@@ -485,14 +485,14 @@
   font-family: var(--ff-sans);
   font-size: 0.7rem;
   font-weight: 600;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
 }
 
 .qtkd-drawer__close {
   border: none;
   background: transparent;
   font-size: 1.5rem;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   cursor: pointer;
   line-height: 1;
   padding: 0 4px;
@@ -528,7 +528,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   margin: 0 0 var(--sp-2);
 }
 
@@ -563,7 +563,7 @@
 
 .qtkd-drawer__link-info {
   font-size: 0.825rem;
-  color: #64748b;
+  color: var(--ash-2);
 }
 
 .qtkd-drawer__action-btn {
@@ -599,5 +599,5 @@
   border: 1px dashed #cbd5e1;
   border-radius: 8px;
   font-size: 0.825rem;
-  color: #64748b;
+  color: var(--ash-2);
 }

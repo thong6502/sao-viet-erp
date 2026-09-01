@@ -891,7 +891,7 @@ function OrderDrawer({
                     <div style={{ display: "grid", gap: 4, marginTop: 4 }}>
                       <KV k="Ngày giao cam kết (đã có ở đơn)" v={<span className="dhb__mono">{fmtDate(order.delivery_committed_date)}</span>} />
                     </div>
-                    <p className="dhb__lifecycle-desc" style={{ opacity: 0.7, fontSize: 11, fontStyle: "italic", marginTop: 4 }}>
+                    <p className="dhb__lifecycle-desc" style={{ opacity: 0.7, fontSize: 12, fontStyle: "italic", marginTop: 4 }}>
                       Khi có module sẽ hiện thực tế: Lịch giao thực | Đã giao _ / 1.000 | Biên bản giao (POD)
                     </p>
                   </div>

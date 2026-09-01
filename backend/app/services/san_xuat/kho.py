@@ -184,12 +184,18 @@ def kho_xac_nhan_nhap(
     user,
     yc_id: int,
     so_luong,
+    kho_id: int,
     expected_version: int | None = None,
 ) -> dict:
     """KHO xác nhận nhận MỘT phần của yêu cầu nhập kho thành phẩm (§14.1). Gate quyền `kho` ở router.
 
     Cộng dồn `so_luong_xac_nhan` (≤ số yêu cầu), đẻ một lot thành phẩm cho phần vừa nhận (khoá), cập
-    nhật trạng thái theo số. Phần đã ghi nhận không sửa ngược batch KCS (§14.1)."""
+    nhật trạng thái theo số. Phần đã ghi nhận không sửa ngược batch KCS (§14.1).
+
+    `kho_id` BẮT BUỘC (31/08/2026) — không có kho đích thì lot thành phẩm là con số lơ lửng: không
+    tra được tồn theo kho, không lập được phiếu xuất giao. Cố ý KHÔNG có giá trị mặc định: đoán kho
+    hộ thủ kho là ghi sai chỗ cất mà không ai hay. Kho phải CÒN DÙNG (`active`) — xem
+    `kho_nhan_duoc`."""
     repo = SanXuatKhoRepository(db)
     yc = repo.yc(yc_id)
     if yc is None:
@@ -198,6 +204,8 @@ def kho_xac_nhan_nhap(
         raise ValueError("Yêu cầu nhập kho đã kết thúc, không thể xác nhận thêm.")
     if expected_version is not None and expected_version != yc.version:
         raise ValueError("Phiên bản không khớp — yêu cầu vừa được cập nhật, hãy tải lại.")
+    if kho_id is None or not repo.kho_nhan_duoc(kho_id):
+        raise ValueError("Kho đích không tồn tại hoặc đã ngừng dùng.")
 
     so = _so_khong_am(so_luong, "Số lượng nhận")
     if so <= 0:
@@ -218,6 +226,7 @@ def kho_xac_nhan_nhap(
         so_luong=so,
         don_vi=yc.don_vi,
         phan_loai=None,
+        kho_id=kho_id,
         kho_xac_nhan=True,
         xac_nhan_by_id=getattr(user, "id", None),
         xac_nhan_luc=_moc(),
@@ -236,7 +245,8 @@ def kho_xac_nhan_nhap(
         actor_user_id=getattr(user, "id", None),
         action="san_xuat_kho_xac_nhan_nhap",
         target=f"san_xuat_nhap_kho_yc:{yc.id}",
-        detail=f"nhan={so:g} luy_ke={float(yc.so_luong_xac_nhan):g} trang_thai={yc.trang_thai}",
+        detail=(f"nhan={so:g} kho={kho_id} luy_ke={float(yc.so_luong_xac_nhan):g} "
+                f"trang_thai={yc.trang_thai}"),
     )
     db.commit()
     return {
@@ -244,6 +254,7 @@ def kho_xac_nhan_nhap(
         "lot_id": lot.id,
         "kcs_batch_id": yc.kcs_batch_id,
         "nhom_id": yc.nhom_id,
+        "kho_id": kho_id,
         "trang_thai": yc.trang_thai,
         "so_luong_xac_nhan": float(yc.so_luong_xac_nhan or 0),
         "nguoi_tao_id": yc.created_by,
@@ -410,7 +421,9 @@ def kho_xac_nhan_btp(db: Session, *, user, lot_id: int) -> dict:
 
 
 # --- Đọc ------------------------------------------------------------------------------------
-def _yc_ra(yc: SanXuatNhapKhoYc) -> dict:
+# `ten_kho` = bản đồ `{kho_id: tên}` dựng MỘT lần cho cả lượt đọc (xem `ten_kho_theo_ids`) — phơi
+# tên kho chứ không phơi số id trần, và không N+1.
+def _yc_ra(yc: SanXuatNhapKhoYc, ten_kho: dict[int, str] | None = None) -> dict:
     yeu_cau = float(yc.so_luong_yeu_cau or 0)
     xac_nhan = float(yc.so_luong_xac_nhan or 0)
     return {
@@ -424,13 +437,16 @@ def _yc_ra(yc: SanXuatNhapKhoYc) -> dict:
         "con_lai": max(0.0, yeu_cau - xac_nhan),
         "don_vi": yc.don_vi,
         "quy_cach": yc.quy_cach,
+        # Kho ĐỀ NGHỊ của KCS (có thể trống) — kho THẬT nằm trên từng lot.
+        "kho_id": yc.kho_id,
+        "kho_ten": (ten_kho or {}).get(yc.kho_id) if yc.kho_id else None,
         "trang_thai": yc.trang_thai,
         "ghi_chu": yc.ghi_chu,
         "version": yc.version,
     }
 
 
-def _lot_ra(lot: SanXuatKhoLot) -> dict:
+def _lot_ra(lot: SanXuatKhoLot, ten_kho: dict[int, str] | None = None) -> dict:
     return {
         "id": lot.id,
         "hang_id": lot.hang_id,
@@ -442,6 +458,9 @@ def _lot_ra(lot: SanXuatKhoLot) -> dict:
         "so_luong": float(lot.so_luong or 0),
         "don_vi": lot.don_vi,
         "phan_loai": lot.phan_loai,
+        # Kho ĐÃ NHẬN lot này (BTP `mau_luu`/`phe` và lot cũ trước mg 0249 để trống).
+        "kho_id": lot.kho_id,
+        "kho_ten": (ten_kho or {}).get(lot.kho_id) if lot.kho_id else None,
         "kho_xac_nhan": bool(lot.kho_xac_nhan),
         "quy_cach": lot.quy_cach,
         "ghi_chu": lot.ghi_chu,
@@ -454,11 +473,14 @@ def chi_tiet_kho_nhom(db: Session, nhom_id: int) -> dict:
     repo = SanXuatKhoRepository(db)
     yeu_cau = repo.cac_yc_cua_nhom(nhom_id)
     lots = repo.cac_lot_cua_nhom(nhom_id)
+    btp = repo.btp_tra_cho_kho(nhom_id)
+    ten_kho = repo.ten_kho_theo_ids(
+        [y.kho_id for y in yeu_cau] + [l.kho_id for l in lots] + [l.kho_id for l in btp])
     return {
         "nhom_id": nhom_id,
-        "yeu_cau": [_yc_ra(y) for y in yeu_cau],
-        "lot": [_lot_ra(l) for l in lots],
-        "btp_tra_cho_kho": [_lot_ra(l) for l in repo.btp_tra_cho_kho(nhom_id)],
+        "yeu_cau": [_yc_ra(y, ten_kho) for y in yeu_cau],
+        "lot": [_lot_ra(l, ten_kho) for l in lots],
+        "btp_tra_cho_kho": [_lot_ra(l, ten_kho) for l in btp],
     }
 
 
@@ -466,7 +488,10 @@ def hop_thu_kho(db: Session) -> dict:
     """Hộp thư nhân viên KHO (§14, §17): mọi việc còn chờ kho hành động — yêu cầu nhập kho thành phẩm
     (chờ/một phần) + BTP `nhập kho BTP` chờ nhận. Gate quyền `kho` ở router."""
     repo = SanXuatKhoRepository(db)
+    yeu_cau = repo.cac_yc_cho_kho()
+    btp = repo.cac_btp_cho_kho()
+    ten_kho = repo.ten_kho_theo_ids([y.kho_id for y in yeu_cau] + [l.kho_id for l in btp])
     return {
-        "yeu_cau_nhap": [_yc_ra(y) for y in repo.cac_yc_cho_kho()],
-        "btp_cho_nhan": [_lot_ra(l) for l in repo.cac_btp_cho_kho()],
+        "yeu_cau_nhap": [_yc_ra(y, ten_kho) for y in yeu_cau],
+        "btp_cho_nhan": [_lot_ra(l, ten_kho) for l in btp],
     }

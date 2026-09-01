@@ -144,7 +144,8 @@ class GiuChoService:
         return ra
 
     def trang_thai(self, *, lsx_id: int | None = None, bai_ghep_id: int | None = None,
-                   bang: dict | None = None) -> dict:
+                   bang: dict | None = None,
+                   dang_theo_lsx: dict[int, list] | None = None) -> dict:
         """Kết quả sau khi bấm — ba trạng thái người dùng thấy.
 
         `du` = giữ đủ 100% ⇒ xếp lịch mở khoá. `xep_som_nhat` = ngày sớm nhất được xếp bước tiêu
@@ -157,12 +158,31 @@ class GiuChoService:
         để mặc mỗi chủ thể tự gọi là bình phương số lần chạy theo số lệnh. Bảng KHÔNG phụ thuộc vào
         bảng giữ chỗ (nó đọc tồn thật, không đọc tồn tự do) nên dùng lại là số y hệt, không phải
         bản chụp cũ.
+
+        `dang_theo_lsx` = dòng giữ chỗ đã lấy GỘP cho cả trang lệnh
+        (`GiuChoRepository.cua_nhieu_lsx`, MỘT câu cho N lệnh). Cùng lý do với `bang`, nhưng chặn
+        một N+1 khác: `cua_chu_the` là MỘT câu SELECT cho MỘT lệnh, nên nơi gọi hỏi cả trang lệnh
+        (`lsx_tong_quan.tong_quan`) mà không truyền vào thì tốn đúng một câu mỗi lệnh.
+
+        Nhận MAP chứ không nhận thẳng `list` dòng của chủ thể (đó là chữ ký cũ, đã đổi): danh sách
+        trần thì hàm phải TIN nơi gọi đã lọc đúng lệnh, mà dòng giữ chỗ của lệnh khác trông y hệt —
+        không cách nào kiểm từ trong đây. Nhận map rồi TỰ tra khoá của mình thì chặn được dạng nhầm
+        HAY GẶP: cắt nhầm lát, lệch chỉ số, dùng lại biến của vòng lặp trước.
+
+        Không chặn được MỌI dạng — `{i: rows for i in ids}` vẫn diễn tả được cái sai, và không chữ
+        ký nào ngăn nổi một map dựng sai từ gốc. Đây là hàng rào, không phải chứng minh.
+
+        Không truyền, hoặc hỏi một BÀI GHÉP, hoặc lệnh không có trong map (nơi gọi hỏi ngoài lô)
+        ⇒ tự đi lấy, y như cũ.
         """
         chu = (lsx_id, bai_ghep_id)
         if bang is None:
             bang = self.kh.can_doi()
         can = self._nhu_cau_theo_chu_the(bang).get(chu, {})
-        dang = self.repo.cua_chu_the(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+        if dang_theo_lsx is not None and lsx_id is not None and lsx_id in dang_theo_lsx:
+            dang = dang_theo_lsx[lsx_id]
+        else:
+            dang = self.repo.cua_chu_the(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
 
         giu_theo_hang: dict[Hang, float] = {}
         giu_kho: dict[Hang, float] = {}

@@ -34,7 +34,12 @@ TRANG_THAI_PHAN_CONG = (PC_HOAT_DONG, PC_DA_RUT)
 # --- Loại đóng phiên chạy --------------------------------------------------------------------
 PHIEN_TAM_DUNG = "tam_dung"    # đóng vì Tạm dừng (bắt buộc lý do)
 PHIEN_KET_THUC = "ket_thuc"    # đóng vì Kết thúc công việc
-LOAI_DONG_PHIEN = (PHIEN_TAM_DUNG, PHIEN_KET_THUC)
+# Đóng vì ĐỔI MÁY lúc đang chạy (§7.2 mở rộng 31/08/2026) — TÁCH RIÊNG khỏi `PHIEN_TAM_DUNG`:
+# công việc không hề dừng, chỉ đổi máy giữa chừng. Gộp chung với tạm dừng từng làm `ket_thuc()`
+# hiểu lầm "đã có lý do giải thích phần trễ" chỉ vì có đổi máy (mà lý do đổi máy luôn có sẵn, kể
+# cả khi người dùng bỏ trống) — vô hiệu hoá luật bắt buộc nêu lý do khi kết thúc trễ (review vòng 1).
+PHIEN_DOI_MAY = "doi_may"
+LOAI_DONG_PHIEN = (PHIEN_TAM_DUNG, PHIEN_KET_THUC, PHIEN_DOI_MAY)
 
 
 def _utcnow() -> datetime:
@@ -92,9 +97,14 @@ class SanXuatPhienChay(Base):
         ForeignKey("san_xuat_cong_viec.id", ondelete="CASCADE"), nullable=False, index=True
     )
     so_thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=1)  # thứ tự phiên trong công việc
+    # Máy CHẠY TRONG PHIÊN NÀY. Đứng trên phiên chứ không phải trên công việc: đổi máy giữa
+    # chừng đóng phiên cũ + mở phiên mới, nên `san_xuat_cong_viec.may_id` chỉ nói máy HIỆN TẠI,
+    # còn giờ máy của từng máy phải đọc từ đây. Soft ref → `may_thiet_bi.id` (convention repo).
+    # Nullable: bước chiếm TỔ (`loai_buoc='to'`) không có máy.
+    may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     bat_dau: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ket_thuc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    loai_dong: Mapped[str | None] = mapped_column(String(16), nullable=True)  # tam_dung | ket_thuc
+    loai_dong: Mapped[str | None] = mapped_column(String(16), nullable=True)  # tam_dung | ket_thuc | doi_may
     ly_do_bat_dau_tre: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Bắt buộc khi số người thực tế bắt đầu KHÁC số dự kiến chốt lúc phát hành (§7.1). NULL = khớp.
     ly_do_so_nguoi: Mapped[str | None] = mapped_column(String(255), nullable=True)

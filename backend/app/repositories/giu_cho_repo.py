@@ -36,6 +36,26 @@ class GiuChoRepository:
                 else stmt.where(VatTuGiuCho.bai_ghep_id == bai_ghep_id))
         return list(self.db.execute(stmt.order_by(VatTuGiuCho.id.asc())).scalars())
 
+    def cua_nhieu_lsx(self, lsx_ids: list[int]) -> dict[int, list[VatTuGiuCho]]:
+        """`{lsx_id: dòng giữ chỗ}` cho NHIỀU lệnh trong MỘT câu — bản gộp của `cua_chu_the`.
+
+        Có mặt vì màn danh sách hỏi trạng thái giữ chỗ của cả trang lệnh một lượt; gọi
+        `cua_chu_the` trong vòng lặp là đúng N+1 (mỗi lệnh một câu SELECT).
+
+        TOÀN ÁNH trên `lsx_ids`: lệnh không có dòng nào vẫn trả `[]`, để nơi gọi khỏi phải `.get`.
+        """
+        ket: dict[int, list[VatTuGiuCho]] = {i: [] for i in lsx_ids}
+        if not lsx_ids:
+            return ket
+        rows = self.db.execute(
+            select(VatTuGiuCho)
+            .where(VatTuGiuCho.lsx_id.in_(lsx_ids))
+            .order_by(VatTuGiuCho.id.asc())
+        ).scalars()
+        for r in rows:
+            ket[r.lsx_id].append(r)
+        return ket
+
     def xoa_cua_chu_the(self, *, lsx_id: int | None, bai_ghep_id: int | None) -> int:
         stmt = delete(VatTuGiuCho)
         stmt = (stmt.where(VatTuGiuCho.lsx_id == lsx_id) if lsx_id is not None

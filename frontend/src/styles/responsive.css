@@ -125,13 +125,18 @@
 /* ---- 5. Bảng: khung cuộn ngang riêng --------------------------------------- */
 /* Các khung bảng dưới đây đặt `overflow: hidden` chỉ để BO GÓC. Ở màn rộng bảng vừa khung
    nên không ai thấy; màn hẹp thì bảng rộng 800-1000px bị CẮT CỤT, cột cuối không tới được.
-   Đổi sang cuộn ngang trong khung: góc vẫn bo, cột vẫn tới được, trang vẫn đứng yên. */
+   Đổi sang cuộn ngang trong khung: góc vẫn bo, cột vẫn tới được, trang vẫn đứng yên.
+   KHÔNG cần `!important`: đo `document.styleSheets` lúc chạy thì responsive.css đứng thứ 49/51,
+   tức nạp SAU toàn bộ CSS của trang — hoà độ ưu tiên là luật ở đây thắng. Đã xác nhận trên
+   trình duyệt: `.ns__tablewrap` cho ra `overflow-x: auto`. */
 @media (max-width: 1024px) {
   .cc-table-card,
   .cl-table__wrap,
   .kh__tablewrap,
   .khsx-vattu-table-wrap,
   .lg-emp-table-wrapper,
+  .lg-param-table,
+  .lg-table,
   .ns__tablewrap,
   .pdot__tablecard,
   .purchase__modal-table-wrap {
@@ -186,5 +191,2931 @@
     flex-wrap: wrap;
     gap: var(--sp-2);
     justify-content: center;
+  }
+}
+
+/* ---- 8. Ô nhập: 16px để iOS không TỰ PHÓNG TO trang ------------------------ */
+/* Safari trên iPhone phóng cả trang lên khi con trỏ nhảy vào ô có cỡ chữ < 16px, và KHÔNG tự
+   thu lại — người dùng phải chụm hai ngón mới về như cũ. Ô tìm kiếm ở đây đang 12,8-14px nên
+   bấm vào ô nào cũng dính. 16px chỉ áp ở màn hẹp; máy tính giữ nguyên mật độ chữ nhỏ. */
+@media (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    /* `!important` vì cỡ chữ ô nhập hay được khai bằng luật đặc hiệu hơn (`.kho-x input`,
+       `.act-select-input`…) nên luật gọn ở đây thua. Quét lại thấy 71 ô vẫn dưới 16px.
+       Đây KHÔNG phải chuyện thẩm mỹ: Safari trên iPhone tự phóng to trang khi bấm vào ô
+       nhỏ hơn 16px, và KHÔNG tự thu lại — người dùng kẹt ở trang đã phóng. */
+    font-size: 16px !important;
+  }
+
+  /* Quet lai van con `select.purchase__select-modern` ở 13px: nó khai bằng
+     `.purchase__select-modern { font-size: ... !important }` — cũng `!important` nhưng đặc hiệu
+     hơn (0,1,0 so với 0,0,1) nên luật trên thua. Bản sao này có thêm `.shell__content` thành
+     (0,1,1) để thắng những khai báo một lớp kiểu đó. Giữ CẢ HAI: luật trên còn lo cho ô nằm
+     trong hộp thoại — hộp thoại rọi ra ngoài `.shell__content`. */
+  .shell__content input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  .shell__content textarea,
+  .shell__content select {
+    font-size: 16px !important;
+  }
+}
+
+/* ---- 9. Vùng chạm: ngón tay cần ~44px, chuột thì không ------------------- */
+/* Đo thật ở 375px: tab 20-31px, nút biểu tượng 22×22, nút sắp xếp trên đầu bảng 16px, ô tick
+   chọn dòng 13×13. Bấm bằng ngón cái là trượt. Mật độ 30-34px là CHỦ Ý cho máy tính (xem chú
+   thích ở `.btn` trong global.css) nên chỉ nới ở màn hẹp, máy tính không đổi. */
+@media (max-width: 768px) {
+  .shell__content button,
+  .shell__content [role="button"],
+  .shell__content select,
+  .shell__content a[class*="btn"] {
+    min-height: 44px;
+  }
+
+  /* Nút chỉ có biểu tượng (‹ › + −) hẹp 22px: nới cả bề ngang, không thì vẫn khó trúng. */
+  .shell__content button[aria-label]:empty,
+  .shell__content button[class*="iconbtn"],
+  .shell__content button[class*="icon-btn"] {
+    min-width: 44px;
+  }
+
+  /* TRONG BẢNG trước đây hạ trần xuống 32px vì sợ hàng cao gấp đôi. Đo lại ở 375px thì nỗi sợ
+     đó sai: hàng màn Lương đang 49px, hàng danh mục 156px — nới nút lên 44px chỉ đội thêm vài
+     pixel. Đây là chỗ bấm chính của mỗi hàng (Sửa / In / Nhân bản / Xóa) nên không hạ trần nữa. */
+  .shell__content :is(th, td) button,
+  .shell__content :is(th, td) [role="button"] {
+    min-height: 44px;
+  }
+
+  /* Nút mở bản ghi ở cột tên: đang co theo chữ nên tên ngắn ("m²", "mm") chỉ rộng 17-26px.
+     Cho nó chiếm trọn bề ngang ô thì tên dài hay ngắn cũng bấm được như nhau. */
+  .shell__content .rc__open {
+    display: block;
+    width: 100%;
+  }
+
+  /* Nút chỉ chứa một mã ngắn ("DH023", "Giờ", "Ca", "Tổ 6") co theo chữ nên chỉ rộng 34-42px.
+     CHÚ Ý chỗ KHÔNG được nới: `.xl2-bar` trên biểu đồ xếp lịch cũng là nút hẹp 24px, nhưng bề
+     ngang của nó CHÍNH LÀ thời lượng công đoạn — nới ra là vẽ sai lịch. Để nguyên. */
+  .shell__content .code-link,
+  .shell__content .xl2-seg__btn,
+  .shell__content .xl2-cluster-toggle,
+  .shell__content .thsx-seg__btn {
+    min-width: 44px;
+  }
+
+  /* Ô tick chọn dòng 13×13 là chỗ khó bấm nhất toàn hệ thống. 24px là đúng ngưỡng bắt buộc
+     của WCAG 2.5.8 mức AA (44px là mức AAA, không nhét vừa ô bảng mà không xé bố cục bảng). */
+  .shell__content input[type="checkbox"],
+  .shell__content input[type="radio"] {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+/* ---- 10. Sàn cỡ chữ: dưới 12px thì đọc trên điện thoại rất mệt ------------ */
+/* Bảng, nhãn nhỏ, huy hiệu đếm đang 10-11,5px — trên màn 375px là mờ tịt. Nâng lên 12px, chỉ
+   ở màn hẹp. KHÔNG đụng `.sr-only` (chữ dành cho trình đọc màn hình, không ai nhìn).
+
+   VÌ SAO `!important`: cỡ chữ đầu bảng được khai bằng những luật đặc hiệu hơn hẳn
+   (`.rdx-quote thead th`, `.bgv .bg-lines th`…) nên luật gọn ở đây thua. Đây là NGƯỠNG ĐỌC
+   ĐƯỢC, không phải gợi ý thẩm mỹ, và chỉ sống trong @media hẹp — máy tính không dính.
+
+   VÌ SAO `screen and` (Task 2b, 31/08/2026) — ĐỪNG BỎ chữ này dù trông như thừa: `@media
+   (max-width: 768px)` không khai loại phương tiện nên mặc định khớp CẢ `print`, tức luật này
+   từng ép LUÔN cỡ chữ của TỜ GIẤY theo bề ngang điện thoại. Ca thật: `.ptg-tbl thead th` (phiếu
+   tính giá, `phieu-tinh-gia.css:158`) khai đúng 9px cho khổ A4, nhưng selector `.shell__content
+   th` ở đây (đặc hiệu ngang, đứng sau, cùng !important) đã thắng, ép nó lên 12px — ô tiêu đề chỉ
+   rộng 46px mà chữ "NGUYÊN" bị phồng lên 52,82px, trình duyệt buộc phải cắt "NGUY/ÊN" giữa từ.
+   Bản in đo theo khổ GIẤY (mm/pt qua @page), không theo bề ngang điện thoại — sàn chữ là chuyện
+   của MÀN HÌNH. Thêm `screen` để khối này chỉ khớp phương tiện màn hình, nhường lại `@media
+   print` cho khổ giấy tự quyết. Màn hình bên trong bản in (lúc KHÔNG in, `.tg-print-only`
+   `display:none`) không bị ảnh hưởng vì đằng nào cũng ẩn. */
+@media screen and (max-width: 768px) {
+  .shell__content th,
+  .shell__content small,
+  .shell__content [class*="eyebrow"],
+  .shell__content [class*="sortbtn"],
+  .shell__content [class*="badge"]:not(.sr-only),
+  .shell__content [class*="chip"]:not(.sr-only),
+  .shell__content [class*="__count"]:not(.sr-only),
+  .shell__content [class*="-count"]:not(.sr-only),
+  .shell__content [class*="__tag"]:not(.sr-only),
+  .shell__content [class*="__lbl"]:not(.sr-only),
+  .shell__content [class*="-label"]:not(.sr-only),
+  .shell__content [class*="__dvt"],
+  .shell__content [class*="pill"]:not(.sr-only) {
+    font-size: 12px !important;
+  }
+
+  /* Chữ HOA + giãn ký tự ở cỡ nhỏ đọc chậm hơn hẳn — bớt giãn khi đã ở màn hẹp. */
+  .shell__content th,
+  .shell__content [class*="eyebrow"] {
+    letter-spacing: 0.06em !important;
+  }
+}
+
+/* ---- 11. Bảng danh mục: đừng chia đều 375px cho 11 cột --------------------- */
+/* `.rc__table` dùng `table-layout: fixed` + `width: 100%` — trên máy tính chia đều là đẹp,
+   nhưng ở 375px với 11 cột thì mỗi cột được ~34px và chữ RƠI DỌC TỪNG KÝ TỰ (đo thật ở màn
+   Thiết bị & Máy móc). Ở màn hẹp cho bảng tự giãn theo nội dung, sàn 96px một cột, rồi cuộn
+   ngang trong khung `.rc__tablewrap` (khung này vốn đã `overflow: auto`).
+   Áp tới 1024px vì tablet dọc (768px) với 11 cột vẫn chỉ được ~70px/cột. */
+@media (max-width: 1024px) {
+  .rc__table {
+    table-layout: auto;
+    width: auto;
+    min-width: 100%;
+  }
+
+  .rc__table :is(th, td) {
+    min-width: 96px;
+    white-space: normal;
+  }
+
+  /* Cột mã và cột hành động không cần rộng bằng cột nội dung. */
+  .rc__table :is(th, td):first-child {
+    min-width: 56px;
+  }
+  .rc__table :is(th, td).rc__actcol,
+  .rc__table :is(th, td):last-child {
+    min-width: 72px;
+  }
+}
+
+/* ---- 12. Ba màu chữ rớt ngưỡng khi đặt trên nền pha ----------------------- */
+/* `--ash-2` được chọn theo nền TRẮNG (4,55:1). Nhưng rất nhiều khối đặt nó trên nền pha nhạt —
+   #f1f5f9, #fff7ed, #e2e8f0 — và ở đó nó chỉ còn 3,86-4,48:1, tức dưới ngưỡng đọc được.
+   Hạ thêm một nấc xuống #556274: trên #e2e8f0 (nền đậm nhất đang dùng) đạt 5,0:1, mà vẫn sáng
+   hơn `--ash` nên ba bậc chữ không bị dính làm một.
+   `--rust` trên `--rust-soft` (mã phòng ban PB001, nút "Xem lệnh dự kiến") chỉ 4,06:1 — đậm lại
+   thành #b03a09 cho đủ 4,86:1; chữ trắng trên nền rust đặc cũng khá hơn theo (5,1 -> 6,1:1).
+   Chỉ đổi ở màn hẹp: máy tính giữ nguyên bảng màu đã duyệt. */
+@media (max-width: 768px) {
+  :root {
+    --ash-2: #556274;
+    --rust: #b03a09;
+  }
+}
+
+/* ---- 13. Nút vuông chỉ có biểu tượng --------------------------------------- */
+/* §9 nới được CHIỀU CAO, nhưng mấy nút này bị ghim `width: 32px` (hoặc 18px với mũi tên
+   xổ cây phòng ban) nên vẫn là ô 32px hẹp. Đo ở 375px: mũi tên xổ cây 18px, nút đóng ngăn
+   kéo 30px, nút làm mới GPS 31px, mũi tên đổi tháng 32px — đều nhỏ hơn đầu ngón tay.
+   `:has(> svg:only-child)` bắt phần lớn nút biểu tượng; phần còn lại gọi thẳng tên lớp. */
+@media (max-width: 768px) {
+  .shell__content button:has(> svg:only-child),
+  .shell__content .ktm-lich__nut,
+  .shell__content .ktm-nhom-chip,
+  .shell__content .rdx-drawer__close,
+  .shell__content .rdx-drawer__ghost,
+  .shell__content .cc-geo-status-refresh {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Mũi tên xổ cây phòng ban KHÔNG nới BỀ NGANG được: ô cây chỉ rộng 258px, kéo từ 18 lên 44px
+     là cướp 26px của cột tên (tên tụt còn 42px, chữ và thẻ mã đè lên nhau — đã chụp thấy).
+     Nên nó chỉ ăn min-height của §9: thành dải 18×44, hẹp nhưng cao gấp 2,4 lần trước. */
+
+  /* §9 đặt `min-height: 44px` lên MỌI nút, và điều đó GỠ MẤT `min-height: auto` — cái mặc định
+     giữ cho flex item không co xuống dưới nội dung. Ô phòng ban là nút nằm trong cột flex có
+     giới hạn chiều cao, nên nó co từ 61px xuống đúng 44px và dòng thứ hai tràn đè sang hàng
+     dưới. Trả lại `auto`: nút này vốn đã cao hơn 44px, không cần sàn.
+     Tên lớp viết LẶP HAI LẦN là CỐ Ý, không phải gõ nhầm: `button:has(> svg:only-child)` ở trên
+     nặng (0,2,2) vì `:has()` mang độ ưu tiên của đối số bên trong; viết một lần chỉ (0,2,0) là THUA. */
+  .shell__content .rdx-tree__tile.rdx-tree__tile,
+  .shell__content .mine__lockchip.mine__lockchip {
+    min-height: auto;
+  }
+
+  /* Huy hiệu bút chì trên ảnh đại diện vẽ 28px và ĐÃ tự lo vùng bấm 44×44 bằng lớp phủ
+     `::before { inset: -8px }` (xem ho-so-cua-toi.css). Ép thêm sàn 44px làm PHÌNH phần nhìn
+     thấy thành viên tròn 44px đè lên mặt người — đã chụp thấy. Trả lại cỡ vẽ. */
+  .shell__content .mine__avatar-edit.mine__avatar-edit {
+    min-width: auto;
+    min-height: auto;
+  }
+}
+
+/* ---- 14. Phòng ban: cây và thanh công cụ ở màn hẹp ------------------------- */
+/* Đo ở 375px: dòng tên trong ô cây là flex KHÔNG xuống dòng, mà thẻ mã (PB003) và thẻ khối
+   (Khối KD) không chịu co, nên chỗ bị co là CÁI TÊN — "Kinh doanh" còn đúng 15px, hiện ra
+   màn hình là "K..". Cho dòng đó xuống hàng và đẩy tên chiếm trọn hàng đầu.
+   Thanh công cụ cũng vậy: ba nút 75+94+110px nhét vừa khít 296px nên chữ trong nút vỡ thành
+   "Mở / tất / cả". Cho phép xuống hàng thì nút giữ đúng bề ngang của chữ. */
+@media (max-width: 768px) {
+  .rdx-tree__line1 {
+    flex-wrap: wrap;
+  }
+  .rdx-tree__line1 .rdx-tree__name {
+    flex: 1 1 100%;
+  }
+  .rdx-org-toolbar__right {
+    flex-wrap: wrap;
+  }
+  /* Thẻ trạng thái ngắn ("Chưa chỉ định", "Có trưởng") vỡ làm hai dòng trong viên bo tròn,
+     nhìn như lỗi. Dòng tên đã xuống hàng nên có chỗ cho chúng nằm nguyên một dòng. */
+  .rdx-tree__warn,
+  .rdx-tree__head-ok {
+    white-space: nowrap;
+  }
+}
+
+/* ---- 15. Đầu trang: đừng để nút ép chết cột tiêu đề ------------------------ */
+/* Quét 58 màn ở 375px, 8 màn có cùng một lỗi: đầu trang là hàng flex KHÔNG xuống dòng, tiêu đề
+   nằm bên trái, nút nằm bên phải — và chỗ chịu co luôn là tiêu đề. Đo được: #31 h1 còn 45px
+   trong hàng 278px, #57 còn 139px trong 312px, các màn kho còn 102px trong 336px. Kết quả trên
+   máy là "QUẢN LÝ HỆ THỐNG" vỡ ba dòng, thẻ "Đồng bộ Live" vỡ ba dòng.
+   Không gọi được bằng tên lớp: bốn màn kho dùng phần tử KHÔNG có class. Nên bắt theo cấu trúc —
+   phần tử đang bọc h1 (trực tiếp hoặc cách một tầng) thì cho xuống hàng. `flex-wrap` không có
+   tác dụng gì lên phần tử không phải flex, nên rải rộng cũng không hại. */
+@media (max-width: 768px) {
+  .shell__content :is(:has(> h1), :has(> * > h1)) {
+    flex-wrap: wrap;
+  }
+}
+
+/* ---- 16. Sáu màn kế toán kéo ngang CẢ TRANG ------------------------------- */
+/* Đo ở 375px: #23 kéo 699px, #24 729px, #25 605px, #26 563px, #27 399px, #28 504px. Người dùng
+   phải vuốt sang phải mới thấy nút, mà tiêu đề thì trôi mất bên trái.
+   Nguyên nhân: `.md-page` là cột flex, các con nó bị bảng rộng 910px kéo giãn theo — kể cả đầu
+   trang và thanh lọc, những thứ chẳng liên quan gì tới bảng. Khung cuộn `.md-page__tablewrap`
+   ĐÃ có `overflow-x: auto` nhưng chính nó cũng bị giãn thành 911px nên không cuộn gì cả.
+   `min-width: 0` KHÔNG cứu được (đã thử, vẫn 911px) vì đây là giãn theo trục ngang chứ không
+   phải co. Chặn bằng `max-width: 100%`: đo lại còn 336px, bảng vẫn 910px và cuộn trong khung
+   của nó — đúng ý thiết kế ban đầu. */
+@media (max-width: 768px) {
+  .md-page > * {
+    max-width: 100%;
+  }
+}
+
+/* ---- 17. Bộ lọc khoảng ngày: nhãn một dòng, hai ô ngày một dòng ------------ */
+/* Ở 375px hai ô ngày (124px mỗi ô) cộng nhãn không đủ chỗ trên một hàng. Nhãn ngắn thì lọt,
+   nhãn dài ("Ngày cần hàng") đẩy ô thứ hai xuống hàng dưới — nhìn ra như một ô ngày mồ côi
+   không có nhãn. Cho nhãn chiếm trọn hàng đầu, hai ô ngày chia đôi hàng dưới. */
+@media (max-width: 768px) {
+  .acct-toolbar__date-group > :first-child {
+    flex: 1 1 100%;
+  }
+  .acct-toolbar__date-group .acct-toolbar__date {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
+/* ---- 18. Hàng khách hàng: cụm mã số thuế + nhãn tính cách ------------------ */
+/* `.kh__submeta` là hàng flex không xuống dòng, rộng 221px mà phải chứa 4 thứ: hộp MST, hai
+   nhãn tính cách và cụm "+1". Ở 375px chúng đè lên nhau (đã chụp thấy). Cho xuống hàng. */
+@media (max-width: 768px) {
+  .kh__submeta {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+}
+
+/* ---- 19. Vài nút lẻ còn nhỏ hơn đầu ngón tay ------------------------------ */
+/* Đo lần cuối ở 375px, ba chỗ còn sót vì không khớp luật nào ở trên:
+   - nút thu/phóng sơ đồ Quy trình: 22×22, khai cứng width/height nên §9 chỉ nới được chiều cao;
+   - link tên tệp trong hồ sơ nhân sự: chỉ cao 21px vì là thẻ <a> trơn, §9 chỉ bắt <a> có "btn";
+   KHÔNG đụng tới `.xl2-bar` (thanh Gantt rộng 24px): bề ngang của nó là thời lượng công đoạn,
+   và các nút <g> trong sơ đồ Quy trình cũng vậy — kích thước là hình học của sơ đồ. */
+@media (max-width: 768px) {
+  .qtkd__zoom-box button {
+    width: 44px;
+    height: 44px;
+  }
+  .ns-fileitem__name {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
+}
+
+/* ---- 20. Bốn nút hẹp cuối cùng --------------------------------------------- */
+/* Vét nốt sau lần quét cuối ở 375px:
+   - `.ptg__sortbtn` (nút sắp xếp trên đầu bảng Tính giá) rộng 17px;
+   - `.pay-cell--link` (con số bấm được trong bảng công nợ) rộng 7px — bấm gần như không trúng;
+   - `.sel__trigger.acct-toolbar__select` cao 40px: §9 có đặt sàn 44px nhưng luật gốc đặc hiệu
+     hơn (hai lớp) nên thắng — phải gọi đích danh;
+   - `.btn--ghost` khi chỉ chứa một mũi tên "›" (nút sang trang) rộng 35px. */
+@media (max-width: 768px) {
+  .shell__content .ptg__sortbtn,
+  .shell__content .pay-cell--link,
+  .shell__content .btn--ghost {
+    min-width: 44px;
+  }
+  .shell__content .sel__trigger,
+  .shell__content .acct-toolbar__select {
+    min-height: 44px;
+  }
+}
+
+
+/* ---- 21. Sơ đồ quy trình kinh doanh: đừng thu cả bản đồ vào 375px --------- */
+/* `.qtkd-svg` đang `width: 100%` trên khung vẽ 1280×500, nên ở 375px cả sơ đồ bị co còn 27%:
+   ô công đoạn 140×28 hiện ra đúng 33×7 px — chữ không đọc nổi, ngón tay không bấm trúng.
+   Nút phóng to cũng không cứu được: nó bị kẹp trần ở 1,5 lần (xem `handleZoom`), tức cùng lắm
+   là 50×10. Bỏ co, vẽ đúng cỡ thật rồi để `.qtkd__board` (đã có `overflow: auto`) cho kéo ngang
+   — bản đồ quy trình thì kéo ngang là chuyện bình thường, đọc được mới là chuyện chính. */
+@media (max-width: 768px) {
+  .shell__content .qtkd-svg {
+    min-width: 1280px;
+  }
+
+  /* Khung bọc phải rộng theo nội dung, không thì phần vẽ tràn ra ngoài vùng cuộn được. */
+  .shell__content .qtkd__zoom-wrapper {
+    width: max-content;
+  }
+
+  /* Chữ trong ô công đoạn vẽ 10px, dòng phụ 8px — vẽ đúng cỡ rồi vẫn là 10/8px thật trên
+     điện thoại. Ô rộng 140px, nhãn dài nhất ("Xác nhận đơn hàng") ở 12px vẫn vừa, nên nâng
+     được một nấc mà không phải nới ô. Chỉ hai ô có dòng phụ ("Kho lập", "Giao hàng lập"). */
+  .shell__content .qtkd-label {
+    font-size: 12px;
+  }
+
+  .shell__content .qtkd-sub {
+    font-size: 10px;
+  }
+}
+
+/* ---- 22. Sàn cỡ chữ, đợt 2: những nhãn phụ mà §10 bắt hụt --------------- */
+/* §10 lọc theo MẪU TÊN LỚP (`__tag`, `-label`, `badge`, `chip`…) nên nó chỉ vớt được phần
+   đặt tên theo đúng quy ước. Quét lại 58 màn ở 375px còn 51 lớp nữa nằm dưới 12px vì đặt tên
+   kiểu khác: `bg2-paper-tag` (gạch ngang, không phải `__tag`), `thsx-lsec__label` (`__label`
+   chứ không phải `-label`), `acct-mh__state`, `purchase__status`… Liệt kê đích danh thay vì
+   nới mẫu tên: nới mẫu là ép luôn những nhãn ĐANG 14px tụt xuống 12px, hại nhiều hơn lợi.
+   Cỡ đo được ghi ngay sau mỗi cụm.
+
+   CỐ Ý BỎ RA: `.act-avatar-xs` (vòng tròn 20px, chữ tắt 10px) và `.kh__sale-avatar` (vòng
+   18px, chữ 9px) — nâng lên 12px là chữ tràn ra khỏi vòng. Cũng bỏ `.xl2-bar__*` (chữ nằm
+   trong thanh Gantt cao 24px) vì cùng lý do. */
+@media (max-width: 768px) {
+  /* Kế toán: thẻ trạng thái phiếu mua hàng / phiếu thu — 11px */
+  .shell__content .acct-dmh__state,
+  .shell__content .acct-mh__state,
+  .shell__content .acct-pt__flag,
+  .shell__content .acct-pt__state,
+  /* Dòng thời gian hoạt động — 10-11px */
+  .shell__content .act-live-pulse,
+  .shell__content .act-tl-exact,
+  .shell__content .act-tl-id,
+  .shell__content .act-tl-time,
+  /* Bài ghép 2: thẻ loại giấy / định lượng — 10,5-11,5px */
+  .shell__content .bg2-cell-lsx__sub,
+  .shell__content .bg2-gsm-tag,
+  .shell__content .bg2-paper-tag,
+  /* Chấm công — 10,5-11px */
+  .shell__content .cc-today-shift-tag,
+  .shell__content .cc-today-summary-title,
+  /* Nút mã bản ghi dùng chung — 11px */
+  .shell__content .code-link,
+  /* Đơn hàng bán: nhãn KPI, cờ đã cọc, nguồn đơn — 10,5-11px */
+  .shell__content .dhb__deposit-ok,
+  .shell__content .dhb__kpi-l,
+  .shell__content .dhb__kpi-s,
+  .shell__content .dhb__order-source-bg,
+  /* Khách hàng & nhà cung cấp: nhãn ô KPI — 11px */
+  .shell__content .kh__ckpi-lbl,
+  .shell__content .supplier__kpi-lbl,
+  /* Kho: nhãn bảng điều khiển, % vành khuyên, mã dòng, độ dày — 10,5-11px */
+  .shell__content .kho-dash__label,
+  .shell__content .kho-donut__legpct,
+  .shell__content .kho-lines__code,
+  .shell__content .kho-ton__thmm,
+  /* Kế hoạch vật tư: thẻ loại món, đơn vị, số thiếu — 10-11,5px */
+  .shell__content .khvt-deficit-zero,
+  .shell__content .khvt-item-tag,
+  .shell__content .khvt-unit-val,
+  /* Kỹ thuật máy: mã và dòng phụ trong lịch, nút lọc công đoạn — 11,5px */
+  .shell__content .ktm-agenda__ma,
+  .shell__content .ktm-agenda__meta,
+  .shell__content .ktm-cg-btn,
+  /* Lương — 11px */
+  .shell__content .lg-kpi-card-sub,
+  .shell__content .pay-kpibar__label,
+  /* Hồ sơ của tôi: dòng gợi ý và dòng phụ của đề nghị — 11px */
+  .shell__content .mine__kv-hint,
+  .shell__content .mine__reqsub,
+  /* Nhân sự: dòng phụ của tệp đính kèm — 11,5px */
+  .shell__content .ns-fileitem__sub,
+  /* Phiếu tính giá / báo giá: quy cách sản phẩm, tên KTV, dòng phụ bản in — 11-11,5px */
+  .shell__content .ptg-prod__spec,
+  .shell__content .ptg-when__ktv,
+  .shell__content .rdx-quote .vc,
+  /* Mua hàng: thẻ nguồn và trạng thái — 11px */
+  .shell__content .purchase__source-tag,
+  .shell__content .purchase__status,
+  /* Danh mục dùng chung: chữ mờ trong ô — 11px */
+  .shell__content .rc__muted,
+  /* Thực hiện sản xuất: nhãn khối, giờ, máy, KCS, nguồn — 10-11px */
+  .shell__content .thsx-ds__sech,
+  .shell__content .thsx-ds__srcten,
+  .shell__content .thsx-lg,
+  .shell__content .thsx-lrow__gio,
+  .shell__content .thsx-lrow__kcs,
+  .shell__content .thsx-lrow__may,
+  .shell__content .thsx-lsec__label,
+  /* Thẻ "Live Sync" ở đầu ba màn kế hoạch/bài ghép — 11px */
+  .shell__content .bg2-sync-badge,
+  .shell__content .khsx-sync-badge,
+  .shell__content .khvt-header__sync,
+  /* Xếp lịch 2: nút chọn lát cắt và nút "Vừa khít" — 11,5px */
+  .shell__content .xl2-iconbtn,
+  .shell__content .xl2-seg__btn {
+    font-size: 12px !important;
+  }
+}
+
+/* ---- 23. Vỏ máy: thanh trên và ngăn kéo điều hướng ----------------------- */
+/* Mọi mục §8-§22 đều mở đầu bằng `.shell__content`, mà thanh trên với ngăn kéo nằm NGOÀI khối
+   đó — nên suốt các đợt trước chúng chưa hề được rà. Quét riêng ở 375px thấy:
+   nút mở menu 40×40, chuông thông báo 38×38, nút đóng ngăn kéo 36×36, và bảy đầu mục nhóm
+   trong ngăn kéo chỉ cao 26px. Đây là những nút bấm NHIỀU NHẤT trên điện thoại — mở menu là
+   thao tác đầu tiên của mọi lần dùng — nên phải là chỗ đúng 44px trước tiên. */
+@media (max-width: 768px) {
+  .topbar__nav-toggle,
+  .tb-bell,
+  .sidebar__close {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* Đầu mục nhóm ("Kinh doanh", "Sản xuất"…) là nút gập/mở cả nhóm, rộng sẵn 246px nhưng chỉ
+     cao 26px. Nới chiều cao, không đụng bề ngang. */
+  .sidebar__sectionhead {
+    min-height: 44px;
+  }
+
+  /* Chữ trong ngăn kéo: nhãn hệ thống và đầu mục nhóm đang 10px CHỮ HOA giãn 0,14em — cỡ đó
+     trên điện thoại đọc rất chậm. Lên 12px và bớt giãn, giống cách §10 làm với đầu bảng. */
+  .sidebar__tag,
+  .sidebar__sectionhead {
+    font-size: 12px;
+    letter-spacing: 0.06em;
+  }
+
+  /* Huy hiệu đếm chưa đọc: 11px trong vòng cao 18px — 12px vẫn nằm gọn. */
+  .sidebar__badge {
+    font-size: 12px;
+  }
+}
+
+/* ---- 24. Màn đăng nhập và nhãn ô nhập dùng chung ------------------------- */
+/* Màn đăng nhập nằm NGOÀI `.shell`, nên §8-§23 (đều mở đầu bằng `.shell__content`) không chạm
+   tới nó — mà đó là màn đầu tiên mọi người mở trên điện thoại. Phần nút bấm đã sửa tại chỗ
+   trong `auth.css`; riêng `.field__label` phải để ở đây vì `global.css` cũng khai lớp đó
+   (11px) và NẠP SAU `auth.css` — sửa trong `auth.css` là luật chết. */
+@media (max-width: 768px) {
+  .field__label {
+    font-size: 12px;
+  }
+
+  /* Bốn màn khai lại nhãn này kèm tên hộp thoại (0,2,0) nên luật một lớp ở trên thua.
+     Nhắc lại đúng cả bốn — cùng là nhãn ô nhập, không có lý do để chúng nhỏ hơn. */
+  .kh__dialog .field__label,
+  .kh__finpolicy-edit .field__label,
+  .kh__subform .field__label,
+  .cdlg .field__label {
+    font-size: 12px;
+  }
+}
+
+/* ---- 25. Hộp thoại và ngăn kéo: lặp lại §8-§10 cho lớp nổi -------------- */
+/* §8 (ô nhập 16px), §9 (chỗ bấm 44px) và §10 (sàn cỡ chữ) đều mở đầu bằng `.shell__content`.
+   Hộp thoại thì KHÔNG nằm trong đó — React dựng nó ra thẳng `body`. Nên suốt các đợt trước,
+   mọi hộp thoại của hệ thống chưa hề được rà. Mở thử bằng nút thật trên 58 màn thì thấy:
+   nút × đóng hộp thoại 30×44 và 23×44 và 25×42, nút "Hủy"/"Tiếp ›"/"Gửi phiếu" cao 42px,
+   ô chọn trong biểu mẫu nhân sự 276×42, ô tick 23×23, ô nhập nhiều dòng 14px.
+   Lặp lại đúng ba luật đó cho lớp nổi, khoanh theo tên lớp gốc của hộp thoại. */
+@media (max-width: 768px) {
+  /* Gốc hộp thoại: `[class*="overlay"]` bắt luôn lớp phủ bọc ngoài nên con bên trong dính theo.
+     KHÔNG dùng `[class*="sheet"]` — nó vơ nhầm "spreadsheet"/"worksheet". */
+  :is([role="dialog"], [class*="modal"], [class*="drawer"], [class*="dialog"], [class*="overlay"])
+    :is(button, [role="button"], select, a[class*="btn"]) {
+    min-height: 44px;
+  }
+
+  /* Nút × đóng: cao thì đủ, ngang thì 23-30px. Nới bề ngang cho tròn 44. */
+  .dmodal__x,
+  .purchase__hero-x,
+  .md-page__close,
+  .ns-modal__x,
+  .cdlg__x {
+    min-width: 44px;
+  }
+
+  :is([role="dialog"], [class*="modal"], [class*="drawer"], [class*="dialog"], [class*="overlay"])
+    :is(input[type="checkbox"], input[type="radio"]) {
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+  }
+
+  :is([role="dialog"], [class*="modal"], [class*="drawer"], [class*="dialog"], [class*="overlay"])
+    :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, select) {
+    font-size: 16px !important;
+  }
+
+  /* Chữ nhỏ đo được trong hộp thoại: nhãn phụ đầu ngăn kéo mua hàng 10px, phím tắt trong hộp
+     thoại khách hàng 10px, tiêu đề khối 11,5px, mục danh sách gợi ý 11,5px. */
+  .purchase__hero-kicker,
+  .kh__kbd,
+  .rc-sec__title,
+  .kh__tax-lookup-btn,
+  .rc-drawer__kicker,
+  .kho-info-item__label,
+  .ns-steps li,
+  .ns-steps__n,
+  .nqr-modal__head span {
+    font-size: 12px;
+  }
+}
+
+/* ===== §26. CHỮ NHỎ CHỈ LỘ RA KHI CUỘN ======================================
+   Các đợt quét trước chỉ đo khung nhìn đầu tiên nên bỏ sót toàn bộ phần phải LƯỚT mới thấy:
+   cuộn dọc hết trang, cuộn dọc trong khung con (cây phòng ban, danh sách việc của tổ), và
+   Shift+lướt ngang trong khung bảng/Gantt. Danh sách dưới đây là chỗ đo được <12px ở 375px
+   sau khi lướt đủ bốn hướng, neo theo đúng chuỗi cha đã dò trong trình duyệt.
+
+   Vì sao `!important`: nhiều lớp trong đây được khai lại nhiều lần ở file gốc (redesign-phong-ban.css
+   có 3 bản .rdx-tree__code), nên độ ưu tiên theo thứ tự file không đáng tin. */
+@media (max-width: 768px) {
+  /* Bàn tổ (Thực hiện SX) — thước Gantt: nhãn ngày 11px, mốc giờ 10px. Mốc cách nhau 84-99px
+     nên lên 12px vẫn không đụng nhau. Chip trạng thái trong thẻ việc 10px. */
+  .thsx-ruler__day,
+  .thsx-ruler__tick,
+  .thsx-tt span,
+  .thsx-lg,
+  .thsx-cluster__head span,
+  .thsx-cluster__head b {
+    font-size: 12px !important;
+  }
+
+  /* Phòng ban — mã phòng 10px, hai nhãn tình trạng trưởng phòng 11px, số nhân sự 11px,
+     nhãn 4 ô KPI 11px. */
+  .rdx-tree__code,
+  .rdx-tree__warn,
+  .rdx-tree__head-ok,
+  .rdx-tree__staff span,
+  .rdx-ckpi-lbl,
+  .rdx-drawer__crumbs {
+    font-size: 12px !important;
+  }
+
+  /* Kỹ thuật máy — dòng phụ dưới tên máy / ngày giờ / hạng mục trong bảng sửa chữa. */
+  .ktm-phu {
+    font-size: 12px !important;
+  }
+
+  /* Đơn hàng bán — số tiền cọc trong đầu khối đặt cọc 10,5px. */
+  .dhb__deposit-header span {
+    font-size: 12px !important;
+  }
+
+  /* Kế hoạch vật tư — huy hiệu Live Sync và ghi chú "về ngày…" trong ô trạng thái.
+     §22 đã nâng chính lớp bọc, nhưng chữ nằm ở <span> con nên phải neo thêm. */
+  .khvt-header__sync span,
+  .khvt-po-note span,
+  .bg2-sync-badge span,
+  .khsx-sync-badge span {
+    font-size: 12px !important;
+  }
+
+  /* Chấm công — 3 dòng chú giải dưới bản đồ radar 11,5px. Chữ VẼ TRONG SVG của radar
+     (8 / 8,5px) cố ý giữ nguyên: nó là hoạ tiết nền của bản đồ, phóng to sẽ đè lên vòng quét. */
+  .cc-radar-map-legend span {
+    font-size: 12px !important;
+  }
+}
+
+/* ===== §27. HAI CÁI AVATAR TÍ HON — PHÓNG CẢ VÒNG TRÒN =====================
+   `.kh__sale-avatar` (18px, chữ 9px) và `.act-avatar-xs` (20px, chữ 10px) là hai chỗ chữ
+   nhỏ cuối cùng còn sót sau khi lướt hết 58 màn. File sàn chữ sinh tự động cố tình BỎ QUA
+   mọi bộ chọn có chữ "avatar" vì nâng chữ mà giữ vòng tròn thì hai chữ cái tràn ra ngoài.
+   Ở đây phóng CẢ hai: vòng tròn lên 24px (đúng ngưỡng vùng chạm tối thiểu WCAG 2.5.8) rồi
+   mới cho chữ 12px — hai chữ cái đậm 12px rộng khoảng 15px, nằm gọn trong 24px. */
+@media (max-width: 768px) {
+  .kh__sale-avatar,
+  .act-avatar-xs {
+    width: 24px;
+    height: 24px;
+    font-size: 12px;
+  }
+}
+
+/* ===== §28. NÚT CHỈ HIỆN KHI RÊ CHUỘT — ĐIỆN THOẠI KHÔNG CÓ CHUỘT ==========
+   Lướt bốn hướng ở 375px thấy cột thao tác cuối bảng Khách hàng đo được 0×0: hai nút
+   "Gắn thẻ" / "Xem hồ sơ" khai `display: none` và chỉ bật lại ở `.kh__row:hover`.
+   Trên điện thoại KHÔNG BAO GIỜ có trạng thái hover ⇒ chúng không tồn tại, không phải
+   khó bấm mà là bấm không được. Quét cả kho CSS ra 13 chỗ cùng kiểu; dưới đây là những
+   chỗ giấu THAO TÁC (bỏ qua bong bóng chú thích thuần thông tin và những chỗ đã tự lo
+   như `.cc-shift-card-actions`, `.kh__note-actions`).
+
+   Vì sao dùng `(hover: none), (max-width: 768px)`: vế đầu mới đúng bản chất (thiết bị
+   không có chuột, kể cả máy tính bảng rộng), nhưng trình duyệt kiểm thử chạy cửa sổ hẹp
+   mà vẫn có chuột nên không khớp vế đó — thêm vế bề rộng để chính mình soi lại được.
+   Cửa sổ máy bàn thu hẹp cũng rơi vào đây: nút hiện sẵn thay vì chờ rê, không hỏng gì. */
+@media (hover: none), (max-width: 768px) {
+  /* Khách hàng — cột 76px cuối dòng: thay mũi tên trang trí bằng hai nút thật. */
+  .kh__row-quick-actions {
+    display: flex;
+  }
+  .kh__arrow-icon {
+    display: none;
+  }
+
+  /* Nút xoá trên thẻ đã gắn (cả bộ chọn thẻ dùng chung lẫn thẻ trong hồ sơ khách). */
+  .kh__tagpill-del,
+  .tagpick__pill-del {
+    opacity: 1;
+  }
+  .tagpick__pill-del:disabled {
+    opacity: 0;                      /* đang khoá thì vẫn ẩn, giữ như bản gốc */
+  }
+
+  /* Nhật ký hoạt động — nút soi chi tiết ở cuối dòng. */
+  .act-btn-inspect {
+    opacity: 1;
+  }
+
+  /* Hồ sơ của tôi — mũi tên báo "ô này bấm được". */
+  .mine__stat-go {
+    opacity: 0.7;
+  }
+
+  /* Phòng ban — nút thêm phòng con trên ô cây, và cụm nút trên nút sơ đồ tổ chức. */
+  .rdx-tree__add-sub,
+  .rdx-org-node__actions {
+    opacity: 1;
+  }
+
+  /* Kỹ thuật máy — hai nút trên ảnh. Không phủ tấm màn đen 50% lên mọi ảnh: bỏ nền,
+     dồn hai nút thành huy hiệu góc trên-phải, và tô đậm nút "xem" để nổi trên ảnh sáng. */
+  .ktm-anh__overlay {
+    opacity: 1;
+    background: transparent;
+    align-items: flex-start;
+    justify-content: flex-end;
+    padding: 6px;
+    gap: 6px;
+    pointer-events: none;            /* chạm giữa ảnh vẫn là mở xem ảnh */
+  }
+  .ktm-anh__overlay > * {
+    pointer-events: auto;
+  }
+  .ktm-anh__btn-view {
+    background: rgba(15, 23, 42, 0.62);
+  }
+
+  /* InfoHint — chữ "i" tròn. Bong bóng chỉ hiện ở :hover / :focus-visible, mà chạm ngón
+     tay lên <button> thì trình duyệt KHÔNG tính là focus-visible ⇒ trên điện thoại không
+     cách nào đọc được lời giải thích. Cho :focus thường mở bong bóng. */
+  .hint-tip__btn:focus + .hint-tip__bubble {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+  /* Ô chạm 15px → nới ra 33px bằng lớp giả, không đổi chỗ chữ "i" trong dòng. */
+  .hint-tip__btn {
+    position: relative;
+  }
+  .hint-tip__btn::before {
+    content: "";
+    position: absolute;
+    inset: -9px;
+  }
+  /* Bong bóng rộng 280px neo vào chính chữ "i". Chữ "i" nằm giữa dòng (x≈175 ở khung 375px)
+     nên bong bóng chạy tới x=449 — cụt mất nửa câu. Neo phải cũng không cứu được: 280px
+     không lọt vào bên nào của một điểm giữa màn. Nên trên điện thoại bỏ neo theo chữ, dán
+     bong bóng thành một dải sát đáy màn, rộng bằng màn trừ hai bên 12px. Mũi nhọn tắt đi vì
+     không còn trỏ vào đâu. */
+  .hint-tip__bubble {
+    /* !important vì info-hint.css do component tự nạp, thứ tự chèn không chắc nằm trước file này */
+    position: fixed !important;
+    left: 12px !important;
+    right: 12px !important;
+    top: auto !important;
+    bottom: 16px !important;
+    width: auto !important;
+    max-width: none !important;
+    transform: none !important;
+  }
+  .hint-tip__bubble::after {
+    display: none !important;
+  }
+
+  /* Kế hoạch SX — bảng "Còn thiếu N mục" (có nút "Sửa →" bên trong) mở bằng rê chuột.
+     Thẻ kích hoạt được gắn tabindex trong LsxDetailView.tsx nên chạm vào là focus. */
+  .khsx-topbar__pop-trigger:focus-within .khsx-topbar__popover {
+    display: block;
+  }
+}
+
+/* ===== §29. BẢNG BỊ BÓP → CHỮ RƠI DỌC TỪNG KÝ TỰ ===========================
+   Ảnh người dùng gửi: cột "MÃ" ở Đề nghị kho hiện "D N N 0 0 0 0 8" mỗi ký tự một dòng; cột
+   "HÀNH ĐỘNG" ở Bù hao hiện "X ó a". Không phải thiếu chỗ, mà sai CÁCH ĐO chỗ:
+
+   - `word-break: break-word` (kho-request.css:1479, rebuild-catalog.css:324/346/949) theo chuẩn
+     hiện hành tương đương `word-break: normal` + `overflow-wrap: anywhere`. Mà `anywhere` —
+     khác `break-word` — KÉO LUÔN min-content của ô xuống bằng bề ngang MỘT KÝ TỰ. Thuật toán
+     chia cột `table-layout: auto` lấy min-content làm sàn, nên sàn cột tụt còn ~10px và bảng
+     "vừa khung" bằng cách dựng chữ theo chiều dọc.
+     Trả về `word-break: normal` + `overflow-wrap: break-word`: chuỗi dài vẫn xuống dòng được khi
+     ô đã hẹp, nhưng min-content quay lại bằng TỪ dài nhất nên cột không tụt nữa.
+
+   - §11 đặt `white-space: normal` cho MỌI ô (0,1,1), đè mất `.rc__actcol { white-space: nowrap }`
+     (0,1,0) → cụm nút hành động tự bẻ dòng. Trả lại nowrap cho đúng hai cột cần nó. */
+@media (max-width: 1024px) {
+  .rc__table :is(th, td),
+  .md-page__table :is(th, td),
+  .kho-list .kho-table :is(th, td),
+  .kho-list .kho-ton-table :is(th, td) {
+    word-break: normal;
+    overflow-wrap: break-word;
+  }
+  .rc__table :is(th, td).rc__actcol,
+  .rc__table :is(th, td).rc__nowrap,
+  .md-page__table :is(th, td).rc__actcol {
+    white-space: nowrap;
+  }
+}
+
+/* ===== §30. HÀNG TAB/CHIP CUỘN NGANG — CON BỊ BÓP NÊN CHỮ CHỒNG LÊN NHAU ====
+   Ảnh người dùng gửi: dải tab hồ sơ khách hàng đọc ra "Dashboard sử mua hàng" — chữ của tab
+   "Dashboard" ĐÈ lên chữ tab "Lịch sử mua hàng".
+   Nguyên nhân: hàng tab là `display: flex` + `overflow-x: auto` nhưng con để mặc định
+   `flex-shrink: 1`. Flexbox co con cho vừa khung TRƯỚC, chỉ khi co hết cỡ mới sinh thanh cuộn.
+   Con lại `white-space: nowrap` nên chữ không bó lại theo ô đã co → tràn ra ngoài ô và đè lên ô
+   kế bên. Khoá `flex: 0 0 auto` thì mỗi tab giữ đúng bề ngang chữ của nó, phần thừa chuyển
+   thành CUỘN NGANG (đúng ý thiết kế của `overflow-x: auto`).
+   Danh sách quét từ CSS: mọi khối vừa `display:flex` vừa `overflow-x:auto` mà không `wrap`,
+   trừ ba khung vẽ (.ps-ov, .bgsd-canvas, .kho-chart__plot) — chúng cuộn theo nội dung vẽ. */
+@media (max-width: 1024px) {
+  .kh__so-tabs > *,
+  .kh__sub-tabs > *,
+  .kh__tag-summary-chips > *,
+  .kh__tl-filters > *,
+  .khsx-tabs-bar > *,
+  .ns2-detail__tabs > *,
+  .ns-file-filters > *,
+  .rdx-drawer__tabs > *,
+  .users__pw-display > * {
+    flex: 0 0 auto;
+  }
+}
+
+/* ===== §31. MODAL GẮN THẺ — NÚT XOÁ NHÃN ĐÈ LÊN CHỮ ========================
+   §28 bật `opacity: 1` cho `.tagpick__pill-del` vì trên điện thoại không có chuột để rê. Nhưng
+   nút đó là `position: absolute; top:-6; right:-6` — thiết kế để LƠ LỬNG ở góc pill lúc rê chuột.
+   Hiện thường trực thì nó ngồi đè lên chữ của chính pill và của pill kế bên (ảnh người dùng gửi:
+   pill đọc ra "Bao bì cao", "Cần chăm", "Khó"). Trên cảm ứng cho nó thành MỘT Ô RIÊNG đứng cạnh
+   pill (position: static) — không đè ai, mà vẫn chạm tới được.
+   Kèm `flex: 0 0 auto` cho từng pill: hàng pill có wrap nên không cần co, co chỉ làm cụt chữ. */
+@media (hover: none), (max-width: 768px) {
+  .tagpick__pill-wrap {
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 4px;
+  }
+  .tagpick__pill-del {
+    position: static;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 auto;
+  }
+  .kh__tagrow > * {
+    flex: 0 0 auto;
+  }
+}
+
+/* ===== §32. HỘP THOẠI: LƯỚI FORM 2-4 CỘT KHÔNG CHỊU XUỐNG 1 CỘT ============
+   Ảnh người dùng gửi (hộp "Chỉnh sửa thông tin phòng ban"): ô Tên, ô chọn "Nguyễn Văn Giám đốc",
+   hai công tắc và dòng "Bộ phận Giao hàng" đều bị CẮT CỤT ở mép phải.
+   Đo thật: hộp rộng 335px, `.depts__form-grid` rộng 381px. Lưới hai cột `repeat(2, 1fr)` —
+   track `1fr` là `minmax(auto, 1fr)`, sàn `auto` = min-content, nên lưới KHÔNG co xuống dưới
+   tổng min-content của hai cột dù khung chỉ có 335px. Phần thừa đáng lẽ cuộn được, nhưng
+   redesign-phong-ban.css đặt `overflow-x: hidden !important` lên `.cdlg`, `.cdlg__head`,
+   `.cdlg__body`, `.cdlg__foot` (selector KHÔNG bọc trong màn Phòng ban nên rò ra toàn hệ) →
+   phần thừa bị xén hẳn, không cách nào với tới.
+   Ở màn hẹp cho mọi lưới form trong hộp thoại xuống MỘT cột. `!important` vì CSS của trang do
+   component tự nạp, chèn SAU file này, và một số nơi đã dùng `!important` sẵn.
+   Kèm một lưới an toàn: trả `overflow-x: auto` cho thân hộp thoại, phòng khi còn khối rộng khác
+   (bảng, ảnh) — thà cuộn được còn hơn mất chữ. */
+@media (max-width: 768px) {
+  .acct-form-grid--2,
+  .acct-form-grid--3,
+  .acct-form-grid--4,
+  .act-modal-grid,
+  .ar-receipt-form__grid,
+  .ar-receipt-form__grid--bank,
+  .bg2-form-grid,
+  .bg2-drawer__body .bgsd-form-grid-4,
+  .bg__form-grid,
+  .bg__form-main-columns,
+  .bgsd-form-grid-4,
+  .depts__form-grid,
+  .dhb__invoice-form-grid,
+  .kh__form-grid,
+  .kh__form-grid--2col,
+  .kh__form-grid--3col,
+  .khsx-form,
+  .khsx-form--3,
+  .khsx-gn__form,
+  .lsx-dw__form,
+  .lsx-fieldgrid,
+  .md-page__form-grid,
+  .pdot__form,
+  .rc-modal__body-grid,
+  .thsx-x-grid2,
+  .udlg__grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .cdlg .cdlg__body,
+  .cdlg .cdlg__head,
+  .cdlg .cdlg__foot {
+    overflow-x: auto !important;
+  }
+}
+
+/* ===== §33. `word-break: break-word` BÓP Ô XUỐNG BỀ NGANG MỘT KÝ TỰ ========
+   Ảnh người dùng gửi: ô "MÃ" ở Đề nghị kho đọc dọc "D N N 0 0 0 0 8"; ô "HÀNH ĐỘNG" ở Bù hao
+   đọc dọc "X ó a". §29 đã chữa cho BẢNG; nhưng cùng gốc bệnh còn nằm ở 53 chỗ khác — quét thật
+   thấy `.dhb__kv-inline-val` (Đơn hàng bán, Phiếu thu) rộng 12px cao 161px, tức chữ "Từ báo giá"
+   dựng đứng.
+   Gốc bệnh: theo chuẩn hiện hành `word-break: break-word` ≡ `word-break: normal` +
+   `overflow-wrap: anywhere`. `anywhere` (khác `break-word`) TÍNH LUÔN vào min-content: trình
+   duyệt coi ô ấy hẹp tới một ký tự cũng được, nên lưới/bảng nào cũng bóp nó trước.
+   Đổi sang `overflow-wrap: break-word`: chuỗi dài VẪN xuống dòng khi ô đã hẹp thật, nhưng
+   min-content trở lại bằng TỪ dài nhất → không còn ô nào bị bóp xuống một ký tự.
+   Danh sách sinh bằng cách quét mọi khai báo `word-break: break-word|break-all` và
+   `overflow-wrap: anywhere` trong frontend/src (trừ hai khung IN print-sheet/qpdf — chúng khổ
+   giấy cố định, không liên quan màn hẹp). `!important` vì CSS trang do component tự nạp nên
+   chèn SAU file này. */
+
+@media (max-width: 1024px) {
+  .acct-deliveries__lines span,
+  .acct-list--voucher td.acct-code-cell strong,
+  .acct-list--voucher td.acct-target-cell strong,
+  .acct-payment-grid strong,
+  .acct-summary-strip strong,
+  .bgv .dc-body,
+  .dhb__kv-inline-val,
+  .dhb__timeline-label,
+  .dhb__timeline-sub,
+  .dmodal__title,
+  .gh-pick__tick > span,
+  .kh__note-body,
+  .kho-att__name,
+  .kho-list .kho-table td,
+  .kho-ov__cell dd,
+  .kho-qr__url,
+  .khsx-formula-code,
+  .khsx-kpi-tile__label,
+  .khsx-kpi-tile__val small,
+  .khsx-kv__key,
+  .khsx-kv__val,
+  .khsx-kv__val .khsx-unit,
+  .lg-pc-ro__val,
+  .mine__diff-chip,
+  .mine__reqreason-text,
+  .mine__reqreject,
+  .nqr-picker > span,
+  .nqr__table td,
+  .ns-info-field__value,
+  .nsq__chip,
+  .nsq__reason,
+  .pay-supplier-cell,
+  .pdot__delivery-lines span,
+  .pdot__linetable td:first-child,
+  .ptg-tbl td,
+  .ptg-tbl th,
+  .purchase__source-option small,
+  .purchase__source-option strong,
+  .rc-modal__right-col .tg-hao-pill,
+  .rc-modal__right-col .tg-math-tag > span,
+  .rc-modal__right-col .tg-ratio-tag > span,
+  .rc-modal__right-col .tg-sheetbox__foot,
+  .rc-modal__right-col .tg-step-card__qty,
+  .rc-modal__right-col .tg-step-card__qty small,
+  .rc-modal__right-col .tg-val__dv,
+  .rc__formula-chips .badge-sem,
+  .rc__formula-pill,
+  .rc__table td,
+  .rc__table.rc__table--fixed td,
+  .tg-imp__con-unit,
+  .tg-imp__param,
+  .xl2-qrow__product,
+  td.khsx-num > .khsx-unit {
+    word-break: normal !important;
+    overflow-wrap: break-word !important;
+  }
+}
+
+/* ===== §34. NHỮNG CHỖ HÀNG NGANG ĐẨY NÚT/CHỮ RA NGOÀI MÀN =================
+   Đo thật ở 375px, mỗi mục kèm số đo:
+
+   · Công nợ phải trả — nút × đóng phiếu nằm NGOÀI màn 52px, tức không đóng được bằng nút.
+     `.purchase__hero-top` là flex `space-between`, khối chữ bên trái không có `min-width: 0`
+     nên không chịu co; §21 lại nới nút × lên 44px cho vừa ngón tay → càng bị đẩy ra.
+   · Nhà cung cấp — dải tab trong ngăn kéo tràn 70px mà KHÔNG cuộn được (`.supplier-drawer__tabs`
+     không khai overflow), tab "Lịch sử mua hàng" chạm không tới.
+   · Yêu cầu nhập xuất — `.kho-pager__page` ("Trang 1 / 3") bị bóp còn 32px, chữ dựng đứng:
+     hàng pager là flex không wrap.
+   · Hồ sơ nhân sự — `.ns-detail__ops` tràn 72px, nút "Thao tác hồ sơ" mất hẳn nửa sau. */
+@media (max-width: 768px) {
+  /* KHÔNG cho xuống dòng: xuống dòng thì nút × rơi xuống mép TRÁI dưới tiêu đề, người dùng
+     đi tìm. Cho khối chữ co lại (min-width: 0) là đủ chỗ cho nút × ở đúng góc phải. */
+  .purchase__hero-top > :first-child {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .purchase__hero-x {
+    flex: 0 0 auto;
+  }
+
+  .supplier-drawer__tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .supplier-drawer__tabs > * {
+    flex: 0 0 auto;
+  }
+
+  .kho-pager {
+    flex-wrap: wrap;
+    row-gap: var(--sp-2);
+  }
+  .kho-pager__page {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .ns-detail__ops {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+}
+
+/* ===== §35. SÁU MÀN TỔ SẢN XUẤT: BÀN LÀM VIỆC 3 CỘT KHÔNG BAO GIỜ GẬP =====
+   Quét thật ở 375px, cả sáu màn tổ (Chế bản · In offset · Cán màng · Bế & Xén · Đóng gói · KCS)
+   đều báo bảng việc tràn 338-490px và bị XÉN, không cuộn tới được.
+   Nguyên nhân: `.thsx-grid` là `grid-template-columns: minmax(280px, 320px) minmax(0,1fr) 0px`
+   + `overflow: hidden`. Ở 375px cột trái đã ăn 280-320px, cột giữa (bảng/Gantt) chỉ còn ~55px,
+   phần thừa bị `overflow: hidden` xén thẳng. Người dùng ở xưởng chỉ thấy cột trái.
+   Màn hẹp xếp CHỒNG ba khối theo chiều dọc, mỗi khối full 375px; ngăn chi tiết chỉ hiện khi đã
+   chọn việc (`.is-panel`), còn không thì ẩn để khỏi chừa một khối rỗng giữa trang. */
+@media (max-width: 900px) {
+  .thsx-grid,
+  .thsx-grid.is-panel {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    overflow: auto;
+  }
+  .thsx-list {
+    border-right: 0;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .thsx-center {
+    min-height: 300px;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .thsx-panel {
+    border-left: 0;
+  }
+  .thsx-grid:not(.is-panel) .thsx-panel {
+    display: none;
+  }
+}
+
+/* ===== §36. HAI CHỖ CÒN SÓT SAU KHI ĐO LẠI ================================
+   · Đơn hàng bán / Phiếu thu — cặp "nhãn : giá trị" trong hồ sơ đơn: `.dhb__kv-inline-grid` vẫn
+     giữ hai cột ở 375px (khung 270px ⇒ mỗi cột 131px), mà nhãn `.dhb__kv-inline-key` khai
+     `min-width: 105px; flex-shrink: 0`. Còn 12px cho giá trị ⇒ "Từ báo giá" dựng đứng từng chữ.
+     Đo lại sau khi sửa §33 vẫn 12px vì đây KHÔNG phải bệnh word-break mà là nhãn không chịu co.
+   · Sáu màn tổ — sau khi §35 xếp chồng, ô "Việc của tổ" bị nén còn 69px (ba hàng `auto` chia
+     nhau chiều cao cố định của lưới). `align-content: start` cho mỗi hàng giữ đúng chiều cao nội
+     dung rồi để cả lưới cuộn dọc. */
+@media (max-width: 768px) {
+  .dhb__kv-inline-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .dhb__kv-inline-key {
+    min-width: 96px;
+  }
+  .dhb__kv-inline-val {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+@media (max-width: 900px) {
+  .thsx-grid,
+  .thsx-grid.is-panel {
+    align-content: start;
+  }
+  .thsx-list {
+    min-height: 260px;
+  }
+}
+
+/* ===== §37. ĐƠN HÀNG BÁN: NGĂN KÉO RỘNG 580px TRÊN MÀN 375px ==============
+   Thao tác thật: mở một đơn ở 375px thì ngăn kéo che kín màn KỂ CẢ nút mở menu, và không có
+   cách nào đóng — nút × nằm ngoài màn, Escape thì màn này không nghe.
+   Đo/đọc CSS: `.dhb__drawer-content` khai `width: 50vw; min-width: 580px; max-width: 95vw`.
+   Theo CSS, `min-width` THẮNG `max-width`, nên ở 375px ngăn kéo vẫn 580px — 205px thò ra ngoài,
+   mà nút × lại là phần tử CUỐI trên hàng header nên rơi đúng vào phần thò ra.
+   `min-width: 580px` sinh ra để laptop 13" không bị bóp (ghi chú tại chỗ) — chỉ gỡ ở màn hẹp.
+   Kèm `flex-wrap` cho hàng header: 375px không đủ cho tiêu đề + "Xem bản in" + "Sửa" + "Hủy" + ×
+   trên một hàng; cho xuống dòng để nút nào cũng chạm được. */
+@media (max-width: 768px) {
+  .dhb__drawer-content {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+  /* Hàng header: tiêu đề + "Xem bản in" + "Sửa" + "Hủy" + × không thể cùng một hàng ở 375px.
+     Cho xuống dòng, VÀ ép khối tiêu đề chiếm trọn hàng đầu. Nếu chỉ `flex-wrap` không thôi thì
+     `.dhb__drawer-headmain { flex: 1; min-width: 0 }` co xuống ~35px trong khi 4 nút giữ
+     nguyên bề ngang — đã chụp thấy tên "Công ty TNHH An Phát" rơi dọc mỗi dòng một chữ. */
+  .dhb__drawer-header {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .dhb__drawer-headmain {
+    flex: 1 1 100%;
+  }
+  .dhb__drawer-cust {
+    min-width: 0;
+  }
+}
+
+/* ===== §38. HỒ SƠ KHÁCH HÀNG (NGĂN KÉO) — 4 CHỖ NHÌN THẤY TRÊN ẢNH CHỤP =======
+   Chụp thật ở 375px, mở "Công ty TNHH An Phát", đi hết 9 tab của ngăn kéo. */
+
+/* (a) Dải thẻ chỉ số trong ngăn kéo: `grid-auto-flow: column` + `grid-auto-columns: 1fr` nghĩa
+   là BAO NHIÊU thẻ cũng nhét vào ĐÚNG MỘT HÀNG. `1fr` = `minmax(auto, 1fr)`, mà sàn `auto` là
+   min-content — số tiền trong thẻ khai `white-space: nowrap` nên min-content của mỗi thẻ ~110px.
+   Ba thẻ ⇒ 354px + 24px khe > 310px lòng ngăn kéo: thẻ thứ ba bị cắt và CẢ TRANG sinh thanh
+   cuộn ngang (đã chụp ở tab Dashboard, Lịch sử mua hàng, Lịch sử báo giá).
+   Cho xuống hàng: 2 cột trên màn 375px, thẻ nào cũng đọc trọn. */
+@media (max-width: 768px) {
+  .kh__dash .kh__kpis,
+  .kh__kpis--orders,
+  .kh__so-body .kh__kpis {
+    grid-auto-flow: row !important;
+    grid-auto-columns: auto !important;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+  }
+}
+
+/* (b) Hàng "LỌC THEO NĂM: [Tất cả][2026][2025] … [Xuất Excel]" là flex KHÔNG xuống dòng. Ở 375px
+   nhãn bị bóp còn ~40px nên vỡ thành ba dòng "LỌC / THEO / NĂM:", pill "Tất cả" vỡ hai dòng, và
+   nút Xuất Excel thò ra ngoài màn. Cho cả hai tầng xuống dòng, nhãn giữ một dòng.
+   (c) Cùng lỗi ở thanh công cụ tab Liên hệ và tab Tài liệu: chữ mô tả dài đẩy nút sang phải rồi
+   bóp nút — "Thêm liên hệ" vỡ thành bốn dòng, "Tải tài liệu lên" bị cắt mất nửa. */
+@media (max-width: 768px) {
+  .kh__orders-filter-row,
+  .kh__year-filters,
+  .kh__hist-toolbar,
+  .kh__upload-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .kh__year-filters-label {
+    white-space: nowrap;
+  }
+  .kh__hist-toolbar > .btn,
+  .kh__hist-toolbar button,
+  .kh__upload-row > .btn,
+  .kh__upload-row button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
+/* (d) Nút × xoá thẻ trong hộp "Gắn thẻ" — LỖI DO CHÍNH §12 GÂY RA, phải chữa ngay.
+   Nút này là `button` chỉ chứa một `svg`, nên §12 (`button:has(> svg:only-child)`) ép nó lên
+   44×44. Nhưng luật gốc neo nó `position: absolute; top: -5px; right: -5px` để nó nép vào góc
+   thẻ khi rê chuột — cỡ vẽ gốc chỉ 17×17. Phình lên 44px mà vẫn neo góc ⇒ vòng tròn to đè kín
+   chữ trên thẻ (đúng ảnh chủ chốt gửi: "Bao bì cao…", "Chuộng mẫu…" bị dấu × chồng lên).
+   Trên cảm ứng không có "rê chuột" nên nút phải hiện sẵn — nhưng phải NẰM TRONG DÒNG cạnh thẻ,
+   không neo đè. 26px là đủ chạm mà không nuốt nhãn.
+   Viết lặp tên lớp hai lần là CỐ Ý: `.shell__content button:has(> svg:only-child)` nặng (0,2,2)
+   — `:has()` mang độ ưu tiên của đối số — nên viết một lần (0,2,0) là THUA. */
+@media (hover: none), (max-width: 768px) {
+  .kh__tagpill-wrap {
+    align-items: center;
+    gap: 2px;
+  }
+  .shell__content .kh__tagpill-del.kh__tagpill-del {
+    position: static;
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    min-height: 26px;
+    flex: 0 0 auto;
+  }
+}
+
+/* ===== §39. CHẤM CÔNG › LỊCH & NGÀY LỄ: TẤM BẢNG KHÔNG CHỊU CO ================
+   Đo ở 375px: `.cal-grid-top` rộng đúng 312px nhưng `.cal-panel` bên trong rộng 589px và thò
+   ra ngoài màn. Lý do: cột lưới khai `1fr` = `minmax(auto, 1fr)`, sàn `auto` là min-content —
+   mà min-content của tấm bảng bị bảng ngày lễ (rộng 522px, ô khai nowrap) kéo lên.
+   `minmax(0, 1fr)` bỏ sàn đó: tấm bảng co về 312px, còn bảng bên trong đã có khung cuộn ngang
+   riêng (`.ns__tablewrap`, §5) nên vẫn xem đủ cột. */
+@media (max-width: 1024px) {
+  .cal-grid-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ===== §40. LƯỚI KHAI BÁO `.rc-grid` BỊ STYLE INLINE KHOÁ CỨNG 2 CỘT ==========
+   `rebuild-catalog.css` ĐÃ có sẵn `@media (max-width: 640px) { .rc-grid { grid-template-columns:
+   1fr } }`, nhưng luật đó KHÔNG BAO GIỜ ăn trong ngăn kéo danh mục: `CatalogDrawer.tsx:479` gắn
+   `style={{ gridTemplateColumns: "repeat(2, 1fr)" }}` thẳng lên thẻ, mà style inline thắng mọi
+   luật trong stylesheet trừ khi có `!important`. Dòng 502 còn tệ hơn: số cột do `colCount` sinh
+   ra lúc chạy nên có lúc 3-4 cột.
+   Hậu quả đã chụp được ở 375px (màn "Đơn vị & quy đổi" › sửa "bài in"): mỗi cột còn 124px, ô
+   Ghi chú hiện được đúng ba chữ mỗi dòng, còn đoạn hướng dẫn bên phải rơi thành cột chữ hẹp.
+   Đây là chỗ BẮT BUỘC `!important` — không phải để tranh với CSS khác, mà để tranh với inline. */
+@media (max-width: 768px) {
+  .rc-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  /* Dòng công đoạn trong ngăn kéo "Loại sản phẩm" nằm trong chính lưới trên. Nới lưới thôi chưa
+     đủ: `.rc-timeline__content` là flex `space-between`, tên công đoạn KHÔNG khai `flex` nên nó
+     là bên duy nhất chịu co, còn cụm nút lên/xuống/xoá giữ nguyên. Đã chụp thấy
+     "CD-0001 · Ghi kẽm CTP" rơi thành cột bốn dòng. Cho tên ăn phần dư, cụm nút không co. */
+  .rc-timeline__content {
+    gap: 8px;
+  }
+  .rc-timeline__name {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .rc-timeline__actions {
+    flex: 0 0 auto;
+  }
+
+  /* Bảng bậc số lượng (Bù hao, Công đoạn…) cũng nằm trong lưới đó. Bốn cột — Từ SL / Đến SL /
+     Giá trị + công tắc đơn vị / nút xoá — cần ~330px; lưới một cột ở 375px chỉ cho ~264px nên
+     ô nhập bị bóp còn ~30px và CON SỐ RƠI DỌC mỗi dòng một chữ số (đã chụp ở "In 1-2 màu").
+     Cho khung bảng cuộn ngang và đặt sàn bề ngang cho ô nhập. */
+  .rc-bands {
+    overflow-x: auto;
+  }
+  .rc-bands__table {
+    min-width: 420px;
+  }
+  .rc-bands__table .rc-input {
+    min-width: 76px;
+  }
+}
+
+/* ===== §41. HỒ SƠ NHÂN SỰ — HÀNG NÚT TRÊN HỘP CHI TIẾT ========================
+   Chụp ở 375px, mở NV001: hàng `.ns-detail__actions` là flex `space-between` gồm ba nút tắt
+   (Chấm công / Nghỉ phép / Lương) và cụm thao tác (Sửa thông tin / Thao tác hồ sơ). Cộng lại
+   ~344px trong khung 324px, mà `.ns2-detail` đóng `overflow: hidden` nên 20px cuối bị CẮT: hai
+   nút bên phải mất một nửa và chữ trong nút vỡ thành ba dòng ("Sửa / thông / tin").
+   Cho cả hai tầng xuống dòng và bỏ dồn hai đầu — ở màn hẹp thì xếp từ trái sang là đọc được. */
+@media (max-width: 768px) {
+  .ns-detail__actions {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    justify-content: flex-start;
+  }
+  .ns-detail__shortcuts,
+  .ns-detail__ops {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .ns-detail__shortcuts > .btn,
+  .ns-detail__ops > .btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
+/* ===== §42. PHÒNG BAN — Ô CHỈ SỐ 3 CỘT TRÊN MÀN 375px ========================
+   `.rdx-ov__grid` khai cứng `repeat(3, 1fr)`. Ở 375px mỗi ô còn ~92px nên nhãn vỡ dọc:
+   "KHỐI / SẢN / XUẤT", "KHỐI / KINH / DOANH" (đã chụp ở phòng "Ban giám đốc").
+   Hai cột là vừa: nhãn dài nhất ("KHỐI KINH DOANH") gọn trong hai dòng. */
+@media (max-width: 768px) {
+  .rdx-ov__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ===== §43. BĂNG TIÊU ĐỀ + ĐẦU KHỐI KIỂU "purchase" =========================
+   Hai hàng flex `space-between` dùng chung cho ~19 màn (mua hàng, kế toán, phiếu thu/chi):
+   phần tử KHÔNG khai `flex` là phần tử duy nhất bị bóp, nên trên 375px:
+   (a) `.purchase__hero-title-row` — mã phiếu "PT-260820-GXYA" rơi làm BA dòng vì hai nhãn
+       trạng thái ("Đã thu", "Thiếu chứng từ") giữ nguyên bề ngang. Cho mã chiếm trọn một
+       hàng, đẩy cụm nhãn xuống hàng dưới và trải NGANG (đang xếp dọc).
+   (b) `.purchase__form-section-head` — tiêu đề "Dòng hàng" vỡ thành "Dòng / hàng" vì câu chú
+       thích bên phải không nhường. Cho tiêu đề nowrap, chú thích xuống dòng riêng.
+   Cả hai đã chụp ở màn Phiếu thu và hộp "Đơn mua hàng mới". */
+@media (max-width: 768px) {
+  .purchase__hero-title-row {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .purchase__hero-title-row .purchase__hero-code {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .purchase__hero-title-row .acct-status-stack {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .purchase__form-section-head {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .purchase__form-section-head h3 {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .purchase__form-section-head > .md-page__muted {
+    flex: 1 1 100%;
+  }
+}
+
+/* ===== §44. BÀI GHÉP — HÀNG TÌM KIẾM + SỐ ĐẾM ===============================
+   `.bg2-toolbar` là flex `space-between`: ô tìm (`flex: 1`) và cụm đếm. Ô `input` mang bề ngang
+   mặc định của trình duyệt (~170px) làm sàn co, nên ở 375px cụm "Tổng chờ: 0 lệnh" bị đẩy
+   lòi khỏi mép phải và chữ "lệnh" bị cắt (đã chụp ở tab "Lệnh chờ ghép").
+   Cho ô tìm chiếm trọn một hàng, cụm đếm xuống hàng dưới. */
+@media (max-width: 768px) {
+  .bg2-toolbar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .bg2-search {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+  .bg2-search input {
+    min-width: 0;
+    width: 100%;
+  }
+  .bg2-toolbar__stats {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+}
+
+/* ===== §45. PHÒNG BAN — TÊN BỊ CẮT BỞI ELLIPSIS ==============================
+   `.rdx-drawer__name` (tên phòng) và `.rdx-head-hero__name` (tên người đứng đầu) khai
+   `white-space: nowrap; text-overflow: ellipsis`. Trên màn rộng chẳng bao giờ chạm, nhưng ở
+   375px CHẮC CHẮN cắt: đã chụp "Ban giá…" và "Nguyễn Vă…" — người dùng mở đúng phòng mà
+   không đọc được tên phòng. Trên điện thoại thà xuống dòng còn hơn nuốt chữ.
+   Kèm theo: nút "Đổi" xuống hàng riêng để câu mô tả không bị bóp còn 3 chữ một dòng. */
+@media (max-width: 768px) {
+  .rdx-drawer__name,
+  .rdx-head-hero__name {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  .rdx-drawer__nameline {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .rdx-head-hero {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .rdx-head-hero__info {
+    flex: 1 1 200px;
+  }
+  .rdx-head-hero > .rdx-drawer__ghost,
+  .rdx-head-hero > .rdx-head-hero__btn-highlight {
+    flex: 1 1 100%;
+  }
+}
+
+/* ===== §46. TOAST REAL-TIME ĐÈ LÊN TIÊU ĐỀ HỘP =============================
+   Khay toast (`.apx-toastwrap` trong AppShell) neo cứng `top:16 right:16 max-width:340`.
+   Trên 375px nó phủ gần trọn dải trên cùng: đã chụp cảnh "Kế hoạch vật tư vừa cập nhật."
+   nằm đè lên tiêu đề "Yêu cầu mới" của ngăn kéo Yêu cầu nhập xuất — mở hộp ra không đọc
+   được đang ở hộp nào. Trên điện thoại đưa xuống ĐÁY (kiểu snackbar), chừa chỗ cho hàng
+   nút hành động vẫn nằm sát đáy hộp.
+   `!important` là BẮT BUỘC ở đây: bốn thuộc tính này là style INLINE trong JSX.
+
+   [Task 0 — 31/08/2026] Không ép được toast SSE THẬT nổ ra trong lúc kiểm: đợi 60s ở màn Nhà
+   cung cấp không có sự kiện nào tới, và đường "an toàn" ghi trong task (bấm Lưu ở Danh mục › Bù
+   hao) hoá ra KHÔNG tạo toast nào — đọc lại CatalogDrawer.tsx/CatalogListPage.tsx/RebuildCatalogPage.tsx
+   thì lưu danh mục chỉ có banner lỗi inline, không có toast thành công. `.apx-toastwrap` CHỈ được
+   bơm bởi `pushToast()` trong AppShell.tsx — mọi nguồn đều là sự kiện SSE thật (người khác
+   duyệt/từ chối/giao việc...); hai nơi phát đúng chữ "Kế hoạch vật tư vừa cập nhật." là
+   `POST /giu-cho/bat` và `/giu-cho/tat` (giu_cho_service.py) — module đang sửa dở dang (xem git
+   status lúc này), nên KHÔNG tự bấm nút giữ/nhả chỗ thật để ép toast (ngoài phạm vi Task 0). Đã
+   xác minh CSS bằng cách dựng lại ĐÚNG NGUYÊN VĂN node `.apx-toastwrap` (class + inline style 1:1
+   với AppShell.tsx dòng 1349-1357) qua `page.evaluate`, không qua logic app, không đụng
+   server/DB — cho kết quả `bottom:76px` đúng như khai, hộp nằm nửa dưới màn. Đây là cách thay
+   thế đã công bố rõ, không phải toast thật do người dùng bấm ra; muốn thấy toast thật phải có
+   một phiên khác đồng thời gọi hai endpoint trên. */
+@media (max-width: 768px) {
+  .apx-toastwrap {
+    top: auto !important;
+    right: 12px !important;
+    left: 12px !important;
+    bottom: 76px !important;
+    max-width: none !important;
+  }
+}
+
+/* ===== §47. NHẬT KÝ — DÒNG TIMELINE BỊ BÓP CÒN MỘT CHỮ MỖI DÒNG ==============
+   `.act-tl-meta` giữ cứng `min-width: 130px` cho cột thời gian. Hàng `.act-tl-row` ở 375px chỉ
+   rộng ~300px, nên phần nội dung (`flex: 1`) còn ~110px: đã chụp cảnh "Nguyễn / Văn / Giám",
+   nhãn "Cập / nhật / LSX", "30 phút / trước" — mỗi dòng một chữ, đọc không nổi.
+   Đẩy cụm thời gian xuống HÀNG RIÊNG và trải ngang; nội dung được nguyên bề ngang.
+   Kèm: `.act-btn-inspect` chỉ hiện khi `:hover` — trên cảm ứng KHÔNG có hover nên nút xem chi
+   tiết vĩnh viễn vô hình. Cho hiện thẳng. */
+@media (max-width: 768px) {
+  .act-tl-row {
+    flex-wrap: wrap;
+    gap: 8px;
+    row-gap: 6px;
+  }
+  .act-tl-content {
+    flex: 1 1 auto;
+  }
+  .act-tl-meta {
+    min-width: 0;
+    flex: 1 1 100%;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+@media (hover: none), (max-width: 768px) {
+  .act-btn-inspect {
+    opacity: 1;
+  }
+}
+
+/* ===== §48. NÚT CHỈ HIỆN KHI RÊ CHUỘT — CẢM ỨNG KHÔNG VỚI TỚI =================
+   Rà cả frontend từng thấy hai chỗ khai `opacity: 0` rồi mở ra bằng `:hover` mà chưa có nhánh
+   `hover: none` (bai-ghep.css đã tự lo, ktm-anh đã xử ở §28), nhưng §48 CHỈ CÒN PHỦ MỘT chỗ:
+   - `.v-clone` (Báo giá › danh sách phiên bản): nút nhân bản phiên bản — (CSS chết, đã gỡ rule
+     ở fix round 1, xem đoạn ghi chú bên dưới).
+   - `.dag-wire-delete` (sơ đồ DAG): nút xoá sợi dây nối, hiện khi trỏ đúng dây.
+   Trên điện thoại KHÔNG có trạng thái rê ⇒ nút xoá dây này vĩnh viễn vô hình, thao tác coi như
+   không tồn tại. Cho hiện thường trực (dây nối để mờ vừa phải, khỏi rối sơ đồ).
+
+   [Task 0 — 31/08/2026] Xác minh lại bằng dev-browser thật (giả lập cảm ứng qua CDP
+   `Emulation.setDeviceMetricsOverride(mobile:true)` khiến `hover:none` khớp ĐÚNG như điện thoại
+   thật, không cần đổi sang nhánh `(max-width:768px)`):
+   - `.dag-wire-delete` ĐÚNG NHƯ MONG ĐỢI: mở Kế hoạch sản xuất → tab "Lệnh sản xuất" → mở 1 lệnh
+     → tab "Công đoạn" (sơ đồ DAG) → icon xoá dây hiện sẵn, đo được `opacity:0.75;
+     pointer-events:all`, chụp ảnh xác nhận bằng mắt (không chỉ tin số đo).
+   - `.bgv .ver-item .v-clone` KHÔNG khớp bất kỳ phần tử thật nào — dò cả mã nguồn lẫn DOM sống ở
+     Báo giá in ấn xác nhận `.ver-item`/`.v-clone` chưa từng được BaoGiaPage.tsx dùng; khối
+     "Lịch sử phiên bản" thật nằm trong `.vh`/`.vrow`/`.vtag`/`.vmid`/`.vright` và KHÔNG có nút
+     nhân bản nào ở mỗi dòng. `.ver-item`/`.v-clone` chỉ là CSS chép nguyên từ prototype
+     `02-bao-gia.html` còn nằm lại trong `bao-gia.css`, CHƯA từng nối vào `BaoGiaPage.tsx`.
+
+   [Task 0 fix round 1 — 31/08/2026] Theo ruling của controller: GỠ HẲN rule `.v-clone` (YAGNI —
+   luật CSS nhắm một class không tồn tại ở bất kỳ `.tsx` nào là nợ kỹ thuật đánh lừa người đọc
+   sau; ai dựng lại tính năng "nhân bản phiên bản" thì viết luật mới lúc đó). §48 từ đây CHỈ còn
+   phục vụ `.dag-wire-delete`. */
+@media (hover: none) {
+  .dag-wire-delete {
+    opacity: 0.75;
+    pointer-events: all;
+  }
+}
+
+/* ===== §49. TÍNH GIÁ / BÁO GIÁ — ĐẦU THẺ `panel__hd` ========================
+   `.rdx-cost .panel__hd` và `.rdx-quote .panel__hd` là flex `space-between`: tiêu đề `h3` bên
+   trái, nhãn `.tag` bên phải. `.tag` không co, nên ở 375px tiêu đề bị bóp:
+   đã chụp "Chi / tiết / dòng / giá / vốn" — năm dòng, mỗi dòng một chữ.
+   Cho tiêu đề chiếm trọn một hàng, nhãn xuống hàng dưới. */
+@media (max-width: 768px) {
+  .rdx-cost .panel__hd,
+  .rdx-quote .panel__hd {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .rdx-cost .panel__hd > h3,
+  .rdx-quote .panel__hd > h3 {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .rdx-cost .panel__hd > .tag,
+  .rdx-quote .panel__hd > .tag {
+    flex: 1 1 100%;
+  }
+
+  /* `.tg-cost__tbl` khai `width: 100%` NGAY TRONG khung `overflow-x: auto`: bảng bị ép đúng
+     bề ngang khung nên cột không nở, cột ghi chú còn ~30px (chữ rơi dọc từng ký tự) và dòng
+     cao vống lên 140px. Đặt sàn bề ngang để khung cuộn làm đúng việc của nó. */
+  .tg-cost__scroll .tg-cost__tbl {
+    min-width: 640px;
+  }
+  /* Cùng bệnh ở bảng "Sản phẩm trong phiếu": cột TÊN còn ~44px, "Sản phẩm 1" rơi ba dòng. */
+  .tg-complist__wrap .tg-complist__tbl {
+    min-width: 560px;
+  }
+}
+
+/* ===== §50. ĐẦU NGĂN KÉO `rc-drawer__head` — TÊN VỠ DỌC ======================
+   Mẫu chung của mọi ngăn kéo kiểu "rc": flex `space-between`, trái là khối tiêu đề, phải là
+   cụm nút. Cụm nút không co, khối tiêu đề không khai `flex` ⇒ ở 375px tên bị bóp:
+   đã chụp ở Kho Giấy, ngăn kéo "Couché 150 79×109" rơi làm BA dòng vì hai nút
+   "Chuyển kho" + "Tem QR" và nút đóng chiếm hết chỗ.
+   Cho khối tiêu đề chiếm trọn hàng trên, cụm nút xuống hàng dưới. */
+@media (max-width: 768px) {
+  .rc-drawer__head {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+  /* `1 1 200px` chứ không phải `1 1 100%`: ngăn kéo nào chỉ có nút "×" (rộng ~40px) thì tiêu đề
+     vẫn ở NGUYÊN hàng trên như cũ; chỉ khi cụm nút thật sự rộng (hai nút pill) hàng mới gãy. */
+  .rc-drawer__head > :first-child {
+    flex: 1 1 200px;
+    min-width: 0;
+  }
+  .rc-drawer__head > :first-child + * {
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+  }
+  .rc-drawer__title {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* ===== §51. KHO — THẺ "HERO" MẶT HÀNG + BẢNG BÁO GIÁ NCC ====================
+   Trong ngăn kéo mặt hàng (Kho Giấy / Vật tư & Mực / Thành phẩm):
+   (a) `.drawer-hero-banner-unified` là flex `space-between` giữa cụm [ảnh + tên] và cụm
+       [số tồn + nhãn]. Ở 375px tên bị bóp: "Couché / 150 / 79×109" — ba dòng.
+       Cho hai cụm mỗi cụm một hàng. (CSS gốc khai `!important` toàn bộ nên ở đây phải theo.)
+   (b) `.supplier-price-table` KHÔNG nằm trong khung cuộn nào, ba cột chen trong 300px làm
+       "Giấy Tân Mai" và "25.000 đ" vỡ dòng. `display: block` biến chính bảng thành khung
+       cuộn ngang — cột trở lại bề ngang tự nhiên.
+   (c) `.hero-avatar-action-overlay` (tải lên / đổi ảnh vật tư) chỉ hiện khi `:hover` ⇒ trên
+       cảm ứng không bao giờ với tới. Hiện thường trực ở dạng mờ. */
+@media (max-width: 768px) {
+  .drawer-hero-banner-unified {
+    flex-wrap: wrap !important;
+    row-gap: 10px !important;
+  }
+  .hero-banner__avatar-col {
+    flex: 1 1 100% !important;
+  }
+  .hero-info-txt {
+    min-width: 0 !important;
+  }
+
+  .supplier-price-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+  /* `display: block` một mình CHƯA đủ: hộp bảng ẩn bên trong vẫn co vừa 272px nên cột không nở
+     (đo được sw272/cw272). Cho ô không xuống dòng thì bảng mới rộng ra và khung mới cuộn. */
+  .supplier-price-table th,
+  .supplier-price-table td {
+    white-space: nowrap;
+  }
+}
+@media (hover: none) {
+  .hero-avatar-action-overlay {
+    opacity: 0.82 !important;
+  }
+}
+
+/* ===== §52. HỘP "TẠO YÊU CẦU MUA HÀNG" + MÃ BÁO GIÁ VỠ DÒNG =================
+   (a) `.purchase__modal-table` khai `width: 100%` bên trong khung cuộn `-wrap` (§5 đã mở cuộn
+       ngang cho khung này). Bảng bị ép đúng bề ngang khung nên sáu cột chen trong ~270px:
+       đã chụp tiêu đề "VẬT / TƯ / *" ba dòng và ô tên vật tư chỉ còn hiện MỘT ký tự ("G").
+       Đặt sàn bề ngang cho bảng thì khung cuộn mới có tác dụng.
+   (b) Danh sách Báo giá: ô mã `.rdx-quote .code` gãy ngay dấu nối — "BG26- / 0048". Mã phiếu là
+       thứ người ta dò để tìm dòng, gãy đôi là đọc nhầm. Bảng vốn đã cuộn ngang (min-width 860px)
+       nên cấm xuống dòng ở riêng ô mã là đủ. */
+@media (max-width: 768px) {
+  .purchase__modal-table-wrap .purchase__modal-table {
+    min-width: 640px;
+  }
+  .rdx-quote .q-card .code {
+    white-space: nowrap;
+  }
+}
+
+/* ===== §53. BẢNG `rc__table` KHÔNG CÓ KHUNG CUỘN ==========================
+   Đa số chỗ dùng `rc__table` đều bọc trong `.rc__tablewrap` (§5 lo cuộn). Còn HAI chỗ đặt bảng
+   trần thẳng trong `<section>`: khối "Giao hàng" trong ngăn kéo đơn hàng bán
+   (`giao-hang/tao-yeu-cau/TaoYeuCauGiaoHang.tsx`) và khối "Hàng cần giao" trong ngăn kéo phiếu
+   giao (`giao-hang/giao-hang/components/DrawerChiTiet.tsx`). Ở 375px hai bảng này BỊ CẮT CỤT:
+   đã chụp cột "Còn phải giao" mất một nửa, còn cột tên thì bóp lại ~60px làm "Sản phẩm 1 (bản
+   sao)" rơi thành BỐN dòng. Cho chính bảng thành khối cuộn — như §51 đã làm cho
+   `.supplier-price-table`; phải kèm `nowrap` trên ô, chỉ `display:block` thì hộp bảng ẩn vẫn co
+   vừa khung. Chọn `section > .rc__table` để KHÔNG chạm mấy bảng đã có `.rc__tablewrap`
+   (cha của chúng là `div`, không phải `section`). */
+@media (max-width: 768px) {
+  section > .rc__table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+  section > .rc__table th,
+  section > .rc__table td {
+    white-space: nowrap;
+  }
+}
+
+/* ===== §54. "VÒNG ĐỜI ĐƠN" — 5 BƯỚC CHỒNG CHỮ LÊN NHAU ====================
+   `.dhb__timeline` là hàng flex `space-between`, mỗi bước `flex: 1; min-width: 0`. Trong ngăn kéo
+   đơn hàng ở 375px lòng khối chỉ còn ~278px ⇒ mỗi bước ~55px, trong khi phần phụ đề là những
+   chuỗi không cắt được ("30/8/2026", "không cần cọc", "chưa ghi"). Chữ canh giữa nên nó tràn
+   sang HAI BÊN và đè lên bước kế: đã chụp "30/8/2026" nằm chồng lên "không cần cọc".
+   Cho cuộn ngang thì vạch tiến độ (`-track`/`-fill` là absolute theo padding box) đứng im một
+   chỗ trong khi bước trôi đi — nhìn còn hỏng hơn. Nên ở màn hẹp xoay DỌC: mỗi bước một hàng
+   "chấm · tên · trạng thái", trạng thái đẩy sang phải. Hết chồng chữ, và mỗi bước thành một ô
+   bấm cao 40px thay vì mẩu 55px chen chúc. Vạch ngang bỏ đi vì dọc rồi thì nó vô nghĩa — tiến độ
+   vẫn đọc được qua chấm xanh có dấu tích. */
+@media (max-width: 768px) {
+  .dhb__timeline {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 2px 0;
+  }
+  .dhb__timeline-track,
+  .dhb__timeline-fill {
+    display: none;
+  }
+  .dhb__timeline-step {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    min-height: 40px;
+    padding: 0 8px;
+    text-align: left;
+  }
+  .dhb__timeline-dot {
+    flex: 0 0 28px;
+    margin-bottom: 0;
+  }
+  .dhb__timeline-label {
+    flex: 0 0 auto;
+    text-align: left;
+    font-size: 13px;
+  }
+  .dhb__timeline-sub {
+    margin-top: 0;
+    margin-left: auto;
+    padding-left: 8px;
+    text-align: right;
+  }
+}
+
+/* ===== §55. THẺ CHI TIẾT BƯỚC VÒNG ĐỜI — TIÊU ĐỀ BỊ BÓP CẠNH NHÃN DÀI =======
+   `.dhb__lifecycle-box-header` là hàng flex `space-between` KHÔNG cho xuống dòng. Nhãn trạng thái
+   phần lớn ngắn ("ĐANG CHẠY") nên ở màn hẹp vẫn vừa; riêng bước Giao hàng nhãn là
+   "SẮP CÓ - KẾ HOẠCH GIAO HÀNG" ⇒ tiêu đề "Giao hàng" bị ép thành "Giao / hàng" mà nhãn cũng
+   vẫn phải gãy hai dòng (đã chụp). Bật `wrap` + khoá tiêu đề không co: nhãn ngắn thì mọi thứ
+   nguyên hàng như cũ, nhãn dài thì nó tự nhảy xuống hàng dưới và có đủ bề ngang. */
+@media (max-width: 768px) {
+  .dhb__lifecycle-box-header {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .dhb__lifecycle-box-title {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .dhb__lifecycle-badge {
+    white-space: normal;
+  }
+}
+
+/* ===== §56. CÂU "CHƯA CÓ …" NẰM NGOÀI TẦM NHÌN =============================
+   Dòng rỗng của bảng là `<td colspan=N>` nên nó rộng bằng CẢ bảng (600-900px), khối chữ bên trong
+   lại canh giữa. Ở 375px, giữa của 900px rơi vào chỗ người ta không nhìn thấy: màn Yêu cầu nhập
+   xuất chỉ đọc được "Chưa có y", kéo ngang hết cỡ mới thấy "…hỉ vào hộp". Câu hướng dẫn lúc chưa
+   có dữ liệu mà phải kéo ngang mới đọc được thì coi như không có.
+   Ghim khối chữ vào mép trái khung cuộn (`sticky left: 0`) và bó bề ngang bằng bề ngang màn:
+   khối luôn nằm trong tầm nhìn dù bảng đang cuộn tới đâu. Chỉ nhắm ĐÍCH DANH hai lớp khối rỗng
+   (`.rc__empty-state`, `.empty-state`) — không đụng `td[colspan]` chung, vì dòng cộng/tổng phụ
+   cũng dùng colspan.
+
+   [Task 0 — 31/08/2026] Xác minh lại qua dev-browser thật: ĐÚNG NHƯ KHAI. Riêng bộ lọc mặc định
+   "Nhập · Cần cấp" của tab "Phiếu từ yêu cầu" giờ đã CÓ 1 dòng dữ liệu thật (không còn rỗng như
+   lúc viết CSS này) — phải chuyển sang bộ lọc "Đã hủy" (đang đếm 0) mới có bảng rỗng thật để đo;
+   sw902/cw334 (bảng rộng gần gấp 3 khung nhìn) và sau khi cuộn ngang hết cỡ khối chữ vẫn đứng yên
+   ở x:12-331, không trôi theo. */
+@media (max-width: 768px) {
+  .rc__empty-state-td > .rc__empty-state,
+  .empty-state__cell > .empty-state {
+    position: sticky;
+    left: 0;
+    max-width: calc(100vw - 56px);
+  }
+}
+
+/* ===== §57. "CHỮ TO ĐÙNG" — TRẦN CỠ CHỮ TIÊU ĐỀ TRANG TOÀN HỆ ================
+   Chủ dự án kêu ba loại lỗi trên điện thoại: cắt mất, chồng chữ (§1-§56 đã lo), và CHỮ TO ĐÙNG
+   — loại này chưa mục nào đụng tới. Đo thật ở 375×812 bằng hàm dò cỡ chữ (ngưỡng ≥22px, gộp
+   theo lớp+cỡ) trên 8 màn đại diện: Dashboard · Báo giá in ấn · Đơn hàng bán · Kế hoạch sản
+   xuất · Công nợ phải trả · Yêu cầu nhập xuất · Phòng ban · Nhật ký.
+
+   KẾT QUẢ ĐO: toàn bộ chữ ≥22px trên 8 màn này là TIÊU ĐỀ TRANG (thẻ <h1>), không có tiêu đề
+   khối (h2/h3) hay số liệu KPI nào chạm ngưỡng — hai trần 17px/20px mà kế hoạch chốt sẵn cho
+   hai loại đó KHÔNG có selector nào đo được để áp ở đợt này; để ngỏ cho các task module sau tự
+   đo nếu chạm màn có h2/h3 hoặc ô KPI thật sự to. Không quét bừa h2/h3 theo brief dặn.
+
+   5 selector đo được (đều là chính thẻ h1, cỡ gốc 24-26px, thao tác mở bằng menu thật):
+   - `.auth__title`    26px, 2 dòng/246px — "Welcome, Nguyễn Văn Giám." (DashboardPage.tsx:11).
+     Cùng lớp dùng ở LoginPage.tsx:79 cho chữ "Đăng nhập". ĐÃ ĐO RIÊNG màn Đăng nhập thật (browser
+     "xb", xoá sạch localStorage/cookie để ép về đúng màn chưa đăng nhập, không gõ mật khẩu):
+     computed 21px, rộng 113px, cao 26px, ĐÚNG 1 dòng, `text-align: center`. Ảnh `t1-login-sau.png`
+     nhìn bằng mắt: chữ "Đăng nhập" đậm, canh giữa, không vỡ dòng, không bé bất thường so với các
+     nhãn xung quanh (13-14px) — clamp áp đúng như 8 màn kia, không cần chỉnh riêng. Khai gốc:
+     auth.css:149 (`font-size: 26px`).
+   - `.md-page__title` 26px, 1 dòng/336px — "Công nợ phải trả" (AccountingPayablesPage.tsx:127).
+     Lớp DÙNG CHUNG 6 màn Kế toán (Đơn mua hàng/Phiếu chi/Phiếu thu/Công nợ phải thu/Tài khoản
+     ngân hàng…). Khai gốc: master-data.css:14.
+   - `.rc__title`      26px, 1 dòng/233px — "Yêu cầu nhập xuất" (KhoDeNghiPage.tsx:224, `<h1
+     className="rc__title">Yêu cầu nhập xuất</h1>`). CHÚ Ý: cùng lớp `.rc__title` còn được
+     `KhoYeuCauPage.tsx:292` dùng cho tiêu đề KHÁC ("Phiếu điều chuyển"/"Phiếu từ yêu cầu") — đừng
+     nhầm hai file, chữ đo được ở đây thuộc `KhoDeNghiPage`. Lớp DÙNG CHUNG ~11 màn (Kho Giấy/Tồn
+     kho/Đề nghị/Báo cáo kho/Giao hàng/Danh mục/Sửa chữa máy/Phiếu bảo trì…). Khai gốc:
+     rebuild-catalog.css:45.
+   - `.depts__title`   26px, 1 dòng/296px — "Phòng ban" (DepartmentsPage.tsx:1479). Khai gốc:
+     departments.css:356.
+   - `.act-title`      24px, 1 dòng/312px — "Nhật ký hoạt động" (ActivityLogPage.tsx:477). Khai
+     gốc: activity.css:119.
+
+   CHỦ Ý BỎ RA: `.khsx-page-header__title` ("Kế hoạch sản xuất") đo được ĐÚNG 22px — đã ở trần,
+   sửa thêm vô nghĩa. Tiêu đề `.rdx-quote .q-pagehead h1` ("Báo giá thương mại") và tiêu đề
+   trang Đơn hàng bán đo được DƯỚI 22px vì hai file đó đã tự co riêng ở @media hẹp từ trước
+   (bao-gia.css:2051 co còn 21px) — nằm ngoài `pages/*.css` nên không đụng, và không cần đụng.
+
+   CÁCH CHỮA: `clamp()` đúng công thức mẫu trong brief, để cỡ chữ TRƯỢT MỀM theo bề ngang màn
+   thay vì nhảy bậc đúng lúc 768px. Không cần `!important`: grep xác nhận mỗi lớp trong 5 lớp
+   trên chỉ khai `font-size` ĐÚNG MỘT LẦN, tại chính stylesheet gốc của trang — không có luật
+   nào đặc hiệu hơn để tranh phần thắng. */
+@media (max-width: 768px) {
+  .auth__title,
+  .md-page__title,
+  .rc__title,
+  .depts__title,
+  .act-title {
+    font-size: clamp(19px, 5.6vw, 22px);
+    line-height: 1.22;
+  }
+}
+
+/* ===== §58. KINH DOANH › TÍNH GIÁ — DANH SÁCH + PHIẾU ========================
+   Đo thật 375×812 (hamburger → Tính giá), thao tác: mở danh sách, lăn dọc/ngang, bấm
+   "Lập phiếu tính giá", "+ Thêm sản phẩm" (tự mở modal sửa sản phẩm), lăn trong modal,
+   mở phiếu đã tính giá PTG-2026-0016 xem bảng "Chi tiết dòng giá vốn". Ảnh: `t2-list-00.png`,
+   `t2-new-00.png`, `t2-comp-00.png`, `t2-modal-top.png`, `t2-modal-sc2.png`, `t2-modal-sc4.png`,
+   `t2-detail2-00.png`.
+
+   (a) KHUÔN 6 — "CHỮ TO ĐÙNG": `.tg-head__title` (tinh-gia.css:26) là <h1> DÙNG CHUNG cho tiêu đề
+   danh sách ("Tính giá thành", PhieuTinhGiaListView.tsx:111) VÀ tiêu đề phiếu (mã PTG hoặc
+   "Phiếu mới", PhieuTinhGiaDetailView.tsx:1850) — font-size 26px khai cứng, không @media nào
+   đụng. Đo được: "Tính giá thành" 296×29.9px, "Phiếu mới" 122.8×29.9px, "PTG-2026-0016" cũng một
+   dòng — không VỠ DÒNG, nhưng đúng cỡ 26px mà §57 đã xác định là "to đùng" cho 5 lớp h1 khác
+   cùng dự án (`.rc__title`, `.md-page__title`...). Đây là lớp h1 tiêu đề trang THỨ SÁU chưa được
+   liệt trong §57 — áp NGUYÊN công thức clamp đó cho nhất quán, không bịa cỡ mới. Không đụng
+   `responsive-chu.css` (grep xác nhận không có `.tg-head__title` trong đó, khỏi lo giẫm chân).
+
+   (b) KHUÔN 1 (biến thể) — NHÃN Ô NHẬP RƠI TỪNG CHỮ TRONG MODAL SỬA SẢN PHẨM: mở "+ Thêm sản
+   phẩm" → modal `.rc-modal` tự mở (PhieuTinhGiaDetailView.tsx addComp gọi setEditingUid ngay,
+   không cần bấm dòng). Ở ≤992px modal đã co về 1 cột (tinh-gia.css:2153/2910 — ĐÃ vá từ trước),
+   nhưng bên trong `.rc-modal__left-col .tg-grid` vẫn giữ NGUYÊN lưới 12 cột (tinh-gia.css:2231-
+   2235) ở MỌI bề ngang — không co theo màn hẹp, nên ở 375px một ô `tg-span-6` chỉ còn ~119px
+   (đo `gridCW254 / span6W118.9`), `tg-span-7` ~140px. Ở bề ngang đó, nhãn NHIỀU CHỮ vỡ dòng theo
+   TỪNG CHỮ MỘT — đã chụp `t2-modal-top.png`: "Sản phẩm tái bản" đọc thành "Sản / phẩm / tái /
+   bản" (đo `cropInfo` width118.9×height55.8 — 4 dòng cho một nhãn đáng lẽ 1 dòng); `t2-modal-
+   sc2.png`: "Bleed (tràn lề)" vỡ thành "Bleed / (tràn / lẻ)" ba dòng; "Khe cắt giữa con" vỡ bốn
+   dòng "Khe/cắt/giữa/con" — cùng lỗi, cùng nguyên nhân lưới 12 cột.
+   ĐÃ THỬ hai bước, cả hai đều KHÔNG đủ — ghi lại để khỏi thử lại nhầm đường:
+   1) Chỉ thêm `flex-wrap:wrap` cho `.tg-microlabel` (dòng chứa nhãn + gợi ý phụ
+      `.tg-microlabel__opt`, PhieuTinhGiaDetailView.tsx:2742/2877/2887/2961/3050) để gợi ý phụ tự
+      xuống dòng dưới thay vì chia đôi hàng với nhãn. Đo lại: `flex-wrap` có ăn (computed đúng
+      `wrap`) nhưng chiều cao KHÔNG giảm (58px, còn cao hơn 55.8px lúc trước) — vì chính NHÃN
+      "Sản phẩm tái bản" MỘT MÌNH đã không vừa 118.9px ở cỡ chữ 12px/600, gỡ gợi ý phụ ra khỏi
+      hàng không cứu được nhãn.
+   2) Đổi `.rc-modal__left-col .tg-grid` sang `grid-template-columns: 1fr` — tưởng span-N nào cũng
+      tự quy về 1 cột, nhưng KHÔNG: CSS Grid không "cắt" span vượt số cột khai, nó tự sinh thêm
+      CỘT NGẦM để đủ chỗ cho span lớn nhất đang xin (span-12 vẫn xin đủ 12 cột ngầm, phần lớn rộng
+      0 vì không ô nào chiếm). Đo lại `gridTemplateColumns` computed ra "0px 0px 0px 8.6px…" — vẫn
+      12 cột, nhãn vẫn 131.9×57.8px, KHÔNG đổi.
+   Chữa ĐÚNG: bỏ hẳn CSS Grid ở khối này khi hẹp — `grid-column: span N` chỉ có tác dụng trong
+   grid, đổi `display` sang `flex; flex-direction: column` thì các lớp `tg-span-*` tự VÔ HIỆU
+   (không lỗi, chỉ không còn ý nghĩa), mỗi field thành một flex-item riêng, `align-items: stretch`
+   mặc định của flex-column kéo nó rộng hết hàng — đúng thứ cần mà không phải sửa từng lớp
+   `tg-span-*`. Giữ `gap` cũ (flex cũng đọc được `gap`) để khoảng cách dọc không đổi. Giữ luôn
+   `flex-wrap` cho `.rc-modal__left-col .tg-microlabel` — vô hại khi nhãn đã đủ rộng (đơn cột
+   ~300px), mà vẫn có ích cho nhãn có gợi ý phụ dài (vd "Sản phẩm tái bản" + "nạp lại cấu hình đã
+   chốt đơn" cộng lại vẫn hơn 300px một chút).
+
+   FIX ROUND 1 (sau review, xem task-2-report.md mục "Fix round 1" để có đầy đủ bằng chứng):
+   - Thu hẹp selector `.tg-microlabel` → `.rc-modal__left-col .tg-microlabel` cho khớp 2 luật anh
+     em còn lại (đều có tiền tố `.rc-modal__left-col`) và khớp chính rule gốc trang đã dùng cho
+     modal này (`tinh-gia.css:2252` cũng scoped y hệt). Grep toàn `frontend/src` xác nhận CẢ 15
+     lần dùng `.tg-microlabel` trong JSX (kể cả "Mực in" dòng 931, "Số trang"/"Trang mỗi tay" dòng
+     1100/1113 — nằm trong popup `.tg-calc` lồng trong ô `tg-span-12` của chính lưới này) đều nằm
+     trong `.rc-modal__left-col`, nên thu hẹp KHÔNG đổi hành vi hiện tại, chỉ chặn trước rủi ro nếu
+     sau này có nơi khác tái dùng tên lớp `.tg-microlabel` mà không cố ý ăn theo luật này.
+   - Sửa 2 chỗ trích dẫn ảnh SAU sai: `t2v2-modal-bleed.png` thực chứa "Quy cách in/Khổ tờ in dài/
+     Khổ tờ in rộng/Số con/Mực in" (KHÔNG phải "Bleed"), `t2v2-modal-mayin.png` thực chứa "Sơ đồ
+     bình bài LIVE/Số tờ tự tính" (bên `.rc-modal__right-col`, KHÔNG phải "Máy in") — cả hai đặt
+     tên theo DỰ TÍNH sẽ cuộn tới đâu chứ không theo ảnh thật chụp được, vì modal cao hẳn lên sau
+     khi đổi flex-column nên cùng số nấc lăn rơi vào nội dung khác bản trước. Bằng chứng SAU đúng
+     cho "Bleed (tràn lề)"/"Khe cắt giữa con" nằm ở ảnh MỚI `t2v3-modal-bleed.png` (dò bằng
+     `getBoundingClientRect`+`scrollIntoView` tới đúng phần tử chứa chữ "Bleed" rồi mới chụp, xem
+     số đo trong task-2-report.md). */
+@media (max-width: 768px) {
+  .tg-head__title {
+    font-size: clamp(19px, 5.6vw, 22px);
+    line-height: 1.22;
+  }
+  .rc-modal__left-col .tg-microlabel {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .rc-modal__left-col .tg-grid {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* (c) KHUÔN 6 (biến thể bảng) — PHÁT HIỆN, ĐÃ THỬ NHIỀU CÁCH, KHÔNG ÁP LUẬT (báo lại, không tự vá):
+   phát hiện ở Fix round 1 khi bấm THẬT nút "In phiếu" (PhieuTinhGiaDetailView.tsx:1875, onClick
+   `window.print()` — xác nhận qua code là THUẦN CLIENT, không gọi API, an toàn để bấm) rồi soi
+   `.tg-print-only` bằng `page.emulateMedia({media:'print'})` ở 375px (bấm thật xong hộp in của hệ
+   điều hành treo hẳn phiên CDP tới khi dev-browser tự huỷ ở mốc 90s — KHÔNG chụp được gì từ hộp
+   thoại OS, nên soi layout thật bằng emulateMedia thay vì đợi hộp thoại, xem task-2-report.md mục
+   "Fix round 1" để rõ tại sao). Ảnh `t2v3-print-00.png`: bảng "1. NGUYÊN VẬT LIỆU" (`.ptg-tbl`,
+   phieu-tinh-gia.css:151) có tiêu đề cột "NGUYÊN VẬT LIỆU" vỡ dòng theo TỪNG ÂM TIẾT
+   ("NGUY/ÊN/VẬT/LIỆU" — bốn dòng, tách rời ngay giữa chữ "NGUYÊN").
+
+   Root cause: `.ptg-tbl{table-layout:fixed}` (phieu-tinh-gia.css:151), `toPhieu`
+   (PhieuTinhGiaDetailView.tsx:846-852) không set `width` cho cột nào → `hasWidths`
+   (PhieuTinhGiaPrint.tsx:123) ra `false` → không render `<colgroup>` → trình duyệt CHIA ĐỀU 6 cột
+   trên ~360px (`.ptg-sheet{max-width:100%}` ép sheet xuống 360px ở 375px viewport) → mỗi cột
+   ~60px. Cột tiêu đề còn bị responsive-chu.css:932-941 ép `font-size:12px !important` (không được
+   sửa file này, không được thêm `!important` đè lại) — "NGUYÊN" (6 ký tự) ở 12px cần ~50-55px,
+   cột chỉ còn ~48px sau padding (phieu-tinh-gia.css:153) nên vỡ.
+
+   ĐÃ THỬ 3 CÁCH, CẢ 3 ĐỀU BỊ LOẠI (đo thật bằng `getBoundingClientRect`/`scrollWidth`, không đoán
+   bằng mắt) — ghi lại số đo để khỏi thử lại các đường đã cụt:
+   1. `table-layout: auto` toàn bảng: chữ hết vỡ âm tiết thật (đo `.ptg-tbl` con "NGUYÊN VẬT LIỆU"
+      còn 3 dòng sạch), NHƯNG bảng tự nới theo tổng min-content 6 cột VƯỢT khung — đo được
+      `.ptg-tbl` cột cuối kết thúc ở `right:431px` trong khi `.ptg-sheet` chỉ rộng 360px (tràn
+      71px, ~20%). `table-layout:auto` + `width:100%` chỉ là GỢI Ý tối thiểu chứ không phải giới
+      hạn cứng (CSS 2.1 §17.5.2.2) — tổng min-content vượt 100% thì trình duyệt CHO PHÉP bảng
+      tràn. Bản in không cuộn ngang được nên cột cuối "CÔNG THỨC THẾ SỐ" bị hụt hẳn ra ngoài trang
+      — MẤT số liệu thật, nặng hơn lỗi gốc (chữ vỡ dòng vẫn đọc được đủ ký tự, mất cột thì không).
+   2. Giữ `table-layout:fixed`, chỉ đè `overflow-wrap:break-word` (thay `anywhere` ở
+      phieu-tinh-gia.css:153): đo trực tiếp bằng cách tiêm tạm một `<style>` ép `anywhere !important`
+      rồi so chiều cao ô tiêu đề "NGUYÊN VẬT LIỆU" hai lần (A: break-word, B: anywhere) trên CÙNG
+      một lần render — cả hai đều ra `h:76` TUYỆT ĐỐI GIỐNG NHAU. Xác nhận đúng lý thuyết: trong
+      hộp có bề rộng CỐ ĐỊNH (table-layout:fixed), `break-word` và `anywhere` xử lý NHƯ NHAU — khác
+      biệt hai giá trị này chỉ nằm ở min-content dùng cho auto-layout/flex/grid, không có tác dụng
+      khi bề rộng cột đã bị ấn định sẵn. Đổi overflow-wrap suông ở đây là NO-OP, không sửa được gì.
+   3. Giữ `table-layout:fixed`, chia lại tỉ lệ cột bằng `:first-child`/`:last-child` (cột đầu 24%,
+      cột cuối 26%, cột giữa chia đều 50% còn lại — không cần biết trước số cột nên áp được cho cả
+      bảng 6 cột lẫn bảng "2. CÔNG ĐOẠN" 4 cột): tiêu đề "NGUYÊN VẬT LIỆU" hết vỡ (đo `.ptg-tbl`
+      không tràn, `tblScrollW===sheetClientW===360`), NHƯNG 4 cột số bị bóp còn 45px mỗi cột trong
+      khi `.ptg-num{white-space:nowrap}` (phieu-tinh-gia.css:61-62, áp cho SL tờ/Đơn giá/Số
+      tiền/Đ/TP) cấm xuống dòng — đo trực tiếp từng ô: "Số tiền" cần `scrollWidth:71px` nhưng chỉ
+      có `45px` (tràn 26px, đè chữ lên ô kế bên, xác nhận đúng như ảnh `t2v6-print-00.png` cho
+      thấy các cột số dính chữ vào nhau). Số liệu bao nhiêu chữ số tuỳ từng phiếu (phiếu khác có
+      thể ra số dài/ngắn hơn) nên không có một tỉ lệ % cố định nào chắc chắn đủ chỗ cho MỌI phiếu —
+      loại phương án này.
+
+   FIX ROUND 2 — hướng thứ 4 (coordinator gợi ý): hạ `font-size`/`letter-spacing` riêng ô tiêu đề
+   cho chữ "NGUYÊN" hẹp lại vừa 60px, khỏi đụng bề rộng cột. Grep TRƯỚC khi viết luật (đúng ràng
+   buộc) — phát hiện KHÔNG PHẢI 1 mà CẢ HAI thuộc tính đều đã bị `!important` khoá sẵn, đo trực
+   tiếp bằng CSSOM (liệt kê mọi rule khớp phần tử `th` này) thay vì chỉ grep chữ:
+   1. `font-size`: `responsive-chu.css:933` (`.ptg-tbl thead th`, trong `@media(max-width:768px)`)
+      ép `12px !important` — đúng như coordinator dự đoán.
+   2. `letter-spacing`: PHÁT HIỆN THÊM, coordinator chưa biết — `.shell__content th`
+      (responsive.css:302-305, khối §10 "Sàn cỡ chữ" CÓ SẴN TỪ TRƯỚC, không phải do task này viết)
+      ép `0.06em !important`, và `.ptg-tbl` (dù chỉ hiện lúc in, ẩn lúc thường bằng
+      `.tg-print-only{display:none}`) vẫn nằm TRONG `.shell__content` trong DOM nên bị khớp — đo
+      `getComputedStyle` ra đúng `0.72px` (=12px×0.06), khớp số dự đoán.
+   Cả hai đều có `!important` từ TRƯỚC (không phải do tôi thêm), nên bất kỳ luật `font-size`/
+   `letter-spacing` nào tôi viết trong `responsive.css` mà không tự thêm `!important` đều THUA
+   ngay — đúng ràng buộc "không cưỡng bức bằng !important", KHÔNG viết luật này.
+
+   Đo thêm để biết dù có "thắng" được thì có đủ không: canvas `measureText` với đúng font/weight
+   hiện tại đo riêng chữ "NGUYÊN" (letter-spacing=0) ra `52.82px`; bề rộng nội dung khả dụng của ô
+   (60px trừ padding 6px×2 trừ border 1px×2, `box-sizing:border-box`) chỉ có `46px` — hụt ~7px
+   ngay cả khi bỏ hẳn letter-spacing (hiện đang bị ép DƯƠNG +0.72px, tức đang làm chữ RỘNG hơn chứ
+   không hẹp hơn). Để lọt 46px cần giảm kích thước hiệu dụng ~13-15%, tức phải hạ font-size xuống
+   khoảng 10-10.3px — thấp hơn hẳn sàn 12px đang bị khoá. Kết luận: hướng 4 KHÔNG khả thi trong
+   phạm vi "không !important ngoài 2 ca", báo lại coordinator, KHÔNG thử hướng thứ 5.
+
+   Kết luận chung (cả 4 hướng đã thử): không tìm được luật CSS nào trong phạm vi `responsive.css`
+   (không đụng `.tsx`, không thêm `!important` ngoài 2 ca đã duyệt) vừa hết vỡ tiêu đề "NGUYÊN VẬT
+   LIỆU" vừa không gây tràn bảng/tràn ô số/hụt cỡ chữ dưới sàn đọc-được ở đâu khác — bài toán cần
+   cột có bề rộng CHIA THEO NỘI DUNG THẬT (colgroup/width tường minh), nghĩa là phải sửa `toPhieu`
+   (PhieuTinhGiaDetailView.tsx:846-852) hoặc `PhieuTinhGiaPrint.tsx:123` để phát width cho từng cột
+   — NGOÀI phạm vi được giao (chỉ đụng responsive.css). KHÔNG áp luật nào cho khuôn này (không có
+   CSS bên dưới) — ghi nợ lại cho chủ dự án quyết định: chấp nhận lỗi hiện trạng (chữ vỡ nhưng vẫn
+   đọc được, không mất số liệu) hay mở phạm vi một đợt khác sang PhieuTinhGiaPrint.tsx/toPhieu. */
+
+/* ===== §59. KINH DOANH › BÁO GIÁ IN ẤN — DANH SÁCH + NGĂN PHIÊN BẢN =========
+   Đo thật 375×812 (hamburger → Báo giá in ấn), thao tác: lăn dọc/ngang danh sách, bấm hết tab
+   trạng thái + nút an toàn, mở BG25-0006 (bấm dòng đầu bảng), lăn trong chi tiết, bấm "So sánh",
+   dò `.att-name`, bấm THẬT "Xem bản in" (đã chặn `window.print` bằng `page.evaluate` SAU khi đăng
+   nhập — KHÔNG dùng `page.addInitScript`, thử nghiệm riêng xác nhận nó làm vỡ transport QuickJS
+   của dev-browser ngay cả với callback rỗng, lỗi "__transport_receive expected object got
+   undefined"; app là SPA nên chặn một lần sau khi trang đã tải là đủ cho cả phiên, không có lần
+   goto/reload nào khác), rồi soi bằng `page.emulateMedia({media:'print'})` — KHÔNG bấm "In / Lưu
+   PDF" bên trong hộp xem trước. Ảnh: `t3-list-00.png`, `t3-tabs-ng1.png`, `t3-qcard-ng2.png`,
+   `t3-detail-00.png`, `t3-vrow-zoom.png`, `t3-giavon-TRUOC-zoom.png`, `t3-print-emul-00.png`.
+
+   (a) KHUÔN 5 — "LỊCH SỬ PHIÊN BẢN" CHỮ CHỒNG LÊN NHAU: mở BG25-0006 → khối phiên bản THẬT của
+   trang là `.vh`/`.vrow`/`.vtag`/`.vmid`/`.vright` (bao-gia.css:1553-1566) — KHÔNG PHẢI
+   `.bgv .ver-item`/`.v-clone` mà brief nêu, hai lớp đó đã xác nhận là CSS chết từ prototype, §48
+   (Task 0) đã gỡ. `.vrow{display:flex;gap:12px}` xếp 4 con: `.vtag` (badge "v1", ~32px),
+   `.vnow` ("ĐANG XEM", chỉ hiện khi đang xem đúng version, ~84px, `white-space:nowrap`), `.vmid`
+   (`flex:1;min-width:0` — ngày tạo + lý do đổi, bao-gia.css:1562) và `.vright`
+   (`flex:none`, ~150px — giá + trạng thái). Đo trực tiếp DOM (không đoán bằng mắt): `.vrow` rộng
+   306px, tổng 3 con cố định + gap đã chiếm 32+12+84+12+150+12 = 302px, chỉ còn 4px cho `.vmid` —
+   `min-width:0` cho phép nó co THẬT XUỐNG 0, đo được `vmidW:0, vmidH:95` (chữ "17/12/2025 · hiện
+   tại" xếp dọc gần như mỗi dòng một ký tự). Ảnh `t3-vrow-zoom.png` xác nhận bằng mắt: cột ngày
+   chẻ dọc "—/17/12/2025/./hiệ/tại" ĐÈ THẲNG lên badge "Khách hàng đồng ý" và số tiền
+   "77.000.000đ" của `.vright`. Đây là biến thể của khuôn 1 (hàng flex nhiều ô cố định bóp chết ô
+   `flex:1;min-width:0` còn lại) chứ không phải file mới — không có `flex-wrap` nào để hàng tự
+   xuống dòng khi hết chỗ.
+   Chữa: cho `.vrow` tự xuống dòng khi hết chỗ (`flex-wrap:wrap`), đặt SÀN cho `.vmid` (không thể
+   để `min-width:0` nữa — nội dung ngày+lý do cần tối thiểu ~140px mới không vỡ) để nó chủ động
+   đẩy hàng xuống dòng thay vì bị bóp tới 0, và giữ `.vright` (giá/trạng thái) neo phải trên dòng
+   riêng bằng `margin-left:auto` (flex item một mình trên dòng thì mặc định nằm sát trái, mất đúng
+   ý "canh phải" ban đầu nếu không có auto-margin này). Không đổi bố cục màn rộng vì `flex-wrap`
+   chỉ có tác dụng khi tổng bề ngang KHÔNG đủ chỗ — ở ≥769px các con vẫn thừa chỗ nằm một hàng.
+
+   (b) KHUÔN 2 (phòng ngừa) — BẢNG "SO SÁNH" PHIÊN BẢN: `.bgv .cmp-tbl{width:100%}` (bao-gia.css:
+   1056) nằm trong khung `<div style="overflow-x:auto">` (BaoGiaPage.tsx:1744) nhưng bảng không có
+   `min-width` — đúng khuôn đã thấy ở §40/§49/§52 (bảng width:100% trong khung cuộn thì khung cuộn
+   vô dụng, cột cứ chia đều theo SỐ CỘT thay vì theo nội dung). Đo BG25-0006 (chỉ có 1 version):
+   2 cột ("Chỉ tiêu" + "v1"), `sw:306===cw:306` — CHƯA squish vì quá ít cột (rà 22/54 báo giá trong
+   danh sách không thấy báo giá nào có ≥2 version — seed hiện tại không có ca nào phơi bày lỗi này
+   ra ảnh chụp được). Vẫn viết luật NGAY vì: (1) số cột bảng này TĂNG THEO SỐ LẦN báo giá được tạo
+   lại phiên bản mới — một quote đã "Khách từ chối" rồi báo giá lại, hoặc sale tự tạo bản nháp mới,
+   đều cộng thêm 1 cột; sớm muộn cũng có báo giá thật đủ version để lộ lỗi, và (2) cùng nguyên nhân
+   gốc + cùng cách chữa đã xác lập cho các bảng khác trong dự án, không phải suy đoán cách chữa
+   mới. Vì số cột không cố định (khác `.purchase__modal-table` 6 cột hay `.q-card` 6 cột đã biết
+   trước), không đặt một `min-width` tĩnh trên BẢNG — sẽ sai ngay khi có 5, 6 version; đặt sàn trên
+   TỪNG Ô để tổng bề ngang bảng tự cộng dồn theo đúng số cột đang có, kèm `white-space:nowrap` để
+   số tiền không vỡ dòng (bảng vẫn `table-layout:auto` mặc định, ô có sàn sẽ đẩy bảng vượt 100% khi
+   cần, đúng lúc đó khung `overflow-x:auto` có sẵn mới phát huy tác dụng). Cột đầu ("Chỉ tiêu") chữ
+   dài hơn (vd "Giá vốn (khóa)") nên sàn rộng hơn cột số.
+
+   (c) KHUÔN 2b — BẢNG "GIÁ VỐN" BỊ CẮT CỤT, KHÔNG CÓ CÁCH NÀO CUỘN TỚI: khối "Giá vốn" (đơn dòng)
+   / "Báo giá nhiều dòng" (multi) là một `<table>` TRẦN, không class, đặt TRỰC TIẾP trong
+   `.rdx-quote .panel` (BaoGiaPage.tsx:1441, 6 cột: Sản phẩm/SL/Giá vốn/Markup/Thành tiền/Giá bán
+   gõ tay) — khác bảng danh sách (dòng 292, cũng trần nhưng nằm trong `.q-card` đã có min-width từ
+   trước). `.rdx-quote .panel{overflow:hidden}` (bao-gia.css:1467) CHỈ ĐỂ bo góc/che tràn chữ, không
+   phải khung cuộn — bảng không `width:100%` nên tự nới theo nội dung rồi bị CHÍNH `overflow:hidden`
+   của panel cắt cụt, không giống khuôn 2 (bảng ép width:100% trong khung có cuộn) mà là khuôn 2b
+   (không hề có khung cuộn nào). Đo trực tiếp: `.panel` rộng 334px, bảng tự nới `scrollWidth:617px`
+   — dư 283px bị cắt đứt, KHÔNG có scrollbar nào để kéo tới. Ảnh `t3-giavon-TRUOC-zoom.png` xác
+   nhận bằng mắt: tiêu đề cột "Markup" hiện dở dang "MARKU" ngay mép panel, hai cột cuối "Thành
+   tiền" và "Giá bán (gõ tay)" — đúng nơi khách xem selling price từng dòng — MẤT HẲN, không cách
+   nào xem được trên điện thoại.
+   Chữa THEO ĐÚNG khuôn mẫu §53 (bảng trần không wrapper, không đổi <table> sang class riêng): cho
+   CHÍNH `<table>` `display:block; overflow-x:auto` — bảng tự thành khung cuộn của chính nó, không
+   cần đụng `.panel{overflow:hidden}` (đang dùng chung cho MỌI panel khác — Lịch sử phiên bản/Tài
+   liệu đính kèm/Hoạt động/Điều khoản — đổi overflow ở đó rủi ro tràn sang các khối không phải bảng).
+   Chọn selector `.rdx-quote .panel > table` (con TRỰC TIẾP của panel) để chỉ khớp đúng bảng này —
+   grep xác nhận toàn `BaoGiaPage.tsx` chỉ có 2 bảng trần không class (dòng 292 và 1441), bảng còn
+   lại nằm trong `.q-card` chứ không phải `.panel` nên selector không đá nhau. Kèm `white-space:
+   nowrap` trên ô để cột không vỡ dòng thay vì đẩy bảng rộng ra (giữ đúng nguyên lý "nowrap thì cuộn
+   mới có tác dụng" đã dùng ở §51/§53).
+
+   (d) ĐÃ ĐO, KHÔNG VÁ — ghi lại để khỏi dò lại nhầm hướng:
+   - `.stabs` (dải tab trạng thái, ui-blocks.css:4): KHÔNG cuộn ngang như brief đoán —
+     `flex-wrap:wrap` có sẵn, đo `sw:334===cw:334`, `overflowX:visible`. Ảnh `t3-list-00.png`: 9 tab
+     tự chia 4 HÀNG (đếm tay trên ảnh: Tất cả·Cần xử lý·Soạn — Chờ duyệt·Đã duyệt — Đã gửi
+     khách·Khách chốt — Đã lên đơn·Từ chối; chú thích đầu tiên ghi "3 hàng" là đếm sai, review Task 3
+     bắt được). "Từ chối" (tab cuối) đọc trọn, không cắt/không chồng chữ. Không phải khuôn nào
+     trong sáu khuôn — không vá.
+   - `.rdx-quote .q-card table` (bảng danh sách): đã có `min-width:860px` + `.code{white-space:
+     nowrap}` (§52b) từ trước. Đo lại: `sw:860/cw:334`, lăn ngang 3 nấc chạm đúng cột cuối "Cập
+     nhật" (ảnh `t3-qcard-ng2.png` thấy trọn ngày "30/8/2026"), không còn khuôn 2/2b nào ở đây.
+   - `.rdx-quote .titleline h1` (mã phiếu, vd "BG25-0006", bao-gia.css:1441, 25px khai cứng, KHÔNG
+     nằm trong 6 lớp §57/§58 đã trần): đo 158×39px, ĐÚNG 1 dòng, không vỡ, không tràn khối
+     `.dhead` (306-336px). Khác 6 lớp đã trần ở §57/§58 (tên trang tĩnh, có thể dài ngắn tuỳ câu
+     chữ) — nội dung ô này là MÃ PHIẾU theo khuôn cố định `BGyy-nnnn` (luôn 9 ký tự), không có
+     kịch bản thực tế nào khiến nó vỡ dòng hay tràn. Không đặt trần theo suy đoán khi chưa thấy hỏng
+     — nếu sau này đổi định dạng mã dài hơn thì đo lại lúc đó.
+   - `.rdx-quote .dk__big` (số "Giá bán đề xuất", bao-gia.css:1498, 36px khai cứng): đo trong thẻ
+     336px, cao 44px — đúng 1 dòng, không vỡ. Không vá (cùng lý do: chưa có bằng chứng hỏng).
+   - Bản in khách (`.qpdf` trong `QuotationPrintModal`): admin có quyền `export` nên nút "Xem bản
+     in" tự ẩn khung xem trước trên MÀN HÌNH (`.q-print-silent`, bao-gia.css:1312, đúng thiết kế —
+     không phải lỗi) và tự gọi `window.print()` (đã bị kịch bản đo chặn). Soi bằng `emulateMedia
+     ({media:'print'})`: đo `document.documentElement` `scrollWidth:604/clientWidth:360` (tràn
+     244px đúng bằng bề ngang các khối letterhead/badge chứng nhận thiết kế cho khổ A4) — lăn
+     chuột ngang thật sự CUỘN được, `scrollX` đi từ 0 tới 244 (đúng bằng phần tràn, tới sát mép).
+     Đúng như brief dặn "không vá theo màn hẹp, chỉ kiểm cuộn được" — cuộn được, không vá.
+   - `.rdx-quote .att-name` (tên tệp đính kèm, bao-gia.css:1620-1623: `white-space:nowrap;
+     text-overflow:ellipsis`, đúng khuôn 4 potential): KHÔNG kiểm được bằng dữ liệu thật — không
+     phiếu demo nào có đính kèm (seed không tạo `QuoteAttachment` nào, grep xác nhận). Chủ động
+     KHÔNG tự tải tệp lên để tạo dữ liệu vì đó là hành động GHI (tạo dòng CSDL + file thật), ngoài
+     phạm vi "bấm nút an toàn" được giao cho đợt rà lỗi này. Ghi lại toán bề ngang tĩnh từ CSS:
+     khung `.att-item` ~306px trừ `.att-thumb` 44px + 2 gap 12px + `.att-actions` ~2×30px+4px ≈ còn
+     ~178px cho tên — đủ đọc phần lớn tên tệp gõ tắt (khớp `.att-meta{flex:1;min-width:0}`, không
+     giống ca `.vmid` bị bóp về 0 ở mục (a) vì đây chỉ có 2 anh em cố định, không phải 3-4). KHÔNG
+     áp luật khi chưa có ảnh chụp chứng minh tràn thật — nợ lại, ai chạm màn này với phiếu có đính
+     kèm thật thì đo lại. */
+/* `screen and`: hộp xem trước bản in nằm LỒNG trong chính `<main class="rdx-quote bgv">`
+   (BaoGiaPage.tsx:2171-2172), nên `.rdx-quote` LÀ tổ tiên của DOM bản in. Hôm nay tờ in dùng lớp riêng
+   (`.q-tbl`, `.q-mh`…) nên không chố nào của §59 khớp — nhưng ai thêm một `.panel > table` vào tờ in sau
+   này sẽ bị `display:block; overflow-x:auto` biến bảng trên GIẤY thành khung cuộn, tức là cụt âm thầm.
+   Chặn trước bằng một chữ, không đợi nổ (đây đúng là hồi quy mà Task 2b vừa phải đi chữa ở §10). */
+@media screen and (max-width: 768px) {
+  .rdx-quote .vrow {
+    flex-wrap: wrap;
+  }
+  .rdx-quote .vmid {
+    flex: 1 1 140px;
+    min-width: 140px;
+  }
+  .rdx-quote .vright {
+    margin-left: auto;
+  }
+  .rdx-quote .cmp-tbl th,
+  .rdx-quote .cmp-tbl td {
+    white-space: nowrap;
+  }
+  .rdx-quote .cmp-tbl th:first-child,
+  .rdx-quote .cmp-tbl td:first-child {
+    min-width: 108px;
+  }
+  .rdx-quote .cmp-tbl th:not(:first-child),
+  .rdx-quote .cmp-tbl td:not(:first-child) {
+    min-width: 84px;
+  }
+  .rdx-quote .panel > table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+  .rdx-quote .panel > table th,
+  .rdx-quote .panel > table td {
+    white-space: nowrap;
+  }
+}
+
+/* ===== §60. KINH DOANH › KHÁCH HÀNG + QUY TRÌNH KINH DOANH ==================
+   Đo thật 375×812 (hamburger → Khách hàng / Quy trình kinh doanh). Thao tác: lăn dọc danh sách
+   từng nấc, lăn ngang bảng, bấm dòng đầu mở ngăn kéo "Công ty TNHH An Phát", đi các tab trong
+   ngăn kéo (Dashboard · Lịch sử mua hàng · Lịch sử báo giá · Chăm sóc …), rồi sang Quy trình
+   kinh doanh lăn ngang sơ đồ.
+   Ảnh: `t4-kh-00.png`, `t4-kh-03.png`, `t4-kh-drawer-00.png`, `t4-kh-tab-chm-00.png`,
+   `t4-lich-TRUOC.png`, `t4-qtkd-ng2.png`.
+
+   KHÔNG PHẢI LỖI — ghi lại để khỏi dò lại:
+   - `.kh__table` (bảng danh sách khách): giả thuyết "thiếu min-width ⇒ khuôn 2" LÀ SAI. Đo: bảng
+     tự nới `841px` trong khung `.kh__tablescroll` `sw841/cw334` — khung cuộn ĐANG làm đúng việc,
+     cột không bị bóp. Ảnh `t4-kh-03.png`: có thanh cuộn ngang ở đáy thẻ, kéo tới được cột cuối.
+   - "Chồng chữ" bộ dò chấm giữa hai `<strong>` ("MST:" vs "LTV Trailing:") trong ngăn kéo là BÁO
+     ĐỘNG GIẢ: chúng là thẻ INLINE nằm trên một đoạn văn gãy dòng, nên hình chữ nhật bao của chúng
+     trải hết bề ngang dòng và giao nhau trên SỐ LIỆU, không giao nhau trên mặt chữ. Ảnh
+     `t4-kh-drawer-00.png` đọc bình thường. Không vá.
+   - `.qtkd__board` (sơ đồ): `sw1312/cw318`, `overflow-x: auto` — cuộn được, nút bước ở rìa phải
+     bấm tới được (ảnh `t4-qtkd-ng2.png` thấy nút "Sản xuất" sau khi lăn). Không vá.
+   - `.qtkd-lane-label` (11px) và `.qtkd-edge-label` (10px) cũng bị sàn 12px nâng lên, nhưng chúng
+     ĐỨNG MỘT MÌNH trên làn / trên mũi tên, bộ dò không thấy giao nhau — không vá theo suy đoán,
+     chỉ vá hai lớp ĐÃ CHỨNG MINH được là chồng thật ở (a).
+
+   (a) KHUÔN 5 — CHỮ TRONG SƠ ĐỒ QUY TRÌNH ĐÈ LÊN NHAU (hồi quy do chính sàn chữ của ta):
+   bộ dò chấm hai cặp `<text>` giao nhau — "Phiếu xuất kho"/"Kho lập" và "Phiếu giao hàng"/"Giao
+   hàng lập". `QuyTrinhKinhDoanhPage.tsx:655-659` đặt hai nhãn của cùng một nút ở `y = cy - 5` và
+   `y = cy + 6` — cách nhau ĐÚNG 11 đơn vị viewBox, vừa đủ cho cỡ khai trong
+   `quy-trinh-kinh-doanh.css:330` (`.qtkd-label` 10px) và `:338` (`.qtkd-sub` 8px). Toạ độ là SỐ
+   CỨNG trong viewBox: nâng cỡ chữ mà không dời toạ độ thì hai nhãn chồng nhau, không có cách nào
+   tự giãn như chữ HTML.
+   Đo trước khi vá: CẢ HAI đều bị ép lên 12px, mỗi nhãn cao 15,2px ⇒ cách nhau 11px thì đè ~4px.
+   Hai thủ phạm KHÁC NHAU, đã truy từng cái bằng cách liệt kê mọi luật khớp phần tử:
+   - `.qtkd-sub` ← `responsive-chu.css:981` (sàn 12px `!important`, trọng số (0,1,0)). §21 của
+     chính file này (`responsive.css:540-542`) có đặt 10px nhưng KHÔNG `!important` nên thua.
+   - `.qtkd-label` ← §10 ngay trong file này (`responsive.css:305`):
+     `.shell__content [class*="-label"]:not(.sr-only) { font-size: 12px !important }`. Tên lớp
+     `qtkd-label` CÓ chứa chuỗi `-label` nên dính. Trọng số (0,3,0) — `:not()` mang trọng số của
+     đối số bên trong.
+   Chữa: chỉ trả `.qtkd-sub` về đúng 8px đã khai. Đo lại: danh sách chồng chữ 2 cặp → **0 cặp**,
+   ảnh `t4-qtkd-SAU-nhan.png` thấy "Phiếu xuất kho" và "Kho lập" tách bạch. KHÔNG hạ
+   `.qtkd-label`: §21 nâng nó lên 12px là CHỦ Ý (chú thích ở đó giải thích: sau khi bỏ co sơ đồ,
+   ô rộng 140px vẫn chứa vừa nhãn dài nhất) và một mình `.qtkd-sub` xuống 8px đã đủ hết chồng.
+   ĐỪNG viết `.shell__content .qtkd-label { font-size: … !important }` mà tưởng nó ăn — đã thử,
+   (0,2,0) THUA §10 (0,3,0), computed vẫn ra 12px. Muốn hạ thì phải nặng hơn (0,3,0).
+   Không sửa bộ sinh `responsive-chu.css`: rà toàn `frontend/src` thấy ĐÚNG 4 lớp chữ-vẽ-SVG (khai
+   cả `fill:` lẫn `font-size:`) và cả 4 đều nằm trong `quy-trinh-kinh-doanh.css` — lỗi cục bộ ở
+   MỘT sơ đồ, không đáng sinh lại file 1179 selector rồi phải xác minh lại toàn hệ. Ai thêm sơ đồ
+   SVG khác có nhãn đặt theo toạ độ cứng thì cân nhắc chuyển luật này lên bộ sinh.
+
+   (b) KHUÔN 6 — CHỮ TO ĐÙNG: hai tiêu đề đo được ≥ 22px mà §57 (Task 1) chưa phủ:
+   `h1.qtkd__title` 26px (`quy-trinh-kinh-doanh.css:52-54`, `var(--fs-2xl)` = 1.5rem) và
+   `.kh__so-title-row > h2` 24px (`khach-hang.css:3401`, tên khách trong ngăn kéo). Dùng ĐÚNG công
+   thức §57 để cả hệ một thước: `clamp(19px, 5.6vw, 22px)`.
+   Tiêu đề khách hàng đặc biệt đáng hạ: nó là TÊN DO NGƯỜI DÙNG NHẬP, dài ngắn tuỳ ý ("Công ty
+   TNHH Sản xuất Thương mại Dịch vụ …"), không phải mã cố định như `BG25-0006` — ở 24px mỗi dòng
+   chỉ chứa ~18 ký tự nên tên thật sẽ ăn 3 dòng đầu ngăn kéo.
+
+   (c) KHUÔN 5 — LỊCH HẸN (tab Chăm sóc) LỆCH CỘT + CHIP HẸN RỖNG RUỘT:
+   ảnh `t4-lich-TRUOC.png` cho thấy hàng thứ "T2 T3 T4 T5 T6 T7 CN" không khớp cột ngày bên dưới.
+   Đo `.cc__grid`: `grid-template-columns` tính ra
+   `29,99px 30px 29,99px 93,03px 30px 29,99px 30px` — một cột phình gấp ba.
+   Truy nguyên bằng cách liệt kê MỌI luật khớp `.cc__tick` trong trang: thủ phạm là LUẬT CỦA CHÍNH
+   TA, và là HAI luật thay nhau bắt tùy trạng thái hẹn. Nút tick khai 14×14px
+   (`care-calendar.css:91-93`) nhưng:
+   - hẹn CHƯA xong ⇒ `<button aria-label="Đánh dấu đã xong"></button>` RỖNG ⇒ dính §9
+     `.shell__content button[aria-label]:empty { min-width: 44px }` (`responsive.css:238-241`);
+   - hẹn ĐÃ xong ⇒ nút chứa đúng một `<svg>` dấu check ⇒ dính §29
+     `.shell__content button:has(> svg:only-child) { min-width: 44px; min-height: 44px }`.
+   Ô ngày chứa chip do đó có min-content ~93px, mà `.cc__grid` khai `repeat(7, 1fr)` — `1fr`
+   thực chất là `minmax(auto, 1fr)` nên NỚI cột theo min-content thay vì chia đều ⇒ 6 cột còn
+   30px, 1 cột 93px, hàng thứ và hàng ngày lệch hẳn.
+   Vòng 1 vá bằng `minmax(0, 1fr)` + hạ tick xuống 20px. Đo lại sau khi đặt được một hẹn THẬT
+   vào ô (ảnh `t4-toast-care-due.png`): cột đã đều 39px, nhưng chip thành một hòn ô-van RỖNG —
+   `.cc__pill-note` đo được `width: 0` (scrollWidth 194px), tick vẫn 44px bề ngang. Hai chuyện:
+   - Luật 20px KHÔNG ăn phần bề ngang: `.shell__content .cc__pill .cc__tick` là (0,3,0), THUA
+     `.shell__content button[aria-label]:empty` (0,3,1) — `:empty` là pseudo-class nên tính vào
+     cột b. Riêng `height` thì ăn, vì luật đối thủ đặt min-height ở (0,1,1).
+   - Kể cả tick có xuống 20px cũng vô ích: ô 39px trừ padding còn 33px; tick 20 + gap 2 + padding 4
+     ⇒ chữ còn 7px. Ở 375px, lưới 7 cột KHÔNG có chỗ cho chữ, chỉnh cỡ kiểu gì cũng vậy.
+   Chữa (thiết kế lại cho màn hẹp, không phải co chữ):
+   1. `minmax(0, 1fr)` để bảy cột chia ĐỀU bất kể nội dung — đây mới là thứ giữ hàng thứ thẳng
+      với hàng ngày.
+   2. Chip thành THANH: ẨN ĐÚNG PHẦN CHỮ (`.cc__pill-note`), giữ nguyên hai dấu hiệu nhìn là
+      hiểu — vòng tick (rỗng = chưa xong, xanh + dấu check = đã xong) và biểu tượng lặp. Ô ngày
+      còn nói đủ "ngày này mấy hẹn, đến hạn hay chưa (màu nền), xong hay chưa (vòng tick), có lặp
+      không". Bấm thanh mở popover đầy đủ, trong đó có sẵn "Đã xong" / "Dời" / "Huỷ lần này"
+      (`CareCalendar.tsx:360-375`). Đo thật: tick 12 + gap 2 + dấu lặp 10 = 24px, lọt trong 25px lòng
+      thanh — còn chữ thì không bao giờ đủ (đo được 7px cho một chuỗi 194px).
+      ẨN LUÔN NÚT TICK và thay tín hiệu trạng thái bằng MỘT DẤU VẼ BẰNG `::after`. Hai bản đã thử
+      và bỏ, ghi lại để không ai quay lại:
+      - Bản 1 — giữ tick bấm được: ở 12px nó không còn là đích bấm hợp lệ (WCAG 2.5.8 đòi 24px) mà
+        lại nằm đúng chỗ ngón tay chạm vào thanh ⇒ mỗi lần định "xem chi tiết" lại có nguy cơ đánh
+        dấu XONG nhầm, sửa dữ liệu im lặng.
+      - Bản 2 — giữ tick nhưng `pointer-events: none`: hết bấm nhầm, nhưng VẪN SAI ở hai cảnh thật
+        mà người rà soát chỉ ra: (i) hẹn ĐÃ HUỶ không hề có tick — `CareCalendar.tsx:253` khai
+        `tickable = canUpdate && o.status !== "cancelled"`; (ii) người xem KHÔNG có quyền
+        `khach_hang.update` thì `canUpdate` luôn false nên MỌI hẹn đều không có tick. Hai cảnh đó
+        cộng với việc ẩn chữ ⇒ thanh rỗng tuết, mà nền `--done` (`--rule-hair`), `--cancelled`
+        (`--rule-hair` + opacity .7) và `--future` (`--rule-soft`) gần như cùng một xám ⇒ xong / đã huỷ /
+        chưa tới trông y hệt nhau.
+      Bản chốt dùng `::after`: dấu hoàn toàn độc lập với quyền và với việc có render nút hay không —
+      `✓` cho đã xong, `✕` cho đã huỷ, còn ba trạng thái đang mở (chưa tới / đến hạn / quá hạn) đã có
+      màu nền phân biệt và có chú giải ngay dưới lịch. `min-height: 12px` là BẮT BUỘC: hẹn đang mở,
+      không lặp, không tick thì lòng thanh RỖNG — không ghim chiều cao là thanh sập còn 0px, hẹn biến
+      mất khỏi lịch.
+      Muốn đánh dấu xong trên điện thoại: bấm thanh ⇒ popover ⇒ nút "Đã xong" (2 chạm thay vì 1,
+      đổi lấy việc không bao giờ sửa nhầm).
+      Máy tính không đổi — mọi luật nằm trong `@media screen and (max-width: 768px)`.
+      Trọng số: `.shell__content .cc__grid .cc__pill .cc__tick` (0,4,0) nặng hơn cả (0,3,1) của §9
+      lẫn (0,2,2) của §29 — cả hai luật đó chỉ đặt min-width/min-height nên `display: none` thắng
+      tuyệt đối, nhưng giữ (0,4,0) để ai đổi sang thuộc tính kích thước cũng không dính bẫy cũ.
+
+   (d) KHUÔN 3 — NÚT XOÁ Ở Ô TìM BƯỚC CHỈ RỘNG 14px: `.qtkd__search-clear`
+   (`QuyTrinhKinhDoanhPage.tsx:338-342`) đo được **14×44px** — cao thì đủ (ăn sàn §9) nhưng bề
+   ngang thì không. Lý do nó lọt qua mọi sàn cũ: nội dung là ký tự "×" nên KHÔNG rỗng (thuột
+   `button[aria-label]:empty` của §9 không bắt), cũng KHÔNG phải `<svg>` con duy nhất (§29 không
+   bắt), và tên lớp không chứa `icon-btn`/`iconbtn` (luật §9 dòng 238-241 không bắt). Đây đúng
+   là khe hở giữa ba luật đó.
+   Chữa: nâng riêng nó lên 44px — ô tìm rộng 244px nên ô nhập chỉ hụt ~30px, vẫn chứa đủ chuỗi
+   tìm. Không viết luật chung cho mọi nút chỉ-một-ký-tự: nhiều nơi trong hệ dùng nút một ký tự làm
+   điều khiển hẹp CỐ Ý (ví dụ `-`/`+` của chính hộp phóng to đã 44px sẵn), nâng hàng loạt là xé
+   bố cục chỗ khác — ghi đích danh chỗ đã ĐO được. */
+@media screen and (max-width: 768px) {
+  .shell__content .qtkd-sub {
+    font-size: 8px !important;
+  }
+
+  .shell__content .qtkd__title,
+  .shell__content .kh__so-title-row > h2 {
+    font-size: clamp(19px, 5.6vw, 22px);
+    line-height: 1.22;
+  }
+
+  .shell__content .cc__grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+  .shell__content .cc__cell {
+    padding: 3px;
+  }
+  .shell__content .cc__grid .cc__pill {
+    box-sizing: border-box;
+    min-height: 12px;
+    padding: 0 2px;
+    gap: 2px;
+    border-radius: 999px;
+    justify-content: center;
+  }
+  .shell__content .cc__grid .cc__pill .cc__pill-note,
+  .shell__content .cc__grid .cc__pill .cc__tick {
+    display: none;
+  }
+  .shell__content .cc__grid .cc__pill::after {
+    flex: 0 0 auto;
+    font-size: 9px;
+    line-height: 1;
+    text-decoration: none;
+  }
+  .shell__content .cc__grid .cc__pill--done::after {
+    content: "✓";
+  }
+  .shell__content .cc__grid .cc__pill--cancelled::after {
+    content: "✕";
+  }
+
+  /* Máy tính dạy "tick tròn khi làm xong" (dòng gợi ý) và "kéo thẻ sang ô khác để dời"
+     (mẹo trong popover). Ở màn hẹp KHÔNG CÒN cái tick nào — mục (c) ẩn hẳn `.cc__tick` bằng
+     `display: none` và thay tín hiệu trạng thái bằng dấu `::after` — và kéo-thả bằng ngón tay
+     cũng không chạy, để nguyên hai câu đó là dạy thao tác không tồn tại. Chú giải
+     "xong (gạch ngang)" thì hỏng nửa sau: chữ "xong" vẫn đúng (dấu `✓` thay cho vòng tick),
+     nhưng chữ trong thanh đã ẩn nên không còn cái "gạch ngang" nào để nhìn ⇒ chỉ ẩn cái ngoặc.
+     Ẩn đúng ba mẩu; phần "Bấm 1 ô ngày để đặt hẹn" và
+     "xong" vẫn còn vì chúng vẫn đúng. Ba chỗ đã tách sẵn mệnh đề cần ẩn ra `<span>` riêng vì CSS
+     không cắt được nửa nút văn bản: `CareCalendar.tsx:228` và `KhachHangPage.tsx:4310` dùng
+     `cc__hint-tick`, `CareCalendar.tsx:398` dùng `cc__lg-strike`. */
+  .shell__content .cc__hint-tick,
+  .shell__content .cc__lg-strike,
+  .shell__content .cc__pop-tip {
+    display: none;
+  }
+
+  .shell__content .qtkd__search-clear {
+    min-width: 44px;
+  }
+}
+
+/* ===== §61. SẢN XUẤT › KẾ HOẠCH SẢN XUẤT — DANH SÁCH + LỆNH + NGĂN KÉO BƯỚC ===
+   [Task 5 — 31/08/2026] Rà bằng dev-browser thật ở 375×812: hai tab ngoài (Hàng chờ tiếp
+   nhận · Lệnh sản xuất), hộp tiếp nhận đơn, màn chi tiết một lệnh với 5 tab (Thông tin chung ·
+   Quy cách · Công đoạn · Vật tư · Nhật ký), cả hai chế độ của tab Công đoạn (Sơ đồ DAG ·
+   Bảng danh sách) và ngăn kéo BƯỚC với 5 tab con của nó.
+
+   MỘT NGUYÊN NHÂN GỐC, TÁM CHỖ VỠ. Gần như mọi lỗi tìm được ở module này cùng một họ: khối cha
+   là LƯỚI (`display:grid`) hoặc FLEX-CỘT, mà con của nó mặc định `min-width:auto` (= min-content)
+   chứ không phải 0 — nên rãnh lưới / item phình theo bề rộng NỘI DUNG thay vì theo bề rộng MÀN.
+   Ở màn rộng không ai thấy; ở 375px khối phình ra 390-660px rồi bị tổ tiên `overflow:hidden`
+   CẮT CỤT, hoặc chữ tràn sang ô bên cạnh thành CHỒNG CHỮ. Đúng ghi chú "`1fr` là
+   `minmax(auto, 1fr)`" — muốn chia đều thật thì phải viết `minmax(0, 1fr)`, và ở 375px thì phần
+   lớn các lưới 2-3 cột này phải xoay hẳn thành MỘT cột (cùng cách chữa §54).
+
+   TRỌNG SỐ: mọi luật dưới đây có prefix `.shell__content` hoặc `.khsx-drawer--buoc` nên đạt
+   (0,2,x), thắng luật gốc trong `pages/ke-hoach-sx.css` / `pages/dag-routing.css` vốn chỉ
+   (0,1,x). Không chỗ nào cần `!important`: các thuộc tính bị ghi đè ở đây
+   (grid-template-columns, flex-wrap, flex, min-width, white-space, height, align-items, padding)
+   KHÔNG được khai `!important` ở luật gốc. `.khsx-tabs-bar` CÓ dùng `!important` nhưng chỉ trên
+   `display / align-items / gap / padding / margin / background / border / border-radius /
+   overflow-x / scrollbar-width` — không có `min-width`, đúng thuộc tính mà (b) cần.
+
+   (a) KHUÔN 2b — CẮT CỤT: TAB "CÔNG ĐOẠN", CHẾ ĐỘ SƠ ĐỒ DAG.
+   Ảnh `t5f-cd-03.png` / `t5f-cd-04.png`: nút "Lưu công đoạn" chỉ còn một mẩu ở mép phải, cụm
+   zoom (− 35% +) và chú giải "Cổng Vào / Cổng Ra" nằm HẲN ngoài màn, câu "Bấm chọn 1 bước để
+   chèn ngay sau nó" cụt ở chữ "chèn". Đo: `.khsx-rt` `sw427/cw294`, thẻ bọc `.khsx-spec__card`
+   (ke-hoach-sx.css:1392, `overflow:hidden` để bo góc) `sw443/cw326` — khung CẮT, không có chỗ
+   nào cuộn được nên cột phải mất hẳn. `.khsx-rt__baracts` đo được l336..r460 trên màn 375px.
+   Nguồn: `.khsx-rt { display: grid }` (ke-hoach-sx.css:2029) không khai `grid-template-columns`
+   ⇒ một rãnh `auto`, tối thiểu bằng min-content của con. Min-content đó do `.dag-toolbar__left`
+   (dag-routing.css:27, flex NOWRAP) đẩy lên 376px: nút "Sắp xếp tự động" + dòng nhắc dài nằm
+   chung một hàng không xuống dòng được.
+   Chữa hai lớp: ép rãnh về `minmax(0, 1fr)` để lưới không phình quá khung, VÀ cho hai cụm
+   toolbar xuống dòng để min-content của chúng tụt xuống — chỉ làm vế đầu thì toolbar bị bóp
+   rồi tự tràn ra lại.
+
+   (b) KHUÔN 2b — CẮT CỤT: DẢI 5 TAB TRONG NGĂN KÉO BƯỚC.
+   Ảnh `t5k-buoc-00.png`: chỉ đọc được "Cấu hình & Số lượng · Phân công & Thiết bị · Vật…",
+   ba tab sau ("Vật tư", "Tiến độ & Thời gian", "Phụ thuộc") bị cắt và KHÔNG cuộn tới được bằng
+   ngón tay. Đo: `.khsx-tabs-bar` `w636` (l36..r672) trong ngăn kéo `cw359`, và
+   `scrollWidth === clientWidth === 634` ⇒ chính nó tưởng mình không có gì để cuộn.
+   Nguồn: `.khsx-drawer--buoc .khsx-drawer__head` (ke-hoach-sx.css:2686) là flex-CỘT, và
+   `.khsx-drawer__head` gốc khai `align-items: flex-start` (ke-hoach-sx.css:772). Trong flex-cột,
+   `align-items` quyết định bề NGANG của con: `stretch` thì con bằng khung, `flex-start` thì con
+   co theo `fit-content` = min(max-content, max(min-content, khung)). Min-content của dải tab là
+   636px (5 nút đều `white-space:nowrap`) nên fit-content ra đúng 636px, rộng hơn khung 359px.
+   Dải tab ĐÃ có `overflow-x:auto !important` (ke-hoach-sx.css:2845) nhưng luật đó vô dụng khi
+   phần tử được phép rộng đúng bằng nội dung — `scrollWidth === clientWidth`, không có gì để cuộn.
+   ĐÃ THỬ `min-width: 0` MỘT MÌNH: KHÔNG ăn thua, đo lại vẫn `w636 / sw634 === cw634` — vì
+   fit-content không bị `min-width` kẹp xuống (0 < 636 nên mệnh đề kẹp không kích hoạt). Phải trả
+   con về `align-self: stretch` thì bề ngang mới bám khung; `min-width: 0` giữ lại làm chốt chặn
+   để `stretch` không bị mức tối thiểu tự động kéo phồng lại. Không đụng `overflow-x` sẵn có.
+
+   (c) KHUÔN 2b — CẮT CỤT: "BIÊN NHÂN LỰC (ĐỂ XẾP LỊCH)" ở tab Phân công & Thiết bị.
+   Ảnh `t5n-tab2b.png`: viên thứ ba ("Tối đa") cụt ở mép thẻ, đáy ngăn kéo mọc thanh cuộn ngang
+   cho CẢ biểu mẫu. Đo: `.khsx-labor-triplet-grid` `sw387/cw241`, ba rãnh thật
+   `125.9px 133.2px 111.7px` — tổng 371 + 16 khe = 387 nhét vào ô 241.
+   Nguồn: `grid-template-columns: 1fr 1fr 1fr` (ke-hoach-sx.css:3388) — `1fr` không tụt xuống
+   dưới min-content của viên nhập liệu. Ở 375px ba viên không thể nằm ngang: xoay DỌC.
+
+   (d) KHUÔN 1 + 5 — CHỒNG CHỮ: THẺ VẬT TƯ trong tab "Vật tư".
+   Ảnh `t5e-vt-06.png` / `t5e-vt-08.png` / `t5e-vt-10.png`: "Couché 300 65×86" bị số "68 tờ
+   nguyên" ĐÈ LÊN, đọc thành "65×86 nguyên" chồng nét; "Màng bóng" bị "60.000 m²" đè; mã
+   "KEM-102" vỡ hai dòng, tên "Bản kẽm khổ 102" rơi dọc BỐN dòng mỗi dòng một chữ. Đo:
+   `.khsx-vtcard--nvl` `sw278/cw257`, `.khsx-vtke__vattu-list` `sw281/cw261`.
+   Nguồn: `.khsx-vtcard { display:flex; justify-content:space-between }` (ke-hoach-sx.css:6949)
+   — đúng khuôn 1. Cụm phải `.khsx-vtcard__meta` khai `flex: 0 0 auto` (:7039) nên không co;
+   cụm trái `flex: 1 1 auto; min-width: 0` (:6977) co xuống ~90px rồi chữ tràn ra ngoài, đè
+   sang cụm phải. Chữa đúng bài khuôn 1: cho thẻ xuống dòng, cụm chữ `flex: 1 1 200px`
+   (KHÔNG `1 1 100%` — ở tablet cụm phải vẫn nên đứng cạnh), mã hàng cấm vỡ dòng.
+
+   (e) KHUÔN 5 — CHỒNG CHỮ: "DÒNG CHẢY SỐ LƯỢNG & HAO HỤT" (ngăn kéo bước › Cấu hình).
+   Ảnh `t5l-tab1-01.png`: hai ô "SỐ LƯỢNG VÀO" / "SỐ LƯỢNG RA" rơi dọc ba dòng, nhãn đơn vị
+   "bản kẽm" cụt còn "bản kẽ" và bị chip "Hao hụt: 2 bản kẽm" ở giữa đè lên. Đo:
+   `.khsx-flow-pipeline` `sw299/cw267`, rãnh thật `51.2px 140.2px 51.2px` — hai ô số chỉ còn
+   51px trong khi cột `auto` ở giữa ăn 140px.
+   Nguồn: `grid-template-columns: 1fr auto 1fr` (ke-hoach-sx.css:3137): cột `auto` ở giữa lấy
+   đủ max-content của mình trước, hai `1fr` chia phần thừa rồi tụt dưới min-content. Xoay DỌC —
+   mũi tên "→" thành một hàng giữa hai ô, vẫn đọc đúng thứ tự vào → ra.
+
+   (f) KHUÔN 5 — CHỒNG CHỮ: LƯỚI 2 CỘT TRONG NGĂN KÉO BƯỚC.
+   Ảnh `t5k-buoc-00.png`: nhãn "QUY ĐỊNH BẮT BUỘC" bị viên "Bước bắt buộc (không được bỏ qua
+   trong lệnh)" đè chồng lên. Đo: `.khsx-nhan-dien-grid` (ke-hoach-sx.css:2959) rãnh
+   `125.3px 125.3px` trong ô 267px; `.khsx-check-pill` rộng 125px nhưng khai `height: 38px`
+   CỨNG (:3045) trong khi chữ bên trong cần 4 dòng ⇒ chữ tràn khỏi viên và đè ra ngoài.
+   Cùng bệnh, cùng ô 125px: `.khsx-thoi-gian-grid` (:3907) ở tab "Tiến độ & Thời gian" —
+   `.khsx-turns-control` `sw157/cw125` (tràn) và `.khsx-input-unit-combine` `sw262/cw124` với
+   `overflow:hidden` (:3339) ⇒ ô nhập số bị CẮT. Hai lưới xoay về một cột; viên chọn được cao
+   theo chữ thay vì cao cứng.
+
+   (g) KHUÔN 1 — "CHÉP MÃ" VỠ HAI DÒNG (tab Thông tin chung, thẻ "Đơn hàng & Nhân sự phụ trách").
+   Ảnh `t5d-chung-04.png`: nút đọc thành "Chép / mã". Đo: nút 43×44px — vừa vỡ dòng vừa hụt sàn
+   chạm ngón 44px, và bộ sàn chạm hiện có không bắt được nó (nút CÓ chữ nên không khớp
+   `button[aria-label]:empty` / `[class*=icon-btn]` / `button:has(> svg:only-child)`).
+   Nguồn: viên `.khsx-order-badge` (ke-hoach-sx.css:1695) là item của hàng flex
+   `.khsx-spec__card-head--flex` (:1413, `justify-content:space-between`) mà KHÔNG khai
+   `flex-shrink`, nên bị bóp từ ~116px xuống 109px; 7px đó rơi đúng vào cái nút. Cấm viên co và
+   cấm chữ trong nút vỡ dòng là đủ — tiêu đề bên trái vẫn còn ~166px, vẫn 2 dòng như cũ.
+
+   (h) KHUÔN 2 — CỘT "CẦN XEM LẠI" BÓP CÒN 29px (tab Công đoạn › chế độ Bảng danh sách).
+   Ảnh `t5j-ng2.png`: tiêu đề cột rơi dọc "Cần / xem / lại". Đo: `th` rộng 29px, trong khi cột
+   "Vào → Ra" ăn 335px trên tổng bảng 962px. Bảng ĐÃ có `min-width:760px` (ke-hoach-sx.css:2037)
+   và khung `.khsx__tablewrap` ĐÃ cuộn ngang (`sw962/cw293`) — nên đây không phải khuôn 2 thiếu
+   min-width, mà là `table-layout:auto` chia lệch. Cách chữa đã dùng ở §51/§53: cấm ô TIÊU ĐỀ vỡ
+   dòng, để cột lấy đúng bề ngang tự nhiên rồi cuộn ngang gánh phần dư. CHỈ nhắm `thead th` — ô
+   dữ liệu vẫn được vỡ dòng, nếu không bảng phình lên 1500px+.
+
+   (i) SÀN CHẠM NGÓN: `.khsx-preset-btn` ("+15′" ở tab Tiến độ & Thời gian) đo 41×44px — hụt 3px
+   chiều ngang, cùng lỗ hổng như (g). Cho `min-width: 44px`. */
+@media screen and (max-width: 768px) {
+  /* (a) */
+  .shell__content .khsx-rt {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .shell__content .dag-toolbar__left,
+  .shell__content .dag-toolbar__right {
+    flex-wrap: wrap;
+  }
+
+  /* (b) */
+  .khsx-drawer--buoc .khsx-tabs-bar {
+    align-self: stretch;
+    min-width: 0;
+  }
+
+  /* (c) */
+  .khsx-drawer--buoc .khsx-labor-triplet-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* (d) */
+  .shell__content .khsx-vtcard {
+    flex-wrap: wrap;
+  }
+  .shell__content .khsx-vtcard__main {
+    flex: 1 1 200px;
+  }
+  .shell__content .khsx-vtcard__ma {
+    white-space: nowrap;
+  }
+
+  /* (e) */
+  .khsx-drawer--buoc .khsx-flow-pipeline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* (f) */
+  .khsx-drawer--buoc .khsx-nhan-dien-grid,
+  .khsx-drawer--buoc .khsx-thoi-gian-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .khsx-drawer--buoc .khsx-check-pill {
+    height: auto;
+    min-height: 38px;
+    align-items: flex-start;
+    padding: 8px 12px;
+  }
+
+  /* (g) */
+  .shell__content .khsx-order-badge {
+    flex: 0 0 auto;
+  }
+  .shell__content .khsx-order-badge__copy {
+    white-space: nowrap;
+    min-width: 44px;
+  }
+
+  /* (h) */
+  .shell__content .khsx-rt__table thead th {
+    white-space: nowrap;
+  }
+
+  /* (i) */
+  .khsx-drawer--buoc .khsx-preset-btn {
+    min-width: 44px;
+  }
+}
+
+/* ===== §62. SẢN XUẤT › BÀI GHÉP =============================================
+   Rà bằng dev-browser thật ở 375×812 (instance `t6`, admin/admin123): mở màn Bài ghép → lăn cả
+   hai tab danh sách → mở `GB26-0007` → đi hết 5 tab của bài (Thông tin chung · Quy cách · Công
+   đoạn · Vật tư · Nhật ký) → nhấp đúp khối gộp trên sơ đồ để mở ngăn kéo BƯỚC CHUNG → đi hết 5
+   tab của ngăn kéo → gõ ô tìm để ép bảng về rỗng → tích 2 dòng để lộ thanh nổi. Ảnh tiền tố `t6`.
+   Nền đã có §61 (Task 5) vì ngăn kéo bước của Bài ghép dùng CHUNG lớp `khsx-drawer--buoc`.
+
+   (a) KHUÔN 1 — THANH NỔI CHỌN LỆNH: CÂU CẢNH BÁO RỘNG ĐÚNG 0px.
+   Ảnh `t6n-dock-00.png`: tích 2 lệnh khác loại giấy, thanh nổi chỉ đọc được "Đã ch" rồi tới
+   "Bỏ chọn". Câu "Chú ý: Các lệnh đã chọn đang khác loại giấy!" KHÔNG hiện một chữ nào — đo
+   `.bg2-dock__compat` được `width: 0` (scrollWidth 282px), `.bg2-dock__info` `cw34/sw113` với
+   `overflow: hidden`. Đây là câu duy nhất ngăn người dùng ghép nhầm hai loại giấy vào một tờ.
+   Nguồn: `.bg2-dock__inner { display:flex; justify-content:space-between }` (bai-ghep-2.css:479)
+   — cụm nút `.bg2-dock__actions` khai `flex-shrink: 0` (:532, rộng 240px) nên không nhường, cụm
+   chữ `.bg2-dock__info` (:492) chỉ có `min-width: 0` nên co tới 0. Đúng khuôn 1: cho thanh xuống
+   dòng, cụm chữ `flex: 1 1 200px` (KHÔNG `1 1 100%` — ở tablet cụm nút vẫn nên đứng cạnh), và
+   gỡ `nowrap + ellipsis` của riêng câu cảnh báo để nó xuống dòng thay vì bị nuốt.
+
+   (b) KHUÔN 1 — CHÂN NGĂN KÉO BƯỚC CHUNG (lỗi Task 5 bàn giao, đo lại đúng như khai).
+   Ảnh `t6j-drawer-00.png`: nút "Lưu kế hoạch lượt chung" đo 70×98px, chữ vỡ 5 dòng mỗi dòng
+   một chữ; nút "Đóng" 64×98px.
+   Nguồn: `.khsx-drawer__foot { display:flex; align-items:center }` (ke-hoach-sx.css:819) với
+   `.khsx-drawer__tally { flex: 1 1 auto }` (:827) ăn 157px, còn `.khsx-drawer__footbtns` (:828)
+   KHÔNG khai flex nên nhận mặc định `0 1 auto` — shrink 1 ⇒ bị bóp còn 142px cho hai nút.
+   Chữa: cho chân xuống dòng, câu nhắc `flex: 1 1 140px` và cụm nút `flex: 0 0 auto` +
+   `margin-left: auto` (canh phải ở cả hai thế: đứng cùng dòng hay đứng riêng một dòng).
+   Flexbox chia dòng theo flex-basis: 140 + 12 + 257 = 409 > 311 ⇒ ở Bài ghép cụm nút rơi xuống
+   dòng riêng. Bản đầu tôi viết `flex: 1 1 100%` cho câu nhắc — ÉP xuống dòng vô điều kiện; đo
+   trên ngăn kéo bước của Kế hoạch SX (`LsxBuocDrawer`, dùng chung y hệt lớp này) thấy chân ở đó
+   chỉ có MỘT nút "Xong" 63px, 140 + 12 + 63 = 215 < 311 nên đáng ra không cần xuống dòng, mà luật
+   ép kia đội chân từ 69px lên 121px — nên đã đổi sang ngưỡng 140px. Đo lại sau khi đổi: chân
+   Kế hoạch SX 69px, câu nhắc 236×40, nút 63×44 — trùng từng số với lúc chưa có mục 62.
+
+   (c) KHUÔN 1 — CỤM META ĐẦU NGĂN KÉO BƯỚC (lỗi Task 5 bàn giao).
+   Cùng ảnh `t6j-drawer-00.png`: "BƯỚC CHUNG 01/02" vỡ 3 dòng (đo `.khsx-step-kicker` 48×36px),
+   "2 lệnh chạy chung · GB26-0007" vỡ 5 dòng (đo `.khsx-tag-subtle` 42×93px).
+   Nguồn: `.khsx-drawer__head-meta { display:flex; align-items:center; gap:6px }`
+   (ke-hoach-sx.css:2712) — KHÔNG wrap. Bốn con của nó không con nào khai flex, mà cụm bên phải
+   `.khsx-drawer__head-actions` khai `flex-shrink: 0 !important` (:2771) chiếm 142px của 359px,
+   nên `.khsx-drawer__head-info` chỉ còn 162px và cụm meta phải nhét 4 mảnh vào đó.
+   Chữa: cho cụm meta xuống dòng; mã bước cấm vỡ dòng; giấu dấu `·` — ở màn hẹp chính việc
+   xuống dòng đã tách các mảnh, giữ dấu chấm lại chỉ để nó lửng lơ đầu dòng. Nhưng chỉ giấu KHI
+   cụm có từ 4 mảnh trở lên (`:has(> :nth-child(4))`) — đúng cái thế phải xuống dòng. Ngăn kéo
+   bước của Kế hoạch SX dùng chung lớp này nhưng chỉ có 3 mảnh (mã · loại), đứng gọn một dòng
+   139×16px; bản đầu giấu dấu chấm không điều kiện làm màn đó mất dấu phân cách vô cớ.
+
+   (d) KHUÔN 1 — TIÊU ĐỀ KHỐI "MÁY TỰ TÍNH" VỠ 3 DÒNG (tab Quy cách).
+   Ảnh `t6d-qc-03.png` / `t6d-qc-04.png`: đọc thành "Máy / tự / tính". Đo `.khsx-spec__title`
+   34×65px trong đầu thẻ rộng 306px.
+   Nguồn: `.khsx-spec__card-head { display:flex; align-items:center }` (ke-hoach-sx.css:1405) +
+   `.khsx-spec__hint { margin-left:auto; white-space:nowrap }` (:1441). Nhãn "hệ quả của thông số
+   trên — chỉ đọc" nowrap ăn ~181px, cộng icon 28px + hai gap ⇒ tiêu đề chỉ còn 34px.
+   Chữa: CHỈ cho đầu thẻ xuống dòng, không động gì vào chính nhãn phụ. Flexbox chia dòng theo
+   bề ngang TỰ NHIÊN của từng con TRƯỚC rồi mới co trong từng dòng, nên 28+79+181+gap = 304 > 294
+   là nhãn tự rớt xuống dòng dưới và tiêu đề giữ nguyên 79px. Bản đầu tôi viết thêm
+   `.khsx-spec__hint { flex: 1 0 100% }` để ÉP nhãn xuống dòng; đo trên Kế hoạch SX (LSX26-0031 ›
+   Quy cách) thấy ở đó nhãn ngắn hơn ("thông số — sửa được" 121px) VẪN đủ chỗ đứng cùng dòng,
+   mà luật ép kia đẩy nó xuống dòng riêng vô cớ — nên đã gỡ bỏ, chỉ giữ `flex-wrap`.
+
+   (e) KHUÔN 1 — HUY HIỆU ĐẾM TRONG ĐẦU THẺ MỤC (ngăn kéo bước).
+   Ảnh `t6l-vt-01.png`: huy hiệu "0 vật tư" vỡ 3 dòng cạnh tiêu đề "VẬT TƯ CHO CẢ LƯỢT CHUNG";
+   ảnh `t6l-cl-00.png`: "2 lệnh" vỡ 2 dòng cạnh "YÊU CẦU KỸ THUẬT CỦA TỪNG LỆNH".
+   Nguồn: `.khsx-section-card__head { justify-content: space-between }` (ke-hoach-sx.css:2925);
+   `.khsx-badge-count` (:2948) không khai flex ⇒ mặc định `0 1 auto`, tiêu đề dài đẩy nó về ~30px.
+   Chữa: cấm huy hiệu co và cấm chữ trong nó vỡ dòng — huy hiệu chỉ 2-3 chữ, tiêu đề mới là thứ
+   nên xuống dòng. Lớp này còn được `LsxBuocDrawer.tsx:1233` (Kế hoạch SX) dùng và ở đó ĐÚNG CÁI
+   BỆNH NÀY: đo tại LSX26-0031 › Công đoạn › bước "Ghi kẽm CTP" › tab Vật tư, huy hiệu "3 vật tư"
+   56×43px vỡ 2 dòng trước, 64×24px một dòng sau — luật lan sang là chữa luôn, không phải làm hỏng.
+
+   (f) NỘI DUNG BỊ CẮT — NÚT "THU NHỎ SƠ ĐỒ" NẰM NGOÀI MÀN HÌNH (tab Công đoạn).
+   Ảnh `t6f-cd-00.png` / `t6f-cd-01.png`: thanh công cụ của sơ đồ bắt đầu bằng nút "+", KHÔNG có
+   nút "−" và chỉ thấy mẩu đuôi của số "35%". Đo `.bgsd-canvas__toolbar` rộng 418px trong
+   khung `.bgsd-canvas-wrap` 328px, neo `right: 14px` mà KHÔNG có `left` ⇒ mép trái ở x = −88;
+   nút "Thu nhỏ sơ đồ" nằm trọn ở x −78..−34 — không cách nào bấm tới. Bộ dò "tràn màn" không bắt
+   được vì nó chỉ xét phần tử KHÔNG có con, mà nút này bọc một `<svg>`.
+   Nguồn: `.bgsd-canvas__toolbar` (bai-ghep.css:305) — hàng flex `nowrap`, 9 con, không con nào
+   khai `flex`, tổng bề ngang tự nhiên 416px.
+   Chữa: neo thêm `left: 14px` để thanh không thể mọc ra ngoài màn, cấm các con co (giữ "Căn vừa"
+   / "Sắp xếp lại" một dòng) rồi cho CHÍNH thanh cuộn ngang. Chọn cuộn ngang thay vì xuống dòng
+   vì thanh là lớp NỔI đè lên sơ đồ: xuống dòng làm nó cao gấp đôi (~102px) và ăn mất phần đầu
+   sơ đồ, trong khi `.bgsd-canvas` chỉ chừa `padding-top: 64px` (bai-ghep.css:365).
+
+   (g) KHUÔN 4 — TÊN SẢN PHẨM/KHÁCH BỊ ELLIPSIS NUỐT.
+   Ảnh `t6c-ct-03.png` (tab Thông tin chung › Thành viên): "Sản phẩm 1 (bản sao) · Công ty TNHH…"
+   — đo `.bg2-member__sub` `sw295/cw252`. Ảnh `t6d-qc-06.png` / `t6d-qc-07.png` (tab Quy cách ›
+   Các lệnh trên tờ): ba dòng phụ của mỗi lệnh đều cụt ở 135px — đo `sw206/cw135`, `sw253/cw135`,
+   `sw266/cw135`, mất hẳn phần "khổ TP 86×54 · 1/0 (K)".
+   Nguồn: `.bg2-member__sub` (bai-ghep-2.css:646) và `.bg2-spec-row__id span` (:707), cả hai khai
+   `white-space:nowrap; overflow:hidden; text-overflow:ellipsis`. Chữa đúng bài khuôn 4 (§45): ở
+   màn hẹp cho xuống dòng. Nhắm `> div > span` chứ không nhắm `.bg2-spec-row__id span` chung —
+   cùng khối còn có viên trạng thái và chip GẤP, chúng phải giữ nguyên một dòng.
+
+   (h) Ô RỖNG `<td colspan>` — CÂU "KHÔNG CÓ LỆNH CHỜ GHÉP" NẰM NGOÀI TẦM NHÌN.
+   Ảnh `t6n-tim-00.png`: gõ "The nhan vien" vào ô tìm cho bảng về 0 dòng, chỉ đọc được "Khôn…" và
+   "Các lệnh đủ đi…". Bảng `sw855/cw326`, khối chữ canh giữa 855px.
+   §56 đã có luật cho đúng bệnh này nhưng nhắm `.empty-state__cell > .empty-state`, còn
+   `BaiGhep2Page.tsx:401` và `:508` TỰ viết `<td colSpan={7}>` / `<td colSpan={5}>` chứ không dùng
+   `EmptyRow`, nên ô không mang lớp `empty-state__cell` và luật kia trượt. Thêm nữa: `EmptyState`
+   mà `BaiGhep2Page` dùng KHÔNG phải component `components/EmptyState.tsx` (lớp `.empty-state`) mà
+   là bản của `pages/keHoachSxShared.tsx:414` — vẽ ra `<div class="khsx-empty">` (ke-hoach-sx.css:717).
+   Đã soi cây DOM thật tại chỗ mới ra: `TD > DIV.khsx-empty` rộng 760px, `text-align: center`.
+   Áp đúng cách chữa của §56 cho riêng bảng này. Nhắm `td > .khsx-empty` trong `.bg2-tablewrap`
+   (KHÔNG nhắm `td[colspan]` chung): grep cả `BaiGhep2Page.tsx` chỉ có hai `colSpan` và cả hai đều
+   là ô rỗng, bảng không có dòng cộng/tổng phụ.
+
+   (i) SÀN CHẠM NGÓN — CHIP MỰC C/M/Y/K MÉO THÀNH BẦU DỤC (tab Quy cách).
+   Ảnh `t6d-qc-02.png` / `t6d-qc-03.png`: bốn chip mực vẽ thành hình trứng đứng. Đo 28×44px.
+   `.tg-muc__proc` (MucIn.css:55) khai `width/height: 28px; border-radius: 50%`; §9
+   (`responsive.css:233`) đặt `min-height: 44px` lên MỌI nút trong `.shell__content` nên chiều cao
+   bị kéo lên 44 còn bề ngang giữ 28 ⇒ tròn thành bầu dục. Chip chứa ĐÚNG MỘT ký tự nên lọt qua
+   cả bốn selector sàn chạm hiện có (`button[aria-label]:empty`, `[class*=icon-btn]`,
+   `[class*=iconbtn]`, `button:has(> svg:only-child)`). Nâng bề ngang lên 44px chữa cả hai chuyện
+   một lúc: vuông 44×44 + `border-radius: 50%` là tròn lại, và đủ ngưỡng ngón tay.
+   `MucIn.tsx` còn được `LsxDetailView.tsx:1294` (Kế hoạch SX) và `PhieuTinhGiaDetailView.tsx:936`
+   (Tính giá) dùng; đo tại cả hai — LSX26-0031 › Quy cách và PTG-2026-0016 › Sản phẩm 1 — chip
+   cũng đang 28×44px bầu dục, sau luật thành 44×44px tròn. Lan sang là chữa luôn cả ba màn. */
+@media screen and (max-width: 768px) {
+  /* (a) */
+  .shell__content .bg2-dock__inner {
+    flex-wrap: wrap;
+  }
+  .shell__content .bg2-dock__info {
+    flex: 1 1 200px;
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .shell__content .bg2-dock__compat {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  /* (b) */
+  .khsx-drawer--buoc .khsx-drawer__foot {
+    flex-wrap: wrap;
+  }
+  .khsx-drawer--buoc .khsx-drawer__tally {
+    flex: 1 1 140px;
+    min-width: 0;
+  }
+  .khsx-drawer--buoc .khsx-drawer__footbtns {
+    flex: 0 0 auto;
+    margin-left: auto;
+    justify-content: flex-end;
+  }
+  .khsx-drawer--buoc .khsx-drawer__footbtns .btn {
+    white-space: nowrap;
+  }
+
+  /* (c) */
+  .khsx-drawer--buoc .khsx-drawer__head-meta {
+    flex-wrap: wrap;
+    row-gap: 3px;
+  }
+  .khsx-drawer--buoc .khsx-step-kicker {
+    white-space: nowrap;
+  }
+  .khsx-drawer--buoc .khsx-drawer__head-meta:has(> :nth-child(4)) .khsx-dot-sep {
+    display: none;
+  }
+
+  /* (d) */
+  .shell__content .khsx-spec__card-head {
+    flex-wrap: wrap;
+  }
+
+  /* (e) */
+  .shell__content .khsx-badge-count {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* (f) */
+  .shell__content .bgsd-canvas__toolbar {
+    left: 14px;
+    overflow-x: auto;
+  }
+  .shell__content .bgsd-canvas__toolbar > * {
+    flex: 0 0 auto;
+  }
+
+  /* (g) */
+  .shell__content .bg2-member__sub,
+  .shell__content .bg2-spec-row__id > div > span {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+
+  /* (h) */
+  .shell__content .bg2-tablewrap td > .khsx-empty {
+    position: sticky;
+    left: 0;
+    max-width: calc(100vw - 56px);
+  }
+
+  /* (i) */
+  .shell__content .tg-muc__proc {
+    min-width: 44px;
+  }
+}
+
+/* ===== §63. SẢN XUẤT › XẾP LỊCH CÔNG ĐOẠN — "MỘT BÀN LÀM VIỆC" + GANTT =====
+   Đo ở 375×812 (ảnh `t7a-00`, `t7g-thugon`, `t7k-drawer-che-foot`). Màn này đã có sẵn một lớp
+   thích ứng riêng ở `xep-lich-2.css:3397` (@media 820px) xoay lưới 3 cột thành 2 HÀNG chồng nhau.
+   Lớp đó đúng hướng nhưng ba con số trong nó không sống nổi ở 375px:
+
+   (a) NỘI DUNG BỊ CẮT — HÀNG CHỜ chỉ còn 58px.
+       `xep-lich-2.css:3431` khai `grid-template-rows: minmax(180px, 40vh) minmax(360px, 1fr)`.
+       Khung `.xl2-grid` ở 375×812 chỉ cao 344px, mà tổng hai mức TỐI THIỂU đã là 540px ⇒ cả hai
+       hàng tụt về đúng mức tối thiểu: hàng chờ được 180px. Đầu thẻ (44px) + dải tab (44px) + viền
+       ăn hết 122px, `.xl2-queue__body` còn **58px** trong khi ruột nó cao 1.446px, mà MỘT thẻ việc
+       đã cao 188px. Ảnh `t7a-00`: dưới nhãn "ĐỦ VẬT TƯ · XẾP ĐƯỢC" chỉ thấy một lát cắt trắng của
+       thẻ đầu, không đọc được mã lệnh nào. Nâng mức tối thiểu của hàng chờ lên 340px (body ≈ 218px
+       = trọn một thẻ) — `.xl2-grid` vốn đã `overflow-y: auto` nên phần dôi ra cuộn được, không tràn.
+
+   (b) KHUÔN 5 (dải chia đều + chữ xoay) — nút "Thu gọn hàng chờ" phản tác dụng.
+       Bấm nút đó (title: "Thu gọn hàng chờ để mở rộng Gantt") trên máy bàn làm CỘT trái hẹp lại.
+       Ở màn hẹp lưới đã xoay thành HÀNG, mà luật 820px cho `.is-queue-collapsed` cùng một
+       `grid-template-rows` như lúc mở ⇒ đo được: hàng chờ vẫn 180px, `.xl2-gantt__scroll` vẫn
+       360×345 — Gantt KHÔNG rộng thêm một pixel nào. Đổi lại 180px đó thành `.xl2-queue__minirail`
+       360×179 với chữ "HÀNG CHỜ" dựng đứng (`writing-mode: vertical-rl` + `rotate(180deg)`,
+       `xep-lich-2.css:541`) — ảnh `t7g-thugon`. Chữa: hàng thu gọn còn 56px và mini-rail nằm NGANG.
+       KHÔNG đụng chế độ "Toàn màn hình Gantt" (nó cũng mang class `is-queue-collapsed` nhưng cần
+       hàng chờ = 0px), nên loại bằng `:not(.is-focus)`.
+
+   (c) NỘI DUNG BỊ CẮT — nút "Phát hành" KHÔNG BAO GIỜ bấm được trên điện thoại.
+       `.xl2-panel` (`xep-lich-2.css:3021`) ở ≤1180px là ngăn kéo `position: fixed; top/bottom: 0`,
+       z-41, và `.xl2-scrim` `inset: 0` z-40. Dải chân `.xl2-foot` nằm trong luồng thường, z-auto.
+       Chọn một lệnh ⇒ ngăn kéo bật ra ⇒ phủ kín cả dải chân. Đo thật (`V_t7k.txt`):
+       nút "Phát hành" tâm (308,778), `elementFromPoint` trả `P.xl2-note` — tức một đoạn văn BÊN
+       TRONG ngăn kéo, không phải cái nút. Không có lối thoát: đóng ngăn kéo thì `closePanel` xoá
+       luôn `selEntity` nên dải chân quay về câu nhắc, còn mọi nút trên thanh lệnh đều bị scrim
+       chặn (Playwright báo "…intercepts pointer events"). Chữa: chừa 96px dưới đáy cho ngăn kéo
+       VÀ cho màn mờ — đúng bằng chiều cao dải chân lúc có lệnh đang chọn (đo được 95px), nên hàng
+       nút quyết định luôn lộ ra và bấm được.
+
+   (d) Đệm cho việc rút cột nhãn Gantt (sửa ở `Xl2Gantt.tsx`, xem báo cáo Task 7 mục 3).
+       Cột nhãn 270px trên khung 360px chỉ chừa 90px cho trục thời gian dài 5.512px. Không chữa
+       được bằng CSS vì hằng `LABEL_W` bị nướng vào `style={{ left: LABEL_W + x }}` của thước và
+       ruy-băng ca. Sau khi rút còn 140px thì nhãn cụm ("TỔ · 3 tổ · 4 việc") và ô "CA LÀM VIỆC"
+       có thể dài hơn cột — mà `responsive-chu.css` còn nâng chúng lên 12px !important. Hai ô này
+       KHÔNG khai `overflow` nên chữ sẽ thò sang trục thời gian (chồng chữ). Khoá lại ở đây.
+
+   (e) KHUÔN 1 — đầu hộp "Xác nhận xếp vào lịch" rơi dọc một chữ mỗi dòng (chi tiết ở ngay luật (e)
+       bên dưới): hàng `space-between` không xuống dòng + ô phải `flex: none` ⇒ ô trái còn 43px.
+
+   Đã grep `xl2-grid · xl2-queue__minirail · xl2-queue__railtext · xl2-panel · xl2-scrim ·
+   xl2-cluster__head · xl2-cluster__count · xl2-carib__spacer · xl2-dlg-context*`: KHÔNG module nào
+   khác dùng, chỉ có `responsive-chu.css` (sàn cỡ chữ) chạm tới bốn lớp và chỉ đặt `font-size` —
+   không đụng luật ở đây.
+   ========================================================================== */
+@media screen and (max-width: 768px) {
+  /* (a) Hàng chờ phải đủ chỗ cho TRỌN một thẻ việc, không phải một lát 58px.
+     `.shell__content .xl2-grid:not(.is-queue-collapsed)` = 3 lớp, thắng `.xl2-grid` (1 lớp) và
+     `.xl2-grid.is-panel` (2 lớp) của xep-lich-2.css:3428-3436. */
+  .shell__content .xl2-grid:not(.is-queue-collapsed) {
+    grid-template-rows: minmax(340px, 40vh) minmax(360px, 1fr);
+  }
+
+  /* (b) Thu gọn hàng chờ = trả chỗ cho Gantt, và mini-rail nằm ngang.
+     `:not(.is-focus)` để chế độ toàn màn hình vẫn giữ hàng chờ = 0px.
+     4 lớp, thắng `.xl2-grid.is-queue-collapsed.is-panel` (3 lớp). */
+  .shell__content .xl2-grid.is-queue-collapsed:not(.is-focus) {
+    grid-template-rows: 56px minmax(360px, 1fr);
+  }
+  .shell__content .xl2-queue__minirail {
+    flex-direction: row;
+    justify-content: center;
+    padding: 8px 12px;
+    gap: 10px;
+  }
+  .shell__content .xl2-queue__railtext {
+    writing-mode: horizontal-tb;
+    transform: none;
+    margin-top: 0;
+  }
+
+  /* (c) Chừa đáy màn cho dải chân — nếu không thì "Phát hành" nằm dưới ngăn kéo suốt đời. */
+  .shell__content .xl2-panel,
+  .shell__content .xl2-scrim {
+    bottom: 96px;
+  }
+  /* Bẫy đã đo được ở vòng xác minh đầu (V_t7p.txt: scrim lùi đúng lên 716 nhưng ngăn kéo vẫn chạm
+     đáy 812): `.xl2-panel` khai `height: 100%` (xep-lich-2.css:1686). Bộ ba top + height + bottom
+     là "quá ràng buộc" nên trình duyệt VỨT `bottom` đi. Trả `height` về auto thì `bottom` mới ăn. */
+  .shell__content .xl2-panel {
+    height: auto;
+  }
+
+  /* (e) KHUÔN 1 — đầu hộp "Xác nhận xếp vào lịch" rơi dọc một chữ mỗi dòng.
+     `.xl2-dlg-context` (xep-lich-2.css:2665) là hàng `space-between` KHÔNG khai `flex-wrap`, mà
+     ô phải `.xl2-dlg-context__res` (2704) lại khai `flex: none` — không chịu co. Trong 270px của
+     hộp, ô phải giữ nguyên 186px nên ô trái nuốt trọn phần thiếu: đo được **43×120px**, "LSX26-0006"
+     gãy hai dòng và "Bước 3: Cán màng mờ" rơi thành bốn dòng (ảnh `t7r-hop-xemtruoc-00`).
+     Chữa đúng bài khuôn 1: cho hàng xuống dòng và cho khối chữ một cơ sở đủ rộng
+     (`1 1 190px`, không phải `1 1 100%` — để khi hộp rộng hơn thì hai ô vẫn đứng cạnh nhau). */
+  .shell__content .xl2-dlg-context {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .shell__content .xl2-dlg-context__main {
+    flex: 1 1 190px;
+  }
+  .shell__content .xl2-dlg-context__res {
+    align-items: flex-start;
+  }
+
+  /* (d) Cột nhãn Gantt đã rút còn 140px: cấm hai ô này thò chữ sang trục thời gian. */
+  .shell__content .xl2-cluster__head,
+  .shell__content .xl2-carib__spacer {
+    overflow: hidden;
+  }
+  .shell__content .xl2-cluster__title {
+    white-space: nowrap;
+  }
+  .shell__content .xl2-cluster__count {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* ===== §64. KỸ THUẬT MÁY › SỬA CHỮA MÁY + PHIẾU BẢO TRÌ ====================
+   Đo ở 375×812 trên một trình duyệt tên `t8`. Bốn lỗi tìm được đều là KHUÔN 1: hàng ngang khai
+   `display: flex` + `justify-content: space-between` mà KHÔNG khai `flex-wrap`, các con cũng
+   không khai `flex` — hết chỗ thì trình duyệt bóp cả hai ô rồi bẻ chữ giữa chừng. Ba trong bốn
+   cái còn nặng thêm vì hai lớp đã có sẵn: sàn chữ 12px của `responsive-chu.css` NỚI RỘNG đúng
+   mấy nhãn đó ở ≤768px, và §13 nới nút mũi tên lịch từ 32px lên 44px. Nghĩa là chữ to ra, nút
+   to ra, nhưng hàng vẫn cấm xuống dòng — chỗ duy nhất phần thiếu đi được là vỡ dòng.
+
+   Màn này ở ≤820px tự ĐỔI HÌNH (`useManHep()`, KyThuatMayChung.tsx:16): lịch lưới → danh sách
+   agenda, bảng 7 cột → thẻ. Nên khuôn 2/2b gần như không dính ở đây; riêng bảng Phiếu sửa chữa
+   đã có §11 lo rồi (đo thật: `.rc__tablewrap` sw651/cw334, cuộn ngang được, thanh cuộn nhìn thấy
+   — ảnh `t8a-01`, `t8a-02`, `t8b-bang-ng1`).
+
+   (a) KHUÔN 1 — đầu khối ẢNH: nhãn gãy đôi, viên chip "0 ảnh" vỡ thành "0 / ảnh".
+       `.ktm-anh__head` (ky-thuat-may.css:238) `space-between` không `flex-wrap`; hai con
+       (`.ktm-anh__title` 239, `.ktm-anhchip` 640) đều không khai `flex` nên cùng bị co.
+       Trong 276px của khối, đo trên PBT-0010 (ảnh `t8f-dr-02`, `t8f-dr-03`):
+         · "ẢNH HIỆN TRẠNG TRƯỚC BẢO TRÌ" 205×37 (2 dòng) + chip "0 ảnh" 62×43 — viên chip bo
+           tròn 999px bị bẻ hai dòng, biểu tượng máy ảnh nằm trơ một mình phía trên.
+         · "ẢNH CHỨNG THỰC SAU BẢO TRÌ" 143×37 + chip "Chưa có ảnh (Bắt buộc)" 125×45.
+       Trên SC-0009 (ảnh `t8c-03`, `t8c-04`) đúng khối "Ảnh chứng thực sau sửa": nhãn 135×37,
+       chip 133×45 — trong khi khối "Ảnh hiện trạng hỏng" ngay trên nó (nhãn ngắn hơn) vẫn 1 dòng,
+       cao 25px. Đây chính là CỬA đóng phiếu, không để nó trông như đang hỏng.
+       Chữa: cho hàng xuống dòng, KHOÁ viên chip không co và không vỡ chữ. Ca đẹp vẫn giữ nguyên
+       (nhãn ngắn "ẢNH CHỖ HỎNG · 0 ảnh" ở YC-0002 — ảnh `t8d-yc-01` — hai ô vẫn đứng cạnh nhau).
+       Chỉ chọn chip NẰM TRONG `.ktm-anh__head`: `.ktm-anhchip` còn dùng ở danh sách agenda và
+       thẻ phiếu (LichBaoTri.tsx, PhieuBaoTriPage.tsx) — hai chỗ đó đang tốt, không đụng tới.
+
+   (b) KHUÔN 1 — "HẠNG MỤC BẢO TRÌ" gãy đôi, thanh tiến độ bỏ trống nửa hàng.
+       `.ktm-check-head` (ky-thuat-may.css:700) `space-between` không `flex-wrap`, đứng chung
+       phần tử với `.rc-sec__title` (kho-request.css:2283 — `display: flex; gap: 8px`). Ô phải
+       `.ktm-progress-wrap` ôm một thanh ghim cứng `width: 110px` (PhieuBaoTriPage.tsx:874) nên
+       không co được; ô trái nuốt trọn phần thiếu. Đo trên PBT-0010: đầu khối 305×37, nhãn
+       128×37 (2 dòng), khối tiến độ 159×19 (ảnh `t8f-dr-00`, `t8f-dr-01`).
+       Chữa: cho xuống dòng — thanh tiến độ tụt xuống dòng dưới, nhãn được trọn bề ngang nên về
+       1 dòng. KHÔNG đụng `.rc-sec__title` (lớp đó dùng khắp app).
+
+   (c) KHUÔN 1 — nút "Hôm nay" của lịch bảo trì vỡ thành "Hôm / nay".
+       `.ktm-lich__dieu-huong` (ky-thuat-may.css:359) `display: flex` không `flex-wrap`. Đo trong
+       336px: nút ‹ 44×44 + `.ktm-lich__thang` ghim `min-width: 160px` (360) + nút › 44×44 + ba
+       khe 8px = 328 — chỉ còn 8px cho "Hôm nay" (370, `padding: 5px 14px`, rộng tự nhiên ~78px)
+       nên nó co còn 64px và cao 50px vì gãy hai dòng (ảnh `t8e-01`, `t8e-02`, `t8f-lich-nav`).
+       Hai nút mũi tên vốn 32px, chính §13 nới lên 44px cho vừa ngón tay — lỗi này là hệ quả kép
+       của sàn chạm 44px và `min-width: 160px`, không phải lỗi có sẵn của module.
+       Chữa: khoá "Hôm nay" không co và không vỡ chữ, cho hàng xuống dòng. Đo lại sau khi sửa
+       (`V_t8k.txt`): "Hôm nay" về 83×44 — MỘT dòng, đủ tầm ngón tay — và nằm xuống hàng dưới,
+       hàng trên còn nguyên ‹ 44×44 · "Tháng 8 Năm 2026" 152×25 · › 44×44 (ảnh `t8k-lich-nav`).
+       ĐÃ THỬ ép cả bốn ô về một hàng: bốn ô + ba khe cần 347px trên 336px, thiếu 11px. Muốn vừa
+       phải rút cỡ chữ tháng 16px → 14px, mà "Tháng 12 Năm 2026" (thêm một chữ số) lại ăn hết
+       đúng phần vừa tiết kiệm được ⇒ mép an toàn bằng 0, tháng nào cũng có thể vỡ lại. Bỏ.
+
+   (d) KHUÔN 1 — công tắc khung "Phiếu sửa chữa | Yêu cầu báo hỏng" gãy cả hai nhãn.
+       `.ktm-xem` (ky-thuat-may.css:286) không `flex-wrap`; `.ktm-xem__nut` (292) `padding:
+       6px 14px`, không khai `flex` nên cả hai cùng co. Đo thật (`V_t8h.txt`): thanh chứa
+       `.rc__unified-bar` chừa 306px, hai nút bị ép còn 131 + 168 + khe 2 + đệm 4 = 305 — sát
+       đúng mép, nên cả hai vỡ hai dòng (cao 51px) và viên đếm "1" bị đẩy tách hẳn khỏi chữ.
+       Ảnh: `t8a-00`, `t8b-tabs-ng1`, `t8b-tabs-ng2` (khung Phiếu sửa chữa) và `t8d-00`, `t8d-01`,
+       `t8d-02`, `t8d-bang-ng1`, `t8d-bang-ng3` (khung Yêu cầu báo hỏng).
+       Chữa: khoá hai nút KHÔNG co và KHÔNG vỡ chữ, cho hàng xuống dòng. Đo lại sau khi sửa
+       (`V_t8k.txt`, `V_t8l.txt`): hai nút về đúng bề rộng tự nhiên 140×44 và 180×44, mỗi nhãn
+       MỘT dòng, nằm thành hai hàng chồng nhau (ảnh `t8k-scm-xem`, `t8l-scm-xem`).
+       ĐÃ THỬ ép về một hàng bằng cách rút đệm ngang 14px → 10px: đo lại (`V_t8j.txt`) hai nút vẫn
+       cần 132 + 172 + khe 2 = 306 trên lòng 300px, tức CÒN THIẾU 6px nên vẫn xuống dòng; muốn vừa
+       phải rút đệm tới 6px, mép an toàn mỏng tới mức chỉ cần đổi phông là vỡ lại. Đã GỠ luật đệm
+       đó vì nó không làm được việc nó khai. Cũng KHÔNG cho nút giãn (`flex: 0 0 auto`) vì
+       `.ktm-xem` còn dựng công tắc "Lịch | Bảng" ở Phiếu bảo trì: cặp nhãn ngắn đó đang vừa một
+       hàng (ảnh `t8f-00`; đo lại sau khi sửa vẫn 162×50 — "Lịch" 75×44, "Bảng" 80×44, KHÔNG đổi),
+       cho giãn là màn đang lành cũng đổi hình theo.
+
+   Đã ĐO nhưng KHÔNG phải lỗi — ghi ra để lần sau khỏi rà lại:
+   · Dải "Bước xử lý" (SuaChuaMayPage.tsx:679) nghi khuôn 5. Đo: `flex-wrap: wrap`, khung 305px,
+     ba viên 79/88/94px nằm gọn một hàng, đều cao 44px, `scrollWidth == clientWidth`, không chồng
+     chữ (ảnh `t8c-05`, `t8c-06`). CHỈ ĐO, KHÔNG BẤM — nút này ghi dữ liệu.
+   · Dải ba ô tóm tắt `.ktm-tomtat` ở Phiếu bảo trì: `nhan_sw == nhan_cw` cả ba (117/66/112),
+     xuống dòng 2+1 chứ không bóp chữ (ảnh `t8e-00`).
+   · Khối "Điều kiện xác nhận hoàn thành" + nút xác nhận 48px: lớp ≤820px của chính module đã lo
+     (ky-thuat-may.css:994-1012), đo lại vẫn đúng (ảnh `t8f-dr-05`, `t8f-dr-06`).
+   · Băng "Phiếu đã hủy — lý do: …  ↺ Mở lại (hủy nhầm)" (`.ktm-thongbao`, ky-thuat-may.css:97)
+     CŨNG là hàng flex không `flex-wrap`. Nhưng đo trên PBT-0003: nút giữ nguyên 146×44 (sw144/
+     cw144, không cắt chữ), phần bị co là đoạn VĂN XUÔI bên trái — mà văn xuôi xuống dòng là đúng
+     việc của nó, không phải nhãn hay viên chip bị bẻ (ảnh `t8n-dahuy-00`). Cố ý KHÔNG đụng.
+   · Chân ngăn kéo (Hủy · Lưu thay đổi) và đầu ngăn kéo dính trần bị bộ dò tự động chấm "CHỒNG"
+     (`V_t8c.txt` 4 cặp, `V_t8d.txt` 2 cặp, `V_t8k.txt` 3 cặp): mở ảnh ra là dải chân dính đáy và
+     đầu phiếu dính trần bình thường, nội dung cuộn phía dưới (`t8b-new-00`, `t8b-new-02`,
+     `t8d-yc-02`, `t8f-dr-*`) — báo động giả của phép đo giao hình chữ nhật. */
+@media (max-width: 768px) {
+  /* (a) Đầu khối ảnh: cho xuống dòng, viên chip giữ nguyên hình. */
+  .shell__content .ktm-anh__head {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .shell__content .ktm-anh__head .ktm-anhchip {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* (b) Đầu khối checklist: thanh tiến độ tụt xuống dòng dưới thay vì bóp nhãn. */
+  .shell__content .ktm-check-head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  /* (c) Điều hướng tháng: "Hôm nay" xuống hàng dưới NGUYÊN VẸN thay vì co lại rồi gãy chữ. */
+  .shell__content .ktm-lich__dieu-huong {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .shell__content .ktm-lich__homnay {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* (d) Công tắc khung: không co, không vỡ chữ, hết chỗ thì xuống dòng. */
+  .shell__content .ktm-xem {
+    flex-wrap: wrap;
+  }
+  .shell__content .ktm-xem__nut {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}
+
+/* ---- 65. SẢN XUẤT › THỰC HIỆN SX: SÁU BÀN TỔ ------------------------------ */
+/* Chế bản · In offset · Cán màng · Bế & Xén · Đóng gói · KCS đều là MỘT màn
+   `ThucHienSxPage`, chỉ khác `teamId`, nên năm luật dưới đây áp cho cả sáu.
+   §35/§36 đã lo phần xương (ba cột xếp dọc, không gập) — phần này lo chỗ còn đau
+   khi CẦM ĐIỆN THOẠI THẬT, soi bằng tài khoản tổ trưởng `tt_in` chứ không phải
+   admin: admin thiếu ô quyền `san_xuat:assign_work` (`ThucHienSxPage.tsx:118`)
+   nên quá nửa nút của thợ không hề render, soi bằng admin là soi thiếu. */
+
+/* 65.1 — Mũi tên tuần chỉ SAI HƯỚNG. Không phải lỗi bố cục, là lỗi ĐỌC HIỂU, và
+   với người thợ không đọc chữ thì đây là chỗ duy nhất báo "lùi/tiến".
+   Đo bằng `getComputedStyle(svg).transform` chứ không tin mắt:
+     "Tuần trước" → `matrix(-1, 0, 0, -1, 0, 0)` = xoay 180°
+     "Tuần sau"   → `none`
+   cả hai cùng vẽ `path d="m6 9 6 6 6-6"` (`Icons.tsx:228`) = chữ V chỉ XUỐNG. Tức
+   trên màn hình là một mũi tên LÊN và một mũi tên XUỐNG nằm hai bên khoảng NGÀY,
+   trong khi nghĩa phải là TRÁI/PHẢI. Xuống→trái là +90°, xuống→phải là −90°.
+   Đặc hiệu (0,4,1) nên thắng `.thsx-rot180` (0,1,0), không cần `!important`.
+   Màn RỘNG sai y hệt nhưng ngoài phạm vi đợt này — đã chuyển nợ Task 20. */
+@media (max-width: 768px) {
+  .shell__content .thsx-top__grp .thsx-iconbtn[aria-label="Tuần trước"] svg {
+    transform: rotate(90deg);
+  }
+  .shell__content .thsx-top__grp .thsx-iconbtn[aria-label="Tuần sau"] svg {
+    transform: rotate(-90deg);
+  }
+}
+
+/* 65.2 — Khuôn 4: ba ô nuốt chữ, mà điện thoại KHÔNG có hover để đọc `title`.
+   Đo thật ở 375px:
+     `td.thsx-ds__vt` (Định mức vật tư, Tổ Chế bản)  sw 319 / cw 260 → mất 59px
+     `span.thsx-phien__ly` (lý do tạm dừng/sự cố)    sw 304 / cw 280 → mất 24px
+     `span.thsx-phien__ly` (dòng khác cùng màn)      sw 325 / cw 280 → mất 45px
+   Ảnh `t9h-02-cua4a.png` đọc được đúng chỗ bị chặt: “Máy IN-02 gặp sự cố kỹ
+   thuật, chuyển sang l…” — thợ ca sau cần biết chuyển sang máy NÀO.
+   Cho XUỐNG DÒNG thay vì cắt. GIỮ `max-width` cũ để bảng không phình: bảng đang
+   787-811px trong khung cuộn 360px, nới ra là bắt lăn ngang nhiều hơn.
+   BẪY đã dính một lượt rồi mới chữa: bản đầu viết `overflow-wrap: anywhere`, chụp
+   lại thì cột “Nguồn” và “Máy” vỡ thành MỖI DÒNG MỘT CHỮ (“Thẻ / nhân / viên /
+   54×86 / mm”) — vì `anywhere` được TÍNH VÀO min-content width nên trình duyệt co
+   cột xuống mức bé nhất có thể. `break-word` xuống dòng y hệt nhưng KHÔNG đổi
+   min-content, cột giữ bề ngang theo từ dài nhất. Chỉ khác một từ, khác hẳn kết quả.
+   `.thsx-ds__srcten` khai y hệt `.thsx-ds__vt` (`thuc-hien-sx.css:715-722`) nhưng
+   CỐ Ý KHÔNG vá: đo cả ba màn đều `scrollWidth == clientWidth`, nó chưa hề cắt chữ
+   lần nào. Thử vá kèm thì cột “Nguồn” tụt từ 153px xuống 61px và “Thẻ nhân viên
+   54×86mm” vỡ ba dòng — sửa một ô đang lành thành xấu hơn. Chờ có ca cắt thật. */
+@media (max-width: 768px) {
+  .shell__content .thsx-ds__vt,
+  .shell__content .thsx-phien__ly {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: break-word;
+  }
+}
+
+/* 65.3 — Cột trái và bảng giữa LẶP NGUYÊN cùng một danh sách.
+   §35 xếp CHỒNG ba cột ở ≤900px. Trên máy bàn hai cột nằm cạnh nhau nên đọc như
+   “danh sách + chi tiết”; xếp chồng thì thành “danh sách + đúng danh sách đó lần
+   nữa”. Ảnh `t9h-01-ds.png`: khối “VIỆC CỦA TỔ ▸ NGOÀI CỬA SỔ 2” (2 thẻ) nằm
+   ngay trên bảng “NGOÀI CỬA SỔ 2” (đúng 2 dòng đó).
+   `.thsx-grid` không mang class nào cho biết view — nhưng nút seg thì có
+   `aria-pressed` (`ThucHienSxPage.tsx:604-611`), nên `:has()` đọc được view mà
+   không phải đụng `.tsx`. Cùng kỹ thuật §13 đã dùng.
+   ĐÃ KIỂM BẰNG CHUỘT THẬT TRƯỚC KHI ẨN: bấm `page.mouse.down/up` tại (140,530)
+   lên một `.thsx-ds__scroll .thsx-ds__row` → `.thsx-panel--open` = true,
+   `.thsx-ds__row--sel` = true, tiêu đề drawer “0029 In offset” (ảnh
+   `t9h-02-cua4a.png`). Bảng giữa CHỌN ĐƯỢC việc, nên ẩn cột trái không khoá
+   luồng nào. Nếu về sau bảng mất `onClick` thì phải gỡ luật này ngay.
+   Rider: đổi luôn `grid-template-rows`. §35 đang để `auto auto auto` và §36 kê
+   `.thsx-list { min-height: 260px }`; ẩn cột trái mà không đổi thì cột giữa chỉ
+   cao theo nội dung, chừa khoảng trắng dưới. `minmax(0, 1fr)` cho nó ăn trọn
+   chiều cao. (Ô thứ ba `.thsx-panel` ở ≤1180px là `position: fixed` nên không
+   chiếm track — đo được `grid-template-rows` thật là `260px 300px 0px`.) */
+@media (max-width: 900px) {
+  .thsx:has(.thsx-seg__btn[aria-pressed="true"][title="Xem danh sách bản ghi"]) .thsx-list {
+    display: none;
+  }
+  .thsx:has(.thsx-seg__btn[aria-pressed="true"][title="Xem danh sách bản ghi"]) .thsx-grid,
+  .thsx:has(.thsx-seg__btn[aria-pressed="true"][title="Xem danh sách bản ghi"]) .thsx-grid.is-panel {
+    grid-template-rows: minmax(0, 1fr);
+  }
+}
+
+/* 65.4 — Biểu tượng trên NÚT CHÍNH của thợ chỉ 13-14px.
+   Đo trong drawer bằng tài khoản `tt_in`: bề ngoài nút đã đủ 44 (ăn sàn §9)
+   nhưng hình bên trong thì bé:
+     Bắt đầu 103×44 icon 14 · Đổi máy 104×44 icon 14 · Báo sự cố 114×44 icon 14
+     Ghi mẻ 95×44 icon 13 · Đề xuất giao 133×44 icon 13 · Đề xuất hỗ trợ 142×44 icon 13
+     Đề xuất (nút lưu trong biểu mẫu) 101×44 icon 13
+   Đây là bốn nhóm nút mà người KHÔNG ĐỌC ĐƯỢC CHỮ phải nhận ra bằng hình: phiên
+   chạy (`.thsx-run`), hàng lưu của biểu mẫu (`.thsx-x-act`), nút mở biểu mẫu ở
+   đầu khối (`.thsx-psec__h` và `.thsx-x-pb--empty` của khối Kho thành phẩm), nút
+   phản hồi trong hộp thư KCS (`.thsx-hopthu`).
+   CHỈ nới ở đây. Biểu tượng thanh công cụ (`.thsx-iconbtn` 16px), nút chuyển kiểu
+   xem (`.thsx-seg__btn` 13px) và chip đếm (`.thsx-digest__chip` 12px) GIỮ NGUYÊN
+   — nới đại trà là thanh trên vỡ dòng hàng loạt. Nút rộng nhất là “Đề xuất hỗ
+   trợ” 142px, cộng 11px vẫn còn xa bề ngang thân drawer 337px. */
+@media (max-width: 768px) {
+  .shell__content .thsx-run .btn > svg,
+  .shell__content .thsx-x-act .btn > svg,
+  .shell__content .thsx-psec__h .btn > svg,
+  .shell__content .thsx-x-pb--empty .btn > svg,
+  .shell__content .thsx-hopthu .btn > svg {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+/* 65.5 — Ô nhập của thợ cao 34-36px.
+   §9 đặt sàn 44px cho `button`/`select`/`[role=button]` nhưng KHÔNG cho `input`,
+   nên mọi ô gõ ở màn này lọt lưới. Đo được:
+     `.thsx-search__in` 300×34 (`thuc-hien-sx.css:146-155` chốt cứng `height:34px`)
+     `.thsx-x-in` 280×34 và 280×36 (`:1114-1118` — cao theo padding 6px + cỡ chữ)
+   Đây là ô thợ gõ mã lệnh để dò việc, và ô gõ số tổng/tốt/hỏng khi ghi mẻ sản
+   lượng — hai thao tác chính của cả ca. `min-height` cho `.thsx-x-in` (không phải
+   `height`) để ô ngày-giờ 36px không bị ép co lại. Biểu tượng kính lúp và nút ×
+   trong ô tìm là `position:absolute` không có `top`, nên vẫn tự căn giữa theo
+   `align-items:center` của `.thsx-search` khi ô cao lên. */
+@media (max-width: 768px) {
+  .shell__content .thsx-search__in {
+    height: 44px;
+  }
+  .shell__content .thsx-x-in {
+    min-height: 44px;
   }
 }

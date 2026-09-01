@@ -20,13 +20,21 @@ class AuditLogRepository:
         action: str,
         target: str = "",
         detail: str = "",
+        commit: bool = True,
     ) -> AuditLog:
+        """`commit=False` cho người gọi đang gom NHIỀU thao tác vào MỘT giao dịch (vd báo sự cố:
+        ghi yêu cầu sửa chữa + tạm dừng công việc + đóng phiên máy phải cùng sống hoặc cùng chết).
+        Audit tự chốt ở giữa là phá đúng tính nguyên tử đó — và để lại một dòng nhật ký nói về
+        việc chưa hề xảy ra khi khúc sau gãy. Vẫn `flush()` để bản ghi có khoá chính dùng ngay."""
         entry = AuditLog(
             actor_user_id=actor_user_id, action=action, target=target, detail=detail
         )
         self.db.add(entry)
-        self.db.commit()
-        self.db.refresh(entry)
+        if commit:
+            self.db.commit()
+            self.db.refresh(entry)
+        else:
+            self.db.flush()
         return entry
 
     def create_collapsing(

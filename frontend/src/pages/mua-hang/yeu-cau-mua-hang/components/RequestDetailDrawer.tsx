@@ -146,12 +146,12 @@ export function RequestDetailDrawer({
                                 <strong style={{ fontFamily: "var(--ff-sans)" }}>{line.item_name}</strong>
                               </div>
                               {line.note && (
-                                <div style={{ fontSize: "11px", color: "var(--ash)", marginTop: "2px" }}>
+                                <div style={{ fontSize: "12px", color: "var(--ash)", marginTop: "2px" }}>
                                   {line.note}
                                 </div>
                               )}
                               {line.cancelled_at && (
-                                <div className="md-page__muted" style={{ fontSize: "11px" }}>
+                                <div className="md-page__muted" style={{ fontSize: "12px" }}>
                                   Đã bỏ{line.cancelled_by_name ? ` bởi ${line.cancelled_by_name}` : ""} · {fmtDate(line.cancelled_at)}
                                   {line.cancel_reason ? ` — ${line.cancel_reason}` : ""}
                                 </div>
@@ -170,14 +170,14 @@ export function RequestDetailDrawer({
                                     {line.fulfilment.supplier_name}
                                   </span>
                                   {line.fulfilment?.purchase_code && (
-                                    <span className="purchase__spec-tag purchase__spec-tag--pmh" style={{ fontSize: "10px", width: "fit-content" }}>
+                                    <span className="purchase__spec-tag purchase__spec-tag--pmh" style={{ fontSize: "12px", width: "fit-content" }}>
                                       {line.fulfilment.purchase_code}
                                       {line.fulfilment.received_quantity ? ` · nhận ${line.fulfilment.received_quantity.toLocaleString("vi-VN")} ${tenDonVi(line.unit) ?? line.unit}` : ""}
                                     </span>
                                   )}
                                 </div>
                               ) : line.fulfilment?.purchase_code ? (
-                                <span className="purchase__spec-tag purchase__spec-tag--pmh" style={{ fontSize: "10px" }}>
+                                <span className="purchase__spec-tag purchase__spec-tag--pmh" style={{ fontSize: "12px" }}>
                                   {line.fulfilment.purchase_code}
                                 </span>
                               ) : (

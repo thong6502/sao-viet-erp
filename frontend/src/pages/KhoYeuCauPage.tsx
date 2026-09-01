@@ -981,7 +981,7 @@ export function TransferDrawer({
                             <tr key={l.id}>
                               <td>
                                 <div className="kho-lines__name" style={{ fontWeight: 600 }}>{l.hang_ten ?? "—"}</div>
-                                <div className="kho-lines__code" style={{ fontSize: 11, color: "var(--ash-2)" }}>{l.hang_ma ?? ""}</div>
+                                <div className="kho-lines__code" style={{ fontSize: 12, color: "var(--ash-2)" }}>{l.hang_ma ?? ""}</div>
                               </td>
                               <td className="kho-num">
                                 <strong>{fmtQty(l.so_luong)}</strong> {tenDonVi(l.dvt) ?? l.dvt ?? ""}
@@ -1389,11 +1389,11 @@ export function InboxRequestDrawer({
                                 </div>
                                 {l.ton_kha_dung != null && (
                                   isShort ? (
-                                    <span className="kho-priority-badge kho-priority-badge--critical" style={{ fontSize: 10, marginTop: 2 }}>
+                                    <span className="kho-priority-badge kho-priority-badge--critical" style={{ fontSize: 12, marginTop: 2 }}>
                                       Thiếu {fmtQty(shortage)} {dvtGoc}
                                     </span>
                                   ) : (
-                                    <span className="kho-line-badge kho-line-badge--muted" style={{ fontSize: 10, marginTop: 2 }}>
+                                    <span className="kho-line-badge kho-line-badge--muted" style={{ fontSize: 12, marginTop: 2 }}>
                                       Đủ tồn
                                     </span>
                                   )
@@ -2358,7 +2358,7 @@ function AllocRow({
           <div className="kho-lines__name">
             {/* Caret: XUẤT bấm dòng để xổ/gập bảng lô đã tự lấy theo FIFO. */}
             {!isNhap && !settled && (
-              <span aria-hidden style={{ color: "var(--ash)", marginRight: 6, fontSize: 11 }}>
+              <span aria-hidden style={{ color: "var(--ash)", marginRight: 6, fontSize: 12 }}>
                 {open ? "▾" : "▸"}
               </span>
             )}
@@ -2962,7 +2962,7 @@ export function VoucherDrawer({
                           <tr key={l.id}>
                             <td style={{ minWidth: 300 }}>
                               <div className="kho-lines__name" style={{ fontWeight: "var(--fw-bold)", color: "var(--ink)" }}>{l.hang_ten ?? "—"}</div>
-                              <div className="kho-lines__code" style={{ fontFamily: "var(--ff-num)", fontSize: 11, color: "var(--ash)" }}>{l.hang_ma ?? ""}</div>
+                              <div className="kho-lines__code" style={{ fontFamily: "var(--ff-num)", fontSize: 12, color: "var(--ash)" }}>{l.hang_ma ?? ""}</div>
                             </td>
                             <td className="kho-lines__code" style={{ textAlign: "center" }}>{tenDonVi(l.dvt) ?? l.dvt ?? "—"}</td>
                             <td className="kho-num">

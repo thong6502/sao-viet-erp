@@ -140,7 +140,8 @@
   color: #dc2626;
 }
 .bg2-tab-btn.is-active .bg2-tab-badge--alert {
-  background: #ef4444;
+  /* trắng trên red-500 chỉ 3,76:1; xuống red-600 được 4,83:1, vẫn là đỏ báo động. */
+  background: #dc2626;
   color: #ffffff;
 }
 
@@ -537,7 +538,7 @@
 .bg2-dock__clear {
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--ash-2);
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;

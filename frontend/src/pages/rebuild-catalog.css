@@ -519,7 +519,7 @@
 .dvqd__eq-sign {
   font-weight: 700;
   font-size: 13px;
-  color: #64748b;
+  color: var(--ash-2);
   padding: 0 2px;
   user-select: none;
 }
@@ -587,7 +587,7 @@
 
 .dvqd__btn:hover:not(:disabled) {
   background: #f8fafc;
-  border-color: #94a3b8;
+  border-color: var(--ash-2);
   color: #0f172a;
 }
 
@@ -596,7 +596,7 @@
 .dvqd__btn:disabled {
   background: #e2e8f0 !important;
   border-color: #cbd5e1 !important;
-  color: #94a3b8 !important;
+  color: var(--ash-2) !important;
   opacity: 1 !important;
   filter: none !important;
   box-shadow: none !important;
@@ -743,7 +743,7 @@
 
 .dvqd__nguon {
   font-size: 11.5px;
-  color: #64748b;
+  color: var(--ash-2);
   font-style: italic;
 }
 
@@ -796,7 +796,7 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: #64748b;
+  color: var(--ash-2);
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -853,7 +853,7 @@
 
 .dvqd__equation-hint {
   font-size: 12px;
-  color: #64748b;
+  color: var(--ash-2);
   font-weight: 500;
 }
 
@@ -882,7 +882,7 @@
   font-size: 12px;
   font-weight: 600;
   line-height: 1.5;
-  color: #64748b;
+  color: var(--ash-2);
   white-space: nowrap;
 }
 
@@ -2422,7 +2422,7 @@ select.rc-input:focus {
 .rc-formula__op-label {
   font-size: 10px;
   font-weight: 700;
-  color: #64748b;
+  color: var(--ash-2);
   margin-right: 4px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -2630,7 +2630,7 @@ select.rc-input:focus {
 }
 .rc-formula__chip-stage-empty {
   font-size: 11.5px;
-  color: #64748b;
+  color: var(--ash-2);
   font-style: italic;
 }
 .rc-formula__chip-space {
@@ -2762,7 +2762,7 @@ select.rc-input:focus {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #94a3b8;
+  color: var(--ash-2);
   padding: 4px 8px 6px;
   border-bottom: 1px solid #1e293b;
   margin-bottom: 4px;
@@ -3434,7 +3434,7 @@ select.rc-input:focus {
 .rc-nk__at {
   margin-left: auto;
   font-size: 11px;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   white-space: nowrap;
 }
 
@@ -3548,13 +3548,13 @@ select.rc-input:focus {
 }
 .rc-goi__dem {
   font-size: 10.5px; font-weight: 600; letter-spacing: 0;
-  text-transform: none; color: var(--ash-2, #64748b);
+  text-transform: none; color: var(--ash-2, var(--ash-2));
   background: var(--rule-hair, #f1f5f9);
   border-radius: 999px; padding: 1px 8px;
 }
 .rc-goi__ol { list-style: decimal; margin: 0; padding-left: 24px; display: flex; flex-direction: column; gap: 8px; }
 .rc-goi__ol li { display: flex; align-items: center; gap: 6px; }
-.rc-goi__ol li::marker { color: var(--ash-2, #64748b); font-size: 11.5px; }
+.rc-goi__ol li::marker { color: var(--ash-2, var(--ash-2)); font-size: 11.5px; }
 .rc-goi__ol .rc-input { flex: 1; padding: 6px 8px; font-size: 13px; }
 
 .rc-goi__empty {
@@ -3580,10 +3580,10 @@ select.rc-input:focus {
 .rc-tt--khoa     { color: var(--ash, #475569); background: var(--rule-hair, #f1f5f9); }
 .rc-tt--dang_chay { color: var(--ink, #0f172a); }
 .rc-tt--dang_chay .rc-tt__dot { background: var(--moss, #2f5d3a); }
-.rc-tt--ranh { color: var(--ash-2, #64748b); }
+.rc-tt--ranh { color: var(--ash-2, var(--ash-2)); }
 .rc-tt--ranh .rc-tt__dot { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
 /* Chưa nạp xong / nạp hỏng: nói "chưa biết", KHÔNG mượn tạm nhãn "Rảnh". */
-.rc-tt--chua-biet { color: var(--ash-2, #64748b); opacity: .6; }
+.rc-tt--chua-biet { color: var(--ash-2, var(--ash-2)); opacity: .6; }
 
 /* ══ GIÀNH LẠI 4 SELECTOR BỊ kho-request.css CƯỚP ═══════════════════════════════════
    CSS ở repo này là GLOBAL và `AppShell` import TĨNH mọi trang, nên thứ tự trong bundle là cố

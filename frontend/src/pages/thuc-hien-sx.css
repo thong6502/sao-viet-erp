@@ -1228,10 +1228,12 @@
 .thsx-x-bg__q { font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--ink); }
 
 /* --- vật tư --- */
-.thsx-x-vt { display: flex; align-items: center; gap: 8px; border: 1px solid var(--rule-soft); border-radius: var(--r-3); background: var(--canvas); padding: var(--sp-2) var(--sp-3); }
+.thsx-x-vt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; border: 1px solid var(--rule-soft); border-radius: var(--r-3); background: var(--canvas); padding: var(--sp-2) var(--sp-3); }
 .thsx-x-vt__ic { color: var(--ash-2); flex: none; }
 .thsx-x-vt__ic.is-ok { color: var(--moss-deep); }
 .thsx-x-vt__ma { font-size: var(--fs-sm); color: var(--ink); }
+/* Kho ĐÃ NHẬN lot (§14.1) — dòng lot trong drawer phải nói được hàng nằm kho nào. */
+.thsx-x-vt__kho { font-size: var(--fs-2xs); color: var(--ash); }
 .thsx-x-vt__at { font-size: var(--fs-2xs); color: var(--moss-deep); }
 
 /* --- hỗ trợ chéo --- */
@@ -1369,8 +1371,10 @@
 .thsx-hopthu__main .thsx-num { margin-left: auto; font-size: var(--fs-xs); color: var(--ash); }
 .thsx-hopthu__ten { font-weight: var(--fw-medium); }
 .thsx-hopthu__mo { margin: 4px 0 0; font-size: var(--fs-2xs); color: var(--ash); }
-.thsx-hopthu__xn { align-items: center; }
-.thsx-hopthu__xn .thsx-x-in { width: 90px; }
+/* Hàng xác nhận nhập: [kho đích] [số nhận] [nút]. XUỐNG DÒNG ở màn hẹp thay vì bóp chữ trong ô. */
+.thsx-hopthu__xn { align-items: center; flex-wrap: wrap; }
+.thsx-hopthu__xn .thsx-x-sel { flex: 1 1 150px; width: auto; min-width: 0; }
+.thsx-hopthu__xn .thsx-x-in { width: 90px; flex: 0 0 90px; }
 
 /* pill trạng thái công việc (THSX_TT_META) — LUÔN icon + chữ */
 .thsx-tt {

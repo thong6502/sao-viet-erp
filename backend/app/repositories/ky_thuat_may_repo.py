@@ -221,18 +221,36 @@ class KyThuatMayRepository:
             .where(YeuCauSuaChua.trang_thai == TT_YC_CHO_TIEP_NHAN)
         ).scalar_one())
 
-    def create_yeu_cau(self, data: dict, *, ma: str) -> YeuCauSuaChua:
+    def create_yeu_cau(self, data: dict, *, ma: str, cong_viec_id: int | None = None,
+                       lsx_id: int | None = None, commit: bool = True) -> YeuCauSuaChua:
+        """`commit=False` cho người gọi gom nhiều việc vào MỘT giao dịch (báo sự cố tại tổ: ghi
+        yêu cầu + tạm dừng công việc + đóng phiên máy). `flush()` đã cấp `id`, còn `ma` do người
+        gọi truyền vào nên dùng được ngay — không cần `refresh`.
+
+        NEO SẢN XUẤT đi bằng THAM SỐ RIÊNG, cố ý không đọc từ `data` (review vòng 1, Minor 1):
+        `data` là dict đi thẳng từ thân request, nên MỌI khoá đọc từ nó đều là cửa client — kể cả
+        khoá nằm ngoài `ASSIGNABLE_YEU_CAU`, vì vòng gán thẳng bên dưới cũng đọc chính `data` ấy.
+        Ba khoá người-báo an toàn là nhờ `tao_yeu_cau` GHI ĐÈ chúng trước khi gọi xuống đây, không
+        phải nhờ ASSIGNABLE. Neo thì không có ai ghi đè, nên phải cắt hẳn đường: nhận qua tham số
+        thì client có nhét `cong_viec_id` vào thân request cũng không tới được bản ghi — nếu không
+        thì bất kỳ ai tạo được yêu cầu đều treo được sự cố giả lên lệnh đang chạy của tổ khác.
+        """
         yc = YeuCauSuaChua(ma=ma, may_id=int(data["may_id"]),
                            bo_phan_hong=(data.get("bo_phan_hong") or "").strip())
         self._apply(yc, data, ASSIGNABLE_YEU_CAU)
-        # Người báo + bộ phận: service đã chốt từ tài khoản đăng nhập, gán thẳng (không qua
-        # ASSIGNABLE để client không chen vào được).
+        # Người báo + bộ phận: `tao_yeu_cau` đã ghi đè ba khoá này từ tài khoản đăng nhập trước khi
+        # gọi xuống, nên giá trị ở đây luôn là của SERVER dù client có gửi gì.
         for k in ("nguoi_bao_id", "nguoi_bao_ten", "bo_phan"):
             if k in data:
                 setattr(yc, k, data[k])
+        yc.cong_viec_id = cong_viec_id
+        yc.lsx_id = lsx_id
         self.db.add(yc)
-        self.db.commit()
-        self.db.refresh(yc)
+        if commit:
+            self.db.commit()
+            self.db.refresh(yc)
+        else:
+            self.db.flush()
         return yc
 
     def update_yeu_cau(self, yc: YeuCauSuaChua, data: dict) -> YeuCauSuaChua:
