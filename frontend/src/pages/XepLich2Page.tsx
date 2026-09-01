@@ -27,7 +27,10 @@ import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon, type IconName } from "../components/Icons";
-import { BangLoi, EmptyState, ngay, ngayGio, num, thoiLuong } from "./keHoachSxShared";
+import { GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapSai } from "../lib/gioNhap";
+import {
+  BangLoi, EmptyState, ngay, ngayGio, num, thoiLuong,
+} from "./keHoachSxShared";
 import {
   Xl2Gantt, type Xl2Cluster, type Xl2ClusterKey, type Xl2Lane, type Xl2Nhom, type Xl2Patch,
 } from "./Xl2Gantt";
@@ -88,6 +91,26 @@ const MOI_TRANG = 50; // dòng / trang hàng chờ (cắt trang Ở MÁY CHỦ)
 const HIEN_GOI_Y_KHE = false;
 // Khối "Gợi ý máy" (thẻ máy + "N máy không vào được danh sách") — cũng ẩn theo yêu cầu 25/08/2026.
 const HIEN_GOI_Y_MAY = false;
+
+// Dung sai khi đối chiếu tổng các phần với SL của bước — bám đúng con số backend (`phan_doan._EPS`),
+// hai bên lệch nhau thì nút Xác nhận sáng mà BE vẫn trả 400.
+const TACH_EPS = 0.001;
+
+// TỔNG đem đi chia của một dòng. Dòng CHƯA tách gần như luôn có `so_luong` NULL (không nơi nào ghi
+// cột này lúc sinh dòng) nên phải rơi về SL vào của bước — cùng con số `phan_doan.tach` tự đọc lại.
+function tachTongCua(d: Xl2Dong): number {
+  return d.so_luong ?? d.so_luong_buoc ?? 0;
+}
+
+// Người xưởng gõ "6.000" / "6000" / "6 000" đều là sáu nghìn — nhưng bỏ dấu chấm VÔ ĐIỀU KIỆN thì
+// "6.5" (kg, đơn vị lẻ vẫn có thật vì cột là NUMERIC 3 số lẻ) hoá thành 65. Chỉ coi dấu chấm là
+// phân cách NGHÌN khi nó chia đúng thành nhóm 3 chữ số; còn lại nó là dấu thập phân, như dấu phẩy.
+function soTach(s: string): number {
+  const t = s.replace(/\s/g, "");
+  const bo = /^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t) ? t.replace(/\./g, "") : t;
+  const n = Number(bo.replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+}
 
 const mucBarCls = (m: Xl2Muc): "dat" | "ph" | "warn" =>
   m === "chan_dat_lich" ? "dat" : m === "chan_phat_hanh" ? "ph" : "warn";
@@ -225,6 +248,10 @@ export function XepLich2Page({
   const [askCapNhat, setAskCapNhat] = useState<{ nguon: Xl2Nguon; id: number; ma: string } | null>(null);  // §4.3
   const [capNhatReason, setCapNhatReason] = useState("");
   const [askXoaNhap, setAskXoaNhap] = useState<Xl2Dong | null>(null);
+  // Tách LẦN CHẠY (spec §2.4): hộp nhập các phần của dòng đang chọn. Giữ từng ô ở dạng CHUỖI —
+  // ép về number ngay lúc gõ thì xoá sạch một ô sẽ tự thành "0" và con trỏ nhảy về đầu.
+  const [askTach, setAskTach] = useState<Xl2Dong | null>(null);
+  const [tachPhan, setTachPhan] = useState<string[]>(["", ""]);
 
   // Gợi ý khe trống (F4) — theo dòng đang chọn
   const [goiYKhe, setGoiYKhe] = useState<Xl2GoiYKhe | null>(null);
@@ -337,8 +364,10 @@ export function XepLich2Page({
     const patch: Xl2Patch = {};
     if (draftMay !== selDong.may_id) { patch.may_id = draftMay; patch.department_id = draftMay != null ? null : draftDept; }
     else if (draftDept !== selDong.department_id) { patch.department_id = draftDept; patch.may_id = draftDept != null ? null : draftMay; }
-    const startIso = fromLocalInput(draftStart);
-    if (startIso !== selDong.start_at) patch.start_at = startIso;
+    // Giờ gõ dở / ngoài khoảng thì KHÔNG đưa vào patch. Gửi đi chỉ đổi lấy một 422 câm, mà quy về
+    // `null` lại hoá "gỡ giờ, đưa dòng về nháp" — cả hai đều không phải ý người gõ. Ô tự báo sai.
+    const startIso = gioNhapSai(draftStart) ? undefined : fromLocalInput(draftStart);
+    if (startIso !== undefined && startIso !== selDong.start_at) patch.start_at = startIso;
     return patch;
   }, [selDong, draftMay, draftDept, draftStart]);
   const draftKey = JSON.stringify(draftPatch);
@@ -635,9 +664,13 @@ export function XepLich2Page({
   // Áp nháp panel: gom các ô đã đổi so với dòng hiện tại thành patch tối thiểu.
   const apDungPanel = useCallback(() => {
     if (!selDong) return;
+    if (gioNhapSai(draftStart)) {
+      setToast({ text: "Giờ bắt đầu không đọc được — năm phải 4 chữ số, trong khoảng 2000–2099" });
+      return;
+    }
     if (Object.keys(draftPatch).length === 0) { setToast({ text: "Chưa có thay đổi nào" }); return; }
     void propose(selDong.id, draftPatch);
-  }, [selDong, draftPatch, propose]);
+  }, [selDong, draftStart, draftPatch, propose]);
 
   // Ghi (từ hộp xem-trước).
   const confirmLuu = useCallback(async () => {
@@ -703,7 +736,10 @@ export function XepLich2Page({
       const kq = askCapNhat.nguon === "lsx"
         ? await api.xepLich2.phatHanhCapNhatLsx(token, askCapNhat.id, capNhatReason)
         : await api.xepLich2.phatHanhCapNhatBaiGhep(token, askCapNhat.id, capNhatReason);
-      setToast({ text: `Đã cập nhật ${askCapNhat.ma} → phiên bản ${kq.version_hien_tai} · tái chụp ${kq.so_cong_viec_cap_nhat} việc` });
+      setToast({ text: `Đã cập nhật ${askCapNhat.ma} → phiên bản ${kq.version_hien_tai} · tái chụp ${kq.so_cong_viec_cap_nhat} việc`
+        + (kq.so_lech_phan_doan
+          ? ` · ${kq.so_lech_phan_doan} việc giữ nguyên vì bước đã đổi số lần chạy`
+          : "") });
       setAskCapNhat(null);
       setCapNhatReason("");
       reloadAll();
@@ -751,6 +787,55 @@ export function XepLich2Page({
       }
     } finally { setBusy(false); }
   }, [token, askXoaNhap, reloadAll]);
+
+  // ---- tách / gộp LẦN CHẠY của một công đoạn (spec §2.4) ----
+  // Mở hộp với đúng 2 ô RỖNG: xưởng hay tách 6.000 máy A + 4.000 máy B, mồi sẵn số chia đôi chỉ dụ
+  // người ta bấm qua mà không đọc.
+  const moTach = useCallback((d: Xl2Dong) => {
+    setTachPhan(["", ""]);
+    setAskTach(d);
+  }, []);
+
+  const doTach = useCallback(async () => {
+    if (!token || !askTach) return;
+    const d = askTach;
+    const cacPhan = tachPhan.map(soTach);
+    setBusy(true);
+    try {
+      const r = await api.xepLich2.tach(token, d.id, cacPhan);
+      setAskTach(null);
+      // Các lần chạy SAU không thừa kế giờ của gốc (hai thanh cùng giờ cùng máy là xung đột dựng
+      // sẵn) — phải nói ra, không thì người bấm đi tìm chúng trên trục thời gian mà không thấy.
+      setToast({ text: `Đã tách ${dongMa(d)} thành ${r.dong.length} lần chạy — các lần sau nằm ở khay "Chưa đặt giờ"` });
+      reloadAll();
+    } catch (e) {
+      // BE là nơi phán đúng/sai (tổng phải khớp, dòng đã tách, in ghép kiểu cũ…) và câu của nó đã
+      // là tiếng Việt đọc được — bày nguyên văn, đừng diễn giải lại thành câu chung chung.
+      setToast({ text: e instanceof ApiError ? e.message : "Không tách được, thử lại." });
+    } finally { setBusy(false); }
+  }, [token, askTach, tachPhan, reloadAll]);
+
+  const doGop = useCallback(async (d: Xl2Dong) => {
+    if (!token) return;
+    setBusy(true);
+    try {
+      const r = await api.xepLich2.gop(token, d.id);
+      // Gộp XOÁ các phân đoạn sau; đang đứng ở một trong số đó thì panel phải nhảy về dòng gốc còn
+      // sống, không thì nó trỏ vào một id vừa biến mất.
+      setSelDongId(r.dong.id);
+      setToast({ text: `Đã gộp ${dongMa(d)} về một lần chạy` });
+      reloadAll();
+    } catch (e) {
+      setToast({ text: e instanceof ApiError ? e.message : "Không gộp được, thử lại." });
+    } finally { setBusy(false); }
+  }, [token, reloadAll]);
+
+  // Số sống của hộp tách — tổng của bước, các phần đã gõ, phần CÒN LẠI, và cửa mở nút Xác nhận.
+  const tachTong = askTach ? tachTongCua(askTach) : 0;
+  const tachSo = tachPhan.map(soTach);
+  const tachConLai = tachTong - tachSo.reduce((a, b) => a + b, 0);
+  const tachHopLe = tachSo.length >= 2 && tachSo.every((n) => n > 0)
+    && Math.abs(tachConLai) <= TACH_EPS;
 
   // ---- render ----
   const queueCount = facets.all;                    // TỔNG hàng chờ (cả bàn), không phải trang hiện tại
@@ -1106,6 +1191,9 @@ export function XepLich2Page({
                 goiYKhe={goiYKhe} goiYKheLoading={goiYKheLoading}
                 onGoiYKhe={() => void onGoiYKhe()} onChonKhe={onChonKhe}
                 onXoaNhap={() => setAskXoaNhap(selDong)}
+                busy={busy}
+                onTach={() => moTach(selDong)}
+                onGop={() => void doGop(selDong)}
                 onMoNguon={canMoNguon ? moNguon : undefined}
                 onMoBuoc={navigate ? () => moBuocCuaDong(selDong) : undefined}
               />
@@ -1322,6 +1410,60 @@ export function XepLich2Page({
       >
         <textarea className="xl2-dlg-reason" placeholder="Lý do cập nhật lịch (ghi vào lịch sử phiên bản)…"
           value={capNhatReason} onChange={(e) => setCapNhatReason(e.target.value)} />
+      </ConfirmDialog>
+
+      {/* Hộp TÁCH LẦN CHẠY — gõ số của TỪNG phần (không có ô "chia thành mấy phần": xưởng tách
+          6.000 máy A + 4.000 máy B nhiều hơn hẳn chia đều). Nút Xác nhận chỉ mở khi tổng khớp. */}
+      <ConfirmDialog
+        open={!!askTach}
+        title={<span><Icon name="scissors" size={16} /> Tách {askTach ? dongMa(askTach) : ""} thành nhiều lần chạy</span>}
+        message={askTach
+          ? `${dongNhanParts(askTach).congDoan ?? "Bước này"} — cả bước ${num(tachTong)}. Gõ phần việc của từng lần chạy; tổng phải đúng bằng số của bước.`
+          : ""}
+        confirmLabel={`Tách ${tachPhan.length} lần chạy`}
+        confirmDisabled={!tachHopLe}
+        busy={busy}
+        onConfirm={doTach}
+        onCancel={() => setAskTach(null)}
+      >
+        <div className="xl2-tach">
+          {tachPhan.map((v, i) => (
+            <label className="xl2-tach__row" key={i}>
+              <span className="xl2-tach__lb">Lần chạy {i + 1}</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="xl2-tach__in"
+                value={v}
+                placeholder="0"
+                autoFocus={i === 0}
+                onChange={(e) => setTachPhan((p) => p.map((x, j) => (j === i ? e.target.value : x)))}
+              />
+              {/* Bớt ô chỉ có nghĩa khi còn > 2 ô — tách 1 phần không phải là tách. */}
+              {tachPhan.length > 2 && (
+                <button type="button" className="xl2-tach__del" title="Bớt lần chạy này"
+                  onClick={() => setTachPhan((p) => p.filter((_, j) => j !== i))}>
+                  <Icon name="x" size={13} />
+                </button>
+              )}
+            </label>
+          ))}
+          <div className="xl2-tach__foot">
+            <button type="button" className="xl2-tach__add"
+              onClick={() => setTachPhan((p) => [...p, ""])}>
+              <Icon name="plus" size={12} /> Thêm lần chạy
+            </button>
+            {/* CÒN LẠI tính sống: dư thì còn phải chia tiếp, âm thì đã gõ quá tay. Không có dòng này
+                thì người dùng chỉ biết mình sai lúc BE trả 400. */}
+            <span className={`xl2-tach__conlai${Math.abs(tachConLai) <= TACH_EPS ? " xl2-tach__conlai--du" : tachConLai < 0 ? " xl2-tach__conlai--qua" : ""}`}>
+              {Math.abs(tachConLai) <= TACH_EPS
+                ? <><Icon name="check" size={12} /> Vừa đủ {num(tachTong)}</>
+                : tachConLai > 0
+                  ? `Còn lại ${num(tachConLai)}`
+                  : `Vượt ${num(-tachConLai)}`}
+            </span>
+          </div>
+        </div>
       </ConfirmDialog>
 
       {/* Hộp xoá nháp lệnh (F3) */}
@@ -2019,7 +2161,7 @@ function DongPanel({
   dong, xt, xtErr, xtBusy, goiY, mays, phongBans, mayTen, deptTen,
   draftMay, draftDept, draftStart, canUpdate,
   setDraftMay, setDraftDept, setDraftStart, onApDung, onGoiY,
-  goiYKhe, goiYKheLoading, onGoiYKhe, onChonKhe, onXoaNhap, onMoNguon, onMoBuoc,
+  goiYKhe, goiYKheLoading, onGoiYKhe, onChonKhe, onXoaNhap, busy, onTach, onGop, onMoNguon, onMoBuoc,
 }: {
   dong: Xl2Dong;
   xt: Xl2XemTruoc | null;
@@ -2044,6 +2186,11 @@ function DongPanel({
   onGoiYKhe: () => void;
   onChonKhe: (k: Xl2Khe) => void;
   onXoaNhap: () => void;
+  busy: boolean;
+  /** Mở hộp nhập các phần (chỉ dòng CHƯA tách). */
+  onTach: () => void;
+  /** Gộp cả cụm về một dòng (chỉ dòng ĐÃ tách). */
+  onGop: () => void;
   onMoNguon?: (i: Xl2Issue) => void;
   /** Mở đúng chỗ SỬA số người của bước (Lệnh SX / Bài ghép). Không có `navigate` thì bỏ. */
   onMoBuoc?: () => void;
@@ -2055,6 +2202,7 @@ function DongPanel({
       : <><Icon name="truck" size={13} /> Chưa gán máy / tổ</>;
   const nhan = dongNhanParts(dong);
   const nl = nhanLucTom(xt?.so_nhan_cong, xt?.dinh_bien);
+  const gioSai = gioNhapSai(draftStart);
 
   return (
     <>
@@ -2107,6 +2255,16 @@ function DongPanel({
               </span>
             </div>
           )}
+          {/* LẦN CHẠY — chỉ hiện khi bước đã bị chia. Panel không nói ra thì ba thanh cùng mã cùng
+              bước trông như lỗi trùng lịch, và không ai biết thanh đang chọn gánh bao nhiêu tờ. */}
+          {dong.phan_doan_tong > 1 && (
+            <div className="xl2-kv">
+              <span className="xl2-kv__k">Lần chạy</span>
+              <span className="xl2-kv__v xl2-kv__v--num">
+                {dong.phan_doan_so}/{dong.phan_doan_tong} · {num(dong.so_luong)}
+              </span>
+            </div>
+          )}
           {dong.is_locked && <div className="xl2-kv"><span className="xl2-kv__k">Trạng thái</span><span className="xl2-kv__v">Đã khóa</span></div>}
         </div>
       </div>
@@ -2132,11 +2290,57 @@ function DongPanel({
           </label>
           <label className="xl2-field">
             <span className="xl2-field__lb">Bắt đầu</span>
-            <input type="datetime-local" value={draftStart} onChange={(e) => setDraftStart(e.target.value)} />
+            <input type="datetime-local" min={GIO_NHAP_MIN} max={GIO_NHAP_MAX}
+              value={draftStart} onChange={(e) => setDraftStart(e.target.value)} />
           </label>
+          {gioSai && (
+            <p className="xl2-note xl2-note--bad">
+              Giờ bắt đầu không đọc được — năm phải 4 chữ số, trong khoảng 2000–2099.
+            </p>
+          )}
           <div style={{ marginTop: "var(--sp-3)" }}>
-            <Button variant="accent" block onClick={onApDung}><Icon name="calendar" size={14} /> Xem trước & xếp</Button>
+            <Button variant="accent" block disabled={gioSai} onClick={onApDung}
+              title={gioSai ? "Sửa giờ bắt đầu trước đã" : undefined}>
+              <Icon name="calendar" size={14} /> Xem trước & xếp
+            </Button>
           </div>
+        </div>
+      )}
+
+      {/* LẦN CHẠY — một bước chạy trên hai máy là chuyện thường ở xưởng, tầng kế hoạch phải nói ra
+          được. Hai vế loại trừ nhau: chưa tách thì chỉ có Tách, đã tách thì chỉ có Gộp (BE cũng
+          chặn tách chồng lên cụm đang có). */}
+      {canUpdate && !dong.is_locked && (
+        <div className="xl2-psec">
+          <div className="xl2-psec__h"><Icon name="scissors" size={13} /> Lần chạy của bước</div>
+          {dong.phan_doan_tong > 1 ? (
+            <>
+              <p className="xl2-note">
+                Bước đang chia làm {dong.phan_doan_tong} lần chạy. Gộp đưa cả cụm về một thanh trọn
+                bước — giờ &amp; máy của các lần sau mất theo.
+              </p>
+              <Button variant="secondary" block disabled={busy} onClick={onGop}>
+                <Icon name="layers" size={14} /> Gộp {dong.phan_doan_tong} lần chạy
+              </Button>
+            </>
+          ) : tachTongCua(dong) > 0 ? (
+            <>
+              <p className="xl2-note">
+                Cả bước {num(tachTongCua(dong))} — chia được thành nhiều lần chạy để xếp lên nhiều
+                máy. Lần đầu giữ nguyên giờ đang đặt, các lần sau về khay “Chưa đặt giờ”.
+              </p>
+              <Button variant="secondary" block disabled={busy} onClick={onTach}>
+                <Icon name="scissors" size={14} /> Tách lần chạy
+              </Button>
+            </>
+          ) : (
+            // Nút xám câm là thứ khiến người dùng bấm mãi rồi bỏ cuộc: bước chưa khai SL vào thì
+            // nói thẳng phải đi sửa ở đâu, đừng chỉ vô hiệu hoá.
+            <p className="xl2-note">
+              Bước chưa khai số lượng vào nên chưa chia được — kiểm quy cách ở
+              {dong.nguon === "lsx" ? " lệnh sản xuất" : " bài ghép"} trước.
+            </p>
+          )}
         </div>
       )}
 

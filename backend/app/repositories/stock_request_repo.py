@@ -20,6 +20,7 @@ from ..models.stock_request import (
     StockRequest,
     StockRequestLine,
 )
+from ..models.stock_voucher import StockVoucher
 
 # Mốc gốc so "chưa xem" khi người tạo chưa từng mở yêu cầu (quyet_dinh_xem_luc NULL).
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -59,6 +60,30 @@ class StockRequestRepository:
 
     def get(self, request_id: int) -> StockRequest | None:
         return self.db.get(StockRequest, request_id)
+
+    def lock_for_update(self, request_id: int) -> None:
+        """Khoá DÒNG header yêu cầu (SELECT … FOR UPDATE) để chặn hai lượt đồng bộ/hủy chạy song
+        song (tổ bấm hai lần, hoặc tổ sửa đúng lúc kho lập phiếu). Postgres: lượt sau CHỜ rồi đọc
+        lại trạng thái mới. SQLite: FOR UPDATE là no-op nhưng SQLite tự khoá ghi cả DB nên vẫn
+        tuần tự. Phải gọi TRƯỚC khi đọc trạng thái yêu cầu."""
+        self.db.execute(
+            select(StockRequest.id).where(StockRequest.id == request_id).with_for_update()
+        ).first()
+
+    def co_voucher(self, request_id: int | None) -> bool:
+        """Yêu cầu đã có BẤT KỲ phiếu nào chưa — kể cả nháp, kể cả đã huỷ. Dùng để chặn sửa/hủy
+        từ tầng sản xuất (`StockRequestService.dong_bo_tu_san_xuat`/`huy_tu_san_xuat`) khi kho đã
+        bắt tay soạn phiếu — số đã đi vào đầu người soạn, sửa sau lưng họ là nguồn đẻ chênh lệch.
+
+        `request_id` có thể `None` (đề nghị SX chưa từng đẻ yêu cầu kho) — trả `False` NGAY thay vì
+        chạy truy vấn `request_id IS NULL` (dù `StockVoucher.request_id` NOT NULL nên vẫn ra đúng
+        kết quả, chặn tường minh ở đây đỡ phải dựa vào ràng buộc DB để suy luận đúng)."""
+        if not request_id:
+            return False
+        return self.db.scalar(
+            select(func.count()).select_from(StockVoucher)
+            .where(StockVoucher.request_id == request_id)
+        ) > 0
 
     def lenh_ton_tai(self, lsx_id: int | None, bai_ghep_id: int | None) -> tuple[bool, bool]:
         """`(lệnh có thật, bài ghép có thật)` cho ô "cho lệnh nào" (mg 0175).
@@ -313,7 +338,14 @@ class StockRequestRepository:
         return [(ln, tt) for ln, tt in self.db.execute(stmt)]
 
     def create(self, *, ma: str, loai: str, nguoi_tao_id: int, lines: list[dict],
-               **header) -> StockRequest:
+               commit: bool = True, **header) -> StockRequest:
+        """`commit=False` = chỉ `flush()`, để người gọi ở NGOÀI tự chốt giao dịch.
+
+        Cần cho những luồng phải chạy TRỌN VẸN trong MỘT giao dịch (ví dụ
+        `san_xuat/vat_tu_de_nghi.tao()`: nó khoá công đoạn bằng `SELECT … FOR UPDATE` rồi mới ghi,
+        mà một `commit()` ở đây là NHẢ khoá đó ra giữa chừng). `flush()` vẫn đẩy INSERT xuống DB nên
+        `refresh(obj)` bên dưới lấy được id và các default của server như thường.
+        """
         obj = StockRequest(ma=ma, loai=loai, nguoi_tao_id=nguoi_tao_id)
         for k in _HEADER_FIELDS:
             if k in header:
@@ -321,7 +353,10 @@ class StockRequestRepository:
         for ln in lines:
             obj.lines.append(_build_line(ln, loai))
         self.db.add(obj)
-        self.db.commit()
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
         self.db.refresh(obj)
         return obj
 
@@ -339,8 +374,12 @@ class StockRequestRepository:
                 setattr(obj, k, data[k])
         return obj
 
-    def save(self, obj: StockRequest) -> StockRequest:
-        self.db.commit()
+    def save(self, obj: StockRequest, *, commit: bool = True) -> StockRequest:
+        """`commit=False`: chỉ `flush()` — xem docstring `create` để biết vì sao cần."""
+        if commit:
+            self.db.commit()
+        else:
+            self.db.flush()
         self.db.refresh(obj)
         return obj
 

@@ -16,6 +16,7 @@ import {
   type PayrollPeriod,
 } from "../../../../api/client";
 import { MonthPicker } from "../../../../components/MonthPicker";
+import { GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapSai } from "../../../../lib/gioNhap";
 import { fmtDateTime } from "../../../../utils/format";
 import { EmptyRow, EmptyState } from "../../../../components/EmptyState";
 import { RowActionButton } from "../../../../components/RowActionButton";
@@ -57,9 +58,18 @@ export function BangLuongTab({
   const [congBo, setCongBo] = useState<{ mo: string; dong: string } | null>(null);
   /** `datetime-local` trả GIỜ MÁY NGƯỜI DÙNG, không kèm múi giờ. `fmtDateTime` lại dán `Z` vào
    *  chuỗi thiếu múi giờ (đúng cho dữ liệu API, vì máy chủ trả UTC) ⇒ đưa thẳng vào là câu tóm
-   *  tắt LỆCH 7 TIẾNG so với cái người dùng vừa gõ. Quy về ISO có múi giờ trước rồi mới format. */
-  const gioDiaPhuong = (v: string) =>
-    v ? fmtDateTime(new Date(v).toISOString()) : "—";
+   *  tắt LỆCH 7 TIẾNG so với cái người dùng vừa gõ. Quy về ISO có múi giờ trước rồi mới format.
+   *
+   *  Gõ dở ô ngày-giờ ⇒ `new Date(...)` ra Invalid Date và `.toISOString()` NÉM — mà hàm này chạy
+   *  TRONG LÚC RENDER (câu tóm tắt dưới hai ô), nên ném là trắng cả tab. Chặn tại đây. */
+  const gioDiaPhuong = (v: string) => {
+    if (!v) return "—";
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? "—" : fmtDateTime(d.toISOString());
+  };
+  // Hai ô ĐỀU được bỏ trống (mỗi kiểu trống một nghĩa) nên "trống" không phải lỗi — chỉ chặn khi
+  // có gõ mà không dùng được. Công bố nhầm năm 0920 là phiếu lương mở ở một thế kỷ khác.
+  const congBoGioSai = gioNhapSai(congBo?.mo) || gioNhapSai(congBo?.dong);
   const [filter, setFilter] = useState<"all" | "ct" | "tv">("all");
   const [q, setQ] = useState("");
   const [dept, setDept] = useState("all");
@@ -368,6 +378,8 @@ export function BangLuongTab({
               <span>Mở lúc</span>
               <input
                 type="datetime-local"
+                min={GIO_NHAP_MIN}
+                max={GIO_NHAP_MAX}
                 value={congBo.mo}
                 onChange={(e) => setCongBo({ ...congBo, mo: e.target.value })}
               />
@@ -378,7 +390,8 @@ export function BangLuongTab({
               <input
                 type="datetime-local"
                 value={congBo.dong}
-                min={congBo.mo || undefined}
+                min={congBo.mo || GIO_NHAP_MIN}
+                max={GIO_NHAP_MAX}
                 onChange={(e) => setCongBo({ ...congBo, dong: e.target.value })}
               />
               <em>{congBo.dong ? "" : "bỏ trống = mở không thời hạn"}</em>
@@ -390,7 +403,9 @@ export function BangLuongTab({
                   type="button"
                   className="btn btn--ghost"
                   onClick={() => {
-                    const goc = congBo.mo ? new Date(congBo.mo) : new Date();
+                    // Mốc mở gõ hỏng thì tính từ nó ra toàn NaN — quay về "từ bây giờ" cho lành.
+                    const goc = gioNhapSai(congBo.mo) || !congBo.mo
+                      ? new Date() : new Date(congBo.mo);
                     const het = new Date(goc.getTime() + ngay * 86400000);
                     const p2 = (n: number) => String(n).padStart(2, "0");
                     setCongBo({
@@ -413,10 +428,12 @@ export function BangLuongTab({
           </div>
           <div className="lg-congbo__foot">
             <span className="lg-congbo__hint">
-              {congBo.dong && congBo.mo && new Date(congBo.dong) <= new Date(congBo.mo)
-                ? "⚠ Giờ đóng phải sau giờ mở."
-                : `Phiếu mở ${congBo.mo ? `từ ${gioDiaPhuong(congBo.mo)}` : "ngay bây giờ"}` +
-                  (congBo.dong ? ` đến ${gioDiaPhuong(congBo.dong)}.` : ", không thời hạn.")}
+              {congBoGioSai
+                ? "⚠ Giờ không đọc được — năm phải 4 chữ số, trong khoảng 2000–2099."
+                : congBo.dong && congBo.mo && new Date(congBo.dong) <= new Date(congBo.mo)
+                  ? "⚠ Giờ đóng phải sau giờ mở."
+                  : `Phiếu mở ${congBo.mo ? `từ ${gioDiaPhuong(congBo.mo)}` : "ngay bây giờ"}` +
+                    (congBo.dong ? ` đến ${gioDiaPhuong(congBo.dong)}.` : ", không thời hạn.")}
             </span>
             <div className="lg-congbo__act">
               <button className="btn btn--ghost" onClick={() => setCongBo(null)}>
@@ -426,6 +443,7 @@ export function BangLuongTab({
                 className="btn btn--accent"
                 disabled={
                   busy ||
+                  congBoGioSai ||
                   Boolean(congBo.dong && congBo.mo && new Date(congBo.dong) <= new Date(congBo.mo))
                 }
                 onClick={() => {

@@ -23,6 +23,8 @@ INSECURE_DEFAULT_JWT_SECRET = "dev-insecure-secret-change-me"
 
 # A real signing secret must be hard to guess. 32 random chars is the floor.
 MIN_JWT_SECRET_LEN = 32
+# Sàn số vòng bcrypt cho production. Hạ dưới mức này là làm yếu băm mật khẩu thật.
+MIN_BCRYPT_ROUNDS = 12
 
 
 class Settings(BaseSettings):
@@ -51,6 +53,11 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     # Long-lived refresh token (httpOnly cookie); rotated on every refresh (spec-03).
     refresh_token_expire_days: int = 7
+    # Số vòng bcrypt khi băm mật khẩu. Mặc định 12 = mức của thư viện, KHÔNG hạ ở dev/prod.
+    # Tồn tại chỉ để BỘ TEST hạ xuống `BCRYPT_ROUNDS=4`: một lượt băm 12 vòng tốn ~0,4s, mà mỗi
+    # test đều seed admin rồi đăng nhập ⇒ ~1s/test chỉ để băm một mật khẩu ai cũng biết.
+    # `assert_secure_config` CHẶN production chạy dưới `MIN_BCRYPT_ROUNDS`.
+    bcrypt_rounds: int = 12
 
     # --- Seed user (no self-registration this spec) ----------------------
     seed_admin_username: str = "admin"
@@ -116,6 +123,12 @@ def assert_secure_config(s: Settings) -> None:
             f"Set JWT_SECRET in the environment to a random string of at least "
             f"{MIN_JWT_SECRET_LEN} characters "
             '(e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"`).'
+        )
+
+    if s.bcrypt_rounds < MIN_BCRYPT_ROUNDS:
+        raise RuntimeError(
+            f"Refusing to start: APP_ENV=production requires BCRYPT_ROUNDS >= "
+            f"{MIN_BCRYPT_ROUNDS} (got {s.bcrypt_rounds}). Chỉ bộ test mới được hạ số vòng."
         )
 
 

@@ -51,6 +51,7 @@ import {
   type TransferStatus,
   PageSizeSelect,
   DEFAULT_PAGE_SIZE,
+  fmtGioCan,
   fmtQty,
   isOverdue,
   readStoredKho,
@@ -387,7 +388,7 @@ export function KhoYeuCauPage({
                 <th style={{ width: "11%" }}>Cho lệnh</th>
                 <th style={{ width: "12%" }}>Tiến độ</th>
                 <DateFilterHead
-                  label="Cần ngày"
+                  label="Cần lúc"
                   from={dNeed.from}
                   to={dNeed.to}
                   onChange={(from, to) => setDNeed({ from, to })}
@@ -414,7 +415,7 @@ export function KhoYeuCauPage({
                 <>
                   {pageRequests.map((r) => {
                   const p = progressOf(r);
-                  const overdue = isOverdue(r.ngay_can, r.trang_thai);
+                  const overdue = isOverdue(r.ngay_can, r.trang_thai, r.can_luc);
                   return (
                     <tr
                       key={r.id}
@@ -435,7 +436,12 @@ export function KhoYeuCauPage({
                           </div>
                           <div>
                             <div className="rc__name">{r.nguoi_tao_ten ?? "—"}</div>
-                            <div className="rc__muted">{r.bo_phan_ten ?? "—"}</div>
+                            <div className="rc__muted">
+                              {r.bo_phan_ten ?? "—"}
+                              {/* Yêu cầu SINH TỪ đề nghị cấp vật tư công đoạn → thêm tên công đoạn cho
+                                  thủ kho biết đang soạn cho khâu nào (task-8-ruling-man-kho). */}
+                              {r.san_xuat_cong_doan_ten ? ` · ${r.san_xuat_cong_doan_ten}` : ""}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -465,7 +471,9 @@ export function KhoYeuCauPage({
                         </div>
                       </td>
                       <td className={`rc__nowrap${overdue ? " kho-overdue" : ""}`}>
-                        <div>{r.ngay_can ? fmtDateISO(r.ngay_can) : "—"}</div>
+                        {/* GIỜ cần thật (từ đề nghị sản xuất) ưu tiên trước — `ngay_can` chỉ có DATE
+                            nên không diễn đạt được ca chiều (task-8-ruling-man-kho). */}
+                        <div>{r.can_luc ? fmtGioCan(r.can_luc) : r.ngay_can ? fmtDateISO(r.ngay_can) : "—"}</div>
                         {overdue && <span className="kho-priority-badge kho-priority-badge--critical" style={{ marginTop: 2 }}>Quá hạn</span>}
                       </td>
                       <td>
@@ -1179,7 +1187,25 @@ export function InboxRequestDrawer({
   const totalSKU = reqLines.length;
   const totalDeNghi = reqLines.reduce((acc, l) => acc + (Number(l.sl_de_nghi) || 0), 0);
   const totalDuyet = reqLines.reduce((acc, l) => acc + (Number(l.sl_duyet) || 0), 0);
-  const percentDone = totalDeNghi > 0 ? Math.min(100, Math.round((totalDuyet / totalDeNghi) * 100)) : 0;
+  // Mục tiêu HIỆU LỰC — CÙNG công thức `StockRequestService.muc_tieu_hieu_luc`: kho đã chốt thực
+  // xuất thì lấy số chốt, chưa thì `sl_duyet` (NULL ≠ 0 — NULL là "chưa điều chỉnh lần nào", 0 là
+  // "chốt rằng không xuất gì"). Gộp hai số này vào một KPI "Đã duyệt/cấp" là mâu thuẫn với chính
+  // badge dòng ngay bên dưới: PXK điều chỉnh 166,97 → 120 thì KPI khoe "166,97 (100%)" kèm thanh
+  // xanh đầy, ba dòng sau lại ghi "Thực xuất 120/166,97 · Hoàn tất".
+  const totalChotCap = reqLines.reduce(
+    (acc, l) => acc + (Number(l.sl_chot_thuc_xuat ?? l.sl_duyet) || 0), 0);
+  const coDieuChinh = Math.abs(totalChotCap - totalDuyet) > 1e-9;
+  // Thanh tiến độ = MỤC TIÊU HIỆU LỰC / tổng đề nghị — "kho còn cam kết cấp bao nhiêu phần của
+  // lượng đã xin, sau khi đã điều chỉnh". KHÔNG phải "đã rời kho bao nhiêu": số thật sự giao là
+  // `sl_da_ung`, không có mặt trong công thức này. Ca thường (kho chưa điều chỉnh) số này BẰNG
+  // `totalDuyet` nên thanh không đổi gì; ca đã điều chỉnh thì thanh và pill "Chốt cấp" nói cùng
+  // một con số, và % luôn đứng cạnh đúng con số nó đang đo.
+  //
+  // Pill này KHÔNG được gọi là "Thực xuất": tổng cộng gộp dòng kho ĐÃ chốt với dòng kho CHƯA đụng
+  // tới (rơi về `sl_duyet`), nên một phiếu 2 dòng — chốt 30 kg giấy, còn 100 kg mực chưa xuất —
+  // ra 130 mà chỉ 30 rời kho thật. Badge từng dòng bên dưới mới được mang chữ "Thực xuất", vì ở
+  // cấp dòng `sl_chot_thuc_xuat` đúng là lượng kho đã xuất.
+  const percentDone = totalDeNghi > 0 ? Math.min(100, Math.round((totalChotCap / totalDeNghi) * 100)) : 0;
 
   const showStepper = req && req.trang_thai !== "cancelled" && req.trang_thai !== "rejected";
   const stepperSteps = [
@@ -1255,10 +1281,19 @@ export function InboxRequestDrawer({
               <div className="kho-kpi-pill">
                 Tổng YC: <strong>{fmtQty(totalDeNghi)}</strong>
               </div>
-              <div className={`kho-kpi-pill ${percentDone >= 100 ? "kho-kpi-pill--moss" : ""}`}>
-                Đã duyệt/cấp: <strong>{fmtQty(totalDuyet)}</strong>
-                {totalDeNghi > 0 && <span style={{ opacity: 0.85 }}>({percentDone}%)</span>}
+              <div className={`kho-kpi-pill ${!coDieuChinh && percentDone >= 100 ? "kho-kpi-pill--moss" : ""}`}>
+                Đã duyệt: <strong>{fmtQty(totalDuyet)}</strong>
+                {!coDieuChinh && totalDeNghi > 0 && <span style={{ opacity: 0.85 }}>({percentDone}%)</span>}
               </div>
+              {/* Chỉ hiện khi kho ĐÃ chốt khác số duyệt — ca thường hai số bằng nhau, thêm một pill
+                  nữa chỉ là con số thừa bắt người đọc so hai ô giống hệt. % đi theo pill này vì
+                  nó mới là con số thanh tiến độ đang đo. */}
+              {coDieuChinh && (
+                <div className={`kho-kpi-pill ${percentDone >= 100 ? "kho-kpi-pill--moss" : ""}`}>
+                  Chốt cấp: <strong>{fmtQty(totalChotCap)}</strong>
+                  {totalDeNghi > 0 && <span style={{ opacity: 0.85 }}>({percentDone}%)</span>}
+                </div>
+              )}
             </div>
             {totalDeNghi > 0 && (
               <div className="kho-kpi-progress-track">
@@ -1303,8 +1338,17 @@ export function InboxRequestDrawer({
                 <h3 className="rc-sec__title">Thông tin yêu cầu</h3>
                 <div className="kho-info-grid">
                   <div className="kho-info-item">
-                    <span className="kho-info-item__label">Ngày cần</span>
-                    <div className="kho-info-item__val">{req.ngay_can ? fmtDateISO(req.ngay_can) : "—"}</div>
+                    {/* Ưu tiên GIỜ cần thật (`can_luc`, từ đề nghị sản xuất) như cột danh sách — trả field
+                        về mà drawer vẫn chỉ hiện ngày trơn thì mất luôn thông tin giờ vừa thấy ở danh
+                        sách khi bấm mở chi tiết (task-8-review.md Minor 6). */}
+                    <span className="kho-info-item__label">{req.can_luc ? "Cần lúc" : "Ngày cần"}</span>
+                    <div className="kho-info-item__val">
+                      {req.can_luc
+                        ? fmtGioCan(req.can_luc)
+                        : req.ngay_can
+                          ? fmtDateISO(req.ngay_can)
+                          : "—"}
+                    </div>
                   </div>
                   <div className="kho-info-item">
                     <span className="kho-info-item__label">Người đề nghị</span>
@@ -1349,11 +1393,18 @@ export function InboxRequestDrawer({
                       {req.lines.map((l) => {
                         const dvtYc = tenDonVi(l.dvt) ?? l.dvt;   // đơn vị người yêu cầu (Yêu cầu)
                         const dvtGoc = tenDonVi(l.don_vi_goc ?? l.dvt) ?? l.don_vi_goc ?? l.dvt; // đơn vị gốc lưu kho (Tồn)
-                        // `ton_kha_dung` ở ĐƠN VỊ GỐC (Σ sl_con_lai lô), còn `sl_duyet` ở đơn vị YÊU CẦU
-                        // → quy duyệt về gốc rồi mới so thiếu/đủ, không thì trừ chéo đơn vị (70 tờ − 1 ram).
+                        // `ton_kha_dung` ở ĐƠN VỊ GỐC (Σ sl_con_lai lô), còn `sl_con_lai` (dòng yêu cầu)
+                        // ở đơn vị YÊU CẦU → quy về gốc rồi mới so thiếu/đủ, không thì trừ chéo đơn vị
+                        // (70 tờ − 1 ram). DÙNG `sl_con_lai`, KHÔNG dùng `sl_duyet`: mục tiêu còn phải
+                        // cấp sau khi kho CHỐT (điều chỉnh xuất) là `coalesce(sl_chot_thuc_xuat,
+                        // sl_duyet) - sl_da_ung` kẹp ≥ 0 — MỘT đường tính duy nhất ở
+                        // `StockRequestService.con_lai` (backend/app/services/stock_request_service.py:610),
+                        // trả sẵn qua field này. Xin 100 · xuất 100 · điều chỉnh còn 70 ⇒ `sl_con_lai` =
+                        // 0 ⇒ hết thiếu, không còn "Thiếu N" đá nhau với badge xanh "Hoàn tất" cạnh nó
+                        // (task-8-review.md Important 3).
                         const heSoVeGoc = l.sl_quy_doi && l.sl_de_nghi ? l.sl_quy_doi / l.sl_de_nghi : 1;
-                        const shortage = (l.sl_duyet || 0) * heSoVeGoc - (l.ton_kha_dung || 0);
-                        const isShort = l.ton_kha_dung != null && shortage > 1e-6;
+                        const shortage = (l.sl_con_lai || 0) * heSoVeGoc - (l.ton_kha_dung || 0);
+                        const isShort = l.sl_con_lai > 0 && l.ton_kha_dung != null && shortage > 1e-6;
                         return (
                           <tr key={l.id}>
                             <td>
@@ -1381,6 +1432,24 @@ export function InboxRequestDrawer({
                             </td>
                             <td className="kho-num">
                               {fmtQty(l.sl_de_nghi)} <span className="kho-alloc__unit">{dvtYc}</span>
+                              {/* Kho đã CHỐT thực xuất (điều chỉnh phiếu xuất) → hiện "thực xuất N / yêu
+                                  cầu M" + Hoàn tất, KHÔNG hiện "còn thiếu" (kho không xử lý lý do lệch kế
+                                  hoạch — task-8-ruling-man-kho). Mẫu số `sl_de_nghi` khớp con số ngay
+                                  trên cùng ô (cột "Yêu cầu") — nhưng nếu người duyệt đã hạ số duyệt khác
+                                  `sl_de_nghi` thì đó chưa từng là mục tiêu thật, nên chua thêm "(duyệt N)"
+                                  (task-8-review.md Minor 5). */}
+                              {l.sl_chot_thuc_xuat != null && (
+                                <div>
+                                  <span
+                                    className="kho-line-badge kho-line-badge--moss"
+                                    style={{ fontSize: 10, marginTop: 2 }}
+                                  >
+                                    Thực xuất {fmtQty(l.sl_chot_thuc_xuat)}/{fmtQty(l.sl_de_nghi)} {dvtYc}
+                                    {l.sl_duyet !== l.sl_de_nghi ? ` (duyệt ${fmtQty(l.sl_duyet)})` : ""}
+                                    {" "}· Hoàn tất
+                                  </span>
+                                </div>
+                              )}
                             </td>
                             {canViewStock && (
                               <td className="kho-num">

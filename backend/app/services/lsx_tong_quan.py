@@ -28,8 +28,8 @@ from sqlalchemy.orm import Session
 from ..models.lsx import LB_TO
 from ..models.xep_lich_van_de import TT_NGOAI_LE
 from .xep_lich_van_de_service import (
-    K_DE_KHOA_MAY, K_MAY_KHONG_KHAM, K_QUA_TAI_TO, K_SAI_TIEN_NHIEM,
-    K_THIEU_DU_LIEU, K_THIEU_NGUOI, K_TRUNG_MAY, XepLichVanDeService,
+    K_DE_KHOA_MAY, K_LECH_THUC_TE, K_LICH_DA_QUA, K_MAY_KHONG_KHAM, K_QUA_TAI_TO,
+    K_SAI_TIEN_NHIEM, K_THIEU_DU_LIEU, K_THIEU_NGUOI, K_TRUNG_MAY, XepLichVanDeService,
 )
 
 MUC_DO = "do"
@@ -50,16 +50,25 @@ MAN_XEP_LICH = "xep-lich-cong-doan-2"
 # LẤY HẰNG TỪ `xep_lich_van_de_service`, KHÔNG gõ lại chuỗi: đổi tiền tố ở đó mà quên ở đây thì
 # đèn tắt IM LẶNG (không lỗi, chỉ là không khớp cái nào) — kiểu hỏng khó thấy nhất.
 # Thứ tự trong tuple là thứ tự ưu tiên hiện chữ khi một lệnh dính nhiều thứ một lúc.
-CAT_MAY_DO = (K_TRUNG_MAY, K_DE_KHOA_MAY, K_SAI_TIEN_NHIEM, K_THIEU_DU_LIEU)
+CAT_MAY_DO = (K_TRUNG_MAY, K_DE_KHOA_MAY, K_SAI_TIEN_NHIEM, K_LICH_DA_QUA, K_THIEU_DU_LIEU)
 CAT_NGUOI_DO = (K_QUA_TAI_TO, K_THIEU_NGUOI)
 # Khổ tờ in vượt máy: CẢNH BÁO, không chặn (chốt 18/08/2026 — thợ còn cách xử lý, máy không quyết).
-CAT_MAY_VANG = (K_MAY_KHONG_KHAM,)
+# Tổ chạy lệch mốc đã xếp: cũng CẢNH BÁO — lệnh đã phát hành rồi, chặn ở đây không cứu được gì,
+# việc của điều độ là BIẾT để kéo lại tay (spec-thuc-te-vs-ke-hoach §2.2). Không có dòng này thì bộ
+# dò `lech_thuc_te` chạy đúng nhưng không tới được mắt ai: hàng đèn là mặt duy nhất của nó trên
+# bảng lệnh, và tập ở đây mới quyết đèn nào sáng — đúng kiểu hỏng im lặng mà chú thích trên cảnh báo.
+CAT_MAY_VANG = (K_MAY_KHONG_KHAM, K_LECH_THUC_TE)
 
 _CHU_MAY_DO = {
     K_TRUNG_MAY: "Trùng giờ với việc khác trên cùng máy",
     K_DE_KHOA_MAY: "Xếp đè lên khoảng khóa máy",
     K_SAI_TIEN_NHIEM: "Công đoạn sau chạy trước công đoạn trước",
+    K_LICH_DA_QUA: "Mốc đã xếp trôi qua, chưa ai vào việc — xếp lại giờ",
     K_THIEU_DU_LIEU: "Có bước chưa gán máy/tổ hoặc chưa khai năng suất",
+}
+_CHU_MAY_VANG = {
+    K_MAY_KHONG_KHAM: "Khổ tờ in vượt khổ máy — cần xác nhận",
+    K_LECH_THUC_TE: "Xưởng đang chạy lệch mốc đã xếp — xem lại giờ",
 }
 _CHU_NGUOI_DO = {
     K_QUA_TAI_TO: "Tổ không đủ người cho các việc chạy cùng lúc",
@@ -110,8 +119,9 @@ def _den_may(cats: set[str], rows: list[dict], lsx_id: int) -> dict:
     cho_gio = sum(1 for r in rows if not r.get("start_at"))
     if cho_gio:
         return _den(MUC_VANG, f"{cho_gio} bước chưa có giờ", MAN_XEP_LICH, lsx_id)
-    if any(c in cats for c in CAT_MAY_VANG):
-        return _den(MUC_VANG, "Khổ tờ in vượt khổ máy — cần xác nhận", MAN_XEP_LICH, lsx_id)
+    for c in CAT_MAY_VANG:
+        if c in cats:
+            return _den(MUC_VANG, _CHU_MAY_VANG[c], MAN_XEP_LICH, lsx_id)
     return _den(MUC_OK)
 
 
@@ -193,7 +203,7 @@ def tong_quan(db: Session, lsx_ids: list[int]) -> list[dict]:
         # Dòng giữ chỗ của CẢ TRANG trong MỘT câu. Không có nó thì `trang_thai()` bên dưới tự đi
         # lấy — tức một câu SELECT cho MỖI lệnh, và hàm này lại là nguồn đèn vật tư của màn danh
         # sách lệnh. Bài canh: `test_lenh_sx_api.test_so_cau_sql_hang_tren_truc_lenh`.
-        giu_theo_lsx = giu.repo.cua_nhieu_lsx(ids)
+        giu_theo_lsx = giu.repo.cua_nhieu_chu_the([(i, None) for i in ids])
     except Exception as exc:                                            # noqa: BLE001
         loi_vt = f"Chưa đọc được vật tư ({type(exc).__name__})"
 
@@ -202,7 +212,7 @@ def tong_quan(db: Session, lsx_ids: list[int]) -> list[dict]:
         if giu is not None:
             try:
                 den_vt = _den_vat_tu(
-                    giu.trang_thai(lsx_id=i, bang=bang, dang_theo_lsx=giu_theo_lsx), i
+                    giu.trang_thai(lsx_id=i, bang=bang, dang_theo_chu_the=giu_theo_lsx), i
                 )
             except Exception as exc:                                    # noqa: BLE001
                 den_vt = _den(MUC_OK, f"Chưa đọc được vật tư ({type(exc).__name__})")

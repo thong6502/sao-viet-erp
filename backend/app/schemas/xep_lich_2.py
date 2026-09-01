@@ -28,6 +28,19 @@ class LuuIn(BaseModel):
     start_at: datetime | None = None
 
 
+class TachDongIn(BaseModel):
+    """Tách một công đoạn thành nhiều LẦN CHẠY (spec-thuc-te-vs-ke-hoach §2.4).
+
+    Client gửi ĐÚNG các con số muốn chia, không gửi "số phần" — chia đều là ca hiếm, xưởng hay
+    tách 6.000 máy A + 4.000 máy B. Mọi LUẬT (ít nhất 2 phần · mỗi phần dương · tổng khớp bước)
+    nằm ở service, không chép lên đây: một luật hai nơi là hai câu báo lỗi khác nhau cho cùng một
+    lỗi. `max_length` chỉ là chặn kích thước thô, không phải luật nghiệp vụ."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cac_phan: list[float] = Field(..., max_length=50)
+
+
 class DuyetNgoaiLeIn(BaseModel):
     """Duyệt ngoại lệ TRỄ HẠN SX cho một lệnh/bài (§7.2): CHỈ cần lý do.
 

@@ -16,6 +16,10 @@ class TeamOut(BaseModel):
     ma: str
     la_kcs: bool
     so_viec_cho: int
+    # Task 4 (mg 0250) — badge/cổng cho board KCS kiêm nhiệm, đọc theo `SanXuatCongViec.la_kcs`
+    # (cấp CÔNG VIỆC), KHÁC `la_kcs` phía trên (đó là `Department.is_kcs`, cấp TỔ).
+    so_viec_kcs_cho: int
+    co_viec_kcs: bool
 
 
 class TeamsOut(BaseModel):
@@ -67,6 +71,13 @@ class WorkItemOut(BaseModel):
     dinh_muc_vat_tu: list[VatTuDinhMucOut] = []
     # Lớp thực-tế đè lên thanh kế hoạch (§5.1): các phiên chạy đã ghi, phiên mở để ket_thuc=None.
     thuc_te: list[ThucTeKhoangOut] = []
+    # Lớp SỐ THỰC TẾ — DẪN XUẤT, không lưu (§2.3). `so_luong_vao`/`so_luong_ra` ở trên là KẾ HOẠCH
+    # và không bị đè; `muc_tieu` là mốc đã rút theo lượng thực nhận (tổ trước giao thiếu thì tổ sau
+    # không bị chấm theo kế hoạch). Chỗ gọi không nạp map thì cứ None, không bịa số.
+    thuc_nhan: float | None = None
+    da_lam: float | None = None
+    muc_tieu: float | None = None
+    con_thieu: float | None = None
 
 
 class WorkItemsOut(BaseModel):
@@ -234,6 +245,12 @@ class BatchOut(BaseModel):
 class SanLuongOut(BaseModel):
     tong_tot: float
     da_giao: float
+    # Mục tiêu của BƯỚC (`san_xuat_cong_viec.so_luong_ra`) và phần chưa đạt — DẪN XUẤT, không lưu.
+    # Không khai ở đây là Pydantic nuốt IM LẶNG: service trả dict, FE nhận undefined, không ai lỗi.
+    muc_tieu: float | None = None
+    thuc_nhan: float | None = None
+    con_thieu: float | None = None
+    don_vi: str | None = None
     batches: list[BatchOut]
 
 
@@ -342,6 +359,74 @@ class PhanBoChiTietOut(BaseModel):
     bu_tru: list[BuTruDongOut]
 
 
+class VatTuCapDoiChieuOut(BaseModel):
+    """Một mặt hàng trong bản đối chiếu (spec-de-nghi-cap-vat-tu-cong-doan §6): kế hoạch / đã yêu
+    cầu / kho thực xuất, cộng dồn qua MỌI lần đề nghị.
+
+    `dvt`/`sl_ke_hoach`/`sl_yeu_cau` là thang NGƯỜI KHAI, để bản in đúng chữ; `dvt_goc`/
+    `sl_ke_hoach_goc`/`sl_yeu_cau_goc` là thang GỐC MÁY so lệch (`lech_ke_hoach`/`lech_thuc_te`
+    tính trên hai cột `_goc` — vòng sửa 1, Important 2+3, theo đúng docstring
+    `models/san_xuat_vat_tu.py:85-87`)."""
+    hang_loai: str
+    hang_id: int
+    ten: str
+    dvt: str
+    dvt_goc: str
+    sl_ke_hoach: float
+    sl_ke_hoach_goc: float
+    sl_yeu_cau: float
+    sl_yeu_cau_goc: float
+    sl_thuc_xuat: float
+    lech_ke_hoach: float
+    lech_thuc_te: float
+    cac_ly_do: list[dict] = []
+
+
+class VatTuCapDongOut(BaseModel):
+    """Một dòng CỦA RIÊNG một lần đề nghị (ruling task-7 47) — KHÁC `VatTuCapDoiChieuOut.sl_yeu_cau`
+    (cộng dồn qua mọi lần): form "Sửa đề nghị" thay THẾ toàn bộ dòng của đúng lần đang sửa, nên
+    phải điền đúng số của lần đó, không phải tổng. Mang cả cột `_goc` (vòng sửa 1) để form điền
+    sẵn không bao giờ phải đoán thang."""
+    hang_loai: str
+    hang_id: int
+    ten: str
+    dvt: str
+    dvt_goc: str
+    sl_ke_hoach: float
+    sl_ke_hoach_goc: float
+    sl_yeu_cau: float
+    sl_yeu_cau_goc: float
+    ly_do_chenh_lech: str | None = None
+
+
+class VatTuCapLanOut(BaseModel):
+    """Một LẦN tổ đề nghị (lịch sử) trên drawer."""
+    id: int
+    lan_so: int
+    loai: str
+    can_luc: datetime
+    stock_request_id: int | None = None
+    stock_request_ma: str | None = None
+    stock_request_trang_thai: str | None = None
+    created_by_id: int | None = None
+    updated_by_id: int | None = None
+    created_at: datetime
+    updated_at: datetime
+    dongs: list[VatTuCapDongOut] = []
+
+
+class VatTuCapOut(BaseModel):
+    """Khối vật tư cấp của drawer công đoạn (spec-de-nghi-cap-vat-tu-cong-doan §6)."""
+    ke_hoach: list[dict] = []
+    cac_de_nghi: list[VatTuCapLanOut] = []
+    doi_chieu: list[VatTuCapDoiChieuOut] = []
+    de_nghi_co_the_sua_id: int | None = None
+    co_the_tao_bo_sung: bool = True
+    # Công đoạn chưa từng có đề nghị nên phiếu đang lấy theo đường lùi `lsx_id` — UI phải nói rõ
+    # đây là dữ liệu trước 31/08/2026, đừng để người đọc tưởng nó cùng độ tin cậy.
+    du_lieu_cu: bool = False
+
+
 class WorkItemChiTietOut(BaseModel):
     cong_viec: WorkItemOut
     trang_thai: str
@@ -354,6 +439,7 @@ class WorkItemChiTietOut(BaseModel):
     ban_giao_den: list[BanGiaoOut]
     ban_giao_goi_y: list[BanGiaoDichGoiYOut]
     vat_tu: list[VatTuNhanOut]
+    vat_tu_cap: VatTuCapOut = VatTuCapOut()
     ho_tro: list[HoTroChiTietOut]
     phan_bo: list[PhanBoChiTietOut]
 
@@ -560,6 +646,13 @@ class BuTruKetQuaOut(BaseModel):
 
 
 # --- KCS: batch kiểm tra · lỗi · phản hồi trách nhiệm (Giai đoạn 5, §13) ---------------------
+class KcsChecklistKetQuaIn(BaseModel):
+    """Một kết quả checklist khớp theo `thu_tu` của snapshot `kcs_tieu_chi_json` (mg 0250)."""
+    thu_tu: int
+    dat: bool
+    ghi_chu: str | None = None
+
+
 class KcsBatchIn(BaseModel):
     """Ghi một batch kiểm tra KCS (§13.1). `so_luong_nhan = dat + khong_dat` (service kiểm)."""
     bat_dau: datetime
@@ -570,6 +663,7 @@ class KcsBatchIn(BaseModel):
     co_mau: float | None = None          # cỡ mẫu kiểm (≤ số nhận); trống ⇒ không ghi
     don_vi: str | None = None            # trống ⇒ đơn vị ra của công việc
     ghi_chu: str | None = None
+    checklist_ket_qua: list[KcsChecklistKetQuaIn] | None = None   # kết quả checklist (mg 0250)
 
 
 class KcsBatchKetQuaOut(BaseModel):
@@ -578,6 +672,18 @@ class KcsBatchKetQuaOut(BaseModel):
     nhom_id: int | None = None
     kcs_batch_id: int
     batch_id: int | None = None          # batch sản lượng nền cho phân bổ năng suất KCS (§13.1)
+    version: int
+
+
+class KcsDotXuatKetQuaOut(BaseModel):
+    """Kết quả kiểm đột xuất (mg 0250). `batch_id` LUÔN None (mục 6) — giữ field để FE dùng CHUNG
+    shape với `KcsBatchKetQuaOut`."""
+    cong_viec_id: int
+    department_id: int | None = None
+    nhom_id: int | None = None
+    kcs_batch_id: int
+    batch_id: int | None = None
+    loi_id: int | None = None
     version: int
 
 
@@ -609,6 +715,63 @@ class KcsPhanHoiKetQuaOut(BaseModel):
     kcs_batch_id: int
     cong_viec_id: int | None = None
     version: int
+
+
+class KcsDieuChinhIn(BaseModel):
+    """Điều chỉnh kết quả một batch KCS đã ghi (§4.3, §5.5). `so_luong_dat + so_luong_khong_dat`
+    PHẢI khớp đúng `so_luong_nhan` hiện có trên batch (không đổi số nhận khi điều chỉnh)."""
+    so_luong_dat: float
+    so_luong_khong_dat: float
+    checklist_ket_qua: list[KcsChecklistKetQuaIn] | None = None
+    ghi_chu: str | None = None
+    expected_version: int          # BẮT BUỘC (khác các endpoint khác coi optional) — Global
+                                    # Constraint "mọi sửa... kiểm expected_version" áp cho MỌI request
+
+
+class KcsDieuChinhKetQuaOut(BaseModel):
+    kcs_batch_id: int
+    cong_viec_id: int
+    so_luong_nhan: float
+    so_luong_dat: float
+    so_luong_khong_dat: float
+    ket_luan: str
+    version: int
+
+
+class KcsBaoCaoTheoNgayRow(BaseModel):
+    ngay: date
+    tong_nhan: float
+    tong_dat: float
+    tong_loi: float
+
+
+class KcsBaoCaoNhomLoiRow(BaseModel):
+    nhom_loi_id: int | None = None
+    ten: str
+    tong_so_luong: float
+
+
+class KcsBaoCaoCongDoanRow(BaseModel):
+    ten_cong_doan: str
+    tong_so_luong: float
+
+
+class KcsBaoCaoToRow(BaseModel):
+    to_id: int
+    ten: str
+    tong_so_luong: float
+
+
+class KcsBaoCaoOut(BaseModel):
+    tong_luot: int
+    tong_nhan: float
+    tong_dat: float
+    tong_loi: float
+    ty_le_dat: float | None = None
+    theo_ngay: list[KcsBaoCaoTheoNgayRow]
+    nhom_loi: list[KcsBaoCaoNhomLoiRow]
+    cong_doan: list[KcsBaoCaoCongDoanRow]
+    to: list[KcsBaoCaoToRow]
 
 
 class KcsAnhOut(BaseModel):
@@ -650,11 +813,35 @@ class KcsBatchChiTietOut(BaseModel):
     ghi_chu: str | None = None
     version: int
     loi: list[KcsLoiOut]
+    # Task 9 (mg 0250) — lộ `loai` để FE phân biệt batch định tuyến (routing, có thể gửi kho) với
+    # batch kiểm đột xuất (dot_xuat, không gửi kho được) mà không phải đoán qua field khác.
+    loai: str = "routing"
+    # Task 9 fix round 1 (I1) — khối "Kết quả đã ghi" (§6.2) cần 2 cột này.
+    nguoi_ghi: str | None = None
+    trang_thai_gui_kho: str = "khong_ap_dung"   # chua_gui | dang_cho | da_nhap | khong_ap_dung
+
+
+class KcsChiTietTieuChiOut(BaseModel):
+    """Một dòng snapshot tiêu chí KCS (chụp lúc phát hành LSX) — xem `kcs_tieu_chi_json`."""
+    tieu_chi_id: int | None = None
+    ma: str | None = None
+    ten: str | None = None
+    huong_dan: str | None = None
+    bat_buoc: bool = False
+    thu_tu: int = 0
 
 
 class KcsChiTietOut(BaseModel):
     cong_viec_id: int
     la_kcs: bool
+    # Task 9 (mg 0250) — snapshot tiêu chí checklist để FE hiện khối "Checklist" khi ghi kết quả
+    # KCS theo lộ trình; rỗng nếu công việc không có tiêu chí (hoặc là kiểm đột xuất).
+    checklist: list[KcsChiTietTieuChiOut] = []
+    # Task 9 (mg 0250) — tổng đã bàn giao XÁC NHẬN tới công việc này (`SanXuatBanGiao` trạng thái
+    # confirmed/adjusted — giống hệt số `tao_batch_kcs` dùng để chặn "vượt số bàn giao"). KHÁC
+    # `so_luong_vao` (kế hoạch tĩnh lúc phát hành, không tự đồng bộ khi bàn giao chạy dần từng đợt)
+    # — FE dùng số NÀY để tính "Còn chờ" cho khớp giới hạn thật, tránh cho phép nhập rồi bị 400.
+    da_ban_giao_xac_nhan: float = 0.0
     batch: list[KcsBatchChiTietOut]
 
 
@@ -797,6 +984,12 @@ class DongNhomDieuKienOut(BaseModel):
     du_dong_du: bool
     du_dong_thieu: bool
     dieu_kien: list[DongNhomDieuKienItemOut]
+    # Còn thiếu CỦA CẢ NHÓM (§2.3) — DẪN XUẤT, chỉ để BÀY, không phải điều kiện thứ 7. `muc_tieu`
+    # None khi nhóm chưa xác định bước KCS cuối nào có khai `so_luong_ra` — `da_dat`/`con_thieu`
+    # cũng None theo (đừng bịa "đã đạt 0", đó là "không biết", khác hẳn "biết là 0").
+    muc_tieu: float | None = None
+    da_dat: float | None = None
+    con_thieu: float | None = None
 
 
 class DongThieuIn(BaseModel):
@@ -812,3 +1005,18 @@ class DongNhomKetQuaOut(BaseModel):
     kieu: str                            # du | thieu
     ly_do_id: int | None = None
     version: int
+
+
+# --- Tổ đề nghị cấp vật tư công đoạn (spec-de-nghi-cap-vat-tu-cong-doan §6) ------------------
+class VatTuDeNghiDongIn(BaseModel):
+    hang_loai: str
+    hang_id: int
+    dvt: str
+    sl_yeu_cau: float = 0.0
+    ly_do_chenh_lech: str | None = None
+
+
+class VatTuDeNghiIn(BaseModel):
+    # GIỜ cần, không phải ngày: kho soạn theo ca. `stock_requests.ngay_can` chỉ lưu phần DATE.
+    can_luc: datetime
+    lines: list[VatTuDeNghiDongIn] = []

@@ -26,6 +26,10 @@ os.environ["CARE_REMINDER_SECONDS"] = "0"
 # Redis/MinIO thật. Đừng gỡ hai dòng này.
 os.environ["REDIS_URL"] = ""
 os.environ["MINIO_ENDPOINT"] = ""
+# Hạ bcrypt về số vòng tối thiểu — CHỈ trong test. Mỗi test seed admin (1 lượt băm) rồi đăng nhập
+# (1 lượt kiểm), ở 12 vòng là ~0,9s/test tiêu vào việc băm một mật khẩu ai cũng biết là "admin123".
+# Production KHÔNG hạ được: `assert_secure_config` chặn khởi động nếu BCRYPT_ROUNDS < 12.
+os.environ["BCRYPT_ROUNDS"] = "4"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

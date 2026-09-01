@@ -64,14 +64,17 @@ def _buoc_goc(service, dong):
     return None
 
 
-def _thoi_luong_tren_may(service, dong, may) -> dict | None:
+def _thoi_luong_tren_may(service, dong, may, *, ty_le=None) -> dict | None:
     """Ba mức thời lượng của bước NẾU chạy trên `may` — tốc độ/chuẩn bị là thuộc tính của MÁY nên
     cùng một bước trên hai máy ra hai con số. Tính không ra ⇒ None (không hứa giờ xong nào); vì sao
-    không ra thì hỏi `_thieu_gi_tren_may`."""
+    không ra thì hỏi `_thieu_gi_tren_may`.
+
+    `ty_le` = phần việc của phân đoạn, do nơi gọi tính sẵn MỘT lần: nó không đổi theo máy ứng viên
+    nên để `_sl_tinh` tự tra cụm ở đây là đẻ một query cho mỗi máy trong vòng lặp."""
     lcd = _buoc_goc(service, dong)
     if lcd is None:
         return None
-    d = thoi_luong_buoc(lcd, may, service.core._sl_tinh(lcd, may))
+    d = thoi_luong_buoc(lcd, may, service.core._sl_tinh(lcd, may, dong=dong, ty_le=ty_le))
     # CỬA TẦNG 0 (21/08/2026) — chỉ nhận máy engine THẬT SỰ tính được giờ chạy trên nó.
     # Bệnh cũ: chỗ này chỉ loại khi `chiem <= 0`, mà máy chưa khai tốc độ vẫn ra `chiem > 0` nhờ
     # phần chuẩn bị + phát sinh cộng vào (`chay = 0`). Hậu quả nhìn thấy trên màn: bước "Ghi kẽm
@@ -230,9 +233,10 @@ def _ung_vien_may(service, dong, *, san: datetime, chan_ngay: int, ca,
     core = service.core
     lsx = core.lsx_repo.get(dong.lsx_id) if dong.lsx_id else None
     gom = core._gom_key(lsx)
+    ty_le = core._ty_le_phan_doan(dong)
     ra: list[dict] = []
     for may in core._may_lam_duoc(dong):
-        d = _thoi_luong_tren_may(service, dong, may)
+        d = _thoi_luong_tren_may(service, dong, may, ty_le=ty_le)
         if d is None:
             if ket is not None:
                 ket.append(f"{may.ten}: {_thieu_gi_tren_may(service, dong, may)}")
@@ -514,8 +518,7 @@ def _ket_qua(service, nguon, id, kq, *, rows, han_sx, han_giao, luot, giu: int =
              tom_tat: str | None = None) -> dict:
     """Gói kết quả cho UI: từng bước đã xếp (kèm lý do chọn máy) · bước bỏ qua · hạn & độ trễ."""
     nhan = service._nap_nhan(rows)
-    ten = {r.id: (nhan.lsx_cd.get(r.lsx_cong_doan_id) if r.nguon == NGUON_LSX
-                  else nhan.bg_cd.get(r.bai_ghep_cong_doan_id)) for r in rows}
+    ten = {r.id: nhan.ten_cd(r) for r in rows}
     finish = kq["finish_chuoi"]
     tre = _tre_ngay(finish, han_sx)
     da_xep = [{

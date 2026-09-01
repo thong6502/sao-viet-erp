@@ -110,19 +110,25 @@ class XepLich2Repository(XepLichRepository):
         q = select(BaiGhep).where(BaiGhep.id.in_(keys))
         return {r.id: r for r in self.db.execute(q).scalars()}
 
-    def lsx_cong_doan_ten_map(self, ids: Iterable[int | None]) -> dict[int, str]:
+    def lsx_cong_doan_nhan_map(self, ids: Iterable[int | None]) -> dict[int, tuple[str, float]]:
+        """Tên + SL VÀO của từng bước LSX. Hai thứ đi CHUNG một câu lệnh vì cùng một lượt `workspace`
+        cần cả hai (nhãn thanh + tổng để chia lần chạy); tách làm hai query là nhân đôi lượt đi DB
+        cho mỗi bàn vài trăm thanh."""
         keys = self._ids(ids)
         if not keys:
             return {}
-        q = select(LsxCongDoan.id, LsxCongDoan.ten).where(LsxCongDoan.id.in_(keys))
-        return {row_id: ten for row_id, ten in self.db.execute(q)}
+        q = select(LsxCongDoan.id, LsxCongDoan.ten, LsxCongDoan.so_luong_vao).where(
+            LsxCongDoan.id.in_(keys))
+        return {row_id: (ten, float(sl or 0)) for row_id, ten, sl in self.db.execute(q)}
 
-    def bai_ghep_cong_doan_ten_map(self, ids: Iterable[int | None]) -> dict[int, str]:
+    def bai_ghep_cong_doan_nhan_map(self, ids: Iterable[int | None]) -> dict[int, tuple[str, float]]:
+        """Tên + SL VÀO của từng bước chung bài ghép — đối xứng `lsx_cong_doan_nhan_map`."""
         keys = self._ids(ids)
         if not keys:
             return {}
-        q = select(BaiGhepCongDoan.id, BaiGhepCongDoan.ten).where(BaiGhepCongDoan.id.in_(keys))
-        return {row_id: ten for row_id, ten in self.db.execute(q)}
+        q = select(BaiGhepCongDoan.id, BaiGhepCongDoan.ten, BaiGhepCongDoan.so_luong_vao).where(
+            BaiGhepCongDoan.id.in_(keys))
+        return {row_id: (ten, float(sl or 0)) for row_id, ten, sl in self.db.execute(q)}
 
     def customer_tags_for_lsx(self, ids: Iterable[int | None]) -> dict[int, list[str]]:
         """Nhãn khách hàng (`customer_tags`) của mỗi LSX, qua `Lsx.order_id → Order.customer_id` —

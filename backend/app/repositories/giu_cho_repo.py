@@ -1,7 +1,7 @@
 """Truy vấn bảng GIỮ CHỖ vật tư. Không luật nghiệp vụ nào ở đây — xem `giu_cho_service`."""
 from __future__ import annotations
 
-from sqlalchemy import delete, func, select, tuple_
+from sqlalchemy import delete, func, or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from ..models.vat_tu_giu_cho import VatTuGiuCho
@@ -36,25 +36,35 @@ class GiuChoRepository:
                 else stmt.where(VatTuGiuCho.bai_ghep_id == bai_ghep_id))
         return list(self.db.execute(stmt.order_by(VatTuGiuCho.id.asc())).scalars())
 
-    def cua_nhieu_lsx(self, lsx_ids: list[int]) -> dict[int, list[VatTuGiuCho]]:
-        """`{lsx_id: dòng giữ chỗ}` cho NHIỀU lệnh trong MỘT câu — bản gộp của `cua_chu_the`.
+    def cua_nhieu_chu_the(
+        self, chu_the: list[tuple[int | None, int | None]]
+    ) -> dict[tuple[int | None, int | None], list[VatTuGiuCho]]:
+        """Gộp `cua_chu_the()` cho NHIỀU chủ thể một lượt — 1 query thay vì N.
 
-        Có mặt vì màn danh sách hỏi trạng thái giữ chỗ của cả trang lệnh một lượt; gọi
-        `cua_chu_the` trong vòng lặp là đúng N+1 (mỗi lệnh một câu SELECT).
+        `giu_theo_chu_the_hang()` gọi `trang_thai()` cho từng chủ thể trong bảng; để mỗi lần tự
+        query riêng thì N chủ thể (có thể tới hàng trăm lệnh) là N round-trip DB không cần thiết.
+        Màn danh sách lệnh hỏi trạng thái giữ chỗ của cả trang cũng đi qua đây.
 
-        TOÀN ÁNH trên `lsx_ids`: lệnh không có dòng nào vẫn trả `[]`, để nơi gọi khỏi phải `.get`.
+        TOÀN ÁNH trên `chu_the`: chủ thể không có dòng nào vẫn có khoá, giá trị `[]`. Nhờ vậy khoá
+        VẮNG mang đúng MỘT nghĩa — nơi gọi đang hỏi ngoài lô đã tra — nên `trang_thai()` phân biệt
+        được "không giữ chỗ gì" với "chưa tra" thay vì phải đoán.
         """
-        ket: dict[int, list[VatTuGiuCho]] = {i: [] for i in lsx_ids}
-        if not lsx_ids:
-            return ket
+        ra: dict[tuple[int | None, int | None], list[VatTuGiuCho]] = {c: [] for c in chu_the}
+        lsx_ids = [c[0] for c in chu_the if c[0] is not None]
+        bai_ids = [c[1] for c in chu_the if c[1] is not None]
+        if not lsx_ids and not bai_ids:
+            return ra
+        dieu_kien = []
+        if lsx_ids:
+            dieu_kien.append(VatTuGiuCho.lsx_id.in_(lsx_ids))
+        if bai_ids:
+            dieu_kien.append(VatTuGiuCho.bai_ghep_id.in_(bai_ids))
         rows = self.db.execute(
-            select(VatTuGiuCho)
-            .where(VatTuGiuCho.lsx_id.in_(lsx_ids))
-            .order_by(VatTuGiuCho.id.asc())
+            select(VatTuGiuCho).where(or_(*dieu_kien)).order_by(VatTuGiuCho.id.asc())
         ).scalars()
         for r in rows:
-            ket[r.lsx_id].append(r)
-        return ket
+            ra.setdefault((r.lsx_id, r.bai_ghep_id), []).append(r)
+        return ra
 
     def xoa_cua_chu_the(self, *, lsx_id: int | None, bai_ghep_id: int | None) -> int:
         stmt = delete(VatTuGiuCho)

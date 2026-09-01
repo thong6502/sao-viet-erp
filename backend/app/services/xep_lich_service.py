@@ -377,6 +377,20 @@ def _dur_0() -> dict:
             "theo_may": False, "canh_bao": None}
 
 
+def _nhan_sl_tinh(sl_tinh, ty_le: float):
+    """Nhân SL vào của bước với tỉ lệ phân đoạn, GIỮ nguyên đơn vị và diễn giải quy đổi.
+
+    Nhân ở ĐẦU VÀO chứ không nhân vào kết quả: `thoi_luong_buoc` cộng `chuẩn bị máy` vào thời
+    lượng, mà chuẩn bị máy KHÔNG chia theo sản lượng — mỗi lần chạy vẫn phải canh lại từ đầu.
+    Nhân vào `chiem_may_phut` sau khi tính là chia luôn cả phần canh máy: bước tách đôi sẽ hiện ra
+    như thể canh máy hai lần chỉ mất bằng một lần.
+    """
+    if sl_tinh is None or ty_le == 1.0:
+        return sl_tinh
+    vao, dv, dien_giai = sl_tinh
+    return (float(vao) * ty_le, dv, dien_giai)
+
+
 def _mo_ta_gan(truoc: tuple, sau: tuple) -> str:
     """Chuỗi mô tả thay đổi gán (máy/tổ/NCC/ca/giờ) cho audit lịch sử."""
     nhan = ("máy", "tổ", "NCC", "ca", "giờ")
@@ -915,17 +929,34 @@ class XepLichService:
             return _dur_0()
         return self._thoi_luong_noi_bo(dong, lcd)
 
-    def _sl_tinh(self, lcd, may):
+    def _ty_le_phan_doan(self, dong) -> float:
+        """Phần việc của dòng / cả bước (1.0 khi chưa tách) — một query cụm, DÙNG LẠI được.
+
+        Tách riêng khỏi `_sl_tinh` vì bảng GỢI Ý duyệt cả chục máy cho cùng một dòng: tỉ lệ không
+        đổi theo máy ứng viên, tính trong vòng lặp là đẻ một query cụm cho MỖI máy.
+        """
+        if dong is None or getattr(dong, "phan_doan_tong", 1) <= 1:
+            return 1.0
+        from .xep_lich_2.phan_doan import cac_phan_doan, ty_le_trong_cum
+
+        return ty_le_trong_cum(dong, cac_phan_doan(self.db, dong))
+
+    def _sl_tinh(self, lcd, may, *, dong=None, ty_le=None):
         """SL vào của bước quy về đơn vị TỐC ĐỘ — cùng một hàm với drawer lệnh.
 
         Bắt buộc đi qua `LsxService.sl_tinh_cua_buoc`: xếp lịch tự suy đích hay tự nhân hệ số là
         Gantt và màn lệnh chia hai số khác nhau, mà chênh giờ thì không ai soi ra ngay.
+
+        `dong` là DÒNG LỊCH đang xét (không bắt buộc): dòng đã tách lần chạy chỉ làm một phần
+        việc của bước, nên SL đưa cho engine phải là phần của nó. Bỏ trống ⇒ nguyên bước như cũ.
+        `ty_le` để nơi gọi lặp nhiều máy truyền lại tỉ lệ đã tính sẵn (xem `_ty_le_phan_doan`).
         """
         from .bien_cong_thuc import quy_cach_bien
 
         lsx = self.lsx_repo.get(lcd.lsx_id) if getattr(lcd, "lsx_id", None) else None
         qc = quy_cach_bien(lsx) if lsx is not None else {}
-        return self.bg_svc._lsx_svc().sl_tinh_cua_buoc(lcd, may, qc)
+        goc = self.bg_svc._lsx_svc().sl_tinh_cua_buoc(lcd, may, qc)
+        return _nhan_sl_tinh(goc, self._ty_le_phan_doan(dong) if ty_le is None else ty_le)
 
     def _thoi_luong_noi_bo(
         self, dong: XepLichCongDoan, lcd: LsxCongDoan | BaiGhepCongDoan,
@@ -942,7 +973,7 @@ class XepLichService:
         thanh. `theo_may` = tính được từ máy đang gán; sai thì `canh_bao` nói vì sao (máy chưa khai
         tốc độ / đơn vị lệch) để UI nhắc, thay vì im lặng ra số 0."""
         may = self.db.get(MayThietBi, dong.may_id) if dong.may_id else None
-        t = thoi_luong_buoc(lcd, may, self._sl_tinh(lcd, may))
+        t = thoi_luong_buoc(lcd, may, self._sl_tinh(lcd, may, dong=dong))
         pp = t["dien_giai"]["phuong_phap"]
         canh_bao = None
         if pp == "thieu_nang_suat":
@@ -1366,15 +1397,29 @@ class XepLichService:
             if gang:
                 floor = max(floor, gang)
             pred_finishes: list[datetime] = []
+            # `pred_that` = CHỈ tiền nhiệm ĐÃ CÓ GIỜ THẬT. Tiền nhiệm còn nháp (`finish_at` NULL)
+            # rơi về `earliest_finish`, mà giá trị đó dẫn xuất từ sàn "bây giờ" của
+            # `_san_thoi_gian` — nhét nó vào `som_nhat_tu_truoc` là để cái sàn chui ngược vào và
+            # bộ dò lại kết tội "chạy trước bước trước" cho một bước không hề sai thứ tự.
+            pred_that: list[datetime] = []
             for pid in preds[rid]:
                 pr = row_by_id[pid]
-                pfinish = _aware(pr.finish_at) or info[pid]["earliest_finish"]
+                that = _aware(pr.finish_at)
+                pfinish = that or info[pid]["earliest_finish"]
                 lag = dur[pid]["tong_phut"] - dur[pid]["chiem_may_phut"]
                 pred_finishes.append(pfinish + timedelta(minutes=lag))
+                if that is not None:
+                    pred_that.append(that + timedelta(minutes=lag))
             es = max([floor, *pred_finishes])
+            # `som_nhat` gộp HAI thứ khác hẳn nhau: mốc do TIỀN NHIỆM đẩy ra, và cái sàn "không xếp
+            # vào quá khứ" của `_san_thoi_gian`. Bên đọc cần phân biệt để nói đúng chuyện — lệnh xếp
+            # từ tuần trước chưa ai đụng thì lỗi là "lịch đã trôi qua", không phải "chạy trước bước
+            # trước". Giữ riêng phần do tiền nhiệm; None = bước này không có tiền nhiệm nào đẩy.
+            truoc = [*pred_that] + ([gang] if gang else [])
             chiem = dur[rid]["chiem_may_phut"]
             ef = _cong_gio_lam(es, chiem, self._lich_dong(r)) if chiem > 0 else es
             info[rid] = {"som_nhat": es, "earliest_finish": ef,
+                         "som_nhat_tu_truoc": max(truoc) if truoc else None,
                          "blocked_reason": LY_DO_CHO_TIEN_DE if rid in missing else None}
 
         latest_start: dict[int, datetime] = {}
@@ -1521,9 +1566,13 @@ class XepLichService:
             lsx = self.lsx_repo.get(dong.lsx_id)
             qc = lsx.quy_cach_json if lsx else None
         gom = self._gom_key(lsx)
+        # Tỉ lệ phân đoạn không phụ thuộc máy — tính MỘT lần ngoài vòng lặp (12 máy in ứng viên
+        # là 12 query cụm thừa nếu để bên trong).
+        ty_le = self._ty_le_phan_doan(dong)
         ra: list[dict] = []
         for may in self._may_lam_duoc(dong):
-            chiem = thoi_luong_buoc(lcd, may, self._sl_tinh(lcd, may))["chiem_may_phut"]
+            chiem = thoi_luong_buoc(
+                lcd, may, self._sl_tinh(lcd, may, ty_le=ty_le))["chiem_may_phut"]
             if chiem <= 0:
                 continue                      # máy chưa khai tốc độ → không hứa được giờ xong nào
             khe = self._khe_trong(may.id, som, chiem, exclude_id=exclude_id)
@@ -2143,6 +2192,8 @@ class XepLichService:
             items.append({
                 "id": r.id, "nguon": r.nguon,
                 "lsx_id": r.lsx_id, "bai_ghep_id": r.bai_ghep_id,
+                "lsx_cong_doan_id": r.lsx_cong_doan_id,
+                "bai_ghep_cong_doan_id": r.bai_ghep_cong_doan_id,
                 "lsx_ma": ma, "cong_doan_ten": ten, "loai_buoc": r.loai_buoc,
                 "so_luong_vao": _f(lcd.so_luong_vao) if lcd else None,
                 "don_vi_vao": lcd.don_vi_vao if lcd else None,
@@ -2150,6 +2201,7 @@ class XepLichService:
                 "department_id": r.department_id, "department_ten": dept_names.get(r.department_id),
                 "nha_cung_cap": r.nha_cung_cap, "work_shift_id": r.work_shift_id,
                 "som_nhat": ch.get("som_nhat"), "muon_nhat": ch.get("muon_nhat"),
+                "som_nhat_tu_truoc": ch.get("som_nhat_tu_truoc"),
                 "start_at": r.start_at, "finish_at": r.finish_at,
                 "chiem_may_phut": d["chiem_may_phut"], "tong_phut": d["tong_phut"],
                 "chiem_may_phut_min": d.get("chiem_may_phut_min", d["chiem_may_phut"]),

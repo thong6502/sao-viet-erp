@@ -34,14 +34,19 @@ from app.services.san_xuat import kho
 
 # Fixtures + helper batch KCS đạt một phần (nhan=100, dat=90, khong_dat=10).
 from tests.test_san_xuat_kcs import (  # noqa: F401
+    _T0,
+    _T1,
     _batch,
     _cv_kcs,
+    _cv_production,
+    _to_kiem,
     admin,
     customer,
     db,
     lsx_svc,
     orders,
 )
+from app.services.san_xuat import kcs as kcs_service
 
 
 def _kho_tp(db, ma="KHO-TP", ten="Kho thành phẩm") -> KhoHang:
@@ -160,6 +165,103 @@ def test_huy_khi_chua_nhan_gi_thi_huy_han(db, orders, lsx_svc, admin, customer):
     r2 = kho.tao_yeu_cau_nhap_thanh_pham(
         db, user=admin, kcs_batch_id=rb["kcs_batch_id"], so_luong=90)
     assert r2["trang_thai"] == YC_CHO_KHO
+
+
+# --- §5.6 Gửi kho MỘT NÚT — server tự tính số đạt chưa gửi, không nhận số từ client ---------
+def test_mot_nut_chi_kcs_cuoi_routing_duoc_gui(db, orders, lsx_svc, admin, customer):
+    """Mục 1: cả hai điều kiện `loai=routing` VÀ `la_kcs_cuoi=true` đều phải đúng."""
+    to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)           # loai mặc định = routing
+    assert cv.la_kcs_cuoi is False                                      # mặc định KHÔNG set cờ này
+    with pytest.raises(ValueError, match="KCS cuối"):
+        kho.tao_yeu_cau_kho_mot_nut(db, user=admin, kcs_batch_id=rb["kcs_batch_id"])
+
+    cv.la_kcs_cuoi = True
+    db.commit()
+    res = kho.tao_yeu_cau_kho_mot_nut(db, user=admin, kcs_batch_id=rb["kcs_batch_id"])
+    assert res["trang_thai"] == YC_CHO_KHO
+
+
+def test_mot_nut_tu_lay_toan_bo_so_dat_chua_gui(db, orders, lsx_svc, admin, customer):
+    """Mục 2: KHÔNG nhận so_luong từ client — server tự tính = so_luong_dat (không phải so_luong_nhan)."""
+    to, cv, rb = _batch(db, orders, lsx_svc, admin, customer, nhan=100, dat=90, khong_dat=10)
+    cv.la_kcs_cuoi = True
+    db.commit()
+    res = kho.tao_yeu_cau_kho_mot_nut(db, user=admin, kcs_batch_id=rb["kcs_batch_id"])
+    yc = SanXuatKhoRepository(db).yc(res["yc_id"])
+    assert float(yc.so_luong_yeu_cau) == 90                             # = so_luong_dat, không phải 100
+
+
+def test_mot_nut_lan_hai_khong_tao_trung(db, orders, lsx_svc, admin, customer):
+    """Mục 3: lần bấm thứ hai (double-click / bấm lại) không tạo thêm dòng — 409, vẫn đúng 1 dòng."""
+    to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
+    cv.la_kcs_cuoi = True
+    db.commit()
+    kho.tao_yeu_cau_kho_mot_nut(db, user=admin, kcs_batch_id=rb["kcs_batch_id"])
+
+    with pytest.raises(kho.KhongConSoDuGuiKho):
+        kho.tao_yeu_cau_kho_mot_nut(db, user=admin, kcs_batch_id=rb["kcs_batch_id"])
+
+    repo = SanXuatKhoRepository(db)
+    assert len(repo.cac_yc_cua_batch(rb["kcs_batch_id"])) == 1           # vẫn đúng MỘT dòng
+
+
+def test_mot_nut_batch_dat_mot_phan_gui_dung_so_dat(db, orders, lsx_svc, admin, customer):
+    """Mục 4: batch đạt MỘT PHẦN (có phần không đạt) vẫn chỉ gửi đúng phần ĐẠT."""
+    to, cv, rb = _batch(db, orders, lsx_svc, admin, customer, nhan=100, dat=70, khong_dat=30)
+    cv.la_kcs_cuoi = True
+    db.commit()
+    res = kho.tao_yeu_cau_kho_mot_nut(db, user=admin, kcs_batch_id=rb["kcs_batch_id"])
+    yc = SanXuatKhoRepository(db).yc(res["yc_id"])
+    assert float(yc.so_luong_yeu_cau) == 70                             # đúng phần ĐẠT, không phải 100
+
+
+def test_mot_nut_kiem_dot_xuat_khong_duoc_gui(db, orders, lsx_svc, admin, customer):
+    """Mục 5: batch kiểm ĐỘT XUẤT (`loai != routing`) không được gửi kho theo lối một nút."""
+    to_sx, cv = _cv_production(db, orders, lsx_svc, admin, customer)
+    to_kiem, tv = _to_kiem(db)
+    res = kcs_service.tao_kiem_dot_xuat(
+        db, user=tv, cong_viec_id=cv.id, kcs_department_id=to_kiem.id,
+        bat_dau=_T0, ket_thuc=_T1, so_luong_nhan=10, so_luong_dat=10, so_luong_khong_dat=0,
+        don_vi="cái",
+    )
+    with pytest.raises(ValueError, match="routing"):
+        kho.tao_yeu_cau_kho_mot_nut(db, user=admin, kcs_batch_id=res["kcs_batch_id"])
+
+
+def test_mot_nut_khoa_batch_duoc_goi_truoc_khi_doc(db, orders, lsx_svc, admin, customer, monkeypatch):
+    """Mục 6 (khóa transaction chống double-click) — bằng chứng ở HAI mức:
+    (a) `SanXuatKhoRepository.khoa_batch_kcs` THỰC SỰ được gọi, và được gọi TRƯỚC khi đọc
+        `tong_yeu_cau_cua_batch` (thứ tự đúng theo §5.6: khóa rồi mới đọc số) — soi bằng spy ghi
+        lại thứ tự gọi;
+    (b) phần LOGIC mà khóa bảo vệ (double-click không tạo trùng) đã được mục 3 chứng minh bằng gọi
+        tuần tự 2 lần → đúng 1 dòng + lần 2 bị 409. pytest đơn luồng không mô phỏng được race THẬT
+        (hai request cùng lúc chờ nhau ở mức DB lock) — dự án không có tiền lệ test đa luồng cho
+        tình huống này (xem `stock_voucher_repo.lock_for_update`, cũng không có test đa luồng đi
+        kèm) — nên (a)+(b) cùng nhau là bằng chứng đủ: (a) xác nhận CƠ CHẾ được kích hoạt đúng chỗ,
+        (b) xác nhận HÀNH VI cuối cùng đúng như khi khóa hoạt động."""
+    to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
+    cv.la_kcs_cuoi = True
+    db.commit()
+
+    goi = []
+    repo_khoa_goc = SanXuatKhoRepository.khoa_batch_kcs
+    tong_yc_goc = SanXuatKhoRepository.tong_yeu_cau_cua_batch
+
+    def _khoa_spy(self, kcs_batch_id):
+        goi.append("khoa")
+        return repo_khoa_goc(self, kcs_batch_id)
+
+    def _tong_yc_spy(self, kcs_batch_id, **kw):
+        goi.append("doc_tong")
+        return tong_yc_goc(self, kcs_batch_id, **kw)
+
+    monkeypatch.setattr(SanXuatKhoRepository, "khoa_batch_kcs", _khoa_spy)
+    monkeypatch.setattr(SanXuatKhoRepository, "tong_yeu_cau_cua_batch", _tong_yc_spy)
+
+    kho.tao_yeu_cau_kho_mot_nut(db, user=admin, kcs_batch_id=rb["kcs_batch_id"])
+
+    assert "khoa" in goi and "doc_tong" in goi
+    assert goi.index("khoa") < goi.index("doc_tong")                    # khóa TRƯỚC khi đọc số
 
 
 # --- §14.2 Phân loại BTP dư -----------------------------------------------------------------

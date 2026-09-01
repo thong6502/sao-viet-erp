@@ -1,0 +1,600 @@
+"""Tổ trưởng đề nghị cấp vật tư cho công đoạn của mình (spec-de-nghi-cap-vat-tu-cong-doan §5).
+
+Ranh giới an ninh THỰC nằm ở đây, không ở router: router chỉ gác bit thô `san_xuat:assign_work`
+(mọi tổ trưởng SX đều có), còn "đúng tổ nào" thì chỉ tầng này biết. Tái dùng `_gate_to_truong` của
+`vat_tu_nhan.py` — hai cổng cùng nghĩa mà viết hai lần là mời chúng lệch nhau.
+
+BA thang đơn vị chạy song song trong `tao()` — xem docstring của hàm đó.
+"""
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta, timezone
+
+from sqlalchemy.orm import Session
+
+from ...models.san_xuat_vat_tu import (
+    DN_BO_SUNG, DN_LAN_DAU, SanXuatVatTuDeNghi, SanXuatVatTuDeNghiDong,
+)
+from ...models.stock_request import REQ_CANCELLED, REQ_XUAT
+from ...repositories.audit_repo import AuditLogRepository
+from ...repositories.san_xuat_repo import SanXuatRepository
+from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
+from ...repositories.san_xuat_vat_tu_repo import SanXuatVatTuRepository
+from ...repositories.stock_request_repo import StockRequestRepository
+from ...realtime import hub
+from ..ke_hoach_vat_tu_service import KeHoachVatTuError
+from .vat_tu_nhan import _gate_to_truong
+
+_EPS = 0.0005      # cùng dung sai làm tròn với `san_luong.tao_batch`
+# Việt Nam không có giờ mùa hè (DST) → offset cố định là đủ, không cần `ZoneInfo`. Cùng quy ước với
+# `stock_voucher_service.py:436`.
+_VN_TZ = timezone(timedelta(hours=7))
+
+
+class VatTuDeNghiError(Exception):
+    """Lỗi NGHIỆP VỤ (400) — khác `PermissionError` (403)."""
+
+
+def _ngay_vn(can_luc: datetime) -> date:
+    """Ngày mà `can_luc` rơi vào, theo lịch mà NGƯỜI DÙNG hai đầu cùng nhìn thấy.
+
+    `can_luc` NAIVE = giờ nhà máy (wall-clock), KHÔNG phải UTC. Nó đi ra từ ô `datetime-local`
+    ở màn Thực hiện SX, và cả phân hệ sản xuất ghi/đọc naive theo quy ước wall-clock — nói rõ
+    ở `xep_lich_service._naive`: "bỏ tzinfo để serialize dạng WALL-CLOCK (giờ nhà máy) — FE
+    `new Date(iso)` KHÔNG dịch múi (tránh lệch +7h)". Bản trước coi naive = UTC rồi +7h: tổ
+    trưởng gõ 31/08 17:56 mà kho lưu `ngay_can = 01/09` — lùi hạn của thủ kho đi một ngày,
+    đúng cái ca chiều mà `can_luc` sinh ra để diễn đạt. Lọc theo ngày cũng trượt luôn.
+
+    AWARE (client gửi ISO kèm offset) thì quy về giờ VN rồi mới lấy ngày — `.date()` trên một
+    datetime aware lấy ngày theo múi ĐÃ GẮN, để nguyên là ra ngày UTC.
+    """
+    if can_luc.tzinfo is None:
+        return can_luc.date()
+    return can_luc.astimezone(_VN_TZ).date()
+
+
+def _can_luc_luu(can_luc: datetime) -> datetime:
+    """Khuôn LƯU của `can_luc`: wall-clock giờ nhà máy, gắn NHÃN UTC — đúng khuôn `_aware()` mà cả
+    phân hệ sản xuất đang dùng cho `start_at`/`bat_dau`/`ket_thuc`.
+
+    Cột là `DateTime(timezone=True)`. Gán thẳng một datetime NAIVE vào đó chạy êm trên SQLite
+    (naive vào, naive ra) nhưng trên Postgres `timestamptz` thì đo thật: ghi 31/08 17:56 naive,
+    đọc lại ra `2026-08-31T17:56:00+00:00`, FE `new Date(...)` ở VN hiện 00:56 ngày 01/09 — lệch
+    +7h, và lệch NGƯỢC hướng với `ngay_can` mà `_ngay_vn` vừa tính ra (31/08). Gắn nhãn ngay lúc
+    ghi thì `can_luc_hien_thi()` gỡ nhãn ra là về lại đúng con số tổ trưởng gõ.
+
+    Client gửi AWARE (ISO kèm offset) thì quy về giờ VN TRƯỚC rồi mới gỡ nhãn — cùng đúng một
+    phép mà `_ngay_vn` làm để lấy ngày, nếu không thì giờ lưu và ngày lưu nói hai chuyện khác nhau.
+    """
+    if can_luc.tzinfo is not None:
+        can_luc = can_luc.astimezone(_VN_TZ).replace(tzinfo=None)
+    return can_luc.replace(tzinfo=timezone.utc)
+
+
+def can_luc_hien_thi(dt: datetime | None) -> datetime | None:
+    """Khuôn TRẢ RA của `can_luc` — bỏ tzinfo để serialize dạng wall-clock, giống
+    `xep_lich_service._naive`. FE (`ngayGio`, `fmtGioCan`, `isOverdue`) đọc naive = giờ nhà máy;
+    để nguyên `+00:00` là nó dịch múi thêm +7h. CHỈ cho ĐẦU RA, không cho tính toán."""
+    return dt.replace(tzinfo=None) if dt is not None else None
+
+
+def _f(v) -> float:
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _ve_goc_dong(kh_svc, k, k_row, dvt, sl):
+    """Quy số tổ khai về đơn vị gốc. Trả `(sl_goc, dvt_goc, theo_goc: bool)`.
+
+    Giấy khai bằng "tờ" không có cạnh quy đổi tĩnh sang tấn (ruling 10). Ba nhánh:
+      (1) tổ giữ NGUYÊN đơn vị kế hoạch ⇒ nội suy theo TỈ LỆ mà chính engine vừa tính cho ĐÚNG
+          lệnh này (đã dùng khổ giấy thật): `sl * sl_goc_kh / sl_kh`. Chính xác, không cần cạnh
+          quy đổi nào. Đây là ca thường gặp nhất.
+      (2) tổ ĐỔI đơn vị, hoặc dòng ngoài kế hoạch ⇒ cầu quy đổi tĩnh (`ve_don_vi_goc`).
+      (3) không quy được: nếu tổ đang xin số DƯƠNG thì NỔ lỗi nghiệp vụ — ta không thể xin kho
+          một lượng không diễn đạt được bằng đơn vị kho nhận (`create` sẽ chặn y hệt). Nếu tổ xin
+          0 thì không cần số gốc: trả 0 + `theo_goc=False`, `_chuan_hoa` so lệch theo đơn vị
+          hiển thị.
+    Ca `kh_row["sl_goc"] == 0` là có thật: mặt hàng chưa khai công thức lượng thì chính bảng cân
+    đối cũng để `nhu_cau = 0` và gắn cảnh báo. Nó rơi vào nhánh (2)→(3) đúng như trên.
+    """
+    kh_sl = _f((k_row or {}).get("sl"))
+    kh_goc = _f((k_row or {}).get("sl_goc"))
+    cung_dvt = k_row is not None and (dvt or "") == (k_row.get("dvt") or "")
+    if cung_dvt and kh_sl > _EPS and kh_goc > _EPS:
+        return sl * kh_goc / kh_sl, k_row.get("dvt_goc") or "", True
+    try:
+        sl_goc, dvt_goc = kh_svc.ve_don_vi_goc(k[0], k[1], dvt, sl)
+    except KeHoachVatTuError as e:
+        if sl > _EPS:
+            raise VatTuDeNghiError(str(e)) from None
+        return 0.0, (k_row or {}).get("dvt_goc") or "", False
+    return sl_goc, dvt_goc, True
+
+
+def _chuan_hoa(kh_svc, cv, lines: list[dict], *, bat_buoc_ly_do: bool) -> list[dict]:
+    """Trộn kế hoạch với số tổ khai, QUY ĐỔI LẠI ở BE, và bắt lý do đúng luật (§3, §4).
+
+    Không tin đơn vị/số của client: nó chỉ nói "xin 3 ram" — quy 3 ram ra bao nhiêu kg là việc của
+    engine đơn vị, và phải là CÙNG engine mà bảng cân đối dùng, không thì hai bên đếm hai kiểu.
+    """
+    kh = {(k["hang_loai"], int(k["hang_id"])): k for k in kh_svc.nhu_cau_cua_cong_viec(cv)}
+    khai: dict[tuple, dict] = {}
+    for ln in lines:
+        k = (ln["hang_loai"], int(ln["hang_id"]))
+        if k in khai:
+            raise VatTuDeNghiError("Một mặt hàng chỉ được khai một dòng — gộp số lượng lại.")
+        khai[k] = ln
+
+    ra: list[dict] = []
+    for k in list(kh) + [k for k in khai if k not in kh]:
+        k_row = kh.get(k)
+        ln = khai.get(k)
+        ten = (k_row or {}).get("ten") or f"#{k[1]}"
+        sl = _f((ln or {}).get("sl_yeu_cau"))
+        # Số âm không có nghĩa cho "xin cấp" — chặn NGAY, đừng để lọt vào bản đối chiếu rồi mới
+        # bị `_lines_kho` âm thầm loại (bảng sản xuất khi đó ghi được "−50 tờ").
+        if sl < 0:
+            raise VatTuDeNghiError(f"«{ten}» không nhận số âm.")
+        # Dòng NGOÀI kế hoạch mà xin 0 là vô nghĩa — không lưu (§4).
+        if k_row is None and (ln is None or sl <= _EPS):
+            continue
+        # `k_row` là None cho dòng NGOÀI kế hoạch, nên `(k_row or {})["dvt"]` là KeyError ⇒ 500
+        # ngay khi client gửi một dòng khai thêm với `dvt` rỗng (mặt hàng chưa khai đơn vị gốc thì
+        # ô đơn vị trên form hiện "—" và FE không có gì để điền vào đây). Đó là lỗi NGHIỆP VỤ, phải
+        # trả câu đọc được nêu đích danh mặt hàng chứ không phải một 500 câm.
+        #
+        # Nhưng CHỈ ném khi tổ THẬT SỰ đang xin dòng này (`sl > _EPS`) — cùng nguyên tắc "soi theo
+        # cái tổ khai" như luật bỏ qua dòng ngoài kế hoạch số 0 ngay trên và như `can_ly_do` bên
+        # dưới. Ném vô điều kiện là để MỘT món thiếu đơn vị khoá chết cả công đoạn — tổ trưởng
+        # không gửi nổi cái gì, kể cả những món chẳng liên quan.
+        #
+        # `dvt` rỗng KHÔNG đồng nghĩa "danh mục chưa khai đơn vị gốc" — có ÍT NHẤT BA nguyên nhân,
+        # nên câu lỗi dưới đây cố ý KHÔNG chỉ đích danh một chỗ sửa duy nhất:
+        #   · danh mục thật sự chưa khai `don_vi_gia` (đơn vị gốc nullable từ 2026-08-08);
+        #   · snapshot ĐÔNG CỨNG: `lsx_service.py` chốt `don_vi_snapshot = mat.don_vi_gia or ""`
+        #     LÚC tạo bước (cột snapshot NOT NULL) — kỹ thuật khai `don_vi_gia` SAU đó thì snapshot
+        #     vẫn rỗng dù danh mục nay đã đủ;
+        #   · dòng GIẤY: `_dv_giay` (`ke_hoach_vat_tu_service.py:382-399`) đọc đơn vị đếm giấy từ
+        #     ROUTING và cố ý trả `None` khi danh mục có nhiều hơn một khả năng ⇒ `k_row["dvt"]`
+        #     rỗng dù tờ giấy có `don_vi_gia` đầy đủ; chỗ phải sửa là routing / danh mục Đơn vị.
+        # Với hai ca sau, bảo tổ trưởng "khai đơn vị gốc cho mặt hàng" là chỉ SAI CHỖ. Câu lỗi vì
+        # thế chỉ nói NHỜ AI (kỹ thuật) LÀM GÌ (kiểm lại đơn vị) + đường thoát tại chỗ (để dòng đó
+        # ở 0, gửi phần còn lại) — tổ trưởng không có quyền vào bất kỳ chỗ nào trong ba chỗ trên.
+        # GIỮ NGUYÊN cụm "báo kỹ thuật": hai test assert đúng cụm đó để có răng
+        # (`test_dong_ngoai_ke_hoach_thieu_don_vi_ra_loi_doc_duoc`,
+        # `test_xin_so_duong_cho_mat_hang_thieu_don_vi_van_bao_loi_doc_duoc`) — đổi là gỡ răng.
+        dvt = (ln or {}).get("dvt") or (k_row or {}).get("dvt") or ""
+        if not dvt and sl > _EPS:
+            raise VatTuDeNghiError(
+                f"«{ten}» chưa có đơn vị tính nên chưa xin được — báo kỹ thuật kiểm lại đơn vị "
+                f"của mặt hàng này rồi xin lại. Trong lúc chờ, để dòng này ở 0 rồi gửi những "
+                f"món còn lại."
+            )
+        sl_goc, dvt_goc, theo_goc = _ve_goc_dong(kh_svc, k, k_row, dvt, sl)
+        kh_goc = _f((k_row or {}).get("sl_goc"))
+        ly_do = ((ln or {}).get("ly_do_chenh_lech") or "").strip() or None
+        # Quy được về gốc thì so ở gốc (đơn vị tổ khai có thể khác đơn vị kế hoạch). Không quy
+        # được thì hai bên đang CÙNG đơn vị hiển thị nên so thẳng ở đó — đừng so 0 với 0 rồi kết
+        # luận "không lệch", đó là nuốt mất chênh lệch thật.
+        lech = (abs(sl_goc - kh_goc) > _EPS) if theo_goc \
+            else (abs(sl - _f((k_row or {}).get("sl"))) > _EPS)
+        # "Có xin" xét theo SỐ TỔ KHAI, không theo `sl_goc`.
+        # Lần BỔ SUNG không lấy kế hoạch làm mốc: kế hoạch đã "tiêu" ở lần đầu, lần này nghĩa là
+        # "ngoài những gì đã xin, tôi cần THÊM bấy nhiêu". Nên một dòng kế hoạch mà tổ không gửi
+        # (sl = 0) là "món này không cần thêm" — không có gì để giải thích. Nếu vẫn tính `lech` ở
+        # đây thì mọi dòng kế hoạch không gửi đều ném lỗi, mà form bổ sung lại không có chỗ ghi lý
+        # do cho chúng ⇒ đường bổ sung tắc hẳn. Đổi lại, mọi dòng KHÁC 0 của lần bổ sung đều phải
+        # giải thích (xin thêm là một quyết định mới), nên không nới lỏng gì.
+        # Lần ĐẦU giữ nguyên luật cũ: lệch kế hoạch, hoặc ngoài kế hoạch + số dương — TRỪ đúng một
+        # ca: món TRONG kế hoạch mà kế hoạch KHÔNG có đơn vị hiển thị (`dvt` rỗng vì bất kỳ nguyên
+        # nhân nào trong ba nguyên nhân kể ở chốt chặn trên — danh mục, snapshot, hay routing của
+        # dòng giấy) và tổ để 0. Món như vậy không có mốc nào để nói lệch hay không lệch
+        # (`_quy_doi_dong` gắn sẵn cờ `CB_KHONG_DOI_CHIEU` cho đúng ngữ nghĩa đó, và `nhu_cau` bị
+        # ép về 0), nên `_ve_goc_dong` trả `theo_goc=False` và `lech` hoá thành
+        # `|0 − sl_kế_hoạch|` — luôn True. Đòi giải thích ở đây là ngõ cụt kín: đường thoát duy
+        # nhất là "đưa về 0", mà nó ĐANG ở 0 và chính cái 0 đó đẻ ra `lech`; dòng kế hoạch không
+        # xoá được; và CẢ BA nguyên nhân đều nằm ngoài tay tổ trưởng (họ không có quyền vào danh
+        # mục vật tư, cũng không sửa được routing hay snapshot đã chốt của bước).
+        khong_doi_chieu = k_row is not None and not dvt and sl <= _EPS
+        can_ly_do = (sl > _EPS) if bat_buoc_ly_do \
+            else (not khong_doi_chieu and (lech or (k_row is None and sl > _EPS)))
+        if can_ly_do and not ly_do:
+            raise VatTuDeNghiError(f"«{ten}» lệch kế hoạch — phải ghi lý do.")
+        ra.append({
+            "hang_loai": k[0], "hang_id": k[1],
+            "ten": ten,
+            "dvt": dvt, "dvt_goc": dvt_goc,
+            "sl_ke_hoach": _f((k_row or {}).get("sl")), "sl_ke_hoach_goc": kh_goc,
+            "sl_yeu_cau": sl, "sl_yeu_cau_goc": sl_goc,
+            "ly_do_chenh_lech": ly_do,
+        })
+    return ra
+
+
+def moi_dong_deu_0(dn) -> bool:
+    """Mọi dòng của lần đề nghị này đều xin 0 ⇒ yêu cầu kho (nếu đang `cancelled`) là do CHÍNH SẢN
+    XUẤT tự đưa về 0, không phải kho hủy. Hai bên đọc cùng một vị ngữ: `sua()` dùng nó để chọn
+    đường khôi phục (`khoi_phuc_tu_san_xuat` so với `dong_bo_tu_san_xuat`), `board._vat_tu_cap`
+    dùng nó để biết có mở ô "sửa lần cuối" cho tổ hay không (Task 7 — ruling task-7 27: kho ĐÃ hủy
+    thì `sua()` sẽ ném lỗi, mời tổ bấm sửa để rồi ăn 400 là lỗi giao diện)."""
+    return all(float(d.sl_yeu_cau or 0) <= _EPS for d in (dn.dongs or []))
+
+
+def lan_con_mo(dn, *, co_voucher: bool, trang_thai_kho: str | None) -> bool:
+    """Lần đề nghị `dn` còn ĐANG MỞ — tức còn sửa được, và vì thế CHƯA được mở lần bổ sung.
+
+    Ba trạng thái, đừng gộp hai cái sau làm một:
+      · kho đã lập phiếu ⇒ ĐÓNG (sửa nữa là sửa sau lưng chứng từ);
+      · KHO hủy ⇒ ĐÓNG (`sua()` ném, và chính câu lỗi của nó bảo hãy tạo lần bổ sung);
+      · TỔ tự đưa mọi dòng về 0 ⇒ vẫn MỞ (nhập lại số dương là khôi phục, giữ nguyên mã).
+
+    Hàm THUẦN: người gọi tự đưa vào hai dữ kiện họ đã có sẵn, để board không phải hỏi DB thêm lần
+    nào (ruling 25/36). `tao()` và board dùng CHUNG hàm này (vòng sửa 1, Important 1) — hai bên
+    lệch nhau đúng một số hạng là đẻ ra nút bấm-rồi-báo-lỗi, đó chính là lỗi vòng đó đã sửa."""
+    if dn is None:
+        return False
+    if co_voucher:
+        return False
+    if trang_thai_kho == REQ_CANCELLED and not moi_dong_deu_0(dn):
+        return False
+    return True
+
+
+def _don_vi_gui_kho(hang, hang_loai, hang_id, sl_goc: float) -> tuple[str, float]:
+    """Chọn đơn vị gửi kho cho một lượng đã quy về gốc. Trả `(dvt, so_luong_theo_dvt)`.
+
+    KHÔNG mặc định dùng đơn vị gốc: `StockRequestLine.sl_de_nghi` là `Numeric(14, 2)` kèm
+    `CheckConstraint("> 0")`, nên với giấy (gốc = "tấn") một đề nghị 10 tờ ≈ 0.003 tấn bị ép về
+    0.00 và vỡ ràng buộc ngay lúc commit — SQLite của test không ép scale nên test không thấy.
+    Cả khi không về 0 thì bước lượng tử 0.01 tấn cũng ≈ 33 tờ giấy, đủ để số kho lệch số tổ khai.
+
+    Luật chọn: chỉ được đi TỪ ĐƠN VỊ GỐC XUỐNG MỊN HƠN, không bao giờ lên thô hơn. Trong các đơn
+    vị mịn-hơn-hoặc-bằng gốc, lấy cái THÔ NHẤT mà lượng vẫn ≥ 1. Vật tư đếm bằng "cái"/"kg" giữ
+    nguyên đơn vị gốc như trước (50 cái vẫn là "cái"); chỉ khi đơn vị gốc biến lượng thành số lẻ
+    dưới 1 mới bước xuống đơn vị mịn hơn (0.335 tấn → 335.14 kg). Không đơn vị nào đạt ≥ 1 thì
+    lấy đơn vị mịn nhất.
+
+    Cái trần "không lên thô hơn gốc" là bắt buộc, không phải cho gọn: danh mục THẬT khai giấy gốc
+    = "kg" (`seed_rebuild`, mọi dòng `don_vi_gia="kg"`) và có cạnh `("tan","kg",1000)`, nên bản
+    trước — vốn dò từ đơn vị thô nhất xuống — chọn "tấn" cho mọi đề nghị ≥ 1.000 kg: 2 314,5 kg
+    thành 2,31 tấn = 2 310 kg, kho soạn thiếu 4,5 kg mà không ai thấy con số nào sai. Lên thô hơn
+    gốc CHỈ làm mất số ở cột `Numeric(14, 2)`, không bao giờ cứu được gì.
+    """
+    ra = hang.don_vi_cua_mat_hang(hang_loai, hang_id)
+    ds = [d for d in (ra.get("ds") or []) if float(d.get("he_so_ve_goc") or 0) > 0]
+    if not ds:
+        return (ra.get("don_vi_goc") or ""), float(sl_goc)
+    # `sl_goc = so_luong_theo_dvt * he_so_ve_goc` ⇒ đảo lại để ra số theo từng đơn vị.
+    # `he_so_ve_goc <= 1` = mịn hơn hoặc CHÍNH LÀ gốc; > 1 là thô hơn gốc, loại thẳng (xem docstring).
+    cap = sorted(((float(d["he_so_ve_goc"]), d) for d in ds if float(d["he_so_ve_goc"]) <= 1.0),
+                 key=lambda x: -x[0])
+    if not cap:
+        # Danh mục không khai nổi CHÍNH đơn vị gốc trong `ds` (dữ liệu cũ) — về nước đi an toàn.
+        return (ra.get("don_vi_goc") or ""), float(sl_goc)
+    for he_so, d in cap:                      # gốc → mịn dần
+        sl = float(sl_goc) / he_so
+        if sl >= 1.0:
+            return d["ma"], sl
+    he_so, d = cap[-1]                        # mịn nhất
+    return d["ma"], float(sl_goc) / he_so
+
+
+def _lines_kho(hang, cv, dongs: list[dict]) -> list[dict]:
+    """Dòng yêu cầu kho = phần DƯƠNG của bản đối chiếu, quy sang đơn vị kho ghi được.
+
+    Bản đối chiếu (bảng sản xuất) giữ NGUYÊN đơn vị tổ khai để tổ đọc đúng thứ họ gõ; chỉ ảnh
+    chiếu sang kho mới đổi thang — xem `_don_vi_gui_kho` để biết vì sao không dùng thẳng đơn vị gốc.
+
+    Lọc "có xin hay không" phải xét theo `sl_yeu_cau` (đơn vị TỔ KHAI — đúng thang với ô tổ gõ),
+    KHÔNG phải `sl_yeu_cau_goc` (đơn vị GỐC, có thể lệch thang cả nghìn lần: 0.0005 tấn ≈ 1.6 tờ).
+    Trước fix (ruling 14), lọc theo `sl_yeu_cau_goc` khiến tổ xin 1 tờ bị loại IM LẶNG — nếu đó là
+    dòng dương duy nhất thì không yêu cầu kho nào được đẻ ra mà tổ không hề biết. Sau fix, mọi dòng
+    tổ thật sự xin (`sl_yeu_cau > _EPS`) đều đi qua `_don_vi_gui_kho`; nếu lượng quy đổi vẫn quá
+    nhỏ để kho ghi được thì rơi vào chốt chặn `round(sl, 2) <= 0` bên dưới — NỔ lỗi đọc được, không
+    còn đường thứ ba nào âm thầm bỏ dòng.
+    """
+    ra = []
+    for d in dongs:
+        if d["sl_yeu_cau"] <= _EPS:
+            continue
+        dvt, sl = _don_vi_gui_kho(hang, d["hang_loai"], d["hang_id"], d["sl_yeu_cau_goc"])
+        # Cột kho là `Numeric(14, 2)` + `CHECK > 0`: lượng nhỏ hơn nửa đơn vị làm tròn sẽ thành
+        # 0.00 và vỡ ràng buộc lúc commit. Chặn ở đây, có câu người dùng đọc được, thay vì để
+        # `IntegrityError` thoát ra thành 500.
+        if round(sl, 2) <= 0:
+            raise VatTuDeNghiError(
+                f"«{d['ten']}» xin quá ít so với đơn vị kho ghi được ({sl:g} {dvt}) — "
+                f"gộp vào lần cấp sau hoặc đổi đơn vị."
+            )
+        ra.append({
+            "hang_loai": d["hang_loai"], "hang_id": d["hang_id"], "dvt": dvt,
+            "sl_de_nghi": sl, "lsx_id": cv.lsx_id, "bai_ghep_id": cv.bai_ghep_id,
+        })
+    return ra
+
+
+def _hang_service(db: Session):
+    """`VatLieuKhoService` DÙNG CHUNG cho cả `_kh_service` lẫn `_req_service`.
+
+    Hai nơi trước đây tự dựng riêng — cùng repo, cùng `db`, dựng hai lần vô ích. `tao()` dựng
+    MỘT LẦN rồi truyền vào cả hai.
+    """
+    from ...repositories.don_vi_do_repo import DonViDoRepository
+    from ...repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+    from ..vat_lieu_kho_service import VatLieuKhoService
+
+    return VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+
+
+def _kh_service(db: Session, hang):
+    """Dựng `KeHoachVatTuService` đúng bộ repo như `routers/ke_hoach_vat_tu.py::get_service()`.
+
+    Ghép THIẾU một repo là engine im lặng trả rỗng — copy nguyên danh sách, không tự rút gọn.
+    """
+    from ...repositories.bai_ghep_repo import BaiGhepRepository
+    from ...repositories.don_vi_do_repo import DonViDoRepository
+    from ...repositories.lsx_repo import LsxRepository
+    from ...repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
+    from ...repositories.stock_lot_repo import StockLotRepository
+    from ...repositories.stock_request_repo import StockRequestRepository
+    from ..ke_hoach_vat_tu_service import KeHoachVatTuService
+
+    return KeHoachVatTuService(
+        db,
+        lsx_repo=LsxRepository(db),
+        bai_ghep_repo=BaiGhepRepository(db),
+        hang=hang,
+        lots=StockLotRepository(db),
+        requests=StockRequestRepository(db),
+        purchases=PurchaseRequestRepository(db),
+        suppliers=SupplierRepository(db),
+        don_vi=DonViDoRepository(db),
+    )
+
+
+def _req_service(db: Session, hang):
+    """Dựng `StockRequestService` đúng bộ repo như `routers/kho_request.py::get_service()`.
+
+    `_validate_lines` cần `self.hang`; thiếu nó là mọi dòng lọt qua không kiểm.
+    """
+    from ...repositories.document_sequence_repo import DocumentSequenceRepository
+    from ...repositories.stock_lot_repo import StockLotRepository, StockThresholdRepository
+    from ...repositories.stock_request_repo import StockRequestRepository
+    from ..sequence_service import SequenceService
+    from ..stock_request_service import StockRequestService
+
+    return StockRequestService(
+        StockRequestRepository(db),
+        StockLotRepository(db),
+        StockThresholdRepository(db),
+        SequenceService(DocumentSequenceRepository(db)),
+        hang=hang,
+    )
+
+
+def tao(db: Session, *, user, cong_viec_id: int, can_luc: datetime,
+        lines: list[dict], kh_svc=None, req_svc=None) -> dict:
+    """Tạo một LẦN đề nghị. Lần 1 = `lan_dau`, từ lần 2 trở đi = `bo_sung`.
+
+    BA thang đơn vị chạy song song ở đây:
+      · `SanXuatVatTuDeNghiDong.sl_yeu_cau`/`dvt` — đơn vị TỔ KHAI (tờ, ram…), giữ để bản đối
+        chiếu hiện đúng chữ tổ gõ (ruling 10).
+      · `sl_yeu_cau_goc`/`dvt_goc` — đơn vị GỐC của danh mục, dùng để SO LỆCH kế hoạch. Giấy khai
+        bằng "tờ" không có cạnh quy đổi tĩnh sang gốc (đo thật: "Ivory 350" không đổi được từ "to"
+        về tấn — xem `_ve_goc_dong`), nên `ve_don_vi_goc` ném lỗi khi không quy được.
+      · `StockRequestLine.sl_de_nghi`/`dvt` — đơn vị GỬI KHO, do `_don_vi_gui_kho` chọn từ
+        `sl_yeu_cau_goc` (ruling 11b, thay ruling 11 cũ). KHÔNG PHẢI lúc nào cũng trùng `dvt_goc`:
+        giấy gốc là "tấn" nhưng gửi kho bằng "kg" — `StockRequestLine.sl_de_nghi` là
+        `Numeric(14, 2)` kèm `CHECK > 0`, tấn thì bước lượng tử 0.01 tấn ≈ 33 tờ, lệch xa số tổ
+        khai; lượng nhỏ còn bị ép về 0.00 và vỡ ràng buộc.
+    So sánh giữa `SanXuatVatTuDeNghiDong` và `StockRequestLine` vì thế PHẢI đi qua
+    `sl_yeu_cau_goc`/`dvt_goc`, không phải `sl_yeu_cau`/`dvt` lẫn `sl_de_nghi`/`dvt` của dòng kho.
+    """
+    repo = SanXuatRepository(db)
+    cv = repo.cong_viec(cong_viec_id)
+    if cv is None:
+        raise ValueError("Không tìm thấy công việc.")
+    # Khoá công đoạn TRƯỚC khi đọc bất cứ thứ gì mình sắp ghi đè lên (`cac_de_nghi`, `lan_ke_tiep`).
+    # `sua()` đã có khoá của nó (`StockRequestRepository.lock_for_update`), `tao()` thì trước đây
+    # không khoá gì: tổ trưởng bấm "Gửi đề nghị" hai lần lúc mạng chậm là hai lượt cùng đọc
+    # `lan_ke_tiep = 1`, cả hai gọi `req_svc.create()` (repo kho TỰ COMMIT) rồi một lượt vỡ
+    # `UniqueConstraint("cong_viec_id", "lan_so")` — thủ kho ôm một yêu cầu kho MỒ CÔI mà
+    # `boi_canh_san_xuat` không trả nổi công đoạn/giờ cần, và vẫn soạn giấy lần thứ hai.
+    # Khoá ở đây thì lượt sau chờ, đọc lại, thấy lần trước còn mở và ăn đúng câu lỗi nghiệp vụ
+    # ngay bên dưới. Khoá này CHỈ có tác dụng nhờ `commit=False` ở lời gọi `req_svc.create` bên
+    # dưới — bất kỳ `commit()` nào chen vào giữa cũng nhả khoá và mở lại nguyên ca đua trên.
+    repo.khoa_cong_viec(cong_viec_id)
+    _gate_to_truong(db, user, cv.department_id)
+
+    vt_repo = SanXuatVatTuRepository(db)
+    cac = vt_repo.cac_de_nghi(cong_viec_id)
+    if cac:
+        cuoi = cac[-1]
+        # `yeu_cau_tom_tat` là hàm GỘP đã viết ở Task 7 (`SanXuatSanLuongRepository`) — tái dùng,
+        # không đẻ thêm phương thức repo mới chỉ để đọc một trạng thái (vòng sửa 1, Important 1).
+        tt = SanXuatSanLuongRepository(db).yeu_cau_tom_tat([cuoi.stock_request_id]).get(
+            cuoi.stock_request_id, {}).get("trang_thai")
+        if lan_con_mo(cuoi, co_voucher=StockRequestRepository(db).co_voucher(cuoi.stock_request_id),
+                      trang_thai_kho=tt):
+            raise VatTuDeNghiError(
+                "Đang có đề nghị chưa được kho lập phiếu — hãy sửa đề nghị đó thay vì tạo lần mới.")
+
+    lan_so = vt_repo.lan_ke_tiep(cong_viec_id)
+    loai = DN_LAN_DAU if lan_so == 1 else DN_BO_SUNG
+    hang = _hang_service(db)
+    kh_svc = kh_svc or _kh_service(db, hang)
+    dongs = _chuan_hoa(kh_svc, cv, lines, bat_buoc_ly_do=(loai == DN_BO_SUNG))
+    kho_lines = _lines_kho(hang, cv, dongs)
+
+    # `commit=False` là điều kiện SỐNG CÒN của khoá ở đầu hàm, không phải tối ưu: mặc định
+    # `StockRequestRepository.create`/`save` tự `commit()` trên CHÍNH session `db` này, mà commit
+    # là NHẢ khoá hàng. Nhả xong thì lượt B chen vào khoá được, đọc `cac_de_nghi` vẫn RỖNG (lượt A
+    # chưa `db.add(dn)` bên dưới) nên cũng lấy `lan_so` đó, đẻ yêu cầu kho thứ hai, rồi một lượt vỡ
+    # `UniqueConstraint("cong_viec_id","lan_so")` — thủ kho ôm một yêu cầu kho MỒ CÔI mà
+    # `boi_canh_san_xuat` không trả nổi công đoạn/giờ cần.
+    #
+    # Với `commit=False`, toàn bộ `tao()` là MỘT giao dịch: khoá giữ liên tục từ `khoa_cong_viec`
+    # tới lúc chốt, lượt B chờ thật rồi đọc lại thật và dừng ở câu lỗi nghiệp vụ "Đang có đề nghị
+    # chưa được kho lập phiếu". Chết giữa chừng cũng hết mồ côi: rollback xoá sạch cả yêu cầu kho
+    # lẫn hai bảng SX, tổ gọi lại `tao()` là xong.
+    #
+    # ⚠️ RANH GIỚI THẬT của giao dịch đó là `AuditLogRepository.create` bên dưới, KHÔNG phải
+    # `db.commit()` đứng sau nó: `audit_repo.create` tự `commit()` trong thân hàm (`audit_repo.py`),
+    # nên tới dòng audit là khoá đã nhả và `db.commit()` chỉ còn là cái chốt rỗng. Muốn thêm một
+    # lệnh ghi vào giao dịch này thì phải đặt nó TRƯỚC dòng audit — đặt vào giữa audit và
+    # `db.commit()` là rơi ra ngoài khoá mà không có gì báo.
+    #
+    # Thứ tự "kho trước, SX sau" vì thế không còn gánh vai trò an toàn nào nữa — giữ nguyên chỉ vì
+    # `dn.stock_request_id` cần `req.id` (ruling minor-5).
+    req = None
+    if kho_lines:
+        req_svc = req_svc or _req_service(db, hang)
+        req = req_svc.create(
+            user=user, loai=REQ_XUAT, lines=kho_lines, commit=False,
+            # `bo_phan_id` phải khai TAY: mặc định của `create` là `user.department_id` — phòng của
+            # người bấm, không phải TỔ của công đoạn. Để mặc định là yêu cầu hiện sai bộ phận trên
+            # bản in và lệch scope `department` của kho.
+            bo_phan_id=cv.department_id,
+            ngay_can=_ngay_vn(can_luc),
+            ghi_chu=f"Cấp vật tư công đoạn «{cv.ten_cong_doan}» (lần {lan_so}).",
+        )
+
+    dn = SanXuatVatTuDeNghi(
+        cong_viec_id=cong_viec_id, lan_so=lan_so, loai=loai, can_luc=_can_luc_luu(can_luc),
+        stock_request_id=(req.id if req is not None else None),
+        created_by_id=getattr(user, "id", None), updated_by_id=getattr(user, "id", None),
+    )
+    db.add(dn)
+    db.flush()
+    for d in dongs:
+        db.add(SanXuatVatTuDeNghiDong(de_nghi_id=dn.id, **{
+            k: v for k, v in d.items() if k != "ten"
+        }))
+
+    AuditLogRepository(db).create(
+        actor_user_id=getattr(user, "id", None), action="san_xuat_de_nghi_vat_tu",
+        target=f"san_xuat_cong_viec:{cong_viec_id}",
+        detail=f"lần {lan_so} · {len(kho_lines)} dòng gửi kho",
+    )
+    db.commit()
+    # Báo kho SAU khi giao dịch đã chốt, không sớm hơn: `create(commit=False)` cố ý IM LẶNG vì tin
+    # bắn lúc hàng chưa commit sẽ khiến trình duyệt refetch trên một connection khác mà không thấy
+    # gì — badge bỏ nhịp và SSE không tự thử lại (xem `StockRequestService.thong_bao_yeu_cau_moi`).
+    if req is not None:
+        req_svc.thong_bao_yeu_cau_moi(req)
+    hub.broadcast({"type": "san_xuat_vat_tu_de_nghi_changed",
+                   "cong_viec_id": cong_viec_id})
+    return {"de_nghi_id": dn.id, "stock_request_id": dn.stock_request_id, "lan_so": lan_so}
+
+
+def sua(db: Session, *, user, cong_viec_id: int, de_nghi_id: int,
+        can_luc: datetime, lines: list[dict], kh_svc=None, req_svc=None) -> dict:
+    """Sửa một lần đề nghị CHƯA bị kho lập phiếu (spec §5.2–§5.4).
+
+    Kiểm khoá phải chạy TRONG transaction, ngay trước khi ghi — kiểm ở router rồi mới vào service
+    là mở đúng khe cho kho bấm "lập phiếu" ở giữa hai thời điểm đó (`co_voucher` bên dưới đọc lại
+    ngay trước khi ghi bảng SX).
+
+    Ba nhánh đích cho yêu cầu kho, theo đúng combo (đã-có-yêu-cầu?, còn-dòng-dương?):
+      · CHƯA có `stock_request_id`, giờ có dòng dương ⇒ lần đầu toàn 0 nay xin lại — mới đẻ
+        chứng từ kho (giống `tao()`).
+      · ĐÃ có `stock_request_id`, còn dòng dương, VÀ bản TRƯỚC KHI SỬA toàn 0 ⇒ chính sản xuất đã
+        hủy yêu cầu đó — khôi phục qua `khoi_phuc_tu_san_xuat`.
+      · ĐÃ có `stock_request_id`, còn dòng dương, nhưng bản TRƯỚC KHI SỬA còn dòng dương (sản xuất
+        chưa hủy gì) ⇒ đồng bộ thường qua `dong_bo_tu_san_xuat`; nếu yêu cầu đang `cancelled` thì
+        đó là KHO hủy (ruling task-4 important-2) và hàm này tự chặn, không cho lật quyết định
+        của kho.
+      · ĐÃ có `stock_request_id`, hết dòng dương ⇒ huỷ yêu cầu (`huy_tu_san_xuat`), giữ mã + link
+        để tổ nhập lại số dương sau này khôi phục đúng chứng từ đó.
+    """
+    repo = SanXuatRepository(db)
+    cv = repo.cong_viec(cong_viec_id)
+    if cv is None:
+        raise ValueError("Không tìm thấy công việc.")
+    _gate_to_truong(db, user, cv.department_id)
+
+    vt_repo = SanXuatVatTuRepository(db)
+    dn = vt_repo.de_nghi(de_nghi_id)
+    if dn is None or dn.cong_viec_id != cong_viec_id:
+        raise ValueError("Không tìm thấy đề nghị của công đoạn này.")
+    if StockRequestRepository(db).co_voucher(dn.stock_request_id):
+        raise VatTuDeNghiError("Kho đã lập phiếu cho đề nghị này — hãy tạo yêu cầu bổ sung.")
+
+    # Chụp TRƯỚC khi xoá dòng cũ: dùng để biết cái `cancelled` (nếu có) là do sản xuất tự đưa về 0
+    # hay do kho hủy. Xoá xong mới hỏi là mất luôn câu trả lời (ruling task-4 important-2).
+    truoc_do_toan_0 = moi_dong_deu_0(dn)
+
+    hang = _hang_service(db)
+    kh_svc = kh_svc or _kh_service(db, hang)
+    dongs = _chuan_hoa(kh_svc, cv, lines, bat_buoc_ly_do=(dn.loai == DN_BO_SUNG))
+    kho_lines = _lines_kho(hang, cv, dongs)
+
+    # KHÁC `tao()`: `sua()` KHÔNG chạy trọn trong một giao dịch, và cố ý dừng ở đó. Ba nhánh đồng
+    # bộ/hủy bên dưới kết bằng `requests.save()` mặc định — tức TỰ COMMIT giữa hàm, nhả luôn cái
+    # `lock_for_update` mà chính chúng vừa lấy. Gỡ được chỗ đó phải đưa `commit=False` xuyên qua cả
+    # ba hàm `*_tu_san_xuat` VÀ hoãn phần đẩy tin của chúng; đó là một việc riêng, chưa làm.
+    #
+    # Vì thế khối `req_svc` phải chạy TRƯỚC khi đụng `dn.dongs` (ruling task-4 minor-5, cùng lý do
+    # `tao()` đã vá): nếu `dn.dongs` đã bị xoá/dựng lại ở phía TRÊN thì một commit nội bộ giữa chừng
+    # của `req_svc` ghi luôn phần dở đó vào DB. Làm req_svc trước thì chết giữa chừng chỉ để lại
+    # đúng NỬA đầu (yêu cầu kho), `dn.dongs` của lần sửa vẫn chưa động tới — tổ gọi lại `sua()` với
+    # cùng số là xong, không mồ côi.
+    #
+    # RIÊNG nhánh ĐẺ MỚI thì đi `commit=False` được ngay và có lợi thật: nó không cầm
+    # `lock_for_update` nào để mà nhả, còn `create` tự commit ở đó lại đẻ đúng con MỒ CÔI mà `tao()`
+    # vừa bịt — yêu cầu kho nằm trong hộp thư thủ kho mà không `SanXuatVatTuDeNghi` nào trỏ tới,
+    # nếu phần ghi bảng SX ngay dưới đổ. Đổi lại, tin báo kho phải dời xuống sau `db.commit()`.
+    req_svc = req_svc or _req_service(db, hang)
+    req_id_moi = None
+    req_moi = None       # yêu cầu kho vừa đẻ — báo kho ở CUỐI hàm, sau khi đã chốt giao dịch
+    if dn.stock_request_id is None:
+        # Lần đầu toàn 0, nay có số dương ⇒ giờ mới đẻ chứng từ kho.
+        if kho_lines:
+            req_moi = req_svc.create(
+                user=user, loai=REQ_XUAT, lines=kho_lines, commit=False,
+                bo_phan_id=cv.department_id,
+                ngay_can=_ngay_vn(can_luc),
+                ghi_chu=f"Cấp vật tư công đoạn «{cv.ten_cong_doan}» (lần {dn.lan_so}).",
+            )
+            req_id_moi = req_moi.id
+    elif kho_lines:
+        if truoc_do_toan_0:
+            req_svc.khoi_phuc_tu_san_xuat(dn.stock_request_id, kho_lines,
+                                          user=user, ngay_can=_ngay_vn(can_luc))
+        else:
+            # Trước đó vẫn còn dòng dương ⇒ sản xuất chưa hủy gì. Đi đường đồng bộ thường; nếu
+            # yêu cầu đang `cancelled` thì đó là kho hủy và `dong_bo_tu_san_xuat` sẽ chặn.
+            req_svc.dong_bo_tu_san_xuat(dn.stock_request_id, kho_lines,
+                                        user=user, ngay_can=_ngay_vn(can_luc))
+    else:
+        req_svc.huy_tu_san_xuat(dn.stock_request_id, user=user)
+
+    dn.dongs.clear()
+    db.flush()
+    for d in dongs:
+        db.add(SanXuatVatTuDeNghiDong(de_nghi_id=dn.id, **{
+            k: v for k, v in d.items() if k != "ten"
+        }))
+    dn.can_luc = _can_luc_luu(can_luc)
+    dn.updated_by_id = getattr(user, "id", None)
+    if req_id_moi is not None:
+        dn.stock_request_id = req_id_moi
+
+    AuditLogRepository(db).create(
+        actor_user_id=getattr(user, "id", None), action="san_xuat_sua_de_nghi_vat_tu",
+        target=f"san_xuat_vat_tu_de_nghi:{dn.id}",
+        detail=f"{len(kho_lines)} dòng gửi kho",
+    )
+    db.commit()
+    # Nhánh đẻ mới đi `commit=False` nên `create` KHÔNG tự đẩy tin — báo kho ở đây, sau khi chốt.
+    if req_moi is not None:
+        req_svc.thong_bao_yeu_cau_moi(req_moi)
+    hub.broadcast({"type": "san_xuat_vat_tu_de_nghi_changed", "cong_viec_id": cong_viec_id})
+    # KHÔNG broadcast thêm `stock_request_pending_changed` toàn hệ ở đây (ruling task-4 minor-6):
+    # ba nhánh đồng bộ/hủy đã tự `_notify(..., targeted=False)` bên trong, nhánh đẻ mới thì
+    # `thong_bao_yeu_cau_moi` ngay trên — mà `_notify` cố ý đẩy THEO PHẠM VI (xem
+    # `stock_request_service.py`), không broadcast toàn hệ. `tao()` cũng không có dòng này.
+    return {"de_nghi_id": dn.id, "stock_request_id": dn.stock_request_id}

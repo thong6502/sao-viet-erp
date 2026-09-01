@@ -89,7 +89,17 @@ class StockRequestService:
     # --- Tạo / sửa ---------------------------------------------------------
 
     def create(self, *, user, loai: str, lines: list[dict], ma: str | None = None,
-               **header) -> StockRequest:
+               commit: bool = True, **header) -> StockRequest:
+        """`commit=False` = KHÔNG tự chốt giao dịch, chỉ `flush()` xuống DB.
+
+        Dành cho người gọi đang ôm một giao dịch lớn hơn (`san_xuat/vat_tu_de_nghi.tao()` khoá công
+        đoạn bằng `SELECT … FOR UPDATE` rồi mới ghi hai bảng SX; một `commit()` ở đây là nhả khoá
+        giữa chừng). Khai TƯỜNG MINH thành tham số keyword, KHÔNG để lọt vào `**header` — `header`
+        đi thẳng xuống repo và chỉ được chứa cột của `StockRequest`.
+
+        Đẩy tin thì KHÔNG chạy khi `commit=False` — xem `thong_bao_yeu_cau_moi`, người gọi phải tự
+        gọi nó SAU khi chốt giao dịch. Với `commit=True` (mọi cửa cũ) hành vi y như trước.
+        """
         if loai not in REQUEST_KINDS:
             raise StockRequestError("Loại yêu cầu không hợp lệ (chỉ NHAP hoặc XUAT).")
         self._validate_lines(lines)
@@ -112,7 +122,7 @@ class StockRequestService:
         else:
             ma_clean = self.sequence.generate_flat_code(doc_type)
         req = self.requests.create(
-            ma=ma_clean, loai=loai, nguoi_tao_id=user.id, lines=lines, **header
+            ma=ma_clean, loai=loai, nguoi_tao_id=user.id, lines=lines, commit=commit, **header
         )
         # BỎ BƯỚC DUYỆT (chủ 06/08/2026): tạo yêu cầu là DUYỆT LUÔN — bộ phận xin là kho cấp ngay,
         # không còn "Chờ duyệt". `approved` cũng là trạng thái KHOÁ (BRD §1.5) nên yêu cầu vừa tạo
@@ -124,11 +134,27 @@ class StockRequestService:
         req.trang_thai = REQ_APPROVED
         req.nguoi_duyet_id = user.id
         req.duyet_luc = datetime.now(timezone.utc)
-        req = self.requests.save(req)
-        # Đẩy real-time để Hộp yêu cầu kho thấy yêu cầu mới ngay (badge nhảy), không bắt F5.
+        req = self.requests.save(req, commit=commit)
+        # `commit=True`: hàng đã nằm trong DB ⇒ đẩy tin ngay tại chỗ, y như trước.
+        # `commit=False`: giao dịch còn đang mở ⇒ IM LẶNG. Người gọi tự gọi `thong_bao_yeu_cau_moi`
+        # sau khi chốt (xem docstring hàm đó để biết vì sao không được bắn sớm).
+        if commit:
+            self.thong_bao_yeu_cau_moi(req)
+        return req
+
+    def thong_bao_yeu_cau_moi(self, req: StockRequest) -> None:
+        """Báo kho có yêu cầu MỚI: toast real-time (badge nhảy, không bắt F5) + tin vào chuông thủ kho.
+
+        Tách khỏi `create` để người gọi đang ôm một giao dịch lớn hơn (`create(commit=False)`) đẩy
+        được tin ĐÚNG NHỊP — tức SAU `commit()` của chính họ. Bắn sớm là bắn vào khoảng trống: trình
+        duyệt nhận SSE rồi refetch trên một CONNECTION KHÁC, connection đó chưa thấy hàng chưa
+        commit nên trả về rỗng; SSE chỉ báo một lần nên badge bỏ nhịp luôn, không tự thử lại. Tệ hơn
+        nữa là giao dịch ngoài đổ: tin đã đi rồi mà yêu cầu thì không bao giờ tồn tại.
+
+        Gọi hàm này khi và chỉ khi giao dịch đã chốt và yêu cầu chắc chắn còn sống.
+        """
         self._notify(req, "Yêu cầu mới — chờ kho cấp", targeted=False)
         self._notif_kho_moi(req)  # lưu vào chuông thủ kho
-        return req
 
     def create_dieu_chuyen(self, *, user, loai: str, kho_id: int, lines: list[dict],
                            dieu_chuyen: bool = True, kho_nguon_id: int | None = None,
@@ -250,6 +276,97 @@ class StockRequestService:
             raise StockRequestError(
                 "Yêu cầu đã duyệt không sửa được. Hãy hủy và tạo yêu cầu mới."
             )
+
+    # --- ĐỒNG BỘ TỪ SẢN XUẤT (spec-de-nghi-cap-vat-tu-cong-doan §5.2–§5.3) -------------------
+    # KHÔNG tái dùng `update()`: nó chạy `_require_editable`, mà yêu cầu do sản xuất tạo đã ở
+    # `approved` ngay từ đầu (create tự duyệt). Ba hàm dưới là đường RIÊNG, chỉ tầng
+    # `services/san_xuat/vat_tu_de_nghi.py` được gọi — mọi cửa khác vẫn giữ luật "đã duyệt là khoá".
+
+    def dong_bo_tu_san_xuat(self, req_id: int, lines: list[dict], *, user, ngay_can,
+                            cho_phep_khoi_phuc: bool = False) -> StockRequest:
+        """Thay TOÀN BỘ dòng bằng dữ liệu mới, giữ nguyên mã và id.
+
+        Khoá + đọc lại TRONG transaction, ngay trước khi ghi: kiểm ở router rồi mới vào service là
+        mở đúng khe cho kho bấm "lập phiếu" ở giữa hai thời điểm đó.
+
+        `user` giữ chỗ cho móc audit sau này (Task 6 sẽ truyền theo chữ ký đã chốt) — chưa dùng
+        trong thân hàm, không phải tham số sót lại.
+        """
+        self.requests.lock_for_update(req_id)
+        req = self.requests.get_with_lines(req_id)
+        if req is None:
+            raise StockRequestError("Không tìm thấy yêu cầu.")
+        if self.requests.co_voucher(req.id):
+            raise StockRequestError("Kho đã lập phiếu cho yêu cầu này — không sửa được nữa.")
+        if req.trang_thai == REQ_CANCELLED and not cho_phep_khoi_phuc:
+            # Yêu cầu này do KHO hủy (sản xuất chỉ hủy khi chính nó đưa mọi dòng về 0, và lúc đó
+            # `sua()` gọi qua `khoi_phuc_tu_san_xuat`). `cancel_by_kho` đã ghi thành văn rằng hủy
+            # là KẾT THÚC, không trả về "chờ cấp" — lật nó ở đây còn xoá luôn `ly_do_huy`, ô duy
+            # nhất nói vì sao kho từ chối.
+            raise StockRequestError(
+                "Kho đã hủy yêu cầu này — không sửa lại được. Hãy tạo đề nghị bổ sung."
+            )
+        # Nương tay với mặt hàng vốn đã có trên đề nghị nhưng danh mục đã ngừng dùng — cùng luật
+        # `update()` áp cho cửa kho thường.
+        dang_co = {(ln.hang_loai, int(ln.hang_id))
+                   for ln in (req.lines or []) if ln.hang_loai and ln.hang_id}
+        self._validate_lines(lines, dang_co)
+        self.requests.replace_lines(req, lines)
+        # Đặt lại `sl_duyet` cho MỌI dòng mới: bỏ bước này là `sl_duyet = 0` (giá trị mặc định của
+        # cột), và `refresh_fulfillment` sẽ thấy `sl_da_ung (=0) >= sl_duyet (=0)` đúng ngay lập
+        # tức rồi đóng yêu cầu thành "Hoàn tất" dù kho chưa cấp gì.
+        for ln in req.lines:
+            ln.sl_duyet = ln.sl_de_nghi
+        req.ngay_can = ngay_can
+        if req.trang_thai == REQ_CANCELLED:
+            req.ly_do_huy = None      # đang khôi phục đúng cái sản xuất đã hủy (đã qua chốt trên)
+        # `co_voucher` ở trên đã bảo đảm chưa có phiếu nào nên `sl_da_ung` toàn 0 — set thẳng
+        # `approved` mà không cần tính lại. Đúng cho CẢ BA ca: yêu cầu đang `approved` được sửa số,
+        # yêu cầu đang `cancelled` do CHÍNH sản xuất hủy được khôi phục (`cho_phep_khoi_phuc`), và
+        # yêu cầu đang `received`/`preparing` (kho đã đọc/đã nhận) — nội dung vừa đổi nên trạng
+        # thái "đã xử lý" đó thành cũ, đẩy về `approved` là CỐ Ý để kho biết cần xem lại; `_notify`
+        # ngay dưới đây báo lại cho đúng thủ kho đang cầm yêu cầu này.
+        req.trang_thai = REQ_APPROVED
+        req = self.requests.save(req)
+        # Hộp yêu cầu kho phải thấy con số mới NGAY — số cũ đang nằm trên màn của thủ kho.
+        self._notify(req, "Yêu cầu vừa được cập nhật", targeted=False)
+        return req
+
+    def huy_tu_san_xuat(self, req_id: int, *, user) -> StockRequest:
+        """Tổ xác nhận không cần cấp gì: xoá dòng, chuyển `cancelled`, GIỮ mã và link.
+
+        `user` giữ chỗ cho móc audit sau này (Task 6 sẽ truyền theo chữ ký đã chốt) — chưa dùng
+        trong thân hàm, không phải tham số sót lại.
+        """
+        self.requests.lock_for_update(req_id)
+        req = self.requests.get_with_lines(req_id)
+        if req is None:
+            raise StockRequestError("Không tìm thấy yêu cầu.")
+        if req.trang_thai == REQ_CANCELLED:
+            # Lũy đẳng: tổ sửa lần hai mà vẫn để 0 thì trạng thái đích đã đạt rồi. Ném lỗi ở đây là
+            # biến "sửa lý do trên một đề nghị đã về 0" thành ngõ cụt — rollback luôn cả phần ghi
+            # bảng SX mà lần sửa đó thực sự muốn ghi.
+            return req
+        if req.trang_thai == REQ_DONE:
+            raise StockRequestError("Yêu cầu đã cấp xong — không hủy được.")
+        if self.requests.co_voucher(req.id):
+            raise StockRequestError("Kho đã lập phiếu cho yêu cầu này — không hủy được nữa.")
+        req.lines.clear()
+        req.trang_thai = REQ_CANCELLED
+        req.ly_do_huy = "Tổ xác nhận không cần cấp"
+        req = self.requests.save(req)
+        self._notify(req, "Tổ xác nhận không cần cấp", targeted=False)
+        return req
+
+    def khoi_phuc_tu_san_xuat(self, req_id: int, lines: list[dict], *, user, ngay_can) -> StockRequest:
+        """Tổ nhập lại số dương sau khi đã về 0 — dựng lại dòng trên CHÍNH yêu cầu đó.
+
+        Không đẻ mã mới: một lần đề nghị của tổ là một chứng từ, tổ đổi ý ba lần trước khi kho
+        động tay không phải là ba chứng từ. Chỉ hồi sinh yêu cầu mà CHÍNH sản xuất đã hủy — gọi
+        `cho_phep_khoi_phuc=True` để `dong_bo_tu_san_xuat` bỏ qua chốt chặn "kho đã hủy".
+        """
+        return self.dong_bo_tu_san_xuat(req_id, lines, user=user, ngay_can=ngay_can,
+                                        cho_phep_khoi_phuc=True)
 
     # --- Vòng đời ----------------------------------------------------------
 
@@ -460,7 +577,12 @@ class StockRequestService:
     # --- Thông báo lưu vào chuông (trung tâm thông báo) — song song với toast SSE ---------------
     def _notif_kho_moi(self, req: StockRequest) -> None:
         """Lưu thông báo 'yêu cầu mới chờ cấp' cho THỦ KHO trong phạm vi (trừ người tạo) + đẩy SSE
-        để badge chuông nhảy ngay. Bấm → mở Hộp yêu cầu tại đúng yêu cầu (link_loai='kho_inbox')."""
+        để badge chuông nhảy ngay. Bấm → mở Hộp yêu cầu tại đúng yêu cầu (link_loai='kho_inbox').
+
+        `add_many` TỰ COMMIT trên CÙNG session người gọi, nên hàm này CHỈ được chạy khi giao dịch
+        nghiệp vụ đã chốt — nếu không, commit của nó nhả luôn khoá `SELECT … FOR UPDATE` mà người
+        gọi đang giữ. Đó là lý do `create(commit=False)` không gọi tới đây; cửa duy nhất đi vào là
+        `thong_bao_yeu_cau_moi`, và nó chỉ được gọi sau `commit()`."""
         db = self.requests.db
         creator = UserRepository(db).get_by_id(req.nguoi_tao_id) if req.nguoi_tao_id else None
         dept = DepartmentRepository(db).get_by_id(req.bo_phan_id) if req.bo_phan_id else None
@@ -515,12 +637,26 @@ class StockRequestService:
 
     # --- Đồng bộ trạng thái theo tiến độ ứng phiếu ---------------------------
 
+    @staticmethod
+    def muc_tieu_hieu_luc(ln) -> float:
+        """Mục tiêu HIỆU LỰC của một dòng: kho đã chốt thực xuất thì lấy số chốt, chưa thì `sl_duyet`.
+
+        NULL ≠ 0: NULL là "kho chưa điều chỉnh lần nào", 0 là "chốt rằng không xuất gì".
+        """
+        chot = ln.sl_chot_thuc_xuat
+        return float(chot) if chot is not None else float(ln.sl_duyet)
+
+    @staticmethod
+    def con_lai(ln) -> float:
+        return max(StockRequestService.muc_tieu_hieu_luc(ln) - float(ln.sl_da_ung), 0.0)
+
     def refresh_fulfillment(self, req: StockRequest) -> StockRequest:
         """Tính lại trạng thái sau khi 1 phiếu ghi sổ: ứng đủ hết → Hoàn tất, còn dở →
         Đã cấp một phần. Gọi từ `stock_voucher_service` sau khi cộng `sl_da_ung`."""
         if not req.lines:
             return req
-        done = all(float(ln.sl_da_ung) >= float(ln.sl_duyet) for ln in req.lines)
+        truoc = req.trang_thai
+        done = all(float(ln.sl_da_ung) >= self.muc_tieu_hieu_luc(ln) for ln in req.lines)
         any_issued = any(float(ln.sl_da_ung) > 0 for ln in req.lines)
         if done:
             req.trang_thai = REQ_DONE
@@ -532,6 +668,8 @@ class StockRequestService:
         if getattr(req, "dieu_chuyen", False) and req.loai == REQ_XUAT:
             return req
         self._notify(req, "Hoàn tất yêu cầu" if done else "Kho đã cấp một phần")
-        if done:  # chỉ báo chuông khi ĐỦ (hoàn tất); cấp một phần chưa phải kết quả cuối
+        # Chỉ reo chuông ở lượt CHUYỂN sang hoàn tất — điều chỉnh xuất (100→70) trên yêu cầu ĐÃ
+        # `done` từ trước thì `done` vẫn đúng nhưng trạng thái không đổi, không reo lại.
+        if done and truoc != REQ_DONE:
             self._notif_nguoi_tao(req, loai="kho_hoan_tat", tieu_de="Yêu cầu đã hoàn tất")
         return req

@@ -215,6 +215,14 @@ def tao_batch(
     don_vi_batch = (don_vi or cv.don_vi_ra or "").strip()
     if not don_vi_batch:
         raise ValueError("Batch chưa có đơn vị.")
+    # Sản lượng được CỘNG THẲNG rồi đem trừ `so_luong_ra` (mục tiêu bước) — không có tầng quy đổi ở
+    # đây. Nhận đơn vị khác `don_vi_ra` là cộng táo với cam: 20 ram ghi vào bước khai 10.000 tờ ra
+    # "còn thiếu 9.980" dù việc đã xong. Từ chối rõ ràng đúng hơn là cộng nhầm im lặng.
+    don_vi_cv = (cv.don_vi_ra or "").strip()
+    if don_vi_cv and don_vi_batch != don_vi_cv:
+        raise ValueError(
+            f"Đơn vị sản lượng phải là “{don_vi_cv}” — đúng đơn vị đầu ra của bước này."
+        )
 
     # Dựng lot TRƯỚC khi add batch để bắt lỗi sớm (chưa chạm session cho tới khi hợp lệ hết).
     don_vi_lot_mac_dinh = (cv.don_vi_vao or don_vi_batch or "").strip()

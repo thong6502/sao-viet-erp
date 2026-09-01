@@ -12,11 +12,12 @@ import { useEffect, useState } from "react";
 import type {
   SxWorkItemChiTiet, SxKcsChiTiet, SxKcsBatchChiTiet, SxKcsLoi, SxKcsAnh,
   SxKhoChiTiet, SxNhapKhoYc, SxKhoLot, SxKhoHopThu, SxDongNhomDieuKien,
-  SxPhanLoaiBtp, SxLyDo,
+  SxPhanLoaiBtp, SxLyDo, SxPhanLoaiBtpIn, SxDongThieuIn,
 } from "../api/client";
 import { assetUrl } from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
+import { GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapHopLe } from "../lib/gioNhap";
 import { num, ngayGio } from "./keHoachSxShared";
 import { Field, LyDoSelect, toNum, toDtLocal, type ThsxExec } from "./ThsxExecPanels";
 
@@ -39,7 +40,7 @@ const YC_TT: Record<string, { txt: string; cls: string }> = {
   da_nhap: { txt: "đã nhập đủ", cls: "thsx-x-pill--ok" },
   huy: { txt: "đã huỷ", cls: "thsx-x-pill--off" },
 };
-const PL_LABEL: Record<SxPhanLoaiBtp, string> = {
+export const PL_LABEL: Record<SxPhanLoaiBtp, string> = {
   nhap_btp: "Nhập kho BTP", mau_luu: "Mẫu lưu", phe: "Phế",
 };
 const NHOM_TT: Record<string, { txt: string; cls: string }> = {
@@ -127,7 +128,7 @@ function KcsBatchForm({
   const kd = Math.max(0, nNhan - nDat);
   const donVi = cv.don_vi_ra ?? cv.don_vi_vao ?? null;
   const ketLuan = nNhan <= 0 ? "" : nDat >= nNhan ? "dat" : nDat <= 0 ? "khong_dat" : "dat_mot_phan";
-  const hopLe = !!batDau && !!ketThuc && ketThuc > batDau
+  const hopLe = gioNhapHopLe(batDau) && gioNhapHopLe(ketThuc) && ketThuc > batDau
     && nNhan > 0 && nDat >= 0 && nDat <= nNhan && nMau <= nNhan;
 
   async function luu() {
@@ -142,10 +143,12 @@ function KcsBatchForm({
     <div className="thsx-x-form">
       <div className="thsx-x-grid2">
         <Field label="Bắt đầu">
-          <input type="datetime-local" className="thsx-x-in" value={batDau} onChange={(e) => setBatDau(e.target.value)} />
+          <input type="datetime-local" className="thsx-x-in" min={GIO_NHAP_MIN} max={GIO_NHAP_MAX}
+            value={batDau} onChange={(e) => setBatDau(e.target.value)} />
         </Field>
         <Field label="Kết thúc">
-          <input type="datetime-local" className="thsx-x-in" value={ketThuc} onChange={(e) => setKetThuc(e.target.value)} />
+          <input type="datetime-local" className="thsx-x-in" min={GIO_NHAP_MIN} max={GIO_NHAP_MAX}
+            value={ketThuc} onChange={(e) => setKetThuc(e.target.value)} />
         </Field>
         <Field label={`Số nhận${donVi ? ` (${donVi})` : ""}`}>
           <input type="number" min={0} className="thsx-x-in" value={nhan} onChange={(e) => setNhan(e.target.value)} placeholder="0" />
@@ -429,7 +432,8 @@ export function ThsxKhoPanel({
       )}
       {plOpen && (
         <PhanLoaiBtpForm cvId={cv.id} donVi={cv.don_vi_ra ?? cv.don_vi_vao ?? null}
-          slBatches={slBatches} busy={busy} onXong={() => setPlOpen(false)} exec={exec} />
+          slBatches={slBatches} busy={busy} onXong={() => setPlOpen(false)}
+          onPhanLoai={exec.phanLoaiBtp} />
       )}
       {kho && kho.btp_tra_cho_kho.length > 0 && (
         <ul className="thsx-x-list">
@@ -552,11 +556,13 @@ function YeuCauRow({
   );
 }
 
-function PhanLoaiBtpForm({
-  cvId, donVi, slBatches, busy, onXong, exec,
+export function PhanLoaiBtpForm({
+  cvId, donVi, slBatches, busy, onXong, onPhanLoai,
 }: {
   cvId: number; donVi: string | null; slBatches: SxWorkItemChiTiet["san_luong"]["batches"];
-  busy: boolean; onXong: () => void; exec: ThsxExec;
+  busy: boolean; onXong: () => void;
+  /** Xem ghi chú ở `ThsxDongNhomPanel`: nhận đúng một mặt ghi để màn KCS dùng lại được. */
+  onPhanLoai: (body: SxPhanLoaiBtpIn) => Promise<boolean>;
 }) {
   const [soLuong, setSoLuong] = useState("");
   const [phanLoai, setPhanLoai] = useState<SxPhanLoaiBtp>("nhap_btp");
@@ -567,7 +573,7 @@ function PhanLoaiBtpForm({
   const hopLe = nSl > 0;
 
   async function luu() {
-    if (await exec.phanLoaiBtp({
+    if (await onPhanLoai({
       cong_viec_id: cvId, so_luong: nSl, phan_loai: phanLoai,
       quy_cach: quyCach.trim() || null, nguon_batch_id: nguonBatch, ghi_chu: ghiChu.trim() || null,
     })) onXong();
@@ -617,13 +623,15 @@ function PhanLoaiBtpForm({
 
 // ══════════════════════ ĐÓNG NHÓM §16 / §13.3 (panel drawer) ═════════════════
 export function ThsxDongNhomPanel({
-  dieuKien, canAssign, busy, loadLyDo, exec,
+  dieuKien, canAssign, busy, loadLyDo, onDongThieu,
 }: {
   dieuKien: SxDongNhomDieuKien | null;
   canAssign: boolean;
   busy: boolean;
   loadLyDo: (nhom: string) => Promise<SxLyDo[]>;
-  exec: ThsxExec;
+  /** Chỉ nhận ĐÚNG mặt ghi nó cần, không ôm cả `exec` — panel này còn được dùng ở màn KCS
+   *  (`pages/kcs`), nơi không có controller bàn tổ để dựng đủ 30 hàm của `ThsxExec`. */
+  onDongThieu: (nhomId: number, body: SxDongThieuIn) => Promise<boolean>;
 }) {
   const [dongOpen, setDongOpen] = useState(false);
   const [lyDoId, setLyDoId] = useState<number | null>(null);
@@ -641,7 +649,7 @@ export function ThsxDongNhomPanel({
 
   async function dong() {
     if (lyDoId == null) return;
-    if (await exec.dongThieu(dieuKien!.nhom_id, { ly_do_id: lyDoId, expected_version: dieuKien!.version })) {
+    if (await onDongThieu(dieuKien!.nhom_id, { ly_do_id: lyDoId, expected_version: dieuKien!.version })) {
       setDongOpen(false); setLyDoId(null);
     }
   }
@@ -652,6 +660,20 @@ export function ThsxDongNhomPanel({
         <span className="thsx-psec__title"><Icon name="packageCheck" size={13} /> Đóng nhóm thành phẩm</span>
         <Pill map={NHOM_TT} k={dieuKien.trang_thai} />
       </div>
+
+      {dieuKien.muc_tieu != null && (
+        <div className="thsx-x-stat">
+          <span className="thsx-x-stat__it">mục tiêu <b className="thsx-num">{num(dieuKien.muc_tieu)}</b></span>
+          <span className="thsx-x-stat__sep">·</span>
+          <span className="thsx-x-stat__it">đã đạt <b className="thsx-num">{num(dieuKien.da_dat)}</b></span>
+          <span className="thsx-x-stat__sep">·</span>
+          {dieuKien.con_thieu ? (
+            <span className="thsx-x-pill thsx-x-pill--bad">còn thiếu {num(dieuKien.con_thieu)}</span>
+          ) : (
+            <span className="thsx-x-stat__it">đủ mục tiêu</span>
+          )}
+        </div>
+      )}
 
       <ul className="thsx-x-check">
         {dieuKien.dieu_kien.map((d) => (

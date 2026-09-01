@@ -180,7 +180,7 @@ class StockVoucherService:
         # Luật 2: không ứng vượt số đã duyệt. + Cấp/nhập THIẾU (SL < còn phải cấp) phải có LÝ DO.
         for rl_id, qty in wanted.items():
             rl = lines_by_id[rl_id]
-            con_lai = float(rl.sl_duyet) - float(rl.sl_da_ung)
+            con_lai = self.request_service.con_lai(rl)
             if qty > con_lai + 1e-9:
                 raise StockVoucherError(
                     "Ứng vượt số đã duyệt. Muốn cấp thêm thì phải tạo yêu cầu mới."
@@ -256,7 +256,7 @@ class StockVoucherService:
             rl = lines_by_id.get(rl_id)
             if rl is None:
                 raise StockVoucherError("Dòng phiếu trỏ vào yêu cầu khác.")
-            con_lai = float(rl.sl_duyet) - float(rl.sl_da_ung)
+            con_lai = self.request_service.con_lai(rl)
             if qty > con_lai + 1e-9:
                 raise StockVoucherError("Ứng vượt số đã duyệt — không ghi sổ được.")
 
@@ -357,7 +357,12 @@ class StockVoucherService:
         return req
 
     def post(self, voucher_id: int, user=None):
-        """Ghi sổ phiếu — điểm DUY NHẤT tồn kho đổi. Chạy trong 1 transaction.
+        """Ghi sổ phiếu — điểm DUY NHẤT tồn kho đổi.
+
+        ⚠️ KHÔNG chạy nguyên trong 1 transaction rollback-safe: phần giữ chỗ (nếu `self.giu_cho`
+        có gắn) — `chuyen_dang_ve_sang_kho()`, `doi_soat_dang_ve()`, `nhat_them()` — tự
+        `db.commit()` giữa chừng, cùng kiểu pre-existing với chính hàm này. Lỗi nửa chừng SAU một
+        commit con thì phần đã commit đó KHÔNG rollback theo.
 
         ĐIỀU CHUYỂN (mô hình 2 yêu cầu): phiếu XUẤT nguồn được tạo NHÁP lúc ấn điều chuyển, CHƯA trừ
         tồn. Khi kho đích ghi sổ phiếu NHẬP → ghi sổ LUÔN phiếu xuất nguồn (draft) trong CÙNG một
@@ -505,7 +510,18 @@ class StockVoucherService:
                     ln.so_luong = new_ln
                     ln.sl_goc = new_goc
                 remaining -= giam
+            # Chụp TRƯỚC khi trừ: chỉ dòng đã cấp ĐỦ mới được chốt. Kho đang cấp dở (xin 100 mới
+            # xuất 60) mà điều chỉnh 60→50 thì "còn lại" phải vẫn là 50, không được thành 0 rồi
+            # đóng yêu cầu — 50 tờ kia chưa hề xuất. So với mục tiêu HIỆU LỰC chứ không `sl_duyet`,
+            # để điều chỉnh lần hai (100→80→60) vẫn chốt tiếp được.
+            da_cap_du = float(rl.sl_da_ung) >= self.request_service.muc_tieu_hieu_luc(rl) - 1e-9
             rl.sl_da_ung = max(0.0, float(rl.sl_da_ung) - con_bo)  # yêu cầu: 'còn N chưa cấp'
+            if da_cap_du:
+                # CHỐT = TỔNG đã xuất hiện tại của dòng yêu cầu, không phải hiệu của riêng lần
+                # điều chỉnh cuối — 100→80→60 phải ra 60, không ra 20. Ghi cột riêng thay vì hạ
+                # `sl_duyet`: hạ `sl_duyet` thì xin-100-xuất-70 và xin-70-xuất-70 hoá ra không
+                # phân biệt được (spec §2.3).
+                rl.sl_chot_thuc_xuat = float(rl.sl_da_ung)
 
         # Trả hàng về tồn tự do → lệnh khác đang chờ (giữ chỗ) có thể nhặt thêm ngay.
         if self.giu_cho is not None:
@@ -547,7 +563,8 @@ class StockVoucherService:
         """
         from sqlalchemy import select
 
-        from ..models.bai_ghep import BaiGhepThanhVien
+        from ..models.bai_ghep import BaiGhep, BaiGhepThanhVien
+        from ..models.lsx import Lsx
 
         nhu_cau = None
         ghep_cua: dict[int, int] = {}
@@ -578,9 +595,21 @@ class StockVoucherService:
                     if hang in nhu_cau.get((None, bid), {}):
                         lsx_id, bg_id = None, bid
                     else:
+                        # Hiện TÊN/MÃ dễ đọc thay vì id thô — cùng lý do cửa kiểm lô ngay trên đã
+                        # dặn (dòng ~279): người xem lỗi này là kho, họ đọc mã "LSX-A"/"GB-1", không
+                        # đọc id nội bộ. Fallback về id khi không tra được (danh mục/lệnh đã mất).
+                        ten_hang = getattr(
+                            self.hang.map_theo_cap([hang]).get(hang), "ten", None
+                        ) or f"{hang[0]}#{hang[1]}"
+                        ma_lsx = getattr(
+                            self.vouchers.db.get(Lsx, lsx_id), "ma", None
+                        ) or f"lệnh #{lsx_id}"
+                        ma_bai = getattr(
+                            self.vouchers.db.get(BaiGhep, bid), "ma", None
+                        ) or f"bài ghép #{bid}"
                         raise StockVoucherError(
-                            f"Không xác định được {hang[0]}#{hang[1]} thuộc lệnh #{lsx_id} riêng "
-                            f"hay bài ghép #{bid} — vào Kế hoạch vật tư kiểm lại trước khi ghi sổ."
+                            f"Không xác định được {ten_hang} thuộc {ma_lsx} riêng hay {ma_bai} — "
+                            "vào Kế hoạch vật tư kiểm lại trước khi ghi sổ."
                         )
             khoa = (hang, (lsx_id, bg_id))
             ra[khoa] = ra.get(khoa, 0.0) + float(ln.sl_goc)

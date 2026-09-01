@@ -159,12 +159,15 @@ from .san_xuat_kcs import (
     SanXuatKcsBatch,
     SanXuatKcsLoi,
     SanXuatKcsLoiAnh,
+    SanXuatKcsTieuChi,
+    SanXuatKcsTieuChiCongDoan,
 )
 from .san_xuat_kho import (
     SanXuatKhoHang,
     SanXuatKhoLot,
     SanXuatNhapKhoYc,
 )
+from .san_xuat_vat_tu import SanXuatVatTuDeNghi, SanXuatVatTuDeNghiDong
 from .cong_doan_tag import CongDoanTag, CongDoanTagCatalog
 
 __all__ = [
@@ -323,7 +326,11 @@ __all__ = [
     "SanXuatKcsBatch",
     "SanXuatKcsLoi",
     "SanXuatKcsLoiAnh",
+    "SanXuatKcsTieuChi",
+    "SanXuatKcsTieuChiCongDoan",
     "SanXuatKhoHang",
     "SanXuatKhoLot",
     "SanXuatNhapKhoYc",
+    "SanXuatVatTuDeNghi",
+    "SanXuatVatTuDeNghiDong",
 ]

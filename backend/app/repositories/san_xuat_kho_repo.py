@@ -175,6 +175,20 @@ class SanXuatKhoRepository:
             )
         )
 
+    def cac_yc_cua_nhieu_batch(self, kcs_batch_ids: list[int]) -> dict[int, list[SanXuatNhapKhoYc]]:
+        """Bulk `cac_yc_cua_batch` cho N batch — 1 query (đọc mặt "Trạng thái gửi kho", §6.2)."""
+        if not kcs_batch_ids:
+            return {}
+        rows = self.db.scalars(
+            select(SanXuatNhapKhoYc)
+            .where(SanXuatNhapKhoYc.kcs_batch_id.in_(kcs_batch_ids))
+            .order_by(SanXuatNhapKhoYc.id)
+        )
+        out: dict[int, list[SanXuatNhapKhoYc]] = {}
+        for r in rows:
+            out.setdefault(r.kcs_batch_id, []).append(r)
+        return out
+
     def cac_yc_cua_nhom(self, nhom_id: int) -> list[SanXuatNhapKhoYc]:
         return list(
             self.db.scalars(
@@ -194,6 +208,16 @@ class SanXuatKhoRepository:
         if tru_yc_id is not None:
             stmt = stmt.where(SanXuatNhapKhoYc.id != tru_yc_id)
         return float(self.db.scalar(stmt) or 0)
+
+    def khoa_batch_kcs(self, kcs_batch_id: int) -> None:
+        """Khóa DÒNG batch KCS (SELECT … FOR UPDATE) để chặn 2 yêu cầu gửi-kho-một-nút song song từ
+        CÙNG một batch (double-click / 2 request cùng lúc) — nhại `StockVoucherRepository.
+        lock_for_update`: Postgres request sau CHỜ tới khi request trước commit; SQLite FOR UPDATE là
+        no-op nhưng SQLite tự khóa ghi cả DB nên vẫn tuần tự. Gọi TRƯỚC khi đọc trạng thái/tổng yêu
+        cầu (§5.6)."""
+        self.db.execute(
+            select(SanXuatKcsBatch.id).where(SanXuatKcsBatch.id == kcs_batch_id).with_for_update()
+        ).first()
 
     # --- Hộp thư kho: mọi việc còn chờ kho hành động (§14, §17) ------------------------------
     def cac_yc_cho_kho(self) -> list[SanXuatNhapKhoYc]:

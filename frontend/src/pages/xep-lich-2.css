@@ -1506,6 +1506,46 @@
   pointer-events: none;
 }
 
+/* Lớp THỰC TẾ đè lên thanh kế hoạch — nền mờ, nằm DƯỚI chữ (z-index thấp hơn __body).
+   Màu lấy từ bộ token của app (`--moss`), KHÔNG đặt biến riêng: `--xl2-thuc-te` không tồn
+   tại ở đâu cả nên chỉ có giá trị dự phòng chạy, mà xanh #22c55e chói lệch hẳn khỏi bảng
+   màu trầm của màn này (`--moss` / `--signal`, xem `.xl2-vt--ok` / `.xl2-vt--bad`). */
+.xl2-bar__thuc-te {
+  position: absolute;
+  left: 4px; /* chừa dải accent mép trái */
+  top: 0;
+  bottom: 0;
+  /* Cùng mức 1 với `__body`: nằm TRÊN mảng chuẩn bị máy và đuôi xê dịch (cả hai mức auto,
+     vẽ sau trong DOM nên nếu không nâng mức thì chúng phủ mất vệt thực tế — thanh 63 phút
+     có 45 phút chuẩn bị thì 71% vệt biến mất), nhưng vẫn DƯỚI chữ vì `__body` đứng sau. */
+  z-index: 1;
+  background: color-mix(in srgb, var(--moss) 22%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--moss) 65%, transparent);
+  pointer-events: none;
+}
+
+/* Đang chạy mà đã quá mốc kết thúc: đuôi sọc ở MÉP PHẢI, nằm TRONG thanh.
+   `.xl2-bar` có `overflow: hidden` nên bất cứ thứ gì đặt ngoài mép phải đều bị cắt sạch —
+   bản đầu treo đuôi ra ngoài (`right: -14px`) nên không bao giờ hiện, dù dữ liệu đúng.
+   `z-index: 1` để lớp trắng `__slack` (vẽ SAU trong DOM) không phủ mất sọc; `__body` cũng
+   ở mức 1 nhưng đứng sau nên chữ vẫn nằm trên cùng. */
+.xl2-bar__qua-gio {
+  position: absolute;
+  right: 0;
+  top: 25%;
+  bottom: 25%;
+  width: 10px;
+  z-index: 1;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--signal) 0 3px,
+    transparent 3px 6px
+  );
+  pointer-events: none;
+}
+
+.xl2-bar--qua-gio { outline: 1px solid color-mix(in srgb, var(--signal) 55%, transparent); }
+
 .xl2-bar__body {
   position: relative; /* nổi trên mảng chuẩn bị máy + đuôi xê dịch (cả hai là absolute) */
   z-index: 1;
@@ -1555,6 +1595,23 @@
   background: rgba(255, 255, 255, 0.85);
   border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
   color: inherit;
+}
+/* Pill LẦN CHẠY ("2/3") — cùng khuôn pill bước, chỉ ĐẶC hơn (nền đầy, không viền) để phân biệt hai
+   con số cạnh nhau: "B3" là bước thứ mấy, "2/3" là lần chạy thứ mấy của chính bước đó. */
+.xl2-bar__run-pill {
+  flex: none;
+  font-family: var(--ff-num);
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  color: inherit;
+}
+.xl2-bar .xl2-bar__run-pill {
+  background: hsl(var(--lsx-h), 45%, 88%);
+  color: hsl(var(--lsx-h), 85%, 22%);
 }
 .xl2-bar__dur--range {
   letter-spacing: -0.02em;
@@ -2442,6 +2499,12 @@
   border-radius: var(--r-3);
   padding: var(--sp-2) var(--sp-3);
 }
+/* Lời nhắc CHẶN (ô ngày-giờ gõ sai) — cùng khuôn note, đổi màu để phân biệt với ghi chú thường. */
+.xl2-note--bad {
+  margin-top: var(--sp-2);
+  color: var(--rust);
+  background: color-mix(in srgb, var(--rust) 10%, transparent);
+}
 
 /* ---------------- Pill mức (3 mức) ----------------------------------------- */
 .xl2-mucpill {
@@ -2951,6 +3014,88 @@
   font-size: var(--fs-sm);
   resize: vertical;
 }
+
+/* ---------------- Hộp TÁCH LẦN CHẠY ---------------------------------------
+   Danh sách ô số, một ô một lần chạy. Số căn PHẢI + font số bảng: cột số thẳng hàng thì liếc một
+   cái là thấy tổng có gần đủ chưa, khỏi đọc từng dòng. */
+.xl2-tach { margin-top: var(--sp-2); display: flex; flex-direction: column; gap: 6px; }
+.xl2-tach__row { display: flex; align-items: center; gap: var(--sp-2); }
+.xl2-tach__lb {
+  flex: 0 0 84px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+}
+.xl2-tach__in {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  text-align: right;
+}
+.xl2-tach__in:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+  border-color: var(--rust);
+}
+.xl2-tach__del {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ash-2);
+  cursor: pointer;
+}
+.xl2-tach__del:hover { background: var(--rule-hair); color: var(--signal); }
+.xl2-tach__foot {
+  display: flex;
+  flex-wrap: wrap;   /* màn hẹp: xuống dòng, đừng bóp "Còn lại 4.000" thành hai chữ cụt */
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-top: var(--sp-1);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--rule-hair);
+}
+.xl2-tach__add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ash);
+  padding: 4px 8px;
+  font-size: var(--fs-2xs);
+  cursor: pointer;
+}
+.xl2-tach__add:hover { border-color: var(--rust); color: var(--rust); }
+/* Ba trạng thái của dòng CÒN LẠI: còn phải chia (trung tính) · vừa đủ (moss) · gõ quá tay (signal).
+   Không mượn màu nhấn rust — rust ở màn này đã có nghĩa "đang chọn / hành động chính". */
+.xl2-tach__conlai {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+}
+.xl2-tach__conlai--du { color: var(--moss-deep); }
+.xl2-tach__conlai--qua { color: var(--signal); }
 
 /* toast (đáy phải) */
 .xl2-toast {

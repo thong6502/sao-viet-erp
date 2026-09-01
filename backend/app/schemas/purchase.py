@@ -291,6 +291,11 @@ class PurchaseRequestLineOut(BaseModel):
     vat_amount: int
     line_total: int
     note: str | None = None
+    # Dòng YCMH đẻ ra dòng này (mg 0174b) — client cần lại để chi tiết yêu cầu hiện đúng tình
+    # trạng từng sản phẩm, và để form SỬA gửi lại đúng liên kết thay vì làm rỗng nó. Phải khai ở
+    # ĐÂY nữa: service trả dict + `response_model` ⇒ field không có trong schema Out bị Pydantic bỏ
+    # IM LẶNG, API trả 201 mà người gọi nhận `undefined`, và test sửa đơn mua đứt-liên-kết đỏ.
+    department_request_line_id: int | None = None
     # Liên kết MẶT HÀNG GỐC (mg 0174) — để Nhập kho từ đợt giao TỰ ĐIỀN vật tư thay vì bỏ trống.
     # None khi dòng mua chỉ có tên chữ (không link danh mục) → kho phải chọn tay.
     hang_loai: str | None = None

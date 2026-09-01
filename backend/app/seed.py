@@ -959,8 +959,11 @@ def seed_roles(db: Session) -> None:
         # Ba ô mặc định (self_service · noi_quy · luong-của-tôi) — xem `quyen_mac_dinh`.
         du = {**quyen_mac_dinh(), **perms}
         # Upsert permissions (no-op row-count on re-run; keeps the matrix in sync).
+        # `commit=False`: 277 lượt upsert cho một lần dựng DB — commit từng lượt là pha tốn
+        # nhất của bộ test. Chốt MỘT lần sau vòng lặp ngoài.
         for module_key, perm in du.items():
-            roles.set_permission(role_id=role.id, module_key=module_key, **perm)
+            roles.set_permission(role_id=role.id, module_key=module_key, commit=False, **perm)
+    db.commit()
 
 
 def seed_admin(db: Session) -> None:

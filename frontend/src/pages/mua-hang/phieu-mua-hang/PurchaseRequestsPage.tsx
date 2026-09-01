@@ -500,7 +500,6 @@ export function PurchaseRequestsPage({
         note: trimOptional(line.note),
         supplier_id: line.supplier_id ?? null,
         department_request_line_id: line.department_request_line_id ?? null,
-        // Giữ liên kết danh mục qua mỗi lần lưu — xem ghi chú ở `fromRequest`.
         hang_loai: line.hang_loai ?? null,
         hang_id: line.hang_id ?? null,
       })),

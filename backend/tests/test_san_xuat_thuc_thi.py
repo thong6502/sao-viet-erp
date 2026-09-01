@@ -352,7 +352,13 @@ def test_nhan_vien_chon_ngoai_pham_vi_bi_chan(db, orders, lsx_svc, admin, custom
     from app.models.role import SCOPE_OWN
     from tests.test_san_xuat_board import _FakeAuthz, _to_moi
     ngoai = _to_moi(db, "Tổ Ngoài TT", "TO-NG-TT")
-    user = SimpleNamespace(id=admin.id, department_id=ngoai.id, role_id=admin.role_id)
+    # KHÔNG dùng `admin.id`: `_to_khoan` đặt admin làm tổ trưởng của `to`, mà từ mg `0250`
+    # (KCS kiêm nhiệm) `_to_thay_duoc` cho user thấy MỌI tổ mình đứng `head_user_id` kể cả ngoài
+    # phòng — tổ trưởng kiêm nhiệm được `_gate` cho GHI thì cũng phải có lối vào để XEM. Muốn thử
+    # đúng vế "ngoài phạm vi" thì người gọi phải KHÔNG phải tổ trưởng của tổ đích.
+    nguoi_la = admin.id + 9_999
+    assert to.head_user_id != nguoi_la
+    user = SimpleNamespace(id=nguoi_la, department_id=ngoai.id, role_id=admin.role_id)
     with pytest.raises(PermissionError):
         board.nhan_vien_chon(db, user, _FakeAuthz(SCOPE_OWN), team_id=to.id)
 

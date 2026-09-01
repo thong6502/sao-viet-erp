@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -10886,6 +10887,10 @@ def _migrate_giu_cho_purchase_request_line_id(db: Session) -> None:
     db.execute(text(
         "ALTER TABLE vat_tu_giu_cho ADD COLUMN purchase_request_line_id INTEGER"
     ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_vat_tu_giu_cho_purchase_request_line_id "
+        "ON vat_tu_giu_cho (purchase_request_line_id)"
+    ))
     db.execute(text("DELETE FROM vat_tu_giu_cho WHERE nguon = 'dang_ve'"))
     db.commit()
     _dung_lai_giu_cho_dang_ve(db)
@@ -10894,8 +10899,9 @@ def _migrate_giu_cho_purchase_request_line_id(db: Session) -> None:
 def _dung_lai_giu_cho_dang_ve(db: Session) -> None:
     """Sau khi xoá sạch dòng `dang_ve` cũ (không tra được `purchase_request_line_id`), dựng lại
     đúng theo cột mới cho MỌI chủ thể đang bật giữ chỗ — đúng "Quyết định đã chốt 30/08/2026"
-    (docs/spec-ke-hoach-vat-tu.md §3.1). Không gọi thì chủ thể đó "mất" phần hứa cho tới lần Nhập
-    kho/Bật-Tắt kế tiếp mới được bù lại — im lặng suốt khoảng đó.
+    (docs/spec-ke-hoach-vat-tu.md §3.1: "...rồi gọi lại GiuChoService.nhat_them() cho mọi chủ thể
+    đang giu_cho_bat=true để dựng lại đúng theo cột mới"). Không gọi thì chủ thể đó "mất" phần
+    hứa cho tới lần Nhập kho/Bật-Tắt kế tiếp mới được bù lại — im lặng suốt khoảng đó.
 
     Import cục bộ vào tầng service — LỆ RIÊNG của hàm này, không phải quy ước chung của
     `db_migrations.py` (mọi migration khác trong file chỉ động DDL/backfill SQL thuần). Đây là
@@ -10907,8 +10913,6 @@ def _dung_lai_giu_cho_dang_ve(db: Session) -> None:
     nên mọi bảng/cột mà `KeHoachVatTuService`/`GiuChoService` cần đọc (routing, stock_lots,
     purchase_request_lines...) đã ở trạng thái đã-migrate-đủ trước khi hàm này chạy.
     """
-    from .models.bai_ghep import BaiGhep
-    from .models.lsx import Lsx
     from .repositories.bai_ghep_repo import BaiGhepRepository
     from .repositories.don_vi_do_repo import DonViDoRepository
     from .repositories.lsx_repo import LsxRepository
@@ -10928,14 +10932,11 @@ def _dung_lai_giu_cho_dang_ve(db: Session) -> None:
         don_vi=DonViDoRepository(db),
     )
     giu = GiuChoService(db, kh)
-    for lsx_id in [r[0] for r in db.query(Lsx.id).filter(Lsx.giu_cho_bat.is_(True)).all()]:
-        giu.nhat_them(chi_chu_the=(lsx_id, None))
-    for bai_id in [r[0] for r in db.query(BaiGhep.id).filter(BaiGhep.giu_cho_bat.is_(True)).all()]:
-        giu.nhat_them(chi_chu_the=(None, bai_id))
+    giu.nhat_them()
 
 
 MIGRATIONS.append(("0245_giu_cho_purchase_request_line_id",
-                   _migrate_giu_cho_purchase_request_line_id))
+                    _migrate_giu_cho_purchase_request_line_id))
 
 
 _HAI_MAN_CHI_DOC = (
@@ -11064,6 +11065,305 @@ def _migrate_yeu_cau_sua_neo_san_xuat(db: Session) -> None:
 MIGRATIONS.append(("0248_yeu_cau_sua_neo_san_xuat", _migrate_yeu_cau_sua_neo_san_xuat))
 
 
+def _migrate_sx_vat_tu_de_nghi(db: Session) -> None:
+    """`stock_request_lines.sl_chot_thuc_xuat` — số kho CHỐT đã thực xuất cho một dòng yêu cầu.
+
+    Hai bảng `san_xuat_vat_tu_de_nghi*` là bảng MỚI nên `create_all` tự dựng; migration này chỉ lo
+    cột thêm vào bảng CŨ (spec-de-nghi-cap-vat-tu-cong-doan §2.3).
+
+    Hàng CŨ giữ NULL = "chưa điều chỉnh lần nào" ⇒ mục tiêu hiệu lực của chúng vẫn là `sl_duyet`,
+    tức mọi yêu cầu đang chạy KHÔNG đổi trạng thái một li nào sau migration. Đừng backfill về
+    `sl_da_ung`: làm thế là tuyên bố mọi yêu cầu cấp dở dang đều "đã chốt xong", xoá sạch phần
+    còn thiếu của chúng.
+    """
+    insp = inspect(db.get_bind())
+    if "stock_request_lines" not in set(insp.get_table_names()):
+        return
+    if "sl_chot_thuc_xuat" in _existing_columns(insp, "stock_request_lines"):
+        return
+    db.execute(text(
+        "ALTER TABLE stock_request_lines ADD COLUMN sl_chot_thuc_xuat NUMERIC(14,2)"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0249_sx_vat_tu_de_nghi", _migrate_sx_vat_tu_de_nghi))
+
+
+def _migrate_kcs_kiem_nhiem_cot_nen(db: Session) -> None:
+    """Nền schema module KCS KIÊM NHIỆM — Task 1/12 (`.superpowers/sdd/2026-08-31-kcs-kiem-nhiem`).
+
+    Cờ `la_kcs` (BOOLEAN NOT NULL DEFAULT FALSE) + checklist snapshot (JSON, nullable) — THUẦN
+    ADDITIVE, KHÔNG backfill số liệu ở đây (xem migration `0251` kế tiếp cho phần suy ngược
+    `la_kcs=true` từ dữ liệu cũ qua `san_xuat_cong_viec.la_kcs_cuoi`):
+
+    · `cong_doan.la_kcs` — khai ở DANH MỤC: công đoạn này có phải một bước KCS.
+    · `lsx_cong_doan.la_kcs` + `.kcs_tieu_chi_bo_sung_json` — snapshot khi dựng routing LSX.
+    · `bai_ghep_cong_doan.la_kcs` + `.kcs_tieu_chi_bo_sung_json` — snapshot khi gộp bài.
+    · `san_xuat_cong_viec.kcs_tieu_chi_json` — snapshot ĐẦY ĐỦ checklist lúc phát hành.
+    · `san_xuat_kcs_batch.loai`/`kcs_department_id`/`checklist_json` — phân biệt kiểm ROUTING (cũ,
+      mặc định) với kiểm ĐỘT XUẤT (mới) + tổ KCS sở hữu kết quả (FK mềm SET NULL) + checklist đã
+      áp cho batch.
+
+    Hai bảng danh mục checklist mới (`san_xuat_kcs_tieu_chi`, `san_xuat_kcs_tieu_chi_cong_doan`)
+    là bảng MỚI → `create_all` tự dựng, KHÔNG cần ở đây (xem `models/san_xuat_kcs.py`).
+
+    Boolean literal FALSE (không phải "0") — chuỗi vỡ khi Postgres create_all trên DB trắng. Guard
+    theo cột ⇒ idempotent; no-op trên DB fresh (create_all đã dựng đủ)."""
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+
+    if "cong_doan" in tables and "la_kcs" not in _existing_columns(insp, "cong_doan"):
+        db.execute(text("ALTER TABLE cong_doan ADD COLUMN la_kcs BOOLEAN NOT NULL DEFAULT FALSE"))
+
+    if "lsx_cong_doan" in tables:
+        cols = _existing_columns(insp, "lsx_cong_doan")
+        if "la_kcs" not in cols:
+            db.execute(text(
+                "ALTER TABLE lsx_cong_doan ADD COLUMN la_kcs BOOLEAN NOT NULL DEFAULT FALSE"))
+        if "kcs_tieu_chi_bo_sung_json" not in cols:
+            db.execute(text(
+                "ALTER TABLE lsx_cong_doan ADD COLUMN kcs_tieu_chi_bo_sung_json JSON"))
+
+    if "bai_ghep_cong_doan" in tables:
+        cols = _existing_columns(insp, "bai_ghep_cong_doan")
+        if "la_kcs" not in cols:
+            db.execute(text(
+                "ALTER TABLE bai_ghep_cong_doan ADD COLUMN la_kcs BOOLEAN NOT NULL DEFAULT FALSE"))
+        if "kcs_tieu_chi_bo_sung_json" not in cols:
+            db.execute(text(
+                "ALTER TABLE bai_ghep_cong_doan ADD COLUMN kcs_tieu_chi_bo_sung_json JSON"))
+
+    if "san_xuat_cong_viec" in tables and (
+        "kcs_tieu_chi_json" not in _existing_columns(insp, "san_xuat_cong_viec")
+    ):
+        db.execute(text("ALTER TABLE san_xuat_cong_viec ADD COLUMN kcs_tieu_chi_json JSON"))
+
+    if "san_xuat_kcs_batch" in tables:
+        cols = _existing_columns(insp, "san_xuat_kcs_batch")
+        if "loai" not in cols:
+            db.execute(text(
+                "ALTER TABLE san_xuat_kcs_batch ADD COLUMN loai VARCHAR(16) "
+                "NOT NULL DEFAULT 'routing'"
+            ))
+        if "kcs_department_id" not in cols:
+            db.execute(text(
+                "ALTER TABLE san_xuat_kcs_batch ADD COLUMN kcs_department_id "
+                "INTEGER REFERENCES departments(id) ON DELETE SET NULL"
+            ))
+            # Model khai `index=True` (đúng tên SQLAlchemy tự sinh cho create_all trên DB trắng:
+            # `ix_<table>_<cot>`) — ALTER thủ công ở đây phải tự tạo index cùng tên, nếu không
+            # DB dev/prod (bảng đã tồn tại từ trước, create_all không đụng lại) có FK nhưng
+            # KHÔNG có index thật.
+            db.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_san_xuat_kcs_batch_kcs_department_id "
+                "ON san_xuat_kcs_batch (kcs_department_id)"
+            ))
+        if "checklist_json" not in cols:
+            db.execute(text("ALTER TABLE san_xuat_kcs_batch ADD COLUMN checklist_json JSON"))
+
+    db.commit()
+
+
+MIGRATIONS.append(("0250_kcs_kiem_nhiem_cot_nen", _migrate_kcs_kiem_nhiem_cot_nen))
+
+
+def _migrate_kcs_kiem_nhiem_backfill_la_kcs(db: Session) -> None:
+    """Backfill `la_kcs` cho routing/bài ghép/danh mục ĐÃ CHỨNG MINH là KCS CUỐI theo dữ liệu cũ
+    (module KCS kiêm nhiệm, Task 1/12) — chạy SAU `0250` vì cần cột `la_kcs` đã tồn tại.
+
+    Nguồn sự thật DUY NHẤT: `san_xuat_cong_viec.la_kcs_cuoi = true` (cột này đã có sẵn từ module
+    Thực hiện sản xuất, KHÔNG phải cột mới ở đây) — công việc ĐÃ được luồng phát hành cũ xác nhận
+    là KCS CUỐI của nhóm. Từ đó lần NGƯỢC lên:
+
+    1. `lsx_cong_doan` / `bai_ghep_cong_doan` (tuỳ công việc neo `lsx_cong_doan_id` hay
+       `bai_ghep_cong_doan_id`) → `la_kcs = true` cho ĐÚNG dòng đó.
+    2. Nếu dòng routing đó CÒN tham chiếu được `cong_doan_id`, cộng dồn lên danh mục
+       `cong_doan.la_kcs`.
+
+    CỐ Ý KHÔNG suy diễn rộng hơn mức chứng minh được: KHÔNG đánh dấu các bước khác — kể cả bước
+    khác cùng `department_id` dù tổ đó `departments.is_kcs=true` — chỉ bước đã được `la_kcs_cuoi`
+    xác nhận mới được đánh dấu.
+
+    `san_xuat_kcs_batch` dữ liệu cũ: 100% là kiểm theo ROUTING (khái niệm ĐỘT XUẤT chỉ có từ module
+    này) → ghi tường minh `loai='routing'` cho MỌI dòng đã có (không phụ thuộc hành vi backfill-
+    default của từng dialect khi ALTER thêm cột NOT NULL DEFAULT); `kcs_department_id` suy từ
+    `department_id` của `san_xuat_cong_viec` mà batch trỏ tới qua `cong_viec_id` (JOIN) — dữ liệu cũ
+    tổ KCS trùng tổ thực hiện việc gốc, chỉ batch ĐỘT XUẤT tạo sau module này mới lệch hai tổ.
+
+    KHÔNG đụng `san_xuat_cong_viec.la_kcs` — cột đó do luồng phát hành cũ ghi, migration này CHỈ ĐỌC
+    để suy ngược, không sửa lại. Idempotent: mọi UPDATE ở đây ghi lại đúng giá trị cũ khi chạy lần
+    hai, không lỗi; no-op khi bảng liên quan chưa tồn tại."""
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "san_xuat_cong_viec" not in tables:
+        return
+
+    if "lsx_cong_doan" in tables:
+        db.execute(text(
+            "UPDATE lsx_cong_doan SET la_kcs = TRUE WHERE la_kcs = FALSE AND id IN ("
+            "  SELECT lsx_cong_doan_id FROM san_xuat_cong_viec"
+            "  WHERE la_kcs_cuoi = TRUE AND lsx_cong_doan_id IS NOT NULL)"
+        ))
+        if "cong_doan" in tables:
+            db.execute(text(
+                "UPDATE cong_doan SET la_kcs = TRUE WHERE la_kcs = FALSE AND id IN ("
+                "  SELECT lc.cong_doan_id FROM lsx_cong_doan lc"
+                "  JOIN san_xuat_cong_viec cv ON cv.lsx_cong_doan_id = lc.id"
+                "  WHERE cv.la_kcs_cuoi = TRUE AND lc.cong_doan_id IS NOT NULL)"
+            ))
+
+    if "bai_ghep_cong_doan" in tables:
+        db.execute(text(
+            "UPDATE bai_ghep_cong_doan SET la_kcs = TRUE WHERE la_kcs = FALSE AND id IN ("
+            "  SELECT bai_ghep_cong_doan_id FROM san_xuat_cong_viec"
+            "  WHERE la_kcs_cuoi = TRUE AND bai_ghep_cong_doan_id IS NOT NULL)"
+        ))
+        if "cong_doan" in tables:
+            db.execute(text(
+                "UPDATE cong_doan SET la_kcs = TRUE WHERE la_kcs = FALSE AND id IN ("
+                "  SELECT bg.cong_doan_id FROM bai_ghep_cong_doan bg"
+                "  JOIN san_xuat_cong_viec cv ON cv.bai_ghep_cong_doan_id = bg.id"
+                "  WHERE cv.la_kcs_cuoi = TRUE AND bg.cong_doan_id IS NOT NULL)"
+            ))
+
+    if "san_xuat_kcs_batch" in tables:
+        db.execute(text("UPDATE san_xuat_kcs_batch SET loai = 'routing'"))
+        db.execute(text(
+            "UPDATE san_xuat_kcs_batch SET kcs_department_id = ("
+            "  SELECT cv.department_id FROM san_xuat_cong_viec cv"
+            "  WHERE cv.id = san_xuat_kcs_batch.cong_viec_id"
+            ") WHERE kcs_department_id IS NULL"
+        ))
+
+    db.commit()
+
+
+MIGRATIONS.append(("0251_kcs_kiem_nhiem_backfill_la_kcs", _migrate_kcs_kiem_nhiem_backfill_la_kcs))
+
+
+def _migrate_kcs_kiem_nhiem_bo_cot_la_kcs(db: Session) -> None:
+    """Bỏ cờ `la_kcs` khai TAY — thiết kế lại (2026-08-31,
+    `docs/superpowers/plans/2026-08-31-kcs-kiem-nhiem-suy-tu-dong.md`): Task 1 dự kiến một ô danh
+    mục để bật cờ này nhưng CHƯA TỪNG được build (không đường sống tạo mới qua UI thật), và thực tế
+    xưởng không có ca "một tổ vừa có bước KCS vừa có bước thường" — nên KCS kiêm nhiệm nay suy TỰ
+    ĐỘNG lúc phát hành/đọc routing: bước CUỐI của routing + tổ thực hiện có `departments.is_kcs`,
+    không cần lưu cột nào nữa (xem `services/san_xuat/snapshot.py::dung_cong_viec` +
+    `services/lsx_service.py::_cong_doan_dict`).
+
+    Chạy SAU `0251` (không sửa lại `0251` — giữ nguyên lịch sử backfill). `kcs_tieu_chi_bo_sung_json`
+    trên `lsx_cong_doan`/`bai_ghep_cong_doan` KHÔNG bị đụng — checklist bổ sung riêng của bước vẫn
+    còn ý nghĩa, chỉ đổi điều kiện "bước có phải KCS" để quyết có áp checklist hay không.
+
+    Guard theo cột ⇒ idempotent; no-op nếu bảng/cột không còn (đã drop lần trước, hoặc bảng chưa
+    từng tồn tại)."""
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+
+    for table in ("cong_doan", "lsx_cong_doan", "bai_ghep_cong_doan"):
+        if table in tables and "la_kcs" in _existing_columns(insp, table):
+            db.execute(text(f"ALTER TABLE {table} DROP COLUMN la_kcs"))
+
+    db.commit()
+
+
+MIGRATIONS.append(("0252_kcs_kiem_nhiem_bo_cot_la_kcs", _migrate_kcs_kiem_nhiem_bo_cot_la_kcs))
+
+
+def _migrate_xep_lich_phan_doan(db: Session) -> None:
+    """`xep_lich_cong_doan`: 4 cột cho phép TÁCH một công đoạn thành nhiều lần chạy.
+
+    Bảng này vốn không có chiều số lượng — một công đoạn = một thanh = một khoảng giờ = một máy,
+    nên không cách nào diễn đạt "in 10.000 tờ: 6.000 máy A hôm nay, 4.000 máy B ngày mai"
+    (spec-thuc-te-vs-ke-hoach §1.3).
+
+    Hàng CŨ giữ `so_luong = NULL` (nghĩa: trọn bước) và `1/1`. KHÔNG backfill `so_luong` bằng số
+    thật của bước: số đó tính lúc đọc từ routing + quy cách, viết cứng vào đây là đẻ nguồn số thứ
+    hai, và hai nguồn thì sớm muộn lệch.
+
+    Không dùng ORM ở đây — full-select sẽ kéo cả cột do migration SAU thêm và vỡ trên DB trung gian.
+    """
+    insp = inspect(db.get_bind())
+    if "xep_lich_cong_doan" not in set(insp.get_table_names()):
+        return
+    co = _existing_columns(insp, "xep_lich_cong_doan")
+    if "so_luong" not in co:
+        db.execute(text(
+            "ALTER TABLE xep_lich_cong_doan ADD COLUMN so_luong NUMERIC(18,3)"))
+    if "phan_doan_so" not in co:
+        db.execute(text(
+            "ALTER TABLE xep_lich_cong_doan ADD COLUMN phan_doan_so INTEGER NOT NULL DEFAULT 1"))
+    if "phan_doan_tong" not in co:
+        db.execute(text(
+            "ALTER TABLE xep_lich_cong_doan ADD COLUMN phan_doan_tong INTEGER NOT NULL DEFAULT 1"))
+    if "goc_dong_id" not in co:
+        db.execute(text(
+            "ALTER TABLE xep_lich_cong_doan ADD COLUMN goc_dong_id INTEGER"))
+    # Index đứng NGOÀI guard theo cột: lần chạy trước hỏng giữa chừng (cột đã thêm, index chưa
+    # kịp) thì DB đó vĩnh viễn không bao giờ được tạo index — mỗi lần tra cụm phân đoạn là một
+    # lượt quét cả bảng lịch. `IF NOT EXISTS` lo phần chạy lại.
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_xep_lich_cong_doan_goc_dong_id "
+        "ON xep_lich_cong_doan (goc_dong_id)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0253_xep_lich_phan_doan", _migrate_xep_lich_phan_doan))
+
+
+# Hậu tố tên công việc do `san_xuat/snapshot._ten_phan_doan` gắn: "In offset (lần 2/2)". Đây là
+# nơi DUY NHẤT còn giữ số phân đoạn của hàng phát hành trước mg `0254`.
+_RE_LAN_CHAY = re.compile(r"\(lần (\d+)/(\d+)\)$")
+
+
+def _migrate_cong_viec_phan_doan(db: Session) -> None:
+    """`san_xuat_cong_viec`: `phan_doan_so` / `phan_doan_tong` — công việc thuộc LẦN CHẠY nào.
+
+    Từ mg `0253` một bước tách được N lần chạy, và phát hành đẻ N công việc CÙNG `step_key`. Không
+    có cặp số này thì "Phát hành cập nhật" (`san_xuat/release_update.py`) không phân biệt nổi
+    chúng: nó đọc dòng lịch đầu tiên rồi dập giờ + máy của lần 1 lên cả N việc — lần 2 trở đi ra
+    máy sai ca mà bàn tổ không báo gì.
+
+    Hàng CŨ phát hành TRƯỚC `0253` là bước trọn vẹn ⇒ mặc định `1/1` đã đúng. Nhưng hàng phát
+    hành trong khoảng GIỮA `0253` và `0254` thì đã tách lần chạy mà chưa có cột để ghi: cả N việc
+    cùng đeo `1/1`, và cập nhật lịch lại dập giờ lần 1 lên hết. Số phân đoạn của chúng còn nằm
+    trong tên ("In offset (lần 2/2)") nên backfill đọc lại từ đó.
+
+    Không dùng ORM: full-select kéo cả cột do migration SAU thêm, vỡ trên DB trung gian. Ở đây
+    raw SQL chỉ chạm đúng 3 cột, và lọc sẵn theo LIKE nên không quét cả bảng.
+    """
+    insp = inspect(db.get_bind())
+    if "san_xuat_cong_viec" not in set(insp.get_table_names()):
+        return
+    co = _existing_columns(insp, "san_xuat_cong_viec")
+    if "phan_doan_so" not in co:
+        db.execute(text(
+            "ALTER TABLE san_xuat_cong_viec ADD COLUMN phan_doan_so INTEGER NOT NULL DEFAULT 1"))
+    if "phan_doan_tong" not in co:
+        db.execute(text(
+            "ALTER TABLE san_xuat_cong_viec ADD COLUMN phan_doan_tong INTEGER NOT NULL DEFAULT 1"))
+    db.commit()
+
+    rows = db.execute(text(
+        "SELECT id, ten_cong_doan FROM san_xuat_cong_viec"
+        " WHERE ten_cong_doan LIKE '%(lần %/%)'"
+    )).all()
+    for cv_id, ten in rows:
+        m = _RE_LAN_CHAY.search(ten or "")
+        if not m:
+            continue
+        db.execute(
+            text("UPDATE san_xuat_cong_viec SET phan_doan_so = :so, phan_doan_tong = :tong"
+                 " WHERE id = :id"),
+            {"so": int(m.group(1)), "tong": int(m.group(2)), "id": cv_id},
+        )
+    if rows:
+        db.commit()
+
+
+MIGRATIONS.append(("0254_cong_viec_phan_doan", _migrate_cong_viec_phan_doan))
+
+
 def _migrate_kho_dich_nhap_thanh_pham(db: Session) -> None:
     """`san_xuat_nhap_kho_yc.kho_id` + `san_xuat_kho_lot.kho_id` — KHO ĐÍCH (31/08/2026).
 
@@ -11093,7 +11393,7 @@ def _migrate_kho_dich_nhap_thanh_pham(db: Session) -> None:
         db.commit()
 
 
-MIGRATIONS.append(("0249_kho_dich_nhap_thanh_pham", _migrate_kho_dich_nhap_thanh_pham))
+MIGRATIONS.append(("0255_kho_dich_nhap_thanh_pham", _migrate_kho_dich_nhap_thanh_pham))
 
 
 def _migrate_cong_viec_hoan_thanh_luc(db: Session) -> None:
@@ -11127,4 +11427,4 @@ def _migrate_cong_viec_hoan_thanh_luc(db: Session) -> None:
     db.commit()
 
 
-MIGRATIONS.append(("0250_cong_viec_hoan_thanh_luc", _migrate_cong_viec_hoan_thanh_luc))
+MIGRATIONS.append(("0256_cong_viec_hoan_thanh_luc", _migrate_cong_viec_hoan_thanh_luc))

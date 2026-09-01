@@ -26,7 +26,7 @@
 
 > **SỐ MIGRATION — KIỂM TRƯỚC KHI GHI.** Đang có nhiều plan chưa thi công cùng đặt trước dãy số này
 > (`docs/superpowers/plans/2026-08-31-lenh-sx-va-theo-doi-sx.md` giữ `0246`–`0248`,
-> `2026-08-31-tach-lan-chay-cong-doan.md` giữ `0247`,
+> `2026-08-31-tach-lan-chay-cong-doan.md` giữ `0253`,
 > `2026-08-31-de-nghi-cap-vat-tu-cong-doan.md` giữ `0246`). Ngay trước khi viết migration, chạy
 > `tail -40 backend/app/db_migrations.py | grep MIGRATIONS.append` để lấy số CAO NHẤT đang có thật
 > rồi dùng số kế tiếp, và sửa lại mọi chỗ nhắc số cũ trong plan này (bảng File Structure, khối
@@ -43,7 +43,7 @@
 | File | Trách nhiệm |
 | --- | --- |
 | `backend/app/models/xep_lich.py` | **Sửa.** 4 cột mới trên `XepLichCongDoan`. |
-| `backend/app/db_migrations.py` | **Sửa.** Migration `0247_xep_lich_phan_doan` — ALTER + backfill. |
+| `backend/app/db_migrations.py` | **Sửa.** Migration `0253_xep_lich_phan_doan` — ALTER + backfill. |
 | `docs/DB_SCHEMA.md` | **Sửa.** 4 dòng mới trong bảng `xep_lich_cong_doan`. |
 | `backend/app/services/xep_lich_2/phan_doan.py` | **Tạo.** Toàn bộ luật tách/gộp. Không HTTP, không Gantt. |
 | `backend/app/services/xep_lich_service.py` | **Sửa.** `_sl_tinh` nhận tỉ lệ phân đoạn. |
@@ -74,7 +74,7 @@
 - Test: `backend/tests/test_xep_lich_phan_doan.py`
 
 **Interfaces:**
-- Produces: `XepLichCongDoan.so_luong: float | None`, `.phan_doan_so: int`, `.phan_doan_tong: int`, `.goc_dong_id: int | None`. Migration id `0247_xep_lich_phan_doan`.
+- Produces: `XepLichCongDoan.so_luong: float | None`, `.phan_doan_so: int`, `.phan_doan_tong: int`, `.goc_dong_id: int | None`. Migration id `0253_xep_lich_phan_doan`.
 
 - [ ] **Step 1: Viết test thất bại trước**
 
@@ -110,9 +110,9 @@ def test_dong_moi_mac_dinh_la_mot_phan_doan_duy_nhat(db):
     assert d.so_luong is None      # None = "cả bước", KHÁC hẳn với 0
 
 
-def test_migration_0247_co_trong_danh_sach():
+def test_migration_0253_co_trong_danh_sach():
     from app.db_migrations import MIGRATIONS
-    assert any(ma == "0247_xep_lich_phan_doan" for ma, _fn in MIGRATIONS)
+    assert any(ma == "0253_xep_lich_phan_doan" for ma, _fn in MIGRATIONS)
 ```
 
 - [ ] **Step 2: Chạy test để chắc chắn nó ĐỎ**
@@ -145,7 +145,7 @@ Trong `backend/app/models/xep_lich.py`, ngay sau `loai_buoc`:
 
 Bổ sung `Numeric` vào import `sqlalchemy` ở đầu file nếu chưa có.
 
-- [ ] **Step 4: Viết migration 0247**
+- [ ] **Step 4: Viết migration 0253**
 
 Cuối `backend/app/db_migrations.py`:
 
@@ -185,7 +185,7 @@ def _migrate_xep_lich_phan_doan(db: Session) -> None:
     db.commit()
 
 
-MIGRATIONS.append(("0247_xep_lich_phan_doan", _migrate_xep_lich_phan_doan))
+MIGRATIONS.append(("0253_xep_lich_phan_doan", _migrate_xep_lich_phan_doan))
 ```
 
 - [ ] **Step 5: Ghi vào `docs/DB_SCHEMA.md`**
@@ -196,10 +196,10 @@ Trong bảng `xep_lich_cong_doan`, thêm 4 dòng ngay sau `loai_buoc`:
 | `so_luong` | `Numeric(18,3)` → `NUMERIC` | — | yes | — | Phần việc của CHÍNH dòng này (đơn vị vào của bước) khi công đoạn bị TÁCH thành nhiều lần chạy. NULL = chưa tách, dòng mang trọn số lượng bước — KHÁC hẳn 0. |
 | `phan_doan_so` | `Integer` | — | no | `1` | Thứ tự phân đoạn 1..N. Dòng chưa tách = 1. |
 | `phan_doan_tong` | `Integer` | — | no | `1` | Tổng số phân đoạn của công đoạn. Dòng chưa tách = 1. |
-| `goc_dong_id` | `Integer` | IX | yes | — | Dòng gốc đã tách ra dòng này. Phân đoạn ĐẦU giữ id gốc + NULL ở đây; các phân đoạn sau trỏ về nó. Thêm qua migration `0247`. |
+| `goc_dong_id` | `Integer` | IX | yes | — | Dòng gốc đã tách ra dòng này. Phân đoạn ĐẦU giữ id gốc + NULL ở đây; các phân đoạn sau trỏ về nó. Thêm qua migration `0253`. |
 ```
 
-Đồng thời sửa câu **Purpose** của bảng: bỏ mệnh đề "Bảng mới → `create_all` tự tạo (không migration)" thành "…; từ `0247` có thêm cột nên **có** migration."
+Đồng thời sửa câu **Purpose** của bảng: bỏ mệnh đề "Bảng mới → `create_all` tự tạo (không migration)" thành "…; từ `0253` có thêm cột nên **có** migration."
 
 - [ ] **Step 6: Chạy test để chắc chắn nó XANH**
 
@@ -213,7 +213,7 @@ Kỳ vọng: pass. Nếu guard `DB_SCHEMA` đỏ thì Step 5 chưa đủ — đ�
 
 ```bash
 git add backend/app/models/xep_lich.py backend/app/db_migrations.py docs/DB_SCHEMA.md backend/tests/test_xep_lich_phan_doan.py
-git commit -m "Xếp lịch: thêm chiều phân đoạn cho xep_lich_cong_doan (mg 0247)"
+git commit -m "Xếp lịch: thêm chiều phân đoạn cho xep_lich_cong_doan (mg 0253)"
 ```
 
 ---
@@ -1143,7 +1143,7 @@ git commit -m "Sản xuất: phát hành đẻ một công việc cho mỗi phâ
 
 **Files:** không sửa file nào.
 
-- [ ] **Step 1: Restart uvicorn** (đã thêm route + cột ⇒ migration phải chạy lúc boot; xem log có dòng `0247_xep_lich_phan_doan`).
+- [ ] **Step 1: Restart uvicorn** (đã thêm route + cột ⇒ migration phải chạy lúc boot; xem log có dòng `0253_xep_lich_phan_doan`).
 
 - [ ] **Step 2: Đăng nhập** `admin` / `admin123`.
 

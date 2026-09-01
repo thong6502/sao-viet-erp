@@ -5,6 +5,9 @@ import type { DeliveryDriverPick, DeliveryRequest } from "../../../../api/client
 import { api } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
 import { Icon } from "../../../../components/Icons";
+import {
+  GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapHopLe, gioNhapSai,
+} from "../../../../lib/gioNhap";
 
 // =============================================================================
 // Dialog · Lên đơn giao hàng
@@ -31,6 +34,7 @@ export function DialogLenKeHoach({
   const [loi, setLoi] = useState<string | null>(null);
   const [canhBao, setCanhBao] = useState<string[]>([]);
   const [dangGui, setDangGui] = useState(false);
+  const gioSai = gioNhapSai(lay) || gioNhapSai(giao);
 
   // Bắt quản lý GÕ MÃ nhân viên là bắt họ nhớ số — sai một chữ số là phân công nhầm người mà
   // không có gì báo. Chọn trong danh sách thì không sai được.
@@ -152,14 +156,24 @@ export function DialogLenKeHoach({
           </p>
           <label>
             Giờ lấy hàng
-            <input className="input" type="datetime-local" value={lay}
-              onChange={(e) => setLay(e.target.value)} />
+            <input className="input" type="datetime-local" min={GIO_NHAP_MIN} max={GIO_NHAP_MAX}
+              value={lay} onChange={(e) => setLay(e.target.value)} />
           </label>
           <label>
             Giờ dự kiến giao
-            <input className="input" type="datetime-local" value={giao}
-              onChange={(e) => setGiao(e.target.value)} />
+            <input className="input" type="datetime-local" min={GIO_NHAP_MIN} max={GIO_NHAP_MAX}
+              value={giao} onChange={(e) => setGiao(e.target.value)} />
           </label>
+          {/* Gõ hỏng ô ngày-giờ thì `new Date(...).toISOString()` ở `gui()` NÉM lỗi — hộp thoại
+              đứng im với nút xám, không một chữ nào nói vì sao. Nói ra ngay tại đây. */}
+          {gioSai && (
+            <div className="banner banner--warn" role="status">
+              {gioNhapSai(lay) && gioNhapSai(giao)
+                ? "Giờ lấy hàng và giờ dự kiến giao"
+                : gioNhapSai(lay) ? "Giờ lấy hàng" : "Giờ dự kiến giao"}{" "}
+              không đọc được — năm phải 4 chữ số, trong khoảng 2000–2099.
+            </div>
+          )}
           <label>
             Ghi chú phân công
             <input className="input" value={ghiChu}
@@ -177,7 +191,11 @@ export function DialogLenKeHoach({
             </div>
           )}
 
-          <Button variant="accent" disabled={!employeeId || !lay || !giao || dangGui} onClick={gui}>
+          <Button
+            variant="accent"
+            disabled={!employeeId || !gioNhapHopLe(lay) || !gioNhapHopLe(giao) || dangGui}
+            onClick={gui}
+          >
             Lưu kế hoạch
           </Button>
         </div>

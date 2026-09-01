@@ -19,15 +19,15 @@ import { Icon, type IconName } from "../components/Icons";
 import { BangLoi, ChipGap, EmptyState, Skeleton, ngay, num } from "./keHoachSxShared";
 import { moTaPhieuMua, tomTatPhieuMua, vetDangKep } from "./phieuMuaNhan";
 
-/** [MỚI 30/08/2026] Nhãn ngắn & màu cho trạng thái GIỮ CHỖ 6 mức. Bảng này THAY HẲN `MAU_VATTU`
- *  (bộ `xam`/`xanh`/`vang`/`do` của `can_doi()`) ở màn này — đã xoá vì màn này LÀ màn "giữ chỗ theo
- *  lệnh": `co_the_giu`/`da_giu`/`da_cap` mới đúng câu hỏi nó trả lời ("lệnh này chạy được chưa"),
- *  còn `can_doi()` chỉ nói "hệ CÓ đủ hàng không", không nói "CHÍNH LỆNH NÀY đã giữ được chưa".
+/** Nhãn ngắn & màu cho trạng thái GIỮ CHỖ 6 mức — đây LÀ màn "giữ chỗ theo lệnh":
+ *  `co_the_giu`/`da_giu`/`da_cap` mới đúng câu hỏi màn này trả lời ("lệnh này chạy được chưa"),
+ *  không phải `xanh`/`vang`/`xam` của can_doi() (chỉ nói "hệ CÓ đủ hàng không", không nói "CHÍNH
+ *  LỆNH NÀY đã giữ được chưa").
  *  Màu lấy THẲNG từ biến hệ thống chứ không gõ mã hex tại chỗ — gõ tay thì màn này trôi khỏi bảng
- *  màu chung, đúng cái đã xảy ra: nền/chữ ở đây từng là hệ Tailwind rời; nền/chữ do lớp `cls` lo.
- *  `dotColor` (chỉ dùng cho icon ở chế độ thẻ) trỏ vào bộ biến TRẠNG THÁI CHUNG `--kh-*` khai ở
- *  ke-hoach-sx.css — cùng một nguồn với màn "Theo mặt hàng" để hai cách nhìn không lệch tông; các
- *  trạng thái trung tính (đã cấp / đã giữ / chưa rõ) giữ token đất cho chìm, chỉ tin xấu mới tươi. */
+ *  màu chung. `dotColor` (chỉ dùng cho icon ở chế độ thẻ) trỏ vào bộ biến TRẠNG THÁI CHUNG `--kh-*`
+ *  khai ở ke-hoach-sx.css — cùng một nguồn với màn "Theo mặt hàng" để hai cách nhìn không lệch
+ *  tông; các trạng thái trung tính (đã cấp / đã giữ / chưa rõ) giữ token đất cho chìm, chỉ tin xấu
+ *  mới tươi — `co_the_giu` nằm phía tin xấu (`--kh-canhbao-fg`) vì nó là việc CHƯA làm. */
 const MAU_VATTU_GIU: Record<string, { label: string; cls: string; dotColor: string }> = {
   khong_ro: { label: "Chưa rõ ĐVT", cls: "khvt-stream-chip--khongro", dotColor: "var(--steel)" },
   thieu: { label: "Thiếu cần mua", cls: "khvt-stream-chip--do", dotColor: "var(--kh-thieu-fg)" },
@@ -81,6 +81,32 @@ function moTaVeMuon(h: TheoLenhHang): string {
   ]
     .filter(Boolean)
     .join(" · ");
+}
+
+/** Phần CÒN GIỮ ĐƯỢC NGAY nếu bấm giữ ngay bây giờ — tồn tự do/lô đang về CÒN TRỐNG (chưa ai
+ *  giữ), tính riêng cho CHỦ THỂ này (xem `GiuChoService.giu_theo_chu_the_hang`). KHÔNG phải phần
+ *  thiếu thật sự cần mua thêm (đó là `h.thieu`) — số này chỉ báo "còn cửa để giữ trước khi lệnh
+ *  khác giành mất", nên có thể dương ngay cả khi badge đang "Thiếu". */
+function coTheGiuNgay(h: TheoLenhHang): { tong: number; kho: number; dangVe: number } | null {
+  // Làm tròn 2 chữ số TRƯỚC khi so sánh — khớp đúng số sẽ hiển thị (`soGoc` cũng làm tròn 2 chữ
+  // số). Sai số dấu phẩy động cực nhỏ (vd 0,0001 kg) qua được cổng `> 0` nhưng hiển thị ra "0 kg"
+  // là vô nghĩa với người xem.
+  const kho = Math.round((h.co_the_giu_kho ?? 0) * 100) / 100;
+  const dangVe = Math.round((h.co_the_giu_dang_ve ?? 0) * 100) / 100;
+  const tong = Math.round((kho + dangVe) * 100) / 100;
+  return tong > 0 ? { tong, kho, dangVe } : null;
+}
+
+function moTaCoTheGiuNgay(h: TheoLenhHang): string {
+  const g = coTheGiuNgay(h);
+  if (!g) return "";
+  const phan = [
+    g.kho > 0 ? `${soGoc(g.kho)} kho` : null,
+    g.dangVe > 0 ? `${soGoc(g.dangVe)} đang về` : null,
+  ]
+    .filter(Boolean)
+    .join(" + ");
+  return `Giữ ngay được ${soGoc(g.tong)} ${h.don_vi_goc ?? ""} (${phan})`;
 }
 
 /** Câu giải thích vì sao nút mua bị khoá — phải GỌI TÊN phiếu và ngày về. Nút biến mất không một
@@ -498,7 +524,7 @@ export function GiuChoTheoLenhView({
                               <div
                                 key={`${h.hang_loai}-${h.hang_id}`}
                                 className={`khvt-stream-chip ${meta.cls}`}
-                                title={`${h.hang_ten ?? h.hang_ma}\n• Nhu cầu: ${soGoc(h.can)} ${h.don_vi_goc ?? ""}\n• Đang giữ: ${soGoc(h.dang_giu)} ${h.don_vi_goc ?? ""}${h.thieu > 0 ? `\n• Thiếu: ${soGoc(h.thieu)}` : ""}${h.trang_thai === "ve_muon" ? `\n• Đã đặt mua: ${moTaVeMuon(h)}` : ""}${vet ? `\n${vet.title}` : ""}`}
+                                title={`${h.hang_ten ?? h.hang_ma}\n• Nhu cầu: ${soGoc(h.can)} ${h.don_vi_goc ?? ""}\n• Đang giữ: ${soGoc(h.dang_giu)} ${h.don_vi_goc ?? ""}${h.thieu > 0 ? `\n• Thiếu: ${soGoc(h.thieu)}` : ""}${coTheGiuNgay(h) ? `\n• ${moTaCoTheGiuNgay(h)}` : ""}${h.trang_thai === "ve_muon" ? `\n• Đã đặt mua: ${moTaVeMuon(h)}` : ""}${vet ? `\n${vet.title}` : ""}`}
                               >
                                 <Icon name={icon} size={12} />
                                 <span className="khvt-stream-chip__name">
@@ -772,6 +798,15 @@ export function GiuChoTheoLenhView({
                               {h.thieu > 0 ? `thiếu ${soGoc(h.thieu)}` : meta.label}
                             </span>
                           </div>
+
+                          {/* Cửa để giữ TRƯỚC khi lệnh khác giành mất — chỉ hiện khi còn, độc lập
+                              với khối "đã có ai lo" bên dưới (có thể cùng lúc: đã lập PMH VÀ vẫn
+                              còn tồn tự do/lô đang về CHƯA ai giữ). */}
+                          {coTheGiuNgay(h) && (
+                            <div className="khvt-bcard__item-po khvt-note--giu-ngay">
+                              <Icon name="zap" size={10} /> {moTaCoTheGiuNgay(h)}
+                            </div>
+                          )}
 
                           {/* "Đã có ai lo món này chưa" — không có dòng này thì "đã đề nghị" và
                               "chưa ai đụng vào" hiện y hệt nhau, và người sau bấm Mua lần nữa. */}
@@ -1067,6 +1102,11 @@ function LenhVatTuDrawer({
                           </span>
                           {h.trang_thai === "ve_muon" && (
                             <div className="khvt-pill-note">{moTaVeMuon(h)}</div>
+                          )}
+                          {coTheGiuNgay(h) && (
+                            <div className="khvt-pill-note khvt-note--giu-ngay">
+                              {moTaCoTheGiuNgay(h)}
+                            </div>
                           )}
                           {/* Drawer là chỗ TRA nên kê ĐỦ phiếu đang chạy, kể cả khi dòng đã xanh —
                               hai phiếu cùng một món nằm cạnh nhau chính là dấu hiệu đề nghị trùng.

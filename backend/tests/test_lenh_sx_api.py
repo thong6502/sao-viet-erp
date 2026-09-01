@@ -305,7 +305,7 @@ def _dat_xong_luc(sess, cv: SanXuatCongViec, luc: datetime) -> None:
     """Đóng một bước ĐÚNG HÌNH DẠNG production, nhưng ở một MỐC do bài test chọn.
 
     `thuc_thi.ket_thuc` đóng phiên đang mở (`loai_dong='ket_thuc'`), đặt `trang_thai='completed'`
-    VÀ đóng dấu `hoan_thanh_luc = now` (mig `0250`); `updated_at` mang `onupdate=_utcnow` nên nó
+    VÀ đóng dấu `hoan_thanh_luc = now` (mig `0256`); `updated_at` mang `onupdate=_utcnow` nên nó
     cũng ghi khoảnh khắc ấy. Fixture chép lại cả bốn thứ đó và chỉ DỜI mốc — không bịa ra hình dạng
     nào production không ghi.
 
@@ -1167,7 +1167,7 @@ def test_kpi_khong_bi_go_phan_cong_keo_vao_hom_nay(sess, admin, lenh_that):
 
     `go_phan_cong` chỉ kiểm trạng thái DÒNG PHÂN CÔNG, không kiểm trạng thái công việc, rồi
     `cv.version += 1` ⇒ `onupdate` dời `updated_at`. Khi KPI đọc `updated_at`, một bước đóng năm
-    2020 nhảy thẳng vào "công đoạn xong hôm nay". Cột `hoan_thanh_luc` (mig `0250`) có mặt để mốc
+    2020 nhảy thẳng vào "công đoạn xong hôm nay". Cột `hoan_thanh_luc` (mig `0256`) có mặt để mốc
     NGHIỆP VỤ không lệ thuộc cột BẢO TRÌ — bịt riêng `go_phan_cong` thì đường ghi thêm sau lại phá
     lại đúng chỗ này, âm thầm.
 

@@ -47,7 +47,7 @@ một ca đêm và đổ nửa đầu sang hôm qua. Bài canh: `test_summary_co
                              `TAB_HOAN_THANH`). KHÔNG phải số đếm của tab "Đang SX": lệnh đang
                              chạy mà dính sự cố nằm ở tab Cảnh báo, nhưng nó vẫn đang sản xuất.
   `cong_doan_xong_hom_nay` — số CÔNG VIỆC `completed` có `hoan_thanh_luc` rơi vào ngày xưởng hôm
-                             nay. Cột NGHIỆP VỤ riêng (mig `0250`), KHÔNG phải `updated_at`: mốc
+                             nay. Cột NGHIỆP VỤ riêng (mig `0256`), KHÔNG phải `updated_at`: mốc
                              bảo trì dời theo mọi `version += 1` về sau, và đó là lỗi ĐÃ ĐO —
                              `thuc_thi.go_phan_cong` rút người khỏi một bước đã xong cũng
                              `version += 1`, kéo một bước đóng năm 2020 vào KPI hôm nay. Bịt riêng

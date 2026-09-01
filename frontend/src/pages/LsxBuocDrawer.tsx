@@ -14,6 +14,7 @@ import { LSX_LOAI_BUOC_META, type LsxLoaiBuoc } from "../api/client";
 import { Button } from "../components/Button";
 import { TagPicker } from "../components/TagPicker";
 import { dvNhan as dvNhanChung, type RefRow } from "./LsxRoutingTable";
+import { GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapSai } from "../lib/gioNhap";
 import { ngayGio, num } from "./keHoachSxShared";
 import {
   type EditRow,
@@ -189,6 +190,12 @@ export function LsxBuocDrawer({
 
   async function luuGiaoNhan() {
     if (!gnMo || row.id == null) return;
+    // Ô trống = "lúc bấm nút" (BE tự lấy giờ). Nhưng gõ dở/năm 6 chữ số thì `new Date(...)` ra
+    // Invalid Date và `.toISOString()` NÉM lỗi — người dùng chỉ thấy "không ghi được, thử lại".
+    if (gioNhapSai(gnLuc)) {
+      setGnLoi("Giờ không đọc được — năm phải 4 chữ số, trong khoảng 2000–2099.");
+      return;
+    }
     setGnDangGhi(true);
     setGnLoi(null);
     try {
@@ -646,6 +653,117 @@ export function LsxBuocDrawer({
                   </p>
                 )}
               </section>
+
+              {/* Tiêu chí KCS bổ sung (module KCS kiêm nhiệm, mg 0250, Task 3) — CHỈ hiện khi bước
+                  là KCS. Nối SAU checklist chuẩn của danh mục lúc phát hành (`nguon="bo_sung_lsx"`,
+                  `thu_tu` 1000+) — không sửa được checklist danh mục ở đây, chỉ thêm/bớt vài dòng
+                  riêng cho lệnh này. */}
+              {row.la_kcs && (
+                <section className="khsx-section-card">
+                  <div className="khsx-section-card__head">
+                    <div>
+                      <h3 className="khsx-section-card__title">Tiêu chí KCS bổ sung</h3>
+                      <p className="khsx-section-card__sub">
+                        Chỉ áp dụng riêng cho lệnh này — không sửa được checklist chuẩn ở danh mục
+                        Tiêu chí KCS.
+                      </p>
+                    </div>
+                    <span className="khsx-badge-count">
+                      {row.kcs_tieu_chi_bo_sung_json.length} tiêu chí
+                    </span>
+                  </div>
+
+                  {row.kcs_tieu_chi_bo_sung_json.length === 0 && (
+                    <p className="khsx-hint-muted">Chưa có tiêu chí bổ sung nào cho lệnh này.</p>
+                  )}
+
+                  {row.kcs_tieu_chi_bo_sung_json.map((tc, i) => (
+                    <div
+                      key={i}
+                      style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}
+                    >
+                      <input
+                        className="khsx-input-std"
+                        style={{ flex: "1 1 38%" }}
+                        placeholder="Tên tiêu chí"
+                        value={tc.ten}
+                        disabled={!canUpdate}
+                        onChange={(e) =>
+                          set(
+                            "kcs_tieu_chi_bo_sung_json",
+                            row.kcs_tieu_chi_bo_sung_json.map((x, j) =>
+                              j === i ? { ...x, ten: e.target.value } : x,
+                            ),
+                          )
+                        }
+                      />
+                      <input
+                        className="khsx-input-std"
+                        style={{ flex: "1 1 38%" }}
+                        placeholder="Hướng dẫn (tuỳ chọn)"
+                        value={tc.huong_dan ?? ""}
+                        disabled={!canUpdate}
+                        onChange={(e) =>
+                          set(
+                            "kcs_tieu_chi_bo_sung_json",
+                            row.kcs_tieu_chi_bo_sung_json.map((x, j) =>
+                              j === i ? { ...x, huong_dan: e.target.value || null } : x,
+                            ),
+                          )
+                        }
+                      />
+                      <label className={`khsx-check-pill ${tc.bat_buoc ? "is-checked" : ""}`}>
+                        <input
+                          type="checkbox"
+                          checked={tc.bat_buoc}
+                          disabled={!canUpdate}
+                          onChange={(e) =>
+                            set(
+                              "kcs_tieu_chi_bo_sung_json",
+                              row.kcs_tieu_chi_bo_sung_json.map((x, j) =>
+                                j === i ? { ...x, bat_buoc: e.target.checked } : x,
+                              ),
+                            )
+                          }
+                        />
+                        <span className="khsx-check-pill__text">Bắt buộc</span>
+                      </label>
+                      {canUpdate && (
+                        <button
+                          type="button"
+                          className="khsx-vattu-del-btn"
+                          title="Xoá tiêu chí bổ sung"
+                          onClick={() =>
+                            set(
+                              "kcs_tieu_chi_bo_sung_json",
+                              row.kcs_tieu_chi_bo_sung_json.filter((_, j) => j !== i),
+                            )
+                          }
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M18 6L6 18M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+
+                  {canUpdate && (
+                    <button
+                      type="button"
+                      className="khsx-vattu-sync-all-btn"
+                      onClick={() =>
+                        set("kcs_tieu_chi_bo_sung_json", [
+                          ...row.kcs_tieu_chi_bo_sung_json,
+                          { ten: "", huong_dan: null, bat_buoc: true },
+                        ])
+                      }
+                    >
+                      + Thêm tiêu chí
+                    </button>
+                  )}
+                </section>
+              )}
 
               {/* Khối Dòng chảy Số lượng (Production Flow Pipeline) */}
               <section className="khsx-section-card">
@@ -1959,6 +2077,8 @@ export function LsxBuocDrawer({
                         <input
                           type="datetime-local"
                           className="khsx-input-std"
+                          min={GIO_NHAP_MIN}
+                          max={GIO_NHAP_MAX}
                           value={gnLuc}
                           onChange={(e) => setGnLuc(e.target.value)}
                         />

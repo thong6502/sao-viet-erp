@@ -15,7 +15,8 @@ NEO CHÍNH `lsx_cong_doan_id` (PK bản ghi operation, KHÁC `cong_doan.id` danh
 KHÓA khi lệnh đã `da_lap_ke_hoach` (chặn `replace_routing` — nơi duy nhất id công đoạn tái sinh). Vòng
 đời không mồ côi: "gỡ kế hoạch" xóa dòng lịch TRƯỚC khi mở lại routing.
 
-RBAC MODULE = "san_xuat" (tái dùng). Bảng mới → `create_all` tự tạo, KHÔNG migration. Boolean dùng
+RBAC MODULE = "san_xuat" (tái dùng). Bảng mới → `create_all` tự tạo; từ `0253` có thêm cột
+phân đoạn nên bảng này CÓ migration. Boolean dùng
 `false()` của SQLAlchemy (bẫy Postgres, KHÔNG "0"/"1"). FK cấu trúc (`lsx_id`, `bai_ghep_id`) là FK THẬT
 + `ondelete=CASCADE` (lớp chặn cuối ở DB); FK danh mục (máy · tổ · ca) MỀM theo convention repo.
 """
@@ -24,7 +25,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, DateTime, ForeignKey, Index, Integer, String,
+    Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String,
     false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -83,6 +84,20 @@ class XepLichCongDoan(Base):
     source_thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Snapshot loại bước routing (may/to/thue_ngoai); dòng in ghép cũng dùng `may`.
     loai_buoc: Mapped[str] = mapped_column(String(12), nullable=False, default="may")
+
+    # --- PHÂN ĐOẠN: một công đoạn chạy làm nhiều lần (spec-thuc-te-vs-ke-hoach §2.4) ---
+    # `so_luong` = phần việc của CHÍNH dòng này, theo đơn vị vào của bước. NULL = dòng chưa tách,
+    # mang trọn số lượng của bước — KHÁC hẳn 0 ("không chạy gì"), nên đừng backfill về 0.
+    so_luong: Mapped[float | None] = mapped_column(Numeric(18, 3), nullable=True)
+    # 1..N. Dòng chưa tách là 1/1. Phân biệt phân đoạn bằng HAI số này, KHÔNG bằng `step_key`:
+    # `step_key` là hợp đồng của `PUT /routing`, đổi nghĩa nó là vỡ cả đường phát hành.
+    phan_doan_so: Mapped[int] = mapped_column(Integer, nullable=False,
+                                              server_default="1", default=1)
+    phan_doan_tong: Mapped[int] = mapped_column(Integer, nullable=False,
+                                                server_default="1", default=1)
+    # Dòng gốc mà phân đoạn này tách ra. Phân đoạn ĐẦU giữ id gốc và có `goc_dong_id = NULL`;
+    # các phân đoạn sau trỏ về nó. Gộp = xoá các dòng trỏ về, trả phân đoạn đầu về 1/1.
+    goc_dong_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
 
     # --- Tài nguyên được gán (record-only: máy đề xuất, người quyết) ---
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)         # → may_thiet_bi.id

@@ -89,8 +89,9 @@ class VatTuGiuCho(Base):
     # [MỚI 30/08/2026] Dòng PHIẾU MUA (`purchase_request_lines.id`) làm phát sinh phần giữ NÀY —
     # CHỈ có ý nghĩa khi `nguon = dang_ve`. Để `GiuChoService.doi_soat_dang_ve()` tra NGƯỢC lại
     # đúng dòng khi PMH đổi (dời ngày, giảm/huỷ SL, đóng đơn) — không phải đoán theo mặt hàng.
-    # SET NULL: xoá dòng phiếu (hiếm) không kéo theo xoá chỗ giữ, chỉ để nó thành "mồ côi" — lần
-    # đối soát/`nhat_them()` sau sẽ dọn.
+    # SET NULL: xoá dòng phiếu (hiếm) không kéo theo xoá chỗ giữ, chỉ để nó thành "mồ côi". Không
+    # có đối soát/`nhat_them()` nào tự dọn dòng mồ côi này — nằm lại vô hạn cho tới khi có chỗ nào
+    # đó chủ động truy vấn và xử lý (chưa có).
     purchase_request_line_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("purchase_request_lines.id", ondelete="SET NULL"),
         index=True, nullable=True,

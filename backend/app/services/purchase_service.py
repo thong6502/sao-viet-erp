@@ -2845,6 +2845,7 @@ class PurchaseService:
         for link in row.sources:
             self._tinh_lai_trang_thai_ycmh(link.department_request)
         saved = self.requests.save(row)
+        self._doi_soat_giu_cho(row)
         self.audit.create(actor_user_id=actor.id, action="mark_purchase_request_received", target=f"purchase_request:{row.id}", detail=row.code)
         return self._to_request_out(saved)
 
@@ -2881,6 +2882,7 @@ class PurchaseService:
                 f"({money['net_paid']:,}đ). Huỷ bớt phiếu chi trước rồi sửa lại."
             )
         saved = self.requests.save(row)
+        self._doi_soat_giu_cho(row)
         self.audit.create(
             actor_user_id=actor.id,
             action="update_purchase_request_received_quantities",
@@ -3106,6 +3108,7 @@ class PurchaseService:
                     "vat_amount": vat_amount,
                     "line_total": line_total,
                     "note": line.note,
+                    "department_request_line_id": line.department_request_line_id,
                     "hang_loai": line.hang_loai,
                     "hang_id": line.hang_id,
                     "hang_ma": getattr(_hmap.get((line.hang_loai, line.hang_id)), "ma", None),

@@ -736,3 +736,199 @@ def test_dinh_kem_hoa_don_vao_phieu(client):
     )
     assert bad.status_code == 400
     assert client.delete(f"/api/kho/phieu/{vid}/attachments/{aid}", headers=tk).status_code == 204
+
+
+# --- Task 8: màn kho hiện tổ/công đoạn/giờ cần (task-8-ruling-man-kho) -------
+
+def _gan_boi_canh_san_xuat(stock_request_id: int, *, can_luc, ten_cong_doan: str, ma_goi: str) -> int:
+    """Trỏ MỘT yêu cầu kho đã có sẵn vào một 'lần đề nghị cấp vật tư công đoạn' — dựng TẮT qua
+    `SessionLocal()` thay vì đi hết luồng sản xuất thật (phát hành gói → tổ đề nghị), luồng đó
+    cần LSX/routing/phân công tổ trưởng đầy đủ, quá nặng cho file test KHO này (task-8-ruling-man-kho,
+    Ruling 34 cho phép). Chỉ dựng đủ NOT NULL tối thiểu của `SanXuatGoiPhatHanh`/`SanXuatCongViec`
+    để `boi_canh_san_xuat` join ra được `ten_cong_doan`. Trả `cong_viec_id` để test đối chiếu.
+    """
+    from app.models.san_xuat import SanXuatCongViec, SanXuatGoiPhatHanh
+    from app.models.san_xuat_vat_tu import DN_LAN_DAU, SanXuatVatTuDeNghi
+
+    db = SessionLocal()
+    try:
+        goi = SanXuatGoiPhatHanh(ma=ma_goi)
+        db.add(goi)
+        db.flush()
+        cv = SanXuatCongViec(goi_id=goi.id, ten_cong_doan=ten_cong_doan)
+        db.add(cv)
+        db.flush()
+        dn = SanXuatVatTuDeNghi(
+            cong_viec_id=cv.id, lan_so=1, loai=DN_LAN_DAU, can_luc=can_luc,
+            stock_request_id=stock_request_id,
+        )
+        db.add(dn)
+        db.commit()
+        return cv.id
+    finally:
+        db.close()
+
+
+def test_api_yeu_cau_sinh_tu_san_xuat_co_can_luc_va_cong_doan(client):
+    """Yêu cầu SINH TỪ đề nghị cấp vật tư công đoạn: GET trả `can_luc`/`san_xuat_cong_viec_id`/
+    `san_xuat_cong_doan_ten`, và dòng phản chiếu đúng `sl_chot_thuc_xuat`/`sl_con_lai` sau khi kho
+    điều chỉnh (xin 100 · xuất 100 · điều chỉnh còn 70 ⇒ chốt 70, còn lại 0)."""
+    from datetime import datetime, timezone
+
+    kho_id, mat_id = _setup(client)
+    nhap = _nhap(client, kho_id=kho_id, mat_id=mat_id, qty=100, gia=1_000)
+    lot_id = nhap["lines"][0]["lot_id"]
+    req = _approved_request(client, kho_id=kho_id, loai="XUAT", mat_id=mat_id, qty=100)
+    # CỐ Ý một ngày-giờ KHÔNG trùng "bây giờ" lúc chạy test (không chỉ khác ngày hôm nay — khác cả
+    # giờ:phút với `created_at` sẽ có) — assert bên dưới soát cả giờ:phút để phân biệt được với
+    # `created_at` (task-8-review.md Important 2: `startswith("2026-08-31")` từng đúng ăn may vì
+    # hôm chạy test CHÍNH LÀ 2026-08-31).
+    can_luc = datetime(2026, 9, 2, 13, 30, tzinfo=timezone.utc)
+    cv_id = _gan_boi_canh_san_xuat(
+        req["id"], can_luc=can_luc, ten_cong_doan="In offset 4 màu", ma_goi="GOI-T8-1")
+
+    tk = _login(client, "t_thukho")
+    r = client.post("/api/kho/phieu", headers=tk, json={
+        "request_id": req["id"], "kho_id": kho_id,
+        "lines": [{"request_line_id": req["lines"][0]["id"], "so_luong": 100, "lot_id": lot_id}],
+    })
+    assert r.status_code == 201, r.text
+    vid = r.json()["id"]
+    r = client.post(f"/api/kho/phieu/{vid}/ghi-so", headers=tk)
+    assert r.status_code == 200, r.text
+    line_id = r.json()["lines"][0]["id"]
+    r = client.post(f"/api/kho/phieu/{vid}/dieu-chinh-xuat", headers=tk, json={
+        "lines": [{"line_id": line_id, "so_luong_moi": 70}],
+        "ly_do": "SX dùng không hết, trả lại 30",
+    })
+    assert r.status_code == 200, r.text
+
+    r = client.get(f"/api/kho/de-nghi/{req['id']}", headers=tk)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # Soát cả GIỜ:PHÚT, không chỉ ngày — nếu repo lỡ trả nhầm `created_at` (lúc test chạy, "bây
+    # giờ") thay vì `can_luc` thật thì assert này phải ĐỎ ngay (Important 2, kiểm đột biến ở §báo
+    # cáo). `created_at` không thể trùng NGẪU NHIÊN đúng 13:30:00 của một ngày trong tương lai.
+    assert body["can_luc"] is not None and body["can_luc"].startswith("2026-09-02T13:30")
+    assert body["san_xuat_cong_viec_id"] == cv_id
+    assert body["san_xuat_cong_doan_ten"] == "In offset 4 màu"
+    assert body["lines"][0]["sl_chot_thuc_xuat"] == 70
+    assert body["lines"][0]["sl_con_lai"] == 0
+
+
+def test_api_yeu_cau_kho_thuong_khong_co_boi_canh_san_xuat(client):
+    """Yêu cầu do bộ phận khác lập (không sinh từ đề nghị cấp vật tư công đoạn) vẫn trả 3 field
+    đó nhưng đều null — FE không phải phân nhánh."""
+    kho_id, mat_id = _setup(client)
+    req = _approved_request(client, kho_id=kho_id, loai="XUAT", mat_id=mat_id, qty=10)
+    tk = _login(client, "t_thukho")
+
+    r = client.get(f"/api/kho/de-nghi/{req['id']}", headers=tk)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["can_luc"] is None
+    assert body["san_xuat_cong_viec_id"] is None
+    assert body["san_xuat_cong_doan_ten"] is None
+    assert body["lines"][0]["sl_chot_thuc_xuat"] is None
+
+
+def test_api_danh_sach_yeu_cau_sinh_tu_sx_khong_n_plus_1(client, monkeypatch):
+    """Đường DANH SÁCH (hộp yêu cầu kho) với ÍT NHẤT 3 yêu cầu sinh từ sản xuất phải nạp bối cảnh
+    (tổ/công đoạn/giờ cần) bằng ĐÚNG MỘT câu SQL chạm bảng `san_xuat_vat_tu_de_nghi`, không phải N
+    câu theo từng yêu cầu — N+1 với N=1 nhìn y hệt truy vấn gộp nên phải dựng ÍT NHẤT 3
+    (task-8-ruling-man-kho, Ruling 34).
+
+    Đếm SQL THẬT qua sự kiện `before_cursor_execute` của SQLAlchemy (đúng engine mà `conftest.py`
+    dùng cho `client`/`db` — `from app.db import Base, engine`), KHÔNG chỉ đếm số lần gọi hàm
+    `boi_canh_san_xuat`: đếm lượt gọi chỉ khoá "router gọi 1 lần", không khoá "1 truy vấn" — hai
+    thứ khác nhau, ai sửa `boi_canh_san_xuat` thành vòng lặp N truy vấn bên trong (vd lọc thêm theo
+    `lan_so` mới nhất bằng cách hỏi từng `request_id`) thì đếm-lượt-gọi vẫn xanh mà đếm-SQL mới bắt
+    được (task-8-review.md Important 1 — đã chứng minh bằng kiểm đột biến, xem báo cáo vòng sửa).
+    Giữ luôn assert đếm-lượt-gọi vì hai vế bắt hai lỗi khác nhau (gọi hàm nhiều lần khác với hàm gọi
+    ít nhưng tự N+1 bên trong)."""
+    from datetime import datetime, timezone
+
+    from sqlalchemy import event
+
+    import app.repositories.san_xuat_vat_tu_repo as sxvt_repo
+    from app.db import engine
+
+    kho_id, mat_id = _setup(client)
+    can_luc = datetime(2026, 8, 31, 8, 0, tzinfo=timezone.utc)
+    req_ids = []
+    for i in range(3):
+        req = _approved_request(client, kho_id=kho_id, loai="XUAT", mat_id=mat_id, qty=10 + i)
+        _gan_boi_canh_san_xuat(
+            req["id"], can_luc=can_luc, ten_cong_doan=f"Công đoạn {i}", ma_goi=f"GOI-T8-NP1-{i}")
+        req_ids.append(req["id"])
+
+    calls: list[list[int]] = []
+    goc = sxvt_repo.SanXuatVatTuRepository.boi_canh_san_xuat
+
+    def _dem(self, ids):
+        calls.append(list(ids))
+        return goc(self, ids)
+
+    monkeypatch.setattr(sxvt_repo.SanXuatVatTuRepository, "boi_canh_san_xuat", _dem)
+
+    sqls: list[str] = []
+
+    def _ghi_sql(conn, cursor, statement, params, context, executemany):
+        sqls.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _ghi_sql)
+    try:
+        tk = _login(client, "t_thukho")
+        r = client.get("/api/kho/de-nghi", headers=tk, params={"loai": "XUAT", "size": 200})
+    finally:
+        event.remove(engine, "before_cursor_execute", _ghi_sql)
+
+    assert r.status_code == 200, r.text
+    items = {it["id"]: it for it in r.json()["items"] if it["id"] in req_ids}
+    assert len(items) == 3
+    assert all(items[i]["san_xuat_cong_doan_ten"] for i in req_ids)
+    assert len(calls) == 1, f"boi_canh_san_xuat phải gọi ĐÚNG 1 lần cho cả trang, gọi {len(calls)} lần"
+    cham_bang = [s for s in sqls if "san_xuat_vat_tu_de_nghi" in s]
+    assert len(cham_bang) == 1, (
+        f"boi_canh_san_xuat phải là ĐÚNG 1 câu SQL chạm san_xuat_vat_tu_de_nghi cho cả trang, "
+        f"chạm {len(cham_bang)} câu:\n" + "\n---\n".join(cham_bang)
+    )
+
+
+def test_api_can_luc_ve_gio_nha_may_du_db_tra_aware(client, monkeypatch):
+    """`san_xuat_vat_tu_de_nghi.can_luc` là cột `DateTime(timezone=True)`: Postgres `timestamptz`
+    trả về datetime AWARE (`+00:00`), SQLite của bộ test luôn trả naive. API PHẢI cắt tzinfo trước
+    khi ra JSON — FE kho (`fmtGioCan`, `isOverdue`) đọc naive = giờ NHÀ MÁY, gặp chuỗi có `Z` là
+    `new Date()` dịch thêm +7h và thủ kho thấy "cần lúc 20:30" cho ca chiều 13:30.
+
+    Ép `boi_canh_san_xuat` trả AWARE để tái hiện đúng thứ Postgres trả — chạy trên SQLite thì
+    không có đường nào khác chạm được ca này (đã đo trên Postgres thật, DB dùng-một-lần).
+    """
+    from datetime import datetime, timezone
+
+    import app.repositories.san_xuat_vat_tu_repo as sxvt_repo
+
+    kho_id, mat_id = _setup(client)
+    req = _approved_request(client, kho_id=kho_id, loai="XUAT", mat_id=mat_id, qty=10)
+    cv_id = _gan_boi_canh_san_xuat(
+        req["id"], can_luc=datetime(2026, 9, 2, 13, 30),
+        ten_cong_doan="Cán màng", ma_goi="GOI-T10-TZ")
+
+    goc = sxvt_repo.SanXuatVatTuRepository.boi_canh_san_xuat
+
+    def _aware(self, ids):
+        ra = goc(self, ids)
+        for v in ra.values():
+            if v.get("can_luc") is not None and v["can_luc"].tzinfo is None:
+                v["can_luc"] = v["can_luc"].replace(tzinfo=timezone.utc)
+        return ra
+
+    monkeypatch.setattr(sxvt_repo.SanXuatVatTuRepository, "boi_canh_san_xuat", _aware)
+
+    tk = _login(client, "t_thukho")
+    r = client.get(f"/api/kho/de-nghi/{req['id']}", headers=tk)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["san_xuat_cong_viec_id"] == cv_id
+    # Không "Z", không "+07:00", không "+00:00" — chuỗi trần đúng giờ tổ trưởng gõ.
+    assert body["can_luc"] == "2026-09-02T13:30:00", body["can_luc"]

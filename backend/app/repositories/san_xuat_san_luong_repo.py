@@ -25,13 +25,14 @@ from ..models.san_xuat_san_luong import (
     SanXuatKetQuaNhanh,
     SanXuatVatTuNhan,
 )
-from ..models.stock_request import StockRequestLine
+from ..models.stock_request import StockRequest, StockRequestLine
 from ..models.stock_voucher import (
     VOUCHER_POSTED,
     VOUCHER_XUAT,
     StockVoucher,
     StockVoucherLine,
 )
+from ..models.vat_lieu_kho import HANG_GIAY, HANG_VAT_TU, GiayNguyen, VatTuInAn
 
 
 class SanXuatSanLuongRepository:
@@ -49,6 +50,17 @@ class SanXuatSanLuongRepository:
     # --- Công việc (đọc lại để gate/nối) -----------------------------------------------------
     def cong_viec(self, cong_viec_id: int) -> SanXuatCongViec | None:
         return self.db.get(SanXuatCongViec, cong_viec_id)
+
+    def cong_viec_nhieu(self, ids) -> dict[int, SanXuatCongViec]:
+        """`{id: công việc}` — MỘT truy vấn cho cả tập (vòng sửa 1, Minor 4: N+1 hình dạng ở
+        `board.chi_tiet_cong_viec`'s `doi_tac_map`, quy mô nhỏ — 0-5 đối tác bàn giao mỗi công
+        đoạn — nhưng rẻ để gộp theo đúng khuôn `*_nhieu` Task 7 đã dựng). Rỗng ⇒ `{}` mà không
+        chạm DB."""
+        ids = [i for i in set(ids) if i]
+        if not ids:
+            return {}
+        rows = self.db.scalars(select(SanXuatCongViec).where(SanXuatCongViec.id.in_(ids)))
+        return {r.id: r for r in rows}
 
     def cong_viec_sau_goi_y(self, cv: SanXuatCongViec) -> list[SanXuatCongViec]:
         """Công việc KHÁC cùng gói phát hành + cùng LSX/bài ghép — GỢI Ý đích bàn giao (§11.2).
@@ -116,6 +128,23 @@ class SanXuatSanLuongRepository:
             )
             or 0
         )
+
+    def tong_tot_nhieu(self, cong_viec_ids) -> dict[int, float]:
+        """{cong_viec_id: tổng TỐT} cho một TẬP công việc — MỘT truy vấn GỘP, khác `tong_tot` ở
+        trên vốn chỉ phục vụ MỘT công việc (drawer). Bàn tổ liệt kê hàng chục công việc và cổng
+        đóng nhóm duyệt nhiều bước KCS cuối cùng lúc — gọi `tong_tot` theo từng dòng ở đó là N+1.
+
+        Id không có batch nào thì KHÔNG có mặt trong dict (bên gọi tự `.get(id, 0.0)`). Rỗng đầu
+        vào ⇒ trả `{}` mà không đụng DB."""
+        ids = [i for i in set(cong_viec_ids) if i]
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(SanXuatBatch.cong_viec_id, func.coalesce(func.sum(SanXuatBatch.tot), 0))
+            .where(SanXuatBatch.cong_viec_id.in_(ids))
+            .group_by(SanXuatBatch.cong_viec_id)
+        )
+        return {cvid: float(tong or 0) for cvid, tong in rows}
 
     def batch_ids_cua(self, cong_viec_id: int) -> list[int]:
         return list(
@@ -192,6 +221,36 @@ class SanXuatSanLuongRepository:
                 .order_by(SanXuatBanGiao.id)
             )
         )
+
+    def tong_thuc_nhan_nhieu(self, cong_viec_ids) -> dict[int, dict[str, float]]:
+        """{cong_viec_id: {đơn vị: tổng ĐÃ NHẬN về}} cho một TẬP công việc — MỘT truy vấn GỘP.
+
+        "Thực nhận" = bàn giao ĐẾN việc này ở trạng thái confirmed/adjusted; `proposed` chưa chốt
+        nên không tính (cùng luật với `san_xuat_kcs_repo.tong_ban_giao_xac_nhan`).
+
+        Tách theo ĐƠN VỊ, không cộng gộp một cục: một bước ghép nhận "tờ" từ chỗ này và "cuốn" từ
+        chỗ khác — cộng chung ra một con số vô nghĩa. Bên gọi tự lấy đúng đơn vị đầu vào của bước.
+        Việc chưa nhận gì thì KHÔNG có mặt trong dict — phân biệt "nhận 0" với "không ai giao tới"
+        (bước ĐẦU chuỗi lấy vật tư từ kho)."""
+        ids = [i for i in set(cong_viec_ids) if i]
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(
+                SanXuatBanGiao.dich_cong_viec_id,
+                SanXuatBanGiao.don_vi,
+                func.coalesce(func.sum(SanXuatBanGiao.so_luong), 0),
+            )
+            .where(
+                SanXuatBanGiao.dich_cong_viec_id.in_(ids),
+                SanXuatBanGiao.trang_thai.in_((BG_XAC_NHAN, BG_DIEU_CHINH)),
+            )
+            .group_by(SanXuatBanGiao.dich_cong_viec_id, SanXuatBanGiao.don_vi)
+        )
+        ket: dict[int, dict[str, float]] = {}
+        for cvid, don_vi, tong in rows:
+            ket.setdefault(cvid, {})[don_vi or ""] = float(tong or 0)
+        return ket
 
     def tong_da_giao(self, nguon_cong_viec_id: int) -> float:
         """Tổng số lượng ĐÃ ghi bàn giao từ một nguồn (mọi trạng thái — không có huỷ cứng). Dùng
@@ -329,3 +388,79 @@ class SanXuatSanLuongRepository:
             select(SanXuatVatTuNhan).where(SanXuatVatTuNhan.voucher_id.in_(voucher_ids))
         )
         return {r.voucher_id: r for r in rows}
+
+    # --- Task 7: khối đối chiếu `vat_tu_cap` (spec-de-nghi-cap-vat-tu-cong-doan §6) -----------
+    def voucher_xuat_cua_cong_viec(
+        self, cv: SanXuatCongViec, stock_request_ids: list[int]
+    ) -> tuple[list[StockVoucher], bool]:
+        """Phiếu XUẤT đã ghi sổ mà tổ của CÔNG ĐOẠN này cần xác nhận.
+
+        Công đoạn đã có đề nghị ⇒ CHỈ lấy phiếu của các yêu cầu liên kết. Đường lùi theo `lsx_id`
+        chỉ dành cho công đoạn CHƯA TỪNG có đề nghị (dữ liệu trước 31/08/2026) — trộn hai đường là
+        cho tổ in thấy cả phiếu của tổ cán màng chỉ vì chung một LSX.
+
+        Bài ghép KHÔNG có đường lùi: dòng yêu cầu cũ khai `lsx_id`, mà bước chung của bài không
+        thuộc LSX nào — lùi ở đây là trả về danh sách sai chứ không phải danh sách thiếu.
+
+        Trả `(phiếu, la_du_lieu_cu)`.
+        """
+        if stock_request_ids:
+            return list(self.db.scalars(
+                select(StockVoucher)
+                .where(StockVoucher.loai == VOUCHER_XUAT,
+                       StockVoucher.trang_thai == VOUCHER_POSTED,
+                       StockVoucher.request_id.in_(stock_request_ids))
+                .order_by(StockVoucher.id)
+            )), False
+        if cv.bai_ghep_id or not cv.lsx_id:
+            return [], False
+        return self.voucher_xuat_cua_lsx(cv.lsx_id), True
+
+    def thuc_xuat_theo_hang(self, stock_request_ids: list[int]) -> dict[tuple[str, int], float]:
+        """{(hang_loai, hang_id): tổng `sl_goc`} của DÒNG phiếu XUẤT `posted` thuộc các yêu cầu
+        này — MỘT truy vấn GỘP cho cả danh sách, không theo từng yêu cầu (ruling task-7 25).
+        Danh sách rỗng trả `{}` mà KHÔNG chạm DB."""
+        if not stock_request_ids:
+            return {}
+        rows = self.db.execute(
+            select(StockVoucherLine.hang_loai, StockVoucherLine.hang_id,
+                   func.sum(StockVoucherLine.sl_goc))
+            .select_from(StockVoucherLine)
+            .join(StockVoucher, StockVoucher.id == StockVoucherLine.voucher_id)
+            .where(StockVoucher.loai == VOUCHER_XUAT,
+                   StockVoucher.trang_thai == VOUCHER_POSTED,
+                   StockVoucher.request_id.in_(stock_request_ids))
+            .group_by(StockVoucherLine.hang_loai, StockVoucherLine.hang_id)
+        )
+        return {(loai, int(hid)): float(tong or 0) for loai, hid, tong in rows}
+
+    def yeu_cau_tom_tat(self, request_ids: list[int]) -> dict[int, dict]:
+        """`{request_id: {"ma", "trang_thai"}}` — MỘT truy vấn cho cả danh sách. Drawer công đoạn
+        cần mã + trạng thái của mọi lần đề nghị; hỏi từng cái là N+1 ngay trên đường mở drawer
+        (ruling task-7 25). Danh sách rỗng trả `{}` mà KHÔNG chạm DB."""
+        ids = [i for i in set(request_ids) if i]
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(StockRequest.id, StockRequest.ma, StockRequest.trang_thai)
+            .where(StockRequest.id.in_(ids))
+        )
+        return {rid: {"ma": ma, "trang_thai": tt} for rid, ma, tt in rows}
+
+    def ten_hang_nhieu(self, keys: set[tuple[str, int]]) -> dict[tuple[str, int], str]:
+        """`{(hang_loai, hang_id): tên}` — MỘT truy vấn MỖI `hang_loai`, không phải mỗi mặt hàng
+        (ruling task-7 25). Danh sách rỗng trả `{}` mà KHÔNG chạm DB."""
+        theo_loai: dict[str, set[int]] = {}
+        for loai, hid in keys:
+            theo_loai.setdefault(loai, set()).add(int(hid))
+        out: dict[tuple[str, int], str] = {}
+        for loai, ids in theo_loai.items():
+            if not ids:
+                continue
+            model = GiayNguyen if loai == HANG_GIAY else VatTuInAn if loai == HANG_VAT_TU else None
+            if model is None:
+                continue
+            rows = self.db.execute(select(model.id, model.ten).where(model.id.in_(ids)))
+            for hid, ten in rows:
+                out[(loai, hid)] = ten
+        return out

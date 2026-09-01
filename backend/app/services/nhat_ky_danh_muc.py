@@ -36,8 +36,10 @@ ACTION_XOA = "dm_xoa"
 CONG_THUC_TRUONG = frozenset({"cong_thuc_luong", "cong_thuc_san_luong"})
 
 # Cột kỹ thuật — đổi cũng không ai quan tâm, ghi vào chỉ làm nhiễu nhật ký.
+# `version` là bộ đếm khoá lạc quan (chống hai người sửa đè nhau), tự tăng MỖI lần lưu: để nó lọt
+# vào ảnh chụp thì lần sửa nào cũng đẻ thêm dòng "Phiên bản 3 → 4" bên cạnh thay đổi thật.
 BO_QUA = frozenset({
-    "id", "created_at", "updated_at", "created_by", "updated_by", "deleted_at",
+    "id", "created_at", "updated_at", "created_by", "updated_by", "deleted_at", "version",
 })
 
 # Tên trường → nhãn tiếng Việt. Gom CHUNG cho mọi danh mục vì tên cột lặp lại nhiều
@@ -219,6 +221,10 @@ NHAN: dict[str, str] = {
     "unit": "Đơn vị",
     "unit_price": "Đơn giá",
     "cong_doan": "Công đoạn (cột cũ)",
+    # Tiêu chí KCS (`san_xuat_kcs_tieu_chi`, mg 0250) — chữ lấy đúng nhãn cột đang hiện trên màn
+    # (`rebuildCatalogConfigs`), để đọc nhật ký xong tìm ra đúng cái ô đó trên form.
+    "huong_dan": "Hướng dẫn",
+    "bat_buoc": "Bắt buộc",
 }
 
 # Hậu tố đơn vị cho vài trường số — để "100 → 120" không trần trụi.

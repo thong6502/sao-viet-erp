@@ -161,8 +161,8 @@ class StockRequestLine(Base):
     """1 dòng vật tư của yêu cầu.
 
     Bốn con số chạy theo thứ tự `sl_de_nghi → sl_duyet → sl_da_ung`; "còn lại" =
-    `sl_duyet - sl_da_ung` (tính, không lưu — lưu thành cột thứ 4 là mời sai lệch).
-    Service chặn cứng không cho ứng vượt `sl_duyet` (spec §5).
+    `coalesce(sl_chot_thuc_xuat, sl_duyet) - sl_da_ung`, kẹp về ≥ 0 (tính, không lưu — lưu
+    thành cột thứ 4 là mời sai lệch). Service chặn cứng không cho ứng vượt `sl_duyet` (spec §5).
     """
 
     __tablename__ = "stock_request_lines"
@@ -199,6 +199,13 @@ class StockRequestLine(Base):
         Numeric(14, 2), CheckConstraint("sl_da_ung >= 0"),
         nullable=False, server_default="0", default=0.0,
     )
+    # KHO CHỐT THỰC XUẤT (spec-de-nghi-cap-vat-tu-cong-doan §2.3): sau khi điều chỉnh phiếu xuất,
+    # đây là con số CUỐI CÙNG kho công nhận đã cấp cho dòng này. NULL = chưa điều chỉnh lần nào.
+    #
+    # Vì sao KHÔNG hạ `sl_duyet` cho gọn: `sl_duyet` là "đã đồng ý cấp bao nhiêu" — hạ nó đi thì
+    # xin-100-xuất-70 và xin-70-xuất-70 trở nên không phân biệt được, mà đúng khoảng lệch đó là
+    # thứ tổ trưởng cần nhìn lại. Mục tiêu hiệu lực = cột này nếu có, không thì `sl_duyet`.
+    sl_chot_thuc_xuat: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     # Đơn giá NHẬP do NGƯỜI YÊU CẦU khai (chỉ yêu cầu NHẬP — họ biết giá NCC). Phiếu KẾ THỪA
     # giá này khi ghi sổ; kho KHÔNG sửa. Null với yêu cầu XUẤT (giá = giá vốn đích danh của lô).
     don_gia: Mapped[int | None] = mapped_column(Integer, nullable=True)

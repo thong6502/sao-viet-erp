@@ -14,7 +14,7 @@ import {
   type SxWorkItem, type SxWorkItemChiTiet, type SxNhanVienChon,
   type SxHoTroUngVien, type SxLyDo,
   type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien,
-  type SxKcsHopThu, type SxKhoHopThu, type SxSuCoIn,
+  type SxKhoHopThu, type SxSuCoIn,
 } from "../api/client";
 import { crud } from "../api/rebuildCatalog";
 import { kyThuatMay, type MayChon } from "../api/kyThuatMay";
@@ -105,12 +105,23 @@ function reasonTitle(r: { kind: ReasonKind; tre: boolean; soNguoi?: unknown }): 
 export function ThucHienSxPage({
   teamId,
   tenTo,
+  mode = "production",
   eventTick,
+  vatTuDeNghiDem,
+  onXemCongViec,
   onBadgeStale,
 }: {
   teamId: number;
   tenTo?: string;
+  mode?: "production" | "kcs";
   eventTick?: number;
+  /** Số lần đề nghị cấp vật tư đổi, ĐẾM THEO công việc (SSE, mắc ở AppShell). CỐ TÌNH không đi qua
+   *  `eventTick`: sự kiện này broadcast TOÀN HỆ, nếu bump tick chung thì mỗi lần bất kỳ tổ nào
+   *  trong nhà máy gửi đề nghị là drawer của mọi người gọi lại API. Chỉ nạp lại khi số đếm CỦA
+   *  RIÊNG việc đang mở tăng — một sự kiện, nhiều nhất MỘT lượt gọi lại. */
+  vatTuDeNghiDem?: Record<number, number>;
+  /** Báo lên AppShell việc đang mở drawer, để nó khỏi bắn toast cho chính việc đó. */
+  onXemCongViec?: (id: number | null) => void;
   onBadgeStale?: () => void;
 }) {
   const { token } = useAuth();
@@ -130,7 +141,6 @@ export function ThucHienSxPage({
   const [kcsCt, setKcsCt] = useState<SxKcsChiTiet | null>(null);
   const [khoCt, setKhoCt] = useState<SxKhoChiTiet | null>(null);
   const [dieuKien, setDieuKien] = useState<SxDongNhomDieuKien | null>(null);
-  const [kcsHopThu, setKcsHopThu] = useState<SxKcsHopThu | null>(null);
   const [khoHopThu, setKhoHopThu] = useState<SxKhoHopThu | null>(null);
   // Kho ĐÍCH chọn được lúc xác nhận nhập. `null` = CHƯA ĐỌC ĐƯỢC danh mục (đang tải / lỗi mạng /
   // không có quyền đọc); `[]` = đọc được nhưng danh mục RỖNG THẬT. Hai chuyện khác hẳn nhau ⇒ hai
@@ -166,12 +176,12 @@ export function ThucHienSxPage({
   const loadItems = useCallback(() => {
     if (!token) return;
     setErr(null);
-    api.sanXuat.workItems(token, teamId)
+    api.sanXuat.workItems(token, teamId, mode)
       .then((r) => { setItems(r.cong_viec); setErr(null); })
       .catch((e: unknown) => setErr(e instanceof ApiError
         ? (e.isForbidden ? "Tổ này ngoài phạm vi của bạn." : e.message)
         : String(e)));
-  }, [token, teamId]);
+  }, [token, teamId, mode]);
 
   useEffect(() => { loadItems(); }, [loadItems, eventTick]);
 
@@ -226,6 +236,43 @@ export function ThucHienSxPage({
   }, [token]);
 
   useEffect(() => { void loadChiTiet(selectedId); }, [loadChiTiet, selectedId, eventTick]);
+
+  // Đề nghị vật tư đổi (SSE): CHỈ nạp lại khi số đếm CỦA RIÊNG việc đang mở tăng. So theo cặp
+  // (việc, số đếm) nên đổi việc KHÔNG kéo theo một lượt gọi thừa — effect ngay trên vừa nạp rồi.
+  const vtDaXem = useRef<{ cv: number | null; dem: number }>({ cv: null, dem: 0 });
+  // Mốc thao tác ghi GẦN NHẤT của chính người này (`mutate` đặt HAI lần: trước khi gọi API và sau
+  // khi nạp lại xong) — để tín hiệu SSE vọng về từ chính cú bấm đó không bắt nạp lần hai.
+  const vuaTuNap = useRef(0);
+  const vtDem = selectedId != null ? (vatTuDeNghiDem?.[selectedId] ?? 0) : 0;
+  useEffect(() => {
+    const truoc = vtDaXem.current;
+    if (selectedId == null || truoc.cv !== selectedId || vtDem === truoc.dem) {
+      vtDaXem.current = { cv: selectedId, dem: vtDem };
+      return;
+    }
+    const nap = () => {
+      vtDaXem.current = { cv: selectedId, dem: vtDem };
+      void loadChiTiet(selectedId);
+    };
+    // Người VỪA bấm đã được `mutate` nạp lại xong, rồi sự kiện SSE của chính họ vọng về ngay sau
+    // đó: nạp ngay là một lượt gọi API thừa cho đúng dữ liệu vừa lấy.
+    const con = 2000 - (Date.now() - vuaTuNap.current);
+    if (con <= 0) { nap(); return; }
+    // …nhưng KHÔNG được vứt sự kiện rơi vào cửa đó. Cửa mở vì thao tác của CHÍNH mình, mà sự kiện
+    // rơi vào có thể là của tổ trưởng khác — bỏ qua rồi đánh dấu "đã xem" là drawer đứng số cũ vô
+    // thời hạn, không toast (AppShell im vì đúng việc đang mở) và không tự sửa theo thời gian.
+    // Nên: hẹn ĐÚNG phần còn lại của cửa rồi nạp một lượt. `vtDaXem` chỉ ghi khi thật sự nạp, nên
+    // nếu effect chạy lại giữa chừng thì sự kiện vẫn còn nguyên là "chưa xem". Một hẹn duy nhất —
+    // không vòng lặp thăm dò, và vẫn đúng "một sự kiện nhiều nhất một lượt gọi API".
+    const h = setTimeout(nap, con);
+    return () => clearTimeout(h);
+  }, [vtDem, selectedId, loadChiTiet]);
+
+  // Cho AppShell biết drawer đang mở việc nào — nó dùng để KHÔNG bắn toast cho chính việc đó.
+  useEffect(() => {
+    onXemCongViec?.(selectedId);
+    return () => onXemCongViec?.(null);
+  }, [onXemCongViec, selectedId]);
 
   useEffect(() => {
     if (!toast) return;
@@ -291,15 +338,9 @@ export function ThucHienSxPage({
     return () => { alive = false; };
   }, [token, selNhom, isKcsCuoi, eventTick, g5Tick]);
 
-  // Hộp thư LỖI KCS — việc tổ mình bị yêu cầu nhận/từ chối (server lọc theo tổ trưởng đang đăng nhập).
-  useEffect(() => {
-    if (!token) { setKcsHopThu(null); return; }
-    let alive = true;
-    api.sanXuat.kcsHopThu(token)
-      .then((r) => { if (alive) setKcsHopThu(r); })
-      .catch(() => { if (alive) setKcsHopThu(null); });
-    return () => { alive = false; };
-  }, [token, teamId, eventTick, g5Tick]);
+  // Hộp thư LỖI KCS đã GỠ khỏi màn production (Task 9 §6.4, mg 0250 kiêm nhiệm) — luồng phản hồi
+  // trách nhiệm cũ (pending/accepted/rejected) không còn hiện ở UI mới; hồ sơ cũ vẫn đọc được qua
+  // drawer lịch sử nếu cần, chỉ KHÔNG polling/hiện thanh cảnh báo ở bàn tổ thường nữa.
 
   // Hộp thư KHO — yêu cầu nhập/nhận chờ xác nhận (chỉ khi có quyền đọc kho).
   useEffect(() => {
@@ -380,11 +421,18 @@ export function ThucHienSxPage({
   const mutate = useCallback(async <T,>(run: () => Promise<T>, ok: string): Promise<T | null> => {
     if (!token || selectedId == null) return null;
     setBusy(true);
+    // Mốc đặt TRƯỚC cả `run()`: BE gọi `hub.broadcast(...)` TRƯỚC khi `return`, nên gói SSE của
+    // chính cú bấm này có thể tới trình duyệt SỚM HƠN lúc `run()` resolve. Mốc đặt sau `run()` là
+    // đã muộn — tín hiệu cần chặn đã đi qua cửa rồi.
+    vuaTuNap.current = Date.now();
     try {
       const r = await run();
       setReason(null);
       setReasonText("");
       await loadChiTiet(selectedId);
+      // Đặt LẠI sau khi nạp xong: mốc đầu phủ khoảng sự kiện về SỚM, mốc này phủ khoảng nó về
+      // MUỘN hơn lượt nạp. Cùng cửa 2 giây, không đẻ cơ chế mới.
+      vuaTuNap.current = Date.now();
       loadItems();
       onBadgeStale?.();
       setToast(ok);
@@ -550,6 +598,10 @@ export function ThucHienSxPage({
       xacNhanBanGiao: (id, v) => ok(mutate(() => api.sanXuat.xacNhanBanGiao(token!, id, { expected_version: v }), "Đã xác nhận bàn giao.")),
       dieuChinhBanGiao: (id, b) => ok(mutate(() => api.sanXuat.dieuChinhBanGiao(token!, id, b), "Đã điều chỉnh bàn giao.")),
       xacNhanVatTu: (voucherId) => ok(mutate(() => api.sanXuat.xacNhanVatTu(token!, { voucher_id: voucherId, department_id: teamId }), "Đã xác nhận nhận vật tư.")),
+      // Đề nghị cấp vật tư: 400 = vi phạm nghiệp vụ, `handleErr` hiện NGUYÊN VĂN câu tiếng Việt
+      // của BE (kho đã lập phiếu, đề nghị đã huỷ…) — không nuốt thành "Có lỗi xảy ra".
+      deNghiVatTu: (cvId, b) => ok(mutate(() => api.sanXuat.deNghiVatTu(token!, cvId, b), "Đã gửi đề nghị cấp vật tư.")),
+      suaDeNghiVatTu: (cvId, dnId, b) => ok(mutate(() => api.sanXuat.suaDeNghiVatTu(token!, cvId, dnId, b), "Đã lưu đề nghị cấp vật tư.")),
       deXuatHoTro: (b) => ok(mutate(() => api.sanXuat.deXuatHoTro(token!, selectedId!, b), "Đã đề xuất hỗ trợ.")),
       xacNhanHoTro: (id, v) => ok(mutate(() => api.sanXuat.xacNhanHoTro(token!, id, { expected_version: v }), "Đã xác nhận hỗ trợ.")),
       huyHoTro: (id, lyDo, v) => ok(mutate(() => api.sanXuat.huyHoTro(token!, id, { ly_do: lyDo || null, expected_version: v }), "Đã huỷ hỗ trợ.")),
@@ -645,9 +697,11 @@ export function ThucHienSxPage({
         </div>
       </div>
 
-      {/* Hộp thư mức trang (§13/§14) — chỉ hiện khi CÓ việc chờ; real-time qua eventTick/g5Tick */}
+      {/* Hộp thư mức trang (§14) — chỉ hiện khi CÓ việc chờ; real-time qua eventTick/g5Tick.
+          Cột KCS đã GỠ khỏi màn production (Task 9 §6.4) — `kcsItems` cố định rỗng, luồng phản hồi
+          trách nhiệm lỗi KCS legacy không còn hiện ở đây nữa (module KCS mới không dùng luồng đó). */}
       <ThsxHopThuBar
-        kcsItems={kcsHopThu?.loi ?? []}
+        kcsItems={[]}
         khoHopThu={khoHopThu}
         khoOpts={khoOpts}
         canKhoRead={canKhoRead}

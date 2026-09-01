@@ -34,6 +34,7 @@ from ..xep_lich_service import XepLichNotFound, XepLichService, _aware, _naive
 from . import constraint as C
 from . import auto, chan_doan, overlay, release, suggestion
 from .context import XepLich2Context
+from .thuc_te import nap_thuc_te
 
 # Mã CHẶN tương ứng khi ĐÃ chọn giờ mà engine không tính nổi thời lượng: thiếu dữ liệu này biến
 # lịch thành vô nghĩa ⇒ nâng từ cảnh báo lên CHẶN ĐẶT LỊCH (spec §7.1). Lúc mới tạo nháp (chưa có
@@ -82,12 +83,31 @@ def _muc_worst(van_de: list[dict]) -> str | None:
 
 @dataclass
 class _NhanMaps:
-    """Bốn map nhãn nạp theo lô cho một lượt `workspace` — mã lệnh · mã bài · tên hai loại công đoạn."""
+    """Bốn map nhãn nạp theo lô cho một lượt `workspace` — mã lệnh · mã bài · hai loại công đoạn.
+
+    Hai map công đoạn mang CẶP `(tên, SL vào)`: dòng lịch chỉ neo id bước, mà bàn cần cả nhãn để vẽ
+    thanh lẫn tổng của bước để biết chia lần chạy được hay không. Tra qua `ten_cd` / `sl_vao_cd`
+    thay vì đọc thẳng map — dòng LSX và dòng bài ghép ăn hai map khác nhau, viết tay chỗ nào cũng
+    lặp đúng câu điều kiện ấy."""
 
     lsx: dict[int, Lsx] = field(default_factory=dict)
     bai_ghep: dict[int, BaiGhep] = field(default_factory=dict)
-    lsx_cd: dict[int, str] = field(default_factory=dict)
-    bg_cd: dict[int, str] = field(default_factory=dict)
+    lsx_cd: dict[int, tuple[str, float]] = field(default_factory=dict)
+    bg_cd: dict[int, tuple[str, float]] = field(default_factory=dict)
+
+    def _cd(self, r) -> tuple[str, float] | None:
+        return (self.lsx_cd.get(r.lsx_cong_doan_id) if r.nguon == NGUON_LSX
+                else self.bg_cd.get(r.bai_ghep_cong_doan_id))
+
+    def ten_cd(self, r) -> str | None:
+        """Tên công đoạn của bước dòng đang neo (None khi dòng chưa neo bước / bước đã xoá)."""
+        cd = self._cd(r)
+        return cd[0] if cd else None
+
+    def sl_vao_cd(self, r) -> float | None:
+        """SL VÀO của bước — None khi chưa neo bước, 0 khi bước có nhưng chưa khai số lượng."""
+        cd = self._cd(r)
+        return cd[1] if cd else None
 
 
 class XepLich2Error(Exception):
@@ -149,6 +169,14 @@ class XepLich2Service:
             may_id=patch.get("may_id", dong.may_id),
             department_id=patch.get("department_id", dong.department_id),
             nha_cung_cap=patch.get("nha_cung_cap", dong.nha_cung_cap),
+            # Chiều PHÂN ĐOẠN phải đi theo bản sao: engine thời lượng tra cụm bằng `id`/
+            # `goc_dong_id` rồi nhân tỉ lệ. Bỏ sót là dòng đã tách 6.000 vẫn được xem-trước và
+            # LƯU theo thời lượng của trọn 10.000 — đúng cái thanh dài sai mà tách sinh ra để tránh.
+            id=dong.id,
+            so_luong=getattr(dong, "so_luong", None),
+            phan_doan_so=getattr(dong, "phan_doan_so", 1),
+            phan_doan_tong=getattr(dong, "phan_doan_tong", 1),
+            goc_dong_id=getattr(dong, "goc_dong_id", None),
         )
 
     def _tinh(self, dong: XepLichCongDoan, patch: dict) -> dict:
@@ -340,8 +368,7 @@ class XepLich2Service:
     def _nhan_buoc(self, r, nhan: "_NhanMaps") -> str:
         """Nhãn NGƯỜI ĐỌC của một bước: `B3 · Cán màng bóng` — đúng số bàn/panel đang hiện (B = thứ
         tự + 1). Không có tên công đoạn thì còn mỗi số bước, vẫn hơn nhãn chung "Công đoạn"."""
-        ten = (nhan.lsx_cd.get(r.lsx_cong_doan_id) if r.nguon == NGUON_LSX
-               else nhan.bg_cd.get(r.bai_ghep_cong_doan_id))
+        ten = nhan.ten_cd(r)
         so = f"B{int(r.source_thu_tu or 0) + 1}"
         return f"{so} · {ten}" if ten else so
 
@@ -444,8 +471,7 @@ class XepLich2Service:
                 fins.append(rf)
             rs = _aware(r.start_at)
             if int(r.source_thu_tu or 0) > thu_tu and rs is not None and rs < finish:
-                ten = (nhan.lsx_cd.get(r.lsx_cong_doan_id) if r.nguon == NGUON_LSX
-                       else nhan.bg_cd.get(r.bai_ghep_cong_doan_id))
+                ten = nhan.ten_cd(r)
                 anh_huong.append({
                     "dong_id": r.id, "thu_tu": int(r.source_thu_tu or 0),
                     "cong_doan_ten": ten, "start_at": _naive(rs), "finish_at": _naive(rf),
@@ -519,6 +545,59 @@ class XepLich2Service:
         )
         self.repo.commit()
         return self.core._get_dong(dong_id)
+
+    # ================= TÁCH / GỘP LẦN CHẠY =================
+    def _viet_lai_finish(self, dong: XepLichCongDoan) -> None:
+        """Viết lại `finish_at` theo số lượng HIỆN TẠI của dòng.
+
+        `finish_at` là cột PERSIST và là nguồn duy nhất cho bộ dò `trung_may`. Tách/gộp đổi số
+        lượng ⇒ đổi thời lượng, để nguyên giờ kết thúc cũ là đọc sai khoảng máy theo cả hai chiều:
+        tách xong thanh vẫn dài như trọn bước (khoá máy DƯ ~40%), gộp lại thì thanh ngắn hơn việc
+        thật nên `trung_may` không la trong khi ngoài xưởng hai lệnh chồng nhau — hướng nguy hiểm.
+
+        Đi đúng đường `luu` đang ghi (`finish_lien_tuc`, §3.3) chứ không đường cộng-theo-ca của
+        engine cũ: cùng một dòng trên cùng một bàn không được có hai kiểu giờ kết thúc.
+        """
+        start = C.tron_phut(_aware(dong.start_at))
+        if start is None:
+            dong.finish_at = None
+            return
+        chiem = int(self._thoi_luong_v2(self._shadow(dong, {})).get("chiem_may_phut") or 0)
+        dong.finish_at = C.finish_lien_tuc(start, chiem) if chiem > 0 else None
+
+    def tach_dong(self, *, dong_id: int, cac_phan: list[float], actor) -> list[dict]:
+        """Tách một công đoạn thành nhiều LẦN CHẠY, trả view của CẢ CỤM (spec §2.4).
+
+        Trả cả cụm chứ không chỉ dòng vừa bấm: tách đẻ thêm thanh trên bàn, FE cần đủ cụm để vẽ
+        lại một lượt thay vì đoán rồi đi tải lại workspace.
+        """
+        from .phan_doan import tach
+
+        cum = tach(self.db, dong_id=dong_id, cac_phan=cac_phan, actor=actor)
+        for d in cum:
+            self._viet_lai_finish(d)
+        self.audit.create(
+            actor_user_id=getattr(actor, "id", None), action="xep_lich_2_tach_dong",
+            target=f"xep_lich:{dong_id}",
+            detail="Tách lần chạy: " + "; ".join(
+                f"{d.phan_doan_so}/{d.phan_doan_tong}={float(d.so_luong or 0):g}" for d in cum),
+        )
+        self.repo.commit()
+        nhan = self._nap_nhan(cum)
+        return [self._dong_view(d, nhan) for d in cum]
+
+    def gop_dong(self, *, dong_id: int, actor) -> dict:
+        """Gộp cả cụm phân đoạn về lại MỘT dòng (giữ id gốc) — trả view của dòng còn lại."""
+        from .phan_doan import gop
+
+        goc = gop(self.db, dong_id=dong_id)
+        self._viet_lai_finish(goc)
+        self.audit.create(
+            actor_user_id=getattr(actor, "id", None), action="xep_lich_2_gop_dong",
+            target=f"xep_lich:{goc.id}", detail=f"Gộp lần chạy về một dòng {goc.id}",
+        )
+        self.repo.commit()
+        return self.dong_view(goc)
 
     # ================= PHÁT HÀNH (cửa dùng chung) =================
     def kiem_phat_hanh(self, *, nguon: str, id: int) -> list[dict]:
@@ -835,8 +914,7 @@ class XepLich2Service:
             nguon_tl = "may"
         else:
             nguon_tl = "tay"
-        cong_doan_ten = (nhan.lsx_cd.get(r.lsx_cong_doan_id) if r.nguon == NGUON_LSX
-                         else nhan.bg_cd.get(r.bai_ghep_cong_doan_id))
+        cong_doan_ten = nhan.ten_cd(r)
         return {
             "id": r.id,
             "thu_tu": int(r.source_thu_tu or 0),
@@ -892,7 +970,7 @@ class XepLich2Service:
             "con_ranh": qs["so_nguoi"] - dinh,
         }
 
-    def _dong_view(self, r: XepLichCongDoan, nhan: "_NhanMaps") -> dict:
+    def _dong_view(self, r: XepLichCongDoan, nhan: "_NhanMaps", tt: dict[int, dict] | None = None) -> dict:
         # Nhãn dẫn xuất: dòng chỉ neo id nên tra mã lệnh + tên sản phẩm + tên công đoạn từ các map
         # đã nạp theo lô (không join trong vòng lặp). LSX ăn nhánh lsx_*, bài ghép ăn nhánh bg_*.
         if r.nguon == NGUON_LSX:
@@ -900,13 +978,12 @@ class XepLich2Service:
             lsx_ma = lsx.ma if lsx else None
             bai_ghep_ma = None
             ten_san_pham = lsx.ten if lsx else None
-            cong_doan_ten = nhan.lsx_cd.get(r.lsx_cong_doan_id)
         else:
             bg = nhan.bai_ghep.get(r.bai_ghep_id)
             lsx_ma = None
             bai_ghep_ma = bg.ma if bg else None
             ten_san_pham = bg.ten if bg else None
-            cong_doan_ten = nhan.bg_cd.get(r.bai_ghep_cong_doan_id)
+        cong_doan_ten = nhan.ten_cd(r)
         return {
             "id": r.id, "nguon": r.nguon, "lsx_id": r.lsx_id, "bai_ghep_id": r.bai_ghep_id,
             "may_id": r.may_id, "department_id": r.department_id,
@@ -924,6 +1001,17 @@ class XepLich2Service:
             "ten_san_pham": ten_san_pham,
             "cong_doan_ten": cong_doan_ten,
             "buoc_thu_tu": int(r.source_thu_tu or 0),
+            # Chiều LẦN CHẠY: thanh phải tự nói "2/3" và phần việc của nó, không thì người xếp
+            # nhìn ba thanh giống hệt nhau mà không biết cái nào làm bao nhiêu.
+            # `so_luong` NULL = trọn bước (dòng chưa tách) — KHÁC hẳn 0.
+            "so_luong": float(r.so_luong) if r.so_luong is not None else None,
+            "phan_doan_so": int(r.phan_doan_so or 1),
+            "phan_doan_tong": int(r.phan_doan_tong or 1),
+            # SL VÀO của cả bước — cái mà `phan_doan.tach` đem đi chia khi dòng chưa mang `so_luong`
+            # (gần như luôn thế). Không phơi thì màn không có cách nào biết bấm Tách có ra gì không:
+            # `so_luong` NULL đọc như "chưa biết số" trong khi bước vẫn khai đủ. 0 = bước thật sự
+            # chưa khai số lượng ⇒ tách sẽ bị chặn, nút phải xám từ đầu.
+            "so_luong_buoc": nhan.sl_vao_cd(r),
             # "Râu" giải thích độ dài thanh: chỉ tính cho dòng ĐÃ có giờ (thanh nằm trên trục thời
             # gian). Nháp chưa-giờ nằm ở cụm "Chưa đặt giờ", không có thanh để bóc tách → None.
             "boc_tach": self._boc_tach(r) if r.start_at is not None else None,
@@ -931,6 +1019,9 @@ class XepLich2Service:
             # chung detector `_van_de_dat_lich` với panel/xem-trước nên dải chân bàn khớp từng thanh.
             # Chỉ tính cho dòng đã có giờ (nháp chưa-giờ không có thanh để đếm mức).
             "muc": _muc_worst(self._tinh(r, {})["van_de"]) if r.start_at is not None else None,
+            # Lớp THỰC TẾ — CHỈ ĐỌC, không bao giờ dời thanh (spec-thuc-te-vs-ke-hoach §2.1).
+            # None = chưa phát hành / phát hành phiên bản khác ⇒ FE vẽ thanh trơn như trước.
+            "thuc_te": (tt or {}).get(r.id),
         }
 
     def dong_view(self, r: XepLichCongDoan) -> dict:
@@ -942,8 +1033,8 @@ class XepLich2Service:
         return _NhanMaps(
             lsx=self.repo.lsx_map(r.lsx_id for r in rows),
             bai_ghep=self.repo.bai_ghep_map(r.bai_ghep_id for r in rows),
-            lsx_cd=self.repo.lsx_cong_doan_ten_map(r.lsx_cong_doan_id for r in rows),
-            bg_cd=self.repo.bai_ghep_cong_doan_ten_map(r.bai_ghep_cong_doan_id for r in rows),
+            lsx_cd=self.repo.lsx_cong_doan_nhan_map(r.lsx_cong_doan_id for r in rows),
+            bg_cd=self.repo.bai_ghep_cong_doan_nhan_map(r.bai_ghep_cong_doan_id for r in rows),
         )
 
     def _boc_tach(self, r: XepLichCongDoan) -> dict:
@@ -981,8 +1072,10 @@ class XepLich2Service:
         nhap = self.repo.nhap_chua_gio()
         co_gio = [r for r in da_xep if r.start_at is not None]
         nhan = self._nap_nhan(da_xep + nhap)  # gom id CẢ hai nhóm rồi tra map một lượt
-        dong = [self._dong_view(r, nhan) for r in da_xep]
-        dong += [self._dong_view(r, nhan) for r in nhap]
+        # Nạp GỘP một lượt cho cả bàn — cùng lý do `_nap_nhan` tồn tại: bàn vài trăm thanh.
+        tt = nap_thuc_te(self.db, da_xep + nhap)
+        dong = [self._dong_view(r, nhan, tt) for r in da_xep]
+        dong += [self._dong_view(r, nhan, tt) for r in nhap]
         pl_may = [(r.may_id, _aware(r.start_at), _aware(r.finish_at)) for r in co_gio if r.may_id]
         pl_to = [(r.department_id, _aware(r.start_at), _aware(r.finish_at), self.ctx._so_nguoi(r))
                  for r in co_gio if r.department_id]

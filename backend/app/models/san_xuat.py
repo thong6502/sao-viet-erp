@@ -211,6 +211,16 @@ class SanXuatCongViec(Base):
     lsx_cong_doan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bai_ghep_cong_doan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     step_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # LẦN CHẠY của bước (mg `0254`). Một bước tách N lần chạy ở Xếp lịch 2 ⇒ N công việc CÙNG
+    # `step_key`; cặp số này là thứ DUY NHẤT phân biệt chúng. Bước chưa tách = 1/1.
+    # Không có nó thì "Phát hành cập nhật" phải đoán: nó lấy dòng lịch đầu tiên rồi dập giờ/máy
+    # của lần 1 lên cả N công việc — lần 2 trở đi mang giờ của lần 1, tổ ra máy sai ca.
+    phan_doan_so: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1", default=1
+    )
+    phan_doan_tong: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1", default=1
+    )
     ten_cong_doan: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     nhom_cong_doan: Mapped[str | None] = mapped_column(String(24), nullable=True)
     loai_buoc: Mapped[str] = mapped_column(String(16), nullable=False, default=BUOC_MAY)
@@ -224,6 +234,11 @@ class SanXuatCongViec(Base):
     la_kcs_cuoi: Mapped[bool] = mapped_column(
         nullable=False, server_default=sa_false(), default=False
     )
+    # KCS kiêm nhiệm (mg `0250`): SNAPSHOT ĐẦY ĐỦ checklist (danh mục + bổ sung LSX/bài ghép) tại
+    # lúc PHÁT HÀNH — không chỉ phần bổ sung như `lsx_cong_doan.kcs_tieu_chi_bo_sung_json`. Task 3
+    # mới thực sự GHI nội dung này; ở đây CHỈ khai cột, nullable (chưa phát hành qua luồng mới =
+    # NULL, KHÔNG đoán). Hình dạng: list[{tieu_chi_id, ma, ten, huong_dan, bat_buoc, nguon, thu_tu}].
+    kcs_tieu_chi_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # Khoá MỀM → `may_thiet_bi.id` (danh mục máy ĐANG CHẠY), đúng quy ước của `lsx_cong_doan`
     # / `xep_lich_cong_doan` / `bai_ghep`. Trước mig `0237` đây là FK CỨNG trỏ `machines` —
     # danh mục đời tính giá, id lệch hẳn — nên bước dùng máy ngoài dải đó là phát hành VỠ.
@@ -246,7 +261,7 @@ class SanXuatCongViec(Base):
     # `version += 1` về sau (rút người khỏi bước đã xong, sửa ghi chú…) dời nó, và KPI "công đoạn
     # xong hôm nay" từng đếm nhầm một bước đóng năm 2020 vào hôm nay vì đọc `updated_at`. Bịt từng
     # đường ghi không giải quyết được lớp lỗi đó — đường ghi thêm sau lại phá lại. NULL = chưa xong
-    # (hoặc dòng có từ trước migration 0250 mà lúc backfill chưa `completed`).
+    # (hoặc dòng có từ trước migration 0256 mà lúc backfill chưa `completed`).
     hoan_thanh_luc: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

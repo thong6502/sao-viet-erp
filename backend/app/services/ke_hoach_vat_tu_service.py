@@ -58,6 +58,7 @@ from .bien_cong_thuc import quy_cach_bien, quy_cach_bien_bai
 from .bien_cong_thuc import KHUNG_LUA_MAC_DINH, ngu_canh_lenh
 from .thanh_phan_engine import safe_eval
 from .quy_doi_service import _so, bien_trong, cap_map, doi, don_vi_map
+from .stock_request_service import StockRequestService
 
 # Lệnh ở ba trạng thái này là thứ kế hoạch phải lo giấy: đã chốt kỹ thuật, chỉ còn chờ chạy.
 # `nhap`/`cho_bo_sung` chưa chốt quy cách nên số tờ còn xê dịch — đưa vào bảng là mua theo số sắp đổi.
@@ -487,7 +488,7 @@ class KeHoachVatTuService:
                 (_f(ln.sl_da_ung), da_cap),
                 # Đề nghị đã DONE thì phần chênh duyệt−ứng là phần kho chốt KHÔNG cấp nữa (giao
                 # thiếu, đóng phiếu), không phải hàng đang trên đường ra khỏi kho.
-                (0.0 if trang_thai == REQ_DONE else max(0.0, _f(ln.sl_duyet) - _f(ln.sl_da_ung)),
+                (0.0 if trang_thai == REQ_DONE else StockRequestService.con_lai(ln),
                  dang_linh),
             ):
                 if nguon <= 0:
@@ -794,6 +795,111 @@ class KeHoachVatTuService:
             "items": items,
             "bo_qua": [row for row in can_doi["bo_qua"] if row.get("ma") in ma_hieu_luc],
         }
+
+    def nhu_cau_cua_cong_viec(self, cv) -> list[dict]:
+        """Vật tư KẾ HOẠCH của MỘT công việc sản xuất (spec-de-nghi-cap-vat-tu-cong-doan §3).
+
+        Đi qua ĐÚNG `_gom_nhu_cau` mà bảng cân đối đang dùng, rồi LỌC về đúng bước — không viết
+        lại MRP. Hai nguồn tính nhu cầu thì sớm muộn lệch, và lệch ở đây là tổ xin sai số vật tư.
+
+        KHÔNG đọc `cv.vat_tu_json`: snapshot ấy chỉ có vật tư khai TAY ở bước, không có giấy.
+
+        Giấy neo ở bước ĐẦU TIÊN thật sự tiêu thụ giấy (`_buoc_dau_dong_giay`), nên chỉ công việc
+        của bước đó mới thấy dòng giấy — đúng nghiệp vụ: tổ cán màng không đi xin giấy in.
+        """
+        lsx_id = cv.lsx_id
+        bai_id = cv.bai_ghep_id
+        if not lsx_id and not bai_id:
+            return []
+
+        self._nap_don_vi()
+        # Phạm vi HẸP thật: đúng lệnh/bài của công việc này. Đừng quay lại `_lenh_trong_pham_vi`
+        # — nó đi qua `cho_mrp`, hàm luôn OR thêm `trang_thai IN TRANG_THAI_TINH`, nên nó kéo về
+        # mọi lệnh còn sống của xưởng và biến một lần mở form thành một lần `can_doi()` toàn bảng.
+        if bai_id:
+            b = self.bai_ghep_repo.get(bai_id)
+            bais = [b] if b is not None else []
+        elif lsx_id:
+            # Lệnh có thể là thành viên một bài ghép: khi đó giấy nằm ở dòng BÀI, không ở dòng
+            # lệnh (xem `_dong_bai`). Vẫn phải tìm bài chứa nó, nếu không `thanh_vien` rỗng và
+            # lệnh sẽ tự đẻ một dòng giấy thứ hai theo khổ của riêng nó.
+            bais = self._bai_trong_pham_vi({int(lsx_id)})
+        else:
+            bais = []
+        lsx_ids = {int(lsx_id)} if lsx_id else set()
+        lsx_ids |= {tv.lsx_id for b in bais for tv in b.thanh_viens}
+        lenh = self.lsx_repo.theo_ids(lsx_ids)
+        lenh_map = {l.id: l for l in lenh}
+        thanh_vien = {tv.lsx_id for b in bais for tv in b.thanh_viens}
+
+        self._nap_thoi_luong(lenh)
+        self._nap_lich(set(lenh_map), {b.id for b in bais})
+
+        tho, _bo_qua = self._gom_nhu_cau(lenh, lenh_map, bais, thanh_vien)
+
+        # Neo về ĐÚNG bước: dòng lệnh so `buoc_id` với `lsx_cong_doan_id`, dòng bài so với
+        # `bai_ghep_cong_doan_id` (hai không gian id khác nhau — cặp `(lsx_id, bai_ghep_id)` trên
+        # dòng đã phân biệt sẵn, xem chú thích `_dong_bai`).
+        neo_lsx = cv.lsx_cong_doan_id
+        neo_bg = cv.bai_ghep_cong_doan_id
+        cua_buoc = [
+            d for d in tho
+            if (d["bai_ghep_id"] and neo_bg and d["buoc_id"] == neo_bg)
+            or (d["lsx_id"] and neo_lsx and d["lsx_id"] == lsx_id and d["buoc_id"] == neo_lsx)
+        ]
+        if not cua_buoc:
+            return []
+
+        self._nap_mat_hang(cua_buoc)
+        self._quy_doi_dong(cua_buoc)
+
+        # Gộp trùng SAU khi đã về đơn vị gốc — gộp trước là cộng 100 tờ với 12 kg.
+        # `_nap_mat_hang`/`_quy_doi_dong` không đặt khoá `ten_hang`/`dvt_goc`/`sl_goc` lên dòng:
+        # tên lấy thẳng từ `self._objs`, đơn vị gốc là `obj.don_vi_gia`, số gốc là `d["nhu_cau"]`
+        # (khoá do `_quy_doi_dong` đặt).
+        gom: dict[tuple, dict] = {}
+        for d in cua_buoc:
+            loai, hid = d["hang"]
+            k = (loai, int(hid))
+            obj = self._objs.get(d["hang"])
+            ten = obj.ten if obj is not None else f"#{hid}"
+            dvt_goc = getattr(obj, "don_vi_gia", None) if obj is not None else None
+            sl_goc = float(d.get("nhu_cau") or 0)
+            cu = gom.get(k)
+            if cu is None:
+                gom[k] = {
+                    "hang_loai": loai, "hang_id": int(hid), "ten": ten,
+                    "dvt": d["dvt"], "sl": float(d["sl"] or 0),
+                    "dvt_goc": dvt_goc or d["dvt"], "sl_goc": sl_goc,
+                }
+            else:
+                cu["sl_goc"] += sl_goc
+                # Đơn vị hiển thị chỉ cộng được khi TRÙNG; khác đơn vị thì bày theo đơn vị GỐC,
+                # đừng cộng bừa hai thang rồi in ra một con số không có nghĩa.
+                if cu["dvt"] == d["dvt"]:
+                    cu["sl"] += float(d["sl"] or 0)
+                else:
+                    cu["dvt"] = cu["dvt_goc"]
+                    cu["sl"] = cu["sl_goc"]
+        return list(gom.values())
+
+    def ve_don_vi_goc(self, hang_loai: str, hang_id: int, dvt: str, sl: float) -> tuple[float, str]:
+        """Quy `sl` từ `dvt` về đơn vị GỐC của mặt hàng `(hang_loai, hang_id)`.
+
+        Wrapper CÔNG KHAI mỏng quanh `_ve_goc` — Task 3 (đề nghị cấp vật tư) dùng nó để BE tự quy
+        đổi lại số client gửi lên, không tin số của client. Tự nạp `self._objs` cho mặt hàng này
+        nếu chưa có (gọi thẳng từ ngoài `can_doi()`/`nhu_cau_cua_cong_viec` là bình thường — vd
+        dòng khai thêm ngoài kế hoạch).
+
+        Ném `KeHoachVatTuError` khi không quy đổi được, KHÔNG trả 0 im lặng: Task 3 dùng con số
+        này để so lệch kế hoạch, trả 0 âm thầm là một dòng "lệch" giả.
+        """
+        hang = (hang_loai, int(hang_id))
+        self.nap_nen_quy_doi([hang])
+        kq = self._ve_goc(hang, dvt, float(sl))
+        if "loi" in kq:
+            raise KeHoachVatTuError(kq["loi"])
+        return float(kq["sl"]), kq["don_vi_goc_ten"]
 
     # ---- (a) ----------------------------------------------------------------
 

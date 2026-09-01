@@ -19,7 +19,7 @@ hàng do sản xuất đẻ ra và đường nó vào kho:
 NEO snapshot: mọi bảng trỏ `order_id` / `nhom_id` / `lsx_id` / `cong_doan_ref_id` (SET NULL giữ vết).
 Số dẫn xuất (còn được yêu cầu, tồn khả dụng) TÍNH LÚC ĐỌC ở service — không cache cột.
 
-Ba bảng dựng bằng `create_all`; cột THÊM SAU vẫn phải có migration (`kho_id` = mg 0249 — `create_all`
+Ba bảng dựng bằng `create_all`; cột THÊM SAU vẫn phải có migration (`kho_id` = mg 0255 — `create_all`
 không ALTER). Boolean dùng `false()`/`true()` (bẫy Postgres DB trắng). Bảng nghiệp vụ (registry,
 yêu cầu) mang `version` chống bấm trùng; bảng LỊCH SỬ chỉ-thêm
 (lot) không có `version`. RBAC: yêu cầu nhập kho gate tổ trưởng KCS (module `san_xuat`); kho xác nhận
@@ -145,7 +145,7 @@ class SanXuatKhoLot(Base):
     #   · lot BTP `mau_luu`/`phe` không vào kho nào;
     #   · lot BTP `nhap_btp` VẪN để trống — `kho_xac_nhan_btp` đặt `kho_xac_nhan=True` mà không đụng
     #     `kho_id` (thiếu sót đã biết, tách thành việc nối tiếp, KHÔNG vá ở đây);
-    #   · lot CŨ (trước migration 0249) không biết đã vào kho nào — đoán mò còn tệ hơn để trống.
+    #   · lot CŨ (trước migration 0255) không biết đã vào kho nào — đoán mò còn tệ hơn để trống.
     kho_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     kho_xac_nhan: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False

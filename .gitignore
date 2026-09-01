@@ -66,4 +66,4 @@ backend/static/bao-gia/
 backend/static/ky-thuat-may/
 
 # Thư mục nháp của superpowers (ledger, brief, gói review) — cùng loại .claude/.agents
-.superpowers
+.superpowers/

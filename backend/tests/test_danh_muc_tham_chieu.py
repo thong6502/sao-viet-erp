@@ -20,6 +20,7 @@ from app.models.loai_san_pham import LoaiSanPham
 from app.models.department import Department
 from app.models.may_thiet_bi import MayThietBi
 from app.models.piece_work import PieceRate
+from app.models.san_xuat_kcs import SanXuatKcsTieuChi
 from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 from app.services.danh_muc_tham_chieu import DEM_THEO_LOAI, tham_chieu
 
@@ -56,6 +57,8 @@ def _mau(db):
         # Công việc khoán (17/08/2026): cùng bảng `piece_rates` mà Lương khoán tra.
         "cong_viec_khoan": PieceRate(group_name="ZZ Tổ mẫu", department_id=to.id,
                                      ma="ZZKH", ten="ZZ Việc khoán", unit="zzkg", unit_price=100),
+        # Tiêu chí KCS (Task 3 KCS kiêm nhiệm, 31/08/2026) — chưa gắn công đoạn nào ⇒ xoá hẳn được.
+        "san_xuat_kcs_tieu_chi": SanXuatKcsTieuChi(ma="ZZTC", ten="ZZ Tiêu chí"),
     }
     db.add_all([v for k, v in rows.items() if k not in ("don_vi_do", "chung_loai_giay")])
     db.commit()

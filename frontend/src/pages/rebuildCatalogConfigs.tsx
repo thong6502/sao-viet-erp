@@ -896,6 +896,42 @@ export const CFG_LY_DO_SAN_XUAT: CatalogConfig = {
   ],
 };
 
+// Checklist KCS kiêm nhiệm (module KCS kiêm nhiệm, mg 0250, Task 3): tiêu chí kiểm tra chuẩn hoá
+// + công đoạn nào áp dụng. Khi phát hành lệnh, checklist áp dụng của mỗi bước KCS được CHỤP
+// (snapshot) xuống `san_xuat_cong_viec.kcs_tieu_chi_json` — đổi danh mục sau đó không ảnh hưởng
+// tới việc đã phát hành (xem `backend/app/services/san_xuat/snapshot.py`).
+export const CFG_KCS_TIEU_CHI: CatalogConfig = {
+  title: "Tiêu chí KCS",
+  moduleQuyen: "dm_kcs_tieu_chi",
+  enableImport: false,   // v1 không mở Excel cho danh mục này (cấu hình con nhiều-nhiều)
+  prefix: "/api/san-xuat-kcs-tieu-chi",
+  nhatKyLoai: "san_xuat_kcs_tieu_chi",
+  softDelete: true,
+  columns: [
+    { key: "huong_dan", label: "Hướng dẫn", render: (r) => r.huong_dan ? String(r.huong_dan) : "" },
+    { key: "bat_buoc", label: "Bắt buộc", render: (r) => r.bat_buoc ? "Bắt buộc" : "Tuỳ chọn" },
+    {
+      key: "cong_doan_ids", label: "Áp dụng cho",
+      render: (r) => {
+        const ids = (r.cong_doan_ids ?? []) as unknown[];
+        return <span className="badge-sem badge-sem--rust">{ids.length} công đoạn</span>;
+      },
+    },
+  ],
+  fields: [
+    { key: "huong_dan", label: "Hướng dẫn", type: "text", group: "Nội dung" },
+    // `default: true` PHẢI khai — khớp `SanXuatKcsTieuChiIn.bat_buoc: bool = True` ở backend. Thiếu
+    // dòng này thì toggle "Thêm mới" hiện "Không" (falsy mặc định của field checkbox), nhưng nếu
+    // người dùng không đụng vào, `submit()` bỏ hẳn key rỗng khỏi body (dòng ~334-339) → backend áp
+    // default `True` của schema → bản ghi lưu THẬT là "Bắt buộc" dù màn vừa hiện "Không". Phát hiện
+    // khi xác minh UI thật (Fix round 1, Task 3) — xem task-3-report.md.
+    { key: "bat_buoc", label: "Bắt buộc phải đạt", type: "checkbox", group: "Nội dung", default: true },
+    { key: "thu_tu", label: "Thứ tự hiển thị", type: "number", group: "Nội dung" },
+    { key: "cong_doan_ids", label: "Áp dụng cho công đoạn", type: "ref-multi",
+      refPrefix: "/api/cong-doan", group: "Áp dụng", hint: "Công đoạn nào cần kiểm tiêu chí này" },
+  ],
+};
+
 // Tình trạng khuôn — record-only (con người phán, máy chỉ ghi nhận).
 // `dang_dat_lam` (mg 0177): dao CHƯA có trong tay — thuê ngoài chưa về, hoặc xưởng đang tự làm.
 // Đi kèm NGÀY CÓ KHUÔN (dự kiến): bước dùng dao ở Lệnh sản xuất hiện ngày đó để người xếp việc
@@ -1070,4 +1106,5 @@ export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "thanh-pham": CFG_THANH_PHAM,
   "khuon-be": CFG_KHUON_BE,
   "ly-do-san-xuat": CFG_LY_DO_SAN_XUAT,
+  "kcs-tieu-chi": CFG_KCS_TIEU_CHI,
 };

@@ -29,7 +29,7 @@ from app.models.san_xuat_ly_do import (
 )
 from app.repositories.san_xuat_repo import SanXuatRepository
 from app.schemas.san_xuat import DongNhomDieuKienOut, DongNhomKetQuaOut
-from app.services.san_xuat import dong_nhom, kho
+from app.services.san_xuat import dong_nhom, kcs, kho
 
 # Dàn cảnh + fixtures luồng thật từ test KCS (kéo cả cây fixture xếp lịch).
 from tests.test_san_xuat_kcs import (  # noqa: F401
@@ -101,6 +101,29 @@ def test_loi_kcs_cho_chan_dong_du(db, orders, lsx_svc, admin, customer):
     assert dk["du_dong_du"] is False
     loi = next(d for d in dk["dieu_kien"] if d["ma"] == "het_loi_kcs_cho")
     assert loi["dat"] is False
+
+
+def test_loi_ghi_qua_kcs_kiem_nhiem_khong_chan_dong_du(db, orders, lsx_svc, admin, customer):
+    """Task 11.5: lỗi MỚI ghi qua `kcs.ghi_loi()` (kiêm nhiệm, mg 0250) có trang_thai="recorded",
+    KHÔNG còn là `pending` nên KHÔNG chặn đóng nhóm — khác lỗi kiểu CŨ ở test bên trên. Đây là test
+    tái hiện đúng bug đã báo cáo: trước bản vá, dòng `assert loi["dat"] is True` bên dưới FAIL vì
+    `ghi_loi()` từng hardcode `trang_thai=TN_CHO`."""
+    _to, cv, res = _batch(db, orders, lsx_svc, admin, customer)
+    ld = SanXuatLyDo(ma="LOI-FIX-115", nhom="loi", ten="Lem mực")
+    db.add(ld)
+    db.flush()
+    kcs.ghi_loi(
+        db, user=admin, kcs_batch_id=res["kcs_batch_id"], nhom_loi_id=ld.id,
+        so_luong=3, anh=[{"file_name": "loi.jpg",
+                          "file_url": "/api/files/san-xuat/kcs-loi/1/x.jpg",
+                          "file_type": "image/jpeg"}],
+    )
+    _hoan_thanh_het(db, cv.nhom_id)
+
+    dk = dong_nhom.dieu_kien_dong_nhom(db, cv.nhom_id)
+    loi = next(d for d in dk["dieu_kien"] if d["ma"] == "het_loi_kcs_cho")
+    assert loi["dat"] is True                              # KHÔNG còn bị chặn bởi lỗi mới
+    assert dong_nhom.tu_dong_dong_neu_du(db, nhom_id=cv.nhom_id) is not None
 
 
 def test_btp_cho_kho_chan_dong_du(db, orders, lsx_svc, admin, customer):
@@ -210,6 +233,8 @@ def test_dieu_kien_shape_va_du_dong_thieu(db, orders, lsx_svc, admin, customer):
     assert set(dk) == {
         "nhom_id", "order_id", "trang_thai", "version",
         "du_dong_du", "du_dong_thieu", "dieu_kien",
+        # Con số CÒN THIẾU của nhóm (§2.3, Task 5) — dẫn xuất, chỉ để BÀY, không phải điều kiện.
+        "muc_tieu", "da_dat", "con_thieu",
     }
     mas = {d["ma"] for d in dk["dieu_kien"]}
     assert mas == {

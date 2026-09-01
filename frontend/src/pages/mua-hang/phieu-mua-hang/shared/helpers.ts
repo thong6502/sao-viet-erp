@@ -69,12 +69,11 @@ export function fromRequest(row: PurchaseRequestRow): FormState {
       note: line.note ?? "",
       // Phiếu đã tồn tại thì mọi dòng đều thuộc NCC của phiếu — không tách nữa.
       supplier_id: row.supplier_id,
-      // Ba trường dưới đây KHÔNG hiện trên form nhưng phải mang theo: form sửa gửi lại nguyên
-      // danh sách dòng, bỏ sót là server hiểu "dòng không gắn mặt hàng" ⇒ liên kết danh mục đứt,
-      // bảng cân đối vật tư hết thấy lô này trong "hàng đang về" và giục mua thêm lô nữa.
+      // Đọc lại liên kết YCMH + mặt hàng gốc — thiếu bước này thì lưu (kể cả chỉ để thêm ngày dự
+      // kiến nhận hàng) sẽ ghi đè chúng thành rỗng, cắt đứt "hàng đang về" khỏi kế hoạch vật tư.
+      department_request_line_id: line.department_request_line_id,
       hang_loai: line.hang_loai,
       hang_id: line.hang_id,
-      department_request_line_id: line.department_request_line_id,
     })),
   };
 }

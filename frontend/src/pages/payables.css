@@ -5,6 +5,87 @@
    MỘT dải pill cao ~38px, KHÔNG phải 4 thẻ cao 80px+. Thẻ KPI cũ chiếm gần một phần tư màn hình
    laptop cho thứ đọc mất một giây, đẩy bảng dữ liệu — nội dung thật của màn — xuống dưới nếp gấp.
    Bản mẫu: `.rdx-compact-kpi` trong redesign-phong-ban.css. */
+/* DẢI PHÂN TUỔI NỢ — dùng chung Công nợ phải trả / phải thu (29/08/2026).
+   Sáu ô bằng nhau, `minmax(0,1fr)` chứ không `1fr`: `1fr` mặc định `min-width:auto` nên số tiền
+   dài đẩy ô tràn khỏi khung. Xuống 3 cột ở màn hẹp thay vì cuộn ngang — laptop-first. */
+.aging-strip {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+@media (max-width: 1100px) {
+  .aging-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.aging-strip__o {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color .15s ease, background .15s ease;
+}
+
+.aging-strip__o:hover:not(:disabled) {
+  border-color: var(--rule);
+  background: var(--rule-hair);
+}
+
+/* Rổ RỖNG vẫn hiện để mắt so được sáu mốc, nhưng mờ và khoá bấm — lọc ra danh sách trống là
+   một cú bấm phí kèm màn hình trắng. */
+.aging-strip__o:disabled {
+  cursor: default;
+  opacity: .55;
+}
+
+.aging-strip__o.is-chon {
+  border-color: var(--ink);
+  background: var(--rule-hair);
+}
+
+.aging-strip__nhan {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--ash-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.aging-strip__tien {
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.aging-strip__dem {
+  font-size: 11px;
+  color: var(--ash-2);
+}
+
+/* Trễ từ 31 ngày trở lên = NẶNG. Chỉ tô CON SỐ đỏ, không tô cả ô: sáu ô mà hai ô đỏ rực thì
+   dải này thành đèn báo động chứ không còn là thước đo (UI_DESIGN §0). */
+.aging-strip__o--nang .aging-strip__tien {
+  color: var(--signal);
+}
+
+/* "Chưa tới hạn" là tin LÀNH — làm nhạt đi để mắt trôi qua, đừng bắt nó cạnh tranh với mấy rổ trễ. */
+.aging-strip__o--yen .aging-strip__tien {
+  color: var(--ash);
+  font-weight: var(--fw-medium);
+}
+
 .pay-kpibar {
   display: inline-flex;
   flex-wrap: wrap;

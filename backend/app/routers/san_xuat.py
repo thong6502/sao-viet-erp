@@ -11,7 +11,9 @@ Phân công / phiên chạy / sản lượng (ghi) là các lát sau, thêm bả
 """
 from __future__ import annotations
 
-from typing import Annotated
+import json
+from datetime import date, datetime
+from typing import Annotated, Literal
 
 from fastapi import (
     APIRouter,
@@ -52,9 +54,13 @@ from ..schemas.san_xuat import (
     HoTroKetQuaOut,
     HoTroXacNhanIn,
     KcsAnhThemKetQuaOut,
+    KcsBaoCaoOut,
     KcsBatchIn,
     KcsBatchKetQuaOut,
     KcsChiTietOut,
+    KcsDieuChinhIn,
+    KcsDieuChinhKetQuaOut,
+    KcsDotXuatKetQuaOut,
     KcsHopThuOut,
     KcsLoiKetQuaOut,
     KcsPhanHoiKetQuaOut,
@@ -87,6 +93,7 @@ from ..schemas.san_xuat import (
     TamDungIn,
     TeamsOut,
     ThemLotIn,
+    VatTuDeNghiIn,
     VatTuNhanKetQuaOut,
     VatTuXacNhanIn,
     WorkItemChiTietOut,
@@ -99,13 +106,17 @@ from ..services.san_xuat import (
     dong_nhom,
     ho_tro,
     kcs,
+    kcs_bao_cao,
     kho,
     phan_bo,
     san_luong,
     su_co,
     thuc_thi,
+    vat_tu_de_nghi,
     vat_tu_nhan,
 )
+from ..services.san_xuat.vat_tu_de_nghi import VatTuDeNghiError
+from ..services.stock_request_service import StockRequestError
 
 router = APIRouter(prefix="/api/san-xuat", tags=["san-xuat"])
 MODULE = "san_xuat"
@@ -199,6 +210,8 @@ def _phat_sse_kcs(res: dict, notify_uids: list[int | None] | None = None) -> Non
         "kcs_batch_id": res.get("kcs_batch_id"),
         "loi_id": res.get("loi_id"),
         "trang_thai": res.get("trang_thai"),
+        "team_id": res.get("kcs_department_id") or res.get("department_id"),
+        "loai": res.get("loai"),
     })
     for uid in notify_uids or []:
         if uid:
@@ -358,10 +371,14 @@ def work_items(
     authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     team_id: int = Query(..., ge=1),
+    mode: Literal["production", "kcs"] = Query("production"),
 ) -> WorkItemsOut:
-    """Công việc đã phát hành của MỘT tổ (§18 /work-items). 403 nếu tổ ngoài phạm vi quyền."""
+    """Công việc đã phát hành của MỘT tổ, lọc theo `mode` (§18 /work-items, Task 4).
+    403 nếu tổ ngoài phạm vi quyền."""
     try:
-        return WorkItemsOut.model_validate(board.work_items(db, user, authz, team_id=team_id))
+        return WorkItemsOut.model_validate(
+            board.work_items(db, user, authz, team_id=team_id, mode=mode)
+        )
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
 
@@ -427,6 +444,54 @@ def go_phan_cong(
     ))
     _phat_sse(res)
     return res
+
+
+@router.post("/work-items/{cong_viec_id}/material-requests",
+             status_code=status.HTTP_201_CREATED, response_model=None)
+def tao_de_nghi_vat_tu(
+    cong_viec_id: int,
+    body: VatTuDeNghiIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+) -> dict:
+    """Tổ đề nghị cấp vật tư cho công đoạn (spec-de-nghi-cap-vat-tu-cong-doan §6).
+
+    Bit `assign_work` chỉ là cổng THÔ — ranh giới thật ("đúng tổ trưởng của tổ nào") nằm trong
+    service, giống hệt `phan-cong`. KHÔNG đòi `kho:request`: kho không duyệt yêu cầu này.
+    """
+    try:
+        return vat_tu_de_nghi.tao(
+            db, user=user, cong_viec_id=cong_viec_id, can_luc=body.can_luc,
+            lines=[l.model_dump() for l in body.lines],
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except (VatTuDeNghiError, StockRequestError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+@router.put("/work-items/{cong_viec_id}/material-requests/{de_nghi_id}", response_model=None)
+def sua_de_nghi_vat_tu(
+    cong_viec_id: int,
+    de_nghi_id: int,
+    body: VatTuDeNghiIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+) -> dict:
+    """`de_nghi_id` là id ĐỀ NGHỊ SẢN XUẤT, không phải id yêu cầu kho — đừng nhầm hai không gian id."""
+    try:
+        return vat_tu_de_nghi.sua(
+            db, user=user, cong_viec_id=cong_viec_id, de_nghi_id=de_nghi_id,
+            can_luc=body.can_luc, lines=[l.model_dump() for l in body.lines],
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except (VatTuDeNghiError, StockRequestError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
 
 
 @router.post("/work-items/{cong_viec_id}/bat-dau", response_model=LenhKetQuaOut)
@@ -796,11 +861,13 @@ def go_loai_tru(
 def chi_tiet_kcs(
     cong_viec_id: int,
     db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> dict:
-    """Batch kiểm tra + lỗi + ảnh của MỘT công việc KCS (panel drawer §13). 403 nếu ngoài tổ."""
+    """Batch kiểm tra + lỗi + ảnh của MỘT công việc KCS (panel drawer §13). 403 nếu ngoài PHẠM VI
+    ĐỌC — cùng phạm vi với `GET /work-items/{id}`, không đòi phải là tổ trưởng tổ đó."""
     try:
-        return kcs.chi_tiet_kcs(db, user, cong_viec_id)
+        return kcs.chi_tiet_kcs(db, user, authz, cong_viec_id)
     except PermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except ValueError as exc:
@@ -825,12 +892,15 @@ def tao_batch_kcs(
 ) -> dict:
     """Ghi một batch kiểm tra KCS (§13.1): số nhận = đạt + không đạt; đẻ kèm batch sản lượng nền cho
     phân bổ năng suất KCS. Chỉ công việc KCS đã bắt đầu."""
+    checklist_ket_qua = (
+        [kq.model_dump() for kq in body.checklist_ket_qua] if body.checklist_ket_qua else None
+    )
     res = _chay(lambda: kcs.tao_batch_kcs(
         db, user=user, cong_viec_id=cong_viec_id,
         bat_dau=body.bat_dau, ket_thuc=body.ket_thuc,
         so_luong_nhan=body.so_luong_nhan, so_luong_dat=body.so_luong_dat,
         so_luong_khong_dat=body.so_luong_khong_dat, co_mau=body.co_mau,
-        don_vi=body.don_vi, ghi_chu=body.ghi_chu,
+        don_vi=body.don_vi, ghi_chu=body.ghi_chu, checklist_ket_qua=checklist_ket_qua,
     ))
     _phat_sse_kcs(res)
     return res
@@ -866,6 +936,53 @@ def ghi_loi_kcs(
         _don_anh(keys)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     _phat_sse_kcs(res, notify_uids=[res.get("to_chiu_head_user_id")])
+    return res
+
+
+@router.post("/kcs/dot-xuat", response_model=KcsDotXuatKetQuaOut, status_code=status.HTTP_201_CREATED)
+def tao_kiem_dot_xuat(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+    cong_viec_id: int = Form(...),
+    kcs_department_id: int = Form(...),
+    bat_dau: datetime = Form(...),
+    ket_thuc: datetime = Form(...),
+    so_luong_nhan: float = Form(...),
+    so_luong_dat: float = Form(...),
+    so_luong_khong_dat: float = Form(default=0),
+    co_mau: float | None = Form(default=None),
+    don_vi: str | None = Form(default=None),
+    ghi_chu: str | None = Form(default=None),
+    checklist_ket_qua_json: str | None = Form(default=None),
+    nhom_loi_id: int | None = Form(default=None),
+    loi_mo_ta: str | None = Form(default=None),
+    to_chiu_id: int | None = Form(default=None),
+    cong_doan_ref_id: int | None = Form(default=None),
+    files: list[UploadFile] | None = File(default=None),
+) -> dict:
+    """KCS KIÊM NHIỆM (mg 0250): tổ SX khác kiểm đột xuất một việc đang chạy/tạm dừng, không đứng
+    sẵn trong routing. Multipart vì có thể kèm ảnh lỗi NGAY một lượt (khác routing tách hai bước)."""
+    try:
+        checklist_ket_qua = json.loads(checklist_ket_qua_json) if checklist_ket_qua_json else None
+    except (ValueError, TypeError):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "checklist_ket_qua_json không hợp lệ.")
+    anh, keys = _luu_anh_kcs(cong_viec_id, files) if files else ([], [])
+    try:
+        res = kcs.tao_kiem_dot_xuat(
+            db, user=user, cong_viec_id=cong_viec_id, kcs_department_id=kcs_department_id,
+            bat_dau=bat_dau, ket_thuc=ket_thuc, so_luong_nhan=so_luong_nhan,
+            so_luong_dat=so_luong_dat, so_luong_khong_dat=so_luong_khong_dat, co_mau=co_mau,
+            don_vi=don_vi, ghi_chu=ghi_chu, checklist_ket_qua=checklist_ket_qua,
+            nhom_loi_id=nhom_loi_id, loi_mo_ta=loi_mo_ta, to_chiu_id=to_chiu_id,
+            cong_doan_ref_id=cong_doan_ref_id, anh=anh,
+        )
+    except PermissionError as exc:
+        _don_anh(keys)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except ValueError as exc:
+        _don_anh(keys)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    _phat_sse_kcs(res)
     return res
 
 
@@ -922,6 +1039,84 @@ def phan_hoi_loi_kcs(
     return res
 
 
+@router.patch("/kcs/{kcs_batch_id}", response_model=KcsDieuChinhKetQuaOut)
+def dieu_chinh_kcs(
+    kcs_batch_id: int,
+    body: KcsDieuChinhIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+) -> dict:
+    """Điều chỉnh kết quả batch KCS đã ghi (§4.3, §5.5) — không xoá, ghi audit trước/sau, kiểm
+    expected_version. Chặn khi kho đã đụng vào (xác nhận dù một phần) hoặc còn yêu cầu chưa hủy."""
+    checklist_ket_qua = (
+        [kq.model_dump() for kq in body.checklist_ket_qua] if body.checklist_ket_qua else None
+    )
+    res = _chay(lambda: kcs.dieu_chinh_ket_qua(
+        db, user=user, kcs_batch_id=kcs_batch_id, so_luong_dat=body.so_luong_dat,
+        so_luong_khong_dat=body.so_luong_khong_dat, checklist_ket_qua=checklist_ket_qua,
+        ghi_chu=body.ghi_chu, expected_version=body.expected_version,
+    ))
+    _phat_sse_kcs(res)
+    return res
+
+
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _xlsx_response(content: bytes, filename: str) -> Response:
+    return Response(
+        content=content, media_type=_XLSX_MEDIA,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/kcs/bao-cao", response_model=KcsBaoCaoOut)
+def bao_cao_kcs(
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    tu: date | None = Query(default=None),
+    den: date | None = Query(default=None),
+    kcs_department_id: int | None = Query(default=None),
+    lsx_id: int | None = Query(default=None),
+    tu_khoa: str | None = Query(default=None),
+    cong_doan_id: int | None = Query(default=None),
+    loai: str | None = Query(default=None),
+    nhom_loi_id: int | None = Query(default=None),
+) -> dict:
+    """Tổng hợp KCS theo filter + scope (§5.7, §6.2 KPI/biểu đồ). Đọc quyền `read` — xem báo cáo
+    không cần quyền xuất file."""
+    return kcs_bao_cao.bao_cao_kcs(
+        db, user, authz, tu=tu, den=den, kcs_department_id=kcs_department_id,
+        lsx_id=lsx_id, tu_khoa=tu_khoa, cong_doan_id=cong_doan_id, loai=loai,
+        nhom_loi_id=nhom_loi_id,
+    )
+
+
+@router.get("/kcs/bao-cao/export.xlsx")
+def export_bao_cao_kcs(
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "export"))],
+    tu: date | None = Query(default=None),
+    den: date | None = Query(default=None),
+    kcs_department_id: int | None = Query(default=None),
+    lsx_id: int | None = Query(default=None),
+    tu_khoa: str | None = Query(default=None),
+    cong_doan_id: int | None = Query(default=None),
+    loai: str | None = Query(default=None),
+    nhom_loi_id: int | None = Query(default=None),
+) -> Response:
+    """Xuất Excel — gác riêng `export` (§4.4), KHÁC `read` của endpoint JSON ở trên. Dùng CHUNG
+    hàm lấy dòng với `/kcs/bao-cao` (§9 mục 10: cùng filter phải trả cùng tổng)."""
+    content, filename = kcs_bao_cao.xuat_excel_kcs(
+        db, user, authz, tu=tu, den=den, kcs_department_id=kcs_department_id,
+        lsx_id=lsx_id, tu_khoa=tu_khoa, cong_doan_id=cong_doan_id, loai=loai,
+        nhom_loi_id=nhom_loi_id,
+    )
+    return _xlsx_response(content, filename)
+
+
 # --- KHO SẢN XUẤT (§14) ---------------------------------------------------------------------
 # Bên KCS/tổ (tạo yêu cầu, phân loại BTP, huỷ phần chưa nhận) gate `assign_work` + ranh giới THẬT là
 # `_gate` đúng-tổ-trưởng ở service. Bên KHO (xác nhận nhận) gate module RIÊNG "kho" — nhân viên kho
@@ -961,6 +1156,27 @@ def tao_yeu_cau_nhap_thanh_pham(
         db, user=user, kcs_batch_id=body.kcs_batch_id, so_luong=body.so_luong,
         quy_cach=body.quy_cach, ghi_chu=body.ghi_chu,
     ))
+    _phat_sse_kho(res)
+    return res
+
+
+@router.post("/kcs/{kcs_batch_id}/yeu-cau-nhap-kho", response_model=NhapKhoYcKetQuaOut,
+             status_code=status.HTTP_201_CREATED)
+def tao_yeu_cau_kho_mot_nut(
+    kcs_batch_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+) -> dict:
+    """Gửi kho MỘT NÚT (§5.6) — server tự tính số đạt chưa gửi, không nhận số từ client. Chỉ batch
+    routing + công việc KCS cuối. 409 nếu không còn số đạt chưa gửi."""
+    try:
+        res = kho.tao_yeu_cau_kho_mot_nut(db, user=user, kcs_batch_id=kcs_batch_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except kho.KhongConSoDuGuiKho as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     _phat_sse_kho(res)
     return res
 
