@@ -13,7 +13,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from ...models.department import Department
-from ...models.role import SCOPE_ALL, SCOPE_DEPARTMENT
+from ...models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ...models.san_xuat_phan_bo import PB_DA_CHOT
 from ...models.user import User
 from ...repositories.org_scope import dept_subtree_ids
@@ -55,6 +55,28 @@ def _to_thay_duoc(
     return tos, {d.id for d in tos}
 
 
+def _la_tho(user: User, authz: AuthorizationService, team) -> bool:
+    """Người đang mở bàn là THỢ của tổ này (không phải tổ trưởng, không có phạm vi rộng hơn)?
+
+    Thợ chỉ thấy việc CHÍNH MÌNH đang được giao (§7.1) — bàn tổ không phải bảng điều hành cả tổ.
+    Tổ trưởng (kể cả kiêm nhiệm tổ ngoài phòng mình) và cấp trên phạm vi `department`/`all` vẫn
+    thấy trọn bàn."""
+    if (authz.scope_for(user, MODULE) or SCOPE_ALL) != SCOPE_OWN:
+        return False
+    return team is None or team.head_user_id != user.id
+
+
+def _loc_viec_cua_tho(db: Session, user: User, rows: list) -> list:
+    """Giữ lại đúng những việc user đang được giao. Tài khoản chưa nối hồ sơ nhân viên
+    (`employee.user_id`) thì không có việc nào — không rơi về "thấy hết"."""
+    tt = SanXuatThucThiRepository(db)
+    nv = tt.nhan_vien_theo_user(user.id)
+    if nv is None:
+        return []
+    cho_phep = tt.cong_viec_ids_duoc_giao(nv.id, {cv.id for cv in rows})
+    return [cv for cv in rows if cv.id in cho_phep]
+
+
 def teams(db: Session, user: User, authz: AuthorizationService) -> list[dict]:
     """Danh sách tổ sản xuất hiệu lực + badge sản xuất + badge/cổng KCS (§18 `/teams`, §2.1 navbar).
 
@@ -63,9 +85,20 @@ def teams(db: Session, user: User, authz: AuthorizationService) -> list[dict]:
     Task 4 (`so_viec_kcs_cho`, `co_viec_kcs`) đọc theo cờ công việc, KHÔNG theo `is_kcs`."""
     repo = SanXuatRepository(db)
     tos, ids = _to_thay_duoc(db, user, authz)
-    badge = repo.dem_cho_lam_theo_to(ids)
-    kcs_badge = repo.dem_kcs_cho_kiem_theo_to(ids)
-    co_kcs = repo.to_co_viec_kcs(ids)
+    # Tổ nào user vào với tư cách THỢ thì badge phải đếm theo việc được giao, không đếm cả tổ —
+    # nếu không navbar báo 12 mà mở bàn ra chỉ có 2 dòng.
+    to_tho = {d.id for d in tos if _la_tho(user, authz, d)}
+    to_thuong = ids - to_tho
+    badge = repo.dem_cho_lam_theo_to(to_thuong)
+    kcs_badge = repo.dem_kcs_cho_kiem_theo_to(to_thuong)
+    co_kcs = repo.to_co_viec_kcs(to_thuong)
+    if to_tho:
+        nv = SanXuatThucThiRepository(db).nhan_vien_theo_user(user.id)
+        nv_id = nv.id if nv is not None else None
+        if nv_id is not None:
+            badge.update(repo.dem_cho_lam_theo_to(to_tho, employee_id=nv_id))
+            kcs_badge.update(repo.dem_kcs_cho_kiem_theo_to(to_tho, employee_id=nv_id))
+            co_kcs |= repo.to_co_viec_kcs(to_tho, employee_id=nv_id)
     return [
         {
             "id": d.id,
@@ -84,11 +117,25 @@ def _num(x) -> float | None:
     return None if x is None else float(x)
 
 
-def _con_thieu(cv, tong_tot: float) -> tuple[float | None, float | None]:
+def _con_thieu(
+    cv, tong_tot: float, thuc_nhan: float | None = None
+) -> tuple[float | None, float | None]:
     """(mục tiêu, còn thiếu) của MỘT bước — dẫn xuất, KHÔNG lưu cột (spec-thuc-te-vs-ke-hoach §2.3).
 
-    Mục tiêu là `so_luong_ra` (snapshot lúc phát hành, đã đúng `don_vi_ra`), nên số này so được
-    thẳng với `tong_tot` mà không cần quy đổi. Bước không khai mục tiêu ⇒ trả None, đừng bịa 0:
+    Mốc chấm là `so_luong_ra` (snapshot lúc phát hành, đã đúng `don_vi_ra`), so thẳng với
+    `tong_tot` không cần quy đổi. NHƯNG khi tổ trước giao thiếu, chấm tổ này theo kế hoạch là đổ
+    oan: hụt đó là của tổ trước. Nhận được bao nhiêu thì mốc rút theo bấy nhiêu — quy theo TỈ LỆ
+    vì đầu vào và đầu ra khác đơn vị (nhận "tờ", ra "cái"): kế hoạch 12 tờ → 1.188 cái, thực nhận
+    11 tờ ⇒ mốc còn 1.188 × 11 / 12 = 1.089 cái.
+
+    Kế hoạch KHÔNG bị đè — `cv.so_luong_ra` vẫn nguyên, FE hiện cả hai số cạnh nhau.
+
+    Mốc chỉ RÚT XUỐNG, không bao giờ đẩy lên: nhà in cố ý giao dư để bù hao (1.050 tờ cho 1.000
+    cái), nhận dư không có nghĩa tổ phải làm nhiều hơn cam kết. Bỏ cái kẹp này là mốc phình theo
+    lượng bù hao và tổ nào cũng "còn thiếu".
+
+    Không nhận từ ai (`thuc_nhan is None` — bước ĐẦU chuỗi lấy vật tư từ kho) hoặc bước không khai
+    `so_luong_vao` ⇒ giữ nguyên mốc kế hoạch. Bước không khai mục tiêu ⇒ trả None, đừng bịa 0:
     "còn thiếu 0" và "không biết thiếu bao nhiêu" là hai câu khác hẳn nhau.
 
     Chạy DƯ thì kẹp về 0 — số âm ở ô "còn thiếu" chỉ làm người đọc dừng lại đoán nghĩa.
@@ -96,16 +143,41 @@ def _con_thieu(cv, tong_tot: float) -> tuple[float | None, float | None]:
     if cv.so_luong_ra is None:
         return None, None
     muc_tieu = float(cv.so_luong_ra)
+    vao = None if cv.so_luong_vao is None else float(cv.so_luong_vao)
+    if thuc_nhan is not None and vao is not None and vao > 0:
+        muc_tieu = min(muc_tieu, muc_tieu * float(thuc_nhan) / vao)
     return muc_tieu, max(muc_tieu - float(tong_tot), 0.0)
 
 
-def _con_thieu_map(rows, tot_map: dict[int, float]) -> dict[int, float | None]:
-    """{cong_viec_id: còn thiếu} cho một danh sách công việc — dùng lại `_con_thieu` mức bước,
-    nạp GỘP một lần cho cả bàn tổ (tránh gọi `tong_tot` theo từng dòng)."""
-    return {cv.id: _con_thieu(cv, tot_map.get(cv.id, 0.0))[1] for cv in rows}
+def _thuc_nhan(cv, nhan_map: dict[int, dict[str, float]]) -> float | None:
+    """Lượng bước này nhận được, tính THEO ĐÚNG đơn vị đầu vào của nó.
+
+    Bàn giao ghi đơn vị riêng; lấy nhầm đơn vị rồi đem chia cho `so_luong_vao` là ra con số bịa
+    (nhận 26.888 "con" chia cho 68 "tờ"). Bước không khai `don_vi_vao`, hoặc không có bàn giao nào
+    đúng đơn vị đó ⇒ None = coi như không rút mốc, giữ kế hoạch."""
+    theo_dv = nhan_map.get(cv.id)
+    if not theo_dv or not cv.don_vi_vao:
+        return None
+    return theo_dv.get(cv.don_vi_vao)
 
 
-def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, con_thieu_map=None) -> dict:
+def _so_lieu_map(
+    rows, tot_map: dict[int, float], nhan_map: dict[int, dict[str, float]]
+) -> dict[int, dict]:
+    """{cong_viec_id: ba số thực tế + còn thiếu} cho cả bàn tổ — nạp GỘP một lần, không hỏi
+    `tong_tot`/bàn giao theo từng dòng."""
+    ket = {}
+    for cv in rows:
+        tot = tot_map.get(cv.id, 0.0)
+        nhan = _thuc_nhan(cv, nhan_map)
+        muc_tieu, thieu = _con_thieu(cv, tot, nhan)
+        ket[cv.id] = {
+            "thuc_nhan": nhan, "da_lam": tot, "muc_tieu": muc_tieu, "con_thieu": thieu,
+        }
+    return ket
+
+
+def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, so_map=None) -> dict:
     """Một dòng công việc trên timeline — nhãn nguồn/nhóm/máy đã resolve theo lô (§18)."""
     if cv.bai_ghep_id and cv.bai_ghep_id in bg_map:
         nguon_ma, nguon_ten = bg_map[cv.bai_ghep_id]
@@ -142,9 +214,13 @@ def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, con_thieu
         "don_vi_vao": cv.don_vi_vao,
         "don_vi_ra": cv.don_vi_ra,
         "trang_thai": cv.trang_thai,
-        # Còn thiếu so với mục tiêu bước (`so_luong_ra`) — dẫn xuất, chỉ để BÀY (§2.3). Chỗ gọi
-        # không nạp `con_thieu_map` (vd. khối "cong_viec" của drawer) thì cứ None, không bịa số.
-        "con_thieu": (con_thieu_map or {}).get(cv.id),
+        # Ba số thực tế + còn thiếu — dẫn xuất, chỉ để BÀY (§2.3). `muc_tieu` đã rút theo lượng
+        # THỰC NHẬN (xem `_con_thieu`), còn `so_luong_ra` ở trên vẫn là kế hoạch nguyên vẹn. Chỗ
+        # gọi không nạp `so_map` (vd. khối "cong_viec" của drawer) thì cứ None, không bịa số.
+        "thuc_nhan": (so_map or {}).get(cv.id, {}).get("thuc_nhan"),
+        "da_lam": (so_map or {}).get(cv.id, {}).get("da_lam"),
+        "muc_tieu": (so_map or {}).get(cv.id, {}).get("muc_tieu"),
+        "con_thieu": (so_map or {}).get(cv.id, {}).get("con_thieu"),
         # Định mức vật tư đóng băng lúc phát hành (§4.2) — đã đúng hình `VatTuDinhMucOut`, không cần dựng lại.
         "dinh_muc_vat_tu": cv.vat_tu_json or [],
         # Lớp thực-tế (§5.1): các phiên chạy đã ghi; phiên còn mở giữ ket_thuc=None (FE kéo tới "bây giờ").
@@ -170,6 +246,8 @@ def work_items(
         raise PermissionError("Ngoài phạm vi tổ được phép xem.")
 
     rows = repo.cong_viec_cua_to({team_id}, la_kcs=(mode == "kcs"))
+    if _la_tho(user, authz, next((d for d in _tos if d.id == team_id), None)):
+        rows = _loc_viec_cua_tho(db, user, rows)
     lsx_map = repo.lsx_nhan({cv.lsx_id for cv in rows if cv.lsx_id})
     bg_map = repo.bai_ghep_nhan({cv.bai_ghep_id for cv in rows if cv.bai_ghep_id})
     may_map = repo.may_nhan({cv.may_id for cv in rows if cv.may_id})
@@ -178,10 +256,13 @@ def work_items(
     phien_map = SanXuatThucThiRepository(db).phien_theo_cong_viec({cv.id for cv in rows})
     # Còn thiếu (§2.3): nạp tổng TỐT gộp cho cả bàn tổ rồi tính tại chỗ — không gọi `tong_tot`
     # (một truy vấn/việc) theo từng dòng, bàn tổ có thể có hàng chục công việc.
-    tot_map = SanXuatSanLuongRepository(db).tong_tot_nhieu({cv.id for cv in rows})
-    con_thieu_map = _con_thieu_map(rows, tot_map)
+    sl_repo = SanXuatSanLuongRepository(db)
+    cv_ids = {cv.id for cv in rows}
+    tot_map = sl_repo.tong_tot_nhieu(cv_ids)
+    nhan_map = sl_repo.tong_thuc_nhan_nhieu(cv_ids)
+    so_map = _so_lieu_map(rows, tot_map, nhan_map)
     items = [
-        _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map, con_thieu_map)
+        _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map, so_map)
         for cv in rows
     ]
     return {"team_id": team_id, "cong_viec": items}
@@ -401,6 +482,8 @@ def chi_tiet_cong_viec(
     _tos, ids = _to_thay_duoc(db, user, authz)
     if cv.department_id not in ids:
         raise PermissionError("Ngoài phạm vi tổ được phép xem.")
+    if _la_tho(user, authz, next((d for d in _tos if d.id == cv.department_id), None))             and not _loc_viec_cua_tho(db, user, [cv]):
+        raise PermissionError("Chỉ xem được việc đã giao cho mình.")
 
     lsx_map = repo.lsx_nhan({cv.lsx_id} if cv.lsx_id else set())
     bg_map = repo.bai_ghep_nhan({cv.bai_ghep_id} if cv.bai_ghep_id else set())
@@ -439,7 +522,10 @@ def chi_tiet_cong_viec(
     sl = SanXuatSanLuongRepository(db)
     batches = sl.cac_batch(cv.id)
     _tong_tot_cv = sl.tong_tot(cv.id)
-    _muc_tieu_cv, _con_thieu_cv = _con_thieu(cv, _tong_tot_cv)
+    # Lượng tổ này THẬT SỰ nhận được (bàn giao đã xác nhận về đây) — mốc chấm rút theo nó, xem
+    # `_con_thieu`. None = không ai giao cho (bước đầu chuỗi) ⇒ giữ mốc kế hoạch.
+    _thuc_nhan_cv = _thuc_nhan(cv, sl.tong_thuc_nhan_nhieu({cv.id}))
+    _muc_tieu_cv, _con_thieu_cv = _con_thieu(cv, _tong_tot_cv, _thuc_nhan_cv)
     # Tính LẠI cờ chặn chốt + cảnh báo cho từng phân bổ CHƯA chốt (§7.3/§12): chấm công có thể vừa
     # được bổ sung / loại trừ vừa đổi ⇒ trạng thái can_chot phải phản ánh hiện tại, không đóng băng.
     batch_by_id = {b.id: b for b in batches}
@@ -480,11 +566,15 @@ def chi_tiet_cong_viec(
     goi_y_to_ten = repo.to_ten_nhan({c.department_id for c in goi_y if c.department_id})
 
     return {
-        # Vòng sửa 1, mục 2: truyền đúng `con_thieu_map` đã tính (`_con_thieu_cv`, dòng ~442) — nếu
-        # không, "cong_viec.con_thieu" trả null trong khi "san_luong.con_thieu" ngay bên dưới có số,
-        # hai giá trị khác nhau cho CÙNG một khái niệm trong CÙNG một response là nói dối.
+        # Vòng sửa 1, mục 2: truyền đúng bộ số đã tính ở trên — nếu không, "cong_viec.con_thieu"
+        # trả null trong khi "san_luong.con_thieu" ngay bên dưới có số, hai giá trị khác nhau cho
+        # CÙNG một khái niệm trong CÙNG một response là nói dối.
         "cong_viec": _item_dict(
-            cv, lsx_map, bg_map, may_map, nhom_map, con_thieu_map={cv.id: _con_thieu_cv}
+            cv, lsx_map, bg_map, may_map, nhom_map,
+            so_map={cv.id: {
+                "thuc_nhan": _thuc_nhan_cv, "da_lam": _tong_tot_cv,
+                "muc_tieu": _muc_tieu_cv, "con_thieu": _con_thieu_cv,
+            }},
         ),
         "trang_thai": cv.trang_thai,
         "version": cv.version,
@@ -525,8 +615,10 @@ def chi_tiet_cong_viec(
         "san_luong": {
             "tong_tot": _tong_tot_cv,
             "da_giao": sl.tong_da_giao(cv.id),
-            # Mục tiêu bước + còn thiếu (§2.3) — dẫn xuất, chỉ để BÀY, không đổi cổng đóng nhóm.
+            # Mục tiêu bước + thực nhận + còn thiếu (§2.3) — dẫn xuất, chỉ để BÀY, không đổi
+            # cổng đóng nhóm.
             "muc_tieu": _muc_tieu_cv,
+            "thuc_nhan": _thuc_nhan_cv,
             "con_thieu": _con_thieu_cv,
             "don_vi": cv.don_vi_ra,
             "batches": [

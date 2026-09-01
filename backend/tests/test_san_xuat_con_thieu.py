@@ -145,3 +145,134 @@ def test_work_items_con_thieu_dung_tung_dong_khi_gop_nhieu_viec(
     # cv2: tổng tốt 1000+500=1500, mục tiêu 3000 ⇒ còn thiếu 1500 — khác hẳn số của cv1. Nếu
     # `group_by`/map lệch key (vd gán nhầm tổng của cv1 cho cv2) thì một trong hai assert đỏ.
     assert by_id[cv2.id]["con_thieu"] == 1500.0
+
+
+# --- Mốc chấm rút theo lượng THỰC NHẬN ------------------------------------------------------
+def _giao_toi(db, dich_cv, so_luong: float, don_vi: str, *, nguon_cv_id: int | None = None):
+    """Một bàn giao ĐÃ XÁC NHẬN đổ về `dich_cv` — đây là "thực nhận" của bước đó."""
+    from app.models.san_xuat_san_luong import BG_XAC_NHAN, SanXuatBanGiao
+
+    db.add(SanXuatBanGiao(
+        nguon_cong_viec_id=nguon_cv_id or dich_cv.id,
+        dich_cong_viec_id=dich_cv.id,
+        so_luong=so_luong, don_vi=don_vi, trang_thai=BG_XAC_NHAN,
+    ))
+    db.commit()
+
+
+def test_nhan_thieu_thi_moc_rut_theo_ti_le_khong_de_ke_hoach(
+    db, orders, lsx_svc, admin, customer
+):
+    """Tổ trước giao thiếu ⇒ mốc chấm của tổ này rút theo tỉ lệ, KẾ HOẠCH giữ nguyên.
+
+    Kế hoạch: vào 1.000 tờ → ra 1.000 cái. Thực nhận 960 tờ ⇒ mốc còn 960 cái. Làm đủ 960 thì
+    KHÔNG thiếu gì — hụt 40 là của tổ trước, không đổ sang đây.
+    """
+    from app.services.san_xuat import board
+
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-TN1")
+    cv.trang_thai = CV_DANG_CHAY
+    cv.so_luong_vao, cv.don_vi_vao = 1000, "tờ"
+    cv.so_luong_ra, cv.don_vi_ra = 1000, "cái"
+    db.add(SanXuatBatch(cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=2),
+                        tong=960, tot=960, hong=0, don_vi="cái"))
+    db.commit()
+    _giao_toi(db, cv, 960, "tờ")
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
+    assert ct["san_luong"]["thuc_nhan"] == 960.0
+    assert ct["san_luong"]["muc_tieu"] == 960.0
+    assert ct["san_luong"]["con_thieu"] == 0.0
+    # Kế hoạch KHÔNG bị đè.
+    assert ct["cong_viec"]["so_luong_vao"] == 1000.0
+    assert ct["cong_viec"]["so_luong_ra"] == 1000.0
+    assert ct["cong_viec"]["da_lam"] == 960.0
+
+
+def test_nhan_du_ma_lam_thieu_thi_van_hut_dung_o_to_nay(db, orders, lsx_svc, admin, customer):
+    """Nhận đủ 1.000 mà chỉ ra 960 ⇒ hụt 40 nằm ở CHÍNH tổ này — đúng địa chỉ."""
+    from app.services.san_xuat import board
+
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-TN2")
+    cv.trang_thai = CV_DANG_CHAY
+    cv.so_luong_vao, cv.don_vi_vao = 1000, "tờ"
+    cv.so_luong_ra, cv.don_vi_ra = 1000, "cái"
+    db.add(SanXuatBatch(cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=2),
+                        tong=1000, tot=960, hong=40, don_vi="cái"))
+    db.commit()
+    _giao_toi(db, cv, 1000, "tờ")
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
+    assert ct["san_luong"]["muc_tieu"] == 1000.0
+    assert ct["san_luong"]["con_thieu"] == 40.0
+
+
+def test_khong_ai_giao_toi_thi_giu_nguyen_moc_ke_hoach(db, orders, lsx_svc, admin, customer):
+    """Bước ĐẦU chuỗi lấy vật tư từ kho, không ai bàn giao tới ⇒ mốc vẫn là kế hoạch, không tụt về 0."""
+    from app.services.san_xuat import board
+
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-TN3")
+    cv.trang_thai = CV_DANG_CHAY
+    cv.so_luong_vao, cv.don_vi_vao = 1000, "tờ"
+    cv.so_luong_ra, cv.don_vi_ra = 1000, "cái"
+    db.add(SanXuatBatch(cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=2),
+                        tong=900, tot=900, hong=0, don_vi="cái"))
+    db.commit()
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
+    assert ct["san_luong"]["thuc_nhan"] is None
+    assert ct["san_luong"]["muc_tieu"] == 1000.0
+    assert ct["san_luong"]["con_thieu"] == 100.0
+
+
+def test_moc_quy_doi_khi_vao_ra_khac_don_vi(db, orders, lsx_svc, admin, customer):
+    """Nhận "tờ" mà ra "cái": 12 tờ → 1.188 cái. Nhận 11 tờ ⇒ mốc 1.089 cái, không phải 11."""
+    from app.services.san_xuat import board
+
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-TN4")
+    cv.trang_thai = CV_DANG_CHAY
+    cv.so_luong_vao, cv.don_vi_vao = 12, "tờ"
+    cv.so_luong_ra, cv.don_vi_ra = 1188, "cái"
+    db.commit()
+    _giao_toi(db, cv, 11, "tờ")
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
+    assert ct["san_luong"]["muc_tieu"] == 1089.0
+    assert ct["san_luong"]["con_thieu"] == 1089.0
+
+
+def test_nhan_du_bu_hao_thi_moc_khong_phinh_len(db, orders, lsx_svc, admin, customer):
+    """Nhà in giao dư để bù hao (1.050 tờ cho 1.000 cái) — nhận dư KHÔNG bắt tổ làm nhiều hơn
+    cam kết. Mốc chỉ rút xuống, không đẩy lên."""
+    from app.services.san_xuat import board
+
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-TN5")
+    cv.trang_thai = CV_DANG_CHAY
+    cv.so_luong_vao, cv.don_vi_vao = 1000, "tờ"
+    cv.so_luong_ra, cv.don_vi_ra = 1000, "cái"
+    db.add(SanXuatBatch(cong_viec_id=cv.id, bat_dau=_T0, ket_thuc=_T0 + timedelta(hours=2),
+                        tong=1000, tot=1000, hong=0, don_vi="cái"))
+    db.commit()
+    _giao_toi(db, cv, 1050, "tờ")
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
+    assert ct["san_luong"]["muc_tieu"] == 1000.0
+    assert ct["san_luong"]["con_thieu"] == 0.0
+
+
+def test_ban_giao_khac_don_vi_dau_vao_thi_khong_rut_moc(db, orders, lsx_svc, admin, customer):
+    """Bàn giao ghi "con" mà bước nhận "tờ": không đem số đó chia cho `so_luong_vao` — chia bừa ra
+    mốc bịa (đúng lỗi đã thấy trên dev: nhận 26.888 chia cho 68 ⇒ thiếu 7 triệu)."""
+    from app.services.san_xuat import board
+
+    _to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-TN6")
+    cv.trang_thai = CV_DANG_CHAY
+    cv.so_luong_vao, cv.don_vi_vao = 68, "tờ"
+    cv.so_luong_ra, cv.don_vi_ra = 18, "tờ"
+    db.commit()
+    _giao_toi(db, cv, 26888, "con")
+
+    ct = board.chi_tiet_cong_viec(db, admin, _authz(db), cong_viec_id=cv.id)
+    assert ct["san_luong"]["thuc_nhan"] is None
+    assert ct["san_luong"]["muc_tieu"] == 18.0
+    assert ct["san_luong"]["con_thieu"] == 18.0

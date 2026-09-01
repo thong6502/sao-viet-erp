@@ -91,6 +91,30 @@ class SanXuatThucThiRepository:
             )
         ).first()
 
+    def nhan_vien_theo_user(self, user_id: int) -> Employee | None:
+        """Hồ sơ nhân viên của một tài khoản — thợ mở bàn tổ thì lọc việc theo hồ sơ này."""
+        return self.db.scalars(
+            select(Employee).where(Employee.user_id == user_id)
+        ).first()
+
+    def cong_viec_ids_duoc_giao(
+        self, employee_id: int, cong_viec_ids: set[int]
+    ) -> set[int]:
+        """Trong tập công việc đưa vào, những việc nhân viên này CÒN đang được giao (§7.1).
+
+        Một truy vấn cho cả bàn tổ — không hỏi từng dòng."""
+        if not cong_viec_ids:
+            return set()
+        return set(
+            self.db.scalars(
+                select(SanXuatPhanCong.cong_viec_id).where(
+                    SanXuatPhanCong.cong_viec_id.in_(cong_viec_ids),
+                    SanXuatPhanCong.employee_id == employee_id,
+                    SanXuatPhanCong.trang_thai == PC_HOAT_DONG,
+                )
+            )
+        )
+
     # --- Phiên chạy -------------------------------------------------------------------------
     def phien_dang_mo(self, cong_viec_id: int) -> SanXuatPhienChay | None:
         """Phiên còn mở (ket_thuc IS NULL) của một công việc — nhiều nhất MỘT theo bất biến."""

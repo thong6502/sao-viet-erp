@@ -1430,7 +1430,14 @@ export interface SxWorkItem {
   so_luong_ra: number | null;  // mục tiêu của bước — đã có sẵn, KHÔNG đẻ khoá `muc_tieu_ra` thứ hai
   don_vi_vao: string | null;
   don_vi_ra: string | null;
-  /** max(so_luong_ra − tổng tốt, 0). null khi bước không khai mục tiêu — KHÁC hẳn với 0. */
+  /** Lượng tổ THẬT SỰ nhận được (bàn giao đã xác nhận về bước này). null = không ai giao tới
+   *  (bước đầu chuỗi lấy vật tư từ kho) — KHÁC hẳn với 0. */
+  thuc_nhan: number | null;
+  /** Tổng sản lượng TỐT đã ghi ở bước này. */
+  da_lam: number | null;
+  /** Mốc chấm THỰC — `so_luong_ra` đã rút theo tỉ lệ thực nhận; kế hoạch ở trên không bị đè. */
+  muc_tieu: number | null;
+  /** max(mục tiêu − đã làm, 0). null khi bước không khai mục tiêu — KHÁC hẳn với 0. */
   con_thieu: number | null;
   trang_thai: string;          // "released" | "running" | "paused" | "completed"
   dinh_muc_vat_tu: SxVatTuDinhMuc[]; // định mức vật tư đóng băng lúc phát hành — KHÁC vật tư (phiếu xuất) ở drawer
@@ -1541,8 +1548,10 @@ export interface SxSanLuong {
   tong_tot: number;
   da_giao: number;
   batches: SxBatch[];
-  /** Mục tiêu của bước (`so_luong_ra` lúc phát hành) — null khi bước không khai. */
+  /** Mốc chấm THỰC của bước — `so_luong_ra` đã rút theo tỉ lệ thực nhận; null khi bước không khai. */
   muc_tieu: number | null;
+  /** Lượng bước này thật sự nhận được. null = không ai bàn giao tới — KHÁC hẳn với 0. */
+  thuc_nhan: number | null;
   /** max(mục tiêu − tổng tốt, 0). null khi không có mục tiêu — KHÁC hẳn với 0. */
   con_thieu: number | null;
   don_vi: string | null;

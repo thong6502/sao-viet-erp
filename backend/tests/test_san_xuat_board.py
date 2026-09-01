@@ -16,11 +16,14 @@ import pytest
 from datetime import datetime, timezone
 
 from app.models.department import Department
+from app.models.employee import Employee
 from app.models.lsx import LsxCongDoan
 from app.models.role import SCOPE_DEPARTMENT, SCOPE_OWN
 from app.models.san_xuat import CV_HOAN_THANH, SanXuatCongViec
 from app.models.san_xuat_kcs import SanXuatKcsBatch
 from app.models.san_xuat_san_luong import BG_XAC_NHAN, SanXuatBanGiao
+from app.models.san_xuat_thuc_thi import PC_HOAT_DONG, SanXuatPhanCong
+from app.models.user import User
 from app.repositories.rbac_repo import RoleRepository
 from app.repositories.san_xuat_repo import SanXuatRepository
 from app.services.rbac_service import AuthorizationService
@@ -374,3 +377,108 @@ def test_sinh_node_kcs_chi_khi_co_viec_kcs(db, orders, lsx_svc, admin, customer)
     assert repo.to_co_viec_kcs({to.id}) == set()
     cuoi = {t["id"]: t for t in board.teams(db, admin, _authz(db))}
     assert cuoi[to.id]["co_viec_kcs"] is False
+
+
+# --- Thợ chỉ thấy việc được giao (§7.1) -----------------------------------------------------
+def _tho_co_tai_khoan(db, to, *, username, ma_nv):
+    """Một THỢ thật: tài khoản + hồ sơ nhân viên nối với nhau, thuộc tổ `to`."""
+    u = User(username=username, name=f"Thợ {ma_nv}", password_hash="x")
+    db.add(u)
+    db.flush()
+    db.add(Employee(code=ma_nv, full_name=u.name, department_id=to.id, user_id=u.id))
+    db.flush()
+    return u
+
+
+def _giao(db, cv_id: int, employee_id: int) -> None:
+    db.add(SanXuatPhanCong(
+        cong_viec_id=cv_id, employee_id=employee_id, trang_thai=PC_HOAT_DONG
+    ))
+    db.commit()
+
+
+def _emp_id(db, user_id: int) -> int:
+    return db.query(Employee).filter_by(user_id=user_id).one().id
+
+
+def test_tho_chi_thay_viec_duoc_giao(db, orders, lsx_svc, admin, customer):
+    """Thợ mở bàn tổ mình: chỉ những việc CÒN đang giao cho chính họ, không phải cả tổ."""
+    to = _to_moi(db)
+    to.head_user_id = admin.id          # tổ trưởng là admin, không phải người thợ dưới đây
+    db.commit()
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
+
+    u = _tho_co_tai_khoan(db, to, username="tho_board_1", ma_nv="NV-BOARD-1")
+    tho = SimpleNamespace(id=u.id, department_id=to.id, role_id=admin.role_id)
+
+    ca_ban = board.work_items(db, admin, _authz(db), team_id=to.id)["cong_viec"]
+    assert len(ca_ban) >= 2, "cần ít nhất 2 việc mới soi được phép lọc"
+
+    # Chưa giao gì → không thấy việc nào, KHÔNG rơi về "thấy hết".
+    assert board.work_items(db, tho, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"] == []
+
+    _giao(db, ca_ban[0]["id"], _emp_id(db, u.id))
+    thay = board.work_items(db, tho, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"]
+    assert [w["id"] for w in thay] == [ca_ban[0]["id"]]
+
+
+def test_to_truong_van_thay_ca_ban(db, orders, lsx_svc, admin, customer):
+    """Lọc chỉ áp cho THỢ — tổ trưởng của chính tổ đó vẫn thấy trọn bàn dù không được giao việc nào."""
+    to = _to_moi(db)
+    to.head_user_id = admin.id
+    db.commit()
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
+
+    truong = SimpleNamespace(id=admin.id, department_id=to.id, role_id=admin.role_id)
+    thay = board.work_items(db, truong, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"]
+    assert len(thay) == len(board.work_items(db, admin, _authz(db), team_id=to.id)["cong_viec"])
+    assert thay
+
+
+def test_badge_navbar_cua_tho_khop_so_viec_mo_ra(db, orders, lsx_svc, admin, customer):
+    """Badge trên navbar phải đếm đúng số dòng thợ mở ra thấy — báo 12 mà bàn có 2 là nói dối."""
+    to = _to_moi(db)
+    to.head_user_id = admin.id
+    db.commit()
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
+
+    u = _tho_co_tai_khoan(db, to, username="tho_board_2", ma_nv="NV-BOARD-2")
+    tho = SimpleNamespace(id=u.id, department_id=to.id, role_id=admin.role_id)
+    ca_ban = board.work_items(db, admin, _authz(db), team_id=to.id)["cong_viec"]
+    _giao(db, ca_ban[0]["id"], _emp_id(db, u.id))
+
+    badge = {t["id"]: t["so_viec_cho"] for t in board.teams(db, tho, _FakeAuthz(SCOPE_OWN))}
+    so_dong = len(board.work_items(db, tho, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"])
+    assert badge[to.id] == so_dong == 1
+
+
+def test_tho_mo_viec_khong_duoc_giao_bi_chan(db, orders, lsx_svc, admin, customer):
+    """Không có ở bàn thì cũng không mở được bằng đường link/chi tiết."""
+    to = _to_moi(db)
+    to.head_user_id = admin.id
+    db.commit()
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
+
+    u = _tho_co_tai_khoan(db, to, username="tho_board_3", ma_nv="NV-BOARD-3")
+    tho = SimpleNamespace(id=u.id, department_id=to.id, role_id=admin.role_id)
+    ca_ban = board.work_items(db, admin, _authz(db), team_id=to.id)["cong_viec"]
+    _giao(db, ca_ban[0]["id"], _emp_id(db, u.id))
+
+    ct = board.chi_tiet_cong_viec(db, tho, _FakeAuthz(SCOPE_OWN), cong_viec_id=ca_ban[0]["id"])
+    assert ct["cong_viec"]["id"] == ca_ban[0]["id"]
+    with pytest.raises(PermissionError):
+        board.chi_tiet_cong_viec(db, tho, _FakeAuthz(SCOPE_OWN), cong_viec_id=ca_ban[1]["id"])
+
+
+def test_tai_khoan_chua_noi_ho_so_nhan_vien_thi_khong_thay_gi(db, orders, lsx_svc, admin, customer):
+    """`employee.user_id` chưa nối ⇒ không biết người đó được giao gì ⇒ bàn trống, không mở toang."""
+    to = _to_moi(db)
+    to.head_user_id = admin.id
+    db.commit()
+    _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
+
+    u = User(username="tho_board_4", name="Thợ Chưa Nối Hồ Sơ", password_hash="x")
+    db.add(u)
+    db.commit()
+    tho = SimpleNamespace(id=u.id, department_id=to.id, role_id=admin.role_id)
+    assert board.work_items(db, tho, _FakeAuthz(SCOPE_OWN), team_id=to.id)["cong_viec"] == []

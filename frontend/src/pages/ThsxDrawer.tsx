@@ -153,6 +153,41 @@ export function ThsxDrawer({
                 <span className="thsx-kv__v">{cv.nguon_ma}{cv.nguon_ten ? ` · ${cv.nguon_ten}` : ""}</span></div>
             </section>
 
+            {/* 1b · THỰC TẾ — ba số của CHÍNH tổ này. Hai dòng SL vào/SL ra ở trên vẫn là kế
+                hoạch nguyên vẹn; "Còn thiếu" chấm theo lượng THỰC NHẬN, nên tổ trước giao thiếu
+                thì tổ này không bị đổ oan. */}
+            <section className="thsx-psec">
+              <div className="thsx-psec__h"><span className="thsx-psec__title">Thực tế</span></div>
+              <div className="thsx-kv"><span className="thsx-kv__k">Thực nhận</span>
+                <span className="thsx-kv__v thsx-kv__v--num">
+                  {cv.thuc_nhan != null
+                    ? `${num(cv.thuc_nhan)}${cv.don_vi_vao ? ` ${cv.don_vi_vao}` : ""}`
+                    : "— chưa ai giao tới"}
+                </span>
+              </div>
+              <div className="thsx-kv"><span className="thsx-kv__k">Đã làm</span>
+                <span className="thsx-kv__v thsx-kv__v--num">
+                  {cv.da_lam != null ? `${num(cv.da_lam)}${cv.don_vi_ra ? ` ${cv.don_vi_ra}` : ""}` : "—"}
+                </span>
+              </div>
+              <div className="thsx-kv"><span className="thsx-kv__k">Còn thiếu</span>
+                <span className={`thsx-kv__v thsx-kv__v--num${(cv.con_thieu ?? 0) > 0 ? " thsx-kv__v--thieu" : ""}`}>
+                  {cv.con_thieu == null
+                    ? "—"
+                    : cv.con_thieu > 0
+                      ? `${num(cv.con_thieu)}${cv.don_vi_ra ? ` ${cv.don_vi_ra}` : ""}`
+                      : "đủ"}
+                </span>
+              </div>
+              {cv.thuc_nhan != null && cv.muc_tieu != null && cv.so_luong_ra != null
+                && cv.muc_tieu < cv.so_luong_ra && (
+                <p className="thsx-note">
+                  Nhận thiếu so với kế hoạch — mốc của tổ rút còn {num(cv.muc_tieu)}
+                  {cv.don_vi_ra ? ` ${cv.don_vi_ra}` : ""}.
+                </p>
+              )}
+            </section>
+
             {/* 2 · TỔ THỰC HIỆN (roster) */}
             <section className="thsx-psec">
               <div className="thsx-psec__h">
@@ -350,7 +385,7 @@ export function ThsxDrawer({
                 canAssign={canAssign}
                 busy={busy}
                 loadLyDo={loadLyDo}
-                exec={exec}
+                onDongThieu={exec.dongThieu}
               />
             )}
           </>

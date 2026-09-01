@@ -70,8 +70,12 @@ class WorkItemOut(BaseModel):
     dinh_muc_vat_tu: list[VatTuDinhMucOut] = []
     # Lớp thực-tế đè lên thanh kế hoạch (§5.1): các phiên chạy đã ghi, phiên mở để ket_thuc=None.
     thuc_te: list[ThucTeKhoangOut] = []
-    # Còn thiếu so với mục tiêu bước (`so_luong_ra`) — DẪN XUẤT, không lưu (§2.3). Chỗ gọi không
-    # nạp map (khối "cong_viec" của drawer) thì cứ None, không bịa số.
+    # Lớp SỐ THỰC TẾ — DẪN XUẤT, không lưu (§2.3). `so_luong_vao`/`so_luong_ra` ở trên là KẾ HOẠCH
+    # và không bị đè; `muc_tieu` là mốc đã rút theo lượng thực nhận (tổ trước giao thiếu thì tổ sau
+    # không bị chấm theo kế hoạch). Chỗ gọi không nạp map thì cứ None, không bịa số.
+    thuc_nhan: float | None = None
+    da_lam: float | None = None
+    muc_tieu: float | None = None
     con_thieu: float | None = None
 
 
@@ -210,6 +214,7 @@ class SanLuongOut(BaseModel):
     # Mục tiêu của BƯỚC (`san_xuat_cong_viec.so_luong_ra`) và phần chưa đạt — DẪN XUẤT, không lưu.
     # Không khai ở đây là Pydantic nuốt IM LẶNG: service trả dict, FE nhận undefined, không ai lỗi.
     muc_tieu: float | None = None
+    thuc_nhan: float | None = None
     con_thieu: float | None = None
     don_vi: str | None = None
     batches: list[BatchOut]

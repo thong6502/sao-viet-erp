@@ -849,6 +849,9 @@
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
 }
+/* Còn thiếu > 0: đánh dấu để mắt bắt ngay, nhưng KHÔNG kèm nền đỏ — đây là con số để biết,
+   không phải lời buộc tội. Dấu hiệu không chỉ nằm ở màu: chữ đậm hơn hẳn các dòng cạnh nó. */
+.thsx-kv__v--thieu { color: var(--amber-deep); font-weight: var(--fw-bold); }
 
 /* ghi chú */
 .thsx-note {

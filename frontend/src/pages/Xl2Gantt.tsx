@@ -790,17 +790,14 @@ export function Xl2Gantt({
                       // đỏ hai chỗ khác nhau.
                       const quaGio = !!tt && tt.bat_dau_thuc != null && tt.ket_thuc_thuc == null
                         && (tt.tre_ket_thuc_phut ?? 0) >= NGUONG_LECH_THUC_TE_PHUT;
+                      // Tooltip ở bàn XẾP LỊCH chỉ nói chuyện GIỜ. Con số sản lượng (đã làm / còn
+                      // thiếu) là việc của bàn tổ bên Thực hiện SX — người xếp lịch cần biết mốc
+                      // trôi để xếp lại, không phải để theo dõi sản lượng hộ tổ.
                       const ttTitle = tt
-                        // "95/91 tờ" chứ không "95 tờ/91": đơn vị đứng SAU cả cặp số, nếu không
-                        // mắt đọc "95 tờ" rồi mới vấp vào "/91" và phải quay lại đọc lần hai.
-                        ? ` · thực tế: ${num(tt.tong_tot)}`
-                          + (tt.muc_tieu != null ? `/${num(tt.muc_tieu)}` : "")
-                          + (tt.don_vi ? ` ${tt.don_vi}` : "")
-                          + (tt.con_thieu ? ` · còn thiếu ${num(tt.con_thieu)}` : "")
                           // Việc ĐÃ ĐÓNG thì thôi nhắc "vào muộn" — backend `_lech_thuc_te` cũng im ở
                           // đúng chỗ này (cái muộn đã nằm trong mốc bắt đầu của bước sau). Không đồng bộ
                           // thì hàng đèn im mà tooltip vẫn kể, hai mặt của cùng một dữ liệu nói hai kiểu.
-                          + (tt.ket_thuc_thuc == null && (tt.tre_bat_dau_phut ?? 0) >= NGUONG_LECH_THUC_TE_PHUT ? ` · vào muộn ${thoiLuongNgan(tt.tre_bat_dau_phut!)}` : "")
+                        ? (tt.ket_thuc_thuc == null && (tt.tre_bat_dau_phut ?? 0) >= NGUONG_LECH_THUC_TE_PHUT ? ` · vào muộn ${thoiLuongNgan(tt.tre_bat_dau_phut!)}` : "")
                           + (quaGio ? ` · quá giờ ${thoiLuongNgan(tt.tre_ket_thuc_phut!)}` : "")
                         : "";
                       const durLabel = chiem ? thoiLuongNgan(chiem) : null;

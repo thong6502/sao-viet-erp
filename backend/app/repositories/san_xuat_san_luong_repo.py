@@ -222,6 +222,36 @@ class SanXuatSanLuongRepository:
             )
         )
 
+    def tong_thuc_nhan_nhieu(self, cong_viec_ids) -> dict[int, dict[str, float]]:
+        """{cong_viec_id: {đơn vị: tổng ĐÃ NHẬN về}} cho một TẬP công việc — MỘT truy vấn GỘP.
+
+        "Thực nhận" = bàn giao ĐẾN việc này ở trạng thái confirmed/adjusted; `proposed` chưa chốt
+        nên không tính (cùng luật với `san_xuat_kcs_repo.tong_ban_giao_xac_nhan`).
+
+        Tách theo ĐƠN VỊ, không cộng gộp một cục: một bước ghép nhận "tờ" từ chỗ này và "cuốn" từ
+        chỗ khác — cộng chung ra một con số vô nghĩa. Bên gọi tự lấy đúng đơn vị đầu vào của bước.
+        Việc chưa nhận gì thì KHÔNG có mặt trong dict — phân biệt "nhận 0" với "không ai giao tới"
+        (bước ĐẦU chuỗi lấy vật tư từ kho)."""
+        ids = [i for i in set(cong_viec_ids) if i]
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(
+                SanXuatBanGiao.dich_cong_viec_id,
+                SanXuatBanGiao.don_vi,
+                func.coalesce(func.sum(SanXuatBanGiao.so_luong), 0),
+            )
+            .where(
+                SanXuatBanGiao.dich_cong_viec_id.in_(ids),
+                SanXuatBanGiao.trang_thai.in_((BG_XAC_NHAN, BG_DIEU_CHINH)),
+            )
+            .group_by(SanXuatBanGiao.dich_cong_viec_id, SanXuatBanGiao.don_vi)
+        )
+        ket: dict[int, dict[str, float]] = {}
+        for cvid, don_vi, tong in rows:
+            ket.setdefault(cvid, {})[don_vi or ""] = float(tong or 0)
+        return ket
+
     def tong_da_giao(self, nguon_cong_viec_id: int) -> float:
         """Tổng số lượng ĐÃ ghi bàn giao từ một nguồn (mọi trạng thái — không có huỷ cứng). Dùng
         để chặn giao vượt sản lượng tốt (§11.2)."""
