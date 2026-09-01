@@ -12,7 +12,7 @@ import { useState } from "react";
 import type {
   SxWorkItemChiTiet, SxKcsChiTiet, SxKcsBatchChiTiet, SxKcsLoi, SxKcsAnh,
   SxKhoChiTiet, SxNhapKhoYc, SxKhoLot, SxKhoHopThu, SxDongNhomDieuKien,
-  SxPhanLoaiBtp, SxLyDo,
+  SxPhanLoaiBtp, SxLyDo, SxPhanLoaiBtpIn, SxDongThieuIn,
 } from "../api/client";
 import { assetUrl } from "../api/client";
 import { Button } from "../components/Button";
@@ -39,7 +39,7 @@ const YC_TT: Record<string, { txt: string; cls: string }> = {
   da_nhap: { txt: "đã nhập đủ", cls: "thsx-x-pill--ok" },
   huy: { txt: "đã huỷ", cls: "thsx-x-pill--off" },
 };
-const PL_LABEL: Record<SxPhanLoaiBtp, string> = {
+export const PL_LABEL: Record<SxPhanLoaiBtp, string> = {
   nhap_btp: "Nhập kho BTP", mau_luu: "Mẫu lưu", phe: "Phế",
 };
 const NHOM_TT: Record<string, { txt: string; cls: string }> = {
@@ -429,7 +429,8 @@ export function ThsxKhoPanel({
       )}
       {plOpen && (
         <PhanLoaiBtpForm cvId={cv.id} donVi={cv.don_vi_ra ?? cv.don_vi_vao ?? null}
-          slBatches={slBatches} busy={busy} onXong={() => setPlOpen(false)} exec={exec} />
+          slBatches={slBatches} busy={busy} onXong={() => setPlOpen(false)}
+          onPhanLoai={exec.phanLoaiBtp} />
       )}
       {kho && kho.btp_tra_cho_kho.length > 0 && (
         <ul className="thsx-x-list">
@@ -550,11 +551,13 @@ function YeuCauRow({
   );
 }
 
-function PhanLoaiBtpForm({
-  cvId, donVi, slBatches, busy, onXong, exec,
+export function PhanLoaiBtpForm({
+  cvId, donVi, slBatches, busy, onXong, onPhanLoai,
 }: {
   cvId: number; donVi: string | null; slBatches: SxWorkItemChiTiet["san_luong"]["batches"];
-  busy: boolean; onXong: () => void; exec: ThsxExec;
+  busy: boolean; onXong: () => void;
+  /** Xem ghi chú ở `ThsxDongNhomPanel`: nhận đúng một mặt ghi để màn KCS dùng lại được. */
+  onPhanLoai: (body: SxPhanLoaiBtpIn) => Promise<boolean>;
 }) {
   const [soLuong, setSoLuong] = useState("");
   const [phanLoai, setPhanLoai] = useState<SxPhanLoaiBtp>("nhap_btp");
@@ -565,7 +568,7 @@ function PhanLoaiBtpForm({
   const hopLe = nSl > 0;
 
   async function luu() {
-    if (await exec.phanLoaiBtp({
+    if (await onPhanLoai({
       cong_viec_id: cvId, so_luong: nSl, phan_loai: phanLoai,
       quy_cach: quyCach.trim() || null, nguon_batch_id: nguonBatch, ghi_chu: ghiChu.trim() || null,
     })) onXong();
@@ -615,13 +618,15 @@ function PhanLoaiBtpForm({
 
 // ══════════════════════ ĐÓNG NHÓM §16 / §13.3 (panel drawer) ═════════════════
 export function ThsxDongNhomPanel({
-  dieuKien, canAssign, busy, loadLyDo, exec,
+  dieuKien, canAssign, busy, loadLyDo, onDongThieu,
 }: {
   dieuKien: SxDongNhomDieuKien | null;
   canAssign: boolean;
   busy: boolean;
   loadLyDo: (nhom: string) => Promise<SxLyDo[]>;
-  exec: ThsxExec;
+  /** Chỉ nhận ĐÚNG mặt ghi nó cần, không ôm cả `exec` — panel này còn được dùng ở màn KCS
+   *  (`pages/kcs`), nơi không có controller bàn tổ để dựng đủ 30 hàm của `ThsxExec`. */
+  onDongThieu: (nhomId: number, body: SxDongThieuIn) => Promise<boolean>;
 }) {
   const [dongOpen, setDongOpen] = useState(false);
   const [lyDoId, setLyDoId] = useState<number | null>(null);
@@ -639,7 +644,7 @@ export function ThsxDongNhomPanel({
 
   async function dong() {
     if (lyDoId == null) return;
-    if (await exec.dongThieu(dieuKien!.nhom_id, { ly_do_id: lyDoId, expected_version: dieuKien!.version })) {
+    if (await onDongThieu(dieuKien!.nhom_id, { ly_do_id: lyDoId, expected_version: dieuKien!.version })) {
       setDongOpen(false); setLyDoId(null);
     }
   }

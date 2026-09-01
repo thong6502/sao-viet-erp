@@ -23,6 +23,7 @@ import { useCan } from "../../auth/permissions";
 import { num, ngayGio } from "../keHoachSxShared";
 import { KcsDashboard, KCS_DASH_FILTERS_RONG, type KcsDashFilters } from "./KcsDashboard";
 import { KCS_TRANG_THAI_GUI_KHO_LABEL, KcsResultDrawer, type KcsSavedRow } from "./KcsResultDrawer";
+import { KcsChotNhom } from "./KcsChotNhom";
 import "../rebuild-catalog.css";
 import "./kcs.css";
 
@@ -82,6 +83,10 @@ export function ThucHienKcsPage({
   // xuất được báo cáo KCS của tổ mình thì cần cấp `can_export` cho vai đó (mở rộng RBAC, NGOÀI
   // phạm vi Task 9 — xem report Concerns).
   const canExport = can("san_xuat", "export");
+  // Mặt GHI của khối "Chốt nhóm" (đóng thiếu · phân loại BTP dư) — cùng ô quyền với bàn tổ. Backend
+  // còn siết thêm một tầng nữa: `dong_thieu` đòi ĐÚNG trưởng tổ KCS của nhóm (§13.3), nên bit này
+  // chỉ để KHÔNG bày nút cho người chắc chắn không dùng được.
+  const canAssign = can("san_xuat", "assign_work");
 
   const [filters, setFilters] = useState<KcsDashFilters>(KCS_DASH_FILTERS_RONG);
 
@@ -229,6 +234,13 @@ export function ThucHienKcsPage({
     onBadgeStale?.();
   }
 
+  // Sau khi đóng thiếu / phân loại BTP: làm mới hai bảng + badge (không đụng KPI dashboard — hai
+  // việc này không đẻ kết quả KCS mới).
+  function daLuuNhom() {
+    load();
+    onBadgeStale?.();
+  }
+
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   async function xuatExcel() {
@@ -352,6 +364,14 @@ export function ThucHienKcsPage({
           </div>
         )}
       </section>
+
+      {/* CHỐT NHÓM §13.3/§14.2 — đóng thiếu + phân loại BTP dư. Đặt giữa "Chờ KCS" và lịch sử: nó là
+          việc làm SAU khi kiểm xong, trước khi lệnh khép lại. */}
+      {/* KHÔNG gỡ khối khi `loading` — mỗi lần ghi xong `load()` bật lại cờ đó, gỡ ra là mất luôn
+          nhóm người dùng đang mở. `items` giữ nguyên bản cũ trong lúc tải nên khối vẫn đúng. */}
+      {!loadError && items != null && (
+        <KcsChotNhom items={items} canAssign={canAssign} eventTick={eventTick} onDone={daLuuNhom} />
+      )}
 
       <section className="kcs-section">
         <h2>Kết quả đã ghi <span className="rc__count">{ketQuaLoc.length}</span></h2>

@@ -325,3 +325,28 @@
 @media (max-width: 480px) {
   .kcs-drawer__soluong input { width: 100%; }
 }
+
+/* ===== Chốt nhóm (đóng thiếu · BTP dư) — §13.3/§14.2 ====================== */
+.kcs-chot__hint { margin: 0 0 var(--sp-2); font-size: 12px; color: var(--ash-2); }
+.kcs-chot { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.kcs-chot__it { border: 1px solid var(--rule-hair); border-radius: 8px; background: var(--canvas); overflow: hidden; }
+.kcs-chot__hd {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: var(--ff-sans);
+  text-align: left;
+}
+.kcs-chot__hd:hover { background: var(--rule-hair); }
+.kcs-chot__ic { transform: rotate(-90deg); transition: transform 120ms ease; }
+.kcs-chot__ic.is-open { transform: none; }
+@media (prefers-reduced-motion: reduce) { .kcs-chot__ic { transition: none; } }
+.kcs-chot__ten { font-size: 13px; font-weight: var(--fw-bold); color: var(--ink); }
+.kcs-chot__sl { margin-left: auto; font-size: 12px; color: var(--ash-2); }
+.kcs-chot__than { padding: 0 var(--sp-3) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
+.kcs-chot__cv { display: flex; align-items: center; gap: var(--sp-2); font-size: 12px; color: var(--ash-2); margin-bottom: var(--sp-2); }
