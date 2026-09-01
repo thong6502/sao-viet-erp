@@ -71,6 +71,7 @@ K_THIEU_VAT_TU = "thieu_vat_tu"              # F: bảng cân đối có dòng �
 K_THIEU_NGUOI = "thieu_nguoi"                # G: tổ bố trí dưới số người tối thiểu
 K_QUA_TAI_TO = "qua_tai_to"                  # I: Σ người các việc cùng lúc > quân số có mặt của tổ
 K_LECH_THUC_TE = "lech_thuc_te"               # J: tổ chạy lệch mốc kế hoạch (vào muộn / quá giờ)
+K_LICH_DA_QUA = "lich_da_qua"                # K: mốc đã xếp trôi qua mà chưa ai vào việc
 
 # Lệch bao nhiêu phút thì mới đáng nói. Dưới ngưỡng là nhiễu: ca sản xuất vốn xê dịch 15–30 phút
 # vì bàn giao ca, vệ sinh máy, chờ pallet. Báo mọi lệch = người điều độ tắt hẳn hàng đèn.
@@ -333,14 +334,35 @@ class XepLichVanDeService:
             gap = (som - st).total_seconds() / 60.0
             if gap <= 1:  # cho phép sai số làm tròn 1 phút
                 continue
+            # HAI chuyện khác hẳn nhau, trước đây cùng một câu. `som_nhat` = max(sàn "đừng xếp vào
+            # quá khứ", mốc do tiền nhiệm đẩy). Chỉ khi TIỀN NHIỆM là thủ phạm thì mới đúng là sai
+            # thứ tự routing; còn lại là mốc đã xếp trôi qua mà chưa ai bấm bắt đầu — người điều độ
+            # phải xếp lại giờ, chứ không phải đi sửa thứ tự công đoạn. Nói sai câu ở đây là đẩy họ
+            # đi tìm một lỗi không tồn tại (và trên dữ liệu thật, vế "trôi qua" là đa số).
+            truoc = _aware(r.get("som_nhat_tu_truoc"))
+            do_tien_nhiem = truoc is not None and (truoc - st).total_seconds() / 60.0 > 1
+            if do_tien_nhiem:
+                out.append({
+                    "issue_key": f"{K_SAI_TIEN_NHIEM}:{r['id']}",
+                    "category": CAT_DU_LIEU, "severity": SEV_CHAN,
+                    "title": (f"{r['lsx_ma']} · {r['cong_doan_ten']} xếp {_fmt(st)} nhưng bước trước "
+                              f"xong lúc {_fmt(truoc)} — sớm hơn "
+                              f"{_phut_str((truoc - st).total_seconds() / 60.0)}"),
+                    "nguyen_nhan": "Công đoạn sau được xếp bắt đầu trước khi công đoạn trước kết thúc.",
+                    "impacts": self._impact([r]),
+                    "delay_phut": None,
+                    "group_key": f"lsx:{r['lsx_id']}",
+                })
+                continue
             out.append({
-                "issue_key": f"{K_SAI_TIEN_NHIEM}:{r['id']}",
+                "issue_key": f"{K_LICH_DA_QUA}:{r['id']}",
                 "category": CAT_DU_LIEU, "severity": SEV_CHAN,
-                "title": (f"{r['lsx_ma']} · {r['cong_doan_ten']} xếp {_fmt(st)} nhưng bước trước xong "
-                          f"lúc {_fmt(som)} — sớm hơn {_phut_str(gap)}"),
-                "nguyen_nhan": "Công đoạn sau được xếp bắt đầu trước khi công đoạn trước kết thúc.",
+                "title": (f"{r['lsx_ma']} · {r['cong_doan_ten']} xếp {_fmt(st)} — mốc đã trôi qua "
+                          f"{_phut_str(gap)} mà chưa ai vào việc"),
+                "nguyen_nhan": ("Mốc đã xếp nằm trong quá khứ và tổ chưa bấm bắt đầu. Xếp lại giờ; "
+                                "việc bấm bắt đầu vẫn do tổ trưởng quyết, kể cả khi trễ kế hoạch."),
                 "impacts": self._impact([r]),
-                "delay_phut": None,
+                "delay_phut": round(gap),
                 "group_key": f"lsx:{r['lsx_id']}",
             })
         return out

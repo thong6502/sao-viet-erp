@@ -1372,9 +1372,15 @@ class XepLichService:
                 lag = dur[pid]["tong_phut"] - dur[pid]["chiem_may_phut"]
                 pred_finishes.append(pfinish + timedelta(minutes=lag))
             es = max([floor, *pred_finishes])
+            # `som_nhat` gộp HAI thứ khác hẳn nhau: mốc do TIỀN NHIỆM đẩy ra, và cái sàn "không xếp
+            # vào quá khứ" của `_san_thoi_gian`. Bên đọc cần phân biệt để nói đúng chuyện — lệnh xếp
+            # từ tuần trước chưa ai đụng thì lỗi là "lịch đã trôi qua", không phải "chạy trước bước
+            # trước". Giữ riêng phần do tiền nhiệm; None = bước này không có tiền nhiệm nào đẩy.
+            truoc = [*pred_finishes] + ([gang] if gang else [])
             chiem = dur[rid]["chiem_may_phut"]
             ef = _cong_gio_lam(es, chiem, self._lich_dong(r)) if chiem > 0 else es
             info[rid] = {"som_nhat": es, "earliest_finish": ef,
+                         "som_nhat_tu_truoc": max(truoc) if truoc else None,
                          "blocked_reason": LY_DO_CHO_TIEN_DE if rid in missing else None}
 
         latest_start: dict[int, datetime] = {}
@@ -2152,6 +2158,7 @@ class XepLichService:
                 "department_id": r.department_id, "department_ten": dept_names.get(r.department_id),
                 "nha_cung_cap": r.nha_cung_cap, "work_shift_id": r.work_shift_id,
                 "som_nhat": ch.get("som_nhat"), "muon_nhat": ch.get("muon_nhat"),
+                "som_nhat_tu_truoc": ch.get("som_nhat_tu_truoc"),
                 "start_at": r.start_at, "finish_at": r.finish_at,
                 "chiem_may_phut": d["chiem_may_phut"], "tong_phut": d["tong_phut"],
                 "chiem_may_phut_min": d.get("chiem_may_phut_min", d["chiem_may_phut"]),

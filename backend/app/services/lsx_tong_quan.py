@@ -28,8 +28,8 @@ from sqlalchemy.orm import Session
 from ..models.lsx import LB_TO
 from ..models.xep_lich_van_de import TT_NGOAI_LE
 from .xep_lich_van_de_service import (
-    K_DE_KHOA_MAY, K_LECH_THUC_TE, K_MAY_KHONG_KHAM, K_QUA_TAI_TO, K_SAI_TIEN_NHIEM,
-    K_THIEU_DU_LIEU, K_THIEU_NGUOI, K_TRUNG_MAY, XepLichVanDeService,
+    K_DE_KHOA_MAY, K_LECH_THUC_TE, K_LICH_DA_QUA, K_MAY_KHONG_KHAM, K_QUA_TAI_TO,
+    K_SAI_TIEN_NHIEM, K_THIEU_DU_LIEU, K_THIEU_NGUOI, K_TRUNG_MAY, XepLichVanDeService,
 )
 
 MUC_DO = "do"
@@ -50,7 +50,7 @@ MAN_XEP_LICH = "xep-lich-cong-doan-2"
 # LẤY HẰNG TỪ `xep_lich_van_de_service`, KHÔNG gõ lại chuỗi: đổi tiền tố ở đó mà quên ở đây thì
 # đèn tắt IM LẶNG (không lỗi, chỉ là không khớp cái nào) — kiểu hỏng khó thấy nhất.
 # Thứ tự trong tuple là thứ tự ưu tiên hiện chữ khi một lệnh dính nhiều thứ một lúc.
-CAT_MAY_DO = (K_TRUNG_MAY, K_DE_KHOA_MAY, K_SAI_TIEN_NHIEM, K_THIEU_DU_LIEU)
+CAT_MAY_DO = (K_TRUNG_MAY, K_DE_KHOA_MAY, K_SAI_TIEN_NHIEM, K_LICH_DA_QUA, K_THIEU_DU_LIEU)
 CAT_NGUOI_DO = (K_QUA_TAI_TO, K_THIEU_NGUOI)
 # Khổ tờ in vượt máy: CẢNH BÁO, không chặn (chốt 18/08/2026 — thợ còn cách xử lý, máy không quyết).
 # Tổ chạy lệch mốc đã xếp: cũng CẢNH BÁO — lệnh đã phát hành rồi, chặn ở đây không cứu được gì,
@@ -63,6 +63,7 @@ _CHU_MAY_DO = {
     K_TRUNG_MAY: "Trùng giờ với việc khác trên cùng máy",
     K_DE_KHOA_MAY: "Xếp đè lên khoảng khóa máy",
     K_SAI_TIEN_NHIEM: "Công đoạn sau chạy trước công đoạn trước",
+    K_LICH_DA_QUA: "Mốc đã xếp trôi qua, chưa ai vào việc — xếp lại giờ",
     K_THIEU_DU_LIEU: "Có bước chưa gán máy/tổ hoặc chưa khai năng suất",
 }
 _CHU_MAY_VANG = {

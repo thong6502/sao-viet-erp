@@ -152,26 +152,44 @@ def test_de_khoa_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, custom
 
 # --- Detector: sai thứ tự tiền nhiệm ----------------------------------------
 def test_sai_tien_nhiem_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, customer, monkeypatch):
+    """Bước sau xếp trước khi bước trước xong ⇒ `sai_tien_nhiem`, mức Chặn.
+
+    Hai chi tiết của test này là ĐIỀU KIỆN để nó kiểm đúng thứ nó nói:
+
+    - Phải có DÒNG PHỤ THUỘC thật (`LsxCongDoanPhuThuoc`). `_do_thi` ghi rõ "quan hệ duy nhất là
+      bảng phụ thuộc" — `thu_tu` không tạo cạnh ngầm. Thiếu cạnh thì hai bước rời nhau và cái
+      lệch giờ chẳng liên quan gì tới tiền nhiệm.
+    - Mốc phải nằm ở TƯƠNG LAI. `som_nhat` có sàn là bây giờ, nên mốc quá khứ tự nó đã đủ làm
+      `som_nhat > start_at`; test ghim ngày cứng trong quá khứ sẽ xanh kể cả khi phần tiền nhiệm
+      hỏng hoàn toàn — và đúng là nó đã từng xanh như vậy. Nay quá khứ đi lối `lich_da_qua` riêng.
+    """
+    from app.models.lsx import LsxCongDoanPhuThuoc
+
     _luon_lam(monkeypatch)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
     step.setup_phut, step.nang_suat, step.so_luong_vao, step.chay_phut = 0, 5000, 5000, None  # In 60'
     # Bước sau (Dán, chiếm TỔ — không máy nên không lẫn trùng-máy).
-    db.add(LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Dán tay", nhom="finishing", loai_buoc=LB_TO,
-                       department_id=step.department_id, so_luong_vao=5000, chay_phut=30, don_vi_vao="cai"))
+    dan = LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Dán tay", nhom="finishing", loai_buoc=LB_TO,
+                      department_id=step.department_id, so_luong_vao=5000, chay_phut=30,
+                      don_vi_vao="cai")
+    db.add(dan)
+    db.flush()
+    db.add(LsxCongDoanPhuThuoc(buoc_truoc_id=step.id, buoc_sau_id=dan.id))
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dongs = XepLichRepository(db).by_lsx(lsx.id)
     in_dong = next(d for d in dongs if d.source_thu_tu == 0)
     dan_dong = next(d for d in dongs if d.loai_buoc == LB_TO)
-    # In 28/7 09:00→10:00; Dán bị xếp 08:00 — TRƯỚC khi In xong.
-    xl_svc.gan(dong_id=in_dong.id, patch={"may_id": step.may_id,
-               "start_at": datetime(2026, 7, 28, 9, 0, tzinfo=timezone.utc)}, actor=admin)
+    mai = (_gio_xuong() + timedelta(days=2)).replace(hour=9, minute=0, second=0, microsecond=0)
+    # In 09:00→10:00; Dán bị xếp 08:00 — TRƯỚC khi In xong.
+    xl_svc.gan(dong_id=in_dong.id, patch={"may_id": step.may_id, "start_at": mai}, actor=admin)
     xl_svc.gan(dong_id=dan_dong.id, patch={"department_id": step.department_id,
-               "start_at": datetime(2026, 7, 28, 8, 0, tzinfo=timezone.utc)}, actor=admin)
+               "start_at": mai - timedelta(hours=1)}, actor=admin)
     sai = _bo_do(vd_svc.liet_ke(), "sai_tien_nhiem")
     assert any(dan_dong.id in it["impacts"]["dong_ids"] for it in sai)
     assert all(it["severity"] == "chan" for it in sai)
+    assert all("trước khi công đoạn trước kết thúc" in it["nguyen_nhan"] for it in sai)
 
 
 def _gop_in_va_san_sang(db, bg_svc, bg, admin):
@@ -640,3 +658,31 @@ def test_sai_tien_nhiem_im_khi_to_da_vao_viec(db, orders, lsx_svc, admin, custom
     keys = {i["issue_key"] for i in _van_de_svc(db).liet_ke()["items"]}
     assert f"{K_SAI_TIEN_NHIEM}:{dong.id}" not in keys
     assert f"{K_LECH_THUC_TE}:{dong.id}" in keys
+
+
+def test_lich_da_qua_noi_dung_cua_no_khong_muon_thu_tu_cong_doan(db, orders, lsx_svc, admin,
+                                                                 customer):
+    """Mốc đã xếp trôi qua, CHƯA ai vào việc ⇒ khoá riêng `lich_da_qua`, câu chữ nói đúng chuyện.
+
+    Trước đây chung khoá với `sai_tien_nhiem` nên bảng Lệnh sản xuất báo "Công đoạn sau chạy trước
+    công đoạn trước" cho một bước không có tiền nhiệm nào — người điều độ đi tìm một lỗi thứ tự
+    không tồn tại, trong khi việc phải làm là XẾP LẠI GIỜ. Vẫn giữ mức Chặn: lịch nằm trong quá
+    khứ thì chưa thả xuống xưởng được.
+    """
+    from app.services.xep_lich_van_de_service import (
+        K_LICH_DA_QUA, K_SAI_TIEN_NHIEM, SEV_CHAN,
+    )
+
+    dong, cv = _dong_va_cong_viec(db, orders, lsx_svc, admin, customer)
+    dong.start_at = _gio_xuong() - timedelta(hours=24)
+    dong.finish_at = dong.start_at + timedelta(hours=1)
+    db.commit()
+
+    items = _van_de_svc(db).liet_ke()["items"]
+    keys = {i["issue_key"] for i in items}
+    assert f"{K_SAI_TIEN_NHIEM}:{dong.id}" not in keys
+    it = next(i for i in items if i["issue_key"] == f"{K_LICH_DA_QUA}:{dong.id}")
+    assert it["severity"] == SEV_CHAN
+    assert "chưa ai vào việc" in it["title"]
+    assert "Xếp lại giờ" in it["nguyen_nhan"]
+    assert it["delay_phut"] and it["delay_phut"] > 0
