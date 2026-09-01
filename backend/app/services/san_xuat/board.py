@@ -219,8 +219,6 @@ def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, so_map=No
         "la_kcs_cuoi": cv.la_kcs_cuoi,
         "may": may_map.get(cv.may_id or 0, ""),
         "may_id": cv.may_id,      # máy HIỆN TẠI — FE cần để dựng ô chọn "Đổi máy" (§7.2 mở rộng)
-        "du_kien_bat_dau": cv.du_kien_bat_dau,
-        "du_kien_ket_thuc": cv.du_kien_ket_thuc,
         # Hai thang giờ khác nhau gặp nhau ở ĐÂY (xem `services/gio_xuong.py`): mốc kế hoạch là
         # giờ tường dán nhãn UTC, mốc phiên chạy là UTC THẬT. Cùng quy về wall-clock giờ xưởng
         # rồi mới trả — không thì cùng một thanh Gantt đo bằng hai cây thước lệch nhau 7 tiếng.
@@ -623,8 +621,6 @@ def chi_tiet_cong_viec(
                 "so_thu_tu": p.so_thu_tu,
                 "may_id": p.may_id,
                 "may_ten": phien_may_ten.get(p.may_id or 0),
-                "bat_dau": p.bat_dau,
-                "ket_thuc": p.ket_thuc,
                 "bat_dau": thuc_te_hien_thi(p.bat_dau),
                 "ket_thuc": thuc_te_hien_thi(p.ket_thuc),
                 "loai_dong": p.loai_dong,
