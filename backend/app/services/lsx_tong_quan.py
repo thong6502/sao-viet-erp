@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from ..models.lsx import LB_TO
 from ..models.xep_lich_van_de import TT_NGOAI_LE
 from .xep_lich_van_de_service import (
-    K_DE_KHOA_MAY, K_MAY_KHONG_KHAM, K_QUA_TAI_TO, K_SAI_TIEN_NHIEM,
+    K_DE_KHOA_MAY, K_LECH_THUC_TE, K_MAY_KHONG_KHAM, K_QUA_TAI_TO, K_SAI_TIEN_NHIEM,
     K_THIEU_DU_LIEU, K_THIEU_NGUOI, K_TRUNG_MAY, XepLichVanDeService,
 )
 
@@ -53,13 +53,21 @@ MAN_XEP_LICH = "xep-lich-cong-doan-2"
 CAT_MAY_DO = (K_TRUNG_MAY, K_DE_KHOA_MAY, K_SAI_TIEN_NHIEM, K_THIEU_DU_LIEU)
 CAT_NGUOI_DO = (K_QUA_TAI_TO, K_THIEU_NGUOI)
 # Khổ tờ in vượt máy: CẢNH BÁO, không chặn (chốt 18/08/2026 — thợ còn cách xử lý, máy không quyết).
-CAT_MAY_VANG = (K_MAY_KHONG_KHAM,)
+# Tổ chạy lệch mốc đã xếp: cũng CẢNH BÁO — lệnh đã phát hành rồi, chặn ở đây không cứu được gì,
+# việc của điều độ là BIẾT để kéo lại tay (spec-thuc-te-vs-ke-hoach §2.2). Không có dòng này thì bộ
+# dò `lech_thuc_te` chạy đúng nhưng không tới được mắt ai: hàng đèn là mặt duy nhất của nó trên
+# bảng lệnh, và tập ở đây mới quyết đèn nào sáng — đúng kiểu hỏng im lặng mà chú thích trên cảnh báo.
+CAT_MAY_VANG = (K_MAY_KHONG_KHAM, K_LECH_THUC_TE)
 
 _CHU_MAY_DO = {
     K_TRUNG_MAY: "Trùng giờ với việc khác trên cùng máy",
     K_DE_KHOA_MAY: "Xếp đè lên khoảng khóa máy",
     K_SAI_TIEN_NHIEM: "Công đoạn sau chạy trước công đoạn trước",
     K_THIEU_DU_LIEU: "Có bước chưa gán máy/tổ hoặc chưa khai năng suất",
+}
+_CHU_MAY_VANG = {
+    K_MAY_KHONG_KHAM: "Khổ tờ in vượt khổ máy — cần xác nhận",
+    K_LECH_THUC_TE: "Xưởng đang chạy lệch mốc đã xếp — xem lại giờ",
 }
 _CHU_NGUOI_DO = {
     K_QUA_TAI_TO: "Tổ không đủ người cho các việc chạy cùng lúc",
@@ -110,8 +118,9 @@ def _den_may(cats: set[str], rows: list[dict], lsx_id: int) -> dict:
     cho_gio = sum(1 for r in rows if not r.get("start_at"))
     if cho_gio:
         return _den(MUC_VANG, f"{cho_gio} bước chưa có giờ", MAN_XEP_LICH, lsx_id)
-    if any(c in cats for c in CAT_MAY_VANG):
-        return _den(MUC_VANG, "Khổ tờ in vượt khổ máy — cần xác nhận", MAN_XEP_LICH, lsx_id)
+    for c in CAT_MAY_VANG:
+        if c in cats:
+            return _den(MUC_VANG, _CHU_MAY_VANG[c], MAN_XEP_LICH, lsx_id)
     return _den(MUC_OK)
 
 

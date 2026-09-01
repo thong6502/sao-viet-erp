@@ -160,10 +160,15 @@ class XepLichVanDeService:
         """
         if rows is None:
             rows = self.xl.danh_sach()["items"]
+        # Nạp GỘP một lượt cho cả bàn rồi chia cho hai bộ dò cần nó. Trước đây `_lech_thuc_te` tự
+        # nạp bên trong, nên thêm người dùng thứ hai là chạy hai lượt truy vấn y hệt nhau cho cùng
+        # một tập dòng — bàn vài trăm thanh thì đó là hai vòng gom sản lượng + phiên chạy thừa.
+        from .xep_lich_2.thuc_te import nap_thuc_te
+        tt = nap_thuc_te(self.db, rows)
         issues: list[dict] = []
         issues += self._trung_may(rows)
         issues += self._de_khoa_may(rows)
-        issues += self._sai_tien_nhiem(rows)
+        issues += self._sai_tien_nhiem(rows, tt)
         issues += self._thieu_du_lieu(rows)
         issues += self._nguy_co_tre(rows)
         issues += self._may_khong_kham(rows)
@@ -173,7 +178,7 @@ class XepLichVanDeService:
         issues += self._thieu_nguoi(rows)
         issues += self._qua_tai_to(rows)
         issues += self._thieu_vat_tu(rows)
-        issues += self._lech_thuc_te(rows)
+        issues += self._lech_thuc_te(rows, tt)
         self._merge_state(issues)
         return issues
 
@@ -306,11 +311,23 @@ class XepLichVanDeService:
                 })
         return out
 
-    def _sai_tien_nhiem(self, rows: list[dict]) -> list[dict]:
-        """Công đoạn xếp bắt đầu TRƯỚC khi bước trước xong (sớm nhất) — sai thứ tự routing (Chặn)."""
+    def _sai_tien_nhiem(self, rows: list[dict], tt: dict[int, dict]) -> list[dict]:
+        """Công đoạn xếp bắt đầu TRƯỚC khi bước trước xong (sớm nhất) — sai thứ tự routing (Chặn).
+
+        `tt` = lớp thực tế (xem `_build`). Bước tổ ĐÃ VÀO VIỆC thì im: `som_nhat` có sàn là
+        BÂY GIỜ (`XepLichService._san_thoi_gian`), nên mọi mốc đã xếp trong quá khứ đều lọt bẫy
+        này — kể cả bước đang chạy đúng thứ tự — và báo bằng một câu về routing hoàn toàn không
+        đúng chuyện. Nặng hơn: nó là mức Chặn, mà hàng đèn Kế hoạch SX lấy mức nặng nhất, nên nó
+        che vĩnh viễn `lech_thuc_te` — bộ dò DUY NHẤT nói được chuyện xưởng chạy lệch mốc, vốn
+        theo định nghĩa chỉ xuất hiện trên lịch đã qua. Đã vào việc rồi thì thứ tự là lịch sử,
+        không phải việc điều độ sửa được; tiếng nói đúng lúc đó là `lech_thuc_te`.
+        """
         out: list[dict] = []
         for r in rows:
             if r["nguon"] != "lsx" or not r["start_at"] or not r["som_nhat"]:
+                continue
+            t = tt.get(r["id"])
+            if t and t["bat_dau_thuc"] is not None:
                 continue
             st, som = _aware(r["start_at"]), _aware(r["som_nhat"])
             gap = (som - st).total_seconds() / 60.0
@@ -381,15 +398,13 @@ class XepLichVanDeService:
             })
         return out
 
-    def _lech_thuc_te(self, rows: list[dict]) -> list[dict]:
+    def _lech_thuc_te(self, rows: list[dict], tt: dict[int, dict]) -> list[dict]:
         """Thực tế ở xưởng lệch mốc đã xếp — CHỈ BÁO, không tự dời lịch.
 
         Mức luôn Nên xem. Lệnh đã phát hành mới có thực tế, nên chặn ở đây không cứu được gì; việc
-        của điều độ là biết mà kéo lại tay (spec-thuc-te-vs-ke-hoach §2.2).
+        của điều độ là biết mà kéo lại tay (spec-thuc-te-vs-ke-hoach §2.2). `tt` = lớp thực tế
+        nạp gộp ở `_build`.
         """
-        from .xep_lich_2.thuc_te import nap_thuc_te
-
-        tt = nap_thuc_te(self.db, rows)
         out: list[dict] = []
         for r in rows:
             t = tt.get(r["id"])

@@ -608,3 +608,35 @@ def test_ngoai_le_gate_doi_approve_exception(client):
     r2 = client.post("/api/xep-lich-2/duyet-ngoai-le/lsx/1", json=body,
                      headers={"Authorization": f"Bearer {create_access_token(str(uid_b))}"})
     assert r2.status_code != 403, r2.text
+
+
+def test_sai_tien_nhiem_im_khi_to_da_vao_viec(db, orders, lsx_svc, admin, customer):
+    """Bước ĐANG CHẠY, mốc đã xếp nằm trong quá khứ ⇒ `sai_tien_nhiem` im, `lech_thuc_te` lên tiếng.
+
+    `som_nhat` có sàn là BÂY GIỜ (`XepLichService._san_thoi_gian`), nên MỌI mốc đã xếp trong quá
+    khứ đều có `som_nhat > start_at` — kể cả bước chạy đúng thứ tự routing. Không có guard này thì
+    `sai_tien_nhiem` (mức Chặn) bật cho mọi lệnh đang chạy, báo bằng một câu về routing không đúng
+    chuyện, VÀ vì hàng đèn Kế hoạch SX lấy mức nặng nhất nên nó che vĩnh viễn `lech_thuc_te` —
+    bộ dò duy nhất nói được chuyện xưởng chạy lệch mốc, vốn chỉ sống trên lịch đã qua.
+    """
+    from app.models.san_xuat import CV_DANG_CHAY
+    from app.models.san_xuat_thuc_thi import SanXuatPhienChay
+    from app.services.xep_lich_van_de_service import K_LECH_THUC_TE, K_SAI_TIEN_NHIEM
+
+    dong, cv = _dong_va_cong_viec(db, orders, lsx_svc, admin, customer)
+    # Lùi 24 tiếng chứ không phải vài tiếng: `_gio_xuong()` là giờ TƯỜNG của xưởng (UTC+7) nhưng
+    # cột DateTime lưu naive rồi đọc lại như UTC, nên mốc quá khứ bị đẩy lên 7 tiếng khi so với
+    # "bây giờ" thật trong `nap_thuc_te`. Lùi ít hơn 7 tiếng là mốc kết thúc dự kiến hoá ra vẫn ở
+    # tương lai và vế "quá giờ" im — đúng cái bẫy `_dong_va_cong_viec` đã ghi chú.
+    dong.start_at = _gio_xuong() - timedelta(hours=24)
+    dong.finish_at = dong.start_at + timedelta(hours=1)
+    cv.trang_thai = CV_DANG_CHAY
+    cv.du_kien_bat_dau = dong.start_at
+    cv.du_kien_ket_thuc = dong.finish_at
+    db.add(SanXuatPhienChay(cong_viec_id=cv.id, so_thu_tu=1,
+                            bat_dau=dong.start_at + timedelta(minutes=10)))
+    db.commit()
+
+    keys = {i["issue_key"] for i in _van_de_svc(db).liet_ke()["items"]}
+    assert f"{K_SAI_TIEN_NHIEM}:{dong.id}" not in keys
+    assert f"{K_LECH_THUC_TE}:{dong.id}" in keys

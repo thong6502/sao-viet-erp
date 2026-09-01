@@ -76,6 +76,13 @@ def test_den_may_gio_do_thang_vang_va_uu_tien_trung_may():
     assert _den_may({"trung_may"}, [{"start_at": None, "loai_buoc": LB_MAY}], 1)["muc"] == MUC_DO
     # Khổ vượt máy: CẢNH BÁO thôi (chốt 18/08/2026) — thợ còn cách xử lý, máy không quyết thay.
     assert _den_may({"may_khong_kham"}, da_xep, 1)["muc"] == MUC_VANG
+    # Xưởng chạy lệch mốc đã xếp: cũng CẢNH BÁO, và phải nói ĐÚNG câu của nó — nếu dùng chung một
+    # câu cứng cho cả rổ vàng thì lệnh chạy trễ lại hiện "khổ tờ in vượt khổ máy", sai hẳn việc.
+    lech = _den_may({"lech_thuc_te"}, da_xep, 1)
+    assert lech["muc"] == MUC_VANG and "lệch mốc" in lech["chu"]
+    assert lech["nhay"] == {"man": "xep-lich-cong-doan-2", "id": 1}
+    # Đỏ vẫn thắng: lệnh vừa trùng máy vừa chạy lệch thì phải báo cái chặn được trước.
+    assert _den_may({"trung_may", "lech_thuc_te"}, da_xep, 1)["muc"] == MUC_DO
 
 
 def test_den_nguoi_do_khi_qua_tai_vang_khi_buoc_to_chua_co_to():
