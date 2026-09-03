@@ -741,12 +741,15 @@ export function LsxDetailView({
         {/* Tầng 1: Trạng thái kiểm tra & Nút Hành động CTA chính */}
         <div className="khsx-topbar__header">
           <div className="khsx-topbar__status">
+            {/* Bảng "còn thiếu" trước đây chỉ mở bằng rê chuột — điện thoại không có chuột,
+                bàn phím cũng không tới được. Thẻ kích hoạt bên dưới có tabIndex để chạm/Tab
+                là mở (quy tắc :focus-within nằm ở §28 styles/responsive.css). */}
             {d.trang_thai === "san_sang" ? (
               <span className="khsx-topbar__tag khsx-topbar__tag--ok">
                 <Icon name="check" size={14} /> Sẵn sàng lập kế hoạch
               </span>
             ) : d.thieu.length > 0 ? (
-              <div className="khsx-topbar__pop-trigger">
+              <div className="khsx-topbar__pop-trigger" tabIndex={0}>
                 <span className="khsx-topbar__tag khsx-topbar__tag--warn">
                   <Icon name="alert" size={14} /> Còn thiếu {d.thieu.length} mục
                 </span>

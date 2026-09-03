@@ -18,6 +18,8 @@ import { useAuth } from "../../auth/useAuth";
 import { Button } from "../../components/Button";
 import { Icon } from "../../components/Icons";
 import { num } from "../keHoachSxShared";
+import { nhanDonVi } from "../lsxBuoc";
+import { useNapTenDonVi } from "../tenDonVi";
 import { ThsxDongNhomPanel, PhanLoaiBtpForm, PL_LABEL } from "../ThsxG5";
 import "../thuc-hien-sx.css";
 
@@ -38,6 +40,8 @@ export function KcsChotNhom({
   onDone: () => void;
 }) {
   const { token } = useAuth();
+  // `lot.don_vi` là MÃ danh mục — bảng tên nạp một lần rồi tra bằng `nhanDonVi`.
+  useNapTenDonVi();
   const [moId, setMoId] = useState<number | null>(null);
 
   // Gom nhóm theo ĐÚNG luật rơi-về của backend (`dong_nhom._danh_gia`): ưu tiên bước `la_kcs_cuoi`;
@@ -203,7 +207,7 @@ function ChotNhomThan({
                 <span className="thsx-x-vt__ma">
                   {lot.loai_hang === "thanh_pham" ? "Thành phẩm" : PL_LABEL[lot.phan_loai ?? "nhap_btp"]}
                 </span>
-                <span className="thsx-num">{num(lot.so_luong)} {lot.don_vi}</span>
+                <span className="thsx-num">{num(lot.so_luong)} {nhanDonVi(lot.don_vi)}</span>
                 <span className="thsx-x-item__spacer" />
                 <span className={`thsx-x-pill ${lot.kho_xac_nhan ? "thsx-x-pill--ok" : "thsx-x-pill--wait"}`}>
                   {lot.kho_xac_nhan ? "đã vào sổ" : "chờ kho nhận"}

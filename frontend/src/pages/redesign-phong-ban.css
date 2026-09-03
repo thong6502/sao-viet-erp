@@ -139,7 +139,7 @@
   left: 11px;
   top: 50%;
   transform: translateY(-50%);
-  color: #64748b;
+  color: var(--ash-2);
   pointer-events: none;
 }
 .rdx-tree__search-input {
@@ -155,7 +155,7 @@
   transition: all 0.15s ease-in-out;
 }
 .rdx-tree__search-input::placeholder {
-  color: #64748b;
+  color: var(--ash-2);
 }
 .rdx-tree__search-input:focus {
   outline: none;
@@ -540,7 +540,7 @@
   font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--ash-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -617,7 +617,7 @@
   height: 32px;
   border-radius: 50%;
   background: #ffffff;
-  color: #64748b;
+  color: var(--ash-2);
   border: 1px solid #e2e8f0;
   cursor: pointer;
   transition: all 0.15s ease-in-out;
@@ -651,7 +651,7 @@
   font: inherit;
   font-size: 13.5px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--ash-2);
   background: transparent;
   border: none;
   padding: 12px 14px 10px;
@@ -725,7 +725,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #64748b;
+  color: var(--ash-2);
 }
 .rdx-ov__v {
   font-size: 14px;
@@ -2948,7 +2948,7 @@
 
 .rdx-compact-kpi:hover {
   box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.1), 0 4px 8px rgba(15, 23, 42, 0.04);
-  border-color: #94a3b8;
+  border-color: var(--ash-2);
 }
 
 .rdx-ckpi-val {
@@ -3158,7 +3158,7 @@
   padding: 1px 6px;
   border-radius: 99px;
   background: #f1f5f9;
-  color: #64748b;
+  color: var(--ash-2);
   margin-left: 6px;
   transition: all 0.15s ease-in-out;
 }

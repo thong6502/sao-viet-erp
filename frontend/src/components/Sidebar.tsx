@@ -91,6 +91,11 @@ export const NAV: NavSection[] = [
       // (`san_xuat` mở 4 màn, `ky_thuat_may` mở 2), nên không có cách nào cho ai đó xem lệnh mà
       // không dời được lịch cả xưởng. Migration 0209 đã sao chép quyền cũ sang 4 khoá mới.
       { id: "ke-hoach-sx", label: "Kế hoạch sản xuất", icon: "workflow", module: "san_xuat" },
+      // Bàn TRA (điều độ · QC · sale), khác hẳn Kế hoạch SX là bàn LẬP: chỉ lệnh ĐÃ PHÁT HÀNH, và
+      // không một nút ghi nào. Nhãn "Hồ sơ lệnh sản xuất" chứ không "Lệnh sản xuất" — màn Kế hoạch
+      // SX đã có sẵn một TAB mang đúng chữ đó. ĐỊNH DANH giữ nguyên: nav id `lenh-san-xuat`,
+      // khoá quyền `lenh_san_xuat`, prefix API `/api/lenh-san-xuat`.
+      { id: "lenh-san-xuat", label: "Hồ sơ lệnh sản xuất", icon: "clipboard", module: "lenh_san_xuat" },
       // Đứng ngay sau Kế hoạch SX vì nó là bước kế tiếp của cùng một người: lệnh chốt xong thì hỏi
       // "còn thiếu vật tư gì, hôm nào phải đặt".
       { id: "ke-hoach-vat-tu", label: "Kế hoạch vật tư", icon: "box", module: "ke_hoach_vat_tu" },

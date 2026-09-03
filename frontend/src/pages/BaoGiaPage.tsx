@@ -23,6 +23,10 @@ import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { StatusTabs } from "../components/StatusTabs";
 import svnLogoUrl from "../assets/sao-viet-nhat-logo-mark.png";
+import certFscUrl from "../assets/certs/fsc.png";
+import certSmetaUrl from "../assets/certs/smeta-sedex.png";
+import certIso9001Url from "../assets/certs/iso-9001.png";
+import certIso22000Url from "../assets/certs/iso-22000.png";
 import {
   Activity,
   AlertCircle,
@@ -2181,21 +2185,32 @@ function QuotationPrintModal({
   onClose: () => void;
 }) {
   // Có quyền export thì bấm "Xem bản in" ra thẳng hộp thoại in luôn, khỏi bắt xem trước rồi
-  // bấm thêm nút "In / Lưu PDF" — đợi ảnh logo tải xong (lần đầu vào trang, ảnh chưa kịp cache)
-  // rồi mới in, không thì bản in bị thiếu logo. In xong (hoặc bấm huỷ) đóng luôn khung xem trước.
-  // `firedRef` chặn StrictMode gọi effect 2 lần (dev) ra 2 hộp thoại in liên tiếp.
+  // bấm thêm nút "In / Lưu PDF" — đợi HẾT ảnh logo + huy hiệu chứng nhận tải xong (lần đầu vào
+  // trang, ảnh chưa kịp cache) rồi mới in, không thì bản in bị thiếu ảnh. In xong (hoặc bấm huỷ)
+  // đóng luôn khung xem trước. `firedRef` chặn StrictMode gọi effect 2 lần (dev) ra 2 hộp thoại
+  // in liên tiếp.
   const firedRef = useRef(false);
   useEffect(() => {
     if (!canDownload || firedRef.current) return;
     firedRef.current = true;
-    const img = document.querySelector<HTMLImageElement>(".qpdf .q-logo img");
+    const imgs = Array.from(
+      document.querySelectorAll<HTMLImageElement>(".qpdf .q-logo img, .qpdf .q-badges img"),
+    );
     const doPrint = () => window.print();
     window.addEventListener("afterprint", onClose);
-    if (img && !img.complete) {
-      img.addEventListener("load", doPrint, { once: true });
-      img.addEventListener("error", doPrint, { once: true });
-    } else {
+    const pending = imgs.filter((img) => !img.complete);
+    if (pending.length === 0) {
       doPrint();
+    } else {
+      let remaining = pending.length;
+      const settle = () => {
+        remaining -= 1;
+        if (remaining <= 0) doPrint();
+      };
+      pending.forEach((img) => {
+        img.addEventListener("load", settle, { once: true });
+        img.addEventListener("error", settle, { once: true });
+      });
     }
     return () => window.removeEventListener("afterprint", onClose);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2263,6 +2278,13 @@ function QuotationPrintModal({
                 <div><span className="q-blbl">MST</span><span>{SVN_COMPANY.taxCode}</span></div>
                 <div><span className="q-blbl">Email</span><span>{SVN_COMPANY.email}</span></div>
                 <div><span className="q-blbl">Website</span><span>{SVN_COMPANY.website}</span></div>
+              </div>
+              {/* Huy hiệu chứng nhận — bám letterhead giấy thật, đặt cuối hàng logo/thông tin. */}
+              <div className="q-badges">
+                <img src={certFscUrl} alt="FSC" />
+                <img src={certSmetaUrl} alt="SMETA / Sedex Member" />
+                <img src={certIso9001Url} alt="ISO 9001:2015" />
+                <img src={certIso22000Url} alt="ISO 22000" />
               </div>
             </div>
           </header>

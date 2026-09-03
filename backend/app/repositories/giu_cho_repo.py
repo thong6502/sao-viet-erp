@@ -43,11 +43,17 @@ class GiuChoRepository:
 
         `giu_theo_chu_the_hang()` gọi `trang_thai()` cho từng chủ thể trong bảng; để mỗi lần tự
         query riêng thì N chủ thể (có thể tới hàng trăm lệnh) là N round-trip DB không cần thiết.
+        Màn danh sách lệnh hỏi trạng thái giữ chỗ của cả trang cũng đi qua đây.
+
+        TOÀN ÁNH trên `chu_the`: chủ thể không có dòng nào vẫn có khoá, giá trị `[]`. Nhờ vậy khoá
+        VẮNG mang đúng MỘT nghĩa — nơi gọi đang hỏi ngoài lô đã tra — nên `trang_thai()` phân biệt
+        được "không giữ chỗ gì" với "chưa tra" thay vì phải đoán.
         """
+        ra: dict[tuple[int | None, int | None], list[VatTuGiuCho]] = {c: [] for c in chu_the}
         lsx_ids = [c[0] for c in chu_the if c[0] is not None]
         bai_ids = [c[1] for c in chu_the if c[1] is not None]
         if not lsx_ids and not bai_ids:
-            return {}
+            return ra
         dieu_kien = []
         if lsx_ids:
             dieu_kien.append(VatTuGiuCho.lsx_id.in_(lsx_ids))
@@ -56,7 +62,6 @@ class GiuChoRepository:
         rows = self.db.execute(
             select(VatTuGiuCho).where(or_(*dieu_kien)).order_by(VatTuGiuCho.id.asc())
         ).scalars()
-        ra: dict[tuple[int | None, int | None], list[VatTuGiuCho]] = {}
         for r in rows:
             ra.setdefault((r.lsx_id, r.bai_ghep_id), []).append(r)
         return ra

@@ -34,6 +34,22 @@ const HOP = { order_line_id: 11, mo_ta: "Hộp thuốc 10 vỉ", don_vi_tinh: "h
 const TO = { order_line_id: 12, mo_ta: "Tờ hướng dẫn sử dụng", don_vi_tinh: "tờ",
              qty_dat: 12000, da_giao: 0, con_phai_giao: 12000 };
 
+/** Ngày YYYY-MM-DD theo giờ ĐỊA PHƯƠNG, lệch `lech` ngày so với hôm nay — `toISOString()` trả UTC
+ *  nên có thể lệch một ngày, mà lệch ở đây là test xanh/đỏ theo múi giờ. */
+function ngay(lech: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + lech);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Ngày cần giao HỢP LỆ, đủ qua hàng rào `min={HOM_NAY}` của form.
+ *  ĐỪNG viết cứng một ngày vào đây: bản đầu gõ thẳng ngày 01/09/2026 nên bốn chỗ dùng nó xanh tới
+ *  hết 01/09/2026 rồi đỏ đồng loạt từ 02/09 — nút Gửi bị khoá vì ngày đã thành QUÁ KHỨ, chẳng
+ *  liên quan gì tới thứ các test đó kiểm (chọn từng dòng, tự khai mặt hàng kho). Lấy NGÀY MAI
+ *  chứ không phải hôm nay: đồng hồ nhảy sang ngày mới giữa lúc chạy thì hôm-nay hoá quá khứ. */
+const NGAY_GIAO = ngay(1);
+
 /** Bắt lại thân request POST để soi ĐÚNG những dòng nào được gửi đi. */
 function stubApi() {
   const posts: Record<string, unknown>[] = [];
@@ -179,15 +195,7 @@ describe("Tạo yêu cầu giao hàng · hệ TỰ KHAI mặt hàng kho", () => 
 });
 
 describe("Tạo yêu cầu giao hàng · KHÔNG cho ngày quá khứ", () => {
-  /** Hôm nay / hôm qua dạng YYYY-MM-DD theo giờ ĐỊA PHƯƠNG — `toISOString()` trả UTC nên có thể
-   *  lệch một ngày, mà lệch ở đây là test xanh/đỏ theo múi giờ. */
-  function ngay(lech: number): string {
-    const d = new Date();
-    d.setDate(d.getDate() + lech);
-    const p = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-  }
-
+  // `ngay()` nay khai ở đầu file — cùng một hàm cho cả bốn describe.
   async function mo() {
     stubApi();
     ve({ can_create: true });

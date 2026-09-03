@@ -225,7 +225,7 @@ export function CareCalendar({ customerId, onChange }: { customerId: number; onC
           <span className="cc__month">Tháng {ym.m + 1} · {ym.y}</span>
           <button className="cc__icon-btn" onClick={() => move(1)} aria-label="Tháng sau"><ChevronRight size={16} /></button>
         </div>
-        {canUpdate && <span className="cc__hint">Bấm 1 ô ngày để đặt hẹn · tick tròn khi làm xong</span>}
+        {canUpdate && <span className="cc__hint">Bấm 1 ô ngày để đặt hẹn<span className="cc__hint-tick"> · tick tròn khi làm xong</span></span>}
       </div>
 
       {err && <div className="banner banner--error">{err}</div>}
@@ -395,7 +395,7 @@ export function CareCalendar({ customerId, onChange }: { customerId: number; onC
         <span className="cc__lg"><span className="cc__sw" style={{ background: "var(--rule-soft)" }} />chưa tới</span>
         <span className="cc__lg"><span className="cc__sw" style={{ background: "var(--amber-soft)" }} />đến hạn</span>
         <span className="cc__lg"><span className="cc__sw" style={{ background: "var(--rust-soft)" }} />quá hạn</span>
-        <span className="cc__lg"><Check size={13} /> xong (gạch ngang)</span>
+        <span className="cc__lg"><Check size={13} /> xong<span className="cc__lg-strike"> (gạch ngang)</span></span>
         <span className="cc__lg"><Repeat size={13} /> hẹn lặp</span>
       </div>
     </div>

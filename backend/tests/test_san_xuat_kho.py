@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.models.kho_hang import KhoHang
 from app.models.san_xuat_kho import (
     HANG_THANH_PHAM,
     PL_MAU_LUU,
@@ -46,6 +47,15 @@ from tests.test_san_xuat_kcs import (  # noqa: F401
     orders,
 )
 from app.services.san_xuat import kcs as kcs_service
+
+
+def _kho_tp(db, ma="KHO-TP", ten="Kho thành phẩm") -> KhoHang:
+    """Kho ĐÍCH để kho xác nhận nhập vào — `kho_xac_nhan_nhap` bắt buộc chọn kho (31/08/2026).
+    Luật kho đích soi riêng ở `test_san_xuat_kho_dich.py`; ở đây chỉ là dàn cảnh."""
+    k = KhoHang(ma=ma, ten=ten)
+    db.add(k)
+    db.flush()
+    return k
 
 
 # --- §14.1 Yêu cầu nhập kho thành phẩm ------------------------------------------------------
@@ -95,35 +105,39 @@ def test_xac_nhan_tung_phan_de_lot_va_chuyen_trang_thai(db, orders, lsx_svc, adm
     yc = kho.tao_yeu_cau_nhap_thanh_pham(
         db, user=admin, kcs_batch_id=rb["kcs_batch_id"], so_luong=60)
     repo = SanXuatKhoRepository(db)
+    k = _kho_tp(db)
 
-    x1 = kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=20)
+    x1 = kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=20, kho_id=k.id)
     assert x1["trang_thai"] == YC_MOT_PHAN and x1["so_luong_xac_nhan"] == 20
     lot1 = repo.lot(x1["lot_id"])                                      # mỗi lần xác nhận đẻ một lot
     assert lot1.loai_hang == HANG_THANH_PHAM and float(lot1.so_luong) == 20
     assert lot1.kho_xac_nhan is True and lot1.nhap_kho_yc_id == yc["yc_id"]
+    assert lot1.kho_id == k.id                                         # lot mang kho đã nhận nó
 
-    x2 = kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=40)  # đủ 60
+    x2 = kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=40, kho_id=k.id)  # đủ 60
     assert x2["trang_thai"] == YC_DA_NHAP and x2["so_luong_xac_nhan"] == 60
 
     with pytest.raises(ValueError):                                    # đã đủ → không xác nhận thêm
-        kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=1)
+        kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=1, kho_id=k.id)
 
 
 def test_xac_nhan_khong_vuot_phan_con_lai(db, orders, lsx_svc, admin, customer):
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
     yc = kho.tao_yeu_cau_nhap_thanh_pham(
         db, user=admin, kcs_batch_id=rb["kcs_batch_id"], so_luong=30)
+    k = _kho_tp(db)
     with pytest.raises(ValueError):
-        kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=31)
+        kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=31, kho_id=k.id)
 
 
 def test_xac_nhan_version_lech_bi_chan(db, orders, lsx_svc, admin, customer):
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
     yc = kho.tao_yeu_cau_nhap_thanh_pham(
         db, user=admin, kcs_batch_id=rb["kcs_batch_id"], so_luong=30)
+    k = _kho_tp(db)
     with pytest.raises(ValueError):
         kho.kho_xac_nhan_nhap(
-            db, user=admin, yc_id=yc["yc_id"], so_luong=10,
+            db, user=admin, yc_id=yc["yc_id"], so_luong=10, kho_id=k.id,
             expected_version=yc["version"] + 5)
 
 
@@ -132,7 +146,8 @@ def test_huy_phan_chua_nhan_giu_phan_da_khoa(db, orders, lsx_svc, admin, custome
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
     yc = kho.tao_yeu_cau_nhap_thanh_pham(
         db, user=admin, kcs_batch_id=rb["kcs_batch_id"], so_luong=50)
-    kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=20)   # khoá 20
+    k = _kho_tp(db)
+    kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=20, kho_id=k.id)  # khoá 20
 
     res = kho.huy_phan_chua_nhan(db, user=admin, yc_id=yc["yc_id"])
     assert res["trang_thai"] == YC_DA_NHAP                             # còn phần đã nhận → chốt đủ
@@ -324,7 +339,8 @@ def test_hop_thu_kho_gom_yc_va_btp_cho_nhan(db, orders, lsx_svc, admin, customer
     assert [y["id"] for y in hop["yeu_cau_nhap"]] == [yc["yc_id"]]
     assert [l["id"] for l in hop["btp_cho_nhan"]] == [lb["lot_id"]]
 
-    kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=30)   # đủ → rời hộp thư
+    k = _kho_tp(db)
+    kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=30, kho_id=k.id)  # đủ → rời hộp thư
     kho.kho_xac_nhan_btp(db, user=admin, lot_id=lb["lot_id"])
     hop2 = kho.hop_thu_kho(db)
     assert hop2["yeu_cau_nhap"] == [] and hop2["btp_cho_nhan"] == []
@@ -334,7 +350,8 @@ def test_chi_tiet_kho_nhom(db, orders, lsx_svc, admin, customer):
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
     yc = kho.tao_yeu_cau_nhap_thanh_pham(
         db, user=admin, kcs_batch_id=rb["kcs_batch_id"], so_luong=30)
-    kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=10)
+    k = _kho_tp(db)
+    kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=10, kho_id=k.id)
     lb = kho.phan_loai_btp_du(
         db, user=admin, cong_viec_id=cv.id, so_luong=5, phan_loai=PL_NHAP_BTP)
 

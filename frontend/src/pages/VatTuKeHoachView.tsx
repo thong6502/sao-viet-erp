@@ -21,7 +21,9 @@ import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
 import { BangLoi, ChipGap, EmptyState, Skeleton, classHan, ngay, num } from "./keHoachSxShared";
+import { nhanDonVi } from "./lsxBuoc";
 import { moTaPhieuMua, tomTatPhieuMua, vetDangKep } from "./phieuMuaNhan";
+import { useNapTenDonVi } from "./tenDonVi";
 
 /** Bốn màu — LUÔN kèm chữ, không chỉ dựa màu (a11y). Nhãn nói HỆ QUẢ, không nói màu. */
 const MAU_META: Record<CanDoiMau, { label: string; cls: string; hint: string }> = {
@@ -107,6 +109,8 @@ export function VatTuKeHoachView({
   onMoFormMua?: (nhap: DeNghiMuaXemTruoc) => void;
 }) {
   const { token } = useAuth();
+  // ĐVT trên màn là TÊN trong danh mục ("tờ" · "bản kẽm"), không phải MÃ ("to" · "kem").
+  useNapTenDonVi();
   const [data, setData] = useState<CanDoiOut | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -585,7 +589,7 @@ export function VatTuKeHoachView({
                           <span className="khvt-can-val">
                             Cần <b>{soGoc(nhom.tong_can)}</b>
                           </span>
-                          <span className="khvt-unit-val">{nhom.don_vi_goc ?? ""}</span>
+                          <span className="khvt-unit-val">{nhanDonVi(nhom.don_vi_goc)}</span>
                         </div>
                         <div className="khvt-mini-bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
                           <div
@@ -606,11 +610,11 @@ export function VatTuKeHoachView({
                     {/* Cột 4: Lượng thiếu (Shape Pill 999px đồng bộ với Độ phủ & Trạng thái) */}
                     <td className="khsx-num khvt-cell-thieu">
                       {tongThieuNhom > 0 ? (
-                        <span className="khvt-deficit-pill" title={`Thiếu ${soGoc(tongThieuNhom)} ${nhom.don_vi_goc ?? ""}`}>
-                          -{soGoc(tongThieuNhom)} {nhom.don_vi_goc}
+                        <span className="khvt-deficit-pill" title={`Thiếu ${soGoc(tongThieuNhom)} ${nhanDonVi(nhom.don_vi_goc)}`}>
+                          -{soGoc(tongThieuNhom)} {nhanDonVi(nhom.don_vi_goc)}
                         </span>
                       ) : (
-                        <span className="khvt-deficit-zero">0 {nhom.don_vi_goc}</span>
+                        <span className="khvt-deficit-zero">0 {nhanDonVi(nhom.don_vi_goc)}</span>
                       )}
                     </td>
 
@@ -822,13 +826,13 @@ function VatTuDetailDrawer({
             <div className="khvt-bento-kpi">
               <span className="khvt-bento-kpi__label">Tồn khả dụng</span>
               <span className="khvt-bento-kpi__val">
-                {soGoc(nhom.ton)} {nhom.don_vi_goc}
+                {soGoc(nhom.ton)} {nhanDonVi(nhom.don_vi_goc)}
               </span>
             </div>
             <div className="khvt-bento-kpi">
               <span className="khvt-bento-kpi__label">Tổng nhu cầu</span>
               <span className="khvt-bento-kpi__val">
-                {soGoc(nhom.tong_can)} {nhom.don_vi_goc}
+                {soGoc(nhom.tong_can)} {nhanDonVi(nhom.don_vi_goc)}
               </span>
             </div>
             <div className="khvt-bento-kpi">
@@ -836,11 +840,11 @@ function VatTuDetailDrawer({
               <span className="khvt-bento-kpi__val">
                 {tongThieuNhom > 0 ? (
                   <span className="khvt-bento-kpi__val--deficit">
-                    -{soGoc(tongThieuNhom)} {nhom.don_vi_goc}
+                    -{soGoc(tongThieuNhom)} {nhanDonVi(nhom.don_vi_goc)}
                   </span>
                 ) : (
                   <span className="khvt-bento-kpi__val--ok">
-                    0 {nhom.don_vi_goc}
+                    0 {nhanDonVi(nhom.don_vi_goc)}
                   </span>
                 )}
               </span>
@@ -1033,12 +1037,12 @@ function VatTuDetailDrawer({
                           <div className="khvt-sub-pills">
                             {(d.da_cap ?? 0) > 0 && (
                               <span className="khvt-cap-pill khvt-cap-pill--ok">
-                                cấp {soGoc(d.da_cap)} {nhom.don_vi_goc ?? ""}
+                                cấp {soGoc(d.da_cap)} {nhanDonVi(nhom.don_vi_goc)}
                               </span>
                             )}
                             {(d.dang_linh ?? 0) > 0 && (
                               <span className="khvt-cap-pill khvt-cap-pill--warn">
-                                lĩnh {soGoc(d.dang_linh)} {nhom.don_vi_goc ?? ""}
+                                lĩnh {soGoc(d.dang_linh)} {nhanDonVi(nhom.don_vi_goc)}
                               </span>
                             )}
                           </div>
@@ -1048,9 +1052,9 @@ function VatTuDetailDrawer({
                           {isConLaiAm ? (() => {
                             const valThieu = d.thieu ?? (d.con_lai_sau != null ? Math.abs(d.con_lai_sau) : 0);
                             return (
-                              <div className="khvt-deficit-pill" title={`Thiếu ${soGoc(valThieu)} ${nhom.don_vi_goc ?? ""}`}>
+                              <div className="khvt-deficit-pill" title={`Thiếu ${soGoc(valThieu)} ${nhanDonVi(nhom.don_vi_goc)}`}>
                                 <b>Thiếu -{soGoc(valThieu)}</b>
-                                <small>{nhom.don_vi_goc}</small>
+                                <small>{nhanDonVi(nhom.don_vi_goc)}</small>
                               </div>
                             );
                           })() : (

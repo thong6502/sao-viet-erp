@@ -10,9 +10,11 @@ Không có "quyền ghi đè cho quản lý cấp cao" (§10) — cấp trên ph
 """
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...models.department import Department
+from ...models.may_thiet_bi import MayThietBi
 from ...models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ...models.san_xuat_phan_bo import PB_DA_CHOT
 from ...models.user import User
@@ -118,6 +120,19 @@ def _num(x) -> float | None:
     return None if x is None else float(x)
 
 
+def _may_thiet_bi_nhan(db: Session, may_ids: set[int]) -> dict[int, str]:
+    """{may_id: tên máy} tra ĐÚNG danh mục `may_thiet_bi` — KHÁC bảng `machines` cũ mà
+    `SanXuatRepository.may_nhan` dùng (đó là danh mục máy của Tính giá). `san_xuat_cong_viec.may_id`
+    / `san_xuat_phien_chay.may_id` đều neo theo `MayThietBi.id` (xem `xep_lich_2/service.py`,
+    `snapshot.py`), nên đọc TÊN máy cho phiên chạy phải tra đúng bảng này chứ không phải bảng cũ."""
+    if not may_ids:
+        return {}
+    rows = db.execute(
+        select(MayThietBi.id, MayThietBi.ten).where(MayThietBi.id.in_(may_ids))
+    ).all()
+    return {mid: ten for mid, ten in rows}
+
+
 def _con_thieu(
     cv, tong_tot: float, thuc_nhan: float | None = None
 ) -> tuple[float | None, float | None]:
@@ -203,6 +218,7 @@ def _item_dict(cv, lsx_map, bg_map, may_map, nhom_map, phien_map=None, so_map=No
         "la_kcs": cv.la_kcs,
         "la_kcs_cuoi": cv.la_kcs_cuoi,
         "may": may_map.get(cv.may_id or 0, ""),
+        "may_id": cv.may_id,      # máy HIỆN TẠI — FE cần để dựng ô chọn "Đổi máy" (§7.2 mở rộng)
         # Hai thang giờ khác nhau gặp nhau ở ĐÂY (xem `services/gio_xuong.py`): mốc kế hoạch là
         # giờ tường dán nhãn UTC, mốc phiên chạy là UTC THẬT. Cùng quy về wall-clock giờ xưởng
         # rồi mới trả — không thì cùng một thanh Gantt đo bằng hai cây thước lệch nhau 7 tiếng.
@@ -497,6 +513,11 @@ def chi_tiet_cong_viec(
 
     roster = tt.phan_cong_hoat_dong(cv.id)
     khoang = tt.cac_khoang(cv.id)
+    phien_rows = tt.cac_phien(cv.id)
+    # Tên máy cho TỪNG phiên (có thể khác nhau nếu đã đổi máy giữa chừng, §7.2 mở rộng) — tra
+    # theo đúng bảng `may_thiet_bi`, không dùng `may_map` (đó là bảng `machines` cũ, xem
+    # `_may_thiet_bi_nhan`).
+    phien_may_ten = _may_thiet_bi_nhan(db, {p.may_id for p in phien_rows if p.may_id})
 
     # --- Hỗ trợ chéo · phân bổ (Giai đoạn 4, §9 · §12) --------------------------------------
     pb = SanXuatPhanBoRepository(db)
@@ -598,13 +619,15 @@ def chi_tiet_cong_viec(
             {
                 "id": p.id,
                 "so_thu_tu": p.so_thu_tu,
+                "may_id": p.may_id,
+                "may_ten": phien_may_ten.get(p.may_id or 0),
                 "bat_dau": thuc_te_hien_thi(p.bat_dau),
                 "ket_thuc": thuc_te_hien_thi(p.ket_thuc),
                 "loai_dong": p.loai_dong,
                 "ly_do_bat_dau_tre": p.ly_do_bat_dau_tre,
                 "ly_do": p.ly_do,
             }
-            for p in tt.cac_phien(cv.id)
+            for p in phien_rows
         ],
         "khoang_tham_gia": [
             {

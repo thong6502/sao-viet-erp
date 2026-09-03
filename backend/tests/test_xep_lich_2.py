@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import ast
 import re
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -33,7 +33,6 @@ from app.repositories.audit_repo import AuditLogRepository
 from app.repositories.giu_cho_repo import GiuChoRepository
 from app.repositories.xep_lich_repo import XepLichRepository
 
-from app.services import xep_lich_service
 from app.services.xep_lich_2 import (
     MUC_CANH_BAO, MUC_CHAN_DAT_LICH, MUC_CHAN_PHAT_HANH,
     XepLich2Blocked, XepLich2Conflict, XepLich2Error, XepLich2Service,
@@ -1291,19 +1290,16 @@ def test_goi_y_khe_ne_khoang_da_chiem_may(
     Giờ dùng ở đây là TƯƠNG ĐỐI (lấy từ chính khe hệ chấm ra) chứ không neo cứng một ngày
     lịch: từ khi `goi_y_khe` dùng sàn thật (`max(bây giờ · bàn giao · tiền nhiệm · ngày vật tư)`),
     mọi mốc viết chết trong quá khứ sẽ hết hạn theo thời gian thực — test sẽ tự mục nát.
+
+    Nhưng "tương đối" thôi CHƯA đủ: phải khai ca thật nữa. DB test không có ca nào thì engine rơi
+    về một ca mặc định 08:00–16:00, mà cửa chặn `ngoai_ca` (§7.1) chỉ soi GIỜ BẮT ĐẦU. Chạy trong
+    khung 14:30–16:00 giờ xưởng thì `som` còn trong ca nhưng cái đuôi `som + 90'` đã rơi ra ngoài,
+    hệ đẩy khe sang 08:00 hôm sau và bài đỏ (CI 03/09/2026: chờ 16:10, nhận 04/09 08:00). Ngoài
+    khung đó `som` tự trượt sang 08:00 hôm sau nên bài lại xanh — đỏ ngắt quãng theo GIỜ CHẠY,
+    không theo lỗi. Bốn ca xưởng phủ trọn 24h nên biến duy nhất còn lại đúng là thứ đang đo.
     """
     monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
-    # GHIM ĐỒNG HỒ về 08:00 cùng ngày (sửa 03/09/2026).
-    #
-    # Sàn xếp lịch là `max(bây giờ · bàn giao · tiền nhiệm · ngày vật tư)` nên khe sớm nhất bám
-    # theo GIỜ CHẠY TEST. Ca mặc định 08:00–16:00 (`PHUT_LAM_NGAY = 480`): chạy buổi sáng thì đuôi
-    # việc 90 phút vẫn nằm trong ca ⇒ khe kế tiếp bám sát đuôi; chạy sau ~14:30 thì đuôi tràn khỏi
-    # ca nên hệ đẩy sang 08:00 HÔM SAU — test đỏ trong khi nghiệp vụ không sai gì.
-    #
-    # Docstring trên đã lường trước "mốc viết chết sẽ mục nát" nên chuyển sang giờ TƯƠNG ĐỐI;
-    # nhưng tương đối vẫn chưa đủ, vì cái mốc thật sự trôi là CHÍNH BÂY GIỜ. Ghim nó mới hết.
-    _sang = datetime.combine(datetime.now(timezone.utc).date(), time(8, 0), tzinfo=timezone.utc)
-    monkeypatch.setattr(xep_lich_service, "_gio_xuong", lambda: _sang)
+    _khai_ca_xuong(db)                                          # phủ 24h ⇒ `ngoai_ca` không xen vào
     l0, l1 = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     in0 = _in_theo_may(db, l0.id)
     in1 = _in_theo_may(db, l1.id)

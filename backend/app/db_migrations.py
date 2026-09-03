@@ -10939,6 +10939,132 @@ MIGRATIONS.append(("0245_giu_cho_purchase_request_line_id",
                     _migrate_giu_cho_purchase_request_line_id))
 
 
+_HAI_MAN_CHI_DOC = (
+    ("lenh_san_xuat", "Hồ sơ lệnh sản xuất"),  # nhãn ≠ khoá, xem `seed.MODULES`
+    ("theo_doi_san_xuat", "Theo dõi sản xuất"),
+)
+
+
+def _migrate_hai_man_chi_doc(db: Session) -> None:
+    """Hai ô quyền chỉ-đọc của khối Sản xuất (31/08/2026): Hồ sơ lệnh sản xuất · Theo dõi sản xuất.
+
+    Vai SEED do `seed_roles` upsert lại mỗi lần khởi động nên không cần backfill ở đây — `seed.py`
+    đã cấp trực tiếp. Migration này lo vai NGƯỜI DÙNG TỰ TẠO, theo ĐÚNG luật đang áp ở `seed.py`
+    (khối `MODULES`, chỗ khai `lenh_san_xuat`/`theo_doi_san_xuat` — bản chốt SAU MỘT VÒNG SỬA vì
+    bản đầu có lỗ hổng, xem lịch sử task-1):
+        - vai đọc được `don_hang_ban` (can_read=True, MỌI scope kể cả `own`) → cấp, lấy scope đó.
+        - HOẶC vai giữ `san_xuat` ở scope `department`/`all` → cấp, lấy scope đó.
+        - có cả hai vế → lấy scope RỘNG HƠN (thứ tự own < department < all).
+        - CHỈ đủ điều kiện nhờ `san_xuat` ở scope `own` (mẫu Tổ trưởng SX/Thợ SX) → KHÔNG cấp:
+          scope `own` trên hai màn MỚI nghĩa là "lệnh của đơn CHÍNH TÔI bán", vô nghĩa với vai
+          không bán đơn nào — cấp vào thì màn luôn rỗng, một lỗi giao diện chứ không phải quyền
+          chặt hơn. Vai không đọc được khoá nào trong hai khoá gốc → không cấp gì.
+
+    Chỉ chép quyền ĐỌC: hai màn này không có thao tác ghi nào, `can_read` bật, mọi bit khác ép
+    FALSE.
+
+    Idempotent: chạy lại không đẻ hàng trùng (mỗi khoá mới kiểm NOT EXISTS theo `role_id`).
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "modules" not in tables or "role_permissions" not in tables:
+        return
+    for key, label in _HAI_MAN_CHI_DOC:
+        db.execute(
+            text("INSERT INTO modules (key, label, created_at) "
+                 "SELECT :k, :l, CURRENT_TIMESTAMP "
+                 "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+            {"k": key, "l": label},
+        )
+    cols = sorted(_existing_columns(insp, "role_permissions"))
+    # Cột nào ngoài role_id/module_key/can_read/scope thì ép FALSE — hai màn chỉ có bit ĐỌC.
+    chep_false = [c for c in cols if c not in ("id", "module_key", "role_id", "can_read", "scope")]
+    insert_cols = ["role_id", "module_key", "can_read", "scope", *chep_false]
+    chon = ["goc.role_id", ":k", "TRUE", "goc.scope", *(["FALSE"] * len(chep_false))]
+    for key, _label in _HAI_MAN_CHI_DOC:
+        db.execute(
+            text(
+                f"INSERT INTO role_permissions ({', '.join(insert_cols)}) "
+                f"SELECT {', '.join(chon)} FROM ("
+                "  SELECT rp.role_id AS role_id,"
+                "         CASE MAX(CASE rp.scope WHEN 'all' THEN 2"
+                "                                WHEN 'department' THEN 1 ELSE 0 END)"
+                "              WHEN 2 THEN 'all' WHEN 1 THEN 'department' ELSE 'own' END AS scope"
+                "  FROM role_permissions rp"
+                # `don_hang_ban` tính MỌI scope (kể cả own — người bán có đơn của chính họ).
+                # `san_xuat` CHỈ tính khi scope department/all — own bị loại thẳng ở WHERE, không
+                # phải bằng cách ép rank 0, để vai CHỈ có san_xuat=own không lọt vào nhóm này.
+                "  WHERE (rp.module_key = 'don_hang_ban' AND rp.can_read = TRUE)"
+                "     OR (rp.module_key = 'san_xuat' AND rp.can_read = TRUE"
+                "         AND rp.scope IN ('department', 'all'))"
+                "  GROUP BY rp.role_id"
+                ") goc "
+                "WHERE NOT EXISTS (SELECT 1 FROM role_permissions x "
+                "                  WHERE x.role_id = goc.role_id AND x.module_key = :k)"
+            ),
+            {"k": key},
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0246_hai_man_chi_doc_san_xuat", _migrate_hai_man_chi_doc))
+
+
+def _migrate_phien_chay_may_id(db: Session) -> None:
+    """`san_xuat_phien_chay.may_id` — máy CHẠY TRONG PHIÊN (31/08/2026).
+
+    Trước đây máy chỉ nằm trên `san_xuat_cong_viec`, nên đổi máy giữa chừng là mất dấu: giờ máy
+    của máy cũ bị gán hết sang máy mới. Cột này neo máy lên PHIÊN, phiên đóng là số giờ chốt.
+
+    Backfill: mọi phiên cũ lấy máy hiện tại của công việc — phiên cũ chưa từng đổi máy (chưa có
+    đường đổi), nên đó chính là máy nó đã chạy. Raw SQL đích danh cột, KHÔNG ORM full-select.
+    No-op khi bảng chưa có / cột đã có.
+    """
+    insp = inspect(db.get_bind())
+    if "san_xuat_phien_chay" not in set(insp.get_table_names()):
+        return
+    if "may_id" in _existing_columns(insp, "san_xuat_phien_chay"):
+        return
+    db.execute(text("ALTER TABLE san_xuat_phien_chay ADD COLUMN may_id INTEGER"))
+    db.execute(text(
+        "UPDATE san_xuat_phien_chay SET may_id = ("
+        "  SELECT cv.may_id FROM san_xuat_cong_viec cv WHERE cv.id = san_xuat_phien_chay.cong_viec_id)"
+    ))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_san_xuat_phien_chay_may_id "
+                    "ON san_xuat_phien_chay (may_id)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0247_phien_chay_may_id", _migrate_phien_chay_may_id))
+
+
+def _migrate_yeu_cau_sua_neo_san_xuat(db: Session) -> None:
+    """`ky_thuat_yeu_cau_sua`: thêm `cong_viec_id` + `lsx_id` (31/08/2026).
+
+    Sự cố báo từ màn Thực hiện SX mang theo công việc đang chạy lúc máy hỏng — nhờ đó hồ sơ lệnh
+    kể được "sự cố này ăn mất bao lâu của lệnh nào", còn tổ sửa chữa biết máy đang cắm vào việc gì
+    mà xếp ưu tiên. Yêu cầu CŨ (báo từ màn Sửa chữa máy) để NULL — không backfill đoán mò: gán
+    nhầm lệnh còn tệ hơn để trống. No-op khi bảng chưa có / cột đã có.
+    """
+    insp = inspect(db.get_bind())
+    if "ky_thuat_yeu_cau_sua" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "ky_thuat_yeu_cau_sua")
+    them = [c for c in ("cong_viec_id", "lsx_id") if c not in cols]
+    if not them:
+        return
+    for ten in them:
+        db.execute(text(f"ALTER TABLE ky_thuat_yeu_cau_sua ADD COLUMN {ten} INTEGER"))
+        db.execute(text(
+            f"CREATE INDEX IF NOT EXISTS ix_ky_thuat_yeu_cau_sua_{ten} "
+            f"ON ky_thuat_yeu_cau_sua ({ten})"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0248_yeu_cau_sua_neo_san_xuat", _migrate_yeu_cau_sua_neo_san_xuat))
+
+
 def _migrate_sx_vat_tu_de_nghi(db: Session) -> None:
     """`stock_request_lines.sl_chot_thuc_xuat` — số kho CHỐT đã thực xuất cho một dòng yêu cầu.
 
@@ -11236,3 +11362,69 @@ def _migrate_cong_viec_phan_doan(db: Session) -> None:
 
 
 MIGRATIONS.append(("0254_cong_viec_phan_doan", _migrate_cong_viec_phan_doan))
+
+
+def _migrate_kho_dich_nhap_thanh_pham(db: Session) -> None:
+    """`san_xuat_nhap_kho_yc.kho_id` + `san_xuat_kho_lot.kho_id` — KHO ĐÍCH (31/08/2026).
+
+    Kho xác nhận nhập thành phẩm mà không chọn kho ⇒ lot là một con số lơ lửng: không tra được tồn
+    theo kho, không lập được phiếu xuất giao. Trên YÊU CẦU là kho KCS ĐỀ NGHỊ (được để trống); trên
+    LOT là kho ĐÃ THỰC SỰ NHẬN — bảng lot CHỈ-THÊM nên nhập nhiều lần vào nhiều kho thì mỗi lot mang
+    kho của nó.
+
+    KHÔNG backfill: lot cũ không có cách nào biết đã vào kho nào, gán bừa một kho còn tệ hơn để
+    trống (số tồn của kho đó sẽ sai mà không ai hay). Raw SQL đích danh cột, KHÔNG ORM full-select.
+    No-op khi bảng chưa có / cột đã có.
+    """
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+    da_doi = False
+    for bang in ("san_xuat_nhap_kho_yc", "san_xuat_kho_lot"):
+        if bang not in ten_bang:
+            continue
+        if "kho_id" in _existing_columns(insp, bang):
+            continue
+        db.execute(text(f"ALTER TABLE {bang} ADD COLUMN kho_id INTEGER"))
+        db.execute(text(
+            f"CREATE INDEX IF NOT EXISTS ix_{bang}_kho_id ON {bang} (kho_id)"
+        ))
+        da_doi = True
+    if da_doi:
+        db.commit()
+
+
+MIGRATIONS.append(("0255_kho_dich_nhap_thanh_pham", _migrate_kho_dich_nhap_thanh_pham))
+
+
+def _migrate_cong_viec_hoan_thanh_luc(db: Session) -> None:
+    """`san_xuat_cong_viec.hoan_thanh_luc` — MỐC NGHIỆP VỤ "bước xong lúc nào" (31/08/2026).
+
+    KPI "công đoạn xong hôm nay" trước đây đọc `updated_at`. Nhưng `updated_at` là cột BẢO TRÌ:
+    `thuc_thi.go_phan_cong` (rút người) làm `cv.version += 1` trên chính công việc ĐÃ xong, và
+    `onupdate` dời mốc — một bước đóng năm 2020 nhảy vào KPI hôm nay. Bịt riêng đường ghi ấy không
+    xử được lớp lỗi: đường ghi nào thêm về sau cũng phá lại KPI một lần nữa, âm thầm.
+
+    Backfill `hoan_thanh_luc = updated_at` cho dòng đang `completed` — đó là ước lượng ĐÚNG NHẤT
+    còn lại cho dữ liệu cũ (với đại đa số dòng, lần chạm cuối chính là lúc kết thúc). Dòng chưa
+    xong để NULL.
+
+    Raw SQL đích danh cột, KHÔNG ORM full-select: `select(SanXuatCongViec)` sẽ kéo cả cột do
+    migration SAU thêm và vỡ deploy trên DB đang ở trạng thái trung gian. No-op khi bảng chưa có /
+    cột đã có.
+    """
+    insp = inspect(db.get_bind())
+    if "san_xuat_cong_viec" not in set(insp.get_table_names()):
+        return
+    if "hoan_thanh_luc" in _existing_columns(insp, "san_xuat_cong_viec"):
+        return
+    db.execute(text(
+        "ALTER TABLE san_xuat_cong_viec ADD COLUMN hoan_thanh_luc TIMESTAMP WITH TIME ZONE"
+    ))
+    db.execute(text(
+        "UPDATE san_xuat_cong_viec SET hoan_thanh_luc = updated_at "
+        "WHERE trang_thai = 'completed' AND hoan_thanh_luc IS NULL"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0256_cong_viec_hoan_thanh_luc", _migrate_cong_viec_hoan_thanh_luc))

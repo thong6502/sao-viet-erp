@@ -8,7 +8,11 @@ khai tốc độ, nên người đọc đi tìm mãi một ô không tồn tại
 
 Module này dựng lại mấy câu đó từ chính dữ liệu engine thời lượng vốn đã cầm trong tay — loại bước ·
 số lượng vào · đơn vị nguồn · đơn vị đích · tên máy / tên đầu việc khoán — nên KHÔNG tốn thêm truy
-vấn nào ngoài một `db.get(MayThietBi)` cho bước máy.
+vấn nào ngoài một `db.get(MayThietBi)` cho bước máy và bảng TÊN đơn vị (`service.ten_don_vi()`,
+nhớ sẵn trên service cho cả lượt dò).
+
+Đơn vị bày ra là TÊN trong danh mục ("tờ"), không phải mã lưu ở cột (`to`) — người xếp lịch không
+tra mã.
 
 Nguyên tắc viết câu: *nói cái đang thiếu, ở đâu khai, bằng số của chính bước này*. Không mã lỗi trần,
 không "vướng ràng buộc khác".
@@ -17,6 +21,7 @@ from __future__ import annotations
 
 from ...models.lsx import LB_MAY, LB_THUE_NGOAI, LB_TO
 from ...models.may_thiet_bi import MayThietBi
+from ...repositories.don_vi_do_repo import nhan_don_vi
 from ..lsx_service import _f, ma_don_vi_toc_do
 
 #: Câu chốt hạ khi không dựng nổi câu cụ thể (thiếu cả bước gốc) — vẫn phải nói mã đang vướng.
@@ -50,16 +55,22 @@ def _may(service, dong, cd):
     return service.db.get(MayThietBi, may_id) if may_id else None
 
 
-def _khoan(cd) -> tuple[str, str]:
-    """(tên đầu việc khoán, đơn vị đơn giá) đã ghim ở bước — rỗng khi bước chưa chọn đầu việc."""
+def _dv(service, ma) -> str:
+    """MÃ đơn vị (`to`) → TÊN người đọc được ("tờ"). Câu chẩn đoán viết cho NGƯỜI xếp lịch, mà
+    mọi cột `don_vi*` của tầng sản xuất giữ mã. Bảng tra nhớ trên service, không tra từng dòng."""
+    return nhan_don_vi(service.ten_don_vi(), _txt(ma))
+
+
+def _khoan(service, cd) -> tuple[str, str]:
+    """(tên đầu việc khoán, TÊN đơn vị đơn giá) đã ghim ở bước — rỗng khi bước chưa chọn đầu việc."""
     kh = getattr(cd, "khoan_json", None) or {}
-    return _txt(kh.get("ten")), _txt(kh.get("don_vi"))
+    return _txt(kh.get("ten")), _dv(service, kh.get("don_vi"))
 
 
-def _nhan_vao(cd) -> tuple[str, str]:
+def _nhan_vao(service, cd) -> tuple[str, str]:
     """("Bước nhận 12.000 tờ", "tờ") — vế mở đầu câu + đơn vị nguồn để nhắc lại ở gợi ý."""
     sl = _f(getattr(cd, "so_luong_vao", 0))
-    dv = _txt(getattr(cd, "don_vi_vao", None))
+    dv = _dv(service, getattr(cd, "don_vi_vao", None))
     if sl > 0 and dv:
         return f"Bước nhận {_so(sl)} {dv}", dv
     if sl > 0:
@@ -110,7 +121,7 @@ def chi_tiet(service, dong, ma: str) -> tuple[str, str]:
 
     if ma == "may_chua_toc_do":
         if loai == LB_TO:
-            ten, dv = _khoan(cd)
+            ten, dv = _khoan(service, cd)
             if not ten:
                 return ("Bước làm tay chưa chọn đầu việc khoán nên chưa có năng suất để tính giờ "
                         "làm.",
@@ -129,9 +140,9 @@ def chi_tiet(service, dong, ma: str) -> tuple[str, str]:
                 f"Khai ô Tốc độ (và đơn vị tốc độ) cho “{may.ten}” ở Danh mục → Máy & thiết bị.")
 
     if ma == "chua_quy_doi":
-        nhan, dv_nguon = _nhan_vao(cd)
+        nhan, dv_nguon = _nhan_vao(service, cd)
         if loai == LB_TO:
-            ten, dv_dich = _khoan(cd)
+            ten, dv_dich = _khoan(service, cd)
             if not dv_dich:
                 thieu = ("chưa chọn đầu việc khoán" if not ten
                          else f"đầu việc khoán “{ten}” chưa khai đơn vị")
@@ -145,7 +156,7 @@ def chi_tiet(service, dong, ma: str) -> tuple[str, str]:
             return ("Bước chưa gán máy nên chưa biết quy số lượng về đơn vị nào để chia ra giờ "
                     "chạy.",
                     "Chọn máy cho bước ở Lệnh SX → drawer bước (hoặc để Xếp lịch tự chọn máy).")
-        dv_dich = _txt(ma_don_vi_toc_do(may))
+        dv_dich = _dv(service, ma_don_vi_toc_do(may))
         if not dv_dich:
             cai_gi = dv_nguon or "số lượng của bước"
             return (f"Máy “{may.ten}” chưa khai đơn vị tốc độ nên chưa biết quy {cai_gi} về đâu.",

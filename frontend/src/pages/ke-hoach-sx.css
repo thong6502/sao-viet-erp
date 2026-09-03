@@ -293,7 +293,7 @@
   padding: 10px 4px 12px;
   font-size: 14px;
   font-weight: 500;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
@@ -544,7 +544,7 @@
 }
 .khsx-time-val {
   font-size: 12px;
-  color: #64748b;
+  color: var(--ash-2);
   font-variant-numeric: tabular-nums;
 }
 .khsx-date-val {
@@ -958,7 +958,7 @@ td.khsx-num > .khsx-unit {
 }
 .khsx-unit {
   font-size: 11px;
-  color: #64748b;
+  color: var(--ash-2);
   font-weight: 400;
   margin-left: 2px;
   display: inline-block;
@@ -1303,7 +1303,7 @@ td.khsx-num > .khsx-unit {
    và `align-items: stretch` ở hàng giữ mọi thẻ bằng nhau. Cắt chữ ở đây là giấu mất cái tên
    người dùng vừa đặt. */
 .khsx-kpi-tile__label {
-  color: #64748b;
+  color: var(--ash-2);
   font-size: 10.5px;
   font-weight: 600;
   text-transform: uppercase;
@@ -1335,7 +1335,7 @@ td.khsx-num > .khsx-unit {
   min-width: 0;
   font-size: 11px;
   font-weight: 500;
-  color: #64748b;
+  color: var(--ash-2);
   overflow-wrap: anywhere;
 }
 
@@ -1555,7 +1555,7 @@ td.khsx-num > .khsx-unit {
   border-radius: 999px;
   font-size: 11.5px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--ash-2);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1637,7 +1637,7 @@ td.khsx-num > .khsx-unit {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  color: #64748b;
+  color: var(--ash-2);
   letter-spacing: 0.04em;
 }
 .khsx-buffer-gauge__val {
@@ -1713,7 +1713,7 @@ td.khsx-num > .khsx-unit {
   border: none;
   font-size: 10px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--ash-2);
   cursor: pointer;
   padding: 2px 5px;
   border-radius: 4px;
@@ -1817,7 +1817,7 @@ td.khsx-num > .khsx-unit {
   font-size: 10.5px;
   font-weight: 600;
   text-transform: uppercase;
-  color: #64748b;
+  color: var(--ash-2);
   letter-spacing: 0.03em;
 }
 .khsx-team-item__name {
@@ -1837,7 +1837,7 @@ td.khsx-num > .khsx-unit {
   align-items: center;
   gap: 8px;
   font-size: 11.5px;
-  color: #64748b;
+  color: var(--ash-2);
   flex-wrap: wrap;
 }
 .khsx-audit-trail strong {
@@ -1967,7 +1967,7 @@ td.khsx-num > .khsx-unit {
 }
 .khsx-ready button[variant="accent"]:disabled {
   background: #f1f5f9 !important;
-  color: #94a3b8 !important;
+  color: var(--ash-2) !important;
   border: 1px solid #e2e8f0 !important;
   box-shadow: none !important;
   cursor: not-allowed;
@@ -2720,7 +2720,7 @@ td.khsx-num > .khsx-unit {
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   line-height: 1;
 }
 
@@ -2794,7 +2794,7 @@ td.khsx-num > .khsx-unit {
   justify-content: center !important;
   border: none !important;
   background: transparent !important;
-  color: #64748b !important;
+  color: var(--ash-2) !important;
   cursor: pointer !important;
   transition: all 0.15s ease !important;
   padding: 0 !important;
@@ -2820,7 +2820,7 @@ td.khsx-num > .khsx-unit {
   border: 1px solid #e2e8f0 !important;
   border-radius: 8px !important;
   background: #ffffff !important;
-  color: #64748b !important;
+  color: var(--ash-2) !important;
   cursor: pointer !important;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
   transition: all 0.15s ease !important;
@@ -2942,7 +2942,7 @@ td.khsx-num > .khsx-unit {
 .khsx-section-card__sub {
   margin: 2px 0 0;
   font-size: 12px;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 
 .khsx-badge-count {
@@ -2974,13 +2974,13 @@ td.khsx-num > .khsx-unit {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   text-transform: uppercase;
 }
 
 .khsx-field__hint {
   font-size: 11.5px;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   line-height: 1.4;
 }
 
@@ -3028,7 +3028,7 @@ td.khsx-num > .khsx-unit {
   flex: 1 1 0;
   font-size: 12px;
   font-weight: 600;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   background: transparent;
   border: none;
   border-radius: 6px;
@@ -3056,7 +3056,7 @@ td.khsx-num > .khsx-unit {
   transition: all 0.15s ease;
 }
 .khsx-check-pill:hover {
-  border-color: #94a3b8;
+  border-color: var(--ash-2);
   background: #f1f5f9;
 }
 .khsx-check-pill.is-checked {
@@ -3129,7 +3129,7 @@ td.khsx-num > .khsx-unit {
   color: #0f172a;
 }
 .khsx-flow-formula__eq {
-  color: #94a3b8;
+  color: var(--ash-2);
 }
 
 .khsx-flow-pipeline {
@@ -3168,7 +3168,7 @@ td.khsx-num > .khsx-unit {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.05em;
-  color: #64748b;
+  color: var(--ash-2);
   text-transform: uppercase;
 }
 
@@ -3212,7 +3212,7 @@ td.khsx-num > .khsx-unit {
 
 .khsx-flow-node__hint {
   font-size: 11px;
-  color: #64748b;
+  color: var(--ash-2);
   line-height: 1.3;
 }
 
@@ -3252,7 +3252,7 @@ td.khsx-num > .khsx-unit {
 }
 
 .khsx-flow-arrow-line {
-  color: #94a3b8;
+  color: var(--ash-2);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3277,7 +3277,7 @@ td.khsx-num > .khsx-unit {
   white-space: nowrap;
 }
 .khsx-flow-chip__label {
-  color: #64748b;
+  color: var(--ash-2);
   font-weight: 500;
 }
 .khsx-flow-chip__val {
@@ -3326,7 +3326,7 @@ td.khsx-num > .khsx-unit {
 
 .khsx-val-text {
   font-size: 13px;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   padding: 8px 0;
 }
 
@@ -3362,7 +3362,7 @@ td.khsx-num > .khsx-unit {
   padding: 0 10px;
   font-size: 11.5px;
   font-weight: 600;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   background: var(--paper-contrast, #f1f5f9);
   border-left: 1px solid var(--rule-soft, #e2e8f0);
   white-space: nowrap;
@@ -3400,7 +3400,7 @@ td.khsx-num > .khsx-unit {
 .khsx-labor-pill-label {
   font-size: 11px;
   font-weight: 600;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   white-space: nowrap;
 }
 .khsx-labor-num-field {
@@ -3424,7 +3424,7 @@ td.khsx-num > .khsx-unit {
    input nên phải tự bật display để `text-align: right` của lớp gốc còn tác dụng. */
 .khsx-labor-num-field--ro {
   display: block;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
 }
 /* Số người bố trí rơi ra ngoài biên tối thiểu–tối đa của bước. */
 .khsx-labor-warn {
@@ -3440,7 +3440,7 @@ td.khsx-num > .khsx-unit {
 }
 .khsx-tag-subtle {
   font-size: 11px;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
 }
 .khsx-khoan-status-row {
   display: flex;
@@ -3573,7 +3573,7 @@ td.khsx-num > .khsx-unit {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.05em;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   white-space: nowrap;
 }
 .khsx-vattu-tbody .khsx-vattu-tr {
@@ -3636,7 +3636,7 @@ td.khsx-num > .khsx-unit {
 }
 .khsx-vattu-no-formula {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--ash-2);
   font-style: italic;
 }
 .khsx-diff-badge {
@@ -3673,7 +3673,7 @@ td.khsx-num > .khsx-unit {
   padding: 2px 7px;
   border-radius: 5px;
   white-space: nowrap;
-  color: #64748b;
+  color: var(--ash-2);
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
 }
@@ -3725,7 +3725,7 @@ td.khsx-num > .khsx-unit {
   padding: 0 8px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   background: var(--paper-contrast, #f8fafc);
   border-left: 1px solid var(--rule-soft, #e2e8f0);
   white-space: nowrap;
@@ -3763,7 +3763,7 @@ td.khsx-num > .khsx-unit {
 .khsx-vattu-add-icon {
   font-size: 14px;
   font-weight: 700;
-  color: #64748b;
+  color: var(--ash-2);
 }
 .khsx-vattu-select-clean {
   flex: 1;
@@ -3821,7 +3821,7 @@ td.khsx-num > .khsx-unit {
   font-weight: 600;
   padding: 2px 7px;
   border-radius: 5px;
-  color: #64748b;
+  color: var(--ash-2);
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
 }
@@ -3863,7 +3863,7 @@ td.khsx-num > .khsx-unit {
 .khsx-dag-group-card__head {
   font-size: 11px;
   font-weight: 700;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   margin-bottom: 8px;
 }
 .khsx-dag-chips {
@@ -3893,7 +3893,7 @@ td.khsx-num > .khsx-unit {
   cursor: pointer;
 }
 .khsx-dag-chip:hover {
-  border-color: #94a3b8;
+  border-color: var(--ash-2);
   background: #f8fafc;
 }
 .khsx-dag-chip.is-active {
@@ -3982,7 +3982,7 @@ td.khsx-num > .khsx-unit {
   border-color: var(--rust, #c5400a);
 }
 .khsx-preset-btn--reset {
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 .khsx-preset-btn--reset:hover {
   background: #fee2e2;
@@ -4166,13 +4166,13 @@ td.khsx-num > .khsx-unit {
 .khsx-time-stage-card__stat-hours {
   font-size: 12px;
   font-weight: 500;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 
 .khsx-time-stage-card__stat-ratio {
   font-size: 11px;
   font-weight: 600;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -4307,7 +4307,7 @@ td.khsx-num > .khsx-unit {
 .khsx-time-row__val-sub {
   font-size: 12px;
   font-weight: 500;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   margin-left: 4px;
 }
 
@@ -4406,12 +4406,12 @@ td.khsx-num > .khsx-unit {
 .khsx-formula-op {
   font-size: 12px;
   font-weight: 700;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 .khsx-time-row__src {
   font-size: 11px;
   font-weight: 500;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 
 /* Dung sai tốc độ máy (Speed Spectrum Bar) */
@@ -4470,7 +4470,7 @@ td.khsx-num > .khsx-unit {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 .khsx-tolerance-node__val {
   font-family: var(--ff-num, monospace);
@@ -4505,7 +4505,7 @@ td.khsx-num > .khsx-unit {
   margin-top: 6px;
   font-size: 11.5px;
   font-style: italic;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 
 /* Dải chỉ số tổng hợp (Hero KPI Strip theo §4 UI_DESIGN.md) */
@@ -4580,7 +4580,7 @@ td.khsx-num > .khsx-unit {
 .khsx-compact-kpi-sub {
   font-size: 11.5px;
   font-weight: 500;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 .khsx-compact-kpi-sub.is-immediate {
   color: #166534;
@@ -4606,7 +4606,7 @@ td.khsx-num > .khsx-unit {
   justify-content: space-between;
   gap: 12px;
   padding: 4px 0;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
 }
 .khsx-tinh-gio__row b {
   font-family: var(--ff-num, monospace);
@@ -4625,7 +4625,7 @@ td.khsx-num > .khsx-unit {
   gap: 12px;
   padding: 2px 0;
   font-size: 12px;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 .khsx-tinh-gio__row--tong {
   margin-top: 6px;
@@ -4642,7 +4642,7 @@ td.khsx-num > .khsx-unit {
   gap: 18px;
   margin-top: 6px;
   font-size: 12px;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
 }
 .khsx-tinh-gio__dai b {
   font-family: var(--ff-num, monospace);
@@ -4766,7 +4766,7 @@ td.khsx-num > .khsx-unit {
 .khsx-gn__nhan {
   font-size: 11px;
   font-weight: 700;
-  color: var(--ash, #64748b);
+  color: var(--ash, var(--ash-2));
   text-transform: uppercase;
 }
 .khsx-gn__noi {
@@ -4796,7 +4796,7 @@ td.khsx-num > .khsx-unit {
 }
 .khsx-gn__hint {
   font-size: 11.5px;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 
 
@@ -4883,13 +4883,13 @@ td.khsx-num > .khsx-unit {
 }
 
 .khsx .khvt-header__left .khvt-header__dot {
-  color: #94a3b8 !important;
+  color: var(--ash-2) !important;
   font-size: 14px !important;
 }
 
 .khsx .khvt-header__left .khvt-header__desc {
   font-size: 13px !important;
-  color: #64748b !important;
+  color: var(--ash-2) !important;
   margin: 0 !important;
 }
 
@@ -4899,7 +4899,8 @@ td.khsx-num > .khsx-unit {
   gap: 4px !important;
   font-size: 11px !important;
   font-weight: 600 !important;
-  color: #059669 !important;
+  /* emerald-600 trên emerald-50 là 3,58:1; xuống emerald-700 được 5,27:1. */
+  color: #047857 !important;
   background: #ecfdf5 !important;
   border: 1px solid #a7f3d0 !important;
   padding: 2px 8px !important;
@@ -4925,7 +4926,7 @@ td.khsx-num > .khsx-unit {
   padding: 8px 18px;
   font-size: var(--fs-sm);
   font-weight: 600;
-  color: #64748b;
+  color: var(--ash-2);
   background: transparent;
   border: none;
   border-radius: 999px !important;
@@ -4960,7 +4961,7 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-segmented-btn__sub {
   font-size: 11px;
   font-weight: 400;
-  color: #64748b;
+  color: var(--ash-2);
   line-height: 1.2;
 }
 
@@ -5030,7 +5031,7 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-utab:hover {
   background: #f8fafc;
   color: #0f172a;
-  border-color: #94a3b8;
+  border-color: var(--ash-2);
 }
 
 .khsx .khvt-utab.is-active {
@@ -5404,7 +5405,7 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-unit-val {
   font-size: 11px;
-  color: #64748b;
+  color: var(--ash-2);
 }
 
 .khsx .khvt-mini-bar {
@@ -5454,7 +5455,8 @@ td.khsx-num > .khsx-unit {
   font-size: 12px !important;
   font-weight: 700 !important;
   font-variant-numeric: tabular-nums !important;
-  color: #e11d48 !important;
+  /* rose-600 trên rose-100 là 3,91:1; xuống rose-700 được 5,19:1, vẫn đúng sắc đỏ cảnh báo. */
+  color: #be123c !important;
   background: #ffe4e6 !important;
   border: 1px solid #fecdd3 !important;
   padding: 2px 10px !important;
@@ -5469,7 +5471,8 @@ td.khsx-num > .khsx-unit {
   font-family: var(--ff-sans) !important;
   font-size: 11.5px !important;
   font-weight: 500 !important;
-  color: #94a3b8 !important;
+  /* #94a3b8 trên #f8fafc chỉ 2,45:1 — gần như không đọc được. */
+  color: var(--ash-2) !important;
   background: #f8fafc !important;
   border: 1px solid #e2e8f0 !important;
   padding: 2px 10px !important;

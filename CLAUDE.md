@@ -1,6 +1,6 @@
 # CLAUDE.md — Sao Việt Nhật ERP (SVN)
 
-ERP in offset đa phân hệ, full-stack. Chi tiết vận hành: README.md. Bản đồ tài liệu ở cuối file này.
+ERP in offset đa phân hệ, full-stack. Chi tiết vận hành: README.md.
 progress.md ĐÃ CŨ (dừng ở RBAC) — ĐỪNG tin nó để biết trạng thái hiện tại; đọc code + docs/.
 
 ## Kiến trúc (đừng đặt sai tầng)
@@ -47,28 +47,3 @@ progress.md ĐÃ CŨ (dừng ở RBAC) — ĐỪNG tin nó để biết trạng 
   báo giá, duyệt/từ chối, giao việc, nhắc hạn…) phải tới người nhận NGAY — badge tự nhảy + toast
   tức thì, KHÔNG bắt họ refresh hay đổi màn mới thấy. Ưu tiên ĐẨY (SSE): hiện đẩy in-process theo
   1 uvicorn worker; nếu scale >1 worker thì chuyển publish sang Postgres LISTEN/NOTIFY.
-
-## Triển khai
-
-- Live: <https://svn.superbai.io> — GitHub Actions → Docker Compose VPS. Push `main` = TỰ DEPLOY.
-- Repo private thuộc `thonglv111`: cần `gh auth switch --user thonglv111` mới fetch/push được.
-- Commit/push CHỈ khi mình yêu cầu.
-
-## Bản đồ tài liệu (đọc khi cần, đừng nhồi hết vào đầu)
-
-- docs/DOMAIN_NHA_MAY_IN.md — nghiệp vụ in offset (đọc trước khi động vào tính giá).
-- docs/DB_SCHEMA.md — từ điển dữ liệu mọi bảng/cột.
-- docs/CONG_THUC_TINH_LUONG.md — TOÀN BỘ công thức lương đang chạy, neo tới `file:line`. Đọc TRƯỚC
-  khi sửa engine lương. Phần 13 = chỗ engine cố ý làm khác thông lệ (đừng "sửa" thành đúng luật mà
-  không hỏi); Phần 14 = lỗi thật đã biết, kèm bản vá.
-- docs/SO_TAY_TINH_LUONG_KE_TOAN.md — CÙNG nội dung đó nhưng cho KẾ TOÁN đọc: gọi bằng tên màn
-  hình/tên ô, không một dòng code. Sửa công thức thì phải sửa CẢ HAI file, nếu không hai bên nói
-  hai kiểu.
-- docs/RBAC_QUYEN_THEO_MODULE.md — bật ô quyền này thì LÀM ĐƯỢC GÌ, theo từng module. Chỉ 4 phân
-  hệ của mình (Nhân sự & Lương · Mua hàng · Kế toán · Giao hàng). Nguồn là `PermissionMatrix.tsx`.
-- docs/RBAC_VAI_TRO.md — VAI nào đang giữ gì. §4 sinh thẳng từ `seed.ROLES` bằng
-  `backend/scripts/xuat_ma_tran_quyen.py` — đừng sửa tay phần đó, chạy lại script.
-- docs/prd-thanh-pham.md — danh mục Thành phẩm: chốt đơn là hệ TỰ KHAI hàng của đơn vào danh mục
-  để kho nhập/xuất được. §3 giải thích vì sao "menu riêng nhưng CHUNG bảng `vat_tu_in_an`" —
-  đừng tách bảng, tách là kéo theo `hang_loai` thứ ba và phải sửa 8 chỗ trong code bên kho.
-- docs/spec-*.md — spec từng phân hệ (tính giá, công đoạn, máy, sản phẩm, lương, nhân sự, bình bài).

@@ -4,6 +4,20 @@
 > **Cơ sở:** Công thức cost-plus offset + logic giainoffset + đối chiếu thực tế màn Tính giá của **NextPrint (Trí Thành Software)**. Không đọc code — suy từ domain & UI đối thủ.
 > **Liên quan:** [THI_TRUONG_PHAN_MEM_IN.md](./THI_TRUONG_PHAN_MEM_IN.md) · [DOMAIN_NHA_MAY_IN.md](./DOMAIN_NHA_MAY_IN.md)
 
+> **Đối chiếu code (09/2026):** tài liệu này tự nhận "không đọc code — suy từ domain & UI đối thủ"
+> (dòng trên), nên phần lớn nội dung là **NHU CẦU nghiệp vụ**, không phải mô tả engine đang chạy.
+> Hai điểm rà soát thấy lệch hẳn với code thật:
+> 1. **Mục ③ "Chế bản/Kẽm"** (§2, §7): không có danh mục "đơn giá kẽm theo khổ" nào đang sống. Có
+>    bảng `plate_die_rates` với seed, nhưng router đã gỡ (`backend/app/main.py:159-161`), không có
+>    trang UI, và **không dòng code tính giá nào đọc bảng này** (0 kết quả trong
+>    `thanh_phan_engine.py`). Đơn giá kẽm hiện tại là **hằng số gõ thẳng vào công thức của Công
+>    đoạn "Chế bản"** trong danh mục Công đoạn (`cong_thuc_gia`, ví dụ `so_kem * 95000`) — đổi giá
+>    kẽm là sửa công thức đó, không phải sửa một danh mục giá riêng.
+> 2. **§9.2 "Định nghĩa Margin"**: công thức thật KHÔNG phải `Giá thành / (1 − lãi_suất)`. Engine
+>    Báo giá dùng mô hình **markup trên giá vốn**: `giá bán = giá vốn × (1 + markup/100)`, mặc định
+>    markup 20%, VAT mặc định 10% (`backend/app/services/quotation_service.py:479-481`) — đúng cái
+>    công thức mà mục này liệt kê là "❌ Không dùng" (dòng dưới). Xem đính chính chi tiết tại §9.2.
+
 ---
 
 ## 0. TÓM TẮT — cần khai những danh mục nào để tính được giá
@@ -171,7 +185,17 @@ Cộng thêm **Danh mục CHỌN** (cấu trúc phiếu) và **Tham số** (ra g
 - **Chiết khấu là phép TRỪ** (giảm giá), không cộng.
 - **VAT luôn tính SAU CÙNG, trên nền đã trừ chiết khấu** — không tính trên giá thành.
 
-### 9.2 Định nghĩa Margin — CHỐT: theo **Lãi suất** (margin trên doanh số)
+### 9.2 Định nghĩa Margin — CHỐT lúc viết tài liệu: theo **Lãi suất**; CODE THẬT: theo **Markup**
+
+> **Đối chiếu code (09/2026) — mục này ĐÃ LỖI THỜI.** Phần dưới đây (công thức + ví dụ) là bản CHỐT
+> lúc viết tài liệu, dùng mô hình "lãi trên doanh số". Engine Báo giá đang chạy KHÔNG dùng mô hình
+> này — nó dùng đúng thứ mà mục này gắn nhãn "❌ Không dùng": **markup trên giá vốn**
+> (`backend/app/services/quotation_service.py:479-481`):
+> ```text
+> Giá bán gộp = Giá vốn × (1 + markup / 100)      # markup mặc định 20%
+> ```
+> Giữ nguyên nội dung cũ bên dưới để lưu lịch sử thiết kế; đừng lấy công thức `/ (1 − lãi_suất)`
+> làm căn cứ code hiện tại.
 
 ```text
 Giá bán gộp = Giá thành / (1 − lãi_suất)
@@ -179,15 +203,24 @@ Giá bán gộp = Giá thành / (1 − lãi_suất)
 
 - `lãi_suất` = **% trên doanh số** (cách nhà in VN quen nói "lãi 20%") → luôn **< 100%**.
 - Có thể để **bậc thang theo giá vốn** (như giainoffset).
-- ❌ **Không** dùng markup theo hệ số (`× (1+m)`) — đã loại để tránh hiểu nhầm.
+- ❌ **Không** dùng markup theo hệ số (`× (1+m)`) — đã loại để tránh hiểu nhầm. *(Ghi chú
+  09/2026: code thật đi ngược lại đúng điều này — xem callout ngay trên.)*
 
-**Ví dụ (giá thành 100, lãi 20%, chiết khấu 5%, VAT 8%):**
+**Ví dụ theo bản CHỐT cũ (giá thành 100, lãi 20%, chiết khấu 5%, VAT 8%) — không phải số engine
+thật sẽ ra:**
 
 | Bước | Phép tính | Kết quả |
 |---|---|---|
 | ② Giá bán gộp | 100 / (1 − 20%) | 125 |
 | ③ − Chiết khấu 5% | 125 − 6.25 | 118.75 |
 | ④ + VAT 8% | 118.75 × 1.08 | **128.25** |
+
+**Ví dụ theo code thật (giá vốn 100, markup 20%, VAT 10% mặc định):**
+
+| Bước | Phép tính | Kết quả |
+|---|---|---|
+| ② Giá bán gộp | 100 × (1 + 20%) | 120 |
+| ④ + VAT 10% (bỏ qua chiết khấu) | 120 × 1.10 | **132** |
 
 ### 9.3 Chỉ số cho nhập ở màn Báo giá
 

@@ -69,3 +69,28 @@ def test_production_is_case_insensitive():
     s = Settings(app_env="Production", jwt_secret=INSECURE_DEFAULT_JWT_SECRET)
     with pytest.raises(RuntimeError):
         assert_secure_config(s)
+
+
+# --- `frontend_origin` (Task 13, QR trên phiếu công nghệ) --------------------------------------
+# `tests/test_lenh_sx_pdf.py::test_noi_dung_qr_la_hash_url` chỉ khẳng định `noi_dung_qr` nội suy
+# ĐÚNG bất kể `frontend_origin` đang là gì (tính `base` bằng chính `settings.frontend_origin` rồi
+# so với chính nó) — không tự canh được property này TÍNH đúng. Bốn bài dưới đây canh riêng nó,
+# dựng `Settings(...)` bằng kwargs tường minh như khuôn có sẵn ở trên, không đụng biến môi trường.
+def test_frontend_origin_mac_dinh_lay_cors_dau_tien():
+    s = Settings(frontend_base_url="", cors_origins="http://a.example,http://b.example")
+    assert s.frontend_origin == "http://a.example"
+
+
+def test_frontend_origin_bo_dau_gach_cheo_cuoi():
+    s = Settings(frontend_base_url="", cors_origins="http://a.example/")
+    assert s.frontend_origin == "http://a.example"
+
+
+def test_frontend_origin_uu_tien_override():
+    s = Settings(frontend_base_url="http://rieng.example/", cors_origins="http://a.example")
+    assert s.frontend_origin == "http://rieng.example"
+
+
+def test_frontend_origin_rong_khi_khong_co_cors():
+    s = Settings(frontend_base_url="", cors_origins="")
+    assert s.frontend_origin == ""

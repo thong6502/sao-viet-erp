@@ -256,6 +256,15 @@ class SanXuatCongViec(Base):
     khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     vat_tu_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     trang_thai: Mapped[str] = mapped_column(String(16), nullable=False, default=CV_PHAT_HANH)
+    # MỐC NGHIỆP VỤ "bước xong lúc nào" — đóng dấu MỘT LẦN ở `thuc_thi.ket_thuc`, chỗ duy nhất
+    # trong hệ đặt `trang_thai='completed'`. Tồn tại riêng vì `updated_at` là cột BẢO TRÌ: mọi
+    # `version += 1` về sau (rút người khỏi bước đã xong, sửa ghi chú…) dời nó, và KPI "công đoạn
+    # xong hôm nay" từng đếm nhầm một bước đóng năm 2020 vào hôm nay vì đọc `updated_at`. Bịt từng
+    # đường ghi không giải quyết được lớp lỗi đó — đường ghi thêm sau lại phá lại. NULL = chưa xong
+    # (hoặc dòng có từ trước migration 0256 mà lúc backfill chưa `completed`).
+    hoan_thanh_luc: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(

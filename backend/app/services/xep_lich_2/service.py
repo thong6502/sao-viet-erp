@@ -28,6 +28,7 @@ from ...models.xep_lich import (
     TT_CHO_XEP, TT_DA_XEP, XepLichCongDoan,
 )
 from ...models.xep_lich_van_de import TT_NGOAI_LE
+from ...repositories.don_vi_do_repo import DonViDoRepository
 from ...repositories.xep_lich_van_de_repo import XepLichVanDeRepository
 from ..lsx_service import _f
 from ..xep_lich_service import XepLichNotFound, XepLichService, _aware, _naive
@@ -139,6 +140,18 @@ class XepLich2Service:
         # Cache nhãn cho `_dien_doi_tuong` — một service sống trong một request nên tra một lần đủ.
         self._ten_may_cache: dict[int, str | None] = {}
         self._ten_to_cache: dict[int, str | None] = {}
+        self._ten_dv_cache: dict[str, str] | None = None
+
+    def ten_don_vi(self) -> dict[str, str]:
+        """Bảng MÃ đơn vị → TÊN hiển thị, cho câu chẩn đoán của `chan_doan` bày ra người đọc.
+
+        Một lượt dò gọi `chan_doan.chi_tiet` cho TỪNG dòng, nên tra thẳng danh mục trong đó là
+        N+1 truy vấn. Nhớ trên service — service sống trong đúng một request, cùng lối
+        `_ten_may_cache`.
+        """
+        if self._ten_dv_cache is None:
+            self._ten_dv_cache = DonViDoRepository(self.db).ten_theo_ma()
+        return self._ten_dv_cache
 
     # ================= TẠO NHÁP (đưa vào kế hoạch) =================
     def tao_nhap(self, *, nguon: str, id: int, actor):

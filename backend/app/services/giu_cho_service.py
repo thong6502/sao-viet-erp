@@ -158,7 +158,9 @@ class GiuChoService:
         return ra
 
     def trang_thai(self, *, lsx_id: int | None = None, bai_ghep_id: int | None = None,
-                   bang: dict | None = None, dang: list[VatTuGiuCho] | None = None) -> dict:
+                   bang: dict | None = None,
+                   dang_theo_chu_the: dict[tuple[int | None, int | None],
+                                           list[VatTuGiuCho]] | None = None) -> dict:
         """Kết quả sau khi bấm — ba trạng thái người dùng thấy.
 
         `du` = giữ đủ 100% ⇒ xếp lịch mở khoá. `xep_som_nhat` = ngày sớm nhất được xếp bước tiêu
@@ -172,17 +174,30 @@ class GiuChoService:
         bảng giữ chỗ (nó đọc tồn thật, không đọc tồn tự do) nên dùng lại là số y hệt, không phải
         bản chụp cũ.
 
-        `dang` = dòng giữ chỗ CỦA CHÍNH chủ thể này, DÙNG LẠI nếu nơi gọi đã tra sẵn — tương tự lý
-        do trên nhưng cho `repo.cua_chu_the()`: `giu_theo_chu_the_hang()` hỏi hàng trăm chủ thể một
-        lượt, để mặc mỗi chủ thể tự bắn 1 query là N round-trip DB không cần thiết (xem
-        `repo.cua_nhieu_chu_the`). Vắng thì tự query như cũ — chỗ gọi đơn lẻ (`du_chua`,
-        `lsx_tong_quan`) không cần đổi gì.
+        `dang_theo_chu_the` = dòng giữ chỗ đã tra GỘP cho nhiều chủ thể một lượt
+        (`GiuChoRepository.cua_nhieu_chu_the`, MỘT câu cho N chủ thể). Cùng lý do với `bang` nhưng
+        chặn một N+1 khác: `cua_chu_the` là MỘT câu SELECT cho MỘT chủ thể, nên nơi gọi hỏi cả
+        bảng (`giu_theo_chu_the_hang`) hay cả trang lệnh (`lsx_tong_quan.tong_quan`) mà không
+        truyền vào thì tốn đúng một câu mỗi chủ thể.
+
+        Nhận MAP theo chủ thể chứ không nhận thẳng `list` dòng của chủ thể: danh sách trần thì hàm
+        phải TIN nơi gọi đã lọc đúng, mà dòng giữ chỗ của chủ thể khác trông y hệt — không cách nào
+        kiểm từ trong đây. Nhận map rồi TỰ tra khoá của mình thì chặn được dạng nhầm HAY GẶP: cắt
+        nhầm lát, lệch chỉ số, dùng lại biến của vòng lặp trước.
+
+        Không chặn được MỌI dạng — `{c: rows for c in chu_the}` vẫn diễn tả được cái sai, và không
+        chữ ký nào ngăn nổi một map dựng sai từ gốc. Đây là hàng rào, không phải chứng minh.
+
+        Map TOÀN ÁNH trên tập đã hỏi, nên khoá VẮNG nghĩa là nơi gọi hỏi NGOÀI lô đã tra ⇒ tự đi
+        lấy, y như khi không truyền gì. Chỗ gọi đơn lẻ (`du_chua`) không cần đổi.
         """
         chu = (lsx_id, bai_ghep_id)
         if bang is None:
             bang = self.kh.can_doi()
         can = self._nhu_cau_theo_chu_the(bang).get(chu, {})
-        if dang is None:
+        if dang_theo_chu_the is not None and chu in dang_theo_chu_the:
+            dang = dang_theo_chu_the[chu]
+        else:
             dang = self.repo.cua_chu_the(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
 
         giu_theo_hang: dict[Hang, float] = {}
@@ -864,7 +879,7 @@ class GiuChoService:
         for chu in gom:
             lsx_id, bg_id = chu
             tt = self.trang_thai(
-                lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang, dang=dang_by_chu.get(chu, []))
+                lsx_id=lsx_id, bai_ghep_id=bg_id, bang=bang, dang_theo_chu_the=dang_by_chu)
             tt_by_chu[chu] = tt
             for ds in tt["nguon_dang_ve"].values():
                 line_ids.update(n["purchase_request_line_id"] for n in ds)

@@ -44,6 +44,7 @@ from ..schemas.san_xuat import (
     BatDauIn,
     BuTruIn,
     BuTruKetQuaOut,
+    DoiMayIn,
     DongNhomDieuKienOut,
     DongNhomKetQuaOut,
     DongThieuIn,
@@ -87,6 +88,8 @@ from ..schemas.san_xuat import (
     PhanBoTrangThaiOut,
     PhanCongIn,
     SanLuongKetQuaOut,
+    SuCoIn,
+    SuCoKetQuaOut,
     TamDungIn,
     TeamsOut,
     ThemLotIn,
@@ -107,6 +110,7 @@ from ..services.san_xuat import (
     kho,
     phan_bo,
     san_luong,
+    su_co,
     thuc_thi,
     vat_tu_de_nghi,
     vat_tu_nhan,
@@ -507,6 +511,26 @@ def bat_dau(
     return res
 
 
+@router.post("/work-items/{cong_viec_id}/doi-may", response_model=LenhKetQuaOut)
+def doi_may(
+    cong_viec_id: int,
+    body: DoiMayIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+) -> dict:
+    """Đổi máy giữa chừng (§7.2 mở rộng 31/08/2026). CÙNG cửa quyền với Bắt đầu
+    (`can_assign_work` + tổ trưởng của CHÍNH tổ, siết ở `_gate`) — đổi máy là quyết định điều
+    hành, không phải ghi nhận. Dùng `_chay` (như mọi route ghi khác ở đây) để `_gate` ném
+    `PermissionError` cũng dịch ra 403 — không thì lệch đường dây so với `bat-dau`."""
+    res = _chay(lambda: thuc_thi.doi_may(
+        db, user=user, cong_viec_id=cong_viec_id,
+        may_id_moi=body.may_id, ly_do=body.ly_do,
+        expected_version=body.expected_version,
+    ))
+    _phat_sse(res)
+    return res
+
+
 @router.post("/work-items/{cong_viec_id}/tam-dung", response_model=LenhKetQuaOut)
 def tam_dung(
     cong_viec_id: int,
@@ -521,6 +545,29 @@ def tam_dung(
     ))
     _phat_sse(res)
     return res
+
+
+@router.post("/work-items/{cong_viec_id}/su-co", response_model=SuCoKetQuaOut)
+def bao_su_co(
+    cong_viec_id: int,
+    body: SuCoIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+) -> dict:
+    """Báo sự cố máy ngay tại tổ (31/08/2026) → ghi vào hộp thư "Báo máy hỏng" của tổ sửa chữa.
+
+    CÙNG cửa quyền với `tam-dung` (`assign_work` + tổ trưởng của CHÍNH tổ, siết ở `_gate`): nhánh
+    "Dừng sản xuất" chính là một cú tạm dừng, không thể dễ hơn.
+
+    KHÔNG gọi `_phat_sse` ở đây — khác mọi route ghi bên trên: đường này phải đẩy HAI tin (bàn tổ
+    + hàng chờ tổ sửa chữa) và cả hai chỉ hợp lệ SAU khi giao dịch chốt, nên `su_co.bao_su_co` tự
+    bắn ngay sau `commit` của chính nó. Gọi thêm `_phat_sse` ở đây là bắn trùng tin bàn tổ.
+    """
+    return _chay(lambda: su_co.bao_su_co(
+        db, user=user, cong_viec_id=cong_viec_id,
+        bo_phan_hong=body.bo_phan_hong, mo_ta=body.mo_ta, muc_do=body.muc_do,
+        dung_san_xuat=body.dung_san_xuat, expected_version=body.expected_version,
+    ))
 
 
 @router.post("/work-items/{cong_viec_id}/ket-thuc", response_model=LenhKetQuaOut)
@@ -1141,10 +1188,10 @@ def kho_xac_nhan_nhap(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(KHO_MODULE, "create"))],
 ) -> dict:
-    """Kho xác nhận nhận một phần yêu cầu nhập kho (§14.1) → đẻ lot thành phẩm, khoá phần đã nhận. Đẩy
-    SSE tới người ghi KCS (đã nhận đến đâu)."""
+    """Kho xác nhận nhận một phần yêu cầu nhập kho (§14.1) → đẻ lot thành phẩm MANG KHO ĐÍCH, khoá
+    phần đã nhận. Đẩy SSE tới người ghi KCS (đã nhận đến đâu)."""
     res = _chay(lambda: kho.kho_xac_nhan_nhap(
-        db, user=user, yc_id=yc_id, so_luong=body.so_luong,
+        db, user=user, yc_id=yc_id, so_luong=body.so_luong, kho_id=body.kho_id,
         expected_version=body.expected_version,
     ))
     _phat_sse_kho(res, notify_uids=[res.get("nguoi_tao_id")])

@@ -64,4 +64,16 @@ tmp
 # Ảnh người dùng tải lên lúc chạy (cùng loại với 10 thư mục static ở trên)
 backend/static/bao-gia/
 backend/static/ky-thuat-may/
+
+# Thư mục nháp của superpowers (ledger, brief, gói review) — cùng loại .claude/.agents
 .superpowers/
+
+# Rác biên dịch LaTeX (dùng chung nếu có .tex khác sau này) — *.log đã có ở trên
+*.aux
+*.out
+*.toc
+*.synctex.gz
+
+# Sổ tay Kinh doanh (docs/user-manual-kinh-doanh) — bản giao trực tiếp qua chat,
+# không phải mã nguồn ứng dụng; toàn bộ .tex/.pdf/screenshots KHÔNG track ở đây
+docs/user-manual-kinh-doanh/

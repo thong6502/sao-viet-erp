@@ -67,6 +67,29 @@ MODULES: list[tuple[str, str]] = [
     # Khoá `xep_lich` (màn cũ) gỡ 19/08/2026 — mg `0219` chép quyền sang `xep_lich_2` rồi xoá.
     # Khoá giữ hậu tố "_2" để khỏi đổi khoá trong DB; NHÃN là "Xếp lịch công đoạn", màn duy nhất.
     ("xep_lich_2", "Xếp lịch công đoạn"),
+    # HAI MÀN CHỈ ĐỌC (31/08/2026). Phạm vi của chúng bám `orders.sale_user_id` — phạm vi của
+    # người BÁN — khác hẳn `san_xuat` vốn bám `lsx.nguoi_phu_trach_id` (người LÀM). Đó là lý do
+    # phải là hai khoá riêng chứ không tick thêm bit vào `san_xuat`: sửa nghĩa scope của
+    # `san_xuat` là tổ trưởng/thợ (scope `own`) mất sạch lệnh ở màn Kế hoạch SX.
+    #
+    # LUẬT CẤP QUYỀN cho hai khoá này ở `ROLES` bên dưới (chốt 31/08/2026, sau một vòng sửa vì
+    # bản đầu có lỗ hổng — xem lịch sử task-1 module Lệnh SX/Theo dõi SX):
+    #   - Vai đọc được `don_hang_ban` (can_read=True) → cấp, lấy ĐÚNG scope của `don_hang_ban`
+    #     (kể cả scope `own` — người bán CÓ đơn của chính họ nên `own` vẫn có dữ liệu để xem).
+    #   - HOẶC vai giữ `san_xuat` ở scope `department`/`all` → cấp, lấy ĐÚNG scope đó.
+    #   - Vai chỉ đủ điều kiện nhờ `san_xuat` ở scope `own` (Tổ trưởng SX, Thợ SX) → KHÔNG cấp.
+    #     Lý do: scope `own` trên HAI MÀN NÀY nghĩa là "lệnh của những ĐƠN do CHÍNH TÔI bán" — tổ
+    #     trưởng/thợ không bán đơn nào nên màn sẽ LUÔN RỖNG; cấp một mục menu vĩnh viễn trống là
+    #     lỗi giao diện, không phải quyền chặt hơn. Họ vào lệnh qua màn Thực hiện SX, không qua
+    #     đây — ĐỪNG "sửa lại cho nhất quán" ở hai vai đó.
+    #   - Vai không đọc được khoá nào trong hai khoá gốc → không cấp gì.
+    # NHÃN cố ý KHÁC tên khoá. Màn "Kế hoạch sản xuất" đã có sẵn một TAB tên "Lệnh sản xuất" —
+    # đó là bàn của người LẬP lệnh (có nút ghi, sửa routing). Màn này là bàn của người TRA CỨU:
+    # hồ sơ một lệnh xuyên suốt tới KCS · nhập kho · giao hàng, không một nút ghi nào. Hai vai
+    # trò khác nhau nên phải khác TÊN, còn KHOÁ giữ nguyên `lenh_san_xuat` (đã seed + mg 0246 +
+    # test bám) — cùng lối `bai_ghep_2` mang nhãn "Bài ghép". `seed_modules` tự đồng bộ nhãn.
+    ("lenh_san_xuat", "Hồ sơ lệnh sản xuất"),
+    ("theo_doi_san_xuat", "Theo dõi sản xuất"),
     # Kỹ thuật máy (12/08/2026) gộp Sửa chữa + Bảo trì vì "cùng một người làm cả hai việc". Lý do
     # đó vẫn đúng cho NGƯỜI LÀM, nhưng ô quyền còn phải phục vụ người ĐI CẤP: điều độ cần xem lịch
     # bảo trì để né máy nằm, mà không nên đọc phiếu máy hỏng. Nên tách 17/08/2026.
@@ -423,6 +446,10 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_OWN),
             "san_xuat": _rcu(SCOPE_ALL),
+            # Điều độ lập lệnh thì phải xem được lệnh (Lệnh SX) và tiến độ (Theo dõi SX) — scope
+            # ALL vì `san_xuat` của vai này đã là ALL, không có `don_hang_ban` để so bì.
+            "lenh_san_xuat": _read(SCOPE_ALL),
+            "theo_doi_san_xuat": _read(SCOPE_ALL),
             "ke_hoach_vat_tu": _rcu(SCOPE_ALL),
             "bai_ghep_2": _rcu(SCOPE_ALL),
             # can_approve = phát hành lịch; can_approve_exception = duyệt ngoại lệ (bỏ qua cảnh báo
@@ -456,6 +483,13 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_OWN),
             "san_xuat": {**_read(SCOPE_OWN), "can_assign_work": True, "can_record_output": True, "can_handover": True},
+            # ⚠️ KHÔNG cấp `lenh_san_xuat`/`theo_doi_san_xuat` ở đây (chốt 31/08/2026 — xem LUẬT
+            # CẤP QUYỀN ghi ở khối `MODULES` phía trên, chỗ khai hai khoá này): tổ trưởng không
+            # đọc `don_hang_ban`, còn `san_xuat` của vai này chỉ ở scope `own` — scope `own` trên
+            # HAI MÀN NÀY nghĩa là "lệnh của những ĐƠN do chính tôi bán", mà tổ trưởng không bán
+            # đơn nào ⇒ màn LUÔN RỖNG. Cấp một mục menu vĩnh viễn trống là lỗi giao diện, không
+            # phải quyền chặt hơn. ĐỪNG "sửa lại cho nhất quán" — tổ trưởng vào lệnh SX qua màn
+            # Thực hiện SX, không qua hai màn chỉ-đọc này.
             # Ba dòng dưới GIỮ NGUYÊN mức đang có, không siết thêm: trước 17/08/2026 một ô
             # `san_xuat:read` đã mở sẵn cả ba màn này cho tổ trưởng. Tách khoá là để quản trị CÓ
             # THỂ bỏ tick, không phải để tự ý cắt quyền của người đang làm — muốn siết thì bỏ tick
@@ -506,6 +540,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Sản xuất",
         "Thợ SX",
         # Ba màn kia giữ nguyên mức đang có (xem ghi chú ở vai Tổ trưởng SX).
+        # KHÔNG cấp `lenh_san_xuat`/`theo_doi_san_xuat` — cùng lý do đã ghi ở vai Tổ trưởng SX:
+        # `san_xuat` của thợ chỉ ở scope `own`, mà scope `own` trên hai màn này là "đơn CHÍNH TÔI
+        # bán" — thợ không bán đơn nào nên màn sẽ luôn rỗng. Thợ vào lệnh qua Thực hiện SX.
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_OWN),
          "ke_hoach_vat_tu": _read(SCOPE_ALL), "bai_ghep_2": _read(SCOPE_ALL),
          "xep_lich_2": _read(SCOPE_ALL),
@@ -521,6 +558,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Sản xuất",
         "QC",
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_ALL),
+         # Scope rộng hơn giữa `san_xuat` (all, không có `don_hang_ban`) = all.
+         "lenh_san_xuat": _read(SCOPE_ALL), "theo_doi_san_xuat": _read(SCOPE_ALL),
          "ke_hoach_vat_tu": _read(SCOPE_ALL), "bai_ghep_2": _read(SCOPE_ALL),
          "xep_lich_2": _read(SCOPE_ALL),
          "yeu_cau_sua_chua": _rcu(SCOPE_ALL),  # soi ra máy chạy sai thì báo ngay tại chỗ
@@ -536,6 +575,10 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "bao_gia": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
             # Đơn hàng bán: TP KD duyệt đơn đặc thù + hủy đơn đã chốt (cùng GĐ KD).
             "don_hang_ban": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
+            # Xem lệnh SX của ĐƠN trong phòng mình: cùng phạm vi với đơn hàng, không rộng hơn
+            # (vai này không có `san_xuat` để so bì).
+            "lenh_san_xuat": _read(SCOPE_DEPARTMENT),
+            "theo_doi_san_xuat": _read(SCOPE_DEPARTMENT),
             "giao_hang": {**_read(SCOPE_DEPARTMENT), "can_create": True, "can_cancel": True},
             "nghi_phep": _leave_self(),
         },
@@ -550,6 +593,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             **{k: _full(SCOPE_ALL) for k in KD_MODULE_KEYS},
             "bao_gia": _full(SCOPE_ALL, can_approve_exception=True),
             "don_hang_ban": _full(SCOPE_ALL, can_approve_exception=True),
+            # Xem lệnh SX của MỌI đơn: cùng phạm vi ALL với đơn hàng.
+            "lenh_san_xuat": _read(SCOPE_ALL),
+            "theo_doi_san_xuat": _read(SCOPE_ALL),
             # Giao hàng: người bán theo dõi hàng của khách mình tới đâu (PRD §3, persona "Bộ phận
             # Bán hàng"). Xem + thao tác + huỷ yêu cầu; KHÔNG lên kế hoạch, KHÔNG soi tài xế.
             "giao_hang": {**_read(SCOPE_ALL), "can_create": True, "can_cancel": True},
@@ -570,6 +616,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # Đơn hàng bán: NV KD lập/sửa/chốt đơn CỦA MÌNH (_rcu own + quản trạng thái). Đơn đặc thù
             # (nhập tay/bổ sung) phải TRÌNH lên TP/GĐ (can_approve_exception). Ghi cọc = Kế toán (P2).
             "don_hang_ban": {**_rcu(SCOPE_OWN), "can_manage_status": True},
+            # Xem lệnh SX của ĐƠN mình phụ trách: cùng phạm vi với đơn hàng, không rộng hơn.
+            "lenh_san_xuat": _read(SCOPE_OWN),
+            "theo_doi_san_xuat": _read(SCOPE_OWN),
             # Tính giá: NV Sales tự lập phiếu tính giá của mình; phạm vi "Của tôi" (chỉ thấy phiếu mình lập),
             # TP KD/GĐ scope phòng/tất cả thấy hết (lọc theo `created_by`).
             "tinh_gia_thanh": _rcu(SCOPE_OWN),
@@ -599,6 +648,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # siết "thủ kho không đặt đơn giá giấy" thì tắt công tắc Thao tác ở ma trận.
             **{k: _dm_full() for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "dm_kho_hang")},
             "san_xuat": _read(SCOPE_ALL),    # xem kế hoạch SX để tham chiếu khi lập phiếu
+            # Scope rộng hơn giữa `san_xuat` (all, không có `don_hang_ban`) = all.
+            "lenh_san_xuat": _read(SCOPE_ALL),
+            "theo_doi_san_xuat": _read(SCOPE_ALL),
             # Giữ nguyên mức cũ khi tách khoá (17/08/2026). Kho là bên đọc Kế hoạch vật tư nhiều
             # nhất — bảng cân đối nói hôm nào phải có giấy gì, đúng việc của người giữ kho.
             "ke_hoach_vat_tu": _read(SCOPE_ALL),
@@ -621,6 +673,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             },
             **{k: _dm_full() for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "dm_kho_hang")},
             "san_xuat": _read(SCOPE_ALL),
+            # Scope rộng hơn giữa `san_xuat` (all, không có `don_hang_ban`) = all.
+            "lenh_san_xuat": _read(SCOPE_ALL),
+            "theo_doi_san_xuat": _read(SCOPE_ALL),
             "ke_hoach_vat_tu": _read(SCOPE_ALL),
             "bai_ghep_2": _read(SCOPE_ALL),
             "xep_lich_2": _read(SCOPE_ALL),
@@ -634,6 +689,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_ALL),
             "don_hang_ban": {**_read(SCOPE_ALL), "can_record_deposit": True},
+            # Xem lệnh SX của MỌI đơn: cùng phạm vi ALL với đơn hàng.
+            "lenh_san_xuat": _read(SCOPE_ALL),
+            "theo_doi_san_xuat": _read(SCOPE_ALL),
         },
     ),
     # Kế toán tổng hợp (26/08/2026): 5 màn tách khỏi khoá `ke_toan` ngày 10/08/2026 (Phiếu chi ·
@@ -663,6 +721,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "thu_mua": _read(SCOPE_ALL),
             # Ghi phiếu thu CỌC ngay trên đơn hàng bán (cùng ô của vai "Kế toán bán hàng").
             "don_hang_ban": {**_read(SCOPE_ALL), "can_record_deposit": True},
+            # Xem lệnh SX của MỌI đơn: cùng phạm vi ALL với đơn hàng.
+            "lenh_san_xuat": _read(SCOPE_ALL),
+            "theo_doi_san_xuat": _read(SCOPE_ALL),
             # Lương: bảng lương cả xưởng (`can_view_payroll_table`) + đánh dấu ĐÃ CHI
             # (`can_manage_status`) + xuất bảng. `can_create` giữ phần TỰ PHỤC VỤ (xin tạm ứng):
             # vai nào khai riêng khoá `luong` là ĐÈ MẤT `_luong_self()` mặc định.
@@ -699,6 +760,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_OWN),
             "kho": {**_read(SCOPE_OWN), "can_request": True},
             "san_xuat": _rcu(SCOPE_ALL),
+            # Scope rộng hơn giữa `san_xuat` (all, không có `don_hang_ban`) = all.
+            "lenh_san_xuat": _read(SCOPE_ALL),
+            "theo_doi_san_xuat": _read(SCOPE_ALL),
             "ke_hoach_vat_tu": _rcu(SCOPE_ALL),
             "bai_ghep_2": _rcu(SCOPE_ALL),
             "xep_lich_2": _rcu(SCOPE_ALL),
@@ -715,6 +779,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_ALL),
             "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True, "can_approve": True},
             "san_xuat": _full(SCOPE_ALL),
+            # Scope rộng hơn giữa `san_xuat` (all, không có `don_hang_ban`) = all.
+            "lenh_san_xuat": _read(SCOPE_ALL),
+            "theo_doi_san_xuat": _read(SCOPE_ALL),
             "ke_hoach_vat_tu": _full(SCOPE_ALL),
             "bai_ghep_2": _full(SCOPE_ALL),
             "xep_lich_2": _full(SCOPE_ALL),
@@ -789,6 +856,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             },
             # Điều phối cần biết đơn giao cho ai, địa chỉ ở đâu — CHỈ TRA, không sửa đơn/khách.
             "don_hang_ban": _read(SCOPE_ALL),
+            # Xem lệnh SX của MỌI đơn: cùng phạm vi ALL với đơn hàng.
+            "lenh_san_xuat": _read(SCOPE_ALL),
+            "theo_doi_san_xuat": _read(SCOPE_ALL),
             "khach_hang": _read(SCOPE_ALL),
             "nghi_phep": _leave_self(),
         },

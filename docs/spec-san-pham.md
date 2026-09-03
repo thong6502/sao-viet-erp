@@ -4,6 +4,16 @@
 > Cấp cho engine: khổ, số trang, số màu/mặt, binding, dieline → để bình bài + tính giá.
 > Anh em với `spec-quy-tac-binh-bai.md`, `spec-may-thiet-bi.md`, `spec-cong-doan.md`.
 
+> **Đối chiếu code (09/2026), chỉ soát §2 tầng 1:** hai trường `default_so_mat` và `vat_rate`
+> KHÔNG tồn tại trong model thật (`backend/app/models/loai_san_pham.py:42-68`) — đã sửa lại ở bảng
+> §2 bên dưới. `imposition_rule_id` cũng **không bắt buộc** (NULL được, chốt MVP cố tình không
+> hard-block), dù trỏ tới bảng `quy_tac_binh_bai` — bảng này **không tồn tại** trong hệ (không
+> model, không màn khai — `backend/app/services/catalog_excel_specs.py:232-234`); trường chỉ lưu
+> số nguyên chờ sẵn cho tương lai. **Tầng 2 `jobspec` (§3 trở xuống) chưa được đối chiếu code trong
+> đợt rà soát này** — đọc như tài liệu thiết kế/dự kiến, không phải mô tả hiện trạng đang chạy;
+> trong Phiếu tính giá thực tế, chỉ `ten` và `routing_template` của Loại sản phẩm thật sự chảy vào
+> `PhieuThanhPhan` (`frontend/src/pages/PhieuTinhGiaDetailView.tsx:1327-1349`).
+
 ---
 
 ## 1. Tổng quan
@@ -28,6 +38,9 @@
 
 ## 2. Mô hình dữ liệu — TẦNG 1: `loai_san_pham`
 
+Bảng dưới đã sửa theo model thật (`backend/app/models/loai_san_pham.py:42-68`) — xem callout đầu
+file cho phần đã bị bỏ.
+
 | Field | Kiểu | Bắt buộc | Default | Mô tả |
 |---|---|---|---|---|
 | id | PK | ✓ | | |
@@ -35,15 +48,18 @@
 | ten | string(150) | ✓ | | |
 | structural_type | enum(flat, multipage, box, label) | ✓ | | quyết nhánh spec + tương thích rule (§5) |
 | box_sub_type | enum(folding_carton, corrugated, rigid) | khi box | | quyết máy đủ điều kiện + routing |
-| imposition_rule_id | FK → quy_tac_binh_bai | ✓ | | rule bình bài |
-| default_so_mat | int(1,2) | | | mặc định 1/2 mặt (flat) |
+| imposition_rule_id | FK → quy_tac_binh_bai *(bảng đích không tồn tại — chỉ lưu số nguyên)* | Không | NULL | rule bình bài, chờ sẵn |
 | has_cover | bool | | false | có bìa riêng (multipage) |
 | cover_type | enum(tu_bia, bia_roi) | khi has_cover | bia_roi | **tự bìa** dùng giấy ruột; bìa rời mới cần giấy bìa |
 | default_binding | enum(ghim, keo, khau) | | | (multipage) |
 | default_stock_class | enum(couche, ford, ivory, duplex, kraft) | | | |
 | routing_template[] | FK[] → cong_doan | | | các công đoạn mặc định (in, cắt, cán, bế, đóng…) |
-| vat_rate | enum(5, 8, 10) | ✓ | 8 | **thuế suất mặc định** (sách 5%, in thường 8/10%) — override được ở JobSpec/Báo giá |
+| ghi_chu | text | | | |
 | active | bool | ✓ | true | |
+
+**Đã bỏ khỏi bảng gốc (không có trong model thật):** `default_so_mat` (int 1/2 mặt) và `vat_rate`
+(enum 5/8/10, thuế suất mặc định) — không trường nào trong hai trường này tồn tại ở
+`loai_san_pham`. Thuế suất hiện được xử lý ở tầng Báo giá, không neo vào Loại sản phẩm.
 
 ---
 
@@ -195,6 +211,15 @@ THỚ (grain) — thứ tự ưu tiên: jobspec.grain_requirement > rule.grain_c
 ---
 
 ## 7. Seed data
+
+> **Đối chiếu code (09/2026):** bảng dưới là dữ liệu MINH HOẠ lúc viết spec, không khớp mã seed
+> thật. Seed thật (`LSP-0001..LSP-0008`) dùng mã tuần tự, không dùng mã gợi nhớ như bảng dưới, và
+> cũng không có cột `rule`/`vat` (không tồn tại — xem callout đầu file): `LSP-0001` Name card,
+> `LSP-0002` Tờ phơi/brochure gấp, `LSP-0003` Catalogue đóng keo, `LSP-0004` Sách đóng ghim,
+> `LSP-0005` Hộp giấy Ivory, `LSP-0006` Thùng carton sóng, `LSP-0007` Tem decal cuộn, `LSP-0008`
+> Thẻ nhân viên. Bảng dưới giữ lại làm ví dụ cấu trúc theo `structural_type`, không phải dữ liệu
+> seed thật.
+
 | ma | structural_type | rule | đặc trưng |
 |---|---|---|---|
 | NAMECARD | flat | PHANG-NUP | 90×53, Couché 300, 4/4, vat 8 |

@@ -24,6 +24,7 @@ import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
 import GiaoHangPage from "../pages/giao-hang/giao-hang";
 import { KeHoachSXPage } from "../pages/KeHoachSXPage";
+import { LenhSanXuatPage } from "../pages/LenhSanXuatPage";
 import { KeHoachVatTuPage } from "../pages/KeHoachVatTuPage";
 import { BaiGhep2Page } from "../pages/BaiGhep2Page";
 import { XepLich2Page } from "../pages/XepLich2Page";
@@ -69,6 +70,7 @@ import {
 } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { coTheMoKenhSse } from "./appShellRealtime";
+import { docDeepLinkLsx } from "./appShellDeepLink";
 
 /** A cross-module navigation intent: which screen to open + optional payload so the
  *  target screen can pre-pin a customer or drill straight to a document. */
@@ -125,6 +127,24 @@ export interface NavParams {
   khoNhapSeed?: KhoNhapSeed;
   /** Bấm 1 thông báo kho → mở đúng yêu cầu: `view` chọn tab (Yêu cầu/Hộp), `id` = request_id. */
   khoOpenRequest?: { id: number; view: "denghi" | "yeucau" };
+  /** Deep link QR phiếu công nghệ (Task 14): tổ trưởng quét mã dán ở máy → mở thẳng hồ sơ MỘT
+   *  lệnh trên màn "Hồ sơ lệnh sản xuất". Nguồn: hash `#lsx=<id>&pv=<phien_ban_in>` đọc lúc
+   *  AppShell mount (`appShellDeepLink.ts`), KHÔNG phải một mục Sidebar bấm tay. */
+  openHoSoLsxId?: number;
+  /** Đi kèm `openHoSoLsxId`: phiên bản phát hành đang IN TRÊN TỜ GIẤY đã quét. Hồ sơ so số này với
+   *  `phien_ban` hiện tại của lệnh để báo "phiếu giấy này là bản cũ" khi lệch — xem
+   *  `LenhSxHoSoView`. `null` = QR không mang `pv` (không có gì để so, không bày băng). */
+  openHoSoPv?: number | null;
+  /** Số thứ tự tăng dần MỖI LƯỢT gọi `navigate(...)` (xem `navigate` bên dưới) — bất kể tới màn
+   *  nào, bất kể tham số gì. KHÔNG phải "cái gì trong params đã đổi" mà là "đây có phải MỘT LƯỢT
+   *  ĐIỀU HƯỚNG MỚI hay không", kể cả khi mọi giá trị nguyên thuỷ khác giống hệt lượt trước (Task
+   *  14, lỗi N1 vòng rà lại: quét LẠI đúng tờ giấy vừa đóng thì `openHoSoLsxId`/`openHoSoPv` ra
+   *  cùng một cặp số như lần trước, effect của màn đích không có gì để phân biệt hai lượt).
+   *  Hạ tầng CHUNG (tăng cho MỌI lượt `navigate`, không riêng gì deep link), nhưng vòng sửa 2 này
+   *  CHỈ nối dây cho `LenhSanXuatPage` — 19 nhánh còn lại của `renderContent()` chưa đọc trường
+   *  này, hành vi của chúng không đổi. Màn nào sau này cần "điều hướng lại tới cùng chỗ với cùng
+   *  tham số vẫn phải coi là một việc mới" thì đưa trường này vào deps effect của chính nó. */
+  navSeq?: number;
 }
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
@@ -211,6 +231,8 @@ export function AppShell() {
     thu_mua: 0,
     ke_toan: 0,
   });
+  // Tăng mỗi lượt `navigate(...)` — xem `navSeq` trong `NavParams` và `navigate` bên dưới.
+  const navSeqRef = useRef(0);
   // Giữ tham số `ms` (thông báo kho hiện lâu 9s) — luồng thông báo-theo-phòng dùng.
   const pushToast = useCallback(
     (text: string, tone: "ok" | "warn" | "info", ms = 6000) => {
@@ -222,14 +244,48 @@ export function AppShell() {
   );
 
   // Single navigation entrypoint: switches the active screen AND carries an optional
-  // payload (pinned customer / document to open). Every param object is fresh so the
-  // target screen's effect re-fires even when re-navigating to the same screen.
+  // payload (pinned customer / document to open). A fresh params OBJECT each call does
+  // NOT by itself make the target screen's effect re-fire — every current consumer
+  // destructures primitive fields out of it (`navParams?.xxx`), and React's dependency
+  // check compares those primitives by value, not the wrapping object by identity. Two
+  // calls carrying the same primitive values (e.g. re-navigating to the same doc) look
+  // identical to such an effect. `navSeq` below exists to break that tie when a screen
+  // needs "navigated again" to count as a change even with unchanged params (Task 14,
+  // lỗi N1: quét lại đúng QR vừa đóng thì không mở lại gì).
   const navigate = useCallback<NavigateFn>((id, params) => {
     setActiveId(id);
-    setNavParams(params ?? null);
+    setNavParams({ ...(params ?? {}), navSeq: ++navSeqRef.current });
     // Chọn xong một mục thì đóng ngăn kéo — không thì ở điện thoại nó che hết màn vừa mở.
     setNavOpen(false);
   }, []);
+
+  // Deep link QR phiếu công nghệ (Task 14, ruling C105/C108): đọc `#lsx=&pv=` lúc AppShell mount
+  // rồi tự nhảy thẳng vào đúng hồ sơ — tổ trưởng quét mã xong không phải tự dò lệnh trong bảng.
+  // Chỗ đọc CHỈ ở đây vì AppShell chỉ mount khi ĐÃ có phiên (App.tsx); hash SỐNG SÓT qua lượt đăng
+  // nhập vì `LoginPage` không đụng `window.location` (bài canh: `LoginPage.test.tsx`).
+  // KHÔNG tự kiểm quyền lần hai ở đây — lệnh ngoài phạm vi thì `ho_so.ho_so()` phía backend đã
+  // chặn (404/403), `LenhSxHoSoView` chỉ việc hiện lỗi đó tử tế (ruling C108).
+  //
+  // Sửa vòng 1 (P2): KHÔNG được chỉ đọc MỘT LẦN lúc mount. Tổ trưởng đã mở sẵn hệ thống trong tab
+  // đó (AppShell đã mount, hash lần trước đã bị `replaceState` xoá) rồi quét mã THỨ HAI — trình
+  // duyệt chỉ đổi phần fragment của URL, đó là same-document navigation nên KHÔNG reload, KHÔNG
+  // remount, effect mount-một-lần không chạy lại ⇒ im lặng không làm gì. Sự đổi hash đó tự nó vẫn
+  // bắn sự kiện `hashchange` dù không load lại trang, nên nghe thêm sự kiện đó, DÙNG CHUNG một hàm
+  // xử lý với lượt mount (không chép hai bản logic).
+  useEffect(() => {
+    const doDeepLink = () => {
+      const dl = docDeepLinkLsx(window.location.hash);
+      if (!dl) return;
+      navigate("lenh-san-xuat", { openHoSoLsxId: dl.lsxId, openHoSoPv: dl.pv });
+      // Xoá hash NGAY sau khi dùng: nó chỉ có nghĩa lúc VÀO CỬA. Để nguyên thì F5 giữa lúc điều độ
+      // đang xem một lệnh KHÁC lại kéo họ về đúng lệnh cũ trên QR — URL không còn đại diện cho màn
+      // đang mở (`AppShell` không đồng bộ URL với `activeId`/`navParams`, xem đầu file).
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    };
+    doDeepLink();
+    window.addEventListener("hashchange", doDeepLink);
+    return () => window.removeEventListener("hashchange", doDeepLink);
+  }, [navigate]);
 
   // Esc đóng ngăn kéo (bàn phím + máy đọc màn hình đều cần đường thoát ngoài nút hamburger).
   useEffect(() => {
@@ -1300,6 +1356,21 @@ export function AppShell() {
             openLsxId={navParams?.openLsxId ?? null}
             eventTick={quoteTick}
             onBadgeStale={reloadBadges}
+          />
+        );
+      case "lenh-san-xuat":
+        // Bàn TRA CỨU, chỉ đọc. `eventTick` nhích theo MỌI sự kiện SSE ⇒ bảng tự tươi khi tổ bấm
+        // Bắt đầu/Kết thúc — màn tự GỘP 2 giây rồi mới gọi lại, và KHÔNG toast (bảng tra cứu
+        // không phải chỗ báo tin). Hồ sơ một lệnh là LỚP PHỦ do chính màn này mở, không phải một
+        // trang riêng — `navigate` chỉ để hồ sơ đi tiếp sang màn Đơn hàng bán khi cần lập yêu cầu
+        // giao hàng.
+        return (
+          <LenhSanXuatPage
+            eventTick={quoteTick}
+            navigate={navigate}
+            openHoSoId={navParams?.openHoSoLsxId ?? null}
+            openHoSoPv={navParams?.openHoSoPv ?? null}
+            openHoSoSeq={navParams?.navSeq ?? null}
           />
         );
       case "ke-hoach-vat-tu":

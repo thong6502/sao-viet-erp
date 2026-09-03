@@ -3578,10 +3578,22 @@ mở phiếu là hàng chờ của thợ sửa lẫn với lời báo chưa ai x
 tổ kỹ thuật báo miệng thì không còn vết ai-báo-lúc-nào.
 
 **Tất cả cột:** `id`, `ma` (YC-#### sinh ngầm), `may_id` (soft → `may_thiet_bi.id`),
+`cong_viec_id` (soft → `san_xuat_cong_viec.id`), `lsx_id` (soft → `lsx.id`),
 `bo_phan_hong`, `mo_ta`, `muc_do` (nhe·trung_binh·nghiem_trong), `may_dung`, `nguoi_bao_id` (soft →
 `users.id`), `nguoi_bao_ten`, `bo_phan` (snapshot), `thoi_diem`, `trang_thai`
 (cho_tiep_nhan·da_tao_phieu·tu_choi), `phieu_id` (soft → `ky_thuat_sua_chua.id`), `ly_do_tu_choi`,
 `xu_ly_boi`, `xu_ly_ten`, `xu_ly_at`, `created_at`, `updated_at`.
+
+- **`cong_viec_id` + `lsx_id` = NEO SẢN XUẤT (mg 0248, 31/08/2026), cả hai NULL được.** Sự cố báo
+  từ màn **Thực hiện SX** (nút "Báo sự cố") mang theo công việc đang chạy lúc máy hỏng: hồ sơ lệnh
+  kể được "sự cố này ăn mất bao lâu của lệnh nào", còn tổ sửa chữa biết máy đang cắm vào việc gì mà
+  xếp ưu tiên. Yêu cầu báo từ màn **Sửa chữa máy** (người ngoài xưởng) để trống hai cột — mg 0248
+  **không backfill**: gán nhầm lệnh còn tệ hơn để trống. SERVER chốt hai giá trị từ chính công việc
+  (`services/san_xuat/su_co.py`), client KHÔNG khai được: chúng đi bằng **tham số riêng** của
+  `tao_yeu_cau`/`create_yeu_cau`, không đọc từ dict thân request — nằm-ngoài-`ASSIGNABLE_YEU_CAU`
+  KHÔNG phải là cổng (vòng gán thẳng cạnh đó cũng đọc chính dict ấy; ba khoá người-báo an toàn là
+  nhờ service ghi đè, không phải nhờ ASSIGNABLE). Nhánh "Dừng sản xuất" ghi yêu cầu + tạm dừng công
+  việc + đóng phiên máy trong MỘT giao dịch (ba tầng dưới nhận cờ `commit=False`).
 
 - **`nguoi_bao_id` = TÀI KHOẢN ĐANG ĐĂNG NHẬP, không phải ô chọn** — ngược hẳn
   `ky_thuat_sua_chua.nguoi_bao_id` (ô chọn, soft → `employees.id`, vì tổ kỹ thuật nhập hộ người báo
@@ -4420,11 +4432,12 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `khoan_json` | `JSON` | — | yes | — | Snapshot cấu hình lương khoán (nội bộ bắt buộc hợp lệ — §4.2). |
 | `vat_tu_json` | `JSON` | — | yes | — | Snapshot dữ liệu vật tư liên quan. |
 | `trang_thai` | `String(16)` | — | no | `released` | `released`→`running`↔`paused`→`completed` (§18). |
+| `hoan_thanh_luc` | `DateTime(timezone=True)` | — | yes | — | Mốc NGHIỆP VỤ bước xong (mig `0256`). Đóng dấu một lần ở `thuc_thi.ket_thuc` — chỗ duy nhất đặt `completed`. Tách khỏi `updated_at` vì cột đó là mốc BẢO TRÌ: rút người khỏi bước đã xong cũng `version += 1` ⇒ `onupdate` dời mốc, và KPI "công đoạn xong hôm nay" từng kéo một bước đóng năm 2020 vào hôm nay. Backfill = `updated_at` cho dòng đang `completed`. |
 | `version` | `Integer` | — | no | `1` | Chống bấm trùng. |
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now/onupdate | |
 
-**Tất cả cột:** `id`, `goi_id`, `phien_ban_so`, `nhom_id`, `lsx_id`, `bai_ghep_id`, `lsx_cong_doan_id`, `bai_ghep_cong_doan_id`, `step_key`, `phan_doan_so`, `phan_doan_tong`, `ten_cong_doan`, `nhom_cong_doan`, `loai_buoc`, `department_id`, `la_kcs`, `la_kcs_cuoi`, `kcs_tieu_chi_json`, `may_id`, `du_kien_bat_dau`, `du_kien_ket_thuc`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `dinh_muc_json`, `khoan_json`, `vat_tu_json`, `trang_thai`, `version`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `goi_id`, `phien_ban_so`, `nhom_id`, `lsx_id`, `bai_ghep_id`, `lsx_cong_doan_id`, `bai_ghep_cong_doan_id`, `step_key`, `phan_doan_so`, `phan_doan_tong`, `ten_cong_doan`, `nhom_cong_doan`, `loai_buoc`, `department_id`, `la_kcs`, `la_kcs_cuoi`, `kcs_tieu_chi_json`, `may_id`, `du_kien_bat_dau`, `du_kien_ket_thuc`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `dinh_muc_json`, `khoan_json`, `vat_tu_json`, `trang_thai`, `hoan_thanh_luc`, `version`, `created_at`, `updated_at`.
 
 ### `san_xuat_phu_thuoc`
 
@@ -4481,9 +4494,10 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `id` | `Integer` | **PK** | no | auto | Surrogate PK. |
 | `cong_viec_id` | `Integer` FK→`san_xuat_cong_viec.id` (CASCADE) | IX | no | — | Công việc. |
 | `so_thu_tu` | `Integer` | — | no | `1` | Thứ tự phiên trong công việc. |
+| `may_id` | `Integer` (soft ref → `may_thiet_bi.id`) | IX | yes | — | Máy CHẠY TRONG PHIÊN NÀY (31/08/2026, mg 0247). Ảnh chụp lúc mở phiên; đổi máy giữa chừng đóng phiên cũ + mở phiên mới. NULL = bước chiếm tổ (`loai_buoc='to'`). |
 | `bat_dau` | `DateTime(timezone=True)` | — | no | — | Mốc bắt đầu (máy chủ). |
 | `ket_thuc` | `DateTime(timezone=True)` | — | yes | — | Mốc đóng phiên; NULL = đang mở. |
-| `loai_dong` | `String(16)` | — | yes | — | `tam_dung` \| `ket_thuc`. |
+| `loai_dong` | `String(16)` | — | yes | — | `tam_dung` \| `ket_thuc` \| `doi_may`. |
 | `ly_do_bat_dau_tre` | `String(255)` | — | yes | — | Bắt buộc khi bắt đầu sau dự kiến (§7.2). |
 | `ly_do_so_nguoi` | `String(255)` | — | yes | — | Bắt buộc khi số người thực tế ≠ dự kiến chốt lúc phát hành (§7.1); NULL = khớp. Mg 0223. |
 | `ly_do` | `String(255)` | — | yes | — | Lý do tạm dừng / kết thúc trễ. |
@@ -4492,7 +4506,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now (UTC) | onupdate = now. |
 
-**Tất cả cột:** `id`, `cong_viec_id`, `so_thu_tu`, `bat_dau`, `ket_thuc`, `loai_dong`, `ly_do_bat_dau_tre`, `ly_do_so_nguoi`, `ly_do`, `version`, `created_by`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `cong_viec_id`, `so_thu_tu`, `may_id`, `bat_dau`, `ket_thuc`, `loai_dong`, `ly_do_bat_dau_tre`, `ly_do_so_nguoi`, `ly_do`, `version`, `created_by`, `created_at`, `updated_at`.
 
 ---
 
@@ -4956,6 +4970,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `so_luong` | `Numeric(18,3)` | — | no | — | Số lượng lot. |
 | `don_vi` | `String(24)` | — | no | — | Đơn vị. |
 | `phan_loai` | `String(16)` | IX | yes | — | BTP dư: `nhap_btp` \| `mau_luu` \| `phe`; thành phẩm để None. |
+| `kho_id` | `Integer` | IX | yes | — | (mg 0255) Kho ĐÃ THỰC SỰ NHẬN lot. Bảng chỉ-thêm ⇒ nhập nhiều lần vào nhiều kho thì mỗi lot mang kho của nó. Trống với `mau_luu`/`phe` và lot cũ trước mg 0255 (không backfill — đoán kho là ghi sai tồn). Không FK cứng để giữ lot khi kho bị xoá. |
 | `kho_xac_nhan` | `Boolean` | — | no | `false` | Kho đã xác nhận nhận (thành phẩm + `nhap_btp` khi kho nhận). |
 | `xac_nhan_by_id` | `Integer` FK→`users.id` | — | yes | — | Người (kho) xác nhận. |
 | `xac_nhan_luc` | `DateTime(timezone=True)` | — | yes | — | Thời điểm xác nhận. |
@@ -4963,7 +4978,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `created_by` | `Integer` FK→`users.id` | — | yes | — | Người tạo lot. |
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 
-**Tất cả cột:** `id`, `hang_id`, `loai_hang`, `order_id`, `nhom_id`, `lsx_id`, `cong_doan_ref_id`, `kcs_batch_id`, `nhap_kho_yc_id`, `nguon_batch_id`, `quy_cach`, `so_luong`, `don_vi`, `phan_loai`, `kho_xac_nhan`, `xac_nhan_by_id`, `xac_nhan_luc`, `ghi_chu`, `created_by`, `created_at`.
+**Tất cả cột:** `id`, `hang_id`, `loai_hang`, `order_id`, `nhom_id`, `lsx_id`, `cong_doan_ref_id`, `kcs_batch_id`, `nhap_kho_yc_id`, `nguon_batch_id`, `quy_cach`, `so_luong`, `don_vi`, `phan_loai`, `kho_id`, `kho_xac_nhan`, `xac_nhan_by_id`, `xac_nhan_luc`, `ghi_chu`, `created_by`, `created_at`.
 
 ---
 
@@ -4982,6 +4997,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `so_luong_xac_nhan` | `Numeric(18,3)` | — | no | `0` | Số kho đã xác nhận (cộng dồn). |
 | `don_vi` | `String(24)` | — | no | — | Đơn vị. |
 | `quy_cach` | `String(255)` | — | yes | — | Quy cách. |
+| `kho_id` | `Integer` | IX | yes | — | (mg 0249) Kho ĐỀ NGHỊ của KCS — gợi ý nên nhập vào kho nào; kho THẬT nằm trên từng lot (`san_xuat_kho_lot.kho_id`). Để trống là bình thường. Không FK cứng. |
 | `trang_thai` | `String(16)` | — | no | `cho_kho` | `cho_kho` \| `nhap_mot_phan` \| `da_nhap` \| `huy`. |
 | `ghi_chu` | `String(500)` | — | yes | — | Ghi chú. |
 | `version` | `Integer` | — | no | `1` | Chống bấm trùng. |
@@ -4991,7 +5007,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now (UTC) | onupdate = now. |
 
-**Tất cả cột:** `id`, `kcs_batch_id`, `hang_id`, `order_id`, `nhom_id`, `so_luong_yeu_cau`, `so_luong_xac_nhan`, `don_vi`, `quy_cach`, `trang_thai`, `ghi_chu`, `version`, `created_by`, `xac_nhan_last_by_id`, `xac_nhan_last_luc`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `kcs_batch_id`, `hang_id`, `order_id`, `nhom_id`, `so_luong_yeu_cau`, `so_luong_xac_nhan`, `don_vi`, `quy_cach`, `kho_id`, `trang_thai`, `ghi_chu`, `version`, `created_by`, `xac_nhan_last_by_id`, `xac_nhan_last_luc`, `created_at`, `updated_at`.
 
 ---
 

@@ -15,7 +15,7 @@ from decimal import Decimal
 
 from ..models.vat_lieu_kho import HANG_LOAI, THO
 from ..repositories.audit_repo import AuditLogRepository
-from ..repositories.don_vi_do_repo import DonViDoRepository
+from ..repositories.don_vi_do_repo import DonViDoRepository, nhan_don_vi
 from ..repositories.purchase_repo import SupplierRepository
 from ..repositories.vat_lieu_kho_repo import VERSION_SNAPSHOT, VatLieuKhoRepository
 from . import nhat_ky_danh_muc as nk
@@ -322,9 +322,12 @@ class VatLieuKhoService:
         d = hop.get(ma)
         if d is None:
             duoc = ", ".join(x["ten"] for x in ra["ds"]) or "(chưa có đơn vị nào)"
+            # Bày TÊN đơn vị chứ không bày mã: hai vế còn lại của câu (`don_vi_goc_ten`, `duoc`)
+            # đã là tên, nên nhét mã vào giữa là bắt người đọc so "to" với "tờ". Mã không có
+            # trong danh mục thì `nhan_don_vi` trả lại chính nó — vẫn thấy mình đã khai gì.
             raise VatLieuKhoValidationError(
-                f"“{ra['ten']}” không đổi được từ “{dvt}” về {ra['don_vi_goc_ten']}. "
-                f"Đơn vị dùng được: {duoc}."
+                f"“{ra['ten']}” không đổi được từ “{nhan_don_vi(self.don_vi.ten_theo_ma(), dvt)}” "
+                f"về {ra['don_vi_goc_ten']}. Đơn vị dùng được: {duoc}."
             )
         return {
             "sl_goc": float(so_luong) * float(d["he_so_ve_goc"]),

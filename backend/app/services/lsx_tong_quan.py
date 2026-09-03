@@ -167,13 +167,31 @@ def _dung_vat_tu(db: Session):
 def tong_quan(db: Session, lsx_ids: list[int]) -> list[dict]:
     """`[{lsx_id, den: {vat_tu, may_gio, nguoi}}]` cho đúng các lệnh được hỏi.
 
+    Vỏ mỏng của `tong_quan_va_bang` — giữ nguyên chữ ký cũ cho mọi chỗ đang gọi (màn danh sách
+    lệnh gọi nó cho tới 200 lệnh một trang), chỉ vứt bảng cân đối đi.
+    """
+    return tong_quan_va_bang(db, lsx_ids)[0]
+
+
+def tong_quan_va_bang(db: Session, lsx_ids: list[int]) -> tuple[list[dict], dict | None]:
+    """Như `tong_quan`, nhưng TRẢ KÈM bảng cân đối vật tư đã dựng để người gọi dùng lại.
+
+    Vì sao có hàm này: bảng cân đối là thứ ĐẮT NHẤT trong cả lượt (đo được: 39 câu SQL khi kho
+    không có bài ghép, 77 khi có 1 bài — hơn hẳn phần còn lại), mà `tong_quan` dựng xong chỉ rút
+    ra MỘT chữ "đỏ/vàng/ok" rồi vứt. Màn hồ sơ một lệnh cần chính các DÒNG của bảng đó; không có
+    cửa này thì nó phải gọi `can_doi()` lượt thứ hai — tức chạy lại đúng engine vừa chạy.
+
+    `bang` là bảng của TOÀN BỘ lệnh trong `TRANG_THAI_TINH` (`_dung_vat_tu` gọi `can_doi()` KHÔNG
+    tham số), không phải riêng `lsx_ids` — người gọi phải tự chiếu về lệnh của mình. `None` khi
+    nguồn vật tư hỏng: cùng lý do `den` lùi về `ok` kèm chữ, không được kéo sập cả bảng lệnh.
+
     Hai nguồn số đều HỎNG ĐƯỢC (bảng cân đối lỗi đơn vị, engine lịch lỗi dữ liệu) mà không được
     kéo sập cả bảng lệnh — bảng lệnh vẫn phải hiện. Nên mỗi nguồn bọc `try` riêng và khi hỏng thì
     đèn tương ứng về `ok` KÈM chữ: im lặng ở đây là nói dối "không có vấn đề".
     """
     ids = [i for i in dict.fromkeys(lsx_ids) if i]
     if not ids:
-        return []
+        return [], None
     idset = set(ids)
 
     # --- Nguồn 1: bàn xếp lịch (dòng + vấn đề) trong MỘT lượt tính ---
@@ -196,9 +214,14 @@ def tong_quan(db: Session, lsx_ids: list[int]) -> list[dict]:
 
     # --- Nguồn 2: giữ chỗ vật tư, một bảng cân đối dùng chung cả trang ---
     giu = bang = None
+    giu_theo_lsx: dict[int, list] = {}
     loi_vt = ""
     try:
         giu, bang = _dung_vat_tu(db)
+        # Dòng giữ chỗ của CẢ TRANG trong MỘT câu. Không có nó thì `trang_thai()` bên dưới tự đi
+        # lấy — tức một câu SELECT cho MỖI lệnh, và hàm này lại là nguồn đèn vật tư của màn danh
+        # sách lệnh. Bài canh: `test_lenh_sx_api.test_so_cau_sql_hang_tren_truc_lenh`.
+        giu_theo_lsx = giu.repo.cua_nhieu_chu_the([(i, None) for i in ids])
     except Exception as exc:                                            # noqa: BLE001
         loi_vt = f"Chưa đọc được vật tư ({type(exc).__name__})"
 
@@ -206,7 +229,9 @@ def tong_quan(db: Session, lsx_ids: list[int]) -> list[dict]:
     for i in ids:
         if giu is not None:
             try:
-                den_vt = _den_vat_tu(giu.trang_thai(lsx_id=i, bang=bang), i)
+                den_vt = _den_vat_tu(
+                    giu.trang_thai(lsx_id=i, bang=bang, dang_theo_chu_the=giu_theo_lsx), i
+                )
             except Exception as exc:                                    # noqa: BLE001
                 den_vt = _den(MUC_OK, f"Chưa đọc được vật tư ({type(exc).__name__})")
         else:
@@ -218,7 +243,7 @@ def tong_quan(db: Session, lsx_ids: list[int]) -> list[dict]:
             den_nguoi = _den_nguoi(cats[i], rows_theo_lsx[i], i)
         out.append({"lsx_id": i, "slack_ngay": _slack(rows_theo_lsx[i]),
                     "den": {"vat_tu": den_vt, "may_gio": den_may, "nguoi": den_nguoi}})
-    return out
+    return out, bang
 
 
 def _slack(rows: list[dict]) -> int | None:

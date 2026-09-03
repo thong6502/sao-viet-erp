@@ -60,6 +60,18 @@ const ZOOM_MAX = 2.5;
 
 const kepZoom = (z: number) => Math.min(Math.max(z, ZOOM_MIN), ZOOM_MAX);
 
+/** Sàn RIÊNG của phép TỰ căn vừa khung khi màn hẹp (≤768px). KHÁC `ZOOM_MIN`: người dùng chủ động
+ *  bấm "−" vẫn xuống được tới `ZOOM_MIN` để nhìn toàn cảnh — chỉ cấm MÁY tự thu quá tay.
+ *  Vì sao 0,55: nút `.dag-node__btn` khai 44px, mà `transform: scale()` co luôn cả vùng chạm, nên
+ *  ở 0,35 nó chỉ còn 15,4px trên màn — dưới cả mức AA 24px của WCAG 2.5.8. 44 × 0,55 = 24,2px,
+ *  cộng phần nới của §77 (`styles/responsive.css`) là qua ngưỡng. Đổi lại sơ đồ không còn lọt trọn
+ *  khung ở 375px, phải vuốt — trên điện thoại đó là chuyện thường, còn một ảnh thu nhỏ không bấm
+ *  trúng nút nào thì vô dụng. */
+const SAN_CAN_VUA_HEP = 0.55;
+const MAN_HEP_PX = 768;
+const sanCanVua = () =>
+  typeof window !== "undefined" && window.innerWidth <= MAN_HEP_PX ? SAN_CAN_VUA_HEP : ZOOM_MIN;
+
 /** Biên nội dung theo toạ độ CHƯA nhân zoom. Dùng cho cả phép căn vừa lẫn kích thước vùng cuộn —
  *  mặt vẽ cố định thì thanh cuộn sẽ kéo vào hàng nghìn pixel trắng. */
 export function tinhBienNoiDung(pos: Record<string, Point>): { w: number; h: number } {
@@ -249,6 +261,21 @@ export function BaiGhepDagCanvas({
   const [positions, setPositions] = useState<Record<string, Point>>({});
   const [draggingNode, setDraggingNode] = useState<{ id: string; startMouse: Point; startPos: Point } | null>(null);
 
+  /** Cú nhấn hiện tại đã DỜI thẻ chưa. Trình duyệt vẫn bắn `click` sau khi thả chuột dù người
+      dùng chỉ kéo thẻ đi chỗ khác, nên không có cờ này thì kéo xong là ngăn kéo tự bật. Đo bằng
+      px MÀN HÌNH (chưa chia cho zoom) để ngưỡng không đổi theo mức thu phóng.
+      Cờ này được `handleStartDragNode` đặt lại về `false` ở MỖI `mousedown`, nên MỌI thẻ kéo
+      được đều phải hỏi nó trong `onClick` — cả BA loại: thẻ gộp, thẻ đầu lệnh, thẻ công đoạn
+      (dùng qua `bamNeuKhongKeo` ngay dưới). KHÔNG hỏi trong `onKeyDown`: bàn phím không kéo
+      được, gọi Enter/Space mà bị cờ của cú kéo chuột trước đó chặn là mất đường bàn phím. */
+  const daDoiRef = useRef(false);
+  /** Chỉ chạy `fn` khi cú nhấn này KHÔNG phải là một cú kéo. Một cơ chế duy nhất cho cả ba loại
+      thẻ, để lần sau thêm thẻ mới không ai quên chốt. */
+  const bamNeuKhongKeo = useCallback((fn: () => void) => {
+    if (daDoiRef.current) return;
+    fn();
+  }, []);
+
   // --- Chọn để GỘP ----------------------------------------------------------
   const [dangChon, setDangChon] = useState<string[]>([]);
   const [ungVien, setUngVien] = useState<UngVien>({});
@@ -379,7 +406,8 @@ export function BaiGhepDagCanvas({
     const rong = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const cao = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
     if (rong <= 0 || cao <= 0) return;
-    setZoom(kepZoom(Math.min(rong / bien.w, cao / bien.h, 1)));
+    // Sàn `sanCanVua()` chỉ chặn phép TỰ căn; `Math.min(…, 1)` vẫn giữ luật không phóng quá 100%.
+    setZoom(kepZoom(Math.max(Math.min(rong / bien.w, cao / bien.h, 1), sanCanVua())));
     el.scrollTo({ left: 0, top: 0 });
   }, [bien]);
 
@@ -573,9 +601,14 @@ export function BaiGhepDagCanvas({
 
   const handleStartDragNode = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    daDoiRef.current = false;                     // cú nhấn mới: coi như chưa dời
     const currentPos = positions[id] || { x: 0, y: 0 };
     setDraggingNode({ id, startMouse: { x: e.clientX, y: e.clientY }, startPos: { ...currentPos } });
   };
+
+  /** Quá ngưỡng này (px màn hình) thì coi là KÉO, dưới ngưỡng là rung tay khi bấm. 4px đủ để tay
+      run không bị tính là kéo, mà vẫn bắt được cú kéo ngắn nhất người ta cố ý làm. */
+  const NGUONG_DOI_PX = 4;
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -587,8 +620,11 @@ export function BaiGhepDagCanvas({
           el.scrollTop = keoRef.current.st - (e.clientY - keoRef.current.my);
         }
       } else if (draggingNode) {
-        const dx = (e.clientX - draggingNode.startMouse.x) / zoom;
-        const dy = (e.clientY - draggingNode.startMouse.y) / zoom;
+        const dxMan = e.clientX - draggingNode.startMouse.x;
+        const dyMan = e.clientY - draggingNode.startMouse.y;
+        if (Math.abs(dxMan) > NGUONG_DOI_PX || Math.abs(dyMan) > NGUONG_DOI_PX) daDoiRef.current = true;
+        const dx = dxMan / zoom;
+        const dy = dyMan / zoom;
         setPositions((prev) => ({
           ...prev,
           [draggingNode.id]: {
@@ -699,7 +735,11 @@ export function BaiGhepDagCanvas({
         <div className="bgsd-canvas__sizer" style={{ width: bien.w * zoom, height: bien.h * zoom }}>
           <div
             className="bgsd-canvas__viewport bgsd-canvas__bg"
-            style={{ width: bien.w, height: bien.h, transform: `scale(${zoom})`, transformOrigin: "0 0" }}
+            // `--dag-zoom` bơm tỉ lệ thu phóng ra CSS: `scale()` co MỌI thứ bên trong, kể cả vùng
+            // chạm của nút, nên tầng CSS cần biết đang co bao nhiêu để nới bù (xem §77 trong
+            // `styles/responsive.css`). Không có biến này thì CSS không cách nào đọc được zoom.
+            style={{ width: bien.w, height: bien.h, transform: `scale(${zoom})`, transformOrigin: "0 0",
+              ["--dag-zoom" as string]: String(zoom) } as React.CSSProperties}
           >
             <svg className="bgsd-canvas__svg">
               <defs>
@@ -807,7 +847,7 @@ export function BaiGhepDagCanvas({
                   } ${g.thieu.length ? "dag-node--has-error" : ""}`}
                   style={{ left: p.x, top: p.y, width: GANG_W, minHeight: caoGop(g) }}
                   aria-label={`Bước chung ${g.ten}`}
-                  onClick={() => onChon(g.step_key)}
+                  onClick={() => bamNeuKhongKeo(() => onChon(g.step_key))}
                   onDoubleClick={() => onMoBuocChung?.(g.step_key)}
                   onMouseDown={(e) => handleStartDragNode(`gop_${g.step_key}`, e)}
                 >
@@ -978,7 +1018,7 @@ export function BaiGhepDagCanvas({
                       left: hdrP.x, top: hdrP.y, borderColor: c,
                       width: HDR_W, height: HDR_H, ["--mau-nhanh" as string]: c,
                     }}
-                    onClick={() => onChon(n.lsx_id)}
+                    onClick={() => bamNeuKhongKeo(() => onChon(n.lsx_id))}
                     onDoubleClick={() => onMoLenh?.(n.lsx_id)}
                     onMouseDown={(e) => handleStartDragNode(`hdr_${n.lsx_id}`, e)}
                     title={n.lsx_ten ? `${n.lsx_ma}: ${n.lsx_ten} (Nháy đúp để mở lệnh)` : "Nháy đúp để mở lệnh sản xuất"}
@@ -1111,7 +1151,7 @@ export function BaiGhepDagCanvas({
                           tabIndex={0}
                           aria-label={`Công đoạn ${b.ten}`}
                           aria-pressed={daChon}
-                          onClick={(e) => { e.stopPropagation(); bamThe(b); }}
+                          onClick={(e) => { e.stopPropagation(); bamNeuKhongKeo(() => bamThe(b)); }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
                               e.preventDefault();

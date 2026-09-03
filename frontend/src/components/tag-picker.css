@@ -69,7 +69,7 @@
 }
 .tagpick__add:hover,
 .tagpick__add.is-open {
-  border-color: #94a3b8;
+  border-color: var(--ash-2);
   color: #1e293b;
   background: #f8fafc;
 }
@@ -96,7 +96,7 @@
   border-radius: 8px;
   background: #f8fafc;
 }
-.tagpick__search-ic { color: #94a3b8; flex-shrink: 0; }
+.tagpick__search-ic { color: var(--ash-2); flex-shrink: 0; }
 .tagpick__search-input {
   flex: 1;
   border: none;
@@ -115,7 +115,7 @@
   border: none;
   border-radius: 5px;
   background: #e2e8f0;
-  color: #64748b;
+  color: var(--ash-2);
   cursor: pointer;
   padding: 0;
 }
@@ -171,7 +171,7 @@
   color: #475569;
 }
 .tagpick__pill--create:hover:not(:disabled) {
-  border-color: #94a3b8;
+  border-color: var(--ash-2);
   background: #f8fafc;
   color: #1e293b;
 }

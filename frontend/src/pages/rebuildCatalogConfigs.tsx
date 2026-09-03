@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import type { CatalogConfig, ChuanBiKhoanRow } from "./RebuildCatalogPage";
 import { ClockIcon, isMayIn, tongChuanBi } from "./RebuildCatalogPage";
 import { nhanTo } from "./danh-muc/nhanTo";
+import { NHOM_CONG_DOAN } from "./keHoachSxShared";
 import { QuyDoiCuaDonVi } from "./QuyDoiCuaDonVi";
 import { KhoViTriPanel } from "./KhoViTriPanel";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -18,7 +19,10 @@ const mapOpt = (m: Lbls) => Object.entries(m).map(([value, label]) => ({ value, 
 const lbl = (m: Lbls) => (v: unknown) => (v == null || v === "" ? "" : (m[String(v)] ?? String(v)));
 
 
-const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia công sau in", other: "Dịch vụ khác" };
+// DỜI sang `keHoachSxShared.tsx` (02/09/2026) — màn "Hồ sơ lệnh sản xuất" cần đúng bốn nhãn này
+// cho ô lọc Nhóm công đoạn, mà import ngược file này thì kéo cả bộ máy 13 màn danh mục theo.
+// Bí danh cục bộ giữ nguyên để 3 chỗ dùng bên dưới không phải đổi.
+const NHOM_CD: Lbls = NHOM_CONG_DOAN;
 
 // Dụng cụ DÙNG CHUNG mà bước phải mượn từ kho khuôn — khớp `cong_doan.TOOLING_TYPE` ở backend
 // (service chặn giá trị ngoài danh sách). "Bản kẽm" đã gỡ 16/08/2026: kẽm là vật tư tiêu hao,
@@ -176,16 +180,16 @@ export const CFG_MAY: CatalogConfig = {
             {hasKhoMax && (
               <div>
                 <span style={{ fontWeight: 600 }}>{so(r.kho_max_rong)}×{so(r.kho_max_dai)}</span>
-                <span style={{ fontSize: "11px", color: "var(--ash, #8a8577)", marginLeft: "4px" }}>(giấy max)</span>
+                <span style={{ fontSize: "12px", color: "var(--ash, #8a8577)", marginLeft: "4px" }}>(giấy max)</span>
               </div>
             )}
             {hasKem && (
               // Kẽm + Vùng in TÁCH 2 dòng riêng (trước gộp 1 dòng nối "•") — cột chỉ ~87px,
               // nối chung dễ vỡ dòng giữa số làm chiều cao hàng nhảy lung tung giữa các máy.
-              <div style={{ fontSize: "11px", color: "var(--charcoal, #374151)" }}>Kẽm: {so(r.kho_kem_rong)}×{so(r.kho_kem_dai)}</div>
+              <div style={{ fontSize: "12px", color: "var(--charcoal, #374151)" }}>Kẽm: {so(r.kho_kem_rong)}×{so(r.kho_kem_dai)}</div>
             )}
             {hasVungIn && (
-              <div style={{ fontSize: "11px", color: "var(--charcoal, #374151)" }}>In: {so(r.vung_in_rong)}×{so(r.vung_in_dai)}</div>
+              <div style={{ fontSize: "12px", color: "var(--charcoal, #374151)" }}>In: {so(r.vung_in_rong)}×{so(r.vung_in_dai)}</div>
             )}
           </div>
         );
@@ -202,7 +206,7 @@ export const CFG_MAY: CatalogConfig = {
         // MỖI phần một dòng riêng (trước nối "•" chung 1 dòng) — cột chỉ ~87px, 3 phần nối
         // chung dễ vỡ dòng giữa số làm chiều cao hàng nhảy lung tung giữa các máy.
         return (
-          <div style={{ display: "flex", flexDirection: "column", gap: "1px", fontSize: "11.5px", color: "var(--charcoal, #4b5563)", lineHeight: "1.4" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "1px", fontSize: "12px", color: "var(--charcoal, #4b5563)", lineHeight: "1.4" }}>
             {parts.map((p) => <div key={p}>{p}</div>)}
           </div>
         );
@@ -221,7 +225,7 @@ export const CFG_MAY: CatalogConfig = {
           <div style={{ display: "flex", flexDirection: "column", gap: "2px", fontSize: "12.5px" }}>
             {nSpeed && <div style={{ fontWeight: 600 }}>{nSpeed}</div>}
             {totalMakeready > 0 && (
-              <div style={{ fontSize: "11.5px", color: "var(--rust, #c5400a)", fontWeight: 500, display: "flex", alignItems: "center" }}>
+              <div style={{ fontSize: "12px", color: "var(--rust, #c5400a)", fontWeight: 500, display: "flex", alignItems: "center" }}>
                 <ClockIcon size={12} /> Chuẩn bị: {totalMakeready} phút
               </div>
             )}
@@ -453,8 +457,17 @@ export const CFG_CONG_DOAN: CatalogConfig = {
 
     // CHỈ TÍNH THEO CÔNG THỨC: đã bỏ ô 'Cách tính giá' / 'Đơn giá' / 'Bậc kích thước'.
     // Đơn giá nhập per-phiếu (mỗi dòng phiếu tính giá tự mang don_gia); công đoạn chỉ khai CÔNG THỨC.
+    //
+    // Ẩn `to_dau_vao`/`to_sau_in` khỏi CHIP của riêng ô này (02/09/2026): hai biến đó là số CẢ
+    // CHUỖI (tờ vào/ra máy in, cố định cho mọi bước), trong khi công thức của MỘT công đoạn nên
+    // tính theo `sl_vao`/`sl_ra` — số ra/vào của CHÍNH bước đó, đúng đơn vị của bước (tờ/tay/cuốn).
+    // Gõ `to_dau_vao` vào công thức của một bước gia công đứng sau in là tính nhầm trên số TRƯỚC
+    // khi trừ hao của các bước ở giữa (vd "Gấp tay sách" ăn theo tờ vào máy thay vì số tay thật nó
+    // nhận — dư đúng phần hao của in + các bước trước nó). Hai biến vẫn hợp lệ nếu công thức cũ đã
+    // lỡ dùng (không đổi hành vi tính toán), chỉ không còn hiện chip mời bấm ở đây; Giấy/Vật tư vẫn
+    // hiện đủ vì hai ô đó không có khái niệm "số của một bước".
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá",
-      nhanTab: "Công thức tính giá" },
+      nhanTab: "Công thức tính giá", an: ["to_dau_vao", "to_sau_in"] },
     // ── Đơn vị đứng TRƯỚC Bù hao: nó quyết định bù hao được tra theo số gì (tờ hay con) ────────
     // Chọn từ DANH MỤC Đơn vị & quy đổi (không còn 5 mã cứng): bước không chạm giấy khai đơn vị
     // THẬT của nó — ghi kẽm `bài in → bản kẽm` — thay vì phải bỏ trống như trước 11/08/2026.

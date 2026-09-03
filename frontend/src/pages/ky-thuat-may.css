@@ -8,7 +8,7 @@
 /* Dòng phụ dưới ô chính trong bảng (tên máy, chu kỳ, thời điểm báo) */
 .ktm-phu {
   font-size: 11.5px;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   margin-top: 2px;
   font-weight: var(--fw-regular);
 }
@@ -34,7 +34,7 @@
 }
 /* "Trung bình" là mức MẶC ĐỊNH của mọi phiếu ⇒ để nó neutral. Tô vàng cho mức mặc định thì cả
    cột rực lên và cái NGHIÊM TRỌNG chìm nghỉm giữa đám vàng — hỏng đúng việc mà màu sinh ra để làm. */
-.ktm-badge--muc-nhe { color: var(--ash-2, #64748b); }
+.ktm-badge--muc-nhe { color: var(--ash-2, var(--ash-2)); }
 .ktm-badge--muc-trung_binh { color: var(--ash, #475569); }
 .ktm-badge--muc-nghiem_trong { color: var(--signal-deep, #6b1717); background: var(--signal-soft, #efd5d5); }
 
@@ -48,7 +48,7 @@
 .ktm-badge--tt-qua_han { color: var(--signal-deep, #6b1717); background: var(--signal-soft, #efd5d5); }
 /* Phiếu đã hủy — đóng lại nhưng KHÔNG phải hoàn thành. Mờ + gạch ngang để mắt lướt qua bảng không
    nhầm với việc còn phải làm; vẫn đọc được khi cần lần lại kỳ nào đã hủy. */
-.ktm-badge--tt-da_huy { color: var(--ash-2, #64748b); background: var(--rule-hair, #f1f5f9); text-decoration: line-through; }
+.ktm-badge--tt-da_huy { color: var(--ash-2, var(--ash-2)); background: var(--rule-hair, #f1f5f9); text-decoration: line-through; }
 
 /* Chip cảnh báo cạnh tiêu đề — con số duy nhất dãy tab KHÔNG nói được */
 .ktm-chip {
@@ -79,7 +79,7 @@
 }
 .ktm-hint {
   display: block; margin-top: 4px;
-  font-size: 11.5px; line-height: 1.45; color: var(--ash-2, #64748b);
+  font-size: 11.5px; line-height: 1.45; color: var(--ash-2, var(--ash-2));
 }
 /* Dòng gợi ý chuyển sang báo HỎNG: cùng chỗ, cùng cỡ chữ, chỉ đổi màu — lỗi mạng lúc nạp danh mục
    máy phải nói ra ngay cạnh ô đang trống, không nấp trong banner tận đầu màn. */
@@ -206,7 +206,7 @@
 .ktm-nk li:first-child::before { box-shadow: inset 0 0 0 2px var(--rust, #c5400a); }
 .ktm-nk__dau {
   display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline;
-  font-size: 11.5px; color: var(--ash-2, #64748b);
+  font-size: 11.5px; color: var(--ash-2, var(--ash-2));
 }
 .ktm-nk__gio { font-variant-numeric: tabular-nums; }
 .ktm-nk__ai { color: var(--ash, #475569); font-weight: var(--fw-medium, 500); }
@@ -217,7 +217,7 @@
    nút to — hành động thật (kèm lý do + xác nhận) nằm trong dialog. */
 .ktm-link-huy { color: var(--signal-deep, #6b1717); }
 /* Băng "Đã hủy" trong phiếu: neutral + viền trái đậm, KHÔNG đỏ chói — hủy đảo được, không phải lỗi. */
-.ktm-thongbao--huy { border-left: 3px solid var(--ash-2, #64748b); }
+.ktm-thongbao--huy { border-left: 3px solid var(--ash-2, var(--ash-2)); }
 .ktm-thongbao--huy strong { color: var(--ink, #0f172a); }
 .ktm-thongbao__nut { margin-left: auto; white-space: nowrap; }
 
@@ -240,7 +240,7 @@
   font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
   color: var(--ash, #475569);
 }
-.ktm-anh__mota { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--ash-2, #64748b); }
+.ktm-anh__mota { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--ash-2, var(--ash-2)); }
 
 .ktm-anh__grid {
   display: grid;
@@ -333,7 +333,7 @@
 /* Chú giải tương tác */
 .ktm-lich__chu-giai {
   display: flex; flex-wrap: wrap; gap: 6px 10px;
-  font-size: 11.5px; color: var(--ash-2, #64748b);
+  font-size: 11.5px; color: var(--ash-2, var(--ash-2));
 }
 .ktm-cg-btn {
   display: inline-flex; align-items: center; gap: 6px;
@@ -457,7 +457,7 @@
   background: #f6fbf7;
 }
 .ktm-card--hoan_thanh .ktm-card__badge { background: #dcfce7; color: #166534; }
-.ktm-card--hoan_thanh .ktm-card__ten { text-decoration: line-through; color: var(--ash-2, #64748b); }
+.ktm-card--hoan_thanh .ktm-card__ten { text-decoration: line-through; color: var(--ash-2, var(--ash-2)); }
 
 .ktm-card--qua {
   border-color: #fecdd3; border-left-color: var(--signal-deep, #6b1717);
@@ -475,7 +475,7 @@
   border-color: var(--rust, #c5400a);
   background: #fffaf7;
 }
-.ktm-card--du-kien .ktm-card__badge { background: #f1f5f9; color: #64748b; }
+.ktm-card--du-kien .ktm-card__badge { background: #f1f5f9; color: var(--ash-2); }
 
 /* Đã hủy: mờ hẳn + gạch ngang — vẫn thấy được nó từng ở đây, nhưng rõ là không còn hiệu lực. */
 .ktm-card--da_huy {
@@ -483,8 +483,8 @@
   background: var(--rule-hair, #f1f5f9);
   opacity: .72;
 }
-.ktm-card--da_huy .ktm-card__badge { background: #e2e8f0; color: #64748b; }
-.ktm-card--da_huy .ktm-card__ten { text-decoration: line-through; color: var(--ash-2, #64748b); }
+.ktm-card--da_huy .ktm-card__badge { background: #e2e8f0; color: var(--ash-2); }
+.ktm-card--da_huy .ktm-card__ten { text-decoration: line-through; color: var(--ash-2, var(--ash-2)); }
 
 /* Nút xem thêm +N phiếu */
 .ktm-card__more {
@@ -510,11 +510,11 @@
 .ktm-tt__code { font-family: var(--ff-mono, monospace); font-weight: 700; font-size: 11.5px; color: var(--ash, #475569); }
 .ktm-tt__title { font-size: 13px; font-weight: 600; margin-bottom: 2px; color: var(--ink, #0f172a); }
 .ktm-tt__may { color: var(--rust-deep, #8a3208); }
-.ktm-tt__mayten { font-weight: var(--fw-regular); color: var(--ash-2, #64748b); }
+.ktm-tt__mayten { font-weight: var(--fw-regular); color: var(--ash-2, var(--ash-2)); }
 .ktm-tt__goi { font-size: 12px; color: var(--ash, #475569); margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--rule-hair, #f1f5f9); }
 
 .ktm-tt__grid { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--ink, #0f172a); }
-.ktm-tt__lbl { color: var(--ash-2, #64748b); font-weight: 500; }
+.ktm-tt__lbl { color: var(--ash-2, var(--ash-2)); font-weight: 500; }
 .ktm-tt__foot { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--rule-soft, #e2e8f0); font-size: 11px; color: var(--rust, #c5400a); font-weight: 500; }
 .ktm-tt__foot--action { color: var(--moss, #2f5d3a); }
 .ktm-tt__huy { margin-top: 8px; padding: 6px 8px; border-left: 3px solid var(--ash-2, #94a3b8); background: var(--rule-hair, #f1f5f9); border-radius: 0 4px 4px 0; font-size: 11.5px; color: var(--ash, #475569); }
@@ -540,7 +540,7 @@
 }
 .ktm-popover__date-row { display: flex; align-items: center; gap: 6px; color: var(--rust, #c5400a); }
 .ktm-popover__title { font-size: 16px; font-weight: 700; margin: 0; color: var(--ink, #0f172a); }
-.ktm-popover__sub { font-size: 12px; color: var(--ash-2, #64748b); }
+.ktm-popover__sub { font-size: 12px; color: var(--ash-2, var(--ash-2)); }
 .ktm-popover__close { border: 0; background: transparent; cursor: pointer; color: var(--ash, #475569); padding: 4px; border-radius: 4px; }
 .ktm-popover__close:hover { background: var(--rule-soft, #e2e8f0); color: var(--ink, #0f172a); }
 
@@ -554,16 +554,16 @@
 }
 .ktm-popover-item:hover { border-color: var(--rust, #c5400a); box-shadow: 0 4px 12px rgba(15, 23, 42, .08); transform: translateY(-1px); }
 .ktm-popover-item__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
-.ktm-popover-item__ma { font-family: var(--ff-mono, monospace); font-size: 11px; font-weight: 700; color: var(--ash-2, #64748b); }
+.ktm-popover-item__ma { font-family: var(--ff-mono, monospace); font-size: 11px; font-weight: 700; color: var(--ash-2, var(--ash-2)); }
 .ktm-popover-item__title { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink, #0f172a); }
 .ktm-popover-item__goi { font-weight: 600; }
-.ktm-popover-item__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; font-size: 11.5px; color: var(--ash-2, #64748b); }
+.ktm-popover-item__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; font-size: 11.5px; color: var(--ash-2, var(--ash-2)); }
 .ktm-popover-item__mayten { font-weight: 500; color: var(--ash, #475569); }
 .ktm-popover-item__arrow { margin-left: auto; color: var(--ash-2, #94a3b8); transition: transform .15s ease, color .15s ease; }
 .ktm-popover-item:hover .ktm-popover-item__arrow { transform: translateX(3px); color: var(--rust, #c5400a); }
 .ktm-popover-item--du-kien { border-style: dashed; background: #f8fafc; }
 .ktm-popover-item--da_huy { background: var(--rule-hair, #f1f5f9); border-color: var(--rule-soft, #e2e8f0); }
-.ktm-popover-item--da_huy .ktm-popover-item__goi { text-decoration: line-through; color: var(--ash-2, #64748b); }
+.ktm-popover-item--da_huy .ktm-popover-item__goi { text-decoration: line-through; color: var(--ash-2, var(--ash-2)); }
 .ktm-popover-item__huy { flex-basis: 100%; padding-left: 3px; border-left: 3px solid var(--ash-2, #94a3b8); padding: 2px 0 2px 8px; color: var(--ash, #475569); }
 
 /* --- Table View Enhancements ---------------------------------------------------- */
@@ -571,7 +571,7 @@
 .ktm-thangloc-wrap .ktm-thangloc { padding-right: 24px; }
 .ktm-thangloc-x {
   position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-  border: 0; background: transparent; cursor: pointer; color: var(--ash-2, #64748b);
+  border: 0; background: transparent; cursor: pointer; color: var(--ash-2, var(--ash-2));
   display: grid; place-items: center; padding: 2px; border-radius: 999px;
 }
 .ktm-thangloc-x:hover { color: var(--ink, #0f172a); background: var(--rule-soft, #e2e8f0); }
@@ -667,7 +667,7 @@
 .ktm-drawer-hero__mayten { font-weight: 500; color: var(--ink, #0f172a); }
 .ktm-meta-chip {
   display: inline-flex; align-items: center; gap: 4px;
-  font-size: 12px; color: var(--ash-2, #64748b);
+  font-size: 12px; color: var(--ash-2, var(--ash-2));
   padding: 2px 8px; border-radius: 4px; background: var(--rule-hair, #f1f5f9);
 }
 
@@ -693,7 +693,7 @@
 .ktm-dukien-card__mayten { font-size: 12.5px; color: var(--ash, #475569); margin: 4px 0 8px; }
 .ktm-dukien-card__chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .ktm-dukien-card__hint {
-  font-size: 12px; color: var(--ash-2, #64748b); margin: 8px 0 0; line-height: 1.45;
+  font-size: 12px; color: var(--ash-2, var(--ash-2)); margin: 8px 0 0; line-height: 1.45;
   padding-top: 8px; border-top: 1px dashed var(--rule, #cbd5e1);
 }
 
@@ -731,7 +731,7 @@
   background: #16a34a; border-color: #16a34a; color: #ffffff;
 }
 .ktm-check-card.is-checked .ktm-check-card__title {
-  text-decoration: line-through; color: var(--ash-2, #64748b);
+  text-decoration: line-through; color: var(--ash-2, var(--ash-2));
 }
 .ktm-check-card__title { font-size: 13.5px; color: var(--ink, #0f172a); flex: 1; }
 .ktm-check-card__status {
@@ -743,7 +743,7 @@
    hẳn màu "đã làm" để nhìn một cái là biết việc đó không có ai đụng vào. */
 .ktm-check-card.is-boqua { background: #fffbeb; border-color: #fde68a; }
 .ktm-check-card.is-boqua .ktm-check-card__box { border-color: #d97706; color: #d97706; }
-.ktm-check-card.is-boqua .ktm-check-card__title { color: var(--ash-2, #64748b); }
+.ktm-check-card.is-boqua .ktm-check-card__title { color: var(--ash-2, var(--ash-2)); }
 .ktm-check-card__status.is-boqua { color: #92400e; }
 .ktm-check-card__lydo {
   margin: 0 0 0 28px; font-size: 11.5px; color: #92400e; line-height: 1.45;
@@ -751,7 +751,7 @@
 .ktm-check-card__phu {
   align-self: flex-start; margin-left: 28px; padding: 2px 0;
   border: 0; background: none; cursor: pointer;
-  font-size: 11.5px; font-weight: 600; color: var(--ash-2, #64748b);
+  font-size: 11.5px; font-weight: 600; color: var(--ash-2, var(--ash-2));
   text-decoration: underline; text-underline-offset: 2px;
 }
 .ktm-check-card__phu:hover { color: var(--rust-deep, #8a3208); }
@@ -816,7 +816,7 @@
   font-size: 13px; font-weight: 600; color: var(--ink, #0f172a); margin-top: 4px;
 }
 .ktm-dropzone__sub {
-  font-size: 11.5px; color: var(--ash-2, #64748b);
+  font-size: 11.5px; color: var(--ash-2, var(--ash-2));
 }
 .ktm-dropzone__tag {
   display: inline-flex; align-items: center; gap: 4px;
@@ -866,7 +866,7 @@
 .ktm-lightbox__close:hover { color: #ffffff; }
 .ktm-lightbox__body { display: grid; place-items: center; overflow: auto; padding: 12px; }
 .ktm-lightbox__body img { max-width: 100%; max-height: 75vh; object-fit: contain; border-radius: 6px; }
-.ktm-lightbox__foot { padding: 8px 16px; font-size: 11.5px; color: #94a3b8; text-align: center; }
+.ktm-lightbox__foot { padding: 8px 16px; font-size: 11.5px; color: var(--ash-2); text-align: center; }
 
 /* ── Dải "việc cần làm" đầu màn ─────────────────────────────────────────────────────────────
    Ba con số toàn xưởng, bấm được. Câu hỏi đầu tiên mỗi sáng là "hôm nay làm gì", không phải
@@ -888,7 +888,7 @@
 }
 .ktm-tomtat__nhan {
   display: inline-flex; align-items: center; gap: 5px;
-  font-size: 12px; font-weight: 600; color: var(--ash-2, #64748b);
+  font-size: 12px; font-weight: 600; color: var(--ash-2, var(--ash-2));
 }
 .ktm-tomtat__o.is-co-viec { border-color: #fed7aa; background: #fff7ed; }
 .ktm-tomtat__o.is-co-viec .ktm-tomtat__so { color: var(--rust-deep, #8a3208); }
@@ -905,7 +905,7 @@
 .ktm-agenda.is-loading { opacity: .55; }
 .ktm-agenda__rong {
   display: flex; flex-direction: column; align-items: center; gap: 10px;
-  padding: 28px 16px; text-align: center; font-size: 13px; color: var(--ash-2, #64748b);
+  padding: 28px 16px; text-align: center; font-size: 13px; color: var(--ash-2, var(--ash-2));
   border: 1px dashed var(--rule, #cbd5e1); border-radius: 10px;
 }
 .ktm-agenda__rong p { margin: 0; }
@@ -921,7 +921,7 @@
 }
 .ktm-agenda__ngay.is-homnay .ktm-agenda__dau { background: #fff7ed; }
 .ktm-agenda__so { font-size: 14px; font-weight: 700; color: var(--ink, #0f172a); }
-.ktm-agenda__thu { font-size: 12px; color: var(--ash-2, #64748b); }
+.ktm-agenda__thu { font-size: 12px; color: var(--ash-2, var(--ash-2)); }
 .ktm-agenda__ds { display: flex; flex-direction: column; }
 .ktm-agenda__muc {
   display: flex; flex-direction: column; gap: 3px; align-items: stretch;
@@ -938,15 +938,15 @@
 .ktm-agenda__muc--da_huy { border-left-color: var(--ash-2, #94a3b8); background: var(--rule-hair, #f1f5f9); opacity: .78; }
 .ktm-agenda__muc-dau { display: flex; align-items: center; gap: 8px; }
 .ktm-agenda__ma {
-  font-size: 11.5px; font-weight: 600; color: var(--ash-2, #64748b);
+  font-size: 11.5px; font-weight: 600; color: var(--ash-2, var(--ash-2));
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 .ktm-agenda__ten { font-size: 13.5px; color: var(--ink, #0f172a); }
 .ktm-agenda__muc--hoan_thanh .ktm-agenda__ten,
 .ktm-agenda__muc--da_huy .ktm-agenda__ten {
-  text-decoration: line-through; color: var(--ash-2, #64748b);
+  text-decoration: line-through; color: var(--ash-2, var(--ash-2));
 }
-.ktm-agenda__meta { font-size: 11.5px; color: var(--ash-2, #64748b); }
+.ktm-agenda__meta { font-size: 11.5px; color: var(--ash-2, var(--ash-2)); }
 .ktm-agenda__muc--qua .ktm-agenda__meta { color: #9f1239; font-weight: 600; }
 
 /* ── Bảng phiếu dạng THẺ (điện thoại) ───────────────────────────────────────────────────────
@@ -968,11 +968,11 @@
 .ktm-the__than { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ktm-the__goi { font-size: 13.5px; color: var(--ink, #0f172a); }
 .ktm-the--hoan_thanh .ktm-the__goi {
-  text-decoration: line-through; color: var(--ash-2, #64748b);
+  text-decoration: line-through; color: var(--ash-2, var(--ash-2));
 }
 .ktm-the__meta {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  font-size: 11.5px; color: var(--ash-2, #64748b);
+  font-size: 11.5px; color: var(--ash-2, var(--ash-2));
 }
 .ktm-the__meta > span { display: inline-flex; align-items: center; gap: 4px; }
 
@@ -1076,7 +1076,7 @@
 .ktm-badge--tt-da_tao_phieu { color: var(--moss, #2f5d3a); }
 /* Từ chối KHÔNG gạch ngang (khác `--tt-da_huy`): lời báo vẫn là một sự kiện có thật của cái máy
    đó, chỉ là không thành phiếu — gạch đi đọc như "xoá rồi". */
-.ktm-badge--tt-tu_choi { color: var(--ash-2, #64748b); background: var(--rule-hair, #f1f5f9); }
+.ktm-badge--tt-tu_choi { color: var(--ash-2, var(--ash-2)); background: var(--rule-hair, #f1f5f9); }
 
 /* Máy đang dừng: dấu hiệu DUY NHẤT được ăn màu tín hiệu ở bảng yêu cầu. */
 .ktm-chip--dung { color: var(--signal-deep, #6b1717); background: var(--signal-soft, #efd5d5); }
@@ -1144,7 +1144,7 @@
      ô nằm sát nhau là khối trông vá víu. Nền `--rule-hair` để KHÁC hẳn nền ô nhập (`--canvas`). */
   padding: 8px 12px;
   border: 1px solid var(--rule-soft, #e2e8f0);
-  border-left: 2px solid var(--ash-2, #64748b);
+  border-left: 2px solid var(--ash-2, var(--ash-2));
   border-radius: 8px;
   background: var(--rule-hair, #f1f5f9);
 }

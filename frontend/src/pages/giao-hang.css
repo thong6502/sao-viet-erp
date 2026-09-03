@@ -300,7 +300,7 @@
   gap: 4px;
   font-size: 12px;
   font-weight: 600;
-  color: var(--rc-muted, #64748b);
+  color: var(--rc-muted, var(--ash-2));
 }
 
 /* Ô `type=month` mặc định giãn hết chiều ngang của flex item — ghim lại cho vừa nội dung. */

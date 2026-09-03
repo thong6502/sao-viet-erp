@@ -66,6 +66,8 @@ from .routers import (
     san_xuat_ly_do,
     san_xuat_kcs_tieu_chi,
     cong_doan_tag,
+    lenh_san_xuat,
+    theo_doi_san_xuat,
 )
 from .seed import seed_all
 
@@ -132,6 +134,13 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # `allow_headers` ở trên là header của REQUEST (những gì trình duyệt được phép GỬI lên) — không
+    # liên quan gì tới header của RESPONSE. Mặc định CORS giấu MỌI response header khỏi JS ngoài
+    # một danh sách an toàn nhỏ (không có `Content-Disposition`), nên FE ở origin khác (`:5173` lúc
+    # dev so với API `:8000`) gọi `resp.headers.get("Content-Disposition")` luôn nhận `null` dù
+    # server đã gửi đúng header — bug Task 14 (N28) dính đúng chỗ này. Khai riêng để trình duyệt
+    # PHÁT `Access-Control-Expose-Headers` cho JS đọc được.
+    expose_headers=["Content-Disposition"],
 )
 
 app.include_router(auth.router)
@@ -199,6 +208,8 @@ app.include_router(ke_hoach_vat_tu.router)   # bảng cân đối vật tư (cù
 app.include_router(ky_thuat_may.router)      # sửa chữa + phiếu bảo trì (module quyền `ky_thuat_may`)
 app.include_router(san_xuat.router)          # bàn Thực hiện sản xuất tại tổ (cùng module quyền `san_xuat`)
 app.include_router(cong_doan_tag.router)     # nhãn gán cho bước công đoạn — dùng chung LSX + Bài ghép (module quyền `san_xuat`)
+app.include_router(lenh_san_xuat.router)    # màn Lệnh sản xuất (danh sách + KPI) — module quyền `lenh_san_xuat`, phạm vi theo NGƯỜI BÁN
+app.include_router(theo_doi_san_xuat.router)  # màn Theo dõi sản xuất (Kanban) — module quyền `theo_doi_san_xuat`, cột lấy động từ danh mục cong_doan (Ruling C113)
 
 
 

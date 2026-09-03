@@ -375,13 +375,58 @@
   .tb-user__trigger-text {
     display: none;
   }
-  /* Dropdown chuông/tài khoản: neo mép phải và không rộng quá màn hình. */
-  .tb-notif,
+  /* Dropdown tài khoản: neo mép phải và không rộng quá màn hình. */
   .tb-user__dropdown {
     right: 0;
     left: auto;
     width: min(340px, calc(100vw - 20px));
     max-width: calc(100vw - 20px);
+    min-width: 0;
+  }
+
+  /* Mục trong menu tài khoản ("Hồ sơ của tôi", "Đăng xuất") đo được 338×34. Rộng thì đủ,
+     cao thì thiếu — mà "Đăng xuất" nằm ngay dưới "Hồ sơ", bấm trượt là văng ra khỏi hệ thống. */
+  .tb-user__item {
+    min-height: 44px;
+  }
+
+  /* Tên đăng nhập dưới tên người dùng đang 11px. */
+  .tb-user__sub {
+    font-size: 12px;
+  }
+
+  /* Bảng thông báo KHÔNG neo theo kiểu đó được. Nó `position: absolute` trong `.tb-bell-wrap`,
+     mà cái chuông KHÔNG phải thứ nằm ngoài cùng bên phải — còn ô tài khoản đứng sau nó.
+     Nên `right: 0` neo vào mép phải của chuông (x ≈ 278), bảng rộng 340px bị đẩy sang trái
+     tới x = -62: đo ở 375px thì 62px đầu bảng nằm ngoài màn hình, không kéo tới được.
+     Cách sửa: cho `.topbar` làm mốc định vị thay cho vỏ chuông, rồi trải bảng theo đúng
+     bề ngang thanh trên. `top: calc(100% + 6px)` vẫn đúng vì thanh trên cao 56px. */
+  .topbar {
+    position: relative;
+  }
+
+  .tb-bell-wrap {
+    position: static;
+  }
+
+  /* "Đánh dấu đã đọc" là nút chữ trần, đo ở 375px chỉ 91×14 — mỏng hơn đầu ngón tay ba
+     lần, mà ngay cạnh nó là danh sách bấm được nên bấm trượt là nhảy sang thông báo khác.
+     Cho nó cao 44px bằng đệm dọc, không đổi cỡ chữ. */
+  .tb-notif__markall {
+    min-height: 44px;
+    padding: 0 4px;
+  }
+
+  /* Dòng thời gian trong từng thông báo đang 11px. */
+  .tb-notif__time {
+    font-size: 12px;
+  }
+
+  .tb-notif {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
     min-width: 0;
   }
 }

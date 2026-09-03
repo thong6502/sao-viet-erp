@@ -20,6 +20,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.models.department import Department
+from app.models.kho_hang import KhoHang
 from app.models.role import SCOPE_ALL, SCOPE_OWN
 from app.models.san_xuat import (
     CV_DANG_CHAY,
@@ -709,7 +710,13 @@ def test_dieu_chinh_chan_tuyet_doi_khi_kho_da_nhan_mot_phan(db, orders, lsx_svc,
     to, cv, res = _batch(db, orders, lsx_svc, admin, customer)
     yc = kho.tao_yeu_cau_nhap_thanh_pham(
         db, user=admin, kcs_batch_id=res["kcs_batch_id"], so_luong=50)
-    kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=20)   # kho nhận MỘT PHẦN
+    # Kho ĐÍCH: `kho_xac_nhan_nhap` bắt buộc chọn kho từ 31/08/2026 (luật soi riêng ở
+    # `test_san_xuat_kho_dich.py`) — ở đây chỉ là dàn cảnh.
+    k = KhoHang(ma="KHO-TP-KCS", ten="Kho thành phẩm")
+    db.add(k)
+    db.flush()
+    kho.kho_xac_nhan_nhap(db, user=admin, yc_id=yc["yc_id"], so_luong=20,
+                          kho_id=k.id)                                  # kho nhận MỘT PHẦN
     y = SanXuatKhoRepository(db).yc(yc["yc_id"])
     assert y.trang_thai == YC_MOT_PHAN
     with pytest.raises(ValueError, match="yêu cầu nhập kho"):

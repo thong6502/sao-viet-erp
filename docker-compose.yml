@@ -119,6 +119,11 @@ services:
       SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Admin}
       SEED_DEMO: ${SEED_DEMO:-false}     # production: KHÔNG seed dữ liệu demo
       CORS_ORIGINS: ${CORS_ORIGINS}
+      # Gốc URL của frontend cho QR trên phiếu công nghệ. RỖNG = rơi về origin ĐẦU của
+      # CORS_ORIGINS (`config.frontend_origin`) = đúng hành vi hôm nay, deploy hiện tại không đổi
+      # gì. Phải liệt kê ở đây vì service này KHÔNG có `env_file:` — biến chỉ khai trong `.env`
+      # mà không có dòng này thì dừng ở tầng compose, không bao giờ vào container.
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-}
       # Có REDIS_URL → SSE đẩy qua pub/sub (chạy được nhiều worker) + khoá bật.
       REDIS_URL: redis://redis:6379/0
       # Có MINIO_ENDPOINT → file ghi vào MinIO thay vì đĩa container (app/storage.py).

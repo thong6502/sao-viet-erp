@@ -63,7 +63,7 @@
   height: 16px;
   stroke-width: 2px;
   flex-shrink: 0;
-  color: #64748b !important;
+  color: var(--ash-2) !important;
   transition: transform 0.18s ease, color 0.18s ease;
 }
 
@@ -1802,7 +1802,7 @@
   position: absolute;
   right: 10px;
   pointer-events: none;
-  color: #94a3b8;
+  color: var(--ash-2);
   transition: transform 0.2s ease, color 0.15s ease;
 }
 .khoan-cbx.is-open .khoan-cbx__arrow {
@@ -1876,12 +1876,12 @@
   padding: 10px 12px;
   font-size: 12.5px;
   line-height: 1.45;
-  color: #64748b;
+  color: var(--ash-2);
   background: #f8fafc;
   border-radius: 6px;
 }
 .khoan-cbx__empty-icon {
-  color: #94a3b8;
+  color: var(--ash-2);
   margin-top: 2px;
   flex-shrink: 0;
 }
@@ -1906,7 +1906,7 @@
 }
 .ns-modal__box--khoan .ns-modal__subtitle {
   font-size: 13px;
-  color: #64748b;
+  color: var(--ash-2);
   margin-top: 2px;
 }
 .ns-modal__box--khoan .ns-modal__body {

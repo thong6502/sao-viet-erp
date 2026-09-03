@@ -21,7 +21,6 @@ _PMS = f"{_PY}-{_PM:02d}"   # vd "2026-09" — dùng cho work_date của ô lư�
 from types import SimpleNamespace
 
 from app.db import SessionLocal
-from app.models.employee import Employee
 from app.repositories.employee_repo import EmployeeRepository
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
@@ -396,20 +395,16 @@ def test_timesheet_credits_paid_holiday(client):
         json={"full_name": "NV Lễ"},
         headers=_h(token),
     )
-    # NGÀY VÀO LÀM đặt THẲNG QUA DB, không qua API (sửa 03/09/2026).
-    #
-    # Seeder khai `hire_date = hôm nay`, mà công lễ chỉ cộng cho người ĐÃ trong biên chế ngày lễ
-    # (`_in_headcount_on`). Nên test này xanh khi chạy trước 02/09 và ĐỎ VĨNH VIỄN từ 03/09 —
-    # một quả bom hẹn giờ theo lịch, không phải lỗi nghiệp vụ.
-    #
-    # Không sửa bằng `PUT /api/employees/{id}` được: `hire_date` CỐ Ý không nằm trong
-    # `EDITABLE_FIELDS` (ngày vào làm khai một lần lúc tạo hồ sơ, nó nuôi thâm niên/phép năm/biên
-    # chế — không phải thứ sửa vặt). API trả 200 rồi im lặng bỏ qua, nên bản cũ tưởng đã đặt được.
+    # NGÀY VÀO LÀM phải đi thẳng DB, KHÔNG gửi kèm PUT ở trên: `hire_date` (và `department_id`)
+    # không nằm trong `EDITABLE_FIELDS` — chúng là TRANSITION, nên `update_employee` lọc bỏ IM
+    # LẶNG và trả 200 như thường. Bản đầu gửi "2020-01-01" qua PUT rồi tin là đã đặt được; thật
+    # ra hồ sơ giữ nguyên `hire_date = date.today()` do `backfill_employee_profiles` seed. Test
+    # vẫn xanh tới 02/09/2026 vì hôm-nay khi ấy còn ≤ 2/9; từ 03/09 thì `_in_headcount_on(emp,
+    # 2/9)` thành False ⇒ không có công lễ, `days["2"]` biến mất, đỏ mà chẳng đụng dòng code nào.
     db = SessionLocal()
     try:
-        row = db.get(Employee, emp["id"])
-        row.hire_date = date(2020, 1, 1)
-        db.commit()
+        repo = EmployeeRepository(db)
+        repo.update(repo.get_by_id(emp["id"]), hire_date=date(2020, 1, 1))
     finally:
         db.close()
 

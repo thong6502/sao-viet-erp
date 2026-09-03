@@ -55,7 +55,8 @@
   box-shadow: 0 2px 6px rgba(0, 0, 0, .2);
   transition: border-color var(--duration-fast) var(--easing-standard), color var(--duration-fast) var(--easing-standard), transform var(--duration-fast) var(--easing-standard);
 }
-.mine__avatar-edit::before { content: ""; position: absolute; inset: -7px; }
+/* Vung bam: nut ve 28px, inset -8px cho ra dung 44x44 theo WCAG 2.5.5 (28 + 8*2 = 44). */
+.mine__avatar-edit::before { content: ""; position: absolute; inset: -8px; }
 .mine__avatar-edit:hover { border-color: var(--rust); color: var(--rust); transform: scale(1.08); }
 .mine__avatar-edit:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
 

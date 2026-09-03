@@ -22,7 +22,9 @@ from sqlalchemy.orm import Session
 
 from ...models.department import Department
 from ...models.employee import Employee, JobGrade
+from ...models.may_thiet_bi import MayThietBi
 from ...models.san_xuat import (
+    BUOC_MAY,
     BUOC_TO,
     CV_DANG_CHAY,
     CV_HOAN_THANH,
@@ -33,6 +35,7 @@ from ...models.san_xuat import (
 from ...models.san_xuat_thuc_thi import (
     PC_DA_RUT,
     PC_HOAT_DONG,
+    PHIEN_DOI_MAY,
     PHIEN_KET_THUC,
     PHIEN_TAM_DUNG,
     SanXuatKhoangThamGia,
@@ -95,12 +98,17 @@ def _la_luong_khoan(db: Session, emp) -> bool:
     return bool(dept and dept.has_piece_work)
 
 
-def _audit(db: Session, user, action: str, cv: SanXuatCongViec, detail: str = "") -> None:
+def _audit(db: Session, user, action: str, cv: SanXuatCongViec, detail: str = "",
+           *, commit: bool = True) -> None:
+    """`commit=False` khi lệnh đang là MỘT MẢNH của giao dịch lớn hơn (vd `su_co.bao_su_co` gom
+    ghi yêu cầu sửa chữa + tạm dừng + đóng phiên). Mặc định giữ nguyên hành vi cũ cho mọi lệnh
+    đang chạy — chúng đều `db.commit()` ngay sau đó nên thêm một commit ở đây chỉ là dư."""
     AuditLogRepository(db).create(
         actor_user_id=getattr(user, "id", None),
         action=action,
         target=f"san_xuat_cong_viec:{cv.id}",
         detail=detail,
+        commit=commit,
     )
 
 
@@ -274,6 +282,7 @@ def bat_dau(
     phien = SanXuatPhienChay(
         cong_viec_id=cv.id,
         so_thu_tu=repo.so_phien(cv.id) + 1,
+        may_id=cv.may_id,          # ẢNH CHỤP máy lúc mở phiên — đổi máy sau này đẻ phiên khác
         bat_dau=now,
         ly_do_bat_dau_tre=(ly_do_tre or "").strip() or None,
         ly_do_so_nguoi=((ly_do_so_nguoi or "").strip() or None) if lech_so_nguoi else None,
@@ -304,7 +313,7 @@ def bat_dau(
     return _ket_qua(cv)
 
 
-def tam_dung(
+def _tam_dung_lo(
     db: Session,
     *,
     user,
@@ -312,7 +321,14 @@ def tam_dung(
     ly_do: str,
     expected_version: int | None = None,
 ) -> dict:
-    """Tạm dừng: đóng phiên đang mở + đóng mọi khoảng tham gia của phiên. Bắt buộc lý do (§7.2)."""
+    """LÕI của Tạm dừng — làm đủ mọi việc NHƯNG KHÔNG commit (31/08/2026).
+
+    Tách ra vì báo sự cố "dừng sản xuất" (`services/san_xuat/su_co.py`) phải gộp ghi yêu cầu sửa
+    chữa + tạm dừng + đóng phiên máy vào MỘT giao dịch: rơi giữa chừng là để lại một công việc
+    "đang chạy" trên cái máy đã hỏng, và mọi sản lượng/giờ máy sau đó đều sai. Đi qua CHÍNH lõi
+    này chứ không tự set cờ ở nơi khác — mọi luật đóng phiên + đóng khoảng tham gia + audit nằm
+    ở đây, viết đường thứ hai là ngày nào đó hai đường lệch nhau.
+    """
     if not (ly_do or "").strip():
         raise ValueError("Tạm dừng bắt buộc có lý do.")
     repo = SanXuatThucThiRepository(db)
@@ -333,9 +349,25 @@ def tam_dung(
 
     cv.trang_thai = CV_TAM_DUNG
     cv.version += 1
-    _audit(db, user, "san_xuat_tam_dung", cv, detail=ly_do.strip()[:200])
-    db.commit()
+    _audit(db, user, "san_xuat_tam_dung", cv, detail=ly_do.strip()[:200], commit=False)
     return _ket_qua(cv)
+
+
+def tam_dung(
+    db: Session,
+    *,
+    user,
+    cong_viec_id: int,
+    ly_do: str,
+    expected_version: int | None = None,
+) -> dict:
+    """Tạm dừng: đóng phiên đang mở + đóng mọi khoảng tham gia của phiên. Bắt buộc lý do (§7.2)."""
+    res = _tam_dung_lo(
+        db, user=user, cong_viec_id=cong_viec_id, ly_do=ly_do,
+        expected_version=expected_version,
+    )
+    db.commit()
+    return res
 
 
 def ket_thuc(
@@ -376,8 +408,104 @@ def ket_thuc(
             repo.dong_khoang(kh, now)
 
     cv.trang_thai = CV_HOAN_THANH
+    # Đóng dấu MỐC NGHIỆP VỤ. Đây là chỗ DUY NHẤT trong hệ đặt `trang_thai='completed'` (grep
+    # `CV_HOAN_THANH` — mọi chỗ khác chỉ ĐỌC), nên một dấu ở đây là đủ. KHÔNG để KPI đọc
+    # `updated_at`: cột đó dời theo mọi `version += 1` về sau (rút người khỏi bước đã xong là ca
+    # thật đã đo được), và bịt từng đường ghi thì đường ghi thêm sau lại phá lại.
+    #
+    # DẤU KHÔNG BAO GIỜ BỊ GHI ĐÈ: cửa `trang_thai not in (running, paused)` ở đầu hàm chặn mọi
+    # lần gọi thứ hai, nên `hoan_thanh_luc` chỉ được ghi ĐÚNG MỘT LẦN, ở lần đóng đầu tiên. Muốn
+    # mở lại một bước đã xong thì phải viết đường ghi mới — và đường ấy PHẢI tự quyết định làm gì
+    # với cột này.
+    #
+    # DÒNG NÀY CÓ LƯỚI: `test_ket_thuc_that_dong_dau_hoan_thanh_luc`. Xoá nó mà mọi bài KPI vẫn
+    # xanh là chuyện ĐÃ XẢY RA — các bài kia đi qua fixture `_dat_xong_luc`, mà fixture tự ghi cột
+    # này nên nó che mất đường ghi thật. Kiến trúc cột riêng đổi một lỗi đếm THỪA ồn ào lấy một lỗi
+    # đếm THIẾU lặng lẽ; đổi vậy chỉ có lãi khi ĐƯỜNG GHI được canh.
+    cv.hoan_thanh_luc = now
     cv.version += 1
     _audit(db, user, "san_xuat_ket_thuc", cv)
+    db.commit()
+    return _ket_qua(cv)
+
+
+def doi_may(
+    db: Session,
+    *,
+    user,
+    cong_viec_id: int,
+    may_id_moi: int,
+    ly_do: str | None = None,
+    expected_version: int | None = None,
+) -> dict:
+    """Đổi máy của một công việc, giữ nguyên lịch sử giờ máy (§7.2 mở rộng 31/08/2026).
+
+    Đang CHẠY: đóng phiên hiện tại (`loai_dong=doi_may` — KHÁC `tam_dung`, xem hằng số
+    `PHIEN_DOI_MAY`) rồi mở NGAY một phiên mới trên máy mới với CÙNG mốc `now` — không hở giây
+    nào, vì công việc không thực sự dừng. Khoảng tham gia của người cũng đóng-mở theo phiên để
+    phút công không bị đếm hai lần.
+
+    Đang TẠM DỪNG: chỉ đổi máy được phân công. KHÔNG mở phiên — phiên mở khi bấm Tiếp tục, và
+    lúc đó `bat_dau()` tự chụp `cv.may_id` mới.
+
+    Chỉ hai trạng thái đó đổi được: việc chưa bắt đầu thì sửa ở bàn xếp lịch, việc đã kết thúc
+    thì không còn máy nào để đổi. Chỉ bước CHẠY MÁY (`loai_buoc == BUOC_MAY`) mới có khái niệm
+    đổi máy — bước nội bộ/thuê ngoài không gắn máy nào để đổi (review vòng 1, Important 2).
+
+    Máy mới phải tồn tại và còn dùng (`active=True`) trong danh mục `may_thiet_bi` — FE chỉ CHE
+    nút chứ không phải cổng thật (tab để lâu, máy vừa bị ngừng dùng ở màn khác vẫn gọi được API
+    này nếu không kiểm ở đây); router dùng `_chay()` nên `ValueError` ở đây dịch thẳng ra 400.
+    """
+    repo = SanXuatThucThiRepository(db)
+    cv = _lay_cong_viec(repo, cong_viec_id)
+    _gate(db, user, cv)
+    _kiem_version(cv, expected_version)
+    if cv.trang_thai not in (CV_DANG_CHAY, CV_TAM_DUNG):
+        raise ValueError("Chỉ công việc đang chạy hoặc tạm dừng mới đổi máy được.")
+    if cv.loai_buoc != BUOC_MAY:
+        raise ValueError("Bước này không chạy máy — không có gì để đổi.")
+    if cv.may_id == may_id_moi:
+        raise ValueError("Máy mới trùng máy đang chạy — không có gì để đổi.")
+    may_moi = db.get(MayThietBi, may_id_moi)
+    if may_moi is None or not may_moi.active:
+        raise ValueError("Máy mới không tồn tại hoặc đã ngừng dùng trong danh mục.")
+
+    now = _moc()
+    may_cu = cv.may_id
+    if cv.trang_thai == CV_DANG_CHAY:
+        phien_cu = repo.phien_dang_mo(cv.id)
+        nguoi = []
+        if phien_cu is not None:
+            phien_cu.ket_thuc = now
+            phien_cu.loai_dong = PHIEN_DOI_MAY
+            phien_cu.ly_do = (ly_do or "Đổi máy").strip()[:255]
+            for kh in repo.khoang_mo_cua_phien(phien_cu.id):
+                nguoi.append((kh.employee_id, kh.job_grade_id, kh.output_coefficient))
+                repo.dong_khoang(kh, now)
+        phien_moi = SanXuatPhienChay(
+            cong_viec_id=cv.id,
+            so_thu_tu=repo.so_phien(cv.id) + 1,
+            may_id=may_id_moi,
+            bat_dau=now,
+            created_by=getattr(user, "id", None),
+        )
+        repo.add(phien_moi)
+        repo.flush()
+        for emp_id, bac_id, heso in nguoi:
+            repo.add(
+                SanXuatKhoangThamGia(
+                    cong_viec_id=cv.id,
+                    phien_chay_id=phien_moi.id,
+                    employee_id=emp_id,
+                    bat_dau=now,
+                    job_grade_id=bac_id,
+                    output_coefficient=heso,
+                )
+            )
+
+    cv.may_id = may_id_moi
+    cv.version += 1
+    _audit(db, user, "san_xuat_doi_may", cv, detail=f"may {may_cu} -> {may_id_moi}")
     db.commit()
     return _ket_qua(cv)
 

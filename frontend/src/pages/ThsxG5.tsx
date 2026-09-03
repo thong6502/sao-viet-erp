@@ -8,7 +8,7 @@
 //  · KhoPanel  — hiện khi KCS + có nhóm (`nhom_id`): tạo yêu cầu nhập thành phẩm, phân loại BTP dư.
 //  · DongNhomPanel — hiện khi KCS CUỐI + có nhóm: checklist cổng đóng + nút "Đóng thiếu" kèm lý do.
 //  · KcsHopThu / KhoHopThu — hộp thư mức trang, hiện khi CÓ việc chờ (real-time qua eventTick/g5Tick).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   SxWorkItemChiTiet, SxKcsChiTiet, SxKcsBatchChiTiet, SxKcsLoi, SxKcsAnh,
   SxKhoChiTiet, SxNhapKhoYc, SxKhoLot, SxKhoHopThu, SxDongNhomDieuKien,
@@ -20,6 +20,7 @@ import { Icon } from "../components/Icons";
 import { GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapHopLe } from "../lib/gioNhap";
 import { num, ngayGio } from "./keHoachSxShared";
 import { Field, LyDoSelect, toNum, toDtLocal, type ThsxExec } from "./ThsxExecPanels";
+import { nhanDonVi } from "./lsxBuoc";
 
 export type Opt = { id: number; ten: string };
 
@@ -150,7 +151,7 @@ function KcsBatchForm({
           <input type="datetime-local" className="thsx-x-in" min={GIO_NHAP_MIN} max={GIO_NHAP_MAX}
             value={ketThuc} onChange={(e) => setKetThuc(e.target.value)} />
         </Field>
-        <Field label={`Số nhận${donVi ? ` (${donVi})` : ""}`}>
+        <Field label={`Số nhận${donVi ? ` (${nhanDonVi(donVi)})` : ""}`}>
           <input type="number" min={0} className="thsx-x-in" value={nhan} onChange={(e) => setNhan(e.target.value)} placeholder="0" />
         </Field>
         <Field label="Số đạt">
@@ -195,13 +196,13 @@ function KcsBatchRow({
         <span className="thsx-x-item__spacer" />
         <span className="thsx-x-item__q">
           <b className="thsx-num">{num(b.so_luong_dat)}</b>/<span className="thsx-num">{num(b.so_luong_nhan)}</span>
-          <span className="thsx-x-unit"> {b.don_vi}</span>
+          <span className="thsx-x-unit"> {nhanDonVi(b.don_vi)}</span>
         </span>
         <Pill map={KL} k={b.ket_luan} />
       </button>
       {open && (
         <div className="thsx-x-item__body">
-          <div className="thsx-x-kv"><span>Nhận</span><b className="thsx-num">{num(b.so_luong_nhan)} {b.don_vi}</b></div>
+          <div className="thsx-x-kv"><span>Nhận</span><b className="thsx-num">{num(b.so_luong_nhan)} {nhanDonVi(b.don_vi)}</b></div>
           <div className="thsx-x-kv"><span>Đạt</span><b className="thsx-num">{num(b.so_luong_dat)}</b></div>
           <div className="thsx-x-kv"><span>Không đạt</span><b className="thsx-num">{num(b.so_luong_khong_dat)}</b></div>
           {b.co_mau != null && b.co_mau > 0 && (
@@ -273,7 +274,7 @@ function KcsLoiForm({
         <Field label="Nhóm lỗi">
           <LyDoSelect nhom="loi" loadLyDo={loadLyDo} value={nhomLoiId} onChange={setNhomLoiId} />
         </Field>
-        <Field label={`Số lượng${batch.don_vi ? ` (${batch.don_vi})` : ""}`}>
+        <Field label={`Số lượng${batch.don_vi ? ` (${nhanDonVi(batch.don_vi)})` : ""}`}>
           <input type="number" min={0} className="thsx-x-in" value={soLuong} onChange={(e) => setSoLuong(e.target.value)} placeholder="0" />
         </Field>
         <Field label="Tổ chịu trách nhiệm">
@@ -320,7 +321,7 @@ function KcsLoiRow({
       <div className="thsx-x-loi__h">
         <span className="thsx-x-loi__ten">{loi.nhom_loi_ten ?? "Lỗi"}</span>
         {loi.so_luong > 0 && (
-          <span className="thsx-x-loi__q thsx-num">{num(loi.so_luong)}{loi.don_vi ? ` ${loi.don_vi}` : ""}</span>
+          <span className="thsx-x-loi__q thsx-num">{num(loi.so_luong)}{loi.don_vi ? ` ${nhanDonVi(loi.don_vi)}` : ""}</span>
         )}
         <span className="thsx-x-item__spacer" />
         <Pill map={LOI_TT} k={loi.trang_thai} />
@@ -441,7 +442,7 @@ export function ThsxKhoPanel({
             <li key={lot.id} className="thsx-x-vt">
               <Icon name="box" size={15} className="thsx-x-vt__ic" />
               <span className="thsx-x-vt__ma">{PL_LABEL[lot.phan_loai ?? "nhap_btp"]}</span>
-              <span className="thsx-num">{num(lot.so_luong)} {lot.don_vi}</span>
+              <span className="thsx-num">{num(lot.so_luong)} {nhanDonVi(lot.don_vi)}</span>
               <span className="thsx-x-item__spacer" />
               <span className="thsx-x-pill thsx-x-pill--wait">chờ kho nhận</span>
             </li>
@@ -460,7 +461,9 @@ export function ThsxKhoPanel({
                 <span className="thsx-x-vt__ma">
                   {lot.loai_hang === "thanh_pham" ? "Thành phẩm" : PL_LABEL[lot.phan_loai ?? "nhap_btp"]}
                 </span>
-                <span className="thsx-num">{num(lot.so_luong)} {lot.don_vi}</span>
+                <span className="thsx-num">{num(lot.so_luong)} {nhanDonVi(lot.don_vi)}</span>
+                {/* Kho ĐÃ NHẬN lot — trống ở mẫu lưu/phế và lot cũ trước khi có kho đích. */}
+                {lot.kho_ten && <span className="thsx-x-vt__kho">tại {lot.kho_ten}</span>}
                 <span className="thsx-x-item__spacer" />
                 <span className={`thsx-x-pill ${lot.kho_xac_nhan ? "thsx-x-pill--ok" : "thsx-x-pill--wait"}`}>
                   {lot.kho_xac_nhan ? "kho đã nhận" : "chờ kho nhận"}
@@ -500,7 +503,7 @@ function YeuCauNhapForm({
         <select className="thsx-x-sel" value={batchId ?? ""} onChange={(e) => setBatchId(e.target.value ? Number(e.target.value) : null)}>
           <option value="">— Chọn mẻ —</option>
           {batches.map((b) => (
-            <option key={b.id} value={b.id}>{ngayGio(b.bat_dau)} · đạt {num(b.so_luong_dat)} {b.don_vi}</option>
+            <option key={b.id} value={b.id}>{ngayGio(b.bat_dau)} · đạt {num(b.so_luong_dat)} {nhanDonVi(b.don_vi)}</option>
           ))}
         </select>
       </Field>
@@ -535,7 +538,7 @@ function YeuCauRow({
       <div className="thsx-x-bg__main">
         <Icon name="warehouse" size={15} className="thsx-x-bg__ic" />
         <span className="thsx-x-bg__q thsx-num">
-          {num(yc.so_luong_xac_nhan)}/{num(yc.so_luong_yeu_cau)} {yc.don_vi}
+          {num(yc.so_luong_xac_nhan)}/{num(yc.so_luong_yeu_cau)} {nhanDonVi(yc.don_vi)}
         </span>
         <span className="thsx-x-item__spacer" />
         <Pill map={YC_TT} k={yc.trang_thai} />
@@ -586,7 +589,7 @@ export function PhanLoaiBtpForm({
         ))}
       </div>
       <div className="thsx-x-grid2">
-        <Field label={`Số lượng${donVi ? ` (${donVi})` : ""}`}>
+        <Field label={`Số lượng${donVi ? ` (${nhanDonVi(donVi)})` : ""}`}>
           <input type="number" min={0} className="thsx-x-in" value={soLuong} onChange={(e) => setSoLuong(e.target.value)} placeholder="0" />
         </Field>
         <Field label="Quy cách">
@@ -728,16 +731,19 @@ export function ThsxDongNhomPanel({
 
 // ════════════════════════════ HỘP THƯ (mức trang) ═══════════════════════════
 export function ThsxHopThuBar({
-  kcsItems, khoHopThu, canKhoRead, canKhoCreate, busy,
+  kcsItems, khoHopThu, khoOpts, canKhoRead, canKhoCreate, busy,
   onPhanHoiLoi, onKhoXacNhanNhap, onKhoXacNhanBtp,
 }: {
   kcsItems: SxKcsLoi[];
   khoHopThu: SxKhoHopThu | null;
+  /** Kho ĐÍCH chọn được (danh mục kho đang dùng) — rỗng nghĩa là chưa khai kho nào. */
+  /** `null` = chưa đọc được danh mục kho; `[]` = danh mục rỗng thật. */
+  khoOpts: Opt[] | null;
   canKhoRead: boolean;
   canKhoCreate: boolean;
   busy: boolean;
   onPhanHoiLoi: (loiId: number, chapNhan: boolean, lyDo: string | null, version: number) => void;
-  onKhoXacNhanNhap: (ycId: number, soLuong: number, version: number) => void;
+  onKhoXacNhanNhap: (ycId: number, soLuong: number, khoId: number, version: number) => void;
   onKhoXacNhanBtp: (lotId: number) => void;
 }) {
   const khoN = canKhoRead
@@ -768,7 +774,8 @@ export function ThsxHopThuBar({
           </div>
           <ul className="thsx-hopthu__list">
             {(khoHopThu?.yeu_cau_nhap ?? []).map((yc) => (
-              <KhoNhapHopThuRow key={`yc${yc.id}`} yc={yc} canCreate={canKhoCreate} busy={busy} onXacNhan={onKhoXacNhanNhap} />
+              <KhoNhapHopThuRow key={`yc${yc.id}`} yc={yc} khoOpts={khoOpts}
+                canCreate={canKhoCreate} busy={busy} onXacNhan={onKhoXacNhanNhap} />
             ))}
             {(khoHopThu?.btp_cho_nhan ?? []).map((lot) => (
               <KhoBtpHopThuRow key={`lot${lot.id}`} lot={lot} canCreate={canKhoCreate} busy={busy} onXacNhan={onKhoXacNhanBtp} />
@@ -792,7 +799,7 @@ function KcsHopThuRow({
     <li className="thsx-hopthu__it">
       <div className="thsx-hopthu__main">
         <span className="thsx-hopthu__ten">{loi.nhom_loi_ten ?? "Lỗi"}</span>
-        {loi.so_luong > 0 && <span className="thsx-num">{num(loi.so_luong)}{loi.don_vi ? ` ${loi.don_vi}` : ""}</span>}
+        {loi.so_luong > 0 && <span className="thsx-num">{num(loi.so_luong)}{loi.don_vi ? ` ${nhanDonVi(loi.don_vi)}` : ""}</span>}
       </div>
       {loi.mo_ta && <p className="thsx-hopthu__mo">{loi.mo_ta}</p>}
       {loi.anh.length > 0 && (
@@ -832,30 +839,62 @@ function KcsHopThuRow({
 }
 
 function KhoNhapHopThuRow({
-  yc, canCreate, busy, onXacNhan,
+  yc, khoOpts, canCreate, busy, onXacNhan,
 }: {
-  yc: SxNhapKhoYc; canCreate: boolean; busy: boolean;
-  onXacNhan: (ycId: number, soLuong: number, version: number) => void;
+  yc: SxNhapKhoYc; khoOpts: Opt[] | null; canCreate: boolean; busy: boolean;
+  onXacNhan: (ycId: number, soLuong: number, khoId: number, version: number) => void;
 }) {
   const [sl, setSl] = useState(String(yc.con_lai));
+  // KHO ĐÍCH bắt buộc, KHÔNG mặc định ngầm kể cả khi danh mục chỉ có một kho: hàng cất sai chỗ mà
+  // hệ thống vẫn báo "đã nhập" là thứ không ai phát hiện ra cho tới lúc đi tìm hàng.
+  const [khoId, setKhoId] = useState<number | null>(null);
+  // Xác nhận MỘT PHẦN xong thì `version`/`con_lai` của yêu cầu đổi, nhưng hàng này KHÔNG remount
+  // (key bám `yc.id`). Phải tự dọn: trả ô kho về "chưa chọn" — giữ lại kho lần trước chính là
+  // "mặc định ngầm" mà luật cấm, phần còn lại rất hay cất chỗ khác — và đưa ô số về số còn lại mới.
+  useEffect(() => {
+    setKhoId(null);
+    setSl(String(yc.con_lai));
+  }, [yc.version, yc.con_lai]);
   const nSl = toNum(sl);
-  const hopLe = nSl > 0 && nSl <= yc.con_lai;
+  const soHopLe = nSl > 0 && nSl <= yc.con_lai;
+  const hopLe = soHopLe && khoId != null;
+  const chuaDocDuocKho = khoOpts == null;
+  const khoRong = khoOpts != null && khoOpts.length === 0;
+  // Vì sao nút chưa bấm được — nói thẳng, không để nút câm. Tách "chưa đọc được danh mục" khỏi
+  // "danh mục rỗng": bảo thủ kho đi khai kho mới trong khi danh mục vẫn đủ kho là chỉ sai đường.
+  const vuong = chuaDocDuocKho
+    ? "Chưa đọc được danh mục Kho — tải lại trang, còn lỗi thì báo quản trị."
+    : khoRong ? "Chưa khai kho nào trong danh mục Kho — không có chỗ để nhập."
+    : khoId == null ? "Chọn kho đích trước khi xác nhận."
+    : !soHopLe ? `Số nhận phải lớn hơn 0 và không quá ${num(yc.con_lai)} ${nhanDonVi(yc.don_vi)}.`
+    : null;
   return (
     <li className="thsx-hopthu__it">
       <div className="thsx-hopthu__main">
         <Icon name="warehouse" size={14} />
         <span className="thsx-hopthu__ten">Nhập thành phẩm</span>
-        <span className="thsx-num">còn {num(yc.con_lai)}/{num(yc.so_luong_yeu_cau)} {yc.don_vi}</span>
+        <span className="thsx-num">còn {num(yc.con_lai)}/{num(yc.so_luong_yeu_cau)} {nhanDonVi(yc.don_vi)}</span>
       </div>
       {yc.quy_cach && <p className="thsx-hopthu__mo">{yc.quy_cach}</p>}
+      {yc.kho_ten && <p className="thsx-hopthu__mo">KCS đề nghị kho: {yc.kho_ten}</p>}
       {canCreate ? (
-        <div className="thsx-x-act thsx-x-act--row thsx-hopthu__xn">
-          <input type="number" min={0} max={yc.con_lai} className="thsx-x-in" value={sl}
-            onChange={(e) => setSl(e.target.value)} aria-label="Số lượng nhận" />
-          <Button variant="accent" onClick={() => onXacNhan(yc.id, nSl, yc.version)} disabled={busy || !hopLe}>
-            <Icon name="packageCheck" size={13} /> Xác nhận nhập
-          </Button>
-        </div>
+        <>
+          <div className="thsx-x-act thsx-x-act--row thsx-hopthu__xn">
+            <select className="thsx-x-sel" value={khoId ?? ""} aria-label="Kho đích"
+              disabled={busy || chuaDocDuocKho || khoRong}
+              onChange={(e) => setKhoId(e.target.value ? Number(e.target.value) : null)}>
+              <option value="">— Chọn kho đích —</option>
+              {(khoOpts ?? []).map((k) => <option key={k.id} value={k.id}>{k.ten}</option>)}
+            </select>
+            <input type="number" min={0} max={yc.con_lai} className="thsx-x-in" value={sl}
+              onChange={(e) => setSl(e.target.value)} aria-label="Số lượng nhận" />
+            <Button variant="accent" onClick={() => onXacNhan(yc.id, nSl, khoId!, yc.version)}
+              disabled={busy || !hopLe}>
+              <Icon name="packageCheck" size={13} /> Xác nhận nhập
+            </Button>
+          </div>
+          {vuong && <p className="thsx-x-hint">{vuong}</p>}
+        </>
       ) : (
         <p className="thsx-hopthu__mo">Chỉ nhân viên kho mới xác nhận nhập.</p>
       )}
@@ -873,7 +912,7 @@ function KhoBtpHopThuRow({
       <div className="thsx-hopthu__main">
         <Icon name="box" size={14} />
         <span className="thsx-hopthu__ten">Nhận BTP</span>
-        <span className="thsx-num">{num(lot.so_luong)} {lot.don_vi}</span>
+        <span className="thsx-num">{num(lot.so_luong)} {nhanDonVi(lot.don_vi)}</span>
       </div>
       {lot.quy_cach && <p className="thsx-hopthu__mo">{lot.quy_cach}</p>}
       {canCreate ? (

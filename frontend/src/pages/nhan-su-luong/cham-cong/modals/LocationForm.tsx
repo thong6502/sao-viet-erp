@@ -156,13 +156,13 @@ export function LocationForm({
               placeholder="vd: 150"
             />
             <div className="cc-radius-presets-row" style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: "var(--ash-2)" }}>Chọn nhanh:</span>
+              <span style={{ fontSize: 12, color: "var(--ash-2)" }}>Chọn nhanh:</span>
               {[50, 100, 150, 200, 500].map((r) => (
                 <button
                   key={r}
                   type="button"
                   className={`cc-calendar-chip ${form.radius_m === r ? "is-active" : ""}`}
-                  style={{ padding: "2px 10px", fontSize: 11 }}
+                  style={{ padding: "2px 10px", fontSize: 12 }}
                   onClick={() => set("radius_m", r)}
                 >
                   {r}m

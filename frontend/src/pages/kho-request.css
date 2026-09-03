@@ -31,7 +31,7 @@
   padding: 5px 14px;
   font-size: 13px;
   font-weight: 500;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -189,7 +189,7 @@
   gap: var(--sp-3);
   margin-top: var(--sp-3);
   font-size: 0.86rem;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 .kho-bc-pager .rc__link-btn:disabled {
   opacity: 0.4;
@@ -982,7 +982,7 @@ input.kho-num,
   font-weight: var(--fw-bold);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   background: var(--paper, #f8fafc);
   border-bottom: 1px solid var(--rule, #cbd5e1);
   white-space: nowrap;
@@ -1051,7 +1051,7 @@ input.kho-num,
   font-weight: var(--fw-bold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 .kho-kpi-bar__val {
   font-family: var(--ff-num);
@@ -2886,7 +2886,7 @@ input.kho-num,
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 .kho-rc-dot {
   width: 9px;
@@ -2907,7 +2907,7 @@ input.kho-num,
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
 }
 .kho-dash__val {
   font-family: var(--ff-num);
@@ -2921,7 +2921,7 @@ input.kho-num,
 }
 .kho-dash__sub {
   font-size: 12px;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   display: flex;
   align-items: center;
   gap: 4px;
@@ -2995,7 +2995,7 @@ input.kho-num,
   align-items: center;
   gap: var(--sp-4, 16px);
   font-size: 12.5px;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   margin-bottom: 4px;
 }
 .kho-chart__leg {
@@ -3071,11 +3071,11 @@ input.kho-num,
 
 .kho-chart__bar--in { background: linear-gradient(180deg, var(--moss, #2f5d3a), #488258); }
 .kho-chart__bar--out { background: linear-gradient(180deg, var(--rust, #c5400a), #e05e26); }
-.kho-chart__bar--move { background: linear-gradient(180deg, var(--steel, #4a5560), #64748b); }
+.kho-chart__bar--move { background: linear-gradient(180deg, var(--steel, #4a5560), var(--ash-2)); }
 .kho-chart__xlab {
   font-family: var(--ff-num, monospace);
   font-size: 11px;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   font-weight: 500;
@@ -3139,7 +3139,7 @@ input.kho-num,
   flex: 0 0 auto;
   font-family: var(--ff-num, monospace);
   font-variant-numeric: tabular-nums;
-  color: var(--ash-2, #64748b);
+  color: var(--ash-2, var(--ash-2));
   font-weight: 600;
   background: var(--rule-hair, #f1f5f9);
   padding: 2px 7px;
@@ -3250,7 +3250,7 @@ input.kho-num,
   border: 1px solid var(--rule-soft, #e2e8f0);
 }
 .kho-anh__del { color: var(--signal, #dc2626); }
-.kho-anh__hint { color: var(--ash, #64748b); }
+.kho-anh__hint { color: var(--ash, var(--ash-2)); }
 .kho-anh__err { color: var(--signal, #dc2626); }
 .kho-anh__lightbox {
   position: fixed;
@@ -3442,7 +3442,7 @@ input.kho-num,
 
 .kho-dock__btn--ghost {
   background: transparent;
-  color: #94a3b8;
+  color: var(--ash-2);
 }
 
 .kho-dock__btn--ghost:hover {
@@ -3523,7 +3523,7 @@ input.kho-num,
 
 .custom-recharts-tooltip__date {
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--ash-2);
   margin-bottom: 6px;
   font-size: 11px;
   text-transform: uppercase;
@@ -3651,7 +3651,7 @@ aside.rc-drawer.rc-drawer--mat-wide {
 
 .hero-banner__sub {
   font-size: 12px !important;
-  color: var(--ash-2, #64748b) !important;
+  color: var(--ash-2, var(--ash-2)) !important;
   margin-top: 4px !important;
 }
 
@@ -3681,7 +3681,7 @@ aside.rc-drawer.rc-drawer--mat-wide {
 .hero-banner__stock-dvt {
   font-size: 14px !important;
   font-weight: 600 !important;
-  color: var(--ash-2, #64748b) !important;
+  color: var(--ash-2, var(--ash-2)) !important;
 }
 
 /* Đèn LED trạng thái ở hero ĐÃ BỎ: StockLevelChip đã mang chấm kho-dot--* + chữ, nên đèn LED
@@ -3700,7 +3700,7 @@ aside.rc-drawer.rc-drawer--mat-wide {
 .kho-qr-card__head {
   font-size: 10.5px !important;
   font-weight: 700 !important;
-  color: var(--ash-2, #64748b) !important;
+  color: var(--ash-2, var(--ash-2)) !important;
   letter-spacing: 0.05em !important;
   margin-bottom: 8px !important;
 }
@@ -3740,7 +3740,7 @@ button.kho-qr-card__btn:hover {
 .supplier-price-card__head {
   font-size: 11px !important;
   font-weight: 700 !important;
-  color: var(--ash-2, #64748b) !important;
+  color: var(--ash-2, var(--ash-2)) !important;
   letter-spacing: 0.05em !important;
   margin-bottom: 10px !important;
 }
@@ -3795,7 +3795,7 @@ button.drawer-tab-btn {
   border-radius: 8px 8px 0 0 !important;
   font-size: 13px !important;
   font-weight: 500 !important;
-  color: var(--ash-2, #64748b) !important;
+  color: var(--ash-2, var(--ash-2)) !important;
   background: transparent !important;
   border: none !important;
   outline: none !important;
@@ -3838,7 +3838,7 @@ button.drawer-tab-btn.is-active {
 .recharts-overview-box__title {
   font-size: 11px !important;
   font-weight: 700 !important;
-  color: var(--ash-2, #64748b) !important;
+  color: var(--ash-2, var(--ash-2)) !important;
   letter-spacing: 0.05em !important;
 }
 
@@ -3895,7 +3895,7 @@ button.drawer-tab-btn.is-active {
 .rich-panel-box__title {
   font-size: 11px !important;
   font-weight: 700 !important;
-  color: var(--ash-2, #64748b) !important;
+  color: var(--ash-2, var(--ash-2)) !important;
   letter-spacing: 0.05em !important;
   margin-bottom: 12px !important;
   text-transform: uppercase !important;
@@ -3921,7 +3921,7 @@ button.drawer-tab-btn.is-active {
 
 .rich-data-item__label {
   font-size: 12px !important;
-  color: var(--ash-2, #64748b) !important;
+  color: var(--ash-2, var(--ash-2)) !important;
 }
 
 .rich-data-item__val {
@@ -4039,7 +4039,7 @@ button.hero-del-img-btn {
 
 .hero-sub-code {
   font-size: 12.5px !important;
-  color: var(--ash-2, #64748b) !important;
+  color: var(--ash-2, var(--ash-2)) !important;
 }
 
 .hero-banner__stock-col {
@@ -4068,7 +4068,7 @@ button.hero-del-img-btn {
 .hero-stock-dvt {
   font-size: 13.5px !important;
   font-weight: 600 !important;
-  color: var(--ash-2, #64748b) !important;
+  color: var(--ash-2, var(--ash-2)) !important;
 }
 
 .hero-status-row {

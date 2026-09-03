@@ -125,6 +125,24 @@ export function Xl2Gantt({
   // Hover state cho toàn bộ chuỗi thực thể (Chain Glow effect)
   const [hoverEntityKey, setHoverEntityKey] = useState<string | null>(null);
 
+  // Cột nhãn 270px vừa vặn trên máy bàn, nhưng ở 375px khung Gantt chỉ rộng 360px ⇒ trục thời gian
+  // còn đúng 90px trên một dải dài 5.512px: mở màn ra là một dải trắng, không đọc nổi một ngày nào
+  // (cả ở mật độ hẹp nhất "Tuần", một ngày vẫn 130px). Không chữa được bằng CSS: `LABEL_W` bị nướng
+  // thẳng vào `style={{ left: LABEL_W + x }}` của thước/ruy-băng ca/vạch gióng, đổi `--xl2-label-w`
+  // một mình là lệch hẳn hai tầng. Màn hẹp rút cột nhãn còn 140px — ĐÚNG cách và ĐÚNG ngưỡng mà
+  // `ThsxTimeline.tsx` (trục thời gian anh em, dùng chung `xl2Shared`) đã làm, để hai màn một thước.
+  // Kéo-thả KHÔNG bị ảnh hưởng: `onMove` quy toạ độ theo rect của chính lane track, không theo hằng này.
+  const [labelW, setLabelW] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia("(max-width: 820px)").matches ? 140 : LABEL_W);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 820px)");
+    const apDung = () => setLabelW(mq.matches ? 140 : LABEL_W);
+    apDung();
+    mq.addEventListener("change", apDung);
+    return () => mq.removeEventListener("change", apDung);
+  }, []);
+
   // Tra cứu lane theo key (cho hit-test khi kéo).
   const laneByKey = useMemo(() => {
     const m = new Map<string, Xl2Lane>();
@@ -474,8 +492,8 @@ export function Xl2Gantt({
             items.push({
               dong: d,
               laneKey: lane.key,
-              x1: LABEL_W + scale.xOf(sW),
-              x2: LABEL_W + scale.xOf(eW),
+              x1: labelW + scale.xOf(sW),
+              x2: labelW + scale.xOf(eW),
               y,
             });
           }
@@ -512,8 +530,8 @@ export function Xl2Gantt({
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  const fullW = LABEL_W + scale.width;
-  const laneStyle: CSSProperties = { "--xl2-label-w": `${LABEL_W}px`, "--xl2-bar-h": `${BAR_H}px` } as CSSProperties;
+  const fullW = labelW + scale.width;
+  const laneStyle: CSSProperties = { "--xl2-label-w": `${labelW}px`, "--xl2-bar-h": `${BAR_H}px` } as CSSProperties;
 
   return (
     <div className="xl2-gantt-wrap">
@@ -526,7 +544,7 @@ export function Xl2Gantt({
               <div
                 key={`d${i}`}
                 className={`xl2-ruler__day${d.holiday ? " xl2-ruler__day--holiday" : ""}${d.isToday ? " xl2-ruler__day--today" : ""}${d.isWeekend ? " xl2-ruler__day--weekend" : ""}`}
-                style={{ left: LABEL_W + d.x, width: d.w }}
+                style={{ left: labelW + d.x, width: d.w }}
               >
                 <span className="xl2-ruler__wd">{d.wd}</span>
                 <span className="xl2-ruler__dnum">{d.dayNum}</span>
@@ -534,7 +552,7 @@ export function Xl2Gantt({
               </div>
             ))}
             {ruler.ticks.map((t, i) => (
-              <div key={`t${i}`} className="xl2-ruler__tick" style={{ left: LABEL_W + t.x }}>
+              <div key={`t${i}`} className="xl2-ruler__tick" style={{ left: labelW + t.x }}>
                 {t.label}
               </div>
             ))}
@@ -549,7 +567,7 @@ export function Xl2Gantt({
               <div
                 key={`cb${i}`}
                 className={`xl2-carib__ca xl2-carib__ca--c${b.idx % 5}`}
-                style={{ left: LABEL_W + b.x, width: Math.max(b.w, 2), top: 3 + b.row * 16 }}
+                style={{ left: labelW + b.x, width: Math.max(b.w, 2), top: 3 + b.row * 16 }}
                 title={`${b.ten} · ${b.gio}`}
               >
                 {b.w >= 40 && <span className="xl2-carib__ten">{b.ten}</span>}
@@ -598,7 +616,7 @@ export function Xl2Gantt({
           {ghost && (
             <div
               className={`xl2-magnetic-guide${!ghost.valid ? " xl2-magnetic-guide--bad" : ""}${ghost.collide ? " xl2-magnetic-guide--collide" : ""}`}
-              style={{ left: LABEL_W + ghost.x }}
+              style={{ left: labelW + ghost.x }}
             >
               <div className="xl2-magnetic-badge">{ghost.label}</div>
             </div>

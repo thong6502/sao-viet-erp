@@ -23,6 +23,11 @@ export interface FieldDef {
    *  "Công thức tính lượng". Ô công thức KHÔNG khai `nhanTab` rơi vào tab mặc định (nhãn
    *  `config.nhanTabCongThuc`, mặc định "Công thức tính giá") — nên màn 1 tab như cũ giữ nguyên. */
   nhanTab?: string;
+  /** Ô `formula`: mã biến CẦN ẨN khỏi bảng chip của riêng Ô NÀY, dù `loaiO` cho phép — biến vẫn
+   *  hợp lệ nếu gõ tay/đã lưu, chỉ không hiện chip bấm-để-chèn. Dùng khi có chip khác đúng hơn cho
+   *  ngữ cảnh của ô (vd `to_dau_vao`/`to_sau_in` là số CẢ CHUỖI, còn `sl_vao`/`sl_ra` là số của
+   *  CHÍNH BƯỚC — xem `bien_cong_thuc.py`). */
+  an?: string[];
   refPrefix?: string;           // ref / ref-multi / ref-search: endpoint danh mục nguồn (đổ theo TÊN/MÃ)
   /** Query thêm khi nạp danh mục nguồn, vd `{ active: true }` — không lọc thì picker mời cả dòng
    *  đã ngừng dùng, người ta chọn xong bấm Lưu mới ăn lỗi từ server. */

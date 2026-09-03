@@ -154,7 +154,7 @@ function EmployeeCalendarModal({
                 style={{
                   textAlign: "center",
                   fontWeight: "bold",
-                  fontSize: "11px",
+                  fontSize: "12px",
                   paddingBottom: "6px",
                   color: "var(--ash)",
                 }}
@@ -220,7 +220,7 @@ function EmployeeCalendarModal({
                   )}
                   <div
                     style={{
-                      fontSize: "11px",
+                      fontSize: "12px",
                       fontWeight: 600,
                       color: "var(--ink)",
                       marginTop: "4px",
@@ -230,7 +230,7 @@ function EmployeeCalendarModal({
                   </div>
                   <div
                     style={{
-                      fontSize: "10px",
+                      fontSize: "12px",
                       color: "var(--ash)",
                       marginTop: "2px",
                       display: "flex",

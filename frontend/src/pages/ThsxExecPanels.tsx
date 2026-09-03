@@ -11,7 +11,7 @@ import type {
   SxBatchIn, SxBanGiaoDeXuatIn, SxBanGiaoSuaIn, SxBanGiaoDieuChinhIn,
   SxHoTroDeXuatIn, SxBuTruIn, SxLoaiTruIn, SxGoLoaiTruIn,
   SxKcsBatchIn, SxNhapKhoYeuCauIn, SxHuyPhanChuaNhanIn, SxPhanLoaiBtpIn, SxDongThieuIn,
-  SxKetQuaNhanh, SxVatTuCap, SxVatTuCapLan, SxVatTuCapDoiChieu,
+  SxKetQuaNhanh, SxSuCoIn, SxVatTuCap, SxVatTuCapLan, SxVatTuCapDoiChieu,
   SxVatTuDeNghiIn, SxVatTuDeNghiDongIn,
 } from "../api/client";
 import { Button } from "../components/Button";
@@ -20,9 +20,16 @@ import { MaterialCombobox } from "../components/MaterialCombobox";
 import { useAuth } from "../auth/useAuth";
 import { GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapHopLe } from "../lib/gioNhap";
 import { num, ngayGio, ngay } from "./keHoachSxShared";
+import { nhanDonVi } from "./lsxBuoc";
 
 // ============================ hợp đồng hành động (controller cấp) ============================
 export interface ThsxExec {
+  // Đổi máy giữa chừng (§7.2 mở rộng 31/08/2026) — CHẠY thì đóng phiên máy cũ + mở phiên mới
+  // CÙNG mốc (giờ máy cũ không mất); TẠM DỪNG thì chỉ đổi máy phân công, không mở phiên.
+  doiMay: (mayId: number, lyDo?: string | null) => Promise<boolean>;
+  // Báo sự cố tại tổ (31/08/2026) — KHÔNG có bảng sự cố riêng: ghi thẳng vào hộp thư "Báo máy
+  // hỏng" của tổ sửa chữa, kèm neo về công việc/lệnh. Nhánh "Dừng sản xuất" gộp luôn cú tạm dừng.
+  baoSuCo: (body: SxSuCoIn) => Promise<boolean>;
   taoBatch: (body: SxBatchIn) => Promise<SxKetQuaNhanh[] | null>;
   deXuatBanGiao: (body: SxBanGiaoDeXuatIn) => Promise<boolean>;
   suaBanGiao: (banGiaoId: number, body: SxBanGiaoSuaIn) => Promise<boolean>;
@@ -222,7 +229,7 @@ function SanLuongSection({
             <span className="thsx-x-stat__sep">·</span>
             {sl.con_thieu ? (
               <span className="thsx-x-pill thsx-x-pill--bad">
-                còn thiếu {num(sl.con_thieu)}{sl.don_vi ? ` ${sl.don_vi}` : ""}
+                còn thiếu {num(sl.con_thieu)}{sl.don_vi ? ` ${nhanDonVi(sl.don_vi)}` : ""}
               </span>
             ) : (
               <span className="thsx-x-stat__it">đủ mục tiêu</span>
@@ -237,7 +244,7 @@ function SanLuongSection({
           <ul className="thsx-x-toa-list">
             {ketQuaToa.map((k) => (
               <li key={k.lsx_id}>
-                LSX #{k.lsx_id}: <b>{num(k.so_luong)}</b> {k.don_vi}
+                LSX #{k.lsx_id}: <b>{num(k.so_luong)}</b> {nhanDonVi(k.don_vi)}
                 {k.ban_giao_id != null ? " · đã tự bàn giao" : ""}
               </li>
             ))}
@@ -321,7 +328,7 @@ function BatchForm({
         </Field>
       </div>
       <div className="thsx-x-grid2">
-        <Field label={`Tổng${donVi ? ` (${donVi})` : ""}`}>
+        <Field label={`Tổng${donVi ? ` (${nhanDonVi(donVi)})` : ""}`}>
           <input type="number" min={0} className="thsx-x-in" value={tong} onChange={(e) => setTong(e.target.value)} inputMode="numeric" />
         </Field>
         <Field label="Tốt">
@@ -330,7 +337,7 @@ function BatchForm({
       </div>
       <div className={`thsx-x-hong${hong > 0 ? " is-bad" : ""}`}>
         <Icon name={hong > 0 ? "alert" : "check"} size={13} />
-        Hỏng: <b className="thsx-num">{num(hong)}</b>{donVi ? ` ${donVi}` : ""}
+        Hỏng: <b className="thsx-num">{num(hong)}</b>{donVi ? ` ${nhanDonVi(donVi)}` : ""}
         {nTot > nTong && <span className="thsx-x-err">Tốt không được vượt Tổng</span>}
       </div>
       {hong > 0 && (
@@ -378,7 +385,7 @@ function BatchRow({
       {mo && (
         <div className="thsx-x-item__body">
           <div className="thsx-x-kv"><span>Tổng / tốt / hỏng</span>
-            <b className="thsx-num">{num(b.tong)} / {num(b.tot)} / {num(b.hong)}{b.don_vi ? ` ${b.don_vi}` : ""}</b></div>
+            <b className="thsx-num">{num(b.tong)} / {num(b.tot)} / {num(b.hong)}{b.don_vi ? ` ${nhanDonVi(b.don_vi)}` : ""}</b></div>
           {b.nhom_loi_ten && (
             <div className="thsx-x-kv"><span>Lỗi</span>
               <b>{b.nhom_loi_ten}{b.mo_ta_loi ? ` · ${b.mo_ta_loi}` : ""}</b></div>
@@ -389,7 +396,7 @@ function BatchRow({
           )}
           {b.lot_vao.length > 0 && (
             <div className="thsx-x-kv"><span>Lô vào</span>
-              <span>{b.lot_vao.map((l) => `${num(l.so_luong)}${l.don_vi ? ` ${l.don_vi}` : ""}`).join(" · ")}</span></div>
+              <span>{b.lot_vao.map((l) => `${num(l.so_luong)}${l.don_vi ? ` ${nhanDonVi(l.don_vi)}` : ""}`).join(" · ")}</span></div>
           )}
           {b.ghi_chu && <div className="thsx-x-kv"><span>Ghi chú</span><span>{b.ghi_chu}</span></div>}
 
@@ -441,7 +448,7 @@ function PhanBoBlock({
         <span className="thsx-x-pb__ky thsx-num">kỳ {pb.ky_thang}/{pb.ky_nam}</span>
       </div>
       <div className="thsx-x-pb__sum">
-        <span>Q trả lương <b className="thsx-num">{num(pb.q_tra_luong)}</b>{pb.don_vi_tra_luong ? ` ${pb.don_vi_tra_luong}` : ""}</span>
+        <span>Q trả lương <b className="thsx-num">{num(pb.q_tra_luong)}</b>{pb.don_vi_tra_luong ? ` ${nhanDonVi(pb.don_vi_tra_luong)}` : ""}</span>
         <span>đơn giá <b className="thsx-num">{num(pb.don_gia)}</b></span>
         {pb.tong_ty_le_ho_tro > 0 && <span>hỗ trợ <b className="thsx-num">{num(pb.tong_ty_le_ho_tro)}%</b></span>}
       </div>
@@ -728,10 +735,10 @@ function BanGiaoForm({
           <option value="ngoai">Giao ra ngoài (không nối chặng)</option>
         </select>
       </Field>
-      <Field label={`Số lượng${donVi ? ` (${donVi})` : ""}`}>
+      <Field label={`Số lượng${donVi ? ` (${nhanDonVi(donVi)})` : ""}`}>
         <input type="number" min={0} className="thsx-x-in" value={sl} onChange={(e) => setSl(e.target.value)} inputMode="numeric" />
       </Field>
-      {conLai > 0 && <p className="thsx-x-hint">Còn chưa giao: <b className="thsx-num">{num(conLai)}</b>{donVi ? ` ${donVi}` : ""}</p>}
+      {conLai > 0 && <p className="thsx-x-hint">Còn chưa giao: <b className="thsx-num">{num(conLai)}</b>{donVi ? ` ${nhanDonVi(donVi)}` : ""}</p>}
       <div className="thsx-x-act">
         <Button variant="ghost" onClick={onXong} disabled={busy}>Huỷ</Button>
         <Button variant="accent" onClick={luu} disabled={busy || !hopLe}>
@@ -764,7 +771,7 @@ function BanGiaoRow({
         <Icon name={phia === "di" ? "send" : "packageCheck"} size={13} className="thsx-x-bg__ic" />
         <span className="thsx-x-bg__to">{g.doi_tac_ten}{g.cung_to && <span className="thsx-x-tag-ht">cùng tổ</span>}</span>
         <span className="thsx-x-item__spacer" />
-        <span className="thsx-x-bg__q thsx-num">{num(g.so_luong)}{g.don_vi ? ` ${g.don_vi}` : ""}</span>
+        <span className="thsx-x-bg__q thsx-num">{num(g.so_luong)}{g.don_vi ? ` ${nhanDonVi(g.don_vi)}` : ""}</span>
         <span className={`thsx-x-pill ${st.cls}`}>{st.txt}</span>
       </div>
       {g.khong_nhat_quan && (
@@ -791,7 +798,7 @@ function BanGiaoRow({
       )}
       {suaOpen && (
         <div className="thsx-x-form thsx-x-form--sub">
-          <Field label={`Số lượng${g.don_vi ? ` (${g.don_vi})` : ""}`}>
+          <Field label={`Số lượng${g.don_vi ? ` (${nhanDonVi(g.don_vi)})` : ""}`}>
             <input type="number" min={0} className="thsx-x-in" value={slSua} onChange={(e) => setSlSua(e.target.value)} inputMode="numeric" />
           </Field>
           <div className="thsx-x-act">
@@ -832,7 +839,7 @@ function DieuChinhForm({
 
   return (
     <div className="thsx-x-form thsx-x-form--sub">
-      <Field label={`Số lượng sau${g.don_vi ? ` (${g.don_vi})` : ""}`}>
+      <Field label={`Số lượng sau${g.don_vi ? ` (${nhanDonVi(g.don_vi)})` : ""}`}>
         <input type="number" min={0} className="thsx-x-in" value={slSau} onChange={(e) => setSlSau(e.target.value)} inputMode="numeric" />
       </Field>
       <Field label="Lý do điều chỉnh">
@@ -942,11 +949,11 @@ function VatTuSection({
               <tr key={`${d.hang_loai}:${d.hang_id}`}
                 className={vtCoLechThucTe(d, soLan) ? "is-lech" : undefined}>
                 <td>{d.ten}</td>
-                <td className="r thsx-num">{num(d.sl_ke_hoach)}<span className="thsx-x-unit"> {d.dvt}</span></td>
-                <td className="r thsx-num">{num(d.sl_yeu_cau)}<span className="thsx-x-unit"> {d.dvt}</span></td>
+                <td className="r thsx-num">{num(d.sl_ke_hoach)}<span className="thsx-x-unit"> {nhanDonVi(d.dvt)}</span></td>
+                <td className="r thsx-num">{num(d.sl_yeu_cau)}<span className="thsx-x-unit"> {nhanDonVi(d.dvt)}</span></td>
                 {/* `sl_thuc_xuat` đọc thẳng từ dòng chứng từ nên LUÔN ở thang GỐC (board.py:
                     `_vat_tu_cap`) — dán nhãn `dvt` (thang tổ khai) vào đây là in sai đơn vị. */}
-                <td className="r thsx-num">{num(d.sl_thuc_xuat)}<span className="thsx-x-unit"> {d.dvt_goc}</span></td>
+                <td className="r thsx-num">{num(d.sl_thuc_xuat)}<span className="thsx-x-unit"> {nhanDonVi(d.dvt_goc)}</span></td>
                 <td className="r"><VtDeltaCell d={d} soLan={soLan} /></td>
                 <td><VtLyDoCacLanCell ds={d.cac_ly_do} /></td>
               </tr>
@@ -1032,13 +1039,13 @@ function VtDeltaCell({ d, soLan }: { d: SxVatTuCapDoiChieu; soLan: number }) {
       {Math.abs(soKh) > VT_EPS && (
         <span className={`thsx-x-vt-delta__row ${soKh > 0 ? "is-up" : "is-down"}`}>
           <span className="thsx-x-vt-delta__lbl">so KH</span>
-          {soKh > 0 ? "+" : ""}{num(soKh)}<span className="thsx-x-unit"> {d.dvt}</span>
+          {soKh > 0 ? "+" : ""}{num(soKh)}<span className="thsx-x-unit"> {nhanDonVi(d.dvt)}</span>
         </span>
       )}
       {lechYc && (
         <span className={`thsx-x-vt-delta__row ${soYc > 0 ? "is-up" : "is-down"}`}>
           <span className="thsx-x-vt-delta__lbl">so YC</span>
-          {soYc > 0 ? "+" : ""}{num(soYc)}<span className="thsx-x-unit"> {d.dvt_goc}</span>
+          {soYc > 0 ? "+" : ""}{num(soYc)}<span className="thsx-x-unit"> {nhanDonVi(d.dvt_goc)}</span>
         </span>
       )}
     </div>
@@ -1092,7 +1099,7 @@ function VtDeNghiLanRow({ d, tenNguoi }: { d: SxVatTuCapLan; tenNguoi: Map<numbe
                 {d.dongs.map((x) => (
                   <tr key={`${x.hang_loai}:${x.hang_id}`}>
                     <td>{x.ten}</td>
-                    <td className="r thsx-num">{num(x.sl_yeu_cau)}<span className="thsx-x-unit"> {x.dvt}</span></td>
+                    <td className="r thsx-num">{num(x.sl_yeu_cau)}<span className="thsx-x-unit"> {nhanDonVi(x.dvt)}</span></td>
                     <td><span className="thsx-x-butru__mo">{x.ly_do_chenh_lech || "—"}</span></td>
                   </tr>
                 ))}
@@ -1166,7 +1173,7 @@ function vtCanLyDo(d: VtDongForm, loai: "lan_dau" | "bo_sung"): { hien: boolean;
  *
  *  CỐ Ý chỉ xét `d.dvt`, KHÔNG gộp `d.dvtKeHoach` như `vtCanLyDo` — hai hàm trả lời hai câu hỏi
  *  khác nhau. `vtCanLyDo` hỏi "BE có đòi lý do không" nên phải gộp y hệt BE gộp. Hàm này hỏi "ô
- *  đơn vị trên màn có chữ gì không" — và màn đang hiện đúng `{d.dvt || "—"}`. Gộp vào đây là cho
+ *  đơn vị trên màn có chữ gì không" — và màn đang hiện đúng `{d.dvt ? nhanDonVi(d.dvt) : "—"}`. Gộp vào đây là cho
  *  tổ gõ một số dương vào ô đơn vị hiện "—" rồi để BE âm thầm đọc nó theo đơn vị KẾ HOẠCH: đổi
  *  một lần chặn thừa lấy một lần lệch thang im lặng, tệ hơn. Lần chặn thừa cũng không phải ngõ
  *  cụt — câu của `vtCanTro` chỉ ngay đường thoát ("đưa dòng đó về 0 rồi gửi phần còn lại").
@@ -1451,10 +1458,10 @@ function VatTuDeNghiForm({
             ))}
 
             {d.tuKeHoach && (
-              <div className="thsx-x-vtline__ref">Kế hoạch: {num(d.sl_ke_hoach)} {d.dvtKeHoach}</div>
+              <div className="thsx-x-vtline__ref">Kế hoạch: {num(d.sl_ke_hoach)} {nhanDonVi(d.dvtKeHoach)}</div>
             )}
             {loaiHieuLuc === "bo_sung" && lk && (
-              <div className="thsx-x-vtline__ref">Đã yêu cầu luỹ kế: {num(lk.sl_yeu_cau)} {lk.dvt}</div>
+              <div className="thsx-x-vtline__ref">Đã yêu cầu luỹ kế: {num(lk.sl_yeu_cau)} {nhanDonVi(lk.dvt)}</div>
             )}
 
             <div className="thsx-x-vt-qty">
@@ -1478,7 +1485,7 @@ function VatTuDeNghiForm({
                 onClick={() => datSl(d.key, d.sl_yeu_cau + 1)}>
                 <Icon name="plus" size={13} />
               </button>
-              <span className="thsx-x-unit">{d.dvt || "—"}</span>
+              <span className="thsx-x-unit">{d.dvt ? nhanDonVi(d.dvt) : "—"}</span>
               {/* "Về 0" là hành động có CHỦ Ý ("tổ xác nhận không cần cấp"), không gộp vào nút giảm. */}
               <button type="button" className="thsx-x-linkbtn" disabled={busy || d.sl_yeu_cau <= 0}
                 onClick={() => datSl(d.key, 0)}>Về 0</button>

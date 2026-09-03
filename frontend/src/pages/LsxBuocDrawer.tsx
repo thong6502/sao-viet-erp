@@ -1872,7 +1872,7 @@ export function LsxBuocDrawer({
                         <div className="khsx-time-row__formula-card" style={{ marginTop: 0 }}>
                           <div className="khsx-formula-compact">
                             <span className="khsx-formula-token khsx-formula-token--qty">
-                              {tg.quy_doi_dien_giai ? String(tg.quy_doi_dien_giai) : `${num(Number(tg.so_luong_vao ?? 0))} ${String(tg.don_vi_vao ?? "")}`}
+                              {tg.quy_doi_dien_giai ? String(tg.quy_doi_dien_giai) : `${num(Number(tg.so_luong_vao ?? 0))} ${nhanDonVi(tg.don_vi_vao as string | null)}`}
                             </span>
                             <span className="khsx-formula-op">÷</span>
                             {row.loai_buoc === "to" && Number(tg.so_nhan_cong_tinh ?? 1) > 1 ? (

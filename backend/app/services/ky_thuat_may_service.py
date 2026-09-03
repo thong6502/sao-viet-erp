@@ -221,11 +221,15 @@ class KyThuatMayService:
 
     # ================= dùng chung =================
 
-    def _ghi(self, loai: str, obj_id: int, action: str, detail: str, actor_id: int | None) -> None:
+    def _ghi(self, loai: str, obj_id: int, action: str, detail: str, actor_id: int | None,
+             *, commit: bool = True) -> None:
+        """`commit=False` khi người gọi đang gom nhiều việc vào MỘT giao dịch — `AuditLogRepository
+        .create` tự chốt, mà chốt ở giữa là phá tính nguyên tử của cả khối."""
         if self.audit is None:
             return
         self.audit.create(
             actor_user_id=actor_id, action=action, target=f"{loai}:{obj_id}", detail=detail,
+            commit=commit,
         )
 
     def _may(self, may_id: int) -> MayThietBi:
@@ -416,9 +420,16 @@ class KyThuatMayService:
                    User.is_active.is_(True))
         ).scalars()]
 
-    def _bao_to_sua_chua(self, yc: YeuCauSuaChua, may: MayThietBi) -> None:
+    def bao_to_sua_chua(self, yc: YeuCauSuaChua) -> None:
         """Đẩy NGAY tới tổ sửa chữa. Máy hỏng mà chờ người ta bấm F5 mới thấy thì cái màn hình này
-        vô nghĩa — báo hỏng là loại tin đúng nghĩa "biết sớm phút nào đỡ phút đó"."""
+        vô nghĩa — báo hỏng là loại tin đúng nghĩa "biết sớm phút nào đỡ phút đó".
+
+        CÔNG KHAI từ 31/08/2026: đường báo sự cố tại tổ (`services/san_xuat/su_co.py`) tạo yêu cầu
+        với `commit=False` để gom vào một giao dịch, nên phải tự gọi thông báo SAU khi commit —
+        không thể để `tao_yeu_cau` bắn hộ trước lúc dữ liệu chốt. Tự tra máy (`self._may`) thay vì
+        bắt người gọi truyền vào: nó vốn chỉ cần `yc`, và `tao_yeu_cau` đã kiểm máy tồn tại.
+        """
+        may = self._may(yc.may_id)
         su_kien = {
             "type": "ky_thuat_yeu_cau_moi",
             "id": yc.id, "ma": yc.ma,
@@ -446,7 +457,19 @@ class KyThuatMayService:
             "ly_do": yc.ly_do_tu_choi, "boi": yc.xu_ly_ten,
         })
 
-    def tao_yeu_cau(self, data: dict, *, actor_id: int | None = None) -> YeuCauSuaChua:
+    def tao_yeu_cau(self, data: dict, *, actor_id: int | None = None,
+                    cong_viec_id: int | None = None, lsx_id: int | None = None,
+                    commit: bool = True) -> YeuCauSuaChua:
+        """`commit=False`: chỉ `flush`, và KHÔNG đẩy SSE.
+
+        Người gọi lúc đó đang gom nhiều việc vào một giao dịch (báo sự cố tại tổ) nên chưa có gì
+        chắc chắn để báo — bắn tin trước commit là tổ sửa chữa nhận báo động cho một yêu cầu có
+        thể bị rollback ngay sau đó. Họ tự gọi `bao_to_sua_chua(yc)` sau khi commit xong.
+
+        `cong_viec_id`/`lsx_id` là NEO SẢN XUẤT, chỉ nhận qua tham số — KHÔNG đọc từ `data`, vốn
+        là thân request của client (xem `KyThuatMayRepository.create_yeu_cau`). Người gọi duy nhất
+        truyền hai giá trị này là `services/san_xuat/su_co.py`, lấy thẳng từ công việc đang chạy.
+        """
         self._validate_yeu_cau(data)
         may = self._may(int(data["may_id"]))
         data = {
@@ -457,10 +480,14 @@ class KyThuatMayService:
             "nguoi_bao_ten": self._ten_user(actor_id),
             "bo_phan": self._bo_phan_cua(actor_id),
         }
-        yc = self.repo.create_yeu_cau(data, ma=self.repo.next_ma_yeu_cau())
+        yc = self.repo.create_yeu_cau(
+            data, ma=self.repo.next_ma_yeu_cau(),
+            cong_viec_id=cong_viec_id, lsx_id=lsx_id, commit=commit,
+        )
         self._ghi(NHAT_KY_LOAI_YEU_CAU, yc.id, "create",
-                  f"{yc.ma} · {may.ma} · {yc.bo_phan_hong}", actor_id)
-        self._bao_to_sua_chua(yc, may)
+                  f"{yc.ma} · {may.ma} · {yc.bo_phan_hong}", actor_id, commit=commit)
+        if commit:
+            self.bao_to_sua_chua(yc)
         return yc
 
     def sua_yeu_cau(self, yc_id: int, data: dict, *,

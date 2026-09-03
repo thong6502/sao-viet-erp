@@ -11,6 +11,69 @@ import { nhanThoiGian } from "../nhat-ky/nhatKyNhan";
 
 const MATH_FUNCS = ["ceil", "floor", "round", "max", "min", "if"];
 
+/** Chỉ mấy hàm ĐA THAM SỐ mới đáng tách dòng theo tham số — `round/ceil/floor` chỉ bọc quanh một
+ *  biểu thức số học đơn giản, tách dòng chúng chỉ thêm rối chứ không giúp đọc bậc giá dễ hơn. */
+const HAM_TACH_DONG = ["if", "max", "min"];
+
+/** Một DÒNG hiển thị = một đoạn token liên tục [start, end) cùng nằm ở một cấp lồng `if/max/min`.
+ *  Công thức không có hàm đa tham số nào ⇒ luôn ra đúng MỘT dòng ở cấp 0 (giữ nguyên hành vi cũ,
+ *  vẫn 1 dòng phẳng cho công thức số học bình thường). */
+type Dong = { start: number; end: number; cap: number };
+
+/** Cắt dãy token phẳng thành các DÒNG theo độ sâu lồng của if/max/min — kiểu code editor: mở hàm
+ *  đa tham số thì xuống dòng thụt thêm 1 cấp, mỗi dấu `,` Ở ĐÚNG CẤP ĐÓ xuống dòng mới cùng cấp,
+ *  đóng ngoặc thì xuống dòng thụt về cấp trước. Ngoặc/dấu phẩy nằm SÂU HƠN (bên trong một biểu
+ *  thức số học con, vd `(a - b) * c`) không tách dòng — chỉ ngoặc của CHÍNH lệnh if/max/min mới
+ *  đáng tách, không thì `(a - b) * c` bị vụn từng dấu ra một dòng.
+ *
+ *  Không đụng tới `caret`/token phẳng — hàm này chỉ dùng để VẼ, chỉ số token vẫn nguyên như cũ. */
+function tinhDong(toks: string[]): Dong[] {
+  const dong: Dong[] = [];
+  let dauDong = 0;
+  let cap = 0;
+  // Mỗi phần tử = độ sâu ngoặc (`(`) TẠI ĐÓ một lệnh if/max/min đang mở — dùng để nhận ra dấu `,`
+  // và `)` nào thuộc THẲNG lệnh đó (không phải của ngoặc con sâu hơn).
+  const stack: number[] = [];
+  let capNgoac = 0;
+
+  const chotDong = (end: number) => {
+    if (end > dauDong) dong.push({ start: dauDong, end, cap });
+    dauDong = end;
+  };
+
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (t === "(") {
+      capNgoac++;
+      if (i > 0 && HAM_TACH_DONG.includes(toks[i - 1])) {
+        chotDong(i + 1);   // "if (" cùng một dòng với tên hàm
+        stack.push(capNgoac);
+        cap++;
+      }
+      continue;
+    }
+    if (t === ")") {
+      if (stack.length && capNgoac === stack[stack.length - 1]) {
+        chotDong(i);       // chốt dòng TRƯỚC dấu ")" — dấu ")" thuộc dòng mới, cấp thấp hơn
+        stack.pop();
+        cap--;
+      }
+      capNgoac--;
+      continue;
+    }
+    if (t === "," && stack.length && capNgoac === stack[stack.length - 1]) {
+      chotDong(i + 1);     // dấu "," ở lại cuối dòng hiện tại, tham số kế tiếp xuống dòng mới
+    }
+  }
+  chotDong(toks.length);
+  return dong;
+}
+
+/** Màu viền theo cấp lồng — lặp lại nếu lồng sâu hơn 4 cấp. Không dùng `--rust`: màu đó đã là
+ *  accent chính của cả màn (viền focus, nút chính…), lẫn vào đây thì không còn phân biệt được
+ *  "đang gõ" với "đang ở cấp mấy". */
+const MAU_CAP = ["var(--steel, #4a5560)", "var(--moss, #2f5d3a)", "var(--plum, #5f4d9e)", "var(--amber, #9c7714)"];
+
 /** Vẽ MỘT chip. Trước đây hàm này tự cắt token từ `value` rồi vẽ cả dãy một lượt — nay ô gõ có
  *  thể nằm CHÈN GIỮA dãy, nên chỗ gọi phải tự cắt đôi mảng token và vẽ từng chip với chỉ số thật.
  *
@@ -182,6 +245,17 @@ export function FormulaField({
   // đã làm vậy từ trước, nay cả ô làm một kiểu để chỉ số chip khớp với chuỗi công thức.
   const toks = useMemo(() => catToken(value).map((t) => t.trim()).filter(Boolean), [value]);
   const [caret, setCaret] = useState(toks.length);
+  // Tách dòng chỉ phụ thuộc `toks` (cấu trúc if/max/min), không phụ thuộc `caret` — con trỏ chỉ
+  // quyết định dòng nào đang hiện ô gõ, không đổi hình dạng các dòng.
+  const dongHang = useMemo(() => tinhDong(toks), [toks]);
+  const dongHienThi = dongHang.length ? dongHang : [{ start: 0, end: 0, cap: 0 }];
+  // Ô gõ thuộc dòng chứa token TẠI vị trí caret (token sẽ đứng NGAY SAU nó); caret ở cuối công
+  // thức thì thuộc dòng cuối cùng.
+  const dongCuaCaret = (() => {
+    if (caret >= toks.length) return dongHienThi.length - 1;
+    const idx = dongHienThi.findIndex((d) => caret >= d.start && caret < d.end);
+    return idx >= 0 ? idx : dongHienThi.length - 1;
+  })();
   // Chuỗi do CHÍNH ô này vừa ghi ra. Value đổi mà không phải do mình (mở drawer, cha nạp dữ liệu,
   // bấm nút mẫu) thì con trỏ về cuối; do mình thì giữ nguyên chỗ vừa đặt.
   const tuMinh = useRef<string | null>(null);
@@ -215,17 +289,6 @@ export function FormulaField({
   const syntaxPopRef = useRef<HTMLDivElement>(null);
 
   const [typedWord, setTypedWord] = useState("");
-  const [showAuto, setShowAuto] = useState(false);
-  const [autoIdx, setAutoIdx] = useState(0);
-
-  const autoSuggestions = useMemo(() => {
-    if (!typedWord || typedWord.length < 1) return [];
-    const q = typedWord.toLowerCase();
-    return whitelist.filter((v) => {
-      const info = tra(v);
-      return v.toLowerCase().includes(q) || (info && info.nhan.toLowerCase().includes(q));
-    }).slice(0, 8);
-  }, [typedWord, whitelist, tra]);
 
   useEffect(() => {
     if (!showSyntax) return;
@@ -256,7 +319,6 @@ export function FormulaField({
     if (word) {
       chenTaiCaret(word);
       setTypedWord("");
-      setShowAuto(false);
     }
   };
 
@@ -275,7 +337,6 @@ export function FormulaField({
     t.splice(caret, 0, ...moi);
     ghi(t, caret + moi.length);
     setTypedWord("");
-    setShowAuto(false);
     setTimeout(() => oInline()?.focus(), 10);
   };
 
@@ -296,7 +357,6 @@ export function FormulaField({
       t.splice(caret, 0, ...moi);
       ghi(t, caret <= i ? i + moi.length : i);
       setTypedWord("");
-      setShowAuto(false);
     } else {
       setCaret(Math.max(0, Math.min(i, toks.length)));
     }
@@ -307,7 +367,6 @@ export function FormulaField({
    *  gõ "1000" rồi bấm thẳng nút Lưu là số đó bay mất, im lặng. */
   const handleInlineBlur = () => {
     commitTypedWord();
-    setShowAuto(false);
   };
 
   const handleInlineChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -324,7 +383,6 @@ export function FormulaField({
       appended += (lastChar === "*" ? " * " : lastChar === "/" ? " / " : lastChar === "-" ? " - " : lastChar === "+" ? " + " : lastChar);
       chenTaiCaret(appended);
       setTypedWord("");
-      setShowAuto(false);
       return;
     }
 
@@ -332,58 +390,18 @@ export function FormulaField({
 
     // Nếu từ vừa gõ khớp chính xác 1 mã biến trong whitelist -> tự hóa Chip ngay!
     // TRỪ khi còn mã DÀI HƠN bắt đầu bằng chữ này (`so_mau` còn `so_mau_pha`): chốt sớm là người
-    // ta không gõ nốt được nữa. Trường hợp đó để Enter/Tab trên gợi ý quyết định.
+    // ta không gõ nốt được nữa, phải tự gõ hết cả chữ (không còn gợi ý để chọn giữa chừng).
     const trimmed = text.trim();
     const conMaDaiHon = whitelist.some((v) => v !== trimmed && v.startsWith(trimmed));
     if (whitelist.includes(trimmed) && !conMaDaiHon) {
       chenTaiCaret(trimmed);
       setTypedWord("");
-      setShowAuto(false);
       return;
     }
-
-    if (trimmed.length >= 1) {
-      setShowAuto(true);
-      setAutoIdx(0);
-    } else {
-      setShowAuto(false);
-    }
-  };
-
-  const insertSuggestion = (varName: string) => {
-    chenTaiCaret(varName);
-    setTypedWord("");
-    setShowAuto(false);
-    setTimeout(() => {
-      const el = document.getElementById(id) as HTMLInputElement | null;
-      el?.focus();
-    }, 10);
   };
 
   const handleInlineKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (showAuto && autoSuggestions.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setAutoIdx((i) => Math.min(i + 1, autoSuggestions.length - 1));
-        return;
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setAutoIdx((i) => Math.max(i - 1, 0));
-        return;
-      } else if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        insertSuggestion(autoSuggestions[autoIdx]);
-        return;
-      } else if (e.key === "Escape") {
-        // Đánh dấu phím đã có chủ: Esc ở đây là "đóng danh sách gợi ý", không phải "đóng drawer".
-        // Handler của React chạy trước listener trên `document` của drawer, nên dấu này tới kịp.
-        e.preventDefault();
-        setShowAuto(false);
-        return;
-      }
-    }
-
-    // Enter khi không có gợi ý nào: vẫn phải chốt chữ đang gõ (số "1000" chẳng khớp biến nào),
+    // Enter: chốt chữ đang gõ thành chip (số "1000" chẳng khớp biến nào cũng phải chốt được),
     // và chặn Enter lọt ra ngoài làm submit drawer.
     if (e.key === "Enter" && typedWord.trim()) {
       e.preventDefault();
@@ -441,7 +459,6 @@ export function FormulaField({
       t.splice(caret, 0, ...moi);
       ghi(t, caret);
       setTypedWord("");
-      setShowAuto(false);
     }
   };
 
@@ -645,64 +662,57 @@ export function FormulaField({
           }}
         >
           <div className="rc-formula__chips-wrap">
-            {/* Dãy chip bị CẮT ĐÔI ngay chỗ con trỏ: chip bên trái · ô gõ · chip bên phải. */}
-            {toks.slice(0, caret).map((tok, i) =>
-              veChip({ tok, idx: i, tra, validVars, whitelist, onXoa: handleRemoveToken, onDatCaret: datCaret }),
-            )}
-
-            <div
-              className={`rc-formula__inline-input-box${caret < toks.length ? " rc-formula__inline-input-box--giua" : ""}`}
-              // Đứng giữa dãy thì ô gõ chỉ được rộng bằng chữ đang gõ — để nguyên `flex:1` là nó
-              // đẩy toàn bộ chip bên phải văng sang lề kia.
-              style={caret < toks.length ? { width: `${Math.max(1, typedWord.length)}ch` } : undefined}
-              // Bấm vào CHÍNH ô gõ thì không được coi là "bấm chỗ trống": nền ô sẽ kéo con trỏ về
-              // cuối, mà con trỏ đang đứng giữa dãy — vừa đặt xong đã bị lôi đi.
-              onClick={(e) => e.stopPropagation()}
-            >
-              <input
-                id={id}
-                className="rc-formula__inline-input"
-                value={typedWord}
-                onChange={handleInlineChange}
-                onKeyDown={handleInlineKeyDown}
-                onBlur={handleInlineBlur}
-                autoComplete="off"
-                spellCheck={false}
-                placeholder={value.trim() ? "" : goY}
-              />
-              {showAuto && autoSuggestions.length > 0 && (
+            {/* Mỗi DÒNG = một đoạn token liên tục cùng cấp lồng if/max/min (xem `tinhDong`). Con
+                trỏ vẫn là MỘT chỉ số duy nhất trên mảng token phẳng — chỉ có dòng NÀO hiện ô gõ
+                và ô gõ đứng ở đâu TRONG dòng đó là đổi theo `caret`, logic gõ/xoá/click giữ nguyên
+                như cũ (không đụng tới `datCaret`/`handleRemoveToken`). */}
+            {dongHienThi.map((d, di) => {
+              const laDongCoCaret = di === dongCuaCaret;
+              const caretTrongDong = laDongCoCaret ? caret - d.start : 0;
+              const veTuDong = (from: number, to: number) =>
+                toks.slice(from, to).map((tok, i) =>
+                  veChip({ tok, idx: from + i, tra, validVars, whitelist, onXoa: handleRemoveToken, onDatCaret: datCaret }),
+                );
+              return (
                 <div
-                  className="rc-formula__autocomplete"
-                  role="listbox"
-                  onMouseDown={(e) => e.preventDefault()}
+                  key={di}
+                  className="rc-formula__row"
+                  style={d.cap > 0 ? {
+                    marginLeft: d.cap * 18,
+                    paddingLeft: 10,
+                    borderLeft: `2px solid ${MAU_CAP[(d.cap - 1) % MAU_CAP.length]}`,
+                  } : undefined}
                 >
-                  <div className="rc-formula__autocomplete-head">Gợi ý biến phù hợp:</div>
-                  {autoSuggestions.map((v, idx) => (
-                    <div
-                      key={v}
-                      className={`rc-formula__autocomplete-item${idx === autoIdx ? " is-selected" : ""}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        insertSuggestion(v);
-                      }}
-                      onMouseEnter={() => setAutoIdx(idx)}
-                    >
-                      <div className="rc-formula__autocomplete-main">
-                        <span className="rc-formula__autocomplete-name">{tra(v)?.nhan ?? v}</span>
-                        <code className="rc-formula__autocomplete-code">{v}</code>
-                      </div>
-                      {tra(v)?.don_vi && (
-                        <span className="rc-formula__autocomplete-unit">{tra(v)!.don_vi}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                  {laDongCoCaret ? veTuDong(d.start, d.start + caretTrongDong) : veTuDong(d.start, d.end)}
 
-            {toks.slice(caret).map((tok, i) =>
-              veChip({ tok, idx: caret + i, tra, validVars, whitelist, onXoa: handleRemoveToken, onDatCaret: datCaret }),
-            )}
+                  {laDongCoCaret && (
+                    <div
+                      className={`rc-formula__inline-input-box${caret < toks.length ? " rc-formula__inline-input-box--giua" : ""}`}
+                      // Đứng giữa dãy thì ô gõ chỉ được rộng bằng chữ đang gõ — để nguyên `flex:1` là nó
+                      // đẩy toàn bộ chip bên phải văng sang lề kia.
+                      style={caret < toks.length ? { width: `${Math.max(1, typedWord.length)}ch` } : undefined}
+                      // Bấm vào CHÍNH ô gõ thì không được coi là "bấm chỗ trống": nền ô sẽ kéo con trỏ về
+                      // cuối, mà con trỏ đang đứng giữa dãy — vừa đặt xong đã bị lôi đi.
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        id={id}
+                        className="rc-formula__inline-input"
+                        value={typedWord}
+                        onChange={handleInlineChange}
+                        onKeyDown={handleInlineKeyDown}
+                        onBlur={handleInlineBlur}
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder={value.trim() ? "" : goY}
+                      />
+                    </div>
+                  )}
+
+                  {laDongCoCaret && veTuDong(d.start + caretTrongDong, d.end)}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

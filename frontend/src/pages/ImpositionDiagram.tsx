@@ -320,7 +320,7 @@ export function ImpositionDiagram({
             {soCon > con ? (
               <span className="tg-imp__over">đè vượt bình bài · engine xếp được {con}</span>
             ) : soCon < con ? (
-              <span className="tg-imp__overridden-hint" style={{ fontSize: "10.5px", color: "var(--ash-2)", marginLeft: "2px" }}>
+              <span className="tg-imp__overridden-hint" style={{ fontSize: "12px", color: "var(--ash-2)", marginLeft: "2px" }}>
                 (engine {con})
               </span>
             ) : null}

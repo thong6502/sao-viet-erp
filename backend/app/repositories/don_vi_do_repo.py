@@ -16,6 +16,17 @@ _FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active", "dung_lam_toc_do",
 _CAP_FIELDS = ("tu_id", "den_id", "he_so", "ghi_chu")
 
 
+def nhan_don_vi(bang: dict[str, str], ma: str | None) -> str:
+    """MÃ đơn vị → TÊN hiển thị, tra trong bảng của `DonViDoRepository.ten_theo_ma()`.
+
+    Mã lạ hoặc chưa có trong danh mục ⇒ trả lại CHÍNH MÃ, không đoán và không nuốt mất: thà tổ
+    thấy `to` còn hơn thấy ô trống hoặc một cái tên hệ thống tự bịa. Cùng luật với
+    `frontend/src/pages/tenDonVi.ts`, để hai bên không nói hai kiểu.
+    """
+    k = (ma or "").strip()
+    return bang.get(k.lower(), k)
+
+
 @dataclass
 class CapRow:
     """1 cặp quy đổi KÈM MÃ hai đầu — `quy_doi_service` là hàm thuần nên không tự truy DB được."""
@@ -69,6 +80,20 @@ class DonViDoRepository(CatalogRepo):
         return list(
             self.db.execute(select(DonViDo).order_by(DonViDo.ho, DonViDo.ma)).scalars()
         )
+
+    def ten_theo_ma(self) -> dict[str, str]:
+        """Bảng tra MÃ → TÊN hiển thị: `{"to": "tờ", "kem": "bản kẽm"}`.
+
+        Mọi chỗ bày đơn vị cho NGƯỜI đọc đều đi qua đây. Cột `don_vi` / `don_vi_vao` / `don_vi_ra`
+        khắp tầng sản xuất giữ MÃ (`String(24)`, khớp `DonViDo.ma`) — in thẳng ra là tổ đọc "480 to".
+
+        Dùng `all_rows()` chứ KHÔNG `all_active()`: đơn vị ngừng dùng mà chứng từ cũ còn trỏ tới thì
+        vẫn phải hiện ra tên, đúng luật đã ghi ở docstring `all_rows`. Lọc `active` ở đường ĐỌC là
+        làm lệnh cũ tụt về mã trần.
+
+        Khoá hạ chữ thường để nơi gọi tra được cả khi dữ liệu cũ ghi hoa/thường lẫn lộn.
+        """
+        return {(d.ma or "").strip().lower(): d.ten for d in self.all_rows() if (d.ma or "").strip()}
 
     def distinct_ho(self) -> list[str]:
         """Họ đã có trong dữ liệu — gợi ý cho ô "Họ" (form MỞ, không phải whitelist)."""

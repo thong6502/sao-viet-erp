@@ -9,8 +9,9 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..models.kho_hang import KhoHang
 from ..models.order import Order
-from ..models.san_xuat import SanXuatCongViec, SanXuatNhom
+from ..models.san_xuat import SanXuatCongViec, SanXuatNhom, SanXuatNhomLsx
 from ..models.san_xuat_kcs import SanXuatKcsBatch
 from ..models.san_xuat_kho import (
     HANG_BTP,
@@ -51,6 +52,28 @@ class SanXuatKhoRepository:
 
     def kcs_batch(self, kcs_batch_id: int) -> SanXuatKcsBatch | None:
         return self.db.get(SanXuatKcsBatch, kcs_batch_id)
+
+    # --- Kho đích (§14.1) --------------------------------------------------------------------
+    def kho_nhan_duoc(self, kho_id: int) -> bool:
+        """Kho đích CÓ THẬT và CÒN DÙNG được không.
+
+        Phải soi cả `active`: kho ngừng dùng là xoá MỀM (bản ghi vẫn nằm trong `kho_hang`), mà ô
+        chọn kho ở màn thủ kho nạp một lần lúc mở màn — tab mở từ sáng vẫn giữ kho vừa bị ngừng
+        dùng lúc 9h. Chỉ soi "có tồn tại" thì hàng chui vào kho đã ngừng dùng và biến mất khỏi mọi
+        màn kho có lọc `active`."""
+        kho = self.db.get(KhoHang, kho_id)
+        return kho is not None and bool(kho.active)
+
+    def ten_kho_theo_ids(self, kho_ids) -> dict[int, str]:
+        """Bản đồ `{kho_id: tên kho}` cho MỘT lượt đọc — mặt đọc phơi tên chứ không phơi số id trần.
+        Một câu cho cả danh sách, không N+1. Kho đã bị xoá mềm vẫn trả tên (lot cũ vẫn phải đọc được)."""
+        ids = {int(i) for i in kho_ids if i is not None}
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(KhoHang.id, KhoHang.ten).where(KhoHang.id.in_(ids))
+        ).all()
+        return {int(r[0]): r[1] for r in rows}
 
     # --- Registry hàng sản xuất (§14.2) ------------------------------------------------------
     def hang(self, hang_id: int) -> SanXuatKhoHang | None:
@@ -105,6 +128,28 @@ class SanXuatKhoRepository:
                 .order_by(SanXuatKhoLot.id)
             )
         )
+
+    def thanh_vien_nhom(self, nhom_id: int) -> list[tuple[int, int | None]]:
+        """`[(lsx_id, order_line_id)]` của MỌI thành viên nhóm — cầu DUY NHẤT sang giao hàng.
+
+        `delivery_request_lines` neo `order_line_id` (`models/delivery.py:163`), không có cột nào
+        trỏ lệnh hay nhóm; còn lot thành phẩm neo NHÓM. Muốn biết nhóm này đã giao bao nhiêu thì
+        phải đi qua đây.
+
+        Đọc THẲNG `SanXuatNhomLsx.order_line_id` — `nhom.dam_bao_nhom` ghi cột đó ngay lúc dựng
+        thành viên (`services/san_xuat/nhom.py:51`), nên vòng qua `Lsx` là thừa một join.
+
+        Trả về TỪNG THÀNH VIÊN chứ không phải tập dòng đơn đã gộp, và giữ cả `order_line_id` rỗng.
+        Hai thứ đó là dữ kiện, không phải rác: số thành viên quyết định mức GỘP của mọi con số cấp
+        nhóm, còn thành viên thiếu dòng đơn (cột nullable, `ondelete="SET NULL"`) nghĩa là KHÔNG
+        dựng được ánh xạ sang giao hàng — phải nói ra, không được lặng lẽ coi như 0.
+        """
+        rows = self.db.execute(
+            select(SanXuatNhomLsx.lsx_id, SanXuatNhomLsx.order_line_id)
+            .where(SanXuatNhomLsx.nhom_id == nhom_id)
+            .order_by(SanXuatNhomLsx.lsx_id)
+        ).all()
+        return [(int(r[0]), int(r[1]) if r[1] is not None else None) for r in rows]
 
     def cac_lot_cua_nhom(self, nhom_id: int) -> list[SanXuatKhoLot]:
         return list(

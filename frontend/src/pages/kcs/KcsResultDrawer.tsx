@@ -18,6 +18,8 @@ import { useAuth } from "../../auth/useAuth";
 import { Drawer } from "../danh-muc/components/Drawer";
 import { Select, type SelectOption } from "../../components/Select";
 import { num } from "../keHoachSxShared";
+import { nhanDonVi } from "../lsxBuoc";
+import { useNapTenDonVi } from "../tenDonVi";
 
 export const KCS_TRANG_THAI_GUI_KHO_LABEL: Record<string, string> = {
   chua_gui: "Chưa gửi kho",
@@ -72,6 +74,9 @@ type Props =
 
 export function KcsResultDrawer(props: Props) {
   const { token } = useAuth();
+  // `don_vi*` của tầng sản xuất là MÃ danh mục (`to`, `kem`) — nạp bảng tên rồi bọc `nhanDonVi`
+  // ở từng chỗ bày ra. Drawer mở được từ nhiều màn nên nạp NGAY TẠI ĐÂY, đừng trông vào màn cha.
+  useNapTenDonVi();
 
   // ---- Bước chọn việc (chỉ mode="dot_xuat", trước khi có công việc) ----
   const [teams, setTeams] = useState<SxTeam[] | null>(null);
@@ -270,7 +275,7 @@ export function KcsResultDrawer(props: Props) {
               {b.loi.map((l) => (
                 <div key={l.id} className="kcs-drawer__loi" style={{ marginBottom: 8 }}>
                   <strong>{l.nhom_loi_ten ?? "Lỗi"}</strong>
-                  {l.so_luong > 0 && <span> — {num(l.so_luong)} {l.don_vi ?? ""}</span>}
+                  {l.so_luong > 0 && <span> — {num(l.so_luong)} {nhanDonVi(l.don_vi)}</span>}
                   {l.mo_ta && <p style={{ margin: "4px 0" }}>{l.mo_ta}</p>}
                   {l.anh.length > 0 && (
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
@@ -363,7 +368,7 @@ export function KcsResultDrawer(props: Props) {
             {saved.ctaEligible && (
               <div className="kcs-drawer__cta">
                 <span className="kcs-drawer__cta-text">
-                  {ctaDone ?? `Đây là bước KCS cuối — có ${num(saved.soDat)} ${saved.donVi} đạt sẵn sàng nhập kho.`}
+                  {ctaDone ?? `Đây là bước KCS cuối — có ${num(saved.soDat)} ${nhanDonVi(saved.donVi)} đạt sẵn sàng nhập kho.`}
                 </span>
                 {!ctaDone && (
                   <button type="button" className="btn btn--accent" onClick={guiKho} disabled={ctaSaving}>
@@ -471,7 +476,7 @@ function KhoiNguCanh({ item, tenTo, conCho }: { item: SxWorkItem; tenTo: string;
       <div className="kcs-drawer__ctx-row"><strong>{item.nguon_ma}</strong> — {item.nguon_ten}</div>
       <div className="kcs-drawer__ctx-row">Công đoạn: {item.ten_cong_doan} · Tổ: {tenTo} · Máy: {item.may || "—"}</div>
       {conCho != null && (
-        <div className="kcs-drawer__ctx-row">Còn chờ: <strong>{num(conCho)} {item.don_vi_vao ?? ""}</strong></div>
+        <div className="kcs-drawer__ctx-row">Còn chờ: <strong>{num(conCho)} {nhanDonVi(item.don_vi_vao)}</strong></div>
       )}
     </div>
   );

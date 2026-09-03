@@ -454,13 +454,18 @@ class XepLichService:
         cho DB cũ / xưởng lỡ tắt hết: thà đo bằng mọi ca còn hơn đo bằng một ca tưởng tượng.
 
         Ca đã tắt (`is_active=False`) vẫn là đường loại hẳn một ca ra khỏi lịch xưởng.
+
+        --- RÚT VỀ TẦNG REPOSITORY (Ruling C117, task-16-brief.md) -------------------------------
+        Thân hàm (trước đây tự `select(WorkShift)...`) nay CHỈ gọi lại
+        `AttendanceRepository.ca_lich_xuong()` — tab "Theo ca" của Theo dõi sản xuất
+        (`services/lenh_sx/bang_theo_doi.theo_ca`) cần ĐÚNG tập ca này để xếp việc vào cột ca
+        không lệch với chỗ Xếp lịch đã đặt việc. Giữ nguyên toàn bộ luật ở trên (docstring này chỉ
+        mô tả LẠI, không đổi hành vi) — hai nơi gọi CÙNG một câu SQL, không phải hai bản sao có
+        nguy cơ trôi nhau.
         """
-        cas = list(self.db.execute(
-            select(WorkShift)
-            .where(WorkShift.is_active.is_(True))
-            .order_by(WorkShift.start_minute)
-        ).scalars())
-        return [s for s in cas if bool(getattr(s, "ca_san_xuat", True))] or cas
+        from ..repositories.attendance_repo import AttendanceRepository
+
+        return AttendanceRepository(self.db).ca_lich_xuong()
 
     def _lich_may(self, may_id: int | None) -> LichXuong:
         """Khung giờ của MÁY — chạy LIÊN TỤC (2026-08-10: bỏ ca riêng của máy và của tổ).

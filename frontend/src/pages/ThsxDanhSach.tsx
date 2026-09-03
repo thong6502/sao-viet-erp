@@ -5,6 +5,7 @@
 import { Icon, type IconName } from "../components/Icons";
 import type { SxVatTuDinhMuc, SxWorkItem } from "../api/client";
 import { num, ngayGio } from "./keHoachSxShared";
+import { nhanDonVi } from "./lsxBuoc";
 import { sxNguonIcon, sxSerial, ThsxTrangThaiPill } from "./thsxShared";
 
 interface Props {
@@ -20,7 +21,7 @@ function dinhMucText(vt: SxVatTuDinhMuc[]): string {
   if (!vt || vt.length === 0) return "—";
   const head = vt.slice(0, 2).map((v) => {
     const ten = (v.ten || "").trim() || "—";
-    const sl = v.so_luong == null ? "" : ` ${num(v.so_luong)}${v.don_vi ? ` ${v.don_vi}` : ""}`;
+    const sl = v.so_luong == null ? "" : ` ${num(v.so_luong)}${v.don_vi ? ` ${nhanDonVi(v.don_vi)}` : ""}`;
     return `${ten}${sl}`;
   });
   const rest = vt.length - head.length;
@@ -99,9 +100,9 @@ function DsRow({ w, selected, onPick }: { w: SxWorkItem; selected: boolean; onPi
       <td>{w.may || "—"}</td>
       <td className="thsx-num">{w.du_kien_bat_dau ? ngayGio(w.du_kien_bat_dau) : "—"}</td>
       <td className="r thsx-num">
-        {num(w.so_luong_vao)}{w.don_vi_vao ? ` ${w.don_vi_vao}` : ""}
+        {num(w.so_luong_vao)}{w.don_vi_vao ? ` ${nhanDonVi(w.don_vi_vao)}` : ""}
         {" → "}
-        {num(w.so_luong_ra)}{w.don_vi_ra ? ` ${w.don_vi_ra}` : ""}
+        {num(w.so_luong_ra)}{w.don_vi_ra ? ` ${nhanDonVi(w.don_vi_ra)}` : ""}
       </td>
       <td className="thsx-ds__vt" title={dinhMucText(w.dinh_muc_vat_tu)}>{dinhMucText(w.dinh_muc_vat_tu)}</td>
       <td><ThsxTrangThaiPill tt={w.trang_thai} size="xs" /></td>

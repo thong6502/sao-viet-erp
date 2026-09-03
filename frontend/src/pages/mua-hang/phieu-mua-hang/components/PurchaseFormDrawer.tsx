@@ -18,6 +18,23 @@ import type { FormLine, FormState, PhieuSeTao } from "../shared/types";
 import { LineSupplierPicker } from "./LineSupplierPicker";
 import { LocalField, StatusBadge } from "./purchaseCells";
 
+// Nhãn ĐI KÈM TỪNG Ô của lưới dòng hàng. Trên màn rộng luôn `display: none`
+// (khai ở §66 của `styles/responsive.css`) nên KHÔNG chiếm ô nào của grid —
+// bố cục màn rộng giữ nguyên hàng nhãn `.purchase__line-labels` như cũ. Chỉ ở
+// `@media (max-width: 768px)` nhãn mới bật lên, vì ở đó `purchase.css:1967` ẩn
+// hàng nhãn còn lưới xếp một cột: không có nhãn thì người dùng nhìn dãy ô số
+// "18000 · 5 · 8" mà không biết đâu là Đơn giá đâu là VAT — biểu mẫu này SINH
+// ĐƠN MUA và ghi tiền nên nhầm ô là ra đơn sai tiền.
+// `aria-hidden` vì mỗi ô đã có `aria-label` riêng, không đọc lặp hai lần.
+function NhanO({ chu, sao }: { chu: string; sao?: boolean }) {
+  return (
+    <span className="purchase__line-lb" aria-hidden="true">
+      {chu}
+      {sao ? <span className="purchase__required-star"> *</span> : null}
+    </span>
+  );
+}
+
 export function PurchaseFormDrawer({
   mode,
   setMode,
@@ -246,6 +263,7 @@ export function PurchaseFormDrawer({
                   {/* Vật tư và ĐVT do BỘ PHẬN ĐỀ NGHỊ quyết, thu mua không được đổi — đổi ở
                       đây là mua thứ khác với thứ người ta xin mà không ai hay. Thu mua chỉ
                       chọn MUA CỦA AI và giá. Cùng lý do: không thêm/xoá dòng. */}
+                  <NhanO chu="Vật tư" sao />
                   <input
                     className="input purchase__line-name purchase__readonly-field"
                     required
@@ -254,6 +272,7 @@ export function PurchaseFormDrawer({
                     title="Vật tư do bộ phận đề nghị khai — Thu mua không sửa được"
                     value={line.item_name}
                   />
+                  {mode !== "edit" && <NhanO chu="Nhà cung cấp" sao />}
                   {mode !== "edit" && (
                     <LineSupplierPicker
                       line={line}
@@ -292,6 +311,7 @@ export function PurchaseFormDrawer({
                        - Hộp nhập rỗng mời người ta bấm vào gõ, rồi phát hiện không gõ được.
                       Đơn vị hiện TÊN ("cái") chứ không phải mã (`cai`); `line.unit` trong state vẫn
                       giữ mã và đó mới là thứ gửi lên. */}
+                  <NhanO chu="ĐVT" sao />
                   <span
                     className="input purchase__line-unit purchase__readonly-field"
                     aria-label="Đơn vị tính"
@@ -299,6 +319,7 @@ export function PurchaseFormDrawer({
                   >
                     {tenDonVi(line.unit) ?? line.unit}
                   </span>
+                  <NhanO chu="Số lượng" sao />
                   <span
                     className="input purchase__number-input purchase__readonly-field"
                     aria-label="Số lượng"
@@ -314,6 +335,7 @@ export function PurchaseFormDrawer({
                       ? line.quantity.toLocaleString("vi-VN")
                       : ""}
                   </span>
+                  <NhanO chu="Đơn giá" sao />
                   <input
                     className="input purchase__number-input"
                     type="number"
@@ -333,6 +355,7 @@ export function PurchaseFormDrawer({
                       })
                     }
                   />
+                  <NhanO chu="Giảm (%)" />
                   <input
                     className="input purchase__number-input"
                     type="number"
@@ -350,6 +373,7 @@ export function PurchaseFormDrawer({
                       })
                     }
                   />
+                  <NhanO chu="Tiền giảm" />
                   <strong className="purchase__line-sum">
                     {lineDiscountAmount(line) > 0 ? (
                       money(lineDiscountAmount(line))
@@ -357,6 +381,7 @@ export function PurchaseFormDrawer({
                       <span className="md-page__muted">0 đ</span>
                     )}
                   </strong>
+                  <NhanO chu="VAT (%)" />
                   <input
                     className="input purchase__number-input"
                     type="number"
@@ -372,6 +397,7 @@ export function PurchaseFormDrawer({
                       })
                     }
                   />
+                  <NhanO chu="Ghi chú dòng" />
                   <input
                     className="input purchase__line-note"
                     aria-label="Ghi chú dòng"
@@ -384,6 +410,7 @@ export function PurchaseFormDrawer({
                   {/* `title` = số ĐẦY ĐỦ. Ô có cắt gọn "…" cho ca tiền quá lớn (xem
                       `.purchase__line-sum`), nên phải luôn có đường đọc lại trọn con số — cắt mất
                       chữ số của một ô TIỀN mà không cách nào xem lại là kiểu giấu số tệ nhất. */}
+                  <NhanO chu="Thành tiền" />
                   <strong
                     className="purchase__line-sum"
                     title={

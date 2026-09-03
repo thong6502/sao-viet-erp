@@ -4,6 +4,8 @@ import type { DeliveryTrip, HangCanXuat } from "../../../../api/client";
 import { api } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
 import { Icon } from "../../../../components/Icons";
+import { nhanDonVi } from "../../../lsxBuoc";
+import { useNapTenDonVi } from "../../../tenDonVi";
 
 // =============================================================================
 // Dialog · Gửi yêu cầu xuất kho
@@ -19,6 +21,9 @@ export function DialogYeuCauXuatKho({
   onClose: () => void;
   onXong: () => void;
 }) {
+  // `dvt` của dòng yêu cầu giao là MÃ danh mục (`don_vi_gia` của mặt hàng) — bày mã ra cho thủ kho
+  // đọc là bắt họ tra mã. Nạp bảng tên rồi tra bằng `nhanDonVi`.
+  useNapTenDonVi();
   const [hang, setHang] = useState<HangCanXuat[] | null>(null);
   const [ghiChu, setGhiChu] = useState("");
   const [loi, setLoi] = useState<string | null>(null);
@@ -91,7 +96,7 @@ export function DialogYeuCauXuatKho({
                         {d.hang_ten ?? `${d.hang_loai}#${d.hang_id}`}
                       </div>
                     </td>
-                    <td className="kho-lines__code">{d.dvt}</td>
+                    <td className="kho-lines__code">{nhanDonVi(d.dvt)}</td>
                     <td className="kho-num">{d.sl_de_nghi}</td>
                   </tr>
                 ))}

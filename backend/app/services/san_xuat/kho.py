@@ -34,6 +34,7 @@ from ...models.san_xuat_kho import (
     SanXuatNhapKhoYc,
 )
 from ...repositories.audit_repo import AuditLogRepository
+from ...repositories.delivery_repo import DeliveryRepository
 from ...repositories.document_sequence_repo import DocumentSequenceRepository
 from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
 from ..sequence_service import SequenceService
@@ -246,12 +247,18 @@ def kho_xac_nhan_nhap(
     user,
     yc_id: int,
     so_luong,
+    kho_id: int,
     expected_version: int | None = None,
 ) -> dict:
     """KHO xác nhận nhận MỘT phần của yêu cầu nhập kho thành phẩm (§14.1). Gate quyền `kho` ở router.
 
     Cộng dồn `so_luong_xac_nhan` (≤ số yêu cầu), đẻ một lot thành phẩm cho phần vừa nhận (khoá), cập
-    nhật trạng thái theo số. Phần đã ghi nhận không sửa ngược batch KCS (§14.1)."""
+    nhật trạng thái theo số. Phần đã ghi nhận không sửa ngược batch KCS (§14.1).
+
+    `kho_id` BẮT BUỘC (31/08/2026) — không có kho đích thì lot thành phẩm là con số lơ lửng: không
+    tra được tồn theo kho, không lập được phiếu xuất giao. Cố ý KHÔNG có giá trị mặc định: đoán kho
+    hộ thủ kho là ghi sai chỗ cất mà không ai hay. Kho phải CÒN DÙNG (`active`) — xem
+    `kho_nhan_duoc`."""
     repo = SanXuatKhoRepository(db)
     yc = repo.yc(yc_id)
     if yc is None:
@@ -260,6 +267,8 @@ def kho_xac_nhan_nhap(
         raise ValueError("Yêu cầu nhập kho đã kết thúc, không thể xác nhận thêm.")
     if expected_version is not None and expected_version != yc.version:
         raise ValueError("Phiên bản không khớp — yêu cầu vừa được cập nhật, hãy tải lại.")
+    if kho_id is None or not repo.kho_nhan_duoc(kho_id):
+        raise ValueError("Kho đích không tồn tại hoặc đã ngừng dùng.")
 
     so = _so_khong_am(so_luong, "Số lượng nhận")
     if so <= 0:
@@ -280,6 +289,7 @@ def kho_xac_nhan_nhap(
         so_luong=so,
         don_vi=yc.don_vi,
         phan_loai=None,
+        kho_id=kho_id,
         kho_xac_nhan=True,
         xac_nhan_by_id=getattr(user, "id", None),
         xac_nhan_luc=_moc(),
@@ -298,7 +308,8 @@ def kho_xac_nhan_nhap(
         actor_user_id=getattr(user, "id", None),
         action="san_xuat_kho_xac_nhan_nhap",
         target=f"san_xuat_nhap_kho_yc:{yc.id}",
-        detail=f"nhan={so:g} luy_ke={float(yc.so_luong_xac_nhan):g} trang_thai={yc.trang_thai}",
+        detail=(f"nhan={so:g} kho={kho_id} luy_ke={float(yc.so_luong_xac_nhan):g} "
+                f"trang_thai={yc.trang_thai}"),
     )
     db.commit()
     return {
@@ -306,6 +317,7 @@ def kho_xac_nhan_nhap(
         "lot_id": lot.id,
         "kcs_batch_id": yc.kcs_batch_id,
         "nhom_id": yc.nhom_id,
+        "kho_id": kho_id,
         "trang_thai": yc.trang_thai,
         "so_luong_xac_nhan": float(yc.so_luong_xac_nhan or 0),
         "nguoi_tao_id": yc.created_by,
@@ -472,7 +484,9 @@ def kho_xac_nhan_btp(db: Session, *, user, lot_id: int) -> dict:
 
 
 # --- Đọc ------------------------------------------------------------------------------------
-def _yc_ra(yc: SanXuatNhapKhoYc) -> dict:
+# `ten_kho` = bản đồ `{kho_id: tên}` dựng MỘT lần cho cả lượt đọc (xem `ten_kho_theo_ids`) — phơi
+# tên kho chứ không phơi số id trần, và không N+1.
+def _yc_ra(yc: SanXuatNhapKhoYc, ten_kho: dict[int, str] | None = None) -> dict:
     yeu_cau = float(yc.so_luong_yeu_cau or 0)
     xac_nhan = float(yc.so_luong_xac_nhan or 0)
     return {
@@ -486,13 +500,16 @@ def _yc_ra(yc: SanXuatNhapKhoYc) -> dict:
         "con_lai": max(0.0, yeu_cau - xac_nhan),
         "don_vi": yc.don_vi,
         "quy_cach": yc.quy_cach,
+        # Kho ĐỀ NGHỊ của KCS (có thể trống) — kho THẬT nằm trên từng lot.
+        "kho_id": yc.kho_id,
+        "kho_ten": (ten_kho or {}).get(yc.kho_id) if yc.kho_id else None,
         "trang_thai": yc.trang_thai,
         "ghi_chu": yc.ghi_chu,
         "version": yc.version,
     }
 
 
-def _lot_ra(lot: SanXuatKhoLot) -> dict:
+def _lot_ra(lot: SanXuatKhoLot, ten_kho: dict[int, str] | None = None) -> dict:
     return {
         "id": lot.id,
         "hang_id": lot.hang_id,
@@ -504,6 +521,9 @@ def _lot_ra(lot: SanXuatKhoLot) -> dict:
         "so_luong": float(lot.so_luong or 0),
         "don_vi": lot.don_vi,
         "phan_loai": lot.phan_loai,
+        # Kho ĐÃ NHẬN lot này (BTP `mau_luu`/`phe` và lot cũ trước mg 0255 để trống).
+        "kho_id": lot.kho_id,
+        "kho_ten": (ten_kho or {}).get(lot.kho_id) if lot.kho_id else None,
         "kho_xac_nhan": bool(lot.kho_xac_nhan),
         "quy_cach": lot.quy_cach,
         "ghi_chu": lot.ghi_chu,
@@ -516,11 +536,14 @@ def chi_tiet_kho_nhom(db: Session, nhom_id: int) -> dict:
     repo = SanXuatKhoRepository(db)
     yeu_cau = repo.cac_yc_cua_nhom(nhom_id)
     lots = repo.cac_lot_cua_nhom(nhom_id)
+    btp = repo.btp_tra_cho_kho(nhom_id)
+    ten_kho = repo.ten_kho_theo_ids(
+        [y.kho_id for y in yeu_cau] + [l.kho_id for l in lots] + [l.kho_id for l in btp])
     return {
         "nhom_id": nhom_id,
-        "yeu_cau": [_yc_ra(y) for y in yeu_cau],
-        "lot": [_lot_ra(l) for l in lots],
-        "btp_tra_cho_kho": [_lot_ra(l) for l in repo.btp_tra_cho_kho(nhom_id)],
+        "yeu_cau": [_yc_ra(y, ten_kho) for y in yeu_cau],
+        "lot": [_lot_ra(l, ten_kho) for l in lots],
+        "btp_tra_cho_kho": [_lot_ra(l, ten_kho) for l in btp],
     }
 
 
@@ -528,7 +551,149 @@ def hop_thu_kho(db: Session) -> dict:
     """Hộp thư nhân viên KHO (§14, §17): mọi việc còn chờ kho hành động — yêu cầu nhập kho thành phẩm
     (chờ/một phần) + BTP `nhập kho BTP` chờ nhận. Gate quyền `kho` ở router."""
     repo = SanXuatKhoRepository(db)
+    yeu_cau = repo.cac_yc_cho_kho()
+    btp = repo.cac_btp_cho_kho()
+    ten_kho = repo.ten_kho_theo_ids([y.kho_id for y in yeu_cau] + [l.kho_id for l in btp])
     return {
-        "yeu_cau_nhap": [_yc_ra(y) for y in repo.cac_yc_cho_kho()],
-        "btp_cho_nhan": [_lot_ra(l) for l in repo.cac_btp_cho_kho()],
+        "yeu_cau_nhap": [_yc_ra(y, ten_kho) for y in yeu_cau],
+        "btp_cho_nhan": [_lot_ra(l, ten_kho) for l in btp],
+    }
+
+
+def ton_kha_dung_thanh_pham(db: Session, nhom_id: int) -> dict:
+    """Thành phẩm của MỘT nhóm còn giao được bao nhiêu, và giao từ kho nào.
+
+    HÔM NAY CHỈ CÓ MỘT NGƯỜI GỌI: `lenh_sx/ho_so._giao_hang`. `delivery_service` CHƯA dùng hàm này
+    — `grep` cả `backend/` lẫn `frontend/` không ra chỗ nào khác.
+
+    Ý ĐỊNH (chưa thành, đừng đọc câu dưới như việc đã rà): hàm này sẽ là nguồn DUY NHẤT cho cả hai
+    bên — nút "Lập phiếu giao" ở màn Hồ sơ lệnh sản xuất (Task 12) đọc `hang[].so_toi_da` để KHOÁ ô
+    số lượng, còn form giao hàng đọc chính `hang[]` để ĐIỀN SẴN (thành phẩm · kho · đơn vị · số
+    lượng). Lý do đáng làm: hai bên tự tính thì sớm muộn một bên cho bấm cái bên kia từ chối, và
+    người dùng không có cách nào biết bên nào đúng. Ngày nối bên giao hàng vào, sửa lại đoạn này.
+
+    --- TRẦN NẰM Ở TỪNG DÒNG `hang[]`, KHÔNG CÓ SCALAR CẤP NHÓM ---------------------------------
+    Bản đầu trả một `so_toi_da` cho cả nhóm, tính bằng `Σ lot của nhóm − Σ đã giao của MỌI dòng
+    đơn trong nhóm`. Hai vế đó ở hai không gian gộp khác nhau và ra SỐ SAI ở đúng ca mà nhóm sinh
+    ra để phục vụ: reviewer dựng nhóm 2 dòng đơn, kho còn 300 thật mà hàm trả 100 — giao thêm một
+    lượt nữa là nút tắt vĩnh viễn trong khi hàng vẫn nằm đó. Nhóm nhiều dòng đơn là hình dạng
+    CHÍNH THỨC của hệ (`SanXuatNhomLsx.lsx_id` unique, `nhom_id` thì không), không phải ca dựng.
+
+    Nên trần chuyển xuống MỖI mặt hàng, và scalar cấp nhóm bị BỎ HẲN — giữ cả hai là để hai con số
+    cạnh nhau mà một cái sai, rồi mặt đọc nhặt cái tiện tay hơn.
+
+    --- KHI NÀO TÍNH ĐƯỢC TRẦN -----------------------------------------------------------------
+    Trần của một mặt hàng = lot của chính nó − đã giao của ĐÚNG dòng đơn của nó. Ánh xạ đó chỉ
+    dựng được khi nhóm là 1–1–1: đúng MỘT dòng đơn (không thành viên nào thiếu `order_line_id`) và
+    đúng MỘT mặt hàng thành phẩm. Lý do: registry thành phẩm neo NHÓM chứ không neo dòng đơn
+    (`_tao_yc_tu_batch` tạo hàng với `lsx_id=None`), nên nhóm 2 dòng đơn thì không có cách nào
+    biết lượt giao nào thuộc mặt hàng nào; nhóm 2 mặt hàng (khác quy cách) chia nhau CÙNG một dòng
+    đơn cũng thế.
+
+    Không dựng được ⇒ `so_toi_da = None` + `khong_tinh_duoc = True` cho riêng mặt hàng đó. Một con
+    số sai mà trông chắc chắn tệ hơn hẳn một ô trống có lý do. `so_luong` vẫn có (tồn thật của
+    dòng), nên nút KHÔNG bị tắt oan — mặt đọc mở form và bắt người lập phiếu tự kiểm.
+
+    --- CHIA PHẦN ĐÃ GIAO KHI MỘT MẶT HÀNG NẰM Ở NHIỀU KHO ---------------------------------------
+    `hang[]` gom theo cặp (mặt hàng × kho) vì phiếu xuất đi từ MỘT kho. Số đã giao thì không mang
+    thông tin kho, nên nó được TRỪ DẦN theo `kho_id` tăng dần: kho đầu hết mới trừ sang kho sau.
+    Cách chia là quy ước, nhưng nhờ nó `Σ so_toi_da của một mặt hàng` ĐÚNG bằng trần thật của mặt
+    hàng đó và mỗi dòng không bao giờ vượt tồn của chính kho nó. Cộng thẳng cột là ra số đúng.
+
+    --- HAI VẾ CỦA PHÉP TRỪ --------------------------------------------------------------------
+      · ĐÃ VÀO KHO đọc từ LOT thành phẩm có `kho_xac_nhan` — tức thủ kho đã bấm nhận. KHÔNG đọc
+        `nhap_kho_yc.so_luong_yeu_cau`: yêu cầu là lời của KCS, hàng vẫn nằm ở tổ cho tới lúc kho
+        nhận. Lot là bảng CHỈ-THÊM nên tổng này không bao giờ bị sửa lùi.
+      · ĐÃ THỰC NHẬN đọc `delivery_trip_lines.qty_giao` qua các chuyến trong
+        `LAN_GIAO_CO_HANG_DEN_TAY` (`delivery_repo.da_giao_theo_dong`), KHÔNG phải
+        `delivery_request_lines.qty` — số đó là số YÊU CẦU giao, có ngay lúc lập phiếu dù xe chưa
+        chạy, và vẫn còn đó khi chuyến thất bại.
+
+    --- CÒN LẠI MỘT GIỚI HẠN, NÓI THẲNG --------------------------------------------------------
+    ĐƠN VỊ: `lot.don_vi` (đơn vị kho ghi nhận) và `qty_giao` (đơn vị dòng đơn) được coi là CÙNG
+    một thang. Đúng với dữ liệu hôm nay (thành phẩm nhập kho theo đúng đơn vị bán) nhưng KHÔNG có
+    ràng buộc nào bắt buộc thế — trừ hai thang khác nhau là ra một con số vô nghĩa. Nhóm gom nhiều
+    đơn vị khác nhau ⇒ `don_vi_lech = True` để mặt đọc biết đường im con số tổng đi.
+
+    `da_nhap_kho` và `da_giao` là số CẤP NHÓM (mọi mặt hàng, mọi dòng đơn) — để đối chiếu, không
+    phải để lập phiếu. `so_lenh_trong_nhom` nói mức gộp: `1` thì số của nhóm chính là số của lệnh.
+    Nhóm chưa có lot nào ⇒ `hang` rỗng và `co_the_giao=False`.
+    """
+    repo = SanXuatKhoRepository(db)
+    lots = [
+        l for l in repo.cac_lot_cua_nhom(nhom_id)
+        if l.loai_hang == HANG_THANH_PHAM and l.kho_xac_nhan
+    ]
+    ten_kho = repo.ten_kho_theo_ids([l.kho_id for l in lots])
+
+    thanh_vien = repo.thanh_vien_nhom(nhom_id)
+    dong_don = sorted({ol for _, ol in thanh_vien if ol is not None})
+    thieu_dong_don = any(ol is None for _, ol in thanh_vien)
+
+    # Gộp theo (mặt hàng, kho): form giao hàng lập phiếu XUẤT từ MỘT kho, nên hai lot cùng món ở
+    # hai kho khác nhau là hai dòng phải điền riêng, không phải một con số cộng lại.
+    gom: dict[tuple[int, int | None], dict] = {}
+    for l in lots:
+        khoa = (int(l.hang_id), l.kho_id)
+        dong = gom.get(khoa)
+        if dong is None:
+            hang = repo.hang(l.hang_id)
+            dong = gom[khoa] = {
+                "hang_id": int(l.hang_id),
+                "ma": getattr(hang, "ma", None),
+                "ten": getattr(hang, "ten", None),
+                "quy_cach": l.quy_cach or getattr(hang, "quy_cach", None),
+                "don_vi": l.don_vi,
+                "kho_id": l.kho_id,
+                "kho_ten": ten_kho.get(l.kho_id) if l.kho_id else None,
+                # Tồn THẬT của cặp (mặt hàng × kho) này, CHƯA trừ đã giao. Trần để lập phiếu là
+                # `so_toi_da` bên dưới — hai số khác nhau và tên phải nói ra điều đó.
+                "so_luong": 0.0,
+                "so_toi_da": None,
+                "khong_tinh_duoc": True,
+            }
+        dong["so_luong"] += float(l.so_luong or 0)
+
+    da_nhap = sum(float(l.so_luong or 0) for l in lots)
+    order_id = next((l.order_id for l in lots if l.order_id is not None), None)
+    if order_id is None:
+        nhom = repo.nhom(nhom_id)
+        order_id = getattr(nhom, "order_id", None)
+
+    theo_dong: dict[int, int] = {}
+    if order_id is not None and dong_don:
+        theo_dong = DeliveryRepository(db).da_giao_theo_dong(order_id)
+    da_giao = float(sum(theo_dong.get(i, 0) for i in dong_don))
+
+    hang_ids = {d["hang_id"] for d in gom.values()}
+    mot_mot_mot = len(dong_don) == 1 and not thieu_dong_don and len(hang_ids) == 1
+    if mot_mot_mot:
+        for hid in hang_ids:
+            con = float(theo_dong.get(dong_don[0], 0))
+            for dong in sorted(
+                (d for d in gom.values() if d["hang_id"] == hid),
+                key=lambda d: (d["kho_id"] or 0),
+            ):
+                tru = min(dong["so_luong"], con)
+                dong["so_toi_da"] = round(dong["so_luong"] - tru, 3)
+                dong["khong_tinh_duoc"] = False
+                con -= tru
+
+    hang = sorted(gom.values(), key=lambda d: (d["hang_id"], d["kho_id"] or 0))
+    co_the_giao = any(
+        (d["so_luong"] if d["khong_tinh_duoc"] else (d["so_toi_da"] or 0.0)) > _EPS
+        for d in hang
+    )
+    for d in hang:
+        d["so_luong"] = round(d["so_luong"], 3)
+    return {
+        "nhom_id": nhom_id,
+        "order_id": order_id,
+        "order_line_ids": dong_don,
+        "so_lenh_trong_nhom": len(thanh_vien),
+        "hang": hang,
+        "da_nhap_kho": round(da_nhap, 3),
+        "da_giao": round(da_giao, 3),
+        "co_the_giao": co_the_giao,
+        "don_vi_lech": len({l.don_vi for l in lots}) > 1,
     }

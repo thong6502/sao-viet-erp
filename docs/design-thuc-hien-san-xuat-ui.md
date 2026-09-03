@@ -177,8 +177,10 @@ chip thuê-ngoài khi `loai_buoc=="thue_ngoai"`; chip KCS khi `la_kcs`. **KHÔNG
 → Roster chỉ hiện người `active`. `la_luong_khoan=true` mới đủ điều kiện làm việc bắt đầu được (§7).
 `co_tai_khoan=false` = thợ không có tài khoản (vẫn giao được, chỉ không nhận thông báo đẩy).
 
-**`PhienChayOut`:** `id, so_thu_tu, bat_dau, ket_thuc?, loai_dong?("tam_dung"|"ket_thuc"), ly_do_bat_dau_tre?, ly_do?`.
-→ Phiên `ket_thuc==null` = đang chạy. `loai_dong` cho biết phiên đóng vì tạm dừng hay kết thúc.
+**`PhienChayOut`:** `id, so_thu_tu, bat_dau, ket_thuc?, loai_dong?("tam_dung"|"doi_may"|"ket_thuc"), ly_do_bat_dau_tre?, ly_do?`.
+→ Phiên `ket_thuc==null` = đang chạy. `loai_dong` cho biết phiên đóng vì tạm dừng, vì đổi máy giữa chừng, hay vì kết thúc.
+→ `doi_may` KHÁC `tam_dung` có chủ ý: chỉ `tam_dung` mới được tính là lý do giải thích phần chậm
+  khi kết thúc trễ — đổi máy không gõ chữ nào thì không được miễn.
 
 **`KhoangThamGiaOut`:** `id, phien_chay_id, employee_id, ho_ten, bat_dau, ket_thuc?`.
 → Ai có mặt ở phiên nào; `ket_thuc==null` = đang tham gia.

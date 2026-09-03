@@ -864,7 +864,7 @@ export function KhoTonKhoPage({
                       <td className="rc__nowrap">
                         <span className="rc__code-badge">{v.ma}</span>
                         {tab === "dc" && (
-                          <span style={{ marginLeft: 6, fontSize: 11, color: "var(--ash)" }}>
+                          <span style={{ marginLeft: 6, fontSize: 12, color: "var(--ash)" }}>
                             {v.loai === "XUAT" ? "⇄ chuyển đi" : "⇄ nhận về"}
                           </span>
                         )}

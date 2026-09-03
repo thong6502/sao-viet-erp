@@ -225,7 +225,7 @@
   margin: 0;
   font-size: 11px;
   line-height: 1.45;
-  color: #64748b;
+  color: var(--ash-2);
 }
 
 .dag-rail__group {
@@ -263,7 +263,7 @@
 
 .dag-rail__nhom {
   font-size: 10px;
-  color: #64748b;
+  color: var(--ash-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -272,7 +272,7 @@
 
 .dag-rail__group-count {
   font-size: 10px;
-  color: #94a3b8;
+  color: var(--ash-2);
   font-family: var(--ff-mono, monospace);
 }
 
@@ -280,7 +280,7 @@
   display: inline-flex;
   align-items: center;
   margin-left: auto;
-  color: #64748b;
+  color: var(--ash-2);
   transition: transform 0.2s ease;
 }
 
@@ -476,7 +476,7 @@
 }
 
 .dag-wire-delete text {
-  fill: #64748b;
+  fill: var(--ash-2);
 }
 
 .dag-wire-delete:hover circle {
@@ -494,7 +494,7 @@
   width: 240px;
   background: #ffffff;
   border: 1px solid rgba(226, 232, 240, 0.95);
-  border-top: 4px solid var(--mau-nhanh, #64748b);
+  border-top: 4px solid var(--mau-nhanh, var(--ash-2));
   border-radius: 14px;
   box-shadow: 
     0 4px 18px -2px rgba(15, 23, 42, 0.06), 
@@ -763,7 +763,7 @@
   width: 14px;
   height: 14px;
   background: #ffffff;
-  border: 2.5px solid #64748b;
+  border: 2.5px solid var(--ash-2);
   border-radius: 50%;
   cursor: crosshair;
   z-index: 15;

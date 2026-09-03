@@ -7,6 +7,8 @@ import "./styles/global.css";
 // mới tới global.css và file này — nhờ vậy luật ở đây thắng khi cùng độ đặc hiệu. Mọi luật
 // trong đó đều nằm trong @media hẹp nên màn rộng không đổi một pixel; xem đầu file.
 import "./styles/responsive.css";
+// Sàn chữ 12px cho điện thoại — SINH TỰ ĐỘNG từ chính CSS của dự án (xem đầu file).
+import "./styles/responsive-chu.css";
 
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("Root element #root not found");

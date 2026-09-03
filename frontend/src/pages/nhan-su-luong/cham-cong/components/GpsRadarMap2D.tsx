@@ -105,7 +105,7 @@ export function GpsRadarMap2D({
           <path d="M 392 164 L 392 172 L 384 172" fill="none" stroke="rgba(148, 163, 184, 0.4)" strokeWidth="1.5" />
 
           {/* HUD Top Live Status Bar */}
-          <text x="14" y="18" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.65)" letterSpacing="0.08em" style={{ fontFamily: "var(--ff-num)" }}>
+          <text x="14" y="18" fontSize="8" fontWeight="bold" fill="#94a3b8" letterSpacing="0.08em" style={{ fontFamily: "var(--ff-num)" }}>
             RADAR GPS // THEO DÕI TRỰC TIẾP
           </text>
           <text x="386" y="18" textAnchor="end" fontSize="8" fontWeight="bold" fill={withinRange ? "#4ade80" : "#f87171"} letterSpacing="0.08em" style={{ fontFamily: "var(--ff-num)" }}>
