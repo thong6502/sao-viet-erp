@@ -511,6 +511,31 @@ def bat_dau(
     return res
 
 
+@router.post("/work-items/{cong_viec_id}/nhan-khuon", response_model=LenhKetQuaOut)
+def nhan_khuon(
+    cong_viec_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+) -> dict:
+    """Tổ xác nhận đã cầm con dao trong tay (chốt 04/09/2026) — thứ DUY NHẤT mở cổng Bắt đầu cho
+    bước cần dụng cụ. Cùng cửa quyền với Bắt đầu: nói "dao đã ở đây" là quyết định điều hành."""
+    res = _chay(lambda: thuc_thi.nhan_khuon(db, user=user, cong_viec_id=cong_viec_id))
+    _phat_sse(res)
+    return res
+
+
+@router.post("/work-items/{cong_viec_id}/tra-khuon", response_model=LenhKetQuaOut)
+def tra_khuon(
+    cong_viec_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "assign_work"))],
+) -> dict:
+    """Trả dao về kệ — KHÔNG chặn gì, chỉ để hệ thống khỏi mất dấu con dao sau khi nó rời kệ."""
+    res = _chay(lambda: thuc_thi.tra_khuon(db, user=user, cong_viec_id=cong_viec_id))
+    _phat_sse(res)
+    return res
+
+
 @router.post("/work-items/{cong_viec_id}/doi-may", response_model=LenhKetQuaOut)
 def doi_may(
     cong_viec_id: int,

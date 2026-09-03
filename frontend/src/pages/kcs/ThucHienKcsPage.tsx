@@ -18,6 +18,7 @@ import {
   ApiError, api,
   type CongDoanLite, type SxKcsBatchChiTiet, type SxKcsChiTiet, type SxWorkItem,
 } from "../../api/client";
+import { ChipKhuon, ChipLoaiBuoc } from "../../components/ChipBuoc";
 import { useAuth } from "../../auth/useAuth";
 import { useCan } from "../../auth/permissions";
 import { num, ngayGio } from "../keHoachSxShared";
@@ -348,7 +349,16 @@ export function ThucHienKcsPage({
                   <tr key={r.item.id} className="kcs-row--clickable" onClick={() => setDrawer({ mode: "ghi", item: r.item, conCho: r.conCho })}>
                     <td>{r.item.nguon_ma}</td>
                     <td>{r.item.nguon_ten}{r.item.nhom ? ` · ${r.item.nhom}` : ""}</td>
-                    <td>{r.item.ten_cong_doan}</td>
+                    <td>
+                      {r.item.ten_cong_doan}
+                      {/* Nhãn của bước theo tới tận bàn KCS (04/09/2026): người kiểm phải biết
+                          hàng này về từ nhà gia công nào, và bước đó dùng con dao nào. */}
+                      <ChipLoaiBuoc loai_buoc={r.item.loai_buoc} nha_cung_cap={r.item.nha_cung_cap} />
+                      <ChipKhuon
+                        can_khuon={!!r.item.khuon}
+                        khuon={{ ...(r.item.khuon ?? {}), da_nhan: r.item.khuon_da_nhan }}
+                      />
+                    </td>
                     <td className="num">{num(r.daBanGiao)}</td>
                     <td className="num">{num(r.daKiem)}</td>
                     <td className="num">{num(r.conCho)}</td>

@@ -2163,6 +2163,8 @@ export interface SxNhapKhoYc {
   kho_ten?: string | null;
   trang_thai: SxNhapKhoTrangThai;
   ghi_chu?: string | null;
+  /** Nhan cua BUOC de ra lo hang nay — kho chi can biet buoc lam o dau, khong can khuon. */
+  nhan?: { loai_buoc?: string | null; nha_cung_cap?: string | null } | null;
   version: number;
 }
 export interface SxKhoLot {

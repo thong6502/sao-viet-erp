@@ -346,6 +346,24 @@ def test_hop_thu_kho_gom_yc_va_btp_cho_nhan(db, orders, lsx_svc, admin, customer
     assert hop2["yeu_cau_nhap"] == [] and hop2["btp_cho_nhan"] == []
 
 
+def test_hop_thu_kho_mang_nhan_buoc(db, orders, lsx_svc, admin, customer):
+    """Dòng chờ kho nói luôn hàng này về từ ĐÂU.
+
+    Nhân viên kho nhận một lô thành phẩm mà không biết nó vừa từ nhà gia công về hay tổ trong nhà
+    làm thì không kiểm được gì cả. Khuôn KHÔNG bày ở đây: kho nhận thành phẩm, không nhận dao.
+    """
+    to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
+    cv.loai_buoc = "thue_ngoai"
+    cv.nha_cung_cap = "Cơ sở Minh Phát"
+    db.commit()
+    kho.tao_yeu_cau_nhap_thanh_pham(
+        db, user=admin, kcs_batch_id=rb["kcs_batch_id"], so_luong=30)
+
+    dong = kho.hop_thu_kho(db)["yeu_cau_nhap"][0]
+    assert dong["nhan"]["loai_buoc"] == "thue_ngoai"
+    assert dong["nhan"]["nha_cung_cap"] == "Cơ sở Minh Phát"
+
+
 def test_chi_tiet_kho_nhom(db, orders, lsx_svc, admin, customer):
     to, cv, rb = _batch(db, orders, lsx_svc, admin, customer)
     yc = kho.tao_yeu_cau_nhap_thanh_pham(

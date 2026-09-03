@@ -43,6 +43,19 @@ class VatTuDinhMucOut(BaseModel):
     so_luong: float | None = None
 
 
+class KhuonChipOut(BaseModel):
+    """Ảnh chụp khuôn của bước, đủ để vẽ chip — KHÔNG phải bản sao của danh mục.
+
+    Đọc từ `san_xuat_cong_viec.khuon_json` (chụp lúc phát hành), không tra danh mục sống: tổ phải
+    thấy đúng con dao đã chốt, kể cả khi kế hoạch đổi dao sau đó.
+    """
+    ma: str | None = None
+    ten: str | None = None
+    so_ke: str | None = None
+    tinh_trang: str | None = None
+    ngay_ve_du_kien: str | None = None
+
+
 class WorkItemOut(BaseModel):
     id: int
     goi_id: int
@@ -78,6 +91,12 @@ class WorkItemOut(BaseModel):
     da_lam: float | None = None
     muc_tieu: float | None = None
     con_thieu: float | None = None
+    # Nhà gia công + khuôn: ảnh chụp lúc phát hành. `khuon = None` ⇒ bước không dùng dụng cụ, thẻ
+    # việc không vẽ gì; có `khuon` mà `khuon_da_nhan = false` ⇒ nút Bắt đầu bị chặn (§ cổng khuôn).
+    nha_cung_cap: str | None = None
+    khuon: KhuonChipOut | None = None
+    khuon_da_nhan: bool = False
+    khuon_da_tra: bool = False
 
 
 class WorkItemsOut(BaseModel):
@@ -916,6 +935,16 @@ class KhoXacNhanBtpKetQuaOut(BaseModel):
     cong_viec_id: int | None = None
 
 
+class KhoNhanBuocOut(BaseModel):
+    """Bước đã đẻ ra lô hàng này về từ đâu — hai field, không có khuôn.
+
+    Kho nhận THÀNH PHẨM chứ không nhận dao, nên `khuon_*` của `NhanBuocOut` (bàn theo dõi) không
+    có nghĩa ở đây; nhưng "thuê ngoài hay làm trong nhà" thì đổi hẳn cách kiểm nhập."""
+
+    loai_buoc: str | None = None
+    nha_cung_cap: str | None = None
+
+
 class NhapKhoYcOut(BaseModel):
     id: int
     kcs_batch_id: int
@@ -932,6 +961,7 @@ class NhapKhoYcOut(BaseModel):
     trang_thai: str
     ghi_chu: str | None = None
     version: int
+    nhan: KhoNhanBuocOut | None = None
 
 
 class KhoLotOut(BaseModel):

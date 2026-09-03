@@ -16,6 +16,7 @@ import type {
 } from "../api/client";
 import { assetUrl } from "../api/client";
 import { Button } from "../components/Button";
+import { ChipLoaiBuoc } from "../components/ChipBuoc";
 import { Icon } from "../components/Icons";
 import { GIO_NHAP_MAX, GIO_NHAP_MIN, gioNhapHopLe } from "../lib/gioNhap";
 import { num, ngayGio } from "./keHoachSxShared";
@@ -873,6 +874,7 @@ function KhoNhapHopThuRow({
       <div className="thsx-hopthu__main">
         <Icon name="warehouse" size={14} />
         <span className="thsx-hopthu__ten">Nhập thành phẩm</span>
+        <ChipLoaiBuoc loai_buoc={yc.nhan?.loai_buoc} nha_cung_cap={yc.nhan?.nha_cung_cap} />
         <span className="thsx-num">còn {num(yc.con_lai)}/{num(yc.so_luong_yeu_cau)} {nhanDonVi(yc.don_vi)}</span>
       </div>
       {yc.quy_cach && <p className="thsx-hopthu__mo">{yc.quy_cach}</p>}
