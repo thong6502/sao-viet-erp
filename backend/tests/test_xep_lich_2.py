@@ -23,7 +23,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.models.cong_doan import CongDoan
 from app.models.department import Department
+from app.models.khuon_be import KhuonBe
 from app.models.lsx import (
     LB_MAY, LB_TO, TT_DA_PHAT_HANH, TT_SAN_SANG, LsxCongDoan, LsxCongDoanPhuThuoc,
 )
@@ -47,6 +49,33 @@ from tests.test_xep_lich_service import (  # noqa: F401 — fixture dùng chung
     _giu_cho_du, _gop_in_va_san_sang, _hai_lsx_san_sang, _in_step, _khai_ca_xuong, _nha_cho,
     admin, bg_svc, customer, db, lsx_svc, orders, xl_svc,
 )
+
+
+def test_dong_xep_lich_mang_theo_khuon(db, orders, lsx_svc, xl_svc, admin, customer):
+    """Xếp lịch KHÔNG chặn theo ngày dao về (chốt 04/09/2026) — nhưng phải HIỆN.
+
+    Người điều độ cần biết TRƯỚC lúc kéo thanh, chứ không phải phát hiện ở khâu cuối khi tổ bấm
+    Bắt đầu mà không có dao trong tay. Dòng mang sẵn mã · số kệ · tình trạng · ngày về, để màn
+    Gantt và bảng dòng không phải tra lẻ từng dòng.
+    """
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    buoc = _in_step(db, lsx.id)
+    cd = db.get(CongDoan, buoc.cong_doan_id)
+    cd.requires_tooling = True
+    cd.tooling_type = "khuon_be"
+    dao = KhuonBe(ma="KB-0001", ten="Dao thu", loai="khuon_be", so_ke="Kệ A3",
+                  tinh_trang="dang_dung")
+    db.add(dao)
+    db.flush()
+    buoc.khuon_be_id = dao.id
+    db.commit()
+    xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
+
+    dong = [d for d in xl_svc.danh_sach()["items"] if d["lsx_cong_doan_id"] == buoc.id][0]
+    assert dong["requires_tooling"] is True
+    assert dong["khuon_ma"] == "KB-0001"
+    assert dong["khuon_so_ke"] == "Kệ A3"
+    assert dong["khuon_tinh_trang"] == "dang_dung"
 
 
 # ---------------------------------------------------------------------------

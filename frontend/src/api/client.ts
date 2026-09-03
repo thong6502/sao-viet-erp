@@ -1150,6 +1150,14 @@ export interface Xl2Dong {
   muc?: Xl2Muc | null;
   /** Tiến độ THẬT của bước (spec-thuc-te-vs-ke-hoach §2.1). null = chưa phát hành. */
   thuc_te: Xl2ThucTe | null;
+  /** Bước CẦN khuôn/khung (cờ của danh mục công đoạn) — true mà `khuon_ma` rỗng là CHƯA chốt dao. */
+  requires_tooling: boolean;
+  /** Dao đang trỏ: mã · số kệ · tình trạng · ngày về. Ngày về KHÔNG chặn xếp lịch, chỉ để BÀY. */
+  khuon_ma: string | null;
+  khuon_so_ke: string | null;
+  khuon_tinh_trang: string | null;
+  /** ISO `yyyy-mm-dd`. */
+  khuon_ngay_ve: string | null;
 }
 
 /** Ca nền của xưởng: `[bat_dau_phut, ket_thuc_phut, qua_dem]` — chỉ soi GIỜ BẮT ĐẦU (§7.1). */
@@ -1457,6 +1465,21 @@ export interface SxWorkItem {
   trang_thai: string;          // "released" | "running" | "paused" | "completed"
   dinh_muc_vat_tu: SxVatTuDinhMuc[]; // định mức vật tư đóng băng lúc phát hành — KHÁC vật tư (phiếu xuất) ở drawer
   thuc_te: SxThucTeKhoang[];   // lớp thực-tế đè lên thanh kế hoạch (§5.1); phiên mở → ket_thuc=null
+  /** Nhà gia công — ảnh chụp lúc phát hành, nuôi chip "Ngoài · <nơi làm>" ở mọi màn xưởng. */
+  nha_cung_cap: string | null;
+  /** Con dao/khung của bước — ảnh chụp lúc phát hành. `null` = bước không dùng dụng cụ.
+   *  Có khuôn mà `khuon_da_nhan = false` ⇒ nút Bắt đầu bị BE chặn (cổng khuôn, 04/09/2026). */
+  khuon: SxKhuonChip | null;
+  khuon_da_nhan: boolean;
+  khuon_da_tra: boolean;
+}
+/** Ảnh chụp khuôn đủ để vẽ chip — KHÔNG phải bản sao của danh mục Khuôn & khung. */
+export interface SxKhuonChip {
+  ma: string | null;
+  ten: string | null;
+  so_ke: string | null;
+  tinh_trang: string | null;
+  ngay_ve_du_kien: string | null;
 }
 /** Một dòng định mức vật tư của bước (đóng băng lúc phát hành). */
 export interface SxVatTuDinhMuc {
@@ -11287,6 +11310,19 @@ export const api = {
     batDau(token: string, congViecId: number, body: SxBatDauIn): Promise<SxLenhKetQua> {
       return authed<SxLenhKetQua>(`/api/san-xuat/work-items/${congViecId}/bat-dau`, token, {
         method: "POST", body: JSON.stringify(body),
+      });
+    },
+    /** Tổ xác nhận đã cầm con dao trong tay — thứ DUY NHẤT mở cổng Bắt đầu cho bước cần dụng cụ.
+     *  Tích một lần, không gỡ được: gỡ ra thì mốc "ai nói dao đã ở đây, lúc mấy giờ" mất nghĩa. */
+    nhanKhuon(token: string, congViecId: number): Promise<SxLenhKetQua> {
+      return authed<SxLenhKetQua>(`/api/san-xuat/work-items/${congViecId}/nhan-khuon`, token, {
+        method: "POST",
+      });
+    },
+    /** Trả dao về kệ — KHÔNG chặn gì, chỉ để hệ thống khỏi mất dấu con dao sau khi nó rời kệ. */
+    traKhuon(token: string, congViecId: number): Promise<SxLenhKetQua> {
+      return authed<SxLenhKetQua>(`/api/san-xuat/work-items/${congViecId}/tra-khuon`, token, {
+        method: "POST",
       });
     },
     /** Đổi máy giữa chừng (§7.2 mở rộng 31/08/2026). CHẠY → đóng phiên máy cũ + mở phiên mới

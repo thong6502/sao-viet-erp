@@ -80,8 +80,11 @@ export const CLUSTER_HEAD_H = 32;
 
 /** Phân nhóm công đoạn để tô màu Chroma Task Capsules: In (Blue) · Sau in (Amber) · Đóng gói (Emerald) · Thuê ngoài (Purple) */
 export type Xl2NhomCd = "in" | "sau_in" | "dong_goi" | "thue_ngoai";
-export function nhomCongDoan(congDoanTen: string | null | undefined, isNcc?: boolean): Xl2NhomCd {
-  if (isNcc) return "thue_ngoai";
+// Đổi 04/09/2026: nhóm màu đọc LOẠI BƯỚC, không suy từ tên nhà cung cấp / vị trí lane nữa. Suy từ
+// NCC thì bước đã gán Thuê ngoài mà chưa điền nơi làm rơi về nhóm thường — đúng chỗ nhãn biến mất
+// giữa đường mà cả chuỗi này sinh ra để vá.
+export function nhomCongDoan(congDoanTen: string | null | undefined, loaiBuoc?: string | null): Xl2NhomCd {
+  if (loaiBuoc === "thue_ngoai") return "thue_ngoai";
   if (!congDoanTen) return "in";
   const s = congDoanTen.toLowerCase();
   if (s.includes("in ") || s.startsWith("in") || s.includes("offset") || s.includes("kỹ thuật số") || s.includes("in màu")) return "in";
