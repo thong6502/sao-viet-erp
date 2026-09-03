@@ -41,7 +41,7 @@ from app.services.xep_lich_2 import (
 )
 from app.services.xep_lich_2 import auto as A
 from app.services.xep_lich_2 import constraint as C
-from app.models.xep_lich import TT_DA_XEP
+from app.models.xep_lich import TT_DA_XEP, XepLichCongDoan
 from app.services.xep_lich_service import XepLichConflict, XepLichNotFound, _naive
 from app.repositories.xep_lich_2_repo import XepLich2Repository
 
@@ -76,6 +76,43 @@ def test_dong_xep_lich_mang_theo_khuon(db, orders, lsx_svc, xl_svc, admin, custo
     assert dong["khuon_ma"] == "KB-0001"
     assert dong["khuon_so_ke"] == "Kệ A3"
     assert dong["khuon_tinh_trang"] == "dang_dung"
+
+
+def test_ban_lam_viec_mang_theo_khuon(db, orders, lsx_svc, xl_svc, admin, customer):
+    """BÀN v2 (`workspace`) mới là thứ Gantt đọc — `danh_sach()` của lớp cũ chỉ nuôi màn Xung đột.
+
+    Thiếu khối khuôn ở đây thì thanh trên bàn im lặng đúng lúc cần nói nhất, dù dữ liệu đã có đủ
+    ở lệnh: đúng lỗi phát hiện khi nghiệm thu 04/09/2026.
+    """
+    lsx, lsx_khac = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    buoc = _in_step(db, lsx.id)
+    cd = db.get(CongDoan, buoc.cong_doan_id)
+    cd.requires_tooling = True
+    cd.tooling_type = "khuon_be"
+    dao = KhuonBe(ma="KB-0042", ten="Dao ban", loai="khuon_be",
+                  tinh_trang="dang_dat_lam", ngay_ve_du_kien=date(2026, 9, 12))
+    db.add(dao)
+    db.flush()
+    buoc.khuon_be_id = dao.id
+    db.commit()
+    xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
+    xl_svc.dua_vao_lsx(lsx_id=lsx_khac.id, actor=admin)  # lệnh không cần dao — để đối chứng
+
+    # Dòng v2 KHÔNG phơi `lsx_cong_doan_id` ra view, nên bám theo id dòng xếp lịch của bước.
+    row_id = db.query(XepLichCongDoan.id).filter_by(lsx_cong_doan_id=buoc.id).scalar()
+    v2 = XepLich2Service(db, XepLich2Repository(db), AuditLogRepository(db))
+    ban = v2.workspace(tu=date(2026, 9, 1), den=date(2026, 9, 30))
+    dong = [d for d in ban["dong"] if d["id"] == row_id][0]
+    assert dong["requires_tooling"] is True
+    assert dong["khuon_ma"] == "KB-0042"
+    assert dong["khuon_tinh_trang"] == "dang_dat_lam"
+    assert dong["khuon_ngay_ve"] == "2026-09-12"
+
+    # Lệnh đối chứng dùng CÙNG công đoạn nhưng chưa trỏ dao ⇒ đúng thế "cần dao mà chưa chốt":
+    # khoá vẫn phải đủ (thanh đọc thẳng, không được vấp KeyError), chỉ mã dao là rỗng.
+    khac = [d for d in ban["dong"] if d["id"] != row_id]
+    assert khac and all(d["requires_tooling"] is True and d["khuon_ma"] is None
+                        and d["khuon_ngay_ve"] is None for d in khac)
 
 
 # ---------------------------------------------------------------------------

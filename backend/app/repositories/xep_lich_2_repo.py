@@ -13,7 +13,9 @@ from sqlalchemy import Integer, case, cast, exists, func, literal, select, union
 
 from ..models.bai_ghep import TT_SAN_SANG as BG_SAN_SANG, BaiGhep, BaiGhepThanhVien
 from ..models.bai_ghep_cong_doan import BaiGhepCongDoan
+from ..models.cong_doan import CongDoan
 from ..models.customer import Customer, CustomerTag
+from ..models.khuon_be import KhuonBe
 from ..models.lsx import TT_SAN_SANG as LSX_SAN_SANG, Lsx, LsxCongDoan
 from ..models.order import Order
 from ..models.work_calendar import SpecialDay
@@ -120,6 +122,36 @@ class XepLich2Repository(XepLichRepository):
         q = select(LsxCongDoan.id, LsxCongDoan.ten, LsxCongDoan.so_luong_vao).where(
             LsxCongDoan.id.in_(keys))
         return {row_id: (ten, float(sl or 0)) for row_id, ten, sl in self.db.execute(q)}
+
+    def khuon_buoc_map(self, ids: Iterable[int | None]) -> dict[int, dict]:
+        """Khuôn/khung của từng bước LSX — cờ `requires_tooling` của danh mục + con dao đã trỏ.
+
+        MỘT câu lệnh cho cả bàn (outer join hai chiều): bàn vài trăm thanh, tra từng thanh là đúng
+        cái N+1 mà `lsx_cong_doan_nhan_map` sinh ra để tránh. Bước chưa trỏ dao vẫn có dòng — cờ
+        `requires_tooling = True` mà `khuon_ma` rỗng CHÍNH LÀ trạng thái phải nhìn thấy trên thanh.
+        """
+        keys = self._ids(ids)
+        if not keys:
+            return {}
+        q = (
+            select(
+                LsxCongDoan.id, CongDoan.requires_tooling, KhuonBe.ma, KhuonBe.so_ke,
+                KhuonBe.tinh_trang, KhuonBe.ngay_ve_du_kien,
+            )
+            .outerjoin(CongDoan, CongDoan.id == LsxCongDoan.cong_doan_id)
+            .outerjoin(KhuonBe, KhuonBe.id == LsxCongDoan.khuon_be_id)
+            .where(LsxCongDoan.id.in_(keys))
+        )
+        return {
+            row_id: {
+                "requires_tooling": bool(rt),
+                "khuon_ma": ma,
+                "khuon_so_ke": so_ke,
+                "khuon_tinh_trang": tt,
+                "khuon_ngay_ve": ngay.isoformat() if ngay else None,
+            }
+            for row_id, rt, ma, so_ke, tt, ngay in self.db.execute(q)
+        }
 
     def bai_ghep_cong_doan_nhan_map(self, ids: Iterable[int | None]) -> dict[int, tuple[str, float]]:
         """Tên + SL VÀO của từng bước chung bài ghép — đối xứng `lsx_cong_doan_nhan_map`."""
