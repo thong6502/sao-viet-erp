@@ -10,6 +10,7 @@
 // ngược" — số hiển thị chính là kết quả tính ngược. Ô duy nhất gõ được nằm trong drawer bước cuối.
 // Các kiểm tra (chưa gán tổ, thuê ngoài thiếu NCC, đứt đơn vị) chỉ TÔ MÀU, không chặn lưu.
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import {
   LSX_LOAI_BUOC_META,
   type LsxBuocMacDinh,
@@ -684,7 +685,22 @@ export function LsxRoutingTable({
                       onClick={(e) => moDrawer(i, e.currentTarget)}
                     >
                       <span className="khsx-rt__ten">{tenBuoc(r, congDoanRefs) || "— chưa chọn công đoạn —"}</span>
-                      <span className={`khsx-lb khsx-lb--${meta.tone}`}>{meta.label}</span>
+                      {/* Chip DÙNG CHUNG với mọi màn khác có mặt bước này (`components/ChipBuoc`).
+                          Trước 04/09/2026 mỗi màn tự vẽ lại nhãn từ một dữ liệu khác nhau nên nhãn
+                          đứt quãng giữa đường — bước gán Thuê ngoài mà chưa điền nơi làm thì tới
+                          Gantt là mất dấu. */}
+                      <ChipLoaiBuoc loai_buoc={r.loai_buoc} nha_cung_cap={r.nha_cung_cap} />
+                      {/* Con dao của bước hiện NGAY TRÊN BẢNG, không bắt mở drawer từng bước mới
+                          biết bước nào chưa có dao. */}
+                      <ChipKhuon
+                        can_khuon={r.requires_tooling}
+                        khuon={{
+                          ma: r.khuon_be_ma,
+                          so_ke: r.khuon_be_so_ke,
+                          tinh_trang: r.khuon_be_tinh_trang,
+                          ngay_ve_du_kien: r.khuon_be_ngay_ve,
+                        }}
+                      />
                       {!r.bat_buoc && <span className="khsx-lb khsx-lb--opt">tùy chọn</span>}
                     </button>
                   </td>
