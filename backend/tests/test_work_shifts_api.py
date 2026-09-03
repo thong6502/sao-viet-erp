@@ -21,6 +21,7 @@ _PMS = f"{_PY}-{_PM:02d}"   # vd "2026-09" — dùng cho work_date của ô lư�
 from types import SimpleNamespace
 
 from app.db import SessionLocal
+from app.models.employee import Employee
 from app.repositories.employee_repo import EmployeeRepository
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
@@ -388,14 +389,29 @@ def test_timesheet_credits_paid_holiday(client):
     công chuẩn tháng loại lễ. NV 'xuất hiện' trong tháng 9 qua 1 đơn nghỉ đã duyệt → được cộng
     công lễ 2/9 (lễ seed)."""
     token = _admin_token(client)
-    # Hồ sơ SẴN CÓ của admin (mọi tài khoản đều có hồ sơ), nắn tên/phòng ban cho khớp kịch bản.
+    # Hồ sơ SẴN CÓ của admin (mọi tài khoản đều có hồ sơ), nắn tên cho khớp kịch bản.
     emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
     client.put(
         f"/api/employees/{emp['id']}",
-        json={"full_name": "NV Lễ", "department_id": _dept_id("Hành chính nhân sự"),
-              "hire_date": "2020-01-01"},
+        json={"full_name": "NV Lễ"},
         headers=_h(token),
     )
+    # NGÀY VÀO LÀM đặt THẲNG QUA DB, không qua API (sửa 03/09/2026).
+    #
+    # Seeder khai `hire_date = hôm nay`, mà công lễ chỉ cộng cho người ĐÃ trong biên chế ngày lễ
+    # (`_in_headcount_on`). Nên test này xanh khi chạy trước 02/09 và ĐỎ VĨNH VIỄN từ 03/09 —
+    # một quả bom hẹn giờ theo lịch, không phải lỗi nghiệp vụ.
+    #
+    # Không sửa bằng `PUT /api/employees/{id}` được: `hire_date` CỐ Ý không nằm trong
+    # `EDITABLE_FIELDS` (ngày vào làm khai một lần lúc tạo hồ sơ, nó nuôi thâm niên/phép năm/biên
+    # chế — không phải thứ sửa vặt). API trả 200 rồi im lặng bỏ qua, nên bản cũ tưởng đã đặt được.
+    db = SessionLocal()
+    try:
+        row = db.get(Employee, emp["id"])
+        row.hire_date = date(2020, 1, 1)
+        db.commit()
+    finally:
+        db.close()
 
     # Đơn nghỉ có lương 2026-09-10 (Thứ 5) đã duyệt → NV có mặt trong bảng công tháng 9.
     tid = client.post("/api/leaves/types", json={"name": "Phép năm", "is_paid": True, "annual_quota": 12},

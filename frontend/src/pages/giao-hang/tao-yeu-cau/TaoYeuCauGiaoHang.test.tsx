@@ -18,6 +18,17 @@ const AUTH: AuthState = {
   updateUser: () => {}, notice: null, setNotice: () => {},
 };
 
+/** NGÀY CẦN GIAO dùng trong mọi test — LUÔN ở tương lai so với lúc chạy (sửa 03/09/2026).
+ *
+ *  Trước đây là một mốc viết chết đầu tháng 9. Form chặn ngày quá khứ (`ngayQuaKhu`) nên qua mốc
+ *  đó là nút "Gửi yêu cầu" khoá vĩnh viễn ⇒ ba test đỏ trong khi nghiệp vụ không sai gì.
+ *
+ *  Tệ hơn cái đỏ: test "chưa tích dòng nào ⇒ nút Gửi bị khoá" vẫn XANH — nhưng xanh vì NGÀY QUÁ
+ *  KHỨ, không phải vì chưa tích dòng. Nó đã thôi canh đúng thứ nó sinh ra để canh mà không ai
+ *  hay. Xanh sai nguy hơn đỏ, nên chỗ đó cũng đổi theo.
+ */
+const NGAY_GIAO = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+
 const HOP = { order_line_id: 11, mo_ta: "Hộp thuốc 10 vỉ", don_vi_tinh: "hộp",
               qty_dat: 12000, da_giao: 0, con_phai_giao: 12000 };
 const TO = { order_line_id: 12, mo_ta: "Tờ hướng dẫn sử dụng", don_vi_tinh: "tờ",
@@ -75,7 +86,7 @@ describe("Tạo yêu cầu giao hàng · chọn từng dòng", () => {
     await userEvent.click(tich[0]);                       // chỉ "Hộp thuốc"
 
     const ngay = screen.getByLabelText(/Ngày cần giao/);
-    await userEvent.type(ngay, "2026-09-01");
+    await userEvent.type(ngay, NGAY_GIAO);
     await userEvent.click(screen.getByRole("button", { name: /Gửi yêu cầu/ }));
 
     await waitFor(() => expect(posts).toHaveLength(1));
@@ -96,7 +107,7 @@ describe("Tạo yêu cầu giao hàng · chọn từng dòng", () => {
     await userEvent.click(tich[1]);   // tích Tờ hướng dẫn → điền sẵn 12000
     await userEvent.click(tich[1]);   // ĐỔI Ý: bỏ tích Tờ hướng dẫn
 
-    await userEvent.type(screen.getByLabelText(/Ngày cần giao/), "2026-09-01");
+    await userEvent.type(screen.getByLabelText(/Ngày cần giao/), NGAY_GIAO);
     await userEvent.click(screen.getByRole("button", { name: /Gửi yêu cầu/ }));
 
     await waitFor(() => expect(posts).toHaveLength(1));
@@ -116,7 +127,7 @@ describe("Tạo yêu cầu giao hàng · chọn từng dòng", () => {
     stubApi();
     ve({ can_create: true });
     await userEvent.click(await screen.findByRole("button", { name: /Tạo yêu cầu giao hàng/ }));
-    await userEvent.type(screen.getByLabelText(/Ngày cần giao/), "2026-09-01");
+    await userEvent.type(screen.getByLabelText(/Ngày cần giao/), NGAY_GIAO);
     expect(screen.getByRole("button", { name: /Gửi yêu cầu/ })).toBeDisabled();
   });
 
@@ -151,7 +162,7 @@ describe("Tạo yêu cầu giao hàng · hệ TỰ KHAI mặt hàng kho", () => 
     await userEvent.click(await screen.findByRole("button", { name: /Tạo yêu cầu giao hàng/ }));
     await userEvent.click((await screen.findAllByRole("checkbox"))[0]);
     expect(screen.queryAllByPlaceholderText(/danh mục kho/)).toHaveLength(0);
-    await userEvent.type(screen.getByLabelText(/Ngày cần giao/), "2026-09-01");
+    await userEvent.type(screen.getByLabelText(/Ngày cần giao/), NGAY_GIAO);
     // Tích + ngày là đủ để gửi — không có mắt xích nào phải khai thêm.
     expect(screen.getByRole("button", { name: /Gửi yêu cầu/ })).toBeEnabled();
   });
