@@ -211,6 +211,16 @@ class RoutingNodeOut(BaseModel):
     so_luong_ra: float = 0.0
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
+    # Khuôn & khung của bước. `can_khuon` là "công đoạn CÓ ĐÒI dụng cụ", tách khỏi "đã trỏ dao
+    # nào" — thiếu nó thì bước cần dao mà chưa chốt hiện y hệt bước không cần. Phải khai ĐỦ ở đây:
+    # service trả dict, Pydantic im lặng nuốt mọi field không khai và FE nhận `undefined`.
+    can_khuon: bool = False
+    khuon_da_nhan: bool = False
+    khuon_be_ma: str | None = None
+    khuon_be_ten: str | None = None
+    khuon_be_so_ke: str | None = None
+    khuon_be_tinh_trang: str | None = None
+    khuon_be_ngay_ve: date | None = None
 
 
 class RoutingOut(BaseModel):

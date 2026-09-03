@@ -8137,6 +8137,16 @@ export interface LenhSxRoutingNode {
   so_luong_ra: number;
   don_vi_vao: string | null;
   don_vi_ra: string | null;
+  /** Công đoạn nguồn CÓ ĐÒI khuôn/khung — khác hẳn "đã trỏ dao nào". Bật mà `khuon_be_ma` rỗng
+   *  chính là thế "cần dao mà chưa chốt", thứ đang chặn ở cửa Sẵn sàng lập kế hoạch. */
+  can_khuon: boolean;
+  khuon_da_nhan: boolean;
+  khuon_be_ma: string | null;
+  khuon_be_ten: string | null;
+  khuon_be_so_ke: string | null;
+  khuon_be_tinh_trang: string | null;
+  /** ISO `yyyy-mm-dd`. */
+  khuon_be_ngay_ve: string | null;
 }
 
 export interface LenhSxRouting {

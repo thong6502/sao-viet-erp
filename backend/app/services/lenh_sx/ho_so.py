@@ -62,6 +62,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ...models.cong_doan import CongDoan
 from ...models.department import Department
 from ...models.employee import Employee
 from ...models.khuon_be import KhuonBe
@@ -267,8 +268,27 @@ def _khuon_buoc(db: Session, buocs: list[LsxCongDoan]) -> dict[int, dict]:
     }
 
 
+def _buoc_can_khuon(db: Session, buocs: list[LsxCongDoan]) -> set[int]:
+    """Id các BƯỚC mà công đoạn nguồn bật `requires_tooling` — nạp MỘT lô cho cả routing.
+
+    Tách khỏi `_khuon_buoc` vì hai câu hỏi khác nhau: "bước này trỏ dao nào" (có thể rỗng) và
+    "bước này CÓ CẦN dao không". Thiếu vế thứ hai thì bước cần dao mà chưa chốt lại hiện y hệt bước
+    không cần — đúng chỗ đang chặn ở cửa "Sẵn sàng lập kế hoạch" mà hồ sơ lại im lặng.
+    """
+    ids = {b.cong_doan_id for b in buocs if b.cong_doan_id}
+    if not ids:
+        return set()
+    can = {
+        cd_id
+        for (cd_id,) in db.execute(
+            select(CongDoan.id).where(CongDoan.id.in_(ids), CongDoan.requires_tooling.is_(True))
+        )
+    }
+    return {b.id for b in buocs if b.cong_doan_id in can}
+
+
 def _routing(bc: BoiCanh, lsx_id: int, buocs: list[LsxCongDoan], ten_to: dict[int, str],
-             khuon: dict[int, dict]) -> dict:
+             khuon: dict[int, dict], can_khuon: set[int]) -> dict:
     """Đồ thị routing của lệnh: `nodes` (bước + công việc thực thi của nó) và `canh` (cặp bước).
 
     NODE LÀ BƯỚC ROUTING (`lsx_cong_doan`), không phải công việc: bước bị bài ghép phủ KHÔNG có
@@ -327,6 +347,10 @@ def _routing(bc: BoiCanh, lsx_id: int, buocs: list[LsxCongDoan], ten_to: dict[in
             "don_vi_ra": b.don_vi_ra,
             # Khuôn/khung của bước — mã · số kệ · tình trạng · ngày về. Ra tới đây vì cả màn hồ sơ
             # LẪN phiếu công nghệ giấy đều cần: thợ cầm tờ giấy đi lấy dao chứ không mở màn hình.
+            "can_khuon": b.id in can_khuon,
+            # Tổ đã tích "đã nhận khuôn" chưa — chip đổi màu theo, hồ sơ nói được dao đang ở đâu
+            # mà không phải mở bàn tổ ra xem.
+            "khuon_da_nhan": cv is not None and cv.khuon_nhan_luc is not None,
             **khuon.get(b.khuon_be_id or 0, {}),
         })
     return {"nodes": nodes, "canh": [[a, b] for a, b in sorted(canh)]}
@@ -1030,7 +1054,9 @@ def ho_so(
     if "thong_so" in can:
         ra["thong_so"] = _thong_so(lsx)
     if "routing" in can:
-        ra["routing"] = _routing(bc, lsx_id, buocs, ten_to, _khuon_buoc(db, buocs))
+        ra["routing"] = _routing(
+            bc, lsx_id, buocs, ten_to, _khuon_buoc(db, buocs), _buoc_can_khuon(db, buocs)
+        )
     if "vat_tu" in can:
         ra["vat_tu"] = _vat_tu(
             bc, lsx_id, bang=bang, ma_bai=ma_bai,
