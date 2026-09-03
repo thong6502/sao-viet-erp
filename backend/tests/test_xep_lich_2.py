@@ -1290,8 +1290,16 @@ def test_goi_y_khe_ne_khoang_da_chiem_may(
     Giờ dùng ở đây là TƯƠNG ĐỐI (lấy từ chính khe hệ chấm ra) chứ không neo cứng một ngày
     lịch: từ khi `goi_y_khe` dùng sàn thật (`max(bây giờ · bàn giao · tiền nhiệm · ngày vật tư)`),
     mọi mốc viết chết trong quá khứ sẽ hết hạn theo thời gian thực — test sẽ tự mục nát.
+
+    Nhưng "tương đối" thôi CHƯA đủ: phải khai ca thật nữa. DB test không có ca nào thì engine rơi
+    về một ca mặc định 08:00–16:00, mà cửa chặn `ngoai_ca` (§7.1) chỉ soi GIỜ BẮT ĐẦU. Chạy trong
+    khung 14:30–16:00 giờ xưởng thì `som` còn trong ca nhưng cái đuôi `som + 90'` đã rơi ra ngoài,
+    hệ đẩy khe sang 08:00 hôm sau và bài đỏ (CI 03/09/2026: chờ 16:10, nhận 04/09 08:00). Ngoài
+    khung đó `som` tự trượt sang 08:00 hôm sau nên bài lại xanh — đỏ ngắt quãng theo GIỜ CHẠY,
+    không theo lỗi. Bốn ca xưởng phủ trọn 24h nên biến duy nhất còn lại đúng là thứ đang đo.
     """
     monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
+    _khai_ca_xuong(db)                                          # phủ 24h ⇒ `ngoai_ca` không xen vào
     l0, l1 = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     in0 = _in_theo_may(db, l0.id)
     in1 = _in_theo_may(db, l1.id)
