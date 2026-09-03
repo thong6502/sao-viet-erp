@@ -413,6 +413,22 @@ class LsxConflict(LsxError):
     pass
 
 
+def canh_bao_lech_khuon(nguon: str | None, phi: float | None, tinh_trang: str | None) -> str | None:
+    """Sale định một đằng, kế hoạch chốt một nẻo → MỘT câu nhắc. KHÔNG chặn.
+
+    Máy chỉ ghi nhận: nó không biết xưởng sẽ báo lại khách hay tự nuốt chi phí, nên nó nói ra chỗ
+    lệch rồi để người quyết. Chưa chọn nguồn (phiếu cũ) hoặc chưa trỏ dao → không có gì để so, im.
+    """
+    if not nguon or not tinh_trang:
+        return None
+    if nguon == "co_san" and tinh_trang == "dang_dat_lam":
+        return "Sale báo dùng khuôn có sẵn, nhưng khuôn của bước này đang đặt làm."
+    if nguon == "lam_moi" and tinh_trang == "dang_dung" and float(phi or 0) > 0:
+        tien = f"{float(phi or 0):,.0f}".replace(",", ".")
+        return f"Sale đã tính {tien} đồng tiền làm khuôn, nhưng bước này dùng khuôn có sẵn."
+    return None
+
+
 class LsxService:
     def __init__(self, db: Session, repo, audit, sequence) -> None:
         self.db = db
@@ -1238,6 +1254,10 @@ class LsxService:
                 # thứ tiếng — trước đó preview chỉ có cờ thuê-ngoài nên hai màn hiển thị lệch nhau.
                 "loai_buoc": LB_THUE_NGOAI if row.get("nha_cung_cap") else LB_MAY,
                 "nha_cung_cap": row.get("nha_cung_cap"),
+                # Ý ĐỊNH của sale về khuôn — chép nguyên si, KHÔNG diễn giải. Kế hoạch vẫn tự chốt
+                # con dao (`khuon_be_id`); hai thứ đứng cạnh nhau để so ra chỗ lệch.
+                "khuon_nguon": row.get("khuon_nguon"),
+                "khuon_phi": float(row.get("phi_khuon") or 0),
                 # Đơn vị KHAI ở danh mục — bảng "lệnh dự kiến" cần chúng để nói số tờ bằng đúng
                 # tên xưởng đặt. Chỉ là NHÃN ở đây; hệ số quy đổi vẫn do `_don_vi_theo_buoc` lo.
                 "don_vi_vao": cd.get("don_vi_vao"),
@@ -1522,6 +1542,8 @@ class LsxService:
                     nhom=r.get("nhom"),
                     department_id=r.get("department_id"),
                     nha_cung_cap=r.get("nha_cung_cap"),
+                    khuon_nguon=r.get("khuon_nguon"),
+                    khuon_phi=r.get("khuon_phi") or 0,
                     **d,
                 ))
             # Số lượng từng bước là DẪN XUẤT — chạy chuỗi ngược ngay sau khi dựng đủ routing.
@@ -2269,6 +2291,14 @@ class LsxService:
             # Con dao của bước + thông tin bày cho thợ. Nạp theo LÔ ở `_khuon_map`, không tra ở đây.
             "khuon_be_id": cd.khuon_be_id,
             **(khuon_map or {}).get(cd.khuon_be_id, {}),
+            # Ý định của sale + chỗ lệch với con dao kế hoạch đã chốt. `khuon_lech` là câu tiếng
+            # Việt hoặc None — dựng ở server để mọi màn nói cùng một câu, FE không tự suy lại.
+            "khuon_nguon": cd.khuon_nguon,
+            "khuon_phi": _f(cd.khuon_phi),
+            "khuon_lech": canh_bao_lech_khuon(
+                cd.khuon_nguon, cd.khuon_phi,
+                (khuon_map or {}).get(cd.khuon_be_id, {}).get("khuon_be_tinh_trang"),
+            ),
             "so_luong_vao": vao, "so_luong_ra": _f(cd.so_luong_ra),
             # Số ĐÚNG RA phải là, tính lại theo danh mục HIỆN TẠI. Chỉ có mặt khi KHÁC số đã lưu —
             # bằng nhau thì để None cho màn khỏi phải so lại lần nữa. Xem `detail_dict`.

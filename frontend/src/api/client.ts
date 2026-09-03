@@ -2383,6 +2383,11 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   khuon_be_so_ke: string | null;
   khuon_be_tinh_trang: string | null;
   khuon_be_ngay_ve: string | null;
+  /** Ý ĐỊNH của sale về khuôn, chép từ phiếu tính giá lúc dựng lệnh + câu nhắc khi nó LỆCH với con
+   *  dao kế hoạch đã chốt (`khuon_lech = null` là không lệch). Nhắc chứ không chặn. */
+  khuon_nguon: "co_san" | "lam_moi" | null;
+  khuon_phi: number;
+  khuon_lech: string | null;
   // Đơn vị VÀO ≠ RA là chuyện thường ở bế/xén — hệ số quy đổi nối hai đầu.
   so_luong_vao: number; so_luong_ra: number;
   don_vi_vao: string; don_vi_ra: string; he_so_quy_doi: number;

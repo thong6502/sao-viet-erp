@@ -207,6 +207,14 @@ class LsxCongDoan(Base):
     #
     # Để trống là hợp lệ, KHÔNG chặn phát hành lệnh — chủ dự án chốt 16/08.
     khuon_be_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    # Ý ĐỊNH CỦA SALE về khuôn, chép từ phiếu tính giá lúc dựng lệnh (chốt 04/09/2026). KHÔNG phải
+    # quyết định cuối: quyết định cuối là `khuon_be_id` ở trên, do kế hoạch chốt. Hai thứ tồn tại
+    # cạnh nhau để SO ĐƯỢC — lệch nhau nghĩa là tiền đã báo cho khách không khớp việc sẽ làm, và
+    # đó là lúc phải có người quyết (báo lại khách hay xưởng tự nuốt), máy chỉ nói ra chỗ lệch.
+    khuon_nguon: Mapped[str | None] = mapped_column(String(10), nullable=True)  # co_san|lam_moi
+    khuon_phi: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, server_default="0", default=0
+    )
 
     # --- Nhận diện bước ---
     loai_buoc: Mapped[str] = mapped_column(

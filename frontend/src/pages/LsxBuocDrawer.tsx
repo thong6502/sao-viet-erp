@@ -2250,6 +2250,20 @@ function KhuonCuaBuoc({
         <h3 className="khsx-section-card__title">Khuôn của bước ({nhanLoai})</h3>
       </div>
 
+      {/* Ý ĐỊNH CỦA SALE, chép từ phiếu tính giá — đọc TRƯỚC khi chọn dao (chốt 04/09/2026). Không
+          có dòng này thì kế hoạch chốt dao trong bóng tối: tiền khuôn đã báo cho khách rồi mà
+          người chốt không biết, tới lúc lệch mới lòi ra ở hoá đơn. */}
+      {row.khuon_nguon && (
+        <p className="khsx-khuon__y-dinh">
+          Sale báo:{" "}
+          {row.khuon_nguon === "lam_moi"
+            ? `làm khuôn mới${row.khuon_phi ? `, ${row.khuon_phi.toLocaleString("vi-VN")}đ` : ""}`
+            : "dùng khuôn có sẵn"}
+        </p>
+      )}
+      {/* NHẮC chứ không chặn: máy không biết xưởng sẽ báo lại khách hay tự nuốt chi phí. */}
+      {row.khuon_lech && <p className="khsx-khuon__lech">{row.khuon_lech}</p>}
+
       {daChon ? (
         <div className="khsx-khuon__da-chon">
           <div className="khsx-khuon__hang1">

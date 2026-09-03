@@ -3265,3 +3265,24 @@ def test_hang_cho_cat_trang(db, orders, lsx_svc, admin, customer):
     assert total >= 2 and len(rows) == 1
     thay = {r["order_id"] for r in rows} | {r["order_id"] for r in lsx_svc.hang_cho(page=2, size=1)[0]}
     assert {d1.id, d2.id} <= thay
+
+
+# --- Lệch ý định khuôn: sale định một đằng, kế hoạch chốt một nẻo (chốt 04/09/2026) -------------
+def test_khuon_lech_sale_bao_co_san_ma_dao_dang_dat_lam():
+    """Máy chỉ NHẮC, không chặn: tiền đã trót báo cho khách nên người phải biết mà quyết."""
+    from app.services.lsx_service import canh_bao_lech_khuon
+    msg = canh_bao_lech_khuon("co_san", 0, "dang_dat_lam")
+    assert msg is not None and "có sẵn" in msg
+
+
+def test_khuon_lech_sale_tinh_tien_ma_dung_dao_cu():
+    from app.services.lsx_service import canh_bao_lech_khuon
+    msg = canh_bao_lech_khuon("lam_moi", 1_200_000, "dang_dung")
+    assert msg is not None and "1.200.000" in msg
+
+
+def test_khuon_khong_lech_thi_im_lang():
+    from app.services.lsx_service import canh_bao_lech_khuon
+    assert canh_bao_lech_khuon("lam_moi", 1_200_000, "dang_dat_lam") is None
+    assert canh_bao_lech_khuon("co_san", 0, "dang_dung") is None
+    assert canh_bao_lech_khuon(None, 0, "dang_dung") is None

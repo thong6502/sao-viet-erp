@@ -11449,3 +11449,25 @@ def _migrate_phieu_thanh_pham_khuon_nguon(db) -> None:
 
 
 MIGRATIONS.append(("0257_phieu_thanh_pham_khuon_nguon", _migrate_phieu_thanh_pham_khuon_nguon))
+
+
+def _migrate_lsx_cong_doan_khuon_nguon(db) -> None:
+    """mg 0258 — `lsx_cong_doan.khuon_nguon` + `khuon_phi` (chốt 04/09/2026).
+
+    Không backfill từ `phieu_thanh_pham`: lệnh đã dựng xong là ẢNH CHỤP của thời điểm dựng, tra
+    ngược phiếu bây giờ có thể lấy nhầm phiên bản phiếu đã sửa sau đó.
+    """
+    insp = inspect(db.get_bind())
+    if "lsx_cong_doan" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "lsx_cong_doan")
+    if "khuon_nguon" not in cols:
+        db.execute(text("ALTER TABLE lsx_cong_doan ADD COLUMN khuon_nguon VARCHAR(10)"))
+    if "khuon_phi" not in cols:
+        db.execute(text(
+            "ALTER TABLE lsx_cong_doan ADD COLUMN khuon_phi NUMERIC(18,2) NOT NULL DEFAULT 0"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0258_lsx_cong_doan_khuon_nguon", _migrate_lsx_cong_doan_khuon_nguon))

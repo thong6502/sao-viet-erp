@@ -238,6 +238,11 @@ class LsxCongDoanOut(BaseModel):
     khuon_be_so_ke: str | None = None
     khuon_be_tinh_trang: str | None = None
     khuon_be_ngay_ve: date | None = None
+    # Ý ĐỊNH của sale chép từ phiếu tính giá + chỗ lệch với con dao kế hoạch đã chốt. `khuon_lech`
+    # là câu tiếng Việt server dựng sẵn (hoặc None) — mọi màn nói cùng một câu, FE không suy lại.
+    khuon_nguon: str | None = None
+    khuon_phi: float = 0
+    khuon_lech: str | None = None
 
     so_luong_vao: float
     so_luong_ra: float
