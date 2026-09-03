@@ -1680,3 +1680,32 @@
     border-bottom: 1px solid var(--rule-soft);
   }
 }
+
+/* ── Khuôn & khung (04/09/2026) ──────────────────────────────────────────────
+   Chip + chỗ lấy + nút tích. Chip tự lo màu (chip-buoc.css), ở đây chỉ lo hàng
+   ngang gãy dòng được trên máy tính bảng của tổ. */
+.thsx-khuon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.thsx-khuon__ten {
+  font-size: var(--fs-xs);
+  color: var(--ash-1);
+}
+.thsx-khuon__ke {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.thsx-khuon__act {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.thsx-khuon__xong {
+  font-size: var(--fs-xs);
+  color: var(--ash-2);
+}

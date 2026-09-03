@@ -29,6 +29,7 @@ import { ngayToWall, type Xl2Zoom } from "./xl2Shared";
 import { wallMinutes, nowWall } from "./gantt-time";
 import { ThsxTimeline } from "./ThsxTimeline";
 import { ThsxDanhSach } from "./ThsxDanhSach";
+import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { ThsxDrawer } from "./ThsxDrawer";
 import { type ThsxExec } from "./ThsxExecPanels";
 import { ThsxHopThuBar, type Opt } from "./ThsxG5";
@@ -557,6 +558,20 @@ export function ThucHienSxPage({
     if (selectedId != null) void mutate(() => api.sanXuat.batDau(token!, selectedId, { expected_version: ver() }), "Đã bắt đầu.");
   }, [chiTiet, mutate, token, selectedId]);
 
+  // Nhận / trả khuôn (04/09/2026). Nhận là thứ DUY NHẤT mở cổng Bắt đầu cho bước cần dụng cụ —
+  // không hỏi lý do gì cả: người bấm là người đang cầm con dao trong tay.
+  const onNhanKhuon = useCallback(() => {
+    if (selectedId != null) {
+      void mutate(() => api.sanXuat.nhanKhuon(token!, selectedId), "Đã nhận khuôn.");
+    }
+  }, [mutate, token, selectedId]);
+
+  const onTraKhuon = useCallback(() => {
+    if (selectedId != null) {
+      void mutate(() => api.sanXuat.traKhuon(token!, selectedId), "Đã trả khuôn về kệ.");
+    }
+  }, [mutate, token, selectedId]);
+
   // Tạm dừng: lý do BẮT BUỘC luôn.
   const onTamDung = useCallback(() => {
     setReasonText("");
@@ -813,6 +828,8 @@ export function ThucHienSxPage({
               onGiao={onGiao}
               onRut={onRut}
               onBatDau={onBatDau}
+              onNhanKhuon={onNhanKhuon}
+              onTraKhuon={onTraKhuon}
               onTamDung={onTamDung}
               onKetThuc={onKetThuc}
               onClose={closePanel}
@@ -928,6 +945,8 @@ function ListRow({ w, selected, onPick }: { w: SxWorkItem; selected: boolean; on
           <span className="thsx-lrow__gio thsx-num"><Icon name="clock" size={11} /> {ngayGio(w.du_kien_bat_dau)}</span>
         )}
         {w.la_kcs && <span className="thsx-lrow__kcs">KCS</span>}
+        <ChipLoaiBuoc loai_buoc={w.loai_buoc} nha_cung_cap={w.nha_cung_cap} />
+        <ChipKhuon can_khuon={!!w.khuon} khuon={{ ...(w.khuon ?? {}), da_nhan: w.khuon_da_nhan }} />
       </div>
     </button>
   );

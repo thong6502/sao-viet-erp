@@ -17,6 +17,7 @@ import type {
 } from "../api/client";
 import { NHAN_MUC_DO, type MayChon } from "../api/kyThuatMay";
 import { Button } from "../components/Button";
+import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { Icon } from "../components/Icons";
 import { num, ngayGio } from "./keHoachSxShared";
 import { nhanDonVi } from "./lsxBuoc";
@@ -53,6 +54,10 @@ interface Props {
   onGiao: (employeeId: number) => void;
   onRut: (phanCongId: number) => void;
   onBatDau: () => void;
+  /** Tổ tích "đã nhận khuôn/khung" — cổng DUY NHẤT mở nút Bắt đầu cho bước cần dụng cụ. */
+  onNhanKhuon: () => void;
+  /** Tích trả khuôn về kệ sau khi làm xong (không bắt buộc, chỉ để kho biết dao đang ở đâu). */
+  onTraKhuon: () => void;
   onTamDung: () => void;
   onKetThuc: () => void;
   onClose: () => void;
@@ -77,7 +82,7 @@ const MUC_DO_MAC_DINH =
 export function ThsxDrawer({
   chiTiet, loading, canAssign, candidates, hoTroUngVien, mayOptions, loadLyDo, exec, busy,
   kcsCt, khoCt, dieuKien, toChiuOpts, congDoanRefOpts,
-  onGiao, onRut, onBatDau, onTamDung, onKetThuc, onClose,
+  onGiao, onRut, onBatDau, onNhanKhuon, onTraKhuon, onTamDung, onKetThuc, onClose,
 }: Props) {
   const [giaoOpen, setGiaoOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -120,7 +125,12 @@ export function ThsxDrawer({
   );
   const hasKhoan = rosterActive.some((p) => p.la_luong_khoan);
   const done = tt === "completed";
-  const canBatDau = canAssign && !busy && (tt === "released" || tt === "paused") && hasKhoan;
+  // Bước có khuôn/khung mà chưa ai tích "đã nhận" thì KHÔNG bắt đầu được (BE cũng chặn ở
+  // `thuc_thi.bat_dau`). Đây là chỗ duy nhất chuỗi khuôn chặn tay thợ — ngày dự kiến về dao
+  // không chặn xếp lịch, theo quyết định 04/09/2026.
+  const khuonChoNhan = !!cv?.khuon && !cv?.khuon_da_nhan;
+  const canBatDau =
+    canAssign && !busy && (tt === "released" || tt === "paused") && hasKhoan && !khuonChoNhan;
   const canTamDung = canAssign && !busy && tt === "running";
   const canKetThuc = canAssign && !busy && (tt === "running" || tt === "paused");
   const canGiao = canAssign && !done;
@@ -178,6 +188,7 @@ export function ThsxDrawer({
             <>
               <span className="thsx-panel__serial">{serial}</span>
               <span className="thsx-panel__cd">{cv.ten_cong_doan}</span>
+              <ChipLoaiBuoc loai_buoc={cv.loai_buoc} nha_cung_cap={cv.nha_cung_cap} />
             </>
           ) : (
             <span className="thsx-panel__cd">Chi tiết công việc</span>
@@ -223,6 +234,34 @@ export function ThsxDrawer({
               <div className="thsx-kv"><span className="thsx-kv__k">Nguồn</span>
                 <span className="thsx-kv__v">{cv.nguon_ma}{cv.nguon_ten ? ` · ${cv.nguon_ten}` : ""}</span></div>
             </section>
+
+            {/* 1a · KHUÔN / KHUNG — chỉ hiện ở bước thực sự cần dụng cụ (`khuon` được chụp lúc
+                phát hành). Chip nói dao nào, lấy ở kệ nào; nút tích là cổng mở Bắt đầu. */}
+            {cv.khuon && (
+              <section className="thsx-psec">
+                <div className="thsx-psec__h"><span className="thsx-psec__title">Khuôn &amp; khung</span></div>
+                <div className="thsx-khuon">
+                  <ChipKhuon can_khuon khuon={{ ...cv.khuon, da_nhan: cv.khuon_da_nhan }} />
+                  {cv.khuon.ten && <span className="thsx-khuon__ten">{cv.khuon.ten}</span>}
+                  {cv.khuon.so_ke && !cv.khuon_da_nhan && (
+                    <span className="thsx-khuon__ke">Lấy ở {cv.khuon.so_ke}</span>
+                  )}
+                </div>
+                <div className="thsx-khuon__act">
+                  {!cv.khuon_da_nhan && canAssign && (
+                    <Button variant="secondary" onClick={onNhanKhuon} disabled={busy}>
+                      Đã nhận khuôn
+                    </Button>
+                  )}
+                  {cv.khuon_da_nhan && !cv.khuon_da_tra && done && canAssign && (
+                    <Button variant="ghost" onClick={onTraKhuon} disabled={busy}>
+                      Đã trả khuôn về kệ
+                    </Button>
+                  )}
+                  {cv.khuon_da_tra && <span className="thsx-khuon__xong">Đã trả về kệ.</span>}
+                </div>
+              </section>
+            )}
 
             {/* 1b · THỰC TẾ — ba số của CHÍNH tổ này. Hai dòng SL vào/SL ra ở trên vẫn là kế
                 hoạch nguyên vẹn; "Còn thiếu" chấm theo lượng THỰC NHẬN, nên tổ trước giao thiếu
@@ -370,6 +409,12 @@ export function ThsxDrawer({
               {!hasKhoan && !done && tt !== "running" && (
                 <p className="thsx-note thsx-note--warn">
                   <Icon name="alert" size={13} /> Cần ≥1 thợ lương khoán mới bắt đầu được.
+                </p>
+              )}
+              {khuonChoNhan && !done && tt !== "running" && (
+                <p className="thsx-note thsx-note--warn">
+                  <Icon name="alert" size={13} /> Chưa nhận khuôn/khung
+                  {cv.khuon?.ma ? ` (${cv.khuon.ma})` : ""} — tích “Đã nhận” ở khối trên trước.
                 </p>
               )}
 
