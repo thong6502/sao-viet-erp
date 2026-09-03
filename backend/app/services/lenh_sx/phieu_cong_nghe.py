@@ -221,6 +221,23 @@ def _ngay(v) -> str:
     return v.isoformat() if v else "—"
 
 
+def _ngay_vn(v) -> str:
+    """`date`/`"2026-09-20"` -> `"20/09/2026"`. Rỗng hoặc lạ -> chuỗi rỗng, KHÔNG bịa ngày.
+
+    Khác `_ngay()` (ISO, dùng cho các ô thông số): ngày trên tờ giấy đưa xuống xưởng phải đọc theo
+    lối người Việt đọc, cùng khuôn với mốc in ở chân trang.
+    """
+    if not v:
+        return ""
+    if isinstance(v, str):
+        m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", v)
+        return f"{m[3]}/{m[2]}/{m[1]}" if m else ""
+    try:
+        return v.strftime("%d/%m/%Y")
+    except AttributeError:
+        return ""
+
+
 def _so(v) -> str:
     """`137.0` -> `"137"`, `137.5` -> `"137.5"` — cùng khuôn `_f(x):g` của `ho_so.py`."""
     if v is None:
@@ -363,6 +380,18 @@ def render_pdf(
         ncc = (node.get("nha_cung_cap") or "").strip()
         if ncc:
             loai_buoc = f"{loai_buoc}: {ncc}" if loai_buoc else ncc
+        # KHUÔN/KHUNG đi cùng ô đó, cùng lý do: chỉ một phần nhỏ số dòng có dao. Thợ đọc một chỗ
+        # là biết "bước này ai làm, lấy dao ở đâu". Dao chưa về thì nói THẲNG, kèm ngày dự kiến —
+        # im lặng ở đây là để thợ đi tìm một con dao không có trong kho.
+        k_ma = (node.get("khuon_be_ma") or "").strip()
+        if k_ma:
+            if node.get("khuon_be_tinh_trang") == "dang_dat_lam":
+                ng = _ngay_vn(node.get("khuon_be_ngay_ve"))
+                dao = f"{k_ma} — chưa về" + (f", dự kiến {ng}" if ng else "")
+            else:
+                ke = (node.get("khuon_be_so_ke") or "").strip()
+                dao = f"{k_ma} — {ke}" if ke else k_ma
+            loai_buoc = f"{loai_buoc} · {dao}" if loai_buoc else dao
         routing_rows.append([
             gia_tri(i),
             gia_tri(node.get("lop")),

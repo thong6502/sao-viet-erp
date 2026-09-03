@@ -40,13 +40,18 @@ nên bài dưới không cần tự tạo dữ liệu danh mục.
 from __future__ import annotations
 
 import re
+from datetime import date
 
+from app.models.khuon_be import KhuonBe
 from app.services.lenh_sx import phieu_cong_nghe
 
 from tests.lenh_sx_fixtures import (  # noqa: F401
+    KHUON_KE,
+    KHUON_MA,
     NHA_GIA_CONG,
     admin,
     customer,
+    lenh_co_khuon,
     lenh_dai,
     lenh_that,
     lenh_thue_ngoai,
@@ -339,6 +344,44 @@ def test_giay_in_nha_gia_cong_cua_buoc_thue_ngoai(
     theo_ten = {d["Công đoạn"]: d for d in _bang_routing(giay, 3)}
     assert theo_ten["Cán màng"]["Loại bước"] == f"Thuê ngoài: {NHA_GIA_CONG}"
     assert theo_ten["In"]["Loại bước"] == "Máy", "bước nội bộ không được dính tên nhà gia công"
+
+
+def test_giay_in_ma_dao_va_so_ke(client, seed_credentials, lenh_co_khuon, monkeypatch):
+    """Thợ cầm TỜ GIẤY đi lấy dao chứ không mở màn hình — thiếu số kệ ở đây là đứt chuỗi khuôn dù
+    phần mềm giữ đủ dữ liệu.
+
+    Đi chung ô "Loại bước" với nhà gia công, cùng lý do (xem `phieu_cong_nghe.routing_rows`): chỉ
+    một phần nhỏ số dòng có dao, thêm hẳn một cột là bỏ trống gần hết bảng và ăn mất bề ngang của
+    cột Công đoạn.
+    """
+    giay = _bat_chu(monkeypatch)
+    h = {"Authorization": f"Bearer {_tok(client, seed_credentials)}"}
+    r = client.get(f"/api/lenh-san-xuat/{lenh_co_khuon}/phieu-cong-nghe.pdf", headers=h)
+    assert r.status_code == 200, r.text
+
+    theo_ten = {d["Công đoạn"]: d for d in _bang_routing(giay, 3)}
+    assert theo_ten["Bế"]["Loại bước"] == f"Máy · {KHUON_MA} — {KHUON_KE}"
+    assert theo_ten["In"]["Loại bước"] == "Máy", "bước không dùng dao không được dính mã dao"
+
+
+def test_giay_noi_thang_dao_chua_ve(client, seed_credentials, lenh_co_khuon, sess, monkeypatch):
+    """Dao đang đặt làm thì giấy phải nói "chưa về" + ngày dự kiến.
+
+    Im lặng ở ca này là để thợ đi tìm một con dao không tồn tại trong kho — tệ hơn hẳn việc không
+    in gì cả, vì tờ giấy trông vẫn đầy đủ.
+    """
+    dao = sess.query(KhuonBe).filter(KhuonBe.ma == KHUON_MA).one()
+    dao.tinh_trang = "dang_dat_lam"
+    dao.ngay_ve_du_kien = date(2026, 9, 20)
+    sess.commit()
+
+    giay = _bat_chu(monkeypatch)
+    h = {"Authorization": f"Bearer {_tok(client, seed_credentials)}"}
+    r = client.get(f"/api/lenh-san-xuat/{lenh_co_khuon}/phieu-cong-nghe.pdf", headers=h)
+    assert r.status_code == 200, r.text
+
+    theo_ten = {d["Công đoạn"]: d for d in _bang_routing(giay, 3)}
+    assert theo_ten["Bế"]["Loại bước"] == f"Máy · {KHUON_MA} — chưa về, dự kiến 20/09/2026"
 
 
 def test_chan_trang_co_moc_in_va_nguoi_in(client, seed_credentials, lenh_that, monkeypatch):

@@ -64,6 +64,7 @@ from sqlalchemy.orm import Session
 
 from ...models.department import Department
 from ...models.employee import Employee
+from ...models.khuon_be import KhuonBe
 from ...models.ky_thuat_may import SuaChuaMay
 from ...models.lsx import Lsx, LsxCongDoan
 from ...models.san_xuat import GOI_DANG_PHAT_HANH, SanXuatGoiPhatHanh, SanXuatPhienBan
@@ -244,7 +245,30 @@ def _lop_topo(ids: list[int], canh: list[tuple[int, int]]) -> dict[int, int]:
     return lop
 
 
-def _routing(bc: BoiCanh, lsx_id: int, buocs: list[LsxCongDoan], ten_to: dict[int, str]) -> dict:
+def _khuon_buoc(db: Session, buocs: list[LsxCongDoan]) -> dict[int, dict]:
+    """`{khuon_be_id: {mã · tên · số kệ · tình trạng · ngày về}}` — nạp MỘT lô cho cả routing.
+
+    Cùng hình dạng khoá với `lsx_service._khuon_map` (tiền tố `khuon_be_`) để hai đường đọc bày ra
+    cùng một bộ tên; đổi một bên là FE/phiếu giấy bên kia mất chữ mà không ai báo.
+    """
+    ids = {b.khuon_be_id for b in buocs if b.khuon_be_id}
+    if not ids:
+        return {}
+    rows = db.execute(select(KhuonBe).where(KhuonBe.id.in_(ids))).scalars()
+    return {
+        k.id: {
+            "khuon_be_ma": k.ma,
+            "khuon_be_ten": k.ten,
+            "khuon_be_so_ke": k.so_ke,
+            "khuon_be_tinh_trang": k.tinh_trang,
+            "khuon_be_ngay_ve": k.ngay_ve_du_kien,
+        }
+        for k in rows
+    }
+
+
+def _routing(bc: BoiCanh, lsx_id: int, buocs: list[LsxCongDoan], ten_to: dict[int, str],
+             khuon: dict[int, dict]) -> dict:
     """Đồ thị routing của lệnh: `nodes` (bước + công việc thực thi của nó) và `canh` (cặp bước).
 
     NODE LÀ BƯỚC ROUTING (`lsx_cong_doan`), không phải công việc: bước bị bài ghép phủ KHÔNG có
@@ -301,6 +325,9 @@ def _routing(bc: BoiCanh, lsx_id: int, buocs: list[LsxCongDoan], ten_to: dict[in
             "so_luong_ra": _f(b.so_luong_ra),
             "don_vi_vao": b.don_vi_vao,
             "don_vi_ra": b.don_vi_ra,
+            # Khuôn/khung của bước — mã · số kệ · tình trạng · ngày về. Ra tới đây vì cả màn hồ sơ
+            # LẪN phiếu công nghệ giấy đều cần: thợ cầm tờ giấy đi lấy dao chứ không mở màn hình.
+            **khuon.get(b.khuon_be_id or 0, {}),
         })
     return {"nodes": nodes, "canh": [[a, b] for a, b in sorted(canh)]}
 
@@ -1003,7 +1030,7 @@ def ho_so(
     if "thong_so" in can:
         ra["thong_so"] = _thong_so(lsx)
     if "routing" in can:
-        ra["routing"] = _routing(bc, lsx_id, buocs, ten_to)
+        ra["routing"] = _routing(bc, lsx_id, buocs, ten_to, _khuon_buoc(db, buocs))
     if "vat_tu" in can:
         ra["vat_tu"] = _vat_tu(
             bc, lsx_id, bang=bang, ma_bai=ma_bai,
