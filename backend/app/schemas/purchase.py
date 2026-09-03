@@ -79,6 +79,13 @@ class SupplierItemRow(BaseModel):
     # NCC đã ngưng bán mặt hàng đó, người dùng chọn xong mới bị backend từ chối — bẫy.
     is_active: bool = True
     note: str | None = None
+    #: 1 đơn vị NCC bán bằng bao nhiêu ĐƠN VỊ GỐC của mặt hàng. `None` = không quy đổi được
+    #: (mặt hàng ngoài danh mục, hoặc thiếu cặp quy đổi) — KHÔNG được coi là 1.
+    he_so_ve_goc: float | None = None
+    #: Đơn giá đã quy về đ/đơn-vị-gốc = `unit_price ÷ he_so_ve_goc`. Đây là con số DUY NHẤT so
+    #: ngang được giữa các NCC báo theo đơn vị khác nhau (1.020.000đ/ram vs 24.500đ/kg).
+    #: `None` = chưa quy đổi được ⇒ màn hình phải xếp CUỐI kèm lý do, đừng lặng lẽ dùng giá thô.
+    gia_quy_doi: int | None = None
     created_at: datetime
     updated_at: datetime
 

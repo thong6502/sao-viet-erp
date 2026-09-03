@@ -5715,6 +5715,13 @@ export interface SupplierItemRow {
   /** Mặt hàng còn bán không. Ô chọn NCC ở form phiếu mua lọc theo cờ này — ngưng bán thì không
    *  mời nữa, vì backend cũng chặn đặt mới. */
   is_active: boolean;
+  /** 1 đơn vị NCC bán bằng bao nhiêu ĐƠN VỊ GỐC của mặt hàng. `null` = không quy đổi được —
+   *  KHÔNG được coi là 1: hệ số 1 sai thì giá sai mà không ai thấy dòng lỗi nào. */
+  he_so_ve_goc: number | null;
+  /** Đơn giá quy về đ/đơn-vị-gốc = `unit_price ÷ he_so_ve_goc`. Con số DUY NHẤT so ngang được
+   *  giữa các NCC báo theo đơn vị khác nhau (1.020.000đ/ram vs 24.500đ/kg).
+   *  `null` = chưa quy đổi được ⇒ xếp CUỐI kèm lý do, đừng lặng lẽ dùng giá thô. */
+  gia_quy_doi: number | null;
   note: string | null;
   created_at: string;
   updated_at: string;

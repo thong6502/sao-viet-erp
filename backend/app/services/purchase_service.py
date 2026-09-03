@@ -673,6 +673,44 @@ class PurchaseService:
         """
         return tu_tong_hop(self.suppliers.danh_gia_mot(supplier_id))
 
+    def quy_doi_bang_gia(self, suppliers) -> dict[int, dict]:
+        """Hệ số quy đổi + giá/đơn-vị-gốc cho MỌI dòng bảng giá của một mẻ NCC.
+
+        Từ 29/08/2026 bảng giá NCC cho CHỌN đơn vị (trước đó ép về đơn vị gốc). Mở khoá xong thì
+        `unit_price` của hai NCC không còn so trực tiếp được — ông báo 1.020.000đ/ram, ông báo
+        24.500đ/kg. Con số so ngang được là `unit_price ÷ he_so_ve_goc`.
+
+        Tính THEO LÔ, cache theo `(hang_loai, hang_id)`: một trang danh sách có 20 NCC × vài dòng,
+        hỏi DB từng dòng là vài trăm lượt đi cho một màn.
+
+        Dòng không quy đổi được (mặt hàng ngoài danh mục, thiếu cặp quy đổi) trả `None` cho cả
+        hai — CỐ Ý không lùi về hệ số 1: hệ số 1 sai thì giá sai mà không ai thấy dòng lỗi nào,
+        đúng nếp `quy_ve_goc` đã đặt.
+        """
+        from .vat_lieu_kho_service import VatLieuKhoError
+
+        cache: dict[tuple[str, int, str], float | None] = {}
+        ra: dict[int, dict] = {}
+        for sup in suppliers:
+            for it in getattr(sup, "items", None) or []:
+                hs = None
+                if it.hang_loai and it.hang_id and (it.unit or "").strip():
+                    khoa = (it.hang_loai, int(it.hang_id), (it.unit or "").strip().lower())
+                    if khoa not in cache:
+                        try:
+                            qd = self.hang.quy_ve_goc(it.hang_loai, int(it.hang_id), it.unit, 1)
+                            cache[khoa] = qd["he_so_ve_goc"] if qd["he_so_ve_goc"] > 0 else None
+                        except VatLieuKhoError:
+                            cache[khoa] = None
+                    hs = cache[khoa]
+                ra[it.id] = {
+                    "he_so_ve_goc": hs,
+                    "gia_quy_doi": (
+                        int(round(int(it.unit_price or 0) / hs)) if hs else None
+                    ),
+                }
+        return ra
+
     def get_supplier(self, supplier_id: int) -> Supplier:
         supplier = self.suppliers.get_by_id(supplier_id)
         if supplier is None:
