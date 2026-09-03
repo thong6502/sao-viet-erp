@@ -11471,3 +11471,29 @@ def _migrate_lsx_cong_doan_khuon_nguon(db) -> None:
 
 
 MIGRATIONS.append(("0258_lsx_cong_doan_khuon_nguon", _migrate_lsx_cong_doan_khuon_nguon))
+
+
+def _migrate_cong_viec_khuon(db) -> None:
+    """mg 0259 — `san_xuat_cong_viec`: `nha_cung_cap` + khối khuôn (chốt 04/09/2026).
+
+    Raw SQL đích danh cột. KHÔNG backfill: công việc đã phát hành trước hôm nay không có ảnh chụp
+    khuôn, và dựng lại ảnh chụp từ lệnh HIỆN TẠI là ghi một sự thật của hôm nay vào một mốc quá khứ.
+    """
+    insp = inspect(db.get_bind())
+    if "san_xuat_cong_viec" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "san_xuat_cong_viec")
+    them = {
+        "nha_cung_cap": "VARCHAR(255)",
+        "khuon_json": "JSON",
+        "khuon_nhan_luc": "TIMESTAMP WITH TIME ZONE",
+        "khuon_nhan_by_id": "INTEGER",
+        "khuon_tra_luc": "TIMESTAMP WITH TIME ZONE",
+    }
+    for ten, kieu in them.items():
+        if ten not in cols:
+            db.execute(text(f"ALTER TABLE san_xuat_cong_viec ADD COLUMN {ten} {kieu}"))
+    db.commit()
+
+
+MIGRATIONS.append(("0259_cong_viec_khuon", _migrate_cong_viec_khuon))
