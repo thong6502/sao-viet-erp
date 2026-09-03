@@ -3635,3 +3635,37 @@ select.tg-input--sm {
 .sel__list.tg-pop .sel__opt-check {
   color: var(--rust);
 }
+
+/* NGUỒN KHUÔN — hai nút chọn "Có sẵn / Làm mới" đứng đúng chỗ ô tiền cũ (chốt 04/09/2026).
+   Ô tiền và ô ngày tụt xuống thành hàng phụ, chỉ mọc khi chọn "Làm mới". */
+.tg-khuon__nguon {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+.tg-khuon__nguon label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+  /* Nhãn ngắn — xuống dòng giữa nút tròn và chữ là đọc thành hai thứ rời. */
+  white-space: nowrap;
+}
+.tg-khuon__nguon input {
+  margin: 0;
+}
+/* Hàng phụ thụt vào để thấy ngay nó thuộc về bước ở trên, không phải một bước khác. */
+.tg-khuon__row--phu {
+  padding-left: var(--sp-3);
+}
+.tg-khuon__row--phu .tg-khuon__ten {
+  font-size: 12.5px;
+  color: var(--ash);
+}
+.tg-khuon__date {
+  text-align: left;
+  font-variant-numeric: normal;
+}

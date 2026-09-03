@@ -94,6 +94,10 @@ _ROW_SCALAR_FIELDS = (
     "so_mat", "so_vi_tri", "dien_tich", "nha_cung_cap", "ghi_chu",
     # Phí khuôn của bước — engine CÓ cộng vào giá vốn (một dòng tiền trong nhóm Công đoạn).
     "phi_khuon",
+    # Khuôn có sẵn hay làm mới + ngày sale dự kiến có dao. KHÔNG ăn vào tiền: engine chỉ đọc
+    # `khuon_nguon` để biết nên nhắc gì (`_canh_bao_khuon`), còn lệnh SX đọc lại để so ý định của
+    # sale với con dao kế hoạch thật sự chọn.
+    "khuon_nguon", "khuon_ngay_du_kien",
     # Kích thước/số lượng khung lụa — TÁCH BIỆT với `phi_khuon`, chỉ để công thức của công đoạn
     # (bước dùng `tooling_type = "khung_lua"`) tự quy ra tiền. Xem `bien_cong_thuc._TANG_BUOC`.
     "dai_khung_lua", "rong_khung_lua", "so_khung_lua",

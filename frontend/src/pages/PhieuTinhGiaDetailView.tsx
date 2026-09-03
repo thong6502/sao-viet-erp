@@ -50,13 +50,20 @@ const cdName = (r: Row): string => (r.ten_hien_thi ? String(r.ten_hien_thi) : St
 
 /** Lựa chọn cho một ô danh mục: BỎ mục đã ngừng dùng, nhưng GIỮ lại đúng mục phiếu đang dùng
  *  (kèm chữ "ngừng dùng"). Bỏ hẳn cả mục đang dùng thì mở phiếu cũ ra ô tự về rỗng, người lập
- *  phiếu tưởng phần mềm nuốt mất dữ liệu — cùng luật với ô ĐVT ngay bên cạnh. */
-function optsConDung(rows: Row[], dangDung: number | null): SelectOption<string>[] {
+ *  phiếu tưởng phần mềm nuốt mất dữ liệu — cùng luật với ô ĐVT ngay bên cạnh.
+ *
+ *  `nhan` đổi được cách viết một dòng: mặc định "MÃ · Tên", ô nào không cần mã thì truyền hàm
+ *  khác (xem `giayOpts`). */
+function optsConDung(
+  rows: Row[],
+  dangDung: number | null,
+  nhan: (r: Row) => string = rowLabel,
+): SelectOption<string>[] {
   return rows
     .filter((r) => r.active !== false || r.id === dangDung)
     .map((r) => ({
       value: String(r.id),
-      label: r.active === false ? `${rowLabel(r)} (ngừng dùng)` : rowLabel(r),
+      label: r.active === false ? `${nhan(r)} (ngừng dùng)` : nhan(r),
     }));
 }
 
@@ -472,6 +479,11 @@ interface EditableFinishing {
    *  nhân SL). Engine CÓ cộng nó vào giá vốn sản phẩm, nên nó vẫn bị chia ra đ/sản phẩm ở dòng
    *  tổng. 0 = dùng lại dao cũ. Chỉ hỏi ở bước có cờ dụng cụ là dao lưu kho (xem `daoCuaBuoc`). */
   phi_khuon: number;
+  /** Khuôn có sẵn hay làm mới — MỘT câu hỏi, hai nhánh. `null` = chưa chọn (phiếu cũ hoặc bỏ qua);
+   *  engine nhắc khi chưa chọn, im khi chọn `co_san`. Chọn `lam_moi` mới mở ô tiền + ô ngày. */
+  khuon_nguon: "co_san" | "lam_moi" | null;
+  /** Ngày dự kiến có khuôn (`yyyy-mm-dd`, "" = chưa khai) — chỉ hỏi khi `khuon_nguon = "lam_moi"`. */
+  khuon_ngay_du_kien: string;
   /** Ba ô riêng của bước khung lụa (`tooling_type = "khung_lua"`) — kích thước/số lượng khung, TÁCH
    *  BIỆT với `phi_khuon`: không tự tính ra tiền, chỉ bơm vào công thức của CHÍNH công đoạn đó
    *  (biến `dai_khung_lua`/`rong_khung_lua`/`so_khung_lua`, xem `bien_cong_thuc.py`). 0 = chưa khai. */
@@ -558,6 +570,8 @@ function blankFinishing(ten = "", cong_doan_id: number | null = null): EditableF
     nha_cung_cap: "",
     ghi_chu: "",
     phi_khuon: 0,
+    khuon_nguon: null,
+    khuon_ngay_du_kien: "",
     dai_khung_lua: 0,
     rong_khung_lua: 0,
     so_khung_lua: 0,
@@ -620,6 +634,8 @@ function fromFinishing(f: ThanhPhamOut): EditableFinishing {
     nha_cung_cap: f.nha_cung_cap ?? "",
     ghi_chu: f.ghi_chu ?? "",
     phi_khuon: f.phi_khuon ?? 0,
+    khuon_nguon: f.khuon_nguon ?? null,
+    khuon_ngay_du_kien: f.khuon_ngay_du_kien ?? "",
     dai_khung_lua: f.dai_khung_lua ?? 0,
     rong_khung_lua: f.rong_khung_lua ?? 0,
     so_khung_lua: f.so_khung_lua ?? 0,
@@ -728,6 +744,9 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
       nha_cung_cap: f.nha_cung_cap.trim() || null,
       ghi_chu: f.ghi_chu.trim() || null,
       phi_khuon: f.phi_khuon,
+      khuon_nguon: f.khuon_nguon,
+      // Ô ngày để trống phải gửi null: chuỗi rỗng làm Pydantic ném 422 ở kiểu `date | None`.
+      khuon_ngay_du_kien: f.khuon_ngay_du_kien || null,
       dai_khung_lua: f.dai_khung_lua,
       rong_khung_lua: f.rong_khung_lua,
       so_khung_lua: f.so_khung_lua,
@@ -801,6 +820,8 @@ function fromThanhPhanIn(cfg: ThanhPhanIn, giu: { uid: string; so_luong: number 
       nha_cung_cap: f.nha_cung_cap ?? "",
       ghi_chu: f.ghi_chu ?? "",
       phi_khuon: f.phi_khuon ?? 0,
+      khuon_nguon: f.khuon_nguon ?? null,
+      khuon_ngay_du_kien: f.khuon_ngay_du_kien ?? "",
       dai_khung_lua: f.dai_khung_lua ?? 0,
       rong_khung_lua: f.rong_khung_lua ?? 0,
       so_khung_lua: f.so_khung_lua ?? 0,
@@ -1414,21 +1435,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     [giays],
   );
 
-  // Chọn máy → CHỈ gán may_id. KHÔNG copy thông số máy vào phiếu nữa: engine đọc thẳng
-  // `nhip_giay_mm` / `le_hong_mm` / `duoi_thang_mau_mm` từ danh mục máy khi bình bài.
-  // (Bản cũ copy mép nhíp BẢN KẼM ~44mm vào `chua_nhip` làm chừa GIẤY rồi trừ cả hai
-  //  chiều → hụt 14-19% số con. Các ô `chua_*` giờ chỉ còn là ĐÈ thủ công, trống = theo máy.)
-  const onPickMay = useCallback(
-    (uid: string, mid: number | null) => {
-      setComps((cs) =>
-        cs.map((c) =>
-          c.uid === uid ? { ...c, may_id: mid, ...(mid === null ? {} : { con_auto: true }) } : c,
-        ),
-      );
-    },
-    [],
-  );
-
   const addFin = useCallback((
     cuid: string,
     cong_doan_id: number | null = null,
@@ -1560,7 +1566,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       // ⚠️ LUẬT CHUNG: thêm bất kỳ ô nhập nào ảnh hưởng số của engine thì phải khai vào chữ ký này.
       gid: c.giay_id, may: c.may_id, pgh: c.phi_giao_hang,
       cds: c.thanh_phams.map((f) => [
-        f.cong_doan_id, f.phi_khuon, f.dai_khung_lua, f.rong_khung_lua, f.so_khung_lua,
+        f.cong_doan_id, f.phi_khuon, f.khuon_nguon,
+        f.dai_khung_lua, f.rong_khung_lua, f.so_khung_lua,
       ]),
     });
   }, [editingComp, phieuSL]);
@@ -2439,7 +2446,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           patchFin={patchFin}
           onPickLoaiSP={onPickLoaiSPForComp}
           onPickGiay={onPickGiay}
-          onPickMay={onPickMay}
           addFin={addFin}
           removeFin={removeFin}
         />
@@ -2482,7 +2488,6 @@ function ComponentModal({
   patchFin,
   onPickLoaiSP,
   onPickGiay,
-  onPickMay,
   addFin,
   removeFin,
 }: {
@@ -2501,7 +2506,6 @@ function ComponentModal({
   patchFin: (cuid: string, fuid: string, patch: Partial<EditableFinishing>) => void;
   onPickLoaiSP: (uid: string, pid: number | "") => void;
   onPickGiay: (uid: string, gid: number | null) => void;
-  onPickMay: (uid: string, mid: number | null) => void;
   addFin: (cuid: string, cong_doan_id?: number | null, ten?: string, insertIndex?: number | null) => void;
   removeFin: (cuid: string, fuid: string) => void;
 }) {
@@ -2632,14 +2636,6 @@ function ComponentModal({
       ? dvNgan(buocDauChuoi.dv_vao) || "tờ nguyên"
       : "tờ nguyên";
   const chuaCh = chuaTheoChieu(c, c.may_id ? mays.find((x) => x.id === c.may_id) : null);
-  // Ô này chọn MÁY IN — engine lấy khổ giấy máy nhận + vùng in + nhíp giấy để bình bài. Máy bế,
-  // máy bồi sóng, máy cán màng KHÔNG có mấy thông số đó, đổ vào chỉ tổ chọn nhầm (chúng thuộc
-  // chuỗi công đoạn, không thuộc ô này). Danh mục đặt tên loại khác đi mà lọc ra rỗng thì hiện
-  // lại tất — thà thừa còn hơn khoá người dùng không chọn được gì.
-  const mayIn = useMemo(() => {
-    const loc = mays.filter((m) => /(^|\W)in(\W|$)/i.test(String(m.loai_may ?? "")));
-    return loc.length > 0 ? loc : mays;
-  }, [mays]);
   // ---- Lựa chọn cho các ô CÓ TÌM GẦN ĐÚNG ----
   // Bốn danh mục dưới đây dài hàng chục tới hàng trăm dòng; <select> gốc bắt người dùng cuộn hoặc
   // gõ đúng ký tự ĐẦU mới nhảy tới. Đổi sang `Select` (searchable) để gõ mảnh nào cũng ra: "may in
@@ -2660,13 +2656,15 @@ function ComponentModal({
     ],
     [loaiSPs, c.loai_san_pham_id],
   );
+  // Ô chọn giấy hiện MỖI TÊN, không kèm mã (03/09/2026). Mã giấy là số tự sinh
+  // (`GL-0001-COPY-COPY`), không nói lên gì về tờ giấy — người lập phiếu nhận giấy bằng tên
+  // ("Giấy C300"), mã chỉ làm dòng dài ra và đẩy tên ra xa. Các ô danh mục khác vẫn giữ mã.
   const giayOpts = useMemo<SelectOption<string>[]>(
-    () => [{ value: "", label: "— Chọn giấy —" }, ...optsConDung(giays, c.giay_id)],
+    () => [
+      { value: "", label: "— Chọn giấy —" },
+      ...optsConDung(giays, c.giay_id, (r) => String(r.ten)),
+    ],
     [giays, c.giay_id],
-  );
-  const mayOpts = useMemo<SelectOption<string>[]>(
-    () => [{ value: "", label: "— Không chọn —" }, ...optsConDung(mayIn, c.may_id)],
-    [mayIn, c.may_id],
   );
   // Ô công đoạn là ô HÀNH ĐỘNG (chọn xong thì đẻ chip, ô tự về rỗng) nên không có mục "— Chọn —".
   // LỌC `active`: bấm "Xóa" một công đoạn còn nơi dùng thì hệ chỉ TẮT cờ `active` (xoá hẳn sẽ
@@ -2958,24 +2956,11 @@ function ComponentModal({
                 <span className="tg-step-badge">3</span> Kỹ thuật in &amp; Màu in
               </div>
               <div className="tg-grid">
-                {/* 7 + 5 chứ không phải 8 + 4: bốn nút quy cách nhồi trong span-4 thì "Tự trở" /
-                    "Trở nhíp" gãy làm hai dòng. Tên máy là <select> nên hụt chỗ chỉ bị cắt đuôi. */}
-                <label className="tg-field tg-span-7">
-                  <span className="tg-microlabel">
-                    Máy in <span className="tg-microlabel__opt">→ khổ tờ in</span>
-                  </span>
-                  <Select
-                    options={mayOpts}
-                    value={c.may_id == null ? "" : String(c.may_id)}
-                    onChange={(v) => onPickMay(c.uid, v === "" ? null : Number(v))}
-                    ariaLabel="Máy in"
-                    searchable
-                    portal
-                    className="tg-input"
-                    listClassName="tg-pop"
-                  />
-                </label>
-                <div className="tg-field tg-span-5">
+                {/* Ô "Máy in" ĐÃ ẨN (04/09/2026): phiếu tính giá không chọn máy nữa, khổ tờ in gõ
+                    thẳng vào hai ô ngay dưới. `may_id` vẫn nằm trong dữ liệu phiếu và engine vẫn
+                    đọc chừa lề · khổ giấy máy của phiếu CŨ đã gắn máy; phiếu mới thì chừa = 0.
+                    Quy cách in nới 5 → 6 cột để hàng đầu vẫn đủ 12 (6 + khổ dài 3 + khổ rộng 3). */}
+                <div className="tg-field tg-span-6">
                   <span className="tg-microlabel">
                     <span>Quy cách in</span>
                     {/* Lý do "1 mặt" biến mất phải nói ra ngay đây. Trước đó tôi để nút gạch
@@ -3202,31 +3187,91 @@ function ComponentModal({
                     </div>
                     {daos.map(({ f, dao, loai }) => (
                       <Fragment key={f.uid}>
+                        {/* NGUỒN KHUÔN — một câu hỏi, hai nhánh (chốt 04/09/2026). Trước đây chỉ
+                            có ô tiền với quy ước NGẦM "để trống = dùng dao cũ", nên không phân
+                            biệt được "đã cân nhắc, dùng dao cũ" với "quên nhập" — kế hoạch đọc
+                            phiếu không biết sale định thế nào, tới lúc lập lệnh mới lòi ra phải
+                            đặt dao mới: mất tiền và mất luôn thời gian chờ dao. */}
                         <div className="tg-khuon__row">
                           <span className="tg-khuon__ten">
                             {tenBuoc(f, congDoans) || "(công đoạn)"}
                             <em>{dao}</em>
                           </span>
-                          <div className="tg-khuon__input">
-                            <input
-                              className="tg-khuon__num"
-                              type="number"
-                              min={0}
-                              step={1000}
-                              /* Ô số trần không có <label> nối vào — trình đọc màn hình chỉ đọc
-                                 "spin button". Ghép tên bước + loại dao thành nhãn. */
-                              aria-label={`Phí ${dao} của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
-                              value={f.phi_khuon || ""}
-                              placeholder="0"
-                              onChange={(e) =>
-                                patchFin(c.uid, f.uid, {
-                                  phi_khuon: Math.max(0, Number(e.target.value) || 0),
-                                })
-                              }
-                            />
-                            <small>đ</small>
+                          <div
+                            className="tg-khuon__nguon"
+                            role="radiogroup"
+                            aria-label={`Nguồn ${dao} của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
+                          >
+                            <label>
+                              <input
+                                type="radio"
+                                name={`kn-${f.uid}`}
+                                checked={f.khuon_nguon === "co_san"}
+                                onChange={() =>
+                                  /* Chọn "có sẵn" là DỌN luôn tiền + ngày: bỏ số cũ nằm lại thì Σ
+                                     phí khuôn vẫn cộng nó, báo giá đội tiền một con dao không làm. */
+                                  patchFin(c.uid, f.uid, {
+                                    khuon_nguon: "co_san",
+                                    phi_khuon: 0,
+                                    khuon_ngay_du_kien: "",
+                                  })
+                                }
+                              />
+                              Có sẵn
+                            </label>
+                            <label>
+                              <input
+                                type="radio"
+                                name={`kn-${f.uid}`}
+                                checked={f.khuon_nguon === "lam_moi"}
+                                onChange={() => patchFin(c.uid, f.uid, { khuon_nguon: "lam_moi" })}
+                              />
+                              Làm mới
+                            </label>
                           </div>
                         </div>
+                        {/* Ô tiền + ô ngày CHỈ mở khi làm dao mới: hỏi tiền cho con dao đã nằm
+                            trong kho là mời người ta gõ nhầm. */}
+                        {f.khuon_nguon === "lam_moi" && (
+                          <>
+                            <div className="tg-khuon__row tg-khuon__row--phu">
+                              <span className="tg-khuon__ten">Phí làm khuôn</span>
+                              <div className="tg-khuon__input">
+                                <input
+                                  className="tg-khuon__num"
+                                  type="number"
+                                  min={0}
+                                  step={1000}
+                                  /* Ô số trần không có <label> nối vào — trình đọc màn hình chỉ đọc
+                                     "spin button". Ghép tên bước + loại dao thành nhãn. */
+                                  aria-label={`Phí ${dao} của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
+                                  value={f.phi_khuon || ""}
+                                  placeholder="0"
+                                  onChange={(e) =>
+                                    patchFin(c.uid, f.uid, {
+                                      phi_khuon: Math.max(0, Number(e.target.value) || 0),
+                                    })
+                                  }
+                                />
+                                <small>đ</small>
+                              </div>
+                            </div>
+                            <div className="tg-khuon__row tg-khuon__row--phu">
+                              <span className="tg-khuon__ten">Dự kiến có khuôn</span>
+                              <div className="tg-khuon__input">
+                                <input
+                                  className="tg-khuon__num tg-khuon__date"
+                                  type="date"
+                                  aria-label={`Ngày dự kiến có ${dao} của bước ${tenBuoc(f, congDoans) || "công đoạn"}`}
+                                  value={f.khuon_ngay_du_kien}
+                                  onChange={(e) =>
+                                    patchFin(c.uid, f.uid, { khuon_ngay_du_kien: e.target.value })
+                                  }
+                                />
+                              </div>
+                            </div>
+                          </>
+                        )}
                         {loai === "khung_lua" && (
                           /* Kích thước/số khung TÁCH RIÊNG khỏi phí ở trên — không cộng dồn vào
                              Σ phí khuôn, chỉ bơm vào công thức của chính công đoạn này (xem
@@ -3508,25 +3553,17 @@ function ComponentModal({
                   con số TỜ vào mọi bước bất kể bước đó đếm bằng gì, nên bước đếm cuốn ra hao ÂM và
                   đơn 500 hoá 600. Nay cả khối số tờ do máy tính hết. Muốn làm dư thì khai bù hao
                   của chính công đoạn ở danh mục — chỗ đó biết đơn vị nên quy ra giấy đúng cầu. */}
+              {/* GỠ dòng "= Tờ sau in" (03/09/2026). Nó là số tờ tốt ra khỏi RIÊNG bước in, không
+                  phải một mốc của cả chuỗi: các bước gia công sau in còn ăn hao tiếp nên con số này
+                  không bắc cầu sang bước kế cũng không sang giấy. Người lập phiếu chỉ cần hai mốc —
+                  TỜ IN (phải cấp cho máy) và TỜ NGUYÊN (giấy phải mua); tờ tốt của từng bước đã có
+                  trong phần "Bù hao công đoạn" bung ra. Engine vẫn tính `to_sau_in` như cũ, chỉ
+                  thôi bày ở đây. `buocIn` giữ lại vì còn dùng để lấy ĐƠN VỊ của chuỗi bên dưới. */}
               <div className="tg-sheetrow tg-sheetrow--total">
-                <span>= Tờ vào máy</span>
+                {/* "Tờ vào máy" → "Tờ in" (03/09/2026): xưởng gọi số này là tờ in. */}
+                <span>= Tờ in</span>
                 {liveMeta
                   ? <SoDv so={fmt(liveMeta.to_dau_vao)} dv={dvDauChuoi} />
-                  : <b className="tg-val">…</b>}
-              </div>
-              <div className="tg-sheetrow tg-sheetrow--total">
-                <span className="tg-sheetrow__stack">
-                  = Tờ sau in
-                  {liveMeta && (
-                    <em className="tg-sheetrow__derive">
-                      {buocIn
-                        ? `${dvDauChuoi} tốt ra khỏi "${buocIn.ten}"`
-                        : `chuỗi chưa có bước in → giữ ${dvDauChuoi} vào máy`}
-                    </em>
-                  )}
-                </span>
-                {liveMeta
-                  ? <SoDv so={fmt(liveMeta.to_sau_in)} dv={dvDauChuoi} />
                   : <b className="tg-val">…</b>}
               </div>
               <div className="tg-sheetrow tg-sheetrow--total">

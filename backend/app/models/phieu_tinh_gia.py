@@ -15,9 +15,11 @@ Boolean default = Python True/False, KHÔNG server_default.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, true as sa_true
+from sqlalchemy import (
+    Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, true as sa_true,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -227,6 +229,18 @@ class PhieuThanhPham(Base):
     # con dao 734.300đ, đơn 500 cuốn gánh 1.469 đ/cuốn còn đơn 5.000 cuốn chỉ 147 đ/cuốn. Đây là
     # đánh đổi đã biết và đã chọn, KHÔNG phải lỗi — đừng "sửa" bằng cách rút nó ra khỏi giá vốn.
     phi_khuon: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
+    # NGUỒN KHUÔN — sale trả lời ĐÚNG MỘT CÂU: dao này có sẵn hay phải làm mới (chốt 04/09/2026).
+    #
+    # Trước đây chỉ có ô tiền ở trên, với quy ước NGẦM "để trống = dùng dao cũ" — nên hệ thống
+    # không phân biệt được "đã cân nhắc và dùng dao cũ" với "quên nhập". Kế hoạch đọc phiếu không
+    # biết sale định thế nào, tới lúc lập lệnh mới lòi ra phải đặt dao mới: mất tiền và mất luôn
+    # thời gian chờ dao.
+    #
+    # NULL = chưa chọn (phiếu cũ, hoặc người lập bỏ qua) → engine giữ nguyên lời nhắc như trước.
+    khuon_nguon: Mapped[str | None] = mapped_column(String(10), nullable=True)  # co_san|lam_moi
+    # Ngày sale dự kiến có khuôn — chỉ có nghĩa với `khuon_nguon='lam_moi'`. Đây là DỰ TRÙ để kế
+    # hoạch liệu cơm gắp mắm, KHÔNG phải mốc ràng buộc lịch: mốc thật nằm ở `khuon_be`.
+    khuon_ngay_du_kien: Mapped[date | None] = mapped_column(Date, nullable=True)
     # Kích thước/số lượng khung lụa dùng ở CHÍNH bước này — CHỈ có nghĩa khi bước dùng công đoạn
     # `tooling_type = "khung_lua"`. BA Ô NÀY TÁCH BIỆT với `phi_khuon` ở trên: không dùng để tự
     # tính phí, chỉ bơm vào công thức của công đoạn (chip `dai_khung_lua`/`rong_khung_lua`/

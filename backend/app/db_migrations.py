@@ -11428,3 +11428,24 @@ def _migrate_cong_viec_hoan_thanh_luc(db: Session) -> None:
 
 
 MIGRATIONS.append(("0256_cong_viec_hoan_thanh_luc", _migrate_cong_viec_hoan_thanh_luc))
+
+
+def _migrate_phieu_thanh_pham_khuon_nguon(db) -> None:
+    """mg 0257 — `phieu_thanh_pham.khuon_nguon` + `khuon_ngay_du_kien` (chốt 04/09/2026).
+
+    Raw SQL đích danh cột, KHÔNG ORM full-select. KHÔNG backfill: `phi_khuon=0` ở phiếu cũ là một
+    chỗ TRỐNG mơ hồ (dùng dao cũ, hay quên nhập?) — đoán hộ là ghi một câu trả lời mà không ai
+    từng nói. Để NULL, engine giữ nguyên lời nhắc như trước cho phiếu cũ.
+    """
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_pham" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "phieu_thanh_pham")
+    if "khuon_nguon" not in cols:
+        db.execute(text("ALTER TABLE phieu_thanh_pham ADD COLUMN khuon_nguon VARCHAR(10)"))
+    if "khuon_ngay_du_kien" not in cols:
+        db.execute(text("ALTER TABLE phieu_thanh_pham ADD COLUMN khuon_ngay_du_kien DATE"))
+    db.commit()
+
+
+MIGRATIONS.append(("0257_phieu_thanh_pham_khuon_nguon", _migrate_phieu_thanh_pham_khuon_nguon))

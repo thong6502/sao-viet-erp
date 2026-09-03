@@ -724,7 +724,8 @@ def test_ba_buoc_can_dao_thi_ba_dong_phi_rieng():
     assert [(d["ten"], d["thanh_tien"]) for d in m["phi_khuon_dong"]] == [
         ("Bế thành phẩm", 1_500_000), ("Ép kim", 900_000)]
     # Bước để trống KHÔNG đẻ dòng 0đ, nhưng PHẢI được nhắc.
-    assert any("Bế nổi" in w and "chưa khai phí" in w for w in res["warnings"]), res["warnings"]
+    # Lời nhắc đổi văn 04/09/2026: hỏi thẳng "có sẵn hay làm mới" thay vì "chưa khai phí".
+    assert any("Bế nổi" in w and "có sẵn hay làm mới" in w for w in res["warnings"]), res["warnings"]
     assert res["meta"]["phi_khuon"] == 2_400_000
 
 
