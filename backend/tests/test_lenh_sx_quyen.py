@@ -1,4 +1,4 @@
-"""Hai ô quyền mới của khối Sản xuất: `lenh_san_xuat` (Lệnh sản xuất) và `theo_doi_san_xuat`
+"""Hai ô quyền mới của khối Sản xuất: `lenh_san_xuat` (nhãn "Hồ sơ lệnh sản xuất") và `theo_doi_san_xuat`
 (Theo dõi sản xuất). Task 1 chỉ dựng NỀN QUYỀN — chưa có màn, chưa có API riêng — nên bài test
 chỉ canh ba việc: (1) hai khoá có mặt trong danh mục module, (2) vai đủ điều kiện được cấp đúng
 phạm vi, (3) vai KHÔNG đủ điều kiện (nhất là mẫu Tổ trưởng SX/Thợ SX) không bị cấp.

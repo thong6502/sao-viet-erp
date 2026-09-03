@@ -308,3 +308,79 @@ def test_activity_feed_records_who_did_what(client):
     assert any(it["actor_name"] for it in items)
     # mới nhất trước: gửi khách đứng trước tạo báo giá
     assert actions.index("transition_sent") < actions.index("create_quote")
+
+
+# --- PDF đối ngoại: TIẾNG VIỆT CÓ DẤU ------------------------------------------
+
+def test_pdf_giu_dau_tieng_viet(client, monkeypatch):
+    """Bản in gửi khách phải giữ dấu — trước 02/09/2026 nó bỏ dấu sạch (`_ascii`, đã gỡ).
+
+    Không đọc ngược được TEXT từ trong PDF (nội dung trang bị nén, chữ đi qua font TTF nhúng
+    thành mã CID — cùng lý do đã ghi ở `test_lenh_sx_pdf.py`), nên bài này bắt ngay chuỗi lúc
+    nó được VẼ: bọc `Canvas.drawString`/`drawRightString` rồi soi những gì đi qua. Cách này
+    khẳng định được đúng thứ cần khẳng định — chữ đưa vào bản in còn nguyên dấu.
+    """
+    from reportlab.pdfgen.canvas import Canvas
+
+    da_ve: list[str] = []
+    ve_trai, ve_phai = Canvas.drawString, Canvas.drawRightString
+
+    def bat_trai(self, x, y, text, *a, **k):
+        da_ve.append(text)
+        return ve_trai(self, x, y, text, *a, **k)
+
+    def bat_phai(self, x, y, text, *a, **k):
+        da_ve.append(text)
+        return ve_phai(self, x, y, text, *a, **k)
+
+    monkeypatch.setattr(Canvas, "drawString", bat_trai)
+    monkeypatch.setattr(Canvas, "drawRightString", bat_phai)
+
+    token = _admin_token(client)
+    q = _create(client, token, _mk_ptg(products=(("Hộp thuốc 10 vỉ", 1000, 1_000_000),)))
+    r = client.get(f"/api/quotations/{q['id']}/pdf", headers=_h(token))
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("application/pdf")
+    assert r.content[:5] == b"%PDF-"
+
+    chu = "\n".join(da_ve)
+    # Tiêu đề + nhãn cột: bản cũ in "BANG BAO GIA" / "Thanh tien".
+    assert "BẢNG BÁO GIÁ" in chu
+    assert "Số báo giá:" in chu
+    assert "Thành tiền" in chu
+    assert "Điều khoản:" in chu
+    # Tên sản phẩm KHÁCH đọc — chỗ bỏ dấu là sai chính tả tên riêng, không phải viết tắt.
+    assert "Hộp thuốc 10 vỉ" in chu
+    # Ký hiệu tiền: Helvetica không có glyph "đ" nên cột tiền trước đây in ra ô vuông.
+    assert any("đ" in s for s in da_ve)
+    # Font Unicode phải NHÚNG THẬT vào file, không chỉ khai tên trong code.
+    assert b"DejaVuSans" in r.content
+
+
+def test_cat_ten_dai_khong_de_len_cot_so():
+    """Tên sản phẩm dài phải bị CẮT theo bề rộng thật của font, không được chạy đè cột Số lượng.
+
+    Đo bằng `stringWidth` chứ không đếm ký tự: "Ơ" và "l" cùng là một ký tự nhưng rộng khác nhau,
+    đếm ký tự thì tên toàn chữ hoa vẫn tràn sang cột bên phải.
+
+    Nhập hàm từ `app.routers.quotations` chứ KHÔNG từ `services.pdf_font` (nơi hàm nay định
+    nghĩa): bài này canh bản in báo giá, và điều nó phải bắt là *bản in báo giá mất phép cắt* —
+    kể cả khi ai đó gỡ `cat_vua` khỏi router mà `pdf_font` vẫn còn nguyên. `test_lenh_sx_pdf`
+    canh đầu kia của cùng hàm.
+    """
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    from app.routers.quotations import THUONG, cat_vua, dang_ky_font
+
+    dang_ky_font()
+    rong = 60 * 72 / 25.4  # 60mm quy ra point
+
+    ngan = "Hộp thuốc"
+    assert cat_vua(ngan, rong, THUONG, 10) == ngan  # vừa thì trả nguyên, không thêm "…"
+
+    dai = "Hộp thuốc 10 vỉ — giấy Ivory 350gsm, cán màng bóng, ép kim nhũ vàng, bế hộp âm dương"
+    cat = cat_vua(dai, rong, THUONG, 10)
+    assert cat.endswith("…")
+    assert len(cat) < len(dai)
+    assert stringWidth(cat, THUONG, 10) <= rong
+    assert dai.startswith(cat[:-1])  # cắt từ đuôi, không xáo chữ

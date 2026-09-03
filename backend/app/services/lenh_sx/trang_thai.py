@@ -147,10 +147,25 @@ def den_vat_tu_theo_lo(db: Session, lsx_ids: list[int]) -> dict[int, str]:
     Lệnh nào không ra được đèn (id không tồn tại, hoặc `tong_quan` bỏ qua id rỗng) đơn giản VẮNG
     MẶT trong dict — `co_canh_bao` đọc bằng `.get` nên vắng mặt = không giương cờ, không nổ.
     """
-    return {
-        r["lsx_id"]: r["den"]["vat_tu"]["muc"]
-        for r in lsx_tong_quan.tong_quan(db, lsx_ids)
-    }
+    return den_va_bang(db, lsx_ids)[0]
+
+
+def den_va_bang(db: Session, lsx_ids: list[int]) -> tuple[dict[int, str], dict | None]:
+    """Như `den_vat_tu_theo_lo`, nhưng TRẢ KÈM bảng cân đối mà lượt đó vừa dựng.
+
+    Cửa cho màn hồ sơ MỘT lệnh: nó cần chính các DÒNG của bảng cân đối, và không có cửa này thì
+    nó phải gọi `can_doi()` lượt thứ hai — chạy lại đúng engine vừa chạy xong ở đây (đo được: một
+    lần mở hồ sơ 143 câu SQL, trong đó lượt thừa chiếm 36).
+
+    `bang` là bảng của TOÀN BỘ lệnh đang tính, KHÔNG phải riêng `lsx_ids` — người gọi phải tự
+    chiếu về lệnh của mình (`ke_hoach_vat_tu_service.vat_tu_hieu_luc` là khuôn mẫu). `None` khi
+    nguồn vật tư hỏng.
+
+    Màn danh sách vẫn gọi `den_vat_tu_theo_lo` như cũ: chữ ký đó KHÔNG đổi, nên bài canh số câu
+    SQL của nó (`test_so_cau_sql_hang_tren_truc_lenh`) không bị chạm.
+    """
+    rows, bang = lsx_tong_quan.tong_quan_va_bang(db, lsx_ids)
+    return {r["lsx_id"]: r["den"]["vat_tu"]["muc"] for r in rows}, bang
 
 
 def _co_su_co_dang_mo(bc: BoiCanh, lsx_id: int) -> bool:

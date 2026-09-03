@@ -1,4 +1,4 @@
-"""Tầng DANH SÁCH + KPI của màn "Lệnh sản xuất" (Task 9) — cửa HTTP đầu tiên của cả tầng đọc.
+"""Tầng DANH SÁCH + KPI của màn "Hồ sơ lệnh sản xuất" (Task 9) — cửa HTTP đầu tiên của cả tầng đọc.
 
 Hai hàm: `danh_sach()` (bảng + facet tab) và `summary()` (4 thẻ KPI). Cả hai CHỈ ĐỌC.
 
@@ -85,6 +85,7 @@ from sqlalchemy.orm import Session
 from ...models.bai_ghep_cong_doan import BaiGhepCongDoanMap
 from ...models.customer import Customer
 from ...models.lsx import Lsx, LsxCongDoan
+from ...models.may_thiet_bi import MayThietBi
 from ...models.order import Order
 from ...models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, CV_TAM_DUNG, SanXuatCongViec
 from . import boi_canh, pham_vi, tien_do, trang_thai
@@ -249,7 +250,7 @@ def _ket_thuc(cv: SanXuatCongViec) -> datetime:
     return _aware(cv.du_kien_ket_thuc) if cv.du_kien_ket_thuc is not None else _LUC_XUA
 
 
-def _buoc_hien_tai(bc: BoiCanh, lsx_id: int) -> SanXuatCongViec | None:
+def buoc_hien_tai(bc: BoiCanh, lsx_id: int) -> SanXuatCongViec | None:
     """Bước để hiện ở cột "Công đoạn": ĐANG CHẠY > TẠM DỪNG > bước chờ sớm nhất > bước cuối đã xong.
 
     Đọc `cong_viec_du` chứ không `cong_viec`: ca in GHÉP là bước nặng nhất của lệnh và nó nằm ở
@@ -271,7 +272,7 @@ def _buoc_hien_tai(bc: BoiCanh, lsx_id: int) -> SanXuatCongViec | None:
     return max(cvs, key=lambda cv: (_ket_thuc(cv), cv.id))
 
 
-def _may_id(bc: BoiCanh, cv: SanXuatCongViec | None) -> int | None:
+def may_cua_buoc(bc: BoiCanh, cv: SanXuatCongViec | None) -> int | None:
     """Máy của bước đang xét: `cong_viec.may_id` — máy HIỆN TẠI, `thuc_thi.doi_may` ghi vào đây.
 
     Nhánh lùi về phiên chạy là PHÒNG THỦ CHIỀU SÂU, không phải một ca đang sống: `bat_dau`
@@ -296,8 +297,8 @@ def _dong(bc: BoiCanh, lsx_id: int, tinh: dict, bay_gio: datetime) -> dict:
     don = bc.don.get(lsx.order_id)
     khach = bc.khach.get(don.customer_id) if don is not None and don.customer_id else None
     sale = bc.sale.get(don.sale_user_id) if don is not None and don.sale_user_id else None
-    cv = _buoc_hien_tai(bc, lsx_id)
-    may_id = _may_id(bc, cv)
+    cv = buoc_hien_tai(bc, lsx_id)
+    may_id = may_cua_buoc(bc, cv)
     pct, uoc_tinh = tien_do.phan_tram(bc, lsx_id)
     return {
         "id": lsx.id,
@@ -400,6 +401,90 @@ def danh_sach(
         "page_size": page_size,
         "dem_theo_tab": dem,
     }
+
+
+def bo_loc(db: Session, *, sale_ids: set[int] | None) -> dict:
+    """Nguồn của ô lọc **Máy** trên màn: chỉ những máy CÓ THẬT trong tập lệnh của người gọi.
+
+    --- VÌ SAO KHÔNG DÙNG `/api/may-thiet-bi` ------------------------------------------------------
+    Endpoint danh mục máy gác bằng `require_any_permission(("dm_thiet_bi","read"),
+    ("tinh_gia_thanh","read"))` (`routers/may_thiet_bi.py:52`). Vai **QC** — vai dùng màn này nhiều
+    nhất — có `lenh_san_xuat: read(all)` mà KHÔNG có cả hai ô kia (`seed.ROLES`), nên bày một ô lọc
+    lấy nguồn từ đó là mời họ ăn 403 giữa luồng. Hàm này gác bằng chính `lenh_san_xuat:read` và đi
+    qua đúng `pham_vi.loc_lsx_da_phat_hanh` như bảng, nên ô lọc không bao giờ rộng hơn dữ liệu
+    người gọi được thấy.
+
+    --- GOM TỪ ĐÚNG BA NƠI MÀ BỘ LỌC ĐANG SOI ------------------------------------------------------
+    `_loc_sql` lọc máy bằng `_co_buoc(SanXuatCongViec.may_id, LsxCongDoan.may_id, may_id)` — BA vế
+    `EXISTS`. Danh sách gợi ý phải gom từ ĐÚNG ba nơi đó, nếu không hai đầu nói hai chuyện:
+      · gom thiếu vế CẦU GHÉP ⇒ thiếu đúng máy của ca in ghép (máy ấy chỉ nằm ở công việc CHUNG,
+        `lsx_id IS NULL`, và KHÔNG chỗ nào ghi ngược về `lsx_cong_doan.may_id`) — bảng hiện tên máy
+        mà ô lọc không có tên đó;
+      · gom thiếu vế ROUTING ⇒ thiếu máy mới khai ở routing sau phát hành;
+      · gom THỪA (vd cả danh mục máy) ⇒ chọn xong lọc ra RỖNG — một lựa chọn dẫn tới ngõ cụt.
+    Chốt lại thành LUẬT: mọi mục trả về ở đây, đem gán `?may_id=`, phải ra ít nhất một dòng. Bài
+    canh: `test_bo_loc_moi_may_deu_loc_ra_it_nhat_mot_lenh`.
+
+    `so_lenh` là số lệnh (đếm ID, không đếm bước) — ca in ghép phục vụ hai lệnh thì đếm HAI, vì
+    người dùng bấm vào nó để xem danh sách LỆNH chứ không phải danh sách ca chạy.
+
+    Máy đã bị XOÁ khỏi danh mục (ba cột `may_id` là SOFT-REF, không FK) không lên danh sách: cột
+    "Máy" của bảng cũng để trống cho chúng (`bc.may.get()` trả `None`), nên bày ra một mục không
+    tên là bày một ô chọn không đọc được. Không một số tiền nào — như cả module.
+    """
+    trong_pham_vi = pham_vi.loc_lsx_da_phat_hanh(select(Lsx.id), sale_ids)
+
+    cap: list[tuple[int, int]] = []      # (may_id, lsx_id)
+    # Vế 1 — công việc NEO THẲNG vào lệnh (snapshot lúc phát hành + `thuc_thi.doi_may` ghi đè).
+    cap += db.execute(
+        select(SanXuatCongViec.may_id, SanXuatCongViec.lsx_id).where(
+            SanXuatCongViec.lsx_id.in_(trong_pham_vi),
+            SanXuatCongViec.may_id.is_not(None),
+        )
+    ).all()
+    # Vế 2 — công việc CHUNG của ca in ghép, với tới lệnh qua bảng phủ. Bỏ vế này là bỏ đúng khâu
+    # nặng nhất của lệnh in ghép (xem docstring `_co_buoc`).
+    cap += db.execute(
+        select(SanXuatCongViec.may_id, BaiGhepCongDoanMap.lsx_id)
+        .join(
+            BaiGhepCongDoanMap,
+            BaiGhepCongDoanMap.bai_ghep_cong_doan_id
+            == SanXuatCongViec.bai_ghep_cong_doan_id,
+        )
+        .where(
+            BaiGhepCongDoanMap.lsx_id.in_(trong_pham_vi),
+            SanXuatCongViec.may_id.is_not(None),
+        )
+    ).all()
+    # Vế 3 — routing của chính lệnh (bước đã khai máy mà snapshot chưa mang).
+    cap += db.execute(
+        select(LsxCongDoan.may_id, LsxCongDoan.lsx_id).where(
+            LsxCongDoan.lsx_id.in_(trong_pham_vi),
+            LsxCongDoan.may_id.is_not(None),
+        )
+    ).all()
+
+    theo_may: dict[int, set[int]] = {}
+    for may_id, lsx_id in cap:
+        theo_may.setdefault(may_id, set()).add(lsx_id)
+    if not theo_may:
+        return {"may": []}
+
+    dm = {
+        m.id: m
+        for m in db.execute(
+            select(MayThietBi).where(MayThietBi.id.in_(theo_may))
+        ).scalars()
+    }
+    ds = [
+        {"id": mid, "ma": dm[mid].ma, "ten": dm[mid].ten, "so_lenh": len(ls)}
+        for mid, ls in theo_may.items()
+        if mid in dm
+    ]
+    # Sắp theo TÊN (thứ người dùng đọc trong ô chọn), mã làm nấc phân giải cuối cho thứ tự toàn
+    # phần — hai máy trùng tên mà không có nấc thứ hai thì thứ tự đổi giữa hai lần gọi.
+    ds.sort(key=lambda m: (m["ten"] or "", m["ma"] or ""))
+    return {"may": ds}
 
 
 def summary(

@@ -67,6 +67,21 @@ export function classHanLich(
   return "";
 }
 
+// --- nhóm công đoạn (enum `cong_doan.NHOM` ở backend) -----------------------
+/** 4 giá trị CỐ ĐỊNH của `cong_doan.nhom` — enum ở backend (`models/cong_doan.py`), KHÔNG phải
+ *  danh mục động, nên khai cứng ở đây là đúng chỗ.
+ *
+ *  DỜI TỪ `rebuildCatalogConfigs.tsx` (02/09/2026) chứ không chép: màn "Hồ sơ lệnh sản xuất" cần
+ *  đúng bốn nhãn này cho ô lọc Nhóm công đoạn, mà import ngược từ `rebuildCatalogConfigs` sẽ kéo
+ *  cả bộ máy 13 màn danh mục vào bundle của một màn tra cứu. Đặt ở module dùng chung của họ Sản
+ *  xuất (file này vốn đã là nơi "mọi nhãn nằm ĐÚNG MỘT chỗ") và cho bên danh mục import sang. */
+export const NHOM_CONG_DOAN: Record<string, string> = {
+  prepress: "Chế bản",
+  print: "In",
+  finishing: "Gia công sau in",
+  other: "Dịch vụ khác",
+};
+
 // --- trạng thái lệnh --------------------------------------------------------
 const PILL: Record<LsxTrangThai, { label: string; cls: string }> = {
   nhap: { label: "Nháp", cls: "khsx-pill--nhap" },

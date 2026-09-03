@@ -101,6 +101,19 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
+    # --- Frontend base URL (QR trên phiếu công nghệ trỏ về đây) -------------
+    # Để trống thì lấy origin đầu tiên của CORS_ORIGINS — chỗ đó vốn đã khai "frontend nằm ở đâu"
+    # cho từng môi trường, nên deploy không phải khai thêm biến mới (Task 13, phiếu công nghệ).
+    frontend_base_url: str = ""
+
+    @property
+    def frontend_origin(self) -> str:
+        v = self.frontend_base_url.strip().rstrip("/")
+        if v:
+            return v
+        ds = self.cors_origin_list
+        return ds[0].rstrip("/") if ds else ""
+
     @property
     def is_production(self) -> bool:
         return self.app_env.strip().lower() == "production"

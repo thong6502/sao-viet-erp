@@ -24,7 +24,6 @@ export function KhoViTriPanel({ kho }: { kho: Row | null }) {
   const [err, setErr] = useState<string | null>(null);
   const [ban, setBan] = useState(false);
   const [ma, setMa] = useState("");
-  const [ghiChu, setGhiChu] = useState("");
   const [xoaTarget, setXoaTarget] = useState<KhoViTriRow | null>(null);
 
   const khoId = kho ? Number(kho.id) : null;
@@ -54,8 +53,8 @@ export function KhoViTriPanel({ kho }: { kho: Row | null }) {
     if (!token || khoId == null || !t) return;
     setBan(true); setErr(null);
     try {
-      await api.kho.viTri.create(token, khoId, { ma: t, ghi_chu: ghiChu.trim() || null });
-      setMa(""); setGhiChu("");
+      await api.kho.viTri.create(token, khoId, { ma: t });
+      setMa("");
       nap();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Không thêm được vị trí.");
@@ -140,19 +139,6 @@ export function KhoViTriPanel({ kho }: { kho: Row | null }) {
                 disabled={ban}
                 placeholder="Vd: Kệ A - Ô 1"
                 onChange={(e) => setMa(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); themViTri(); } }}
-              />
-            </div>
-          </label>
-          <label className="rc-field" style={{ flex: "1 1 180px", margin: 0 }}>
-            <span className="rc-field__label">Ghi chú (tuỳ chọn)</span>
-            <div className="rc-input-wrapper">
-              <input
-                className="rc-input"
-                value={ghiChu}
-                disabled={ban}
-                placeholder="Vd: sát cửa ra vào"
-                onChange={(e) => setGhiChu(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); themViTri(); } }}
               />
             </div>

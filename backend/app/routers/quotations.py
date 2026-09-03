@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import io
 import json
-import unicodedata
 from typing import Annotated
 
 from fastapi import (
@@ -33,6 +32,7 @@ from ..realtime import hub
 from ..repositories.user_repo import UserRepository
 from ..security import decode_access_token
 from ..services.auth_service import AuthError, AuthService
+from ..services.pdf_font import DAM, THUONG, cat_vua, dang_ky_font
 from ..models.quotation import (
     DEFAULT_TERMS,
     QUOTE_STATUSES,
@@ -734,26 +734,43 @@ def _fmt_vnd(value: float | None) -> str:
     return f"{int(value):,} đ".replace(",", ".")
 
 
-def _ascii(s: str) -> str:
-    """Bo dau tieng Viet — font Helvetica cua reportlab khong ve duoc chu co dau."""
-    s = s.replace("đ", "d").replace("Đ", "D")
-    return "".join(ch for ch in unicodedata.normalize("NFD", s) if unicodedata.category(ch) != "Mn")
-
 
 def _render_pdf(q: Quote, ref) -> bytes:
+    """Bảng báo giá A4 gửi khách — TIẾNG VIỆT CÓ DẤU.
+
+    Bản trước bỏ dấu toàn bộ (`_ascii`, gỡ 02/09/2026) vì font mặc định Helvetica của ReportLab
+    không có glyph chữ có dấu. Chủ dự án bác: đây là giấy gửi ra ngoài mang tên khách và tên sản
+    phẩm, "Cong ty TNHH An Phat" / "Hop thuoc 10 vi" là sai chính tả tên riêng chứ không phải
+    viết tắt. Nay nhúng DejaVu Sans qua `services/pdf_font.py` (dùng chung với phiếu công nghệ).
+
+    Ký hiệu tiền "đ" của `_fmt_vnd` cũng nằm ngoài Helvetica — trước đây nó đi thẳng vào
+    `drawRightString` KHÔNG qua `_ascii`, nên cột Đơn giá / Thành tiền in ra ô vuông thiếu glyph.
+    Đổi font là hết luôn lỗi đó.
+
+    KHÔNG có bản nghiêng trong repo ⇒ dòng "Ghi chú" của từng dòng hàng dùng chữ THƯỜNG cỡ nhỏ
+    thay cho `Helvetica-Oblique`: thà chữ đứng có dấu còn hơn chữ nghiêng mất dấu.
+
+    Hai lỗi BÀY BIỆN thấy trên bản in mẫu lúc nghiệm thu đổi font, sửa cùng lượt: dòng hàng đầu
+    tiên vẽ ĐÈ lên gạch ngang dưới tiêu đề cột, và tên sản phẩm dài chạy đè lên cột Số lượng /
+    Đơn giá (bản cũ không cắt, không xuống dòng). Đây là bản in gửi khách nên hai lỗi đó làm hỏng
+    tờ giấy y như việc bỏ dấu.
+    """
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
+    from reportlab.pdfbase.pdfmetrics import stringWidth
     from reportlab.pdfgen import canvas
+
+    dang_ky_font()
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
     y = height - 30 * mm
 
-    c.setFont("Helvetica-Bold", 18)
-    c.drawString(25 * mm, y, "BANG BAO GIA")
+    c.setFont(DAM, 18)
+    c.drawString(25 * mm, y, "BẢNG BÁO GIÁ")
     y -= 10 * mm
-    c.setFont("Helvetica", 11)
+    c.setFont(THUONG, 11)
 
     active_version = None
     for v in q.versions:
@@ -761,63 +778,76 @@ def _render_pdf(q: Quote, ref) -> bytes:
             active_version = v
             break
 
-    c.drawString(25 * mm, y, f"So bao gia: {q.quote_number}")
+    c.drawString(25 * mm, y, f"Số báo giá: {q.quote_number}")
     y -= 7 * mm
     if ref is not None:
-        c.drawString(25 * mm, y, _ascii(f"Khach hang: {ref.name}"))
+        c.drawString(25 * mm, y, f"Khách hàng: {ref.name}")
         y -= 7 * mm
         if ref.tax_code:
             c.drawString(25 * mm, y, f"MST: {ref.tax_code}")
             y -= 7 * mm
     if q.valid_until is not None:
-        c.drawString(25 * mm, y, f"Hieu luc den: {q.valid_until.isoformat()}")
+        c.drawString(25 * mm, y, f"Hiệu lực đến: {q.valid_until.isoformat()}")
         y -= 10 * mm
 
     # Draw Items table
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(25 * mm, y, "Chi tiet bao gia")
+    c.setFont(DAM, 12)
+    c.drawString(25 * mm, y, "Chi tiết báo giá")
     y -= 10 * mm
 
     # Draw table headers
-    c.setFont("Helvetica-Bold", 10)
+    c.setFont(DAM, 10)
     c.drawString(25 * mm, y, "STT")
-    c.drawString(38 * mm, y, "Ten san pham / Quy cach")
-    c.drawRightString(110 * mm, y, "So luong")
-    c.drawRightString(135 * mm, y, "Don gia")
+    c.drawString(38 * mm, y, "Tên sản phẩm / Quy cách")
+    c.drawRightString(110 * mm, y, "Số lượng")
+    c.drawRightString(135 * mm, y, "Đơn giá")
     c.drawRightString(160 * mm, y, "VAT %")
-    c.drawRightString(width - 25 * mm, y, "Thanh tien")
+    c.drawRightString(width - 25 * mm, y, "Thành tiền")
     y -= 5 * mm
     c.line(25 * mm, y + 2 * mm, width - 25 * mm, y + 2 * mm)
+    # Chừa dòng đầu tiên xuống dưới gạch ngang: `y` đang là chân chữ tiêu đề cột, vẽ dòng hàng ở
+    # đúng đó thì chữ nằm ĐÈ lên vạch (thấy trên bản in mẫu 02/09/2026).
+    y -= 4 * mm
 
-    c.setFont("Helvetica", 10)
+    c.setFont(THUONG, 10)
     if active_version:
         for idx, item in enumerate(active_version.items, 1):
             c.drawString(25 * mm, y, str(idx))
-            c.drawString(38 * mm, y, _ascii(f"{item.product_name} ({item.product_type})"))
-            c.drawRightString(110 * mm, y, f"{item.quantity:,}".replace(",", "."))
+            # Cột Tên bắt đầu ở 38mm, cột Số lượng CANH PHẢI ở 110mm — mép trái của nó phụ thuộc
+            # con số dài bao nhiêu ("1.000" khác "1.000.000"), nên bề rộng còn lại cho tên phải
+            # tính theo TỪNG DÒNG chứ không chốt một hằng số. Chừa 2mm khe giữa hai cột.
+            so_luong = f"{item.quantity:,}".replace(",", ".")
+            rong_ten = 110 * mm - stringWidth(so_luong, THUONG, 10) - 38 * mm - 2 * mm
+            c.drawString(38 * mm, y, cat_vua(f"{item.product_name} ({item.product_type})",
+                                             rong_ten, THUONG, 10))
+            c.drawRightString(110 * mm, y, so_luong)
             c.drawRightString(135 * mm, y, _fmt_vnd(item.unit_price))
             c.drawRightString(160 * mm, y, f"{int(item.vat_percent)}%")
             c.drawRightString(width - 25 * mm, y, _fmt_vnd(item.final_amount))
             y -= 7 * mm
 
             if item.note:
-                c.setFont("Helvetica-Oblique", 8)
-                c.drawString(38 * mm, y + 1 * mm, _ascii(f"Ghi chu: {item.note}"))
-                c.setFont("Helvetica", 10)
+                c.setFont(THUONG, 8)
+                # Ghi chú chạy hết bề ngang khung (không có cột nào bên phải nó ở dòng này) —
+                # cắt theo mép phải 25mm để không tràn ra ngoài lề giấy.
+                c.drawString(38 * mm, y + 1 * mm,
+                             cat_vua(f"Ghi chú: {item.note}", width - 25 * mm - 38 * mm,
+                                     THUONG, 8))
+                c.setFont(THUONG, 10)
                 y -= 5 * mm
 
     y -= 5 * mm
     c.line(25 * mm, y + 7 * mm, width - 25 * mm, y + 7 * mm)
 
-    # Dieu khoan — moi dong cua terms_text = 1 dieu khoan, danh so 1..N nhu ban in tren man hinh.
+    # Điều khoản — mỗi dòng của `terms_text` = 1 điều khoản, đánh số 1..N như bản in trên màn hình.
     lines = [ln.strip() for ln in (q.terms_text or DEFAULT_TERMS).splitlines() if ln.strip()]
     if lines:
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(25 * mm, y, "Dieu khoan:")
+        c.setFont(DAM, 11)
+        c.drawString(25 * mm, y, "Điều khoản:")
         y -= 6 * mm
-        c.setFont("Helvetica", 10)
+        c.setFont(THUONG, 10)
         for idx, ln in enumerate(lines, 1):
-            c.drawString(30 * mm, y, f"{idx}. {_ascii(ln)}")
+            c.drawString(30 * mm, y, f"{idx}. {ln}")
             y -= 5 * mm
 
     c.showPage()

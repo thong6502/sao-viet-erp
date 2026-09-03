@@ -1,10 +1,10 @@
-# Lệnh sản xuất & Theo dõi sản xuất — Kế hoạch cài đặt
+# Hồ sơ lệnh sản xuất & Theo dõi sản xuất — Kế hoạch cài đặt
 
 > **Cho người/agent thi công:** BẮT BUỘC dùng `superpowers:executing-plans` (hoặc
 > `superpowers:subagent-driven-development`) để chạy plan này theo từng task. Các bước
 > dùng checkbox `- [ ]` để đánh dấu.
 
-**Goal:** Dựng hai màn CHỈ ĐỌC — "Lệnh sản xuất" (hồ sơ lệnh xuyên suốt từ phát hành tới
+**Goal:** Dựng hai màn CHỈ ĐỌC — "Hồ sơ lệnh sản xuất" (hồ sơ lệnh xuyên suốt từ phát hành tới
 giao hàng) và "Theo dõi sản xuất" (Kanban · Theo máy · Theo ca · Gantt) — tổng hợp trên
 dữ liệu vận hành đã có, cộng ba lỗ hổng dữ liệu nguồn phải vá ở màn Thực hiện SX.
 
@@ -54,8 +54,14 @@ Bản plan trước đề xuất dựng lại nhiều thứ đã có trong repo.
 đối chiếu code ngày 31/08/2026 và là bản có hiệu lực.
 
 **1. Ranh giới với màn "Kế hoạch sản xuất" đang chạy.**
+TÊN màn đổi 01/09/2026 theo chủ dự án: **"Hồ sơ lệnh sản xuất"**, KHÔNG phải "Lệnh sản
+xuất". Lý do: `KeHoachSXPage.tsx` đã có sẵn một TAB mang đúng chữ "Lệnh sản xuất", để hai
+chỗ trùng tên là bắt người dùng đoán. Chỉ NHÃN đổi — khoá quyền `lenh_san_xuat`, prefix
+`/api/lenh-san-xuat`, nav id `lenh-san-xuat`, gói `services/lenh_sx/` và tên file FE GIỮ
+NGUYÊN (đã seed, đã có migration 0246 và test bám; cùng lối `bai_ghep_2` mang nhãn "Bài
+ghép"). ĐỪNG "sửa lại cho nhất quán".
 `KeHoachSXPage.tsx` (module `san_xuat`) là bàn của người **LẬP**: mọi trạng thái lệnh, có
-nút ghi, sửa routing, chuyển trạng thái. Màn "Lệnh sản xuất" mới là bàn của người **HỎI**:
+nút ghi, sửa routing, chuyển trạng thái. Màn "Hồ sơ lệnh sản xuất" mới là bàn của người **HỎI**:
 chỉ lệnh `trang_thai = 'da_phat_hanh'`, không nút ghi, và kéo dài tới KCS · nhập kho ·
 giao hàng — quãng mà màn Kế hoạch SX không nói gì.
 
@@ -402,7 +408,7 @@ Trong `backend/app/seed.py`, ngay sau `("xep_lich_2", "Xếp lịch công đoạ
     # người BÁN — khác hẳn `san_xuat` vốn bám `lsx.nguoi_phu_trach_id` (người LÀM). Đó là lý do
     # phải là hai khoá riêng chứ không tick thêm bit vào `san_xuat`: sửa nghĩa scope của
     # `san_xuat` là tổ trưởng/thợ (scope `own`) mất sạch lệnh ở màn Kế hoạch SX.
-    ("lenh_san_xuat", "Lệnh sản xuất"),
+    ("lenh_san_xuat", "Hồ sơ lệnh sản xuất"),
     ("theo_doi_san_xuat", "Theo dõi sản xuất"),
 ```
 
@@ -430,13 +436,13 @@ không. Thêm vào cuối `backend/app/db_migrations.py`:
 
 ```python
 _HAI_MAN_CHI_DOC = (
-    ("lenh_san_xuat", "Lệnh sản xuất"),
+    ("lenh_san_xuat", "Hồ sơ lệnh sản xuất"),
     ("theo_doi_san_xuat", "Theo dõi sản xuất"),
 )
 
 
 def _migrate_hai_man_chi_doc(db) -> None:
-    """Hai ô quyền chỉ-đọc của khối Sản xuất (31/08/2026): Lệnh sản xuất · Theo dõi sản xuất.
+    """Hai ô quyền chỉ-đọc của khối Sản xuất (31/08/2026): Hồ sơ lệnh sản xuất · Theo dõi sản xuất.
 
     Vai SEED do `seed_roles` upsert lại mỗi lần khởi động nên không cần backfill. Migration này
     lo vai NGƯỜI DÙNG TỰ TẠO: chép nguyên dòng `don_hang_ban` sang hai khoá mới, giữ nguyên
@@ -493,7 +499,7 @@ Trong `frontend/src/components/Sidebar.tsx`, thêm ngay sau mục `xep-lich-cong
       // HAI MÀN CHỈ ĐỌC (31/08/2026) — bàn của người HỎI, không phải người LẬP. Đứng sau Xếp lịch
       // vì chúng chỉ nói về lệnh ĐÃ phát hành: từ đây trở đi là chuyện của xưởng, không sửa được
       // ở đây nữa. Ai muốn sửa lệnh vẫn quay lên "Kế hoạch sản xuất".
-      { id: "lenh-san-xuat", label: "Lệnh sản xuất", icon: "clipboard", module: "lenh_san_xuat" },
+      { id: "lenh-san-xuat", label: "Hồ sơ lệnh sản xuất", icon: "clipboard", module: "lenh_san_xuat" },
       { id: "theo-doi-san-xuat", label: "Theo dõi sản xuất", icon: "activity", module: "theo_doi_san_xuat" },
 ```
 
@@ -614,7 +620,7 @@ Kỳ vọng: FAIL — `ModuleNotFoundError: app.services.lenh_sx`.
 
 ```python
 # backend/app/services/lenh_sx/__init__.py
-"""Tầng ĐỌC của hai màn chỉ-đọc "Lệnh sản xuất" và "Theo dõi sản xuất".
+"""Tầng ĐỌC của hai màn chỉ-đọc "Hồ sơ lệnh sản xuất" và "Theo dõi sản xuất".
 
 KHÔNG có một đường ghi nào trong gói này. Mọi thao tác sản xuất vẫn nằm ở
 `services/san_xuat/` (bàn của tổ trưởng) và `services/lsx_service.py` (bàn của kế hoạch).
@@ -1353,7 +1359,7 @@ truyền kho, **không** làm `kho_id` optional để né.
 
 ---
 
-# ĐỢT C — Tầng đọc + API Lệnh sản xuất
+# ĐỢT C — Tầng đọc + API Hồ sơ lệnh sản xuất
 
 ### Task 6: Nạp bối cảnh theo LÔ
 
@@ -1641,7 +1647,7 @@ soi đúng cửa `XepLichService._chan_chua_giu_du`.
 
 ```python
 # backend/tests/test_lenh_sx_api.py
-"""API danh sách Lệnh sản xuất — phân trang + lọc Ở MÁY CHỦ, phạm vi gắn từ QUYỀN.
+"""API danh sách màn Hồ sơ lệnh sản xuất — phân trang + lọc Ở MÁY CHỦ, phạm vi gắn từ QUYỀN.
 
 Ba thứ phải đúng ngay từ đầu, sửa sau rất đắt:
   · `page_size` cắt ở SQL, không kéo cả bảng về rồi slice trong Python.
@@ -1763,9 +1769,24 @@ def test_phien_ban_doc_tu_goi_phat_hanh(client, seed_credentials, lenh_da_cap_nh
 
 ---
 
-# ĐỢT D — Màn Lệnh sản xuất (frontend)
+# ĐỢT D — Màn Hồ sơ lệnh sản xuất (frontend)
 
 ### Task 11: Danh sách + KPI + tab
+
+> **BỔ SUNG 02/09/2026 — chủ dự án chốt tại cổng Bước 2, mở rộng phạm vi Task 11.**
+> Thêm `GET /api/lenh-san-xuat/bo-loc` (backend) làm nguồn cho ô lọc Máy.
+> **Lý do:** ô lọc Máy vốn định lấy từ `/api/may-thiet-bi`, nhưng endpoint đó gác bằng
+> `require_any_permission(("dm_thiet_bi","read"), ("tinh_gia_thanh","read"))`
+> (`routers/may_thiet_bi.py:52`) trong khi vai **QC** — vai dùng màn này nhiều nhất — có
+> `lenh_san_xuat: _read(SCOPE_ALL)` mà KHÔNG có cả hai quyền kia (`seed.py:556-566`) ⇒ 403.
+> Endpoint mới gác bằng chính `lenh_san_xuat:read`, tôn trọng `sale_ids_theo_pham_vi`, và Task 12
+> dùng lại được.
+> **Hai bẫy bắt buộc nhớ:** (1) phải khai TRƯỚC `/{lsx_id}`, nếu không route động nuốt mất và
+> người dùng nhận 422 "lsx_id không phải số" — xem docstring đầu `routers/lenh_san_xuat.py`;
+> (2) danh sách máy phải gom từ ĐÚNG HAI CỘT mà bộ lọc đang soi
+> (`_co_buoc(SanXuatCongViec.may_id, LsxCongDoan.may_id, ...)` ở `danh_sach.py:207`), vì máy của ca
+> in ghép chỉ được chụp vào công việc chung và KHÔNG ghi ngược về `lsx_cong_doan.may_id`. Gom một
+> cột thì dropdown vừa đẻ lựa chọn lọc xong rỗng, vừa thiếu máy đang chạy thật.
 
 **Files:**
 - Create: `frontend/src/pages/LenhSanXuatPage.tsx`, `frontend/src/pages/lenh-san-xuat.css`
@@ -1774,7 +1795,7 @@ def test_phien_ban_doc_tu_goi_phat_hanh(client, seed_credentials, lenh_da_cap_nh
 
 - [ ] **Bước 1: Chốt thiết kế bằng skill `ui-ux-pro-max`**
 
-Gọi skill với bối cảnh: bám pattern list/badge/pill/drawer của `RebuildCatalogPage.tsx`; hệ
+Gọi skill với bối cảnh: bám pattern list/badge/pill/drawer của `pages/danh-muc/CatalogListPage.tsx` (sửa 02/09: `RebuildCatalogPage.tsx` nay chỉ còn là barrel 17 dòng, ruột đã tách); hệ
 màu và spacing lấy từ `frontend/src/pages/ke-hoach-sx.css` để hai màn Sản xuất đứng cạnh
 nhau không lệch. Chốt trước khi gõ dòng JSX nào: hierarchy (KPI → lọc → tab → bảng), trạng
 thái loading/empty/error, focus ring + `aria-*` cho tab, breakpoint hẹp.
@@ -1792,7 +1813,7 @@ thái loading/empty/error, focus ring + `aria-*` cho tab, breakpoint hẹp.
 
 - [ ] **Bước 5: `npx tsc --noEmit`.** Kỳ vọng 0 lỗi.
 
-- [ ] **Bước 6: NGHI THỨC SOI MÀN trên "Lệnh sản xuất"** — trọn §Nghi thức bước 0→7. Bắt
+- [ ] **Bước 6: NGHI THỨC SOI MÀN trên "Hồ sơ lệnh sản xuất"** — trọn §Nghi thức bước 0→7. Bắt
   buộc thao tác thêm: bấm **từng** tab trong 7 tab và đọc số đếm; gõ vào ô tìm kiếm mã LSX
   có thật rồi mã không có thật; đổi từng bộ lọc; sang trang 2 rồi quay lại trang 1; cuộn bảng
   hết sang phải để thấy cột cuối; thu cửa sổ còn 390px xem bảng có tràn không.

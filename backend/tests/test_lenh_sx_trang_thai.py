@@ -714,6 +714,30 @@ def test_den_vat_tu_theo_lo_doc_lai_lsx_tong_quan(db, lenh_dang_chay):
     assert den[lenh_dang_chay] == goc
 
 
+def test_den_vat_tu_theo_lo_tra_du_moi_lenh_trong_lo(db, nhom_hai_lenh):
+    """Gọi MỘT lượt cho N lệnh phải trả về ĐỦ N đèn — cắt đuôi kết quả vẫn xanh cả bộ.
+
+    Bài ngay trên chỉ hỏi MỘT lệnh, và mọi bài khác của hai file cũng vậy, nên chèn `[:1]` vào bất
+    kỳ đâu trên đường `tong_quan` → `den_vat_tu_theo_lo` đều không ai kêu. Trên trang danh sách 20
+    dòng thì đó là 19 lệnh mất đèn vật tư — mất luôn cờ cảnh báo và tab "Cần xử lý" của chúng — mà
+    `co_canh_bao` lại đọc dict bằng `.get`, nên vắng mặt không nổ: hỏng HOÀN TOÀN im lặng.
+
+    Lấy nhóm hai lệnh vì đây là fixture sẵn có duy nhất phát hành từ HAI lệnh trong một lượt.
+    """
+    from app.services import lsx_tong_quan
+
+    than, phu = nhom_hai_lenh
+    tq = lsx_tong_quan.tong_quan(db, [than, phu])
+    assert len(tq) == 2, "một dòng cho MỖI lệnh được hỏi, không phải mỗi lệnh đầu lô"
+    assert {r["lsx_id"] for r in tq} == {than, phu}
+
+    den = trang_thai.den_vat_tu_theo_lo(db, [than, phu])
+    assert set(den) == {than, phu}, "đèn phải về đủ cả lô"
+    assert den == {r["lsx_id"]: r["den"]["vat_tu"]["muc"] for r in tq}, (
+        "mỗi lệnh phải nhận đèn CỦA MÌNH, không phải đèn của dòng đầu"
+    )
+
+
 # --- Bổ sung G: bước bị BÀI GHÉP phủ vẫn phải giương cờ --------------------------------------------
 @pytest.fixture
 def lenh_ca_ghep_tam_dung(db, orders, lsx_svc, admin, customer) -> int:

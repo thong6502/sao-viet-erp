@@ -277,6 +277,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             // "Loại khuôn" = Khung lụa. Bỏ ẩn theo yêu cầu 29/08/2026: engine đã bơm 3 biến này
             // cho MỌI bước và mặc định 0 khi phiếu chưa khai (xem thanh_phan_engine.py) nên hiện
             // sẵn không có rủi ro tính sai, chỉ đỡ người khai phải bật "Loại khuôn" mới thấy chip.
+            an={f.an}
             id={`formula-${f.key}`}
             // Nhãn TRONG khung đi theo nhãn của CHÍNH field. Trước 17/08/2026 nó đóng đinh
             // "Công thức tính giá", chấp nhận được khi mỗi màn chỉ có một ô; nay Giấy và Vật tư

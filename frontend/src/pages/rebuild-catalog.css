@@ -2737,72 +2737,6 @@ select.rc-input:focus {
   font-size: 11.5px;
 }
 
-/* Input Wrapper & Autocomplete Popover */
-.rc-formula__input-wrapper {
-  position: relative;
-  width: 100%;
-}
-
-.rc-formula__autocomplete {
-  position: absolute;
-  left: 12px;
-  bottom: calc(100% + 4px);
-  z-index: 50;
-  width: min(380px, 95vw);
-  max-height: 240px;
-  overflow-y: auto;
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.6);
-  padding: 6px;
-}
-.rc-formula__autocomplete-head {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--ash-2);
-  padding: 4px 8px 6px;
-  border-bottom: 1px solid #1e293b;
-  margin-bottom: 4px;
-}
-.rc-formula__autocomplete-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.12s ease;
-}
-.rc-formula__autocomplete-item:hover,
-.rc-formula__autocomplete-item.is-selected {
-  background: #1e293b;
-  border-left: 3px solid var(--rust, #c5400a);
-}
-.rc-formula__autocomplete-main {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.rc-formula__autocomplete-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: #f8fafc;
-}
-.rc-formula__autocomplete-code {
-  font-size: 10.5px;
-  font-family: var(--ff-sans);
-  color: #38bdf8;
-}
-.rc-formula__autocomplete-unit {
-  font-size: 10.5px;
-  color: #cbd5e1;
-  background: #334155;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
 
 /* Ô công thức Chip Tiếng Việt duy nhất (Single Formula Stage & Input) */
 .rc-formula__single-stage {
@@ -2819,10 +2753,19 @@ select.rc-input:focus {
 
 .rc-formula__chips-wrap {
   display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.4;
+}
+
+/* Một DÒNG công thức (xem `tinhDong` trong FormulaField.tsx) — cấp lồng if/max/min > 0 mới có
+   viền + thụt lề, cấp 0 (mặc định, công thức không lồng) trông y hệt hàng phẳng cũ. */
+.rc-formula__row {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  line-height: 1.4;
+  min-height: 24px;
 }
 
 /* Inline Input Container inside Chips Wrap */

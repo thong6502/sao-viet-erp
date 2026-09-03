@@ -24,6 +24,7 @@ import { useDebounced } from "../utils/useDebounced";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 import { BangLoi, EmptyState, ngay, ngayGio } from "./keHoachSxShared";
+import { useNapTenDonVi } from "./tenDonVi";
 import { ngayToWall, type Xl2Zoom } from "./xl2Shared";
 import { wallMinutes, nowWall } from "./gantt-time";
 import { ThsxTimeline } from "./ThsxTimeline";
@@ -125,6 +126,9 @@ export function ThucHienSxPage({
   onBadgeStale?: () => void;
 }) {
   const { token } = useAuth();
+  // Bàn tổ hiện TÊN đơn vị lấy từ danh mục ("tờ", "bản kẽm") chứ không hiện MÃ ("to", "kem") —
+  // nạp một lần ở đây cho cả cây con (drawer · ghi sản lượng · KCS · kho) dùng `nhanDonVi`.
+  useNapTenDonVi();
   const can = useCan();
   const canAssign = can("san_xuat", "assign_work");
   const canKhoRead = can("kho", "read");     // xem hộp thư kho §14

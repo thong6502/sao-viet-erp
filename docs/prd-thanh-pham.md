@@ -3,6 +3,22 @@
 > Chốt 19/08/2026. Anh em với `prd-giao-hang.md` (§5 gọi sang đây) và `spec-san-pham.md`
 > (KHÁC hẳn — xem §2).
 
+> **Cập nhật 21/08/2026 (mg 0228) — công tắc đổi lần thứ 3, đọc trước khi tin §3/§5/§6/§8 bên
+> dưới:** công tắc phân biệt Thành phẩm KHÔNG còn là `customer_id` mà là cột cờ riêng
+> **`la_thanh_pham`** (Boolean). Kéo theo 3 thay đổi:
+> - `customer_id` giờ chỉ còn là **vết nguồn gốc** (khách ĐẦU TIÊN đặt món này) — không còn là
+>   chủ, không còn là công tắc chia màn, không còn là phạm vi gộp trùng, và **không bắt buộc**.
+> - Khoá gộp trùng đổi từ `(khách hàng, tên đã chuẩn hoá)` xuống còn **chỉ tên đã chuẩn hoá**.
+>   Hai khách đặt cùng tên hàng (vd "Hộp thuốc 10 vỉ") giờ **DÙNG CHUNG một dòng danh mục** thay vì
+>   mỗi khách một dòng riêng.
+> - Mã đổi từ `TP-<mã khách>-<nnn>` (đếm riêng theo từng khách) sang **`TP-00001…`** (đếm chung
+>   toàn danh mục, không tái dùng số của dòng đã xoá).
+>
+> Lý do đổi (`thanh_pham_khai_bao.py:83-88`): *"thành phẩm là một cái TÊN HÀNG, nên khai để tái sử
+> dụng, tránh phình lên"* — không còn là "hồ sơ sở hữu riêng của một khách" như 2 lần đổi trước.
+> Nội dung §3/§5(L2,L5)/§6/§8 dưới đây giữ nguyên để lưu lịch sử quyết định 19/08; chỗ đã bị thay
+> có chú thích ngay tại chỗ.
+
 ---
 
 ## 1. Vấn đề
@@ -46,9 +62,13 @@ MENU (Cấu hình danh mục)      Ô QUYỀN            BẢNG THẬT        KH
   Vật tư khác                 dm_vat_tu    ──┐
   Thành phẩm  ★MỚI            dm_thanh_pham ─┴►  vat_tu_in_an ──► hang_loai="vat_tu"
                                                       │
-                                     customer_id IS NULL  → hiện ở "Vật tư khác"
-                                     customer_id NOT NULL → hiện ở "Thành phẩm"
+                                     customer_id IS NULL  → hiện ở "Vật tư khác"   (đến 19/08/2026)
+                                     customer_id NOT NULL → hiện ở "Thành phẩm"    (đến 19/08/2026)
 ```
+
+> **Đổi 21/08/2026 (mg 0228):** hai dòng công tắc cuối ở trên **không còn đúng**. Công tắc thật
+> hiện tại là cột cờ riêng: `la_thanh_pham = false → "Vật tư khác"`,
+> `la_thanh_pham = true → "Thành phẩm"`. `customer_id` không còn tham gia phân loại — xem §6.
 
 **MỘT dòng giữ toàn bộ quyết định này đứng vững:** `_mat_hang_row()` trả `hang_loai="vat_tu"` cho
 thành phẩm, chỉ đổi **nhãn nhóm** thành *"Thành phẩm"*. Kho không biết có menu thứ ba, và **không
@@ -117,6 +137,12 @@ KHO       stock_requests XUẤT → lập phiếu → trừ tồn   (luồng cũ
   ngang (`—` `–` `-`) về một · gọt dấu câu hai đầu. Người lập đơn tháng sau gõ lại bằng tay, lệch
   một dấu là bản so-nguyên-văn đẻ thêm dòng — đúng cái lỗi đang sửa. **Không bỏ dấu tiếng Việt**:
   *"Bìa"* và *"Bia"* là hai thứ khác nhau.
+
+  > **Đổi tiếp 21/08/2026 (mg 0228) — "phải có KHÁCH trong khoá" ở trên KHÔNG CÒN đúng.** Khoá gộp
+  > trùng bỏ hẳn khách ra, chỉ còn **tên đã chuẩn hoá**. Hai khách đặt cùng tên hàng giờ DÙNG CHUNG
+  > một dòng danh mục — ngược hẳn lý do "phải có khách" nêu trên. Mã cũng đổi từ `TP-<mã khách>-
+  > <nnn>` sang **`TP-00001…`** (đếm chung toàn danh mục). Lý do đổi: thành phẩm là **tên hàng**,
+  > không phải hồ sơ riêng của một khách — xem callout đầu file.
 - **L3 — Tên là nguyên văn mô tả dòng đơn** (cắt 150 ký tự theo `vat_tu_in_an.ten`). Không rút
   gọn, không thêm chữ. Kho tìm bằng đúng cái tên khách đặt.
 - **L4 — Hai danh mục rời hẳn nhau.** Vật tư khác **không** hiện thành phẩm; Thành phẩm **không**
@@ -132,6 +158,11 @@ KHO       stock_requests XUẤT → lập phiếu → trừ tồn   (luồng cũ
   Để trống thì dòng vừa khai **rơi sang màn Vật tư khác và biến mất khỏi màn vừa tạo nó**, không
   lỗi gì cả.
 
+  > **Đổi tiếp 21/08/2026 (mg 0228) — hết bắt buộc.** Công tắc chia màn tách riêng ra thành cột
+  > `la_thanh_pham`; `customer_id` không còn giữ vai trò công tắc nữa nên **không còn bắt buộc**.
+  > Khai tay để trống khách vẫn hiện đúng ở màn Thành phẩm — không còn "rơi sang Vật tư khác" như
+  > mô tả ở trên.
+
   **Tên SỬA ĐƯỢC** (gõ sai chính tả phải sửa được — và vì tên là khoá gộp, sửa tên chính là cách
   gộp hai dòng lỡ đẻ trùng). **Mã thì KHÔNG**: nó đã nằm trong lô tồn và phiếu đã ghi sổ.
 - **L6 — Kho vẫn tìm thấy.** Ô tìm mặt hàng (`/api/vat-lieu-kho/mat-hang`) quét thêm thành phẩm,
@@ -141,7 +172,7 @@ KHO       stock_requests XUẤT → lập phiếu → trừ tồn   (luồng cũ
 
 ---
 
-## 6. Dữ liệu — **0 bảng mới, 2 cột**
+## 6. Dữ liệu — **0 bảng mới, 2 cột** *(đã lỗi thời — xem callout đầu file)*
 
 ```
 vat_tu_in_an   + customer_id    INTEGER NULL   ← CHỦ + công tắc + phạm vi gộp trùng   (mg 0204)
@@ -159,6 +190,21 @@ giờ thuộc về khách; thành phẩm thì **luôn** thuộc một khách.
 
 `order_id` / `order_line_id` giữ lại làm **nguồn gốc** (lần đầu đặt ở đơn nào), **không** cập nhật
 ở những lần đặt sau, và **không** còn là khoá định danh.
+
+> **Đổi tiếp 21/08/2026 (mg 0228) — đúng điều đoạn trên cảnh báo đã xảy ra.** Thêm cột
+> **`la_thanh_pham BOOLEAN NOT NULL DEFAULT false`** làm công tắc riêng, tách hẳn khỏi
+> `customer_id`. Sơ đồ dữ liệu hiện tại:
+> ```
+> vat_tu_in_an   + la_thanh_pham   BOOLEAN NOT NULL DEFAULT false  ← CÔNG TẮC DUY NHẤT (mg 0228)
+>                  customer_id     INTEGER NULL   ← chỉ còn là VẾT NGUỒN GỐC (khách đầu tiên đặt),
+>                                                    không bắt buộc, không phải khoá gộp trùng
+>                  order_id / order_line_id        ← không đổi, vẫn chỉ để tra nguồn gốc
+> ```
+> `_VatTuRepo.extra_conds` lọc `la_thanh_pham.is_(False)`; `_ThanhPhamRepo.extra_conds` lọc
+> `la_thanh_pham.is_(True)` và `_ThanhPhamRepo._sau_gan` tự đóng dấu `la_thanh_pham=True` khi tạo
+> qua màn Thành phẩm. Cross-check hai màn không đá nhau nằm ở
+> `MotDanhMucVatLieu._dung_man` (`backend/app/services/vat_lieu_kho_service.py:425-451`), so trực
+> tiếp cột `la_thanh_pham` — không còn so `customer_id`.
 
 Không FK cứng sang `orders` / `order_lines`: cùng khuôn soft-ref mà `stock_requests.purchase_
 delivery_id` và `delivery_trip_id` đã dùng — danh mục sống lâu hơn đơn (L7).
@@ -179,6 +225,8 @@ sau khi deploy. `module_key` là **dữ liệu sống** — đổi chuỗi này 
 
 Dùng nền `RebuildCatalogPage` sẵn có (config-driven), chỉ thêm **1 object config** + 1 dòng menu.
 
+Bảng dưới đây là form **19/08/2026** — ĐÃ LỖI THỜI, xem callout ngay sau bảng.
+
 | Cột | Ví dụ |
 |---|---|
 | Mã | `TP-KH001-001` |
@@ -186,6 +234,10 @@ Dùng nền `RebuildCatalogPage` sẵn có (config-driven), chỉ thêm **1 obje
 | **Khách hàng** | Dược phẩm Sao Mai *(bắt buộc)* |
 | ĐVT | hộp *(sửa được)* |
 | Ghi chú | *(sửa được)* |
+
+> **Đổi 21/08/2026 — cột "Khách hàng" đã bị GỠ khỏi form.** Form hiện tại chỉ còn 4 ô: **Mã**
+> (sinh tự động dạng `TP-00001`, khoá khi sửa) · **Tên** (sửa được, là khoá gộp trùng) · **ĐVT**
+> (`don_vi_gia`, sửa được) · **Ghi chú** (sửa được). Không còn ô chọn khách hàng trên màn khai báo.
 
 Cột **Khách hàng** không được thiếu: *"của ai"* chính là thứ phân biệt hai thành phẩm cùng tên.
 

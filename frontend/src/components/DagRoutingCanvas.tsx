@@ -140,11 +140,20 @@ export function computeCanvasHeight(
  * Chuỗi tuyến tính 5 bước đã rộng ~1.500px trong khi khung chỉ ~1.150px, nên mặc định phải thu
  * lại — không thì bước cuối nằm ngoài tầm mắt và người dùng phải mò thanh cuộn mới biết còn gì.
  * Không phóng quá 100% (chữ vỡ) và không thu dưới 35% (hết đọc nổi).
+ *
+ * Ở màn hẹp (≤768px) sàn nâng lên 55%: `transform: scale()` co luôn VÙNG CHẠM, nên ở 35% hai nút
+ * `.dag-node__btn` (khai 44px) chỉ còn 15,4px trên màn — dưới cả mức AA 24px của WCAG 2.5.8.
+ * 44 × 0,55 = 24,2px, cộng phần nới của §77 (`styles/responsive.css`) là qua ngưỡng. Đây CHỈ là
+ * sàn của phép TỰ căn; nút "−" vẫn cho người dùng chủ động xuống tới 0,2 để nhìn toàn cảnh.
  */
+const SAN_TU_CAN_HEP = 0.55;
+const MAN_HEP_PX = 768;
+
 function tinhZoomVua(vp: HTMLDivElement, w: number, h: number): number {
   if (w <= 0 || h <= 0) return 1;
+  const san = typeof window !== "undefined" && window.innerWidth <= MAN_HEP_PX ? SAN_TU_CAN_HEP : 0.35;
   const vua = Math.min(1, (vp.clientWidth - VIEW_PADDING) / w, (vp.clientHeight - VIEW_PADDING) / h);
-  return Math.max(0.35, Math.floor(vua * 100) / 100);
+  return Math.max(san, Math.floor(vua * 100) / 100);
 }
 
 /** Đặt chỗ cho một node ngoài LSX ở cột trái, đẩy cả sơ đồ sang phải nếu cột đó đang bị chiếm. */
@@ -849,7 +858,11 @@ export function DagRoutingCanvas({
             height: canvasHeight * zoom,
             minHeight: "100%",
             transform: `scale(${zoom})`,
-          }}
+            // `--dag-zoom` bơm tỉ lệ thu phóng ra CSS: `scale()` co MỌI thứ bên trong, kể cả vùng
+            // chạm của `.dag-node__btn`, nên tầng CSS cần biết đang co bao nhiêu để nới bù
+            // (xem §77 trong `styles/responsive.css`).
+            ["--dag-zoom" as string]: String(zoom),
+          } as React.CSSProperties}
         >
           {/* Lớp SVG vẽ Dây nối */}
           <svg className="dag-svg-layer">

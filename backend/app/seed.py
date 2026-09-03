@@ -83,7 +83,12 @@ MODULES: list[tuple[str, str]] = [
     #     lỗi giao diện, không phải quyền chặt hơn. Họ vào lệnh qua màn Thực hiện SX, không qua
     #     đây — ĐỪNG "sửa lại cho nhất quán" ở hai vai đó.
     #   - Vai không đọc được khoá nào trong hai khoá gốc → không cấp gì.
-    ("lenh_san_xuat", "Lệnh sản xuất"),
+    # NHÃN cố ý KHÁC tên khoá. Màn "Kế hoạch sản xuất" đã có sẵn một TAB tên "Lệnh sản xuất" —
+    # đó là bàn của người LẬP lệnh (có nút ghi, sửa routing). Màn này là bàn của người TRA CỨU:
+    # hồ sơ một lệnh xuyên suốt tới KCS · nhập kho · giao hàng, không một nút ghi nào. Hai vai
+    # trò khác nhau nên phải khác TÊN, còn KHOÁ giữ nguyên `lenh_san_xuat` (đã seed + mg 0246 +
+    # test bám) — cùng lối `bai_ghep_2` mang nhãn "Bài ghép". `seed_modules` tự đồng bộ nhãn.
+    ("lenh_san_xuat", "Hồ sơ lệnh sản xuất"),
     ("theo_doi_san_xuat", "Theo dõi sản xuất"),
     # Kỹ thuật máy (12/08/2026) gộp Sửa chữa + Bảo trì vì "cùng một người làm cả hai việc". Lý do
     # đó vẫn đúng cho NGƯỜI LÀM, nhưng ô quyền còn phải phục vụ người ĐI CẤP: điều độ cần xem lịch

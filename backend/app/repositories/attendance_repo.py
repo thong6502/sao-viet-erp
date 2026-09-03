@@ -74,6 +74,29 @@ class AttendanceRepository:
     def get_shift(self, shift_id: int) -> WorkShift | None:
         return self.db.get(WorkShift, shift_id)
 
+    def ca_lich_xuong(self) -> list[WorkShift]:
+        """Tập ca CHẠY DƯỚI XƯỞNG — NGUỒN DÙNG CHUNG cho cả Xếp lịch
+        (`XepLichService._ca_lich_may`, nay chỉ gọi lại hàm này) và Theo dõi sản xuất
+        (`services/lenh_sx/bang_theo_doi.theo_ca`) — Ruling C117, task-16-brief.md.
+
+        Ca ĐANG DÙNG (`is_active`) VÀ có tick "chạy dưới xưởng" (`ca_san_xuat`), sort theo giờ
+        vào rồi id. Ca văn phòng ("Hành chính" 08:00–17:00) KHÔNG được vào đây — xem
+        `WorkShift.ca_san_xuat` (`models/attendance.py:103-113`) cho lý do.
+
+        ⚠ KHÔNG ca nào tick `ca_san_xuat` ⇒ trả TẤT CẢ ca đang dùng, KHÔNG trả rỗng. Đường lùi
+        này BẮT BUỘC — chính nó là thứ giết cờ đời trước (`dung_cho_lich_may`, mg 0095 → gỡ ở mg
+        0226): mặc định TẮT và không có ô khai nên 4/4 ca đều FALSE, hàm trả rỗng rồi lịch xưởng
+        rơi về fallback 08:00–16:00 im lặng, không ai thấy.
+
+        Trước Task 16, `XepLichService._ca_lich_may()` tự truy vấn thẳng `work_shifts` (một bản
+        sao gần giống hệt hàm này). Rút về MỘT chỗ vì tab "Theo ca" của Theo dõi sản xuất xếp
+        việc vào cột ca, mà việc đó do Xếp lịch đặt bằng đúng tập ca kia — hai bên tự đi lấy tập
+        ca theo hai đường khác nhau là có việc rơi ra ngoài mọi cột ở một bên mà không ai biết.
+        Bài canh hai bên trùng nhau: `tests/test_theo_doi_may_ca_gantt.py::test_tap_ca_trung_voi_xep_lich`.
+        """
+        cas = self.list_shifts(active_only=True)  # đã ORDER BY start_minute, id
+        return [s for s in cas if bool(getattr(s, "ca_san_xuat", True))] or cas
+
     def create_shift(self, **fields) -> WorkShift:
         s = WorkShift(**fields)
         self.db.add(s)

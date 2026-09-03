@@ -2427,10 +2427,15 @@ class LsxService:
             so_ghi = cd.sl_nhan_thuc
 
         ten = self._user_name(nguoi_id) or f"#{nguoi_id}"
+        # Vết audit người đọc, nên bày TÊN đơn vị ("tờ") chứ không bày MÃ ("to").
+        from ..repositories.don_vi_do_repo import DonViDoRepository, nhan_don_vi
+        dv = nhan_don_vi(DonViDoRepository(self.db).ten_theo_ma(), cd.don_vi_ra)
+        # `.replace(",", ".")` CHỈ áp lên con số (đổi dấu nghìn sang kiểu Việt) — bọc cả câu như
+        # trước thì một cái tên đơn vị có dấu phẩy sẽ bị đổi theo.
+        so = f"{_f(so_ghi):,.0f}".replace(",", ".")
         self.audit.create(
             actor_user_id=actor.id, action=action, target=f"lsx_cong_doan:{cd.id}",
-            detail=f"{lsx.ma} · {cd.ten}: {ten} {nhan_vc} "
-                   f"{_f(so_ghi):,.0f} {cd.don_vi_ra or ''}".replace(",", ".").strip(),
+            detail=f"{lsx.ma} · {cd.ten}: {ten} {nhan_vc} {so} {dv}".strip(),
         )
         self.repo.commit()
         return self.get(lsx_id)

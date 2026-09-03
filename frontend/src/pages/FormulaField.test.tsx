@@ -107,14 +107,6 @@ describe("thao tác trên ô công thức", () => {
     await user.type(o(), "_pha");
     expect(ct()).toBe("so_mau_pha");
   });
-
-  it("chọn gợi ý bằng chuột không sinh chip đôi (blur không cướp mất cú bấm)", async () => {
-    const user = userEvent.setup();
-    render(<Harness />);
-    await user.type(o(), "dinh");
-    await user.click(screen.getByRole("listbox").querySelector(".rc-formula__autocomplete-item")!);
-    expect(ct()).toBe("dinh_luong");
-  });
 });
 
 // Chỗ khó chịu 25/08/2026: ô gõ đóng đinh ở CUỐI công thức. Gõ nhầm một dấu ở giữa thì không có

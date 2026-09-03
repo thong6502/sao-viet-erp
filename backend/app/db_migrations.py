@@ -10940,13 +10940,13 @@ MIGRATIONS.append(("0245_giu_cho_purchase_request_line_id",
 
 
 _HAI_MAN_CHI_DOC = (
-    ("lenh_san_xuat", "Lệnh sản xuất"),
+    ("lenh_san_xuat", "Hồ sơ lệnh sản xuất"),  # nhãn ≠ khoá, xem `seed.MODULES`
     ("theo_doi_san_xuat", "Theo dõi sản xuất"),
 )
 
 
 def _migrate_hai_man_chi_doc(db: Session) -> None:
-    """Hai ô quyền chỉ-đọc của khối Sản xuất (31/08/2026): Lệnh sản xuất · Theo dõi sản xuất.
+    """Hai ô quyền chỉ-đọc của khối Sản xuất (31/08/2026): Hồ sơ lệnh sản xuất · Theo dõi sản xuất.
 
     Vai SEED do `seed_roles` upsert lại mỗi lần khởi động nên không cần backfill ở đây — `seed.py`
     đã cấp trực tiếp. Migration này lo vai NGƯỜI DÙNG TỰ TẠO, theo ĐÚNG luật đang áp ở `seed.py`

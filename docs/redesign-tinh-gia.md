@@ -61,7 +61,7 @@ Mỗi bước hỏi *"để nhả ra `ra` tờ tốt thì phải nhận vào bao
 vào(bước) = (ra(bước) + tờ_cố_định) / (1 − %/100)      # tờ thì CỘNG, % thì CHIA
 
 to_net      = ⌈so_luong / so_tp⌉                        → tờ tốt cần ở CUỐI chuỗi
-to_dau_vao  = ⌈vào(bước đầu chuỗi)⌉ + "+ Bù thêm"       → nuôi GIẤY + IN
+to_dau_vao  = ⌈vào(bước đầu chuỗi)⌉                     → nuôi GIẤY + IN
 to_sau_in   = ra(bước có nhom="print")                  → nuôi CÔNG ĐOẠN SAU IN
 ```
 
@@ -75,6 +75,11 @@ với công thức — 2 nguồn sự thật).
 
 > Ô **"− Hao"** (`hao_so_to`) ĐÃ BỎ: nó vốn là bản thay tay cho "tờ mất khi in", nay `to_sau_in`
 > lấy thẳng từ bước in trong chuỗi ngược. Cột DB giữ lại, engine lờ đi.
+>
+> **Cập nhật:** Ô **"+ Bù thêm"** cũng ĐÃ BỎ theo cùng đợt (`services/thanh_phan_engine.py:1112-
+> 1114`) — không còn ô tay nào cộng thêm vào `to_dau_vao`; công thức ở dòng trên đã bỏ luôn phần
+> "+ '+ Bù thêm'" cho khớp. Khoá `bu_hao_tay`/`hao_tay` vẫn tồn tại trong payload và trả về 0 để
+> màn cũ không vỡ, nhưng KHÔNG còn ô nhập nào trên form gắn vào đó — đừng vẽ lại ô này.
 
 ---
 
@@ -123,7 +128,7 @@ Nhãn tầng: **[Nhập]** KTV gõ · **[Auto]** tự điền từ danh mục, s
 | Loại giấy (nếu Công ty) | [Nhập] | → công thức + field giấy (định lượng, đơn giá/kg) |
 | Khổ giấy nguyên (D×R) · khổ giấy in (D×R) | [Nhập] | cảnh báo nếu khổ in > khổ máy |
 | Số thành phẩm/tờ (`so_tp`) | [Nhập] | cảnh báo bình bài (so với số thành phẩm/tờ hình học) |
-| "+ Bù thêm" (vào `to_dau_vao`) | [Nhập] | mặc định 0 — ô tay DUY NHẤT; "− Hao" đã bỏ |
+| ~~"+ Bù thêm" (vào `to_dau_vao`)~~ | — | **ĐÃ BỎ** cùng đợt với "− Hao" — không còn ô tay nào cộng vào `to_dau_vao`, xem §3 |
 | Danh sách công đoạn (thêm/xóa) | [Auto] | routing Loại SP; mỗi công đoạn có công thức + bù hao |
 | Vật tư thêm | [Nhập] | danh mục vật tư in ấn; mỗi vật tư có công thức |
 | **số tờ đầu vào / sau in · số thành phẩm/tờ (hình học) · đ/thành phẩm từng dòng · tổng** | [Hiện] | tính-ra, khóa |
@@ -150,11 +155,18 @@ Tiền vẫn tính theo `so_tp` KTV gõ.
 
 ## 7. Danh mục phải thêm "ô công thức"
 
-Chỉ **2 danh mục** cần ô công thức (khớp "chi phí = NVL + công đoạn"):
+Chỉ **2-3 danh mục** cần ô công thức (khớp "chi phí = NVL + công đoạn"):
 
-- **Vật tư in ấn** (`Material` — gồm **giấy · kẽm · mực · keo · màng**…): thêm `cong_thuc_gia`;
-  field riêng phơi thành biến (giấy: `dinh_luong`, `don_gia_kg`).
-- **Công đoạn** (`Operation`): thêm `cong_thuc_gia` (bù hao đã có, nối qua `bu_hao_id`).
+> **Đối chiếu code (09/2026):** dòng dưới mô tả MỘT model `Material` gộp chung giấy+kẽm+mực+keo+
+> màng — không đúng cấu trúc bảng thật. Code tách **hai** bảng riêng, mỗi bảng một ô công thức
+> riêng: **`GiayNguyen`** (giấy, `cong_thuc_luong` — `backend/app/models/vat_lieu_kho.py:91`) và
+> **`VatTuInAn`** (kẽm/mực/keo/màng…, `cong_thuc_gia` + `cong_thuc_luong` — cùng file `:153`,
+> `:162`). Không có model `Material` chung nào trong hệ.
+
+- **Giấy** (`GiayNguyen`) + **Vật tư in ấn** (`VatTuInAn` — kẽm · mực · keo · màng…): mỗi bảng một
+  ô `cong_thuc_gia`/`cong_thuc_luong` riêng; field riêng phơi thành biến (giấy: `dinh_luong`,
+  `don_gia_kg`).
+- **Công đoạn** (`CongDoan`): thêm `cong_thuc_gia` (bù hao đã có, nối qua `bu_hao_id`).
 - **Loại SP**: chỉ giữ **routing công đoạn mặc định** (tái dùng, không thêm công thức).
 
 ---

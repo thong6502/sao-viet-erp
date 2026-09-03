@@ -74,7 +74,7 @@ _BANG: tuple[tuple[str, str, str, str, str, tuple[str, ...]], ...] = (
     ("so_mau_pha", "Số màu pha", "Số màu pha riêng (Pantone) trong tổng số màu", "màu",
      "dẫn xuất từ tập mực — phần màu pha riêng", _MOI_O),
     ("so_mat", "Số mặt in", "Số mặt qua máy (1 mặt = 1 · 2 mặt/tự trở = 2)", "mặt",
-     "quy cách in của lệnh", _MOI_O),
+     "quy cách in của lệnh — CÔNG ĐOẠN gõ số riêng vào ô của bước thì ăn số đó, để trống mới theo quy cách", _MOI_O),
     ("so_kem", "Số bản kẽm", "Số bản kẽm = số bản mỗi tay × số tay", "bản",
      "số bản mỗi tay × số tay", _MOI_O),
     # Định lượng là thuộc tính CỦA GIẤY — chỉ ô Giấy khai được. Ô Quy đổi vẫn phải có: dòng

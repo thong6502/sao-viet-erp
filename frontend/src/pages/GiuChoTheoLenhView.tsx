@@ -17,7 +17,9 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon, type IconName } from "../components/Icons";
 import { BangLoi, ChipGap, EmptyState, Skeleton, ngay, num } from "./keHoachSxShared";
+import { nhanDonVi } from "./lsxBuoc";
 import { moTaPhieuMua, tomTatPhieuMua, vetDangKep } from "./phieuMuaNhan";
+import { useNapTenDonVi } from "./tenDonVi";
 
 /** Nhãn ngắn & màu cho trạng thái GIỮ CHỖ 6 mức — đây LÀ màn "giữ chỗ theo lệnh":
  *  `co_the_giu`/`da_giu`/`da_cap` mới đúng câu hỏi màn này trả lời ("lệnh này chạy được chưa"),
@@ -106,7 +108,7 @@ function moTaCoTheGiuNgay(h: TheoLenhHang): string {
   ]
     .filter(Boolean)
     .join(" + ");
-  return `Giữ ngay được ${soGoc(g.tong)} ${h.don_vi_goc ?? ""} (${phan})`;
+  return `Giữ ngay được ${soGoc(g.tong)} ${nhanDonVi(h.don_vi_goc)} (${phan})`;
 }
 
 /** Câu giải thích vì sao nút mua bị khoá — phải GỌI TÊN phiếu và ngày về. Nút biến mất không một
@@ -147,6 +149,8 @@ export function GiuChoTheoLenhView({
   onMoFormMua?: (nhap: DeNghiMuaXemTruoc) => void;
 }) {
   const { token } = useAuth();
+  // ĐVT trên màn là TÊN trong danh mục ("tờ" · "bản kẽm"), không phải MÃ ("to" · "kem").
+  useNapTenDonVi();
   const [data, setData] = useState<TheoLenhOut | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState(focusLsxMa ?? "");
@@ -524,7 +528,7 @@ export function GiuChoTheoLenhView({
                               <div
                                 key={`${h.hang_loai}-${h.hang_id}`}
                                 className={`khvt-stream-chip ${meta.cls}`}
-                                title={`${h.hang_ten ?? h.hang_ma}\n• Nhu cầu: ${soGoc(h.can)} ${h.don_vi_goc ?? ""}\n• Đang giữ: ${soGoc(h.dang_giu)} ${h.don_vi_goc ?? ""}${h.thieu > 0 ? `\n• Thiếu: ${soGoc(h.thieu)}` : ""}${coTheGiuNgay(h) ? `\n• ${moTaCoTheGiuNgay(h)}` : ""}${h.trang_thai === "ve_muon" ? `\n• Đã đặt mua: ${moTaVeMuon(h)}` : ""}${vet ? `\n${vet.title}` : ""}`}
+                                title={`${h.hang_ten ?? h.hang_ma}\n• Nhu cầu: ${soGoc(h.can)} ${nhanDonVi(h.don_vi_goc)}\n• Đang giữ: ${soGoc(h.dang_giu)} ${nhanDonVi(h.don_vi_goc)}${h.thieu > 0 ? `\n• Thiếu: ${soGoc(h.thieu)}` : ""}${coTheGiuNgay(h) ? `\n• ${moTaCoTheGiuNgay(h)}` : ""}${h.trang_thai === "ve_muon" ? `\n• Đã đặt mua: ${moTaVeMuon(h)}` : ""}${vet ? `\n${vet.title}` : ""}`}
                               >
                                 <Icon name={icon} size={12} />
                                 <span className="khvt-stream-chip__name">
@@ -532,7 +536,7 @@ export function GiuChoTheoLenhView({
                                 </span>
                                 {h.thieu > 0 ? (
                                   <span className="khvt-stream-chip__deficit">
-                                    -{soGoc(h.thieu)} {h.don_vi_goc ?? ""}
+                                    -{soGoc(h.thieu)} {nhanDonVi(h.don_vi_goc)}
                                   </span>
                                 ) : (
                                   <span className="khvt-stream-chip__ok">
@@ -789,7 +793,7 @@ export function GiuChoTheoLenhView({
 
                           <div className="khvt-bcard__item-stats">
                             <span className="khvt-bcard__item-need">
-                              cần <b>{soGoc(h.can)}</b> {h.don_vi_goc ?? ""}
+                              cần <b>{soGoc(h.can)}</b> {nhanDonVi(h.don_vi_goc)}
                             </span>
                             <span className="khvt-bcard__item-hold">
                               {h.dang_giu > 0 ? `giữ ${soGoc(h.dang_giu)}` : "chưa giữ"}
@@ -1086,12 +1090,12 @@ function LenhVatTuDrawer({
                           </div>
                         </td>
                         <td className="khsx-num khvt-num-cell">
-                          <div className="khvt-num-primary"><b>{soGoc(h.can)}</b> <small>{h.don_vi_goc ?? ""}</small></div>
+                          <div className="khvt-num-primary"><b>{soGoc(h.can)}</b> <small>{nhanDonVi(h.don_vi_goc)}</small></div>
                         </td>
                         <td className="khsx-num khvt-num-cell">
                           <div className="khvt-num-primary">
                             <span className={h.dang_giu > 0 ? "khvt-num-sub--ok" : "khvt-text-ash"}>
-                              <b>{soGoc(h.dang_giu)}</b> <small>{h.don_vi_goc ?? ""}</small>
+                              <b>{soGoc(h.dang_giu)}</b> <small>{nhanDonVi(h.don_vi_goc)}</small>
                             </span>
                           </div>
                         </td>
@@ -1246,7 +1250,7 @@ function HopNhaCho({
             {dangGiu.map((h) => (
               <li key={`${h.hang_loai}-${h.hang_id}`}>
                 <b>
-                  {soGoc(h.dang_giu)} {h.don_vi_goc ?? ""}
+                  {soGoc(h.dang_giu)} {nhanDonVi(h.don_vi_goc)}
                 </b>{" "}
                 {h.hang_ten ?? h.hang_ma ?? "(đã gỡ khỏi danh mục)"}
                 {h.so_lenh_khac_thieu > 0 && (

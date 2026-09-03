@@ -26,6 +26,7 @@ from ...models.san_xuat_san_luong import (
     SanXuatBatchLotVao,
     SanXuatKetQuaNhanh,
 )
+from ...repositories.don_vi_do_repo import DonViDoRepository, nhan_don_vi
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
 from .thuc_thi import _aware, _gate, _moc
 
@@ -112,6 +113,7 @@ def _toa_san_luong(
 
 def _chuan_hoa_lot(
     repo: SanXuatSanLuongRepository, dich_cv, don_vi_mac_dinh: str, raw: dict,
+    dv_ten: dict[str, str],
 ) -> SanXuatBatchLotVao:
     """Dựng một dòng lot đầu vào từ payload thô, kiểm §10.3. KHÔNG add vào session (caller làm)."""
     nguon_loai = (raw.get("nguon_loai") or LOT_TU_BATCH).strip()
@@ -145,7 +147,8 @@ def _chuan_hoa_lot(
             da_dung = repo.da_dung_nhanh(nguon.id, dich_cv.lsx_id)
             if da_dung + so_luong > float(kq.so_luong) + _EPS:
                 raise ValueError(
-                    f"Vượt phần đã toả cho lệnh sản xuất này ({float(kq.so_luong):g} {kq.don_vi})."
+                    f"Vượt phần đã toả cho lệnh sản xuất này "
+                    f"({float(kq.so_luong):g} {nhan_don_vi(dv_ten, kq.don_vi)})."
                 )
         nguon_lot_id = None
     else:  # LOT_TU_KHO
@@ -219,15 +222,19 @@ def tao_batch(
     # đây. Nhận đơn vị khác `don_vi_ra` là cộng táo với cam: 20 ram ghi vào bước khai 10.000 tờ ra
     # "còn thiếu 9.980" dù việc đã xong. Từ chối rõ ràng đúng hơn là cộng nhầm im lặng.
     don_vi_cv = (cv.don_vi_ra or "").strip()
+    # Câu này TỔ đọc, nên nói tên đơn vị ("tờ") chứ đừng nói mã ("to") — cột giữ mã, xem
+    # `DonViDoRepository.ten_theo_ma`.
+    dv_ten = DonViDoRepository(db).ten_theo_ma()
     if don_vi_cv and don_vi_batch != don_vi_cv:
         raise ValueError(
-            f"Đơn vị sản lượng phải là “{don_vi_cv}” — đúng đơn vị đầu ra của bước này."
+            f"Đơn vị sản lượng phải là “{nhan_don_vi(dv_ten, don_vi_cv)}” — "
+            f"đúng đơn vị đầu ra của bước này."
         )
 
     # Dựng lot TRƯỚC khi add batch để bắt lỗi sớm (chưa chạm session cho tới khi hợp lệ hết).
     don_vi_lot_mac_dinh = (cv.don_vi_vao or don_vi_batch or "").strip()
     cac_lot = [
-        _chuan_hoa_lot(repo, cv, don_vi_lot_mac_dinh, r)
+        _chuan_hoa_lot(repo, cv, don_vi_lot_mac_dinh, r, dv_ten)
         for r in (lot_vao or [])
     ]
 
@@ -295,6 +302,7 @@ def them_lot(
             "so_luong": so_luong,
             "don_vi": don_vi,
         },
+        DonViDoRepository(db).ten_theo_ma(),
     )
     lot.batch_id = batch.id
     repo.add(lot)

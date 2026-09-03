@@ -1,427 +1,70 @@
-"""API danh sách Lệnh sản xuất — phân trang + lọc Ở MÁY CHỦ, phạm vi gắn từ QUYỀN.
+"""API danh sách màn Hồ sơ lệnh sản xuất — phân trang + lọc Ở MÁY CHỦ, phạm vi gắn từ QUYỀN.
 
 Ba thứ phải đúng ngay từ đầu, sửa sau rất đắt:
   · `page_size` cắt ở MÁY CHỦ, không kéo cả bảng về rồi slice ở trình duyệt.
   · Client KHÔNG được tự truyền `sale_user_id` để nới phạm vi — backend tự gắn từ token.
   · Response không mang một con số tiền nào.
 
-BA FIXTURE của brief KHÔNG có sẵn ở đâu trong repo (`hai_muoi_lenh`, `sale_khac`, `lenh_nhap` —
-đã grep) nên dựng hết ở đây. Hai fixture CÓ thật giữ nguyên: `client` + `seed_credentials`
-(`tests/conftest.py:38,51`).
-
---- VÌ SAO KHÔNG DÙNG FIXTURE `db` CỦA CÁC FILE ANH EM -------------------------------------------
-`tests/test_xep_lich_service.py::db` (mà `test_san_xuat_board` / `test_lenh_sx_tien_do` re-export)
-mở đầu bằng `drop_all` + `create_all` + `seed_all` — Y HỆT `conftest.client`. Kéo cả hai vào một
-test là hai lượt xoá bảng đá nhau: cái chạy sau xoá sạch dữ liệu cái chạy trước, và triệu chứng là
-một danh sách RỖNG chứ không phải một lỗi. Nên ở đây chỉ mượn HÀM (`_dung_lenh`, `_hai_lsx_san_sang`
-là plain function, không phải fixture), còn session thì tự mở bằng `SessionLocal()` SAU khi `client`
-đã dựng xong nền — đúng khuôn `test_lenh_sx_quyen.py::test_migration_0246_chep_quyen_cho_vai_tu_tao`.
-DB test là SQLite in-memory + StaticPool ⇒ session này và session của request DÙNG CHUNG một
-connection, nên mọi fixture PHẢI `commit()` trước khi trả về, không thì request đọc phải nửa vời.
-
---- HAI CHỖ CỐ Ý LÀM LỆCH (bài học Task 6 & 7) --------------------------------------------------
-  · `lsx.id` vs `order_line_id` — hai bảng id tự tăng ĐỘC LẬP, trên DB test trắng chúng trôi song
-    song và bằng nhau. `_dot_dong_don()` đốt trước một loạt `order_lines.id`: không có nó thì
-    `bc.giao_cua(lsx_id)` và `bc.giao[lsx_id]` cho cùng kết quả và mọi bài chạm giao hàng hết canh.
-  · `BAY_GIO` của các bài KPI đặt ở 02:00 GIỜ VN (19:00 UTC hôm trước) — ngày theo giờ xưởng KHÁC
-    hẳn ngày theo UTC. Đặt mốc ban ngày thì bài "hôm nay" xanh cả khi cài đặt tính theo UTC.
-
---- LỆNH "PHÁT HÀNH" TRONG FIXTURE --------------------------------------------------------------
-`san_xuat/release.phat_hanh` KHÔNG đụng `lsx.trang_thai` (đã đọc: nó chỉ đóng băng gói + công
-việc). Đường ghi production của cột đó là `xep_lich_van_de_service.py:716`
-(`lsx.trang_thai = LSX_DA_PHAT_HANH` — một phép gán cột phẳng, sau khi cụm liên thông qua hết cửa
-vật tư/KCS-cuối). Fixture ở đây gán ĐÚNG giá trị đó bằng tay và bỏ qua các cửa — cửa là chuyện của
-bàn xếp lịch, không phải của tầng đọc; giá trị ghi vào cột thì y hệt production.
+FIXTURE + HELPER dựng cảnh nay nằm ở `tests/lenh_sx_fixtures.py` — RÚT sang đó khi Task 10
+(hồ sơ chi tiết) cần đúng những thứ này. Import lại vào đây bằng `# noqa: F401` là bắt buộc:
+pytest chỉ thấy fixture nào có mặt trong namespace của chính module test, mà linter thì lại đọc
+chúng như tên thừa. Lý do KHÔNG chép sang file test mới (và mọi cái bẫy của cảnh dựng ở đây —
+`db` của file anh em, `_dot_dong_don`, `BAY_GIO` 02:00 giờ VN, phát hành bằng tay) đều đã ghi
+trong docstring của module fixture; đọc ở đó, đừng chép lại xuống đây thành bản thứ hai.
 """
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import event, update
+from sqlalchemy import event
 
-from app.db import SessionLocal, engine
-from app.models.bai_ghep import BaiGhep, BaiGhepThanhVien
-from app.models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
+from app.db import engine
 from app.models.customer import Customer
-from app.models.department import Department
-from app.models.employee import Employee
-from app.models.lsx import (
-    LB_MAY, TT_DA_PHAT_HANH, TT_SAN_SANG, Lsx, LsxCongDoan, LsxCongDoanPhuThuoc,
-)
-from app.models.order import Order, OrderLine
+from app.models.lsx import Lsx, LsxCongDoan
 from app.models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, CV_TAM_DUNG, SanXuatCongViec
 from app.models.san_xuat_kcs import SanXuatKcsBatch
-from app.models.san_xuat_thuc_thi import (
-    PC_HOAT_DONG, PHIEN_KET_THUC, SanXuatPhanCong, SanXuatPhienChay,
-)
-from app.models.user import User
-from app.repositories.audit_repo import AuditLogRepository
-from app.repositories.accounting_repo import AccountingRepository
-from app.repositories.document_sequence_repo import DocumentSequenceRepository
-from app.repositories.lsx_repo import LsxRepository
-from app.repositories.order_repo import OrderRepository
-from app.repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
-from app.repositories.quotation_repo import QuotationRepository
-from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
-from app.repositories.user_repo import UserRepository
-from app.security import create_access_token, hash_password
-from app.services.accounting_service import AccountingService
+from app.models.san_xuat_thuc_thi import SanXuatPhienChay
+from app.security import create_access_token
 from app.services.lenh_sx import danh_sach, trang_thai
-from app.services.lsx_service import LsxService
-from app.services.order_service import OrderService
-from app.services.san_xuat import release, thuc_thi
-from app.services.sequence_service import SequenceService
+from app.services.san_xuat import thuc_thi
 
-# Plain function (KHÔNG phải fixture) — xem docstring module. `_giao_xong` dựng yêu cầu giao +
-# chuyến ĐÃ CÓ KẾT QUẢ, tức số THỰC NHẬN (`delivery_trip_lines.qty_giao`) — đường DUY NHẤT làm một
-# lệnh rơi vào tab Hoàn thành; docstring của nó giải thích vì sao không được đếm `qty` yêu cầu.
-from tests.test_lenh_sx_tien_do import _cv_ghep, _dung_lenh
+# Plain function (KHÔNG phải fixture) — xem docstring `tests/lenh_sx_fixtures.py`. `_giao_xong`
+# dựng yêu cầu giao + chuyến ĐÃ CÓ KẾT QUẢ, tức số THỰC NHẬN (`delivery_trip_lines.qty_giao`) —
+# đường DUY NHẤT làm một lệnh rơi vào tab Hoàn thành; docstring của nó giải thích vì sao không
+# được đếm `qty` yêu cầu.
 from tests.test_lenh_sx_trang_thai import _giao_xong
-from tests.test_san_xuat_board import _to_moi
-from tests.test_xep_lich_service import _hai_lsx_san_sang
 
-# 02:00 giờ VN ngày 01/09 = 19:00 UTC ngày 31/08. Mọi bài "hôm nay" đo bằng mốc này để cài đặt
-# tính theo UTC bị bắt ngay (xem `test_summary_cong_doan_xong_theo_gio_xuong`).
-BAY_GIO = datetime(2026, 8, 31, 19, 0, tzinfo=timezone.utc)
-
-
-# --- Hạ tầng phiên làm việc ---------------------------------------------------------------------
-@pytest.fixture
-def sess(client):
-    """Session RIÊNG trên CÙNG nền mà `client` vừa dựng (drop/create + lifespan seed).
-
-    Phụ thuộc `client` là phần LOAD-BEARING: nó ép thứ tự "dựng nền xong mới ghi dữ liệu". Đảo lại
-    thì `client` xoá sạch những gì fixture vừa ghi.
-    """
-    s = SessionLocal()
-    yield s
-    s.close()
-
-
-@pytest.fixture
-def admin(sess) -> User:
-    return sess.query(User).filter(User.username == "admin").first()
-
-
-@pytest.fixture
-def customer(sess) -> Customer:
-    c = Customer(code="KH-DS", name="Khách Danh Sách")
-    sess.add(c)
-    sess.commit()
-    return c
+# Fixture + helper dùng chung (xem module đó). `noqa: F401` vì pytest tiêu thụ chúng qua TÊN
+# trong namespace này, không qua lời gọi — bỏ import là mọi bài dưới đây mất fixture.
+from tests.lenh_sx_fixtures import (  # noqa: F401
+    BAY_GIO,
+    _chay_that,
+    _cvs,
+    _dat_xong_luc,
+    _dot_dong_don,
+    _giao_nguoi,
+    _h,
+    _lenh_ghep_doi,
+    _lenh_tho,
+    _nhuong_ten_to,
+    _phat_hanh_that,
+    _tok,
+    admin,
+    customer,
+    ghep_doi,
+    hai_muoi_lenh,
+    lenh_cua_sale_own,
+    lenh_nhap,
+    lenh_that,
+    lsx_svc,
+    orders,
+    sale_khac,
+    sale_own,
+    sess,
+)
 
 
-@pytest.fixture
-def orders(sess) -> OrderService:
-    audit = AuditLogRepository(sess)
-    acc_repo = AccountingRepository(sess)
-    accounting = AccountingService(
-        acc_repo, PurchaseRequestRepository(sess), SupplierRepository(sess),
-        UserRepository(sess), audit, SequenceService(DocumentSequenceRepository(sess)),
-    )
-    return OrderService(
-        OrderRepository(sess), audit, QuotationRepository(sess), sess, acc_repo, accounting
-    )
-
-
-@pytest.fixture
-def lsx_svc(sess) -> LsxService:
-    return LsxService(
-        sess, LsxRepository(sess), AuditLogRepository(sess),
-        SequenceService(DocumentSequenceRepository(sess)),
-    )
-
-
-def _tok(client, seed_credentials) -> str:
-    return client.post("/api/auth/login", json=seed_credentials).json()["access_token"]
-
-
-def _h(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
-
-
-# --- Dàn cảnh -----------------------------------------------------------------------------------
-_dem_ten_to = 0
-
-
-def _nhuong_ten_to(sess) -> None:
-    """`_dung_lenh` tạo tổ với tên CỨNG "Tổ Tiến độ", mà `departments.name`/`.code` là UNIQUE —
-    gọi lần thứ hai trong cùng một test là `IntegrityError`. Đổi tên tổ CŨ (không xoá: công việc đã
-    phát hành neo `department_id`, không neo tên). Khuôn lấy từ `test_lenh_sx_trang_thai._don_nen`.
-    """
-    global _dem_ten_to
-    _dem_ten_to += 1
-    for d in sess.query(Department).filter(Department.name == "Tổ Tiến độ").all():
-        d.name = f"Tổ Tiến độ {_dem_ten_to}"
-        d.code = f"TO-TIEN-DO-DS-{_dem_ten_to}"
-    sess.commit()
-
-
-def _dot_dong_don(sess, so_dong: int = 7) -> None:
-    """Đốt vài `order_lines.id` để dãy đó KHÔNG còn trôi song song với dãy `lsx.id`.
-
-    `Lsx` và `OrderLine` là hai bảng tự tăng độc lập; trên DB test trắng mà mỗi lệnh sinh đúng một
-    dòng đơn thì `lsx.id == order_line_id` LUÔN đúng — và khi đó `bc.giao_cua(lsx_id)` (tra đúng)
-    với `bc.giao[lsx_id]` (tra sai) trả CÙNG một thứ, bài test hết phân biệt được (Task 6 đã đo).
-    """
-    don = Order(order_no=f"DH-DS-DOT-{so_dong}")
-    sess.add(don)
-    sess.flush()
-    for _ in range(so_dong):
-        sess.add(OrderLine(order_id=don.id, description="Dòng mồi", qty=1))
-    sess.commit()
-
-
-def _lenh_tho(
-    sess, *, ma: str, sale_user_id: int | None, customer_id: int | None = None,
-    trang_thai_lsx: str = TT_DA_PHAT_HANH, han_sx: date | None = None,
-    is_rush: bool = False, so_luong: int = 1000, ten: str = "Hộp giấy",
-) -> int:
-    """MỘT lệnh + đơn + dòng đơn của nó, đặt cột bằng tay.
-
-    Mọi cột đặt ở đây đều là cột mà đường ghi production ghi đúng giá trị đó:
-      · `orders.sale_user_id` — `OrderService` gán người bán khi lập đơn;
-      · `lsx.trang_thai='da_phat_hanh'` — `xep_lich_van_de_service.py:716` (xem docstring module);
-      · `lsx.is_rush` / `han_hoan_thanh_sx` / `so_luong_dat` — `LsxService.tao` + màn Kế hoạch SX.
-    KHÔNG có công việc/phiên nào: đây là lệnh dùng cho các bài ĐẾM và PHÂN TRANG, nơi nội dung
-    routing không tham gia phép so. Bài nào cần lệnh THẬT (routing + snapshot + phiên) thì dùng
-    `lenh_that`, dựng qua `_dung_lenh` (đơn → PTG → LSX → `release.phat_hanh`).
-    """
-    don = Order(order_no=f"DH-{ma}", sale_user_id=sale_user_id, customer_id=customer_id)
-    don.lines.append(OrderLine(description=ten, qty=so_luong))
-    sess.add(don)
-    sess.flush()
-    lsx = Lsx(
-        ma=ma, ten=ten, order_id=don.id, order_line_id=don.lines[0].id,
-        trang_thai=trang_thai_lsx, so_luong_dat=so_luong, han_hoan_thanh_sx=han_sx,
-        is_rush=is_rush,
-    )
-    sess.add(lsx)
-    sess.commit()
-    return lsx.id
-
-
-@pytest.fixture
-def hai_muoi_lenh(sess, admin, customer) -> list[int]:
-    """20 lệnh ĐÃ PHÁT HÀNH thuộc phạm vi của admin (scope `all` ⇒ thấy hết).
-
-    Hạn SX rải đều 20 ngày và mã đánh số để bài phân trang kiểm được TRẬT TỰ ổn định, không chỉ
-    đếm số dòng: hai trang liền nhau phải rời nhau, gộp lại vẫn đủ 20.
-    """
-    _dot_dong_don(sess)
-    ids = []
-    for i in range(20):
-        ids.append(_lenh_tho(
-            sess, ma=f"LSX-DS-{i:02d}", sale_user_id=admin.id, customer_id=customer.id,
-            han_sx=date(2026, 9, 1) + timedelta(days=i), so_luong=100 + i,
-        ))
-    return ids
-
-
-@pytest.fixture
-def lenh_nhap(sess, admin) -> int:
-    """Lệnh CHƯA phát hành (`san_sang`). Hai màn chỉ-đọc không bao giờ được hiện nó."""
-    return _lenh_tho(
-        sess, ma="LSX-DS-NHAP", sale_user_id=admin.id, trang_thai_lsx=TT_SAN_SANG,
-        ten="Lệnh còn ở bàn kế hoạch",
-    )
-
-
-@pytest.fixture
-def sale_khac(sess) -> User:
-    """Một người bán KHÁC admin, KHÔNG có lệnh nào — dùng làm giá trị lạ nhét lên URL."""
-    u = User(username="sale_khac_ds", name="Sale khác (DS)", password_hash=hash_password("x"))
-    sess.add(u)
-    sess.commit()
-    return u
-
-
-@pytest.fixture
-def sale_own(sess) -> User:
-    """Người bán THẬT mang vai "NV Sales" (seed) — `lenh_san_xuat` ở scope `own`.
-
-    Dùng vai SEED chứ không tự chế quyền: phạm vi `own` của hai màn mới là thứ `seed.ROLES` khai
-    (`seed.py:615`), tự dựng một vai riêng ở đây thì bài test canh cấu hình của chính nó.
-    """
-    roles = RoleRepository(sess)
-    depts = DepartmentRepository(sess)
-    kd = depts.get_by_name("Kinh doanh")
-    vai = roles.get_by_name_and_department("NV Sales", kd.id)
-    assert vai is not None, "seed thiếu vai 'NV Sales' — bài phạm vi mất tiền đề"
-    users = UserRepository(sess)
-    u = users.create(
-        username="sale_own_ds", name="Sale Own (DS)", password_hash=hash_password("x")
-    )
-    users.set_assignment(u, department_id=kd.id, role_id=vai.id, is_active=True)
-    sess.commit()
-    return u
-
-
-@pytest.fixture
-def lenh_cua_sale_own(sess, sale_own, customer) -> int:
-    return _lenh_tho(
-        sess, ma="LSX-DS-OWN", sale_user_id=sale_own.id, customer_id=customer.id,
-        han_sx=date(2026, 9, 5), ten="Lệnh của Sale Own",
-    )
-
-
-def _phat_hanh_that(sess, orders, lsx_svc, admin, customer, **kw) -> int:
-    """Một lệnh THẬT (routing + gói phát hành + công việc snapshot) rồi bật `da_phat_hanh`.
-
-    `_dung_lenh` đi luồng đơn → PTG → LSX → sửa routing → `release.phat_hanh`, nhưng
-    `release.phat_hanh` KHÔNG đụng `lsx.trang_thai` — cột đó do
-    `xep_lich_van_de_service._phat_hanh_ca_cum` gán. Không bật thì lệnh nằm ở `san_sang` và
-    `pham_vi.loc_lsx_da_phat_hanh` loại nó ra, mọi bài dưới đây rỗng mà không ai biết vì sao.
-    """
-    _nhuong_ten_to(sess)
-    lsx_id = _dung_lenh(sess, orders, lsx_svc, admin, customer, **kw)
-    lsx = sess.get(Lsx, lsx_id)
-    lsx.trang_thai = TT_DA_PHAT_HANH
-    sess.commit()
-    return lsx_id
-
-
-@pytest.fixture
-def lenh_that(sess, orders, lsx_svc, admin, customer) -> int:
-    """Lệnh ĐÃ PHÁT HÀNH có routing thật: CTP 15' → In 360' → Đóng gói 60'."""
-    _dot_dong_don(sess, 3)
-    return _phat_hanh_that(
-        sess, orders, lsx_svc, admin, customer,
-        buoc=[("CTP", 15, 500), ("In", 360, 5000), ("Đóng gói", 60, 5000)],
-    )
-
-
-def _cvs(sess, lsx_id: int) -> list[SanXuatCongViec]:
-    return (
-        sess.query(SanXuatCongViec)
-        .filter(SanXuatCongViec.lsx_id == lsx_id)
-        .order_by(SanXuatCongViec.id)
-        .all()
-    )
-
-
-def _dat_xong_luc(sess, cv: SanXuatCongViec, luc: datetime) -> None:
-    """Đóng một bước ĐÚNG HÌNH DẠNG production, nhưng ở một MỐC do bài test chọn.
-
-    `thuc_thi.ket_thuc` đóng phiên đang mở (`loai_dong='ket_thuc'`), đặt `trang_thai='completed'`
-    VÀ đóng dấu `hoan_thanh_luc = now` (mig `0256`); `updated_at` mang `onupdate=_utcnow` nên nó
-    cũng ghi khoảnh khắc ấy. Fixture chép lại cả bốn thứ đó và chỉ DỜI mốc — không bịa ra hình dạng
-    nào production không ghi.
-
-    `hoan_thanh_luc` là cột KPI đọc; `updated_at` vẫn đặt bằng đúng mốc ấy để bài test nào so hai
-    cột cũng bắt đầu từ chỗ production để lại chúng (bằng nhau), rồi mới tách ra khi có đường ghi
-    khác chạm vào. Cả hai phải ghi bằng Core `update()` nêu đích danh cột, vì `onupdate` chỉ tự
-    điền cho cột KHÔNG có trong mệnh đề SET.
-    """
-    sess.add(SanXuatPhienChay(
-        cong_viec_id=cv.id, so_thu_tu=1, bat_dau=luc - timedelta(hours=1), ket_thuc=luc,
-        loai_dong=PHIEN_KET_THUC,
-    ))
-    sess.execute(
-        update(SanXuatCongViec)
-        .where(SanXuatCongViec.id == cv.id)
-        .values(trang_thai=CV_HOAN_THANH, hoan_thanh_luc=luc, updated_at=luc)
-    )
-    sess.commit()
-    sess.expire_all()
-
-
-_dem_bai_ghep = 0
-
-
-def _lenh_ghep_doi(sess, orders, lsx_svc, admin, customer, *, buoc, ghep_idx: int):
-    """HAI lệnh ĐÃ PHÁT HÀNH cùng nằm trên MỘT bài ghép. Trả `(lsx_a, lsx_b, cv_chung)`.
-
-    Vì sao file này phải có fixture bài ghép THẬT: `danh_sach.py` đặt luận cứ của ba đoạn mã lên ca
-    in ghép (vế `EXISTS` qua cầu ghép, `cong_viec_du` trong `_buoc_hien_tai`, khử trùng `cv`/`kcs`
-    trong `summary`). Bước bị ghép phủ KHÔNG đẻ công việc riêng — cả cụm dùng CHUNG một
-    `SanXuatCongViec` mang `lsx_id IS NULL` + `bai_ghep_cong_doan_id`
-    (`services/san_xuat/snapshot.py`) — nên mọi bài dựng bằng lệnh thường đều chạy trên hình dạng
-    KHÔNG có cái mà đoạn mã ấy nói nó xử lý.
-
-    Khác `_dung_lenh(ghep=[...])` của Task 7 ở đúng một điểm: bài ghép ở đó chỉ có MỘT thành viên,
-    nên phép khử trùng "một ca ghép phục vụ nhiều lệnh chỉ đếm MỘT" không bao giờ bị thử. Ở đây cả
-    hai lệnh cùng vào bài, và cùng được phát hành trong MỘT gói (`release.phat_hanh` nhận cả tập)
-    — đúng cách bàn xếp lịch thả một tờ in ghép xuống xưởng.
-
-    Đi đường thật: đơn → PTG → LSX → sửa routing lúc `san_sang` → dựng bài ghép → `phat_hanh`.
-    Thứ duy nhất đặt tay sau phát hành là `lsx.trang_thai` (xem `_phat_hanh_that`).
-    """
-    global _dem_bai_ghep
-    _dem_bai_ghep += 1
-    a, b = _hai_lsx_san_sang(sess, orders, lsx_svc, admin, customer)
-    to = _to_moi(sess, f"Tổ Ghép API {_dem_bai_ghep}", f"TO-GHEP-API-{_dem_bai_ghep}")
-
-    buocs: dict[int, list[LsxCongDoan]] = {}
-    for l in (a, b):
-        for cd in sess.query(LsxCongDoan).filter(LsxCongDoan.lsx_id == l.id).all():
-            sess.delete(cd)
-    sess.flush()
-    for l in (a, b):
-        ds = []
-        for i, (ten, sl) in enumerate(buoc):
-            cd = LsxCongDoan(
-                lsx_id=l.id, thu_tu=i, ten=ten, nhom="print", department_id=to.id,
-                loai_buoc=LB_MAY, so_luong_vao=sl, so_luong_ra=sl,
-                don_vi_vao="to", don_vi_ra="to",
-            )
-            sess.add(cd)
-            ds.append(cd)
-        buocs[l.id] = ds
-    sess.flush()
-    for ds in buocs.values():
-        for i in range(len(ds) - 1):
-            sess.add(LsxCongDoanPhuThuoc(buoc_truoc_id=ds[i].id, buoc_sau_id=ds[i + 1].id))
-    sess.commit()
-
-    # Bài ghép phải tồn tại TRƯỚC phát hành: `snapshot.dung_cong_viec` đọc bảng phủ để biết bước
-    # nào KHÔNG được đẻ công việc riêng. Dựng sau là snapshot đã sai từ gốc.
-    sl_ghep = buoc[ghep_idx][1]
-    bg = BaiGhep(ma=f"GB-API-{_dem_bai_ghep}", ten="Bài ghép API")
-    sess.add(bg)
-    sess.flush()
-    chung = BaiGhepCongDoan(
-        bai_ghep_id=bg.id, thu_tu=0, ten="Ca chạy ghép", nhom="print", department_id=to.id,
-        loai_buoc=LB_MAY, so_luong_vao=sl_ghep, so_luong_ra=sl_ghep,
-        don_vi_vao="to", don_vi_ra="to",
-    )
-    sess.add(chung)
-    sess.flush()
-    for l in (a, b):
-        sess.add(BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=l.id, so_con_tren_to=2))
-        sess.add(BaiGhepCongDoanMap(
-            bai_ghep_cong_doan_id=chung.id, lsx_id=l.id,
-            lsx_step_key=buocs[l.id][ghep_idx].step_key,
-        ))
-    sess.commit()
-
-    release.phat_hanh(sess, lsx_ids={a.id, b.id}, bai_ghep_ids={bg.id}, actor=admin)
-    sess.commit()
-    for l in (a, b):
-        l.trang_thai = TT_DA_PHAT_HANH
-    sess.commit()
-
-    cv_chung = (
-        sess.query(SanXuatCongViec).filter_by(bai_ghep_cong_doan_id=chung.id).one()
-    )
-    # Chốt TIỀN ĐỀ của mọi bài dùng fixture này: nếu bước ghép vẫn đẻ công việc riêng thì
-    # `cong_viec[lsx_id]` đã đủ và các bài dưới đây canh trên hình dạng sai.
-    assert cv_chung.lsx_id is None
-    assert not sess.query(SanXuatCongViec).filter(
-        SanXuatCongViec.lsx_id == a.id, SanXuatCongViec.ten_cong_doan == buoc[ghep_idx][0]
-    ).count(), "bước bị ghép phủ KHÔNG được đẻ công việc riêng"
-    return a.id, b.id, cv_chung
-
-
-@pytest.fixture
-def ghep_doi(sess, orders, lsx_svc, admin, customer):
-    """Hai lệnh chung một ca in ghép: CTP riêng → In GHÉP → Đóng gói riêng."""
-    _dot_dong_don(sess, 9)
-    return _lenh_ghep_doi(
-        sess, orders, lsx_svc, admin, customer,
-        buoc=[("CTP", 500), ("In", 5000), ("Đóng gói", 5000)], ghep_idx=1,
-    )
 
 
 # --- Bài của brief -------------------------------------------------------------------------------
@@ -911,38 +554,6 @@ def test_may_lay_duoc_khi_chua_co_phien_nao(client, seed_credentials, sess, lenh
     assert row["may"] == "Máy bế Bobst 102", "bước đã xếp máy mà chưa chạy phải hiện tên máy"
 
 
-def _giao_nguoi(sess, admin, cv, *, ma: str, ten: str) -> int:
-    """Giao MỘT người vào công việc bằng ĐÚNG đường ghi production. Trả `san_xuat_phan_cong.id`.
-
-    Gọi `thuc_thi.phan_cong` chứ không `db.add(SanXuatPhanCong(...))`: service còn chụp
-    `la_luong_khoan`, mở khoảng tham gia khi việc đang chạy và soi luật bước nội bộ. Dựng tay một
-    dòng mà production không bao giờ ghi như thế là bài test canh một hình dạng không tồn tại.
-
-    `_gate` (`thuc_thi.py:63`) chỉ cho TỔ TRƯỞNG đúng tổ ghi, mà `_to_moi` của fixture tạo tổ
-    KHÔNG có `head_user_id` — nên phải trao quyền tổ trưởng cho `admin` trước, đúng như dữ liệu
-    thật (mọi tổ sản xuất đều có tổ trưởng).
-    """
-    to = sess.get(Department, cv.department_id)
-    if to.head_user_id != admin.id:
-        to.head_user_id = admin.id
-        sess.commit()
-    emp = Employee(code=ma, full_name=ten, department_id=to.id)
-    sess.add(emp)
-    sess.commit()
-    thuc_thi.phan_cong(sess, user=admin, cong_viec_id=cv.id, employee_id=emp.id)
-    sess.expire_all()
-    return (
-        sess.query(SanXuatPhanCong)
-        .filter(
-            SanXuatPhanCong.cong_viec_id == cv.id,
-            SanXuatPhanCong.employee_id == emp.id,
-            SanXuatPhanCong.trang_thai == PC_HOAT_DONG,
-        )
-        .one()
-        .id
-    )
-
-
 def test_nguoi_rong_khi_chua_giao_ai(client, seed_credentials, lenh_that):
     """Chưa giao ai ⇒ `nguoi` là danh sách RỖNG, không phải `None`, không phải chữ bịa."""
     h = _h(_tok(client, seed_credentials))
@@ -1193,29 +804,6 @@ def test_kpi_khong_bi_go_phan_cong_keo_vao_hom_nay(sess, admin, lenh_that):
     )
 
 
-def _chay_that(sess, admin, cv, *, ma: str, ten: str) -> None:
-    """Cho một bước chạy rồi kết thúc bằng ĐÚNG hai lệnh production, không đặt cột nào bằng tay.
-
-    Ba cửa của `thuc_thi.bat_dau` phải mở đúng thứ tự, không cửa nào đi vòng được:
-      · `has_piece_work` của TỔ — `_la_luong_khoan` soi cờ này lúc `phan_cong` chụp roster, không
-        bật thì `bat_dau` chặn “phải có ít nhất một thợ lương khoán”. Bật TRƯỚC khi giao người,
-        vì cờ được CHỤP vào dòng phân công chứ không tra lại lúc bắt đầu.
-      · `ly_do_so_nguoi` — roster một người thường lệch `so_nhan_cong_tieu_chuan` của snapshot.
-      · `ly_do_tre` — `du_kien_bat_dau` của lệnh dựng sẵn nằm ở quá khứ.
-    Truyền cả hai lý do vô điều kiện là an toàn: không lệch/không trễ thì service tự bỏ qua.
-    """
-    to = sess.get(Department, cv.department_id)
-    to.has_piece_work = True
-    sess.commit()
-    _giao_nguoi(sess, admin, cv, ma=ma, ten=ten)
-    thuc_thi.bat_dau(
-        sess, user=admin, cong_viec_id=cv.id,
-        ly_do_tre="Chờ giấy về", ly_do_so_nguoi="Tổ thiếu người",
-    )
-    thuc_thi.ket_thuc(sess, user=admin, cong_viec_id=cv.id, ly_do_tre="Máy kẹt giữa ca")
-    sess.expire_all()
-
-
 def test_ket_thuc_that_dong_dau_hoan_thanh_luc(sess, admin, lenh_that):
     """ĐƯỜNG GHI THẬT có đóng dấu `hoan_thanh_luc`, và KPI hôm nay nhích lên nhờ chính dấu đó.
 
@@ -1360,3 +948,361 @@ def test_summary_so_cau_sql_hang_tren_truc_lenh(sess, orders, lsx_svc, admin, cu
         )
     n5 = _dem_sql(lambda: danh_sach.summary(sess, sale_ids=None, bay_gio=BAY_GIO))
     assert n5 == n3, f"số câu SQL của summary nở theo số lệnh: {n3} → {n5}"
+
+
+# --- Ô lọc MÁY: `GET /bo-loc` (bổ sung 02/09/2026) ------------------------------------------------
+# Vì sao có endpoint này thay vì mượn `/api/may-thiet-bi`: bên kia gác
+# `require_any_permission(("dm_thiet_bi","read"), ("tinh_gia_thanh","read"))`, mà vai QC — vai đứng
+# ở màn này nhiều nhất — có `lenh_san_xuat: read(all)` và KHÔNG có cả hai ô ấy ⇒ 403. Lý do đầy đủ
+# ở docstring `danh_sach.bo_loc`.
+def _bo_loc(client, h) -> list[dict]:
+    r = client.get("/api/lenh-san-xuat/bo-loc", headers=h)
+    assert r.status_code == 200, r.text
+    return r.json()["may"]
+
+
+def test_bo_loc_khong_dang_nhap_401(client):
+    assert client.get("/api/lenh-san-xuat/bo-loc").status_code == 401
+
+
+def test_bo_loc_khong_bi_route_dong_nuot(client, seed_credentials):
+    """BẪY THỨ TỰ KHAI ROUTE: `/bo-loc` phải nằm TRÊN `/{lsx_id}`.
+
+    Khai xuống dưới thì FastAPI khớp `/{lsx_id}` trước, "bo-loc" không parse ra `int` và người dùng
+    nhận **422** cho một URL hoàn toàn đúng — không phải 404, không phải lỗi nào gợi ra nguyên nhân.
+    Bài này chốt đúng con số đó: 422 ở đây nghĩa là route đã bị nuốt.
+    """
+    h = _h(_tok(client, seed_credentials))
+    r = client.get("/api/lenh-san-xuat/bo-loc", headers=h)
+    assert r.status_code == 200, (
+        f"{r.status_code} — 422 nghĩa là `/bo-loc` bị route động nuốt (khai sai thứ tự)"
+    )
+    assert "may" in r.json()
+
+
+def test_bo_loc_chi_may_co_that_trong_tap_lenh(client, seed_credentials, sess, lenh_that):
+    """Trả máy CÓ TRONG LỆNH, không phải cả danh mục máy.
+
+    Máy nằm trong danh mục mà không lệnh nào dùng thì KHÔNG được lên ô chọn: chọn nó xong bảng ra
+    rỗng — một lựa chọn dẫn thẳng tới ngõ cụt.
+    """
+    from app.models.may_thiet_bi import MayThietBi
+
+    h = _h(_tok(client, seed_credentials))
+    dung = MayThietBi(ma="MAY-BL-DUNG", ten="Máy đang chạy", loai_may="press_offset_sheet")
+    ranh = MayThietBi(ma="MAY-BL-RANH", ten="Máy chưa vào lệnh nào", loai_may="finishing")
+    sess.add_all([dung, ranh])
+    sess.flush()
+    cv = _cvs(sess, lenh_that)[1]
+    cv.may_id = dung.id
+    sess.commit()
+
+    theo_id = {m["id"]: m for m in _bo_loc(client, h)}
+    assert dung.id in theo_id, "máy đang chạy trên một lệnh phải có mặt ở ô lọc"
+    assert ranh.id not in theo_id, "máy không lệnh nào dùng mà bày ra là mời chọn để ra bảng rỗng"
+    assert theo_id[dung.id]["ten"] == "Máy đang chạy"
+    assert theo_id[dung.id]["ma"] == "MAY-BL-DUNG"
+    assert theo_id[dung.id]["so_lenh"] == 1
+
+
+def test_bo_loc_bat_may_cua_ca_in_ghep(client, seed_credentials, sess, ghep_doi):
+    """BẪY THỨ HAI, và là lý do endpoint này không được gom từ MỘT cột.
+
+    Máy của ca in ghép chỉ sống ở công việc CHUNG (`lsx_id IS NULL` + `bai_ghep_cong_doan_id`);
+    KHÔNG chỗ nào ghi ngược về `lsx_cong_doan.may_id`. Gom bằng vế routing một mình thì ô lọc
+    THIẾU đúng cái máy đang chạy nặng nhất, mà bảng thì vẫn hiện tên nó — người dùng đọc được tên
+    máy trên dòng rồi mở ô lọc ra không thấy đâu.
+
+    `so_lenh == 2` là phần thứ hai của bài: một ca ghép phục vụ hai lệnh thì ô chọn phải hứa HAI
+    dòng, vì bấm vào nó là lọc ra LỆNH chứ không phải ca chạy.
+    """
+    from app.models.may_thiet_bi import MayThietBi
+
+    h = _h(_tok(client, seed_credentials))
+    a, b, cv_chung = ghep_doi
+    may = MayThietBi(ma="MAY-BL-GHEP", ten="Máy in ghép BL", loai_may="press_offset_sheet")
+    sess.add(may)
+    sess.flush()
+    cv_chung.may_id = may.id
+    sess.commit()
+    assert not sess.query(LsxCongDoan).filter(
+        LsxCongDoan.lsx_id.in_([a, b]), LsxCongDoan.may_id == may.id
+    ).count(), "routing không được mang máy này, nếu không vế routing bắt hộ và bài mất nghĩa"
+
+    theo_id = {m["id"]: m for m in _bo_loc(client, h)}
+    assert may.id in theo_id, "thiếu vế CẦU GHÉP — máy của ca in ghép không lên được ô lọc"
+    assert theo_id[may.id]["so_lenh"] == 2, "một ca ghép phục vụ 2 lệnh ⇒ ô chọn hứa 2 dòng"
+
+
+def test_bo_loc_bat_may_chi_khai_o_routing(client, seed_credentials, sess, admin):
+    """Vế ROUTING: máy khai ở `lsx_cong_doan.may_id` mà chưa có công việc snapshot nào mang nó
+    (routing sửa sau phát hành). Gom bằng vế công việc một mình sẽ hụt."""
+    from app.models.may_thiet_bi import MayThietBi
+
+    h = _h(_tok(client, seed_credentials))
+    may = MayThietBi(ma="MAY-BL-ROUTING", ten="Máy khai ở routing", loai_may="finishing")
+    sess.add(may)
+    sess.flush()
+    lsx_id = _lenh_tho(sess, ma="LSX-BL-ROUTING", sale_user_id=admin.id)
+    sess.add(LsxCongDoan(lsx_id=lsx_id, thu_tu=0, ten="Bế", nhom="finishing", may_id=may.id))
+    sess.commit()
+    assert not sess.query(SanXuatCongViec).filter(
+        SanXuatCongViec.may_id == may.id
+    ).count(), "không được có công việc nào mang máy này, nếu không vế công việc bắt hộ"
+
+    theo_id = {m["id"]: m for m in _bo_loc(client, h)}
+    assert may.id in theo_id
+    assert theo_id[may.id]["so_lenh"] == 1
+
+
+def test_bo_loc_moi_may_deu_loc_ra_it_nhat_mot_lenh(
+    client, seed_credentials, sess, lenh_that, ghep_doi, hai_muoi_lenh
+):
+    """LUẬT của endpoint này, và là cách canh "gom đúng ba nơi" mà không phải liệt kê lại ba nơi ấy
+    trong bài test: mọi mục trả ra, đem gán `?may_id=`, phải ra ĐÚNG `so_lenh` dòng — tối thiểu là
+    một. Gom THỪA (vd bê cả danh mục máy) đỏ ngay ở đây; gom THIẾU thì hai bài trên bắt.
+    """
+    from app.models.may_thiet_bi import MayThietBi
+
+    h = _h(_tok(client, seed_credentials))
+    a, _b, cv_chung = ghep_doi
+    m1 = MayThietBi(ma="MAY-BL-X1", ten="Máy X1", loai_may="press_offset_sheet")
+    m2 = MayThietBi(ma="MAY-BL-X2", ten="Máy X2", loai_may="finishing")
+    sess.add_all([m1, m2])
+    sess.flush()
+    _cvs(sess, lenh_that)[1].may_id = m1.id
+    cv_chung.may_id = m2.id
+    sess.commit()
+
+    ds = _bo_loc(client, h)
+    assert len(ds) >= 2, "cảnh dựng phải có ít nhất hai máy, nếu không bài chạy trên tập rỗng"
+    for m in ds:
+        d = client.get(
+            f"/api/lenh-san-xuat?may_id={m['id']}&page_size=200", headers=h
+        ).json()
+        assert d["total"] >= 1, f"máy {m['ma']} bày ra ô chọn nhưng lọc xong bảng rỗng"
+        assert d["total"] == m["so_lenh"], (
+            f"ô lọc hứa {m['so_lenh']} lệnh cho máy {m['ma']} nhưng lọc ra {d['total']}"
+        )
+    ghep_ra = client.get(
+        f"/api/lenh-san-xuat?may_id={m2.id}&page_size=200", headers=h
+    ).json()
+    assert a in {i["id"] for i in ghep_ra["items"]}
+
+
+def test_bo_loc_theo_pham_vi(client, sess, sale_own, lenh_cua_sale_own, lenh_that):
+    """Ô lọc hẹp đúng bằng bảng: Sale scope `own` không được thấy máy của lệnh người khác bán.
+
+    Rộng hơn bảng là rò dữ liệu qua chính ô lọc — tên máy của lệnh ngoài phạm vi lọt ra danh sách,
+    và `so_lenh` còn nói luôn ngoài kia có bao nhiêu lệnh đang chạy máy đó.
+    """
+    from app.models.may_thiet_bi import MayThietBi
+
+    may_nguoi_khac = MayThietBi(
+        ma="MAY-BL-NGOAI", ten="Máy của lệnh người khác", loai_may="press_offset_sheet"
+    )
+    may_cua_minh = MayThietBi(ma="MAY-BL-MINH", ten="Máy của mình", loai_may="finishing")
+    sess.add_all([may_nguoi_khac, may_cua_minh])
+    sess.flush()
+    _cvs(sess, lenh_that)[1].may_id = may_nguoi_khac.id
+    sess.add(LsxCongDoan(
+        lsx_id=lenh_cua_sale_own, thu_tu=0, ten="Bế", nhom="finishing", may_id=may_cua_minh.id
+    ))
+    sess.commit()
+
+    h = _h(create_access_token(str(sale_own.id)))
+    ids = {m["id"] for m in _bo_loc(client, h)}
+    assert may_cua_minh.id in ids
+    assert may_nguoi_khac.id not in ids, "ô lọc rộng hơn bảng = rò dữ liệu ngoài phạm vi"
+
+
+def test_bo_loc_khong_lo_tien(client, seed_credentials, sess, lenh_that):
+    """Ràng buộc tiền của cả module áp cho MỌI endpoint, kể cả cái chỉ trả tên máy: `may_thiet_bi`
+    mang cả cụm cột chi phí, trả nguyên object máy ra là lộ ngay."""
+    from app.models.may_thiet_bi import MayThietBi
+
+    h = _h(_tok(client, seed_credentials))
+    may = MayThietBi(ma="MAY-BL-TIEN", ten="Máy soi tiền", loai_may="press_offset_sheet")
+    sess.add(may)
+    sess.flush()
+    _cvs(sess, lenh_that)[1].may_id = may.id
+    sess.commit()
+
+    r = client.get("/api/lenh-san-xuat/bo-loc", headers=h)
+    assert len(r.json()["may"]) >= 1, "body rỗng thì bài 'không lộ tiền' xanh vĩnh viễn"
+    body = r.text.lower()
+    for cam in ("don_gia", "gia_von", "thanh_tien", "luong_khoan", "chi_phi"):
+        assert cam not in body, f"lộ {cam}"
+
+
+def test_bo_loc_so_lenh_dem_lenh_khong_dem_buoc(client, seed_credentials, sess, lenh_that):
+    """`so_lenh` đếm LỆNH chứ không đếm BƯỚC — và trùng lặp ở đây là ca THƯỜNG, không phải ca biên.
+
+    Hai nguồn trùng độc lập nhau, bài này dựng CẢ HAI lên cùng một lệnh:
+      1. một lệnh dễ có HAI BƯỚC cùng chạy một máy (in mặt trước + in mặt sau, cán rồi cán lại)
+         ⇒ vế 1 trả hai cặp `(may, lsx)` y hệt nhau;
+      2. snapshot lúc phát hành lùi về `cd.may_id` khi bước không khai thời lượng (xem docstring
+         `_co_buoc`), nên vế 1 và vế 3 thường mang CÙNG một máy cho CÙNG một lệnh.
+
+    Mất khử trùng lặp thì con số `(N)` in ngay trong option phình lên, rồi chọn nó ra ÍT dòng hơn —
+    tức chính luật khứ hồi `total == so_lenh` mà docstring `bo_loc` tự đặt bị phá mà không ai kêu.
+    """
+    from app.models.may_thiet_bi import MayThietBi
+
+    h = _h(_tok(client, seed_credentials))
+    may = MayThietBi(ma="MAY-BL-TRUNG", ten="Máy dính ba lần", loai_may="press_offset_sheet")
+    sess.add(may)
+    sess.flush()
+
+    cvs = _cvs(sess, lenh_that)
+    assert len(cvs) >= 2, "cảnh dựng cần ≥2 bước, nếu không ca 'hai bước cùng máy' không dựng được"
+    cvs[0].may_id = may.id  # nguồn trùng (1) — hai bước cùng một máy
+    cvs[1].may_id = may.id
+    sess.add(  # nguồn trùng (2) — routing mang lại đúng máy ấy
+        LsxCongDoan(lsx_id=lenh_that, thu_tu=90, ten="Cán lại", nhom="finishing", may_id=may.id)
+    )
+    sess.commit()
+
+    theo_id = {m["id"]: m for m in _bo_loc(client, h)}
+    assert may.id in theo_id
+    assert theo_id[may.id]["so_lenh"] == 1, (
+        "ba cặp (máy, lệnh) y hệt nhau chỉ được tính MỘT lệnh — mất khử trùng lặp là con số trong "
+        "option phình lên trong khi bảng vẫn một dòng"
+    )
+    d = client.get(f"/api/lenh-san-xuat?may_id={may.id}&page_size=200", headers=h).json()
+    assert d["total"] == 1
+    assert d["total"] == theo_id[may.id]["so_lenh"], "luật khứ hồi `total == so_lenh` vỡ"
+
+
+def test_bo_loc_thu_tu_option_theo_ten_roi_ma(client, seed_credentials, sess, lenh_that):
+    """Thứ tự option: theo TÊN (thứ người dùng đọc trong ô chọn), `ma` là nấc phân giải cuối.
+
+    Docstring `bo_loc` hứa một thứ tự TOÀN PHẦN. Thiếu nấc thứ hai thì hai máy trùng tên đổi chỗ
+    giữa hai lần tải — ô chọn nhảy dưới tay người đang rê chuột, và không ai đọc ra được vì sao.
+    Bài canh cả hai nấc: toàn danh sách phải đã sắp, và cặp trùng tên phải xếp theo `ma`.
+    """
+    from app.models.may_thiet_bi import MayThietBi
+
+    h = _h(_tok(client, seed_credentials))
+    # Thêm theo thứ tự NGƯỢC với thứ tự mong đợi, để `id` tăng dần không vô tình đúng thứ tự.
+    z = MayThietBi(ma="MAY-BL-TT-Z", ten="ZZZ máy cuối bảng", loai_may="finishing")
+    tb = MayThietBi(ma="MAY-BL-TT-B", ten="AAA máy trùng tên", loai_may="finishing")
+    ta = MayThietBi(ma="MAY-BL-TT-A", ten="AAA máy trùng tên", loai_may="finishing")
+    sess.add_all([z, tb, ta])
+    sess.flush()
+    for i, may in enumerate((z, tb, ta)):
+        sess.add(
+            LsxCongDoan(
+                lsx_id=lenh_that, thu_tu=80 + i, ten=f"Bước {i}", nhom="finishing", may_id=may.id
+            )
+        )
+    sess.commit()
+
+    ds = _bo_loc(client, h)
+    assert ds == sorted(ds, key=lambda m: (m["ten"] or "", m["ma"] or "")), (
+        "danh sách máy phải sắp theo (tên, mã); thứ tự đổi giữa hai lần tải là ô chọn nhảy dưới tay"
+    )
+    vt = {m["ma"]: i for i, m in enumerate(ds)}
+    assert vt["MAY-BL-TT-A"] < vt["MAY-BL-TT-B"], (
+        "hai máy TRÙNG TÊN phải phân giải bằng `ma` — thiếu nấc này thì thứ tự không xác định"
+    )
+    assert vt["MAY-BL-TT-B"] < vt["MAY-BL-TT-Z"]
+
+
+def test_bo_loc_ve_cau_ghep_theo_pham_vi(
+    client, sess, sale_own, lenh_cua_sale_own, ghep_doi
+):
+    """N4 (vòng sửa 2) — vế 2 CẦU GHÉP của `bo_loc()` phải tôn trọng phạm vi y hệt vế 1/vế 3.
+
+    `test_bo_loc_theo_pham_vi` (dòng ~1093) chỉ chạm vế 1 (công việc neo thẳng lệnh) và vế 3
+    (routing) — vế 2 (công việc CHUNG của ca in ghép, với tới lệnh qua `BaiGhepCongDoanMap`) trống
+    lưới: bỏ `.in_(trong_pham_vi)` khỏi RIÊNG vế 2 từng để cả bộ test vẫn xanh. Hậu quả đời thực:
+    một sale scope `own` mở ô lọc Máy và thấy tên máy + `so_lenh` của ca in ghép thuộc phạm vi
+    người khác — rò dữ liệu qua chính ô lọc, đúng khuôn "docstring hứa mà không có lưới".
+
+    `ghep_doi` phát hành bằng `admin` ⇒ NGOÀI phạm vi sale scope `own`. Gán máy cho công việc
+    CHUNG (`lsx_id IS NULL`) của nó rồi khẳng định máy đó KHÔNG lọt vào `/bo-loc` của `sale_own`.
+
+    Chiều DƯƠNG (bẫy ngược, dễ bỏ sót nhất): dựng thêm một ca ghép KHÁC phủ ĐÚNG `lenh_cua_sale_own`
+    (TRONG phạm vi) — hand-craft tối thiểu đúng những cột mà vế 2 đọc (`BaiGhep` → `BaiGhepCongDoan`
+    → `BaiGhepCongDoanMap.lsx_id`, `SanXuatCongViec.may_id`/`bai_ghep_cong_doan_id`), không đi lại
+    trọn luồng phát hành vì `bo_loc()` không soi cột nào khác ở đây. Thiếu chiều này thì một mutation
+    kiểu "vế 2 luôn trả rỗng" (thay vì lọc sai phạm vi) cũng làm bài xanh mà không canh đúng thứ cần
+    canh — chỉ khẳng định "không thấy" là chưa đủ.
+    """
+    from app.models.bai_ghep import BaiGhep
+    from app.models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
+    from app.models.may_thiet_bi import MayThietBi
+
+    _a, _b, cv_chung_ngoai = ghep_doi
+    may_ngoai = MayThietBi(
+        ma="MAY-BL-GHEP-NGOAI", ten="Máy ghép ngoài phạm vi", loai_may="press_offset_sheet"
+    )
+    sess.add(may_ngoai)
+    sess.flush()
+    cv_chung_ngoai.may_id = may_ngoai.id
+
+    bg = BaiGhep(ma="GB-BL-TRONG")
+    sess.add(bg)
+    sess.flush()
+    chung_trong = BaiGhepCongDoan(
+        bai_ghep_id=bg.id, thu_tu=0, ten="Ca ghép trong phạm vi", nhom="print"
+    )
+    sess.add(chung_trong)
+    sess.flush()
+    may_trong = MayThietBi(
+        ma="MAY-BL-GHEP-TRONG", ten="Máy ghép trong phạm vi", loai_may="press_offset_sheet"
+    )
+    sess.add(may_trong)
+    sess.flush()
+    sess.add(SanXuatCongViec(
+        goi_id=cv_chung_ngoai.goi_id, bai_ghep_cong_doan_id=chung_trong.id,
+        ten_cong_doan="Ca ghép trong phạm vi", may_id=may_trong.id,
+    ))
+    sess.add(BaiGhepCongDoanMap(
+        bai_ghep_cong_doan_id=chung_trong.id, lsx_id=lenh_cua_sale_own,
+        lsx_step_key="bl-trong-step",
+    ))
+    sess.commit()
+
+    h = _h(create_access_token(str(sale_own.id)))
+    ids = {m["id"] for m in _bo_loc(client, h)}
+    assert may_ngoai.id not in ids, (
+        "vế CẦU GHÉP không lọc theo phạm vi — rò máy + so_lenh của ca in ghép người khác"
+    )
+    assert may_trong.id in ids, "chiều dương: ca ghép TRONG phạm vi vẫn phải lên ô lọc"
+
+
+def test_bo_loc_bo_qua_may_da_xoa_khoi_danh_muc(client, seed_credentials, sess, lenh_that):
+    """N3 (vòng sửa 2) — guard `if mid in dm` (danh_sach.py:478-482) không ai canh trước vòng này.
+
+    Ba cột `may_id` (công việc/routing/cầu ghép) là SOFT-REF, không FK (docstring `bo_loc`) — kỹ
+    thuật xoá một máy khỏi danh mục xong, dữ liệu SNAPSHOT cũ vẫn còn trỏ `may_id` đó (đóng băng,
+    không dọn theo). Guard phải lặng lẽ BỎ QUA id mồ côi ấy; bỏ guard thì `dm[mid]` ném `KeyError`
+    và người mở màn Hồ sơ lệnh sản xuất nhận **500** ở ô lọc Máy thay vì một ô chọn thiếu đúng một
+    dòng.
+    """
+    from app.models.may_thiet_bi import MayThietBi
+
+    h = _h(_tok(client, seed_credentials))
+    con = MayThietBi(ma="MAY-BL-CON", ten="Máy còn trong danh mục", loai_may="press_offset_sheet")
+    da_xoa = MayThietBi(ma="MAY-BL-XOA", ten="Máy sắp xoá khỏi danh mục", loai_may="finishing")
+    sess.add_all([con, da_xoa])
+    sess.flush()
+    cvs = _cvs(sess, lenh_that)
+    assert len(cvs) >= 2, "cảnh dựng cần ≥2 bước để tách máy CÒN và máy SẮP XOÁ"
+    cvs[0].may_id = con.id
+    cvs[1].may_id = da_xoa.id
+    sess.commit()
+    id_da_xoa = da_xoa.id
+    sess.delete(da_xoa)
+    sess.commit()
+
+    r = client.get("/api/lenh-san-xuat/bo-loc", headers=h)
+    assert r.status_code == 200, (
+        f"{r.status_code} — máy mồ côi (đã xoá khỏi danh mục) làm /bo-loc vỡ 500 thay vì bỏ qua: "
+        f"{r.text}"
+    )
+    ids = {m["id"] for m in r.json()["may"]}
+    assert id_da_xoa not in ids, "máy đã xoá khỏi danh mục vẫn lọt vào ô lọc"
+    assert con.id in ids, "guard nuốt luôn cả máy CÒN trong danh mục theo máy đã xoá"

@@ -7893,6 +7893,466 @@ export interface TheoLenhOut {
   so_giu_lau: number;
 }
 
+// --- Hồ sơ lệnh sản xuất (module `lenh_san_xuat`) — màn TRA CỨU, chỉ đọc -----
+// Mirror ĐÚNG `backend/app/schemas/lenh_san_xuat.py`. Bẫy Pydantic của repo: service trả `dict`,
+// router khai `response_model` ⇒ trường không có trong schema bị NUỐT IM LẶNG (FE nhận
+// `undefined`, không lỗi, không cảnh báo). Nên đừng khai thêm trường nào ở đây mà bên kia không
+// có — và thêm thật thì phải đi hết chuỗi `danh_sach._dong()` → schema → type này.
+//
+// KHÔNG MỘT TRƯỜNG TIỀN NÀO (`don_gia`/`gia_von`/`thanh_tien`/`luong_khoan`/`chi_phi`) — ràng
+// buộc cứng của cả module, có bài canh `test_khong_lo_tien` giữ ở máy chủ.
+
+/** 6 trạng thái CHÍNH của một lệnh (`services/lenh_sx/trang_thai.TAB_CHINH`). Chuỗi khoá đi
+ *  thẳng ra URL (`?tab=`) nên nó là HỢP ĐỒNG — đừng đổi cho "dễ đọc". */
+export type LsxTheoDoiTrangThai =
+  | "dang_sx" | "canh_bao" | "kcs" | "cho_nhap_kho" | "san_sang_giao" | "hoan_thanh";
+
+/** Tab thứ bảy của màn — "tất cả", KHÔNG phải một trạng thái. */
+export type LsxTheoDoiTab = "tat_ca" | LsxTheoDoiTrangThai;
+
+export type LsxTheoDoiCanhBao =
+  | "su_co" | "tam_dung" | "tre_han" | "kcs_khong_dat" | "thieu_vat_tu";
+
+export interface LenhSxItem {
+  id: number;
+  ma: string;
+  ten: string | null;
+  khach_hang: string | null;
+  /** CÓ trả về nhưng màn danh sách KHÔNG dùng: bấm tên khách để nhảy sang màn Khách hàng đòi
+   *  quyền `khach_hang`, mà vai QC / tổ trưởng không có ⇒ bày link ra là mời ăn 403 giữa luồng. */
+  khach_hang_id: number | null;
+  sale: string | null;
+  so_luong_dat: number;
+  don_vi_tinh: string | null;
+  /** Số đã giao THẬT (`delivery_trip_lines.qty_giao`), không phải số yêu cầu giao. */
+  da_giao: number;
+  is_rush: boolean;
+  buoc_hien_tai: string | null;
+  nhom_cong_doan: string | null;
+  may: string | null;
+  /** TÊN người đang được giao ở đúng bước đang hiện, theo THỨ TỰ GIAO (cắt từ cuối là an toàn). */
+  nguoi: string[];
+  tien_do_pct: number;
+  /** `true` = phần trăm đo bằng THỜI LƯỢNG kế hoạch vì bước chưa khai sản lượng. Phải ra tới mặt
+   *  màn: 40% "đo được" và 40% "ước tính" là hai mức tin cậy khác hẳn nhau. */
+  tien_do_uoc_tinh: boolean;
+  /** Giờ máy đã chạy. ĐỪNG CỘNG qua nhiều lệnh: một lượt in ghép 3 lệnh được đếm đủ cho cả 3. */
+  gio_may: number;
+  /** `date` (không có giờ) ⇒ format bằng `ngay()`, KHÔNG `ngayGio()`. */
+  han_hoan_thanh_sx: string | null;
+  /** `date`, cùng luật với `han_hoan_thanh_sx`. */
+  han_giao_khach: string | null;
+  /** `datetime` ⇒ `ngayGio()`. `null` = máy chủ CỐ Ý im vì có bước thiếu thời lượng. */
+  du_kien_xong: string | null;
+  trang_thai: LsxTheoDoiTrangThai;
+  canh_bao: LsxTheoDoiCanhBao[];
+}
+
+export interface LenhSxListOut {
+  items: LenhSxItem[];
+  /** Tổng SAU cả `tab` — chỉ dùng cho Pager. Con số cạnh tiêu đề là `dem_theo_tab.tat_ca`. */
+  total: number;
+  page: number;
+  page_size: number;
+  /** FACET của tập ĐÃ LỌC, KHÔNG bị chính `tab` đang chọn lọc lại: bấm sang tab khác thì bảy con
+   *  số đứng yên, chỉ đổi ô tìm / bộ lọc mới làm chúng đổi. Cấm đếm lại từ `items`. */
+  dem_theo_tab: Partial<Record<LsxTheoDoiTab, number>>;
+}
+
+export interface LenhSxSummaryOut {
+  dang_sx: number;
+  cong_doan_xong_hom_nay: number;
+  du_kien_tre: number;
+  /** `null` = CHƯA kiểm lô nào hôm nay, khác hẳn `0` = kiểm rồi và trượt sạch. UI phải hiện "—". */
+  ty_le_kcs_dat_hom_nay: number | null;
+}
+
+export interface LenhSxMayLoc {
+  id: number;
+  ma: string | null;
+  ten: string | null;
+  /** Số LỆNH đang dính máy này trong phạm vi người gọi — ca in ghép phục vụ 2 lệnh thì đếm 2. */
+  so_lenh: number;
+}
+
+export interface LenhSxBoLocOut {
+  may: LenhSxMayLoc[];
+}
+
+export interface LenhSxDanhSachParams {
+  tab?: LsxTheoDoiTab;
+  q?: string;
+  page?: number;
+  page_size?: number;
+  nhom_cong_doan?: string;
+  may_id?: number;
+  uu_tien?: "gap" | "binh_thuong";
+  /** CHỈ gửi khi bật. Không có nấc "chỉ lệnh không trễ" — không ai hỏi câu đó. */
+  tre?: boolean;
+  tu_ngay?: string;
+  den_ngay?: string;
+}
+
+// --- Hồ sơ MỘT lệnh (Task 10 dựng API, Task 12 dựng màn) ---------------------
+// 13 khối lồng nhau. Bẫy Pydantic ở đây nguy hơn hẳn màn danh sách: thiếu một trường trong MỘT
+// khối con thì 12 khối kia vẫn ra bình thường — FE nhận `undefined` ở đúng một ô và không ai
+// thấy lỗi. Mirror ĐÚNG `backend/app/schemas/lenh_san_xuat.py`, đừng thêm trường phía này.
+// KHÔNG MỘT TRƯỜNG TIỀN NÀO — cùng ràng buộc cứng của cả module.
+
+export interface LenhSxThongTin {
+  id: number;
+  ma: string;
+  ten: string | null;
+  loai: string | null;
+  order_id: number | null;
+  order_no: string | null;
+  order_line_id: number | null;
+  khach_hang: string | null;
+  khach_hang_id: number | null;
+  sale: string | null;
+  so_luong_dat: number;
+  don_vi_tinh: string | null;
+  is_rush: boolean;
+  /** `date` ⇒ `ngay()`. */
+  han_hoan_thanh_sx: string | null;
+  /** `date` ⇒ `ngay()`. */
+  han_giao_khach: string | null;
+  ban_giao_at: string | null;
+  ghi_chu: string | null;
+  tao_luc: string | null;
+}
+
+export interface LenhSxTienDo {
+  phan_tram: number;
+  /** `true` = đo bằng THỜI LƯỢNG kế hoạch vì bước chưa khai sản lượng. Phải ra tới mặt màn. */
+  uoc_tinh: boolean;
+  gio_may: number;
+  du_kien_xong: string | null;
+  trang_thai: LsxTheoDoiTrangThai;
+  canh_bao: LsxTheoDoiCanhBao[];
+  buoc_hien_tai: string | null;
+  buoc_hien_tai_cong_viec_id: number | null;
+  nhom_cong_doan: string | null;
+  may: string | null;
+  nguoi: string[];
+  /** Số đã giao của RIÊNG dòng đơn lệnh này — khác `giao_hang.da_giao` (cấp NHÓM). */
+  da_giao: number;
+}
+
+/** Ảnh chụp thông số kỹ thuật từ phiếu tính giá. Khoá thiếu (lệnh cũ) ⇒ `null` ⇒ UI hiện "—",
+ *  KHÔNG đổi sang 0: 0 kẽm và "chưa khai số kẽm" là hai chuyện. */
+export interface LenhSxThongSo {
+  giay_ten: string | null;
+  dinh_luong: number | null;
+  kho_nguyen_dai: number | null;
+  kho_nguyen_rong: number | null;
+  kho_in_dai: number | null;
+  kho_in_rong: number | null;
+  dai_thanh_pham: number | null;
+  rong_thanh_pham: number | null;
+  quy_cach_in: string | null;
+  so_mau_a: number | null;
+  so_mau_b: number | null;
+  muc_a: string[];
+  muc_b: string[];
+  so_trang: number | null;
+  trang_moi_tay: number | null;
+  so_kem: number | null;
+  so_manh_xa: number | null;
+  loai_san_pham: string | null;
+  ghi_chu_ky_thuat: string | null;
+  so_con: number;
+  so_to_ke_hoach: number;
+  so_to_nguyen: number;
+  don_vi_tinh: string | null;
+}
+
+export interface LenhSxRoutingNode {
+  id: number;
+  thu_tu: number;
+  /** Đường DÀI NHẤT từ bước gốc tới bước này — KHÔNG phải `thu_tu`. Hai bước cùng `lop` là hai
+   *  bước chạy SONG SONG được; vẽ theo `thu_tu` là bịa ra một chuỗi tuần tự không tồn tại. */
+  lop: number;
+  phu_thuoc: number[];
+  ten: string | null;
+  nhom: string | null;
+  loai_buoc: string | null;
+  bat_buoc: boolean;
+  nha_cung_cap: string | null;
+  cong_viec_id: number | null;
+  /** Bước do một ca in GHÉP đảm nhiệm: trạng thái/máy/người là của CẢ CA, không riêng lệnh này. */
+  la_buoc_ghep: boolean;
+  la_kcs: boolean;
+  la_buoc_hien_tai: boolean;
+  /** `released` | `running` | `paused` | `completed`; `null` = bước chưa có công việc. */
+  trang_thai: string | null;
+  may: string | null;
+  to: string | null;
+  nguoi: string[];
+  du_kien_bat_dau: string | null;
+  du_kien_ket_thuc: string | null;
+  hoan_thanh_luc: string | null;
+  so_luong_vao: number;
+  so_luong_ra: number;
+  don_vi_vao: string | null;
+  don_vi_ra: string | null;
+}
+
+export interface LenhSxRouting {
+  nodes: LenhSxRoutingNode[];
+  /** Cặp `[bước trước, bước sau]` bằng id node. */
+  canh: number[][];
+}
+
+export interface LenhSxVatTuDong {
+  /** `lsx` = vật tư của chính lệnh · `bai_ghep` = giấy của cả tờ in ghép mà lệnh là thành viên.
+   *  Cả hai đều là vật tư THẬT của lệnh, nhưng người đi lĩnh phải biết mình lĩnh cho ai. */
+  pham_vi: string;
+  ma: string | null;
+  ten_viec: string | null;
+  buoc_id: number | null;
+  hang_loai: string | null;
+  hang_id: number | null;
+  hang_ma: string | null;
+  hang_ten: string | null;
+  don_vi_goc: string | null;
+  ton: number | null;
+  nhu_cau: number | null;
+  nhu_cau_hien_thi: string | null;
+  da_cap: number | null;
+  dang_linh: number | null;
+  con_phai_co: number | null;
+  thieu: number | null;
+  /** Cùng thang màu với bảng cân đối Kế hoạch vật tư (`CanDoiMau`). */
+  trang_thai: string | null;
+  ngay_can: string | null;
+  ngay_du_hang: string | null;
+}
+
+export interface LenhSxVatTuMuc {
+  /** Mọi dòng của bước đang làm đều `xanh`/`xam`. Không dòng nào ⇒ `true` (không có gì để thiếu). */
+  du: boolean;
+  dong: LenhSxVatTuDong[];
+}
+
+export interface LenhSxVatTu {
+  hien_tai: LenhSxVatTuMuc;
+  canh_bao_sau: LenhSxVatTuDong[];
+  da_cap: LenhSxVatTuDong[];
+  /** Dòng engine KHÔNG đối chiếu được (thiếu công thức lượng, đơn vị lạ). Phải bày ra: một bảng
+   *  vật tư im lặng bỏ sót vài món trông y hệt một bảng đủ. */
+  bo_qua: LenhSxVatTuBoQua[];
+}
+
+/** Schema khai `list[dict]` (hình dạng do engine vật tư quyết), nên hai khoá dưới đây khai
+ *  OPTIONAL và chừa cửa cho khoá lạ — engine thêm trường thì màn không gãy, chỉ không hiện. */
+export interface LenhSxVatTuBoQua {
+  /** Mã LỆNH hoặc mã BÀI GHÉP — hai loại, đừng giả định chỉ có một. */
+  ma?: string | null;
+  ly_do?: string | null;
+  [k: string]: unknown;
+}
+
+export interface LenhSxNhanLucBuoc {
+  cong_viec_id: number;
+  buoc_id: number | null;
+  ten_viec: string | null;
+  to: string | null;
+  may: string | null;
+  nguoi: string[];
+}
+
+export interface LenhSxNhanLucSuKien {
+  /** `giao_nguoi` · `rut_nguoi` · `doi_may`. */
+  loai: string;
+  luc: string;
+  cong_viec_id: number | null;
+  ten_viec: string | null;
+  nguoi: string | null;
+  /** Chỉ có ở `doi_may` — và đó là vết DUY NHẤT của lần đổi máy (`cong_viec.may_id` chỉ nhớ máy
+   *  cuối cùng). */
+  may_cu: string | null;
+  may_moi: string | null;
+  ly_do: string | null;
+}
+
+export interface LenhSxNhanLuc {
+  hien_tai: LenhSxNhanLucBuoc[];
+  /** Giữ CẢ người đã bị RÚT — hồ sơ là chỗ trả lời "ai từng làm việc này", bảng thì không. */
+  lich_su: LenhSxNhanLucSuKien[];
+}
+
+export interface LenhSxSanLuongBatch {
+  id: number;
+  cong_viec_id: number;
+  ten_viec: string | null;
+  la_buoc_ghep: boolean;
+  bat_dau: string | null;
+  ket_thuc: string | null;
+  tong: number;
+  tot: number;
+  hong: number;
+  don_vi: string | null;
+  mo_ta_loi: string | null;
+}
+
+export interface LenhSxSanLuong {
+  tong: number;
+  tot: number;
+  hong: number;
+  batch: LenhSxSanLuongBatch[];
+}
+
+export interface LenhSxKcsBatch {
+  id: number;
+  cong_viec_id: number;
+  ten_viec: string | null;
+  la_buoc_ghep: boolean;
+  la_kcs_cuoi: boolean;
+  ket_thuc: string | null;
+  so_luong_nhan: number;
+  so_luong_dat: number;
+  so_luong_khong_dat: number;
+  don_vi: string | null;
+  /** `dat` | `dat_mot_phan` | `khong_dat`. */
+  ket_luan: string | null;
+  ghi_chu: string | null;
+}
+
+export interface LenhSxKcs {
+  tong_nhan: number;
+  tong_dat: number;
+  tong_khong_dat: number;
+  /** `null` = CHƯA kiểm cái nào, khác hẳn `0` = kiểm rồi và trượt sạch. */
+  ty_le_dat: number | null;
+  batch: LenhSxKcsBatch[];
+}
+
+export interface LenhSxPhieuSua {
+  id: number;
+  ma: string;
+  /** `cho_sua` | `dang_sua` | `cho_vat_tu` | `da_sua_xong`. */
+  trang_thai: string | null;
+  nguyen_nhan_phuong_an: string | null;
+  hoan_thanh_at: string | null;
+}
+
+export interface LenhSxSuCo {
+  id: number;
+  ma: string;
+  cong_viec_id: number | null;
+  ten_viec: string | null;
+  may: string | null;
+  bo_phan_hong: string | null;
+  mo_ta: string | null;
+  /** `nhe` | `trung_binh` | `nghiem_trong`. */
+  muc_do: string | null;
+  may_dung: boolean;
+  nguoi_bao: string | null;
+  thoi_diem: string | null;
+  /** `cho_tiep_nhan` | `da_tao_phieu` | `tu_choi`. */
+  trang_thai: string | null;
+  ly_do_tu_choi: string | null;
+  /** Phiếu sửa sinh ra từ yêu cầu này. `null` khi chưa ai tiếp nhận — KHÔNG phải lỗi. */
+  phieu: LenhSxPhieuSua | null;
+}
+
+export interface LenhSxKhoYeuCau {
+  id: number;
+  kcs_batch_id: number | null;
+  nhom_id: number | null;
+  so_luong_yeu_cau: number;
+  so_luong_xac_nhan: number;
+  con_lai: number;
+  don_vi: string | null;
+  quy_cach: string | null;
+  /** `cho_kho` | `nhap_mot_phan` | `da_nhap` | `huy`. */
+  trang_thai: string | null;
+  tao_luc: string | null;
+  xac_nhan_luc: string | null;
+}
+
+export interface LenhSxKhoBtp {
+  id: number;
+  so_luong: number;
+  don_vi: string | null;
+  /** `nhap_btp` | `mau_luu` | `phe`. */
+  phan_loai: string | null;
+  kho_xac_nhan: boolean;
+  quy_cach: string | null;
+}
+
+export interface LenhSxKho {
+  /** SỐ, không phải cờ: `1` thì số của nhóm CHÍNH LÀ số của lệnh (cộng thoải mái); `3` thì cộng
+   *  qua ba lệnh của một trang là nhân số thật lên gấp ba. `0` = lệnh chưa vào nhóm nào. */
+  so_lenh_trong_nhom: number;
+  yeu_cau: LenhSxKhoYeuCau[];
+  btp: LenhSxKhoBtp[];
+}
+
+/** MỘT dòng điền sẵn của form giao hàng = một cặp (mặt hàng × kho), vì phiếu xuất đi từ MỘT kho. */
+export interface LenhSxGiaoHangHang {
+  hang_id: number;
+  ma: string | null;
+  ten: string | null;
+  quy_cach: string | null;
+  don_vi: string | null;
+  kho_id: number | null;
+  kho_ten: string | null;
+  /** Tồn THẬT của cặp này, CHƯA trừ đã giao. Để đối chiếu với kho. */
+  so_luong: number;
+  /** TRẦN được phép ghi vào phiếu (đã trừ đã giao). `null` khi `khong_tinh_duoc`. */
+  so_toi_da: number | null;
+  /** `true` ⇒ không dựng được ánh xạ mặt hàng ⇄ dòng đơn ⇒ chưa biết trần. Ô TRỐNG CÓ LÝ DO,
+   *  KHÔNG phải 0: hàng vẫn còn trong kho, chỉ là hệ chưa biết chắc đã giao bao nhiêu của riêng
+   *  món này. UI phải cảnh báo, đừng tự điền `so_luong` vào chỗ trần. */
+  khong_tinh_duoc: boolean;
+}
+
+export interface LenhSxGiaoHang {
+  nhom_id: number | null;
+  order_id: number | null;
+  order_line_ids: number[];
+  so_lenh_trong_nhom: number;
+  hang: LenhSxGiaoHangHang[];
+  /** Số CẤP NHÓM (mọi mặt hàng, mọi dòng đơn) — để đối chiếu, KHÔNG phải để lập phiếu. */
+  da_nhap_kho: number;
+  da_giao: number;
+  co_the_giao: boolean;
+  /** Nhóm có nhiều đơn vị khác nhau ⇒ con số tổng KHÔNG có nghĩa; UI phải im nó đi. */
+  don_vi_lech: boolean;
+}
+
+export interface LenhSxTimeline {
+  loai: string;
+  luc: string;
+  /** Có thể trống: vài đường ghi không lưu ai bấm (batch KCS). Bịa tên vào đó tệ hơn để trống. */
+  nguoi: string | null;
+  noi_dung: string;
+  cong_viec_id: number | null;
+  ten_viec: string | null;
+}
+
+export interface LenhSxHoSoOut {
+  thong_tin: LenhSxThongTin;
+  tien_do: LenhSxTienDo;
+  thong_so: LenhSxThongSo;
+  routing: LenhSxRouting;
+  vat_tu: LenhSxVatTu;
+  nhan_luc: LenhSxNhanLuc;
+  san_luong: LenhSxSanLuong;
+  su_co: LenhSxSuCo[];
+  kcs: LenhSxKcs;
+  kho: LenhSxKho;
+  giao_hang: LenhSxGiaoHang;
+  /** Sắp TĂNG DẦN theo mốc máy chủ. KHÔNG có sự kiện giao hàng (nguồn có, cố ý chưa nối —
+   *  `ho_so._timeline`); số đã giao nằm ở khối `giao_hang`. */
+  timeline: LenhSxTimeline[];
+  /** Đọc từ `san_xuat_goi_phat_hanh.version_hien_tai`. `null` khi lệnh chưa có công việc nào
+   *  (chưa từng được phát hành) — KHÔNG mặc định 1. */
+  phien_ban: number | null;
+}
+
 /** 1 dòng trong picker mặt hàng (gộp Giấy + Vật tư khác). KHÔNG có giá. */
 export interface MatHangOption {
   hang_loai: HangLoai;
@@ -8203,8 +8663,10 @@ export interface NoiQuyRecord {
   uploaded_at: string;
 }
 
-/** Tải một file nhị phân về dạng blob URL, tự làm mới token khi 401. */
-export async function blobUrl(path: string, token: string): Promise<string> {
+/** Gọi một endpoint trả nhị phân, tự làm mới token khi 401. Tách khỏi `blobUrl` để chỗ cần ĐỌC
+ *  THÊM header của response (vd. `blobUrlComTen` đọc `Content-Disposition`) không phải chép lại
+ *  logic retry 401 lần thứ hai. */
+async function fetchNhiPhan(path: string, token: string): Promise<Response> {
   const doFetch = (bearer: string) =>
     fetch(`${BASE_URL}${path}`, {
       credentials: "include",
@@ -8217,7 +8679,53 @@ export async function blobUrl(path: string, token: string): Promise<string> {
     if (fresh) resp = await doFetch(fresh);
   }
   if (!resp.ok) throw new ApiError(`Download failed (${resp.status}).`, resp.status);
+  return resp;
+}
+
+/** Tải một file nhị phân về dạng blob URL, tự làm mới token khi 401. */
+export async function blobUrl(path: string, token: string): Promise<string> {
+  const resp = await fetchNhiPhan(path, token);
   return URL.createObjectURL(await resp.blob());
+}
+
+/** Tách tên file khỏi header `Content-Disposition` (`inline; filename="..."` hoặc `attachment; …`).
+ *  Không có header, hoặc dạng lạ không khớp, trả `null` — nơi gọi tự lùi về tên dự phòng. Không cần
+ *  lo dạng `filename*=` (UTF-8 encoded, RFC 5987): phía backend phát tên đã sanitize thuần ASCII
+ *  (`_ten_file` ở `backend/app/services/lenh_sx/phieu_cong_nghe.py`), không có ký tự cần encode. */
+export function tenFileTuHeader(header: string | null): string | null {
+  if (!header) return null;
+  const m = /filename="?([^";]+)"?/i.exec(header);
+  return m ? m[1].trim() : null;
+}
+
+/** Như `blobUrl`, nhưng bọc `Blob` vào `File` (mang `.name`) trước khi tạo object URL. Tên lấy từ
+ *  `Content-Disposition` của response; header thiếu/lạ thì lùi về `tenDuPhong`.
+ *
+ *  ⚠️ N28 (đặt tên file đúng lúc "Lưu") — ruling C109 sau lượt rà vòng 1, ĐỌC KỸ TRƯỚC KHI DÙNG
+ *  Ở CHỖ MỚI: bọc `File` chỉ đổi được tên "Lưu" khi đối tượng blob được TIÊU THỤ bằng thẻ
+ *  `<a download={ten}>` — đó là nơi `.name`/tham số `download` thật sự quyết định tên gợi ý.
+ *  `phieuCongNghePdf()` (bên dưới) KHÔNG dùng `<a download>` — nó `window.open(url, "_blank")` mở
+ *  thẳng blob URL trong trình xem PDF built-in của Chromium, và trình xem đó dựng tên "Lưu" từ
+ *  CHÍNH đoạn UUID trong `blob:<origin>/<uuid>`, không đọc `File.name` — nên với đường
+ *  `window.open`, hàm này KHÔNG đóng được N28 (vẫn ra tên uuid như trước khi sửa). Trước đây
+ *  docstring ở đây dẫn `frontend/src/lib/anhNen.ts` làm "tiền lệ" — SAI: file đó bọc `File` để ĐI
+ *  UPLOAD (tên đi vào `FormData`, một cơ chế khác hẳn). Đã gỡ câu dẫn sai đó.
+ *
+ *  Vẫn giữ hàm này (không revert về `blobUrl` trần) vì: (a) là chỗ SẴN SÀNG cho đường tải PDF/ảnh
+ *  khác trong repo TIÊU THỤ bằng `<a download>` sau này (nếu có) — hiện tại `blobUrlComTen` có
+ *  ĐÚNG MỘT người gọi (`phieuCongNghePdf` bên dưới), và mọi `<a download>` thật đang có trong repo
+ *  đã tự gán `a.download = "<tên>"` nên `File.name` không có tác dụng gì thêm ở đó; (b) tự nó
+ *  không làm hỏng gì so với `blobUrl` — cùng lắm là bọc dư một lớp `File` vô hại khi trình duyệt
+ *  bỏ qua `.name`. */
+export async function blobUrlComTen(
+  path: string,
+  token: string,
+  tenDuPhong: string,
+): Promise<string> {
+  const resp = await fetchNhiPhan(path, token);
+  const ten = tenFileTuHeader(resp.headers.get("Content-Disposition")) ?? tenDuPhong;
+  const blob = await resp.blob();
+  return URL.createObjectURL(new File([blob], ten, { type: blob.type }));
 }
 
 export const api = {
@@ -10230,6 +10738,73 @@ export const api = {
             bai_ghep_id: chu.bai_ghep_id ?? null,
           }),
         },
+      );
+    },
+  },
+
+  // --- Hồ sơ lệnh sản xuất (module `lenh_san_xuat`) — bàn TRA CỨU, không ghi -
+  // Ba đường ĐỌC, không một đường ghi nào — và đừng thêm: màn này cố ý không có nút ghi (tạo/sửa
+  // lệnh vẫn ở Kế hoạch sản xuất, module `san_xuat`). Phạm vi dữ liệu do MÁY CHỦ gắn từ token;
+  // không có tham số nào cho client tự nới, gửi thêm cũng bị bỏ qua.
+  lenhSanXuat: {
+    /** 4 thẻ KPI. KHÔNG nhận tham số lọc — luôn là TOÀN PHẠM VI của token, nên số ở đây và số
+     *  trên tab không bao giờ khớp, và đó là đúng (màn phải nói ra điều đó). */
+    summary(token: string): Promise<LenhSxSummaryOut> {
+      return authed<LenhSxSummaryOut>("/api/lenh-san-xuat/summary", token);
+    },
+    /** Nguồn ô lọc Máy — chỉ máy CÓ THẬT trong tập lệnh của người gọi.
+     *
+     *  KHÔNG mượn `/api/may-thiet-bi`: bên đó gác `dm_thiet_bi:read` hoặc `tinh_gia_thanh:read`,
+     *  mà vai QC — vai đứng ở màn này nhiều nhất — không có ô nào trong hai ô ấy ⇒ 403. */
+    boLoc(token: string): Promise<LenhSxBoLocOut> {
+      return authed<LenhSxBoLocOut>("/api/lenh-san-xuat/bo-loc", token);
+    },
+    /** MỘT trang bảng. Lọc + đếm tab + cắt trang đều Ở MÁY CHỦ — không `rows.filter`, không
+     *  `rows.slice`, không đếm tab từ `items` (trang chỉ cầm 50 dòng trên một tập cả trăm). */
+    danhSach(token: string, params: LenhSxDanhSachParams = {}): Promise<LenhSxListOut> {
+      return authed<LenhSxListOut>(
+        `/api/lenh-san-xuat${qs({
+          tab: params.tab,
+          q: params.q,
+          page: params.page,
+          page_size: params.page_size,
+          nhom_cong_doan: params.nhom_cong_doan,
+          may_id: params.may_id,
+          uu_tien: params.uu_tien,
+          // `qs` bỏ qua `undefined`/`null`/`""` — nên `tre: false` vẫn được gửi. Người gọi phải
+          // truyền `undefined` khi tắt công tắc, không phải `false` (đó là "chỉ lệnh KHÔNG trễ").
+          tre: params.tre,
+          tu_ngay: params.tu_ngay,
+          den_ngay: params.den_ngay,
+        })}`,
+        token,
+      );
+    },
+    /** HỒ SƠ một lệnh — 13 khối trong MỘT lượt gọi (`LenhSxHoSoOut`).
+     *
+     *  404 = màn này không có lệnh nào như thế (không tồn tại, hoặc chưa phát hành);
+     *  403 = lệnh CÓ thật nhưng ngoài phạm vi người gọi. Hai mã vì hai câu khác nhau — mặt đọc
+     *  phải nói đúng câu tương ứng, đừng gộp thành một lời "không xem được". */
+    hoSo(token: string, lsxId: number): Promise<LenhSxHoSoOut> {
+      return authed<LenhSxHoSoOut>(`/api/lenh-san-xuat/${lsxId}`, token);
+    },
+
+    /** PHIẾU CÔNG NGHỆ A4 — tờ giấy tổ mang xuống xưởng. Trả blob URL vì endpoint đòi Bearer:
+     *  `window.open` thẳng vào đường dẫn là mở một tab KHÔNG có token và ăn 401.
+     *
+     *  N28 (ruling C109): dùng `blobUrlComTen` thay `blobUrl` trần — đọc kỹ docstring của nó TRƯỚC
+     *  KHI tưởng chỗ này đã "sửa xong" tên file lúc Lưu. Vẫn `window.open`, KHÔNG đổi sang
+     *  `<a download>`: nút này phục vụ "mở lên bấm in", đổi thành tải-về là hỏng đúng việc nút sinh
+     *  ra để làm. Hệ quả: N28 **CHƯA đóng** trên đường này — Chromium vẫn gợi ý tên uuid lúc Lưu
+     *  trong trình xem PDF built-in, y như trước khi có `blobUrlComTen`. Tên dự phòng ở đây chỉ có
+     *  tác dụng cho những đường TIÊU THỤ blob khác qua `<a download>` sau này (nếu có).
+     *
+     *  Tải phiếu KHÔNG làm tăng `phien_ban` — đây là đọc, không phải phát hành lại. */
+    phieuCongNghePdf(token: string, lsxId: number): Promise<string> {
+      return blobUrlComTen(
+        `/api/lenh-san-xuat/${lsxId}/phieu-cong-nghe.pdf`,
+        token,
+        `phieu-cong-nghe-${lsxId}.pdf`,
       );
     },
   },

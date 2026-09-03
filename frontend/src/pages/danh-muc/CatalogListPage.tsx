@@ -402,6 +402,17 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
                 // nên vỡ 2-3 dòng ngay cả khi các giá trị khác vẫn gọn 1 dòng.
                 "loai", "tinh_trang",
               ];
+              // Cắt 1 dòng CHỈ TRÊN ĐIỆN THOẠI (dt). Khác `clipKeys` ở chỗ class `rc__clip-dt`
+              // KHÔNG có luật nào ở cấp cao nhất — luật duy nhất của nó nằm trong
+              // `@media screen and (max-width: 768px)` của `styles/responsive.css` (§71.3), nên
+              // màn ≥769px giữ nguyên hành vi xuống dòng đầy đủ.
+              // Tiêu chí KCS: cột "Hướng dẫn" (`rebuildCatalogConfigs.tsx:924`) là câu văn xuôi
+              // dài nhất trong cả 14 màn danh mục — cột `huong_dan` của model cho tới 500 ký tự.
+              // Không có luật này thì ở 375px (cột rộng 96px) một hàng cao tới 404px. Nhưng dùng
+              // `rc__clip` dùng-chung thì `rebuild-catalog.css:983` (ngoài mọi `@media`) cắt luôn
+              // cả trên máy bàn — nhân viên KCS mất câu hướng dẫn ở tầm nhìn. Đây là cột
+              // `huong_dan` DUY NHẤT trong `REBUILD_CONFIGS`, không màn nào khác dính theo.
+              const clipDtKeys = ["huong_dan"];
               return (
                 <tr key={r.id} className={`rc__row${r.active === false ? " rc__row--ngung" : ""}`}
                   onClick={() => setEditing(r)}>
@@ -442,6 +453,7 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
                       isCenter ? "text-center" : "",
                       noWrapKeys.includes(c.key) ? "rc__nowrap" : "",
                       isClip ? "rc__clip" : "",
+                      clipDtKeys.includes(c.key) ? "rc__clip-dt" : "",
                     ].filter(Boolean).join(" ");
                     const noi = c.render ? c.render(r, extra ? (extra[String(r.id)] ?? null) : undefined) : (r[c.key] == null || r[c.key] === "" ? "" : String(r[c.key]));
                     const meoChu = isClip && typeof noi === "string" && noi !== "" ? noi : undefined;

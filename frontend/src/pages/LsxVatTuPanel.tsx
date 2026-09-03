@@ -9,6 +9,8 @@
 // sớm muộn lệch nhau, lúc lệch không biết tin bên nào.
 import { Icon } from "../components/Icons";
 import { num } from "./keHoachSxShared";
+import { nhanDonVi } from "./lsxBuoc";
+import { useNapTenDonVi } from "./tenDonVi";
 import type { BangKeVatTu, DongKe, NhomVatTu } from "./lsxVatTu";
 
 const ICON: Record<NhomVatTu, "layers" | "box" | "scissors"> = {
@@ -52,7 +54,7 @@ function DongMon({ d, buocs }: { d: DongKe; buocs?: number[] }) {
       <div className="khsx-vtcard__meta">
         <div className="khsx-vtcard__qty">
           <b>{d.so_luong != null ? num(d.so_luong) : "—"}</b>
-          {d.don_vi && <small>{d.don_vi}</small>}
+          {d.don_vi && <small>{nhanDonVi(d.don_vi)}</small>}
         </div>
         <div className="khsx-vtcard__tags">
           <span className={`khsx-vtcard__tag khsx-vtcard__tag--${d.nhom}`}>
@@ -71,6 +73,9 @@ function DongMon({ d, buocs }: { d: DongKe; buocs?: number[] }) {
 
 /** `ke` tính SẴN ở màn cha (một lần cho cả ô tóm tắt trên đầu màn lẫn bảng này) — panel chỉ vẽ. */
 export function LsxVatTuPanel({ ke }: { ke: BangKeVatTu }) {
+  // Panel này mount từ HAI màn (Lệnh SX · Bài ghép 2) — tự nạp nhãn đơn vị thay vì trông chờ màn
+  // cha, vì bên Bài ghép 2 không có ai nạp. Hook có cache chung nên gọi thêm không tốn lượt gọi.
+  useNapTenDonVi();
   // Không có bước NÀO để bày pipeline VÀ cũng chẳng có món nào để gom ⇒ trống thật, mới báo trống.
   // Ở lệnh đơn hai điều kiện luôn đi cùng (tổng suy từ bước, không bước thì không món) nên câu này
   // giữ nguyên. Ở bài ghép, bước = bước CHUNG (`sd.gop`) có thể còn rỗng khi chưa gộp, nhưng BOM vẫn

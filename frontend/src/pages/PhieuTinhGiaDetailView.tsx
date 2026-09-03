@@ -548,7 +548,11 @@ function blankFinishing(ten = "", cong_doan_id: number | null = null): EditableF
     don_gia: 0,
     so_luong: 0,
     bu_hao: false,
-    so_mat: 1,
+    // 0 = ĂN THEO Quy cách in của sản phẩm (số lượt qua máy) — KHÔNG mặc định 1, vì bước nào cũng
+    // gửi so_mat > 0 lên thì `thanh_phan_engine` không bao giờ rơi về nhánh tự lấy passes (xem
+    // "so_mat: dòng IN..." trong `_compute_one`). Người dùng chỉ cần gõ số dương khi bước này THẬT
+    // SỰ khác quy cách chung (vd cán màng chỉ cán 1 mặt dù in AB).
+    so_mat: 0,
     so_vi_tri: 0,
     dien_tich: 0,
     nha_cung_cap: "",
@@ -610,7 +614,7 @@ function fromFinishing(f: ThanhPhamOut): EditableFinishing {
     don_gia: f.don_gia ?? 0,
     so_luong: f.so_luong ?? 0,
     bu_hao: !!f.bu_hao,
-    so_mat: f.so_mat ?? 1,
+    so_mat: f.so_mat ?? 0,
     so_vi_tri: f.so_vi_tri ?? 0,
     dien_tich: f.dien_tich ?? 0,
     nha_cung_cap: f.nha_cung_cap ?? "",
@@ -791,7 +795,7 @@ function fromThanhPhanIn(cfg: ThanhPhanIn, giu: { uid: string; so_luong: number 
       don_gia: f.don_gia ?? 0,
       so_luong: f.so_luong ?? 0,
       bu_hao: !!f.bu_hao,
-      so_mat: f.so_mat ?? 1,
+      so_mat: f.so_mat ?? 0,
       so_vi_tri: f.so_vi_tri ?? 0,
       dien_tich: f.dien_tich ?? 0,
       nha_cung_cap: f.nha_cung_cap ?? "",

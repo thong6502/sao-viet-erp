@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..models.kho_hang import KhoHang
 from ..models.order import Order
-from ..models.san_xuat import SanXuatCongViec, SanXuatNhom
+from ..models.san_xuat import SanXuatCongViec, SanXuatNhom, SanXuatNhomLsx
 from ..models.san_xuat_kcs import SanXuatKcsBatch
 from ..models.san_xuat_kho import (
     HANG_BTP,
@@ -128,6 +128,28 @@ class SanXuatKhoRepository:
                 .order_by(SanXuatKhoLot.id)
             )
         )
+
+    def thanh_vien_nhom(self, nhom_id: int) -> list[tuple[int, int | None]]:
+        """`[(lsx_id, order_line_id)]` của MỌI thành viên nhóm — cầu DUY NHẤT sang giao hàng.
+
+        `delivery_request_lines` neo `order_line_id` (`models/delivery.py:163`), không có cột nào
+        trỏ lệnh hay nhóm; còn lot thành phẩm neo NHÓM. Muốn biết nhóm này đã giao bao nhiêu thì
+        phải đi qua đây.
+
+        Đọc THẲNG `SanXuatNhomLsx.order_line_id` — `nhom.dam_bao_nhom` ghi cột đó ngay lúc dựng
+        thành viên (`services/san_xuat/nhom.py:51`), nên vòng qua `Lsx` là thừa một join.
+
+        Trả về TỪNG THÀNH VIÊN chứ không phải tập dòng đơn đã gộp, và giữ cả `order_line_id` rỗng.
+        Hai thứ đó là dữ kiện, không phải rác: số thành viên quyết định mức GỘP của mọi con số cấp
+        nhóm, còn thành viên thiếu dòng đơn (cột nullable, `ondelete="SET NULL"`) nghĩa là KHÔNG
+        dựng được ánh xạ sang giao hàng — phải nói ra, không được lặng lẽ coi như 0.
+        """
+        rows = self.db.execute(
+            select(SanXuatNhomLsx.lsx_id, SanXuatNhomLsx.order_line_id)
+            .where(SanXuatNhomLsx.nhom_id == nhom_id)
+            .order_by(SanXuatNhomLsx.lsx_id)
+        ).all()
+        return [(int(r[0]), int(r[1]) if r[1] is not None else None) for r in rows]
 
     def cac_lot_cua_nhom(self, nhom_id: int) -> list[SanXuatKhoLot]:
         return list(
