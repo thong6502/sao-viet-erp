@@ -1,4 +1,4 @@
-"""Danh mục KHUÔN — kho dao dùng chung của xưởng (master data nhẹ).
+"""Danh mục KHUÔN & KHUNG — kho dụng cụ dùng chung của xưởng (master data nhẹ).
 
 Mỗi con dao làm riêng cho hình của 1 ấn phẩm; đơn lặp lại thì lôi dao cũ ra dùng. Khai để TÌM LẠI:
 mã / tên ấn phẩm / khách / loại / số kệ / ngày làm / tình trạng / ghi chú.
@@ -26,9 +26,13 @@ from ..db import Base
 # ngày đó hiện ngay tại bước dùng khuôn ở lệnh sản xuất, để người xếp việc biết chưa chạy được.
 TINH_TRANG = ("dang_dung", "dang_dat_lam", "hong", "thanh_ly")
 
-# Loại dao (mg 0205). DÙNG CHUNG bộ mã với `cong_doan.TOOLING_TYPE` — ô chọn khuôn ở bước lệnh lọc
-# bằng cách so thẳng `cong_doan.tooling_type == khuon_be.loai`, hai bộ mã lệch nhau là lọc ra rỗng.
-LOAI_KHUON = ("khuon_be", "khuon_ep")
+# Loại dụng cụ (mg 0205; thêm `khung_lua` 04/09/2026 — khung lụa cũng lưu kho dùng lại như khuôn
+# bế, nên nó thuộc về đây chứ không phải vật tư tiêu hao). DÙNG CHUNG bộ mã với
+# `cong_doan.TOOLING_TYPE` — ô chọn khuôn ở bước lệnh lọc bằng cách so thẳng
+# `cong_doan.tooling_type == khuon_be.loai`, hai bộ mã lệch nhau là lọc ra rỗng. Đó đúng là lỗi
+# khung lụa mắc suốt từ trước: công đoạn khai được loại đó mà kho không nhận, nên bước lụa mở ô
+# chọn ra RỖNG và bấm "làm dao mới" thì service ném 400.
+LOAI_KHUON = ("khuon_be", "khuon_ep", "khung_lua")
 
 
 def _utcnow() -> datetime:

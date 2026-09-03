@@ -4,7 +4,7 @@
 // Enum hiển thị bằng thuật ngữ in ấn thuần Việt — dùng chung 1 bảng nhãn cho cả dropdown lẫn cột.
 import { useEffect, useState } from "react";
 import type { CatalogConfig, ChuanBiKhoanRow } from "./RebuildCatalogPage";
-import { ClockIcon, isMayIn, tongChuanBi } from "./RebuildCatalogPage";
+import { ClockIcon, tongChuanBi } from "./RebuildCatalogPage";
 import { nhanTo } from "./danh-muc/nhanTo";
 import { NHOM_CONG_DOAN } from "./keHoachSxShared";
 import { QuyDoiCuaDonVi } from "./QuyDoiCuaDonVi";
@@ -165,53 +165,8 @@ export const CFG_MAY: CatalogConfig = {
   nhatKyLoai: "may_thiet_bi",
   columns: [
     { key: "loai_may", label: "Nhóm máy", render: (r) => (r.loai_may ? String(r.loai_may) : "") },
-    { key: "thong_so_kho", label: "Khổ máy & Vùng in",
-      render: (r) => {
-        // `Row` là bản ghi động (`unknown` mọi field) nên phải ép chuỗi trước khi render, và guard
-        // phải ép Boolean — `unknown && JSX` không phải ReactNode.
-        const so = (v: unknown) => (v == null || v === "" ? "?" : String(v));
-        const isMayInType = isMayIn(String(r.loai_may ?? ""));
-        const hasKhoMax = Boolean(r.kho_max_rong || r.kho_max_dai);
-        const hasKem = isMayInType && Boolean(r.kho_kem_rong || r.kho_kem_dai);
-        const hasVungIn = isMayInType && Boolean(r.vung_in_rong || r.vung_in_dai);
-        if (!hasKhoMax && !hasKem && !hasVungIn) return "";
-        return (
-          <div style={{ display: "flex", flexDirection: "column", gap: "2px", fontSize: "12.5px" }}>
-            {hasKhoMax && (
-              <div>
-                <span style={{ fontWeight: 600 }}>{so(r.kho_max_rong)}×{so(r.kho_max_dai)}</span>
-                <span style={{ fontSize: "12px", color: "var(--ash, #8a8577)", marginLeft: "4px" }}>(giấy max)</span>
-              </div>
-            )}
-            {hasKem && (
-              // Kẽm + Vùng in TÁCH 2 dòng riêng (trước gộp 1 dòng nối "•") — cột chỉ ~87px,
-              // nối chung dễ vỡ dòng giữa số làm chiều cao hàng nhảy lung tung giữa các máy.
-              <div style={{ fontSize: "12px", color: "var(--charcoal, #374151)" }}>Kẽm: {so(r.kho_kem_rong)}×{so(r.kho_kem_dai)}</div>
-            )}
-            {hasVungIn && (
-              <div style={{ fontSize: "12px", color: "var(--charcoal, #374151)" }}>In: {so(r.vung_in_rong)}×{so(r.vung_in_dai)}</div>
-            )}
-          </div>
-        );
-      }
-    },
-    { key: "chua_le", label: "Chừa lề tờ in",
-      render: (r) => {
-        if (!isMayIn(String(r.loai_may ?? ""))) return "";
-        const parts = [];
-        if (r.nhip_giay_mm) parts.push(`Nhíp ${r.nhip_giay_mm}mm`);
-        if (r.le_hong_mm) parts.push(`Lề ${r.le_hong_mm}mm`);
-        if (r.duoi_thang_mau_mm) parts.push(`Đuôi ${r.duoi_thang_mau_mm}mm`);
-        if (parts.length === 0) return "";
-        // MỖI phần một dòng riêng (trước nối "•" chung 1 dòng) — cột chỉ ~87px, 3 phần nối
-        // chung dễ vỡ dòng giữa số làm chiều cao hàng nhảy lung tung giữa các máy.
-        return (
-          <div style={{ display: "flex", flexDirection: "column", gap: "1px", fontSize: "12px", color: "var(--charcoal, #4b5563)", lineHeight: "1.4" }}>
-            {parts.map((p) => <div key={p}>{p}</div>)}
-          </div>
-        );
-      }
-    },
+    // Cột "Khổ máy & Vùng in" + "Chừa lề tờ in" ĐÃ ẨN (04/09/2026): mọi ô đổ ra hai cột này đã
+    // rút khỏi form khai, để lại cột thì bảng chỉ còn bày số cũ mà không ai sửa được ở đâu nữa.
     { key: "toc_do", label: "Tốc độ & Chuẩn bị",
       render: (r) => {
         const nSpeed = r.toc_do ? `${Number(r.toc_do).toLocaleString("vi-VN")} ${nhanDonViTocDo(r)}` : null;
@@ -272,13 +227,12 @@ export const CFG_MAY: CatalogConfig = {
   // Ô công thức duy nhất của màn Máy ra LƯỢNG (theo đơn vị tốc độ), không ra tiền — nhãn tab mặc
   // định "Công thức tính giá" sẽ mời gõ sai thứ vào đó.
   nhanTabCongThuc: "Cách đo lượng",
-  // Khai máy là form DÀI (7 nhóm). Cuộn một mạch thì khối Lịch bảo trì nằm tít dưới đáy, ai vào
-  // sửa chu kỳ cũng phải lướt qua cả đống ô khổ giấy không liên quan. Chia 3 tab theo việc.
+  // Khai máy vẫn chia 3 tab theo việc: cuộn một mạch thì khối Lịch bảo trì nằm tít dưới đáy,
+  // ai vào sửa chu kỳ cũng phải lướt hết phần vận hành.
   tabsKhai: [
     { id: "chung", label: "Thông tin chung", groups: ["Thông tin chung"] },
     { id: "ky-thuat", label: "Thông số kỹ thuật",
-      groups: ["Khổ kẽm & Vùng in", "Thông số chừa lề tờ in", "Khổ giấy máy nhận",
-               "Tốc độ & Vận hành", "Ghi chú"] },
+      groups: ["Tốc độ & Vận hành", "Ghi chú"] },
     { id: "bao-tri", label: "Lịch bảo trì", groups: ["Bảo trì định kỳ"] },
   ],
   fields: [
@@ -290,28 +244,10 @@ export const CFG_MAY: CatalogConfig = {
     { key: "hang_san_xuat", label: "Hãng sản xuất", type: "text", group: "Thông tin chung" },
     { key: "model", label: "Model", type: "text", group: "Thông tin chung" },
     { key: "so_seri", label: "Số seri", type: "text", group: "Thông tin chung" },
-    // ── 2. Khổ kẽm & Vùng in (chỉ Máy in) ───────────────────────────────────
-    { key: "kho_kem_rong", label: "Khổ kẽm — rộng (mm)", type: "number", group: "Khổ kẽm & Vùng in",
-      showIf: (f) => isMayIn(f.loai_may) },
-    { key: "kho_kem_dai", label: "Khổ kẽm — dài (mm)", type: "number", group: "Khổ kẽm & Vùng in",
-      showIf: (f) => isMayIn(f.loai_may) },
-    { key: "vung_in_rong", label: "Vùng in max — rộng (mm)", type: "number", group: "Khổ kẽm & Vùng in",
-      showIf: (f) => isMayIn(f.loai_may) },
-    { key: "vung_in_dai", label: "Vùng in max — dài (mm)", type: "number", group: "Khổ kẽm & Vùng in",
-      showIf: (f) => isMayIn(f.loai_may) },
-    // ── 3. Thông số chừa lề tờ in (chỉ Máy in) ─────────────────────────────
-    { key: "nhip_giay_mm", label: "Nhíp giấy (mm)", type: "number", group: "Thông số chừa lề tờ in",
-      showIf: (f) => isMayIn(f.loai_may) },
-    { key: "le_hong_mm", label: "Lề hông (mm)", type: "number", group: "Thông số chừa lề tờ in",
-      showIf: (f) => isMayIn(f.loai_may) },
-    { key: "duoi_thang_mau_mm", label: "Đuôi + thanh màu (mm)", type: "number", group: "Thông số chừa lề tờ in",
-      showIf: (f) => isMayIn(f.loai_may) },
-    // ── 4. Khổ giấy máy nhận ─────────────────────────────────────────────────
-    { key: "kho_min_rong", label: "Khổ giấy min — rộng (mm)", type: "number", group: "Khổ giấy máy nhận" },
-    { key: "kho_min_dai", label: "Khổ giấy min — dài (mm)", type: "number", group: "Khổ giấy máy nhận" },
-    { key: "kho_max_rong", label: "Khổ giấy max — rộng (mm)", type: "number", group: "Khổ giấy máy nhận" },
-    { key: "kho_max_dai", label: "Khổ giấy max — dài (mm)", type: "number", group: "Khổ giấy máy nhận" },
-    // ── 5. Tốc độ & Năng suất vận hành ───────────────────────────────────────
+    // Khổ kẽm · Vùng in max · Chừa lề tờ in · Khổ giấy min/max ĐÃ ẨN (04/09/2026): mấy số này chỉ
+    // phục vụ bình bài THEO MÁY ở phiếu tính giá, mà ô "Máy in" của phiếu cũng vừa ẩn cùng đợt.
+    // Cột DB + engine giữ nguyên (phiếu cũ đã gắn máy vẫn tính đúng), chỉ không bày ra form nữa.
+    // ── 2. Tốc độ & Năng suất vận hành ───────────────────────────────────────
     { key: "toc_do", label: "Tốc độ trung bình", type: "number", group: "Tốc độ & Vận hành" },
     { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "don_vi_toc_do",
       refPrefix: "/api/don-vi", refParams: { active: true, size: 200 },
@@ -323,8 +259,8 @@ export const CFG_MAY: CatalogConfig = {
     { key: "cong_thuc_luong", label: "Cách đo lượng theo đơn vị tốc độ", type: "formula",
       loaiO: "quy_doi", group: "Tốc độ & Vận hành",
       hint: "Bỏ trống = hệ tự quy đổi. vd máy đo m²/giờ: sl_vao * dai_in * rong_in · máy 5 màu chạy 2 lượt: sl_vao * so_mau / 5" },
-    { key: "toc_do_min", label: "Tốc độ tối thiểu", type: "number", group: "Tốc độ & Vận hành" },
-    { key: "toc_do_max", label: "Tốc độ tối đa", type: "number", group: "Tốc độ & Vận hành" },
+    // Ô "Tốc độ tối thiểu / tối đa" ĐÃ ẨN (04/09/2026) cùng đợt với các ô khổ: dải tốc độ không
+    // khai ở đây nữa. Cột DB giữ nguyên, Bài ghép / Lệnh SX vẫn đọc số cũ — đừng bày lại ô này.
     { key: "so_nhan_cong", label: "Số người vận hành tiêu chuẩn", type: "number", required: true,
       default: 1, group: "Tốc độ & Vận hành" },
     // Ô "Ca làm việc của máy này" ĐÃ BỎ (2026-08-10): máy là thiết bị, bàn xếp lịch cho chạy
@@ -458,16 +394,10 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // CHỈ TÍNH THEO CÔNG THỨC: đã bỏ ô 'Cách tính giá' / 'Đơn giá' / 'Bậc kích thước'.
     // Đơn giá nhập per-phiếu (mỗi dòng phiếu tính giá tự mang don_gia); công đoạn chỉ khai CÔNG THỨC.
     //
-    // Ẩn `to_dau_vao`/`to_sau_in` khỏi CHIP của riêng ô này (02/09/2026): hai biến đó là số CẢ
-    // CHUỖI (tờ vào/ra máy in, cố định cho mọi bước), trong khi công thức của MỘT công đoạn nên
-    // tính theo `sl_vao`/`sl_ra` — số ra/vào của CHÍNH bước đó, đúng đơn vị của bước (tờ/tay/cuốn).
-    // Gõ `to_dau_vao` vào công thức của một bước gia công đứng sau in là tính nhầm trên số TRƯỚC
-    // khi trừ hao của các bước ở giữa (vd "Gấp tay sách" ăn theo tờ vào máy thay vì số tay thật nó
-    // nhận — dư đúng phần hao của in + các bước trước nó). Hai biến vẫn hợp lệ nếu công thức cũ đã
-    // lỡ dùng (không đổi hành vi tính toán), chỉ không còn hiện chip mời bấm ở đây; Giấy/Vật tư vẫn
-    // hiện đủ vì hai ô đó không có khái niệm "số của một bước".
+    // `to_dau_vao`/`to_sau_in` không còn chip ở đây — từ 03/09/2026 hai biến bị ẩn ở MỌI ô công
+    // thức (`AN_MOI_O` trong `fields/FormulaField.tsx`), không riêng công đoạn nữa.
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá",
-      nhanTab: "Công thức tính giá", an: ["to_dau_vao", "to_sau_in"] },
+      nhanTab: "Công thức tính giá" },
     // ── Đơn vị đứng TRƯỚC Bù hao: nó quyết định bù hao được tra theo số gì (tờ hay con) ────────
     // Chọn từ DANH MỤC Đơn vị & quy đổi (không còn 5 mã cứng): bước không chạm giấy khai đơn vị
     // THẬT của nó — ghi kẽm `bài in → bản kẽm` — thay vì phải bỏ trống như trước 11/08/2026.
@@ -954,6 +884,7 @@ export const CFG_KCS_TIEU_CHI: CatalogConfig = {
 export const LOAI_KHUON: Lbls = {
   khuon_be: "Khuôn bế",
   khuon_ep: "Khuôn ép nhũ / dập nổi",
+  khung_lua: "Khung lụa",
 };
 
 export const TINH_TRANG_KHUON: Lbls = {
@@ -974,9 +905,9 @@ const fmtDate = (v: unknown): string => {
 // ấn phẩm; đơn lặp lại thì lôi khuôn cũ ra dùng. Chỉ đủ để TÌM LẠI: số kệ (vị trí lưu) +
 // tình trạng. Ref ấn phẩm/khách hàng đấu sau. Mã KB-#### tự sinh; xóa mềm giữ dấu vết.
 export const CFG_KHUON_BE: CatalogConfig = {
-  // Nhan đề là "Khuôn" (chứa cả khuôn ép nhũ) từ 16/08/2026 — nhưng `prefix`, `nhatKyLoai` và
-  // `moduleQuyen` GIỮ NGUYÊN chuỗi `khuon_be`, xem cảnh báo ngay dưới.
-  title: "Khuôn",
+  // Nhan đề là "Khuôn & khung" từ 04/09/2026 (chứa khuôn bế, khuôn ép nhũ và khung lụa) — nhưng
+  // `prefix`, `nhatKyLoai` và `moduleQuyen` GIỮ NGUYÊN chuỗi `khuon_be`, xem cảnh báo ngay dưới.
+  title: "Khuôn & khung",
   // ⚠️ `khuon_be` KHÔNG có tiền tố `dm_` như 9 màn kia — đây là chuỗi ĐANG NẰM TRONG bảng
   // `role_permissions` của DB thật (khớp `components/Sidebar.tsx`). Đổi cho "nhất quán" là mọi vai
   // mất sạch quyền màn này.
@@ -1009,9 +940,9 @@ export const CFG_KHUON_BE: CatalogConfig = {
     { key: "khach_hang_id", label: "Khách hàng", type: "ref", refPrefix: "/api/customers",
       refParams: { size: 200 }, group: "Nhận diện",
       hint: "Dao làm cho khách nào. Đây là đường tìm chính khi đơn lặp lại — bỏ trống thì lần sau dễ đặt lại con dao đã có." },
-    { key: "loai", label: "Loại khuôn", type: "select", group: "Nhận diện",
+    { key: "loai", label: "Loại", type: "select", group: "Nhận diện",
       options: mapOpt(LOAI_KHUON),
-      hint: "Bước “Ép nhũ” chỉ thấy dao ép, bước “Bế” chỉ thấy dao bế." },
+      hint: "Bước “Ép nhũ” chỉ thấy dao ép, bước “Bế” chỉ thấy dao bế, bước lụa chỉ thấy khung lụa." },
     { key: "so_ke", label: "Số kệ / vị trí lưu", type: "text", group: "Lưu trữ",
       hint: "Nơi cất khuôn, vd: Kệ B3 — xưởng sau in. Thợ đọc đúng ô này để đi lấy." },
     { key: "tinh_trang", label: "Tình trạng", type: "select", group: "Lưu trữ",
