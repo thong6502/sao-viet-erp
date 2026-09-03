@@ -259,6 +259,11 @@
   color: var(--ink);
   font-size: var(--fs-sm);
 }
+/* Ô khai `type="search"` nên Chromium tự vẽ thêm một nút xoá của RIÊNG nó, đứng ngay cạnh
+ * `.hslsx__clearq` do app vẽ ⇒ hai dấu ✕ dính nhau, người dùng không biết bấm cái nào. Tắt nút
+ * gốc, giữ nút của app (nó có `aria-label` tiếng Việt và cùng khuôn hover với phần còn lại). Hai
+ * module khác đã làm đúng từ trước: `thuc-hien-sx.css:157`, `xep-lich-2.css:229`. */
+.hslsx__search input::-webkit-search-cancel-button { display: none; }
 /* KHÔNG `outline: none` — vòng focus của `.hslsx :focus-visible` vẫn ăn. */
 
 .hslsx__clearq {
