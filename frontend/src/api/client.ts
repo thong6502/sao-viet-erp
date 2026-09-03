@@ -8451,6 +8451,20 @@ export interface TdsxKanbanMeta {
   cot: TdsxKanbanCot[];
 }
 
+/** NHÃN đi theo một bước: loại bước (+ nơi gia công) và khuôn/khung của nó.
+ *  MỘT kiểu dùng chung cho Kanban · Theo máy · Theo ca — mỗi màn tự suy lấy là nhãn đứt giữa
+ *  đường, đúng lỗi mà đợt 04/09/2026 vá. Vẽ bằng `<ChipLoaiBuoc>` + `<ChipKhuon>`. */
+export interface TdsxNhanBuoc {
+  loai_buoc: string | null;
+  nha_cung_cap: string | null;
+  khuon_ma: string | null;
+  khuon_so_ke: string | null;
+  khuon_tinh_trang: string | null;
+  /** ISO `yyyy-mm-dd`. */
+  khuon_ngay_ve: string | null;
+  khuon_da_nhan: boolean;
+}
+
 /** MỘT công việc đang `running`/`paused` của lệnh — hiện thành chip TRONG card (routing rẽ nhánh
  *  không tách thẻ). `may` KHÔNG BAO GIỜ `null` (máy chưa gán/đã xoá đều có nhãn riêng). */
 export interface TdsxKanbanChip {
@@ -8459,6 +8473,7 @@ export interface TdsxKanbanChip {
   trang_thai: string;
   may: string;
   nguoi: string[];
+  nhan: TdsxNhanBuoc | null;
 }
 
 /** MỘT lệnh = MỘT card, bất kể routing rẽ bao nhiêu nhánh. `cot` là bước sớm nhất còn dang dở. */
@@ -8497,6 +8512,7 @@ export interface TdsxMayLaneBlock {
   du_kien_bat_dau: string | null;
   du_kien_ket_thuc: string | null;
   nguoi: string[];
+  nhan: TdsxNhanBuoc | null;
 }
 
 /** MỘT lane. `may_id: null` là lane "Chưa xếp máy" — LUÔN có mặt kể cả rỗng. `blocks: []` là một
@@ -8525,6 +8541,7 @@ export interface TdsxCaViec {
   lsx: TdsxLsxThamChieu[];
   du_kien_bat_dau: string | null;
   nguoi: string[];
+  nhan: TdsxNhanBuoc | null;
 }
 
 /** MỘT ca của ngày đang xem. `id: null` là rổ "Ngoài ca" (LUÔN đứng CUỐI khi không lọc `ca_id`).

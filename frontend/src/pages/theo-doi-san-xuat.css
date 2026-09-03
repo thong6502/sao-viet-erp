@@ -1,0 +1,623 @@
+/* Màn "Theo dõi sản xuất" (Task 17b: Kanban + Theo máy; Task 18b: Theo ca + Gantt tổng thể).
+ *
+ * Dùng NGUYÊN hệ token đang chạy (`styles/tokens.css`), KHÔNG đẻ bảng màu/font riêng. Phần lớn
+ * khung (đầu trang, thanh lọc, dải tab) mượn thẳng các lớp `.hslsx__*` đã có ở `lenh-san-xuat.css`
+ * — root `<main>` của trang mang CẢ HAI class `tdsx hslsx` (không lồng nhau) nên các rule flat của
+ * `.hslsx__*` áp thẳng, không cần chép lại ở đây. File này chỉ định nghĩa phần RIÊNG của màn: board
+ * Kanban, mini-Gantt Theo máy, bảng Theo ca, Gantt tổng thể, chip/khối trạng thái, và ba popover
+ * (Thêm bộ lọc · chọn lệnh).
+ *
+ * Bốn màu trạng thái công việc (`.tdsx-tt--*` / `.tdsx-tm__block--*` / `.tdsx-lg__item--*`) LẤY
+ * NGUYÊN giá trị đã chạy thật ở `.thsx-lg` của Thực hiện SX (`thuc-hien-sx.css:1487-1497`) — cố
+ * tình KHÔNG import file đó (nó bọc trong `.thsx` và có reset riêng cho trục thời gian dùng chung
+ * `xl2Shared`, kéo theo là rủi ro rò CSS sang một màn không có ancestor đó); giữ đúng token, đổi
+ * tên lớp cho gọn trong phạm vi màn này.
+ *
+ * Ruling C138 (task-18b-brief.md): tab Gantt tổng thể TÁI DÙNG nguyên các lớp trục thời gian của
+ * Theo máy (`.tdsx-tm__scroll/__grid/__corner/__axis/__tick`) — cả hai đọc CÙNG module tính toán
+ * `tdsxTimeline.ts`, nên cùng luôn CSS vẽ trục là hợp lý, dù tiền tố còn ghi "tm" (giữ tên cũ để
+ * đỡ phải sửa lại `TdsxTheoMay.tsx` đã qua rà soát). Riêng phần LABEL/TRACK của từng dòng thì mỗi
+ * tab có lớp riêng (`.tdsx-tm__label/__track` cho Theo máy, `.tdsx-gt__label/__track` cho Gantt)
+ * vì nội dung một dòng khác hẳn nhau (tên máy đơn dòng so với mã+khách+hạn ba dòng).
+ */
+
+/* --- "Thêm bộ lọc" — popover nhỏ neo dưới nút, khuôn `.xl2-verhist__pop` --------------------- */
+.tdsx-themloc { position: relative; display: inline-flex; }
+.tdsx-themloc__pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  /* Neo mép PHẢI: nút "Thêm bộ lọc" luôn đứng cuối thanh lọc, `left: 0` đẩy popover tràn ra ngoài
+   * màn — đo ở 1440px ra x 1310→1530, thừa 90px, hai ô Công nhân/Khách hàng bị cắt mất nửa phải và
+   * không thanh cuộn nào với tới được. */
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 220px;
+  padding: var(--sp-3);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-4);
+}
+
+/* --- trạng thái công việc: chip nhỏ (Kanban) + legend (Theo máy) ----------------------------- */
+.tdsx-tt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-2xs);
+  color: var(--ash);
+  white-space: nowrap;
+}
+.tdsx-tt i { width: 9px; height: 9px; border-radius: 50%; flex: none; border: 1px solid var(--rule); }
+/* Chữ của chip co được và cắt bằng "…" thay vì tràn ra rồi bị thẻ cha xén ngang chữ. `min-width: 0`
+ * bắt buộc: mặc định flex item không co dưới kích thước nội dung. */
+.tdsx-tt__chu { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tdsx-tt--released i { border-color: var(--steel-soft); background: var(--canvas); }
+.tdsx-tt--running i { border-color: var(--moss); background: var(--moss); }
+.tdsx-tt--paused i {
+  border-color: var(--amber);
+  background:
+    repeating-linear-gradient(-45deg,
+      color-mix(in srgb, var(--amber) 30%, transparent) 0 2px,
+      transparent 2px 4px),
+    var(--amber-soft);
+}
+.tdsx-tt--completed i { border-color: var(--rule); background: var(--rule-hair); }
+
+.tdsx-lg { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin: var(--sp-2) 0 var(--sp-3); }
+.tdsx-lg__item { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-2xs); color: var(--ash); }
+.tdsx-lg__item i { width: 11px; height: 11px; border-radius: var(--r-2); border: 1px solid var(--rule); }
+.tdsx-lg__item--released i { border-color: var(--steel-soft); background: var(--canvas); }
+.tdsx-lg__item--running i { border-color: var(--moss); background: var(--moss-soft); }
+.tdsx-lg__item--paused i {
+  border-color: var(--amber);
+  background:
+    repeating-linear-gradient(-45deg,
+      color-mix(in srgb, var(--amber) 22%, transparent) 0 3px,
+      transparent 3px 6px),
+    var(--amber-soft);
+}
+.tdsx-lg__item--completed i { border-color: var(--rule); background: var(--rule-hair); }
+
+/* =============================== TAB KANBAN ================================================= */
+.tdsx-kb { margin-top: var(--sp-3); }
+.tdsx-kb__loi { padding: var(--sp-6) 0; }
+.tdsx-kb__loi--full { display: flex; justify-content: center; }
+
+/* Băng "đang ẩn N công đoạn trống": đứng NGOÀI vùng cuộn ngang của board, nếu để bên trong thì kéo
+ * sang phải một cái là câu chữ lẫn nút mở lại trôi mất. */
+.tdsx-kb__cotloc { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.tdsx-kb__cotloc-chu { font-size: var(--fs-xs); color: var(--ash); }
+
+/* Cả dải cột cuộn NGANG; mỗi cột tự cuộn DỌC bên trong (thân `.tdsx-kb__body`, không phải cả
+ * `.tdsx-kb__col`) — đầu cột (`colhead`) đứng NGOÀI phần cuộn nên số đếm luôn thấy được. */
+.tdsx-kb__board {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  overflow-x: auto;
+  padding-bottom: var(--sp-2);
+  transition: opacity 150ms ease;
+}
+.tdsx-kb__board.is-mo { opacity: 0.55; }
+.tdsx-kb__col {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 270px;
+  max-width: 270px;
+  max-height: calc(100vh - 320px);
+  min-height: 160px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  overflow: hidden;
+}
+.tdsx-kb__colhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-3) var(--sp-2);
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--canvas);
+}
+.tdsx-kb__colten { font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--ink); }
+.tdsx-kb__coln {
+  font-family: var(--ff-num);
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  background: var(--rule-hair);
+  border-radius: var(--r-pill);
+  padding: 1px 8px;
+}
+.tdsx-kb__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.tdsx-kb__colrong { font-size: var(--fs-xs); color: var(--ash); text-align: center; margin: var(--sp-4) 0; }
+
+.tdsx-kb__card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  text-align: left;
+  padding: var(--sp-3);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.tdsx-kb__card:hover { border-color: var(--steel); box-shadow: var(--shadow-1); }
+.tdsx-kb__card:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
+.tdsx-kb__row1 { display: flex; align-items: center; gap: var(--sp-2); }
+.tdsx-kb__ma { font-family: var(--ff-num); font-weight: var(--fw-bold); font-size: var(--fs-sm); color: var(--ink); }
+.tdsx-kb__row2 {
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tdsx-kb__row3 { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.tdsx-kb__sl { font-family: var(--ff-num); font-size: var(--fs-xs); color: var(--ink); }
+.tdsx-kb__han { display: inline-flex; align-items: center; gap: 3px; font-size: var(--fs-2xs); color: var(--ash); }
+.tdsx-kb__row4 { font-size: var(--fs-2xs); color: var(--ash); }
+.tdsx-kb__chips { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; margin-top: var(--sp-1); }
+.tdsx-kb__chipthem { font-size: var(--fs-2xs); color: var(--steel); }
+
+/* =============================== TAB THEO MÁY (mini-Gantt) =================================== */
+.tdsx-tm { margin-top: var(--sp-3); }
+.tdsx-tm__note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  background: var(--rule-hair);
+  border-radius: var(--r-2);
+  padding: var(--sp-2) var(--sp-3);
+  margin: 0 0 var(--sp-2);
+}
+.tdsx-tm__note svg { flex: none; margin-top: 1px; color: var(--steel); }
+.tdsx-tm__rong { display: flex; justify-content: center; padding: var(--sp-6) 0; }
+
+/* Hai trục sticky giao nhau: khung ngoài CUỘN CẢ HAI CHIỀU, lưới trong dùng CSS Grid 2 cột (nhãn +
+ * track) — mỗi lane góp đúng 2 ô grid liên tiếp (label, track) nên số HÀNG grid tự bằng số lane. */
+.tdsx-tm__scroll {
+  overflow: auto;
+  max-height: calc(100vh - 360px);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+}
+/* `min-width: max-content` KHÔNG phải trang trí — thiếu nó là cột nhãn sticky TRÔI MẤT khi cuộn tới
+ * cuối. Lưới là block-level nên `width: auto` = bề rộng khung cuộn (vd 1146px) trong khi các track
+ * grid cộng lại rộng hơn nhiều (vd 2148px); một item `position: sticky` chỉ trôi được tối đa
+ * `hộp-nội-dung-cha − bề-rộng-chính-nó`, nên quá ngưỡng đó nhãn bị kéo đi theo track. Đo thật:
+ * 1440px/Gantt dính tới scrollLeft 907 rồi lệch 95px; 1024px/Theo máy lệch 279px (nhãn rộng 176px
+ * ⇒ MẤT HẲN); 390px/Gantt hỏng từ scrollLeft 236 trên quãng cuộn 1683px. `min-width` (không phải
+ * `width`) để khi track NGẮN hơn khung thì lưới vẫn giãn kín khung, không co lại thành dải hẹp. */
+.tdsx-tm__grid { display: grid; min-width: max-content; transition: opacity 150ms ease; background: var(--canvas); }
+.tdsx-tm__grid.is-mo { opacity: 0.55; }
+
+.tdsx-tm__corner {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  background: var(--paper);
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.tdsx-tm__axis {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 30px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+}
+.tdsx-tm__tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 4px;
+  font-family: var(--ff-num);
+  font-size: var(--fs-2xs);
+  color: var(--ash);
+  border-left: 1px solid var(--rule-soft);
+}
+.tdsx-tm__tick.is-dam { color: var(--ink); border-left-color: var(--rule); }
+
+.tdsx-tm__label {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--sp-3);
+  min-height: 56px;
+  background: var(--canvas);
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+}
+.tdsx-tm__label.is-ngung { background: var(--rule-hair); color: var(--ash); }
+.tdsx-tm__labelten { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tdsx-tm__labeltag {
+  font-size: var(--fs-2xs);
+  color: var(--ash);
+  background: var(--rule-soft);
+  border-radius: var(--r-pill);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.tdsx-tm__track {
+  position: relative;
+  min-height: 56px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.tdsx-tm__track.is-ngung { background: var(--rule-hair); }
+.tdsx-tm__trongchu {
+  position: absolute;
+  left: var(--sp-3);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  white-space: nowrap;
+}
+
+/* Khối: viền ngoài = 100% khung KẾ HOẠCH (C124). `.tdsx-tm__inner` trừ 4px hai mép làm vùng lõi —
+ * Task 17b để TRỐNG (chỉ nền phẳng qua chính khối cha); khi có vế thực tế chỉ cần thêm một
+ * `<span>` con bên trong `.tdsx-tm__inner` tô dải `--moss` từ trái, KHÔNG phải sửa layout này. */
+.tdsx-tm__block {
+  position: absolute;
+  top: 10px;
+  height: 36px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+  font: inherit;
+}
+.tdsx-tm__block:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
+/* Bốn màu trạng thái phải khớp ĐÚNG lớp mà `TdsxTheoMay.tsx` phát ra: nó lấy `meta.cls` từ
+ * `TDSX_TT_META` (`TdsxKanban.tsx`) nên gắn `tdsx-tt--*`, KHÔNG phải `tdsx-tm__block--*`. Trước
+ * đây viết theo tên `--*` nên không quy tắc nào khớp: đo computed style cả 17 thanh đều ra
+ * `background rgb(255,255,255)` / `border rgb(203,213,225)` — "Chờ làm", "Đang chạy", "Tạm dừng"
+ * giống hệt nhau, trong khi chú giải ngay trên đầu vẫn bày đủ 4 màu. Giữ `.tdsx-tt--*` (dùng
+ * chung với chip) và siết bằng `.tdsx-tm__block` để không rò sang chip ở tab khác. */
+.tdsx-tm__block.tdsx-tt--released { border-color: var(--steel-soft); background: var(--canvas); }
+.tdsx-tm__block.tdsx-tt--running { border-color: var(--moss); background: var(--moss-soft); }
+.tdsx-tm__block.tdsx-tt--paused {
+  border-color: var(--amber);
+  background:
+    repeating-linear-gradient(-45deg,
+      color-mix(in srgb, var(--amber) 22%, transparent) 0 3px,
+      transparent 3px 6px),
+    var(--amber-soft);
+}
+.tdsx-tm__block.tdsx-tt--completed { border-color: var(--rule); background: var(--rule-hair); }
+.tdsx-tm__block--khoa {
+  border-color: var(--rule);
+  background: repeating-linear-gradient(-45deg, var(--rule-soft) 0 4px, var(--rule-hair) 4px 8px);
+  cursor: not-allowed;
+}
+.tdsx-tm__inner {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  margin: 0 4px;
+  overflow: hidden;
+}
+.tdsx-tm__nhan {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-2xs);
+  font-family: var(--ff-num);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tdsx-tm__nhan--gon { justify-content: center; width: 100%; }
+
+/* --- popover chọn lệnh khi một khối/việc phục vụ ≥2 lệnh (C123) — `position: fixed`, toạ độ JS
+ * truyền qua `style.left/top` (đo từ chính phần tử vừa bấm), giữ dưới lớp phủ hồ sơ (`z-index: 60`).
+ * Tiền tố KHÔNG còn là `tm__` vì tab Theo ca dùng chung (xem `tdsxChonLenh.tsx`). */
+.tdsx-picker {
+  position: fixed;
+  z-index: 35;
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-lg);
+}
+.tdsx-picker__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: var(--fs-2xs);
+  color: var(--ash);
+}
+.tdsx-picker__head button { appearance: none; border: 0; background: none; cursor: pointer; color: var(--ash); }
+.tdsx-picker__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  border-bottom: 1px solid var(--rule-hair);
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+}
+.tdsx-picker__row:last-child { border-bottom: 0; }
+.tdsx-picker__row:hover { background: var(--rust-soft); }
+.tdsx-picker__ma { font-family: var(--ff-num); font-weight: var(--fw-bold); }
+
+/* =============================== TAB THEO CA ================================================= */
+.tdsx-tc { margin-top: var(--sp-3); }
+.tdsx-tc__toolbar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-3);
+}
+/* Hai nút lùi/tới ngày TÁI DÙNG icon `chevron` (chỉ có bản trỏ xuống) — xoay 90°/-90° bằng
+ * transform thay vì thêm hai icon left/right mới vào bộ `Icons.tsx`. Cao/bo GIỐNG HỆT ô ngày/select/
+ * "Mã ca khác" cạnh bên (34px / --r-3) — trước đây 28px/--r-2 lệch hẳn trong cùng một hàng công cụ
+ * (vòng sửa 1, mục C: styleseed chấm Coherence −3 vì đo `getComputedStyle` ra hai chiều cao khác). */
+.tdsx-tc__daybtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  color: var(--ash);
+  cursor: pointer;
+}
+.tdsx-tc__daybtn:hover { border-color: var(--steel); color: var(--ink); }
+.tdsx-tc__daybtn svg { transform: rotate(90deg); }
+.tdsx-tc__daybtn--sau svg { transform: rotate(-90deg); }
+/* Ô số trần — `.hslsx__field select`/`.hslsx__daterow input` (lenh-san-xuat.css) chỉ bắt hai lớp
+ * đích danh đó, không bắt input số này, nên phải tự khai đủ khung viền/bo góc/chiều cao ở đây kẻo
+ * lòi ra input mặc định của trình duyệt (bo góc 0, viền inset xám) giữa dải ô đã đồng bộ. */
+.tdsx-tc__macakhac input {
+  width: 110px;
+  height: 34px;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+}
+
+.tdsx-tc__locbao { font-size: var(--fs-xs); color: var(--ash); margin: 0 0 var(--sp-3); }
+
+.tdsx-tc__list { display: flex; flex-direction: column; gap: var(--sp-3); transition: opacity 150ms ease; }
+.tdsx-tc__list.is-mo { opacity: 0.55; }
+
+.tdsx-tc__ca {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  overflow: hidden;
+}
+.tdsx-tc__cahead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.tdsx-tc__caten { font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--ink); }
+.tdsx-tc__cakhung { font-family: var(--ff-num); font-size: var(--fs-xs); color: var(--ash); }
+.tdsx-tc__can {
+  margin-left: auto;
+  font-family: var(--ff-num);
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  background: var(--rule-hair);
+  border-radius: var(--r-pill);
+  padding: var(--sp-1) var(--sp-2);
+}
+.tdsx-tc__body { display: flex; flex-direction: column; }
+.tdsx-tc__rong { font-size: var(--fs-xs); color: var(--ash); text-align: center; margin: var(--sp-4) 0; }
+
+/* Dòng việc là NÚT (bấm mở hồ sơ lệnh, C123) — reset đúng các thuộc tính mà <button> tự đặt, giữ
+ * nguyên hình dạng dòng đã có. `disabled` chỉ xảy ra với việc không gắn lệnh nào. */
+.tdsx-tc__viec {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--rule-hair);
+  padding: var(--sp-2) var(--sp-3);
+  cursor: pointer;
+}
+.tdsx-tc__viec:last-child { border-bottom: 0; }
+.tdsx-tc__viec:hover:not(:disabled) { background: var(--rule-hair); }
+.tdsx-tc__viec:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
+.tdsx-tc__viec:disabled { cursor: default; }
+.tdsx-tc__viecrow1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.tdsx-tc__vma {
+  flex: none;
+  font-family: var(--ff-num);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+}
+.tdsx-tc__vten {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--ash);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tdsx-tc__viecrow2 {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-top: 2px;
+  font-size: var(--fs-2xs);
+  color: var(--ash);
+  flex-wrap: wrap;
+}
+.tdsx-tc__vmay { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+
+/* =============================== TAB GANTT TỔNG THỂ =========================================== */
+.tdsx-gt { margin-top: var(--sp-3); }
+.tdsx-gt__rong { display: flex; justify-content: center; padding: var(--sp-6) 0; }
+
+/* Label/track dùng CHUNG lưới+trục với Theo máy (`.tdsx-tm__scroll/__grid/__corner/__axis/__tick`,
+ * xem ghi chú Ruling C138 ở đầu file) — chỉ riêng nội dung một dòng khác nên khai lớp riêng ở đây,
+ * kích thước (min-height 64px, cao hơn 56px của Theo máy vì có 3 dòng chữ thay vì 1). */
+.tdsx-gt__label {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  min-height: 64px;
+  background: var(--canvas);
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule-soft);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.tdsx-gt__label:hover { background: var(--rust-soft); }
+.tdsx-gt__label:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
+.tdsx-gt__row1 { display: flex; align-items: center; gap: var(--sp-2); }
+.tdsx-gt__ma { font-family: var(--ff-num); font-weight: var(--fw-bold); font-size: var(--fs-sm); color: var(--ink); }
+.tdsx-gt__meta {
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tdsx-gt__han { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-2xs); color: var(--ash); }
+.tdsx-gt__kehoach {
+  font-family: var(--ff-num);
+  font-size: var(--fs-2xs);
+  color: var(--steel);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tdsx-gt__track {
+  position: relative;
+  min-height: 64px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+/* `position: sticky; left: <bề rộng cột nhãn>` — GIỐNG hệt cơ chế `.tdsx-gt__label` (cũng sticky
+ * trong CHÍNH khung cuộn ngang `.tdsx-tm__scroll`), không phải `absolute` theo track như trước.
+ * `absolute` khiến chữ trôi theo track khi cuộn ngang: đo thật `scrollLeft=900` ra nhãn đứng yên
+ * ở +1px nhưng chữ tụt xuống −647px (ngoài khung nhìn) — một lệnh chưa xếp lịch cuộn sang phải
+ * thành DÒNG TRỐNG TRƠN, không phân biệt được với lệnh có thanh nằm ngoài tầm nhìn (vòng sửa 1,
+ * mục B2). `--tdsx-gt-label-w` do JS set cùng lúc với `gridTemplateColumns` (xem `TdsxGantt.tsx`),
+ * theo đúng bề rộng cột nhãn TẠI THỜI ĐIỂM đó — kể cả khi nó co lại ở màn hẹp. */
+.tdsx-gt__thieumoc {
+  position: sticky;
+  left: calc(var(--tdsx-gt-label-w, 240px) + var(--sp-3));
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  white-space: nowrap;
+}
+/* Nền ĐẶC, không phải viền rỗng: dải nhiều ngày ép `pxPerGio` xuống 14 nên phần lớn thanh chạm
+ * đáy 24px — một viên nang trắng viền nhạt 24px trên nền trắng gần như không nhìn ra là có thanh.
+ * Tô `--steel-soft` để thanh nổi lên; biến quá hạn vẫn giữ `--rust-soft` đè lên (khai sau). */
+.tdsx-gt__bar {
+  position: absolute;
+  top: var(--sp-4);
+  height: var(--sp-8);
+  border: 1px solid var(--steel);
+  border-radius: var(--r-pill);
+  background: var(--steel-soft);
+  cursor: pointer;
+  padding: 0;
+}
+.tdsx-gt__bar:hover { background: var(--steel); }
+/* Khối skeleton của track — trước đây `margin: "18px 0 0 24px"` viết THẲNG vào `style` inline ở
+ * `GanttSkeletonRow`; 18px lệch khỏi thang 8px (vòng sửa 1, mục C: styleseed chấm Layout −3). Dời
+ * hẳn vào CSS, top/left khớp đúng `.tdsx-gt__bar` thật ở trên để khung xương không "nhảy" khi dữ
+ * liệu thật tải xong. */
+.tdsx-gt__skelbar { position: relative; top: var(--sp-4); left: var(--sp-6); }
+.tdsx-gt__bar:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
+.tdsx-gt__bar--quahan { border-color: var(--rust); background: var(--rust-soft); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tdsx-kb__board, .tdsx-tm__grid, .tdsx-tc__list { transition: none; }
+}
+
+/* Nhãn bước (04/09/2026) — chip đứng cạnh chip trạng thái trên thẻ Kanban, gãy dòng khi hẹp. */
+.tdsx-kb__chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+/* Dấu gọn trên thanh Theo máy: thanh Gantt không đủ chỗ cho chip thật, chữ đủ nằm ở `title`. */
+.tdsx-tm__dau {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1;
+  margin-left: 3px;
+}

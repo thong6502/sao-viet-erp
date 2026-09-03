@@ -86,3 +86,46 @@ export function ChipKhuon({
     </span>
   );
 }
+
+/** Khối `nhan` mà backend gắn lên mỗi bước (Kanban · Theo máy · Theo ca · KCS · Kho). */
+export interface NhanBuoc {
+  loai_buoc?: string | null;
+  nha_cung_cap?: string | null;
+  khuon_ma?: string | null;
+  khuon_so_ke?: string | null;
+  khuon_tinh_trang?: string | null;
+  khuon_ngay_ve?: string | null;
+  khuon_da_nhan?: boolean;
+}
+
+/** `nhan` → props của `<ChipKhuon>`. Một chỗ đổi tên field là mọi màn theo — bốn màn tự trải
+ *  `nhan.khuon_*` ra là bốn chỗ để quên một field, đúng lối hỏng mà hai chip này sinh ra để chặn. */
+export function nhanKhuon(n?: NhanBuoc | null): KhuonChip {
+  return {
+    ma: n?.khuon_ma ?? null,
+    so_ke: n?.khuon_so_ke ?? null,
+    tinh_trang: n?.khuon_tinh_trang ?? null,
+    ngay_ve_du_kien: n?.khuon_ngay_ve ?? null,
+    da_nhan: n?.khuon_da_nhan ?? false,
+  };
+}
+
+/** Một chữ NGẮN cho `title` của thanh Gantt hẹp (Theo máy) — chỗ không đủ bề ngang cho chip thật,
+ *  nhưng vẫn phải nói ra được nhãn khi rê chuột. Rỗng nếu bước không có gì để nói. */
+export function nhanTomTat(n?: NhanBuoc | null): string {
+  const ra: string[] = [];
+  if (n?.loai_buoc === "thue_ngoai") {
+    ra.push(`Ngoài · ${(n.nha_cung_cap ?? "").trim() || "chưa chọn nơi làm"}`);
+  }
+  if (n?.khuon_ma) {
+    const ng = ngayNgan(n.khuon_ngay_ve);
+    ra.push(
+      n.khuon_da_nhan
+        ? `${n.khuon_ma} · đã nhận`
+        : n.khuon_tinh_trang === "dang_dat_lam"
+          ? `${n.khuon_ma} · ${ng ? `dự kiến ${ng}` : "chưa có ngày"}`
+          : `${n.khuon_ma}${(n.khuon_so_ke ?? "").trim() ? ` · ${n.khuon_so_ke}` : ""}`,
+    );
+  }
+  return ra.join(" · ");
+}
