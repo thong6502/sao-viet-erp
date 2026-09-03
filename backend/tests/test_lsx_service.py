@@ -689,11 +689,38 @@ def test_sua_routing_bi_chan_khi_don_da_huy(db, orders, lsx_svc, admin, customer
         ])
 
 
+def _gan_dao_cho_buoc_can(db, lsx):
+    """Trỏ một con dao cho MỌI bước cần dụng cụ — cửa "Sẵn sàng" đòi đủ khuôn từ 04/09/2026.
+
+    Danh mục công đoạn seed sẵn đã có bước bật `requires_tooling` (bế/ép), nên lệnh dựng từ fixture
+    mặc định là thiếu khuôn. Test nào chỉ muốn kiểm điều kiện KHÁC thì gọi hàm này để dọn đường,
+    thay vì nới điều kiện thật ở service.
+    """
+    from app.models.cong_doan import CongDoan
+    from app.models.khuon_be import KhuonBe
+
+    can = {
+        r.id for r in db.query(CongDoan).all()
+        if r.requires_tooling and r.tooling_type in ("khuon_be", "khuon_ep", "khung_lua")
+    }
+    if not any(cd.cong_doan_id in can for cd in lsx.cong_doans):
+        return
+    dao = KhuonBe(ma=f"KB-TEST-{lsx.id}", ten="Dao test", loai="khuon_be",
+                  tinh_trang="dang_dung")
+    db.add(dao)
+    db.flush()
+    for cd in lsx.cong_doans:
+        if cd.cong_doan_id in can:
+            cd.khuon_be_id = dao.id
+    db.commit()
+
+
 def test_san_sang_bi_chan_khi_con_thieu_va_mo_khi_du(db, orders, lsx_svc, admin, customer):
     ptg = _ptg_2_san_pham(db)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
     [hop, _tem] = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
+    _gan_dao_cho_buoc_can(db, hop)
 
     # Bước nội bộ chưa biết TỔ/MÁY nào làm → CHỜ BỔ SUNG. (Mục "thiếu khuôn bế" đã bỏ khỏi
     # checklist 11/08/2026: ô gán khuôn ở cấp lệnh không còn, giữ lại là khoá lệnh vĩnh viễn.)
@@ -3234,6 +3261,7 @@ def test_facets_dem_ca_trang_thai_dang_bi_loc_ra(db, orders, lsx_svc, admin, cus
         order_id=d.id,
         order_line_ids=[l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]],
         actor=admin)
+    _gan_dao_cho_buoc_can(db, lenhs[0])
     lsx_svc.set_trang_thai(lsx_id=lenhs[0].id, trang_thai=TT_SAN_SANG, actor=admin)
 
     facets = lsx_svc.dem_trang_thai(order_id=d.id, trang_thai=TT_NHAP)
@@ -3286,3 +3314,50 @@ def test_khuon_khong_lech_thi_im_lang():
     assert canh_bao_lech_khuon("lam_moi", 1_200_000, "dang_dat_lam") is None
     assert canh_bao_lech_khuon("co_san", 0, "dang_dung") is None
     assert canh_bao_lech_khuon(None, 0, "dang_dung") is None
+
+
+# --- Cửa "Sẵn sàng lập kế hoạch" đòi đủ khuôn (chốt 04/09/2026) ---------------------------------
+def _buoc_can_dao(db, hop):
+    """Biến bước đầu của lệnh thành bước CẦN DAO — bật cờ ở DANH MỤC, không ghi cứng tên bước."""
+    from app.models.cong_doan import CongDoan
+
+    buoc = hop.cong_doans[0]
+    cd = db.get(CongDoan, buoc.cong_doan_id)
+    cd.requires_tooling = True
+    cd.tooling_type = "khuon_be"
+    db.commit()
+    return buoc
+
+
+def test_thieu_khuon_chan_san_sang(db, orders, lsx_svc, admin, customer):
+    """Bước bế chưa trỏ dao → không qua cửa. Đứng NGANG HÀNG với thiếu nhà gia công: cùng một danh
+    sách, người dùng không phải học luật mới. Trước đây cửa im lặng, tới lúc thợ ra máy mới biết
+    không có dao."""
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    [hop, _tem] = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
+    _buoc_can_dao(db, hop)
+    assert "thieu_khuon" in lsx_svc.thieu_cua(lsx_svc.get(hop.id))
+
+
+def test_tro_dao_roi_thi_het_thieu_khuon(db, orders, lsx_svc, admin, customer):
+    from app.models.khuon_be import KhuonBe
+
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    [hop, _tem] = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
+    buoc = _buoc_can_dao(db, hop)
+    dao = KhuonBe(ma="KB-9001", ten="Dao bế hộp", loai="khuon_be", tinh_trang="dang_dung")
+    db.add(dao)
+    db.flush()
+    # Trỏ dao cho MỌI bước của lệnh, không chỉ bước vừa bật cờ: danh mục seed sẵn có công đoạn
+    # khác cũng bật `requires_tooling` (bế/ép), bỏ sót một bước thì cửa vẫn đóng và test này đọc
+    # như hàm hỏng trong khi hàm đúng.
+    for cd in hop.cong_doans:
+        cd.khuon_be_id = dao.id
+    _ = buoc
+    db.commit()
+    assert "thieu_khuon" not in lsx_svc.thieu_cua(lsx_svc.get(hop.id))
+

@@ -503,6 +503,9 @@ export const LSX_THIEU_LABELS: Record<string, NhanMa> = {
   thieu_to_may: "Có công đoạn chưa gán tổ / máy",
   thieu_ncc: "Công đoạn thuê ngoài chưa có nhà gia công",
   thieu_tg_thue_ngoai: "Công đoạn thuê ngoài chưa có ngày gửi / nhận",
+  // Bước cần dụng cụ lưu kho (bế · ép nhũ · khung lụa) mà chưa trỏ con dao nào. Đứng NGANG HÀNG
+  // với thiếu nhà gia công — cùng một danh sách, người dùng không phải học luật mới.
+  thieu_khuon: "Có công đoạn cần khuôn / khung mà chưa chọn",
   // Hệ số quy đổi nay do server suy, không ai khai — chỉ thiếu NGUỒN của nó mới là lỗi thật.
   // Ba cầu, ba nguồn KHÁC NHAU: đổi mức lấy Con/tờ, xả giấy lấy số mảnh xả, còn sách thì lấy
   // số trang / trang mỗi tay (KHÔNG dùng con/tờ) — nên lệnh sách thiếu ở chỗ khác lệnh tờ rời.

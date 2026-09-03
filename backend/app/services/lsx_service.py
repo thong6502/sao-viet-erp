@@ -80,6 +80,12 @@ _QC_BO_QUA = frozenset({
 })
 
 
+# Dụng cụ LƯU KHO — bước dùng chúng phải trỏ vào một dòng `khuon_be`. Bám đúng bộ mã của
+# `cong_doan.TOOLING_TYPE`; `kem` KHÔNG có mặt (bản kẽm là vật tư tiêu hao, mỗi bài phơi một bản
+# mới nên không có gì để "đi lấy ở kệ").
+TOOLING_CO_KHO = frozenset({"khuon_be", "khuon_ep", "khung_lua"})
+
+
 def _don_vi_theo_buoc(cd_obj, *, con: int = 1, xa: int = 1,
                       cau: dict | None = None,
                       tram: dict[str, str] | None = None) -> tuple[str, str, float]:
@@ -1281,9 +1287,11 @@ class LsxService:
                 thieu.append("thieu_routing")
         if order.delivery_committed_date is None:
             thieu.append("thieu_ngay_giao")
-        # "thiếu khuôn bế" ĐÃ BỎ khỏi checklist (11/08/2026), và từ 16/08 khuôn ra khỏi lệnh hẳn
-        # (mg `0203`) — không còn chỗ nào trong lệnh biết con dao nào, nên đừng thêm lại điều kiện
-        # này: mọi lệnh có bước bế sẽ mắc kẹt ở CHỜ BỔ SUNG mà không ai gỡ được.
+        # Khuôn KHÔNG kiểm ở đây: `_thieu` chấm "job readiness" của một dòng ĐƠN trước khi lệnh ra
+        # đời, lúc đó chưa có bước nào để trỏ dao. Điều kiện khuôn nằm ở `thieu_cua` (checklist của
+        # LỆNH đã có routing) — xem mã `thieu_khuon` ở đó.
+        # ⚠️ Chú thích cũ ở đây ghi "khuôn ra khỏi lệnh hẳn (mg `0203`)" — SAI từ mg `0205`: khuôn
+        # đã được nối lại qua `lsx_cong_doan.khuon_be_id`, và từ 04/09/2026 nó CHẶN cửa Sẵn sàng.
         return thieu
 
     # ================= PREVIEW =================
@@ -1621,7 +1629,6 @@ class LsxService:
                 thieu.append("thieu_routing")
         if (order.delivery_committed_date if order else None) is None and lsx.han_giao_khach is None:
             thieu.append("thieu_ngay_giao")
-        # (bỏ "thieu_khuon" — xem chú thích ở `_thieu`)
 
         # --- Điều kiện "sẵn sàng xếp lịch" của từng bước (§12) ---
         for cd in lsx.cong_doans:
@@ -1635,6 +1642,14 @@ class LsxService:
                     thieu.append("thieu_ncc")
                 if not (cd.ngay_gui_dk and cd.ngay_nhan_dk) and "thieu_tg_thue_ngoai" not in thieu:
                     thieu.append("thieu_tg_thue_ngoai")
+            # Bước cần dụng cụ lưu kho mà chưa trỏ con dao nào → chưa chạy được, chặn Y NHƯ
+            # thiếu nhà gia công. Trước 04/09/2026 cửa này im lặng: lệnh qua cửa ngon lành rồi tới
+            # lúc thợ ra máy mới biết không có dao. Danh sách dụng cụ đọc từ CỜ của công đoạn
+            # (`co_dung_cu` nạp theo lô ở trên), KHÔNG ghi cứng tên bước.
+            can_dc, loai_dc = co_dung_cu.get(cd.cong_doan_id, (False, None))
+            if can_dc and loai_dc in TOOLING_CO_KHO and cd.khuon_be_id is None:
+                if "thieu_khuon" not in thieu:
+                    thieu.append("thieu_khuon")
         # Thiếu NGUỒN của hệ số quy đổi — hai cầu, hai nguồn khác nhau. KHÔNG kiểm `he_so <= 1`
         # như bản cũ: hệ số 1 HỢP LỆ ở cả hai cầu (1 tờ nguyên ra 1 tờ in là chuyện thường; 1
         # con/tờ hiếm nhưng có — poster bằng khổ tờ). Chỉ 0/thiếu mới là chưa khai.
