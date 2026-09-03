@@ -388,14 +388,25 @@ def test_timesheet_credits_paid_holiday(client):
     công chuẩn tháng loại lễ. NV 'xuất hiện' trong tháng 9 qua 1 đơn nghỉ đã duyệt → được cộng
     công lễ 2/9 (lễ seed)."""
     token = _admin_token(client)
-    # Hồ sơ SẴN CÓ của admin (mọi tài khoản đều có hồ sơ), nắn tên/phòng ban cho khớp kịch bản.
+    # Hồ sơ SẴN CÓ của admin (mọi tài khoản đều có hồ sơ), nắn tên cho khớp kịch bản.
     emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
     client.put(
         f"/api/employees/{emp['id']}",
-        json={"full_name": "NV Lễ", "department_id": _dept_id("Hành chính nhân sự"),
-              "hire_date": "2020-01-01"},
+        json={"full_name": "NV Lễ"},
         headers=_h(token),
     )
+    # NGÀY VÀO LÀM phải đi thẳng DB, KHÔNG gửi kèm PUT ở trên: `hire_date` (và `department_id`)
+    # không nằm trong `EDITABLE_FIELDS` — chúng là TRANSITION, nên `update_employee` lọc bỏ IM
+    # LẶNG và trả 200 như thường. Bản đầu gửi "2020-01-01" qua PUT rồi tin là đã đặt được; thật
+    # ra hồ sơ giữ nguyên `hire_date = date.today()` do `backfill_employee_profiles` seed. Test
+    # vẫn xanh tới 02/09/2026 vì hôm-nay khi ấy còn ≤ 2/9; từ 03/09 thì `_in_headcount_on(emp,
+    # 2/9)` thành False ⇒ không có công lễ, `days["2"]` biến mất, đỏ mà chẳng đụng dòng code nào.
+    db = SessionLocal()
+    try:
+        repo = EmployeeRepository(db)
+        repo.update(repo.get_by_id(emp["id"]), hire_date=date(2020, 1, 1))
+    finally:
+        db.close()
 
     # Đơn nghỉ có lương 2026-09-10 (Thứ 5) đã duyệt → NV có mặt trong bảng công tháng 9.
     tid = client.post("/api/leaves/types", json={"name": "Phép năm", "is_paid": True, "annual_quota": 12},
