@@ -7,6 +7,11 @@ import { Select } from "../components/Select";
 import "./kho-request.css";
 
 /** Các mức số dòng/trang cho mọi danh sách kho. Mặc định = 10. */
+/** TẠM ẨN toàn bộ giao diện ĐIỀU CHUYỂN kho — CHỈ ở FE (backend/API + dữ liệu cũ giữ nguyên).
+ *  Che: nút "Điều chuyển"/"Chuyển kho" ở Tồn kho · tab "Điều chuyển" ở Tồn kho · chip "Điều chuyển"
+ *  ở Kho · tab con "Chuyển kho" trong Sổ kho (Báo cáo kho). Bật lại: đổi thành `false`. */
+export const AN_DIEU_CHUYEN = true;
+
 export const PAGE_SIZES = [10, 15, 20] as const;
 export const DEFAULT_PAGE_SIZE = 10;
 
