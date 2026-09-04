@@ -45,6 +45,10 @@ class SupplierItemImportOut(BaseModel):
 
 
 class SupplierIn(BaseModel):
+    # MÃ NCC — để trống được. Dùng khớp với mã bên sổ MISA khi đối chiếu công nợ 331
+    # (docs/prd-bao-cao-cong-no.md §❷). Chuỗi rỗng ⇒ NULL, xem `_ma_ncc` ở service: hai NCC cùng
+    # mã "" sẽ đụng UNIQUE, mà đó không phải lỗi người dùng gây ra.
+    code: str | None = Field(default=None, max_length=32)
     name: str = Field(min_length=1, max_length=255)
     tax_code: str = Field(min_length=1, max_length=20)
     phone: str = Field(min_length=1, max_length=30)
@@ -94,6 +98,7 @@ class SupplierRow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    code: str | None = None
     name: str
     tax_code: str | None = None
     phone: str | None = None

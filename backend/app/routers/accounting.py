@@ -4,6 +4,9 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated
 
+from sqlalchemy.orm import Session
+from ..db import get_db
+from ..services.cong_no_khoa_so_service import CongNoKhoaSoError, CongNoKhoaSoService
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 
 from ..deps import (
@@ -24,6 +27,13 @@ from ..repositories.module_notification_repo import (
 )
 from ..schemas.accounting import (
     ApproveAndCreateVoucherIn,
+    BaoCaoCongNoOut,
+    CongNoKhoaSoIn,
+    CongNoKhoaSoRow,
+    CongNoKhoaSoTrangThaiOut,
+    CongNoKyRow,
+    CongNoChiTietPhaiThuRow,
+    CongNoChiTietPhaiTraRow,
     CancelSalesInvoiceIn,
     CancelPaymentReceiptIn,
     CancelPaymentVoucherIn,
@@ -40,6 +50,8 @@ from ..schemas.accounting import (
     PaymentVoucherIn,
     PaymentVoucherListOut,
     PaymentVoucherOut,
+    VoucherBatchIn,
+    VoucherBatchOut,
     PayablesDetailOut,
     PayablesSummaryOut,
     ReceivablesDetailOut,
@@ -51,6 +63,7 @@ from ..schemas.accounting import (
     SupplierBankAccountOut,
 )
 from ..schemas.purchase import PurchaseRequestListOut
+from ..services import bao_cao_cong_no_excel
 from ..services.accounting_service import (
     AccountingConflict,
     AccountingNotFound,
@@ -79,6 +92,11 @@ MODULE_PT = "phieu_thu"               # màn Phiếu thu
 MODULE_CN_TRA = "cong_no_phai_tra"    # màn Công nợ phải trả
 MODULE_CN_THU = "cong_no_phai_thu"    # màn Công nợ phải thu
 MODULE_TKNH = "tk_ngan_hang"          # màn Tài khoản ngân hàng
+# Module RIÊNG cho "Báo cáo" (chủ chốt 04/09/2026: "báo cáo đó là một module riêng mà") — trước
+# 10 endpoint dưới đây gác bằng MODULE_CN_TRA/MODULE_CN_THU (lệch với sidebar đã gộp báo cáo
+# thành MỘT mục), migration 0260 sao chép quyền cũ sang. Xem = xem báo cáo/xuất Excel/in, Thao
+# tác = khoá/mở kỳ (`POST /khoa-so`) — một động từ cho cả hai phân hệ, không lệch nữa.
+MODULE_BAO_CAO = "bao_cao_cong_no"
 
 
 NotificationRepo = Annotated[
@@ -230,6 +248,241 @@ def accounting_receivables_detail(
     all_history: bool = Query(default=False),
 ) -> ReceivablesDetailOut:
     return ReceivablesDetailOut(**svc.receivables_detail(customer_id, all_history=all_history))
+
+
+# --- BÁO CÁO TỔNG HỢP CÔNG NỢ THEO KỲ (docs/prd-bao-cao-cong-no.md §5.1) -------------------
+#
+# ⚠️ ĐỪNG nhầm với `/payables` và `/receivables` ngay trên: hai cửa kia là ảnh chụp TẠI HÔM NAY
+# để đi đòi nợ (có phân trang, có phân tuổi, cứng kỳ 3 tháng). Hai cửa dưới là SỔ THEO KỲ — chọn
+# khoảng ngày bất kỳ, trả về TOÀN BỘ đối tượng, không phân trang.
+#
+# KHÔNG phân trang có chủ ý: sổ tổng hợp phải cộng đúng dòng TỔNG CỘNG, mà cắt trang là ra tổng
+# của trang chứ không phải tổng của kỳ. Bản xuất MISA cũng một mạch 202/275 dòng.
+#
+# Dùng lại quyền `read` của chính màn công nợ tương ứng: ai xem được công nợ thì xem được sổ của
+# nó — đẻ thêm một ô quyền nữa chỉ tổ có người xem được số này mà không xem được số kia.
+
+
+def _khoang_ngay(tu_ngay: date, den_ngay: date) -> None:
+    """Chặn khoảng ngày ngược. Không có ô này thì báo cáo trả về bảng rỗng một cách bí ẩn: mọi
+    chứng từ đều rơi vào nhánh 'ngoài kỳ' và không ai hiểu vì sao."""
+    if tu_ngay > den_ngay:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Từ ngày phải trước hoặc bằng đến ngày.",
+        )
+
+
+def _loc_ro(bc: dict, khoa: str | None) -> dict:
+    """Lọc sổ theo RỔ TUỔI. Chỉ giữ đối tượng có tiền trong rổ đó — số tiền của họ giữ NGUYÊN.
+
+    Dòng TỔNG cũng tính lại theo phần còn hiện, nhưng DẢI RỔ thì giữ nguyên toàn màn: dải là bức
+    tranh tổng, bấm vào để soi chứ không phải để đổi bức tranh (cùng nếp `AgingStrip` đang chạy).
+    """
+    from ..services.accounting_service import AGING_KEYS
+
+    if khoa not in AGING_KEYS:
+        return bc
+    giu = [d for d in bc["items"] if (d.get("aging") or {}).get(khoa, {}).get("amount", 0) > 0]
+    cot = ("dau_no", "dau_co", "ps_no", "ps_co", "cuoi_no", "cuoi_co")
+    return {
+        **bc,
+        "items": giu,
+        "tong": {"so_dong": len(giu), **{k: sum(d[k] for d in giu) for k in cot}},
+    }
+
+
+@router.get("/api/accounting/reports/receivables", response_model=BaoCaoCongNoOut)
+def bao_cao_tong_hop_phai_thu(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
+    tu_ngay: date = Query(...),
+    den_ngay: date = Query(...),
+    #: Khoá rổ tuổi — chỉ giữ đối tượng còn tiền trong rổ đó. Lọc chọn DÒNG, KHÔNG cắt SỐ: 9 cột
+    #: tiền của họ vẫn hiện đủ. Khoá lạ thì BỎ QUA, không ném 422 vào mặt người đang xem sổ.
+    aging_bucket: str | None = Query(default=None),
+) -> BaoCaoCongNoOut:
+    _khoang_ngay(tu_ngay, den_ngay)
+    return BaoCaoCongNoOut(
+        **_loc_ro(
+            svc.bao_cao_phai_thu(tu_ngay=tu_ngay, den_ngay=den_ngay),
+            aging_bucket,
+        )
+    )
+
+
+@router.get("/api/accounting/reports/payables", response_model=BaoCaoCongNoOut)
+def bao_cao_tong_hop_phai_tra(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
+    tu_ngay: date = Query(...),
+    den_ngay: date = Query(...),
+    #: Khoá rổ tuổi — chỉ giữ đối tượng còn tiền trong rổ đó. Lọc chọn DÒNG, KHÔNG cắt SỐ: 9 cột
+    #: tiền của họ vẫn hiện đủ. Khoá lạ thì BỎ QUA, không ném 422 vào mặt người đang xem sổ.
+    aging_bucket: str | None = Query(default=None),
+) -> BaoCaoCongNoOut:
+    _khoang_ngay(tu_ngay, den_ngay)
+    return BaoCaoCongNoOut(
+        **_loc_ro(
+            svc.bao_cao_phai_tra(tu_ngay=tu_ngay, den_ngay=den_ngay),
+            aging_bucket,
+        )
+    )
+
+
+@router.get("/api/accounting/reports/receivables.xlsx")
+def bao_cao_tong_hop_phai_thu_xlsx(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
+    tu_ngay: date = Query(...),
+    den_ngay: date = Query(...),
+) -> Response:
+    _khoang_ngay(tu_ngay, den_ngay)
+    bc = svc.bao_cao_phai_thu(tu_ngay=tu_ngay, den_ngay=den_ngay)
+    return _tra_file(bc)
+
+
+
+@router.get("/api/accounting/khoa-so", response_model=list[CongNoKhoaSoRow])
+def get_cong_no_khoa_so_history(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
+    phan_he: str | None = Query(default=None),
+) -> list[CongNoKhoaSoRow]:
+    svc = CongNoKhoaSoService(db)
+    return [CongNoKhoaSoRow(**r) for r in svc.history(phan_he=phan_he)]
+
+
+@router.get("/api/accounting/khoa-so/ky", response_model=list[CongNoKyRow])
+def get_cong_no_ky_list(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
+    #: `phai_thu` (TK 131) | `phai_tra` (TK 331). Bỏ trống = gộp cả hai — chỉ dùng cho màn lịch sử.
+    #: Hai sổ ĐỘC LẬP: chốt sổ mua hàng không được đụng tới sổ bán hàng (sửa 04/09/2026).
+    phan_he: str | None = Query(default=None),
+) -> list[CongNoKyRow]:
+    svc = CongNoKhoaSoService(db)
+    return [CongNoKyRow(**r) for r in svc.list_ky(phan_he=phan_he)]
+
+
+@router.get("/api/accounting/khoa-so/trang-thai", response_model=CongNoKhoaSoTrangThaiOut)
+def get_cong_no_khoa_so_trang_thai(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
+    tu_ngay: date = Query(...),
+    den_ngay: date = Query(...),
+    #: `phai_thu` (131) | `phai_tra` (331). Bỏ trống = xét gộp cả hai.
+    phan_he: str | None = Query(default=None),
+) -> CongNoKhoaSoTrangThaiOut:
+    """Khoảng `[tu_ngay, den_ngay]` đang khóa trọn / khóa một phần / chưa khóa?
+
+    Có cửa này thì màn báo cáo hỏi thẳng đúng kỳ NÓ đang xem, thay vì dò trong danh sách kỳ tháng
+    rồi so bằng đúng hai đầu ngày — cách cũ không bao giờ khớp với kỳ lẻ (sửa 04/09/2026).
+    """
+    _khoang_ngay(tu_ngay, den_ngay)
+    svc = CongNoKhoaSoService(db)
+    tron, mot_phan = svc.repo.khoa_ca_khoang(tu_ngay, den_ngay, phan_he)
+    return CongNoKhoaSoTrangThaiOut(
+        tu_ngay=tu_ngay, den_ngay=den_ngay, da_khoa=tron, khoa_mot_phan=mot_phan
+    )
+
+
+@router.post("/api/accounting/khoa-so", response_model=CongNoKhoaSoRow, status_code=status.HTTP_201_CREATED)
+def set_cong_no_khoa_so(
+    payload: CongNoKhoaSoIn,
+    db: Annotated[Session, Depends(get_db)],
+    acct_svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "update"))],
+) -> CongNoKhoaSoRow:
+    svc = CongNoKhoaSoService(db, acct_svc=acct_svc)
+    if payload.hanh_dong == "khoa":
+        try:
+            log = svc.chot_ky(
+                phan_he=payload.phan_he,
+                tu_ngay=payload.tu_ngay,
+                den_ngay=payload.den_ngay,
+                ten=payload.ten,
+                user_id=user.id,
+            )
+        except CongNoKhoaSoError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            ) from exc
+    else:
+        try:
+            log = svc.mo_ky(
+                phan_he=payload.phan_he,
+                tu_ngay=payload.tu_ngay,
+                den_ngay=payload.den_ngay,
+                user_id=user.id,
+            )
+        except CongNoKhoaSoError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            ) from exc
+    return CongNoKhoaSoRow(
+        id=log.id,
+        phan_he=log.phan_he,
+        tu_ngay=log.tu_ngay,
+        den_ngay=log.den_ngay,
+        hanh_dong=log.hanh_dong,
+        nguoi_khoa_ten=user.name,
+        khoa_luc=log.khoa_luc,
+        ten=log.ten,
+    )
+
+
+@router.get("/api/accounting/cong-no-chi-tiet/phai-thu", response_model=list[CongNoChiTietPhaiThuRow])
+def get_cong_no_chi_tiet_phai_thu(
+    db: Annotated[Session, Depends(get_db)],
+    acct_svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
+    tu_ngay: date | None = None,
+    den_ngay: date | None = None,
+    customer_id: int | None = None,
+) -> list[CongNoChiTietPhaiThuRow]:
+    svc = CongNoKhoaSoService(db, acct_svc=acct_svc)
+    return [CongNoChiTietPhaiThuRow(**r) for r in svc.cong_no_chi_tiet_phai_thu(
+        tu_ngay=tu_ngay, den_ngay=den_ngay, customer_id=customer_id
+    )]
+
+
+@router.get("/api/accounting/cong-no-chi-tiet/phai-tra", response_model=list[CongNoChiTietPhaiTraRow])
+def get_cong_no_chi_tiet_phai_tra(
+    db: Annotated[Session, Depends(get_db)],
+    acct_svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
+    tu_ngay: date | None = None,
+    den_ngay: date | None = None,
+    supplier_id: int | None = None,
+) -> list[CongNoChiTietPhaiTraRow]:
+    svc = CongNoKhoaSoService(db, acct_svc=acct_svc)
+    return [CongNoChiTietPhaiTraRow(**r) for r in svc.cong_no_chi_tiet_phai_tra(
+        tu_ngay=tu_ngay, den_ngay=den_ngay, supplier_id=supplier_id
+    )]
+
+
+@router.get("/api/accounting/reports/payables.xlsx")
+def bao_cao_tong_hop_phai_tra_xlsx(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
+    tu_ngay: date = Query(...),
+    den_ngay: date = Query(...),
+) -> Response:
+    _khoang_ngay(tu_ngay, den_ngay)
+    bc = svc.bao_cao_phai_tra(tu_ngay=tu_ngay, den_ngay=den_ngay)
+    return _tra_file(bc)
+
+
+def _tra_file(bao_cao: dict) -> Response:
+    return Response(
+        content=bao_cao_cong_no_excel.xuat_xlsx(bao_cao),
+        media_type=bao_cao_cong_no_excel.MEDIA_XLSX,
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="{bao_cao_cong_no_excel.ten_file(bao_cao)}"'
+        },
+    )
 
 
 @router.get("/api/accounting/sales-invoices", response_model=SalesInvoiceListOut)
@@ -499,6 +752,45 @@ def create_payment_voucher(
         recipient_user_id=row.get("purchase_created_by_user_id"),
     )
     return PaymentVoucherOut(**row)
+
+
+@router.post(
+    "/api/accounting/payment-vouchers/batch",
+    response_model=VoucherBatchOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_payment_vouchers_batch(
+    payload: VoucherBatchIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    notifications: NotificationRepo,
+    user: Annotated[User, Depends(require_permission(MODULE_PC, "create"))],
+) -> VoucherBatchOut:
+    """Thanh toán NHIỀU đợt giao của CÙNG một NCC trong MỘT lượt (04/09/2026, §Công nợ phải trả).
+
+    Vẫn ra N `PaymentVoucher` riêng (mỗi phiếu một đợt, đúng luật cũ) — batch chỉ gộp thao tác
+    nhập liệu, không gộp chứng từ.
+    """
+    body = payload.model_dump()
+    items = body.pop("items")
+    try:
+        rows = svc.create_vouchers_batch(actor=user, items=items, shared=body)
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+    for row in rows:
+        purchase_code = row.get("purchase_request_code")
+        _notify_accounting_changed(
+            purchase_code or row.get("code"),
+            event_type="payment_voucher_created" if purchase_code else "accounting_changed",
+            voucher_code=row.get("code"),
+            notifications=notifications if purchase_code else None,
+            channel=CHANNEL_THU_MUA if purchase_code else None,
+            actor_user_id=user.id,
+            recipient_user_id=row.get("purchase_created_by_user_id"),
+        )
+    return VoucherBatchOut(
+        vouchers=[PaymentVoucherOut(**r) for r in rows],
+        total_amount=sum(int(r.get("amount_vnd") or 0) for r in rows),
+    )
 
 
 # ĐÃ GỠ 07/08/2026 — `PUT /api/accounting/payment-vouchers/{id}`. Phiếu chi phát hành ra là tiền

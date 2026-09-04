@@ -21,6 +21,10 @@ MAN_KE_TOAN = (
     ("Công nợ phải trả", "cong_no_phai_tra", "/api/accounting/payables"),
     ("Công nợ phải thu", "cong_no_phai_thu", "/api/accounting/receivables"),
     ("Tài khoản ngân hàng", "tk_ngan_hang", "/api/accounting/company-bank-accounts"),
+    # "Báo cáo" tách khỏi hai khoá công nợ ở trên (chủ chốt 04/09/2026: "báo cáo đó là một module
+    # riêng mà") — `/khoa-so/ky` không đòi query bắt buộc, khớp khuôn "chỉ cần đúng quyền" của
+    # sáu dòng kia.
+    ("Báo cáo công nợ", "bao_cao_cong_no", "/api/accounting/khoa-so/ky"),
 )
 
 

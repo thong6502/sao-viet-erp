@@ -1,7 +1,7 @@
 """Data access for operational accounting and purchase payments."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import MetaData, Table, asc, case, desc, func, inspect, or_, select, update
@@ -542,6 +542,83 @@ class AccountingRepository:
                 stmt.order_by(PaymentReceipt.receipt_date.desc(), PaymentReceipt.id.desc())
             ).scalars()
         )
+
+    # --- báo cáo công nợ theo kỳ (docs/prd-bao-cao-cong-no.md §5.1) ---
+    #
+    # Ba hàm dưới KHÔNG phân trang và KHÔNG lọc `từ ngày`: báo cáo phải dựng được cả SỐ DƯ ĐẦU KỲ,
+    # mà số dư đầu kỳ là tổng mọi chứng từ TRƯỚC kỳ. Cắt bớt ở SQL là mất đúng phần đó.
+    # Chặn trên `den_ngay` thì có — chứng từ sau kỳ không thuộc báo cáo nào.
+
+    def phieu_thu_cho_bao_cao(self, *, den_ngay: date) -> list[PaymentReceipt]:
+        """Mọi phiếu thu ĐÃ THU tới hết `den_ngay`.
+
+        Chỉ `received`: phiếu chờ chưa động vào tiền nên chưa vào công nợ — cùng luật với
+        `payables/receivables` đang chạy, hai chỗ tính hai kiểu là hai chỗ lệch.
+        """
+        stmt = (
+            select(PaymentReceipt)
+            .options(
+                selectinload(PaymentReceipt.sales_invoice),
+                # Nhánh `purchase_refund` (NCC hoàn tiền) của TK 331 truy NCC qua phiếu chi rồi
+                # qua phiếu mua. Không nạp sẵn là N+1 HAI TẦNG trên báo cáo cả năm.
+                selectinload(PaymentReceipt.payment_voucher).selectinload(
+                    PaymentVoucher.purchase_request
+                ),
+            )
+            .where(
+                PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
+                PaymentReceipt.receipt_date <= den_ngay,
+            )
+            .order_by(PaymentReceipt.receipt_date, PaymentReceipt.id)
+        )
+        return list(self.db.execute(stmt).scalars().unique().all())
+
+    def phieu_chi_cho_bao_cao(self) -> list[PaymentVoucher]:
+        """Mọi phiếu chi ĐÃ CHI, không chặn ngày.
+
+        Không lọc ngày ở SQL vì "ngày tiền rời két" là `paid_at` có thì lấy, không thì lùi về
+        `voucher_date` — một biểu thức COALESCE trên hai kiểu khác nhau (timestamptz vs date),
+        viết ở SQL thì mỗi DB một kiểu. Lọc bằng Python với đúng hàm `_ngay_chi` mà màn công nợ
+        đang dùng, để hai nơi không bao giờ chọn ngày khác nhau cho cùng một phiếu.
+        """
+        stmt = (
+            select(PaymentVoucher)
+            .options(selectinload(PaymentVoucher.purchase_request))
+            .where(PaymentVoucher.status == PAYMENT_VOUCHER_PAID)
+            .order_by(PaymentVoucher.voucher_date, PaymentVoucher.id)
+        )
+        return list(self.db.execute(stmt).scalars().unique().all())
+
+    def khach_cua_don(self, order_ids: list[int]) -> dict[int, int]:
+        """`{order_id: customer_id}` — truy khách cho phiếu thu đi đường CỌC ĐƠN HÀNG.
+
+        Phiếu thu `order_deposit` chỉ giữ `order_id`; không có bảng tra này thì mỗi phiếu là một
+        query (N+1 trên màn báo cáo cả năm).
+        """
+        if not order_ids:
+            return {}
+        rows = self.db.execute(
+            select(Order.id, Order.customer_id).where(Order.id.in_(order_ids))
+        ).all()
+        return {oid: cid for oid, cid in rows if cid is not None}
+
+    def ncc_theo_ids(self, supplier_ids: set[int]) -> dict[int, Supplier]:
+        """`{supplier_id: NCC}` — song sinh của `customers_by_ids` cho phía 331."""
+        if not supplier_ids:
+            return {}
+        rows = self.db.execute(
+            select(Supplier).where(Supplier.id.in_(supplier_ids))
+        ).scalars()
+        return {row.id: row for row in rows}
+
+    def ncc_theo_ids(self, supplier_ids: set[int]) -> dict[int, Supplier]:
+        """`{supplier_id: NCC}` — song sinh của `customers_by_ids` cho phía 331."""
+        if not supplier_ids:
+            return {}
+        rows = self.db.execute(
+            select(Supplier).where(Supplier.id.in_(supplier_ids))
+        ).scalars()
+        return {row.id: row for row in rows}
 
     def save_sales_invoice(self, invoice: SalesInvoice) -> SalesInvoice:
         # Tương thích DB SQLite/PG đã từng chạy schema hóa đơn đời cũ. Các cột cũ

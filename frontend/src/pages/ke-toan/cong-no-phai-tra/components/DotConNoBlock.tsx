@@ -1,6 +1,6 @@
 // Khối "Đợt giao còn nợ" trong drawer Công nợ phải trả
 // (tách từ pages/AccountingPayablesPage.tsx).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   PayableItemRow,
   PayablesDetail,
@@ -10,6 +10,7 @@ import { Button } from "../../../../components/Button";
 import { fmtDate, money } from "../../../../utils/format";
 import { gomTheoDon, tenKhoan } from "../shared/helpers";
 import type { Bucket } from "../shared/types";
+import { BatchPaymentDialog } from "./BatchPaymentDialog";
 import { HangCuaDotModal } from "./HangCuaDotModal";
 import { HanTra, HoaDon } from "./payablesCells";
 
@@ -34,6 +35,31 @@ export function DotConNoBlock({
 }) {
   // Đợt đang mở popup "hàng đã nhận". Giữ cả MÃ ĐƠN vì popup nằm ngoài vòng lặp gom theo đơn.
   const [xemHang, setXemHang] = useState<{ item: PayableItemRow; maDon: string } | null>(null);
+  // Đợt đã tích để THANH TOÁN GỘP (chủ chốt 04/09/2026) — khoá bằng delivery_id. Đổi tab (Tất
+  // cả ⇄ Quá hạn) là đổi luôn danh sách đang hiện; giữ tích cũ qua tab dễ khiến người dùng tưởng
+  // đợt đang ẩn (ở tab kia) vẫn được tính vào lượt trả — xoá sạch cho chắc.
+  const [chonDot, setChonDot] = useState<Set<number>>(new Set());
+  const [moThanhToanChung, setMoThanhToanChung] = useState(false);
+  useEffect(() => setChonDot(new Set()), [tab]);
+
+  function chonDuoc(row: PayableItemRow): boolean {
+    return canCreateVoucher && row.delivery_id != null && row.con_no > 0;
+  }
+
+  function toggleDot(deliveryId: number) {
+    setChonDot((prev) => {
+      const next = new Set(prev);
+      if (next.has(deliveryId)) next.delete(deliveryId);
+      else next.add(deliveryId);
+      return next;
+    });
+  }
+
+  const dotDaChon = khoanNo.filter(
+    (row) => row.delivery_id != null && chonDot.has(row.delivery_id),
+  );
+  const tongTienDaChon = dotDaChon.reduce((sum, row) => sum + row.con_no, 0);
+
   return (
     // Đỏ CHỈ khi đang xem tab "Quá hạn" (lúc đó đúng nghĩa toàn bộ số hiện ra là nợ trễ). Tab
     // "Tất cả" gộp cả nợ chưa tới hạn — tô đỏ cả khối lúc đó là báo động giả cho phần lớn số
@@ -123,6 +149,7 @@ export function DotConNoBlock({
             <table className="pay-table">
               <thead>
                 <tr>
+                  {canCreateVoucher && <th className="pay-table__chk-col" aria-hidden="true" />}
                   <th>Đợt</th>
                   <th>Ngày giao</th>
                   <th>Hóa đơn</th>
@@ -163,6 +190,19 @@ export function DotConNoBlock({
                       }
                     }}
                   >
+                    {canCreateVoucher && (
+                      <td className="pay-table__chk-col" onClick={(e) => e.stopPropagation()}>
+                        {chonDuoc(row) && (
+                          <input
+                            type="checkbox"
+                            className="pay-table__chk"
+                            checked={row.delivery_id != null && chonDot.has(row.delivery_id)}
+                            onChange={() => row.delivery_id != null && toggleDot(row.delivery_id)}
+                            aria-label={`Chọn ${tenKhoan(row)} của ${don.code} để thanh toán gộp`}
+                          />
+                        )}
+                      </td>
+                    )}
                     <td>
                       {/* Gạch chân khi rê chuột — dấu hiệu DUY NHẤT báo dòng này bấm được. */}
                       <strong className={moDuoc ? "pay-row__mo-nhan" : undefined}>
@@ -174,6 +214,7 @@ export function DotConNoBlock({
                       <HoaDon
                         so={row.invoice_number}
                         ngay={row.invoice_date}
+                        files={row.hoa_don_files}
                       />
                     </td>
                     <td>
@@ -212,11 +253,42 @@ export function DotConNoBlock({
           );
         })
       )}
+      {chonDot.size > 0 && (
+        // Nổi dưới cùng khối, không chặn thao tác khác (mở popup hàng, đổi tab) — chỉ báo đang
+        // có gì đã tích và cho bấm thẳng vào bước tiếp theo.
+        <div className="pay-batch-bar">
+          <span className="pay-batch-bar__dem">Đã chọn {chonDot.size} đợt</span>
+          <span className="pay-batch-bar__tien">{money(tongTienDaChon)}</span>
+          <span className="pay-batch-bar__spacer" />
+          <button
+            type="button"
+            className="pay-batch-bar__huy"
+            onClick={() => setChonDot(new Set())}
+          >
+            Bỏ chọn
+          </button>
+          <Button variant="accent" onClick={() => setMoThanhToanChung(true)}>
+            Thanh toán {chonDot.size} đợt
+          </Button>
+        </div>
+      )}
       {xemHang && (
         <HangCuaDotModal
           item={xemHang.item}
           maDon={xemHang.maDon}
           onClose={() => setXemHang(null)}
+        />
+      )}
+      {moThanhToanChung && (
+        <BatchPaymentDialog
+          supplierName={detail.supplier_name}
+          items={dotDaChon}
+          onClose={() => setMoThanhToanChung(false)}
+          onSaved={() => {
+            setMoThanhToanChung(false);
+            setChonDot(new Set());
+            onChanged();
+          }}
         />
       )}
     </section>

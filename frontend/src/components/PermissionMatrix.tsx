@@ -447,6 +447,8 @@ const MODULE_HINTS: Record<string, string> = {
     "Xem: mở màn Công nợ phải trả (số còn nợ từng nhà cung cấp). Số liệu tính ra từ PMH + phiếu chi nên không có gì để sửa ở đây.",
   cong_no_phai_thu:
     "Xem: mở màn Công nợ phải thu (số khách còn nợ). Số liệu chỉ phát sinh từ hóa đơn bán đã ghi nhận, sau đó trừ cọc được cấn và phiếu thu; đơn mới chốt chưa tạo công nợ.",
+  bao_cao_cong_no:
+    "Xem: mở màn Báo cáo (sổ tổng hợp theo mẫu Excel MISA, phân tuổi nợ, xuất Excel/in) — cả hai phân hệ Phải trả lẫn Phải thu. Thao tác: khoá/mở kỳ kế toán công nợ. Tách riêng khỏi hai ô Công nợ phải trả/phải thu ở trên — ai chỉ cần xem sổ đối chiếu MISA không nhất thiết phải có quyền vào màn công nợ vận hành hằng ngày.",
   tk_ngan_hang:
     "Xem: mở màn Tài khoản ngân hàng (TK công ty + TK nhà cung cấp). Chỉnh sửa: thêm/sửa/ngừng dùng tài khoản. TK của nhà cung cấp thì người quản danh mục Nhà cung cấp cũng sửa được.",
 };
@@ -533,6 +535,7 @@ const MODULE_GROUPS: {
       "phieu_thu",
       "cong_no_phai_tra",
       "cong_no_phai_thu",
+      "bao_cao_cong_no",
       "tk_ngan_hang",
     ],
   },
@@ -672,6 +675,7 @@ const PHAM_VI_CHO_PHEP: Record<string, Scope[]> = {
   ke_toan: ["all"],
   cong_no_phai_tra: ["all"],
   cong_no_phai_thu: ["all"],
+  bao_cao_cong_no: ["all"],
   nhan_su: ["department", "all"],
   yeu_cau_chinh_cong: ["department", "all"],
   // Kỹ thuật máy nằm trong `SCOPELESS_MODULES` của máy chủ (ép `all` lúc lưu) NHƯNG ở nhóm Sản

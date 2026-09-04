@@ -192,6 +192,19 @@ export const NAV: NavSection[] = [
         icon: "calculator",
         module: "cong_no_phai_thu",
       },
+      // BÁO CÁO — MỘT mục, bên trong chia tab Phải trả / Phải thu (chủ chốt 03/09/2026). Bản đầu
+      // tách hai mục menu riêng; gộp lại vì hai sổ giống hệt nhau từng cột, tách ra chỉ làm menu
+      // kế toán dài thêm mà chẳng ai cần mở riêng lẻ.
+      //
+      // `module` RIÊNG `bao_cao_cong_no` (chủ chốt 04/09/2026: "báo cáo đó là một module riêng
+      // mà") — trước ăn ké quyền Xem của hai khoá công nợ (`modules: [cong_no_phai_tra,
+      // cong_no_phai_thu]`, hiện khi có quyền ở BẤT KỲ bên nào), nay là một ô quyền độc lập.
+      {
+        id: "ke-toan-bao-cao",
+        label: "Báo cáo",
+        icon: "fileText",
+        module: "bao_cao_cong_no",
+      },
       {
         id: "ke-toan-tai-khoan-ngan-hang",
         label: "Tài khoản ngân hàng",

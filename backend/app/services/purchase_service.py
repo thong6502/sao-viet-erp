@@ -348,8 +348,22 @@ def gia_tri_cac_dot(row) -> dict[int, int]:
 #
 # Cột `purchase_deliveries.amount` thành DORMANT: giữ lại vì dự án không có Alembic và xoá là mất
 # dữ liệu, nhưng KHÔNG ĐỌC và KHÔNG GHI nữa. Đừng đọc lại nó nếu chưa hỏi chủ.
-def phan_bo_tien_dot(row) -> tuple[list[dict], int, int]:
+def _ngay_tien_ra(v) -> date:
+    """Ngày tiền THỰC SỰ rời két — `paid_at` có thì lấy, không thì lùi về ngày chứng từ.
+
+    Phải giống hệt `AccountingService._ngay_chi` và `bao_cao_cong_no.ngay_chi`: ba nơi chọn ngày
+    khác nhau cho cùng một phiếu là ba nơi ra ba con số.
+    """
+    return v.paid_at.date() if v.paid_at is not None else v.voucher_date
+
+
+def phan_bo_tien_dot(row, *, den_ngay: date | None = None) -> tuple[list[dict], int, int]:
     """Phân tiền đã chi của một phiếu mua về TỪNG ĐỢT GIAO.
+
+    `den_ngay` (04/09/2026) = chỉ tính tiền đã chi/đã hoàn TỚI HẾT ngày đó — dùng cho PHÂN TUỔI NỢ
+    của báo cáo theo kỳ: tuổi nợ tại 31/08 phải tính bằng số tiền đã trả TÍNH TỚI 31/08, chứ lấy
+    số của hôm nay thì in lại kỳ cũ ra con số khác lần trước. Mặc định `None` = không chặn, giữ
+    NGUYÊN hành vi cho màn Mua hàng và màn Công nợ đang dùng chung hàm này.
 
     MỘT nguồn duy nhất cho phép phân bổ này — màn Mua hàng (trần lập phiếu, hiển thị đợt) và màn
     Công nợ (bảng nợ theo đợt) đều gọi vào đây. Hai bên tự phân lấy là hai bên lệch, mà lệch ở đây
@@ -376,6 +390,8 @@ def phan_bo_tien_dot(row) -> tuple[list[dict], int, int]:
     for v in row.payment_vouchers:
         if v.status != PAYMENT_VOUCHER_PAID:
             continue
+        if den_ngay is not None and _ngay_tien_ra(v) > den_ngay:
+            continue
         did = getattr(v, "delivery_id", None)
         if did is None:
             coc += int(v.amount_vnd)
@@ -387,6 +403,7 @@ def phan_bo_tien_dot(row) -> tuple[list[dict], int, int]:
         for v in row.payment_vouchers
         for r in v.receipts
         if r.status == PAYMENT_RECEIPT_RECEIVED
+        and (den_ngay is None or r.receipt_date <= den_ngay)
     )
 
     out: list[dict] = []
@@ -777,6 +794,10 @@ class PurchaseService:
         if so_ngay is not None and so_ngay < 0:
             raise PurchaseValidationError("Số ngày cho nợ không được âm.")
         return {
+            # MÃ NCC: rỗng ⇒ NULL, KHÔNG phải chuỗi rỗng. Cột có UNIQUE index, mà "" là một giá
+            # trị thật nên NCC thứ hai để trống mã sẽ đụng ràng buộc — lỗi người dùng không hề gây
+            # ra. NULL thì bao nhiêu dòng cũng được (cả Postgres lẫn SQLite).
+            "code": (values.get("code") or "").strip() or None,
             "name": name,
             "tax_code": tax_code,
             "phone": phone,
@@ -866,6 +887,23 @@ class PurchaseService:
                 "là 0đ. Khai hàng trước rồi mới đặt cọc."
             )
 
+    def _chan_trung_ma(self, code, *, bo_qua_id: int | None = None) -> None:
+        """MÃ NCC không được trùng — bắt ở tầng service để báo lỗi tử tế.
+
+        Cột đã có UNIQUE index nên trùng mã kiểu gì cũng bị chặn, nhưng để DB chặn thì người dùng
+        nhận về một cục IntegrityError 500 không đọc nổi. Ở đây trả đúng tên NCC đang giữ mã đó.
+
+        BỎ TRỐNG THÌ KHÔNG CHẶN — mã là tuỳ chọn, chỉ cần khi đối chiếu với sổ MISA.
+        """
+        ma = (code or "").strip()
+        if not ma:
+            return
+        trung = self.suppliers.find_by_code(ma)
+        if trung is not None and trung.id != bo_qua_id:
+            raise PurchaseConflict(
+                f"Mã nhà cung cấp \"{ma}\" đã dùng cho \"{trung.name}\"."
+            )
+
     def _chan_trung_mst(self, tax_code, *, bo_qua_id: int | None = None) -> None:
         """MÃ SỐ THUẾ KHÔNG ĐƯỢC TRÙNG (chủ chốt 12/08/2026).
 
@@ -891,6 +929,7 @@ class PurchaseService:
         if existing is not None:
             raise PurchaseConflict("Nhà cung cấp đã tồn tại.")
         self._chan_trung_mst(cleaned.get("tax_code"))
+        self._chan_trung_ma(cleaned.get("code"))
         supplier = self.suppliers.create(**cleaned)
         self.audit.create(
             actor_user_id=actor.id,
@@ -907,6 +946,7 @@ class PurchaseService:
         if existing is not None and existing.id != supplier.id:
             raise PurchaseConflict("Nhà cung cấp đã tồn tại.")
         self._chan_trung_mst(cleaned.get("tax_code"), bo_qua_id=supplier.id)
+        self._chan_trung_ma(cleaned.get("code"), bo_qua_id=supplier.id)
         supplier = self.suppliers.update(supplier, **cleaned)
         self.audit.create(
             actor_user_id=actor.id,
