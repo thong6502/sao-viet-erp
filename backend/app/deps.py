@@ -558,8 +558,16 @@ O_CHET_DA_XAC_MINH: set[tuple[str, str]] = {
     ("ke_toan", "create"), ("ke_toan", "update"), ("ke_toan", "delete"),
     ("phieu_chi", "update"), ("phieu_chi", "delete"),
     ("phieu_thu", "update"), ("phieu_thu", "delete"),
+    # `cong_no_phai_tra:update` CHẾT LẠI 04/09/2026: KHOÁ SỔ (`POST /api/accounting/khoa-so`)
+    # dọn sang gác bằng `bao_cao_cong_no:update` riêng (module "Báo cáo" tách khỏi hai khoá công
+    # nợ — chủ chốt: "báo cáo đó là một module riêng mà"). Sống có 1 ngày (SỐNG LẠI 04/09) rồi
+    # chết lại vì đổi chỗ gác, không phải quay về trạng thái cũ.
     ("cong_no_phai_tra", "create"), ("cong_no_phai_tra", "update"), ("cong_no_phai_tra", "delete"),
     ("cong_no_phai_thu", "create"), ("cong_no_phai_thu", "update"), ("cong_no_phai_thu", "delete"),
+    # `bao_cao_cong_no`: Xem = xem báo cáo/xuất Excel/in (cả hai phân hệ), Thao tác = khoá/mở kỳ
+    # (`POST /api/accounting/khoa-so`) — CẢ HAI đều sống. Chỉ Thêm/Xoá chết (màn không có "tạo
+    # mới báo cáo" hay "xoá báo cáo").
+    ("bao_cao_cong_no", "create"), ("bao_cao_cong_no", "delete"),
     ("tk_ngan_hang", "create"), ("tk_ngan_hang", "delete"),
     ("self_service", "update"), ("self_service", "delete"), ("self_service", "approve"),
     ("nghi_phep", "delete"),

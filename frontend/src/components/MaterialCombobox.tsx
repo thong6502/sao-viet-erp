@@ -109,18 +109,19 @@ export function MaterialCombobox({
           role="option"
           aria-selected={i === active}
           className={`kho-combo__opt${i === active ? " is-active" : ""}`}
+          title={`${o.ten} — ${o.nhom} · ${o.ma}`}
           onMouseEnter={() => setActive(i)}
           onMouseDown={(e) => {
             e.preventDefault();
             pick(o);
           }}
         >
-          <span className="kho-combo__name">
-            {o.ten}
-            {/* Chip nhóm: Giấy và Vật tư khác có thể trùng tên gần giống nhau, không phân biệt
-                được thì chọn nhầm mà không ai hay. */}
-            <span className="kho-combo__nhom">{o.nhom}</span>
-          </span>
+          {/* CHỈ HIỆN TÊN (chủ chốt 29/08/2026: *"chỉ hiện tên vật tư thôi"*). Trước đây có
+              thêm chip nhóm ("Giấy" · "Vật tư khác" · "Thành phẩm") để phòng hai mặt hàng trùng
+              tên ở hai nhóm — nhưng nó chiếm chỗ trong một dòng gợi ý vốn đã hẹp, mà ca trùng
+              tên là hiếm. Nhóm chuyển xuống `title` của dòng: rê chuột vẫn tra được, không còn
+              chen vào giữa tên và mã. */}
+          <span className="kho-combo__name">{o.ten}</span>
           <span className="kho-combo__code">{o.ma}</span>
         </li>
       ))}

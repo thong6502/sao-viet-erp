@@ -96,6 +96,7 @@ from .cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu
 from .bu_hao import BuHao
 from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang, KhoViTri
+from .cong_no_khoa_so import CongNoKhoaSo, CongNoKyChot
 from .kho_khoa_so import KhoKhoaSo
 from .kho_ky_ton import KhoKyTon
 from .notification import Notification
@@ -267,6 +268,8 @@ __all__ = [
     "SanPhamTaiBan",
     "KhoHang",
     "KhoViTri",
+    "CongNoKhoaSo",
+    "CongNoKyChot",
     "KhoKhoaSo",
     "KhoKyTon",
     "Notification",

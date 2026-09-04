@@ -7,6 +7,7 @@
 // Không tách bảng DB — vẫn 1 bảng `stock_requests`/`stock_vouchers` cột `loai`, chỉ lọc theo
 // chiều. `key={chieu}` để đổi chiều là remount màn con với state sạch (khỏi lẫn dữ liệu 3 chiều).
 import { useCallback, useEffect, useState } from "react";
+import { AN_DIEU_CHUYEN } from "./khoShared";
 import type { StockRequestKind } from "../api/client";
 import { useCan } from "../auth/permissions";
 import { KhoDeNghiPage, type KhoNhapSeed } from "./KhoDeNghiPage";
@@ -107,7 +108,9 @@ export function KhoPage({
           )}
         </div>
         <div className="kho-shell__dirs">
-          {(["NHAP", "XUAT", "DIEU_CHUYEN"] as Chieu[]).map((k) => {
+          {(["NHAP", "XUAT", "DIEU_CHUYEN"] as Chieu[])
+            .filter((k) => !(AN_DIEU_CHUYEN && k === "DIEU_CHUYEN"))
+            .map((k) => {
             const n =
               k === "NHAP"
                 ? counts?.nhap ?? 0

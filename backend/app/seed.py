@@ -53,6 +53,9 @@ MODULES: list[tuple[str, str]] = [
     ("phieu_thu", "Phiếu thu"),
     ("cong_no_phai_tra", "Công nợ phải trả"),
     ("cong_no_phai_thu", "Công nợ phải thu"),
+    # TÁCH RIÊNG (chủ chốt 04/09/2026: "báo cáo đó là một module riêng mà") — trước "Báo cáo"
+    # ăn ké quyền Xem của hai khoá trên, migration 0260 sao chép quyền cũ sang.
+    ("bao_cao_cong_no", "Báo cáo công nợ"),
     ("tk_ngan_hang", "Tài khoản ngân hàng"),
     # TÁCH THEO MÀN (chủ chốt 17/08/2026, đường A — giống Thu mua/Kế toán): 6 mục menu khối Sản
     # xuất trước đây treo trên ĐÚNG HAI khoá, bật một công tắc là mở 4 màn. Nay mỗi màn một ô.

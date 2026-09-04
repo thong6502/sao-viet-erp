@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -164,6 +165,44 @@ class PaymentVoucherOut(BaseModel):
     note: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+# --- thanh toán NHIỀU đợt giao một lượt (04/09/2026: "cùng một NCC thì thanh toán một lượt") ---
+
+
+class VoucherBatchItemIn(BaseModel):
+    purchase_request_id: int = Field(gt=0)
+    delivery_id: int = Field(gt=0)
+
+
+class VoucherBatchIn(BaseModel):
+    items: list[VoucherBatchItemIn] = Field(min_length=1, max_length=50)
+    # Hình thức chi + tài khoản/người nhận điền MỘT LẦN cho cả lượt — mỗi đợt vẫn ra MỘT
+    # `PaymentVoucher` riêng (đúng `delivery_id` của nó), chỉ khác là kế toán không phải gõ lại
+    # phần "trả bằng gì, trả vào đâu" N lần cho N đợt của CÙNG một nhà cung cấp.
+    voucher_type: str = Field(min_length=1, max_length=24)
+    voucher_date: date
+    currency: str = Field(default="VND", min_length=3, max_length=3)
+    exchange_rate: float = Field(default=1, gt=0)
+    #: Bỏ trống thì mỗi phiếu tự đặt nội dung "Thanh toán {mã đơn} đợt {số đợt}".
+    content: str | None = Field(default=None, max_length=500)
+    company_bank_account_id: int | None = Field(default=None, gt=0)
+    supplier_bank_account_id: int | None = Field(default=None, gt=0)
+    cash_recipient_name: str | None = Field(default=None, max_length=255)
+    cash_recipient_address: str | None = Field(default=None, max_length=500)
+    cash_recipient_identity: str | None = Field(default=None, max_length=64)
+    beneficiary_account_holder: str | None = Field(default=None, max_length=255)
+    beneficiary_account_number: str | None = Field(default=None, max_length=64)
+    beneficiary_bank_name: str | None = Field(default=None, max_length=255)
+    beneficiary_bank_branch: str | None = Field(default=None, max_length=255)
+    bank_fee_bearer: str | None = Field(default=None, max_length=16)
+    debit_account: str | None = Field(default=None, max_length=64)
+    credit_account: str | None = Field(default=None, max_length=64)
+
+
+class VoucherBatchOut(BaseModel):
+    vouchers: list[PaymentVoucherOut]
+    total_amount: int = 0
 
 
 class PaymentVoucherListOut(BaseModel):
@@ -404,12 +443,32 @@ class PayablesSummaryOut(BaseModel):
 
 
 class PayableDeliveryLineOut(BaseModel):
-    """Một mặt hàng trong đợt giao — chỉ để BÀY trong popup, không nuôi phép tính nào."""
+    """Một mặt hàng trong đợt giao — BÀY trong popup "Hàng đã nhận", không nuôi phép tính nào ở
+    tầng khác (`con_no`/`amount` của đợt tính riêng, không cộng ngược từ đây)."""
 
     item_name: str
     #: MÃ đơn vị (`cai`), tên hiển thị ("cái") tra ở danh mục — xem `pages/tenDonVi.ts`.
     unit: str
     quantity: float
+    #: Đơn giá đã chốt trên phiếu mua (04/09/2026).
+    unit_price: int = 0
+    #: Thành tiền THẬT của dòng này trong đợt — sau chiết khấu/VAT, và CHỈ TÍNH phần không rơi
+    #: vào `du`. KHÔNG phải `quantity × unit_price` — nếu có phần dư, phép nhân thô sẽ RA SỐ SAI.
+    thanh_tien: int = 0
+    #: Phần giao VƯỢT số đặt, tính 0đ (chủ chốt 28/08/2026 — "cho điền tự do, vượt thì hệ tự tính
+    #: phần dư"). > 0 nghĩa là NCC giao nhiều hơn đơn đặt cho dòng này.
+    du: float = 0
+
+
+class PayableHoaDonFileOut(BaseModel):
+    """Một file hoá đơn/biên bản NCC đính kèm vào đợt giao — CHỈ ĐỌC ở màn Công nợ (04/09/2026).
+
+    Upload vẫn đi qua Thu mua (`DeliveryDialog.tsx` lúc ghi đợt); ở đây chỉ hiện lại."""
+
+    id: int
+    file_name: str
+    file_url: str
+    file_type: str | None = None
 
 
 class PayableItemOut(BaseModel):
@@ -436,6 +495,10 @@ class PayableItemOut(BaseModel):
     aging_bucket: str | None = None
     invoice_number: str | None = None
     invoice_date: date | None = None
+    #: File hoá đơn/biên bản đã đính kèm cho đợt này (04/09/2026). RỖNG = chưa ai upload ảnh —
+    #: KHÁC với `invoice_number is None` (số hoá đơn có thể đã ghi tay mà chưa có ảnh, hoặc
+    #: ngược lại).
+    hoa_don_files: list[PayableHoaDonFileOut] = Field(default_factory=list)
     amount: int
     # Tiền trả ĐÍCH DANH đợt này (phiếu chi có `delivery_id` trỏ đúng đợt) — cột này phải khớp
     # sao kê NCC theo từng đợt.
@@ -610,3 +673,136 @@ class ReceivablesDetailOut(BaseModel):
     aging: list[AgingBucketOut] = Field(default_factory=list)
     received_in_period: int
     as_of: date
+
+
+# --- báo cáo tổng hợp công nợ theo kỳ (docs/prd-bao-cao-cong-no.md §5.1) ------------------
+
+
+class CongNoDongOut(BaseModel):
+    """MỘT dòng của sổ tổng hợp = một đối tượng, 6 cột tiền.
+
+    `doi_tuong_id = None` là dòng gom các khoản KHÔNG truy được về khách/NCC nào (§❸) — giao diện
+    phải hiện nó ở cuối và KHÔNG cho bấm vào xem chi tiết, vì nó không trỏ tới ai cả.
+
+    Số ÂM không bao giờ xuất hiện: âm thì nhảy sang cột bên kia (luật sổ Nợ/Có).
+    """
+
+    doi_tuong_id: int | None = None
+    #: Mã khách/NCC. NULL = chưa đặt mã — vẫn hiện dòng, chỉ là không đối chiếu mã với MISA được.
+    ma: str | None = None
+    ten: str
+    #: `131` (phải thu) hoặc `331` (phải trả). Cứng — hệ chưa có danh mục tài khoản kế toán.
+    tk: str
+    dau_no: int = 0
+    dau_co: int = 0
+    ps_no: int = 0
+    ps_co: int = 0
+    cuoi_no: int = 0
+    cuoi_co: int = 0
+    #: 6 rổ tuổi của RIÊNG đối tượng này, tính trên dư CUỐI kỳ TẠI `den_ngay`. Đủ 6 khoá kể cả
+    #: khi không nợ gì — thiếu khoá là giao diện in "NaN đ".
+    aging: dict[str, AgingCellOut] = Field(default_factory=dict)
+
+
+class CongNoTongOut(BaseModel):
+    """Dòng TỔNG CỘNG. Cộng theo TỪNG CỘT, không cộng ròng rồi tách lại — một khách dư Nợ 10 và
+    một khách dư Có 10 phải ra "10 Nợ và 10 Có", không phải 0."""
+
+    so_dong: int = 0
+    dau_no: int = 0
+    dau_co: int = 0
+    ps_no: int = 0
+    ps_co: int = 0
+    cuoi_no: int = 0
+    cuoi_co: int = 0
+
+
+class BaoCaoCongNoOut(BaseModel):
+    """Sổ tổng hợp công nợ một kỳ. Khuôn bám sát bản xuất MISA để dán thẳng vào hồ sơ."""
+
+    tk: str
+    tieu_de: str
+    #: Nhãn hai cột đầu — khác nhau giữa hai báo cáo ("Mã khách hàng" vs "Mã nhà cung cấp"), để
+    #: giao diện dùng CHUNG một component mà vẫn in đúng chữ.
+    nhan_ma: str
+    nhan_ten: str
+    tu_ngay: date
+    den_ngay: date
+    items: list[CongNoDongOut]
+    tong: CongNoTongOut
+    #: Dải rổ tuổi TOÀN MÀN, có nhãn sẵn. Tính TẠI `den_ngay` chứ không phải hôm nay — đó là chỗ
+    #: khác hẳn dải rổ ở màn Công nợ (§5.3).
+    aging: list[AgingBucketOut] = Field(default_factory=list)
+
+class CongNoKhoaSoIn(BaseModel):
+    #: PHÂN HỆ bị khoá — BẮT BUỘC. Hai sổ độc lập: chốt 331 không được kéo theo 131
+    #: (chủ báo 04/09/2026: *"2 cái này nó khác nhau mà"*).
+    phan_he: Literal["phai_thu", "phai_tra"]
+    tu_ngay: date
+    den_ngay: date
+    hanh_dong: Literal["khoa", "mo"] = "khoa"
+    ten: str | None = None
+
+
+class CongNoKhoaSoRow(BaseModel):
+    id: int
+    #: `None` = bản ghi CŨ sinh trước khi tách phân hệ ⇒ nó khoá CẢ HAI sổ.
+    phan_he: str | None = None
+    tu_ngay: date
+    den_ngay: date
+    hanh_dong: str
+    nguoi_khoa_ten: str | None = None
+    khoa_luc: datetime
+    ten: str | None = None
+
+
+class CongNoKyRow(BaseModel):
+    tu_ngay: date
+    den_ngay: date
+    ten: str | None = None
+    #: Khóa TRỌN khoảng — mọi ngày trong kỳ đều đang khóa.
+    da_khoa: bool
+    #: Khóa MỘT PHẦN. Ba trạng thái chứ không phải hai: gộp "một phần" vào "chưa khóa" là giấu
+    #: mất chuyện nửa kỳ đã chốt, mà đó đúng lúc kế toán cần biết nhất (sửa 04/09/2026).
+    khoa_mot_phan: bool = False
+    #: Kỳ ĐANG CHẠY (chứa hôm nay) ⇒ `den_ngay` dừng ở hôm nay, không phải cuối tháng.
+    dang_dien_ra: bool = False
+    #: Mở lại được không. Chỉ kỳ MỚI NHẤT mở được — kỳ chốt sau lấy số dư đầu kỳ từ kỳ trước,
+    #: mở ngược là số của kỳ sau sai theo mà không có gì báo.
+    co_the_mo: bool = False
+    khoa_luc: datetime | None = None
+
+
+class CongNoKhoaSoTrangThaiOut(BaseModel):
+    """Trạng thái khóa của MỘT khoảng bất kỳ — cho màn báo cáo hỏi đúng kỳ nó đang xem.
+
+    Trước 04/09/2026 giao diện tự suy bằng cách dò `list_ky` rồi so BẰNG ĐÚNG hai đầu ngày; kỳ
+    báo cáo 01/09–04/09 không đời nào khớp kỳ tháng 01/09–30/09 nên luôn ra "chưa khóa".
+    """
+
+    tu_ngay: date
+    den_ngay: date
+    da_khoa: bool
+    khoa_mot_phan: bool = False
+
+
+class CongNoChiTietPhaiThuRow(BaseModel):
+    customer_id: int
+    customer_code: str | None = None
+    customer_name: str
+    credit_limit: int = 0
+    total_due: int = 0
+    overdue_amount: int = 0
+    items: list[dict] = []
+    paid: list[dict] = []
+
+
+class CongNoChiTietPhaiTraRow(BaseModel):
+    supplier_id: int
+    supplier_code: str | None = None
+    supplier_name: str
+    credit_limit: int = 0
+    total_due: int = 0
+    overdue_amount: int = 0
+    items: list[dict] = []
+    paid: list[dict] = []

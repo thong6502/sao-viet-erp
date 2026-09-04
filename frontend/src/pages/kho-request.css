@@ -1584,6 +1584,22 @@ input.kho-num,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* CHIP NHÓM ("Giấy" · "Vật tư khác" · "Thành phẩm") đứng sau tên mặt hàng.
+   Lớp này được viết trong JSX từ lâu nhưng CHƯA TỪNG có dáng, nên nó rơi thành chữ trần dính
+   liền tên: "Vật tư testVật tư khác" — đọc ra một cục, trông như lỗi gõ chứ không ra chú thích.
+   Nay tách hẳn: nền mờ, chữ nhỏ, có khoảng thở. */
+.kho-combo__nhom {
+  margin-left: var(--sp-2);
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--rule-hair);
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  color: var(--ash-2);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  white-space: nowrap;
+}
 .kho-combo__code {
   font-family: var(--ff-sans);
   font-size: 11px;

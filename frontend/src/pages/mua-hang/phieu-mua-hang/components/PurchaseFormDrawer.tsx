@@ -284,8 +284,18 @@ export function PurchaseFormDrawer({
                           // mở đường cho việc đặt một đằng, giá một nẻo.
                           ...(chao
                             ? {
+                                // ĐVT giữ nguyên của DÒNG (đơn vị gốc — cả YCMH lẫn đơn mua đều
+                                // khoá về gốc). KHÔNG lấy `chao.unit`: NCC báo theo ram mà dòng
+                                // tính theo tờ thì đơn vị phải là tờ.
                                 unit: line.unit || chao.unit,
-                                expected_unit_price: chao.unit_price,
+                                // ⚠️ GIÁ ĐÃ QUY ĐỔI, không phải giá thô (29/08/2026). NCC báo
+                                // 1.020.000đ/ram, dòng tính theo tờ (1 ram = 500 tờ) ⇒ phải điền
+                                // 2.040đ/tờ. Lấy giá thô là dòng đơn thành 1.000 tờ × 1.020.000đ,
+                                // sai 500 lần mà không có gì chặn — đúng cái lỗ mở ra khi bảng
+                                // giá NCC được phép khai đơn vị khác gốc.
+                                // Chưa quy đổi được (`null`) thì lùi về giá thô: mặt hàng ngoài
+                                // danh mục vốn không có đơn vị gốc nào để mà lệch.
+                                expected_unit_price: chao.gia_quy_doi ?? chao.unit_price,
                                 vat_percent: chao.vat_percent,
                               }
                             : {}),

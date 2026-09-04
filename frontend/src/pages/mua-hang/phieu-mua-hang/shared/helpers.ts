@@ -146,9 +146,19 @@ export function chaoGiaChoMatHang(
       unit_price: item.unit_price,
       vat_percent: item.vat_percent ?? 0,
       unit: item.unit,
+      // Giá quy về ĐƠN VỊ GỐC — server tính (`quy_doi_bang_gia`). `null` = không quy đổi được.
+      gia_quy_doi: item.gia_quy_doi ?? null,
     });
   }
-  out.sort((a, b) => a.unit_price - b.unit_price);
+  // XẾP THEO GIÁ ĐÃ QUY ĐỔI, không theo giá thô (29/08/2026, cùng lượt mở khoá ĐVT ở bảng giá
+  // NCC). Ông báo 1.020.000đ/ram và ông báo 24.500đ/kg mà đem so trực tiếp thì "rẻ nhất" thành
+  // vô nghĩa. Dòng chưa quy đổi được xuống CUỐI (`Infinity`) — xếp hạng một dòng chưa biết giá
+  // thật là mời chọn nhầm, đúng nếp `so_gia_ncc` bên server.
+  out.sort(
+    (a, b) =>
+      (a.gia_quy_doi ?? Infinity) - (b.gia_quy_doi ?? Infinity) ||
+      a.unit_price - b.unit_price,
+  );
   return out.slice(0, SO_NCC_GOI_Y);
 }
 

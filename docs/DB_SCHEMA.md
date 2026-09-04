@@ -1978,6 +1978,7 @@ vật tư/dịch vụ, dùng để chọn vào phiếu yêu cầu mua hàng.
 | Column           | Type (SQLAlchemy → SQLite / Postgres)                  | Key    | Null | Default        | Meaning                                              |
 | ---------------- | ------------------------------------------------------ | ------ | ---- | -------------- | ---------------------------------------------------- |
 | `id`             | `Integer` → `INTEGER` / `SERIAL`                       | **PK** | no   | auto-increment | Surrogate primary key.                               |
+| `code`           | `String(32)` → `VARCHAR(32)`                           | **UQ**, **IX** | yes  | —              | MÃ nhà cung cấp — khớp mã bên sổ MISA để đối chiếu công nợ 331. NULL = chưa đặt (mọi NCC cũ đều thế); nhiều NULL vẫn hợp lệ, nhưng TRÙNG mã thì nổ. Migration 0255. |
 | `name`           | `String(255)` → `VARCHAR(255)`                         | **IX** | no   | —              | Tên nhà cung cấp.                                    |
 | `tax_code`       | `String(20)` → `VARCHAR(20)`                           | **IX** | yes  | —              | Mã số thuế, nếu có.                                  |
 | `phone`          | `String(30)` → `VARCHAR(30)`                           | —      | yes  | —              | Số điện thoại liên hệ.                               |
@@ -3753,7 +3754,7 @@ khoá: `bao_tri` → `phieu_bao_tri`, `yeu_cau` → `yeu_cau_sua_chua` **hoặc*
 
 **Purpose:** Thu mua (PR#8) — nhà cung cấp. One row = 1 NCC (thông tin liên hệ + nhóm + điều khoản thanh toán).
 
-**Tất cả cột:** `id`, `name`, `tax_code`, `phone`, `email`, `address`, `contact_name`, `supplier_group`, `payment_terms`, `status`, `note`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `code`, `name`, `tax_code`, `phone`, `email`, `address`, `contact_name`, `supplier_group`, `payment_terms`, `credit_limit`, `credit_days`, `status`, `note`, `created_at`, `updated_at`.
 
 ---
 
@@ -5507,6 +5508,64 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 `dieu_chuyen`/`kho_nguon_id`/`xuat_voucher_id` (mig 0203) — ĐIỀU CHUYỂN KHO (2 yêu cầu): ấn điều chuyển sinh CẶP yêu cầu — XUẤT ở nguồn (tự lập + ghi sổ ngay, trừ tồn) và NHẬP ở đích (chờ nhận). Cả hai `dieu_chuyen=true`. Yêu cầu NHẬP đích: `kho_nguon_id` = kho nguồn (hiện "Điều chuyển từ …"); `xuat_voucher_id` = phiếu xuất nguồn đã ghi sổ (soft ref); dòng `don_gia` = giá vốn chốt từ nguồn (phiếu nhập đích khoá đơn giá). Phiếu vẫn NHAP/XUAT — không đổi CheckConstraint.
 
 ---
+
+### `cong_no_khoa_so`
+
+**Purpose:** Khóa/mở sổ kỳ kế toán công nợ (chốt công nợ) — LOG APPEND-ONLY: mỗi lần khóa/mở ghi 1 bản ghi cho KHOẢNG `[tu_ngay, den_ngay]`. Chứng từ tại ngày bị khóa nếu bản ghi MỚI NHẤT phủ ngày đó có `hanh_dong='khoa'`. Bảng vừa là hiệu lực vừa là LỊCH SỬ thao tác.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `phan_he` | `String(10)` → `VARCHAR(10)` | **IX** | yes | — | PHÂN HỆ bị khoá: `phai_thu` (TK 131) · `phai_tra` (TK 331). `NULL` = bản ghi CŨ sinh trước khi tách phân hệ ⇒ nó khoá CẢ HAI sổ. Thêm 04/09/2026 vì một bản ghi khoá đang khoá luôn cả hai — chốt 331 kéo theo 131. Migration `0259`. |
+| `tu_ngay` | `Date` → `DATE` | — | no | — | Đầu khoảng khóa/mở (bao gồm). Xét theo NGÀY CHỨNG TỪ. |
+| `den_ngay` | `Date` → `DATE` | — | no | — | Cuối khoảng khóa/mở (bao gồm). |
+| `hanh_dong` | `String(8)` → `VARCHAR(8)` | — | no | `khoa` | `khoa` = khóa kỳ; `mo` = mở lại. Bản ghi sau đè bản ghi trước ở các ngày giao nhau. |
+| `nguoi_khoa_id` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Kế toán thực hiện khóa/mở kỳ. |
+| `khoa_luc` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm ghi bản ghi khóa. |
+| `ten` | `String(120)` → `VARCHAR(120)` | — | yes | — | Tên kỳ (chỉ đặt khi `khoa`) — ví dụ "Tháng 08/2026". Bản ghi `mo` để trống. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Foreign keys: `nguoi_khoa_id FK→users.id`.
+
+**Relationships**
+
+- Bảng độc lập (không quan hệ ORM). Do `create_all` dựng; thêm qua migration `0258_cong_no_khoa_so`.
+
+**Tất cả cột:** `id`, `phan_he`, `tu_ngay`, `den_ngay`, `hanh_dong`, `nguoi_khoa_id`, `khoa_luc`, `ten`.
+
+---
+
+### `cong_no_ky_chot`
+
+**Purpose:** Snapshot công nợ chi tiết từng đối tượng / đơn / đợt giao khi chốt kỳ kế toán công nợ.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `phan_he` | `String(16)` → `VARCHAR(16)` | — | no | — | `phai_thu` (AR) hoặc `phai_tra` (AP). |
+| `doi_tuong_id` | `Integer` → `INTEGER` | **IX** | no | — | `customer_id` hoặc `supplier_id`. |
+| `ref_type` | `String(32)` → `VARCHAR(32)` | — | no | — | Loại tham chiếu: `sales_invoice`, `purchase_delivery`, `deposit`. |
+| `ref_id` | `Integer` → `INTEGER` | — | no | — | ID của tham chiếu. |
+| `tu_ngay` | `Date` → `DATE` | — | no | — | Đầu khoảng kỳ đã chốt. |
+| `den_ngay` | `Date` → `DATE` | **IX** | no | — | Cuối khoảng kỳ đã chốt. |
+| `ten_ky` | `String(120)` → `VARCHAR(120)` | — | yes | — | Tên kỳ đã chốt (ví dụ "Tháng 08/2026"). |
+| `tong_tien` | `BigInteger` → `BIGINT` | — | no | `0` | Tổng tiền của đơn/đợt giao. |
+| `da_thanh_toan` | `BigInteger` → `BIGINT` | — | no | `0` | Tiền đã thanh toán tại thời điểm chốt. |
+| `con_no` | `BigInteger` → `BIGINT` | — | no | `0` | Tiền còn nợ tại thời điểm chốt. |
+| `is_settled` | `Boolean` → `BOOLEAN` | — | no | `false` | Đã tất toán trong kỳ hay còn dở dang. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm ghi snapshot. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index trên `doi_tuong_id`, `den_ngay`.
+
+**Relationships**
+
+- Bảng độc lập (không quan hệ ORM). Do `create_all` dựng; thêm qua migration `0258_cong_no_khoa_so`.
+
+**Tất cả cột:** `id`, `phan_he`, `doi_tuong_id`, `ref_type`, `ref_id`, `tu_ngay`, `den_ngay`, `ten_ky`, `tong_tien`, `da_thanh_toan`, `con_no`, `is_settled`, `created_at`.
 
 ### `kho_khoa_so`
 

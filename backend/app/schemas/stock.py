@@ -253,6 +253,10 @@ class BaoCaoNXTPage(BaseModel):
     da_tinh: bool = False
     # Kỳ này (theo ngày `den`) đã bị KHÓA sổ chưa — đã khóa thì không tính lại được.
     da_khoa: bool = False
+    # Khi `den` rơi vào GIỮA một kỳ ĐÃ TÍNH (chốt ở ngày khác): mốc chốt + tên của kỳ đó. Báo cáo
+    # vẫn hiện Giá trị cuối kỳ nhưng là số TẠM TÍNH tới `den` (khác số đã chốt tại `ky_da_tinh_den`).
+    ky_da_tinh_den: date | None = None
+    ky_da_tinh_ten: str | None = None
 
 
 class TinhGiaKyIn(BaseModel):

@@ -186,6 +186,8 @@ của đội khác.)*
   Xem · Thêm · Sửa · Xoá
 - **Công nợ phải thu** (`cong_no_phai_thu`) — phạm vi *Tất cả*  
   Xem · Thêm · Sửa · Xoá
+- **Báo cáo công nợ** (`bao_cao_cong_no`) — phạm vi *Tất cả*  
+  Xem · Thêm · Sửa · Xoá (Sửa = khoá/mở kỳ kế toán công nợ)
 - **Tài khoản ngân hàng** (`tk_ngan_hang`) — phạm vi *Tất cả*  
   Xem · Thêm · Sửa · Xoá
 
@@ -407,6 +409,8 @@ của đội khác.)*
 - **Công nợ phải trả** (`cong_no_phai_tra`) — phạm vi *Tất cả*  
   Xem
 - **Công nợ phải thu** (`cong_no_phai_thu`) — phạm vi *Tất cả*  
+  Xem
+- **Báo cáo công nợ** (`bao_cao_cong_no`) — phạm vi *Tất cả*  
   Xem
 - **Tài khoản ngân hàng** (`tk_ngan_hang`) — phạm vi *Tất cả*  
   Xem · Sửa

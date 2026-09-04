@@ -97,6 +97,7 @@ chỉ có ở màn Đơn mua hàng bên kế toán.
 | **Phiếu thu** (`phieu_thu`) | màn Phiếu thu | **Thêm** = LẬP / sửa phiếu thu, gán chứng từ |
 | **Công nợ phải trả** (`cong_no_phai_tra`) | số còn nợ từng NCC — tính ra từ PMH + phiếu chi, **không có gì để sửa** | — |
 | **Công nợ phải thu** (`cong_no_phai_thu`) | số khách còn nợ — chỉ phát sinh từ hoá đơn bán đã ghi nhận, trừ cọc cấn + phiếu thu. **Đơn mới chốt chưa tạo công nợ** | — |
+| **Báo cáo công nợ** (`bao_cao_cong_no`) | sổ tổng hợp mẫu Excel MISA + phân tuổi nợ, cả hai phân hệ Phải trả/Phải thu — tách RIÊNG khỏi hai module trên từ 04/09/2026 (chủ chốt: *"báo cáo đó là một module riêng mà"*), ai chỉ cần đối chiếu sổ không nhất thiết có quyền vào màn công nợ vận hành | **Thêm** = khoá/mở kỳ kế toán công nợ (`POST /khoa-so`) — một động từ cho cả hai phân hệ |
 | **Tài khoản ngân hàng** (`tk_ngan_hang`) | TK công ty + TK nhà cung cấp | thêm/sửa/ngừng dùng |
 
 **Ô chi tiết:**

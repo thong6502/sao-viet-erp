@@ -11546,3 +11546,160 @@ def _migrate_nhan_khuon_khung(db: Session) -> None:
 
 
 MIGRATIONS.append(("0261_nhan_khuon_khung", _migrate_nhan_khuon_khung))
+
+
+# --- Nhánh kế toán/công nợ (origin/dev) hợp nhất 05/09/2026 -------------------------------------
+# Hai nhánh cùng rẽ từ 0256 nên SỐ 0257-0260 bị TRÙNG giữa hai họ dưới đây. Không đánh số lại:
+# `run_migrations` khoá theo CHUỖI id, hai chuỗi khác nhau vẫn chạy đủ cả hai — còn đổi id của một
+# migration ĐÃ APPLIED thì DB thật coi như chưa chạy và chạy lại. Số tiếp theo lấy từ đuôi file.
+
+
+def _migrate_supplier_code(db: Session) -> None:
+    """`suppliers.code` — MÃ nhà cung cấp, cho báo cáo tổng hợp công nợ 331.
+
+    Khách hàng có `code` từ đầu, NCC thì không. Cột đầu tiên của sổ MISA lại đúng là "Mã nhà cung
+    cấp", nên không có mã thì không ghép được dòng nào với dòng nào lúc đối chiếu
+    (docs/prd-bao-cao-cong-no.md §❷).
+
+    NULLABLE: mọi NCC đang có đều chưa có mã, ép NOT NULL là phải bịa mã cho tất. Index UNIQUE tạo
+    RIÊNG (không nhét vào ALTER) vì SQLite không cho thêm ràng buộc UNIQUE bằng ALTER TABLE —
+    nhiều NULL vẫn hợp lệ ở cả hai DB, nên index này chỉ chặn TRÙNG mã thật.
+    """
+    insp = inspect(db.get_bind())
+    if "suppliers" not in set(insp.get_table_names()):
+        return
+    if "code" not in _existing_columns(insp, "suppliers"):
+        db.execute(text("ALTER TABLE suppliers ADD COLUMN code VARCHAR(32)"))
+        db.commit()
+    db.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_suppliers_code ON suppliers (code)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0257_supplier_code", _migrate_supplier_code))
+
+def _migrate_cong_no_khoa_so(db: Session) -> None:
+    """Tạo bảng `cong_no_khoa_so` và `cong_no_ky_chot` cho chốt kỳ công nợ."""
+    from .models.cong_no_khoa_so import CongNoKhoaSo, CongNoKyChot
+
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+
+    if "cong_no_khoa_so" not in tables:
+        CongNoKhoaSo.__table__.create(bind, checkfirst=True)
+    if "cong_no_ky_chot" not in tables:
+        CongNoKyChot.__table__.create(bind, checkfirst=True)
+    db.commit()
+
+
+MIGRATIONS.append(("0258_cong_no_khoa_so", _migrate_cong_no_khoa_so))
+
+
+def _migrate_cong_no_khoa_so_phan_he(db: Session) -> None:
+    """`cong_no_khoa_so.phan_he` — tách khoá sổ PHẢI THU khỏi PHẢI TRẢ.
+
+    Chủ báo 04/09/2026: *"tôi mới chốt công nợ phải trả sao nó tự động chốt công nợ phải thu, 2
+    cái này khác nhau mà"*. Đúng — bảng dựng ra không có cột nào phân biệt 131 với 331, nên MỘT
+    bản ghi khoá là khoá cả hai sổ.
+
+    NULLABLE có chủ ý: bản ghi CŨ sinh ra lúc chưa có cột này thật sự đã khoá CẢ HAI phân hệ, nên
+    để NULL và cho tầng truy vấn hiểu NULL = cả hai. Gán bừa một bên là viết lại lịch sử — kỳ vốn
+    đang khoá cả hai bỗng hở ra một bên mà không ai biết.
+    """
+    insp = inspect(db.get_bind())
+    if "cong_no_khoa_so" not in set(insp.get_table_names()):
+        return
+    if "phan_he" not in _existing_columns(insp, "cong_no_khoa_so"):
+        db.execute(text("ALTER TABLE cong_no_khoa_so ADD COLUMN phan_he VARCHAR(10)"))
+        db.commit()
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_cong_no_khoa_so_phan_he "
+        "ON cong_no_khoa_so (phan_he)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0259_cong_no_khoa_so_phan_he", _migrate_cong_no_khoa_so_phan_he))
+
+
+def _migrate_tach_module_bao_cao_cong_no(db: Session) -> None:
+    """Tách "Báo cáo" (công nợ) thành module quyền RIÊNG, không ăn ké `cong_no_phai_tra`/
+    `cong_no_phai_thu` nữa (chủ chốt 04/09/2026: *"báo cáo đó là một module riêng mà"*).
+
+    Trước: 10 endpoint báo cáo + khoá/mở kỳ đều kiểm `cong_no_phai_tra`/`cong_no_phai_thu` — lệch
+    hẳn với sidebar (đã gộp "Báo cáo" thành MỘT mục riêng từ 03/09/2026) và sinh ra một chỗ vô lý
+    thật: route `POST /khoa-so` chỉ kiểm DUY NHẤT `require_permission(MODULE_CN_TRA, "update")`,
+    không tách theo `phan_he` trong payload — khoá kỳ PHẢI THU cũng đòi quyền Thao tác của PHẢI
+    TRẢ.
+
+    Sau: `bao_cao_cong_no` — Xem = xem báo cáo + xuất Excel + in (cả hai phân hệ), Thao tác = khoá
+    /mở kỳ (một động từ, không lệch giữa hai phân hệ nữa).
+
+    Sao chép quyền CŨ sang để không vai nào đang thấy "Báo cáo"/bấm được "Khoá kỳ" bỗng mất
+    quyền: vai có Xem `cong_no_phai_tra` HOẶC `cong_no_phai_thu` → được Xem `bao_cao_cong_no`; vai
+    có Thao tác `cong_no_phai_tra` (nguồn DUY NHẤT của "Khoá kỳ" trước giờ) → được Thao tác
+    `bao_cao_cong_no`. Cố tình KHÔNG gộp bằng một câu SQL dùng hàm gộp OR/MAX trên cột boolean —
+    SQLite và Postgres xử lý khác nhau — tách hai bước tuần tự, mỗi bước chỉ dùng INSERT/UPDATE
+    thường. Hỏi cấu trúc bảng qua `inspect()` và gọi TRƯỚC mọi lệnh ghi — cùng khuôn an toàn đã
+    ghi ở `_migrate_tach_module_ke_toan` (guard `test_migration_khong_dung_pragma` quét thô từng
+    dòng, nên ngay cả nhắc tên câu lệnh bị cấm trong docstring cũng làm nó đỏ).
+
+    Idempotent: chạy lại không đẻ hàng trùng, không ghi đè hàng đã đúng.
+    """
+    cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
+    chep = [c for c in cols if c not in ("id", "module_key", "role_id", "can_read", "can_update")]
+    chon = ", ".join(f"rp.{c}" for c in chep)
+
+    db.execute(
+        text("INSERT INTO modules (key, label, created_at) "
+             "SELECT :k, :l, CURRENT_TIMESTAMP "
+             "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+        {"k": "bao_cao_cong_no", "l": "Báo cáo công nợ"},
+    )
+
+    # Bước 1 — nguồn `cong_no_phai_tra`: chép NGUYÊN can_read lẫn can_update (đúng động từ, vì
+    # "Khoá kỳ" trước giờ CHỈ treo trên module này, kể cả khi khoá kỳ phải THU).
+    db.execute(
+        text(
+            "INSERT INTO role_permissions "
+            f"(module_key, role_id, can_read, can_update, {', '.join(chep)}) "
+            f"SELECT :k, rp.role_id, rp.can_read, rp.can_update, {chon} "
+            "FROM role_permissions rp "
+            "WHERE rp.module_key = 'cong_no_phai_tra' AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = :k)"
+        ),
+        {"k": "bao_cao_cong_no"},
+    )
+
+    # Bước 2 — nguồn `cong_no_phai_thu`: CHỈ từng gate Xem, không có Thao tác nào để chép.
+    # 2a) vai CHƯA có dòng nào ở bước 1 (không có `cong_no_phai_tra`) mà có Xem phải-thu → thêm
+    #     dòng mới, Xem=true, Thao tác=false.
+    db.execute(
+        text(
+            "INSERT INTO role_permissions "
+            f"(module_key, role_id, can_read, can_update, {', '.join(chep)}) "
+            f"SELECT :k, rp.role_id, true, false, {chon} "
+            "FROM role_permissions rp "
+            "WHERE rp.module_key = 'cong_no_phai_thu' AND rp.can_read = true AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = :k)"
+        ),
+        {"k": "bao_cao_cong_no"},
+    )
+    # 2b) vai ĐÃ có dòng từ bước 1 (qua `cong_no_phai_tra`) nhưng Xem đang false ở đó, mà lại có
+    #     Xem phải-thu riêng → bật Xem lên true, không được để sót (Thao tác giữ nguyên như đã
+    #     chép ở bước 1 — phải-thu không có gì để cộng thêm vào đó).
+    db.execute(
+        text(
+            "UPDATE role_permissions SET can_read = true "
+            "WHERE module_key = :k AND can_read = false AND role_id IN ("
+            "  SELECT role_id FROM role_permissions "
+            "  WHERE module_key = 'cong_no_phai_thu' AND can_read = true)"
+        ),
+        {"k": "bao_cao_cong_no"},
+    )
+    db.commit()
+
+
+MIGRATIONS.append(("0260_tach_module_bao_cao_cong_no", _migrate_tach_module_bao_cao_cong_no))

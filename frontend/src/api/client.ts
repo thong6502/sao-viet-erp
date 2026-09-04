@@ -5787,6 +5787,13 @@ export interface SupplierItemRow {
   /** Mặt hàng còn bán không. Ô chọn NCC ở form phiếu mua lọc theo cờ này — ngưng bán thì không
    *  mời nữa, vì backend cũng chặn đặt mới. */
   is_active: boolean;
+  /** 1 đơn vị NCC bán bằng bao nhiêu ĐƠN VỊ GỐC của mặt hàng. `null` = không quy đổi được —
+   *  KHÔNG được coi là 1: hệ số 1 sai thì giá sai mà không ai thấy dòng lỗi nào. */
+  he_so_ve_goc: number | null;
+  /** Đơn giá quy về đ/đơn-vị-gốc = `unit_price ÷ he_so_ve_goc`. Con số DUY NHẤT so ngang được
+   *  giữa các NCC báo theo đơn vị khác nhau (1.020.000đ/ram vs 24.500đ/kg).
+   *  `null` = chưa quy đổi được ⇒ xếp CUỐI kèm lý do, đừng lặng lẽ dùng giá thô. */
+  gia_quy_doi: number | null;
   note: string | null;
   created_at: string;
   updated_at: string;
@@ -6010,6 +6017,145 @@ export interface AgingCell {
   count: number;
 }
 
+/** MỘT dòng của SỔ TỔNG HỢP CÔNG NỢ theo kỳ (docs/prd-bao-cao-cong-no.md §5.1).
+ *
+ *  ĐỪNG nhầm với `PayablesSummary`/`ReceivablesSummary`: hai kiểu kia là ảnh chụp TẠI HÔM NAY để
+ *  đi đòi nợ. Kiểu này là sổ theo kỳ — đầu kỳ · phát sinh · cuối kỳ, khoảng ngày tự chọn.
+ *
+ *  Số ÂM không bao giờ xuất hiện: âm thì server đã đẩy sang cột bên kia (luật sổ Nợ/Có). */
+export interface CongNoDong {
+  /** `null` = dòng gom các khoản KHÔNG truy được về khách/NCC nào. Không cho bấm vào. */
+  doi_tuong_id: number | null;
+  /** Mã khách/NCC. `null` = chưa đặt mã ⇒ không đối chiếu mã với MISA được. */
+  ma: string | null;
+  ten: string;
+  /** `131` (phải thu) hoặc `331` (phải trả). */
+  tk: string;
+  dau_no: number;
+  dau_co: number;
+  ps_no: number;
+  ps_co: number;
+  cuoi_no: number;
+  cuoi_co: number;
+  /** 6 rổ tuổi của RIÊNG đối tượng này, tính trên dư cuối kỳ TẠI `den_ngay`. */
+  aging: Record<string, AgingCell>;
+}
+
+export interface CongNoTong {
+  so_dong: number;
+  dau_no: number;
+  dau_co: number;
+  ps_no: number;
+  ps_co: number;
+  cuoi_no: number;
+  cuoi_co: number;
+}
+
+export interface BaoCaoCongNo {
+  tk: string;
+  tieu_de: string;
+  /** Nhãn hai cột đầu do SERVER nói ("Mã khách hàng" vs "Mã nhà cung cấp") — một component dùng
+   *  cho cả hai báo cáo, đừng gõ lại nhãn ở giao diện. */
+  nhan_ma: string;
+  nhan_ten: string;
+  tu_ngay: string;
+  den_ngay: string;
+  items: CongNoDong[];
+  tong: CongNoTong;
+  /** Dải rổ tuổi TOÀN MÀN, có nhãn sẵn. Tính TẠI `den_ngay` — KHÁC dải ở màn Công nợ, cái đó
+   *  luôn neo vào hôm nay. Đây là lý do báo cáo kỳ cũ in lại vẫn ra đúng con số cũ. */
+  aging: AgingBucket[];
+}
+
+export interface CongNoKyRow {
+  tu_ngay: string;
+  den_ngay: string;
+  ten: string | null;
+  /** Khóa TRỌN khoảng — mọi ngày trong kỳ đều đang khóa. */
+  da_khoa: boolean;
+  /** Khóa MỘT PHẦN. Ba trạng thái chứ không phải hai — xem `CongNoKhoaSoTrangThai`. */
+  khoa_mot_phan: boolean;
+  /** Kỳ đang chạy (chứa hôm nay) ⇒ `den_ngay` dừng ở hôm nay, không phải cuối tháng. */
+  dang_dien_ra: boolean;
+  /** Mở lại được không. CHỈ kỳ mới nhất mở được: kỳ chốt sau lấy số dư đầu kỳ từ kỳ này, mở
+   *  ngược là số của kỳ sau sai theo mà không có gì báo. */
+  co_the_mo: boolean;
+  khoa_luc: string | null;
+}
+
+/** Trạng thái khóa của MỘT khoảng bất kỳ.
+ *
+ *  Trước 04/09/2026 màn báo cáo tự suy bằng cách dò `congNoKyList` rồi so BẰNG ĐÚNG hai đầu ngày;
+ *  kỳ báo cáo 01/09–04/09 không đời nào khớp kỳ tháng 01/09–30/09 nên luôn ra "chưa khóa", bấm
+ *  khóa xong không thấy gì đổi. Giờ hỏi thẳng server đúng kỳ đang xem. */
+export interface CongNoKhoaSoTrangThai {
+  tu_ngay: string;
+  den_ngay: string;
+  da_khoa: boolean;
+  khoa_mot_phan: boolean;
+}
+
+export interface CongNoKhoaSoRow {
+  id: number;
+  tu_ngay: string;
+  den_ngay: string;
+  hanh_dong: string;
+  nguoi_khoa_ten: string | null;
+  khoa_luc: string;
+  ten: string | null;
+}
+
+export interface CongNoChiTietPhaiThuRow {
+  customer_id: number;
+  customer_code: string | null;
+  customer_name: string;
+  credit_limit: number;
+  total_due: number;
+  overdue_amount: number;
+  items: Array<{
+    invoice_id?: number;
+    order_id?: number;
+    order_code?: string;
+    invoice_number?: string;
+    invoice_symbol?: string;
+    invoice_date?: string;
+    due_date?: string;
+    amount: number;
+    received_amount: number;
+    remaining_amount: number;
+    overdue_days: number;
+    status?: string;
+  }>;
+}
+
+export interface CongNoChiTietPhaiTraRow {
+  supplier_id: number;
+  supplier_code: string | null;
+  supplier_name: string;
+  credit_limit: number;
+  total_due: number;
+  overdue_amount: number;
+  items: Array<{
+    delivery_id?: number;
+    /** Số ĐỢT TRONG ĐƠN (đợt 1, 2, 3…) — KHÔNG phải id bản ghi. Hiện `Đợt #{delivery_id}` là
+     *  sai: đợt đầu tiên của một NCC có thể mang id 20 và hiện thành "Đợt #20". */
+    seq_no?: number;
+    delivery_code?: string | null;
+    delivery_date?: string;
+    purchase_request_id?: number;
+    purchase_request_code?: string;
+    /** Tiền hàng của đợt. `delivery_value − paid_amount = con_no`, luôn đúng. */
+    delivery_value: number;
+    /** Đã trả cho đợt = trả đích danh + phần CỌC của cả đơn bù xuống đợt này. */
+    paid_amount: number;
+    /** Riêng phần cọc bù — để tách ra khi giải thích cột "Đã trả". */
+    coc_bu?: number;
+    con_no: number;
+    due_date?: string;
+    overdue_days: number;
+  }>;
+}
+
 export interface PayablesSummary {
   items: PayableSupplierRow[];
   total: number;
@@ -6037,6 +6183,20 @@ export interface PayableDeliveryLineRow {
   /** MÃ đơn vị (`cai`); tên hiển thị ("cái") tra qua `tenDonVi()`. */
   unit: string;
   quantity: number;
+  /** Đơn giá đã chốt trên phiếu mua (04/09/2026). */
+  unit_price: number;
+  /** Thành tiền THẬT của dòng trong đợt này — sau chiết khấu/VAT, và KHÔNG tính phần rơi vào
+   *  `du`. Không phải `quantity × unit_price`. */
+  thanh_tien: number;
+  /** Phần giao VƯỢT số đặt, tính 0đ. > 0 = NCC giao nhiều hơn đơn đặt cho dòng này. */
+  du: number;
+}
+
+export interface PayableHoaDonFile {
+  id: number;
+  file_name: string;
+  file_url: string;
+  file_type: string | null;
 }
 
 export interface PayableItemRow {
@@ -6057,6 +6217,10 @@ export interface PayableItemRow {
   aging_bucket: string | null;
   invoice_number: string | null;
   invoice_date: string | null;
+  /** File hoá đơn/biên bản đã đính kèm cho đợt này (04/09/2026). RỖNG = chưa ai upload ảnh —
+   *  KHÁC với `invoice_number` trống (số có thể đã ghi tay mà chưa có ảnh). Upload vẫn đi qua
+   *  Thu mua lúc ghi đợt giao; ở đây chỉ đọc lại. */
+  hoa_don_files: PayableHoaDonFile[];
   amount: number;
   /** CHỈ đếm tiền trả ĐÍCH DANH đợt này — cột này phải khớp sao kê NCC theo từng đợt. */
   paid: number;
@@ -6745,6 +6909,41 @@ export interface PaymentVoucherInput extends PaymentVoucherBaseInput {
    *  `amount` + `cash_recipient_name` gửi lên BỊ BỎ QUA — backend lấy số tiền và tên nhân viên
    *  của chính phiếu tạm ứng, để phiếu chi không lệch số đã duyệt. */
   salary_advance_id?: number | null;
+}
+
+/** MỘT đợt giao được chọn để trả trong lượt thanh toán gộp (04/09/2026). */
+export interface VoucherBatchItem {
+  purchase_request_id: number;
+  delivery_id: number;
+}
+
+/** Thanh toán NHIỀU đợt giao — của CÙNG một nhà cung cấp — trong MỘT lượt.
+ *
+ *  Cố ý KHÔNG có `amount`/`delivery_id`/`payment_stage` ở đây: batch LUÔN trả HẾT từng đợt đã
+ *  chọn (server tự tính đúng số còn nợ tại thời điểm lập), không trả một phần — và luôn là
+ *  phiếu THANH TOÁN, không phải đặt cọc. `content` bỏ trống thì mỗi phiếu tự đặt câu riêng. */
+export interface VoucherBatchInput extends PaymentVoucherAccountsInput {
+  items: VoucherBatchItem[];
+  voucher_type: PaymentVoucherType;
+  voucher_date: string;
+  currency?: string;
+  exchange_rate?: number;
+  content?: string | null;
+  company_bank_account_id?: number | null;
+  supplier_bank_account_id?: number | null;
+  cash_recipient_name?: string | null;
+  cash_recipient_address?: string | null;
+  cash_recipient_identity?: string | null;
+  beneficiary_account_holder?: string | null;
+  beneficiary_account_number?: string | null;
+  beneficiary_bank_name?: string | null;
+  beneficiary_bank_branch?: string | null;
+  bank_fee_bearer?: "payer" | "beneficiary" | "shared" | null;
+}
+
+export interface VoucherBatchResult {
+  vouchers: PaymentVoucherRow[];
+  total_amount: number;
 }
 
 /** Những ô kế toán THẬT SỰ khai khi lập phiếu chi từ một phiếu tạm ứng lương đã duyệt.
@@ -7621,6 +7820,10 @@ export interface BaoCaoNXTPage {
   da_tinh: boolean;
   /** Kỳ này (theo ngày cuối) đã khóa sổ chưa — đã khóa thì không tính lại. */
   da_khoa: boolean;
+  /** `den` rơi GIỮA một kỳ ĐÃ TÍNH (chốt ở ngày khác): mốc chốt + tên kỳ đó. Khi có, bảng vẫn
+   *  hiện Giá trị cuối kỳ nhưng là số TẠM TÍNH tới `den` (khác số đã chốt). */
+  ky_da_tinh_den: string | null;
+  ky_da_tinh_ten: string | null;
 }
 
 export interface BaoCaoNXTParams {
@@ -12370,6 +12573,122 @@ export const api = {
       const suffix = allHistory ? "?all_history=true" : "";
       return authed<ReceivablesDetail>(`/api/accounting/receivables/${customerId}${suffix}`, token);
     },
+    /** SỔ TỔNG HỢP CÔNG NỢ theo kỳ. `ben` = "receivables" (131) | "payables" (331). */
+    baoCaoCongNo(
+      token: string,
+      ben: "receivables" | "payables",
+      params: { tuNgay: string; denNgay: string; roTuoi?: string | null },
+    ): Promise<BaoCaoCongNo> {
+      const qs = new URLSearchParams({
+        tu_ngay: params.tuNgay,
+        den_ngay: params.denNgay,
+      });
+      if (params.roTuoi) qs.set("aging_bucket", params.roTuoi);
+      return authed<BaoCaoCongNo>(
+        `/api/accounting/reports/${ben}?${qs.toString()}`,
+        token,
+      );
+    },
+    /** File .xlsx đúng khuôn MISA. Phải fetch kèm bearer rồi dựng blob — thẻ `<a href>` trần
+     *  không mang token đi được, và cửa này có kiểm quyền. */
+    async baoCaoCongNoXlsx(
+      token: string,
+      ben: "receivables" | "payables",
+      params: { tuNgay: string; denNgay: string },
+    ): Promise<{ url: string; ten: string }> {
+      const qs = new URLSearchParams({
+        tu_ngay: params.tuNgay,
+        den_ngay: params.denNgay,
+      });
+      const duong = `${BASE_URL}/api/accounting/reports/${ben}.xlsx?${qs.toString()}`;
+      const doFetch = (bearer: string) =>
+        fetch(duong, {
+          credentials: "include",
+          cache: "no-store",
+          headers: authHeader(bearer),
+        });
+      let resp = await doFetch(token);
+      if (resp.status === 401) {
+        const fresh = await refreshAccessToken();
+        if (fresh) resp = await doFetch(fresh);
+      }
+      if (!resp.ok) throw new ApiError(`Không xuất được file (${resp.status}).`, resp.status);
+      // Tên file do SERVER đặt (có kỳ trong tên) — đọc lại từ header thay vì tự bịa ở đây, để
+      // hai nơi không đặt hai kiểu tên cho cùng một file.
+      const cd = resp.headers.get("content-disposition") ?? "";
+      const khop = /filename="([^"]+)"/.exec(cd);
+      return {
+        url: URL.createObjectURL(await resp.blob()),
+        ten: khop ? khop[1] : `tong-hop-cong-no-${ben}.xlsx`,
+      };
+    },
+    /** `phanHe` = "phai_thu" (131) | "phai_tra" (331). Hai sổ ĐỘC LẬP — chốt sổ mua hàng không
+     *  được kéo theo sổ bán hàng (sửa 04/09/2026). */
+    congNoKyList(token: string, phanHe: "phai_thu" | "phai_tra"): Promise<CongNoKyRow[]> {
+      return authed<CongNoKyRow[]>(`/api/accounting/khoa-so/ky?phan_he=${phanHe}`, token);
+    },
+    /** Khoảng này đang khóa trọn / khóa một phần / chưa khóa? */
+    congNoKhoaSoTrangThai(
+      token: string,
+      params: { tuNgay: string; denNgay: string; phanHe: "phai_thu" | "phai_tra" },
+    ): Promise<CongNoKhoaSoTrangThai> {
+      const qs = new URLSearchParams({
+        tu_ngay: params.tuNgay,
+        den_ngay: params.denNgay,
+        phan_he: params.phanHe,
+      });
+      return authed<CongNoKhoaSoTrangThai>(
+        `/api/accounting/khoa-so/trang-thai?${qs.toString()}`,
+        token,
+      );
+    },
+    congNoKhoaSoHistory(token: string): Promise<CongNoKhoaSoRow[]> {
+      return authed<CongNoKhoaSoRow[]>("/api/accounting/khoa-so", token);
+    },
+    setCongNoKhoaSo(
+      token: string,
+      payload: {
+        /** BẮT BUỘC. Khoá sổ 331 không được kéo theo 131. */
+        phan_he: "phai_thu" | "phai_tra";
+        tu_ngay: string;
+        den_ngay: string;
+        hanh_dong: "khoa" | "mo";
+        ten?: string | null;
+      },
+    ): Promise<CongNoKhoaSoRow> {
+      return authed<CongNoKhoaSoRow>("/api/accounting/khoa-so", token, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+    congNoChiTietPhaiThu(
+      token: string,
+      params: { tuNgay?: string; denNgay?: string; customerId?: number } = {},
+    ): Promise<CongNoChiTietPhaiThuRow[]> {
+      const qs = new URLSearchParams();
+      if (params.tuNgay) qs.set("tu_ngay", params.tuNgay);
+      if (params.denNgay) qs.set("den_ngay", params.denNgay);
+      if (params.customerId) qs.set("customer_id", String(params.customerId));
+      const q = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<CongNoChiTietPhaiThuRow[]>(
+        `/api/accounting/cong-no-chi-tiet/phai-thu${q}`,
+        token,
+      );
+    },
+    congNoChiTietPhaiTra(
+      token: string,
+      params: { tuNgay?: string; denNgay?: string; supplierId?: number } = {},
+    ): Promise<CongNoChiTietPhaiTraRow[]> {
+      const qs = new URLSearchParams();
+      if (params.tuNgay) qs.set("tu_ngay", params.tuNgay);
+      if (params.denNgay) qs.set("den_ngay", params.denNgay);
+      if (params.supplierId) qs.set("supplier_id", String(params.supplierId));
+      const q = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<CongNoChiTietPhaiTraRow[]>(
+        `/api/accounting/cong-no-chi-tiet/phai-tra${q}`,
+        token,
+      );
+    },
     salesInvoices(token: string, orderId: number): Promise<SalesInvoiceListOut> {
       return authed<SalesInvoiceListOut>(
         `/api/accounting/sales-invoices?order_id=${orderId}`,
@@ -12526,6 +12845,18 @@ export const api = {
     },
     createVoucher(token: string, input: PaymentVoucherInput): Promise<PaymentVoucherRow> {
       return authed<PaymentVoucherRow>("/api/accounting/payment-vouchers", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    /** Thanh toán NHIỀU đợt giao của CÙNG một NCC trong MỘT lượt (04/09/2026). Vẫn ra N phiếu
+     *  chi riêng — server lặp lại đúng đường kiểm/lập của `createVoucher` cho từng đợt, batch
+     *  chỉ gộp thao tác nhập liệu (hình thức chi + tài khoản/người nhận điền một lần). */
+    createVouchersBatch(
+      token: string,
+      input: VoucherBatchInput,
+    ): Promise<VoucherBatchResult> {
+      return authed<VoucherBatchResult>("/api/accounting/payment-vouchers/batch", token, {
         method: "POST",
         body: JSON.stringify(input),
       });
@@ -13165,6 +13496,28 @@ export const api = {
         setFunnelQs(qs, params);
         const doFetch = (bearer: string) =>
           fetch(`${BASE_URL}/api/kho/bao-cao/chuyen-kho/export.xlsx?${qs.toString()}`, {
+            credentials: "include", cache: "no-store", headers: authHeader(bearer),
+          });
+        let resp = await doFetch(token);
+        if (resp.status === 401) {
+          const fresh = await refreshAccessToken();
+          if (fresh) resp = await doFetch(fresh);
+        }
+        if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
+        return URL.createObjectURL(await resp.blob());
+      },
+      /** Xuất Excel bảng NHẬP-XUẤT-TỒN (mẫu MISA, gom nhóm theo kho + dòng cộng). */
+      async nxtExportXlsxBlobUrl(
+        token: string,
+        params: { tu: string; den: string; kho_id?: number | null; q?: string },
+      ): Promise<string> {
+        const qs = new URLSearchParams();
+        qs.set("tu", params.tu);
+        qs.set("den", params.den);
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.q) qs.set("q", params.q);
+        const doFetch = (bearer: string) =>
+          fetch(`${BASE_URL}/api/kho/bao-cao/nxt/export.xlsx?${qs.toString()}`, {
             credentials: "include", cache: "no-store", headers: authHeader(bearer),
           });
         let resp = await doFetch(token);

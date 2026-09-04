@@ -11,7 +11,15 @@ import {
   MaterialCombobox,
 } from "../../../../components/MaterialCombobox";
 import { emptySupplierItem } from "../shared/helpers";
-import type { FormItemRow, NhapKetQua } from "../shared/types";
+import { money } from "../../../../utils/format";
+// Đơn vị lưu bằng MÃ (`mm`), tên hiển thị ("mm"/"mét") nằm ở danh mục — xem pages/tenDonVi.ts.
+import { tenDonVi } from "../../../tenDonVi";
+import type { FormItemRow, NhapKetQua, QuyDoiDongInfo } from "../shared/types";
+
+/** Lưới cột của bảng giá. Cột "Quy về gốc" trở lại 29/08/2026 khi ĐVT được mở khoá — trước đó nó
+ *  luôn bằng đơn giá nên đã bị cắt 28/08. `minmax(0,…)` để số tiền dài không đẩy tràn khung. */
+const LUOI_COT =
+  "minmax(180px, 1.8fr) minmax(96px, 0.6fr) minmax(120px, 0.8fr) minmax(110px, 0.7fr) 36px";
 
 export function SupplierItemsTab({
   mode,
@@ -22,6 +30,8 @@ export function SupplierItemsTab({
   itemSearchQ,
   setItemSearchQ,
   setSupplierItem,
+  quyDoiDong,
+  ghiQuyDoiDong,
   fileVatTuRef,
   nhapDang,
   nhapKetQua,
@@ -40,6 +50,8 @@ export function SupplierItemsTab({
     index: number,
     patch: Partial<FormItemRow["item"]>,
   ) => void;
+  quyDoiDong: Record<number, QuyDoiDongInfo | null>;
+  ghiQuyDoiDong: (index: number, info: QuyDoiDongInfo | null) => void;
   fileVatTuRef: MutableRefObject<HTMLInputElement | null>;
   nhapDang: boolean;
   nhapKetQua: NhapKetQua | null;
@@ -196,7 +208,7 @@ export function SupplierItemsTab({
                       <div
                         className="supplier__item-labels"
                         aria-hidden="true"
-                        style={{ gridTemplateColumns: "minmax(200px, 2fr) minmax(96px, 0.6fr) minmax(130px, 0.8fr) 36px" }}
+                        style={{ gridTemplateColumns: LUOI_COT }}
                       >
                         {/* BA CỘT, HẾT (chủ chốt 28/08/2026: "chỉ giữ lại Tên vật tư, đơn vị tính,
                             đơn giá thôi"). Đã cắt:
@@ -213,15 +225,24 @@ export function SupplierItemsTab({
                         <span>Tên vật tư *</span>
                         <span>ĐVT *</span>
                         <span>Đơn giá *</span>
+                        <span title="Giá quy về đơn vị gốc của mặt hàng — con số DUY NHẤT so ngang được giữa các NCC báo theo đơn vị khác nhau (1.020.000đ/ram vs 24.500đ/kg).">
+                          Quy về gốc
+                        </span>
                         <span></span>
                       </div>
 
                       {filteredFormItems.map(({ item, originalIndex }) => {
+                        // Hệ số LIVE của ô ĐVT đang chọn — có ngay cả với dòng chưa lưu.
+                        const quyDoi = quyDoiDong[originalIndex];
+                        const giaVeGoc =
+                          quyDoi && quyDoi.heSoVeGoc > 0 && item.unit_price > 0
+                            ? Math.round(item.unit_price / quyDoi.heSoVeGoc)
+                            : (item as { gia_quy_doi?: number | null }).gia_quy_doi ?? null;
                         return (
                           <div
                             className="supplier__item-row"
                             key={originalIndex}
-                            style={{ gridTemplateColumns: "minmax(200px, 2fr) minmax(96px, 0.6fr) minmax(130px, 0.8fr) 36px" }}
+                            style={{ gridTemplateColumns: LUOI_COT }}
                           >
                             {/* CHỌN từ danh mục gốc, không gõ tự do nữa: ghép NCC với kho bằng
                                 chuỗi tên là trượt thầm lặng ("Couche 150" ≠ "Couché 150 79×109"),
@@ -252,7 +273,6 @@ export function SupplierItemsTab({
                                  Máy chủ VẪN nhận đơn vị quy đổi (dòng cũ khai theo ram còn nguyên,
                                  không bị viết lại) — hàng rào này chỉ ở màn nhập. */
                               <DonViChonTheoHang
-                                chiDoc
                                 token={token ?? ""}
                                 hangLoai={item.hang_loai}
                                 hangId={item.hang_id}
@@ -260,6 +280,7 @@ export function SupplierItemsTab({
                                 onChange={(ma) =>
                                   setSupplierItem(originalIndex, { unit: ma })
                                 }
+                                onQuyDoi={(info) => ghiQuyDoiDong(originalIndex, info)}
                               />
                             ) : (
                               // Chưa chọn mặt hàng → chưa biết đơn vị. Trước đây cho gõ tự do; gõ
@@ -287,6 +308,25 @@ export function SupplierItemsTab({
                                 })
                               }
                             />
+                            {/* GIÁ QUY VỀ GỐC. Ưu tiên hệ số LIVE từ ô ĐVT đang chọn (người
+                                dùng đổi đơn vị là số nhảy ngay); chưa có thì lùi về `gia_quy_doi`
+                                server đã tính cho dòng ĐÃ LƯU. Không quy đổi được thì để gạch —
+                                CỐ Ý không lấy đại đơn giá thô, vì như thế là nói dối rằng hai
+                                NCC báo cùng đơn vị. */}
+                            <div
+                              className="supplier-item-vat-calculated"
+                              title={
+                                giaVeGoc != null
+                                  // Vế TRÁI là đơn vị NCC bán, vế PHẢI là đơn vị gốc — hai vế
+                                  // khác nhau mới ra nghĩa "quy đổi". Lấy cùng một tên cho cả
+                                  // hai là câu giải thích tự mâu thuẫn ("200đ/mét ÷ 0.001 =
+                                  // 200.000đ/mét"), đúng lỗi bản đầu.
+                                  ? `${money(item.unit_price)} / ${tenDonVi(item.unit) ?? item.unit} ÷ ${quyDoi?.heSoVeGoc ?? "?"} = ${money(giaVeGoc)} / ${quyDoi?.donViGocTen ?? "đơn vị gốc"}`
+                                  : "Chưa quy đổi được — mặt hàng ngoài danh mục, hoặc thiếu cặp quy đổi giữa đơn vị này và đơn vị gốc."
+                              }
+                            >
+                              {giaVeGoc != null ? money(giaVeGoc) : "—"}
+                            </div>
                             <button
                               type="button"
                               className="supplier__item-remove"

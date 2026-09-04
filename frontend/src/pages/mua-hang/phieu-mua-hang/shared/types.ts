@@ -43,6 +43,9 @@ export type ChaoGia = {
   unit_price: number;
   vat_percent: number;
   unit: string;
+  /** Đơn giá quy về đ/đơn-vị-gốc. `null` = chưa quy đổi được — xếp cuối, và lúc chọn thì KHÔNG
+   *  được lấy đại `unit_price` vì dòng đơn tính theo đơn vị gốc. */
+  gia_quy_doi: number | null;
 };
 
 /** Một file hoá đơn ĐANG CHỜ tải lên. `url` là `blob:` để xem trước — rỗng với PDF (thẻ `<img>`

@@ -45,6 +45,10 @@ class SupplierItemImportOut(BaseModel):
 
 
 class SupplierIn(BaseModel):
+    # MÃ NCC — để trống được. Dùng khớp với mã bên sổ MISA khi đối chiếu công nợ 331
+    # (docs/prd-bao-cao-cong-no.md §❷). Chuỗi rỗng ⇒ NULL, xem `_ma_ncc` ở service: hai NCC cùng
+    # mã "" sẽ đụng UNIQUE, mà đó không phải lỗi người dùng gây ra.
+    code: str | None = Field(default=None, max_length=32)
     name: str = Field(min_length=1, max_length=255)
     tax_code: str = Field(min_length=1, max_length=20)
     phone: str = Field(min_length=1, max_length=30)
@@ -79,6 +83,13 @@ class SupplierItemRow(BaseModel):
     # NCC đã ngưng bán mặt hàng đó, người dùng chọn xong mới bị backend từ chối — bẫy.
     is_active: bool = True
     note: str | None = None
+    #: 1 đơn vị NCC bán bằng bao nhiêu ĐƠN VỊ GỐC của mặt hàng. `None` = không quy đổi được
+    #: (mặt hàng ngoài danh mục, hoặc thiếu cặp quy đổi) — KHÔNG được coi là 1.
+    he_so_ve_goc: float | None = None
+    #: Đơn giá đã quy về đ/đơn-vị-gốc = `unit_price ÷ he_so_ve_goc`. Đây là con số DUY NHẤT so
+    #: ngang được giữa các NCC báo theo đơn vị khác nhau (1.020.000đ/ram vs 24.500đ/kg).
+    #: `None` = chưa quy đổi được ⇒ màn hình phải xếp CUỐI kèm lý do, đừng lặng lẽ dùng giá thô.
+    gia_quy_doi: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -87,6 +98,7 @@ class SupplierRow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    code: str | None = None
     name: str
     tax_code: str | None = None
     phone: str | None = None

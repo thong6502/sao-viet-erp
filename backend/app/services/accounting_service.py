@@ -17,6 +17,7 @@ from ..models.accounting import (
     PAYMENT_RECEIPT_RECEIVED,
     PAYMENT_RECEIPT_WAITING,
     PAYMENT_STAGE_ADVANCE,
+    PAYMENT_STAGE_FINAL,
     PAYMENT_STAGES,
     PAYMENT_VOUCHER_CANCELLED,
     PAYMENT_VOUCHER_PAID,
@@ -58,6 +59,7 @@ from ..models.purchase import (
     PR_PENDING,
     PR_PURCHASED,
     PR_RECEIVED,
+    PURCHASE_ATTACHMENT_HOA_DON,
     PurchaseRequest,
 )
 from ..repositories.accounting_repo import AccountingRepository
@@ -65,7 +67,10 @@ from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
 from ..repositories.user_repo import UserRepository
 from ..storage import get_storage, key_from_url, make_key, url_from_key
+from . import bao_cao_cong_no
 from .purchase_service import (
+    _purchase_line_amounts,
+    phan_bo_du_dot,
     han_tra_dot,
     phan_bo_tien_dot,
     purchase_money,
@@ -468,24 +473,67 @@ class AccountingService:
         Phiếu chưa có đợt giao nào (dữ liệu cũ) trả `([], 0, 0)`: nợ của nó không quy được về đợt
         nào, màn hình phải hiện ở mức PHIẾU."""
         phan_bo, coc, coc_du = phan_bo_tien_dot(row)
-        # Tên + ĐVT của mặt hàng nằm ở DÒNG ĐẶT, dòng đợt chỉ giữ số lượng ⇒ tra bảng một lần.
+        # `phan_bo_tien_dot` chỉ trả TIỀN Ở MỨC ĐỢT (không giữ chi tiết từng dòng), nên gọi lại
+        # `phan_bo_du_dot` — hàm NỀN TẢNG nó dùng bên trong — để lấy `tinh_tien`/`du` CỦA TỪNG
+        # DÒNG, nuôi cột "Đơn giá"/"Thành tiền" ở popup "Hàng đã nhận" (04/09/2026). Gọi lại tốn
+        # thêm một lượt tính cho phiếu này, chấp nhận được (vài đợt/dòng mỗi phiếu) để KHÔNG phải
+        # đổi hình dạng trả về của `phan_bo_tien_dot` — hàm đó còn được gọi ở nhiều nơi khác.
+        chi_tiet_dong = phan_bo_du_dot(row)
+        # Tên + ĐVT + đơn giá đã chốt của mặt hàng nằm ở DÒNG ĐẶT, dòng đợt chỉ giữ số lượng ⇒
+        # tra bảng một lần.
         dong_dat = {ln.id: ln for ln in row.lines}
 
         def _hang_cua_dot(delivery) -> list[dict]:
-            """Mặt hàng của một đợt — nuôi popup "hàng đã nhận" ở Công nợ phải trả (28/08/2026).
+            """Mặt hàng của một đợt — nuôi popup "hàng đã nhận" ở Công nợ phải trả (28/08/2026,
+            thêm giá + thành tiền 04/09/2026: *"Hiển thị số tiền và tổng số tiền của mặt hàng"*).
 
             Kèm sẵn trong payload thay vì đẻ endpoint thứ hai: mỗi đợt vài dòng, mà bấm vào đợt
             rồi mới đi gọi mạng là người dùng nhìn một hộp thoại rỗng đang quay.
             """
+            dong_cua_dot = chi_tiet_dong.get(delivery.id, {}).get("lines", {})
             ra = []
             for dl in delivery.lines:
                 ln = dong_dat.get(dl.purchase_request_line_id)
+                muc = dong_cua_dot.get(dl.id, {})
+                tinh_tien = float(muc.get("tinh_tien", 0.0) or 0.0)
+                du = float(muc.get("du", 0.0) or 0.0)
+                thanh_tien = 0
+                if ln is not None and tinh_tien > 0:
+                    _, _, _, thanh_tien = _purchase_line_amounts(
+                        quantity=tinh_tien,
+                        unit_price=int(ln.expected_unit_price),
+                        discount_percent=float(ln.discount_percent or 0),
+                        vat_percent=float(ln.vat_percent or 0),
+                    )
                 ra.append({
                     "item_name": ln.item_name if ln is not None else "(dòng đã bị xoá)",
                     "unit": ln.unit if ln is not None else "",
                     "quantity": float(dl.quantity),
+                    "unit_price": int(ln.expected_unit_price) if ln is not None else 0,
+                    "thanh_tien": thanh_tien,
+                    # DƯ = phần giao VƯỢT số đặt, tính 0đ (chủ chốt 28/08/2026). Phơi ra ở đúng
+                    # dòng đơn — nếu không, người đọc thấy "900 Cái" mà thành tiền lại thấp hơn
+                    # 900×đơn giá và tưởng máy tính sai, trong khi máy đang tính ĐÚNG.
+                    "du": du,
                 })
             return ra
+
+        def _file_hoa_don(delivery) -> list[dict]:
+            """File hoá đơn/biên bản NCC đã đính kèm cho đợt này — CHỈ ĐỌC (04/09/2026).
+
+            Kế toán không tự upload từ màn này: file đính kèm lúc GHI ĐỢT GIAO bên Thu mua
+            (`DeliveryDialog.tsx`), ở đây chỉ hiện lại để khỏi phải nhảy màn mới xem được ảnh.
+            """
+            return [
+                {
+                    "id": a.id,
+                    "file_name": a.file_name,
+                    "file_url": a.file_url,
+                    "file_type": a.file_type,
+                }
+                for a in sorted(delivery.attachments, key=lambda a: a.id)
+                if a.kind == PURCHASE_ATTACHMENT_HOA_DON
+            ]
 
         out = [
             {
@@ -496,6 +544,7 @@ class AccountingService:
                 "due_date": han_tra_dot(m["delivery"], row.supplier, row.debt_cutoff_date),
                 "invoice_number": m["delivery"].invoice_number,
                 "invoice_date": m["delivery"].invoice_date,
+                "hoa_don_files": _file_hoa_don(m["delivery"]),
                 "amount": m["amount"],
                 "paid": m["paid"],
                 "coc_bu": m["coc_bu"],
@@ -561,6 +610,25 @@ class AccountingService:
                 ro[AGING_CHUA_TOI_HAN]["count"] += 1
         ro[AGING_CHUA_TOI_HAN]["amount"] += max(0, con_no - qua_han)
         return ro
+
+    # --- báo cáo tổng hợp công nợ theo kỳ (docs/prd-bao-cao-cong-no.md §5.1) --------------
+    #
+    # Vỏ MỎNG, cố ý: ruột nằm ở `bao_cao_cong_no.py` chứ không nhét thêm vào file 2700 dòng này.
+    # Hai báo cáo này KHÁC HẲN `payables_summary`/`receivables_summary` ngay bên dưới — chúng là
+    # SỔ THEO KỲ (đầu kỳ · phát sinh · cuối kỳ), còn hai hàm kia là ảnh chụp TẠI HÔM NAY để đi
+    # đòi nợ. Đừng gộp, và đừng sửa cái này rồi tưởng đã sửa cái kia.
+
+    def bao_cao_phai_thu(self, *, tu_ngay: date, den_ngay: date) -> dict:
+        """Sổ tổng hợp công nợ phải thu TK 131 cho kỳ `[tu_ngay, den_ngay]`."""
+        return bao_cao_cong_no.tong_hop_phai_thu(
+            self.repo, tu_ngay=tu_ngay, den_ngay=den_ngay
+        )
+
+    def bao_cao_phai_tra(self, *, tu_ngay: date, den_ngay: date) -> dict:
+        """Sổ tổng hợp công nợ phải trả TK 331 cho kỳ `[tu_ngay, den_ngay]`."""
+        return bao_cao_cong_no.tong_hop_phai_tra(
+            self.repo, self.purchases, tu_ngay=tu_ngay, den_ngay=den_ngay
+        )
 
     def payables_summary(
         self,
@@ -778,6 +846,7 @@ class AccountingService:
                             "aging_bucket": ro_tuoi(so_ngay_tre) if so_ngay_tre > 0 else None,
                             "invoice_number": d["invoice_number"],
                             "invoice_date": d["invoice_date"],
+                            "hoa_don_files": d["hoa_don_files"],
                             "amount": d["amount"],
                             "paid": d["paid"],
                             "coc_bu": d["coc_bu"],
@@ -933,6 +1002,95 @@ class AccountingService:
             detail=f"{saved.code} <- {purchase.code if purchase else prepared['source_type']}",
         )
         return self._voucher_out(saved)
+
+    def create_vouchers_batch(
+        self, *, actor, items: list[dict], shared: dict
+    ) -> list[dict]:
+        """Lập MỘT LƯỢT nhiều phiếu THANH TOÁN, mỗi phiếu trả TRỌN một đợt giao (04/09/2026):
+        *"Cùng một nhà cung cấp thì có thể chọn nhiều đợt giao và thanh toán một lượt luôn"*.
+
+        KHÔNG đẻ khái niệm "một phiếu trả nhiều đợt" — `PaymentVoucher.delivery_id` vẫn là MỘT
+        đợt (đúng luật 09/08/2026, xem `_prepare_voucher`). Batch chỉ gộp Ở TẦNG THAO TÁC: kế
+        toán điền hình thức chi + tài khoản/người nhận MỘT LẦN (`shared`), hệ LẶP LẠI đúng
+        đường `_prepare_voucher` đã được kiểm chứng cho TỪNG đợt trong `items`
+        (`[{"purchase_request_id", "delivery_id"}]`) — không viết lại luật trần/kiểm tra nào ở
+        đây, chỉ lặp cái đã có.
+
+        SỐ TIỀN mỗi phiếu = CÒN NỢ CỦA ĐÚNG ĐỢT ĐÓ, máy tự tính tại đúng lúc lập (không nhận số
+        tiền từ client) — đúng nếp "TIỀN CỦA ĐỢT: MÁY TÍNH, KHÔNG AI GÕ TAY". Batch pay luôn là
+        TRẢ HẾT từng đợt đã chọn, không trả một phần.
+
+        THẨM ĐỊNH TRƯỚC, GHI SAU: chuẩn bị (`_prepare_voucher`) cho MỌI đợt trước, đợt nào trật
+        luật (đã trả hết, khác NCC, sai trạng thái…) thì NỔ NGAY và KHÔNG phiếu nào được ghi —
+        chọn 5 đợt mà đợt thứ 3 lỗi thì kế toán không phải tự dò xem 2 phiếu đầu đã lỡ tạo chưa.
+        """
+        if not items:
+            raise AccountingValidationError("Chưa chọn đợt giao nào để thanh toán.")
+        if len(items) > 50:
+            raise AccountingValidationError("Chọn tối đa 50 đợt cho một lượt thanh toán.")
+
+        # Không cho hai dòng cùng trỏ một đợt — click đúp hay chọn nhầm hai lần thành hai phiếu
+        # cho cùng một món nợ.
+        da_thay: set[int] = set()
+        chuan_bi: list[tuple[PurchaseRequest, dict]] = []
+        ncc_id: int | None = None
+        for it in items:
+            delivery_id = int(it["delivery_id"])
+            if delivery_id in da_thay:
+                raise AccountingValidationError(f"Đợt giao #{delivery_id} bị chọn trùng lặp.")
+            da_thay.add(delivery_id)
+
+            purchase = self._purchase(int(it["purchase_request_id"]))
+            if not any(d.id == delivery_id for d in purchase.deliveries):
+                raise AccountingValidationError(
+                    f"Đợt giao #{delivery_id} không thuộc phiếu mua {purchase.code}."
+                )
+            # CÙNG MỘT NHÀ CUNG CẤP — đúng nguyên văn yêu cầu. Không chặn thì kế toán lỡ chọn
+            # nhầm đợt của hai NCC khác nhau sẽ lập ra một phiếu mang tên/tài khoản nhận của
+            # NCC A nhưng trả nợ hộ NCC B.
+            if ncc_id is None:
+                ncc_id = purchase.supplier_id
+            elif purchase.supplier_id != ncc_id:
+                raise AccountingValidationError(
+                    "Các đợt giao phải cùng một nhà cung cấp mới thanh toán chung một lượt được."
+                )
+
+            so_con_no = self._tran_lap_phieu(purchase, PAYMENT_STAGE_FINAL, delivery_id)
+            if so_con_no <= 0:
+                raise AccountingValidationError(
+                    f"Đợt giao #{delivery_id} của {purchase.code} đã trả hết, không còn gì để "
+                    "thanh toán."
+                )
+            dot = next(d for d in purchase.deliveries if d.id == delivery_id)
+            noi_dung = shared.get("content") or (
+                f"Thanh toán {purchase.code} đợt {dot.seq_no}"
+            )
+            values = {
+                **shared,
+                "payment_stage": PAYMENT_STAGE_FINAL,
+                "delivery_id": delivery_id,
+                "amount": so_con_no,
+                "content": noi_dung[:500],
+            }
+            prepared = self._prepare_voucher(
+                purchase, values, allow_pending_purchase=False, exclude_voucher_id=None
+            )
+            chuan_bi.append((purchase, prepared))
+
+        # Mọi đợt đã qua kiểm — giờ mới THỰC GHI, đúng thứ tự người dùng chọn.
+        ra: list[dict] = []
+        for purchase, prepared in chuan_bi:
+            doc_no = self._next_voucher_doc_no()
+            voucher = self._new_voucher(purchase, prepared, actor.id, doc_no=doc_no)
+            saved = self.repo.save_voucher(voucher)
+            self.audit.create(
+                actor_user_id=actor.id,
+                action="create_payment_voucher",
+                target=f"payment_voucher:{saved.id}",
+                detail=f"{saved.code} <- {purchase.code} (thanh toán một lượt)",
+            )
+            ra.append(self._voucher_out(saved))
+        return ra
 
     # ĐÃ GỠ 04/08/2026: `approve_and_create_voucher()` — gộp duyệt PMH + lập phiếu chi vào một
     # thao tác. Tách vai: người đồng ý chi không được là người viết phiếu chi. Duyệt nay ở

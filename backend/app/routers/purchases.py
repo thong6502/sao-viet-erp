@@ -260,14 +260,18 @@ def cancel_department_purchase_request_line(
     return DepartmentPurchaseRequestOut(**row)
 
 
-def _dong_ncc(row, danh_gia: DanhGiaNcc) -> SupplierRow:
-    """Ghép hồ sơ NCC với SỔ ĐIỂM của họ thành một dòng trả về.
+def _dong_ncc(row, danh_gia: DanhGiaNcc, quy_doi: dict | None = None) -> SupplierRow:
+    """Ghép hồ sơ NCC với SỔ ĐIỂM + QUY ĐỔI ĐƠN VỊ của họ thành một dòng trả về.
 
     Sao không phải cột của bảng `suppliers` (cố ý — không đẻ cột, không migration), nên phải ghép
     ở đây thay vì để pydantic tự đọc thuộc tính. Ghép một chỗ để bốn cửa (danh sách · tạo · sửa ·
     bật/tắt) không mỗi nơi trả một kiểu.
+
+    `quy_doi` = `{supplier_item_id: {he_so_ve_goc, gia_quy_doi}}` từ `PurchaseService
+    .quy_doi_bang_gia`. Bỏ trống thì hai trường đó để None — dòng vẫn hợp lệ, chỉ là màn hình
+    không so giá được.
     """
-    return SupplierRow.model_validate(row).model_copy(
+    ra = SupplierRow.model_validate(row).model_copy(
         update={
             "rating": danh_gia.rating,
             "rating_count": danh_gia.rating_count,
@@ -276,6 +280,13 @@ def _dong_ncc(row, danh_gia: DanhGiaNcc) -> SupplierRow:
             "avg_late_days": danh_gia.avg_late_days,
         }
     )
+    if quy_doi:
+        for it in ra.items:
+            qd = quy_doi.get(it.id)
+            if qd:
+                it.he_so_ve_goc = qd["he_so_ve_goc"]
+                it.gia_quy_doi = qd["gia_quy_doi"]
+    return ra
 
 
 @router.get("/api/suppliers", response_model=SupplierListOut)
@@ -314,8 +325,9 @@ def list_suppliers(
         page=page,
         size=size,
     )
+    quy_doi = svc.quy_doi_bang_gia([row for row, _ in rows])
     return SupplierListOut(
-        items=[_dong_ncc(row, danh_gia) for row, danh_gia in rows],
+        items=[_dong_ncc(row, danh_gia, quy_doi) for row, danh_gia in rows],
         total=total,
         page=page,
         size=size,
@@ -414,7 +426,7 @@ def create_supplier(
     except PurchaseError as exc:
         raise _map_error(exc) from None
     _notify_purchase_changed()
-    return _dong_ncc(row, svc.danh_gia_ncc(row.id))
+    return _dong_ncc(row, svc.danh_gia_ncc(row.id), svc.quy_doi_bang_gia([row]))
 
 
 @router.put("/api/suppliers/{supplier_id}", response_model=SupplierRow)
@@ -429,7 +441,7 @@ def update_supplier(
     except PurchaseError as exc:
         raise _map_error(exc) from None
     _notify_purchase_changed()
-    return _dong_ncc(row, svc.danh_gia_ncc(row.id))
+    return _dong_ncc(row, svc.danh_gia_ncc(row.id), svc.quy_doi_bang_gia([row]))
 
 
 @router.patch("/api/suppliers/{supplier_id}/toggle-active", response_model=SupplierRow)
@@ -443,7 +455,7 @@ def toggle_supplier(
     except PurchaseError as exc:
         raise _map_error(exc) from None
     _notify_purchase_changed()
-    return _dong_ncc(row, svc.danh_gia_ncc(row.id))
+    return _dong_ncc(row, svc.danh_gia_ncc(row.id), svc.quy_doi_bang_gia([row]))
 
 
 @router.get("/api/purchase-requests", response_model=PurchaseRequestListOut)
