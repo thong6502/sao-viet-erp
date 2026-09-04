@@ -16,6 +16,7 @@ from sqlalchemy import text
 
 from app.db import SessionLocal
 from app.db_migrations import (
+    _migrate_tach_module_bao_cao_cong_no,
     _migrate_tach_module_ke_toan,
     _migrate_tach_module_nhan_su_luong,
     _migrate_tach_module_thu_mua,
@@ -702,3 +703,133 @@ def test_0198_chay_lai_khong_de_hang_trung(db):
         {"r": vai},
     ).scalar()
     assert n == 1, f"chạy lại đẻ ra {n} dòng luong"
+
+
+# ═══════════════════════════ 0260 — tách "Báo cáo" khỏi cong_no_phai_tra/cong_no_phai_thu
+
+
+def _xoa_bao_cao_cong_no(db) -> None:
+    """Dựng lại tình trạng TRƯỚC khi tách — `client` đã seed sẵn module `bao_cao_cong_no` (nó nằm
+    trong `MODULES` từ giờ) nên phải dọn tay trước mỗi test, giống `_dung_du_lieu_cu` ở 0177."""
+    db.execute(text("DELETE FROM role_permissions WHERE module_key = 'bao_cao_cong_no'"))
+    db.execute(text("DELETE FROM modules WHERE key = 'bao_cao_cong_no'"))
+    db.commit()
+
+
+def _dat_quyen(db, role_id: int, khoa: str, *, doc: bool, ghi: bool = False) -> None:
+    """Đặt CHÍNH XÁC quyền `khoa` của một vai — xoá dòng cũ trước (vai #1 lấy qua `SELECT ...
+    LIMIT 1` thường trúng ngay "Giám đốc" mà seed đã cấp toàn quyền, nên có sẵn dòng `cong_no_
+    phai_tra`/`cong_no_phai_thu` từ trước; không dọn thì hoặc đụng UNIQUE constraint, hoặc bài
+    test âm thầm chạy trên quyền CŨ chứ không phải quyền vừa đặt).
+
+    `can_create`/`can_delete` KHÔNG có `server_default` ở model (chỉ các cột chi tiết mới có) —
+    bỏ trống là NOT NULL ăn lỗi ngay trên INSERT thô, giống `_dung_du_lieu_cu` ở 0177 đã né.
+    """
+    db.execute(
+        text("DELETE FROM role_permissions WHERE role_id = :r AND module_key = :k"),
+        {"r": role_id, "k": khoa},
+    )
+    db.execute(
+        text(
+            "INSERT INTO role_permissions "
+            "(role_id, module_key, can_read, can_create, can_update, can_delete, scope) "
+            "VALUES (:r, :k, :doc, false, :ghi, false, 'all')"
+        ),
+        {"r": role_id, "k": khoa, "doc": doc, "ghi": ghi},
+    )
+    db.commit()
+
+
+def test_0260_vai_co_ca_hai_quyen_cu_duoc_gop_dung(db):
+    """Vai có Xem CẢ HAI phía (`cong_no_phai_tra` + `cong_no_phai_thu`) và Thao tác của phía trả
+    → `bao_cao_cong_no` phải ra Xem=true, Thao tác=true — không được rơi bên nào."""
+    _xoa_bao_cao_cong_no(db)
+    vai = db.execute(text("SELECT id FROM roles LIMIT 1")).scalar()
+    _dat_quyen(db, vai, "cong_no_phai_tra", doc=True, ghi=True)
+    _dat_quyen(db, vai, "cong_no_phai_thu", doc=True, ghi=False)
+
+    _migrate_tach_module_bao_cao_cong_no(db)
+
+    q = _quyen(db, vai, "bao_cao_cong_no")
+    assert q is not None, "vai có sẵn quyền công nợ mà không thấy Báo cáo"
+    assert q["can_read"] and q["can_update"], f"gộp thiếu: {q}"
+    assert q["scope"] == "all"
+
+
+def test_0260_vai_chi_co_phai_thu_van_thay_bao_cao_nhung_khong_co_thao_tac(db):
+    """Vai KHÔNG có `cong_no_phai_tra` (không có cả bản ghi) — Thao tác (khoá sổ) trước giờ CHỈ
+    treo trên `cong_no_phai_tra`, không được tự dưng có Thao tác vì được cấp phải-thu."""
+    _xoa_bao_cao_cong_no(db)
+    vai = db.execute(text("SELECT id FROM roles LIMIT 1")).scalar()
+    # Vai #1 qua `LIMIT 1` thường trúng "Giám đốc" — seed đã cấp `cong_no_phai_tra` full quyền
+    # (kể cả Thao tác) từ trước. "Không có cả bản ghi" phải XOÁ THẬT, không thì bước 1 của
+    # migration vẫn thấy dòng seed cũ và chép nhầm Thao tác của NÓ, không phải của test này.
+    db.execute(
+        text("DELETE FROM role_permissions WHERE role_id = :r AND module_key = 'cong_no_phai_tra'"),
+        {"r": vai},
+    )
+    db.commit()
+    _dat_quyen(db, vai, "cong_no_phai_thu", doc=True, ghi=False)
+
+    _migrate_tach_module_bao_cao_cong_no(db)
+
+    q = _quyen(db, vai, "bao_cao_cong_no")
+    assert q is not None and q["can_read"], "chỉ có phải-thu mà mất luôn quyền xem Báo cáo"
+    assert not q["can_update"], "chỉ có phải-thu mà tự dưng có quyền khoá sổ"
+
+
+def test_0260_xem_phai_tra_dang_tat_van_duoc_bat_len_boi_xem_phai_thu(db):
+    """Ca dễ sót nhất: vai CÓ bản ghi `cong_no_phai_tra` nhưng Xem đang TẮT (chỉ xin quyền qua
+    `cong_no_phai_thu`) — bước gộp không được bỏ sót Xem chỉ vì đã có một dòng từ phía kia rồi."""
+    _xoa_bao_cao_cong_no(db)
+    vai = db.execute(text("SELECT id FROM roles LIMIT 1")).scalar()
+    _dat_quyen(db, vai, "cong_no_phai_tra", doc=False, ghi=False)
+    _dat_quyen(db, vai, "cong_no_phai_thu", doc=True, ghi=False)
+
+    _migrate_tach_module_bao_cao_cong_no(db)
+
+    q = _quyen(db, vai, "bao_cao_cong_no")
+    assert q is not None and q["can_read"], f"Xem của phải-thu không được cộng vào: {q}"
+    assert not q["can_update"], "phải-tra tắt Thao tác mà báo cáo lại có"
+
+
+def test_0260_khong_co_quyen_nao_thi_khong_sinh_dong(db):
+    _xoa_bao_cao_cong_no(db)
+    vai = db.execute(text("SELECT id FROM roles LIMIT 1")).scalar()
+    # Vai #1 qua `LIMIT 1` thường trúng "Giám đốc" — seed đã cấp toàn quyền nên PHẢI dọn tay hai
+    # module nguồn trước, không thì tiền đề "vai không có quyền nào" là sai ngay từ đầu.
+    db.execute(
+        text(
+            "DELETE FROM role_permissions WHERE role_id = :r "
+            "AND module_key IN ('cong_no_phai_tra', 'cong_no_phai_thu')"
+        ),
+        {"r": vai},
+    )
+    db.commit()
+
+    _migrate_tach_module_bao_cao_cong_no(db)
+
+    assert _quyen(db, vai, "bao_cao_cong_no") is None
+
+
+def test_0260_chay_lai_khong_de_hang_trung(db):
+    _xoa_bao_cao_cong_no(db)
+    vai = db.execute(text("SELECT id FROM roles LIMIT 1")).scalar()
+    _dat_quyen(db, vai, "cong_no_phai_tra", doc=True, ghi=True)
+    _dat_quyen(db, vai, "cong_no_phai_thu", doc=True, ghi=False)
+
+    _migrate_tach_module_bao_cao_cong_no(db)
+    _migrate_tach_module_bao_cao_cong_no(db)
+
+    n = db.execute(
+        text(
+            "SELECT COUNT(*) FROM role_permissions WHERE role_id = :r "
+            "AND module_key = 'bao_cao_cong_no'"
+        ),
+        {"r": vai},
+    ).scalar()
+    assert n == 1, f"chạy lại đẻ ra {n} dòng bao_cao_cong_no"
+    so_module = db.execute(
+        text("SELECT COUNT(*) FROM modules WHERE key = 'bao_cao_cong_no'")
+    ).scalar()
+    assert so_module == 1

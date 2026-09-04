@@ -47,7 +47,13 @@ export function LineSupplierPicker({
           tôi gỡ ý đó. Danh sách vẫn xếp giá tăng dần nên dòng đầu vẫn là rẻ nhất. */}
       {chaoGia.map((c) => (
         <option key={c.supplier_id} value={c.supplier_id}>
-          {c.supplier_name} — {money(c.unit_price)}
+          {/* Hiện GIÁ ĐÃ QUY ĐỔI (đ/đơn-vị-gốc) — đó mới là con số so ngang được và cũng là
+              con số sẽ điền vào dòng. Kèm giá gốc NCC báo trong ngoặc để người chọn đối chiếu
+              với báo giá cầm trên tay; giấu đi là họ tưởng hệ gõ sai số. */}
+          {c.supplier_name} — {money(c.gia_quy_doi ?? c.unit_price)}
+          {c.gia_quy_doi != null && c.gia_quy_doi !== c.unit_price
+            ? ` (NCC báo ${money(c.unit_price)}/${c.unit})`
+            : ""}
           {c.vat_percent ? ` (VAT ${c.vat_percent}%)` : ""}
           {/* {i === 0 && chaoGia.length > 1 ? " · rẻ nhất" : ""} */}
         </option>

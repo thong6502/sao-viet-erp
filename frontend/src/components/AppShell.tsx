@@ -58,6 +58,7 @@ import { PurchaseRequestsPage } from "../pages/mua-hang/phieu-mua-hang";
 import { SuppliersPage } from "../pages/mua-hang/nha-cung-cap";
 import { AccountingPayablesPage } from "../pages/ke-toan/cong-no-phai-tra";
 import { AccountingReceivablesPage } from "../pages/ke-toan/cong-no-phai-thu";
+import { BaoCaoKeToanPage } from "../pages/ke-toan/bao-cao";
 import { AccountingPurchaseInboxPage } from "../pages/ke-toan/don-mua-hang";
 import { PaymentVouchersPage } from "../pages/ke-toan/phieu-chi";
 import { PaymentReceiptsPage } from "../pages/ke-toan/phieu-thu";
@@ -1446,6 +1447,8 @@ export function AppShell() {
         return <AccountingPayablesPage navigate={navigate} eventTick={quoteTick} />;
       case "ke-toan-cong-no-phai-thu":
         return <AccountingReceivablesPage navigate={navigate} eventTick={quoteTick} />;
+      case "ke-toan-bao-cao":
+        return <BaoCaoKeToanPage />;
       case "ke-toan-tai-khoan-ngan-hang":
         return <AccountingBankAccountsPage />;
       case "ke-toan-phieu-thu":

@@ -40,7 +40,12 @@ export function PayablesDrawer({
   // tra ra "không nợ" mà không thấy đã trả những gì. Nới chỉ cho MỘT NCC nên vẫn nhẹ.
   const [xemHetLichSu, setXemHetLichSu] = useState(false);
 
-  useEffect(() => {
+  // Tách riêng thành hàm gọi lại được: `onChanged` (báo lên trang danh sách) KHÔNG tự kéo lại
+  // `detail` của CHÍNH drawer đang mở — trước giờ không lộ vì mọi hành động tạo phiếu trong drawer
+  // đều điều hướng-rời-trang ngay sau đó (`navigate("ke-toan-don-mua-hang", ...)`). Thanh toán
+  // gộp (04/09/2026) là luồng ĐẦU TIÊN lập phiếu mà VẪN Ở LẠI drawer — không gọi lại thì đợt vừa
+  // trả xong tiếp tục hiện "còn nợ" y như cũ cho tới khi đóng/mở lại.
+  function reload() {
     if (!token) return;
     setLoading(true);
     api.accounting
@@ -55,6 +60,10 @@ export function PayablesDrawer({
         );
       })
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    reload();
   }, [token, supplierId, xemHetLichSu]);
 
   // Drawer chỉ-xem: Esc để đóng (trước đây do DetailModal lo, nay drawer tự nghe).
@@ -240,7 +249,10 @@ export function PayablesDrawer({
                 canCreateVoucher={canCreateVoucher}
                 navigate={navigate}
                 onClose={onClose}
-                onChanged={onChanged}
+                onChanged={() => {
+                  onChanged();
+                  reload();
+                }}
               />
             </>
           ) : (

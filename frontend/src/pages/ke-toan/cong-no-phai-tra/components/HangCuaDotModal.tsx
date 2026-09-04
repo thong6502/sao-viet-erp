@@ -79,19 +79,50 @@ export function HangCuaDotModal({
                 <tr>
                   <th>Mặt hàng</th>
                   <th className="pay-num">Số lượng</th>
+                  <th className="pay-num">Đơn giá</th>
+                  <th className="pay-num">Thành tiền</th>
                 </tr>
               </thead>
               <tbody>
                 {item.lines.map((line, i) => (
                   <tr key={`${line.item_name}-${i}`}>
-                    <td>{line.item_name}</td>
+                    <td>
+                      {line.item_name}
+                      {/* DƯ = phần giao VƯỢT số đặt, tính 0đ (chủ chốt 28/08/2026). Phơi ra ngay
+                          tại dòng — không thì người đọc thấy số lượng lớn mà thành tiền thấp hơn
+                          quantity×đơn giá, tưởng máy tính sai trong khi máy đang tính ĐÚNG. */}
+                      {line.du > 0 && (
+                        <span
+                          className="pay-cell--zero"
+                          title="Phần giao vượt số đặt trên phiếu mua — hệ không tính tiền phần này. Kiểm lại với NCC nếu thực tế họ có tính tiền, đừng để sổ thiếu nợ."
+                        >
+                          {" "}
+                          (trong đó {line.du.toLocaleString("vi-VN")}{" "}
+                          {tenDonVi(line.unit) ?? line.unit} dư, 0 đ)
+                        </span>
+                      )}
+                    </td>
                     <td className="pay-num">
                       {line.quantity.toLocaleString("vi-VN")}{" "}
                       {tenDonVi(line.unit) ?? line.unit}
                     </td>
+                    <td className="pay-num">{money(line.unit_price)}</td>
+                    <td className="pay-num">
+                      <strong>{money(line.thanh_tien)}</strong>
+                    </td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={3}>Tổng cộng</td>
+                  <td className="pay-num">
+                    <strong>
+                      {money(item.lines.reduce((s, l) => s + l.thanh_tien, 0))}
+                    </strong>
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           )}
         </div>

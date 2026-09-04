@@ -1,0 +1,820 @@
+/* SỔ TỔNG HỢP CÔNG NỢ — docs/prd-bao-cao-cong-no.md §5.1.
+ *
+ * Tiền tố `bccn__` cho MỌI selector, mọi thứ neo dưới `.bccn`. Không đụng `.rc-*` (guard
+ * `cssKhongCuop.test.ts` cấm) và không đè class dùng chung (`.md-page__*`, `.pay-*`) — đè ở đây
+ * là rò ngược sang mấy màn kế toán khác vốn không liên quan gì tới báo cáo này.
+ *
+ * Bố cục: KHỐI CHỮ (header) → BA CON SỐ (dải KPI) → BỘ LỌC (thanh kỳ) → BẢNG. Đọc từ tổng quát
+ * xuống chi tiết, đúng thứ tự kế toán mở màn này ra để hỏi. */
+
+.bccn {
+  /* Sổ chỉ có 8 cột; thả trôi hết bề ngang 1900px thì các cột tiền cách nhau cả gang tay và mắt
+   * không nối được số với tiêu đề cụm của nó. Chặn bề ngang là cách rẻ nhất để bảng đọc được. */
+  max-width: 1280px;
+  padding: var(--sp-5) var(--sp-6) var(--sp-7);
+  margin: 0 auto;
+}
+
+/* --- header ---------------------------------------------------------------------------- */
+.bccn__head {
+  display: flex;
+  gap: var(--sp-4);
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-bottom: var(--sp-4);
+  margin-bottom: var(--sp-5);
+  border-bottom: 1px solid var(--rule);
+}
+
+.bccn__head-chu {
+  min-width: 0;
+}
+
+.bccn__title {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.bccn__sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ash);
+}
+
+.bccn__sub b {
+  font-weight: var(--fw-semibold, 600);
+  color: var(--ink);
+}
+
+/* --- dải KPI --------------------------------------------------------------------------- */
+/* KHÔNG còn thẻ riêng (viền + nền + bo góc) — nằm THẲNG trên nền trang, ngăn với thanh kỳ
+ * bên dưới bằng một gạch chân. Trước đó bốn khối (đầu · KPI · thanh kỳ · bảng) đều tự đóng
+ * khung, mắt phải vượt bốn lần "bắt đầu — kết thúc" mới tới số. Giờ CHỈ bảng còn giữ khung —
+ * nó là vật thể duy nhất đáng tách khỏi trang. */
+.bccn__kpi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) 0;
+  padding: 20px 0 22px;
+  margin-bottom: var(--sp-1);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.bccn__kpi-o {
+  position: relative;
+  flex: 1 1 200px;
+  min-width: 0;
+  padding-left: 18px;
+}
+
+.bccn__kpi-o:first-child {
+  padding-left: 0;
+}
+
+.bccn__kpi-sep {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  width: 1px;
+  background: var(--rule-hair);
+}
+
+.bccn__kpi-nhan {
+  display: block;
+  margin-bottom: 5px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold, 600);
+  letter-spacing: 0.06em;
+  color: var(--ash);
+  text-transform: uppercase;
+}
+
+/* `animation` chạy lại mỗi khi React REMOUNT phần tử — trigger bằng `key={giá trị số}` ở JSX,
+ * không phải bằng đổi kỳ: đổi kỳ xong bảng còn đang tải số CŨ, loé lúc đó là loé sai lúc. */
+.bccn__kpi-so {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  border-radius: 6px;
+  animation: bccn-loe-so 0.5s ease-out;
+}
+
+.bccn__kpi-val {
+  font-family: var(--ff-num);
+  font-size: 16px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* Chữ "Nợ"/"Có" đứng trước số: nhỏ, thường, không phải chữ số — để mắt bắt CON SỐ trước rồi mới
+ * đọc nó thuộc bên nào. */
+.bccn__kpi-val em {
+  margin-right: 3px;
+  font-family: var(--ff-sans);
+  font-size: var(--fs-2xs);
+  font-style: normal;
+  font-weight: var(--fw-semibold, 600);
+  color: var(--ash-2);
+}
+
+.bccn__kpi-val--trong {
+  color: var(--rule);
+}
+
+/* Cụm CUỐI KỲ là con số người ta mở màn này để xem — cho nó màu thương hiệu. */
+.bccn__kpi-o--manh .bccn__kpi-val {
+  color: var(--rust);
+}
+
+.bccn__kpi-o--manh .bccn__kpi-val--trong {
+  color: var(--rule);
+}
+
+/* --- thanh kỳ + bộ lọc ------------------------------------------------------------------ */
+.bccn__bar {
+  padding: 18px 0 0;
+  margin-bottom: var(--sp-4);
+}
+
+.bccn__bar-hang {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: flex-end;
+}
+
+.bccn__bar-hang--phu {
+  align-items: center;
+  padding-top: 12px;
+  margin-top: 12px;
+  /* Gạch nét liền, không dứt quãng — thẻ đã bỏ nên đường phân cách phải rõ ràng, đứt quãng đọc
+   * như một chi tiết trang trí hơn là một ranh giới thật. */
+  border-top: 1px solid var(--rule-hair);
+}
+
+.bccn__o {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bccn__o > span {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold, 600);
+  letter-spacing: 0.06em;
+  color: var(--ash);
+  text-transform: uppercase;
+}
+
+.bccn__o .input {
+  width: 158px;
+}
+
+/* Mũi tên giữa hai ô ngày — nói "đây là một KHOẢNG", không phải hai ô rời. */
+.bccn__mui {
+  padding-bottom: 9px;
+  font-size: 15px;
+  font-style: normal;
+  color: var(--rule);
+}
+
+.bccn__tim {
+  display: flex;
+  flex: 0 1 300px;
+  gap: 7px;
+  align-items: center;
+  padding: 0 10px;
+  color: var(--ash-2);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  transition: border-color 0.12s ease-out;
+}
+
+/* `.bccn__tim-o` tự tắt outline (border:0 nên viền mặc định vô nghĩa) mà KHÔNG thay thế —
+ * Tab vào ô tìm trước đây không có dấu hiệu gì. Bắt trên khung cha bằng :focus-within, đúng
+ * màu/độ dày outline mà `.input:focus-visible` toàn cục đang dùng. */
+.bccn__tim:focus-within {
+  border-color: var(--ink);
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+
+.bccn__tim-o {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  outline: none;
+}
+
+/* `.bccn__congtac` ĐÃ GỠ 04/09/2026 cùng ô tick "Ẩn dòng không phát sinh" — không còn thẻ nào
+   mang class này (xem ghi chú ở BaoCaoCongNoPage.tsx). */
+
+.bccn__dem {
+  margin-left: auto;
+  font-size: var(--fs-2xs);
+  color: var(--ash-2);
+  white-space: nowrap;
+}
+
+/* --- bảng -------------------------------------------------------------------------------- */
+.bccn__wrap {
+  /* 8 cột không bao giờ vừa màn hẹp. Cuộn NGANG trong khung riêng — trang không được cuộn ngang
+   * theo (luật laptop-first). */
+  overflow-x: auto;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: 12px;
+}
+
+.bccn__table {
+  width: 100%;
+  min-width: 830px;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+
+.bccn__c-ma { width: 104px; }
+.bccn__c-ten { width: auto; }
+/* Mã tài khoản ("131"/"331") — hai/ba ký tự, không cần rộng như cột tiền. Có class trong JSX
+ * (`<col className="bccn__c-tk">`, `<td className="bccn__tk-cell">`) từ trước nhưng chưa ai
+ * định nghĩa CSS cho nó — cột co giãn tuỳ ý trình duyệt và ô canh phải lẫn vào cụm số bên cạnh. */
+.bccn__c-tk { width: 64px; }
+/* Sáu cột tiền RỘNG BẰNG NHAU và cố định — cột co giãn theo nội dung thì mỗi cụm một bề ngang,
+ * mắt không so được đầu kỳ với cuối kỳ. */
+.bccn__c-tien { width: 110px; }
+
+.bccn__table thead th {
+  padding: 8px 12px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold, 600);
+  letter-spacing: 0.05em;
+  color: var(--ash);
+  text-align: right;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: var(--paper);
+}
+
+.bccn__th-ma,
+.bccn__hang-cum th:nth-child(2) {
+  text-align: left;
+}
+
+.bccn__hang-cum th {
+  padding-top: 11px;
+  border-bottom: 1px solid var(--rule-hair);
+}
+
+/* Tiêu đề cụm canh GIỮA hai cột con của nó, và đậm hơn hàng Nợ/Có bên dưới. */
+.bccn__cum {
+  color: var(--ink) !important;
+  text-align: center !important;
+  letter-spacing: 0.04em !important;
+}
+
+/* Cụm CUỐI CÙNG ("Số dư cuối kỳ") không có cụm nào sau nó để mà kẻ dọc ngăn ra — JSX có sẵn
+ * class này (`bccn__cum bccn__cum--cuoi`) nhưng trước đó không định nghĩa gì, nên hai cụm đầu
+ * và cụm cuối trông giống hệt nhau dù cụm cuối mới là con số người ta cần đọc trước tiên. */
+.bccn__cum--cuoi {
+  font-weight: var(--fw-bold);
+}
+
+.bccn__hang-noco th {
+  padding-top: 4px;
+  padding-bottom: 7px;
+  font-size: var(--fs-2xs);
+  border-bottom: 1px solid var(--rule);
+}
+
+/* Kẻ dọc GIỮA BA CỤM, KHÔNG kẻ giữa Nợ và Có trong cùng cụm: mắt phải thấy ngay ba khối, chứ kẻ
+ * đều 6 cột thì chúng trông như 6 thứ rời rạc. Thêm NỀN PHỦ nhạt cho nửa "Có" của mỗi cụm — tái
+ * dùng --rule-hair, đúng token đã dùng cho `.bccn__row--khac` — để phân Nợ/Có bằng MẢNG màu chứ
+ * không chỉ một sợi kẻ mảnh. */
+.bccn__het-cum {
+  background: var(--rule-hair);
+  border-right: 1px solid var(--rule-soft);
+}
+
+/* Thead cần luật RIÊNG, đặc hiệu hơn `.bccn__table thead th { background: var(--paper) }` để
+ * thắng nó — nếu không tiêu đề "Có" vẫn nền giấy trong khi thân cột đã phủ, hai tầng lệch nhau. */
+.bccn__table thead th.bccn__het-cum {
+  background: var(--rule-hair);
+}
+
+.bccn__table tbody td {
+  padding: 9px 10px;
+  text-align: right;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--rule-hair);
+}
+
+.bccn__table tbody tr:hover td {
+  background: var(--paper);
+}
+
+.bccn__ma {
+  font-family: var(--ff-num);
+  font-size: var(--fs-2xs);
+  color: var(--ash);
+  text-align: left !important;
+  white-space: nowrap;
+}
+
+.bccn__ten {
+  color: var(--ink);
+  text-align: left !important;
+}
+
+.bccn__tk-cell {
+  font-family: var(--ff-num);
+  font-size: var(--fs-2xs);
+  color: var(--ash);
+  text-align: center !important;
+}
+
+.bccn__tien {
+  font-family: var(--ff-num);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Cột CUỐI KỲ và dòng tổng — bậc TO NHẤT trong bảng, không chỉ đậm hơn. Đây là con số người ta
+ * mở màn này để xem; trước đây nó cùng cỡ với "đầu kỳ"/"phát sinh", chỉ khác màu+đậm, nên không
+ * thật sự nổi bật khi liếc nhanh. */
+.bccn__tien--manh {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+/* Ô 0đ: gạch mờ thay vì số 0. Mỗi dòng chỉ dùng 2–3 trong 6 ô tiền, in "0" vào phần còn lại là
+ * bảng đầy số 0 không đọc nổi. */
+.bccn__khong {
+  color: var(--rule);
+  user-select: none;
+}
+
+/* Dòng "ngoài danh mục" — nhạt hơn, kèm nhãn giải thích. Không in nghiêng suông: người đọc chỉ
+ * thấy "chữ trông lạ" mà không biết vì sao, trong khi đây là dòng cần giải thích nhất bảng. */
+.bccn__row--khac td {
+  color: var(--ash);
+  background: var(--rule-hair);
+}
+
+.bccn__nhan-khac {
+  padding: 1px 7px;
+  margin-left: 8px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold, 600);
+  color: var(--ash-2);
+  white-space: nowrap;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  cursor: help;
+}
+
+.bccn__trong {
+  padding: 34px 12px !important;
+  color: var(--ash-2);
+  text-align: center !important;
+}
+
+/* --- dòng tổng ghim đáy ------------------------------------------------------------------ */
+.bccn__foot td {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  padding: 11px 12px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  text-align: right;
+  background: var(--paper);
+  border-top: 2px solid var(--rule);
+}
+
+.bccn__foot td:first-child {
+  text-align: left;
+}
+
+.bccn__foot-dem {
+  margin-left: 6px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-regular);
+  color: var(--ash-2);
+}
+
+.bccn__chan {
+  padding: 9px 14px;
+  margin: 0;
+  font-size: var(--fs-2xs);
+  color: var(--ash-2);
+  border-top: 1px solid var(--rule-hair);
+}
+
+@media (max-width: 900px) {
+  .bccn {
+    padding: var(--sp-4) var(--sp-3) var(--sp-6);
+  }
+  .bccn__dem {
+    margin-left: 0;
+  }
+  .bccn__o .input {
+    width: 140px;
+  }
+}
+
+/* --- header actions & locked button ---------------------------------------------------- */
+.bccn__head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.bccn__btn-locked {
+  border-color: var(--rust) !important;
+  color: var(--rust) !important;
+}
+
+.bccn__status-pill {
+  display: flex;
+  align-items: center;
+}
+
+.bccn__select-ky {
+  min-width: 170px;
+  background-color: var(--canvas);
+}
+
+/* --- view switch ----------------------------------------------------------------------- */
+.bccn__view-switch {
+  display: inline-flex;
+  padding: 2px;
+  background: var(--rule-soft);
+  border-radius: 8px;
+  gap: 2px;
+}
+
+.bccn__view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-family: var(--ff-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium, 500);
+  color: var(--ash);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.bccn__view-btn:hover {
+  color: var(--ink);
+}
+
+.bccn__view-btn.is-active {
+  color: var(--ink);
+  background: var(--canvas);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  font-weight: var(--fw-semibold, 600);
+}
+
+/* --- KPI values ------------------------------------------------------------------------ */
+.bccn__kpi-val--highlight {
+  color: var(--ink);
+}
+
+.bccn__kpi-val--rust {
+  color: var(--rust);
+}
+
+.bccn__kpi-pct {
+  margin-left: 6px;
+  font-size: var(--fs-2xs);
+  font-weight: normal;
+  color: var(--ash-2);
+}
+
+/* --- master-detail table --------------------------------------------------------------- */
+.bccn__table--detail th {
+  padding: 9px 12px;
+}
+
+.bccn__master-row {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.bccn__master-row:hover {
+  background-color: var(--rule-hair);
+}
+
+.bccn__master-row.is-expanded {
+  background-color: var(--paper);
+}
+
+.bccn__exp-btn {
+  text-align: center;
+  width: 44px;
+}
+
+.bccn__chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--ash);
+  background: transparent;
+  border: 1px solid var(--rule-soft);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.2s ease, background-color 0.15s ease;
+}
+
+.bccn__chevron:hover {
+  background-color: var(--rule-soft);
+  color: var(--ink);
+}
+
+.bccn__chevron.is-down {
+  transform: rotate(90deg);
+  background-color: var(--rule-soft);
+  color: var(--rust);
+  border-color: var(--rust);
+}
+
+/* HẠ NHIỆT — badge dùng chung `.badge-sem--rust` (đậm, viết hoa giãn chữ) đứng NGAY cạnh tên
+ * công ty thì nổi hơn cả tên. Đây là NHÃN PHỤ trong một hàng đã đủ dữ liệu (hạn mức và tổng nợ
+ * đã là hai cột riêng), không phải cảnh báo cần hét lên — ghi đè nhẹ tay bằng !important, đúng
+ * nếp `.bccn__btn-locked` đã dùng để chỉnh riêng một class dùng chung ở trang này. */
+.bccn__badge-vuot {
+  margin-left: 8px;
+  font-size: var(--fs-2xs) !important;
+  font-weight: var(--fw-medium, 500) !important;
+  letter-spacing: normal !important;
+}
+
+/* --- trạng thái nợ trong bảng chi tiết: CHỈ dòng cần chú ý mới đáng một pill --------------- */
+/* "Đã thanh toán" và "Trong hạn" là trạng thái BÌNH THƯỜNG, chiếm đa số dòng — tô pill cho mọi
+ * dòng thì pill hết còn nghĩa, cả cột thành một bức tường xanh không ai đọc kỹ nữa. Đổi hai
+ * trạng thái này thành CHỮ NHẠT + chấm tròn nhỏ, để dành pill đậm (badge-sem--amber/--rust) cho
+ * đúng hai trạng thái đáng nhìn: "Trễ" và "Quá hạn". */
+.bccn__trang-thai {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: var(--fs-2xs);
+  color: var(--ash);
+}
+
+.bccn__trang-thai::before {
+  width: 5px;
+  height: 5px;
+  content: "";
+  background: var(--moss);
+  border-radius: 50%;
+}
+
+.bccn__col-money {
+  text-align: right;
+  font-family: var(--ff-num);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.bccn__val-rust {
+  color: var(--rust);
+  font-weight: var(--fw-bold);
+}
+
+.bccn__pill-count {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium, 500);
+  color: var(--ash);
+  background: var(--rule-soft);
+  border-radius: 999px;
+}
+
+/* --- nested detail subtable ------------------------------------------------------------ */
+.bccn__subtable-row td {
+  padding: 0 !important;
+  background-color: var(--paper) !important;
+}
+
+.bccn__subtable-box {
+  padding: 12px 16px 16px 44px;
+  border-left: 3px solid var(--rust);
+  background: var(--paper);
+}
+
+.bccn__nested-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.bccn__nested-table th {
+  padding: 7px 10px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold, 600);
+  color: var(--ash);
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.bccn__nested-table td {
+  padding: 7px 10px;
+  font-size: var(--fs-sm);
+  border-bottom: 1px solid var(--rule-hair);
+}
+
+.bccn__nested-table tr:last-child td {
+  border-bottom: none;
+}
+
+.bccn__nested-table tr:hover td {
+  background: var(--rule-hair);
+}
+
+/* --- modal khóa kỳ (dùng chung style với kho-khoa) -------------------------------------- */
+.kho-khoa {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.kho-khoa__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kho-khoa__label {
+  font-size: 12px;
+  font-weight: var(--fw-semibold, 600);
+  color: var(--ash);
+}
+
+.kho-khoa__seg {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.kho-khoa__seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  color: var(--ash);
+  background: var(--rule-soft);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.kho-khoa__seg-btn.is-khoa {
+  color: var(--rust);
+  background: var(--canvas);
+  border-color: var(--rust);
+  font-weight: var(--fw-semibold, 600);
+}
+
+.kho-khoa__seg-btn.is-mo {
+  color: var(--moss);
+  background: var(--canvas);
+  border-color: var(--moss);
+  font-weight: var(--fw-semibold, 600);
+}
+
+.kho-khoa__row {
+  display: flex;
+  gap: 12px;
+}
+
+.kho-khoa__row .kho-khoa__field {
+  flex: 1;
+}
+
+.kho-khoa__note {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 8px;
+}
+
+.kho-khoa__note--khoa {
+  color: var(--rust);
+  background: rgba(197, 64, 10, 0.08);
+  border: 1px solid rgba(197, 64, 10, 0.2);
+}
+
+.kho-khoa__note--mo {
+  color: var(--moss);
+  background: rgba(47, 93, 58, 0.08);
+  border: 1px solid rgba(47, 93, 58, 0.2);
+}
+
+
+/* --- kỳ do LẦN CHỐT quyết định (04/09/2026) ------------------------------------------- */
+/* Ô chọn kỳ là thứ chính của thanh này nên cho rộng hẳn — tên kỳ do kế toán tự đặt
+ * ("Chốt kì 1 2026"), cắt cụt thì không phân biệt được kỳ nào với kỳ nào. */
+.bccn__o--ky .bccn__select-ky {
+  min-width: 260px;
+}
+
+/* Khoảng ngày CHỈ ĐỂ ĐỌC — trông phải khác hẳn ô nhập, kẻo người dùng cứ bấm vào rồi tưởng hỏng. */
+.bccn__khoang {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  align-self: flex-end;
+  padding: 7px 12px;
+  background: var(--rule-hair);
+  border-radius: 8px;
+}
+
+.bccn__khoang-nhan {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold, 600);
+  letter-spacing: 0.05em;
+  color: var(--ash-2);
+  text-transform: uppercase;
+}
+
+.bccn__khoang-ngay {
+  font-family: var(--ff-num);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* Nhãn "nối tiếp kỳ trước" cạnh ô Từ ngày đã khoá trong hộp chốt sổ. */
+.kho-khoa__auto {
+  margin-left: 6px;
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: var(--fw-regular);
+  color: var(--ash-2);
+}
+
+/* "· đã có kỳ sau" nối sau badge Đã chốt sổ — nói VÌ SAO nút mở khoá bị mờ, ngay tại chỗ, chứ
+ * không bắt người dùng rê chuột vào nút mới biết. */
+.bccn__khoa-cung {
+  font-weight: var(--fw-regular);
+  opacity: 0.75;
+}
+
+/* Dải phân tuổi nợ trong thanh công cụ. `AgingStrip` tự lo phần ô; ở đây chỉ tách nó khỏi hàng
+ * kỳ bên trên bằng một đường mảnh, và TỰ ẨN khi không có rổ nào (component trả null). */
+.bccn__ro:not(:empty) {
+  padding-top: 12px;
+  margin-top: 12px;
+  border-top: 1px solid var(--rule-hair);
+}
+
+/* --- vi tương tác: loé số khi số thật đổi ----------------------------------------------- */
+@keyframes bccn-loe-so {
+  from { background: var(--rust-soft); }
+  to { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bccn__kpi-so,
+  .bccn__table tbody tr,
+  .bccn__tim,
+  .bccn__view-btn,
+  .bccn__chevron {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

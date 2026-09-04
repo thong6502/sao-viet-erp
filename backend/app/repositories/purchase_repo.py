@@ -120,6 +120,19 @@ class SupplierRepository:
             select(Supplier).where(func.lower(Supplier.tax_code) == tax_code.lower())
         ).scalars().first()
 
+    def find_by_code(self, code: str) -> Supplier | None:
+        """Tra NCC theo MÃ (không phân biệt hoa thường). Rỗng ⇒ None — mã là tuỳ chọn.
+
+        Song sinh của `find_by_tax_code`, dùng cho ràng buộc "mã không trùng" ở tầng service, để
+        người dùng nhận về tên NCC đang giữ mã đó thay vì một IntegrityError 500.
+        """
+        code = (code or "").strip()
+        if not code:
+            return None
+        return self.db.execute(
+            select(Supplier).where(func.lower(Supplier.code) == code.lower())
+        ).scalars().first()
+
     def _bang_danh_gia(self, hom_nay: date | None = None):
         """SỔ ĐIỂM đã gộp sẵn theo `supplier_id` — MỘT truy vấn con cho TOÀN BỘ nhà cung cấp.
 
@@ -315,6 +328,7 @@ class SupplierRepository:
         self,
         *,
         name: str,
+        code: str | None = None,
         tax_code: str | None = None,
         phone: str | None = None,
         email: str | None = None,
@@ -330,6 +344,7 @@ class SupplierRepository:
     ) -> Supplier:
         row = Supplier(
             name=name,
+            code=code,
             tax_code=tax_code,
             phone=phone,
             email=email,
@@ -1076,6 +1091,12 @@ class PurchaseRequestRepository:
                 # chi bắn thêm một query — đúng cái N+1 mà eager load ở đây sinh ra để tránh.
                 selectinload(PurchaseRequest.payment_vouchers).selectinload(
                     PaymentVoucher.attachments
+                ),
+                # File hoá đơn của TỪNG ĐỢT — màn Công nợ phải trả cần hiện link file ngay tại
+                # bảng đợt, không bắt kế toán nhảy sang Thu mua mới xem được ảnh (04/09/2026:
+                # *"Hóa đơn có file hóa đơn thì hiện ra đây luôn"*).
+                selectinload(PurchaseRequest.deliveries).selectinload(
+                    PurchaseDelivery.attachments
                 ),
             )
             .where(

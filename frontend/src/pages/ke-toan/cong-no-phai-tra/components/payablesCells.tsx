@@ -1,8 +1,10 @@
 // Ô/nhãn nhỏ dùng lại khắp màn Công nợ phải trả (tách từ pages/AccountingPayablesPage.tsx).
-import type {
-  PayableItemRow,
-  PayableSupplierRow,
+import {
+  assetUrl,
+  type PayableItemRow,
+  type PayableSupplierRow,
 } from "../../../../api/client";
+import { Icon } from "../../../../components/Icons";
 import { fmtDate, money } from "../../../../utils/format";
 import { BUCKET_LABEL } from "../shared/constants";
 import type { Bucket } from "../shared/types";
@@ -42,13 +44,42 @@ export function PayCell({
   );
 }
 
-/** Số hoá đơn — nhiều đợt cùng số nghĩa là cùng MỘT hoá đơn. */
-export function HoaDon({ so, ngay }: { so: string | null; ngay?: string | null }) {
-  if (!so) return <small className="pay-cell--zero">chưa ghi</small>;
+/** Số hoá đơn — nhiều đợt cùng số nghĩa là cùng MỘT hoá đơn.
+ *
+ *  `files` = ảnh/PDF hoá đơn đã đính kèm lúc GHI ĐỢT GIAO bên Thu mua (04/09/2026: *"Hóa đơn có
+ *  file hóa đơn thì hiện ra đây luôn"*). CHỈ ĐỌC ở đây — mở tab mới xem, không upload/xoá được từ
+ *  màn Công nợ. Số hoá đơn và file là HAI thứ độc lập: có số mà chưa có ảnh vẫn hoàn toàn bình
+ *  thường (ghi tay trước, chụp ảnh sau), nên hai phần không chờ nhau. */
+export function HoaDon({
+  so,
+  ngay,
+  files,
+}: {
+  so: string | null;
+  ngay?: string | null;
+  files?: { id: number; file_name: string; file_url: string; file_type: string | null }[];
+}) {
   return (
     <>
-      <strong>{so}</strong>
+      {so ? <strong>{so}</strong> : <small className="pay-cell--zero">chưa ghi</small>}
       {ngay && <small> {fmtDate(ngay)}</small>}
+      {files && files.length > 0 && (
+        <a
+          className="pay-hoadon-file"
+          href={assetUrl(files[0].file_url) ?? "#"}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          title={
+            files.length > 1
+              ? `Xem ${files[0].file_name} (+${files.length - 1} file khác)`
+              : `Xem ${files[0].file_name}`
+          }
+        >
+          <Icon name="fileText" size={13} />
+          {files.length > 1 && <span>×{files.length}</span>}
+        </a>
+      )}
     </>
   );
 }

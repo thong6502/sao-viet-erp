@@ -126,7 +126,7 @@ def test_o_chet_da_biet_van_nam_trong_danh_sach(client):
     """Chiều còn lại: quên khai thì ô chết vẫn bày ra, người cấp quyền tưởng đã cấp."""
     phai_co = [
         ("ke_toan", "create"), ("ke_toan", "update"), ("ke_toan", "delete"),
-        ("cong_no_phai_tra", "update"), ("cong_no_phai_thu", "update"),
+        ("cong_no_phai_tra", "create"), ("cong_no_phai_thu", "update"),
         ("nghi_phep", "delete"),
         ("di_muon", "read"), ("di_muon", "create"),
         # `tang_ca:create` SỐNG LẠI 15/08/2026 — bỏ ô Tự phục vụ nên "gửi phiếu cho chính mình"
@@ -149,10 +149,19 @@ def test_api_modules_tra_danh_sach_o_chet(client):
         assert "viec_chet" in m, f'{m["key"]}: thiếu trường viec_chet'
 
     theo_khoa = {m["key"]: set(m["viec_chet"]) for m in ds}
-    assert "update" in theo_khoa.get("cong_no_phai_tra", set())
+    assert "create" in theo_khoa.get("cong_no_phai_tra", set())
     assert "create" in theo_khoa.get("ke_toan", set())
     # Ô đang dùng KHÔNG được lọt vào danh sách chết.
     assert "export" not in theo_khoa.get("phieu_chi", set())
+    # `cong_no_phai_tra:update` CHẾT LẠI 04/09/2026: nút KHÓA SỔ dọn sang gác bằng
+    # `bao_cao_cong_no:update` riêng (module "Báo cáo" tách khỏi hai khoá công nợ). Còn nằm trong
+    # danh sách chết là ĐÚNG, không phải quay lại lỗi cũ.
+    assert "update" in theo_khoa.get("cong_no_phai_tra", set())
+    # `bao_cao_cong_no`: Xem + Thao tác (khoá/mở kỳ) đều sống, Thêm/Xoá chết.
+    assert "read" not in theo_khoa.get("bao_cao_cong_no", set())
+    assert "update" not in theo_khoa.get("bao_cao_cong_no", set())
+    assert "create" in theo_khoa.get("bao_cao_cong_no", set())
+    assert "delete" in theo_khoa.get("bao_cao_cong_no", set())
     assert "read" not in theo_khoa.get("nhan_su", set())
 
 

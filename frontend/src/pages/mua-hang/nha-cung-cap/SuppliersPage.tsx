@@ -319,9 +319,27 @@ export function SuppliersPage({
     }));
   }
 
-  // BỎ 28/08/2026 `quyDoiDong` + `ghiQuyDoiDong`: chúng chỉ nuôi cột "Giá quy về gốc" của bảng
-  // giá NCC, mà cột đó đã cắt cùng lượt rút bảng xuống ba cột. Cần lại thì lấy hệ số từ
-  // `/api/supplier-items/so-gia` như cũ, đừng tự suy ở FE.
+  // Hệ số quy đổi về đơn vị gốc của TỪNG DÒNG bảng giá (server trả theo mặt hàng + đơn vị đã
+  // chọn). Chỉ để HIỂN THỊ cột "Quy về gốc" — không lưu, không gửi lên: hệ số là dữ liệu sống,
+  // đóng băng nó vào bảng giá NCC là mời sai số vào giữa việc so giá.
+  //
+  // Gỡ 28/08 khi ĐVT còn bị khoá (cột đó luôn bằng đơn giá), trả lại 29/08 khi mở khoá ĐVT.
+  const [quyDoiDong, setQuyDoiDong] = useState<
+    Record<number, { donViGocTen: string; heSoVeGoc: number } | null>
+  >({});
+
+  function ghiQuyDoiDong(
+    index: number,
+    info: { donViGocTen: string; heSoVeGoc: number } | null,
+  ) {
+    setQuyDoiDong((cur) =>
+      cur[index]?.donViGocTen === info?.donViGocTen &&
+      cur[index]?.heSoVeGoc === info?.heSoVeGoc
+        ? cur
+        : { ...cur, [index]: info },
+    );
+  }
+
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -627,6 +645,8 @@ export function SuppliersPage({
                     itemSearchQ={itemSearchQ}
                     setItemSearchQ={setItemSearchQ}
                     setSupplierItem={setSupplierItem}
+                    quyDoiDong={quyDoiDong}
+                    ghiQuyDoiDong={ghiQuyDoiDong}
                     fileVatTuRef={fileVatTuRef}
                     nhapDang={nhapDang}
                     nhapKetQua={nhapKetQua}

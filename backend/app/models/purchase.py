@@ -116,6 +116,15 @@ class Supplier(Base):
     __tablename__ = "suppliers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # MÃ NHÀ CUNG CẤP — thêm 03/09/2026 cho báo cáo tổng hợp công nợ 331. Khách hàng có `code` từ
+    # đầu, NCC thì không; mà cột đầu tiên của sổ MISA lại là "Mã nhà cung cấp", nên không có mã là
+    # không đối chiếu được với sổ của kế toán (docs/prd-bao-cao-cong-no.md §❷).
+    # NULLABLE có chủ ý: 100% NCC đang có đều chưa có mã, ép NOT NULL là phải bịa mã cho tất.
+    # UNIQUE nhưng nhiều NULL vẫn hợp lệ (cả Postgres lẫn SQLite) — trùng mã là lỗi thật, phải nổ
+    # lúc nhập chứ đừng để hai NCC cùng mã rồi báo cáo cộng nhầm vào một dòng.
+    code: Mapped[str | None] = mapped_column(
+        String(32), nullable=True, unique=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     tax_code: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     phone: Mapped[str | None] = mapped_column(String(30), nullable=True)

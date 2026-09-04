@@ -171,6 +171,10 @@ TEMPLATES: list[dict] = [
             },
             "cong_no_phai_tra": _xem(SCOPE_ALL),
             "cong_no_phai_thu": _xem(SCOPE_ALL),
+            # CHỈ Xem — không tự cấp Thao tác (khoá/mở kỳ): chốt sổ là hành động nhạy hơn xem
+            # số, admin bật riêng cho ai thực sự phụ trách chốt kỳ, giống cách ô Lương dưới đây
+            # cũng cố tình không cấp `can_lock` sẵn.
+            "bao_cao_cong_no": _xem(SCOPE_ALL),
             "tk_ngan_hang": {"can_read": True, "can_update": True, "scope": SCOPE_ALL},
             "nha_cung_cap": _xem(SCOPE_ALL),
             "thu_mua": _xem(SCOPE_ALL),          # xem phiếu mua để đối chiếu trước khi chi

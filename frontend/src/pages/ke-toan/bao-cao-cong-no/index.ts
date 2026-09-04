@@ -1,0 +1,1 @@
+export { BaoCaoCongNoPage } from "./BaoCaoCongNoPage";
