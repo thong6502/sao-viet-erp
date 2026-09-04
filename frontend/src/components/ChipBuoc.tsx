@@ -19,13 +19,14 @@ export function ChipLoaiBuoc({
 }) {
   if (!loai_buoc) return null;
   if (loai_buoc === "thue_ngoai") {
-    const noi = (nha_cung_cap ?? "").trim();
-    // Điều kiện hiện chip CHỈ là loại bước. Chưa điền nơi làm thì đổi tone chứ KHÔNG giấu chip —
-    // giấu đi là đúng cái làm nhãn biến mất giữa đường ở bản trước, mà chỗ thiếu dữ liệu lại là
-    // chỗ cần nhìn thấy nhất.
+    // NƠI LÀM của bước thuê ngoài nay là MÁY của nhà thầu (khai trong danh mục Máy, tên kèm hậu
+    // tố "thuê ngoài – <nhà in>") — cột "Thực hiện" của bảng/thẻ đã bày tên máy đó. Nên chip chỉ
+    // còn nói LOẠI bước, y như "Máy"/"Tổ", và KHÔNG kêu "chưa chọn nơi làm" nữa: ô nhập nhà cung
+    // cấp đã gỡ khỏi màn kế hoạch, giữ lời kêu đó thì mọi bước đều đỏ vĩnh viễn.
+    const cu = (nha_cung_cap ?? "").trim();   // dữ liệu CŨ còn sót thì vẫn bày ra
     return (
-      <span className={`chip-buoc chip-buoc--${noi ? "ngoai" : "canhbao"}`}>
-        {noi ? `Ngoài · ${noi}` : "Ngoài · chưa chọn nơi làm"}
+      <span className="chip-buoc chip-buoc--ngoai">
+        {cu ? `Ngoài · ${cu}` : "Thuê ngoài"}
       </span>
     );
   }
@@ -115,7 +116,8 @@ export function nhanKhuon(n?: NhanBuoc | null): KhuonChip {
 export function nhanTomTat(n?: NhanBuoc | null): string {
   const ra: string[] = [];
   if (n?.loai_buoc === "thue_ngoai") {
-    ra.push(`Ngoài · ${(n.nha_cung_cap ?? "").trim() || "chưa chọn nơi làm"}`);
+    const cu = (n.nha_cung_cap ?? "").trim();
+    ra.push(cu ? `Ngoài · ${cu}` : "Thuê ngoài");
   }
   if (n?.khuon_ma) {
     const ng = ngayNgan(n.khuon_ngay_ve);

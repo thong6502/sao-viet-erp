@@ -658,7 +658,7 @@ def test_bo_loc_moi_muc_co_ten_tieng_viet_khong_phai_id(
             assert m["ten"] and m["ten"].strip(), f"{nhom}: mục {m['id']} không có tên"
             assert m["ten"] != m["id"], f"{nhom}: mục {m['id']} lấy chính id làm nhãn"
     assert {m["id"]: m["ten"] for m in d["nhom_cong_doan"]} == {
-        "prepress": "Chế bản", "print": "In",
+        "prepress": "Trước In", "print": "In",
         "finishing": "Gia công sau in", "other": "Dịch vụ khác",
     }
     assert {m["id"]: m["ten"] for m in d["trang_thai_viec"]} == {

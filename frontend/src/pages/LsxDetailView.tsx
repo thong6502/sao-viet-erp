@@ -480,21 +480,6 @@ export function LsxDetailView({
     [token, d],
   );
 
-  /** Ghi nhận hàng gia công ngoài đi/về — GHI THẲNG, không chờ "Lưu công đoạn".
-   *
-   * Đây là THỰC THI chứ không phải cấu hình: nó xảy ra lúc lệnh đang chạy, và cửa ghi riêng ở
-   * server không bị guard "đã lập kế hoạch" chặn. Ghi xong nhận về `LsxDetail` mới nên bảng và
-   * sơ đồ tự có số mới.
-   */
-  const ghiGiaoNhan = useCallback(
-    async (buocId: number, body: { su_kien: "giao" | "nhan"; luc?: string; so_luong?: number }) => {
-      if (!token || !d) throw new Error("chưa sẵn sàng");
-      const r = await api.lsx.giaoNhan(token, d.id, buocId, body);
-      setD(r);
-    },
-    [token, d],
-  );
-
   async function luuRouting(body: LsxCongDoanBody[], lyDo?: string) {
     if (!token || !d) return;
     setSavingRouting(true);
@@ -1483,7 +1468,6 @@ export function LsxDetailView({
                     onDauViecOptions={dauViecOptions}
                     onXemTruocMay={xemTruocMay}
                     onXemTruocRouting={xemTruocRouting}
-                    onGiaoNhan={ghiGiaoNhan}
                     onDirtyChange={setRoutingDirty}
                     dvChuoi={dvChuoi}
                   />

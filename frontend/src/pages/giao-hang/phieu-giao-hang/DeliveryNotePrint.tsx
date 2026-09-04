@@ -42,6 +42,7 @@ export function DeliveryNotePrint({
     ten: l.description,
     soLuong: l.qty,
     donViTinh: l.don_vi_tinh,
+    dvtNhom: l.dvt_nhom,
     thanhTien: l.line_total ?? 0,
     tienVat: Math.round(((l.line_total ?? 0) * (l.vat_pct_estimate || 0)) / 100),
     vatPct: l.vat_pct_estimate,

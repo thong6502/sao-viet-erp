@@ -85,13 +85,11 @@ describe("loiDong — các kiểm còn lại giữ nguyên", () => {
     expect(loiDong([r], 0)).toContain("chưa gán tổ / máy");
   });
 
-  it("thuê ngoài thiếu nhà gia công + thiếu ngày", () => {
-    const r = dong({ loai_buoc: "thue_ngoai", nha_cung_cap: "  " });
-    const loi = loiDong([r], 0);
-    expect(loi).toContain("chưa có nhà gia công");
-    expect(loi).toContain("chưa có ngày gửi / nhận");
-    // Bước thuê ngoài KHÔNG bị đòi tổ/máy — nó đâu chạy trong xưởng.
-    expect(loi).not.toContain("chưa gán tổ / máy");
+  it("thuê ngoài đòi tổ / máy Y HỆT bước máy", () => {
+    // Nhà thầu được khai như một MÁY trong danh mục (hậu tố "thuê ngoài – …"), nên bước thuê
+    // ngoài không có luật riêng nào ở đây nữa.
+    const r = { ...emptyRow(), loai_buoc: "thue_ngoai" as const, department_id: null, may_id: null };
+    expect(loiDong([r], 0)).toContain("chưa gán tổ / máy");
   });
 
   it("trùng bước trước", () => {

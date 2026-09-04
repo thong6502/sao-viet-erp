@@ -76,7 +76,7 @@ export function classHanLich(
  *  cả bộ máy 13 màn danh mục vào bundle của một màn tra cứu. Đặt ở module dùng chung của họ Sản
  *  xuất (file này vốn đã là nơi "mọi nhãn nằm ĐÚNG MỘT chỗ") và cho bên danh mục import sang. */
 export const NHOM_CONG_DOAN: Record<string, string> = {
-  prepress: "Chế bản",
+  prepress: "Trước In",
   print: "In",
   finishing: "Gia công sau in",
   other: "Dịch vụ khác",

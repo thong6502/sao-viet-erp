@@ -8,9 +8,9 @@
 // Vì thế test ở đây phải RENDER và BẤM thật, không grep chuỗi: chỉ cần một identifier trong JSX
 // mất chỗ dựa là cả bộ này đỏ.
 import { useState } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FormulaField } from "./RebuildCatalogPage";
 import { AuthContext, type AuthState } from "../auth/AuthContext";
@@ -148,6 +148,69 @@ describe("con trỏ chạy được trong dãy chip", () => {
     // Bấm nửa trái chip thì đứng trước, nửa phải thì đứng sau — jsdom không có kích thước thật nên
     // không chốt được nửa nào. Điều PHẢI đúng: số mới nằm cạnh chip vừa bấm, không rơi xuống cuối.
     expect(["1000 dinh_luong * dai_in", "dinh_luong 1000 * dai_in"]).toContain(ct());
+  });
+});
+
+// Chỗ khó chịu 03/09/2026: con trỏ CHỈ đặt được bằng cách bấm trúng một chip. Kẽ 6px giữa hai
+// chip (`gap` của `.rc-formula__row`) và cả dải trắng bên phải mỗi dòng đều là NỀN ô, mà nền ô lúc
+// ấy quăng thẳng con trỏ về CUỐI công thức — nhắm vào kẽ giữa hai chip để chen một dấu là bị đá về
+// đuôi, nhìn như bấm chẳng ăn thua gì.
+//
+// jsdom không tự tính layout: mọi `getBoundingClientRect` đều là 0. Phải bịa hình học thì mới thử
+// được phép dò khe — chip thứ i chiếm x [50i, 50i+40] (kẽ 10px sau mỗi chip), dòng thứ j chiếm
+// y [30j, 30j+30] và rộng hết 600px.
+const HCN = (left: number, right: number, top: number, bottom: number) =>
+  ({ left, right, top, bottom, x: left, y: top, width: right - left, height: bottom - top,
+     toJSON() {} }) as DOMRect;
+
+function biaHinhHoc() {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    if (this.classList.contains("rc-formula__row")) {
+      const j = Array.prototype.indexOf.call(this.parentElement?.children ?? [], this);
+      return HCN(0, 600, j * 30, j * 30 + 30);
+    }
+    const idx = this.dataset?.idx;
+    if (idx != null) {
+      const i = Number(idx);
+      return HCN(i * 50, i * 50 + 40, 0, 30);
+    }
+    return HCN(0, 0, 0, 0);
+  });
+}
+
+/** Bấm vào NỀN của dòng thứ `j` tại hoành độ `x` — đúng thứ chuột người dùng làm khi nhắm vào kẽ
+ *  giữa hai chip: `mousedown` rồi `click`, cả hai đều mang toạ độ. */
+function bamNenDong(j: number, x: number) {
+  const dong = document.querySelectorAll<HTMLElement>(".rc-formula__row")[j];
+  const toaDo = { clientX: x, clientY: j * 30 + 15 };
+  fireEvent.mouseDown(dong, toaDo);
+  fireEvent.click(dong, toaDo);
+}
+
+describe("bấm vào khoảng trống giữa các chip", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("bấm đúng KẼ giữa hai chip → con trỏ vào giữa, không rơi về cuối công thức", async () => {
+    const user = userEvent.setup();
+    render(<Harness dau="dinh_luong * dai_in" />);
+    biaHinhHoc();
+    bamNenDong(0, 95);            // kẽ giữa chip `*` (50–90) và chip `dai_in` (100–140)
+    await user.type(o(), "1000");
+    await user.tab();
+    expect(ct()).toBe("dinh_luong * 1000 dai_in");
+  });
+
+  it("bấm dải trắng bên phải một dòng → con trỏ về CUỐI DÒNG ĐÓ, không nhảy xuống cuối công thức", async () => {
+    const user = userEvent.setup();
+    render(<Harness dau="if ( dinh_luong , dai_in" />);
+    biaHinhHoc();
+    // `tinhDong` tách 3 dòng: [if · (] · [dinh_luong · ,] · [dai_in]. Bấm mãi bên phải dòng đầu.
+    bamNenDong(0, 590);
+    await user.type(o(), "1000");
+    await user.tab();
+    expect(ct()).toBe("if ( 1000 dinh_luong , dai_in");
   });
 });
 

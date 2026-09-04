@@ -3,15 +3,17 @@ import { describe, expect, it } from "vitest";
 import { ChipKhuon, ChipLoaiBuoc } from "./ChipBuoc";
 
 describe("ChipLoaiBuoc", () => {
-  it("thuê ngoài CÓ nhà gia công → hiện tên nơi làm", () => {
-    render(<ChipLoaiBuoc loai_buoc="thue_ngoai" nha_cung_cap="Cơ sở Minh Phát" />);
-    expect(screen.getByText("Ngoài · Cơ sở Minh Phát")).toBeTruthy();
+  it("thuê ngoài → chỉ nói LOẠI bước, KHÔNG đòi nơi làm", () => {
+    // Nơi làm giờ là MÁY của nhà thầu, cột "Thực hiện" đã bày. Ô nhập nhà cung cấp đã gỡ khỏi
+    // màn kế hoạch nên nếu chip còn kêu "chưa chọn nơi làm" thì mọi bước thuê ngoài đỏ vĩnh viễn.
+    const { container } = render(<ChipLoaiBuoc loai_buoc="thue_ngoai" />);
+    expect(screen.getByText("Thuê ngoài")).toBeTruthy();
+    expect(container.querySelector(".chip-buoc--canhbao")).toBeNull();
   });
 
-  it("thuê ngoài CHƯA có nhà gia công → vẫn hiện nhãn, đổi sang tone cảnh báo", () => {
-    const { container } = render(<ChipLoaiBuoc loai_buoc="thue_ngoai" />);
-    expect(screen.getByText("Ngoài · chưa chọn nơi làm")).toBeTruthy();
-    expect(container.querySelector(".chip-buoc--canhbao")).toBeTruthy();
+  it("dữ liệu CŨ còn tên nhà gia công → vẫn bày ra", () => {
+    render(<ChipLoaiBuoc loai_buoc="thue_ngoai" nha_cung_cap="Cơ sở Minh Phát" />);
+    expect(screen.getByText("Ngoài · Cơ sở Minh Phát")).toBeTruthy();
   });
 
   it("máy và tổ vẫn có nhãn riêng", () => {

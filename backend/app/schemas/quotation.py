@@ -136,7 +136,8 @@ class QuoteItemOut(BaseModel):
     dien_giai: str | None = None   # diễn giải quy cách in dưới tên SP (bung từ tính giá, sửa được)
     nhom: str | None = None        # nhãn gộp dòng khi IN cho khách (ruột + bìa → 1 dòng)
     quantity: int
-    unit: str
+    unit: str                      # ĐVT thật của phần này ("cái" cho tấm bìa)
+    dvt_nhom: str | None = None    # ĐVT của cụm khi bản in gộp ruột + bìa ("cuốn")
     total_cost_snapshot: float
     margin_percent: float
     selling_price: float

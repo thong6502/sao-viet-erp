@@ -828,13 +828,15 @@ def _build_table_xlsx(year: int, month: int, lines) -> bytes:
     # quên thêm cột ở đây thì file xuất ra không khớp và kế toán không dò ra chênh ở đâu — đúng
     # chuyện đã xảy ra với "Cơm ca"/"Phụ cấp ca" khi nối hai khoản đó ngày 03/08/2026.
     ws.append(["Mã", "Họ tên", "Phòng/Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
-               "Khoán", "Khoán km", "Tăng ca", "Ca đêm", "Ca đêm (giờ×hệ số)", "Cơm ca", "Phụ cấp ca",
+               "Khoán", "Khoán km", "Thưởng/phạt tổ trưởng",
+               "Tăng ca", "Ca đêm", "Ca đêm (giờ×hệ số)", "Cơm ca", "Phụ cấp ca",
                "Vi phạm", "Thưởng", "Hoa hồng", "Tổng", "BHXH", "TNCN",
                "Tạm ứng", "Thực lĩnh"])
     for l in lines:
         ws.append([l.employee_code or "", l.employee_name or "", l.department_name or "",
                    "Thử việc" if l.is_probation else "Chính thức", float(l.actual_cong),
                    int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan), int(getattr(l, "khoan_km", 0) or 0),
+                   int(getattr(l, "thuong_to_truong", 0) or 0),
                    int(l.ot_pay), int(l.night_pay), int(getattr(l, "night_premium_pay", 0) or 0),
                    int(getattr(l, "meal_allowance_pay", 0) or 0),
                    int(getattr(l, "shift_allowance_pay", 0) or 0),
@@ -933,17 +935,12 @@ def my_payslip(svc: Service, employees: Employees, departments: Departments, use
 def list_leader_brackets(svc: PieceService,
                          user: Annotated[User, Depends(require_permission(MODULE, "manage_piece_rates"))],
                          department_id: int) -> LeaderBracketsOut:
-    """Bậc thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi — mỗi tổ một bộ riêng.
+    """Bậc thưởng/phạt TỔ TRƯỞNG theo KHOẢNG SẢN LƯỢNG × tỷ lệ hàng lỗi — mỗi tổ một bộ riêng.
 
-    Trả kèm NGƯỠNG tối thiểu trong cùng một gói: trên màn chỉ có MỘT nút "Lưu bậc thưởng/phạt",
-    tách thành hai lời gọi là mời người dùng lưu nửa vời (được bậc, mất ngưỡng).
-
-    ⚠️ Engine CHƯA áp bảng này: tiền tính trên TỔNG LƯƠNG KHOÁN của tổ, mà tổng khoán hiện luôn = 0
-    (chưa có nguồn sản lượng). Xem docstring `PieceLeaderBonusBracket`."""
-    st = svc.leader_settings(department_id)
+    ⚠️ Engine CHƯA gọi bảng này: `leader_bonus_amount` tính đúng nhưng phần nối vào bảng lương lúc
+    lệnh sản xuất kết thúc làm sau. Xem docstring `PieceLeaderBonusBracket`."""
     return LeaderBracketsOut(
         department_id=department_id,
-        min_output_qty=float(st.min_output_qty) if st is not None else 0.0,
         items=[LeaderBracketOut.model_validate(b) for b in svc.leader_brackets(department_id)],
     )
 
@@ -952,22 +949,16 @@ def list_leader_brackets(svc: PieceService,
 def set_leader_brackets(body: LeaderBracketsIn, svc: PieceService,
                         user: Annotated[User, Depends(require_permission(MODULE, "update"))]
                         ) -> LeaderBracketsOut:
-    """Thay CẢ BỘ mốc của một tổ + ngưỡng tối thiểu. `items` rỗng = tổ này không áp thưởng/phạt."""
+    """Thay CẢ BỘ bậc của một tổ. `items` rỗng = tổ này không áp thưởng/phạt tổ trưởng."""
     try:
         rows = svc.set_leader_brackets(
             department_id=body.department_id,
             rows=[i.model_dump() for i in body.items],
         )
-        # Lưu ngưỡng SAU khi bậc đã qua validate: bậc hỏng thì dừng luôn, không để lại một nửa
-        # thay đổi (ngưỡng mới + bậc cũ) — trạng thái nửa vời khó lần ra hơn là không lưu gì.
-        st = svc.set_leader_settings(
-            department_id=body.department_id, min_output_qty=body.min_output_qty,
-        )
     except PieceWorkError as exc:
         _raise(exc)
     return LeaderBracketsOut(
         department_id=body.department_id,
-        min_output_qty=float(st.min_output_qty),
         items=[LeaderBracketOut.model_validate(b) for b in rows],
     )
 

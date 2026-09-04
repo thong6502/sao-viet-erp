@@ -2319,7 +2319,9 @@ def seed_job_grades(db: Session) -> None:
     """Danh mục BẬC TAY NGHỀ — SEED-ONCE (chủ sửa tên/tắt bậc thì KHÔNG bị mọc lại sau restart).
 
     Bộ hiện hành: 5 bậc tên DÂN DÃ (Thợ lành nghề → Lính mới), hạng cứng tay nhất đứng đầu.
-    Không tiền, không hệ số — đúng "khai bậc thôi". Tên lấy thẳng từ `JOB_GRADE_SEED`.
+    Tên VÀ hệ số sản lượng lấy thẳng từ `JOB_GRADE_SEED`. Hệ số phải rót ngay từ seed: để trống
+    là `phan_bo.py` chặn chốt phân bổ sản lượng (§8), xưởng dựng DB mới sẽ đứng hình ở mẻ đầu.
+    Số seed chỉ là khởi điểm — sửa ở Hồ sơ nhân sự → "Bậc tay nghề", sửa xong không bị mọc lại.
 
     ⚠️ Trùng ý với migration 0127 là CỐ Ý, và cần cả hai:
       - DB thật đang chạy: `schema_migrations` chưa có 0127 ⇒ migration seed + backfill bậc cũ.
@@ -2332,8 +2334,8 @@ def seed_job_grades(db: Session) -> None:
     from .models.employee import JOB_GRADE_SEED, JobGrade
     if db.execute(select(func.count(JobGrade.id))).scalar_one() > 0:
         return
-    for code, name, seq in JOB_GRADE_SEED:
-        db.add(JobGrade(code=code, name=name, seq=seq))
+    for code, name, seq, heso in JOB_GRADE_SEED:
+        db.add(JobGrade(code=code, name=name, seq=seq, output_coefficient=heso))
     db.commit()
 
 

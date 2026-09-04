@@ -75,6 +75,17 @@ export function PayslipCard({
     ["Phụ cấp khác", pcKhac],
     ["Chuyên cần", l.chuyen_can],
     ["Lương khoán / sản lượng", l.khoan],
+    // Khoán km CÓ trong `gross` của engine nhưng TRƯỚC 04/09/2026 thiếu dòng ở đây ⇒ phiếu lương
+    // của tài xế cộng lại thiếu đúng phần km (thu nhập CHÍNH của họ). Chỉ in khi còn số, để phiếu
+    // của người không chạy xe không mọc thêm dòng 0đ.
+    ...((l.khoan_km ?? 0) !== 0
+      ? ([["Khoán km giao hàng", l.khoan_km ?? 0]] as [string, number][])
+      : []),
+    // Thưởng/PHẠT tổ trưởng — cộng ĐẠI SỐ vào `gross`, in như `Điều chỉnh lương`: có số mới có
+    // dòng, và dòng âm là tiền BỊ TRỪ ngay trong khối thu nhập (không phải khấu trừ kỷ luật).
+    ...((l.thuong_to_truong ?? 0) !== 0
+      ? ([["Thưởng/phạt tổ trưởng (chất lượng)", l.thuong_to_truong ?? 0]] as [string, number][])
+      : []),
     ["Tăng ca", l.ot_pay],
     // Khoản danh mục — mỗi khoản MỘT DÒNG, đúng tên chủ đặt (chữa "phụ cấp một cục").
     ...compThuHoSo.map((c) => [compLabel(c), c.amount]),

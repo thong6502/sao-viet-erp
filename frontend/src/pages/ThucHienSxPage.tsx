@@ -13,7 +13,7 @@ import {
   ApiError, api,
   type SxWorkItem, type SxWorkItemChiTiet, type SxNhanVienChon,
   type SxHoTroUngVien, type SxLyDo,
-  type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien,
+  type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien, type SxThuongToTruong,
   type SxKhoHopThu, type SxSuCoIn,
 } from "../api/client";
 import { crud } from "../api/rebuildCatalog";
@@ -146,6 +146,7 @@ export function ThucHienSxPage({
   const [kcsCt, setKcsCt] = useState<SxKcsChiTiet | null>(null);
   const [khoCt, setKhoCt] = useState<SxKhoChiTiet | null>(null);
   const [dieuKien, setDieuKien] = useState<SxDongNhomDieuKien | null>(null);
+  const [thuongTT, setThuongTT] = useState<SxThuongToTruong[] | null>(null);
   const [khoHopThu, setKhoHopThu] = useState<SxKhoHopThu | null>(null);
   // Kho ĐÍCH chọn được lúc xác nhận nhập. `null` = CHƯA ĐỌC ĐƯỢC danh mục (đang tải / lỗi mạng /
   // không có quyền đọc); `[]` = đọc được nhưng danh mục RỖNG THẬT. Hai chuyện khác hẳn nhau ⇒ hai
@@ -342,6 +343,18 @@ export function ThucHienSxPage({
       .catch(() => { if (alive) setDieuKien(null); });
     return () => { alive = false; };
   }, [token, selNhom, isKcsCuoi, eventTick, g5Tick]);
+
+  // §8 — thưởng/phạt tổ trưởng của nhóm. Gate CHỈ `selNhom` (không đòi `isKcsCuoi` như checklist
+  // đóng nhóm): tổ trưởng tổ In phải xem được điểm chất lượng của tổ mình ngay tại bước của họ,
+  // chứ không phải đi mượn màn KCS. Panel tự ẩn khi tổ chưa khai bậc.
+  useEffect(() => {
+    if (!token || selNhom == null) { setThuongTT(null); return; }
+    let alive = true;
+    api.sanXuat.thuongToTruongNhom(token, selNhom)
+      .then((r) => { if (alive) setThuongTT(r); })
+      .catch(() => { if (alive) setThuongTT(null); });
+    return () => { alive = false; };
+  }, [token, selNhom, eventTick, g5Tick]);
 
   // Hộp thư LỖI KCS đã GỠ khỏi màn production (Task 9 §6.4, mg 0250 kiêm nhiệm) — luồng phản hồi
   // trách nhiệm cũ (pending/accepted/rejected) không còn hiện ở UI mới; hồ sơ cũ vẫn đọc được qua
@@ -823,6 +836,7 @@ export function ThucHienSxPage({
               kcsCt={kcsCt}
               khoCt={khoCt}
               dieuKien={dieuKien}
+              thuongTT={thuongTT}
               toChiuOpts={toChiuOpts}
               congDoanRefOpts={congDoanRefOpts}
               onGiao={onGiao}

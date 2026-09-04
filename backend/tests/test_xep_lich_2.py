@@ -1449,27 +1449,6 @@ def test_router_put_dong_tra_qua_view_cong_khai():
 # ======================================================================
 # ĐỢT 1 (1.1) — THUÊ NGOÀI đo bằng LEAD-TIME gửi→nhận, KHÔNG phải phút máy (≈0).
 # ======================================================================
-def test_lead_time_thue_ngoai_theo_moc_ngay_va_suy_tu_so_ngay():
-    # Ưu tiên hai MỐC ngày dự kiến: gửi 27/7 → nhận 30/7 = 3 ngày = 3×1440'.
-    op = SimpleNamespace(ngay_gui_dk=date(2026, 7, 27), ngay_nhan_dk=date(2026, 7, 30),
-                         gia_cong_ngay=99, van_chuyen_ngay=99)
-    assert XepLich2Service._lead_time_phut(op) == 3 * 1440
-
-    # Chưa khai mốc ⇒ suy từ số ngày: gia công 2 + 2×vận chuyển 1 (một chiều × đi-về) = 4 ngày.
-    op2 = SimpleNamespace(ngay_gui_dk=None, ngay_nhan_dk=None, gia_cong_ngay=2, van_chuyen_ngay=1)
-    assert XepLich2Service._lead_time_phut(op2) == 4 * 1440
-
-    # Hai mốc trùng ngày (đệm 0) ⇒ bỏ mốc, rơi về số ngày: 1 + 2×0.5 = 2 ngày.
-    op3 = SimpleNamespace(ngay_gui_dk=date(2026, 7, 30), ngay_nhan_dk=date(2026, 7, 30),
-                          gia_cong_ngay=1, van_chuyen_ngay=0.5)
-    assert XepLich2Service._lead_time_phut(op3) == 2 * 1440
-
-    # Không đủ dữ liệu ⇒ 0 (engine sẽ phơi cảnh báo `thue_ngoai_chua_lich`).
-    op0 = SimpleNamespace(ngay_gui_dk=None, ngay_nhan_dk=None, gia_cong_ngay=None, van_chuyen_ngay=None)
-    assert XepLich2Service._lead_time_phut(op0) == 0
-    assert XepLich2Service._lead_time_phut(None) == 0
-
-
 # ======================================================================
 # ĐỢT 1 (1.4) — THIẾU hạn SX thì ĐO TRỄ theo HẠN GIAO KHÁCH (chưa khai hạn SX ≠ muốn trễ).
 # ======================================================================

@@ -110,6 +110,8 @@ class ThanhPhanIn(BaseModel):
     don_vi_tinh: str | None = Field(default=None, max_length=30)   # ĐVT sản phẩm (text tự do)
     # Nhãn gộp dòng KHI IN báo giá (ruột + bìa 1 cuốn gõ giống nhau). Không vào công thức giá.
     nhom_bao_gia: str | None = Field(default=None, max_length=120)
+    # ĐVT của cả nhóm gộp khi in cho khách (trống = lấy ĐVT dòng đầu nhóm như cũ).
+    dvt_nhom: str | None = Field(default=None, max_length=30)
     loai_san_pham_id: int | None = None
     # Giấy
     giay_id: int | None = None
@@ -166,6 +168,7 @@ class ThanhPhanOut(BaseModel):
     so_luong: int
     don_vi_tinh: str = "cái"
     nhom_bao_gia: str | None = None
+    dvt_nhom: str | None = None
     loai_san_pham_id: int | None = None
     # Giấy
     giay_id: int | None = None

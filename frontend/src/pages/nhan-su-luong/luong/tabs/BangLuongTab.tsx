@@ -684,6 +684,10 @@ export function BangLuongTab({
                 {/* Khoán km đứng cạnh Khoán vì cùng loại: tiền máy tự tính từ sản lượng/km, cộng
                     phẳng lên lương chấm công. Cột RIÊNG chứ không gộp — bài học hoa hồng. */}
                 <th className="lg-num">Khoán km</th>
+                {/* Thưởng/phạt tổ trưởng cũng đứng ở cụm "khoán": cùng gốc sản lượng, máy tự
+                    tính lúc đóng nhóm thành phẩm. Cột này CÓ THỂ ÂM (bậc phạt) — cột duy nhất
+                    trong cụm được phép âm, nên tô đỏ khi âm để không ai đọc nhầm là thưởng. */}
+                <th className="lg-num">Thưởng TT</th>
                 <th className="lg-num">Tăng ca</th>
                 <th className="lg-num">Ca đêm</th>
                 <th className="lg-num">Vi phạm</th>
@@ -733,6 +737,16 @@ export function BangLuongTab({
                         —
                       </span>
                     )}
+                  </td>
+                  <td
+                    className={`lg-num${(l.thuong_to_truong ?? 0) < 0 ? " lg-minus" : ""}`}
+                    title={
+                      l.thuong_to_truong
+                        ? "Thưởng/phạt tổ trưởng theo tỷ lệ lỗi KCS, tính lúc đóng nhóm thành phẩm"
+                        : "Kỳ này tổ trưởng không có nhóm nào đóng, hoặc tổ chưa khai bậc thưởng"
+                    }
+                  >
+                    {l.thuong_to_truong ? money(l.thuong_to_truong) : "—"}
                   </td>
                   <td
                     className="lg-num"

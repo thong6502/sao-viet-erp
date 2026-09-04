@@ -477,7 +477,7 @@ export type LsxLoaiBuoc = "may" | "to" | "thue_ngoai";
 export const LSX_LOAI_BUOC_META: Record<LsxLoaiBuoc, { label: string; tone: string; hint: string }> = {
   may: { label: "Máy", tone: "may", hint: "Chiếm máy — có thanh trên lịch máy" },
   to: { label: "Tổ", tone: "to", hint: "Tổ lao động làm tay — chiếm nhân công, không chiếm máy" },
-  thue_ngoai: { label: "Thuê ngoài", tone: "ngoai", hint: "Nhà gia công làm — không chiếm máy nội bộ" },
+  thue_ngoai: { label: "Thuê ngoài", tone: "ngoai", hint: "Nhà gia công làm — khai máy của họ trong danh mục Máy; nhập liệu y hệt bước máy, chỉ không sinh tiền khoán" },
 };
 
 /** Đơn vị bốn chặng của lệnh đang xét — xem `pages/lsxBuoc.donViChuoi`. Khai lại hình dạng tối
@@ -501,8 +501,6 @@ export const LSX_THIEU_LABELS: Record<string, NhanMa> = {
   thieu_routing: "Chưa có công đoạn",
   thieu_ngay_giao: "Thiếu ngày giao",
   thieu_to_may: "Có công đoạn chưa gán tổ / máy",
-  thieu_ncc: "Công đoạn thuê ngoài chưa có nhà gia công",
-  thieu_tg_thue_ngoai: "Công đoạn thuê ngoài chưa có ngày gửi / nhận",
   // Bước cần dụng cụ lưu kho (bế · ép nhũ · khung lụa) mà chưa trỏ con dao nào. Đứng NGANG HÀNG
   // với thiếu nhà gia công — cùng một danh sách, người dùng không phải học luật mới.
   thieu_khuon: "Có công đoạn cần khuôn / khung mà chưa chọn",
@@ -2272,6 +2270,22 @@ export interface SxDongNhomDieuKien {
   /** max(muc_tieu − da_dat, 0). Không có đơn vị ở mức nhóm (nhiều bước có thể khác đơn vị). */
   con_thieu: number | null;
 }
+/** Một dòng thưởng/PHẠT tổ trưởng của nhóm (§8) — `da_ghi=false` là XEM TRƯỚC (nhóm chưa đóng). */
+export interface SxThuongToTruong {
+  department_id: number;
+  department?: string | null;
+  san_luong: number;
+  tien_khoan: number;
+  so_luong_loi: number;
+  /** % — so_luong_loi ÷ san_luong × 100. */
+  ty_le_loi: number;
+  /** % bậc trúng: dương = thưởng, âm = phạt. */
+  rate_pct: number;
+  /** tien_khoan × rate_pct / 100. CÓ THỂ ÂM. */
+  so_tien: number;
+  ghi_chu?: string | null;
+  da_ghi: boolean;
+}
 export interface SxDongThieuIn {
   ly_do_id: number;
   expected_version?: number | null;
@@ -3631,6 +3645,9 @@ export interface ThanhPhanOut {
   rong_thanh_pham: number; // ③
   /** Nhãn gộp dòng khi báo giá (ruột + bìa 1 cuốn gõ giống nhau). Không vào công thức giá. */
   nhom_bao_gia: string | null;
+  /** ĐVT của CẢ NHÓM gộp khi in cho khách (chọn từ danh mục Đơn vị & quy đổi, lưu TÊN).
+   *  null = dòng gộp lấy ĐVT của dòng đầu nhóm như trước. */
+  dvt_nhom: string | null;
   so_to_per_sp: number; // DẪN XUẤT (server ghi) = so_trang / trang_moi_tay
   so_trang: number; // số trang nội dung của 1 sản phẩm (tờ rời = 1)
   trang_moi_tay: number; // số trang mỗi tay gấp (tờ rời = 1)
@@ -3748,6 +3765,7 @@ export interface ThanhPhanIn {
   dai_thanh_pham?: number;
   rong_thanh_pham?: number;
   nhom_bao_gia?: string | null;
+  dvt_nhom?: string | null; // ĐVT của cả nhóm gộp (null = lấy ĐVT dòng đầu nhóm)
   so_trang?: number; // số trang nội dung (số bài in do server dẫn xuất, không gửi)
   trang_moi_tay?: number;
   so_luong?: number; // SL đặt của sản phẩm này (0 = SL mặc định phiếu)
@@ -3892,7 +3910,11 @@ export interface QuoteItemDetail {
   /** Nhãn nhóm gộp KHI IN: các dòng cùng nhãn (ruột + bìa 1 cuốn) in ra khách thành 1 dòng. */
   nhom: string | null;
   quantity: number;
+  /** ĐVT THẬT của phần này ("cái" cho tấm bìa) — thứ mọi màn không gộp hiển thị. */
   unit: string;
+  /** ĐVT của CỤM khi bản in gộp ruột + bìa thành 1 dòng ("cuốn"). null = không gộp / cụm chưa
+   *  chọn đơn vị riêng ⇒ dòng gộp lấy ĐVT của dòng đầu cụm như cũ. */
+  dvt_nhom: string | null;
   total_cost_snapshot: number;
   margin_percent: number;
   selling_price: number;
@@ -4213,6 +4235,10 @@ export interface JobGrade {
   seq: number;
   is_active: boolean;
   note: string | null;
+  /** Hệ số chia SẢN LƯỢNG của bậc (§8 Thực hiện sản xuất). Chia một mẻ khoán cho từng người:
+   *  phần mỗi người ∝ phút chấm công hợp lệ × hệ số này.
+   *  ⚠ `null` KHÔNG phải "coi như 1.0" — backend CHẶN chốt phân bổ khi gặp null. */
+  output_coefficient: number | null;
 }
 
 export interface EmployeeMeta {
@@ -5104,6 +5130,9 @@ export interface PayrollLine {
   /** Khoán km giao hàng (mg 0231) — CỘNG THÊM vào gross, không phải "trong đó" của khoản nào.
    *  Là CỘT chứ không phải khoản danh mục: tiền engine tự tính đứng cùng nhà với `khoan`. */
   khoan_km?: number;
+  /** Thưởng/PHẠT tổ trưởng theo chất lượng (mg 0266) — Σ dòng `san_xuat_thuong_to_truong`
+   *  của kỳ, ghi sẵn lúc đóng nhóm thành phẩm. CỘNG ĐẠI SỐ vào gross và CÓ THỂ ÂM. */
+  thuong_to_truong?: number;
   ot_minutes: number;
   ot_pay: number;
   night_days: number;
@@ -5429,32 +5458,34 @@ export interface PieceRate {
   note: string | null;
   active: boolean;
 }
-/** Một bậc thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi của tổ (chủ 29/07/2026).
+/** Một bậc thưởng/phạt TỔ TRƯỞNG — một ô của lưới KHOẢNG SẢN LƯỢNG × TỶ LỆ LỖI (chủ 04/09/2026).
  *
- *  Tra: bậc ĐẦU TIÊN có `tỷ lệ lỗi ≤ up_to_defect_pct` thắng; `null` = bậc "trở lên" (∞), đúng
- *  MỘT bậc và phải nằm cuối. `rate_pct` DƯƠNG = thưởng · ÂM = phạt, tính trên TỔNG TIỀN KHOÁN
- *  của tổ. ⚠️ Engine CHƯA áp — tổng khoán hiện luôn = 0 vì chưa có nguồn sản lượng. */
+ *  Tra HAI điều kiện, đúng thứ tự: lọc các dòng có `sl_tu < sản lượng ≤ sl_den` (`sl_den` null =
+ *  ∞), rồi trong nhóm đó lấy dòng ĐẦU TIÊN có `tỷ lệ lỗi ≤ up_to_defect_pct` (`null` = "trở lên",
+ *  đúng MỘT dòng mỗi khoảng và phải nằm cuối khoảng).
+ *
+ *  Tiền = `sản lượng × rate_pct% × đơn giá khoán của đầu việc`, cộng/trừ vào lương MỘT người là
+ *  tổ trưởng. `rate_pct` DƯƠNG = thưởng · ÂM = phạt.
+ *  ⚠️ Engine CHƯA gọi — phần nối vào bảng lương lúc lệnh sản xuất kết thúc làm sau. */
 export interface LeaderBracket {
   id: number;
   department_id: number;
   seq: number;
+  sl_tu: number;
+  sl_den: number | null;
   up_to_defect_pct: number | null;
   rate_pct: number;
   note: string | null;
 }
 export interface LeaderBracketInput {
+  sl_tu: number;
+  sl_den: number | null;
   up_to_defect_pct: number | null;
   rate_pct: number;
   note?: string | null;
 }
 export interface LeaderBracketsOut {
   department_id: number;
-  /** Ngưỡng SẢN LƯỢNG của tổ trong kỳ để được xét thưởng/phạt. `0` = không gác.
-   *  Dưới ngưỡng ⇒ không thưởng không phạt, bất kể tỷ lệ lỗi — vì làm quá ít thì tỷ lệ lỗi vô
-   *  nghĩa (hỏng 2 tờ trên 20 tờ đã là 10%). Đi CÙNG GÓI với `items`: màn chỉ có một nút Lưu.
-   *  ⚠️ Đây là SỐ LƯỢNG, khác hẳn con số mà % thưởng/phạt nhân lên (đó là TIỀN khoán của tổ).
-   *  Con số trần, KHÔNG kèm đơn vị (chủ chốt "Đơn vị bỏ đi"). */
-  min_output_qty: number;
   items: LeaderBracket[];
 }
 
@@ -7155,7 +7186,8 @@ export interface OrderLineOut {
   id: number;
   description: string;
   qty: number;
-  don_vi_tinh: string;   // ĐVT dòng (kéo từ báo giá / gõ tay)
+  don_vi_tinh: string;   // ĐVT THẬT của phần này (kéo từ báo giá / gõ tay)
+  dvt_nhom: string | null;   // ĐVT của cụm khi in gộp ("cuốn") — xem `QuoteItem.dvt_nhom`
   unit_price_snapshot: number | null;
   vat_pct_estimate: number;
   line_total: number | null;
@@ -9942,6 +9974,24 @@ export const api = {
         body: JSON.stringify(input),
       });
     },
+    /** Sửa bậc. Backend dùng `exclude_unset` ⇒ field nào KHÔNG gửi thì không bị đụng — nên gửi
+     *  đúng thứ đang sửa, đừng gửi cả bản ghi (gửi `note: undefined` là mất ghi chú). */
+    updateJobGrade(
+      token: string,
+      id: number,
+      input: {
+        name?: string;
+        seq?: number;
+        is_active?: boolean;
+        note?: string | null;
+        output_coefficient?: number | null;
+      },
+    ): Promise<JobGrade> {
+      return authed<JobGrade>(`/api/employees/bac-tay-nghe/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
     get(token: string, id: number): Promise<EmployeeDetail> {
       return authed<EmployeeDetail>(`/api/employees/${id}`, token);
     },
@@ -10701,18 +10751,16 @@ export const api = {
     // GỠ 17/08/2026: bảng đơn giá thành danh mục "Công việc khoán". Ai cần nó thì dùng
     // `crud("/api/cong-viec-khoan")` của `api/rebuildCatalog` — cùng một cửa với 10 màn danh mục
     // kia, nên có nhật ký, xoá mềm và mã tự sinh mà không phải khai lại đường API thứ hai.
-    /** Bậc thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi — mỗi tổ một bộ riêng. */
+    /** Bậc thưởng/phạt TỔ TRƯỞNG theo khoảng sản lượng × tỷ lệ lỗi — mỗi tổ một bộ riêng. */
     leaderBrackets(token: string, departmentId: number): Promise<LeaderBracketsOut> {
       return authed<LeaderBracketsOut>(`/api/luong/khoan/leader-brackets?department_id=${departmentId}`, token);
     },
-    /** Thay CẢ BỘ mốc của một tổ + ngưỡng sản lượng. Mảng rỗng = tổ không áp thưởng/phạt. */
-    setLeaderBrackets(token: string, departmentId: number, items: LeaderBracketInput[],
-                      minOutputQty = 0): Promise<LeaderBracketsOut> {
+    /** Thay CẢ BỘ bậc của một tổ. Mảng rỗng = tổ không áp thưởng/phạt tổ trưởng. */
+    setLeaderBrackets(token: string, departmentId: number,
+                      items: LeaderBracketInput[]): Promise<LeaderBracketsOut> {
       return authed<LeaderBracketsOut>("/api/luong/khoan/leader-brackets", token, {
         method: "PUT",
-        body: JSON.stringify({
-          department_id: departmentId, items, min_output_qty: minOutputQty,
-        }),
+        body: JSON.stringify({ department_id: departmentId, items }),
       });
     },
   },
@@ -11875,6 +11923,9 @@ export const api = {
 
     // --- Giai đoạn 5: Đóng nhóm §16 + đóng thiếu §13.3 ------------------------------------
     /** Checklist điều kiện đóng nhóm thành phẩm (đủ / thiếu). */
+    thuongToTruongNhom(token: string, nhomId: number): Promise<SxThuongToTruong[]> {
+      return authed<SxThuongToTruong[]>(`/api/san-xuat/kho/nhom/${nhomId}/thuong-to-truong`, token);
+    },
     dieuKienDongNhom(token: string, nhomId: number): Promise<SxDongNhomDieuKien> {
       return authed<SxDongNhomDieuKien>(`/api/san-xuat/kho/nhom/${nhomId}/dieu-kien-dong`, token);
     },

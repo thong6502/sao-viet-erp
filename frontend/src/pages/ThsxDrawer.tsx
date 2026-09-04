@@ -13,7 +13,7 @@
 import { useMemo, useState } from "react";
 import type {
   SxNhanVienChon, SxWorkItemChiTiet, SxHoTroUngVien, SxLyDo,
-  SxKcsChiTiet, SxKhoChiTiet, SxDongNhomDieuKien,
+  SxKcsChiTiet, SxKhoChiTiet, SxDongNhomDieuKien, SxThuongToTruong,
 } from "../api/client";
 import { NHAN_MUC_DO, type MayChon } from "../api/kyThuatMay";
 import { Button } from "../components/Button";
@@ -23,7 +23,7 @@ import { num, ngayGio } from "./keHoachSxShared";
 import { nhanDonVi } from "./lsxBuoc";
 import { sxSerial, ThsxTrangThaiPill } from "./thsxShared";
 import { ThsxExecPanels, type ThsxExec } from "./ThsxExecPanels";
-import { ThsxKcsPanel, ThsxKhoPanel, ThsxDongNhomPanel, type Opt } from "./ThsxG5";
+import { ThsxKcsPanel, ThsxKhoPanel, ThsxDongNhomPanel, ThsxThuongToTruongPanel, type Opt } from "./ThsxG5";
 
 interface Props {
   chiTiet: SxWorkItemChiTiet | null;
@@ -45,6 +45,9 @@ interface Props {
   khoCt: SxKhoChiTiet | null;
   /** Giai đoạn 5 — §16/§13.3: checklist cổng đóng nhóm (chỉ nạp khi `la_kcs_cuoi` + có `nhom_id`). */
   dieuKien: SxDongNhomDieuKien | null;
+  /** §8 — thưởng/phạt tổ trưởng của nhóm. Nạp cho MỌI bước có `nhom_id`, không riêng KCS cuối:
+   *  tổ trưởng tổ In cũng phải xem được điểm chất lượng của tổ mình ngay tại bước của họ. */
+  thuongTT: SxThuongToTruong[] | null;
   /** Danh sách tổ có thể chỉ định "chịu trách nhiệm lỗi" (dẫn xuất từ ứng viên hỗ trợ). */
   toChiuOpts: Opt[];
   /** Công đoạn thượng nguồn có thể gán "liên đới lỗi" (dẫn xuất từ bàn giao đến). */
@@ -81,7 +84,7 @@ const MUC_DO_MAC_DINH =
 
 export function ThsxDrawer({
   chiTiet, loading, canAssign, candidates, hoTroUngVien, mayOptions, loadLyDo, exec, busy,
-  kcsCt, khoCt, dieuKien, toChiuOpts, congDoanRefOpts,
+  kcsCt, khoCt, dieuKien, thuongTT, toChiuOpts, congDoanRefOpts,
   onGiao, onRut, onBatDau, onNhanKhuon, onTraKhuon, onTamDung, onKetThuc, onClose,
 }: Props) {
   const [giaoOpen, setGiaoOpen] = useState(false);
@@ -101,8 +104,9 @@ export function ThsxDrawer({
   const cv = chiTiet?.cong_viec ?? null;
   const tt = chiTiet?.trang_thai ?? cv?.trang_thai ?? "released";
   const isTo = cv?.loai_buoc === "to";
-  // Đổi máy §7.2: chỉ bước gắn MÁY mới có khái niệm này (bước "to"/"thue_ngoai" không có).
-  const isMay = cv?.loai_buoc === "may";
+  // Đổi máy §7.2: chỉ bước gắn MÁY mới có khái niệm này (bước "to" không có; "thue_ngoai"
+  // có, vì nhà thầu được khai như một máy trong danh mục).
+  const isMay = cv?.loai_buoc === "may" || cv?.loai_buoc === "thue_ngoai";
   const canDoiMay = canAssign && !busy && (tt === "running" || tt === "paused") && isMay;
   // Báo sự cố: cùng điều kiện với Đổi máy (bước có MÁY, việc đang chạy hoặc tạm dừng) — không có
   // máy thì không có gì để báo hỏng, BE cũng chặn đúng như vậy.
@@ -630,6 +634,10 @@ export function ThsxDrawer({
                 onDongThieu={exec.dongThieu}
               />
             )}
+
+            {/* 6 · THƯỞNG/PHẠT TỔ TRƯỞNG §8 — MỌI bước thuộc nhóm, không riêng KCS cuối. Panel tự
+                ẩn khi tổ chưa khai bậc thưởng, nên bước không thuộc chính sách này không thấy gì. */}
+            {cv.nhom_id != null && <ThsxThuongToTruongPanel rows={thuongTT} />}
           </>
         )}
       </div>

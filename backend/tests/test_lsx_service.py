@@ -2485,12 +2485,21 @@ def test_kiem_thieu_he_so_doc_theo_TRAM_khong_theo_MA_don_vi(
     assert "thieu_con_tren_to" not in lsx_svc.thieu_cua(lsx_svc.get(hop.id))
 
 
-def test_thue_ngoai_thieu_ncc_hoac_ngay_thi_chan_khai_du_thi_mo(db, orders, lsx_svc, admin, customer):
+def test_thue_ngoai_doi_to_may_y_het_buoc_may(db, orders, lsx_svc, admin, customer):
+    """Bước THUÊ NGOÀI không còn cổng riêng (NCC · ngày gửi/nhận).
+
+    Nhà thầu được khai như một MÁY trong danh mục (tên kèm hậu tố "thuê ngoài – <nhà in>"), nên
+    cổng phát hành đòi đúng một thứ như bước máy: đã gán tổ hoặc máy chưa.
+    """
     ptg = _ptg_2_san_pham(db)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
     hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
     to_id = _to_san_xuat(db).id
+    may_ngoai = MayThietBi(ma="MAY-TN-1", ten="Máy cán (thuê ngoài – Cơ sở Tân Bình)",
+                           loai_may="thue_ngoai", toc_do=4000, don_vi_toc_do="to_gio")
+    db.add(may_ngoai)
+    db.flush()
 
     def dat_routing(**ngoai) -> list[str]:
         lsx_svc.replace_routing(lsx_id=hop.id, actor=admin, rows_in=[
@@ -2501,18 +2510,13 @@ def test_thue_ngoai_thieu_ncc_hoac_ngay_thi_chan_khai_du_thi_mo(db, orders, lsx_
         ])
         return lsx_svc.thieu_cua(lsx_svc.get(hop.id))
 
-    assert {"thieu_ncc", "thieu_tg_thue_ngoai"} <= set(dat_routing())
-    # Có NCC nhưng chưa có mốc thời gian → vẫn chặn (Gantt không biết đặt vào đâu).
-    thieu = dat_routing(nha_cung_cap="Cơ sở Tân Bình")
-    assert "thieu_ncc" not in thieu and "thieu_tg_thue_ngoai" in thieu
-
-    thieu = dat_routing(
-        nha_cung_cap="Cơ sở Tân Bình", sl_gui=5300,
-        ngay_gui_dk=date.today() + timedelta(days=1),
-        ngay_nhan_dk=date.today() + timedelta(days=4),
-        van_chuyen_ngay=1, gia_cong_ngay=1, don_gia_gia_cong=500,
-    )
+    # Chưa gán gì → chặn Y NHƯ bước máy trắng, và KHÔNG còn hai mã cũ.
+    thieu = dat_routing()
+    assert "thieu_to_may" in thieu
     assert "thieu_ncc" not in thieu and "thieu_tg_thue_ngoai" not in thieu
+
+    # Chọn máy của nhà thầu → hết thiếu, dù không khai NCC/ngày gửi–nhận nào.
+    assert "thieu_to_may" not in dat_routing(may_id=may_ngoai.id)
 
 
 def test_replace_routing_giu_nguyen_khoi_thue_ngoai(db, orders, lsx_svc, admin, customer):

@@ -411,12 +411,9 @@ export function loiDong(rows: EditRow[], i: number): string[] {
   if (r.don_vi_vao === r.don_vi_ra && vao > 0 && ra > vao) out.push("ra nhiều hơn vào");
   // KHÔNG kiểm `he_so <= 1` nữa: hệ số nay do server suy, và 1 là HỢP LỆ ở cả hai cầu
   // (1 tờ nguyên ra 1 tờ in là chuyện thường). Luật cũ bắt oan đúng ca đó.
-  if (r.loai_buoc === "thue_ngoai") {
-    if (!r.nha_cung_cap.trim()) out.push("chưa có nhà gia công");
-    if (!r.ngay_gui_dk || !r.ngay_nhan_dk) out.push("chưa có ngày gửi / nhận");
-  } else if (r.department_id == null && r.may_id == null) {
-    out.push("chưa gán tổ / máy");
-  }
+  // Thuê ngoài KHÔNG có luật riêng: nhà thầu là một máy trong danh mục (tên kèm hậu tố
+  // "thuê ngoài – …"), nên cũng phải gán tổ/máy như mọi bước khác.
+  if (r.department_id == null && r.may_id == null) out.push("chưa gán tổ / máy");
   if (r.tren_dong_giay && r.don_vi_vao) {
     const truoc = rows
       .slice(0, i)
@@ -480,13 +477,17 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
   // nạp xong danh mục) thì rơi về diễn giải server đã trả — vẫn hơn là ra 0.
   const numOf = (k: string): number => Number(dgServer[k] ?? 0) || 0;
   const coMay = may != null;
-  const setup = coMay ? (r.loai_buoc === "may" ? f(may?.chuanBiPhut) : 0) : numOf("setup_phut");
+  // THUÊ NGOÀI đi CHUNG đường bước máy: nhà thầu là một máy trong danh mục (tên kèm hậu tố
+  // "thuê ngoài – …"), nên chuẩn bị + tốc độ + số lượt lấy từ máy đó. Bỏ nó ra ngoài như bản
+  // trước thì mọi bước thuê ngoài ra 0′ mà KHÔNG có lời cảnh báo nào — im lặng, khó thấy nhất.
+  const theoMay = r.loai_buoc !== "to";
+  const setup = coMay ? (theoMay ? f(may?.chuanBiPhut) : 0) : numOf("setup_phut");
   const khac = f(r.phat_sinh_phut);
   const khoanChuanBi = coMay
-    ? (r.loai_buoc === "may" ? (may?.chuanBiKhoan ?? []) : [])
+    ? (theoMay ? (may?.chuanBiKhoan ?? []) : [])
     : (Array.isArray(dgServer.chuan_bi_khoan) ? dgServer.chuan_bi_khoan : []);
 
-  let phuongPhap: string = r.loai_buoc;
+  let phuongPhap: string = theoMay ? "may" : r.loai_buoc;
   let nangSuatCoSo = 0;       // năng suất/tốc độ GỐC (Tổ: theo đầu người; Máy: tốc độ máy)
   let nangSuatHieuDung = 0;   // đã nhân kíp chuẩn với bước Tổ
   let nguoiTinh: number | null = null;
@@ -511,7 +512,7 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
     chayNhanh = (numOf("chay_phut_min") || chay) * tyLe;   // năng suất CAO ⇒ chạy nhanh ⇒ nhỏ nhất
     chayCham = (numOf("chay_phut_max") || chay) * tyLe;
     if (ns <= 0) phuongPhap = "thieu_nang_suat";
-  } else if (r.loai_buoc === "may") {
+  } else {
     // Công thức chốt 2026-08-04: SL vào × 60 ÷ tốc độ × số lượt.
     const tocDo = coMay ? f(may?.tocDo) : numOf("toc_do");
     const tocDoMax = coMay ? f(may?.tocDoMax) : numOf("toc_do_max");
@@ -527,7 +528,7 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
   // Chưa quy đổi được SL vào sang đơn vị tốc độ ⇒ không có giờ chạy, và nói đúng chỗ phải đi khai.
   // Thắng mọi lý do khác: có tốc độ mà không biết bước nhận bao nhiêu THEO ĐƠN VỊ ĐÓ thì phép chia
   // vô nghĩa (chủ 15/08/2026 — ca `500 kg/h` nhận số tờ).
-  if (r.loai_buoc !== "thue_ngoai" && !daQuyDoi) {
+  if (!daQuyDoi) {
     phuongPhap = "chua_quy_doi";
     chay = chayNhanh = chayCham = 0;
     canhBao.push(
@@ -548,12 +549,12 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
     so_luong_vao_goc: dgServer.so_luong_vao_goc ?? f(r.so_luong_vao),
     don_vi_vao_goc: (dgServer.don_vi_vao_goc as string | null) ?? r.don_vi_vao,
     quy_doi_dien_giai: dgServer.quy_doi_dien_giai ?? null,
-    nguon_nang_suat: r.loai_buoc === "to" ? "dau_viec" : (r.loai_buoc === "may" ? "may" : null),
+    nguon_nang_suat: r.loai_buoc === "to" ? "dau_viec" : "may",
     nang_suat_co_so: nangSuatCoSo > 0 ? tron(nangSuatCoSo) : null,
     nang_suat_hieu_dung: nangSuatHieuDung > 0 ? tron(nangSuatHieuDung) : null,
-    so_luot_chay: r.loai_buoc === "may" ? luot : null,
-    so_nhan_cong_ke_hoach: r.loai_buoc === "thue_ngoai" ? null : nguoiKeHoach,
-    so_nhan_cong_tieu_chuan: r.loai_buoc === "thue_ngoai" ? null : r.so_nhan_cong_tieu_chuan,
+    so_luot_chay: r.loai_buoc === "to" ? null : luot,
+    so_nhan_cong_ke_hoach: nguoiKeHoach,
+    so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan,
     so_nhan_cong_toi_da: r.loai_buoc === "to" ? r.so_nhan_cong_toi_da : null,
     // Bước TỔ nhân kíp chuẩn vào công thức (chốt 20/08/2026) ⇒ "số người tính" = số người tiêu chuẩn.
     so_nhan_cong_tinh: nguoiTinh,

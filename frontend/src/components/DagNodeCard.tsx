@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { dvNhan, nhanGiaoNhan, type RefRow } from "../pages/LsxRoutingTable";
+import { dvNhan, type RefRow } from "../pages/LsxRoutingTable";
 import { type EditRow, n, phut, tenBuoc, thoiLuong } from "../pages/lsxBuoc";
 import { Icon } from "./Icons";
 import { ChipKhuon, ChipLoaiBuoc } from "./ChipBuoc";
@@ -25,7 +25,7 @@ export interface DagNodeCardProps {
   onPortMouseDown: (e: React.MouseEvent, key: string, portType: "in" | "out") => void;
   onPortMouseUp: (e: React.MouseEvent, key: string, portType: "in" | "out") => void;
   /** `tab` chỉ dùng cho deep-link từ badge — mở drawer là nhảy thẳng tới khối đó. */
-  onOpenDrawer: (index: number, tab?: "giao_nhan") => void;
+  onOpenDrawer: (index: number) => void;
   onDeleteNode: (index: number) => void;
 }
 
@@ -199,25 +199,6 @@ export function DagNodeCard({
           <span className="dag-node__label">Thời lượng:</span>
           <span className="dag-node__value">{thoiGian}</span>
         </div>
-
-        {/* Hàng gửi ra ngoài đang ở đâu — nhìn sơ đồ là biết khúc nào nằm ngoài xưởng. */}
-        {row.loai_buoc === "thue_ngoai" && row.giao_nhan && (
-          <button
-            type="button"
-            className={`khsx-gn-badge khsx-gn-badge--${row.giao_nhan.giao_nhan_trang_thai ?? "chua_gui"} ${
-              (row.giao_nhan.qua_han_ngay ?? 0) > 0 || row.giao_nhan.hut_vuot_dinh_muc
-                ? "is-canhbao"
-                : ""
-            }`}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenDrawer(index, "giao_nhan");
-            }}
-          >
-            {nhanGiaoNhan(row)}
-          </button>
-        )}
 
         {/* Cảnh báo nếu có */}
         {warnings.length > 0 && (

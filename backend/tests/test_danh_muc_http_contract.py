@@ -285,10 +285,16 @@ def test_hang_may_tra_kem_ten_don_vi_toc_do(client):
     """⚠️ BẪY Pydantic đã dính 4 lần: service trả thêm field mà schema `Out` không khai thì bị
     NUỐT IM LẶNG, FE nhận `undefined` và không có lỗi nào. Vì thế test này đi qua HTTP THẬT
     (không phải tầng service) và soi cả ba cửa: tạo · danh sách · chi tiết.
+
+    ⚠️ Đơn vị khai mã TRẦN (`zzto`), máy trỏ vào bằng mã CÓ hậu tố (`zzto_gio`) — đúng quy ước
+    thật: ô chọn ở FE ghép `${don_vi.ma}_gio` (`DonViTocDoField`), nên trong danh mục Đơn vị không
+    bao giờ có mã tận cùng `_gio`. Trước 04/09/2026 fixture cho đơn vị mang sẵn mã `zzto_gio` để
+    khớp phép tra NGUYÊN mã của `gan_ten_don_vi` — mà phép tra đó chính là lỗi: với dữ liệu thật
+    nó trượt 100%, tên đơn vị luôn rỗng và bảng danh sách in mã trần không dấu ("to/h").
     """
     h = _admin(client)
     dv = client.post("/api/don-vi",
-                     json={"ma": "zzto_gio", "ten": "ZZ Tờ mỗi giờ", "dung_lam_toc_do": True},
+                     json={"ma": "zzto", "ten": "ZZ Tờ", "dung_lam_toc_do": True},
                      headers=h)
     assert dv.status_code in (201, 409), dv.text
 
@@ -296,16 +302,16 @@ def test_hang_may_tra_kem_ten_don_vi_toc_do(client):
         "ma": "ZZMTD1", "ten": "ZZ Máy có đơn vị tốc độ", "loai_may": "Máy in",
         "so_nhan_cong": 1, "toc_do": 8000, "don_vi_toc_do": "zzto_gio"})
     assert tao.status_code == 201, tao.text
-    assert tao.json().get("don_vi_toc_do_ten") == "ZZ Tờ mỗi giờ", \
+    assert tao.json().get("don_vi_toc_do_ten") == "ZZ Tờ", \
         f"POST nuốt mất `don_vi_toc_do_ten`: {sorted(tao.json())}"
 
     may_id = tao.json()["id"]
     chi_tiet = client.get(f"/api/may-thiet-bi/{may_id}", headers=h).json()
-    assert chi_tiet["don_vi_toc_do_ten"] == "ZZ Tờ mỗi giờ"
+    assert chi_tiet["don_vi_toc_do_ten"] == "ZZ Tờ"
 
     dong = next(x for x in client.get("/api/may-thiet-bi?q=ZZMTD1", headers=h).json()["items"]
                 if x["id"] == may_id)
-    assert dong["don_vi_toc_do_ten"] == "ZZ Tờ mỗi giờ"
+    assert dong["don_vi_toc_do_ten"] == "ZZ Tờ"
 
 
 def test_may_chua_khai_don_vi_toc_do_thi_ten_la_None_chu_khong_vang_khoa(client):

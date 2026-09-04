@@ -34,14 +34,17 @@ export const COMPONENT_ROWS: {
   {
     key: "luong_khoan",
     name: "Lương khoán / sản lượng",
-    desc: "Bật khoán sẽ TỰ TẮT Tăng ca (đã khoán không tính tăng ca theo giờ) và hiện mục khai ĐƠN GIÁ khoán của tổ ngay dưới. Tính tiền khoán theo sản lượng nối khi có Lệnh sản xuất.",
+    // Vế "hiện mục khai ĐƠN GIÁ khoán của tổ ngay dưới" đã BỎ (04/09/2026): panel đó ẩn khỏi màn
+    // này (`tabs/CoCheTab.tsx` — cờ `HIEN_DON_GIA_KHOAN`), để nguyên là chỉ người khai xuống một
+    // chỗ không còn tồn tại. Trỏ thẳng sang cửa duy nhất còn khai được.
+    desc: "Bật khoán sẽ TỰ TẮT Tăng ca (đã khoán không tính tăng ca theo giờ). Đơn giá khoán của tổ khai ở Cấu hình danh mục → Công việc khoán. Tính tiền khoán theo sản lượng nối khi có Lệnh sản xuất.",
     kind: null,
     unit: "—",
   },
   {
     key: "tang_ca",
     name: "Tăng ca",
-    desc: "Loại trừ với Lương khoán — bật Tăng ca thì khoán tự tắt. Bộ phận ăn khoán không tính tăng ca theo giờ.",
+    desc: "",
     kind: null,
     unit: "—",
   },

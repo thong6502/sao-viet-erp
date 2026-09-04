@@ -97,6 +97,7 @@ from ..schemas.san_xuat import (
     VatTuNhanKetQuaOut,
     VatTuXacNhanIn,
     WorkItemChiTietOut,
+    ThuongToTruongOut,
     WorkItemsOut,
 )
 from ..services.rbac_service import AuthorizationService
@@ -112,6 +113,7 @@ from ..services.san_xuat import (
     san_luong,
     su_co,
     thuc_thi,
+    thuong_to_truong,
     vat_tu_de_nghi,
     vat_tu_nhan,
 )
@@ -1280,6 +1282,20 @@ def dieu_kien_dong_nhom(
     """Checklist cổng đóng nhóm (§16): từng điều kiện đạt/chưa + đủ-đóng-đủ / đủ-đóng-thiếu để FE
     hiện "vì sao chưa đóng" và bật nút đóng thiếu."""
     return _chay(lambda: dong_nhom.dieu_kien_dong_nhom(db, nhom_id))
+
+
+@router.get("/kho/nhom/{nhom_id}/thuong-to-truong", response_model=list[ThuongToTruongOut])
+def thuong_to_truong_nhom(
+    nhom_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> list[dict]:
+    """Thưởng/PHẠT tổ trưởng của nhóm (§8): dòng đã ghi nếu nhóm đã đóng, không thì XEM TRƯỚC.
+
+    Gate `san_xuat:read` chứ không phải quyền lương: đây là điểm CHẤT LƯỢNG của TỔ (sản lượng, tỷ
+    lệ lỗi, % bậc trúng) — thứ tổ trưởng phải cãi được ngay tại xưởng, không phải đợi bảng lương.
+    Tiền của CÁ NHÂN vẫn nằm sau quyền lương như cũ."""
+    return _chay(lambda: thuong_to_truong.xem(db, nhom_id))
 
 
 @router.post("/kho/nhom/{nhom_id}/dong-thieu", response_model=DongNhomKetQuaOut)

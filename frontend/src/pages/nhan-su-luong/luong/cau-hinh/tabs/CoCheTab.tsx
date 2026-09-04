@@ -15,6 +15,12 @@ import { LeaderBonusEditor } from "../components/LeaderBonusEditor";
 import { COMPONENT_ROWS, OT_FIELDS } from "../shared/constants";
 import { toGio, toPct } from "../shared/helpers";
 
+/** ẨN panel "Đơn giá khoán — <tổ>" khỏi màn này (04/09/2026, chủ dự án yêu cầu). Nó là khung nhìn
+ *  theo tổ của CÙNG dữ liệu với `Cấu hình danh mục → Công việc khoán` — nơi có đủ xoá hẳn, nhật ký
+ *  đổi giá và mục đã ngừng dùng — nên hai cửa cho một bảng chỉ làm người khai phân vân sửa ở đâu.
+ *  Giữ nguyên code thay vì xoá: bật lại chỉ cần đổi cờ này, không phải dựng lại panel. */
+const HIEN_DON_GIA_KHOAN = false;
+
 export function CoCheTab({
   token,
   p,
@@ -358,7 +364,7 @@ export function CoCheTab({
         </div>
       </div>
 
-      {khoanOn && deptId != null && (
+      {HIEN_DON_GIA_KHOAN && khoanOn && deptId != null && (
         <div className="cl-card">
           <h3 className="cl-card__title">Đơn giá khoán — {deptName}</h3>
           {/* Mô tả nói ĐÚNG những gì khai được ở ĐÂY. Từ 17/08/2026 bảng đơn giá là danh mục

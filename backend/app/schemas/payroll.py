@@ -434,6 +434,8 @@ class LineOut(BaseModel):
     khoan: float = 0
     #: Khoán km giao hàng (mg 0231) — CỘNG THÊM vào gross, không phải "trong đó" của khoản nào.
     khoan_km: float = 0
+    #: Thưởng/PHẠT tổ trưởng theo chất lượng (mg 0266) — CỘNG ĐẠI SỐ vào gross, CÓ THỂ ÂM.
+    thuong_to_truong: float = 0
     ot_minutes: int = 0
     ot_pay: float = 0
     night_days: int = 0

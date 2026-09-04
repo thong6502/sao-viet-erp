@@ -280,6 +280,15 @@ body {
   border: 1px solid #e6c3ab;
 }
 
+/* Băng THÔNG TIN (không phải cảnh báo): "cách thứ này chạy" chứ không phải "coi chừng". Trước
+   04/09/2026 class này đã được dùng ở KhoBaoCaoPage mà KHÔNG có luật nào — băng ra trắng trơn,
+   không viền, lẫn vào nền. */
+.banner--info {
+  background: var(--rule-soft);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+}
+
 /* ==== Motip CRM (mockup 2026-07): primitives dùng chung toàn app ============
    Class MỚI, additive — page nào cũng xài được, không đè class cũ. */
 

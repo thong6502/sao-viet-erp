@@ -1757,6 +1757,15 @@ select.tg-input--sm {
   font-size: var(--fs-2xs);
   color: var(--rust);
 }
+/* Ô ĐVT của dải nhóm — thứ IN CHO KHÁCH trên dòng gộp. Nằm ở cột "Loại" (dải nhóm không có
+   loại) nên phải gọn: cao bằng dải, chữ nhỏ, không kéo giãn chiều cao hàng. */
+.grouphd__dvt {
+  max-width: 160px;
+  min-height: 26px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  font-size: var(--fs-2xs);
+}
 .grouphd__bo {
   border: 1px solid var(--rust);
   border-radius: var(--r-pill);

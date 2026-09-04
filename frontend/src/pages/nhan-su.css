@@ -2181,3 +2181,67 @@ button.ns__kpi {
     -webkit-overflow-scrolling: touch;
   }
 }
+
+/* --- Modal "Bậc tay nghề · hệ số chia sản lượng" -------------------------
+   Ô nhập số nằm TRONG bảng nên phải tự đặt chiều rộng: để `width:100%` thì ô trải hết cột và
+   trông như một khung nhập địa chỉ, người dùng tưởng gõ được chữ. */
+.nsbac__intro,
+.nsbac__vd {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-muted, #64748b);
+}
+
+.nsbac__vd {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--border, #e2e8f0);
+  background: var(--surface-2, #f8fafc);
+  border-radius: 0 6px 6px 0;
+}
+
+.nsbac__table {
+  width: 100%;
+}
+
+.nsbac__th-num {
+  text-align: right;
+}
+
+.nsbac__ten {
+  font-weight: 600;
+}
+
+/* Bậc đã tắt vẫn còn người đang đeo ⇒ vẫn phải khai hệ số. Chip xám để không ai tưởng dòng
+   này là rác bỏ qua được. */
+.nsbac__tat {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+  background: var(--surface-2, #f1f5f9);
+}
+
+.nsbac__o {
+  width: 110px;
+  padding: 7px 10px;
+  border: 1px solid var(--border, #cbd5e1);
+  border-radius: 6px;
+  font-size: 14px;
+  text-align: right;
+}
+
+.nsbac__o--loi {
+  border-color: var(--danger, #dc2626);
+}
+
+.nsbac__loi {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: right;
+  color: var(--danger, #dc2626);
+}

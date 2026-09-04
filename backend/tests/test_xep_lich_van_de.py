@@ -410,46 +410,6 @@ def test_han_som_bai_ghep_detector(db, orders, lsx_svc, bg_svc, xl_svc, vd_svc, 
     assert all(it["severity"] == "luu_y" for it in only)
 
 
-# --- Detector: thuê ngoài thiếu dữ liệu (Chặn) ------------------------------
-def test_thue_ngoai_thieu_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, customer, monkeypatch):
-    _luon_lam(monkeypatch)
-    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
-    s = _in_step(db, lsx.id)
-    s.setup_phut, s.nang_suat, s.so_luong_vao, s.chay_phut = 0, 5000, 5000, None
-    # Bước thuê ngoài BẮT BUỘC chưa chọn NCC + chưa có ngày gửi/nhận → Chặn.
-    db.add(LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Cán màng ngoài", nhom="finishing",
-                       loai_buoc=LB_THUE_NGOAI, bat_buoc=True, so_luong_vao=5000))
-    db.commit()
-    xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
-    tn = _bo_do(vd_svc.liet_ke(), "thue_ngoai")
-    assert any(it["issue_key"].startswith("thue_ngoai_thieu") and it["severity"] == "chan" for it in tn)
-
-
-# --- Detector: bước sau xếp trước ngày nhận gia công (Nghiêm trọng) ---------
-def test_thue_ngoai_tre_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, customer, monkeypatch):
-    _luon_lam(monkeypatch)
-    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
-    s = _in_step(db, lsx.id)
-    s.setup_phut, s.nang_suat, s.so_luong_vao, s.chay_phut = 0, 5000, 5000, None
-    # Thuê ngoài ĐỦ dữ liệu (không "thiếu"), nhận hàng dự kiến 30/7.
-    db.add(LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Cán màng ngoài", nhom="finishing",
-                       loai_buoc=LB_THUE_NGOAI, bat_buoc=True, so_luong_vao=5000,
-                       nha_cung_cap="Cơ sở A", ngay_gui_dk=date(2026, 7, 28), ngay_nhan_dk=date(2026, 7, 30)))
-    # Bước sau (Dán, chiếm tổ) — sẽ xếp TRƯỚC ngày nhận.
-    db.add(LsxCongDoan(lsx_id=lsx.id, thu_tu=2, ten="Dán", nhom="finishing", loai_buoc=LB_TO,
-                       department_id=s.department_id, so_luong_vao=5000, chay_phut=30, don_vi_vao="cai"))
-    db.commit()
-    xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
-    dongs = XepLichRepository(db).by_lsx(lsx.id)
-    dan = next(d for d in dongs if d.loai_buoc == LB_TO)
-    tn_dong = next(d for d in dongs if d.loai_buoc == LB_THUE_NGOAI)
-    xl_svc.gan(dong_id=dan.id, patch={"department_id": s.department_id,
-               "start_at": datetime(2026, 7, 28, 8, 0, tzinfo=timezone.utc)}, actor=admin)
-    keys = [it["issue_key"] for it in _bo_do(vd_svc.liet_ke(), "thue_ngoai")]
-    assert f"thue_ngoai_tre:{tn_dong.id}" in keys           # bước sau (28/7) trước ngày nhận (30/7)
-    assert not any(k.startswith("thue_ngoai_thieu") for k in keys)  # đã đủ NCC + ngày
-
-
 # --- Detector: lệch thực tế (J) ----------------------------------------------
 def _dong_va_cong_viec(db, orders, lsx_svc, admin, customer):
     """Một dòng lịch đã gán máy + giờ, cộng một công việc sản xuất ĐANG PHÁT HÀNH nối vào đúng

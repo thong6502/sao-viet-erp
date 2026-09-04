@@ -526,3 +526,73 @@ def test_bao_gia_khoa_gia_von_da_gom_phi_giao_hang(client):
     item = r.json()["items"][0]
     assert item["total_cost_snapshot"] == 500_000
     assert round(item["selling_price"]) == 600_000     # 500k × 1.20 (markup mặc định)
+
+
+def _seed_ptg_nhom_dvt(*, dvt_nhom: str | None) -> int:
+    """PTG 1 nhóm "Sách" = bìa (ĐVT 'cái') + ruột (ĐVT 'cái'), cùng SL — cụm gộp được.
+    `dvt_nhom` = đơn vị chọn cho CẢ nhóm ở dải nhóm (None = chưa chọn)."""
+    db = SessionLocal()
+    try:
+        n = db.query(PhieuTinhGia).count() + 1
+        p = PhieuTinhGia(
+            ma=f"PTG-NHOM-{n:04d}", ten_san_pham="Sách bìa mềm", so_luong=2_000,
+            tong_gia_von=49_554_879, gia_von_don=0, ktv="KTV Test",
+        )
+        db.add(p)
+        db.flush()
+        for i, (ten, von) in enumerate([("Bìa sách", 4_749_123), ("Ruột sách", 44_805_756)]):
+            db.add(PhieuThanhPhan(
+                phieu_id=p.id, thu_tu=i, ten=ten, so_luong=2_000, gia_von_tp=von,
+                loai_thanh_phan="to_roi", don_vi_tinh="cái",
+                nhom_bao_gia="Sách bìa mềm 192 trang", dvt_nhom=dvt_nhom,
+            ))
+        db.commit()
+        return p.id
+    finally:
+        db.close()
+
+
+def test_dvt_nhom_di_o_rieng_khong_de_len_dong_con(client):
+    """Nhóm đã chọn ĐVT ⇒ đơn vị cụm nằm ở ô RIÊNG `dvt_nhom`, dòng con giữ đơn vị của chính nó.
+
+    Bản in gộp đọc `dvt_nhom` nên vẫn ra "đ/cuốn"; mọi màn KHÔNG gộp (đơn hàng tab Thương mại,
+    phiếu giao, khai báo thành phẩm) đọc `unit` nên thôi hiện "Bìa sách — 2.000 cuốn".
+    """
+    token = _token(client)
+    pid = _seed_ptg_nhom_dvt(dvt_nhom="cuốn")
+    d = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token)).json()
+    assert [it["unit"] for it in d["items"]] == ["cái", "cái"]
+    assert [it["dvt_nhom"] for it in d["items"]] == ["cuốn", "cuốn"]
+
+
+def test_khong_chon_dvt_nhom_thi_giu_luat_cu(client):
+    """Chưa chọn ⇒ ô nhóm để trống, bản in rơi về ĐVT dòng đầu cụm (phiếu cũ không đổi một chữ)."""
+    token = _token(client)
+    pid = _seed_ptg_nhom_dvt(dvt_nhom=None)
+    d = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token)).json()
+    assert [it["unit"] for it in d["items"]] == ["cái", "cái"]
+    assert [it["dvt_nhom"] for it in d["items"]] == [None, None]
+
+
+def test_dvt_nhom_khong_dinh_toi_dong_ngoai_nhom(client):
+    """Dòng KHÔNG có nhãn nhóm thì `dvt_nhom` lạc vào cũng bị bỏ qua — đơn vị của nó là của nó."""
+    db = SessionLocal()
+    try:
+        p = PhieuTinhGia(
+            ma=f"PTG-LE-{db.query(PhieuTinhGia).count() + 1:04d}", ten_san_pham="Tờ rơi",
+            so_luong=1_000, tong_gia_von=1_000_000, gia_von_don=0, ktv="KTV Test",
+        )
+        db.add(p)
+        db.flush()
+        db.add(PhieuThanhPhan(
+            phieu_id=p.id, thu_tu=0, ten="Tờ rơi A5", so_luong=1_000, gia_von_tp=1_000_000,
+            loai_thanh_phan="to_roi", don_vi_tinh="tờ", nhom_bao_gia=None, dvt_nhom="cuốn",
+        ))
+        db.commit()
+        pid = p.id
+    finally:
+        db.close()
+    token = _token(client)
+    d = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token)).json()
+    assert d["items"][0]["unit"] == "tờ"
+    assert d["items"][0]["dvt_nhom"] is None

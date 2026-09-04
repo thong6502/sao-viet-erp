@@ -140,40 +140,29 @@ def test_so_do_bai_ghep_ve_routing_day_du_va_mot_cua_ghi() -> None:
     assert "BaiGhepDagCanvas" in page
 
 
-def test_thue_ngoai_co_so_giao_nhan_va_chi_mot_cua_ghi() -> None:
-    """Sổ giao–nhận nằm trong drawer; badge ở bảng/sơ đồ chỉ để NHÌN và NHẢY vào sổ.
+def test_thue_ngoai_khong_co_o_nao_rieng_ngoai_buoc_may() -> None:
+    """Bước THUÊ NGOÀI nhập liệu Y HỆT bước máy — không được có ô/tab nào của riêng nó.
 
-    Hai cửa ghi cho cùng một sự kiện là mầm lệch dữ liệu — badge không được tự ghi.
+    Nhà thầu khai như một MÁY trong danh mục (tên kèm hậu tố "thuê ngoài – <nhà in>"), nên mọi
+    khối "gia công ngoài" cũ (đối tác · số gửi · ngày gửi/nhận · đơn giá gia công · sổ giao–nhận)
+    đã GỠ khỏi màn kế hoạch. Guard neo vào ĐỊNH DANH MÁY, không vào chữ hiển thị.
+
+    Cột `nha_cung_cap` và cửa ghi `POST …/giao-nhan` ở server VẪN CÒN (dữ liệu cũ + ảnh chụp cho
+    kho) — guard này chỉ gác phần MÀN KẾ HOẠCH.
     """
     drawer = DRAWER.read_text(encoding="utf-8")
     bang = (DRAWER.parent / "LsxRoutingTable.tsx").read_text(encoding="utf-8")
-    node = DRAWER.parents[1] / "components" / "DagNodeCard.tsx"
-    card = node.read_text(encoding="utf-8")
+    card = (DRAWER.parents[1] / "components" / "DagNodeCard.tsx").read_text(encoding="utf-8")
 
-    # Neo vào ĐỊNH DANH MÁY (`"giao_nhan"`), không vào chữ hiển thị.
-    #
-    # 16/08/2026: drawer được dựng lại theo tab, khối "Thực tế giao – nhận" (id `sec-giao-nhan`)
-    # thành tab `giao_nhan`. Hai assert cũ grep đúng hai chuỗi đó nên đỏ — trong khi MỌI bảo đảm
-    # thật vẫn còn (nút xác nhận · `onGiaoNhan(` · `toBody` sạch · badge không ghi; đã kiểm từng
-    # cái một trước khi sửa test này).
-    #
-    # Guard đọc chữ hiển thị thì mỗi lần đổi nhãn là một lần đỏ oan, mà guard kêu oan thì sớm muộn
-    # bị tắt — lúc đó mất luôn phần đáng gác. Khoá máy vẫn đỏ khi tính năng bị GỠ THẬT.
-    assert '"giao_nhan"' in drawer
-    assert "Xác nhận đã giao" in drawer and "Xác nhận đã nhận" in drawer
-    # Ghi THẲNG qua cửa thực thi, KHÔNG gom vào payload lưu routing (payload đó bị guard
-    # "đã lập kế hoạch" chặn, mà hàng ra cổng đúng lúc lệnh đang chạy).
-    assert "onGiaoNhan(" in drawer
-    to_body = (DRAWER.parent / "lsxBuoc.ts").read_text(encoding="utf-8").split(
-        "export function toBody", 1
-    )[1]
-    for f in ("giao_luc", "nhan_luc", "sl_giao_thuc", "sl_nhan_thuc", "nguoi_giao", "nguoi_nhan"):
-        assert f not in to_body
-    # Badge chỉ điều hướng: bấm là mở drawer đúng khối, không có lời gọi ghi nào.
-    for src in (bang, card):
-        assert "khsx-gn-badge" in src
-        assert 'onOpenDrawer(index, "giao_nhan")' in src or '"giao_nhan")' in src
-        assert "api.lsx.giaoNhan" not in src
+    for src in (drawer, bang, card):
+        assert '"giao_nhan"' not in src
+        assert "khsx-gn-badge" not in src
+        assert "onGiaoNhan(" not in src
+    # Nút chọn loại bước phải BÀY LẠI "Thuê ngoài" (trước đó bị ẩn khỏi danh sách).
+    assert 'LOAI_BUOC_ORDER: LsxLoaiBuoc[] = ["may", "to", "thue_ngoai"]' in drawer
+    # Và nó đi CHUNG đường với bước máy khi đổi loại (kíp lấy theo máy, không theo bảng khoán tổ).
+    assert 'if (k === "may" || k === "thue_ngoai") {' in drawer
+
 
 
 def test_dag_noi_duoc_phu_thuoc_xuyen_lsx_ngay_tren_so_do() -> None:

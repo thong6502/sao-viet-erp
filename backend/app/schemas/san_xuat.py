@@ -1022,6 +1022,23 @@ class DongNhomDieuKienOut(BaseModel):
     con_thieu: float | None = None
 
 
+class ThuongToTruongOut(BaseModel):
+    """Một dòng thưởng/PHẠT tổ trưởng của nhóm (§8) — đọc lại VẾT đã ghi lúc đóng nhóm.
+
+    Bày cả `san_luong`/`so_luong_loi`/`ty_le_loi`/`rate_pct` chứ không chỉ `so_tien`: con số cuối
+    một mình thì tổ trưởng không cãi được, mà cãi được mới là điều kiện để tin."""
+    department_id: int
+    department: str | None = None
+    san_luong: float = 0
+    tien_khoan: float = 0
+    so_luong_loi: float = 0
+    ty_le_loi: float = 0
+    rate_pct: float = 0
+    so_tien: float = 0
+    ghi_chu: str | None = None
+    da_ghi: bool = False           # False = XEM TRƯỚC (nhóm chưa đóng), True = đã ghi thành vết
+
+
 class DongThieuIn(BaseModel):
     """Trưởng KCS đóng thiếu nhóm còn dở (§13.3): bắt buộc lý do nhóm `dong_thieu`."""
     ly_do_id: int

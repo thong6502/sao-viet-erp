@@ -85,82 +85,59 @@ class PieceRate(Base):
 
 
 class PieceLeaderBonusBracket(Base):
-    """Bậc THƯỞNG/PHẠT tổ trưởng theo TỶ LỆ HÀNG LỖI của tổ (chủ 29/07/2026).
+    """Bậc THƯỞNG/PHẠT tổ trưởng theo KHOẢNG SẢN LƯỢNG × TỶ LỆ HÀNG LỖI (chủ 04/09/2026).
 
-    Chủ: *"thằng tổ trưởng — thêm cơ chế thưởng phạt theo bậc lũy tiến ăn theo phần trăm của tổng
-    sản lượng lương khoán của tổ. Hàng lỗi khoảng 5% thì thưởng 2% trên tổng, lỗi trên 10% thì bị
-    trừ 10% trên tổng. **% này là tiền đó nha**."*
+    Chủ: *"nó phải sét 2 điều kiện 1 là khoảng sản lượng, 2 là tỷ lệ lỗi"*.
 
-    Mỗi TỔ một bộ mốc riêng (`department_id`) — khác `LatePenaltyBracket`/`PitTaxBracket` vốn là
-    bảng toàn công ty. Cách tra thì y hệt: bậc ĐẦU TIÊN có `tỷ lệ lỗi ≤ up_to_defect_pct` thắng;
-    `up_to_defect_pct = NULL` là bậc cao nhất (∞), phải nằm cuối.
+    Mỗi TỔ một bộ bậc riêng (`department_id`) — khác `late_penalty_brackets`/`pit_tax_brackets`
+    vốn là bảng toàn công ty. Một dòng = một ô của lưới (khoảng sản lượng × trần tỷ lệ lỗi):
 
-    Ví dụ đúng số chủ nêu:
-        seq 1 · ≤ 5%   · +2,00  ⇒ thưởng 2% tổng khoán của tổ
-        seq 2 · ≤ 10%  ·  0,00  ⇒ không thưởng không phạt
-        seq 3 · (∞)    · −10,00 ⇒ phạt 10% tổng khoán của tổ
+        sl_tu   sl_den   up_to_defect_pct   rate_pct
+            0    5 000                  5      +5,00
+            0    5 000               NULL      −5,00
+        5 000   10 000                  3      +7,00
+        5 000   10 000                 20      −8,00
+        5 000   10 000               NULL     −15,00
+       10 000     NULL                  3     +10,00
+       10 000     NULL               NULL     −15,00
 
-    ⚠️ ENGINE CHƯA ÁP BẢNG NÀY. Tiền thưởng/phạt tính trên TỔNG TIỀN KHOÁN của tổ, mà tổng khoán
-    hiện **luôn = 0**: `PieceWorkService.khoan_map` đọc từ `self.outputs`, nhưng
-    `ProductionOutputRepository` KHÔNG TỒN TẠI trong code và `deps.py` truyền `outputs=None`.
-    Khai mốc ở đây là chuẩn bị sẵn; nối vào lương cùng lúc dựng lại nguồn sản lượng. Màn khai có
-    banner nói thẳng điều này — đừng gỡ.
+    Cách tra (xem `PieceWorkService.leader_bonus_pct`): lọc các dòng có `sl_tu < SL <= sl_den`
+    (`sl_den = NULL` là ∞) rồi trong nhóm đó lấy dòng ĐẦU TIÊN có `tỷ lệ lỗi <= up_to_defect_pct`
+    (`NULL` = ∞, phải nằm cuối nhóm). Ranh giới `<` ... `<=` lấy ĐÚNG quy ước bậc số lượng của
+    `services/bu_hao_engine.py` — hai bảng bậc cùng hình dạng mà tra ngược nhau là bẫy chết người.
+
+    Tiền = **sản lượng × rate_pct% × đơn giá khoán của đầu việc**, cộng/trừ vào lương của MỘT
+    người: tổ trưởng (`departments.head_user_id`). Không chia cho cả tổ.
+
+    ĐÃ NỐI VÀO LUỒNG (04/09/2026): `services/san_xuat/thuong_to_truong.py` tra bảng này lúc ĐÓNG
+    NHÓM thành phẩm rồi ghi một dòng `san_xuat_thuong_to_truong`, từ đó chảy vào cột
+    `payroll_lines.thuong_to_truong`. Sản lượng lấy từ phân bổ ĐÃ CHỐT của tổ trong nhóm, tỷ lệ lỗi
+    lấy từ phiếu KCS (`accepted`/`recorded`). Tổ KHÔNG khai bậc ⇒ không có dòng nào, không lỗi.
     """
 
     __tablename__ = "piece_leader_bonus_brackets"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    # Tổ sở hữu bộ mốc. Soft-ref `departments.id` (không FK cứng, giống `piece_rates`).
+    # Tổ sở hữu bộ bậc. Soft-ref `departments.id` (không FK cứng, giống `piece_rates`).
     department_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     seq: Mapped[int] = mapped_column(Integer, nullable=False)                # thứ tự bậc 1..N
-    # Trần % HÀNG LỖI của bậc. NULL = bậc cao nhất (∞) — đúng MỘT bậc và phải ở cuối.
+    # --- Điều kiện 1: KHOẢNG SẢN LƯỢNG của tổ trong lệnh (mg `0262`) --------------------------
+    # Khoảng nửa mở `sl_tu < SL <= sl_den`, cùng tên cột và cùng quy ước với bậc bù hao.
+    sl_tu: Mapped[float] = mapped_column(
+        Numeric(14, 2), nullable=False, default=0, server_default="0"
+    )
+    # Trần sản lượng. NULL = ∞ (khoảng cao nhất).
+    sl_den: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # --- Điều kiện 2: TRẦN % HÀNG LỖI trong khoảng sản lượng đó -------------------------------
+    # NULL = "trở lên" — đúng MỘT dòng mỗi khoảng sản lượng và phải ở cuối khoảng.
     up_to_defect_pct: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
-    # % trên TỔNG TIỀN KHOÁN của tổ. DƯƠNG = thưởng · ÂM = phạt. Gõ nhầm dấu là đảo ngược ý nghĩa.
+    # % nhân với (sản lượng × đơn giá khoán). DƯƠNG = thưởng · ÂM = phạt. Gõ nhầm dấu là đảo ngược.
     rate_pct: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
-class PieceLeaderBonusSetting(Base):
-    """NGƯỠNG tối thiểu để xét thưởng/phạt tổ trưởng — mỗi tổ một dòng (chủ 30/07/2026).
-
-    Chủ: *"ở đó mới có Tỷ lệ lỗi tới nhưng không biết nằm trong phạm vi sản lượng là bao nhiêu"*.
-
-    **Vì sao cần:** bảng bậc chỉ có MỘT chiều là tỷ lệ lỗi, nên tổ làm rất ít và tổ làm rất nhiều
-    được đối xử như nhau. Tệ hơn: làm càng ít thì tỷ lệ lỗi càng vô nghĩa — hỏng 2 tờ trên 20 tờ đã
-    là 10%, đủ rơi xuống bậc phạt nặng nhất dù thực tế chẳng làm được gì.
-
-    Luật:
-        sản lượng của tổ  <  ngưỡng  ⇒  KHÔNG thưởng, KHÔNG phạt, bất kể tỷ lệ lỗi
-        sản lượng của tổ  ≥  ngưỡng  ⇒  áp bảng bậc như thường (">=", KHÔNG phải ">")
-        ngưỡng = 0                   ⇒  KHÔNG gác
-        chưa biết sản lượng (None)   ⇒  COI NHƯ dưới ngưỡng (fail-closed)
-
-    Vế cuối là chủ ý: chưa xác nhận được tổ có đạt ngưỡng hay không thì không được phát thưởng.
-
-    Ngưỡng là **một con số trần, KHÔNG kèm đơn vị** (chủ chốt 30/07/2026: *"Đơn vị bỏ đi"*).
-    ⚠️ Hệ quả cho người nối nguồn sản lượng sau này: cộng **toàn bộ** sản lượng của tổ trong kỳ rồi
-    so, không lọc theo đơn vị. Tổ nào làm nhiều loại việc khác đơn vị (vd vừa "m²" vừa "tờ") thì con
-    số cộng lại không có ý nghĩa vật lý — đó là đánh đổi đã biết, không phải sơ suất.
-
-    ⚠️ Cùng số phận với bảng bậc: **CHƯA RA TIỀN** cho tới khi dựng lại nguồn sản lượng — chưa có
-    nguồn nào báo sản lượng nên mọi tổ đều rơi vào nhánh fail-closed. Khai ở đây là chuẩn bị trước.
-
-    Bảng riêng chứ không thêm cột vào `piece_leader_bonus_brackets`: ngưỡng là MỘT luật cho cả bộ
-    bậc, nhét vào từng bậc thì mỗi dòng mang một bản sao và sớm muộn lệch nhau.
-    """
-
-    __tablename__ = "piece_leader_bonus_settings"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    # Soft-ref `departments.id` (không FK cứng, giống `piece_rates` và bảng bậc). UNIQUE: mỗi tổ
-    # đúng một ngưỡng — hai dòng cho cùng một tổ thì không ai biết dòng nào đang có hiệu lực.
-    department_id: Mapped[int] = mapped_column(Integer, unique=True, index=True, nullable=False)
-    # Sản lượng tối thiểu trong kỳ. `0` = không gác. Không kèm đơn vị — xem docstring.
-    min_output_qty: Mapped[float] = mapped_column(
-        Numeric(14, 2), nullable=False, default=0, server_default="0"
-    )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
-    )
+# ⚠️ `PieceLeaderBonusSetting` (bảng `piece_leader_bonus_settings`, cột `min_output_qty`) GỠ ngày
+# 04/09/2026 cùng mg `0262`. Nó là cửa chặn "sản lượng cả kỳ dưới X thì không xét" — sinh ra vì
+# bảng bậc chỉ có MỘT chiều là tỷ lệ lỗi. Nay chính bảng bậc mang khoảng sản lượng, nên khoảng
+# thấp nhất khai `rate_pct = 0` đã gánh đúng việc đó, ngay trong bảng người dùng đang nhìn.

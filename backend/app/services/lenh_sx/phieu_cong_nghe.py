@@ -130,7 +130,7 @@ _NHAN_QUY_CACH_IN = {
 }
 #: `cong_doan.NHOM` — chữ y hệt ô lọc Nhóm công đoạn (`keHoachSxShared.NHOM_CONG_DOAN`).
 _NHAN_NHOM = {
-    "prepress": "Chế bản",
+    "prepress": "Trước In",
     "print": "In",
     "finishing": "Gia công sau in",
     "other": "Dịch vụ khác",

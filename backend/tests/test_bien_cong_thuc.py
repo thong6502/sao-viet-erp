@@ -71,12 +71,14 @@ def test_khong_co_bien_nao_chay_duoc_ma_khong_ai_khai():
 
 
 def test_bon_o_dung_chung_bo_bien_va_hai_chip_rieng_cua_buoc():
-    """Giấy 17 · Vật tư 16 · Công đoạn 20 · Quy đổi 21 (16 + `sl_vao`/`sl_ra` + 3 khung lụa).
+    """Giấy 19 · Vật tư 18 · Công đoạn 22 · Quy đổi 23 (18 + `sl_vao`/`sl_ra` + 3 khung lụa).
 
-    Bốn điều dễ trượt lại nếu không khoá:
+    Năm điều dễ trượt lại nếu không khoá:
       · Công đoạn KHÔNG có biến tiền — không có ô nhập đơn giá ở cả phiếu lẫn danh mục.
       · Quy đổi dùng chung bộ biến với công thức tiền, cộng `dinh_luong` (tờ→kg cần nó).
       · Ba biến VAI TRÒ cũ (`dai` · `rong` · `so_con`) đã bỏ — thay bằng tên khổ cụ thể.
+      · `so_trang`/`trang_moi_tay` (03/09/2026) có ở CẢ BỐN ô — cả công thức tiền lẫn công thức
+        lượng đều phải tính được theo trang, không chỉ theo tờ.
       · `sl_vao`/`sl_ra` CHỈ Công đoạn + Quy đổi có, và chỉ TẦNG BƯỚC bơm được (`lsx_service`):
         công thức lượng cần số của CHÍNH bước, mà quy cách lệnh không biết bước nào đang hỏi.
       · `dai_khung_lua`/`rong_khung_lua`/`so_khung_lua` CÙNG hai ô đó — 29/08/2026 mở thêm cho Quy
@@ -86,9 +88,10 @@ def test_bon_o_dung_chung_bo_bien_va_hai_chip_rieng_cua_buoc():
     KHUNG_LUA = {"dai_khung_lua", "rong_khung_lua", "so_khung_lua"}
     CUA_BUOC = {"sl_vao", "sl_ra"} | KHUNG_LUA
     dem = {loai: len(bien_cho(loai)) for loai in LOAI}
-    assert dem == {LOAI_GIAY: 17, LOAI_VAT_TU: 16, LOAI_CONG_DOAN: 20, LOAI_QUY_DOI: 21}, dem
+    assert dem == {LOAI_GIAY: 19, LOAI_VAT_TU: 18, LOAI_CONG_DOAN: 22, LOAI_QUY_DOI: 23}, dem
 
-    chung = ma_hop_le(LOAI_CONG_DOAN) - CUA_BUOC    # 15 biến ai cũng có
+    chung = ma_hop_le(LOAI_CONG_DOAN) - CUA_BUOC    # 17 biến ai cũng có
+    assert {"so_trang", "trang_moi_tay"} <= chung, "hai chip quy cách sách phải có ở MỌI ô"
     assert ma_hop_le(LOAI_GIAY) - chung == {"dinh_luong", "don_gia_giay"}
     assert ma_hop_le(LOAI_VAT_TU) - chung == {"don_gia_vat_tu"}
     # Định lượng là thuộc tính CỦA GIẤY — chỉ ô Giấy khai được; Quy đổi giữ vì cần cho tờ→kg.
@@ -121,6 +124,12 @@ def test_ngu_canh_quy_doi_bom_du_tru_hai_chip_cua_buoc():
     assert set(ctx) >= ma_hop_le(LOAI_QUY_DOI) - CUA_BUOC
     assert not (set(ctx) & CUA_BUOC), "chip của bước không được lọt vào ngữ cảnh quy cách"
     assert ctx["dai_in"] == 0.86 and ctx["dinh_luong"] == 0.3 and ctx["so_tp"] == 99
+    # Quy cách KHÔNG khai trang (thẻ nhân viên) ⇒ hai chip sách về 1, KHÔNG về 0: `x * so_trang`
+    # phải giữ nguyên `x`, và `_thieu_bien` coi 0 là THIẾU nên 0 sẽ đánh rơi cạnh quy đổi.
+    assert ctx["so_trang"] == 1 and ctx["trang_moi_tay"] == 1
+    # Có khai thì lấy số thật — ca sách 160 trang, tay 16 (kỷ yếu 10 bài in).
+    sach = ngu_canh({"so_trang": 160, "trang_moi_tay": 16})
+    assert sach["so_trang"] == 160 and sach["trang_moi_tay"] == 16
     # Khoá CŨ `dai`/`rong` (mét) vẫn hiểu là khổ tờ IN — `ke_hoach_vat_tu` đang bơm kiểu đó.
     cu = ngu_canh({"dai": 0.86, "rong": 0.65, "gsm": 300})
     assert cu["dai_in"] == 0.86 and cu["rong_in"] == 0.65
@@ -319,7 +328,7 @@ def test_engine_dung_dung_ngu_canh_khai_trong_tu_dien():
     assert set(tham_so) == set(MA_NGU_CANH_PHIEU), "tham số hàm lệch bảng khai"
     assert all(p.kind is p.KEYWORD_ONLY and p.default is p.empty for p in tham_so.values()), \
         "phải keyword-only và KHÔNG mặc định — có mặc định là thiếu biến vẫn chạy, ra 0đ im lặng"
-    # Ngữ cảnh phiếu = 15 biến chung + `dinh_luong`. Biến đơn giá do nơi gọi bơm riêng cho ô của nó.
+    # Ngữ cảnh phiếu = 17 biến chung + `dinh_luong`. Biến đơn giá do nơi gọi bơm riêng cho ô của nó.
     # Năm chip tầng BƯỚC nằm ngoài (`sl_vao`/`sl_ra` + ba chip khung lụa): `ngu_canh_phieu` chạy một
     # lần cho cả thành phần, chưa biết bước nào — engine bơm chúng trong vòng lặp (`MA_TANG_BUOC_TIEN`).
     CUA_BUOC = {"sl_vao", "sl_ra", "dai_khung_lua", "rong_khung_lua", "so_khung_lua"}

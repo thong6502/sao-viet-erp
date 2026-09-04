@@ -2231,6 +2231,7 @@ function QuotationPrintModal({
     ten: it.product_name,
     soLuong: it.quantity,
     donViTinh: it.unit,
+    dvtNhom: it.dvt_nhom,
     thanhTien: Math.max(0, it.selling_price - it.discount_amount),   // net chưa VAT
     tienVat: it.vat_amount,
     vatPct: it.vat_percent,

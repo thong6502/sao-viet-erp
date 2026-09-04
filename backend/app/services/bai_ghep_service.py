@@ -1819,12 +1819,11 @@ class BaiGhepService:
         thieu: list[str] = []
         if not c.department_id:
             thieu.append("Chưa chọn tổ")
-        if c.loai_buoc == LB_MAY and not c.may_id:
+        # Thuê ngoài cũng phải chọn máy: nhà thầu khai như một máy trong danh mục.
+        if c.loai_buoc in (LB_MAY, "thue_ngoai") and not c.may_id:
             thieu.append("Chưa chọn máy")
-        if c.loai_buoc == "thue_ngoai" and not (c.nha_cung_cap or "").strip():
-            thieu.append("Chưa có nhà cung cấp")
         # Bước máy lấy tốc độ SỐNG từ máy đang gán; thiếu thì chip "Chưa chọn máy" ở trên đã nói.
-        if c.loai_buoc != LB_MAY and not _f(c.nang_suat):
+        if c.loai_buoc not in (LB_MAY, "thue_ngoai") and not _f(c.nang_suat):
             thieu.append("Chưa có năng suất")
         return thieu
 

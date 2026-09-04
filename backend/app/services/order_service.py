@@ -458,6 +458,7 @@ class OrderService:
                 description=it.product_name or "",
                 qty=it.quantity,
                 don_vi_tinh=(getattr(it, "unit", None) or "cái"),   # ĐVT kéo từ dòng báo giá
+                dvt_nhom=getattr(it, "dvt_nhom", None),   # ĐVT cụm khi in gộp (khớp báo giá)
                 unit_price_snapshot=unit,
                 line_total=net_line,
                 vat_pct_estimate=_i(it.vat_percent),

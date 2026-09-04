@@ -1181,6 +1181,9 @@
 .thsx-x-tbl td { padding: 4px 6px; border-bottom: 1px solid var(--rule-hair); color: var(--ink); }
 .thsx-x-tbl th.r, .thsx-x-tbl td.r { text-align: right; }
 .thsx-x-tbl tr:last-child td { border-bottom: 0; }
+/* Số ÂM trong bảng thưởng/phạt tổ trưởng: đây là ô duy nhất của bàn tổ mà số có thể âm,
+   nên phải nhìn ra ngay là TRỪ tiền chứ không phải một con số to. */
+.thsx-x-tbl td.thsx-x-neg { color: var(--rust-deep); font-weight: var(--fw-medium); }
 
 .thsx-x-butru { margin-top: var(--sp-2); }
 .thsx-x-butru__h { display: flex; align-items: center; gap: 4px; font-size: var(--fs-2xs); color: var(--ash); margin-bottom: 3px; }

@@ -44,8 +44,6 @@ def _goi_y(service, *, dong_id: int) -> dict:
     dong = service.core._get_dong(dong_id)
     rong = {"may_id": dong.may_id, "khe_trong": None, "finish_neu_xep": None,
             "han_lui": None, "goi_y_may": [], "bi_loai": [], "vi_sao_trong": None}
-    if service._la_thue_ngoai(dong):
-        return rong
     shadow0 = service._shadow(dong, {})
     san, cho = auto.san_va_cho(service, dong, shadow0)
     ca = service.ctx.ca_windows()
@@ -105,8 +103,6 @@ def goi_y_khe(service, *, dong_id: int, tu, den, toi_da: int = 3) -> dict:
 
 def _goi_y_khe(service, *, dong_id: int, tu, den, toi_da: int = 3) -> dict:
     dong = service.core._get_dong(dong_id)
-    if service._la_thue_ngoai(dong):
-        return {"khe": [], "ghi_chu": "Bước thuê ngoài đi theo ngày gửi/nhận, không xếp khe máy."}
     if not dong.may_id and getattr(dong, "department_id", None) is None:
         return {"khe": [], "ghi_chu": "Chọn máy hoặc tổ trước rồi hệ mới gợi ý được khe."}
     shadow = service._shadow(dong, {})

@@ -25,6 +25,7 @@ import { DonHangBanPage } from "../pages/DonHangBanPage";
 import GiaoHangPage from "../pages/giao-hang/giao-hang";
 import { KeHoachSXPage } from "../pages/KeHoachSXPage";
 import { LenhSanXuatPage } from "../pages/LenhSanXuatPage";
+import { TheoDoiSanXuatPage } from "../pages/TheoDoiSanXuatPage";
 import { KeHoachVatTuPage } from "../pages/KeHoachVatTuPage";
 import { BaiGhep2Page } from "../pages/BaiGhep2Page";
 import { XepLich2Page } from "../pages/XepLich2Page";
@@ -1374,6 +1375,11 @@ export function AppShell() {
             openHoSoSeq={navParams?.navSeq ?? null}
           />
         );
+      case "theo-doi-san-xuat":
+        // Bàn quét TOÀN XƯỞNG (Kanban · Theo máy — 17b; Theo ca · Gantt để chỗ cho 18b), chỉ đọc.
+        // Hồ sơ một lệnh là LỚP PHỦ do chính màn này mở (tái dùng `LenhSxHoSoView`, cùng khuôn
+        // `lenh-san-xuat`) — không cần `navParams` nào ở đây, màn không có deep-link riêng.
+        return <TheoDoiSanXuatPage eventTick={quoteTick} navigate={navigate} />;
       case "ke-hoach-vat-tu":
         return (
           <KeHoachVatTuPage

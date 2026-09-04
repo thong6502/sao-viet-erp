@@ -103,6 +103,12 @@ class PhieuThanhPhan(Base):
     # thành 1 DÒNG duy nhất. CHỈ ảnh hưởng báo giá — tính giá vẫn tính riêng từng dòng, và
     # xuống sản xuất vẫn tách lệnh riêng cho ruột/bìa. Trống = không gộp (1 dòng như cũ).
     nhom_bao_gia: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # ĐVT của CẢ NHÓM khi in cho khách (chọn từ danh mục Đơn vị & quy đổi, lưu TÊN như
+    # `don_vi_tinh`). Ruột/bìa mỗi phần vẫn giữ ĐVT riêng của nó cho các số nội bộ; chỉ dòng GỘP
+    # gửi khách mang nhãn này ("cuốn"). Trống = rơi về ĐVT của dòng ĐẦU nhóm (luật cũ), nên phiếu
+    # cũ không đổi một chữ. Gắn trên từng thành phần vì nhóm chỉ là cái nhãn, không có bảng riêng —
+    # mọi dòng cùng nhãn mang cùng giá trị, màn Tính giá ghi đồng loạt.
+    dvt_nhom: Mapped[str | None] = mapped_column(String(30), nullable=True)
     loai_san_pham_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # → loai_san_pham.id (soft) — loại của sản phẩm này
 
     # --- Giấy ---

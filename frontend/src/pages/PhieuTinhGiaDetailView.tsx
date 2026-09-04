@@ -514,6 +514,9 @@ interface EditableComponent {
   // Nhãn GỘP DÒNG KHI BÁO GIÁ: ruột + bìa cùng cuốn gõ giống nhau → báo giá in 1 dòng "quyển
   // sách". Chỉ là lớp trình bày: tính giá vẫn tách dòng, sản xuất vẫn tách lệnh.
   nhom_bao_gia: string;
+  // ĐVT của CẢ NHÓM khi in cho khách (chọn ở dải nhóm, lấy từ danh mục Đơn vị & quy đổi). Mọi
+  // dòng cùng nhãn nhóm mang cùng giá trị. Rỗng = rơi về ĐVT dòng đầu nhóm như trước.
+  dvt_nhom: string;
   loai_san_pham_id: number | null; // loại SP của sản phẩm này
   // Giấy ①
   giay_id: number | null;
@@ -590,6 +593,7 @@ function blankComponent(ten = ""): EditableComponent {
     so_luong: 0,
     don_vi_tinh: "cái",
     nhom_bao_gia: "",
+    dvt_nhom: "",
     loai_san_pham_id: null,
     giay_id: null,
     kho_nguyen: "",
@@ -664,6 +668,7 @@ function fromComponent(c: ThanhPhanOut): EditableComponent {
     so_luong: c.so_luong ?? 0,
     don_vi_tinh: c.don_vi_tinh ?? "cái",
     nhom_bao_gia: c.nhom_bao_gia ?? "",
+    dvt_nhom: c.dvt_nhom ?? "",
     loai_san_pham_id: c.loai_san_pham_id ?? null,
     giay_id: c.giay_id ?? null,
     kho_nguyen: c.kho_nguyen ?? "",
@@ -706,6 +711,7 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
     so_luong: c.so_luong,
     don_vi_tinh: c.don_vi_tinh.trim() || "cái",
     nhom_bao_gia: c.nhom_bao_gia.trim() || null,
+    dvt_nhom: c.dvt_nhom.trim() || null,
     loai_san_pham_id: c.loai_san_pham_id,
     giay_id: c.giay_id,
     kho_nguyen: c.kho_nguyen.trim() || null,
@@ -781,6 +787,7 @@ function fromThanhPhanIn(cfg: ThanhPhanIn, giu: { uid: string; so_luong: number 
     so_luong: giu.so_luong,
     don_vi_tinh: cfg.don_vi_tinh ?? "cái",
     nhom_bao_gia: cfg.nhom_bao_gia ?? "",
+    dvt_nhom: cfg.dvt_nhom ?? "",
     loai_san_pham_id: cfg.loai_san_pham_id ?? null,
     giay_id: cfg.giay_id ?? null,
     kho_nguyen: cfg.kho_nguyen ?? "",
@@ -1187,6 +1194,41 @@ function KhuonCalc({ domId, soTrangDaLuu, moiTayDaLuu, onApply, onClose }: {
 }
 
 
+/** Danh mục ĐƠN VỊ TÍNH cho các ô ĐVT (chủ 21/08/2026: "lấy theo Đơn vị tính trong danh mục cho
+ *  họ chọn"). Nạp Ở CẤP TRANG rồi luồn xuống — trước đây modal tự gọi nên mỗi lần mở một sản phẩm
+ *  là một request, mà dải nhóm ngoài bảng cũng cần đúng danh sách này.
+ *
+ *  Trả về TÊN ("cái") chứ không mã ("cai"): chuỗi này chảy thẳng sang Báo giá rồi ra
+ *  `order_lines.don_vi_tinh` và IN LÊN GIẤY. Đổi sang mã là mọi báo giá cũ in ra chữ khác. */
+function useDanhMucDonVi(token: string | null): string[] {
+  const [dvtOpts, setDvtOpts] = useState<string[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    donViDo
+      .list(token, { active: true, size: 200 })
+      .then((r) => {
+        // Danh mục có cả m² · kg · mm · bản kẽm — đúng cho vật tư, vô nghĩa cho ĐVT sản phẩm.
+        // KHÔNG lọc bỏ (danh mục là của chủ, lọc là tự quyết hộ), chỉ ĐẨY LÊN TRƯỚC những họ
+        // dùng để BÁN: thành phẩm (cái/hộp/cuốn/bộ/con) · tờ (tờ rơi bán theo tờ) · thùng.
+        // Không gom thành optgroup vì họ trong danh mục chỉ có mã thô (`khoi_luong`…), chưa
+        // có nhãn hiển thị — bịa nhãn ở đây là đẻ nguồn sự thật thứ hai.
+        const uu_tien = ["thanh_pham", "to", "thung"];
+        const hang = (ho: string) => {
+          const i = uu_tien.indexOf(ho);
+          return i < 0 ? uu_tien.length : i;
+        };
+        const ds = r.items
+          .map((d: Row) => ({ ten: String(d.ten ?? ""), ho: String(d.ho ?? "") }))
+          .filter((d) => d.ten);
+        ds.sort((a, b) => hang(a.ho) - hang(b.ho) || a.ten.localeCompare(b.ten, "vi"));
+        setDvtOpts(ds.map((d) => d.ten));
+      })
+      .catch(() => setDvtOpts([]));
+  }, [token]);
+  return dvtOpts;
+}
+
+
 // ------------------------------- Component -------------------------------
 export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   // null = phiếu NHÁP chưa ghi DB (vừa bấm "Lập phiếu tính giá"). Form chạy đủ — bình bài và số
@@ -1199,6 +1241,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const { token } = useAuth();
   // Nhãn đơn vị ở bảng phân rã bù hao đọc từ danh mục — nạp một lần cho cả phiên.
   useNapTenDonVi();
+  // Danh sách ĐVT cho ô ĐVT của từng sản phẩm (modal) VÀ ô ĐVT của dải nhóm (bảng).
+  const dvtOpts = useDanhMucDonVi(token);
   const [quoting, setQuoting] = useState(false);
   // Id THẬT của phiếu: null tới khi lần lưu đầu tiên chạy xong (POST). Từ đó trở đi là PUT.
   const [pid, setPid] = useState<number | null>(id);
@@ -1821,13 +1865,42 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const apDungNhom = useCallback(() => {
     const ten = tenNhom.trim();
     if (!ten) return;
-    setComps((cs) => cs.map((c) => (chonUids.has(c.uid) ? { ...c, nhom_bao_gia: ten } : c)));
+    setComps((cs) => {
+      // Gộp thêm dòng vào nhóm ĐÃ CÓ ĐVT thì dòng mới kế thừa luôn — mọi dòng cùng nhãn phải
+      // cùng một ĐVT, không thì dòng gộp in ra đơn vị nào là tuỳ dòng nào đứng đầu.
+      const dvSan =
+        cs.find((c) => c.nhom_bao_gia.trim().toLowerCase() === ten.toLowerCase() && c.dvt_nhom.trim())
+          ?.dvt_nhom.trim() ?? "";
+      return cs.map((c) =>
+        chonUids.has(c.uid) ? { ...c, nhom_bao_gia: ten, dvt_nhom: dvSan || c.dvt_nhom } : c,
+      );
+    });
     setChonUids(new Set());
     setTenNhom("");
     setPendingCalc(true);
   }, [chonUids, tenNhom]);
+  // ĐVT của DÒNG GỘP — chọn từ danh mục Đơn vị & quy đổi, ghi cho MỌI dòng trong nhóm (nhóm chỉ
+  // là cái nhãn, không có bảng riêng). Trước đây dòng gộp mượn ĐVT của dòng ĐẦU: nhóm "sách" mở
+  // đầu bằng bìa ("cái") in ra khách "đ/cái" trong khi khách mua CUỐN. Từng phần vẫn giữ ĐVT
+  // riêng của nó cho các số nội bộ. Tự lưu như gộp/bỏ gộp.
+  const datDvtNhom = useCallback((uids: string[], dv: string) => {
+    const bo = new Set(uids);
+    setComps((cs) => cs.map((c) => (bo.has(c.uid) ? { ...c, dvt_nhom: dv } : c)));
+    setPendingCalc(true);
+  }, []);
+  const dvtNhomOptsBase = useMemo<SelectOption<string>[]>(
+    () => [
+      { value: "", label: "— theo dòng đầu —" },
+      ...dvtOpts.map((d) => ({ value: d, label: d })),
+    ],
+    [dvtOpts],
+  );
   const boNhom = useCallback(() => {
-    setComps((cs) => cs.map((c) => (chonUids.has(c.uid) ? { ...c, nhom_bao_gia: "" } : c)));
+    // Bỏ nhãn nhóm thì bỏ luôn ĐVT nhóm: giữ lại là để một đơn vị vô chủ nằm im chờ gộp lần sau
+    // rồi bật lên mà không ai nhớ đã chọn nó.
+    setComps((cs) =>
+      cs.map((c) => (chonUids.has(c.uid) ? { ...c, nhom_bao_gia: "", dvt_nhom: "" } : c)),
+    );
     setChonUids(new Set());
     setTenNhom("");
     setPendingCalc(true);
@@ -2112,7 +2185,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                         const tongVon = node.members.reduce((s, m) => s + m.gia_von_tp, 0);
                         const slNhom =
                           node.members[0].so_luong > 0 ? node.members[0].so_luong : phieuSL;
-                        const dvt = node.members[0].don_vi_tinh || "cái";
+                        // ĐVT dòng gộp: lấy ĐVT NHÓM nếu đã chọn, không thì rơi về ĐVT dòng đầu
+                        // như luật cũ (phiếu cũ hiện y nguyên).
+                        const dvtNhom = (node.members[0].dvt_nhom || "").trim();
+                        const dvt = dvtNhom || node.members[0].don_vi_tinh || "cái";
                         // Gộp là gộp CHO KHÁCH: bản in ghi 1 dòng, SL lấy phần ĐẦU vì khách mua
                         // 10.000 cuốn chứ không phải 10.000 ruột + 10.000 bìa (`utils/gop-nhom`).
                         // Quy ước đó chỉ đúng khi các phần CÙNG số lượng, nên bản in nay CHỈ gộp
@@ -2186,7 +2262,28 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                                 </span>
                               )}
                             </td>
-                            <td />
+                            <td>
+                              {/* ĐVT của CẢ NHÓM — thứ in cho khách trên dòng gộp. Ô tìm gần đúng
+                                  trên danh mục Đơn vị & quy đổi; để trống thì vẫn chạy luật cũ
+                                  (lấy ĐVT dòng đầu), nên không ép ai phải chọn. */}
+                              <Select
+                                options={
+                                  dvtNhom && !dvtOpts.includes(dvtNhom)
+                                    ? [
+                                        { value: dvtNhom, label: `${dvtNhom} (ngoài danh mục)` },
+                                        ...dvtNhomOptsBase,
+                                      ]
+                                    : dvtNhomOptsBase
+                                }
+                                value={dvtNhom}
+                                onChange={(v) => datDvtNhom(uids, v)}
+                                ariaLabel={`Đơn vị tính của nhóm "${node.ten}"`}
+                                searchable
+                                portal
+                                className="tg-input grouphd__dvt"
+                                listClassName="tg-pop"
+                              />
+                            </td>
                             <td className="num mono">
                               {lechNhom ? "—" : slNhom > 0 ? fmt(slNhom) : "—"}
                             </td>
@@ -2207,7 +2304,9 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                                 onClick={() =>
                                   setComps((cs) =>
                                     cs.map((c) =>
-                                      uids.includes(c.uid) ? { ...c, nhom_bao_gia: "" } : c,
+                                      uids.includes(c.uid)
+                                        ? { ...c, nhom_bao_gia: "", dvt_nhom: "" }
+                                        : c,
                                     ),
                                   )
                                 }
@@ -2429,6 +2528,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
         <ComponentModal
           comp={editing}
           idx={editingIdx}
+          dvtOpts={dvtOpts}
           loaiSPs={loaiSPs}
           giays={giays}
           mays={mays}
@@ -2475,6 +2575,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
 function ComponentModal({
   comp: c,
   idx,
+  dvtOpts,
   loaiSPs,
   giays,
   mays,
@@ -2493,6 +2594,7 @@ function ComponentModal({
 }: {
   comp: EditableComponent;
   idx: number;
+  dvtOpts: string[];
   loaiSPs: Row[];
   giays: Row[];
   mays: Row[];
@@ -2512,35 +2614,6 @@ function ComponentModal({
   // Lấy token tại chỗ thay vì luồn prop qua 16 tham số — ô gợi ý tên sản phẩm cần gọi API
   // danh mục Thành phẩm.
   const { token } = useAuth();
-
-  // Danh mục ĐƠN VỊ TÍNH cho ô ĐVT (chủ 21/08/2026: "lấy theo Đơn vị tính trong danh mục cho họ
-  // chọn"). Nạp MỘT lần cho cả khối sản phẩm — mỗi ô tự gọi là mỗi sản phẩm một request.
-  // Lưu TÊN ("cái") chứ không lưu mã ("cai"): chuỗi này chảy thẳng sang Báo giá rồi ra
-  // `order_lines.don_vi_tinh` và IN LÊN GIẤY. Đổi sang mã là mọi báo giá cũ in ra chữ khác.
-  const [dvtOpts, setDvtOpts] = useState<string[]>([]);
-  useEffect(() => {
-    if (!token) return;
-    donViDo
-      .list(token, { active: true, size: 200 })
-      .then((r) => {
-        // Danh mục có cả m² · kg · mm · bản kẽm — đúng cho vật tư, vô nghĩa cho ĐVT sản phẩm.
-        // KHÔNG lọc bỏ (danh mục là của chủ, lọc là tự quyết hộ), chỉ ĐẨY LÊN TRƯỚC những họ
-        // dùng để BÁN: thành phẩm (cái/hộp/cuốn/bộ/con) · tờ (tờ rơi bán theo tờ) · thùng.
-        // Không gom thành optgroup vì họ trong danh mục chỉ có mã thô (`khoi_luong`…), chưa
-        // có nhãn hiển thị — bịa nhãn ở đây là đẻ nguồn sự thật thứ hai.
-        const uu_tien = ["thanh_pham", "to", "thung"];
-        const hang = (ho: string) => {
-          const i = uu_tien.indexOf(ho);
-          return i < 0 ? uu_tien.length : i;
-        };
-        const ds = r.items
-          .map((d: Row) => ({ ten: String(d.ten ?? ""), ho: String(d.ho ?? "") }))
-          .filter((d) => d.ten);
-        ds.sort((a, b) => hang(a.ho) - hang(b.ho) || a.ten.localeCompare(b.ten, "vi"));
-        setDvtOpts(ds.map((d) => d.ten));
-      })
-      .catch(() => setDvtOpts([]));
-  }, [token]);
 
   // ---- Sản phẩm tái bản (docs/spec-san-pham-tai-ban.md) ----
   // Snapshot lúc MỞ thẻ này — dùng để biết đang có sửa tay CHƯA lưu hay chưa, mới quyết có cần

@@ -1711,18 +1711,21 @@
   pointer-events: none;
 }
 
-/* --- Thưởng/phạt tổ trưởng theo tỷ lệ hàng lỗi (chủ 29/07/2026) --- */
+/* --- Thưởng/phạt tổ trưởng: KHOẢNG SẢN LƯỢNG × tỷ lệ lỗi (chủ 04/09/2026) --- */
+/* Bảng dùng LẠI khung `RowEditor` (`.rc-bands`) của ô "Bậc số lượng" ở màn danh mục — chủ trỏ
+   thẳng vào nó: *"nó cũng tương tự như cái này nè"*. Ở đây chỉ chỉnh bề rộng ô cho 5 cột. */
+.cl-lb__grid .rc-input-wrapper { max-width: 150px; }
+/* Ghi chú là chữ, cần rộng — cởi trần 150px cho riêng cột cuối. */
+.cl-lb__grid td:nth-child(5) .rc-input-wrapper { max-width: none; }
 /* Ô % kèm chip Thưởng/Phạt: dấu âm dễ đọc lướt thành dương nên phải có chữ đi kèm. */
 .cl-lb__rate { display: flex; align-items: center; gap: var(--sp-2); }
-/* Ô % + chip "Thưởng/Phạt" đứng cạnh nhau: ghim bề rộng ô cho chip khỏi bị đẩy xuống dòng.
-   Nhắm vào WRAPPER chứ không phải `input` — ô số dùng `NumInput` (rc-input-wrapper + suffix),
-   đặt width lên chính input sẽ đá nhau với `.rc-input { width: 100% }`. */
-.cl-lb__rate .rc-input-wrapper { width: 112px; flex: none; }
-/* Cột "Tỷ lệ lỗi tới": số ngắn, để rộng bằng cả cột trông trống trải. */
-.cl-lb__table td .rc-input-wrapper { max-width: 150px; }
-/* Ghi chú là chữ, cần rộng — cởi trần 150px ở trên cho riêng cột này. */
-.cl-lb__table td:nth-child(4) .rc-input-wrapper { max-width: none; }
-/* Câu đọc từ chính bảng mốc — bảng số khó hình dung, đọc câu thì ra ngay. */
+/* Ghim bề rộng ô cho chip khỏi bị đẩy xuống dòng. Nhắm vào WRAPPER chứ không phải `input` — ô số
+   dùng `NumInput` (rc-input-wrapper + suffix), đặt width lên input sẽ đá `.rc-input{width:100%}`. */
+.cl-lb__rate .rc-input-wrapper { width: 112px; flex: none; max-width: none; }
+/* Dòng TRÚNG của ô thử nhanh — tô sáng ngay trên bảng thay vì bắt dò lại bằng mắt. */
+.cl-lb__grid tr.is-trung > td { background: var(--paper-contrast); }
+.cl-lb__grid tr.is-trung > td:first-child { box-shadow: inset 3px 0 0 var(--accent, var(--ink)); }
+/* Câu đọc từ chính bảng bậc — mỗi khoảng sản lượng một dòng, bảng số khó hình dung. */
 .cl-lb__read {
   margin-top: var(--sp-2);
   padding: 8px 12px;
@@ -1731,31 +1734,11 @@
   border-radius: var(--r-2);
   line-height: 1.7;
 }
-/* Ngưỡng tối thiểu — đứng TRƯỚC bảng bậc vì nó chặn trước. Nền rust nhạt để tách khỏi bảng bậc:
-   đây là một luật KHÁC loại (cửa chặn), không phải thêm một bậc nữa. */
-/* Ngưỡng tối thiểu — đứng TRƯỚC bảng bậc vì nó chặn trước. Nền paper để tách khỏi bảng bậc:
-   đây là một luật KHÁC loại (cửa chặn), không phải thêm một bậc nữa.
-   2 cột: ô số lượng · lời giải thích. */
-.cl-lb__gate {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: var(--sp-4);
-  align-items: start;
-  margin-bottom: var(--sp-4);
-  padding: 12px 14px;
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-3);
-}
-.cl-lb__gate .cl-hint-inline { margin: 0; align-self: center; }
-@media (max-width: 1100px) {
-  .cl-lb__gate { grid-template-columns: minmax(0, 1fr); }
-}
-/* 4 cột: tỷ lệ lỗi · sản lượng giả định · tổng khoán giả định · kết quả.
-   Sản lượng và tiền là HAI ô riêng — ngưỡng đo bằng số lượng, còn % nhân trên tiền. */
+/* Thử nhanh — 4 cột: sản lượng · tỷ lệ lỗi · đơn giá khoán · kết quả. Cả BA ô đầu đều tác động
+   tới tiền (sản lượng vừa là điều kiện vừa là thừa số), khác khối thử cũ. */
 .cl-lb__try {
   display: grid;
-  grid-template-columns: 150px 170px 200px minmax(0, 1fr);
+  grid-template-columns: 170px 150px 190px minmax(0, 1fr);
   gap: var(--sp-3);
   align-items: end;
   margin-top: var(--sp-3);

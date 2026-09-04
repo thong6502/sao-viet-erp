@@ -98,6 +98,22 @@
   right: 0;
 }
 
+/* Rộng bằng ô chọn là SÀN, không phải TRẦN (03/09/2026): tên dài hơn ô thì danh sách tự nở theo
+   nội dung thay vì để `text-overflow: ellipsis` ở `.sel__opt-label` cắt cụt — ô hẹp mà danh mục
+   tên dài (vd "+ Thêm công đoạn…") thì mọi dòng đều cụt như nhau, không đọc được cái nào.
+   Bản `--portal` là `position: fixed`, bề ngang do style inline đặt theo rect của nút (xem
+   `Select.tsx`) — `100%` ở đây sẽ tính theo MÀN HÌNH nên phải chừa nó ra. */
+.sel__list:not(.sel__list--portal) {
+  right: auto;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 16px));
+}
+.sel__list--right:not(.sel__list--portal) {
+  left: auto;
+  right: 0;
+}
+
 /* Auto-expand popover width when options have 2-tier stacked text (e.g. Sales name + role) */
 .sel__list:has(.sel__opt-stack) {
   min-width: max(100%, 280px);

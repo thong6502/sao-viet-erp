@@ -102,12 +102,16 @@ ATTACHMENT_DOC_KINDS = (DOC_HOP_DONG, DOC_CCCD, DOC_BANG_CAP, DOC_KHAC)
 # tên chỉ là nhãn hiển thị, đổi tên không đụng hạng của ai.
 # (Đường đời: bản đầu 3 chính + 2 phụ `tho_*`/`phu_*` → migration 0129 gộp về Bậc 1…5 → migration
 # 0155 đổi sang tên dân dã dưới đây. Tất cả đổi tên TẠI CHỖ giữ id nên không ai mất bậc.)
+# Phần tử thứ 4 = HỆ SỐ SẢN LƯỢNG mặc định (chủ 04/09/2026, "mặc định là những con số đó, người
+# dùng muốn sửa thì sửa sau"). Đây chỉ là số KHỞI ĐIỂM để hệ chạy được ngay — xưởng sửa lại ở
+# Hồ sơ nhân sự → nút "Bậc tay nghề". Bỏ trống hệ số thì KHÔNG chốt được phân bổ sản lượng
+# (xem `services/san_xuat/phan_bo.py`), nên seed/migration phải luôn rót số vào.
 JOB_GRADE_SEED = (
-    ("bac_1", "Thợ lành nghề", 1),
-    ("bac_2", "Thợ vững", 2),
-    ("bac_3", "Thợ thường", 3),
-    ("bac_4", "Tập việc", 4),
-    ("bac_5", "Lính mới", 5),
+    ("bac_1", "Thợ lành nghề", 1, 1.3),
+    ("bac_2", "Thợ vững", 2, 1.15),
+    ("bac_3", "Thợ thường", 3, 1.0),
+    ("bac_4", "Tập việc", 4, 0.9),
+    ("bac_5", "Lính mới", 5, 0.8),
 )
 
 
@@ -118,10 +122,14 @@ def _utcnow() -> datetime:
 class JobGrade(Base):
     """Danh mục bậc tay nghề — dùng cho khối SẢN XUẤT.
 
-    🚫 **KHAI BẬC THÔI — KHÔNG có tiền, KHÔNG có hệ số** (chủ 2026-07-29). Bảng này cố ý chỉ có
-    mã · tên · thứ tự · bật/tắt. Gán bậc cho một người KHÔNG làm đổi một đồng nào trên bảng lương;
-    có test chốt việc đó. Khi nào cần chia sản lượng khoán theo bậc thì treo thêm cột vào ĐÂY —
-    không phải đi sửa hồ sơ từng người. Đó là lý do bậc là một BẢNG có id, không phải ô chữ.
+    Bản đầu (chủ 2026-07-29) cố ý chỉ có mã · tên · thứ tự · bật/tắt — "khai bậc thôi", gán bậc
+    KHÔNG đổi một đồng nào — kèm lời dặn: *khi nào cần chia sản lượng khoán theo bậc thì treo
+    thêm cột vào ĐÂY, không phải đi sửa hồ sơ từng người*. Cột đó nay đã treo:
+    `output_coefficient` (mg `0220`). Đó vẫn là lý do bậc là một BẢNG có id, không phải ô chữ —
+    sửa hệ số một lần ở đây là cả xưởng đổi theo.
+
+    ⚠️ Bậc vẫn KHÔNG mang tiền: nó không cộng thẳng vào bảng lương thời gian. Nó chỉ là TỶ LỆ
+    dùng lúc chia một mẻ khoán cho những người đã làm mẻ đó (§8 Thực hiện sản xuất).
     """
 
     __tablename__ = "job_grades"
@@ -141,8 +149,11 @@ class JobGrade(Base):
     # Hệ số quy đổi SẢN LƯỢNG theo bậc — nền chia khoán ở module Thực hiện sản xuất
     # (spec-thuc-hien-san-xuat §8). Đây ĐÚNG là "treo cột vào bảng bậc" mà docstring lớp này đã dặn:
     # khi phân bổ sản lượng lô cho từng người, phần của mỗi người được nhân hệ số bậc này (thợ cứng
-    # tay ăn nhiều hơn tập việc trên cùng một mẻ). NULL = CHƯA khai ⇒ engine coi như 1.0 (chia đều theo
-    # thời gian tham gia); khai bậc KHÔNG tự động đổi lương cho tới khi hệ số được điền + có mẻ khoán.
+    # tay ăn nhiều hơn tập việc trên cùng một mẻ).
+    # ⚠️ NULL KHÔNG phải "coi như 1.0". `services/san_xuat/phan_bo.py` đặt trọng số phần đó = 0 rồi
+    # CHẶN chốt phân bổ với cảnh báo "Có người chưa gán hệ số bậc (§8)" — tiền mẻ treo, không ai
+    # lĩnh được. Vì vậy `JOB_GRADE_SEED` + mg `0263` luôn rót sẵn số cho cả 5 bậc; ô nhập ở
+    # Hồ sơ nhân sự → "Bậc tay nghề" cũng không cho xoá trắng.
     output_coefficient: Mapped[float | None] = mapped_column(Numeric(6, 3), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

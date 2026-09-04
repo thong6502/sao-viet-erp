@@ -25,6 +25,7 @@ from ...models.employee import Employee, JobGrade
 from ...models.may_thiet_bi import MayThietBi
 from ...models.san_xuat import (
     BUOC_MAY,
+    BUOC_THUE_NGOAI,
     BUOC_TO,
     CV_DANG_CHAY,
     CV_HOAN_THANH,
@@ -459,7 +460,8 @@ def doi_may(
     lúc đó `bat_dau()` tự chụp `cv.may_id` mới.
 
     Chỉ hai trạng thái đó đổi được: việc chưa bắt đầu thì sửa ở bàn xếp lịch, việc đã kết thúc
-    thì không còn máy nào để đổi. Chỉ bước CHẠY MÁY (`loai_buoc == BUOC_MAY`) mới có khái niệm
+    thì không còn máy nào để đổi. Chỉ bước CHẠY MÁY (`BUOC_MAY`, và `BUOC_THUE_NGOAI` — nhà thầu
+    khai như một máy trong danh mục) mới có khái niệm
     đổi máy — bước nội bộ/thuê ngoài không gắn máy nào để đổi (review vòng 1, Important 2).
 
     Máy mới phải tồn tại và còn dùng (`active=True`) trong danh mục `may_thiet_bi` — FE chỉ CHE
@@ -472,7 +474,7 @@ def doi_may(
     _kiem_version(cv, expected_version)
     if cv.trang_thai not in (CV_DANG_CHAY, CV_TAM_DUNG):
         raise ValueError("Chỉ công việc đang chạy hoặc tạm dừng mới đổi máy được.")
-    if cv.loai_buoc != BUOC_MAY:
+    if cv.loai_buoc not in (BUOC_MAY, BUOC_THUE_NGOAI):
         raise ValueError("Bước này không chạy máy — không có gì để đổi.")
     if cv.may_id == may_id_moi:
         raise ValueError("Máy mới trùng máy đang chạy — không có gì để đổi.")

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from ..models.may_thiet_bi import MayThietBi, NhomMay, la_nhom_khoa
+from ..models.may_thiet_bi import MayThietBi, NhomMay, la_nhom_khoa, ma_don_vi_goc
 from ..repositories.may_thiet_bi_repo import MayThietBiRepository, NhomMayRepository
 from .catalog_base import (
     CatalogDuplicate, CatalogError, CatalogNotFound, CatalogService, CatalogValidationError,
@@ -101,10 +101,14 @@ class MayThietBiService(CatalogService):
 
         ⚠️ Field `don_vi_toc_do_ten` PHẢI có mặt trong `schemas.may_thiet_bi.MayThietBiRow`, nếu
         không Pydantic nuốt im lặng và FE nhận `undefined` mà chẳng có lỗi nào.
+
+        ⚠️ Máy lưu `<mã đơn vị>_gio` còn bảng tra khoá theo `don_vi_do.ma` (`to`), nên PHẢI cắt hậu
+        tố trước khi tra — trước 04/09/2026 tra thẳng `to_gio` nên tên LUÔN rỗng, cột "Tốc độ" ở
+        bảng danh sách rơi về nhánh dự phòng của FE và in mã trần không dấu ("to/h", "nhip/h").
         """
         ten = self.repo.don_vi_ten()
         for it in items:
-            ma = (getattr(it, "don_vi_toc_do", None) or "").strip().lower()
+            ma = ma_don_vi_goc(getattr(it, "don_vi_toc_do", None))
             it.don_vi_toc_do_ten = ten.get(ma) if ma else None
 
 

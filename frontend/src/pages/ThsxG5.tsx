@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import type {
   SxWorkItemChiTiet, SxKcsChiTiet, SxKcsBatchChiTiet, SxKcsLoi, SxKcsAnh,
   SxKhoChiTiet, SxNhapKhoYc, SxKhoLot, SxKhoHopThu, SxDongNhomDieuKien,
-  SxPhanLoaiBtp, SxLyDo, SxPhanLoaiBtpIn, SxDongThieuIn,
+  SxPhanLoaiBtp, SxLyDo, SxPhanLoaiBtpIn, SxDongThieuIn, SxThuongToTruong,
 } from "../api/client";
 import { assetUrl } from "../api/client";
 import { Button } from "../components/Button";
@@ -620,6 +620,64 @@ export function PhanLoaiBtpForm({
         </Button>
       </div>
     </div>
+  );
+}
+
+// ══════════════════ THƯỞNG/PHẠT TỔ TRƯỞNG §8 (panel drawer) ══════════════════
+/** Điểm chất lượng của từng TỔ trong nhóm + tiền thưởng/phạt của tổ trưởng.
+ *
+ * Bày cả bốn số vào (sản lượng · lỗi · tỷ lệ · % bậc) chứ không chỉ số tiền: chủ chốt *"xong lệnh
+ * nào là biết sản lượng cá nhân và số tiền tương ứng luôn"* — biết CON SỐ thôi thì vẫn phải đi hỏi
+ * ai đó vì sao ra thế. Trước khi nhóm đóng đây là XEM TRƯỚC (số còn chạy theo mẻ/lỗi mới); đóng rồi
+ * thì đóng băng, và băng nhỏ dưới bảng nói rõ đang ở trạng thái nào. */
+export function ThsxThuongToTruongPanel({ rows }: { rows: SxThuongToTruong[] | null }) {
+  if (rows == null || rows.length === 0) return null;      // tổ chưa khai bậc ⇒ không bày ô rỗng
+  const daGhi = rows.some((r) => r.da_ghi);
+  return (
+    <section className="thsx-psec thsx-x">
+      <div className="thsx-psec__h">
+        <span className="thsx-psec__title"><Icon name="shield" size={13} /> Thưởng/phạt tổ trưởng</span>
+      </div>
+      <table className="thsx-x-tbl">
+        <thead>
+          <tr>
+            <th>Tổ</th>
+            <th className="thsx-num r">Sản lượng</th>
+            <th className="thsx-num r">Lỗi</th>
+            <th className="thsx-num r">Tỷ lệ lỗi</th>
+            <th className="thsx-num r">Bậc</th>
+            <th className="thsx-num r">Thành tiền</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.department_id}>
+              <td>{r.department ?? `Tổ #${r.department_id}`}</td>
+              <td className="thsx-num r">{num(r.san_luong)}</td>
+              <td className="thsx-num r">{num(r.so_luong_loi)}</td>
+              <td className="thsx-num r">{r.ty_le_loi.toFixed(2)}%</td>
+              {/* Dấu HIỆN RÕ: `+5%` và `−5%` khác nhau cả chiều tiền, để trơ số 5 là đọc nhầm. */}
+              <td className={`thsx-num r${r.rate_pct < 0 ? " thsx-x-neg" : ""}`}>
+                {r.rate_pct > 0 ? "+" : ""}{r.rate_pct}%
+              </td>
+              <td className={`thsx-num r${r.so_tien < 0 ? " thsx-x-neg" : ""}`}>
+                {r.so_tien.toLocaleString("vi-VN")}đ
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="thsx-note">
+        {daGhi
+          ? "Đã chốt lúc đóng nhóm — số này không đổi khi sửa bậc thưởng về sau, và sẽ vào bảng lương kỳ tương ứng."
+          : "Xem trước — số còn thay đổi theo mẻ và lỗi KCS ghi thêm, chốt lại lúc đóng nhóm."}
+      </p>
+      {rows.filter((r) => r.ghi_chu).map((r) => (
+        <p key={r.department_id} className="thsx-note thsx-note--warn">
+          {r.department ?? `Tổ #${r.department_id}`}: {r.ghi_chu}
+        </p>
+      ))}
+    </section>
   );
 }
 

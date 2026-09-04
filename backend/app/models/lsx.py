@@ -66,7 +66,8 @@ DV_TAY = "tay"    # tay sách (1 tờ in gấp lại = 1 tay, mang n trang)
 # tồn tại. Thời gian chờ/di chuyển nằm trên bước và không chiếm năng lực tài nguyên.
 LB_MAY = "may"                 # chiếm MÁY (in, cán, bế, xén)
 LB_TO = "to"                   # chiếm TỔ lao động (dán tay, đóng gói)
-LB_THUE_NGOAI = "thue_ngoai"   # nhà gia công làm — không chiếm máy/tổ nội bộ
+LB_THUE_NGOAI = "thue_ngoai"   # nhà gia công làm — máy của họ khai trong danh mục Máy; nhập
+                               # liệu Y HỆT bước máy, chỉ KHÔNG sinh tiền khoán / sản lượng tổ
 LOAI_BUOC = (LB_MAY, LB_TO, LB_THUE_NGOAI)
 # Bước chiếm tổ (nhiều người làm song song được → `so_nhan_cong` chia thời gian chạy).
 LOAI_BUOC_THEO_TO = (LB_TO,)

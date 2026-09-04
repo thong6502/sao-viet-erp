@@ -289,7 +289,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             // spread hai lần cùng một prop là TS2783, và người đọc phải dò xem cái nào thắng.
             nhanO={laDonVi ? "Cách đo của đơn vị này" : cleanLabel}
             goY={laDonVi
-              ? "vd: dai_in * rong_in * to_sau_in  (một m² tờ in đo thế nào)"
+              ? "vd: dai_in * rong_in * sl_ra  (một m² tờ in đo thế nào)"
               : (hint || undefined)}
             // "Lần trước" (mục 3+7): chỉ có khi ĐANG SỬA — dòng mới tạo chưa có lịch sử.
             recordId={isEdit && existing ? Number(existing.id) : null}

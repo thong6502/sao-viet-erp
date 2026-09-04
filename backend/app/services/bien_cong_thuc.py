@@ -33,8 +33,10 @@ _MOI_O = (*_TIEN, LOAI_QUY_DOI)                    # bộ CHUNG — có mặt �
 
 # (mã, nhãn ngắn, mô tả hover, đơn vị, NGUỒN số, dùng được ở ô nào)
 #
-# BỘ CHUNG 16 BIẾN + đúng MỘT biến đơn giá cho ô nào có mục để lấy giá (chốt 11/08/2026):
-#     Giấy 17 · Vật tư 17 · Công đoạn 16 · Quy đổi 16
+# BỘ CHUNG 17 BIẾN (15 + hai chip quy cách sách, 03/09/2026) + đúng MỘT biến đơn giá cho ô nào có
+# mục để lấy giá, + năm chip TẦNG BƯỚC cho hai ô đứng ở một bước:
+#     Giấy 19 · Vật tư 18 · Công đoạn 22 · Quy đổi 23
+# Con số này bị khoá bằng test (`test_bon_o_dung_chung_bo_bien_va_hai_chip_rieng_cua_buoc`).
 # Công đoạn KHÔNG có biến tiền — không có ô nhập đơn giá ở cả phiếu lẫn danh mục, và 13/13 công
 # thức đang gõ đơn giá thẳng vào công thức. Quy đổi dùng chung bộ 16: nó chỉ chạy ở TẦNG LỆNH
 # (kế hoạch vật tư · tiền khoán · màn thử), nơi quy cách lệnh có sẵn đủ số — kho và mua hàng
@@ -61,6 +63,20 @@ _BANG: tuple[tuple[str, str, str, str, str, tuple[str, ...]], ...] = (
      "SL của dòng ĐƠN — lệnh ép theo đơn, không lấy SL của phiếu tính giá", _MOI_O),
     ("so_tp", "Số con/tờ in", "Số con/tờ — 1 tờ in ra mấy cái", "con",
      "bình bài của lệnh", _MOI_O),
+    # --- Quy cách SÁCH (03/09/2026) --------------------------------------------------------------
+    # Hai số này là thứ phân biệt sách với tờ rời, và trước nay KHÔNG có tên biến nào trỏ tới:
+    # engine đọc chúng để dựng cầu `to → tay → cai` (`cau_to_sang_cai`) nhưng người khai công thức
+    # thì không, nên mọi công thức phải đi vòng qua `so_tp`/`sl_ra` — không tính được thứ tính theo
+    # TRANG (bình file, ghi kẽm theo tay, gấp, bắt tay) mà chỉ tính theo tờ.
+    #
+    # Tờ rời và hộp: cả hai = 1 (mặc định cột, và mg 0147 backfill dữ liệu cũ về 1), nên
+    # `x * so_trang` trên bài tờ rời ra đúng `x` — thêm chip này KHÔNG đổi số của công thức cũ.
+    # `trang_moi_tay > 1` là dấu hiệu DUY NHẤT của "làm kiểu sách" (xem `la_sach` ở lsx_service),
+    # nên `if(trang_moi_tay > 1, ..., ...)` là cách khai một công thức chạy cả hai kiểu bài.
+    ("so_trang", "Số trang sách", "Số trang nội dung của 1 sản phẩm (tờ rời/hộp = 1)", "trang",
+     "ô Số trang của sản phẩm ở phiếu tính giá — tờ rời/hộp là 1", _MOI_O),
+    ("trang_moi_tay", "Trang mỗi tay", "Số trang trên 1 tay gấp (8 · 16 · 32); 1 = không gấp tay",
+     "trang", "ô Trang mỗi tay của sản phẩm — 1 nghĩa là không gấp tay (tờ rời, hộp)", _MOI_O),
     # Ba biến tờ dưới đây ĐÃ GỒM BÙ HAO — kết quả của chuỗi bù hao ngược, không phải số thô.
     ("to_dau_vao", "Tờ vào máy", "Số tờ vào máy = tờ cần in + bù hao", "tờ",
      "CHUỖI BÙ HAO NGƯỢC — đã gồm bù hao, đừng nhân hao thêm lần nữa", _MOI_O),
@@ -211,6 +227,7 @@ def ngu_canh_phieu(
     dai_nguyen: float, rong_nguyen: float,
     dai_in: float, rong_in: float,
     so_luong: float, so_tp: float,
+    so_trang: float, trang_moi_tay: float,
     to_dau_vao: float, to_sau_in: float, to_nguyen: float,
     so_mau: float, so_mau_pha: float, so_mat: float, so_kem: float,
     dinh_luong: float,
@@ -228,6 +245,7 @@ def ngu_canh_phieu(
         "dai_nguyen": dai_nguyen, "rong_nguyen": rong_nguyen,
         "dai_in": dai_in, "rong_in": rong_in,
         "so_luong": so_luong, "so_tp": so_tp,
+        "so_trang": so_trang, "trang_moi_tay": trang_moi_tay,
         "to_dau_vao": to_dau_vao, "to_sau_in": to_sau_in, "to_nguyen": to_nguyen,
         "so_mau": so_mau, "so_mau_pha": so_mau_pha, "so_mat": so_mat, "so_kem": so_kem,
         "dinh_luong": dinh_luong,
@@ -242,7 +260,7 @@ def ngu_canh_phieu(
 def ngu_canh_lenh(quy_cach: dict | None) -> dict[str, float]:
     """Ngữ cảnh biến khi công thức chạy ở TẦNG LỆNH — quy đổi động gọi hàm này.
 
-    CÙNG 16 biến, CÙNG tên, CÙNG đơn vị với `ngu_canh_phieu` ở trên; khác mỗi chỗ lấy số:
+    CÙNG bộ biến, CÙNG tên, CÙNG đơn vị với `ngu_canh_phieu` ở trên; khác mỗi chỗ lấy số:
 
         `ngu_canh_phieu`  ← thành phần PHIẾU TÍNH GIÁ, tính tươi mỗi lần bấm tính.
         `ngu_canh_lenh`   ← quy cách LỆNH SẢN XUẤT (ảnh chụp lúc tạo, người kế hoạch sửa được).
@@ -297,6 +315,14 @@ def ngu_canh_lenh(quy_cach: dict | None) -> dict[str, float]:
         # còn sót trong ảnh chụp — `so_con` chép từ phiếu lúc tạo lệnh là loại hay lệch nhất.
         "so_luong": _so("so_luong"),
         "so_tp": _so("so_tp", "so_con"),
+        # Hai số quy cách sách MẶC ĐỊNH 1, không phải 0 như các biến khác: 1 là phần tử trung hoà
+        # (`x * so_trang` giữ nguyên `x`) và đúng nghĩa thật — tờ rời/hộp là 1 trang, 1 trang/tay,
+        # y như default của cột. Để 0 thì mọi công thức nhân với chúng ra 0 trên bài tờ rời, và
+        # `_thieu_bien` coi 0 là THIẾU nên cạnh quy đổi rơi khỏi đồ thị dù chẳng thiếu gì.
+        # Bài GHÉP cũng nhận 1: gộp nhiều sản phẩm khác nhau thì "bài này bao nhiêu trang" là câu
+        # hỏi sai, và 1 là số duy nhất không bịa thêm gì (xem `quy_cach_bien_bai`).
+        "so_trang": _so("so_trang") or 1.0,
+        "trang_moi_tay": _so("trang_moi_tay") or 1.0,
         "to_dau_vao": _so("to_dau_vao", "so_to_ke_hoach"),
         "to_nguyen": _so("to_nguyen", "so_to_nguyen"),
         # Tờ TỐT sau in: lệnh không có cột riêng — đọc `so_luong_ra` của bước nhóm `print`.
@@ -316,7 +342,8 @@ def ngu_canh_lenh(quy_cach: dict | None) -> dict[str, float]:
 def quy_cach_bien(lsx) -> dict:
     """Quy cách của lệnh + NĂM số dẫn xuất nằm ở CỘT → dict đem đi quy đổi.
 
-    Mười một trong mười sáu biến nằm sẵn trong `lsx.quy_cach_json`. Năm biến còn lại thì không —
+    Mười ba trong mười tám biến nằm sẵn trong `lsx.quy_cach_json` (`so_trang`/`trang_moi_tay` có
+    trong đó — xem danh sách khoá `ap_quy_cach` chép sang). Năm biến còn lại thì không —
     chúng là số DẪN XUẤT, để ở cột riêng của `lsx` vì cả UI lẫn xếp lịch đọc tới:
 
         so_luong   ← `so_luong_dat`     (SL của ĐƠN — lệnh ép theo đơn, không theo phiếu)

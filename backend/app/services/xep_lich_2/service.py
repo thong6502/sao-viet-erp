@@ -46,7 +46,6 @@ from .thuc_te import nap_thuc_te
 _MA_CHAN = {
     "may_chua_toc_do": "thieu_thoi_luong",
     "chua_quy_doi": "thieu_quy_doi",
-    "thue_ngoai_chua_lich": "thieu_lead_thue_ngoai",
 }
 
 # Nhãn ĐỐI TƯỢNG tĩnh cho các loại vấn đề không neo vào một máy/tổ cụ thể (điền lúc trình bày).
@@ -326,56 +325,21 @@ class XepLich2Service:
             tong += _giao(s, f)
         return tong
 
-    # ================= THỜI LƯỢNG v2 (thuê ngoài đi theo NGÀY, không chiếm máy) =============
-    @staticmethod
-    def _la_thue_ngoai(dong) -> bool:
-        """Bước gia công ngoài — không chiếm máy/tổ nội bộ, thời lượng đo bằng lead-time gửi→nhận."""
-        return getattr(dong, "loai_buoc", None) == LB_THUE_NGOAI
-
+    # ================= THỜI LƯỢNG v2 =================
     def _op_cua_dong(self, dong):
-        """Bước routing GỐC của dòng (để đọc trường thuê-ngoài không snapshot trên dòng lịch)."""
+        """Bước routing GỐC của dòng (để đọc trường không snapshot trên dòng lịch)."""
         if getattr(dong, "nguon", None) == NGUON_LSX:
             return self.core._lcd(getattr(dong, "lsx_cong_doan_id", None))
         bgcd_id = getattr(dong, "bai_ghep_cong_doan_id", None)
         return self.db.get(BaiGhepCongDoan, bgcd_id) if bgcd_id else None
 
-    @staticmethod
-    def _lead_time_phut(op) -> int:
-        """Thời gian một bước THUÊ NGOÀI chiếm chỗ trên lịch = lead-time gửi→nhận, quy ra PHÚT.
-
-        Ưu tiên MỐC NGÀY dự kiến (`ngay_gui_dk`→`ngay_nhan_dk`): người khai hai mốc là đã tự tính
-        cả vận chuyển lẫn gia công. Chưa khai mốc thì suy từ số ngày: gia công + 2×vận chuyển (một
-        chiều × 2 lượt đi-về). Không đủ dữ liệu ⇒ 0 (engine phơi cảnh báo `thue_ngoai_chua_lich`).
-        """
-        if op is None:
-            return 0
-        gui = getattr(op, "ngay_gui_dk", None)
-        nhan = getattr(op, "ngay_nhan_dk", None)
-        if gui is not None and nhan is not None:
-            days = (nhan - gui).days
-            if days > 0:
-                return days * 1440
-        tong_ngay = _f(getattr(op, "gia_cong_ngay", None)) + 2 * _f(getattr(op, "van_chuyen_ngay", None))
-        if tong_ngay > 0:
-            return int(round(tong_ngay * 1440))
-        return 0
-
     def _thoi_luong_v2(self, dong) -> dict:
-        """Thời lượng v2: bước THUÊ NGOÀI đi theo NGÀY gửi/nhận (máy ≈ 0), còn lại uỷ engine cũ.
+        """Thời lượng v2 — uỷ hết cho engine cũ.
 
-        Thuê ngoài trả cả cục vào `phat_sinh_phut` (bóc-tách hiện thanh là "khác", không phải chạy
-        máy). `thue_ngoai_chua_lich` bật khi chưa đủ dữ liệu tính lead-time — nháp thì chỉ nhắc, đã
-        chọn giờ thì `_van_de_dat_lich` nâng lên chặn đặt lịch.
+        THUÊ NGOÀI không còn đường riêng (04/09/2026): nhà thầu là một MÁY khai trong danh mục
+        (tên kèm hậu tố "thuê ngoài – …"), nên bước chạy đúng bộ máy tốc-độ/kíp như bước máy nhà.
         """
-        if not self._la_thue_ngoai(dong):
-            return self.core._thoi_luong(dong)
-        phut = self._lead_time_phut(self._op_cua_dong(dong))
-        return {
-            "chiem_may_phut": phut, "chiem_may_phut_min": phut, "chiem_may_phut_max": phut,
-            "tong_phut": phut, "setup_phut": 0, "chay_phut": 0, "phat_sinh_phut": phut,
-            "theo_may": False,
-            "canh_bao": "thue_ngoai_chua_lich" if phut <= 0 else None,
-        }
+        return self.core._thoi_luong(dong)
 
     # ================= NHÃN ĐỐI TƯỢNG cho vấn đề (trình bày) =================
     def _ten_may(self, may_id) -> str | None:
@@ -937,9 +901,7 @@ class XepLich2Service:
         Thời lượng/vấn đề dùng lại `_tinh` (đúng số như xem-trước); định biên đọc từ bước routing gốc."""
         t = self._tinh(r, {})
         op = self._op_cua_dong(r)
-        if self._la_thue_ngoai(r):
-            nguon_tl = "thue_ngoai"
-        elif t["theo_may"]:
+        if t["theo_may"]:
             nguon_tl = "may"
         else:
             nguon_tl = "tay"

@@ -53,7 +53,6 @@ import {
   ChevronDown,
   Move,
   ShieldCheck,
-  Coins,
   ArrowRightLeft,
   X,
   CheckCircle2,
@@ -298,9 +297,6 @@ export function DepartmentsPage({
   // (chủ chốt 24/08/2026). Ở đây chỉ còn CỜ bật/tắt Bộ phận Giao hàng.
   // Cờ tổ KCS đích danh (§3.1/§14 spec bài ghép) — KHÔNG kế thừa cây con, khác 3 cờ trên.
   const [editIsKcs, setEditIsKcs] = useState(false);
-  // Cờ LƯƠNG KHOÁN của tổ — mọi người trong tổ cùng chế độ (board.nhan_vien_chon suy
-  // `la_luong_khoan` thẳng từ cờ này). Bước nội bộ (loai_buoc="to") chỉ nhận thợ khoán.
-  const [editHasPieceWork, setEditHasPieceWork] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -669,7 +665,6 @@ export function DepartmentsPage({
     setEditLaKinhDoanh(dept?.la_kinh_doanh ?? false);
     setEditLaGiaoHang(dept?.la_giao_hang ?? false);
     setEditIsKcs(dept?.is_kcs ?? false);
-    setEditHasPieceWork(dept?.has_piece_work ?? false);
     if (!token || selectedId == null) {
       setMembers([]);
       setRoles([]);
@@ -728,7 +723,6 @@ export function DepartmentsPage({
     setEditLaKinhDoanh(currentDept?.la_kinh_doanh ?? false);
     setEditLaGiaoHang(currentDept?.la_giao_hang ?? false);
     setEditIsKcs(currentDept?.is_kcs ?? false);
-    setEditHasPieceWork(currentDept?.has_piece_work ?? false);
     setSaveError(null);
     setDirty(false);
     setInfoOpen(true);
@@ -887,7 +881,8 @@ export function DepartmentsPage({
         {
           salary_mechanism: currentDept?.salary_mechanism ?? "cung",
           probation_ratio: currentDept?.probation_ratio ?? 0.8,
-          has_piece_work: editHasPieceWork,
+          // `has_piece_work` KHÔNG gửi từ đây (backend: không gửi = giữ nguyên) — cửa sửa
+          // duy nhất là công tắc "Lương khoán / sản lượng" ở Cấu hình lương.
         },
         editLaSanXuat,
         editLaKinhDoanh,
@@ -2730,34 +2725,11 @@ export function DepartmentsPage({
               </div>
             </div>
 
-            {/* Switch Card "Lương khoán" — mọi người trong tổ CÙNG chế độ (board.nhan_vien_chon
-                suy `la_luong_khoan` thẳng từ cờ này, không phải thuộc tính riêng từng người).
-                Bước nội bộ (loai_buoc="to") chỉ nhận thợ khoán vào TỔ THỰC HIỆN. */}
-            <div className="field depts__field--full">
-              <div
-                className={`rdx-switch-card${editHasPieceWork ? " is-checked" : ""}`}
-                onClick={() => {
-                  setEditHasPieceWork(!editHasPieceWork);
-                  setDirty(true);
-                }}
-              >
-                <div className="rdx-switch-card__left">
-                  <div className="rdx-switch-card__icon">
-                    <Coins size={20} />
-                  </div>
-                  <div className="rdx-switch-card__main">
-                    <span className="rdx-switch-card__title">
-                      Tổ hưởng lương khoán
-                      <InfoHint label="Đánh dấu CẢ TỔ hưởng lương khoán theo sản phẩm — mọi người trong tổ cùng chế độ, không khai riêng từng người. Bước nội bộ trong routing sản xuất chỉ nhận thợ khoán vào ô 'Giao người'; tổ không bật cờ này thì không ai trong tổ giao được vào bước nội bộ." />
-                    </span>
-                    <span className="rdx-switch-card__desc">
-                      Bắt buộc để giao được người vào bước nội bộ (Tổ thực hiện) khi thực hiện SX
-                    </span>
-                  </div>
-                </div>
-                <div className="rdx-toggle-switch" aria-hidden="true" />
-              </div>
-            </div>
+            {/* Nút gạt "Tổ hưởng lương khoán" ĐÃ ẨN 04/09/2026 — cờ
+                `departments.has_piece_work` nay chỉ còn MỘT cửa sửa: Lương → Cấu hình lương →
+                công tắc "Lương khoán / sản lượng" (chiều đó ghi ngược về cờ này). Bật/tắt ở đây
+                KHÔNG đụng `department_salary_components` nên hai màn lệch nhau khi tổ đã khai
+                dòng lương. Trạng thái vẫn xem được ở khối Tổng quan. */}
 
             {/* Thuộc tính lương thử việc */}
             <div className="field depts__field--full">

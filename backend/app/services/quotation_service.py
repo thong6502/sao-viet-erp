@@ -63,6 +63,26 @@ def _kho_tp(tp) -> str | None:
     return f"{dai}×{rong}mm" if dai and rong else None
 
 
+def _dvt_dong(tp) -> str:
+    """ĐVT ghi xuống dòng báo giá của 1 sản phẩm PTG — đơn vị THẬT của phần đó ("cái" cho bìa).
+
+    Đơn vị của CỤM khi in gộp ("cuốn") đi riêng ở `_dvt_nhom_dong`. Trước mg 0264 hai thứ này
+    chung một ô: đơn vị cụm bị đè lên mọi dòng cho bản in gộp đọc trúng, đổi lại mọi màn KHÔNG gộp
+    (đơn hàng, phiếu giao, khai báo thành phẩm) hiện "Bìa sách — 2.000 cuốn".
+    """
+    return (getattr(tp, "don_vi_tinh", None) or "cái")
+
+
+def _dvt_nhom_dong(tp) -> str | None:
+    """ĐVT của CỤM cho dòng báo giá — chỉ có nghĩa khi sản phẩm mang nhãn nhóm.
+
+    `dvt_nhom` lạc vào một sản phẩm KHÔNG có nhãn nhóm thì bỏ qua: đơn vị của nó là của nó.
+    """
+    if not (getattr(tp, "nhom_bao_gia", None) or "").strip():
+        return None
+    return (getattr(tp, "dvt_nhom", None) or "").strip() or None
+
+
 def dien_giai_tu_thanh_phan(db, tp) -> str | None:
     """Bung DIỄN GIẢI quy cách (in ra báo giá) từ 1 'sản phẩm' của bài tính giá.
 
@@ -523,7 +543,11 @@ class QuotationService:
                 # vẫn 1 dòng/thành phần để markup riêng + mạch xuống sản xuất không đứt.
                 nhom=(getattr(tp, "nhom_bao_gia", None) or None),
                 quantity=qty,
-                unit=(getattr(tp, "don_vi_tinh", None) or "cái"),   # ĐVT chảy từ sản phẩm PTG
+                # ĐVT chảy từ sản phẩm PTG: `unit` = đơn vị THẬT của phần này (bìa "cái"), còn
+                # `dvt_nhom` = đơn vị cụm cho bản in gộp ("cuốn"). Nhóm chưa chọn ⇒ NULL, bản in
+                # rơi về ĐVT của dòng đầu cụm như luật cũ.
+                unit=_dvt_dong(tp),
+                dvt_nhom=_dvt_nhom_dong(tp),
                 total_cost_snapshot=cost,
                 margin_percent=margin,
                 selling_price=pricing["selling_price"],
@@ -1109,8 +1133,12 @@ class QuotationService:
                     product_spec_text=item.product_spec_text,
                     dien_giai=item.dien_giai,
                     product_spec_snapshot_json=item.product_spec_snapshot_json,
+                    # Nhãn gộp + ĐVT cụm phải theo sang bản mới, không thì v(n+1) in ra rời từng
+                    # phần ("Bìa sách" một dòng, "Ruột sách" một dòng) khác hẳn bản khách đã nhận.
+                    nhom=item.nhom,
                     quantity=item.quantity,
                     unit=item.unit,
+                    dvt_nhom=item.dvt_nhom,
                     total_cost_snapshot=item.total_cost_snapshot,
                     margin_percent=item.margin_percent,
                     selling_price=item.selling_price,

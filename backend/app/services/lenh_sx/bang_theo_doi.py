@@ -305,7 +305,7 @@ def meta(db: Session) -> dict:
 # người dùng học hai lần. Dựng theo `models/cong_doan.NHOM` để thêm/bớt mã bên đó là lộ ra ở đây
 # (thiếu nhãn ⇒ rơi về chính mã, không im lặng mất mục).
 NHAN_NHOM_CONG_DOAN = {
-    "prepress": "Chế bản", "print": "In",
+    "prepress": "Trước In", "print": "In",
     "finishing": "Gia công sau in", "other": "Dịch vụ khác",
 }
 # Trạng thái CÔNG VIỆC — dùng ĐÚNG bốn chữ mà hai màn đang chạy đã bày cho người dùng

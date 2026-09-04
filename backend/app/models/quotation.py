@@ -201,8 +201,16 @@ class QuoteItem(Base):
     product_spec_snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
-    unit: Mapped[str] = mapped_column(String(16), nullable=False, default="cái")
-    
+    # 30 ký tự cho khớp `phieu_thanh_phan.don_vi_tinh` — ĐVT chảy từ đó sang (mig 0260). Để 16
+    # thì tên đơn vị dài trong danh mục ("bộ 100 tờ"…) làm Postgres ném lỗi ngay lúc tạo báo giá.
+    unit: Mapped[str] = mapped_column(String(30), nullable=False, default="cái")
+    # ĐVT của CẢ CỤM khi bản in gộp ruột + bìa thành 1 dòng ("cuốn"), đông cứng từ
+    # `phieu_thanh_phan.dvt_nhom`. Tách khỏi `unit` vì `unit` là đơn vị THẬT của phần này ("cái") —
+    # thứ mọi màn không gộp (đơn hàng, phiếu giao, khai báo thành phẩm) đọc ra. Trước mg 0264 chỉ
+    # có một ô: đơn vị cụm bị đè lên mọi dòng nên các màn đó hiện sai. NULL = không gộp / cụm chưa
+    # chọn đơn vị riêng ⇒ bản in rơi về ĐVT của dòng đầu cụm như luật cũ.
+    dvt_nhom: Mapped[str | None] = mapped_column(String(30), nullable=True)
+
     total_cost_snapshot: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False, default=0)
     margin_percent: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=0)
     selling_price: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False, default=0)
