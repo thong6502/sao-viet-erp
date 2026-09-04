@@ -79,3 +79,13 @@ backend/static/ky-thuat-may/
 # Sổ tay Kinh doanh (docs/user-manual-kinh-doanh) — bản giao trực tiếp qua chat,
 # không phải mã nguồn ứng dụng; toàn bộ .tex/.pdf/screenshots KHÔNG track ở đây
 docs/user-manual-kinh-doanh/
+
+# Bản lưu tạm của lần tách lịch sử git (*.orig) — chỉ là bản sao, không phải mã nguồn
+.git-split-backup/
+
+# Sổ tay chạy plan của trợ lý — commit 41ddf6b đã chủ động bỏ theo dõi progress.md
+progress.md
+backend/progress.md
+
+# Ảnh chụp màn hình lúc kiểm thử vứt ở gốc repo
+/*.png
