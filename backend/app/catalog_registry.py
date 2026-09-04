@@ -75,7 +75,10 @@ DANH_MUC: tuple[DanhMuc, ...] = (
     # thường, trả ra con số sai cho cả hai màn. Không có bộ đếm còn hơn có bộ đếm nói dối.
     DanhMuc("thanh_pham", "dm_thanh_pham", "Thành phẩm", "thanh-pham"),
     # `khuon_be` KHÔNG có tiền tố `dm_` — chuỗi này đã cấp quyền trong DB thật, đổi cần migration.
-    DanhMuc("khuon_be", "khuon_be", "Khuôn bế", "khuon-be", model="models.khuon_be:KhuonBe"),
+    # NHÃN đổi thành "Khuôn & khung" (04/09/2026): màn nay chứa cả khuôn bế, khuôn ép nhũ và khung
+    # lụa — xem `LOAI_KHUON`. Chỉ chữ hiển thị đổi (menu · ma trận quyền · nhãn module), KHOÁ giữ
+    # nguyên. Nhãn nằm ở cột `modules.label` của DB thật nên đi kèm migration 0261.
+    DanhMuc("khuon_be", "khuon_be", "Khuôn & khung", "khuon-be", model="models.khuon_be:KhuonBe"),
     DanhMuc("kho_hang", "dm_kho_hang", "Khai báo kho", "khai-bao-kho"),
     # Lý do & lỗi sản xuất (§15 spec-thuc-hien-san-xuat): danh mục CHUẨN HOÁ dùng chung cho hỏng
     # batch, lỗi KCS và các lý do vận hành (tạm dừng · bắt đầu trễ · điều chỉnh bàn giao…). Gộp vào

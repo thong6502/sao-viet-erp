@@ -11497,3 +11497,52 @@ def _migrate_cong_viec_khuon(db) -> None:
 
 
 MIGRATIONS.append(("0259_cong_viec_khuon", _migrate_cong_viec_khuon))
+
+
+def _migrate_ptg_dvt_nhom(db: Session) -> None:
+    """Tính giá: thêm `phieu_thanh_phan.dvt_nhom` — ĐVT của DÒNG GỘP khi in cho khách.
+
+    Trước đây dòng gộp mượn ĐVT của dòng ĐẦU nhóm: nhóm "sách" mở đầu bằng bìa (ĐVT "cái") in ra
+    khách "24.777 đ/cái" trong khi khách mua CUỐN. Nay chọn thẳng một đơn vị cho cả nhóm, lấy từ
+    danh mục Đơn vị & quy đổi. Nullable — trống = rơi về luật cũ, phiếu cũ không đổi gì.
+
+    Nới luôn `quote_items.unit` 16 → 30 cho khớp `phieu_thanh_phan.don_vi_tinh`/`dvt_nhom`: ĐVT
+    chảy từ phiếu sang dòng báo giá, mà danh mục cho phép tên tới 60 ký tự nên VARCHAR(16) là chỗ
+    vỡ sẵn trên Postgres (SQLite không ALTER TYPE được, cũng không cần: nó không ép độ dài)."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+    if "phieu_thanh_phan" in tables and "dvt_nhom" not in _existing_columns(insp, "phieu_thanh_phan"):
+        db.execute(text("ALTER TABLE phieu_thanh_phan ADD COLUMN dvt_nhom VARCHAR(30)"))
+    if "quote_items" in tables and (bind.dialect.name or "").startswith("postgres"):
+        db.execute(text("ALTER TABLE quote_items ALTER COLUMN unit TYPE VARCHAR(30)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0260_ptg_dvt_nhom", _migrate_ptg_dvt_nhom))
+
+
+def _migrate_nhan_khuon_khung(db: Session) -> None:
+    """Nhãn module `khuon_be`: "Khuôn bế" → "Khuôn & khung" (04/09/2026).
+
+    Màn này nay giữ cả khuôn bế, khuôn ép nhũ và khung lụa (`khuon_be.loai_khuon`), nên cái tên cũ
+    chỉ gọi đúng một phần ba nội dung — người cấp quyền đọc ma trận tưởng khung lụa nằm ở ô khác.
+
+    CHỈ đổi chữ hiển thị. KHOÁ `khuon_be` giữ nguyên: nó nằm trong `role_permissions.module_key`
+    của DB thật, đổi khoá là mồ côi mọi quyền đã cấp.
+
+    `seed_modules` cũng đồng bộ nhãn, đổi ở đây để DB đúng ngay cả khi seeder chưa chạy — bản
+    deploy chạy `app.migrate` trong container tạm TRƯỚC khi thay container app (cùng lối mg 0216,
+    0219). Không đụng `docs/DB_SCHEMA.md`: không thêm/đổi cột nào.
+    """
+    insp = inspect(db.get_bind())
+    if "modules" not in set(insp.get_table_names()):
+        return
+    db.execute(
+        text("UPDATE modules SET label = :l WHERE key = :k"),
+        {"k": "khuon_be", "l": "Khuôn & khung"},
+    )
+    db.commit()
+
+
+MIGRATIONS.append(("0261_nhan_khuon_khung", _migrate_nhan_khuon_khung))
