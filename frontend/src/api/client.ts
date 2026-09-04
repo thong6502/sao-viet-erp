@@ -7580,6 +7580,10 @@ export interface BaoCaoNXTPage {
   da_tinh: boolean;
   /** Kỳ này (theo ngày cuối) đã khóa sổ chưa — đã khóa thì không tính lại. */
   da_khoa: boolean;
+  /** `den` rơi GIỮA một kỳ ĐÃ TÍNH (chốt ở ngày khác): mốc chốt + tên kỳ đó. Khi có, bảng vẫn
+   *  hiện Giá trị cuối kỳ nhưng là số TẠM TÍNH tới `den` (khác số đã chốt). */
+  ky_da_tinh_den: string | null;
+  ky_da_tinh_ten: string | null;
 }
 
 export interface BaoCaoNXTParams {
@@ -12800,6 +12804,28 @@ export const api = {
         setFunnelQs(qs, params);
         const doFetch = (bearer: string) =>
           fetch(`${BASE_URL}/api/kho/bao-cao/chuyen-kho/export.xlsx?${qs.toString()}`, {
+            credentials: "include", cache: "no-store", headers: authHeader(bearer),
+          });
+        let resp = await doFetch(token);
+        if (resp.status === 401) {
+          const fresh = await refreshAccessToken();
+          if (fresh) resp = await doFetch(fresh);
+        }
+        if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
+        return URL.createObjectURL(await resp.blob());
+      },
+      /** Xuất Excel bảng NHẬP-XUẤT-TỒN (mẫu MISA, gom nhóm theo kho + dòng cộng). */
+      async nxtExportXlsxBlobUrl(
+        token: string,
+        params: { tu: string; den: string; kho_id?: number | null; q?: string },
+      ): Promise<string> {
+        const qs = new URLSearchParams();
+        qs.set("tu", params.tu);
+        qs.set("den", params.den);
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.q) qs.set("q", params.q);
+        const doFetch = (bearer: string) =>
+          fetch(`${BASE_URL}/api/kho/bao-cao/nxt/export.xlsx?${qs.toString()}`, {
             credentials: "include", cache: "no-store", headers: authHeader(bearer),
           });
         let resp = await doFetch(token);

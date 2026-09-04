@@ -116,6 +116,21 @@ class KhoKyTonRepository:
         res = self.db.execute(delete(KhoKyTon).where(cond))
         return res.rowcount or 0
 
+    def period_containing(self, ngay: date, kho_ids: list[int] | None = None):
+        """Kỳ ĐÃ TÍNH (snapshot) BAO ngày `ngay` (tu_ngay <= ngay <= den_ngay) — None nếu không có.
+        Dùng cho báo cáo N-X-T khi người dùng đặt 'đến ngày' vào GIỮA một kỳ đã chốt: kỳ đó đã tính
+        rồi nên vẫn hiện Giá trị cuối kỳ, nhưng là số TẠM TÍNH tới ngày đó (khác số chốt cuối kỳ).
+        Trả (tu_ngay, den_ngay, ten_ky) của kỳ có den_ngay NHỎ NHẤT còn bao được ngày (kỳ khít nhất)."""
+        stmt = (
+            select(KhoKyTon.tu_ngay, KhoKyTon.den_ngay, KhoKyTon.ten_ky)
+            .where(KhoKyTon.tu_ngay <= ngay, KhoKyTon.den_ngay >= ngay)
+            .order_by(KhoKyTon.den_ngay.asc())
+            .limit(1)
+        )
+        if kho_ids:
+            stmt = stmt.where(KhoKyTon.kho_id.in_(kho_ids))
+        return self.db.execute(stmt).first()
+
     def delete_range(self, tu: date, den: date, kho_ids: list[int] | None = None) -> int:
         """Xoá snapshot có `den_ngay` trong [tu, den] — gọi khi MỞ SỔ kỳ đó: bỏ chốt giá để khoá lại
         phải tính lại (khớp luật 'phải khoá mới tính', không giữ số cũ). `kho_ids` None = mọi kho."""

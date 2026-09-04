@@ -31,13 +31,19 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 import { Select } from "../components/Select";
 import { VoucherDrawer } from "./KhoYeuCauPage";
-import { DateFilterHead, NumFilterHead, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, inDateRange, inNumRange, todayISO, useHeaderTitles } from "./khoShared";
+import { AN_DIEU_CHUYEN, DateFilterHead, NumFilterHead, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, inDateRange, inNumRange, todayISO, useHeaderTitles } from "./khoShared";
 import { Search } from "lucide-react";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
 
 type KhoOpt = { id: number; ma: string; ten: string };
 type Tab = "tong-quan" | "so" | "nxt" | "ky-da-tinh" | "lichsu" | "ky";
+
+/** ẨN tab "Tổng quan" (chỉ giao diện — code dashboard giữ nguyên). Bật lại: đổi thành `false`. */
+const AN_TAB_TONG_QUAN = true;
+/** ẨN nút "Xuất Excel" ở ĐẦU TRANG (mẫu MISA của tab Sổ kho). KHÔNG đụng nút "Xuất Excel" của tab
+ *  Nhập-Xuất-Tồn. Bật lại: đổi thành `false`. */
+const AN_NUT_XUAT_EXCEL_SO = true;
 
 /** 1 dòng "Lịch sử thao tác" — gộp khóa/mở kỳ + xuất Excel. `tu`/`den` chỉ có ở khóa/mở (cho phễu ngày). */
 type HistRow = {
@@ -58,6 +64,25 @@ function fmtDate(iso: string | null): string {
   const [y, m, d] = iso.slice(0, 10).split("-");
   return d && m && y ? `${d}/${m}/${y}` : iso;
 }
+/** Ngày bắt đầu HỢP LỆ cho kỳ khóa MỚI = ngày LIỀN SAU ngày đã khóa xa nhất trong phạm vi.
+ *
+ *  Kỳ kế toán KHÔNG dùng chung ngày (Luật Kế toán 2015 Đ.12: kỳ tính tới HẾT ngày cuối) → kỳ sau
+ *  bắt đầu từ ngày kế tiếp. Trùng ngày sẽ vừa đếm 2 lần phát sinh ngày đó, vừa làm hỏng nối chuỗi
+ *  đầu kỳ (snapshot tìm theo `den_ngay < ngày đầu kỳ`). Chưa khóa gì trong phạm vi → null. */
+function nextKhoaTu(kyList: KhoaSoKyRow[], scope: number | "all"): string | null {
+  const trong = kyList.filter((k) =>
+    scope === "all" ? k.kho_id == null : k.kho_id == null || k.kho_id === scope,
+  );
+  if (trong.length === 0) return null;
+  const maxDen = trong.reduce((m, k) => {
+    const d = k.den_ngay.slice(0, 10);
+    return d > m ? d : m;
+  }, "");
+  if (!maxDen) return null;
+  const [y, m, d] = maxDen.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
 // Tên kỳ TỰ SINH từ khoảng ngày: trọn 1 tháng dương lịch → "Tháng M/YYYY"; ngược lại → "DD/MM/YYYY–DD/MM/YYYY".
 function autoTenKy(tu: string | null, den: string | null): string {
   if (!tu || !den) return "";
@@ -161,7 +186,7 @@ function curMonthRange(): [string, string] {
 export function KhoBaoCaoPage({ token }: { token: string }) {
   // Hover tiêu đề cột → hiện tên cột đầy đủ (kể cả khi bị cắt) — 1 ref bọc cả trang, phủ mọi bảng.
   const pageRef = useHeaderTitles<HTMLElement>();
-  const [tab, setTab] = useState<Tab>("tong-quan");
+  const [tab, setTab] = useState<Tab>(AN_TAB_TONG_QUAN ? "so" : "tong-quan");
   // Chiều của tab "Sổ kho": Nhập · Xuất · Chuyển kho (sổ điều chuyển nội bộ đã ghi sổ).
   const [soChieu, setSoChieu] = useState<"NHAP" | "XUAT" | "CHUYEN">("NHAP");
   const [khoId, setKhoId] = useState<number | null>(null);
@@ -261,24 +286,72 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   // Tab N-X-T: nạp theo kỳ [tu, den] + kho (BẮT BUỘC chọn kỳ). Lọc theo ô Tìm client-side.
   const [nxtDaTinh, setNxtDaTinh] = useState(false);   // kỳ này đã tính giá (snapshot) chưa
   const [nxtDaKhoa, setNxtDaKhoa] = useState(false);   // kỳ này đã khóa sổ chưa
+  // "Đến ngày" rơi GIỮA một kỳ ĐÃ TÍNH (chốt ở ngày khác) → vẫn hiện cuối kỳ, dạng TẠM TÍNH.
+  const [nxtKyBao, setNxtKyBao] = useState<{ den: string; ten: string | null } | null>(null);
   const loadNxt = useCallback(() => {
-    if (!nxtTu || !nxtDen) { setNxtRows([]); setNxtDaTinh(false); setNxtDaKhoa(false); return; }
+    if (!nxtTu || !nxtDen) {
+      setNxtRows([]); setNxtDaTinh(false); setNxtDaKhoa(false); setNxtKyBao(null); return;
+    }
     setLoading(true);
     setError(null);
     api.kho.baoCao
       .nxt(token, { tu: nxtTu, den: nxtDen, kho_id: khoId })
-      .then((p) => { setNxtRows(p.items); setNxtDaTinh(p.da_tinh); setNxtDaKhoa(p.da_khoa); })
+      .then((p) => {
+        setNxtRows(p.items); setNxtDaTinh(p.da_tinh); setNxtDaKhoa(p.da_khoa);
+        setNxtKyBao(p.ky_da_tinh_den ? { den: p.ky_da_tinh_den, ten: p.ky_da_tinh_ten } : null);
+      })
       .catch((e) => setError(e instanceof ApiError ? e.message : "Không tải được báo cáo N-X-T."))
       .finally(() => setLoading(false));
   }, [token, nxtTu, nxtDen, khoId]);
   useEffect(() => {
     if (tab === "nxt") loadNxt();
   }, [loadNxt, tab]);
+  // Tab N-X-T bám theo KỲ ĐÃ KHÓA: vào tab mà chưa chọn kỳ thì TỰ chọn (kỳ chứa hôm nay, không có
+  // thì kỳ mới nhất) → "Từ ngày" luôn là đầu một kỳ THẬT, ô "đến" ràng buộc đúng trong kỳ đó.
+  // Không có kỳ nào đã khóa → để nguyên khoảng mặc định (tháng hiện tại) cho còn xem được.
+  useEffect(() => {
+    if (tab !== "nxt" || nxtKyIdx >= 0 || kyList.length === 0) return;
+    const hnay = todayISO();
+    const i = kyList.findIndex(
+      (k) => k.tu_ngay.slice(0, 10) <= hnay && hnay <= k.den_ngay.slice(0, 10),
+    );
+    const k = kyList[i >= 0 ? i : 0];
+    setNxtKyIdx(i >= 0 ? i : 0);
+    setNxtTu(k.tu_ngay.slice(0, 10));
+    setNxtDen(k.den_ngay.slice(0, 10));
+    setKhoId(k.kho_id ?? null);
+  }, [tab, kyList, nxtKyIdx]);
 
   // "Tính giá kỳ" (bình quân, kiểu MISA) — popup xác nhận rồi chốt tồn cuối kỳ vào snapshot.
   const [tinhOpen, setTinhOpen] = useState(false);
   const [tinhBusy, setTinhBusy] = useState(false);
   const [tinhErr, setTinhErr] = useState<string | null>(null);
+  // Xuất Excel bảng N-X-T (mẫu MISA: nhóm theo kho + dòng cộng). File = ĐÚNG kỳ/kho đang xem.
+  const [nxtExporting, setNxtExporting] = useState(false);
+  async function exportNxt() {
+    if (!nxtTu || !nxtDen) return;
+    setNxtExporting(true);
+    setError(null);
+    let url: string | null = null;
+    try {
+      url = await api.kho.baoCao.nxtExportXlsxBlobUrl(token, {
+        tu: nxtTu, den: nxtDen, kho_id: khoId, q: search.trim() || undefined,
+      });
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Nhap-Xuat-Ton ${fmtDate(nxtTu)}–${fmtDate(nxtDen)}.xlsx`.replace(/\//g, "-");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      api.kho.baoCao.lichSuExport(token).then(setExports).catch(() => {});   // hiện ở Lịch sử thao tác
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Không xuất được Excel N-X-T.");
+    } finally {
+      if (url) URL.revokeObjectURL(url);
+      setNxtExporting(false);
+    }
+  }
+
   // Mở popup Tính giá: BẮT BUỘC dựa trên 1 KỲ ĐÃ KHÓA. Chưa chọn kỳ mà có kỳ đã khóa → chọn sẵn
   // kỳ khớp khoảng đang xem, không thì kỳ mới nhất (index 0).
   function openTinhPopup() {
@@ -307,6 +380,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       setNxtRows(p.items);
       setNxtDaTinh(p.da_tinh);
       setNxtDaKhoa(p.da_khoa);
+      setNxtKyBao(null);            // vừa chốt đúng mốc này → không còn là "tạm tính trong kỳ"
       setTinhOpen(false);
       api.kho.baoCao.kyDaTinh(token).then(setKyDaTinhList).catch(() => {});  // kỳ mới hiện ở ô "Kỳ"
     } catch (e) {
@@ -774,8 +848,11 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       setKhoaTu(k.tu_ngay.slice(0, 10));
       setKhoaDen(k.den_ngay.slice(0, 10));
     } else if (action === "khoa") {
-      setKhoaScope(khoId != null ? khoId : "all");
-      setKhoaTu("");
+      // Kiểu MISA: chỉ cần chọn MỐC "Đến ngày"; "Từ ngày" TỰ MAP = ngày liền sau kỳ khóa gần nhất
+      // (vẫn cho sửa tay nếu muốn khóa khoảng khác).
+      const sc = khoId != null ? khoId : "all";
+      setKhoaScope(sc);
+      setKhoaTu(nextKhoaTu(kyList, sc) ?? "");
       setKhoaDen(todayISO());
     }
   }
@@ -839,7 +916,44 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
           >
             <LockIcon size={15} /> Khóa / mở kỳ
           </button>
-          {tab === "so" && (
+          {/* Tab N-X-T: gom hành động lên ĐẦU TRANG cho thanh lọc bên dưới chỉ còn bộ lọc.
+              Thứ tự: Khóa/mở kỳ · Bảng↔Biểu đồ · Tính giá kỳ · Xuất Excel. */}
+          {tab === "nxt" && (
+            <>
+              <div className="kho-chieu-segmented">
+                {(["bang", "bieudo"] as const).map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    className={`kho-chieu-btn${nxtView === v ? " is-active" : ""}`}
+                    onClick={() => setNxtView(v)}
+                  >
+                    {v === "bang" ? "Bảng" : "Biểu đồ"}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="btn btn--accent kho-export-btn"
+                disabled={!nxtTu || !nxtDen || tinhBusy}
+                onClick={openTinhPopup}
+                title="Tính giá bình quân cuối kỳ & chốt tồn cuối kỳ để kỳ sau nối tiếp (như MISA)"
+              >
+                {nxtDaTinh ? "Tính lại giá kỳ" : "Tính giá kỳ"}
+              </button>
+              <button
+                type="button"
+                className="btn btn--secondary kho-export-btn"
+                disabled={!nxtTu || !nxtDen || nxtExporting || nxtRows.length === 0}
+                onClick={exportNxt}
+                title="Xuất Excel bảng Nhập-Xuất-Tồn đang xem (mẫu MISA)"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                {nxtExporting ? "Đang xuất…" : "Xuất Excel"}
+              </button>
+            </>
+          )}
+          {!AN_NUT_XUAT_EXCEL_SO && tab === "so" && (
             <button
               type="button"
               className="btn btn--secondary kho-export-btn"
@@ -865,7 +979,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               ["lichsu", "Lịch sử thao tác"],
               ["ky", "Kỳ đã khóa"],
             ] as const
-          ).map(([id, label]) => (
+          ).filter(([id]) => !(AN_TAB_TONG_QUAN && id === "tong-quan")).map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -1217,7 +1331,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                   ["XUAT", "Xuất kho"],
                   ["CHUYEN", "Chuyển kho"],
                 ] as const
-              ).map(([val, lbl]) => (
+              ).filter(([val]) => !(AN_DIEU_CHUYEN && val === "CHUYEN")).map(([val, lbl]) => (
                 <button
                   key={val}
                   type="button"
@@ -1460,6 +1574,9 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       {tab === "nxt" && (() => {
         // Chưa "Tính giá kỳ" (chưa chốt): Đơn giá BQ + Giá trị xuất VẪN HIỆN (số TẠM TÍNH live), chỉ
         // riêng GIÁ TRỊ CUỐI KỲ để TRỐNG cho tới khi bấm Tính giá (vì cuối kỳ là số chốt → đầu kỳ sau).
+        // NGOẠI LỆ: "đến ngày" nằm GIỮA một kỳ đã tính → kỳ đó đã chốt rồi nên vẫn hiện cuối kỳ,
+        // nhưng là số tạm tính tới ngày đang xem (khác số chốt cuối kỳ).
+        const hienCuoiKy = nxtDaTinh || nxtKyBao !== null;
         const ql = search.trim().toLowerCase();
         const filtered = ql
           ? nxtRows.filter((r) =>
@@ -1517,7 +1634,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                   setKhoId(k.kho_id ?? null);
                 }}
               >
-                <option value="-1">{kyList.length ? "— Chọn kỳ đã khóa —" : "— Chưa có kỳ đã khóa —"}</option>
+                <option value="-1" disabled={kyList.length > 0}>{kyList.length ? "— Chọn kỳ đã khóa —" : "— Chưa có kỳ đã khóa —"}</option>
                 {kyList.map((k, i) => (
                   <option key={i} value={i}>
                     {(k.ten || "Kỳ")} · {fmtDate(k.tu_ngay)}–{fmtDate(k.den_ngay)}
@@ -1528,48 +1645,42 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             </label>
             <label className="kho-baocao__daterow">
               <span>Từ ngày</span>
-              <input type="date" className="rc-input" value={nxtTu} disabled={nxtKyIdx >= 0}
-                max={nxtDen || undefined} onChange={(e) => setNxtTu(e.target.value)}
-                title={nxtKyIdx >= 0 ? "Đầu kỳ cố định theo kỳ đã chọn" : undefined} />
+              {/* ĐẦU KỲ khóa cứng — không cho sửa tay. Đổi bằng cách chọn "Kỳ" hoặc bấm "Tháng này". */}
+              <input type="date" className="rc-input" value={nxtTu}
+                disabled={kyList.length > 0} readOnly={kyList.length > 0}
+                max={nxtDen || undefined}
+                onChange={(e) => setNxtTu(e.target.value)}
+                title={kyList.length > 0
+                  ? "Đầu kỳ cố định theo kỳ đã khóa — đổi bằng ô “Kỳ”"
+                  : "Chưa khóa kỳ nào — chọn khoảng ngày tự do"} />
             </label>
             <label className="kho-baocao__daterow">
               <span>đến</span>
+              {/* ĐẾN NGÀY tự do trong kỳ: không sớm hơn đầu kỳ, không vượt ngày cuối kỳ đã khóa. */}
               <input type="date" className="rc-input" value={nxtDen}
-                min={nxtTu || undefined}
+                min={(nxtKyIdx >= 0 ? kyList[nxtKyIdx]?.tu_ngay.slice(0, 10) : nxtTu) || undefined}
                 max={nxtKyIdx >= 0 ? kyList[nxtKyIdx]?.den_ngay.slice(0, 10) : undefined}
+                title={nxtKyIdx >= 0
+                  ? `Chọn ngày bất kỳ trong kỳ (tối đa ${fmtDate(kyList[nxtKyIdx]?.den_ngay ?? null)})`
+                  : "Chọn ngày kết thúc để xem"}
                 onChange={(e) => setNxtDen(e.target.value)} />
             </label>
-            <button
-              type="button"
-              className="rc__link-btn"
-              onClick={() => { const [a, b] = curMonthRange(); setNxtKyIdx(-1); setNxtTu(a); setNxtDen(b); }}
-            >
-              Tháng này
-            </button>
-            <button
-              type="button"
-              className="btn btn--accent kho-export-btn"
-              disabled={!nxtTu || !nxtDen || tinhBusy}
-              onClick={openTinhPopup}
-              title="Tính giá bình quân cuối kỳ & chốt tồn cuối kỳ để kỳ sau nối tiếp (như MISA)"
-              style={{ marginLeft: "auto" }}
-            >
-              {nxtDaTinh ? "Tính lại giá kỳ" : "Tính giá kỳ"}
-            </button>
-            {/* Chuyển Bảng ↔ Biểu đồ. */}
-            <div className="kho-chieu-segmented">
-              {(["bang", "bieudo"] as const).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={`kho-chieu-btn${nxtView === v ? " is-active" : ""}`}
-                  onClick={() => setNxtView(v)}
-                >
-                  {v === "bang" ? "Bảng" : "Biểu đồ"}
-                </button>
-              ))}
-            </div>
-            <div className="rc__search-wrapper" style={{ width: 260 }}>
+            {/* "Tháng này" CHỈ dùng khi chưa khóa kỳ nào — có kỳ rồi thì nó đẩy "Từ ngày" ra ngoài
+                kỳ và gây kẹt (Từ ngày khóa cứng, ô "đến" không lùi về trước được). */}
+            {kyList.length === 0 && (
+              <button
+                type="button"
+                className="rc__link-btn"
+                onClick={() => { const [a, b] = curMonthRange(); setNxtKyIdx(-1); setNxtTu(a); setNxtDen(b); }}
+              >
+                Tháng này
+              </button>
+            )}
+            {/* Thanh này giờ CHỈ còn bộ lọc; các nút hành động đã dời lên đầu trang.
+                Ngắt dòng flex (basis 100%) → ô Tìm luôn xuống HÀNG RIÊNG và canh TRÁI thẳng với ô
+                chọn kho, thay vì bị `margin-left:auto` đẩy dạt sang phải khi vỡ hàng. */}
+            <div style={{ flexBasis: "100%", height: 0 }} />
+            <div className="rc__search-wrapper" style={{ width: 240 }}>
               <Search className="rc__search-icon" style={{ width: 15, height: 15 }} />
               <input
                 className="rc__search"
@@ -1587,6 +1698,22 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
           ) : nxtDaTinh ? (
             <div className="banner banner--info" style={{ marginBottom: 8 }}>
               <span><b>Đã tính giá kỳ</b> (bình quân gia quyền cuối kỳ){nxtDaKhoa ? " · kỳ đã khóa sổ" : ""}. Có phát sinh mới thì bấm “Tính lại giá kỳ”.</span>
+            </div>
+          ) : nxtKyBao ? (
+            <div className="banner banner--info" style={{ marginBottom: 8 }}>
+              <span>
+                Kỳ {nxtKyBao.ten ? <b>“{nxtKyBao.ten}”</b> : "này"} <b>đã tính giá</b> tới{" "}
+                <b>{fmtDate(nxtKyBao.den)}</b>. Bạn đang xem tới <b>{fmtDate(nxtDen)}</b> (giữa kỳ) nên
+                mọi giá trị là số <b>tạm tính</b> tới ngày đó — khác số đã chốt cuối kỳ.
+                <button
+                  type="button"
+                  className="rc__link-btn"
+                  style={{ marginLeft: 8 }}
+                  onClick={() => setNxtDen(nxtKyBao.den.slice(0, 10))}
+                >
+                  Xem tới {fmtDate(nxtKyBao.den)} →
+                </button>
+              </span>
             </div>
           ) : (
             <div className="banner banner--warn" style={{ marginBottom: 8 }}>
@@ -1657,7 +1784,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                             <td className="kho-bc__num">{fmtQty(r.xuat_sl)}</td>
                             <td className="kho-bc__num">{fmtMoney(r.xuat_gt)}</td>
                             <td className="kho-bc__num">{fmtQty(r.cuoi_sl)}</td>
-                            <td className="kho-bc__num" style={{ fontWeight: "var(--fw-bold)" }}>{nxtDaTinh ? fmtMoney(r.cuoi_gt) : ""}</td>
+                            <td className="kho-bc__num" style={{ fontWeight: "var(--fw-bold)" }}>{hienCuoiKy ? fmtMoney(r.cuoi_gt) : ""}</td>
                             <td className="kho-bc__num">{r.don_gia_bq != null ? fmtMoney(Math.round(r.don_gia_bq)) : "—"}</td>
                           </tr>
                         ))}
@@ -1669,7 +1796,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                           <td className="kho-bc__num" />
                           <td className="kho-bc__num">{fmtMoney(t.xuat)}</td>
                           <td className="kho-bc__num" />
-                          <td className="kho-bc__num">{nxtDaTinh ? fmtMoney(t.cuoi) : ""}</td>
+                          <td className="kho-bc__num">{hienCuoiKy ? fmtMoney(t.cuoi) : ""}</td>
                           <td className="kho-bc__num" />
                         </tr>
                       </Fragment>
@@ -1687,8 +1814,11 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               <div className="card" style={{ padding: 16 }}>
                 <div className="rc-sec__title" style={{ marginBottom: 8 }}>
                   Top mặt hàng theo giá trị tồn cuối kỳ
+                  {hienCuoiKy && !nxtDaTinh && (
+                    <span className="rc__muted" style={{ fontWeight: 400 }}> · tạm tính tới {fmtDate(nxtDen)}</span>
+                  )}
                 </div>
-                {!nxtDaTinh ? (
+                {!hienCuoiKy ? (
                   <div className="rc__empty-state">Kỳ chưa tính giá — bấm “Tính giá kỳ” để xem Top giá trị tồn cuối kỳ.</div>
                 ) : topCuoi.length === 0 ? (
                   <div className="rc__empty-state">Không có mặt hàng còn tồn cuối kỳ.</div>
@@ -2030,7 +2160,12 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               portal
               ariaLabel="Phạm vi"
               value={khoaScope === "all" ? "" : String(khoaScope)}
-              onChange={(v) => setKhoaScope(v ? Number(v) : "all")}
+              onChange={(v) => {
+                const sc = v ? Number(v) : "all";
+                setKhoaScope(sc);
+                // Đổi phạm vi → mốc đã khóa khác → map lại "Từ ngày" cho đúng phạm vi mới.
+                if (khoaHanhDong === "khoa") setKhoaTu(nextKhoaTu(kyList, sc) ?? "");
+              }}
               options={[
                 { value: "", label: "Toàn kho" },
                 ...khoList.map((k) => ({ value: String(k.id), label: `${k.ma} · ${k.ten}` })),
@@ -2048,6 +2183,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               <input id="khoa-den" type="date" className="rc-input" value={khoaDen} min={khoaTu || undefined} onChange={(e) => setKhoaDen(e.target.value)} />
             </div>
           </div>
+
 
           {/* KHÓA: đặt TÊN kỳ (tuỳ chọn) — trùng tên kỳ đang khóa khác thì backend chặn. */}
           {khoaHanhDong === "khoa" && (
