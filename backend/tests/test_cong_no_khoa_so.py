@@ -77,20 +77,6 @@ def test_chot_ky_va_mo_ky(client):
     assert r_unlock.json()["hanh_dong"] == "mo"
 
 
-def test_cong_no_chi_tiet_phai_thu(client):
-    headers = _headers(client)
-    r = client.get("/api/accounting/cong-no-chi-tiet/phai-thu", headers=headers)
-    assert r.status_code == 200, r.text
-    assert isinstance(r.json(), list)
-
-
-def test_cong_no_chi_tiet_phai_tra(client):
-    headers = _headers(client)
-    r = client.get("/api/accounting/cong-no-chi-tiet/phai-tra", headers=headers)
-    assert r.status_code == 200, r.text
-    assert isinstance(r.json(), list)
-
-
 # ══ BA LỖI CỦA 04/09/2026 ═══════════════════════════════════════════════════════════════════
 #
 # Chủ báo: *"chọn khóa kỳ từ 01/09 đến 03/09 không được, mà nay mới 04/09 lại chọn được ngày
@@ -298,49 +284,11 @@ def test_mo_lai_ky_thi_no_bien_khoi_danh_sach(client):
     assert not [k for k in ky if k["tu_ngay"] == tu.isoformat() and k["den_ngay"] == den.isoformat()]
 
 
-def test_ba_cot_tien_cua_dot_phai_tru_ra_nhau(client):
-    """⭐ `Giá trị đợt − Đã trả = Còn nợ`, từng dòng một.
-
-    Chủ hỏi 04/09/2026: *"Giá trị đợt với Còn nợ khác gì nhau không"* — hỏi vì màn hình hiện
-    "Giá trị đợt 0đ · Đã trả 0đ · Còn nợ 1.305.000.000đ". Ba cột cạnh nhau mà không trừ ra nhau.
-
-    Gốc: chỗ dựng bảng đọc `dot["delivery_value"]` / `dot["paid_amount"]`, trong khi
-    `_no_tung_dot` trả `amount` / `paid` / `coc_bu`. Hai tên không tồn tại, `.get(..., 0)` nuốt
-    gọn thành 0 — không lỗi, không cảnh báo, chỉ có số sai. Đây là lý do bài này so ĐẲNG THỨC chứ
-    không so từng con số: đẳng thức bắt được cả lỗi đọc nhầm khoá lẫn lỗi tính.
-    """
-    from tests.test_payables_api import (
-        _da_mua, _dong_dau_tien, _don, _ghi_dot, _phieu_chi, _supplier,
-    )
-
-    headers = _headers(client)
-    ncc = _supplier(client, headers, name="NCC Ba Cot")
-    don = _don(client, headers, ncc["id"])
-    _da_mua(client, headers, don["id"])
-    dot = _ghi_dot(
-        client, headers, don["id"],
-        lines=[{"purchase_request_line_id": _dong_dau_tien(don), "quantity": 400}],
-    )                                                     # 400 × 2.200 = 880.000
-    _phieu_chi(
-        client, headers, don["id"], 300_000,
-        stage="final", delivery_id=dot["deliveries"][0]["id"],
-    )
-
-    r = client.get("/api/accounting/cong-no-chi-tiet/phai-tra", headers=headers)
-    assert r.status_code == 200, r.text
-    muc = next(x for x in r.json() if x["supplier_id"] == ncc["id"])
-    assert muc["items"], "NCC có đợt giao thì phải có dòng chi tiết"
-    for it in muc["items"]:
-        assert it["delivery_value"] - it["paid_amount"] == it["con_no"], (
-            f"ba cột không trừ ra nhau: {it}"
-        )
-    d = muc["items"][0]
-    assert d["delivery_value"] == 880_000, "giá trị đợt KHÔNG được là 0"
-    assert d["paid_amount"] == 300_000
-    assert d["con_no"] == 580_000
-    assert d["seq_no"] == 1, "số đợt là thứ tự TRONG ĐƠN, không phải id bản ghi"
-
-
+# `test_ba_cot_tien_cua_dot_phai_tru_ra_nhau` ĐÃ GỠ 05/09/2026 cùng endpoint
+# `/cong-no-chi-tiet/*` mà nó gọi (tab "Chi tiết đơn & đợt" bỏ theo cách B). Bất biến nó canh
+# — ba cột tiền phải trừ ra nhau, không được đọc nhầm khoá rồi bị `.get(..., 0)` nuốt — nay
+# sống ở `test_so_chi_tiet_cong_no.py::test_luy_ke_chay_dung_theo_tung_dong` (cộng tay lại
+# luỹ kế từng dòng) và bài đối chiếu sổ chi tiết ↔ sổ tổng hợp.
 # ══ ĐÃ CÓ KỲ CHỐT SAU ⇒ KỲ TRƯỚC NIÊM VĨNH VIỄN (chủ chốt 04/09/2026) ═══════════════════════
 #
 # *"Không cho luôn, đã tạo ra kì mới rồi thì không cho mở nữa"*.

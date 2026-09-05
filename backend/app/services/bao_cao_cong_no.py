@@ -26,7 +26,7 @@ là cách một khách ứng trước tiền hiện lên đúng ở cột Có c�
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from ..models.accounting import RECEIPT_SOURCE_PURCHASE, SALES_INVOICE_ISSUED
 from .purchase_service import han_tra_dot, phan_bo_du_dot, phan_bo_tien_dot
@@ -185,6 +185,250 @@ def _tong(items: list[dict]) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════════
+# DÒNG CHỨNG TỪ — nguồn DUY NHẤT cho cả sổ tổng hợp lẫn SỔ CHI TIẾT (§5.1)
+# ══════════════════════════════════════════════════════════════════════════════════
+#
+# Vì sao phải gom về một chỗ: sổ chi tiết là thứ kế toán mở ra để giải thích con số của sổ tổng
+# hợp ("PS Nợ 304.500.000 gồm phiếu nào?"). Nếu hai bên tự đi hỏi chứng từ theo đường riêng thì
+# chỉ cần lệch một luật ngày (vd phiếu chi lấy `voucher_date` thay vì `paid_at`) là luỹ kế cuối sổ
+# chi tiết không khớp dư cuối kỳ — mà lúc đó không ai biết bên nào sai. Cùng một danh sách thì
+# không thể lệch, và `test_bao_cao_cong_no.py` còn canh thêm bằng bài đối chiếu hai bên.
+#
+# Mỗi phần tử: `net` > 0 → ghi cột NỢ · `net` < 0 → ghi cột CÓ (quy ước ở đầu file).
+
+
+def _so_hoa_don(hd) -> str:
+    """Số hiển thị của hoá đơn bán. Chưa điền số thì lùi về id — sổ không được có dòng trống số."""
+    so = (hd.invoice_number or "").strip()
+    ky_hieu = (getattr(hd, "invoice_symbol", None) or "").strip()
+    if so:
+        return f"{ky_hieu} {so}".strip()
+    return f"HĐ #{hd.id}"
+
+
+def _ncc_cua_phieu_chi(v) -> int | None:
+    if v.supplier_id is not None:
+        return v.supplier_id
+    return v.purchase_request.supplier_id if v.purchase_request is not None else None
+
+
+def _ncc_cua_hoan(p) -> int | None:
+    v = p.payment_voucher
+    return _ncc_cua_phieu_chi(v) if v is not None else None
+
+
+def _chung_tu_phai_thu(hoa_don, phieu, khach_don, ma_khach) -> list[dict]:
+    """TK 131: hoá đơn bán → NỢ (khách nợ thêm) · phiếu thu → CÓ (khách trả bớt)."""
+
+    def _dt(kh_id: int | None, ten_lui: str | None) -> dict:
+        k = ma_khach.get(kh_id) if kh_id else None
+        return {
+            "doi_tuong_id": kh_id,
+            "ten": (k.name if k else None) or ten_lui,
+            "ma": k.code if k else None,
+        }
+
+    ra: list[dict] = []
+    for hd in hoa_don:
+        ra.append({
+            **_dt(hd.customer_id, hd.customer_name_snapshot),
+            "ngay": hd.invoice_date,
+            "loai": "hoa_don",
+            "so_ct": _so_hoa_don(hd),
+            "dien_giai": "Hoá đơn bán hàng",
+            "luc": getattr(hd, "created_at", None),
+            "net": int(hd.amount_vnd),
+        })
+    for p in phieu:
+        if p.source_type == RECEIPT_SOURCE_PURCHASE:
+            continue  # tiền NCC trả lại — thuộc 331, không phải 131.
+        kh_id = None
+        if p.sales_invoice is not None:
+            kh_id = p.sales_invoice.customer_id
+        elif p.order_id is not None:
+            kh_id = khach_don.get(p.order_id)
+        ra.append({
+            **_dt(kh_id, p.customer_name_snapshot),
+            "ngay": p.receipt_date,
+            "loai": "phieu_thu",
+            "so_ct": p.code,
+            "dien_giai": (p.content or "").strip() or "Khách trả tiền",
+            "luc": getattr(p, "received_at", None) or getattr(p, "created_at", None),
+            "net": -int(p.amount_vnd),
+        })
+    return ra
+
+
+def _chung_tu_phai_tra(don, chi, hoan, ma_ncc, *, den_ngay: date) -> list[dict]:
+    """TK 331: đợt giao → CÓ (nợ tăng) · phiếu chi → NỢ (nợ giảm) · NCC hoàn tiền → CÓ."""
+
+    def _dt(ncc_id: int | None, ten_lui: str | None) -> dict:
+        n = ma_ncc.get(ncc_id) if ncc_id else None
+        return {
+            "doi_tuong_id": ncc_id,
+            "ten": (n.name if n else None) or ten_lui,
+            "ma": n.code if n else None,
+        }
+
+    ra: list[dict] = []
+    for pr in don:
+        tien_dot = phan_bo_du_dot(pr)
+        for d in getattr(pr, "deliveries", None) or []:
+            tien = int(tien_dot.get(d.id, {}).get("amount", 0) or 0)
+            if not tien or d.delivery_date > den_ngay:
+                continue
+            ra.append({
+                **_dt(pr.supplier_id, None),
+                "ngay": d.delivery_date,
+                "loai": "dot_giao",
+                # Số ĐỢT TRONG ĐƠN, không phải id bản ghi — cùng bài học đã vá ở
+                # `cong_no_chi_tiet_phai_tra` (đợt đầu tiên hiện thành "Đợt #20" vì id là 20).
+                "so_ct": f"{pr.code} · Đợt {d.seq_no}",
+                "dien_giai": "Hàng đã nhận",
+                "luc": getattr(d, "created_at", None),
+                "net": -tien,
+            })
+    for v in chi:
+        ra.append({
+            **_dt(_ncc_cua_phieu_chi(v), v.supplier_name_snapshot),
+            "ngay": ngay_chi(v),
+            "loai": "phieu_chi",
+            "so_ct": v.code,
+            "dien_giai": (v.content or "").strip() or "Chi trả nhà cung cấp",
+            # `paid_at` là mốc tiền THẬT SỰ rời két — cùng nguồn `ngay_chi` đang dùng.
+            "luc": getattr(v, "paid_at", None),
+            "net": int(v.amount_vnd),
+        })
+    for p in hoan:
+        ra.append({
+            **_dt(_ncc_cua_hoan(p), p.supplier_name_snapshot),
+            "ngay": p.receipt_date,
+            "loai": "hoan_tien",
+            "so_ct": p.code,
+            "dien_giai": (p.content or "").strip() or "Nhà cung cấp hoàn tiền",
+            "luc": getattr(p, "received_at", None) or getattr(p, "created_at", None),
+            "net": -int(p.amount_vnd),
+        })
+    return ra
+
+
+def _nap_phai_thu(repo, *, den_ngay: date) -> tuple[list, list, dict, dict]:
+    """Nạp nguyên liệu TK 131 MỘT LẦN. Dùng chung cho sổ tổng hợp và sổ chi tiết — hai bên phải
+    nhìn CÙNG một tập chứng từ, không chỉ cùng luật cộng."""
+    hoa_don = [
+        hd
+        for hd in repo.list_sales_invoices(status=SALES_INVOICE_ISSUED)
+        if hd.invoice_date <= den_ngay
+    ]
+    phieu = repo.phieu_thu_cho_bao_cao(den_ngay=den_ngay)
+    khach_don = repo.khach_cua_don([p.order_id for p in phieu if p.order_id is not None])
+    # Nạp danh mục khách MỘT LẦN cho cả ba nguồn. Trước đó dùng hai bản đồ rời nên khách chỉ có
+    # phiếu thu (chưa hoá đơn nào) rơi vào nhánh tên-snapshot và MẤT mã — mà mã chính là thứ để
+    # đối chiếu với sổ MISA.
+    ma_khach = repo.customers_by_ids(
+        {hd.customer_id for hd in hoa_don if hd.customer_id}
+        | {p.sales_invoice.customer_id for p in phieu if p.sales_invoice is not None}
+        | set(khach_don.values())
+    )
+    return hoa_don, phieu, khach_don, ma_khach
+
+
+def _nap_phai_tra(repo, purchases, *, den_ngay: date) -> tuple[list, list, list, dict]:
+    """Nạp nguyên liệu TK 331 MỘT LẦN — xem ghi chú ở `_nap_phai_thu`."""
+    don = purchases.list_for_payables()
+    chi = [v for v in repo.phieu_chi_cho_bao_cao() if ngay_chi(v) <= den_ngay]
+    hoan = [
+        p
+        for p in repo.phieu_thu_cho_bao_cao(den_ngay=den_ngay)
+        if p.source_type == RECEIPT_SOURCE_PURCHASE
+    ]
+    # Nạp danh mục NCC MỘT LẦN cho cả bốn nguồn. Trước đó chỉ lấy tên từ `list_for_payables`, nên
+    # NCC chỉ có NỢ CŨ (chưa đơn nào trong hệ) rơi ra dòng mang tên mã MISA thay vì tên thật —
+    # NCC chỉ có phiếu chi (chưa đơn nào) từng rơi ra dòng mang tên snapshot thay vì tên thật.
+    ma_ncc = repo.ncc_theo_ids(
+        {pr.supplier_id for pr in don if pr.supplier_id}
+        | {n for n in (_ncc_cua_phieu_chi(v) for v in chi) if n}
+        | {n for n in (_ncc_cua_hoan(p) for p in hoan) if n}
+    )
+    return don, chi, hoan, ma_ncc
+
+
+def _so_chi_tiet(
+    chung_tu: list[dict],
+    *,
+    doi_tuong_id: int | None,
+    tu_ngay: date,
+    den_ngay: date,
+    tk: str,
+    tieu_de: str,
+    ten_khong_gan: str,
+) -> dict:
+    """Sổ chi tiết của MỘT đối tượng: số dư đầu kỳ → từng chứng từ theo ngày → luỹ kế (§5.1).
+
+    Luỹ kế chạy trên `net` rồi mới tách hai cột, y hệt sổ tổng hợp — nên dòng cuối cùng LUÔN bằng
+    ô "Dư cuối kỳ" của chính đối tượng đó bên sổ tổng hợp. Đó là chỗ tự kiểm: lệch nhau nghĩa là
+    có chứng từ rơi mất, và bài test đối chiếu hai bên sẽ đỏ.
+
+    `doi_tuong_id = None` = dòng gom các khoản KHÔNG truy được về đối tượng nào (§❸).
+    """
+    cua_ai = [c for c in chung_tu if c["doi_tuong_id"] == doi_tuong_id and c["net"]]
+
+    dau = sum(c["net"] for c in cua_ai if c["ngay"] < tu_ngay)
+    trong_ky = sorted(
+        (c for c in cua_ai if tu_ngay <= c["ngay"] <= den_ngay),
+        # Cùng một ngày thì xếp theo GIỜ ghi nhận (`luc`), rồi tới số chứng từ cho ổn định — in
+        # lại sổ phải ra đúng thứ tự cũ, không phụ thuộc thứ tự SQL trả về. So bằng chuỗi ISO để
+        # không vấp chuyện datetime có/không mang múi giờ.
+        key=lambda c: (
+            c["ngay"],
+            c["luc"].isoformat() if isinstance(c.get("luc"), datetime) else "",
+            c["so_ct"] or "",
+        ),
+    )
+
+    dau_no, dau_co = _hai_cot(dau)
+    luy = dau
+    dong: list[dict] = []
+    for c in trong_ky:
+        luy += c["net"]
+        no, co = _hai_cot(c["net"])
+        lk_no, lk_co = _hai_cot(luy)
+        dong.append({
+            "ngay": c["ngay"],
+            # Giờ:phút GHI NHẬN (phiếu chi/thu = lúc tiền chạy, còn lại = lúc nhập vào hệ). Ngày
+            # nghiệp vụ trong hệ chỉ có NGÀY, không có giờ — nên đây là thứ duy nhất tách được
+            # thứ tự của nhiều chứng từ cùng một ngày.
+            "luc": c.get("luc"),
+            "loai": c["loai"],
+            "so_ct": c["so_ct"],
+            "dien_giai": c["dien_giai"],
+            "no": no,
+            "co": co,
+            "luy_ke_no": lk_no,
+            "luy_ke_co": lk_co,
+        })
+
+    cuoi_no, cuoi_co = _hai_cot(luy)
+    goc = cua_ai[0] if cua_ai else None
+    return {
+        "tk": tk,
+        "tieu_de": tieu_de,
+        "doi_tuong_id": doi_tuong_id,
+        "ma": (goc or {}).get("ma"),
+        "ten": ((goc or {}).get("ten") or "").strip() or ten_khong_gan,
+        "tu_ngay": tu_ngay,
+        "den_ngay": den_ngay,
+        "dau_no": dau_no,
+        "dau_co": dau_co,
+        "dong": dong,
+        "ps_no": sum(d["no"] for d in dong),
+        "ps_co": sum(d["co"] for d in dong),
+        "cuoi_no": cuoi_no,
+        "cuoi_co": cuoi_co,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════════
 # TK 131 — PHẢI THU KHÁCH HÀNG
 # ══════════════════════════════════════════════════════════════════════════════════
 def tong_hop_phai_thu(repo, *, tu_ngay: date, den_ngay: date) -> dict:
@@ -200,50 +444,16 @@ def tong_hop_phai_thu(repo, *, tu_ngay: date, den_ngay: date) -> dict:
     Phiếu thu `purchase_refund` (NCC hoàn tiền) KHÔNG thuộc 131 — nó là chuyện của 331.
     """
     gom = _Gom(tu_ngay, den_ngay, TK_PHAI_THU, KHONG_GAN_TEN_THU)
-    hoa_don = [
-        hd
-        for hd in repo.list_sales_invoices(status=SALES_INVOICE_ISSUED)
-        if hd.invoice_date <= den_ngay
-    ]
-    phieu = repo.phieu_thu_cho_bao_cao(den_ngay=den_ngay)
-    khach_don = repo.khach_cua_don([p.order_id for p in phieu if p.order_id is not None])
-
-    # Nạp danh mục khách MỘT LẦN cho cả ba nguồn. Trước đó dùng hai bản đồ rời nên khách chỉ có
-    # phiếu thu (chưa hoá đơn nào) rơi vào nhánh tên-snapshot và MẤT mã — mà mã chính là thứ để
-    # đối chiếu với sổ MISA.
-    ma_khach = repo.customers_by_ids(
-        {hd.customer_id for hd in hoa_don if hd.customer_id}
-        | {p.sales_invoice.customer_id for p in phieu if p.sales_invoice is not None}
-        | set(khach_don.values())
-    )
+    hoa_don, phieu, khach_don, ma_khach = _nap_phai_thu(repo, den_ngay=den_ngay)
 
     def _muc(kh_id: int | None, ten_lui: str | None) -> dict:
         k = ma_khach.get(kh_id) if kh_id else None
         return gom.muc(kh_id, (k.name if k else None) or ten_lui, k.code if k else None)
 
-    # --- PS Nợ: hoá đơn bán ---
-    for hd in hoa_don:
-        gom.cong(
-            _muc(hd.customer_id, hd.customer_name_snapshot),
-            hd.invoice_date,
-            int(hd.amount_vnd),
-        )
-
-
-    # --- PS Có: phiếu thu ---
-    for p in phieu:
-        if p.source_type == RECEIPT_SOURCE_PURCHASE:
-            continue  # tiền NCC trả lại — thuộc 331, không phải 131.
-        kh_id = None
-        if p.sales_invoice is not None:
-            kh_id = p.sales_invoice.customer_id
-        elif p.order_id is not None:
-            kh_id = khach_don.get(p.order_id)
-        gom.cong(
-            _muc(kh_id, p.customer_name_snapshot),
-            p.receipt_date,
-            -int(p.amount_vnd),
-        )
+    # --- PS Nợ (hoá đơn bán) + PS Có (phiếu thu) ---
+    # Đi qua ĐÚNG luồng chứng từ mà sổ chi tiết dùng, không tự lặp lại luật ngày/dấu ở đây.
+    for ct in _chung_tu_phai_thu(hoa_don, phieu, khach_don, ma_khach):
+        gom.cong(gom.muc(ct["doi_tuong_id"], ct["ten"], ct["ma"]), ct["ngay"], ct["net"])
 
     # ── PHÂN TUỔI NỢ tại `den_ngay` (§5.3) ────────────────────────────────────────────────
     #
@@ -319,66 +529,16 @@ def tong_hop_phai_tra(repo, purchases, *, tu_ngay: date, den_ngay: date) -> dict
     PS Có (thêm) = phiếu thu `purchase_refund` — NCC hoàn tiền lại thì nợ TĂNG trở lại.
     """
     gom = _Gom(tu_ngay, den_ngay, TK_PHAI_TRA, KHONG_GAN_TEN_TRA)
-    don = purchases.list_for_payables()
-    chi = [v for v in repo.phieu_chi_cho_bao_cao() if ngay_chi(v) <= den_ngay]
-    hoan = [
-        p
-        for p in repo.phieu_thu_cho_bao_cao(den_ngay=den_ngay)
-        if p.source_type == RECEIPT_SOURCE_PURCHASE
-    ]
-
-    def _ncc_cua_phieu_chi(v) -> int | None:
-        if v.supplier_id is not None:
-            return v.supplier_id
-        return v.purchase_request.supplier_id if v.purchase_request is not None else None
-
-    def _ncc_cua_hoan(p) -> int | None:
-        v = p.payment_voucher
-        return _ncc_cua_phieu_chi(v) if v is not None else None
-
-    # Nạp danh mục NCC MỘT LẦN cho cả bốn nguồn. Trước đó chỉ lấy tên từ `list_for_payables`, nên
-    # NCC chỉ có NỢ CŨ (chưa đơn nào trong hệ) rơi ra dòng mang tên mã MISA thay vì tên thật —
-    # NCC chỉ có phiếu chi (chưa đơn nào) từng rơi ra dòng mang tên snapshot thay vì tên thật.
-    ma_ncc = repo.ncc_theo_ids(
-        {pr.supplier_id for pr in don if pr.supplier_id}
-        | {n for n in (_ncc_cua_phieu_chi(v) for v in chi) if n}
-        | {n for n in (_ncc_cua_hoan(p) for p in hoan) if n}
-    )
+    don, chi, hoan, ma_ncc = _nap_phai_tra(repo, purchases, den_ngay=den_ngay)
 
     def _muc(ncc_id: int | None, ten_lui: str | None) -> dict:
         n = ma_ncc.get(ncc_id) if ncc_id else None
         return gom.muc(ncc_id, (n.name if n else None) or ten_lui, n.code if n else None)
 
-    # --- PS Có: hàng đã nhận, theo từng ĐỢT GIAO ---
-    for pr in don:
-        tien_dot = phan_bo_du_dot(pr)
-        for d in getattr(pr, "deliveries", None) or []:
-            tien = int(tien_dot.get(d.id, {}).get("amount", 0) or 0)
-            if not tien or d.delivery_date > den_ngay:
-                continue
-            gom.cong(
-                _muc(pr.supplier_id, None),
-                d.delivery_date,
-                -tien,
-            )
-
-    # --- PS Nợ: phiếu chi đã chi ---
-    for v in chi:
-        ncc_id = _ncc_cua_phieu_chi(v)
-        gom.cong(
-            _muc(ncc_id, v.supplier_name_snapshot),
-            ngay_chi(v),
-            int(v.amount_vnd),
-        )
-
-    # --- PS Có (thêm): NCC hoàn tiền ⇒ nợ TĂNG trở lại ---
-    for p in hoan:
-        ncc_id = _ncc_cua_hoan(p)
-        gom.cong(
-            _muc(ncc_id, p.supplier_name_snapshot),
-            p.receipt_date,
-            -int(p.amount_vnd),
-        )
+    # --- PS Có (hàng đã nhận theo từng ĐỢT GIAO) + PS Nợ (phiếu chi) + PS Có (NCC hoàn tiền) ---
+    # Đi qua ĐÚNG luồng chứng từ mà sổ chi tiết dùng, không tự lặp lại luật ngày/dấu ở đây.
+    for ct in _chung_tu_phai_tra(don, chi, hoan, ma_ncc, den_ngay=den_ngay):
+        gom.cong(gom.muc(ct["doi_tuong_id"], ct["ten"], ct["ma"]), ct["ngay"], ct["net"])
 
     # ── PHÂN TUỔI NỢ tại `den_ngay` (§5.3) ────────────────────────────────────────────────
     #
@@ -418,12 +578,49 @@ def tong_hop_phai_tra(repo, purchases, *, tu_ngay: date, den_ngay: date) -> dict
     }
 
 
+# ══════════════════════════════════════════════════════════════════════════════════
+# SỔ CHI TIẾT CÔNG NỢ theo MỘT đối tượng (§5.1) — "thứ kế toán cần khi ngồi đối chiếu với NCC"
+# ══════════════════════════════════════════════════════════════════════════════════
+def so_chi_tiet_phai_thu(
+    repo, *, doi_tuong_id: int | None, tu_ngay: date, den_ngay: date
+) -> dict:
+    """Sổ chi tiết TK 131 của một khách hàng. `doi_tuong_id=None` = dòng "Thu khác"."""
+    hoa_don, phieu, khach_don, ma_khach = _nap_phai_thu(repo, den_ngay=den_ngay)
+    return _so_chi_tiet(
+        _chung_tu_phai_thu(hoa_don, phieu, khach_don, ma_khach),
+        doi_tuong_id=doi_tuong_id,
+        tu_ngay=tu_ngay,
+        den_ngay=den_ngay,
+        tk=TK_PHAI_THU,
+        tieu_de="SỔ CHI TIẾT CÔNG NỢ PHẢI THU",
+        ten_khong_gan=KHONG_GAN_TEN_THU,
+    )
+
+
+def so_chi_tiet_phai_tra(
+    repo, purchases, *, doi_tuong_id: int | None, tu_ngay: date, den_ngay: date
+) -> dict:
+    """Sổ chi tiết TK 331 của một nhà cung cấp. `doi_tuong_id=None` = dòng "Chi khác"."""
+    don, chi, hoan, ma_ncc = _nap_phai_tra(repo, purchases, den_ngay=den_ngay)
+    return _so_chi_tiet(
+        _chung_tu_phai_tra(don, chi, hoan, ma_ncc, den_ngay=den_ngay),
+        doi_tuong_id=doi_tuong_id,
+        tu_ngay=tu_ngay,
+        den_ngay=den_ngay,
+        tk=TK_PHAI_TRA,
+        tieu_de="SỔ CHI TIẾT CÔNG NỢ PHẢI TRẢ",
+        ten_khong_gan=KHONG_GAN_TEN_TRA,
+    )
+
+
 __all__ = [
     "KHONG_GAN_TEN_THU",
     "KHONG_GAN_TEN_TRA",
     "TK_PHAI_THU",
     "TK_PHAI_TRA",
     "ngay_chi",
+    "so_chi_tiet_phai_thu",
+    "so_chi_tiet_phai_tra",
     "tong_hop_phai_thu",
     "tong_hop_phai_tra",
 ]

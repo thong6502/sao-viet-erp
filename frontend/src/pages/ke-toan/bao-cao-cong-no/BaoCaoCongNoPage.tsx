@@ -1,11 +1,15 @@
-// BÁO CÁO CÔNG NỢ (131 Phải thu · 331 Phải trả) — Theo dõi chi tiết đơn/đợt + Sổ tổng hợp MISA + Khóa kỳ + In chuẩn Excel
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+// BÁO CÁO CÔNG NỢ (131 Phải thu · 331 Phải trả) — Sổ tổng hợp MISA + Sổ chi tiết + Khóa kỳ + In chuẩn Excel
+//
+// Tab "Chi tiết đơn & đợt" ĐÃ GỠ 05/09/2026 (chủ chốt chọn cách B). Nó KHÔNG phải báo cáo theo
+// kỳ dù ngồi trong màn Báo cáo: `tu_ngay` bị bỏ qua hoàn toàn nên đợt đã tất toán từ kỳ trước
+// vẫn nằm đó, và "đã trả/còn nợ" tính tại HÔM NAY (`_no_tung_dot` không nhận mốc ngày) nên in
+// lại kỳ cũ ra số khác lần in trước. Vai trò của nó nay chia đôi: giải thích số của kỳ →
+// `SoChiTietDrawer` (§5.1, lọc đúng kỳ); xem đợt nào quá hạn → màn Công nợ phải trả.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   api,
   type BaoCaoCongNo,
-  type CongNoChiTietPhaiThuRow,
-  type CongNoChiTietPhaiTraRow,
   type CongNoKhoaSoTrangThai,
   type CongNoKyRow,
 } from "../../../api/client";
@@ -13,13 +17,15 @@ import { useCan } from "../../../auth/permissions";
 import { useAuth } from "../../../auth/useAuth";
 import { Button } from "../../../components/Button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
+import type { NavigateFn } from "../../../components/AppShell";
 import { Icon } from "../../../components/Icons";
 import { money } from "../../../utils/format";
-import { AgingStrip } from "../components/AgingStrip";
-import { printBaoCaoCongNo } from "../../../utils/printBaoCaoCongNo";
+// import { printBaoCaoCongNo } from "../../../utils/printBaoCaoCongNo";
+import { SoChiTietDrawer } from "./SoChiTietDrawer";
 import { nhanKy, type Ky } from "./shared/ky";
 import "../../accounting.css";
 import "./bao-cao-cong-no.css";
+
 
 function so(v: number): string {
   return v ? Math.round(v).toLocaleString("vi-VN") : "";
@@ -63,11 +69,13 @@ export function BaoCaoCongNoPage({
   ben,
   ky,
   onKy,
+  navigate,
 }: {
   ben: "receivables" | "payables";
   /** Kỳ do VỎ giữ (`BaoCaoKeToanPage`) — để đổi tab không mất kỳ đang chọn. */
   ky: Ky;
   onKy: (ky: Ky) => void;
+  navigate?: NavigateFn;
 }) {
   const { token } = useAuth();
   const can = useCan();
@@ -80,19 +88,13 @@ export function BaoCaoCongNoPage({
   // kéo theo phải thu (chủ báo 04/09/2026: *"2 cái này nó khác nhau mà"*).
   const phanHe: "phai_thu" | "phai_tra" = ben === "receivables" ? "phai_thu" : "phai_tra";
   const [data, setData] = useState<BaoCaoCongNo | null>(null);
-  const [chiTietThu, setChiTietThu] = useState<CongNoChiTietPhaiThuRow[]>([]);
-  const [chiTietTra, setChiTietTra] = useState<CongNoChiTietPhaiTraRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dangXuat, setDangXuat] = useState(false);
   const [q, setQ] = useState("");
-  // RỔ TUỔI đang lọc. Lọc chạy ở SERVER (nó giữ mốc rổ) chứ không lọc trên mảng đã tải — giao
-  // diện tuyệt đối không gõ lại số ngày 7/15/30/60 ở đâu cả.
-  const [roTuoi, setRoTuoi] = useState<string | null>(null);
-
-  // Chế độ xem: "so" = Sổ tổng hợp (mẫu Excel) | "chitiet" = Chi tiết theo đơn / đợt
-  const [viewMode, setViewMode] = useState<"so" | "chitiet">("so");
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  // Đối tượng đang mở SỔ CHI TIẾT. Giữ cả TÊN vừa bấm để hiện ngay lúc còn đang tải —
+  // `id` có thể là `null` (dòng "ngoài danh mục") nên không dùng chính nó làm cờ đóng/mở được.
+  const [xemSo, setXemSo] = useState<{ id: number | null; ten: string } | null>(null);
 
   // Khóa kỳ
   const [kyList, setKyList] = useState<CongNoKyRow[]>([]);
@@ -152,30 +154,14 @@ export function BaoCaoCongNoPage({
     setLoading(true);
     setError(null);
 
-    const pBaoCao = api.accounting.baoCaoCongNo(token, ben, {
-      tuNgay: ky.tu,
-      denNgay: ky.den,
-      roTuoi,
-    });
-    const pChiTiet =
-      ben === "receivables"
-        ? api.accounting.congNoChiTietPhaiThu(token, { tuNgay: ky.tu, denNgay: ky.den })
-        : api.accounting.congNoChiTietPhaiTra(token, { tuNgay: ky.tu, denNgay: ky.den });
-
-    Promise.all([pBaoCao, pChiTiet])
-      .then(([bc, ct]) => {
-        setData(bc);
-        if (ben === "receivables") {
-          setChiTietThu(ct as CongNoChiTietPhaiThuRow[]);
-        } else {
-          setChiTietTra(ct as CongNoChiTietPhaiTraRow[]);
-        }
-      })
+    api.accounting
+      .baoCaoCongNo(token, ben, { tuNgay: ky.tu, denNgay: ky.den })
+      .then(setData)
       .catch((cause) => {
         setError(cause instanceof ApiError ? cause.message : "Không tải được báo cáo công nợ.");
       })
       .finally(() => setLoading(false));
-  }, [token, ben, ky.tu, ky.den, roTuoi]);
+  }, [token, ben, ky.tu, ky.den]);
 
   useEffect(load, [load]);
 
@@ -196,70 +182,32 @@ export function BaoCaoCongNoPage({
     return ra;
   }, [dongSo]);
 
-  // Lọc dữ liệu Chi tiết
-  const dongChiTiet = useMemo(() => {
-    const tim = q.trim().toLowerCase();
-    if (ben === "receivables") {
-      return chiTietThu.filter((d) => {
-        if (!tim) return true;
-        return (
-          d.customer_name.toLowerCase().includes(tim) ||
-          (d.customer_code ?? "").toLowerCase().includes(tim)
-        );
-      });
-    } else {
-      return chiTietTra.filter((d) => {
-        if (!tim) return true;
-        return (
-          d.supplier_name.toLowerCase().includes(tim) ||
-          (d.supplier_code ?? "").toLowerCase().includes(tim)
-        );
-      });
-    }
-  }, [ben, chiTietThu, chiTietTra, q]);
-
-  // Tổng hợp chỉ số KPI
+  // KPI lấy THẲNG từ sổ tổng hợp (05/09/2026, cùng lúc gỡ tab "Chi tiết đơn & đợt").
+  //
+  // Trước đây ba con số này tính từ bảng chi tiết — mà bảng đó bỏ qua `tu_ngay` và tính "đã trả"
+  // tại HÔM NAY, nên KPI không phải số CỦA KỲ: in lại kỳ cũ ra số khác lần in trước, và còn đá
+  // nhau với chính bảng sổ ngay bên dưới. Lấy từ `data` thì KPI, sổ và dải rổ tuổi cùng một mốc.
+  //
+  //   • Nợ = dư CUỐI KỲ đúng bên của tài khoản: 331 dư bên Có, 131 dư bên Nợ.
+  //   • Quá hạn = mọi rổ TRỪ rổ "chưa tới hạn" — dải rổ đã tính sẵn tại `den_ngay`.
+  // KPI chuẩn 4 chỉ số tài chính của kỳ kế toán: Đầu + Tăng - Giảm = Cuối
   const kpi = useMemo(() => {
-    if (ben === "receivables") {
-      const tongNo = chiTietThu.reduce((s, x) => s + x.total_due, 0);
-      const tongQuaHan = chiTietThu.reduce((s, x) => s + x.overdue_amount, 0);
-      const soDoiTuong = chiTietThu.filter((x) => x.total_due > 0).length;
-      return { tongNo, tongQuaHan, soDoiTuong };
-    } else {
-      const tongNo = chiTietTra.reduce((s, x) => s + x.total_due, 0);
-      const tongQuaHan = chiTietTra.reduce((s, x) => s + x.overdue_amount, 0);
-      const soDoiTuong = chiTietTra.filter((x) => x.total_due > 0).length;
-      return { tongNo, tongQuaHan, soDoiTuong };
-    }
-  }, [ben, chiTietThu, chiTietTra]);
+    const ben_no = ben === "receivables" ? "cuoi_no" : "cuoi_co";
+    const items = data?.items ?? [];
+    return {
+      dauKy: ben === "receivables" ? (tongSo.dau_no || 0) : (tongSo.dau_co || 0),
+      tangKy: ben === "receivables" ? (tongSo.ps_no || 0) : (tongSo.ps_co || 0),
+      giamKy: ben === "receivables" ? (tongSo.ps_co || 0) : (tongSo.ps_no || 0),
+      cuoiKy: ben === "receivables" ? (tongSo.cuoi_no || 0) : (tongSo.cuoi_co || 0),
+      soDoiTuong: items.filter((d) => d[ben_no] > 0).length,
+    };
+  }, [ben, data, tongSo]);
 
-  // Bung/gập dòng chi tiết
-  function toggleExpand(id: number) {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleExpandAll() {
-    if (expandedIds.size > 0) {
-      setExpandedIds(new Set());
-    } else {
-      const allIds =
-        ben === "receivables"
-          ? chiTietThu.map((x) => x.customer_id)
-          : chiTietTra.map((x) => x.supplier_id);
-      setExpandedIds(new Set(allIds));
-    }
-  }
-
-  // In báo cáo (đúng mẫu file Excel)
-  function inBaoCao() {
-    if (!data) return;
-    printBaoCaoCongNo(data);
-  }
+  // In báo cáo (tạm thời ẩn theo yêu cầu)
+  // function inBaoCao() {
+  //   if (!data) return;
+  //   printBaoCaoCongNo(data);
+  // }
 
   // Xuất file Excel (.xlsx)
   async function xuatExcel() {
@@ -373,9 +321,7 @@ export function BaoCaoCongNoPage({
           </p>
         </div>
         <div className="bccn__head-actions">
-          <Button variant="ghost" onClick={inBaoCao} disabled={!data || loading} title="In báo cáo mẫu chuẩn A4 ngang như file Excel">
-            <Icon name="printer" size={14} /> In báo cáo
-          </Button>
+          {/* Tạm thời ẩn nút In báo cáo theo yêu cầu */}
           <Button variant="ghost" onClick={xuatExcel} disabled={dangXuat || !data} title="Xuất file .xlsx chuẩn MISA">
             <Icon name="table" size={14} /> {dangXuat ? "Đang xuất…" : "Xuất Excel"}
           </Button>
@@ -398,67 +344,72 @@ export function BaoCaoCongNoPage({
         </div>
       </header>
 
-      {/* Dải KPI */}
-      <section className="bccn__kpi" aria-label="Tổng quan kỳ">
-        <div className="bccn__kpi-o">
-          <span className="bccn__kpi-nhan">Tổng nợ kỳ này</span>
-          {/* `key` = chính giá trị số — React remount đúng LÚC SỐ ĐỔI (data mới về), không phải
-              lúc bấm chọn kỳ (khi bảng còn đang tải số cũ). Loé sai lúc là loé cho vui, không
-              phải tín hiệu "số vừa cập nhật". */}
-          <div className="bccn__kpi-so" key={kpi.tongNo}>
-            <b className="bccn__kpi-val bccn__kpi-val--highlight">{money(kpi.tongNo)}</b>
+      {/* 4 Thẻ KPI Kế toán chuẩn kỳ */}
+      <section className="bccn__kpi-grid" aria-label="Tổng quan kỳ">
+        <div className="bccn__kpi-card">
+          <div className="bccn__kpi-top">
+            <span className="bccn__kpi-label">Dư nợ đầu kỳ</span>
+            <Icon name="history" size={14} className="bccn__kpi-icon" />
           </div>
+          <div className="bccn__kpi-number">{money(kpi.dauKy)}</div>
+          <span className="bccn__kpi-sub">
+            {ben === "receivables" ? "Dư nợ chuyển sang" : "Dư có chuyển sang"}
+          </span>
         </div>
-        <i className="bccn__kpi-sep" aria-hidden="true" />
-        <div className="bccn__kpi-o bccn__kpi-o--manh">
-          <span className="bccn__kpi-nhan">Nợ quá hạn</span>
-          <div className="bccn__kpi-so" key={kpi.tongQuaHan}>
-            {kpi.tongQuaHan > 0 ? (
-              <b className="bccn__kpi-val bccn__kpi-val--rust">
-                {money(kpi.tongQuaHan)}
-                <span className="bccn__kpi-pct">
-                  ({Math.round((kpi.tongQuaHan / (kpi.tongNo || 1)) * 100)}%)
-                </span>
-              </b>
-            ) : (
-              <b className="bccn__kpi-val bccn__kpi-val--trong">0 đ</b>
-            )}
+
+        <div className="bccn__kpi-card">
+          <div className="bccn__kpi-top">
+            <span className="bccn__kpi-label">
+              {ben === "receivables" ? "Phát sinh tăng (Nợ)" : "Phát sinh tăng (Có)"}
+            </span>
+            <Icon name="arrowRight" size={14} className="bccn__kpi-icon" />
           </div>
+          <div className="bccn__kpi-number">{money(kpi.tangKy)}</div>
+          <span className="bccn__kpi-sub">
+            {ben === "receivables" ? "Hóa đơn / Ghi nợ" : "Nhận hàng / Ghi có"}
+          </span>
         </div>
-        <i className="bccn__kpi-sep" aria-hidden="true" />
-        <div className="bccn__kpi-o">
-          <span className="bccn__kpi-nhan">Đối tượng còn nợ</span>
-          <div className="bccn__kpi-so" key={kpi.soDoiTuong}>
-            <b className="bccn__kpi-val">{kpi.soDoiTuong} đối tượng</b>
+
+        <div className="bccn__kpi-card">
+          <div className="bccn__kpi-top">
+            <span className="bccn__kpi-label">
+              {ben === "receivables" ? "Đã thu trong kỳ" : "Đã trả trong kỳ"}
+            </span>
+            <Icon name="check" size={14} className="bccn__kpi-icon" />
           </div>
+          <div className="bccn__kpi-number">{money(kpi.giamKy)}</div>
+          <span className="bccn__kpi-sub">
+            {ben === "receivables" ? "Phiếu thu / Giảm nợ" : "Phiếu chi / Giảm nợ"}
+          </span>
+        </div>
+
+        <div className="bccn__kpi-card bccn__kpi-card--highlight">
+          <div className="bccn__kpi-top">
+            <span className="bccn__kpi-label">Dư nợ cuối kỳ</span>
+            <Icon name="calculator" size={14} className="bccn__kpi-icon" />
+          </div>
+          <div className="bccn__kpi-number">{money(kpi.cuoiKy)}</div>
+          <span className="bccn__kpi-sub">{kpi.soDoiTuong} đối tượng còn nợ</span>
         </div>
       </section>
 
-      {/* Toolbar & Quản lý kỳ */}
-      <section className="bccn__bar" aria-label="Kỳ báo cáo và bộ lọc">
-        <div className="bccn__bar-hang">
-          {/* CHỌN KỲ — ô DUY NHẤT quyết định khoảng thời gian (làm lại 04/09/2026).
-              Chủ chốt: *"Từ ngày Đến ngày mình không cho chọn ngày nữa, nó hiển thị ngày theo kì
-              mình chốt"*. Trước đó có BA thứ cùng đòi quyết định khoảng — ô kỳ, hai ô ngày, và
-              bốn nút Tháng này/Quý này — nên kỳ đang xem hay lệch kỳ đã chốt, và badge "Chốt một
-              phần" hiện lên liên tục mà không ai hiểu vì sao.
-              Danh sách kỳ = NHỮNG LẦN BẤM CHỐT có thật + kỳ hiện tại chưa chốt (server dựng). */}
-          <label className="bccn__o bccn__o--ky">
-            <span>Kỳ kế toán</span>
+      {/* Toolbar hợp nhất chuẩn RebuildCatalogPage */}
+      <section className="bccn__toolbar" aria-label="Kỳ báo cáo và bộ lọc">
+        <div className="bccn__toolbar-trai">
+          <div className="bccn__ky-group">
+            <label className="bccn__ky-label" htmlFor="bccn-select-ky">
+              <Icon name="calendar" size={14} />
+              <span>Kỳ</span>
+            </label>
             <select
+              id="bccn-select-ky"
               className="input bccn__select-ky"
               value={`${ky.tu}_${ky.den}`}
               onChange={(e) => {
                 const [tu, den] = e.target.value.split("_");
-                if (tu && den) {
-                  setRoTuoi(null);      // rổ của kỳ cũ vô nghĩa ở kỳ mới
-                  onKy({ tu, den });
-                }
+                if (tu && den) onKy({ tu, den });
               }}
             >
-              {/* Kỳ đang xem mà KHÔNG có trong danh sách (vd link cũ, hoặc kỳ vừa mở khóa) vẫn
-                  phải hiện ra, nếu không ô select nhảy về mục đầu và bảng đổi số dưới chân người
-                  đang đọc. */}
               {!kyList.some((k) => k.tu_ngay === ky.tu && k.den_ngay === ky.den) && (
                 <option value={`${ky.tu}_${ky.den}`}>
                   {nhanKy(ky) || `Kỳ ${fmtDate(ky.tu)}–${fmtDate(ky.den)}`}
@@ -470,21 +421,9 @@ export function BaoCaoCongNoPage({
                 </option>
               ))}
             </select>
-          </label>
-
-          {/* NGÀY CHỈ ĐỂ ĐỌC — suy từ kỳ đã chọn, không bấm được. Đây chính là chỗ sửa: cho gõ
-              ngày lẻ thì kỳ báo cáo không bao giờ khớp kỳ đã chốt. */}
-          <div className="bccn__khoang" aria-label="Khoảng ngày của kỳ">
-            <span className="bccn__khoang-nhan">Từ ngày</span>
-            <b className="bccn__khoang-ngay">{fmtDate(ky.tu)}</b>
-            <i className="bccn__mui" aria-hidden="true">→</i>
-            <span className="bccn__khoang-nhan">Đến ngày</span>
-            <b className="bccn__khoang-ngay">{fmtDate(ky.den)}</b>
           </div>
 
-          {/* BADGE TRẠNG THÁI KỲ — BA trạng thái, không phải hai. "Chốt một phần" nghĩa là kỳ này
-              có ngày đã chốt, có ngày chưa. Gộp nó vào "Đang mở" là giấu mất chuyện nửa kỳ đã
-              chốt; gộp vào "Đã chốt" thì tệ hơn — sổ nói dối rằng cả kỳ đã đóng. */}
+
           <div className="bccn__status-pill">
             {kyHienTaiDaKhoa ? (
               <span
@@ -513,387 +452,147 @@ export function BaoCaoCongNoPage({
           </div>
         </div>
 
-        {/* DẢI PHÂN TUỔI NỢ — dùng lại `AgingStrip` của hai màn Công nợ, KHÔNG vẽ cái thứ hai.
-            Khác một điểm sống còn: rổ ở đây tính TẠI "Đến ngày" của kỳ, còn bên kia luôn neo vào
-            hôm nay. Nhờ thế in lại kỳ tháng 7 vào tháng 9 vẫn ra đúng con số hồi tháng 8.
-            Đặt DƯỚI thanh kỳ và TRÊN ô tìm: chọn kỳ trước, rồi mới soi nặng nhẹ, rồi mới lọc. */}
-        {/* CHỈ ở chế độ Sổ tổng hợp: rổ lọc trên `data.items` (sổ), còn bảng Chi tiết đơn/đợt
-            lấy từ nguồn khác — để dải ở đó thì bấm vào như không có tác dụng. */}
-        {viewMode === "so" && (
-          <div className="bccn__ro">
-            <AgingStrip buckets={data?.aging ?? []} dangChon={roTuoi} onChon={setRoTuoi} />
-          </div>
-        )}
-
-        <div className="bccn__bar-hang bccn__bar-hang--phu">
+        <div className="bccn__toolbar-phai">
           <div className="bccn__tim">
-            <Icon name="search" size={14} />
+            <Icon name="search" size={14} className="bccn__tim-icon" />
             <input
               className="bccn__tim-o"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Tìm theo mã hoặc tên đối tượng..."
+              placeholder="Tìm mã hoặc tên đối tượng..."
             />
+            {q && (
+              <button
+                type="button"
+                className="bccn__tim-xoa"
+                onClick={() => setQ("")}
+                aria-label="Xóa tìm kiếm"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
-          {/* Nút chuyển chế độ xem */}
-          <div className="bccn__view-switch">
-            <button
-              type="button"
-              className={`bccn__view-btn${viewMode === "so" ? " is-active" : ""}`}
-              onClick={() => setViewMode("so")}
-            >
-              <Icon name="table" size={13} /> Sổ tổng hợp (mẫu Excel)
-            </button>
-            <button
-              type="button"
-              className={`bccn__view-btn${viewMode === "chitiet" ? " is-active" : ""}`}
-              onClick={() => {
-                // Bỏ lọc rổ khi rời Sổ tổng hợp: dải rổ bị ẩn ở chế độ Chi tiết, để lọc còn treo
-                // thì quay lại sổ sẽ thấy danh sách bị cắt mà không hiểu vì sao.
-                setRoTuoi(null);
-                setViewMode("chitiet");
-              }}
-            >
-              <Icon name="layers" size={13} /> Chi tiết đơn & đợt
-            </button>
-          </div>
-
-          {/* Ô tick "Ẩn dòng không phát sinh" ĐÃ GỠ (chủ chốt 04/09/2026: *"tôi thấy nó có tác
-              dụng gì đâu"* — đúng). Nó lọc "cả 6 cột đều 0", mà máy chủ đã bỏ sạch dòng đó trước
-              khi trả về (`_Gom.ket_qua(an_dong_trong=True)`, không chỗ gọi nào truyền False, cũng
-              không có query param để tắt) — nên bật/tắt đều ra cùng một danh sách.
-              Cần lại thì phải nối THẬT từ máy chủ (trả về cả đối tượng dư 0 / không phát sinh),
-              chứ đừng dựng lại mỗi cái công tắc ở giao diện. */}
-          {viewMode === "chitiet" && (
-            <button type="button" className="btn btn--ghost btn--sm" onClick={toggleExpandAll}>
-              {expandedIds.size > 0 ? "Thu gọn tất cả" : "Mở rộng tất cả"}
-            </button>
-          )}
-
-          <span className="bccn__dem">
-            {loading
-              ? "Đang tải…"
-              : viewMode === "so"
-                ? `${dongSo.length} đối tượng${roTuoi ? " · đang lọc theo rổ tuổi" : ""}`
-                : `${dongChiTiet.length} đối tượng`}
+          <span className="chip-count bccn__dem-chip">
+            {loading ? "…" : `${dongSo.length} đối tượng`}
           </span>
         </div>
       </section>
 
       {error && <div className="alert alert--error">{error}</div>}
 
-      {/* CHẾ ĐỘ 1: BẢNG SỔ TỔNG HỢP MẪU EXCEL MISA */}
-      {viewMode === "so" && (
-        <section className="bccn__wrap">
-          <table className="bccn__table">
-            <colgroup>
-              <col className="bccn__c-ma" />
-              <col className="bccn__c-ten" />
-              <col className="bccn__c-tk" />
-              <col span={6} className="bccn__c-tien" />
-            </colgroup>
-            <thead>
-              <tr className="bccn__hang-cum">
-                <th rowSpan={2} className="bccn__th-ma">{data?.nhan_ma ?? "Mã đối tượng"}</th>
-                <th rowSpan={2}>{data?.nhan_ten ?? "Tên đối tượng"}</th>
-                <th rowSpan={2}>TK công nợ</th>
-                <th colSpan={2} className="bccn__cum">Số dư đầu kỳ</th>
-                <th colSpan={2} className="bccn__cum">Số phát sinh</th>
-                <th colSpan={2} className="bccn__cum bccn__cum--cuoi">Số dư cuối kỳ</th>
-              </tr>
-              <tr className="bccn__hang-noco">
-                <th>Nợ</th>
-                <th className="bccn__het-cum">Có</th>
-                <th>Nợ</th>
-                <th className="bccn__het-cum">Có</th>
-                <th>Nợ</th>
-                <th>Có</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading &&
-                Array.from({ length: 6 }).map((_, i) => (
-                  <tr key={`sk-${i}`} className="purchase__skeleton-row">
-                    {Array.from({ length: 9 }).map((__, j) => (
-                      <td key={j}>
-                        <div
-                          className="purchase__skeleton-bar"
-                          style={{ width: j === 1 ? "180px" : j === 0 ? "80px" : "70px" }}
-                        />
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              {!loading && dongSo.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="bccn__trong">
-                    {q.trim() ? "Không có đối tượng nào khớp từ khoá." : "Kỳ này không có phát sinh nào."}
-                  </td>
-                </tr>
-              )}
-              {!loading &&
-                dongSo.map((d) => (
-                  <tr
-                    key={`${d.doi_tuong_id ?? "khac"}-${d.ten}`}
-                    className={d.doi_tuong_id === null ? "bccn__row--khac" : undefined}
-                  >
-                    <td className="bccn__ma">{d.ma || <span className="bccn__khong">—</span>}</td>
-                    <td className="bccn__ten">
-                      <span>{d.ten}</span>
-                      {d.doi_tuong_id === null && (
-                        <span className="bccn__nhan-khac" title="Ngoài danh mục">ngoài danh mục</span>
-                      )}
+    {/* BẢNG SỔ TỔNG HỢP MẪU EXCEL MISA */}
+      <section className="bccn__wrap">
+        <table className="bccn__table">
+          <colgroup>
+            <col className="bccn__c-ma" />
+            <col className="bccn__c-ten" />
+            <col className="bccn__c-tk" />
+            <col span={6} className="bccn__c-tien" />
+          </colgroup>
+          <thead>
+            <tr className="bccn__hang-cum">
+              <th rowSpan={2} className="bccn__th-ma">{data?.nhan_ma ?? "Mã đối tượng"}</th>
+              <th rowSpan={2}>{data?.nhan_ten ?? "Tên đối tượng"}</th>
+              <th rowSpan={2}>TK công nợ</th>
+              <th colSpan={2} className="bccn__cum">Số dư đầu kỳ</th>
+              <th colSpan={2} className="bccn__cum">Số phát sinh</th>
+              <th colSpan={2} className="bccn__cum bccn__cum--cuoi">Số dư cuối kỳ</th>
+            </tr>
+            <tr className="bccn__hang-noco">
+              <th>Nợ</th>
+              <th className="bccn__het-cum">Có</th>
+              <th>Nợ</th>
+              <th className="bccn__het-cum">Có</th>
+              <th>Nợ</th>
+              <th>Có</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading &&
+              Array.from({ length: 6 }).map((_, i) => (
+                <tr key={`sk-${i}`} className="purchase__skeleton-row">
+                  {Array.from({ length: 9 }).map((__, j) => (
+                    <td key={j}>
+                      <div
+                        className="purchase__skeleton-bar"
+                        style={{ width: j === 1 ? "180px" : j === 0 ? "80px" : "70px" }}
+                      />
                     </td>
-                    <td className="bccn__tk-cell">{d.tk || data?.tk || "—"}</td>
-                    <td><O v={d.dau_no} /></td>
-                    <td className="bccn__het-cum"><O v={d.dau_co} /></td>
-                    <td><O v={d.ps_no} /></td>
-                    <td className="bccn__het-cum"><O v={d.ps_co} /></td>
-                    <td><O v={d.cuoi_no} manh /></td>
-                    <td><O v={d.cuoi_co} manh /></td>
-                  </tr>
-                ))}
-            </tbody>
-            {!loading && dongSo.length > 0 && (
-              <tfoot className="bccn__foot">
-                <tr>
-                  <td colSpan={3}>
-                    Số dòng = <b>{tongSo.so_dong}</b>
-                  </td>
-                  <td><O v={tongSo.dau_no} manh /></td>
-                  <td className="bccn__het-cum"><O v={tongSo.dau_co} manh /></td>
-                  <td><O v={tongSo.ps_no} manh /></td>
-                  <td className="bccn__het-cum"><O v={tongSo.ps_co} manh /></td>
-                  <td><O v={tongSo.cuoi_no} manh /></td>
-                  <td><O v={tongSo.cuoi_co} manh /></td>
+                  ))}
                 </tr>
-              </tfoot>
-            )}
-          </table>
-          <p className="bccn__chan">
-            Đơn vị: VNĐ. Bảng đối chiếu khớp 100% với file Excel mẫu MISA. Bấm nút "In báo cáo" để in bản A4 ngang.
-          </p>
-        </section>
-      )}
-
-      {/* CHẾ ĐỘ 2: BẢNG MASTER-DETAIL CHI TIẾT THEO ĐƠN & ĐỢT GIAO */}
-      {viewMode === "chitiet" && (
-        <section className="bccn__wrap">
-          <table className="bccn__table bccn__table--detail">
-            <thead>
+              ))}
+            {!loading && dongSo.length === 0 && (
               <tr>
-                <th style={{ width: 44 }}></th>
-                <th style={{ width: 120 }}>Mã đối tượng</th>
-                <th>Tên đối tượng</th>
-                <th style={{ width: 140, textAlign: "right" }}>Hạn mức tín dụng</th>
-                <th style={{ width: 140, textAlign: "right" }}>Tổng nợ</th>
-                <th style={{ width: 140, textAlign: "right" }}>Nợ quá hạn</th>
-                <th style={{ width: 100, textAlign: "center" }}>Số đơn / đợt</th>
+                <td colSpan={9} className="bccn__trong">
+                  {q.trim() ? "Không có đối tượng nào khớp từ khoá." : "Kỳ này không có phát sinh nào."}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {loading &&
-                Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={`sk-ct-${i}`} className="purchase__skeleton-row">
-                    <td colSpan={7}>
-                      <div className="purchase__skeleton-bar" style={{ width: "100%", height: 24 }} />
-                    </td>
-                  </tr>
-                ))}
-              {!loading && dongChiTiet.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="bccn__trong">
-                    Không có phát sinh công nợ chi tiết nào trong kỳ.
+            )}
+            {!loading &&
+              dongSo.map((d) => (
+                // Bấm một dòng → mở SỔ CHI TIẾT của đối tượng đó (PRD §5.1). Cả dòng bấm được
+                // cho dễ trúng, nhưng phím vẫn phải đi được — thiếu `role`/`tabIndex`/Enter là
+                // người dùng bàn phím mất hẳn đường vào sổ chi tiết.
+                <tr
+                  key={`${d.doi_tuong_id ?? "khac"}-${d.ten}`}
+                  className={[
+                    d.doi_tuong_id === null ? "bccn__row--khac" : "",
+                    "bccn__row--mo",
+                  ].filter(Boolean).join(" ")}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Xem sổ chi tiết công nợ của ${d.ten}`}
+                  onClick={() => setXemSo({ id: d.doi_tuong_id, ten: d.ten })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setXemSo({ id: d.doi_tuong_id, ten: d.ten });
+                    }
+                  }}
+                >
+                  <td className="bccn__ma">{d.ma || <span className="bccn__khong">—</span>}</td>
+                  <td className="bccn__ten">
+                    <span className="bccn__row-mo-nhan">
+                      {d.ten}
+                      <span className="bccn__row-action-hint">
+                        <Icon name="arrowRight" size={13} />
+                      </span>
+                    </span>
+                    {d.doi_tuong_id === null && (
+                      <span className="bccn__nhan-khac" title="Ngoài danh mục">ngoài danh mục</span>
+                    )}
                   </td>
+                  <td className="bccn__tk-cell">{d.tk || data?.tk || "—"}</td>
+                  <td><O v={d.dau_no} /></td>
+                  <td className="bccn__het-cum"><O v={d.dau_co} /></td>
+                  <td><O v={d.ps_no} /></td>
+                  <td className="bccn__het-cum"><O v={d.ps_co} /></td>
+                  <td><O v={d.cuoi_no} manh /></td>
+                  <td><O v={d.cuoi_co} manh /></td>
                 </tr>
-              )}
-              {!loading &&
-                dongChiTiet.map((item) => {
-                  const id = ben === "receivables" ? (item as CongNoChiTietPhaiThuRow).customer_id : (item as CongNoChiTietPhaiTraRow).supplier_id;
-                  const code = ben === "receivables" ? (item as CongNoChiTietPhaiThuRow).customer_code : (item as CongNoChiTietPhaiTraRow).supplier_code;
-                  const name = ben === "receivables" ? (item as CongNoChiTietPhaiThuRow).customer_name : (item as CongNoChiTietPhaiTraRow).supplier_name;
-                  const isExp = expandedIds.has(id);
-                  const vuot = item.credit_limit > 0 && item.total_due > item.credit_limit;
-
-                  return (
-                    <Fragment key={`item-${id}`}>
-                      <tr
-                        className={`bccn__master-row${isExp ? " is-expanded" : ""}`}
-                        onClick={() => toggleExpand(id)}
-                      >
-                        <td className="bccn__exp-btn">
-                          <button
-                            type="button"
-                            className={`bccn__chevron${isExp ? " is-down" : ""}`}
-                            aria-label="Bung/gập chi tiết"
-                          >
-                            <Icon name="chevron" size={14} />
-                          </button>
-                        </td>
-                        <td className="bccn__ma">{code || "—"}</td>
-                        <td className="bccn__ten">
-                          <b>{name}</b>
-                          {/* KHÔNG lặp lại số tiền vượt — "Hạn mức tín dụng" và "Tổng nợ" đã là
-                              hai cột ngay trên chính hàng này, chênh lệch tự suy ra được. Nhắc lại
-                              số lần thứ ba cạnh cái tên là thứ làm pill này to hơn cả tên công ty. */}
-                          {vuot && (
-                            <span className="badge-sem badge-sem--rust bccn__badge-vuot">
-                              Vượt hạn mức
-                            </span>
-                          )}
-                        </td>
-                        <td className="bccn__col-money">
-                          {item.credit_limit > 0 ? money(item.credit_limit) : <span className="bccn__khong">—</span>}
-                        </td>
-                        <td className="bccn__col-money bccn__tien--manh">
-                          {money(item.total_due)}
-                        </td>
-                        <td className="bccn__col-money">
-                          {item.overdue_amount > 0 ? (
-                            <span className="bccn__val-rust">{money(item.overdue_amount)}</span>
-                          ) : (
-                            <span className="bccn__khong">—</span>
-                          )}
-                        </td>
-                        <td style={{ textAlign: "center" }}>
-                          <span className="bccn__pill-count">{item.items.length} đơn</span>
-                        </td>
-                      </tr>
-
-                      {/* Dòng chi tiết lồng con */}
-                      {isExp && (
-                        <tr className="bccn__subtable-row">
-                          <td colSpan={7} className="bccn__subtable-cell">
-                            <div className="bccn__subtable-box">
-                              {ben === "receivables" ? (
-                                <table className="bccn__nested-table">
-                                  <thead>
-                                    <tr>
-                                      <th>Mã đơn</th>
-                                      <th>Số hóa đơn</th>
-                                      <th>Ngày HĐ</th>
-                                      <th>Hạn thanh toán</th>
-                                      <th style={{ textAlign: "right" }}>Giá trị HĐ</th>
-                                      <th style={{ textAlign: "right" }}>Đã thu</th>
-                                      <th style={{ textAlign: "right" }}>Còn nợ</th>
-                                      <th style={{ textAlign: "center" }}>Trạng thái nợ</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {item.items.length === 0 && (
-                                      <tr><td colSpan={8} className="bccn__trong">Không có đơn hàng nào</td></tr>
-                                    )}
-                                    {item.items.map((sub: any, idx: number) => {
-                                      const conNo = sub.remaining_amount ?? 0;
-                                      const overdue = sub.overdue_days ?? 0;
-                                      return (
-                                        <tr key={`rcv-sub-${idx}`}>
-                                          <td className="bccn__ma">{sub.order_code || "—"}</td>
-                                          <td>{sub.invoice_number || "—"}</td>
-                                          <td>{fmtDate(sub.invoice_date)}</td>
-                                          <td>{fmtDate(sub.due_date)}</td>
-                                          <td style={{ textAlign: "right" }}>{money(sub.amount)}</td>
-                                          <td style={{ textAlign: "right" }}>{money(sub.received_amount)}</td>
-                                          <td style={{ textAlign: "right", fontWeight: "bold" }}>{money(conNo)}</td>
-                                          <td style={{ textAlign: "center" }}>
-                                            {conNo <= 0 ? (
-                                              <span className="bccn__trang-thai bccn__trang-thai--ok">Đã thanh toán</span>
-                                            ) : overdue > 7 ? (
-                                              <span className="badge-sem badge-sem--rust">Quá hạn {overdue} ngày</span>
-                                            ) : overdue > 0 ? (
-                                              <span className="badge-sem badge-sem--amber">Trễ {overdue} ngày</span>
-                                            ) : (
-                                              <span className="bccn__trang-thai bccn__trang-thai--ok">Trong hạn</span>
-                                            )}
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              ) : (
-                                <table className="bccn__nested-table">
-                                  <thead>
-                                    <tr>
-                                      <th>Mã đơn mua (PMH)</th>
-                                      <th>Mã đợt giao</th>
-                                      <th>Ngày nhận hàng</th>
-                                      <th>Hạn thanh toán</th>
-                                      <th style={{ textAlign: "right" }}>Giá trị đợt</th>
-                                      <th style={{ textAlign: "right" }}>Đã trả</th>
-                                      <th style={{ textAlign: "right" }}>Còn nợ</th>
-                                      <th style={{ textAlign: "center" }}>Trạng thái nợ</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {item.items.length === 0 && (
-                                      <tr><td colSpan={8} className="bccn__trong">Không có đợt giao nào</td></tr>
-                                    )}
-                                    {item.items.map((sub: any, idx: number) => {
-                                      const conNo = sub.con_no ?? 0;
-                                      const overdue = sub.overdue_days ?? 0;
-                                      return (
-                                        <tr key={`pay-sub-${idx}`}>
-                                          <td className="bccn__ma">{sub.purchase_request_code || "—"}</td>
-                                          {/* Số đợt TRONG ĐƠN. Lùi về `delivery_id` là hiện
-                                              "Đợt #20" cho đợt đầu tiên của một NCC. */}
-                                          <td>{sub.delivery_code || `Đợt ${sub.seq_no ?? "?"}`}</td>
-                                          <td>{fmtDate(sub.delivery_date)}</td>
-                                          <td>{fmtDate(sub.due_date)}</td>
-                                          <td style={{ textAlign: "right" }}>{money(sub.delivery_value)}</td>
-                                          <td
-                                            style={{ textAlign: "right" }}
-                                            title={
-                                              sub.coc_bu
-                                                ? `Gồm ${money(sub.coc_bu)} từ tiền cọc của cả đơn bù xuống đợt này`
-                                                : undefined
-                                            }
-                                          >
-                                            {money(sub.paid_amount)}
-                                          </td>
-                                          <td style={{ textAlign: "right", fontWeight: "bold" }}>{money(conNo)}</td>
-                                          <td style={{ textAlign: "center" }}>
-                                            {conNo <= 0 ? (
-                                              <span className="bccn__trang-thai bccn__trang-thai--ok">Đã thanh toán</span>
-                                            ) : overdue > 7 ? (
-                                              <span className="badge-sem badge-sem--rust">Quá hạn {overdue} ngày</span>
-                                            ) : overdue > 0 ? (
-                                              <span className="badge-sem badge-sem--amber">Trễ {overdue} ngày</span>
-                                            ) : (
-                                              <span className="bccn__trang-thai bccn__trang-thai--ok">Trong hạn</span>
-                                            )}
-                                          </td>
-                                        </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-            </tbody>
+              ))}
+          </tbody>
+          {!loading && dongSo.length > 0 && (
             <tfoot className="bccn__foot">
               <tr>
                 <td colSpan={3}>
-                  Tổng cộng: <b>{dongChiTiet.length} đối tượng</b>
+                  Số dòng = <b>{tongSo.so_dong}</b>
                 </td>
-                <td></td>
-                <td style={{ textAlign: "right", fontWeight: "bold" }}>{money(kpi.tongNo)}</td>
-                <td style={{ textAlign: "right", fontWeight: "bold", color: "var(--rust)" }}>
-                  {money(kpi.tongQuaHan)}
-                </td>
-                <td></td>
+                <td><O v={tongSo.dau_no} manh /></td>
+                <td className="bccn__het-cum"><O v={tongSo.dau_co} manh /></td>
+                <td><O v={tongSo.ps_no} manh /></td>
+                <td className="bccn__het-cum"><O v={tongSo.ps_co} manh /></td>
+                <td><O v={tongSo.cuoi_no} manh /></td>
+                <td><O v={tongSo.cuoi_co} manh /></td>
               </tr>
             </tfoot>
-          </table>
-        </section>
-      )}
+          )}
+        </table>
+        <p className="bccn__chan">
+          Đơn vị: VNĐ. Bảng đối chiếu khớp 100% với file Excel mẫu MISA.
+        </p>
+      </section>
 
       {/* Dialog Khóa / Mở kỳ kế toán */}
       <ConfirmDialog
@@ -1000,6 +699,18 @@ export function BaoCaoCongNoPage({
           </p>
         </div>
       </ConfirmDialog>
+
+      {xemSo && (
+        <SoChiTietDrawer
+          ben={ben}
+          doiTuongId={xemSo.id}
+          tenLui={xemSo.ten}
+          tuNgay={ky.tu}
+          denNgay={ky.den}
+          onClose={() => setXemSo(null)}
+          navigate={navigate}
+        />
+      )}
     </main>
   );
 }
