@@ -418,8 +418,12 @@ def bao_cao_nxt(
     da_tinh = ky_repo.count_for_den(den, kho_ids) > 0
     da_khoa = KhoKhoaSoRepository(db).is_locked(kho_id, den) if kho_id else \
         KhoKhoaSoRepository(db).is_locked(None, den)
+    # `den` rơi GIỮA một kỳ đã tính (chốt ở ngày khác) → vẫn cho hiện Giá trị cuối kỳ, dạng TẠM TÍNH.
+    ky_bao = None if da_tinh else ky_repo.period_containing(den, kho_ids)
     return BaoCaoNXTPage(items=rows, total=len(rows), tu=tu, den=den,
-                         da_tinh=da_tinh, da_khoa=da_khoa)
+                         da_tinh=da_tinh, da_khoa=da_khoa,
+                         ky_da_tinh_den=ky_bao[1] if ky_bao else None,
+                         ky_da_tinh_ten=ky_bao[2] if ky_bao else None)
 
 
 def _chot_ky(
@@ -532,9 +536,17 @@ def set_khoa_so(payload: KhoKhoaSoIn, db: Db, user: CloseBookUser) -> KhoKhoaSoR
     if payload.hanh_dong == "khoa" and repo.overlaps_locked(
         payload.kho_id, payload.tu_ngay, payload.den_ngay
     ):
+        # Kỳ kế toán KHÔNG được dùng chung ngày (Luật Kế toán 2015 Đ.12: kỳ tính tới HẾT ngày cuối)
+        # → kỳ sau bắt đầu từ NGÀY LIỀN SAU. Nêu đích danh ngày hợp lệ cho người dùng khỏi mò.
+        cutoff = repo.locked_cutoff(payload.kho_id)
+        goi_y = (
+            f" Đã khóa tới {_fmt_date(cutoff)}; kỳ mới phải bắt đầu từ "
+            f"{_fmt_date(cutoff + timedelta(days=1))} trở đi."
+            if cutoff else ""
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Khoảng này chồng lấn kỳ đã khóa — chọn khoảng bắt đầu sau ngày đã khóa gần nhất.",
+            detail=f"Khoảng này chồng lấn kỳ đã khóa.{goi_y}",
         )
     # KHÓA: TÊN kỳ không được TRÙNG tên một kỳ ĐANG KHÓA khác (so không phân biệt hoa/thường) —
     # chặn nhầm lẫn khi có nhiều kỳ. Bỏ trống thì không kiểm.
@@ -925,6 +937,125 @@ def _build_chuyen_xlsx(rows: list[BaoCaoChuyenKhoRow]) -> bytes:
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def _build_nxt_xlsx(rows: list[BaoCaoNXTRow], *, tu: date, den: date, hien_cuoi: bool) -> bytes:
+    """Export Nhập-Xuất-Tồn theo mẫu MISA: header 2 tầng (Đầu kỳ · Nhập kho · Xuất kho · Cuối kỳ,
+    mỗi cụm 2 cột Số lượng/Giá trị), gom NHÓM THEO KHO kèm dòng cộng kho — như file mẫu.
+
+    `hien_cuoi=False` (kỳ chưa tính giá) → cột Giá trị CUỐI KỲ để TRỐNG, khớp đúng bảng trên màn
+    hình (cuối kỳ là số chốt, chưa bấm 'Tính giá kỳ' thì chưa có)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Nhap-Xuat-Ton"
+
+    bold = Font(bold=True)
+    thin = Side(style="thin", color="B0B7C3")
+    box = Border(left=thin, right=thin, top=thin, bottom=thin)
+    head_fill = PatternFill("solid", fgColor="DCE6F1")
+    grp_fill = PatternFill("solid", fgColor="FFF2CC")
+    center = Alignment(horizontal="center", vertical="center")
+
+    ws["A1"] = "BÁO CÁO NHẬP - XUẤT - TỒN"
+    ws["A1"].font = Font(bold=True, size=14)
+    ws["A2"] = f"Từ ngày {_fmt_date(tu)} đến ngày {_fmt_date(den)}"
+    if not hien_cuoi:
+        ws["A3"] = "(Kỳ chưa tính giá — cột Giá trị cuối kỳ để trống)"
+        ws["A3"].font = Font(italic=True, color="9C5700")
+
+    r0 = 5   # dòng header tầng 1
+    ws.cell(row=r0, column=1, value="Mã hàng")
+    ws.cell(row=r0, column=2, value="Tên hàng")
+    ws.cell(row=r0, column=3, value="ĐVT")
+    for i in range(3):
+        ws.merge_cells(start_row=r0, start_column=1 + i, end_row=r0 + 1, end_column=1 + i)
+    for j, ten in enumerate(("Đầu kỳ", "Nhập kho", "Xuất kho", "Cuối kỳ")):
+        c = 4 + j * 2
+        ws.cell(row=r0, column=c, value=ten)
+        ws.merge_cells(start_row=r0, start_column=c, end_row=r0, end_column=c + 1)
+        ws.cell(row=r0 + 1, column=c, value="Số lượng")
+        ws.cell(row=r0 + 1, column=c + 1, value="Giá trị")
+    for rr in (r0, r0 + 1):
+        for cc in range(1, 12):
+            cell = ws.cell(row=rr, column=cc)
+            cell.font = bold
+            cell.fill = head_fill
+            cell.border = box
+            cell.alignment = center
+
+    # Gom theo kho, GIỮ thứ tự xuất hiện (khớp bảng trên màn hình).
+    groups: dict[str, list[BaoCaoNXTRow]] = {}
+    for r in rows:
+        groups.setdefault(r.kho_ten or "— Chưa gắn kho —", []).append(r)
+
+    QTY, MONEY = "#,##0.##", "#,##0"
+    ln = r0 + 2
+    for kho_ten, grs in groups.items():
+        t = [0.0, 0, 0.0, 0, 0.0, 0, 0.0, 0]      # dau_sl, dau_gt, nhap.., xuat.., cuoi..
+        for r in grs:
+            t[0] += r.dau_sl; t[1] += r.dau_gt
+            t[2] += r.nhap_sl; t[3] += r.nhap_gt
+            t[4] += r.xuat_sl; t[5] += r.xuat_gt
+            t[6] += r.cuoi_sl; t[7] += r.cuoi_gt
+        ws.cell(row=ln, column=1, value=f"Tên kho : {kho_ten} ({len(grs)})").font = bold
+        for ci, v in enumerate(t, start=4):
+            cell = ws.cell(row=ln, column=ci, value=(None if (ci == 11 and not hien_cuoi) else v))
+            cell.number_format = QTY if ci % 2 == 0 else MONEY
+            cell.font = bold
+        for cc in range(1, 12):
+            ws.cell(row=ln, column=cc).fill = grp_fill
+            ws.cell(row=ln, column=cc).border = box
+        ln += 1
+
+        for r in grs:
+            vals = [
+                r.ma_hang or "", r.ten_hang or "", r.dvt or "",
+                r.dau_sl, r.dau_gt, r.nhap_sl, r.nhap_gt,
+                r.xuat_sl, r.xuat_gt, r.cuoi_sl,
+                r.cuoi_gt if hien_cuoi else None,
+            ]
+            for ci, v in enumerate(vals, start=1):
+                cell = ws.cell(row=ln, column=ci, value=v)
+                cell.border = box
+                if ci >= 4:
+                    cell.number_format = QTY if ci % 2 == 0 else MONEY
+            ln += 1
+
+    for col, w in zip("ABCDEFGHIJK", (18, 40, 8, 12, 16, 12, 16, 12, 16, 12, 16)):
+        ws.column_dimensions[col].width = w
+    ws.freeze_panes = ws.cell(row=r0 + 2, column=1)
+
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@router.get("/bao-cao/nxt/export.xlsx")
+def export_nxt(
+    db: Db,
+    user: CloseBookUser,
+    tu: date = Query(...),
+    den: date = Query(...),
+    kho_id: int | None = Query(default=None),
+    q: str | None = Query(default=None),
+) -> Response:
+    """Xuất Excel bảng Nhập-Xuất-Tồn (mẫu MISA, gom nhóm theo kho + dòng cộng)."""
+    rows = _nxt_rows(db, tu=tu, den=den, kho_id=kho_id, q=q)
+    kho_ids = [kho_id] if kho_id else None
+    ky_repo = KhoKyTonRepository(db)
+    # Giống màn hình: cuối kỳ chỉ ra tiền khi đã chốt, hoặc `den` nằm trong một kỳ đã tính.
+    hien_cuoi = ky_repo.count_for_den(den, kho_ids) > 0 or \
+        ky_repo.period_containing(den, kho_ids) is not None
+    content = _build_nxt_xlsx(rows, tu=tu, den=den, hien_cuoi=hien_cuoi)
+    _log_export(db, user, loai_label="Nhập-Xuất-Tồn", kho_id=kho_id, tu=tu, den=den)
+    return Response(
+        content=content,
+        media_type=_XLSX_MEDIA,
+        headers={"Content-Disposition": 'attachment; filename="bao-cao-nhap-xuat-ton.xlsx"'},
+    )
 
 
 @router.get("/bao-cao/chuyen-kho/export.xlsx")

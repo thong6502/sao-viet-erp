@@ -449,7 +449,9 @@ THANH_PHAM = CatalogExcelSpec(
 # ======================================================================================
 
 _NHOM_NHAN = {
-    "che ban": "prepress", "in": "print",
+    # "che ban" giữ lại làm BÍ DANH: nhãn cũ của `prepress` trước 04/09/2026, file người dùng đã
+    # tải về từ trước vẫn nhập lại được. Nhãn hiện hành là "Trước In".
+    "truoc in": "prepress", "che ban": "prepress", "in": "print",
     "gia cong sau in": "finishing", "dich vu khac": "other",
 }
 
@@ -461,14 +463,14 @@ def _bo_dau(s: str) -> str:
 
 
 def _doc_nhom(gt: Any, _ctx: NguCanh) -> str:
-    """Nhận CẢ nhãn tiếng Việt của màn LẪN mã gốc — dropdown hiện "Chế bản", DB lưu `prepress`."""
+    """Nhận CẢ nhãn tiếng Việt của màn LẪN mã gốc — dropdown hiện "Trước In", DB lưu `prepress`."""
     goc = str(gt or "").strip()
     if goc in NHOM:
         return goc
     ma = _NHOM_NHAN.get(_bo_dau(goc).lower())
     if not ma:
         raise ValueError(
-            f'Nhóm "{goc}" không hợp lệ — chọn: Chế bản, In, Gia công sau in, Dịch vụ khác.')
+            f'Nhóm "{goc}" không hợp lệ — chọn: Trước In, In, Gia công sau in, Dịch vụ khác.')
     return ma
 
 

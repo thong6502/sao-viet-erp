@@ -199,6 +199,20 @@ def test_order_from_quote_pins_phieu_thanh_phan_id(svc, admin, customer, db):
     assert d.lines[0].phieu_thanh_phan_id == 777
 
 
+def test_order_giu_rieng_dvt_phan_va_dvt_cum(svc, admin, customer, db):
+    """Dòng đơn mang HAI đơn vị: `don_vi_tinh` của chính phần ("cái") và `dvt_nhom` của cụm khi in
+    gộp ("cuốn"). Trước mg 0264 chỉ có một ô nên tab Thương mại hiện "Bìa sách — 2.000 cuốn"."""
+    q = _accepted_quote(db, customer)
+    item = db.query(QuoteItem).join(QuoteVersion).filter(QuoteVersion.quote_id == q.id).first()
+    item.nhom = "Sách bìa mềm 192 trang"
+    item.unit = "cái"
+    item.dvt_nhom = "cuốn"
+    db.commit()
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(quotation_id=q.id))
+    assert d.lines[0].don_vi_tinh == "cái"
+    assert d.lines[0].dvt_nhom == "cuốn"
+
+
 # --- P4: cổng chốt + khóa báo giá ---------------------------------------------
 def test_confirm_gate_blocks_then_locks_quote(svc, admin, customer, db):
     q = _accepted_quote(db, customer)

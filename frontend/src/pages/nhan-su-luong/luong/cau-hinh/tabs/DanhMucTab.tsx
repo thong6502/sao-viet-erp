@@ -1,4 +1,14 @@
-// Tab con Danh mục khoản thu nhập (tách từ pages/CauHinhLuongTab.tsx).
+// Tab con Danh mục khoản thu nhập — TẦNG 1 (PRD v2, chốt chủ 27/07/2026).
+//
+// Đây là BƯỚC 1 của quy trình 2 bước: muốn có khoản mới thì tạo Ở ĐÂY trước, rồi mới sang
+// hồ sơ nhân viên (Lương → Lương nhân viên → Sửa lương) CHỌN khoản đó và nhập tiền. Hồ sơ NV
+// không có ô gõ tên khoản tự do — nếu không, mỗi người một cách gọi và cờ "Chịu thuế" loạn.
+// Cờ `is_taxable` CHỈ sống ở tầng này; tầng 2/3 chép lại, không sửa được.
+// LƯU NGAY từng thao tác (không gom vào thanh lưu sticky): xoá là lệnh dứt điểm và câu báo
+// phải khớp ĐÚNG việc backend vừa làm — xoá hẳn hay chỉ ngừng áp dụng.
+//
+// (Khối chú thích này trước nằm lạc ở cuối `components/LeaderBonusEditor.tsx` — di về đúng chỗ
+//  ngày 04/09/2026 khi viết lại màn thưởng/phạt tổ trưởng.)
 import { useCallback, useEffect, useState } from "react";
 import {
   api,

@@ -156,3 +156,11 @@ def test_loai_khong_hop_le_bi_chan():
     db, svc = _svc()
     with pytest.raises(KhuonBeValidationError):
         svc.create(dict(ten="Khuôn lạ", loai="khuon_dap_noi"))
+
+
+def test_accept_loai_khung_lua():
+    """Khung lụa cũng lưu kho dùng lại như khuôn bế (chốt 04/09/2026) — kho phải nhận loại này,
+    không thì bước lụa ở lệnh mở ô chọn ra rỗng và bấm 'làm mới' thì service ném 400."""
+    db, svc = _svc()
+    k = svc.create(dict(ten="Khung lụa hộp bánh A", loai="khung_lua", so_ke="Kệ C1"))
+    assert k.loai == "khung_lua"

@@ -44,7 +44,10 @@ def test_seed_5_bac_dung_thu_tu_va_khong_co_truong_tien(client):
     # TIỀN" vẫn còn: API tuyệt đối không được phơi trường tiền (đơn giá/mức lương/…).
     assert set(items[0]) == {"id", "code", "name", "seq", "is_active", "note", "output_coefficient"}, \
         "API bậc chỉ được thêm ĐÚNG hệ số sản lượng — KHÔNG được phơi bất kỳ trường tiền nào"
-    assert items[0]["output_coefficient"] is None, "seed để trống hệ số (chưa khai = engine coi 1.0)"
+    # ⭐ Seed PHẢI rót sẵn hệ số (chủ 04/09/2026). Để trống KHÔNG phải "coi như 1.0": `phan_bo.py`
+    # chặn chốt phân bổ sản lượng khi gặp NULL, tức DB mới dựng là mẻ khoán đầu tiên đã treo.
+    assert [g["output_coefficient"] for g in items] == [1.3, 1.15, 1.0, 0.9, 0.8], \
+        "5 bậc phải có hệ số sản lượng mặc định — NULL là CHẶN chốt phân bổ, không phải mặc định 1.0"
 
 
 def test_them_sua_tat_bac(client):

@@ -305,6 +305,31 @@ def test_cot_lay_tu_danh_muc(client, seed_credentials, cong_doan_moi):
     assert cot[str(cd_id)] == cd_ten_hien_thi   # ưu tiên ten_hien_thi, không phải id/mã/ten kỹ thuật
 
 
+def test_kanban_chip_mang_nhan_buoc(client, seed_credentials, sess, lenh_hai_nhanh_cung_chay):
+    """Nhãn đi theo BƯỚC tới tận màn theo dõi.
+
+    Trước 04/09/2026 bốn tab Theo dõi SX không có một chữ nào về thuê ngoài hay khuôn: gán nhãn ở
+    màn Kế hoạch xong là mất dấu từ đây tới lúc lệnh xong. Bài này canh chính chỗ đứt đó — khối
+    `nhan` phải ra tới JSON, không bị `KanbanChipOut` nuốt im lặng.
+    """
+    cvs = {cv.ten_cong_doan: cv for cv in _cvs(sess, lenh_hai_nhanh_cung_chay)}
+    cvs["Cán"].loai_buoc = "thue_ngoai"
+    cvs["Cán"].nha_cung_cap = "Cơ sở Minh Phát"
+    cvs["In"].khuon_json = {"ma": "KB-0001", "so_ke": "Kệ A3", "tinh_trang": "dang_dung",
+                            "ngay_ve_du_kien": None}
+    sess.commit()
+
+    h = _h(_tok(client, seed_credentials))
+    cards = client.get("/api/theo-doi-san-xuat/kanban", headers=h).json()["cards"]
+    chip = {c["ten"]: c
+            for c in next(x for x in cards if x["lsx_id"] == lenh_hai_nhanh_cung_chay)["chip_dang_chay"]}
+    assert chip["Cán"]["nhan"]["loai_buoc"] == "thue_ngoai"
+    assert chip["Cán"]["nhan"]["nha_cung_cap"] == "Cơ sở Minh Phát"
+    assert chip["In"]["nhan"]["khuon_ma"] == "KB-0001"
+    assert chip["In"]["nhan"]["khuon_so_ke"] == "Kệ A3"
+    assert chip["In"]["nhan"]["khuon_da_nhan"] is False
+
+
 def test_song_song_chi_mot_card(client, seed_credentials, lenh_hai_nhanh_cung_chay):
     h = _h(_tok(client, seed_credentials))
     cards = client.get("/api/theo-doi-san-xuat/kanban", headers=h).json()["cards"]
@@ -633,7 +658,7 @@ def test_bo_loc_moi_muc_co_ten_tieng_viet_khong_phai_id(
             assert m["ten"] and m["ten"].strip(), f"{nhom}: mục {m['id']} không có tên"
             assert m["ten"] != m["id"], f"{nhom}: mục {m['id']} lấy chính id làm nhãn"
     assert {m["id"]: m["ten"] for m in d["nhom_cong_doan"]} == {
-        "prepress": "Chế bản", "print": "In",
+        "prepress": "Trước In", "print": "In",
         "finishing": "Gia công sau in", "other": "Dịch vụ khác",
     }
     assert {m["id"]: m["ten"] for m in d["trang_thai_viec"]} == {

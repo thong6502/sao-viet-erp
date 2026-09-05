@@ -14,6 +14,7 @@ import {
   type SxKcsBatchChiTiet, type SxKcsChiTiet, type SxHoTroUngVien,
   type SxLyDo, type SxTeam, type SxWorkItem,
 } from "../../api/client";
+import { ChipKhuon, ChipLoaiBuoc } from "../../components/ChipBuoc";
 import { useAuth } from "../../auth/useAuth";
 import { Drawer } from "../danh-muc/components/Drawer";
 import { Select, type SelectOption } from "../../components/Select";
@@ -474,7 +475,11 @@ function KhoiNguCanh({ item, tenTo, conCho }: { item: SxWorkItem; tenTo: string;
   return (
     <div className="kcs-drawer__ctx">
       <div className="kcs-drawer__ctx-row"><strong>{item.nguon_ma}</strong> — {item.nguon_ten}</div>
-      <div className="kcs-drawer__ctx-row">Công đoạn: {item.ten_cong_doan} · Tổ: {tenTo} · Máy: {item.may || "—"}</div>
+      <div className="kcs-drawer__ctx-row">
+        Công đoạn: {item.ten_cong_doan} · Tổ: {tenTo} · Máy: {item.may || "—"}
+        <ChipLoaiBuoc loai_buoc={item.loai_buoc} nha_cung_cap={item.nha_cung_cap} />
+        <ChipKhuon can_khuon={!!item.khuon} khuon={{ ...(item.khuon ?? {}), da_nhan: item.khuon_da_nhan }} />
+      </div>
       {conCho != null && (
         <div className="kcs-drawer__ctx-row">Còn chờ: <strong>{num(conCho)} {nhanDonVi(item.don_vi_vao)}</strong></div>
       )}

@@ -25,6 +25,7 @@ from ...models.employee import Employee, JobGrade
 from ...models.may_thiet_bi import MayThietBi
 from ...models.san_xuat import (
     BUOC_MAY,
+    BUOC_THUE_NGOAI,
     BUOC_TO,
     CV_DANG_CHAY,
     CV_HOAN_THANH,
@@ -265,6 +266,16 @@ def bat_dau(
                 "Bước ghép chưa đủ đầu vào — cần bàn giao đã xác nhận từ mọi nhánh trước khi chạy."
             )
 
+    # Cổng KHUÔN/KHUNG: bước có dụng cụ lưu kho thì phải có người xác nhận dao đang nằm trên bàn.
+    # Đây là ĐIỂM CHẶN DUY NHẤT của luật "bế phải có khuôn mới làm được" — ngày dự kiến có khuôn
+    # KHÔNG chặn xếp lịch (chốt 04/09/2026), vì ngày đó thợ tự sửa trong danh mục nên không đủ tin
+    # để chặn ai. Ở đây thì khác: người tích là người đang cầm con dao trong tay.
+    if cv.khuon_json and cv.khuon_nhan_luc is None:
+        ma_dao = (cv.khuon_json or {}).get("ma") or "khuôn"
+        raise ValueError(
+            f"Chưa nhận khuôn/khung ({ma_dao}) — tích “Đã nhận” trước khi bắt đầu."
+        )
+
     now = _moc()
     # `du_kien_*` là GIỜ XƯỞNG còn `_moc()` là UTC THẬT — so thẳng thì cổng "trễ" khoan dung đúng
     # bằng offset máy chủ (VN: 7 tiếng). Quy về cùng thang trước khi so (`services/gio_xuong.py`).
@@ -449,7 +460,8 @@ def doi_may(
     lúc đó `bat_dau()` tự chụp `cv.may_id` mới.
 
     Chỉ hai trạng thái đó đổi được: việc chưa bắt đầu thì sửa ở bàn xếp lịch, việc đã kết thúc
-    thì không còn máy nào để đổi. Chỉ bước CHẠY MÁY (`loai_buoc == BUOC_MAY`) mới có khái niệm
+    thì không còn máy nào để đổi. Chỉ bước CHẠY MÁY (`BUOC_MAY`, và `BUOC_THUE_NGOAI` — nhà thầu
+    khai như một máy trong danh mục) mới có khái niệm
     đổi máy — bước nội bộ/thuê ngoài không gắn máy nào để đổi (review vòng 1, Important 2).
 
     Máy mới phải tồn tại và còn dùng (`active=True`) trong danh mục `may_thiet_bi` — FE chỉ CHE
@@ -462,7 +474,7 @@ def doi_may(
     _kiem_version(cv, expected_version)
     if cv.trang_thai not in (CV_DANG_CHAY, CV_TAM_DUNG):
         raise ValueError("Chỉ công việc đang chạy hoặc tạm dừng mới đổi máy được.")
-    if cv.loai_buoc != BUOC_MAY:
+    if cv.loai_buoc not in (BUOC_MAY, BUOC_THUE_NGOAI):
         raise ValueError("Bước này không chạy máy — không có gì để đổi.")
     if cv.may_id == may_id_moi:
         raise ValueError("Máy mới trùng máy đang chạy — không có gì để đổi.")
@@ -506,6 +518,43 @@ def doi_may(
     cv.may_id = may_id_moi
     cv.version += 1
     _audit(db, user, "san_xuat_doi_may", cv, detail=f"may {may_cu} -> {may_id_moi}")
+    db.commit()
+    return _ket_qua(cv)
+
+
+# --- Khuôn/khung của bước (chốt 04/09/2026) -------------------------------------------------
+def nhan_khuon(db: Session, *, user, cong_viec_id: int) -> dict:
+    """Tổ xác nhận đã cầm con dao trong tay.
+
+    Tích MỘT LẦN, không gỡ được — gỡ ra thì cái mốc "ai nói dao đã ở đây, lúc mấy giờ" mất nghĩa,
+    mà đó đúng là thứ duy nhất mở được cổng Bắt đầu ở trên.
+    """
+    repo = SanXuatThucThiRepository(db)
+    cv = _lay_cong_viec(repo, cong_viec_id)
+    _gate(db, user, cv)
+    if not cv.khuon_json:
+        raise ValueError("Bước này không dùng khuôn/khung.")
+    if cv.khuon_nhan_luc is not None:
+        raise ValueError("Khuôn của bước này đã được xác nhận nhận.")
+    cv.khuon_nhan_luc = _moc()
+    cv.khuon_nhan_by_id = getattr(user, "id", None)
+    cv.version += 1
+    _audit(db, user, "san_xuat_nhan_khuon", cv, detail=(cv.khuon_json or {}).get("ma") or "")
+    db.commit()
+    return _ket_qua(cv)
+
+
+def tra_khuon(db: Session, *, user, cong_viec_id: int) -> dict:
+    """Trả dao về kệ. KHÔNG chặn gì — chỉ để hệ thống khỏi mất dấu con dao sau khi nó rời kệ, đúng
+    việc mà kho dao sinh ra để khỏi phải đi hỏi từng tổ."""
+    repo = SanXuatThucThiRepository(db)
+    cv = _lay_cong_viec(repo, cong_viec_id)
+    _gate(db, user, cv)
+    if not cv.khuon_json:
+        raise ValueError("Bước này không dùng khuôn/khung.")
+    cv.khuon_tra_luc = _moc()
+    cv.version += 1
+    _audit(db, user, "san_xuat_tra_khuon", cv, detail=(cv.khuon_json or {}).get("ma") or "")
     db.commit()
     return _ket_qua(cv)
 

@@ -33,6 +33,7 @@ from ...repositories.san_xuat_kho_repo import SanXuatKhoRepository
 from ...repositories.san_xuat_phan_bo_repo import SanXuatPhanBoRepository
 from ...repositories.san_xuat_repo import SanXuatRepository
 from ...repositories.san_xuat_san_luong_repo import SanXuatSanLuongRepository
+from . import thuong_to_truong
 from .kcs import _EPS
 
 # Điều kiện KHÔNG thuộc "hoàn thành" — đóng thiếu vẫn phải thoả (§13.3).
@@ -183,6 +184,7 @@ def tu_dong_dong_neu_du(
         target=f"san_xuat_nhom:{nhom.id}",
         detail=f"su_kien={su_kien or 'auto'} order={nhom.order_id}",
     )
+    thuong_to_truong.ghi(db, nhom_id=nhom.id, actor=actor)
     db.commit()
     return {
         "nhom_id": nhom.id,
@@ -245,6 +247,10 @@ def dong_thieu(
         target=f"san_xuat_nhom:{nhom.id}",
         detail=f"ly_do={ly_do_id} order={nhom.order_id}",
     )
+    # Đóng THIẾU cũng phát thưởng: tổ vẫn đã làm ra chừng đó hàng với chừng đó lỗi. Bậc thưởng
+    # xét trên SẢN LƯỢNG THỰC — làm thiếu thì rơi xuống khoảng sản lượng thấp hơn, đó đã là hệ
+    # quả đúng; chặn hẳn ở đây là phạt hai lần cho cùng một chuyện.
+    thuong_to_truong.ghi(db, nhom_id=nhom.id, actor=user)
     db.commit()
     return {
         "nhom_id": nhom.id,

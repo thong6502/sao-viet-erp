@@ -48,6 +48,7 @@ from app.models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
 from app.models.customer import Customer
 from app.models.department import Department
 from app.models.employee import Employee
+from app.models.khuon_be import KhuonBe
 from app.models.lsx import (
     LB_MAY, LB_THUE_NGOAI, TT_DA_PHAT_HANH, TT_SAN_SANG, Lsx, LsxCongDoan, LsxCongDoanPhuThuoc,
 )
@@ -316,6 +317,43 @@ def lenh_thue_ngoai(sess, orders, lsx_svc, admin, customer) -> int:
     )
     buoc_cuoi.loai_buoc = LB_THUE_NGOAI
     buoc_cuoi.nha_cung_cap = NHA_GIA_CONG
+    sess.commit()
+    return lsx_id
+
+
+#: Mã + số kệ của con dao gắn vào `lenh_co_khuon` — bài test so ĐÚNG hai chuỗi này trên giấy.
+KHUON_MA = "KB-9001"
+KHUON_KE = "Kệ A3"
+
+
+@pytest.fixture
+def lenh_co_khuon(sess, orders, lsx_svc, admin, customer) -> int:
+    """Lệnh ĐÃ PHÁT HÀNH có MỘT bước Bế trỏ vào một con dao thật trong kho.
+
+    Cùng lý do với `lenh_thue_ngoai`: `_dung_lenh` không đụng `khuon_be_id`, nên nhánh in mã dao +
+    số kệ của phiếu công nghệ không có bài nào chạy qua. Lật sau phát hành là hợp lệ —
+    `ho_so._routing` đọc thẳng `lsx_cong_doan`, không đọc snapshot công việc.
+
+    Dao để `dang_dung` + có số kệ: đó là ca THƯỜNG (thợ cầm giấy đi lấy dao ở kệ). Bài nào cần ca
+    "dao chưa về" thì tự lật `tinh_trang` sang `dang_dat_lam` trong chính bài đó.
+    """
+    _dot_dong_don(sess, 5)
+    lsx_id = _phat_hanh_that(
+        sess, orders, lsx_svc, admin, customer,
+        buoc=[("CTP", 15, 500), ("In", 360, 5000), ("Bế", 60, 5000)],
+    )
+    dao = KhuonBe(
+        ma=KHUON_MA, ten="Dao hộp bánh 2 tầng", loai="khuon_be",
+        so_ke=KHUON_KE, tinh_trang="dang_dung",
+    )
+    sess.add(dao)
+    sess.flush()
+    buoc_be = (
+        sess.query(LsxCongDoan)
+        .filter(LsxCongDoan.lsx_id == lsx_id, LsxCongDoan.ten == "Bế")
+        .one()
+    )
+    buoc_be.khuon_be_id = dao.id
     sess.commit()
     return lsx_id
 

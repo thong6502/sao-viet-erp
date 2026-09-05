@@ -237,6 +237,10 @@ def test_item_dict_gio_khong_lech_khi_db_tra_aware():
         du_kien_bat_dau=ke_hoach, du_kien_ket_thuc=ke_hoach + timedelta(hours=1),
         dinh_muc_json=None, so_luong_vao=400, so_luong_ra=316, don_vi_vao="tờ", don_vi_ra="tờ",
         trang_thai="released", vat_tu_json=None,
+        # Ảnh chụp nhà gia công + khuôn lúc phát hành (`729f08e`). Bản giả này phải khai ĐỦ mọi
+        # cột `_item_dict` đọc, không thì thêm cột mới là test rụng vì AttributeError — vốn chẳng
+        # liên quan gì tới thứ nó đo (nhãn múi giờ).
+        nha_cung_cap=None, khuon_json=None, khuon_nhan_luc=None, khuon_tra_luc=None,
     )
     phien = SimpleNamespace(bat_dau=moc_that, ket_thuc=None)
 

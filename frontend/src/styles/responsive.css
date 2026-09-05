@@ -1346,6 +1346,20 @@
     grid-template-columns: minmax(0, 1fr) !important;
   }
 
+  /* Ô chiếm trọn hàng (`Tên`, `Ghi chú`…) khai `grid-column: span 2` — mà luật ngay trên vừa hạ
+     lưới xuống MỘT track tường minh. Span 2 trên lưới một cột KHÔNG xuống hàng: nó đẻ thêm một
+     cột NGẦM ăn theo `grid-auto-columns: auto`, cột ngầm đó lấy bề ngang theo nội dung nên nuốt
+     sạch chỗ, còn track `1fr` tường minh còn đúng 0px. Đo trên "Khuôn & khung" › Thêm mới ở
+     740px: `grid-template-columns` computed ra `0px 431.2px` — "Khách hàng" nằm trong cột 0px
+     tràn ra đè lên "Loại", hint của nó rơi thành cột chữ MỘT TỪ mỗi dòng.
+     `rebuild-catalog.css:1399` đã có `span 1` nhưng chốt ở 640px, tức bỏ trống hẳn dải 641-768px
+     — đúng dải lưới đã bị ép một cột. Chốt lại ở CÙNG ngưỡng 768 của §40.
+     `!important` ở đây để tranh với bản scope sâu hơn `.cl .cl-card .rc-field--full`
+     (`luong.css:913`, span 2 dưới 900px) — cùng lỗi, cùng cách chữa. */
+  .rc-field--full {
+    grid-column: span 1 !important;
+  }
+
   /* Dòng công đoạn trong ngăn kéo "Loại sản phẩm" nằm trong chính lưới trên. Nới lưới thôi chưa
      đủ: `.rc-timeline__content` là flex `space-between`, tên công đoạn KHÔNG khai `flex` nên nó
      là bên duy nhất chịu co, còn cụm nút lên/xuống/xoá giữ nguyên. Đã chụp thấy

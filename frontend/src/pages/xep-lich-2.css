@@ -3591,3 +3591,16 @@
     row-gap: 6px;
   }
 }
+
+/* Dấu KHUÔN/KHUNG trên thanh (04/09/2026) — mã dao đứng ngay cạnh tên công đoạn, vì điều độ kéo
+   thanh trước rồi mới biết dao chưa về là muộn. Đỏ = cần dao mà chưa chốt, hoặc dao đang đặt làm. */
+.xl2-bar__dao {
+  flex: 0 0 auto;
+  font-size: 9.5px;
+  font-weight: var(--fw-semibold);
+  color: var(--ash-2);
+  white-space: nowrap;
+}
+.xl2-bar__dao--canhbao {
+  color: var(--danger, #c0392b);
+}

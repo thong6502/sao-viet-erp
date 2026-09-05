@@ -23,6 +23,14 @@ export type PendingNav =
   | { kind: "sub"; sub: SubTab }
   | null;
 
-export type BracketRow = { up_to: number | null; rate: number; note: string };
+/** Một ô của lưới thưởng/phạt tổ trưởng: KHOẢNG SẢN LƯỢNG × trần TỶ LỆ LỖI → % thưởng/phạt.
+ *  `sl_den` null = khoảng cuối (∞) · `up_to` null = dòng "trở lên" của khoảng đó. */
+export type BracketRow = {
+  sl_tu: number;
+  sl_den: number | null;
+  up_to: number | null;
+  rate: number;
+  note: string;
+};
 
 export type CompDraft = { name: string; kind: ComponentKind; is_taxable: boolean };

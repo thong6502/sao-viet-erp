@@ -17,9 +17,11 @@ trưởng), service chỉ ghi ai xác nhận.
 """
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ...models.san_xuat_kcs import KCS_LOAI_ROUTING
+from ...models.san_xuat import SanXuatCongViec
+from ...models.san_xuat_kcs import KCS_LOAI_ROUTING, SanXuatKcsBatch
 from ...models.san_xuat_kho import (
     HANG_BTP,
     HANG_THANH_PHAM,
@@ -486,7 +488,28 @@ def kho_xac_nhan_btp(db: Session, *, user, lot_id: int) -> dict:
 # --- Đọc ------------------------------------------------------------------------------------
 # `ten_kho` = bản đồ `{kho_id: tên}` dựng MỘT lần cho cả lượt đọc (xem `ten_kho_theo_ids`) — phơi
 # tên kho chứ không phơi số id trần, và không N+1.
-def _yc_ra(yc: SanXuatNhapKhoYc, ten_kho: dict[int, str] | None = None) -> dict:
+def _nhan_theo_yc(db: Session, yeu_cau: list[SanXuatNhapKhoYc]) -> dict[int, dict]:
+    """`{kcs_batch_id: {loai_buoc, nha_cung_cap}}` — nạp MỘT lô cho cả hộp thư.
+
+    Chỉ hai field: nhân viên kho nhận THÀNH PHẨM, không nhận dao, nên khuôn không có nghĩa ở đây.
+    Nhưng "lô này vừa từ nhà gia công về hay tổ trong nhà làm" thì có: kiểm nhập hai đường đó
+    khác nhau, mà trước 04/09/2026 dòng chờ kho không nói được một chữ nào.
+    """
+    ids = {y.kcs_batch_id for y in yeu_cau if y.kcs_batch_id}
+    if not ids:
+        return {}
+    rows = db.execute(
+        select(
+            SanXuatKcsBatch.id, SanXuatCongViec.loai_buoc, SanXuatCongViec.nha_cung_cap
+        )
+        .join(SanXuatCongViec, SanXuatCongViec.id == SanXuatKcsBatch.cong_viec_id)
+        .where(SanXuatKcsBatch.id.in_(ids))
+    ).all()
+    return {int(r[0]): {"loai_buoc": r[1], "nha_cung_cap": r[2]} for r in rows}
+
+
+def _yc_ra(yc: SanXuatNhapKhoYc, ten_kho: dict[int, str] | None = None,
+           nhan: dict[int, dict] | None = None) -> dict:
     yeu_cau = float(yc.so_luong_yeu_cau or 0)
     xac_nhan = float(yc.so_luong_xac_nhan or 0)
     return {
@@ -506,6 +529,7 @@ def _yc_ra(yc: SanXuatNhapKhoYc, ten_kho: dict[int, str] | None = None) -> dict:
         "trang_thai": yc.trang_thai,
         "ghi_chu": yc.ghi_chu,
         "version": yc.version,
+        "nhan": (nhan or {}).get(yc.kcs_batch_id),
     }
 
 
@@ -554,8 +578,9 @@ def hop_thu_kho(db: Session) -> dict:
     yeu_cau = repo.cac_yc_cho_kho()
     btp = repo.cac_btp_cho_kho()
     ten_kho = repo.ten_kho_theo_ids([y.kho_id for y in yeu_cau] + [l.kho_id for l in btp])
+    nhan = _nhan_theo_yc(db, yeu_cau)
     return {
-        "yeu_cau_nhap": [_yc_ra(y, ten_kho) for y in yeu_cau],
+        "yeu_cau_nhap": [_yc_ra(y, ten_kho, nhan) for y in yeu_cau],
         "btp_cho_nhan": [_lot_ra(l, ten_kho) for l in btp],
     }
 

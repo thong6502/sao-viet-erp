@@ -28,6 +28,7 @@ import type {
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
+import { ChipKhuon } from "../components/ChipBuoc";
 import { Icon, type IconName } from "../components/Icons";
 import {
   BangLoi,
@@ -1387,6 +1388,18 @@ function RoutingRow({ n }: { n: LenhSxRoutingNode }) {
           )}
           {n.la_buoc_hien_tai && <span className="hslsx-hs__chip is-now">đang ở đây</span>}
           {n.nha_cung_cap && <span className="hslsx-hs__chip">{n.nha_cung_cap}</span>}
+          {/* Cùng con chip khuôn với bàn tổ và bảng theo dõi — hồ sơ lệnh là chỗ người ngoài xưởng
+              tra cứu, thiếu nó thì "bế chưa có dao" chỉ lộ ra khi mở bàn tổ. */}
+          <ChipKhuon
+            can_khuon={n.can_khuon}
+            khuon={{
+              ma: n.khuon_be_ma,
+              so_ke: n.khuon_be_so_ke,
+              tinh_trang: n.khuon_be_tinh_trang,
+              ngay_ve_du_kien: n.khuon_be_ngay_ve,
+              da_nhan: n.khuon_da_nhan,
+            }}
+          />
         </span>
       </td>
       <td>

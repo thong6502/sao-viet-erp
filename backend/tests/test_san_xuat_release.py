@@ -362,3 +362,39 @@ def test_snapshot_checklist_bat_bien_sau_khi_sua_danh_muc(db, orders, lsx_svc, a
 
     sau = db.query(SanXuatCongViec).filter_by(goi_id=goi.id, step_key=buoc.step_key).one()
     assert sau.kcs_tieu_chi_json == checklist_truoc
+
+
+# --- Ảnh chụp KHUÔN + nhà gia công lúc phát hành (chốt 04/09/2026) ---------------------------
+def test_phat_hanh_chup_khuon_va_nha_gia_cong(db, orders, lsx_svc, admin, customer):
+    """Khuôn được CHỤP chứ không tra sống: bàn tổ phải thấy đúng con dao đã chốt lúc phát hành, kể
+    cả khi kế hoạch đổi dao sau đó. Nhà gia công cũng chụp — không có nó thì chip "Ngoài · nơi làm"
+    ở các màn xưởng phải tra ngược lệnh mới vẽ được."""
+    from app.models.khuon_be import KhuonBe
+
+    a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    dao = KhuonBe(ma="KB-0001", ten="Dao bế hộp A", loai="khuon_be", so_ke="Kệ A3",
+                  tinh_trang="dang_dung")
+    db.add(dao)
+    db.flush()
+    steps = _steps(db, a.id)
+    steps[0].khuon_be_id = dao.id
+    # Bước thuê ngoài THÊM MỚI, không mượn bước đã có: lệnh mẫu chỉ một bước nên gán cả dao lẫn nhà
+    # gia công lên nó thì không còn bước nào để soi nhánh "không trỏ dao".
+    ngoai = _them_buoc(db, a.id, thu_tu=99, ten="Cán màng",
+                       department_id=steps[0].department_id)
+    ngoai.nha_cung_cap = "Cơ sở Minh Phát"
+    db.flush()
+
+    goi = release.phat_hanh(db, lsx_ids={a.id}, actor=admin)
+    db.commit()
+    cvs = {cv.step_key: cv for cv in
+           db.query(SanXuatCongViec).filter_by(goi_id=goi.id, lsx_id=a.id).all()}
+
+    cv_dao = cvs[steps[0].step_key]
+    assert cv_dao.khuon_json and cv_dao.khuon_json["ma"] == "KB-0001"
+    assert cv_dao.khuon_json["so_ke"] == "Kệ A3"
+    # Chưa ai tích nhận — cột phải TRỐNG, không phải "đã nhận sẵn": đúng cái sẽ chặn nút Bắt đầu.
+    assert cv_dao.khuon_nhan_luc is None and cv_dao.khuon_tra_luc is None
+    # Bước không trỏ dao → None, không phải dict rỗng (rỗng đọc như "có khuôn mà mất thông tin").
+    assert cvs[ngoai.step_key].khuon_json is None
+    assert cvs[ngoai.step_key].nha_cung_cap == "Cơ sở Minh Phát"

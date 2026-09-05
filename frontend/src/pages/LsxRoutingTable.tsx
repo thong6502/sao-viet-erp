@@ -10,6 +10,7 @@
 // ngược" — số hiển thị chính là kết quả tính ngược. Ô duy nhất gõ được nằm trong drawer bước cuối.
 // Các kiểm tra (chưa gán tổ, thuê ngoài thiếu NCC, đứt đơn vị) chỉ TÔ MÀU, không chặn lưu.
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import {
   LSX_LOAI_BUOC_META,
   type LsxBuocMacDinh,
@@ -83,18 +84,6 @@ export function dvNhan(
 }
 
 /** Lỗi/nghi vấn của RIÊNG 1 dòng — chỉ tô màu, không chặn lưu. */
-/** Nhãn ngắn cho badge trạng thái hàng gia công ngoài — dùng chung bảng và sơ đồ DAG. */
-export function nhanGiaoNhan(r: EditRow): string {
-  const gn = r.giao_nhan;
-  if (!gn || gn.giao_nhan_trang_thai === "chua_gui") return "Chưa gửi đi";
-  if (gn.giao_nhan_trang_thai === "dang_ngoai") {
-    const tre = gn.qua_han_ngay ?? 0;
-    return tre > 0 ? `Đang ở ngoài · quá hạn ${tre} ngày` : "Đang ở ngoài";
-  }
-  const hut = gn.so_hut ?? 0;
-  return hut > 0 ? `Đã về · thiếu ${num(hut)}` : "Đã về";
-}
-
 export function LsxRoutingTable({
   congDoans,
   soLuongDat,
@@ -116,7 +105,6 @@ export function LsxRoutingTable({
   onDauViecOptions,
   onXemTruocMay,
   onXemTruocRouting,
-  onGiaoNhan,
   onDirtyChange,
   dvChuoi,
 }: {
@@ -152,10 +140,6 @@ export function LsxRoutingTable({
   onXemTruocRouting: (
     rows: import("../api/client").LsxXemTruocRoutingRow[],
   ) => Promise<import("../api/client").LsxXemTruocRoutingBuoc[]>;
-  /** Ghi nhận giao/nhận hàng gia công ngoài — GHI THẲNG, không đi qua "Lưu công đoạn". */
-  onGiaoNhan: (
-    buocId: number, body: { su_kien: "giao" | "nhan"; luc?: string; so_luong?: number },
-  ) => Promise<void>;
   onDirtyChange: (dirty: boolean) => void;
   /** Đơn vị bốn chặng của lệnh — SERVER chấm, cha truyền xuống. Bảng KHÔNG tự suy lại từ `rows`:
    *  luật suy chặng chỉ có một bản, ở `dong_giay.don_vi_chuoi`. Đánh đổi: đổi công đoạn của một
@@ -367,11 +351,11 @@ export function LsxRoutingTable({
     const may = mayRefs?.find((m) => m.id === mayId) ?? null;
     const kip = Math.max(Math.trunc(Number(may?.soNguoiVanHanh ?? 1)) || 1, 1);
     const rowNay = rows.find((x) => x.key === key);
-    const laMay = rowNay?.loai_buoc === "may";
+    // Thuê ngoài tính như bước máy: nhà thầu là một máy trong danh mục, kíp chuẩn của nó cũng
+    // khai ở đó, nên lấy y hệt. Chỉ bước TỔ mới có min/max người ("xúm mấy người cho nhanh").
+    const laMay = rowNay?.loai_buoc !== "to";
     patch(key, {
       may_id: mayId,
-      // Kíp chỉ áp cho bước MÁY. Bước thuê ngoài cũng chọn được máy (máy của nhà thầu) nhưng số
-      // người bên đó không phải việc của mình — đừng ghi đè.
       ...(laMay
         // Bước máy chỉ có MỘT con số kíp; min/max là chuyện của tổ làm tay ("xúm mấy người cho nhanh").
         ? { so_nhan_cong_tieu_chuan: kip, so_nhan_cong_toi_thieu: null,
@@ -430,22 +414,30 @@ export function LsxRoutingTable({
     setLive("Đã hoàn tác");
   }
 
-  /** Thêm 1 bước. `afterKey` = chèn NGAY SAU bước đó (dùng khi sơ đồ DAG có node đang chọn) để
-   *  `thu_tu` đúng ngay — số lượng + số hiệu bám `thu_tu` nên chèn đúng chỗ là chúng tự đúng, khỏi
-   *  "thêm cuối rồi kéo lên". Không truyền `afterKey` ⇒ thêm ở cuối như cũ. */
-  function them(afterKey?: string) {
-    const at = afterKey ? rows.findIndex((r) => r.key === afterKey) : -1;
+  /** Thêm 1 bước. `neoKey` = bước làm mốc (node đang chọn trên sơ đồ DAG), `viTri` = chèn TRƯỚC
+   *  hay SAU nó, để `thu_tu` đúng ngay — số lượng + số hiệu bám `thu_tu` nên chèn đúng chỗ là
+   *  chúng tự đúng, khỏi "thêm cuối rồi kéo lên". Không truyền `neoKey` ⇒ thêm ở cuối như cũ.
+   *
+   *  Có "trước" vì bước ĐẦU chuỗi không thể chèn bằng "sau": không có bước nào đứng trước nó để
+   *  làm neo. Chế bản / bình bài / ra kẽm luôn phải nhét lên trên bước in đang có sẵn. */
+  function them(neoKey?: string, viTri: "truoc" | "sau" = "sau") {
+    const at = neoKey ? rows.findIndex((r) => r.key === neoKey) : -1;
+    const chen = at < 0 ? -1 : viTri === "truoc" ? at : at + 1;
     setRows((prev) => {
-      if (at < 0) return [...prev, emptyRow()];
+      if (chen < 0) return [...prev, emptyRow()];
       const next = [...prev];
-      next.splice(at + 1, 0, emptyRow());
+      next.splice(chen, 0, emptyRow());
       return next;
     });
-    const tenSau = at >= 0 ? rows[at]?.ten || `bước ${at + 1}` : null;
-    setLive(tenSau ? `Đã chèn công đoạn mới sau ${tenSau}` : "Đã thêm công đoạn mới ở cuối");
+    const tenNeo = at >= 0 ? rows[at]?.ten || `bước ${at + 1}` : null;
+    setLive(
+      tenNeo
+        ? `Đã chèn công đoạn mới ${viTri === "truoc" ? "trước" : "sau"} ${tenNeo}`
+        : "Đã thêm công đoạn mới ở cuối",
+    );
     setTimeout(() => {
       const rowsEl = tbodyRef.current?.querySelectorAll<HTMLElement>("tr");
-      const tr = at >= 0 ? rowsEl?.[at + 1] : rowsEl?.[(rowsEl?.length ?? 1) - 1];
+      const tr = chen >= 0 ? rowsEl?.[chen] : rowsEl?.[(rowsEl?.length ?? 1) - 1];
       const btn = tr?.querySelector<HTMLElement>(".khsx-rt__open");
       btn?.focus();
       btn?.scrollIntoView({ block: "nearest" });
@@ -609,7 +601,7 @@ export function LsxRoutingTable({
           baiGhep={baiGhep}
           canUpdate={canUpdate}
           onUpdateRows={setRows}
-          onOpenDrawer={(idx, tab) => moDrawer(idx, null, tab)}
+          onOpenDrawer={(idx: number) => moDrawer(idx, null)}
           onAddStep={them}
         />
       ) : (
@@ -654,12 +646,10 @@ export function LsxRoutingTable({
               const meta = LSX_LOAI_BUOC_META[r.loai_buoc];
               const t = thoiLuong(r, mayRefs?.find((m) => m.id === r.may_id) ?? null);
               const loi = loiDong(rows, i);
-              const ngoai = r.loai_buoc === "thue_ngoai";
-              const lamO = ngoai
-                ? r.nha_cung_cap || "chưa có nhà gia công"
-                : [toRefs?.find((x) => x.id === r.department_id)?.ten,
-                   mayRefs?.find((x) => x.id === r.may_id)?.ten]
-                    .filter(Boolean).join(" · ");
+              // Thuê ngoài ĐỌC GIỐNG HỆT bước máy: nhà thầu là một máy trong danh mục.
+              const lamO = [toRefs?.find((x) => x.id === r.department_id)?.ten,
+                            mayRefs?.find((x) => x.id === r.may_id)?.ten]
+                              .filter(Boolean).join(" · ");
               return (
                 <tr
                   key={r.key}
@@ -684,7 +674,22 @@ export function LsxRoutingTable({
                       onClick={(e) => moDrawer(i, e.currentTarget)}
                     >
                       <span className="khsx-rt__ten">{tenBuoc(r, congDoanRefs) || "— chưa chọn công đoạn —"}</span>
-                      <span className={`khsx-lb khsx-lb--${meta.tone}`}>{meta.label}</span>
+                      {/* Chip DÙNG CHUNG với mọi màn khác có mặt bước này (`components/ChipBuoc`).
+                          Trước 04/09/2026 mỗi màn tự vẽ lại nhãn từ một dữ liệu khác nhau nên nhãn
+                          đứt quãng giữa đường — bước gán Thuê ngoài mà chưa điền nơi làm thì tới
+                          Gantt là mất dấu. */}
+                      <ChipLoaiBuoc loai_buoc={r.loai_buoc} nha_cung_cap={r.nha_cung_cap} />
+                      {/* Con dao của bước hiện NGAY TRÊN BẢNG, không bắt mở drawer từng bước mới
+                          biết bước nào chưa có dao. */}
+                      <ChipKhuon
+                        can_khuon={r.requires_tooling}
+                        khuon={{
+                          ma: r.khuon_be_ma,
+                          so_ke: r.khuon_be_so_ke,
+                          tinh_trang: r.khuon_be_tinh_trang,
+                          ngay_ve_du_kien: r.khuon_be_ngay_ve,
+                        }}
+                      />
                       {!r.bat_buoc && <span className="khsx-lb khsx-lb--opt">tùy chọn</span>}
                     </button>
                   </td>
@@ -694,8 +699,7 @@ export function LsxRoutingTable({
                         bước một người: nhìn bảng không biết bước đã khai người hay chưa, phải mở
                         từng drawer — trong khi đây đúng là con số bàn xếp lịch dùng cân quân số tổ.
                         Ngoài biên tối thiểu/tối đa thì tô cảnh báo ngay trên dòng. */}
-                    {!ngoai && (
-                      <span
+                    <span
                         className={`khsx-rt__sub2${
                           (r.so_nhan_cong_toi_thieu != null && n(r.so_nhan_cong) < r.so_nhan_cong_toi_thieu) ||
                           (r.so_nhan_cong_toi_da != null && n(r.so_nhan_cong) > r.so_nhan_cong_toi_da)
@@ -706,24 +710,8 @@ export function LsxRoutingTable({
                           r.so_nhan_cong_tieu_chuan ?? "–"
                         } · tối đa ${r.so_nhan_cong_toi_da ?? "–"} người`}
                       >
-                        Kế hoạch {Math.max(1, n(r.so_nhan_cong) || 1)} người
-                      </span>
-                    )}
-                    {/* Hàng gửi ra ngoài đang ở đâu — bấm là nhảy thẳng vào sổ giao–nhận. Badge
-                        chỉ để NHÌN và NHẢY: một cửa ghi duy nhất, nằm trong drawer. */}
-                    {ngoai && r.giao_nhan && (
-                      <button
-                        type="button"
-                        className={`khsx-gn-badge khsx-gn-badge--${r.giao_nhan.giao_nhan_trang_thai ?? "chua_gui"} ${
-                          (r.giao_nhan.qua_han_ngay ?? 0) > 0 || r.giao_nhan.hut_vuot_dinh_muc
-                            ? "is-canhbao"
-                            : ""
-                        }`}
-                        onClick={(e) => moDrawer(i, e.currentTarget, "giao_nhan")}
-                      >
-                        {nhanGiaoNhan(r)}
-                      </button>
-                    )}
+                      Kế hoạch {Math.max(1, n(r.so_nhan_cong) || 1)} người
+                    </span>
                   </td>
                   <td className="khsx-rt__qty">
                     {/* GỠ điều kiện `nhom === "prepress"` (14/08/2026): bước chế bản nay CÓ số
@@ -951,7 +939,6 @@ export function LsxRoutingTable({
           onPatchLsx={onPatchLsx}
           onDoiCongDoan={(id) => doiCongDoan(rows[moBuoc].key, id, rows[moBuoc].ten)}
           onDoiMay={(id) => doiMay(rows[moBuoc].key, id)}
-          onGiaoNhan={onGiaoNhan}
           tabDau={tabDau}
           onClose={dongDrawer}
           onPrev={() => setMoBuoc(Math.max(moBuoc - 1, 0))}

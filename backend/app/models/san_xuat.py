@@ -255,6 +255,21 @@ class SanXuatCongViec(Base):
     dinh_muc_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     vat_tu_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Nhà gia công — ẢNH CHỤP lúc phát hành, để chip "Ngoài · <nơi làm>" hiện được ở bàn tổ và các
+    # màn theo dõi mà không phải tra ngược lệnh. Trước 04/09/2026 các màn xưởng chỉ có `loai_buoc`
+    # nên chip thuê ngoài hiện trống trơn, không ai biết hàng đang ở đâu.
+    nha_cung_cap: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # KHUÔN/KHUNG của bước — ảnh chụp cùng kiểu với `vat_tu_json`. CHỤP chứ không tra sống: tổ phải
+    # thấy đúng con dao đã chốt lúc phát hành, kể cả khi kế hoạch đổi dao sau đó.
+    # {"id","ma","ten","loai","so_ke","tinh_trang","ngay_ve_du_kien"} · NULL = bước không trỏ dao.
+    khuon_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Tổ tích "đã nhận khuôn" — ĐIỂM CHẶN DUY NHẤT của luật "bế phải có khuôn mới làm được". Không
+    # chặn ở xếp lịch: ngày dự kiến có khuôn không đủ tin để chặn ai (chốt 04/09/2026), còn ở đây
+    # thì người đứng máy đang cầm con dao trong tay nên cái tích là sự thật.
+    khuon_nhan_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    khuon_nhan_by_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Trả dao về kệ — KHÔNG chặn gì, chỉ để hệ thống không mất dấu con dao sau khi nó rời kệ.
+    khuon_tra_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     trang_thai: Mapped[str] = mapped_column(String(16), nullable=False, default=CV_PHAT_HANH)
     # MỐC NGHIỆP VỤ "bước xong lúc nào" — đóng dấu MỘT LẦN ở `thuc_thi.ket_thuc`, chỗ duy nhất
     # trong hệ đặt `trang_thai='completed'`. Tồn tại riêng vì `updated_at` là cột BẢO TRÌ: mọi

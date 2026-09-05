@@ -66,7 +66,8 @@ DV_TAY = "tay"    # tay sách (1 tờ in gấp lại = 1 tay, mang n trang)
 # tồn tại. Thời gian chờ/di chuyển nằm trên bước và không chiếm năng lực tài nguyên.
 LB_MAY = "may"                 # chiếm MÁY (in, cán, bế, xén)
 LB_TO = "to"                   # chiếm TỔ lao động (dán tay, đóng gói)
-LB_THUE_NGOAI = "thue_ngoai"   # nhà gia công làm — không chiếm máy/tổ nội bộ
+LB_THUE_NGOAI = "thue_ngoai"   # nhà gia công làm — máy của họ khai trong danh mục Máy; nhập
+                               # liệu Y HỆT bước máy, chỉ KHÔNG sinh tiền khoán / sản lượng tổ
 LOAI_BUOC = (LB_MAY, LB_TO, LB_THUE_NGOAI)
 # Bước chiếm tổ (nhiều người làm song song được → `so_nhan_cong` chia thời gian chạy).
 LOAI_BUOC_THEO_TO = (LB_TO,)
@@ -207,6 +208,14 @@ class LsxCongDoan(Base):
     #
     # Để trống là hợp lệ, KHÔNG chặn phát hành lệnh — chủ dự án chốt 16/08.
     khuon_be_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    # Ý ĐỊNH CỦA SALE về khuôn, chép từ phiếu tính giá lúc dựng lệnh (chốt 04/09/2026). KHÔNG phải
+    # quyết định cuối: quyết định cuối là `khuon_be_id` ở trên, do kế hoạch chốt. Hai thứ tồn tại
+    # cạnh nhau để SO ĐƯỢC — lệch nhau nghĩa là tiền đã báo cho khách không khớp việc sẽ làm, và
+    # đó là lúc phải có người quyết (báo lại khách hay xưởng tự nuốt), máy chỉ nói ra chỗ lệch.
+    khuon_nguon: Mapped[str | None] = mapped_column(String(10), nullable=True)  # co_san|lam_moi
+    khuon_phi: Mapped[float] = mapped_column(
+        Numeric(18, 2), nullable=False, server_default="0", default=0
+    )
 
     # --- Nhận diện bước ---
     loai_buoc: Mapped[str] = mapped_column(

@@ -205,6 +205,8 @@ def _detail(
                     nhom=item.nhom,   # nhãn gộp dòng khi in cho khách
                     quantity=item.quantity,
                     unit=item.unit,
+                    dvt_nhom=item.dvt_nhom,   # ĐVT cụm khi in gộp — thiếu là bản in mất "cuốn"
+
                     total_cost_snapshot=float(item.total_cost_snapshot),
                     margin_percent=float(item.margin_percent),
                     selling_price=float(item.selling_price),

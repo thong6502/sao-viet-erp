@@ -28,6 +28,27 @@ class KanbanMetaOut(BaseModel):
     cot: list[KanbanCotOut] = []
 
 
+class NhanBuocOut(BaseModel):
+    """NHÃN đi theo một bước — loại bước (+ nơi gia công) và khuôn/khung của nó.
+
+    MỘT schema dùng chung cho Kanban · Theo máy · Theo ca (và các màn KCS/Kho): trước 04/09/2026
+    mỗi màn tự quyết định lại nhãn từ dữ liệu khác nhau, nên bước đã gán Thuê ngoài ở màn Kế hoạch
+    là mất dấu từ đây tới lúc lệnh xong.
+
+    Nguồn là SNAPSHOT trên chính công việc (`loai_buoc` · `nha_cung_cap` · `khuon_json` chụp lúc
+    phát hành), không tra ngược danh mục: bàn theo dõi phải nói đúng thứ tổ đang cầm trong tay.
+    """
+
+    loai_buoc: str | None = None
+    nha_cung_cap: str | None = None
+    khuon_ma: str | None = None
+    khuon_so_ke: str | None = None
+    khuon_tinh_trang: str | None = None
+    #: ISO `yyyy-mm-dd` (snapshot đã `.isoformat()` lúc phát hành).
+    khuon_ngay_ve: str | None = None
+    khuon_da_nhan: bool = False
+
+
 class KanbanChipOut(BaseModel):
     """MỘT công việc ĐANG `running`/`paused` của lệnh. Card hiện ĐỦ danh sách này (không chỉ một
     cái): routing song song có thể chạy nhiều nhánh cùng lúc, và đếm 1 khi có 2 là bỏ sót đúng
@@ -43,6 +64,7 @@ class KanbanChipOut(BaseModel):
     trang_thai: str
     may: str
     nguoi: list[str] = []
+    nhan: NhanBuocOut | None = None
 
 
 class KanbanCardOut(BaseModel):
@@ -99,6 +121,7 @@ class MayLaneBlockOut(BaseModel):
     du_kien_bat_dau: datetime | None = None
     du_kien_ket_thuc: datetime | None = None
     nguoi: list[str] = []
+    nhan: NhanBuocOut | None = None
 
 
 class MayLaneOut(BaseModel):
@@ -137,15 +160,23 @@ class CaViecOut(BaseModel):
     """`may`/`may_id` (Vòng sửa 1 mục G, task-16-fix1-brief.md) — trước `may` là `None` cho CẢ
     "chưa xếp máy" lẫn "máy đã xoá", trong khi `/theo-may` phân biệt hai thứ đó bằng hai nhãn tiếng
     Việt riêng. Nay `may` LUÔN là một chuỗi (qua `_ten_may`, không bao giờ `None`), `may_id` giữ id
-    thô để so khớp (khớp hình dạng `MayLaneOut` — `may_id` để so, `ten`/`may` để bày)."""
+    thô để so khớp (khớp hình dạng `MayLaneOut` — `may_id` để so, `ten`/`may` để bày).
+
+    `lsx` (vòng rà UI 2026-09-04): trước đây dòng việc của bàn Theo ca KHÔNG mang mã lệnh nào, nên
+    ba tab kia bấm một cái là mở được hồ sơ lệnh còn tab này thì đọc xong phải tự đi tra tay. Cùng
+    kiểu và cùng tiêu chí sắp (theo MÃ) với `MayLaneBlockOut.lsx` — việc GHÉP phục vụ nhiều lệnh
+    nên đây là DANH SÁCH, không phải một `lsx_id` phẳng; FE có 2 phần tử trở lên thì bày cho người
+    dùng chọn, CẤM đoán lấy cái đầu."""
 
     cong_viec_id: int
     ten: str | None = None
     trang_thai: str
     may_id: int | None = None
     may: str
+    lsx: list[LsxThamChieuOut] = []
     du_kien_bat_dau: datetime | None = None
     nguoi: list[str] = []
+    nhan: NhanBuocOut | None = None
 
 
 class CaOut(BaseModel):

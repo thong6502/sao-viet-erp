@@ -238,6 +238,32 @@ def test_quy_uoc_ma_don_vi_toc_do_khop_bang_tra_cua_lenh_SX():
     assert ma_don_vi_toc_do(SimpleNamespace(don_vi_toc_do=None)) is None
 
 
+def test_gan_ten_don_vi_cat_hau_to_gio_truoc_khi_tra_danh_muc():
+    """⭐ Bảng danh sách in mã trần ("to/h") thay vì "tờ/h" — hồi quy 04/09/2026.
+
+    Máy lưu `to_gio`, còn `don_vi_ten()` khoá theo `don_vi_do.ma` = `to`. Tra thẳng `to_gio` thì
+    LUÔN trượt ⇒ `don_vi_toc_do_ten` rỗng ⇒ FE rơi về nhánh dự phòng `nhanDonViTocDo` và in mã
+    không dấu. Lỗi câm: không exception, không log, chỉ sai chữ trên màn.
+    """
+    from app.models.don_vi_do import DonViDo
+
+    db, svc = _svc()
+    db.add(DonViDo(ma="to", ten="tờ"))
+    db.add(DonViDo(ma="nhip", ten="nhịp"))
+    db.commit()
+
+    m1 = svc.create(_off74(toc_do=9000, don_vi_toc_do="to_gio"))
+    m2 = svc.create(_off74(ma="BE-01", ten="Bế tự động", toc_do=4500, don_vi_toc_do="nhip_gio"))
+    m3 = svc.create(_off74(ma="BOI-01", ten="Máy bồi", toc_do=450, don_vi_toc_do="chua_co_gio"))
+    m4 = svc.create(_off74(ma="TAY-01", ten="Làm tay", toc_do=None, don_vi_toc_do=None))
+
+    svc.gan_ten_don_vi([m1, m2, m3, m4])
+    assert m1.don_vi_toc_do_ten == "tờ"
+    assert m2.don_vi_toc_do_ten == "nhịp"
+    assert m3.don_vi_toc_do_ten is None      # mã lạ -> để rỗng, KHÔNG dựng tên giả
+    assert m4.don_vi_toc_do_ten is None
+
+
 # --- Danh mục NHÓM MÁY -------------------------------------------------------
 #
 # Trước 03/08/2026 "nhóm máy" chỉ là chữ tự do trên từng máy + 5 tên khai cứng trong FE ⇒ không

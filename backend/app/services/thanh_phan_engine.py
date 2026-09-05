@@ -406,6 +406,43 @@ TOOLING_CO_PHI = frozenset({"khuon_be", "khuon_ep", "khung_lua"})
 TOOLING_NHAN = {"khuon_be": "khuôn bế", "khuon_ep": "khuôn ép nhũ / dập nổi", "khung_lua": "khung lụa"}
 
 
+def _canh_bao_khuon(chain: list[dict]) -> list[str]:
+    """Lời nhắc về phí khuôn, đọc theo NGUỒN KHUÔN sale đã chọn (chốt 04/09/2026).
+
+    · `co_san` → im lặng: đó là một câu trả lời đúng, không phải chỗ trống bị bỏ quên.
+    · `lam_moi` mà 0đ → nhắc: đã chọn làm dao mới thì phải có tiền, không thì báo giá thiếu.
+    · chưa chọn (NULL, phiếu cũ) → giữ nguyên lời nhắc cũ.
+
+    Gom MỘT câu cho cả chuỗi thay vì kêu từng bước — ba bước cần dao là ba dòng đọc rất mệt, mà
+    nhắc nhiều thì người lập phiếu tắt mắt với lời nhắc.
+    """
+    thieu_cu: list[str] = []
+    thieu_moi: list[str] = []
+    for row in chain:
+        cd = row.get("cong_doan") or {}
+        if not cd.get("requires_tooling") or cd.get("tooling_type") not in TOOLING_CO_PHI:
+            continue
+        if _f(row.get("phi_khuon")) > 0:
+            continue
+        ten_b = row.get("ten") or cd.get("ten") or "Công đoạn"
+        nguon = row.get("khuon_nguon")
+        if nguon == "co_san":
+            continue
+        (thieu_moi if nguon == "lam_moi" else thieu_cu).append(ten_b)
+    ra: list[str] = []
+    if thieu_moi:
+        ra.append(
+            "Đã chọn làm khuôn mới nhưng chưa nhập tiền khuôn: "
+            + ", ".join(thieu_moi) + " — báo giá đang thiếu khoản này."
+        )
+    if thieu_cu:
+        ra.append(
+            "Chưa cho biết khuôn có sẵn hay làm mới: " + ", ".join(thieu_cu)
+            + " — để trống thì hiểu là dùng khuôn cũ, không tính tiền."
+        )
+    return ra
+
+
 def _pre(name: str, label: str) -> str:
     name = (name or "").strip()
     return f"{name} · {label}" if name else label
@@ -826,6 +863,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         dai_nguyen=dai_nguyen_m, rong_nguyen=rong_nguyen_m,
         dai_in=dai_in_m, rong_in=rong_in_m,
         so_luong=sl, so_tp=con,
+        so_trang=so_trang, trang_moi_tay=trang_moi_tay,
         to_dau_vao=to_dau_vao, to_sau_in=to_sau_in, to_nguyen=to_nguyen,
         so_mau=so_mau, so_mau_pha=so_mau_pha, so_mat=passes, so_kem=so_kem,
         dinh_luong=dinh_luong,
@@ -1023,7 +1061,6 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     # CHỈ nhận phí ở bước có cờ dụng cụ là dao lưu kho. `kem` bị loại: bản kẽm là vật tư tiêu hao và
     # tiền nó đã nằm trong công thức của bước chế bản — lấy thêm ở đây là tính hai lần.
     khuon_dong: list[dict] = []
-    thieu_phi: list[str] = []
     for row in chain:
         cd = row.get("cong_doan") or {}
         if not cd.get("requires_tooling") or cd.get("tooling_type") not in TOOLING_CO_PHI:
@@ -1053,15 +1090,10 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
                 # không thấy đơn nhỏ đang gánh bao nhiêu, mà đó chính là lúc cần thấy nhất.
                 "cong_thuc": _ct(f"{_vi(_r(tien))}đ làm {nhan_dao}, một lần", tien, sl),
             })
-        else:
-            thieu_phi.append(ten_b)
-    if thieu_phi:
-        # NHẮC, không chặn: để trống thường là ĐÚNG (dùng lại dao cũ), chặn là phiền vô cớ. Gộp một
-        # câu cho cả chuỗi thay vì kêu từng bước — ba bước cần dao là ba dòng cảnh báo đọc rất mệt.
-        warnings.append(
-            f"Thành phần '{name}': {', '.join(thieu_phi)} cần khuôn mà chưa khai phí — "
-            f"dùng lại khuôn cũ thì bỏ qua."
-        )
+    # NHẮC, không chặn: dùng lại dao cũ là chuyện thường ngày, chặn là phiền vô cớ. Nội dung lời
+    # nhắc do `_canh_bao_khuon` quyết theo nguồn khuôn sale đã chọn.
+    for _cb in _canh_bao_khuon(chain):
+        warnings.append(f"Thành phần '{name}': {_cb}")
 
     # --- PHÍ GIAO HÀNG: khoản MỘT LẦN của CẢ SẢN PHẨM, GỘP vào giá vốn --------------------------
     #

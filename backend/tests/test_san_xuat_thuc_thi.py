@@ -374,3 +374,45 @@ def test_api_admin_thieu_bit_assign_work_403(client):
         headers={"Authorization": f"Bearer {tok}"},
     )
     assert resp.status_code == 403
+
+
+# --- Cổng KHUÔN/KHUNG ở bàn tổ (chốt 04/09/2026) --------------------------------------------
+def _cv_co_khuon(db, orders, lsx_svc, admin, customer, *, ma="TO-KHUON"):
+    """Một công việc đã phát hành, có ảnh chụp khuôn, đủ một thợ khoán để qua luật §7.1."""
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma=ma)
+    cv.khuon_json = {"id": 1, "ma": "KB-0001", "ten": "Dao bế hộp A", "loai": "khuon_be",
+                     "so_ke": "Kệ A3", "tinh_trang": "dang_dung", "ngay_ve_du_kien": None}
+    db.commit()
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=_emp(db, to, f"NV-{ma}").id)
+    return cv
+
+
+def test_chua_nhan_khuon_thi_khong_bat_dau_duoc(db, orders, lsx_svc, admin, customer):
+    """Điểm chặn DUY NHẤT của luật 'bế phải có khuôn mới làm được'. Trước điểm này — xếp lịch, kéo
+    thả, phát hành — máy không cản gì cả, vì ngày dự kiến có dao không đủ tin để chặn ai."""
+    cv = _cv_co_khuon(db, orders, lsx_svc, admin, customer)
+    with pytest.raises(ValueError, match="Chưa nhận khuôn"):
+        thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
+
+
+def test_tich_nhan_khuon_roi_thi_bat_dau_duoc(db, orders, lsx_svc, admin, customer):
+    cv = _cv_co_khuon(db, orders, lsx_svc, admin, customer, ma="TO-KHUON-2")
+    thuc_thi.nhan_khuon(db, user=admin, cong_viec_id=cv.id)
+    assert cv.khuon_nhan_luc is not None and cv.khuon_nhan_by_id == admin.id
+    res = thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
+    assert res["trang_thai"] == CV_DANG_CHAY
+
+
+def test_buoc_khong_can_khuon_khong_bi_chan(db, orders, lsx_svc, admin, customer):
+    to, cv = _mot_cv(db, orders, lsx_svc, admin, customer, ma="TO-KHONG-KHUON")
+    thuc_thi.phan_cong(db, user=admin, cong_viec_id=cv.id, employee_id=_emp(db, to, "NV-KK").id)
+    assert cv.khuon_json is None
+    res = thuc_thi.bat_dau(db, user=admin, cong_viec_id=cv.id)
+    assert res["trang_thai"] == CV_DANG_CHAY
+
+
+def test_tra_khuon_khong_chan_gi(db, orders, lsx_svc, admin, customer):
+    cv = _cv_co_khuon(db, orders, lsx_svc, admin, customer, ma="TO-KHUON-3")
+    thuc_thi.nhan_khuon(db, user=admin, cong_viec_id=cv.id)
+    thuc_thi.tra_khuon(db, user=admin, cong_viec_id=cv.id)
+    assert cv.khuon_tra_luc is not None

@@ -13,7 +13,8 @@ class OrderLineOut(BaseModel):
     id: int
     description: str
     qty: int
-    don_vi_tinh: str = "cái"
+    don_vi_tinh: str = "cái"                 # ĐVT thật của phần này
+    dvt_nhom: str | None = None              # ĐVT của cụm khi in gộp (khớp báo giá)
     unit_price_snapshot: int | None
     vat_pct_estimate: int
     line_total: int | None

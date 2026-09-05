@@ -18,11 +18,12 @@ export interface DagRoutingCanvasProps {
   canUpdate: boolean;
   onUpdateRows: (rows: EditRow[]) => void;
   /** `tab` chỉ dùng cho deep-link từ badge trên node (vd sổ giao–nhận). */
-  onOpenDrawer: (index: number, tab?: "giao_nhan") => void;
-  /** `afterKey` = chèn ngay sau node ĐANG CHỌN (nếu có) để `thu_tu` đúng liền — số lượng + số hiệu
-   *  bám `thu_tu` nên đây là chỗ quyết định vị trí, không phải cạnh phụ thuộc. Không chọn node nào
-   *  thì thêm ở cuối. */
-  onAddStep: (afterKey?: string) => void;
+  onOpenDrawer: (index: number) => void;
+  /** `neoKey` = node ĐANG CHỌN, `viTri` = chèn TRƯỚC hay SAU nó, để `thu_tu` đúng liền — số lượng
+   *  + số hiệu bám `thu_tu` nên đây là chỗ quyết định vị trí, không phải cạnh phụ thuộc. Không
+   *  chọn node nào thì thêm ở cuối. Có "trước" vì bước ĐẦU tiên (chế bản, bình bài) không thể
+   *  chèn được nếu chỉ có "sau": không có bước nào đứng trước nó để làm neo. */
+  onAddStep: (neoKey?: string, viTri?: "truoc" | "sau") => void;
 }
 
 export interface Point {
@@ -663,24 +664,37 @@ export function DagRoutingCanvas({
           </button>
 
           {canUpdate && (() => {
-            // Thêm bước = CHÈN SAU 1 bước đang chọn (thu_tu liền ngay). Không còn nút "thêm ở
-            // cuối" chung chung: bấm chọn 1 node rồi mới hiện "Chèn sau: <bước>". Danh sách RỖNG
-            // là ngoại lệ duy nhất còn nút thêm-bước-đầu — chưa có bước nào để chèn sau. Nhãn dùng
-            // tenBuoc() để bám tên công đoạn đang gắn, không trơ literal "Công đoạn".
+            // Thêm bước = CHÈN TRƯỚC hoặc SAU 1 bước đang chọn (thu_tu liền ngay). Không còn nút
+            // "thêm ở cuối" chung chung: bấm chọn 1 node rồi mới hiện cặp "Chèn trước/sau: <bước>".
+            // Danh sách RỖNG là ngoại lệ duy nhất còn nút thêm-bước-đầu — chưa có bước nào làm neo.
+            // Nhãn dùng tenBuoc() để bám tên công đoạn đang gắn, không trơ literal "Công đoạn".
             const nodeChon = selectedKey ? rows.find((r) => r.key === selectedKey) : null;
             if (nodeChon) {
               const tenChon = tenBuoc(nodeChon, congDoanRefs).trim() || "bước đã chọn";
               const tenNgan = tenChon.length > 18 ? `${tenChon.slice(0, 17)}…` : tenChon;
               return (
-                <button
-                  type="button"
-                  className="dag-btn-icon"
-                  style={{ background: "#c25e38", color: "#fff", borderColor: "#c25e38" }}
-                  onClick={() => onAddStep(selectedKey ?? undefined)}
-                  title={`Chèn 1 công đoạn ngay sau "${tenChon}"`}
-                >
-                  <Icon name="plus" size={14} /> Chèn sau: {tenNgan}
-                </button>
+                <>
+                  {/* "Trước" đứng bên trái "sau" cho khớp hướng chảy của sơ đồ. Nó là đường DUY
+                      NHẤT để nhét bước lên đầu chuỗi (chế bản, bình bài) — bước #1 không có ai
+                      đứng trước để làm neo cho "chèn sau". */}
+                  <button
+                    type="button"
+                    className="dag-btn-icon"
+                    onClick={() => onAddStep(selectedKey ?? undefined, "truoc")}
+                    title={`Chèn 1 công đoạn ngay trước "${tenChon}"`}
+                  >
+                    <Icon name="plus" size={14} /> Chèn trước: {tenNgan}
+                  </button>
+                  <button
+                    type="button"
+                    className="dag-btn-icon"
+                    style={{ background: "#c25e38", color: "#fff", borderColor: "#c25e38" }}
+                    onClick={() => onAddStep(selectedKey ?? undefined, "sau")}
+                    title={`Chèn 1 công đoạn ngay sau "${tenChon}"`}
+                  >
+                    <Icon name="plus" size={14} /> Chèn sau: {tenNgan}
+                  </button>
+                </>
               );
             }
             if (rows.length === 0) {
@@ -698,7 +712,7 @@ export function DagRoutingCanvas({
             }
             return (
               <span className="dag-toolbar__hint">
-                Bấm chọn 1 bước để chèn công đoạn ngay sau nó
+                Bấm chọn 1 bước để chèn công đoạn ngay trước hoặc sau nó
               </span>
             );
           })()}

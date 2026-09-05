@@ -43,3 +43,17 @@ def test_dong_thieu_admin_thieu_bit_assign_work_403(client):
         headers=_admin_h(client),
     )
     assert resp.status_code == 403
+
+
+def test_thuong_to_truong_can_dang_nhap(client):
+    assert client.get("/api/san-xuat/kho/nhom/1/thuong-to-truong").status_code == 401
+
+
+def test_thuong_to_truong_nhom_rong_tra_mang_rong(client):
+    """Nhóm không có phân bổ chốt / tổ chưa khai bậc ⇒ `[]`, KHÔNG phải lỗi.
+
+    Khác `dieu-kien-dong` (đọc nhóm nên nhóm lạ là 400): bảng thưởng gom từ dòng phân bổ, không
+    có dòng nào thì câu trả lời đúng là "chưa có gì để bày"."""
+    r = client.get("/api/san-xuat/kho/nhom/999999/thuong-to-truong", headers=_admin_h(client))
+    assert r.status_code == 200, r.text
+    assert r.json() == []

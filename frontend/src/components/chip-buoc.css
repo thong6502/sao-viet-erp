@@ -1,0 +1,26 @@
+/* Chip dùng chung cho MỌI màn có mặt một bước sản xuất — xem `ChipBuoc.tsx`.
+   Bảng màu bám đúng `.khsx-lb` ở `pages/ke-hoach-sx.css` để hai màn không lệch nhau: cùng một
+   bước, nhìn ở Kế hoạch và nhìn ở bàn tổ phải ra cùng một màu. */
+.chip-buoc,
+.chip-khuon {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  /* Chip đứng cạnh tên bước trong ô hẹp — xuống dòng giữa mã dao và số kệ là đọc thành hai thứ. */
+  white-space: nowrap;
+}
+
+.chip-buoc--may { background: var(--steel-soft); color: var(--steel); }
+.chip-buoc--to { background: var(--rule-hair); color: var(--ash); }
+.chip-buoc--ngoai { background: var(--rust-soft); color: var(--rust-deep); }
+.chip-buoc--canhbao { background: var(--amber-soft); color: var(--amber-deep); }
+
+/* Bốn trạng thái khuôn: thiếu (chặn) · đang đặt làm · có trong kho · tổ đã cầm trong tay. */
+.chip-khuon--thieu { background: var(--rust-soft); color: var(--rust-deep); }
+.chip-khuon--cho { background: var(--amber-soft); color: var(--amber-deep); }
+.chip-khuon--co { background: var(--moss-soft); color: var(--moss-deep); }
+.chip-khuon--nhan { background: var(--moss-deep); color: #fff; }

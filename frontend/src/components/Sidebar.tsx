@@ -96,6 +96,11 @@ export const NAV: NavSection[] = [
       // SX đã có sẵn một TAB mang đúng chữ đó. ĐỊNH DANH giữ nguyên: nav id `lenh-san-xuat`,
       // khoá quyền `lenh_san_xuat`, prefix API `/api/lenh-san-xuat`.
       { id: "lenh-san-xuat", label: "Hồ sơ lệnh sản xuất", icon: "clipboard", module: "lenh_san_xuat" },
+      // Bàn TRA thứ hai, đứng NGAY SAU "Hồ sơ lệnh sản xuất" vì cùng nhóm người dùng (điều độ · QC ·
+      // sale) và cùng module `lenh_sx` — khác câu hỏi: màn kia tra MỘT lệnh theo mã, màn này quét
+      // TOÀN XƯỞNG để thấy việc nào tắc / máy nào trống (Task 17, module riêng `theo_doi_san_xuat`,
+      // ô quyền đã seed từ Task 1). Icon "eye" — chưa xưởng nào dùng, khớp nghĩa "theo dõi/quan sát".
+      { id: "theo-doi-san-xuat", label: "Theo dõi sản xuất", icon: "eye", module: "theo_doi_san_xuat" },
       // Đứng ngay sau Kế hoạch SX vì nó là bước kế tiếp của cùng một người: lệnh chốt xong thì hỏi
       // "còn thiếu vật tư gì, hôm nào phải đặt".
       { id: "ke-hoach-vat-tu", label: "Kế hoạch vật tư", icon: "box", module: "ke_hoach_vat_tu" },
@@ -253,10 +258,10 @@ export const NAV: NavSection[] = [
       // Thành phẩm: hàng của đơn hàng bán, hệ tự khai khi chốt đơn. Đứng CẠNH Vật tư khác vì
       // chung một bảng và người dùng hay nhầm hai chỗ (docs/prd-thanh-pham.md).
       { id: "thanh-pham", label: "Thành phẩm", icon: "bag", module: "dm_thanh_pham" },
-      // Khuôn: kho dao của xưởng (bế + ép nhũ) — khách · loại · số kệ · tình trạng. Bước cần khuôn
-      // ở Lệnh sản xuất chọn dao từ đây. Nhan đề đổi 16/08/2026; `module` GIỮ chuỗi `khuon_be` vì
-      // nó nằm trong bảng phân quyền của DB thật.
-      { id: "khuon-be", label: "Khuôn", icon: "clipboard", module: "khuon_be" },
+      // Khuôn & khung: kho dụng cụ của xưởng (bế + ép nhũ + khung lụa) — khách · loại · số kệ ·
+      // tình trạng. Bước cần dụng cụ ở Lệnh sản xuất chọn từ đây. Nhan đề đổi 04/09/2026;
+      // `module` GIỮ chuỗi `khuon_be` vì nó nằm trong bảng phân quyền của DB thật.
+      { id: "khuon-be", label: "Khuôn & khung", icon: "clipboard", module: "khuon_be" },
       // Khai báo kho: màn CRUD tạo/sửa kho. Kho tạo ở đây tự hiện thành mục dưới SECTION "Kho hàng".
       { id: "khai-bao-kho", label: "Khai báo kho", icon: "warehouse", module: "dm_kho_hang" },
       // Lý do & lỗi SX (§15): danh mục chuẩn hoá lý do/lỗi nuôi mọi ô chọn ở màn Thực hiện SX

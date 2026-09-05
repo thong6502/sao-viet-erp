@@ -43,6 +43,19 @@ class VatTuDinhMucOut(BaseModel):
     so_luong: float | None = None
 
 
+class KhuonChipOut(BaseModel):
+    """Ảnh chụp khuôn của bước, đủ để vẽ chip — KHÔNG phải bản sao của danh mục.
+
+    Đọc từ `san_xuat_cong_viec.khuon_json` (chụp lúc phát hành), không tra danh mục sống: tổ phải
+    thấy đúng con dao đã chốt, kể cả khi kế hoạch đổi dao sau đó.
+    """
+    ma: str | None = None
+    ten: str | None = None
+    so_ke: str | None = None
+    tinh_trang: str | None = None
+    ngay_ve_du_kien: str | None = None
+
+
 class WorkItemOut(BaseModel):
     id: int
     goi_id: int
@@ -78,6 +91,12 @@ class WorkItemOut(BaseModel):
     da_lam: float | None = None
     muc_tieu: float | None = None
     con_thieu: float | None = None
+    # Nhà gia công + khuôn: ảnh chụp lúc phát hành. `khuon = None` ⇒ bước không dùng dụng cụ, thẻ
+    # việc không vẽ gì; có `khuon` mà `khuon_da_nhan = false` ⇒ nút Bắt đầu bị chặn (§ cổng khuôn).
+    nha_cung_cap: str | None = None
+    khuon: KhuonChipOut | None = None
+    khuon_da_nhan: bool = False
+    khuon_da_tra: bool = False
 
 
 class WorkItemsOut(BaseModel):
@@ -916,6 +935,16 @@ class KhoXacNhanBtpKetQuaOut(BaseModel):
     cong_viec_id: int | None = None
 
 
+class KhoNhanBuocOut(BaseModel):
+    """Bước đã đẻ ra lô hàng này về từ đâu — hai field, không có khuôn.
+
+    Kho nhận THÀNH PHẨM chứ không nhận dao, nên `khuon_*` của `NhanBuocOut` (bàn theo dõi) không
+    có nghĩa ở đây; nhưng "thuê ngoài hay làm trong nhà" thì đổi hẳn cách kiểm nhập."""
+
+    loai_buoc: str | None = None
+    nha_cung_cap: str | None = None
+
+
 class NhapKhoYcOut(BaseModel):
     id: int
     kcs_batch_id: int
@@ -932,6 +961,7 @@ class NhapKhoYcOut(BaseModel):
     trang_thai: str
     ghi_chu: str | None = None
     version: int
+    nhan: KhoNhanBuocOut | None = None
 
 
 class KhoLotOut(BaseModel):
@@ -990,6 +1020,23 @@ class DongNhomDieuKienOut(BaseModel):
     muc_tieu: float | None = None
     da_dat: float | None = None
     con_thieu: float | None = None
+
+
+class ThuongToTruongOut(BaseModel):
+    """Một dòng thưởng/PHẠT tổ trưởng của nhóm (§8) — đọc lại VẾT đã ghi lúc đóng nhóm.
+
+    Bày cả `san_luong`/`so_luong_loi`/`ty_le_loi`/`rate_pct` chứ không chỉ `so_tien`: con số cuối
+    một mình thì tổ trưởng không cãi được, mà cãi được mới là điều kiện để tin."""
+    department_id: int
+    department: str | None = None
+    san_luong: float = 0
+    tien_khoan: float = 0
+    so_luong_loi: float = 0
+    ty_le_loi: float = 0
+    rate_pct: float = 0
+    so_tien: float = 0
+    ghi_chu: str | None = None
+    da_ghi: bool = False           # False = XEM TRƯỚC (nhóm chưa đóng), True = đã ghi thành vết
 
 
 class DongThieuIn(BaseModel):

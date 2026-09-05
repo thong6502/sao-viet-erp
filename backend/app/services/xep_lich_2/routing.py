@@ -25,7 +25,7 @@ from datetime import datetime, time, timedelta, timezone
 
 from sqlalchemy import select
 
-from ...models.lsx import LB_THUE_NGOAI, LB_TO, LsxCongDoan, LsxCongDoanPhuThuoc
+from ...models.lsx import LB_TO, LsxCongDoan, LsxCongDoanPhuThuoc
 from ...models.xep_lich import XepLichCongDoan
 from ..xep_lich_service import _aware
 from . import constraint as C
@@ -177,7 +177,7 @@ def _chiem_uoc(service, dong) -> int:
     chiem = int(d.get("chiem_may_phut") or 0)
     if chiem > 0 or getattr(dong, "may_id", None):
         return chiem
-    if getattr(dong, "loai_buoc", None) in (LB_THUE_NGOAI, LB_TO):
+    if getattr(dong, "loai_buoc", None) == LB_TO:
         return 0                                           # không dính máy — thiếu là thiếu thật
     for may in service.core._may_lam_duoc(dong):
         d2 = service._thoi_luong_v2(service._shadow(dong, {"may_id": may.id})) or {}

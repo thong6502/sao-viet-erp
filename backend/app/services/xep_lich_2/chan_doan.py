@@ -19,7 +19,7 @@ không "vướng ràng buộc khác".
 """
 from __future__ import annotations
 
-from ...models.lsx import LB_MAY, LB_THUE_NGOAI, LB_TO
+from ...models.lsx import LB_MAY, LB_TO
 from ...models.may_thiet_bi import MayThietBi
 from ...repositories.don_vi_do_repo import nhan_don_vi
 from ..lsx_service import _f, ma_don_vi_toc_do
@@ -32,9 +32,6 @@ _MAC_DINH = {
     "chua_quy_doi": ("Chưa quy đổi được số lượng vào sang đơn vị dùng để tính giờ nên chưa ra được "
                      "thời lượng.",
                      "Khai cầu quy đổi ở Cấu hình danh mục → Đơn vị & quy đổi."),
-    "thue_ngoai_chua_lich": ("Bước gửi ngoài chưa khai ngày gửi/nhận (hoặc số ngày gia công) nên "
-                             "chưa biết nó chiếm bao nhiêu ngày trên lịch.",
-                             "Khai ngày gửi & ngày nhận dự kiến ở Lệnh SX → drawer bước."),
 }
 
 
@@ -103,22 +100,6 @@ def chi_tiet(service, dong, ma: str) -> tuple[str, str]:
         return mac_dinh
     loai = getattr(cd, "loai_buoc", LB_MAY) or LB_MAY
 
-    if ma == "thue_ngoai_chua_lich":
-        thieu = []
-        if getattr(cd, "ngay_gui_dk", None) is None:
-            thieu.append("ngày gửi dự kiến")
-        if getattr(cd, "ngay_nhan_dk", None) is None:
-            thieu.append("ngày nhận dự kiến")
-        if _f(getattr(cd, "gia_cong_ngay", None)) <= 0:
-            thieu.append("số ngày gia công")
-        ncc = _txt(getattr(cd, "nha_cung_cap", None))
-        ai = f" cho “{ncc}”" if ncc else " (chưa khai nhà cung cấp)"
-        con = " · ".join(thieu) if thieu else "ngày gửi/nhận"
-        return (f"Bước gửi ngoài{ai} chưa khai {con} nên chưa biết nó chiếm bao nhiêu ngày trên "
-                f"lịch.",
-                "Khai ngày gửi & ngày nhận dự kiến — hoặc số ngày gia công + vận chuyển — ở "
-                "Lệnh SX → drawer bước.")
-
     if ma == "may_chua_toc_do":
         if loai == LB_TO:
             ten, dv = _khoan(service, cd)
@@ -130,8 +111,6 @@ def chi_tiet(service, dong, ma: str) -> tuple[str, str]:
             return (f"Đầu việc khoán “{ten}” chưa khai năng suất ({don}) nên chưa tính được giờ "
                     f"làm của bước.",
                     f"Khai năng suất cho “{ten}” ở Danh mục → Công việc khoán.")
-        if loai == LB_THUE_NGOAI:
-            return _MAC_DINH["thue_ngoai_chua_lich"]
         may = _may(service, dong, cd)
         if may is None:
             return ("Bước chưa gán máy nên chưa có tốc độ để tính giờ chạy.",

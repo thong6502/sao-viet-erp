@@ -450,6 +450,12 @@ class PayrollLine(Base):
     # `ot_pay` / `chuyen_can`. Nhét vào "Danh mục khoản thu nhập" là đặt công tắc hệ thống cạnh nút
     # xoá của HCNS — lỗi đã mắc với hoa hồng và sửa ngày 24/08/2026.
     khoan_km: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # Thưởng/PHẠT tổ trưởng theo chất lượng (mg 0266) — Σ `san_xuat_thuong_to_truong.so_tien` của
+    # kỳ. CÓ THỂ ÂM: bậc phạt là điểm khác biệt duy nhất so với `khoan_km`, và cũng là lý do nó
+    # không đi nhờ được đường `khoan` — `PieceWorkService.khoan_map` sàn mỗi phiếu ở max(0, …) nên
+    # tiền phạt biến mất im lặng nếu cộng vào đó. Vẫn là CỘT (tiền engine tự tính), không phải
+    # khoản danh mục, đúng tiền lệ `khoan_km`.
+    thuong_to_truong: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     ot_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # tổng phút tăng ca (Pha 4a)
     ot_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")          # tiền tăng ca (Pha 4a)
     night_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # số ngày ca đêm (từ Chấm công)

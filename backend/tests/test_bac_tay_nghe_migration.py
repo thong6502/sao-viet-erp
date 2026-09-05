@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
 from app.db_migrations import (
+    _migrate_bac_tay_nghe_he_so,
     _migrate_employee_salary_commission_pct,
     _migrate_job_grade_catalog,
     _migrate_job_grade_drop_phu,
@@ -281,3 +282,73 @@ def test_0129_chay_lai_va_chay_tren_db_moi_deu_khong_sao():
         _migrate_job_grade_drop_phu(db)
         db.commit()
     assert [r[0] for r in _grades(moi)] == _SEED_CODES
+
+
+# --- 0263: rót hệ số sản lượng mặc định -------------------------------------
+
+
+def _fixture_he_so(rows):
+    """DB đã có `job_grades` KÈM cột `output_coefficient` (mg 0220 chạy rồi).
+
+    `rows` = (code, output_coefficient) — None nghĩa là chưa ai khai."""
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    with engine.begin() as cn:
+        cn.execute(text(
+            "CREATE TABLE job_grades (id INTEGER PRIMARY KEY, code VARCHAR(20) UNIQUE, "
+            "name VARCHAR(60), seq INTEGER DEFAULT 0, is_active BOOLEAN DEFAULT 1, "
+            "note VARCHAR(255), output_coefficient NUMERIC(6,3), created_at TIMESTAMP)"))
+        for i, (code, heso) in enumerate(rows, start=1):
+            cn.execute(
+                text("INSERT INTO job_grades (id, code, name, seq, output_coefficient) "
+                     "VALUES (:i, :c, :n, :s, :h)"),
+                {"i": i, "c": code, "n": f"Bậc {i}", "s": i, "h": heso},
+            )
+    return engine
+
+
+def _he_so(engine) -> dict[str, float | None]:
+    with engine.begin() as cn:
+        return {
+            r[0]: (None if r[1] is None else float(r[1]))
+            for r in cn.execute(text("SELECT code, output_coefficient FROM job_grades"))
+        }
+
+
+def test_0263_rot_he_so_cho_bac_dang_trong():
+    """⭐ NULL hệ số = CHẶN chốt phân bổ sản lượng (§8), không phải "coi như 1.0".
+
+    Đây là lý do migration tồn tại: DB đang chạy có đủ 5 bậc nhưng hệ số trống, nên mẻ khoán đầu
+    tiên sẽ treo. Sau migration cả 5 bậc phải có số của chủ."""
+    engine = _fixture_he_so([(c, None) for c in _SEED_CODES])
+    with Session(engine) as db:
+        _migrate_bac_tay_nghe_he_so(db)
+    assert _he_so(engine) == {
+        "bac_1": 1.3, "bac_2": 1.15, "bac_3": 1.0, "bac_4": 0.9, "bac_5": 0.8}
+
+
+def test_0263_khong_de_so_xuong_da_sua_va_khong_dung_bac_tu_them():
+    """⭐ Chạy lại migration KHÔNG được đè số xưởng đã sửa tay, và không đụng bậc người dùng tự thêm."""
+    engine = _fixture_he_so(
+        [("bac_1", 2.5), ("bac_2", None), ("bac_3", None), ("bac_4", None), ("bac_5", None),
+         ("bac_tu_them", None)])
+    with Session(engine) as db:
+        _migrate_bac_tay_nghe_he_so(db)
+        _migrate_bac_tay_nghe_he_so(db)   # chạy chồng phải vô hại
+    got = _he_so(engine)
+    assert got["bac_1"] == 2.5, "số xưởng tự sửa bị migration đè mất"
+    assert got["bac_2"] == 1.15 and got["bac_5"] == 0.8, "dòng còn trống vẫn phải được rót"
+    assert got["bac_tu_them"] is None, "bậc do người dùng tự thêm để họ tự khai, migration không đoán"
+
+
+def test_0263_bo_qua_khi_chua_co_cot():
+    """DB trung gian chưa chạy mg 0220 (chưa có cột) — migration phải im lặng bỏ qua, không nổ."""
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    with engine.begin() as cn:
+        cn.execute(text(
+            "CREATE TABLE job_grades (id INTEGER PRIMARY KEY, code VARCHAR(20) UNIQUE, "
+            "name VARCHAR(60))"))
+    with Session(engine) as db:
+        _migrate_bac_tay_nghe_he_so(db)   # không được ném
+    with engine.begin() as cn:
+        assert "output_coefficient" not in {
+            c["name"] for c in inspect(engine).get_columns("job_grades")}

@@ -40,7 +40,8 @@ from app.models.attendance import WorkShift
 from app.models.department import Department
 from app.models.lsx import Lsx
 from app.models.may_thiet_bi import MayThietBi
-from app.models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH
+from app.models.order import Order
+from app.models.san_xuat import CV_DANG_CHAY, CV_HOAN_THANH, SanXuatCongViec
 from app.repositories.attendance_repo import AttendanceRepository
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
@@ -54,8 +55,13 @@ from app.services.xep_lich_service import XepLichService
 
 from tests.lenh_sx_fixtures import (  # noqa: F401
     _cvs, _dot_dong_don, _giao_nguoi, _lenh_tho, _phat_hanh_that,
-    admin, customer, ghep_doi, hai_muoi_lenh, lsx_svc, orders, sess,
+    admin, customer, ghep_doi, hai_muoi_lenh, lsx_svc, orders, sale_own, sess,
 )
+# Task 18a — TÁI DÙNG đúng fixture "hai lệnh đối nhau trên tám trục" + "bốn trục qua cầu bài ghép"
+# mà Task 17a đã dựng cho `/kanban` (cùng `_loc_ban`, cùng tám trục lọc — dựng một bộ fixture đối
+# nhau THỨ HAI ở đây là hai bản trôi lệch nhau, đúng nguy cơ mà docstring `tests/lenh_sx_fixtures.py`
+# đã cảnh báo cho `_loc_ban`/`_co_buoc`).
+from tests.test_theo_doi_kanban import ghep_bon_truc, hai_lenh_doi_nhau  # noqa: F401
 
 
 def _tok(client, cred):
@@ -311,6 +317,49 @@ def test_viec_chua_gan_may_co_lane_rieng(client, seed_credentials, viec_chua_xep
     lanes = client.get("/api/theo-doi-san-xuat/theo-may", headers=h).json()["lanes"]
     chua = next(l for l in lanes if l["may_id"] is None)
     assert viec_chua_xep_may in {b["cong_viec_id"] for b in chua["blocks"]}
+
+
+def test_theo_may_va_theo_ca_mang_nhan_buoc(client, seed_credentials, sess, viec_chua_xep_may):
+    """Cùng khối `nhan` với Kanban, dựng bằng CÙNG một helper.
+
+    Ba chỗ tự dựng lấy là ba cơ hội để một chỗ quên field, rồi nhãn lại đứt ở đúng một tab mà
+    không ai để ý — nên bài này canh CẢ HAI bàn trong một lượt.
+    """
+    cv = sess.get(SanXuatCongViec, viec_chua_xep_may)
+    cv.loai_buoc = "thue_ngoai"
+    cv.nha_cung_cap = "Cơ sở Minh Phát"
+    cv.khuon_json = {"ma": "KB-0001", "so_ke": "Kệ A3", "tinh_trang": "dang_dat_lam",
+                     "ngay_ve_du_kien": "2026-09-20"}
+    sess.commit()
+
+    h = _h(_tok(client, seed_credentials))
+    lanes = client.get("/api/theo-doi-san-xuat/theo-may", headers=h).json()["lanes"]
+    chua = next(l for l in lanes if l["may_id"] is None)
+    block = next(b for b in chua["blocks"] if b["cong_viec_id"] == viec_chua_xep_may)
+    assert block["nhan"]["khuon_ma"] == "KB-0001"
+    assert block["nhan"]["khuon_tinh_trang"] == "dang_dat_lam"
+    assert block["nhan"]["khuon_ngay_ve"] == "2026-09-20"
+    assert block["nhan"]["loai_buoc"] == "thue_ngoai"
+
+
+def test_theo_ca_mang_nhan_buoc(client, seed_credentials, sess, viec_23h_khong_ca_nao_phu):
+    """Bàn Theo ca dựng dòng việc bằng hàm riêng (`_viec_theo_ca_dict`) nên phải canh riêng — đây
+    đúng là kiểu "một chỗ quên field" mà helper `_nhan` sinh ra để chặn.
+
+    Dùng việc CÓ GIỜ (rổ "Ngoài ca") chứ không dùng việc chưa xếp máy: bàn này bày theo mốc bắt
+    đầu, việc chưa có giờ không thuộc ngày nào cả.
+    """
+    _ca1_id, cv_id = viec_23h_khong_ca_nao_phu
+    cv = sess.get(SanXuatCongViec, cv_id)
+    cv.loai_buoc = "thue_ngoai"
+    cv.nha_cung_cap = "Cơ sở Minh Phát"
+    sess.commit()
+
+    h = _h(_tok(client, seed_credentials))
+    d = client.get("/api/theo-doi-san-xuat/theo-ca?ngay=2026-08-31", headers=h).json()
+    viec = next(v for c in d["ca"] for v in c["viec"] if v["cong_viec_id"] == cv_id)
+    assert viec["nhan"]["loai_buoc"] == "thue_ngoai"
+    assert viec["nhan"]["nha_cung_cap"] == "Cơ sở Minh Phát"
 
 
 def test_ca_lay_tu_danh_muc(client, seed_credentials, ca_thu_tu):
@@ -719,6 +768,532 @@ def test_gantt_page_0_422(client, seed_credentials):
 def test_gantt_page_size_qua_han_422(client, seed_credentials):
     h = _h(_tok(client, seed_credentials))
     assert client.get("/api/theo-doi-san-xuat/gantt?page_size=999", headers=h).status_code == 422
+
+
+# ==================================================================================================
+# TASK 18a — W1 (tám tham số lọc CHUNG cho `/theo-ca` và `/gantt`, Ruling C121, nối tiếp V2 của
+# Task 17a) + W2 (`ca_id` cho `/theo-ca`, Ruling C134 đã chốt từ Task 17).
+#
+# Luật C127 áp cho MỌI bài dưới đây: docstring nói rõ PHÁ CÁI GÌ thì bài đỏ, fixture LUÔN có phần
+# tử KHÔNG thoả. TÁI DÙNG `hai_lenh_doi_nhau`/`ghep_bon_truc` từ `test_theo_doi_kanban.py` (import
+# ở đầu file) — tám trục lọc đi qua ĐÚNG MỘT hàm `_loc_ban` với `/kanban`/`/theo-may`, dựng một bộ
+# fixture đối nhau THỨ HAI ở đây là hai bản chắc chắn trôi lệch nhau, đúng nguy cơ mà docstring
+# `tests/lenh_sx_fixtures.py` đã cảnh báo.
+#
+# `/theo-ca` không trả `lsx_id` trên từng việc (khác `/kanban`/`/gantt`) nên các bài dưới đây nhận
+# diện lệnh qua ID CÔNG VIỆC đại diện (`cv_ctp_a`/`cv_ctp_b` của fixture), không so trực tiếp lsx_id.
+# ==================================================================================================
+def _ids_gantt(client, h, truy_van: str = "") -> set[int]:
+    d = client.get(f"/api/theo-doi-san-xuat/gantt{truy_van}", headers=h).json()
+    return {r["lsx_id"] for r in d["rows"]}
+
+
+def _viec_ids_theo_ca(client, h, truy_van: str = "?ngay=2026-08-31") -> set[int]:
+    d = client.get(f"/api/theo-doi-san-xuat/theo-ca{truy_van}", headers=h).json()
+    return {v["cong_viec_id"] for c in d["ca"] for v in c["viec"]}
+
+
+# --- W1: tám tham số lọc của /gantt -----------------------------------------------------------------
+def test_gantt_loc_thu_hep_ids_truoc_khi_nap(sess, hai_lenh_doi_nhau, monkeypatch):
+    """Ruling C121, khuôn `test_kanban_loc_thu_hep_ids_truoc_khi_nap`. Đỏ nếu bộ lọc của `/gantt`
+    chạy SAU `boi_canh.nap()` (hoặc bị bỏ hẳn): `nap()` khi đó vẫn nhận cả hai lệnh dù `loc` chỉ
+    khớp một."""
+    ghi: dict = {}
+    nap_that = bang_theo_doi.boi_canh.nap
+
+    def rinh(db, lsx_ids):
+        ghi["ids"] = list(lsx_ids)
+        return nap_that(db, lsx_ids)
+
+    monkeypatch.setattr(bang_theo_doi.boi_canh, "nap", rinh)
+    bang_theo_doi.gantt(sess, sale_ids=None, loc=bang_theo_doi.BoLoc(uu_tien="gap"))
+    assert hai_lenh_doi_nhau["lsx_a"] in ghi["ids"], "lệnh Gấp phải lọt vào nap()"
+    assert hai_lenh_doi_nhau["lsx_b"] not in ghi["ids"], (
+        "lệnh KHÔNG gấp vẫn được nạp — bộ lọc chạy SAU nap(), trái C121"
+    )
+
+
+def test_gantt_loc_q(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `q` của `_loc_ban` không được gắn vào `/gantt` (trả cả hai lệnh)."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _ids_gantt(client, h, "?q=ALPHA")
+    assert hai_lenh_doi_nhau["lsx_a"] in ids
+    assert hai_lenh_doi_nhau["lsx_b"] not in ids
+
+
+def test_gantt_loc_khach_hang(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `khach_hang_id` không được gắn vào `/gantt`."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _ids_gantt(client, h, "?khach_hang_id=%d" % hai_lenh_doi_nhau["kh_b"])
+    assert hai_lenh_doi_nhau["lsx_b"] in ids
+    assert hai_lenh_doi_nhau["lsx_a"] not in ids
+
+
+def test_gantt_loc_may(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `may_id` không được gắn vào `/gantt`, hoặc gắn bằng một vị ngữ khác
+    `danh_sach._co_buoc` mà bỏ sót vế công việc (lệnh A gắn máy trên CÔNG VIỆC, không trên routing)."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _ids_gantt(client, h, "?may_id=%d" % hai_lenh_doi_nhau["may_a"])
+    assert hai_lenh_doi_nhau["lsx_a"] in ids
+    assert hai_lenh_doi_nhau["lsx_b"] not in ids
+
+
+def test_gantt_loc_cong_doan(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `cong_doan_id` không được gắn vào `/gantt`."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _ids_gantt(client, h, "?cong_doan_id=%d" % hai_lenh_doi_nhau["cd_b"])
+    assert hai_lenh_doi_nhau["lsx_b"] in ids
+    assert hai_lenh_doi_nhau["lsx_a"] not in ids
+
+
+def test_gantt_loc_nhom_cong_doan(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `nhom_cong_doan` không được gắn vào `/gantt`. Lọc `finishing` (nhóm của lệnh B)
+    chứ không `print`: mọi lệnh khác trong DB cũng `print` nên lọc chiều đó "tình cờ" xanh."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _ids_gantt(client, h, "?nhom_cong_doan=finishing")
+    assert hai_lenh_doi_nhau["lsx_b"] in ids
+    assert hai_lenh_doi_nhau["lsx_a"] not in ids
+
+
+def test_gantt_loc_cong_nhan(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `cong_nhan_id` không được gắn vào `/gantt`."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _ids_gantt(client, h, "?cong_nhan_id=%d" % hai_lenh_doi_nhau["tho_a"])
+    assert hai_lenh_doi_nhau["lsx_a"] in ids
+    assert hai_lenh_doi_nhau["lsx_b"] not in ids
+
+
+def test_gantt_loc_trang_thai_viec(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `trang_thai_viec` không được gắn vào `/gantt`. Chỉ lệnh A có bước `completed`."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _ids_gantt(client, h, "?trang_thai_viec=completed")
+    assert hai_lenh_doi_nhau["lsx_a"] in ids
+    assert hai_lenh_doi_nhau["lsx_b"] not in ids
+
+
+def test_gantt_loc_uu_tien(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `uu_tien` không được gắn vào `/gantt`, hoặc hai nhánh gap/binh_thuong bị đảo."""
+    h = _h(_tok(client, seed_credentials))
+    gap = _ids_gantt(client, h, "?uu_tien=gap")
+    thuong = _ids_gantt(client, h, "?uu_tien=binh_thuong")
+    assert hai_lenh_doi_nhau["lsx_a"] in gap and hai_lenh_doi_nhau["lsx_b"] not in gap
+    assert hai_lenh_doi_nhau["lsx_b"] in thuong and hai_lenh_doi_nhau["lsx_a"] not in thuong
+
+
+def test_gantt_khong_loc_thi_thay_ca_hai(client, seed_credentials, hai_lenh_doi_nhau):
+    """TIỀN ĐỀ của tám bài trên — không tham số nào ⇒ KHÔNG lọc gì. Đỏ nếu ai đó gán mặc định cho
+    một ô lọc (vd `_thanh_loc` fabricat một `uu_tien` mặc định) — khi đó tám bài kia vẫn có thể
+    xanh mà Gantt mặc định đã giấu mất một nửa số lệnh."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _ids_gantt(client, h)
+    assert {hai_lenh_doi_nhau["lsx_a"], hai_lenh_doi_nhau["lsx_b"]} <= ids
+
+
+def test_gantt_gia_tri_la_bi_chan_422(client, seed_credentials):
+    """Đỏ nếu `/gantt` không thật sự nhận `loc: ThanhLoc` (route quên khai tham số này): giá trị sai
+    chính tả sẽ bị bỏ qua thay vì chặn — endpoint trả 200 với bảng đầy đủ."""
+    h = _h(_tok(client, seed_credentials))
+    for tv in ("?uu_tien=khan_cap", "?trang_thai_viec=xong", "?nhom_cong_doan=in"):
+        r = client.get("/api/theo-doi-san-xuat/gantt" + tv, headers=h)
+        assert r.status_code == 422, f"{tv} phải bị chặn ở cửa, nhận {r.status_code}"
+
+
+# --- W1: tám tham số lọc của /theo-ca ----------------------------------------------------------------
+def test_theo_ca_loc_thu_hep_ids_truoc_khi_nap(sess, hai_lenh_doi_nhau, monkeypatch):
+    """Ruling C121 — đỏ nếu bộ lọc của `/theo-ca` chạy SAU `boi_canh.nap()`. `/theo-ca` nạp trên tập
+    `ids` đã đi qua UNION (`truc_tiep`/`qua_ghep` của cửa sổ ngày) RỒI mới `_loc_ban`; bài này rình
+    thẳng đối số cuối cùng của `nap()`, không đo gián tiếp qua số câu SQL."""
+    ghi: dict = {}
+    nap_that = bang_theo_doi.boi_canh.nap
+
+    def rinh(db, lsx_ids):
+        ghi["ids"] = list(lsx_ids)
+        return nap_that(db, lsx_ids)
+
+    monkeypatch.setattr(bang_theo_doi.boi_canh, "nap", rinh)
+    bang_theo_doi.theo_ca(
+        sess, sale_ids=None, ngay=date(2026, 8, 31), loc=bang_theo_doi.BoLoc(uu_tien="gap"),
+    )
+    assert hai_lenh_doi_nhau["lsx_a"] in ghi["ids"], "lệnh Gấp phải lọt vào nap()"
+    assert hai_lenh_doi_nhau["lsx_b"] not in ghi["ids"], (
+        "lệnh KHÔNG gấp vẫn được nạp — bộ lọc chạy SAU nap(), trái C121"
+    )
+
+
+def test_theo_ca_loc_q(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `q` không được gắn vào `/theo-ca`."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _viec_ids_theo_ca(client, h, "?ngay=2026-08-31&q=ALPHA")
+    assert hai_lenh_doi_nhau["cv_ctp_a"] in ids
+    assert hai_lenh_doi_nhau["cv_ctp_b"] not in ids
+
+
+def test_theo_ca_loc_khach_hang(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `khach_hang_id` không được gắn vào `/theo-ca`."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _viec_ids_theo_ca(
+        client, h, "?ngay=2026-08-31&khach_hang_id=%d" % hai_lenh_doi_nhau["kh_b"]
+    )
+    assert hai_lenh_doi_nhau["cv_ctp_b"] in ids
+    assert hai_lenh_doi_nhau["cv_ctp_a"] not in ids
+
+
+def test_theo_ca_loc_may(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `may_id` không được gắn vào `/theo-ca`."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _viec_ids_theo_ca(client, h, "?ngay=2026-08-31&may_id=%d" % hai_lenh_doi_nhau["may_a"])
+    assert hai_lenh_doi_nhau["cv_ctp_a"] in ids
+    assert hai_lenh_doi_nhau["cv_ctp_b"] not in ids
+
+
+def test_theo_ca_loc_cong_doan(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `cong_doan_id` không được gắn vào `/theo-ca`."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _viec_ids_theo_ca(
+        client, h, "?ngay=2026-08-31&cong_doan_id=%d" % hai_lenh_doi_nhau["cd_b"]
+    )
+    assert hai_lenh_doi_nhau["cv_ctp_b"] in ids
+    assert hai_lenh_doi_nhau["cv_ctp_a"] not in ids
+
+
+def test_theo_ca_loc_nhom_cong_doan(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `nhom_cong_doan` không được gắn vào `/theo-ca`. Lọc `finishing` (nhóm của lệnh
+    B), không phải `print` — cùng lý do bài `/gantt` tương ứng."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _viec_ids_theo_ca(client, h, "?ngay=2026-08-31&nhom_cong_doan=finishing")
+    assert hai_lenh_doi_nhau["cv_ctp_b"] in ids
+    assert hai_lenh_doi_nhau["cv_ctp_a"] not in ids
+
+
+def test_theo_ca_loc_cong_nhan(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `cong_nhan_id` không được gắn vào `/theo-ca`."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _viec_ids_theo_ca(
+        client, h, "?ngay=2026-08-31&cong_nhan_id=%d" % hai_lenh_doi_nhau["tho_a"]
+    )
+    assert hai_lenh_doi_nhau["cv_ctp_a"] in ids
+    assert hai_lenh_doi_nhau["cv_ctp_b"] not in ids
+
+
+def test_theo_ca_loc_trang_thai_viec(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `trang_thai_viec` không được gắn vào `/theo-ca`. Chỉ lệnh A có bước `completed`
+    (bước In, 19:15 — vẫn trong cửa sổ ngày `?ngay=2026-08-31`)."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _viec_ids_theo_ca(client, h, "?ngay=2026-08-31&trang_thai_viec=completed")
+    assert hai_lenh_doi_nhau["cv_ctp_a"] in ids
+    assert hai_lenh_doi_nhau["cv_ctp_b"] not in ids
+
+
+def test_theo_ca_loc_uu_tien(client, seed_credentials, hai_lenh_doi_nhau):
+    """Đỏ nếu nhánh `uu_tien` không được gắn vào `/theo-ca`, hoặc hai nhánh bị đảo."""
+    h = _h(_tok(client, seed_credentials))
+    gap = _viec_ids_theo_ca(client, h, "?ngay=2026-08-31&uu_tien=gap")
+    thuong = _viec_ids_theo_ca(client, h, "?ngay=2026-08-31&uu_tien=binh_thuong")
+    assert hai_lenh_doi_nhau["cv_ctp_a"] in gap and hai_lenh_doi_nhau["cv_ctp_b"] not in gap
+    assert hai_lenh_doi_nhau["cv_ctp_b"] in thuong and hai_lenh_doi_nhau["cv_ctp_a"] not in thuong
+
+
+def test_theo_ca_khong_loc_thi_thay_ca_hai(client, seed_credentials, hai_lenh_doi_nhau):
+    """TIỀN ĐỀ — không tham số lọc nào ⇒ KHÔNG lọc gì. Đỏ nếu ai đó fabricat một mặc định cho một ô
+    lọc CHUNG (`_thanh_loc`) — mặc định đó rò từ `/kanban` sang cả `/theo-ca` vì cùng một khai báo."""
+    h = _h(_tok(client, seed_credentials))
+    ids = _viec_ids_theo_ca(client, h, "?ngay=2026-08-31")
+    assert {hai_lenh_doi_nhau["cv_ctp_a"], hai_lenh_doi_nhau["cv_ctp_b"]} <= ids
+
+
+def test_theo_ca_gia_tri_la_bi_chan_422(client, seed_credentials):
+    """Đỏ nếu `/theo-ca` không thật sự nhận `loc: ThanhLoc` (route quên khai tham số này)."""
+    h = _h(_tok(client, seed_credentials))
+    for tv in ("?uu_tien=khan_cap", "?trang_thai_viec=xong", "?nhom_cong_doan=in"):
+        r = client.get("/api/theo-doi-san-xuat/theo-ca" + tv, headers=h)
+        assert r.status_code == 422, f"{tv} phải bị chặn ở cửa, nhận {r.status_code}"
+
+
+# --- W1, brief mục cảnh báo riêng: /gantt phải lọc TRƯỚC cắt trang, total phải là số SAU khi lọc ----
+@pytest.fixture
+def bay_lenh_loc_qua_mot_trang(sess, admin, customer) -> dict:
+    """5 lệnh GẤP (`M1..M5`, hạn tăng dần) XEN KẼ 2 lệnh KHÔNG gấp (`X1`/`X2`, hạn đứng GIỮA dãy hạn
+    của các lệnh Gấp) — đúng hình dạng brief cảnh báo: nếu bộ lọc chạy SAU khi cắt trang (thay vì
+    TRƯỚC), trang 1 (`page_size=3`, không lọc trước) sẽ là [M1, X1, M2] chứ không phải [M1, M2, M3],
+    và `total` sẽ đếm nhầm 7 thay vì 5.
+
+    `X1`/`X2` là phần tử "không thoả" BẮT BUỘC (C127): thiếu chúng, 5 lệnh Gấp nằm liền mạch theo
+    hạn, "lọc trước cắt trang" và "cắt trang rồi lọc" trả về CÙNG một kết quả — không phân biệt được."""
+    thu_tu = [
+        ("LSX-PG-M1", date(2026, 10, 1), True),
+        ("LSX-PG-X1", date(2026, 10, 2), False),
+        ("LSX-PG-M2", date(2026, 10, 3), True),
+        ("LSX-PG-X2", date(2026, 10, 4), False),
+        ("LSX-PG-M3", date(2026, 10, 5), True),
+        ("LSX-PG-M4", date(2026, 10, 7), True),
+        ("LSX-PG-M5", date(2026, 10, 9), True),
+    ]
+    ket: dict[str, int] = {}
+    for ma, han, rush in thu_tu:
+        ket[ma] = _lenh_tho(
+            sess, ma=ma, sale_user_id=admin.id, customer_id=customer.id,
+            han_sx=han, is_rush=rush,
+        )
+    return ket
+
+
+def test_gantt_loc_ap_truoc_khi_cat_trang_total_va_trang_2_dung(
+    client, seed_credentials, bay_lenh_loc_qua_mot_trang,
+):
+    """BẪY CHÍNH của brief mục W1 — đỏ nếu lọc chạy SAU cắt trang, hoặc `total` đếm trên tập CHƯA
+    lọc: cả hai đột biến đều làm trang 1 lẫn `LSX-PG-X1` và/hoặc báo `total=7` thay vì 5. Khẳng định
+    CẢ `total` LẪN nội dung ĐÚNG của trang 2 (Ruling C119: so dòng, không chỉ đếm)."""
+    h = _h(_tok(client, seed_credentials))
+    trang1 = client.get(
+        "/api/theo-doi-san-xuat/gantt?uu_tien=gap&page=1&page_size=3", headers=h
+    ).json()
+    trang2 = client.get(
+        "/api/theo-doi-san-xuat/gantt?uu_tien=gap&page=2&page_size=3", headers=h
+    ).json()
+
+    assert trang1["total"] == 5, f"total phải đếm ĐÚNG 5 lệnh Gấp (SAU lọc), nhận {trang1['total']}"
+    assert trang2["total"] == 5
+    assert [r["ma"] for r in trang1["rows"]] == ["LSX-PG-M1", "LSX-PG-M2", "LSX-PG-M3"], (
+        f"trang 1 lẫn lệnh KHÔNG gấp — lọc chạy SAU cắt trang, nhận {[r['ma'] for r in trang1['rows']]}"
+    )
+    assert [r["ma"] for r in trang2["rows"]] == ["LSX-PG-M4", "LSX-PG-M5"], (
+        f"trang 2 sai nội dung, nhận {[r['ma'] for r in trang2['rows']]}"
+    )
+
+
+# --- C127 mục 4: quên cầu bài ghép ------------------------------------------------------------------
+def test_gantt_loc_may_qua_cau_bai_ghep(client, seed_credentials, ghep_bon_truc):
+    """Đỏ nếu vế 2 (`bai_ghep_cong_doan_map`) của `danh_sach._co_buoc` không tới được `/gantt`: máy
+    THẬT của ca in ghép chỉ nằm trên công việc CHUNG, không chỗ nào ghi ngược về
+    `lsx_cong_doan.may_id`. Lệnh thường (`c`) là phần tử KHÔNG thoả."""
+    g = ghep_bon_truc
+    h = _h(_tok(client, seed_credentials))
+    assert _ids_gantt(client, h, "?may_id=%d" % g["may"]) == {g["a"], g["b"]}
+
+
+def test_theo_ca_loc_trang_thai_viec_qua_cau_bai_ghep(client, seed_credentials, sess, ghep_bon_truc):
+    """Đỏ nếu vế 2 của `_co_viec` không tới được `/theo-ca`: `completed` chỉ nằm trên công việc
+    CHUNG của ca in ghép. `ghep_doi` không tự đặt mốc kế hoạch cho `cv_chung` — gán tay vào cửa sổ
+    ngày đang hỏi, đúng khuôn `test_theo_ca_thay_viec_ghep_qua_cau_bai_ghep`. Lệnh thường (`c`, vẫn
+    `released`, vẫn CÓ việc trong CÙNG cửa sổ ngày) là phần tử KHÔNG thoả."""
+    g = ghep_bon_truc
+    cv_chung = sess.get(SanXuatCongViec, g["cv_chung"])
+    cv_chung.du_kien_bat_dau = datetime(2026, 8, 31, 10, 0, tzinfo=timezone.utc)
+    cv_chung.du_kien_ket_thuc = datetime(2026, 8, 31, 11, 0, tzinfo=timezone.utc)
+    sess.commit()
+
+    h = _h(_tok(client, seed_credentials))
+    thay = _viec_ids_theo_ca(client, h, "?ngay=2026-08-31&trang_thai_viec=completed")
+    c_cvs = {cv.id for cv in _cvs(sess, g["c"])}
+    assert g["cv_chung"] in thay, "việc ghép completed không lọt qua trang_thai_viec — mất cầu"
+    assert not (c_cvs & thay), "lệnh KHÔNG ghép cũng lọt vào ?trang_thai_viec=completed"
+
+
+# --- C127 mục 3: mù trước phạm vi quyền -------------------------------------------------------------
+def test_gantt_loc_bam_pham_vi_nguoi_goi(sess, sale_own, admin, customer):
+    """Đỏ nếu `loc` được gắn vào một `select(Lsx.id)` TÁCH KHỎI `pham_vi.loc_lsx_da_phat_hanh(...,
+    sale_ids)` (lọc đúng dưới token ADMIN scope `all` — không phân biệt được — nhưng vượt luôn ranh
+    giới `sale_ids` hẹp của một Sale). Gọi thẳng service vì phạm vi đến từ TOKEN.
+
+    `lenh_khac` (Gấp, KHÔNG thuộc `sale_own`) là phần tử KHÔNG thoả PHẠM VI; `lenh_own_thuong`
+    (thuộc `sale_own`, KHÔNG gấp) là phần tử KHÔNG thoả LỌC — thiếu một trong hai thì bài không tách
+    được "chỉ scope đúng" khỏi "chỉ lọc đúng"."""
+    lenh_own = _lenh_tho(
+        sess, ma="LSX-GT-OWN-GAP", sale_user_id=sale_own.id, customer_id=customer.id, is_rush=True,
+    )
+    lenh_khac = _lenh_tho(
+        sess, ma="LSX-GT-KHAC-GAP", sale_user_id=admin.id, customer_id=customer.id, is_rush=True,
+    )
+    lenh_own_thuong = _lenh_tho(
+        sess, ma="LSX-GT-OWN-THUONG", sale_user_id=sale_own.id, customer_id=customer.id,
+        is_rush=False,
+    )
+    loc = bang_theo_doi.BoLoc(uu_tien="gap")
+    ids_het = {
+        r["lsx_id"]
+        for r in bang_theo_doi.gantt(sess, sale_ids=None, loc=loc, page=1, page_size=50)["rows"]
+    }
+    ids_hep = {
+        r["lsx_id"]
+        for r in bang_theo_doi.gantt(sess, sale_ids={sale_own.id}, loc=loc, page=1, page_size=50)[
+            "rows"
+        ]
+    }
+    assert {lenh_own, lenh_khac} <= ids_het, "tiền đề: scope `all` phải thấy cả hai lệnh Gấp"
+    assert ids_hep == {lenh_own}, f"lọc dưới sale_ids hẹp phải CHỈ còn lệnh của Sale đó, nhận {ids_hep}"
+    assert lenh_own_thuong not in ids_hep, "phạm vi hẹp đúng nhưng lọc uu_tien bị bỏ qua"
+
+
+def test_theo_ca_loc_bam_pham_vi_nguoi_goi(sess, orders, lsx_svc, admin, customer, sale_own):
+    """Như bài `/gantt` ở trên nhưng cho `theo_ca()` — nơi `loc` gắn vào một câu ĐÃ `union()`
+    (`truc_tiep`/`qua_ghep`), một nguy cơ khác gantt: phạm vi có thể bị hoà tan tuỳ cách viết bên
+    trong. Bài khoá KẾT QUẢ CUỐI CÙNG bất kể cách viết.
+
+    BA lệnh, không phải hai: `lenh_khac` (Gấp, KHÔNG thuộc `sale_own`) là phần tử KHÔNG thoả PHẠM
+    VI; `lenh_own_thuong` (thuộc `sale_own`, KHÔNG gấp) là phần tử KHÔNG thoả LỌC — thiếu nó thì bài
+    không phân biệt được "chỉ scope đúng" khỏi "chỉ lọc đúng" (đúng khoảng trống mà bản trước của bài
+    này bỏ sót: xoá hẳn `loc` khỏi `theo_ca()` vẫn xanh, vì trong phạm vi hẹp CHỈ có một lệnh Gấp)."""
+    _dot_dong_don(sess, 91)
+    lenh_own = _phat_hanh_that(sess, orders, lsx_svc, admin, customer, buoc=[("CTP", 15, 500)])
+    lenh_khac = _phat_hanh_that(sess, orders, lsx_svc, admin, customer, buoc=[("CTP", 15, 500)])
+    lenh_own_thuong = _phat_hanh_that(sess, orders, lsx_svc, admin, customer, buoc=[("CTP", 15, 500)])
+    sess.get(Lsx, lenh_own).is_rush = True
+    sess.get(Lsx, lenh_khac).is_rush = True
+    sess.get(Order, sess.get(Lsx, lenh_own).order_id).sale_user_id = sale_own.id
+    sess.get(Order, sess.get(Lsx, lenh_own_thuong).order_id).sale_user_id = sale_own.id
+    sess.commit()
+
+    cv_own = _cvs(sess, lenh_own)[0].id
+    cv_khac = _cvs(sess, lenh_khac)[0].id
+    cv_own_thuong = _cvs(sess, lenh_own_thuong)[0].id
+    loc = bang_theo_doi.BoLoc(uu_tien="gap")
+    ngay = date(2026, 8, 31)
+
+    het = {
+        v["cong_viec_id"]
+        for c in bang_theo_doi.theo_ca(sess, sale_ids=None, ngay=ngay, loc=loc)["ca"]
+        for v in c["viec"]
+    }
+    hep = {
+        v["cong_viec_id"]
+        for c in bang_theo_doi.theo_ca(sess, sale_ids={sale_own.id}, ngay=ngay, loc=loc)["ca"]
+        for v in c["viec"]
+    }
+    assert {cv_own, cv_khac} <= het, "tiền đề: scope `all` phải thấy việc của cả hai lệnh Gấp"
+    assert hep == {cv_own}, f"lọc dưới sale_ids hẹp phải CHỈ còn việc của Sale đó, nhận {hep}"
+    assert cv_own_thuong not in hep, "phạm vi hẹp đúng nhưng lọc uu_tien=gap bị bỏ qua"
+
+
+# ==================================================================================================
+# TASK 18a — W2: `?ca_id=` của `/theo-ca` (Ruling C134, đã chốt từ Task 17 — KHÔNG thiết kế lại).
+# Lọc CỘT CA trả về, thuần Python SAU cửa sổ ngày, không thêm câu SQL, không N+1.
+# ==================================================================================================
+@pytest.fixture
+def hai_ca_va_ngoai_ca(sess, orders, lsx_svc, admin, customer) -> dict:
+    """Hai ca THẬT liền kề (06-14, 14-22), MỖI ca một việc RIÊNG, cộng MỘT việc 23:00 không ca nào
+    phủ (rơi vào "Ngoài ca") — canh W2: việc của ca X là phần tử KHÔNG thoả khi hỏi `?ca_id=<ca Y>`
+    (và ngược lại); việc "Ngoài ca" KHÔNG thoả khi hỏi đích danh một ca thật, và là phần tử DUY NHẤT
+    thoả khi hỏi `?ca_id=ngoai_ca`."""
+    ca_x = WorkShift(
+        name="Ca X (W2)", start_minute=6 * 60, end_minute=14 * 60,
+        is_active=True, ca_san_xuat=True,
+    )
+    ca_y = WorkShift(
+        name="Ca Y (W2)", start_minute=14 * 60, end_minute=22 * 60,
+        is_active=True, ca_san_xuat=True,
+    )
+    sess.add_all([ca_x, ca_y])
+    sess.commit()
+
+    _dot_dong_don(sess, 93)
+    lsx_x = _phat_hanh_that(sess, orders, lsx_svc, admin, customer, buoc=[("CTP", 15, 500)])
+    lsx_y = _phat_hanh_that(sess, orders, lsx_svc, admin, customer, buoc=[("CTP", 15, 500)])
+    lsx_ngoai = _phat_hanh_that(sess, orders, lsx_svc, admin, customer, buoc=[("CTP", 15, 500)])
+    cv_x = _cvs(sess, lsx_x)[0]
+    cv_y = _cvs(sess, lsx_y)[0]
+    cv_ngoai = _cvs(sess, lsx_ngoai)[0]
+    cv_x.du_kien_bat_dau = datetime(2026, 8, 31, 8, 0, tzinfo=timezone.utc)
+    cv_y.du_kien_bat_dau = datetime(2026, 8, 31, 16, 0, tzinfo=timezone.utc)
+    cv_ngoai.du_kien_bat_dau = datetime(2026, 8, 31, 23, 0, tzinfo=timezone.utc)
+    sess.commit()
+    return {
+        "ca_x": ca_x.id, "ca_y": ca_y.id,
+        "cv_x": cv_x.id, "cv_y": cv_y.id, "cv_ngoai": cv_ngoai.id,
+    }
+
+
+def test_theo_ca_ca_id_chon_dung_mot_ca(client, seed_credentials, hai_ca_va_ngoai_ca):
+    """Đỏ nếu `?ca_id=<id>` không lọc CỘT CA trả về (hoặc lọc sai chiều): phải trả DUY NHẤT ca đó —
+    việc của ca KIA và rổ Ngoài ca đều biến mất khỏi PAYLOAD (lọc hiển thị, không phải mất dữ liệu
+    ở tầng cửa sổ ngày — cửa sổ đã nạp đủ cả ba việc trước khi lọc này chạy)."""
+    g = hai_ca_va_ngoai_ca
+    h = _h(_tok(client, seed_credentials))
+    d = client.get(
+        f"/api/theo-doi-san-xuat/theo-ca?ngay=2026-08-31&ca_id={g['ca_x']}", headers=h
+    ).json()
+    assert [c["id"] for c in d["ca"]] == [g["ca_x"]], f"phải CHỈ còn ca_x, nhận {d['ca']}"
+    assert g["cv_x"] in {v["cong_viec_id"] for v in d["ca"][0]["viec"]}
+
+
+def test_theo_ca_ca_id_chon_ngoai_ca(client, seed_credentials, hai_ca_va_ngoai_ca):
+    """Sentinel `CA_ID_NGOAI_CA` ("ngoai_ca") phải chọn ĐÚNG rổ `id=None`, loại cả hai ca thật. Đây
+    là bài đóng đúng lỗ brief nhấn: "Im lặng là lỗi" — thiếu case này thì rổ Ngoài ca không có giá
+    trị nào để FE gõ vào URL mà chọn riêng nó."""
+    g = hai_ca_va_ngoai_ca
+    h = _h(_tok(client, seed_credentials))
+    d = client.get(
+        "/api/theo-doi-san-xuat/theo-ca?ngay=2026-08-31&ca_id=ngoai_ca", headers=h
+    ).json()
+    assert [c["id"] for c in d["ca"]] == [None]
+    assert g["cv_ngoai"] in {v["cong_viec_id"] for v in d["ca"][0]["viec"]}
+    assert g["cv_x"] not in {v["cong_viec_id"] for v in d["ca"][0]["viec"]}
+
+
+def test_theo_ca_ca_id_khong_khop_tra_rong(client, seed_credentials, hai_ca_va_ngoai_ca):
+    """`ca_id` là số nhưng KHÔNG khớp ca đang có (id lạ/đã xoá khỏi danh mục) phải trả `{"ca": []}`
+    — KHÔNG bịa một ca rỗng mang nhãn giả (khác `/theo-may?may_id=` Ruling C137: `work_shifts` không
+    có khái niệm "ca đã thanh lý còn nợ việc", một id lạ ở đây chỉ có thể là gõ sai)."""
+    g = hai_ca_va_ngoai_ca
+    h = _h(_tok(client, seed_credentials))
+    id_la = max(g["ca_x"], g["ca_y"]) + 9999
+    d = client.get(
+        f"/api/theo-doi-san-xuat/theo-ca?ngay=2026-08-31&ca_id={id_la}", headers=h
+    ).json()
+    assert d["ca"] == []
+
+
+def test_theo_ca_khong_ca_id_thi_van_ca_hai_loai(client, seed_credentials, hai_ca_va_ngoai_ca):
+    """TIỀN ĐỀ W2 — vắng `?ca_id=` phải KHÔNG đổi hành vi cũ: cả hai ca thật LẪN rổ Ngoài ca đều có
+    mặt. Đỏ nếu ai đó lỡ áp một `ca_id` mặc định (vd luôn lọc theo ca đầu tiên)."""
+    g = hai_ca_va_ngoai_ca
+    h = _h(_tok(client, seed_credentials))
+    d = client.get("/api/theo-doi-san-xuat/theo-ca?ngay=2026-08-31", headers=h).json()
+    ids = {c["id"] for c in d["ca"]}
+    assert {g["ca_x"], g["ca_y"], None} <= ids
+
+
+def test_theo_ca_ca_id_khong_them_cau_sql(client, seed_credentials, hai_ca_va_ngoai_ca):
+    """W2 khẳng định "không N+1" — lọc `ca_id` là thuần Python SAU khi đã nạp xong. Đỏ nếu ai đó lỡ
+    tay thêm một câu tra cứu riêng cho `ca_id` (vd SELECT WorkShift để validate nó "có tồn tại
+    không" trước khi lọc)."""
+    g = hai_ca_va_ngoai_ca
+    h = _h(_tok(client, seed_credentials))
+    khong = _dem_sql(
+        lambda: client.get("/api/theo-doi-san-xuat/theo-ca?ngay=2026-08-31", headers=h)
+    )
+    co = _dem_sql(
+        lambda: client.get(
+            f"/api/theo-doi-san-xuat/theo-ca?ngay=2026-08-31&ca_id={g['ca_x']}", headers=h
+        )
+    )
+    assert co == khong, f"?ca_id= kéo thêm câu SQL: {khong} → {co}"
+
+
+def test_theo_ca_ca_id_gia_tri_sai_kieu_422(client, seed_credentials):
+    """Đỏ nếu `ca_id` khai kiểu lỏng lẻo (`str`/không ràng buộc `Literal`): giá trị vừa không phải
+    số vừa không phải sentinel `"ngoai_ca"` phải bị chặn Ở CỬA bằng 422."""
+    h = _h(_tok(client, seed_credentials))
+    r = client.get("/api/theo-doi-san-xuat/theo-ca?ca_id=abc", headers=h)
+    assert r.status_code == 422, f"ca_id=abc phải bị chặn ở cửa, nhận {r.status_code}"
+
+
+def test_theo_ca_ca_id_ngoai_ca_rong_van_tra_ve_mot_phan_tu(
+    client, seed_credentials, hai_ca_va_ngoai_ca,
+):
+    """Ca biên tự nghĩ thêm (không có trong brief): hỏi `?ca_id=ngoai_ca` cho một NGÀY KHÔNG có việc
+    nào rơi ngoài ca (`?ngay=2026-09-01` — `hai_ca_va_ngoai_ca` chỉ đặt việc ở 2026-08-31) phải vẫn
+    trả về DUY NHẤT một phần tử `{"id": None, "viec": []}`, KHÔNG phải `[]` rỗng toàn bộ. Đỏ nếu mã
+    lẫn lộn "rổ Ngoài ca không có việc nào" với "không khớp `ca_id`" (nhánh `id lạ` ở bài trên) — hai
+    tình huống này PHẢI trả hai hình dạng khác nhau: rổ Ngoài ca luôn phải HIỆN DIỆN (dù trống), còn
+    `ca_id` lạ mới là hình dạng trả `[]`."""
+    h = _h(_tok(client, seed_credentials))
+    d = client.get(
+        "/api/theo-doi-san-xuat/theo-ca?ngay=2026-09-01&ca_id=ngoai_ca", headers=h
+    ).json()
+    assert d["ca"] == [
+        {"id": None, "ten": bang_theo_doi.NHAN_NGOAI_CA, "bat_dau_phut": None,
+         "ket_thuc_phut": None, "qua_nua_dem": False, "viec": []}
+    ], f"rổ Ngoài ca rỗng phải vẫn HIỆN DIỆN một phần tử, nhận {d['ca']}"
 
 
 # ==================================================================================================

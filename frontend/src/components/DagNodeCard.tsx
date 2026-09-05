@@ -1,8 +1,8 @@
 import React, { useMemo } from "react";
-import { dvNhan, nhanGiaoNhan, type RefRow } from "../pages/LsxRoutingTable";
+import { dvNhan, type RefRow } from "../pages/LsxRoutingTable";
 import { type EditRow, n, phut, tenBuoc, thoiLuong } from "../pages/lsxBuoc";
 import { Icon } from "./Icons";
-import { LSX_LOAI_BUOC_META } from "../api/client";
+import { ChipKhuon, ChipLoaiBuoc } from "./ChipBuoc";
 
 export interface DagNodeCardProps {
   row: EditRow;
@@ -25,7 +25,7 @@ export interface DagNodeCardProps {
   onPortMouseDown: (e: React.MouseEvent, key: string, portType: "in" | "out") => void;
   onPortMouseUp: (e: React.MouseEvent, key: string, portType: "in" | "out") => void;
   /** `tab` chỉ dùng cho deep-link từ badge — mở drawer là nhảy thẳng tới khối đó. */
-  onOpenDrawer: (index: number, tab?: "giao_nhan") => void;
+  onOpenDrawer: (index: number) => void;
   onDeleteNode: (index: number) => void;
 }
 
@@ -70,8 +70,6 @@ export function DagNodeCard({
     const t = thoiLuong(row, may);
     return phut(t.tong);
   }, [row, may]);
-
-  const meta = LSX_LOAI_BUOC_META[row.loai_buoc] ?? { label: row.loai_buoc };
 
   // Màu viền theo mức độ cảnh báo
   const hasError = warnings.some((w) => w.includes("chưa") || w.includes("đứt"));
@@ -122,10 +120,22 @@ export function DagNodeCard({
             {maBaiGhep}
           </span>
         ) : (
-          <span className={`dag-node__type-tag dag-node__type-tag--${row.loai_buoc}`}>
-            {meta.label}
-          </span>
+          /* Chip DÙNG CHUNG với bảng công đoạn và các màn xưởng (`ChipBuoc`) — thẻ DAG trước đây
+             tự vẽ lại nhãn từ `LSX_LOAI_BUOC_META` nên bước thuê ngoài chưa điền nơi làm chỉ hiện
+             chữ "Thuê ngoài" trống trơn, không ai biết còn thiếu gì. */
+          <ChipLoaiBuoc loai_buoc={row.loai_buoc} nha_cung_cap={row.nha_cung_cap} />
         )}
+        {/* Con dao của bước — thẻ DAG là chỗ người kế hoạch nhìn cả chuỗi một lượt, thiếu dao phải
+            thấy ngay ở đây chứ không phải mở từng drawer. */}
+        <ChipKhuon
+          can_khuon={row.requires_tooling}
+          khuon={{
+            ma: row.khuon_be_ma,
+            so_ke: row.khuon_be_so_ke,
+            tinh_trang: row.khuon_be_tinh_trang,
+            ngay_ve_du_kien: row.khuon_be_ngay_ve,
+          }}
+        />
 
         {canUpdate && (
           <div className="dag-node__actions">
@@ -189,25 +199,6 @@ export function DagNodeCard({
           <span className="dag-node__label">Thời lượng:</span>
           <span className="dag-node__value">{thoiGian}</span>
         </div>
-
-        {/* Hàng gửi ra ngoài đang ở đâu — nhìn sơ đồ là biết khúc nào nằm ngoài xưởng. */}
-        {row.loai_buoc === "thue_ngoai" && row.giao_nhan && (
-          <button
-            type="button"
-            className={`khsx-gn-badge khsx-gn-badge--${row.giao_nhan.giao_nhan_trang_thai ?? "chua_gui"} ${
-              (row.giao_nhan.qua_han_ngay ?? 0) > 0 || row.giao_nhan.hut_vuot_dinh_muc
-                ? "is-canhbao"
-                : ""
-            }`}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenDrawer(index, "giao_nhan");
-            }}
-          >
-            {nhanGiaoNhan(row)}
-          </button>
-        )}
 
         {/* Cảnh báo nếu có */}
         {warnings.length > 0 && (

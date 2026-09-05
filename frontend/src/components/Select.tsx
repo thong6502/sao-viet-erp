@@ -201,14 +201,19 @@ export function Select<T extends SelectValue>({
               // dropUp: neo mép DƯỚI, top:"auto" để XOÁ `top: calc(100%+4px)` của .sel__list
               // (không xoá thì phần tử bị đẩy xuống dưới viewport → menu nằm ngoài màn, không bấm được).
               ...(rect.up ? { top: "auto", bottom: rect.bottom } : { top: rect.top }),
+              // Bề ngang danh sách: RỘNG BẰNG NÚT LÀ SÀN, không phải trần (03/09/2026). Trước đó
+              // nút rộng ≥60px thì `width` bị đóng đinh bằng bề ngang nút, tên dài hơn nút bị
+              // `text-overflow: ellipsis` cắt cụt — nút "+ Thêm công đoạn…" hẹp nên cả danh sách
+              // công đoạn hiện thành "In AB- Máy in-11 x 1…", không đọc được tên nào. Nay thả cho
+              // nở theo nội dung, chỉ chặn ở mép màn hình để không tràn ra ngoài.
               ...(align === "right"
-                ? { right: window.innerWidth - rect.right, left: "auto", minWidth: rect.width }
-                : rect.width < 60
-                  // Nút TÍ HON (vd mũi tên 22px chèn công đoạn): ép width = bề ngang nút thì danh
-                  // sách chỉ còn một sợi, chữ vỡ từng ký tự — thả cho nó tự nở theo nội dung.
-                  // Ngưỡng để thấp để các ô chọn nhỏ-nhưng-có-nhãn (pager…) giữ nguyên nếp cũ.
-                  ? { left: rect.left, minWidth: 220, right: "auto" }
-                  : { left: rect.left, width: rect.width, right: "auto" }),
+                ? { right: window.innerWidth - rect.right, left: "auto", minWidth: rect.width,
+                    maxWidth: Math.max(rect.width, rect.right - 8) }
+                : { left: rect.left, right: "auto",
+                    // Nút TÍ HON (vd mũi tên 22px chèn công đoạn): sàn 220px, không thì danh sách
+                    // chỉ còn một sợi và chữ vỡ từng ký tự.
+                    minWidth: rect.width < 60 ? 220 : rect.width,
+                    maxWidth: Math.max(rect.width, window.innerWidth - rect.left - 8) }),
             }
           : undefined
       }

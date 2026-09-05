@@ -4,6 +4,7 @@
 // CHỈ ĐỌC — bấm dòng gọi `onPick` giống hệt `ListRow` (mở drawer, dời cửa sổ nếu ngoài cửa sổ).
 import { Icon, type IconName } from "../components/Icons";
 import type { SxVatTuDinhMuc, SxWorkItem } from "../api/client";
+import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { num, ngayGio } from "./keHoachSxShared";
 import { nhanDonVi } from "./lsxBuoc";
 import { sxNguonIcon, sxSerial, ThsxTrangThaiPill } from "./thsxShared";
@@ -96,6 +97,8 @@ function DsRow({ w, selected, onPick }: { w: SxWorkItem; selected: boolean; onPi
       <td>
         {w.ten_cong_doan || "—"}
         {w.la_kcs && <span className="thsx-lrow__kcs thsx-ds__kcs">KCS</span>}
+        <ChipLoaiBuoc loai_buoc={w.loai_buoc} nha_cung_cap={w.nha_cung_cap} />
+        <ChipKhuon can_khuon={!!w.khuon} khuon={{ ...(w.khuon ?? {}), da_nhan: w.khuon_da_nhan }} />
       </td>
       <td>{w.may || "—"}</td>
       <td className="thsx-num">{w.du_kien_bat_dau ? ngayGio(w.du_kien_bat_dau) : "—"}</td>

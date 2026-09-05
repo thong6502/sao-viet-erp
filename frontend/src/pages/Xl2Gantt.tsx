@@ -12,7 +12,7 @@ import type { IconName } from "../components/Icons";
 import type {
   Xl2Ca, Xl2CaNhan, Xl2Dong, Xl2KhoaMay, Xl2Muc, Xl2NgayLe, Xl2QRow, Xl2TaiMay, Xl2TaiTo,
 } from "../api/client";
-import { ngayGio, num, thoiLuong, thoiLuongNgan } from "./keHoachSxShared";
+import { ngay, ngayGio, num, thoiLuong, thoiLuongNgan } from "./keHoachSxShared";
 import {
   BAR_H, CLUSTER_HEAD_H, LANE_H, LABEL_W, buildLinearScale, demViecLanes, dongHue, dongEntityKey, dongNhanParts,
   dongSerial, ngayToWall, wallToNaive, type Xl2Zoom,
@@ -775,7 +775,23 @@ export function Xl2Gantt({
                       const nhan = dongNhanParts(dong);
                       const serial = dongSerial(dong);
                       const hue = dongHue(dong);
-                      const isNcc = lane.cluster === "ncc";
+                      // Loại bước đọc từ CHÍNH dòng, không suy từ lane đang đứng (04/09/2026):
+                      // bước Thuê ngoài chưa đặt giờ nằm ở khay "chưa đặt giờ", lane đó không phải
+                      // cụm `ncc` nên trước đây nó mất sạch dấu hiệu thuê ngoài — đúng cái đứt nhãn
+                      // giữa đường. Dòng bài ghép không mang `loai_buoc` thì vẫn lùi về vị trí lane.
+                      const isNcc = dong.loai_buoc === "thue_ngoai"
+                        || (dong.loai_buoc == null && lane.cluster === "ncc");
+                      // Dao của bước: thiếu (cần mà chưa chốt) hoặc chưa về ⇒ tô cảnh báo. Ngày dao
+                      // về KHÔNG chặn xếp lịch, chỗ này chỉ để điều độ nhìn thấy trước khi kéo.
+                      const daoThieu = dong.requires_tooling && !dong.khuon_ma;
+                      const daoChuaVe = dong.khuon_tinh_trang === "dang_dat_lam";
+                      const daoTitle = daoThieu
+                        ? " · chưa chốt khuôn/khung"
+                        : dong.khuon_ma
+                          ? ` · ${dong.khuon_ma}${daoChuaVe
+                              ? `, chưa về${dong.khuon_ngay_ve ? ` (dự kiến ${ngay(dong.khuon_ngay_ve)})` : ""}`
+                              : dong.khuon_so_ke ? `, ${dong.khuon_so_ke}` : ""}`
+                          : "";
                       const isWide = width >= 96;
                       const isMedium = width >= 44 && !isWide;
                       // HAI VÙNG dưới đây vẽ NẰM TRONG chip (chốt 25/08/2026). Trước kia dải sai số là
@@ -852,7 +868,7 @@ export function Xl2Gantt({
                           type="button"
                           className={`xl2-bar${isNcc ? " xl2-bar--ncc" : ""}${mucCls}${sel ? " xl2-bar--sel" : ""}${chain ? " xl2-bar--chain" : ""}${isHoveredChain ? " xl2-bar--chain-hover" : ""}${isDimmed ? " xl2-bar--dimmed" : ""}${dong.is_locked ? " xl2-bar--locked" : ""}${canDrag ? " xl2-bar--draggable" : ""}${!timed ? " xl2-bar--pack" : ""}${quaGio ? " xl2-bar--qua-gio" : ""}`}
                           style={{ left, width, "--lsx-h": hue } as CSSProperties}
-                          title={`${nhan.ma}${nhan.congDoan ? ` · ${nhan.congDoan}` : ""}${nhan.sanPham ? ` · ${nhan.sanPham}` : ""}${slTitle}${dong.start_at ? ` · ${ngayGio(dong.start_at)}` : " · chưa đặt giờ"}${dong.is_locked ? " · đã khóa" : ""}${btTitle}${ttTitle}`}
+                          title={`${nhan.ma}${nhan.congDoan ? ` · ${nhan.congDoan}` : ""}${nhan.sanPham ? ` · ${nhan.sanPham}` : ""}${slTitle}${dong.start_at ? ` · ${ngayGio(dong.start_at)}` : " · chưa đặt giờ"}${dong.is_locked ? " · đã khóa" : ""}${btTitle}${ttTitle}${daoTitle}`}
                           aria-label={`${nhan.ma}${nhan.congDoan ? `, ${nhan.congDoan}` : ""}${nhan.sanPham ? `, ${nhan.sanPham}` : ""}${slAria}${dong.start_at ? `, bắt đầu ${ngayGio(dong.start_at)}` : ", chưa đặt giờ"}`}
                           onPointerDown={canDrag ? (e) => onBarDown(dong, e) : undefined}
                           onClick={() => onBarClick(dong)}
@@ -918,9 +934,17 @@ export function Xl2Gantt({
                                     <span className="xl2-bar__dur">{durLabel}</span>
                                   ) : null}
                                 </div>
-                                {nhan.congDoan && (
+                                {(nhan.congDoan || daoThieu || dong.khuon_ma) && (
                                   <div className="xl2-bar__row2">
-                                    <span className="xl2-bar__cd">{nhan.congDoan}</span>
+                                    {nhan.congDoan && <span className="xl2-bar__cd">{nhan.congDoan}</span>}
+                                    {(daoThieu || dong.khuon_ma) && (
+                                      <span
+                                        className={`xl2-bar__dao${daoThieu || daoChuaVe ? " xl2-bar__dao--canhbao" : ""}`}
+                                        aria-hidden="true"
+                                      >
+                                        🔧{daoThieu ? "?" : dong.khuon_ma}
+                                      </span>
+                                    )}
                                     {nhan.sanPham && <span className="xl2-bar__sp">· {nhan.sanPham}</span>}
                                   </div>
                                 )}

@@ -28,7 +28,7 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta, timezone
 
 from ...models.bai_ghep_cong_doan import BaiGhepCongDoan
-from ...models.lsx import LB_THUE_NGOAI, LB_TO
+from ...models.lsx import LB_TO
 from ...models.xep_lich import NGUON_LSX, TT_DA_XEP
 from ..lsx_service import thoi_luong_buoc
 from ..xep_lich_service import _aware, _naive
@@ -379,11 +379,7 @@ def xep_mot_buoc(service, dong, *, chan_ngay: int, nhanh_nhat: bool) -> dict:
     san, cho = san_va_cho(service, dong, shadow0)
     loai = getattr(dong, "loai_buoc", None)
 
-    if loai == LB_THUE_NGOAI:
-        return _xep_theo_thoi_luong_san(
-            service, dong, shadow0, san=san, chan_ngay=chan_ngay, ca=ca, cho=cho,
-            ne_canh_bao=not nhanh_nhat,
-            ly_do="Bước gửi ngoài — xếp theo lead-time gửi → nhận, không chiếm máy.")
+    # THUÊ NGOÀI đi CHUNG đường với bước máy: nhà thầu là một máy trong danh mục.
     if loai == LB_TO:
         return _xep_theo_thoi_luong_san(
             service, dong, shadow0, san=san, chan_ngay=chan_ngay, ca=ca, cho=cho,

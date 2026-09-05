@@ -26,6 +26,7 @@ from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
 from ..models.attendance import WorkShift
 from ..models.cong_doan import CongDoan
 from ..models.department import Department
+from ..models.khuon_be import KhuonBe
 from ..models.employee import (
     STATUS_ACTIVE as EMP_ACTIVE, STATUS_PROBATION as EMP_PROBATION,
     STATUS_PROBATION_ENDED as EMP_PROBATION_ENDED, Employee,
@@ -75,6 +76,13 @@ CB_KHOA_MAY = "khoa_may"        # thả đè lên khoảng bảo trì/khóa củ
 CB_NGOAI_GIO = "ngoai_gio"      # thả ra ngoài giờ làm / ngày nghỉ
 CB_THIEU_NGUOI = "thieu_nguoi"  # tổ không đủ quân cho các việc chạy cùng lúc
 CB_KHO_MAY = "kho_may"          # khổ / số màu / định lượng vượt khả năng máy
+
+# Dòng KHÔNG dùng khuôn (và mọi lượt chạy chung của bài ghép, vốn không trỏ bước lệnh nào) vẫn
+# phải có đủ 5 khoá: FE đọc `dong.khuon_ma` thẳng, thiếu khoá là `undefined` lẫn với "chưa chốt".
+_KHUON_TRONG = {
+    "requires_tooling": False, "khuon_ma": None, "khuon_so_ke": None,
+    "khuon_tinh_trang": None, "khuon_ngay_ve": None,
+}
 
 
 class XepLichError(Exception):
@@ -875,6 +883,46 @@ class XepLichService:
 
     def _lcd(self, lcd_id: int | None) -> LsxCongDoan | None:
         return self.db.get(LsxCongDoan, lcd_id) if lcd_id else None
+
+    def _khuon_theo_buoc(self, lcd_ids: set[int | None]) -> dict[int, dict]:
+        """`{lsx_cong_doan_id: {requires_tooling · khuon_ma · so_ke · tinh_trang · ngay_ve}}`.
+
+        Ba query cho CẢ danh sách (bước → công đoạn → khuôn), không tra lẻ từng dòng: đây là màn
+        trả hàng trăm dòng và là đường nóng nhất của điều độ.
+
+        `requires_tooling` đọc từ CỜ của danh mục công đoạn, không ghi cứng tên bước — cùng nguồn
+        với cửa "Sẵn sàng lập kế hoạch" (`lsx_service.thieu_cua`), để hai chỗ không nói khác nhau.
+        """
+        ids = {int(i) for i in lcd_ids if i}
+        if not ids:
+            return {}
+        buocs = self.db.execute(
+            select(LsxCongDoan.id, LsxCongDoan.cong_doan_id, LsxCongDoan.khuon_be_id)
+            .where(LsxCongDoan.id.in_(ids))
+        ).all()
+        cd_ids = {int(b[1]) for b in buocs if b[1]}
+        can_dc = {
+            int(r[0]): bool(r[1])
+            for r in self.db.execute(
+                select(CongDoan.id, CongDoan.requires_tooling).where(CongDoan.id.in_(cd_ids))
+            ).all()
+        } if cd_ids else {}
+        k_ids = {int(b[2]) for b in buocs if b[2]}
+        daos = {
+            k.id: k
+            for k in self.db.execute(select(KhuonBe).where(KhuonBe.id.in_(k_ids))).scalars()
+        } if k_ids else {}
+        ra: dict[int, dict] = {}
+        for bid, cd_id, k_id in buocs:
+            k = daos.get(k_id)
+            ra[int(bid)] = {
+                "requires_tooling": bool(can_dc.get(cd_id, False)),
+                "khuon_ma": k.ma if k else None,
+                "khuon_so_ke": k.so_ke if k else None,
+                "khuon_tinh_trang": k.tinh_trang if k else None,
+                "khuon_ngay_ve": k.ngay_ve_du_kien if k else None,
+            }
+        return ra
 
     def _dept_names(self, ids: set[int]) -> dict[int, str]:
         ids = {i for i in ids if i}
@@ -2168,6 +2216,7 @@ class XepLichService:
 
         may_names = {i: m.ten for i, m in may_objs.items()}
         dept_names = self._dept_names({r.department_id for r in rows})
+        khuon_theo_buoc = self._khuon_theo_buoc({r.lsx_cong_doan_id for r in rows})
 
         items: list[dict] = []
         for r in rows:
@@ -2230,6 +2279,11 @@ class XepLichService:
                 # (E) Khoá GOM việc cùng loại — cùng giấy · cùng khổ tờ in · cùng bộ mực. Hai việc
                 # cùng khoá thì đổi từ việc này sang việc kia gần như không phải canh lại máy.
                 "gom_key": self._gom_key(lsx),
+                # --- Khuôn/khung (04/09/2026) ---
+                # Ngày dao về KHÔNG chặn xếp lịch (quyết định của chủ xưởng), nên chỗ này chỉ
+                # BÀY: điều độ nhìn thấy dao chưa về lúc kéo thanh, thay vì để tổ phát hiện ở
+                # khâu cuối khi bấm Bắt đầu mà không có dao trong tay.
+                **khuon_theo_buoc.get(r.lsx_cong_doan_id or 0, _KHUON_TRONG),
             })
         if q:
             like = q.strip().lower()

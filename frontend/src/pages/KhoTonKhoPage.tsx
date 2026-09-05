@@ -35,6 +35,7 @@ import {
   DecimalInput,
   NumFilterHead,
   PageSizeSelect,
+  AN_DIEU_CHUYEN,
   DEFAULT_PAGE_SIZE,
   VoucherStatusBadge,
   fmtQty,
@@ -101,6 +102,7 @@ interface MaterialGroup {
 }
 
 type TonTab = "ton" | "nhap" | "xuat" | "dc";
+
 
 /** Mức tồn 4 mức — MIRROR backend `stock_level` (bỏ "sắp hết/cận tồn"). Chưa khai ngưỡng
  *  → null (không bịa cảnh báo). Màn tồn chỉ có hàng còn tồn nên "het" gần như không xuất hiện. */
@@ -567,7 +569,7 @@ export function KhoTonKhoPage({
               ["xuat", `Phiếu xuất (${vouchers.filter((v) => v.loai === "XUAT" && !v.dieu_chuyen).length})`],
               ["dc", `Điều chuyển (${vouchers.filter((v) => v.dieu_chuyen).length})`],
             ] as const
-          ).map(([id, label]) => (
+          ).filter(([id]) => !(AN_DIEU_CHUYEN && id === "dc")).map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -1056,7 +1058,7 @@ export function KhoTonKhoPage({
               Tạo yêu cầu mua
             </button>
 
-            {khoOptions.filter((w) => w.id !== khoId).length > 0 && (
+            {!AN_DIEU_CHUYEN && khoOptions.filter((w) => w.id !== khoId).length > 0 && (
               <button
                 type="button"
                 className="kho-dock__btn kho-dock__btn--secondary"
@@ -1590,7 +1592,7 @@ function MaterialHistoryDrawer({
               </h2>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              {canCreate && khoDich.length > 0 && material.total > 0 && (
+              {!AN_DIEU_CHUYEN && canCreate && khoDich.length > 0 && material.total > 0 && (
                 <button
                   type="button"
                   className="kho-action-pill"

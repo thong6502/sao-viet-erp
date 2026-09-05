@@ -23,6 +23,7 @@ import {
   ChevronDown,
   Download,
   Key,
+  Layers,
   Search,
   UserPlus,
   X,
@@ -31,6 +32,7 @@ import { STATUS_LABEL } from "./shared/constants";
 import { errMsg, getAvatarClass, isEndingSoon } from "./shared/helpers";
 import { KpiStrip, StatusBadge } from "./components/badges";
 import { RequestQueueModal } from "./modals/RequestQueueModal";
+import { JobGradesModal } from "./modals/JobGradesModal";
 import { EmployeeDetailPanel } from "./EmployeeDetailPanel";
 import { EmployeeWizard } from "./EmployeeWizard";
 import "../../nhan-su.css";
@@ -44,6 +46,8 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
   // Ô "Xuất Excel danh sách". Trước 11/08/2026 nút render TRẦN, không hỏi quyền gì — nên ô đó
   // trong ma trận chưa bao giờ có tác dụng. Máy chủ cũng đã siết sang `nhan_su:export`.
   const canExport = can("nhan_su", "export");
+  // Sửa danh mục bậc = `nhan_su:update` (đúng ô backend gác `PUT /bac-tay-nghe/{id}`).
+  const canUpdate = can("nhan_su", "update");
 
   const [data, setData] = useState<{
     items: EmployeeRow[];
@@ -73,6 +77,9 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [reqOpen, setReqOpen] = useState(false);
   const [reqCount, setReqCount] = useState(0);
+  /** Danh mục bậc tay nghề + hệ số chia sản lượng. Ở ĐÂY vì bậc thuộc module `nhan_su` — HCNS
+   *  là người khai bậc, và họ thường không có quyền Lương / Cấu hình danh mục. */
+  const [gradesOpen, setGradesOpen] = useState(false);
 
   const loadReqs = useCallback(() => {
     if (!token || !canApprove) return;
@@ -168,6 +175,14 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
           </p>
         </div>
         <div className="ns2__headact">
+          {/* Bậc tay nghề: danh mục 5 bậc + HỆ SỐ chia sản lượng khoán. Nút ghost, đứng đầu vì
+              đây là việc khai NỀN (làm một lần), không phải việc hằng ngày như duyệt yêu cầu. */}
+          {canUpdate && (
+            <Button type="button" variant="ghost" onClick={() => setGradesOpen(true)}>
+              <Layers size={14} />
+              Bậc tay nghề
+            </Button>
+          )}
           {/* Vai PHỤ → ghost. Cùng hệ `.btn` với nút cam bên cạnh nên hai nút bằng chiều cao;
               trước đây nút này cao 40px (`ns-btn-secondary`) còn nút kia 40px tự chế — đổi một
               cái sang `.btn` mà giữ cái kia là lệch hàng ngay. */}
@@ -548,6 +563,17 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
             load();
             setSelectedId(id);
           }}
+        />
+      )}
+
+      {gradesOpen && (
+        <JobGradesModal
+          token={token!}
+          canEdit={canUpdate}
+          onClose={() => setGradesOpen(false)}
+          // Bảng danh sách in cột "Bậc tay nghề" theo TÊN bậc — nạp lại để đổi tên/tắt bậc hiện
+          // ngay, khỏi bắt người dùng F5.
+          onSaved={() => load()}
         />
       )}
 

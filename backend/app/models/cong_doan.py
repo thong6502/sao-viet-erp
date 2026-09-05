@@ -18,7 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 
-# prepress=Chế bản · print=In · finishing=Gia công sau in · other=Dịch vụ khác.
+# prepress=Trước In · print=In · finishing=Gia công sau in · other=Dịch vụ khác.
 # "other" = dịch vụ không thuộc dòng chế bản/in/sau-in (vd thuê ngoài đặc thù). Engine key theo
 # "print"/"prepress" cụ thể nên "other" rơi vào nhánh finishing-like (mặc định NẰM trên dòng giấy
 # như gia công sau in). Phải KHỚP `NHOM_CD` ở frontend/rebuildCatalogConfigs.tsx — mở ở CẢ HAI nơi.

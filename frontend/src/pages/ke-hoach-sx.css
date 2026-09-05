@@ -7852,3 +7852,21 @@ td.khsx-num > .khsx-unit {
 .khsx .khvt-pill--xanh .khsx-pill__dot { background: var(--moss); }
 .khsx .khvt-stream-chip--xanh > svg,
 .khsx .khvt-badge--du > svg { color: var(--moss); }
+
+/* Ý ĐỊNH CỦA SALE về khuôn + chỗ lệch với con dao kế hoạch đã chốt (chốt 04/09/2026).
+   Dòng ý định để trung tính: nó là THÔNG TIN, tô màu thì đọc như một lỗi. Băng lệch dùng tone
+   amber — cùng sắc "cần người quyết" với các cảnh báo khác của màn, không phải đỏ chặn. */
+.khsx-khuon__y-dinh {
+  margin: 0 0 var(--sp-1);
+  font-size: 12px;
+  color: var(--ash);
+}
+.khsx-khuon__lech {
+  margin: 0 0 var(--sp-2);
+  padding: 4px 8px;
+  border-radius: var(--r-2);
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  font-size: 12px;
+  line-height: 1.4;
+}

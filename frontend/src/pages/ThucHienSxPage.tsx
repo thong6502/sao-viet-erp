@@ -13,7 +13,7 @@ import {
   ApiError, api,
   type SxWorkItem, type SxWorkItemChiTiet, type SxNhanVienChon,
   type SxHoTroUngVien, type SxLyDo,
-  type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien,
+  type SxKcsChiTiet, type SxKhoChiTiet, type SxDongNhomDieuKien, type SxThuongToTruong,
   type SxKhoHopThu, type SxSuCoIn,
 } from "../api/client";
 import { crud } from "../api/rebuildCatalog";
@@ -29,6 +29,7 @@ import { ngayToWall, type Xl2Zoom } from "./xl2Shared";
 import { wallMinutes, nowWall } from "./gantt-time";
 import { ThsxTimeline } from "./ThsxTimeline";
 import { ThsxDanhSach } from "./ThsxDanhSach";
+import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { ThsxDrawer } from "./ThsxDrawer";
 import { type ThsxExec } from "./ThsxExecPanels";
 import { ThsxHopThuBar, type Opt } from "./ThsxG5";
@@ -145,6 +146,7 @@ export function ThucHienSxPage({
   const [kcsCt, setKcsCt] = useState<SxKcsChiTiet | null>(null);
   const [khoCt, setKhoCt] = useState<SxKhoChiTiet | null>(null);
   const [dieuKien, setDieuKien] = useState<SxDongNhomDieuKien | null>(null);
+  const [thuongTT, setThuongTT] = useState<SxThuongToTruong[] | null>(null);
   const [khoHopThu, setKhoHopThu] = useState<SxKhoHopThu | null>(null);
   // Kho ĐÍCH chọn được lúc xác nhận nhập. `null` = CHƯA ĐỌC ĐƯỢC danh mục (đang tải / lỗi mạng /
   // không có quyền đọc); `[]` = đọc được nhưng danh mục RỖNG THẬT. Hai chuyện khác hẳn nhau ⇒ hai
@@ -341,6 +343,18 @@ export function ThucHienSxPage({
       .catch(() => { if (alive) setDieuKien(null); });
     return () => { alive = false; };
   }, [token, selNhom, isKcsCuoi, eventTick, g5Tick]);
+
+  // §8 — thưởng/phạt tổ trưởng của nhóm. Gate CHỈ `selNhom` (không đòi `isKcsCuoi` như checklist
+  // đóng nhóm): tổ trưởng tổ In phải xem được điểm chất lượng của tổ mình ngay tại bước của họ,
+  // chứ không phải đi mượn màn KCS. Panel tự ẩn khi tổ chưa khai bậc.
+  useEffect(() => {
+    if (!token || selNhom == null) { setThuongTT(null); return; }
+    let alive = true;
+    api.sanXuat.thuongToTruongNhom(token, selNhom)
+      .then((r) => { if (alive) setThuongTT(r); })
+      .catch(() => { if (alive) setThuongTT(null); });
+    return () => { alive = false; };
+  }, [token, selNhom, eventTick, g5Tick]);
 
   // Hộp thư LỖI KCS đã GỠ khỏi màn production (Task 9 §6.4, mg 0250 kiêm nhiệm) — luồng phản hồi
   // trách nhiệm cũ (pending/accepted/rejected) không còn hiện ở UI mới; hồ sơ cũ vẫn đọc được qua
@@ -556,6 +570,20 @@ export function ThucHienSxPage({
     }
     if (selectedId != null) void mutate(() => api.sanXuat.batDau(token!, selectedId, { expected_version: ver() }), "Đã bắt đầu.");
   }, [chiTiet, mutate, token, selectedId]);
+
+  // Nhận / trả khuôn (04/09/2026). Nhận là thứ DUY NHẤT mở cổng Bắt đầu cho bước cần dụng cụ —
+  // không hỏi lý do gì cả: người bấm là người đang cầm con dao trong tay.
+  const onNhanKhuon = useCallback(() => {
+    if (selectedId != null) {
+      void mutate(() => api.sanXuat.nhanKhuon(token!, selectedId), "Đã nhận khuôn.");
+    }
+  }, [mutate, token, selectedId]);
+
+  const onTraKhuon = useCallback(() => {
+    if (selectedId != null) {
+      void mutate(() => api.sanXuat.traKhuon(token!, selectedId), "Đã trả khuôn về kệ.");
+    }
+  }, [mutate, token, selectedId]);
 
   // Tạm dừng: lý do BẮT BUỘC luôn.
   const onTamDung = useCallback(() => {
@@ -808,11 +836,14 @@ export function ThucHienSxPage({
               kcsCt={kcsCt}
               khoCt={khoCt}
               dieuKien={dieuKien}
+              thuongTT={thuongTT}
               toChiuOpts={toChiuOpts}
               congDoanRefOpts={congDoanRefOpts}
               onGiao={onGiao}
               onRut={onRut}
               onBatDau={onBatDau}
+              onNhanKhuon={onNhanKhuon}
+              onTraKhuon={onTraKhuon}
               onTamDung={onTamDung}
               onKetThuc={onKetThuc}
               onClose={closePanel}
@@ -928,6 +959,8 @@ function ListRow({ w, selected, onPick }: { w: SxWorkItem; selected: boolean; on
           <span className="thsx-lrow__gio thsx-num"><Icon name="clock" size={11} /> {ngayGio(w.du_kien_bat_dau)}</span>
         )}
         {w.la_kcs && <span className="thsx-lrow__kcs">KCS</span>}
+        <ChipLoaiBuoc loai_buoc={w.loai_buoc} nha_cung_cap={w.nha_cung_cap} />
+        <ChipKhuon can_khuon={!!w.khuon} khuon={{ ...(w.khuon ?? {}), da_nhan: w.khuon_da_nhan }} />
       </div>
     </button>
   );

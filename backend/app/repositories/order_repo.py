@@ -272,6 +272,7 @@ class OrderRepository:
                     phieu_thanh_phan_id=ln.get("phieu_thanh_phan_id"),  # pin ấn phẩm (soft)
                     nhom=ln.get("nhom"),   # nhãn gộp dòng khi in xác nhận đơn (khớp bản báo giá)
                     don_vi_tinh=ln.get("don_vi_tinh", "cái"),   # ĐVT dòng (kéo từ báo giá / gõ tay)
+                    dvt_nhom=ln.get("dvt_nhom"),   # ĐVT của cụm khi in gộp (ruột + bìa → "cuốn")
                 )
             )
         self.db.add(order)

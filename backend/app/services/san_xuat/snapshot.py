@@ -44,6 +44,28 @@ def _dinh_muc(cd) -> dict:
     }
 
 
+def _khuon(db, cd) -> dict | None:
+    """Ảnh chụp con dao của bước. `None` khi bước không trỏ dao nào (kể cả bước không cần dụng cụ).
+
+    Đọc ĐÍCH DANH cột thay vì trả cả object: ảnh chụp phải là dữ liệu chết, không phải một hàng ORM
+    còn sống mà lần đọc sau lại ra giá trị khác. Cùng lý do với `_vat_tu` ngay dưới.
+    """
+    kid = getattr(cd, "khuon_be_id", None)
+    if not kid:
+        return None
+    from ...models.khuon_be import KhuonBe
+
+    k = db.get(KhuonBe, kid)
+    if k is None:
+        return None
+    return {
+        "id": k.id, "ma": k.ma, "ten": k.ten, "loai": k.loai, "so_ke": k.so_ke,
+        "tinh_trang": k.tinh_trang,
+        # ISO chứ không phải object date: JSON column phải serialize được, và FE đọc `yyyy-mm-dd`.
+        "ngay_ve_du_kien": k.ngay_ve_du_kien.isoformat() if k.ngay_ve_du_kien else None,
+    }
+
+
 def _vat_tu(cd) -> list[dict]:
     """Ảnh danh sách vật tư của bước (đọc quan hệ `.vat_tus` — đã snapshot mã/tên/đơn vị từ trước)."""
     out: list[dict] = []
@@ -175,6 +197,10 @@ def _cong_viec_theo_phan_doan(
             # Định mức/khoán/vật tư KHÔNG chia theo phân đoạn: chúng là ĐỊNH MỨC (trên một đơn vị
             # / trên một lượt), chia nữa là chia hai lần. Sản lượng đã mang phần của phân đoạn.
             dinh_muc_json=_dinh_muc(cd), khoan_json=cd.khoan_json, vat_tu_json=_vat_tu(cd),
+            # Nhà gia công + con dao: chụp CÙNG LÚC với vật tư, cùng một lý do — bàn tổ và các màn
+            # theo dõi phải tự đứng được, không tra ngược lệnh (lệnh còn sửa được sau khi phát).
+            nha_cung_cap=getattr(cd, "nha_cung_cap", None),
+            khuon_json=_khuon(repo.db, cd),
             # Gọi lại `_checklist` cho TỪNG phân đoạn: mỗi dòng phải giữ bản JSON riêng, dùng
             # chung một list Python là sửa checklist của mẻ này lan sang mẻ kia.
             kcs_tieu_chi_json=_checklist(cd, tieu_chi_theo_cd, la_kcs),

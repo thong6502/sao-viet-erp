@@ -60,6 +60,32 @@ describe("gopTheoNhom", () => {
     expect(out[0].donGia).toBe(12_000);
   });
 
+  it("cụm đã khai ĐVT nhóm → dòng gộp lấy nhãn đó, dòng con giữ đơn vị của chính nó", () => {
+    // Bìa "cái" + ruột "cái", cụm bán theo "cuốn". Trước mg 0264 đơn vị cụm bị ĐÈ lên cả hai dòng
+    // con nên đơn hàng tab Thương mại hiện "Bìa sách — 2.000 cuốn".
+    const rows = [
+      dong({ nhom: "Sách", ten: "Bìa", soLuong: 2000, donViTinh: "cái", dvtNhom: "cuốn", thanhTien: 4_000_000 }),
+      dong({ nhom: "Sách", ten: "Ruột", soLuong: 2000, donViTinh: "cái", dvtNhom: "cuốn", thanhTien: 44_000_000 }),
+    ];
+    const out = gopTheoNhom(rows, chon);
+    expect(out).toHaveLength(1);
+    expect(out[0].donViTinh).toBe("cuốn");
+    expect(rows.map((r) => r.donViTinh)).toEqual(["cái", "cái"]);
+  });
+
+  it("cụm chưa khai ĐVT nhóm → dòng gộp rơi về ĐVT dòng đầu (luật cũ)", () => {
+    const rows = [
+      dong({ nhom: "Sách", ten: "Bìa", soLuong: 2000, donViTinh: "cái", dvtNhom: null, thanhTien: 4_000_000 }),
+      dong({ nhom: "Sách", ten: "Ruột", soLuong: 2000, donViTinh: "cái", thanhTien: 44_000_000 }),
+    ];
+    expect(gopTheoNhom(rows, chon)[0].donViTinh).toBe("cái");
+  });
+
+  it("dòng KHÔNG có nhãn nhóm thì `dvtNhom` lạc vào cũng bị bỏ qua", () => {
+    const rows = [dong({ ten: "Tờ rơi", soLuong: 500, donViTinh: "tờ", dvtNhom: "cuốn", thanhTien: 1_000_000 })];
+    expect(gopTheoNhom(rows, chon)[0].donViTinh).toBe("tờ");
+  });
+
   it("dòng không có nhãn thì đứng riêng như cũ", () => {
     const rows = [
       dong({ ten: "Lẻ 1", soLuong: 10, thanhTien: 100 }),

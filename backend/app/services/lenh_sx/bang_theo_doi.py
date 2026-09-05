@@ -84,6 +84,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from typing import Literal
 
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
@@ -132,6 +133,12 @@ NHAN_MAY_DA_XOA = "Máy đã xoá"
 # Rổ "không tra được ca nào" của `/theo-ca` (Vòng sửa 1 mục A, CHẶN-1) — LUÔN có mặt, `CaOut.id`
 # mang `None` để phân biệt với ca thật.
 NHAN_NGOAI_CA = "Ngoài ca"
+# Giá trị SENTINEL của `?ca_id=` để CHỌN rổ "Ngoài ca" (Task 18a, Ruling C134) — `ca_id` thật là
+# `int` (khoá `work_shifts.id`), rổ "Ngoài ca" mang `id=None` trong `CaOut` nên không có số nào để
+# gõ vào URL cho nó; cần một hằng CHUỖI tách biệt hẳn khỏi mọi giá trị `int` hợp lệ. Dùng làm
+# `Literal[...]` ở router (`CaId = int | Literal[CA_ID_NGOAI_CA] | None`) — KHÔNG được im lặng bỏ
+# qua khả năng lọc đúng rổ này, đó là bài học Task 16 đã trả giá một vòng sửa.
+CA_ID_NGOAI_CA = "ngoai_ca"
 
 
 def _ten_may(may: dict[int, MayThietBi], may_id: int | None) -> str:
@@ -298,7 +305,7 @@ def meta(db: Session) -> dict:
 # người dùng học hai lần. Dựng theo `models/cong_doan.NHOM` để thêm/bớt mã bên đó là lộ ra ở đây
 # (thiếu nhãn ⇒ rơi về chính mã, không im lặng mất mục).
 NHAN_NHOM_CONG_DOAN = {
-    "prepress": "Chế bản", "print": "In",
+    "prepress": "Trước In", "print": "In",
     "finishing": "Gia công sau in", "other": "Dịch vụ khác",
 }
 # Trạng thái CÔNG VIỆC — dùng ĐÚNG bốn chữ mà hai màn đang chạy đã bày cho người dùng
@@ -315,15 +322,17 @@ TRANG_THAI_VIEC_CHO_PHEP = (CV_PHAT_HANH, CV_DANG_CHAY, CV_TAM_DUNG, CV_HOAN_THA
 
 @dataclass(frozen=True)
 class BoLoc:
-    """Thanh lọc CHUNG của `/kanban` và `/theo-may` (Ruling C121). Trường `None` = KHÔNG lọc —
-    không có mặc định nào được bịa ra ở tầng này.
+    """Thanh lọc CHUNG của cả bốn góc nhìn — `/kanban`, `/theo-may` (Ruling C121, Task 17a), và từ
+    Task 18a cũng chính `/theo-ca` + `/gantt`. Trường `None` = KHÔNG lọc — không có mặc định nào
+    được bịa ra ở tầng này.
 
-    --- BỘ LỌC CHỌN *LỆNH*, KHÔNG CHỌN CARD/BLOCK -------------------------------------------------
-    Mọi trường ở đây thu hẹp TẬP LỆNH ở SQL (`_loc_ban`), trước `boi_canh.nap()`. Hệ quả phải nói
-    thẳng ra cho FE viết microcopy đúng: lọc `may_id=X` trên `/theo-may` cho ra những LỆNH có bước
-    trên máy X — và lane của các lệnh đó vẫn bày cả bước chạy trên máy KHÁC. Đổi lại, cùng một bộ
-    lọc cho cùng một tập lệnh trên CẢ HAI tab; một tab hiểu bộ lọc theo nghĩa khác tab kia mới là
-    thứ làm người điều độ đọc sai số.
+    --- BỘ LỌC CHỌN *LỆNH*, KHÔNG CHỌN CARD/BLOCK/CA -----------------------------------------------
+    Mọi trường ở đây thu hẹp TẬP LỆNH ở SQL (`_loc_ban`), trước `boi_canh.nap()` (và trước cắt trang
+    ở `gantt()`). Hệ quả phải nói thẳng ra cho FE viết microcopy đúng: lọc `may_id=X` trên
+    `/theo-may` cho ra những LỆNH có bước trên máy X — và lane của các lệnh đó vẫn bày cả bước chạy
+    trên máy KHÁC; `/theo-ca?may_id=X` cũng vậy, ca vẫn hiện ĐỦ mọi việc-trong-ngày của lệnh đó chứ
+    không chỉ việc chạy trên máy X. Đổi lại, cùng một bộ lọc cho cùng một tập lệnh trên CẢ BỐN tab;
+    một tab hiểu bộ lọc theo nghĩa khác tab kia mới là thứ làm người điều độ đọc sai số.
 
     --- VÌ SAO KHÔNG CÓ `ca_id` / `tre` ------------------------------------------------------------
     Xem `bo_loc()` — hai thứ đó không diễn đạt được bằng `WHERE` trong MỘT lượt nạp, và brief C121
@@ -687,6 +696,27 @@ def _do_sau_tat_ca(bc: BoiCanh, lsx_id: int) -> dict[int, int]:
     return memo
 
 
+def _nhan(cv: SanXuatCongViec) -> dict:
+    """Khối NHÃN của MỘT công việc — dùng chung cho Kanban / Theo máy / Theo ca (và KCS / Kho).
+
+    Một hàm chứ không ba: ba chỗ tự dựng lấy là ba cơ hội để một chỗ quên field, rồi nhãn lại đứt
+    ở đúng một tab mà không ai để ý — đúng lớp lỗi mà cả chuỗi 04/09/2026 sinh ra để khử.
+
+    Đọc SNAPSHOT trên chính công việc, không tra ngược danh mục: bàn theo dõi phải nói đúng thứ tổ
+    đang cầm trong tay, kể cả khi ai đó sửa danh mục sau lúc phát hành.
+    """
+    k = cv.khuon_json or {}
+    return {
+        "loai_buoc": cv.loai_buoc,
+        "nha_cung_cap": cv.nha_cung_cap,
+        "khuon_ma": k.get("ma"),
+        "khuon_so_ke": k.get("so_ke"),
+        "khuon_tinh_trang": k.get("tinh_trang"),
+        "khuon_ngay_ve": k.get("ngay_ve_du_kien"),
+        "khuon_da_nhan": cv.khuon_nhan_luc is not None,
+    }
+
+
 def _the(
     bc: BoiCanh, lsx_id: int,
     theo_khoa: dict[tuple[int, str], tuple[int, int, int | None]],
@@ -747,6 +777,7 @@ def _the(
             "trang_thai": cv.trang_thai,
             "may": _ten_may(bc.may, cv.may_id),  # Vòng sửa 1 mục G — trước trả None cho máy chưa gán
             "nguoi": bc.nguoi_cua(cv.id),
+            "nhan": _nhan(cv),
         }
         for cv in cvs
         if cv.trang_thai in _DANG_LAM
@@ -1086,6 +1117,7 @@ def theo_may(
                     "du_kien_bat_dau": lich_hien_thi(cv.du_kien_bat_dau),
                     "du_kien_ket_thuc": lich_hien_thi(cv.du_kien_ket_thuc),
                     "nguoi": bc.nguoi_cua(cv.id),
+                    "nhan": _nhan(cv),
                 }
                 for cv in cvs
             ],
@@ -1140,22 +1172,34 @@ def _cua_so_ngay_xuong(ngay: date, cas: list[WorkShift]) -> tuple[datetime, date
     return tu, den
 
 
-def _viec_theo_ca_dict(bc: BoiCanh, cv: SanXuatCongViec) -> dict:
+def _viec_theo_ca_dict(bc: BoiCanh, cv: SanXuatCongViec, lsx_cua_cv: dict[int, dict[int, str]]) -> dict:
     """MỘT công việc trong `viec: [...]` — dùng CHUNG cho ca thật lẫn rổ "Ngoài ca" (Vòng sửa 1
     mục A). `may`/`may_id` qua `_ten_may` (mục G) — trước đó trả `None` cho máy chưa gán, khác
-    hẳn nhãn `"Chưa xếp máy"` mà `/theo-may` đã dùng cho đúng một sự thật."""
+    hẳn nhãn `"Chưa xếp máy"` mà `/theo-may` đã dùng cho đúng một sự thật.
+
+    `lsx` (vòng rà UI 2026-09-04) dựng y hệt block của `/theo-may`: map `{lsx_id: ma}` gom sẵn ở
+    hàm gọi (công việc GHÉP xuất hiện dưới NHIỀU lệnh nên phải gom, không đọc `cv.lsx_id` — thứ đó
+    là `None` với đúng loại việc ấy), sắp theo MÃ để hai lượt tải không đảo thứ tự."""
     return {
         "cong_viec_id": cv.id,
         "ten": cv.ten_cong_doan,
         "trang_thai": cv.trang_thai,
         "may_id": cv.may_id,
         "may": _ten_may(bc.may, cv.may_id),
+        "lsx": [
+            {"lsx_id": lid, "ma": ma}
+            for lid, ma in sorted(lsx_cua_cv.get(cv.id, {}).items(), key=lambda kv: (kv[1], kv[0]))
+        ],
         "du_kien_bat_dau": lich_hien_thi(cv.du_kien_bat_dau),
         "nguoi": bc.nguoi_cua(cv.id),
+        "nhan": _nhan(cv),
     }
 
 
-def theo_ca(db: Session, *, sale_ids: set[int] | None, ngay: date | None) -> dict:
+def theo_ca(
+    db: Session, *, sale_ids: set[int] | None, ngay: date | None,
+    loc: BoLoc | None = None, ca_id: int | Literal[CA_ID_NGOAI_CA] | None = None,
+) -> dict:
     """`{ca: [{id, ten, bat_dau_phut, ket_thuc_phut, qua_nua_dem, viec: [...]}]}` — công việc rơi
     vào TỪNG CA của một NGÀY XƯỞNG, cộng MỘT rổ cuối `id=None` ("Ngoài ca").
 
@@ -1198,6 +1242,32 @@ def theo_ca(db: Session, *, sale_ids: set[int] | None, ngay: date | None) -> dic
 
     Không N+1: `boi_canh.nap()` chỉ nạp cho các lệnh CÓ việc trong cửa sổ ngày (thường là một phần
     nhỏ của phạm vi), không phải cả tập.
+
+    --- TASK 18a MỤC W1 — thanh lọc CHUNG (`loc: BoLoc`) --------------------------------------------
+    ĐÚNG `_loc_ban` mà `/kanban`/`/theo-may` dùng (Ruling C121), gắn thêm vào SAU cửa sổ ngày ở
+    TRÊN, trước khi câu SELECT chạy — vẫn một lượt lọc SQL DUY NHẤT, TRƯỚC `boi_canh.nap()`, không
+    một mệnh đề nào chép lại. Hệ quả cần nói rõ cho FE: `loc` thu hẹp Ở CẤP LỆNH, không phải cấp
+    công việc — `?may_id=X` cho ra MỌI việc-trong-ngày của những lệnh có bước trên máy X, kể cả
+    việc khác của lệnh đó chạy trên máy KHÁC (đúng nghĩa "lệnh này có dính máy X", giống hệt cách
+    `/kanban?may_id=` đọc).
+
+    --- TASK 18a MỤC W2 — `ca_id` (đã chốt Ruling C134, KHÔNG đẩy xuống SQL) -------------------------
+    Lọc SAU khi đã dựng xong `ca_that`/`ngoai` — thuần Python trên CỘT CA trả về, không thêm vị từ
+    SQL, không N+1 (không đọc gì thêm từ DB), không mất dữ liệu (cửa sổ `[tu, den)` ở trên đã chặn
+    đúng tập việc của `ngay`, đây chỉ đang CHỌN xem rổ nào trong số các rổ ĐÃ có).
+
+      · `ca_id` vắng mặt (`None`) — không đổi gì, trả `ca_that + [ngoai]` như cũ.
+      · `ca_id=<int>` khớp một `WorkShift.id` đang có mặt trong `ca_that` — trả DUY NHẤT ca đó
+        (danh sách một phần tử).
+      · `ca_id=<int>` KHÔNG khớp ca nào (id lạ/ca đã xoá khỏi danh mục) — trả `{"ca": []}`. KHÔNG
+        bịa một ca rỗng mang nhãn giả: khác `/theo-may?may_id=` (Ruling C137) vì DANH MỤC ca không
+        có khái niệm "tôi hỏi đích danh một máy đã thanh lý vẫn còn nợ việc" — `work_shifts` không
+        phải đối tượng nghiệp vụ có vòng đời "thanh lý mà còn nợ", một id lạ ở đây chỉ có thể là
+        gõ sai/copy nhầm, `[]` là câu trả lời trung thực.
+      · `ca_id=CA_ID_NGOAI_CA` (chuỗi sentinel `"ngoai_ca"`, KHÔNG phải số) — chọn ĐÚNG rổ "Ngoài
+        ca", trả `{"ca": [ngoai]}`. Đây là điểm brief C127/Task 18a nhấn: rổ `id=None` không có số
+        nào để gõ vào URL, phải có một giá trị tường minh riêng cho nó — im lặng bỏ sót khả năng
+        này là đúng lỗi Task 16 đã tốn một vòng sửa.
     """
     ngay = ngay if ngay is not None else gio_xuong().date()
     cas = AttendanceRepository(db).ca_lich_xuong()
@@ -1219,15 +1289,21 @@ def theo_ca(db: Session, *, sale_ids: set[int] | None, ngay: date | None) -> dic
     )
     ung_vien = truc_tiep.union(qua_ghep).subquery()
     ids = list(db.execute(
-        pham_vi.loc_lsx_da_phat_hanh(select(Lsx.id), sale_ids)
-        .where(Lsx.id.in_(select(ung_vien.c.lsx_id)))
+        _loc_ban(
+            pham_vi.loc_lsx_da_phat_hanh(select(Lsx.id), sale_ids)
+            .where(Lsx.id.in_(select(ung_vien.c.lsx_id))),
+            loc,
+        )
     ).scalars())
     bc = boi_canh.nap(db, ids)
 
     cv_theo_id: dict[int, SanXuatCongViec] = {}
+    lsx_cua_cv: dict[int, dict[int, str]] = {}
     for lsx_id in ids:
+        lsx = bc.lenh[lsx_id]
         for cv in bc.cong_viec_du(lsx_id):
             cv_theo_id[cv.id] = cv
+            lsx_cua_cv.setdefault(cv.id, {})[lsx.id] = lsx.ma
 
     viec_theo_ca: dict[int, list[SanXuatCongViec]] = {ca.id: [] for ca in cas}
     ngoai_ca: list[SanXuatCongViec] = []
@@ -1252,7 +1328,7 @@ def theo_ca(db: Session, *, sale_ids: set[int] | None, ngay: date | None) -> dic
             "ket_thuc_phut": ca.end_minute,
             "qua_nua_dem": bool(ca.is_overnight),
             "viec": [
-                _viec_theo_ca_dict(bc, cv)
+                _viec_theo_ca_dict(bc, cv, lsx_cua_cv)
                 for cv in sorted(
                     viec_theo_ca[ca.id],
                     key=lambda cv: (lich_hien_thi(cv.du_kien_bat_dau), cv.id),
@@ -1268,10 +1344,17 @@ def theo_ca(db: Session, *, sale_ids: set[int] | None, ngay: date | None) -> dic
         "ket_thuc_phut": None,
         "qua_nua_dem": False,
         "viec": [
-            _viec_theo_ca_dict(bc, cv)
+            _viec_theo_ca_dict(bc, cv, lsx_cua_cv)
             for cv in sorted(ngoai_ca, key=lambda cv: (lich_hien_thi(cv.du_kien_bat_dau), cv.id))
         ],
     }
+
+    # Task 18a mục W2 (Ruling C134) — lọc `ca_id` SAU khi đã dựng xong cả hai rổ, thuần Python,
+    # không câu SQL nào thêm. Xem đoạn "TASK 18a MỤC W2" ở docstring trên cho từng nhánh.
+    if ca_id == CA_ID_NGOAI_CA:
+        return {"ca": [ngoai]}
+    if ca_id is not None:
+        return {"ca": [c for c in ca_that if c["id"] == ca_id]}
     return {"ca": ca_that + [ngoai]}
 
 
@@ -1282,6 +1365,7 @@ PAGE_SIZE_GANTT_TOI_DA = 200
 
 def gantt(
     db: Session, *, sale_ids: set[int] | None,
+    loc: BoLoc | None = None,
     page: int = 1, page_size: int = PAGE_SIZE_GANTT_MAC_DINH,
 ) -> dict:
     """`{rows, total, page, page_size}` — MỘT dòng mỗi LỆNH (Ruling C118: KHÔNG phải mỗi công
@@ -1306,11 +1390,20 @@ def gantt(
 
     Không N+1: `boi_canh.nap()` chỉ nạp cho ĐÚNG các id của TRANG đang xem (`page_size` phần tử),
     không phải cả tập — thêm lệnh Ở NGOÀI trang hiện tại không đổi số câu SQL.
+
+    --- TASK 18a MỤC W1 — thanh lọc CHUNG (`loc: BoLoc`), ÁP TRƯỚC CẢ ĐẾM LẪN CẮT TRANG --------------
+    ĐÂY LÀ CHỖ DỄ SAI NHẤT của cả task (brief nhắc thẳng): `_loc_ban(pham_vi_stmt, loc)` phải chạy
+    TRƯỚC khi `pham_vi_stmt` được dùng để (a) đếm `total` và (b) cắt trang — nếu đảo thứ tự, lọc sẽ
+    chỉ còn tác dụng trên MỘT TRANG đã cắt sẵn (dữ liệu đúng ngẫu nhiên ở trang 1, sai hẳn từ trang 2
+    trở đi), và `total` sẽ đếm nhầm cả những lệnh KHÔNG khớp lọc. Cả `total` lẫn câu `ORDER BY/
+    LIMIT/OFFSET` bên dưới đều tái sử dụng CÙNG MỘT `pham_vi_stmt` đã lọc — không phải hai bản chép
+    tay dễ lệch nhau. `/gantt` KHÔNG nhận `ca_id` (Ruling C134): một dòng Gantt là một LỆNH trải
+    nhiều ca (Ruling C118), lọc ở thang "ca" trên một hàng đã gộp nhiều ca là vô nghĩa.
     """
     page = max(1, page)
     page_size = max(1, min(page_size, PAGE_SIZE_GANTT_TOI_DA))
 
-    pham_vi_stmt = pham_vi.loc_lsx_da_phat_hanh(select(Lsx.id), sale_ids)
+    pham_vi_stmt = _loc_ban(pham_vi.loc_lsx_da_phat_hanh(select(Lsx.id), sale_ids), loc)
     total = db.execute(select(func.count()).select_from(pham_vi_stmt.subquery())).scalar_one()
 
     han_rong = case((Lsx.han_hoan_thanh_sx.is_(None), 1), else_=0)

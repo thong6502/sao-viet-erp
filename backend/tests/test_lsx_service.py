@@ -689,11 +689,38 @@ def test_sua_routing_bi_chan_khi_don_da_huy(db, orders, lsx_svc, admin, customer
         ])
 
 
+def _gan_dao_cho_buoc_can(db, lsx):
+    """Trỏ một con dao cho MỌI bước cần dụng cụ — cửa "Sẵn sàng" đòi đủ khuôn từ 04/09/2026.
+
+    Danh mục công đoạn seed sẵn đã có bước bật `requires_tooling` (bế/ép), nên lệnh dựng từ fixture
+    mặc định là thiếu khuôn. Test nào chỉ muốn kiểm điều kiện KHÁC thì gọi hàm này để dọn đường,
+    thay vì nới điều kiện thật ở service.
+    """
+    from app.models.cong_doan import CongDoan
+    from app.models.khuon_be import KhuonBe
+
+    can = {
+        r.id for r in db.query(CongDoan).all()
+        if r.requires_tooling and r.tooling_type in ("khuon_be", "khuon_ep", "khung_lua")
+    }
+    if not any(cd.cong_doan_id in can for cd in lsx.cong_doans):
+        return
+    dao = KhuonBe(ma=f"KB-TEST-{lsx.id}", ten="Dao test", loai="khuon_be",
+                  tinh_trang="dang_dung")
+    db.add(dao)
+    db.flush()
+    for cd in lsx.cong_doans:
+        if cd.cong_doan_id in can:
+            cd.khuon_be_id = dao.id
+    db.commit()
+
+
 def test_san_sang_bi_chan_khi_con_thieu_va_mo_khi_du(db, orders, lsx_svc, admin, customer):
     ptg = _ptg_2_san_pham(db)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
     [hop, _tem] = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
+    _gan_dao_cho_buoc_can(db, hop)
 
     # Bước nội bộ chưa biết TỔ/MÁY nào làm → CHỜ BỔ SUNG. (Mục "thiếu khuôn bế" đã bỏ khỏi
     # checklist 11/08/2026: ô gán khuôn ở cấp lệnh không còn, giữ lại là khoá lệnh vĩnh viễn.)
@@ -2458,12 +2485,21 @@ def test_kiem_thieu_he_so_doc_theo_TRAM_khong_theo_MA_don_vi(
     assert "thieu_con_tren_to" not in lsx_svc.thieu_cua(lsx_svc.get(hop.id))
 
 
-def test_thue_ngoai_thieu_ncc_hoac_ngay_thi_chan_khai_du_thi_mo(db, orders, lsx_svc, admin, customer):
+def test_thue_ngoai_doi_to_may_y_het_buoc_may(db, orders, lsx_svc, admin, customer):
+    """Bước THUÊ NGOÀI không còn cổng riêng (NCC · ngày gửi/nhận).
+
+    Nhà thầu được khai như một MÁY trong danh mục (tên kèm hậu tố "thuê ngoài – <nhà in>"), nên
+    cổng phát hành đòi đúng một thứ như bước máy: đã gán tổ hoặc máy chưa.
+    """
     ptg = _ptg_2_san_pham(db)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
     hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
     to_id = _to_san_xuat(db).id
+    may_ngoai = MayThietBi(ma="MAY-TN-1", ten="Máy cán (thuê ngoài – Cơ sở Tân Bình)",
+                           loai_may="thue_ngoai", toc_do=4000, don_vi_toc_do="to_gio")
+    db.add(may_ngoai)
+    db.flush()
 
     def dat_routing(**ngoai) -> list[str]:
         lsx_svc.replace_routing(lsx_id=hop.id, actor=admin, rows_in=[
@@ -2474,18 +2510,13 @@ def test_thue_ngoai_thieu_ncc_hoac_ngay_thi_chan_khai_du_thi_mo(db, orders, lsx_
         ])
         return lsx_svc.thieu_cua(lsx_svc.get(hop.id))
 
-    assert {"thieu_ncc", "thieu_tg_thue_ngoai"} <= set(dat_routing())
-    # Có NCC nhưng chưa có mốc thời gian → vẫn chặn (Gantt không biết đặt vào đâu).
-    thieu = dat_routing(nha_cung_cap="Cơ sở Tân Bình")
-    assert "thieu_ncc" not in thieu and "thieu_tg_thue_ngoai" in thieu
-
-    thieu = dat_routing(
-        nha_cung_cap="Cơ sở Tân Bình", sl_gui=5300,
-        ngay_gui_dk=date.today() + timedelta(days=1),
-        ngay_nhan_dk=date.today() + timedelta(days=4),
-        van_chuyen_ngay=1, gia_cong_ngay=1, don_gia_gia_cong=500,
-    )
+    # Chưa gán gì → chặn Y NHƯ bước máy trắng, và KHÔNG còn hai mã cũ.
+    thieu = dat_routing()
+    assert "thieu_to_may" in thieu
     assert "thieu_ncc" not in thieu and "thieu_tg_thue_ngoai" not in thieu
+
+    # Chọn máy của nhà thầu → hết thiếu, dù không khai NCC/ngày gửi–nhận nào.
+    assert "thieu_to_may" not in dat_routing(may_id=may_ngoai.id)
 
 
 def test_replace_routing_giu_nguyen_khoi_thue_ngoai(db, orders, lsx_svc, admin, customer):
@@ -3234,6 +3265,7 @@ def test_facets_dem_ca_trang_thai_dang_bi_loc_ra(db, orders, lsx_svc, admin, cus
         order_id=d.id,
         order_line_ids=[l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]],
         actor=admin)
+    _gan_dao_cho_buoc_can(db, lenhs[0])
     lsx_svc.set_trang_thai(lsx_id=lenhs[0].id, trang_thai=TT_SAN_SANG, actor=admin)
 
     facets = lsx_svc.dem_trang_thai(order_id=d.id, trang_thai=TT_NHAP)
@@ -3265,3 +3297,71 @@ def test_hang_cho_cat_trang(db, orders, lsx_svc, admin, customer):
     assert total >= 2 and len(rows) == 1
     thay = {r["order_id"] for r in rows} | {r["order_id"] for r in lsx_svc.hang_cho(page=2, size=1)[0]}
     assert {d1.id, d2.id} <= thay
+
+
+# --- Lệch ý định khuôn: sale định một đằng, kế hoạch chốt một nẻo (chốt 04/09/2026) -------------
+def test_khuon_lech_sale_bao_co_san_ma_dao_dang_dat_lam():
+    """Máy chỉ NHẮC, không chặn: tiền đã trót báo cho khách nên người phải biết mà quyết."""
+    from app.services.lsx_service import canh_bao_lech_khuon
+    msg = canh_bao_lech_khuon("co_san", 0, "dang_dat_lam")
+    assert msg is not None and "có sẵn" in msg
+
+
+def test_khuon_lech_sale_tinh_tien_ma_dung_dao_cu():
+    from app.services.lsx_service import canh_bao_lech_khuon
+    msg = canh_bao_lech_khuon("lam_moi", 1_200_000, "dang_dung")
+    assert msg is not None and "1.200.000" in msg
+
+
+def test_khuon_khong_lech_thi_im_lang():
+    from app.services.lsx_service import canh_bao_lech_khuon
+    assert canh_bao_lech_khuon("lam_moi", 1_200_000, "dang_dat_lam") is None
+    assert canh_bao_lech_khuon("co_san", 0, "dang_dung") is None
+    assert canh_bao_lech_khuon(None, 0, "dang_dung") is None
+
+
+# --- Cửa "Sẵn sàng lập kế hoạch" đòi đủ khuôn (chốt 04/09/2026) ---------------------------------
+def _buoc_can_dao(db, hop):
+    """Biến bước đầu của lệnh thành bước CẦN DAO — bật cờ ở DANH MỤC, không ghi cứng tên bước."""
+    from app.models.cong_doan import CongDoan
+
+    buoc = hop.cong_doans[0]
+    cd = db.get(CongDoan, buoc.cong_doan_id)
+    cd.requires_tooling = True
+    cd.tooling_type = "khuon_be"
+    db.commit()
+    return buoc
+
+
+def test_thieu_khuon_chan_san_sang(db, orders, lsx_svc, admin, customer):
+    """Bước bế chưa trỏ dao → không qua cửa. Đứng NGANG HÀNG với thiếu nhà gia công: cùng một danh
+    sách, người dùng không phải học luật mới. Trước đây cửa im lặng, tới lúc thợ ra máy mới biết
+    không có dao."""
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    [hop, _tem] = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
+    _buoc_can_dao(db, hop)
+    assert "thieu_khuon" in lsx_svc.thieu_cua(lsx_svc.get(hop.id))
+
+
+def test_tro_dao_roi_thi_het_thieu_khuon(db, orders, lsx_svc, admin, customer):
+    from app.models.khuon_be import KhuonBe
+
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    [hop, _tem] = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
+    buoc = _buoc_can_dao(db, hop)
+    dao = KhuonBe(ma="KB-9001", ten="Dao bế hộp", loai="khuon_be", tinh_trang="dang_dung")
+    db.add(dao)
+    db.flush()
+    # Trỏ dao cho MỌI bước của lệnh, không chỉ bước vừa bật cờ: danh mục seed sẵn có công đoạn
+    # khác cũng bật `requires_tooling` (bế/ép), bỏ sót một bước thì cửa vẫn đóng và test này đọc
+    # như hàm hỏng trong khi hàm đúng.
+    for cd in hop.cong_doans:
+        cd.khuon_be_id = dao.id
+    _ = buoc
+    db.commit()
+    assert "thieu_khuon" not in lsx_svc.thieu_cua(lsx_svc.get(hop.id))
+

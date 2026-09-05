@@ -13,7 +13,11 @@ export interface DongGopDuoc {
   /** Tên hiển thị của dòng con (Ruột / Bìa…) — dùng làm tiền tố khi gộp diễn giải. */
   ten: string;
   soLuong: number;
+  /** ĐVT THẬT của dòng con này ("cái" cho tấm bìa). */
   donViTinh: string;
+  /** ĐVT của CỤM, do phiếu tính giá chọn ("cuốn"). Dòng gộp in nhãn này; bỏ trống thì rơi về
+   *  `donViTinh` của dòng ĐẦU cụm — luật cũ, dữ liệu cũ không đổi một chữ. */
+  dvtNhom?: string | null;
   /** Thành tiền NET của dòng (đã trừ chiết khấu, chưa VAT). */
   thanhTien: number;
   tienVat: number;
@@ -73,9 +77,11 @@ function khoaGop(d: DongGopDuoc): string | null {
  * - CHỈ gộp các dòng cùng nhãn **và cùng SL**. Lệch SL thì tách dòng, mỗi dòng giữ đúng SL +
  *   đơn giá của nó (xem `khoaGop`). Nhãn nhóm bị tách làm nhiều dòng thì mọi dòng của nó đều ghi
  *   tiền tố tên phần, để khách biết dòng nào là phần nào.
- * - SL và ĐVT lấy của dòng ĐẦU cụm — KHÔNG cộng dồn, vì khách mua 1.200 cuốn chứ không phải
- *   2.400 (1.200 ruột + 1.200 bìa). SL thì lấy dòng nào cũng như nhau (cụm đã cùng SL); ĐVT thì
- *   vẫn là của dòng đầu.
+ * - SL lấy của dòng ĐẦU cụm — KHÔNG cộng dồn, vì khách mua 1.200 cuốn chứ không phải 2.400
+ *   (1.200 ruột + 1.200 bìa); cụm đã cùng SL nên lấy dòng nào cũng như nhau.
+ * - ĐVT dòng gộp lấy `dvtNhom` (đơn vị của CỤM, khai ở phiếu tính giá — "cuốn"). Cụm không khai
+ *   thì rơi về ĐVT của dòng ĐẦU như trước. Đừng quay lại lối cũ là ĐÈ đơn vị cụm lên mọi dòng
+ *   con: nó làm mọi màn KHÔNG gộp (đơn hàng, phiếu giao) hiện "Bìa sách — 2.000 cuốn".
  * - Thành tiền và tiền VAT cộng dồn; đơn giá suy ra = Σ thành tiền ÷ SL.
  * - VAT% chỉ hiện khi mọi dòng cùng mức; lệch thì null (tiền vẫn đúng).
  */
@@ -102,7 +108,9 @@ export function gopTheoNhom<T>(
         key: k ?? `don-${i}`,
         ten: k !== null ? (d.nhom ?? "").trim() : d.ten,
         soLuong: d.soLuong,
-        donViTinh: d.donViTinh,
+        // Dòng thuộc cụm: nhãn đơn vị của CỤM nếu đã khai. Dòng đứng riêng (`k === null`) thì
+        // `dvtNhom` không có nghĩa — đơn vị của nó là của nó.
+        donViTinh: (k !== null ? (d.dvtNhom ?? "").trim() : "") || d.donViTinh,
         thanhTien: d.thanhTien,
         tienVat: d.tienVat,
         vatPct: d.vatPct,

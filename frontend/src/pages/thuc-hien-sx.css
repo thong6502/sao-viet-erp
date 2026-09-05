@@ -1181,6 +1181,9 @@
 .thsx-x-tbl td { padding: 4px 6px; border-bottom: 1px solid var(--rule-hair); color: var(--ink); }
 .thsx-x-tbl th.r, .thsx-x-tbl td.r { text-align: right; }
 .thsx-x-tbl tr:last-child td { border-bottom: 0; }
+/* Số ÂM trong bảng thưởng/phạt tổ trưởng: đây là ô duy nhất của bàn tổ mà số có thể âm,
+   nên phải nhìn ra ngay là TRỪ tiền chứ không phải một con số to. */
+.thsx-x-tbl td.thsx-x-neg { color: var(--rust-deep); font-weight: var(--fw-medium); }
 
 .thsx-x-butru { margin-top: var(--sp-2); }
 .thsx-x-butru__h { display: flex; align-items: center; gap: 4px; font-size: var(--fs-2xs); color: var(--ash); margin-bottom: 3px; }
@@ -1679,4 +1682,33 @@
     border-right: 0;
     border-bottom: 1px solid var(--rule-soft);
   }
+}
+
+/* ── Khuôn & khung (04/09/2026) ──────────────────────────────────────────────
+   Chip + chỗ lấy + nút tích. Chip tự lo màu (chip-buoc.css), ở đây chỉ lo hàng
+   ngang gãy dòng được trên máy tính bảng của tổ. */
+.thsx-khuon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.thsx-khuon__ten {
+  font-size: var(--fs-xs);
+  color: var(--ash-1);
+}
+.thsx-khuon__ke {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.thsx-khuon__act {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.thsx-khuon__xong {
+  font-size: var(--fs-xs);
+  color: var(--ash-2);
 }

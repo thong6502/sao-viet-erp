@@ -3,7 +3,7 @@
 Không còn tầng "sổ khoán" (quỹ tổ + bù lỗ + thưởng + chia hệ số). Chỉ còn:
   - khoan_map / defect_map: tổng hợp tiền khoán mỗi NV từ Phiếu sản lượng THEO NGƯỜI của kỳ,
     cộng thẳng vào cột `khoan` của payroll_lines lúc tính lương.
-  - Thưởng/phạt tổ trưởng theo tỷ lệ hàng lỗi (bậc + ngưỡng sản lượng).
+  - Thưởng/phạt tổ trưởng theo KHOẢNG SẢN LƯỢNG × tỷ lệ hàng lỗi của lệnh sản xuất.
 
 CRUD bảng đơn giá (`piece_rates`) KHÔNG còn ở đây — từ 17/08/2026 nó là danh mục "Công việc khoán"
 (`services/cong_viec_khoan_service.py`). Hai hàm THUẦN còn lại (`dau_viec_khop`, `khoan_snapshot`)
@@ -28,6 +28,18 @@ class PieceWorkNotFound(PieceWorkError):
 
 def _r(x) -> float:
     return float(round(float(x or 0)))
+
+
+def _doc_khoang(tu: float, den: float | None) -> str:
+    """Tên khoảng sản lượng để ghép vào câu báo lỗi — người khai nhìn bảng chứ không nhìn `seq`."""
+    return f"{tu:g}–{den:g}" if den is not None else f"trên {tu:g}"
+
+
+def _trong_khoang(san_luong: float, b) -> bool:
+    """`sl_tu < SL <= sl_den`, `sl_den` None = ∞ — ĐÚNG quy ước bậc số lượng của `bu_hao_engine`."""
+    tu = float(getattr(b, "sl_tu", 0) or 0)
+    den = getattr(b, "sl_den", None)
+    return tu < san_luong and (den is None or san_luong <= float(den))
 
 
 def dau_viec_khop(rates, *, department_id: int | None) -> list:
@@ -92,14 +104,16 @@ class PieceWorkService:
         return self.piece.list_leader_brackets(department_id)
 
     def set_leader_brackets(self, *, department_id: int, rows: list[dict]):
-        """Thay CẢ BỘ mốc của một tổ, sau khi kiểm bảng có hợp lệ không.
+        """Thay CẢ BỘ bậc của một tổ, sau khi kiểm bảng có hợp lệ không.
 
-        Validate không phải để làm khó: bảng mốc có lỗ hoặc không tăng dần thì hàm tra rơi vào
-        bậc SAI ⇒ ra sai tiền thưởng/phạt, mà đây là tiền thật của tổ trưởng."""
+        Validate không phải để làm khó: bảng có lỗ, chồng khoảng hay không tăng dần thì hàm tra rơi
+        vào bậc SAI ⇒ ra sai tiền thưởng/phạt, mà đây là tiền thật của tổ trưởng."""
         clean: list[dict] = []
         for i, r in enumerate(rows or [], start=1):
             up = r.get("up_to_defect_pct")
             rate = r.get("rate_pct")
+            tu = r.get("sl_tu")
+            den = r.get("sl_den")
             if rate is None:
                 raise PieceWorkValidationError(f"Bậc {i}: thiếu % thưởng/phạt.")
             if not (-100 <= float(rate) <= 100):
@@ -108,8 +122,17 @@ class PieceWorkService:
                 )
             if up is not None and float(up) < 0:
                 raise PieceWorkValidationError(f"Bậc {i}: tỷ lệ lỗi không được âm.")
+            tu_f = 0.0 if tu is None else float(tu)
+            if tu_f < 0:
+                raise PieceWorkValidationError(f"Bậc {i}: sản lượng 'từ' không được âm.")
+            if den is not None and float(den) <= tu_f:
+                raise PieceWorkValidationError(
+                    f"Bậc {i}: sản lượng 'đến' phải lớn hơn 'từ' ({tu_f:g})."
+                )
             clean.append({
                 "seq": i,
+                "sl_tu": tu_f,
+                "sl_den": None if den is None else float(den),
                 "up_to_defect_pct": None if up is None else float(up),
                 "rate_pct": float(rate),
                 "note": (r.get("note") or None),
@@ -120,94 +143,123 @@ class PieceWorkService:
             self.piece.replace_leader_brackets(department_id, [])
             return self.leader_brackets(department_id)
 
-        vo_cuc = [i for i, r in enumerate(clean, start=1) if r["up_to_defect_pct"] is None]
-        if len(vo_cuc) != 1:
-            raise PieceWorkValidationError(
-                "Phải có ĐÚNG MỘT bậc cuối để trống ô 'tỷ lệ lỗi tới' — đó là bậc 'trở lên', "
-                "hứng mọi tỷ lệ cao hơn. Thiếu nó thì lỗi vượt mốc cuối sẽ không rơi vào bậc nào."
-            )
-        if vo_cuc[0] != len(clean):
-            raise PieceWorkValidationError("Bậc để trống ('trở lên') phải nằm CUỐI bảng.")
-
-        moc = [r["up_to_defect_pct"] for r in clean[:-1]]
-        for a, b in zip(moc, moc[1:]):
-            if b <= a:
-                raise PieceWorkValidationError(
-                    f"Tỷ lệ lỗi phải TĂNG DẦN theo bậc ({a:g}% rồi tới {b:g}% là sai thứ tự)."
-                )
-
+        self._kiem_luoi(clean)
         self.piece.replace_leader_brackets(department_id, clean)
         return self.leader_brackets(department_id)
 
     @staticmethod
-    def leader_bonus_pct(defect_pct, brackets) -> float:
-        """% thưởng/phạt của tổ trưởng ứng với tỷ lệ hàng lỗi `defect_pct`.
+    def _kiem_luoi(clean: list[dict]) -> None:
+        """Kiểm bảng HAI CHIỀU: các khoảng sản lượng phủ kín trục, mỗi khoảng phủ kín trục lỗi.
 
-        Bậc ĐẦU TIÊN có `defect_pct <= up_to_defect_pct` thắng; `up_to` None = bậc ∞. Mirror
-        `_late_penalty_amount` của payroll — MỘT khuôn tra bậc, không sáng tác kiểu thứ hai.
+        Hai chiều hỏng theo hai kiểu khác nhau nên câu báo lỗi cũng phải khác nhau — người khai cần
+        biết mình thiếu dòng ở chiều nào."""
+        # --- Chiều 1: khoảng sản lượng. Gom theo (sl_tu, sl_den), GIỮ NGUYÊN thứ tự xuất hiện.
+        nhom: list[tuple[tuple[float, float | None], list[dict]]] = []
+        for r in clean:
+            khoa = (r["sl_tu"], r["sl_den"])
+            if nhom and nhom[-1][0] == khoa:
+                nhom[-1][1].append(r)
+            else:
+                if any(k == khoa for k, _ in nhom):
+                    raise PieceWorkValidationError(
+                        f"Khoảng sản lượng {_doc_khoang(*khoa)} bị tách làm hai chỗ — "
+                        "gom các dòng của cùng một khoảng lại liền nhau."
+                    )
+                nhom.append((khoa, [r]))
 
-        Trả DƯƠNG = thưởng, ÂM = phạt, 0 = không thưởng không phạt."""
-        if not brackets:
-            return 0.0
-        d = float(defect_pct or 0)
-        for b in brackets:
-            if b.up_to_defect_pct is None or d <= float(b.up_to_defect_pct):
-                return float(b.rate_pct)
-        return float(brackets[-1].rate_pct)
+        khoang = [k for k, _ in nhom]
+        if khoang[0][0] != 0:
+            raise PieceWorkValidationError(
+                f"Khoảng sản lượng đầu tiên phải bắt đầu từ 0, đang là {khoang[0][0]:g} — "
+                "lệnh có sản lượng nhỏ hơn sẽ không rơi vào khoảng nào."
+            )
+        for (a_tu, a_den), (b_tu, _b_den) in zip(khoang, khoang[1:]):
+            if a_den is None:
+                raise PieceWorkValidationError(
+                    "Khoảng để trống ô 'đến SL' (∞) phải là khoảng CUỐI — nó hứng mọi sản lượng "
+                    "cao hơn, xếp giữa bảng thì các khoảng sau không bao giờ tới lượt."
+                )
+            if b_tu != a_den:
+                raise PieceWorkValidationError(
+                    f"Khoảng sản lượng bị hở hoặc chồng nhau: {_doc_khoang(a_tu, a_den)} rồi tới "
+                    f"{b_tu:g}. Khoảng sau phải bắt đầu ĐÚNG tại {a_den:g}."
+                )
+        if khoang[-1][1] is not None:
+            raise PieceWorkValidationError(
+                "Khoảng sản lượng cuối phải để TRỐNG ô 'đến SL' (∞) — thiếu nó thì lệnh có sản "
+                "lượng lớn hơn mọi khoảng không được thưởng cũng không bị phạt."
+            )
+
+        # --- Chiều 2: trong TỪNG khoảng, trần tỷ lệ lỗi tăng dần + đúng một dòng ∞ ở cuối khoảng.
+        for khoa, rs in nhom:
+            ten = _doc_khoang(*khoa)
+            vo_cuc = [i for i, r in enumerate(rs, start=1) if r["up_to_defect_pct"] is None]
+            if len(vo_cuc) != 1:
+                raise PieceWorkValidationError(
+                    f"Khoảng sản lượng {ten}: phải có ĐÚNG MỘT dòng để trống ô 'tỷ lệ lỗi' — đó là "
+                    "dòng 'trở lên', hứng mọi tỷ lệ cao hơn."
+                )
+            if vo_cuc[0] != len(rs):
+                raise PieceWorkValidationError(
+                    f"Khoảng sản lượng {ten}: dòng để trống ô 'tỷ lệ lỗi' phải nằm CUỐI khoảng."
+                )
+            moc = [r["up_to_defect_pct"] for r in rs[:-1]]
+            for a, b in zip(moc, moc[1:]):
+                if b <= a:
+                    raise PieceWorkValidationError(
+                        f"Khoảng sản lượng {ten}: tỷ lệ lỗi phải TĂNG DẦN "
+                        f"({a:g}% rồi tới {b:g}% là sai thứ tự)."
+                    )
 
     @staticmethod
-    def duoi_nguong(san_luong, min_output_qty) -> bool:
-        """Sản lượng của tổ có DƯỚI ngưỡng xét thưởng/phạt không.
+    def leader_bonus_pct(san_luong, defect_pct, brackets) -> float:
+        """% thưởng/phạt ứng với SẢN LƯỢNG của tổ trong lệnh và TỶ LỆ HÀNG LỖI của lệnh đó.
 
-        ⚠️ So bằng `<` (tức "đạt ngưỡng" là `>=`): chủ khai "ít nhất X" thì đúng X phải được xét.
-        Ranh giới là chỗ luôn bị làm sai, và sai ở đây là cắt mất tiền thưởng của người ta mà nhìn
-        bảng lương không thấy gì bất thường — chỉ thấy số 0.
+        Hai điều kiện, tra đúng thứ tự đó (chủ 04/09/2026: *"nó phải sét 2 điều kiện"*):
+          1. Lọc các dòng có `sl_tu < sản lượng <= sl_den` (`sl_den` None = ∞). Ranh giới lấy y hệt
+             bậc bù hao (`bu_hao_engine`) — sản lượng đúng 5.000 thuộc khoảng 0–5.000.
+          2. Trong nhóm đó, dòng ĐẦU TIÊN có `tỷ lệ lỗi <= up_to_defect_pct` thắng; `None` = ∞.
 
-        Ngưỡng `None`/`<= 0` = KHÔNG gác (giữ nguyên hành vi cho tổ đã khai mốc mà chưa khai ngưỡng).
+        `san_luong=None` (CHƯA BIẾT) trả 0: chưa xác nhận được tổ làm bao nhiêu thì không phát
+        thưởng mà cũng không phạt. Fail-closed có chủ ý, thừa kế đúng tinh thần cửa ngưỡng cũ.
 
-        `san_luong=None` = CHƯA BIẾT ⇒ coi như dưới ngưỡng. Fail-closed có chủ ý: chưa xác nhận
-        được tổ có đạt ngưỡng hay không thì không được phát thưởng.
-
-        ⚠️ Ngưỡng KHÔNG kèm đơn vị (chủ chốt "Đơn vị bỏ đi") ⇒ người gọi cộng TOÀN BỘ sản lượng của
-        tổ trong kỳ rồi truyền vào, không lọc theo đơn vị. Tổ làm nhiều loại việc khác đơn vị thì
-        con số cộng lại không có ý nghĩa vật lý — đánh đổi đã biết, xem docstring model."""
-        nguong = float(min_output_qty or 0)
-        if nguong <= 0:
-            return False
-        if san_luong is None:
-            return True
-        return float(san_luong) < nguong
+        Trả DƯƠNG = thưởng, ÂM = phạt, 0 = không thưởng không phạt."""
+        if not brackets or san_luong is None:
+            return 0.0
+        sl = float(san_luong)
+        nhom = [b for b in brackets if _trong_khoang(sl, b)]
+        if not nhom:
+            return 0.0
+        d = float(defect_pct or 0)
+        for b in nhom:
+            if b.up_to_defect_pct is None or d <= float(b.up_to_defect_pct):
+                return float(b.rate_pct)
+        return float(nhom[-1].rate_pct)
 
     @classmethod
-    def leader_bonus_amount(cls, *, tong_khoan_to, defect_pct, brackets,
-                            san_luong=None, min_output_qty=0) -> float:
-        """Tiền thưởng/phạt tổ trưởng = tổng LƯƠNG KHOÁN của tổ × % của bậc trúng. Âm = trừ.
+    def leader_bonus_amount(cls, *, san_luong, don_gia_khoan, defect_pct, brackets) -> float:
+        """Tiền thưởng/phạt tổ trưởng = **sản lượng × % của bậc trúng × đơn giá khoán**. Âm = trừ.
 
-        **Dưới ngưỡng SẢN LƯỢNG thì trả 0 NGAY, không dò bậc** (chủ 30/07/2026). Vì sao cần cửa
-        chặn: làm càng ít thì tỷ lệ lỗi càng vô nghĩa — hỏng 2 tờ trên 20 tờ đã là 10%, đủ rơi
-        xuống bậc phạt nặng nhất dù thực tế chẳng làm được gì.
+        Chủ 04/09/2026: *"tổng sản lượng của lệnh sản xuất tổ đó làm được nhân % sau đó kết hợp với
+        đơn giá khoán của đầu việc đó là ra tiền thưởng"*. Đúng số chủ nêu: lệnh 5.000 sản phẩm,
+        đơn giá khoán 300đ, lỗi 3% trúng bậc +5% ⇒ 5.000 × 5% × 300 = +75.000đ.
 
-        Hai con số KHÁC NHAU, đừng lẫn:
-          - `tong_khoan_to` — TIỀN, là thứ % nhân lên để ra tiền thưởng/phạt.
-          - `san_luong`     — SỐ LƯỢNG, chỉ dùng để so với ngưỡng.
+        Nhân trên TỔNG sản lượng làm ra, KHÔNG trừ hàng lỗi (chủ chốt: *"nhân trên 5000 chứ"*).
 
-        ⚠️ CHƯA CÓ AI GỌI. Chờ nối vào `PayrollService.generate` cùng lúc dựng lại nguồn sản
-        lượng — hiện chưa có nguồn nào báo sản lượng nên `san_luong` luôn `None`.
-        Đã có test riêng (`test_khoan_api.py`) để nó không thành hàm chết như `_lookup_rule`."""
-        if cls.duoi_nguong(san_luong, min_output_qty):
+        Luồng thật KHÔNG gọi hàm này mà gọi `leader_bonus_pct` rồi nhân vào TỔNG TIỀN KHOÁN của tổ
+        trong nhóm (`services/san_xuat/thuong_to_truong.py`): một tổ có thể làm nhiều công đoạn,
+        mỗi công đoạn một đơn giá, nên "một đơn giá" không đủ mô tả. Hai cách ra CÙNG một số khi tổ
+        chỉ làm một công đoạn — hàm này giữ lại vì nó là cách phát biểu gọn nhất công thức chủ nêu,
+        và có test riêng (`test_khoan_api.py`) canh nó không trôi khỏi công thức đó."""
+        pct = cls.leader_bonus_pct(san_luong, defect_pct, brackets)
+        if pct == 0:
             return 0.0
-        return _r(float(tong_khoan_to or 0) * cls.leader_bonus_pct(defect_pct, brackets) / 100.0)
+        return _r(float(san_luong or 0) * float(don_gia_khoan or 0) * pct / 100.0)
 
-    # --- ngưỡng tối thiểu ----------------------------------------------------
-
-    def leader_settings(self, department_id: int):
-        return self.piece.get_leader_settings(department_id)
-
-    def set_leader_settings(self, *, department_id: int, min_output_qty):
-        so = float(min_output_qty or 0)
-        if so < 0:
-            raise PieceWorkValidationError("Ngưỡng sản lượng không được âm.")
-        return self.piece.upsert_leader_settings(department_id, min_output_qty=so)
+    # ⚠️ `duoi_nguong` / `leader_settings` / `set_leader_settings` GỠ 04/09/2026 cùng bảng
+    # `piece_leader_bonus_settings` (mg `0262`). Cửa chặn "sản lượng cả kỳ dưới X thì không xét"
+    # sinh ra vì bảng bậc chỉ có MỘT chiều; nay khoảng sản lượng nằm ngay trên từng dòng bậc, nên
+    # khoảng thấp nhất khai 0% đã gánh đúng việc đó — ngay trong bảng người khai đang nhìn.
 
     # --- tiền khoán vào bảng lương ------------------------------------------
 

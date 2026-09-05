@@ -6,7 +6,7 @@ optional (cho phép tạo nháp trắng / thành phần thiếu). SAVE = engine 
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
@@ -27,6 +27,9 @@ class ThanhPhamIn(BaseModel):
     ghi_chu: str | None = None
     # Phí làm khuôn của CHÍNH bước này — MỘT LẦN, không nhân SL. 0 = dùng lại dao cũ.
     phi_khuon: float | None = Field(default=None, ge=0)
+    # Khuôn có sẵn hay làm mới (`co_san`/`lam_moi`) + ngày sale dự kiến có dao. None = chưa chọn.
+    khuon_nguon: str | None = None
+    khuon_ngay_du_kien: date | None = None
     # Kích thước/số lượng khung lụa — TÁCH BIỆT với `phi_khuon`, chỉ ăn vào công thức của công đoạn.
     dai_khung_lua: float | None = Field(default=None, ge=0)
     rong_khung_lua: float | None = Field(default=None, ge=0)
@@ -50,6 +53,8 @@ class ThanhPhamOut(BaseModel):
     nha_cung_cap: str | None = None
     ghi_chu: str | None = None
     phi_khuon: float = 0
+    khuon_nguon: str | None = None
+    khuon_ngay_du_kien: date | None = None
     dai_khung_lua: float = 0
     rong_khung_lua: float = 0
     so_khung_lua: int = 0
@@ -105,6 +110,8 @@ class ThanhPhanIn(BaseModel):
     don_vi_tinh: str | None = Field(default=None, max_length=30)   # ĐVT sản phẩm (text tự do)
     # Nhãn gộp dòng KHI IN báo giá (ruột + bìa 1 cuốn gõ giống nhau). Không vào công thức giá.
     nhom_bao_gia: str | None = Field(default=None, max_length=120)
+    # ĐVT của cả nhóm gộp khi in cho khách (trống = lấy ĐVT dòng đầu nhóm như cũ).
+    dvt_nhom: str | None = Field(default=None, max_length=30)
     loai_san_pham_id: int | None = None
     # Giấy
     giay_id: int | None = None
@@ -161,6 +168,7 @@ class ThanhPhanOut(BaseModel):
     so_luong: int
     don_vi_tinh: str = "cái"
     nhom_bao_gia: str | None = None
+    dvt_nhom: str | None = None
     loai_san_pham_id: int | None = None
     # Giấy
     giay_id: int | None = None

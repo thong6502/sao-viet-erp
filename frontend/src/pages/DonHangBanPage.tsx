@@ -951,6 +951,7 @@ function OrderDrawer({
                       ten: l.description,
                       soLuong: l.qty,
                       donViTinh: l.don_vi_tinh || "",
+                      dvtNhom: l.dvt_nhom,
                       thanhTien: l.line_total ?? 0,
                       tienVat: 0,
                       vatPct: l.vat_pct_estimate,

@@ -116,7 +116,10 @@ function veChip({
   // con trỏ về cuối để "bấm chỗ trống là gõ tiếp". Cú bấm chip nổi bọt lên tới đó là vừa đặt con
   // trỏ xong đã bị lôi ngược về cuối — nhìn như bấm chip chẳng ăn thua gì.
   const chanNoi = (e: React.MouseEvent) => e.stopPropagation();
-  const chung = { onMouseDown: datCaret, onClick: chanNoi };
+  // `data-idx` = chỉ số token của chip, đọc lại từ DOM khi người ta bấm vào KHOẢNG TRỐNG của ô
+  // (kẽ 6px giữa hai chip, phần trắng cuối dòng…) — chỗ đó không có chip nào nhận cú bấm nên phải
+  // dò bằng hình học thật, xem `datCaretTheoDiem`.
+  const chung = { onMouseDown: datCaret, onClick: chanNoi, "data-idx": idx };
 
   if (isValidVar || info) {
     return (
@@ -187,6 +190,13 @@ Nguồn: ${info.nguon}` : `Mã: ${tok}`}
   );
 }
 
+// Biến ẨN khỏi bảng chip ở MỌI ô công thức — giá lẫn lượng (03/09/2026).
+// `to_dau_vao`/`to_sau_in` là số CẢ CHUỖI (tờ vào / tờ tốt ra của máy in), cố định cho mọi bước:
+// khai công thức theo chúng là tính trên số TRƯỚC khi trừ hao của các bước đứng giữa. Ô nào cũng
+// nên dùng số của CHÍNH bước (`sl_vao`/`sl_ra`) hoặc `to_nguyen`. Chỉ giấu chip mời bấm — hai biến
+// vẫn hợp lệ, công thức cũ đã lỡ dùng không bị báo đỏ và vẫn tính y như trước.
+const AN_MOI_O = ["to_dau_vao", "to_sau_in"];
+
 export function FormulaField({
   value,
   onChange,
@@ -206,7 +216,8 @@ export function FormulaField({
   configPrefix: string;
   bienGoiY?: string[];
   /** Danh sách mã biến CẦN ẨN khỏi bảng chip gợi ý, dù `loaiO` cho phép — dùng khi biến chỉ có
-   *  nghĩa với MỘT số bản ghi trong cùng loại ô. Không ảnh hưởng `bienGoiY`. */
+   *  nghĩa với MỘT số bản ghi trong cùng loại ô. Không ảnh hưởng `bienGoiY`, cũng KHÔNG làm biến
+   *  mất hiệu lực: chỉ giấu chip mời bấm, công thức cũ đã dùng vẫn hợp lệ và vẫn tính như trước. */
   an?: string[];
   loaiO?: string;
   nhanO?: React.ReactNode;
@@ -227,10 +238,16 @@ export function FormulaField({
   const loaiO = loaiOEp ?? (isDonVi ? "quy_doi" : isCd ? "cong_doan" : isGiay ? "giay" : "vat_tu");
   const tuDien = useBienCongThuc();
   const tra = useMemo(() => traBien(tuDien), [tuDien]);
-  const whitelist = useMemo(() => {
-    const goc = bienGoiY ?? tuDien.filter((b) => b.loai.includes(loaiO)).map((b) => b.ma);
-    return an && an.length ? goc.filter((ma) => !an.includes(ma)) : goc;
-  }, [bienGoiY, tuDien, loaiO, an]);
+  const whitelist = useMemo(
+    () => bienGoiY ?? tuDien.filter((b) => b.loai.includes(loaiO)).map((b) => b.ma),
+    [bienGoiY, tuDien, loaiO],
+  );
+  // Bảng chip = `whitelist` TRỪ phần ẩn. Ẩn CHỈ ở khâu hiển thị: `validVars` vẫn là cả `whitelist`
+  // nên công thức cũ lỡ dùng biến ẩn không bị gạch đỏ, không bị chặn lưu, và vẫn tính y như trước.
+  const bienHienThi = useMemo(() => {
+    const bo = new Set([...AN_MOI_O, ...(an ?? [])]);
+    return whitelist.filter((ma) => !bo.has(ma));
+  }, [whitelist, an]);
   const validVars = useMemo(
     () => (whitelist.length ? [...whitelist] : null),
     [whitelist],
@@ -363,6 +380,50 @@ export function FormulaField({
     setTimeout(() => oInline()?.focus(), 0);
   };
 
+  /** Bấm vào NỀN ô (không trúng chip, không trúng ô gõ) → tìm khe gần chỗ bấm nhất rồi đặt con
+   *  trỏ vào đó: dòng chọn theo `clientY` (dòng nào chứa điểm bấm, không dòng nào chứa thì lấy dòng
+   *  gần nhất theo chiều dọc), khe trong dòng chọn theo `clientX` (chip đầu tiên có TÂM nằm bên
+   *  phải điểm bấm ⇒ con trỏ đứng TRƯỚC chip đó; không có chip nào ⇒ cuối dòng).
+   *
+   *  Đọc hình học từ DOM chứ không tính lại từ token: chip tự xuống dòng theo bề rộng ô, chỉ trình
+   *  duyệt mới biết chip nào thực sự nằm ở đâu. */
+  const datCaretTheoDiem = (e: React.MouseEvent<HTMLDivElement>) => {
+    const dich = e.target as HTMLElement;
+    // Chip và ô gõ có handler riêng — không cướp cú bấm của chúng.
+    if (dich.closest(".rc-formula__chip-token") || dich.closest(".rc-formula__inline-input-box")) return;
+    e.preventDefault();
+    const hang = Array.from(
+      e.currentTarget.querySelectorAll<HTMLElement>(".rc-formula__row"),
+    );
+    if (!hang.length) {
+      datCaret(toks.length);
+      return;
+    }
+    let gan = hang[0];
+    let cach = Infinity;
+    for (const h of hang) {
+      const r = h.getBoundingClientRect();
+      const d = e.clientY < r.top ? r.top - e.clientY : e.clientY > r.bottom ? e.clientY - r.bottom : 0;
+      if (d < cach) {
+        cach = d;
+        gan = h;
+      }
+    }
+    const chip = Array.from(gan.querySelectorAll<HTMLElement>(":scope > [data-idx]"));
+    if (!chip.length) {
+      datCaret(toks.length);
+      return;
+    }
+    for (const c of chip) {
+      const r = c.getBoundingClientRect();
+      if (e.clientX < r.left + r.width / 2) {
+        datCaret(Number(c.dataset.idx));
+        return;
+      }
+    }
+    datCaret(Number(chip[chip.length - 1].dataset.idx) + 1);
+  };
+
   /** Rời ô → chốt nốt chữ đang gõ dở thành chip. Ô inline KHÔNG nằm trong `value`, không chốt thì
    *  gõ "1000" rồi bấm thẳng nút Lưu là số đó bay mất, im lặng. */
   const handleInlineBlur = () => {
@@ -465,8 +526,8 @@ export function FormulaField({
   const groups = useMemo(() => {
     const sizeVars = ["dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in",
       "dai", "rong"];
-    const qtyVars = ["so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in",
-      "to_nguyen", "so_con"];
+    const qtyVars = ["so_luong", "so_tp", "so_trang", "trang_moi_tay", "so_mau", "so_mat",
+      "so_kem", "to_dau_vao", "to_sau_in", "to_nguyen", "so_con"];
     const priceVars = ["dinh_luong", "don_gia_giay", "don_gia_vat_tu"];
     const daXep = new Set([...sizeVars, ...qtyVars, ...priceVars]);
 
@@ -481,7 +542,7 @@ export function FormulaField({
             <path d="M6 16v-4M10 16v-2M14 16v-4M18 16v-2"/>
           </svg>
         ),
-        vars: whitelist.filter(v => sizeVars.includes(v))
+        vars: bienHienThi.filter(v => sizeVars.includes(v))
       },
       {
         name: "Số lượng & Sản lượng",
@@ -493,7 +554,7 @@ export function FormulaField({
             <path d="M8 6h8M8 10h8M8 14h6"/>
           </svg>
         ),
-        vars: whitelist.filter(v => qtyVars.includes(v))
+        vars: bienHienThi.filter(v => qtyVars.includes(v))
       },
       {
         name: "Giá vốn & Đơn giá",
@@ -505,17 +566,17 @@ export function FormulaField({
             <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
           </svg>
         ),
-        vars: whitelist.filter(v => priceVars.includes(v))
+        vars: bienHienThi.filter(v => priceVars.includes(v))
       },
       {
         name: "Khác",
         key: "khac",
         colorClass: "rc-formula__var-tag--qty",
         icon: null,
-        vars: whitelist.filter(v => !daXep.has(v)),
+        vars: bienHienThi.filter(v => !daXep.has(v)),
       },
     ].filter(g => g.vars.length > 0);
-  }, [whitelist]);
+  }, [bienHienThi]);
 
   const { valid, error } = useMemo(() => {
     if (!value.trim()) return { valid: true, error: null };
@@ -655,11 +716,11 @@ export function FormulaField({
         {/* Ô công thức Chip Tiếng Việt duy nhất (Inline Chip Editor Container) */}
         <div
           className="rc-formula__single-stage"
-          onClick={() => {
-            // Bấm vào KHOẢNG TRỐNG của ô (chip tự chặn cú bấm của mình) = gõ tiếp ở cuối.
-            setCaret(toks.length);
-            oInline()?.focus();
-          }}
+          // Bấm vào KHOẢNG TRỐNG của ô (chip và ô gõ tự chặn cú bấm của mình) → con trỏ về khe GẦN
+          // NHẤT chỗ bấm. Trước 03/09/2026 chỗ này quăng thẳng con trỏ về CUỐI công thức, mà "khoảng
+          // trống" gồm cả kẽ 6px giữa hai chip và cả phần trắng bên phải mỗi dòng — nhắm vào kẽ để
+          // chen một dấu là bị đá về đuôi, nhìn như bấm không ăn.
+          onMouseDown={(e) => datCaretTheoDiem(e)}
         >
           <div className="rc-formula__chips-wrap">
             {/* Mỗi DÒNG = một đoạn token liên tục cùng cấp lồng if/max/min (xem `tinhDong`). Con

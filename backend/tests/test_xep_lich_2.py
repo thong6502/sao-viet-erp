@@ -23,7 +23,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.models.cong_doan import CongDoan
 from app.models.department import Department
+from app.models.khuon_be import KhuonBe
 from app.models.lsx import (
     LB_MAY, LB_TO, TT_DA_PHAT_HANH, TT_SAN_SANG, LsxCongDoan, LsxCongDoanPhuThuoc,
 )
@@ -39,7 +41,7 @@ from app.services.xep_lich_2 import (
 )
 from app.services.xep_lich_2 import auto as A
 from app.services.xep_lich_2 import constraint as C
-from app.models.xep_lich import TT_DA_XEP
+from app.models.xep_lich import TT_DA_XEP, XepLichCongDoan
 from app.services.xep_lich_service import XepLichConflict, XepLichNotFound, _naive
 from app.repositories.xep_lich_2_repo import XepLich2Repository
 
@@ -47,6 +49,70 @@ from tests.test_xep_lich_service import (  # noqa: F401 — fixture dùng chung
     _giu_cho_du, _gop_in_va_san_sang, _hai_lsx_san_sang, _in_step, _khai_ca_xuong, _nha_cho,
     admin, bg_svc, customer, db, lsx_svc, orders, xl_svc,
 )
+
+
+def test_dong_xep_lich_mang_theo_khuon(db, orders, lsx_svc, xl_svc, admin, customer):
+    """Xếp lịch KHÔNG chặn theo ngày dao về (chốt 04/09/2026) — nhưng phải HIỆN.
+
+    Người điều độ cần biết TRƯỚC lúc kéo thanh, chứ không phải phát hiện ở khâu cuối khi tổ bấm
+    Bắt đầu mà không có dao trong tay. Dòng mang sẵn mã · số kệ · tình trạng · ngày về, để màn
+    Gantt và bảng dòng không phải tra lẻ từng dòng.
+    """
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    buoc = _in_step(db, lsx.id)
+    cd = db.get(CongDoan, buoc.cong_doan_id)
+    cd.requires_tooling = True
+    cd.tooling_type = "khuon_be"
+    dao = KhuonBe(ma="KB-0001", ten="Dao thu", loai="khuon_be", so_ke="Kệ A3",
+                  tinh_trang="dang_dung")
+    db.add(dao)
+    db.flush()
+    buoc.khuon_be_id = dao.id
+    db.commit()
+    xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
+
+    dong = [d for d in xl_svc.danh_sach()["items"] if d["lsx_cong_doan_id"] == buoc.id][0]
+    assert dong["requires_tooling"] is True
+    assert dong["khuon_ma"] == "KB-0001"
+    assert dong["khuon_so_ke"] == "Kệ A3"
+    assert dong["khuon_tinh_trang"] == "dang_dung"
+
+
+def test_ban_lam_viec_mang_theo_khuon(db, orders, lsx_svc, xl_svc, admin, customer):
+    """BÀN v2 (`workspace`) mới là thứ Gantt đọc — `danh_sach()` của lớp cũ chỉ nuôi màn Xung đột.
+
+    Thiếu khối khuôn ở đây thì thanh trên bàn im lặng đúng lúc cần nói nhất, dù dữ liệu đã có đủ
+    ở lệnh: đúng lỗi phát hiện khi nghiệm thu 04/09/2026.
+    """
+    lsx, lsx_khac = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    buoc = _in_step(db, lsx.id)
+    cd = db.get(CongDoan, buoc.cong_doan_id)
+    cd.requires_tooling = True
+    cd.tooling_type = "khuon_be"
+    dao = KhuonBe(ma="KB-0042", ten="Dao ban", loai="khuon_be",
+                  tinh_trang="dang_dat_lam", ngay_ve_du_kien=date(2026, 9, 12))
+    db.add(dao)
+    db.flush()
+    buoc.khuon_be_id = dao.id
+    db.commit()
+    xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
+    xl_svc.dua_vao_lsx(lsx_id=lsx_khac.id, actor=admin)  # lệnh không cần dao — để đối chứng
+
+    # Dòng v2 KHÔNG phơi `lsx_cong_doan_id` ra view, nên bám theo id dòng xếp lịch của bước.
+    row_id = db.query(XepLichCongDoan.id).filter_by(lsx_cong_doan_id=buoc.id).scalar()
+    v2 = XepLich2Service(db, XepLich2Repository(db), AuditLogRepository(db))
+    ban = v2.workspace(tu=date(2026, 9, 1), den=date(2026, 9, 30))
+    dong = [d for d in ban["dong"] if d["id"] == row_id][0]
+    assert dong["requires_tooling"] is True
+    assert dong["khuon_ma"] == "KB-0042"
+    assert dong["khuon_tinh_trang"] == "dang_dat_lam"
+    assert dong["khuon_ngay_ve"] == "2026-09-12"
+
+    # Lệnh đối chứng dùng CÙNG công đoạn nhưng chưa trỏ dao ⇒ đúng thế "cần dao mà chưa chốt":
+    # khoá vẫn phải đủ (thanh đọc thẳng, không được vấp KeyError), chỉ mã dao là rỗng.
+    khac = [d for d in ban["dong"] if d["id"] != row_id]
+    assert khac and all(d["requires_tooling"] is True and d["khuon_ma"] is None
+                        and d["khuon_ngay_ve"] is None for d in khac)
 
 
 # ---------------------------------------------------------------------------
@@ -1383,27 +1449,6 @@ def test_router_put_dong_tra_qua_view_cong_khai():
 # ======================================================================
 # ĐỢT 1 (1.1) — THUÊ NGOÀI đo bằng LEAD-TIME gửi→nhận, KHÔNG phải phút máy (≈0).
 # ======================================================================
-def test_lead_time_thue_ngoai_theo_moc_ngay_va_suy_tu_so_ngay():
-    # Ưu tiên hai MỐC ngày dự kiến: gửi 27/7 → nhận 30/7 = 3 ngày = 3×1440'.
-    op = SimpleNamespace(ngay_gui_dk=date(2026, 7, 27), ngay_nhan_dk=date(2026, 7, 30),
-                         gia_cong_ngay=99, van_chuyen_ngay=99)
-    assert XepLich2Service._lead_time_phut(op) == 3 * 1440
-
-    # Chưa khai mốc ⇒ suy từ số ngày: gia công 2 + 2×vận chuyển 1 (một chiều × đi-về) = 4 ngày.
-    op2 = SimpleNamespace(ngay_gui_dk=None, ngay_nhan_dk=None, gia_cong_ngay=2, van_chuyen_ngay=1)
-    assert XepLich2Service._lead_time_phut(op2) == 4 * 1440
-
-    # Hai mốc trùng ngày (đệm 0) ⇒ bỏ mốc, rơi về số ngày: 1 + 2×0.5 = 2 ngày.
-    op3 = SimpleNamespace(ngay_gui_dk=date(2026, 7, 30), ngay_nhan_dk=date(2026, 7, 30),
-                          gia_cong_ngay=1, van_chuyen_ngay=0.5)
-    assert XepLich2Service._lead_time_phut(op3) == 2 * 1440
-
-    # Không đủ dữ liệu ⇒ 0 (engine sẽ phơi cảnh báo `thue_ngoai_chua_lich`).
-    op0 = SimpleNamespace(ngay_gui_dk=None, ngay_nhan_dk=None, gia_cong_ngay=None, van_chuyen_ngay=None)
-    assert XepLich2Service._lead_time_phut(op0) == 0
-    assert XepLich2Service._lead_time_phut(None) == 0
-
-
 # ======================================================================
 # ĐỢT 1 (1.4) — THIẾU hạn SX thì ĐO TRỄ theo HẠN GIAO KHÁCH (chưa khai hạn SX ≠ muốn trễ).
 # ======================================================================

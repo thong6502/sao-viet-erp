@@ -59,6 +59,8 @@ const HOSO: LenhSxHoSoOut = {
         du_kien_bat_dau: "2026-09-01T01:00:00Z", du_kien_ket_thuc: "2026-09-01T03:00:00Z",
         hoan_thanh_luc: "2026-09-01T03:10:00Z",
         so_luong_vao: 5, so_luong_ra: 5, don_vi_vao: "kem", don_vi_ra: "kem",
+        can_khuon: false, khuon_da_nhan: false, khuon_be_ma: null, khuon_be_ten: null,
+        khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
       },
       {
         id: 902, thu_tu: 2, lop: 1, phu_thuoc: [901], ten: "In", nhom: "in",
@@ -68,6 +70,8 @@ const HOSO: LenhSxHoSoOut = {
         du_kien_bat_dau: "2026-09-02T01:00:00Z", du_kien_ket_thuc: "2026-09-02T09:00:00Z",
         hoan_thanh_luc: null,
         so_luong_vao: 1600, so_luong_ra: 1580, don_vi_vao: "to", don_vi_ra: "to",
+        can_khuon: false, khuon_da_nhan: false, khuon_be_ma: null, khuon_be_ten: null,
+        khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
       },
       {
         id: 903, thu_tu: 3, lop: 2, phu_thuoc: [902], ten: "Đóng gói", nhom: "thanh_pham",
@@ -76,6 +80,8 @@ const HOSO: LenhSxHoSoOut = {
         may: null, to: "Tổ đóng gói", nguoi: [],
         du_kien_bat_dau: null, du_kien_ket_thuc: null, hoan_thanh_luc: null,
         so_luong_vao: 0, so_luong_ra: 0, don_vi_vao: "cai", don_vi_ra: "cai",
+        can_khuon: true, khuon_da_nhan: false, khuon_be_ma: "KB-0007", khuon_be_ten: "Khuôn bế hộp",
+        khuon_be_so_ke: "K-A3", khuon_be_tinh_trang: "san_sang", khuon_be_ngay_ve: null,
       },
     ],
     canh: [[901, 902], [902, 903]],
@@ -359,6 +365,22 @@ describe("Hồ sơ lệnh sản xuất · trộn đơn vị thì IM con số t�
 // Cột `don_vi` khắp tầng sản xuất giữ MÃ danh mục (`don_vi_do.ma`: `to`, `kem`, `cai`), không giữ
 // tên. Bày thẳng cột đó ra màn là bắt người ở xưởng tra mã — và tra bằng cái gì thì không ai nói.
 // Tên nằm ở `don_vi_do.ten`, nạp qua `useNapTenDonVi` rồi tra bằng `nhanDonVi`.
+describe("Hồ sơ lệnh sản xuất · chip khuôn đi theo bước", () => {
+  it("⭐ bước cần dụng cụ bày mã dao + số kệ ngay trên bảng routing", async () => {
+    // Trước 04/09/2026 máy chủ đã trả `khuon_be_*` nhưng `RoutingNodeOut` không khai, Pydantic nuốt
+    // im lặng nên hồ sơ câm — "bế chưa có dao" chỉ lộ khi mở bàn tổ. Bài này giữ cho đường dữ liệu
+    // dict → schema → type TS → chip không đứt lại.
+    stubApi();
+    ve();
+    await screen.findByText("LSX26-0031");
+    await moHetKhoi();
+
+    expect(screen.getByText("KB-0007 · K-A3")).toBeInTheDocument();
+    // Bước không cần dụng cụ thì KHÔNG được mọc chip rỗng: chỉ một bước trong ba có dao.
+    expect(document.querySelectorAll(".chip-khuon")).toHaveLength(1);
+  });
+});
+
 describe("Hồ sơ lệnh sản xuất · bày TÊN đơn vị chứ không bày mã", () => {
   it("⭐ mọi chỗ có đơn vị đều đọc ra tên trong danh mục", async () => {
     stubApi();

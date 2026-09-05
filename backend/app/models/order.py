@@ -225,8 +225,11 @@ class OrderLine(Base):
     # Mô tả SP thương mại (đối ngoại) — NEVER số màu/kẽm/khổ/imposition/PrintForm.
     description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     qty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    # ĐVT dòng — kéo từ dòng báo giá (QuoteItem.unit) / gõ tay (graft đơn V4).
+    # ĐVT dòng — kéo từ dòng báo giá (QuoteItem.unit) / gõ tay (graft đơn V4). Là đơn vị THẬT của
+    # phần này ("cái" cho tấm bìa), không phải đơn vị của cụm sách.
     don_vi_tinh: Mapped[str] = mapped_column(String(30), nullable=False, default="cái")
+    # ĐVT của CẢ CỤM khi in gộp ("cuốn") — copy từ `quote_items.dvt_nhom`, xem chú thích ở đó.
+    dvt_nhom: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
     # Pin TRUY VẾT ấn phẩm (soft, KHÔNG FK cứng) → PhieuThanhPhan.id của PTG mà dòng báo giá nguồn
     # trỏ tới (song sinh QuoteItem.phieu_thanh_phan_id) — nối lại mạch ấn phẩm↔báo giá↔đơn ở khúc

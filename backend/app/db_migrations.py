@@ -11430,6 +11430,130 @@ def _migrate_cong_viec_hoan_thanh_luc(db: Session) -> None:
 MIGRATIONS.append(("0256_cong_viec_hoan_thanh_luc", _migrate_cong_viec_hoan_thanh_luc))
 
 
+def _migrate_phieu_thanh_pham_khuon_nguon(db) -> None:
+    """mg 0257 — `phieu_thanh_pham.khuon_nguon` + `khuon_ngay_du_kien` (chốt 04/09/2026).
+
+    Raw SQL đích danh cột, KHÔNG ORM full-select. KHÔNG backfill: `phi_khuon=0` ở phiếu cũ là một
+    chỗ TRỐNG mơ hồ (dùng dao cũ, hay quên nhập?) — đoán hộ là ghi một câu trả lời mà không ai
+    từng nói. Để NULL, engine giữ nguyên lời nhắc như trước cho phiếu cũ.
+    """
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_pham" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "phieu_thanh_pham")
+    if "khuon_nguon" not in cols:
+        db.execute(text("ALTER TABLE phieu_thanh_pham ADD COLUMN khuon_nguon VARCHAR(10)"))
+    if "khuon_ngay_du_kien" not in cols:
+        db.execute(text("ALTER TABLE phieu_thanh_pham ADD COLUMN khuon_ngay_du_kien DATE"))
+    db.commit()
+
+
+MIGRATIONS.append(("0257_phieu_thanh_pham_khuon_nguon", _migrate_phieu_thanh_pham_khuon_nguon))
+
+
+def _migrate_lsx_cong_doan_khuon_nguon(db) -> None:
+    """mg 0258 — `lsx_cong_doan.khuon_nguon` + `khuon_phi` (chốt 04/09/2026).
+
+    Không backfill từ `phieu_thanh_pham`: lệnh đã dựng xong là ẢNH CHỤP của thời điểm dựng, tra
+    ngược phiếu bây giờ có thể lấy nhầm phiên bản phiếu đã sửa sau đó.
+    """
+    insp = inspect(db.get_bind())
+    if "lsx_cong_doan" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "lsx_cong_doan")
+    if "khuon_nguon" not in cols:
+        db.execute(text("ALTER TABLE lsx_cong_doan ADD COLUMN khuon_nguon VARCHAR(10)"))
+    if "khuon_phi" not in cols:
+        db.execute(text(
+            "ALTER TABLE lsx_cong_doan ADD COLUMN khuon_phi NUMERIC(18,2) NOT NULL DEFAULT 0"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0258_lsx_cong_doan_khuon_nguon", _migrate_lsx_cong_doan_khuon_nguon))
+
+
+def _migrate_cong_viec_khuon(db) -> None:
+    """mg 0259 — `san_xuat_cong_viec`: `nha_cung_cap` + khối khuôn (chốt 04/09/2026).
+
+    Raw SQL đích danh cột. KHÔNG backfill: công việc đã phát hành trước hôm nay không có ảnh chụp
+    khuôn, và dựng lại ảnh chụp từ lệnh HIỆN TẠI là ghi một sự thật của hôm nay vào một mốc quá khứ.
+    """
+    insp = inspect(db.get_bind())
+    if "san_xuat_cong_viec" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "san_xuat_cong_viec")
+    them = {
+        "nha_cung_cap": "VARCHAR(255)",
+        "khuon_json": "JSON",
+        "khuon_nhan_luc": "TIMESTAMP WITH TIME ZONE",
+        "khuon_nhan_by_id": "INTEGER",
+        "khuon_tra_luc": "TIMESTAMP WITH TIME ZONE",
+    }
+    for ten, kieu in them.items():
+        if ten not in cols:
+            db.execute(text(f"ALTER TABLE san_xuat_cong_viec ADD COLUMN {ten} {kieu}"))
+    db.commit()
+
+
+MIGRATIONS.append(("0259_cong_viec_khuon", _migrate_cong_viec_khuon))
+
+
+def _migrate_ptg_dvt_nhom(db: Session) -> None:
+    """Tính giá: thêm `phieu_thanh_phan.dvt_nhom` — ĐVT của DÒNG GỘP khi in cho khách.
+
+    Trước đây dòng gộp mượn ĐVT của dòng ĐẦU nhóm: nhóm "sách" mở đầu bằng bìa (ĐVT "cái") in ra
+    khách "24.777 đ/cái" trong khi khách mua CUỐN. Nay chọn thẳng một đơn vị cho cả nhóm, lấy từ
+    danh mục Đơn vị & quy đổi. Nullable — trống = rơi về luật cũ, phiếu cũ không đổi gì.
+
+    Nới luôn `quote_items.unit` 16 → 30 cho khớp `phieu_thanh_phan.don_vi_tinh`/`dvt_nhom`: ĐVT
+    chảy từ phiếu sang dòng báo giá, mà danh mục cho phép tên tới 60 ký tự nên VARCHAR(16) là chỗ
+    vỡ sẵn trên Postgres (SQLite không ALTER TYPE được, cũng không cần: nó không ép độ dài)."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+    if "phieu_thanh_phan" in tables and "dvt_nhom" not in _existing_columns(insp, "phieu_thanh_phan"):
+        db.execute(text("ALTER TABLE phieu_thanh_phan ADD COLUMN dvt_nhom VARCHAR(30)"))
+    if "quote_items" in tables and (bind.dialect.name or "").startswith("postgres"):
+        db.execute(text("ALTER TABLE quote_items ALTER COLUMN unit TYPE VARCHAR(30)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0260_ptg_dvt_nhom", _migrate_ptg_dvt_nhom))
+
+
+def _migrate_nhan_khuon_khung(db: Session) -> None:
+    """Nhãn module `khuon_be`: "Khuôn bế" → "Khuôn & khung" (04/09/2026).
+
+    Màn này nay giữ cả khuôn bế, khuôn ép nhũ và khung lụa (`khuon_be.loai_khuon`), nên cái tên cũ
+    chỉ gọi đúng một phần ba nội dung — người cấp quyền đọc ma trận tưởng khung lụa nằm ở ô khác.
+
+    CHỈ đổi chữ hiển thị. KHOÁ `khuon_be` giữ nguyên: nó nằm trong `role_permissions.module_key`
+    của DB thật, đổi khoá là mồ côi mọi quyền đã cấp.
+
+    `seed_modules` cũng đồng bộ nhãn, đổi ở đây để DB đúng ngay cả khi seeder chưa chạy — bản
+    deploy chạy `app.migrate` trong container tạm TRƯỚC khi thay container app (cùng lối mg 0216,
+    0219). Không đụng `docs/DB_SCHEMA.md`: không thêm/đổi cột nào.
+    """
+    insp = inspect(db.get_bind())
+    if "modules" not in set(insp.get_table_names()):
+        return
+    db.execute(
+        text("UPDATE modules SET label = :l WHERE key = :k"),
+        {"k": "khuon_be", "l": "Khuôn & khung"},
+    )
+    db.commit()
+
+
+MIGRATIONS.append(("0261_nhan_khuon_khung", _migrate_nhan_khuon_khung))
+
+
+# --- Nhánh kế toán/công nợ (origin/dev) hợp nhất 05/09/2026 -------------------------------------
+# Hai nhánh cùng rẽ từ 0256 nên SỐ 0257-0260 bị TRÙNG giữa hai họ dưới đây. Không đánh số lại:
+# `run_migrations` khoá theo CHUỖI id, hai chuỗi khác nhau vẫn chạy đủ cả hai — còn đổi id của một
+# migration ĐÃ APPLIED thì DB thật coi như chưa chạy và chạy lại. Số tiếp theo lấy từ đuôi file.
+
+
 def _migrate_supplier_code(db: Session) -> None:
     """`suppliers.code` — MÃ nhà cung cấp, cho báo cáo tổng hợp công nợ 331.
 
@@ -11579,3 +11703,219 @@ def _migrate_tach_module_bao_cao_cong_no(db: Session) -> None:
 
 
 MIGRATIONS.append(("0260_tach_module_bao_cao_cong_no", _migrate_tach_module_bao_cao_cong_no))
+
+
+def _migrate_leader_bonus_khoang_san_luong(db: Session) -> None:
+    """Thưởng/phạt tổ trưởng: thêm KHOẢNG SẢN LƯỢNG vào bảng bậc, bỏ bảng ngưỡng (04/09/2026).
+
+    Chủ: *"nó phải sét 2 điều kiện 1 là khoảng sản lượng, 2 là tỷ lệ lỗi"*. Bảng bậc trước đây chỉ
+    có một chiều (`up_to_defect_pct`), còn chiều sản lượng nằm ở bảng riêng
+    `piece_leader_bonus_settings.min_output_qty` dưới dạng MỘT cửa chặn "dưới X thì không xét".
+
+    Nay mỗi dòng bậc mang cả khoảng sản lượng `sl_tu < SL <= sl_den` (`sl_den` NULL = ∞), cùng tên
+    cột và cùng quy ước ranh giới với bậc bù hao (`services/bu_hao_engine.py`). Cửa chặn cũ thành
+    thừa: khoảng sản lượng thấp nhất khai `rate_pct = 0` là ra đúng hành vi đó.
+
+    Backfill: bậc cũ đều thuộc khoảng `[0, ∞)` — `sl_tu = 0`, `sl_den = NULL` — nên `DEFAULT 0` của
+    `sl_tu` và NULL của `sl_den` đã đúng, không cần UPDATE nào. Đây cũng là lý do KHÔNG dùng ORM ở
+    đây (xem quy ước: migration chỉ raw SQL đích danh cột).
+
+    DROP bảng `piece_leader_bonus_settings`: dự án chưa có dữ liệu lương thật, và để lại một bảng
+    không còn đường đọc/ghi nào là nợ ẩn. Migration `0154` phía trên vẫn chạy trước và vẫn đúng —
+    nó thao tác trên bảng lúc đó còn sống.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+    if "piece_leader_bonus_brackets" in tables:
+        cols = _existing_columns(insp, "piece_leader_bonus_brackets")
+        if "sl_tu" not in cols:
+            db.execute(text(
+                "ALTER TABLE piece_leader_bonus_brackets "
+                "ADD COLUMN sl_tu NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        if "sl_den" not in cols:
+            db.execute(text(
+                "ALTER TABLE piece_leader_bonus_brackets ADD COLUMN sl_den NUMERIC(14,2)"))
+    if "piece_leader_bonus_settings" in tables:
+        db.execute(text("DROP TABLE piece_leader_bonus_settings"))
+    db.commit()
+
+
+MIGRATIONS.append(("0262_leader_bonus_khoang_san_luong", _migrate_leader_bonus_khoang_san_luong))
+
+
+def _migrate_bac_tay_nghe_he_so(db: Session) -> None:
+    """Rót HỆ SỐ SẢN LƯỢNG mặc định cho 5 bậc tay nghề (chủ 04/09/2026).
+
+    `job_grades.output_coefficient` có từ mg `0220` nhưng KHÔNG ai khai (không có ô nhập), nên cả
+    5 bậc để NULL. Hậu quả không phải "coi như 1.0" như chú thích cũ ghi: `phan_bo.py` đặt trọng số
+    phần đó = 0 rồi CHẶN chốt phân bổ với cảnh báo *"Có người chưa gán hệ số bậc (§8)"* — tiền một
+    mẻ khoán treo lại, không ai lĩnh được.
+
+    Số mặc định chủ chốt: Thợ lành nghề 1,3 · Thợ vững 1,15 · Thợ thường 1,0 · Tập việc 0,9 ·
+    Lính mới 0,8 — *"mặc định là những con số đó, người dùng muốn sửa thì sửa sau"*.
+
+    CHỈ ghi vào dòng đang NULL: xưởng sửa tay rồi thì migration chạy lại không đè mất. Bậc do
+    người dùng tự thêm (mã khác `bac_1..5`) không đụng tới — họ tự khai ở màn "Bậc tay nghề".
+
+    Raw SQL đích danh cột theo quy ước migration (ORM full-select kéo cả cột do migration SAU
+    thêm ⇒ vỡ deploy trên DB trung gian).
+    """
+    insp = inspect(db.get_bind())
+    if "job_grades" not in set(insp.get_table_names()):
+        return
+    if "output_coefficient" not in _existing_columns(insp, "job_grades"):
+        return  # mg 0220 chưa chạy — nó sẽ tạo cột, lần deploy sau migration này rót số.
+    for code, heso in (("bac_1", "1.300"), ("bac_2", "1.150"), ("bac_3", "1.000"),
+                       ("bac_4", "0.900"), ("bac_5", "0.800")):
+        db.execute(
+            text("UPDATE job_grades SET output_coefficient = :heso "
+                 "WHERE code = :code AND output_coefficient IS NULL"),
+            {"heso": heso, "code": code},
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0263_bac_tay_nghe_he_so", _migrate_bac_tay_nghe_he_so))
+
+
+def _migrate_dvt_nhom_bao_gia_don(db: Session) -> None:
+    """Báo giá + Đơn hàng: tách ĐVT của DÒNG GỘP ra khỏi ĐVT của từng phần.
+
+    Mg `0260` cho phiếu tính giá chọn `dvt_nhom` ("cuốn") cho cả cụm ruột+bìa, nhưng đường chảy
+    xuống báo giá lại ĐÈ đơn vị đó lên MỌI dòng của cụm (`quotation_service._dvt_dong`) — vì hàm
+    gộp bản in lấy ĐVT của dòng ĐẦU cụm, đè là cách nhanh nhất để dòng gộp in ra "đ/cuốn".
+
+    Cái giá của mẹo đó lộ ở mọi màn KHÔNG gộp: đơn DH006 mở tab Thương mại thấy "Bìa sách —
+    2.000 cuốn", trong khi phiếu tính giá khai bìa là "cái"; phiếu giao hàng và khai báo thành
+    phẩm cũng ăn theo `order_lines.don_vi_tinh` nên đọc ra cùng con số sai đơn vị.
+
+    Nay mỗi bảng giữ HAI ô: `unit`/`don_vi_tinh` = đơn vị THẬT của phần, `dvt_nhom` = đơn vị của
+    cụm khi in gộp. Nullable — trống thì bản in rơi về ĐVT dòng đầu như luật cũ.
+
+    Backfill: dòng nào đang mang nhãn nhóm và nối được về `phieu_thanh_phan` có `dvt_nhom` thì
+    chép đơn vị nhóm sang ô mới, đồng thời trả `unit`/`don_vi_tinh` về đơn vị của chính phần đó.
+    Dòng mất pin `phieu_thanh_phan_id` (PTG lưu lại sinh id mới) để nguyên: không có nguồn nào
+    biết đơn vị thật của phần nữa, giữ nguyên vẫn hiển thị đúng y như trước.
+
+    Correlated subquery thay cho `UPDATE ... FROM` để chạy được cả Postgres lẫn SQLite; raw SQL
+    đích danh cột theo quy ước migration.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+
+    if "quote_items" in tables and "dvt_nhom" not in _existing_columns(insp, "quote_items"):
+        db.execute(text("ALTER TABLE quote_items ADD COLUMN dvt_nhom VARCHAR(30)"))
+    if "order_lines" in tables and "dvt_nhom" not in _existing_columns(insp, "order_lines"):
+        db.execute(text("ALTER TABLE order_lines ADD COLUMN dvt_nhom VARCHAR(30)"))
+    db.commit()
+
+    if "phieu_thanh_phan" not in tables:
+        return
+    if "dvt_nhom" not in _existing_columns(inspect(bind), "phieu_thanh_phan"):
+        return  # mg 0260 chưa chạy trên DB này — không có gì để chép.
+
+    for bang, cot_dvt in (("quote_items", "unit"), ("order_lines", "don_vi_tinh")):
+        if bang not in tables:
+            continue
+        db.execute(text(
+            f"UPDATE {bang} SET "
+            f"  dvt_nhom = (SELECT NULLIF(TRIM(tp.dvt_nhom), '') FROM phieu_thanh_phan tp"
+            f"              WHERE tp.id = {bang}.phieu_thanh_phan_id), "
+            f"  {cot_dvt} = COALESCE("
+            f"      (SELECT NULLIF(TRIM(tp.don_vi_tinh), '') FROM phieu_thanh_phan tp"
+            f"       WHERE tp.id = {bang}.phieu_thanh_phan_id), {cot_dvt}) "
+            f"WHERE phieu_thanh_phan_id IS NOT NULL "
+            f"  AND TRIM(COALESCE(nhom, '')) <> '' "
+            f"  AND EXISTS (SELECT 1 FROM phieu_thanh_phan tp"
+            f"              WHERE tp.id = {bang}.phieu_thanh_phan_id"
+            f"                AND TRIM(COALESCE(tp.dvt_nhom, '')) <> '')"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0264_dvt_nhom_bao_gia_don", _migrate_dvt_nhom_bao_gia_don))
+
+
+def _migrate_dvt_nhom_do_theo_ten(db: Session) -> None:
+    """Vét nốt các dòng báo giá/đơn hàng mg `0264` bỏ lại vì MẤT PIN `phieu_thanh_phan_id`.
+
+    Lưu lại phiếu tính giá là xoá–chèn lại bảng thành phần nên id đổi; báo giá/đơn chốt trước đó
+    còn giữ id cũ đã chết. Mg `0264` chỉ chép qua pin nên các đơn ấy vẫn mang "cuốn" ở TỪNG phần
+    (DH004/DH005 mở drawer Kế hoạch SX thấy "Bìa sách — 2.000 cuốn").
+
+    Đường vòng: dò lại thành phần bằng cặp (nhãn nhóm, tên phần) — hai chuỗi này chính là thứ đã
+    chép sang dòng lúc chốt báo giá nên còn khớp nguyên. Chỉ ghi khi dò ra ĐÚNG MỘT thành phần có
+    khai `dvt_nhom`; trùng tên nhiều phiếu (count > 1) thì thà để nguyên còn hơn gán bừa đơn vị
+    của phiếu khác. Dòng còn pin sống KHÔNG đụng tới — mg `0264` đã xử theo nguồn chuẩn hơn.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+    if "phieu_thanh_phan" not in tables:
+        return
+    cot_tp = _existing_columns(insp, "phieu_thanh_phan")
+    if "dvt_nhom" not in cot_tp or "nhom_bao_gia" not in cot_tp:
+        return
+
+    # Soi cột TRƯỚC vòng lặp: `inspect()` mượn connection của pool, trên SQLite in-memory nó là
+    # ĐÚNG connection của Session — soi giữa chừng là nuốt luôn UPDATE vừa ghi (rollback lúc trả
+    # connection). Test migration chạy SQLite nên bẫy này im lặng, không báo lỗi gì.
+    dich = [
+        (bang, cot_dvt, cot_ten)
+        for bang, cot_dvt, cot_ten in (
+            ("quote_items", "unit", "product_name"),
+            ("order_lines", "don_vi_tinh", "description"),
+        )
+        if bang in tables and "dvt_nhom" in _existing_columns(insp, bang)
+    ]
+
+    for bang, cot_dvt, cot_ten in dich:
+        khop = (
+            "FROM phieu_thanh_phan tp "
+            f"WHERE TRIM(COALESCE(tp.nhom_bao_gia, '')) = TRIM(COALESCE({bang}.nhom, '')) "
+            f"  AND TRIM(COALESCE(tp.ten, '')) = TRIM(COALESCE({bang}.{cot_ten}, '')) "
+            "  AND TRIM(COALESCE(tp.dvt_nhom, '')) <> ''"
+        )
+        db.execute(text(
+            f"UPDATE {bang} SET "
+            f"  dvt_nhom = (SELECT MIN(NULLIF(TRIM(tp.dvt_nhom), '')) {khop}), "
+            f"  {cot_dvt} = COALESCE((SELECT MIN(NULLIF(TRIM(tp.don_vi_tinh), '')) {khop}), {cot_dvt}) "
+            f"WHERE dvt_nhom IS NULL "
+            f"  AND TRIM(COALESCE(nhom, '')) <> '' "
+            f"  AND NOT EXISTS (SELECT 1 FROM phieu_thanh_phan tp2"
+            f"                  WHERE tp2.id = {bang}.phieu_thanh_phan_id) "
+            f"  AND (SELECT COUNT(*) {khop}) = 1"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0265_dvt_nhom_do_theo_ten", _migrate_dvt_nhom_do_theo_ten))
+
+
+def _migrate_thuong_to_truong_cot_luong(db) -> None:
+    """Cột `payroll_lines.thuong_to_truong` — thưởng/phạt tổ trưởng theo chất lượng (chủ 04/09/2026).
+
+    Bảng nguồn `san_xuat_thuong_to_truong` là bảng MỚI nên `create_all` tự dựng, không cần ALTER;
+    chỉ cột trên bảng lương cũ mới cần migration này.
+
+    Cột này CÓ THỂ ÂM (bậc phạt) — đó là lý do nó không đi nhờ cột `khoan` sẵn có: `khoan_map` sàn
+    mỗi phiếu ở `max(0, …)` (Điều 102 BLLĐ, không đẩy lương âm) nên tiền phạt sẽ biến mất im lặng.
+    Tách cột thì phần phạt vẫn hiện rõ trên phiếu lương, và trần khấu trừ 30% vẫn do khối phạt
+    kỷ luật gánh riêng như cũ.
+
+    Idempotent: DB fresh dựng cột thẳng từ model ⇒ tới đây thấy có, bỏ qua.
+    """
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    if "thuong_to_truong" in _existing_columns(insp, "payroll_lines"):
+        return
+    db.execute(text(
+        "ALTER TABLE payroll_lines ADD COLUMN thuong_to_truong NUMERIC(14,2) NOT NULL DEFAULT 0"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0266_thuong_to_truong_cot_luong", _migrate_thuong_to_truong_cot_luong))

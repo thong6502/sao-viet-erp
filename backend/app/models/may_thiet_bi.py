@@ -42,6 +42,19 @@ DON_VI_TOC_DO = (
 )
 
 
+def ma_don_vi_goc(ma: str | None) -> str | None:
+    """`to_gio` → `to`: mã ĐƠN VỊ trong danh mục Đơn vị & quy đổi mà tốc độ máy đang đếm.
+
+    Máy lưu `<mã đơn vị>_gio`, sinh từ chính danh mục (`DonViTocDoField` ở FE ghép hậu tố). Ai
+    cần tra ngược về danh mục — Lệnh SX để quy đổi, danh mục Máy để lấy TÊN có dấu — đều phải cắt
+    hậu tố, nên cắt ở ĐÚNG một chỗ này. `lsx_service.ma_don_vi_toc_do` là bản nhận cả object máy.
+    """
+    ma = (ma or "").strip().lower()
+    if not ma:
+        return None
+    return ma[:-4] if ma.endswith("_gio") else ma
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 

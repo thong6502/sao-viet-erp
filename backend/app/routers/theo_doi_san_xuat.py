@@ -45,6 +45,10 @@ Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 UuTien = Literal[danh_sach.UU_TIEN_CHO_PHEP]
 NhomCongDoan = Literal[bang_theo_doi.NHOM_CONG_DOAN]
 TrangThaiViec = Literal[bang_theo_doi.TRANG_THAI_VIEC_CHO_PHEP]
+# `?ca_id=` của `/theo-ca` (Task 18a, Ruling C134) — SỐ để chọn một ca thật, hoặc chuỗi sentinel
+# `CA_ID_NGOAI_CA` ("ngoai_ca") để chọn rổ "Ngoài ca" (`CaOut.id=None`, không có số nào đại diện
+# cho nó). `/gantt` KHÔNG khai tham số này — xem docstring `bang_theo_doi.gantt` mục W1.
+CaId = int | Literal[bang_theo_doi.CA_ID_NGOAI_CA] | None
 
 
 def _thanh_loc(
@@ -57,13 +61,14 @@ def _thanh_loc(
     trang_thai_viec: TrangThaiViec | None = None,
     uu_tien: UuTien | None = None,
 ) -> bang_theo_doi.BoLoc:
-    """Thanh lọc CHUNG của `/kanban` và `/theo-may` (Ruling C121) — MỘT khai báo, hai cửa.
+    """Thanh lọc CHUNG của cả bốn góc nhìn (Ruling C121) — MỘT khai báo, bốn cửa.
 
     Khai riêng ở từng route thì hai tab sớm muộn nhận hai tập tham số lệch nhau, và người dùng gạt
     một ô lọc rồi đổi tab sẽ thấy con số nhảy mà không hiểu vì sao. Giá trị chọn được lấy từ
     `GET /bo-loc` (mỗi mục có `id` để gán thẳng vào đây và `ten` để bày cho người dùng đọc).
 
-    `/theo-ca` và `/gantt` CỐ Ý không nhận (phạm vi Task 18) — không phải quên.
+    Task 18a mở RỘNG dùng chung này sang `/theo-ca` và `/gantt` — cả BỐN góc nhìn của màn giờ đọc
+    đúng MỘT khai báo tham số, không còn ngoại lệ nào.
     """
     return bang_theo_doi.BoLoc(
         q=q,
@@ -168,12 +173,21 @@ def theo_ca(
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    loc: ThanhLoc,
     ngay: date | None = None,
+    ca_id: CaId = None,
 ):
     """Công việc theo TỪNG CA của một ngày xưởng, mặc định hôm nay (Task 16, Ruling C115: đường
-    dẫn `/theo-ca`, KHÔNG phải `/shifts`). Xem docstring `bang_theo_doi.theo_ca`."""
+    dẫn `/theo-ca`, KHÔNG phải `/shifts`). Xem docstring `bang_theo_doi.theo_ca`.
+
+    Task 18a: nhận đủ 8 tham số của `loc` (thu hẹp TẬP LỆNH ở SQL, trước `boi_canh.nap()`, giống hệt
+    `/kanban`/`/theo-may`) CỘNG tham số riêng `ca_id` — lọc CỘT CA được trả về, áp SAU cửa sổ `ngay`
+    đã có, không thêm câu SQL nào (Ruling C134). `ca_id` là số để chọn một ca thật, hoặc chuỗi
+    `"ngoai_ca"` (`bang_theo_doi.CA_ID_NGOAI_CA`) để chọn riêng rổ "Ngoài ca" — vắng mặt thì trả cả
+    hai như cũ, số lạ không khớp ca nào thì trả `{"ca": []}`.
+    """
     sale_ids = pham_vi.sale_ids_theo_pham_vi(db, user, authz, MODULE)
-    return bang_theo_doi.theo_ca(db, sale_ids=sale_ids, ngay=ngay)
+    return bang_theo_doi.theo_ca(db, sale_ids=sale_ids, ngay=ngay, loc=loc, ca_id=ca_id)
 
 
 @router.get("/gantt", response_model=GanttOut)
@@ -181,12 +195,19 @@ def gantt(
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    loc: ThanhLoc,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[
         int, Query(ge=1, le=bang_theo_doi.PAGE_SIZE_GANTT_TOI_DA)
     ] = bang_theo_doi.PAGE_SIZE_GANTT_MAC_DINH,
 ):
     """MỘT dòng mỗi LỆNH (Task 16, Ruling C118), phân trang Ở SQL (Ruling C119). Xem docstring
-    `bang_theo_doi.gantt`."""
+    `bang_theo_doi.gantt`.
+
+    Task 18a: nhận đủ 8 tham số của `loc`, áp TRƯỚC cả đếm `total` lẫn cắt trang (Ruling C121 +
+    cảnh báo riêng ở docstring service — lọc sau khi cắt trang là lọc trên một trang chứ không phải
+    trên tập). KHÔNG nhận `ca_id`: một dòng Gantt gộp nhiều ca, lọc ở thang đó vô nghĩa (Ruling
+    C134) — xin ca thì dùng `/theo-ca`.
+    """
     sale_ids = pham_vi.sale_ids_theo_pham_vi(db, user, authz, MODULE)
-    return bang_theo_doi.gantt(db, sale_ids=sale_ids, page=page, page_size=page_size)
+    return bang_theo_doi.gantt(db, sale_ids=sale_ids, loc=loc, page=page, page_size=page_size)
