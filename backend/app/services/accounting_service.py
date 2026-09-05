@@ -630,6 +630,23 @@ class AccountingService:
             self.repo, self.purchases, tu_ngay=tu_ngay, den_ngay=den_ngay
         )
 
+    def so_chi_tiet_phai_thu(
+        self, *, doi_tuong_id: int | None, tu_ngay: date, den_ngay: date
+    ) -> dict:
+        """Sổ chi tiết TK 131 của MỘT khách — từng chứng từ + luỹ kế (PRD §5.1)."""
+        return bao_cao_cong_no.so_chi_tiet_phai_thu(
+            self.repo, doi_tuong_id=doi_tuong_id, tu_ngay=tu_ngay, den_ngay=den_ngay
+        )
+
+    def so_chi_tiet_phai_tra(
+        self, *, doi_tuong_id: int | None, tu_ngay: date, den_ngay: date
+    ) -> dict:
+        """Sổ chi tiết TK 331 của MỘT nhà cung cấp — từng chứng từ + luỹ kế (PRD §5.1)."""
+        return bao_cao_cong_no.so_chi_tiet_phai_tra(
+            self.repo, self.purchases, doi_tuong_id=doi_tuong_id,
+            tu_ngay=tu_ngay, den_ngay=den_ngay,
+        )
+
     def payables_summary(
         self,
         *,

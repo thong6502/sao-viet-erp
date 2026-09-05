@@ -15,7 +15,7 @@ import { money } from "../../../utils/format";
 
 /** Rổ "chưa tới hạn" gom cả khoản CHƯA tới hạn lẫn khoản KHÔNG CÓ HẠN (chưa khai số ngày nợ) —
  *  khớp đúng `AGING_CHUA_TOI_HAN` bên server. Nó KHÔNG phải nợ xấu nên không tô cảnh báo. */
-const CHUA_TOI_HAN = "chua_toi_han";
+export const CHUA_TOI_HAN = "chua_toi_han";
 /** Từ 31 ngày trở lên coi là NẶNG — cùng ngưỡng `AGING_DANGER` mà pill từng dòng đang dùng. */
 const NANG = new Set(["d31_60", "d60_plus"]);
 

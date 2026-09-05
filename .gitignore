@@ -44,10 +44,9 @@ backend/static/ke-toan-thu/
 # File đính kèm đơn hàng (PO khách) / chứng từ cọc (ủy nhiệm chi) = runtime content
 backend/static/don-hang/
 backend/static/don-hang-coc/
-Backend/static/noi-quy/
-Backend/static/bao-gia/
-Backend/static/giao-hang/
-# File dinh kem phieu mua hang (bao gia NCC...) = runtime content
+backend/static/noi-quy/
+backend/static/bao-gia/
+backend/static/giao-hang/
 backend/static/mua-hang/
 
 # DB backups (dev.db.bak-*)

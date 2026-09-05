@@ -1454,7 +1454,7 @@ export function AppShell() {
       case "ke-toan-cong-no-phai-thu":
         return <AccountingReceivablesPage navigate={navigate} eventTick={quoteTick} />;
       case "ke-toan-bao-cao":
-        return <BaoCaoKeToanPage />;
+        return <BaoCaoKeToanPage navigate={navigate} />;
       case "ke-toan-tai-khoan-ngan-hang":
         return <AccountingBankAccountsPage />;
       case "ke-toan-phieu-thu":

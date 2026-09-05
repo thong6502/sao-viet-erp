@@ -321,9 +321,9 @@ def test_file_xuat_dung_khuon_misa(client):
     )
     assert (ws["A3"].font.name, ws["A3"].font.size) == ("Microsoft Sans Serif", 8)
 
-    # Chỉ 4 cột được đặt rộng — E–I để mặc định, đúng nếp lệch của file họ.
+    # Cột A-C theo mẫu MISA; D-I (6 cột tiền) đặt 17.1 để số tiền lớn không bị tràn.
     assert {k: round(v.width, 1) for k, v in ws.column_dimensions.items() if v.width} == {
-        "A": 17.1, "B": 30.0, "C": 14.3, "D": 17.1,
+        "A": 17.1, "B": 30.0, "C": 14.3, "D": 17.1, "E": 17.1, "F": 17.1, "G": 17.1, "H": 17.1, "I": 17.1,
     }
 
 

@@ -6098,6 +6098,44 @@ export interface BaoCaoCongNo {
   aging: AgingBucket[];
 }
 
+/** Một chứng từ trong sổ chi tiết. `no`/`co` là số của CHÍNH chứng từ đó, `luy_ke_*` là số dư
+ *  SAU khi ghi nó — đúng khuôn sổ chi tiết công nợ của kế toán. */
+export interface SoChiTietDong {
+  ngay: string;
+  /** Giờ ghi nhận (ISO). Phiếu chi/thu = lúc tiền chạy, còn lại = lúc nhập vào hệ. Ngày nghiệp vụ
+   *  không có giờ, nên đây là thứ duy nhất tách được thứ tự các chứng từ cùng ngày. */
+  luc: string | null;
+  /** `hoa_don` · `phieu_thu` · `dot_giao` · `phieu_chi` · `hoan_tien`. */
+  loai: string;
+  so_ct: string;
+  dien_giai: string;
+  no: number;
+  co: number;
+  luy_ke_no: number;
+  luy_ke_co: number;
+}
+
+/** SỔ CHI TIẾT CÔNG NỢ của MỘT đối tượng (PRD §5.1) — mở khi bấm một dòng ở sổ tổng hợp.
+ *
+ *  `cuoi_no`/`cuoi_co` LUÔN khớp ô "Dư cuối kỳ" của chính đối tượng đó bên sổ tổng hợp: hai bên
+ *  đọc chung một luồng chứng từ ở server, và có test đối chiếu canh. */
+export interface SoChiTietCongNo {
+  tk: string;
+  tieu_de: string;
+  doi_tuong_id: number | null;
+  ma: string | null;
+  ten: string;
+  tu_ngay: string;
+  den_ngay: string;
+  dau_no: number;
+  dau_co: number;
+  dong: SoChiTietDong[];
+  ps_no: number;
+  ps_co: number;
+  cuoi_no: number;
+  cuoi_co: number;
+}
+
 export interface CongNoKyRow {
   tu_ngay: string;
   den_ngay: string;
@@ -6134,57 +6172,6 @@ export interface CongNoKhoaSoRow {
   nguoi_khoa_ten: string | null;
   khoa_luc: string;
   ten: string | null;
-}
-
-export interface CongNoChiTietPhaiThuRow {
-  customer_id: number;
-  customer_code: string | null;
-  customer_name: string;
-  credit_limit: number;
-  total_due: number;
-  overdue_amount: number;
-  items: Array<{
-    invoice_id?: number;
-    order_id?: number;
-    order_code?: string;
-    invoice_number?: string;
-    invoice_symbol?: string;
-    invoice_date?: string;
-    due_date?: string;
-    amount: number;
-    received_amount: number;
-    remaining_amount: number;
-    overdue_days: number;
-    status?: string;
-  }>;
-}
-
-export interface CongNoChiTietPhaiTraRow {
-  supplier_id: number;
-  supplier_code: string | null;
-  supplier_name: string;
-  credit_limit: number;
-  total_due: number;
-  overdue_amount: number;
-  items: Array<{
-    delivery_id?: number;
-    /** Số ĐỢT TRONG ĐƠN (đợt 1, 2, 3…) — KHÔNG phải id bản ghi. Hiện `Đợt #{delivery_id}` là
-     *  sai: đợt đầu tiên của một NCC có thể mang id 20 và hiện thành "Đợt #20". */
-    seq_no?: number;
-    delivery_code?: string | null;
-    delivery_date?: string;
-    purchase_request_id?: number;
-    purchase_request_code?: string;
-    /** Tiền hàng của đợt. `delivery_value − paid_amount = con_no`, luôn đúng. */
-    delivery_value: number;
-    /** Đã trả cho đợt = trả đích danh + phần CỌC của cả đơn bù xuống đợt này. */
-    paid_amount: number;
-    /** Riêng phần cọc bù — để tách ra khi giải thích cột "Đã trả". */
-    coc_bu?: number;
-    con_no: number;
-    due_date?: string;
-    overdue_days: number;
-  }>;
 }
 
 export interface PayablesSummary {
@@ -12640,6 +12627,25 @@ export const api = {
         token,
       );
     },
+    /** SỔ CHI TIẾT CÔNG NỢ của MỘT đối tượng — từng chứng từ + luỹ kế (PRD §5.1).
+     *
+     *  `doiTuongId = null` KHÔNG phải "lấy tất cả" mà là dòng gom các khoản không truy được về
+     *  khách/NCC nào — đúng dòng "(Thu khác…)" / "(Chi khác…)" ở sổ tổng hợp. */
+    soChiTietCongNo(
+      token: string,
+      ben: "receivables" | "payables",
+      params: { doiTuongId: number | null; tuNgay: string; denNgay: string },
+    ): Promise<SoChiTietCongNo> {
+      const qs = new URLSearchParams({
+        tu_ngay: params.tuNgay,
+        den_ngay: params.denNgay,
+      });
+      if (params.doiTuongId != null) qs.set("doi_tuong_id", String(params.doiTuongId));
+      return authed<SoChiTietCongNo>(
+        `/api/accounting/reports/${ben}/so-chi-tiet?${qs.toString()}`,
+        token,
+      );
+    },
     /** File .xlsx đúng khuôn MISA. Phải fetch kèm bearer rồi dựng blob — thẻ `<a href>` trần
      *  không mang token đi được, và cửa này có kiểm quyền. */
     async baoCaoCongNoXlsx(
@@ -12711,34 +12717,6 @@ export const api = {
         method: "POST",
         body: JSON.stringify(payload),
       });
-    },
-    congNoChiTietPhaiThu(
-      token: string,
-      params: { tuNgay?: string; denNgay?: string; customerId?: number } = {},
-    ): Promise<CongNoChiTietPhaiThuRow[]> {
-      const qs = new URLSearchParams();
-      if (params.tuNgay) qs.set("tu_ngay", params.tuNgay);
-      if (params.denNgay) qs.set("den_ngay", params.denNgay);
-      if (params.customerId) qs.set("customer_id", String(params.customerId));
-      const q = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<CongNoChiTietPhaiThuRow[]>(
-        `/api/accounting/cong-no-chi-tiet/phai-thu${q}`,
-        token,
-      );
-    },
-    congNoChiTietPhaiTra(
-      token: string,
-      params: { tuNgay?: string; denNgay?: string; supplierId?: number } = {},
-    ): Promise<CongNoChiTietPhaiTraRow[]> {
-      const qs = new URLSearchParams();
-      if (params.tuNgay) qs.set("tu_ngay", params.tuNgay);
-      if (params.denNgay) qs.set("den_ngay", params.denNgay);
-      if (params.supplierId) qs.set("supplier_id", String(params.supplierId));
-      const q = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<CongNoChiTietPhaiTraRow[]>(
-        `/api/accounting/cong-no-chi-tiet/phai-tra${q}`,
-        token,
-      );
     },
     salesInvoices(token: string, orderId: number): Promise<SalesInvoiceListOut> {
       return authed<SalesInvoiceListOut>(
