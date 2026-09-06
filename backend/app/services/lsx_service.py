@@ -59,7 +59,7 @@ from ..services.dong_giay import (
     ban_do_tram, dich_chuoi, don_vi_chuoi, ma_cua_tram, tram_cua, tren_dong_giay,
 )
 from ..models.don_vi_do import DonViDo
-from ..services.bien_cong_thuc import KHUON_MAC_DINH, ngu_canh_lenh, quy_cach_bien
+from ..services.bien_cong_thuc import MAC_DINH_TANG_LENH, ngu_canh_lenh, quy_cach_bien
 from ..services.don_vi_do_service import cong_thuc_chu, cong_thuc_the_so
 from ..services.piece_work_service import dau_viec_khop, khoan_snapshot
 from ..services.quy_doi_service import (
@@ -596,8 +596,7 @@ class LsxService:
         # Bơm SỐ CỦA CHÍNH BƯỚC lên trên ngữ cảnh lệnh — `sl_vao`/`sl_ra` chỉ tồn tại ở tầng này.
         # Bơm SAU `ngu_canh_lenh` vì hàm đó assert bộ khoá của nó phải khớp `MA_NGU_CANH_PHIEU`.
         # Ba ô khuôn mặc định 0 — tầng lệnh không có nguồn tương đương phiếu tính giá.
-        # Task 8 đổi sang MAC_DINH_TANG_LENH
-        ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUON_MAC_DINH,
+        ctx = {**ngu_canh_lenh(quy_cach or {}), **MAC_DINH_TANG_LENH,
                "sl_vao": sl, "sl_ra": _f(getattr(buoc, "so_luong_ra", 0)),
                "so_luot_chay": float(max(int(getattr(buoc, "so_luot_chay", 1) or 1), 1))}
         ra: list[dict] = []
@@ -647,8 +646,7 @@ class LsxService:
         # Bơm SỐ CỦA CHÍNH BƯỚC lên trên ngữ cảnh lệnh — `sl_vao`/`sl_ra` chỉ tồn tại ở tầng này.
         # Bơm SAU `ngu_canh_lenh` vì hàm đó assert bộ khoá của nó phải khớp `MA_NGU_CANH_PHIEU`.
         # Ba ô khuôn mặc định 0 — tầng lệnh không có nguồn tương đương phiếu tính giá.
-        # Task 8 đổi sang MAC_DINH_TANG_LENH
-        ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUON_MAC_DINH,
+        ctx = {**ngu_canh_lenh(quy_cach or {}), **MAC_DINH_TANG_LENH,
                "sl_vao": sl, "sl_ra": _f(getattr(buoc, "so_luong_ra", 0)),
                "so_luot_chay": float(max(int(getattr(buoc, "so_luot_chay", 1) or 1), 1))}
         # Công thức của những món ĐÃ khai trong đầu việc đang gắn ở bước này.
@@ -909,8 +907,9 @@ class LsxService:
 
         # ⓿ công thức RIÊNG của máy / của đầu việc khoán.
         if (ct_rieng := (ct_rieng or "").strip()):
-            ctx0 = {**ngu_canh_lenh(quy_cach or {}), **KHUON_MAC_DINH,
-                    "sl_vao": sl, "sl_ra": _f(cd.so_luong_ra)}
+            ctx0 = {**ngu_canh_lenh(quy_cach or {}), **MAC_DINH_TANG_LENH,
+                    "sl_vao": sl, "sl_ra": _f(cd.so_luong_ra),
+                    "so_luot_chay": float(max(int(getattr(cd, "so_luot_chay", 1) or 1), 1))}
             try:
                 gt0 = float(safe_eval(ct_rieng, dict(ctx0)))
             except (ValueError, ZeroDivisionError):
@@ -1849,7 +1848,9 @@ class LsxService:
         if not ct:
             return None
         try:
-            ra_ngoai = float(safe_eval(ct, {**ngu_canh_lenh(quy_cach or {}), **KHUON_MAC_DINH}))
+            ra_ngoai = float(safe_eval(ct, {
+                **ngu_canh_lenh(quy_cach or {}), **MAC_DINH_TANG_LENH,
+                "so_luot_chay": float(max(int(getattr(buoc, "so_luot_chay", 1) or 1), 1))}))
         except (ValueError, ZeroDivisionError):
             return None
         if ra_ngoai <= 0:
@@ -2299,7 +2300,8 @@ class LsxService:
         ct = (getattr(cd_obj, "cong_thuc_san_luong", None) or "").strip()
         if not ct:
             return None
-        ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUON_MAC_DINH}
+        ctx = {**ngu_canh_lenh(quy_cach or {}), **MAC_DINH_TANG_LENH,
+               "so_luot_chay": float(max(int(getattr(cd, "so_luot_chay", 1) or 1), 1))}
         try:
             gt = float(safe_eval(ct, dict(ctx)))
         except (ValueError, ZeroDivisionError):

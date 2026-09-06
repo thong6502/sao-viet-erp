@@ -55,7 +55,7 @@ from ..models.vat_lieu_kho import HANG_GIAY
 from ..repositories.ke_hoach_vat_tu_repo import KeHoachVatTuRepository
 from ..repositories.purchase_repo import DepartmentPurchaseRequestRepository
 from .bien_cong_thuc import quy_cach_bien, quy_cach_bien_bai
-from .bien_cong_thuc import KHUNG_LUA_MAC_DINH, ngu_canh_lenh
+from .bien_cong_thuc import MAC_DINH_TANG_LENH, ngu_canh_lenh
 from .thanh_phan_engine import safe_eval
 from .quy_doi_service import _so, bien_trong, cap_map, doi, don_vi_map
 from .stock_request_service import StockRequestService
@@ -320,7 +320,9 @@ class KeHoachVatTuService:
         ct = (getattr(obj, "cong_thuc_luong", None) or "").strip() if (
             tong_lenh and hang[0] == HANG_GIAY) else ""
         if ct:
-            ctx = {**ngu_canh_lenh(qc), **KHUNG_LUA_MAC_DINH}
+            # Đường này chạy ở TẦNG LỆNH cho GIẤY — không đứng trong bước nào, nên số lượt
+            # lấy mặc định 1 chứ không hỏi được ai.
+            ctx = {**ngu_canh_lenh(qc), **MAC_DINH_TANG_LENH}
             thieu = [b for b in bien_trong(ct) if _f(ctx.get(b)) <= 0]
             if thieu:
                 return {"loi": f"Chưa biết {', '.join(thieu)} nên chưa tính được lượng {obj.ten}."}
@@ -368,9 +370,10 @@ class KeHoachVatTuService:
         Neo vào bước tiêu thụ chứ không vào bước cuối: giấy cần ở ĐẦU chuỗi. Neo nhầm vào cuối là
         đặt hàng muộn đúng bằng độ dài cả chuỗi sản xuất.
 
-        Nhận diện theo TRẠM (`don_vi_do.tram_dong_giay`), không theo mã: `don_vi_vao` là mã xưởng
-        tự đặt. So mã với `("to_nguyen","to")` thì lệnh nào khai `to_chay` cũng trượt hết vòng lặp
-        rồi rơi về `buoc[0]` — thường là bước GHI KẼM, tức neo ngày cần giấy vào nhầm bước.
+        Nhận diện theo TRẠM. Từ 06/09/2026 mã đơn vị của bước CHÍNH LÀ tên chặng nên `tram_cua`
+        chỉ còn là ánh xạ đồng nhất, nhưng vẫn gọi qua nó thay vì so mã trần: một chỗ đổi luật thì
+        cả 5 service đổi theo. Trượt hết vòng lặp là rơi về `buoc[0]` — thường là bước GHI KẼM,
+        tức neo ngày cần giấy vào nhầm bước.
         """
         bd = self._tram()
         buoc = sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
