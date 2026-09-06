@@ -7,6 +7,7 @@ export { DinhMucDauViecField } from "./DinhMucDauViec";
 export { DonViTocDoField } from "./DonViTocDo";
 export { FormulaField } from "./FormulaField";
 export { LichBaoTriField } from "./LichBaoTri";
+export { MayCuaCongDoanField } from "./MayCuaCongDoan";
 export { NhomMayField, NhomMayMultiField } from "./NhomMay";
 export { RefMultiField, RefSearchField } from "./RefFields";
 export { RowEditor } from "./RowEditor";

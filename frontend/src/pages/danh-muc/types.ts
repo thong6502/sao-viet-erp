@@ -12,7 +12,7 @@ export interface FieldDef {
   // mã như `don_vi_gia` (quy đổi làm việc trên mã `kg`/`to`, không trên id).
   // `self-ref-multi` = như `ref-multi` nhưng nguồn chọn là CHÍNH danh mục đang mở (NVL thay thế) —
   // CatalogDrawer tự loại dòng đang sửa khỏi danh sách, người khai không tự chọn được chính mình.
-  type?: "text" | "number" | "date" | "select" | "checkbox" | "ref" | "ref-multi" | "self-ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "nhom_may" | "nhom_may-multi" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "lich_bao_tri" | "don_vi_toc_do";
+  type?: "text" | "number" | "date" | "select" | "checkbox" | "ref" | "ref-multi" | "self-ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "nhom_may" | "nhom_may-multi" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "lich_bao_tri" | "don_vi_toc_do" | "may-cua-cong-doan";
   options?: { value: string; label: string }[];
   /** Ô `formula`: ÉP bộ chip theo loại này thay vì suy từ màn. Cần khi MỘT màn có hai ô công thức
    *  hỏi hai câu khác nhau — "Công thức tính giá" (ra tiền) vs "Công thức tính lượng" (ra lượng,
@@ -26,8 +26,11 @@ export interface FieldDef {
   /** Ô `formula`: mã biến CẦN ẨN khỏi bảng chip của riêng Ô NÀY, dù `loaiO` cho phép — biến vẫn
    *  hợp lệ nếu gõ tay/đã lưu, chỉ không hiện chip bấm-để-chèn. Dùng khi có chip khác đúng hơn cho
    *  ngữ cảnh của ô (vd `to_dau_vao`/`to_sau_in` là số CẢ CHUỖI, còn `sl_vao`/`sl_ra` là số của
-   *  CHÍNH BƯỚC — xem `bien_cong_thuc.py`). */
-  an?: string[];
+   *  CHÍNH BƯỚC — xem `bien_cong_thuc.py`).
+   *
+   *  Nhận cả HÀM theo form đang gõ (như `hint`): có chip chỉ đúng với MỘT SỐ dòng trong cùng màn —
+   *  ba chip khuôn ép kim chỉ có nguồn số khi bước khai `Loại khuôn = Khuôn ép kim`. */
+  an?: string[] | ((form: Record<string, unknown>) => string[]);
   refPrefix?: string;           // ref / ref-multi / ref-search: endpoint danh mục nguồn (đổ theo TÊN/MÃ)
   /** Query thêm khi nạp danh mục nguồn, vd `{ active: true }` — không lọc thì picker mời cả dòng
    *  đã ngừng dùng, người ta chọn xong bấm Lưu mới ăn lỗi từ server. */
@@ -187,13 +190,25 @@ export interface LichBaoTriRow {
 // `nang_suat_nguoi_gio` = mức TRUNG BÌNH (số chảy vào công thức thời lượng bước Tổ); min/max chỉ
 // để ra khoảng nhanh–chậm, để trống thì ba mức bằng nhau. `don_vi_nang_suat` là NHÃN khai báo —
 // không quy đổi, dùng chung bảng mã với ô "Đơn vị tốc độ" của máy.
+/** Một MÁY chạy được công đoạn, mang cách đo giờ và cách tính giá của riêng cặp (công đoạn, máy).
+ *  Vì sao không treo ở máy: cùng một máy chạy hai công đoạn thì đo khác nhau (06/09/2026). */
+export interface MayCongDoanRow {
+  may_id: number;
+  cong_thuc_gio?: string | null;
+  /** Chỉ có nghĩa với công đoạn nhóm In — phiếu tính giá chỉ chọn máy ở khối In của thành phần. */
+  cong_thuc_gia?: string | null;
+}
+
 export interface DinhMucRow {
   piece_rate_id: number; nang_suat_nguoi_gio: number;
   nang_suat_nguoi_gio_min?: number | null; nang_suat_nguoi_gio_max?: number | null;
   don_vi_nang_suat?: string | null;
-  // Ba mốc nhân lực: tối thiểu ≤ chuẩn ≤ tối đa. Tối thiểu mới là KHAI BÁO, chưa vào công thức.
-  so_nguoi_toi_thieu?: number;
-  so_nguoi_tieu_chuan: number; so_nguoi_toi_da: number;
+  // Kíp chuẩn — MỘT số duy nhất về nhân lực (mg `0270`, 06/09/2026). Hai mốc tối thiểu/tối đa đã
+  // gỡ: số này điền sẵn vào bước lệnh cho MỌI loại bước (máy · tổ · thuê ngoài).
+  so_nguoi_tieu_chuan: number;
+  /** Công thức tính TIỀN CÔNG của đầu việc này trong CÔNG ĐOẠN này (06/09/2026). Ra LƯỢNG theo
+   *  đơn vị đơn giá khoán, server nhân đơn giá sau. Ghim vào bước lệnh lúc chọn đầu việc. */
+  cong_thuc_khoan?: string | null;
   /** VẬT TƯ đầu việc này tiêu thụ (nền BOM, mg 0191) — chỉ DANH SÁCH, không có số lượng: định mức
    *  tuỳ quy cách từng lệnh nên số khai ở đây là số chết. Số suy lúc bung ở bước lệnh. */
   vat_tu_ids?: number[];

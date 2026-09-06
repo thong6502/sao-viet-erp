@@ -673,11 +673,9 @@ export interface BaiGhepSoDoBuocChung {
   chiem_may_phut_min: number; chiem_may_phut_max: number;
   /** Giá trị NGƯỜI đã khai — form mồi lại từ đây, không thì mở drawer là ô trống rồi lưu đè mất. */
   so_nhan_cong: number;
-  /** Ba mốc định biên của bước chung (kế thừa định mức đầu việc, sửa đè được) — cùng hợp đồng với
-   *  bước lệnh. Bàn xếp lịch đọc đúng bộ này để kêu quá/thiếu người. */
-  so_nhan_cong_toi_thieu: number | null;
+  /** Kíp chuẩn của bước chung (kế thừa định mức đầu việc, sửa đè được) — cùng hợp đồng với bước
+   *  lệnh. Hai mốc tối thiểu/tối đa đã gỡ 06/09/2026 (mg `0270`). */
   so_nhan_cong_tieu_chuan: number;
-  so_nhan_cong_toi_da: number | null;
   nang_suat: number | null; don_vi_nang_suat: string | null;
   /** Dẫn xuất từ tốc độ máy; `setup_phut` kế thừa từ máy. Ô gõ được duy nhất là
    *  `phat_sinh_phut` ("Thời gian khác"). `cho_phut`/`di_chuyen_phut` đã bỏ. */
@@ -776,10 +774,8 @@ export interface BaiGhepBuocChungBody {
   /** Đầu việc khoán ghim theo ID (0/null = bỏ chọn). Ảnh chụp đơn giá do SERVER chụp — client
    *  không gửi `khoan_json` thô, kẻo đơn giá bịa chảy thẳng vào phiếu lương. */
   so_nhan_cong?: number; piece_rate_id?: number | null;
-  /** Biên nhân lực sửa đè được. Gửi kèm thì server GIỮ, không để nhánh ghim đầu việc đè lại. */
-  so_nhan_cong_toi_thieu?: number | null;
+  /** Kíp chuẩn sửa đè được. Gửi kèm thì server GIỮ, không để nhánh ghim đầu việc đè lại. */
   so_nhan_cong_tieu_chuan?: number | null;
-  so_nhan_cong_toi_da?: number | null;
   nang_suat?: number | null; don_vi_nang_suat?: string | null;
   /** Ô DUY NHẤT còn gõ được (2026-08-04): chuẩn bị + tốc độ kế thừa SỐNG từ máy đang gán. */
   phat_sinh_phut?: number; so_luot_chay?: number;
@@ -1008,12 +1004,10 @@ export interface Xl2VatTuTomTat {
   loi: boolean;
 }
 
-/** Ba mốc định biên tham khảo của một bước (kế thừa danh mục, sửa được tại bước). null nếu bước
- *  routing đã bị xoá — Panel hiện '—' thay vì đoán bừa. */
+/** Kíp chuẩn tham khảo của một bước (kế thừa danh mục, sửa được tại bước). null nếu bước routing
+ *  đã bị xoá — Panel hiện '—' thay vì đoán bừa. Hai mốc tối thiểu/tối đa gỡ 06/09/2026 (mg `0270`). */
 export interface Xl2DinhBien {
-  toi_thieu: number | null;
   tieu_chuan: number | null;
-  toi_da: number | null;
 }
 
 /** Quân số tổ NGÀY bước chạy + phần CÒN RẢNH ở đỉnh chồng giờ. `con_ranh = so_nguoi - dinh` (âm ⇒
@@ -1316,8 +1310,8 @@ export interface Xl2XemTruoc {
   /** `han_moi` vượt hạn SX ⇒ true; `tre_ngay` = số ngày trễ (null nếu không trễ). */
   tre_han_sx: boolean;
   tre_ngay: number | null;
-  /** Nhân lực của bước: số BỐ TRÍ (kế hoạch) + ba mốc định biên. Đi kèm xem-trước để hộp xác nhận
-   *  tự giải thích con số trong câu cảnh báo quân số, khỏi bắt người xếp mở màn Lệnh sản xuất tra. */
+  /** Nhân lực của bước: số BỐ TRÍ (kế hoạch) + kíp chuẩn. Đi kèm xem-trước để hộp xác nhận tự
+   *  giải thích con số trong câu cảnh báo quân số, khỏi bắt người xếp mở màn Lệnh sản xuất tra. */
   so_nhan_cong: number | null;
   dinh_bien: Xl2DinhBien;
 }
@@ -2444,9 +2438,7 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
    *  trên dòng giấy (số suy ngược theo chuỗi, không có công thức riêng). */
   san_luong_dien_giai: string | null;
   hao_hut: number; hao_hut_pct: number; ty_le_hao_hut: number; so_luot_chay: number;
-  so_nhan_cong: number; so_nhan_cong_tieu_chuan: number; so_nhan_cong_toi_da: number | null;
-  /** Mốc thứ ba của định mức nhân lực — khai báo, chưa vào công thức thời lượng. */
-  so_nhan_cong_toi_thieu?: number | null;
+  so_nhan_cong: number; so_nhan_cong_tieu_chuan: number;
   // `setup_phut` + `chay_phut` là số DẪN XUẤT (chuẩn bị + tốc độ kế thừa từ máy);
   // `phat_sinh_phut` = ô "Thời gian khác", thứ DUY NHẤT còn gõ được (2026-08-04).
   setup_phut: number; nang_suat: number | null; don_vi_nang_suat: string | null;
@@ -2503,8 +2495,8 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   so_luong_vao?: number; so_luong_ra?: number;
   don_vi_vao?: string; don_vi_ra?: string; he_so_quy_doi?: number;
   hao_hut?: number; hao_hut_pct?: number; so_luot_chay?: number; so_nhan_cong?: number;
-  /** Ba mốc định mức nhân lực — kế thừa từ đầu việc nhưng sửa được tại bước. */
-  so_nhan_cong_toi_thieu?: number; so_nhan_cong_tieu_chuan?: number; so_nhan_cong_toi_da?: number;
+  /** Kíp chuẩn — kế thừa từ đầu việc nhưng sửa được tại bước. */
+  so_nhan_cong_tieu_chuan?: number;
   setup_phut?: number; nang_suat?: number | null; don_vi_nang_suat?: string | null;
   phat_sinh_phut?: number;
   phu_thuoc_step_keys?: string[];
@@ -2573,9 +2565,8 @@ export interface LsxDauViecOption {
    *  khoảng nhanh–chậm (null = chưa khai dải). */
   nang_suat_nguoi_gio: number;
   nang_suat_nguoi_gio_min?: number | null; nang_suat_nguoi_gio_max?: number | null;
-  /** `so_nguoi_toi_thieu` mới là KHAI BÁO — chưa vào công thức thời lượng. */
-  so_nguoi_toi_thieu?: number;
-  so_nguoi_tieu_chuan: number; so_nguoi_toi_da: number;
+  /** Kíp chuẩn — MỘT số duy nhất về nhân lực (mg `0270`), điền sẵn vào bước cho mọi loại bước. */
+  so_nguoi_tieu_chuan: number;
   /** `is_default` GỠ 12/08/2026 (mg 0190): đầu việc điền sẵn nay chỉ suy từ "công đoạn có đúng
    *  MỘT đầu việc", không còn cờ khai ở danh mục. */
   don_vi_nang_suat: string | null;
@@ -2679,6 +2670,10 @@ export interface LsxDetail {
   /** Lệnh đang ghép chung tờ với ai. `null` = in riêng. Khi có, THÔNG SỐ TỜ (máy in, giấy, khổ
    *  tờ in, số con) do BÀI quyết — sửa ở màn lệnh không có tác dụng. */
   bai_ghep: LsxBaiGhep | null;
+  /** Lệnh đang GIỮ CHỖ vật tư ⇒ server chặn sửa số lượng / quy cách / routing và xoá lệnh, chặn
+   *  CẢ bản xem trước. Màn lệnh phải khoá bảng routing và nói đường lùi ngay từ đầu — không thì
+   *  sửa xong mới ăn 409 lúc bấm Lưu, còn xem-trước 409 im lặng làm số trên bảng đứng im. */
+  giu_cho_bat: boolean;
   /** Bước bị GỠ đầu việc mồ côi trong LẦN LƯU routing vừa rồi (rỗng ở mọi cửa đọc khác). Lưu VẪN
    *  thành công — chỉ là lưu ý để mở đúng bước chọn lại đầu việc. */
   bo_dau_viec?: LsxBoDauViec[];
@@ -3624,14 +3619,12 @@ export interface ThanhPhamOut {
   /** Khuôn có sẵn hay làm mới — sale trả lời ở phiếu tính giá (chốt 04/09/2026). `null` = chưa
    *  chọn (phiếu cũ), engine giữ nguyên lời nhắc. Kế hoạch đọc lại để biết ý định của sale. */
   khuon_nguon: "co_san" | "lam_moi" | null;
-  /** Ngày sale dự kiến có khuôn (`yyyy-mm-dd`) — chỉ có nghĩa khi `khuon_nguon = "lam_moi"`. DỰ
-   *  TRÙ để kế hoạch liệu cơm gắp mắm, KHÔNG phải mốc ràng buộc lịch: mốc thật ở danh mục khuôn. */
-  khuon_ngay_du_kien: string | null;
-  /** Ba ô riêng của bước khung lụa (`tooling_type = "khung_lua"`) — kích thước/số lượng khung, TÁCH
-   *  BIỆT với `phi_khuon`: không tự tính ra tiền, chỉ bơm vào công thức của CHÍNH công đoạn đó. */
-  dai_khung_lua: number;
-  rong_khung_lua: number;
-  so_khung_lua: number;
+  /** Ba ô riêng của bước khuôn ép kim (`tooling_type = "khuon_ep"`) — kích thước/số
+   *  lượng khuôn, TÁCH BIỆT với `phi_khuon`: không tự tính ra tiền, chỉ bơm vào công thức của
+   *  CHÍNH công đoạn đó. Đổi chủ từ bước khung lụa 06/09/2026 (khung lụa nay chỉ còn `phi_khuon`). */
+  dai_khuon: number;
+  rong_khuon: number;
+  so_khuon: number;
 }
 
 /** 1 thành phần giấy (paper component): giấy + kỹ thuật in + màu + list gia công. */
@@ -3753,10 +3746,9 @@ export interface ThanhPhamIn {
   ghi_chu?: string | null;
   phi_khuon?: number;
   khuon_nguon?: "co_san" | "lam_moi" | null;
-  khuon_ngay_du_kien?: string | null;
-  dai_khung_lua?: number;
-  rong_khung_lua?: number;
-  so_khung_lua?: number;
+  dai_khuon?: number;
+  rong_khuon?: number;
+  so_khuon?: number;
 }
 /** Input 1 thành phần — mọi field optional + list gia công. */
 export interface ThanhPhanIn {
@@ -5511,6 +5503,12 @@ export interface CongDoanLite {
    *  Drawer routing lệnh SX lọc dropdown MÁY theo đây; null/rỗng = không giới hạn (hiện tất cả).
    *  `/api/cong-doan` (CongDoanRow) đã trả sẵn, không cần đổi backend. */
   nhom_may_cho_phep?: string[] | null;
+  /** MÁY cụ thể chạy được công đoạn + công thức giờ/giá của riêng từng cặp (06/09/2026).
+   *  Hàng tick `nhom_may_cho_phep` ở trên nay chỉ là BỘ LỌC cho bảng này.
+   *  Hình dạng viết thẳng ở đây, không import: file này cố ý không phụ thuộc module nào —
+   *  bản đặt tên là `MayCongDoanRow` trong `pages/danh-muc/types.ts`. */
+  may_lam_duoc?: { may_id: number; cong_thuc_gio?: string | null;
+                   cong_thuc_gia?: string | null }[] | null;
 }
 
 // Phiếu sản lượng công đoạn (Pha 5b)
