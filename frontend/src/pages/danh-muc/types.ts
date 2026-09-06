@@ -209,7 +209,8 @@ export interface DinhMucRow {
   /** Công thức tính TIỀN CÔNG của đầu việc này trong CÔNG ĐOẠN này (06/09/2026). Ra LƯỢNG theo
    *  đơn vị đơn giá khoán, server nhân đơn giá sau. Ghim vào bước lệnh lúc chọn đầu việc. */
   cong_thuc_khoan?: string | null;
-  /** VẬT TƯ đầu việc này tiêu thụ (nền BOM, mg 0191) — chỉ DANH SÁCH, không có số lượng: định mức
-   *  tuỳ quy cách từng lệnh nên số khai ở đây là số chết. Số suy lúc bung ở bước lệnh. */
-  vat_tu_ids?: number[];
+  /** VẬT TƯ đầu việc này tiêu thụ, mỗi dòng mang ĐỊNH MỨC của riêng nó (06/09/2026). Trước đây
+   *  chỉ là danh sách id và công thức treo ở món hàng — nhưng mực ăn theo SỐ TỜ còn dung môi rửa
+   *  máy ăn theo SỐ MÀU, cùng ĐVT kg mà hai cách hoàn toàn khác. */
+  vat_tus?: { vat_tu_id: number; cong_thuc_luong?: string | null }[];
 }

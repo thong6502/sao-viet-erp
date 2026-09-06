@@ -397,7 +397,7 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
                 // Khuôn: "Ngày có khuôn" đổi giữa ngày ngắn và "dự kiến DD/MM/YYYY" dài hơn — cột
                 // hẹp nên bản ngắn cũng từng vỡ dòng ở đúng biên pixel; cắt 1 dòng cho chắc.
                 "ngay_ve_du_kien",
-                // Khuôn: "Loại" ("Khuôn ép nhũ / dập nổi") và "Tình trạng" ("Đang đặt làm") là
+                // Khuôn: "Loại" ("Khuôn ép kim") và "Tình trạng" ("Đang đặt làm") là
                 // nhãn ánh xạ nhưng có giá trị dài hơn hẳn số còn lại trong cùng cột — cột hẹp
                 // nên vỡ 2-3 dòng ngay cả khi các giá trị khác vẫn gọn 1 dòng.
                 "loai", "tinh_trang",
@@ -439,11 +439,8 @@ export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; o
                           Đã ngừng
                         </span>
                       )}
-                      {Boolean(r.tram_dong_giay) && (
-                        <span className="badge-sem badge-sem--steel" title={`Trạm dòng giấy: ${String(r.tram_dong_giay)}`}>
-                          Trạm giấy
-                        </span>
-                      )}
+                      {/* GỠ 06/09/2026: badge "Trạm giấy". Đơn vị không còn mang cờ trạm — 5 chặng
+                          của dòng giấy nay khai thẳng ở ô Đơn vị vào/ra của màn Công đoạn. */}
                     </div>
                   </td>
                   {config.columns.map((c) => {

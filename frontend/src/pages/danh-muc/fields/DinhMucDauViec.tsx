@@ -34,6 +34,9 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
   // Hàng phụ đang mở — mỗi lúc một dòng, mở cái khác thì cái cũ đóng (bảng đã 10 cột, bung hai
   // hàng cùng lúc là mất dấu dòng nào của ai).
   const [moVatTu, setMoVatTu] = useState<number | null>(null);
+  // Dòng vật tư đang mở ô công thức — khoá theo id vật tư nên hai đầu việc cùng gắn một món thì
+  // mở ở đầu việc này cũng bung ở đầu việc kia; chấp nhận được vì mỗi lúc chỉ mở MỘT bảng vật tư.
+  const [moVtCt, setMoVtCt] = useState<number | null>(null);
   // Panel công thức TIỀN CÔNG của đầu việc — mở độc lập với panel vật tư, vì hai thứ khai ở hai
   // nhịp khác nhau: tiền công là một ô, vật tư là cả một bảng con.
   const [moCt, setMoCongThuc] = useState<number | null>(null);
@@ -70,7 +73,7 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
           </thead>
           <tbody>{value.length === 0 && <tr><td colSpan={9} className="rc-bands__empty">
             {allowed.length === 0 ? "Tổ này chưa có đầu việc khoán để liên kết." : "Chưa chọn đầu việc định mức."}
-          </td></tr>}{value.map((r, i) => { const opt = options.find((o) => o.id === r.piece_rate_id); const vtIds = r.vat_tu_ids ?? []; const mo = moVatTu === r.piece_rate_id; return <Fragment key={r.piece_rate_id}><tr>
+          </td></tr>}{value.map((r, i) => { const opt = options.find((o) => o.id === r.piece_rate_id); const vts = r.vat_tus ?? []; const mo = moVatTu === r.piece_rate_id; return <Fragment key={r.piece_rate_id}><tr>
             {/* Bấm tên để bung panel công thức tính tiền công — cùng lối bấm-dòng-mở-panel với
                 bảng máy và bảng vật tư, để ba chỗ khai công thức trong drawer này thao tác giống
                 nhau (06/09/2026). */}
@@ -97,10 +100,10 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
             {/* Bấm để bung HÀNG PHỤ ngay dưới — không mở drawer lồng drawer, người khai vẫn thấy
                 cả bảng để so các dòng với nhau. */}
             <td className="rc-col--center">
-              <button type="button" className={`rc-dm-vt__pill ${mo ? "is-open" : ""} ${vtIds.length ? "" : "is-empty"}`}
+              <button type="button" className={`rc-dm-vt__pill ${mo ? "is-open" : ""} ${vts.length ? "" : "is-empty"}`}
                 title="Vật tư đầu việc này tiêu thụ"
                 onClick={() => setMoVatTu(mo ? null : r.piece_rate_id)}>
-                {vtIds.length ? `${vtIds.length} vật tư` : "＋ gắn"}
+                {vts.length ? `${vts.length} vật tư` : "＋ gắn"}
               </button>
             </td>
             <td className="rc-col--center"><button type="button" className="rc-bands__del" onClick={() => onChange(value.filter((_, j) => j !== i))}><TrashIcon /></button></td>
@@ -115,34 +118,71 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
             </div>
           </td></tr>}{mo && <tr className="rc-dm-vt__row"><td colSpan={9}>
             <div className="rc-dm-vt">
-              {vtIds.length === 0 && <div className="rc-dm-vt__empty">Chưa gắn vật tư nào.</div>}
-              {vtIds.map((vid) => { const vt = vatTuTheoId.get(vid); return (
-                <div className="rc-dm-vt__item" key={vid}>
-                  <span className="rc-dm-vt__ma">{String(vt?.ma ?? `#${vid}`)}</span>
-                  <span className="rc-dm-vt__ten">{String(vt?.ten ?? "(đã gỡ khỏi danh mục)")}</span>
-                  <span className="rc-dm-vt__dv">{String(vt?.don_vi_gia ?? "—")}</span>
-                  <button type="button" className="rc-bands__del" title="Bỏ vật tư khỏi đầu việc"
-                    onClick={() => patch(i, { vat_tu_ids: vtIds.filter((x) => x !== vid) })}>
-                    <TrashIcon />
-                  </button>
-                </div>
-              ); })}
+              {/* BẢNG chứ không phải dãy chip (06/09/2026): mỗi món nay mang ĐỊNH MỨC riêng, mà
+                  công thức là chuỗi dài — xếp chip cạnh nhau thì không còn chỗ đọc công thức. */}
+              <table className="rc-dinh-muc-table">
+                <thead><tr>
+                  <th className="rc-col--left">Mã</th>
+                  <th className="rc-col--left">Tên vật tư</th>
+                  <th className="rc-col--unit">ĐVT</th>
+                  <th className="rc-col--left">Công thức định mức</th>
+                  <th className="rc-col--center" style={{ width: 36 }} />
+                </tr></thead>
+                <tbody>
+                  {vts.length === 0 && <tr><td colSpan={5} className="rc-bands__empty">
+                    Chưa gắn vật tư nào.
+                  </td></tr>}
+                  {vts.map((v, k) => { const vt = vatTuTheoId.get(v.vat_tu_id); return (
+                    <Fragment key={v.vat_tu_id}>
+                      <tr>
+                        <td className="rc-col--left">
+                          <button type="button" className="rc-dm-vt__pill"
+                            onClick={() => setMoVtCt(moVtCt === v.vat_tu_id ? null : v.vat_tu_id)}>
+                            {String(vt?.ma ?? `#${v.vat_tu_id}`)}
+                          </button>
+                        </td>
+                        <td className="rc-col--left">{String(vt?.ten ?? "(đã gỡ khỏi danh mục)")}</td>
+                        <td className="rc-col--unit">{String(vt?.don_vi_gia ?? "—")}</td>
+                        <td className="rc-col--left rc-dinh-muc-unit">{v.cong_thuc_luong || "—"}</td>
+                        <td className="rc-col--center">
+                          <button type="button" className="rc-bands__del" title="Bỏ vật tư khỏi đầu việc"
+                            onClick={() => patch(i, { vat_tus: vts.filter((_, m) => m !== k) })}>
+                            <TrashIcon />
+                          </button>
+                        </td>
+                      </tr>
+                      {moVtCt === v.vat_tu_id && <tr><td colSpan={5}>
+                        <FormulaField
+                          id={`ct-vt-${r.piece_rate_id}-${v.vat_tu_id}`}
+                          configPrefix="/api/cong-doan" loaiO="quy_doi"
+                          nhanO="Công thức định mức"
+                          goY="Ra LƯỢNG theo ĐVT của vật tư. vd mực ăn theo số tờ: sl_vao / 40000 · dung môi rửa máy ăn theo số màu: so_mau * 0.3. Bỏ trống = bước lệnh KHÔNG bung dòng này."
+                          value={v.cong_thuc_luong ?? ""}
+                          onChange={(nv) => patch(i, {
+                            vat_tus: vts.map((x, m) => (m === k ? { ...x, cong_thuc_luong: nv } : x)),
+                          })} />
+                      </td></tr>}
+                    </Fragment>
+                  ); })}
+                </tbody>
+              </table>
               <select className="rc-dinh-muc-add__select" value=""
-                onChange={(e) => { const id = Number(e.target.value); if (id) patch(i, { vat_tu_ids: [...vtIds, id] }); }}>
+                onChange={(e) => { const id = Number(e.target.value); if (id)
+                  patch(i, { vat_tus: [...vts, { vat_tu_id: id, cong_thuc_luong: null }] }); }}>
                 <option value="">＋ chọn từ danh mục vật tư khác</option>
-                {vatTu.filter((v) => !vtIds.includes(Number(v.id))).map((v) => (
+                {vatTu.filter((v) => !vts.some((x) => x.vat_tu_id === Number(v.id))).map((v) => (
                   <option key={v.id} value={v.id}>{String(v.ma)} · {String(v.ten)} ({String(v.don_vi_gia ?? "—")})</option>
                 ))}
               </select>
               <p className="rc-dm-vt__note">
-                Số lượng tính ở lệnh theo quy cách — chỗ này chỉ khai <b>dùng những gì</b>.
+                Định mức khai <b>theo từng món</b>: mực ăn theo số tờ, dung môi rửa máy ăn theo số màu.
               </p>
             </div>
           </td></tr>}</Fragment>; })}</tbody>
         </table>
       </div>
       <div className="rc-dinh-muc-add">
-        <select className="rc-dinh-muc-add__select" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onChange([...value, { piece_rate_id: id, nang_suat_nguoi_gio: 1, nang_suat_nguoi_gio_min: null, nang_suat_nguoi_gio_max: null, don_vi_nang_suat: null, so_nguoi_tieu_chuan: 1, vat_tu_ids: [] }]); }}>
+        <select className="rc-dinh-muc-add__select" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onChange([...value, { piece_rate_id: id, nang_suat_nguoi_gio: 1, nang_suat_nguoi_gio_min: null, nang_suat_nguoi_gio_max: null, don_vi_nang_suat: null, so_nguoi_tieu_chuan: 1, vat_tus: [] }]); }}>
           <option value="">＋ Chọn đầu việc của tổ</option>{allowed.filter((o) => !selected.has(o.id)).map((o) => <option key={o.id} value={o.id}>{o.ma} · {o.ten}</option>)}
         </select>
       </div>
