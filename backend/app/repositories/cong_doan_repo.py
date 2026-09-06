@@ -4,8 +4,9 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from ..models.cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu
+from ..models.cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu, CongDoanMay
 from ..models.don_vi_do import DonViDo
+from ..models.may_thiet_bi import MayThietBi
 from ..models.piece_work import PieceRate
 from ..models.vat_lieu_kho import VatTuInAn
 from .catalog_base import CatalogRepo
@@ -37,7 +38,8 @@ class CongDoanRepository(CatalogRepo):
         """Nạp kèm định mức đầu việc + vật tư của nó — bảng công đoạn vẽ luôn các dòng con,
         để lazy là N+1 truy vấn cho mỗi trang."""
         return select(CongDoan).options(
-            selectinload(CongDoan.dau_viec_dinh_muc).selectinload(CongDoanDauViec.vat_tus)
+            selectinload(CongDoan.dau_viec_dinh_muc).selectinload(CongDoanDauViec.vat_tus),
+            selectinload(CongDoan.may_lam_duoc),
         )
 
     def extra_conds(self, *, nhom: str | None = None, **_) -> list:
@@ -100,6 +102,14 @@ class CongDoanRepository(CatalogRepo):
         rows = self.db.execute(select(PieceRate).where(PieceRate.id.in_(ids))).scalars()
         return {r.id: r for r in rows}
 
+    def mays(self, ids: set[int]) -> dict[int, MayThietBi]:
+        """Máy theo id — service dùng để chặn id không tồn tại / máy đã thanh lý (`may_id` là
+        soft-ref nên không có FK gác hộ)."""
+        if not ids:
+            return {}
+        rows = self.db.execute(select(MayThietBi).where(MayThietBi.id.in_(ids))).scalars()
+        return {r.id: r for r in rows}
+
     def vat_tus(self, ids: set[int]) -> dict[int, VatTuInAn]:
         """Vật tư theo id — service dùng để chặn id không tồn tại / đã ngừng dùng, và để chụp
         mã·tên·đơn vị vào dòng trả về."""
@@ -130,6 +140,24 @@ class CongDoanRepository(CatalogRepo):
 
     def _sau_gan(self, cd: CongDoan, data: dict) -> None:
         self._replace_dinh_muc(cd, data.get("dau_viec_dinh_muc") or [])
+        self._replace_may(cd, data.get("may_lam_duoc") or [])
+
+    def _replace_may(self, cd: CongDoan, rows: list[dict]) -> None:
+        """Thay TRỌN danh sách máy của công đoạn.
+
+        `flush()` giữa xoá và thêm vì cùng lý do với `_replace_dinh_muc`: trong MỘT flush
+        SQLAlchemy phát INSERT trước DELETE cho cùng bảng, nên giữ lại đúng một máy cũ là đụng
+        `uq_cd_may` → 500.
+        """
+        if cd.may_lam_duoc:
+            cd.may_lam_duoc.clear()
+            if cd.id is not None:
+                self.db.flush()
+        for i, r in enumerate(rows):
+            r = dict(r)
+            r.pop("id", None)          # khoá chỉ-đọc của schema Row, client có thể gửi ngược lên
+            r["thu_tu"] = i
+            cd.may_lam_duoc.append(CongDoanMay(**r))
 
     def _replace_dinh_muc(self, cd: CongDoan, rows: list[dict]) -> None:
         """Thay TRỌN bộ định mức đầu việc của công đoạn.

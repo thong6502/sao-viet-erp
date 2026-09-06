@@ -165,6 +165,13 @@ class CongDoan(Base):
         "CongDoanDauViec", back_populates="cong_doan", order_by="CongDoanDauViec.id",
         cascade="all, delete-orphan",
     )
+    # MÁY chạy được công đoạn này, mỗi dòng mang cách đo GIỜ và cách tính GIÁ của riêng cặp
+    # (công đoạn, máy) — xem `CongDoanMay`. Hàng `nhom_may_cho_phep` ở trên nay chỉ còn là BỘ LỌC
+    # để chọn máy cho danh sách này.
+    may_lam_duoc: Mapped[list["CongDoanMay"]] = relationship(
+        "CongDoanMay", back_populates="cong_doan", order_by="CongDoanMay.thu_tu",
+        cascade="all, delete-orphan",
+    )
 
 
 class CongDoanDauViec(Base):
@@ -191,14 +198,12 @@ class CongDoanDauViec(Base):
     # máy). Đây là NHÃN KHAI BÁO: engine chia thẳng SL vào cho năng suất, KHÔNG quy đổi — bước
     # quy đổi làm sau. Trống = giữ lối cũ (suy theo đơn vị vào của công đoạn).
     don_vi_nang_suat: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    # Ba mốc nhân lực: tối thiểu ≤ tiêu chuẩn ≤ tối đa. `tieu_chuan` là số điền sẵn vào bước,
-    # `toi_da` là trần tính thời gian (thêm người nữa không nhanh hơn). `toi_thieu` là KHAI BÁO —
-    # chưa vào công thức, mặc định 1 nghĩa là không ràng buộc.
-    so_nguoi_toi_thieu: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=1, server_default="1"
-    )
+    # ĐỊNH MỨC NHÂN LỰC — nay chỉ còn MỘT số (chốt 06/09/2026, migration `0270`). Đây là kíp
+    # chuẩn của công đoạn: số điền sẵn vào bước lệnh cho MỌI loại bước (máy · tổ · thuê ngoài), và
+    # là số chia trong công thức thời lượng của bước tổ (năng suất khai theo đầu người).
+    # Hai mốc `so_nguoi_toi_thieu`/`so_nguoi_toi_da` ĐÃ GỠ: tối đa chỉ đổi màu chứ không chặn gì,
+    # còn tối thiểu chỉ có răng khi ai đó chịu khai ≥ 2 — để mặc định 1 thì nó im sẵn.
     so_nguoi_tieu_chuan: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    so_nguoi_toi_da: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="dau_viec_dinh_muc")
     # VẬT TƯ đầu việc này tiêu thụ — nền của BOM (12/08/2026). Khai một lần ở danh mục, đến lệnh thì
@@ -246,5 +251,40 @@ class CongDoanDauViecVatTu(Base):
     dau_viec: Mapped["CongDoanDauViec"] = relationship(
         "CongDoanDauViec", back_populates="vat_tus"
     )
+
+
+class CongDoanMay(Base):
+    """Một MÁY chạy được công đoạn này, kèm cách đo giờ và cách tính giá của riêng cặp đó.
+
+    Vì sao là bảng nối chứ không phải cột trên máy hay trên công đoạn (06/09/2026): cả hai con số
+    đều là giao của VIỆC × MÁY.
+      · `cong_thuc_gio` — treo ở máy (`may_thiet_bi.cong_thuc_luong` cũ) thì mọi công đoạn chạy
+        máy đó dùng chung một cách đo, trong khi In khổ 79×109 và In khổ 11×11 đo khác nhau.
+      · `cong_thuc_gia` — treo ở công đoạn (`cong_doan.cong_thuc_gia`) thì mọi máy dùng chung một
+        đơn giá, trong khi máy 5 màu khổ lớn và máy 2 màu khổ nhỏ có giá khác nhau.
+
+    `may_id` là SOFT-REF (không FK) — cùng lối `piece_rate_id`/`vat_tu_id` ở hai bảng con kia:
+    danh mục máy có vòng đời riêng, service chặn id không tồn tại hoặc máy đã thanh lý.
+
+    `cong_thuc_gio` ra LƯỢNG theo đơn vị TỐC ĐỘ của máy, không ra giờ — engine vẫn tự chia tốc độ.
+    `cong_thuc_gia` ra TIỀN, và GHI ĐÈ `cong_doan.cong_thuc_gia` khi phiếu tính giá có chọn máy.
+    Cả hai để trống = lùi về hành vi cũ (cầu quy đổi cho giờ · công thức của công đoạn cho giá).
+    """
+
+    __tablename__ = "cong_doan_may"
+    __table_args__ = (
+        UniqueConstraint("cong_doan_id", "may_id", name="uq_cd_may"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cong_doan_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("cong_doan.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    may_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    cong_thuc_gio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cong_thuc_gia: Mapped[str | None] = mapped_column(Text, nullable=True)
+    thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="may_lam_duoc")
 
 

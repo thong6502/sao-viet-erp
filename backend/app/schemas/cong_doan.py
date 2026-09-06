@@ -14,10 +14,8 @@ class CongDoanDauViecIn(BaseModel):
     nang_suat_nguoi_gio_min: float | None = Field(default=None, gt=0)
     nang_suat_nguoi_gio_max: float | None = Field(default=None, gt=0)
     don_vi_nang_suat: str | None = Field(default=None, max_length=32)
-    # Ba mốc nhân lực phải xếp đúng thứ tự: tối thiểu ≤ tiêu chuẩn ≤ tối đa (service kiểm).
-    so_nguoi_toi_thieu: int = Field(default=1, ge=1)
+    # Kíp chuẩn của công đoạn — MỘT số duy nhất về nhân lực (mg `0270`).
     so_nguoi_tieu_chuan: int = Field(ge=1)
-    so_nguoi_toi_da: int = Field(ge=1)
     # VẬT TƯ đầu việc này tiêu thụ (mg 0191) — chỉ DANH SÁCH, không có số lượng: định mức tuỳ quy
     # cách từng lệnh, số khai ở danh mục là số chết. Số lượng suy lúc bung ở bước lệnh.
     vat_tu_ids: list[int] = Field(default_factory=list)
@@ -28,6 +26,20 @@ class CongDoanDauViecRow(CongDoanDauViecIn):
     id: int
     # Chỉ trả ID, không trả mã/tên/đơn vị: form đã nạp sẵn danh mục Vật tư khác cho dropdown nên tự
     # tra được — trả kèm ở đây là N+1 query cho mỗi đầu việc của mỗi công đoạn trong danh sách.
+
+
+class CongDoanMayIn(BaseModel):
+    may_id: int
+    # Ra LƯỢNG theo đơn vị TỐC ĐỘ của máy (không ra giờ — engine vẫn chia tốc độ). Trống = lùi về
+    # cầu quy đổi, đúng hành vi của ô "Cách đo lượng" cũ trên máy khi để trống.
+    cong_thuc_gio: str | None = None
+    # Ra TIỀN, GHI ĐÈ `cong_doan.cong_thuc_gia` khi phiếu tính giá có chọn đúng máy này.
+    cong_thuc_gia: str | None = None
+
+
+class CongDoanMayRow(CongDoanMayIn):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
 
 
 class CongDoanIn(BaseModel):
@@ -50,6 +62,9 @@ class CongDoanIn(BaseModel):
     # Nhóm máy (tên ở danh mục `nhom_may`) làm được công đoạn này — chặn gán máy sai loại ở bài
     # ghép. None/[] = không ràng buộc.
     nhom_may_cho_phep: list[str] | None = None
+    # Máy CỤ THỂ chạy được công đoạn, mỗi dòng mang công thức giờ + công thức giá của riêng nó
+    # (06/09/2026). `nhom_may_cho_phep` ngay trên nay chỉ còn là BỘ LỌC để chọn máy trong drawer.
+    may_lam_duoc: list[CongDoanMayIn] = Field(default_factory=list)
     department_id: int | None = None
     khoan_ghi_theo: str = "khong"
     allowed_defect_pct: float = Field(default=0, ge=0, le=1)
@@ -122,6 +137,7 @@ class CongDoanRow(BaseModel):
     cong_thuc_gia: str | None = None
     active: bool
     dau_viec_dinh_muc: list[CongDoanDauViecRow] = Field(default_factory=list)
+    may_lam_duoc: list[CongDoanMayRow] = Field(default_factory=list)
     updated_at: datetime | None = None
 
 

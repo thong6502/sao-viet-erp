@@ -53,6 +53,20 @@ class CongDoanService(CatalogService):
             raise CongDoanValidationError("Tên công đoạn không được trống.")
         if data.get("nhom") not in NHOM:
             raise CongDoanValidationError("Nhóm công đoạn không hợp lệ.")
+        # MÁY của công đoạn phải CÓ THẬT và còn dùng — `may_id` là soft-ref nên không có FK gác hộ.
+        # Máy đã thanh lý mà vẫn nằm trong danh sách thì bước lệnh gán được một máy không tồn tại
+        # trên bàn xếp lịch.
+        may_rows = data.get("may_lam_duoc") or []
+        if may_rows:
+            may_ids = [int(r.get("may_id") or 0) for r in may_rows]
+            if len(set(may_ids)) != len(may_ids):
+                raise CongDoanValidationError("Một máy chỉ khai được một lần trong công đoạn.")
+            song = self.repo.mays(set(may_ids))
+            for mid in may_ids:
+                may = song.get(mid)
+                if may is None or not may.active:
+                    raise CongDoanValidationError(
+                        "Máy không còn trong danh mục hoặc đã ngừng dùng.")
         dinh_muc = data.get("dau_viec_dinh_muc") or []
         if dinh_muc:
             if data.get("department_id") is None:
@@ -69,14 +83,12 @@ class CongDoanService(CatalogService):
                 if rate.department_id != data.get("department_id"):
                     raise CongDoanValidationError("Đầu việc phải thuộc đúng tổ phụ trách.")
                 ns = float(r.get("nang_suat_nguoi_gio") or 0)
-                tt = int(r.get("so_nguoi_toi_thieu") or 1)
                 tc = int(r.get("so_nguoi_tieu_chuan") or 0)
-                td = int(r.get("so_nguoi_toi_da") or 0)
                 if ns <= 0:
                     raise CongDoanValidationError("Năng suất một người phải lớn hơn 0.")
-                if tt < 1 or tc < tt or td < tc:
-                    raise CongDoanValidationError(
-                        "Số người phải thỏa 1 ≤ tối thiểu ≤ tiêu chuẩn ≤ tối đa.")
+                # Hai mốc tối thiểu/tối đa đã gỡ (migration `0270`): chỉ còn MỘT kíp chuẩn.
+                if tc < 1:
+                    raise CongDoanValidationError("Số người tiêu chuẩn phải từ 1 trở lên.")
                 # Dải năng suất: khai mức nào thì mức đó phải đứng đúng phía của trung bình, không
                 # thì "nhanh nhất" ra dài hơn "chậm nhất" và râu Gantt vẽ ngược.
                 ns_min = r.get("nang_suat_nguoi_gio_min")
