@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..models.bai_ghep import BaiGhep, BaiGhepThanhVien
 from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
 from ..models.bu_hao import BuHao
-from ..models.cong_doan import CongDoan
+from ..models.cong_doan import CongDoan, CongDoanMay
 from ..models.customer import Customer
 from ..models.loai_san_pham import LoaiSanPham
 from ..models.lsx import (
@@ -40,6 +40,7 @@ from ..models.lsx import (
     TT_DA_LAP_KE_HOACH,
     TT_NHAP,
     TT_SAN_SANG,
+    TEN_BUOC_TRONG,
     TRANG_THAI_LSX,
     Lsx,
     LsxCongDoan,
@@ -58,7 +59,7 @@ from ..services.dong_giay import (
     ban_do_tram, dich_chuoi, don_vi_chuoi, ma_cua_tram, tram_cua, tren_dong_giay,
 )
 from ..models.don_vi_do import DonViDo
-from ..services.bien_cong_thuc import KHUNG_LUA_MAC_DINH, ngu_canh_lenh, quy_cach_bien
+from ..services.bien_cong_thuc import KHUON_MAC_DINH, ngu_canh_lenh, quy_cach_bien
 from ..services.don_vi_do_service import cong_thuc_chu, cong_thuc_the_so
 from ..services.piece_work_service import dau_viec_khop, khoan_snapshot
 from ..services.quy_doi_service import (
@@ -137,11 +138,7 @@ def _dinh_muc_snapshot(dm) -> dict:
         "nang_suat_nguoi_gio_min": _f(dm.nang_suat_nguoi_gio_min) or None,
         "nang_suat_nguoi_gio_max": _f(dm.nang_suat_nguoi_gio_max) or None,
         "don_vi_nang_suat": dm.don_vi_nang_suat or None,
-        # `so_nguoi_toi_thieu` mới chỉ là KHAI BÁO: ghim theo bước để không mất, nhưng chưa vào
-        # công thức thời lượng và chưa chặn gì.
-        "so_nguoi_toi_thieu": int(getattr(dm, "so_nguoi_toi_thieu", 1) or 1),
         "so_nguoi_tieu_chuan": int(dm.so_nguoi_tieu_chuan),
-        "so_nguoi_toi_da": int(dm.so_nguoi_toi_da),
     }
 
 
@@ -253,7 +250,7 @@ def thoi_luong_buoc(cd, may=None, sl_tinh=None) -> dict:
     mức tốc độ. **Nhân với số người TIÊU CHUẨN** (chốt 20/08/2026): năng suất khoán khai theo ĐẦU
     NGƯỜI (`nang_suat_nguoi_gio`), nên kíp chuẩn N người làm nhanh gấp N — cùng một kíp chuẩn nhân
     đều cả ba mức. Dùng số người TIÊU CHUẨN (`so_nhan_cong_tieu_chuan`), KHÔNG dùng số người kế
-    hoạch/tối thiểu/tối đa — mấy số kia chỉ để bàn xếp lịch cân quân số + đối chiếu thực hiện.
+    hoạch (`so_nhan_cong`) — số kế hoạch chỉ để bàn xếp lịch cân quân số + đối chiếu thực hiện.
     Bước THUÊ NGOÀI đi theo ngày gửi/nhận, thời lượng máy = 0.
 
     **`sl_tinh` — SL vào ĐÃ QUY ĐỔI về đơn vị của tốc độ** (15/08/2026), dạng
@@ -284,8 +281,6 @@ def thoi_luong_buoc(cd, may=None, sl_tinh=None) -> dict:
     luot = max(int(getattr(cd, "so_luot_chay", 1) or 1), 1)
     khac = _f(getattr(cd, "phat_sinh_phut", 0))
     nguoi_ke_hoach = max(int(getattr(cd, "so_nhan_cong", 1) or 1), 1)
-    nguoi_toi_da_raw = getattr(cd, "so_nhan_cong_toi_da", None)
-    nguoi_toi_da = max(int(nguoi_toi_da_raw or nguoi_ke_hoach), 1)
     nguoi_tinh: int | None = None
 
     # THUÊ NGOÀI ăn CHUNG đường của bước máy: nhà thầu được khai như một MÁY trong danh mục (tên
@@ -370,7 +365,6 @@ def thoi_luong_buoc(cd, may=None, sl_tinh=None) -> dict:
         "so_luot_chay": None if loai == LB_TO else luot,
         "so_nhan_cong_ke_hoach": nguoi_ke_hoach,
         "so_nhan_cong_tieu_chuan": max(int(getattr(cd, "so_nhan_cong_tieu_chuan", 1) or 1), 1),
-        "so_nhan_cong_toi_da": nguoi_toi_da if loai == LB_TO else None,
         "so_nhan_cong_tinh": nguoi_tinh,
         # Chuẩn bị KẾ THỪA từ máy — kèm chi tiết từng khoản để drawer xổ ra, không hiện cục tổng.
         "setup_phut": round(setup, 2),
@@ -552,8 +546,8 @@ class LsxService:
         chosen = khop[0] if len(khop) == 1 else None
         if chosen is None:
             return None
-        snap = khoan_snapshot(chosen)
         dm = assoc.get(chosen.id)
+        snap = khoan_snapshot(chosen, dm)
         if dm is not None:
             snap.update(_dinh_muc_snapshot(dm))
         return snap
@@ -599,8 +593,8 @@ class LsxService:
         }
         # Bơm SỐ CỦA CHÍNH BƯỚC lên trên ngữ cảnh lệnh — `sl_vao`/`sl_ra` chỉ tồn tại ở tầng này.
         # Bơm SAU `ngu_canh_lenh` vì hàm đó assert bộ khoá của nó phải khớp `MA_NGU_CANH_PHIEU`.
-        # Khung lụa mặc định 0 — tầng lệnh không có nguồn tương đương phiếu tính giá.
-        ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUNG_LUA_MAC_DINH,
+        # Ba ô khuôn mặc định 0 — tầng lệnh không có nguồn tương đương phiếu tính giá.
+        ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUON_MAC_DINH,
                "sl_vao": sl, "sl_ra": _f(getattr(buoc, "so_luong_ra", 0))}
         ra: list[dict] = []
         canh_bao: list[str] = []
@@ -643,8 +637,8 @@ class LsxService:
             return []
         # Bơm SỐ CỦA CHÍNH BƯỚC lên trên ngữ cảnh lệnh — `sl_vao`/`sl_ra` chỉ tồn tại ở tầng này.
         # Bơm SAU `ngu_canh_lenh` vì hàm đó assert bộ khoá của nó phải khớp `MA_NGU_CANH_PHIEU`.
-        # Khung lụa mặc định 0 — tầng lệnh không có nguồn tương đương phiếu tính giá.
-        ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUNG_LUA_MAC_DINH,
+        # Ba ô khuôn mặc định 0 — tầng lệnh không có nguồn tương đương phiếu tính giá.
+        ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUON_MAC_DINH,
                "sl_vao": sl, "sl_ra": _f(getattr(buoc, "so_luong_ra", 0))}
         ra: list[dict] = []
         for mat in self.db.execute(
@@ -734,7 +728,7 @@ class LsxService:
                 # Tiền công DỰ KIẾN cho ĐÚNG lựa chọn này, tính bằng cùng bộ máy `_khoan_derived`
                 # dùng cho bước đã lưu — chọn đầu việc ở dropdown là "nhảy tiền" ngay, không phải
                 # lưu bước rồi backend mới trả số (kể cả bước vừa gộp chưa có nền khoán nào).
-                kq_t = self._khoan_tu_kh(buoc, khoan_snapshot(rate), quy_cach)
+                kq_t = self._khoan_tu_kh(buoc, khoan_snapshot(rate, dm), quy_cach)
                 item.update({
                     "tien_du_kien": kq_t["khoan_tien"],
                     "sl_du_kien": kq_t["khoan_sl"],
@@ -777,8 +771,8 @@ class LsxService:
         số đó là 0 ⇒ chọn máy nào cũng ra 0 phút, mà đổi giữa hai máy khác đơn vị thì lại lấy số
         quy đổi của máy CŨ ⇒ xem trước sai mà không báo gì.
 
-        Trả về đúng khối `thoi_luong_dien_giai` mà drawer đang đọc, kèm KÍP của máy mới để ô số
-        người nhảy theo luôn — bước máy thì số người là kíp đứng máy (xem `replace_routing`).
+        Trả về đúng khối `thoi_luong_dien_giai` mà drawer đang đọc. Kíp trả kèm là kíp ĐANG CÓ của
+        bước — từ 06/09/2026 đổi máy không đổi số người, nhân lực bám công đoạn.
         """
         lsx = self.get(lsx_id)
         cd = next((r for r in lsx.cong_doans if r.step_key == step_key), None)
@@ -787,7 +781,9 @@ class LsxService:
         may = self.db.get(MayThietBi, may_id) if may_id else None
         if may_id and may is None:
             raise LsxNotFound("Không tìm thấy máy")
-        kip = max(int(ceil(_f(may.so_nhan_cong))), 1) if may is not None else 1
+        # KÍP GIỮ NGUYÊN khi đổi máy (06/09/2026): nhân lực bám công đoạn, không bám máy. Trả kèm
+        # để drawer khỏi phải nhớ, nhưng đây là số CỦA BƯỚC chứ không phải của máy mới.
+        kip = max(int(getattr(cd, "so_nhan_cong_tieu_chuan", 1) or 1), 1)
         # Bản SAO ĐỌC của bước: KHÔNG gán `cd.may_id = ...` — gán vào ORM là autoflush ghi thẳng
         # xuống DB một lựa chọn người dùng mới chỉ rê chuột qua.
         thu = _BuocThu(cd, may_id=may_id, so_nhan_cong_tieu_chuan=kip)
@@ -800,6 +796,25 @@ class LsxService:
             "chiem_may_phut": t["chiem_may_phut"],
             "thoi_luong_dien_giai": t["dien_giai"],
         }
+
+    def _ct_gio_cua_may(self, cong_doan_id, may_id) -> str:
+        """Công thức GIỜ CHẠY của cặp (công đoạn, máy) — `""` khi cặp chưa khai.
+
+        Nhớ lại trong `_ct_gio_cache` vì `sl_tinh_cua_buoc` bị gọi cho TỪNG bước trong vòng lặp của
+        bốn service ngoài (bài ghép · xếp lịch · kế hoạch vật tư); hỏi DB mỗi bước là N+1.
+        """
+        if not cong_doan_id or not may_id:
+            return ""
+        khoa = (int(cong_doan_id), int(may_id))
+        if not hasattr(self, "_ct_gio_cache"):
+            self._ct_gio_cache: dict[tuple[int, int], str] = {}
+        if khoa not in self._ct_gio_cache:
+            ct = self.db.execute(
+                select(CongDoanMay.cong_thuc_gio).where(
+                    CongDoanMay.cong_doan_id == khoa[0], CongDoanMay.may_id == khoa[1])
+            ).scalar()
+            self._ct_gio_cache[khoa] = (ct or "").strip()
+        return self._ct_gio_cache[khoa]
 
     def sl_tinh_cua_buoc(self, cd, may, quy_cach: dict | None) -> tuple[float, str, str] | None:
         """SL vào của bước quy về đơn vị của TỐC ĐỘ — đầu vào `sl_tinh` của `thoi_luong_buoc`.
@@ -814,9 +829,11 @@ class LsxService:
         loai = getattr(cd, "loai_buoc", LB_MAY) or LB_MAY
         if loai in (LB_MAY, LB_THUE_NGOAI):
             dich = ma_don_vi_toc_do(may)
-            # Công thức riêng của CHÍNH MÁY đang gán (mg `0213`) — đọc SỐNG, vì đổi máy là đổi cả
-            # tốc độ lẫn cách đếm lượt. Không có máy (bước chưa gán) thì không có công thức riêng.
-            ct_rieng = (getattr(may, "cong_thuc_luong", None) or "").strip() if may is not None else ""
+            # 06/09/2026: cách đo lấy từ cặp (CÔNG ĐOẠN × MÁY), không còn từ `may.cong_thuc_luong`.
+            # Cùng một máy chạy hai công đoạn thì đo khác nhau — In khổ 79×109 và In khổ 11×11
+            # không thể chung một công thức. Đọc SỐNG (không ghim): đổi máy là đổi cách đo.
+            ct_rieng = self._ct_gio_cua_may(
+                getattr(cd, "cong_doan_id", None), getattr(may, "id", None))
         elif loai == LB_TO:
             kh = getattr(cd, "khoan_json", None) or {}
             dich = kh.get("don_vi")
@@ -838,9 +855,10 @@ class LsxService:
             thời lượng   SL vào → đơn vị TỐC ĐỘ    → ÷ tốc độ   → phút
 
         HAI đường, theo đúng thứ tự RIÊNG → CHUNG (cùng luật với `_luong_vat_tu`):
-          ⓿ `ct_rieng` — công thức của CHÍNH đối tượng: `may_thiet_bi.cong_thuc_luong` cho bước máy,
-             `khoan_json["cong_thuc"]` (ảnh chụp của đầu việc) cho bước tổ. Mg `0213`. Riêng nhất nên
-             thắng: lượt in của máy 5 màu khác máy 2 màu, mà cả hai cùng đo bằng `to_gio`.
+          ⓿ `ct_rieng` — công thức của CHÍNH cặp việc-và-nơi-làm: `cong_doan_may.cong_thuc_gio` cho
+             bước máy (06/09/2026, trước đó là `may_thiet_bi.cong_thuc_luong`),
+             `khoan_json["cong_thuc"]` (ảnh chụp của đầu việc) cho bước tổ. Riêng nhất nên thắng:
+             lượt in của máy 5 màu khác máy 2 màu, mà cả hai cùng đo bằng `to_gio`.
           ① `doi_theo_quy_cach` — cầu quy đổi đã khai (kể cả đi vòng qua trung gian).
 
         Bậc "công thức của ĐƠN VỊ ĐÍCH" GỠ 17/08/2026 (mg `0215`) — bậc ⓿ thay đúng chỗ nó: cùng bộ
@@ -863,7 +881,7 @@ class LsxService:
 
         # ⓿ công thức RIÊNG của máy / của đầu việc khoán.
         if (ct_rieng := (ct_rieng or "").strip()):
-            ctx0 = {**ngu_canh_lenh(quy_cach or {}), **KHUNG_LUA_MAC_DINH,
+            ctx0 = {**ngu_canh_lenh(quy_cach or {}), **KHUON_MAC_DINH,
                     "sl_vao": sl, "sl_ra": _f(cd.so_luong_ra)}
             try:
                 gt0 = float(safe_eval(ct_rieng, dict(ctx0)))
@@ -1388,7 +1406,6 @@ class LsxService:
         loai_buoc = (LB_THUE_NGOAI if r.get("nha_cung_cap") else
                      r.get("loai_buoc") or LB_MAY)
         may_id = lsx_may_id if loai_buoc == LB_MAY and nhom == "print" else None
-        may = self.db.get(MayThietBi, may_id) if may_id else None
 
         con = max(int(comp.get("con") or 1), 1)
 
@@ -1404,12 +1421,15 @@ class LsxService:
         dv_nang_suat: str | None = None
 
         khoan = self._khoan_mac_dinh(r.get("department_id"), cd_obj)
-        kip = max(int(ceil(_f(may.so_nhan_cong))), 1) if may is not None else 1
+        # KÍP BÁM THEO CÔNG ĐOẠN (chốt 06/09/2026) — mọi loại bước cùng một nguồn. Trước đây bước
+        # máy nghe ô "Số người vận hành" của danh mục Máy còn bước tổ nghe bảng khoán: hai màn hình
+        # nói về cùng một thứ mà không bao giờ đứng cạnh nhau, khai lệch cũng không ai thấy. Công
+        # đoạn chưa khai tổ / chưa có định mức đầu việc ⇒ 1 người, không đoán hộ.
+        kip = max(int(khoan.get("so_nguoi_tieu_chuan") or 1), 1) if khoan else 1
         if loai_buoc == LB_TO and khoan:
             nang_suat = _f(khoan.get("nang_suat_nguoi_gio")) or None
             # Đơn vị của năng suất LÀ đơn vị đơn giá khoán — thời lượng quy SL vào về chính nó.
             dv_nang_suat = khoan.get("don_vi")
-            kip = int(khoan.get("so_nguoi_tieu_chuan") or 1)
         return {
             "loai_buoc": loai_buoc,
             "so_luong_vao": vao,
@@ -1436,12 +1456,6 @@ class LsxService:
             "may_id": may_id,
             "so_nhan_cong": kip,
             "so_nhan_cong_tieu_chuan": kip,
-            "so_nhan_cong_toi_da": (
-                int(khoan.get("so_nguoi_toi_da") or kip) if loai_buoc == LB_TO and khoan else None
-            ),
-            "so_nhan_cong_toi_thieu": (
-                int(khoan.get("so_nguoi_toi_thieu") or 1) if loai_buoc == LB_TO and khoan else None
-            ),
             # Đầu việc khoán của bước: điền sẵn khi bảng giá của tổ chỉ khớp MỘT dòng. Nhiều dòng
             # (bế tay / bế máy) hoặc tổ không ăn khoán → None, kế hoạch tự chọn ở drawer.
             "khoan_json": khoan,
@@ -1787,7 +1801,7 @@ class LsxService:
         truyền `quy_cach_bien_bai(...)` (nơi `so_kem`/`so_mau`… đã gộp ở CẤP BÀI).
 
         Đích KHÔNG phải thành phẩm mà là CÔNG THỨC của công đoạn ("kem := so_kem" ⇒ 5 bản), rồi suy
-        ngược y hệt dòng giấy: `vào = (ra/hệ_số + hao_cố_định) / (1 − hao%)`. Vế VÀO cố tình KHÔNG đọc
+        ngược y hệt dòng giấy: `vào = ra/hệ_số × (1 + hao%) + hao_cố_định`. Vế VÀO cố tình KHÔNG đọc
         công thức đơn vị vào — hai đầu cùng chốt cứng thì hao hết chỗ nhét (bệnh `vao = ra` của bản cũ).
 
         Trả `{so_luong_vao, so_luong_ra, he_so_quy_doi, hao_hut, hao_hut_pct[, loi_quy_doi]}`; None khi
@@ -1795,8 +1809,11 @@ class LsxService:
         vào→ra LẤY TỪ module Đơn vị & quy đổi: khác đơn vị mà chưa khai cầu → `so_luong_vao=0` +
         `loi_quy_doi` để drawer và danh sách Vấn đề chặn phát hành.
         """
-        if not getattr(buoc, "don_vi_ra", None):
-            return None
+        # GỠ 06/09/2026 cái chốt `if not don_vi_ra: return None`. Từ nay bước ngoài dòng giấy BỎ
+        # TRỐNG cả hai ô đơn vị (menu công đoạn chỉ còn 5 chặng dòng giấy), nên chốt đó chính là
+        # chốt chặn đúng những bước hàm này sinh ra để phục vụ — ghi kẽm sẽ về SL rỗng trong im
+        # lặng. Chốt `cong_thuc_san_luong` ngay dưới đã lọc đúng thứ cần lọc: không có công thức
+        # thì không có gì để tính. Số học không đổi — `_he_so_ngoai_dong(None, None)` trả 1,0.
         # CÔNG THỨC SẢN LƯỢNG của CHÍNH CÔNG ĐOẠN (mg `0214`, không phải của đơn vị RA — đã gỡ mg
         # `0215`): hai công đoạn cùng đo bằng `kem` vẫn ra số khác nhau được.
         cd_obj = self.db.get(CongDoan, buoc.cong_doan_id) if buoc.cong_doan_id else None
@@ -1804,7 +1821,7 @@ class LsxService:
         if not ct:
             return None
         try:
-            ra_ngoai = float(safe_eval(ct, {**ngu_canh_lenh(quy_cach or {}), **KHUNG_LUA_MAC_DINH}))
+            ra_ngoai = float(safe_eval(ct, {**ngu_canh_lenh(quy_cach or {}), **KHUON_MAC_DINH}))
         except (ValueError, ZeroDivisionError):
             return None
         if ra_ngoai <= 0:
@@ -1817,7 +1834,7 @@ class LsxService:
             "so_to_bu_hao": cd_obj.so_to_bu_hao,
         }
         fixed_n, pct_n = hao_buoc(quy_tac, rows=bu_hao_rows, sl=ra_ngoai)
-        pct_n = min(max(pct_n, 0.0), 99.0)
+        pct_n = max(pct_n, 0.0)
         hs_n, loi_qd = self._he_so_ngoai_dong(buoc.don_vi_vao, buoc.don_vi_ra)
         if hs_n is None:
             return {
@@ -1826,7 +1843,7 @@ class LsxService:
                 "loi_quy_doi": loi_qd,
             }
         return {
-            "so_luong_vao": float(ceil((ra_ngoai / hs_n + fixed_n) / (1.0 - pct_n / 100.0))),
+            "so_luong_vao": float(ceil(ra_ngoai / hs_n * (1.0 + pct_n / 100.0) + fixed_n)),
             "so_luong_ra": float(ceil(ra_ngoai)),
             "he_so_quy_doi": hs_n, "hao_hut": fixed_n, "hao_hut_pct": pct_n,
         }
@@ -1840,13 +1857,15 @@ class LsxService:
         cộng dồn từ bước CUỐI về bước ĐẦU): *cần 20.500 hộp tốt thì phải in bao nhiêu tờ*.
 
         Dòng giấy có BA đơn vị và HAI cầu (`to_nguyen → to → cai`):
-        - Bước **NGOÀI dòng giấy đứng ngoài chuỗi** — nhận ra bằng cờ trạm của đơn vị
-          (`don_vi_do.tram_dong_giay`), không phải bằng "đơn vị để trống" như trước: nay bước chế
-          bản khai đơn vị THẬT (`bai → kem`) nên trống-hay-không không còn phân biệt được. SL của
-          nó = `so_kem`, giữ nguyên — hàm duyệt cả bước này là "Tính ngược" ghi đè kẽm bằng số tờ.
+        - Bước **NGOÀI dòng giấy đứng ngoài chuỗi** — nhận ra bằng ô đơn vị BỎ TRỐNG (06/09/2026;
+          giữa 11/08 và 06/09 nó khai đơn vị thật `bai → kem` và phải hỏi cờ `tram_dong_giay`).
+          SL của nó = `so_kem`, giữ nguyên — hàm duyệt cả bước này là "Tính ngược" ghi đè kẽm
+          bằng số tờ.
         - Đích = đơn vị RA của bước cuối SAU KHI LỌC: ra `cai` thì đích là SL đặt.
         - Hao lấy từ DANH MỤC công đoạn (`bu_hao_engine.hao_buoc`) ở ĐÚNG đơn vị của bước, không
           đọc `cd.hao_hut` nữa. Hao thêm của kế hoạch (`lsx.bu_hao_to`) cộng vào bước CUỐI.
+        - `%` đo trên số RA của bước (chốt 06/09/2026): ra 100 hao 10% ⇒ vào 110, KHÔNG phải
+          111,11. Cùng một nghĩa với `bu_hao_engine.chuoi_nguoc_dv` — hai tầng phải ra một số.
 
         Hàm THUẦN — chỉ trả số, KHÔNG ghi DB (`_ap_chuoi_nguoc` mới ghi). `so_con` cho phép hỏi
         "nếu xếp N con/tờ thì cần bao nhiêu tờ" mà không đụng cột của lệnh — bài ghép cần đúng thế.
@@ -1913,8 +1932,8 @@ class LsxService:
             else:
                 fixed, pct = hao_buoc(_quy_tac_bu_hao(cd.cong_doan_id), rows=bu_hao_rows, sl=can_ra)
             hs = he_so.get((tram_vao, tram_ra), 1.0) if tram_vao != tram_ra else 1.0
-            pct = min(max(pct, 0.0), 99.0)
-            vao = float(ceil((can_ra / hs + fixed) / (1.0 - pct / 100.0)))
+            pct = max(pct, 0.0)
+            vao = float(ceil(can_ra / hs * (1.0 + pct / 100.0) + fixed))
             out[i] = {
                 # `idx` = vị trí trong danh sách đã sort — dùng để áp ngược. KHÔNG khớp theo `id`:
                 # lúc `tao()` các bước chưa flush nên `id` còn None, khớp theo id là trượt sạch.
@@ -1938,8 +1957,8 @@ class LsxService:
         chỗ đó phải đoán bằng `so_to × con` — tức bỏ qua toàn bộ hao của các bước sau in, và số
         dư báo lên gấp cả chục lần thực tế.
 
-        Nghịch đảo đúng công thức của lượt về (`vào = (ra/hs + tờ) / (1 − %)`):
-            `ra = (vào × (1 − %) − tờ) × hs`
+        Nghịch đảo đúng công thức của lượt về (`vào = ra/hs × (1 + %) + tờ`):
+            `ra = (vào − tờ) ÷ (1 + %) × hs`
 
         `tu_step_key` là ĐIỂM TOẢ — bước chạy chung cuối cùng. Bài giao `so_to` TỜ vào bước đó, và
         chính bước đó có thể đổi đơn vị (bế: 1 tờ → N con). Nên phải áp HỆ SỐ của bước toả trước
@@ -1985,9 +2004,9 @@ class LsxService:
             i = idx[pos]
             cd = buoc[i]
             fixed, pct = hao_buoc(_quy_tac(cd.cong_doan_id), rows=bu_hao_rows, sl=dang_co)
-            pct = min(max(pct, 0.0), 99.0)
+            pct = max(pct, 0.0)
             hs = _hs(cd)
-            ra = (dang_co * (1.0 - pct / 100.0) - fixed) * hs
+            ra = (dang_co - fixed) / (1.0 + pct / 100.0) * hs
             ra = max(0.0, floor(ra))
             out.append({
                 "idx": i, "step_key": cd.step_key, "thu_tu": cd.thu_tu, "ten": cd.ten,
@@ -2252,7 +2271,7 @@ class LsxService:
         ct = (getattr(cd_obj, "cong_thuc_san_luong", None) or "").strip()
         if not ct:
             return None
-        ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUNG_LUA_MAC_DINH}
+        ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUON_MAC_DINH}
         try:
             gt = float(safe_eval(ct, dict(ctx)))
         except (ValueError, ZeroDivisionError):
@@ -2332,9 +2351,7 @@ class LsxService:
             # % thực tế suy từ số — KHÔNG lưu cột, tránh hai nguồn sự thật với `hao_hut`.
             "ty_le_hao_hut": round(_f(cd.hao_hut) / vao * 100, 2) if vao > 0 else 0.0,
             "so_luot_chay": cd.so_luot_chay, "so_nhan_cong": cd.so_nhan_cong,
-            "so_nhan_cong_toi_thieu": cd.so_nhan_cong_toi_thieu,
             "so_nhan_cong_tieu_chuan": cd.so_nhan_cong_tieu_chuan,
-            "so_nhan_cong_toi_da": cd.so_nhan_cong_toi_da,
             # Chuẩn bị TRẢ RA LÀ SỐ KẾ THỪA TỪ MÁY (`t`), không phải cột `cd.setup_phut` đã dormant
             # — nếu trả cột cũ thì UI hiện một số mà engine lại tính bằng số khác.
             "setup_phut": t["dien_giai"]["setup_phut"],
@@ -2548,9 +2565,22 @@ class LsxService:
                 select(OrderLine).where(OrderLine.id.in_(line_ids))
             ).scalars()
         } if line_ids else {}
+        # Tên bước ưu tiên tên CÔNG ĐOẠN đang gắn, y hệt `tenBuoc()` bên FE. Trả thẳng `step.ten`
+        # thì chip phụ thuộc + panel "Bước LSX khác" là hai chỗ DUY NHẤT không có `cong_doan_id`
+        # để tra ngược, nên bước mang nhãn tạm sẽ hiện "Công đoạn" trong khi bảng/DAG hiện tên thật.
+        cd_ids = {
+            step.cong_doan_id for item in lsxs for step in item.cong_doans if step.cong_doan_id
+        }
+        ten_cd = {
+            c.id: c.ten for c in self.db.execute(
+                select(CongDoan).where(CongDoan.id.in_(cd_ids))
+            ).scalars()
+        } if cd_ids else {}
         return [
             {"lsx_id": item.id, "lsx_ma": item.ma, "nhom": groups.get(item.order_line_id),
-             "step_key": step.step_key, "ten_buoc": step.ten, "thu_tu": step.thu_tu}
+             "step_key": step.step_key,
+             "ten_buoc": ten_cd.get(step.cong_doan_id) or step.ten,
+             "thu_tu": step.thu_tu}
             for item in lsxs for step in sorted(item.cong_doans, key=lambda x: x.thu_tu)
         ]
 
@@ -2716,10 +2746,13 @@ class LsxService:
             if field in data and getattr(lsx, field) != data[field]:
                 setattr(lsx, field, data[field])
                 changed.append(field)
-        # Đổi SL đặt / quy cách là đổi luôn số vật tư cần — chặn khi đang giữ chỗ, cùng luật với
-        # routing (`replace_routing`) và xoá lệnh (`xoa`). Field khác (tên, ghi chú, người phụ
-        # trách...) không đụng vật tư nên KHÔNG chặn.
-        if ("so_luong_dat" in changed or data.get("quy_cach")):
+        # Đổi SL đặt / con·tờ / quy cách là đổi luôn số vật tư cần — chặn khi đang giữ chỗ, cùng
+        # luật với routing (`replace_routing`) và xoá lệnh (`xoa`). Field khác (tên, ghi chú, người
+        # phụ trách...) không đụng vật tư nên KHÔNG chặn.
+        # Điều kiện phải TRÙNG KHÍT với điều kiện chạy lại chuỗi ngược ở dưới: cái gì làm
+        # `_ap_chuoi_nguoc` viết lại số tờ vào máy thì cái đó đổi lượng giấy cần. `so_con` từng
+        # lọt vì đọc như "thông số trình bày", nhưng bình bài lại là số tờ kế hoạch khác đi.
+        if {"so_luong_dat", "so_con"} & set(changed) or data.get("quy_cach"):
             self._chan_dang_giu_cho(lsx)
         # THÔNG SỐ (ảnh chụp) đổi → trộn vào rồi tính lại mọi số dẫn xuất. Đặt TRƯỚC chuỗi ngược
         # vì nó có thể đổi `so_con` (bình bài lại) — thứ chuỗi ngược lấy làm hệ số cầu.
@@ -2758,9 +2791,8 @@ class LsxService:
     # còn cột trong DB nhưng không nhận từ client và engine không đọc.
     _ROUTING_FIELD_THUAN = (
         "may_id", "khuon_be_id", "bat_buoc", "so_luot_chay",
-        # Ba mốc nhân lực: kế thừa từ định mức là MẶC ĐỊNH, người kế hoạch sửa được tại bước.
-        "so_nhan_cong", "so_nhan_cong_toi_thieu", "so_nhan_cong_tieu_chuan",
-        "so_nhan_cong_toi_da", "phat_sinh_phut",
+        # Nhân lực: kế thừa từ định mức công đoạn là MẶC ĐỊNH, người kế hoạch sửa được tại bước.
+        "so_nhan_cong", "so_nhan_cong_tieu_chuan", "phat_sinh_phut",
         # Chờ kỹ thuật: kế thừa từ danh mục Công đoạn là MẶC ĐỊNH, sửa đè tại bước (mục B).
         "nha_cung_cap", "sl_gui", "ngay_gui_dk", "van_chuyen_ngay", "gia_cong_ngay",
         "ngay_nhan_dk", "hao_hut_cho_phep", "don_gia_gia_cong", "yeu_cau_ky_thuat",
@@ -2776,7 +2808,7 @@ class LsxService:
     }
 
     def _chan_dang_giu_cho(self, lsx: Lsx) -> None:
-        """Lệnh đang giữ chỗ vật tư → không đổi số lượng/quy cách/routing, không xoá.
+        """Lệnh đang giữ chỗ vật tư → không đổi số lượng/con·tờ/quy cách/routing, không xoá.
 
         Đối xứng với `BaiGhepService._chan_dang_giu_cho`/`_chan_lenh_dang_giu_cho` ở phía bài ghép
         — nới ở phía lệnh sẽ vô hiệu hoá khoá phía bài (LSX đứng riêng vẫn đổi được số vật tư cần
@@ -2790,7 +2822,7 @@ class LsxService:
         if getattr(lsx, "giu_cho_bat", False):
             raise LsxConflict(
                 f"Lệnh {lsx.ma} đang giữ chỗ vật tư — nhả chỗ ở màn Kế hoạch vật tư trước khi sửa "
-                "số lượng, quy cách, routing hoặc xoá lệnh."
+                "số lượng, số con/tờ, quy cách, routing hoặc xoá lệnh."
             )
 
     def replace_routing(self, *, lsx_id: int, rows_in, actor, ly_do: str | None = None,
@@ -2820,6 +2852,11 @@ class LsxService:
             nhom = d.get("nhom")
             dept = d.get("department_id")
             cd_obj = self.db.get(CongDoan, cd_id) if cd_id else None
+            # Chuỗi `TEN_BUOC_TRONG` là NHÃN TẠM của bước chưa đặt tên, không phải tên người đặt.
+            # Bước chèn tay từng bị client cũ gửi đúng chuỗi này; khi bước đã gắn công đoạn thì coi
+            # như chưa có tên để lấy lại tên danh mục, nếu không nó trơ chữ "Công đoạn" vĩnh viễn.
+            if cd_id and ten and ten.strip() == TEN_BUOC_TRONG:
+                ten = None
             if cd_id and (not ten or nhom is None or dept is None):
                 if cd_obj is not None:
                     ten = ten or cd_obj.ten
@@ -2836,7 +2873,7 @@ class LsxService:
             if row is None:
                 row = LsxCongDoan(thu_tu=i, **({"step_key": key} if key else {}))
             row.cong_doan_id = cd_id
-            row.ten = ten or "Công đoạn"
+            row.ten = ten or TEN_BUOC_TRONG
             row.nhom = nhom
             row.department_id = dept
             # Loại bước do KHSX chọn. Đổi Công đoạn không được âm thầm đổi lại Máy/Tổ.
@@ -2861,18 +2898,13 @@ class LsxService:
                 if field not in _d:
                     setattr(_row, field, gia_tri)
 
-            # THUÊ NGOÀI đi CHUNG đường với bước máy: tốc độ đọc sống từ máy của nhà thầu, kíp
-            # lấy theo máy. Khác đúng một chỗ — `khoan_json = None` bên dưới (chung cho cả hai
-            # nhánh) nên bước không sinh tiền khoán, và sản lượng không ghi vào tổ.
+            # THUÊ NGOÀI đi CHUNG đường với bước máy: tốc độ đọc sống từ máy của nhà thầu. Khác
+            # đúng một chỗ — `khoan_json = None` (chung cho cả hai nhánh) nên bước không sinh tiền
+            # khoán, và sản lượng không ghi vào tổ. KÍP thì không nằm ở đây: nó bám công đoạn, do
+            # khối đầu việc bên dưới điền qua `_ke_thua` (kế thừa là mặc định, không read-only).
             if row.loai_buoc in (LB_MAY, LB_THUE_NGOAI) and source_changed:
-                may = self.db.get(MayThietBi, row.may_id) if row.may_id else None
                 # Bước MÁY: tốc độ đọc SỐNG từ máy lúc tính thời lượng, không chép lên bước nữa.
                 row.nang_suat = row.don_vi_nang_suat = None
-                # Nhân lực của bước máy do khối "BƯỚC MÁY NGHE MÁY" cuối vòng lặp chốt — ở đây
-                # không đụng vào nữa, để chỉ có MỘT chỗ quyết kíp.
-                # ĐỔI MÁY ⇒ TÍNH LẠI chờ kỹ thuật (chủ chốt 10/08/2026). Kéo lệnh từ máy cán màng
-                # sang máy UV mà chờ vẫn 2 tiếng là vô lý. Đi qua `_ke_thua` nên số người kế hoạch
-                # vừa gõ trong CÙNG lần lưu vẫn thắng — kế thừa là mặc định, không phải read-only.
                 row.khoan_json = None
             # Đầu việc khoán: client gửi `piece_rate_id` thì GHIM ảnh chụp theo id đó (0/None = bỏ
             # chọn); không gửi thì điền mặc định như lúc bung lệnh — kế thừa là MẶC ĐỊNH, không
@@ -2891,42 +2923,36 @@ class LsxService:
                     bo_dau_viec.append(
                         {"vi_tri": i + 1, "ten": row.ten, "dau_viec": rate.ten})
                     rate = None
-                row.khoan_json = khoan_snapshot(rate) if rate is not None else None
+                dm = next((x for x in (getattr(cd_obj, "dau_viec_dinh_muc", None) or [])
+                           if rate is not None and x.piece_rate_id == rate.id), None)
+                row.khoan_json = khoan_snapshot(rate, dm) if rate is not None else None
                 if rate is not None:
-                    dm = next((x for x in (getattr(cd_obj, "dau_viec_dinh_muc", None) or [])
-                               if x.piece_rate_id == rate.id), None)
                     if dm is not None:
                         row.khoan_json.update(_dinh_muc_snapshot(dm))
-                        # ĐỊNH MỨC NHÂN LỰC của đầu việc là định mức TỔ LÀM TAY — "xúm mấy người
-                        # cho nhanh". Bước MÁY thì số người là KÍP ĐỨNG MÁY, khai ở danh mục Máy.
-                        # Trộn hai thứ vào nhau thì bước chạy Yawa (máy khai 2) hiện 3 người theo
-                        # bảng khoán, mà năng suất-người-giờ cũng không ai chia (bước máy chia theo
-                        # tốc độ máy). TIỀN khoán vẫn ghim bình thường ở `khoan_json`.
+                        # KÍP theo CÔNG ĐOẠN, áp cho MỌI loại bước (06/09/2026). Còn NĂNG SUẤT
+                        # người-giờ thì chỉ bước tổ mới chia — bước máy chia theo tốc độ máy.
+                        _ke_thua("so_nhan_cong_tieu_chuan", int(dm.so_nguoi_tieu_chuan))
+                        _ke_thua("so_nhan_cong", int(dm.so_nguoi_tieu_chuan))
                         if row.loai_buoc == LB_TO:
                             row.nang_suat = _f(dm.nang_suat_nguoi_gio)
                             row.don_vi_nang_suat = row.khoan_json.get("don_vi")
-                            _ke_thua("so_nhan_cong_toi_thieu",
-                                     int(getattr(dm, "so_nguoi_toi_thieu", 1) or 1))
-                            _ke_thua("so_nhan_cong_tieu_chuan", int(dm.so_nguoi_tieu_chuan))
-                            _ke_thua("so_nhan_cong_toi_da", int(dm.so_nguoi_toi_da))
-                            _ke_thua("so_nhan_cong", int(dm.so_nguoi_tieu_chuan))
-                elif row.loai_buoc == LB_TO:
-                    row.nang_suat = row.don_vi_nang_suat = None
-                    _ke_thua("so_nhan_cong_tieu_chuan", 1)
-                    _ke_thua("so_nhan_cong_toi_da", None)
-                    _ke_thua("so_nhan_cong_toi_thieu", None)
+                else:
+                    # Bỏ chọn đầu việc KHÔNG có nghĩa là bỏ kíp: kíp là của CÔNG ĐOẠN. Rơi về định
+                    # mức mặc định của công đoạn (khớp đúng một đầu việc), mơ hồ thì mới về 1.
+                    snap = self._khoan_mac_dinh(dept, cd_obj) or {}
+                    _ke_thua("so_nhan_cong_tieu_chuan", int(snap.get("so_nguoi_tieu_chuan") or 1))
+                    if row.loai_buoc == LB_TO:
+                        row.nang_suat = row.don_vi_nang_suat = None
             elif source_changed:
-                row.khoan_json = self._khoan_mac_dinh(dept, cd_obj)
+                snap = self._khoan_mac_dinh(dept, cd_obj) or {}
+                row.khoan_json = snap or None
+                # Bước máy bị dọn `khoan_json` ở khối trên (không sinh tiền khoán) nên kíp đọc từ
+                # `snap` — ĐỊNH MỨC CỦA CÔNG ĐOẠN — chứ không đọc lại ảnh chụp đã dọn.
+                _ke_thua("so_nhan_cong_tieu_chuan", int(snap.get("so_nguoi_tieu_chuan") or 1))
+                _ke_thua("so_nhan_cong", row.so_nhan_cong_tieu_chuan)
                 if row.loai_buoc == LB_TO:
-                    snap = row.khoan_json or {}
                     row.nang_suat = _f(snap.get("nang_suat_nguoi_gio")) or None
                     row.don_vi_nang_suat = snap.get("don_vi")
-                    _ke_thua("so_nhan_cong_toi_thieu",
-                             int(snap["so_nguoi_toi_thieu"]) if snap.get("so_nguoi_toi_thieu") else None)
-                    _ke_thua("so_nhan_cong_tieu_chuan", int(snap.get("so_nguoi_tieu_chuan") or 1))
-                    _ke_thua("so_nhan_cong_toi_da",
-                             int(snap["so_nguoi_toi_da"]) if snap.get("so_nguoi_toi_da") else None)
-                    _ke_thua("so_nhan_cong", row.so_nhan_cong_tieu_chuan)
             # THUÊ NGOÀI: chốt CỨNG một trong hai điểm khác duy nhất so với bước máy — KHÔNG sinh
             # tiền khoán. Đặt SAU khối `piece_rate_id` để client có gửi đầu việc gì cũng vô hiệu;
             # điểm còn lại (không ghi sản lượng vào tổ) đi theo chính `khoan_json` rỗng này, vì
@@ -2934,18 +2960,6 @@ class LsxService:
             if row.loai_buoc == LB_THUE_NGOAI:
                 row.khoan_json = None
 
-            # BƯỚC MÁY NGHE MÁY (chốt 20/08/2026). Kíp tiêu chuẩn = số người vận hành khai ở danh
-            # mục Máy, ghi đè MỖI LẦN LƯU chứ không qua `_ke_thua`: đây là thông số của MÁY, drawer
-            # chỉ hiện chứ không cho sửa tại bước — muốn đổi thì đổi ở danh mục để mọi lệnh cùng ăn.
-            # Nhờ ghi đè, bước cũ lỡ dính số 3 của bảng khoán tự về đúng ngay lần lưu kế tiếp.
-            # Ba mốc tối thiểu/tối đa là chuyện của bước TỔ, bước máy để trống.
-            if row.loai_buoc in (LB_MAY, LB_THUE_NGOAI):
-                may_gan = self.db.get(MayThietBi, row.may_id) if row.may_id else None
-                kip_may = max(int(ceil(_f(may_gan.so_nhan_cong))), 1) if may_gan is not None else 1
-                row.so_nhan_cong_tieu_chuan = kip_may
-                row.so_nhan_cong_toi_thieu = None
-                row.so_nhan_cong_toi_da = None
-                _ke_thua("so_nhan_cong", kip_may)
             rows.append(row)
         # Bước đang bị một bài ghép ĐÈ mà biến mất khỏi payload → bài mất chỗ bám. Chặn ở đây
         # thay vì để lớp đè âm thầm trỏ vào một `step_key` không còn tồn tại. Neo nay là

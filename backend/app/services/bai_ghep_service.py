@@ -762,8 +762,6 @@ class BaiGhepService:
             # kế mù của bất kỳ lệnh nào — hai lệnh có thể đang khai hai máy khác nhau.
             so_nhan_cong_tieu_chuan=1,
             so_nhan_cong=1,
-            so_nhan_cong_toi_da=None,
-            so_nhan_cong_toi_thieu=None,
             don_vi_nang_suat=None,
             # Đơn vị vào/ra là thứ NGƯỜI khai ở danh mục công đoạn, không phải thứ bài tự đặt.
             # Đóng đinh `tờ ➔ tờ` là nói sai ngay khi bước gộp là bế (`to → cai`): thẻ chung ghi
@@ -825,10 +823,10 @@ class BaiGhepService:
         # Thời lượng KẾ THỪA từ máy (2026-08-04): client chỉ còn gửi `phat_sinh_phut`.
         # `setup_phut`/`chay_phut`/`di_chuyen_phut`/`ve_sinh_phut` đã rời bộ này.
         "department_id", "may_id", "so_nhan_cong", "loai_buoc",
-        # Biên nhân lực (tối thiểu · tiêu chuẩn · tối đa): kế thừa từ định mức đầu việc nhưng SỬA
-        # ĐÈ được y như bước lệnh — bước chung của bài cũng là một bước có kế hoạch, và bàn xếp
-        # lịch đọc đúng bộ số này để cảnh báo quá/thiếu người.
-        "so_nhan_cong_toi_thieu", "so_nhan_cong_tieu_chuan", "so_nhan_cong_toi_da",
+        # Kíp chuẩn: kế thừa từ định mức đầu việc nhưng SỬA ĐÈ được y như bước lệnh — bước chung
+        # của bài cũng là một bước có kế hoạch. Hai mốc tối thiểu/tối đa đã gỡ (migration `0270`):
+        # chỉ còn MỘT con số nhân lực cho cả hệ.
+        "so_nhan_cong_tieu_chuan",
         "nang_suat", "don_vi_nang_suat", "phat_sinh_phut",
         # Chờ kỹ thuật: gộp lấy mức lớn nhất làm MẶC ĐỊNH, người lập kế hoạch sửa đè được (mục B).
         "so_luot_chay", "ghi_chu",
@@ -854,10 +852,7 @@ class BaiGhepService:
             self._ghim_khoan_chung(
                 chung, patch["piece_rate_id"],
                 giu_kip="so_nhan_cong" in patch,
-                giu_bien=any(
-                    k in patch for k in
-                    ("so_nhan_cong_toi_thieu", "so_nhan_cong_tieu_chuan", "so_nhan_cong_toi_da")
-                ),
+                giu_bien="so_nhan_cong_tieu_chuan" in patch,
             )
         if "vat_tus" in patch:
             self._thay_vat_tu_chung(chung, patch["vat_tus"] or [])
@@ -897,12 +892,10 @@ class BaiGhepService:
             allowed = {x.id for x in svc._dau_viec_cua_cong_doan(cd_obj, chung.department_id)}
             if rate.id not in allowed:
                 raise BaiGhepValidationError("Đầu việc không thuộc công đoạn hoặc tổ phụ trách")
-        chung.khoan_json = khoan_snapshot(rate) if rate is not None else None
-        if rate is None:
-            return
         dm = next((x for x in (getattr(cd_obj, "dau_viec_dinh_muc", None) or [])
-                   if x.piece_rate_id == rate.id), None)
-        if dm is None:
+                   if rate is not None and x.piece_rate_id == rate.id), None)
+        chung.khoan_json = khoan_snapshot(rate, dm) if rate is not None else None
+        if rate is None or dm is None:
             return
         # Bước chung của bài cũng là "một bước có kế hoạch" → ghim NGUYÊN bộ định mức như bước
         # lệnh, gồm cả dải năng suất min/max và đơn vị khai báo.
@@ -911,10 +904,8 @@ class BaiGhepService:
         # Đơn vị năng suất = đơn vị ĐƠN GIÁ KHOÁN. Bảng ánh xạ `_DV_VAO_SANG_NS` đã gỡ 15/08/2026
         # cùng hai cơ chế đơn vị cũ — thời lượng nay quy SL vào về chính đơn vị này.
         chung.don_vi_nang_suat = rate.unit
-        if not giu_bien:                      # cùng lượt lưu mà người dùng tự gõ biên thì đừng đè
+        if not giu_bien:                      # cùng lượt lưu mà người dùng tự gõ kíp chuẩn thì đừng đè
             chung.so_nhan_cong_tieu_chuan = int(dm.so_nguoi_tieu_chuan)
-            chung.so_nhan_cong_toi_da = int(dm.so_nguoi_toi_da)
-            chung.so_nhan_cong_toi_thieu = int(getattr(dm, "so_nguoi_toi_thieu", 1) or 1)
         if not giu_kip:                       # người dùng vừa gõ tay kíp thì đừng đè lên
             chung.so_nhan_cong = int(dm.so_nguoi_tieu_chuan)
 
@@ -1453,7 +1444,7 @@ class BaiGhepService:
         # `to→to` giả đá vào `to_nguyen` của bước in → cảnh báo "đứt đơn vị" GIẢ và số tờ vô nghĩa.
         tram = self._tram()
         tren_giay = [c for c in chungs
-                     if tren_dong_giay(c.don_vi_vao, c.don_vi_ra, tram, nhom=c.nhom)]
+                     if tren_dong_giay(c.don_vi_vao, c.don_vi_ra, tram)]
         if not tren_giay:
             return {}, []
         # Đơn vị hiệu dụng: bước chưa backfill đơn vị (danh mục NULL) nối tiếp bằng đơn vị chặng TỜ
@@ -1672,12 +1663,8 @@ class BaiGhepService:
                 # Giá trị NGƯỜI đã khai — form phải mồi lại được, không thì mỗi lần mở drawer là
                 # ô trống và lưu đè mất số cũ.
                 "so_nhan_cong": c.so_nhan_cong,
-                # Ba mốc định biên đi kèm luôn: form bài ghép trước đây chỉ có ô "số người kế
-                # hoạch" trơ trọi, không cách nào biết bước cần tối thiểu/tối đa mấy người — mà
-                # đúng bộ số này là thứ bàn xếp lịch dùng để kêu quá tải.
-                "so_nhan_cong_toi_thieu": c.so_nhan_cong_toi_thieu,
+                # Kíp chuẩn đi kèm luôn: form bài ghép cần biết định mức để so với số bố trí thật.
                 "so_nhan_cong_tieu_chuan": c.so_nhan_cong_tieu_chuan,
-                "so_nhan_cong_toi_da": c.so_nhan_cong_toi_da,
                 "nang_suat": _f(c.nang_suat) or None, "don_vi_nang_suat": c.don_vi_nang_suat,
                 # Chuẩn bị + chạy là SỐ DẪN XUẤT từ máy, không phải cột cũ (đã dormant).
                 "chay_phut": t["chay_phut"],
@@ -1907,7 +1894,7 @@ class BaiGhepService:
             # bước CTP/ghi kẽm (không đụng dòng giấy) thì chưa có "điểm toả" nào để tính, và số tờ
             # cả bài vẫn có thể về 0 trong im lặng (xem gate `thieu_so_to` dưới).
             tram = self._tram()
-            if not any(tren_dong_giay(c.don_vi_vao, c.don_vi_ra, tram, nhom=c.nhom) for c in chungs):
+            if not any(tren_dong_giay(c.don_vi_vao, c.don_vi_ra, tram) for c in chungs):
                 thieu.append("thieu_buoc_chung_tren_giay")
         # Số tờ chạy = MAX nhu cầu các thành viên, nên không thành viên nào có thể thiếu tờ —
         # "thiếu giấy" trước đây là hệ quả của công thức cũ (lấy SL đặt, bỏ hao các bước sau in),
