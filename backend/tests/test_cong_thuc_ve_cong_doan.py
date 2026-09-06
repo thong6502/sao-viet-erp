@@ -148,3 +148,44 @@ def test_cong_thuc_gia_cua_may_ghi_de_cua_cong_doan(db):
         == "to_dau_vao * 180"
     # Cặp có dòng nhưng ô công thức để TRỐNG ⇒ vẫn dùng công thức chung, không về rỗng.
     assert _cong_doan_to_dict(cd, ct_gia_may="")["cong_thuc_gia"] == "to_dau_vao * 300"
+
+
+def test_buoc_to_van_bao_so_luot_chay_mac_dinh_mot():
+    """Chủ chốt 06/09/2026: "mặc định là 1 cái số lượt qua máy ấy cho dù chọn loại bước là tổ".
+
+    Trước đó `thoi_luong_buoc` ép `None` cho bước tổ, nên chip `so_luot_chay` trong công thức tiền
+    công không có số nào để thế — mà tiền công thì CHỈ tính ở bước tổ.
+    """
+    from types import SimpleNamespace
+
+    from app.services.lsx_service import thoi_luong_buoc
+
+    to = SimpleNamespace(
+        loai_buoc="to", so_luot_chay=2, nang_suat=100, so_nhan_cong=2,
+        so_nhan_cong_tieu_chuan=2, phat_sinh_phut=0, so_luong_vao=1000,
+        don_vi_vao="to", khoan_json={})
+    dg = thoi_luong_buoc(to, None, (1000.0, "to", ""))["dien_giai"]
+    assert dg["so_luot_chay"] == 2
+
+    to.so_luot_chay = None      # chưa khai ⇒ hiểu là 1, không phải "không có"
+    assert thoi_luong_buoc(to, None, (1000.0, "to", ""))["dien_giai"]["so_luot_chay"] == 1
+
+
+def test_so_luot_KHONG_nhan_vao_gio_cua_buoc_to():
+    """Khoá lại quyết định 06/09/2026: nhánh tổ giữ nguyên công thức, KHÔNG nhân lượt.
+
+    Nhánh máy `_chay` có `× luot`, nhánh tổ `_chay_to` thì không. Đổi nhánh tổ là làm mọi bước tổ
+    đang có đổi giờ ngay lần deploy kế — ngoài phạm vi. Số lượt ở bước tổ chỉ đi vào TIỀN CÔNG.
+    """
+    from types import SimpleNamespace
+
+    from app.services.lsx_service import thoi_luong_buoc
+
+    def _phut(luot):
+        to = SimpleNamespace(
+            loai_buoc="to", so_luot_chay=luot, nang_suat=100, so_nhan_cong=1,
+            so_nhan_cong_tieu_chuan=1, phat_sinh_phut=0, so_luong_vao=1000,
+            don_vi_vao="to", khoan_json={})
+        return thoi_luong_buoc(to, None, (1000.0, "to", ""))["chiem_may_phut"]
+
+    assert _phut(2) == _phut(1), "bước tổ: đổi số lượt KHÔNG đổi giờ"

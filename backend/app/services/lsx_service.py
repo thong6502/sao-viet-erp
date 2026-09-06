@@ -362,7 +362,9 @@ def thoi_luong_buoc(cd, may=None, sl_tinh=None) -> dict:
         "nguon_nang_suat": "dau_viec" if loai == LB_TO else "may",
         "nang_suat_co_so": round(ns, 2) if ns > 0 else None,
         "nang_suat_hieu_dung": round(nang_suat_hieu_dung, 2) if nang_suat_hieu_dung > 0 else None,
-        "so_luot_chay": None if loai == LB_TO else luot,
+        # 06/09/2026: MỌI loại bước đều có số lượt, mặc định 1. Trước đó bước tổ bị ép `None` —
+        # nhưng công thức tiền công (chỉ chạy ở bước tổ) cần chip `so_luot_chay` có số thật.
+        "so_luot_chay": luot,
         "so_nhan_cong_ke_hoach": nguoi_ke_hoach,
         "so_nhan_cong_tieu_chuan": max(int(getattr(cd, "so_nhan_cong_tieu_chuan", 1) or 1), 1),
         "so_nhan_cong_tinh": nguoi_tinh,

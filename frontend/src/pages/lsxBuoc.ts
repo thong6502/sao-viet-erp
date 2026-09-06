@@ -55,7 +55,8 @@ export interface EditRow {
   so_luong_ra: string;
   don_vi_vao: string;
   don_vi_ra: string;
-  /** Bước có nằm trên DÒNG GIẤY không — CHỈ ĐỌC, server quyết theo cờ trạm của danh mục Đơn vị.
+  /** Bước có nằm trên DÒNG GIẤY không — CHỈ ĐỌC, server quyết theo cặp đơn vị của bước (bỏ trống
+   *  cả hai = ngoài dòng giấy).
    *  `false` ⇒ số lượng không tự tính ngược, bù hao không cộng vào số giấy (drawer nói tại chỗ). */
   tren_dong_giay: boolean;
   /** Bước ngoài dòng giấy thiếu cầu quy đổi vào→ra ở module Đơn vị & quy đổi ⇒ câu lỗi (server
@@ -70,10 +71,8 @@ export interface EditRow {
   so_luot_chay: string;
   // năng suất & thời gian (phút)
   so_nhan_cong: string;
-  /** Ba mốc định mức nhân lực — KẾ THỪA từ đầu việc khoán nhưng SỬA ĐƯỢC tại bước. */
-  so_nhan_cong_toi_thieu: number | null;
+  /** Kíp chuẩn — KẾ THỪA từ định mức công đoạn nhưng SỬA ĐƯỢC tại bước (mọi loại bước). */
   so_nhan_cong_tieu_chuan: number;
-  so_nhan_cong_toi_da: number | null;
   nang_suat: string;
   don_vi_nang_suat: string;
   /** Ô DUY NHẤT còn gõ được ở tab Thời gian ("Thời gian khác"). `setup_phut`/`chay_phut` kế thừa
@@ -130,10 +129,8 @@ export interface KhoanChon {
   /** Dải năng suất của định mức — chỉ để hiện khoảng nhanh–chậm, null = chưa khai. */
   nang_suat_nguoi_gio_min?: number | null;
   nang_suat_nguoi_gio_max?: number | null;
-  /** Khai báo, chưa vào công thức — xem `cong_doan_dau_viec.so_nguoi_toi_thieu`. */
-  so_nguoi_toi_thieu?: number;
+  /** Kíp chuẩn của công đoạn — MỘT số duy nhất về nhân lực (mg `0270`). */
   so_nguoi_tieu_chuan?: number;
-  so_nguoi_toi_da?: number;
   don_vi_nang_suat?: string | null;
   /** VẬT TƯ đầu việc này tiêu thụ, ĐÃ tính số cho đúng bước đang mở (nền BOM, mg 0191). Server
    *  quy đổi từ số lượng vào của bước sang đơn vị của vật tư — client chỉ việc bung ra. */
@@ -200,8 +197,11 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     khuon_lech: cd.khuon_lech ?? null,
     so_luong_vao: s(cd.so_luong_vao),
     so_luong_ra: s(cd.so_luong_ra),
-    don_vi_vao: cd.don_vi_vao || "to",
-    don_vi_ra: cd.don_vi_ra || cd.don_vi_vao || "to",
+    // ĐỂ TRỐNG là một CÂU TRẢ LỜI ("bước ngoài dòng giấy" — ghi kẽm, đóng thùng), không phải
+    // "server chưa gửi": lấp bằng `"to"` là dán chữ "tờ" lên bước đếm bản kẽm. Chỉ nối vế RA theo
+    // vế VÀO khi vế vào CÓ giá trị — bước không đổi cách đếm thì hai vế bằng nhau.
+    don_vi_vao: cd.don_vi_vao || "",
+    don_vi_ra: cd.don_vi_ra || cd.don_vi_vao || "",
     // Server cũ chưa gửi cờ ⇒ coi như TRÊN dòng giấy: im lặng đúng với hành vi trước đây, hơn là
     // đột nhiên dán chú giải "ngoài dòng giấy" lên mọi bước.
     tren_dong_giay: cd.tren_dong_giay !== false,
@@ -212,9 +212,7 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     hao_hut_pct: s(cd.hao_hut_pct),
     so_luot_chay: s(cd.so_luot_chay),
     so_nhan_cong: s(cd.so_nhan_cong),
-    so_nhan_cong_toi_thieu: cd.so_nhan_cong_toi_thieu ?? null,
     so_nhan_cong_tieu_chuan: cd.so_nhan_cong_tieu_chuan ?? 1,
-    so_nhan_cong_toi_da: cd.so_nhan_cong_toi_da,
     nang_suat: s(cd.nang_suat),
     don_vi_nang_suat: cd.don_vi_nang_suat ?? "",
     phat_sinh_phut: s(cd.phat_sinh_phut),
@@ -260,8 +258,9 @@ export function toEdit(cd: LsxCongDoan): EditRow {
 }
 
 /** Tên HIỂN THỊ của một bước. Ưu tiên tên CÔNG ĐOẠN đang gắn (`cong_doan_id` → danh mục) rồi mới
- *  tới ô chữ tự do `ten`. Lý do: bước chèn tay để trống tên bị `toBody` đóng đinh literal "Công
- *  đoạn"; nếu sau đó gắn công đoạn (vd "Ghi kẽm CTP") mà `ten` không được đồng bộ thì nhãn trơ
+ *  tới ô chữ tự do `ten`. Lý do: `ten` có thể còn giữ nhãn tạm "Công đoạn" của bước chèn tay để
+ *  trống tên (client cũ đóng đinh literal đó; mg `0267` đã nắn dữ liệu cũ, `toBody` nay gửi
+ *  trống); nếu `ten` không đồng bộ với công đoạn đang gắn (vd "Ghi kẽm CTP") thì nhãn trơ
  *  "Công đoạn" trong khi ô công đoạn đã đúng — tiêu đề/pill/bảng/DAG cùng gọi hàm này để không lệch.
  *  Công đoạn bị xoá khỏi danh mục (không tìm thấy ref) → lùi về `ten` như dropdown đang làm. */
 export function tenBuoc(
@@ -289,7 +288,7 @@ export function emptyRow(): EditRow {
     tren_dong_giay: true, loi_quy_doi: null, san_luong_dien_giai: null, he_so_quy_doi: "",
     hao_hut: "", hao_hut_pct: "", so_luot_chay: "", so_nhan_cong: "",
     nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "",
-    so_nhan_cong_toi_thieu: null, so_nhan_cong_tieu_chuan: 1, so_nhan_cong_toi_da: null,
+    so_nhan_cong_tieu_chuan: 1,
     thoi_luong_dien_giai: {},
     vat_tu_goi_y: [], so_luong_vao_moi: null, so_luong_ra_moi: null,
     phu_thuoc_step_keys: [], vat_tus: [],
@@ -325,7 +324,11 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       thu_tu: i,
       step_key: r.key.startsWith("r") ? undefined : r.key,
       cong_doan_id: r.cong_doan_id,
-      ten: r.ten || "Công đoạn",
+      // Tên TRỐNG thì gửi trống, ĐỪNG tự điền literal "Công đoạn": server có sẵn đường lùi
+      // `ten or cd_obj.ten` (lấy tên danh mục của công đoạn đang gắn), điền literal ở đây làm
+      // đường lùi đó không bao giờ chạy và đóng đinh chữ "Công đoạn" vào `lsx_cong_doan.ten` —
+      // mọi màn đọc thẳng cột đó (sơ đồ bài ghép, chip phụ thuộc) sẽ trơ chữ này mãi.
+      ten: r.ten.trim(),
       nhom: r.nhom,
       loai_buoc: r.loai_buoc,
       bat_buoc: r.bat_buoc,
@@ -346,15 +349,9 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       hao_hut_pct: on(r.hao_hut_pct),
       so_luot_chay: on(r.so_luot_chay),
       so_nhan_cong: on(r.so_nhan_cong),
-      // Ba mốc định mức: gửi lên để số người kế hoạch sửa tay không bị server kéo lại theo
-      // danh mục. Bước Máy/Thuê ngoài không có định mức tổ nên bỏ qua.
-      ...(r.loai_buoc === "to"
-        ? {
-            so_nhan_cong_toi_thieu: r.so_nhan_cong_toi_thieu ?? undefined,
-            so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan || undefined,
-            so_nhan_cong_toi_da: r.so_nhan_cong_toi_da ?? undefined,
-          }
-        : {}),
+      // Kíp chuẩn gửi lên để số sửa tay không bị server kéo lại theo danh mục. Gửi cho MỌI loại
+      // bước (mg `0270`): kíp nay bám công đoạn chứ không còn bám máy.
+      so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan || undefined,
       // Ô trống = để máy tính từ năng suất (KHÔNG phải 0 phút).
       phat_sinh_phut: on(r.phat_sinh_phut),
       phu_thuoc_step_keys: r.phu_thuoc_step_keys,
@@ -394,8 +391,8 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
  * Cảnh báo giả nguy hiểm hơn là không có cảnh báo: nó dạy người dùng bỏ qua cả cột, nên lúc đứt
  * thật cũng chẳng ai nhìn.
  *
- * Nay lọc bằng CỜ `tren_dong_giay` — server suy từ `don_vi_do.tram_dong_giay`, FE không tự đoán từ
- * mã. Bước ngoài dòng giấy đo khối lượng việc của RIÊNG nó (kẽm đếm bản, đóng thùng đếm thùng);
+ * Nay lọc bằng CỜ `tren_dong_giay` — server chấm sẵn, FE không tự đoán từ mã. Bước ngoài dòng giấy
+ * đo khối lượng việc của RIÊNG nó (kẽm đếm bản, đóng thùng đếm thùng);
  * đem thước đó so với thước dòng giấy là so hai thứ không liên quan.
  *
  * Vẫn so bằng MÃ đơn vị chứ không bằng trạm: giữa hai bước liền nhau trên dòng giấy, giấy không
@@ -447,7 +444,6 @@ export type ThoiLuongInput = Pick<
   | "loai_buoc"
   | "so_luot_chay"
   | "so_nhan_cong"
-  | "so_nhan_cong_toi_da"
   | "so_nhan_cong_tieu_chuan"
   | "nang_suat"
   | "phat_sinh_phut"
@@ -552,10 +548,11 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
     nguon_nang_suat: r.loai_buoc === "to" ? "dau_viec" : "may",
     nang_suat_co_so: nangSuatCoSo > 0 ? tron(nangSuatCoSo) : null,
     nang_suat_hieu_dung: nangSuatHieuDung > 0 ? tron(nangSuatHieuDung) : null,
-    so_luot_chay: r.loai_buoc === "to" ? null : luot,
+    // 06/09/2026: bước tổ cũng gửi số lượt (mặc định 1) — chip `so_luot_chay` của công thức
+    // tiền công cần số thật, mà tiền công chỉ tính ở bước tổ.
+    so_luot_chay: luot,
     so_nhan_cong_ke_hoach: nguoiKeHoach,
     so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan,
-    so_nhan_cong_toi_da: r.loai_buoc === "to" ? r.so_nhan_cong_toi_da : null,
     // Bước TỔ nhân kíp chuẩn vào công thức (chốt 20/08/2026) ⇒ "số người tính" = số người tiêu chuẩn.
     so_nhan_cong_tinh: nguoiTinh,
     setup_phut: tron(setup),
