@@ -189,3 +189,33 @@ def test_so_luot_KHONG_nhan_vao_gio_cua_buoc_to():
         return thoi_luong_buoc(to, None, (1000.0, "to", ""))["chiem_may_phut"]
 
     assert _phut(2) == _phut(1), "bước tổ: đổi số lượt KHÔNG đổi giờ"
+
+
+def test_cong_doan_da_chon_may_thi_luat_chan_doc_danh_sach_may(db):
+    """Khai danh sách máy CỤ THỂ thì nó thắng luật nhóm — hai luật song song là mời khai lệch."""
+    from app.services.bai_ghep_service import BaiGhepService
+
+    cd = CongDoan(ma="CD-R1", ten="In AB", nhom="print", nhom_may_cho_phep=["Máy in"])
+    m_ok = MayThietBi(ma="MAY-R1", ten="Komori", loai_may="Máy in")
+    m_cung_nhom = MayThietBi(ma="MAY-R2", ten="Heidelberg", loai_may="Máy in")
+    db.add_all([cd, m_ok, m_cung_nhom])
+    db.flush()
+    cd.may_lam_duoc.append(CongDoanMay(may_id=m_ok.id, thu_tu=0))
+    db.commit()
+
+    # Máy CÙNG NHÓM nhưng KHÔNG nằm trong danh sách của công đoạn ⇒ vẫn bị chặn.
+    assert BaiGhepService.may_ngoai_cong_doan(cd, m_cung_nhom) is True
+    assert BaiGhepService.may_ngoai_cong_doan(cd, m_ok) is False
+
+
+def test_cong_doan_chua_chon_may_thi_lui_ve_luat_nhom(db):
+    from app.services.bai_ghep_service import BaiGhepService
+
+    cd = CongDoan(ma="CD-R2", ten="Bế", nhom="finishing", nhom_may_cho_phep=["Bế"])
+    m_be = MayThietBi(ma="MAY-R3", ten="Yawa", loai_may="Bế")
+    m_in = MayThietBi(ma="MAY-R4", ten="Komori", loai_may="Máy in")
+    db.add_all([cd, m_be, m_in])
+    db.commit()
+
+    assert BaiGhepService.may_ngoai_cong_doan(cd, m_be) is False
+    assert BaiGhepService.may_ngoai_cong_doan(cd, m_in) is True
