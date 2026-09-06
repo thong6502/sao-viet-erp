@@ -172,13 +172,17 @@ class CongDoanRepository(CatalogRepo):
             if cd.id is not None:          # công đoạn mới chưa có id thì chưa có gì để xoá
                 self.db.flush()
         for r in rows:
-            # `vat_tu_ids` là DANH SÁCH CON, không phải cột — tách ra trước khi dựng model.
+            # `vat_tus` là DANH SÁCH CON, không phải cột — tách ra trước khi dựng model.
             r = dict(r)
-            ids = r.pop("vat_tu_ids", None) or []
-            r.pop("vat_tus", None)         # khoá chỉ-đọc của schema Row, client có thể gửi ngược lên
+            vts = r.pop("vat_tus", None) or []
+            r.pop("id", None)              # khoá chỉ-đọc của schema Row, client có thể gửi ngược lên
             dv = CongDoanDauViec(**r)
             dv.vat_tus.extend(
-                CongDoanDauViecVatTu(vat_tu_id=int(v), thu_tu=i) for i, v in enumerate(ids)
+                CongDoanDauViecVatTu(
+                    vat_tu_id=int(v["vat_tu_id"]), thu_tu=i,
+                    cong_thuc_luong=((v.get("cong_thuc_luong") or "").strip() or None),
+                )
+                for i, v in enumerate(vts)
             )
             cd.dau_viec_dinh_muc.append(dv)
 

@@ -3280,7 +3280,9 @@ dùng cho bình bài.
 
 **Purpose:** quan hệ nhiều-nhiều giữa công đoạn loại Tổ và đầu việc khoán của đúng tổ, đồng thời giữ định mức thời gian.
 
-**Tất cả cột:** `id`, `cong_doan_id`, `piece_rate_id`, `nang_suat_nguoi_gio`, `nang_suat_nguoi_gio_min`, `nang_suat_nguoi_gio_max`, `don_vi_nang_suat`, `so_nguoi_tieu_chuan`, `cho_ky_thuat_gio`.
+**Tất cả cột:** `id`, `cong_doan_id`, `piece_rate_id`, `nang_suat_nguoi_gio`, `nang_suat_nguoi_gio_min`, `nang_suat_nguoi_gio_max`, `don_vi_nang_suat`, `so_nguoi_tieu_chuan`, `cong_thuc_khoan`, `cho_ky_thuat_gio`.
+
+**`cong_thuc_khoan`** (TEXT nullable, mg `0272`, 06/09/2026): **CÔNG THỨC TÍNH TIỀN CÔNG** của đầu việc này TRONG công đoạn này — ra **LƯỢNG** theo đơn vị của đơn giá khoán, engine nhân đơn giá sau. Dời từ `piece_rates.cong_thuc_luong` (gỡ ở mg `0273`): một đầu việc dùng chung ở nhiều công đoạn thì cách đếm sản lượng khoán mỗi nơi một khác, khai một lần ở danh mục Công việc khoán là ép cả hệ dùng chung một cách đếm. Ghim vào bước lệnh lúc chọn đầu việc (khác `cong_doan_may.cong_thuc_gio` đọc SỐNG) — đơn giá khoán đã trả cho thợ thì sửa công thức ở danh mục không được phép đổi ngược số của lệnh cũ.
 
 🔴 **`is_default` GỠ 12/08/2026 (mg `0190`)** — cột radio "Mặc định" ở bảng đầu việc trong form Công đoạn. Nó chọn hộ đầu việc nào điền sẵn khi lập lệnh. Chủ chốt bỏ: cùng một công đoạn mà hai đầu việc khác nhau THẬT (bế TAY / bế MÁY · vào keo gáy vuông / khâu chỉ) thì chọn cái nào là quyết định theo **hàng cụ thể**, không phải hằng số khai một lần ở danh mục.
 
@@ -3314,7 +3316,9 @@ dùng cho bình bài.
 
 **Purpose:** VẬT TƯ mà một đầu việc của công đoạn tiêu thụ — nền của BOM (mg `0191`). Khai một lần ở danh mục Công đoạn; đến lệnh sản xuất, chọn "Công việc khoán" ở bước là các vật tư này tự bung vào khối "Vật tư cần dùng".
 
-**Tất cả cột:** `id`, `cong_doan_dau_viec_id`, `vat_tu_id`, `thu_tu`.
+**Tất cả cột:** `id`, `cong_doan_dau_viec_id`, `vat_tu_id`, `thu_tu`, `cong_thuc_luong`.
+
+**`cong_thuc_luong`** (TEXT nullable, mg `0272`, 06/09/2026): **ĐỊNH MỨC của CHÍNH dòng vật tư này** trong CHÍNH đầu việc này — ra LƯỢNG theo ĐVT của vật tư. Dời từ `vat_tu_in_an.cong_thuc_luong` (gỡ ở mg `0273`): hai món cùng ĐVT vẫn ăn theo hai trục khác hẳn — mực theo số tờ chạy, dung môi theo số màu (`so_mau * 0,3`: in 5.000 hay 50.000 tờ vẫn 1,2 kg) — nên công thức thuộc về CẶP (đầu việc × vật tư), không thuộc về món hàng. Trống = lùi về quy đổi động như trước.
 
 **KHÔNG có cột số lượng** — cố ý. Định mức tuỳ quy cách từng lệnh (khổ tờ · số màu · số tờ chạy), nên một con số khai ở danh mục là số chết. Số lượng suy **lúc bung ở bước lệnh**: đổi `lsx_cong_doan.so_luong_vao` (theo `don_vi_vao` của bước) sang `vat_tu_in_an.don_vi_gia` bằng **quy đổi động** (`quy_doi_service.doi_theo_quy_cach` + `bien_cong_thuc.quy_cach_bien`). Đổi không được ⇒ KHÔNG bung dòng đó, kèm câu lý do — không đoán.
 

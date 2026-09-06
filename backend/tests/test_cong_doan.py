@@ -121,7 +121,7 @@ def test_cong_doan_to_luu_dinh_muc_theo_dau_viec():
         department_id=to.id, pricing_basis="per_finished_qty",
         dau_viec_dinh_muc=[dict(
             piece_rate_id=rate.id, nang_suat_nguoi_gio=500,
-            so_nguoi_tieu_chuan=3, so_nguoi_toi_da=5,
+            so_nguoi_tieu_chuan=3,
         )],
     ))
 
@@ -129,7 +129,7 @@ def test_cong_doan_to_luu_dinh_muc_theo_dau_viec():
     dm = cd.dau_viec_dinh_muc[0]
     assert dm.piece_rate_id == rate.id
     assert float(dm.nang_suat_nguoi_gio) == 500
-    assert (dm.so_nguoi_tieu_chuan, dm.so_nguoi_toi_da) == (3, 5)
+    assert dm.so_nguoi_tieu_chuan == 3
 
 
 def test_dau_viec_options_kem_ten_don_vi():
@@ -174,24 +174,23 @@ def test_dinh_muc_luu_dai_nang_suat_don_vi_va_ba_moc_nhan_luc():
         piece_rate_id=rate.id, nang_suat_nguoi_gio=250,
         nang_suat_nguoi_gio_min=200, nang_suat_nguoi_gio_max=320,
         don_vi_nang_suat="hop_gio",
-        so_nguoi_toi_thieu=2, so_nguoi_tieu_chuan=4, so_nguoi_toi_da=8,
+        so_nguoi_tieu_chuan=4,
     )]})
     dm = cd.dau_viec_dinh_muc[0]
     assert (float(dm.nang_suat_nguoi_gio_min), float(dm.nang_suat_nguoi_gio_max)) == (200, 320)
     assert dm.don_vi_nang_suat == "hop_gio"
-    assert (dm.so_nguoi_toi_thieu, dm.so_nguoi_tieu_chuan, dm.so_nguoi_toi_da) == (2, 4, 8)
+    assert dm.so_nguoi_tieu_chuan == 4
 
     # Tối thiểu > trung bình ⇒ "nhanh nhất" hoá ra chậm hơn "chậm nhất" — chặn ngay ở service.
     with pytest.raises(CongDoanValidationError, match="tối thiểu"):
         svc.create({**base, "ma": "DAN2", "dau_viec_dinh_muc": [dict(
             piece_rate_id=rate.id, nang_suat_nguoi_gio=250, nang_suat_nguoi_gio_min=400,
-            so_nguoi_tieu_chuan=4, so_nguoi_toi_da=8,
+            so_nguoi_tieu_chuan=4,
         )]})
-    # Ba mốc nhân lực phải xếp đúng thứ tự.
-    with pytest.raises(CongDoanValidationError, match="1 ≤ tối thiểu"):
+    # Kíp chuẩn phải từ 1 trở lên (hai mốc tối thiểu/tối đa đã gỡ ở mg `0270`).
+    with pytest.raises(CongDoanValidationError, match="Số người tiêu chuẩn"):
         svc.create({**base, "ma": "DAN3", "dau_viec_dinh_muc": [dict(
-            piece_rate_id=rate.id, nang_suat_nguoi_gio=250,
-            so_nguoi_toi_thieu=5, so_nguoi_tieu_chuan=4, so_nguoi_toi_da=8,
+            piece_rate_id=rate.id, nang_suat_nguoi_gio=250, so_nguoi_tieu_chuan=0,
         )]})
 
 
@@ -213,13 +212,13 @@ def test_luu_lai_dinh_muc_cung_dau_viec_khong_dung_unique():
                 department_id=to.id, pricing_basis="per_finished_qty")
     cd = svc.create({**base, "dau_viec_dinh_muc": [dict(
         piece_rate_id=rate.id, nang_suat_nguoi_gio=3000,
-        so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3,
+        so_nguoi_tieu_chuan=1,
     )]})
 
     cd = svc.update(cd.id, {**base, "dau_viec_dinh_muc": [dict(
         piece_rate_id=rate.id, nang_suat_nguoi_gio=3000,
         nang_suat_nguoi_gio_min=2000, nang_suat_nguoi_gio_max=5000,
-        so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3,
+        so_nguoi_tieu_chuan=1,
     )]})
     assert len(cd.dau_viec_dinh_muc) == 1
     dm = cd.dau_viec_dinh_muc[0]
@@ -245,16 +244,16 @@ def test_dinh_muc_to_chan_dau_viec_khac_to_va_cho_nhieu_dau_viec_khong_can_mac_d
     with pytest.raises(CongDoanValidationError, match="đúng tổ"):
         svc.create({**base, "dau_viec_dinh_muc": [dict(
             piece_rate_id=rates[2].id, nang_suat_nguoi_gio=100,
-            so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2,
+            so_nguoi_tieu_chuan=1,
         )]})
 
     # Hai đầu việc cùng tổ: KHÔNG còn phải chỉ định cái nào "mặc định" (cột đó gỡ 12/08/2026,
     # mg 0190). Lưu được trọn vẹn; việc chọn dùng cái nào để dành cho lúc lập lệnh.
     cd = svc.create({**base, "ma": "TO-A2", "dau_viec_dinh_muc": [
         dict(piece_rate_id=rates[0].id, nang_suat_nguoi_gio=100,
-             so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2),
+             so_nguoi_tieu_chuan=1),
         dict(piece_rate_id=rates[1].id, nang_suat_nguoi_gio=120,
-             so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3),
+             so_nguoi_tieu_chuan=1),
     ]})
     assert len(cd.dau_viec_dinh_muc) == 2
     assert not hasattr(cd.dau_viec_dinh_muc[0], "is_default"), "cờ mặc định phải hết hẳn"
@@ -290,12 +289,12 @@ def test_dau_viec_mang_danh_sach_vat_tu():
         department_id=to.id, pricing_basis="per_finished_qty",
         dau_viec_dinh_muc=[dict(
             piece_rate_id=rate.id, nang_suat_nguoi_gio=5000,
-            so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2,
-            vat_tu_ids=[muc.id, con.id],
+            so_nguoi_tieu_chuan=1,
+            vat_tus=[{"vat_tu_id": muc.id}, {"vat_tu_id": con.id}],
         )],
     ))
     dv = cd.dau_viec_dinh_muc[0]
-    assert dv.vat_tu_ids == [muc.id, con.id], "giữ đúng thứ tự người khai"
+    assert [v.vat_tu_id for v in dv.vat_tus] == [muc.id, con.id], "giữ đúng thứ tự người khai"
     assert [v.thu_tu for v in dv.vat_tus] == [0, 1]
 
     # Sửa lại danh sách: thay trọn, không cộng dồn.
@@ -304,10 +303,10 @@ def test_dau_viec_mang_danh_sach_vat_tu():
         department_id=to.id, pricing_basis="per_finished_qty",
         dau_viec_dinh_muc=[dict(
             piece_rate_id=rate.id, nang_suat_nguoi_gio=5000,
-            so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2, vat_tu_ids=[con.id],
+            so_nguoi_tieu_chuan=1, vat_tus=[{"vat_tu_id": con.id}],
         )],
     ))
-    assert cd.dau_viec_dinh_muc[0].vat_tu_ids == [con.id]
+    assert [v.vat_tu_id for v in cd.dau_viec_dinh_muc[0].vat_tus] == [con.id]
 
 
 def test_chan_vat_tu_ngung_dung_va_vat_tu_chua_co_don_vi():
@@ -324,15 +323,15 @@ def test_chan_vat_tu_ngung_dung_va_vat_tu_chua_co_don_vi():
     base = dict(ma="GC-X", ten="Gia công X", nhom="finishing",
                 department_id=to.id, pricing_basis="per_finished_qty")
     dm = dict(piece_rate_id=rate.id, nang_suat_nguoi_gio=100,
-              so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2)
+              so_nguoi_tieu_chuan=1)
 
     with pytest.raises(CongDoanValidationError, match="đã ngừng dùng"):
-        svc.create({**base, "dau_viec_dinh_muc": [{**dm, "vat_tu_ids": [tat.id]}]})
+        svc.create({**base, "dau_viec_dinh_muc": [{**dm, "vat_tus": [{"vat_tu_id": tat.id}]}]})
     with pytest.raises(CongDoanValidationError, match="đơn vị tính"):
-        svc.create({**base, "ma": "GC-X2", "dau_viec_dinh_muc": [{**dm, "vat_tu_ids": [trong.id]}]})
+        svc.create({**base, "ma": "GC-X2", "dau_viec_dinh_muc": [{**dm, "vat_tus": [{"vat_tu_id": trong.id}]}]})
     with pytest.raises(CongDoanValidationError, match="trùng"):
         svc.create({**base, "ma": "GC-X3",
-                    "dau_viec_dinh_muc": [{**dm, "vat_tu_ids": [trong.id, trong.id]}]})
+                    "dau_viec_dinh_muc": [{**dm, "vat_tus": [{"vat_tu_id": trong.id}, {"vat_tu_id": trong.id}]}]})
 
 
 def test_vat_tu_ngung_dung_van_sua_duoc_cong_doan_dang_giu_no():
@@ -350,7 +349,7 @@ def test_vat_tu_ngung_dung_van_sua_duoc_cong_doan_dang_giu_no():
     db.add(vt)
     db.commit()
     dm = dict(piece_rate_id=rate.id, nang_suat_nguoi_gio=100,
-              so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2, vat_tu_ids=[vt.id])
+              so_nguoi_tieu_chuan=1, vat_tus=[{"vat_tu_id": vt.id}])
     cd = svc.create(dict(ma="GC-Y", ten="Gia công Y", nhom="finishing", department_id=to.id,
                          pricing_basis="per_finished_qty", dau_viec_dinh_muc=[dm]))
 
@@ -361,7 +360,7 @@ def test_vat_tu_ngung_dung_van_sua_duoc_cong_doan_dang_giu_no():
                                  department_id=to.id, pricing_basis="per_finished_qty",
                                  dau_viec_dinh_muc=[dm]))
     assert sua.ten == "Gia công Y (đổi tên)"
-    assert sua.dau_viec_dinh_muc[0].vat_tu_ids == [vt.id]
+    assert [v.vat_tu_id for v in sua.dau_viec_dinh_muc[0].vat_tus] == [vt.id]
 
     # Nhưng GÁN THÊM một vật tư đã ngừng thì vẫn phải chặn.
     khac = VatTuInAn(ma="VT-TAT2", ten="Mực cũ", don_vi_gia="kg", don_gia=1, active=False)
@@ -370,7 +369,7 @@ def test_vat_tu_ngung_dung_van_sua_duoc_cong_doan_dang_giu_no():
     with pytest.raises(CongDoanValidationError, match="đã ngừng dùng"):
         svc.update(cd.id, dict(ma="GC-Y", ten="Gia công Y", nhom="finishing",
                                department_id=to.id, pricing_basis="per_finished_qty",
-                               dau_viec_dinh_muc=[{**dm, "vat_tu_ids": [vt.id, khac.id]}]))
+                               dau_viec_dinh_muc=[{**dm, "vat_tus": [{"vat_tu_id": vt.id}, {"vat_tu_id": khac.id}]}]))
 
 
 def test_cong_doan_trung_tinh_khong_mang_loai_thuc_hien_hoac_may_mac_dinh():
@@ -477,8 +476,10 @@ def test_cascade_waste_backward():
              dict(nhom="finishing", spoilage_pct=3)]
     out = re.cascade_waste_backward(steps, 1000)
     assert out[-1]["output_qty"] == 1000
-    # bước cuối 3%: input = 1000/0.97 ≈ 1030.93
-    assert abs(out[-1]["input_qty"] - 1030.928) < 0.01
+    # bước cuối 3%: hao đo trên số RA ⇒ input = 1000 × 1,03 = 1030 (KHÔNG phải 1000/0,97 = 1030,93)
+    assert abs(out[-1]["input_qty"] - 1030.0) < 0.01
+    # bước giữa 2% ăn tiếp trên số ra của nó = 1030 ⇒ 1050,6
+    assert abs(out[1]["input_qty"] - 1050.6) < 0.01
     # bước in: spoilage ép 0 → input == output
     assert out[0]["input_qty"] == out[0]["output_qty"]
 

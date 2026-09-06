@@ -6,6 +6,13 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class CongDoanDauViecVatTuIn(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    vat_tu_id: int
+    # ĐỊNH MỨC của CHÍNH món này trong CHÍNH đầu việc này — ra LƯỢNG theo ĐVT của vật tư.
+    cong_thuc_luong: str | None = None
+
+
 class CongDoanDauViecIn(BaseModel):
     piece_rate_id: int
     # `nang_suat_nguoi_gio` = mức TRUNG BÌNH (số chảy vào công thức thời lượng); min/max chỉ để ra
@@ -16,9 +23,13 @@ class CongDoanDauViecIn(BaseModel):
     don_vi_nang_suat: str | None = Field(default=None, max_length=32)
     # Kíp chuẩn của công đoạn — MỘT số duy nhất về nhân lực (mg `0270`).
     so_nguoi_tieu_chuan: int = Field(ge=1)
-    # VẬT TƯ đầu việc này tiêu thụ (mg 0191) — chỉ DANH SÁCH, không có số lượng: định mức tuỳ quy
-    # cách từng lệnh, số khai ở danh mục là số chết. Số lượng suy lúc bung ở bước lệnh.
-    vat_tu_ids: list[int] = Field(default_factory=list)
+    # CÔNG THỨC TÍNH TIỀN CÔNG của đầu việc này trong công đoạn này (06/09/2026) — ra LƯỢNG theo
+    # đơn vị đơn giá khoán, engine nhân đơn giá sau. Ghim vào bước lệnh lúc chọn đầu việc.
+    cong_thuc_khoan: str | None = None
+    # VẬT TƯ đầu việc tiêu thụ (mg 0191). Trước 06/09/2026 chỉ là `vat_tu_ids: list[int]` (danh
+    # sách thuần, công thức treo ở món hàng); nay mỗi dòng mang công thức định mức của riêng nó vì
+    # hai món cùng ĐVT ăn theo hai trục khác hẳn (mực theo số tờ, dung môi theo số màu).
+    vat_tus: list[CongDoanDauViecVatTuIn] = Field(default_factory=list)
 
 
 class CongDoanDauViecRow(CongDoanDauViecIn):

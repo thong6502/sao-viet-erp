@@ -12124,3 +12124,59 @@ def _migrate_cong_doan_may(db) -> None:
 
 
 MIGRATIONS.append(("0271_cong_doan_may", _migrate_cong_doan_may))
+
+
+def _migrate_cong_thuc_ve_cong_doan(db) -> None:
+    """Hai ô công thức xuống bảng con của công đoạn + bê số cũ sang (06/09/2026).
+
+    Nghiệp vụ: "việc này khoán theo lượng nào" và "món này ăn bao nhiêu" đều đổi theo TỪNG CÔNG
+    ĐOẠN. Khai ở bảng đơn giá khoán / bảng vật tư thì mọi công đoạn dùng chung một con số — cùng
+    "Mực Cyan" mà In khổ 79×109 ăn 1 kg / 8.000 tờ, In khổ 11×11 ăn 1 kg / 40.000 tờ.
+
+    Bê số cũ sang là CHÉP XUỐNG, không đoán: mỗi dòng con nhận đúng công thức của nguồn nó đang
+    trỏ tới, nên số của lệnh không đổi ngay sau khi chạy migration. Chỉ chép khi ô đích còn TRỐNG
+    — chạy lại migration không đè cấu hình đã sửa tay.
+
+    Raw SQL đích danh cột (không ORM): ORM full-select kéo cả cột do migration SAU thêm, vỡ deploy
+    trên DB trung gian. Truy vấn con TƯƠNG QUAN chứ không `UPDATE ... FROM`: bộ test migration
+    chạy trên SQLite, mà cú pháp kia chỉ Postgres mới hiểu.
+    """
+    insp = inspect(db.get_bind())
+    bang_co = set(insp.get_table_names())
+
+    if "cong_doan_dau_viec" in bang_co:
+        if "cong_thuc_khoan" not in _existing_columns(insp, "cong_doan_dau_viec"):
+            db.execute(text("ALTER TABLE cong_doan_dau_viec ADD COLUMN cong_thuc_khoan TEXT"))
+        if "piece_rates" in bang_co and "cong_thuc_luong" in _existing_columns(
+                insp, "piece_rates"):
+            db.execute(text(
+                "UPDATE cong_doan_dau_viec SET cong_thuc_khoan = ("
+                "  SELECT pr.cong_thuc_luong FROM piece_rates pr"
+                "   WHERE pr.id = cong_doan_dau_viec.piece_rate_id) "
+                "WHERE (cong_thuc_khoan IS NULL OR cong_thuc_khoan = '') "
+                "  AND EXISTS (SELECT 1 FROM piece_rates pr"
+                "               WHERE pr.id = cong_doan_dau_viec.piece_rate_id"
+                "                 AND pr.cong_thuc_luong IS NOT NULL"
+                "                 AND pr.cong_thuc_luong <> '')"
+            ))
+
+    if "cong_doan_dau_viec_vat_tu" in bang_co:
+        if "cong_thuc_luong" not in _existing_columns(insp, "cong_doan_dau_viec_vat_tu"):
+            db.execute(text(
+                "ALTER TABLE cong_doan_dau_viec_vat_tu ADD COLUMN cong_thuc_luong TEXT"))
+        if "vat_tu_in_an" in bang_co and "cong_thuc_luong" in _existing_columns(
+                insp, "vat_tu_in_an"):
+            db.execute(text(
+                "UPDATE cong_doan_dau_viec_vat_tu SET cong_thuc_luong = ("
+                "  SELECT vt.cong_thuc_luong FROM vat_tu_in_an vt"
+                "   WHERE vt.id = cong_doan_dau_viec_vat_tu.vat_tu_id) "
+                "WHERE (cong_thuc_luong IS NULL OR cong_thuc_luong = '') "
+                "  AND EXISTS (SELECT 1 FROM vat_tu_in_an vt"
+                "               WHERE vt.id = cong_doan_dau_viec_vat_tu.vat_tu_id"
+                "                 AND vt.cong_thuc_luong IS NOT NULL"
+                "                 AND vt.cong_thuc_luong <> '')"
+            ))
+    db.commit()
+
+
+MIGRATIONS.append(("0272_cong_thuc_ve_cong_doan", _migrate_cong_thuc_ve_cong_doan))

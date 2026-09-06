@@ -204,6 +204,18 @@ class CongDoanDauViec(Base):
     # Hai mốc `so_nguoi_toi_thieu`/`so_nguoi_toi_da` ĐÃ GỠ: tối đa chỉ đổi màu chứ không chặn gì,
     # còn tối thiểu chỉ có răng khi ai đó chịu khai ≥ 2 — để mặc định 1 thì nó im sẵn.
     so_nguoi_tieu_chuan: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # CÔNG THỨC TÍNH TIỀN CÔNG của đầu việc này TRONG công đoạn này (06/09/2026).
+    #
+    # Ra LƯỢNG theo đơn vị của ĐƠN GIÁ KHOÁN rồi engine mới nhân đơn giá — nhãn trên màn là
+    # "Công thức tính tiền công" cho người khai dễ hiểu, nhưng giá trị nó trả là LƯỢNG.
+    #
+    # Vì sao chuyển từ `piece_rates.cong_thuc_luong` (gỡ ở mg `0273`) xuống đây: cùng một đầu việc
+    # làm ở hai công đoạn khác nhau thì đếm khác nhau (in khổ lớn / khổ nhỏ), mà treo ở bảng đơn
+    # giá thì cả hai buộc dùng chung một cách đo.
+    #
+    # ⚠️ VẪN GHÌM vào bước lệnh qua `khoan_snapshot` — sửa ở đây KHÔNG xê dịch tiền công của lệnh
+    # đã phát. Muốn bước cũ ăn công thức mới thì chọn lại đầu việc ở bước đó.
+    cong_thuc_khoan: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="dau_viec_dinh_muc")
     # VẬT TƯ đầu việc này tiêu thụ — nền của BOM (12/08/2026). Khai một lần ở danh mục, đến lệnh thì
@@ -213,20 +225,21 @@ class CongDoanDauViec(Base):
         order_by="CongDoanDauViecVatTu.thu_tu", cascade="all, delete-orphan",
     )
 
-    @property
-    def vat_tu_ids(self) -> list[int]:
-        """Danh sách id vật tư — hình dạng API dùng (`CongDoanDauViecRow` đọc qua from_attributes).
-        Giữ ở đây để schema khỏi phải biết bảng nối, và để nơi gọi khỏi tự `.vat_tus` rồi map."""
-        return [v.vat_tu_id for v in self.vat_tus]
+    # Property `vat_tu_ids` GỠ 06/09/2026: API nay nói bằng `vat_tus` để mỗi dòng chở được công
+    # thức định mức của riêng nó. Giữ song song hai hình dạng là mời khai lệch.
 
 
 class CongDoanDauViecVatTu(Base):
-    """Vật tư mà MỘT đầu việc của công đoạn tiêu thụ — danh sách thuần, KHÔNG có số lượng.
+    """Vật tư mà MỘT đầu việc của công đoạn tiêu thụ, kèm ĐỊNH MỨC của riêng dòng đó.
 
-    Vì sao không có số lượng: định mức tuỳ quy cách của từng lệnh (khổ tờ, số màu, số tờ chạy), nên
-    một con số khai ở danh mục là số chết. Số lượng suy lúc bung ở bước lệnh, bằng cách đổi số lượng
-    của bước sang đơn vị của vật tư qua QUY ĐỔI ĐỘNG (`quy_doi_service.doi_theo_quy_cach`). Đổi
-    không được thì KHÔNG bung dòng đó kèm câu lý do — không đoán.
+    Vẫn KHÔNG có cột số lượng chết: định mức tuỳ quy cách của từng lệnh (khổ tờ, số màu, số tờ
+    chạy), nên cái khai ở đây là CÔNG THỨC (`cong_thuc_luong`), không phải con số. Số suy lúc bung
+    ở bước lệnh bằng cách thế quy cách lệnh vào công thức đó. Chưa khai công thức thì KHÔNG bung
+    dòng đó kèm câu lý do — không đoán.
+
+    Vì sao công thức nằm ở ĐÂY chứ không ở món hàng (06/09/2026): hai món cùng ĐVT `kg` ăn theo hai
+    trục khác hẳn — mực theo SỐ TỜ (`sl_vao / 40000`), dung môi rửa máy theo SỐ MÀU (`so_mau * 0.3`:
+    in 5.000 hay 50.000 tờ vẫn 1,2 kg). Và cùng một món ăn khác nhau ở hai công đoạn khác khổ.
 
     Vì sao neo vào `cong_doan_dau_viec` chứ không vào `piece_rates`: đây đúng là dòng người dùng
     nhìn thấy trong bảng "Đầu việc và định mức của tổ" ở drawer Công đoạn, và cho phép cùng một đầu
@@ -247,6 +260,11 @@ class CongDoanDauViecVatTu(Base):
     # riêng, service chặn id không tồn tại hoặc đã ngừng dùng.
     vat_tu_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # ĐỊNH MỨC của CHÍNH món này TRONG chính đầu việc này (06/09/2026) — ra LƯỢNG theo ĐVT của vật
+    # tư. Trước đây khai ở `vat_tu_in_an.cong_thuc_luong` (gỡ ở mg `0273`) nên mọi công đoạn dùng
+    # món đó lĩnh chung một con số: cùng "Mực Cyan" mà In khổ 79×109 ăn 1 kg / 8.000 tờ, In khổ
+    # 11×11 ăn 1 kg / 40.000 tờ. Trống = chưa khai ⇒ bước lệnh KHÔNG bung dòng đó, kèm câu lý do.
+    cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     dau_viec: Mapped["CongDoanDauViec"] = relationship(
         "CongDoanDauViec", back_populates="vat_tus"

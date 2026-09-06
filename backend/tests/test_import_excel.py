@@ -211,9 +211,8 @@ def _dung_nen(client, h) -> dict[str, dict]:
         "dau_viec_dinh_muc": [{
             "piece_rate_id": ra["cong_viec_khoan"]["id"], "nang_suat_nguoi_gio": 500,
             "nang_suat_nguoi_gio_min": 400, "nang_suat_nguoi_gio_max": 600,
-            "don_vi_nang_suat": "tờ/giờ", "so_nguoi_toi_thieu": 1,
-            "so_nguoi_tieu_chuan": 2, "so_nguoi_toi_da": 3,
-            "vat_tu_ids": [ra["vat_tu"]["id"]]}]})
+            "don_vi_nang_suat": "tờ/giờ", "so_nguoi_tieu_chuan": 2,
+            "vat_tus": [{"vat_tu_id": ra["vat_tu"]["id"]}]}]})
     ra["loai_san_pham"] = _tao(client, h, "loai_san_pham", {
         "ma": MA["loai_san_pham"], "ten": "Hộp thử", "structural_type": "box",
         "box_sub_type": "folding_carton", "has_cover": False,
@@ -386,7 +385,7 @@ def test_xuat_bang_con_ra_sheet_doc_duoc_khong_phai_json(client, seed_credential
     assert [d[2] for d in _bang(wb["Nhóm máy cho phép"])[1]] == ["Bế"]
     assert _bang(wb["Đầu việc định mức"])[1][0][2] == nen["cong_viec_khoan"]["ma"]
     assert [d[2:] for d in _bang(wb["Vật tư đầu việc"])[1]] == [
-        [nen["cong_viec_khoan"]["ma"], nen["vat_tu"]["ma"]]]
+        [nen["cong_viec_khoan"]["ma"], nen["vat_tu"]["ma"], None]]
 
     wb = _xuat(client, h, PREFIX["may_thiet_bi"])
     assert [d[2:] for d in _bang(wb["Khoản chuẩn bị"])[1]] == [["Canh máy", 20.0],
@@ -545,7 +544,8 @@ def test_thieu_sheet_con_thi_giu_nguyen_du_lieu_con(client, seed_credentials):
     cd = client.get(f"{prefix}/{nen['cong_doan']['id']}", headers=h).json()
     assert cd["ten"] == "Công đoạn đổi tên"
     assert len(cd["dau_viec_dinh_muc"]) == 1, "thiếu sheet con KHÔNG được xoá định mức"
-    assert cd["dau_viec_dinh_muc"][0]["vat_tu_ids"] == [nen["vat_tu"]["id"]]
+    assert ([v["vat_tu_id"] for v in cd["dau_viec_dinh_muc"][0]["vat_tus"]]
+            == [nen["vat_tu"]["id"]])
     assert len(cd["size_tiers"]) == 2 and cd["nhom_may_cho_phep"] == ["Bế"]
 
 

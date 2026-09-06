@@ -181,17 +181,18 @@ class CongDoanService(CatalogService):
 
         Vật tư đã ngừng dùng mà lọt vào đây thì tới lúc bung ở bước lệnh nó sẽ rơi im lặng (query
         bung lọc `active`), và người khai không hiểu vì sao dòng mình khai không hiện ra.
-        Chỉ kiểm DANH SÁCH — không có số lượng ở tầng này, số suy lúc bung theo quy cách lệnh.
+        Chỉ kiểm DANH SÁCH — số lượng không khai ở tầng này, mỗi dòng chỉ mang CÔNG THỨC định
+        mức (`cong_thuc_luong`), số suy lúc bung theo quy cách lệnh.
 
         `dang_co` = vật tư vốn đã khai trên công đoạn này. Chặn GÁN MỚI vật tư đã ngừng, nhưng
         không chặn khi giữ nguyên: nếu không thì đổi mỗi cái tên công đoạn cũng bị chặn chỉ vì một
         vật tư trong đó đã ngừng từ lâu, và người dùng không có đường nào sửa nữa.
         """
-        can = {int(v) for r in dinh_muc for v in (r.get("vat_tu_ids") or [])}
+        can = {int(v["vat_tu_id"]) for r in dinh_muc for v in (r.get("vat_tus") or [])}
         if not can:
             return
         for r in dinh_muc:
-            ids = [int(v) for v in (r.get("vat_tu_ids") or [])]
+            ids = [int(v["vat_tu_id"]) for v in (r.get("vat_tus") or [])]
             if len(ids) != len(set(ids)):
                 raise CongDoanValidationError("Một vật tư không được chọn trùng trong cùng đầu việc.")
         co = self.repo.vat_tus(can)
