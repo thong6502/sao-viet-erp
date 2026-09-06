@@ -1469,16 +1469,45 @@ def test_so_do_chung_mang_bang_boc_tach_gio_va_goi_y_vat_tu(
     field im lặng" nằm ở chỗ khoá nào service trả mà schema không khai thì rơi mất KHÔNG lỗi,
     frontend nhận `undefined` và bảng bóc tách hiện rỗng.
     """
+    from app.models.cong_doan import CongDoanDauViec, CongDoanDauViecVatTu
+    from app.models.piece_work import PieceRate
     from app.models.vat_lieu_kho import VatTuInAn
     from app.schemas.bai_ghep import SoDoOut
 
-    db.add(VatTuInAn(ma="VT-MUC-GY", ten="Mực đen", don_vi_gia="kg", don_gia=180_000,
-                     active=True))
+    muc = VatTuInAn(ma="VT-MUC-GY", ten="Mực đen", don_vi_gia="kg", don_gia=180_000,
+                    active=True)
+    db.add(muc)
     db.commit()
 
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    # Định mức nay treo ở DÒNG VẬT TƯ của đầu việc trong công đoạn (mg 0272), không còn ở món
+    # hàng — không khai qua đường này thì `so_luong` về `None` và drawer mất nút "Dùng số này".
+    # Khai TRƯỚC khi đụng tới bài: `_piece_rates()` cache theo instance.
+    to = _to_san_xuat(db)
+    cd_in_id = sorted(lsx_svc.get(created[0].id).cong_doans, key=lambda c: c.thu_tu)[0].cong_doan_id
+    rate = PieceRate(group_name="to_in", ten="In tờ rời", unit="to", unit_price=35,
+                     department_id=to.id, active=True)
+    db.add(rate)
+    db.flush()
+    link = CongDoanDauViec(
+        cong_doan_id=cd_in_id, piece_rate_id=rate.id,
+        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2,
+    )
+    db.add(link)
+    db.flush()
+    link.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=muc.id, thu_tu=0,
+                                             cong_thuc_luong="sl_vao / 1000"))
+    db.commit()
+
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
     _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+    # Phải CHỌN đầu việc ở bước chung: định mức đi theo đầu việc đang gắn ở bước, chưa chọn thì
+    # không có công thức nào để gợi ý và nút "Dùng số này" mất số.
+    truoc = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]
+    bg_svc.lap_ke_hoach_buoc_chung(
+        bai_ghep_id=bg.id, gang_step_key=truoc["step_key"],
+        patch={"piece_rate_id": rate.id}, actor=admin,
+    )
 
     chung = SoDoOut.model_validate(bg_svc.so_do(bg_svc._get(bg.id))).model_dump()["gop"][0]
 
