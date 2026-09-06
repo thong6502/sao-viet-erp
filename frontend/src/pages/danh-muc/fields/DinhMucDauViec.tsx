@@ -8,6 +8,7 @@ import { useAuth } from "../../../auth/useAuth";
 import { crud } from "../../../api/rebuildCatalog";
 import { TrashIcon } from "../icons";
 import type { DinhMucRow, Row } from "../types";
+import { FormulaField } from "./FormulaField";
 
 export function DinhMucDauViecField({ value, options, departmentId, onChange }: {
   value: DinhMucRow[]; options: Row[]; departmentId: number | null; donViVao: string;
@@ -33,6 +34,9 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
   // Hàng phụ đang mở — mỗi lúc một dòng, mở cái khác thì cái cũ đóng (bảng đã 10 cột, bung hai
   // hàng cùng lúc là mất dấu dòng nào của ai).
   const [moVatTu, setMoVatTu] = useState<number | null>(null);
+  // Panel công thức TIỀN CÔNG của đầu việc — mở độc lập với panel vật tư, vì hai thứ khai ở hai
+  // nhịp khác nhau: tiền công là một ô, vật tư là cả một bảng con.
+  const [moCt, setMoCongThuc] = useState<number | null>(null);
   return <div className="rc-bands rc-bands--dinh-muc">
     {!departmentId ? <div className="rc-bands__empty">Chọn Tổ phụ trách trước.</div> : <>
       <div className="rc-dinh-muc-wrapper">
@@ -41,7 +45,14 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
             <tr className="rc-dinh-muc-table__group-row">
               <th rowSpan={2} className="rc-col--left">Đầu việc chi tiết</th>
               <th colSpan={4} className="rc-col--group rc-group--ns">Năng suất khoán</th>
-              <th colSpan={3} className="rc-col--group rc-group--nl">Định mức nhân lực (người)</th>
+              {/* MỘT ô người duy nhất (06/09/2026, mg `0270`): hai mốc tối thiểu/tối đa đã gỡ.
+                  Số này điền sẵn vào bước lệnh cho MỌI loại bước — máy · tổ · thuê ngoài. */}
+              <th rowSpan={2} className="rc-col--num rc-group--nl"
+                title="Kíp chuẩn của công đoạn — số người điền sẵn vào bước lệnh, sửa đè được tại từng lệnh.">Kíp chuẩn (người)</th>
+              {/* Tiền công khai THEO CÔNG ĐOẠN chứ không theo bảng đơn giá khoán (06/09/2026):
+                  cùng một đầu việc chạy ở hai công đoạn thì đếm lượng theo hai cách khác nhau. */}
+              <th rowSpan={2} className="rc-col--left"
+                title="Ra LƯỢNG theo đơn vị đơn giá khoán — hệ nhân đơn giá sau.">Công thức tiền công</th>
               {/* Cột "Mặc định" (radio chọn đầu việc điền sẵn) GỠ 12/08/2026 — xem mg 0190. Bế tay
                   hay bế máy là quyết định theo HÀNG, không khai một lần ở danh mục được. */}
               {/* VẬT TƯ đầu việc tiêu thụ (mg 0191) — nền BOM. Chỉ danh sách, KHÔNG có số lượng. */}
@@ -50,21 +61,25 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
               <th rowSpan={2} className="rc-col--center" style={{ width: 36 }} />
             </tr>
             <tr className="rc-dinh-muc-table__sub-row">
-              {/* Thứ tự tối thiểu → trung bình → tối đa: đọc thành một DẢI tăng dần, và khớp luôn
-                  với nhóm "Định mức nhân lực" bên cạnh (tối thiểu · chuẩn · tối đa). */}
+              {/* Thứ tự tối thiểu → trung bình → tối đa: đọc thành một DẢI tăng dần. */}
               <th className="rc-col--num">Tối thiểu</th>
               <th className="rc-col--num">Trung bình</th>
               <th className="rc-col--num">Tối đa</th>
               <th className="rc-col--unit">Đơn vị</th>
-              <th className="rc-col--num">Tối thiểu</th>
-              <th className="rc-col--num">Chuẩn</th>
-              <th className="rc-col--num">Tối đa</th>
             </tr>
           </thead>
-          <tbody>{value.length === 0 && <tr><td colSpan={10} className="rc-bands__empty">
+          <tbody>{value.length === 0 && <tr><td colSpan={9} className="rc-bands__empty">
             {allowed.length === 0 ? "Tổ này chưa có đầu việc khoán để liên kết." : "Chưa chọn đầu việc định mức."}
           </td></tr>}{value.map((r, i) => { const opt = options.find((o) => o.id === r.piece_rate_id); const vtIds = r.vat_tu_ids ?? []; const mo = moVatTu === r.piece_rate_id; return <Fragment key={r.piece_rate_id}><tr>
-            <td className="rc-col--left rc-dinh-muc-name">{opt ? `${opt.ma} · ${opt.ten}` : `#${r.piece_rate_id}`}</td>
+            {/* Bấm tên để bung panel công thức tính tiền công — cùng lối bấm-dòng-mở-panel với
+                bảng máy và bảng vật tư, để ba chỗ khai công thức trong drawer này thao tác giống
+                nhau (06/09/2026). */}
+            <td className="rc-col--left rc-dinh-muc-name">
+              <button type="button" className="rc-dm-vt__pill"
+                onClick={() => setMoCongThuc(moCt === r.piece_rate_id ? null : r.piece_rate_id)}>
+                {opt ? `${opt.ma} · ${opt.ten}` : `#${r.piece_rate_id}`}
+              </button>
+            </td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0.01" step="any" placeholder="—"
               value={r.nang_suat_nguoi_gio_min ?? ""}
               onChange={(e) => patch(i, { nang_suat_nguoi_gio_min: e.target.value === "" ? null : Number(e.target.value) })} /></td>
@@ -77,9 +92,8 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
                 khoán rồi thì đừng bắt chọn lại. Đổi đơn vị ⇒ sửa ở màn Lương khoán.
                 Hiện TÊN (server gán `don_vi_ten`), chỉ lùi về mã trần khi mã lạ ngoài danh mục. */}
             <td className="rc-col--unit rc-dinh-muc-unit">{opt?.don_vi_ten ? `${opt.don_vi_ten}/h` : opt?.don_vi ? `${opt.don_vi}/h` : "—"}</td>
-            <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_toi_thieu ?? 1} onChange={(e) => patch(i, { so_nguoi_toi_thieu: Number(e.target.value) })} /></td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_tieu_chuan} onChange={(e) => patch(i, { so_nguoi_tieu_chuan: Number(e.target.value) })} /></td>
-            <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_toi_da} onChange={(e) => patch(i, { so_nguoi_toi_da: Number(e.target.value) })} /></td>
+            <td className="rc-col--left rc-dinh-muc-unit">{r.cong_thuc_khoan || "—"}</td>
             {/* Bấm để bung HÀNG PHỤ ngay dưới — không mở drawer lồng drawer, người khai vẫn thấy
                 cả bảng để so các dòng với nhau. */}
             <td className="rc-col--center">
@@ -90,7 +104,16 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
               </button>
             </td>
             <td className="rc-col--center"><button type="button" className="rc-bands__del" onClick={() => onChange(value.filter((_, j) => j !== i))}><TrashIcon /></button></td>
-          </tr>{mo && <tr className="rc-dm-vt__row"><td colSpan={10}>
+          </tr>{moCt === r.piece_rate_id && <tr className="rc-dm-vt__row"><td colSpan={9}>
+            <div className="rc-dm-vt">
+              <FormulaField
+                id={`ct-khoan-${r.piece_rate_id}`} configPrefix="/api/cong-doan" loaiO="quy_doi"
+                nhanO="Công thức tính tiền công"
+                goY="Ra LƯỢNG theo đơn vị đơn giá khoán, hệ nhân đơn giá sau. Bỏ trống = hệ tự quy đổi. vd in trở 2 lượt: sl_vao * so_luot_chay. Lệnh ĐÃ phát giữ cách đo cũ."
+                value={r.cong_thuc_khoan ?? ""}
+                onChange={(v) => patch(i, { cong_thuc_khoan: v })} />
+            </div>
+          </td></tr>}{mo && <tr className="rc-dm-vt__row"><td colSpan={9}>
             <div className="rc-dm-vt">
               {vtIds.length === 0 && <div className="rc-dm-vt__empty">Chưa gắn vật tư nào.</div>}
               {vtIds.map((vid) => { const vt = vatTuTheoId.get(vid); return (
@@ -119,7 +142,7 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
         </table>
       </div>
       <div className="rc-dinh-muc-add">
-        <select className="rc-dinh-muc-add__select" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onChange([...value, { piece_rate_id: id, nang_suat_nguoi_gio: 1, nang_suat_nguoi_gio_min: null, nang_suat_nguoi_gio_max: null, don_vi_nang_suat: null, so_nguoi_toi_thieu: 1, so_nguoi_tieu_chuan: 1, so_nguoi_toi_da: 1, vat_tu_ids: [] }]); }}>
+        <select className="rc-dinh-muc-add__select" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onChange([...value, { piece_rate_id: id, nang_suat_nguoi_gio: 1, nang_suat_nguoi_gio_min: null, nang_suat_nguoi_gio_max: null, don_vi_nang_suat: null, so_nguoi_tieu_chuan: 1, vat_tu_ids: [] }]); }}>
           <option value="">＋ Chọn đầu việc của tổ</option>{allowed.filter((o) => !selected.has(o.id)).map((o) => <option key={o.id} value={o.id}>{o.ma} · {o.ten}</option>)}
         </select>
       </div>
