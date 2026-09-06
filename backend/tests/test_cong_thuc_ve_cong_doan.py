@@ -76,3 +76,60 @@ def test_anh_chup_dau_viec_lay_cong_thuc_tu_dinh_muc_cua_cong_doan():
 
     assert "cong_thuc" not in khoan_snapshot(rate)
     assert khoan_snapshot(rate, dm)["cong_thuc"] == "sl_vao * so_luot_chay"
+
+
+def test_hai_vat_tu_cung_kg_trong_mot_dau_viec_an_theo_hai_cach(db, orders, lsx_svc, admin,
+                                                                customer):
+    """Mực ăn theo SỐ TỜ, dung môi rửa máy ăn theo SỐ MÀU — đúng ca đã bàn với chủ dự án."""
+    from types import SimpleNamespace
+
+    from app.models.cong_doan import CongDoanDauViec, CongDoanDauViecVatTu
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    cd = CongDoan(ma="CD-G5", ten="In offset khổ nhỏ", nhom="print",
+                  don_vi_vao="to", don_vi_ra="to")
+    muc = VatTuInAn(ma="VT-MUC-C", ten="Mực offset Cyan", don_vi_gia="kg", active=True)
+    dm_moi = VatTuInAn(ma="VT-DM-01", ten="Dung môi rửa máy in", don_vi_gia="kg", active=True)
+    db.add_all([cd, muc, dm_moi])
+    db.flush()
+
+    dv = CongDoanDauViec(cong_doan_id=cd.id, piece_rate_id=1,
+                         nang_suat_nguoi_gio=100, so_nguoi_tieu_chuan=2)
+    dv.vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=muc.id, thu_tu=0, cong_thuc_luong="sl_vao / 40000"))
+    dv.vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=dm_moi.id, thu_tu=1, cong_thuc_luong="so_mau * 0.3"))
+    db.add(dv)
+    db.commit()
+
+    buoc = SimpleNamespace(so_luong_vao=5000, so_luong_ra=5000, so_luot_chay=1)
+    ra, canh_bao = lsx_svc._vat_tu_bung(dv, buoc, {"so_mau": 4})
+
+    theo_ma = {r["ma"]: r["so_luong"] for r in ra}
+    assert theo_ma["VT-MUC-C"] == 0.125, "5.000 tờ ÷ 40.000 = 0,125 kg"
+    assert theo_ma["VT-DM-01"] == 1.2, "4 màu × 0,3 = 1,2 kg — KHÔNG dính số tờ"
+    assert canh_bao == []
+
+
+def test_dong_vat_tu_chua_khai_cong_thuc_thi_bo_ra_kem_ly_do(db, orders, lsx_svc, admin, customer):
+    """KHÔNG ĐOÁN: thà người kế hoạch tự thêm còn hơn bung một con số sai trông như thật."""
+    from types import SimpleNamespace
+
+    from app.models.cong_doan import CongDoanDauViec, CongDoanDauViecVatTu
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    cd = CongDoan(ma="CD-G6", ten="Vào gáy", nhom="finishing",
+                  don_vi_vao="to", don_vi_ra="cai")
+    keo = VatTuInAn(ma="VT-KEO-9", ten="Keo vào gáy", don_vi_gia="kg", active=True)
+    db.add_all([cd, keo])
+    db.flush()
+    dv = CongDoanDauViec(cong_doan_id=cd.id, piece_rate_id=1,
+                         nang_suat_nguoi_gio=100, so_nguoi_tieu_chuan=1)
+    dv.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong=None))
+    db.add(dv)
+    db.commit()
+
+    ra, canh_bao = lsx_svc._vat_tu_bung(
+        dv, SimpleNamespace(so_luong_vao=100, so_luong_ra=100, so_luot_chay=1), {})
+    assert ra == []
+    assert len(canh_bao) == 1 and "Keo vào gáy" in canh_bao[0]

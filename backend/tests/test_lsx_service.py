@@ -1269,9 +1269,9 @@ def test_bung_vat_tu_theo_dau_viec_va_khong_de_len_dong_nguoi_sua(
     """BOM (mg 0191): đầu việc khai sẵn vật tư → bước lệnh có sẵn số lượng, và dòng người sửa thì
     máy chừa ra.
 
-    Số lượng CHỈ tới từ `cong_thuc_luong` của chính món (18/08/2026). Cồn ở đây đo bằng `kg` và
-    bảng cặp CÓ cạnh `cai → kg` — nhưng chưa khai công thức thì máy vẫn KHÔNG bung, chỉ nói thiếu
-    gì. Cạnh quy đổi trả lời hộ mọi món cùng đo `kg`, mà keo với cồn ăn khác nhau.
+    Số lượng CHỈ tới từ công thức của DÒNG vật tư trong đầu việc (06/09/2026). Cồn ở đây đo bằng
+    `kg` và bảng cặp CÓ cạnh `cai → kg` — nhưng chưa khai công thức thì máy vẫn KHÔNG bung, chỉ nói
+    thiếu gì. Cạnh quy đổi trả lời hộ mọi món cùng đo `kg`, mà keo với cồn ăn khác nhau.
     """
     from app.models.cong_doan import CongDoanDauViecVatTu
     from app.models.don_vi_do import DonViDo, DonViQuyDoi
@@ -1280,13 +1280,14 @@ def test_bung_vat_tu_theo_dau_viec_va_khong_de_len_dong_nguoi_sua(
     ptg = _ptg_2_san_pham(db)
     cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
     rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
-    keo = VatTuInAn(ma="KEO-T", ten="Keo dán hộp", don_vi_gia="kg", don_gia=95_000,
-                    cong_thuc_luong="sl_vao * 0.004")   # 1 hộp ăn 0,004 kg keo
+    keo = VatTuInAn(ma="KEO-T", ten="Keo dán hộp", don_vi_gia="kg", don_gia=95_000)
     coi = VatTuInAn(ma="COI-T", ten="Cồn chưa khai công thức", don_vi_gia="kg", don_gia=1)
     db.add_all([keo, coi])
     db.flush()
     dm = cd_dan.dau_viec_dinh_muc[0]
-    dm.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    # 1 hộp ăn 0,004 kg keo — khai ở DÒNG vật tư của đầu việc.
+    dm.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0,
+                                           cong_thuc_luong="sl_vao * 0.004"))
     dm.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=coi.id, thu_tu=1))
     # Cạnh `cai → kg` CÓ TỒN TẠI — để chứng minh nó KHÔNG còn đẻ số cho vật tư nữa.
     cai = db.query(DonViDo).filter(DonViDo.ma == "cai").one()
@@ -1311,7 +1312,7 @@ def test_bung_vat_tu_theo_dau_viec_va_khong_de_len_dong_nguoi_sua(
     assert chon["vat_tus"][0]["so_luong"] == pytest.approx(round(sl_buoc * 0.004, 3))
     assert chon["vat_tus"][0]["don_vi"] == "kg"
     canh_bao_coi = next(c for c in chon["canh_bao_vat_tu"] if "Cồn chưa khai công thức" in c)
-    assert "công thức lượng" in canh_bao_coi, \
+    assert "công thức định mức" in canh_bao_coi, \
         "chưa khai thì phải NÓI THIẾU GÌ và chỉ chỗ khai, không im lặng biến mất"
 
     # Lưu hai dòng: một của máy, một người tự thêm. Cờ phải đi đúng theo từng dòng.
@@ -1334,12 +1335,13 @@ def test_bung_vat_tu_theo_dau_viec_va_khong_de_len_dong_nguoi_sua(
     assert co["COI-T"]["so_luong"] == 7
 
 
-def test_so_luong_vat_tu_lay_tu_CONG_THUC_cua_chinh_mon_hang(db, orders, lsx_svc, admin, customer):
-    """Đường CHÍNH của BOM: vật tư khai `cong_thuc_luong` của CHÍNH nó (mg 0194).
+def test_so_luong_vat_tu_lay_tu_CONG_THUC_cua_dong_vat_tu(db, orders, lsx_svc, admin, customer):
+    """Đường CHÍNH của BOM: DÒNG vật tư trong đầu việc khai `cong_thuc_luong` (06/09/2026).
 
     Không đi qua bảng cặp, không cần đơn vị của bước khớp gì cả — công thức tự lấy chip từ quy cách
-    lệnh. Trước 17/08/2026 đường này đọc CÁCH ĐO của đơn vị (`don_vi_do.cong_thuc`, gỡ ở mg `0215`):
-    một công thức trả lời hộ mọi món cùng đơn vị, trong khi keo và mực cùng đo `kg` mà ăn khác nhau.
+    lệnh. Trước 17/08/2026 đường này đọc CÁCH ĐO của đơn vị (`don_vi_do.cong_thuc`, gỡ ở mg `0215`),
+    rồi tới 06/09/2026 rời khỏi CHÍNH MÓN HÀNG: một công thức treo ở món trả lời hộ mọi công đoạn
+    dùng món đó, trong khi cùng "Mực Cyan" mà hai khổ in ăn khác hẳn nhau.
     """
     from app.models.cong_doan import CongDoanDauViecVatTu
     from app.models.don_vi_do import DonViDo
@@ -1349,12 +1351,12 @@ def test_so_luong_vat_tu_lay_tu_CONG_THUC_cua_chinh_mon_hang(db, orders, lsx_svc
     cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
     rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
     db.add(DonViDo(ma="m2_tp", ten="m² thành phẩm"))
-    # Công thức khai trên CHÍNH món hàng: dài × rộng thành phẩm × số lượng đặt.
-    keo = VatTuInAn(ma="MANG-TP", ten="Màng phủ thành phẩm", don_vi_gia="m2_tp", don_gia=9_000,
-                    cong_thuc_luong="dai_tp * rong_tp * so_luong")
+    keo = VatTuInAn(ma="MANG-TP", ten="Màng phủ thành phẩm", don_vi_gia="m2_tp", don_gia=9_000)
     db.add(keo)
     db.flush()
-    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    # Công thức khai trên DÒNG vật tư: dài × rộng thành phẩm × số lượng đặt.
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong="dai_tp * rong_tp * so_luong"))
     db.commit()
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
@@ -1375,7 +1377,7 @@ def test_so_luong_vat_tu_lay_tu_CONG_THUC_cua_chinh_mon_hang(db, orders, lsx_svc
 
     # Công thức ra 0 vì thiếu chip (lệnh này không có màu pha) ⇒ KHÔNG bung, nói thiếu biến nào.
     # Thà để trống cho người kế hoạch tự thêm còn hơn ghi 0 rồi mua hụt.
-    db.query(VatTuInAn).filter(VatTuInAn.ma == "MANG-TP").one().cong_thuc_luong = "so_mau_pha * dai_tp"
+    cd_dan.dau_viec_dinh_muc[0].vat_tus[0].cong_thuc_luong = "so_mau_pha * dai_tp"
     db.commit()
     buoc = next(b for b in lsx_svc.detail_dict(lsx_svc.get(lsx.id))["cong_doans"]
                 if b["ten"] == "Dán hộp")
@@ -1399,12 +1401,12 @@ def test_vat_tu_khai_o_dau_viec_TU_BUNG_vao_buoc_luc_tao_lenh(db, orders, lsx_sv
     cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
     _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
     db.add(DonViDo(ma="kg_keo", ten="kg keo"))
-    # Định mức khai trên CHÍNH món keo: 2 g cho mỗi thành phẩm của lệnh.
-    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg_keo", don_gia=45_000,
-                    cong_thuc_luong="0.002 * so_luong")
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg_keo", don_gia=45_000)
     db.add(keo)
     db.flush()
-    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    # Định mức khai trên DÒNG vật tư của đầu việc: 2 g cho mỗi thành phẩm của lệnh.
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong="0.002 * so_luong"))
     db.commit()
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
@@ -1421,12 +1423,13 @@ def test_vat_tu_khai_o_dau_viec_TU_BUNG_vao_buoc_luc_tao_lenh(db, orders, lsx_sv
     assert v.tu_dong is True, "dòng máy bung ⇒ lần đổi đầu việc sau phải thay được"
 
 
-def test_cong_thuc_luong_cua_VAT_TU_thang_cong_thuc_cua_don_vi(db, orders, lsx_svc, admin, customer):
-    """Keo đo bằng `kg` THẬT + công thức lượng riêng ⇒ BOM ra số kg, khỏi đẻ đơn vị `kg_keo`.
+def test_dinh_muc_vat_tu_lay_tu_dong_cua_dau_viec(db, orders, lsx_svc, admin, customer):
+    """Keo đo bằng `kg` THẬT + định mức khai ở DÒNG vật tư ⇒ BOM ra số kg, khỏi đẻ đơn vị `kg_keo`.
 
-    Chốt 13/08/2026: công thức ra LƯỢNG thuộc về MÓN HÀNG, không thuộc về ĐƠN VỊ. `kg` dùng chung
-    cho keo · mực · giấy mà mỗi thứ tiêu hao một kiểu — gắn lên `kg` là cả ba bị tính như nhau.
-    Kho và mua hàng vẫn thấy `kg` thật, không phải `kg_keo`.
+    Công thức ra LƯỢNG không thuộc về ĐƠN VỊ (chốt 13/08/2026) và từ 06/09/2026 cũng không thuộc về
+    MÓN HÀNG nữa, mà thuộc về DÒNG vật tư trong đầu việc của công đoạn. `kg` dùng chung cho keo ·
+    mực · giấy mà mỗi thứ tiêu hao một kiểu; và cùng một món keo dùng ở hai công đoạn cũng ăn khác
+    nhau. Kho và mua hàng vẫn thấy `kg` thật, không phải `kg_keo`.
     """
     from app.models.cong_doan import CongDoanDauViecVatTu
     from app.models.don_vi_do import DonViDo
@@ -1441,11 +1444,11 @@ def test_cong_thuc_luong_cua_VAT_TU_thang_cong_thuc_cua_don_vi(db, orders, lsx_s
         dv_kg = DonViDo(ma="kg", ten="kg", ho="khoi_luong")
         db.add(dv_kg)
     dv_kg.cong_thuc = "dinh_luong * dai_in * rong_in * to_dau_vao"
-    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000,
-                    cong_thuc_luong="0.002 * so_luong")
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000)
     db.add(keo)
     db.flush()
-    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong="0.002 * so_luong"))
     db.commit()
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
@@ -1455,7 +1458,7 @@ def test_cong_thuc_luong_cua_VAT_TU_thang_cong_thuc_cua_don_vi(db, orders, lsx_s
     buoc = next(c for c in lsx.cong_doans if c.ten == "Dán hộp")
     v = next(x for x in buoc.vat_tus if x.vat_tu_ma_snapshot == "KEO-GAY")
 
-    # Số theo công thức CỦA KEO, KHÔNG phải công thức khối lượng giấy gắn trên `kg`.
+    # Số theo công thức CỦA DÒNG KEO, KHÔNG phải công thức khối lượng giấy gắn trên `kg`.
     assert float(v.so_luong) == pytest.approx(0.002 * float(lsx.so_luong_dat), rel=1e-6)
     assert v.don_vi_snapshot == "kg", "kho vẫn cân bằng kg thật, không phải kg_keo"
 
@@ -1469,16 +1472,24 @@ def test_goi_y_luong_cho_MOI_vat_tu_de_drawer_dien_san(db, orders, lsx_svc, admi
     Món chưa tính ra được VẪN có mặt, `so_luong=None` kèm `ly_do` chỉ chỗ khai (18/08/2026): ô vẫn
     để trống cho người khai (không đoán số), nhưng drawer nói được VÌ SAO nó trống thay vì để người
     dùng đoán là màn hỏng.
+
+    Từ 06/09/2026 công thức mượn của DÒNG vật tư trong đầu việc đang gắn ở bước — món đứng ngoài
+    mọi đầu việc thì không có gì để mượn, đúng nghĩa "chưa khai".
     """
+    from app.models.cong_doan import CongDoanDauViecVatTu
     from app.models.don_vi_do import DonViDo
     from app.models.vat_lieu_kho import VatTuInAn
 
     ptg = _ptg_2_san_pham(db)
-    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000,
-                    cong_thuc_luong="0.002 * so_luong")
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000)
     # Món CHƯA khai gì để tính lượng ⇒ phải VẮNG khỏi gợi ý, không được bịa số.
     mu = VatTuInAn(ma="MU-LA", ten="Món lạ", don_vi_gia="thung_la", don_gia=1_000)
     db.add_all([keo, mu, DonViDo(ma="thung_la", ten="thùng lạ")])
+    db.flush()
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong="0.002 * so_luong"))
     db.commit()
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
@@ -1488,7 +1499,7 @@ def test_goi_y_luong_cho_MOI_vat_tu_de_drawer_dien_san(db, orders, lsx_svc, admi
     buoc = next(b for b in lsx_svc.detail_dict(lsx)["cong_doans"] if b["ten"] == "Dán hộp")
 
     goi_y = {g["vat_tu_id"]: g for g in buoc["vat_tu_goi_y"]}
-    assert keo.id in goi_y, "vật tư có công thức lượng phải được tính sẵn"
+    assert keo.id in goi_y, "vật tư đã khai định mức trong đầu việc phải được tính sẵn"
     assert goi_y[keo.id]["so_luong"] == pytest.approx(
         round(0.002 * float(lsx.so_luong_dat), 3), rel=1e-6)
     dien_giai = goi_y[keo.id]["dien_giai"] or ""
@@ -1498,8 +1509,8 @@ def test_goi_y_luong_cho_MOI_vat_tu_de_drawer_dien_san(db, orders, lsx_svc, admi
 
     # Món chưa khai: có mặt, KHÔNG có số, và câu lý do chỉ đúng chỗ khai.
     assert goi_y[mu.id]["so_luong"] is None, "chưa tính ra được thì để trống, không bịa số 0"
-    assert "công thức lượng" in goi_y[mu.id]["ly_do"]
-    assert "Vật tư khác" in goi_y[mu.id]["ly_do"], "lý do phải chỉ được chỗ khai"
+    assert "công thức định mức" in goi_y[mu.id]["ly_do"]
+    assert "Công đoạn" in goi_y[mu.id]["ly_do"], "lý do phải chỉ được chỗ khai"
 
 
 def test_dau_viec_mang_san_vat_tu_da_tinh_so_de_drawer_bung(db, orders, lsx_svc, admin, customer):
@@ -1510,11 +1521,11 @@ def test_dau_viec_mang_san_vat_tu_da_tinh_so_de_drawer_bung(db, orders, lsx_svc,
     ptg = _ptg_2_san_pham(db)
     cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
     rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
-    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000,
-                    cong_thuc_luong="0.002 * so_luong")
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000)
     db.add(keo)
     db.flush()
-    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong="0.002 * so_luong"))
     db.commit()
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
@@ -1755,11 +1766,11 @@ def test_chip_sl_vao_lay_so_cua_CHINH_BUOC_khong_phai_cua_lenh(
     # Cho bước có HAO để `so_luong_vao` khác hẳn SL đặt — không thì test không chứng minh được
     # chip lấy số của BƯỚC chứ không phải của lệnh.
     cd_dan.kieu_bu_hao, cd_dan.so_to_bu_hao = "co_dinh", 300
-    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000,
-                    cong_thuc_luong="sl_vao * 0.002")
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000)
     db.add(keo)
     db.flush()
-    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=keo.id, thu_tu=0, cong_thuc_luong="sl_vao * 0.002"))
     db.commit()
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)

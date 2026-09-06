@@ -563,10 +563,10 @@ class LsxService:
     def _vat_tu_bung(self, dm, buoc, quy_cach: dict | None) -> tuple[list[dict], list[str]]:
         """Vật tư của MỘT đầu việc, kèm số lượng tính cho ĐÚNG bước này — nền BOM.
 
-        Danh sách khai ở danh mục (`cong_doan_dau_viec_vat_tu`) chỉ có TÊN; số lượng suy ở đây vì
-        định mức tuỳ quy cách của từng lệnh. MỘT đường duy nhất: **công thức lượng của chính món
-        hàng** (`vat_tu_in_an.cong_thuc_luong`, mg 0194). Riêng nhất nên đúng nhất: keo và mực cùng
-        đo bằng `kg` mà ăn khác hẳn nhau.
+        Số lượng suy ở đây vì định mức tuỳ quy cách của từng lệnh. MỘT đường duy nhất: **công thức
+        của chính DÒNG vật tư** (`cong_doan_dau_viec_vat_tu.cong_thuc_luong`, 06/09/2026). Riêng
+        tới từng dòng nên đúng nhất: trong cùng một đầu việc in, mực ăn theo SỐ TỜ còn dung môi rửa
+        máy ăn theo SỐ MÀU, dù cả hai cùng đo bằng `kg`.
 
         Hai đường "trả lời hộ" đã gỡ, cùng một lý do — thứ dùng chung không biết món nào đang hỏi:
         cách đo của ĐƠN VỊ (`don_vi_do.cong_thuc`, mg `0215`, 17/08/2026) và quy đổi từ đơn vị của
@@ -594,8 +594,10 @@ class LsxService:
         # Bơm SỐ CỦA CHÍNH BƯỚC lên trên ngữ cảnh lệnh — `sl_vao`/`sl_ra` chỉ tồn tại ở tầng này.
         # Bơm SAU `ngu_canh_lenh` vì hàm đó assert bộ khoá của nó phải khớp `MA_NGU_CANH_PHIEU`.
         # Ba ô khuôn mặc định 0 — tầng lệnh không có nguồn tương đương phiếu tính giá.
+        # Task 8 đổi sang MAC_DINH_TANG_LENH
         ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUON_MAC_DINH,
-               "sl_vao": sl, "sl_ra": _f(getattr(buoc, "so_luong_ra", 0))}
+               "sl_vao": sl, "sl_ra": _f(getattr(buoc, "so_luong_ra", 0)),
+               "so_luot_chay": float(max(int(getattr(buoc, "so_luot_chay", 1) or 1), 1))}
         ra: list[dict] = []
         canh_bao: list[str] = []
         for v in vat_tus:
@@ -606,7 +608,8 @@ class LsxService:
             if not dvt:
                 canh_bao.append(f"{mat.ten}: chưa chọn đơn vị tính ở danh mục Vật tư khác.")
                 continue
-            so_luong, dien_giai, ly_do = self._luong_vat_tu(dvt, ctx, mat=mat)
+            so_luong, dien_giai, ly_do = self._luong_vat_tu(
+                dvt, ctx, mat=mat, cong_thuc=(v.cong_thuc_luong or ""))
             if so_luong is None:
                 canh_bao.append(f"{mat.ten}: {ly_do}")
                 continue
@@ -620,9 +623,13 @@ class LsxService:
         """`[{vat_tu_id, so_luong, dien_giai, ly_do}]` cho MỌI vật tư đang dùng, theo bước này.
 
         Vì sao server tính hộ (13/08/2026): người kế hoạch chọn "Keo vào gáy" từ dropdown thì số
-        phải hiện ra NGAY — công thức đã có ở vật tư và quy cách lệnh cũng có, không việc gì bắt gõ
-        tay. Frontend không tự tính được: nó không có công thức, không có bảng quy đổi, và cũng
-        không nên có — công thức chỉ được có MỘT bản, ở server.
+        phải hiện ra NGAY. Frontend không tự tính được: nó không có công thức, không có bảng quy
+        đổi, và cũng không nên có — công thức chỉ được có MỘT bản, ở server.
+
+        Từ 06/09/2026 định mức khai theo DÒNG VẬT TƯ TRONG ĐẦU VIỆC của công đoạn, nên một món đứng
+        ngoài mọi đầu việc thì không có công thức nào để gợi ý — trả `so_luong=None` kèm lý do chỉ
+        thẳng chỗ khai. Món ĐANG nằm trong đầu việc của chính bước này thì mượn công thức của dòng
+        đó, để chọn lại đúng món đã khai vẫn ra số ngay.
 
         Món chưa tính ra được vẫn CÓ trong danh sách, `so_luong=None` kèm `ly_do` (18/08/2026):
         trước đó nó biến mất im lặng, drawer để ô trống mà không ai biết vì sao — người dùng chỉ
@@ -638,8 +645,21 @@ class LsxService:
         # Bơm SỐ CỦA CHÍNH BƯỚC lên trên ngữ cảnh lệnh — `sl_vao`/`sl_ra` chỉ tồn tại ở tầng này.
         # Bơm SAU `ngu_canh_lenh` vì hàm đó assert bộ khoá của nó phải khớp `MA_NGU_CANH_PHIEU`.
         # Ba ô khuôn mặc định 0 — tầng lệnh không có nguồn tương đương phiếu tính giá.
+        # Task 8 đổi sang MAC_DINH_TANG_LENH
         ctx = {**ngu_canh_lenh(quy_cach or {}), **KHUON_MAC_DINH,
-               "sl_vao": sl, "sl_ra": _f(getattr(buoc, "so_luong_ra", 0))}
+               "sl_vao": sl, "sl_ra": _f(getattr(buoc, "so_luong_ra", 0)),
+               "so_luot_chay": float(max(int(getattr(buoc, "so_luot_chay", 1) or 1), 1))}
+        # Công thức của những món ĐÃ khai trong đầu việc đang gắn ở bước này.
+        ct_theo_mon: dict[int, str] = {}
+        kh = getattr(buoc, "khoan_json", None) or {}
+        rate_id = int(kh.get("rate_id") or 0)
+        cd_obj = (self.db.get(CongDoan, buoc.cong_doan_id)
+                  if getattr(buoc, "cong_doan_id", None) else None)
+        if cd_obj is not None and rate_id:
+            for dv in (getattr(cd_obj, "dau_viec_dinh_muc", None) or []):
+                if dv.piece_rate_id == rate_id:
+                    ct_theo_mon = {v.vat_tu_id: (v.cong_thuc_luong or "") for v in dv.vat_tus}
+                    break
         ra: list[dict] = []
         for mat in self.db.execute(
             select(VatTuInAn).where(VatTuInAn.active.is_(True))
@@ -647,7 +667,8 @@ class LsxService:
             dvt = (mat.don_vi_gia or "").strip()
             if not dvt:
                 continue
-            so_luong, dien_giai, ly_do = self._luong_vat_tu(dvt, ctx, mat=mat)
+            so_luong, dien_giai, ly_do = self._luong_vat_tu(
+                dvt, ctx, mat=mat, cong_thuc=ct_theo_mon.get(mat.id, ""))
             ra.append({
                 "vat_tu_id": mat.id,
                 "so_luong": None if so_luong is None else round(so_luong, 3),
@@ -663,10 +684,14 @@ class LsxService:
     # đoạn). Đừng dựng lại: mượn-trong-cụm của hàm cũ là chỗ hai đơn vị cùng cụm tranh nhau trả lời.
 
     def _luong_vat_tu(self, dvt: str, ctx: dict, *,
-                      mat=None) -> tuple[float | None, str | None, str]:
+                      mat=None, cong_thuc: str = "") -> tuple[float | None, str | None, str]:
         """Số lượng một vật tư đo bằng `dvt`. Trả `(số, diễn giải, lý do nếu tịt)`.
 
-        MỘT đường duy nhất: `vat_tu_in_an.cong_thuc_luong` — công thức của CHÍNH món hàng (mg 0194).
+        MỘT đường duy nhất: công thức của DÒNG VẬT TƯ trong đầu việc của công đoạn
+        (`cong_doan_dau_viec_vat_tu.cong_thuc_luong`, 06/09/2026) — nơi gọi truyền vào qua
+        `cong_thuc`. Trước đó công thức treo ở CHÍNH MÓN HÀNG (`vat_tu_in_an.cong_thuc_luong`), nên
+        mọi công đoạn dùng món đó lĩnh chung một con số: cùng "Mực Cyan" mà In khổ 79×109 ăn 1 kg /
+        8.000 tờ, In khổ 11×11 ăn 1 kg / 40.000 tờ.
 
         Đường "quy đổi từ đơn vị của BƯỚC sang đơn vị vật tư" (BFS trên cầu quy đổi) GỠ 18/08/2026.
         Cầu quy đổi chỉ được chở quan hệ BẤT BIẾN (`1 ram = 500 tờ`, `1 tấn = 1.000 kg`). Còn "một
@@ -683,11 +708,12 @@ class LsxService:
         """
         ten = getattr(mat, "ten", None) or dvt
         dv_ten = (self._don_vis().get(dvt.strip().lower()) or {}).get("ten") or dvt
-        rieng = (getattr(mat, "cong_thuc_luong", None) or "").strip() if mat is not None else ""
+        rieng = (cong_thuc or "").strip()
         if not rieng:
             return None, None, (
-                f"chưa khai công thức lượng. Mở danh mục Vật tư khác → sửa “{ten}” → điền ô "
-                f"“Công thức lượng” (ra {dv_ten}).")
+                f"chưa khai công thức định mức. Mở danh mục Công đoạn → sửa công đoạn → bảng "
+                f"“Đầu việc và định mức của tổ” → bấm dòng “{ten}” trong khối vật tư → điền ô "
+                f"“Công thức định mức” (ra {dv_ten}).")
         try:
             gt = float(safe_eval(rieng, dict(ctx)))
         except (ValueError, ZeroDivisionError) as e:
