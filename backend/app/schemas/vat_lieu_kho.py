@@ -117,7 +117,8 @@ class VatTuIn(BaseModel):
     don_gia: float = Field(default=0, ge=0)
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
-    cong_thuc_luong: str | None = None
+    # Ô công thức tính lượng ĐÃ GỠ khỏi Vật tư khác (mg `0274`) — định mức nay khai theo
+    # TỪNG DÒNG vật tư của đầu việc trong công đoạn. Schema Giấy ở trên GIỮ NGUYÊN.
     # NVL thay thế (mg 0239) — id các Vật tư khác dùng thay được món này. MỘT CHIỀU.
     thay_the_ids: list[int] | None = None
     active: bool = True
@@ -134,10 +135,6 @@ class VatTuRow(BaseModel):
     don_gia: float
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
-    cong_thuc_luong: str | None = None
-    # "Lần trước công thức lượng" (mục 3+7) — router gán từ `cong_thuc_lich_su`, không có trong DB.
-    cong_thuc_luong_truoc: str | None = None
-    cong_thuc_luong_sua_luc: datetime | None = None
     thay_the_ids: list[int] | None = None
     active: bool
     updated_at: datetime | None = None

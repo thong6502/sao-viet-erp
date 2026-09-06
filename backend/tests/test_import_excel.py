@@ -180,7 +180,7 @@ def _dung_nen(client, h) -> dict[str, dict]:
         "mo_ta": "mô tả", "thu_tu": 7})
     ra["cong_viec_khoan"] = _tao(client, h, "cong_viec_khoan", {
         "ma": MA["cong_viec_khoan"], "ten": "Việc khoán thử", "department_id": to_id,
-        "unit": "to", "unit_price": 120, "cong_thuc_luong": "so_to * 2", "note": "gc"})
+        "unit": "to", "unit_price": 120, "note": "gc"})
     ra["don_vi_do"] = _tao(client, h, "don_vi_do", {
         "ma": MA["don_vi_do"], "ten": "Đơn vị thử", "ho": "thanh_pham",
         "ghi_chu": "gc", "hieu_luc_tu": "2026-01-01"})
@@ -194,7 +194,7 @@ def _dung_nen(client, h) -> dict[str, dict]:
         "cong_thuc_luong": "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen"})
     ra["vat_tu"] = _tao(client, h, "vat_tu", {
         "ma": MA["vat_tu"], "ten": "Mực thử", "don_vi_gia": "kg", "don_gia": 450000,
-        "ghi_chu": "gc", "cong_thuc_gia": "so_kg * don_gia", "cong_thuc_luong": "so_to / 1000"})
+        "ghi_chu": "gc", "cong_thuc_gia": "so_kg * don_gia"})
     ra["thanh_pham"] = _tao(client, h, "thanh_pham", {
         "ma": MA["thanh_pham"], "ten": "Thành phẩm thử", "don_vi_gia": "cai", "ghi_chu": "gc"})
     ra["cong_doan"] = _tao(client, h, "cong_doan", {
@@ -222,7 +222,7 @@ def _dung_nen(client, h) -> dict[str, dict]:
         "ma": MA["may_thiet_bi"], "ten": "Máy thử", "loai_may": "Máy in",
         "hang_san_xuat": "Heidelberg", "model": "SM74", "so_seri": "X1",
         "toc_do": 8000, "toc_do_min": 4000, "toc_do_max": 12000, "don_vi_toc_do": "to",
-        "cong_thuc_luong": "so_to", "makeready_time_default": 30, "so_nhan_cong": 3,
+        "makeready_time_default": 30,
         "kho_max_dai": 1020, "kho_max_rong": 720, "kho_min_dai": 300, "kho_min_rong": 200,
         "kho_kem_dai": 1000, "kho_kem_rong": 700, "vung_in_dai": 980, "vung_in_rong": 690,
         "nhip_giay_mm": 10, "le_hong_mm": 8, "duoi_thang_mau_mm": 12, "ghi_chu": "gc",
@@ -308,11 +308,14 @@ def test_xuat_du_moi_o_cong_thuc_dang_chay(client, seed_credentials):
     mong = {
         "giay": {"Công thức giá": "khoi_luong * don_gia",
                  "Công thức lượng": "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen"},
-        "vat_tu": {"Công thức giá": "so_kg * don_gia", "Công thức lượng": "so_to / 1000"},
+        "vat_tu": {"Công thức giá": "so_kg * don_gia"},
         "cong_doan": {"Công thức giá": "so_to * 100", "Công thức sản lượng": None},
-        "cong_viec_khoan": {"Công thức lượng": "so_to * 2"},
-        "may_thiet_bi": {"Công thức lượng": "so_to"},
     }
+    # Máy · Công việc khoán · Vật tư khác KHÔNG còn cột "Công thức lượng" (mg `0274`) — cách đo
+    # nay khai ở drawer Công đoạn, file Excel của ba màn này không được mời sửa lại nó.
+    for loai in ("vat_tu", "cong_viec_khoan", "may_thiet_bi"):
+        tieu_de, _ = _chinh(client, h, loai)
+        assert "Công thức lượng" not in tieu_de, loai
     for loai, cot in mong.items():
         tieu_de, dong = _chinh(client, h, loai)
         d = _dong_theo_ma(tieu_de, dong, MA[loai])
@@ -721,9 +724,10 @@ def test_cong_thuc_khong_hop_le_bi_service_chan(client, seed_credentials):
     """
     h = _login(client, **seed_credentials)
     _dung_nen(client, h)
+    # Bước ngoài dòng giấy = BỎ TRỐNG cả hai ô đơn vị (06/09/2026, xem `cong_doan_service`).
     noi_dung = _wb_tu(
         ["Mã", "Tên", "Đơn vị vào", "Đơn vị ra", "Công thức sản lượng"],
-        [[MA["cong_doan"], "Công đoạn thử", "kem", "bai", "sl_ra * 2"]],
+        [[MA["cong_doan"], "Công đoạn thử", "", "", "sl_ra * 2"]],
         ten_sheet=SPECS["cong_doan"].tieu_de[:31], loai="cong_doan")
     kq = _nhap(client, h, PREFIX["cong_doan"], noi_dung, mode="commit").json()
     assert kq["hop_le"] is False and kq["da_ghi"] is False

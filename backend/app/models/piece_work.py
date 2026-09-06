@@ -69,14 +69,10 @@ class PieceRate(Base):
     # CÔNG THỨC LƯỢNG của ĐẦU VIỆC NÀY (mg `0213`) — "việc này khoán theo lượng nào", tính ra số
     # đơn vị của `unit` rồi mới nhân `unit_price`.
     #
-    # Vì sao gắn vào ĐẦU VIỆC chứ không vào đơn vị: "Bắt tay + vào keo" khoán đ/`cuốn` mà bước đếm
-    # bằng `tay` — cầu `tay → cuốn` không có trong bảng cặp nên đầu việc này CHƯA BAO GIỜ ra tiền.
-    # Khai `sl_ra` ở đây là xong, mà không kéo theo mọi việc khác cũng đo bằng `cuốn`.
-    #
-    # ⚠️ GHÌM vào bước lệnh: `khoan_snapshot()` chép chuỗi này vào `khoan_json` cạnh `don_gia`/
-    # `don_vi`. Lệnh đã phát đọc ảnh chụp — xưởng sửa cách đo về sau KHÔNG được xê dịch tiền công
-    # của lệnh đang chạy. Muốn bước cũ ăn công thức mới thì chọn lại đầu việc.
-    cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Ô "Cách đo lượng khoán" (`cong_thuc_luong`) ĐÃ GỠ 06/09/2026, migration `0274`: cách đo nay
+    # khai ở `cong_doan_dau_viec.cong_thuc_khoan` — cùng một đầu việc chạy ở hai công đoạn thì đếm
+    # lượng theo hai cách khác nhau, treo ở bảng đơn giá là bắt hai công đoạn dùng chung một cách.
+    # Việc GHÌM vào bước lệnh (`khoan_snapshot`) giữ nguyên, chỉ đổi nguồn đọc.
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Còn dùng hay đã ngừng. Xoá một đơn giá đang được định mức đầu việc trỏ tới là làm mồ côi dữ
     # liệu, nên luồng xoá chung chỉ tắt cờ này khi còn nơi dùng (xem `danh_muc_tham_chieu`).

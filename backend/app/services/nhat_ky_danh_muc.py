@@ -165,6 +165,10 @@ NHAN: dict[str, str] = {
     "cong_thuc_gia": "Công thức tính giá",
     "cong_thuc_luong": "Công thức tính lượng",
     "cong_thuc_san_luong": "Công thức sản lượng ra",
+    # Bốn ô công thức chuyển về màn Công đoạn (06/09/2026) — thiếu nhãn là in tên cột thô ra.
+    "cong_thuc_gio": "Công thức giờ chạy",
+    "cong_thuc_khoan": "Công thức tính tiền công",
+    "may_lam_duoc": "Máy chạy được công đoạn này",
     # Thành phẩm (mg 0203–0204, 0228) — mấy cột này nằm trên `vat_tu_in_an` nên nhật ký của MÀN
     # Vật tư khác cũng có thể chạm tới. Thiếu nhãn là in tên cột thô ra cho người dùng đọc.
     "customer_id": "Khách hàng",
@@ -180,7 +184,6 @@ NHAN: dict[str, str] = {
     "he_so_goc": "Hệ số về đơn vị gốc",
     "hieu_luc_tu": "Hiệu lực từ",
     "dung_lam_toc_do": "Dùng làm đơn vị tốc độ",
-    "tram_dong_giay": "Trạm trên dòng giấy",
     # Chủng loại giấy · Giấy
     "chung_loai_giay_id": "Chủng loại giấy",
     "gsm": "Định lượng",
@@ -202,7 +205,6 @@ NHAN: dict[str, str] = {
     "toc_do_max": "Tốc độ tối đa",
     "don_vi_toc_do": "Đơn vị tốc độ",
     "makeready_time_default": "Tổng thời gian chuẩn bị",
-    "so_nhan_cong": "Số người vận hành tiêu chuẩn",
     "kho_max_dai": "Khổ giấy max — dài",
     "kho_max_rong": "Khổ giấy max — rộng",
     "kho_min_dai": "Khổ giấy min — dài",

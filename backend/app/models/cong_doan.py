@@ -65,14 +65,15 @@ class CongDoan(Base):
     kieu_bu_hao: Mapped[str] = mapped_column(String(16), nullable=False, server_default="khong", default="khong")
     bu_hao_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → bu_hao.id (soft) khi kieu=tra_bang
     so_to_bu_hao: Mapped[int] = mapped_column(Integer, nullable=False, server_default="50", default=50)  # +tờ hao khi kieu_bu_hao=co_dinh
-    # Đơn vị VÀO / RA của công đoạn — KHAI, không đoán theo tên. MÃ trong danh mục `don_vi_do`
-    # (soft-ref như mọi chỗ khác dùng đơn vị), không còn bó trong 5 mã dòng giấy:
+    # Đơn vị VÀO / RA của công đoạn — KHAI, không đoán theo tên. Từ 06/09/2026 đây là MENU ĐÓNG
+    # đúng 5 CHẶNG của dòng giấy (`don_vi_do.TRAM_DONG_GIAY`), KHÔNG còn trỏ vào danh mục đơn vị:
     #   - bước trên dòng giấy khai `to_nguyen → to`, `to → con`, `to → cai`… (chảy một chiều)
-    #   - bước KHÔNG chạm giấy khai đơn vị THẬT của nó: ghi kẽm `bai → kem`, trộn keo `cai → me`
-    # Cờ `don_vi_do.tram_dong_giay` mới là thứ nói bước có nằm trên dòng giấy hay không.
+    #   - bước KHÔNG chạm giấy (ghi kẽm, đóng thùng) BỎ TRỐNG cả hai — SL của nó tự tính bằng
+    #     `cong_thuc_san_luong` của chính công đoạn, không dính chuỗi bù hao của giấy.
     #
-    # NULL = CHƯA KHAI (dữ liệu cũ, hoặc bước kế hoạch tự thêm) → engine lùi về luật theo `nhom`.
-    # Đây là trạng thái tạm, không phải cách khai bước ngoài dòng giấy nữa.
+    # NULL vì thế là một CÂU TRẢ LỜI ("ngoài dòng giấy"), không phải "chưa khai". Trước đó bước
+    # ngoài dòng khai đơn vị thật (`bai → kem`) và câu hỏi trên-dòng-hay-không đi vòng qua cờ
+    # `don_vi_do.tram_dong_giay` — cờ ấy đã gỡ, xem `services/dong_giay.py`.
     #
     # Hệ số quy đổi KHÔNG lưu ở đây: phiếu tính giá đã có `con` (bình bài) và `so_manh_xa` (khổ
     # giấy) — khai lại là đẻ nguồn sự thật thứ hai.
@@ -209,7 +210,7 @@ class CongDoanDauViec(Base):
     # Ra LƯỢNG theo đơn vị của ĐƠN GIÁ KHOÁN rồi engine mới nhân đơn giá — nhãn trên màn là
     # "Công thức tính tiền công" cho người khai dễ hiểu, nhưng giá trị nó trả là LƯỢNG.
     #
-    # Vì sao chuyển từ `piece_rates.cong_thuc_luong` (gỡ ở mg `0273`) xuống đây: cùng một đầu việc
+    # Vì sao chuyển từ `piece_rates.cong_thuc_luong` (gỡ ở mg `0274`) xuống đây: cùng một đầu việc
     # làm ở hai công đoạn khác nhau thì đếm khác nhau (in khổ lớn / khổ nhỏ), mà treo ở bảng đơn
     # giá thì cả hai buộc dùng chung một cách đo.
     #
@@ -261,7 +262,7 @@ class CongDoanDauViecVatTu(Base):
     vat_tu_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # ĐỊNH MỨC của CHÍNH món này TRONG chính đầu việc này (06/09/2026) — ra LƯỢNG theo ĐVT của vật
-    # tư. Trước đây khai ở `vat_tu_in_an.cong_thuc_luong` (gỡ ở mg `0273`) nên mọi công đoạn dùng
+    # tư. Trước đây khai ở `vat_tu_in_an.cong_thuc_luong` (gỡ ở mg `0274`) nên mọi công đoạn dùng
     # món đó lĩnh chung một con số: cùng "Mực Cyan" mà In khổ 79×109 ăn 1 kg / 8.000 tờ, In khổ
     # 11×11 ăn 1 kg / 40.000 tờ. Trống = chưa khai ⇒ bước lệnh KHÔNG bung dòng đó, kèm câu lý do.
     cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)

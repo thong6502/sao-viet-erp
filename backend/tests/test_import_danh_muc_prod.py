@@ -43,9 +43,9 @@ _CTX_DAY_DU.update(
 _BANG_CONG_THUC = [
     (CongDoan, ["cong_thuc_gia", "cong_thuc_san_luong"]),
     (GiayNguyen, ["cong_thuc_luong"]),
-    (VatTuInAn, ["cong_thuc_gia", "cong_thuc_luong"]),
-    (MayThietBi, ["cong_thuc_luong"]),
-    (PieceRate, ["cong_thuc_luong"]),
+    # Máy · Công việc khoán không còn ô công thức nào (mg `0274`) nên rơi khỏi danh sách này;
+    # Vật tư khác chỉ còn ô giá.
+    (VatTuInAn, ["cong_thuc_gia"]),
 ]
 
 # Bảng cần đối chiếu số dòng giữa hai lần chạy (idempotent).

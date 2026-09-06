@@ -1395,9 +1395,10 @@ def test_vat_tu_co_CONG_THUC_LUONG_van_lay_SO_DA_CHOT_o_buoc_khong_tinh_lai(db, 
     """
     g = _giay(db)
     kem = _vat_tu(db, ma="VT-KEM", ten="Bản kẽm khổ 102", don_vi="kem")
-    kem.cong_thuc_luong = "so_kem"                  # biến CÓ ở tầng lệnh
     mang = _vat_tu(db, ma="VT-MANG", ten="Màng cán bóng", don_vi="m2")
-    mang.cong_thuc_luong = "sl_vao * 1000"          # biến CHỈ có ở tầng bước
+    # Ô `vat_tu_in_an.cong_thuc_luong` GỠ ở mg `0274` — định mức nay khai ở dòng vật tư của đầu
+    # việc, mà đường KẾ HOẠCH VẬT TƯ này (tầng lệnh) chưa bao giờ đọc nó cho vật tư: nó chỉ đọc
+    # `so_luong` mà bước đã tính sẵn. Bỏ hai dòng khai là đúng nghiệp vụ hiện tại.
     db.commit()
 
     l = _lenh(db, customer, ma="LSX-CTL-VT", giay_id=g.id, so_to_nguyen=241, han=MAI)

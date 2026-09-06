@@ -17,7 +17,7 @@ from ..models.piece_work import PieceRate
 from .catalog_base import CatalogRepo
 
 ASSIGNABLE = (
-    "ten", "group_name", "department_id", "unit", "unit_price", "cong_thuc_luong", "note", "active",
+    "ten", "group_name", "department_id", "unit", "unit_price", "note", "active",
 )
 
 

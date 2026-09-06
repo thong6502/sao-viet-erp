@@ -17,7 +17,8 @@ Công thức bám TỪ ĐIỂN BIẾN `services/bien_cong_thuc.py`:
   - Công đoạn `cong_thuc_gia`: KHÔNG có biến đơn giá → nhét số thẳng vào công thức.
   - Vật tư `cong_thuc_gia`: dùng `don_gia_vat_tu` (suy ngược ra lượng khi đặt đơn giá = 1).
   - Giấy `cong_thuc_luong`: dùng chung `_CT_LUONG_GIAY_CAN` (định lượng × khổ nguyên × tờ nguyên).
-  - Máy `cong_thuc_luong`: lượng theo đơn vị tốc độ (máy N màu → `sl_vao * so_mau / N`).
+    Đây là ô `cong_thuc_luong` DUY NHẤT còn lại — ba ô cùng tên ở Máy · Công việc khoán · Vật tư
+    khác đã gỡ ở mg `0274`, cách đo của bước nay khai ở drawer Công đoạn.
 """
 from __future__ import annotations
 
@@ -220,53 +221,54 @@ def _import_vat_tu(db: Session) -> int:
 
 
 # ---------------------------------------------------------------------------------------------
-# 4) Máy (thêm 14, gồm 4 nhóm máy MỚI). cong_thuc_luong = lượng theo đơn vị tốc độ.
+# 4) Máy (thêm 14, gồm 4 nhóm máy MỚI). Cách đo lượng KHÔNG khai ở đây nữa (mg `0274`) — nó theo
+# cặp (công đoạn × máy) ở drawer Công đoạn, một máy chạy hai công đoạn thì đo khác nhau.
 # ---------------------------------------------------------------------------------------------
 _CHUA_IN = {"nhip_giay_mm": 10, "le_hong_mm": 5, "duoi_thang_mau_mm": 5}
 
 
-def _may(ma, ten, loai, toc_do, dv_toc_do, makeready, ct_luong, **extra):
+def _may(ma, ten, loai, toc_do, dv_toc_do, makeready, **extra):
     return dict(ma=ma, ten=ten, loai_may=loai, toc_do=toc_do, don_vi_toc_do=dv_toc_do,
-                makeready_time_default=makeready, cong_thuc_luong=ct_luong, **extra)
+                makeready_time_default=makeready, **extra)
 
 
 _MAY = [
     # --- Máy in (thêm màu / khổ / máy số) ---
-    _may("IN-11", "Máy 4 màu Komori 72×102", _IN, 8000, "to_gio", 35, "sl_vao * so_mau / 4",
+    _may("IN-11", "Máy 4 màu Komori 72×102", _IN, 8000, "to_gio", 35,
          kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
          vung_in_rong=710, vung_in_dai=1010, kho_kem_rong=800, kho_kem_dai=1030, **_CHUA_IN),
-    _may("IN-12", "Máy 1 màu Ryobi 52×74 (in đen/số)", _IN, 9000, "to_gio", 20, "sl_vao * so_mau / 1",
+    _may("IN-12", "Máy 1 màu Ryobi 52×74 (in đen/số)", _IN, 9000, "to_gio", 20,
          kho_min_rong=320, kho_min_dai=420, kho_max_rong=520, kho_max_dai=740,
          vung_in_rong=510, vung_in_dai=730, kho_kem_rong=605, kho_kem_dai=745, **_CHUA_IN),
-    _may("IN-13", "Máy in số HP Indigo 33×48", _IN, 3000, "to_gio", 10, "sl_vao * so_mau / 4",
+    _may("IN-13", "Máy in số HP Indigo 33×48", _IN, 3000, "to_gio", 10,
          kho_min_rong=210, kho_min_dai=297, kho_max_rong=330, kho_max_dai=480,
          vung_in_rong=320, vung_in_dai=470, ghi_chu="Máy in kỹ thuật số, không cần kẽm."),
     # --- Chế bản (nhóm MỚI) — đơn vị tốc độ kẽm/giờ, lượng = số kẽm ---
-    _may("CTP-01", "Máy ghi kẽm CTP Kodak 102", _CB, 25, "kem_gio", 5, "so_kem",
+    _may("CTP-01", "Máy ghi kẽm CTP Kodak 102", _CB, 25, "kem_gio", 5,
          kho_kem_rong=1030, kho_kem_dai=790, ghi_chu="Ghi kẽm trực tiếp (CTP)."),
-    _may("CTP-02", "Máy phơi kẽm PS 74", _CB, 18, "kem_gio", 8, "so_kem",
+    _may("CTP-02", "Máy phơi kẽm PS 74", _CB, 18, "kem_gio", 8,
          kho_kem_rong=745, kho_kem_dai=605, ghi_chu="Phơi kẽm qua phim (PS)."),
     # --- Xén (nhóm MỚI) ---
-    _may("XEN-01", "Máy xén Polar 115", _XEN, 1500, "to_gio", 15, "sl_vao",
+    _may("XEN-01", "Máy xén Polar 115", _XEN, 1500, "to_gio", 15,
          kho_min_rong=100, kho_min_dai=100, kho_max_rong=1150, kho_max_dai=1150),
-    _may("XEN-02", "Máy xén Polar 78", _XEN, 2000, "to_gio", 12, "sl_vao",
+    _may("XEN-02", "Máy xén Polar 78", _XEN, 2000, "to_gio", 12,
          kho_min_rong=80, kho_min_dai=80, kho_max_rong=780, kho_max_dai=780),
     # --- Gấp / Dán (nhóm MỚI) ---
-    _may("GAP-01", "Máy gấp Stahl 78", _GAP, 6000, "to_gio", 25, "sl_vao",
+    _may("GAP-01", "Máy gấp Stahl 78", _GAP, 6000, "to_gio", 25,
          kho_min_rong=200, kho_min_dai=200, kho_max_rong=780, kho_max_dai=1100),
-    _may("DAN-01", "Máy dán hộp tự động 650", _GAP, 5000, "to_gio", 30, "sl_vao",
+    _may("DAN-01", "Máy dán hộp tự động 650", _GAP, 5000, "to_gio", 30,
          kho_min_rong=150, kho_min_dai=150, kho_max_rong=650, kho_max_dai=900),
     # --- Cán màng / UV (thêm spot UV) ---
-    _may("CM-05", "Máy phủ UV cục bộ (spot) 720", _CM, 3000, "to_gio", 30, "sl_vao",
+    _may("CM-05", "Máy phủ UV cục bộ (spot) 720", _CM, 3000, "to_gio", 30,
          kho_min_rong=280, kho_min_dai=380, kho_max_rong=720, kho_max_dai=1020),
     # --- Bồi (thêm bồi phẳng) ---
-    _may("BOI-05", "Máy bồi phẳng tự động 1100", _BOI, 2500, "to_gio", 20, "sl_vao",
+    _may("BOI-05", "Máy bồi phẳng tự động 1100", _BOI, 2500, "to_gio", 20,
          kho_min_rong=280, kho_min_dai=380, kho_max_rong=700, kho_max_dai=1000),
     # --- Bế (thêm bế phẳng tự động) ---
-    _may("BE-07", "Máy bế phẳng tự động 1060", _BE, 5000, "to_gio", 30, "sl_vao",
+    _may("BE-07", "Máy bế phẳng tự động 1060", _BE, 5000, "to_gio", 30,
          kho_min_rong=380, kho_min_dai=380, kho_max_rong=720, kho_max_dai=1060),
     # --- Đóng gói (nhóm MỚI) ---
-    _may("DG-01", "Máy co màng đóng thùng 500", _DG, 1200, "to_gio", 10, "sl_vao",
+    _may("DG-01", "Máy co màng đóng thùng 500", _DG, 1200, "to_gio", 10,
          kho_min_rong=100, kho_min_dai=100, kho_max_rong=500, kho_max_dai=700),
 ]
 
@@ -401,28 +403,28 @@ def _import_cong_doan(db: Session) -> int:
 # 7) Công việc khoán (piece_rates). `unit` = CHỮ đơn vị (khớp `don_vi_do.ten`) để khoán quy đổi.
 #    department_id tra theo tên TỔ (sau seed_san_xuat_org). `ma` KHÔNG unique ở DB → tự kiểm.
 # ---------------------------------------------------------------------------------------------
-# (ma, ten, tên TỔ, group_name, đơn vị (ten), đơn giá, công thức lượng | None)
+# (ma, ten, tên TỔ, group_name, đơn vị (ten), đơn giá) — cách đo lượng gỡ ở mg `0274`.
 _KHOAN = [
-    ("KH-1001", "Canh máy in", "Tổ In offset", "to_in", "lượt", 50000, None),
-    ("KH-1002", "In offset (khoán tờ)", "Tổ In offset", "to_in", "tờ", 8, "to_dau_vao"),
-    ("KH-1003", "Bình bài", "Tổ Chế bản", "to_che_ban", "bài in", 30000, None),
-    ("KH-1004", "Ghi kẽm", "Tổ Chế bản", "to_che_ban", "bản kẽm", 25000, "so_kem"),
-    ("KH-1005", "Cán màng (khoán tờ)", "Tổ Cán màng", "to_can_mang", "tờ", 5, "to_sau_in"),
-    ("KH-1006", "Phủ UV (khoán tờ)", "Tổ Cán màng", "to_can_mang", "tờ", 6, "to_sau_in"),
-    ("KH-1007", "Bế thủ công", "Tổ Bế & Xén", "to_be_xen", "tờ", 15, "to_dau_vao"),
-    ("KH-1008", "Xén định hình", "Tổ Bế & Xén", "to_be_xen", "tờ", 10, "to_dau_vao"),
-    ("KH-1009", "Bóc bế / bóc rìa", "Tổ Bế & Xén", "to_be_xen", "con", 2, "so_tp"),
-    ("KH-1010", "Gấp tay", "Tổ Đóng gói", "to_dong_goi", "cái", 30, "so_luong"),
-    ("KH-1011", "Dán hộp", "Tổ Đóng gói", "to_dong_goi", "cái", 120, "so_luong"),
-    ("KH-1012", "Đóng cuốn keo nhiệt", "Tổ Đóng gói", "to_dong_goi", "cuốn", 200, "so_luong"),
-    ("KH-1013", "Vào bìa / bắt tay sách", "Tổ Đóng gói", "to_dong_goi", "cuốn", 150, "so_luong"),
-    ("KH-1014", "Luồn dây / xỏ quai", "Tổ Đóng gói", "to_dong_goi", "cái", 80, "so_luong"),
-    ("KH-1015", "Dán tem / dán decal", "Tổ Đóng gói", "to_dong_goi", "con", 2, "so_tp"),
-    ("KH-1016", "Đếm & vô lốc", "Tổ Đóng gói", "to_dong_goi", "cái", 5, "so_luong"),
-    ("KH-1017", "Đóng gói thùng", "Tổ Đóng gói", "to_dong_goi", "thùng", 3000, None),
-    ("KH-1018", "Kiểm đếm giao hàng", "Tổ Đóng gói", "to_dong_goi", "cái", 2, "so_luong"),
-    ("KH-1019", "Kiểm hàng KCS", "Tổ KCS", "to_kcs", "tờ", 3, "to_sau_in"),
-    ("KH-1020", "Soạn mẫu / kiểm bù trừ", "Tổ KCS", "to_kcs", "lượt", 40000, None),
+    ("KH-1001", "Canh máy in", "Tổ In offset", "to_in", "lượt", 50000),
+    ("KH-1002", "In offset (khoán tờ)", "Tổ In offset", "to_in", "tờ", 8),
+    ("KH-1003", "Bình bài", "Tổ Chế bản", "to_che_ban", "bài in", 30000),
+    ("KH-1004", "Ghi kẽm", "Tổ Chế bản", "to_che_ban", "bản kẽm", 25000),
+    ("KH-1005", "Cán màng (khoán tờ)", "Tổ Cán màng", "to_can_mang", "tờ", 5),
+    ("KH-1006", "Phủ UV (khoán tờ)", "Tổ Cán màng", "to_can_mang", "tờ", 6),
+    ("KH-1007", "Bế thủ công", "Tổ Bế & Xén", "to_be_xen", "tờ", 15),
+    ("KH-1008", "Xén định hình", "Tổ Bế & Xén", "to_be_xen", "tờ", 10),
+    ("KH-1009", "Bóc bế / bóc rìa", "Tổ Bế & Xén", "to_be_xen", "con", 2),
+    ("KH-1010", "Gấp tay", "Tổ Đóng gói", "to_dong_goi", "cái", 30),
+    ("KH-1011", "Dán hộp", "Tổ Đóng gói", "to_dong_goi", "cái", 120),
+    ("KH-1012", "Đóng cuốn keo nhiệt", "Tổ Đóng gói", "to_dong_goi", "cuốn", 200),
+    ("KH-1013", "Vào bìa / bắt tay sách", "Tổ Đóng gói", "to_dong_goi", "cuốn", 150),
+    ("KH-1014", "Luồn dây / xỏ quai", "Tổ Đóng gói", "to_dong_goi", "cái", 80),
+    ("KH-1015", "Dán tem / dán decal", "Tổ Đóng gói", "to_dong_goi", "con", 2),
+    ("KH-1016", "Đếm & vô lốc", "Tổ Đóng gói", "to_dong_goi", "cái", 5),
+    ("KH-1017", "Đóng gói thùng", "Tổ Đóng gói", "to_dong_goi", "thùng", 3000),
+    ("KH-1018", "Kiểm đếm giao hàng", "Tổ Đóng gói", "to_dong_goi", "cái", 2),
+    ("KH-1019", "Kiểm hàng KCS", "Tổ KCS", "to_kcs", "tờ", 3),
+    ("KH-1020", "Soạn mẫu / kiểm bù trừ", "Tổ KCS", "to_kcs", "lượt", 40000),
 ]
 
 
@@ -430,13 +432,13 @@ def _import_khoan(db: Session) -> int:
     depts = DepartmentRepository(db)
     co = {m for m in db.execute(select(PieceRate.ma)).scalars() if m}
     moi = []
-    for ma, ten, to_ten, grp, unit, gia, ct in _KHOAN:
+    for ma, ten, to_ten, grp, unit, gia in _KHOAN:
         if ma in co:
             continue
         d = depts.get_by_name(to_ten)
         moi.append(PieceRate(
             ma=ma, ten=ten, group_name=grp, department_id=(d.id if d else None),
-            unit=unit, unit_price=gia, cong_thuc_luong=ct, active=True,
+            unit=unit, unit_price=gia, active=True,
         ))
     if moi:
         db.add_all(moi)

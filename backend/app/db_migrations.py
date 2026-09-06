@@ -12180,3 +12180,101 @@ def _migrate_cong_thuc_ve_cong_doan(db) -> None:
 
 
 MIGRATIONS.append(("0272_cong_thuc_ve_cong_doan", _migrate_cong_thuc_ve_cong_doan))
+
+
+def _migrate_don_vi_buoc_ve_5_tram(db: Session) -> None:
+    """Ô đơn vị của BƯỚC chỉ còn 5 chặng dòng giấy; mã ngoài 5 chặng → NULL (= ngoài dòng giấy).
+
+    Từ 11/08/2026 bước khai đơn vị TỰ DO từ danh mục Đơn vị & quy đổi, và câu "bước này có nằm
+    trên dòng giấy không" đi vòng qua cờ `don_vi_do.tram_dong_giay`. Cờ ấy gỡ 06/09/2026: nó chỉ
+    cho phép ĐỔI TÊN một chặng chứ không thêm được chặng thứ 6 (`CAU_TRAM` và `_he_so_cau` đóng
+    cứng trong code), đổi lại bắt người khai danh mục đơn vị — việc của kho và mua hàng — phải hiểu
+    dòng giấy, sai một dòng là số giấy của mọi lệnh lệch theo mà chẳng màn nào báo.
+
+    Nay ô Đơn vị vào/ra của công đoạn là MENU ĐÓNG đúng 5 chặng, để TRỐNG cả hai = bước ngoài dòng
+    giấy. Dữ liệu cũ khai mã ngoài 5 chặng (`kem → kem` của Ghi kẽm CTP, `m2 → bai` của bước cũ
+    hơn) vì thế phải về NULL — không thì `_validate` chặn ngay lần sửa tên đầu tiên, mà người dùng
+    có đụng vào ô đơn vị đâu.
+
+    KHÔNG mất số lượng: bước ngoài dòng lấy SL từ `cong_doan.cong_thuc_san_luong` (`so_kem`) chứ
+    không từ cặp đơn vị, và `_he_so_ngoai_dong(None, None)` trả hệ số 1,0 — đúng bằng hệ số mà cặp
+    `kem → kem` đang cho. Số kẽm trên lệnh giữ nguyên.
+
+    Chỉ NULL vế nào lạ thì hỏng nửa vời (một đầu trống một đầu có = ca bị chặn), nên NULL CẢ CẶP
+    khi bất kỳ vế nào rơi ngoài 5 chặng.
+
+    `san_xuat_cong_viec.don_vi_vao/ra` KHÔNG đụng: đó là ẢNH CHỤP lúc phát hành, sổ sách đã chạy —
+    và nó chỉ để hiển thị, không ai đem vào chuỗi bù hao.
+    """
+    insp = inspect(db.get_bind())
+    bang_co = set(insp.get_table_names())
+    tram = "('to_nguyen', 'to', 'con', 'tay', 'cai')"
+    for bang in ("cong_doan", "lsx_cong_doan", "bai_ghep_cong_doan"):
+        if bang not in bang_co:
+            continue
+        cot = _existing_columns(insp, bang)
+        if "don_vi_vao" not in cot or "don_vi_ra" not in cot:
+            continue
+        db.execute(text(
+            f"UPDATE {bang} SET don_vi_vao = NULL, don_vi_ra = NULL "
+            f"WHERE (don_vi_vao IS NOT NULL AND don_vi_vao NOT IN {tram}) "
+            f"   OR (don_vi_ra IS NOT NULL AND don_vi_ra NOT IN {tram})"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0273_don_vi_buoc_ve_5_tram", _migrate_don_vi_buoc_ve_5_tram))
+
+
+def _migrate_go_ba_o_cong_thuc_luong(db) -> None:
+    """Gỡ ba ô "cách đo lượng" khỏi Máy · Công việc khoán · Vật tư khác (06/09/2026).
+
+    Nghiệp vụ: cách đo giờ nay khai theo CẶP (công đoạn × máy), cách đo tiền công theo dòng đầu
+    việc của công đoạn, định mức vật tư theo dòng vật tư của đầu việc — cả ba đã được `0272`
+    chép sang. Giữ ba ô cũ song song là để hai nguồn cho một câu hỏi, sớm muộn khai lệch.
+
+    GIẤY (`giay_nguyen.cong_thuc_luong`) GIỮ NGUYÊN: nó trả lời "một lệnh cần bao nhiêu kg giấy",
+    câu hỏi của MẶT HÀNG chứ không của bước, và không có công đoạn nào để neo vào.
+
+    Chỉ DROP khi cột còn: DB fresh (create_all theo model đã bỏ cột) rơi vào nhánh bỏ qua.
+    """
+    insp = inspect(db.get_bind())
+    bang_co = set(insp.get_table_names())
+    for bang in ("may_thiet_bi", "piece_rates", "vat_tu_in_an"):
+        if bang not in bang_co:
+            continue
+        if "cong_thuc_luong" in _existing_columns(insp, bang):
+            db.execute(text(f"ALTER TABLE {bang} DROP COLUMN cong_thuc_luong"))
+    db.commit()
+
+
+MIGRATIONS.append(("0274_go_ba_o_cong_thuc_luong", _migrate_go_ba_o_cong_thuc_luong))
+
+
+def _migrate_moi_buoc_deu_bat_buoc(db) -> None:
+    """Mọi bước routing đều BẮT BUỘC (07/09/2026) — dọn nốt dòng cũ đang `bat_buoc = false`.
+
+    Nghiệp vụ: "bước tuỳ chọn" là một lời hứa suông — bước đã khai trong routing thì xưởng vẫn
+    phải làm, còn thứ thật sự có thể bỏ thì đừng khai. Ô tick trong drawer bước đã GỠ, nhãn
+    "tùy chọn" ở bảng routing cũng gỡ; nếu không backfill thì dòng cũ nào lỡ tick `false` sẽ kẹt
+    ngoài vòng kiểm (xem `xep_lich_van_de_service._thieu_du_lieu` bỏ qua bước không bắt buộc) mà
+    không còn cửa nào sửa lại.
+
+    GHI ĐÈ có chủ đích: sau migration không còn phân biệt bước bắt buộc / tuỳ chọn, giá trị
+    `false` cũ không khôi phục được. Cột giữ lại (server luôn ghi TRUE) để phiếu công nghệ và
+    các snapshot đã phát hành không phải đổi cấu trúc.
+
+    `san_xuat_cong_viec` KHÔNG có cột này nên không đụng tới.
+    """
+    insp = inspect(db.get_bind())
+    bang_co = set(insp.get_table_names())
+    for bang in ("lsx_cong_doan", "bai_ghep_cong_doan"):
+        if bang not in bang_co:
+            continue
+        if "bat_buoc" not in _existing_columns(insp, bang):
+            continue
+        db.execute(text(f"UPDATE {bang} SET bat_buoc = TRUE WHERE bat_buoc = FALSE"))
+    db.commit()
+
+
+MIGRATIONS.append(("0275_moi_buoc_deu_bat_buoc", _migrate_moi_buoc_deu_bat_buoc))

@@ -176,6 +176,12 @@ def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000, sl_them: tuple[int, ...] = ()) -> 
                          cong_thuc_gia="so_luong * don_gia")
         db.add(cd_in)
     cd_in.department_id = cd_in.department_id or to_id
+    # Đơn vị vào/ra PHẢI khai: từ 06/09/2026 bỏ TRỐNG cả hai nghĩa là "bước không chạm giấy"
+    # (ghi kẽm, đóng thùng), không còn là "chưa khai" — `tren_dong_giay` bỏ lối lùi theo `nhom`.
+    # Bài ghép đòi ÍT NHẤT một bước chung trên dòng giấy (`thieu_buoc_chung_tren_giay`), nên bước
+    # In để trống đơn vị thì cả fixture rơi khỏi dòng giấy và không bài nào sẵn sàng được.
+    cd_in.don_vi_vao = cd_in.don_vi_vao or "to"
+    cd_in.don_vi_ra = cd_in.don_vi_ra or "to"
     cd_in.setup_time = 45
     db.flush()
 
@@ -1214,7 +1220,7 @@ def test_khoan_luot_chung_ghim_theo_id_va_chan_dau_viec_la(
     db.flush()
     db.add(CongDoanDauViec(
         cong_doan_id=cd_in_id, piece_rate_id=rate.id,
-        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2, so_nguoi_toi_da=3,
+        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2,
     ))
     db.commit()
 
@@ -1270,15 +1276,16 @@ def test_dau_viec_khoan_luot_chung_mang_san_vat_tu_de_drawer_bung(
     db.flush()
     link = CongDoanDauViec(
         cong_doan_id=cd_in_id, piece_rate_id=rate.id,
-        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2, so_nguoi_toi_da=3,
+        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2,
     )
     db.add(link)
     db.flush()
     keo = VatTuInAn(ma="KEO-CH", ten="Keo bước chung", don_vi_gia="kg", don_gia=45_000,
-                    cong_thuc_luong="sl_vao * 0.001", active=True)
+                    active=True)
     db.add(keo)
     db.flush()
-    link.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    link.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0,
+                                             cong_thuc_luong="sl_vao * 0.001"))
     db.commit()
 
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
@@ -1466,7 +1473,7 @@ def test_so_do_chung_mang_bang_boc_tach_gio_va_goi_y_vat_tu(
     from app.schemas.bai_ghep import SoDoOut
 
     db.add(VatTuInAn(ma="VT-MUC-GY", ten="Mực đen", don_vi_gia="kg", don_gia=180_000,
-                     cong_thuc_luong="sl_vao / 1000", active=True))
+                     active=True))
     db.commit()
 
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)

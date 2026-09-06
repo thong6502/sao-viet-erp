@@ -231,9 +231,8 @@ export const CFG_MAY: CatalogConfig = {
   // treo mãi kể cả khi đã gỡ khỏi danh mục. `dynamic` vẫn giữ: máy cũ mang tên nhóm không còn
   // trong danh mục vẫn phải có lối lọc tới, không được rơi khỏi hàng tab.
   facet: { key: "loai_may", source: "/api/nhom-may", dynamic: true },
-  // Ô công thức duy nhất của màn Máy ra LƯỢNG (theo đơn vị tốc độ), không ra tiền — nhãn tab mặc
-  // định "Công thức tính giá" sẽ mời gõ sai thứ vào đó.
-  nhanTabCongThuc: "Cách đo lượng",
+  // `nhanTabCongThuc` GỠ cùng ô "Cách đo lượng" (06/09/2026): màn Máy không còn ô công thức nào
+  // nên tab công thức tự biến mất, giữ nhãn lại là nhãn của một tab không tồn tại.
   // Khai máy vẫn chia 3 tab theo việc: cuộn một mạch thì khối Lịch bảo trì nằm tít dưới đáy,
   // ai vào sửa chu kỳ cũng phải lướt hết phần vận hành.
   tabsKhai: [
@@ -259,13 +258,8 @@ export const CFG_MAY: CatalogConfig = {
     { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "don_vi_toc_do",
       refPrefix: "/api/don-vi", refParams: { active: true, size: 200 },
       group: "Tốc độ & Vận hành", default: "to_gio" },
-    // Ô ra LƯỢNG, KHÔNG ra tiền và KHÔNG ra giờ: nó chỉ trả lời "bước này bằng bao nhiêu <đơn vị
-    // tốc độ>", rồi engine mới chia tốc độ ra phút. Đứng ngay dưới ô Đơn vị tốc độ vì đó là đơn vị
-    // nó phải ra. `loaiO: "quy_doi"` ⇒ chip có `sl_vao`/`sl_ra` và KHÔNG có đơn giá — ô này không
-    // được phép nhắc tới tiền.
-    { key: "cong_thuc_luong", label: "Cách đo lượng theo đơn vị tốc độ", type: "formula",
-      loaiO: "quy_doi", group: "Tốc độ & Vận hành",
-      hint: "Bỏ trống = hệ tự quy đổi. vd máy đo m²/giờ: sl_vao * dai_in * rong_in · máy 5 màu chạy 2 lượt: sl_vao * so_mau / 5" },
+    // Ô "Cách đo lượng theo đơn vị tốc độ" ĐÃ GỠ (06/09/2026): cách đo nay khai theo CẶP (công
+    // đoạn × máy) ở drawer Công đoạn — cùng một máy chạy hai công đoạn thì đo khác nhau.
     // Ô "Tốc độ tối thiểu / tối đa" ĐÃ ẨN (04/09/2026) cùng đợt với các ô khổ: dải tốc độ không
     // khai ở đây nữa. Cột DB giữ nguyên, Bài ghép / Lệnh SX vẫn đọc số cũ — đừng bày lại ô này.
     // Ô "Số người vận hành tiêu chuẩn" ĐÃ GỠ (06/09/2026, mg `0270`): kíp nay khai MỘT chỗ duy
@@ -480,8 +474,7 @@ export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
   // Mã do MÁY cấp (`KH-####`) ⇒ ẩn ô Mã lúc tạo. Xưởng gọi việc khoán bằng TÊN ("bế tay", "vào keo
   // gáy vuông"), chưa ai từng gọi bằng mã — bắt gõ mã là thêm một ô không ai đọc lại.
   autoCode: true,
-  // Ô công thức của màn này ra LƯỢNG khoán, không ra tiền (tiền = lượng × đơn giá, engine nhân).
-  nhanTabCongThuc: "Cách đo lượng",
+  // `nhanTabCongThuc` GỠ cùng ô "Cách đo lượng khoán" (06/09/2026) — màn này hết ô công thức.
   // Tab lọc = TỔ. Không khai `values` cứng: tổ do người dùng dựng ở cây tổ chức, mọi giá trị đều
   // đến từ dữ liệu (`dynamic`) — khai cứng là bỏ sót đúng những tổ xưởng mới mở.
   facet: { key: "to", values: [], dynamic: true },
@@ -514,13 +507,7 @@ export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
     { key: "unit", label: "Đơn vị tính khoán", ...F_DON_VI, required: true, group: "Đơn giá" },
     { key: "unit_price", label: "Đơn giá (đ)", type: "number", required: true, group: "Đơn giá",
       hint: "Tiền cho MỘT đơn vị ở trên. Vd bế tay 400 đ/tờ." },
-    // Cách đo LƯỢNG mà đơn giá nhân vào. Bỏ trống thì hệ tự quy đổi SL của bước sang đơn vị này
-    // bằng cầu quy đổi — chỉ khai khi cầu đó không có, hoặc có mà việc này đo theo cách khác.
-    // Ghi chú quan trọng cho người khai: sửa ô này KHÔNG đổi tiền của lệnh đã phát (bước ghim ảnh
-    // chụp lúc chọn đầu việc) — nói ra để không ai tưởng vá xong là số cũ tự đúng theo.
-    { key: "cong_thuc_luong", label: "Cách đo lượng khoán", type: "formula", loaiO: "quy_doi",
-      group: "Đơn giá",
-      hint: "Bỏ trống = hệ tự quy đổi. vd khoán đ/cuốn mà bước đếm tay: sl_ra. Lệnh ĐÃ phát giữ cách đo cũ." },
+    // Ô "Cách đo lượng khoán" ĐÃ GỠ (06/09/2026): khai ở dòng đầu việc trong drawer Công đoạn.
     { key: "note", label: "Ghi chú", type: "text", group: "Thông tin" },
   ],
 };
@@ -639,10 +626,8 @@ export const CFG_VAT_TU: CatalogConfig = {
   enableImport: true,
   prefix: "/api/vat-lieu-kho/vat-tu-in-an",
   nhatKyLoai: "vat_tu",
-  // Vật tư CHỈ còn 1 tab công thức, ra LƯỢNG (tiêu hao cho kế hoạch vật tư). Ô "Công thức tính
-  // giá" đã ẩn khỏi drawer (xưởng không thêm dòng mực/màng/keo rời vào phiếu tính giá) — nhãn tab
-  // đổi cho khớp, đừng để chữ "tính giá" mời người ta gõ công thức tiền vào đây.
-  nhanTabCongThuc: "Công thức tính lượng",
+  // Vật tư khác nay KHÔNG còn ô công thức nào trong drawer (06/09/2026): ô giá ẩn từ trước, ô
+  // lượng chuyển về từng dòng vật tư của đầu việc trong drawer Công đoạn — nên bỏ luôn nhãn tab.
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
   // xoá hẳn, còn nơi dùng thì chỉ ngừng dùng. Mục đã ngừng xem lại ở công tắc trên dải lọc.
   softDelete: true,
@@ -663,12 +648,8 @@ export const CFG_VAT_TU: CatalogConfig = {
     // theo yêu cầu — cột DB, dữ liệu cũ và đường engine (`thanh_phan_engine`/`tinh_gia_service`)
     // vẫn nguyên; chỉ không cho khai mới ở đây. Cần mở lại thì thêm field formula `cong_thuc_gia`
     // với `nhanTab: "Công thức tính giá"`.
-    // Lượng tiêu hao của CHÍNH món này. Đường ưu tiên số 1 của `LsxService._luong_vat_tu`: khai ở
-    // đây thì keo thôi ăn ké "cách đo" của đơn vị `kg` — thứ đang dùng chung cho cả mực lẫn keo dù
-    // hai món tiêu hao khác hẳn nhau.
-    { key: "cong_thuc_luong", label: "Công thức tính lượng", type: "formula", loaiO: "quy_doi",
-      group: "Giá",
-      hint: "vd: sl_ra * 0.02 — lượng tiêu hao của bước, theo ĐVT đã chọn" },
+    // Ô "Công thức tính lượng" ĐÃ GỠ (06/09/2026): định mức khai theo TỪNG DÒNG vật tư trong đầu
+    // việc của công đoạn. Ô của GIẤY (CFG_GIAY) GIỮ NGUYÊN — câu hỏi khác.
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
     // NVL thay thế (mục 5 "Bảng định mức", mg 0239) — tra cứu/gợi ý khi thiếu hàng, MỘT CHIỀU.
     { key: "thay_the_ids", label: "Vật tư thay thế", type: "self-ref-multi",
