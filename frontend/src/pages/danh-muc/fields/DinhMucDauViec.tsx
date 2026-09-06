@@ -78,7 +78,7 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
                 bảng máy và bảng vật tư, để ba chỗ khai công thức trong drawer này thao tác giống
                 nhau (06/09/2026). */}
             <td className="rc-col--left rc-dinh-muc-name">
-              <button type="button" className="rc-dm-vt__pill"
+              <button type="button" className={`rc-dm-vt__pill ${moCt === r.piece_rate_id ? "is-open" : ""}`}
                 onClick={() => setMoCongThuc(moCt === r.piece_rate_id ? null : r.piece_rate_id)}>
                 {opt ? `${opt.ma} · ${opt.ten}` : `#${r.piece_rate_id}`}
               </button>
@@ -96,7 +96,14 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
                 Hiện TÊN (server gán `don_vi_ten`), chỉ lùi về mã trần khi mã lạ ngoài danh mục. */}
             <td className="rc-col--unit rc-dinh-muc-unit">{opt?.don_vi_ten ? `${opt.don_vi_ten}/h` : opt?.don_vi ? `${opt.don_vi}/h` : "—"}</td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_tieu_chuan} onChange={(e) => patch(i, { so_nguoi_tieu_chuan: Number(e.target.value) })} /></td>
-            <td className="rc-col--left rc-dinh-muc-unit">{r.cong_thuc_khoan || "—"}</td>
+            {/* Bấm thẳng vào ô công thức cũng mở panel, không bắt đi đường vòng qua tên ở cột đầu. */}
+            <td className="rc-col--left rc-dinh-muc-unit">
+              <button type="button" title="Sửa công thức tính tiền công của đầu việc này"
+                className={`rc-ct-cell ${moCt === r.piece_rate_id ? "is-open" : ""} ${r.cong_thuc_khoan ? "" : "is-empty"}`}
+                onClick={() => setMoCongThuc(moCt === r.piece_rate_id ? null : r.piece_rate_id)}>
+                {r.cong_thuc_khoan || "—"}
+              </button>
+            </td>
             {/* Bấm để bung HÀNG PHỤ ngay dưới — không mở drawer lồng drawer, người khai vẫn thấy
                 cả bảng để so các dòng với nhau. */}
             <td className="rc-col--center">
@@ -136,14 +143,20 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
                     <Fragment key={v.vat_tu_id}>
                       <tr>
                         <td className="rc-col--left">
-                          <button type="button" className="rc-dm-vt__pill"
+                          <button type="button" className={`rc-dm-vt__pill ${moVtCt === v.vat_tu_id ? "is-open" : ""}`}
                             onClick={() => setMoVtCt(moVtCt === v.vat_tu_id ? null : v.vat_tu_id)}>
                             {String(vt?.ma ?? `#${v.vat_tu_id}`)}
                           </button>
                         </td>
                         <td className="rc-col--left">{String(vt?.ten ?? "(đã gỡ khỏi danh mục)")}</td>
                         <td className="rc-col--unit">{String(vt?.don_vi_gia ?? "—")}</td>
-                        <td className="rc-col--left rc-dinh-muc-unit">{v.cong_thuc_luong || "—"}</td>
+                        <td className="rc-col--left rc-dinh-muc-unit">
+                          <button type="button" title="Sửa công thức định mức của món này"
+                            className={`rc-ct-cell ${moVtCt === v.vat_tu_id ? "is-open" : ""} ${v.cong_thuc_luong ? "" : "is-empty"}`}
+                            onClick={() => setMoVtCt(moVtCt === v.vat_tu_id ? null : v.vat_tu_id)}>
+                            {v.cong_thuc_luong || "—"}
+                          </button>
+                        </td>
                         <td className="rc-col--center">
                           <button type="button" className="rc-bands__del" title="Bỏ vật tư khỏi đầu việc"
                             onClick={() => patch(i, { vat_tus: vts.filter((_, m) => m !== k) })}>

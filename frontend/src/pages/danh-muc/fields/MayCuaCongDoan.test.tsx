@@ -32,7 +32,7 @@ describe("MayCuaCongDoanField", () => {
     expect(screen.queryByText(/Yawa 1050/)).not.toBeInTheDocument();
   });
 
-  it("bấm dòng máy thì bung panel hai ô công thức", async () => {
+  it("bấm tên máy mở Ô GIỜ, không kéo theo ô giá", async () => {
     const user = userEvent.setup();
     bay({ value: [{ may_id: 1 }], options: MAY, nhomChoPhep: ["Máy in"], nhomCongDoan: "print",
           onChange: () => {} });
@@ -40,7 +40,23 @@ describe("MayCuaCongDoanField", () => {
     // `nhanO` render ra `<span className="rc-formula__editor-label">`, KHÔNG phải `<label for>`
     // ⇒ dùng `getByText`, `getByLabelText` sẽ không thấy.
     expect(screen.getByText("Công thức giờ chạy")).toBeInTheDocument();
-    expect(screen.getByText("Công thức giá")).toBeInTheDocument();
+    expect(screen.queryByText("Công thức giá")).not.toBeInTheDocument();
+  });
+
+  it("bấm ô giá của DÒNG NÀO thì mở đúng ô giá của dòng ấy", async () => {
+    // Bẫy đã gặp trên màn thật: panel khoá theo DÒNG nên bấm ô "Cách tính giá" của dòng 2
+    // không có gì xảy ra, panel của dòng 1 vẫn nằm đó — trông hệt như hệ bay ra công thức nhầm dòng.
+    const user = userEvent.setup();
+    const { container } = bay({
+      value: [{ may_id: 1, cong_thuc_gia: "sl_vao * 420" }, { may_id: 2, cong_thuc_gia: null }],
+      options: MAY, nhomChoPhep: [], nhomCongDoan: "print", onChange: () => {},
+    });
+
+    await user.click(screen.getAllByTitle("Sửa cách tính giá của máy này")[1]);
+
+    expect(container.querySelector("#ct-gia-2")).not.toBeNull();
+    expect(container.querySelector("#ct-gia-1")).toBeNull();
+    expect(container.querySelector("#ct-gio-2")).toBeNull();
   });
 
   it("công đoạn KHÔNG thuộc nhóm In thì không có ô công thức giá", async () => {
@@ -50,5 +66,6 @@ describe("MayCuaCongDoanField", () => {
     await user.click(screen.getByRole("button", { name: /Yawa 1050/ }));
     expect(screen.getByText("Công thức giờ chạy")).toBeInTheDocument();
     expect(screen.queryByText("Công thức giá")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Sửa cách tính giá của máy này")).not.toBeInTheDocument();
   });
 });

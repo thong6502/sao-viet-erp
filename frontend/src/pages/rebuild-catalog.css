@@ -2019,6 +2019,40 @@ select.rc-input:focus {
   background: var(--rust, #c5400a);
   border-color: var(--rust, #c5400a);
 }
+/* Ô công thức trong bảng = NÚT mở đúng ô đó (07/09/2026). Trước đó chỉ bấm được cái pill
+   ở cột đầu, nên bấm ô "Cách tính giá" của dòng 3 không có gì xảy ra: panel của dòng mở trước
+   vẫn nằm đó và trông như hệ bay ra công thức của nhầm dòng. Viền chỉ hiện lúc rê/mở để bảng
+   đứng yên khi chỉ đọc. */
+.rc-ct-cell {
+  font: inherit;
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--ink-soft, #6b6455);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rc-ct-cell:hover {
+  background: color-mix(in srgb, var(--rust, #c5400a) 8%, #fff);
+  border-color: color-mix(in srgb, var(--rust, #c5400a) 22%, transparent);
+  color: var(--ink, #14130f);
+}
+.rc-ct-cell.is-open {
+  background: color-mix(in srgb, var(--rust, #c5400a) 12%, #fff);
+  border-color: var(--rust, #c5400a);
+  color: var(--ink, #14130f);
+}
+.rc-ct-cell.is-empty {
+  color: var(--ash, #7c766a);
+}
+
 .rc-dm-vt__row td {
   padding: 0 !important;
   background: var(--paper, #faf8f5);
