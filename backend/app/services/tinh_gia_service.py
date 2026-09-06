@@ -186,8 +186,11 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
         if row.cong_doan_id is not None:
             cd = db.get(CongDoan, row.cong_doan_id)
             if cd is not None:
+                # Chốt lại nhóm ở ĐÂY nữa dù `CongDoanService._validate` đã dọn lúc lưu: dòng
+                # cũ khai trước luật vẫn nằm trong DB, mà giá sai kiểu này không màn nào bày ra.
                 rd["cong_doan"] = _cong_doan_to_dict(
-                    cd, tram, ct_gia_may=ct_gia_theo_cd.get(cd.id))
+                    cd, tram,
+                    ct_gia_may=ct_gia_theo_cd.get(cd.id) if cd.nhom == "print" else None)
         rows.append(rd)
     d["thanh_phams"] = rows
 

@@ -12143,12 +12143,17 @@ def _migrate_cong_thuc_ve_cong_doan(db) -> None:
     """
     insp = inspect(db.get_bind())
     bang_co = set(insp.get_table_names())
+    # Soi cột XONG HẾT rồi mới ghi: Inspector mượn/trả connection riêng, mà pool SQLite
+    # `:memory:` chỉ có MỘT connection dùng chung — trả về là ROLLBACK, nuốt luôn lệnh ghi của
+    # đoạn trước. Xen kẽ soi và ghi thì backfill `cong_thuc_khoan` biến mất im lặng.
+    cot = {b: _existing_columns(insp, b) for b in
+           ("cong_doan_dau_viec", "piece_rates", "cong_doan_dau_viec_vat_tu", "vat_tu_in_an")
+           if b in bang_co}
 
     if "cong_doan_dau_viec" in bang_co:
-        if "cong_thuc_khoan" not in _existing_columns(insp, "cong_doan_dau_viec"):
+        if "cong_thuc_khoan" not in cot["cong_doan_dau_viec"]:
             db.execute(text("ALTER TABLE cong_doan_dau_viec ADD COLUMN cong_thuc_khoan TEXT"))
-        if "piece_rates" in bang_co and "cong_thuc_luong" in _existing_columns(
-                insp, "piece_rates"):
+        if "cong_thuc_luong" in cot.get("piece_rates", ()):
             db.execute(text(
                 "UPDATE cong_doan_dau_viec SET cong_thuc_khoan = ("
                 "  SELECT pr.cong_thuc_luong FROM piece_rates pr"
@@ -12161,11 +12166,10 @@ def _migrate_cong_thuc_ve_cong_doan(db) -> None:
             ))
 
     if "cong_doan_dau_viec_vat_tu" in bang_co:
-        if "cong_thuc_luong" not in _existing_columns(insp, "cong_doan_dau_viec_vat_tu"):
+        if "cong_thuc_luong" not in cot["cong_doan_dau_viec_vat_tu"]:
             db.execute(text(
                 "ALTER TABLE cong_doan_dau_viec_vat_tu ADD COLUMN cong_thuc_luong TEXT"))
-        if "vat_tu_in_an" in bang_co and "cong_thuc_luong" in _existing_columns(
-                insp, "vat_tu_in_an"):
+        if "cong_thuc_luong" in cot.get("vat_tu_in_an", ()):
             db.execute(text(
                 "UPDATE cong_doan_dau_viec_vat_tu SET cong_thuc_luong = ("
                 "  SELECT vt.cong_thuc_luong FROM vat_tu_in_an vt"
@@ -12240,11 +12244,13 @@ def _migrate_go_ba_o_cong_thuc_luong(db) -> None:
     """
     insp = inspect(db.get_bind())
     bang_co = set(insp.get_table_names())
-    for bang in ("may_thiet_bi", "piece_rates", "vat_tu_in_an"):
-        if bang not in bang_co:
-            continue
-        if "cong_thuc_luong" in _existing_columns(insp, bang):
-            db.execute(text(f"ALTER TABLE {bang} DROP COLUMN cong_thuc_luong"))
+    # Soi cột XONG HẾT rồi mới ghi — cùng khuôn với `0272`/`0275` (bẫy Inspector–pool SQLite).
+    # Riêng chỗ này DDL nên pysqlite tự commit, xen kẽ vẫn sống; xếp thế để không ai phải nhớ
+    # ngoại lệ, và để lần sau có ai thêm một lệnh UPDATE vào đây thì nó không vỡ ngầm.
+    can_go = [bang for bang in ("may_thiet_bi", "piece_rates", "vat_tu_in_an")
+              if bang in bang_co and "cong_thuc_luong" in _existing_columns(insp, bang)]
+    for bang in can_go:
+        db.execute(text(f"ALTER TABLE {bang} DROP COLUMN cong_thuc_luong"))
     db.commit()
 
 
@@ -12268,11 +12274,14 @@ def _migrate_moi_buoc_deu_bat_buoc(db) -> None:
     """
     insp = inspect(db.get_bind())
     bang_co = set(insp.get_table_names())
-    for bang in ("lsx_cong_doan", "bai_ghep_cong_doan"):
-        if bang not in bang_co:
-            continue
-        if "bat_buoc" not in _existing_columns(insp, bang):
-            continue
+    # Soi cột XONG HẾT rồi mới ghi: Inspector mượn/trả connection riêng, mà pool SQLite
+    # `:memory:` chỉ có MỘT connection dùng chung — trả về là ROLLBACK, nuốt luôn UPDATE của
+    # vòng lặp trước. Xen kẽ soi và ghi thì migration im lặng chỉ chạy được bảng cuối.
+    can_sua = [
+        bang for bang in ("lsx_cong_doan", "bai_ghep_cong_doan")
+        if bang in bang_co and "bat_buoc" in _existing_columns(insp, bang)
+    ]
+    for bang in can_sua:
         db.execute(text(f"UPDATE {bang} SET bat_buoc = TRUE WHERE bat_buoc = FALSE"))
     db.commit()
 

@@ -163,12 +163,15 @@ NHAN: dict[str, str] = {
     "spoilage_pct": "Tỷ lệ hao",
     "inline_flag": "Chạy nối tuyến (inline)",
     "cong_thuc_gia": "Công thức tính giá",
-    "cong_thuc_luong": "Công thức tính lượng",
+    # Ô của Giấy (mở lại 07/09/2026) và dòng vật tư của đầu việc dùng CHUNG nhãn này — cả hai đều
+    # trả lời "một lệnh ăn bao nhiêu", nên gọi cùng một tên: "định mức".
+    "cong_thuc_luong": "Công thức tính định mức",
     "cong_thuc_san_luong": "Công thức sản lượng ra",
     # Bốn ô công thức chuyển về màn Công đoạn (06/09/2026) — thiếu nhãn là in tên cột thô ra.
     "cong_thuc_gio": "Công thức giờ chạy",
     "cong_thuc_khoan": "Công thức tính tiền công",
     "may_lam_duoc": "Máy chạy được công đoạn này",
+    "dau_viec_dinh_muc": "Đầu việc và định mức của tổ",
     # Thành phẩm (mg 0203–0204, 0228) — mấy cột này nằm trên `vat_tu_in_an` nên nhật ký của MÀN
     # Vật tư khác cũng có thể chạm tới. Thiếu nhãn là in tên cột thô ra cho người dùng đọc.
     "customer_id": "Khách hàng",
@@ -323,7 +326,14 @@ _ISO_NGAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 def _nhan_con(k: str) -> str:
     """Nhãn cho một khoá con. Không có trong `SUB_NHAN` thì thà xấu còn hơn nuốt mất thay đổi —
     nhưng bỏ `.title()` đi: nó biến `lich_bao_tri` thành "Lich Bao Tri", trông như lỗi font."""
-    return SUB_NHAN.get(k) or k.replace("_", " ").capitalize()
+    if k in SUB_NHAN:
+        return SUB_NHAN[k]
+    # Khoá do chính chỗ gọi dựng sẵn thành câu (bảng con của Công đoạn) thì trả NGUYÊN:
+    # `capitalize()` hạ hết chữ hoa phía sau, "IN-02 · Công thức giờ chạy" thành
+    # "In-02 · công thức giờ chạy" — trông như lỗi dữ liệu.
+    if " " in k:
+        return k
+    return k.replace("_", " ").capitalize()
 
 
 def _muc(d: dict[str, Any]) -> str:
@@ -406,7 +416,35 @@ def anh_chup(obj: Any) -> dict[str, Any]:
     if obj is None:
         return {}
     cols = sa_inspect(type(obj)).columns.keys()
-    return {c: getattr(obj, c, None) for c in cols if c not in BO_QUA}
+    ra = {c: getattr(obj, c, None) for c in cols if c not in BO_QUA}
+    ra.update(_con_cua_cong_doan(obj))
+    return ra
+
+
+def _con_cua_cong_doan(obj: Any) -> dict[str, dict[str, Any]]:
+    """Công thức nằm ở BẢNG CON của công đoạn, gom lại thành dict con để nhật ký so được.
+
+    `columns` chỉ thấy cột của CHÍNH bảng, nên nếu không gom ở đây thì sửa công thức giá của một
+    máy — thứ đổi thẳng vào tiền báo giá — không để lại vết nào trong Nhật ký danh mục.
+    `mo_ta_thay_doi` đã biết so từng khoá con của dict, nên mỗi máy / đầu việc ra đúng một dòng.
+
+    Luôn trả CẢ HAI khoá kể cả khi rỗng: thiếu khoá ở ảnh "sau" thì vòng lặp của
+    `mo_ta_thay_doi` không ghé qua, và lần xoá sạch máy sẽ im lặng.
+    """
+    if getattr(obj, "__tablename__", "") != "cong_doan":
+        return {}
+    may: dict[str, Any] = {}
+    for r in (getattr(obj, "may_lam_duoc", None) or []):
+        for truong in ("cong_thuc_gio", "cong_thuc_gia"):
+            may[f"Máy #{r.may_id} · {NHAN[truong]}"] = getattr(r, truong, None)
+    dv: dict[str, Any] = {}
+    for r in (getattr(obj, "dau_viec_dinh_muc", None) or []):
+        dau = f"Đầu việc #{r.piece_rate_id}"
+        dv[f"{dau} · {NHAN['cong_thuc_khoan']}"] = getattr(r, "cong_thuc_khoan", None)
+        for v in (getattr(r, "vat_tus", None) or []):
+            dv[f"{dau} › vật tư #{v.vat_tu_id} · {NHAN['cong_thuc_luong']}"] = (
+                getattr(v, "cong_thuc_luong", None))
+    return {"may_lam_duoc": may, "dau_viec_dinh_muc": dv}
 
 
 def _rong(v: Any) -> bool:

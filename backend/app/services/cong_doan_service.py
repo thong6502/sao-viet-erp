@@ -67,6 +67,19 @@ class CongDoanService(CatalogService):
                 if may is None or not may.active:
                     raise CongDoanValidationError(
                         "Máy không còn trong danh mục hoặc đã ngừng dùng.")
+            for r in may_rows:
+                # Chuẩn hoá TẠI ĐÂY để mọi đường vào (form, Excel, API) cùng một dạng: khoảng
+                # trắng thừa làm `if cong_thuc:` ở engine tưởng có khai rồi `safe_eval("  ")` nổ.
+                for k in ("cong_thuc_gio", "cong_thuc_gia"):
+                    r[k] = ((r.get(k) or "").strip()) or None
+            # W-CD-GIA-NGOAI-IN: công thức GIÁ chỉ có nghĩa ở công đoạn nhóm In — phiếu tính giá
+            # chỉ chọn máy ở khối In của thành phần, nên câu khai cho máy bế/cán không có đường
+            # nào chảy tới. Màn danh mục đã ẩn ô này ngoài nhóm In, nhưng bảng Excel thì KHÔNG:
+            # không dọn ở đây thì một câu gõ nhầm vẫn nằm trong DB và `tinh_gia_service` vẫn đọc
+            # ra, giá lệch mà chẳng màn nào bày cho người dùng thấy vì sao.
+            if data.get("nhom") != "print":
+                for r in may_rows:
+                    r["cong_thuc_gia"] = None
         dinh_muc = data.get("dau_viec_dinh_muc") or []
         if dinh_muc:
             if data.get("department_id") is None:

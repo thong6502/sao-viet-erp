@@ -972,37 +972,44 @@ export function BuocChungForm({
               </div>
 
               <div className="khsx-thoi-gian-grid">
-                {g.loai_buoc === "may" ? (
-                  <div className="khsx-field">
-                    <span className="khsx-field__label">SỐ LƯỢT CHẠY QUA MÁY</span>
-                    <div className="khsx-turns-control">
-                      <div className="khsx-turns-presets" role="group" aria-label="Số lượt chạy">
-                        {[1, 2].map((v) => (
-                          <button
-                            key={v}
-                            type="button"
-                            className={`khsx-turn-btn ${Number(val("so_luot_chay", g.so_luot_chay) ?? 1) === v ? "is-active" : ""}`}
-                            disabled={!canUpdate}
-                            onClick={() => setF({ ...f, so_luot_chay: v })}
-                          >
-                            {v === 1 ? "1 lượt" : "2 lượt (In trở)"}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="khsx-input-unit-combine khsx-turns-custom">
-                        <input
-                          type="number" min="1" className="khsx-input-combine__num"
-                          value={val("so_luot_chay", g.so_luot_chay) ?? ""}
-                          placeholder="1"
+                {/* 06/09/2026: ô hiện ở MỌI loại bước, giống drawer bước lệnh. Bước tổ trước
+                    đây bị ẩn, nên công thức tính tiền công — thứ CHỈ chạy ở bước tổ — không có
+                    chip số lượt để dùng, dù `bai_ghep_service` vẫn nhận field này. */}
+                <div className="khsx-field">
+                  <span className="khsx-field__label">SỐ LƯỢT CHẠY QUA MÁY</span>
+                  <div className="khsx-turns-control">
+                    <div className="khsx-turns-presets" role="group" aria-label="Số lượt chạy">
+                      {[1, 2].map((v) => (
+                        <button
+                          key={v}
+                          type="button"
+                          className={`khsx-turn-btn ${Number(val("so_luot_chay", g.so_luot_chay) ?? 1) === v ? "is-active" : ""}`}
                           disabled={!canUpdate}
-                          onChange={(e) => setF({ ...f, so_luot_chay: Number(e.target.value) || 1 })}
-                        />
-                        <span className="khsx-input-combine__unit">lượt</span>
-                      </div>
+                          onClick={() => setF({ ...f, so_luot_chay: v })}
+                        >
+                          {v === 1 ? "1 lượt" : "2 lượt"}
+                        </button>
+                      ))}
                     </div>
-                    <span className="khsx-field__hint">In trở 2 mặt = 2 lượt qua máy</span>
+                    <div className="khsx-input-unit-combine khsx-turns-custom">
+                      <input
+                        type="number" min="1" className="khsx-input-combine__num"
+                        value={val("so_luot_chay", g.so_luot_chay) ?? ""}
+                        placeholder="1"
+                        disabled={!canUpdate}
+                        onChange={(e) => setF({ ...f, so_luot_chay: Number(e.target.value) || 1 })}
+                      />
+                      <span className="khsx-input-combine__unit">lượt</span>
+                    </div>
                   </div>
-                ) : g.loai_buoc === "to" ? (
+                  <span className="khsx-field__hint">
+                    {g.loai_buoc === "to"
+                      ? "Số lần hàng đi qua bước này — mặc định 1. Ở bước tổ, số này chỉ vào công thức tính tiền công; giờ của bước KHÔNG đổi theo."
+                      : "In trở 2 mặt = 2 lượt qua máy"}
+                  </span>
+                </div>
+
+                {g.loai_buoc === "to" ? (
                   <label className="khsx-field">
                     <span className="khsx-field__label">NĂNG SUẤT MỘT NGƯỜI</span>
                     <div className="khsx-input-unit-combine">

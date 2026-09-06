@@ -3961,7 +3961,7 @@ Trả về BA số bằng cách thay `toc_do` bằng `toc_do_max` / `toc_do` / `
 | `he_so_quy_doi` | `Numeric(12,4)` | — | no | `1` | Nhân khi đơn vị vào ≠ ra (tờ→con = số con/tờ). Vào ≠ ra mà hệ số vẫn `1` → chặn "Sẵn sàng". |
 | `hao_hut` | `Numeric(14,2)` | — | no | `0` | Hao hụt TUYỆT ĐỐI (BC: Fixed Scrap Qty) — tờ canh máy, không theo SL. |
 | `hao_hut_pct` | `Numeric(6,2)` | — | no | `0` | Hao hụt THEO % SL (BC: Scrap Factor %) — `%` đo trên số RA của bước. Tính ngược: `SL_vào = SL_ra ÷ he_so_quy_doi × (1 + pct) + hao_hut`, cộng dồn từ bước CUỐI về ĐẦU. KHÔNG kế thừa `cong_doan.spoilage_pct` (lấy thêm là đếm hai lần — module Bù hao đã bao cả bậc `don_vi='pct'`): server ghi cột này trong `lsx_service._ap_chuoi_nguoc` từ chuỗi ngược, bung lệnh mới để `0`. |
-| `so_luot_chay` | `Integer` | — | no | `1` | Chỉ áp dụng cho bước Máy; nhân vào thời gian chạy. |
+| `so_luot_chay` | `Integer` | — | no | `1` | Số lượt chạy qua máy, khai được ở MỌI loại bước. Bước máy: nhân vào thời gian chạy. Bước tổ: KHÔNG nhân giờ, chỉ vào công thức tiền công / định mức vật tư qua chip `so_luot_chay`. |
 | `setup_phut` | `Numeric(10,2)` | — | no | `0` | Chuẩn bị máy, tính 1 LẦN/lệnh (không scale theo SL). Mặc định ← `cong_doan.setup_time`. |
 | `nang_suat` | `Numeric(12,2)` | — | yes | — | Sản lượng/giờ. Mặc định ← `may_thiet_bi.toc_do`. |
 | `don_vi_nang_suat` | `String(32)` | — | yes | — | Bước Máy: suy ra `to_gio`/`cai_gio`/`kem_gio`. Bước Tổ: mã người khai chọn ở định mức đầu việc (mg 0159 nới 10→32 vì `ban_proof_gio` dài 13). |
@@ -4138,7 +4138,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `he_so_quy_doi` | `Numeric(12,4)` | — | no | `1` | Hệ số vào→ra (vd 1 tờ → 4 con). |
 | `hao_hut` | `Numeric(14,2)` | — | no | `0` | Tờ hao **cố định** (canh máy) — đếm **ĐÚNG MỘT LẦN** cho cả lượt chung. Đây chính là chỗ sửa lỗi mỗi lệnh tự cộng một bộ hao cho cùng một lần lên máy. |
 | `hao_hut_pct` | `Numeric(6,2)` | — | no | `0` | % hao theo độ dài lượt. Tách đôi với `hao_hut` vì hai thứ áp khác nhau (kiểu BC). |
-| `so_luot_chay` | `Integer` | — | no | `1` | Số lượt chạy (vd in 2 mặt trở tự). |
+| `so_luot_chay` | `Integer` | — | no | `1` | Số lượt chạy qua máy (vd in 2 mặt trở tự), khai được ở MỌI loại bước — xem ghi chú cùng cột ở `lsx_cong_doan`. |
 | `setup_phut` | `Numeric(10,2)` | — | no | `0` | Phút canh máy — một lần cho lượt chung. |
 | `nang_suat` | `Numeric(12,2)` | — | yes | — | Năng suất (theo `don_vi_nang_suat`). |
 | `don_vi_nang_suat` | `String(32)` | — | yes | — | Như `lsx_cong_doan.don_vi_nang_suat` (mg 0159 nới 10→32). |
