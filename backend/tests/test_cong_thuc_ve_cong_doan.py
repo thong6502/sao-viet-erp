@@ -133,3 +133,18 @@ def test_dong_vat_tu_chua_khai_cong_thuc_thi_bo_ra_kem_ly_do(db, orders, lsx_svc
         dv, SimpleNamespace(so_luong_vao=100, so_luong_ra=100, so_luot_chay=1), {})
     assert ra == []
     assert len(canh_bao) == 1 and "Keo vào gáy" in canh_bao[0]
+
+
+def test_cong_thuc_gia_cua_may_ghi_de_cua_cong_doan(db):
+    """Máy 5 màu khổ lớn và máy 2 màu khổ nhỏ có đơn giá khác nhau — nên giá phải theo máy."""
+    from app.services.tinh_gia_service import _cong_doan_to_dict
+
+    cd = CongDoan(ma="CD-P1", ten="In AB", nhom="print", cong_thuc_gia="to_dau_vao * 300")
+    db.add(cd)
+    db.commit()
+
+    assert _cong_doan_to_dict(cd)["cong_thuc_gia"] == "to_dau_vao * 300"
+    assert _cong_doan_to_dict(cd, ct_gia_may="to_dau_vao * 180")["cong_thuc_gia"] \
+        == "to_dau_vao * 180"
+    # Cặp có dòng nhưng ô công thức để TRỐNG ⇒ vẫn dùng công thức chung, không về rỗng.
+    assert _cong_doan_to_dict(cd, ct_gia_may="")["cong_thuc_gia"] == "to_dau_vao * 300"
