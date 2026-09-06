@@ -66,9 +66,9 @@ function fmtDate(iso: string | null): string {
 }
 /** Ngày bắt đầu HỢP LỆ cho kỳ khóa MỚI = ngày LIỀN SAU ngày đã khóa xa nhất trong phạm vi.
  *
- *  Kỳ kế toán KHÔNG dùng chung ngày (Luật Kế toán 2015 Đ.12: kỳ tính tới HẾT ngày cuối) → kỳ sau
- *  bắt đầu từ ngày kế tiếp. Trùng ngày sẽ vừa đếm 2 lần phát sinh ngày đó, vừa làm hỏng nối chuỗi
- *  đầu kỳ (snapshot tìm theo `den_ngay < ngày đầu kỳ`). Chưa khóa gì trong phạm vi → null. */
+ *  Kỳ RỜI NGÀY: kỳ trước kết thúc HẾT ngày cuối, kỳ sau bắt đầu ngày kế tiếp — mỗi ngày chỉ thuộc
+ *  đúng MỘT kỳ (không đếm 2 lần, nhãn "từ…đến…" khớp nội dung). Số dư vẫn nối: cuối kỳ trước =
+ *  đầu kỳ sau. Chưa khóa gì trong phạm vi → null. */
 function nextKhoaTu(kyList: KhoaSoKyRow[], scope: number | "all"): string | null {
   const trong = kyList.filter((k) =>
     scope === "all" ? k.kho_id == null : k.kho_id == null || k.kho_id === scope,
@@ -81,6 +81,14 @@ function nextKhoaTu(kyList: KhoaSoKyRow[], scope: number | "all"): string | null
   if (!maxDen) return null;
   const [y, m, d] = maxDen.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
+/** Mốc CHỐT SỔ của một kỳ = 0h ngày liền sau ngày cuối kỳ (= ngày đầu kỳ sau). Hiện kèm ở tab
+ *  "Kỳ đã khóa" để thấy mạch nối "cuối kỳ này → đầu kỳ sau" dù hai kỳ không dùng chung ngày. */
+function chotTai(denNgay: string | null): string {
+  if (!denNgay) return "—";
+  const [y, m, d] = denNgay.slice(0, 10).split("-").map(Number);
+  return fmtDate(new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10));
 }
 
 // Tên kỳ TỰ SINH từ khoảng ngày: trọn 1 tháng dương lịch → "Tháng M/YYYY"; ngược lại → "DD/MM/YYYY–DD/MM/YYYY".
@@ -606,7 +614,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
-      if (!inDateRange((r.ngay_ct ?? "").slice(0, 10), { from: ctFrom, to: ctTo })) return false;
+      if (!inDateRange((r.ngay_ghi_so ?? "").slice(0, 10), { from: ctFrom, to: ctTo })) return false;
       if (!inNumRange(r.so_luong, { from: slFrom, to: slTo })) return false;
       if (!inNumRange(r.don_gia, { from: dgFrom, to: dgTo })) return false;
       if (!inNumRange(r.thanh_tien, { from: ttFrom, to: ttTo })) return false;
@@ -633,7 +641,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   const filteredChuyen = useMemo(() => {
     const q = search.trim().toLowerCase();
     return chuyenRows.filter((r) => {
-      if (!inDateRange((r.ngay_ct ?? "").slice(0, 10), { from: ctFrom, to: ctTo })) return false;
+      if (!inDateRange((r.ngay_ghi_so ?? "").slice(0, 10), { from: ctFrom, to: ctTo })) return false;
       if (!inNumRange(r.so_luong, { from: slFrom, to: slTo })) return false;
       if (!inNumRange(r.don_gia_von, { from: dgFrom, to: dgTo })) return false;
       if (!inNumRange(r.tien_von, { from: ttFrom, to: ttTo })) return false;
@@ -759,12 +767,12 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       const rec = lockRecordFor(khoId, ngay);
       if (rec && !ids.includes(rec.id)) ids.push(rec.id);
     };
-    for (const r of rows) push(r.kho_id, r.ngay_ghi_so);
+    for (const r of rows) push(r.kho_id, r.ngay_ct);
     // Gộp cả Sổ Chuyển kho: mỗi dòng đụng 2 kho → push CẢ kho đích lẫn kho nguồn để màu kỳ khớp
     // dù khóa riêng kho nào (push tự dedup theo id kỳ khóa).
     for (const r of chuyenRows) {
-      push(r.kho_nhap_id, r.ngay_ghi_so);
-      push(r.kho_xuat_id, r.ngay_ghi_so);
+      push(r.kho_nhap_id, r.ngay_ct);
+      push(r.kho_xuat_id, r.ngay_ct);
     }
     ids.sort((a, b) => {
       const la = locks.find((l) => l.id === a);
@@ -1367,8 +1375,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             <table className="rc__table kho-bc">
               <thead>
                 <tr>
-                  <DateFilterHead label="Ngày ghi sổ" from={tu} to={den} onChange={(f, t) => { setTu(f); setDen(t); }} />
-                  <DateFilterHead label="Ngày CT" from={ctFrom} to={ctTo} onChange={(f, t) => { setCtFrom(f); setCtTo(t); }} />
+                  <DateFilterHead label="Ngày nhập/xuất kho" from={tu} to={den} onChange={(f, t) => { setTu(f); setDen(t); }} />
+                  <DateFilterHead label="Ngày ghi sổ" from={ctFrom} to={ctTo} onChange={(f, t) => { setCtFrom(f); setCtTo(t); }} />
                   <th title="Số chứng từ — mã phiếu xuất điều chuyển">Số CT</th>
                   <th title="Tuyến điều chuyển: từ kho → đến kho">Tuyến</th>
                   <th title="Mã vật tư">Mã hàng</th>
@@ -1399,9 +1407,9 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                             <LockIcon />
                           </span>
                         )}
-                        {fmtDate(r.ngay_ghi_so)}
+                        {fmtDate(r.ngay_ct)}
                       </td>
-                      <td>{fmtDate(r.ngay_ct)}</td>
+                      <td>{fmtDate(r.ngay_ghi_so)}</td>
                       <td><span className="rc__code-badge">{r.so_ct}</span></td>
                       <td><span className="kho-bc__name" title={`${r.kho_xuat_ten ?? "—"} → ${r.kho_nhap_ten ?? "—"}`}>{r.kho_xuat_ten ?? "—"} → {r.kho_nhap_ten ?? "—"}</span></td>
                       <td>{r.ma_hang ?? "—"}</td>
@@ -1472,8 +1480,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             <table className="rc__table kho-bc">
               <thead>
                 <tr>
-                  <DateFilterHead label="Ngày ghi sổ" from={tu} to={den} onChange={(f, t) => { setTu(f); setDen(t); }} />
-                  <DateFilterHead label="Ngày CT" from={ctFrom} to={ctTo} onChange={(f, t) => { setCtFrom(f); setCtTo(t); }} />
+                  <DateFilterHead label="Ngày nhập/xuất kho" from={tu} to={den} onChange={(f, t) => { setTu(f); setDen(t); }} />
+                  <DateFilterHead label="Ngày ghi sổ" from={ctFrom} to={ctTo} onChange={(f, t) => { setCtFrom(f); setCtTo(t); }} />
                   <th title="Số chứng từ — mã phiếu PNK/PXK">Số CT</th>
                   <th title="Kho của phiếu — kế toán dựa vào chiều + kho để điền mã 0/1/2/3 trên Excel">Kho</th>
                   <th title="Mã vật tư">Mã hàng</th>
@@ -1502,9 +1510,9 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                             <LockIcon />
                           </span>
                         )}
-                        {fmtDate(r.ngay_ghi_so)}
+                        {fmtDate(r.ngay_ct)}
                       </td>
-                      <td>{fmtDate(r.ngay_ct)}</td>
+                      <td>{fmtDate(r.ngay_ghi_so)}</td>
                       <td>
                         <span className="rc__code-badge">{r.so_ct}</span>
                       </td>
@@ -2058,6 +2066,11 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                     <td>
                       <span className="rc__code-badge" style={{ fontWeight: 600 }}>
                         {fmtDate(k.tu_ngay)} – {fmtDate(k.den_ngay)}
+                      </span>
+                      {/* Kỳ RỜI NGÀY: kỳ sau bắt đầu ngày kế tiếp. Hiện mốc chốt (= ngày đầu kỳ sau)
+                          để thấy mạch nối "cuối kỳ này → đầu kỳ sau" dù không dùng chung ngày. */}
+                      <span className="kho-hint" style={{ display: "block", marginTop: 2 }}>
+                        chốt tại {chotTai(k.den_ngay)}
                       </span>
                     </td>
                     <td>
