@@ -68,6 +68,7 @@ from .routers import (
     cong_doan_tag,
     lenh_san_xuat,
     theo_doi_san_xuat,
+    tai_san,
 )
 from .seed import seed_all
 
@@ -210,6 +211,7 @@ app.include_router(san_xuat.router)          # bàn Thực hiện sản xuất t
 app.include_router(cong_doan_tag.router)     # nhãn gán cho bước công đoạn — dùng chung LSX + Bài ghép (module quyền `san_xuat`)
 app.include_router(lenh_san_xuat.router)    # màn Lệnh sản xuất (danh sách + KPI) — module quyền `lenh_san_xuat`, phạm vi theo NGƯỜI BÁN
 app.include_router(theo_doi_san_xuat.router)  # màn Theo dõi sản xuất (Kanban) — module quyền `theo_doi_san_xuat`, cột lấy động từ danh mục cong_doan (Ruling C113)
+app.include_router(tai_san.router)            # sổ tài sản cố định + CCDC (module quyền `tai_san`; chốt kỳ dùng lại action `close_book`)
 
 
 

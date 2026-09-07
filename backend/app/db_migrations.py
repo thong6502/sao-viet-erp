@@ -12326,3 +12326,57 @@ def _migrate_cong_thuc_gio_dau_viec(db) -> None:
 
 
 MIGRATIONS.append(("0276_cong_thuc_gio_dau_viec", _migrate_cong_thuc_gio_dau_viec))
+
+
+def _migrate_quyen_tai_san(db) -> None:
+    """Ô quyền `tai_san` = "Tài sản & Công cụ dụng cụ" (07/09/2026).
+
+    Bảy bảng `tai_san*` là bảng MỚI nên `create_all` tự dựng — migration này KHÔNG đụng schema,
+    nó thêm một HÀNG vào `modules` và cấp quyền cho các vai ĐANG lập được phiếu chi.
+
+    Vì sao phải cấp chứ không để seeder lo: `seed_roles` chỉ dựng vai lần đầu, DB live đã có vai
+    "Kế toán" từ lâu nên bản khai mới trong `seed.py` không chạm tới nó. Không cấp ở đây thì sáng
+    hôm sau kế toán mở menu ra không thấy mục nào, và phải nhờ quản trị tick tay từng vai.
+
+    Lấy `phieu_chi` làm nguồn: ai lập được phiếu chi chính là người giữ sổ tài sản (cùng bàn, cùng
+    người ký). Chép NGUYÊN mọi cột khác (kể cả `scope`) rồi bật đúng sáu ô của module này —
+    `can_close_book` là quyền CHỐT KỲ, dùng lại đúng cột mà khoá sổ kho đang dùng.
+
+    Raw SQL đích danh cột (không ORM full-select): ORM kéo cả cột do migration SAU thêm, vỡ deploy
+    trên DB trung gian.
+
+    Idempotent: chạy lại không đẻ hàng trùng.
+    """
+    # ⚠️ Soi cột XONG rồi mới ghi. `inspect()` mượn connection riêng, mà pool SQLite `:memory:`
+    # chỉ có MỘT connection — trả nó về là ROLLBACK, nuốt luôn lệnh ghi của đoạn trước (khuôn 0178).
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "modules" not in tables or "role_permissions" not in tables:
+        return
+    cols = sorted(_existing_columns(insp, "role_permissions"))
+
+    db.execute(
+        # `modules.created_at` NOT NULL và KHÔNG có server_default ⇒ phải tự điền (khuôn 0209).
+        text("INSERT INTO modules (key, label, created_at) "
+             "SELECT :k, :l, CURRENT_TIMESTAMP "
+             "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+        {"k": "tai_san", "l": "Tài sản & Công cụ dụng cụ"},
+    )
+
+    BAT = ("can_read", "can_create", "can_update", "can_delete", "can_export", "can_close_book")
+    chep = [c for c in cols if c not in ("id", "module_key")]
+    chon = [("true" if c in BAT else f"rp.{c}") for c in chep]
+    db.execute(
+        text(
+            f"INSERT INTO role_permissions (module_key, {', '.join(chep)}) "
+            f"SELECT :k, {', '.join(chon)} FROM role_permissions rp "
+            "WHERE rp.module_key = 'phieu_chi' AND rp.can_create AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = :k)"
+        ),
+        {"k": "tai_san"},
+    )
+    db.commit()
+
+
+MIGRATIONS.append(("0277_quyen_tai_san", _migrate_quyen_tai_san))
