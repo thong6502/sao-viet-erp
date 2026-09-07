@@ -330,8 +330,10 @@ export function GhiTangDialog({
                                 onChange={(e) => suaDong(i, { dien_giai: e.target.value })} />
                             </td>
                             <td className="ts-chiphi__tien">
+                              {/* Có placeholder vì ở màn hẹp hàng tiêu đề của bảng bị ẩn (hai ô
+                                  xếp dọc), không còn chữ "Số tiền" nào chỉ ra đây là ô tiền. */}
                               <OTien value={d.so_tien} ariaLabel={`Số tiền dòng ${i + 1}`}
-                                onChange={(v) => suaDong(i, { so_tien: v })} />
+                                placeholder="Số tiền" onChange={(v) => suaDong(i, { so_tien: v })} />
                             </td>
                             <td>
                               <button type="button" className="ts-chiphi__x"

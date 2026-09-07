@@ -153,8 +153,8 @@ class TaiSanChiPhi(Base):
 class TaiSanBienDong(Base):
     """Một chứng từ biến động: điều chuyển | nâng cấp | ghi giảm.
 
-    MỘT bảng chứ không ba: ba nghiệp vụ dùng chung phần lớn cột (tài sản, ngày, lý do, ghi chú
-    hạch toán) và luôn được đọc chung ở tab lịch sử của tài sản. Cột riêng để NULL.
+    MỘT bảng chứ không ba: ba nghiệp vụ dùng chung phần lớn cột (tài sản, ngày, lý do) và luôn
+    được đọc chung ở tab lịch sử của tài sản. Cột riêng để NULL.
     """
 
     __tablename__ = "tai_san_bien_dong"

@@ -180,7 +180,7 @@ export function KhauHaoKyView() {
           <thead>
             <tr>
               <th style={{ width: "9%" }}>Mã</th>
-              <th>Tên</th>
+              <th className="ts-col-ten">Tên</th>
               <th style={{ width: "12%" }}>Bộ phận</th>
               <th style={{ width: "12%" }} className="ts-num">Nguyên giá</th>
               <th style={{ width: "12%" }} className="ts-num">Trích tháng này</th>
@@ -215,7 +215,7 @@ export function KhauHaoKyView() {
                 {dong.map((r) => (
                   <tr key={r.tai_san_id}>
                     <td><span className="rc__code-badge">{r.ma}</span></td>
-                    <td>{r.ten}</td>
+                    <td className="ts-col-ten">{r.ten}</td>
                     <td className="rc__clip" title={r.bo_phan_ten ?? ""}>{r.bo_phan_ten ?? "—"}</td>
                     <td className="ts-num">{tien(r.nguyen_gia)}</td>
                     <td className="ts-num ts-num--manh">{tien(r.muc_trich)}</td>

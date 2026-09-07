@@ -1,8 +1,9 @@
 """Xuất bảng khấu hao / phân bổ một kỳ ra .xlsx.
 
 Bố cục cố ý ĐƠN GIẢN, không bắt chước khuôn MISA như báo cáo công nợ: file này không dán vào bộ
-hồ sơ nào cả, nó là bảng để kế toán đọc rồi gõ định khoản sang phần mềm kế toán. Vì thế cột cuối
-BẮT BUỘC là Ghi chú hạch toán — bỏ nó đi thì cả module mất lý do không có ô tài khoản.
+hồ sơ nào cả, nó là bảng để kế toán đọc rồi tự gõ định khoản sang phần mềm kế toán. Cột cuối là
+Còn lại — cột ghi chú hạch toán đã gỡ (mg 0278), định khoản ai cần nhớ thì ghi ở ô ghi chú của
+chính tài sản.
 
     A1  BẢNG TRÍCH KHẤU HAO / PHÂN BỔ — kỳ MM/YYYY
     A2  (trống)

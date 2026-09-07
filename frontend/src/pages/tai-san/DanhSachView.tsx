@@ -151,18 +151,23 @@ export function DanhSachView() {
       )}
 
       <div className="rc__tablewrap">
-        <table className="rc__table">
+        {/* Chín cột, và cột Tên là cột người ta ĐỌC. Bề ngang phải khai đủ CẢ CHÍN: `.rc__table`
+            là `table-layout: fixed`, cột nào không khai chỉ được phần thừa — trước đây Tên không
+            khai nên nhận đúng 9% (89px trên màn 1280) và "Máy in Komori 4 màu (LS440)" rơi bốn
+            dòng. Tổng đúng 100%; sàn 1180px để trên laptop 1366 các cột không bị bóp dưới bề
+            ngang tối thiểu của chúng (badge loại 141px, cụm ba nút 124px) mà cuộn ngang. */}
+        <table className="rc__table ts-table--so">
           <thead>
             <tr>
               <th style={{ width: "9%" }}>Mã</th>
-              <th>Tên</th>
-              <th style={{ width: "11%" }}>Loại</th>
-              <th style={{ width: "13%" }}>Bộ phận</th>
-              <th style={{ width: "12%" }} className="ts-num">Nguyên giá</th>
-              <th style={{ width: "12%" }} className="ts-num">Đã hao mòn</th>
-              <th style={{ width: "12%" }} className="ts-num">Còn lại</th>
-              <th style={{ width: "10%" }}>Trạng thái</th>
-              <th style={{ width: "12%" }} className="text-center">Thao tác</th>
+              <th style={{ width: "20%" }} className="ts-col-ten">Tên</th>
+              <th style={{ width: "12%" }}>Loại</th>
+              <th style={{ width: "9%" }}>Bộ phận</th>
+              <th style={{ width: "10%" }} className="ts-num">Nguyên giá</th>
+              <th style={{ width: "10%" }} className="ts-num">Đã hao mòn</th>
+              <th style={{ width: "10%" }} className="ts-num">Còn lại</th>
+              <th style={{ width: "9%" }}>Trạng thái</th>
+              <th style={{ width: "11%" }} className="text-center ts-actcol">Thao tác</th>
             </tr>
           </thead>
           <tbody>
@@ -190,7 +195,7 @@ export function DanhSachView() {
               rows.map((r) => (
                 <tr key={r.id}>
                   <td><span className="rc__code-badge">{r.ma}</span></td>
-                  <td>
+                  <td className="ts-col-ten">
                     <div>{r.ten}</div>
                     <div className="ts-phu">
                       Dùng từ {ngay(r.ngay_su_dung)} · {r.so_thang} tháng
@@ -210,7 +215,7 @@ export function DanhSachView() {
                     </Badge>
                     {r.ngay_giam && <div className="ts-phu">{ngay(r.ngay_giam)}</div>}
                   </td>
-                  <td className="text-center">
+                  <td className="text-center ts-actcol">
                     <RowActionButton dense label="Sửa" icon="pencil"
                       disabled={!suaDuoc} onClick={() => moChiTiet(r, "sua")} />
                     <RowActionButton dense label="Biến động" icon="workflow"

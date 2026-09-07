@@ -385,7 +385,7 @@ class TaiSanService:
         """Giá bán − giá trị còn lại của PHẦN ĐÃ BỎ, theo chứng từ ghi giảm mới nhất.
 
         Dương = lãi thanh lý, âm = lỗ. Module chỉ BÁO SỐ; hạch toán vào đâu là việc của kế toán,
-        ghi ở ô ghi chú hạch toán của chứng từ.
+        cần nhớ thì ghi vào ô ghi chú của tài sản.
 
         Bỏ MỘT PHẦN lô CCDC thì `nguyen_gia`/`hao_mon_luy_ke` trên bản ghi ĐÃ rút theo tỷ lệ, tức
         chúng mô tả mấy cái CÒN nằm trong xưởng. Trừ thẳng chúng là đem giá bán 1 cái so với giá

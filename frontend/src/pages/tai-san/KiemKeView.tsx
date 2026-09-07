@@ -275,9 +275,9 @@ export function KiemKeView() {
               <thead>
                 <tr>
                   <th style={{ width: "10%" }}>Mã</th>
-                  <th>Tên</th>
-                  <th style={{ width: "20%" }}>Tình trạng</th>
-                  <th style={{ width: "18%" }} className="text-center">Kết quả</th>
+                  <th className="ts-col-ten">Tên</th>
+                  <th style={{ width: "20%" }} className="ts-col-tinhtrang">Tình trạng</th>
+                  <th style={{ width: "18%" }} className="text-center ts-actcol">Kết quả</th>
                 </tr>
               </thead>
               <tbody>
@@ -299,8 +299,8 @@ export function KiemKeView() {
                           ? <span className="rc__code-badge">{d.ma}</span>
                           : <span className="ts-phu">ngoài sổ</span>}
                       </td>
-                      <td>{d.ten ?? d.ten_phat_hien}</td>
-                      <td>
+                      <td className="ts-col-ten">{d.ten ?? d.ten_phat_hien}</td>
+                      <td className="ts-col-tinhtrang">
                         <input className="rc-input" defaultValue={d.tinh_trang ?? ""}
                           maxLength={255} disabled={daKet || !ghiDuoc}
                           placeholder="Còn tốt / mòn / hỏng…"
@@ -314,7 +314,7 @@ export function KiemKeView() {
                             }));
                           }} />
                       </td>
-                      <td className="text-center">
+                      <td className="text-center ts-actcol">
                         {d.tai_san_id ? (
                           <span className="ts-tick">
                             <button type="button" disabled={daKet || !ghiDuoc}

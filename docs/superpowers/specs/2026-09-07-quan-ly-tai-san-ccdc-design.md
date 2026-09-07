@@ -42,6 +42,12 @@ tự do ở hai nơi:
 Ô này in ra thành một cột trong bảng khấu hao xuất Excel. Kế toán gõ gì tuỳ ý
 ("211 / 6274 – tổ In", "chi phí về tổ Bế từ tháng 10"), phần mềm chỉ giữ nguyên chuỗi.
 
+> **Đã đổi 07/09/2026 (mg `0278`) — mục này chỉ còn là lịch sử.** Ô *Ghi chú hạch toán*
+> đã gỡ khỏi cả ba bảng: hai ô ghi chú cạnh nhau chỉ làm người nhập phân vân gõ vào đâu.
+> Nay chỉ còn ô **Ghi chú** của tài sản (`tai_san.ghi_chu`) — vẫn là chữ tự do, phần mềm
+> không đọc nội dung, ai cần nhớ định khoản thì ghi vào đó. Bảng Excel hết cột cuối này,
+> cột cuối là *Còn lại*.
+
 ## 4. Khái niệm và quy tắc tính
 
 **Loại tài sản** — một ô chọn trên chính tài sản: TSCĐ hoặc CCDC. Không có danh mục

@@ -248,3 +248,96 @@
 .ts-bd__ngay { color: var(--ash-2, #94a3b8); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ts-bd__loai { font-weight: var(--fw-medium, 500); white-space: nowrap; }
 .ts-bd__ly-do { color: var(--ash, #475569); }
+
+/* --- Sổ tài sản: chín cột không nhét vừa 986px --------------------------------
+   Bề ngang tối thiểu đo được của từng cột (đặt `nowrap` rồi để bảng tự giãn): mã 98 · tên 242 ·
+   loại 141 · bộ phận 104 · ba cột tiền 127/111/123 · trạng thái 108 · thao tác 124 = 1177px.
+   Khung nội dung trên màn 1280 chỉ có 986px, tức luôn thiếu — và thứ bị bóp là cột KHÔNG khai
+   bề ngang, chính là cột Tên. Cho bảng một cái sàn rồi cuộn ngang trong `.rc__tablewrap` (khung
+   này vốn đã `overflow: auto`) thì mọi cột giữ đúng phần của nó; màn ≥1600px vẫn phủ kín 100%
+   theo đúng tỷ lệ đã khai. Chỉ áp cho sổ tài sản: bảng kỳ (7 cột) và bảng kiểm kê (4 cột) còn
+   thừa chỗ, thêm sàn vào là bắt cuộn ngang vô cớ. */
+@media screen and (min-width: 1025px) {
+  .ts .ts-table--so { min-width: 1180px; }
+}
+
+/* ===========================================================================
+   MÀN HẸP — điện thoại và máy tính bảng dọc
+   ---------------------------------------------------------------------------
+   Khung chung (`rc__tablewrap` cuộn ngang, `rc-grid` về một cột, đầu ngăn kéo) đã có luật ở
+   `styles/responsive.css`. Dưới đây CHỈ những chỗ luật chung xử lý sai vì nội dung riêng của
+   module này. Mọi luật đều bọc trong `.ts` để thắng độ ưu tiên: `responsive.css` nạp SAU file
+   này, luật cùng độ đặc hiệu bên đó sẽ đè.
+   =========================================================================== */
+
+/* --- Sàn cột: cột chữ nới ra, cụm nút giữ một hàng --------------------------
+   §11 của `responsive.css` cho bảng tự giãn theo nội dung ở ≤1024px với sàn 96px MỘT CỠ cho mọi
+   cột. Sàn ấy vừa vặn với cột số, nhưng:
+
+   • Cột Tên nhận đúng 96px trong khi bảng đã rộng 967px và vốn đã cuộn ngang — "Máy in Komori 4
+     màu (LS440)" rơi bốn dòng, dòng bảng cao 153px, cuộn mãi mới hết hai món.
+   • Cột Thao tác không mang lớp `.rc__actcol` nên dính `white-space: normal` của §11: BA nút
+     icon dựng đứng thành cột, chính là thứ đẩy dòng lên 153px.
+   • Ô Tình trạng của kiểm kê là ô GÕ CHỮ trong 96px — người đi kiểm không đọc được mình vừa gõ
+     gì, mà đây là câu giải thích vì sao món đó không thấy. */
+@media screen and (max-width: 1024px) {
+  .ts .rc__table :is(th, td).ts-col-ten { min-width: 200px; }
+  .ts .rc__table :is(th, td).ts-col-tinhtrang { min-width: 170px; }
+  .ts .rc__table :is(th, td).ts-actcol { white-space: nowrap; }
+}
+
+@media screen and (max-width: 640px) {
+  /* --- Thanh công cụ: một ô tìm + ba ô lọc + nút Ghi tăng -------------------
+     Ở 375px `flex: 0 0 260px` của ô tìm chừa 90px trống bên phải rồi ba ô lọc mỗi ô một dòng,
+     dài rộng khác nhau, nút Ghi tăng nép vào chỗ thừa của dòng cuối — thanh cao 218px mà nhìn
+     như xếp nhầm. Cho ô tìm và nút chiếm trọn hàng, ba ô lọc chia đôi. */
+  .ts .rc__search-wrapper { flex: 1 1 100%; }
+  .ts .rc__unified-right .rc-input {
+    flex: 0 1 calc(50% - 4px);
+    min-width: 0;
+  }
+  .ts .rc__unified-right .btn { flex: 1 1 calc(50% - 4px); justify-content: center; }
+  /* Chia đôi hàng thì ô lọc còn 157px, mà "Mọi trạng thái" cần 110px chữ + 12 đệm trái + 36 đệm
+     phải = 158px: đúng một pixel nữa là chữ chui xuống dưới mũi tên. Mũi tên rộng 14px neo cách
+     mép phải 12px, nên hạ đệm phải xuống 30px vẫn chừa đủ chỗ cho nó. */
+  .ts .rc__unified-right select.rc-input { padding-right: 30px; }
+
+  /* --- Bảng dòng cấu thành nguyên giá: xếp dọc -----------------------------
+     Ô tiền khoá cứng 190px, trong thân ngăn kéo 316px thì ô Khoản mục chỉ còn 74px — không đọc
+     nổi "Vận chuyển" đã gõ, chưa nói tới placeholder. Hai ô mỗi ô một dòng, nút xoá neo góc
+     phải để không ăn thêm chiều ngang. Bỏ hàng tiêu đề: cả hai ô đều có placeholder. */
+  .ts-chiphi thead { display: none; }
+  .ts-chiphi,
+  .ts-chiphi tbody,
+  .ts-chiphi tr,
+  .ts-chiphi td { display: block; width: auto; }
+  .ts-chiphi tr {
+    position: relative;
+    padding: 8px 38px 8px 0;
+    border-bottom: 1px solid var(--rule-hair, #f1f5f9);
+  }
+  .ts-chiphi tr:last-child { border-bottom: 0; }
+  .ts-chiphi td + td { padding-left: 0; }
+  .ts-chiphi__tien { width: auto; }
+  .ts-chiphi__x { position: absolute; top: 10px; right: 0; }
+
+  /* --- Bảng khấu hao dự kiến ------------------------------------------------
+     `width: 100%` nằm trong khung `overflow: auto` thì bảng bị ép đúng bề ngang khung, bốn cột
+     chia nhau 316px và khung cuộn thành vô dụng. Đặt sàn cho BẢNG rồi mới cuộn được. */
+  .ts-dukien table { min-width: 420px; }
+  .ts-dukien :is(th, td) { white-space: nowrap; }
+
+  /* --- Dòng lịch sử biến động ----------------------------------------------
+     Ngày và loại đều `nowrap`, nên lý do bị dồn vào 164px còn lại và rơi ba dòng. Cho nó xuống
+     hàng riêng, đọc liền một mạch. */
+  .ts-bd__dong { flex-wrap: wrap; }
+  .ts-bd__ly-do { flex: 1 1 100%; }
+}
+
+/* --- Màn cảm ứng: nút phải đủ to để chạm ------------------------------------
+   Người đi kiểm kê cầm máy tính bảng đứng giữa xưởng. Hai nút Có / Không thấy cao 28px là cỡ
+   cho con trỏ chuột, không phải cho đầu ngón tay. */
+@media (hover: none) {
+  .ts-tick__nut { padding: 9px 14px; }
+  .ts-chiphi__x { padding: 9px; }
+}

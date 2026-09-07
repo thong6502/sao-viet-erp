@@ -194,8 +194,8 @@ def tinh_ky(nam: int, thang: int, ky: Ky, _: Annotated[User, Depends(_GHI)]) -> 
 def excel_ky(
     nam: int, thang: int, ky: Ky, _: Annotated[User, Depends(_XUAT)]
 ) -> Response:
-    """Bảng khấu hao kỳ ra .xlsx — cột cuối là Ghi chú hạch toán để kế toán gõ sang phần mềm
-    kế toán bên ngoài."""
+    """Bảng khấu hao kỳ ra .xlsx — bảng để kế toán đọc rồi tự gõ sang phần mềm kế toán bên
+    ngoài; cột cuối là Còn lại."""
     noi_dung = xuat_bang_ky(ky.bang(nam, thang), nam=nam, thang=thang)
     return Response(
         content=noi_dung,

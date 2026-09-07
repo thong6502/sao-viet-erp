@@ -1,8 +1,8 @@
 // Màn TÀI SẢN CỐ ĐỊNH & CÔNG CỤ DỤNG CỤ (kế toán).
 //
 // Phạm vi CỐ Ý HẸP: ghi tăng · trích khấu hao theo kỳ · ba chứng từ biến động · kiểm kê. Không
-// định khoản, không sổ cái, không nhóm tài sản khai sẵn. Cầu nối duy nhất sang phần mềm kế toán
-// là ô "Ghi chú hạch toán" tự gõ + file Excel bảng khấu hao.
+// định khoản, không sổ cái, không nhóm tài sản khai sẵn. Cầu nối sang phần mềm kế toán là file
+// Excel bảng khấu hao — người ta đọc rồi tự gõ; muốn nhớ định khoản thì ghi vào ô ghi chú.
 //
 // MỘT màn ba tab chứ không ba mục menu: cả ba đọc cùng một sổ, và người làm việc này đi qua lại
 // giữa chúng trong cùng một buổi (ghi tăng xong là tính lại kỳ; kiểm kê xong là ghi giảm).

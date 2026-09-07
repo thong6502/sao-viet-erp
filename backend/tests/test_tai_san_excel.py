@@ -1,7 +1,7 @@
-"""Bảng khấu hao xuất Excel — cột cuối phải là Ghi chú hạch toán.
+"""Bảng khấu hao xuất Excel — cột cuối phải là Còn lại.
 
-Cột đó là lý do cả module không có ô tài khoản kế toán: kế toán đọc bảng này rồi gõ định khoản
-sang phần mềm kế toán bên ngoài, nên nội dung họ tự ghi phải đi kèm ra file.
+Cột ghi chú hạch toán đã gỡ (mg 0278). File này vẫn là thứ kế toán đọc rồi tự gõ định khoản sang
+phần mềm kế toán bên ngoài, nên bảy cột số phải ra đủ và đúng thứ tự màn hình.
 """
 from io import BytesIO
 
