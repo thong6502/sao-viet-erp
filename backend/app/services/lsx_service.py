@@ -52,7 +52,7 @@ from ..models.order import STATUS_CANCELLED, STATUS_ORDERED, Order, OrderLine
 from ..models.phieu_tinh_gia import PhieuThanhPhan, PhieuTinhGia
 from ..models.quotation import QuoteVersion
 from ..models.user import User
-from ..models.vat_lieu_kho import GiayNguyen, VatTuInAn
+from ..models.vat_lieu_kho import HANG_GIAY, HANG_VAT_TU, GiayNguyen, VatTuInAn
 from ..services.bu_hao_engine import hao_buoc
 from ..models.don_vi_do import TRAM_CAI, TRAM_CON, TRAM_TAY, TRAM_TO, TRAM_TO_NGUYEN
 from ..services.dong_giay import (
@@ -463,7 +463,7 @@ class LsxService:
         self._cap_cache: dict | None = None     # đồ thị cặp quy đổi (xem `_cap_quy_doi`)
         self._cap_graph_cache: dict | None = None  # cặp quy đổi đã dựng đồ thị (xem `_he_so_ngoai_dong`)
         self._ma_dv_cache: dict | None = None   # tên đơn vị → mã (xem `_ma_don_vi`)
-        self._vat_tu_cache: list | None = None  # vật tư đang dùng (xem `_vat_tu_active`)
+        self._mon_cache: dict | None = None     # giấy + vật tư đang dùng (xem `_mon_active`)
 
     # ================= tra cứu phụ trợ =================
 
@@ -477,18 +477,32 @@ class LsxService:
             self._tram_cache = ban_do_tram(self.db)
         return self._tram_cache
 
-    def _vat_tu_active(self) -> list:
-        """Vật tư ĐANG DÙNG — CACHE theo service, cùng lý do với `_piece_rates`.
+    def _mon_active(self) -> dict[tuple[str, int], object]:
+        """Mọi MÓN đang dùng, khoá `(hang_loai, id)` — CACHE theo service, như `_piece_rates`.
 
-        Bảng này vài chục dòng mà bị hỏi ba nơi cho MỖI bước (`_vat_tu_bung`, `_goi_y_luong_vat_tu`,
-        `_soi_danh_muc`). Màn chi tiết một lệnh 6 bước là 18 câu SELECT y hệt nhau, còn hàng đèn
-        của bảng lệnh thì nhân tiếp với số lệnh trên trang.
+        GỘP hai danh mục (08/09/2026): từ khi bước chọn được NVL chính, khối vật tư của bước ăn cả
+        `giay_nguyen` lẫn `vat_tu_in_an`. Hỏi rời hai bảng ở ba nơi (`_vat_tu_bung`,
+        `_goi_y_luong_vat_tu`, `_soi_danh_muc`) cho MỖI bước là đúng bài N+1 đã dính một lần ở màn
+        đơn hàng — cả hai bảng đều vài chục dòng nên nạp trọn một lượt rẻ hơn hẳn.
         """
-        if self._vat_tu_cache is None:
-            self._vat_tu_cache = list(self.db.execute(
-                select(VatTuInAn).where(VatTuInAn.active.is_(True))
-            ).scalars())
-        return self._vat_tu_cache
+        if self._mon_cache is None:
+            ra: dict[tuple[str, int], object] = {}
+            for m in self.db.execute(
+                    select(VatTuInAn).where(VatTuInAn.active.is_(True))).scalars():
+                ra[(HANG_VAT_TU, m.id)] = m
+            for g in self.db.execute(
+                    select(GiayNguyen).where(GiayNguyen.active.is_(True))).scalars():
+                ra[(HANG_GIAY, g.id)] = g
+            self._mon_cache = ra
+        return self._mon_cache
+
+    def _vat_tu_active(self) -> list:
+        """Chỉ VẬT TƯ KHÁC — đường của ĐẦU VIỆC, vốn không bao giờ khai giấy.
+
+        Giấy tuỳ TỪNG ĐƠN ("chạy sóng" hôm nay ăn kraft, mai ăn duplex) nên không khai trước ở danh
+        mục công đoạn được — nó chỉ vào bước qua cửa người lập lệnh tự chọn.
+        """
+        return [m for (hl, _i), m in self._mon_active().items() if hl == HANG_VAT_TU]
 
     def _bu_hao_rows(self) -> list[dict]:
         # KHÔNG lọc `active`: bảng bù hao ở đây là để DỰNG LẠI số của lệnh đã có. Mã bù hao bị
@@ -646,6 +660,9 @@ class LsxService:
                 canh_bao.append(f"{mat.ten}: {ly_do}")
                 continue
             ra.append({
+                # Đường ĐẦU VIỆC chỉ đẻ ra vật tư khác — giấy vào bước bằng cửa người lập lệnh
+                # tự chọn, không qua đây.
+                "hang_loai": HANG_VAT_TU,
                 "vat_tu_id": mat.id, "ma": mat.ma, "ten": mat.ten, "don_vi": dvt,
                 "so_luong": round(so_luong, 3), "dien_giai": dien_giai,
             })
@@ -692,14 +709,19 @@ class LsxService:
                     ct_theo_mon = {v.vat_tu_id: (v.cong_thuc_luong or "") for v in dv.vat_tus}
                     break
         ra: list[dict] = []
-        for mat in self._vat_tu_active():
+        for (hang_loai, mon_id), mat in self._mon_active().items():
             dvt = (mat.don_vi_gia or "").strip()
             if not dvt:
                 continue
+            # Giấy KHÔNG mượn công thức của đầu việc: đầu việc không bao giờ khai giấy (xem
+            # `_vat_tu_active`), mà mượn nhầm là gán định mức mực cho một loại giấy trùng id.
             so_luong, dien_giai, ly_do = self._luong_vat_tu(
-                dvt, ctx, mat=mat, cong_thuc=ct_theo_mon.get(mat.id, ""))
+                dvt, ctx, mat=mat,
+                cong_thuc=("" if hang_loai == HANG_GIAY else ct_theo_mon.get(mon_id, "")),
+                hang_loai=hang_loai)
             ra.append({
-                "vat_tu_id": mat.id,
+                "hang_loai": hang_loai,
+                "vat_tu_id": mon_id,
                 "so_luong": None if so_luong is None else round(so_luong, 3),
                 "dien_giai": dien_giai,
                 "ly_do": ly_do or None,
@@ -712,8 +734,8 @@ class LsxService:
     # (`cong_thuc_luong` của giấy · vật tư · máy · đầu việc khoán, `cong_thuc_san_luong` của công
     # đoạn). Đừng dựng lại: mượn-trong-cụm của hàm cũ là chỗ hai đơn vị cùng cụm tranh nhau trả lời.
 
-    def _luong_vat_tu(self, dvt: str, ctx: dict, *,
-                      mat=None, cong_thuc: str = "") -> tuple[float | None, str | None, str]:
+    def _luong_vat_tu(self, dvt: str, ctx: dict, *, mat=None, cong_thuc: str = "",
+                      hang_loai: str = HANG_VAT_TU) -> tuple[float | None, str | None, str]:
         """Số lượng một vật tư đo bằng `dvt`. Trả `(số, diễn giải, lý do nếu tịt)`.
 
         MỘT đường duy nhất: công thức của DÒNG VẬT TƯ trong đầu việc của công đoạn
@@ -738,7 +760,18 @@ class LsxService:
         ten = getattr(mat, "ten", None) or dvt
         dv_ten = (self._don_vis().get(dvt.strip().lower()) or {}).get("ten") or dvt
         rieng = (cong_thuc or "").strip()
+        # GIẤY (08/09/2026): công thức nằm ở CHÍNH MÓN (`giay_nguyen.cong_thuc_luong`), không ở đầu
+        # việc. Giấy tuỳ TỪNG ĐƠN — cùng công đoạn "chạy sóng" mà đơn này ăn kraft, đơn kia ăn
+        # duplex — nên không khai trước ở danh mục công đoạn được. Đây là lý do đúng để món tự mang
+        # công thức, khác hẳn mực: cùng "Mực Cyan" mà hai khổ in ăn hai định mức, nên mực phải khai
+        # theo đầu việc.
+        if not rieng and hang_loai == HANG_GIAY:
+            rieng = (getattr(mat, "cong_thuc_luong", None) or "").strip()
         if not rieng:
+            if hang_loai == HANG_GIAY:
+                return None, None, (
+                    f"chưa khai công thức định mức. Mở danh mục Giấy → sửa “{ten}” → điền ô "
+                    f"“Công thức tính lượng” (ra {dv_ten}).")
             return None, None, (
                 f"chưa khai công thức định mức. Mở danh mục Công đoạn → sửa công đoạn → bảng "
                 f"“Đầu việc và định mức của tổ” → bấm dòng “{ten}” trong khối vật tư → điền ô "
@@ -1572,6 +1605,7 @@ class LsxService:
             rows, _canh_bao = self._vat_tu_bung(dm, cd, quy_cach)
             for pos, v in enumerate(rows):
                 cd.vat_tus.append(LsxCongDoanVatTu(
+                    hang_loai=v.get("hang_loai") or HANG_VAT_TU,
                     vat_tu_id=v["vat_tu_id"], vat_tu_ma_snapshot=v["ma"],
                     vat_tu_ten_snapshot=v["ten"], don_vi_snapshot=v["don_vi"] or "",
                     so_luong=float(v["so_luong"]), thu_tu=pos, tu_dong=True,
@@ -2484,7 +2518,7 @@ class LsxService:
                 if (p := self.db.get(LsxCongDoan, edge.buoc_truoc_id)) is not None
             ],
             "vat_tus": [
-                {"id": v.id, "vat_tu_id": v.vat_tu_id,
+                {"id": v.id, "hang_loai": v.hang_loai, "vat_tu_id": v.vat_tu_id,
                  "vat_tu_ma": v.vat_tu_ma_snapshot, "vat_tu_ten": v.vat_tu_ten_snapshot,
                  "don_vi": v.don_vi_snapshot, "so_luong": _f(v.so_luong),
                  "tu_dong": bool(v.tu_dong)}
@@ -3007,7 +3041,8 @@ class LsxService:
             if rate is not None:
                 moi_rows, _ = self._vat_tu_bung(dm, cd, quy_cach)
                 hien_co = [
-                    {"vat_tu_id": v.vat_tu_id, "ma": v.vat_tu_ma_snapshot,
+                    {"hang_loai": v.hang_loai, "vat_tu_id": v.vat_tu_id,
+                     "ma": v.vat_tu_ma_snapshot,
                      "ten": v.vat_tu_ten_snapshot, "don_vi": v.don_vi_snapshot,
                      "so_luong": _f(v.so_luong), "tu_dong": bool(v.tu_dong)}
                     for v in cd.vat_tus
@@ -3015,9 +3050,12 @@ class LsxService:
                 vt = vat_tu_lech(hien_co, moi_rows)
                 muc["vat_tu_them"], muc["vat_tu_bo"], muc["vat_tu_lech"] = (
                     vt["them"], vt["bo"], vt["lech"])
-                moi_theo_id = {int(r["vat_tu_id"]): r for r in moi_rows}
-                ap["vat_tu_them"] = [moi_theo_id[r["vat_tu_id"]] for r in vt["them"]]
-                ap["vat_tu_dat_lai"] = [moi_theo_id[r["vat_tu_id"]] for r in vt["lech"]]
+                moi_theo_id = {(r.get("hang_loai") or HANG_VAT_TU, int(r["vat_tu_id"])): r
+                               for r in moi_rows}
+                ap["vat_tu_them"] = [moi_theo_id[(r["hang_loai"], r["vat_tu_id"])]
+                                     for r in vt["them"]]
+                ap["vat_tu_dat_lai"] = [moi_theo_id[(r["hang_loai"], r["vat_tu_id"])]
+                                        for r in vt["lech"]]
             # Máy: công thức giờ chạy của cặp (công đoạn × máy) đọc SỐNG lúc tính thời lượng nên
             # không có gì để đồng bộ. Thứ DUY NHẤT trôi được là danh sách máy: gỡ máy khỏi công
             # đoạn thì bước vẫn ôm `may_id` cũ và vẫn tính giờ bằng công thức đã bị gỡ.
@@ -3073,14 +3111,16 @@ class LsxService:
             for truong in ("so_nhan_cong_tieu_chuan", "nang_suat", "don_vi_nang_suat"):
                 if truong in ap:
                     setattr(cd, truong, ap[truong])
-            dat_lai = {int(r["vat_tu_id"]): r for r in ap["vat_tu_dat_lai"]}
+            dat_lai = {(r.get("hang_loai") or HANG_VAT_TU, int(r["vat_tu_id"])): r
+                       for r in ap["vat_tu_dat_lai"]}
             for v in cd.vat_tus:
-                if (r := dat_lai.get(int(v.vat_tu_id))) is not None:
+                if (r := dat_lai.get((v.hang_loai, int(v.vat_tu_id)))) is not None:
                     v.so_luong = float(r["so_luong"])
             thu_tu = max((v.thu_tu for v in cd.vat_tus), default=-1)
             for r in ap["vat_tu_them"]:
                 thu_tu += 1
                 cd.vat_tus.append(LsxCongDoanVatTu(
+                    hang_loai=r.get("hang_loai") or HANG_VAT_TU,
                     vat_tu_id=int(r["vat_tu_id"]), vat_tu_ma_snapshot=r.get("ma") or "",
                     vat_tu_ten_snapshot=r.get("ten") or "", don_vi_snapshot=r.get("don_vi") or "",
                     so_luong=float(r["so_luong"]), thu_tu=thu_tu, tu_dong=True,
@@ -3272,37 +3312,43 @@ class LsxService:
             if "vat_tus" not in d:
                 continue
             vat_tus = d.get("vat_tus") or []
-            ids = [int(v.get("vat_tu_id") or 0) for v in vat_tus]
-            if len(ids) != len(set(ids)):
+            # Khoá là CẶP `(hang_loai, id)` (08/09/2026): bước ăn cả giấy lẫn vật tư, mà Giấy #7 và
+            # Vật tư #7 là hai món khác nhau — khoá bằng id trần sẽ báo trùng oan và ghi nhầm món.
+            caps = [(str(v.get("hang_loai") or HANG_VAT_TU), int(v.get("vat_tu_id") or 0))
+                    for v in vat_tus]
+            if len(caps) != len(set(caps)):
                 raise LsxValidationError("Một vật tư không được chọn trùng trong cùng công đoạn")
-            # Vật tư ĐÃ nằm trên bước từ trước — giữ lại được kể cả khi danh mục đã ngừng nó.
-            # Chặn cả hai kiểu như trước thì một lệnh cũ có vật tư ngừng dùng là KHÔNG LƯU LẠI
-            # ĐƯỢC routing nữa, kể cả khi người ta chỉ sửa cái khác.
-            dang_co = {int(v.vat_tu_id) for v in row.vat_tus if v.vat_tu_id}
-            mats = {
-                v.id: v for v in self.db.execute(
-                    select(VatTuInAn).where(VatTuInAn.id.in_(ids))
-                ).scalars()
-            } if ids else {}
-            if len(mats) != len(ids):
-                raise LsxValidationError("Vật tư không tồn tại")
-            ngung_moi = [mats[i] for i in ids if not mats[i].active and i not in dang_co]
-            if ngung_moi:
+            # Món ĐÃ nằm trên bước từ trước — giữ lại được kể cả khi danh mục đã ngừng nó. Chặn cả
+            # hai kiểu như trước thì một lệnh cũ có vật tư ngừng dùng là KHÔNG LƯU LẠI ĐƯỢC routing
+            # nữa, kể cả khi người ta chỉ sửa cái khác.
+            cu_theo_cap = {(v.hang_loai, int(v.vat_tu_id)): v for v in row.vat_tus if v.vat_tu_id}
+            mons = self._mon_active()
+            thieu = [c for c in caps if c not in mons and c not in cu_theo_cap]
+            if thieu:
                 raise LsxValidationError(
-                    f"Vật tư “{ngung_moi[0].ten}” đã ngừng dùng — chọn vật tư khác")
+                    "Vật tư không tồn tại hoặc đã ngừng dùng — chọn món khác")
             row.vat_tus.clear()
-            # FLUSH giữa xoá và thêm: bảng có UNIQUE (lsx_cong_doan_id, vat_tu_id), mà lưu lại
-            # bước với ĐÚNG vật tư cũ là xoá rồi thêm lại chính cặp đó. Không ép DELETE chạy
+            # FLUSH giữa xoá và thêm: bảng có UNIQUE (lsx_cong_doan_id, hang_loai, vat_tu_id), mà
+            # lưu lại bước với ĐÚNG món cũ là xoá rồi thêm lại chính cặp đó. Không ép DELETE chạy
             # trước thì SQLAlchemy gộp một lượt và INSERT đụng hàng chưa kịp xoá → 500 ngay khi
             # bấm Lưu lần thứ hai mà không đổi gì.
             self.db.flush()
-            for pos, item in enumerate(vat_tus):
-                mat = mats[int(item["vat_tu_id"])]
+            for pos, (item, cap) in enumerate(zip(vat_tus, caps)):
+                # Món đã ngừng dùng thì `_mon_active` không có — mượn SNAPSHOT của chính dòng cũ,
+                # đúng thứ đang hiện trên màn, thay vì để tên/đơn vị rỗng.
+                mon = mons.get(cap)
+                cu = cu_theo_cap.get(cap)
                 row.vat_tus.append(LsxCongDoanVatTu(
+                    hang_loai=cap[0],
+                    vat_tu_id=cap[1],
                     # `or ""`: đơn vị gốc có thể CHƯA KHAI (nullable từ 2026-08-08) còn cột
                     # snapshot NOT NULL — không chặn thì IntegrityError 500.
-                    vat_tu_id=mat.id, vat_tu_ma_snapshot=mat.ma,
-                    vat_tu_ten_snapshot=mat.ten, don_vi_snapshot=mat.don_vi_gia or "",
+                    vat_tu_ma_snapshot=(getattr(mon, "ma", None)
+                                        or getattr(cu, "vat_tu_ma_snapshot", None) or ""),
+                    vat_tu_ten_snapshot=(getattr(mon, "ten", None)
+                                         or getattr(cu, "vat_tu_ten_snapshot", None) or ""),
+                    don_vi_snapshot=(getattr(mon, "don_vi_gia", None)
+                                     or getattr(cu, "don_vi_snapshot", None) or ""),
                     so_luong=float(item["so_luong"]), thu_tu=pos,
                     # Cờ MÁY BUNG / NGƯỜI KHAI đi theo từng dòng: lần bung sau chỉ thay dòng máy,
                     # dòng người đã sửa thì chừa ra. Client cũ không gửi ⇒ False = người khai.

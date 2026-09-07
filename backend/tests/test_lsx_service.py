@@ -1528,19 +1528,22 @@ def test_goi_y_luong_cho_MOI_vat_tu_de_drawer_dien_san(db, orders, lsx_svc, admi
                                  actor=admin)[0].id)
     buoc = next(b for b in lsx_svc.detail_dict(lsx)["cong_doans"] if b["ten"] == "Dán hộp")
 
-    goi_y = {g["vat_tu_id"]: g for g in buoc["vat_tu_goi_y"]}
-    assert keo.id in goi_y, "vật tư đã khai định mức trong đầu việc phải được tính sẵn"
-    assert goi_y[keo.id]["so_luong"] == pytest.approx(
+    # Khoá theo CẶP: gợi ý nay gồm cả danh mục Giấy, mà Giấy #7 với Vật tư #7 là hai món khác
+    # nhau — khoá bằng id trần thì một loại giấy trùng id sẽ đè mất dòng vật tư đang kiểm.
+    goi_y = {(g["hang_loai"], g["vat_tu_id"]): g for g in buoc["vat_tu_goi_y"]}
+    k_keo, k_mu = ("vat_tu", keo.id), ("vat_tu", mu.id)
+    assert k_keo in goi_y, "vật tư đã khai định mức trong đầu việc phải được tính sẵn"
+    assert goi_y[k_keo]["so_luong"] == pytest.approx(
         round(0.002 * float(lsx.so_luong_dat), 3), rel=1e-6)
-    dien_giai = goi_y[keo.id]["dien_giai"] or ""
+    dien_giai = goi_y[k_keo]["dien_giai"] or ""
     assert "Số lượng đặt" in dien_giai and dien_giai.endswith("kg"), \
         f"phải hiện công thức ĐÃ THAY SỐ để kiểm bằng mắt, đang là: {dien_giai!r}"
-    assert goi_y[keo.id]["ly_do"] is None
+    assert goi_y[k_keo]["ly_do"] is None
 
     # Món chưa khai: có mặt, KHÔNG có số, và câu lý do chỉ đúng chỗ khai.
-    assert goi_y[mu.id]["so_luong"] is None, "chưa tính ra được thì để trống, không bịa số 0"
-    assert "công thức định mức" in goi_y[mu.id]["ly_do"]
-    assert "Công đoạn" in goi_y[mu.id]["ly_do"], "lý do phải chỉ được chỗ khai"
+    assert goi_y[k_mu]["so_luong"] is None, "chưa tính ra được thì để trống, không bịa số 0"
+    assert "công thức định mức" in goi_y[k_mu]["ly_do"]
+    assert "Công đoạn" in goi_y[k_mu]["ly_do"], "lý do phải chỉ được chỗ khai"
 
 
 def test_dau_viec_mang_san_vat_tu_da_tinh_so_de_drawer_bung(db, orders, lsx_svc, admin, customer):
@@ -3799,3 +3802,79 @@ def test_dong_vat_tu_cua_buoc_mang_hang_loai_va_cho_trung_id_khac_loai(db):
     uq = next(c for c in LsxCongDoanVatTu.__table__.constraints
               if getattr(c, "name", "") == "uq_lsx_buoc_vat_tu")
     assert [c.name for c in uq.columns] == ["lsx_cong_doan_id", "hang_loai", "vat_tu_id"]
+
+
+@pytest.fixture()
+def lenh_giay(db):
+    """Lệnh tối thiểu: 1 bước in, quy cách đủ khổ nguyên + định lượng + số tờ nguyên.
+
+    Không seed công đoạn/đầu việc: ca đang kiểm là giấy CHỌN TAY, thứ không đi qua đầu việc nào.
+    """
+    from app.models.lsx import TT_SAN_SANG, Lsx, LsxCongDoan
+    from app.models.order import Order, OrderLine
+
+    c = db.query(Customer).first() or Customer(code="KH-GIAY", name="KH Giấy")
+    db.add(c)
+    db.flush()
+    o = Order(order_no="DH-GIAY", customer_id=c.id)
+    db.add(o)
+    db.flush()
+    ln = OrderLine(order_id=o.id, description="hộp giấy", qty=2000)
+    db.add(ln)
+    db.flush()
+
+    l = Lsx(ma="LSX-GIAY", ten="LSX-GIAY", order_id=o.id, order_line_id=ln.id,
+            so_luong_dat=2000, so_to_nguyen=553, so_con=9,
+            trang_thai=TT_SAN_SANG,
+            quy_cach_json={"kho_nguyen_dai": 860, "kho_nguyen_rong": 650, "gsm": 300})
+    db.add(l)
+    db.flush()
+    b = LsxCongDoan(lsx_id=l.id, thu_tu=1, ten="In offset", loai_buoc="may",
+                    don_vi_vao="to_nguyen", don_vi_ra="to",
+                    so_luong_vao=553, so_luong_ra=553)
+    db.add(b)
+    db.commit()
+    return l, b
+
+
+def test_goi_y_luong_co_ca_GIAY_va_ra_kg_bang_cong_thuc_cua_chinh_loai_giay(db, lsx_svc, lenh_giay):
+    """Giấy chọn tay ở bước ⇒ lượng suy bằng `giay_nguyen.cong_thuc_luong`, ra ĐƠN VỊ GỐC (kg).
+
+    Không có đầu việc nào khai giấy — đó chính là ca thật: giấy tuỳ từng đơn, không khai trước ở
+    danh mục công đoạn được. Nên nguồn công thức phải là CHÍNH MÓN GIẤY, khác hẳn mực.
+    """
+    from app.services.bien_cong_thuc import quy_cach_bien
+
+    lsx, buoc = lenh_giay
+    g = GiayNguyen(
+        ma="GY-C300", ten="Giấy C300", gsm=300, kho_dai=860, kho_rong=650, don_vi_gia="kg",
+        cong_thuc_luong="dinh_luong * dai_nguyen * rong_nguyen * to_nguyen",
+    )
+    db.add(g)
+    db.commit()
+
+    goi_y = lsx_svc._goi_y_luong_vat_tu(buoc, quy_cach_bien(lsx))
+    dong = next(x for x in goi_y if x["hang_loai"] == "giay" and x["vat_tu_id"] == g.id)
+
+    # 0,3 kg/m² × 0,86 m × 0,65 m × 553 tờ nguyên = 92,73 kg
+    assert dong["so_luong"] == pytest.approx(92.73, abs=0.01)
+    assert dong["ly_do"] is None
+
+
+def test_goi_y_GIAY_chua_khai_cong_thuc_thi_chi_thang_danh_muc_GIAY_khong_chi_dau_viec(
+    db, lsx_svc, lenh_giay,
+):
+    """Câu lý do phải chỉ đúng ô người dùng cần mở — giấy khai ở danh mục Giấy, không ở đầu việc."""
+    from app.services.bien_cong_thuc import quy_cach_bien
+
+    lsx, buoc = lenh_giay
+    g = GiayNguyen(ma="GY-TRONG", ten="Giấy chưa khai", gsm=300, kho_dai=860, kho_rong=650,
+                   don_vi_gia="kg")
+    db.add(g)
+    db.commit()
+
+    dong = next(x for x in lsx_svc._goi_y_luong_vat_tu(buoc, quy_cach_bien(lsx))
+                if x["hang_loai"] == "giay" and x["vat_tu_id"] == g.id)
+    assert dong["so_luong"] is None
+    assert "danh mục Giấy" in dong["ly_do"]
+    assert "Đầu việc" not in dong["ly_do"]

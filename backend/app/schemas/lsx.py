@@ -108,6 +108,10 @@ class LeadTimeOut(BaseModel):
 
 
 class LsxBuocVatTuIn(BaseModel):
+    # DANH MỤC nào chứa món — `"giay"` (NVL chính, người lập lệnh tự chọn) hay `"vat_tu"`
+    # (mực/keo/màng, bung từ đầu việc). Mặc định `"vat_tu"`: client cũ không gửi thì hiểu y như
+    # trước khi bước chọn được NVL chính (08/09/2026).
+    hang_loai: Literal["giay", "vat_tu"] = "vat_tu"
     vat_tu_id: int
     so_luong: float = Field(gt=0)
     # True = dòng MÁY bung khi chọn công việc khoán ⇒ lần bung sau thay được. False = người tự thêm
@@ -117,6 +121,7 @@ class LsxBuocVatTuIn(BaseModel):
 
 class LsxBuocVatTuOut(BaseModel):
     id: int
+    hang_loai: str = "vat_tu"
     vat_tu_id: int
     vat_tu_ma: str
     vat_tu_ten: str
@@ -407,6 +412,7 @@ class DanhMucDoiVatTu(BaseModel):
     """Một dòng vật tư lệch giữa bước và danh mục. `so_luong_cu`/`so_luong_moi` để trống một bên
     tuỳ rổ: rổ THÊM chưa có số cũ, rổ BỎ không còn số mới."""
 
+    hang_loai: str = "vat_tu"
     vat_tu_id: int
     ma: str | None = None
     ten: str | None = None

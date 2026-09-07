@@ -108,8 +108,11 @@ def vat_tu_lech(hien_co: list[dict], theo_danh_muc: list[dict]) -> dict:
     Dòng NGƯỜI KHAI (`tu_dong=False`) đứng ngoài cả `bo` lẫn `lech`: người ta đã cố ý gõ đè số đó,
     lấy số danh mục ghi lên là xoá việc họ vừa làm — cùng luật với cột "Đã sửa" trong drawer vật tư.
     """
-    cu_theo_id = {int(v["vat_tu_id"]): v for v in hien_co if v.get("vat_tu_id")}
-    moi_theo_id = {int(v["vat_tu_id"]): v for v in theo_danh_muc if v.get("vat_tu_id")}
+    # Khoá là CẶP `(hang_loai, id)` (08/09/2026): bước nay ăn cả giấy lẫn vật tư, mà Giấy #7 và
+    # Vật tư #7 là hai món khác nhau. Khoá bằng id trần thì "Cập nhật theo danh mục" đè số của một
+    # dòng giấy bằng số của một món mực trùng id.
+    cu_theo_id = {_cap(v): v for v in hien_co if v.get("vat_tu_id")}
+    moi_theo_id = {_cap(v): v for v in theo_danh_muc if v.get("vat_tu_id")}
     them, bo, lech = [], [], []
     for vid, moi in moi_theo_id.items():
         cu = cu_theo_id.get(vid)
@@ -126,9 +129,15 @@ def vat_tu_lech(hien_co: list[dict], theo_danh_muc: list[dict]) -> dict:
     return {"them": them, "bo": bo, "lech": lech}
 
 
+def _cap(v: dict) -> tuple[str, int]:
+    """Khoá nhận dạng một món trên bước. Dòng cũ / client cũ không mang `hang_loai` ⇒ là vật tư."""
+    return (str(v.get("hang_loai") or "vat_tu"), int(v["vat_tu_id"]))
+
+
 def _mon(v: dict) -> dict:
-    """Ba ô nhận dạng một món — `_vat_tu_bung` và dòng đã lưu đặt tên khoá khác nhau nên gom ở đây."""
+    """Bốn ô nhận dạng một món — `_vat_tu_bung` và dòng đã lưu đặt tên khoá khác nhau nên gom ở đây."""
     return {
+        "hang_loai": str(v.get("hang_loai") or "vat_tu"),
         "vat_tu_id": int(v["vat_tu_id"]),
         "ma": v.get("ma") or v.get("vat_tu_ma"),
         "ten": v.get("ten") or v.get("vat_tu_ten"),
