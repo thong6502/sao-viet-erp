@@ -660,7 +660,7 @@ export function BaoCaoCongNoPage({
                     )}
                   </td>
                   <td className="bccn__tk-cell">
-                    {d.tk && d.tk !== "131" && d.tk !== "331" ? d.tk : ""}
+                    {/* {d.tk && d.tk !== "131" && d.tk !== "331" ? d.tk : ""} */}
                   </td>
                   <td>
                     <O v={d.dau_no} />

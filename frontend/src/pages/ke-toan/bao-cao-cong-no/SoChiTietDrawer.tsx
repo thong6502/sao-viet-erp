@@ -170,7 +170,6 @@ export function SoChiTietDrawer({
             </button>
           </div>
           <div className="purchase__hero-meta">
-            <span>TK {data?.tk ?? (ben === "payables" ? "331" : "131")}</span>
             {data?.ma && (
               <>
                 <span className="purchase__hero-dot">•</span>
