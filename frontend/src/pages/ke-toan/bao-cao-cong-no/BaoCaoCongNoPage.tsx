@@ -26,22 +26,30 @@ import { nhanKy, type Ky } from "./shared/ky";
 import "../../accounting.css";
 import "./bao-cao-cong-no.css";
 
-
 function so(v: number): string {
   return v ? Math.round(v).toLocaleString("vi-VN") : "";
 }
 
 function O({ v, manh = false }: { v: number; manh?: boolean }) {
   if (!v) return <span className="bccn__khong">—</span>;
-  return <span className={manh ? "bccn__tien bccn__tien--manh" : "bccn__tien"}>{so(v)}</span>;
+  return (
+    <span className={manh ? "bccn__tien bccn__tien--manh" : "bccn__tien"}>
+      {so(v)}
+    </span>
+  );
 }
 
-function tieuDeMan(s: string | undefined, ben: "receivables" | "payables"): string {
+function tieuDeMan(
+  s: string | undefined,
+  ben: "receivables" | "payables",
+): string {
   if (s) {
     const thuong = s.toLocaleLowerCase("vi-VN");
     return thuong.charAt(0).toLocaleUpperCase("vi-VN") + thuong.slice(1);
   }
-  return ben === "receivables" ? "Tổng hợp công nợ phải thu" : "Tổng hợp công nợ phải trả";
+  return ben === "receivables"
+    ? "Tổng hợp công nợ phải thu"
+    : "Tổng hợp công nợ phải trả";
 }
 
 /** Hôm nay dạng `YYYY-MM-DD`, làm TRẦN cho mọi ô chọn ngày.
@@ -86,7 +94,8 @@ export function BaoCaoCongNoPage({
   const canKhoaSo = can("bao_cao_cong_no", "update");
   // PHÂN HỆ khoá sổ suy thẳng từ tab đang xem. Hai sổ ĐỘC LẬP — chốt công nợ phải trả không được
   // kéo theo phải thu (chủ báo 04/09/2026: *"2 cái này nó khác nhau mà"*).
-  const phanHe: "phai_thu" | "phai_tra" = ben === "receivables" ? "phai_thu" : "phai_tra";
+  const phanHe: "phai_thu" | "phai_tra" =
+    ben === "receivables" ? "phai_thu" : "phai_tra";
   const [data, setData] = useState<BaoCaoCongNo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -94,7 +103,9 @@ export function BaoCaoCongNoPage({
   const [q, setQ] = useState("");
   // Đối tượng đang mở SỔ CHI TIẾT. Giữ cả TÊN vừa bấm để hiện ngay lúc còn đang tải —
   // `id` có thể là `null` (dòng "ngoài danh mục") nên không dùng chính nó làm cờ đóng/mở được.
-  const [xemSo, setXemSo] = useState<{ id: number | null; ten: string } | null>(null);
+  const [xemSo, setXemSo] = useState<{ id: number | null; ten: string } | null>(
+    null,
+  );
 
   // Khóa kỳ
   const [kyList, setKyList] = useState<CongNoKyRow[]>([]);
@@ -109,7 +120,10 @@ export function BaoCaoCongNoPage({
   // Tải danh sách kỳ
   const loadKyList = useCallback(() => {
     if (!token) return;
-    api.accounting.congNoKyList(token, phanHe).then(setKyList).catch(() => {});
+    api.accounting
+      .congNoKyList(token, phanHe)
+      .then(setKyList)
+      .catch(() => {});
   }, [token, phanHe]);
 
   useEffect(() => {
@@ -126,7 +140,9 @@ export function BaoCaoCongNoPage({
   useEffect(() => {
     if (daNhayKy.current || kyList.length === 0) return;
     daNhayKy.current = true;
-    const dungKy = kyList.some((k) => k.tu_ngay === ky.tu && k.den_ngay === ky.den);
+    const dungKy = kyList.some(
+      (k) => k.tu_ngay === ky.tu && k.den_ngay === ky.den,
+    );
     if (!dungKy) onKy({ tu: kyList[0].tu_ngay, den: kyList[0].den_ngay });
   }, [kyList, ky.tu, ky.den, onKy]);
 
@@ -135,7 +151,8 @@ export function BaoCaoCongNoPage({
   // Bản cũ dò trong `kyList` rồi so BẰNG ĐÚNG hai đầu ngày. `kyList` chỉ có kỳ THÁNG TRỌN
   // (01/09–30/09) nên kỳ báo cáo lẻ (01/09–04/09) không bao giờ khớp ⇒ luôn ra "chưa khóa": bấm
   // khóa xong nút vẫn ghi "Khóa kỳ", không dấu hiệu gì. Trên DB dev còn nguyên bốn lần bấm lại.
-  const [trangThaiKhoa, setTrangThaiKhoa] = useState<CongNoKhoaSoTrangThai | null>(null);
+  const [trangThaiKhoa, setTrangThaiKhoa] =
+    useState<CongNoKhoaSoTrangThai | null>(null);
   const kyHienTaiDaKhoa = trangThaiKhoa?.da_khoa ?? false;
   const kyKhoaMotPhan = trangThaiKhoa?.khoa_mot_phan ?? false;
 
@@ -158,7 +175,11 @@ export function BaoCaoCongNoPage({
       .baoCaoCongNo(token, ben, { tuNgay: ky.tu, denNgay: ky.den })
       .then(setData)
       .catch((cause) => {
-        setError(cause instanceof ApiError ? cause.message : "Không tải được báo cáo công nợ.");
+        setError(
+          cause instanceof ApiError
+            ? cause.message
+            : "Không tải được báo cáo công nợ.",
+        );
       })
       .finally(() => setLoading(false));
   }, [token, ben, ky.tu, ky.den]);
@@ -170,13 +191,23 @@ export function BaoCaoCongNoPage({
     const tim = q.trim().toLowerCase();
     return (data?.items ?? []).filter((d) => {
       if (!tim) return true;
-      return d.ten.toLowerCase().includes(tim) || (d.ma ?? "").toLowerCase().includes(tim);
+      return (
+        d.ten.toLowerCase().includes(tim) ||
+        (d.ma ?? "").toLowerCase().includes(tim)
+      );
     });
   }, [data, q]);
 
   // Tổng cộng của phần sổ đang hiện
   const tongSo = useMemo(() => {
-    const cot = ["dau_no", "dau_co", "ps_no", "ps_co", "cuoi_no", "cuoi_co"] as const;
+    const cot = [
+      "dau_no",
+      "dau_co",
+      "ps_no",
+      "ps_co",
+      "cuoi_no",
+      "cuoi_co",
+    ] as const;
     const ra = { so_dong: dongSo.length } as Record<string, number>;
     for (const k of cot) ra[k] = dongSo.reduce((s, d) => s + d[k], 0);
     return ra;
@@ -195,10 +226,10 @@ export function BaoCaoCongNoPage({
     const ben_no = ben === "receivables" ? "cuoi_no" : "cuoi_co";
     const items = data?.items ?? [];
     return {
-      dauKy: ben === "receivables" ? (tongSo.dau_no || 0) : (tongSo.dau_co || 0),
-      tangKy: ben === "receivables" ? (tongSo.ps_no || 0) : (tongSo.ps_co || 0),
-      giamKy: ben === "receivables" ? (tongSo.ps_co || 0) : (tongSo.ps_no || 0),
-      cuoiKy: ben === "receivables" ? (tongSo.cuoi_no || 0) : (tongSo.cuoi_co || 0),
+      dauKy: ben === "receivables" ? tongSo.dau_no || 0 : tongSo.dau_co || 0,
+      tangKy: ben === "receivables" ? tongSo.ps_no || 0 : tongSo.ps_co || 0,
+      giamKy: ben === "receivables" ? tongSo.ps_co || 0 : tongSo.ps_no || 0,
+      cuoiKy: ben === "receivables" ? tongSo.cuoi_no || 0 : tongSo.cuoi_co || 0,
       soDoiTuong: items.filter((d) => d[ben_no] > 0).length,
     };
   }, [ben, data, tongSo]);
@@ -240,7 +271,7 @@ export function BaoCaoCongNoPage({
     // CHỐT: luôn nối tiếp sau kỳ trước — không cho tự chọn ngày bắt đầu, vì chọn lệch là hoặc
     // chồng lấn kỳ cũ (server chặn 422) hoặc để hở một quãng không kỳ nào nhận.
     // MỞ: lấy đúng hai đầu của kỳ đang chọn, mở nguyên kỳ chứ không mở nửa vời.
-    setKhoaTu(daKhoa ? ky.tu : mocChotTiepTheo ?? ky.tu);
+    setKhoaTu(daKhoa ? ky.tu : (mocChotTiepTheo ?? ky.tu));
     setKhoaDen(ky.den);
     // ĐỂ TRỐNG, không điền sẵn: tên gợi ý suy từ CHÍNH khoảng sắp chốt (xem `tenGoiY`) và phải
     // đổi theo khi người dùng sửa ngày. Điền sẵn theo kỳ đang XEM là sinh ra bản ghi mang tên một
@@ -276,7 +307,9 @@ export function BaoCaoCongNoPage({
       load();
       setKhoaOpen(false);
     } catch (e) {
-      setKhoaError(e instanceof ApiError ? e.message : "Không thực hiện được thao tác.");
+      setKhoaError(
+        e instanceof ApiError ? e.message : "Không thực hiện được thao tác.",
+      );
     } finally {
       setKhoaBusy(false);
     }
@@ -289,7 +322,8 @@ export function BaoCaoCongNoPage({
 
   /** Tên kỳ gợi ý — LUÔN bám theo khoảng thật sắp chốt, tự đổi khi sửa ngày. */
   const tenGoiY = useMemo(
-    () => (khoaTu && khoaDen ? `Kỳ ${fmtDate(khoaTu)}–${fmtDate(khoaDen)}` : ""),
+    () =>
+      khoaTu && khoaDen ? `Kỳ ${fmtDate(khoaTu)}–${fmtDate(khoaDen)}` : "",
     [khoaTu, khoaDen],
   );
 
@@ -297,8 +331,11 @@ export function BaoCaoCongNoPage({
   // mới rồi thì không cho mở nữa"*). Không phải tháo ngược từng nấc — mở kỳ sau ra rồi thì kỳ
   // trước vẫn niêm. Server tính sẵn `co_the_mo`; giao diện chỉ việc MỜ nút, đừng để người dùng
   // học luật bằng cách đâm vào lỗi 422.
-  const kyDangChon = kyList.find((k) => k.tu_ngay === ky.tu && k.den_ngay === ky.den);
-  const chanMoKy = kyHienTaiDaKhoa && kyDangChon != null && !kyDangChon.co_the_mo;
+  const kyDangChon = kyList.find(
+    (k) => k.tu_ngay === ky.tu && k.den_ngay === ky.den,
+  );
+  const chanMoKy =
+    kyHienTaiDaKhoa && kyDangChon != null && !kyDangChon.co_the_mo;
   // Kỳ chặn = kỳ chốt SỚM NHẤT nằm sau kỳ đang xem. Không lọc theo `da_khoa`: kỳ sau dù đã
   // được mở ra thì nó vẫn là thứ niêm kỳ này lại.
   const kyChan = chanMoKy
@@ -316,14 +353,20 @@ export function BaoCaoCongNoPage({
         <div className="bccn__head-chu">
           <h1 className="bccn__title">{tieuDeMan(data?.tieu_de, ben)}</h1>
           <p className="bccn__sub">
-            Tài khoản <b>{data?.tk ?? (ben === "receivables" ? "131" : "331")}</b> · Sổ theo kỳ đối chiếu với MISA
+            Tài khoản Sổ theo kỳ đối chiếu với MISA
             {kyHienTai ? ` · ${kyHienTai}` : ""}
           </p>
         </div>
         <div className="bccn__head-actions">
           {/* Tạm thời ẩn nút In báo cáo theo yêu cầu */}
-          <Button variant="ghost" onClick={xuatExcel} disabled={dangXuat || !data} title="Xuất file .xlsx chuẩn MISA">
-            <Icon name="table" size={14} /> {dangXuat ? "Đang xuất…" : "Xuất Excel"}
+          <Button
+            variant="ghost"
+            onClick={xuatExcel}
+            disabled={dangXuat || !data}
+            title="Xuất file .xlsx chuẩn MISA"
+          >
+            <Icon name="table" size={14} />{" "}
+            {dangXuat ? "Đang xuất…" : "Xuất Excel"}
           </Button>
           {canKhoaSo && (
             <Button
@@ -338,7 +381,11 @@ export function BaoCaoCongNoPage({
               }
             >
               <Icon name={kyHienTaiDaKhoa ? "lock" : "lockOpen"} size={14} />
-              {kyHienTaiDaKhoa ? "Mở khóa kỳ" : kyKhoaMotPhan ? "Chốt nốt kỳ" : "Khóa kỳ"}
+              {kyHienTaiDaKhoa
+                ? "Mở khóa kỳ"
+                : kyKhoaMotPhan
+                  ? "Chốt nốt kỳ"
+                  : "Khóa kỳ"}
             </Button>
           )}
         </div>
@@ -360,7 +407,9 @@ export function BaoCaoCongNoPage({
         <div className="bccn__kpi-card">
           <div className="bccn__kpi-top">
             <span className="bccn__kpi-label">
-              {ben === "receivables" ? "Phát sinh tăng (Nợ)" : "Phát sinh tăng (Có)"}
+              {ben === "receivables"
+                ? "Phát sinh tăng (Nợ)"
+                : "Phát sinh tăng (Có)"}
             </span>
             <Icon name="arrowRight" size={14} className="bccn__kpi-icon" />
           </div>
@@ -379,7 +428,9 @@ export function BaoCaoCongNoPage({
           </div>
           <div className="bccn__kpi-number">{money(kpi.giamKy)}</div>
           <span className="bccn__kpi-sub">
-            {ben === "receivables" ? "Phiếu thu / Giảm nợ" : "Phiếu chi / Giảm nợ"}
+            {ben === "receivables"
+              ? "Phiếu thu / Giảm nợ"
+              : "Phiếu chi / Giảm nợ"}
           </span>
         </div>
 
@@ -389,7 +440,9 @@ export function BaoCaoCongNoPage({
             <Icon name="calculator" size={14} className="bccn__kpi-icon" />
           </div>
           <div className="bccn__kpi-number">{money(kpi.cuoiKy)}</div>
-          <span className="bccn__kpi-sub">{kpi.soDoiTuong} đối tượng còn nợ</span>
+          <span className="bccn__kpi-sub">
+            {kpi.soDoiTuong} đối tượng còn nợ
+          </span>
         </div>
       </section>
 
@@ -410,19 +463,23 @@ export function BaoCaoCongNoPage({
                 if (tu && den) onKy({ tu, den });
               }}
             >
-              {!kyList.some((k) => k.tu_ngay === ky.tu && k.den_ngay === ky.den) && (
+              {!kyList.some(
+                (k) => k.tu_ngay === ky.tu && k.den_ngay === ky.den,
+              ) && (
                 <option value={`${ky.tu}_${ky.den}`}>
                   {nhanKy(ky) || `Kỳ ${fmtDate(ky.tu)}–${fmtDate(ky.den)}`}
                 </option>
               )}
               {kyList.map((k) => (
-                <option key={`${k.tu_ngay}_${k.den_ngay}`} value={`${k.tu_ngay}_${k.den_ngay}`}>
+                <option
+                  key={`${k.tu_ngay}_${k.den_ngay}`}
+                  value={`${k.tu_ngay}_${k.den_ngay}`}
+                >
                   {k.ten} {k.da_khoa ? "🔒" : k.khoa_mot_phan ? "◑" : ""}
                 </option>
               ))}
             </select>
           </div>
-
 
           <div className="bccn__status-pill">
             {kyHienTaiDaKhoa ? (
@@ -435,7 +492,9 @@ export function BaoCaoCongNoPage({
                 }
               >
                 <Icon name="lock" size={13} /> Đã chốt sổ
-                {chanMoKy && <span className="bccn__khoa-cung"> · đã niêm</span>}
+                {chanMoKy && (
+                  <span className="bccn__khoa-cung"> · đã niêm</span>
+                )}
               </span>
             ) : kyKhoaMotPhan ? (
               <span
@@ -445,7 +504,10 @@ export function BaoCaoCongNoPage({
                 <Icon name="lock" size={13} /> Chốt một phần
               </span>
             ) : (
-              <span className="badge-sem badge-sem--moss" title="Kỳ kế toán đang mở, chưa chốt sổ">
+              <span
+                className="badge-sem badge-sem--moss"
+                title="Kỳ kế toán đang mở, chưa chốt sổ"
+              >
                 <Icon name="lockOpen" size={13} /> Chưa chốt
               </span>
             )}
@@ -481,7 +543,7 @@ export function BaoCaoCongNoPage({
 
       {error && <div className="alert alert--error">{error}</div>}
 
-    {/* BẢNG SỔ TỔNG HỢP MẪU EXCEL MISA */}
+      {/* BẢNG SỔ TỔNG HỢP MẪU EXCEL MISA */}
       <section className="bccn__wrap">
         <table className="bccn__table">
           <colgroup>
@@ -492,12 +554,22 @@ export function BaoCaoCongNoPage({
           </colgroup>
           <thead>
             <tr className="bccn__hang-cum">
-              <th rowSpan={2} className="bccn__th-ma">{data?.nhan_ma ?? "Mã đối tượng"}</th>
-              <th rowSpan={2}>{data?.nhan_ten ?? "Tên đối tượng"}</th>
+              <th rowSpan={2} className="bccn__th-ma">
+                {data?.nhan_ma ?? "Mã đối tượng"}
+              </th>
+              <th rowSpan={2} className="bccn__th-ten">
+                {data?.nhan_ten ?? "Tên đối tượng"}
+              </th>
               <th rowSpan={2}>TK công nợ</th>
-              <th colSpan={2} className="bccn__cum">Số dư đầu kỳ</th>
-              <th colSpan={2} className="bccn__cum">Số phát sinh</th>
-              <th colSpan={2} className="bccn__cum bccn__cum--cuoi">Số dư cuối kỳ</th>
+              <th colSpan={2} className="bccn__cum">
+                Số dư đầu kỳ
+              </th>
+              <th colSpan={2} className="bccn__cum">
+                Số phát sinh
+              </th>
+              <th colSpan={2} className="bccn__cum bccn__cum--cuoi">
+                Số dư cuối kỳ
+              </th>
             </tr>
             <tr className="bccn__hang-noco">
               <th>Nợ</th>
@@ -516,7 +588,9 @@ export function BaoCaoCongNoPage({
                     <td key={j}>
                       <div
                         className="purchase__skeleton-bar"
-                        style={{ width: j === 1 ? "180px" : j === 0 ? "80px" : "70px" }}
+                        style={{
+                          width: j === 1 ? "180px" : j === 0 ? "80px" : "70px",
+                        }}
                       />
                     </td>
                   ))}
@@ -525,7 +599,23 @@ export function BaoCaoCongNoPage({
             {!loading && dongSo.length === 0 && (
               <tr>
                 <td colSpan={9} className="bccn__trong">
-                  {q.trim() ? "Không có đối tượng nào khớp từ khoá." : "Kỳ này không có phát sinh nào."}
+                  <div className="bccn__empty-box">
+                    <Icon
+                      name={q.trim() ? "search" : "fileText"}
+                      size={32}
+                      className="bccn__empty-icon"
+                    />
+                    <p className="bccn__empty-text">
+                      {q.trim()
+                        ? `Không tìm thấy đối tượng nào khớp với "${q.trim()}".`
+                        : "Kỳ này không có phát sinh nào."}
+                    </p>
+                    {q.trim() ? (
+                      <Button variant="secondary" onClick={() => setQ("")}>
+                        Xóa tìm kiếm
+                      </Button>
+                    ) : null}
+                  </div>
                 </td>
               </tr>
             )}
@@ -539,7 +629,9 @@ export function BaoCaoCongNoPage({
                   className={[
                     d.doi_tuong_id === null ? "bccn__row--khac" : "",
                     "bccn__row--mo",
-                  ].filter(Boolean).join(" ")}
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   role="button"
                   tabIndex={0}
                   aria-label={`Xem sổ chi tiết công nợ của ${d.ten}`}
@@ -551,7 +643,9 @@ export function BaoCaoCongNoPage({
                     }
                   }}
                 >
-                  <td className="bccn__ma">{d.ma || <span className="bccn__khong">—</span>}</td>
+                  <td className="bccn__ma">
+                    {d.ma || <span className="bccn__khong">—</span>}
+                  </td>
                   <td className="bccn__ten">
                     <span className="bccn__row-mo-nhan">
                       {d.ten}
@@ -560,16 +654,32 @@ export function BaoCaoCongNoPage({
                       </span>
                     </span>
                     {d.doi_tuong_id === null && (
-                      <span className="bccn__nhan-khac" title="Ngoài danh mục">ngoài danh mục</span>
+                      <span className="bccn__nhan-khac" title="Ngoài danh mục">
+                        ngoài danh mục
+                      </span>
                     )}
                   </td>
-                  <td className="bccn__tk-cell">{d.tk || data?.tk || "—"}</td>
-                  <td><O v={d.dau_no} /></td>
-                  <td className="bccn__het-cum"><O v={d.dau_co} /></td>
-                  <td><O v={d.ps_no} /></td>
-                  <td className="bccn__het-cum"><O v={d.ps_co} /></td>
-                  <td><O v={d.cuoi_no} manh /></td>
-                  <td><O v={d.cuoi_co} manh /></td>
+                  <td className="bccn__tk-cell">
+                    {/* {d.tk && d.tk !== "131" && d.tk !== "331" ? d.tk : ""} */}
+                  </td>
+                  <td>
+                    <O v={d.dau_no} />
+                  </td>
+                  <td className="bccn__het-cum">
+                    <O v={d.dau_co} />
+                  </td>
+                  <td>
+                    <O v={d.ps_no} />
+                  </td>
+                  <td className="bccn__het-cum">
+                    <O v={d.ps_co} />
+                  </td>
+                  <td>
+                    <O v={d.cuoi_no} manh />
+                  </td>
+                  <td>
+                    <O v={d.cuoi_co} manh />
+                  </td>
                 </tr>
               ))}
           </tbody>
@@ -579,12 +689,24 @@ export function BaoCaoCongNoPage({
                 <td colSpan={3}>
                   Số dòng = <b>{tongSo.so_dong}</b>
                 </td>
-                <td><O v={tongSo.dau_no} manh /></td>
-                <td className="bccn__het-cum"><O v={tongSo.dau_co} manh /></td>
-                <td><O v={tongSo.ps_no} manh /></td>
-                <td className="bccn__het-cum"><O v={tongSo.ps_co} manh /></td>
-                <td><O v={tongSo.cuoi_no} manh /></td>
-                <td><O v={tongSo.cuoi_co} manh /></td>
+                <td>
+                  <O v={tongSo.dau_no} manh />
+                </td>
+                <td className="bccn__het-cum">
+                  <O v={tongSo.dau_co} manh />
+                </td>
+                <td>
+                  <O v={tongSo.ps_no} manh />
+                </td>
+                <td className="bccn__het-cum">
+                  <O v={tongSo.ps_co} manh />
+                </td>
+                <td>
+                  <O v={tongSo.cuoi_no} manh />
+                </td>
+                <td>
+                  <O v={tongSo.cuoi_co} manh />
+                </td>
               </tr>
             </tfoot>
           )}
@@ -597,7 +719,11 @@ export function BaoCaoCongNoPage({
       {/* Dialog Khóa / Mở kỳ kế toán */}
       <ConfirmDialog
         open={khoaOpen}
-        title={khoaHanhDong === "khoa" ? "Khóa kỳ kế toán công nợ" : "Mở lại kỳ kế toán công nợ"}
+        title={
+          khoaHanhDong === "khoa"
+            ? "Khóa kỳ kế toán công nợ"
+            : "Mở lại kỳ kế toán công nợ"
+        }
         confirmLabel={khoaHanhDong === "khoa" ? "Khóa sổ" : "Mở sổ"}
         cancelLabel="Hủy"
         busy={khoaBusy}
@@ -620,11 +746,16 @@ export function BaoCaoCongNoPage({
                   key={id}
                   type="button"
                   className={`kho-khoa__seg-btn${
-                    khoaHanhDong === id ? (id === "khoa" ? " is-khoa" : " is-mo") : ""
+                    khoaHanhDong === id
+                      ? id === "khoa"
+                        ? " is-khoa"
+                        : " is-mo"
+                      : ""
                   }`}
                   onClick={() => setKhoaHanhDong(id)}
                 >
-                  <Icon name={id === "mo" ? "lockOpen" : "lock"} size={14} /> {label}
+                  <Icon name={id === "mo" ? "lockOpen" : "lock"} size={14} />{" "}
+                  {label}
                 </button>
               ))}
             </div>
@@ -635,7 +766,9 @@ export function BaoCaoCongNoPage({
               <label className="kho-khoa__label" htmlFor="bccn-khoa-tu">
                 Từ ngày{" "}
                 <em className="kho-khoa__auto">
-                  {khoaHanhDong === "khoa" ? "nối tiếp kỳ trước" : "đúng kỳ đang chọn"}
+                  {khoaHanhDong === "khoa"
+                    ? "nối tiếp kỳ trước"
+                    : "đúng kỳ đang chọn"}
                 </em>
               </label>
               {/* Ô ngày KHOÁ ở CẢ HAI hành động (chủ chốt 04/09/2026: *"mở lại kỳ thì chọn kỳ đã
@@ -656,7 +789,9 @@ export function BaoCaoCongNoPage({
               />
             </div>
             <div className="kho-khoa__field">
-              <label className="kho-khoa__label" htmlFor="bccn-khoa-den">Đến ngày</label>
+              <label className="kho-khoa__label" htmlFor="bccn-khoa-den">
+                Đến ngày
+              </label>
               <input
                 id="bccn-khoa-den"
                 type="date"
@@ -677,7 +812,9 @@ export function BaoCaoCongNoPage({
 
           {khoaHanhDong === "khoa" && (
             <div className="kho-khoa__field">
-              <label className="kho-khoa__label" htmlFor="bccn-khoa-ten">Tên kỳ (tùy chọn)</label>
+              <label className="kho-khoa__label" htmlFor="bccn-khoa-ten">
+                Tên kỳ (tùy chọn)
+              </label>
               <input
                 id="bccn-khoa-ten"
                 className="input"
@@ -690,7 +827,10 @@ export function BaoCaoCongNoPage({
           )}
 
           <p className={`kho-khoa__note kho-khoa__note--${khoaHanhDong}`}>
-            <Icon name={khoaHanhDong === "mo" ? "lockOpen" : "lock"} size={14} />
+            <Icon
+              name={khoaHanhDong === "mo" ? "lockOpen" : "lock"}
+              size={14}
+            />
             <span>
               {khoaHanhDong === "khoa"
                 ? "Các hóa đơn và chứng từ thanh toán phát sinh trong khoảng này sẽ thuộc kỳ đã chốt — hệ thống sẽ lưu snapshot số dư để đối chiếu MISA và chặn chỉnh sửa dữ liệu đã chốt."
