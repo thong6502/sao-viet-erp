@@ -1518,12 +1518,15 @@ def test_so_do_chung_mang_bang_boc_tach_gio_va_goi_y_vat_tu(
             "phat_sinh_phut", "chay_phut", "tong_phut", "canh_bao"} <= set(dg)
     assert dg["tong_phut"] == pytest.approx(chung["tong_phut"])
 
-    goi_y = {g["vat_tu_id"]: g for g in chung["vat_tu_goi_y"]}
+    # Khoá theo CẶP: gợi ý nay gồm cả danh mục Giấy (08/09/2026), mà Giấy #7 với Vật tư #7 là hai
+    # món khác nhau — khoá bằng id trần thì một loại giấy trùng id đè mất dòng mực đang kiểm.
+    goi_y = {(g["hang_loai"], g["vat_tu_id"]): g for g in chung["vat_tu_goi_y"]}
     muc = db.query(VatTuInAn).filter(VatTuInAn.ma == "VT-MUC-GY").one()
-    assert muc.id in goi_y, "vật tư đang dùng phải có mặt thì drawer mới bày được nút Dùng số này"
+    k_muc = ("vat_tu", muc.id)
+    assert k_muc in goi_y, "vật tư đang dùng phải có mặt thì drawer mới bày được nút Dùng số này"
     # Số của LƯỢT CHUNG (tờ ghép), không phải số của một lệnh thành viên nào.
-    assert goi_y[muc.id]["so_luong"] == pytest.approx(chung["so_luong_vao"] / 1000, rel=1e-6)
-    assert goi_y[muc.id]["dien_giai"], "phải kèm câu công thức = thay số = kết quả"
+    assert goi_y[k_muc]["so_luong"] == pytest.approx(chung["so_luong_vao"] / 1000, rel=1e-6)
+    assert goi_y[k_muc]["dien_giai"], "phải kèm câu công thức = thay số = kết quả"
 
 
 def test_vat_tu_chung_mac_dinh_thu_cong(db, orders, lsx_svc, bg_svc, admin, customer):

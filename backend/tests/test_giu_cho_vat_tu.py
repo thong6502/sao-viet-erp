@@ -110,7 +110,16 @@ def _may(db) -> MayThietBi:
     return m
 
 
-def _lenh(db, customer, *, ma, giay_id, so_to_nguyen, han=MAI) -> Lsx:
+def _lenh(db, customer, *, ma, giay_id, so_to_nguyen, han=MAI, giay_o_buoc=True,
+          dvt_giay=None) -> Lsx:
+    """Lệnh + bước In, có sẵn DÒNG GIẤY trên bước.
+
+    Từ 08/09/2026 giấy vào bảng cân đối qua `lsx_cong_doan_vat_tu` (`hang_loai='giay'`), không còn
+    suy từ `quy_cach_json.giay_id` nữa. Số kg trên dòng đúng bằng kết quả công thức lượng của giấy
+    mà `LsxService` ghi lúc lưu công đoạn: 0,08385 kg/tờ.
+    """
+    from app.models.lsx import LsxCongDoanVatTu
+
     o = Order(order_no=f"DH-{ma}", customer_id=customer.id)
     db.add(o)
     db.flush()
@@ -122,9 +131,20 @@ def _lenh(db, customer, *, ma, giay_id, so_to_nguyen, han=MAI) -> Lsx:
             quy_cach_json={"giay_id": giay_id}, trang_thai=TT_SAN_SANG)
     db.add(l)
     db.flush()
-    db.add(LsxCongDoan(lsx_id=l.id, thu_tu=1, ten="In offset", loai_buoc="may", may_id=_may(db).id,
-                       don_vi_vao="to_nguyen", don_vi_ra="to",
-                       so_luong_vao=so_to_nguyen, so_luong_ra=so_to_nguyen))
+    b = LsxCongDoan(lsx_id=l.id, thu_tu=1, ten="In offset", loai_buoc="may", may_id=_may(db).id,
+                    don_vi_vao="to_nguyen", don_vi_ra="to",
+                    so_luong_vao=so_to_nguyen, so_luong_ra=so_to_nguyen)
+    db.add(b)
+    db.flush()
+    if giay_o_buoc:
+        g = db.get(GiayNguyen, giay_id)
+        db.add(LsxCongDoanVatTu(
+            lsx_cong_doan_id=b.id, hang_loai="giay", vat_tu_id=giay_id,
+            vat_tu_ma_snapshot=g.ma, vat_tu_ten_snapshot=g.ten,
+            don_vi_snapshot=dvt_giay or g.don_vi_gia or "kg",
+            so_luong=(so_to_nguyen if dvt_giay else round(so_to_nguyen * 0.08385, 3)),
+            thu_tu=0, tu_dong=False,
+        ))
     db.commit()
     return l
 
@@ -371,7 +391,8 @@ def test_dong_khong_quy_doi_duoc_thi_KHONG_BAO_GIO_du(db, svc, customer):
     db.add(g)
     db.commit()
     _ton(db, _giay_hang(g), 1_000)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    # Dòng của bước ghi theo TỜ mà giấy không khai công thức lượng ⇒ không có đường nào ra kg.
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200, dvt_giay="to")
 
     tt = svc.bat(lsx_id=a.id)
     assert tt["khong_ro"] is True
@@ -385,8 +406,9 @@ def test_bai_ghep_la_CHU_THE_giu_cho(db, svc, customer):
     """Lệnh đã ghép không giữ riêng — bài đại diện. Cùng luật chủ thể của bảng nhu cầu."""
     g = _giay(db)
     _ton(db, _giay_hang(g), 100)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
-    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=200)
+    # Thành viên KHÔNG khai giấy ở bước riêng: tờ in của lượt chạy chung thuộc về BÀI.
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200, giay_o_buoc=False)
+    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=200, giay_o_buoc=False)
     bg = BaiGhep(ma="GB-001", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
     db.add(bg)
     db.flush()
@@ -481,8 +503,9 @@ def test_bai_dang_giu_cho_thi_KHONG_rut_thanh_vien_hay_pha_bai(db, svc, customer
 
     g = _giay(db)
     _ton(db, _giay_hang(g), 100)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
-    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=200)
+    # Thành viên KHÔNG khai giấy ở bước riêng: tờ in của lượt chạy chung thuộc về BÀI.
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200, giay_o_buoc=False)
+    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=200, giay_o_buoc=False)
     bg = BaiGhep(ma="GB-001", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
     db.add(bg)
     db.flush()
@@ -1372,7 +1395,9 @@ def test_gom_theo_hang_va_chu_the_quy_ve_bai_ghep(db, kh, customer):
 
     g = _giay(db)
     hang = _giay_hang(g)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+    # `giay_o_buoc=False`: đã ghép thì giấy thuộc BÀI, lệnh thành viên không khai giấy ở bước
+    # riêng — khai thì nó có nhu cầu riêng thật, và ca đang kiểm không còn là ca này nữa.
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200, giay_o_buoc=False)
     # `giay_id`/`kho_in_dai`/`kho_in_rong` BẮT BUỘC để bài thật sự sinh dòng nhu cầu giấy của
     # RIÊNG NÓ (`_gom_nhu_cau`: thiếu `giay_id` thì bài rơi vào `bo_qua`, không có dòng nào cả) —
     # thiếu thì cả hai bên `(a.id, None)` lẫn `(None, bg.id)` đều rỗng, hoá thành ca "mơ hồ" oan,

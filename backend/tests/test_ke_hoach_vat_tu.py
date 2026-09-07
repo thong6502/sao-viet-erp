@@ -130,9 +130,24 @@ def _may(db) -> MayThietBi:
 
 
 def _lenh(db, customer, *, ma, giay_id, so_to_nguyen, han=None, nguon_giay=None,
-          buoc=True) -> Lsx:
+          buoc=True, giay_o_buoc=True, kg_giay=None, dvt_giay=None, qc_them=None) -> Lsx:
+    """Lệnh test. `giay_o_buoc=True` gắn dòng GIẤY lên bước — đường DUY NHẤT từ 08/09/2026.
+
+    `quy_cach_json.giay_id` vẫn ghi vì quy cách còn nhiều thứ khác đọc nó (khổ, định lượng), nhưng
+    nó KHÔNG còn đẻ nhu cầu giấy. Muốn dựng ca "lệnh chưa khai giấy" thì `giay_o_buoc=False`.
+
+    `kg_giay=None` ⇒ tự tính bằng CHÍNH công thức lượng của giấy (`định lượng × dài × rộng × tờ`),
+    đúng con số mà `LsxService._luong_vat_tu` ghi vào bước lúc lưu công đoạn. Bảng cân đối lấy
+    thẳng số này, không tính lại — nên test nào cần một lượng khác thì truyền tay.
+
+    `dvt_giay` = đơn vị ghi trên dòng của bước; mặc định là ĐVT gốc của giấy (thường `kg`) nên
+    không phải quy đổi gì. Truyền `"to"` để dựng ca dòng ghi theo TỜ — đó là ca duy nhất còn chạm
+    cạnh quy đổi động `tờ → kg` ở tầng lệnh.
+    """
+    from app.models.lsx import LsxCongDoanVatTu
+
     o = _don(db, customer)
-    qc = {"giay_id": giay_id}
+    qc = {"giay_id": giay_id, **(qc_them or {})}
     if nguon_giay:
         qc["nguon_giay"] = nguon_giay
     l = Lsx(
@@ -143,11 +158,24 @@ def _lenh(db, customer, *, ma, giay_id, so_to_nguyen, han=None, nguon_giay=None,
     db.add(l)
     db.flush()
     if buoc:
-        db.add(LsxCongDoan(
+        b = LsxCongDoan(
             lsx_id=l.id, thu_tu=1, ten="In offset", loai_buoc="may", may_id=_may(db).id,
             don_vi_vao="to_nguyen", don_vi_ra="to",
             so_luong_vao=so_to_nguyen, so_luong_ra=so_to_nguyen,
-        ))
+        )
+        db.add(b)
+        db.flush()
+        if giay_o_buoc:
+            g = db.get(GiayNguyen, giay_id)
+            kg = kg_giay if kg_giay is not None else round(
+                (float(g.gsm or 0) / 1000) * (float(g.kho_dai or 0) / 1000)
+                * (float(g.kho_rong or 0) / 1000) * so_to_nguyen, 3)
+            db.add(LsxCongDoanVatTu(
+                lsx_cong_doan_id=b.id, hang_loai="giay", vat_tu_id=giay_id,
+                vat_tu_ma_snapshot=g.ma, vat_tu_ten_snapshot=g.ten,
+                don_vi_snapshot=dvt_giay or g.don_vi_gia or "kg",
+                so_luong=kg, thu_tu=0, tu_dong=False,
+            ))
     db.commit()
     return l
 
@@ -295,10 +323,16 @@ def test_thieu_cua_tung_dong_khong_cong_don(db, svc, customer):
 
 
 def test_bai_ghep_khong_dem_doi_giay(db, svc, customer):
-    """Hai lệnh in chung một tờ ⇒ MỘT dòng giấy mang mã bài, KHÔNG có dòng nào mang mã lệnh."""
+    """Hai lệnh in chung một tờ ⇒ MỘT dòng giấy mang mã bài, KHÔNG có dòng nào mang mã lệnh.
+
+    Thành viên KHÔNG khai giấy ở bước của mình (`giay_o_buoc=False`): tờ in của một lượt chạy
+    chung thuộc về BÀI, đó chính là luật chống đếm đôi đang kiểm.
+    """
     g = _giay(db)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
-    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI,
+              giay_o_buoc=False)
+    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=1_000, han=MAI,
+              giay_o_buoc=False)
     bg = BaiGhep(ma="GB-001", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
     db.add(bg)
     db.flush()
@@ -316,13 +350,14 @@ def test_bai_ghep_khong_dem_doi_giay(db, svc, customer):
 
 
 def test_thieu_duong_quy_doi_thi_bao_chu_khong_doan(db, svc, customer):
-    """Giấy đếm theo kg nhưng CHƯA khai khổ ⇒ cạnh động `tờ → kg` tắt.
+    """Dòng ghi theo TỜ, giấy bán theo kg, mà CHƯA khai khổ ⇒ cạnh động `tờ → kg` tắt.
 
     Phải ra cờ `khong_doi_chieu_duoc` chứ không được lặng lẽ lấy hệ số 1 — hệ số 1 ở đây nghĩa là
     "1 tờ nặng 1 kg", sai gấp hơn 10 lần mà bảng vẫn xanh.
     """
     g = _giay(db, ma="GY-KHONG-KHO", dai=0, rong=0)
-    _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI,
+          kg_giay=1_000, dvt_giay="to")
 
     dong = _nhom(svc.can_doi(), g)["dong"][0]
     assert "khong_doi_chieu_duoc" in dong["canh_bao"]
@@ -365,6 +400,38 @@ def test_lenh_chua_chon_giay_hien_o_bo_qua_chu_khong_im_lang(db, svc, customer):
     db.commit()
 
     assert [b["ma"] for b in svc.can_doi()["bo_qua"]] == ["LSX-NOGIAY"]
+
+
+def test_lenh_KHONG_con_tu_sinh_dong_giay_tu_quy_cach(db, svc, customer):
+    """Đường cũ đã cắt 08/09/2026: `quy_cach_json.giay_id` không còn đẻ nhu cầu giấy nào.
+
+    Lệnh vẫn ghi giấy trong quy cách (khổ/định lượng còn dùng chỗ khác) và vẫn có bước, chỉ thiếu
+    dòng giấy khai tay ⇒ bảng cân đối phải TRỐNG giấy, và lệnh rơi xuống mục "bỏ qua".
+    """
+    g = _giay(db)
+    _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI,
+          giay_o_buoc=False)
+
+    bang = svc.can_doi()
+    assert not [x for x in bang["items"] if x["hang_loai"] == "giay"]
+    assert [b["ma"] for b in bang["bo_qua"]] == ["LSX-A"]
+
+
+def test_giay_chon_tay_o_BUOC_len_bang_voi_ngay_can_cua_dung_buoc_do(db, svc, customer):
+    """Giấy neo vào CHÍNH bước mang nó — không còn "bước đầu tiên chạm tờ" nữa.
+
+    Và số lượng LẤY THẲNG từ dòng của bước: 1.000 tờ × 0,08385 kg = 83,85 kg. Bảng cân đối không
+    chạy lại công thức lượng của giấy (chạy lại là tính hai lần bằng ngữ cảnh nghèo hơn).
+    """
+    g = _giay(db)
+    l = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    buoc_id = l.cong_doans[0].id
+
+    nhom = _nhom(svc.can_doi(), g)
+    assert nhom["tong_can"] == pytest.approx(83.85, abs=0.01)
+    dong = nhom["dong"][0]
+    assert dong["buoc_id"] == buoc_id
+    assert dong["ten_viec"] == "In offset"
 
 
 # --- NGÀY CẦN -----------------------------------------------------------------
@@ -477,7 +544,8 @@ def test_khong_doi_chieu_duoc_KHONG_deo_nhan_da_cap_du(db, svc, customer):
     lọc "chỉ mặt hàng đang thiếu": giấu đúng cái cần thấy.
     """
     g = _giay(db, ma="GY-KHONG-KHO2", dai=0, rong=0)
-    _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI,
+          kg_giay=1_000, dvt_giay="to")
 
     nhom = _nhom(svc.can_doi(), g)
     assert nhom["dong"][0]["trang_thai"] == "khong_ro"
@@ -494,8 +562,10 @@ def test_da_cap_gan_vao_lenh_thanh_vien_van_tru_dung_vao_bai_ghep(db, svc, custo
     cấp đủ giấy — rồi ai đó đi mua thêm.
     """
     g = _giay(db)
-    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
-    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI,
+              giay_o_buoc=False)
+    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=1_000, han=MAI,
+              giay_o_buoc=False)
     bg = BaiGhep(ma="GB-002", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
     db.add(bg)
     db.flush()
@@ -551,25 +621,30 @@ def test_lenh_chua_gan_may_thi_bao_khong_suy_duoc_thoi_gian_dan(db, svc, custome
     assert dong["ly_do_canh_bao"]
 
 
-def test_giay_khong_co_kho_o_danh_muc_van_quy_ra_kg_bang_kho_CUA_LENH(db, svc, customer):
-    """Danh mục Giấy KHÔNG có ô khổ (chốt 21/07) — khổ lấy từ chính lệnh.
+def test_giay_khong_co_kho_o_danh_muc_van_quy_ra_kg_bang_kho_CUA_BAI(db, svc, customer):
+    """Danh mục Giấy KHÔNG có ô khổ (chốt 21/07) — khổ lấy từ chính bài/lệnh.
 
     Không có luật này thì mọi giấy do người dùng tự khai đều rơi vào "chưa đánh giá được", vì chỉ
-    giấy seed demo mới tình cờ còn khổ trong dữ liệu. Mà lệnh thì LUÔN mang khổ tờ in + định lượng,
-    và đó mới là khổ giấy thực sự bị tiêu thụ.
+    giấy seed demo mới tình cờ còn khổ trong dữ liệu. Mà bài/lệnh thì LUÔN mang khổ tờ in + định
+    lượng, và đó mới là khổ giấy thực sự bị tiêu thụ.
 
-    Số thật: 1.000 tờ giấy 150 g/m² khổ 790×1090 = 0,79 × 1,09 × 150 g = 129,165 g/tờ ⇒ 129,165 kg.
+    Từ 08/09/2026 luật này chỉ còn chạy ở dòng BÀI GHÉP — dòng của bước đã mang sẵn kg. Công thức
+    dựng với hằng 1.000 tờ để số ra kiểm được bằng mắt mà không phụ thuộc engine bình bài:
+    0,79 × 1,09 × 150 g × 1.000 = 129,165 kg.
     """
     g = _giay(db, ma="GY-KHONG-KHO", dai=0, rong=0, gsm=0)   # danh mục trống khổ + định lượng
-    o = _don(db, customer)
-    l = Lsx(
-        ma="LSX-QC", ten="LSX-QC", order_id=o.id, order_line_id=o._line.id,
-        so_luong_dat=1_000, so_to_nguyen=1_000, so_con=1,
-        han_hoan_thanh_sx=HOM_NAY + timedelta(days=10),
-        quy_cach_json={"giay_id": g.id, "kho_in_dai": 1090, "kho_in_rong": 790, "gsm": 150},
-        trang_thai=TT_SAN_SANG,
-    )
-    db.add(l)
+    g.cong_thuc_luong = "dinh_luong * dai_nguyen * rong_nguyen * 1000"
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI,
+              giay_o_buoc=False, qc_them={"gsm": 150})
+    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=1_000, han=MAI,
+              giay_o_buoc=False, qc_them={"gsm": 150})
+    bg = BaiGhep(ma="GB-QC", giay_id=g.id, kho_in_dai=1090, kho_in_rong=790)
+    db.add(bg)
+    db.flush()
+    db.add_all([
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id, so_con_tren_to=1),
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=b.id, so_con_tren_to=1),
+    ])
     db.commit()
 
     dong = _nhom(svc.can_doi(), g)["dong"][0]
@@ -578,37 +653,57 @@ def test_giay_khong_co_kho_o_danh_muc_van_quy_ra_kg_bang_kho_CUA_LENH(db, svc, c
     assert "kg" in dong["nhu_cau_hien_thi"]
 
 
-def test_giay_co_CONG_THUC_LUONG_thi_ra_so_thang_khong_qua_quy_doi(db, svc, customer):
-    """Giấy khai ĐVT `kg` THẬT + công thức lượng riêng ⇒ kế hoạch ra kg, khỏi cạnh `tờ → kg`.
+def test_dong_giay_cua_BUOC_KHONG_bi_chay_lai_cong_thuc_luong_cua_mat_hang(db, svc, customer):
+    """Số trên dòng của bước ĐÃ LÀ kết quả công thức — bảng cân đối không được tính lần hai.
 
-    Chốt 13/08/2026: công thức KHÔNG có đích. Cạnh quy đổi động `tờ → kg` là chỗ duy nhất còn giữ
-    kiểu "công thức mà lại có đích"; khai công thức ngay trên mặt hàng thì cạnh đó hết lý do sống.
+    `LsxService._luong_vat_tu` chạy công thức lúc lưu công đoạn, bằng ngữ cảnh ĐẦY ĐỦ có cả
+    `sl_vao`/`sl_ra` của bước; ngữ cảnh ở đây nghèo hơn hẳn. Chạy lại là VỨT số thật của bước rồi
+    thay bằng một con số khác — im lặng, và sai theo hướng mua thừa hoặc mua thiếu.
 
-    Cùng số với test trên: 1.000 tờ 150 g/m² khổ 790×1090 ⇒ 129,165 kg.
+    Dựng để phân biệt được: giấy khai công thức ra 83,85 kg cho 1.000 tờ, nhưng người lập kế hoạch
+    đã sửa tay xuống 50 kg (ghép được với đầu thừa của lệnh khác). Bảng phải hiện ĐÚNG 50.
     """
-    g = _giay(db, ma="GY-CTL", dai=0, rong=0, gsm=0)
-    g.cong_thuc_luong = "dinh_luong * dai_in * rong_in * to_nguyen"
-    o = _don(db, customer)
-    l = Lsx(
-        ma="LSX-CTL", ten="LSX-CTL", order_id=o.id, order_line_id=o._line.id,
-        so_luong_dat=1_000, so_to_nguyen=1_000, so_con=1,
-        han_hoan_thanh_sx=HOM_NAY + timedelta(days=10),
-        quy_cach_json={"giay_id": g.id, "kho_in_dai": 1090, "kho_in_rong": 790, "gsm": 150},
-        trang_thai=TT_SAN_SANG,
-    )
-    db.add(l)
-    db.commit()
+    g = _giay(db, ma="GY-CTL")
+    _lenh(db, customer, ma="LSX-CTL", giay_id=g.id, so_to_nguyen=1_000,
+          han=HOM_NAY + timedelta(days=10), kg_giay=50)
 
     dong = _nhom(svc.can_doi(), g)["dong"][0]
     assert "khong_doi_chieu_duoc" not in dong["canh_bao"], dong.get("ly_do_canh_bao")
-    assert dong["nhu_cau"] == pytest.approx(129.165, abs=0.01)
+    assert dong["nhu_cau"] == pytest.approx(50), "phải lấy thẳng số của bước, không tính lại"
+
+
+def test_dong_giay_cua_BAI_GHEP_VAN_chay_cong_thuc_luong_vi_no_mang_so_TO(db, svc, customer):
+    """Mặt kia của test trên: dòng BÀI GHÉP mang SỐ TỜ nên vẫn phải chạy công thức mới ra kg.
+
+    Bài ghép giữ nguyên `bai_ghep.giay_id` — giấy in của một lượt chạy chung thuộc về BÀI, không
+    về bước của lệnh nào. Công thức ở đây trả HẰNG SỐ để tách bạch: nếu cờ `ct_mat_hang` tắt thì
+    số ra là "số tờ quy đổi", cách 1.234 rất xa.
+    """
+    g = _giay(db, ma="GY-BAI")
+    g.cong_thuc_luong = "1234"
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI,
+              giay_o_buoc=False)
+    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=1_000, han=MAI,
+              giay_o_buoc=False)
+    bg = BaiGhep(ma="GB-CTL", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
+    db.add(bg)
+    db.flush()
+    db.add_all([
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id, so_con_tren_to=1),
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=b.id, so_con_tren_to=1),
+    ])
+    db.commit()
+
+    dong = _nhom(svc.can_doi(), g)["dong"][0]
+    assert dong["ma"] == "GB-CTL"
+    assert dong["nhu_cau"] == pytest.approx(1_234)
 
 
 def test_giay_thieu_kho_o_CA_HAI_noi_thi_van_bao_khong_doi_chieu_duoc(db, svc, customer):
     """Lệnh cũ chưa có khổ trong quy cách + danh mục cũng trống ⇒ KHÔNG đoán, phải nói ra."""
     g = _giay(db, ma="GY-TRONG", dai=0, rong=0, gsm=0)
     _lenh(db, customer, ma="LSX-TRONG", giay_id=g.id, so_to_nguyen=1_000,
-          han=HOM_NAY + timedelta(days=10))
+          han=HOM_NAY + timedelta(days=10), kg_giay=1_000, dvt_giay="to")
 
     dong = _nhom(svc.can_doi(), g)["dong"][0]
     assert "khong_doi_chieu_duoc" in dong["canh_bao"]

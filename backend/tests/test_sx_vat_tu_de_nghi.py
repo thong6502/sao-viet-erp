@@ -638,8 +638,13 @@ def test_tao_hong_giua_chung_thi_khong_day_tin_nao_cho_kho(
 def test_giu_nguyen_don_vi_ke_hoach_thi_quy_goc_theo_ti_le_cua_lenh(
     db, orders, lsx_svc, admin, customer,
 ):
-    """Giấy khai bằng "tờ": cầu quy đổi tĩnh KHÔNG có cạnh tờ→tấn, nhưng bản đối chiếu vẫn phải
-    có `sl_yeu_cau_goc` đúng — lấy theo tỉ lệ kế hoạch của chính lệnh này."""
+    """Tổ giữ NGUYÊN đơn vị kế hoạch ⇒ `sl_yeu_cau_goc` nội suy theo tỉ lệ, `dvt_goc` giữ nguyên.
+
+    Từ 08/09/2026 dòng giấy của bước mang sẵn ĐVT gốc của giấy nên `dvt == dvt_goc`, tỉ lệ bằng 1.
+    Ca `dvt` KHÁC `dvt_goc` (giấy đếm theo tờ, gốc là tấn, không có cạnh quy đổi tĩnh) nay chỉ còn
+    ở dòng BÀI GHÉP; nhánh nội suy được canh riêng ở
+    `test_ve_goc_dong_giu_nguyen_dvt_thi_noi_suy_theo_ti_le`.
+    """
     from app.services.san_xuat import vat_tu_de_nghi as V
     from tests.test_san_xuat_thuc_thi import _mot_cv  # noqa
 
@@ -647,7 +652,7 @@ def test_giu_nguyen_don_vi_ke_hoach_thi_quy_goc_theo_ti_le_cua_lenh(
     to.head_user_id = admin.id
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
-    k0 = kh[0]
+    k0 = next(k for k in kh if k["hang_loai"] == "giay")
     lines = [{"hang_loai": k0["hang_loai"], "hang_id": k0["hang_id"], "dvt": k0["dvt"],
               "sl_yeu_cau": k0["sl"] / 2, "ly_do_chenh_lech": "Chia hai lần cấp"}]
     ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)
@@ -655,11 +660,29 @@ def test_giu_nguyen_don_vi_ke_hoach_thi_quy_goc_theo_ti_le_cua_lenh(
     dn = db.get(SanXuatVatTuDeNghi, ra["de_nghi_id"])
     d0 = next(d for d in dn.dongs
               if (d.hang_loai, d.hang_id) == (k0["hang_loai"], k0["hang_id"]))
-    # `sl_yeu_cau_goc` là cột Numeric(18, 3) — đọc lại sau `db.commit()` (expire_on_commit) nên
-    # so KHÔNG được đòi khớp tuyệt đối, chỉ khớp trong nửa đơn vị làm tròn của chính cột đó
-    # (0.0005), không thì mọi test đụng cột Numeric đều đỏ vì lượng tử hoá của DB, không phải bug.
-    assert float(d0.sl_yeu_cau_goc) == pytest.approx(float(k0["sl_goc"]) / 2, abs=0.0005)
+    # `sl_yeu_cau_goc` là cột Numeric(18, 3) — đọc lại sau `db.commit()` (expire_on_commit) nên so
+    # KHÔNG được đòi khớp tuyệt đối, chỉ khớp trong MỘT bước lượng tử của chính cột đó (0.001).
+    # Giấy bán theo TẤN nên số ở đây rất nhỏ (vài chục kg = vài phần trăm tấn), rơi đúng vào nửa
+    # bước làm tròn — siết chặt hơn là test đỏ vì lượng tử hoá của DB, không phải vì bug.
+    assert float(d0.sl_yeu_cau_goc) == pytest.approx(float(k0["sl_goc"]) / 2, abs=0.001)
     assert d0.dvt_goc == k0["dvt_goc"]
+
+
+def test_ve_goc_dong_giu_nguyen_dvt_thi_noi_suy_theo_ti_le():
+    """Nhánh (1) của `_ve_goc_dong`: tổ giữ nguyên đơn vị kế hoạch ⇒ nội suy theo tỉ lệ mà engine
+    vừa tính cho đúng lệnh này, KHÔNG cần cạnh quy đổi tĩnh nào.
+
+    Canh thẳng ở tầng hàm vì từ 08/09/2026 dòng của BƯỚC luôn mang ĐVT gốc, ca `dvt` khác `dvt_goc`
+    chỉ còn tới từ dòng BÀI GHÉP — đường dài hơn hẳn để dựng, mà luật cần canh thì vẫn là luật này.
+    `kh_svc=None` an toàn: nhánh (1) trả về trước khi chạm tới cầu quy đổi.
+    """
+    from app.services.san_xuat.vat_tu_de_nghi import _ve_goc_dong
+
+    k_row = {"dvt": "to", "sl": 1_000.0, "dvt_goc": "tan", "sl_goc": 0.08385}
+    sl_goc, dvt_goc, theo_goc = _ve_goc_dong(None, ("giay", 1), k_row, "to", 500)
+
+    assert sl_goc == pytest.approx(0.041925)
+    assert (dvt_goc, theo_goc) == ("tan", True)
 
 
 def test_yeu_cau_kho_gui_bang_don_vi_thich_hop_khong_phai_to_cung_khong_phai_tan(
@@ -702,8 +725,8 @@ def test_yeu_cau_kho_gui_bang_don_vi_thich_hop_khong_phai_to_cung_khong_phai_tan
 
 
 def test_xin_luong_rat_nho_van_tao_duoc_yeu_cau_kho(db, orders, lsx_svc, admin, customer):
-    """Trước fix (Ruling 11 cũ, gửi kho bằng đơn vị GỐC "tấn"): 10 tờ giấy ("Ivory 350") ≈ 0.00301
-    tấn — Postgres ép `Numeric(14, 2)` về 0.00 và vỡ `CheckConstraint("sl_de_nghi > 0")` —
+    """Trước fix (Ruling 11 cũ, gửi kho bằng đơn vị GỐC "tấn"): một lượng giấy rất nhỏ (khoảng 3 kg
+    = 0.003 tấn) — Postgres ép `Numeric(14, 2)` về 0.00 và vỡ `CheckConstraint("sl_de_nghi > 0")` —
     `IntegrityError` thoát ra thành 500 (SQLite của test không ép scale nên không lộ). Sau fix,
     `_don_vi_gui_kho` lùi xuống "kg" (≈ 3 kg, thừa xa nửa bước lượng tử) nên vẫn ra số dương ghi
     được và thật sự đẻ được yêu cầu kho (khác lượng nhỏ hơn NỮA — dưới `_EPS` — bị `_lines_kho`
@@ -717,8 +740,10 @@ def test_xin_luong_rat_nho_van_tao_duoc_yeu_cau_kho(db, orders, lsx_svc, admin, 
     db.commit()
     kh = _kh_service(db).nhu_cau_cua_cong_viec(cv)
     k0 = next(k for k in kh if k["hang_loai"] == "giay")
+    # Dòng giấy của bước ghi bằng ĐVT GỐC của giấy (tấn) từ 08/09/2026, nên "một lượng rất nhỏ"
+    # phải viết theo thang đó: 0,003 tấn ≈ 3 kg.
     lines = [{"hang_loai": k0["hang_loai"], "hang_id": k0["hang_id"], "dvt": k0["dvt"],
-              "sl_yeu_cau": 10, "ly_do_chenh_lech": "Xin thử một lượng rất ít"}]
+              "sl_yeu_cau": 0.003, "ly_do_chenh_lech": "Xin thử một lượng rất ít"}]
 
     ra = V.tao(db, user=admin, cong_viec_id=cv.id, can_luc=_T0, lines=lines)  # không raise
 
