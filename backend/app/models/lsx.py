@@ -108,8 +108,11 @@ class Lsx(Base):
         Integer, ForeignKey("order_lines.id"), index=True, nullable=False
     )
     # Phiên bản báo giá đã chốt (truy vết thương mại) + "chi tiết tính giá" nguồn. CẢ HAI là soft-ref
-    # và chỉ để TRUY VẾT: `phieu_thanh_phan_id` KHÔNG đọc-sống để tính lại (id đổi mỗi lần lưu PTG vì
-    # phiếu ghi kiểu replace-all) — mọi số của lệnh nằm ở snapshot dưới đây.
+    # và chỉ để TRUY VẾT: `phieu_thanh_phan_id` KHÔNG đọc-sống để TÍNH LẠI — mọi số của lệnh nằm ở
+    # snapshot dưới đây; pin chỉ dùng kéo chi tiết kỹ thuật khi mở drawer ấn phẩm.
+    # Id thành phần ỔN ĐỊNH từ 07/09/2026 (router phiếu tính giá ghi ĐÈ TẠI CHỖ thay vì xoá-tạo-lại,
+    # migration `0279` đã nối lại các pin chết trước đó), nhưng hàng nguồn VẪN có thể biến mất khi
+    # người lập phiếu bỏ hẳn sản phẩm ⇒ mọi chỗ đọc pin phải chịu được None.
     quote_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     phieu_thanh_phan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

@@ -12412,3 +12412,99 @@ def _migrate_go_ghi_chu_hach_toan_tai_san(db) -> None:
 
 
 MIGRATIONS.append(("0278_go_ghi_chu_hach_toan_tai_san", _migrate_go_ghi_chu_hach_toan_tai_san))
+
+
+def _migrate_noi_lai_pin_thanh_phan(db) -> None:
+    """Nối lại pin `phieu_thanh_phan_id` đã CHẾT ở báo giá / đơn hàng / lệnh sản xuất (07/09/2026).
+
+    Tới hôm nay, mỗi lần lưu phiếu tính giá là router `phieu_tinh_gia` xoá sạch bảng
+    `phieu_thanh_phan` rồi chèn lại — id mới toanh, mà Postgres không tái dùng id cũ. Ba nơi ghim
+    MỀM id đó (`quote_items` · `order_lines` · `lsx`) vì thế trỏ vào hàng không còn tồn tại. Triệu
+    chứng đã thấy: drawer "Lệnh dự kiến" của Kế hoạch SX hiện "—" ở mọi ô kỹ thuật (giấy, khổ, số
+    con…), và `OrderService.confirm` chặn thẳng đơn với lời "trỏ tới sản phẩm tính giá đã bị xoá".
+
+    Router nay ghi ĐÈ TẠI CHỖ nên pin mới không chết nữa, nhưng dữ liệu đã hỏng phải vá tay:
+
+    - `quote_items`: dò lại trong ĐÚNG phiếu tính giá của báo giá đó (`quote_versions.quote_id` →
+      `quotes.phieu_tinh_gia_id`), khớp theo TÊN sản phẩm — `product_name` chính là `tp.ten` chép
+      sang lúc dựng bản báo giá. Chỉ ghi khi khớp DUY NHẤT một hàng.
+    - `order_lines`: cùng cách, qua `orders.quotation_id` → `quotes.phieu_tinh_gia_id`; `description`
+      của dòng đơn là bản sao `product_name`.
+    - `lsx`: KHÔNG đoán — chép thẳng pin của dòng đơn nguồn (`lsx.order_line_id`, FK thật), chạy
+      SAU hai bảng trên nên hưởng luôn kết quả vừa vá. Chép cả khi dòng đơn không có pin: NULL là
+      câu trả lời thật thà ("lệnh này không gắn ấn phẩm nào"), hơn là giữ một số đã chết khiến
+      `thieu_cua` tưởng có bài tính giá còn drawer thì đọc ra rỗng.
+
+    Chỉ đụng dòng có pin KHÔNG tra ra hàng nào; pin còn sống không sờ tới. Dòng dò không ra (phiếu
+    gốc đã xoá hẳn, hoặc tên sản phẩm đã sửa) để nguyên — thà mất số còn hơn gán bừa ấn phẩm khác.
+    Raw SQL đích danh cột + correlated subquery nối bảng bằng dấu phẩy (điều kiện dồn hết vào
+    WHERE, không dùng JOIN ... ON tham chiếu bảng ngoài) để chạy được cả Postgres lẫn SQLite; idempotent
+    (chạy lần hai không còn dòng nào lọt điều kiện "pin không tra ra hàng").
+    """
+    insp = inspect(db.get_bind())
+    bang = set(insp.get_table_names())
+    if "phieu_thanh_phan" not in bang:
+        return
+
+    # Soi cột TRƯỚC mọi UPDATE (khuôn 0178): `inspect()` mượn connection của pool — trên SQLite
+    # in-memory đó là ĐÚNG connection của Session, soi giữa chừng là nuốt luôn lệnh vừa ghi.
+    du_quote = (
+        {"quote_items", "quote_versions", "quotes"} <= bang
+        and "phieu_thanh_phan_id" in _existing_columns(insp, "quote_items")
+        and "phieu_tinh_gia_id" in _existing_columns(insp, "quotes")
+    )
+    du_order = (
+        {"order_lines", "orders", "quotes"} <= bang
+        and "phieu_thanh_phan_id" in _existing_columns(insp, "order_lines")
+        and "phieu_tinh_gia_id" in _existing_columns(insp, "quotes")
+    )
+    du_lsx = (
+        {"lsx", "order_lines"} <= bang
+        and "phieu_thanh_phan_id" in _existing_columns(insp, "lsx")
+        and "phieu_thanh_phan_id" in _existing_columns(insp, "order_lines")
+    )
+
+    dich = []
+    if du_quote:
+        dich.append((
+            "quote_items",
+            "FROM phieu_thanh_phan tp, quote_versions qv, quotes q "
+            "WHERE qv.id = quote_items.quote_version_id "
+            "  AND q.id = qv.quote_id "
+            "  AND tp.phieu_id = q.phieu_tinh_gia_id "
+            "  AND TRIM(COALESCE(tp.ten, '')) = TRIM(COALESCE(quote_items.product_name, '')) "
+            "  AND TRIM(COALESCE(tp.ten, '')) <> ''",
+        ))
+    if du_order:
+        dich.append((
+            "order_lines",
+            "FROM phieu_thanh_phan tp, orders o, quotes q "
+            "WHERE o.id = order_lines.order_id "
+            "  AND q.id = o.quotation_id "
+            "  AND tp.phieu_id = q.phieu_tinh_gia_id "
+            "  AND TRIM(COALESCE(tp.ten, '')) = TRIM(COALESCE(order_lines.description, '')) "
+            "  AND TRIM(COALESCE(tp.ten, '')) <> ''",
+        ))
+
+    for ten_bang, khop in dich:
+        db.execute(text(
+            f"UPDATE {ten_bang} SET phieu_thanh_phan_id = (SELECT MIN(tp.id) {khop}) "
+            f"WHERE phieu_thanh_phan_id IS NOT NULL "
+            f"  AND NOT EXISTS (SELECT 1 FROM phieu_thanh_phan t2"
+            f"                  WHERE t2.id = {ten_bang}.phieu_thanh_phan_id) "
+            f"  AND (SELECT COUNT(*) {khop}) = 1"
+        ))
+    db.commit()
+
+    if du_lsx:
+        db.execute(text(
+            "UPDATE lsx SET phieu_thanh_phan_id = ("
+            "  SELECT ol.phieu_thanh_phan_id FROM order_lines ol WHERE ol.id = lsx.order_line_id) "
+            "WHERE phieu_thanh_phan_id IS NOT NULL "
+            "  AND NOT EXISTS (SELECT 1 FROM phieu_thanh_phan t2"
+            "                  WHERE t2.id = lsx.phieu_thanh_phan_id)"
+        ))
+        db.commit()
+
+
+MIGRATIONS.append(("0279_noi_lai_pin_thanh_phan", _migrate_noi_lai_pin_thanh_phan))

@@ -4,10 +4,13 @@ Prefix `/api/phieu-tinh-gia`. RBAC MODULE = "tinh_gia_thanh". 1 phiếu = header
 (mỗi thành phần = 1 tờ giấy) → mỗi thành phần có nhiều dòng gia công sau in.
 
 SAVE (POST/PUT) = dựng lại cây con + `services.tinh_gia_service.compute_phieu_snapshot` tính lại
-giá vốn từng thành phần + Σ toàn phiếu + ảnh chụp. PUT = REPLACE-ALL con.
+giá vốn từng thành phần + Σ toàn phiếu + ảnh chụp. PUT ghi ĐÈ TẠI CHỖ từng thành phần (giữ
+`PhieuThanhPhan.id` cho pin ấn phẩm của báo giá/đơn/lệnh — xem `_ghi_thanh_phans`); riêng dòng
+gia công + vật tư bên trong mỗi thành phần vẫn dựng lại từ đầu.
 """
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 from typing import Annotated
 
@@ -83,29 +86,105 @@ def _next_ma(db: Session) -> str:
     return f"{prefix}{count + 1:04d}"
 
 
+def _con_cua_thanh_phan(tp: PhieuThanhPhan, rows_in: list[dict], vt_in: list[dict]) -> None:
+    """Dựng lại TOÀN BỘ dòng gia công + vật tư của một thành phần.
+
+    Con sâu vẫn REPLACE-ALL (delete-orphan lo xoá): không nơi nào ghim `phieu_thanh_pham.id` hay
+    `phieu_vat_tu.id`, nên id của chúng đổi cũng không gãy gì — khác hẳn `phieu_thanh_phan.id`."""
+    tp.thanh_phams.clear()
+    for j, row in enumerate(rows_in):
+        rd = dict(row)
+        rd.setdefault("thu_tu", j)
+        tp.thanh_phams.append(PhieuThanhPham(**rd))
+    tp.vat_tus.clear()
+    for k, vt in enumerate(vt_in):
+        vd = dict(vt)
+        vd.setdefault("thu_tu", k)
+        tp.vat_tus.append(PhieuVatTu(**vd))
+
+
 def _build_thanh_phan(tp_in: ThanhPhanIn, thu_tu: int) -> PhieuThanhPhan:
-    """Dựng ORM thành phần + con finishing từ payload (chỉ set field được gửi → giữ default model)."""
+    """Dựng ORM thành phần MỚI + con finishing từ payload (chỉ set field được gửi → giữ default model)."""
     data = tp_in.model_dump(exclude_unset=True)
     rows_in = data.pop("thanh_phams", None) or []
     vt_in = data.pop("vat_tus", None) or []
     data.setdefault("thu_tu", thu_tu)
     tp = PhieuThanhPhan(**data)
-    for j, row in enumerate(rows_in):
-        rd = dict(row)
-        rd.setdefault("thu_tu", j)
-        tp.thanh_phams.append(PhieuThanhPham(**rd))
-    for k, vt in enumerate(vt_in):
-        vd = dict(vt)
-        vd.setdefault("thu_tu", k)
-        tp.vat_tus.append(PhieuVatTu(**vd))
+    _con_cua_thanh_phan(tp, rows_in, vt_in)
     return tp
 
 
-def _replace_children(p: PhieuTinhGia, thanh_phans: list[ThanhPhanIn] | None) -> None:
-    """REPLACE-ALL: xoá sạch thành phần cũ, dựng lại từ payload (delete-orphan lo xoá con sâu)."""
-    p.thanh_phans.clear()
-    for i, tp_in in enumerate(thanh_phans or []):
-        p.thanh_phans.append(_build_thanh_phan(tp_in, i))
+# Cột DỮ LIỆU của thành phần (bỏ khoá + dấu thời gian) — danh sách để ghi đè tại chỗ.
+_COT_THANH_PHAN = tuple(
+    c.key for c in PhieuThanhPhan.__table__.columns
+    if c.key not in {"id", "phieu_id", "created_at", "updated_at"}
+)
+
+
+def _mac_dinh_cot(ten_cot: str):
+    """Default Python của cột. Dựng hàng MỚI thì SQLAlchemy tự đắp default lúc INSERT; ghi đè hàng
+    CŨ thì không ai đắp hộ, nên field payload bỏ trống phải tự trả về default — không thì nó giữ
+    nguyên số của lần lưu trước, khác hành vi xoá-tạo-lại trước đây."""
+    d = PhieuThanhPhan.__table__.columns[ten_cot].default
+    if d is None:
+        return None
+    return d.arg(None) if d.is_callable else d.arg
+
+
+def _ghi_de_thanh_phan(tp: PhieuThanhPhan, tp_in: ThanhPhanIn, thu_tu: int) -> None:
+    """Ghi payload lên thành phần CÓ SẴN, GIỮ NGUYÊN `id` (đây là chỗ cứu pin ấn phẩm)."""
+    data = tp_in.model_dump(exclude_unset=True)
+    rows_in = data.pop("thanh_phams", None) or []
+    vt_in = data.pop("vat_tus", None) or []
+    data.setdefault("thu_tu", thu_tu)
+    for cot in _COT_THANH_PHAN:
+        gia_tri = data.get(cot)
+        setattr(tp, cot, _mac_dinh_cot(cot) if gia_tri is None else gia_tri)
+    _con_cua_thanh_phan(tp, rows_in, vt_in)
+
+
+def _khoa_ten(ten: str | None) -> str:
+    return (ten or "").strip().lower()
+
+
+def _ghi_thanh_phans(p: PhieuTinhGia, thanh_phans: list[ThanhPhanIn] | None) -> None:
+    """Ghi lại danh sách thành phần, DÙNG LẠI hàng cũ để `PhieuThanhPhan.id` KHÔNG đổi.
+
+    Trước 07/09/2026 hàm này xoá sạch rồi chèn lại, nên mỗi lần bấm Lưu/Tính giá là id thành phần
+    mới toanh (Postgres không tái dùng id). Ba nơi ghim mềm id đó — `quote_items` / `order_lines` /
+    `lsx.phieu_thanh_phan_id` — hoá "pin chết": drawer Lệnh dự kiến hiện "—" ở mọi ô kỹ thuật, và
+    `OrderService.confirm` chặn thẳng đơn với lời "trỏ tới sản phẩm tính giá đã bị xoá".
+
+    Ghép cặp cũ↔mới: khớp theo TÊN trước (chỉ nhận khi tên đó có ĐÚNG một hàng cũ và một dòng
+    payload), phần còn lại ghép theo VỊ TRÍ. Nhờ vòng tên, xoá bớt một sản phẩm giữa chừng không
+    làm pin các sản phẩm khác trượt sang hàng bên cạnh. Hàng cũ không ai nhận thì xoá — pin của nó
+    chết như cũ, thà mất số còn hơn trỏ nhầm sang ấn phẩm khác."""
+    moi = list(thanh_phans or [])
+    con_lai = list(p.thanh_phans)
+    dem_moi = Counter(_khoa_ten(t.ten) for t in moi)
+    cu_theo_ten: dict[str, list[PhieuThanhPhan]] = {}
+    for tp in con_lai:
+        cu_theo_ten.setdefault(_khoa_ten(tp.ten), []).append(tp)
+
+    ghep: list[PhieuThanhPhan | None] = [None] * len(moi)
+    for i, tp_in in enumerate(moi):
+        ten = _khoa_ten(tp_in.ten)
+        cu = cu_theo_ten.get(ten) or []
+        if ten and dem_moi[ten] == 1 and len(cu) == 1 and cu[0] in con_lai:
+            ghep[i] = cu[0]
+            con_lai.remove(cu[0])
+    for i in range(len(moi)):
+        if ghep[i] is None and con_lai:
+            ghep[i] = con_lai.pop(0)
+
+    for thua in con_lai:
+        p.thanh_phans.remove(thua)
+    for i, tp_in in enumerate(moi):
+        cu_tp = ghep[i]
+        if cu_tp is None:
+            p.thanh_phans.append(_build_thanh_phan(tp_in, i))
+        else:
+            _ghi_de_thanh_phan(cu_tp, tp_in, i)
 
 
 # SL hiển thị ngoài bảng = Σ SL các sản phẩm bên trong phiếu, sản phẩm bỏ trống SL rơi về SL mặc
@@ -234,7 +313,7 @@ def create_item(
         ktv=(user.name or user.username),
         created_by=user.id,
     )
-    _replace_children(p, payload.thanh_phans)
+    _ghi_thanh_phans(p, payload.thanh_phans)
     db.add(p)
     db.flush()
     compute_phieu_snapshot(db, p)
@@ -309,7 +388,7 @@ def update_item(
         if field in data:
             setattr(p, field, data[field])
     if "thanh_phans" in data:
-        _replace_children(p, payload.thanh_phans)
+        _ghi_thanh_phans(p, payload.thanh_phans)
     db.flush()
     compute_phieu_snapshot(db, p)
     # Nhật ký hoạt động: ai CẬP NHẬT phiếu, khi nào (audit.create tự commit).

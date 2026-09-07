@@ -2540,8 +2540,9 @@ class LsxService:
             o.id: o for o in self.db.execute(select(Order).where(Order.id.in_(order_ids))).scalars()
         } if order_ids else {}
         # Nhãn nhóm (vd "Catalogue A4 - 32 trang") — ĐỌC SỐNG từ dòng đơn: lệnh "Bìa" đứng một
-        # mình thì không ai biết nó thuộc cuốn nào. `order_line_id` là FK THẬT, ổn định (khác
-        # `phieu_thanh_phan_id` bị tái sinh mỗi lần lưu PTG) nên đọc sống an toàn, khỏi thêm cột.
+        # mình thì không ai biết nó thuộc cuốn nào. `order_line_id` là FK THẬT nên đọc sống
+        # an toàn, khỏi thêm cột (`phieu_thanh_phan_id` cũng ổn định từ 07/09/2026 nhưng nó không
+        # mang nhãn nhóm — nhãn nằm ở dòng đơn).
         line_ids = {r.order_line_id for r in rows if r.order_line_id}
         nhom_by_line = {
             ln.id: ln.nhom

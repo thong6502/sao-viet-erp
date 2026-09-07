@@ -297,8 +297,12 @@ def _first_tp_id(pid: int) -> int:
 
 
 def _replace_ptg_products(pid: int, products: list[tuple[str, int, int]]) -> None:
-    """Mô phỏng ĐÚNG `_replace_children` (phieu_tinh_gia.py) khi user bấm Tính giá: THÊM thanh_phan
-    mới (chiếm id cao hơn) RỒI xóa cũ → id thật sự ĐỔI (giống Postgres prod, không tái dùng id)."""
+    """THÊM thanh_phan mới (chiếm id cao hơn) RỒI xóa cũ → id thật sự ĐỔI (giống Postgres prod,
+    không tái dùng id).
+
+    Từ 07/09/2026 router ghi ĐÈ TẠI CHỖ nên lưu lại phiếu không còn đổi id; kịch bản này vẫn giữ vì
+    id VẪN đổi khi người dùng xoá hẳn một sản phẩm rồi thêm lại — và markup-theo-vị-trí phải chịu
+    được đúng ca đó."""
     db = SessionLocal()
     try:
         old = db.query(PhieuThanhPhan).filter(PhieuThanhPhan.phieu_id == pid).all()

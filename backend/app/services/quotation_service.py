@@ -516,9 +516,9 @@ class QuotationService:
     ) -> None:
         """Dựng dòng báo giá TỪ các 'sản phẩm' (PhieuThanhPhan) của PTG vào 1 version + gộp tổng.
         Giá vốn KHÓA = gia_von_tp; SL = so_luong sản phẩm (0 → SL mặc định phiếu). `margin_by_index`
-        GIỮ markup theo VỊ TRÍ dòng (0-based) khi ĐỒNG BỘ LẠI — KHÔNG theo phieu_thanh_phan_id, vì mỗi
-        lần sửa PTG `_replace_children` XÓA+TẠO LẠI thanh_phan với id mới (id không ổn định, nhất là
-        Postgres không tái dùng id). Dòng chưa có ở bản cũ → dùng default_margin. Duyệt theo thứ tự
+        GIỮ markup theo VỊ TRÍ dòng (0-based) khi ĐỒNG BỘ LẠI — KHÔNG theo phieu_thanh_phan_id. (Id
+        thành phần ỔN ĐỊNH từ 07/09/2026, nhưng vị trí vẫn là khoá đúng hơn: bản báo giá cũ có thể
+        đã sửa tay, dòng thêm tay không mang pin nào cả.) Dòng chưa có ở bản cũ → dùng default_margin. Duyệt theo thứ tự
         (thu_tu, id) cho ổn định — khớp cách engine sắp xếp."""
         subtotal = discount = vat = final = total_cost = 0.0
         tps = sorted(ptg.thanh_phans, key=lambda t: (t.thu_tu or 0, t.id or 0))
@@ -601,7 +601,7 @@ class QuotationService:
 
         current = db.get(QuoteVersion, quote.current_version_id) if quote.current_version_id else None
         # GIỮ markup người dùng đã đặt theo VỊ TRÍ dòng (bản cũ sắp theo line_no) — KHÔNG theo
-        # phieu_thanh_phan_id (id đổi mỗi lần sửa PTG). Dòng mới thêm → default_margin.
+        # phieu_thanh_phan_id (xem `_fill_version_from_ptg`). Dòng mới thêm → default_margin.
         old_items = sorted((current.items if current else []), key=lambda it: it.line_no or 0)
         margin_by_index = {idx: float(it.margin_percent) for idx, it in enumerate(old_items)}
 
