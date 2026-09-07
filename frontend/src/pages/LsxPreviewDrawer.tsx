@@ -152,16 +152,6 @@ export function LsxPreviewDrawer({
             </p>
           )}
 
-          {data && data.warnings.length > 0 && (
-            <div className="banner banner--warn">
-              <ul className="khsx-warnlist">
-                {data.warnings.map((w, i) => (
-                  <li key={i}>{w}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
           {err && <BangLoi text={err} onRetry={load} />}
 
           {tatCaDaCoLenh ? (

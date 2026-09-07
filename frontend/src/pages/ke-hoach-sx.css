@@ -874,7 +874,6 @@ td.khsx-num > .khsx-unit {
   background: var(--rule-hair);
   border-color: var(--rule);
 }
-.khsx-warnlist { margin: 0; padding-left: var(--sp-4); }
 
 .khsx-prev { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1000px; }
 .khsx-prev thead th {

@@ -816,19 +816,53 @@ class LsxService:
             return []
         return self._dau_viec_option_dicts(cd, department_id)
 
-    def xem_truoc_may(self, *, lsx_id: int, step_key: str, may_id: int | None) -> dict:
-        """Thời lượng của MỘT bước NẾU đổi sang máy khác — tính thử, KHÔNG ghi gì vào DB.
+    def _khoan_thu(self, cd, piece_rate_id: int) -> dict | None:
+        """Ảnh chụp đầu việc THỬ cho một lựa chọn drawer vừa bấm mà chưa Lưu.
+
+        Cùng lối ghép với lúc lưu thật (`_khoan_mac_dinh`): `khoan_snapshot` + `_dinh_muc_snapshot`
+        — hai nửa, thiếu nửa sau là mất năng suất và đơn vị đích, xem trước ra 0 phút.
+
+        Đầu việc không nằm trong danh mục của công đoạn ⇒ giữ ảnh chụp ĐANG GHIM của bước. Đó
+        chính là ca "(đang ghim) đầu việc #N" của drawer: đầu việc bị gỡ khỏi danh mục nhưng bước
+        cũ vẫn đeo, nên bản ghim mới là câu trả lời đúng chứ không phải một ảnh chụp bịa ra.
+        """
+        cd_obj = self.db.get(CongDoan, getattr(cd, "cong_doan_id", None) or 0)
+        if cd_obj is None:
+            return getattr(cd, "khoan_json", None)
+        khop = self._dau_viec_cua_cong_doan(cd_obj, getattr(cd, "department_id", None))
+        rate = next((r for r in khop if r.id == piece_rate_id), None)
+        if rate is None:
+            return getattr(cd, "khoan_json", None)
+        dm = {x.piece_rate_id: x
+              for x in (getattr(cd_obj, "dau_viec_dinh_muc", None) or [])}.get(piece_rate_id)
+        snap = khoan_snapshot(rate, dm)
+        if dm is not None:
+            snap.update(_dinh_muc_snapshot(dm))
+        return snap
+
+    def xem_truoc_buoc(
+        self, *, lsx_id: int, step_key: str, may_id: int | None,
+        loai_buoc: str | None = None, piece_rate_id: int | None = None,
+        so_luot_chay: int | None = None,
+    ) -> dict:
+        """Giờ chạy + tiền công của MỘT bước theo ĐÚNG những gì đang hiện trên form — KHÔNG ghi DB.
 
         Vì sao drawer phải hỏi server (chủ chốt 20/08/2026 — *"chọn máy thì thời gian không thay
         đổi, phải nhấn Lưu mới đổi"*): số đem chia cho tốc độ không phải số tờ thô mà là SL vào ĐÃ
-        QUY ĐỔI về đơn vị của CHÍNH máy đang chọn (`sl_tinh_cua_buoc`) — Yawa 1050 đo bằng
-        `kem_gio` và còn có công thức riêng `so_kem`. Cầu quy đổi và bộ chạy công thức chỉ có ở
-        server, nên trước đây drawer đành xài lại con số của LẦN LƯU TRƯỚC: bước chưa gán máy thì
-        số đó là 0 ⇒ chọn máy nào cũng ra 0 phút, mà đổi giữa hai máy khác đơn vị thì lại lấy số
-        quy đổi của máy CŨ ⇒ xem trước sai mà không báo gì.
+        QUY ĐỔI về đơn vị ĐÍCH của bước (`sl_tinh_cua_buoc`) — Yawa 1050 đo bằng `kem_gio` và còn
+        có công thức riêng `so_kem`. Cầu quy đổi và bộ chạy công thức chỉ có ở server, nên client
+        đành xài lại con số của LẦN LƯU TRƯỚC nếu không hỏi.
 
-        Trả về đúng khối `thoi_luong_dien_giai` mà drawer đang đọc. Kíp trả kèm là kíp ĐANG CÓ của
-        bước — từ 06/09/2026 đổi máy không đổi số người, nhân lực bám công đoạn.
+        Ba tham số `loai_buoc` / `piece_rate_id` / `so_luot_chay` thêm 07/09/2026, vì cửa này trước
+        đó chỉ nhận `may_id` mà ĐÍCH quy đổi lại đổi theo cả ba:
+          · `loai_buoc` — Máy đo bằng đơn vị tốc độ của máy, Tổ đo bằng đơn vị năng suất của đầu
+            việc. Bấm Máy→Tổ mà không hỏi lại thì câu quy đổi CỦA MÁY nằm nguyên dưới nhãn "Tổ";
+          · `piece_rate_id` — mỗi đầu việc một ô "Cách đo giờ chạy" và một đơn vị năng suất riêng;
+          · `so_luot_chay` — chip trong công thức TIỀN công (`sl_ra * so_luot_chay`).
+        Vắng tham số nào thì lấy theo bản đã lưu, nên caller cũ vẫn chạy y như trước.
+
+        Kíp KHÔNG nhận đè: nó chỉ nhân vào giờ của bước Tổ, mà phép nhân đó client tự làm được nên
+        không đáng thêm một tham số dễ lệch. Kíp trả kèm là kíp ĐANG CÓ của bước.
         """
         lsx = self.get(lsx_id)
         cd = next((r for r in lsx.cong_doans if r.step_key == step_key), None)
@@ -842,7 +876,22 @@ class LsxService:
         kip = max(int(getattr(cd, "so_nhan_cong_tieu_chuan", 1) or 1), 1)
         # Bản SAO ĐỌC của bước: KHÔNG gán `cd.may_id = ...` — gán vào ORM là autoflush ghi thẳng
         # xuống DB một lựa chọn người dùng mới chỉ rê chuột qua.
-        thu = _BuocThu(cd, may_id=may_id, so_nhan_cong_tieu_chuan=kip)
+        thay: dict = {"may_id": may_id, "so_nhan_cong_tieu_chuan": kip}
+        if loai_buoc:
+            thay["loai_buoc"] = loai_buoc
+        if so_luot_chay is not None:
+            thay["so_luot_chay"] = max(int(so_luot_chay), 1)
+        if piece_rate_id is not None:
+            thay["khoan_json"] = self._khoan_thu(cd, piece_rate_id)
+        if (thay.get("loai_buoc") or getattr(cd, "loai_buoc", None)) == LB_TO:
+            # Năng suất là CỘT của bước, và `_default_buoc` chỉ rót nó vào lúc LƯU một bước Tổ —
+            # bước đang lưu là Máy thì cột ấy rỗng. Không rót lại ở đây thì xem trước "đổi sang Tổ"
+            # ra 0 phút kèm câu "chưa khai năng suất", đúng lúc người dùng vừa chọn đầu việc CÓ
+            # khai. Rót y hệt lúc lưu để xem trước và số sau khi Lưu là một.
+            kh_thu = thay.get("khoan_json", getattr(cd, "khoan_json", None)) or {}
+            thay["nang_suat"] = _f(kh_thu.get("nang_suat_nguoi_gio")) or None
+            thay["don_vi_nang_suat"] = dich_gio_cua_khoan(kh_thu)[0]
+        thu = _BuocThu(cd, **thay)
         quy_cach = quy_cach_bien(lsx)
         t = thoi_luong_buoc(thu, may, self.sl_tinh_cua_buoc(thu, may, quy_cach))
         return {
@@ -851,6 +900,9 @@ class LsxService:
             "so_nhan_cong_tieu_chuan": kip,
             "chiem_may_phut": t["chiem_may_phut"],
             "thoi_luong_dien_giai": t["dien_giai"],
+            # Tiền công của ĐÚNG bộ số đang sửa — cùng bộ máy `_khoan_tu_kh` mà bước đã lưu dùng,
+            # nên xem trước và số sau khi Lưu không thể lệch nhau.
+            "khoan": self._khoan_tu_kh(thu, getattr(thu, "khoan_json", None) or {}, quy_cach),
         }
 
     def _ct_gio_cua_may(self, cong_doan_id, may_id) -> str:
@@ -1240,7 +1292,7 @@ class LsxService:
 
     # ================= tính số cho 1 dòng đơn =================
 
-    def _tinh_dong(self, line: OrderLine, tp: PhieuThanhPhan | None, warnings: list[str]) -> dict:
+    def _tinh_dong(self, line: OrderLine, tp: PhieuThanhPhan | None) -> dict:
         """Chạy engine (hàm thuần) cho 1 dòng đơn với SL CỦA ĐƠN → số tờ / bù hao / kẽm / lượt.
 
         Trả `{comp, quy_cach, routing, sl_ptg}`. `tp=None` (đơn nhập giá tay) → số 0, routing rỗng.
@@ -1254,7 +1306,7 @@ class LsxService:
         # ÉP số lượng theo ĐƠN: engine ưu tiên `tp["so_luong"]` nếu > 0, nên phải ghi đè.
         resolved["so_luong"] = qty
         result = compute_phieu(
-            so_luong=qty, thanh_phans=[resolved], bu_hao_rows=self._bu_hao_rows(), warnings=warnings
+            so_luong=qty, thanh_phans=[resolved], bu_hao_rows=self._bu_hao_rows()
         )
         comps = result.get("meta", {}).get("components") or []
         comp = comps[0] if comps else {}
@@ -1350,7 +1402,6 @@ class LsxService:
     # ================= PREVIEW =================
 
     def preview(self, order_id: int) -> dict:
-        warnings: list[str] = []
         order = self.repo.order_with_lines(order_id)
         if order is None:
             raise LsxNotFound("Không tìm thấy đơn hàng")
@@ -1361,7 +1412,7 @@ class LsxService:
         lines: list[dict] = []
         for line in order.lines:
             tp = self._thanh_phan(line.phieu_thanh_phan_id)
-            calc = self._tinh_dong(line, tp, warnings)
+            calc = self._tinh_dong(line, tp)
             comp = calc["comp"]
             existing = da_co.get(line.id)
             ptg_ma = None
@@ -1405,7 +1456,6 @@ class LsxService:
             })
         return {
             "order_id": order.id,
-            "warnings": warnings,
             "order_no": order.order_no,
             "customer_name": self._customer_name(order),
             "sale_name": self._user_name(order.sale_user_id),
@@ -1542,7 +1592,6 @@ class LsxService:
             raise LsxValidationError("Chưa chọn dòng nào của đơn để tạo lệnh")
         if len(chosen) != len(set(order_line_ids)):
             raise LsxValidationError("Có dòng không thuộc đơn hàng này")
-        warnings: list[str] = []
 
         da_co = self.repo.by_order_lines([ln.id for ln in chosen])
         trung = [ln.id for ln in chosen if ln.id in da_co]
@@ -1553,7 +1602,7 @@ class LsxService:
         created: list[Lsx] = []
         for line in chosen:
             tp = self._thanh_phan(line.phieu_thanh_phan_id)
-            calc = self._tinh_dong(line, tp, warnings)
+            calc = self._tinh_dong(line, tp)
             comp = calc["comp"]
             so_luong_dat = int(line.qty or 0)
             lsx = Lsx(

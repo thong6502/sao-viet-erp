@@ -334,26 +334,34 @@ def dau_viec_options(
         raise _map(exc)
 
 
-@router.get("/{lsx_id}/xem-truoc-may")
-def xem_truoc_may(
+@router.get("/{lsx_id}/xem-truoc-buoc")
+def xem_truoc_buoc(
     lsx_id: int,
     step_key: str,
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     may_id: int | None = None,
+    loai_buoc: str | None = None,
+    piece_rate_id: int | None = None,
+    so_luot_chay: int | None = None,
 ) -> dict:
-    """Thời lượng bước NẾU đổi sang máy này — drawer hỏi trước khi lưu, không ghi gì.
+    """Giờ chạy + tiền công của bước theo bộ số ĐANG SỬA trên drawer — không ghi gì.
 
-    Chỉ server mới quy đổi được SL vào sang đơn vị tốc độ của máy (cầu quy đổi + công thức riêng
-    của máy), nên đây là đường DUY NHẤT để ô thời gian nhảy ngay lúc chọn máy.
+    Chỉ server mới quy đổi được SL vào sang đơn vị đích của bước (cầu quy đổi + công thức riêng của
+    máy / của đầu việc), nên đây là đường DUY NHẤT để ô thời gian và tiền công nhảy ngay lúc sửa.
+    Tên cũ `xem-truoc-may` đổi 07/09/2026: cửa này nhận cả loại bước · đầu việc · số lượt, giữ tên
+    cũ là dạy người đọc sau tin rằng chỉ đổi máy mới phải hỏi lại — đúng cái nhầm đã sinh ra lỗi.
     Trả `dict` trần, KHÔNG bọc response_model: thêm khoá vào diễn giải mà quên khai schema là bị
     nuốt im lặng, mà khối này chính là thứ drawer đọc từng khoá.
     """
     svc = _svc(db)
     try:
         _guard_scope(db, svc.get(lsx_id), user, authz)
-        return svc.xem_truoc_may(lsx_id=lsx_id, step_key=step_key, may_id=may_id)
+        return svc.xem_truoc_buoc(
+            lsx_id=lsx_id, step_key=step_key, may_id=may_id,
+            loai_buoc=loai_buoc, piece_rate_id=piece_rate_id, so_luot_chay=so_luot_chay,
+        )
     except Exception as exc:
         raise _map(exc)
 

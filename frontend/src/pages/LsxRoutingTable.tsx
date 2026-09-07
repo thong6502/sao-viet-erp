@@ -56,8 +56,12 @@ export interface RefRow {
   chuanBiPhut?: number | null;
   chuanBiKhoan?: { ten?: string; phut?: number }[];
   /** CÔNG ĐOẠN — nhóm máy (loai_may) làm được công đoạn này, để drawer LỌC dropdown máy. Chỉ có
-   *  trên ref CÔNG ĐOẠN (congDoanRefs), không phải ref máy. null/rỗng = không giới hạn. */
+   *  trên ref CÔNG ĐOẠN (congDoanRefs), không phải ref máy. null/rỗng = không giới hạn.
+   *  Nay chỉ là tầng LÙI: `mayChoPhep` ngay dưới thắng khi công đoạn đã khai máy cụ thể. */
   nhomMayChoPhep?: string[] | null;
+  /** CÔNG ĐOẠN — id các máy ở bảng "Máy chạy được công đoạn này" của danh mục Công đoạn.
+   *  null/rỗng = công đoạn chưa khai máy nào, lùi về `nhomMayChoPhep`. */
+  mayChoPhep?: number[] | null;
 }
 
 /** Nhãn đơn vị CỦA MỘT BƯỚC. Chưa khai đơn vị ⇒ “—”.
@@ -102,7 +106,7 @@ export function LsxRoutingTable({
   onPatchLsx,
   onMacDinhBuoc,
   onDauViecOptions,
-  onXemTruocMay,
+  onXemTruocBuoc,
   onXemTruocRouting,
   onDirtyChange,
   dvChuoi,
@@ -132,12 +136,15 @@ export function LsxRoutingTable({
   onDauViecOptions: (
     congDoanId: number, departmentId: number,
   ) => Promise<import("../api/client").LsxDauViecOption[]>;
-  /** Đổi máy → hỏi server thời lượng mới (chỉ backend quy đổi được SL vào sang đơn vị tốc độ). */
-  onXemTruocMay: (
-    stepKey: string, mayId: number | null,
-  ) => Promise<import("../api/client").LsxXemTruocMay>;
+  /** Sửa bước → hỏi server giờ chạy + tiền công mới (chỉ backend quy đổi được SL vào sang đơn vị
+   *  đích của bước, và chỉ nó chạy được công thức tiền công). */
+  onXemTruocBuoc: (
+    stepKey: string,
+    dang: { mayId?: number | null; loaiBuoc?: string | null;
+            pieceRateId?: number | null; soLuotChay?: number | null },
+  ) => Promise<import("../api/client").LsxXemTruocBuoc>;
   /** Đổi/chèn công đoạn → hỏi server SỐ VÀO–RA + đơn vị của CẢ CHUỖI (chỉ backend chạy chuỗi
-   *  ngược + bảng cầu quy đổi). Cùng lẽ với `onXemTruocMay`: số nhảy ngay, khỏi bấm Lưu. */
+   *  ngược + bảng cầu quy đổi). Cùng lẽ với `onXemTruocBuoc`: số nhảy ngay, khỏi bấm Lưu. */
   onXemTruocRouting: (
     rows: import("../api/client").LsxXemTruocRoutingRow[],
   ) => Promise<import("../api/client").LsxXemTruocRoutingBuoc[]>;
@@ -366,37 +373,61 @@ export function LsxRoutingTable({
   );
 
   /** Đổi máy là LẤY SỐ NGAY, không đợi bấm "Lưu công đoạn" (chủ 20/08/2026: *"khi chọn máy là
-   *  phải lấy số luôn chứ"*). Hai nửa, cố ý tách:
-   *
-   *  - Nửa TẠI CHỖ (không chờ mạng): kíp đứng máy = "số người vận hành" khai ở danh mục Máy; còn
-   *    tốc độ + chuẩn bị thì `thoiLuongLive` đọc thẳng `mayRefs` nên tự nhảy.
-   *  - Nửa HỎI SERVER: SL vào phải quy đổi sang ĐƠN VỊ TỐC ĐỘ của máy vừa chọn (tờ → bản kẽm),
-   *    mà bảng cầu quy đổi chỉ có ở backend. Không hỏi thì bước chưa gán máy đứng im ở "chưa quy
-   *    đổi" (0 phút), còn đổi giữa hai máy khác đơn vị thì chia bằng số của máy CŨ — sai âm thầm.
-   *
-   *  Hỏng mạng / bước mới chưa lưu (chưa có `step_key` ở server) ⇒ giữ diễn giải cũ, không bịa số.
-   */
-  const doiMay = useCallback(async (key: string, mayId: number | null) => {
-    const seq = ++doiMaySeq.current;
+   *  phải lấy số luôn chứ"*). Ở đây chỉ còn NỬA TẠI CHỖ (không chờ mạng): tốc độ + chuẩn bị thì
+   *  `thoiLuongLive` đọc thẳng `mayRefs` nên tự nhảy. Nửa HỎI SERVER dời sang hiệu ứng
+   *  `lamMoiXemTruoc` bên dưới — máy không phải thứ duy nhất làm ảnh chụp server hết hạn. */
+  const doiMay = useCallback((key: string, mayId: number | null) => {
     const may = mayRefs?.find((m) => m.id === mayId) ?? null;
-    const rowNay = rows.find((x) => x.key === key);
     // ĐỔI MÁY KHÔNG ĐỔI SỐ NGƯỜI (06/09/2026, mg `0270`): máy không còn khai kíp riêng, kíp của
     // mọi loại bước đến từ định mức đầu việc của công đoạn. Chọn máy chỉ đổi tốc độ + thời gian
     // chuẩn bị; muốn khác người thì sửa thẳng ô kíp trong drawer bước.
     patch(key, { may_id: mayId });
     setLive(may ? `Đã chọn ${may.ten}` : "Đã bỏ máy khỏi bước");
-    // Bước CHƯA lưu (id rỗng) → server chưa có step_key này để tra (xem_truoc_may báo 404).
-    // Trước dùng tiền tố "r" của key làm dấu hiệu "chưa lưu", nhưng bước mới nay mang UUID thật
-    // (khớp cách server lưu step_key) nên phải đọc `id` — nguồn sự thật của "đã lưu hay chưa".
-    if (rowNay?.id == null) return;
-    try {
-      const xt = await onXemTruocMay(key, mayId);
-      if (seq !== doiMaySeq.current) return;
-      patch(key, { thoi_luong_dien_giai: xt.thoi_luong_dien_giai });
-    } catch {
-      /* mất mạng / không đủ quyền → số giờ giữ nguyên bản cũ, bấm Lưu vẫn ra đúng. */
-    }
-  }, [mayRefs, onXemTruocMay, patch, rows]);
+  }, [mayRefs, patch]);
+
+  /** ẢNH CHỤP SERVER của bước đang mở phải theo kịp FORM (vá 07/09/2026).
+   *
+   *  `thoiLuongLive` là bản LAI: thứ client tính lại được (tốc độ · kíp · số lượt của bước máy) thì
+   *  nó tự tính, còn thứ chỉ server biết — SL vào ĐÃ QUY ĐỔI về đơn vị đích, câu diễn giải quy đổi,
+   *  và TIỀN CÔNG — thì nó đọc lại ảnh chụp `thoi_luong_dien_giai`. Trước đây ảnh chụp ấy chỉ được
+   *  làm mới ở ĐÚNG MỘT chỗ: lúc đổi máy. Nhưng đích quy đổi còn đổi theo LOẠI BƯỚC (máy đo bằng
+   *  đơn vị tốc độ của máy, tổ đo bằng đơn vị năng suất của đầu việc) và theo ĐẦU VIỆC, còn tiền
+   *  công thì đổi theo SỐ LƯỢT. Hậu quả thấy tận mắt: bấm Máy→Tổ xong, khối "Chạy máy" vẫn bày
+   *  công thức của MÁY dưới nhãn Tổ, phải bấm Lưu mới đúng.
+   *
+   *  Khoá phụ thuộc là CHUỖI các ô server quan tâm, KHÔNG phải cả `row`: `patch` bên dưới ghi
+   *  `thoi_luong_dien_giai` vào chính hàng đó, lấy cả hàng làm phụ thuộc là vòng lặp vô tận.
+   *  Bước chưa lưu (`id == null`) thì server chưa có `step_key` để tra ⇒ bỏ qua, giữ số cũ.
+   */
+  const buocMo = moBuoc != null ? rows[moBuoc] : null;
+  const khoaXemTruoc = buocMo?.id != null
+    ? [buocMo.key, buocMo.loai_buoc, buocMo.may_id ?? "", buocMo.khoan_rate_id ?? "",
+       buocMo.so_luot_chay, buocMo.so_luong_vao].join("|")
+    : null;
+  useEffect(() => {
+    if (!khoaXemTruoc) return;
+    const [key, loaiBuoc, mayId, rateId, soLuot] = khoaXemTruoc.split("|");
+    const seq = ++doiMaySeq.current;
+    // Xoá tiền công của bộ số CŨ trước khi hỏi: trong lúc chờ mạng, drawer lùi về số của dropdown
+    // đầu việc (đúng đầu việc đang chọn, chỉ chưa tính số lượt) — thà lệch một nhịp còn hơn dán số
+    // của lựa chọn trước dưới lựa chọn mới.
+    patch(key, { khoan_xem_truoc: null });
+    void (async () => {
+      try {
+        const xt = await onXemTruocBuoc(key, {
+          mayId: mayId === "" ? null : Number(mayId),
+          loaiBuoc,
+          pieceRateId: rateId === "" ? null : Number(rateId),
+          soLuotChay: Math.max(Math.trunc(Number(soLuot)) || 1, 1),
+        });
+        if (seq !== doiMaySeq.current) return;
+        patch(key, { thoi_luong_dien_giai: xt.thoi_luong_dien_giai, khoan_xem_truoc: xt.khoan });
+      } catch {
+        /* mất mạng / không đủ quyền → số giữ nguyên bản cũ, bấm Lưu vẫn ra đúng. */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [khoaXemTruoc]);
 
   function move(idx: number, delta: number) {
     doiCho(idx, idx + delta);

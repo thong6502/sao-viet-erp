@@ -2945,7 +2945,7 @@ def test_buoc_MAY_lay_kip_cua_CONG_DOAN_khong_con_o_rieng_tren_may(
     assert (saved.khoan_json or {}).get("rate_id")
 
 
-def test_xem_truoc_may_ra_gio_moi_ngay_va_khong_ghi_gi_vao_DB(
+def test_xem_truoc_buoc_ra_gio_moi_ngay_va_khong_ghi_gi_vao_DB(
     db, orders, lsx_svc, admin, customer,
 ):
     """Chọn máy trong drawer là ra số NGAY (chủ 20/08/2026: *"khi chọn máy là phải lấy số luôn"*),
@@ -2963,7 +2963,7 @@ def test_xem_truoc_may_ra_gio_moi_ngay_va_khong_ghi_gi_vao_DB(
     kip_truoc = int(inn.so_nhan_cong_tieu_chuan or 1)
     assert may_cu is not None and may_cu != may_cham.id
 
-    xt = lsx_svc.xem_truoc_may(lsx_id=hop.id, step_key=inn.step_key, may_id=may_cham.id)
+    xt = lsx_svc.xem_truoc_buoc(lsx_id=hop.id, step_key=inn.step_key, may_id=may_cham.id)
 
     # Kíp GIỮ NGUYÊN khi rê sang máy khác (06/09/2026, mg `0270`): nhân lực bám công đoạn.
     assert xt["so_nhan_cong_tieu_chuan"] == kip_truoc
@@ -2977,7 +2977,7 @@ def test_xem_truoc_may_ra_gio_moi_ngay_va_khong_ghi_gi_vao_DB(
     assert van_the.may_id == may_cu                                # KHÔNG ghi gì
 
 
-def test_route_xem_truoc_may_dau_day_dung(client):
+def test_route_xem_truoc_buoc_dau_day_dung(client):
     """Đấu dây HTTP của cửa xem-trước: tên tham số + quyền + 404 khi lệnh không có thật.
 
     Service xanh mà route sai tên query (`step_key`) thì FastAPI trả 422 — drawer im ru, người
@@ -2986,10 +2986,10 @@ def test_route_xem_truoc_may_dau_day_dung(client):
     r = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
     h = {"Authorization": f"Bearer {r.json()['access_token']}"}
 
-    assert client.get("/api/lsx/1/xem-truoc-may?step_key=s1").status_code == 401
-    assert client.get("/api/lsx/1/xem-truoc-may", headers=h).status_code == 422   # thiếu step_key
+    assert client.get("/api/lsx/1/xem-truoc-buoc?step_key=s1").status_code == 401
+    assert client.get("/api/lsx/1/xem-truoc-buoc", headers=h).status_code == 422   # thiếu step_key
     assert client.get(
-        "/api/lsx/999999/xem-truoc-may?step_key=s1&may_id=1", headers=h,
+        "/api/lsx/999999/xem-truoc-buoc?step_key=s1&may_id=1&loai_buoc=to", headers=h,
     ).status_code == 404
 
 
@@ -3546,6 +3546,62 @@ def test_tro_dao_roi_thi_het_thieu_khuon(db, orders, lsx_svc, admin, customer):
     _ = buoc
     db.commit()
     assert "thieu_khuon" not in lsx_svc.thieu_cua(lsx_svc.get(hop.id))
+
+
+
+def test_xem_truoc_buoc_doi_LOAI_va_SO_LUOT_thi_so_doi_theo_form(
+    db, orders, lsx_svc, admin, customer,
+):
+    """⭐ Ca chủ 07/09/2026: drawer sửa gì thì xem trước phải nói theo cái đang sửa, không đợi Lưu.
+
+    Cửa xem trước cũ chỉ nhận `may_id`, nên bước đang lưu là MÁY mà người dùng vừa bấm sang TỔ thì
+    câu quy đổi trả về vẫn là của MÁY (đơn vị đích của máy · công thức cặp công đoạn × máy) — client
+    dán nó dưới nhãn "Tổ", số chỉ đúng sau khi bấm Lưu. Số lượt cũng vậy với tiền công: nó là chip
+    trong công thức tiền, mà tiền lại tính ở server theo bản ĐÃ LƯU.
+    """
+    from app.models.don_vi_do import DonViDo
+
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán tay", don_vi="cuốn", don_gia=600,
+                         nang_suat=500, don_vi_ns=None)
+    if db.query(DonViDo).filter(DonViDo.ma == "cuon").one_or_none() is None:
+        db.add(DonViDo(ma="cuon", ten="cuốn", ho="thanh_pham"))
+    db.commit()
+    dm = (db.query(CongDoanDauViec)
+          .filter(CongDoanDauViec.cong_doan_id == cd_dan.id,
+                  CongDoanDauViec.piece_rate_id == rate.id).one())
+    dm.cong_thuc_khoan = "sl_ra * so_luot_chay"     # tiền đếm theo LƯỢT
+    dm.cong_thuc_gio = "sl_ra"                      # giờ đếm theo TỜ
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    buoc = next(x for x in lsx.cong_doans if x.cong_doan_id == cd_dan.id)
+    assert buoc.loai_buoc == "may", "bước bung ra phải là máy thì mới thử được chiều đổi sang tổ"
+    ra = float(buoc.so_luong_ra)
+    kip = max(int(buoc.so_nhan_cong_tieu_chuan or 1), 1)
+
+    def _xt(**thay) -> dict:
+        return lsx_svc.xem_truoc_buoc(lsx_id=lsx.id, step_key=buoc.step_key, may_id=None, **thay)
+
+    # ① Bấm sang TỔ mà chưa Lưu ⇒ giờ đo bằng ô "Cách đo giờ chạy" của đầu việc.
+    to = _xt(loai_buoc="to", piece_rate_id=rate.id, so_luot_chay=1)
+    assert to["thoi_luong_dien_giai"]["chay_phut"] == pytest.approx(ra / (500 * kip) * 60, abs=0.01)
+    assert to["khoan"]["khoan_tien"] == round(ra * 600)
+
+    # ② Bấm "2 lượt" mà chưa Lưu ⇒ TIỀN nhân đôi, GIỜ giữ nguyên (đúng luật tách hai ô).
+    hai = _xt(loai_buoc="to", piece_rate_id=rate.id, so_luot_chay=2)
+    assert hai["khoan"]["khoan_tien"] == 2 * to["khoan"]["khoan_tien"]
+    assert hai["thoi_luong_dien_giai"]["chay_phut"] == pytest.approx(
+        to["thoi_luong_dien_giai"]["chay_phut"], abs=0.01)
+
+    # ③ Không ghi gì xuống DB — người dùng mới chỉ rê chuột trên form.
+    db.expire_all()
+    van_the = next(x for x in lsx_svc.get(lsx.id).cong_doans if x.cong_doan_id == cd_dan.id)
+    assert van_the.loai_buoc == "may" and int(van_the.so_luot_chay or 1) == 1
 
 
 # ================= Danh mục đổi dưới chân lệnh =================

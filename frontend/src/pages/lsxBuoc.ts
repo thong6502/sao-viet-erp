@@ -80,6 +80,14 @@ export interface EditRow {
    *  từ máy — số hiển thị lấy từ `thoi_luong_dien_giai` (server tính), không ô nào ghi ngược. */
   phat_sinh_phut: string;
   thoi_luong_dien_giai: Record<string, unknown>;
+  /** TIỀN CÔNG của đúng bộ số đang sửa — server tính lại mỗi khi loại bước / đầu việc / số lượt
+   *  đổi (`xem-truoc-buoc`). READ-ONLY, không gửi lên. null = đang hỏi lại, hoặc bước chưa lưu nên
+   *  server không có `step_key` để tra; drawer lùi về số của dropdown đầu việc. */
+  khoan_xem_truoc: {
+    khoan_tien: number | null;
+    khoan_dien_giai: string | null;
+    khoan_ly_do: string | null;
+  } | null;
   /** Lượng tính sẵn cho mọi vật tư (server tính theo bước) — READ-ONLY, không gửi lên.
    *  `so_luong: null` = chưa tính được, `ly_do` nói vì sao và chỉ chỗ khai công thức. */
   vat_tu_goi_y: {
@@ -217,6 +225,7 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     don_vi_nang_suat: cd.don_vi_nang_suat ?? "",
     phat_sinh_phut: s(cd.phat_sinh_phut),
     thoi_luong_dien_giai: cd.thoi_luong_dien_giai ?? {},
+    khoan_xem_truoc: null,
     vat_tu_goi_y: cd.vat_tu_goi_y ?? [],
     so_luong_vao_moi: cd.so_luong_vao_moi ?? null,
     so_luong_ra_moi: cd.so_luong_ra_moi ?? null,
@@ -275,6 +284,35 @@ export function tenBuoc(
   return r.ten;
 }
 
+/** MÁY chọn được cho một bước — cùng MỘT luật với `BaiGhepService.may_ngoai_cong_doan` ở backend,
+ *  nơi bài ghép và engine xếp lịch (`_may_lam_duoc`) phán quyết. HAI TẦNG, tầng dưới chỉ chạy khi
+ *  tầng trên im:
+ *    ① công đoạn đã khai bảng "Máy chạy được công đoạn này" ⇒ CHỈ những máy đó. Bảng ấy cũng là
+ *       chỗ khai công thức giờ/giá của từng cặp (công đoạn, máy), nên máy ngoài nó không có công
+ *       thức nào để chạy;
+ *    ② chưa khai máy nào ⇒ lùi về hàng tick NHÓM máy (`nhomMayChoPhep`);
+ *    chưa khai cả hai ⇒ mọi máy, đúng lối "chưa khai = không chặn" của cả hệ.
+ *
+ *  Trước 07/09/2026 drawer bước chỉ có tầng ②: công đoạn In offset khai đúng 4 máy trong bảng mà
+ *  dropdown vẫn mời cả 10 máy của hai nhóm "Máy in" + "In ngoài" — người lên kế hoạch gán được
+ *  máy rồi xếp lịch mới từ chối, hai màn nói hai kiểu về cùng một ràng buộc.
+ *
+ *  Máy ĐANG gán luôn giữ lại dù rớt bộ lọc (dữ liệu cũ, hoặc công đoạn siết danh sách sau khi lệnh
+ *  đã gán) — không thì mở lệnh cũ ra là ô máy trống trơn, người xếp lịch tưởng chưa ai gán. */
+export function mayChonDuoc<T extends { id: number; nhom?: string | null }>(
+  mayRefs: T[],
+  cd: { nhomMayChoPhep?: string[] | null; mayChoPhep?: number[] | null } | null | undefined,
+  mayDangGan: number | null | undefined,
+): T[] {
+  const ds = cd?.mayChoPhep ?? null;
+  if (ds && ds.length > 0) {
+    return mayRefs.filter((m) => ds.includes(m.id) || m.id === mayDangGan);
+  }
+  const nhom = cd?.nhomMayChoPhep ?? null;
+  if (!nhom || nhom.length === 0) return mayRefs;
+  return mayRefs.filter((m) => (m.nhom != null && nhom.includes(m.nhom)) || m.id === mayDangGan);
+}
+
 export function emptyRow(): EditRow {
   return {
     key: newKey(), id: null, cong_doan_id: null, ten: "", nhom: null, loai_buoc: "may",
@@ -289,6 +327,7 @@ export function emptyRow(): EditRow {
     nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "",
     so_nhan_cong_tieu_chuan: 1,
     thoi_luong_dien_giai: {},
+    khoan_xem_truoc: null,
     vat_tu_goi_y: [], so_luong_vao_moi: null, so_luong_ra_moi: null,
     phu_thuoc_step_keys: [], vat_tus: [],
     nha_cung_cap: "", sl_gui: "", ngay_gui_dk: "", van_chuyen_ngay: "", gia_cong_ngay: "",

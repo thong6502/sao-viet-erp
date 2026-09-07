@@ -347,7 +347,12 @@ export function LsxDetailView({
     if (!token) return;
     // Không có quyền đọc danh mục → để null, ô hiện read-only thay vì select rỗng (select rỗng
     // + lưu = xoá trắng dữ liệu).
-    api.congDoan.list(token).then((r) => setCongDoanRefs(r.items.map((c) => ({ id: c.id, ten: c.ten, nhomMayChoPhep: c.nhom_may_cho_phep })))).catch(() => setCongDoanRefs(null));
+    // `may_lam_duoc` = bảng "Máy chạy được công đoạn này" ở danh mục Công đoạn. Giữ lại id để
+    // drawer bước lọc dropdown MÁY đúng như bài ghép và engine xếp lịch đang chặn (`RefRow`).
+    api.congDoan.list(token).then((r) => setCongDoanRefs(r.items.map((c) => ({
+      id: c.id, ten: c.ten, nhomMayChoPhep: c.nhom_may_cho_phep,
+      mayChoPhep: (c.may_lam_duoc ?? []).map((m) => m.may_id),
+    })))).catch(() => setCongDoanRefs(null));
     crud("/api/cong-doan/phong-ban").list(token).then((r) => setToRefs(r.items.map((t) => ({ id: t.id, ten: t.ten })))).catch(() => setToRefs(null));
     // Giữ luôn TỐC ĐỘ + CHUẨN BỊ của máy: form phải tính lại thời lượng ngay khi đổi máy, chứ
     // không đợi lưu rồi server mới trả số về (xem `RefRow`).
@@ -469,18 +474,23 @@ export function LsxDetailView({
     [token, d],
   );
 
-  /** Đổi máy → hỏi server luôn: SL vào quy đổi sang đơn vị tốc độ của máy MỚI ra bao nhiêu.
-   *  Tốc độ/chuẩn bị thì form tự tính từ `mayRefs`; riêng phép quy đổi chỉ backend làm được. */
-  const xemTruocMay = useCallback(
-    async (stepKey: string, mayId: number | null) => {
+  /** Sửa gì trên drawer → hỏi server luôn: SL vào quy đổi sang đơn vị ĐÍCH của bộ số MỚI ra bao
+   *  nhiêu, và tiền công bằng bao nhiêu. Tốc độ/kíp/chuẩn bị thì form tự tính từ `mayRefs`; riêng
+   *  phép quy đổi và tiền công chỉ backend làm được. */
+  const xemTruocBuoc = useCallback(
+    async (
+      stepKey: string,
+      dang: { mayId?: number | null; loaiBuoc?: string | null;
+              pieceRateId?: number | null; soLuotChay?: number | null },
+    ) => {
       if (!token || !d) throw new Error("chưa sẵn sàng");
-      return api.lsx.xemTruocMay(token, d.id, stepKey, mayId);
+      return api.lsx.xemTruocBuoc(token, d.id, stepKey, dang);
     },
     [token, d],
   );
 
   /** Đổi/chèn công đoạn → hỏi server số VÀO–RA + đơn vị của CẢ CHUỖI (chỉ backend chạy được
-   *  chuỗi ngược + bảng cầu quy đổi). Cùng lẽ với `xemTruocMay`: số nhảy ngay, khỏi bấm Lưu. */
+   *  chuỗi ngược + bảng cầu quy đổi). Cùng lẽ với `xemTruocBuoc`: số nhảy ngay, khỏi bấm Lưu. */
   const xemTruocRouting = useCallback(
     async (rows: import("../api/client").LsxXemTruocRoutingRow[]) => {
       if (!token || !d) throw new Error("chưa sẵn sàng");
@@ -1421,7 +1431,7 @@ export function LsxDetailView({
                     onPatchLsx={patchLsx}
                     onMacDinhBuoc={macDinhBuoc}
                     onDauViecOptions={dauViecOptions}
-                    onXemTruocMay={xemTruocMay}
+                    onXemTruocBuoc={xemTruocBuoc}
                     onXemTruocRouting={xemTruocRouting}
                     onDirtyChange={setRoutingDirty}
                     dvChuoi={dvChuoi}

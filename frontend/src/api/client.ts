@@ -2361,7 +2361,6 @@ export interface LsxPreviewOut {
   is_rush: boolean;
   production_note: string | null;
   lines: LsxPreviewLine[];
-  warnings: string[];
 }
 
 /** Khối gia công ngoài (§8) — chỉ có nghĩa khi `loai_buoc = "thue_ngoai"`. */
@@ -2533,14 +2532,24 @@ export interface LsxBuocMacDinh {
   tren_dong_giay: boolean;
   setup_phut: number;
 }
-/** Thời lượng của MỘT bước NẾU đổi sang máy khác — server tính THỬ rồi vứt, không ghi DB. */
-export interface LsxXemTruocMay {
+/** Giờ chạy + tiền công của MỘT bước theo bộ số ĐANG SỬA trên drawer — server tính THỬ rồi vứt,
+ *  không ghi DB. */
+export interface LsxXemTruocBuoc {
   step_key: string;
   may_id: number | null;
   /** Kíp đứng máy khai ở danh mục Máy — bước MÁY nghe MÁY, không nghe định mức tổ. */
   so_nhan_cong_tieu_chuan: number;
   chiem_may_phut: number;
   thoi_luong_dien_giai: Record<string, unknown>;
+  /** Tiền công của ĐÚNG bộ số đang sửa (07/09/2026). Số ở dropdown đầu việc chỉ đúng với số lượt
+   *  ĐÃ LƯU, nên bấm "2 lượt" xong phải đọc số này mới thấy tiền nhân đôi. */
+  khoan: {
+    khoan_sl: number | null;
+    khoan_don_vi_sl: string | null;
+    khoan_tien: number | null;
+    khoan_dien_giai: string | null;
+    khoan_ly_do: string | null;
+  };
 }
 /** DÒNG CHẢY của MỘT bước NẾU đổi/chèn công đoạn — server chạy đúng đường Lưu routing rồi
  *  rollback. Khớp `step_key` client gửi lên (kể cả khoá tạm `r{n}` của bước mới chèn). */
@@ -11062,17 +11071,25 @@ export const api = {
       });
       return authed<LsxDauViecOption[]>(`/api/lsx/${id}/dau-viec-options?${q}`, token);
     },
-    /** Đổi máy thì bước chạy bao nhiêu phút? CHỈ ĐỌC, không ghi gì.
+    /** Bộ số đang sửa trên drawer thì bước chạy bao nhiêu phút, tiền công bao nhiêu? CHỈ ĐỌC.
      *
-     *  Có cửa này vì SL vào phải quy đổi sang ĐƠN VỊ TỐC ĐỘ của đúng máy vừa chọn (tờ → bản kẽm →
-     *  …) mà bảng cầu quy đổi chỉ nằm ở backend. Thiếu nó thì form phải bấm "Lưu công đoạn" mới
-     *  thấy giờ đổi — đúng chỗ chủ kêu 20/08/2026. */
-    xemTruocMay(
-      token: string, id: number, stepKey: string, mayId: number | null,
-    ): Promise<LsxXemTruocMay> {
+     *  Có cửa này vì SL vào phải quy đổi sang ĐƠN VỊ ĐÍCH của bước (máy đo `to_gio`, tổ đo theo
+     *  đơn vị năng suất của đầu việc) mà bảng cầu quy đổi chỉ nằm ở backend. Thiếu nó thì form
+     *  phải bấm "Lưu công đoạn" mới thấy số đổi — đúng chỗ chủ kêu 20/08/2026.
+     *
+     *  Gửi CẢ BỐN thứ đang sửa, không chỉ máy (07/09/2026): đích quy đổi đổi theo loại bước và
+     *  đầu việc, còn số lượt là chip trong công thức tiền công. */
+    xemTruocBuoc(
+      token: string, id: number, stepKey: string,
+      dang: { mayId?: number | null; loaiBuoc?: string | null;
+              pieceRateId?: number | null; soLuotChay?: number | null } = {},
+    ): Promise<LsxXemTruocBuoc> {
       const q = new URLSearchParams({ step_key: stepKey });
-      if (mayId != null) q.set("may_id", String(mayId));
-      return authed<LsxXemTruocMay>(`/api/lsx/${id}/xem-truoc-may?${q}`, token);
+      if (dang.mayId != null) q.set("may_id", String(dang.mayId));
+      if (dang.loaiBuoc) q.set("loai_buoc", dang.loaiBuoc);
+      if (dang.pieceRateId != null) q.set("piece_rate_id", String(dang.pieceRateId));
+      if (dang.soLuotChay != null) q.set("so_luot_chay", String(dang.soLuotChay));
+      return authed<LsxXemTruocBuoc>(`/api/lsx/${id}/xem-truoc-buoc?${q}`, token);
     },
     update(token: string, id: number, body: LsxUpdateBody): Promise<LsxDetail> {
       return authed<LsxDetail>(`/api/lsx/${id}`, token, {

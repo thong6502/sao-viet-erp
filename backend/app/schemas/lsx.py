@@ -90,7 +90,6 @@ class PreviewOut(BaseModel):
     is_rush: bool = False
     production_note: str | None = None
     lines: list[PreviewLine]
-    warnings: list[str] = Field(default_factory=list)
 
 
 class TaoLsxIn(BaseModel):

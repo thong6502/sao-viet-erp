@@ -17,6 +17,7 @@ import { num } from "./keHoachSxShared";
 import {
   type EditRow,
   heSoChu,
+  mayChonDuoc,
   nhanDonVi,
   phut,
   tenBuoc,
@@ -180,18 +181,12 @@ export function LsxBuocDrawer({
   const mayForm = mayRefs?.find((m) => m.id === row.may_id) ?? null;
   const t = useMemo(() => thoiLuong(row, mayForm), [row, mayForm]);
   const tg = useMemo(() => thoiLuongLive(row, mayForm), [row, mayForm]);
-  // Máy chọn được LỌC theo "Máy làm được công đoạn này" khai ở danh mục Công đoạn (loai_may). Cùng
-  // luật engine xếp lịch `_may_lam_duoc`: rỗng/không khai ⇒ nhận mọi máy; có khai ⇒ chỉ máy đúng
-  // nhóm, NHƯNG vẫn GIỮ máy đang gán dù sai loại (dữ liệu cũ) để không âm thầm bỏ lựa chọn hiện có.
+  // Luật lọc nằm ở `mayChonDuoc` (xem `lsxBuoc.ts`) — cùng một luật với backend, và tách ra khỏi
+  // JSX để test được: bảng máy của công đoạn thắng, chưa khai thì lùi về nhóm máy.
   const nhomMay = useMemo(() => {
     if (!mayRefs) return [];
-    const allow =
-      congDoanRefs?.find((c) => c.id === row.cong_doan_id)?.nhomMayChoPhep ?? null;
-    if (!allow || allow.length === 0) return nhomMayTheoLoai(mayRefs);
-    const loc = mayRefs.filter(
-      (m) => (m.nhom != null && allow.includes(m.nhom)) || m.id === row.may_id,
-    );
-    return nhomMayTheoLoai(loc);
+    const cd = congDoanRefs?.find((c) => c.id === row.cong_doan_id) ?? null;
+    return nhomMayTheoLoai(mayChonDuoc(mayRefs, cd, row.may_id));
   }, [mayRefs, congDoanRefs, row.cong_doan_id, row.may_id]);
 
   // Đầu việc khoán chọn được: danh sách server gửi + giữ cả đầu việc ĐANG ghim dù nó không còn khớp
@@ -212,8 +207,15 @@ export function LsxBuocDrawer({
   // "Nhảy tiền" khi đổi đầu việc: server tính sẵn tiền công của TỪNG lựa chọn cho đúng bước này
   // (`tien_du_kien`), nên chọn ở dropdown là ra số ngay — khỏi Lưu trước. Có key ⇒ option đến từ
   // server cho bước hiện tại; đổi tổ nạp lại danh sách KHÔNG kèm số ⇒ rơi về "Lưu công đoạn…".
-  const khoanLive =
-    khoanDaChon && "tien_du_kien" in khoanDaChon ? khoanDaChon : undefined;
+  //
+  // `khoan_xem_truoc` THẮNG khi có (07/09/2026): số của dropdown tính theo SỐ LƯỢT ĐÃ LƯU, nên bấm
+  // "2 lượt" mà đọc nó thì tiền đứng im dù công thức có chip `so_luot_chay`. Bản xem trước hỏi lại
+  // server với đúng số lượt đang hiện, nên nó mới là số sẽ thấy sau khi Lưu.
+  const khoanXt = row.khoan_xem_truoc;
+  const khoanLive = khoanXt
+    ? { tien_du_kien: khoanXt.khoan_tien,
+        dien_giai_du_kien: khoanXt.khoan_dien_giai ?? khoanXt.khoan_ly_do }
+    : khoanDaChon && "tien_du_kien" in khoanDaChon ? khoanDaChon : undefined;
   const nhomPhuThuoc = useMemo(() => {
     const currentLsxId = phuThuocRefs.find((o) => o.step_key === row.key)?.lsx_id;
     const groups = new Map<number, typeof phuThuocRefs>();
