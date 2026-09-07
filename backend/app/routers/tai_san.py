@@ -172,6 +172,7 @@ def _bang_ky(ky: KyService, nam: int, thang: int) -> BangKyOut:
         trang_thai=k.trang_thai if k else "mo",
         tong_muc_trich=sum(int(h["muc_trich"]) for h in items),
         items=items,
+        lich_su=ky.lich_su(nam, thang),
     )
 
 
@@ -217,9 +218,9 @@ def chot_ky(
 
 
 @router.post("/ky/{nam}/{thang}/mo", response_model=KyOut)
-def mo_ky(nam: int, thang: int, ky: Ky, _: Annotated[User, Depends(_CHOT)]) -> KyOut:
+def mo_ky(nam: int, thang: int, ky: Ky, user: Annotated[User, Depends(_CHOT)]) -> KyOut:
     try:
-        return KyOut.model_validate(ky.mo(nam, thang))
+        return KyOut.model_validate(ky.mo(nam, thang, user_id=user.id))
     except LOI_NGHIEP_VU as e:
         raise _bao_loi(e) from None
 

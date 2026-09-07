@@ -177,12 +177,25 @@ class HangBangKyOut(BaseModel):
     con_lai: int
 
 
+class VetKyOut(BaseModel):
+    """Một lần chốt hoặc mở lại kỳ. `so_tien` là độ lớn, hướng đọc ở `hanh_dong`."""
+
+    id: int
+    hanh_dong: str          # chot | mo
+    so_tien: int
+    so_mon: int
+    nguoi_ten: str | None = None
+    thoi_diem: datetime
+
+
 class BangKyOut(BaseModel):
     nam: int
     thang: int
     trang_thai: str
     tong_muc_trich: int
     items: list[HangBangKyOut]
+    #: Vết chốt/mở của chính kỳ này — đi kèm bảng, không bắt màn hình gọi thêm một lượt.
+    lich_su: list[VetKyOut] = []
 
 
 # --- Kiểm kê -----------------------------------------------------------------------------

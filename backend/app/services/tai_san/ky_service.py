@@ -14,6 +14,10 @@ chưa chốt nằm trước nó (`_luy_ke_dau_ky`).
 Điều chuyển giữa tháng: chi phí kỳ đó về NGUYÊN bộ phận đang giữ lúc tính (không chia đôi theo
 ngày) — đã chốt như vậy ở spec §4, vì chia đôi một tháng khấu hao theo ngày công không ai đối
 chiếu nổi trên bảng in.
+
+Vì chốt/mở là hai thao tác DUY NHẤT chạm `hao_mon_luy_ke`, mỗi lần đều ghi một dòng
+`tai_san_ky_log` (append-only) kèm số tiền đã cộng/trừ. Tính KHÔNG ghi vết: nó không đụng sổ,
+mà bấm Tính là chuyện thường ngày — ghi cả vào thì vết chốt chìm nghỉm giữa hàng chục dòng.
 """
 from __future__ import annotations
 
@@ -27,13 +31,17 @@ from ...models.tai_san import (
     BD_GHI_GIAM,
     BD_NANG_CAP,
     KY_DA_CHOT,
+    KY_LOG_CHOT,
+    KY_LOG_MO,
     KY_MO,
     TT_DANG_DUNG,
     TaiSan,
     TaiSanBienDong,
     TaiSanKhauHao,
     TaiSanKy,
+    TaiSanKyLog,
 )
+from ...models.user import User
 from .khau_hao import trich_mot_ky
 
 
@@ -192,6 +200,50 @@ class KyService:
             for kh, t, ten_bp in self.db.execute(stmt)
         ]
 
+    # --- Vết chốt / mở ----------------------------------------------------------------------
+
+    def _ghi_vet(
+        self,
+        nam: int,
+        thang: int,
+        hanh_dong: str,
+        so_tien: int,
+        so_mon: int,
+        user_id: int | None,
+    ) -> None:
+        """Thêm một dòng vết. KHÔNG commit — đi chung transaction với chính thao tác nó ghi lại,
+        nên không bao giờ có vết của một lần chốt đã rollback, cũng không có lần chốt không vết."""
+        self.db.add(
+            TaiSanKyLog(
+                ky_nam=nam,
+                ky_thang=thang,
+                hanh_dong=hanh_dong,
+                so_tien=int(so_tien),
+                so_mon=int(so_mon),
+                nguoi_id=user_id,
+            )
+        )
+
+    def lich_su(self, nam: int, thang: int) -> list[dict]:
+        """Vết chốt/mở của MỘT kỳ, mới nhất trước."""
+        stmt = (
+            select(TaiSanKyLog, User.name)
+            .outerjoin(User, User.id == TaiSanKyLog.nguoi_id)
+            .where(TaiSanKyLog.ky_nam == nam, TaiSanKyLog.ky_thang == thang)
+            .order_by(TaiSanKyLog.thoi_diem.desc(), TaiSanKyLog.id.desc())
+        )
+        return [
+            {
+                "id": v.id,
+                "hanh_dong": v.hanh_dong,
+                "so_tien": int(v.so_tien or 0),
+                "so_mon": int(v.so_mon or 0),
+                "nguoi_ten": ten,
+                "thoi_diem": v.thoi_diem,
+            }
+            for v, ten in self.db.execute(stmt)
+        ]
+
     # --- Chốt / mở --------------------------------------------------------------------------
 
     def chot(self, nam: int, thang: int, *, user_id: int | None = None) -> TaiSanKy:
@@ -218,15 +270,19 @@ class KyService:
                 )
             ).scalars()
         )
+        cong, so_mon = 0, 0
         for d in dong:
             t = self.db.get(TaiSan, d.tai_san_id)
             if t is not None:
                 t.hao_mon_luy_ke = int(t.hao_mon_luy_ke or 0) + int(d.muc_trich or 0)
+                cong += int(d.muc_trich or 0)
+                so_mon += 1
 
         k = self._ky_hoac_tao(nam, thang)
         k.trang_thai = KY_DA_CHOT
         k.ngay_chot = datetime.now(timezone.utc)
         k.nguoi_chot_id = user_id
+        self._ghi_vet(nam, thang, KY_LOG_CHOT, cong, so_mon, user_id)
         self.db.commit()
         return k
 
@@ -265,7 +321,7 @@ class KyService:
             f"lũy kế vì chứng từ đó đã viết lại nguyên giá và hao mòn của món."
         )
 
-    def mo(self, nam: int, thang: int) -> TaiSanKy:
+    def mo(self, nam: int, thang: int, *, user_id: int | None = None) -> TaiSanKy:
         k = self.lay_ky(nam, thang)
         if k is None:
             raise KyKhongTonTai(f"Chưa có kỳ {thang:02d}/{nam}")
@@ -288,6 +344,7 @@ class KyService:
 
         self._chan_chung_tu_sau_ky(nam, thang)
 
+        tru, so_mon = 0, 0
         for d in self.db.execute(
             select(TaiSanKhauHao).where(
                 TaiSanKhauHao.ky_nam == nam, TaiSanKhauHao.ky_thang == thang
@@ -296,9 +353,12 @@ class KyService:
             t = self.db.get(TaiSan, d.tai_san_id)
             if t is not None:
                 t.hao_mon_luy_ke = int(t.hao_mon_luy_ke or 0) - int(d.muc_trich or 0)
+                tru += int(d.muc_trich or 0)
+                so_mon += 1
 
         k.trang_thai = KY_MO
         k.ngay_chot = None
         k.nguoi_chot_id = None
+        self._ghi_vet(nam, thang, KY_LOG_MO, tru, so_mon, user_id)
         self.db.commit()
         return k

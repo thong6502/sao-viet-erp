@@ -10,6 +10,7 @@ from app.db import Base
 import app.models  # noqa: F401
 from app.models.department import Department
 from app.models.tai_san import LOAI_CCDC, LOAI_TSCD
+from app.models.user import User
 from app.repositories.tai_san_repo import TaiSanRepository
 from app.services.tai_san.ky_service import (
     KyCoChungTuSau,
@@ -188,3 +189,73 @@ def test_dieu_chuyen_sau_ky_van_mo_lai_duoc():
     assert ky.mo(2026, 3).trang_thai == "mo"
     db.refresh(t)
     assert t.hao_mon_luy_ke == 0
+
+
+# --- Vet chot / mo ---------------------------------------------------------------------------
+
+
+def _nguoi(db, ten="Nguyen Van Giam"):
+    u = User(username="ketoan1", name=ten, password_hash="x")
+    db.add(u)
+    db.commit()
+    return u
+
+
+def test_tinh_khong_de_lai_vet():
+    """Bam Tinh la chuyen thuong ngay va khong dung toi luy ke — ghi vet thi vet chot chim nghim."""
+    db, svc, ky = _moi_truong()
+    _komori(svc)
+    ky.tinh(2026, 3)
+    assert ky.lich_su(2026, 3) == []
+
+
+def test_chot_ghi_vet_kem_so_tien_va_nguoi():
+    db, svc, ky = _moi_truong()
+    u = _nguoi(db)
+    _komori(svc)
+    ky.tinh(2026, 3)
+    ky.chot(2026, 3, user_id=u.id)
+    vet = ky.lich_su(2026, 3)
+    assert len(vet) == 1
+    assert vet[0]["hanh_dong"] == "chot"
+    assert vet[0]["so_tien"] == 19_516_129        # dung bang so vua cong vao hao mon luy ke
+    assert vet[0]["so_mon"] == 1
+    assert vet[0]["nguoi_ten"] == "Nguyen Van Giam"
+
+
+def test_mo_lai_ky_van_giu_vet_lan_chot_truoc():
+    """`tai_san_ky` xoa sach nguoi/ngay chot khi mo lai — vet la cho DUY NHAT con lai."""
+    db, svc, ky = _moi_truong()
+    u = _nguoi(db)
+    _komori(svc)
+    ky.tinh(2026, 3)
+    ky.chot(2026, 3, user_id=u.id)
+    k = ky.mo(2026, 3, user_id=u.id)
+    assert k.ngay_chot is None and k.nguoi_chot_id is None
+    vet = ky.lich_su(2026, 3)
+    assert [v["hanh_dong"] for v in vet] == ["mo", "chot"]      # moi nhat truoc
+    assert vet[0]["so_tien"] == vet[1]["so_tien"] == 19_516_129
+    assert vet[0]["so_mon"] == 1
+
+
+def test_chot_mo_chot_lai_de_lai_ba_vet():
+    db, svc, ky = _moi_truong()
+    _komori(svc)
+    ky.tinh(2026, 3)
+    ky.chot(2026, 3)
+    ky.mo(2026, 3)
+    ky.chot(2026, 3)
+    assert [v["hanh_dong"] for v in ky.lich_su(2026, 3)] == ["chot", "mo", "chot"]
+
+
+def test_vet_khong_lan_giua_cac_ky():
+    db, svc, ky = _moi_truong()
+    _komori(svc)
+    ky.tinh(2026, 3)
+    ky.chot(2026, 3)
+    ky.tinh(2026, 4)
+    ky.chot(2026, 4)
+    assert len(ky.lich_su(2026, 3)) == 1
+    thang_tu = ky.lich_su(2026, 4)
+    assert len(thang_tu) == 1
+    assert thang_tu[0]["so_tien"] == 27_500_000

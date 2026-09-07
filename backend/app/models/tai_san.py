@@ -14,7 +14,8 @@ không cần biết tài sản đến từ đường nào.
 
 Tiền để `BigInteger`: nguyên giá máy in tràn int32 trên Postgres (đã vỡ thật một lần).
 
-Bảng MỚI → `create_all` tự dựng; mg 0277 cấp QUYỀN cho vai đã có, mg 0278 gỡ ô định khoản.
+Bảng MỚI → `create_all` tự dựng (kể cả `tai_san_ky_log` thêm sau); mg 0277 cấp QUYỀN cho vai đã
+có, mg 0278 gỡ ô định khoản.
 """
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -52,6 +54,10 @@ NGUON_DAU_KY = "dau_ky"
 
 KY_MO = "mo"
 KY_DA_CHOT = "da_chot"
+
+# `tai_san_ky_log.hanh_dong` — hai thao tác làm hao mòn lũy kế nhúc nhích.
+KY_LOG_CHOT = "chot"
+KY_LOG_MO = "mo"
 
 KK_DANG_KIEM = "dang_kiem"
 KK_DA_KET = "da_ket"
@@ -223,6 +229,36 @@ class TaiSanKy(Base):
     ngay_chot: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     nguoi_chot_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class TaiSanKyLog(Base):
+    """Vết CHỐT / MỞ LẠI một kỳ khấu hao — APPEND-ONLY, không sửa không xoá.
+
+    `tai_san_ky` chỉ giữ trạng thái HIỆN TẠI: mở lại kỳ là `ngay_chot`/`nguoi_chot_id` về NULL,
+    lần chốt trước biến mất sạch. Mà chốt/mở là hai thao tác DUY NHẤT làm `hao_mon_luy_ke` nhúc
+    nhích, nên mất vết là mất luôn câu trả lời cho "tháng 9 ai chốt, chốt bao nhiêu tiền, sao
+    giờ số khác" — trong khi kho đã có vết ấy ở `kho_khoa_so`.
+
+    `so_tien` là ĐỘ LỚN (luôn ≥ 0) đã cộng vào (chốt) hoặc trừ ra (mở) khỏi hao mòn lũy kế —
+    hướng đọc ở `hanh_dong`. Số âm trong cột tiền chỉ tổ làm người đọc bảng phải tự suy.
+    """
+
+    __tablename__ = "tai_san_ky_log"
+    __table_args__ = (Index("ix_tai_san_ky_log_ky", "ky_nam", "ky_thang"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ky_nam: Mapped[int] = mapped_column(Integer, nullable=False)
+    ky_thang: Mapped[int] = mapped_column(Integer, nullable=False)
+    hanh_dong: Mapped[str] = mapped_column(String(8), nullable=False)
+    #: Tổng mức trích của kỳ tại ĐÚNG lúc bấm — chốt lại sau khi tính lại có thể ra số khác.
+    so_tien: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    so_mon: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    nguoi_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    thoi_diem: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
     )
 
 

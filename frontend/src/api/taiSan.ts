@@ -138,12 +138,23 @@ export interface HangBangKy {
   con_lai: number;
 }
 
+/** Một lần chốt hoặc mở lại kỳ. `so_tien` là ĐỘ LỚN, hướng đọc nằm ở `hanh_dong`. */
+export interface VetKy {
+  id: number;
+  hanh_dong: "chot" | "mo";
+  so_tien: number;
+  so_mon: number;
+  nguoi_ten: string | null;
+  thoi_diem: string;
+}
+
 export interface BangKy {
   nam: number;
   thang: number;
   trang_thai: string;
   tong_muc_trich: number;
   items: HangBangKy[];
+  lich_su: VetKy[];
 }
 
 export interface KiemKeDong {

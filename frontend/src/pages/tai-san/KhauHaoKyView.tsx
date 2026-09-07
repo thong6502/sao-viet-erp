@@ -9,6 +9,10 @@
 //
 // Vì thế nút Tính biến mất khi kỳ đã chốt: còn đó thì sớm muộn có người bấm và tự hỏi vì sao
 // bảng không đổi.
+//
+// Và vì chốt/mở là hai thao tác DUY NHẤT làm lũy kế nhúc nhích, mỗi lần bấm để lại một dòng vết
+// (`lich_su`) hiện ngay dưới bảng — mở lại kỳ xoá sạch người/ngày chốt trên `tai_san_ky`, không
+// có vết thì không ai trả lời được "tháng này ai chốt, chốt bao nhiêu, sao giờ số khác".
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import { NHAN_TRANG_THAI_KY, taiSanApi, type BangKy } from "../../api/taiSan";
@@ -17,6 +21,7 @@ import { useCan } from "../../auth/permissions";
 import { Button } from "../../components/Button";
 import { Icon } from "../../components/Icons";
 import { MonthPicker } from "../../components/MonthPicker";
+import { fmtDateTime } from "../../utils/format";
 import { Badge, tien } from "./chung";
 
 function kyHienTai(): string {
@@ -236,6 +241,37 @@ export function KhauHaoKyView() {
           </tbody>
         </table>
       </div>
+
+      {/* Chỉ hiện khi kỳ ĐÃ từng được chốt: kỳ chưa ai đụng tới thì một ô "chưa có vết" rỗng
+          chỉ tổ choán chỗ. Câu chú thích đứng một lần ở tiêu đề, thay vì mỗi dòng một dấu +/−
+          bắt người đọc tự giải nghĩa. */}
+      {bang && bang.lich_su.length > 0 && (
+        <section className="ts-vet">
+          {/* `{" "}` là bắt buộc: xuống dòng ngay trước một thẻ thì JSX nuốt luôn khoảng trắng,
+              ra "Vết chốt / mở kỳ— số tiền…" dính liền. */}
+          <h3 className="ts-vet__de">
+            Vết chốt / mở kỳ{" "}
+            <span className="ts-vet__chu">
+              — số tiền là phần đã cộng vào (chốt) hoặc trừ ra (mở) khỏi hao mòn lũy kế
+            </span>
+          </h3>
+          <ul className="ts-vet__ds">
+            {bang.lich_su.map((v) => (
+              <li key={v.id} className="ts-vet__dong">
+                <Badge he={v.hanh_dong === "chot" ? "da_chot" : "mo"}>
+                  {v.hanh_dong === "chot" ? "Chốt kỳ" : "Mở lại kỳ"}
+                </Badge>
+                <span className="ts-vet__tien">{tien(v.so_tien)} đ</span>
+                <span className="ts-vet__phu">{v.so_mon} món</span>
+                <span className="ts-vet__phu ts-vet__nguoi">{v.nguoi_ten ?? "—"}</span>
+                <time className="ts-vet__phu" dateTime={v.thoi_diem}>
+                  {fmtDateTime(v.thoi_diem)}
+                </time>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </>
   );
 }

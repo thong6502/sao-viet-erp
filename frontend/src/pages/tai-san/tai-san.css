@@ -178,6 +178,40 @@
   background: var(--paper, #fdfcf8);
 }
 
+/* --- Vết chốt / mở kỳ ---------------------------------------------------------
+   DANH SÁCH chứ không phải bảng: mỗi dòng là bốn mẩu tin ngắn, dựng thành bảng thì ba trong bốn
+   tiêu đề cột dài hơn chính dữ liệu nằm dưới nó. Nằm DƯỚI bảng khấu hao vì đây là thứ tra khi
+   có nghi vấn, không phải thứ đọc mỗi ngày. */
+.ts-vet { margin-top: var(--sp-4, 16px); }
+.ts-vet__de {
+  margin: 0 0 var(--sp-2, 8px);
+  font-size: 12.5px;
+  font-weight: var(--fw-semibold, 600);
+  color: var(--ink, #1f2937);
+}
+.ts-vet__chu { font-weight: 400; color: var(--ash-2, #94a3b8); }
+.ts-vet__ds {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: 9px;
+  background: var(--paper, #fdfcf8);
+}
+.ts-vet__dong {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 8px);
+  padding: 8px 12px;
+  font-size: 12.5px;
+}
+.ts-vet__dong + .ts-vet__dong { border-top: 1px solid var(--rule-hair, #f1f5f9); }
+.ts-vet__tien { font-weight: var(--fw-semibold, 600); font-variant-numeric: tabular-nums; }
+.ts-vet__phu { color: var(--ash, #475569); }
+/* Đẩy người + thời điểm về phải bằng margin trên MỘT phần tử. `space-between` rải khoảng trống
+   đều vào mọi khe, hai mẩu bên phải bị tách rời nhau trông như hai cột lạc. */
+.ts-vet__nguoi { margin-left: auto; }
+
 /* --- Kiểm kê -----------------------------------------------------------------
    Hai nút to trên từng dòng: người đi kiểm cầm máy tính bảng đứng giữa xưởng, không rê chuột
    chọn dropdown được. */
@@ -332,6 +366,12 @@
      hàng riêng, đọc liền một mạch. */
   .ts-bd__dong { flex-wrap: wrap; }
   .ts-bd__ly-do { flex: 1 1 100%; }
+
+  /* --- Vết chốt / mở kỳ ----------------------------------------------------
+     Bốn mẩu tin không nằm vừa một hàng 375px. Cho xuống hàng và BỎ luôn cú đẩy sang phải: đẩy
+     trong lúc wrap thì thời điểm rơi xuống một mình, hàng trên hở một khoảng trống giữa chừng. */
+  .ts-vet__dong { flex-wrap: wrap; }
+  .ts-vet__nguoi { margin-left: 0; }
 }
 
 /* --- Màn cảm ứng: nút phải đủ to để chạm ------------------------------------

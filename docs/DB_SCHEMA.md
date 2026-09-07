@@ -6316,7 +6316,8 @@ ghi lại (không cộng dồn); kỳ đã chốt thì đóng băng.
 
 **Purpose:** trạng thái một kỳ khấu hao. Chốt rồi thì mọi số của kỳ đó đóng băng: không tính lại,
 không sửa ô ảnh hưởng sổ, không lập chứng từ ngày trong kỳ. Cùng ý với `kho_khoa_so` /
-`cong_no_khoa_so` nhưng KHÔNG append-only: kỳ là tháng rời rạc nên một dòng một kỳ là đủ.
+`cong_no_khoa_so` nhưng bảng này chỉ giữ TRẠNG THÁI HIỆN TẠI — kỳ là tháng rời rạc nên một dòng
+một kỳ là đủ; lịch sử chốt/mở nằm ở `tai_san_ky_log`.
 
 | Column          | Type (SQLAlchemy → SQLite / Postgres)                 | Key           | Null | Default        | Meaning                        |
 | --------------- | ----------------------------------------------------- | ------------- | ---- | -------------- | ------------------------------ |
@@ -6335,8 +6336,44 @@ không sửa ô ảnh hưởng sổ, không lập chứng từ ngày trong kỳ.
 **Relationships**
 
 - Không FK sang `tai_san_khau_hao`; nối logic theo cặp (`ky_nam`, `ky_thang`).
+- Một `tai_san_ky` có n `tai_san_ky_log` (nối theo cặp `ky_nam`/`ky_thang`, không FK).
 
 **Tất cả cột:** `id`, `ky_nam`, `ky_thang`, `trang_thai`, `ngay_chot`, `nguoi_chot_id`.
+
+---
+
+### `tai_san_ky_log`
+
+**Purpose:** vết CHỐT / MỞ LẠI kỳ khấu hao — APPEND-ONLY, không sửa không xoá. `tai_san_ky` chỉ
+giữ trạng thái hiện tại: mở lại kỳ là `ngay_chot`/`nguoi_chot_id` về NULL, lần chốt trước mất
+sạch. Chốt và mở lại là hai thao tác DUY NHẤT làm `tai_san.hao_mon_luy_ke` nhúc nhích, nên mất
+vết là mất câu trả lời cho "tháng 9 ai chốt, chốt bao nhiêu, sao giờ số khác". Cùng vai với
+`kho_khoa_so` bên báo cáo kho.
+
+| Column      | Type (SQLAlchemy → SQLite / Postgres)                 | Key           | Null | Default        | Meaning                                              |
+| ----------- | ----------------------------------------------------- | ------------- | ---- | -------------- | ---------------------------------------------------- |
+| `id`        | `Integer` → `INTEGER` / `SERIAL`                       | **PK**        | no   | auto-increment | Surrogate primary key.                                |
+| `ky_nam`    | `Integer` → `INTEGER`                                  | **IX** (cặp)  | no   | —              | Năm của kỳ.                                           |
+| `ky_thang`  | `Integer` → `INTEGER`                                  | **IX** (cặp)  | no   | —              | Tháng của kỳ (1–12).                                  |
+| `hanh_dong` | `String(8)` → `VARCHAR(8)`                             | —             | no   | —              | `chot` \| `mo`.                                       |
+| `so_tien`   | `BigInteger` → `BIGINT`                                | —             | no   | `0`            | ĐỘ LỚN (≥ 0) đã cộng vào / trừ ra khỏi hao mòn lũy kế tại đúng lúc bấm. Hướng đọc ở `hanh_dong`. |
+| `so_mon`    | `Integer` → `INTEGER`                                  | —             | no   | `0`            | Số tài sản có số trong kỳ lúc đó.                     |
+| `nguoi_id`  | `Integer` → `INTEGER`                                  | FK→`users.id` | yes  | —              | Người bấm. `ON DELETE SET NULL`.                      |
+| `thoi_diem` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —             | no   | now (UTC)      | Lúc bấm.                                              |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `ix_tai_san_ky_log_ky` trên (`ky_nam`, `ky_thang`) — màn hình luôn
+  đọc vết theo MỘT kỳ.
+- Foreign key: `nguoi_id FK→users.id` (SET NULL) — xoá tài khoản thì vết vẫn còn, chỉ mất tên.
+- KHÔNG unique: chốt rồi mở rồi chốt lại cùng một kỳ là chuyện bình thường, mỗi lần một dòng.
+
+**Relationships**
+
+- Nhiều `tai_san_ky_log` thuộc một kỳ; nối logic với `tai_san_ky` theo cặp (`ky_nam`, `ky_thang`).
+
+**Tất cả cột:** `id`, `ky_nam`, `ky_thang`, `hanh_dong`, `so_tien`, `so_mon`, `nguoi_id`,
+`thoi_diem`.
 
 ---
 
