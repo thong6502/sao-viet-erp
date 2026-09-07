@@ -186,21 +186,25 @@ def _dung_nen(client, h) -> dict[str, dict]:
         "ghi_chu": "gc", "hieu_luc_tu": "2026-01-01"})
     ra["chung_loai_giay"] = _tao(client, h, "chung_loai_giay", {
         "ma": MA["chung_loai_giay"], "ten": "Couche thử", "mo_ta": "mô tả"})
+    # Công thức nền dùng TÊN BIẾN THẬT (`bien_cong_thuc._BANG`). Trước 07/09/2026 chỗ này gõ
+    # `khoi_luong * don_gia` · `so_kg * don_gia` · `so_to * 100` — ba tên không hề tồn tại, và
+    # không ai phát hiện vì server chưa soi ô công thức lúc lưu. Nay có soi (`kiem_cong_thuc`) nên
+    # nền phải là câu chạy được, đúng như dữ liệu thật.
     ra["giay"] = _tao(client, h, "giay", {
         "ma": MA["giay"], "ten": "Giấy thử", "gsm": 250,
         "chung_loai_giay_id": ra["chung_loai_giay"]["id"], "caliper_micron": 300,
         "tho": "canh_dai", "don_vi_gia": "kg", "don_gia": 28000, "gia_thi_truong": 30000,
-        "kho_tinh_gia": True, "ghi_chu": "gc", "cong_thuc_gia": "khoi_luong * don_gia",
+        "kho_tinh_gia": True, "ghi_chu": "gc", "cong_thuc_gia": "dinh_luong * don_gia_giay",
         "cong_thuc_luong": "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen"})
     ra["vat_tu"] = _tao(client, h, "vat_tu", {
         "ma": MA["vat_tu"], "ten": "Mực thử", "don_vi_gia": "kg", "don_gia": 450000,
-        "ghi_chu": "gc", "cong_thuc_gia": "so_kg * don_gia"})
+        "ghi_chu": "gc", "cong_thuc_gia": "to_sau_in * don_gia_vat_tu"})
     ra["thanh_pham"] = _tao(client, h, "thanh_pham", {
         "ma": MA["thanh_pham"], "ten": "Thành phẩm thử", "don_vi_gia": "cai", "ghi_chu": "gc"})
     ra["cong_doan"] = _tao(client, h, "cong_doan", {
         "ma": MA["cong_doan"], "ten": "Công đoạn thử", "ten_hien_thi": "CĐ thử",
         "nhom": "finishing", "don_vi_vao": "to", "don_vi_ra": "con",
-        "cong_thuc_gia": "so_to * 100", "kieu_bu_hao": "khong",
+        "cong_thuc_gia": "to_dau_vao * 100", "kieu_bu_hao": "khong",
         "che_do_tinh": "theo_san_luong", "pricing_basis": "per_other",
         "department_id": to_id, "khoan_ghi_theo": "khong",
         "nhom_may_cho_phep": ["Bế"], "setup_cost": 50000, "setup_time": 15,
@@ -306,16 +310,21 @@ def test_xuat_du_moi_o_cong_thuc_dang_chay(client, seed_credentials):
     _dung_nen(client, h)
 
     mong = {
-        "giay": {"Công thức giá": "khoi_luong * don_gia",
-                 "Công thức lượng": "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen"},
-        "vat_tu": {"Công thức giá": "so_kg * don_gia"},
-        "cong_doan": {"Công thức giá": "so_to * 100", "Công thức sản lượng": None},
+        # Cột của Giấy đổi tên "Công thức lượng" → "Công thức tính định mức" (07/09/2026), cùng
+        # đợt mở lại ô đó trong drawer. Cột trỏ đúng `giay_nguyen.cong_thuc_luong` như cũ.
+        "giay": {"Công thức giá": "dinh_luong * don_gia_giay",
+                 "Công thức tính định mức": "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen"},
+        "vat_tu": {"Công thức giá": "to_sau_in * don_gia_vat_tu"},
+        "cong_doan": {"Công thức giá": "to_dau_vao * 100", "Công thức sản lượng": None},
     }
-    # Máy · Công việc khoán · Vật tư khác KHÔNG còn cột "Công thức lượng" (mg `0274`) — cách đo
-    # nay khai ở drawer Công đoạn, file Excel của ba màn này không được mời sửa lại nó.
+    # Máy · Công việc khoán · Vật tư khác KHÔNG còn cột đo lượng nào (mg `0274`) — cách đo nay
+    # khai ở drawer Công đoạn, file Excel của ba màn này không được mời sửa lại nó. Bắt cả hai
+    # tên: tên cũ ("Công thức lượng") lẫn tên mới ("… định mức"), không thì đổi tên xong là test
+    # xanh trong khi cột lặng lẽ mọc lại.
     for loai in ("vat_tu", "cong_viec_khoan", "may_thiet_bi"):
         tieu_de, _ = _chinh(client, h, loai)
         assert "Công thức lượng" not in tieu_de, loai
+        assert "Công thức tính định mức" not in tieu_de, loai
     for loai, cot in mong.items():
         tieu_de, dong = _chinh(client, h, loai)
         d = _dong_theo_ma(tieu_de, dong, MA[loai])
@@ -448,12 +457,12 @@ def test_sua_cong_thuc_o_sheet_chinh(client, seed_credentials):
     i_ma, i_ct = tieu_de.index("Mã"), tieu_de.index("Công thức giá")
     for hang in wb[ten].iter_rows(min_row=2):
         if hang[i_ma].value == MA["giay"]:
-            hang[i_ct].value = "khoi_luong * don_gia * 1.1"
+            hang[i_ct].value = "dinh_luong * don_gia_giay * 1.1"
 
     kq = _nhap(client, h, prefix, _bytes(wb), mode="commit").json()
     assert kq["hop_le"] and (kq["tao_moi"], kq["cap_nhat"]) == (0, 1), kq
     r = client.get(f"{prefix}/{nen['giay']['id']}", headers=h).json()
-    assert r["cong_thuc_gia"] == "khoi_luong * don_gia * 1.1"
+    assert r["cong_thuc_gia"] == "dinh_luong * don_gia_giay * 1.1"
 
 
 def test_sua_bac_bu_hao_va_xoa_mot_bac(client, seed_credentials):
@@ -892,3 +901,16 @@ def test_guard_khong_khai_thua_field_khong_ai_ghi_duoc():
     for loai, spec in SPECS.items():
         thua = {c.field for c in spec.cot if not c.chi_doc} - set(spec.repo_cls.fields) - ngoai_le
         assert not thua, f"{loai}: cột Excel {sorted(thua)} trỏ vào field repo không cho ghi"
+
+
+def test_excel_cong_doan_co_cot_cach_do_gio_chay():
+    """Sheet "Đầu việc định mức" phải chở CẢ HAI ô công thức.
+
+    Thiếu cột nào là nhập một file xuất ra từ chính hệ cũng xoá sạch ô đó của mọi công đoạn —
+    `CongDoanRepository._sau_gan` thay TRỌN bảng con mỗi lần ghi.
+    """
+    from app.services.catalog_excel_specs import SPECS
+
+    [con] = [s for s in SPECS["cong_doan"].sheets_con if s.field == "dau_viec_dinh_muc"]
+    khoa = [c.field for c in con.cot]
+    assert "cong_thuc_khoan" in khoa and "cong_thuc_gio" in khoa

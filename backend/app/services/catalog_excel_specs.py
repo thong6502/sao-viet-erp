@@ -402,7 +402,7 @@ GIAY = CatalogExcelSpec(
         Cot("Dùng tính giá", "kho_tinh_gia", kieu="bool", rong=14),
         Cot("Ghi chú", "ghi_chu", rong=32),
         Cot("Công thức giá", "cong_thuc_gia", rong=36),
-        Cot("Công thức lượng", "cong_thuc_luong", rong=36),
+        Cot("Công thức tính định mức", "cong_thuc_luong", rong=36),
         CO_ACTIVE,
         # Cột đời cũ: một ô "MÃ1, MÃ2". Nay là sheet con — sheet con áp SAU nên nó thắng nếu file
         # có cả hai.
@@ -485,6 +485,7 @@ def _doc_dau_viec_hien_co(obj, ctx: NguCanh) -> list[dict]:
             "don_vi_nang_suat": dv.don_vi_nang_suat,
             "so_nguoi_tieu_chuan": dv.so_nguoi_tieu_chuan,
             "cong_thuc_khoan": dv.cong_thuc_khoan,
+            "cong_thuc_gio": dv.cong_thuc_gio,
         }
         for dv in (getattr(obj, "dau_viec_dinh_muc", None) or [])
     ]
@@ -613,6 +614,7 @@ CONG_DOAN = CatalogExcelSpec(
                 Cot("Đơn vị năng suất", "don_vi_nang_suat", rong=18),
                 Cot("Số người tiêu chuẩn", "so_nguoi_tieu_chuan", kieu="nguyen", rong=18),
                 Cot("Công thức tính tiền công", "cong_thuc_khoan", rong=36),
+                Cot("Cách đo giờ chạy", "cong_thuc_gio", rong=36),
             ),
             doc_hien_co=_doc_dau_viec_hien_co, giu_khi_vang=_giu_dau_viec,
         ),

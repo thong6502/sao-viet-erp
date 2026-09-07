@@ -187,6 +187,7 @@ NHAN: dict[str, str] = {
     "he_so_goc": "Hệ số về đơn vị gốc",
     "hieu_luc_tu": "Hiệu lực từ",
     "dung_lam_toc_do": "Dùng làm đơn vị tốc độ",
+    "tram_dong_giay": "Trạm trên dòng giấy",
     # Chủng loại giấy · Giấy
     "chung_loai_giay_id": "Chủng loại giấy",
     "gsm": "Định lượng",
@@ -440,7 +441,8 @@ def _con_cua_cong_doan(obj: Any) -> dict[str, dict[str, Any]]:
     dv: dict[str, Any] = {}
     for r in (getattr(obj, "dau_viec_dinh_muc", None) or []):
         dau = f"Đầu việc #{r.piece_rate_id}"
-        dv[f"{dau} · {NHAN['cong_thuc_khoan']}"] = getattr(r, "cong_thuc_khoan", None)
+        for truong in ("cong_thuc_khoan", "cong_thuc_gio"):
+            dv[f"{dau} · {NHAN[truong]}"] = getattr(r, truong, None)
         for v in (getattr(r, "vat_tus", None) or []):
             dv[f"{dau} › vật tư #{v.vat_tu_id} · {NHAN['cong_thuc_luong']}"] = (
                 getattr(v, "cong_thuc_luong", None))
