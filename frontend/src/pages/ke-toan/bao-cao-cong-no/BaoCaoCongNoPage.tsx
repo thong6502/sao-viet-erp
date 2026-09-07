@@ -560,7 +560,6 @@ export function BaoCaoCongNoPage({
               <th rowSpan={2} className="bccn__th-ten">
                 {data?.nhan_ten ?? "Tên đối tượng"}
               </th>
-              <th rowSpan={2}>TK công nợ</th>
               <th colSpan={2} className="bccn__cum">
                 Số dư đầu kỳ
               </th>
@@ -659,9 +658,7 @@ export function BaoCaoCongNoPage({
                       </span>
                     )}
                   </td>
-                  <td className="bccn__tk-cell">
-                    {/* {d.tk && d.tk !== "131" && d.tk !== "331" ? d.tk : ""} */}
-                  </td>
+
                   <td>
                     <O v={d.dau_no} />
                   </td>
