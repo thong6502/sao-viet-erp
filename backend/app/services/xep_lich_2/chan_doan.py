@@ -22,7 +22,7 @@ from __future__ import annotations
 from ...models.lsx import LB_MAY, LB_TO
 from ...models.may_thiet_bi import MayThietBi
 from ...repositories.don_vi_do_repo import nhan_don_vi
-from ..lsx_service import _f, ma_don_vi_toc_do
+from ..lsx_service import _f, dich_gio_cua_khoan, ma_don_vi_toc_do
 
 #: Câu chốt hạ khi không dựng nổi câu cụ thể (thiếu cả bước gốc) — vẫn phải nói mã đang vướng.
 _MAC_DINH = {
@@ -59,9 +59,15 @@ def _dv(service, ma) -> str:
 
 
 def _khoan(service, cd) -> tuple[str, str]:
-    """(tên đầu việc khoán, TÊN đơn vị đơn giá) đã ghim ở bước — rỗng khi bước chưa chọn đầu việc."""
+    """(tên đầu việc khoán, TÊN đơn vị ĐÍCH để đo giờ) — rỗng khi bước chưa chọn đầu việc.
+
+    Đơn vị ĐÍCH, không phải đơn vị đơn giá khoán: từ 07/09/2026 hai thứ tách hẳn nhau (khai được
+    "tiền tính theo kg mực, giờ tính theo tờ"). Mấy câu dùng hàm này đều chỉ đường đi khai CẦU QUY
+    ĐỔI / NĂNG SUẤT cho phép chia ra GIỜ — đọc sang đơn vị tiền là chỉ sai ô, người xếp lịch khai
+    xong đúng y hướng dẫn mà cảnh báo vẫn còn nguyên.
+    """
     kh = getattr(cd, "khoan_json", None) or {}
-    return _txt(kh.get("ten")), _dv(service, kh.get("don_vi"))
+    return _txt(kh.get("ten")), _dv(service, dich_gio_cua_khoan(kh)[0])
 
 
 def _nhan_vao(service, cd) -> tuple[str, str]:

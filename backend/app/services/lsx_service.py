@@ -1477,8 +1477,10 @@ class LsxService:
         kip = max(int(khoan.get("so_nguoi_tieu_chuan") or 1), 1) if khoan else 1
         if loai_buoc == LB_TO and khoan:
             nang_suat = _f(khoan.get("nang_suat_nguoi_gio")) or None
-            # Đơn vị của năng suất LÀ đơn vị đơn giá khoán — thời lượng quy SL vào về chính nó.
-            dv_nang_suat = khoan.get("don_vi")
+            # Đích đo GIỜ của đầu việc (ô "Cách đo giờ chạy"), KHÔNG phải đơn vị đơn giá khoán —
+            # hai thứ tách nhau từ 07/09/2026. Lấy sai thì cột này và ảnh chụp `khoan_json` của
+            # cùng một bước nói hai đơn vị khác nhau.
+            dv_nang_suat = dich_gio_cua_khoan(khoan)[0]
         return {
             "loai_buoc": loai_buoc,
             "so_luong_vao": vao,
