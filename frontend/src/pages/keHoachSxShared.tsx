@@ -1,13 +1,10 @@
-// Mảnh dùng chung của bàn Kế hoạch sản xuất: pill trạng thái · chip cờ · chip thiếu · skeleton ·
-// empty-state · helper định dạng số/ngày. Tách riêng để 4 view (hàng chờ · preview · list · chi
-// tiết) không chép lại — và để mọi nhãn trạng thái nằm ĐÚNG MỘT chỗ.
+// Mảnh dùng chung của bàn Kế hoạch sản xuất: pill trạng thái · chip cờ · skeleton · empty-state ·
+// helper định dạng số/ngày. Tách riêng để 4 view (hàng chờ · preview · list · chi tiết) không chép
+// lại — và để mọi nhãn trạng thái nằm ĐÚNG MỘT chỗ.
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "../components/Icons";
 import {
   LSX_LOAI_BUOC_META,
-  LSX_THIEU_LABELS,
-  nhanMa,
-  type DonViNhan,
   type LsxDen,
   type LsxLoaiBuoc,
   type LsxTrangThai,
@@ -317,42 +314,9 @@ export function DenTienDo({
   );
 }
 
-/** Chip THIẾU — bo vuông (khác pill trạng thái bo tròn) để không lẫn.
- *
- *  `dv` = đơn vị bốn chặng của CHÍNH lệnh/dòng đang xét. Bốn câu checklist có nhắc đơn vị sẽ gọi
- *  tên xưởng đặt thay vì chữ cứng "tờ in → con" (xem `LSX_THIEU_LABELS`). Không truyền cũng chạy:
- *  câu lùi về bản chung. */
-export function ChipThieu({ code, dv }: { code: string; dv?: DonViNhan | null }) {
-  return (
-    <span className="khsx-need">
-      <Icon name="x" size={10} /> {nhanMa(LSX_THIEU_LABELS, code, dv)}
-    </span>
-  );
-}
-
-/** Xếp chồng chip thiếu, tối đa `max` rồi gộp phần dư → chiều cao hàng không giật. */
-export function ThieuStack(
-  { codes, max = 2, dv }: { codes: string[]; max?: number; dv?: DonViNhan | null },
-) {
-  if (!codes.length) return <span className="khsx-muted">—</span>;
-  const hien = codes.slice(0, max);
-  const du = codes.slice(max);
-  return (
-    <span className="khsx-need-stack">
-      {hien.map((c) => (
-        <ChipThieu key={c} code={c} dv={dv} />
-      ))}
-      {du.length > 0 && (
-        <span
-          className="khsx-need khsx-need--more"
-          title={du.map((c) => nhanMa(LSX_THIEU_LABELS, c, dv)).join(" · ")}
-        >
-          +{du.length}
-        </span>
-      )}
-    </span>
-  );
-}
+// `ChipThieu` / `ThieuStack` đã GỠ 07/09/2026 cùng cột "Thiếu" của bảng lệnh dự kiến — nơi duy
+// nhất dùng chúng. Màn LỆNH vẫn hiện checklist chặn, nhưng bằng dòng chữ trong khối "Còn thiếu"
+// (`LsxDetailView` gọi thẳng `nhanMa(LSX_THIEU_LABELS, …)`), không dùng chip.
 
 /** Cảnh báo MỀM (không nền) — phân cấp: đỏ có nền = chặn, vàng không nền = lưu ý. */
 export function CanhBaoMem({ children, title }: { children: ReactNode; title?: string }) {

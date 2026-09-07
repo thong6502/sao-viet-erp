@@ -74,7 +74,6 @@ class PreviewLine(BaseModel):
     don_vi_tay: str | None = None
     routing: list[PreviewRouting] = Field(default_factory=list)
     quy_cach: dict | None = None
-    thieu: list[str] = Field(default_factory=list)
     # SL lúc tính giá khác SL đơn → cảnh báo mềm (vẫn lấy số của đơn).
     sl_ptg: int | None = None
     # Đã tạo lệnh rồi → khoá dòng.

@@ -2,13 +2,14 @@
 // và xác nhận. Chưa bấm xác nhận thì CHƯA có gì ghi vào hệ thống.
 //
 // Nguyên tắc: máy không tự tạo, không tự bỏ dòng nào. Dòng còn thiếu dữ liệu VẪN tick được — lệnh
-// sinh ra ở trạng thái "Chờ bổ sung", đúng nghiệp vụ (thiếu khuôn/giấy vẫn phải có lệnh để làm tiếp).
+// sinh ra ở Nháp và kế hoạch khai nốt trên màn lệnh. Cột "Thiếu" + checklist chấm dòng đơn đã GỠ
+// 07/09/2026: cửa gác duy nhất là checklist của LỆNH (chặn "Sẵn sàng lập kế hoạch").
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api, type LsxPreviewLine, type LsxPreviewOut } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
-import { BangLoi, ChipGap, ChuoiCongDoan, CanhBaoMem, ThieuStack, ngay, num } from "./keHoachSxShared";
+import { BangLoi, ChipGap, ChuoiCongDoan, CanhBaoMem, ngay, num } from "./keHoachSxShared";
 import { donViChuoi, nhanDonVi } from "./lsxBuoc";
 
 export function LsxPreviewDrawer({
@@ -63,7 +64,6 @@ export function LsxPreviewDrawer({
 
   const chuaCoLenh = data?.lines.filter((l) => l.lsx_id == null) ?? [];
   const tatCaDaCoLenh = (data?.lines.length ?? 0) > 0 && chuaCoLenh.length === 0;
-  const soThieu = chuaCoLenh.filter((l) => picked.has(l.order_line_id) && l.thieu.length > 0).length;
 
   // Checkbox "chọn tất cả" ở header — trạng thái nửa vời khi tick một phần.
   useEffect(() => {
@@ -198,14 +198,13 @@ export function LsxPreviewDrawer({
                     <th scope="col" className="khsx-th--num">Bình bài</th>
                     <th scope="col" className="khsx-th--num">Kẽm · lượt</th>
                     <th scope="col">Công đoạn</th>
-                    <th scope="col">Thiếu</th>
                   </tr>
                 </thead>
                 {loading ? (
                   <tbody className="khsx-skel">
                     {Array.from({ length: 3 }).map((_, r) => (
                       <tr key={r}>
-                        {Array.from({ length: 10 }).map((__, c) => (
+                        {Array.from({ length: 9 }).map((__, c) => (
                           <td key={c}>
                             <span className="khsx-skel__bar" />
                           </td>
@@ -231,7 +230,7 @@ export function LsxPreviewDrawer({
                       return [
                         <tr key={`nh-${node.key}`} className="khsx-prev__nhom">
                           <td />
-                          <td colSpan={9}>
+                          <td colSpan={8}>
                             <span className="khsx-prev__nhomTen">{node.ten}</span>
                             <span className="khsx-prev__nhomSub">
                               {node.members.length} phần · {node.members.length} lệnh riêng
@@ -252,7 +251,6 @@ export function LsxPreviewDrawer({
           <footer className="khsx-drawer__foot">
             <p className="khsx-drawer__tally" aria-live="polite">
               Đã chọn <strong>{picked.size}</strong>/{chuaCoLenh.length} dòng
-              {soThieu > 0 && ` · ${soThieu} dòng còn thiếu → lệnh vào Chờ bổ sung`}
             </p>
             <div className="khsx-drawer__footbtns">
               <Button variant="ghost" onClick={onClose}>
@@ -389,9 +387,6 @@ function PreviewRow({
       </td>
       <td className="khsx-prev__flow-col">
         <ChuoiCongDoan steps={line.routing} />
-      </td>
-      <td>
-        <ThieuStack codes={line.thieu} dv={dvDong} />
       </td>
     </tr>
   );

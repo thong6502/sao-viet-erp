@@ -2347,7 +2347,6 @@ export interface LsxPreviewLine {
   don_vi_tay: string | null;
   routing: LsxPreviewRouting[];
   quy_cach: Record<string, unknown> | null;
-  thieu: string[];
   /** SL lúc tính giá KHÁC SL đơn (cảnh báo mềm — số dùng thật là của đơn). */
   sl_ptg: number | null;
   lsx_id: number | null;

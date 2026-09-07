@@ -17,7 +17,6 @@ from app.models.cong_doan import CongDoan, CongDoanDauViec
 from app.models.customer import Customer
 from app.models.department import Department
 from app.models.lsx import (
-    TT_CHO_BO_SUNG,
     TT_DA_LAP_KE_HOACH,
     TT_NHAP,
     TT_SAN_SANG,
@@ -614,11 +613,12 @@ def test_so_luong_lay_tu_don_khong_lay_tu_phieu_tinh_gia(db, orders, lsx_svc, ad
     assert db.query(PhieuTinhGia).filter(PhieuTinhGia.id == tp.phieu_id).first().result_json is None
 
 
-def test_dong_khong_co_phieu_tinh_gia_van_tao_duoc_lenh_o_cho_bo_sung(
-    db, orders, lsx_svc, admin, customer
-):
-    """Dòng đơn không gắn phiếu tính giá (đơn nhập giá tay) → lệnh vẫn tạo được, quy cách trống,
-    nằm ở CHỜ BỔ SUNG để kế hoạch tự khai."""
+def test_dong_khong_co_phieu_tinh_gia_van_tao_duoc_lenh(db, orders, lsx_svc, admin, customer):
+    """Dòng đơn không gắn phiếu tính giá (đơn nhập giá tay) → lệnh vẫn tạo được, quy cách trống.
+
+    Từ 07/09/2026 bảng lệnh dự kiến KHÔNG còn chấm checklist thiếu: payload không có `thieu` và
+    lệnh sinh ra ở NHÁP. Cửa gác còn lại là `thieu_cua` — nó vẫn kêu `khong_co_ptg` nên nút
+    "Sẵn sàng lập kế hoạch" vẫn đóng cho tới khi kế hoạch khai đủ."""
     from app.models.order import OrderLine
 
     ptg = _ptg_2_san_pham(db)
@@ -628,13 +628,16 @@ def test_dong_khong_co_phieu_tinh_gia_van_tao_duoc_lenh_o_cho_bo_sung(
     db.commit()
 
     pv = next(l for l in lsx_svc.preview(d.id)["lines"] if l["order_line_id"] == ol.id)
-    assert "khong_co_ptg" in pv["thieu"] and pv["routing"] == []
+    assert "thieu" not in pv and pv["routing"] == []
     # Chưa có bài tính giá → số dẫn xuất là "chưa tính được" = None (UI hiện "—"), KHÔNG bày 0/1 giả.
     assert pv["bu_hao_to"] is None and pv["so_to_ke_hoach"] is None and pv["so_to_nguyen"] is None
     assert pv["so_con"] is None and pv["so_kem"] is None and pv["so_luot"] is None
     [lsx] = lsx_svc.tao(order_id=d.id, order_line_ids=[ol.id], actor=admin)
-    assert lsx.trang_thai == TT_CHO_BO_SUNG and lsx.so_luong_dat == ol.qty
+    assert lsx.trang_thai == TT_NHAP and lsx.so_luong_dat == ol.qty
     assert lsx.cong_doans == []
+    assert "khong_co_ptg" in lsx_svc.thieu_cua(lsx)
+    with pytest.raises(LsxConflict):
+        lsx_svc.set_trang_thai(lsx_id=lsx.id, trang_thai=TT_SAN_SANG, actor=admin)
 
 
 # ============================ Sửa routing / trạng thái ============================

@@ -1336,28 +1336,9 @@ class LsxService:
             })
         return {"comp": comp, "quy_cach": quy_cach, "routing": routing, "sl_ptg": sl_ptg}
 
-    def _thieu(self, *, order: Order, tp: PhieuThanhPhan | None, quy_cach: dict | None,
-               routing: list[dict]) -> list[str]:
-        """Checklist 'job readiness' — thiếu gì thì lệnh nằm ở CHỜ BỔ SUNG."""
-        thieu: list[str] = []
-        if tp is None:
-            thieu.append("khong_co_ptg")
-        else:
-            qc = quy_cach or {}
-            if not qc.get("giay_id"):
-                thieu.append("thieu_giay")
-            if not (qc.get("dai_thanh_pham") and qc.get("rong_thanh_pham")):
-                thieu.append("thieu_kho")
-            if not routing:
-                thieu.append("thieu_routing")
-        if order.delivery_committed_date is None:
-            thieu.append("thieu_ngay_giao")
-        # Khuôn KHÔNG kiểm ở đây: `_thieu` chấm "job readiness" của một dòng ĐƠN trước khi lệnh ra
-        # đời, lúc đó chưa có bước nào để trỏ dao. Điều kiện khuôn nằm ở `thieu_cua` (checklist của
-        # LỆNH đã có routing) — xem mã `thieu_khuon` ở đó.
-        # ⚠️ Chú thích cũ ở đây ghi "khuôn ra khỏi lệnh hẳn (mg `0203`)" — SAI từ mg `0205`: khuôn
-        # đã được nối lại qua `lsx_cong_doan.khuon_be_id`, và từ 04/09/2026 nó CHẶN cửa Sẵn sàng.
-        return thieu
+    # Checklist "job readiness" chấm ở tầng DÒNG ĐƠN (`_thieu`) đã GỠ 07/09/2026: bảng lệnh dự kiến
+    # không còn cột Thiếu, và lệnh mới luôn sinh ra ở NHÁP. Cửa duy nhất còn gác là `thieu_cua` —
+    # checklist của LỆNH đã có routing, chặn nút "Sẵn sàng lập kế hoạch".
 
     # ================= PREVIEW =================
 
@@ -1411,9 +1392,6 @@ class LsxService:
                     for r in calc["routing"]
                 ],
                 "quy_cach": calc["quy_cach"],
-                "thieu": self._thieu(
-                    order=order, tp=tp, quy_cach=calc["quy_cach"], routing=calc["routing"],
-                ),
                 "sl_ptg": calc["sl_ptg"] if calc["sl_ptg"] and calc["sl_ptg"] != int(line.qty or 0) else None,
                 "lsx_id": existing.id if existing else None,
                 "lsx_ma": existing.ma if existing else None,
@@ -1571,9 +1549,6 @@ class LsxService:
             calc = self._tinh_dong(line, tp, warnings)
             comp = calc["comp"]
             so_luong_dat = int(line.qty or 0)
-            thieu = self._thieu(
-                order=order, tp=tp, quy_cach=calc["quy_cach"], routing=calc["routing"],
-            )
             lsx = Lsx(
                 ma=self.sequence.generate_code("job"),
                 loai=LOAI_MOI,
@@ -1597,7 +1572,9 @@ class LsxService:
                 is_rush=bool(order.is_rush),
                 quy_cach_json=calc["quy_cach"],
                 may_id=(calc["quy_cach"] or {}).get("may_id") or (tp.may_id if tp else None),
-                trang_thai=TT_CHO_BO_SUNG if thieu else TT_NHAP,
+                # Lệnh mới LUÔN ở Nháp (07/09/2026): checklist chấm dòng đơn đã gỡ. Thiếu gì thì
+                # `thieu_cua` nói ở màn lệnh, và lệnh tự rơi về Chờ bổ sung khi kế hoạch sửa routing.
+                trang_thai=TT_NHAP,
                 nguoi_phu_trach_id=actor.id,
                 created_by=actor.id,
             )
