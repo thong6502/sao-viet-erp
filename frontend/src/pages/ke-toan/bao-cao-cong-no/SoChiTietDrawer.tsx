@@ -194,69 +194,75 @@ export function SoChiTietDrawer({
 
           {!loading && data && (
             <>
-              <table className="pay-table bccn__soct">
-                <thead>
-                  <tr>
-                    <th>Ngày · giờ</th>
-                    <th>Chứng từ</th>
-                    <th className="pay-num">Nợ</th>
-                    <th className="pay-num">Có</th>
-                    <th className="pay-num">Luỹ kế</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* 1) SỐ DƯ ĐẦU KỲ: Cố định ở đầu bảng tại MỌI trang */}
-                  <tr className="bccn__soct-moc">
-                    <td colSpan={2}>
-                      Số dư đầu kỳ <small>trước {fmtDate(tuNgay)}</small>
-                    </td>
-                    <td className="pay-num"><So v={data.dau_no} manh /></td>
-                    <td className="pay-num"><So v={data.dau_co} manh /></td>
-                    <td className="pay-num">
-                      <So v={data.dau_no || data.dau_co} manh />
-                      {(data.dau_no || data.dau_co) > 0 && (
-                        <small className="bccn__soct-ben">{data.dau_no ? "Nợ" : "Có"}</small>
-                      )}
-                    </td>
-                  </tr>
+              <div className="bccn__soct-toolbar">
+                <div className="bccn__soct-toolbar-info">
+                  Phát sinh trong kỳ: <b>{dongHien.length}</b> chứng từ
+                </div>
+                {soTrang > 1 && (
+                  <div className="bccn__soct-mini-pt" aria-label="Phân trang chứng từ">
+                    <button
+                      type="button"
+                      className="bccn__soct-mini-btn"
+                      disabled={trangAnToan <= 1}
+                      onClick={() => setTrang((t) => Math.max(1, t - 1))}
+                      title="Trang trước"
+                      aria-label="Trang trước"
+                    >
+                      ‹
+                    </button>
+                    <span className="bccn__soct-mini-text">
+                      Trang <b>{trangAnToan}</b>/{soTrang}
+                    </span>
+                    <button
+                      type="button"
+                      className="bccn__soct-mini-btn"
+                      disabled={trangAnToan >= soTrang}
+                      onClick={() => setTrang((t) => Math.min(soTrang, t + 1))}
+                      title="Trang sau"
+                      aria-label="Trang sau"
+                    >
+                      ›
+                    </button>
+                  </div>
+                )}
+              </div>
 
-                  {/* 2) PHÁT SINH TRONG KỲ: Cố định ở MỌI trang, phân trang mini gắn trực tiếp ở cột Luỹ kế */}
-                  <tr className="bccn__soct-khoi">
-                    <td colSpan={2}>
-                      Phát sinh trong kỳ <small>{dongHien.length} chứng từ</small>
-                    </td>
-                    <td className="pay-num"><So v={data.ps_no} manh /></td>
-                    <td className="pay-num"><So v={data.ps_co} manh /></td>
-                    <td className="bccn__soct-pt-cell">
-                      {soTrang > 1 && (
-                        <div className="bccn__soct-mini-pt" aria-label="Phân trang chứng từ">
-                          <button
-                            type="button"
-                            className="bccn__soct-mini-btn"
-                            disabled={trangAnToan <= 1}
-                            onClick={() => setTrang((t) => Math.max(1, t - 1))}
-                            title="Trang trước"
-                            aria-label="Trang trước"
-                          >
-                            ‹
-                          </button>
-                          <span className="bccn__soct-mini-text">
-                            Trang <b>{trangAnToan}</b>/{soTrang}
-                          </span>
-                          <button
-                            type="button"
-                            className="bccn__soct-mini-btn"
-                            disabled={trangAnToan >= soTrang}
-                            onClick={() => setTrang((t) => Math.min(soTrang, t + 1))}
-                            title="Trang sau"
-                            aria-label="Trang sau"
-                          >
-                            ›
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
+              <div className="bccn__soct-tablewrap">
+                <table className="pay-table bccn__soct">
+                  <thead>
+                    <tr>
+                      <th>Ngày · giờ</th>
+                      <th>Chứng từ</th>
+                      <th className="pay-num">Nợ</th>
+                      <th className="pay-num">Có</th>
+                      <th className="pay-num">Luỹ kế</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* 1) SỐ DƯ ĐẦU KỲ: Cố định ở đầu bảng tại MỌI trang */}
+                    <tr className="bccn__soct-moc">
+                      <td colSpan={2}>
+                        Số dư đầu kỳ <small>trước {fmtDate(tuNgay)}</small>
+                      </td>
+                      <td className="pay-num"><So v={data.dau_no} manh /></td>
+                      <td className="pay-num"><So v={data.dau_co} manh /></td>
+                      <td className="pay-num">
+                        <So v={data.dau_no || data.dau_co} manh />
+                        {(data.dau_no || data.dau_co) > 0 && (
+                          <small className="bccn__soct-ben">{data.dau_no ? "Nợ" : "Có"}</small>
+                        )}
+                      </td>
+                    </tr>
+
+                    {/* 2) PHÁT SINH TRONG KỲ: Cố định ở MỌI trang */}
+                    <tr className="bccn__soct-khoi">
+                      <td colSpan={2}>
+                        Phát sinh trong kỳ <small>{dongHien.length} chứng từ</small>
+                      </td>
+                      <td className="pay-num"><So v={data.ps_no} manh /></td>
+                      <td className="pay-num"><So v={data.ps_co} manh /></td>
+                      <td className="pay-num"></td>
+                    </tr>
 
                   {dongHien.length === 0 && (
                     <tr>
@@ -318,6 +324,7 @@ export function SoChiTietDrawer({
                   </tr>
                 </tbody>
               </table>
+              </div>
 
               <p className="bccn__soct-foot">
                 <Icon name="fileText" size={13} />{" "}
