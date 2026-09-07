@@ -1431,11 +1431,11 @@ git commit -m "Dialog bien dong + tab kiem ke cua man Tai san"
 
 Bắt buộc theo CLAUDE.md: luồng nghiệp vụ có UI phải thao tác lại bằng chuột/bàn phím thật trên dev-browser, **không dùng API/curl thay bất kỳ bước nào**, kể cả bước dựng dữ liệu.
 
-- [ ] **Step 1: Bật server**
+- [x] **Step 1: Bật server**
 
 Bật uvicorn + vite bằng `Win32_Process.Create` qua WMI (Bash nền và `Start-Process` đều chết khi hết phiên). FE `localhost:5173`, BE `127.0.0.1:8000`. Đăng nhập `admin` / `admin123`.
 
-- [ ] **Step 2: Đi hết luồng, ghi lại từng bước**
+- [x] **Step 2: Đi hết luồng, ghi lại từng bước**
 
 1. Vào *Kế toán → Tài sản & CCDC*, bấm **Ghi tăng**, gõ máy Komori với ba dòng chi phí 3.200.000.000 + 40.000.000 + 60.000.000, số tháng 120, ngày 10/03/2026 → kiểm tổng nguyên giá hiện 3.300.000.000 và bảng dự kiến dòng đầu 19.516.129.
 2. Ghi tăng lô CCDC 12 tấm cao su, đơn giá 2.400.000, 24 tháng → nguyên giá 28.800.000, dự kiến 1.200.000/tháng.
@@ -1447,11 +1447,11 @@ Bật uvicorn + vite bằng `Win32_Process.Create` qua WMI (Bash nền và `Star
 8. Tab *Kiểm kê*: tạo đợt, tick một dòng Có, một dòng Không thấy, thêm một phát hiện ngoài sổ, kết thúc đợt → kiểm hai danh sách.
 9. Bấm **Xuất Excel** kỳ 03/2026, mở file kiểm cột cuối là Ghi chú hạch toán.
 
-- [ ] **Step 3: Viết báo cáo nghiệm thu**
+- [x] **Step 3: Viết báo cáo nghiệm thu**
 
 Liệt kê CỤ THỂ đã bấm gì, gõ gì, thấy gì ở từng bước. Nếu vì lý do nào đó phải tắt qua API ở một đoạn, nói rõ ngay trong báo cáo.
 
-- [ ] **Step 4: Commit (nếu có sửa lỗi phát hiện lúc nghiệm thu)**
+- [x] **Step 4: Commit (nếu có sửa lỗi phát hiện lúc nghiệm thu)**
 
 ```bash
 git add -A
