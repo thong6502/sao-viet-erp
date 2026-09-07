@@ -342,9 +342,9 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
   // xoá hẳn, còn nơi dùng thì chỉ ngừng dùng. Mục đã ngừng xem lại ở công tắc trên dải lọc.
   softDelete: true,
-  // Màn này có HAI ô công thức, một ra TIỀN một ra LƯỢNG ⇒ TÁCH hai tab riêng: mỗi ô tự khai
-  // `nhanTab` của nó (Công thức tính giá ↔ Công thức sản lượng ra), nên KHÔNG dùng nhãn tab gộp
-  // `nhanTabCongThuc` — nhét chung một tab là mời gõ nhầm công thức tiền vào ô ra lượng.
+  // Từ 07/09/2026 drawer chỉ còn MỘT ô công thức (`cong_thuc_gia`) — ô "Công thức sản lượng ra" đã
+  // ẩn khỏi UI, xem chỗ khai bên dưới. Ô còn lại vẫn tự khai `nhanTab` nên KHÔNG cần nhãn tab gộp
+  // `nhanTabCongThuc`; giữ vậy để lúc mở lại ô kia là hai tab tách ra như cũ, không phải sửa thêm.
   facet: { key: "nhom", values: mapOpt(NHOM_CD) },
   columns: [
     { key: "nhom", label: "Giai đoạn", render: (r) => lbl(NHOM_CD)(r.nhom) },
@@ -431,12 +431,11 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // chủ sở hữu: hai công đoạn cùng đo bằng `kem` có thể ra số khác nhau, mà công thức treo ở đơn
     // vị thì cả hai buộc dùng chung.
     //
-    // KHÔNG `showIf`: form không biết đơn vị nào là trạm dòng giấy (cờ đó nằm ở danh mục Đơn vị,
-    // server giữ), nên đoán ở đây là đoán sai. Engine tự bỏ qua với bước trên dòng giấy — số của
-    // chúng đến từ chuỗi bù hao ngược. Hint nói rõ phạm vi thay cho việc ẩn/hiện.
-    { key: "cong_thuc_san_luong", label: "Công thức sản lượng ra", type: "formula",
-      loaiO: "quy_doi", group: "Đơn vị", nhanTab: "Công thức sản lượng ra", an: AN_CHIP_KHUON,
-      hint: "CHỈ cho bước ngoài dòng giấy (ghi kẽm, ép nhũ…). vd Ghi kẽm: so_kem. Bước trên dòng giấy lấy số từ chuỗi bù hao nên khai ở đây không ai đọc." },
+    // Ô "Công thức sản lượng ra" ĐÃ ẨN KHỎI DRAWER (07/09/2026) — chỉ ẩn trên UI, cột
+    // `cong_doan.cong_thuc_san_luong` và engine đọc nó vẫn nguyên. Vì `PUT` chạy
+    // `model_dump(exclude_unset=True)` nên ô không còn trong form ⇒ không nằm trong body ⇒ giá trị
+    // đã khai của các bước ngoài dòng giấy KHÔNG bị ghi rỗng khi lưu lại bản ghi.
+    // Muốn hiện lại thì trả nguyên khối này về, không cần đụng backend.
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong" },
     { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
       showIf: (f) => f.kieu_bu_hao === "tra_bang" },

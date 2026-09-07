@@ -157,14 +157,12 @@ describe("ô Cách đo lượng ĐÃ GỠ khỏi Máy · Công việc khoán · 
     expect(CFG_GIAY.nhanTabCongThuc).toBeUndefined();
   });
 
-  it("Công đoạn: hai ô công thức TÁCH hai tab riêng (Tính giá · Sản lượng ra)", () => {
-    // Y như Giấy: `cong_thuc_gia` ra TIỀN cho phiếu tính giá, `cong_thuc_san_luong` ra LƯỢNG cho
-    // bước ngoài dòng giấy — mỗi ô tự khai `nhanTab`, không nhét chung một tab "Công thức".
+  it("Công đoạn: drawer chỉ còn ô Tính giá, ô Sản lượng ra đã ẩn khỏi UI", () => {
+    // `cong_thuc_san_luong` ẩn khỏi drawer 07/09/2026 — ẩn TRÊN UI thôi: cột DB và engine đọc nó
+    // vẫn còn, và vì `PUT` dùng `exclude_unset` nên ô vắng mặt trong form không ghi rỗng số cũ.
+    expect(CFG_CONG_DOAN.fields.some((f) => f.key === "cong_thuc_san_luong")).toBe(false);
+    // Ô còn lại vẫn tự khai `nhanTab` ⇒ tab công thức mang đúng tên, không rơi vào nhãn mặc định.
     expect(truong(CFG_CONG_DOAN, "cong_thuc_gia").nhanTab).toBe("Công thức tính giá");
-    expect(truong(CFG_CONG_DOAN, "cong_thuc_san_luong").nhanTab).toBe("Công thức sản lượng ra");
-    // Ô sản lượng ra dùng bộ chip `quy_doi` (ra lượng, không mời chip đơn giá).
-    expect(truong(CFG_CONG_DOAN, "cong_thuc_san_luong").loaiO).toBe("quy_doi");
-    // Mỗi ô tự khai tab nên KHÔNG dùng nhãn config-level.
     expect(CFG_CONG_DOAN.nhanTabCongThuc).toBeUndefined();
   });
 
