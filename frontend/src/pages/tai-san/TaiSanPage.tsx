@@ -9,10 +9,11 @@
 import { useState } from "react";
 import { DanhSachView } from "./DanhSachView";
 import { KhauHaoKyView } from "./KhauHaoKyView";
+import { KiemKeView } from "./KiemKeView";
 import "../rebuild-catalog.css";
 import "./tai-san.css";
 
-type Tab = "so" | "ky";
+type Tab = "so" | "ky" | "kiem-ke";
 
 export function TaiSanPage() {
   const [tab, setTab] = useState<Tab>("so");
@@ -38,9 +39,15 @@ export function TaiSanPage() {
           onClick={() => setTab("ky")}>
           Khấu hao theo kỳ
         </button>
+        <button className={`rc__tab${tab === "kiem-ke" ? " is-active" : ""}`}
+          onClick={() => setTab("kiem-ke")}>
+          Kiểm kê
+        </button>
       </div>
 
-      {tab === "so" ? <DanhSachView /> : <KhauHaoKyView />}
+      {tab === "so" && <DanhSachView />}
+      {tab === "ky" && <KhauHaoKyView />}
+      {tab === "kiem-ke" && <KiemKeView />}
     </div>
   );
 }

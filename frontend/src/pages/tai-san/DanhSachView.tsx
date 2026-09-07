@@ -20,6 +20,7 @@ import { Pager, trangHopLe } from "../../components/Pager";
 import { RowActionButton } from "../../components/RowActionButton";
 import { useDebounced } from "../../utils/useDebounced";
 import { Badge, ngay, tien } from "./chung";
+import { BienDongDialog } from "./BienDongDialog";
 import { GhiTangDialog } from "./GhiTangDialog";
 
 const SIZE = 20;
@@ -46,6 +47,7 @@ export function DanhSachView() {
   const [boPhan, setBoPhan] = useState<Department[]>([]);
   const [moGhiTang, setMoGhiTang] = useState(false);
   const [dangSua, setDangSua] = useState<TaiSanChiTiet | null>(null);
+  const [bienDong, setBienDong] = useState<TaiSanChiTiet | null>(null);
   const [xoa, setXoa] = useState<TaiSanRow | null>(null);
   const [dangXoa, setDangXoa] = useState(false);
   const [loiXoa, setLoiXoa] = useState<string | null>(null);
@@ -79,12 +81,14 @@ export function DanhSachView() {
 
   const doiLoc = (fn: () => void) => { fn(); setPage(1); };
 
-  async function moSua(r: TaiSanRow) {
+  /** Cả hai hộp thoại đều cần CHI TIẾT, không phải dòng bảng: form ghi tăng cần các dòng cấu
+   *  thành nguyên giá, hộp biến động cần lịch sử chứng từ — bảng chỉ có tổng. */
+  async function moChiTiet(r: TaiSanRow, dich: "sua" | "bien-dong") {
     if (!token) return;
     try {
-      // Nạp CHI TIẾT chứ không dùng dòng bảng: form cần các dòng cấu thành nguyên giá, mà bảng
-      // chỉ có tổng.
-      setDangSua(await taiSanApi.chiTiet(token, r.id));
+      const ct = await taiSanApi.chiTiet(token, r.id);
+      if (dich === "sua") setDangSua(ct);
+      else setBienDong(ct);
     } catch (e) {
       setLoi(e instanceof ApiError ? e.message : "Không mở được tài sản này.");
     }
@@ -158,7 +162,7 @@ export function DanhSachView() {
               <th style={{ width: "12%" }} className="ts-num">Đã hao mòn</th>
               <th style={{ width: "12%" }} className="ts-num">Còn lại</th>
               <th style={{ width: "10%" }}>Trạng thái</th>
-              <th style={{ width: "9%" }} className="text-center">Thao tác</th>
+              <th style={{ width: "12%" }} className="text-center">Thao tác</th>
             </tr>
           </thead>
           <tbody>
@@ -208,7 +212,9 @@ export function DanhSachView() {
                   </td>
                   <td className="text-center">
                     <RowActionButton dense label="Sửa" icon="pencil"
-                      disabled={!suaDuoc} onClick={() => moSua(r)} />
+                      disabled={!suaDuoc} onClick={() => moChiTiet(r, "sua")} />
+                    <RowActionButton dense label="Biến động" icon="workflow"
+                      disabled={!suaDuoc} onClick={() => moChiTiet(r, "bien-dong")} />
                     <RowActionButton dense danger label="Xoá" icon="trash"
                       disabled={!xoaDuoc} onClick={() => { setLoiXoa(null); setXoa(r); }} />
                   </td>
@@ -228,6 +234,16 @@ export function DanhSachView() {
           taiSan={dangSua}
           boPhan={boPhan}
           onClose={() => { setMoGhiTang(false); setDangSua(null); }}
+          onSaved={nap}
+        />
+      )}
+
+      {token && bienDong && (
+        <BienDongDialog
+          token={token}
+          taiSan={bienDong}
+          boPhan={boPhan}
+          onClose={() => setBienDong(null)}
           onSaved={nap}
         />
       )}
