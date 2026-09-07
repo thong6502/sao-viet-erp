@@ -96,16 +96,18 @@ def _den_vat_tu(tt: dict, lsx_id: int) -> dict:
                         MAN_VAT_TU, lsx_id)
         return _den(MUC_OK)
     if not tt.get("bat"):
-        # Lệnh không cần vật tư nào cũng rơi vào đây (`du` cần `bool(can)`), và cửa chặn thật cũng
-        # chặn — đèn nói y hệt cửa thì người dùng không phải đoán vì sao bấm không được.
+        # Lệnh không ra được nhu cầu nào cũng rơi vào đây (`du` cần `bool(can)`), và cửa chặn thật
+        # cũng chặn — đèn nói y hệt cửa thì người dùng không phải đoán vì sao bấm không được.
         return _den(MUC_DO, "Chưa giữ chỗ vật tư", MAN_VAT_TU, lsx_id)
+    if tt.get("chua_co_nhu_cau"):
+        # ĐANG giữ chỗ mà không ra món nào ⇒ chắc chắn là chưa ai khai. Từ 08/09/2026 giấy chỉ vào
+        # bảng qua dòng vật tư của bước, nên đây là ca thường gặp — chỉ thẳng việc phải làm thay vì
+        # câu cũ "Chưa tính được nhu cầu vật tư của lệnh".
+        return _den(MUC_DO, "Chưa khai vật tư nào ở bước — kể cả giấy", MAN_VAT_TU, lsx_id)
     if tt.get("khong_ro"):
         return _den(MUC_DO, "Có vật tư chưa quy đổi được đơn vị kho", MAN_VAT_TU, lsx_id)
     thieu = tt.get("thieu") or {}
     if not thieu:
-        # `du` đòi `bool(can)`: lệnh không ra được nhu cầu nào cũng rơi vào nhánh này, và cửa chặn
-        # thật cũng chặn — nhưng câu "còn thiếu 0 mặt hàng" thì vô nghĩa, nói thẳng ra là chưa tính
-        # được nhu cầu.
         return _den(MUC_DO, "Chưa tính được nhu cầu vật tư của lệnh", MAN_VAT_TU, lsx_id)
     return _den(MUC_DO, f"Mới giữ được một phần, còn thiếu {len(thieu)} mặt hàng",
                 MAN_VAT_TU, lsx_id)

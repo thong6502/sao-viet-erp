@@ -1141,6 +1141,15 @@ class XepLichService:
             raise XepLichConflict(
                 f"{ma} chưa giữ chỗ vật tư — vào màn Kế hoạch vật tư bấm Giữ chỗ trước khi xếp lịch."
             )
+        if tt.get("chua_co_nhu_cau"):
+            # `du` đòi `bool(can)`: lệnh KHÔNG ra được nhu cầu nào cũng bị chặn — ĐANG giữ chỗ mà
+            # vẫn rỗng thì chắc chắn là chưa ai khai. Từ 08/09/2026 đây là ca thường gặp (giấy chỉ
+            # vào bảng khi được khai thành dòng vật tư của bước), và câu cũ "còn thiếu 0 mặt hàng"
+            # thì vô nghĩa — người đọc đi lập yêu cầu mua cho 0 món.
+            raise XepLichConflict(
+                f"{ma} chưa khai vật tư nào ở bước — kể cả giấy. Mở lệnh, vào bước ăn giấy và "
+                "chọn loại giấy trong ô Thêm vật tư, rồi giữ chỗ lại."
+            )
         if tt["khong_ro"]:
             raise XepLichConflict(
                 f"{ma} có vật tư chưa quy đổi được về đơn vị kho nên không biết cần bao nhiêu — "
