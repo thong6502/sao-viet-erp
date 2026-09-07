@@ -14,6 +14,7 @@
 // rỗng, rơi vào nhánh báo lỗi dưới đây. `TAB[].module` giữ lại (thay vì bỏ hẳn bộ lọc) làm lớp
 // phòng thủ thứ hai — phòng khi màn này bị vào thẳng mà không qua hàng rào route của AppShell.
 import { useMemo, useState } from "react";
+import type { NavigateFn } from "../../../components/AppShell";
 import { useCan } from "../../../auth/permissions";
 import { BaoCaoCongNoPage } from "../bao-cao-cong-no";
 import { kyMacDinh, type Ky } from "../bao-cao-cong-no/shared/ky";
@@ -26,7 +27,7 @@ const TAB: { id: TabId; label: string; module: string; ben: "payables" | "receiv
   { id: "phai-thu", label: "Công nợ phải thu", module: "bao_cao_cong_no", ben: "receivables" },
 ];
 
-export function BaoCaoKeToanPage() {
+export function BaoCaoKeToanPage({ navigate }: { navigate?: NavigateFn } = {}) {
   const can = useCan();
   const duocXem = useMemo(() => TAB.filter((t) => can(t.module, "read")), [can]);
   const [tab, setTab] = useState<TabId | null>(null);
@@ -70,7 +71,7 @@ export function BaoCaoKeToanPage() {
       {/* KHÔNG `key` để ép dựng lại: kỳ nằm ở vỏ nên phải sống qua lần đổi tab. Bảng cũng
           không nháy số của bên kia — `load()` bật cờ tải ngay khi `ben` đổi, nên khung xương
           hiện trước, số cũ không kịp lộ ra. */}
-      <BaoCaoCongNoPage ben={dangMo.ben} ky={ky} onKy={setKy} />
+      <BaoCaoCongNoPage ben={dangMo.ben} ky={ky} onKy={setKy} navigate={navigate} />
     </div>
   );
 }

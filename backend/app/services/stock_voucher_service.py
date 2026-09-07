@@ -77,8 +77,12 @@ class StockVoucherService:
         self.hang = hang
 
     def _assert_period_open(self, kho_id, ngay) -> None:
-        """Chặn GHI SỔ vào KỲ ĐÃ KHÓA (kế toán chốt sổ, spec-bao-cao-kho §6). Mốc = NGÀY HẠCH TOÁN
-        = ngày ghi sổ (= hôm nay khi post); khóa xét theo KHOẢNG đã khóa (toàn kho hoặc kho này)."""
+        """Chặn thao tác vào KỲ ĐÃ KHÓA (kế toán chốt sổ, spec-bao-cao-kho §6).
+
+        Mốc = NGÀY NHẬP/XUẤT KHO ghi trên phiếu (`v.ngay` — ô thủ kho nhập), KHÔNG phải ngày tạo /
+        ngày ghi sổ / hôm nay. Nhờ vậy: nhập kho lùi ngày vào kỳ đã khóa thì BỊ CHẶN dù hôm nay kỳ
+        đang mở; và phiếu ghi ngày thuộc kỳ còn mở vẫn ghi sổ được dù hôm nay rơi vào kỳ đã khóa.
+        Khóa xét theo KHOẢNG đã khóa (toàn kho hoặc kho này)."""
         if kho_id is None or ngay is None:
             return
         if KhoKhoaSoRepository(self.vouchers.db).is_locked(kho_id, ngay):
@@ -240,8 +244,10 @@ class StockVoucherService:
         caller gọi `refresh_fulfillment` sau khi commit. Kiểm hết điều kiện TRƯỚC, ghi SAU."""
         if v.trang_thai != VOUCHER_DRAFT:
             raise StockVoucherError("Chỉ ghi sổ được phiếu đang ở trạng thái Nháp.")
-        # Ghi sổ = ghi vào SỔ với ngày hạch toán = HÔM NAY → chặn nếu kỳ hôm nay đã khóa.
-        self._assert_period_open(v.kho_id, date.today())
+        # NGÀY HẠCH TOÁN = NGÀY NHẬP/XUẤT KHO ghi trên phiếu (`v.ngay`, thủ kho nhập), KHÔNG phải
+        # hôm nay. Nhập kho lùi ngày vào kỳ đã khóa → chặn; ngược lại phiếu ngày cũ (kỳ còn mở) vẫn
+        # ghi sổ được dù hôm nay rơi vào kỳ đã khóa.
+        self._assert_period_open(v.kho_id, v.ngay or date.today())
 
         req = self.requests.get_with_lines(v.request_id)
         if req is None:
@@ -436,15 +442,9 @@ class StockVoucherService:
         if getattr(req, "dieu_chuyen", False) or self.requests.by_xuat_voucher_id(v.id) is not None:
             raise StockVoucherError(
                 "Phiếu điều chuyển không điều chỉnh trực tiếp — hãy điều chuyển ngược lại.")
-        # Điều chỉnh SỬA THẲNG dòng phiếu (dated theo NGÀY GHI SỔ của phiếu) → chặn nếu KỲ CỦA PHIẾU
-        # đã khóa sổ (không phải hôm nay). Khóa rồi thì không đụng được phiếu của kỳ đó nữa.
-        vn = timezone(timedelta(hours=7))
-        gs = v.ghi_so_luc
-        if gs is not None:
-            ngay_phieu = (gs if gs.tzinfo else gs.replace(tzinfo=timezone.utc)).astimezone(vn).date()
-        else:
-            ngay_phieu = v.ngay or date.today()
-        self._assert_period_open(v.kho_id, ngay_phieu)
+        # Điều chỉnh SỬA THẲNG dòng phiếu → chặn nếu KỲ CỦA PHIẾU đã khóa sổ. Mốc = NGÀY NHẬP/XUẤT
+        # KHO trên phiếu (`v.ngay`) — cùng mốc với lúc ghi sổ, không phải ngày ghi sổ hay hôm nay.
+        self._assert_period_open(v.kho_id, v.ngay or date.today())
 
         lines_by_vid = {ln.id: ln for ln in v.lines}
         rlines = {rl.id: rl for rl in req.lines}
@@ -665,8 +665,9 @@ class StockVoucherService:
                 "vi_tri": (str(it.get("vi_tri") or "").strip() or None),
             })
 
-        # Điều chuyển rồi sẽ ghi sổ ở kho nguồn (lúc đích nhập) → chặn SỚM nếu kỳ nguồn đã khóa sổ
-        # (kiểm lại lúc ghi sổ trong `_apply_post`).
+        # Điều chuyển rồi sẽ ghi sổ ở kho nguồn (lúc đích nhập) → chặn SỚM nếu kỳ nguồn đã khóa sổ.
+        # Phiếu điều chuyển không có ô ngày riêng nên mốc = hôm nay (= `v.ngay` mặc định của phiếu
+        # sắp tạo); `_apply_post` kiểm lại theo đúng `v.ngay` khi ghi sổ.
         self._assert_period_open(kho_nguon_id, date.today())
 
         # (2) MỘT yêu cầu XUẤT nội bộ ở nguồn (im lặng) — mỗi mặt hàng 1 dòng.

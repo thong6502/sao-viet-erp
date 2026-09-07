@@ -734,6 +734,50 @@ class BaoCaoCongNoOut(BaseModel):
     #: khác hẳn dải rổ ở màn Công nợ (§5.3).
     aging: list[AgingBucketOut] = Field(default_factory=list)
 
+
+class SoChiTietDongOut(BaseModel):
+    """Một chứng từ trong sổ chi tiết. `no`/`co` là số của CHÍNH chứng từ, `luy_ke_*` là số dư
+    SAU khi ghi nó — đúng khuôn sổ chi tiết công nợ của kế toán."""
+
+    ngay: date
+    #: Giờ:phút GHI NHẬN — phiếu chi/thu là lúc tiền chạy (`paid_at`/`received_at`), còn lại là
+    #: lúc nhập vào hệ (`created_at`). NGÀY nghiệp vụ trong hệ vốn không có giờ, nên đây là thứ
+    #: duy nhất tách được thứ tự nhiều chứng từ cùng một ngày. `None` = dữ liệu cũ chưa có mốc.
+    luc: datetime | None = None
+    #: `hoa_don` · `phieu_thu` · `dot_giao` · `phieu_chi` · `hoan_tien` — giao diện đổi ra nhãn.
+    loai: str
+    so_ct: str
+    dien_giai: str
+    no: int = 0
+    co: int = 0
+    luy_ke_no: int = 0
+    luy_ke_co: int = 0
+
+
+class SoChiTietCongNoOut(BaseModel):
+    """Sổ chi tiết công nợ của MỘT đối tượng (PRD §5.1).
+
+    `cuoi_no`/`cuoi_co` LUÔN bằng ô "Dư cuối kỳ" của chính đối tượng đó bên sổ tổng hợp — hai bên
+    đọc chung một luồng chứng từ. Lệch nhau là có chứng từ rơi mất.
+    """
+
+    tk: str
+    tieu_de: str
+    #: `None` = dòng gom các khoản không truy được về đối tượng nào.
+    doi_tuong_id: int | None = None
+    ma: str | None = None
+    ten: str
+    tu_ngay: date
+    den_ngay: date
+    dau_no: int = 0
+    dau_co: int = 0
+    dong: list[SoChiTietDongOut] = Field(default_factory=list)
+    ps_no: int = 0
+    ps_co: int = 0
+    cuoi_no: int = 0
+    cuoi_co: int = 0
+
+
 class CongNoKhoaSoIn(BaseModel):
     #: PHÂN HỆ bị khoá — BẮT BUỘC. Hai sổ độc lập: chốt 331 không được kéo theo 131
     #: (chủ báo 04/09/2026: *"2 cái này nó khác nhau mà"*).
@@ -784,25 +828,3 @@ class CongNoKhoaSoTrangThaiOut(BaseModel):
     den_ngay: date
     da_khoa: bool
     khoa_mot_phan: bool = False
-
-
-class CongNoChiTietPhaiThuRow(BaseModel):
-    customer_id: int
-    customer_code: str | None = None
-    customer_name: str
-    credit_limit: int = 0
-    total_due: int = 0
-    overdue_amount: int = 0
-    items: list[dict] = []
-    paid: list[dict] = []
-
-
-class CongNoChiTietPhaiTraRow(BaseModel):
-    supplier_id: int
-    supplier_code: str | None = None
-    supplier_name: str
-    credit_limit: int = 0
-    total_due: int = 0
-    overdue_amount: int = 0
-    items: list[dict] = []
-    paid: list[dict] = []

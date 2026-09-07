@@ -28,12 +28,11 @@ from ..repositories.module_notification_repo import (
 from ..schemas.accounting import (
     ApproveAndCreateVoucherIn,
     BaoCaoCongNoOut,
+    SoChiTietCongNoOut,
     CongNoKhoaSoIn,
     CongNoKhoaSoRow,
     CongNoKhoaSoTrangThaiOut,
     CongNoKyRow,
-    CongNoChiTietPhaiThuRow,
-    CongNoChiTietPhaiTraRow,
     CancelSalesInvoiceIn,
     CancelPaymentReceiptIn,
     CancelPaymentVoucherIn,
@@ -330,6 +329,40 @@ def bao_cao_tong_hop_phai_tra(
     )
 
 
+# SỔ CHI TIẾT của MỘT đối tượng (PRD §5.1) — mở ra khi bấm một dòng ở sổ tổng hợp.
+# `doi_tuong_id` BỎ TRỐNG = dòng gom "không gắn đối tượng" (§❸), không phải "lấy tất cả".
+@router.get("/api/accounting/reports/receivables/so-chi-tiet", response_model=SoChiTietCongNoOut)
+def so_chi_tiet_phai_thu(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
+    tu_ngay: date = Query(...),
+    den_ngay: date = Query(...),
+    doi_tuong_id: int | None = Query(default=None),
+) -> SoChiTietCongNoOut:
+    _khoang_ngay(tu_ngay, den_ngay)
+    return SoChiTietCongNoOut(
+        **svc.so_chi_tiet_phai_thu(
+            doi_tuong_id=doi_tuong_id, tu_ngay=tu_ngay, den_ngay=den_ngay
+        )
+    )
+
+
+@router.get("/api/accounting/reports/payables/so-chi-tiet", response_model=SoChiTietCongNoOut)
+def so_chi_tiet_phai_tra(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
+    tu_ngay: date = Query(...),
+    den_ngay: date = Query(...),
+    doi_tuong_id: int | None = Query(default=None),
+) -> SoChiTietCongNoOut:
+    _khoang_ngay(tu_ngay, den_ngay)
+    return SoChiTietCongNoOut(
+        **svc.so_chi_tiet_phai_tra(
+            doi_tuong_id=doi_tuong_id, tu_ngay=tu_ngay, den_ngay=den_ngay
+        )
+    )
+
+
 @router.get("/api/accounting/reports/receivables.xlsx")
 def bao_cao_tong_hop_phai_thu_xlsx(
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
@@ -430,36 +463,6 @@ def set_cong_no_khoa_so(
         khoa_luc=log.khoa_luc,
         ten=log.ten,
     )
-
-
-@router.get("/api/accounting/cong-no-chi-tiet/phai-thu", response_model=list[CongNoChiTietPhaiThuRow])
-def get_cong_no_chi_tiet_phai_thu(
-    db: Annotated[Session, Depends(get_db)],
-    acct_svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
-    tu_ngay: date | None = None,
-    den_ngay: date | None = None,
-    customer_id: int | None = None,
-) -> list[CongNoChiTietPhaiThuRow]:
-    svc = CongNoKhoaSoService(db, acct_svc=acct_svc)
-    return [CongNoChiTietPhaiThuRow(**r) for r in svc.cong_no_chi_tiet_phai_thu(
-        tu_ngay=tu_ngay, den_ngay=den_ngay, customer_id=customer_id
-    )]
-
-
-@router.get("/api/accounting/cong-no-chi-tiet/phai-tra", response_model=list[CongNoChiTietPhaiTraRow])
-def get_cong_no_chi_tiet_phai_tra(
-    db: Annotated[Session, Depends(get_db)],
-    acct_svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    _: Annotated[User, Depends(require_permission(MODULE_BAO_CAO, "read"))],
-    tu_ngay: date | None = None,
-    den_ngay: date | None = None,
-    supplier_id: int | None = None,
-) -> list[CongNoChiTietPhaiTraRow]:
-    svc = CongNoKhoaSoService(db, acct_svc=acct_svc)
-    return [CongNoChiTietPhaiTraRow(**r) for r in svc.cong_no_chi_tiet_phai_tra(
-        tu_ngay=tu_ngay, den_ngay=den_ngay, supplier_id=supplier_id
-    )]
 
 
 @router.get("/api/accounting/reports/payables.xlsx")

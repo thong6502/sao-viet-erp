@@ -29,8 +29,18 @@ MEDIA_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 #: sang cột bên kia — luật sổ Nợ/Có) nên nhánh đỏ không bao giờ kích hoạt. Vẫn giữ cho khớp khuôn.
 DINH_DANG_TIEN = "#,##0_);[Red](#,##0)"
 
-#: Chỉ 4 cột này được đặt rộng trong file của họ; E–I để mặc định. Giữ nguyên nếp lệch đó.
-RONG_COT = {"A": 17.1, "B": 30.0, "C": 14.3, "D": 17.1}
+#: Cột A-C theo mẫu MISA; D–I (6 cột tiền) đặt 17.1 (bằng cột D) để đủ chỗ cho số tiền lớn, tránh bị tràn thành '########'.
+RONG_COT = {
+    "A": 17.1,
+    "B": 30.0,
+    "C": 14.3,
+    "D": 17.1,
+    "E": 17.1,
+    "F": 17.1,
+    "G": 17.1,
+    "H": 17.1,
+    "I": 17.1,
+}
 
 _FONT_TIEU_DE = ("Times New Roman", 14, True)
 _FONT_KY = ("Times New Roman", 11, True)
@@ -107,7 +117,7 @@ def xuat_xlsx(bao_cao: dict) -> bytes:
     for d in bao_cao["items"]:
         ws[f"A{hang}"] = d.get("ma") or ""
         ws[f"B{hang}"] = d.get("ten") or ""
-        ws[f"C{hang}"] = d.get("tk") or ""
+        ws[f"C{hang}"] = ""  # Để trống cột TK công nợ theo yêu cầu
         for cot, khoa in zip("DEFGHI", _COT_TIEN):
             ws[f"{cot}{hang}"] = int(d.get(khoa) or 0)
         _to_hang(ws, hang, _font(_FONT_BANG), vien, trai, phai)
