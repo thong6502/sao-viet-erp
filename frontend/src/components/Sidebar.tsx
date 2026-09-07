@@ -216,6 +216,14 @@ export const NAV: NavSection[] = [
         icon: "database",
         module: "tk_ngan_hang",
       },
+      // Tài sản & CCDC — module RIÊNG (`tai_san`), không ăn ké quyền `ke_toan`: người quản tài
+      // sản có thể không phải người làm phiếu chi, và ngược lại.
+      {
+        id: "tai-san",
+        label: "Tài sản & CCDC",
+        icon: "database",
+        module: "tai_san",
+      },
     ],
   },
   {

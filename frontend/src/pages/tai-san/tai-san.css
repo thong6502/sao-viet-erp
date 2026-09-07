@@ -1,0 +1,238 @@
+/* Tài sản & CCDC — chỉ phần RIÊNG của màn này.
+   Khung (head · toolbar · tab · bảng · drawer · ô nhập) tái dùng nguyên `rebuild-catalog.css`.
+   Ở đây chỉ khai những khối bên đó không có: cột tiền, bảng dòng chi phí, bảng dự kiến, băng
+   khoá kỳ, nút tick kiểm kê. */
+
+.ts { max-width: 1360px; }
+
+/* --- Cột tiền ---------------------------------------------------------------
+   Số tiền phải canh PHẢI và dùng chữ số đều bề ngang, không thì mắt không so được hai dòng
+   3.300.000.000 và 333.750.000 nằm cạnh nhau. */
+.ts-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ts-num--manh { font-weight: var(--fw-medium, 500); }
+/* Đã trích hết / còn lại 0 — hết giá trị thì thôi kêu gọi chú ý. */
+.ts-num--het { color: var(--ash-2, #94a3b8); }
+
+/* Dòng phụ dưới ô chính trong bảng (tên bộ phận, ngày đưa vào dùng) */
+.ts-phu {
+  font-size: 11.5px;
+  color: var(--ash-2, #94a3b8);
+  margin-top: 2px;
+  font-weight: var(--fw-regular, 400);
+}
+
+/* --- Badge loại / trạng thái -------------------------------------------------
+   Chỉ tô nền cho thứ ĐÃ RỜI KHỎI SỔ. "Đang dùng" là mặc định của gần như cả bảng — tô nó thì
+   cả cột rực lên và mắt không bắt được mấy dòng đã ghi giảm. */
+.ts-badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: var(--fw-medium, 500);
+  white-space: nowrap;
+  color: var(--ash, #475569);
+}
+.ts-badge--tscd { color: var(--ash, #475569); }
+.ts-badge--ccdc { color: var(--ash-2, #94a3b8); }
+.ts-badge--dang_dung { color: var(--moss, #2f5d3a); }
+.ts-badge--da_giam {
+  color: var(--ash-2, #94a3b8);
+  background: var(--rule-hair, #f1f5f9);
+  text-decoration: line-through;
+}
+.ts-badge--mo { color: var(--ash, #475569); background: var(--rule-hair, #f1f5f9); }
+.ts-badge--da_chot { color: var(--moss, #2f5d3a); background: var(--moss-soft, #dfeadf); }
+.ts-badge--da_ket { color: var(--ash-2, #94a3b8); background: var(--rule-hair, #f1f5f9); }
+.ts-badge--dang_kiem { color: var(--rust-deep, #8a3208); background: var(--rust-soft, #f6e2d6); }
+
+/* --- Bảng dòng cấu thành nguyên giá (trong dialog ghi tăng) -------------------
+   Nguyên giá KHÔNG phải một ô gõ tay: nó là tổng của giá mua + vận chuyển + lắp đặt chạy thử.
+   Gõ tay một con số thì ba tháng sau không ai lần được vì sao ra con số đó. */
+.ts-chiphi { width: 100%; border-collapse: collapse; }
+.ts-chiphi th {
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: var(--fw-medium, 500);
+  color: var(--ash-2, #94a3b8);
+  padding: 0 0 4px;
+}
+.ts-chiphi th:nth-child(2) { text-align: right; }
+.ts-chiphi td { padding: 3px 0; vertical-align: middle; }
+.ts-chiphi td + td { padding-left: var(--sp-2, 8px); }
+.ts-chiphi__tien { width: 190px; }
+.ts-chiphi__x {
+  width: 30px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--ash-2, #94a3b8);
+  border-radius: 6px;
+  line-height: 0;
+  padding: 5px;
+}
+.ts-chiphi__x:hover { color: var(--signal-deep, #6b1717); background: var(--rule-hair, #f1f5f9); }
+.ts-chiphi__x:disabled { opacity: 0.35; cursor: default; }
+
+.ts-tong {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-3, 12px);
+  margin-top: var(--sp-2, 8px);
+  padding-top: var(--sp-2, 8px);
+  border-top: 1px solid var(--rule-soft, #e8e3d3);
+}
+.ts-tong__nhan { font-size: 12px; color: var(--ash, #475569); }
+.ts-tong__so {
+  font-size: 17px;
+  font-weight: var(--fw-semibold, 600);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Cảnh báo MỀM (dưới ngưỡng TSCĐ, kỳ trước chưa chốt…) — nói rồi vẫn cho đi tiếp. */
+.ts-luuy {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: var(--sp-2, 8px);
+  padding: 8px 11px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--amber-deep, #7a5c0f);
+  background: var(--amber-soft, #efe4c4);
+}
+.ts-luuy svg { flex: none; margin-top: 2px; }
+
+/* --- Bảng khấu hao dự kiến ---------------------------------------------------
+   Hiện ngay sau khi lưu: kế toán thấy tháng đầu bị chia theo ngày, thấy tháng cuối gánh phần lẻ,
+   thì mới tin con số của máy. */
+.ts-dukien { max-height: 300px; overflow: auto; border-radius: 8px; border: 1px solid var(--rule-soft, #e8e3d3); }
+.ts-dukien table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ts-dukien th {
+  position: sticky;
+  top: 0;
+  background: var(--paper, #fdfcf8);
+  text-align: right;
+  font-size: 11.5px;
+  font-weight: var(--fw-medium, 500);
+  color: var(--ash-2, #94a3b8);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule-soft, #e8e3d3);
+}
+.ts-dukien th:first-child { text-align: left; }
+.ts-dukien td {
+  padding: 5px 10px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid var(--rule-hair, #f1f5f9);
+}
+.ts-dukien td:first-child { text-align: left; }
+.ts-dukien tr:last-child td { border-bottom: 0; }
+
+/* --- Thanh kỳ + băng khoá ----------------------------------------------------
+   Kỳ đã chốt phải nói NGAY trên đầu bảng, không nấp trong một badge nhỏ: chốt rồi mà tưởng chưa
+   thì kế toán ngồi tìm nút Tính không thấy. */
+.ts-kybar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 8px);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-3, 12px);
+}
+.ts-kybar__phai { margin-left: auto; display: flex; gap: var(--sp-2, 8px); flex-wrap: wrap; }
+
+.ts-khoa {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  margin-bottom: var(--sp-3, 12px);
+  color: var(--moss, #2f5d3a);
+  background: var(--moss-soft, #dfeadf);
+}
+
+/* Dòng TỔNG của bảng kỳ — đây là con số kế toán chép sang phần mềm kế toán, phải nổi hơn mọi dòng. */
+.ts-table__tong td {
+  font-weight: var(--fw-semibold, 600);
+  border-top: 2px solid var(--rule-soft, #e8e3d3);
+  background: var(--paper, #fdfcf8);
+}
+
+/* --- Kiểm kê -----------------------------------------------------------------
+   Hai nút to trên từng dòng: người đi kiểm cầm máy tính bảng đứng giữa xưởng, không rê chuột
+   chọn dropdown được. */
+.ts-tick { display: inline-flex; gap: 5px; }
+.ts-tick__nut {
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  background: var(--paper, #fdfcf8);
+  border-radius: 7px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: var(--fw-medium, 500);
+  cursor: pointer;
+  color: var(--ash, #475569);
+  white-space: nowrap;
+}
+.ts-tick__nut:hover:not(:disabled) { border-color: var(--ash-2, #94a3b8); }
+.ts-tick__nut:disabled { cursor: default; opacity: 0.55; }
+.ts-tick__nut.is-co { border-color: var(--moss, #2f5d3a); color: var(--moss, #2f5d3a); background: var(--moss-soft, #dfeadf); }
+.ts-tick__nut.is-khong { border-color: var(--signal-deep, #6b1717); color: var(--signal-deep, #6b1717); background: var(--signal-soft, #efd5d5); }
+
+/* Hai danh sách kết quả sau khi kết đợt */
+.ts-ketqua { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3, 12px); margin-bottom: var(--sp-4, 16px); }
+@media (max-width: 860px) { .ts-ketqua { grid-template-columns: 1fr; } }
+.ts-ketqua__o {
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: 10px;
+  padding: var(--sp-3, 12px);
+  background: var(--paper, #fdfcf8);
+}
+.ts-ketqua__title {
+  font-size: 12px;
+  font-weight: var(--fw-semibold, 600);
+  margin-bottom: 6px;
+}
+.ts-ketqua__title--thieu { color: var(--signal-deep, #6b1717); }
+.ts-ketqua__title--thua { color: var(--rust-deep, #8a3208); }
+.ts-ketqua__ds { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.7; }
+.ts-ketqua__rong { font-size: 12.5px; color: var(--ash-2, #94a3b8); }
+
+/* Tab của dialog biến động — ba chế độ, mỗi lúc một khung. */
+.ts-mode { display: flex; gap: 6px; margin-bottom: var(--sp-3, 12px); flex-wrap: wrap; }
+.ts-mode__nut {
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  background: var(--paper, #fdfcf8);
+  border-radius: 999px;
+  padding: 6px 15px;
+  font-size: 12.5px;
+  cursor: pointer;
+  color: var(--ash, #475569);
+}
+.ts-mode__nut.is-active {
+  border-color: var(--ink, #1f2937);
+  color: var(--ink, #1f2937);
+  font-weight: var(--fw-medium, 500);
+}
+
+/* Dòng lịch sử biến động trong drawer chi tiết */
+.ts-bd { display: flex; flex-direction: column; gap: 7px; }
+.ts-bd__dong {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--rule-hair, #f1f5f9);
+}
+.ts-bd__dong:last-child { border-bottom: 0; padding-bottom: 0; }
+.ts-bd__ngay { color: var(--ash-2, #94a3b8); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ts-bd__loai { font-weight: var(--fw-medium, 500); white-space: nowrap; }
+.ts-bd__ly-do { color: var(--ash, #475569); }

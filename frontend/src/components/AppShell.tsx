@@ -64,6 +64,7 @@ import { AccountingPurchaseInboxPage } from "../pages/ke-toan/don-mua-hang";
 import { PaymentVouchersPage } from "../pages/ke-toan/phieu-chi";
 import { PaymentReceiptsPage } from "../pages/ke-toan/phieu-thu";
 import { AccountingBankAccountsPage } from "../pages/ke-toan/tk-ngan-hang";
+import { TaiSanPage } from "../pages/tai-san";
 import {
   AUTHENTICATED_NAV_IDS,
   MODULES_BY_NAV_ID,
@@ -1457,6 +1458,8 @@ export function AppShell() {
         return <BaoCaoKeToanPage />;
       case "ke-toan-tai-khoan-ngan-hang":
         return <AccountingBankAccountsPage />;
+      case "tai-san":
+        return <TaiSanPage />;
       case "ke-toan-phieu-thu":
         return (
           <PaymentReceiptsPage
