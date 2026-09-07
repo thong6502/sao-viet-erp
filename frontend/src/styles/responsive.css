@@ -2442,16 +2442,16 @@
    Nguồn: `grid-template-columns: 1fr 1fr 1fr` (ke-hoach-sx.css:3388) — `1fr` không tụt xuống
    dưới min-content của viên nhập liệu. Ở 375px ba viên không thể nằm ngang: xoay DỌC.
 
-   (d) KHUÔN 1 + 5 — CHỒNG CHỮ: THẺ VẬT TƯ trong tab "Vật tư".
-   Ảnh `t5e-vt-06.png` / `t5e-vt-08.png` / `t5e-vt-10.png`: "Couché 300 65×86" bị số "68 tờ
-   nguyên" ĐÈ LÊN, đọc thành "65×86 nguyên" chồng nét; "Màng bóng" bị "60.000 m²" đè; mã
-   "KEM-102" vỡ hai dòng, tên "Bản kẽm khổ 102" rơi dọc BỐN dòng mỗi dòng một chữ. Đo:
-   `.khsx-vtcard--nvl` `sw278/cw257`, `.khsx-vtke__vattu-list` `sw281/cw261`.
-   Nguồn: `.khsx-vtcard { display:flex; justify-content:space-between }` (ke-hoach-sx.css:6949)
-   — đúng khuôn 1. Cụm phải `.khsx-vtcard__meta` khai `flex: 0 0 auto` (:7039) nên không co;
-   cụm trái `flex: 1 1 auto; min-width: 0` (:6977) co xuống ~90px rồi chữ tràn ra ngoài, đè
-   sang cụm phải. Chữa đúng bài khuôn 1: cho thẻ xuống dòng, cụm chữ `flex: 1 1 200px`
-   (KHÔNG `1 1 100%` — ở tablet cụm phải vẫn nên đứng cạnh), mã hàng cấm vỡ dòng.
+   (d) ĐÃ HẾT BỆNH — THẺ VẬT TƯ trong tab "Vật tư" nay là BẢNG.
+   Bệnh cũ (ảnh `t5e-vt-06/08/10.png`): thẻ `.khsx-vtcard` là hàng flex `space-between`, cụm
+   phải khai `flex: 0 0 auto` nên không co, cụm trái co xuống ~90px rồi chữ tràn đè sang phải —
+   "Couché 300 65×86" bị "68 tờ nguyên" đè, tên "Bản kẽm khổ 102" rơi dọc bốn dòng một chữ.
+   Nay khối đó dựng bằng `.khsx-vtbang` (ke-hoach-sx.css §3): bảng thật, khung
+   `.khsx-vtbang__wrap` khai `overflow-x: auto` nên hẹp thì CUỘN NGANG chứ không bóp cột —
+   đúng lối chữa khuôn 2. Còn một chỗ phải chặn ở 375px: năm cột kia đều `width:1%` + `nowrap`
+   nên cột "Vật tư" là cột DUY NHẤT co được, đo còn 75px và "Băng keo trong 48mm" rơi bốn dòng.
+   Cho cột tên một cái SÀN — nhưng chỉ ở 480px: đo ở 703px cột tên đã được 127px, đủ hai dòng
+   mà bảng chưa phải cuộn, đặt sàn ở 768px là ép tablet cuộn ngang không vì lý do gì.
 
    (e) KHUÔN 5 — CHỒNG CHỮ: "DÒNG CHẢY SỐ LƯỢNG & HAO HỤT" (ngăn kéo bước › Cấu hình).
    Ảnh `t5l-tab1-01.png`: hai ô "SỐ LƯỢNG VÀO" / "SỐ LƯỢNG RA" rơi dọc ba dòng, nhãn đơn vị
@@ -2512,17 +2512,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* (d) */
-  .shell__content .khsx-vtcard {
-    flex-wrap: wrap;
-  }
-  .shell__content .khsx-vtcard__main {
-    flex: 1 1 200px;
-  }
-  .shell__content .khsx-vtcard__ma {
-    white-space: nowrap;
-  }
-
   /* (e) */
   .khsx-drawer--buoc .khsx-flow-pipeline {
     grid-template-columns: minmax(0, 1fr);
@@ -2557,6 +2546,13 @@
   /* (i) */
   .khsx-drawer--buoc .khsx-preset-btn {
     min-width: 44px;
+  }
+}
+
+/* §61 (d) — SÀN cho cột "Vật tư" của `.khsx-vtbang`, CHỈ ở điện thoại. Xem chú thích (d) ở trên. */
+@media screen and (max-width: 480px) {
+  .shell__content .khsx-vtbang__ten {
+    min-width: 180px;
   }
 }
 

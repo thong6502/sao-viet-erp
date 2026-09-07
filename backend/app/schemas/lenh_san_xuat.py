@@ -194,7 +194,9 @@ class RoutingNodeOut(BaseModel):
     ten: str | None = None
     nhom: str | None = None
     loai_buoc: str | None = None
-    bat_buoc: bool = False
+    # Mặc định TRUE từ 07/09/2026: bước đã nằm trong routing thì PHẢI làm (không còn bước tuỳ
+    # chọn). Để `False` thì node nào service quên bơm khoá này lại in ra "Không" ở phiếu công nghệ.
+    bat_buoc: bool = True
     nha_cung_cap: str | None = None
     cong_viec_id: int | None = None
     la_buoc_ghep: bool = False

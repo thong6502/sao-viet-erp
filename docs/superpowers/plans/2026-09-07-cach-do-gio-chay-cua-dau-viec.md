@@ -100,7 +100,7 @@ Câu hint dưới ô số lượt hứa *"giờ của bước KHÔNG đổi theo
 - Produces: migration `0276_cong_thuc_gio_dau_viec` chép `cong_thuc_khoan → cong_thuc_gio` cho
   dòng đang có (chỉ khi đích còn trống).
 
-- [ ] **Bước 1: Viết test thất bại**
+- [x] **Bước 1: Viết test thất bại**
 
 Thêm vào cuối `backend/tests/test_cong_doan.py`:
 
@@ -144,7 +144,7 @@ def test_migration_0276_chep_cong_thuc_khoan_sang_o_gio(db):
 Nếu `CongDoanDauViec` chưa được import ở đầu file test thì thêm vào import sẵn có:
 `from app.models.cong_doan import CongDoan, CongDoanDauViec`.
 
-- [ ] **Bước 2: Chạy test cho chắc là ĐỎ**
+- [x] **Bước 2: Chạy test cho chắc là ĐỎ**
 
 Từ trong `backend/`:
 
@@ -154,7 +154,7 @@ python -m pytest tests/test_cong_doan.py::test_migration_0276_chep_cong_thuc_kho
 
 Kỳ vọng: FAIL — `ImportError: cannot import name '_migrate_cong_thuc_gio_dau_viec'`.
 
-- [ ] **Bước 3: Thêm cột vào model**
+- [x] **Bước 3: Thêm cột vào model**
 
 Trong `backend/app/models/cong_doan.py`, ngay SAU khối `cong_thuc_khoan` (kết thúc ở dòng
 `cong_thuc_khoan: Mapped[str | None] = mapped_column(Text, nullable=True)`), chèn:
@@ -187,7 +187,7 @@ Và thay khối comment của `don_vi_nang_suat` (dòng 198-200) bằng:
     # (`cong_thuc_gio`) nên hai thứ tách được: khoán "600 đ/kg mực" mà năng suất đếm "500 tờ/h".
 ```
 
-- [ ] **Bước 4: Viết migration `0276`**
+- [x] **Bước 4: Viết migration `0276`**
 
 Thêm vào CUỐI `backend/app/db_migrations.py`:
 
@@ -231,7 +231,7 @@ def _migrate_cong_thuc_gio_dau_viec(db) -> None:
 MIGRATIONS.append(("0276_cong_thuc_gio_dau_viec", _migrate_cong_thuc_gio_dau_viec))
 ```
 
-- [ ] **Bước 5: Cập nhật `docs/DB_SCHEMA.md`**
+- [x] **Bước 5: Cập nhật `docs/DB_SCHEMA.md`**
 
 Ở mục `### cong_doan_dau_viec`, dòng **Tất cả cột** — thêm `cong_thuc_gio` ngay sau
 `cong_thuc_khoan`:
@@ -260,7 +260,7 @@ thêm hàng ngay dưới:
 | `cong_doan_dau_viec.cong_thuc_gio` (mg `0276`) | **LƯỢNG** | ĐẦU VIỆC này trong CÔNG ĐOẠN này đo giờ theo lượng nào (÷ năng suất ⇒ phút) |
 ```
 
-- [ ] **Bước 6: Chạy test cho chắc là XANH**
+- [x] **Bước 6: Chạy test cho chắc là XANH**
 
 Từ trong `backend/`:
 
@@ -270,7 +270,7 @@ python -m pytest tests/test_cong_doan.py -q
 
 Kỳ vọng: PASS toàn bộ file.
 
-- [ ] **Bước 7: Chạy guard DB_SCHEMA**
+- [x] **Bước 7: Chạy guard DB_SCHEMA**
 
 Từ trong `backend/`:
 
@@ -280,7 +280,7 @@ python -m pytest tests/test_db_schema_doc.py -q
 
 (Nếu tên file khác thì tìm bằng `grep -rl "DB_SCHEMA" backend/tests`.) Kỳ vọng: PASS.
 
-- [ ] **Bước 8: Commit**
+- [x] **Bước 8: Commit**
 
 ```bash
 git add backend/app/models/cong_doan.py backend/app/db_migrations.py docs/DB_SCHEMA.md backend/tests/test_cong_doan.py && git commit -m "Them cot cong_thuc_gio cho dau viec cua cong doan (mg 0276)"
@@ -301,7 +301,7 @@ git add backend/app/models/cong_doan.py backend/app/db_migrations.py docs/DB_SCH
   khoá này. `_validate` chuẩn hoá khoảng trắng thừa về `None` và chặn công thức sai cú pháp bằng
   `CongDoanValidationError` (HTTP 422).
 
-- [ ] **Bước 1: Viết test thất bại**
+- [x] **Bước 1: Viết test thất bại**
 
 Thêm vào `backend/tests/test_cong_doan.py`:
 
@@ -365,7 +365,7 @@ def test_cong_thuc_gio_dau_viec_sai_cu_phap_bi_chan(client, admin_headers, db):
 một test POST/PUT công đoạn có `dau_viec_dinh_muc` đang chạy được, rồi dùng đúng helper và đúng bộ
 trường tối thiểu của nó thay cho tên giả định ở trên.
 
-- [ ] **Bước 2: Chạy test cho chắc là ĐỎ**
+- [x] **Bước 2: Chạy test cho chắc là ĐỎ**
 
 ```bash
 python -m pytest tests/test_cong_doan.py -k cong_thuc_gio_dau_viec -q
@@ -374,7 +374,7 @@ python -m pytest tests/test_cong_doan.py -k cong_thuc_gio_dau_viec -q
 Kỳ vọng: FAIL — `cong_thuc_gio` bị Pydantic bỏ im lặng nên `dv.cong_thuc_gio is None`, và test
 thứ hai trả 201 thay vì 422.
 
-- [ ] **Bước 3: Thêm field vào schema**
+- [x] **Bước 3: Thêm field vào schema**
 
 Trong `backend/app/schemas/cong_doan.py`, ngay SAU dòng `cong_thuc_khoan: str | None = None` của
 `CongDoanDauViecIn`, chèn:
@@ -394,7 +394,7 @@ Và sửa comment của `don_vi_nang_suat` (dòng 18-19) — bỏ chữ "là nh�
     # `cong_thuc_gio` phải quy về (mã `<đơn vị>_gio`); trống = lùi về đơn vị của đơn giá khoán.
 ```
 
-- [ ] **Bước 4: Chuẩn hoá + kiểm ở `_validate`**
+- [x] **Bước 4: Chuẩn hoá + kiểm ở `_validate`**
 
 Trong `backend/app/services/cong_doan_service.py`, trong vòng `for r in dinh_muc:`, THAY dòng
 `self._kiem_o(r.get("cong_thuc_khoan"), ...)` (và ba dòng của nó) bằng:
@@ -415,7 +415,7 @@ Trong `backend/app/services/cong_doan_service.py`, trong vòng `for r in dinh_mu
                              loai=LOAI_QUY_DOI)
 ```
 
-- [ ] **Bước 5: Chạy test cho chắc là XANH**
+- [x] **Bước 5: Chạy test cho chắc là XANH**
 
 ```bash
 python -m pytest tests/test_cong_doan.py -q
@@ -423,7 +423,7 @@ python -m pytest tests/test_cong_doan.py -q
 
 Kỳ vọng: PASS toàn bộ file.
 
-- [ ] **Bước 6: Commit**
+- [x] **Bước 6: Commit**
 
 ```bash
 git add backend/app/schemas/cong_doan.py backend/app/services/cong_doan_service.py backend/tests/test_cong_doan.py && git commit -m "Nhan va kiem o Cach do gio chay cua dau viec o tang schema + service"
@@ -448,7 +448,7 @@ git add backend/app/schemas/cong_doan.py backend/app/services/cong_doan_service.
 - Produces: `khoan_json` của bước Tổ có thêm khoá `cong_thuc_gio` (chuỗi, **có mặt kể cả khi
   rỗng**) mỗi khi ảnh chụp lấy từ một dòng định mức.
 
-- [ ] **Bước 1: Viết test thất bại**
+- [x] **Bước 1: Viết test thất bại**
 
 Trong `backend/tests/test_lsx_service.py`, **THAY TRỌN** hàm
 `test_don_vi_nang_suat_KHOA_theo_don_gia_khoan` (dòng ~744) bằng:
@@ -565,7 +565,7 @@ hiện có dựng đối tượng bước (thường là một `LsxCongDoan` th�
 `SimpleNamespace`). Dùng đúng lối đang có ở file đó; nếu file dựng bước qua lệnh thật thì viết
 test này theo lối lệnh thật thay vì bịa helper mới.
 
-- [ ] **Bước 2: Chạy test cho chắc là ĐỎ**
+- [x] **Bước 2: Chạy test cho chắc là ĐỎ**
 
 ```bash
 python -m pytest tests/test_lsx_service.py -k "don_vi_nang_suat or dich_gio_cua_khoan or so_luot_chi_nhan" -q
@@ -574,7 +574,7 @@ python -m pytest tests/test_lsx_service.py -k "don_vi_nang_suat or dich_gio_cua_
 Kỳ vọng: FAIL — `ImportError: cannot import name 'dich_gio_cua_khoan'`, và
 `dv["don_vi_nang_suat"] == "cuốn"` thay vì `"to"`.
 
-- [ ] **Bước 3: `khoan_snapshot` ghim thêm ô giờ**
+- [x] **Bước 3: `khoan_snapshot` ghim thêm ô giờ**
 
 Trong `backend/app/services/piece_work_service.py`, THAY khối cuối của `khoan_snapshot`:
 
@@ -607,7 +607,7 @@ Và bổ sung vào docstring của hàm, ngay trước đoạn "Khoá VẮNG khi
     bên chia năng suất ra phút.
 ```
 
-- [ ] **Bước 4: Hàm `dich_gio_cua_khoan` + `sl_tinh_cua_buoc` đọc nó**
+- [x] **Bước 4: Hàm `dich_gio_cua_khoan` + `sl_tinh_cua_buoc` đọc nó**
 
 Trong `backend/app/services/lsx_service.py`, thêm hàm module-level ngay SAU `ma_don_vi_toc_do`
 (dòng ~152):
@@ -654,7 +654,7 @@ Và sửa dòng đích trong docstring của `sl_tinh_cua_buoc`:
         bước máy — nhà thầu là một máy khai trong danh mục, có tốc độ và đơn vị tốc độ như máy nhà.
 ```
 
-- [ ] **Bước 5: Bỏ nhãn DORMANT + thôi đóng cứng `rate.unit`**
+- [x] **Bước 5: Bỏ nhãn DORMANT + thôi đóng cứng `rate.unit`**
 
 Trong `_dinh_muc_snapshot` (dòng ~127), thay đoạn docstring nói `don_vi_nang_suat` DORMANT bằng:
 
@@ -691,7 +691,7 @@ bằng:
                 })
 ```
 
-- [ ] **Bước 6: Hai chỗ gán `row.don_vi_nang_suat` trong `_ke_thua`**
+- [x] **Bước 6: Hai chỗ gán `row.don_vi_nang_suat` trong `_ke_thua`**
 
 Trong `backend/app/services/lsx_service.py`, THAY:
 
@@ -746,7 +746,7 @@ bằng:
 và thêm `dich_gio_cua_khoan` vào import sẵn có từ `lsx_service` ở đầu file (`_dinh_muc_snapshot`
 đang được import từ đó — thêm vào cùng dòng).
 
-- [ ] **Bước 7: Chạy test cho chắc là XANH**
+- [x] **Bước 7: Chạy test cho chắc là XANH**
 
 ```bash
 python -m pytest tests/test_lsx_service.py tests/test_bai_ghep_2_service.py -q
@@ -755,7 +755,7 @@ python -m pytest tests/test_lsx_service.py tests/test_bai_ghep_2_service.py -q
 Kỳ vọng: PASS. Test nào đỏ vì đang khoá hành vi cũ ("đơn vị năng suất = đơn vị đơn giá") thì sửa
 kỳ vọng của nó cho khớp thiết kế mới, KHÔNG sửa engine để chiều test.
 
-- [ ] **Bước 8: Chạy rộng hơn các file đụng `khoan_json`**
+- [x] **Bước 8: Chạy rộng hơn các file đụng `khoan_json`**
 
 ```bash
 python -m pytest tests/test_khsx_ui_contract.py tests/test_xep_lich_dot2.py tests/test_lenh_sx_pdf.py -q
@@ -763,7 +763,7 @@ python -m pytest tests/test_khsx_ui_contract.py tests/test_xep_lich_dot2.py test
 
 Kỳ vọng: PASS.
 
-- [ ] **Bước 9: Commit**
+- [x] **Bước 9: Commit**
 
 ```bash
 git add backend/app/services/piece_work_service.py backend/app/services/lsx_service.py backend/app/services/bai_ghep_service.py backend/tests && git commit -m "Buoc To do gio bang o rieng cua dau viec, don vi nang suat het khoa theo don gia"
@@ -783,7 +783,7 @@ git add backend/app/services/piece_work_service.py backend/app/services/lsx_serv
 - Produces: cột Excel `"Cách đo giờ chạy"` trong sheet con "Đầu việc định mức"; dòng nhật ký
   `Đầu việc #<id> · Công thức giờ chạy`.
 
-- [ ] **Bước 1: Viết test thất bại**
+- [x] **Bước 1: Viết test thất bại**
 
 Thêm vào `backend/tests/test_import_excel.py`:
 
@@ -801,7 +801,7 @@ def test_excel_cong_doan_co_cot_cach_do_gio_chay():
 `backend/app/services/catalog_excel_specs.py`, đọc tên biến/thuộc tính thật (spec công đoạn được
 gán vào biến nào, `SheetCon` có thuộc tính gì) rồi viết test bằng đúng tên đó.
 
-- [ ] **Bước 2: Chạy test cho chắc là ĐỎ**
+- [x] **Bước 2: Chạy test cho chắc là ĐỎ**
 
 ```bash
 python -m pytest tests/test_import_excel.py -k cach_do_gio_chay -q
@@ -809,7 +809,7 @@ python -m pytest tests/test_import_excel.py -k cach_do_gio_chay -q
 
 Kỳ vọng: FAIL — `"cong_thuc_gio" not in khoa`.
 
-- [ ] **Bước 3: Thêm cột Excel**
+- [x] **Bước 3: Thêm cột Excel**
 
 Trong `backend/app/services/catalog_excel_specs.py`, thêm vào `_doc_dau_viec_hien_co` ngay SAU
 dòng `"cong_thuc_khoan": dv.cong_thuc_khoan,`:
@@ -825,7 +825,7 @@ và trong `SheetCon("Đầu việc định mức", ...)`, thêm ngay SAU dòng
                 Cot("Cách đo giờ chạy", "cong_thuc_gio", rong=36),
 ```
 
-- [ ] **Bước 4: Ghi ô mới vào nhật ký**
+- [x] **Bước 4: Ghi ô mới vào nhật ký**
 
 Trong `backend/app/services/nhat_ky_danh_muc.py`, THAY:
 
@@ -842,7 +842,7 @@ bằng:
 
 `NHAN["cong_thuc_gio"] = "Công thức giờ chạy"` đã có sẵn (dùng chung với bảng máy) — không thêm gì.
 
-- [ ] **Bước 5: Chạy test cho chắc là XANH**
+- [x] **Bước 5: Chạy test cho chắc là XANH**
 
 ```bash
 python -m pytest tests/test_import_excel.py tests/test_import_danh_muc_prod.py tests/test_danh_muc_bug_fixes.py -q
@@ -850,7 +850,7 @@ python -m pytest tests/test_import_excel.py tests/test_import_danh_muc_prod.py t
 
 Kỳ vọng: PASS.
 
-- [ ] **Bước 6: Commit**
+- [x] **Bước 6: Commit**
 
 ```bash
 git add backend/app/services/catalog_excel_specs.py backend/app/services/nhat_ky_danh_muc.py backend/tests/test_import_excel.py && git commit -m "O Cach do gio chay len bang Excel danh muc va nhat ky cong doan"
@@ -870,7 +870,7 @@ git add backend/app/services/catalog_excel_specs.py backend/app/services/nhat_ky
 - Consumes: `CongDoanDauViecIn.cong_thuc_gio` (Task 2) — body PUT/POST `/api/cong-doan`.
 - Produces: `DinhMucRow.cong_thuc_gio?: string | null`.
 
-- [ ] **Bước 1: Thêm trường vào type**
+- [x] **Bước 1: Thêm trường vào type**
 
 Trong `frontend/src/pages/danh-muc/types.ts`, chèn vào `DinhMucRow` ngay SAU khối
 `cong_thuc_khoan`:
@@ -882,7 +882,7 @@ Trong `frontend/src/pages/danh-muc/types.ts`, chèn vào `DinhMucRow` ngay SAU k
   cong_thuc_gio?: string | null;
 ```
 
-- [ ] **Bước 2: Nạp danh mục Đơn vị trong `DinhMucDauViec.tsx`**
+- [x] **Bước 2: Nạp danh mục Đơn vị trong `DinhMucDauViec.tsx`**
 
 Ngay SAU khối `useEffect` nạp `vatTu`, thêm:
 
@@ -904,7 +904,7 @@ Ngay SAU khối `useEffect` nạp `vatTu`, thêm:
 và thêm `import { DonViTocDoField } from "./DonViTocDo";` vào khối import (kiểm lại đường dẫn
 tương đối thật của file `DonViTocDo.tsx` trong cùng thư mục `fields/`).
 
-- [ ] **Bước 3: Ô Đơn vị từ chữ chỉ-đọc thành ô chọn**
+- [x] **Bước 3: Ô Đơn vị từ chữ chỉ-đọc thành ô chọn**
 
 THAY nguyên ô đơn vị (dòng bắt đầu bằng `<td className="rc-col--unit rc-dinh-muc-unit">{opt?.don_vi_ten ...`)
 bằng:
@@ -923,7 +923,7 @@ bằng:
 Nếu ô chọn tràn cột, thêm `title` cho biết mặc định: bọc `<td>` bằng
 `title={opt?.don_vi_ten ? `Bỏ trống = ${opt.don_vi_ten}` : undefined}`.
 
-- [ ] **Bước 4: Cột "Cách đo giờ chạy"**
+- [x] **Bước 4: Cột "Cách đo giờ chạy"**
 
 Trong `<thead>`, thêm NGAY SAU `<th>` của "Công thức tiền công":
 
@@ -949,7 +949,7 @@ Trong `<tbody>`, thêm NGAY SAU `<td>` của ô công thức tiền công:
 Đổi CẢ HAI `colSpan={9}` trong file thành `colSpan={10}` (một ở dòng "chưa chọn đầu việc", một ở
 hàng phụ vật tư).
 
-- [ ] **Bước 5: State + panel công thức giờ**
+- [x] **Bước 5: State + panel công thức giờ**
 
 Thêm ngay SAU khai báo `moCt`:
 
@@ -982,7 +982,7 @@ sau `don_vi_nang_suat: null`.
 Sửa luôn comment đầu file (`donViVao` … "đơn vị năng suất giờ do người khai chọn") — nay câu đó
 đúng trở lại, bỏ chữ "KHÔNG dùng nữa" nếu prop thật sự vẫn không dùng thì giữ nguyên phần đó.
 
-- [ ] **Bước 6: Viết lại câu hint dưới ô số lượt**
+- [x] **Bước 6: Viết lại câu hint dưới ô số lượt**
 
 Ở CẢ HAI file `frontend/src/pages/LsxBuocDrawer.tsx` và
 `frontend/src/pages/BaiGhepBuocChungForm.tsx`, thay chuỗi:
@@ -997,7 +997,7 @@ bằng:
 "Số lần hàng đi qua bước này — mặc định 1. Ở bước tổ, số này chỉ chảy vào công thức nào có gõ chip so_luot_chay: tiền công và giờ chạy khai ở hai ô riêng tại danh mục Công đoạn."
 ```
 
-- [ ] **Bước 7: Kiểm kiểu**
+- [x] **Bước 7: Kiểm kiểu**
 
 Từ trong `frontend/`:
 
@@ -1007,7 +1007,7 @@ npx tsc --noEmit
 
 Kỳ vọng: exit 0, không lỗi.
 
-- [ ] **Bước 8: Commit**
+- [x] **Bước 8: Commit**
 
 ```bash
 git add frontend/src && git commit -m "Bang dau viec cua cong doan them o Cach do gio chay, o Don vi nang suat chon duoc"
@@ -1023,13 +1023,13 @@ riêng.
 **Interfaces:**
 - Consumes: toàn bộ Task 1-5.
 
-- [ ] **Bước 1: Restart uvicorn**
+- [x] **Bước 1: Restart uvicorn**
 
 Sửa model/schema/service backend ⇒ **BẮT BUỘC** restart (ở đây không hot-reload đáng tin). Dùng
 đúng lối `Win32_Process.Create` mà dự án này vẫn dùng để đẻ tiến trình sống qua phiên; BE
 `127.0.0.1:8000`, FE `localhost:5173`. Chờ `/api/health` trả 200 rồi mới sang bước sau.
 
-- [ ] **Bước 2: Xác nhận migration 0276 đã chạy trên DB dev**
+- [x] **Bước 2: Xác nhận migration 0276 đã chạy trên DB dev**
 
 Đọc log khởi động uvicorn, tìm dòng ghi `0276_cong_thuc_gio_dau_viec`. **KHÔNG** chạy `python -c`
 trần trong `backend/` để soi DB.

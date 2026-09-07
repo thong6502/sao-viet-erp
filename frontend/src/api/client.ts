@@ -2486,7 +2486,8 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   /** Đầu việc khoán: id để ghim · 0/null = bỏ chọn · KHÔNG gửi field = giữ mặc định của server. */
   piece_rate_id?: number | null;
   step_key?: string; thu_tu?: number; cong_doan_id?: number | null; ten?: string; nhom?: string | null;
-  loai_buoc?: LsxLoaiBuoc; bat_buoc?: boolean;
+  /* `bat_buoc` GỠ 07/09/2026 — server không nhận nữa, mọi bước routing đều bắt buộc (mg 0275). */
+  loai_buoc?: LsxLoaiBuoc;
   la_kcs?: boolean;
   kcs_tieu_chi_bo_sung_json?: { ten: string; huong_dan: string | null; bat_buoc: boolean }[] | null;
   department_id?: number | null; may_id?: number | null;

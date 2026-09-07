@@ -50,17 +50,9 @@ class CongDoanRepository(CatalogRepo):
             self._base_select().where(CongDoan.id == cd_id)
         ).scalar_one_or_none()
 
-    def don_vi_tram(self, mas: set[str]) -> dict[str, str | None]:
-        """`{mã đơn vị: trạm dòng giấy}` cho các mã CÓ THẬT trong danh mục Đơn vị.
-
-        Mã không có trong danh mục thì VẮNG key (khác với có key mà giá trị None = có trong danh
-        mục nhưng đứng ngoài dòng giấy) — service phân biệt hai ca đó để báo lỗi cho đúng.
-        """
-        if not mas:
-            return {}
-        return {ma: tram for ma, tram in self.db.execute(
-            select(DonViDo.ma, DonViDo.tram_dong_giay).where(DonViDo.ma.in_(mas))
-        ).all()}
+    # GỠ 06/09/2026: `don_vi_tram(mas)`. Ô đơn vị của công đoạn nay là menu ĐÓNG 5 chặng dòng giấy
+    # nên `_validate` đối chiếu thẳng với `TRAM_DONG_GIAY` trong code — không phải hỏi danh mục
+    # Đơn vị nữa, và cột `don_vi_do.tram_dong_giay` nó đọc cũng đã thành cột chết.
 
     def don_vi_ten(self) -> dict[str, str]:
         """`{mã đơn vị: tên}` cho CẢ danh mục — một truy vấn cho cả trang, không N+1.

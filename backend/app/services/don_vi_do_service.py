@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from ..models.don_vi_do import HO_GOI_Y, TRAM_DONG_GIAY
+from ..models.don_vi_do import HO_GOI_Y
 from .bien_cong_thuc import LOAI_QUY_DOI, bien_cho
 from .catalog_base import (
     CatalogDuplicate, CatalogError, CatalogNotFound, CatalogService, CatalogValidationError,
@@ -99,13 +99,11 @@ class DonViDoService(CatalogService):
             raise DonViDoValidationError("Mã đơn vị không được trống.")
         if not (data.get("ten") or "").strip():
             raise DonViDoValidationError("Tên đơn vị không được trống.")
-        # Trạm dòng giấy là MENU đóng: engine chạy chuỗi bù hao theo đúng 5 mức này, gõ mức lạ thì
-        # `TRAM_THU_TU` không có bậc và bước rơi khỏi chuỗi trong im lặng.
-        tram = (data.get("tram_dong_giay") or "").strip() or None
-        data["tram_dong_giay"] = tram
-        if tram is not None and tram not in TRAM_DONG_GIAY:
-            raise DonViDoValidationError(
-                f"Trạm dòng giấy phải là một trong: {' · '.join(TRAM_DONG_GIAY)}.")
+        # `tram_dong_giay` (cờ TRẠM trên dòng giấy) GỠ 06/09/2026. Nó là lớp trung gian cho một thứ
+        # không cần trung gian: dòng giấy có ĐÚNG 5 chặng đóng cứng trong engine, cờ này chỉ cho
+        # đổi TÊN chặng chứ không thêm được chặng thứ 6 — đổi lại bắt người khai đơn vị (việc của
+        # kho, mua hàng) phải hiểu dòng giấy. Nay 5 chặng nằm thẳng ở ô Đơn vị vào/ra của màn Công
+        # đoạn; xem `services/dong_giay.py` và `cong_doan_service._validate`.
         # CÁCH ĐO của đơn vị (`cong_thuc`, mg 0192) GỠ 17/08/2026 — xem mg `0215`. Module này nay
         # chỉ còn HAI việc: khai đơn vị, và quy đổi giữa các đơn vị bằng hệ số cố định. Câu "một
         # lệnh cần bao nhiêu" thuộc về MÓN / MÁY / ĐẦU VIỆC / BƯỚC, mỗi nơi đã có ô riêng.

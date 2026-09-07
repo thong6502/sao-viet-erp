@@ -246,7 +246,7 @@ def test_dinh_muc_dau_viec_chan_xoa_han(client):
         "ma": "ZZCDK1", "ten": "ZZ Công đoạn khoán", "nhom": "finishing",
         "pricing_basis": "per_finished_qty", "department_id": to_id,
         "dau_viec_dinh_muc": [{"piece_rate_id": rid, "nang_suat_nguoi_gio": 100,
-                               "so_nguoi_tieu_chuan": 1, "so_nguoi_toi_da": 2}],
+                               "so_nguoi_tieu_chuan": 1}],
     }, headers=h)
     assert cd.status_code == 201, cd.text
 

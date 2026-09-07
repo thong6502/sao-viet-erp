@@ -136,8 +136,6 @@ def test_gop_bg2_chi_ke_thua_nhan_dien_danh_muc_don_vi_va_thu_tu(
     mau.nha_cung_cap = "NCC mẫu"
     mau.nang_suat = 999
     mau.so_nhan_cong_tieu_chuan = 4
-    mau.so_nhan_cong_toi_thieu = 2
-    mau.so_nhan_cong_toi_da = 8
     mau.don_vi_nang_suat = "to_gio"
     mau.khoan_json = {"piece_rate_id": 77, "ten": "Khoán mẫu"}
     mau.ghi_chu = "Không được bê sang lượt chung"
@@ -164,8 +162,6 @@ def test_gop_bg2_chi_ke_thua_nhan_dien_danh_muc_don_vi_va_thu_tu(
     assert chung.nang_suat is None
     assert chung.so_nhan_cong_tieu_chuan == 1
     assert chung.so_nhan_cong == 1
-    assert chung.so_nhan_cong_toi_thieu is None
-    assert chung.so_nhan_cong_toi_da is None
     assert chung.don_vi_nang_suat is None
     assert chung.khoan_json is None
     assert chung.ghi_chu is None

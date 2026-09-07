@@ -604,15 +604,18 @@ export const CFG_GIAY: CatalogConfig = {
     { key: "don_gia", label: "Đơn giá (đ/kg)", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn (mặc định đ/kg)" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá",
       nhanTab: "Công thức tính giá", an: AN_CHIP_KHUON },
-    // Ô "cong_thuc_luong" (công thức ra LƯỢNG — đổi tờ → kg cho bảng cân đối vật tư) ĐÃ ẨN khỏi
-    // drawer 06/09/2026 theo yêu cầu, cùng luật với ô "cong_thuc_gia" của Vật tư khác ngay dưới:
-    // cột DB, dữ liệu cũ (mg 0197 đã điền sẵn cho giấy bán theo cân) và đường engine
-    // (`thanh_phan_engine`/`ke_hoach_vat_tu_service`) vẫn NGUYÊN, chỉ không cho khai/sửa ở đây.
-    // Cột "Công thức lượng" trong file Excel danh mục Giấy cũng vẫn còn.
-    // Cần mở lại thì thêm field formula `cong_thuc_luong` với `loaiO: "quy_doi"` (chip có
-    // `sl_vao`/`sl_ra`, KHÔNG có đơn giá — ô này không được phép nhắc tới tiền) và
-    // `nhanTab: "Công thức tính lượng"`; bỏ ô đó đi thì drawer còn đúng MỘT tab công thức nên
-    // `nhanTab` của ô tính giá ở trên chỉ còn là ghi chú, xoá cũng ra nhãn y hệt.
+    // Ô thứ hai ra LƯỢNG, không ra tiền — MỞ LẠI 07/09/2026 sau khi ẩn một ngày (06/09/2026), và
+    // đổi tên thành "Công thức tính định mức": chữ "lượng" đứng cạnh ô "tính giá" không nói được
+    // nó trả lời câu gì, còn "định mức" là chữ xưởng vẫn dùng cho "một lệnh ăn bao nhiêu giấy".
+    // Cùng chữ đó ở cột Excel danh mục Giấy và ở nhãn nhật ký (`nhat_ky_danh_muc`) — một ô thì
+    // một tên, không để ba màn gọi ba kiểu.
+    //
+    // Nó là thứ DUY NHẤT còn đổi được tờ → kg cho bảng cân đối vật tư sau khi gỡ cặp quy đổi động
+    // (mg 0198); mg 0197 đã điền sẵn cho giấy bán theo cân. `loaiO: "quy_doi"` ⇒ chip có
+    // `sl_vao`/`sl_ra` và KHÔNG có đơn giá — ô này không được phép nhắc tới tiền.
+    { key: "cong_thuc_luong", label: "Công thức tính định mức", type: "formula", loaiO: "quy_doi",
+      group: "Giá", nhanTab: "Công thức tính định mức",
+      hint: "vd: dinh_luong * dai_nguyen * rong_nguyen * to_nguyen — ra số kg giấy phải mua" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
     // NVL thay thế (mục 5 "Bảng định mức", mg 0239) — tra cứu/gợi ý khi thiếu giấy, MỘT CHIỀU.
     { key: "thay_the_ids", label: "Giấy thay thế", type: "self-ref-multi",

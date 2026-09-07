@@ -29,7 +29,7 @@ from ..models.lsx import LB_TO
 from ..models.xep_lich_van_de import TT_NGOAI_LE
 from .xep_lich_van_de_service import (
     K_DE_KHOA_MAY, K_LECH_THUC_TE, K_LICH_DA_QUA, K_MAY_KHONG_KHAM, K_QUA_TAI_TO,
-    K_SAI_TIEN_NHIEM, K_THIEU_DU_LIEU, K_THIEU_NGUOI, K_TRUNG_MAY, XepLichVanDeService,
+    K_SAI_TIEN_NHIEM, K_THIEU_DU_LIEU, K_TRUNG_MAY, XepLichVanDeService,
 )
 
 MUC_DO = "do"
@@ -51,7 +51,7 @@ MAN_XEP_LICH = "xep-lich-cong-doan-2"
 # đèn tắt IM LẶNG (không lỗi, chỉ là không khớp cái nào) — kiểu hỏng khó thấy nhất.
 # Thứ tự trong tuple là thứ tự ưu tiên hiện chữ khi một lệnh dính nhiều thứ một lúc.
 CAT_MAY_DO = (K_TRUNG_MAY, K_DE_KHOA_MAY, K_SAI_TIEN_NHIEM, K_LICH_DA_QUA, K_THIEU_DU_LIEU)
-CAT_NGUOI_DO = (K_QUA_TAI_TO, K_THIEU_NGUOI)
+CAT_NGUOI_DO = (K_QUA_TAI_TO,)
 # Khổ tờ in vượt máy: CẢNH BÁO, không chặn (chốt 18/08/2026 — thợ còn cách xử lý, máy không quyết).
 # Tổ chạy lệch mốc đã xếp: cũng CẢNH BÁO — lệnh đã phát hành rồi, chặn ở đây không cứu được gì,
 # việc của điều độ là BIẾT để kéo lại tay (spec-thuc-te-vs-ke-hoach §2.2). Không có dòng này thì bộ
@@ -72,7 +72,6 @@ _CHU_MAY_VANG = {
 }
 _CHU_NGUOI_DO = {
     K_QUA_TAI_TO: "Tổ không đủ người cho các việc chạy cùng lúc",
-    K_THIEU_NGUOI: "Bố trí dưới số người tối thiểu của đầu việc",
 }
 
 

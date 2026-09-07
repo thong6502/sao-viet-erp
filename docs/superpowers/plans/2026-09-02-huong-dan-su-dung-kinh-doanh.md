@@ -251,7 +251,7 @@ Nội dung: Máy là **spec năng lực** (khổ giấy/kẽm, vùng in, chừa 
 
 - [ ] **Bước 3: Viết bảng ô nhập TAB 2 "Thông số kỹ thuật" — kèm điều kiện ẩn/hiện**
 
-Phải nêu rõ: nhóm ô "Khổ kẽm & Vùng in" và "Chừa lề tờ in" (7 ô) **chỉ hiện ra khi Nhóm máy có chứa chữ "in"** (vd "Máy in", "In ngoài", "In offset") — đặt tên nhóm khác đi (vd "Bồi", "Bế") thì 7 ô này biến mất khỏi màn hình. Liệt kê đủ: Khổ kẽm (rộng/dài), Vùng in max (rộng/dài), Nhíp giấy, Lề hông, Đuôi + thanh màu (3 ô chỉ hiện khi máy in), rồi Khổ giấy máy nhận min/max (rộng/dài — LUÔN hiện), Tốc độ trung bình, Đơn vị tốc độ, "Cách đo lượng theo đơn vị tốc độ" (công thức, ví dụ hint thật trên form: `sl_vao * so_mau / 4` cho máy 4 màu), Tốc độ tối thiểu/tối đa, Số người vận hành tiêu chuẩn (bắt buộc, mặc định 1), Thời gian chuẩn bị (3 lựa chọn: Để trống / Điền tổng / Theo từng khoản).
+Phải nêu rõ: nhóm ô "Khổ kẽm & Vùng in" và "Chừa lề tờ in" (7 ô) **chỉ hiện ra khi Nhóm máy có chứa chữ "in"** (vd "Máy in", "In ngoài", "In offset") — đặt tên nhóm khác đi (vd "Bồi", "Bế") thì 7 ô này biến mất khỏi màn hình. Liệt kê đủ: Khổ kẽm (rộng/dài), Vùng in max (rộng/dài), Nhíp giấy, Lề hông, Đuôi + thanh màu (3 ô chỉ hiện khi máy in), rồi Khổ giấy máy nhận min/max (rộng/dài — LUÔN hiện), Tốc độ trung bình, Đơn vị tốc độ, "Cách đo lượng theo đơn vị tốc độ" (công thức, ví dụ hint thật trên form: `sl_vao * so_mau / 4` cho máy 4 màu), Tốc độ tối thiểu/tối đa, Thời gian chuẩn bị (3 lựa chọn: Để trống / Điền tổng / Theo từng khoản).
 
 Kèm khung Lưu ý: "Tốc độ tối thiểu/tối đa chỉ để tham khảo — không công thức nào trong hệ thống đọc hai ô này, mọi tính toán dùng Tốc độ trung bình."
 

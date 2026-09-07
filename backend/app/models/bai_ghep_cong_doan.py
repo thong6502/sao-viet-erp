@@ -73,12 +73,11 @@ class BaiGhepCongDoan(Base):
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     so_nhan_cong: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)
+    # Mirror `lsx_cong_doan.so_nhan_cong_tieu_chuan` — bước chung của bài cũng là một bước có kế
+    # hoạch. Hai mốc tối thiểu/tối đa gỡ cùng đợt (migration `0270`).
     so_nhan_cong_tieu_chuan: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1", default=1
     )
-    so_nhan_cong_toi_da: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Mirror `lsx_cong_doan.so_nhan_cong_toi_thieu` — bước chung của bài cũng là một bước có kế hoạch.
-    so_nhan_cong_toi_thieu: Mapped[int | None] = mapped_column(Integer, nullable=True)
     khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # KCS kiêm nhiệm (mg `0250`): checklist bổ sung của lượt gộp — mirror
     # `LsxCongDoan.kcs_tieu_chi_bo_sung_json`. Chỉ có nghĩa khi `la_kcs=true`.

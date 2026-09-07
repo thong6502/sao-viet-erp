@@ -1,9 +1,12 @@
 """Dòng giấy — bước nào nằm TRÊN dòng giấy, và ai quyết định điều đó.
 
-Trước 11/08/2026 câu trả lời là một danh sách 5 mã CỨNG trong code; nay là CỜ TRẠM trên danh mục
-Đơn vị & quy đổi. Bộ test này chốt hai điều dễ vỡ nhất của lần đổi đó:
-  1. Danh mục chưa gắn cờ (DB chưa migrate / bảng trắng) thì KHÔNG được im lặng cho ra 0 tờ.
-  2. Bước ghi kẽm khai đơn vị THẬT (`bai → kem`) phải đứng ngoài chuỗi bù hao, không bị ghi đè số.
+Ô Đơn vị vào/ra của công đoạn là MENU ĐÓNG đúng 5 chặng (`TRAM_DONG_GIAY`), bỏ TRỐNG cả hai =
+bước ngoài dòng giấy. Giữa 11/08 và 06/09/2026 nó từng trỏ vào danh mục Đơn vị & quy đổi, và câu
+"có nằm trên dòng giấy không" hỏi cờ `don_vi_do.tram_dong_giay` — cờ ấy đã gỡ.
+
+Bộ test này chốt hai điều dễ vỡ nhất:
+  1. Bước ghi kẽm (đơn vị TRỐNG) phải đứng ngoài chuỗi bù hao, và SL của nó KHÔNG được về rỗng.
+  2. Routing kết ở `con`/`tay` vẫn ra đúng số tờ — chỗ hai engine từng ăn hai đích khác nhau.
 """
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -33,83 +36,92 @@ def _svc(db) -> LsxService:
     return LsxService(db, None, None, None)
 
 
-def _seed_don_vi(db, *, gan_co: bool = True) -> None:
+def _seed_don_vi(db) -> None:
+    """Danh mục đơn vị vẫn phải có 5 mã chặng — kho, mua hàng và nhãn màn lệnh đều tra tên ở đây.
+    Nó chỉ KHÔNG còn quyết định bước nào nằm trên dòng giấy nữa."""
     db.add_all([
-        DonViDo(ma=ma, ten=ma, ho="khac",
-                tram_dong_giay=ma if (gan_co and ma in TRAM_DONG_GIAY) else None)
+        DonViDo(ma=ma, ten=ma, ho="khac")
         for ma in (*TRAM_DONG_GIAY, "kem", "bai", "thung")
     ])
     db.commit()
 
 
 # ---- bản đồ trạm ------------------------------------------------------------
-def test_danh_muc_chua_gan_co_thi_lui_ve_bo_tram_mac_dinh():
-    """Lưới an toàn: thiếu nó thì không bước nào trên dòng giấy ⇒ chuỗi ngược rỗng ⇒ MỌI lệnh
-    về 0 tờ trong im lặng. Hỏng kiểu đó không ai thấy cho tới lúc cấp giấy."""
+def test_ban_do_tram_la_hang_so_khong_hoi_danh_muc():
+    """Bản đồ chặng nay nằm TRONG code, không đọc danh mục nữa.
+
+    Vì sao vẫn còn hàm: 5 service chuyền `ban_do` xuống các hàm thuần; giữ chữ ký là khỏi một đợt
+    sửa rộng. Trả BẢN SAO — vài nơi gọi nhét thêm khoá vào map nhận được, sửa trúng hằng số dùng
+    chung thì lỗi rò sang request sau.
+    """
     db = _db()
     assert ban_do_tram(db) == TRAM_MAC_DINH        # bảng trắng
-    _seed_don_vi(db, gan_co=False)
-    assert ban_do_tram(db) == TRAM_MAC_DINH        # có đơn vị nhưng chưa ai gắn cờ
-
-
-def test_gan_co_roi_thi_danh_muc_thang():
-    db = _db()
     _seed_don_vi(db)
-    ban_do = ban_do_tram(db)
+    assert ban_do_tram(db) == TRAM_MAC_DINH        # có danh mục cũng không đổi
+    assert ban_do_tram() == TRAM_MAC_DINH          # gọi không cần session
+    ban_do_tram(db)["moi"] = "to"
+    assert "moi" not in TRAM_MAC_DINH, "phải trả bản sao, không phải chính hằng số"
+
+
+def test_tram_cua_chi_nhan_5_chang():
+    ban_do = ban_do_tram()
     assert ban_do == {ma: ma for ma in TRAM_DONG_GIAY}
-    assert tram_cua("kem", ban_do) is None         # có trong danh mục nhưng ngoài dòng giấy
-    assert tram_cua("met", ban_do) is None         # không có trong danh mục
+    assert tram_cua("kem", ban_do) is None         # đơn vị có thật nhưng không phải chặng
+    assert tram_cua(None, ban_do) is None
 
 
-def test_seed_van_hanh_gan_du_5_co_tram():
-    """Guard: seed vận hành phải gắn cờ ĐỦ 5 trạm. Sai một dòng là số giấy của mọi lệnh lệch theo,
-    mà lệch kiểu này không có test nào khác bắt được."""
+def test_seed_van_hanh_van_giu_5_ma_chang():
+    """Guard: seed vận hành phải còn ĐỦ 5 mã chặng trong danh mục đơn vị. Thiếu một mã là màn lệnh
+    hiện mã trần thay vì tên, và kho/mua hàng mất đơn vị để nhập."""
     from app.seed_rebuild import seed_don_vi_do
 
     db = _db()
     seed_don_vi_do(db)
-    co = {d.ma: d.tram_dong_giay for d in db.query(DonViDo).all()}
+    co = {d.ma for d in db.query(DonViDo).all()}
     for ma in TRAM_DONG_GIAY:
-        assert co.get(ma) == ma, f"đơn vị {ma} phải mang cờ trạm {ma}"
-    assert co.get("kem") is None and co.get("thung") is None
+        assert ma in co, f"seed thiếu đơn vị {ma}"
 
 
 # ---- bước nào trên dòng giấy ------------------------------------------------
 def test_tren_dong_giay_va_chieu():
-    ban_do = {ma: ma for ma in TRAM_DONG_GIAY}
+    ban_do = ban_do_tram()
     assert tren_dong_giay("to", "cai", ban_do)
-    assert not tren_dong_giay("bai", "kem", ban_do)          # cả hai đầu ngoài dòng
-    assert not tren_dong_giay("cai", "thung", ban_do)        # một trong một ngoài → chưa hỗ trợ
-    # Chưa khai đơn vị: có `nhom` thì lùi về luật cũ, không có thì đứng ngoài.
-    assert tren_dong_giay(None, None, ban_do, nhom="print")
-    assert not tren_dong_giay(None, None, ban_do, nhom="prepress")
+    # BỎ TRỐNG cả hai = bước ngoài dòng giấy. Đây là CÂU TRẢ LỜI, không phải "chưa khai" — nên
+    # không còn lối lùi theo `nhom` (bỏ 06/09/2026): giữ nó thì cùng một bước lại được trả lời
+    # khác nhau tuỳ nơi gọi có truyền `nhom` hay không.
     assert not tren_dong_giay(None, None, ban_do)
+    assert not tren_dong_giay(None, None, ban_do, nhom="print")
+    assert not tren_dong_giay(None, None, ban_do, nhom="prepress")
+    # Mã ngoài 5 chặng (dữ liệu cũ lọt qua migration `0273`) cũng đứng ngoài, không nhận nhầm.
+    assert not tren_dong_giay("bai", "kem", ban_do)
+    assert not tren_dong_giay("cai", "thung", ban_do)        # một trong một ngoài → chưa hỗ trợ
 
     assert chieu_hop_le("to_nguyen", "to", ban_do)
     assert chieu_hop_le("to", "to", ban_do)                  # bước không đổi cách đếm (in, KCS)
     assert not chieu_hop_le("cai", "to", ban_do)             # ngược dòng
     assert not chieu_hop_le("to_nguyen", "cai", ban_do)      # nhảy cóc qua khâu in
-    assert chieu_hop_le("bai", "kem", ban_do)                # ngoài dòng thì không có chiều nào sai
+    assert chieu_hop_le(None, None, ban_do)                  # ngoài dòng thì không có chiều nào sai
 
 
-def test_don_vi_chuoi_doc_tu_routing_khong_tra_ma():
-    """Đơn vị từng chặng phải ĐỌC TỪ routing, kể cả khi xưởng đặt mã riêng.
+def test_don_vi_chuoi_doc_tu_routing():
+    """Đơn vị từng chặng phải ĐỌC TỪ routing, không suy từ vị trí bước.
 
     Màn danh sách không thể suy như màn chi tiết (một tiêu đề cột, nhiều lệnh) nên server chấm sẵn
-    theo từng dòng. Mã ở đây cố ý KHÔNG phải `to`/`cai`: dò mã là trượt.
+    theo từng dòng. Cái phải chốt: chặng nào routing KHÔNG nói tới thì trả None chứ đừng mượn mã
+    của chặng khác lấp vào — hai cột cùng tên mà hai con số là kiểu sai khó thấy nhất.
     """
     from app.services.dong_giay import don_vi_chuoi
 
-    ban_do = {"to_lon": "to_nguyen", "to_chay": "to", "sp_xong": "cai", "tay_gap": "tay"}
+    ban_do = ban_do_tram()
     b = lambda t, n, v, r: {"thu_tu": t, "nhom": n, "don_vi_vao": v, "don_vi_ra": r}  # noqa: E731
 
-    # Chế bản (`m2 → bai`) đứng NGOÀI dòng giấy — không được chiếm nhãn tờ nguyên.
+    # Chế bản (đơn vị TRỐNG) đứng NGOÀI dòng giấy — không được chiếm nhãn tờ nguyên.
     dv = don_vi_chuoi([
-        b(0, "prepress", "m2", "bai"),
-        b(1, "print", "to_chay", "to_chay"),
-        b(2, "finishing", "to_chay", "sp_xong"),
+        b(0, "prepress", None, None),
+        b(1, "print", "to", "to"),
+        b(2, "finishing", "to", "cai"),
     ], ban_do)
-    assert dv["to"] == "to_chay" and dv["tp"] == "sp_xong"
+    assert dv["to"] == "to" and dv["tp"] == "cai"
     # Không có bước xả giấy ⇒ routing không nói gì về chặng tờ nguyên ⇒ None, KHÔNG mượn mã khác.
     assert dv["to_nguyen"] is None
     # Một lần đổi mức = đi thẳng tờ → thành phẩm, không có chặng giữa.
@@ -117,19 +129,19 @@ def test_don_vi_chuoi_doc_tu_routing_khong_tra_ma():
 
     # Có bước xả + có chặng tay (sách): hai bước đổi mức ⇒ tp lấy bước CUỐI.
     dv = don_vi_chuoi([
-        b(0, "finishing", "to_lon", "to_chay"),
-        b(1, "print", "to_chay", "to_chay"),
-        b(2, "finishing", "to_chay", "tay_gap"),
-        b(3, "finishing", "tay_gap", "sp_xong"),
+        b(0, "finishing", "to_nguyen", "to"),
+        b(1, "print", "to", "to"),
+        b(2, "finishing", "to", "tay"),
+        b(3, "finishing", "tay", "cai"),
     ], ban_do)
-    assert dv["to_nguyen"] == "to_lon" and dv["to"] == "to_chay" and dv["tp"] == "sp_xong"
+    assert dv["to_nguyen"] == "to_nguyen" and dv["to"] == "to" and dv["tp"] == "cai"
     # Hai lần đổi mức ⇒ lần ĐẦU là chặng giữa (tay sách), lần CUỐI là thành phẩm.
-    assert dv["tay"] == "tay_gap"
+    assert dv["tay"] == "tay"
 
     # Routing rỗng / toàn bước ngoài dòng giấy ⇒ không bịa gì.
     assert don_vi_chuoi([], ban_do) == {
         "to": None, "to_nguyen": None, "tp": None, "tay": None}
-    assert don_vi_chuoi([b(0, "prepress", "m2", "bai")], ban_do)["to"] is None
+    assert don_vi_chuoi([b(0, "prepress", None, None)], ban_do)["to"] is None
 
 
 def test_cau_tram_khop_he_so_cau_cua_lenh():
@@ -146,27 +158,30 @@ def test_cau_tram_khop_he_so_cau_cua_lenh():
 
 
 # ---- chuỗi bù hao ngược -----------------------------------------------------
-def test_buoc_ghi_kem_khai_don_vi_that_van_dung_ngoai_chuoi():
-    """Ca thật của xưởng: ghi kẽm nay khai `bai → kem` thay vì bỏ trống đơn vị.
+def test_buoc_ghi_kem_de_trong_don_vi_van_dung_ngoai_chuoi_va_giu_so_kem():
+    """Ca thật của xưởng: ghi kẽm BỎ TRỐNG đơn vị (06/09/2026), không khai `bai → kem` nữa.
 
-    Bản cũ lọc chuỗi bằng "có khai đơn vị hay không" nên bước này lọt vào chuỗi, và "Tính ngược"
-    ghi đè số kẽm bằng số TỜ. Bản mới hỏi cờ trạm nên nó đứng ngoài, số kẽm giữ nguyên.
+    Hai thứ phải đúng cùng lúc:
+      - bước đứng NGOÀI chuỗi bù hao, "Tính ngược" không ghi đè số kẽm bằng số TỜ;
+      - SL của nó vẫn tính được từ `cong_thuc_san_luong` (`so_kem`). Chốt cũ trong
+        `buoc_ngoai_dong` (`if not don_vi_ra: return None`) chặn đúng ca này, nên nếu ai đặt lại
+        thì kẽm về rỗng trong im lặng — test này là cái phanh.
     """
     db = _db()
     _seed_don_vi(db)
     db.add_all([
         CongDoan(id=1, ma="CTP", ten="Ghi kẽm", nhom="prepress",
-                 don_vi_vao="bai", don_vi_ra="kem"),
+                 cong_thuc_san_luong="so_kem"),
         CongDoan(id=2, ma="IN", ten="In offset", nhom="print",
                  don_vi_vao="to", don_vi_ra="to"),
         CongDoan(id=3, ma="BE", ten="Bế", nhom="finishing",
                  don_vi_vao="to", don_vi_ra="cai"),
     ])
     lsx = Lsx(id=1, ma="L1", order_id=1, order_line_id=1, so_luong_dat=1000, so_con=4,
-              quy_cach_json={})
+              quy_cach_json={"so_kem": 4})
     lsx.cong_doans = [
         LsxCongDoan(step_key="s1", thu_tu=1, cong_doan_id=1, ten="Ghi kẽm", nhom="prepress",
-                    don_vi_vao="bai", don_vi_ra="kem", so_luong_vao=4, so_luong_ra=4),
+                    so_luong_vao=4, so_luong_ra=4),
         LsxCongDoan(step_key="s2", thu_tu=2, cong_doan_id=2, ten="In offset", nhom="print",
                     don_vi_vao="to", don_vi_ra="to"),
         LsxCongDoan(step_key="s3", thu_tu=3, cong_doan_id=3, ten="Bế", nhom="finishing",
@@ -176,60 +191,67 @@ def test_buoc_ghi_kem_khai_don_vi_that_van_dung_ngoai_chuoi():
     db.commit()
 
     rows = {r["ten"]: r for r in _svc(db).tinh_nguoc_routing(lsx)}
-    assert "Ghi kẽm" not in rows, "bước ngoài dòng giấy không được vào chuỗi bù hao"
     # 1.000 cái ÷ 4 con/tờ = 250 tờ vào bế, in giao đúng chừng đó.
     assert rows["Bế"]["so_luong_ra"] == 1000
     assert rows["Bế"]["so_luong_vao"] == 250
     assert rows["In offset"]["so_luong_vao"] == 250
+    # Ghi kẽm CÓ trong kết quả nhưng đi đường riêng: 4 bản kẽm, không phải 250 tờ.
+    assert rows["Ghi kẽm"]["so_luong_ra"] == 4
+    assert rows["Ghi kẽm"]["so_luong_vao"] == 4
 
 
 def test_engine_tinh_gia_cung_loai_buoc_ngoai_dong_giay():
-    """Engine tính giá là hàm THUẦN nên tự nó không tra được danh mục — tầng gọi (`tinh_gia_service`)
-    bơm `tram_vao`/`tram_ra` xuống. Thiếu đường này thì bước ghi kẽm khai `bai → kem` lọt vào chuỗi
-    giấy của BÁO GIÁ (chỉ lệnh sản xuất được vá), đẻ cảnh báo "đứt đơn vị" giả và nhận hệ số 1.
+    """Engine tính giá (BÁO GIÁ) phải phân loại bước giống hệt lệnh sản xuất.
+
+    Ghi kẽm bỏ TRỐNG đơn vị ⇒ rơi khỏi dòng giấy, và vì `nhom="prepress"` nên KHÔNG được kêu
+    "chưa khai đơn vị" — kêu là kêu oan mỗi phiếu. Ngược lại, một bước không phải chế bản mà bỏ
+    trống thì PHẢI kêu: bù hao của nó biến mất khỏi số giấy, im lặng là mất tiền.
     """
     from app.services.thanh_phan_engine import compute_phieu
 
     from .test_thanh_phan_engine import _component   # thành phần đã RESOLVE như service bơm
 
-    ctp = {"ten": "Ghi kẽm", "nhom": "prepress", "don_vi_vao": "bai", "don_vi_ra": "kem"}
-    cd_in = {"ten": "In offset", "nhom": "print", "don_vi_vao": "to", "don_vi_ra": "to",
-             "tram_vao": "to", "tram_ra": "to"}
+    cd_in = {"ten": "In offset", "nhom": "print", "don_vi_vao": "to", "don_vi_ra": "to"}
 
-    def _canh_bao(cong_doan_ctp: dict) -> list[str]:
+    def _canh_bao(buoc_them: dict) -> list[str]:
         tp = _component()
         tp["thanh_phams"] = [
-            {"ten": "Ghi kẽm", "don_gia": 90_000, "cong_doan": cong_doan_ctp},
+            {"ten": buoc_them["ten"], "don_gia": 90_000, "cong_doan": buoc_them},
             {"ten": "In offset", "don_gia": 100, "cong_doan": cd_in},
         ]
         return compute_phieu(so_luong=1000, thanh_phans=[tp]).get("warnings") or []
 
-    co_co = _canh_bao({**ctp, "tram_vao": None, "tram_ra": None})
-    khong_co = _canh_bao(ctp)
-    assert not any("đứt đơn vị" in w or "chưa biết hệ số" in w for w in co_co), co_co
-    assert any("đứt đơn vị" in w or "chưa biết hệ số" in w for w in khong_co), khong_co
+    def _rot_khoi_dong(ws: list[str], ten: str) -> bool:
+        return any(ten in w and "không được tính vào dòng giấy" in w for w in ws)
+
+    ctp = _canh_bao({"ten": "Ghi kẽm", "nhom": "prepress",
+                     "don_vi_vao": None, "don_vi_ra": None})
+    assert not _rot_khoi_dong(ctp, "Ghi kẽm"), ctp
+
+    quen = _canh_bao({"ten": "Cán màng", "nhom": "finishing",
+                      "don_vi_vao": None, "don_vi_ra": None})
+    assert _rot_khoi_dong(quen, "Cán màng"), quen
 
 
-# ---- Bốn lỗ vá 11/08/2026: cờ trạm mở cửa cho đơn vị tự khai, nhưng ruột engine còn so bằng MÃ --
-def test_don_vi_rieng_cua_xuong_van_gom_du_bu_hao():
+# ---- Ba lỗ vá 11/08/2026 còn giữ nguyên giá trị sau khi gỡ cờ trạm ----------------------------
+def test_moc_so_to_doc_ra_khoi_chuoi_nen_gom_du_bu_hao():
     """LỖ 1 — nặng nhất, vì nó SAI TIỀN mà không kêu một tiếng.
 
-    Xưởng khai mã riêng cho chặng tờ in (`to_in`) rồi gắn cờ trạm *tờ in* — đúng thứ ô "Trạm trên
-    dòng giấy" mời họ làm. Bản cũ đọc mốc số tờ bằng cách dò đúng chữ `to`, không thấy thì lặng lẽ
-    rơi về số tờ trần: mất SẠCH bù hao, không cảnh báo nào.
+    Mốc "số tờ đầu vào" phải ĐỌC RA KHỎI chuỗi bù hao tại chặng tờ in, không tính riêng bên ngoài:
+    tính riêng là mất sạch bù hao của bước in, không cảnh báo nào.
     """
     from app.services.thanh_phan_engine import compute_phieu
 
     from .test_thanh_phan_engine import _component
 
-    def to_dau_vao(ma: str) -> int:
+    def to_dau_vao(so_to_bu_hao: int) -> int:
         tp = _component()
         tp["thanh_phams"] = [{"ten": "In offset", "don_gia": 100, "cong_doan": {
-            "ten": "In", "nhom": "print", "kieu_bu_hao": "co_dinh", "so_to_bu_hao": 500,
-            "don_vi_vao": ma, "don_vi_ra": ma, "tram_vao": "to", "tram_ra": "to"}}]
+            "ten": "In", "nhom": "print", "kieu_bu_hao": "co_dinh",
+            "so_to_bu_hao": so_to_bu_hao, "don_vi_vao": "to", "don_vi_ra": "to"}}]
         return compute_phieu(so_luong=5000, thanh_phans=[tp])["meta"]["components"][0]["to_dau_vao"]
 
-    assert to_dau_vao("to_in") == to_dau_vao("to"), "đổi MÃ đơn vị không được đổi số giấy"
+    assert to_dau_vao(500) - to_dau_vao(0) == 500, "bù hao của bước in phải nằm trong số tờ"
 
 
 def test_don_vi_toc_do_cua_may_doc_tu_ma_gio():

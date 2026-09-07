@@ -58,7 +58,7 @@ Bù hao KHÔNG phải một cục cộng vào cuối — nó là **chuỗi NGƯ�
 Mỗi bước hỏi *"để nhả ra `ra` tờ tốt thì phải nhận vào bao nhiêu?"*:
 
 ```
-vào(bước) = (ra(bước) + tờ_cố_định) / (1 − %/100)      # tờ thì CỘNG, % thì CHIA
+vào(bước) = ra(bước) × (1 + %/100) + tờ_cố_định      # % NHÂN trên số ra, tờ thì CỘNG
 
 to_net      = ⌈so_luong / so_tp⌉                        → tờ tốt cần ở CUỐI chuỗi
 to_dau_vao  = ⌈vào(bước đầu chuỗi)⌉                     → nuôi GIẤY + IN

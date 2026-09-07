@@ -171,6 +171,15 @@ from .san_xuat_kho import (
 )
 from .san_xuat_vat_tu import SanXuatVatTuDeNghi, SanXuatVatTuDeNghiDong
 from .cong_doan_tag import CongDoanTag, CongDoanTagCatalog
+from .tai_san import (
+    TaiSan,
+    TaiSanBienDong,
+    TaiSanChiPhi,
+    TaiSanKhauHao,
+    TaiSanKiemKe,
+    TaiSanKiemKeDong,
+    TaiSanKy,
+)
 
 __all__ = [
     "CongDoanTag",
@@ -338,4 +347,11 @@ __all__ = [
     "SanXuatNhapKhoYc",
     "SanXuatVatTuDeNghi",
     "SanXuatVatTuDeNghiDong",
+    "TaiSan",
+    "TaiSanChiPhi",
+    "TaiSanBienDong",
+    "TaiSanKhauHao",
+    "TaiSanKy",
+    "TaiSanKiemKe",
+    "TaiSanKiemKeDong",
 ]

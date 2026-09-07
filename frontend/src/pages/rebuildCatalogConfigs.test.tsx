@@ -143,12 +143,17 @@ describe("ô Cách đo lượng ĐÃ GỠ khỏi Máy · Công việc khoán · 
     expect(CFG_VAT_TU.nhanTabCongThuc).toBeUndefined();
   });
 
-  it("Giấy GIỮ đường riêng: chỉ còn ô tính giá trong drawer", () => {
-    // Giấy trả lời câu khác hẳn — "một lệnh cần bao nhiêu kg giấy", của MẶT HÀNG chứ không của
-    // bước — nên `giay_nguyen.cong_thuc_luong` còn nguyên ở DB/engine, chỉ không bày ô trong
-    // drawer (đã ẩn trước đợt này).
+  it("Giấy GIỮ đường riêng: hai ô công thức, tab thứ hai tên \"tính định mức\"", () => {
+    // Giấy trả lời câu khác hẳn ba màn trên — "một lệnh cần bao nhiêu kg giấy", của MẶT HÀNG chứ
+    // không của bước — nên ô của nó không đi theo mg `0274`. Ẩn 06/09/2026 rồi MỞ LẠI 07/09/2026
+    // kèm đổi tên: "lượng" không nói được nó trả lời câu gì khi đứng cạnh ô "tính giá".
     expect(truong(CFG_GIAY, "cong_thuc_gia").nhanTab).toBe("Công thức tính giá");
-    expect(CFG_GIAY.fields.some((f) => f.key === "cong_thuc_luong")).toBe(false);
+    const dm = truong(CFG_GIAY, "cong_thuc_luong");
+    expect(dm.label).toBe("Công thức tính định mức");
+    expect(dm.nhanTab).toBe("Công thức tính định mức");
+    // Ô ra LƯỢNG ⇒ bộ chip `quy_doi`: có `sl_vao`/`sl_ra`, KHÔNG mời chip đơn giá.
+    expect(dm.loaiO).toBe("quy_doi");
+    // Hai ô đều tự khai `nhanTab` nên KHÔNG dùng nhãn config-level.
     expect(CFG_GIAY.nhanTabCongThuc).toBeUndefined();
   });
 

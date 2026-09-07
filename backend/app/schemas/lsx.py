@@ -154,7 +154,9 @@ class LsxCongDoanIn(BaseModel):
     ten: str | None = None
     nhom: str | None = None
     loai_buoc: str | None = None
-    bat_buoc: bool | None = None
+    # `bat_buoc` GỠ khỏi bộ nhận 07/09/2026: bước đã nằm trong routing thì PHẢI làm. Cột vẫn còn
+    # ở `lsx_cong_doan` nhưng do server giữ TRUE (migration 0275 backfill dòng cũ) — client không
+    # còn ô sửa nên nhận field này chỉ mở đường ghi nhầm `false` mà không ai gỡ lại được.
     # Tiêu chí KCS BỔ SUNG riêng cho lệnh này (Task 3) — không sửa được checklist danh mục ở đây,
     # chỉ thêm/bớt vài dòng chỉ áp cho lệnh này. `[]` để XOÁ SẠCH (không gửi field = giữ nguyên).
     kcs_tieu_chi_bo_sung_json: list | None = None
@@ -177,11 +179,9 @@ class LsxCongDoanIn(BaseModel):
     so_luot_chay: int | None = Field(default=None, ge=1)
     # Năng suất & thời gian (phút)
     so_nhan_cong: int | None = Field(default=None, ge=1)
-    # Ba mốc nhân lực KẾ THỪA từ định mức đầu việc nhưng SỬA ĐƯỢC tại bước — mỗi lệnh một hoàn
-    # cảnh (tổ mượn người, việc gấp). Không gửi = giữ số đang có / để server điền từ định mức.
-    so_nhan_cong_toi_thieu: int | None = Field(default=None, ge=1)
+    # Kíp chuẩn KẾ THỪA từ định mức công đoạn nhưng SỬA ĐƯỢC tại bước — mỗi lệnh một hoàn cảnh
+    # (tổ mượn người, việc gấp). Không gửi = giữ số đang có / để server điền từ định mức.
     so_nhan_cong_tieu_chuan: int | None = Field(default=None, ge=1)
-    so_nhan_cong_toi_da: int | None = Field(default=None, ge=1)
     # Hai ô gõ được ở tab Thời gian. `setup_phut` · `nang_suat` · `chay_phut` · `di_chuyen_phut`
     # vẫn BỎ khỏi input: chuẩn bị + tốc độ kế thừa SỐNG từ module Máy, người kế hoạch không sửa
     # tại bước.
@@ -266,9 +266,7 @@ class LsxCongDoanOut(BaseModel):
     so_luot_chay: int = 1
 
     so_nhan_cong: int = 1
-    so_nhan_cong_toi_thieu: int | None = None
     so_nhan_cong_tieu_chuan: int = 1
-    so_nhan_cong_toi_da: int | None = None
     # `setup_phut` KẾ THỪA từ máy (read-only trên UI); `phat_sinh_phut` là ô người gõ.
     setup_phut: float = 0
     phat_sinh_phut: float = 0
@@ -469,6 +467,12 @@ class LsxOut(BaseModel):
     # Lệnh đang ghép chung tờ với ai. None = in riêng. Khi có, THÔNG SỐ TỜ (máy in, giấy, khổ tờ
     # in, số con) đọc theo bài — sửa ở màn lệnh không có tác dụng.
     bai_ghep: LsxBaiGhepOut | None = None
+    # Lệnh đang GIỮ CHỖ vật tư. `_chan_dang_giu_cho` chặn sửa số lượng / quy cách / routing và xoá
+    # lệnh — chặn CẢ bản xem trước (`xem_truoc_routing`), cố ý. Cờ này ra tới client để màn lệnh
+    # khoá bảng routing và nói ngay đường lùi ("nhả chỗ ở Kế hoạch vật tư"): thiếu nó thì người
+    # kế hoạch sửa xong cả routing mới ăn 409 lúc bấm Lưu, mà mỗi lần đổi công đoạn thì xem-trước
+    # 409 im lặng nên số trên bảng đứng im không ai giải thích.
+    giu_cho_bat: bool = False
     # Bước bị GỠ đầu việc mồ côi trong LẦN LƯU routing này (rỗng ở mọi cửa đọc khác). Non-blocking:
     # lưu vẫn thành công, FE bày lưu ý để người kế hoạch mở đúng bước chọn lại đầu việc.
     bo_dau_viec: list[BoDauViecOut] = Field(default_factory=list)
@@ -619,14 +623,17 @@ class BuocMacDinhOut(BaseModel):
 
     KHÔNG có số lượng vào/ra: chúng thuộc CHUỖI chứ không thuộc công đoạn, nên giữ nguyên số người
     kế hoạch đang cân (lệch thì đã có cảnh báo `dut_chuyen` + nút "Tính ngược").
+
+    KHÔNG có `loai_buoc`/`may_id`/`nang_suat`/`don_vi_nang_suat`/`so_nhan_cong*`: loại Máy-Tổ-Thuê
+    ngoài, máy cụ thể và nguồn năng suất thuộc chính bước KHSX, đổi công đoạn không được đụng tới.
+    Khai lại ở đây là schema tự đòi thứ service cố ý không trả — `loai_buoc` bắt buộc mà thiếu làm
+    endpoint 500 mọi lần gọi, còn mấy trường kia lặng lẽ đẩy 0/null vô nghĩa xuống client.
     """
 
     cong_doan_id: int
     ten: str
     nhom: str | None = None
-    loai_buoc: str
     department_id: int | None = None
-    may_id: int | None = None
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
     he_so_quy_doi: float
@@ -634,11 +641,6 @@ class BuocMacDinhOut(BaseModel):
     #: thiếu nó thì dòng vừa đổi sang ghi kẽm (`m² → bài in`) vẫn đeo cờ của công đoạn cũ.
     tren_dong_giay: bool = True
     setup_phut: float
-    nang_suat: float | None = None
-    don_vi_nang_suat: str | None = None
-    so_nhan_cong: int = 1
-    so_nhan_cong_tieu_chuan: int = 1
-    so_nhan_cong_toi_da: int | None = None
 
 
 class TrangThaiIn(BaseModel):

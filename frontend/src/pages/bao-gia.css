@@ -1249,6 +1249,10 @@ select.input {
    của dòng cuối). Mấy rule đó specificity cao hơn rule chung của tờ nên phải chặn đích danh. */
 .qpdf table.q-tbl thead th { letter-spacing: normal; }
 .qpdf table.q-tbl tbody tr:last-child td { border-bottom: 0.75px solid var(--q-ink); }
+/* Một sản phẩm báo NHIỀU MỨC số lượng: các mức từ thứ 2 trở đi ngăn bằng gạch đứt, để mắt tách
+   được từng mức mà vẫn đọc ra đây là một dòng hàng chứ không phải nhiều sản phẩm. Ô mô tả bên
+   trái đã kéo suốt bằng rowspan nên không có viền cắt ngang nó. */
+.qpdf table.q-tbl tbody tr.q-muc-tiep > td { border-top-style: dashed; }
 
 .qpdf table.q-tbl td.c { text-align: center; }
 .qpdf table.q-tbl td.q-empty { font-style: italic; padding: var(--q-sp-4) var(--q-sp-2); }

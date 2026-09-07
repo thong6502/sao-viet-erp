@@ -82,6 +82,22 @@ export const NHOM_CONG_DOAN: Record<string, string> = {
   other: "Dịch vụ khác",
 };
 
+/** Nhãn CÁCH IN. Ba màn cùng hiện chữ này (lệnh · hồ sơ lệnh · bài ghép) và trước đây mỗi màn giữ
+ *  một bản chép tay — chú thích ở `BaiGhep2Page` còn tự dặn "đừng đẻ bộ thứ hai" mà vẫn có ba bộ.
+ *  Khoá lạ (ảnh chụp của lệnh cũ, hoặc danh mục thêm cách in mới) trả về NGUYÊN VĂN: thà hiện một
+ *  chữ khó đọc còn hơn nuốt mất thông số. */
+export const CACH_IN_NHAN: Record<string, string> = {
+  mot_mat: "1 mặt",
+  hai_mat: "2 mặt (AB)",
+  tu_tro: "Tự trở",
+  tro_nhip: "Trở nhíp",
+};
+
+export function nhanCachIn(v: string | null | undefined): string | null {
+  if (!v) return null;
+  return CACH_IN_NHAN[v] ?? v;
+}
+
 // --- trạng thái lệnh --------------------------------------------------------
 const PILL: Record<LsxTrangThai, { label: string; cls: string }> = {
   nhap: { label: "Nháp", cls: "khsx-pill--nhap" },

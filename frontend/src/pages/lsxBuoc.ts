@@ -20,7 +20,8 @@ export interface EditRow {
   ten: string;
   nhom: string | null;
   loai_buoc: LsxLoaiBuoc;
-  bat_buoc: boolean;
+  /* `bat_buoc` GỠ khỏi form 07/09/2026: bước đã nằm trong routing thì PHẢI làm — không còn ô
+     tick, không còn nhãn "tùy chọn", server cũng thôi nhận field này (xem migration 0275). */
   /** KCS kiêm nhiệm (mg 0250): bước này có phải KCS không — quyết định khối "Tiêu chí KCS bổ
    *  sung" có hiện trong drawer hay không. */
   la_kcs: boolean;
@@ -178,7 +179,6 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     ten: cd.ten,
     nhom: cd.nhom,
     loai_buoc: cd.loai_buoc,
-    bat_buoc: cd.bat_buoc,
     la_kcs: !!cd.la_kcs,
     kcs_tieu_chi_bo_sung_json: cd.kcs_tieu_chi_bo_sung_json ?? [],
     department_id: cd.department_id,
@@ -278,7 +278,6 @@ export function tenBuoc(
 export function emptyRow(): EditRow {
   return {
     key: newKey(), id: null, cong_doan_id: null, ten: "", nhom: null, loai_buoc: "may",
-    bat_buoc: true,
     la_kcs: false, kcs_tieu_chi_bo_sung_json: [],
     department_id: null, department_ten: null, may_id: null,
     requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ma: null,
@@ -331,7 +330,8 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       ten: r.ten.trim(),
       nhom: r.nhom,
       loai_buoc: r.loai_buoc,
-      bat_buoc: r.bat_buoc,
+      // KHÔNG gửi `bat_buoc` (07/09/2026): mọi bước trong routing đều bắt buộc, cột để server tự
+      // giữ TRUE. Gửi lại chỉ mở đường ghi nhầm `false` trong khi drawer không còn ô sửa.
       // Tiêu chí KCS BỔ SUNG riêng của lệnh — KHÔNG gửi `la_kcs` ở đây: Task 3 chưa có ô sửa cờ
       // này trên drawer (kế thừa nguyên từ danh mục Công đoạn lúc bung routing), gửi lại giá trị
       // cũ vô nghĩa mà thêm rủi ro ghi nhầm nếu sau này FE thêm ô sửa mà quên đồng bộ đây.

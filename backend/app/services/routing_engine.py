@@ -151,16 +151,19 @@ def compute_step_cost(cd: dict, ctx: dict, *,
 # --- §4.2 lan truyền hao NGƯỢC (bước cuối → đầu) ---
 def cascade_waste_backward(steps: list[dict], so_luong_final: float) -> list[dict]:
     """steps theo THỨ TỰ chạy (đầu→cuối). Trả bản sao có output_qty/input_qty.
-       output(cuối)=so_luong; input(i)=output(i)/(1−spoilage_i); output(i−1)=input(i).
+       output(cuối)=so_luong; input(i)=output(i)×(1+spoilage_i); output(i−1)=input(i).
        Bước in (nhom=print): spoilage ép 0 (bù hao lấy từ máy — §4.4).
+
+       `%` đo trên số RA của bước (chốt 06/09/2026), giống `bu_hao_engine.chuoi_nguoc_dv`: hao 10%
+       để ra 100 thì vào 110 — KHÔNG phải `ra / (1 − %)` = 111,11.
     """
     out = [dict(s) for s in steps]
     downstream_output = float(so_luong_final)
     for s in reversed(out):
         sp = 0.0 if s.get("nhom") == "print" else _f(s.get("spoilage_pct")) / 100.0
-        sp = min(max(sp, 0.0), 0.95)
+        sp = max(sp, 0.0)
         s["output_qty"] = round(downstream_output, 3)
-        s["input_qty"] = round(downstream_output / (1.0 - sp), 3)
+        s["input_qty"] = round(downstream_output * (1.0 + sp), 3)
         downstream_output = s["input_qty"]
     return out
 

@@ -85,7 +85,7 @@ tooling_cost = reuse_tooling ? 0 : tooling.one_time_cost   ← tái bản bỏ k
 ```
 Tính từ bước CUỐI (thành phẩm) ngược lên:
   output_qty(bước cuối) = so_luong (đơn đặt)
-  input_qty(bước i)     = output_qty(bước i) / (1 − spoilage_i)
+  input_qty(bước i)     = output_qty(bước i) × (1 + spoilage_i)   ← % đo trên số RA
   output_qty(bước i−1)  = input_qty(bước i)          ← ra của bước trước = vào của bước sau
 ...ngược tới bước IN → cộng bù hao máy (canh máy + %chạy) → ra SỐ TỜ IN cần
 ...→ phá giấy → SỐ TỜ NGUYÊN mua
@@ -215,7 +215,8 @@ SFDC             : actual theo (job, sequence, công đoạn)
 
 ## 11. Changelog — fix từ phản biện
 1. **kem_line**: `so_kem = so_forms × (tự_trở? 1 bộ : cả 2 mặt)` — hết double-count tự trở; `so_forms` = **số tay**, KHÔNG phải số con; guard digital = 0 kẽm; kẽm per-mặt (gồm màu pha mặt đó).
-2. **Cascade hao ngược**: `input = output/(1−spoilage)` từ bước cuối lên → mua đủ giấy/in.
+2. **Cascade hao ngược**: `input = output × (1 + spoilage)` từ bước cuối lên → mua đủ giấy/in.
+   (`%` đo trên số RA — chốt 06/09/2026; trước đây là `output/(1−spoilage)`.)
 3. **Bỏ `per_hour_BHR`** khỏi pricing_basis (đó là `che_do_tinh`); validate chéo.
 4. **Chống trùng**: bước in không áp `spoilage_pct` (lấy bù hao máy); phủ inline tính 1 lần ở bước in; CTP công ghi ≠ kem_line vật tư.
 5. **Tooling instance**: `tooling_ref` + `reuse_tooling` (tái bản bỏ khuôn) + die-life ở Kẽm&khuôn.

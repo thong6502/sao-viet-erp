@@ -128,7 +128,7 @@ def _bat_chu(monkeypatch) -> _Giay:
 #: Tiêu đề bảng routing, đúng thứ tự cột trên giấy (`phieu_cong_nghe.routing_rows`).
 _COT_ROUTING = (
     "STT", "Lớp", "Công đoạn", "Nhóm", "Loại bước",
-    "SL vào", "SL ra", "ĐVT", "Tổ", "Bắt buộc",
+    "SL vào", "SL ra", "ĐVT", "Tổ",
 )
 
 

@@ -38,6 +38,7 @@ import {
   classHan,
   ngay,
   ngayGio,
+  nhanCachIn,
   num,
 } from "./keHoachSxShared";
 import { nhanDonVi } from "./lsxBuoc";
@@ -1333,22 +1334,6 @@ function demRouting(nodes: LenhSxRoutingNode[]): string {
   if (nodes.length === 0) return "chưa có bước nào";
   const xong = nodes.filter((n) => n.trang_thai === "completed").length;
   return `${xong}/${nodes.length} bước xong`;
-}
-
-/** Cách in — bốn giá trị khớp `<select>` ở màn Kế hoạch SX (`LsxDetailView.tsx`). Ảnh chụp thông
- *  số giữ nguyên KHOÁ (`mot_mat`…), và khoá là thứ chỉ máy đọc được: bày thẳng ra màn là bắt
- *  người điều độ tự dịch. Khoá lạ (ảnh chụp của lệnh cũ, hoặc danh mục thêm cách in mới) thì trả
- *  về nguyên văn — thà hiện một chữ khó đọc còn hơn nuốt mất thông số. */
-const CACH_IN: Record<string, string> = {
-  mot_mat: "1 mặt",
-  hai_mat: "2 mặt (AB)",
-  tu_tro: "Tự trở",
-  tro_nhip: "Trở nhíp",
-};
-
-function nhanCachIn(v: string | null): string | null {
-  if (!v) return null;
-  return CACH_IN[v] ?? v;
 }
 
 /** "860 × 650 mm" — hai chiều luôn đi cùng nhau; thiếu một chiều thì cả cặp vô nghĩa nên trả

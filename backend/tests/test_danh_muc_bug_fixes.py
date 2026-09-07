@@ -83,7 +83,7 @@ def test_bu_hao_doc_duoc_boi_nguoi_khai_cong_doan(client):
     ("/api/cong-doan", {"ma": "ZZCD", "ten": "ZZ Công đoạn", "nhom": "finishing",
                         "pricing_basis": "per_finished_qty"}),
     ("/api/may-thiet-bi", {"ma": "ZZMAY", "ten": "ZZ Máy", "loai_may": "Máy in",
-                           "so_nhan_cong": 1}),
+                           }),
     ("/api/loai-san-pham", {"ma": "ZZSP2", "ten": "ZZ SP2", "structural_type": "flat"}),
     ("/api/don-vi", {"ma": "zzdv", "ten": "ZZ Đơn vị"}),
 ])
