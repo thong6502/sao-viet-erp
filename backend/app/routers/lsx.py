@@ -446,6 +446,30 @@ def replace_routing(
     return out
 
 
+@router.post("/{lsx_id}/dong-bo-danh-muc", response_model=LsxOut)
+def dong_bo_danh_muc(
+    lsx_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> LsxOut:
+    """Lấy số MỚI của danh mục Công đoạn cho mọi bước của lệnh (nút "Cập nhật theo danh mục").
+
+    Cửa riêng chứ không nhét vào `PUT /routing`: lưu routing là REPLACE-ALL theo đúng thứ client
+    đang cầm, mà băng "Danh mục đã đổi" phải bấm được ngay cả khi màn chưa mở bảng công đoạn.
+    Chặn đúng ba cửa của lưu routing (đã lập kế hoạch · đơn hủy · đang giữ chỗ) — xem
+    `LsxService._ly_do_khong_cap_nhat`. Quyền tái dùng `update`, ai bấm ghi vào AuditLog.
+    """
+    svc = _svc(db)
+    try:
+        _guard_scope(db, svc.get(lsx_id), user, authz)
+        lsx = svc.dong_bo_danh_muc(lsx_id=lsx_id, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "lsx_changed", "order_id": lsx.order_id})
+    return _out(svc, lsx)
+
+
 @router.post("/{lsx_id}/buoc/{buoc_id}/giao-nhan", response_model=LsxOut)
 def ghi_giao_nhan(
     lsx_id: int,

@@ -10,6 +10,8 @@ import {
   LSX_THIEU_LABELS,
   nhanMa,
   api,
+  type DanhMucDoiBuoc,
+  type DanhMucDoiVatTu,
   type LsxActivity,
   type LsxBoDauViec,
   type LsxCongDoanBody,
@@ -63,9 +65,24 @@ const ACTION_LABEL: Record<string, string> = {
   create_lsx: "Tạo lệnh",
   update_lsx: "Sửa thông tin",
   update_lsx_routing: "Sửa công đoạn",
+  update_lsx_danh_muc: "Cập nhật theo danh mục",
   lsx_trang_thai: "Đổi trạng thái",
   delete_lsx: "Xoá lệnh",
 };
+
+/** Một dòng gọn cho băng vàng: bước này lệch những gì. Bảng cũ → mới đầy đủ nằm trong dialog —
+ *  băng chỉ cần đủ để người lập kế hoạch quyết CÓ MỞ RA XEM hay không. */
+function tomTatBuoc(b: DanhMucDoiBuoc): string {
+  const y: string[] = [];
+  if (b.khoan_mo_coi) y.push(`đầu việc “${b.khoan_mo_coi}” không còn thuộc công đoạn/tổ`);
+  if (b.khoan_chua_chon) y.push(`chưa chọn đầu việc, danh mục nay có “${b.khoan_chua_chon}”`);
+  if (b.khoan.length) y.push(b.khoan.map((k) => k.nhan.toLowerCase()).join(", "));
+  if (b.vat_tu_them.length) y.push(`thêm ${b.vat_tu_them.length} vật tư`);
+  if (b.vat_tu_lech.length) y.push(`${b.vat_tu_lech.length} vật tư lệch số`);
+  if (b.vat_tu_bo.length) y.push(`${b.vat_tu_bo.length} vật tư danh mục không còn bung`);
+  if (b.may_canh_bao) y.push(b.may_canh_bao);
+  return y.join(" · ");
+}
 
 interface FormState {
   ten: string;
@@ -196,6 +213,12 @@ export function LsxDetailView({
   const [boDauViec, setBoDauViec] = useState<LsxBoDauViec[]>([]);
   const [readyErr, setReadyErr] = useState<string | null>(null);
   const [askDelete, setAskDelete] = useState(false);
+  /** Bảng cũ → mới của nút "Cập nhật theo danh mục". KHÔNG ghi thẳng khi bấm: số khoán và định
+   *  mức là tiền công của thợ, đổi lén một phát cả lệnh thì người lập kế hoạch không có cách nào
+   *  biết cái gì vừa đổi. Mở bảng ra, đọc, rồi mới đồng ý. */
+  const [xemDmDoi, setXemDmDoi] = useState(false);
+  const [dongBo, setDongBo] = useState(false);
+  const [dongBoErr, setDongBoErr] = useState<string | null>(null);
   const [acts, setActs] = useState<LsxActivity[] | null>(null);
   /* GỠ 07/09/2026 cùng ô Giấy: hai ô `xemTruoc` / `xemTruocLoi`. Chúng chỉ có việc khi quy cách ở
      lệnh còn sửa được — nay cụm thông số là ảnh chụp CHỈ XEM của phiếu tính giá nên không còn gì
@@ -279,6 +302,27 @@ export function LsxDetailView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [d]);
 
+  /** Lấy số mới nhất của danh mục cho CẢ lệnh. Server không xoá dòng vật tư nào và không đụng số
+   *  nhân công đã sắp — bảng cũ → mới người dùng vừa đọc là ĐÚNG những gì sẽ ghi. */
+  const capNhatTheoDanhMuc = useCallback(async () => {
+    if (!token) return;
+    setDongBo(true);
+    setDongBoErr(null);
+    try {
+      const r = await api.lsx.dongBoDanhMuc(token, lsxId);
+      setD(r);
+      setForm(toForm(r));
+      setXemDmDoi(false);
+      // Bảng lệnh có đèn "Danh mục" cùng nguồn ⇒ báo cho màn cha nạp lại, không thì chấm vàng
+      // còn nằm đó tới lần lọc sau.
+      onChanged();
+    } catch (e: unknown) {
+      setDongBoErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setDongBo(false);
+    }
+  }, [token, lsxId, onChanged]);
+
   /** Tạo dao mới cho một bước → dòng mới trong danh mục Khuôn ở tình trạng "đang đặt làm".
    *
    *  Khách + loại lấy từ chính lệnh và bước, không hỏi lại: người cấu hình lệnh không nên phải gõ
@@ -346,6 +390,8 @@ export function LsxDetailView({
   // gửi `quy_cach`, và xoá lệnh — cùng luật với routing. Tách ra thành cờ riêng để màn NÓI TRƯỚC
   // thay vì để người ta gõ xong cả bảng thông số rồi mới ăn 409 lúc bấm Lưu.
   const giuCho = !!d?.giu_cho_bat;
+  // Danh mục đã đổi sau lúc lệnh chụp ảnh. `null` = còn khớp hết ⇒ KHÔNG băng, không chỗ trống.
+  const dmDoi = d?.danh_muc_doi ?? null;
   // QUY CÁCH Ở LỆNH = CHỈ XEM, không chừa ô nào (07/09/2026). Cụm này là thứ đã chốt với khách ở
   // phiếu tính giá — giấy, khổ, cách in, số trang, bleed, khe cắt, bình bài đều là số đã tính ra
   // giá và đã báo. Phiếu tính ra sao thì lệnh chạy y như vậy; gõ lại ở lệnh là lệnh chạy một đằng,
@@ -669,9 +715,46 @@ export function LsxDetailView({
         </div>
       </header>
 
-      {/* Ba thứ NGOÀI lệnh có thể chặn nó chạy: vật tư đã có chủ chưa · lịch đứng được chưa · có ai
-          làm không. Khối "Còn thiếu N mục" ngay dưới chỉ nói về sự đầy đủ của CHÍNH lệnh — hai
-          câu khác nhau, cố ý không trộn. Đủ chữ ở đây (bảng lệnh chỉ đủ chỗ cho nhãn ngắn). */}
+      {/* BĂNG "danh mục đã đổi" — đứng ngay dưới đầu trang, TRÊN cả hàng đèn: nó nói rằng những
+          con số người ta sắp đọc ở dưới là số CŨ. Hiện cả khi lệnh đã lập kế hoạch (chỉ khoá nút),
+          vì lúc đó biết mà không sửa được vẫn hơn không biết. */}
+      {dmDoi && (
+        <div className="khsx-luuy khsx-dmdoi" role="status">
+          <p className="khsx-luuy__title">
+            <Icon name="refresh" size={15} />
+            Danh mục đã đổi sau lần lệnh này lấy số — {dmDoi.so_buoc} công đoạn đang giữ số cũ
+            <span className="khsx-dmdoi__nut">
+              {dmDoi.co_the_cap_nhat ? (
+                <button type="button" className="khsx-dmdoi__btn" onClick={() => setXemDmDoi(true)}>
+                  Cập nhật theo danh mục
+                </button>
+              ) : (
+                /* Nút mờ chỉ có tooltip — người dùng bấm không ăn rồi tự đoán là hết quyền. Nói
+                   thẳng lý do bằng chữ, cùng luật với chip "Giữ chỗ vật tư" ở đầu trang. */
+                <span className="khsx-dmdoi__khoa">
+                  <Icon name="lock" size={12} /> {dmDoi.ly_do_khoa || "Chưa cập nhật được"}
+                </span>
+              )}
+            </span>
+          </p>
+          <ul className="khsx-luuy__list">
+            {dmDoi.buocs.map((b) => (
+              <li key={b.buoc_id}>
+                <strong>Bước {b.thu_tu} · {b.ten}:</strong> {tomTatBuoc(b)}
+              </li>
+            ))}
+          </ul>
+          <p className="khsx-luuy__foot">
+            Giữ số cũ KHÔNG chặn gì cả — lệnh vẫn xếp lịch và chạy được. Chỉ là tiền công và định
+            mức đang tính theo bản danh mục lúc bung lệnh.
+          </p>
+        </div>
+      )}
+
+      {/* Bốn thứ có thể chặn lệnh chạy: vật tư đã có chủ chưa · lịch đứng được chưa · có ai
+          làm không · số còn khớp danh mục không. Khối "Còn thiếu N mục" ngay dưới chỉ nói về sự
+          đầy đủ của CHÍNH lệnh — hai câu khác nhau, cố ý không trộn. Đủ chữ ở đây (bảng lệnh chỉ
+          đủ chỗ cho nhãn ngắn). */}
       {den?.den && (
         <div className="khsx-denrow">
           <DenTienDo
@@ -1402,8 +1485,92 @@ export function LsxDetailView({
         onConfirm={xoa}
         onCancel={() => setAskDelete(false)}
       />
+
+      {/* Bảng CŨ → MỚI. Bấm "Cập nhật theo danh mục" ở băng chỉ MỞ cái này; ghi thật là nút trong
+          đây. Người lập kế hoạch phải nhìn thấy tiền công đổi từ đâu sang đâu trước khi đồng ý. */}
+      <ConfirmDialog
+        open={xemDmDoi && !!dmDoi}
+        wide
+        title={`Lấy số mới của danh mục cho ${d.ma}?`}
+        confirmLabel="Đồng ý cập nhật"
+        cancelLabel="Để nguyên số cũ"
+        busy={dongBo}
+        error={dongBoErr}
+        onConfirm={capNhatTheoDanhMuc}
+        onCancel={() => {
+          setXemDmDoi(false);
+          setDongBoErr(null);
+        }}
+      >
+        <div className="khsx-dmdoi__bang">
+          {(dmDoi?.buocs ?? []).map((b) => (
+            <section key={b.buoc_id} className="khsx-dmdoi__buoc">
+              <h4>Bước {b.thu_tu} · {b.ten}</h4>
+              {b.khoan_mo_coi && (
+                <p className="khsx-dmdoi__note">
+                  Đầu việc “{b.khoan_mo_coi}” không còn thuộc công đoạn/tổ của bước. Cập nhật KHÔNG
+                  chọn hộ — mở tab Công đoạn chọn lại đầu việc rồi bấm Lưu.
+                </p>
+              )}
+              {b.khoan_chua_chon && (
+                <p className="khsx-dmdoi__note">
+                  Bước chưa chọn đầu việc; danh mục nay chỉ có đúng một cái là “{b.khoan_chua_chon}”
+                  nên cập nhật sẽ điền vào.
+                </p>
+              )}
+              {b.may_canh_bao && <p className="khsx-dmdoi__note">{b.may_canh_bao}</p>}
+              {(b.khoan.length > 0 || b.vat_tu_them.length > 0 || b.vat_tu_lech.length > 0) && (
+                <table className="khsx-dmdoi__tbl">
+                  <thead>
+                    <tr><th>Ô</th><th>Đang giữ</th><th>Danh mục nay</th></tr>
+                  </thead>
+                  <tbody>
+                    {b.khoan.map((k) => (
+                      <tr key={k.truong}>
+                        <td>{k.nhan}</td>
+                        <td className="khsx-dmdoi__cu">{k.cu ?? "—"}</td>
+                        <td className="khsx-dmdoi__moi">{k.moi ?? "—"}</td>
+                      </tr>
+                    ))}
+                    {b.vat_tu_them.map((v) => (
+                      <tr key={`t${v.vat_tu_id}`}>
+                        <td>{tenVatTu(v)}</td>
+                        <td className="khsx-dmdoi__cu">chưa có</td>
+                        <td className="khsx-dmdoi__moi">{num(v.so_luong_moi ?? 0)} {v.don_vi ?? ""}</td>
+                      </tr>
+                    ))}
+                    {b.vat_tu_lech.map((v) => (
+                      <tr key={`l${v.vat_tu_id}`}>
+                        <td>{tenVatTu(v)}</td>
+                        <td className="khsx-dmdoi__cu">{num(v.so_luong_cu ?? 0)} {v.don_vi ?? ""}</td>
+                        <td className="khsx-dmdoi__moi">{num(v.so_luong_moi ?? 0)} {v.don_vi ?? ""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {b.vat_tu_bo.length > 0 && (
+                <p className="khsx-dmdoi__note">
+                  GIỮ NGUYÊN, không xoá: {b.vat_tu_bo.map(tenVatTu).join(" · ")} — danh mục nay
+                  không bung ra món này nữa (thường vì ô “Công thức định mức” bị bỏ trống). Muốn bỏ
+                  thì xoá tay ở tab Công đoạn.
+                </p>
+              )}
+            </section>
+          ))}
+          <p className="khsx-dmdoi__foot">
+            Cập nhật KHÔNG đụng số nhân công đã sắp cho từng bước và KHÔNG xoá dòng vật tư nào.
+          </p>
+        </div>
+      </ConfirmDialog>
     </div>
   );
+}
+
+/** Nhãn một món vật tư trên bảng cũ → mới. Mã có thì mã đứng trước — người xưởng đọc mã nhanh hơn
+ *  đọc tên, mà tên món in ấn hay dài quá một dòng. */
+function tenVatTu(v: DanhMucDoiVatTu): string {
+  return [v.ma, v.ten].filter(Boolean).join(" · ") || `#${v.vat_tu_id}`;
 }
 
 /** Ô THÔNG SỐ dạng số — CHỈ HIỆN. Trước 05/09/2026 đây là ô `<input type="number">` (`KVNum`);

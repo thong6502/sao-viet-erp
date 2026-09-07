@@ -394,6 +394,59 @@ class BoDauViecOut(BaseModel):
     dau_viec: str        # tên đầu việc đã bị gỡ
 
 
+class DanhMucDoiTruong(BaseModel):
+    """Một Ô của ảnh chụp khoán bị lệch. `cu`/`moi` đã là chuỗi bày được (công thức đã dịch sang
+    chữ); `None` = ô đang bỏ trống."""
+
+    truong: str
+    nhan: str
+    cu: str | None = None
+    moi: str | None = None
+
+
+class DanhMucDoiVatTu(BaseModel):
+    """Một dòng vật tư lệch giữa bước và danh mục. `so_luong_cu`/`so_luong_moi` để trống một bên
+    tuỳ rổ: rổ THÊM chưa có số cũ, rổ BỎ không còn số mới."""
+
+    vat_tu_id: int
+    ma: str | None = None
+    ten: str | None = None
+    don_vi: str | None = None
+    so_luong_cu: float | None = None
+    so_luong_moi: float | None = None
+
+
+class DanhMucDoiBuoc(BaseModel):
+    buoc_id: int
+    step_key: str | None = None
+    thu_tu: int = 0
+    ten: str = ""
+    khoan: list[DanhMucDoiTruong] = Field(default_factory=list)
+    # Bước chưa chọn đầu việc mà danh mục khớp ĐÚNG MỘT cái — tên cái đó. Cập nhật là điền vào.
+    khoan_chua_chon: str | None = None
+    # Đầu việc đã ghim nay không còn thuộc (công đoạn ∩ tổ) — người kế hoạch phải chọn lại tay,
+    # nút cập nhật KHÔNG đoán hộ.
+    khoan_mo_coi: str | None = None
+    vat_tu_them: list[DanhMucDoiVatTu] = Field(default_factory=list)
+    # Bước đang có mà danh mục không còn bung. CHỈ BÁO — nút cập nhật không xoá dòng nào.
+    vat_tu_bo: list[DanhMucDoiVatTu] = Field(default_factory=list)
+    vat_tu_lech: list[DanhMucDoiVatTu] = Field(default_factory=list)
+    may_canh_bao: str | None = None
+
+
+class DanhMucDoiOut(BaseModel):
+    """Danh mục Công đoạn đã đổi sau lúc lệnh chụp ảnh — `None` ở `LsxOut` khi còn khớp hết.
+
+    Xem `services.lsx_danh_muc_doi` để biết vì sao so NỘI DUNG chứ không so `updated_at` như băng
+    cùng loại ở phiếu tính giá.
+    """
+
+    so_buoc: int
+    co_the_cap_nhat: bool
+    ly_do_khoa: str | None = None
+    buocs: list[DanhMucDoiBuoc] = Field(default_factory=list)
+
+
 class LsxOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -475,6 +528,9 @@ class LsxOut(BaseModel):
     # Bước bị GỠ đầu việc mồ côi trong LẦN LƯU routing này (rỗng ở mọi cửa đọc khác). Non-blocking:
     # lưu vẫn thành công, FE bày lưu ý để người kế hoạch mở đúng bước chọn lại đầu việc.
     bo_dau_viec: list[BoDauViecOut] = Field(default_factory=list)
+    # Danh mục Công đoạn đã đổi sau lúc lệnh chụp ảnh (None = còn khớp). Lệnh KHÔNG tự lấy số mới;
+    # băng trên màn lệnh nói lệch chỗ nào rồi để người lập kế hoạch bấm "Cập nhật theo danh mục".
+    danh_muc_doi: DanhMucDoiOut | None = None
 
 
 class BuocBiDeOut(BaseModel):
@@ -671,11 +727,17 @@ class DenItem(BaseModel):
 
 
 class LsxDenOut(BaseModel):
-    """Ba thứ bảng lệnh CHƯA nói. Hạn và Định mức cố ý KHÔNG có đèn — cột `Hạn` đã tô màu và cột
-    `CĐ` đã đỏ khi lệnh chưa có công đoạn; đèn thứ tư chỉ nói lại chuyện cột bên cạnh vừa nói."""
+    """Bốn thứ bảng lệnh CHƯA nói. Hạn vẫn cố ý KHÔNG có đèn — cột `Hạn` đã tô màu, và cột `CĐ` đã
+    đỏ khi lệnh chưa có công đoạn; đèn nói lại chuyện cột bên cạnh vừa nói chỉ làm loãng.
+
+    `danh_muc` thêm 07/09/2026: KHÔNG có cột nào nói hộ nó. Ảnh chụp khoán + dòng vật tư của bước
+    đóng băng từ lúc bung lệnh, xưởng sửa công thức ở danh mục Công đoạn thì lệnh đã tạo im lặng
+    giữ số cũ — không có chấm này thì người lập kế hoạch phải mở từng lệnh mới biết cái nào lệch.
+    """
     vat_tu: DenItem
     may_gio: DenItem
     nguoi: DenItem
+    danh_muc: DenItem
 
 
 class LsxTongQuanItem(BaseModel):

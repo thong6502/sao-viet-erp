@@ -2618,12 +2618,15 @@ export interface LsxDenItem {
   /** Bấm chấm là tới thẳng chỗ sửa. `null` khi `ok`. */
   nhay: { man: string; id: number } | null;
 }
-/** Ba thứ bảng lệnh CHƯA nói. Hạn và Định mức cố ý không có đèn: cột `Hạn` đã tô màu và cột `CĐ`
- *  đã đỏ khi lệnh chưa có công đoạn. */
+/** Bốn thứ bảng lệnh CHƯA nói. Hạn cố ý không có đèn: cột `Hạn` đã tô màu và cột `CĐ` đã đỏ khi
+ *  lệnh chưa có công đoạn. */
 export interface LsxDen {
   vat_tu: LsxDenItem;
   may_gio: LsxDenItem;
   nguoi: LsxDenItem;
+  /** Lệnh còn giữ số của lần bung, danh mục Công đoạn nay đã khác. Luôn VÀNG — giữ số cũ không
+   *  chặn gì cả, chỉ là số đã cũ. Sửa ngay trong màn lệnh nên không có chỗ `nhay` riêng. */
+  danh_muc: LsxDenItem;
 }
 export interface LsxTongQuanOut {
   items: { lsx_id: number; slack_ngay: number | null; den: LsxDen }[];
@@ -2677,10 +2680,41 @@ export interface LsxDetail {
   /** Bước bị GỠ đầu việc mồ côi trong LẦN LƯU routing vừa rồi (rỗng ở mọi cửa đọc khác). Lưu VẪN
    *  thành công — chỉ là lưu ý để mở đúng bước chọn lại đầu việc. */
   bo_dau_viec?: LsxBoDauViec[];
+  /** Danh mục Công đoạn đã đổi sau lần lệnh này lấy số. `null` = còn khớp, KHÔNG hiện băng. */
+  danh_muc_doi?: DanhMucDoiOut | null;
 }
 /** Một bước bị gỡ đầu việc mồ côi khi lưu routing (đầu việc đã ghim không còn thuộc công đoạn ∩
  *  tổ, thường vì danh mục đổi dưới chân lệnh). `vi_tri` = số thứ tự bước (1-based) để mở đúng chỗ. */
 export interface LsxBoDauViec { vi_tri: number; ten: string; dau_viec: string; }
+/** Một Ô của ảnh chụp khoán bị lệch. `cu`/`moi` đã là chuỗi bày được — công thức server đã dịch
+ *  sang chữ đọc được, ĐỪNG dịch lại ở FE. `null` = ô đang bỏ trống. */
+export interface DanhMucDoiTruong { truong: string; nhan: string; cu: string | null; moi: string | null }
+/** Một dòng vật tư lệch. Để trống một bên tuỳ rổ: rổ THÊM chưa có số cũ, rổ BỎ không còn số mới. */
+export interface DanhMucDoiVatTu {
+  vat_tu_id: number; ma: string | null; ten: string | null; don_vi: string | null;
+  so_luong_cu: number | null; so_luong_moi: number | null;
+}
+export interface DanhMucDoiBuoc {
+  buoc_id: number; step_key: string | null; thu_tu: number; ten: string;
+  khoan: DanhMucDoiTruong[];
+  /** Bước chưa chọn đầu việc mà danh mục khớp ĐÚNG MỘT cái — tên cái đó. Cập nhật là điền vào. */
+  khoan_chua_chon: string | null;
+  /** Đầu việc đã ghim nay không còn thuộc (công đoạn ∩ tổ) — phải chọn lại TAY, nút không đoán hộ. */
+  khoan_mo_coi: string | null;
+  vat_tu_them: DanhMucDoiVatTu[];
+  /** Bước đang có mà danh mục không còn bung. CHỈ BÁO — nút cập nhật không xoá dòng nào. */
+  vat_tu_bo: DanhMucDoiVatTu[];
+  vat_tu_lech: DanhMucDoiVatTu[];
+  may_canh_bao: string | null;
+}
+/** Danh mục Công đoạn đã đổi sau lúc lệnh chụp ảnh. `null` khi lệnh còn khớp hết danh mục.
+ *
+ *  Server so NỘI DUNG (dựng lại ảnh "nếu bung bây giờ" rồi đối chiếu), KHÔNG so `updated_at` như
+ *  băng cùng loại ở phiếu tính giá — công thức khoán/định mức nằm ở bảng con không có cột thời
+ *  gian. `co_the_cap_nhat=false` ⇒ nút cập nhật khoá, `ly_do_khoa` là câu nói vì sao. */
+export interface DanhMucDoiOut {
+  so_buoc: number; co_the_cap_nhat: boolean; ly_do_khoa: string | null; buocs: DanhMucDoiBuoc[];
+}
 export interface LsxBaiGhep {
   id: number; ma: string; trang_thai: string;
   may_id: number | null; may_ten: string | null;
@@ -11055,6 +11089,11 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ cong_doans: congDoans, ly_do: lyDo || null }),
       });
+    },
+    /** Lấy lại số MỚI NHẤT của danh mục Công đoạn cho CẢ lệnh (khoán + định mức vật tư).
+     *  Không xoá dòng vật tư nào và không đụng số nhân công đã sắp — xem `dong_bo_danh_muc`. */
+    dongBoDanhMuc(token: string, id: number): Promise<LsxDetail> {
+      return authed<LsxDetail>(`/api/lsx/${id}/dong-bo-danh-muc`, token, { method: "POST" });
     },
     /** Sửa thông số này thì các số máy tự tính ra bao nhiêu? CHỈ ĐỌC — server chạy đúng đường của
      *  nút Lưu rồi rollback. Có nó để màn lệnh khỏi chép công thức engine sang JS (hai bản công

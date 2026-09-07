@@ -2216,6 +2216,64 @@ td.khsx-num > .khsx-unit {
 .khsx-luuy__x:hover { opacity: 1; background: color-mix(in srgb, var(--amber-deep) 12%, transparent); }
 .khsx-luuy__x:focus-visible { outline: 2px solid var(--amber-deep); outline-offset: 1px; opacity: 1; }
 
+/* --- băng "danh mục đã đổi" (07/09/2026) ------------------------------------
+   Dùng lại nguyên khối `.khsx-luuy` (amber) — cùng loại tin: máy báo, người quyết. Chỉ thêm chỗ
+   cho nút bên phải tiêu đề và bảng cũ → mới trong dialog. */
+.khsx-dmdoi { margin-bottom: var(--sp-3); }
+.khsx-dmdoi__nut { margin-left: auto; display: inline-flex; align-items: center; gap: var(--sp-2); }
+.khsx-dmdoi__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--amber-deep);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  color: var(--amber-deep);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.khsx-dmdoi__btn:hover { background: color-mix(in srgb, var(--amber-deep) 10%, var(--canvas)); }
+.khsx-dmdoi__btn:focus-visible { outline: 2px solid var(--amber-deep); outline-offset: 1px; }
+.khsx-dmdoi__khoa {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  opacity: 0.85;
+}
+/* Bảng trong dialog: nhiều bước × nhiều ô nên cho cuộn dọc trong thân dialog thay vì đẩy dài cả
+   trang — nút Đồng ý phải luôn nhìn thấy được. */
+.khsx-dmdoi__bang { display: grid; gap: var(--sp-3); max-height: 56vh; overflow: auto; }
+.khsx-dmdoi__buoc h4 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.khsx-dmdoi__note {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--amber-deep);
+}
+.khsx-dmdoi__tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
+.khsx-dmdoi__tbl th,
+.khsx-dmdoi__tbl td {
+  padding: 5px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: top;
+}
+.khsx-dmdoi__tbl th { font-weight: var(--fw-bold); color: var(--ash); white-space: nowrap; }
+.khsx-dmdoi__cu { color: var(--ash); text-decoration: line-through; }
+.khsx-dmdoi__moi { color: var(--ink); font-weight: var(--fw-bold); }
+.khsx-dmdoi__foot { margin: 0; font-size: var(--fs-xs); color: var(--ash); }
+
 /* --- drawer chi tiết 1 bước ------------------------------------------------ */
 .khsx-drawer--buoc {
   width: min(780px, 96vw);
