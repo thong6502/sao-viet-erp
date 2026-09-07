@@ -16,7 +16,8 @@ class CongDoanDauViecVatTuIn(BaseModel):
 class CongDoanDauViecIn(BaseModel):
     piece_rate_id: int
     # `nang_suat_nguoi_gio` = mức TRUNG BÌNH (số chảy vào công thức thời lượng); min/max chỉ để ra
-    # khoảng nhanh–chậm, để trống thì ba mức bằng nhau. `don_vi_nang_suat` là nhãn khai báo.
+    # khoảng nhanh–chậm, để trống thì ba mức bằng nhau. `don_vi_nang_suat` là ĐƠN VỊ ĐÍCH mà
+    # `cong_thuc_gio` phải quy về (mã `<đơn vị>_gio`); trống = lùi về đơn vị của đơn giá khoán.
     nang_suat_nguoi_gio: float = Field(gt=0)
     nang_suat_nguoi_gio_min: float | None = Field(default=None, gt=0)
     nang_suat_nguoi_gio_max: float | None = Field(default=None, gt=0)
@@ -26,6 +27,10 @@ class CongDoanDauViecIn(BaseModel):
     # CÔNG THỨC TÍNH TIỀN CÔNG của đầu việc này trong công đoạn này (06/09/2026) — ra LƯỢNG theo
     # đơn vị đơn giá khoán, engine nhân đơn giá sau. Ghim vào bước lệnh lúc chọn đầu việc.
     cong_thuc_khoan: str | None = None
+    # CÁCH ĐO GIỜ CHẠY của đầu việc này trong công đoạn này (07/09/2026) — ra LƯỢNG theo đơn vị
+    # NĂNG SUẤT khoán, engine chia cho năng suất sau. Tách khỏi `cong_thuc_khoan` ngay trên vì
+    # tiền và giờ không cùng một cách đếm: in trở 2 lượt thì tiền nhân đôi mà giờ thì không.
+    cong_thuc_gio: str | None = None
     # VẬT TƯ đầu việc tiêu thụ (mg 0191). Trước 06/09/2026 chỉ là `vat_tu_ids: list[int]` (danh
     # sách thuần, công thức treo ở món hàng); nay mỗi dòng mang công thức định mức của riêng nó vì
     # hai món cùng ĐVT ăn theo hai trục khác hẳn (mực theo số tờ, dung môi theo số màu).

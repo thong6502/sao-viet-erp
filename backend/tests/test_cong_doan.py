@@ -582,3 +582,43 @@ def test_migration_0276_chep_cong_thuc_khoan_sang_o_gio():
     _migrate_cong_thuc_gio_dau_viec(db)
     assert db.execute(text("SELECT cong_thuc_gio FROM cong_doan_dau_viec")).scalar() == \
         "sl_vao * 1000"
+
+
+def test_cong_thuc_gio_dau_viec_luu_duoc_va_don_khoang_trang():
+    """Ô đo GIỜ đi trọn đường schema → service → DB, và khoảng trắng thừa về None.
+
+    Chuẩn hoá TẠI service để mọi đường vào (form, Excel, API) cùng một dạng: chuỗi toàn khoảng
+    trắng làm `if cong_thuc:` ở engine tưởng có khai rồi `safe_eval("  ")` nổ.
+    """
+    db, svc = _svc()
+    to, rate = _to_va_rate(svc, db, ma_to="CTG", ma_rate="XENG")
+    base = dict(ma="CD-CTG", ten="Xén", nhom="finishing", department_id=to.id,
+                pricing_basis="per_finished_qty")
+    cd = svc.create({**base, "dau_viec_dinh_muc": [dict(
+        piece_rate_id=rate.id, nang_suat_nguoi_gio=500, so_nguoi_tieu_chuan=1,
+        cong_thuc_khoan="sl_vao * so_luot_chay", cong_thuc_gio="sl_vao",
+        don_vi_nang_suat="to_gio",
+    )]})
+    dm = cd.dau_viec_dinh_muc[0]
+    assert dm.cong_thuc_gio == "sl_vao" and dm.don_vi_nang_suat == "to_gio"
+    assert dm.cong_thuc_khoan == "sl_vao * so_luot_chay"
+
+    sua = svc.update(cd.id, {**base, "dau_viec_dinh_muc": [dict(
+        piece_rate_id=rate.id, nang_suat_nguoi_gio=500, so_nguoi_tieu_chuan=1,
+        cong_thuc_gio="   ", don_vi_nang_suat="  ",
+    )]})
+    dm2 = sua.dau_viec_dinh_muc[0]
+    assert dm2.cong_thuc_gio is None and dm2.don_vi_nang_suat is None
+
+
+def test_cong_thuc_gio_dau_viec_sai_cu_phap_bi_chan():
+    """Câu lỗi phải GỌI TÊN đầu việc — bảng nhiều dòng, không nói tên thì người khai phải mở từng
+    panel để dò xem mình gõ hỏng ở đâu."""
+    db, svc = _svc()
+    to, rate = _to_va_rate(svc, db, ma_to="CTG2", ma_rate="XENG2")
+    with pytest.raises(CongDoanValidationError, match="Cách đo giờ chạy"):
+        svc.create(dict(ma="CD-CTG2", ten="Xén 2", nhom="finishing", department_id=to.id,
+                        pricing_basis="per_finished_qty",
+                        dau_viec_dinh_muc=[dict(piece_rate_id=rate.id, nang_suat_nguoi_gio=500,
+                                                so_nguoi_tieu_chuan=1,
+                                                cong_thuc_gio="sl_vao * *")]))
