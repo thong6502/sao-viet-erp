@@ -90,7 +90,7 @@ Nền cho mọi task sau. Sau task này DB nhận được dòng giấy, nhưng 
 **Interfaces:**
 - Produces: `LsxCongDoanVatTu.hang_loai: str` — `"giay"` | `"vat_tu"`, NOT NULL, server_default `'vat_tu'`. Cột id giữ nguyên tên `vat_tu_id` (nay mang nghĩa `hang_id`). Unique key mới: `(lsx_cong_doan_id, hang_loai, vat_tu_id)`.
 
-- [ ] **Step 1: Viết test thất bại**
+- [x] **Step 1: Viết test thất bại**
 
 Thêm vào cuối `backend/tests/test_lsx_service.py`:
 
@@ -107,7 +107,7 @@ def test_dong_vat_tu_cua_buoc_mang_hang_loai_va_cho_trung_id_khac_loai(db):
     assert [c.name for c in uq.columns] == ["lsx_cong_doan_id", "hang_loai", "vat_tu_id"]
 ```
 
-- [ ] **Step 2: Chạy test cho chắc nó ĐỎ**
+- [x] **Step 2: Chạy test cho chắc nó ĐỎ**
 
 ```bash
 cd backend && python -m pytest tests/test_lsx_service.py::test_dong_vat_tu_cua_buoc_mang_hang_loai_va_cho_trung_id_khac_loai -q
@@ -115,7 +115,7 @@ cd backend && python -m pytest tests/test_lsx_service.py::test_dong_vat_tu_cua_b
 
 Kỳ vọng: FAIL — `AttributeError: type object 'LsxCongDoanVatTu' has no attribute 'hang_loai'`.
 
-- [ ] **Step 3: Thêm cột vào model**
+- [x] **Step 3: Thêm cột vào model**
 
 Trong `backend/app/models/lsx.py`, class `LsxCongDoanVatTu`, đổi `__table_args__` và thêm cột ngay trên `vat_tu_id`:
 
@@ -143,7 +143,7 @@ class LsxCongDoanVatTu(Base):
     vat_tu_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
 ```
 
-- [ ] **Step 4: Viết migration `0280`**
+- [x] **Step 4: Viết migration `0280`**
 
 Thêm vào **cuối** `backend/app/db_migrations.py`:
 
@@ -194,7 +194,7 @@ def _migrate_hang_loai_vat_tu_buoc(db: Session) -> None:
 MIGRATIONS.append(("0280_hang_loai_vat_tu_buoc", _migrate_hang_loai_vat_tu_buoc))
 ```
 
-- [ ] **Step 5: Cập nhật `docs/DB_SCHEMA.md`**
+- [x] **Step 5: Cập nhật `docs/DB_SCHEMA.md`**
 
 Trong mục `### \`lsx_cong_doan_vat_tu\`` (khoảng dòng 4003), sửa dòng "Tất cả cột" và thêm một đoạn giải thích ngay dưới:
 
@@ -204,7 +204,7 @@ Trong mục `### \`lsx_cong_doan_vat_tu\`` (khoảng dòng 4003), sửa dòng "T
 `hang_loai` (VARCHAR(8) NOT NULL DEFAULT `'vat_tu'`, IX, mg `0280`): **danh mục nào chứa món này** — `'giay'` → `giay_nguyen`, `'vat_tu'` → `vat_tu_in_an`. Cặp `(hang_loai, vat_tu_id)` cùng khuôn `stock_lots` / `vat_tu_giu_cho` / `stock_requests`, nên bảng cân đối và tầng kho nhận dòng giấy không phải rẽ nhánh. Cột id vẫn tên `vat_tu_id` nhưng **đọc là `hang_id`**. Unique key gồm cả ba cột: Giấy #7 và Vật tư #7 là hai món khác nhau.
 ```
 
-- [ ] **Step 6: Chạy test cho XANH**
+- [x] **Step 6: Chạy test cho XANH**
 
 ```bash
 cd backend && python -m pytest tests/test_lsx_service.py::test_dong_vat_tu_cua_buoc_mang_hang_loai_va_cho_trung_id_khac_loai -q
@@ -212,7 +212,7 @@ cd backend && python -m pytest tests/test_lsx_service.py::test_dong_vat_tu_cua_b
 
 Kỳ vọng: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/app/models/lsx.py backend/app/db_migrations.py docs/DB_SCHEMA.md backend/tests/test_lsx_service.py
@@ -237,7 +237,7 @@ Sau task này, server tính được số kg cho một dòng giấy đặt ở b
   - `_goi_y_luong_vat_tu` trả thêm khoá `"hang_loai"` mỗi phần tử.
   - `_vat_tu_bung` trả thêm khoá `"hang_loai": "vat_tu"` mỗi dòng.
 
-- [ ] **Step 1: Viết test thất bại**
+- [x] **Step 1: Viết test thất bại**
 
 Thêm vào `backend/tests/test_lsx_service.py`:
 
@@ -288,7 +288,7 @@ def svc_lsx_lenh(db, customer):
     return l, b
 ```
 
-- [ ] **Step 2: Chạy test cho chắc nó ĐỎ**
+- [x] **Step 2: Chạy test cho chắc nó ĐỎ**
 
 ```bash
 cd backend && python -m pytest tests/test_lsx_service.py::test_goi_y_luong_co_ca_GIAY_va_ra_kg_bang_cong_thuc_cua_chinh_loai_giay -q
@@ -296,7 +296,7 @@ cd backend && python -m pytest tests/test_lsx_service.py::test_goi_y_luong_co_ca
 
 Kỳ vọng: FAIL — `StopIteration` (gợi ý không có dòng nào `hang_loai == "giay"`).
 
-- [ ] **Step 3: Thay `_vat_tu_active` bằng `_mon_active`**
+- [x] **Step 3: Thay `_vat_tu_active` bằng `_mon_active`**
 
 Trong `backend/app/services/lsx_service.py`, thay nguyên hàm `_vat_tu_active` (dòng 480–491):
 
@@ -337,7 +337,7 @@ Thêm import ở đầu file, cạnh import `VatTuInAn` đang có:
 from ..models.vat_lieu_kho import HANG_GIAY, HANG_VAT_TU, GiayNguyen, VatTuInAn
 ```
 
-- [ ] **Step 4: Cho `_luong_vat_tu` biết nguồn công thức của giấy**
+- [x] **Step 4: Cho `_luong_vat_tu` biết nguồn công thức của giấy**
 
 Sửa chữ ký và đoạn đầu của `_luong_vat_tu` (dòng 715):
 
@@ -371,7 +371,7 @@ Và đổi câu lý do khi vẫn rỗng, để nó chỉ đúng chỗ khai của
                 f"“Công thức định mức” (ra {dv_ten}).")
 ```
 
-- [ ] **Step 5: `_goi_y_luong_vat_tu` quét cả hai danh mục**
+- [x] **Step 5: `_goi_y_luong_vat_tu` quét cả hai danh mục**
 
 Trong `_goi_y_luong_vat_tu` (dòng 654), thay vòng lặp cuối:
 
@@ -395,7 +395,7 @@ Trong `_goi_y_luong_vat_tu` (dòng 654), thay vòng lặp cuối:
         return ra
 ```
 
-- [ ] **Step 6: `_vat_tu_bung` đóng dấu `hang_loai`**
+- [x] **Step 6: `_vat_tu_bung` đóng dấu `hang_loai`**
 
 Trong `_vat_tu_bung` (dòng 602), dòng `ra.append({...})` thêm khoá đầu:
 
@@ -407,7 +407,7 @@ Trong `_vat_tu_bung` (dòng 602), dòng `ra.append({...})` thêm khoá đầu:
             })
 ```
 
-- [ ] **Step 7: Chạy test cho XANH**
+- [x] **Step 7: Chạy test cho XANH**
 
 ```bash
 cd backend && python -m pytest tests/test_lsx_service.py -q -k "goi_y_luong or vat_tu"
@@ -415,7 +415,7 @@ cd backend && python -m pytest tests/test_lsx_service.py -q -k "goi_y_luong or v
 
 Kỳ vọng: PASS toàn bộ.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/app/services/lsx_service.py backend/tests/test_lsx_service.py
@@ -439,7 +439,7 @@ Sau task này, API nhận `hang_loai` và ghi đúng bảng; FE chưa gửi.
 - Consumes: `_mon_active()`, `_luong_vat_tu(..., hang_loai=)` (Task 2).
 - Produces: `LsxBuocVatTuIn.hang_loai: str = "vat_tu"`, `LsxBuocVatTuOut.hang_loai: str`. `vat_tu_lech` khoá theo `(hang_loai, vat_tu_id)`.
 
-- [ ] **Step 1: Viết test thất bại**
+- [x] **Step 1: Viết test thất bại**
 
 ```python
 def test_luu_routing_ghi_duoc_dong_GIAY_va_giu_qua_lan_luu_thu_hai(db, svc_lsx_lenh):
@@ -470,7 +470,7 @@ def test_luu_routing_ghi_duoc_dong_GIAY_va_giu_qua_lan_luu_thu_hai(db, svc_lsx_l
     assert rows[0].vat_tu_ten_snapshot == "Giấy C300"
 ```
 
-- [ ] **Step 2: Chạy test cho chắc nó ĐỎ**
+- [x] **Step 2: Chạy test cho chắc nó ĐỎ**
 
 ```bash
 cd backend && python -m pytest tests/test_lsx_service.py::test_luu_routing_ghi_duoc_dong_GIAY_va_giu_qua_lan_luu_thu_hai -q
@@ -478,7 +478,7 @@ cd backend && python -m pytest tests/test_lsx_service.py::test_luu_routing_ghi_d
 
 Kỳ vọng: FAIL — `LsxValidationError: Vật tư không tồn tại` (id giấy tra trong `vat_tu_in_an`).
 
-- [ ] **Step 3: Schema nhận `hang_loai`**
+- [x] **Step 3: Schema nhận `hang_loai`**
 
 Trong `backend/app/schemas/lsx.py`:
 
@@ -505,7 +505,7 @@ class LsxBuocVatTuOut(BaseModel):
     tu_dong: bool = False
 ```
 
-- [ ] **Step 4: `replace_routing` tra đúng danh mục**
+- [x] **Step 4: `replace_routing` tra đúng danh mục**
 
 Trong `backend/app/services/lsx_service.py`, thay khối kiểm + ghi `vat_tus` (dòng 3274–3310):
 
@@ -549,7 +549,7 @@ Trong `backend/app/services/lsx_service.py`, thay khối kiểm + ghi `vat_tus` 
 
 > ⚠️ `cu_theo_cap` phải dựng **trước** `row.vat_tus.clear()`. Đưa dòng đó lên ngay trên `row.vat_tus.clear()`.
 
-- [ ] **Step 5: Đường đọc trả `hang_loai`**
+- [x] **Step 5: Đường đọc trả `hang_loai`**
 
 Trong `_buoc_dict` (dòng 2486), thêm khoá:
 
@@ -565,7 +565,7 @@ Trong `_buoc_dict` (dòng 2486), thêm khoá:
 
 Trong `_bung_vat_tu_dau_viec` (dòng 1574) và `dong_bo_danh_muc` (dòng 3083), thêm `hang_loai=v.get("hang_loai") or HANG_VAT_TU` / `hang_loai=r.get("hang_loai") or HANG_VAT_TU` vào `LsxCongDoanVatTu(...)`.
 
-- [ ] **Step 6: `vat_tu_lech` khoá theo cặp**
+- [x] **Step 6: `vat_tu_lech` khoá theo cặp**
 
 Trong `backend/app/services/lsx_danh_muc_doi.py`, đổi hai dict khoá:
 
@@ -604,7 +604,7 @@ Trong `_soi_danh_muc` (dòng 3010) và `dong_bo_danh_muc` (dòng 3076), đổi k
                     v.so_luong = float(r["so_luong"])
 ```
 
-- [ ] **Step 7: Chạy test cho XANH**
+- [x] **Step 7: Chạy test cho XANH**
 
 ```bash
 cd backend && python -m pytest tests/test_lsx_service.py -q
@@ -612,7 +612,7 @@ cd backend && python -m pytest tests/test_lsx_service.py -q
 
 Kỳ vọng: PASS toàn bộ file.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/app/schemas/lsx.py backend/app/services/lsx_service.py backend/app/services/lsx_danh_muc_doi.py backend/tests/test_lsx_service.py
@@ -633,7 +633,7 @@ git commit -m "Luu routing ghi duoc dong giay tren buoc; khoa vat tu doi sang ca
 - Consumes: `LsxCongDoanVatTu.hang_loai` (Task 1), đường ghi (Task 3).
 - Produces: dòng thô mang thêm khoá `"ct_mat_hang": bool` — `True` chỉ cho dòng giấy của BÀI GHÉP.
 
-- [ ] **Step 1: Viết test thất bại**
+- [x] **Step 1: Viết test thất bại**
 
 ```python
 def test_lenh_KHONG_con_tu_sinh_dong_giay_tu_quy_cach(db, svc, customer):
@@ -652,7 +652,7 @@ def test_giay_chon_tay_o_BUOC_len_bang_voi_ngay_can_cua_dung_buoc_do(db, svc, cu
     assert nhom["tong_nhu_cau"] == pytest.approx(83.85, abs=0.01)   # 1.000 tờ × 0,08385 kg
 ```
 
-- [ ] **Step 2: Chạy test cho chắc nó ĐỎ**
+- [x] **Step 2: Chạy test cho chắc nó ĐỎ**
 
 ```bash
 cd backend && python -m pytest tests/test_ke_hoach_vat_tu.py::test_lenh_KHONG_con_tu_sinh_dong_giay_tu_quy_cach -q
@@ -660,7 +660,7 @@ cd backend && python -m pytest tests/test_ke_hoach_vat_tu.py::test_lenh_KHONG_co
 
 Kỳ vọng: FAIL — vẫn còn dòng giấy sinh từ quy cách.
 
-- [ ] **Step 3: Đổi seam của helper test**
+- [x] **Step 3: Đổi seam của helper test**
 
 Trong `backend/tests/test_ke_hoach_vat_tu.py`, sửa `_lenh` để nó gắn dòng giấy lên bước — đây là chỗ ~40 test hiện có đi qua, đổi một nơi là cả file theo:
 
@@ -710,7 +710,7 @@ def _lenh(db, customer, *, ma, giay_id, so_to_nguyen, han=None, nguon_giay=None,
 
 > Bỏ `hang_id_unused=None` — nó không phải cột thật, viết nhầm là `TypeError`. Dòng đúng chỉ gồm `hang_loai="giay"` và `vat_tu_id=giay_id`.
 
-- [ ] **Step 4: Gỡ vòng sinh dòng giấy của lệnh**
+- [x] **Step 4: Gỡ vòng sinh dòng giấy của lệnh**
 
 Trong `backend/app/services/ke_hoach_vat_tu_service.py`, xoá nguyên vòng `for l in lenh:` sinh dòng giấy (dòng ~962–990, từ `if l.id in thanh_vien: continue` tới hết `tho.append(self._dong_lenh(l, ("giay", ...)))`), thay bằng một khối ghi chú:
 
@@ -729,7 +729,7 @@ Trong `backend/app/services/ke_hoach_vat_tu_service.py`, xoá nguyên vòng `for
 
 Xoá luôn hàm `_buoc_dau_dong_giay` (dòng 367–384) và mọi chỗ gọi nó. Giữ `_dv_giay` — bài ghép còn dùng.
 
-- [ ] **Step 5: Vòng vật tư bước đọc `hang_loai`**
+- [x] **Step 5: Vòng vật tư bước đọc `hang_loai`**
 
 Sửa dòng ~1019:
 
@@ -740,7 +740,7 @@ Sửa dòng ~1019:
                 )
 ```
 
-- [ ] **Step 6: `_ve_goc` chỉ chạy công thức mặt hàng cho BÀI GHÉP**
+- [x] **Step 6: `_ve_goc` chỉ chạy công thức mặt hàng cho BÀI GHÉP**
 
 Trong `_ve_goc`, thay điều kiện `ct` (dòng ~320):
 
@@ -767,7 +767,7 @@ Trong `_dong_bai` thêm `"ct_mat_hang": True` cho dòng giấy của bài; `_don
 
 > Cách gọn nhất: `_dong_bai` nhận thêm tham số `ct_mat_hang: bool = False` và vòng giấy của bài truyền `True`; vòng vật tư của bài truyền mặc định.
 
-- [ ] **Step 7: Chạy test cho XANH**
+- [x] **Step 7: Chạy test cho XANH**
 
 ```bash
 cd backend && python -m pytest tests/test_ke_hoach_vat_tu.py -q
@@ -775,7 +775,7 @@ cd backend && python -m pytest tests/test_ke_hoach_vat_tu.py -q
 
 Kỳ vọng: PASS toàn bộ file. Test nào còn đỏ là test cố ý kiểm đường cũ — đọc tên test, sửa kỳ vọng theo luật mới (giấy đến từ bước), **không** khôi phục đường cũ.
 
-- [ ] **Step 8: Chạy các file test hạ nguồn**
+- [x] **Step 8: Chạy các file test hạ nguồn**
 
 ```bash
 cd backend && python -m pytest tests/test_giu_cho_vat_tu.py tests/test_lenh_sx_ho_so.py tests/test_sx_vat_tu_de_nghi.py -q
@@ -783,7 +783,7 @@ cd backend && python -m pytest tests/test_giu_cho_vat_tu.py tests/test_lenh_sx_h
 
 Chỗ đỏ chỉ nên là dựng `LsxCongDoanVatTu(...)` thiếu `hang_loai` — thêm `hang_loai="vat_tu"` vào từng chỗ dựng.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add backend/app/services/ke_hoach_vat_tu_service.py backend/tests/
@@ -803,7 +803,7 @@ git commit -m "Bang can doi bo suy giay tu cong doan, doc dong giay cua buoc; ba
 - Consumes: `LsxCongDoanOut.vat_tus[].hang_loai` (Task 3).
 - Produces: `bangKeVatTu` không còn đọc `quyCach`/`soToNguyen`/`donViToNguyen` để dựng dòng giấy; nhóm `nvl` suy từ `hang_loai === "giay"`.
 
-- [ ] **Step 1: Sửa test hiện có cho ĐỎ**
+- [x] **Step 1: Sửa test hiện có cho ĐỎ**
 
 Trong `frontend/src/pages/lsxVatTu.test.ts`, thay test `"giấy treo vào bước ĐẦU TIÊN TRÊN DÒNG GIẤY..."` bằng:
 
@@ -848,7 +848,7 @@ function giay(id: number, ten: string, so_luong: number, don_vi = "kg"): VatTuDo
 
 Và sửa `vt` để đóng dấu `hang_loai: "vat_tu"`.
 
-- [ ] **Step 2: Chạy test cho chắc nó ĐỎ**
+- [x] **Step 2: Chạy test cho chắc nó ĐỎ**
 
 ```bash
 cd frontend && npx vitest run src/pages/lsxVatTu.test.ts
@@ -856,7 +856,7 @@ cd frontend && npx vitest run src/pages/lsxVatTu.test.ts
 
 Kỳ vọng: FAIL — vẫn có dòng `nvl` ảo ở bước In.
 
-- [ ] **Step 3: Gỡ suy giấy trong `lsxVatTu.ts`**
+- [x] **Step 3: Gỡ suy giấy trong `lsxVatTu.ts`**
 
 Xoá ba dòng `buocGiay` / `giayId` / `coGiay` / `giayTen` (dòng ~86–91) và khối `if (coGiay ...)` (dòng ~96–110). Thay vòng vật tư bằng:
 
@@ -891,7 +891,7 @@ Sửa đầu file, khối comment "Ba nhóm cố ý KHÔNG gộp":
 //                 Một lệnh có thể có NHIỀU loại (hộp carton: giấy mặt · giấy sóng · giấy đáy).
 ```
 
-- [ ] **Step 4: Sửa kiểu TS + nơi gọi**
+- [x] **Step 4: Sửa kiểu TS + nơi gọi**
 
 `frontend/src/api/client.ts` dòng 2452:
 
@@ -914,7 +914,7 @@ dòng 2465:
 
 Sửa nơi gọi `bangKeVatTu` trong `LsxVatTuPanel.tsx` (bỏ ba tham số đã gỡ) và hàm `ke()` trong test.
 
-- [ ] **Step 5: Chạy test + type-check cho XANH**
+- [x] **Step 5: Chạy test + type-check cho XANH**
 
 ```bash
 cd frontend && npx vitest run src/pages/lsxVatTu.test.ts && npx tsc --noEmit
@@ -922,7 +922,7 @@ cd frontend && npx vitest run src/pages/lsxVatTu.test.ts && npx tsc --noEmit
 
 Kỳ vọng: PASS + không lỗi type.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/api/client.ts frontend/src/pages/lsxVatTu.ts frontend/src/pages/lsxVatTu.test.ts frontend/src/pages/LsxVatTuPanel.tsx
@@ -943,7 +943,7 @@ git commit -m "Bang ke vat tu cua lenh bo dong giay ao, NVL chinh suy tu hang_lo
 - Consumes: `vat_tu_goi_y[].hang_loai`, `vat_tus[].hang_loai` (Task 5).
 - Produces: `RefRow` mang `hangLoai: "giay" | "vat_tu"`; payload `vat_tus` gửi `hang_loai`.
 
-- [ ] **Step 1: Nạp thêm danh mục Giấy**
+- [x] **Step 1: Nạp thêm danh mục Giấy**
 
 Trong `LsxDetailView.tsx`, thay khối nạp `vatTuRefs` (dòng 374–376):
 
@@ -964,7 +964,7 @@ Trong `LsxDetailView.tsx`, thay khối nạp `vatTuRefs` (dòng 374–376):
 
 Thêm `hangLoai` vào type `RefRow` (nơi khai — grep `interface RefRow`), là optional để các dropdown khác không phải sửa.
 
-- [ ] **Step 2: Dropdown chia hai nhóm**
+- [x] **Step 2: Dropdown chia hai nhóm**
 
 Trong `LsxBuocDrawer.tsx`, thay `<select>` thêm vật tư (dòng ~1216–1246):
 
@@ -1019,7 +1019,7 @@ Trong `LsxBuocDrawer.tsx`, thay `<select>` thêm vật tư (dòng ~1216–1246):
                               </select>
 ```
 
-- [ ] **Step 3: Mọi chỗ so `vat_tu_id` trong drawer đổi sang cặp**
+- [x] **Step 3: Mọi chỗ so `vat_tu_id` trong drawer đổi sang cặp**
 
 Trong `LsxBuocDrawer.tsx` sửa các chỗ so khoá đơn (dòng 284, 1058-1073, 1108, 1117, 1137, 1176, 1194) thành so cặp `(hang_loai, vat_tu_id)`. Ví dụ dòng 1058:
 
@@ -1037,11 +1037,11 @@ và `key` của `<tr>` (dòng 1117):
 
 Dòng bung theo khoán (dòng 282–293) đóng dấu `hang_loai: "vat_tu"` cho các dòng mới.
 
-- [ ] **Step 4: Payload gửi `hang_loai`**
+- [x] **Step 4: Payload gửi `hang_loai`**
 
 Trong `frontend/src/pages/lsxBuoc.ts`, chỗ dựng `vat_tus` cho payload lưu routing, thêm `hang_loai: v.hang_loai ?? "vat_tu"`.
 
-- [ ] **Step 5: Type-check + test FE**
+- [x] **Step 5: Type-check + test FE**
 
 ```bash
 cd frontend && npx tsc --noEmit && npx vitest run src/pages/lsxBuoc.test.ts src/pages/lsxVatTu.test.ts
@@ -1049,7 +1049,7 @@ cd frontend && npx tsc --noEmit && npx vitest run src/pages/lsxBuoc.test.ts src/
 
 Kỳ vọng: không lỗi type, test PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/pages/LsxDetailView.tsx frontend/src/pages/LsxBuocDrawer.tsx frontend/src/pages/lsxBuoc.ts frontend/src/pages/LsxRoutingTable.tsx
@@ -1062,11 +1062,11 @@ git commit -m "Drawer buoc chon duoc NVL chinh tu danh muc Giay"
 
 **Files:** không sửa file — đây là cửa nghiệm thu bắt buộc của dự án.
 
-- [ ] **Step 1: Khởi động BE + FE**
+- [x] **Step 1: Khởi động BE + FE**
 
 Bật uvicorn qua WMI (`Win32_Process.Create`, KHÔNG dùng Bash nền/Start-Process — chúng chết khi hết phiên), BE `127.0.0.1:8000`, FE `localhost:5173`. Đăng nhập `admin` / `admin123`.
 
-- [ ] **Step 2: Thao tác đúng luồng bằng chuột/bàn phím thật**
+- [x] **Step 2: Thao tác đúng luồng bằng chuột/bàn phím thật**
 
 KHÔNG dùng API/curl thay bất kỳ bước nào, kể cả để dựng dữ liệu.
 
@@ -1079,7 +1079,7 @@ KHÔNG dùng API/curl thay bất kỳ bước nào, kể cả để dựng dữ 
 7. Thêm loại giấy **thứ hai** vào một bước khác → lưu → tab Vật tư của lệnh hiện **hai** dòng NVL chính ở hai bước.
 8. Kế hoạch vật tư → xác nhận cả hai loại giấy lên bảng cân đối, mỗi dòng mang ngày cần của **bước mang nó**.
 
-- [ ] **Step 3: Báo cáo**
+- [x] **Step 3: Báo cáo**
 
 Liệt kê CỤ THỂ đã bấm gì / gõ gì / thấy gì ở từng bước trên. Nếu vì lý do nào đó buộc phải tắt qua API ở một đoạn, **nói rõ ngay lúc báo cáo**.
 

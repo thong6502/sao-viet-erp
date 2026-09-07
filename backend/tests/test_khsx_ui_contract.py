@@ -346,18 +346,27 @@ def test_lenh_giu_cho_vat_tu_thi_khong_con_nut_xoa() -> None:
 
 
 def test_o_giay_o_lenh_da_go_han_khong_con_cua_doi() -> None:
-    """Đổi giấy là đổi bài toán giá — phải quay về phiếu tính giá rồi TẠO LẠI lệnh.
+    """Đổi giấy Ở KHỐI QUY CÁCH là đổi bài toán giá — phải quay về phiếu tính giá rồi TẠO LẠI lệnh.
 
     Ô chọn giấy ở lệnh (mở 13/08/2026, bó vào `thay_the_ids` của danh mục 05/09/2026) GỠ HẲN
-    07/09/2026, kéo theo cả danh mục giấy nạp riêng cho nó. Còn sót một mảnh nào của đường đó là
-    còn một cửa đổi giấy ngay tại lệnh.
+    07/09/2026. Còn sót một mảnh nào của đường đó là còn một cửa đổi giấy ngay tại lệnh.
+
+    [08/09/2026] Danh mục Giấy được nạp LẠI ở màn này, nhưng cho việc KHÁC HẲN: đổ vào ô "Thêm vật
+    tư" của từng BƯỚC để người lập lệnh chọn NVL chính. Đó không phải cửa đổi quy cách — quy cách
+    vẫn chỉ-xem, và dòng giấy ở bước là một dòng vật tư như mọi dòng khác. Nên guard đổi từ "cấm
+    nạp danh mục giấy" sang "nạp thì chỉ được chảy vào bảng routing".
     """
     source = DETAIL.read_text(encoding="utf-8")
 
     assert '<KV k="Giấy" v={s("giay_ten")} />' in source
-    assert "giayRefs" not in source
     assert "giayChonDuoc" not in source
     assert "giayNeoId" not in source
     assert "thay_the_ids" not in source
-    assert "vat-lieu-kho/giay" not in source
     assert "chưa chọn giấy" not in source
+    # Danh mục giấy chỉ có ĐÚNG một cửa ra: prop `giayRefs` của bảng routing (→ drawer bước).
+    assert "vat-lieu-kho/giay" in source and "setGiayRefs" in source
+    assert "giayRefs={giayRefs}" in source
+    assert source.count("giayRefs") == 3, (
+        "`giayRefs` chỉ được xuất hiện ĐÚNG ba lần: khai state, tên prop, giá trị prop "
+        "(`giayRefs={giayRefs}`) — thêm chỗ đọc nào nữa là đang mở lại cửa đổi giấy ở lệnh"
+    )

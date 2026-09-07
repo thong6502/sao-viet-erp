@@ -16,6 +16,8 @@ import { dvNhan as dvNhanChung, type RefRow } from "./LsxRoutingTable";
 import { num } from "./keHoachSxShared";
 import {
   type EditRow,
+  type HangLoai,
+  capMon,
   heSoChu,
   mayChonDuoc,
   nhanDonVi,
@@ -85,6 +87,7 @@ export function LsxBuocDrawer({
   tenSanPham,
   onTaoKhuon,
   vatTuRefs,
+  giayRefs,
   phuThuocRefs,
   baiGhep,
   // (`dvChuoi` vẫn là prop — nơi gọi vẫn truyền — nhưng thân drawer hiện KHÔNG đọc tới, nên bỏ
@@ -119,6 +122,7 @@ export function LsxBuocDrawer({
   /** Tạo dao mới cho bước — trả id dao vừa tạo để gán luôn. */
   onTaoKhuon: (input: { ten: string; loai: string | null; ngay_ve: string }) => Promise<number>;
   vatTuRefs: RefRow[] | null;
+  giayRefs: RefRow[] | null;
   phuThuocRefs: import("../api/client").LsxPhuThuocOption[];
   /** Lệnh đang ghép chung tờ — bước in của nó do BÀI điều phối, khoá máy ở đây. */
   baiGhep: import("../api/client").LsxBaiGhep | null;
@@ -280,9 +284,12 @@ export function LsxBuocDrawer({
 
   function bungVatTu(chon: (typeof dsKhoan)[number] | undefined): Partial<EditRow> {
     const giu = row.vat_tus.filter((v) => !v.tu_dong);
+    // Đầu việc CHỈ bung vật tư tiêu hao, không bao giờ bung giấy (xem `_vat_tu_active` ở BE) ⇒
+    // dòng bung ra luôn `hang_loai: "vat_tu"`, và so trùng cũng phải so trong danh mục đó.
     const moi = (chon?.vat_tus ?? [])
-      .filter((v) => !giu.some((g) => g.vat_tu_id === v.vat_tu_id))
+      .filter((v) => !giu.some((g) => capMon(g.hang_loai, g.vat_tu_id) === capMon("vat_tu", v.vat_tu_id)))
       .map((v) => ({
+        hang_loai: "vat_tu" as HangLoai,
         vat_tu_id: v.vat_tu_id,
         vat_tu_ma: v.ma,
         vat_tu_ten: v.ten,
@@ -1024,10 +1031,13 @@ export function LsxBuocDrawer({
               <section className="khsx-section-card">
                 <div className="khsx-section-card__head">
                   <div>
-                    <h3 className="khsx-section-card__title">Định mức vật tư tiêu hao (BOM)</h3>
-                    <p className="khsx-section-card__sub">Nhu cầu vật tư riêng biệt của công đoạn này.</p>
+                    <h3 className="khsx-section-card__title">Định mức NVL &amp; vật tư (BOM)</h3>
+                    <p className="khsx-section-card__sub">
+                      Món công đoạn này ăn — cả GIẤY (NVL chính) lẫn vật tư tiêu hao. Bước nào mang
+                      dòng giấy thì ngày cần giấy ở bảng cân đối bám đúng bước đó.
+                    </p>
                   </div>
-                  <span className="khsx-badge-count">{row.vat_tus.length} vật tư</span>
+                  <span className="khsx-badge-count">{row.vat_tus.length} món</span>
                 </div>
 
                 {/* Cảnh báo quy đổi vật tư */}
@@ -1056,7 +1066,8 @@ export function LsxBuocDrawer({
 
                     {canUpdate &&
                       row.vat_tus.some((v) => {
-                        const g = row.vat_tu_goi_y.find((x) => x.vat_tu_id === v.vat_tu_id);
+                        const g = row.vat_tu_goi_y.find(
+                          (x) => capMon(x.hang_loai, x.vat_tu_id) === capMon(v.hang_loai, v.vat_tu_id));
                         return (
                           g?.so_luong != null &&
                           (!v.tu_dong || Math.abs(g.so_luong - Number(v.so_luong)) > 0.0005)
@@ -1070,7 +1081,8 @@ export function LsxBuocDrawer({
                             set(
                               "vat_tus",
                               row.vat_tus.map((v) => {
-                                const g = row.vat_tu_goi_y.find((x) => x.vat_tu_id === v.vat_tu_id);
+                                const g = row.vat_tu_goi_y.find(
+                          (x) => capMon(x.hang_loai, x.vat_tu_id) === capMon(v.hang_loai, v.vat_tu_id));
                                 return g?.so_luong != null
                                   ? { ...v, so_luong: String(g.so_luong), tu_dong: true }
                                   : v;
@@ -1100,12 +1112,13 @@ export function LsxBuocDrawer({
                       {row.vat_tus.length === 0 ? (
                         <tr className="khsx-vattu-tr">
                           <td colSpan={5} className="khsx-vattu-td" style={{ textAlign: "center", color: "#94a3b8", padding: "20px" }}>
-                            Chưa có vật tư tiêu hao cho công đoạn này.
+                            Chưa khai món nào cho công đoạn này — chọn giấy hoặc vật tư ở ô bên dưới.
                           </td>
                         </tr>
                       ) : (
                         row.vat_tus.map((v, i) => {
-                          const goiY = row.vat_tu_goi_y.find((g) => g.vat_tu_id === v.vat_tu_id);
+                          const goiY = row.vat_tu_goi_y.find(
+                            (g) => capMon(g.hang_loai, g.vat_tu_id) === capMon(v.hang_loai, v.vat_tu_id));
                           const soMay = goiY?.so_luong ?? null;
                           const soLuu = v.so_luong.trim() === "" ? null : Number(v.so_luong);
                           const lech =
@@ -1114,11 +1127,14 @@ export function LsxBuocDrawer({
                             Number.isFinite(soLuu) &&
                             Math.abs(soMay - soLuu) > 0.0005;
                           return (
-                            <tr className="khsx-vattu-tr" key={v.vat_tu_id}>
+                            <tr className="khsx-vattu-tr" key={capMon(v.hang_loai, v.vat_tu_id)}>
                               <td className="khsx-vattu-td khsx-vattu-td--info">
                                 <div className="khsx-vattu-cell-name">
                                   <span className="khsx-vattu-code">{v.vat_tu_ma}</span>
                                   <span className="khsx-vattu-name">{v.vat_tu_ten}</span>
+                                  {v.hang_loai === "giay" && (
+                                    <span className="khsx-vattu-nvl-badge">NVL chính</span>
+                                  )}
                                 </div>
                               </td>
                               <td className="khsx-vattu-td khsx-vattu-td--why">
@@ -1206,7 +1222,7 @@ export function LsxBuocDrawer({
                         })
                       )}
                     </tbody>
-                    {canUpdate && vatTuRefs && (
+                    {canUpdate && (vatTuRefs || giayRefs) && (
                       <tfoot className="khsx-vattu-tfoot">
                         <tr>
                           <td colSpan={5} className="khsx-vattu-td-add">
@@ -1216,31 +1232,61 @@ export function LsxBuocDrawer({
                                 className="khsx-vattu-select-clean"
                                 value=""
                                 onChange={(e) => {
-                                  const item = vatTuRefs.find((v) => v.id === Number(e.target.value));
-                                  if (item && !row.vat_tus.some((v) => v.vat_tu_id === item.id)) {
-                                    const goiY = row.vat_tu_goi_y.find((g) => g.vat_tu_id === item.id);
-                                    set("vat_tus", [
-                                      ...row.vat_tus,
-                                      {
-                                        vat_tu_id: item.id,
-                                        vat_tu_ma: item.ma ?? "",
-                                        vat_tu_ten: item.ten,
-                                        don_vi: item.donVi ?? "",
-                                        so_luong: goiY?.so_luong != null ? String(goiY.so_luong) : "",
-                                        tu_dong: false,
-                                      },
-                                    ]);
-                                  }
+                                  // Giá trị là CẶP `hang_loai:id` — hai danh mục đánh số độc lập,
+                                  // gửi id trần thì server không biết tra bảng nào.
+                                  const [hl, sid] = e.target.value.split(":");
+                                  if (!hl || !sid) return;
+                                  const hangLoai = hl as HangLoai;
+                                  const item = (hangLoai === "giay" ? giayRefs : vatTuRefs)
+                                    ?.find((v) => v.id === Number(sid));
+                                  const cap = capMon(hangLoai, Number(sid));
+                                  if (!item) return;
+                                  if (row.vat_tus.some(
+                                    (v) => capMon(v.hang_loai, v.vat_tu_id) === cap)) return;
+                                  const goiY = row.vat_tu_goi_y.find(
+                                    (g) => capMon(g.hang_loai, g.vat_tu_id) === cap);
+                                  set("vat_tus", [
+                                    ...row.vat_tus,
+                                    {
+                                      hang_loai: hangLoai,
+                                      vat_tu_id: item.id,
+                                      vat_tu_ma: item.ma ?? "",
+                                      vat_tu_ten: item.ten,
+                                      don_vi: item.donVi ?? "",
+                                      so_luong: goiY?.so_luong != null ? String(goiY.so_luong) : "",
+                                      tu_dong: false,
+                                    },
+                                  ]);
                                 }}
                               >
-                                <option value="">— Thêm vật tư vào công đoạn —</option>
-                                {vatTuRefs
-                                  .filter((x) => !row.vat_tus.some((v) => v.vat_tu_id === x.id))
-                                  .map((x) => (
-                                    <option key={x.id} value={x.id}>
-                                      {x.ma} · {x.ten} ({nhanDonVi(x.donVi)})
-                                    </option>
-                                  ))}
+                                <option value="">— Thêm vật tư / NVL chính vào công đoạn —</option>
+                                {/* GIẤY đứng TRƯỚC: đây là món đắt nhất và là thứ người lập lệnh
+                                    tìm đầu tiên. Chọn giấy ở đây CHÍNH LÀ khai NVL chính cho bước
+                                    — bước nào mang dòng giấy thì ngày cần giấy bám bước đó. */}
+                                {giayRefs && giayRefs.length > 0 && (
+                                  <optgroup label="NVL chính — danh mục Giấy">
+                                    {giayRefs
+                                      .filter((x) => !row.vat_tus.some((v) =>
+                                        capMon(v.hang_loai, v.vat_tu_id) === capMon("giay", x.id)))
+                                      .map((x) => (
+                                        <option key={capMon("giay", x.id)} value={capMon("giay", x.id)}>
+                                          {x.ma} · {x.ten} ({nhanDonVi(x.donVi)})
+                                        </option>
+                                      ))}
+                                  </optgroup>
+                                )}
+                                {vatTuRefs && vatTuRefs.length > 0 && (
+                                  <optgroup label="Vật tư in ấn">
+                                    {vatTuRefs
+                                      .filter((x) => !row.vat_tus.some((v) =>
+                                        capMon(v.hang_loai, v.vat_tu_id) === capMon("vat_tu", x.id)))
+                                      .map((x) => (
+                                        <option key={capMon("vat_tu", x.id)} value={capMon("vat_tu", x.id)}>
+                                          {x.ma} · {x.ten} ({nhanDonVi(x.donVi)})
+                                        </option>
+                                      ))}
+                                  </optgroup>
+                                )}
                               </select>
                             </div>
                           </td>

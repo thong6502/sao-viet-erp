@@ -11,6 +11,18 @@ import type {
   LsxLoaiBuoc,
 } from "../api/client";
 
+/** DANH MỤC chứa món của một dòng vật tư ở bước: `"giay"` = NVL chính (người lập lệnh tự chọn từ
+ *  danh mục Giấy, 08/09/2026), `"vat_tu"` = mực/kẽm/keo/màng. Id chỉ có nghĩa TRONG danh mục của
+ *  nó ⇒ mọi chỗ so trùng/gom phải đi theo CẶP `(hang_loai, vat_tu_id)`. */
+export type HangLoai = "giay" | "vat_tu";
+
+/** Khoá CẶP của một món ở bước. Dùng nó ở MỌI chỗ so trùng / tra gợi ý / làm `key` React — so
+ *  bằng `vat_tu_id` trần thì Giấy #7 và Vật tư #7 lẫn vào nhau, mà id trùng giữa hai danh mục là
+ *  chuyện thường ngày. */
+export function capMon(hang_loai: HangLoai | undefined, vat_tu_id: number): string {
+  return `${hang_loai ?? "vat_tu"}:${vat_tu_id}`;
+}
+
 export interface EditRow {
   key: string;
   /** Id THẬT của bước ở server — null nếu bước mới thêm chưa lưu. Cần cho các cửa ghi ngoài
@@ -91,6 +103,7 @@ export interface EditRow {
   /** Lượng tính sẵn cho mọi vật tư (server tính theo bước) — READ-ONLY, không gửi lên.
    *  `so_luong: null` = chưa tính được, `ly_do` nói vì sao và chỉ chỗ khai công thức. */
   vat_tu_goi_y: {
+    hang_loai?: HangLoai;
     vat_tu_id: number;
     so_luong: number | null;
     dien_giai: string | null;
@@ -102,8 +115,8 @@ export interface EditRow {
   phu_thuoc_step_keys: string[];
   /** `tu_dong` = dòng MÁY bung khi chọn công việc khoán ⇒ lần bung sau thay được. Người tự thêm
    *  hoặc đã sửa số thì về `false` và máy chừa ra — không thì đổi công việc khoán là mất số vừa gõ. */
-  vat_tus: { vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string; don_vi: string;
-             so_luong: string; tu_dong: boolean }[];
+  vat_tus: { hang_loai: HangLoai; vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string;
+             don_vi: string; so_luong: string; tu_dong: boolean }[];
   // gia công ngoài (§8)
   nha_cung_cap: string;
   sl_gui: string;
@@ -231,7 +244,8 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     so_luong_ra_moi: cd.so_luong_ra_moi ?? null,
     phu_thuoc_step_keys: cd.phu_thuoc_step_keys ?? [],
     vat_tus: (cd.vat_tus ?? []).map((v) => ({
-      ...v, so_luong: String(v.so_luong), tu_dong: Boolean(v.tu_dong),
+      ...v, hang_loai: v.hang_loai ?? "vat_tu",
+      so_luong: String(v.so_luong), tu_dong: Boolean(v.tu_dong),
     })),
     nha_cung_cap: cd.nha_cung_cap ?? "",
     sl_gui: s(cd.sl_gui),
@@ -395,7 +409,8 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       phat_sinh_phut: on(r.phat_sinh_phut),
       phu_thuoc_step_keys: r.phu_thuoc_step_keys,
       vat_tus: r.vat_tus.map((v) => ({
-        vat_tu_id: v.vat_tu_id, so_luong: n(v.so_luong), tu_dong: v.tu_dong,
+        hang_loai: v.hang_loai, vat_tu_id: v.vat_tu_id,
+        so_luong: n(v.so_luong), tu_dong: v.tu_dong,
       })),
       // Khối gia công ngoài chỉ gửi khi bước ĐANG là thuê ngoài — đổi loại bước rồi thì
       // không kéo theo dữ liệu NCC cũ làm checklist hiểu nhầm.

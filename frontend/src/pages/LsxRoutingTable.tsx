@@ -98,6 +98,7 @@ export function LsxRoutingTable({
   tenSanPham,
   onTaoKhuon,
   vatTuRefs,
+  giayRefs,
   phuThuocRefs,
   canUpdate,
   giuCho,
@@ -124,6 +125,9 @@ export function LsxRoutingTable({
   tenSanPham: string;
   onTaoKhuon: (input: { ten: string; loai: string | null; ngay_ve: string }) => Promise<number>;
   vatTuRefs: RefRow[] | null;
+  /** Danh mục GIẤY — NVL chính chọn tay ở bước (08/09/2026). Đi RIÊNG với `vatTuRefs` vì hai
+   *  danh mục đánh số độc lập. */
+  giayRefs: RefRow[] | null;
   phuThuocRefs: import("../api/client").LsxPhuThuocOption[];
   canUpdate: boolean;
   /** Lệnh đang GIỮ CHỖ vật tư → server chặn MỌI đường ghi routing, kể cả bản xem trước. */
@@ -998,6 +1002,7 @@ export function LsxRoutingTable({
           tenSanPham={tenSanPham}
           onTaoKhuon={onTaoKhuon}
           vatTuRefs={vatTuRefs}
+          giayRefs={giayRefs}
           phuThuocRefs={phuThuocRefs}
           baiGhep={baiGhep}
           dvChuoi={dvChuoi}

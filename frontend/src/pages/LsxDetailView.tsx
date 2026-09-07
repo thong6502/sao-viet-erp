@@ -237,6 +237,9 @@ export function LsxDetailView({
     import("../api/client").KhuonChonDuoc[] | null
   >(null);
   const [vatTuRefs, setVatTuRefs] = useState<RefRow[] | null>(null);
+  // DANH MỤC GIẤY — nguồn NVL chính của bước (08/09/2026). Nạp riêng chứ không gộp vào `vatTuRefs`:
+  // hai danh mục đánh số ĐỘC LẬP, gộp phẳng là Giấy #7 đè Vật tư #7 ngay ở dropdown.
+  const [giayRefs, setGiayRefs] = useState<RefRow[] | null>(null);
   const [phuThuocRefs, setPhuThuocRefs] = useState<import("../api/client").LsxPhuThuocOption[]>([]);
 
   const load = useCallback(() => {
@@ -374,6 +377,9 @@ export function LsxDetailView({
     crud("/api/vat-lieu-kho/vat-tu-in-an").list(token, { active: true }).then((r) =>
       setVatTuRefs(r.items.map((v) => ({ id: v.id, ten: v.ten, ma: String(v.ma), donVi: String(v.don_vi_gia ?? "") })))
     ).catch(() => setVatTuRefs(null));
+    crud("/api/vat-lieu-kho/giay").list(token, { active: true }).then((r) =>
+      setGiayRefs(r.items.map((v) => ({ id: v.id, ten: v.ten, ma: String(v.ma), donVi: String(v.don_vi_gia ?? "") })))
+    ).catch(() => setGiayRefs(null));
     api.lsx.phuThuocOptions(token, lsxId).then(setPhuThuocRefs).catch(() => setPhuThuocRefs([]));
   }, [token, lsxId]);
 
@@ -610,12 +616,7 @@ export function LsxDetailView({
   const { to: dvTo, tp: dvTp, tay: dvTay, toNguyen: dvToNguyen } = dvChuoi;
   // Bảng kê vật tư — tính MỘT lần cho cả ô tóm tắt trên đầu màn lẫn tab "Vật tư". Hàm thuần chạy
   // trên ≤ vài chục bước nên gọi thẳng trong render, không cần memo.
-  const keVatTu = bangKeVatTu({
-    congDoans: d.cong_doans,
-    quyCach: d.quy_cach_json,
-    soToNguyen: d.so_to_nguyen,
-    donViToNguyen: d.don_vi_to_nguyen,
-  });
+  const keVatTu = bangKeVatTu({ congDoans: d.cong_doans });
 
   // SÁCH GẤP TAY vs CẮT RỜI — cùng tiêu chí backend dùng để chọn nhánh hệ số (`la_gap_tay`).
   // Sách: tờ in gấp NGUYÊN VẸN thành một tay, một cuốn cần `soTay` TỜ → giấy nhân lên theo số tay,
@@ -1423,6 +1424,7 @@ export function LsxDetailView({
                     tenSanPham={d.ten}
                     onTaoKhuon={taoKhuon}
                     vatTuRefs={vatTuRefs}
+                    giayRefs={giayRefs}
                     phuThuocRefs={phuThuocRefs}
                     canUpdate={canUpdate}
                     giuCho={d.giu_cho_bat}

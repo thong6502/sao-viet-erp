@@ -2449,8 +2449,11 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   phu_thuoc_step_keys: string[];
   /** `tu_dong` = dòng máy bung khi chọn công việc khoán (mg 0191) ⇒ lần bung sau thay được.
    *  false = người tự thêm / đã sửa số ⇒ máy chừa ra. */
-  vat_tus: { id: number; vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string;
-             don_vi: string; so_luong: number; tu_dong?: boolean }[];
+  /** `hang_loai` nói món nằm ở DANH MỤC nào: `"giay"` = NVL chính người lập lệnh tự chọn,
+   *  `"vat_tu"` = mực/keo/màng. `vat_tu_id` là id TRONG danh mục đó ⇒ so sánh phải đi theo CẶP,
+   *  Giấy #7 và Vật tư #7 là hai món khác nhau (08/09/2026). */
+  vat_tus: { id: number; hang_loai?: "giay" | "vat_tu"; vat_tu_id: number; vat_tu_ma: string;
+             vat_tu_ten: string; don_vi: string; so_luong: number; tu_dong?: boolean }[];
   ghi_chu: string | null;
   // --- Khoán theo đầu việc: phần GHIM (đã chọn) + phần DẪN XUẤT (server tính lúc đọc) ---
   khoan_rate_id: number | null;
@@ -2463,6 +2466,7 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
    *  Món chưa tính ra được vẫn CÓ trong mảng với `so_luong: null` + `ly_do` chỉ chỗ khai công
    *  thức ⇒ ô để trống cho người khai (không đoán), nhưng người dùng biết vì sao nó trống. */
   vat_tu_goi_y: {
+    hang_loai?: "giay" | "vat_tu";
     vat_tu_id: number;
     so_luong: number | null;
     dien_giai: string | null;
@@ -2499,7 +2503,8 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   setup_phut?: number; nang_suat?: number | null; don_vi_nang_suat?: string | null;
   phat_sinh_phut?: number;
   phu_thuoc_step_keys?: string[];
-  vat_tus?: { vat_tu_id: number; so_luong: number }[];
+  /** Bỏ trống `hang_loai` là server hiểu `"vat_tu"` — giữ đúng nghĩa client cũ. */
+  vat_tus?: { hang_loai?: "giay" | "vat_tu"; vat_tu_id: number; so_luong: number }[];
   ghi_chu?: string | null;
 }
 export interface LsxPhuThuocOption {
@@ -2700,6 +2705,7 @@ export interface LsxBoDauViec { vi_tri: number; ten: string; dau_viec: string; }
 export interface DanhMucDoiTruong { truong: string; nhan: string; cu: string | null; moi: string | null }
 /** Một dòng vật tư lệch. Để trống một bên tuỳ rổ: rổ THÊM chưa có số cũ, rổ BỎ không còn số mới. */
 export interface DanhMucDoiVatTu {
+  hang_loai?: "giay" | "vat_tu";
   vat_tu_id: number; ma: string | null; ten: string | null; don_vi: string | null;
   so_luong_cu: number | null; so_luong_moi: number | null;
 }
