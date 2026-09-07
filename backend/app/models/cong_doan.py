@@ -195,9 +195,13 @@ class CongDoanDauViec(Base):
     # khai dải thì ba mức bằng nhau và râu Gantt co về một điểm — KHÔNG bịa min=max=TB.
     nang_suat_nguoi_gio_min: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     nang_suat_nguoi_gio_max: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
-    # Đơn vị năng suất do người khai CHỌN (mã `<đơn vị>_gio`, cùng bảng với ô "Đơn vị tốc độ" của
-    # máy). Đây là NHÃN KHAI BÁO: engine chia thẳng SL vào cho năng suất, KHÔNG quy đổi — bước
-    # quy đổi làm sau. Trống = giữ lối cũ (suy theo đơn vị vào của công đoạn).
+    # ĐƠN VỊ của NĂNG SUẤT khoán, do người khai CHỌN (mã `<đơn vị>_gio`, cùng bảng mã với ô "Đơn
+    # vị tốc độ" của máy). Đây là ĐƠN VỊ ĐÍCH mà `cong_thuc_gio` bên dưới phải quy về. Trống = lùi
+    # về đơn vị của ĐƠN GIÁ khoán.
+    #
+    # DORMANT 10/08/2026 → BẬT LẠI 07/09/2026: hồi đó nhãn bị khoá cứng theo đơn giá vì tiền và
+    # giờ dùng CHUNG một công thức, nên hai đơn vị buộc phải là một. Nay giờ có ô đo riêng nên
+    # tách được: khoán "600 đ/kg mực" mà năng suất đếm "500 tờ/h".
     don_vi_nang_suat: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # ĐỊNH MỨC NHÂN LỰC — nay chỉ còn MỘT số (chốt 06/09/2026, migration `0270`). Đây là kíp
     # chuẩn của công đoạn: số điền sẵn vào bước lệnh cho MỌI loại bước (máy · tổ · thuê ngoài), và
@@ -217,6 +221,20 @@ class CongDoanDauViec(Base):
     # ⚠️ VẪN GHÌM vào bước lệnh qua `khoan_snapshot` — sửa ở đây KHÔNG xê dịch tiền công của lệnh
     # đã phát. Muốn bước cũ ăn công thức mới thì chọn lại đầu việc ở bước đó.
     cong_thuc_khoan: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # CÁCH ĐO GIỜ CHẠY của đầu việc này TRONG công đoạn này (07/09/2026).
+    #
+    # Ra LƯỢNG theo đơn vị của NĂNG SUẤT khoán (`don_vi_nang_suat` ngay trên), rồi engine mới chia
+    # cho năng suất — đối xứng đúng cặp `cong_doan_may.cong_thuc_gio` + `may_thiet_bi.don_vi_toc_do`
+    # của bước Máy.
+    #
+    # Vì sao phải tách khỏi `cong_thuc_khoan`: trước đây bước Tổ chỉ có MỘT công thức và engine
+    # dùng nó cho cả tiền lẫn giờ, nên "in trở 2 lượt" (`sl_vao * so_luot_chay`) vừa nhân đôi tiền
+    # công — ĐÚNG — vừa nhân đôi thời lượng — SAI: hai lượt in chồng lên nhau trên cùng một tờ,
+    # tổ vẫn chỉ sờ tay vào từng ấy tờ. Máy không mắc lỗi này vì đơn vị tốc độ của máy độc lập
+    # hoàn toàn với đơn vị đơn giá.
+    #
+    # ⚠️ GHIM vào bước lệnh qua `khoan_snapshot` — sửa ở đây KHÔNG xê dịch giờ của lệnh đã phát.
+    cong_thuc_gio: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="dau_viec_dinh_muc")
     # VẬT TƯ đầu việc này tiêu thụ — nền của BOM (12/08/2026). Khai một lần ở danh mục, đến lệnh thì

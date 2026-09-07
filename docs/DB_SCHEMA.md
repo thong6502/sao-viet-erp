@@ -3280,9 +3280,11 @@ dùng cho bình bài.
 
 **Purpose:** quan hệ nhiều-nhiều giữa công đoạn loại Tổ và đầu việc khoán của đúng tổ, đồng thời giữ định mức thời gian.
 
-**Tất cả cột:** `id`, `cong_doan_id`, `piece_rate_id`, `nang_suat_nguoi_gio`, `nang_suat_nguoi_gio_min`, `nang_suat_nguoi_gio_max`, `don_vi_nang_suat`, `so_nguoi_tieu_chuan`, `cong_thuc_khoan`, `cho_ky_thuat_gio`.
+**Tất cả cột:** `id`, `cong_doan_id`, `piece_rate_id`, `nang_suat_nguoi_gio`, `nang_suat_nguoi_gio_min`, `nang_suat_nguoi_gio_max`, `don_vi_nang_suat`, `so_nguoi_tieu_chuan`, `cong_thuc_khoan`, `cong_thuc_gio`, `cho_ky_thuat_gio`.
 
 **`cong_thuc_khoan`** (TEXT nullable, mg `0272`, 06/09/2026): **CÔNG THỨC TÍNH TIỀN CÔNG** của đầu việc này TRONG công đoạn này — ra **LƯỢNG** theo đơn vị của đơn giá khoán, engine nhân đơn giá sau. Dời từ `piece_rates.cong_thuc_luong` (gỡ ở mg `0274`): một đầu việc dùng chung ở nhiều công đoạn thì cách đếm sản lượng khoán mỗi nơi một khác, khai một lần ở danh mục Công việc khoán là ép cả hệ dùng chung một cách đếm. Ghim vào bước lệnh lúc chọn đầu việc (khác `cong_doan_may.cong_thuc_gio` đọc SỐNG) — đơn giá khoán đã trả cho thợ thì sửa công thức ở danh mục không được phép đổi ngược số của lệnh cũ.
+
+**`cong_thuc_gio`** (TEXT nullable, mg `0276`, 07/09/2026): **CÁCH ĐO GIỜ CHẠY** của đầu việc này TRONG công đoạn này — ra **LƯỢNG** theo đơn vị của `don_vi_nang_suat`, engine chia cho năng suất sau. Đối xứng đúng cặp `cong_doan_may.cong_thuc_gio` + `may_thiet_bi.don_vi_toc_do` của bước Máy. Trước đó bước Tổ chỉ có `cong_thuc_khoan` và engine dùng nó cho CẢ tiền lẫn giờ, nên `sl_vao * so_luot_chay` (in trở 2 lượt) vừa nhân đôi tiền công — đúng — vừa nhân đôi thời lượng — sai, hai lượt in chồng lên nhau trên cùng một tờ. Ghim vào bước lệnh cùng lúc với `cong_thuc_khoan` (`khoan_snapshot`); **sự CÓ MẶT của khoá `cong_thuc_gio` trong `khoan_json` là dấu phân biệt ảnh chụp mới với ảnh chụp cũ** — ảnh chụp cũ vắng khoá thì giờ vẫn đọc `cong_thuc`, nên lệnh đã phát không xê dịch một phút nào. Migration `0276` chép `cong_thuc_khoan` sang khi ô đích còn trống ⇒ số không nhảy, nhưng chip `so_luot_chay` cũng theo sang: muốn hết lỗi phải vào từng đầu việc bỏ nó ra khỏi ô giờ.
 
 🔴 **`is_default` GỠ 12/08/2026 (mg `0190`)** — cột radio "Mặc định" ở bảng đầu việc trong form Công đoạn. Nó chọn hộ đầu việc nào điền sẵn khi lập lệnh. Chủ chốt bỏ: cùng một công đoạn mà hai đầu việc khác nhau THẬT (bế TAY / bế MÁY · vào keo gáy vuông / khâu chỉ) thì chọn cái nào là quyết định theo **hàng cụ thể**, không phải hằng số khai một lần ở danh mục.
 
@@ -3294,7 +3296,7 @@ dùng cho bình bài.
 
 **Dải năng suất (mg 0158):** `nang_suat_nguoi_gio` là mức **TRUNG BÌNH** — số duy nhất chảy vào công thức thời lượng bước Tổ (`thời lượng = thời gian khác + SL vào ÷ (năng suất người × số người tính) × 60`); `nang_suat_nguoi_gio_min`/`_max` chỉ dùng để ra khoảng nhanh–chậm (râu Gantt), đúng lối `may_thiet_bi.toc_do` + `toc_do_min`/`toc_do_max`. Nullable — chưa khai thì ba mức bằng nhau, KHÔNG bịa min=max=TB. Service chặn min > TB và max < TB.
 
-`don_vi_nang_suat` (VARCHAR(32), nullable): đơn vị người khai chọn, cùng bảng mã với ô "Đơn vị tốc độ" của máy (`<đơn vị>_gio`). Đây là **NHÃN KHAI BÁO** — engine chia thẳng SL vào cho năng suất, KHÔNG quy đổi và KHÔNG kiểm khớp với đơn vị bước (bước quy đổi làm sau). Trống = giữ lối cũ, suy theo `cong_doan.don_vi_vao`.
+`don_vi_nang_suat` (VARCHAR(32), nullable): đơn vị người khai **CHỌN**, cùng bảng mã với ô "Đơn vị tốc độ" của máy (`<đơn vị>_gio`). Trống = lùi về đơn vị của **ĐƠN GIÁ khoán**. 🟢 **DORMANT 10/08/2026 → BẬT LẠI 07/09/2026 (cùng đợt `cong_thuc_gio`):** hồi đó nhãn bị khoá cứng theo đơn giá vì tiền và giờ dùng chung MỘT công thức nên hai đơn vị buộc phải là một; nay giờ có ô đo riêng nên tách được — khoán `600 đ/kg` mực mà năng suất đếm `500 tờ/h`. `LsxService.dich_gio_cua_khoan` cắt hậu tố `_gio` (`may_thiet_bi.ma_don_vi_goc`) để ra mã đơn vị đích, và **chỉ đọc khoá này khi ảnh chụp có khoá `cong_thuc_gio`** — dữ liệu cũ khai `to_gio` từ thời dormant không được phép đổi giờ của lệnh đã phát.
 
 🔴 **GỠ KHỎI MODEL 13/08/2026** — chờ kỹ thuật bỏ khỏi cả hệ theo yêu cầu chủ (lúc gỡ: 0/24 máy, 0/10 đầu việc, 0/14 bước lệnh có khai). Cột còn NẰM IM trong DB đang chạy, không code nào đọc. `cho_ky_thuat_gio` (NUMERIC(6,2) NOT NULL DEFAULT 0, mg 0182): **CHỜ KỸ THUẬT của bước TỔ** — số GIỜ hàng phải nằm chờ SAU khi làm xong đầu việc này (keo đông, màng nguội). Vế TỔ của cặp với `may_thiet_bi.cho_ky_thuat_gio` (vế MÁY); hai vế không chồng nhau vì một bước hoặc Máy hoặc Tổ.
 
@@ -3427,6 +3429,7 @@ Ca **một đầu trống một đầu có** và ca **mã ngoài 5 chặng** đ�
 | `giay_nguyen.cong_thuc_luong` | **LƯỢNG** | một lệnh cần bao nhiêu kg giấy (ô DUY NHẤT còn tên này ở tầng món hàng) |
 | `cong_doan_may.cong_thuc_gio` (mg `0271`) | **LƯỢNG** | bước chạy CÔNG ĐOẠN này trên MÁY này bằng bao nhiêu <đơn vị tốc độ> |
 | `cong_doan_dau_viec.cong_thuc_khoan` (mg `0272`) | **LƯỢNG** | ĐẦU VIỆC này trong CÔNG ĐOẠN này khoán theo lượng nào (× đơn giá ⇒ tiền) |
+| `cong_doan_dau_viec.cong_thuc_gio` (mg `0276`) | **LƯỢNG** | ĐẦU VIỆC này trong CÔNG ĐOẠN này đo giờ theo lượng nào (÷ năng suất ⇒ phút) |
 | `cong_doan_dau_viec_vat_tu.cong_thuc_luong` (mg `0272`) | **LƯỢNG** | DÒNG VẬT TƯ này của đầu việc ăn bao nhiêu <ĐVT của nó> |
 | `cong_doan.cong_thuc_san_luong` (mg `0214`) | **LƯỢNG** | BƯỚC ngoài dòng giấy này ra bao nhiêu <đơn vị ra> |
 | `giay_nguyen` · `vat_tu_in_an` · `cong_doan` `.cong_thuc_gia` | **TIỀN** | — |

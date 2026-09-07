@@ -12287,3 +12287,42 @@ def _migrate_moi_buoc_deu_bat_buoc(db) -> None:
 
 
 MIGRATIONS.append(("0275_moi_buoc_deu_bat_buoc", _migrate_moi_buoc_deu_bat_buoc))
+
+
+def _migrate_cong_thuc_gio_dau_viec(db) -> None:
+    """Đầu việc có ô đo GIỜ riêng, tách khỏi ô tính TIỀN CÔNG (07/09/2026).
+
+    Nghiệp vụ: bước Tổ trước đây chỉ khai MỘT công thức và engine dùng nó cho cả tiền lẫn giờ. Ai
+    khai "in trở 2 lượt" (`sl_vao * so_luot_chay`) thì tiền công nhân đôi — đúng — nhưng thời
+    lượng cũng nhân đôi — sai, vì hai lượt in chồng lên nhau trên cùng một tờ. Bước Máy không dính
+    vì đơn vị tốc độ của máy độc lập với đơn vị đơn giá; đầu việc thì không có ô tương đương.
+
+    Chép `cong_thuc_khoan` sang là CHÉP XUỐNG, không đoán: sau migration mọi con số giữ nguyên,
+    không lệnh nào tự nhảy. Đổi lại lỗi "giờ nhân theo số lượt" CHƯA tự hết — xưởng phải vào từng
+    đầu việc bỏ chip `so_luot_chay` ra khỏi ô giờ. Tự bỏ hộ là tự ý đổi giờ của mọi công đoạn đang
+    chạy mà không dòng nhật ký nào giải thích.
+
+    Chỉ chép khi ô đích còn TRỐNG — chạy lại migration không đè cấu hình đã sửa tay.
+
+    Raw SQL đích danh cột (không ORM): ORM full-select kéo cả cột do migration SAU thêm, vỡ deploy
+    trên DB trung gian. Không đụng `piece_rates` — nguồn cũ đã gỡ ở mg `0274`.
+    """
+    insp = inspect(db.get_bind())
+    if "cong_doan_dau_viec" not in set(insp.get_table_names()):
+        return
+    # Soi cột XONG rồi mới ghi: Inspector mượn/trả connection riêng, mà pool SQLite `:memory:` chỉ
+    # có MỘT connection dùng chung — trả về là ROLLBACK, nuốt luôn lệnh ghi của đoạn trước.
+    cot = _existing_columns(insp, "cong_doan_dau_viec")
+    if "cong_thuc_khoan" not in cot:
+        return
+    if "cong_thuc_gio" not in cot:
+        db.execute(text("ALTER TABLE cong_doan_dau_viec ADD COLUMN cong_thuc_gio TEXT"))
+    db.execute(text(
+        "UPDATE cong_doan_dau_viec SET cong_thuc_gio = cong_thuc_khoan "
+        "WHERE (cong_thuc_gio IS NULL OR cong_thuc_gio = '') "
+        "  AND cong_thuc_khoan IS NOT NULL AND cong_thuc_khoan <> ''"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0276_cong_thuc_gio_dau_viec", _migrate_cong_thuc_gio_dau_viec))

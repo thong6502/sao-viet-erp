@@ -28,15 +28,15 @@ def _svc():
 
 
 def _seed_don_vi(db) -> None:
-    """Danh mục Đơn vị tối thiểu — đơn vị vào/ra của công đoạn nay TRỎ vào bảng này (không còn
-    danh sách cứng trong code), nên DB trắng là không khai được đơn vị nào.
+    """Danh mục Đơn vị tối thiểu — kho / mua hàng / khoán vẫn tra tên ở đây.
 
-    5 mã đầu mang CỜ TRẠM (dòng giấy), 3 mã sau không — đủ để thử cả hai nhánh validate.
+    Ô đơn vị vào/ra của CÔNG ĐOẠN thì từ 06/09/2026 KHÔNG đọc bảng này nữa: nó là menu đóng đúng
+    5 chặng dòng giấy trong code. Vẫn seed để test nào cần đơn vị (vật tư, khoán) có mà dùng.
     """
     from app.models.don_vi_do import TRAM_DONG_GIAY, DonViDo
 
     db.add_all([
-        DonViDo(ma=ma, ten=ma, ho="khac", tram_dong_giay=ma if ma in TRAM_DONG_GIAY else None)
+        DonViDo(ma=ma, ten=ma, ho="khac")
         for ma in (*TRAM_DONG_GIAY, "kem", "bai", "thung")
     ])
     db.commit()
@@ -399,33 +399,35 @@ def test_don_vi_vao_ra_chi_chay_MOT_CHIEU():
     # Nhảy cóc: tờ nguyên không thành con một phát (thiếu bước xả + bế ở giữa).
     with pytest.raises(CongDoanValidationError):
         svc.create(dict(ma="X5", ten="Sai", don_vi_vao="to_nguyen", don_vi_ra="cai", **base))
-    # Mã KHÔNG có trong danh mục Đơn vị → chặn, dù trông giống mã thật.
+    # Mã NGOÀI 5 chặng → chặn, dù có thật trong danh mục Đơn vị (kho vẫn đếm bằng `kem`).
     with pytest.raises(CongDoanValidationError):
-        svc.create(dict(ma="X6met", ten="Sai", don_vi_vao="met", don_vi_ra="met", **base))
+        svc.create(dict(ma="X6kem", ten="Sai", don_vi_vao="kem", don_vi_ra="kem", **base))
     # Khai một nửa thì chặn — trống là trống cả hai.
     with pytest.raises(CongDoanValidationError):
         svc.create(dict(ma="X7", ten="Sai", don_vi_vao="to", don_vi_ra="", **base))
-    # Chế bản: để TRỐNG vì không chạm giấy. Engine tính giá loại nó khỏi dòng giấy; lệnh sản xuất
-    # tự suy ra kẽm từ `nhom` (xem `lsx_service._don_vi_theo_buoc`).
+    # Chế bản: để TRỐNG vì không chạm giấy. Cả engine tính giá lẫn lệnh sản xuất loại nó khỏi dòng
+    # giấy; SL của nó tính riêng từ `cong_thuc_san_luong` (xem `lsx_service.buoc_ngoai_dong`).
     cb = svc.create(dict(ma="X8", ten="Ghi kẽm CTP", nhom="prepress", pricing_basis="per_other"))
     assert (cb.don_vi_vao, cb.don_vi_ra) == (None, None)
 
 
-def test_don_vi_ngoai_dong_giay_khai_duoc():
-    """Bước KHÔNG chạm giấy nay khai được đơn vị THẬT (`bai → kem`) thay vì phải để trống.
+def test_don_vi_ngoai_dong_giay_de_trong_ca_hai():
+    """Bước KHÔNG chạm giấy BỎ TRỐNG cả hai ô đơn vị (06/09/2026).
 
-    Đây là điểm mở của 11/08/2026: trước đó service chỉ nhận 5 mã dòng giấy nên ghi kẽm buộc phải
-    bỏ trống đơn vị, kéo theo không khớp được tốc độ máy CTP (kẽm/giờ) lẫn định mức vật tư.
+    Giữa 11/08 và 06/09 nó khai đơn vị THẬT (`bai → kem`) và cờ `don_vi_do.tram_dong_giay` trả lời
+    hộ câu "có nằm trên dòng giấy không". Cờ ấy gỡ rồi: ô đơn vị của công đoạn là menu đóng 5
+    chặng, nên khai `kem` là chặn — SL của bước lấy từ `cong_thuc_san_luong`, không từ cặp đơn vị.
     """
     db, svc = _svc()
     base = dict(nhom="prepress", pricing_basis="per_other")
-    cd = svc.create(dict(ma="CTP", ten="Ghi kẽm CTP", don_vi_vao="bai", don_vi_ra="kem", **base))
-    assert (cd.don_vi_vao, cd.don_vi_ra) == ("bai", "kem")
-    # Ngoài dòng giấy thì KHÔNG có chiều nào để mà sai — cặp ngược cũng nhận.
-    assert svc.create(dict(ma="CTP2", ten="x", don_vi_vao="kem", don_vi_ra="bai",
-                           **base)).don_vi_ra == "bai"
-    # Nhưng một chân trong dòng giấy một chân ngoài (`cai → thung`, đóng gói) thì CHẶN: hệ số của
-    # cặp đó là sức chứa từng đơn, chưa có chỗ khai → cho qua là engine ăn hệ số 1 trong im lặng.
+    cd = svc.create(dict(ma="CTP", ten="Ghi kẽm CTP", cong_thuc_san_luong="so_kem", **base))
+    assert (cd.don_vi_vao, cd.don_vi_ra) == (None, None)
+    # Mã ngoài 5 chặng: chặn cả hai chiều, dù `kem`/`bai` có thật trong danh mục Đơn vị.
+    for vao, ra in (("bai", "kem"), ("kem", "bai")):
+        with pytest.raises(CongDoanValidationError, match="E-CD-DONVI"):
+            svc.create(dict(ma=f"X-{vao}-{ra}", ten="x", don_vi_vao=vao, don_vi_ra=ra, **base))
+    # Một chân trong dòng giấy một chân ngoài (`cai → thung`, đóng gói) cũng chặn: hệ số của cặp đó
+    # là sức chứa từng đơn, chưa có chỗ khai → cho qua là engine ăn hệ số 1 trong im lặng.
     with pytest.raises(CongDoanValidationError):
         svc.create(dict(ma="DG", ten="Đóng thùng", don_vi_vao="cai", don_vi_ra="thung",
                         nhom="finishing", pricing_basis="per_carton"))
@@ -533,7 +535,7 @@ def test_cong_thuc_san_luong_chan_chip_cua_chinh_buoc():
     db, svc = _svc()
     with pytest.raises(CongDoanValidationError, match="E-CD-VONG-TRON"):
         svc.create(dict(ma="CTP1", ten="Ghi kẽm CTP", nhom="prepress",
-                        pricing_basis="per_sheet", don_vi_vao="kem", don_vi_ra="kem",
+                        pricing_basis="per_sheet",
                         cong_thuc_san_luong="sl_vao * 2"))
 
 
@@ -541,11 +543,42 @@ def test_cong_thuc_san_luong_luu_duoc_cho_buoc_ngoai_dong():
     """Công thức KHÔNG đọc số của chính bước thì lưu bình thường — vd Ghi kẽm ra `so_kem` bản."""
     db, svc = _svc()
     cd = svc.create(dict(ma="CTP2", ten="Ghi kẽm CTP", nhom="prepress",
-                         pricing_basis="per_sheet", don_vi_vao="kem", don_vi_ra="kem",
+                         pricing_basis="per_sheet",
                          cong_thuc_san_luong="so_kem"))
     assert cd.cong_thuc_san_luong == "so_kem"
     # Sửa xoá trắng cũng phải được — bỏ công thức là bước quay về khai tay số lượng.
     sua = svc.update(cd.id, dict(ma="CTP2", ten="Ghi kẽm CTP", nhom="prepress",
-                                 pricing_basis="per_sheet", don_vi_vao="kem", don_vi_ra="kem",
+                                 pricing_basis="per_sheet",
                                  cong_thuc_san_luong=None))
     assert not sua.cong_thuc_san_luong
+
+
+def test_migration_0276_chep_cong_thuc_khoan_sang_o_gio():
+    """Chép XUỐNG, không đoán: số của lệnh không được nhảy ngay sau khi chạy migration.
+
+    Hệ quả CÓ CHỦ ĐÍCH: chip `so_luot_chay` đang nằm trong công thức tiền công theo sang ô giờ,
+    nên lỗi "giờ nhân theo số lượt" CHƯA tự hết — xưởng phải vào từng đầu việc bỏ chip đó ra khỏi
+    ô giờ. Tự bỏ hộ là tự ý đổi giờ của mọi công đoạn đang chạy.
+    """
+    from sqlalchemy import text
+
+    from app.db_migrations import _migrate_cong_thuc_gio_dau_viec
+
+    db, svc = _svc()
+    to, rate = _to_va_rate(svc, db, ma_to="MG276", ma_rate="XEN276")
+    svc.create(dict(ma="CD-MG276", ten="Bế nổi", nhom="finishing", department_id=to.id,
+                    pricing_basis="per_finished_qty",
+                    dau_viec_dinh_muc=[dict(piece_rate_id=rate.id, nang_suat_nguoi_gio=500,
+                                            so_nguoi_tieu_chuan=1,
+                                            cong_thuc_khoan="sl_vao * 1000 * so_luot_chay")]))
+
+    _migrate_cong_thuc_gio_dau_viec(db)
+    assert db.execute(text("SELECT cong_thuc_gio FROM cong_doan_dau_viec")).scalar() == \
+        "sl_vao * 1000 * so_luot_chay"
+
+    # Chạy lại KHÔNG đè cấu hình đã sửa tay — migration phải idempotent.
+    db.execute(text("UPDATE cong_doan_dau_viec SET cong_thuc_gio = 'sl_vao * 1000'"))
+    db.commit()
+    _migrate_cong_thuc_gio_dau_viec(db)
+    assert db.execute(text("SELECT cong_thuc_gio FROM cong_doan_dau_viec")).scalar() == \
+        "sl_vao * 1000"
