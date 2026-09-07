@@ -28,7 +28,15 @@ from ..schemas.tai_san import (
     BienDongIn,
     BienDongOut,
     DongDuKienOut,
+    KetQuaKiemKeOut,
+    KiemKeDetailOut,
+    KiemKeDongIn,
+    KiemKeDongOut,
+    KiemKeIn,
+    KiemKeListOut,
+    KiemKeRow,
     KyOut,
+    PhatHienIn,
     TaiSanDetailOut,
     TaiSanIn,
     TaiSanListOut,
@@ -36,6 +44,12 @@ from ..schemas.tai_san import (
     TaiSanSuaIn,
 )
 from ..services.tai_san.excel import MEDIA_XLSX, xuat_bang_ky
+from ..services.tai_san.kiem_ke_service import (
+    KiemKeDaKet,
+    KiemKeNotFound,
+    KiemKeService,
+    KiemKeValidationError,
+)
 from ..services.tai_san.ky_service import KyDaChot, KyKhongTonTai, KyService, KyTruocChuaChot
 from ..services.tai_san.service import (
     TaiSanDaChotKy,
@@ -64,8 +78,13 @@ def get_ky_service(db: Annotated[Session, Depends(get_db)]) -> KyService:
     return KyService(db)
 
 
+def get_kiem_ke_service(db: Annotated[Session, Depends(get_db)]) -> KiemKeService:
+    return KiemKeService(db)
+
+
 Service = Annotated[TaiSanService, Depends(get_service)]
 Ky = Annotated[KyService, Depends(get_ky_service)]
+KiemKe = Annotated[KiemKeService, Depends(get_kiem_ke_service)]
 Db = Annotated[Session, Depends(get_db)]
 
 
@@ -108,6 +127,24 @@ LOI_NGHIEP_VU = (
     TaiSanNotFound, TaiSanTrung, TaiSanValidationError, TaiSanDaChotKy,
     KyDaChot, KyTruocChuaChot, KyKhongTonTai,
 )
+
+LOI_KIEM_KE = (KiemKeNotFound, KiemKeDaKet, KiemKeValidationError)
+
+
+def _bao_loi_kiem_ke(exc: Exception) -> HTTPException:
+    if isinstance(exc, KiemKeNotFound):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, KiemKeDaKet):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+
+def _dung_dot(kk: KiemKeService, dot_id: int) -> KiemKeDetailOut:
+    dot = kk.lay(dot_id)
+    return KiemKeDetailOut(
+        **KiemKeRow.model_validate(dot).model_dump(),
+        dong=[KiemKeDongOut(**d) for d in kk.dong_kem_ten(dot_id)],
+    )
 
 
 # =====================================================================================
@@ -179,6 +216,81 @@ def mo_ky(nam: int, thang: int, ky: Ky, _: Annotated[User, Depends(_CHOT)]) -> K
         return KyOut.model_validate(ky.mo(nam, thang))
     except LOI_NGHIEP_VU as e:
         raise _bao_loi(e) from None
+
+
+# --- Kiểm kê (vẫn là route TĨNH — phải nằm TRƯỚC `/{tai_san_id}`) ---------------------
+
+
+@router.get("/kiem-ke", response_model=KiemKeListOut)
+def danh_sach_kiem_ke(
+    kk: KiemKe,
+    _: Annotated[User, Depends(_DOC)],
+    offset: int = 0,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> KiemKeListOut:
+    rows, tong = kk.danh_sach(offset=offset, limit=limit)
+    return KiemKeListOut(items=[KiemKeRow.model_validate(r) for r in rows], total=tong)
+
+
+@router.post("/kiem-ke", response_model=KiemKeDetailOut, status_code=status.HTTP_201_CREATED)
+def tao_dot_kiem_ke(
+    payload: KiemKeIn, kk: KiemKe, user: Annotated[User, Depends(_TAO)]
+) -> KiemKeDetailOut:
+    dot = kk.tao_dot(
+        ngay=payload.ngay, bo_phan_id=payload.bo_phan_id, ghi_chu=payload.ghi_chu,
+        user_id=user.id,
+    )
+    return _dung_dot(kk, dot.id)
+
+
+@router.get("/kiem-ke/{dot_id}", response_model=KiemKeDetailOut)
+def chi_tiet_kiem_ke(
+    dot_id: int, kk: KiemKe, _: Annotated[User, Depends(_DOC)]
+) -> KiemKeDetailOut:
+    try:
+        return _dung_dot(kk, dot_id)
+    except LOI_KIEM_KE as e:
+        raise _bao_loi_kiem_ke(e) from None
+
+
+@router.put("/kiem-ke/{dot_id}/dong/{dong_id}", response_model=KiemKeDetailOut)
+def ghi_ket_qua_kiem_ke(
+    dot_id: int, dong_id: int, payload: KiemKeDongIn, kk: KiemKe,
+    _: Annotated[User, Depends(_GHI)],
+) -> KiemKeDetailOut:
+    try:
+        kk.ghi_ket_qua(
+            dot_id, dong_id, ket_qua=payload.ket_qua, tinh_trang=payload.tinh_trang,
+            ghi_chu=payload.ghi_chu,
+        )
+        return _dung_dot(kk, dot_id)
+    except LOI_KIEM_KE as e:
+        raise _bao_loi_kiem_ke(e) from None
+
+
+@router.post("/kiem-ke/{dot_id}/phat-hien", response_model=KiemKeDetailOut)
+def them_phat_hien(
+    dot_id: int, payload: PhatHienIn, kk: KiemKe, _: Annotated[User, Depends(_GHI)]
+) -> KiemKeDetailOut:
+    """Món có ở xưởng mà không có trong sổ — ghi nhận vào đợt, chưa phải ghi tăng."""
+    try:
+        kk.them_phat_hien(
+            dot_id, ten_phat_hien=payload.ten_phat_hien, tinh_trang=payload.tinh_trang,
+            ghi_chu=payload.ghi_chu,
+        )
+        return _dung_dot(kk, dot_id)
+    except LOI_KIEM_KE as e:
+        raise _bao_loi_kiem_ke(e) from None
+
+
+@router.post("/kiem-ke/{dot_id}/ket-thuc", response_model=KetQuaKiemKeOut)
+def ket_thuc_kiem_ke(
+    dot_id: int, kk: KiemKe, _: Annotated[User, Depends(_GHI)]
+) -> KetQuaKiemKeOut:
+    try:
+        return KetQuaKiemKeOut(**kk.ket_thuc(dot_id))
+    except LOI_KIEM_KE as e:
+        raise _bao_loi_kiem_ke(e) from None
 
 
 # =====================================================================================

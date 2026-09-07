@@ -119,3 +119,38 @@ def test_loai_bien_dong_la_khong_hop_le_thi_422(client, seed_credentials):
         "loai": "khong_co_that", "ngay": "2026-02-01",
     })
     assert r.status_code == 422
+
+
+def test_luong_kiem_ke_qua_api(client, seed_credentials):
+    h = _token(client, seed_credentials)
+    for ten in ("May A", "May B"):
+        client.post("/api/tai-san", headers=h, json={
+            "ten": ten, "loai": "tscd", "so_thang": 120,
+            "ngay_su_dung": "2026-01-01", "nguon_vao": "ghi_tang",
+            "chi_phi": [{"dien_giai": "NG", "so_tien": 100000000}],
+        })
+    r = client.post("/api/tai-san/kiem-ke", headers=h, json={"ngay": "2026-12-31"})
+    assert r.status_code == 201, r.text
+    dot = r.json()
+    assert len(dot["dong"]) == 2
+    assert dot["dong"][0]["ma"].startswith("TS-")
+
+    d0, d1 = dot["dong"]
+    client.put(f"/api/tai-san/kiem-ke/{dot['id']}/dong/{d0['id']}", headers=h,
+               json={"ket_qua": "co", "tinh_trang": "Con tot"})
+    client.put(f"/api/tai-san/kiem-ke/{dot['id']}/dong/{d1['id']}", headers=h,
+               json={"ket_qua": "khong_thay"})
+    client.post(f"/api/tai-san/kiem-ke/{dot['id']}/phat-hien", headers=h,
+                json={"ten_phat_hien": "May dan keo chua vao so"})
+
+    ket = client.post(f"/api/tai-san/kiem-ke/{dot['id']}/ket-thuc", headers=h).json()
+    assert [x["ten"] for x in ket["thieu"]] == ["May B"]
+    assert [x["ten"] for x in ket["thua"]] == ["May dan keo chua vao so"]
+    # đợt đã kết thì khoá
+    assert client.put(f"/api/tai-san/kiem-ke/{dot['id']}/dong/{d0['id']}", headers=h,
+                      json={"ket_qua": "co"}).status_code == 409
+
+
+def test_route_kiem_ke_khong_bi_nuot_boi_route_id(client, seed_credentials):
+    h = _token(client, seed_credentials)
+    assert client.get("/api/tai-san/kiem-ke", headers=h).status_code == 200
