@@ -129,9 +129,9 @@ def _dinh_muc_snapshot(dm) -> dict:
 
     Ba mức năng suất đi cùng nhau: `nang_suat_nguoi_gio` là TRUNG BÌNH — số chảy vào công thức
     thời lượng; min/max chỉ để ra khoảng nhanh–chậm, chưa khai thì để None và râu co về một điểm.
-    `don_vi_nang_suat` DORMANT từ 10/08/2026: nhãn nay KHOÁ theo đơn giá khoán
-    (`dv_nang_suat_theo_khoan`), không ai khai được nữa. Vẫn chụp để dữ liệu cũ không mất, nhưng
-    ĐỪNG đọc khoá này ra làm nhãn — đọc là quay lại lối "người khai chọn" vừa bỏ.
+    `don_vi_nang_suat` BẬT LẠI 07/09/2026 (dormant từ 10/08/2026): nay nó là ĐƠN VỊ ĐÍCH mà
+    `cong_thuc_gio` quy về. Đọc qua `dich_gio_cua_khoan` chứ đừng đọc thẳng — hàm đó gác luật
+    "ảnh chụp cũ không được đổi giờ", vì dữ liệu từ thời dormant còn mang giá trị rác.
     """
     return {
         "nang_suat_nguoi_gio": _f(dm.nang_suat_nguoi_gio),
@@ -150,6 +150,28 @@ def ma_don_vi_toc_do(may) -> str | None:
     khỏi tự cắt mỗi nơi một kiểu (danh mục Máy tra TÊN đơn vị cũng gọi nó).
     """
     return ma_don_vi_goc(getattr(may, "don_vi_toc_do", None))
+
+
+def dich_gio_cua_khoan(kh: dict) -> tuple[str | None, str]:
+    """Từ ảnh chụp đầu việc ra `(mã đơn vị đích, công thức)` để đo GIỜ của bước Tổ.
+
+    Đối xứng với `ma_don_vi_toc_do` + `cong_doan_may.cong_thuc_gio` của bước Máy: một cặp
+    "đếm bằng gì" + "quy về đó thế nào", tách hẳn khỏi cặp tính tiền (`don_vi` + `cong_thuc`).
+
+    **Dấu phân biệt là SỰ CÓ MẶT của khoá `cong_thuc_gio`**, không phải giá trị của nó. Ảnh chụp
+    trước 07/09/2026 chỉ có `cong_thuc` (dùng chung cho tiền lẫn giờ) và có thể còn mang
+    `don_vi_nang_suat` rác từ thời cột đó dormant — đọc hai khoá ấy ra là tự ý đổi giờ của lệnh đã
+    phát. Ngược lại, ảnh chụp MỚI mà người khai cố ý để trống ô giờ thì phải GIỮ trống (để cầu quy
+    đổi trả lời), chứ lùi về `cong_thuc` là kéo nguyên chip `so_luot_chay` của tiền công vào giờ —
+    đúng cái lỗi ô này sinh ra để chữa.
+
+    ĐÚNG MỘT chỗ đọc: bốn service ngoài (bài ghép · xếp lịch · kế hoạch vật tư · phiếu công nghệ)
+    phải dựng cùng một số, mỗi nơi tự suy là mở đường cho Gantt và drawer lệch nhau.
+    """
+    if "cong_thuc_gio" not in kh:
+        return kh.get("don_vi"), (kh.get("cong_thuc") or "").strip()
+    return (ma_don_vi_goc(kh.get("don_vi_nang_suat")) or kh.get("don_vi"),
+            (kh.get("cong_thuc_gio") or "").strip())
 # LOẠI BƯỚC (Máy / Tổ / Thuê ngoài) CHỈ do người kế hoạch chọn, ở ô "Loại bước" trong drawer bước.
 # Máy KHÔNG suy nó từ tên công đoạn — tên là chữ người dùng gõ nên mọi phép suy đều gãy khi xưởng
 # đặt tên khác đi (gỡ 12/08/2026). Mặc định của bước mới là `may`, trùng đúng mặc định FE dùng cho
@@ -765,9 +787,10 @@ class LsxService:
                 vt, cb = self._vat_tu_bung(dm, buoc, quy_cach)
                 item.update({
                     **_dinh_muc_snapshot(dm),
-                    # Đơn vị của năng suất = đơn vị của ĐƠN GIÁ KHOÁN, không còn nhãn riêng: thời
-                    # lượng nay quy SL vào về chính đơn vị đó rồi mới chia (`_sl_theo_don_vi`).
-                    "don_vi_nang_suat": rate.unit,
+                    # Đọc THẲNG danh mục (không qua `dich_gio_cua_khoan`) vì đây là danh sách CHỌN
+                    # ĐƯỢC — nó phải bày thứ đang khai ở danh mục, không phải thứ bước cũ đã ghim.
+                    # Cắt hậu tố `_gio` để ra mã đơn vị; chưa khai thì lùi về đơn vị đơn giá khoán.
+                    "don_vi_nang_suat": ma_don_vi_goc(dm.don_vi_nang_suat) or rate.unit,
                     "vat_tus": vt,
                     "canh_bao_vat_tu": cb,
                 })
@@ -845,9 +868,9 @@ class LsxService:
     def sl_tinh_cua_buoc(self, cd, may, quy_cach: dict | None) -> tuple[float, str, str] | None:
         """SL vào của bước quy về đơn vị của TỐC ĐỘ — đầu vào `sl_tinh` của `thoi_luong_buoc`.
 
-        Đích: bước MÁY → đơn vị tốc độ của máy đang gán · bước TỔ → đơn vị của ĐƠN GIÁ KHOÁN
-        (năng suất đầu việc đếm bằng chính thứ mà đơn giá đếm). THUÊ NGOÀI đi chung đường bước
-        máy — nhà thầu là một máy khai trong danh mục, có tốc độ và đơn vị tốc độ như máy nhà.
+        Đích: bước MÁY → đơn vị tốc độ của máy đang gán · bước TỔ → đơn vị NĂNG SUẤT của đầu việc
+        (`don_vi_nang_suat`, lùi về đơn vị đơn giá khoán khi chưa khai). THUÊ NGOÀI đi chung đường
+        bước máy — nhà thầu là một máy khai trong danh mục, có tốc độ và đơn vị tốc độ như máy nhà.
 
         Public vì bốn service ngoài (bài ghép · xếp lịch · kế hoạch vật tư) phải dựng cùng một số —
         mỗi nơi tự suy đích là mở đường cho Gantt và drawer lệch nhau.
@@ -861,11 +884,10 @@ class LsxService:
             ct_rieng = self._ct_gio_cua_may(
                 getattr(cd, "cong_doan_id", None), getattr(may, "id", None))
         elif loai == LB_TO:
-            kh = getattr(cd, "khoan_json", None) or {}
-            dich = kh.get("don_vi")
-            # Công thức GHIM trong ảnh chụp đầu việc, KHÔNG đọc lại danh mục: xưởng sửa cách đo về
-            # sau không được xê dịch tiền công của lệnh đã phát (xem `khoan_snapshot`).
-            ct_rieng = (kh.get("cong_thuc") or "").strip()
+            # Cặp GHIM trong ảnh chụp đầu việc, KHÔNG đọc lại danh mục: xưởng sửa cách đo về sau
+            # không được xê dịch lệnh đã phát (xem `khoan_snapshot`). Từ 07/09/2026 cặp này là ô
+            # ĐO GIỜ riêng, không còn dùng chung với ô tính tiền công.
+            dich, ct_rieng = dich_gio_cua_khoan(getattr(cd, "khoan_json", None) or {})
         else:
             return None
         return self._sl_theo_don_vi(cd, dich, quy_cach, ct_rieng=ct_rieng) if dich else None
@@ -2819,8 +2841,9 @@ class LsxService:
     # Thời lượng nay KẾ THỪA từ máy (2026-08-04) nên client chỉ còn gửi được `phat_sinh_phut`.
     # `setup_phut` · `chay_phut` · `di_chuyen_phut` · `ve_sinh_phut` · `cho_phut` đã rời bộ này:
     # còn cột trong DB nhưng không nhận từ client và engine không đọc.
+    # `bat_buoc` rời bộ này 07/09/2026: mọi bước trong routing đều bắt buộc, cột do server giữ TRUE.
     _ROUTING_FIELD_THUAN = (
-        "may_id", "khuon_be_id", "bat_buoc", "so_luot_chay",
+        "may_id", "khuon_be_id", "so_luot_chay",
         # Nhân lực: kế thừa từ định mức công đoạn là MẶC ĐỊNH, người kế hoạch sửa được tại bước.
         "so_nhan_cong", "so_nhan_cong_tieu_chuan", "phat_sinh_phut",
         # Chờ kỹ thuật: kế thừa từ danh mục Công đoạn là MẶC ĐỊNH, sửa đè tại bước (mục B).
@@ -2965,7 +2988,9 @@ class LsxService:
                         _ke_thua("so_nhan_cong", int(dm.so_nguoi_tieu_chuan))
                         if row.loai_buoc == LB_TO:
                             row.nang_suat = _f(dm.nang_suat_nguoi_gio)
-                            row.don_vi_nang_suat = row.khoan_json.get("don_vi")
+                            # Nhãn năng suất ĐI THEO đơn vị mà giờ quy về — hai thứ lệch nhau thì
+                            # drawer hiện "500 cuốn/h" trong khi máy chia số TỜ, đúng lỗi 15/08.
+                            row.don_vi_nang_suat = dich_gio_cua_khoan(row.khoan_json)[0]
                 else:
                     # Bỏ chọn đầu việc KHÔNG có nghĩa là bỏ kíp: kíp là của CÔNG ĐOẠN. Rơi về định
                     # mức mặc định của công đoạn (khớp đúng một đầu việc), mơ hồ thì mới về 1.
@@ -2982,7 +3007,7 @@ class LsxService:
                 _ke_thua("so_nhan_cong", row.so_nhan_cong_tieu_chuan)
                 if row.loai_buoc == LB_TO:
                     row.nang_suat = _f(snap.get("nang_suat_nguoi_gio")) or None
-                    row.don_vi_nang_suat = snap.get("don_vi")
+                    row.don_vi_nang_suat = dich_gio_cua_khoan(snap)[0]
             # THUÊ NGOÀI: chốt CỨNG một trong hai điểm khác duy nhất so với bước máy — KHÔNG sinh
             # tiền khoán. Đặt SAU khối `piece_rate_id` để client có gửi đầu việc gì cũng vô hiệu;
             # điểm còn lại (không ghi sản lượng vào tổ) đi theo chính `khoan_json` rỗng này, vì

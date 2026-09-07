@@ -72,6 +72,10 @@ def khoan_snapshot(rate, dm=None) -> dict:
     sống) là kiểu sai khó thấy nhất — tiền của lệnh cũ tự đổi mà không dòng nhật ký nào giải
     thích. Bước cũ muốn ăn công thức mới thì chọn lại đầu việc.
 
+    Từ 07/09/2026 chụp THÊM `cong_thuc_gio` — cách đo GIỜ, tách khỏi cách đo tiền. Hai ô ghim cùng
+    lúc vì cùng một lý do: chúng quyết định LƯỢNG, mà lượng thì một bên nhân đơn giá ra tiền, một
+    bên chia năng suất ra phút.
+
     Khoá VẮNG khi công thức rỗng (không ghi `None`): `khoan_json` là ảnh chụp đọc bằng mắt trong
     nhật ký lệnh, thêm một khoá luôn null chỉ làm dài dòng.
     """
@@ -83,6 +87,13 @@ def khoan_snapshot(rate, dm=None) -> dict:
     }
     if (ct := (getattr(dm, "cong_thuc_khoan", None) or "").strip()):
         snap["cong_thuc"] = ct
+    if dm is not None:
+        # Khoá này CÓ MẶT kể cả khi rỗng — khác luật "vắng khi rỗng" của `cong_thuc` ngay trên, và
+        # cố ý: chính SỰ CÓ MẶT của nó là dấu "ảnh chụp biết đầu việc có ô đo giờ riêng". Ảnh chụp
+        # trước 07/09/2026 vắng khoá ⇒ `dich_gio_cua_khoan` lùi về `cong_thuc` như cũ, nên lệnh đã
+        # phát không xê dịch một phút nào. Không có dấu này thì ô giờ để trống CÓ CHỦ ĐÍCH lại bị
+        # hiểu nhầm là ảnh chụp cũ, và chip `so_luot_chay` của tiền công lại chảy vào giờ.
+        snap["cong_thuc_gio"] = (getattr(dm, "cong_thuc_gio", None) or "").strip()
     return snap
 
 

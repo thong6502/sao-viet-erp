@@ -741,15 +741,14 @@ def test_san_sang_bi_chan_khi_con_thieu_va_mo_khi_du(db, orders, lsx_svc, admin,
     assert lsx_svc.set_trang_thai(lsx_id=hop.id, trang_thai=TT_SAN_SANG, actor=admin).trang_thai == TT_SAN_SANG
 
 
-def test_don_vi_nang_suat_KHOA_theo_don_gia_khoan(db, lsx_svc):
-    """Đơn vị năng suất LÀ đơn vị đơn giá khoán, người khai KHÔNG đổi được (chủ 10/08/2026).
+def test_don_vi_nang_suat_NGUOI_KHAI_CHON(db, lsx_svc):
+    """Đơn vị năng suất do người khai CHỌN, không còn khoá theo đơn giá khoán (07/09/2026).
 
-    Ghim luôn ca dễ hiểu nhầm: cột `cong_doan_dau_viec.don_vi_nang_suat` vẫn còn trong DB và vẫn
-    có dữ liệu cũ, nhưng thôi được đọc — đọc nó ra là quay lại lối "người khai chọn" vừa bỏ.
+    🔴 ĐẢO LẠI chốt 10/08/2026. Hồi đó nhãn bị khoá cứng vì tiền và giờ dùng CHUNG một công thức
+    nên hai đơn vị buộc phải là một. Nay đầu việc có ô đo giờ riêng (`cong_thuc_gio`) nên tách
+    được: khoán 120 đ/cuốn mà năng suất đếm 500 tờ/h.
 
-    🔴 ĐỔI 15/08/2026: trước đây trả MÃ `cuon_gio` qua `dv_nang_suat_theo_khoan` — một nhãn suông,
-    hiện "cuốn/h" trong khi công thức chia số TỜ. Hàm đó đã gỡ cùng hai cơ chế đơn vị khác; nay
-    trả thẳng TÊN đơn vị của đơn giá, và thời lượng quy SL vào về chính đơn vị này trước khi chia.
+    Trống thì vẫn lùi về đơn vị đơn giá khoán — đó là MẶC ĐỊNH hợp lý, không phải hành vi khoá.
     """
     from app.models.don_vi_do import DonViDo
     from app.models.piece_work import PieceRate
@@ -765,17 +764,45 @@ def test_don_vi_nang_suat_KHOA_theo_don_gia_khoan(db, lsx_svc):
                   don_vi_vao="to", don_vi_ra="cai", cong_thuc_gia="so_luong * don_gia")
     db.add(cd)
     db.flush()
-    db.add(CongDoanDauViec(
+    dm = CongDoanDauViec(
         cong_doan_id=cd.id, piece_rate_id=rate.id, nang_suat_nguoi_gio=500,
-        so_nguoi_tieu_chuan=1,
-        # Giá trị CŨ người khai từng chọn — phải bị bỏ qua, không được thắng đơn giá khoán.
-        don_vi_nang_suat="to_gio",
-    ))
+        so_nguoi_tieu_chuan=1, don_vi_nang_suat="to_gio",
+    )
+    db.add(dm)
     db.commit()
 
-    # Dòng đã khai sẵn "to_gio" vẫn phải bị đơn giá khoán thắng.
+    # Khai "to_gio" ⇒ năng suất đếm TỜ, trong khi đơn giá vẫn đếm CUỐN. Hai số, hai đơn vị.
     [dv] = [x for x in lsx_svc._dau_viec_option_dicts(cd, to.id) if x["id"] == rate.id]
-    assert dv["don_vi"] == "cuốn" and dv["don_vi_nang_suat"] == "cuốn"
+    assert dv["don_vi"] == "cuốn" and dv["don_vi_nang_suat"] == "to"
+
+    # Bỏ khai ⇒ lùi về đơn vị đơn giá khoán.
+    dm.don_vi_nang_suat = None
+    db.commit()
+    [dv2] = [x for x in lsx_svc._dau_viec_option_dicts(cd, to.id) if x["id"] == rate.id]
+    assert dv2["don_vi_nang_suat"] == "cuốn"
+
+
+def test_dich_gio_cua_khoan_ANH_CHUP_CU_van_doc_cong_thuc_tien_cong():
+    """Lệnh ĐÃ PHÁT trước 07/09/2026 không được xê dịch một phút nào.
+
+    Ảnh chụp cũ chỉ có `cong_thuc` (chung cho tiền lẫn giờ) và có thể mang `don_vi_nang_suat` rác
+    từ thời cột đó dormant. Dấu phân biệt là SỰ CÓ MẶT của khoá `cong_thuc_gio` — vắng khoá thì
+    đọc y như trước, kể cả khi `don_vi_nang_suat` có giá trị.
+    """
+    from app.services.lsx_service import dich_gio_cua_khoan
+
+    cu = {"don_vi": "cuốn", "cong_thuc": "sl_vao * so_luot_chay", "don_vi_nang_suat": "to_gio"}
+    assert dich_gio_cua_khoan(cu) == ("cuốn", "sl_vao * so_luot_chay")
+
+    # Ảnh chụp MỚI: đọc ô giờ + đơn vị năng suất đã cắt hậu tố `_gio`.
+    moi = {"don_vi": "cuốn", "cong_thuc": "sl_vao * so_luot_chay",
+           "cong_thuc_gio": "sl_vao", "don_vi_nang_suat": "to_gio"}
+    assert dich_gio_cua_khoan(moi) == ("to", "sl_vao")
+
+    # Ảnh chụp MỚI mà người khai CỐ Ý để trống ô giờ ⇒ KHÔNG được lùi về `cong_thuc`: trống nghĩa
+    # là để cầu quy đổi trả lời, đúng thứ người khai chọn.
+    trong = {"don_vi": "cuốn", "cong_thuc": "sl_vao * so_luot_chay", "cong_thuc_gio": ""}
+    assert dich_gio_cua_khoan(trong) == ("cuốn", "")
 
 
 def test_thoi_gian_buoc_TO_quy_SL_vao_ve_don_vi_don_gia_khoan(
@@ -1934,6 +1961,55 @@ def test_cong_thuc_dau_viec_duoc_GHIM_sua_danh_muc_khong_xe_dich_lenh(
     assert sau["khoan_sl"] == pytest.approx(truoc["khoan_sl"], rel=1e-6)
 
 
+def test_buoc_TO_so_luot_chi_nhan_TIEN_khong_nhan_GIO(db, orders, lsx_svc, admin, customer):
+    """⭐ Ca chủ bắt lỗi 07/09/2026: in trở 2 lượt thì TIỀN nhân đôi, GIỜ giữ nguyên.
+
+    Trước đó bước Tổ chỉ có MỘT công thức và engine dùng nó cho cả tiền lẫn giờ, nên
+    `sl_ra * so_luot_chay` vừa nhân đôi tiền công — đúng — vừa nhân đôi thời lượng — sai: hai lượt
+    chồng lên nhau trên cùng một tờ, tổ vẫn chỉ sờ tay vào từng ấy tờ. Nay hai ô tách hẳn.
+    """
+    from app.models.don_vi_do import DonViDo
+
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán tay", don_vi="cuốn", don_gia=600,
+                         nang_suat=500, don_vi_ns=None)
+    if db.query(DonViDo).filter(DonViDo.ma == "cuon").one_or_none() is None:
+        db.add(DonViDo(ma="cuon", ten="cuốn", ho="thanh_pham"))
+    db.commit()
+    # Tiền đếm theo LƯỢT (2 lượt = 2 lần trả công), giờ đếm theo TỜ (2 lượt vẫn từng ấy tờ).
+    dm = (db.query(CongDoanDauViec)
+          .filter(CongDoanDauViec.cong_doan_id == cd_dan.id,
+                  CongDoanDauViec.piece_rate_id == rate.id).one())
+    dm.cong_thuc_khoan = "sl_ra * so_luot_chay"
+    dm.cong_thuc_gio = "sl_ra"
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    lsx = _chon_loai_buoc(lsx_svc, lsx, admin, {"Dán hộp": "to"})
+
+    def _doc(so_luot: int) -> dict:
+        b = next(x for x in lsx_svc.get(lsx.id).cong_doans if x.cong_doan_id == cd_dan.id)
+        b.so_luot_chay = so_luot
+        db.commit()
+        db.expire_all()
+        return next(x for x in lsx_svc.detail_dict(lsx_svc.get(lsx.id))["cong_doans"]
+                    if x["cong_doan_id"] == cd_dan.id)
+
+    mot = _doc(1)
+    ra = float(mot["so_luong_ra"])
+    assert ra > 0 and mot["khoan_tien"] == round(ra * 600)
+    # phút = tờ ra ÷ (500 tờ/giờ × 2 người kíp chuẩn) × 60.
+    assert mot["chay_phut"] == pytest.approx(ra / (500 * 2) * 60, abs=0.01)
+
+    hai = _doc(2)
+    assert hai["khoan_tien"] == 2 * mot["khoan_tien"], "tiền công phải nhân đôi theo số lượt"
+    assert hai["chay_phut"] == pytest.approx(mot["chay_phut"], abs=0.01),         "giờ của bước tổ KHÔNG được nhân theo số lượt"
+
+
 def test_cong_thuc_luong_cua_MAY_ra_luong_theo_don_vi_toc_do(db, orders, lsx_svc, admin, customer):
     """⭐ Máy đo `m²/giờ` mà bước đếm `tờ` ⇒ công thức của cặp CÔNG ĐOẠN × MÁY ra số m², rồi mới
     chia tốc độ.
@@ -2153,11 +2229,9 @@ def test_dai_nang_suat_va_don_vi_khai_bao_theo_lenh_xuong_buoc(
 ):
     """Khai dải năng suất ở định mức → bung lệnh là bước Tổ mang đủ, không phải khai lại.
 
-    ĐƠN VỊ thì ngược lại: từ 10/08/2026 nó KHOÁ theo đơn giá khoán, người khai không đè được nữa
-    (chủ: *"đơn vị này chỉ được theo đơn vị theo lương khoán và không được đổi"*). Dòng dưới cố ý
-    khai đè `hop_gio` trong khi đơn giá khoán ghi `cái` — bước phải ra `cai_gio`, tức giá trị khai
-    đè bị bỏ qua. Trước đó test này ghim chiều ngược lại (`hop_gio` thắng); đổi assert là do ĐỔI
-    LUẬT, không phải nới test cho qua.
+    ĐƠN VỊ ở đây để TRỐNG, và đó là ca mặc định: chưa khai thì lùi về đơn vị của ĐƠN GIÁ khoán
+    ("cái"). Ca người khai CHỌN đơn vị riêng nằm ở `test_don_vi_nang_suat_NGUOI_KHAI_CHON`
+    (07/09/2026 mở lại ô này, xem `dich_gio_cua_khoan`).
 
     🔴 15/08/2026: đơn vị THÔI là nhãn suông — thời lượng quy SL vào về chính đơn vị đó rồi mới
     chia. Ở ca này bước đếm `cai` và đơn giá khoán cũng `cái` nên tỉ số 1, mấy assert phút không
@@ -2166,14 +2240,14 @@ def test_dai_nang_suat_va_don_vi_khai_bao_theo_lenh_xuong_buoc(
     ptg = _ptg_2_san_pham(db)
     cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
     _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp", don_vi="cái", don_gia=80,
-                  nang_suat=500, ns_min=400, ns_max=1000, don_vi_ns="hop_gio")
+                  nang_suat=500, ns_min=400, ns_max=1000, don_vi_ns=None)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
     hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
     hop = _chon_loai_buoc(lsx_svc, hop, admin, {"Dán hộp": "to"})
 
     dan = {cd.ten: cd for cd in hop.cong_doans}["Dán hộp"]
-    # Khoá theo đơn giá khoán ("cái") — giá trị khai đè `hop_gio` KHÔNG thắng. Từ 15/08/2026 lưu
+    # Chưa khai đơn vị năng suất ⇒ lùi về đơn vị của ĐƠN GIÁ khoán ("cái"). Từ 15/08/2026 lưu
     # TÊN đơn vị chứ không phải mã `<đv>_gio`: thời lượng quy SL vào về chính đơn vị này.
     assert dan.don_vi_nang_suat == "cái"
     assert dan.khoan_json["nang_suat_nguoi_gio_min"] == 400
@@ -2631,7 +2705,7 @@ def test_replace_routing_giu_nguyen_khoi_thue_ngoai(db, orders, lsx_svc, admin, 
             ngay_gui_dk=date.today(), ngay_nhan_dk=date.today() + timedelta(days=3),
             van_chuyen_ngay=1, gia_cong_ngay=1, hao_hut_cho_phep=50, don_gia_gia_cong=450,
             yeu_cau_ky_thuat="Màng mờ, không bong mép",
-            di_chuyen_phut=45, so_nhan_cong=3, bat_buoc=False,
+            di_chuyen_phut=45, so_nhan_cong=3,
         ),
     ])
     cd = lsx_svc.get(hop.id).cong_doans[0]
@@ -2641,7 +2715,9 @@ def test_replace_routing_giu_nguyen_khoi_thue_ngoai(db, orders, lsx_svc, admin, 
     # `di_chuyen_phut` đã rời hợp đồng lưu routing (2026-08-04) — cột còn trong DB nhưng client
     # không gửi được nữa, nên nó KHÔNG sống sót qua vòng lưu. Khối thuê ngoài
     # (nhà cung cấp · ngày gửi/nhận · đơn giá · yêu cầu kỹ thuật) mới là thứ phải giữ.
-    assert cd.so_nhan_cong == 3 and cd.bat_buoc is False
+    # `bat_buoc` cũng rời hợp đồng lưu routing (07/09/2026): mọi bước đều bắt buộc, server giữ
+    # TRUE nên client có gửi `false` cũng không ghi được (mg 0275 backfill dòng cũ).
+    assert cd.so_nhan_cong == 3 and cd.bat_buoc is True
     assert float(cd.hao_hut_cho_phep) == 50 and cd.ngay_nhan_dk is not None
 
 

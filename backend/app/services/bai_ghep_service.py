@@ -880,7 +880,7 @@ class BaiGhepService:
         Kéo theo định mức (năng suất · số người) y như bước lệnh: chọn đầu việc xong mà năng suất
         vẫn trống thì thẻ vẫn kêu "Chưa có năng suất", người dùng phải gõ lại số đã có sẵn.
         """
-        from .lsx_service import _dinh_muc_snapshot
+        from .lsx_service import _dinh_muc_snapshot, dich_gio_cua_khoan
 
         svc = self._lsx_svc()
         cd_obj = self.db.get(CongDoan, chung.cong_doan_id) if chung.cong_doan_id else None
@@ -901,9 +901,9 @@ class BaiGhepService:
         # lệnh, gồm cả dải năng suất min/max và đơn vị khai báo.
         chung.khoan_json.update(_dinh_muc_snapshot(dm))
         chung.nang_suat = _f(dm.nang_suat_nguoi_gio)
-        # Đơn vị năng suất = đơn vị ĐƠN GIÁ KHOÁN. Bảng ánh xạ `_DV_VAO_SANG_NS` đã gỡ 15/08/2026
-        # cùng hai cơ chế đơn vị cũ — thời lượng nay quy SL vào về chính đơn vị này.
-        chung.don_vi_nang_suat = rate.unit
+        # Nhãn năng suất ĐI THEO đơn vị mà giờ quy về (07/09/2026) — cùng một hàm bước lệnh
+        # dùng, để bàn bài ghép và drawer lệnh không nói hai đơn vị khác nhau cho cùng một số.
+        chung.don_vi_nang_suat = dich_gio_cua_khoan(chung.khoan_json)[0]
         if not giu_bien:                      # cùng lượt lưu mà người dùng tự gõ kíp chuẩn thì đừng đè
             chung.so_nhan_cong_tieu_chuan = int(dm.so_nguoi_tieu_chuan)
         if not giu_kip:                       # người dùng vừa gõ tay kíp thì đừng đè lên
