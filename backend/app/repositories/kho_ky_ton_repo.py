@@ -20,7 +20,11 @@ class KhoKyTonRepository:
         self.db = db
 
     def latest_before(self, kho_id: int, hang_loai: str, hang_id: int, ngay: date) -> KhoKyTon | None:
-        """Snapshot có `den_ngay` LỚN NHẤT nhưng < `ngay` (tồn cuối kỳ liền trước) của 1 mặt hàng."""
+        """Snapshot có `den_ngay` LỚN NHẤT nhưng < `ngay` (tồn cuối kỳ liền trước) của 1 mặt hàng.
+
+        Kỳ RỜI NGÀY: kỳ trước kết thúc HẾT ngày `den`, kỳ sau bắt đầu ngày kế tiếp ⇒ snapshot chốt
+        ở `den` luôn < ngày đầu kỳ sau. Giữ `<` để một khoảng bắt đầu ĐÚNG ngày chốt vẫn đếm phát
+        sinh của ngày đó (không nuốt mất)."""
         return self.db.execute(
             select(KhoKyTon)
             .where(
