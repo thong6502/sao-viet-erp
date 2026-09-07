@@ -35,6 +35,7 @@ from ..schemas.tai_san import (
     TaiSanRow,
     TaiSanSuaIn,
 )
+from ..services.tai_san.excel import MEDIA_XLSX, xuat_bang_ky
 from ..services.tai_san.ky_service import KyDaChot, KyKhongTonTai, KyService, KyTruocChuaChot
 from ..services.tai_san.service import (
     TaiSanDaChotKy,
@@ -51,6 +52,7 @@ _DOC = require_permission(MODULE, "read")
 _TAO = require_permission(MODULE, "create")
 _GHI = require_permission(MODULE, "update")
 _XOA = require_permission(MODULE, "delete")
+_XUAT = require_permission(MODULE, "export")
 _CHOT = require_permission(MODULE, "close_book")
 
 
@@ -143,6 +145,22 @@ def tinh_ky(nam: int, thang: int, ky: Ky, _: Annotated[User, Depends(_GHI)]) -> 
     except LOI_NGHIEP_VU as e:
         raise _bao_loi(e) from None
     return _bang_ky(ky, nam, thang)
+
+
+@router.get("/ky/{nam}/{thang}/excel")
+def excel_ky(
+    nam: int, thang: int, ky: Ky, _: Annotated[User, Depends(_XUAT)]
+) -> Response:
+    """Bảng khấu hao kỳ ra .xlsx — cột cuối là Ghi chú hạch toán để kế toán gõ sang phần mềm
+    kế toán bên ngoài."""
+    noi_dung = xuat_bang_ky(ky.bang(nam, thang), nam=nam, thang=thang)
+    return Response(
+        content=noi_dung,
+        media_type=MEDIA_XLSX,
+        headers={
+            "Content-Disposition": f'attachment; filename="khau-hao-{thang:02d}-{nam}.xlsx"'
+        },
+    )
 
 
 @router.post("/ky/{nam}/{thang}/chot", response_model=KyOut)
