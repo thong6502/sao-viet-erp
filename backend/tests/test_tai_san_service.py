@@ -34,7 +34,7 @@ def _komori(**over):
             {"dien_giai": "Van chuyen", "so_tien": 40_000_000},
             {"dien_giai": "Lap dat chay thu", "so_tien": 60_000_000},
         ],
-        ghi_chu_hach_toan="211 / 6274 - to In",
+        ghi_chu="211 / 6274 - to In",
     )
     base.update(over)
     return base
@@ -49,7 +49,7 @@ def test_ghi_tang_cong_nguyen_gia_tu_cac_dong_chi_phi():
     assert t.moc_tu_ngay == date(2026, 3, 10)
     assert t.hao_mon_luy_ke == 0
     assert t.ma.startswith("TS-")
-    assert t.ghi_chu_hach_toan == "211 / 6274 - to In"
+    assert t.ghi_chu == "211 / 6274 - to In"
 
 
 def test_du_kien_hien_ngay_sau_ghi_tang():
@@ -116,7 +116,7 @@ def test_chan_sua_o_anh_huong_so_khi_ky_da_chot():
     with pytest.raises(TaiSanDaChotKy):
         svc.sua(t.id, {"so_thang": 96})
     # ô mô tả vẫn sửa được
-    t2 = svc.sua(t.id, {"vi_tri": "Xuong 2", "ghi_chu_hach_toan": "211 / 6274 - to Be"})
+    t2 = svc.sua(t.id, {"vi_tri": "Xuong 2", "ghi_chu": "211 / 6274 - to Be"})
     assert t2.vi_tri == "Xuong 2"
 
 

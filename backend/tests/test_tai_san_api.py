@@ -21,12 +21,12 @@ def test_ghi_tang_roi_doc_lai(client, seed_credentials):
             {"dien_giai": "Van chuyen", "so_tien": 40000000},
             {"dien_giai": "Lap dat chay thu", "so_tien": 60000000},
         ],
-        "ghi_chu_hach_toan": "211 / 6274 - to In",
+        "ghi_chu": "211 / 6274 - to In",
     })
     assert r.status_code == 201, r.text
     ts = r.json()
     assert ts["nguyen_gia"] == 3300000000
-    assert ts["ghi_chu_hach_toan"] == "211 / 6274 - to In"
+    assert ts["ghi_chu"] == "211 / 6274 - to In"
     assert ts["con_lai"] == 3300000000
 
     ds = client.get("/api/tai-san", headers=h).json()

@@ -36,7 +36,7 @@ def test_tao_tai_san_va_mac_dinh():
     assert t.trang_thai == TT_DANG_DUNG
     assert t.so_luong == 1
     assert t.hao_mon_luy_ke == 0
-    assert t.ghi_chu_hach_toan is None
+    assert t.ghi_chu is None
 
 
 def test_ma_tai_san_khong_trung():

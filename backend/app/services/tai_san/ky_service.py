@@ -161,7 +161,6 @@ class KyService:
                 luy_ke=luy_ke + muc,
                 con_lai=int(t.nguyen_gia or 0) - (luy_ke + muc),
                 bo_phan_id=t.bo_phan_id,
-                ghi_chu_hach_toan=t.ghi_chu_hach_toan,
             )
             self.db.add(dong)
             ra.append(dong)
@@ -189,7 +188,6 @@ class KyService:
                 "muc_trich": int(kh.muc_trich or 0),
                 "luy_ke": int(kh.luy_ke or 0),
                 "con_lai": int(kh.con_lai or 0),
-                "ghi_chu_hach_toan": kh.ghi_chu_hach_toan,
             }
             for kh, t, ten_bp in self.db.execute(stmt)
         ]

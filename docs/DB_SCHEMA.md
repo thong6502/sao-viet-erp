@@ -6158,12 +6158,13 @@ giờ lệch với nhật ký. Router (`routers/catalog_base.make_catalog_router
 
 Sổ tài sản của phòng Kế toán: ghi tăng → trích khấu hao/phân bổ theo tháng có chốt kỳ → ba chứng
 từ biến động (điều chuyển · nâng cấp · ghi giảm) → kiểm kê. Bảy bảng, tất cả MỚI ⇒ `create_all`
-tự dựng, migration `0277` chỉ cấp QUYỀN cho vai đã có trên DB live.
+tự dựng; mg `0277` cấp QUYỀN cho vai đã có trên DB live, mg `0278` gỡ cột `ghi_chu_hach_toan`.
 
 Hai điểm thiết kế cần nhớ khi đọc nhóm bảng này:
 
-- **KHÔNG có cột tài khoản kế toán.** `ghi_chu_hach_toan` là chữ tự do, hệ không hiểu nội dung,
-  chỉ in kèm ra bảng khấu hao. Cùng lối `payment_vouchers.debit_account`.
+- **KHÔNG có cột tài khoản kế toán, cũng không còn cột định khoản riêng.** `ghi_chu_hach_toan`
+  đã gỡ ở mg `0278` — hai ô ghi chú cạnh nhau mà hệ không đọc ô nào chỉ làm người nhập phân vân.
+  Còn MỘT ô `tai_san.ghi_chu`, chữ tự do, muốn ghi định khoản vào đó cũng được.
 - **Bộ ba `co_so_trich` / `so_thang_con` / `moc_tu_ngay`** trên `tai_san` là đầu vào DUY NHẤT của
   engine khấu hao (`services/tai_san/khau_hao.py`). Nạp đầu kỳ, ghi tăng, nâng cấp và CCDC giảm
   một phần lô đều quy về bộ ba đó, nên engine không cần biết tài sản đến từ đường nào.
@@ -6196,8 +6197,7 @@ su = 1 dòng, `so_luong` = 12). Phân biệt bằng `loai`, KHÔNG tách bảng 
 | `vi_tri`                | `String(255)` → `VARCHAR(255)`                         | —                            | yes  | —              | Vị trí đặt (xưởng/phòng).                                                                     |
 | `so_hoa_don`            | `String(64)` → `VARCHAR(64)`                           | —                            | yes  | —              | Số hoá đơn mua.                                                                               |
 | `nha_cung_cap`          | `String(255)` → `VARCHAR(255)`                         | —                            | yes  | —              | Nhà cung cấp — chữ tự do, KHÔNG FK sang `suppliers` (tài sản có thể mua ngoài danh mục NCC).  |
-| `ghi_chu_hach_toan`     | `Text` → `TEXT`                                        | —                            | yes  | —              | Định khoản kế toán tự gõ ("211 / 6274 - tổ In"). Hệ KHÔNG đọc nội dung, chỉ in kèm báo cáo.  |
-| `ghi_chu`               | `Text` → `TEXT`                                        | —                            | yes  | —              | Ghi chú tự do khác.                                                                           |
+| `ghi_chu`               | `Text` → `TEXT`                                        | —                            | yes  | —              | Ghi chú tự do — kể cả định khoản. Hệ KHÔNG đọc nội dung.                                      |
 | `trang_thai`            | `String(12)` → `VARCHAR(12)`                           | **IX**                       | no   | `dang_dung`    | `dang_dung` \| `da_giam`.                                                                     |
 | `ngay_giam`             | `Date` → `DATE`                                        | —                            | yes  | —              | Ngày ghi giảm — engine ngừng trích từ đây (tháng chứa nó tính theo số ngày dùng).             |
 | `created_by_user_id`    | `Integer` → `INTEGER`                                  | FK→`users.id`                | yes  | —              | Người lập phiếu ghi tăng. `ON DELETE SET NULL`.                                               |
@@ -6217,7 +6217,7 @@ su = 1 dòng, `so_luong` = 12). Phân biệt bằng `loai`, KHÔNG tách bảng 
 **Tất cả cột:** `id`, `ma`, `ten`, `loai`, `so_luong`, `don_gia`, `nguyen_gia`, `so_thang`,
 `ngay_su_dung`, `co_so_trich`, `so_thang_con`, `moc_tu_ngay`, `hao_mon_luy_ke`, `nguon_vao`,
 `hao_mon_dau_ky`, `thang_da_trich_dau_ky`, `bo_phan_id`, `nguoi_quan_ly`, `vi_tri`, `so_hoa_don`,
-`nha_cung_cap`, `ghi_chu_hach_toan`, `ghi_chu`, `trang_thai`, `ngay_giam`, `created_by_user_id`,
+`nha_cung_cap`, `ghi_chu`, `trang_thai`, `ngay_giam`, `created_by_user_id`,
 `created_at`, `updated_at`.
 
 ---
@@ -6262,7 +6262,6 @@ ba nghiệp vụ dùng chung phần lớn cột và luôn được đọc chung 
 | `so_thang_con_lai`  | `Integer` → `INTEGER`                                  | —                        | yes  | —              | Chỉ nâng cấp: số tháng còn dùng kể từ kỳ áp dụng.                        |
 | `so_luong_giam`     | `Integer` → `INTEGER`                                  | —                        | yes  | —              | Chỉ ghi giảm CCDC theo lô: bỏ mấy cái trong lô.                          |
 | `ly_do`             | `String(255)` → `VARCHAR(255)`                         | —                        | yes  | —              | Lý do (thanh lý, nhượng bán, mất, hỏng, góp vốn…).                       |
-| `ghi_chu_hach_toan` | `Text` → `TEXT`                                        | —                        | yes  | —              | Định khoản của riêng chứng từ này — chữ tự do.                           |
 | `nguoi_tao_id`      | `Integer` → `INTEGER`                                  | FK→`users.id`            | yes  | —              | Người lập. `ON DELETE SET NULL`.                                         |
 | `created_at`        | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                        | no   | now (UTC)      | Lúc lập.                                                                  |
 
@@ -6277,7 +6276,7 @@ ba nghiệp vụ dùng chung phần lớn cột và luôn được đọc chung 
 - Nhiều `tai_san_bien_dong` thuộc một `tai_san`; đọc theo `ngay` để dựng lịch sử.
 
 **Tất cả cột:** `id`, `tai_san_id`, `loai`, `ngay`, `so_tien`, `bo_phan_moi_id`, `so_thang_con_lai`,
-`so_luong_giam`, `ly_do`, `ghi_chu_hach_toan`, `nguoi_tao_id`, `created_at`.
+`so_luong_giam`, `ly_do`, `nguoi_tao_id`, `created_at`.
 
 ---
 
@@ -6296,7 +6295,6 @@ ghi lại (không cộng dồn); kỳ đã chốt thì đóng băng.
 | `luy_ke`            | `BigInteger` → `BIGINT`               | —                       | no   | `0`            | Hao mòn lũy kế SAU kỳ này.                                             |
 | `con_lai`           | `BigInteger` → `BIGINT`               | —                       | no   | `0`            | Giá trị còn lại sau kỳ này.                                            |
 | `bo_phan_id`        | `Integer` → `INTEGER`                 | FK→`departments.id`     | yes  | —              | Bộ phận chịu chi phí — CHỤP lúc tính (tài sản có thể điều chuyển sau). |
-| `ghi_chu_hach_toan` | `Text` → `TEXT`                       | —                       | yes  | —              | Chép từ tài sản lúc tính, để bảng in ra không phải join ngược.        |
 
 **Keys & indexes**
 
@@ -6310,7 +6308,7 @@ ghi lại (không cộng dồn); kỳ đã chốt thì đóng băng.
 - Nhiều `tai_san_khau_hao` thuộc một `tai_san`; nhóm theo (`ky_nam`, `ky_thang`) ra bảng khấu hao kỳ.
 
 **Tất cả cột:** `id`, `tai_san_id`, `ky_nam`, `ky_thang`, `muc_trich`, `luy_ke`, `con_lai`,
-`bo_phan_id`, `ghi_chu_hach_toan`.
+`bo_phan_id`.
 
 ---
 

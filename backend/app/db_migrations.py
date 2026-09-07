@@ -12380,3 +12380,35 @@ def _migrate_quyen_tai_san(db) -> None:
 
 
 MIGRATIONS.append(("0277_quyen_tai_san", _migrate_quyen_tai_san))
+
+
+def _migrate_go_ghi_chu_hach_toan_tai_san(db) -> None:
+    """GỠ ô định khoản riêng của module Tài sản & CCDC (07/09/2026) — chủ chốt bỏ.
+
+    Ba bảng có cột này: `tai_san` (ô người nhập gõ), `tai_san_bien_dong` (chép theo chứng từ),
+    `tai_san_khau_hao` (chụp lại lúc tính kỳ để in ra cột cuối file Excel).
+
+    Vì sao gỡ: form ghi tăng bày HAI ô ghi chú cạnh nhau — "Định khoản (tự gõ)" và "Ghi chú
+    khác" — mà module không đọc nội dung ô nào, nên không có luật nào nói cái gì thuộc ô nào.
+    Người nhập chỉ còn cách đoán, và ba tháng sau cùng một loại thông tin nằm rải ở hai chỗ.
+    Nay còn MỘT ô `tai_san.ghi_chu`: cần nhớ định khoản thì gõ vào đó.
+
+    Cột `tai_san.ghi_chu` giữ nguyên, KHÔNG gộp nội dung ô cũ sang: mấy bảng này chỉ mới có dữ
+    liệu thử của đợt nghiệm thu, gộp vào là nhập nhằng chữ máy ghép với chữ người gõ.
+
+    DROP best-effort từng câu như mg `0215`: SQLite cũ từ chối thì cột mồ côi vô hại vì model đã
+    hết map nó. Idempotent: soi cột trước, chạy lại không lỗi.
+    """
+    insp = inspect(db.get_bind())
+    bang = set(insp.get_table_names())
+    for ten in ("tai_san", "tai_san_bien_dong", "tai_san_khau_hao"):
+        if ten not in bang or "ghi_chu_hach_toan" not in _existing_columns(insp, ten):
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE {ten} DROP COLUMN ghi_chu_hach_toan"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0278_go_ghi_chu_hach_toan_tai_san", _migrate_go_ghi_chu_hach_toan_tai_san))

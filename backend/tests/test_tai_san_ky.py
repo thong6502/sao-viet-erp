@@ -129,13 +129,15 @@ def test_khong_mo_lai_ky_cu_khi_ky_sau_da_chot():
         ky.mo(2026, 3)
 
 
-def test_bang_ky_co_cot_ghi_chu_hach_toan():
+def test_bang_ky_co_du_cot_man_hinh_can():
     db, svc, ky = _moi_truong()
     t = _komori(svc)
-    svc.sua(t.id, {"ghi_chu_hach_toan": "211 / 6274 - to In"})
     ky.tinh(2026, 3)
     hang = ky.bang(2026, 3)[0]
-    assert hang["ghi_chu_hach_toan"] == "211 / 6274 - to In"
+    assert set(hang) == {
+        "tai_san_id", "ma", "ten", "loai", "bo_phan_ten",
+        "nguyen_gia", "muc_trich", "luy_ke", "con_lai",
+    }
     assert hang["ma"] == t.ma
     assert hang["ten"] == "May in Komori 4 mau"
 

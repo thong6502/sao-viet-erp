@@ -1,9 +1,9 @@
 // API — Tài sản cố định & Công cụ dụng cụ (kế toán). Dùng chung `authed` của client.ts.
 //
-// KHÔNG có ô tài khoản kế toán ở bất kỳ đâu trong module này. Định khoản là việc của phần mềm kế
-// toán bên ngoài; ở đây kế toán tự gõ vào ô `ghi_chu_hach_toan` (vd "211 / 6274 - tổ In") và ô đó
-// đi thẳng ra cột cuối của file Excel bảng khấu hao. Đừng thêm ô tài khoản "cho tiện" — bỏ ô ghi
-// chú đi thì cả module mất lý do tồn tại ở dạng này.
+// KHÔNG có ô tài khoản kế toán ở bất kỳ đâu trong module này, và cũng không có ô định khoản
+// riêng. Định khoản là việc của phần mềm kế toán bên ngoài; cần nhớ thì gõ vào ô `ghi_chu` của
+// tài sản như mọi thứ khác. Đừng thêm ô tài khoản "cho tiện", cũng đừng đẻ lại ô định khoản
+// riêng — hai ô ghi chú mà hệ không đọc ô nào thì người nhập chỉ còn cách đoán gõ vào đâu.
 import { authed, ApiError } from "./client";
 
 const P = "/api/tai-san";
@@ -76,7 +76,6 @@ export interface TaiSanRow {
   vi_tri: string | null;
   so_hoa_don: string | null;
   nha_cung_cap: string | null;
-  ghi_chu_hach_toan: string | null;
   ghi_chu: string | null;
   trang_thai: string;
   ngay_giam: string | null;
@@ -93,7 +92,6 @@ export interface BienDong {
   so_thang_con_lai: number | null;
   so_luong_giam: number | null;
   ly_do: string | null;
-  ghi_chu_hach_toan: string | null;
   created_at: string | null;
 }
 
@@ -138,7 +136,6 @@ export interface HangBangKy {
   muc_trich: number;
   luy_ke: number;
   con_lai: number;
-  ghi_chu_hach_toan: string | null;
 }
 
 export interface BangKy {

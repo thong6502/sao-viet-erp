@@ -43,8 +43,7 @@ class TaiSanIn(BaseModel):
     vi_tri: str | None = None
     so_hoa_don: str | None = None
     nha_cung_cap: str | None = None
-    #: Định khoản kế toán tự gõ. Hệ KHÔNG đọc nội dung — xem docstring `models/tai_san.py`.
-    ghi_chu_hach_toan: str | None = None
+    #: Chữ tự do, kể cả định khoản. Hệ KHÔNG đọc nội dung — xem docstring `models/tai_san.py`.
     ghi_chu: str | None = None
 
 
@@ -69,7 +68,6 @@ class TaiSanSuaIn(BaseModel):
     vi_tri: str | None = None
     so_hoa_don: str | None = None
     nha_cung_cap: str | None = None
-    ghi_chu_hach_toan: str | None = None
     ghi_chu: str | None = None
 
 
@@ -96,7 +94,6 @@ class TaiSanRow(BaseModel):
     vi_tri: str | None = None
     so_hoa_don: str | None = None
     nha_cung_cap: str | None = None
-    ghi_chu_hach_toan: str | None = None
     ghi_chu: str | None = None
     trang_thai: str
     ngay_giam: date | None = None
@@ -114,7 +111,6 @@ class BienDongOut(BaseModel):
     so_thang_con_lai: int | None = None
     so_luong_giam: int | None = None
     ly_do: str | None = None
-    ghi_chu_hach_toan: str | None = None
     created_at: datetime | None = None
 
 
@@ -159,7 +155,6 @@ class BienDongIn(BaseModel):
     gia_ban: int | None = None              # ghi_giam
     so_luong_giam: int | None = None        # ghi_giam CCDC theo lô
     ly_do: str | None = None
-    ghi_chu_hach_toan: str | None = None
 
 
 class KyOut(BaseModel):
@@ -180,7 +175,6 @@ class HangBangKyOut(BaseModel):
     muc_trich: int
     luy_ke: int
     con_lai: int
-    ghi_chu_hach_toan: str | None = None
 
 
 class BangKyOut(BaseModel):

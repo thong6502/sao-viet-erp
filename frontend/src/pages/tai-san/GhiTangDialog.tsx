@@ -2,10 +2,9 @@
 //
 // Ba điều đã chốt khi thiết kế, đừng vô tình gỡ:
 //
-//  1. KHÔNG có ô "Tài khoản 211 / 153 / 242". Định khoản là việc của phần mềm kế toán bên ngoài;
-//     ở đây chỉ có ô GHI CHÚ HẠCH TOÁN tự gõ, và nó chảy thẳng ra cột cuối file Excel bảng khấu
-//     hao. Thêm ô tài khoản vào là biến màn này thành nửa phần mềm kế toán — đúng thứ đã quyết
-//     là không làm.
+//  1. KHÔNG có ô "Tài khoản 211 / 153 / 242", cũng không có ô định khoản riêng. Định khoản là
+//     việc của phần mềm kế toán bên ngoài; cần nhớ thì gõ vào ô GHI CHÚ. Thêm ô tài khoản vào là
+//     biến màn này thành nửa phần mềm kế toán — đúng thứ đã quyết là không làm.
 //  2. Nguyên giá KHÔNG gõ tay: nó là TỔNG các dòng cấu thành (giá mua + vận chuyển + lắp đặt
 //     chạy thử). Ba tháng sau còn lần được vì sao ra con số đó.
 //  3. Số tháng khấu hao do người dùng gõ, phần mềm chỉ GỢI Ý khung tham khảo. Không có bảng
@@ -41,7 +40,6 @@ interface Form {
   vi_tri: string;
   so_hoa_don: string;
   nha_cung_cap: string;
-  ghi_chu_hach_toan: string;
   ghi_chu: string;
   // --- nhánh số dư đầu kỳ ---
   dau_ky: boolean;
@@ -54,7 +52,7 @@ const FORM_RONG: Form = {
   ten: "", loai: "tscd", so_luong: 1, don_gia: 0, so_thang: 0, ngay_su_dung: HOM_NAY,
   chi_phi: [{ dien_giai: "Giá mua", so_tien: 0 }],
   bo_phan_id: "", nguoi_quan_ly: "", vi_tri: "", so_hoa_don: "", nha_cung_cap: "",
-  ghi_chu_hach_toan: "", ghi_chu: "",
+  ghi_chu: "",
   dau_ky: false, moc_tu_ngay: "", thang_da_trich_dau_ky: 0, hao_mon_dau_ky: 0,
 };
 
@@ -101,7 +99,6 @@ export function GhiTangDialog({
       vi_tri: taiSan.vi_tri ?? "",
       so_hoa_don: taiSan.so_hoa_don ?? "",
       nha_cung_cap: taiSan.nha_cung_cap ?? "",
-      ghi_chu_hach_toan: taiSan.ghi_chu_hach_toan ?? "",
       ghi_chu: taiSan.ghi_chu ?? "",
       dau_ky: taiSan.nguon_vao === "dau_ky",
       moc_tu_ngay: taiSan.moc_tu_ngay.slice(0, 10),
@@ -157,7 +154,6 @@ export function GhiTangDialog({
       vi_tri: form.vi_tri.trim() || null,
       so_hoa_don: form.so_hoa_don.trim() || null,
       nha_cung_cap: form.nha_cung_cap.trim() || null,
-      ghi_chu_hach_toan: form.ghi_chu_hach_toan.trim() || null,
       ghi_chu: form.ghi_chu.trim() || null,
     };
     if (form.dau_ky) {
@@ -182,7 +178,6 @@ export function GhiTangDialog({
       vi_tri: taiSan.vi_tri,
       so_hoa_don: taiSan.so_hoa_don,
       nha_cung_cap: taiSan.nha_cung_cap,
-      ghi_chu_hach_toan: taiSan.ghi_chu_hach_toan,
       ghi_chu: taiSan.ghi_chu,
       moc_tu_ngay: taiSan.moc_tu_ngay.slice(0, 10),
       thang_da_trich_dau_ky: Math.max(0, taiSan.so_thang - taiSan.so_thang_con),
@@ -439,23 +434,15 @@ export function GhiTangDialog({
               </section>
 
               <section className="rc-sec">
-                <div className="rc-sec__title">Ghi chú hạch toán</div>
+                <div className="rc-sec__title">Ghi chú</div>
                 <div className="rc-grid">
                   <label className="rc-field rc-field--full">
-                    <span className="rc-field__label">Định khoản (tự gõ)</span>
-                    <textarea className="rc-input" rows={2} maxLength={500}
-                      value={form.ghi_chu_hach_toan}
-                      placeholder="211 / 6274 - tổ In"
-                      onChange={(e) => set("ghi_chu_hach_toan", e.target.value)} />
-                    <span className="rc-field__hint">
-                      Phần mềm KHÔNG đọc nội dung ô này — nó chỉ chép nguyên văn ra cột cuối của
-                      file Excel bảng khấu hao để bạn gõ sang phần mềm kế toán.
-                    </span>
-                  </label>
-                  <label className="rc-field rc-field--full">
-                    <span className="rc-field__label">Ghi chú khác</span>
+                    <span className="rc-field__label">Ghi chú</span>
                     <textarea className="rc-input" rows={2} maxLength={1000} value={form.ghi_chu}
                       onChange={(e) => set("ghi_chu", e.target.value)} />
+                    <span className="rc-field__hint">
+                      Chữ tự do, phần mềm không đọc nội dung — muốn ghi định khoản vào đây cũng được.
+                    </span>
                   </label>
                 </div>
               </section>

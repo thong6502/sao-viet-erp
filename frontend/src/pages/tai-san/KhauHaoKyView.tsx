@@ -186,21 +186,20 @@ export function KhauHaoKyView() {
               <th style={{ width: "12%" }} className="ts-num">Trích tháng này</th>
               <th style={{ width: "12%" }} className="ts-num">Lũy kế</th>
               <th style={{ width: "12%" }} className="ts-num">Còn lại</th>
-              <th style={{ width: "16%" }}>Ghi chú hạch toán</th>
             </tr>
           </thead>
           <tbody>
             {dangTai ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={`sk-${i}`} className="rc-skel__row">
-                  {Array.from({ length: 8 }).map((__, j) => (
+                  {Array.from({ length: 7 }).map((__, j) => (
                     <td key={j}><span className="rc-skel" style={{ width: "70%" }} /></td>
                   ))}
                 </tr>
               ))
             ) : rong ? (
               <tr>
-                <td colSpan={8} className="rc__empty-state-td">
+                <td colSpan={7} className="rc__empty-state-td">
                   <div className="rc__empty-state">
                     <p className="rc__empty-text">
                       Kỳ {String(thang).padStart(2, "0")}/{nam} chưa có số.
@@ -224,16 +223,13 @@ export function KhauHaoKyView() {
                     <td className={`ts-num${r.con_lai <= 0 ? " ts-num--het" : ""}`}>
                       {tien(r.con_lai)}
                     </td>
-                    <td className="rc__clip" title={r.ghi_chu_hach_toan ?? ""}>
-                      {r.ghi_chu_hach_toan ?? "—"}
-                    </td>
                   </tr>
                 ))}
                 {/* Dòng TỔNG: đây là con số kế toán chép sang phần mềm kế toán. */}
                 <tr className="ts-table__tong">
                   <td colSpan={4}>TỔNG {dong.length} món</td>
                   <td className="ts-num">{tien(bang?.tong_muc_trich)}</td>
-                  <td colSpan={3} />
+                  <td colSpan={2} />
                 </tr>
               </>
             )}

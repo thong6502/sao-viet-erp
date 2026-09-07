@@ -4,9 +4,9 @@ MỘT bảng `tai_san` cho cả TSCĐ lẫn CCDC — phân biệt bằng `loai`.
 sản: số tháng khấu hao kế toán gõ thẳng vào phiếu (chốt 07/09/2026 — danh mục nhóm chỉ tiết
 kiệm một ô mỗi lần ghi tăng, đổi lại đẻ thêm một màn để sai).
 
-KHÔNG có ô tài khoản kế toán. `ghi_chu_hach_toan` là chữ TỰ DO, module không hiểu nội dung,
-chỉ in kèm ra bảng khấu hao cho kế toán nhập sang phần mềm kế toán bên ngoài. Cùng lối với
-`PaymentVoucher.debit_account` — hệ chưa có danh mục tài khoản.
+KHÔNG có ô tài khoản kế toán, và cũng KHÔNG còn ô định khoản riêng: `ghi_chu_hach_toan` đã gỡ
+(mg 0278) vì hai ô ghi chú cạnh nhau chỉ làm người nhập phân vân gõ vào đâu. Cần nhớ định khoản
+thì gõ vào `ghi_chu` như mọi thứ cần nhớ khác — module không đọc nội dung ô đó.
 
 Ba trường `co_so_trich` / `so_thang_con` / `moc_tu_ngay` là ĐẦU VÀO DUY NHẤT của engine khấu
 hao — nạp đầu kỳ, ghi tăng, nâng cấp và CCDC giảm một phần lô đều quy về bộ ba này, nên engine
@@ -14,7 +14,7 @@ không cần biết tài sản đến từ đường nào.
 
 Tiền để `BigInteger`: nguyên giá máy in tràn int32 trên Postgres (đã vỡ thật một lần).
 
-Bảng MỚI → `create_all` tự dựng; migration 0277 chỉ cấp QUYỀN cho vai đã có trên DB live.
+Bảng MỚI → `create_all` tự dựng; mg 0277 cấp QUYỀN cho vai đã có, mg 0278 gỡ ô định khoản.
 """
 from __future__ import annotations
 
@@ -108,8 +108,7 @@ class TaiSan(Base):
     so_hoa_don: Mapped[str | None] = mapped_column(String(64), nullable=True)
     nha_cung_cap: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    #: Chữ TỰ DO để kế toán ghi định khoản ("211 / 6274 - tổ In"). Hệ KHÔNG đọc nội dung.
-    ghi_chu_hach_toan: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Chữ TỰ DO — kế toán ghi gì tuỳ ý, kể cả định khoản. Hệ KHÔNG đọc nội dung.
     ghi_chu: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     trang_thai: Mapped[str] = mapped_column(
@@ -176,7 +175,6 @@ class TaiSanBienDong(Base):
     #: Chỉ ghi giảm CCDC theo lô: bỏ mấy cái trong lô.
     so_luong_giam: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ly_do: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    ghi_chu_hach_toan: Mapped[str | None] = mapped_column(Text, nullable=True)
     nguoi_tao_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -208,7 +206,6 @@ class TaiSanKhauHao(Base):
     bo_phan_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True
     )
-    ghi_chu_hach_toan: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class TaiSanKy(Base):

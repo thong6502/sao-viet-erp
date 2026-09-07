@@ -40,7 +40,6 @@ export function BienDongDialog({
   const [mode, setMode] = useState<Mode>("dieu_chuyen");
   const [ngayCt, setNgayCt] = useState(HOM_NAY);
   const [lyDo, setLyDo] = useState("");
-  const [ghiChuHt, setGhiChuHt] = useState("");
   const [boPhanMoi, setBoPhanMoi] = useState("");
   const [soTien, setSoTien] = useState(0);
   const [soThangConLai, setSoThangConLai] = useState(taiSan.so_thang_con);
@@ -67,7 +66,6 @@ export function BienDongDialog({
       loai: mode,
       ngay: ngayCt,
       ly_do: lyDo.trim() || null,
-      ghi_chu_hach_toan: ghiChuHt.trim() || null,
     };
     if (mode === "dieu_chuyen") body.bo_phan_moi_id = Number(boPhanMoi);
     if (mode === "nang_cap") {
@@ -137,7 +135,7 @@ export function BienDongDialog({
                   <span>
                     Chênh lệch thanh lý: <strong>{tienDon(sau.chenh_lech_thanh_ly)}</strong>{" "}
                     ({sau.chenh_lech_thanh_ly >= 0 ? "lãi" : "lỗ"}) — giá bán trừ giá trị còn lại.
-                    Hạch toán vào đâu là việc của bạn; ghi vào ô ghi chú hạch toán nếu cần nhớ.
+                    Hạch toán vào đâu là việc của bạn; cần nhớ thì ghi vào ô ghi chú của tài sản.
                   </span>
                 </div>
               )}
@@ -267,13 +265,6 @@ export function BienDongDialog({
                           onChange={(e) => setLyDo(e.target.value)} />
                       </label>
                     )}
-
-                    <label className="rc-field rc-field--full">
-                      <span className="rc-field__label">Ghi chú hạch toán</span>
-                      <input className="rc-input" value={ghiChuHt} maxLength={500}
-                        placeholder="811 / 211 - thanh lý"
-                        onChange={(e) => setGhiChuHt(e.target.value)} />
-                    </label>
                   </div>
                 </section>
               )}

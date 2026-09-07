@@ -23,13 +23,12 @@ DINH_DANG_TIEN = "#,##0"
 
 TIEU_DE = [
     "Mã", "Tên tài sản", "Bộ phận", "Nguyên giá",
-    "Trích kỳ này", "Lũy kế", "Còn lại", "Ghi chú hạch toán",
+    "Trích kỳ này", "Lũy kế", "Còn lại",
 ]
 #: Khoá trong dict `KyService.bang()` theo đúng thứ tự cột ở trên.
-KHOA = ["ma", "ten", "bo_phan_ten", "nguyen_gia", "muc_trich", "luy_ke", "con_lai",
-        "ghi_chu_hach_toan"]
+KHOA = ["ma", "ten", "bo_phan_ten", "nguyen_gia", "muc_trich", "luy_ke", "con_lai"]
 COT_TIEN = {4, 5, 6, 7}
-RONG_COT = {"A": 12, "B": 34, "C": 18, "D": 16, "E": 15, "F": 16, "G": 16, "H": 34}
+RONG_COT = {"A": 12, "B": 34, "C": 18, "D": 16, "E": 15, "F": 16, "G": 16}
 
 
 def xuat_bang_ky(rows: list[dict], *, nam: int, thang: int) -> bytes:

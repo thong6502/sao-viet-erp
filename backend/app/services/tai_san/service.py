@@ -51,8 +51,7 @@ O_ANH_HUONG_SO = {
 
 #: Ô mô tả — sửa lúc nào cũng được.
 O_MO_TA = {
-    "ten", "bo_phan_id", "nguoi_quan_ly", "vi_tri", "so_hoa_don", "nha_cung_cap",
-    "ghi_chu_hach_toan", "ghi_chu",
+    "ten", "bo_phan_id", "nguoi_quan_ly", "vi_tri", "so_hoa_don", "nha_cung_cap", "ghi_chu",
 }
 
 TIEN_TO_MA = {LOAI_TSCD: "TS-", LOAI_CCDC: "CC-"}
@@ -127,7 +126,6 @@ class TaiSanService:
             vi_tri=payload.get("vi_tri"),
             so_hoa_don=payload.get("so_hoa_don"),
             nha_cung_cap=payload.get("nha_cung_cap"),
-            ghi_chu_hach_toan=payload.get("ghi_chu_hach_toan"),
             ghi_chu=payload.get("ghi_chu"),
             trang_thai=TT_DANG_DUNG,
             created_by_user_id=user_id,
@@ -271,7 +269,6 @@ class TaiSanService:
         ngay: date,
         bo_phan_moi_id: int,
         ly_do: str | None = None,
-        ghi_chu_hach_toan: str | None = None,
         user_id: int | None = None,
     ) -> TaiSanBienDong:
         """Đổi bộ phận đang giữ. KHÔNG đụng một đồng nào trên sổ — chỉ đổi nơi chịu chi phí."""
@@ -281,7 +278,7 @@ class TaiSanService:
             raise TaiSanValidationError("Phải chọn bộ phận nhận")
         bd = self._ghi_bien_dong(
             t, loai=BD_DIEU_CHUYEN, ngay=ngay, bo_phan_moi_id=bo_phan_moi_id,
-            ly_do=ly_do, ghi_chu_hach_toan=ghi_chu_hach_toan, nguoi_tao_id=user_id,
+            ly_do=ly_do, nguoi_tao_id=user_id,
         )
         t.bo_phan_id = bo_phan_moi_id
         self.repo.commit()
@@ -295,7 +292,6 @@ class TaiSanService:
         so_tien: int,
         so_thang_con_lai: int,
         ly_do: str | None = None,
-        ghi_chu_hach_toan: str | None = None,
         user_id: int | None = None,
     ) -> TaiSanBienDong:
         """Cộng chi phí nâng cấp vào nguyên giá rồi chia lại phần còn phải trích.
@@ -314,8 +310,7 @@ class TaiSanService:
 
         bd = self._ghi_bien_dong(
             t, loai=BD_NANG_CAP, ngay=ngay, so_tien=int(so_tien),
-            so_thang_con_lai=int(so_thang_con_lai), ly_do=ly_do,
-            ghi_chu_hach_toan=ghi_chu_hach_toan, nguoi_tao_id=user_id,
+            so_thang_con_lai=int(so_thang_con_lai), ly_do=ly_do, nguoi_tao_id=user_id,
         )
         t.chi_phi.append(
             TaiSanChiPhi(dien_giai=ly_do or f"Nâng cấp {ngay:%d/%m/%Y}", so_tien=int(so_tien))
@@ -335,7 +330,6 @@ class TaiSanService:
         ly_do: str,
         gia_ban: int | None = None,
         so_luong_giam: int | None = None,
-        ghi_chu_hach_toan: str | None = None,
         user_id: int | None = None,
     ) -> TaiSanBienDong:
         """Thanh lý / nhượng bán / mất / hỏng.
@@ -363,7 +357,7 @@ class TaiSanService:
             t, loai=BD_GHI_GIAM, ngay=ngay,
             so_tien=int(gia_ban) if gia_ban is not None else None,
             so_luong_giam=int(so_luong_giam) if so_luong_giam is not None else None,
-            ly_do=ly_do, ghi_chu_hach_toan=ghi_chu_hach_toan, nguoi_tao_id=user_id,
+            ly_do=ly_do, nguoi_tao_id=user_id,
         )
 
         if mot_phan:

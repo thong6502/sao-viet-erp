@@ -15,7 +15,6 @@ def _rows():
         "ma": "TS-0001", "ten": "May in Komori 4 mau", "loai": "tscd", "bo_phan_ten": "To In",
         "nguyen_gia": 3_300_000_000, "muc_trich": 27_500_000,
         "luy_ke": 157_016_129, "con_lai": 3_142_983_871,
-        "ghi_chu_hach_toan": "211 / 6274 - to In",
     }]
 
 
@@ -24,9 +23,9 @@ def test_file_excel_co_dung_cot_va_dong_tong():
     ws = wb.active
     tieu_de = [c.value for c in ws[3]]
     assert tieu_de[0] == "Mã"
-    assert tieu_de[-1] == "Ghi chú hạch toán"
+    assert tieu_de[-1] == "Còn lại"
     assert ws.cell(row=4, column=1).value == "TS-0001"
-    assert ws.cell(row=4, column=len(tieu_de)).value == "211 / 6274 - to In"
+    assert ws.cell(row=4, column=len(tieu_de)).value == 3_142_983_871
     # dòng cuối là TỔNG mức trích (cột 5 = "Trích kỳ này")
     assert ws.cell(row=5, column=1).value == "TỔNG"
     assert ws.cell(row=5, column=5).value == 27_500_000

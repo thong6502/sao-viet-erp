@@ -407,20 +407,19 @@ def bien_dong(
         if payload.loai == "dieu_chuyen":
             bd = svc.dieu_chuyen(
                 tai_san_id, ngay=payload.ngay, bo_phan_moi_id=payload.bo_phan_moi_id or 0,
-                ly_do=payload.ly_do, ghi_chu_hach_toan=payload.ghi_chu_hach_toan,
-                user_id=user.id,
+                ly_do=payload.ly_do, user_id=user.id,
             )
         elif payload.loai == "nang_cap":
             bd = svc.nang_cap(
                 tai_san_id, ngay=payload.ngay, so_tien=int(payload.so_tien or 0),
                 so_thang_con_lai=int(payload.so_thang_con_lai or 0), ly_do=payload.ly_do,
-                ghi_chu_hach_toan=payload.ghi_chu_hach_toan, user_id=user.id,
+                user_id=user.id,
             )
         elif payload.loai == "ghi_giam":
             bd = svc.ghi_giam(
                 tai_san_id, ngay=payload.ngay, ly_do=payload.ly_do or "",
                 gia_ban=payload.gia_ban, so_luong_giam=payload.so_luong_giam,
-                ghi_chu_hach_toan=payload.ghi_chu_hach_toan, user_id=user.id,
+                user_id=user.id,
             )
         else:
             raise TaiSanValidationError(f"Loại biến động không hợp lệ: {payload.loai}")
