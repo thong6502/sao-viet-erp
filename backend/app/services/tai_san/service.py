@@ -388,10 +388,16 @@ class TaiSanService:
         return bd
 
     def chenh_lech_thanh_ly(self, tai_san_id: int) -> int | None:
-        """Giá bán − giá trị còn lại của chứng từ ghi giảm mới nhất. None nếu không khai giá bán.
+        """Giá bán − giá trị còn lại của PHẦN ĐÃ BỎ, theo chứng từ ghi giảm mới nhất.
 
         Dương = lãi thanh lý, âm = lỗ. Module chỉ BÁO SỐ; hạch toán vào đâu là việc của kế toán,
         ghi ở ô ghi chú hạch toán của chứng từ.
+
+        Bỏ MỘT PHẦN lô CCDC thì `nguyen_gia`/`hao_mon_luy_ke` trên bản ghi ĐÃ rút theo tỷ lệ, tức
+        chúng mô tả mấy cái CÒN nằm trong xưởng. Trừ thẳng chúng là đem giá bán 1 cái so với giá
+        trị của 3 cái còn lại — số ra sai hẳn một bậc. Hao mòn rút CÙNG tỷ lệ với nguyên giá nên
+        giá trị còn lại chia đều cho mỗi cái: phần đã bỏ = giá trị còn lại × số cái bỏ ÷ số cái
+        còn (lệch tối đa vài đồng do làm tròn xuống, không đáng kể với con số thanh lý).
         """
         t = self._bat_buoc(tai_san_id)
         gan_nhat = None
@@ -400,7 +406,12 @@ class TaiSanService:
                 gan_nhat = bd
         if gan_nhat is None or gan_nhat.so_tien is None:
             return None
-        return int(gan_nhat.so_tien) - (int(t.nguyen_gia or 0) - int(t.hao_mon_luy_ke or 0))
+        con_lai = int(t.nguyen_gia or 0) - int(t.hao_mon_luy_ke or 0)
+        con = int(t.so_luong or 0)
+        bo = int(gan_nhat.so_luong_giam or 0)
+        if t.trang_thai != TT_DA_GIAM and bo > 0 and con > 0:
+            con_lai = con_lai * bo // con
+        return int(gan_nhat.so_tien) - con_lai
 
     # --- Xem trước ------------------------------------------------------------------------
 

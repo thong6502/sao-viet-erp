@@ -9,7 +9,7 @@
 //
 // Vì thế nút Tính biến mất khi kỳ đã chốt: còn đó thì sớm muộn có người bấm và tự hỏi vì sao
 // bảng không đổi.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import { NHAN_TRANG_THAI_KY, taiSanApi, type BangKy } from "../../api/taiSan";
 import { useAuth } from "../../auth/useAuth";
@@ -41,15 +41,27 @@ export function KhauHaoKyView() {
 
   const [nam, thang] = ky.split("-").map(Number);
 
+  /** Đánh số từng lượt nạp, lượt cũ về sau thì VỨT.
+   *
+   *  Ô tháng là `input[type=month]`: gõ "03/2026" là bốn năm lần `onChange`, mỗi lần một lượt
+   *  GET. Các lượt ấy về không theo thứ tự gửi — bảng kỳ 09 về sau bảng kỳ 03 là màn hình ghi
+   *  "Tháng 3 / 2026" mà số bên dưới của tháng 9. Không lỗi, không quay vòng, kế toán chép nhầm
+   *  số vào phần mềm kế toán mà không có gì gợn. */
+  const lanNap = useRef(0);
+
   const nap = useCallback(() => {
     if (!token || !nam || !thang) return;
+    const lan = ++lanNap.current;
+    const conDung = () => lan === lanNap.current;
     setDangTai(true);
     setLoi(null);
     taiSanApi
       .bangKy(token, nam, thang)
-      .then(setBang)
-      .catch((e) => setLoi(e instanceof ApiError ? e.message : "Không tải được bảng kỳ."))
-      .finally(() => setDangTai(false));
+      .then((kq) => { if (conDung()) setBang(kq); })
+      .catch((e) => {
+        if (conDung()) setLoi(e instanceof ApiError ? e.message : "Không tải được bảng kỳ.");
+      })
+      .finally(() => { if (conDung()) setDangTai(false); });
   }, [token, nam, thang]);
 
   useEffect(() => { nap(); }, [nap]);

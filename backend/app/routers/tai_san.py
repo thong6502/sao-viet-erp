@@ -50,7 +50,13 @@ from ..services.tai_san.kiem_ke_service import (
     KiemKeService,
     KiemKeValidationError,
 )
-from ..services.tai_san.ky_service import KyDaChot, KyKhongTonTai, KyService, KyTruocChuaChot
+from ..services.tai_san.ky_service import (
+    KyCoChungTuSau,
+    KyDaChot,
+    KyKhongTonTai,
+    KyService,
+    KyTruocChuaChot,
+)
 from ..services.tai_san.service import (
     TaiSanDaChotKy,
     TaiSanNotFound,
@@ -116,7 +122,7 @@ def _bao_loi(exc: Exception) -> HTTPException:
     """Một chỗ đổi lỗi nghiệp vụ sang HTTP — mọi endpoint dùng chung, khỏi lệch mã."""
     if isinstance(exc, TaiSanNotFound):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    if isinstance(exc, (TaiSanTrung, TaiSanDaChotKy, KyDaChot, KyTruocChuaChot)):
+    if isinstance(exc, (TaiSanTrung, TaiSanDaChotKy, KyDaChot, KyTruocChuaChot, KyCoChungTuSau)):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     if isinstance(exc, KyKhongTonTai):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -125,7 +131,7 @@ def _bao_loi(exc: Exception) -> HTTPException:
 
 LOI_NGHIEP_VU = (
     TaiSanNotFound, TaiSanTrung, TaiSanValidationError, TaiSanDaChotKy,
-    KyDaChot, KyTruocChuaChot, KyKhongTonTai,
+    KyDaChot, KyTruocChuaChot, KyKhongTonTai, KyCoChungTuSau,
 )
 
 LOI_KIEM_KE = (KiemKeNotFound, KiemKeDaKet, KiemKeValidationError)

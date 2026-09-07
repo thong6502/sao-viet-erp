@@ -112,6 +112,25 @@ def test_ccdc_ghi_giam_mot_phan_lo():
     assert ky.tinh(2026, 12)[0].muc_trich == 1_100_000
 
 
+def test_chenh_lech_thanh_ly_mot_phan_lo_so_voi_phan_da_bo():
+    """Bỏ 1 trong 12 tấm: chênh lệch phải so với 1 tấm đó, không phải 11 tấm còn lại."""
+    db, svc, ky = _moi_truong()
+    t = svc.ghi_tang(dict(
+        ten="Tam cao su offset", loai=LOAI_CCDC, so_luong=12, don_gia=2_400_000,
+        so_thang=24, ngay_su_dung=date(2026, 7, 1),
+    ))
+    for thang in (7, 8, 9, 10, 11):
+        ky.tinh(2026, thang)
+        ky.chot(2026, thang)
+
+    svc.ghi_giam(
+        t.id, ngay=date(2026, 12, 1), ly_do="Rach 1 tam", so_luong_giam=1, gia_ban=500_000,
+    )
+    db.refresh(t)
+    # 1 tấm: nguyên giá 2.400.000 − hao mòn 500.000 = còn 1.900.000; bán 500.000 ⇒ lỗ 1.400.000.
+    assert svc.chenh_lech_thanh_ly(t.id) == -1_400_000
+
+
 def test_ccdc_bo_het_lo_thi_tai_san_da_giam():
     db, svc, ky = _moi_truong()
     t = svc.ghi_tang(dict(

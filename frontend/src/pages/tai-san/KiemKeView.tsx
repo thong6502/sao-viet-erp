@@ -9,7 +9,7 @@
 //
 // Đợt ĐÃ KẾT là đóng hẳn: kết quả kiểm kê là chứng từ, sửa sau khi đã ký biên bản thì biên bản
 // thành vô nghĩa. Cần kiểm lại thì lập đợt mới.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api, type Department } from "../../api/client";
 import { taiSanApi, type KiemKeChiTiet, type KiemKeRow } from "../../api/taiSan";
 import { useAuth } from "../../auth/useAuth";
@@ -69,6 +69,25 @@ export function KiemKeView() {
     } finally {
       setBan(false);
     }
+  }
+
+  /** Ghi MỘT DÒNG kiểm kê — nối đuôi nhau chứ không khoá bảng.
+   *
+   *  Người đi kiểm gõ tình trạng xong bấm luôn Có / Không thấy. Lượt ghi của ô tình trạng chạy
+   *  lúc RỜI ô, tức vẫn đang bay khi ngón tay chạm nút; khoá cả bảng theo một cờ `ban` chung thì
+   *  cú bấm ấy rơi vào nút disabled và mất tăm — không báo lỗi, không đổi màu, người ta tưởng
+   *  mình bấm hụt. Xếp hàng theo đúng thứ tự bấm thì vừa không mất cú nào, vừa không sợ lượt cũ
+   *  về sau đè lượt mới. */
+  const hangDoi = useRef<Promise<unknown>>(Promise.resolve());
+
+  function ghiDong(viec: (t: string) => Promise<KiemKeChiTiet>) {
+    if (!token) return;
+    setLoi(null);
+    hangDoi.current = hangDoi.current
+      .catch(() => undefined)
+      .then(() => viec(token))
+      .then((kq) => setDot(kq))
+      .catch((e) => setLoi(e instanceof ApiError ? e.message : "Không ghi được kết quả."));
   }
 
   async function moDot(id: number) {
@@ -219,9 +238,12 @@ export function KiemKeView() {
                 {thieu.length === 0 ? (
                   <p className="ts-ketqua__rong">Không thiếu món nào.</p>
                 ) : (
+                  // Ghi chú của dòng thiếu là ô "Tình trạng" người đi kiểm vừa gõ — cùng ô với
+                  // bên thừa. Lấy `ghi_chu` là lấy ô KHÔNG màn nào ghi vào: danh sách thiếu luôn
+                  // trơ tên, mất đúng câu giải thích vì sao không thấy.
                   <ul className="ts-ketqua__ds">
                     {thieu.map((d) => (
-                      <li key={d.id}>{d.ma} · {d.ten}{d.ghi_chu ? ` — ${d.ghi_chu}` : ""}</li>
+                      <li key={d.id}>{d.ma} · {d.ten}{d.tinh_trang ? ` — ${d.tinh_trang}` : ""}</li>
                     ))}
                   </ul>
                 )}
@@ -287,7 +309,7 @@ export function KiemKeView() {
                           // thì lượt cũ về sau có thể đè lượt mới.
                           onBlur={(e) => {
                             if (e.target.value === (d.tinh_trang ?? "")) return;
-                            chay((t) => taiSanApi.ghiKetQua(t, dot.id, d.id, {
+                            ghiDong((t) => taiSanApi.ghiKetQua(t, dot.id, d.id, {
                               tinh_trang: e.target.value,
                             }));
                           }} />
@@ -295,16 +317,16 @@ export function KiemKeView() {
                       <td className="text-center">
                         {d.tai_san_id ? (
                           <span className="ts-tick">
-                            <button type="button" disabled={daKet || ban || !ghiDuoc}
+                            <button type="button" disabled={daKet || !ghiDuoc}
                               className={`ts-tick__nut${d.ket_qua === "co" ? " is-co" : ""}`}
-                              onClick={() => chay((t) => taiSanApi.ghiKetQua(t, dot.id, d.id, {
+                              onClick={() => ghiDong((t) => taiSanApi.ghiKetQua(t, dot.id, d.id, {
                                 ket_qua: "co",
                               }))}>
                               Có
                             </button>
-                            <button type="button" disabled={daKet || ban || !ghiDuoc}
+                            <button type="button" disabled={daKet || !ghiDuoc}
                               className={`ts-tick__nut${d.ket_qua === "khong_thay" ? " is-khong" : ""}`}
-                              onClick={() => chay((t) => taiSanApi.ghiKetQua(t, dot.id, d.id, {
+                              onClick={() => ghiDong((t) => taiSanApi.ghiKetQua(t, dot.id, d.id, {
                                 ket_qua: "khong_thay",
                               }))}>
                               Không thấy

@@ -17,17 +17,20 @@ chiếu nổi trên bảng in.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ...models.department import Department
 from ...models.tai_san import (
+    BD_GHI_GIAM,
+    BD_NANG_CAP,
     KY_DA_CHOT,
     KY_MO,
     TT_DANG_DUNG,
     TaiSan,
+    TaiSanBienDong,
     TaiSanKhauHao,
     TaiSanKy,
 )
@@ -43,6 +46,10 @@ class KyTruocChuaChot(Exception):
 
 
 class KyKhongTonTai(Exception):
+    pass
+
+
+class KyCoChungTuSau(Exception):
     pass
 
 
@@ -225,6 +232,41 @@ class KyService:
         self.db.commit()
         return k
 
+    def _chan_chung_tu_sau_ky(self, nam: int, thang: int) -> None:
+        """Có chứng từ nâng cấp / ghi giảm nằm SAU kỳ thì không mở lại kỳ được nữa.
+
+        Mở lại kỳ chỉ đơn giản là trừ `muc_trich` đã ghi ra khỏi `hao_mon_luy_ke`. Phép trừ đó
+        chỉ đúng chừng nào con số của tài sản còn y như lúc chốt. Hai chứng từ này viết lại chính
+        những con số ấy:
+
+          • Ghi giảm MỘT PHẦN lô CCDC rút cả nguyên giá lẫn hao mòn theo tỷ lệ số cái bỏ. Bỏ 2
+            trong 4 cái xong mở lại kỳ cũ là đem mức trích của 4 cái trừ khỏi hao mòn của 2 cái —
+            lũy kế ÂM, còn lại lớn hơn cả nguyên giá, mà không có lỗi nào bật ra.
+          • Nâng cấp và ghi giảm toàn bộ viết lại cơ sở trích / mốc / ngày giảm, nên bấm Tính lại
+            cho kỳ vừa mở sẽ ra mức trích theo số SAU chứng từ, gán cho một tháng TRƯỚC nó.
+
+        Không có cửa huỷ chứng từ để lùi số về, nên chặn thẳng và nói rõ vướng món nào — hơn là
+        cho mở rồi để kế toán tự phát hiện lũy kế âm.
+        """
+        cuoi_ky = date(nam + thang // 12, thang % 12 + 1, 1) - timedelta(days=1)
+        row = self.db.execute(
+            select(TaiSan.ma, TaiSanBienDong.loai, TaiSanBienDong.ngay)
+            .join(TaiSan, TaiSan.id == TaiSanBienDong.tai_san_id)
+            .where(
+                TaiSanBienDong.loai.in_((BD_NANG_CAP, BD_GHI_GIAM)),
+                TaiSanBienDong.ngay > cuoi_ky,
+            )
+            .order_by(TaiSanBienDong.ngay)
+        ).first()
+        if row is None:
+            return
+        ma, loai, ngay = row
+        ten = "nâng cấp" if loai == BD_NANG_CAP else "ghi giảm"
+        raise KyCoChungTuSau(
+            f"Đã có chứng từ {ten} {ma} ngày {ngay:%d/%m/%Y} — sau kỳ này. Mở lại kỳ sẽ làm sai "
+            f"lũy kế vì chứng từ đó đã viết lại nguyên giá và hao mòn của món."
+        )
+
     def mo(self, nam: int, thang: int) -> TaiSanKy:
         k = self.lay_ky(nam, thang)
         if k is None:
@@ -245,6 +287,8 @@ class KyService:
         if sau:
             n, t = sorted(sau)[-1]
             raise KyDaChot(f"Kỳ {t:02d}/{n} đã chốt — mở lần lượt từ kỳ mới nhất trở về trước")
+
+        self._chan_chung_tu_sau_ky(nam, thang)
 
         for d in self.db.execute(
             select(TaiSanKhauHao).where(

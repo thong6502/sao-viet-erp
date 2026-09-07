@@ -114,7 +114,7 @@ export function DanhSachView() {
       <div className="rc__unified-bar">
         <div className="rc__unified-right" style={{ marginLeft: "auto" }}>
           <div className="rc__search-wrapper">
-            <Icon name="search" size={15} />
+            <Icon name="search" size={15} className="rc__search-icon" />
             <input className="rc__search" placeholder="Tìm mã, tên, vị trí, người quản lý…"
               value={q} onChange={(e) => doiLoc(() => setQ(e.target.value))} />
           </div>
