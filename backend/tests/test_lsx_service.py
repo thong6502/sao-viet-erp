@@ -3788,3 +3788,14 @@ def test_go_may_khoi_cong_doan_thi_bao_may_dang_gan_khong_con_thuoc(
 
     b = lsx_svc.detail_dict(lsx_svc.get(lsx.id))["danh_muc_doi"]["buocs"][0]
     assert "không còn nằm trong danh sách máy" in b["may_canh_bao"]
+
+
+def test_dong_vat_tu_cua_buoc_mang_hang_loai_va_cho_trung_id_khac_loai(db):
+    """Giấy #7 và Vật tư #7 là HAI món khác nhau — unique key phải gồm cả `hang_loai`."""
+    from app.models.lsx import LsxCongDoanVatTu
+
+    cols = {c.name for c in LsxCongDoanVatTu.__table__.columns}
+    assert "hang_loai" in cols
+    uq = next(c for c in LsxCongDoanVatTu.__table__.constraints
+              if getattr(c, "name", "") == "uq_lsx_buoc_vat_tu")
+    assert [c.name for c in uq.columns] == ["lsx_cong_doan_id", "hang_loai", "vat_tu_id"]

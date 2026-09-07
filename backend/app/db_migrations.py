@@ -12508,3 +12508,52 @@ def _migrate_noi_lai_pin_thanh_phan(db) -> None:
 
 
 MIGRATIONS.append(("0279_noi_lai_pin_thanh_phan", _migrate_noi_lai_pin_thanh_phan))
+
+
+def _migrate_hang_loai_vat_tu_buoc(db: Session) -> None:
+    """`lsx_cong_doan_vat_tu.hang_loai` — bước chọn được NVL chính từ danh mục GIẤY (08/09/2026).
+
+    Trước đây bảng chỉ trỏ `vat_tu_in_an`, còn giấy đi một đường riêng: suy từ `quy_cach_json.giay_id`
+    rồi tự treo lên "bước đầu tiên chạm tờ". Hai chỗ đoán, hai chỗ sai — người lập lệnh không đổi
+    được loại giấy, không đổi được bước tiêu thụ, và một lệnh chỉ ôm được ĐÚNG MỘT loại giấy (trong
+    khi hộp carton cần giấy mặt + giấy sóng + giấy đáy, mỗi loại vào một bước khác nhau). Đường suy
+    đó đã gỡ: người lập lệnh tự chọn giấy và tự đặt vào bước ăn nó, nên dòng của bước phải phân biệt
+    được hai danh mục.
+
+    Cặp `(hang_loai, hang_id)` là khuôn có sẵn ở `stock_lots` / `vat_tu_giu_cho` / `stock_requests` /
+    `san_xuat_vat_tu_de_nghi_dong` — dùng lại để hạ nguồn (giữ chỗ, đề nghị cấp, phiếu kho) nhận dòng
+    giấy mà không phải sửa gì.
+
+    Dòng CŨ đều là vật tư ⇒ backfill `'vat_tu'` bằng chính `server_default`, không cần UPDATE. Unique
+    key phải nới ra ba cột: Giấy #7 và Vật tư #7 là hai món khác nhau, khoá hai cột sẽ chặn nhầm.
+
+    Raw SQL đích danh cột, KHÔNG ORM full-select. No-op khi bảng chưa có / cột đã có.
+    """
+    insp = inspect(db.get_bind())
+    if "lsx_cong_doan_vat_tu" not in set(insp.get_table_names()):
+        return
+    if "hang_loai" in _existing_columns(insp, "lsx_cong_doan_vat_tu"):
+        return
+    db.execute(text(
+        "ALTER TABLE lsx_cong_doan_vat_tu "
+        "ADD COLUMN hang_loai VARCHAR(8) NOT NULL DEFAULT 'vat_tu'"
+    ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_lsx_cong_doan_vat_tu_hang_loai "
+        "ON lsx_cong_doan_vat_tu (hang_loai)"
+    ))
+    # Unique key nới từ 2 → 3 cột, giữ nguyên TÊN để model và DB không lệch. SQLite không ALTER được
+    # ràng buộc, nhưng test dựng bảng bằng `create_all` từ model (đã mang khoá mới) nên nhánh dưới
+    # chỉ cần cho Postgres — đúng chỗ DB thật đang chạy.
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(text(
+            "ALTER TABLE lsx_cong_doan_vat_tu DROP CONSTRAINT IF EXISTS uq_lsx_buoc_vat_tu"
+        ))
+        db.execute(text(
+            "ALTER TABLE lsx_cong_doan_vat_tu ADD CONSTRAINT uq_lsx_buoc_vat_tu "
+            "UNIQUE (lsx_cong_doan_id, hang_loai, vat_tu_id)"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0280_hang_loai_vat_tu_buoc", _migrate_hang_loai_vat_tu_buoc))

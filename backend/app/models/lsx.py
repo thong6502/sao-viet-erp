@@ -344,11 +344,27 @@ class LsxCongDoan(Base):
 
 class LsxCongDoanVatTu(Base):
     __tablename__ = "lsx_cong_doan_vat_tu"
-    __table_args__ = (UniqueConstraint("lsx_cong_doan_id", "vat_tu_id", name="uq_lsx_buoc_vat_tu"),)
+    __table_args__ = (
+        UniqueConstraint("lsx_cong_doan_id", "hang_loai", "vat_tu_id", name="uq_lsx_buoc_vat_tu"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     lsx_cong_doan_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("lsx_cong_doan.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # DANH MỤC nào chứa món này (mg `0280`, 08/09/2026): `"giay"` → `giay_nguyen`, `"vat_tu"` →
+    # `vat_tu_in_an`. Trước đó bảng chỉ trỏ được vật tư, còn giấy đi một đường riêng suy từ
+    # `quy_cach_json.giay_id` rồi tự treo lên "bước đầu tiên chạm tờ" — hệ đoán cả LOẠI lẫn BƯỚC,
+    # nên một lệnh chỉ ôm được đúng một loại giấy và người dùng không sửa được bước tiêu thụ.
+    #
+    # Cặp `(hang_loai, vat_tu_id)` là khuôn `stock_lots` / `vat_tu_giu_cho` / `stock_requests` /
+    # `san_xuat_vat_tu_de_nghi_dong` đã dùng sẵn, nên bảng cân đối và mọi tầng kho hạ nguồn nhận
+    # dòng giấy mà không phải rẽ nhánh.
+    #
+    # Cột id vẫn giữ tên `vat_tu_id` nhưng ĐỌC LÀ `hang_id`: đổi tên là một lượt sửa rộng qua 8 file
+    # + 5 file test mà không đổi hành vi nào.
+    hang_loai: Mapped[str] = mapped_column(
+        String(8), nullable=False, server_default="vat_tu", default="vat_tu", index=True
     )
     vat_tu_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     vat_tu_ma_snapshot: Mapped[str] = mapped_column(String(30), nullable=False)
