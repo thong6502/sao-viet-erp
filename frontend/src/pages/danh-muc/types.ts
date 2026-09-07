@@ -209,6 +209,10 @@ export interface DinhMucRow {
   /** Công thức tính TIỀN CÔNG của đầu việc này trong CÔNG ĐOẠN này (06/09/2026). Ra LƯỢNG theo
    *  đơn vị đơn giá khoán, server nhân đơn giá sau. Ghim vào bước lệnh lúc chọn đầu việc. */
   cong_thuc_khoan?: string | null;
+  /** CÁCH ĐO GIỜ CHẠY của đầu việc này trong CÔNG ĐOẠN này (07/09/2026). Ra LƯỢNG theo đơn vị
+   *  NĂNG SUẤT (`don_vi_nang_suat`), server chia cho năng suất sau. Tách khỏi `cong_thuc_khoan`
+   *  vì tiền và giờ không cùng cách đếm: in trở 2 lượt thì tiền nhân đôi mà giờ thì không. */
+  cong_thuc_gio?: string | null;
   /** VẬT TƯ đầu việc này tiêu thụ, mỗi dòng mang ĐỊNH MỨC của riêng nó (06/09/2026). Trước đây
    *  chỉ là danh sách id và công thức treo ở món hàng — nhưng mực ăn theo SỐ TỜ còn dung môi rửa
    *  máy ăn theo SỐ MÀU, cùng ĐVT kg mà hai cách hoàn toàn khác. */

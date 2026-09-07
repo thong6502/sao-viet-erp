@@ -12,7 +12,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { LSX_LOAI_BUOC_META, type LsxLoaiBuoc } from "../api/client";
 import { Button } from "../components/Button";
-import { TagPicker } from "../components/TagPicker";
 import { dvNhan as dvNhanChung, type RefRow } from "./LsxRoutingTable";
 import { num } from "./keHoachSxShared";
 import {
@@ -519,8 +518,10 @@ export function LsxBuocDrawer({
                     </div>
                   </div>
 
-                  {/* Hàng 2 - Cột 1: Ghi chú kỹ thuật */}
-                  <label className="khsx-field">
+                  {/* Hàng 2: Ghi chú kỹ thuật — chiếm cả hàng từ 07/09/2026, khi ô "Bước bắt buộc"
+                      ở cột 2 bị GỠ: routing đã khai bước nào thì bước đó PHẢI làm, không có bước
+                      tuỳ chọn nữa (`lsx_cong_doan.bat_buoc` luôn TRUE, xem migration 0275). */}
+                  <label className="khsx-field khsx-field--wide">
                     <span className="khsx-field__label">GHI CHÚ KỸ THUẬT CHO THỢ</span>
                     <input
                       className="khsx-input-std"
@@ -530,41 +531,12 @@ export function LsxBuocDrawer({
                       onChange={(e) => set("ghi_chu", e.target.value)}
                     />
                   </label>
-
-                  {/* Hàng 2 - Cột 2: Tùy chọn bước bắt buộc */}
-                  <div className="khsx-field">
-                    <span className="khsx-field__label">QUY ĐỊNH BẮT BUỘC</span>
-                    <label className={`khsx-check-pill ${row.bat_buoc ? "is-checked" : ""}`}>
-                      <input
-                        type="checkbox"
-                        checked={row.bat_buoc}
-                        disabled={!canUpdate}
-                        onChange={(e) => set("bat_buoc", e.target.checked)}
-                      />
-                      <span className="khsx-check-pill__text">
-                        <strong>Bước bắt buộc</strong> (không được bỏ qua trong lệnh)
-                      </span>
-                    </label>
-                  </div>
                 </div>
               </section>
 
-              {/* Khối Nhãn — gắn thẻ tự do cho bước (vd "Thuê ngoài", "Bế ngoài"). Logic y hệt gán
-                  thẻ ở module Khách hàng: kho nhãn dùng chung, thêm/gỡ tức thì, xoá khỏi kho hỏi số
-                  bước. Chỉ hiện khi bước ĐÃ LƯU (có id) — bước mới phải lưu công đoạn trước mới có
-                  chỗ neo nhãn. */}
-              <section className="khsx-section-card">
-                <div className="khsx-section-card__head">
-                  <h3 className="khsx-section-card__title">Nhãn</h3>
-                </div>
-                {row.id != null ? (
-                  <TagPicker buocLoai="lsx" buocId={row.id} canUpdate={canUpdate} />
-                ) : (
-                  <p className="khsx-hint-muted">
-                    Lưu công đoạn trước rồi mở lại để gắn nhãn cho bước này.
-                  </p>
-                )}
-              </section>
+              {/* Khối Nhãn (gắn thẻ tự do cho bước) ẨN 07/09/2026. API `cong-doan-tags` + nhãn đã
+                  gán vẫn còn nguyên trong DB, chỉ không bày cửa gán/gỡ ở drawer nữa — bật lại là
+                  trả `<TagPicker buocLoai="lsx" buocId={row.id} …>` vào đúng chỗ này. */}
 
               {/* Tiêu chí KCS bổ sung (module KCS kiêm nhiệm, mg 0250, Task 3) — CHỈ hiện khi bước
                   là KCS. Nối SAU checklist chuẩn của danh mục lúc phát hành (`nguon="bo_sung_lsx"`,
@@ -1366,7 +1338,7 @@ export function LsxBuocDrawer({
                           disabled={!canUpdate}
                           onClick={() => set("so_luot_chay", "2")}
                         >
-                          2 lượt (In trở)
+                          2 lượt
                         </button>
                       </div>
                       <div className="khsx-input-unit-combine khsx-turns-custom">
@@ -1384,7 +1356,7 @@ export function LsxBuocDrawer({
                     </div>
                     <span className="khsx-field__hint">
                       {row.loai_buoc === "to"
-                        ? "Số lần hàng đi qua bước này — mặc định 1. Ở bước tổ, số này chỉ vào công thức tính tiền công; giờ của bước KHÔNG đổi theo."
+                        ? "Số lần hàng đi qua bước này — mặc định 1. Ở bước tổ, số này chỉ chảy vào công thức nào có gõ chip so_luot_chay: tiền công và giờ chạy khai ở hai ô riêng tại danh mục Công đoạn."
                         : "In trở 2 mặt = 2 lượt qua máy"}
                     </span>
                   </div>
