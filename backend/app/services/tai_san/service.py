@@ -9,12 +9,17 @@ from __future__ import annotations
 from datetime import date
 
 from ...models.tai_san import (
+    BD_DIEU_CHUYEN,
+    BD_GHI_GIAM,
+    BD_NANG_CAP,
     LOAI_CCDC,
     LOAI_TSCD,
     NGUON_DAU_KY,
     NGUON_GHI_TANG,
+    TT_DA_GIAM,
     TT_DANG_DUNG,
     TaiSan,
+    TaiSanBienDong,
     TaiSanChiPhi,
 )
 from ...repositories.tai_san_repo import TaiSanRepository
@@ -238,6 +243,164 @@ class TaiSanService:
             )
         self.repo.xoa(t)
         self.repo.commit()
+
+    # --- Ba chứng từ biến động --------------------------------------------------------------
+    #
+    # Chung một luật vào cửa: ngày chứng từ rơi vào kỳ ĐÃ CHỐT thì không lập được, và mỗi chứng
+    # từ để lại đúng một hàng `tai_san_bien_dong` — tab lịch sử của tài sản đọc thẳng bảng đó.
+
+    def _ky_ap_dung(self, ngay: date) -> date:
+        """Nâng cấp áp từ ĐẦU KỲ SAU, trừ khi chứng từ đúng ngày 1 thì áp ngay kỳ đó.
+
+        Nửa tháng đầu tính theo giá cũ, nửa sau theo giá mới là kiểu số không ai đối chiếu nổi;
+        kế toán vẫn quen "tháng sau mới đổi mức".
+        """
+        if ngay.day == 1:
+            return ngay
+        return date(ngay.year + 1, 1, 1) if ngay.month == 12 else date(ngay.year, ngay.month + 1, 1)
+
+    def _ghi_bien_dong(self, t: TaiSan, **truong) -> TaiSanBienDong:
+        bd = TaiSanBienDong(tai_san_id=t.id, **truong)
+        self.repo.them(bd)
+        return bd
+
+    def dieu_chuyen(
+        self,
+        tai_san_id: int,
+        *,
+        ngay: date,
+        bo_phan_moi_id: int,
+        ly_do: str | None = None,
+        ghi_chu_hach_toan: str | None = None,
+        user_id: int | None = None,
+    ) -> TaiSanBienDong:
+        """Đổi bộ phận đang giữ. KHÔNG đụng một đồng nào trên sổ — chỉ đổi nơi chịu chi phí."""
+        t = self._bat_buoc(tai_san_id)
+        self._chan_ky_da_chot(ngay)
+        if not bo_phan_moi_id:
+            raise TaiSanValidationError("Phải chọn bộ phận nhận")
+        bd = self._ghi_bien_dong(
+            t, loai=BD_DIEU_CHUYEN, ngay=ngay, bo_phan_moi_id=bo_phan_moi_id,
+            ly_do=ly_do, ghi_chu_hach_toan=ghi_chu_hach_toan, nguoi_tao_id=user_id,
+        )
+        t.bo_phan_id = bo_phan_moi_id
+        self.repo.commit()
+        return bd
+
+    def nang_cap(
+        self,
+        tai_san_id: int,
+        *,
+        ngay: date,
+        so_tien: int,
+        so_thang_con_lai: int,
+        ly_do: str | None = None,
+        ghi_chu_hach_toan: str | None = None,
+        user_id: int | None = None,
+    ) -> TaiSanBienDong:
+        """Cộng chi phí nâng cấp vào nguyên giá rồi chia lại phần còn phải trích.
+
+        Hao mòn đã trích GIỮ NGUYÊN — nâng cấp không xoá quá khứ. Mức trích mới =
+        (nguyên giá mới − hao mòn lũy kế) ÷ số tháng còn dùng, áp từ kỳ áp dụng.
+        """
+        t = self._bat_buoc(tai_san_id)
+        self._chan_ky_da_chot(ngay)
+        if t.trang_thai == TT_DA_GIAM:
+            raise TaiSanValidationError("Tài sản đã ghi giảm — không nâng cấp được nữa")
+        if int(so_tien or 0) <= 0:
+            raise TaiSanValidationError("Chi phí nâng cấp phải lớn hơn 0")
+        if int(so_thang_con_lai or 0) <= 0:
+            raise TaiSanValidationError("Số tháng còn dùng phải lớn hơn 0")
+
+        bd = self._ghi_bien_dong(
+            t, loai=BD_NANG_CAP, ngay=ngay, so_tien=int(so_tien),
+            so_thang_con_lai=int(so_thang_con_lai), ly_do=ly_do,
+            ghi_chu_hach_toan=ghi_chu_hach_toan, nguoi_tao_id=user_id,
+        )
+        t.chi_phi.append(
+            TaiSanChiPhi(dien_giai=ly_do or f"Nâng cấp {ngay:%d/%m/%Y}", so_tien=int(so_tien))
+        )
+        t.nguyen_gia = int(t.nguyen_gia or 0) + int(so_tien)
+        t.so_thang_con = int(so_thang_con_lai)
+        t.co_so_trich = t.nguyen_gia - int(t.hao_mon_luy_ke or 0)
+        t.moc_tu_ngay = self._ky_ap_dung(ngay)
+        self.repo.commit()
+        return bd
+
+    def ghi_giam(
+        self,
+        tai_san_id: int,
+        *,
+        ngay: date,
+        ly_do: str,
+        gia_ban: int | None = None,
+        so_luong_giam: int | None = None,
+        ghi_chu_hach_toan: str | None = None,
+        user_id: int | None = None,
+    ) -> TaiSanBienDong:
+        """Thanh lý / nhượng bán / mất / hỏng.
+
+        Bỏ MỘT PHẦN lô CCDC (`so_luong_giam` < số lượng) thì lô vẫn sống: nguyên giá và hao mòn
+        cùng rút theo tỷ lệ số cái bỏ, phần còn phải trích chia đều cho số tháng còn lại. Bỏ hết
+        lô, hoặc TSCĐ (một cái), thì tài sản chuyển `da_giam` và ngừng trích từ `ngay`.
+        """
+        t = self._bat_buoc(tai_san_id)
+        self._chan_ky_da_chot(ngay)
+        if t.trang_thai == TT_DA_GIAM:
+            raise TaiSanValidationError("Tài sản đã ghi giảm rồi")
+        if not (ly_do or "").strip():
+            raise TaiSanValidationError("Phải nhập lý do ghi giảm")
+
+        mot_phan = so_luong_giam is not None and int(so_luong_giam) < int(t.so_luong or 1)
+        if so_luong_giam is not None:
+            n = int(so_luong_giam)
+            if n <= 0 or n > int(t.so_luong or 1):
+                raise TaiSanValidationError(
+                    f"Số lượng giảm phải từ 1 đến {int(t.so_luong or 1)}"
+                )
+
+        bd = self._ghi_bien_dong(
+            t, loai=BD_GHI_GIAM, ngay=ngay,
+            so_tien=int(gia_ban) if gia_ban is not None else None,
+            so_luong_giam=int(so_luong_giam) if so_luong_giam is not None else None,
+            ly_do=ly_do, ghi_chu_hach_toan=ghi_chu_hach_toan, nguoi_tao_id=user_id,
+        )
+
+        if mot_phan:
+            n = int(so_luong_giam)
+            tong = int(t.so_luong)
+            ng_bo = int(t.nguyen_gia or 0) * n // tong
+            hm_bo = int(t.hao_mon_luy_ke or 0) * n // tong
+            t.so_luong = tong - n
+            t.nguyen_gia = int(t.nguyen_gia or 0) - ng_bo
+            t.hao_mon_luy_ke = int(t.hao_mon_luy_ke or 0) - hm_bo
+            t.co_so_trich = t.nguyen_gia - t.hao_mon_luy_ke
+            da_trich = self.repo.so_ky_da_trich(t.id)
+            t.so_thang_con = max(int(t.so_thang) - da_trich, 1)
+            t.moc_tu_ngay = date(ngay.year, ngay.month, 1)
+        else:
+            if so_luong_giam is not None:
+                t.so_luong = 0
+            t.trang_thai = TT_DA_GIAM
+            t.ngay_giam = ngay
+
+        self.repo.commit()
+        return bd
+
+    def chenh_lech_thanh_ly(self, tai_san_id: int) -> int | None:
+        """Giá bán − giá trị còn lại của chứng từ ghi giảm mới nhất. None nếu không khai giá bán.
+
+        Dương = lãi thanh lý, âm = lỗ. Module chỉ BÁO SỐ; hạch toán vào đâu là việc của kế toán,
+        ghi ở ô ghi chú hạch toán của chứng từ.
+        """
+        t = self._bat_buoc(tai_san_id)
+        gan_nhat = None
+        for bd in t.bien_dong:
+            if bd.loai == BD_GHI_GIAM:
+                gan_nhat = bd
+        if gan_nhat is None or gan_nhat.so_tien is None:
+            return None
+        return int(gan_nhat.so_tien) - (int(t.nguyen_gia or 0) - int(t.hao_mon_luy_ke or 0))
 
     # --- Xem trước ------------------------------------------------------------------------
 
