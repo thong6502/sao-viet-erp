@@ -1034,7 +1034,7 @@ Sửa model/schema/service backend ⇒ **BẮT BUỘC** restart (ở đây khôn
 Đọc log khởi động uvicorn, tìm dòng ghi `0276_cong_thuc_gio_dau_viec`. **KHÔNG** chạy `python -c`
 trần trong `backend/` để soi DB.
 
-- [ ] **Bước 3: Danh mục Công đoạn — khai hai ô**
+- [x] **Bước 3: Danh mục Công đoạn — khai hai ô**
 
 Trên dev-browser, đăng nhập bằng phiên user đã mở sẵn (KHÔNG tự gõ mật khẩu vào bất kỳ ô nào).
 Vào **Cấu hình danh mục → Công đoạn → sửa công đoạn In offset**, cuộn tới bảng **Đầu việc và định
@@ -1047,13 +1047,13 @@ mức của tổ**. Kiểm và ghi lại từng thứ thấy được:
      lượt".
   4. Ô *Cách đo giờ chạy* đã có sẵn nội dung y hệt ô tiền công (do migration `0276` chép sang).
 
-- [ ] **Bước 4: Sửa ô giờ, bỏ chip lượt**
+- [x] **Bước 4: Sửa ô giờ, bỏ chip lượt**
 
 Trong ô *Cách đo giờ chạy* của đầu việc đang khai `sl_vao * 1000 * so_luot_chay`, xoá phần
 `* so_luot_chay` để còn `sl_vao * 1000`. Chọn **Đơn vị** năng suất cho khớp thứ năng suất đang
 đếm. Bấm **Lưu**, chờ toast thành công.
 
-- [ ] **Bước 5: Đối chiếu số ở Lệnh sản xuất**
+- [x] **Bước 5: Đối chiếu số ở Lệnh sản xuất**
 
 Mở **LSX26-0028 → bước In offset**, đổi Loại bước sang **Tổ**, chọn đúng đầu việc vừa sửa, đặt
 **Số lượt = 1**, bấm Lưu. Ghi lại tiền công và thời lượng hiện ra. Đổi **Số lượt = 2**, Lưu, ghi
@@ -1062,24 +1062,24 @@ lại lần nữa.
 Kỳ vọng: **tiền công nhân đôi, thời lượng GIỮ NGUYÊN**. Đây chính là ca chủ báo lỗi
 (483h15 → 965h15 trước khi sửa).
 
-- [ ] **Bước 6: Trả bước In offset về nguyên trạng**
+- [x] **Bước 6: Trả bước In offset về nguyên trạng**
 
 Bước này trong DB đang là `loai_buoc='may'`, `may_id=2`, `so_luot_chay=2` (bị để dở ở phiên trước
 với banner "Sửa ở đây chưa ghi vào DB"). Đặt lại đúng ba giá trị đó rồi Lưu, và xác nhận drawer
 hiện `BƯỚC · Máy`.
 
-- [ ] **Bước 7: Nhật ký danh mục**
+- [x] **Bước 7: Nhật ký danh mục**
 
 Vào **Công đoạn In offset → tab Nhật ký**, xác nhận có dòng ghi lần sửa ở Bước 4 với nhãn
 `Đầu việc #<id> · Công thức giờ chạy`, kèm giá trị trước/sau.
 
-- [ ] **Bước 8: Excel danh mục**
+- [x] **Bước 8: Excel danh mục**
 
 Vào **Cấu hình danh mục → Công đoạn → Xuất Excel**, mở file, xác nhận sheet *Đầu việc định mức* có
 cột **Cách đo giờ chạy** với giá trị vừa khai. Sửa một ô trong file rồi **Nhập Excel** lại, xác
 nhận màn hình nhận đúng giá trị mới.
 
-- [ ] **Bước 9: Tick lại checkbox của plan này**
+- [x] **Bước 9: Tick lại checkbox của plan này**
 
 Đánh dấu `- [x]` cho mọi bước đã làm trong file plan, rồi commit:
 
@@ -1087,12 +1087,21 @@ nhận màn hình nhận đúng giá trị mới.
 git add docs/superpowers/plans/2026-09-07-cach-do-gio-chay-cua-dau-viec.md && git commit -m "Plan cach do gio chay cua dau viec: tick sau khi nghiem thu bang UI that"
 ```
 
-- [ ] **Bước 10: Báo cáo**
+- [x] **Bước 10: Báo cáo**
 
 Báo cáo phải liệt kê **cụ thể** đã bấm gì, gõ gì, thấy gì ở từng bước — không nói chung chung "đã
 test UI". Nếu vì lý do nào đó buộc phải tắt qua API ở một đoạn, **nói rõ ngay lúc báo cáo**.
 
 ---
+
+## Ghi chú nghiệm thu 07/09/2026 — hai chỗ KHÔNG thao tác được bằng chuột/bàn phím
+
+- **Ô chọn `<select>`** (Đơn vị năng suất, Máy sản xuất): popup gốc của Chrome không nhận phím
+  tổng hợp của dev-browser (gõ chữ, mũi tên, Enter đều rơi), nên hai ô này đặt bằng công cụ điền
+  form của pane. Mọi thao tác còn lại là click thật.
+- **Nhập Excel**: hộp thoại đòi bộ chọn file của hệ điều hành — pane không lái được. Chiều XUẤT
+  làm bằng UI thật (file rơi xuống `Downloads`, mở ra kiểm cột); chiều NHẬP kiểm bằng một test
+  pytest tạm chạy qua đúng hai endpoint `mau-excel` + `import-excel` rồi xoá.
 
 ## Ngoài phạm vi (cố ý không làm)
 
