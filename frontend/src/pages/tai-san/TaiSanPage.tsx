@@ -1,19 +1,20 @@
 // Màn TÀI SẢN CỐ ĐỊNH & CÔNG CỤ DỤNG CỤ (kế toán).
 //
-// Phạm vi CỐ Ý HẸP: ghi tăng · trích khấu hao theo kỳ · ba chứng từ biến động · kiểm kê. Không
-// định khoản, không sổ cái, không nhóm tài sản khai sẵn. Cầu nối sang phần mềm kế toán là file
-// Excel bảng khấu hao — người ta đọc rồi tự gõ; muốn nhớ định khoản thì ghi vào ô ghi chú.
+// Phạm vi CỐ Ý HẸP (chủ 08/09/2026: "nó chỉ theo dõi khấu hao thôi"): ghi tăng · bảng khấu hao
+// từng tháng · hai chứng từ biến động (điều chuyển · sửa chữa lớn) · xoá món không dùng nữa.
+// Không định khoản, không sổ cái, không nhóm tài sản khai sẵn, không kỳ chốt, không ghi giảm,
+// không kiểm kê. Cầu nối sang phần mềm kế toán là file Excel bảng khấu hao — người ta đọc rồi
+// tự gõ; muốn nhớ định khoản thì ghi vào ô ghi chú.
 //
-// MỘT màn ba tab chứ không ba mục menu: cả ba đọc cùng một sổ, và người làm việc này đi qua lại
-// giữa chúng trong cùng một buổi (ghi tăng xong là tính lại kỳ; kiểm kê xong là ghi giảm).
+// MỘT màn hai tab chứ không hai mục menu: cả hai đọc cùng một sổ, và người làm việc này đi qua
+// lại giữa chúng trong cùng một buổi (ghi tăng xong là xem bảng tháng).
 import { useState } from "react";
 import { DanhSachView } from "./DanhSachView";
-import { KhauHaoKyView } from "./KhauHaoKyView";
-import { KiemKeView } from "./KiemKeView";
+import { KhauHaoThangView } from "./KhauHaoThangView";
 import "../rebuild-catalog.css";
 import "./tai-san.css";
 
-type Tab = "so" | "ky" | "kiem-ke";
+type Tab = "so" | "thang";
 
 export function TaiSanPage() {
   const [tab, setTab] = useState<Tab>("so");
@@ -35,19 +36,14 @@ export function TaiSanPage() {
           onClick={() => setTab("so")}>
           Danh sách
         </button>
-        <button className={`rc__tab${tab === "ky" ? " is-active" : ""}`}
-          onClick={() => setTab("ky")}>
-          Khấu hao theo kỳ
-        </button>
-        <button className={`rc__tab${tab === "kiem-ke" ? " is-active" : ""}`}
-          onClick={() => setTab("kiem-ke")}>
-          Kiểm kê
+        <button className={`rc__tab${tab === "thang" ? " is-active" : ""}`}
+          onClick={() => setTab("thang")}>
+          Bảng khấu hao tháng
         </button>
       </div>
 
       {tab === "so" && <DanhSachView />}
-      {tab === "ky" && <KhauHaoKyView />}
-      {tab === "kiem-ke" && <KiemKeView />}
+      {tab === "thang" && <KhauHaoThangView />}
     </div>
   );
 }

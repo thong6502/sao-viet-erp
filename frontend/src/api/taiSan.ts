@@ -4,6 +4,10 @@
 // riêng. Định khoản là việc của phần mềm kế toán bên ngoài; cần nhớ thì gõ vào ô `ghi_chu` của
 // tài sản như mọi thứ khác. Đừng thêm ô tài khoản "cho tiện", cũng đừng đẻ lại ô định khoản
 // riêng — hai ô ghi chú mà hệ không đọc ô nào thì người nhập chỉ còn cách đoán gõ vào đâu.
+//
+// KHÔNG có kỳ chốt (chốt 08/09/2026: "nó chỉ theo dõi khấu hao thôi"). Hao mòn lũy kế là số máy
+// chủ TÍNH từ lịch của từng tài sản tới hết tháng trước; bảng của một tháng cũng tính tại chỗ —
+// không có nút Tính, không Chốt, không Mở lại.
 import { authed, ApiError } from "./client";
 
 const P = "/api/tai-san";
@@ -17,32 +21,23 @@ export const NHAN_LOAI: Record<string, string> = {
   tscd: "Tài sản cố định",
   ccdc: "Công cụ dụng cụ",
 };
+// `da_giam` / `ghi_giam` chỉ còn ở DỮ LIỆU CŨ: chủ bỏ nghiệp vụ ghi giảm 08/09/2026 — món bán,
+// hỏng, không dùng nữa thì XOÁ khỏi sổ. Giữ nhãn để dòng cũ vẫn đọc được.
 export const NHAN_TRANG_THAI: Record<string, string> = {
   dang_dung: "Đang dùng",
   da_giam: "Đã ghi giảm",
 };
+// `nang_cap` là tên mã; màn hình gọi là "Sửa chữa lớn" (chủ 08/09/2026: "nâng cấp thực chất là
+// sửa chữa" — chỉ sửa chữa làm máy tốt hơn / dùng lâu hơn mới cộng vào nguyên giá).
 export const NHAN_BIEN_DONG: Record<string, string> = {
   dieu_chuyen: "Điều chuyển",
-  nang_cap: "Nâng cấp",
+  nang_cap: "Sửa chữa lớn",
   ghi_giam: "Ghi giảm",
 };
 export const NHAN_NGUON_VAO: Record<string, string> = {
   ghi_tang: "Mua mới / ghi tăng",
   dau_ky: "Số dư đầu kỳ",
 };
-export const NHAN_TRANG_THAI_KY: Record<string, string> = {
-  mo: "Đang mở",
-  da_chot: "Đã chốt",
-};
-/** Lý do ghi giảm — danh sách gợi ý, người dùng vẫn gõ được câu khác. */
-export const LY_DO_GHI_GIAM = [
-  "Thanh lý",
-  "Nhượng bán",
-  "Mất",
-  "Hỏng không sửa được",
-  "Góp vốn",
-] as const;
-
 /** Ngưỡng TSCĐ theo TT 45/2013 — CẢNH BÁO MỀM thôi, không chặn: ngưỡng do Bộ Tài chính đổi, mà
  *  phần mềm chặn cứng thì đúng ngày nó đổi là kế toán không ghi được tài sản nào. */
 export const NGUONG_TSCD = 30_000_000;
@@ -67,19 +62,30 @@ export interface TaiSanRow {
   so_thang_con: number;
   ngay_su_dung: string;
   moc_tu_ngay: string;
-  hao_mon_luy_ke: number;
   co_so_trich: number;
   nguon_vao: string;
+  /** Chỉ `dau_ky`: số mang sang lúc lên phần mềm — gốc của mọi con số, không đổi sau khi lưu. */
+  hao_mon_dau_ky: number;
+  thang_da_trich_dau_ky: number;
   bo_phan_id: number | null;
   bo_phan_ten: string | null;
+  /** Người quản lý = một nhân viên của bộ phận đang giữ (08/09/2026). `null` = chưa gán. */
+  nguoi_quan_ly_id: number | null;
+  /** Tên chụp từ hồ sơ nhân viên; dòng cũ có thể là chữ tự gõ. */
   nguoi_quan_ly: string | null;
+  /** Cột còn trong DB, form không hỏi nữa (bỏ 08/09/2026). */
   vi_tri: string | null;
   so_hoa_don: string | null;
+  /** Như `vi_tri`. */
   nha_cung_cap: string | null;
   ghi_chu: string | null;
   trang_thai: string;
   ngay_giam: string | null;
-  /** Nguyên giá − hao mòn lũy kế (chốt tại kỳ đã chốt gần nhất). */
+  /** Hao mòn lũy kế máy chủ TÍNH từ lịch, tới hết tháng `luy_ke_den`. Không ai chốt, không ai cộng. */
+  hao_mon_luy_ke: number;
+  /** "YYYY-MM" — tháng cuối đã gộp vào `hao_mon_luy_ke` (= tháng trước tháng hiện tại). */
+  luy_ke_den: string;
+  /** Nguyên giá − hao mòn lũy kế. */
   con_lai: number;
 }
 
@@ -95,9 +101,10 @@ export interface BienDong {
   created_at: string | null;
 }
 
+/** Một tháng trong lịch khấu hao của một tài sản. */
 export interface KhauHaoDong {
-  ky_nam: number;
-  ky_thang: number;
+  nam: number;
+  thang: number;
   muc_trich: number;
   luy_ke: number;
   con_lai: number;
@@ -106,9 +113,16 @@ export interface KhauHaoDong {
 export interface TaiSanChiTiet extends TaiSanRow {
   chi_phi: ChiPhi[];
   bien_dong: BienDong[];
+  /** Phần lịch đã vào lũy kế (tới hết tháng trước). Phần sắp tới xem `duKien`. */
   khau_hao: KhauHaoDong[];
-  /** Giá bán − giá trị còn lại của chứng từ ghi giảm mới nhất. `null` = chưa khai giá bán. */
-  chenh_lech_thanh_ly: number | null;
+}
+
+/** Một chuyện của tháng: nhãn ngắn (chip trên bảng) + câu đầy đủ (tooltip / ngăn chi tiết). */
+export interface SuKien {
+  /** `dau` | `dau_ky` | `nang_cap` | `bot` | `giam` | `chuyen` | `cuoi` — tô màu chip theo đây. */
+  loai: string;
+  nhan: string;
+  chi_tiet: string;
 }
 
 export interface DongDuKien {
@@ -116,76 +130,44 @@ export interface DongDuKien {
   thang: number;
   muc_trich: number;
   luy_ke: number;
+  /** Tháng ghi giảm = 0 (món đã ra khỏi sổ; giá trị lúc bỏ nằm trong sự kiện `giam`). */
   con_lai: number;
+  su_kien: SuKien[];
+  /** Các câu `chi_tiet` nối bằng "; " — chỗ nào chỉ cần một chuỗi. */
+  dien_giai: string | null;
 }
 
-export interface Ky {
-  ky_nam: number;
-  ky_thang: number;
-  trang_thai: string;
-  ngay_chot: string | null;
+/** Một nhân viên đang làm của bộ phận — để chọn làm người quản lý. */
+export interface NhanVienChon {
+  id: number;
+  code: string;
+  full_name: string;
 }
 
-export interface HangBangKy {
+export interface HangBangThang {
   tai_san_id: number;
   ma: string;
   ten: string;
   loai: string;
+  /** Lô CCDC còn mấy cái (TSCĐ = 1). */
+  so_luong: number;
   bo_phan_ten: string | null;
   nguyen_gia: number;
   muc_trich: number;
   luy_ke: number;
+  /** Tháng ghi giảm = 0 (món đã ra khỏi sổ). */
   con_lai: number;
+  su_kien: SuKien[];
+  /** Các câu `chi_tiet` nối bằng "; " (cột Diễn giải trên Excel); null nếu tháng bình thường. */
+  dien_giai: string | null;
 }
 
-/** Một lần chốt hoặc mở lại kỳ. `so_tien` là ĐỘ LỚN, hướng đọc nằm ở `hanh_dong`. */
-export interface VetKy {
-  id: number;
-  hanh_dong: "chot" | "mo";
-  so_tien: number;
-  so_mon: number;
-  nguoi_ten: string | null;
-  thoi_diem: string;
-}
-
-export interface BangKy {
+/** Bảng khấu hao một tháng — tính tại chỗ từ sổ, không có trạng thái chốt/mở. */
+export interface BangThang {
   nam: number;
   thang: number;
-  trang_thai: string;
   tong_muc_trich: number;
-  items: HangBangKy[];
-  lich_su: VetKy[];
-}
-
-export interface KiemKeDong {
-  id: number;
-  tai_san_id: number | null;
-  ma: string | null;
-  ten: string | null;
-  ket_qua: string | null;
-  ten_phat_hien: string | null;
-  tinh_trang: string | null;
-  ghi_chu: string | null;
-}
-
-export interface KiemKeRow {
-  id: number;
-  ma: string;
-  ngay: string;
-  bo_phan_id: number | null;
-  trang_thai: string;
-  ghi_chu: string | null;
-}
-
-export interface KiemKeChiTiet extends KiemKeRow {
-  dong: KiemKeDong[];
-}
-
-export interface KetQuaKiemKe {
-  /** Có trong sổ, đi kiểm không thấy. */
-  thieu: KiemKeDong[];
-  /** Thấy ở xưởng, không có trong sổ. */
-  thua: KiemKeDong[];
+  items: HangBangThang[];
 }
 
 export interface DanhSach<T> {
@@ -222,80 +204,40 @@ export const taiSanApi = {
   xoa(token: string, id: number): Promise<void> {
     return authed<void>(`${P}/${id}`, token, { method: "DELETE" });
   },
-  /** Bảng khấu hao DỰ KIẾN của một tài sản — xem trước, chưa ghi sổ kỳ nào. */
+  /** Lịch khấu hao trọn đời của một tài sản — đã qua lẫn sắp tới, mỗi tháng một dòng. */
   duKien(token: string, id: number): Promise<DongDuKien[]> {
     return authed<DongDuKien[]>(`${P}/${id}/du-kien`, token);
   },
-  /** Một cửa cho cả ba chứng từ điều chuyển · nâng cấp · ghi giảm (`loai` quyết định ô bắt buộc). */
+  /** Một cửa cho hai chứng từ điều chuyển · nâng cấp (`loai` quyết định ô bắt buộc). */
   bienDong(token: string, id: number, body: Record<string, unknown>): Promise<BienDong> {
     return authed<BienDong>(`${P}/${id}/bien-dong`, token, {
       method: "POST", body: JSON.stringify(body),
     });
   },
 
-  // ---- Kỳ khấu hao ----
-  dsKy(token: string): Promise<Ky[]> {
-    return authed<Ky[]>(`${P}/ky`, token);
+  /** Nhân viên đang làm của một bộ phận — đi qua quyền `tai_san.read`, không cần `nhan_su`. */
+  nhanVienBoPhan(token: string, boPhanId: number): Promise<NhanVienChon[]> {
+    return authed<NhanVienChon[]>(`${P}/nhan-vien?bo_phan_id=${boPhanId}`, token);
   },
-  /** ĐỌC bảng kỳ đã tính (không tính lại) — kỳ chưa tính thì trả bảng rỗng. */
-  bangKy(token: string, nam: number, thang: number): Promise<BangKy> {
-    return authed<BangKy>(`${P}/ky/${nam}/${thang}/bang`, token);
+
+  // ---- Bảng khấu hao tháng ----
+  /** Bảng của một tháng, máy chủ tính tại chỗ từ sổ. Hỏi lại lúc nào cũng ra đúng một số. */
+  bangThang(token: string, nam: number, thang: number): Promise<BangThang> {
+    return authed<BangThang>(`${P}/thang/${nam}/${thang}`, token);
   },
-  /** TÍNH LẠI kỳ: xoá dòng cũ rồi ghi lại. Bấm bao nhiêu lần cũng ra một kết quả — `hao_mon_luy_ke`
-   *  của tài sản KHÔNG nhúc nhích cho tới lúc chốt kỳ. */
-  tinhKy(token: string, nam: number, thang: number): Promise<BangKy> {
-    return authed<BangKy>(`${P}/ky/${nam}/${thang}/tinh`, token, { method: "POST" });
-  },
-  chotKy(token: string, nam: number, thang: number): Promise<Ky> {
-    return authed<Ky>(`${P}/ky/${nam}/${thang}/chot`, token, { method: "POST" });
-  },
-  moKy(token: string, nam: number, thang: number): Promise<Ky> {
-    return authed<Ky>(`${P}/ky/${nam}/${thang}/mo`, token, { method: "POST" });
-  },
-  /** Tải .xlsx bảng khấu hao kỳ. Trả blob URL — nơi gọi tự `revokeObjectURL` sau khi bấm tải. */
-  async excelKy(token: string, nam: number, thang: number): Promise<string> {
-    const resp = await fetch(`${BASE_URL}${P}/ky/${nam}/${thang}/excel`, {
+  /** Tải .xlsx bảng khấu hao tháng. Trả blob URL — nơi gọi tự `revokeObjectURL` sau khi bấm tải. */
+  async excelThang(token: string, nam: number, thang: number): Promise<string> {
+    const resp = await fetch(`${BASE_URL}${P}/thang/${nam}/${thang}/excel`, {
       credentials: "include",
       cache: "no-store",
       headers: { Authorization: `Bearer ${token}` },
     });
     if (resp.status === 401) {
-      // `refreshAccessToken` nằm private trong client.ts. Người dùng vừa bấm Tính xong mới bấm
-      // Xuất nên token hết hạn đúng lúc này là hiếm — nói thẳng để họ tải lại trang, hơn là im lặng
-      // trả về file 0 byte.
+      // `refreshAccessToken` nằm private trong client.ts. Token hết hạn đúng lúc bấm Xuất là hiếm
+      // — nói thẳng để họ tải lại trang, hơn là im lặng trả về file 0 byte.
       throw new ApiError("Phiên đăng nhập đã hết hạn. Tải lại trang rồi xuất lại.", 401);
     }
     if (!resp.ok) throw new ApiError(`Xuất Excel thất bại (${resp.status}).`, resp.status);
     return URL.createObjectURL(await resp.blob());
-  },
-
-  // ---- Kiểm kê ----
-  dsKiemKe(token: string, params: Record<string, unknown> = {}): Promise<DanhSach<KiemKeRow>> {
-    return authed<DanhSach<KiemKeRow>>(`${P}/kiem-ke${qs(params)}`, token);
-  },
-  chiTietKiemKe(token: string, dotId: number): Promise<KiemKeChiTiet> {
-    return authed<KiemKeChiTiet>(`${P}/kiem-ke/${dotId}`, token);
-  },
-  /** Tạo đợt = BUNG SẴN một dòng cho mỗi tài sản đang dùng trong phạm vi. Người kiểm chỉ tick. */
-  taoDotKiemKe(token: string, body: Record<string, unknown>): Promise<KiemKeChiTiet> {
-    return authed<KiemKeChiTiet>(`${P}/kiem-ke`, token, {
-      method: "POST", body: JSON.stringify(body),
-    });
-  },
-  ghiKetQua(
-    token: string, dotId: number, dongId: number, body: Record<string, unknown>,
-  ): Promise<KiemKeChiTiet> {
-    return authed<KiemKeChiTiet>(`${P}/kiem-ke/${dotId}/dong/${dongId}`, token, {
-      method: "PUT", body: JSON.stringify(body),
-    });
-  },
-  themPhatHien(token: string, dotId: number, body: Record<string, unknown>): Promise<KiemKeChiTiet> {
-    return authed<KiemKeChiTiet>(`${P}/kiem-ke/${dotId}/phat-hien`, token, {
-      method: "POST", body: JSON.stringify(body),
-    });
-  },
-  /** Kết thúc đợt (KHÔNG mở lại được) → trả về hai danh sách thiếu / thừa. */
-  ketThucKiemKe(token: string, dotId: number): Promise<KetQuaKiemKe> {
-    return authed<KetQuaKiemKe>(`${P}/kiem-ke/${dotId}/ket-thuc`, token, { method: "POST" });
   },
 };

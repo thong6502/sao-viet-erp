@@ -1,7 +1,7 @@
 /* Tài sản & CCDC — chỉ phần RIÊNG của màn này.
    Khung (head · toolbar · tab · bảng · drawer · ô nhập) tái dùng nguyên `rebuild-catalog.css`.
    Ở đây chỉ khai những khối bên đó không có: cột tiền, bảng dòng chi phí, bảng dự kiến, băng
-   khoá kỳ, nút tick kiểm kê. */
+   chip sự kiện, ngăn xem chi tiết. */
 
 .ts { max-width: 1360px; }
 
@@ -57,10 +57,6 @@
   background: var(--rule-hair, #f1f5f9);
   text-decoration: line-through;
 }
-.ts-badge--mo { color: var(--ash, #475569); background: var(--rule-hair, #f1f5f9); }
-.ts-badge--da_chot { color: var(--moss, #2f5d3a); background: var(--moss-soft, #dfeadf); }
-.ts-badge--da_ket { color: var(--ash-2, #94a3b8); background: var(--rule-hair, #f1f5f9); }
-.ts-badge--dang_kiem { color: var(--rust-deep, #8a3208); background: var(--rust-soft, #f6e2d6); }
 
 /* --- Bảng dòng cấu thành nguyên giá (trong dialog ghi tăng) -------------------
    Nguyên giá KHÔNG phải một ô gõ tay: nó là tổng của giá mua + vận chuyển + lắp đặt chạy thử.
@@ -146,10 +142,52 @@
 }
 .ts-dukien td:first-child { text-align: left; }
 .ts-dukien tr:last-child td { border-bottom: 0; }
+/* Tháng đã gộp vào hao mòn lũy kế (ngăn xem chi tiết) — in đậm để tách khỏi phần dự kiến. */
+.ts-dukien .ts-dukien__da td { font-weight: var(--fw-semibold, 600); }
+/* Tháng có chuyện (bớt cái, nâng cấp, ghi giảm…) — vạch đỏ bên trái, câu giải nghĩa ở `.ts-moc`. */
+.ts-dukien .ts-dukien__moc td:first-child { box-shadow: inset 3px 0 0 var(--rust, #c5400a); }
+.ts-moc {
+  margin: var(--sp-2, 8px) 0 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ash, #475569);
+}
+.ts-moc li + li { margin-top: 4px; }
 
-/* --- Thanh kỳ + băng khoá ----------------------------------------------------
-   Kỳ đã chốt phải nói NGAY trên đầu bảng, không nấp trong một badge nhỏ: chốt rồi mà tưởng chưa
-   thì kế toán ngồi tìm nút Tính không thấy. */
+/* Chip sự kiện dưới tên ở bảng tháng: nhãn ngắn, câu đầy đủ nằm ở tooltip / ngăn chi tiết.
+   Cả câu chèn vào bảng thì dòng cao gấp ba (chủ 08/09: "giao diện xấu"). */
+.ts-ten__sl { color: var(--ash-2, #94a3b8); font-weight: 400; }
+.ts-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.ts-chip {
+  display: inline-block;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  line-height: 18px;
+  white-space: nowrap;
+  color: var(--ash, #475569);
+  background: var(--paper, #fdfcf8);
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  cursor: help;
+}
+/* Dòng xem trước trong form Sửa chữa lớn: nguyên giá trước → sau, mức tháng mới. */
+.ts-xemtruoc {
+  padding: 8px 12px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--moss, #2f5d3a);
+  background: var(--moss-soft, #dfeadf);
+}
+.ts-chip--nang_cap { color: var(--moss, #2f5d3a); background: var(--moss-soft, #dfeadf); border-color: #c5dcc7; }
+
+/* Dòng bấm được ở sổ và ở bảng tháng (mở ngăn xem chi tiết + bảng khấu hao dự kiến). */
+.ts .rc__table tbody tr.ts-row--xem { cursor: pointer; }
+.ts .rc__table tbody tr.ts-row--xem:hover td { background: var(--paper, #fdfcf8); }
+
+/* --- Thanh chọn tháng của bảng khấu hao ---------------------------------------
+   Không còn kỳ chốt (08/09/2026): chỉ ô tháng, một câu chú thích, nút Xuất Excel. */
 .ts-kybar {
   display: flex;
   align-items: center;
@@ -158,100 +196,15 @@
   margin-bottom: var(--sp-3, 12px);
 }
 .ts-kybar__phai { margin-left: auto; display: flex; gap: var(--sp-2, 8px); flex-wrap: wrap; }
+.ts-kybar__chu { font-size: 12.5px; color: var(--ash-2, #94a3b8); }
 
-.ts-khoa {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 13px;
-  border-radius: 9px;
-  font-size: 12.5px;
-  margin-bottom: var(--sp-3, 12px);
-  color: var(--moss, #2f5d3a);
-  background: var(--moss-soft, #dfeadf);
-}
-
-/* Dòng TỔNG của bảng kỳ — đây là con số kế toán chép sang phần mềm kế toán, phải nổi hơn mọi dòng. */
+/* Dòng TỔNG của bảng tháng — đây là con số kế toán chép sang phần mềm kế toán, phải nổi hơn mọi dòng. */
 .ts-table__tong td {
   font-weight: var(--fw-semibold, 600);
   border-top: 2px solid var(--rule-soft, #e8e3d3);
   background: var(--paper, #fdfcf8);
 }
-
-/* --- Vết chốt / mở kỳ ---------------------------------------------------------
-   DANH SÁCH chứ không phải bảng: mỗi dòng là bốn mẩu tin ngắn, dựng thành bảng thì ba trong bốn
-   tiêu đề cột dài hơn chính dữ liệu nằm dưới nó. Nằm DƯỚI bảng khấu hao vì đây là thứ tra khi
-   có nghi vấn, không phải thứ đọc mỗi ngày. */
-.ts-vet { margin-top: var(--sp-4, 16px); }
-.ts-vet__de {
-  margin: 0 0 var(--sp-2, 8px);
-  font-size: 12.5px;
-  font-weight: var(--fw-semibold, 600);
-  color: var(--ink, #1f2937);
-}
-.ts-vet__chu { font-weight: 400; color: var(--ash-2, #94a3b8); }
-.ts-vet__ds {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border: 1px solid var(--rule-soft, #e8e3d3);
-  border-radius: 9px;
-  background: var(--paper, #fdfcf8);
-}
-.ts-vet__dong {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2, 8px);
-  padding: 8px 12px;
-  font-size: 12.5px;
-}
-.ts-vet__dong + .ts-vet__dong { border-top: 1px solid var(--rule-hair, #f1f5f9); }
-.ts-vet__tien { font-weight: var(--fw-semibold, 600); font-variant-numeric: tabular-nums; }
-.ts-vet__phu { color: var(--ash, #475569); }
-/* Đẩy người + thời điểm về phải bằng margin trên MỘT phần tử. `space-between` rải khoảng trống
-   đều vào mọi khe, hai mẩu bên phải bị tách rời nhau trông như hai cột lạc. */
-.ts-vet__nguoi { margin-left: auto; }
-
-/* --- Kiểm kê -----------------------------------------------------------------
-   Hai nút to trên từng dòng: người đi kiểm cầm máy tính bảng đứng giữa xưởng, không rê chuột
-   chọn dropdown được. */
-.ts-tick { display: inline-flex; gap: 5px; }
-.ts-tick__nut {
-  border: 1px solid var(--rule-soft, #e8e3d3);
-  background: var(--paper, #fdfcf8);
-  border-radius: 7px;
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: var(--fw-medium, 500);
-  cursor: pointer;
-  color: var(--ash, #475569);
-  white-space: nowrap;
-}
-.ts-tick__nut:hover:not(:disabled) { border-color: var(--ash-2, #94a3b8); }
-.ts-tick__nut:disabled { cursor: default; opacity: 0.55; }
-.ts-tick__nut.is-co { border-color: var(--moss, #2f5d3a); color: var(--moss, #2f5d3a); background: var(--moss-soft, #dfeadf); }
-.ts-tick__nut.is-khong { border-color: var(--signal-deep, #6b1717); color: var(--signal-deep, #6b1717); background: var(--signal-soft, #efd5d5); }
-
-/* Hai danh sách kết quả sau khi kết đợt */
-.ts-ketqua { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3, 12px); margin-bottom: var(--sp-4, 16px); }
-@media (max-width: 860px) { .ts-ketqua { grid-template-columns: 1fr; } }
-.ts-ketqua__o {
-  border: 1px solid var(--rule-soft, #e8e3d3);
-  border-radius: 10px;
-  padding: var(--sp-3, 12px);
-  background: var(--paper, #fdfcf8);
-}
-.ts-ketqua__title {
-  font-size: 12px;
-  font-weight: var(--fw-semibold, 600);
-  margin-bottom: 6px;
-}
-.ts-ketqua__title--thieu { color: var(--signal-deep, #6b1717); }
-.ts-ketqua__title--thua { color: var(--rust-deep, #8a3208); }
-.ts-ketqua__ds { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.7; }
-.ts-ketqua__rong { font-size: 12.5px; color: var(--ash-2, #94a3b8); }
-
-/* Tab của dialog biến động — ba chế độ, mỗi lúc một khung. */
+/* Tab của dialog biến động — hai chế độ (điều chuyển · sửa chữa lớn), mỗi lúc một khung. */
 .ts-mode { display: flex; gap: 6px; margin-bottom: var(--sp-3, 12px); flex-wrap: wrap; }
 .ts-mode__nut {
   border: 1px solid var(--rule-soft, #e8e3d3);
@@ -289,8 +242,8 @@
    Khung nội dung trên màn 1280 chỉ có 986px, tức luôn thiếu — và thứ bị bóp là cột KHÔNG khai
    bề ngang, chính là cột Tên. Cho bảng một cái sàn rồi cuộn ngang trong `.rc__tablewrap` (khung
    này vốn đã `overflow: auto`) thì mọi cột giữ đúng phần của nó; màn ≥1600px vẫn phủ kín 100%
-   theo đúng tỷ lệ đã khai. Chỉ áp cho sổ tài sản: bảng kỳ (7 cột) và bảng kiểm kê (4 cột) còn
-   thừa chỗ, thêm sàn vào là bắt cuộn ngang vô cớ. */
+   theo đúng tỷ lệ đã khai. Chỉ áp cho sổ tài sản: bảng tháng (7 cột) còn thừa chỗ, thêm sàn vào
+   là bắt cuộn ngang vô cớ. */
 @media screen and (min-width: 1025px) {
   .ts .ts-table--so { min-width: 1180px; }
 }
@@ -311,12 +264,17 @@
    • Cột Tên nhận đúng 96px trong khi bảng đã rộng 967px và vốn đã cuộn ngang — "Máy in Komori 4
      màu (LS440)" rơi bốn dòng, dòng bảng cao 153px, cuộn mãi mới hết hai món.
    • Cột Thao tác không mang lớp `.rc__actcol` nên dính `white-space: normal` của §11: BA nút
-     icon dựng đứng thành cột, chính là thứ đẩy dòng lên 153px.
-   • Ô Tình trạng của kiểm kê là ô GÕ CHỮ trong 96px — người đi kiểm không đọc được mình vừa gõ
-     gì, mà đây là câu giải thích vì sao món đó không thấy. */
+     icon dựng đứng thành cột, chính là thứ đẩy dòng lên 153px. */
+/* --- Lưới form trong ngăn kéo ở 769–860px ----------------------------------
+   Một rule `.rc-grid { grid-template-columns: 1fr }` KHÔNG scope của trang khác đè lưới về một
+   cột trong dải này, nhưng `.rc-field--full` vẫn `span 2` ⇒ sinh cột ngầm: ô "Ngày chứng từ" của
+   hộp Biến động bị bóp về 0px, ô "Bộ phận nhận" chiếm trọn hàng. Khớp lại cho ngăn kéo của module. */
+@media screen and (max-width: 860px) {
+  .ts .rc-field--full { grid-column: span 1; }
+}
+
 @media screen and (max-width: 1024px) {
   .ts .rc__table :is(th, td).ts-col-ten { min-width: 200px; }
-  .ts .rc__table :is(th, td).ts-col-tinhtrang { min-width: 170px; }
   .ts .rc__table :is(th, td).ts-actcol { white-space: nowrap; }
 }
 
@@ -367,17 +325,10 @@
   .ts-bd__dong { flex-wrap: wrap; }
   .ts-bd__ly-do { flex: 1 1 100%; }
 
-  /* --- Vết chốt / mở kỳ ----------------------------------------------------
-     Bốn mẩu tin không nằm vừa một hàng 375px. Cho xuống hàng và BỎ luôn cú đẩy sang phải: đẩy
-     trong lúc wrap thì thời điểm rơi xuống một mình, hàng trên hở một khoảng trống giữa chừng. */
-  .ts-vet__dong { flex-wrap: wrap; }
-  .ts-vet__nguoi { margin-left: 0; }
 }
 
 /* --- Màn cảm ứng: nút phải đủ to để chạm ------------------------------------
-   Người đi kiểm kê cầm máy tính bảng đứng giữa xưởng. Hai nút Có / Không thấy cao 28px là cỡ
-   cho con trỏ chuột, không phải cho đầu ngón tay. */
+   Nút xoá dòng chi phí cao 28px là cỡ cho con trỏ chuột, không phải cho đầu ngón tay. */
 @media (hover: none) {
-  .ts-tick__nut { padding: 9px 14px; }
   .ts-chiphi__x { padding: 9px; }
 }

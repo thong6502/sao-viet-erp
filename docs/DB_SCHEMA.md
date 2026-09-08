@@ -6167,18 +6167,22 @@ giờ lệch với nhật ký. Router (`routers/catalog_base.make_catalog_router
 
 ## Tài sản cố định & Công cụ dụng cụ (kế toán)
 
-Sổ tài sản của phòng Kế toán: ghi tăng → trích khấu hao/phân bổ theo tháng có chốt kỳ → ba chứng
-từ biến động (điều chuyển · nâng cấp · ghi giảm) → kiểm kê. Bảy bảng, tất cả MỚI ⇒ `create_all`
-tự dựng; mg `0277` cấp QUYỀN cho vai đã có trên DB live, mg `0278` gỡ cột `ghi_chu_hach_toan`.
+Sổ tài sản của phòng Kế toán: ghi tăng → bảng khấu hao/phân bổ từng tháng (tính tại chỗ, KHÔNG
+chốt kỳ) → hai chứng từ biến động (điều chuyển · nâng cấp; ghi giảm đã bỏ 08/09/2026 — món không dùng nữa thì xoá) . Bốn bảng (kiểm kê bỏ 08/09/2026, mg `0283`), tất cả
+MỚI ⇒ `create_all` tự dựng; mg `0277` cấp QUYỀN cho vai đã có trên DB live, mg `0278` gỡ cột
+`ghi_chu_hach_toan`, mg `0281` gỡ ba bảng kỳ (`tai_san_khau_hao`, `tai_san_ky`, `tai_san_ky_log`)
++ cột `tai_san.hao_mon_luy_ke` và dựng mốc cho tài sản đã có.
 
 Hai điểm thiết kế cần nhớ khi đọc nhóm bảng này:
 
 - **KHÔNG có cột tài khoản kế toán, cũng không còn cột định khoản riêng.** `ghi_chu_hach_toan`
   đã gỡ ở mg `0278` — hai ô ghi chú cạnh nhau mà hệ không đọc ô nào chỉ làm người nhập phân vân.
   Còn MỘT ô `tai_san.ghi_chu`, chữ tự do, muốn ghi định khoản vào đó cũng được.
-- **Bộ ba `co_so_trich` / `so_thang_con` / `moc_tu_ngay`** trên `tai_san` là đầu vào DUY NHẤT của
-  engine khấu hao (`services/tai_san/khau_hao.py`). Nạp đầu kỳ, ghi tăng, nâng cấp và CCDC giảm
-  một phần lô đều quy về bộ ba đó, nên engine không cần biết tài sản đến từ đường nào.
+- **KHÔNG có kỳ chốt, không có cột hao mòn lũy kế** (chủ chốt 08/09/2026: "nó chỉ theo dõi khấu
+  hao thôi"). Engine (`services/tai_san/khau_hao.py`) đọc bảng mốc `tai_san_moc` và TÍNH lũy kế
+  tới hết tháng trước; mỗi lần cơ sở trích đổi (ghi tăng, nạp đầu kỳ, nâng cấp, CCDC giảm bớt
+  cái) là thêm một mốc, mốc cũ giữ nguyên. Bộ ba `co_so_trich` / `so_thang_con` / `moc_tu_ngay`
+  trên `tai_san` chỉ là GƯƠNG của mốc hiện tại để bảng và form đọc thẳng.
 
 ### `tai_san`
 
@@ -6199,18 +6203,18 @@ su = 1 dòng, `so_luong` = 12). Phân biệt bằng `loai`, KHÔNG tách bảng 
 | `co_so_trich`           | `BigInteger` → `BIGINT`                                | —                            | no   | `0`            | Số tiền CÒN PHẢI TRÍCH tính từ `moc_tu_ngay`.                                                 |
 | `so_thang_con`          | `Integer` → `INTEGER`                                  | —                            | no   | `0`            | Số tháng còn phải trích kể từ `moc_tu_ngay`.                                                  |
 | `moc_tu_ngay`           | `Date` → `DATE`                                        | —                            | no   | —              | Ngày bắt đầu áp bộ cơ sở hiện tại (ghi tăng ⇒ ngày sử dụng; nâng cấp ⇒ đầu kỳ áp dụng).       |
-| `hao_mon_luy_ke`        | `BigInteger` → `BIGINT`                                | —                            | no   | `0`            | Hao mòn đã trích tới nay. CHỈ cộng lúc CHỐT kỳ, không cộng lúc tính thử.                      |
 | `nguon_vao`             | `String(8)` → `VARCHAR(8)`                             | —                            | no   | `ghi_tang`     | `ghi_tang` (mua mới) \| `dau_ky` (số dư mang sang lúc lên phần mềm).                          |
 | `hao_mon_dau_ky`        | `BigInteger` → `BIGINT`                                | —                            | no   | `0`            | Hao mòn đã trích TRƯỚC khi lên phần mềm (chỉ `nguon_vao='dau_ky'`).                           |
 | `thang_da_trich_dau_ky` | `Integer` → `INTEGER`                                  | —                            | no   | `0`            | Số tháng đã trích trước khi lên phần mềm.                                                     |
 | `bo_phan_id`            | `Integer` → `INTEGER`                                  | FK→`departments.id`, **IX**  | yes  | —              | Bộ phận đang giữ. `ON DELETE SET NULL`.                                                       |
-| `nguoi_quan_ly`         | `String(255)` → `VARCHAR(255)`                         | —                            | yes  | —              | Người phụ trách — chữ tự do, không FK sang `employees`.                                       |
-| `vi_tri`                | `String(255)` → `VARCHAR(255)`                         | —                            | yes  | —              | Vị trí đặt (xưởng/phòng).                                                                     |
+| `nguoi_quan_ly_id`      | `Integer` → `INTEGER`                                  | FK→`employees.id`            | yes  | —              | Người quản lý = MỘT nhân viên của bộ phận đang giữ (mg `0282`, 08/09/2026). `ON DELETE SET NULL`. Đổi bộ phận mà không chọn người mới ⇒ NULL. |
+| `nguoi_quan_ly`         | `String(255)` → `VARCHAR(255)`                         | —                            | yes  | —              | Tên chụp lại lúc chọn nhân viên (bảng đọc thẳng, khỏi join); dòng cũ trước 08/09 còn chữ tự gõ thì hiện nguyên. |
+| `vi_tri`                | `String(255)` → `VARCHAR(255)`                         | —                            | yes  | —              | Vị trí đặt — form không hỏi nữa từ 08/09/2026, cột giữ nguyên.                                                                     |
 | `so_hoa_don`            | `String(64)` → `VARCHAR(64)`                           | —                            | yes  | —              | Số hoá đơn mua.                                                                               |
-| `nha_cung_cap`          | `String(255)` → `VARCHAR(255)`                         | —                            | yes  | —              | Nhà cung cấp — chữ tự do, KHÔNG FK sang `suppliers` (tài sản có thể mua ngoài danh mục NCC).  |
+| `nha_cung_cap`          | `String(255)` → `VARCHAR(255)`                         | —                            | yes  | —              | Nhà cung cấp — chữ tự do, không FK. Form không hỏi nữa từ 08/09/2026, cột giữ nguyên.  |
 | `ghi_chu`               | `Text` → `TEXT`                                        | —                            | yes  | —              | Ghi chú tự do — kể cả định khoản. Hệ KHÔNG đọc nội dung.                                      |
-| `trang_thai`            | `String(12)` → `VARCHAR(12)`                           | **IX**                       | no   | `dang_dung`    | `dang_dung` \| `da_giam`.                                                                     |
-| `ngay_giam`             | `Date` → `DATE`                                        | —                            | yes  | —              | Ngày ghi giảm — engine ngừng trích từ đây (tháng chứa nó tính theo số ngày dùng).             |
+| `trang_thai`            | `String(12)` → `VARCHAR(12)`                           | **IX**                       | no   | `dang_dung`    | `dang_dung`; `da_giam` chỉ còn ở dòng CŨ (nghiệp vụ ghi giảm bỏ 08/09/2026).                                                                     |
+| `ngay_giam`             | `Date` → `DATE`                                        | —                            | yes  | —              | Chỉ dòng CŨ đã ghi giảm trước 08/09/2026 — engine vẫn ngừng trích từ đây; không mã nào ghi vào cột này nữa. |
 | `created_by_user_id`    | `Integer` → `INTEGER`                                  | FK→`users.id`                | yes  | —              | Người lập phiếu ghi tăng. `ON DELETE SET NULL`.                                               |
 | `created_at`            | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                            | no   | now (UTC)      | Lúc tạo.                                                                                      |
 | `updated_at`            | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                            | no   | now (UTC)      | Lúc sửa gần nhất.                                                                             |
@@ -6218,16 +6222,18 @@ su = 1 dòng, `so_luong` = 12). Phân biệt bằng `loai`, KHÔNG tách bảng 
 **Keys & indexes**
 
 - Primary key: `id`. Unique + index: `ma`. Index: `loai`, `trang_thai`, `bo_phan_id`.
-- Foreign keys: `bo_phan_id FK→departments.id` (SET NULL), `created_by_user_id FK→users.id` (SET NULL).
+- Foreign keys: `bo_phan_id FK→departments.id` (SET NULL), `nguoi_quan_ly_id FK→employees.id` (SET NULL),
+  `created_by_user_id FK→users.id` (SET NULL).
 
 **Relationships**
 
 - 1 `tai_san` ⇢ n `tai_san_chi_phi` (cascade delete), n `tai_san_bien_dong` (RESTRICT — còn chứng
-  từ thì không xoá được tài sản), n `tai_san_khau_hao` (cascade delete).
+  từ thì không xoá được tài sản), n `tai_san_moc` (cascade delete — mốc là hệ quả của chứng từ).
 
 **Tất cả cột:** `id`, `ma`, `ten`, `loai`, `so_luong`, `don_gia`, `nguyen_gia`, `so_thang`,
-`ngay_su_dung`, `co_so_trich`, `so_thang_con`, `moc_tu_ngay`, `hao_mon_luy_ke`, `nguon_vao`,
-`hao_mon_dau_ky`, `thang_da_trich_dau_ky`, `bo_phan_id`, `nguoi_quan_ly`, `vi_tri`, `so_hoa_don`,
+`ngay_su_dung`, `co_so_trich`, `so_thang_con`, `moc_tu_ngay`, `nguon_vao`,
+`hao_mon_dau_ky`, `thang_da_trich_dau_ky`, `bo_phan_id`, `nguoi_quan_ly_id`, `nguoi_quan_ly`, `vi_tri`,
+`so_hoa_don`,
 `nha_cung_cap`, `ghi_chu`, `trang_thai`, `ngay_giam`, `created_by_user_id`,
 `created_at`, `updated_at`.
 
@@ -6259,19 +6265,19 @@ giải thích 3,3 tỷ đến từ đâu — cộng lại đúng bằng `tai_san
 
 ### `tai_san_bien_dong`
 
-**Purpose:** một chứng từ biến động — điều chuyển · nâng cấp · ghi giảm. MỘT bảng chứ không ba:
+**Purpose:** một chứng từ biến động — điều chuyển · nâng cấp (màn hình gọi là "Sửa chữa lớn": chỉ sửa chữa làm tăng năng lực / kéo dài tuổi thọ mới ghi tăng nguyên giá; ghi giảm đã bỏ 08/09/2026, dòng cũ vẫn còn). MỘT bảng chứ không ba:
 ba nghiệp vụ dùng chung phần lớn cột và luôn được đọc chung ở tab lịch sử; cột riêng để NULL.
 
 | Column              | Type (SQLAlchemy → SQLite / Postgres)                 | Key                      | Null | Default        | Meaning                                                                 |
 | ------------------- | ----------------------------------------------------- | ------------------------ | ---- | -------------- | ------------------------------------------------------------------------ |
 | `id`                | `Integer` → `INTEGER` / `SERIAL`                       | **PK**                   | no   | auto-increment | Surrogate primary key.                                                    |
 | `tai_san_id`        | `Integer` → `INTEGER`                                  | FK→`tai_san.id`, **IX**  | no   | —              | Tài sản bị tác động. `ON DELETE RESTRICT`.                               |
-| `loai`              | `String(16)` → `VARCHAR(16)`                           | **IX**                   | no   | —              | `dieu_chuyen` \| `nang_cap` \| `ghi_giam`.                               |
+| `loai`              | `String(16)` → `VARCHAR(16)`                           | **IX**                   | no   | —              | `dieu_chuyen` \| `nang_cap`; `ghi_giam` chỉ ở dòng cũ.                               |
 | `ngay`              | `Date` → `DATE`                                        | **IX**                   | no   | —              | Ngày chứng từ — rơi vào kỳ đã chốt thì bị chặn.                          |
-| `so_tien`           | `BigInteger` → `BIGINT`                                | —                        | yes  | —              | nâng cấp ⇒ chi phí; ghi giảm ⇒ giá bán/thu hồi; điều chuyển ⇒ NULL.       |
+| `so_tien`           | `BigInteger` → `BIGINT`                                | —                        | yes  | —              | nâng cấp ⇒ chi phí nâng cấp; điều chuyển ⇒ NULL (dòng ghi giảm cũ: giá bán). |
 | `bo_phan_moi_id`    | `Integer` → `INTEGER`                                  | FK→`departments.id`      | yes  | —              | Chỉ điều chuyển: bộ phận nhận. `ON DELETE SET NULL`.                     |
 | `so_thang_con_lai`  | `Integer` → `INTEGER`                                  | —                        | yes  | —              | Chỉ nâng cấp: số tháng còn dùng kể từ kỳ áp dụng.                        |
-| `so_luong_giam`     | `Integer` → `INTEGER`                                  | —                        | yes  | —              | Chỉ ghi giảm CCDC theo lô: bỏ mấy cái trong lô.                          |
+| `so_luong_giam`     | `Integer` → `INTEGER`                                  | —                        | yes  | —              | Chỉ dòng ghi giảm CŨ theo lô (nghiệp vụ đã bỏ). |
 | `ly_do`             | `String(255)` → `VARCHAR(255)`                         | —                        | yes  | —              | Lý do (thanh lý, nhượng bán, mất, hỏng, góp vốn…).                       |
 | `nguoi_tao_id`      | `Integer` → `INTEGER`                                  | FK→`users.id`            | yes  | —              | Người lập. `ON DELETE SET NULL`.                                         |
 | `created_at`        | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                        | no   | now (UTC)      | Lúc lập.                                                                  |
@@ -6291,157 +6297,42 @@ ba nghiệp vụ dùng chung phần lớn cột và luôn được đọc chung 
 
 ---
 
-### `tai_san_khau_hao`
+### `tai_san_moc`
 
-**Purpose:** số trích của MỘT tài sản trong MỘT kỳ. Kỳ chưa chốt thì tính lại = xoá dòng cũ rồi
-ghi lại (không cộng dồn); kỳ đã chốt thì đóng băng.
+**Purpose:** một đoạn cơ sở trích của tài sản — hiệu lực từ `tu_ngay` tới trước mốc kế tiếp. Đây
+là ĐẦU VÀO của engine khấu hao (`services/tai_san/khau_hao.py`): ghi tăng / nạp đầu kỳ đẻ mốc
+đầu; nâng cấp và CCDC giảm một phần lô đẻ mốc MỚI, mốc cũ giữ nguyên nên tháng trước mốc mới vẫn
+tính theo cơ sở cũ (trước 08/09/2026 bộ ba trên `tai_san` bị ghi đè tại chỗ ⇒ tháng nâng cấp
+trích 0, tháng trước đó về 0 khi tính lại). Sửa ô số khi CHƯA có chứng từ thì dựng lại mốc duy
+nhất. Không ai sửa tay từng mốc — mốc là hệ quả của chứng từ. Thay cho `tai_san_khau_hao` /
+`tai_san_ky` / `tai_san_ky_log` (gỡ ở mg `0281`): hao mòn lũy kế KHÔNG lưu, hỏi lúc nào cũng
+tính lại từ đây tới hết tháng trước.
 
-| Column              | Type (SQLAlchemy → SQLite / Postgres) | Key                     | Null | Default        | Meaning                                                              |
-| ------------------- | ------------------------------------- | ----------------------- | ---- | -------------- | --------------------------------------------------------------------- |
-| `id`                | `Integer` → `INTEGER` / `SERIAL`      | **PK**                  | no   | auto-increment | Surrogate primary key.                                                 |
-| `tai_san_id`        | `Integer` → `INTEGER`                 | FK→`tai_san.id`, **IX** | no   | —              | Tài sản. `ON DELETE CASCADE`.                                          |
-| `ky_nam`            | `Integer` → `INTEGER`                 | **U** (bộ ba)           | no   | —              | Năm của kỳ.                                                            |
-| `ky_thang`          | `Integer` → `INTEGER`                 | **U** (bộ ba)           | no   | —              | Tháng của kỳ (1–12).                                                   |
-| `muc_trich`         | `BigInteger` → `BIGINT`               | —                       | no   | `0`            | Số trích riêng kỳ này.                                                 |
-| `luy_ke`            | `BigInteger` → `BIGINT`               | —                       | no   | `0`            | Hao mòn lũy kế SAU kỳ này.                                             |
-| `con_lai`           | `BigInteger` → `BIGINT`               | —                       | no   | `0`            | Giá trị còn lại sau kỳ này.                                            |
-| `bo_phan_id`        | `Integer` → `INTEGER`                 | FK→`departments.id`     | yes  | —              | Bộ phận chịu chi phí — CHỤP lúc tính (tài sản có thể điều chuyển sau). |
-
-**Keys & indexes**
-
-- Primary key: `id`. Index: `tai_san_id`.
-- Unique: `uq_tai_san_khau_hao_ky` trên (`tai_san_id`, `ky_nam`, `ky_thang`) — chặn tính hai lần
-  cộng dồn thành số gấp đôi.
-- Foreign keys: `tai_san_id FK→tai_san.id` (CASCADE), `bo_phan_id FK→departments.id` (SET NULL).
-
-**Relationships**
-
-- Nhiều `tai_san_khau_hao` thuộc một `tai_san`; nhóm theo (`ky_nam`, `ky_thang`) ra bảng khấu hao kỳ.
-
-**Tất cả cột:** `id`, `tai_san_id`, `ky_nam`, `ky_thang`, `muc_trich`, `luy_ke`, `con_lai`,
-`bo_phan_id`.
-
----
-
-### `tai_san_ky`
-
-**Purpose:** trạng thái một kỳ khấu hao. Chốt rồi thì mọi số của kỳ đó đóng băng: không tính lại,
-không sửa ô ảnh hưởng sổ, không lập chứng từ ngày trong kỳ. Cùng ý với `kho_khoa_so` /
-`cong_no_khoa_so` nhưng bảng này chỉ giữ TRẠNG THÁI HIỆN TẠI — kỳ là tháng rời rạc nên một dòng
-một kỳ là đủ; lịch sử chốt/mở nằm ở `tai_san_ky_log`.
-
-| Column          | Type (SQLAlchemy → SQLite / Postgres)                 | Key           | Null | Default        | Meaning                        |
-| --------------- | ----------------------------------------------------- | ------------- | ---- | -------------- | ------------------------------ |
-| `id`            | `Integer` → `INTEGER` / `SERIAL`                       | **PK**        | no   | auto-increment | Surrogate primary key.         |
-| `ky_nam`        | `Integer` → `INTEGER`                                  | **U** (cặp)   | no   | —              | Năm.                           |
-| `ky_thang`      | `Integer` → `INTEGER`                                  | **U** (cặp)   | no   | —              | Tháng (1–12).                  |
-| `trang_thai`    | `String(8)` → `VARCHAR(8)`                             | —             | no   | `mo`           | `mo` \| `da_chot`.             |
-| `ngay_chot`     | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —             | yes  | —              | Lúc chốt.                      |
-| `nguoi_chot_id` | `Integer` → `INTEGER`                                  | FK→`users.id` | yes  | —              | Người chốt. `ON DELETE SET NULL`. |
+| Column         | Type (SQLAlchemy → SQLite / Postgres)                 | Key                     | Null | Default        | Meaning                                                                                  |
+| -------------- | ----------------------------------------------------- | ----------------------- | ---- | -------------- | ---------------------------------------------------------------------------------------- |
+| `id`           | `Integer` → `INTEGER` / `SERIAL`                       | **PK**                  | no   | auto-increment | Surrogate primary key.                                                                     |
+| `tai_san_id`   | `Integer` → `INTEGER`                                  | FK→`tai_san.id`, **IX** | no   | —              | Tài sản. `ON DELETE CASCADE`.                                                              |
+| `tu_ngay`      | `Date` → `DATE`                                        | —                       | no   | —              | Từ ngày này áp cơ sở dưới. Không rơi vào ngày 1 thì tháng đó prorate theo ngày.            |
+| `nguyen_gia`   | `BigInteger` → `BIGINT`                                | —                       | no   | `0`            | Nguyên giá lúc mốc bắt đầu (sau nâng cấp / sau rút phần lô đã bỏ).                         |
+| `co_so_trich`  | `BigInteger` → `BIGINT`                                | —                       | no   | `0`            | Số tiền còn phải trích kể từ `tu_ngay` = `nguyen_gia − luy_ke_dau`.                        |
+| `so_thang_con` | `Integer` → `INTEGER`                                  | —                       | no   | `0`            | Số tháng chia đều `co_so_trich` (mức tròn tháng = `co_so_trich // so_thang_con`).          |
+| `luy_ke_dau`   | `BigInteger` → `BIGINT`                                | —                       | no   | `0`            | Hao mòn lũy kế ngay TRƯỚC mốc (đã điều chỉnh). Mốc đầu của tài sản mua mới = 0.            |
+| `nguon`        | `String(16)` → `VARCHAR(16)`                           | —                       | no   | —              | `ghi_tang` \| `dau_ky` \| `nang_cap` \| `giam_lo` (chỉ dòng cũ, ghi giảm đã bỏ) \| `sua` — việc gì đẻ ra mốc.          |
+| `created_at`   | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                       | no   | now (UTC)      | Lúc tạo.                                                                                   |
 
 **Keys & indexes**
 
-- Primary key: `id`. Unique: `uq_tai_san_ky` trên (`ky_nam`, `ky_thang`).
-- Foreign key: `nguoi_chot_id FK→users.id` (SET NULL).
+- Primary key: `id`. Index: `tai_san_id`. Foreign key: `tai_san_id FK→tai_san.id` (CASCADE).
+- KHÔNG unique (`tai_san_id`, `tu_ngay`): ghi tăng ngày 1 rồi nâng cấp đúng ngày đó là hai mốc
+  cùng `tu_ngay` — mốc sau (`id` lớn hơn) thắng.
 
 **Relationships**
 
-- Không FK sang `tai_san_khau_hao`; nối logic theo cặp (`ky_nam`, `ky_thang`).
-- Một `tai_san_ky` có n `tai_san_ky_log` (nối theo cặp `ky_nam`/`ky_thang`, không FK).
+- Nhiều `tai_san_moc` thuộc một `tai_san`; đọc theo (`tu_ngay`, `id`). Mg `0281` dựng một mốc
+  cho mỗi tài sản đã có trước đó (lũy kế đầu = `nguyen_gia − co_so_trich`).
 
-**Tất cả cột:** `id`, `ky_nam`, `ky_thang`, `trang_thai`, `ngay_chot`, `nguoi_chot_id`.
-
----
-
-### `tai_san_ky_log`
-
-**Purpose:** vết CHỐT / MỞ LẠI kỳ khấu hao — APPEND-ONLY, không sửa không xoá. `tai_san_ky` chỉ
-giữ trạng thái hiện tại: mở lại kỳ là `ngay_chot`/`nguoi_chot_id` về NULL, lần chốt trước mất
-sạch. Chốt và mở lại là hai thao tác DUY NHẤT làm `tai_san.hao_mon_luy_ke` nhúc nhích, nên mất
-vết là mất câu trả lời cho "tháng 9 ai chốt, chốt bao nhiêu, sao giờ số khác". Cùng vai với
-`kho_khoa_so` bên báo cáo kho.
-
-| Column      | Type (SQLAlchemy → SQLite / Postgres)                 | Key           | Null | Default        | Meaning                                              |
-| ----------- | ----------------------------------------------------- | ------------- | ---- | -------------- | ---------------------------------------------------- |
-| `id`        | `Integer` → `INTEGER` / `SERIAL`                       | **PK**        | no   | auto-increment | Surrogate primary key.                                |
-| `ky_nam`    | `Integer` → `INTEGER`                                  | **IX** (cặp)  | no   | —              | Năm của kỳ.                                           |
-| `ky_thang`  | `Integer` → `INTEGER`                                  | **IX** (cặp)  | no   | —              | Tháng của kỳ (1–12).                                  |
-| `hanh_dong` | `String(8)` → `VARCHAR(8)`                             | —             | no   | —              | `chot` \| `mo`.                                       |
-| `so_tien`   | `BigInteger` → `BIGINT`                                | —             | no   | `0`            | ĐỘ LỚN (≥ 0) đã cộng vào / trừ ra khỏi hao mòn lũy kế tại đúng lúc bấm. Hướng đọc ở `hanh_dong`. |
-| `so_mon`    | `Integer` → `INTEGER`                                  | —             | no   | `0`            | Số tài sản có số trong kỳ lúc đó.                     |
-| `nguoi_id`  | `Integer` → `INTEGER`                                  | FK→`users.id` | yes  | —              | Người bấm. `ON DELETE SET NULL`.                      |
-| `thoi_diem` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —             | no   | now (UTC)      | Lúc bấm.                                              |
-
-**Keys & indexes**
-
-- Primary key: `id`. Index: `ix_tai_san_ky_log_ky` trên (`ky_nam`, `ky_thang`) — màn hình luôn
-  đọc vết theo MỘT kỳ.
-- Foreign key: `nguoi_id FK→users.id` (SET NULL) — xoá tài khoản thì vết vẫn còn, chỉ mất tên.
-- KHÔNG unique: chốt rồi mở rồi chốt lại cùng một kỳ là chuyện bình thường, mỗi lần một dòng.
-
-**Relationships**
-
-- Nhiều `tai_san_ky_log` thuộc một kỳ; nối logic với `tai_san_ky` theo cặp (`ky_nam`, `ky_thang`).
-
-**Tất cả cột:** `id`, `ky_nam`, `ky_thang`, `hanh_dong`, `so_tien`, `so_mon`, `nguoi_id`,
-`thoi_diem`.
-
----
-
-### `tai_san_kiem_ke`
-
-**Purpose:** một đợt kiểm kê — bung danh sách phải có, đối chiếu tay, ra thiếu/thừa. Mức tối giản:
-KHÔNG có QR, không quét điện thoại, không ký duyệt nhiều cấp.
-
-| Column         | Type (SQLAlchemy → SQLite / Postgres)                 | Key                 | Null | Default        | Meaning                          |
-| -------------- | ----------------------------------------------------- | ------------------- | ---- | -------------- | -------------------------------- |
-| `id`           | `Integer` → `INTEGER` / `SERIAL`                       | **PK**              | no   | auto-increment | Surrogate primary key.           |
-| `ma`           | `String(32)` → `VARCHAR(32)`                           | **U**               | no   | —              | Mã đợt hệ sinh (`KK-0001`).      |
-| `ngay`         | `Date` → `DATE`                                        | —                   | no   | —              | Ngày kiểm kê.                    |
-| `bo_phan_id`   | `Integer` → `INTEGER`                                  | FK→`departments.id` | yes  | —              | NULL = kiểm toàn công ty. `ON DELETE SET NULL`. |
-| `trang_thai`   | `String(12)` → `VARCHAR(12)`                           | —                   | no   | `dang_kiem`    | `dang_kiem` \| `da_ket`.         |
-| `ghi_chu`      | `Text` → `TEXT`                                        | —                   | yes  | —              | Ghi chú đợt.                     |
-| `nguoi_tao_id` | `Integer` → `INTEGER`                                  | FK→`users.id`       | yes  | —              | Người lập. `ON DELETE SET NULL`. |
-| `created_at`   | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                   | no   | now (UTC)      | Lúc tạo.                         |
-
-**Keys & indexes**
-
-- Primary key: `id`. Unique: `ma`.
-- Foreign keys: `bo_phan_id FK→departments.id` (SET NULL), `nguoi_tao_id FK→users.id` (SET NULL).
-
-**Relationships**
-
-- 1 `tai_san_kiem_ke` ⇢ n `tai_san_kiem_ke_dong` (cascade delete).
-
-**Tất cả cột:** `id`, `ma`, `ngay`, `bo_phan_id`, `trang_thai`, `ghi_chu`, `nguoi_tao_id`, `created_at`.
-
----
-
-### `tai_san_kiem_ke_dong`
-
-**Purpose:** một dòng đối chiếu của đợt kiểm kê. `tai_san_id` NULL = món PHÁT HIỆN ngoài sổ (thừa);
-`ket_qua='khong_thay'` = thiếu.
-
-| Column          | Type (SQLAlchemy → SQLite / Postgres) | Key                            | Null | Default        | Meaning                                        |
-| --------------- | ------------------------------------- | ------------------------------ | ---- | -------------- | ---------------------------------------------- |
-| `id`            | `Integer` → `INTEGER` / `SERIAL`      | **PK**                         | no   | auto-increment | Surrogate primary key.                         |
-| `dot_id`        | `Integer` → `INTEGER`                 | FK→`tai_san_kiem_ke.id`, **IX**| no   | —              | Đợt kiểm kê. `ON DELETE CASCADE`.              |
-| `tai_san_id`    | `Integer` → `INTEGER`                 | FK→`tai_san.id`                | yes  | —              | Tài sản trong sổ; NULL = món thừa. `ON DELETE SET NULL`. |
-| `ket_qua`       | `String(12)` → `VARCHAR(12)`          | —                              | yes  | —              | `co` \| `khong_thay` \| NULL (chưa đối chiếu). |
-| `ten_phat_hien` | `String(255)` → `VARCHAR(255)`        | —                              | yes  | —              | Tên món thừa do người kiểm gõ vào.             |
-| `tinh_trang`    | `String(255)` → `VARCHAR(255)`        | —                              | yes  | —              | Tình trạng thực tế (còn tốt, hỏng, chờ sửa…).  |
-| `ghi_chu`       | `Text` → `TEXT`                       | —                              | yes  | —              | Ghi chú dòng.                                  |
-
-**Keys & indexes**
-
-- Primary key: `id`. Index: `dot_id`.
-- Foreign keys: `dot_id FK→tai_san_kiem_ke.id` (CASCADE), `tai_san_id FK→tai_san.id` (SET NULL).
-
-**Relationships**
-
-- Nhiều `tai_san_kiem_ke_dong` thuộc một `tai_san_kiem_ke`; mỗi dòng trỏ tối đa một `tai_san`.
-
-**Tất cả cột:** `id`, `dot_id`, `tai_san_id`, `ket_qua`, `ten_phat_hien`, `tinh_trang`, `ghi_chu`.
+**Tất cả cột:** `id`, `tai_san_id`, `tu_ngay`, `nguyen_gia`, `co_so_trich`, `so_thang_con`,
+`luy_ke_dau`, `nguon`, `created_at`.
 
 ---
 
