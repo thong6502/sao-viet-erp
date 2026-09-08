@@ -355,6 +355,66 @@ export function emptyRow(): EditRow {
   };
 }
 
+/** Chèn `moi` vào vị trí `chen` của chuỗi bước và NỐI LẠI DÂY quanh chỗ chèn.
+ *
+ *  Vì sao phải có hàm này: sơ đồ DAG vẽ theo `phu_thuoc_step_keys`, còn số lượng/số hiệu bám
+ *  `thu_tu` (thứ tự mảng) — hai thứ độc lập. Trước 09/09/2026 nút "Chèn trước/sau" chỉ `splice`
+ *  một dòng rỗng vào mảng, nên số vẫn chảy đúng mà trên sơ đồ bước mới đứng trơ không dây, và cạnh
+ *  cũ `trước → sau` vẫn nguyên. Server cũng không cứu được: nó chỉ tự nối chuỗi tuyến tính MỘT lần
+ *  lúc tạo lệnh, còn `PUT /routing` ghi y nguyên cạnh client gửi.
+ *
+ *  Luật nối, cố ý KHÔNG bịa cạnh:
+ *   · bước mới nhận bước liền trước làm tiền nhiệm (chèn lên đầu chuỗi thì không có tiền nhiệm);
+ *   · bước liền sau ĐANG phụ thuộc bước liền trước thì cạnh đó đổi hướng qua bước mới — đúng nghĩa
+ *     "nhét vào giữa"; các tiền nhiệm khác của nó (nhánh song song, cạnh xuyên LSX) giữ nguyên;
+ *   · bước liền sau KHÔNG phụ thuộc bước liền trước (hai nhánh rời) thì để yên, bước mới chỉ treo
+ *     vào bước trước. Tự nối đại một cạnh chưa từng có là sửa DAG sau lưng người dùng;
+ *   · chèn lên ĐẦU chuỗi thì bước cũ đứng đầu nhận bước mới làm tiền nhiệm.
+ */
+export function chenBuoc(rows: EditRow[], chen: number, moi: EditRow): EditRow[] {
+  const at = Math.max(0, Math.min(chen, rows.length));
+  const truoc = at > 0 ? rows[at - 1] : null;
+  const sau = at < rows.length ? rows[at] : null;
+  const buocMoi: EditRow = { ...moi, phu_thuoc_step_keys: truoc ? [truoc.key] : [] };
+  const next = rows.map((r) => {
+    if (!sau || r.key !== sau.key) return r;
+    if (!truoc) {
+      return { ...r, phu_thuoc_step_keys: [buocMoi.key, ...r.phu_thuoc_step_keys] };
+    }
+    if (!r.phu_thuoc_step_keys.includes(truoc.key)) return r;
+    return {
+      ...r,
+      phu_thuoc_step_keys: r.phu_thuoc_step_keys.map(
+        (k) => (k === truoc.key ? buocMoi.key : k)),
+    };
+  });
+  next.splice(at, 0, buocMoi);
+  return next;
+}
+
+/** Bỏ bước ở vị trí `idx` và BẮC CẦU qua chỗ trống: ai đang phụ thuộc nó thì nhận thẳng các tiền
+ *  nhiệm của nó.
+ *
+ *  Bắt buộc phải đi cùng `chenBuoc`: từ khi chèn có nối dây thật, xoá mà chỉ lọc dòng khỏi mảng sẽ
+ *  để lại `step_key` mồ côi trong `phu_thuoc_step_keys` của bước sau — bấm Lưu là server bắn
+ *  "Không tìm thấy công đoạn tiền nhiệm" (bước mới chưa từng có trong DB) hoặc "Không thể xóa bước
+ *  đang được … phụ thuộc" (bước đã lưu, cạnh còn trong DB).
+ */
+export function boBuoc(rows: EditRow[], idx: number): EditRow[] {
+  const bo = rows[idx];
+  if (!bo) return rows;
+  return rows
+    .filter((_, i) => i !== idx)
+    .map((r) => {
+      if (!r.phu_thuoc_step_keys.includes(bo.key)) return r;
+      const noi = r.phu_thuoc_step_keys.flatMap(
+        (k) => (k === bo.key ? bo.phu_thuoc_step_keys : [k]));
+      // `Set` khử trùng khi bước sau đã phụ thuộc SẴN một tiền nhiệm của bước bị bỏ; lọc `r.key`
+      // chặn ca bắc cầu thành tự-phụ-thuộc (server coi đó là lỗi).
+      return { ...r, phu_thuoc_step_keys: [...new Set(noi)].filter((k) => k !== r.key) };
+    });
+}
+
 export function n(v: string): number {
   const x = Number(v);
   return Number.isFinite(x) ? x : 0;

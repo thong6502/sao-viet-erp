@@ -25,6 +25,8 @@ import { LsxBuocDrawer, type TabKey as DrawerTabKey } from "./LsxBuocDrawer";
 import { ChuoiCongDoan, ngay, num } from "./keHoachSxShared";
 import { tenDonVi, useNapTenDonVi } from "./tenDonVi";
 import {
+  boBuoc,
+  chenBuoc,
   type DonViChuoi,
   type EditRow,
   emptyRow,
@@ -169,7 +171,8 @@ export function LsxRoutingTable({
   const suaDuoc = canUpdate && !giuCho;
   const [rows, setRows] = useState<EditRow[]>(() => congDoans.map(toEdit));
   const [viewMode, setViewMode] = useState<"dag" | "table">("dag");
-  const [undo, setUndo] = useState<{ row: EditRow; at: number } | null>(null);
+  const [undo, setUndo] = useState<
+    { row: EditRow; at: number; truoc: EditRow[] } | null>(null);
   const [live, setLive] = useState("");
   // Câu báo cho lần ĐỔI CÔNG ĐOẠN gần nhất hỏng dở — cả hai chặng của nó (lấy mặc định của công
   // đoạn, tính lại số cả chuỗi) đều do SERVER làm, hỏng chặng nào thì bảng cũng đang hiện số/nhãn
@@ -451,20 +454,19 @@ export function LsxRoutingTable({
   function remove(idx: number) {
     setRows((prev) => {
       const row = prev[idx];
-      setUndo({ row, at: idx });
+      // Chụp NGUYÊN mảng trước khi bỏ, không chỉ riêng dòng: `boBuoc` còn sửa `phu_thuoc_step_keys`
+      // của các bước sau (bắc cầu qua chỗ trống), nên hoàn tác bằng cách nhét lại một dòng sẽ để
+      // lại đúng cái dây đã bị nối tắt.
+      setUndo({ row, at: idx, truoc: prev });
       setLive(`Đã bỏ ${row.ten || "công đoạn"}, có thể hoàn tác`);
-      return prev.filter((_, i) => i !== idx);
+      return boBuoc(prev, idx);
     });
     setMoBuoc(null);
   }
 
   function hoanTac() {
     if (!undo) return;
-    setRows((prev) => {
-      const next = [...prev];
-      next.splice(Math.min(undo.at, next.length), 0, undo.row);
-      return next;
-    });
+    setRows(undo.truoc);
     setUndo(null);
     setLive("Đã hoàn tác");
   }
@@ -478,12 +480,9 @@ export function LsxRoutingTable({
   function them(neoKey?: string, viTri: "truoc" | "sau" = "sau") {
     const at = neoKey ? rows.findIndex((r) => r.key === neoKey) : -1;
     const chen = at < 0 ? -1 : viTri === "truoc" ? at : at + 1;
-    setRows((prev) => {
-      if (chen < 0) return [...prev, emptyRow()];
-      const next = [...prev];
-      next.splice(chen, 0, emptyRow());
-      return next;
-    });
+    // `chenBuoc` chứ không `splice` trần: bước mới phải có dây, không thì sơ đồ DAG hiện nó mồ côi
+    // trong khi bảng số vẫn chảy đúng (số bám `thu_tu`, dây bám `phu_thuoc_step_keys`).
+    setRows((prev) => chenBuoc(prev, chen < 0 ? prev.length : chen, emptyRow()));
     const tenNeo = at >= 0 ? rows[at]?.ten || `bước ${at + 1}` : null;
     setLive(
       tenNeo
@@ -503,11 +502,7 @@ export function LsxRoutingTable({
    *  20/08/2026: muốn nhét 2–4 công đoạn vào GIỮA). Bước mới nằm ở `idx + 1`; đưa tiêu điểm về ô
    *  mở của chính nó để chọn công đoạn liền, và chèn tiếp cũng nhanh. */
   function themTai(idx: number) {
-    setRows((prev) => {
-      const next = [...prev];
-      next.splice(idx + 1, 0, emptyRow());
-      return next;
-    });
+    setRows((prev) => chenBuoc(prev, idx + 1, emptyRow()));
     setLive(`Đã chèn công đoạn mới sau bước ${idx + 1}`);
     setTimeout(() => {
       const tr = tbodyRef.current?.querySelectorAll<HTMLElement>("tr")[idx + 1];
@@ -842,11 +837,21 @@ export function LsxRoutingTable({
                   <td>
                     {r.phu_thuoc_step_keys.length ? (
                       <span className="khsx-need-stack">
-                        {r.phu_thuoc_step_keys.slice(0, 2).map((k) => (
-                          <span key={k} className="khsx-need khsx-need--soft">
-                            {tenBuoc(rows.find((x) => x.key === k), congDoanRefs) || "Bước LSX khác"}
-                          </span>
-                        ))}
+                        {r.phu_thuoc_step_keys.slice(0, 2).map((k) => {
+                          // Tách "không có trong bảng" (⇒ bước của LSX khác) khỏi "có nhưng chưa
+                          // đặt tên" (bước vừa chèn, chưa chọn công đoạn). Gộp hai ca vào một nhãn
+                          // là vu cho bước mới chèn là bước của lệnh khác — đúng thứ nhìn thấy
+                          // ngay sau khi bấm "Chèn trước/sau".
+                          const i = rows.findIndex((x) => x.key === k);
+                          const ten = i >= 0 ? tenBuoc(rows[i], congDoanRefs) : "";
+                          return (
+                            <span key={k} className="khsx-need khsx-need--soft">
+                              {ten || (i >= 0
+                                ? `Bước ${i + 1} — chưa chọn công đoạn`
+                                : "Bước LSX khác")}
+                            </span>
+                          );
+                        })}
                         {r.phu_thuoc_step_keys.length > 2 && <span className="khsx-need">+{r.phu_thuoc_step_keys.length - 2}</span>}
                       </span>
                     ) : <span className="khsx-muted">Gốc / song song</span>}
