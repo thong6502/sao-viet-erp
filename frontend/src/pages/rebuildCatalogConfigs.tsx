@@ -255,13 +255,18 @@ export const CFG_MAY: CatalogConfig = {
     // Cột DB + engine giữ nguyên (phiếu cũ đã gắn máy vẫn tính đúng), chỉ không bày ra form nữa.
     // ── 2. Tốc độ & Năng suất vận hành ───────────────────────────────────────
     { key: "toc_do", label: "Tốc độ trung bình", type: "number", group: "Tốc độ & Vận hành" },
+    // Dải tốc độ BÀY LẠI (08/09/2026). Lần ẩn trước (04/09/2026) đi kèm lời "dải tốc độ chỉ để
+    // khai, không nối vào công thức nào" — nay KHÔNG còn đúng: `lsxBuoc.ts`, `lsx_service` và
+    // `xep_lich_service` đều đọc hai số này để ra khoảng nhanh–chậm ("Biên độ tốc độ máy" ở drawer
+    // bước, râu Gantt). Ẩn ô mà engine vẫn đọc ⇒ người khai thấy một khoảng 130h–312h không biết
+    // từ đâu ra và không có cửa nào sửa. Chưa khai thì cả ba mức bằng nhau, không vẽ khoảng.
+    { key: "toc_do_min", label: "Tốc độ tối thiểu", type: "number", group: "Tốc độ & Vận hành" },
+    { key: "toc_do_max", label: "Tốc độ tối đa", type: "number", group: "Tốc độ & Vận hành" },
     { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "don_vi_toc_do",
       refPrefix: "/api/don-vi", refParams: { active: true, size: 200 },
       group: "Tốc độ & Vận hành", default: "to_gio" },
     // Ô "Cách đo lượng theo đơn vị tốc độ" ĐÃ GỠ (06/09/2026): cách đo nay khai theo CẶP (công
     // đoạn × máy) ở drawer Công đoạn — cùng một máy chạy hai công đoạn thì đo khác nhau.
-    // Ô "Tốc độ tối thiểu / tối đa" ĐÃ ẨN (04/09/2026) cùng đợt với các ô khổ: dải tốc độ không
-    // khai ở đây nữa. Cột DB giữ nguyên, Bài ghép / Lệnh SX vẫn đọc số cũ — đừng bày lại ô này.
     // Ô "Số người vận hành tiêu chuẩn" ĐÃ GỠ (06/09/2026, mg `0270`): kíp nay khai MỘT chỗ duy
     // nhất là định mức đầu việc của công đoạn, và mọi loại bước lệnh đều điền sẵn từ đó.
     // Ô "Ca làm việc của máy này" ĐÃ BỎ (2026-08-10): máy là thiết bị, bàn xếp lịch cho chạy
@@ -303,7 +308,10 @@ export const CFG_MAY: CatalogConfig = {
   transformSubmit: (body, form, existing) => {
     const out: Record<string, unknown> = {
       ...body,
-      don_vi_toc_do: body.toc_do ? (body.don_vi_toc_do || "to_gio") : null,
+      // Đơn vị đi theo BẤT KỲ ô tốc độ nào có số, không riêng ô trung bình: khai mỗi dải
+      // nhanh–chậm mà đơn vị bị xoá thì lệnh SX coi như lệch đơn vị và bỏ qua tốc độ trong im lặng.
+      don_vi_toc_do: (body.toc_do || body.toc_do_min || body.toc_do_max)
+        ? (body.don_vi_toc_do || "to_gio") : null,
     };
     // Ô CHỈ ĐỂ UI, không có cột — gửi lên là 422.
     delete out._chuan_bi_kieu;

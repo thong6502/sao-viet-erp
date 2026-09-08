@@ -77,10 +77,12 @@ class MayThietBi(Base):
     # `toc_do` = tốc độ TRUNG BÌNH (nhãn màn hình đổi 03/08/2026). Tên cột GIỮ NGUYÊN: Tính giá,
     # Lệnh SX, Xếp lịch và Chọn-máy-hợp-khổ đều đang đọc `toc_do`, đổi tên là gãy cả bốn.
     toc_do: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
-    # Dải năng lực máy — CHỈ ĐỂ KHAI (chủ 03/08/2026: "khai ra vậy thôi, sau họ dùng họ tự biết
-    # lấy ra"). KHÔNG nối vào công thức nào: mọi tính thời gian vẫn chạy bằng `toc_do` trung bình.
-    # Muốn cho lịch chạy bằng KHOẢNG [sớm–muộn] thì phải viết lại lõi xếp lịch (`_cong_gio_lam`
-    # cộng MỘT con số phút), không phải chỉ đọc thêm hai cột này.
+    # Dải năng lực máy. Không còn "chỉ để khai" như chốt 03/08/2026: ba nơi ĐANG ĐỌC hai cột này
+    # để ra khoảng nhanh–chậm — `lsxBuoc.ts` (băng "Biên độ tốc độ máy" ở drawer bước),
+    # `lsx_service.thoi_luong_buoc` (`chiem_may_phut_min/_max`) và `xep_lich_service` (râu Gantt).
+    # Cái vẫn ĐÚNG: điểm ĐẶT thanh lịch và mọi con số cam kết vẫn là `toc_do` trung bình — khoảng
+    # chỉ để nhìn. Cho lịch chạy bằng KHOẢNG [sớm–muộn] mới là viết lại lõi xếp lịch
+    # (`_cong_gio_lam` cộng MỘT con số phút). Chưa khai ⇒ ba mức bằng nhau, không vẽ khoảng.
     toc_do_min: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     toc_do_max: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     # Mã dạng `<đơn vị đếm>_gio`, SUY RA từ danh mục `don_vi_do` (chủ tự thêm/xoá đơn vị ở màn
