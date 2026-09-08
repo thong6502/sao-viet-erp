@@ -6,12 +6,16 @@ import type { StockRequestKind, StockRequestStatus, StockVoucherStatus } from ".
 import { Select } from "../components/Select";
 import "./kho-request.css";
 
-/** Các mức số dòng/trang cho mọi danh sách kho. Mặc định = 10. */
 /** TẠM ẨN toàn bộ giao diện ĐIỀU CHUYỂN kho — CHỈ ở FE (backend/API + dữ liệu cũ giữ nguyên).
  *  Che: nút "Điều chuyển"/"Chuyển kho" ở Tồn kho · tab "Điều chuyển" ở Tồn kho · chip "Điều chuyển"
  *  ở Kho · tab con "Chuyển kho" trong Sổ kho (Báo cáo kho). Bật lại: đổi thành `false`. */
 export const AN_DIEU_CHUYEN = true;
 
+/** ẨN nút "In yêu cầu" ở màn Yêu cầu nhập/xuất kho — CHỈ giao diện (hàm in vẫn còn).
+ *  Bật lại: đổi thành `false`. */
+export const AN_IN_YEU_CAU = true;
+
+/** Các mức số dòng/trang cho mọi danh sách kho. Mặc định = 10. */
 export const PAGE_SIZES = [10, 15, 20] as const;
 export const DEFAULT_PAGE_SIZE = 10;
 
