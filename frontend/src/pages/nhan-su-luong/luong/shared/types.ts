@@ -38,7 +38,8 @@ export type CompRow = {
  *  `taxable` phải khớp engine, không đoán:
  *   · lương cơ bản + trách nhiệm → `luong_cong` ⇒ CHỊU thuế
  *   · chuyên cần                → `chuyen_can` ⇒ CHỊU thuế
- *   · phụ cấp thâm niên         → ⊂ `allowance` ⇒ CHỊU thuế
+ *   · phụ cấp thâm niên         → ⊂ `allowance` ⇒ CHỊU thuế (NGƯNG 07/09/2026 — chỉ hiện
+ *                                 chỉ-đọc khi còn số cũ, engine trả 0)
  *   · phụ cấp ca                → đi qua `night_pay`, `_auto_pit` TRỪ khỏi thu nhập chịu thuế
  *                                 (miễn như tăng ca/ca đêm) ⇒ MIỄN thuế */
 export type SysRow = {

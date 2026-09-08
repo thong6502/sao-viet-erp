@@ -44,6 +44,8 @@ export function DanhMucTab({ token, readOnly }: { token: string; readOnly: boole
   const [holdersErr, setHoldersErr] = useState<string | null>(null);
   // Gán hàng loạt (chủ 28/07/2026). `bulk` = khoản đang gán; null = modal đóng.
   const [bulk, setBulk] = useState<PayrollComponent | null>(null);
+  // Khoản đã ngừng áp dụng ẨN mặc định (07/09/2026) — nằm chung bảng làm chủ tưởng "xoá không được".
+  const [showOff, setShowOff] = useState(false);
 
   const load = useCallback(() => {
     api.luong.components
@@ -170,8 +172,12 @@ export function DanhMucTab({ token, readOnly }: { token: string; readOnly: boole
     }
   }
 
-  /** Đã có số liệu (gán cho NV hoặc đã chạy qua kỳ lương) ⇒ backend KHÔNG xoá cứng. */
-  const delUsed = del ? del.employee_count > 0 || del.period_count > 0 : false;
+  /** Luật xoá (07/09/2026): còn người đang gán ⇒ CHẶN (gỡ trước); đã vào kỳ ĐÃ CHỐT ⇒ chỉ ngừng
+   *  áp dụng; còn lại xoá hẳn (kỳ nháp không tính — Tính lại tự bỏ). */
+  const delGan = del ? del.employee_count > 0 : false;
+  const delChot = del ? del.period_count > 0 : false;
+  const offCount = (items ?? []).filter((c) => !c.is_active).length;
+  const shown = (items ?? []).filter((c) => showOff || c.is_active);
 
   const editing = form?.id != null;
 
@@ -189,6 +195,11 @@ export function DanhMucTab({ token, readOnly }: { token: string; readOnly: boole
               hay không, và <b>chỉ khai ở đây</b>.
             </p>
           </div>
+          {offCount > 0 && (
+            <Button variant="ghost" onClick={() => setShowOff((v) => !v)}>
+              {showOff ? "Ẩn khoản đã ngừng" : `Hiện ${offCount} khoản đã ngừng`}
+            </Button>
+          )}
           {!readOnly && (
             <Button
               variant="ghost"
@@ -257,7 +268,7 @@ export function DanhMucTab({ token, readOnly }: { token: string; readOnly: boole
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((c) => (
+                  {shown.map((c) => (
                     <tr key={c.id} className={c.is_active ? "" : "cl-dm--off"}>
                       <td>
                         <strong>{c.name}</strong>
@@ -311,14 +322,15 @@ export function DanhMucTab({ token, readOnly }: { token: string; readOnly: boole
                       {/* "N nhân viên · M kỳ lương" — HR hình dung được mức độ ảnh hưởng;
                           "N dòng lương" của bản cũ nói 100 dòng cùng một tháng thành 100. */}
                       <td className="num">
-                        {c.employee_count > 0 || c.period_count > 0 ? (
+                        {c.employee_count > 0 ? (
                           <>
-                            {c.employee_count} nhân viên 
-                            {/* · {c.period_count} kỳ
-                            lương */}
-                            <span className="cl-cell__sub">
-                              không xoá cứng được
-                            </span>
+                            {c.employee_count} nhân viên
+                            <span className="cl-cell__sub">gỡ khỏi người trước khi xoá</span>
+                          </>
+                        ) : c.period_count > 0 ? (
+                          <>
+                            {c.period_count} kỳ đã chốt
+                            <span className="cl-cell__sub">chỉ ngừng áp dụng được</span>
                           </>
                         ) : (
                           <span className="cl-muted">chưa dùng</span>
@@ -502,8 +514,13 @@ export function DanhMucTab({ token, readOnly }: { token: string; readOnly: boole
       <ConfirmDialog
         open={del !== null}
         danger
-        title={`Xoá khoản “${del?.name ?? ""}”?`}
-        confirmLabel={delUsed ? "Ngừng áp dụng khoản này" : "Xoá khoản"}
+        title={
+          delGan
+            ? `Chưa xoá được khoản “${del?.name ?? ""}”`
+            : `Xoá khoản “${del?.name ?? ""}”?`
+        }
+        hideConfirm={delGan}
+        confirmLabel={delChot ? "Ngừng áp dụng khoản này" : "Xoá khoản"}
         busy={delBusy}
         error={delErr}
         onCancel={() => {
@@ -512,26 +529,24 @@ export function DanhMucTab({ token, readOnly }: { token: string; readOnly: boole
         onConfirm={confirmDelete}
       >
         {del &&
-          (delUsed ? (
+          (delGan ? (
             <p className="cdlg__msg">
-              Khoản này đã có phát sinh dữ liệu (gán cho{" "}
-              <b>{del.employee_count} nhân viên</b>, đã chốt{" "}
-              <b>{del.period_count} kỳ lương</b>) nên KHÔNG xoá vĩnh viễn được.
-              Hệ thống sẽ chuyển sang <b>Ngừng áp dụng</b>: khoản biến mất khỏi
-              danh sách chọn khi gán mới, còn phiếu lương các kỳ cũ giữ nguyên
-              số đã trả.
-              {del.employee_count > 0 && (
-                <>
-                  {" "}
-                  Người đang được gán <b>vẫn tiếp tục được trả</b> khoản này cho
-                  tới khi bạn gỡ ở <b>Lương → Lương nhân viên</b>.
-                </>
-              )}
+              Còn <b>{del.employee_count} nhân viên</b> đang được gán khoản này nên
+              chưa xoá được. Vào <b>Lương → Lương nhân viên</b> (hoặc nút Gán hàng
+              loạt) gỡ khỏi từng người trước, rồi quay lại xoá.
+            </p>
+          ) : delChot ? (
+            <p className="cdlg__msg">
+              Khoản này đã nằm trong <b>{del.period_count} kỳ lương đã chốt</b> nên
+              KHÔNG xoá vĩnh viễn được (phiếu lương kỳ cũ phải in lại đúng). Hệ
+              thống sẽ chuyển sang <b>Ngừng áp dụng</b>: khoản ẩn khỏi danh sách và
+              không chọn được khi gán mới.
             </p>
           ) : (
             <p className="cdlg__msg">
-              Khoản này chưa gán cho ai và chưa qua kỳ lương nào nên sẽ được xoá
-              hẳn khỏi danh mục.
+              Khoản này không còn ai được gán và chưa vào kỳ lương đã chốt nào nên
+              sẽ được xoá hẳn. Nếu đang nằm trên bảng lương nháp thì dòng đó cũng
+              được gỡ theo — bấm “Tính lại” để cập nhật số.
             </p>
           ))}
       </ConfirmDialog>

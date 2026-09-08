@@ -187,7 +187,10 @@ def create_request(body: LeaveRequestIn, svc: Service, employees: Employees,
 
 @router.get("/me", response_model=MyLeaveOut)
 def my_requests(svc: Service, employees: Employees,
-                user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                # Dữ liệu của CHÍNH MÌNH là quyền đương nhiên — như mọi `/me` khác (tăng ca, đi muộn,
+                # chấm công, phiếu lương). Trước 08/09/2026 đòi `nghi_phep:read` ⇒ vai thiếu ô này
+                # không xem được đơn/quota của mình (bản rà liên thông E11).
+                user: SelfUser,
                 page: int = Query(default=1, ge=1),
                 size: int = Query(default=20, ge=1, le=100)) -> MyLeaveOut:
     if not svc.has_employee(user=user):

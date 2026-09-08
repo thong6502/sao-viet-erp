@@ -17,6 +17,10 @@ os.environ["SEED_ADMIN_NAME"] = "Admin"
 # Keep the test dataset minimal + deterministic regardless of any local .env
 # (spec-06 demo staff/customers would otherwise break RBAC delete-guard assumptions).
 os.environ["SEED_DEMO"] = "false"
+# Luật "ca phải khớp giờ công chuẩn" (07/09/2026) mặc định BẬT ở dev/prod; bộ test TẮT qua seed vì
+# hàng chục test cố ý khai ca 9h/10h/24h làm số tròn (540', 600'…). Test của chính luật này bật
+# lại bằng PUT /api/luong/params {"ca_khop_gio_chuan": true}.
+os.environ["SEED_CA_KHOP_GIO_CHUAN"] = "false"
 # Tắt ticker nhắc lịch hẹn (SSE) trong test — tránh đụng DB in-memory + treo loop.
 os.environ["CARE_REMINDER_SECONDS"] = "0"
 # Hạ tầng: ÉP về chế độ offline, bất kể `backend/.env` của máy đang trỏ đi đâu.

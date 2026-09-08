@@ -95,25 +95,13 @@ def test_params_defaults_and_rbac(client):
     assert client.get("/api/luong/params", headers=_h(_sales_token())).status_code == 403
 
 
-def test_rule_crud(client):
+def test_rules_api_da_go(client):
+    """Bảng mức lương theo nhóm/bậc/thâm niên (`/api/luong/rules`) ĐÃ GỠ 07/09/2026: engine không
+    tra bảng này (mức khai ở hồ sơ từng người), không màn nào gọi — để route sống là ô cấu hình giả."""
     token = _admin_token(client)
-    created = client.post("/api/luong/rules", json={
-        "payroll_group": "to_in", "pay_grade_key": "tho_1", "monthly_amount": 25_000_000,
-        "effective_from": "2026-01-01",
-    }, headers=_h(token))
-    assert created.status_code == 201
-    rid = created.json()["id"]
-    listed = client.get("/api/luong/rules", headers=_h(token)).json()["items"]
-    assert any(r["id"] == rid and r["monthly_amount"] == 25_000_000 for r in listed)
-
-    upd = client.put(f"/api/luong/rules/{rid}", json={
-        "payroll_group": "to_in", "pay_grade_key": "tho_1", "monthly_amount": 26_000_000,
-    }, headers=_h(token))
-    assert upd.json()["monthly_amount"] == 26_000_000
-    assert client.delete(f"/api/luong/rules/{rid}", headers=_h(token)).status_code == 204
-
-
-# --- engine (unit) ----------------------------------------------------------
+    assert client.get("/api/luong/rules", headers=_h(token)).status_code == 404
+    assert client.post("/api/luong/rules", json={"payroll_group": "x", "monthly_amount": 1},
+                       headers=_h(token)).status_code == 404
 
 
 def test_payroll_resolves_historical_status_and_department_from_employee_events(client):
@@ -219,7 +207,9 @@ def test_piece_work_dept_van_co_ot(client):
 
     Trước đó cờ này ép `ot_pay = 0` với lý do "khoán đã trả theo sản lượng"; nhưng cột `khoan`
     LUÔN bằng 0 (nguồn sản lượng chưa dựng) ⇒ tổ khoán mất trắng. NĐ 145/2020 Đ55.2 cũng buộc
-    trả làm thêm cho người hưởng lương theo sản phẩm. Nay chỉ còn MỘT cổng: công tắc `tang_ca`."""
+    trả làm thêm cho người hưởng lương theo sản phẩm. Nay chỉ còn MỘT cổng: công tắc `tang_ca`.
+    07/09/2026: tham số chết `has_piece_work` của `_compute` đã GỠ hẳn — tổ khoán hay không, engine
+    nhận cùng một bộ tham số; test giữ vế "tổ khoán = tổ thường" bằng chính bộ số đó."""
     client
     db = SessionLocal()
     try:
@@ -232,12 +222,11 @@ def test_piece_work_dept_van_co_ot(client):
         # Cùng dữ liệu OT 120', chỉ khác cờ tổ khoán.
         v_norm = svc._compute(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params, actual_cong=26,
                               standard_cong=26, ot_minutes=120, on=date(2026, 6, 1))
+        # Tổ khoán đi qua ĐÚNG bộ tham số ấy (không còn cờ riêng để ép về 0).
         v_piece = svc._compute(employee=emp, salary=_sal(luong_vi_tri=26_000_000), params=params, actual_cong=26,
-                               standard_cong=26, ot_minutes=120, has_piece_work=True,
-                               on=date(2026, 6, 1))
+                               standard_cong=26, ot_minutes=120, on=date(2026, 6, 1))
         assert v_norm["ot_pay"] == 375_000          # tổ thường
         assert v_piece["ot_pay"] == 375_000         # tổ khoán — Y HỆT, không còn bị ép về 0
-        # Cờ `has_piece_work` nay KHÔNG còn tác động tới tiền: hai dòng phải trùng khít.
         assert v_piece["gross"] == v_norm["gross"]
     finally:
         db.close()
@@ -365,7 +354,12 @@ def test_late_penalty_amount_tiers(client):
     db = SessionLocal()
     try:
         svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
-        bks = svc.get_late_penalty_brackets()   # seed mặc định 20/40/100/150k
+        # Từ 08/09/2026 bảng trống = KHÔNG phạt (chủ chốt) — khai 4 bậc trong test thay vì tin auto-seed.
+        assert svc.get_late_penalty_brackets() == []
+        assert _late_penalty_amount(30, []) == 0
+        for seq, up_to, amt in ((1, 15, 20_000), (2, 30, 40_000), (3, 60, 100_000), (4, None, 150_000)):
+            svc.create_late_penalty_bracket(seq=seq, up_to_minute=up_to, amount=amt)
+        bks = svc.get_late_penalty_brackets()
         assert _late_penalty_amount(0, bks) == 0
         assert _late_penalty_amount(10, bks) == 20_000     # ≤15'
         assert _late_penalty_amount(15, bks) == 20_000
@@ -385,6 +379,11 @@ def test_di_tre_auto_from_attendance(client):
     eid = _make_emp(client, token, name="NV Trễ", status="active")
     client.post(f"/api/luong/salaries/{eid}", json={"effective_from": "2026-01-01",
                 "luong_vi_tri": 10_000_000}, headers=_h(token))
+    # Bảng phạt phải khai tay (08/09/2026: trống = không phạt).
+    for seq, up_to, amt in ((1, 15, 20_000), (2, 30, 40_000), (3, 60, 100_000), (4, None, 150_000)):
+        assert client.post("/api/luong/late-penalty-brackets",
+                           json={"seq": seq, "up_to_minute": up_to, "amount": amt},
+                           headers=_h(token)).status_code in (200, 201)
     db = SessionLocal()
     try:
         arepo = AttendanceRepository(db)
@@ -476,15 +475,15 @@ def test_to_khoan_VAN_CO_tang_ca(client):
                     standard_cong=26, on=date(2026, 6, 1))   # 1.000.000 đ/công · 125.000 đ/giờ
 
         thuong = svc._compute(**base, actual_cong=26, ot_minutes=120)
-        khoan = svc._compute(**base, actual_cong=26, ot_minutes=120, has_piece_work=True)
+        khoan = svc._compute(**base, actual_cong=26, ot_minutes=120)   # cờ khoán đã gỡ 07/09/2026
         # 2h tăng ca thường × 1,5 × 125.000 = 375.000 — tổ khoán nhận Y HỆT tổ thường.
         assert thuong["ot_pay"] == 375_000
         assert khoan["ot_pay"] == thuong["ot_pay"]
 
         # Premium ngày lễ và tiền ngày off1x cũng không còn bị nuốt.
-        k2 = svc._compute(**base, actual_cong=27, holiday_cong=1, has_piece_work=True)
+        k2 = svc._compute(**base, actual_cong=27, holiday_cong=1)
         assert k2["ot_pay"] == 3_000_000                      # trọn 300%
-        k3 = svc._compute(**base, actual_cong=26, plain_cong=1, has_piece_work=True)
+        k3 = svc._compute(**base, actual_cong=26, plain_cong=1)
         assert k3["off1x_pay"] == 1_000_000 and k3["ot_pay"] == 1_000_000
     finally:
         db.close()
@@ -702,6 +701,16 @@ def _adv(client, token, eid, amount, *, month=6, expect=201):
         "advance_date": f"2026-{month:02d}-05", "amount": amount}, headers=_h(token))
     assert r.status_code == expect, r.text
     return r
+
+
+def _chi(client, token, aid: int):
+    """Kế toán lập phiếu chi cho phiếu tạm ứng đã duyệt — từ 07/09/2026 CHỈ phiếu đã chi mới trừ."""
+    r = client.post("/api/accounting/payment-vouchers", json={
+        "salary_advance_id": aid, "source_type": "salary_advance", "voucher_type": "cash",
+        "payment_stage": "other", "voucher_date": "2026-06-05", "amount": 1, "currency": "VND",
+        "exchange_rate": 1, "content": "Chi tạm ứng", "cash_recipient_name": "x"}, headers=_h(token))
+    assert r.status_code == 201, r.text
+    return r.json()
 
 
 def _emp_luong_10tr(client, token, name):
@@ -949,7 +958,9 @@ def test_cham_vao_tang_ca_chi_khi_co_phieu(client):
 
 def test_day_detail_goi_y_cham_bu_cap_tang_ca(client):
     """`GET /api/attendance/day` gợi ý chấm bù cặp TC khi NV có phiếu duyệt (trong ngày) + mới xong ca
-    chính (đúng 1 phiên); null khi đã có phiên TC / không phiếu / phiếu qua nửa đêm."""
+    chính (đúng 1 phiên); null khi đã có phiên TC / không phiếu. Phiếu qua nửa đêm từ 07/09/2026 CŨNG
+    gợi ý (mốc sau 24:00 mang cờ `to_next_day`, chấm bù có ô "sang hôm sau") — trước đó bị bỏ qua đúng
+    ca đêm là ca hay quên bấm nhất."""
     from datetime import datetime as _dt, timezone as _tz
     from app.repositories.attendance_repo import AttendanceRepository
     token = _admin_token(client)
@@ -986,9 +997,12 @@ def test_day_detail_goi_y_cham_bu_cap_tang_ca(client):
 
     s = _sug(_setup("NV Gợi ý"))                                   # có phiếu + 1 phiên ca chính
     assert s is not None and s["from_time"] == "17:30" and s["to_time"] == "20:00"
+    assert s["to_next_day"] is False and s["kieu"] == "bu_cap"     # đã RA ca chính trước giờ phiếu
     assert _sug(_setup("NV Đã TC", ot_pair=True)) is None          # đã có phiên TC
     assert _sug(_setup("NV Không phiếu", with_phieu=False)) is None  # không phiếu
-    assert _sug(_setup("NV Phiếu đêm", overnight_phieu=True)) is None  # phiếu qua nửa đêm
+    dem = _sug(_setup("NV Phiếu đêm", overnight_phieu=True))       # phiếu 22:00 → 03:00 hôm sau
+    assert dem is not None and dem["from_time"] == "22:00" and dem["to_time"] == "03:00"
+    assert dem["from_next_day"] is False and dem["to_next_day"] is True
 
 
 def test_ngay_off1x_lam_tra_1x_khong_he_so(client):
@@ -1221,6 +1235,10 @@ def test_export_xlsx_smoke(client):
     client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token))
     r1 = client.get(f"/api/luong/export.xlsx?year={y}&month={m}", headers=_h(token))
     assert r1.status_code == 200 and "spreadsheetml" in r1.headers["content-type"]
+    # File chuyển khoản CHỈ tải được khi kỳ đã chốt (bản rà B9, 07/09/2026).
+    r2 = client.get(f"/api/luong/bank.xlsx?year={y}&month={m}", headers=_h(token))
+    assert r2.status_code == 409, r2.text
+    assert client.post("/api/luong/lock", json={"year": y, "month": m}, headers=_h(token)).status_code == 200
     r2 = client.get(f"/api/luong/bank.xlsx?year={y}&month={m}", headers=_h(token))
     assert r2.status_code == 200 and "spreadsheetml" in r2.headers["content-type"]
 
@@ -1321,11 +1339,17 @@ def test_L11_duyet_xong_thi_chot_duoc_va_co_tru(client):
     aid = _adv(client, token, eid, 3_000_000, month=6).json()["id"]
     assert client.post(f"/api/luong/advances/{aid}/approve", json={"approve": True},
                        headers=_h(token)).status_code == 200
-
+    # 07/09/2026: duyệt xong CHƯA trừ — kế toán phải lập phiếu chi; chốt cũng bị chặn (L11b).
+    assert client.post("/api/luong/generate", json={"year": 2026, "month": 6},
+                       headers=_h(token)).status_code == 200
+    assert _line_of(client, token, eid, year=2026, month=6)["advance_total"] == 0
+    r = client.post("/api/luong/lock", json={"year": 2026, "month": 6}, headers=_h(token))
+    assert r.status_code == 400 and "CHƯA LẬP PHIẾU CHI" in r.json()["detail"], r.text
+    _chi(client, token, aid)
     assert client.post("/api/luong/generate", json={"year": 2026, "month": 6},
                        headers=_h(token)).status_code == 200
     dong = _line_of(client, token, eid, year=2026, month=6)
-    assert float(dong["advance_total"]) == 3_000_000, "duyệt rồi mà lương không trừ khoản ứng"
+    assert float(dong["advance_total"]) == 3_000_000, "đã chi rồi mà lương không trừ khoản ứng"
 
     r = client.post("/api/luong/lock", json={"year": 2026, "month": 6}, headers=_h(token))
     assert r.status_code == 200, r.text
@@ -1340,6 +1364,7 @@ def test_L11_chot_luong_roi_thi_khong_dung_vao_phieu_tam_ung_nua(client):
     da_duyet = _adv(client, token, eid, 1_000_000, month=6).json()["id"]
     assert client.post(f"/api/luong/advances/{da_duyet}/approve", json={"approve": True},
                        headers=_h(token)).status_code == 200
+    _chi(client, token, da_duyet)              # 07/09/2026: đã chi mới trừ
     assert client.post("/api/luong/generate", json={"year": 2026, "month": 6},
                        headers=_h(token)).status_code == 200
     assert client.post("/api/luong/lock", json={"year": 2026, "month": 6},
@@ -1450,6 +1475,7 @@ def test_my_advance_dot_1_self_create(client):
     assert any(x["id"] == a["id"] and x["kind"] == "luong_dot_1" for x in mine["items"])
 
     client.post(f"/api/luong/advances/{a['id']}/approve", json={}, headers=_h(admin))
+    _chi(client, admin, a['id'])                      # 07/09/2026: đã chi mới trừ
     line = _gen_line(client, admin, eid)
     assert line["luong_dot_1_total"] == 3_000_000
     assert line["advance_total"] == 0
@@ -1484,6 +1510,7 @@ def test_luong_dot_1_phieu_duyet_tru_thuc_nhan(client):
         "advance_date": "2026-06-05", "amount": 1_000_000}, headers=_h(token)).json()["id"]
     for aid in (d1id, tuid):
         client.post(f"/api/luong/advances/{aid}/approve", json={}, headers=_h(token))
+        _chi(client, token, aid)                        # 07/09/2026: đã chi mới trừ
 
     line = _gen_line(client, token, eid)
     assert line["luong_dot_1_total"] == 3_000_000     # đợt 1 tách riêng
@@ -1515,7 +1542,8 @@ def test_luong_dot_1_chua_duyet_thi_chua_tru(client):
 
 
 def test_dot_1_va_tam_ung_vuot_luong_thuc_nhan_san_0(client):
-    """Đợt 1 + tạm ứng > lương → thực nhận (đợt 2) = 0 (sàn), KHÔNG âm, KHÔNG tự đòi lại."""
+    """Đợt 1 + tạm ứng > lương → thực nhận (đợt 2) = 0, KHÔNG âm; phần chưa trừ hết DỒN SANG KỲ SAU
+    (chủ chốt 07/09/2026 — trước đó phần dư biến mất, bản rà B2)."""
     token = _admin_token(client)
     eid = _make_emp(client, token, name="NV Sàn đợt 1", status="active")
     client.post(f"/api/luong/salaries/{eid}", json={"effective_from": "2026-01-01",
@@ -1528,9 +1556,12 @@ def test_dot_1_va_tam_ung_vuot_luong_thuc_nhan_san_0(client):
         "advance_date": "2026-06-05", "amount": 4_000_000}, headers=_h(token)).json()["id"]
     for aid in (d1, tu):
         client.post(f"/api/luong/advances/{aid}/approve", json={}, headers=_h(token))
+        _chi(client, token, aid)
     line = _gen_line(client, token, eid)
     assert line["luong_dot_1_total"] == 4_000_000 and line["advance_total"] == 4_000_000
     assert line["net_pay"] == 0
+    # Không có công ⇒ gross 0 ⇒ chưa trừ được đồng nào: cả 8tr chuyển sang kỳ sau.
+    assert line["no_ung_chuyen_ky_sau"] == 8_000_000
 
 
 # --- bảng lương tháng: tạo + engine + khóa ----------------------------------
@@ -1549,6 +1580,7 @@ def test_generate_lock_flow(client):
         "advance_date": "2026-06-05", "amount": 2_000_000,
     }, headers=_h(token)).json()["id"]
     client.post(f"/api/luong/advances/{aid}/approve", json={}, headers=_h(token))
+    _chi(client, token, aid)                          # 07/09/2026: đã chi mới trừ
 
     gen = client.post("/api/luong/generate", json={"year": 2026, "month": 6}, headers=_h(token))
     assert gen.status_code == 200
@@ -1721,6 +1753,7 @@ def test_net_floored_at_zero(client):
         "period_month": 3, "advance_date": "2027-03-05", "amount": 5_000_000},
         headers=_h(token)).json()["id"]
     client.post(f"/api/luong/advances/{aid}/approve", json={}, headers=_h(token))
+    _chi(client, token, aid)                          # 07/09/2026: đã chi mới trừ
     gen = client.post("/api/luong/generate", json={"year": 2027, "month": 3}, headers=_h(token)).json()
     line = next(l for l in gen["lines"] if l["employee_id"] == eid)
     assert line["net_pay"] == 0   # 0 công + tạm ứng 5tr → sàn 0, không âm
@@ -1985,8 +2018,12 @@ def test_co_chiu_thue_khong_sua_duoc_o_tang_nhan_vien(client):
     assert row["is_taxable"] is False, "cờ chịu thuế bị sửa từ tầng nhân viên"
 
 
-def test_khoan_da_dung_thi_chi_ngung_dung_khong_xoa(client):
-    """Khoản chưa có số liệu ⇒ xoá hẳn. Đã dùng ⇒ chỉ ngưng dùng, phiếu lương kỳ cũ vẫn nguyên."""
+def test_luat_xoa_khoan_theo_muc_do_dang_dung(client):
+    """Chủ chốt 07/09/2026: *"ai đang dùng tới thì không xoá được"* — và kỳ NHÁP không tính:
+    · chưa dùng → xoá hẳn;
+    · còn người đang được gán → 400, phải gỡ trước;
+    · gỡ hết người, chỉ còn dòng ở kỳ NHÁP → xoá hẳn, dòng nháp gỡ theo;
+    · đã nằm trong kỳ ĐÃ CHỐT → chỉ ngừng áp dụng (phiếu kỳ cũ in lại đúng)."""
     token = _admin_token(client)
     chua_dung = _comp(client, token, name="Khoản chưa dùng", taxable=True)
     r = client.delete(f"/api/luong/components/{chua_dung}", headers=_h(token))
@@ -1995,20 +2032,31 @@ def test_khoan_da_dung_thi_chi_ngung_dung_khong_xoa(client):
     eid = _make_emp(client, token, name="NV Giữ Dấu Vết", status="active")
     client.post(f"/api/luong/salaries/{eid}", json={"effective_from": "2026-01-01",
                 "luong_vi_tri": 10_000_000}, headers=_h(token))
-    da_dung = _comp(client, token, name="Khoản đã dùng", taxable=True)
-    _set_emp_comp(client, token, eid, {da_dung: 300_000})
-    _gen_line(client, token, eid)
+    da_gan = _comp(client, token, name="Khoản đang gán", taxable=True)
+    _set_emp_comp(client, token, eid, {da_gan: 300_000})
+    _gen_line(client, token, eid)                       # lên bảng lương NHÁP 6/2026
+    r = client.delete(f"/api/luong/components/{da_gan}", headers=_h(token))
+    assert r.status_code == 400 and "đang được gán" in r.json()["detail"], r.text
 
-    r = client.delete(f"/api/luong/components/{da_dung}", headers=_h(token))
+    _set_emp_comp(client, token, eid, {da_gan: None})   # gỡ khỏi người
+    r = client.delete(f"/api/luong/components/{da_gan}", headers=_h(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] is True and "nháp" in r.json()["message"]
+    assert all(c["component_id"] != da_gan for c in _line_of(client, token, eid)["components"])
+
+    da_chot = _comp(client, token, name="Khoản đã chốt", taxable=True)
+    _set_emp_comp(client, token, eid, {da_chot: 200_000})
+    _gen_line(client, token, eid)
+    assert client.post("/api/luong/lock", json={"year": 2026, "month": 6},
+                       headers=_h(token)).status_code == 200
+    _set_emp_comp(client, token, eid, {da_chot: None})
+    r = client.delete(f"/api/luong/components/{da_chot}", headers=_h(token))
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["deleted"] is False and body["deactivated"] is True
-    assert body["employee_count"] >= 1 and body["period_count"] >= 1
+    assert body["deleted"] is False and body["deactivated"] is True and body["period_count"] == 1
     assert "KHÔNG THỂ XOÁ" in body["message"] and "NGỪNG SỬ DỤNG" in body["message"]
-    # Khoản vẫn còn trong danh mục, chỉ tắt đi.
     items = client.get("/api/luong/components", headers=_h(token)).json()["items"]
-    row = next(x for x in items if x["id"] == da_dung)
-    assert row["is_active"] is False
+    assert next(x for x in items if x["id"] == da_chot)["is_active"] is False
 
 
 def test_doi_co_chiu_thue_khong_sua_so_ky_da_tinh(client):
@@ -2073,8 +2121,10 @@ def test_chan_tao_khoan_trung_voi_o_da_co(client):
     assert ok.status_code == 201, ok.text
 
     # ⭐ Ngược lại: 4 khoản thưởng đã GỠ ô tay (28/07/2026) thì PHẢI tạo được — nay đó là đường
-    # duy nhất khai chúng, và là chỗ khai được "chịu thuế hay không".
-    for ten in ("Thưởng 5S", "Thưởng doanh số", "Thưởng thành tích", "Trả đồng phục"):
+    # duy nhất khai chúng, và là chỗ khai được "chịu thuế hay không". "Phụ cấp thâm niên" cũng
+    # vậy từ 07/09/2026 (chủ bỏ ô tay ở Lương → Lương nhân viên, engine trả 0).
+    for ten in ("Thưởng 5S", "Thưởng doanh số", "Thưởng thành tích", "Trả đồng phục",
+                "Phụ cấp thâm niên"):
         r = client.post("/api/luong/components",
                         json={"name": ten, "kind": "thu", "is_taxable": False},
                         headers=_h(token))
@@ -2567,10 +2617,12 @@ def test_ngung_ap_dung_van_tra_luong_va_bao_ai_con_dinh(client):
     _set_emp_comp(client, token, eid, {cid: 800_000})
     truoc = _gen_line(client, token, eid)["gross"]
 
-    # Tắt khoản (đã gán cho NV ⇒ chỉ ngừng áp dụng)
+    # 07/09/2026: nút Xoá bị CHẶN khi còn người đang gán; ngừng áp dụng là thao tác riêng
+    # (PUT is_active=false) và KHÔNG cắt lương ai.
     r = client.delete(f"/api/luong/components/{cid}", headers=_h(token))
-    assert r.status_code == 200 and r.json()["deactivated"] is True
-    assert r.json()["employee_count"] == 1
+    assert r.status_code == 400 and "đang được gán" in r.json()["detail"]
+    r = client.put(f"/api/luong/components/{cid}", json={"is_active": False}, headers=_h(token))
+    assert r.status_code == 200 and r.json()["is_active"] is False
 
     # Lương VẪN trả đủ.
     assert _gen_line(client, token, eid)["gross"] == truoc, "ngừng áp dụng mà bị cắt lương"

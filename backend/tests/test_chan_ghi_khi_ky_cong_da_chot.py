@@ -67,6 +67,9 @@ def _nhan_vien(client, h, ten="NV Chot Cong") -> dict:
     assert r.status_code in (200, 201), r.text
     emp = r.json()["employee"]
     client.post(f"/api/employees/{emp['id']}/account", json={"user_id": _uid("admin")}, headers=h)
+    # Khai mức lương — từ 07/09/2026 có công mà chưa khai lương là chốt lương bị chặn (L13).
+    client.post(f"/api/luong/salaries/{emp['id']}", json={"effective_from": "2026-01-01",
+                "luong_vi_tri": 10_400_000}, headers=h)
     return emp
 
 
@@ -92,6 +95,20 @@ def _chot_cong(client, h, *, nam=NAM, thang=THANG, expect=200):
     r = client.post("/api/attendance/period/lock", json={"year": nam, "month": thang}, headers=h)
     assert r.status_code == expect, r.text
     return r
+
+
+def _don_treo(eid: int, tid: int, start: str, end: str) -> int:
+    """Đơn CHỜ DUYỆT ghi thẳng repo — từ 08/09/2026 API chặn GỬI đơn vào tháng đã chốt (C4), nên đơn
+    "lọt vào sau khi chốt" chỉ còn đường dữ liệu cũ / ghi tay; test dựng đúng ca đó."""
+    from datetime import date as _d
+    from app.repositories.leave_repo import LeaveRepository
+    db = SessionLocal()
+    try:
+        return LeaveRepository(db).create_request(
+            employee_id=eid, leave_type_id=tid, start_date=_d.fromisoformat(start),
+            end_date=_d.fromisoformat(end), days=1, reason="test", status="pending", created_by=None).id
+    finally:
+        db.close()
 
 
 def _loai_nghi(client, h, ten="Nghỉ ốm chốt công") -> int:
@@ -372,11 +389,8 @@ def test_L2_khong_duyet_duoc_don_nghi_cua_thang_da_chot(client):
     _chot_cong(client, h)
     tid = _loai_nghi(client, h)
 
-    # Tạo đơn SAU khi chốt: `lock_period` chỉ chặn đơn ĐANG TREO tại thời điểm chốt.
-    rid = client.post("/api/leaves",
-                      json={"leave_type_id": tid, "employee_id": emp["id"],
-                            "start_date": NGAY, "end_date": NGAY},
-                      headers=h).json()["id"]
+    # Đơn lọt vào SAU khi chốt (API nay chặn gửi — C4; ở đây ghi thẳng repo để dựng đúng ca).
+    rid = _don_treo(emp["id"], tid, NGAY, NGAY)
 
     r = client.post(f"/api/leaves/{rid}/approve", json={}, headers=h)
     assert r.status_code in (400, 409, 422), f"duyệt lọt vào tháng đã chốt: {r.text}"
@@ -390,10 +404,7 @@ def test_L2_van_TU_CHOI_duoc_don_cua_thang_da_chot(client):
     emp = _nhan_vien(client, h)
     _chot_cong(client, h)
     tid = _loai_nghi(client, h)
-    rid = client.post("/api/leaves",
-                      json={"leave_type_id": tid, "employee_id": emp["id"],
-                            "start_date": NGAY, "end_date": NGAY},
-                      headers=h).json()["id"]
+    rid = _don_treo(emp["id"], tid, NGAY, NGAY)
 
     r = client.post(f"/api/leaves/{rid}/reject", json={"note": "không đủ căn cứ"}, headers=h)
     assert r.status_code == 200, r.text
@@ -407,10 +418,7 @@ def test_L2_don_nghi_bac_cau_hai_thang_cung_bi_chan(client):
     emp = _nhan_vien(client, h)
     _chot_cong(client, h)
     tid = _loai_nghi(client, h)
-    rid = client.post("/api/leaves",
-                      json={"leave_type_id": tid, "employee_id": emp["id"],
-                            "start_date": f"{NAM}-{THANG:02d}-30", "end_date": f"{NAM}-08-02"},
-                      headers=h).json()["id"]
+    rid = _don_treo(emp["id"], tid, f"{NAM}-{THANG:02d}-30", f"{NAM}-08-02")
 
     r = client.post(f"/api/leaves/{rid}/approve", json={}, headers=h)
     assert r.status_code in (400, 409, 422), f"đơn bắc cầu lọt: {r.text}"

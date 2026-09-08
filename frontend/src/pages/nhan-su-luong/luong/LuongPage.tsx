@@ -89,8 +89,10 @@ export function LuongPage({
 
   // Liên thông từ Hồ sơ nhân sự → mở tab "Lương nhân viên" tại đúng NV.
   useEffect(() => {
-    if (focusEmployeeId && canManage) setTab("nhanvien");
-  }, [focusEmployeeId, canManage]);
+    // Gác bằng ĐÚNG ô của tab (bản rà E7): dùng `canManage` (luong:update) thì người có ô
+    // Lương nhân viên mà thiếu ô Sửa không được nhảy tab, còn ngược lại thì rơi vào màn trắng.
+    if (focusEmployeeId && canLuongNhanVien) setTab("nhanvien");
+  }, [focusEmployeeId, canLuongNhanVien]);
   useEffect(() => {
     if (openTab === "cauhinh" && canReadConfig) setTab("cauhinh");
   }, [openTab, canReadConfig]);

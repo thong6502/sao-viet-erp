@@ -53,6 +53,7 @@ export function BangLuongTab({
   // Lý do CHƯA chốt được bảng lương, do máy chủ soạn. null = chốt được. Màn chỉ hiện lại,
   // không tự suy luật — xem chú thích ở `PayrollTable.chan_chot_ly_do`.
   const [chanChotLyDo, setChanChotLyDo] = useState<string | null>(null);
+  const [canhBaoChot, setCanhBaoChot] = useState<string | null>(null);
   // Bảng "Công bố phiếu lương" — null = đang đóng. Mở ra thì giữ CẢ HAI mốc của cửa sổ xem:
   // `mo` (trống = ngay bây giờ) và `dong` (trống = không thời hạn). Chuỗi `datetime-local`.
   const [congBo, setCongBo] = useState<{ mo: string; dong: string } | null>(null);
@@ -104,6 +105,7 @@ export function BangLuongTab({
         setPeriod(t.period);
         setLines(t.lines);
         setChanChotLyDo(t.chan_chot_ly_do ?? null);
+        setCanhBaoChot(t.canh_bao_chot ?? null);
         setListErr(null);
       })
       .catch((e) => {
@@ -479,6 +481,11 @@ export function BangLuongTab({
           {chanChotLyDo}
         </div>
       )}
+      {canhBaoChot && isDraft && (
+        <div className="banner banner--info" style={{ marginBottom: 12 }}>
+          {canhBaoChot}
+        </div>
+      )}
 
       {period && (
         <div className="lg-kpi-grid">
@@ -710,6 +717,14 @@ export function BangLuongTab({
                   <td className="ns__code">{l.employee_code}</td>
                   <td>
                     {l.employee_name}{" "}
+                    {l.chua_khai_luong && (
+                      <span
+                        className="rc-pill rc-pill--off"
+                        title="Có công nhưng chưa khai mức lương ở Lương → Lương nhân viên — đang tính 0đ, kỳ này chưa chốt được"
+                      >
+                        chưa khai lương
+                      </span>
+                    )}{" "}
                     {l.is_probation && (
                       <span className="ns-badge ns-badge--muted">TV</span>
                     )}
@@ -811,7 +826,21 @@ export function BangLuongTab({
                         −{money(l.advance_total)}
                       </div>
                     ) : null}
-                    {!l.advance_total && !l.luong_dot_1_total ? "—" : null}
+                    {(l.no_ung_ky_truoc ?? 0) > 0 ? (
+                      <div title="Nợ tạm ứng kỳ trước chuyển sang (trừ sau cùng, sau BHXH · đoàn phí · thuế)">
+                        −{money(l.no_ung_ky_truoc ?? 0)}{" "}
+                        <span className="lg-muted">nợ kỳ trước</span>
+                      </div>
+                    ) : null}
+                    {(l.no_ung_chuyen_ky_sau ?? 0) > 0 ? (
+                      <div
+                        className="lg-muted"
+                        title="Chưa trừ hết — chuyển sang kỳ sau (tạm ứng trừ sau cùng)"
+                      >
+                        còn nợ {money(l.no_ung_chuyen_ky_sau ?? 0)}
+                      </div>
+                    ) : null}
+                    {!l.advance_total && !l.luong_dot_1_total && !(l.no_ung_ky_truoc ?? 0) ? "—" : null}
                   </td>
                   <td className="lg-num lg-net">{money(l.net_pay)}</td>
                   <td className="lg-rowact">

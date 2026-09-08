@@ -418,7 +418,8 @@ def test_timesheet_credits_paid_holiday(client):
     client.post(f"/api/leaves/{req.json()['id']}/approve", json={}, headers=_h(token))
 
     ts = client.get("/api/attendance/timesheet?year=2026&month=9", headers=_h(token)).json()
-    assert ts["standard_cong"] == 25  # 26 ngày làm − lễ 2/9
+    # Công chuẩn LƯƠNG GỒM lễ hưởng lương (chủ chốt 07/09/2026, B1): tháng 9/2026 = 26 kể cả 2/9.
+    assert ts["standard_cong"] == 26
     assert any(h["date"] == "2026-09-02" for h in ts["holidays"])
     row = next(r for r in ts["rows"] if r["employee_name"] == "NV Lễ")
     holiday_cell = row["days"]["2"]

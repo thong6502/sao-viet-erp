@@ -7,7 +7,9 @@ NV tự gửi phiếu → TỔ TRƯỞNG duyệt; HOẶC tổ trưởng khai h�
 2. **Hai nhánh tiền** do người tạo tự chọn:
    - `leave_type_id = None` → không đụng quỹ phép; phần vắng KHÔNG được trả công.
    - `leave_type_id` khác None → tiêu `leave_cong` ngày phép (**làm tròn 0,5**) và phần vắng VẪN
-     được trả theo LƯƠNG VỊ TRÍ.
+     được trả như ngày phép (đủ mức nền từ 17/08/2026). ⚠️ Nhánh này ĐANG TẮT trên màn
+     (`LateEarlyTab.tsx` comment khối "Trừ vào phép năm") — SVN không có nghỉ nửa ngày phép (chủ
+     chốt 07/09/2026); giữ code, không dựng lại UI.
 3. Tích trừ phép mà **hết phép** ⇒ chặn ngay, báo rõ còn bao nhiêu ngày.
 
 Cả hai nhánh đều được MIỄN PHẠT đi muộn/về sớm đúng số phút đã xin (xử lý ở engine chấm công).
@@ -24,9 +26,12 @@ from ..models.late_early import (
     STATUS_REJECTED,
     LateEarlyRequest,
 )
+from ..models.role import SCOPE_ALL
+from .bien_che import ly_do_ngoai_bien_che
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.late_early_repo import LateEarlyRepository
+from .attendance_service import _khung_nghi
 from .ky_cong_guard import ly_do_ky_cong_da_chot
 
 # Trần độ dài MỘT phiếu: 1 ngày. (Vắng cả ngày thì dùng đơn NGHỈ PHÉP, không dùng phiếu này.)
@@ -104,7 +109,13 @@ class LateEarlyService:
         if shift is None:
             return _FALLBACK_WINDOW
         end = shift.end_minute + (1440 if shift.is_overnight else 0)
-        return max(1, end - shift.start_minute)
+        # Cùng mẫu số với `compute_day_cong`: trừ NGHỈ GIỮA CA (07/09/2026) — nửa buổi của ca 7:30–16:30
+        # nghỉ trưa 1h là 240/480 = 0,5, không phải 240/540.
+        nghi = _khung_nghi(shift.start_minute, shift.is_overnight,
+                           getattr(shift, "break_start_minute", None),
+                           getattr(shift, "break_end_minute", None))
+        tru = (min(end, nghi[1]) - max(shift.start_minute, nghi[0])) if nghi else 0
+        return max(1, end - shift.start_minute - max(0, tru))
 
     @staticmethod
     def _round_half(frac: float) -> float:
@@ -162,6 +173,16 @@ class LateEarlyService:
             )
         return int(leave_type_id), leave_cong
 
+    def _chan_tu_duyet(self, employee_id: int, *, scope: str | None, actor) -> None:
+        """Không TỰ ký phiếu của mình khi phạm vi chỉ là tổ (07/09/2026) — dùng chung cho nút
+        Duyệt lẫn đường "khai hộ" (khai hộ = duyệt luôn; bản rà liên thông E1, 08/09/2026).
+        Phạm vi toàn công ty (HCNS/GĐ) là cấp cuối nên vẫn được."""
+        if scope is None or scope == SCOPE_ALL:
+            return
+        me = self.employees.get_by_user_id(actor.id)
+        if me is not None and me.id == employee_id:
+            raise LateEarlyForbidden("Không tự duyệt phiếu xin vắng của chính mình — nhờ cấp trên duyệt.")
+
     def _guard_scope(self, emp, *, scope: str | None, actor) -> None:
         """Chặn GHI ra ngoài tầm dữ liệu của người gọi.
 
@@ -186,6 +207,9 @@ class LateEarlyService:
         else:
             emp = self._employee_for_user(actor)
 
+        ly_do_bc = ly_do_ngoai_bien_che(emp, self.employees.list_events(emp.id), work_date)
+        if ly_do_bc:
+            raise LateEarlyValidationError(ly_do_bc)             # ngày ngoài biên chế (D10)
         from_minute, to_minute = self._validate_window(emp.id, work_date, from_minute, to_minute)
         lt_id, leave_cong = self._resolve_leave(
             emp, work_date, to_minute - from_minute, leave_type_id
@@ -194,7 +218,10 @@ class LateEarlyService:
         approved = bool(auto_approve)
         if approved:
             # Khai HỘ = duyệt luôn, không đi qua `_decide` — phải chặn ở đây nữa, nếu không
-            # "khai hộ" thành đường vòng miễn phạt / trừ phép cho tháng đã chốt.
+            # "khai hộ" thành đường vòng miễn phạt / trừ phép cho tháng đã chốt...
+            # ...và đường vòng TỰ MIỄN PHẠT cho chính mình (bản rà liên thông E1, 08/09/2026).
+            if employee_id is not None:
+                self._chan_tu_duyet(emp.id, scope=scope, actor=actor)
             self._chan_neu_ky_cong_da_chot(work_date, "khai phiếu đi muộn / về sớm đã duyệt")
         r = self.late_early.create_request(
             employee_id=emp.id, work_date=work_date, from_minute=from_minute,
@@ -256,9 +283,15 @@ class LateEarlyService:
         emp = self.employees.get_by_id(r.employee_id)
         if emp is not None:
             self._guard_scope(emp, scope=scope, actor=actor)
+        # Không TỰ duyệt phiếu của mình khi phạm vi chỉ là tổ (07/09/2026) — cùng luật tăng ca/nghỉ phép.
+        self._chan_tu_duyet(r.employee_id, scope=scope, actor=actor)
         if r.status != STATUS_PENDING:
             raise LateEarlyValidationError("Chỉ duyệt/từ chối được phiếu đang chờ.")
         if new_status == STATUS_APPROVED:
+            if emp is not None:
+                ly_do_bc = ly_do_ngoai_bien_che(emp, self.employees.list_events(emp.id), r.work_date)
+                if ly_do_bc:
+                    raise LateEarlyValidationError(ly_do_bc)
             self._chan_neu_ky_cong_da_chot(r.work_date, "duyệt phiếu đi muộn / về sớm")
         self.late_early.update_request(
             r, status=new_status, decided_by=actor.id,

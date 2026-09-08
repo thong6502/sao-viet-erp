@@ -13,13 +13,15 @@ from sqlalchemy import delete, distinct, func, select
 from sqlalchemy.orm import Session
 
 from ..models.payroll import (
-    COMPONENT_SOURCE_AUTO,
     COMPONENT_SOURCE_EMPLOYEE,
     COMPONENT_SOURCE_LINE,
+    PERIOD_LOCKED,
+    PERIOD_PAID,
     EmployeeSalaryComponent,
     PayrollComponent,
     PayrollLine,
     PayrollLineComponent,
+    PayrollPeriod,
 )
 
 
@@ -71,16 +73,33 @@ class PayrollComponentRepository:
         ).scalar_one()
 
     def period_count(self, component_id: int) -> int:
-        """Số KỲ LƯƠNG đã có khoản này — để nói "đã chốt M kỳ lương".
+        """Số KỲ LƯƠNG **ĐÃ CHỐT / ĐÃ CHI** có khoản này — để nói "đã có trong M kỳ đã chốt".
 
-        Đếm kỳ chứ không đếm dòng: 100 dòng của cùng một tháng vẫn là MỘT kỳ, nói "100" làm HR
-        tưởng ảnh hưởng rộng gấp trăm lần thực tế."""
+        Chỉ đếm kỳ đã khoá (07/09/2026): kỳ NHÁP thì "Tính lại" tự bỏ dòng, không phải lý do giữ
+        khoản — bản cũ đếm cả nháp nên khoản vừa lên bảng nháp đã bị coi là "đã chốt 1 kỳ" và chỉ
+        cho ngừng, làm chủ tưởng khoản bị đóng đinh. Đếm kỳ chứ không đếm dòng."""
         return self.db.execute(
             select(func.count(distinct(PayrollLine.period_id)))
             .select_from(PayrollLineComponent)
             .join(PayrollLine, PayrollLine.id == PayrollLineComponent.line_id)
-            .where(PayrollLineComponent.component_id == component_id)
+            .join(PayrollPeriod, PayrollPeriod.id == PayrollLine.period_id)
+            .where(PayrollLineComponent.component_id == component_id,
+                   PayrollPeriod.status.in_((PERIOD_LOCKED, PERIOD_PAID)))
         ).scalar_one()
+
+    def delete_draft_line_rows(self, component_id: int) -> int:
+        """Gỡ dòng khoản này khỏi các dòng lương của kỳ NHÁP (khi xoá cứng khoản). Trả số dòng đã gỡ.
+        Không commit — người gọi commit cùng lượt xoá khoản."""
+        ids = self.db.execute(
+            select(PayrollLineComponent.id)
+            .join(PayrollLine, PayrollLine.id == PayrollLineComponent.line_id)
+            .join(PayrollPeriod, PayrollPeriod.id == PayrollLine.period_id)
+            .where(PayrollLineComponent.component_id == component_id,
+                   PayrollPeriod.status.notin_((PERIOD_LOCKED, PERIOD_PAID)))
+        ).scalars().all()
+        if ids:
+            self.db.execute(delete(PayrollLineComponent).where(PayrollLineComponent.id.in_(ids)))
+        return len(ids)
 
     def rows_of_component(self, component_id: int) -> list[EmployeeSalaryComponent]:
         """Mọi dòng gán của MỘT khoản (kèm số tiền) — cho gán hàng loạt biết ai đã có và mức
@@ -151,30 +170,6 @@ class PayrollComponentRepository:
         for r in rows:
             self.db.add(PayrollLineComponent(
                 line_id=line_id, source=COMPONENT_SOURCE_EMPLOYEE, **r))
-
-    def replace_auto_line_components(self, line_id: int, rows: list[dict]) -> None:
-        """Ghi lại phần HỆ TỰ TÍNH của một dòng lương (hoa hồng KD).
-
-        Xoá sạch rồi ghi mới: số hoa hồng chạy theo hoá đơn phát sinh thêm, nên mỗi lần "Tính lại"
-        phải ra số mới chứ không cộng dồn.
-
-        ⚠️ CHỈ xoá `source='auto'`. Đụng vào `line` là xoá mất thưởng nóng HCNS thêm tay; đụng vào
-        `employee` là xoá khoản của hồ sơ — cả hai đều mất tiền của người lao động mà không một
-        thông báo nào.
-
-        KHÔNG cần chừa `da_de_tay` như `replace_employee_line_components`: dòng `auto` không sửa
-        tay được (chốt lại 24/08/2026 — *"kệ nó ăn theo đơn hàng cho chắc"*) nên không bao giờ
-        mang cờ đó. Thêm điều kiện lọc ở đây là viết một nhánh không đường nào chạy tới.
-        """
-        self.db.execute(
-            delete(PayrollLineComponent).where(
-                PayrollLineComponent.line_id == line_id,
-                PayrollLineComponent.source == COMPONENT_SOURCE_AUTO,
-            )
-        )
-        for r in rows:
-            self.db.add(PayrollLineComponent(
-                line_id=line_id, source=COMPONENT_SOURCE_AUTO, **r))
 
     def line_components(self, line_id: int, *, source: str | None = None
                         ) -> list[PayrollLineComponent]:

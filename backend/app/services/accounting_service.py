@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import BigInteger, cast, func, select
 from sqlalchemy.exc import IntegrityError
 
+from ..models.payroll import ADV_APPROVED, ADV_PAID
 from ..models.accounting import (
     BANK_FEE_BEARERS,
     BANK_FEE_PAYER,
@@ -995,6 +996,7 @@ class AccountingService:
     def create_voucher(self, *, actor, purchase_request_id: int | None = None,
                        salary_advance_id: int | None = None, **values):
         source_type = (values.get("source_type") or VOUCHER_SOURCE_PURCHASE).strip()
+        advance = None
         if source_type == VOUCHER_SOURCE_SALARY_ADVANCE or salary_advance_id is not None:
             purchase = None
             advance = self._advance_cho_phieu_chi(salary_advance_id)
@@ -1012,6 +1014,11 @@ class AccountingService:
         doc_no = self._next_voucher_doc_no()
         voucher = self._new_voucher(purchase, prepared, actor.id, doc_no=doc_no)
         saved = self.repo.save_voucher(voucher)
+        if advance is not None:
+            # Tiền ĐÃ RA két ⇒ phiếu tạm ứng sang ĐÃ CHI. Từ 07/09/2026 chỉ trạng thái này mới trừ vào
+            # lương (chủ: "kế toán phải lập phiếu chi mới trừ"). `decided_at` để chốt lương (L12) biết
+            # phiếu đổi trạng thái sau lần Tính lại.
+            self._payroll.update_advance(advance, status=ADV_PAID, decided_at=_now())
         self.audit.create(
             actor_user_id=actor.id,
             action="create_payment_voucher",
@@ -1142,11 +1149,26 @@ class AccountingService:
                 "Chứng từ đã có phiếu thu gắn vào nên không hủy được — hủy phiếu thu trước."
             )
         cleaned_reason = _text(reason, label="Lý do hủy", required=True, max_length=2000)
+        # Phiếu chi TỪ TẠM ỨNG (07/09/2026, bản rà B5): kỳ lương của phiếu đã chốt/đã chi thì khoản
+        # ứng đã trừ vào lương — huỷ phiếu chi lúc này là thợ mất tiền. Kỳ còn nháp thì trả phiếu tạm
+        # ứng về ĐÃ DUYỆT (chưa chi) để Tính lại thôi trừ.
+        a_tam_ung = None
+        if voucher.salary_advance_id is not None and self._payroll is not None:
+            a_tam_ung = self._payroll.get_advance(int(voucher.salary_advance_id))
+            if a_tam_ung is not None:
+                ky = self._payroll.get_period_by_ym(int(a_tam_ung.period_year), int(a_tam_ung.period_month))
+                if ky is not None and ky.status in ("locked", "paid"):
+                    raise AccountingConflict(
+                        f"Phiếu tạm ứng {a_tam_ung.code or a_tam_ung.id} đã trừ vào bảng lương "
+                        f"{int(a_tam_ung.period_month):02d}/{int(a_tam_ung.period_year)} (đã chốt) — mở lại kỳ "
+                        "lương trước rồi mới huỷ phiếu chi.")
         voucher.status = PAYMENT_VOUCHER_CANCELLED
         voucher.cancel_reason = cleaned_reason
         voucher.cancelled_by_user_id = actor.id
         voucher.cancelled_at = _now()
         saved = self.repo.save_voucher(voucher)
+        if a_tam_ung is not None and a_tam_ung.status == ADV_PAID:
+            self._payroll.update_advance(a_tam_ung, status=ADV_APPROVED, decided_at=_now())
         self.audit.create(
             actor_user_id=actor.id,
             action="cancel_payment_voucher",
@@ -2709,15 +2731,17 @@ class AccountingService:
         a = self._payroll.get_advance(int(salary_advance_id))
         if a is None:
             raise AccountingNotFound("Không tìm thấy phiếu tạm ứng.")
-        # CHỐT 1 — CHỈ phiếu ĐÃ DUYỆT. Phiếu chờ duyệt / từ chối / đã huỷ đều không được chi.
-        if a.status != "approved":
-            raise AccountingValidationError(
-                "Chỉ lập phiếu chi cho phiếu tạm ứng ĐÃ DUYỆT."
-            )
-        # CHỐT 2 — một phiếu tạm ứng chỉ một phiếu chi (DB cũng có UNIQUE chặn song song).
+        # CHỐT 2 (xét trước) — một phiếu tạm ứng chỉ MỘT phiếu chi còn hiệu lực (DB có UNIQUE riêng
+        # phần chặn song song, mg 0271). Từ 07/09/2026 phiếu đã chi mang trạng thái `paid` — xét
+        # trước để lập lần hai vẫn ra 409 "đã có phiếu chi" chứ không phải 400 "chưa duyệt".
         if self.repo.get_voucher_by_salary_advance(a.id) is not None:
             raise AccountingConflict(
                 f"Phiếu tạm ứng {a.code or a.id} đã có phiếu chi rồi."
+            )
+        # CHỐT 1 — CHỈ phiếu ĐÃ DUYỆT. Phiếu chờ duyệt / từ chối / đã huỷ đều không được chi.
+        if a.status != ADV_APPROVED:
+            raise AccountingValidationError(
+                "Chỉ lập phiếu chi cho phiếu tạm ứng ĐÃ DUYỆT."
             )
         return a
 

@@ -77,9 +77,11 @@ class WorkShift(Base):
     is_overnight: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
-    # Phụ cấp KHAI THEO CA (chủ 2026-07-21): NV được gán ca này thì tự cộng. Đợt 1 chỉ LƯU +
-    # phơi; engine `_compute` CHƯA cộng vào lương (nối ở Đợt 2).
-    # Phụ cấp tiền cơm (tăng ca 17h30→24h) của ca.
+    # Phụ cấp KHAI THEO CA (chủ 2026-07-21): NV làm ca này ngày nào thì ngày đó được cộng — engine
+    # Lương cộng TRỌN mức cho mỗi ngày làm ca đạt ngưỡng `payroll_params.phu_cap_ca_min_cong`
+    # (`payroll_service._compute`, khối `ca_lam`). Đây cũng là chỗ khai "tiền cục theo ca" của
+    # bảng lương tay (ca đêm 77k/đêm, ca tới sáng 125k…) — chủ chốt 07/09/2026.
+    # Phụ cấp tiền cơm của ca.
     meal_allowance: Mapped[float] = mapped_column(
         Numeric(14, 2), nullable=False, default=25_000, server_default="25000"
     )
@@ -97,6 +99,13 @@ class WorkShift(Base):
     grace_minutes: Mapped[int] = mapped_column(
         Integer, nullable=False, default=5, server_default="5"
     )
+    # NGHỈ GIỮA CA (chủ chốt 07/09/2026) — phút-từ-nửa-đêm như giờ vào/ra; NULL cả hai = ca không
+    # khai nghỉ, chạy y như trước. Khung tính công = (ra − vào) − (nghỉ đến − nghỉ từ); phút rơi vào
+    # khoảng nghỉ không là LÀM, cũng không là TRỄ/SỚM. Ca 7:30–16:30 nghỉ 11:30–12:30 ⇒ mẫu số 480'
+    # thay vì 540' ⇒ làm nửa buổi = 0,5 công, mỗi phút trễ trừ 1/480 — khớp bảng lương tay (chia
+    # cho 8 giờ). Ca qua đêm: mốc nghỉ nhỏ hơn giờ vào ca hiểu là rơi sang hôm sau.
+    break_start_minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    break_end_minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
@@ -166,6 +175,11 @@ class AttendanceAdjustRequest(Base):
     work_date: Mapped[date] = mapped_column(Date, nullable=False)     # ngày công cần chỉnh (giờ VN)
     check_type: Mapped[str] = mapped_column(String(8), nullable=False)  # in/out — punch NV đề nghị bù
     suggested_time: Mapped[str | None] = mapped_column(String(5), nullable=True)  # "HH:MM" gợi ý
+    # Giờ gợi ý rơi SANG NGÀY HÔM SAU (ca đêm quên bấm RA lúc 06:00 sáng). Trước 07/09/2026 không có
+    # cờ này nên punch bù luôn dính ngày công ⇒ 06:00 bị gom về hôm trước, ngày treo vẫn treo.
+    suggested_next_day: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     reason: Mapped[str] = mapped_column(String(500), nullable=False)  # NV giải trình
     fault_party: Mapped[str | None] = mapped_column(String(20), nullable=True)
     status: Mapped[str] = mapped_column(

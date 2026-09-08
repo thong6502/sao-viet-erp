@@ -2,7 +2,6 @@
 // ⚠️ `money()` ở đây là bản CỤC BỘ của màn Lương (số trần, không hậu tố "đ") — xem ghi chú ở
 // `utils/format.ts`. ĐỪNG thay bằng `money` của utils/format: ~96 chỗ trên màn này đang ăn nó.
 import type { PayrollLine, SalaryAdvance } from "../../../../api/client";
-import { MA_HOA_HONG } from "./constants";
 
 export function money(n: number | null | undefined): string {
   if (n == null) return "0";
@@ -97,21 +96,16 @@ export function legacyBonusRows(l: PayrollLine): [string, number][] {
 /** Từng khoản THƯỞNG của kỳ này (cột "Thưởng" trên bảng + tooltip).
  *
  * ⚠️ KHÔNG lấy khoản `source='employee'`: nó đã nằm trong `allowance` → hiện ở cột "Phụ cấp";
- * gộp cả hai vào đây là bảng đếm đôi tiền của cùng một khoản. Còn `auto` thì PHẢI có: nó nằm
- * ngoài `allowance`, cộng thẳng vào `gross`. Giữ ĐỒNG BỘ với `_bonus_total()` ở BE.
+ * gộp cả hai vào đây là bảng đếm đôi tiền của cùng một khoản. Giữ ĐỒNG BỘ với `_bonus_total()`
+ * ở BE.
  *
- * ⭐ TRỪ hoa hồng — nay có cột riêng. Gộp nó vào đây là cách cũ, và cách cũ khiến chủ mở bảng
- * lương tìm mãi không thấy hoa hồng đâu: nó lẫn với thưởng nóng trong một con số, chi tiết chỉ
- * hiện khi rê chuột. Tiền máy tự tính từ phân hệ khác thì phải mang đúng tên nó trên bảng. */
+ * ⭐ Hoa hồng KHÔNG ở đây — nó là cột riêng `hoa_hong` trên dòng lương (07/09/2026). Trước đó nó
+ * là dòng khoản nguồn `auto`, và có lúc bị gộp vào Thưởng khiến chủ tìm mãi không thấy. Tiền máy
+ * tự tính từ phân hệ khác thì phải mang đúng tên nó trên bảng. */
 export function bonusRows(l: PayrollLine): [string, number][] {
   return [
     ...(l.components ?? [])
-      .filter(
-        (c) =>
-          c.kind !== "tru" &&
-          (c.source === "line" || c.source === "auto") &&
-          c.code !== MA_HOA_HONG,
-      )
+      .filter((c) => c.kind !== "tru" && c.source === "line")
       .map(
         (c) =>
           [c.note ? `${c.name} (${c.note})` : c.name, c.amount] as [
@@ -132,13 +126,11 @@ export function bonusTitle(l: PayrollLine): string {
     : "";
 }
 
-/** Cột "Hoa hồng kinh doanh" — máy tự tính theo hoá đơn bán trong kỳ, HCNS không gõ tay.
- *  Số 0 nghĩa là chưa khai `commission_pct` ở hồ sơ lương của người kinh doanh: không khai % thì
- *  lúc chốt đơn chụp về rỗng, và mọi bước sau đều bằng 0. */
+/** Cột "Hoa hồng kinh doanh" — cột riêng `hoa_hong` trên dòng lương (07/09/2026), máy tự tính
+ *  theo hoá đơn bán trong kỳ, HCNS không gõ tay. Số 0 nghĩa là chưa khai `commission_pct` ở hồ sơ
+ *  lương của người kinh doanh: không khai % thì lúc chốt đơn chụp về rỗng. */
 export function hoaHongTotal(l: PayrollLine): number {
-  return (l.components ?? [])
-    .filter((c) => c.kind !== "tru" && c.code === MA_HOA_HONG)
-    .reduce((s, c) => s + c.amount, 0);
+  return l.hoa_hong ?? 0;
 }
 
 /** Map 1 bản ghi tạm ứng → dữ liệu phiếu in "Giấy đề nghị tạm ứng". */

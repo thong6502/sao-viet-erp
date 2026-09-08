@@ -18,6 +18,8 @@ export function RequestAdjustModal({
 }) {
   const [checkType, setCheckType] = useState<"in" | "out">("out");
   const [time, setTime] = useState("");
+  // Ca đêm quên bấm RA 06:00 sáng: giờ gợi ý thuộc NGÀY HÔM SAU của ngày công (07/09/2026).
+  const [nextDay, setNextDay] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +62,7 @@ export function RequestAdjustModal({
         date,
         check_type: checkType,
         suggested_time: time || null,
+        suggested_next_day: !!time && nextDay,
         reason: reason.trim(),
       });
       onSaved();
@@ -110,6 +113,15 @@ export function RequestAdjustModal({
               />
             </label>
           </div>
+          <label className="ns-check" style={{ marginTop: 8 }}>
+            <input
+              type="checkbox"
+              checked={nextDay}
+              disabled={!time}
+              onChange={(e) => setNextDay(e.target.checked)}
+            />{" "}
+            Giờ này là <b>sáng hôm sau</b> (ca đêm quên bấm ra, tăng ca qua nửa đêm)
+          </label>
           <label className="ns-field" style={{ marginTop: 12 }}>
             <span className="ns-field__label">Lý do (bắt buộc)</span>
             <input

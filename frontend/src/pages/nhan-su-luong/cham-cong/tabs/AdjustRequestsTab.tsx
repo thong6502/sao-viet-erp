@@ -11,9 +11,12 @@ import { getInitials } from "../shared/helpers";
 export function AdjustRequestsTab({
   token,
   canAdjust,
+  eventTick,
 }: {
   token: string;
   canAdjust: boolean;
+  /** Nhảy theo sự kiện SSE (`adjust_pending_changed`…) → danh sách tự tải lại, khỏi F5 (E7, 08/09/2026). */
+  eventTick?: number;
 }) {
   const [items, setItems] = useState<AdjustRequest[] | null>(null);
   const [status, setStatus] = useState("pending");
@@ -29,7 +32,7 @@ export function AdjustRequestsTab({
   }, [token, status]);
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, eventTick]);
 
   async function approve(r: AdjustRequest) {
     setBusy(true);
@@ -140,6 +143,9 @@ export function AdjustRequestsTab({
                     }}
                   >
                     {r.suggested_time ?? "—"}
+                    {r.suggested_next_day ? (
+                      <span title="Sáng hôm sau (ca đêm)"> (+1)</span>
+                    ) : null}
                   </td>
                   <td>
                     <div className="cc-reason-wrapper">

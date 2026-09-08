@@ -32,6 +32,8 @@ export function LeaveTypesTab({ token }: { token: string }) {
   /** Lỗi TẢI danh mục. `toggleActive`/`handleDelete` báo lỗi bằng alert nên không đụng ô này —
    *  đúng ý: một lần xoá hỏng không được phép làm cả danh mục biến mất. */
   const [listError, setListError] = useState<string | null>(null);
+  // C16 (08/09/2026): đổi cờ có-lương của loại nghỉ chạm đơn đã duyệt ở kỳ chưa chốt công.
+  const [canhBao, setCanhBao] = useState<string | null>(null);
   const load = useCallback(() => {
     setLoading(true);
     setListError(null);
@@ -80,6 +82,14 @@ export function LeaveTypesTab({ token }: { token: string }) {
 
   return (
     <div className="cc-leave-types-wrapper">
+      {canhBao && (
+        <div className="banner banner--warn" style={{ marginBottom: 12 }}>
+          {canhBao}{" "}
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setCanhBao(null)}>
+            Đã hiểu
+          </button>
+        </div>
+      )}
       {/* 1. Header Toolbar & Quick Stats */}
       <div className="cc-calendar-dashboard" style={{ marginBottom: 20 }}>
         <div className="cc-calendar-stats-strip">
@@ -277,7 +287,7 @@ export function LeaveTypesTab({ token }: { token: string }) {
           token={token}
           type={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); load(); }}
+          onSaved={(cb) => { setEditing(null); setCanhBao(cb ?? null); load(); }}
         />
       )}
     </div>

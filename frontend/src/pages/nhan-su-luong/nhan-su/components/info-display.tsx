@@ -25,11 +25,14 @@ export function InfoField({
   value,
   icon: Icon,
   hint,
+  action,
 }: {
   label: string;
   value: string | null | undefined;
   icon?: any;
   hint?: string;
+  /** Nút/link đi kèm giá trị (vd "Đặt ca nền" ở ô Ca làm việc) — đặt dưới hint. */
+  action?: ReactNode;
 }) {
   return (
     <div className="ns-info-field">
@@ -44,6 +47,7 @@ export function InfoField({
           </span>
         )}
         {hint && <span className="ns-info-field__hint">{hint}</span>}
+        {action && <span className="ns-info-field__action">{action}</span>}
       </div>
     </div>
   );

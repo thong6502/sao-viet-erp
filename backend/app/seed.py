@@ -7,6 +7,8 @@ Credentials come from config/env (SEED_ADMIN_*).
 """
 from __future__ import annotations
 
+import os
+
 from datetime import date
 
 from sqlalchemy.orm import Session
@@ -2020,7 +2022,10 @@ def backfill_employee_profiles(db: Session) -> None:
             full_name=u.name or u.username,
             department_id=u.department_id,
             status=STATUS_ACTIVE,
-            hire_date=date.today(),
+            # Mốc giữ chỗ cho hồ sơ dựng hộ tài khoản có sẵn. Trước 08/09/2026 là `date.today()`
+            # ⇒ luật biên chế chung (services/bien_che) coi mọi ngày trước hôm nay là "chưa vào làm"
+            # — hồ sơ admin không chấm bù / xin phép lùi ngày được. HCNS sửa lại ngày vào ở hồ sơ.
+            hire_date=date(2020, 1, 1),
         )
         repo.update(emp, user_id=u.id)
 
@@ -2066,68 +2071,37 @@ def seed_payroll(db: Session) -> None:
     from datetime import date
 
     from .models.employee import Employee
-    from .models.payroll import AMOUNT_MANUAL, BAND_LT1, BAND_Y1_5, BAND_Y5_10, BAND_GT10
+    from .models.payroll import AMOUNT_MANUAL
     from .repositories.payroll_repo import PayrollRepository
     from .repositories.user_repo import UserRepository
 
     repo = PayrollRepository(db)
-    if repo.list_rules():
-        return  # đã seed
-    if repo.get_params() is None:
-        repo.create_params()
-
-    # Quy tắc mức lương (số hóa bảng lương thật 2026).
-    # Tổ In — theo BẬC THỢ.
-    for key, amount in (("tho_1", 25_000_000), ("tho_2", 22_000_000), ("tho_3", 20_000_000),
-                        ("phu_1", 14_500_000), ("phu_2", 10_500_000)):
-        repo.create_rule(payroll_group="to_in", pay_grade_key=key, monthly_amount=amount,
-                         effective_from=date(2026, 1, 1), note="Tổ In theo bậc thợ")
-    # Tổ sản xuất (Dán/Bồi/Thành phẩm…) — theo THÂM NIÊN × GIỚI TÍNH.
-    prod = [
-        (BAND_LT1, "male", 8_000_000), (BAND_LT1, "female", 7_000_000),
-        (BAND_Y1_5, "male", 8_500_000), (BAND_Y1_5, "female", 7_500_000),
-        (BAND_Y5_10, "male", 10_000_000), (BAND_Y5_10, "female", 9_000_000),
-        (BAND_GT10, "male", 10_000_000), (BAND_GT10, "female", 9_000_000),
-    ]
-    for band, gender, amount in prod:
-        repo.create_rule(payroll_group="san_xuat", seniority_band=band, gender=gender,
-                         monthly_amount=amount, effective_from=date(2026, 1, 1),
-                         note="Tổ sản xuất theo thâm niên × giới tính")
-    # Văn phòng — mức chung (theo vị trí, demo 1 mức nền).
-    repo.create_rule(payroll_group="van_phong", monthly_amount=10_000_000,
-                     effective_from=date(2026, 1, 1), note="Khối văn phòng (nền)")
-
-    # Gán nhóm lương cho NV demo theo vị trí + tạo lương ấn định (rule).
-    def _group_of(pos: str | None) -> tuple[str, str | None]:
-        p = (pos or "").lower()
-        if "in" in p and "kinh" not in p:  # thợ in / máy in (tránh "kinh doanh")
-            grade = "phu_1" if ("phụ" in p or "phu" in p) else "tho_3"
-            return "to_in", grade
-        for kw in ("dán", "dan", "bồi", "boi", "bế", "be", "cắt", "cat", "cán", "can",
-                   "thành phẩm", "thanh pham", "giao", "gia công", "gia cong"):
-            if kw in p:
-                return "san_xuat", None
-        return "van_phong", None
-
     users = UserRepository(db)
     admin = users.get_by_username(settings.seed_admin_username)
     admin_emp_id = None
     if admin is not None:
         row = db.query(Employee).filter(Employee.user_id == admin.id).first()
         admin_emp_id = row.id if row is not None else None
+    # Mốc "đã seed" (07/09/2026): trước là "đã có bảng mức lương theo bậc" — bảng đó đã gỡ. Nay mốc
+    # = GĐ đã có mốc lương demo.
+    if admin_emp_id is not None and repo.list_salaries(admin_emp_id):
+        return  # đã seed
+    if repo.get_params() is None:
+        # `SEED_CA_KHOP_GIO_CHUAN=false` CHỈ dành cho bộ test (conftest): nhiều test cố ý khai ca
+        # 9h/10h/24h làm số tròn. Dev/prod mặc định BẬT — ca phải khớp giờ công chuẩn (07/09/2026).
+        repo.create_params(
+            ca_khop_gio_chuan=(os.environ.get("SEED_CA_KHOP_GIO_CHUAN", "true").strip().lower()
+                               != "false"),
+        )
 
-    for emp in db.query(Employee).all():
-        group, grade = _group_of(emp.position)
-        emp.payroll_group = group
-        emp.pay_grade_key = grade
-        # Lương ấn định: GĐ (admin) nhập tay 40tr; còn lại theo quy tắc.
-        if emp.id == admin_emp_id:
-            repo.create_salary(employee_id=emp.id, effective_from=date(2026, 1, 1),
-                               amount_mode=AMOUNT_MANUAL, base_amount=40_000_000,
-                               allowance=500_000, note="Giám đốc — theo kết quả")
-        else:
-            repo.create_salary(employee_id=emp.id, effective_from=date(2026, 1, 1),
-                               amount_mode="rule", allowance=300_000)
+    # (07/09/2026) Bảng mức lương theo nhóm/bậc/thâm niên đã GỠ (engine không đọc từ lâu) — không
+    # seed rule, không gán `payroll_group`/`pay_grade_key`, không đẻ mốc lương `amount_mode="rule"`
+    # rỗng (dòng như thế = 0đ lặng lẽ). Mức nền demo: GĐ khai tay ở đây; khối SX/văn phòng do
+    # `seed_tai_khoan_va_luong_sx` / `seed_van_phong_staff` khai; người khác coi như CHƯA KHAI LƯƠNG.
+    if admin_emp_id is not None:
+        repo.create_salary(employee_id=admin_emp_id, effective_from=date(2026, 1, 1),
+                           amount_mode=AMOUNT_MANUAL, base_amount=40_000_000,
+                           allowance=500_000, note="Giám đốc — theo kết quả")
     db.commit()
 
     # Vài tạm ứng demo cho GĐ trong kỳ hiện tại.
@@ -2293,10 +2267,7 @@ _PAYROLL_COMPONENTS_SEED = [
     ("tra_dong_phuc",      "Trả đồng phục",          "thu", True,  130),
     # Hai khoản MỞ (chủ 27/07/2026): khoản lặt vặt phát sinh một lần (thưởng nóng của Sếp) thì
     # dùng luôn hai khoản này + ghi chú, KHÔNG phải đẻ một danh mục mới dùng một lần rồi bỏ.
-    # Hoa hồng KD — HỆ TỰ TÍNH theo hoá đơn bán trong kỳ, không ai gõ tay (nguồn `auto`).
-    # Phải seed cả ở đây lẫn mg 0227: DB trắng không chạy migration, mà thiếu khoản này thì
-    # engine không có chỗ ghi ⇒ hoa hồng bằng 0 mà không báo gì.
-    ("hoa_hong_kd",        "Hoa hồng kinh doanh",    "thu", True,  140),
+    # (07/09/2026) Hoa hồng KD KHÔNG còn là dòng danh mục — cột `payroll_lines.hoa_hong` (mg 0269).
     ("thu_nhap_khac_ct",   "Thu nhập khác (chịu thuế)", "thu", True,  900),
     ("thu_nhap_khac_mt",   "Thu nhập khác (miễn thuế)", "thu", False, 910),
 ]
@@ -2686,7 +2657,7 @@ def seed_tai_khoan_va_luong_sx(db: Session) -> None:
        thứ hai nếu ta tạo tài khoản mà quên nối. Ở đây tạo `tho_<tổ><n>` nối tiếp `tho_<tổ>1/2`
        của `seed_san_xuat_accounts` (cùng mật khẩu `123456`, cùng vai "Thợ SX", phòng ban = chính
        tổ đó để thợ HIỆN trong drawer gán việc) và NỐI `employee.user_id` ngay.
-    2. Lương — `seed_payroll` chốt cửa bằng `if repo.list_rules(): return` nên nó chỉ chạy đúng
+    2. Lương — `seed_payroll` chốt cửa bằng "GĐ đã có mốc lương" (07/09/2026) nên nó chỉ chạy đúng
        MỘT lần, trước khi khối SX có người; hậu quả là cả 6 tổ không ai có dòng lương, màn Lương
        và bảng lương ra 0đ. Khai mức nền vào `luong_vi_tri` (+ `luong_trach_nhiem` cho tổ
        trưởng/quản lý), phụ cấp ca · thâm niên · chuyên cần · khác khai phẳng theo từng người.
@@ -2737,13 +2708,12 @@ def seed_tai_khoan_va_luong_sx(db: Session) -> None:
             vi_tri, trach_nhiem = 11_000_000, 1_000_000
         elif "Thợ cả" in nhan or "Kỹ thuật viên" in nhan:
             trach_nhiem = 800_000
-        nam = max(0, ((today - emp.hire_date).days // 365)) if emp.hire_date else 0
         return {
             "luong_vi_tri": vi_tri,
             "luong_trach_nhiem": trach_nhiem,
             # Phụ cấp ca chỉ cho người đứng máy theo ca; khối điều hành ở phòng SX không hưởng.
             "phu_cap_ca": 500_000 if trong_to else 0,
-            "phu_cap_tham_nien": min(nam, 5) * 200_000,
+            "phu_cap_tham_nien": 0,   # NGƯNG 07/09/2026 — chủ bỏ ô này; engine không trả
             "chuyen_can": 300_000,
             "allowance": 300_000,   # phụ cấp KHÁC (cơm ca · xăng xe)
         }
@@ -2914,7 +2884,7 @@ def seed_van_phong_staff(db: Session) -> None:
     2. Hồ sơ — NỐI vào hồ sơ có sẵn của `seed_employees` khi có (Trần Văn An · Lê Thị Bình ·
        Nguyễn Thị Dung đang trống `user_id`), còn lại tạo mới. Phải chạy TRƯỚC
        `backfill_employee_profiles`, không thì mỗi tài khoản ở đây bị đẻ thêm một hồ sơ TRỐNG.
-    3. Lương — `seed_payroll` chốt cửa `if repo.list_rules(): return` nên chỉ chạy đúng một lần,
+    3. Lương — `seed_payroll` chốt cửa "GĐ đã có mốc lương" (07/09/2026) nên chỉ chạy đúng một lần,
        người seed sau không ai có mức; khai thẳng `luong_vi_tri` (+ trách nhiệm) như khối SX.
 
     Idempotent theo TỪNG NGƯỜI: có tài khoản / hồ sơ / dòng lương rồi thì bỏ qua, không ghi đè
@@ -2987,7 +2957,6 @@ def seed_van_phong_staff(db: Session) -> None:
             emps.update(emp, default_shift_id=ca_hc)
 
         if not _co_muc_nen(emp.id):
-            nam = max(0, ((today - emp.hire_date).days // 365)) if emp.hire_date else 0
             luong.create_salary(
                 employee_id=emp.id,
                 effective_from=max(emp.hire_date or date(2026, 1, 1), date(2026, 1, 1)),
@@ -2998,7 +2967,7 @@ def seed_van_phong_staff(db: Session) -> None:
                 luong_vi_tri=ng["vi_tri"],
                 luong_trach_nhiem=ng["trach_nhiem"],
                 phu_cap_ca=0,   # khối văn phòng làm giờ hành chính, không hưởng phụ cấp ca
-                phu_cap_tham_nien=min(nam, 5) * 200_000,
+                phu_cap_tham_nien=0,   # NGƯNG 07/09/2026 — chủ bỏ ô này
                 chuyen_can=300_000,
                 allowance=ng.get("phu_cap", 300_000),   # phụ cấp KHÁC (cơm ca · xăng xe)
             )

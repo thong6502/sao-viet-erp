@@ -231,6 +231,10 @@ class DepartmentRepository:
     def set_is_kcs(self, dept: Department, value: bool) -> Department:
         """Đánh dấu / bỏ dấu TỔ KCS. Đích danh — KHÔNG cascade cây con như `la_san_xuat`."""
         dept.is_kcs = bool(value)
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
+
     def set_la_giao_hang(self, dept: Department, value: bool) -> Department:
         """Đánh dấu / bỏ dấu bộ phận GIAO HÀNG (nền cho tab Nhân viên giao hàng)."""
         dept.la_giao_hang = bool(value)

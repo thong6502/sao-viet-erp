@@ -234,6 +234,22 @@ def _full(employee, depts: DepartmentRepository, users: UserRepository,
 _SALARY_FIELDS = SENSITIVE_FIELDS
 
 
+def _kiem_role_gan(authz, user: User, roles: RoleRepository, department_id: int | None,
+                   role_id: int | None) -> None:
+    """Gán vai trò cho tài khoản mới sinh từ hồ sơ (07/09/2026, bản rà C6): trước đây nhận `role_id`
+    tuỳ ý chỉ với `nhan_su:update` — người quản hồ sơ tự tạo tài khoản mang vai Giám đốc. Cùng luật
+    với đường quản trị chính (`user_admin_service.assign_role`): đòi ô Người dùng → Gán vai trò, và vai
+    phải thuộc phòng của nhân viên."""
+    if role_id is None:
+        return
+    if not authz.can(user, "nguoi_dung", "assign_role"):
+        raise HTTPException(status_code=403,
+                            detail="Gán vai trò cho tài khoản cần quyền Người dùng → Gán vai trò.")
+    role = roles.get_by_id(role_id)
+    if role is None or role.department_id != department_id:
+        raise HTTPException(status_code=400, detail="Vai trò không thuộc phòng của nhân viên.")
+
+
 def _mask_salary(out: EmployeeOut) -> EmployeeOut:
     for f in _SALARY_FIELDS:
         setattr(out, f, None)
@@ -463,10 +479,13 @@ def create_employee(
     authz: Authz,
     depts: Depts,
     users: Users,
+    roles: Roles,
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
 ) -> EmployeeCreateOut:
     data = body.model_dump()
     account = data.pop("account", None)
+    if account and account.get("role_id") is not None:
+        _kiem_role_gan(authz, user, roles, data.get("department_id"), account.get("role_id"))
     initial_salary = data.pop("initial_salary", None)
     department_id = data.pop("department_id")
     status_in = data.pop("status")
@@ -593,7 +612,8 @@ def _current_values(emp, changes: dict) -> dict:
     return out
 
 
-def _req_out(req, emps: dict[int, object], users: UserRepository | None = None) -> UpdateRequestOut:
+def _req_out(req, emps: dict[int, object], users: UserRepository | None = None,
+             che_nhay_cam: bool = False) -> UpdateRequestOut:
     out = UpdateRequestOut.model_validate(req)
     emp = emps.get(req.employee_id)
     if emp is not None:
@@ -601,6 +621,13 @@ def _req_out(req, emps: dict[int, object], users: UserRepository | None = None) 
         out.current = _current_values(emp, req.changes or {})
     if users is not None:
         out.decided_by_name = _decider_name(req, users)
+    if che_nhay_cam:
+        # Cửa `/employees/{id}` che STK/CCCD cho người thiếu `view_salary`, cửa hàng đợi YC thì
+        # trả nguyên (bản rà liên thông E10, 08/09/2026) — che cùng một luật ở đây.
+        out.changes = {k: ("••••" if k in _SALARY_FIELDS and v not in (None, "") else v)
+                       for k, v in (out.changes or {}).items()}
+        out.current = {k: ("••••" if k in _SALARY_FIELDS and v not in (None, "") else v)
+                       for k, v in (out.current or {}).items()}
     return out
 
 
@@ -641,16 +668,17 @@ def cancel_my_request(request_id: int, svc: Service, users: Users, user: SelfWri
 
 
 @router.get("/update-requests", response_model=UpdateRequestsOut)
-def list_requests(svc: Service, users: Users,
+def list_requests(svc: Service, users: Users, authz: Authz,
                   user: Annotated[User, Depends(require_permission(MODULE, "read"))],
                   status_filter: str | None = Query(default=None, alias="status")) -> UpdateRequestsOut:
-    reqs = svc.list_update_requests(status=status_filter)
+    reqs = svc.list_update_requests(status=status_filter, scope=_scope_for(authz, user), actor=user)
     emps: dict[int, object] = {}
     for eid in {r.employee_id for r in reqs}:
         emp = svc.employees.get_by_id(eid)
         if emp is not None:
             emps[eid] = emp
-    return UpdateRequestsOut(items=[_req_out(r, emps, users) for r in reqs])
+    che = not authz.can(user, MODULE, "view_salary")
+    return UpdateRequestsOut(items=[_req_out(r, emps, users, che_nhay_cam=che) for r in reqs])
 
 
 @router.post("/update-requests/{request_id}/approve", response_model=UpdateRequestOut)
@@ -1048,6 +1076,7 @@ def attach_account(
     authz: Authz,
     depts: Depts,
     users: Users,
+    roles: Roles,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> EmployeeOut:
     """Gắn tài khoản cho hồ sơ: TẠO MỚI (`username`+`password`) — đường chính vì mọi tài
@@ -1060,6 +1089,8 @@ def attach_account(
                 employee_id=employee_id, scope=scope, actor=user, user_id=body.user_id,
             )
         elif (body.username or "").strip():
+            hs = svc.get_employee(employee_id=employee_id, scope=scope, actor=user)
+            _kiem_role_gan(authz, user, roles, hs.department_id, body.role_id)
             employee, _ = svc.create_account(
                 employee_id=employee_id, scope=scope, actor=user,
                 username=body.username or "", password=body.password or "",

@@ -34,6 +34,7 @@ export function InfoTab({
   edit,
   setEdit,
   onSaved,
+  onDatCaNen,
 }: {
   token: string;
   emp: EmployeeDetail;
@@ -42,6 +43,9 @@ export function InfoTab({
   edit: boolean;
   setEdit: (e: boolean) => void;
   onSaved: () => void;
+  /** Nhảy sang Chấm công → Khai ca → Phân ca tháng, mở sẵn form ca nền cho người này (bản rà
+   *  E6, 07/09/2026). Không truyền = không có quyền Khai ca / người đã nghỉ → không hiện nút. */
+  onDatCaNen?: () => void;
 }) {
   const [form, setForm] = useState<EmployeeInput>({
     ...emp,
@@ -49,14 +53,27 @@ export function InfoTab({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shifts, setShifts] = useState<WorkShift[]>([]);
+  // Ca nền ĐANG hiệu lực (A7, 08/09/2026): `default_shift_id` là mốc MỚI NHẤT kể cả mốc tương lai
+  // nên hồ sơ từng hiện ca chưa tới ngày. Đọc lịch sử mốc, lấy mốc `is_current`; chưa tải/ lỗi thì
+  // rơi về cột cũ.
+  const [currentShiftId, setCurrentShiftId] = useState<number | null | undefined>(undefined);
   useEffect(() => {
     api.attendance
       .shifts(token)
       .then((r) => setShifts(r.items))
       .catch(() => setShifts([]));
   }, [token]);
-  const shiftName =
-    shifts.find((s) => s.id === emp.default_shift_id)?.name ?? null;
+  useEffect(() => {
+    api.employees
+      .shiftHistory(token, emp.id)
+      .then((r) => {
+        const now = r.items.find((a) => a.is_current);
+        setCurrentShiftId(now ? now.shift_id : r.items.length ? null : emp.default_shift_id);
+      })
+      .catch(() => setCurrentShiftId(undefined));
+  }, [token, emp.id, emp.default_shift_id]);
+  const shiftId = currentShiftId === undefined ? emp.default_shift_id : currentShiftId;
+  const shiftName = shifts.find((s) => s.id === shiftId)?.name ?? null;
   const resigned = emp.status === "resigned";
 
   function set<K extends keyof EmployeeInput>(k: K, v: EmployeeInput[K]) {
@@ -218,6 +235,19 @@ export function InfoTab({
             value={shiftName ?? "— chưa gán —"}
             icon={Clock}
             hint="Gán/đổi ca ở Chấm công → Khai ca → Phân ca tháng"
+            action={
+              onDatCaNen && (
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={onDatCaNen}
+                  title="Mở Chấm công → Khai ca → Phân ca tháng, form ca nền của người này mở sẵn"
+                >
+                  <Clock size={12} />
+                  {shiftName ? "Đổi ca nền" : "Đặt ca nền"}
+                </button>
+              )
+            }
           />
           {emp.resign_date && (
             <InfoField

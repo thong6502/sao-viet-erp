@@ -57,7 +57,10 @@ ADV_PENDING = "pending"
 ADV_APPROVED = "approved"
 ADV_REJECTED = "rejected"
 ADV_CANCELLED = "cancelled"
-ADVANCE_STATUSES = (ADV_PENDING, ADV_APPROVED, ADV_REJECTED, ADV_CANCELLED)
+# ĐÃ CHI (07/09/2026, chủ: "kế toán phải lập phiếu chi mới trừ vào lương"): kế toán lập phiếu chi từ
+# phiếu đã duyệt ⇒ `paid`; huỷ phiếu chi ⇒ về `approved`. CHỈ `paid` mới trừ vào lương (mg 0270).
+ADV_PAID = "paid"
+ADVANCE_STATUSES = (ADV_PENDING, ADV_APPROVED, ADV_PAID, ADV_REJECTED, ADV_CANCELLED)
 # LOẠI phiếu trên bảng salary_advances (chủ 2026-07-24): tạm ứng ad-hoc vs thanh toán lương đợt 1
 # (số cố định theo hồ sơ). Cùng workflow duyệt, tách nhau khi hiển thị trên phiếu lương.
 ADV_KIND_TAM_UNG = "tam_ung"
@@ -107,7 +110,8 @@ class PayrollParams(Base):
     bhyt_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.015, server_default="0.015")
     bhtn_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.01, server_default="0.01")
     # Tỷ lệ NGƯỜI SỬ DỤNG LAO ĐỘNG đóng: BHXH 17.5% + BHYT 3% + BHTN 1% = 21.5%.
-    # KHÔNG trừ vào lương NV — chỉ để tính chi phí bảo hiểm của công ty + tổng quỹ lương.
+    # DORMANT 07/09/2026 (chủ: "cột NSDLĐ không dùng tới thì bỏ"): engine chưa bao giờ đọc, màn đã
+    # gỡ cột, `ParamsIn`/`update_params` không nhận. Giữ cột, không drop. Riêng `tnld_bnn_rate` GIỮ.
     bhxh_rate_er: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.175, server_default="0.175")
     bhyt_rate_er: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.03, server_default="0.03")
     bhtn_rate_er: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.01, server_default="0.01")
@@ -126,6 +130,14 @@ class PayrollParams(Base):
     # --- Pha 4a: tăng ca (OT) + phụ cấp ca đêm ---
     # Giờ công chuẩn/ngày để quy đơn giá giờ khi tính OT.
     standard_hours_per_day: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=8, server_default="8")
+    # CA PHẢI KHỚP GIỜ CÔNG CHUẨN (chủ chốt 07/09/2026): khai ca mà (giờ ra − giờ vào − nghỉ giữa ca)
+    # khác `standard_hours_per_day` thì KHÔNG cho lưu. Hai chỗ khai rời nhau là hai mẫu số lệch nhau
+    # (công chia 9h, đơn giá giờ chia 8h) — "sinh ra hệ thống làm gì nếu không chặt chẽ với nhau".
+    # Tắt chỉ khi công ty thật sự có ca ngắn/ca dài (bán thời gian). Test suite tắt qua seed
+    # (`SEED_CA_KHOP_GIO_CHUAN=false`) vì nhiều test cố ý dùng ca 9h/10h/24h làm số tròn.
+    ca_khop_gio_chuan: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     # Hệ số OT theo LOẠI NGÀY (Đ98): ngày thường ≥1.5 · ngày nghỉ tuần ≥2.0 · ngày lễ ≥3.0.
     ot_multiplier: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=1.5, server_default="1.5")
     ot_multiplier_restday: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=2.0, server_default="2")
@@ -212,7 +224,10 @@ class PayrollParams(Base):
 
 
 class SalaryRateRule(Base):
-    """Một dòng = một MỨC lương chuẩn cho một tổ hợp (nhóm, bậc, thâm niên, giới tính).
+    """DORMANT 07/09/2026: engine KHÔNG tra bảng này (mức khai ở hồ sơ từng người), route `/rules`
+    đã gỡ, seed không đẻ dòng. Giữ bảng để không mất dữ liệu cũ; drop bằng migration sau nếu cần.
+
+    Một dòng = một MỨC lương chuẩn cho một tổ hợp (nhóm, bậc, thâm niên, giới tính).
     Chiều nào không áp dụng để NULL (wildcard). Lookup chọn dòng khớp cụ thể nhất."""
 
     __tablename__ = "salary_rate_rules"
@@ -296,7 +311,10 @@ class EmployeeSalary(Base):
     # Phụ cấp CA (ca đêm/ca tới sáng/cơm ca…) — gộp 1 số; dòng lương lưu ở `payroll_lines.night_pay`.
     phu_cap_ca: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     # `phu_cap_trach_nhiem` (khai tay) ĐÃ BỎ — trùng ý với `luong_trach_nhiem` (thành phần mức
-    # nền). Trách nhiệm giờ CHỈ ở `luong_trach_nhiem`. Thâm niên vẫn khai tay ở đây.
+    # nền). Trách nhiệm giờ CHỈ ở `luong_trach_nhiem`.
+    # NGƯNG 07/09/2026 (chủ: bỏ ô "Phụ cấp thâm niên" ở Lương → Lương nhân viên): engine trả 0
+    # tuyệt đối, ô trên màn chỉ hiện chỉ-đọc khi còn số cũ. Giữ cột (không drop) để tra lịch sử —
+    # cùng cách xử lý với `phu_cap_ca`.
     phu_cap_tham_nien: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     # Chuyên cần của RIÊNG người này (mỗi người mỗi khác). TRỪ DẦN theo số ngày nghỉ (C3):
     # tỷ lệ = max(0, 1 − 0,5 × số ngày nghỉ).
@@ -438,11 +456,12 @@ class PayrollLine(Base):
     # cách nhau ~15,5tr nên KHÔNG được dùng lẫn.
     thu_nhap_chiu_thue: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     thu_nhap_mien_thue: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
-    # TỔNG phụ cấp tháng = phụ cấp khác + thâm niên (cột dưới). Trách nhiệm KHÔNG ở đây — nó là
-    # `luong_trach_nhiem`, đã nằm trong mức nền (luong_cong).
+    # TỔNG phụ cấp tháng = phụ cấp khác + khoản danh mục gán ở hồ sơ (+ thâm niên ở kỳ CŨ, cột
+    # dưới). Trách nhiệm KHÔNG ở đây — nó là `luong_trach_nhiem`, đã nằm trong mức nền (luong_cong).
     allowance: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
-    # TRONG ĐÓ của `allowance` — chép từ `employee_salaries.phu_cap_tham_nien` để phiếu lương
-    # hiện DÒNG RIÊNG (bệnh B2 "phụ cấp một cục"). ĐỪNG cộng thêm vào gross: đã nằm trong `allowance`.
+    # TRONG ĐÓ của `allowance` — NGƯNG 07/09/2026: engine luôn ghi 0 (khoản thâm niên khai tay đã
+    # bỏ). Giữ cột để phiếu lương kỳ cũ còn số in lại DÒNG RIÊNG y nguyên. ĐỪNG cộng thêm vào
+    # gross: đã nằm trong `allowance`.
     phu_cap_tham_nien: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     khoan: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")          # lương khoán (nhịp 2)
     # Khoán km giao hàng (mg 0231) — tiền theo km chuyến giao, CỘNG THÊM lên lương chấm công.
@@ -456,6 +475,12 @@ class PayrollLine(Base):
     # tiền phạt biến mất im lặng nếu cộng vào đó. Vẫn là CỘT (tiền engine tự tính), không phải
     # khoản danh mục, đúng tiền lệ `khoan_km`.
     thuong_to_truong: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # Hoa hồng kinh doanh (mg 0269, 07/09/2026) — hệ tự tính theo hoá đơn bán trong kỳ
+    # (`HoaHongService`), % chụp trên đơn lúc chốt. Là CỘT (chủ: "nó là một dạng lương"), KHÔNG còn
+    # là dòng khoản danh mục nguồn `auto` như 21/08–07/09: cách đó đặt công tắc toàn hệ thống cạnh
+    # nút Xoá của HCNS, và "Sửa 1 ô" không cộng nguồn `auto` nên hoa hồng bốc hơi khỏi gross.
+    # LUÔN chịu TNCN. Không sửa tay — cần trả thêm/bớt thì dùng khoản "Thu nhập khác".
+    hoa_hong: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     ot_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # tổng phút tăng ca (Pha 4a)
     ot_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")          # tiền tăng ca (Pha 4a)
     night_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # số ngày ca đêm (từ Chấm công)
@@ -498,9 +523,16 @@ class PayrollLine(Base):
     pit: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")            # thuế TNCN (tự tính, có thể ghi đè tay)
     pit_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")  # HCNS ghi đè TNCN tay (Pha 4b)
     pit_taxable: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")    # thu nhập tính thuế đã dùng (Pha 4b)
-    advance_total: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")  # tạm ứng ĐÃ DUYỆT (kind=tam_ung)
-    # Thanh toán lương đợt 1 ĐÃ DUYỆT (kind=luong_dot_1) của kỳ — snapshot, dòng riêng trên phiếu lương.
+    advance_total: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")  # tạm ứng ĐÃ CHI (kind=tam_ung, status=paid — từ 07/09/2026)
+    # Thanh toán lương đợt 1 ĐÃ CHI (kind=luong_dot_1) của kỳ — snapshot, dòng riêng trên phiếu lương.
     luong_dot_1_total: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # Nợ tạm ứng DỒN KỲ (mg 0270, chủ chốt 07/09/2026: "trừ không hết thì chuyển sang tháng sau, tháng sau
+    # trừ không hết thì chuyển sang tháng sau nữa"). Tạm ứng (+ đợt 1 + nợ kỳ trước) trừ SAU CÙNG:
+    # `no_ung_ky_truoc` = phần kỳ TRƯỚC chưa trừ hết mang sang (chép từ dòng kỳ trước lúc Tính lại);
+    # `no_ung_chuyen_ky_sau` = phần kỳ này vẫn chưa trừ hết. Trước đó `net = max(0, …)` và phần dư
+    # biến mất không dấu vết (bản rà B2).
+    no_ung_ky_truoc: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    no_ung_chuyen_ky_sau: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     net_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -550,11 +582,12 @@ COMPONENT_SOURCE_LINE = "line"           # thêm tay cho riêng kỳ này — gi
 #   · `line` GIỮ NGUYÊN khi tính lại — sai hẳn: số hoa hồng phải chạy theo hoá đơn mới phát sinh.
 # Trộn vào `line` còn nguy hơn: `replace_employee_line_components` cố ý CHỪA `line` ra, nên hoa
 # hồng cũ nằm lại cạnh hoa hồng mới và CỘNG ĐÔI.
+# ⚠️ LEGACY từ 07/09/2026: hoa hồng là cột `payroll_lines.hoa_hong`, KHÔNG còn dòng `auto` nào được
+# sinh ra; mg 0269 đã chuyển tiền dòng `auto` cũ vào cột rồi xoá. Giữ hằng để đọc DB cũ / test.
 COMPONENT_SOURCE_AUTO = "auto"
 COMPONENT_SOURCES = (COMPONENT_SOURCE_EMPLOYEE, COMPONENT_SOURCE_LINE, COMPONENT_SOURCE_AUTO)
 
-#: Mã khoản danh mục của hoa hồng kinh doanh. Cố định để engine tra được; đổi TÊN hiển thị thì
-#: thoải mái, đổi MÃ là engine mất dấu.
+#: LEGACY — mã dòng danh mục hoa hồng đời 21/08–07/09/2026. Engine KHÔNG còn tra; mg 0269 xoá dòng.
 COMPONENT_CODE_HOA_HONG = "hoa_hong_kd"
 
 
@@ -583,6 +616,7 @@ class PayrollComponent(Base):
     )
     # Có cộng vào GỐC ĐÓNG BẢO HIỂM không. Mặc định KHÔNG — gốc đóng BH là `luong_vi_tri`
     # (chủ chốt 2026-07-20), phụ cấp không đụng vào.
+    # DORMANT 07/09/2026: engine không đọc, API không nhận/trả — giữ cột, không drop.
     in_insurance_base: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=sa_false()
     )

@@ -291,9 +291,12 @@ export type QuoteEvent =
   // Phiếu tăng ca: NV gửi/hủy → 'ot_pending_changed' (người duyệt refetch badge); tổ trưởng
   // duyệt/từ chối → 'ot_decision' đẩy riêng cho nhân viên nộp phiếu.
   | { type: "ot_pending_changed"; code?: string }
-  | { type: "ot_decision"; code?: string; decision: "approved" | "rejected" }
+  | { type: "ot_decision"; code?: string; decision: "approved" | "rejected" | "cancelled" }
   // Phiếu đi muộn / về sớm / nghỉ nửa buổi: cùng luồng với tăng ca (tổ trưởng duyệt), bảng riêng.
   | { type: "el_pending_changed"; code?: string }
+  // Yêu cầu chỉnh công (E7, 08/09/2026): gửi/huỷ → người duyệt refetch; duyệt/từ chối → đẩy đúng NV.
+  | { type: "adjust_pending_changed"; code?: string }
+  | { type: "adjust_decision"; code?: string; decision: "approved" | "rejected" }
   | { type: "el_decision"; code?: string; decision: "approved" | "rejected" }
   // Quản lý đổi ca của một người → đẩy RIÊNG cho chính người đó (5 đường: lưới phân ca, panel
   // Gán ca, gán hàng loạt, sửa hồ sơ, gỡ mốc). `count` = số thay đổi trong lần lưu đó.
@@ -2860,8 +2863,9 @@ export type SalaryMechanism =
   | "tham_nien_gioi_tinh";
 
 export interface DepartmentSalaryPolicy {
-  salary_mechanism: SalaryMechanism;
-  probation_ratio: number;
+  /** Hai ô theo phòng DORMANT 07/09/2026 — không gửi nữa, backend bỏ qua. */
+  salary_mechanism?: SalaryMechanism;
+  probation_ratio?: number;
   has_piece_work?: boolean;
 }
 
@@ -4264,6 +4268,7 @@ export interface EmployeeInitialSalaryInput {
   /** "Lương trả 1 lần" (đợt 1) — mức điền sẵn khi lập phiếu thanh toán lương đợt 1. */
   luong_dot_1?: number;
   allowance?: number;
+  /** Hai ô ĐÃ NGƯNG (ca 03/08/2026 · thâm niên 07/09/2026) — nhận cho tương thích, engine không trả. */
   phu_cap_ca?: number;
   phu_cap_tham_nien?: number;
   chuyen_can?: number;
@@ -4503,9 +4508,14 @@ export interface WorkShift {
   /** Hệ số ca đêm (1.3 = +30%) cho giờ rơi 22h–06h trong ca — chỉ ca qua đêm. */
   night_multiplier: number;
   grace_minutes: number;
-  /** Phụ cấp cơm khai theo ca (đ). Đợt 1: lưu/phơi; engine chưa dùng. */
+  /** Nghỉ giữa ca "HH:MM" (07/09/2026) — null cả hai = ca không khai nghỉ. Khung tính công =
+   *  (ra − vào) − nghỉ; ca 7:30–16:30 nghỉ 11:30–12:30 ⇒ mẫu số 480' (nửa buổi = 0,5 công). */
+  break_start_time: string | null;
+  break_end_time: string | null;
+  /** Phụ cấp cơm khai theo ca (đ) — Lương cộng trọn mức cho mỗi ngày làm ca đạt ngưỡng công. */
   meal_allowance: number;
-  /** Phụ cấp ca khai theo ca (đ), áp ca ngày/đêm. Đợt 1: lưu/phơi; engine chưa dùng. */
+  /** Phụ cấp ca khai theo ca (đ), áp ca ngày/đêm — cùng luật ngày làm ca đạt ngưỡng (tiền cục
+   *  theo ca: ca đêm 77k/đêm, ca tới sáng 125k… khai ở đây). */
   shift_allowance: number;
   is_active: boolean;
   /**
@@ -4517,6 +4527,13 @@ export interface WorkShift {
   note: string | null;
 }
 
+export interface WorkShiftsList {
+  items: WorkShift[];
+  /** Giờ công chuẩn / ngày (Cấu hình lương) — mọi ca phải làm đúng số này khi `ca_khop_gio_chuan`. */
+  gio_cong_chuan?: number | null;
+  ca_khop_gio_chuan?: boolean;
+}
+
 export interface WorkShiftInput {
   name: string;
   start_time: string;
@@ -4524,6 +4541,9 @@ export interface WorkShiftInput {
   is_overnight?: boolean;
   night_multiplier?: number;
   grace_minutes?: number;
+  /** Nghỉ giữa ca — cả hai hoặc không cái nào (null = bỏ nghỉ). */
+  break_start_time?: string | null;
+  break_end_time?: string | null;
   meal_allowance?: number;
   shift_allowance?: number;
   note?: string | null;
@@ -4543,6 +4563,8 @@ export interface TimesheetDay {
   late: boolean;
   early: boolean;
   ot_minutes: number;
+  /** Có phiếu TC đã duyệt (ngày đã qua) mà KHÔNG có cặp bấm tăng ca ⇒ chốt là 0 phút TC (07/09/2026). */
+  ot_thieu_cap?: boolean;
   night: boolean;
   leave: string | null;  // tên loại nghỉ (nếu ngày nghỉ đã duyệt) HOẶC tên ngày lễ
   leave_paid: boolean;   // nghỉ có lương (P) hay không (KL)
@@ -4691,6 +4713,8 @@ export interface AttendanceNotify {
 
 // --- Nghỉ phép (leave) ---
 export interface LeaveType {
+  /** Chỉ có sau PUT đổi cờ có-lương khi còn đơn đã duyệt ở kỳ chưa chốt công (C16, 08/09/2026). */
+  canh_bao?: string | null;
   id: number;
   name: string;
   is_paid: boolean;
@@ -4814,6 +4838,11 @@ export interface LateEarlyBulkResult {
 }
 /** Thợ trong tầm + danh mục ca, gác bằng `di_muon:approve`. Tồn tại vì vai "Tổ trưởng SX"
  *  KHÔNG có module `nhan_su` ⇒ `/api/employees` và `/api/attendance/shifts` đều 403 với họ. */
+/** Thợ trong tầm của người duyệt tăng ca — nuôi dropdown "Tạo hộ thợ" (E8, 08/09/2026). */
+export interface OvertimeRoster {
+  employees: { id: number; code: string | null; full_name: string; department: string | null }[];
+}
+
 export interface LateEarlyRoster {
   employees: { id: number; code: string | null; full_name: string;
                department: string | null; default_shift_id: number | null }[];
@@ -4852,6 +4881,7 @@ export interface LeaveQuota {
   annual_quota: number;
   used: number;       // ngày làm việc đã dùng + đang chờ (năm dương lịch)
   remaining: number;
+  pending?: number;   // phần đang chờ duyệt nằm trong `used` (C5b, 08/09/2026)
 }
 
 export interface MyLeave {
@@ -4908,6 +4938,8 @@ export interface PayrollParams {
   phu_cap_ca_min_cong: number;
   chuyen_can_default: number;
   standard_hours_per_day: number;
+  /** Ca phải khớp giờ công chuẩn: khai ca (giờ ra − giờ vào − nghỉ giữa ca) ≠ số trên thì không cho lưu. */
+  ca_khop_gio_chuan?: boolean;
   ot_multiplier: number;
   ot_multiplier_restday: number;
   ot_multiplier_holiday: number;
@@ -4932,29 +4964,6 @@ export interface PayrollParams {
   /** Độ dài tối đa của MỘT phiếu tăng ca, tính bằng PHÚT (Đ107.1, mặc định 720 = 12h). */
   ot_max_minutes_per_day: number;
 }
-export interface SalaryRule {
-  id: number;
-  payroll_group: string;
-  pay_grade_key: string | null;
-  seniority_band: string | null;
-  gender: string | null;
-  monthly_amount: number;
-  chuyen_can: number | null;
-  effective_from: string | null;
-  is_active: boolean;
-  note: string | null;
-}
-export interface SalaryRuleInput {
-  payroll_group: string;
-  pay_grade_key?: string | null;
-  seniority_band?: string | null;
-  gender?: string | null;
-  monthly_amount: number;
-  chuyen_can?: number | null;
-  effective_from?: string | null;
-  is_active?: boolean;
-  note?: string | null;
-}
 export interface EmployeeSalary {
   id: number;
   employee_id: number;
@@ -4970,8 +4979,9 @@ export interface EmployeeSalary {
   luong_dot_1?: number;
   /** Mức đóng BH khai riêng (dormant — engine bám luong_vi_tri). */
   insurance_base: number | null;
-  /** 3 khoản PHỤ CẤP KHAI TAY — số cố định, engine cộng phẳng, KHÔNG tự tính gì. */
+  /** Phụ cấp KHAI TAY — số cố định, engine cộng phẳng, KHÔNG tự tính gì. */
   allowance: number; // phụ cấp KHÁC (gộp)
+  /** Hai ô ĐÃ NGƯNG (ca 03/08/2026 · thâm niên 07/09/2026): giữ số cũ để tra, engine không trả. */
   phu_cap_ca?: number;
   phu_cap_tham_nien?: number;
   chuyen_can: number;
@@ -4999,8 +5009,9 @@ export interface EmployeeSalaryInput {
   luong_trach_nhiem?: number;
   /** Lương trả 1 lần (đợt 1) — mức trả trong 1 lần, dùng để điền sẵn phiếu đợt 1. */
   luong_dot_1?: number;
-  /** 3 khoản phụ cấp KHAI TAY của riêng NV — gõ một lần, tháng nào cũng cộng đúng số này. */
+  /** Phụ cấp KHÁC khai tay của riêng NV — gõ một lần, tháng nào cũng cộng đúng số này. */
   allowance?: number; // phụ cấp KHÁC (gộp)
+  /** Hai ô ĐÃ NGƯNG (ca 03/08/2026 · thâm niên 07/09/2026) — FE chỉ chép lại số cũ, engine không trả. */
   phu_cap_ca?: number;
   phu_cap_tham_nien?: number;
   /** Chuyên cần của riêng NV (0 = dùng mức của tổ). */
@@ -5027,6 +5038,7 @@ export interface SalaryPreview {
   source: string;
   chuyen_can: number;
   allowance: number;
+  /** Hai ô đã ngưng (ca · thâm niên) — số hồ sơ, không ra tiền. */
   phu_cap_ca: number;
   phu_cap_tham_nien: number;
   insurance_base: number;
@@ -5123,7 +5135,10 @@ export interface PayrollLine {
   /** TỔNG phụ cấp tháng — ĐÃ GỒM 3 dòng dưới. Render 3 dòng thì ĐỪNG cộng thêm số này.
    *  Phụ cấp CA (`ca_pay`/`night_pay`) là khoản RIÊNG, KHÔNG nằm trong `allowance`. */
   allowance: number;
+  /** NGƯNG 07/09/2026 — kỳ mới luôn 0; chỉ kỳ cũ còn số (phiếu in dòng "(đã ngưng)"). */
   phu_cap_tham_nien?: number;
+  /** Có công mà mức lương = 0 — chưa khai ở Lương nhân viên (router điền; chốt kỳ bị chặn). */
+  chua_khai_luong?: boolean;
   /** Phần còn lại = allowance − thâm niên (backend tính). */
   phu_cap_khac?: number;
   khoan: number;
@@ -5133,6 +5148,8 @@ export interface PayrollLine {
   /** Thưởng/PHẠT tổ trưởng theo chất lượng (mg 0266) — Σ dòng `san_xuat_thuong_to_truong`
    *  của kỳ, ghi sẵn lúc đóng nhóm thành phẩm. CỘNG ĐẠI SỐ vào gross và CÓ THỂ ÂM. */
   thuong_to_truong?: number;
+  /** Hoa hồng KD — cột riêng (07/09/2026), máy tự tính theo hoá đơn, cộng thẳng vào gross, chịu thuế. */
+  hoa_hong?: number;
   ot_minutes: number;
   ot_pay: number;
   night_days: number;
@@ -5188,6 +5205,9 @@ export interface PayrollLine {
   advance_total: number;
   /** Tổng "thanh toán lương đợt 1" đã duyệt của kỳ — dòng RIÊNG, KHÔNG gộp vào advance_total. */
   luong_dot_1_total: number;
+  /** Nợ tạm ứng dồn kỳ (07/09/2026): kỳ trước mang sang / kỳ này chưa trừ hết chuyển kỳ sau. */
+  no_ung_ky_truoc?: number;
+  no_ung_chuyen_ky_sau?: number;
   net_pay: number;
   note: string | null;
 }
@@ -5200,7 +5220,6 @@ export interface PayrollLineInput {
   pit_manual?: boolean | null;
   /** False = đưa phạt trễ VỀ TỰ ĐỘNG (tính lại từ chấm công); None = giữ nguyên. */
   di_tre_manual?: boolean | null;
-  monthly_override?: number | null;
   note?: string | null;
   dieu_chinh_luong?: number | null;   // cho phép ±
   di_tre?: number | null;
@@ -5274,7 +5293,6 @@ export interface PayrollComponent {
   kind: ComponentKind;
   /** Ô tích "Chịu thuế" — false = KHÔNG tính vào thu nhập chịu thuế TNCN. */
   is_taxable: boolean;
-  in_insurance_base: boolean;
   sort_order: number;
   is_active: boolean;
   note: string | null;
@@ -5288,7 +5306,6 @@ export interface PayrollComponentInput {
   name: string;
   kind?: ComponentKind;
   is_taxable?: boolean;
-  in_insurance_base?: boolean;
   sort_order?: number;
   note?: string | null;
 }
@@ -5297,7 +5314,6 @@ export interface PayrollComponentPatch {
   name?: string;
   kind?: ComponentKind;
   is_taxable?: boolean;
-  in_insurance_base?: boolean;
   sort_order?: number;
   is_active?: boolean;
   note?: string | null;
@@ -5371,6 +5387,7 @@ export interface LineComponent {
   is_taxable: boolean;
   amount: number;
   note: string | null;
+  /** `auto` chỉ còn ở dữ liệu trước 07/09/2026 (hoa hồng nay là cột `hoa_hong`). */
   source: "employee" | "line" | "auto";
   /** HCNS đã sửa tay số tiền CHO RIÊNG KỲ NÀY. Hồ sơ nhân viên KHÔNG đổi — tháng sau tự về mức
    *  cũ. Dòng đã đè được miễn khỏi lượt ghi đè của "Tính lại". */
@@ -5411,6 +5428,8 @@ export interface PayrollTable {
    *  ở đây: số lý do còn tăng, suy lại là nút sáng mà bấm vào ăn lỗi — hoặc tệ hơn, tắt nút của
    *  tháng thật ra chốt được. Xem `PayrollService.ly_do_chua_chot_duoc`. */
   chan_chot_ly_do?: string | null;
+  /** Cảnh báo (không chặn) trước khi chốt — người thực lĩnh 0 vì trừ nợ, người còn nợ chuyển kỳ. */
+  canh_bao_chot?: string | null;
 }
 /** Một kỳ NLĐ tra lại được. CHỈ nhãn tháng — không kèm tiền. */
 export interface KyXemDuoc {
@@ -5577,6 +5596,16 @@ export interface Timesheet {
   rows: TimesheetRow[];
 }
 
+/** Một phiếu TC đã duyệt (ngày đã qua) mà không có cặp bấm tăng ca — cảnh báo trước khi chốt. */
+export interface OtThieuCap {
+  employee_id: number;
+  employee_name: string;
+  date: string;              // "YYYY-MM-DD"
+  from_time: string;
+  to_time: string;
+  ly_do: string;
+}
+
 // --- Chốt công tháng (kỳ công) ---
 export interface AttendancePeriod {
   year: number;
@@ -5591,6 +5620,9 @@ export interface AttendancePeriod {
    *  giờ là họ đứng ở cổng bấm mãi không xong, nhất là ca đêm qua nửa đêm) nên chỉ đánh
    *  dấu: ảnh chụp không có mấy lượt này, Bảng lương cũng không ⇒ >0 là phải chốt lại kỳ. */
   phat_sinh_sau_chot?: number;
+  /** Đổi ca nền / ô lưới có hiệu lực trong tháng, ghi SAU khi kỳ đã chốt (B8, 08/09/2026): ảnh chụp
+   *  tính theo ca cũ ⇒ phải mở lại kỳ, chốt lại, Tính lại. */
+  doi_ca_nen_sau_chot?: number;
   pending_leaves: number;    // đơn nghỉ phép chưa duyệt của tháng
   /** Phiếu đi muộn/về sớm chưa duyệt — CHẶN chốt công y như đơn nghỉ: snapshot đóng băng lúc
    *  chốt, phiếu duyệt sau đó không vào được nữa ⇒ NLĐ vẫn ăn phạt dù đã xin phép đúng luật. */
@@ -5598,6 +5630,9 @@ export interface AttendancePeriod {
   /** Phiếu TĂNG CA chưa duyệt — chặn từ 15/08/2026. Sót nó là ngõ cụt: chốt xong thì duyệt cũng
    *  bị chặn, mà không duyệt thì không có tiền tăng ca; gỡ ra phải mở lại cả kỳ công. */
   pending_overtime?: number;
+  /** Phiếu TC đã duyệt (ngày đã qua) mà KHÔNG có cặp bấm — CẢNH BÁO, không chặn chốt (07/09/2026). */
+  ot_thieu_cap?: number;
+  ot_thieu_cap_list?: OtThieuCap[];
   pending_adjusts: number;   // yêu cầu chỉnh công chưa duyệt
   payroll_locked: boolean;   // kỳ lương tháng này đã chốt → không mở lại kỳ công
 }
@@ -5654,6 +5689,8 @@ export interface CalendarMonth {
   year: number;
   month: number;
   working_days: number;
+  /** Công chuẩn LƯƠNG = working_days + lễ hưởng lương (B1 08/09/2026) — số Bảng lương đang chia. */
+  cong_chuan_luong?: number;
   paid_holiday_count: number;
   days: CalendarDayCell[];
   holidays: { date: string; name: string | null; is_paid: boolean }[];
@@ -5676,9 +5713,56 @@ export interface DayDetail {
   shift_name: string | null;
   cong: number | null;
   reason: string | null;
-  /** Có khi NV có phiếu TC đã duyệt (trong ngày) nhưng chưa có cặp chấm tăng ca → FE nhắc + nút 1 chạm. */
-  ot_suggestion?: { from_time: string; to_time: string } | null;
+  /** Có khi NV có phiếu TC đã duyệt (trong ngày) nhưng chưa có cặp chấm tăng ca → FE nhắc + nút 1 chạm.
+   *  `kieu`: `bu_cap` (đã ra ca chính trước giờ phiếu ⇒ thêm cặp VÀO/RA TC) hay `tach_phien` (thợ chỉ
+   *  bấm 2 lượt ⇒ thêm RA ca chính + VÀO TC, lượt RA thật thành RA TC). `*_next_day` = mốc sang hôm sau. */
+  ot_suggestion?: {
+    from_time: string;
+    to_time: string;
+    from_next_day?: boolean;
+    to_next_day?: boolean;
+    kieu?: "bu_cap" | "tach_phien";
+  } | null;
   punches: DayPunch[];
+}
+
+// --- Xác nhận tăng ca theo phiếu (07/09/2026) ---
+export interface OtConfirmPunch {
+  time: string;
+  check_type: string;
+  next_day: boolean;
+}
+export interface OtConfirmCandidate {
+  ticket_id: number;
+  employee_id: number;
+  employee_code: string | null;
+  employee_name: string;
+  department_id: number | null;
+  date: string;
+  from_time: string;
+  to_time: string;
+  from_next_day: boolean;
+  to_next_day: boolean;
+  /** thieu_cap (xác nhận được) | da_co | treo | khong_cham | chua_gan_ca */
+  tinh_trang: "thieu_cap" | "da_co" | "treo" | "khong_cham" | "chua_gan_ca";
+  kieu: "bu_cap" | "tach_phien" | null;
+  punches: OtConfirmPunch[];
+}
+export interface OtConfirmCandidates {
+  date: string;
+  items: OtConfirmCandidate[];
+}
+export interface OtConfirmInput {
+  date: string;
+  employee_ids: number[];
+  reason?: string | null;
+  /** Giờ RA tăng ca thực tế — chỉ có nghĩa khi xác nhận MỘT người kiểu `bu_cap`. */
+  to_time?: string | null;
+  to_next_day?: boolean;
+}
+export interface OtConfirmResult {
+  done: { employee_id: number; employee_name: string; kieu: string; punches: OtConfirmPunch[] }[];
+  skipped: { employee_id: number; employee_name: string | null; reason: string }[];
 }
 
 export interface AdjustInput {
@@ -5686,6 +5770,8 @@ export interface AdjustInput {
   date: string;              // "YYYY-MM-DD"
   check_type: string;        // in | out
   time: string;              // "HH:MM"
+  /** Giờ rơi SANG HÔM SAU (ca đêm quên RA 06:00; tăng ca vắt nửa đêm) — 07/09/2026. */
+  next_day?: boolean;
   reason: string;
   fault_party: string | null;
 }
@@ -5719,6 +5805,7 @@ export interface AdjustRequest {
   work_date: string;
   check_type: string;
   suggested_time: string | null;
+  suggested_next_day?: boolean;
   reason: string;
   fault_party: string | null;
   status: string;            // pending | approved | rejected | cancelled
@@ -5731,6 +5818,8 @@ export interface RequestAdjustInput {
   date: string;
   check_type: string;
   suggested_time: string | null;
+  /** Giờ gợi ý rơi sang hôm sau (ca đêm quên bấm RA sáng). */
+  suggested_next_day?: boolean;
   reason: string;
 }
 
@@ -10173,6 +10262,18 @@ export const api = {
     kpi(token: string): Promise<TodayKpi> {
       return authed<TodayKpi>("/api/attendance/kpi", token);
     },
+    /** Xác nhận TC theo phiếu (07/09/2026): phiếu đã duyệt của ngày + tình trạng cặp bấm, theo scope Chấm bù. */
+    otConfirmCandidates(token: string, date: string, departmentId?: number | null): Promise<OtConfirmCandidates> {
+      const qs = new URLSearchParams({ date });
+      if (departmentId != null) qs.set("department_id", String(departmentId));
+      return authed<OtConfirmCandidates>(`/api/attendance/ot-confirm?${qs.toString()}`, token);
+    },
+    /** Sinh cặp bấm tay theo phiếu cho các NV thiếu cặp — ai không thiếu thì máy bỏ qua có lý do. */
+    otConfirm(token: string, input: OtConfirmInput): Promise<OtConfirmResult> {
+      return authed<OtConfirmResult>("/api/attendance/ot-confirm", token, {
+        method: "POST", body: JSON.stringify(input),
+      });
+    },
     // --- Yêu cầu chỉnh công ---
     createAdjustRequest(token: string, input: RequestAdjustInput): Promise<AdjustRequest> {
       return authed<AdjustRequest>("/api/attendance/me/adjust-request", token, {
@@ -10188,7 +10289,7 @@ export const api = {
     listAdjustRequests(token: string, status = "pending"): Promise<{ items: AdjustRequest[] }> {
       return authed<{ items: AdjustRequest[] }>(`/api/attendance/adjust-requests?status=${status}`, token);
     },
-    approveAdjustRequest(token: string, id: number, input: { time?: string | null; fault_party?: string | null; note?: string | null }): Promise<AdjustRequest> {
+    approveAdjustRequest(token: string, id: number, input: { time?: string | null; next_day?: boolean | null; fault_party?: string | null; note?: string | null }): Promise<AdjustRequest> {
       return authed<AdjustRequest>(`/api/attendance/adjust-requests/${id}/approve`, token, {
         method: "POST", body: JSON.stringify(input),
       });
@@ -10240,8 +10341,9 @@ export const api = {
       return URL.createObjectURL(blob);
     },
     // --- ca kíp (work shifts) ---
-    shifts(token: string): Promise<{ items: WorkShift[] }> {
-      return authed<{ items: WorkShift[] }>("/api/attendance/shifts", token);
+    /** Danh sách ca + mẫu số đang áp (Giờ công chuẩn / ngày, luật "ca phải khớp" — 07/09/2026). */
+    shifts(token: string): Promise<WorkShiftsList> {
+      return authed<WorkShiftsList>("/api/attendance/shifts", token);
     },
     createShift(token: string, input: WorkShiftInput): Promise<WorkShift> {
       return authed<WorkShift>("/api/attendance/shifts", token, { method: "POST", body: JSON.stringify(input) });
@@ -10379,6 +10481,10 @@ export const api = {
     },
     markSeen(token: string): Promise<void> {
       return authed<void>("/api/overtime/mark-seen", token, { method: "POST" });
+    },
+    /** Thợ trong tầm để tạo hộ — KHÔNG dùng `/api/employees` (tổ trưởng không có module nhân sự). */
+    roster(token: string): Promise<OvertimeRoster> {
+      return authed<OvertimeRoster>("/api/overtime/roster", token);
     },
   },
 
@@ -10529,18 +10635,6 @@ export const api = {
     },
     updateParams(token: string, input: Partial<PayrollParams>): Promise<PayrollParams> {
       return authed<PayrollParams>("/api/luong/params", token, { method: "PUT", body: JSON.stringify(input) });
-    },
-    rules(token: string): Promise<{ items: SalaryRule[] }> {
-      return authed<{ items: SalaryRule[] }>("/api/luong/rules", token);
-    },
-    createRule(token: string, input: SalaryRuleInput): Promise<SalaryRule> {
-      return authed<SalaryRule>("/api/luong/rules", token, { method: "POST", body: JSON.stringify(input) });
-    },
-    updateRule(token: string, id: number, input: SalaryRuleInput): Promise<SalaryRule> {
-      return authed<SalaryRule>(`/api/luong/rules/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
-    },
-    deleteRule(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/luong/rules/${id}`, token, { method: "DELETE" });
     },
     salaries(token: string, employeeId: number): Promise<EmployeeSalaries> {
       return authed<EmployeeSalaries>(`/api/luong/salaries/${employeeId}`, token);

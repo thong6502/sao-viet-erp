@@ -75,6 +75,15 @@ export function EmployeeWizard({
   // % hoa hồng NV kinh doanh — nhập theo PHẦN TRĂM ở UI, gửi lên là PHÂN SỐ. Chỉ để KHAI:
   // engine lương không tự cộng khoản này.
   const [commissionPct, setCommissionPct] = useState(0);
+  // Tỷ lệ thử việc đọc từ Cấu hình lương — viết cứng "80%" là màn nói dối khi chủ đổi tham số.
+  // Không đọc được (thiếu quyền `luong`) thì nói chung chung, không bịa số.
+  const [probationRatio, setProbationRatio] = useState<number | null>(null);
+  useEffect(() => {
+    api.luong
+      .getParams(token)
+      .then((p) => setProbationRatio(p.probation_ratio))
+      .catch(() => setProbationRatio(null));
+  }, [token]);
   // Khoản thu nhập chọn từ DANH MỤC (Tầng 1 → Tầng 2). Giữ ở state cục bộ tới lúc tạo xong hồ
   // sơ mới gán được — API gán khoản cần `employee_id` mà lúc này chưa có.
   const [comps, setComps] = useState<PayrollComponent[] | null>(null);
@@ -177,6 +186,15 @@ export function EmployeeWizard({
     }
   }
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || busy) return;
+      onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [busy, onClose]);
+
   return (
     <div className="ns-modal" role="dialog" aria-modal="true">
       <div className="ns-modal__box ns-modal__box--wide">
@@ -187,7 +205,8 @@ export function EmployeeWizard({
           </button>
         </header>
 
-        <ol className="ns-steps">
+        {/* Desktop Stepper (> 640px) */}
+        <ol className="ns-steps ns-steps--desktop">
           {STEPS.map((s, i) => (
             <li
               key={s}
@@ -198,6 +217,24 @@ export function EmployeeWizard({
             </li>
           ))}
         </ol>
+
+        {/* Mobile Stepper (<= 640px) */}
+        <div className="ns-wizard__mobile-stepper">
+          <div className="ns-wizard__mobile-stepper-head">
+            <span className="ns-wizard__mobile-step-num">
+              Bước {step + 1}/{STEPS.length}
+            </span>
+            <span className="ns-wizard__mobile-step-name">
+              {STEPS[step]}
+            </span>
+          </div>
+          <div className="ns-wizard__progress-track">
+            <div
+              className="ns-wizard__progress-fill"
+              style={{ width: `${((step + 1) / STEPS.length) * 100}%` }}
+            />
+          </div>
+        </div>
 
         <div className="ns-modal__body">
           {error && <div className="banner banner--error">{error}</div>}
@@ -288,21 +325,27 @@ export function EmployeeWizard({
                 </select>
               </Field>
               {form.status === "probation" && (
-                <Field label="Ngày hết thử việc *">
-                  <input
-                    type="date"
-                    required
-                    value={form.probation_end_date ?? ""}
-                    onChange={(e) => set("probation_end_date", e.target.value)}
-                  />
-                  {/* Nói LÝ DO chứ không chỉ "bắt buộc": người khai hiểu bỏ trống thì hỏng cái
-                      gì mới chịu điền đúng, thay vì gõ bừa một ngày cho qua ô. */}
-                  <span className="ns-field__hint">
-                    Bắt buộc — tới ngày này hệ thống tự chuyển sang “Hết thử việc · chờ xác
-                    nhận” để nhắc bấm chuyển chính thức. Lương vẫn tính mức thử việc cho tới
-                    lúc bấm.
-                  </span>
-                </Field>
+                <>
+                  <Field label="Ngày hết thử việc *">
+                    <input
+                      type="date"
+                      required
+                      value={form.probation_end_date ?? ""}
+                      onChange={(e) => set("probation_end_date", e.target.value)}
+                    />
+                  </Field>
+                  <div
+                    className="ns-callout ns-callout--amber"
+                    style={{ gridColumn: "1 / -1", marginTop: "4px" }}
+                  >
+                    <div className="ns-callout__title">Quy tắc thử việc</div>
+                    <div className="ns-callout__text">
+                      Bắt buộc — tới ngày này hệ thống tự chuyển sang “Hết thử việc · chờ xác
+                      nhận” để nhắc bấm chuyển chính thức. Lương vẫn tính mức thử việc cho tới
+                      lúc bấm.
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -390,8 +433,8 @@ export function EmployeeWizard({
                   <div className="ns-wizard__salary-intro ns-wizard__full">
                     <strong>Mức lương riêng của nhân viên</strong>
                     <span>
-                      BHXH/BHYT/BHTN đóng trên lương cơ bản. Các khoản phụ cấp
-                      là số cố định, cộng phẳng mỗi tháng.
+                      BHXH/BHYT/BHTN đóng trên mức nền (cơ bản + trách nhiệm).
+                      Các khoản phụ cấp là số cố định, cộng phẳng mỗi tháng.
                     </span>
                   </div>
                   <Field label="Lương cơ bản *">
@@ -615,8 +658,9 @@ export function EmployeeWizard({
                   </label>
                   {form.status === "probation" && salaryBase > 0 && (
                     <div className="ns-wizard__hint ns-wizard__hint--tv">
-                      Thử việc: hệ thống tính 80% mức nền, dự kiến{" "}
-                      {money(salaryBase * 0.8)} trước công và phụ cấp.
+                      {probationRatio != null
+                        ? `Thử việc: hệ thống tính ${Math.round(probationRatio * 100)}% mức nền (theo Cấu hình lương), dự kiến ${money(salaryBase * probationRatio)} trước công và phụ cấp.`
+                        : "Thử việc: hưởng theo tỷ lệ thử việc khai ở Cấu hình lương → Cơ chế."}
                     </div>
                   )}
                 </>

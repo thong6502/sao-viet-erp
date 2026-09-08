@@ -261,7 +261,7 @@ export function CauHinhLuongTab({
     setTimeout(() => setOk(null), 4000);
   }
   /** Sửa MỘT tham số công ty (key động) — giữ nguyên kiểu, không cast object rời. */
-  const setParamKey = useCallback((key: keyof PayrollParams, value: number) => {
+  const setParamKey = useCallback((key: keyof PayrollParams, value: number | boolean) => {
     setParamsDraft((d) => (d ? { ...d, [key]: value } : d));
   }, []);
 

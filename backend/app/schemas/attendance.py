@@ -50,6 +50,9 @@ class WorkShiftIn(BaseModel):
     # Hệ số ca đêm (1.3 = +30%) cho giờ rơi 22h–06h trong ca — chỉ áp ca qua đêm.
     night_multiplier: float = Field(default=1.3, ge=1.0, le=3.0)
     grace_minutes: int = Field(default=5, ge=0, le=240)
+    # Nghỉ giữa ca (07/09/2026): cả hai hoặc không cái nào. Rỗng = ca không khai nghỉ (như cũ).
+    break_start_time: str | None = Field(default=None, max_length=5)
+    break_end_time: str | None = Field(default=None, max_length=5)
     # Phụ cấp khai theo ca (đ): cơm (tăng ca 17h30→24h) · ca (áp ca ngày/đêm).
     meal_allowance: float = Field(default=25000, ge=0)
     shift_allowance: float = Field(default=50000, ge=0)
@@ -68,6 +71,8 @@ class WorkShiftOut(BaseModel):
     is_overnight: bool
     night_multiplier: float = 1.3
     grace_minutes: int
+    break_start_time: str | None = None   # "HH:MM" nghỉ giữa ca, None = không khai
+    break_end_time: str | None = None
     meal_allowance: float = 25000
     shift_allowance: float = 50000
     is_active: bool
@@ -77,6 +82,9 @@ class WorkShiftOut(BaseModel):
 
 class WorkShiftsOut(BaseModel):
     items: list[WorkShiftOut]
+    # Mẫu số đang áp cho mọi ca (Cấu hình lương) — màn Khai ca hiện "giờ làm thực 8h ✓ / lệch".
+    gio_cong_chuan: float | None = None
+    ca_khop_gio_chuan: bool = False
 
 
 # `CaLamRefRow` / `CaLamRefListOut` ĐÃ XOÁ (2026-08-10) cùng endpoint `/ca-lam` và hai ô "Ca làm
@@ -199,6 +207,8 @@ class TimesheetDay(BaseModel):
     late: bool = False             # đi muộn
     early: bool = False            # về sớm
     ot_minutes: int = 0            # tăng ca (phút vượt giờ ca)
+    # Có phiếu TC đã duyệt mà KHÔNG có cặp bấm tăng ca (ngày đã qua) ⇒ tiền TC = 0 nếu cứ chốt.
+    ot_thieu_cap: bool = False
     night: bool = False            # ca đêm
     leave: str | None = None       # tên loại nghỉ (nếu ngày này nghỉ đã duyệt) HOẶC tên ngày lễ
     leave_paid: bool = False       # nghỉ có lương (P) hay không (KL)
@@ -395,6 +405,16 @@ class PeriodActionIn(BaseModel):
     month: int = Field(ge=1, le=12)
 
 
+class OtThieuCapOut(BaseModel):
+    """Một phiếu TC đã duyệt (ngày đã qua) mà không có cặp bấm tăng ca — cảnh báo trước khi chốt."""
+    employee_id: int
+    employee_name: str
+    date: str                 # "YYYY-MM-DD"
+    from_time: str            # "HH:MM"
+    to_time: str
+    ly_do: str                # "thiếu cặp bấm tăng ca" | "không có lượt bấm nào trong ngày"
+
+
 class AttendancePeriodOut(BaseModel):
     year: int
     month: int
@@ -407,11 +427,18 @@ class AttendancePeriodOut(BaseModel):
     # L3 — lượt bấm ghi vào SAU khi kỳ đã chốt. Ảnh chụp không có chúng, Bảng lương cũng
     # không ⇒ >0 là dấu hiệu phải chốt lại kỳ. Mặc định 0 cho kỳ chưa chốt.
     phat_sinh_sau_chot: int = 0
+    # B8 (08/09/2026) — đổi ca nền / ô lưới có hiệu lực trong tháng, ghi SAU khi kỳ đã chốt: ảnh
+    # chụp tính theo ca cũ, Bảng công sống theo ca mới ⇒ phải mở lại kỳ, chốt lại, Tính lại.
+    doi_ca_nen_sau_chot: int = 0
     pending_leaves: int               # đơn nghỉ phép chưa duyệt của tháng
     pending_late_early: int = 0       # phiếu đi muộn/về sớm chưa duyệt (chặn chốt công y như trên)
     pending_overtime: int = 0         # phiếu TĂNG CA chưa duyệt (chặn từ 15/08/2026 — xem repo)
     pending_adjusts: int              # yêu cầu chỉnh công chưa duyệt
     payroll_locked: bool              # kỳ lương tháng này đã chốt → không mở lại kỳ công
+    # Phiếu TC đã duyệt mà không có cặp bấm (1.3 — 07/09/2026): CẢNH BÁO, không chặn chốt. Chốt
+    # là đóng băng 0 phút TC cho những phiếu này.
+    ot_thieu_cap: int = 0
+    ot_thieu_cap_list: list[OtThieuCapOut] = []
 
 
 # --- "ô biết nói": chi tiết 1 ngày + điều chỉnh punch ----------------------
@@ -431,6 +458,12 @@ class OtSuggestionOut(BaseModel):
     """Gợi ý chấm bù cặp tăng ca theo khung phiếu đã duyệt (khi NV thiếu cặp chấm TC)."""
     from_time: str            # "HH:MM" — giờ bắt đầu phiếu (prefill lượt VÀO tăng ca)
     to_time: str              # "HH:MM" — giờ kết thúc phiếu (prefill lượt RA, HCNS sửa theo thực tế)
+    from_next_day: bool = False   # mốc rơi sang hôm sau (phiếu vắt nửa đêm) — từ 07/09/2026
+    to_next_day: bool = False
+    # `bu_cap`: NV đã RA ca chính trước giờ phiếu ⇒ thêm cặp VÀO/RA tăng ca theo phiếu.
+    # `tach_phien`: NV chỉ bấm 2 lượt, lượt RA đã phủ luôn tăng ca ⇒ thêm RA ca chính lúc hết ca +
+    # VÀO tăng ca lúc đầu phiếu; lượt RA thật thành RA tăng ca (bấm ra = sự thật, phiếu = trần).
+    kieu: str = "bu_cap"
 
 
 class DayDetailOut(BaseModel):
@@ -450,6 +483,8 @@ class AdjustIn(BaseModel):
     date: str                                   # "YYYY-MM-DD"
     check_type: str                             # in | out
     time: str = Field(min_length=3, max_length=5)  # "HH:MM"
+    # Giờ rơi SANG HÔM SAU (ca đêm quên RA 06:00; tăng ca vắt nửa đêm). 07/09/2026.
+    next_day: bool = False
     reason: str = Field(min_length=1, max_length=500)
     fault_party: str | None = None              # nv_quen | may_hong | duyet | khac
 
@@ -474,6 +509,7 @@ class AdjustRequestOut(BaseModel):
     work_date: str
     check_type: str
     suggested_time: str | None = None
+    suggested_next_day: bool = False   # giờ gợi ý rơi sang hôm sau (ca đêm)
     reason: str
     fault_party: str | None = None
     status: str
@@ -504,13 +540,75 @@ class RequestAdjustIn(BaseModel):
     date: str                                   # "YYYY-MM-DD"
     check_type: str                             # in | out (punch NV đề nghị bù)
     suggested_time: str | None = Field(default=None, max_length=5)  # "HH:MM"
+    suggested_next_day: bool = False            # giờ gợi ý rơi sang hôm sau (ca đêm quên RA sáng)
     reason: str = Field(min_length=1, max_length=500)
 
 
 class ApproveRequestIn(BaseModel):
     time: str | None = Field(default=None, max_length=5)  # ghi đè giờ (mặc định = suggested_time)
+    next_day: bool | None = None                          # ghi đè cờ hôm sau (mặc định = của đơn)
     fault_party: str | None = None
     note: str | None = Field(default=None, max_length=500)
+
+
+# --- Xác nhận tăng ca theo phiếu (tổ trưởng/HCNS, hàng loạt) — 07/09/2026 -------
+
+
+class OtConfirmPunchOut(BaseModel):
+    time: str                 # "HH:MM" (giờ VN)
+    check_type: str           # in | out
+    next_day: bool = False
+
+
+class OtConfirmCandidateOut(BaseModel):
+    """Một phiếu TC đã duyệt của ngày + tình trạng cặp bấm của NV đó."""
+    ticket_id: int
+    employee_id: int
+    employee_code: str | None = None
+    employee_name: str
+    department_id: int | None = None
+    date: str
+    from_time: str
+    to_time: str
+    from_next_day: bool = False
+    to_next_day: bool = False
+    # thieu_cap (xác nhận được) | da_co | treo (thiếu RA ca chính) | khong_cham | chua_gan_ca
+    tinh_trang: str
+    kieu: str | None = None   # bu_cap | tach_phien — chỉ khi thieu_cap (xem OtSuggestionOut)
+    punches: list[OtConfirmPunchOut] = []
+
+
+class OtConfirmCandidatesOut(BaseModel):
+    date: str
+    items: list[OtConfirmCandidateOut]
+
+
+class OtConfirmIn(BaseModel):
+    date: str                                   # "YYYY-MM-DD"
+    employee_ids: list[int] = Field(min_length=1)
+    reason: str | None = Field(default=None, max_length=300)
+    # Giờ RA tăng ca THỰC TẾ (chỉ có nghĩa khi xác nhận MỘT người, kiểu `bu_cap`): thợ về sớm hơn
+    # phiếu thì trả theo thật. Bỏ trống = lấy giờ kết thúc phiếu.
+    to_time: str | None = Field(default=None, max_length=5)
+    to_next_day: bool = False
+
+
+class OtConfirmSkippedOut(BaseModel):
+    employee_id: int
+    employee_name: str | None = None
+    reason: str
+
+
+class OtConfirmDoneOut(BaseModel):
+    employee_id: int
+    employee_name: str
+    kieu: str
+    punches: list[OtConfirmPunchOut] = []
+
+
+class OtConfirmResultOut(BaseModel):
+    done: list[OtConfirmDoneOut]
+    skipped: list[OtConfirmSkippedOut]
 
 
 class RejectRequestIn(BaseModel):
