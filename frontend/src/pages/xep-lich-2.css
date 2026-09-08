@@ -1896,8 +1896,9 @@
 /* đệm SX→giao âm: chữ tín-hiệu (lệnh SX xong SAU hạn giao) */
 .xl2-kv__v--tre { color: var(--signal); font-weight: var(--fw-bold); }
 
-/* hàng NHÂN LỰC: số bố trí + ba mốc định biên + lối đi sửa. Xuống hàng được vì panel hẹp (~430px)
-   và chuỗi "2 người · biên 1 · 2 · 3 · Sửa" dài hơn ô giá trị một dòng. */
+/* hàng NHÂN LỰC: kíp chuẩn + lối đi sửa (ô "số người bố trí" và ba mốc định biên đã gỡ ở mg
+   `0281`/`0270`). Xuống hàng được vì panel hẹp (~430px) và "kíp chuẩn 12 người · Sửa" vẫn có thể
+   dài hơn ô giá trị một dòng. */
 .xl2-kv__v--nhanluc {
   display: inline-flex;
   flex-wrap: wrap;

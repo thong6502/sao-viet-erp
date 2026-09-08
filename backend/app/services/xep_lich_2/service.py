@@ -478,7 +478,7 @@ class XepLich2Service:
         # Nhân lực của bước đi kèm xem-trước. Hộp xác nhận vốn chỉ in NGUYÊN VĂN câu vấn đề
         # ("Đỉnh 5 người cùng lúc vượt quân số 3 của tổ") — người xếp đọc xong không biết số 5 ở
         # đâu ra và định biên của bước là bao nhiêu, phải mở màn Lệnh sản xuất mới tra được.
-        # Trả kèm số bố trí + ba mốc để hộp thoại tự nói hết.
+        # Trả kèm kíp chuẩn của bước để hộp thoại tự nói hết (ô bố trí riêng gỡ ở mg `0281`).
         op = self._op_cua_dong(dong)
         anh_huong, han_moi, han_sx, han_giao = self._anh_huong_ha_nguon(dong, t["finish"])
         tre = (han_moi.date() - han_sx).days if (han_moi is not None and han_sx is not None) else None

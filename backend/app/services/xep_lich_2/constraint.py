@@ -324,10 +324,11 @@ def vuot_quan_so_to(
     """
     dinh, so_viec = dinh_dong_thoi_chi_tiet(placements)
     if dinh > quan_so:
-        # MỘT việc ở đỉnh ⇒ con số đến thẳng từ ô "số người bố trí" của chính bước này; nói đúng
-        # như vậy để người xếp biết mở đâu mà sửa, thay vì đoán xem "đỉnh 5" là mấy việc cộng lại.
+        # MỘT việc ở đỉnh ⇒ con số đến thẳng từ ô KÍP CHUẨN của chính bước này; nói đúng tên ô đó
+        # để người xếp biết mở đâu mà sửa, thay vì đoán xem "đỉnh 5" là mấy việc cộng lại. Ô "số
+        # người bố trí" riêng đã gỡ ở mg `0281` — trỏ vào nó là trỏ vào ô không còn tồn tại.
         mo_ta = (
-            f"Bước này bố trí {dinh} người, vượt quân số {quan_so} của tổ."
+            f"Bước này khai kíp chuẩn {dinh} người, vượt quân số {quan_so} của tổ."
             if so_viec <= 1
             else f"Đỉnh {dinh} người cùng lúc ({so_viec} việc chồng giờ) vượt quân số "
                  f"{quan_so} của tổ."
@@ -335,7 +336,7 @@ def vuot_quan_so_to(
         return issue(
             "vuot_quan_so_to", MUC_CANH_BAO, mo_ta,
             nguon="to",
-            goi_y=("Sửa số người bố trí ở bước, giãn giờ hoặc bổ sung người."
+            goi_y=("Sửa kíp chuẩn ở bước, giãn giờ hoặc bổ sung người."
                    if so_viec <= 1 else "Giãn giờ các việc hoặc bổ sung người."),
         )
     return None
