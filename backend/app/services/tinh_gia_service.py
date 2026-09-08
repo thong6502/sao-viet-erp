@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models.bu_hao import BuHao
-from ..models.cong_doan import CongDoan
+from ..models.cong_doan import CongDoan, CongDoanMay
 from ..models.may_thiet_bi import MayThietBi
 from ..models.vat_lieu_kho import GiayNguyen, VatTuInAn
 from .dong_giay import ban_do_tram
@@ -28,7 +28,8 @@ def _f(v, d: float = 0.0) -> float:
         return d
 
 
-def _cong_doan_to_dict(cd: CongDoan, tram: dict[str, str] | None = None) -> dict:
+def _cong_doan_to_dict(cd: CongDoan, tram: dict[str, str] | None = None,
+                       *, ct_gia_may: str | None = None) -> dict:
     return {
         "id": cd.id,
         "ma": cd.ma,
@@ -42,7 +43,11 @@ def _cong_doan_to_dict(cd: CongDoan, tram: dict[str, str] | None = None) -> dict
         "so_to_bu_hao": cd.so_to_bu_hao,
         "che_do_tinh": cd.che_do_tinh,
         "pricing_basis": cd.pricing_basis,
-        "cong_thuc_gia": cd.cong_thuc_gia,   # G2: bơm công thức cấu hình → engine dùng thay pricing_basis cũ
+        # G2: bơm công thức cấu hình → engine dùng thay pricing_basis cũ.
+        # 06/09/2026: công thức của CẶP (công đoạn, máy) thắng công thức chung của công đoạn — mỗi
+        # máy in một đơn giá. Chỉ thắng khi cặp đó THẬT SỰ khai; cặp có dòng mà ô trống thì vẫn
+        # dùng công thức chung, không để phiếu ra 0đ vì một ô người ta cố ý bỏ trống.
+        "cong_thuc_gia": (ct_gia_may or "").strip() or cd.cong_thuc_gia,
         "setup_cost": _f(cd.setup_cost),
         "setup_time": _f(cd.setup_time),
         "run_rate": _f(cd.run_rate) if cd.run_rate is not None else None,
@@ -94,13 +99,13 @@ _ROW_SCALAR_FIELDS = (
     "so_mat", "so_vi_tri", "dien_tich", "nha_cung_cap", "ghi_chu",
     # Phí khuôn của bước — engine CÓ cộng vào giá vốn (một dòng tiền trong nhóm Công đoạn).
     "phi_khuon",
-    # Khuôn có sẵn hay làm mới + ngày sale dự kiến có dao. KHÔNG ăn vào tiền: engine chỉ đọc
-    # `khuon_nguon` để biết nên nhắc gì (`_canh_bao_khuon`), còn lệnh SX đọc lại để so ý định của
-    # sale với con dao kế hoạch thật sự chọn.
-    "khuon_nguon", "khuon_ngay_du_kien",
-    # Kích thước/số lượng khung lụa — TÁCH BIỆT với `phi_khuon`, chỉ để công thức của công đoạn
-    # (bước dùng `tooling_type = "khung_lua"`) tự quy ra tiền. Xem `bien_cong_thuc._TANG_BUOC`.
-    "dai_khung_lua", "rong_khung_lua", "so_khung_lua",
+    # Khuôn có sẵn hay làm mới. KHÔNG ăn vào tiền: engine chỉ đọc nó để biết nên nhắc gì
+    # (`_canh_bao_khuon`), còn lệnh SX đọc lại để so ý định của sale với con dao kế hoạch thật sự
+    # chọn.
+    "khuon_nguon",
+    # Kích thước/số lượng KHUÔN — TÁCH BIỆT với `phi_khuon`, chỉ để công thức của công đoạn
+    # (bước dùng `tooling_type = "khuon_ep"`) tự quy ra tiền. Xem `bien_cong_thuc._TANG_BUOC`.
+    "dai_khuon", "rong_khuon", "so_khuon",
 )
 
 
@@ -160,6 +165,18 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
     # Dòng gia công sau in: bơm cấu hình công đoạn cho MỌI dòng có gắn danh mục.
     #
     tram = ban_do_tram(db)   # đọc MỘT lần cho cả phiếu, không hỏi lại từng dòng
+    # Máy in được chọn ở khối In của THÀNH PHẦN (`PhieuThanhPhan.may_id`) — đây là chỗ DUY NHẤT
+    # phiếu tính giá chọn máy, nên chỉ dòng công đoạn nhóm In mới có cơ hội ăn công thức riêng.
+    # Đọc MỘT lần cho cả thành phần, không hỏi lại từng dòng.
+    ct_gia_theo_cd: dict[int, str] = {}
+    if tp.may_id is not None:
+        ct_gia_theo_cd = {
+            int(cd_id): (ct or "")
+            for cd_id, ct in db.execute(
+                select(CongDoanMay.cong_doan_id, CongDoanMay.cong_thuc_gia)
+                .where(CongDoanMay.may_id == int(tp.may_id))
+            ).all()
+        }
     rows: list[dict] = []
     for row in sorted(tp.thanh_phams, key=lambda r: (r.thu_tu or 0, r.id or 0)):
         rd: dict = {}
@@ -169,7 +186,11 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
         if row.cong_doan_id is not None:
             cd = db.get(CongDoan, row.cong_doan_id)
             if cd is not None:
-                rd["cong_doan"] = _cong_doan_to_dict(cd, tram)
+                # Chốt lại nhóm ở ĐÂY nữa dù `CongDoanService._validate` đã dọn lúc lưu: dòng
+                # cũ khai trước luật vẫn nằm trong DB, mà giá sai kiểu này không màn nào bày ra.
+                rd["cong_doan"] = _cong_doan_to_dict(
+                    cd, tram,
+                    ct_gia_may=ct_gia_theo_cd.get(cd.id) if cd.nhom == "print" else None)
         rows.append(rd)
     d["thanh_phams"] = rows
 

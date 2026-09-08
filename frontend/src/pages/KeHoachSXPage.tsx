@@ -26,6 +26,7 @@ import { useNapTenDonVi } from "./tenDonVi";
 import {
   BangLoi,
   ChipGap,
+  DEN_NHAP,
   DenTienDo,
   EmptyState,
   Skeleton,
@@ -33,6 +34,7 @@ import {
   TrangThaiPill,
   classHan,
   classHanLich,
+  laNhap,
   ngay,
   ngayGio,
   num,
@@ -138,11 +140,11 @@ export function KeHoachSXPage({
     return () => clearTimeout(t);
   }, [loadLenhs, eventTick, q]);
 
-  // Lệnh Nháp chưa có gì để nói (chưa chốt routing, chưa giữ chỗ) ⇒ không hỏi đèn cho chúng.
-  const khoaDen = (lenhs ?? [])
-    .filter((l) => l.trang_thai !== "nhap" && l.trang_thai !== "cho_bo_sung")
-    .map((l) => l.id)
-    .join(",");
+  // Hỏi đèn cho MỌI lệnh đang hiện, kể cả Nháp. Trước 07/09/2026 chỗ này bỏ Nháp ra vì ba đèn cũ
+  // đọc thứ lệnh nháp chưa có; nhưng đèn Danh mục thì lệnh nháp mới là lệnh sửa được, bỏ ra là
+  // giấu đúng chỗ còn kịp sửa. Ba đèn kia vẫn im cho lệnh nháp — lọc ở khâu VẼ (`DEN_NHAP`), và
+  // một lượt `tong_quan` là chi phí gần như không đổi theo số lệnh (xem docstring lsx_tong_quan).
+  const khoaDen = (lenhs ?? []).map((l) => l.id).join(",");
   useEffect(() => {
     if (!token || !khoaDen) {
       setTq({});
@@ -659,6 +661,7 @@ function LenhTable({
                     <td>
                       <DenTienDo
                         den={tq[l.id]?.den}
+                        keys={laNhap(l.trang_thai) ? DEN_NHAP : undefined}
                         onNhay={onNhay ? (nhay) => onNhay(nhay, l.ma) : undefined}
                       />
                     </td>

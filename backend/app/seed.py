@@ -59,6 +59,7 @@ MODULES: list[tuple[str, str]] = [
     # ăn ké quyền Xem của hai khoá trên, migration 0260 sao chép quyền cũ sang.
     ("bao_cao_cong_no", "Báo cáo công nợ"),
     ("tk_ngan_hang", "Tài khoản ngân hàng"),
+    ("tai_san", "Tài sản & Công cụ dụng cụ"),
     # TÁCH THEO MÀN (chủ chốt 17/08/2026, đường A — giống Thu mua/Kế toán): 6 mục menu khối Sản
     # xuất trước đây treo trên ĐÚNG HAI khoá, bật một công tắc là mở 4 màn. Nay mỗi màn một ô.
     # Hai khoá cũ GIỮ NGUYÊN TÊN, chỉ thu hẹp nghĩa còn đúng một màn — đổi khoá là mọi hàng
@@ -722,6 +723,11 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "cong_no_phai_thu": _read(SCOPE_ALL),
             # Tài khoản ngân hàng: sửa số dư / ghi chú, KHÔNG tự mở hay xoá tài khoản.
             "tk_ngan_hang": {**_read(SCOPE_ALL), "can_update": True},
+            # Sổ tài sản + CCDC: lập phiếu, chạy khấu hao, CHỐT KỲ (dùng lại `can_close_book`
+            # của kho — chốt sổ là cùng một loại quyền, không đẻ cột mới). Xoá được vì phiếu
+            # nhập nhầm chưa qua kỳ nào phải bỏ được; đã có số ở kỳ chốt thì service tự chặn.
+            "tai_san": {**_rcu(SCOPE_ALL), "can_delete": True,
+                        "can_close_book": True, "can_export": True},
             "nha_cung_cap": _read(SCOPE_ALL),
             "thu_mua": _read(SCOPE_ALL),
             # Ghi phiếu thu CỌC ngay trên đơn hàng bán (cùng ô của vai "Kế toán bán hàng").

@@ -4,8 +4,9 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from ..models.cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu
+from ..models.cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu, CongDoanMay
 from ..models.don_vi_do import DonViDo
+from ..models.may_thiet_bi import MayThietBi
 from ..models.piece_work import PieceRate
 from ..models.vat_lieu_kho import VatTuInAn
 from .catalog_base import CatalogRepo
@@ -37,7 +38,8 @@ class CongDoanRepository(CatalogRepo):
         """Nạp kèm định mức đầu việc + vật tư của nó — bảng công đoạn vẽ luôn các dòng con,
         để lazy là N+1 truy vấn cho mỗi trang."""
         return select(CongDoan).options(
-            selectinload(CongDoan.dau_viec_dinh_muc).selectinload(CongDoanDauViec.vat_tus)
+            selectinload(CongDoan.dau_viec_dinh_muc).selectinload(CongDoanDauViec.vat_tus),
+            selectinload(CongDoan.may_lam_duoc),
         )
 
     def extra_conds(self, *, nhom: str | None = None, **_) -> list:
@@ -48,17 +50,9 @@ class CongDoanRepository(CatalogRepo):
             self._base_select().where(CongDoan.id == cd_id)
         ).scalar_one_or_none()
 
-    def don_vi_tram(self, mas: set[str]) -> dict[str, str | None]:
-        """`{mã đơn vị: trạm dòng giấy}` cho các mã CÓ THẬT trong danh mục Đơn vị.
-
-        Mã không có trong danh mục thì VẮNG key (khác với có key mà giá trị None = có trong danh
-        mục nhưng đứng ngoài dòng giấy) — service phân biệt hai ca đó để báo lỗi cho đúng.
-        """
-        if not mas:
-            return {}
-        return {ma: tram for ma, tram in self.db.execute(
-            select(DonViDo.ma, DonViDo.tram_dong_giay).where(DonViDo.ma.in_(mas))
-        ).all()}
+    # GỠ 06/09/2026: `don_vi_tram(mas)`. Ô đơn vị của công đoạn nay là menu ĐÓNG 5 chặng dòng giấy
+    # nên `_validate` đối chiếu thẳng với `TRAM_DONG_GIAY` trong code — không phải hỏi danh mục
+    # Đơn vị nữa, và cột `don_vi_do.tram_dong_giay` nó đọc cũng đã thành cột chết.
 
     def don_vi_ten(self) -> dict[str, str]:
         """`{mã đơn vị: tên}` cho CẢ danh mục — một truy vấn cho cả trang, không N+1.
@@ -100,6 +94,14 @@ class CongDoanRepository(CatalogRepo):
         rows = self.db.execute(select(PieceRate).where(PieceRate.id.in_(ids))).scalars()
         return {r.id: r for r in rows}
 
+    def mays(self, ids: set[int]) -> dict[int, MayThietBi]:
+        """Máy theo id — service dùng để chặn id không tồn tại / máy đã thanh lý (`may_id` là
+        soft-ref nên không có FK gác hộ)."""
+        if not ids:
+            return {}
+        rows = self.db.execute(select(MayThietBi).where(MayThietBi.id.in_(ids))).scalars()
+        return {r.id: r for r in rows}
+
     def vat_tus(self, ids: set[int]) -> dict[int, VatTuInAn]:
         """Vật tư theo id — service dùng để chặn id không tồn tại / đã ngừng dùng, và để chụp
         mã·tên·đơn vị vào dòng trả về."""
@@ -130,6 +132,24 @@ class CongDoanRepository(CatalogRepo):
 
     def _sau_gan(self, cd: CongDoan, data: dict) -> None:
         self._replace_dinh_muc(cd, data.get("dau_viec_dinh_muc") or [])
+        self._replace_may(cd, data.get("may_lam_duoc") or [])
+
+    def _replace_may(self, cd: CongDoan, rows: list[dict]) -> None:
+        """Thay TRỌN danh sách máy của công đoạn.
+
+        `flush()` giữa xoá và thêm vì cùng lý do với `_replace_dinh_muc`: trong MỘT flush
+        SQLAlchemy phát INSERT trước DELETE cho cùng bảng, nên giữ lại đúng một máy cũ là đụng
+        `uq_cd_may` → 500.
+        """
+        if cd.may_lam_duoc:
+            cd.may_lam_duoc.clear()
+            if cd.id is not None:
+                self.db.flush()
+        for i, r in enumerate(rows):
+            r = dict(r)
+            r.pop("id", None)          # khoá chỉ-đọc của schema Row, client có thể gửi ngược lên
+            r["thu_tu"] = i
+            cd.may_lam_duoc.append(CongDoanMay(**r))
 
     def _replace_dinh_muc(self, cd: CongDoan, rows: list[dict]) -> None:
         """Thay TRỌN bộ định mức đầu việc của công đoạn.
@@ -144,13 +164,17 @@ class CongDoanRepository(CatalogRepo):
             if cd.id is not None:          # công đoạn mới chưa có id thì chưa có gì để xoá
                 self.db.flush()
         for r in rows:
-            # `vat_tu_ids` là DANH SÁCH CON, không phải cột — tách ra trước khi dựng model.
+            # `vat_tus` là DANH SÁCH CON, không phải cột — tách ra trước khi dựng model.
             r = dict(r)
-            ids = r.pop("vat_tu_ids", None) or []
-            r.pop("vat_tus", None)         # khoá chỉ-đọc của schema Row, client có thể gửi ngược lên
+            vts = r.pop("vat_tus", None) or []
+            r.pop("id", None)              # khoá chỉ-đọc của schema Row, client có thể gửi ngược lên
             dv = CongDoanDauViec(**r)
             dv.vat_tus.extend(
-                CongDoanDauViecVatTu(vat_tu_id=int(v), thu_tu=i) for i, v in enumerate(ids)
+                CongDoanDauViecVatTu(
+                    vat_tu_id=int(v["vat_tu_id"]), thu_tu=i,
+                    cong_thuc_luong=((v.get("cong_thuc_luong") or "").strip() or None),
+                )
+                for i, v in enumerate(vts)
             )
             cd.dau_viec_dinh_muc.append(dv)
 

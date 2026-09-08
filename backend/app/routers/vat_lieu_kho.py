@@ -133,8 +133,9 @@ _khai("chung_loai_giay", ChungLoaiGiayIn, ChungLoaiGiayRow, "chung-loai-giay",
       kem_don_vi=False, excel_spec=CHUNG_LOAI_GIAY)
 _khai("giay", GiayIn, GiayRow, "giay", kem_don_vi=True, enable_clone=True,
       cong_thuc_truong="cong_thuc_luong", excel_spec=GIAY)
+# Vật tư khác hết ô công thức (mg `0274`) — dòng GIẤY ngay trên GIỮ `cong_thuc_truong`.
 _khai("vat_tu", VatTuIn, VatTuRow, "vat-tu-in-an", kem_don_vi=True, enable_clone=True,
-      cong_thuc_truong="cong_thuc_luong", excel_spec=VAT_TU)
+      excel_spec=VAT_TU)
 # Thành phẩm: CÙNG nền CRUD, nhưng `VatLieuKhoService._chan_go_tay` chặn tạo/xoá — dòng ở
 # đây chỉ do `OrderService.confirm()` sinh ra (docs/prd-thanh-pham.md L1, L5). Không nhân bản được
 # vì cùng lý do: đây không phải danh mục khai tay.

@@ -210,6 +210,7 @@ export function FormulaField({
   recordId = null,
   truocGiaTri = null,
   truocSuaLuc = null,
+  onDong,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -231,6 +232,10 @@ export function FormulaField({
   truocGiaTri?: string | null;
   /** Thời điểm của lần sửa đó (ISO), đi kèm `truocGiaTri`. */
   truocSuaLuc?: string | null;
+  /** Có ⇒ hiện nút ✕ ngay cạnh "Cú pháp". Dành cho lúc ô này được bày trong popup nổi
+   *  (`FormulaPopover`): nút đóng phải nằm CÙNG hàng với tên ô, thêm một thanh tiêu đề riêng cho
+   *  popup là băng xám thứ hai chồng lên băng này. */
+  onDong?: () => void;
 }) {
   const isCd = configPrefix.includes("cong-doan");
   const isGiay = configPrefix.endsWith("/giay");
@@ -652,6 +657,12 @@ export function FormulaField({
             </svg>
             Cú pháp
           </button>
+          {onDong && (
+            <button type="button" className="rc-formula__close-btn" onClick={onDong}
+              title="Bỏ sửa — trả ô về công thức lúc mở" aria-label="Bỏ sửa">
+              <XIcon size={13} />
+            </button>
+          )}
           {showSyntax && (
             <div ref={syntaxPopRef} className="rc-syntax" role="dialog" aria-label="Cú pháp công thức">
               <div className="rc-syntax__head">

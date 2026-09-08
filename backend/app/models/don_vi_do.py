@@ -160,11 +160,17 @@ class DonViDo(Base):
     dung_lam_toc_do: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
     )
-    # Đơn vị này đứng ở TRẠM nào trên dòng giấy — xem khối `TRAM_DONG_GIAY` đầu file. NULL = ngoài
-    # dòng giấy (kg · thùng · kẽm · lượt…), là trạng thái của gần hết danh mục.
+    # ⚠️ CỘT CHẾT 06/09/2026 — KHÔNG nơi nào đọc nữa, giữ để dữ liệu cũ không mất (cùng kiểu với
+    # `he_so_goc` và `dung_lam_toc_do` ở trên; xoá cột phải viết migration nên để lượt sau).
     #
-    # String chứ không Boolean: engine cần biết trạm NÀO để kiểm chiều chảy (tờ nguyên → tờ in →
-    # con/tay → cái); Boolean chỉ nói được "có nằm trên dòng hay không" nên không chặn nổi `cai → to`.
+    # Nó từng nói đơn vị này đứng ở CHẶNG nào của dòng giấy, để công đoạn khai đơn vị tự do rồi
+    # engine tra ngược ra chặng. Cái hỏng: dòng giấy có ĐÚNG 5 chặng đóng cứng trong code
+    # (`CAU_TRAM` + `lsx_service._he_so_cau`), nên cờ này chỉ cho phép ĐỔI TÊN một chặng chứ không
+    # thêm được chặng thứ 6 — đổi lại nó bắt người khai danh mục đơn vị (việc của kho và mua hàng)
+    # phải hiểu dòng giấy, sai một dòng là số giấy của mọi lệnh lệch theo mà chẳng màn nào báo.
+    #
+    # Nay ô "Đơn vị đầu vào / đầu ra" của màn Công đoạn là MENU ĐÓNG đúng 5 chặng `TRAM_DONG_GIAY`,
+    # để trống = bước ngoài dòng giấy. Hỏi đúng người, đúng lúc — xem `services/dong_giay.py`.
     tram_dong_giay: Mapped[str | None] = mapped_column(String(12), nullable=True)
     # `cong_thuc` (CÁCH ĐO của đơn vị, mg 0192) GỠ 17/08/2026 — mg `0215`. Bảng này nay chỉ trả lời
     # HAI câu: đơn vị nào có, và đổi qua lại thế nào (cặp `don_vi_quy_doi`, hệ số cố định).

@@ -22,6 +22,8 @@ DRAWER = (
 )
 DAG_CANVAS = DRAWER.parents[1] / "components" / "DagRoutingCanvas.tsx"
 DAG_CSS = DRAWER.parent / "dag-routing.css"
+ROUTING = DRAWER.parent / "LsxRoutingTable.tsx"
+DETAIL = DRAWER.parent / "LsxDetailView.tsx"
 
 
 def _nhan(path: Path) -> str:
@@ -54,7 +56,12 @@ def test_cong_doan_khong_khai_loai_thuc_hien_hoac_may_mac_dinh() -> None:
     assert "Máy mặc định" not in section
 
 
-def test_may_hien_o_kip_van_hanh_tieu_chuan() -> None:
+def test_may_khong_con_o_kip_van_hanh() -> None:
+    """Máy hết ô người (06/09/2026, mg `0270`): kíp khai MỘT chỗ — định mức đầu việc của công đoạn.
+
+    Trước đây cùng câu hỏi "việc này mấy người làm" có tới bốn ô khai ở bốn màn khác nhau; hễ ai
+    khai lệch là hệ điền sai kíp mà không màn nào bày hai số cạnh nhau để phát hiện.
+    """
     config = (
         DRAWER.parents[0] / "rebuildCatalogConfigs.tsx"
     ).read_text(encoding="utf-8")
@@ -62,8 +69,8 @@ def test_may_hien_o_kip_van_hanh_tieu_chuan() -> None:
         "export const CFG_CONG_DOAN", 1
     )[0]
 
-    assert 'key: "so_nhan_cong"' in section
-    assert "Số người vận hành tiêu chuẩn" in section
+    assert 'key: "so_nhan_cong"' not in section
+    assert "Số người vận hành tiêu chuẩn *" not in section
 
 
 def test_drawer_khong_goi_y_may_tu_cong_doan() -> None:
@@ -78,13 +85,14 @@ def test_drawer_hien_nhan_luc_ke_thua_va_ket_qua_thoi_gian_o_cuoi() -> None:
     # một nửa — bước máy có ô kế hoạch mà ba mốc để trống, bước tổ ngược lại — nên nhãn cũ "số
     # người vận hành kế hoạch" không còn. Con số bàn xếp lịch cân quân số tổ là ô "bố trí".
     assert "số người bố trí (kế hoạch)" in source
-    assert "biên nhân lực (để xếp lịch)" in source
-    # Bước MÁY: nhân lực không đổi tốc độ máy — nói rõ kíp tiêu chuẩn kế thừa từ đâu (danh mục Máy).
+    # 06/09/2026 (mg `0270`): khối ba mốc "biên nhân lực" thu về MỘT ô kíp chuẩn, dùng chung cho
+    # cả ba loại bước — nguồn là định mức đầu việc của công đoạn, không còn ô riêng trên máy.
+    assert "kíp chuẩn (định mức công đoạn)" in source
+    # Bước MÁY: nhân lực không đổi tốc độ máy — nói rõ kíp kế thừa từ đâu (định mức công đoạn).
     assert "nhân lực không thay đổi tốc độ máy" in source
-    assert "kíp tiêu chuẩn lấy từ danh mục máy" in source
-    # Bước TỔ: kíp chuẩn RÚT NGẮN thời gian (nhân năng suất/đầu người), tối thiểu/tối đa chỉ nuôi
-    # cảnh báo xếp lịch chứ không đổi thời lượng.
-    assert "số người tiêu chuẩn" in source
+    assert "điền sẵn từ định mức đầu việc của công đoạn" in source
+    # Bước TỔ: kíp chuẩn RÚT NGẮN thời gian (nhân năng suất/đầu người).
+    assert "kíp chuẩn" in source
     assert "rút ngắn thời gian" in source
     # Nguồn tính đứng TRƯỚC kết quả — đọc từ "vì sao ra số này" rồi mới tới con số.
     assert "nguồn tính" in source
@@ -100,7 +108,6 @@ def test_drawer_doi_dau_viec_cap_nhat_dinh_muc_va_thoi_gian_live() -> None:
     assert "chonDauViec" in source
     assert "nang_suat_nguoi_gio" in source
     assert "so_nguoi_tieu_chuan" in source
-    assert "so_nguoi_toi_da" in source
     assert "thoiLuongLive" in source
     assert "export function thoiLuongLive" in model
     # Bước TỔ nhân năng suất với SỐ NGƯỜI TIÊU CHUẨN (chốt 20/08/2026): mirror FE phải đọc đúng cột
@@ -231,3 +238,135 @@ def test_bang_chung_fe_that_su_ton_tai() -> None:
 
     ci = (goc / ".github" / "workflows" / "build-test.yml").read_text(encoding="utf-8")
     assert "npm test" in ci, "cổng kiểm không chạy test FE thì test FE sẽ mục"
+
+
+def test_lenh_giu_cho_vat_tu_thi_bang_routing_khoa_va_noi_ra() -> None:
+    """Giữ chỗ vật tư khoá routing ở SERVER — màn phải khoá theo và nói đường lùi.
+
+    `LsxService._chan_dang_giu_cho` chặn `PUT /routing` VÀ `POST /xem-truoc-routing`. Để bảng sửa
+    được lúc đó là mời người ta làm không công: mỗi lần đổi công đoạn ăn một 409, mà `xemTruocChuoi`
+    từng nuốt im lặng nên số vào–ra đứng im không ai giải thích, tới lúc bấm Lưu mới hiện băng đỏ.
+    """
+    source = ROUTING.read_text(encoding="utf-8")
+
+    assert "const suaDuoc = canUpdate && !giuCho;" in source
+    # Mọi CỬA GHI phải đi qua `suaDuoc`. Còn sót `canUpdate` trần trong JSX là còn một đường sửa
+    # mở ra trong lúc server đang khoá — đúng cái lỗ này.
+    assert "{canUpdate && (" not in source
+    assert "canUpdate={canUpdate}" not in source
+    assert "draggable={suaDuoc}" in source
+    # Băng nói lý do + đường lùi, và nó phải là băng RIÊNG (điều kiện `canUpdate && giuCho`), không
+    # dựa vào `suaDuoc` — `suaDuoc` đã false nên dùng nó là băng không bao giờ hiện.
+    assert "{canUpdate && giuCho && (" in source
+    assert "khsx-ghep-bang--khoa" in source
+    assert "Nhả chỗ" in source
+
+    # Cha phải THẬT SỰ truyền cờ xuống, không thì bảng luôn nghĩ là không giữ chỗ.
+    assert "giuCho={d.giu_cho_bat}" in DETAIL.read_text(encoding="utf-8")
+
+
+def test_xem_truoc_chuoi_hong_thi_phai_noi_ra_chu_khong_nuot() -> None:
+    """Số vào–ra là do SERVER tính. Xem trước hỏng mà im lặng = bảng hiện số CŨ như thể vừa tính."""
+    source = ROUTING.read_text(encoding="utf-8")
+
+    assert "khsx-ghep-bang--loi" in source
+    # CẢ HAI chặng của "đổi công đoạn" phải báo ra: lấy mặc định công đoạn (`mac-dinh-buoc`, từng
+    # 500 câm) và tính lại số cả chuỗi (`xem-truoc-routing`, từng 409 câm). Một chỗ đặt là đủ để
+    # test xanh mà chỗ kia vẫn nuốt, nên đếm.
+    assert source.count("setLoiDoiCd(") >= 3
+    # Nhánh catch RỖNG là cách lỗi cũ sống được lâu đến thế: bắt lỗi xong không nói gì. Câu trấn an
+    # trong đó ("bấm Lưu server vẫn tính đúng") còn SAI — lưu cũng 409 y hệt khi lệnh đang giữ chỗ.
+    assert "server v" + "ẫn tính đúng" not in source
+
+
+def test_giu_cho_vat_tu_khong_con_gi_de_khoa_o_cum_thong_so() -> None:
+    """Giữ chỗ vật tư chặn ba đường ở server: `so_luong_dat`, `quy_cach`, xoá lệnh.
+
+    Từ 07/09/2026 cụm quy cách ở lệnh CHỈ XEM — ô Giấy, ngoại lệ cuối cùng, đã gỡ — nên `luu()`
+    không bao giờ gửi `quy_cach` nữa: giữ chỗ không còn gì để khoá trong cụm này, và băng "ô Giấy
+    khoá luôn" phải đi theo, không thì màn đi báo khoá một ô không còn trên màn. Hai chỗ giữ chỗ
+    VẪN khoá là bảng công đoạn (băng riêng, xem test ở trên) và nút Xoá (chip riêng).
+    """
+    source = DETAIL.read_text(encoding="utf-8")
+
+    assert "const giuCho = !!d?.giu_cho_bat;" in source
+    # Không còn cờ "được sửa quy cách" nào — còn sót một cái là còn một ô quy cách gõ được ở lệnh.
+    assert "suaQc" not in source
+    assert "suaGiay" not in source
+    # `luu()` không gửi cụm thông số ⇒ không có đường nào ăn 409 vì giữ chỗ.
+    assert "body.quy_cach" not in source
+    # Băng khoá của cụm thông số đã gỡ khỏi màn lệnh; chip khoá nút Xoá thì còn nguyên.
+    assert "khsx-ghep-bang--khoa" not in source
+    assert "giuCho ? (" in source
+    assert "khsx-khoa-chip" in source
+
+
+def test_quy_cach_o_lenh_chi_xem_khong_con_o_nao_sua_duoc() -> None:
+    """Quy cách là thứ đã CHỐT với khách ở phiếu tính giá — lệnh không gõ lại, KỂ CẢ giấy.
+
+    Khổ giấy nguyên / khổ tờ / khổ thành phẩm / cách in / số trang / bleed / khe cắt / mực / bình
+    bài đều chỉ xem, và từ 07/09/2026 ô Giấy cũng vậy. Phiếu tính ra sao thì lệnh chạy y như vậy;
+    muốn đổi thì sửa ở phiếu rồi tạo lại lệnh. Không còn ai sửa `form.qc` ⇒ đường xem-trước-số-máy-
+    tự-tính cũng không còn việc gì để làm.
+    """
+    source = DETAIL.read_text(encoding="utf-8")
+
+    # Không còn ô gõ số nào trong cụm: `KVNum` (ô nhập) đã thay bằng `KVSo` (chỉ hiện).
+    assert "function KVNum(" not in source
+    assert "function KVSo(" in source
+    assert "<KVNum" not in source
+    # `setQc` GỠ HẲN, không phải "chỉ còn một chỗ gọi" như bản 05/09/2026.
+    assert "setQc" not in source
+    # Bình bài (`so_con`) cũng là số kế hoạch giấy — Task 23 đã chặn ở server, màn không mở lại.
+    assert 'set("so_con"' not in source
+    # Xem trước chỉ phục vụ việc SỬA. Sửa gỡ rồi mà còn gọi là mỗi lần mở lệnh đi hỏi server một
+    # con số không ai dùng. (`xemTruocMay` / `xemTruocRouting` của bảng công đoạn thì vẫn còn.)
+    assert "api.lsx.xemTruocQuyCach(" not in source
+    assert "setXemTruoc" not in source
+    # Ô số dẫn xuất không còn cặp cũ/mới để so — chip "tính lại" đi cùng.
+    assert "function KVDeriv(" not in source
+    assert "tính lại</span>" not in source
+    # Nhãn khối phải nói đúng cái đang cho phép, không thì màn tự cãi nhau.
+    assert "thông số — chỉ xem" in _nhan(DETAIL)
+    assert "đổi được giấy khi thiếu hàng" not in _nhan(DETAIL)
+    # Và nói ra đường đi tiếp: sửa quy cách là việc của phiếu tính giá, không phải của lệnh.
+    assert "muốn đổi thì sửa ở phiếu tính giá" in _nhan(DETAIL)
+
+
+def test_lenh_giu_cho_vat_tu_thi_khong_con_nut_xoa() -> None:
+    """`LsxService.xoa` cũng gọi `_chan_dang_giu_cho` — để nút Xoá sáng là mời bấm vào 409."""
+    source = DETAIL.read_text(encoding="utf-8")
+
+    assert "giuCho ? (" in source
+    assert "khsx-khoa-chip" in source
+    assert "chưa xoá được" in source
+    # Chip phải NÓI lý do trên mặt, không phải nút mờ chỉ có tooltip.
+    assert 'className="khsx-khoa-chip"' in source
+    assert ".khsx-khoa-chip {" in (DRAWER.parent / "ke-hoach-sx.css").read_text(encoding="utf-8")
+
+
+def test_o_giay_o_lenh_da_go_han_khong_con_cua_doi() -> None:
+    """Đổi giấy Ở KHỐI QUY CÁCH là đổi bài toán giá — phải quay về phiếu tính giá rồi TẠO LẠI lệnh.
+
+    Ô chọn giấy ở lệnh (mở 13/08/2026, bó vào `thay_the_ids` của danh mục 05/09/2026) GỠ HẲN
+    07/09/2026. Còn sót một mảnh nào của đường đó là còn một cửa đổi giấy ngay tại lệnh.
+
+    [08/09/2026] Danh mục Giấy được nạp LẠI ở màn này, nhưng cho việc KHÁC HẲN: đổ vào ô "Thêm vật
+    tư" của từng BƯỚC để người lập lệnh chọn NVL chính. Đó không phải cửa đổi quy cách — quy cách
+    vẫn chỉ-xem, và dòng giấy ở bước là một dòng vật tư như mọi dòng khác. Nên guard đổi từ "cấm
+    nạp danh mục giấy" sang "nạp thì chỉ được chảy vào bảng routing".
+    """
+    source = DETAIL.read_text(encoding="utf-8")
+
+    assert '<KV k="Giấy" v={s("giay_ten")} />' in source
+    assert "giayChonDuoc" not in source
+    assert "giayNeoId" not in source
+    assert "thay_the_ids" not in source
+    assert "chưa chọn giấy" not in source
+    # Danh mục giấy chỉ có ĐÚNG một cửa ra: prop `giayRefs` của bảng routing (→ drawer bước).
+    assert "vat-lieu-kho/giay" in source and "setGiayRefs" in source
+    assert "giayRefs={giayRefs}" in source
+    assert source.count("giayRefs") == 3, (
+        "`giayRefs` chỉ được xuất hiện ĐÚNG ba lần: khai state, tên prop, giá trị prop "
+        "(`giayRefs={giayRefs}`) — thêm chỗ đọc nào nữa là đang mở lại cửa đổi giấy ở lệnh"
+    )

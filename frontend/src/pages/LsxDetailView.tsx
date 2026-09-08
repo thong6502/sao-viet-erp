@@ -10,12 +10,13 @@ import {
   LSX_THIEU_LABELS,
   nhanMa,
   api,
+  type DanhMucDoiBuoc,
+  type DanhMucDoiVatTu,
   type LsxActivity,
   type LsxBoDauViec,
   type LsxCongDoanBody,
   type LsxDetail,
   type LsxQuyCachBody,
-  type LsxQuyCachXemTruoc,
   type LsxTongQuanOut,
   type LsxUpdateBody,
 } from "../api/client";
@@ -41,6 +42,7 @@ import {
   classHan,
   ngay,
   ngayGio,
+  nhanCachIn,
   num,
 } from "./keHoachSxShared";
 
@@ -63,9 +65,24 @@ const ACTION_LABEL: Record<string, string> = {
   create_lsx: "Tạo lệnh",
   update_lsx: "Sửa thông tin",
   update_lsx_routing: "Sửa công đoạn",
+  update_lsx_danh_muc: "Cập nhật theo danh mục",
   lsx_trang_thai: "Đổi trạng thái",
   delete_lsx: "Xoá lệnh",
 };
+
+/** Một dòng gọn cho băng vàng: bước này lệch những gì. Bảng cũ → mới đầy đủ nằm trong dialog —
+ *  băng chỉ cần đủ để người lập kế hoạch quyết CÓ MỞ RA XEM hay không. */
+function tomTatBuoc(b: DanhMucDoiBuoc): string {
+  const y: string[] = [];
+  if (b.khoan_mo_coi) y.push(`đầu việc “${b.khoan_mo_coi}” không còn thuộc công đoạn/tổ`);
+  if (b.khoan_chua_chon) y.push(`chưa chọn đầu việc, danh mục nay có “${b.khoan_chua_chon}”`);
+  if (b.khoan.length) y.push(b.khoan.map((k) => k.nhan.toLowerCase()).join(", "));
+  if (b.vat_tu_them.length) y.push(`thêm ${b.vat_tu_them.length} vật tư`);
+  if (b.vat_tu_lech.length) y.push(`${b.vat_tu_lech.length} vật tư lệch số`);
+  if (b.vat_tu_bo.length) y.push(`${b.vat_tu_bo.length} vật tư danh mục không còn bung`);
+  if (b.may_canh_bao) y.push(b.may_canh_bao);
+  return y.join(" · ");
+}
 
 interface FormState {
   ten: string;
@@ -196,12 +213,16 @@ export function LsxDetailView({
   const [boDauViec, setBoDauViec] = useState<LsxBoDauViec[]>([]);
   const [readyErr, setReadyErr] = useState<string | null>(null);
   const [askDelete, setAskDelete] = useState(false);
+  /** Bảng cũ → mới của nút "Cập nhật theo danh mục". KHÔNG ghi thẳng khi bấm: số khoán và định
+   *  mức là tiền công của thợ, đổi lén một phát cả lệnh thì người lập kế hoạch không có cách nào
+   *  biết cái gì vừa đổi. Mở bảng ra, đọc, rồi mới đồng ý. */
+  const [xemDmDoi, setXemDmDoi] = useState(false);
+  const [dongBo, setDongBo] = useState(false);
+  const [dongBoErr, setDongBoErr] = useState<string | null>(null);
   const [acts, setActs] = useState<LsxActivity[] | null>(null);
-  /** Số MÁY TỰ TÍNH ứng với thông số đang gõ — server trả, chưa lưu. null = chưa sửa gì. */
-  const [xemTruoc, setXemTruoc] = useState<LsxQuyCachXemTruoc | null>(null);
-  /** Lỗi của lần xem trước gần nhất. Trước 13/08/2026 chỗ này `.catch(() => setXemTruoc(null))` —
-   *  endpoint hỏng thì khối "Máy tự tính" đứng im y như chưa sửa gì, không một dòng báo. */
-  const [xemTruocLoi, setXemTruocLoi] = useState<string | null>(null);
+  /* GỠ 07/09/2026 cùng ô Giấy: hai ô `xemTruoc` / `xemTruocLoi`. Chúng chỉ có việc khi quy cách ở
+     lệnh còn sửa được — nay cụm thông số là ảnh chụp CHỈ XEM của phiếu tính giá nên không còn gì
+     để tính lại trước lúc bấm Lưu, và `api.lsx.xemTruocQuyCach` không còn ai gọi. */
   /** Ba đèn "vướng gì" — CÙNG nguồn với bảng lệnh, ở đây hiện đủ chữ. Chưa về = `null` ⇒ chưa
    *  vẽ gì, đừng hiện "không vướng gì" khi thật ra chưa hỏi xong. */
   const [den, setDen] = useState<LsxTongQuanOut["items"][number] | null>(null);
@@ -215,11 +236,10 @@ export function LsxDetailView({
   const [khuonRefs, setKhuonRefs] = useState<
     import("../api/client").KhuonChonDuoc[] | null
   >(null);
-  /** Danh mục giấy cho ô chọn ở khối "Giấy & tờ in". `gsm` đi kèm để hiện định lượng mới ngay. */
-  const [giayRefs, setGiayRefs] = useState<
-    { id: number; ten: string; ma: string; gsm: number | null }[] | null
-  >(null);
   const [vatTuRefs, setVatTuRefs] = useState<RefRow[] | null>(null);
+  // DANH MỤC GIẤY — nguồn NVL chính của bước (08/09/2026). Nạp riêng chứ không gộp vào `vatTuRefs`:
+  // hai danh mục đánh số ĐỘC LẬP, gộp phẳng là Giấy #7 đè Vật tư #7 ngay ở dropdown.
+  const [giayRefs, setGiayRefs] = useState<RefRow[] | null>(null);
   const [phuThuocRefs, setPhuThuocRefs] = useState<import("../api/client").LsxPhuThuocOption[]>([]);
 
   const load = useCallback(() => {
@@ -285,6 +305,27 @@ export function LsxDetailView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [d]);
 
+  /** Lấy số mới nhất của danh mục cho CẢ lệnh. Server không xoá dòng vật tư nào và không đụng số
+   *  nhân công đã sắp — bảng cũ → mới người dùng vừa đọc là ĐÚNG những gì sẽ ghi. */
+  const capNhatTheoDanhMuc = useCallback(async () => {
+    if (!token) return;
+    setDongBo(true);
+    setDongBoErr(null);
+    try {
+      const r = await api.lsx.dongBoDanhMuc(token, lsxId);
+      setD(r);
+      setForm(toForm(r));
+      setXemDmDoi(false);
+      // Bảng lệnh có đèn "Danh mục" cùng nguồn ⇒ báo cho màn cha nạp lại, không thì chấm vàng
+      // còn nằm đó tới lần lọc sau.
+      onChanged();
+    } catch (e: unknown) {
+      setDongBoErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setDongBo(false);
+    }
+  }, [token, lsxId, onChanged]);
+
   /** Tạo dao mới cho một bước → dòng mới trong danh mục Khuôn ở tình trạng "đang đặt làm".
    *
    *  Khách + loại lấy từ chính lệnh và bước, không hỏi lại: người cấu hình lệnh không nên phải gõ
@@ -309,7 +350,12 @@ export function LsxDetailView({
     if (!token) return;
     // Không có quyền đọc danh mục → để null, ô hiện read-only thay vì select rỗng (select rỗng
     // + lưu = xoá trắng dữ liệu).
-    api.congDoan.list(token).then((r) => setCongDoanRefs(r.items.map((c) => ({ id: c.id, ten: c.ten, nhomMayChoPhep: c.nhom_may_cho_phep })))).catch(() => setCongDoanRefs(null));
+    // `may_lam_duoc` = bảng "Máy chạy được công đoạn này" ở danh mục Công đoạn. Giữ lại id để
+    // drawer bước lọc dropdown MÁY đúng như bài ghép và engine xếp lịch đang chặn (`RefRow`).
+    api.congDoan.list(token).then((r) => setCongDoanRefs(r.items.map((c) => ({
+      id: c.id, ten: c.ten, nhomMayChoPhep: c.nhom_may_cho_phep,
+      mayChoPhep: (c.may_lam_duoc ?? []).map((m) => m.may_id),
+    })))).catch(() => setCongDoanRefs(null));
     crud("/api/cong-doan/phong-ban").list(token).then((r) => setToRefs(r.items.map((t) => ({ id: t.id, ten: t.ten })))).catch(() => setToRefs(null));
     // Giữ luôn TỐC ĐỘ + CHUẨN BỊ của máy: form phải tính lại thời lượng ngay khi đổi máy, chứ
     // không đợi lưu rồi server mới trả số về (xem `RefRow`).
@@ -324,23 +370,15 @@ export function LsxDetailView({
         donViTocDo: m.don_vi_toc_do ? String(m.don_vi_toc_do) : null,
         chuanBiPhut: m.makeready_time_default == null ? null : Number(m.makeready_time_default),
         chuanBiKhoan: Array.isArray(khoan) ? khoan : [],
-        // Kíp đứng máy khai ở danh mục ("Số người vận hành tiêu chuẩn") — chọn máy là điền ngay,
-        // khỏi đợi server. Bước MÁY nghe MÁY, không nghe định mức nhân lực của bảng khoán tổ.
-        soNguoiVanHanh: m.so_nhan_cong == null ? null : Number(m.so_nhan_cong),
+        // Ô "Số người vận hành tiêu chuẩn" của máy ĐÃ GỠ (06/09/2026, mg `0270`): kíp của mọi loại
+        // bước nay đến từ định mức đầu việc của công đoạn, nên chọn máy không đụng số người nữa.
       };
     }))).catch(() => setMayRefs(null));
     crud("/api/vat-lieu-kho/vat-tu-in-an").list(token, { active: true }).then((r) =>
       setVatTuRefs(r.items.map((v) => ({ id: v.id, ten: v.ten, ma: String(v.ma), donVi: String(v.don_vi_gia ?? "") })))
     ).catch(() => setVatTuRefs(null));
-    // Danh mục GIẤY — để kế hoạch đổi giấy ngay tại lệnh. Giấy hết hàng thì xưởng thay loại khác
-    // cùng tính chất (có khi xịn hơn) mà không phải quay về phiếu tính giá tạo lại lệnh. Giữ luôn
-    // `gsm` để đổi xong hiện định lượng mới ngay, khỏi chờ lưu — server cũng kéo `gsm` theo giấy
-    // (`ap_quy_cach`), đây chỉ là để hai bên nói cùng một số trong lúc đang sửa.
     crud("/api/vat-lieu-kho/giay").list(token, { active: true }).then((r) =>
-      setGiayRefs(r.items.map((g) => ({
-        id: g.id, ten: String(g.ten), ma: String(g.ma ?? ""),
-        gsm: Number(g.gsm ?? 0) || null,
-      })))
+      setGiayRefs(r.items.map((v) => ({ id: v.id, ten: v.ten, ma: String(v.ma), donVi: String(v.don_vi_gia ?? "") })))
     ).catch(() => setGiayRefs(null));
     api.lsx.phuThuocOptions(token, lsxId).then(setPhuThuocRefs).catch(() => setPhuThuocRefs([]));
   }, [token, lsxId]);
@@ -359,36 +397,20 @@ export function LsxDetailView({
   function set<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm((prev) => (prev ? { ...prev, [k]: v } : prev));
   }
-  function setQc(p: Partial<LsxQuyCachBody>) {
-    setForm((prev) => (prev ? { ...prev, qc: { ...prev.qc, ...p } } : prev));
-  }
-
-  // --- Xem trước LIVE các số máy tự tính ---------------------------------------------------
-  // Đổi thông số là hỏi SERVER số mới, không tự tính ở client: engine chỉ có MỘT bản, không thì
-  // màn hiện một số còn nút Lưu ghi số khác. Debounce 350ms cho ô gõ số.
-  const qcDoi = useMemo(
-    () => (d && form ? JSON.stringify(form.qc) !== JSON.stringify(toQc(d)) : false),
-    [d, form],
-  );
-  const qcSig = form ? JSON.stringify(form.qc) : "";
-  useEffect(() => {
-    if (!token || !d || !qcDoi || !form) {
-      setXemTruoc(null);
-      setXemTruocLoi(null);
-      return;
-    }
-    const h = window.setTimeout(() => {
-      api.lsx.xemTruocQuyCach(token, d.id, form.qc)
-        .then((r) => { setXemTruoc(r); setXemTruocLoi(null); })
-        .catch((e) => {
-          setXemTruoc(null);
-          setXemTruocLoi(e instanceof ApiError ? e.message : "Không tính lại được — kiểm tra kết nối.");
-        });
-    }, 350);
-    return () => window.clearTimeout(h);
-    // `form.qc` so bằng CHUỖI — object mới mỗi render thì effect bắn liên tục, debounce không cứu.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, d?.id, qcDoi, qcSig]);
+  // Lệnh đang GIỮ CHỖ vật tư. Server (`_chan_dang_giu_cho`) chặn ba đường: đổi `so_luong_dat`,
+  // gửi `quy_cach`, và xoá lệnh — cùng luật với routing. Tách ra thành cờ riêng để màn NÓI TRƯỚC
+  // thay vì để người ta gõ xong cả bảng thông số rồi mới ăn 409 lúc bấm Lưu.
+  const giuCho = !!d?.giu_cho_bat;
+  // Danh mục đã đổi sau lúc lệnh chụp ảnh. `null` = còn khớp hết ⇒ KHÔNG băng, không chỗ trống.
+  const dmDoi = d?.danh_muc_doi ?? null;
+  // QUY CÁCH Ở LỆNH = CHỈ XEM, không chừa ô nào (07/09/2026). Cụm này là thứ đã chốt với khách ở
+  // phiếu tính giá — giấy, khổ, cách in, số trang, bleed, khe cắt, bình bài đều là số đã tính ra
+  // giá và đã báo. Phiếu tính ra sao thì lệnh chạy y như vậy; gõ lại ở lệnh là lệnh chạy một đằng,
+  // khách mua một nẻo, mà không ai đối chiếu. Muốn đổi thật thì sửa ở phiếu rồi TẠO LẠI lệnh.
+  //
+  // Ô Giấy từng là ngoại lệ "chữa cháy khi giấy hết hàng" (05/09/2026) — GỠ 07/09/2026. Nó là ô
+  // cuối cùng sửa được `form.qc`, nên gỡ xong kéo theo cả đường xem-trước-trước-khi-lưu: `luu()`
+  // không bao giờ gửi `quy_cach` nữa, khối "Máy tự tính" chỉ còn hiện số đã lưu.
 
   async function luu() {
     if (!token || !form || !d) return;
@@ -404,9 +426,8 @@ export function LsxDetailView({
       // ranh giới đơn vị (tờ nguyên → tờ in). Gửi lên chỉ tổ có nguồn sự thật thứ hai.
       so_con: Number(form.so_con || 1),
     };
-    // Chỉ gửi cụm THÔNG SỐ khi nó thật sự đổi — gửi kèm mỗi lần lưu là mỗi lần lưu đều kích
-    // bình bài lại + chạy lại chuỗi ngược, đè cả những số người khác vừa chỉnh.
-    if (qcDoi) body.quy_cach = form.qc;
+    // KHÔNG gửi `quy_cach` (07/09/2026): màn này không còn ô nào sửa thông số. Gửi kèm chỉ mở
+    // đường cho một cú Lưu vô tình kích bình bài lại + chạy lại chuỗi ngược, đè số người khác chỉnh.
     // KHÔNG gửi `may_id`: ô đó đã bỏ khỏi màn (11/08/2026). Không gửi = server giữ nguyên giá trị
     // nó đang có (máy dự kiến suy từ phiếu tính giá lúc tạo lệnh). Khuôn thì không còn cột nào để
     // gửi — đã xoá hẳn 16/08/2026 (mg `0203`).
@@ -459,18 +480,23 @@ export function LsxDetailView({
     [token, d],
   );
 
-  /** Đổi máy → hỏi server luôn: SL vào quy đổi sang đơn vị tốc độ của máy MỚI ra bao nhiêu.
-   *  Tốc độ/chuẩn bị thì form tự tính từ `mayRefs`; riêng phép quy đổi chỉ backend làm được. */
-  const xemTruocMay = useCallback(
-    async (stepKey: string, mayId: number | null) => {
+  /** Sửa gì trên drawer → hỏi server luôn: SL vào quy đổi sang đơn vị ĐÍCH của bộ số MỚI ra bao
+   *  nhiêu, và tiền công bằng bao nhiêu. Tốc độ/kíp/chuẩn bị thì form tự tính từ `mayRefs`; riêng
+   *  phép quy đổi và tiền công chỉ backend làm được. */
+  const xemTruocBuoc = useCallback(
+    async (
+      stepKey: string,
+      dang: { mayId?: number | null; loaiBuoc?: string | null;
+              pieceRateId?: number | null; soLuotChay?: number | null },
+    ) => {
       if (!token || !d) throw new Error("chưa sẵn sàng");
-      return api.lsx.xemTruocMay(token, d.id, stepKey, mayId);
+      return api.lsx.xemTruocBuoc(token, d.id, stepKey, dang);
     },
     [token, d],
   );
 
   /** Đổi/chèn công đoạn → hỏi server số VÀO–RA + đơn vị của CẢ CHUỖI (chỉ backend chạy được
-   *  chuỗi ngược + bảng cầu quy đổi). Cùng lẽ với `xemTruocMay`: số nhảy ngay, khỏi bấm Lưu. */
+   *  chuỗi ngược + bảng cầu quy đổi). Cùng lẽ với `xemTruocBuoc`: số nhảy ngay, khỏi bấm Lưu. */
   const xemTruocRouting = useCallback(
     async (rows: import("../api/client").LsxXemTruocRoutingRow[]) => {
       if (!token || !d) throw new Error("chưa sẵn sàng");
@@ -590,12 +616,7 @@ export function LsxDetailView({
   const { to: dvTo, tp: dvTp, tay: dvTay, toNguyen: dvToNguyen } = dvChuoi;
   // Bảng kê vật tư — tính MỘT lần cho cả ô tóm tắt trên đầu màn lẫn tab "Vật tư". Hàm thuần chạy
   // trên ≤ vài chục bước nên gọi thẳng trong render, không cần memo.
-  const keVatTu = bangKeVatTu({
-    congDoans: d.cong_doans,
-    quyCach: d.quy_cach_json,
-    soToNguyen: d.so_to_nguyen,
-    donViToNguyen: d.don_vi_to_nguyen,
-  });
+  const keVatTu = bangKeVatTu({ congDoans: d.cong_doans });
 
   // SÁCH GẤP TAY vs CẮT RỜI — cùng tiêu chí backend dùng để chọn nhánh hệ số (`la_gap_tay`).
   // Sách: tờ in gấp NGUYÊN VẸN thành một tay, một cuốn cần `soTay` TỜ → giấy nhân lên theo số tay,
@@ -607,25 +628,10 @@ export function LsxDetailView({
     ? `Sách gấp tay — ${dvTp}/${dvTo} chỉ để bình bài và kiểm khổ, KHÔNG chi phối số giấy. `
       + `Giấy tính theo ${num(soTay)} ${dvTo} = 1 ${d.don_vi_tinh || "cuốn"}.`
     : undefined;
-  // Ảnh chụp quy cách của lệnh CŨ không có các khoá thêm sau (bleed, khe cắt, cách bình…).
-  // Thiếu khoá thì phải hiện "—", KHÔNG được để `n()` trả 0 rồi bày ra như số thật của phiếu.
-  const co = (k: string): boolean => qc[k] !== undefined && qc[k] !== null;
   // Số tờ in / tờ nguyên KHÔNG còn tính ở đây: chúng là hai mốc ĐỌC RA từ chuỗi ngược bên server
   // (`_ap_chuoi_nguoc`). Giữ bản tính thứ hai ở frontend là mở đường cho hai số lệch nhau.
-  // XEM TRƯỚC thông số: thanh KPI phải nói CÙNG con số với khối "Máy tự tính" ngay dưới nó. Trước
-  // đây KPI đọc số ĐÃ LƯU còn khối kia hiện số mới kèm chip "tính lại" — sửa khổ tờ in xong là một
-  // màn hiện hai con số cho cùng một thứ, người dùng không biết tin cái nào.
-  // `tam = true` ⇒ số CHƯA LƯU, thẻ tự gắn dấu hiệu (viền đứt) để không ai tưởng đã ghi vào DB.
-  const kpiSo = (cu: number, moi: number | undefined) => ({
-    so: moi ?? cu,
-    tam: moi != null && moi !== cu,
-  });
-  // Định lượng của giấy ĐANG CHỌN trong form (khác giấy đã lưu khi người dùng vừa đổi). Đọc từ
-  // danh mục chứ không đợi server: server có kéo `gsm` theo giấy, nhưng chỉ lúc LƯU.
-  const giayGsm = giayRefs?.find((g) => g.id === form.qc.giay_id)?.gsm ?? null;
-  const kpiToIn = kpiSo(d.so_to_ke_hoach, xemTruoc?.so_to_ke_hoach);
-  const kpiToNguyen = kpiSo(d.so_to_nguyen, xemTruoc?.so_to_nguyen);
-  const kpiCon = kpiSo(d.so_con, xemTruoc?.so_con);
+  // Thanh KPI và khối "Máy tự tính" đọc THẲNG số đã lưu (`d.*`) từ 07/09/2026: không còn ô nào
+  // sửa thông số ở màn này nên không còn cảnh "số đang gõ" khác "số trong DB" để phải phân biệt.
 
   return (
     <div className="khsx-detail">
@@ -661,10 +667,23 @@ export function LsxDetailView({
               <Icon name="refresh" size={13} />
               {coDuLieuMoi ? "Có thay đổi mới — làm mới" : "Làm mới"}
             </button>
+            {/* Đang giữ chỗ thì server xoá không nổi (`_chan_dang_giu_cho`). Thay nút bằng CHIP nói
+                thẳng lý do chứ không để nút mờ đi im lặng: nút disabled chỉ có tooltip, người dùng
+                bấm không ăn rồi tự đoán là hết quyền. Chip hiện ở MỌI tab nên đây cũng là chỗ báo
+                cái khoá cho ai đang đứng ở tab khác tab Thông số. */}
             {canUpdate && d.trang_thai !== "san_sang" && (
-              <Button variant="ghost" className="khsx-btn--danger" onClick={() => setAskDelete(true)}>
-                <Icon name="trash" size={14} /> Xoá lệnh
-              </Button>
+              giuCho ? (
+                <span
+                  className="khsx-khoa-chip"
+                  title="Nhả chỗ ở Kế hoạch vật tư › Theo lệnh sản xuất rồi mới xoá được lệnh."
+                >
+                  <Icon name="lock" size={13} /> Giữ chỗ vật tư — chưa xoá được
+                </span>
+              ) : (
+                <Button variant="ghost" className="khsx-btn--danger" onClick={() => setAskDelete(true)}>
+                  <Icon name="trash" size={14} /> Xoá lệnh
+                </Button>
+              )
             )}
           </div>
         </div>
@@ -707,9 +726,46 @@ export function LsxDetailView({
         </div>
       </header>
 
-      {/* Ba thứ NGOÀI lệnh có thể chặn nó chạy: vật tư đã có chủ chưa · lịch đứng được chưa · có ai
-          làm không. Khối "Còn thiếu N mục" ngay dưới chỉ nói về sự đầy đủ của CHÍNH lệnh — hai
-          câu khác nhau, cố ý không trộn. Đủ chữ ở đây (bảng lệnh chỉ đủ chỗ cho nhãn ngắn). */}
+      {/* BĂNG "danh mục đã đổi" — đứng ngay dưới đầu trang, TRÊN cả hàng đèn: nó nói rằng những
+          con số người ta sắp đọc ở dưới là số CŨ. Hiện cả khi lệnh đã lập kế hoạch (chỉ khoá nút),
+          vì lúc đó biết mà không sửa được vẫn hơn không biết. */}
+      {dmDoi && (
+        <div className="khsx-luuy khsx-dmdoi" role="status">
+          <p className="khsx-luuy__title">
+            <Icon name="refresh" size={15} />
+            Danh mục đã đổi sau lần lệnh này lấy số — {dmDoi.so_buoc} công đoạn đang giữ số cũ
+            <span className="khsx-dmdoi__nut">
+              {dmDoi.co_the_cap_nhat ? (
+                <button type="button" className="khsx-dmdoi__btn" onClick={() => setXemDmDoi(true)}>
+                  Cập nhật theo danh mục
+                </button>
+              ) : (
+                /* Nút mờ chỉ có tooltip — người dùng bấm không ăn rồi tự đoán là hết quyền. Nói
+                   thẳng lý do bằng chữ, cùng luật với chip "Giữ chỗ vật tư" ở đầu trang. */
+                <span className="khsx-dmdoi__khoa">
+                  <Icon name="lock" size={12} /> {dmDoi.ly_do_khoa || "Chưa cập nhật được"}
+                </span>
+              )}
+            </span>
+          </p>
+          <ul className="khsx-luuy__list">
+            {dmDoi.buocs.map((b) => (
+              <li key={b.buoc_id}>
+                <strong>Bước {b.thu_tu} · {b.ten}:</strong> {tomTatBuoc(b)}
+              </li>
+            ))}
+          </ul>
+          <p className="khsx-luuy__foot">
+            Giữ số cũ KHÔNG chặn gì cả — lệnh vẫn xếp lịch và chạy được. Chỉ là tiền công và định
+            mức đang tính theo bản danh mục lúc bung lệnh.
+          </p>
+        </div>
+      )}
+
+      {/* Bốn thứ có thể chặn lệnh chạy: vật tư đã có chủ chưa · lịch đứng được chưa · có ai
+          làm không · số còn khớp danh mục không. Khối "Còn thiếu N mục" ngay dưới chỉ nói về sự
+          đầy đủ của CHÍNH lệnh — hai câu khác nhau, cố ý không trộn. Đủ chữ ở đây (bảng lệnh chỉ
+          đủ chỗ cho nhãn ngắn). */}
       {den?.den && (
         <div className="khsx-denrow">
           <DenTienDo
@@ -805,23 +861,17 @@ export function LsxDetailView({
               "Hao hụt thêm" (nay đã bỏ) nên luôn hiện 0 trên mọi lệnh. Hao thật của từng bước xem
               ở chip "Hao hụt định mức" trong drawer bước — đo đúng đơn vị của bước đó. */}
 
-          <div
-            className={`khsx-kpi-tile khsx-kpi-tile--hero${kpiToIn.tam ? " khsx-kpi-tile--tam" : ""}`}
-            title={kpiToIn.tam ? "Số theo thông số đang sửa — chưa lưu" : undefined}
-          >
+          <div className="khsx-kpi-tile khsx-kpi-tile--hero">
             <span className="khsx-kpi-tile__label">Vào máy</span>
             <span className="khsx-kpi-tile__val">
-              {num(kpiToIn.so)} <small>{dvTo}</small>
+              {num(d.so_to_ke_hoach)} <small>{dvTo}</small>
             </span>
           </div>
 
-          <div
-            className={`khsx-kpi-tile${kpiToNguyen.tam ? " khsx-kpi-tile--tam" : ""}`}
-            title={kpiToNguyen.tam ? "Số theo thông số đang sửa — chưa lưu" : undefined}
-          >
+          <div className="khsx-kpi-tile">
             <span className="khsx-kpi-tile__label">Giấy nguyên</span>
             <span className="khsx-kpi-tile__val">
-              {num(kpiToNguyen.so)} <small>{dvToNguyen}</small>
+              {num(d.so_to_nguyen)} <small>{dvToNguyen}</small>
             </span>
           </div>
 
@@ -834,18 +884,12 @@ export function LsxDetailView({
             </div>
           ) : (
             <div
-              className={`khsx-kpi-tile${kpiCon.tam ? " khsx-kpi-tile--tam" : ""}`}
-              title={
-                kpiCon.tam
-                  ? "Số theo thông số đang sửa — chưa lưu"
-                  : dvTp && dvTo
-                    ? `${num(kpiCon.so)} ${dvTp} trên 1 ${dvTo}`
-                    : undefined
-              }
+              className="khsx-kpi-tile"
+              title={dvTp && dvTo ? `${num(d.so_con)} ${dvTp} trên 1 ${dvTo}` : undefined}
             >
               <span className="khsx-kpi-tile__label">Bình bài</span>
               <span className="khsx-kpi-tile__val">
-                {num(kpiCon.so)} <small>{dvTp}</small>
+                {num(d.so_con)} <small>{dvTp}</small>
               </span>
             </div>
           )}
@@ -1119,6 +1163,9 @@ export function LsxDetailView({
                   </div>
                 </div>
               ) : null}
+              {/* GỠ 07/09/2026: băng "đang giữ chỗ vật tư nên ô Giấy khoá luôn". Ô Giấy đã bỏ
+                  hẳn nên băng đi báo khoá một ô không còn trên màn. Giữ chỗ vẫn khoá bảng công
+                  đoạn và nút Xoá — hai chỗ đó có băng/chip riêng. */}
               <div className="khsx-spec__card">
                 <div className="khsx-spec__card-head">
                   <div className="khsx-spec__card-icon">
@@ -1159,78 +1206,39 @@ export function LsxDetailView({
                       danh mục, không phải đơn vị đếm của routing, nên giữ nguyên chữ. Còn "tờ in"
                       chính là đơn vị bước in đang đếm ⇒ lấy tên từ danh mục. */}
                   <h4 className="khsx-spec__title">Giấy &amp; {dvTo}</h4>
-                  {/* Ảnh chụp từ phiếu, nhưng SỬA ĐƯỢC tại chỗ — kế hoạch khỏi phải quay về phiếu
-                      rồi tạo lại lệnh (tạo lại là mất sạch routing đã chỉnh). Lệnh vẫn KHÔNG tự
-                      bám theo phiếu. Nói rõ ở nhãn vì ngay khối dưới là số máy tự tính, không sửa
-                      được — bày lẫn lộn rồi số tự nhảy thì người dùng tưởng máy hỏng. */}
-                  <span className="khsx-spec__hint">thông số — sửa được</span>
+                  {/* Ảnh chụp từ phiếu tính giá và GIỮ NGUYÊN như ảnh chụp: cụm này là thứ đã tính
+                      ra giá và đã báo cho khách. Nhãn nói thẳng "chỉ xem" — vì ngay khối dưới là số
+                      máy tự tính cũng không sửa được; hai khối cùng "chỉ xem" mà không nói lý do
+                      thì trông như màn hỏng. */}
+                  <span className="khsx-spec__hint">thông số — chỉ xem</span>
                 </div>
                 <div className="khsx-spec__card-body">
                   <div className="khsx-kvgrid">
-                    {/* GIẤY SỬA ĐƯỢC tại lệnh (13/08/2026). Trước đây là chữ chết, trong khi mọi ô
-                        khác trong khối này đều sửa được và nhãn khối ghi "thông số — sửa được".
-                        Nghiệp vụ: giấy hết hàng thì xưởng thay loại khác cùng tính chất (có khi
-                        xịn hơn) — bắt quay về phiếu tính giá tạo lại lệnh là mất sạch routing đã
-                        chỉnh. Backend vốn đã nhận `giay_id` và tự kéo `gsm` + tên theo giấy mới
-                        (`lsx_service.ap_quy_cach`); chỗ này chỉ thiếu ô chọn.
-                        Danh mục chưa nạp xong ⇒ vẫn hiện tên đã lưu, không để ô trống. */}
-                    {giayRefs ? (
-                      <label className={`khsx-kv ${canUpdate ? "khsx-kv--edit" : ""}`}>
-                        <span className="khsx-kv__key">Giấy</span>
-                        <select
-                          className="khsx-kv__input"
-                          disabled={!canUpdate}
-                          value={form.qc.giay_id ?? ""}
-                          onChange={(e) =>
-                            setQc({ giay_id: e.target.value ? Number(e.target.value) : null })
-                          }
-                        >
-                          <option value="">— chưa chọn giấy —</option>
-                          {/* Giấy ĐÃ NGỪNG DÙNG không có trong `giayRefs` (danh mục lọc
-                              `active:true`). Không chèn lại thì ô rơi về "— chưa chọn giấy —" và
-                              cú Lưu kế tiếp XOÁ `giay_id` của lệnh cũ, im lặng, dù người dùng
-                              không hề đụng vào ô này. Cùng cách đã làm cho ô Công đoạn
-                              (`LsxBuocDrawer.tsx:486-489`). */}
-                          {form.qc.giay_id != null
-                            && !giayRefs.some((g) => g.id === form.qc.giay_id) && (
-                            <option value={form.qc.giay_id}>
-                              {s("giay_ten") || `#${form.qc.giay_id}`} · đã ngừng dùng
-                            </option>
-                          )}
-                          {giayRefs.map((g) => (
-                            <option key={g.id} value={g.id}>
-                              {g.ten}{g.gsm ? ` · ${g.gsm} gsm` : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : (
-                      <KV k="Giấy" v={s("giay_ten")} />
-                    )}
-                    {/* Định lượng đi THEO giấy: đổi giấy là số này đổi ngay, khỏi chờ bấm Lưu —
-                        không thì màn hiện giấy mới cạnh gsm của cuộn giấy cũ. Chưa chọn được
-                        trong danh mục thì rơi về số đã lưu. */}
-                    <KV
-                      k="Định lượng (gsm)"
-                      v={
-                        giayGsm != null
-                          ? num(giayGsm)
-                          : qc.gsm
-                            ? num(n("gsm"))
-                            : "—"
-                      }
-                      mono
-                    />
+                    {/* ĐƯỜNG ĐI TIẾP phải nằm ngay trong khối, không chỉ ở nhãn góc: nhãn nói
+                        "chỉ xem" là mới nói được nửa việc, người kế hoạch còn phải biết đi đâu để
+                        đổi thật. Nói luôn cả vế "lệnh không tự bám theo phiếu" vì sửa phiếu xong
+                        mà lệnh đứng yên là chỗ dễ tưởng hỏng nhất. */}
+                    <p className="khsx-nhom__sub khsx-kv--span">
+                      Thông số chụp từ phiếu tính giá lúc tạo lệnh và không sửa ở đây, kể cả giấy —
+                      muốn đổi thì sửa ở phiếu tính giá rồi tạo lại lệnh (lệnh không tự bám theo
+                      phiếu).
+                    </p>
+                    {/* GIẤY — CHỈ XEM từ 07/09/2026. Trước đó đây là ô sửa được duy nhất của cả
+                        cụm (13/08/2026, bó vào danh sách thay thế 05/09/2026) để xưởng đổi giấy
+                        tại chỗ khi hết hàng. Nay bỏ hẳn: phiếu tính giá tính trên giấy nào thì
+                        lệnh chạy đúng giấy đó, đổi giấy là đổi bài toán giá nên phải quay về phiếu
+                        rồi tạo lại lệnh. Backend `ap_quy_cach` vẫn nhận `giay_id`, chỉ là màn này
+                        không còn gửi `quy_cach` nữa. */}
+                    <KV k="Giấy" v={s("giay_ten")} />
+                    {/* Định lượng đọc thẳng từ ảnh chụp, không tra lại danh mục: giấy ở lệnh không
+                        đổi được nữa nên `gsm` đã lưu luôn là gsm của đúng loại giấy đang hiện. */}
+                    <KV k="Định lượng (gsm)" v={qc.gsm ? num(n("gsm")) : "—"} mono />
                     {/* GỠ 2026-08-09 (Đợt 4 · K): dòng "Nguồn giấy". Công ty luôn cấp giấy nên
                         dòng này chỉ còn là một ô luôn ghi "Công ty" — chiếm chỗ, không nói gì. */}
-                    <KVNum k="Khổ giấy nguyên dài" suffix="mm" disabled={!canUpdate}
-                      v={form.qc.kho_nguyen_dai} onChange={(x) => setQc({ kho_nguyen_dai: x })} />
-                    <KVNum k="Khổ giấy nguyên rộng" suffix="mm" disabled={!canUpdate}
-                      v={form.qc.kho_nguyen_rong} onChange={(x) => setQc({ kho_nguyen_rong: x })} />
-                    <KVNum k={`Khổ ${dvTo} dài`} suffix="mm" disabled={!canUpdate}
-                      v={form.qc.kho_in_dai} onChange={(x) => setQc({ kho_in_dai: x })} />
-                    <KVNum k={`Khổ ${dvTo} rộng`} suffix="mm" disabled={!canUpdate}
-                      v={form.qc.kho_in_rong} onChange={(x) => setQc({ kho_in_rong: x })} />
+                    <KVSo k="Khổ giấy nguyên dài" suffix="mm" v={form.qc.kho_nguyen_dai} />
+                    <KVSo k="Khổ giấy nguyên rộng" suffix="mm" v={form.qc.kho_nguyen_rong} />
+                    <KVSo k={`Khổ ${dvTo} dài`} suffix="mm" v={form.qc.kho_in_dai} />
+                    <KVSo k={`Khổ ${dvTo} rộng`} suffix="mm" v={form.qc.kho_in_rong} />
                     {/* 0 × 0 = CHƯA khai khổ tờ in — engine chạy thẳng trên khổ giấy nguyên. Nói
                         ra chứ để hai số 0 trần thì trông như thiếu dữ liệu. */}
                     {!((form.qc.kho_in_dai ?? 0) > 0 && (form.qc.kho_in_rong ?? 0) > 0) && (
@@ -1238,50 +1246,33 @@ export function LsxDetailView({
                         Để 0 × 0 = in thẳng khổ giấy nguyên, không xả.
                       </p>
                     )}
-                    <KVNum k="Khổ thành phẩm dài" suffix="mm" disabled={!canUpdate}
-                      v={form.qc.dai_thanh_pham} onChange={(x) => setQc({ dai_thanh_pham: x })} />
-                    <KVNum k="Khổ thành phẩm rộng" suffix="mm" disabled={!canUpdate}
-                      v={form.qc.rong_thanh_pham} onChange={(x) => setQc({ rong_thanh_pham: x })} />
-                    <label className={`khsx-kv ${canUpdate ? "khsx-kv--edit" : ""}`}>
-                      <span className="khsx-kv__key">Cách in</span>
-                      <select
-                        className="khsx-kv__input"
-                        disabled={!canUpdate}
-                        value={form.qc.quy_cach_in ?? "mot_mat"}
-                        onChange={(e) => setQc({ quy_cach_in: e.target.value })}
-                      >
-                        <option value="mot_mat">1 mặt</option>
-                        <option value="hai_mat">2 mặt (AB)</option>
-                        <option value="tu_tro">Tự trở</option>
-                        <option value="tro_nhip">Trở nhíp</option>
-                      </select>
-                    </label>
+                    <KVSo k="Khổ thành phẩm dài" suffix="mm" v={form.qc.dai_thanh_pham} />
+                    <KVSo k="Khổ thành phẩm rộng" suffix="mm" v={form.qc.rong_thanh_pham} />
+                    <KV k="Cách in" v={nhanCachIn(form.qc.quy_cach_in ?? "mot_mat")} />
                     {/* Hai ô này CHỈ có nghĩa với hàng NHIỀU TRANG. Thẻ, tờ rơi, hộp thì cả hai
                         luôn là 1/1 — bày ra chỉ tổ chiếm chỗ và mời người ta gõ một số vô nghĩa.
                         Cấu trúc sản phẩm (mấy trang) là việc của bài TÍNH GIÁ, không phải của kế
                         hoạch: muốn biến một tờ rời thành sách thì sửa ở phiếu rồi tạo lại lệnh. */}
                     {(form.qc.so_trang ?? 1) > 1 && (
                       <>
-                        <KVNum k="Số trang" disabled={!canUpdate}
-                          v={form.qc.so_trang} onChange={(x) => setQc({ so_trang: Math.max(1, x) })} />
-                        <KVNum k="Trang mỗi tay" disabled={!canUpdate}
-                          v={form.qc.trang_moi_tay} onChange={(x) => setQc({ trang_moi_tay: Math.max(1, x) })} />
+                        <KVSo k="Số trang" v={form.qc.so_trang} />
+                        <KVSo k="Trang mỗi tay" v={form.qc.trang_moi_tay} />
                       </>
                     )}
-                    <KVNum k="Bleed" suffix="mm" disabled={!canUpdate}
-                      v={form.qc.bleed_mm} onChange={(x) => setQc({ bleed_mm: x })} />
-                    <KVNum k="Khe cắt" suffix="mm" disabled={!canUpdate}
-                      v={form.qc.khe_cat_mm} onChange={(x) => setQc({ khe_cat_mm: x })} />
+                    <KVSo k="Bleed" suffix="mm" v={form.qc.bleed_mm} />
+                    <KVSo k="Khe cắt" suffix="mm" v={form.qc.khe_cat_mm} />
                     {/* Mực KHÔNG nhét vào lưới key-value: nó là tập mã, cần chip bấm. Dùng lại
-                        đúng khối đã dựng ở phiếu tính giá, không đẻ khối thứ hai rồi hai bên lệch. */}
+                        đúng khối đã dựng ở phiếu tính giá, không đẻ khối thứ hai rồi hai bên lệch.
+                        `disabled` cứng + `onChange` rỗng: khối này là bảng chip có sẵn đường sửa,
+                        bỏ hẳn `onChange` thì phải sửa chữ ký component dùng chung ở hai màn. */}
                     <div className="khsx-kv khsx-kv--span">
                       <span className="khsx-kv__key">Mực in</span>
                       <MucInHang
                         mucA={form.qc.muc_a ?? []}
                         mucB={form.qc.muc_b ?? []}
                         quyCachIn={form.qc.quy_cach_in ?? "mot_mat"}
-                        disabled={!canUpdate}
-                        onChange={(a, b) => setQc({ muc_a: a, muc_b: b })}
+                        disabled
+                        onChange={() => {}}
                       />
                     </div>
                     {/* Chừa TÁCH CHIỀU do SERVER tính (`chua_theo_chieu`) — màn này chỉ hiện. Cộng
@@ -1304,15 +1295,11 @@ export function LsxDetailView({
                 </div>
                 <div className="khsx-spec__card-body">
                   <div className="khsx-kvgrid">
-                    {/* Con/tờ là NGUYÊN NHÂN với hàng cắt rời: xưởng ép số con khác bài tính giá là
-                        chuyện thường, đổi xong server chạy lại cả chuỗi ngược.
-                        Với SÁCH GẤP TAY thì KHOÁ: tờ in gấp nguyên vẹn thành một tay, giấy tính
-                        theo `1/so_tay`, `con` bị `cau_to_sang_cai` loại hoàn toàn. Để ô mở là mời
-                        người dùng gõ một số rồi bấm lưu mà không có gì đổi — lừa người dùng. */}
-                    <label
-                      className={`khsx-kv ${laSach ? "" : "khsx-kv--edit"}`}
-                      title={giaiThichSach}
-                    >
+                    {/* Bình bài (`so_con`) CŨNG chỉ xem từ 05/09/2026. Nó không phải "thông số
+                        trình bày": đổi con/tờ là `_ap_chuoi_nguoc` viết lại số tờ kế hoạch ⇒ đổi
+                        lượng giấy cần (đo trên LSX26-0008: 16 → 8 con làm giấy nguyên 368 → 505
+                        tờ). Bài ghép mới là chỗ ép lại con/tờ, ở đó có bàn giấy và máy thật. */}
+                    <div className="khsx-kv" title={giaiThichSach}>
                       {/* Nhãn NGẮN, tỉ số để trong tooltip: nhét "· SẢN PHẨM XONG mỗi TỜ CHẠY MÁY"
                           vào nhãn thì ô đầu tiên cao gấp đôi mấy ô cạnh nó, cả lưới lệch. */}
                       <span
@@ -1321,50 +1308,28 @@ export function LsxDetailView({
                       >
                         Bình bài
                       </span>
-                      <input
-                        className="khsx-kv__input"
-                        type="number"
-                        min={1}
-                        disabled={!canUpdate || laSach}
-                        value={xemTruoc && !laSach ? String(xemTruoc.so_con) : form.so_con}
-                        onChange={(e) => set("so_con", e.target.value)}
-                      />
-                    </label>
+                      <span className="khsx-kv__val khsx-num">
+                        {num(Number(form.so_con) || 0)}
+                      </span>
+                    </div>
                     {laSach && (
                       <p className="khsx-nhom__sub khsx-kv--span">{giaiThichSach}</p>
                     )}
-                    <KVDeriv k="Số mảnh xả" cu={n("so_manh_xa")} moi={xemTruoc?.so_manh_xa} />
-                    <KVDeriv k="Số kẽm" cu={n("so_kem")} moi={xemTruoc?.so_kem} />
-                    <KVDeriv k="Số lượt in" cu={n("so_luot")} moi={xemTruoc?.so_luot} />
+                    <KVSoDv k="Số mảnh xả" v={n("so_manh_xa")} />
+                    <KVSoDv k="Số kẽm" v={n("so_kem")} />
+                    <KVSoDv k="Số lượt in" v={n("so_luot")} />
                     {/* NHÃN nói CHẶNG, ĐƠN VỊ đi với con số — cùng luật với thanh KPI. Trước đây
                         nhãn lấy thẳng tên đơn vị nên lệnh KHÔNG có bước xả (tờ nguyên = tờ in) đẻ
                         ra hai dòng "SỐ TỜ CHẠY MÁY KẾ HOẠCH" và "SỐ TỜ CHẠY MÁY" cùng một con số —
                         nhìn như một chỗ bị lặp, trong khi chúng là hai chặng khác nhau. */}
-                    <KVDeriv k="Vào máy" dv={dvTo} cu={d.so_to_ke_hoach} moi={xemTruoc?.so_to_ke_hoach} />
-                    <KVDeriv k="Giấy nguyên" dv={dvToNguyen} cu={d.so_to_nguyen} moi={xemTruoc?.so_to_nguyen} />
-                    <KVDeriv
-                      k="Số bài in"
-                      dv={dvTay}
-                      cu={n("so_to_per_sp") || 1}
-                      moi={xemTruoc?.so_to_per_sp}
-                    />
-                    <KV
-                      k="Cách bình"
-                      v={co("con_auto") ? (qc.con_auto === false ? "Ép số con" : "Máy tự bình") : "—"}
-                      badge
-                    />
+                    <KVSoDv k="Vào máy" dv={dvTo} v={d.so_to_ke_hoach} />
+                    <KVSoDv k="Giấy nguyên" dv={dvToNguyen} v={d.so_to_nguyen} />
+                    <KVSoDv k="Số bài in" dv={dvTay} v={n("so_to_per_sp") || 1} />
+                    {/* GỠ 07/09/2026: ô "Cách bình" (`con_auto`). Nó chỉ nói ENGINE đã bình bài kiểu
+                        nào — máy tự xếp hay ép đúng số con khai ở phiếu tính giá — mà kết quả của cả
+                        hai kiểu đã nằm ngay ô "Bình bài" phía trên. Ở lệnh thì không ai chọn được
+                        kiểu nữa (quy cách chỉ xem), nên dòng này chỉ là một chữ không dẫn đi đâu. */}
                   </div>
-                  {/* Ngả 1 vẫn ĐÈ số gõ tay — nhưng đè có báo trước, không lén. */}
-                  {xemTruocLoi && (
-                    <div className="khsx-alert" role="alert">
-                      Số bên trên CHƯA tính lại: {xemTruocLoi}
-                    </div>
-                  )}
-                  {xemTruoc && xemTruoc.doi.length > 0 && (
-                    <p className="khsx-spec__canhbao">
-                      Đổi {xemTruoc.doi.length} thông số — các số trên sẽ ghi đè khi bấm Lưu.
-                    </p>
-                  )}
                 </div>
               </div>
 
@@ -1425,7 +1390,7 @@ export function LsxDetailView({
                       }}
                       bleedMm={form.qc.bleed_mm ?? 0}
                       kheCatMm={form.qc.khe_cat_mm ?? 0}
-                      soCon={xemTruoc?.so_con ?? n("so_con")}
+                      soCon={n("so_con")}
                       trangMoiTay={form.qc.trang_moi_tay ?? 1}
                       dvCon={dvTp}
                       dvTo={dvTo}
@@ -1459,14 +1424,16 @@ export function LsxDetailView({
                     tenSanPham={d.ten}
                     onTaoKhuon={taoKhuon}
                     vatTuRefs={vatTuRefs}
+                    giayRefs={giayRefs}
                     phuThuocRefs={phuThuocRefs}
                     canUpdate={canUpdate}
+                    giuCho={d.giu_cho_bat}
                     saving={savingRouting}
                     onSave={luuRouting}
                     onPatchLsx={patchLsx}
                     onMacDinhBuoc={macDinhBuoc}
                     onDauViecOptions={dauViecOptions}
-                    onXemTruocMay={xemTruocMay}
+                    onXemTruocBuoc={xemTruocBuoc}
                     onXemTruocRouting={xemTruocRouting}
                     onDirtyChange={setRoutingDirty}
                     dvChuoi={dvChuoi}
@@ -1530,51 +1497,114 @@ export function LsxDetailView({
         onConfirm={xoa}
         onCancel={() => setAskDelete(false)}
       />
+
+      {/* Bảng CŨ → MỚI. Bấm "Cập nhật theo danh mục" ở băng chỉ MỞ cái này; ghi thật là nút trong
+          đây. Người lập kế hoạch phải nhìn thấy tiền công đổi từ đâu sang đâu trước khi đồng ý. */}
+      <ConfirmDialog
+        open={xemDmDoi && !!dmDoi}
+        wide
+        title={`Lấy số mới của danh mục cho ${d.ma}?`}
+        confirmLabel="Đồng ý cập nhật"
+        cancelLabel="Để nguyên số cũ"
+        busy={dongBo}
+        error={dongBoErr}
+        onConfirm={capNhatTheoDanhMuc}
+        onCancel={() => {
+          setXemDmDoi(false);
+          setDongBoErr(null);
+        }}
+      >
+        <div className="khsx-dmdoi__bang">
+          {(dmDoi?.buocs ?? []).map((b) => (
+            <section key={b.buoc_id} className="khsx-dmdoi__buoc">
+              <h4>Bước {b.thu_tu} · {b.ten}</h4>
+              {b.khoan_mo_coi && (
+                <p className="khsx-dmdoi__note">
+                  Đầu việc “{b.khoan_mo_coi}” không còn thuộc công đoạn/tổ của bước. Cập nhật KHÔNG
+                  chọn hộ — mở tab Công đoạn chọn lại đầu việc rồi bấm Lưu.
+                </p>
+              )}
+              {b.khoan_chua_chon && (
+                <p className="khsx-dmdoi__note">
+                  Bước chưa chọn đầu việc; danh mục nay chỉ có đúng một cái là “{b.khoan_chua_chon}”
+                  nên cập nhật sẽ điền vào.
+                </p>
+              )}
+              {b.may_canh_bao && <p className="khsx-dmdoi__note">{b.may_canh_bao}</p>}
+              {(b.khoan.length > 0 || b.vat_tu_them.length > 0 || b.vat_tu_lech.length > 0) && (
+                <table className="khsx-dmdoi__tbl">
+                  <thead>
+                    <tr><th>Ô</th><th>Đang giữ</th><th>Danh mục nay</th></tr>
+                  </thead>
+                  <tbody>
+                    {b.khoan.map((k) => (
+                      <tr key={k.truong}>
+                        <td>{k.nhan}</td>
+                        <td className="khsx-dmdoi__cu">{k.cu ?? "—"}</td>
+                        <td className="khsx-dmdoi__moi">{k.moi ?? "—"}</td>
+                      </tr>
+                    ))}
+                    {b.vat_tu_them.map((v) => (
+                      <tr key={`t${v.vat_tu_id}`}>
+                        <td>{tenVatTu(v)}</td>
+                        <td className="khsx-dmdoi__cu">chưa có</td>
+                        <td className="khsx-dmdoi__moi">{num(v.so_luong_moi ?? 0)} {v.don_vi ?? ""}</td>
+                      </tr>
+                    ))}
+                    {b.vat_tu_lech.map((v) => (
+                      <tr key={`l${v.vat_tu_id}`}>
+                        <td>{tenVatTu(v)}</td>
+                        <td className="khsx-dmdoi__cu">{num(v.so_luong_cu ?? 0)} {v.don_vi ?? ""}</td>
+                        <td className="khsx-dmdoi__moi">{num(v.so_luong_moi ?? 0)} {v.don_vi ?? ""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {b.vat_tu_bo.length > 0 && (
+                <p className="khsx-dmdoi__note">
+                  GIỮ NGUYÊN, không xoá: {b.vat_tu_bo.map(tenVatTu).join(" · ")} — danh mục nay
+                  không bung ra món này nữa (thường vì ô “Công thức định mức” bị bỏ trống). Muốn bỏ
+                  thì xoá tay ở tab Công đoạn.
+                </p>
+              )}
+            </section>
+          ))}
+          <p className="khsx-dmdoi__foot">
+            Cập nhật KHÔNG đụng số nhân công đã sắp cho từng bước và KHÔNG xoá dòng vật tư nào.
+          </p>
+        </div>
+      </ConfirmDialog>
     </div>
   );
 }
 
-/** Ô THÔNG SỐ gõ số — cùng khuôn `khsx-kv--edit` mà ô "Con / tờ" đang dùng. */
-function KVNum({
-  k, v, onChange, disabled, suffix,
-}: {
-  k: string;
-  v: number | undefined;
-  onChange: (n: number) => void;
-  disabled?: boolean;
-  suffix?: string;
-}) {
-  return (
-    <label className={`khsx-kv ${disabled ? "" : "khsx-kv--edit"}`}>
-      <span className="khsx-kv__key">{k}{suffix ? ` (${suffix})` : ""}</span>
-      <input
-        className="khsx-kv__input"
-        type="number"
-        min={0}
-        disabled={disabled}
-        value={v ?? 0}
-        onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
-      />
-    </label>
-  );
+/** Nhãn một món vật tư trên bảng cũ → mới. Mã có thì mã đứng trước — người xưởng đọc mã nhanh hơn
+ *  đọc tên, mà tên món in ấn hay dài quá một dòng. */
+function tenVatTu(v: DanhMucDoiVatTu): string {
+  return [v.ma, v.ten].filter(Boolean).join(" · ") || `#${v.vat_tu_id}`;
 }
 
-/** Số MÁY TỰ TÍNH. Đổi thì hiện số cũ gạch ngang bên cạnh — thấy hệ quả TRƯỚC khi bấm Lưu,
- *  đúng nguyên tắc "thay đổi gì là thay trên UI luôn, nhấn lưu mới vào DB". */
-function KVDeriv(
-  { k, cu, moi, dv }: { k: string; cu: number; moi: number | undefined; dv?: string },
-) {
-  const doi = moi != null && moi !== cu;
+/** Ô THÔNG SỐ dạng số — CHỈ HIỆN. Trước 05/09/2026 đây là ô `<input type="number">` (`KVNum`);
+ *  nay quy cách ở lệnh không sửa được nữa nên bỏ hẳn ô nhập thay vì để `<input disabled>`: ô mờ
+ *  đọc như "tạm thời không bấm được", còn thật ra ở màn này KHÔNG có đường sửa nào cả. Đơn vị vẫn
+ *  nằm trong nhãn như cũ để lưới không đổi bố cục. */
+function KVSo({ k, v, suffix }: { k: string; v: number | undefined; suffix?: string }) {
+  return <KV k={`${k}${suffix ? ` (${suffix})` : ""}`} v={num(v ?? 0)} mono />;
+}
+
+/** Số MÁY TỰ TÍNH — chỉ hiện. Trước 07/09/2026 ô này còn gánh phần "xem trước": sửa thông số thì
+ *  hiện số cũ gạch ngang cạnh số mới kèm chip "tính lại". Quy cách ở lệnh nay không sửa được nữa
+ *  nên chỉ còn MỘT con số, giữ nguyên class để lưới không đổi bố cục. */
+function KVSoDv({ k, v, dv }: { k: string; v: number; dv?: string }) {
   return (
     <div className="khsx-kv khsx-kv--deriv">
       <span className="khsx-kv__key">{k}</span>
       <span className="khsx-kv__val khsx-num">
-        {doi && <s className="khsx-kv__cu">{cu.toLocaleString("vi-VN")}</s>}
-        {(doi ? (moi as number) : cu).toLocaleString("vi-VN")}
+        {v.toLocaleString("vi-VN")}
         {/* ĐƠN VỊ đi với con số, không nằm trong nhãn — nhãn để dành nói CHẶNG. Rỗng thì không
             hiện gì: routing chưa nói tới chặng đó, bịa một chữ vào đây là quay lại lối cũ. */}
         {dv ? <small className="khsx-unit">{dv}</small> : null}
-        {doi && <span className="khsx-kv__moi">tính lại</span>}
       </span>
     </div>
   );

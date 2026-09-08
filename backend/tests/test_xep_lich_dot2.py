@@ -1,6 +1,6 @@
 """ĐỢT 2 — các ca bắt buộc trong phần Verify của plan, phần chưa có test.
 
-Detector `thieu_nguoi` kiểm ở mức HÀM: nó nhận danh sách dòng dạng dict (đúng thứ `danh_sach()`
+Các detector ở đây kiểm ở mức HÀM: chúng nhận danh sách dòng dạng dict (đúng thứ `danh_sach()`
 trả) nên không cần dựng cả luồng đơn → lệnh → xếp lịch cho từng ca. Dựng đủ luồng chỉ để kiểm một
 phép so là đổi 3 phút chạy test lấy 0 thông tin.
 
@@ -21,7 +21,7 @@ from app.repositories.audit_repo import AuditLogRepository
 from app.repositories.xep_lich_repo import XepLichRepository
 from app.services.xep_lich_service import XepLichService
 from app.services.xep_lich_van_de_service import (
-    CAT_NGUOI, SEV_CHAN, SEV_LUU_Y, XepLichVanDeService,
+    SEV_LUU_Y, XepLichVanDeService,
 )
 
 from tests.test_xep_lich_service import (  # noqa: F401 — fixture dùng chung
@@ -44,26 +44,15 @@ def _dong(**kw) -> dict:
         "id": 1, "nguon": "lsx", "lsx_id": 1, "bai_ghep_id": None, "lsx_ma": "LSX-0001",
         "cong_doan_ten": "Bế", "may_id": None, "department_id": None,
         "trang_thai": "da_xep", "start_at": _utc(8), "finish_at": _utc(10),
-        "so_nhan_cong": 2, "so_nhan_cong_toi_thieu": 2,
+        "so_nhan_cong": 2,
         "loai_buoc": "to", "is_locked": False,
     }
     d.update(kw)
     return d
 
 
-# ============================ G — số người tối thiểu ============================
-def test_thieu_nguoi_la_chan(vd_svc):
-    """Bố trí dưới mức tối thiểu = không mở máy được. Khai báo suông thì lịch vẫn hứa xong đúng hạn."""
-    out = vd_svc._thieu_nguoi([_dong(loai_buoc="to", so_nhan_cong=1, so_nhan_cong_toi_thieu=3)])
-    assert len(out) == 1
-    assert out[0]["category"] == CAT_NGUOI
-    assert out[0]["severity"] == SEV_CHAN
-
-
-def test_du_nguoi_thi_khong_bao(vd_svc):
-    assert vd_svc._thieu_nguoi([_dong(loai_buoc="to", so_nhan_cong=3, so_nhan_cong_toi_thieu=3)]) == []
-    # Chưa khai mức tối thiểu thì KHÔNG đoán mức nào cả.
-    assert vd_svc._thieu_nguoi([_dong(loai_buoc="to", so_nhan_cong=1, so_nhan_cong_toi_thieu=None)]) == []
+# (G — detector `thieu_nguoi` ĐÃ GỠ 06/09/2026 cùng mg `0270`: mốc "số người tối thiểu" biến mất
+#  khỏi định mức nên không còn gì để so. Quá tải quân số tổ — `_qua_tai_to` — vẫn còn nguyên.)
 
 
 # ============================ F — thiếu vật tư ============================

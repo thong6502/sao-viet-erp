@@ -78,7 +78,7 @@ def test_tong_bu_hao_don():
 # ============================ Bù hao NGƯỢC theo chuỗi công đoạn ============================
 
 def test_hao_buoc_tach_to_va_pct():
-    """Đi ngược cần tờ-cố-định và % TÁCH RIÊNG: tờ thì cộng, % thì chia."""
+    """Đi ngược cần tờ-cố-định và % TÁCH RIÊNG: tờ cộng thẳng, % nhân trên số RA của bước."""
     assert be.hao_buoc({"kieu_bu_hao": "khong"}, rows=ROWS, sl=12000) == (0.0, 0.0)
     assert be.hao_buoc({"kieu_bu_hao": "co_dinh", "so_to_bu_hao": 50}, rows=ROWS, sl=12000) == (50, 0.0)
     # bậc đơn vị "to" → về vế TỜ
@@ -160,8 +160,23 @@ def test_chuoi_nguoc_dv_thieu_he_so_thi_keu_chu_khong_doan():
     assert kq[0]["vao"] == 5000            # tạm hệ số 1, KHÔNG đoán bừa một con số
 
 
-def test_chuoi_nguoc_pct_la_phep_chia():
-    """Bậc % đi ngược phải CHIA (`ra / (1−%)`), cộng `ra × %` là ra thiếu giấy."""
+def test_chuoi_nguoc_pct_do_tren_so_RA():
+    """Bậc % đo trên số RA của bước: `vào = ra × (1 + %)`, KHÔNG phải `ra / (1 − %)`.
+
+    Chốt nghiệp vụ 06/09/2026: "hao 10%" nghĩa là cứ 100 tờ tốt phải chạy thêm 10 tờ — 110, chứ
+    không phải 111,11. Bậc 1,5% ở dải trên 30.000: 40.000 tờ tốt ⇒ 40.600 tờ vào, hao đúng 600.
+    """
     b = be.chuoi_nguoc([{"kieu_bu_hao": "tra_bang", "bu_hao_id": 2}], rows=ROWS, to_can=40000)
-    assert round(b[0]["vao"], 2) == round(40000 / 0.985, 2)   # 1,5% → chia
-    assert b[0]["vao"] > 40000 + 600                          # > cách cộng xuôi (40.600)
+    assert round(b[0]["vao"], 2) == 40600.0
+    assert round(b[0]["hao"], 2) == 600.0
+    # Trùng khít đường CỘNG XUÔI: cùng một nghĩa của "%" thì hai lối phải ra một số.
+    assert round(b[0]["vao"], 2) == 40000 + be.tong_bu_hao(
+        [{"kieu_bu_hao": "tra_bang", "bu_hao_id": 2}], rows=ROWS, sl=40000)
+
+
+def test_chuoi_nguoc_pct_10_phan_tram_ra_100_thi_vao_110():
+    """Ca mẫu người dùng chốt bằng miệng — giữ nguyên văn để khỏi trôi lại về phép chia."""
+    rows = [{"id": 9, "ma": "BH-10PCT",
+             "bac": [{"sl_tu": 0, "sl_den": None, "gia_tri": 10, "don_vi": "pct"}]}]
+    b = be.chuoi_nguoc([{"kieu_bu_hao": "tra_bang", "bu_hao_id": 9}], rows=rows, to_can=100)
+    assert round(b[0]["vao"], 2) == 110.0

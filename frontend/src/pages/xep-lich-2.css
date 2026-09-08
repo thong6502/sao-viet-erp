@@ -1906,8 +1906,6 @@
   gap: 6px;
 }
 .xl2-kv__bien { font-size: var(--fs-xs); font-weight: var(--fw-regular); color: var(--ash); }
-.xl2-kv__v--canh { color: var(--signal); font-weight: var(--fw-bold); }
-.xl2-kv__v--canh .xl2-kv__bien { color: var(--signal); }
 .xl2-kv__go {
   display: inline-flex;
   align-items: center;
@@ -2022,13 +2020,6 @@
   font-variant-numeric: tabular-nums;
 }
 .xl2-step__fact svg { color: var(--ash-2); }
-/* Số người bố trí ngoài biên tối thiểu–tối đa của bước — dùng lại đúng sắc `--signal` của
-   dòng quân số ngay bên dưới để hai cảnh báo cùng một tiếng nói. */
-.xl2-step__fact--warn {
-  color: var(--signal);
-  font-weight: var(--fw-medium);
-}
-.xl2-step__fact--warn svg { color: var(--signal); }
 .xl2-step__range { color: var(--ash-2); }
 .xl2-step__tag {
   padding: 1px 7px;
@@ -2864,17 +2855,6 @@
 .xl2-dlg-tag b {
   color: var(--ink);
 }
-/* Thẻ dữ kiện mang cảnh báo (số người bố trí ngoài định biên) — cùng sắc `--signal` với các
-   cảnh báo quân số khác trên màn, không đẻ màu mới. */
-.xl2-dlg-tag--warn {
-  color: var(--signal);
-  border-color: color-mix(in srgb, var(--signal) 40%, transparent);
-  background: color-mix(in srgb, var(--signal) 8%, var(--paper));
-}
-.xl2-dlg-tag--warn b {
-  color: var(--signal);
-}
-
 /* Slack Grid */
 .xl2-dlg-slackgrid {
   display: grid;

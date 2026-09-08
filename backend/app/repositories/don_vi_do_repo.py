@@ -9,8 +9,8 @@ from sqlalchemy.orm import aliased
 from ..models.don_vi_do import DonViDo, DonViQuyDoi
 from .catalog_base import CatalogRepo
 
-_FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active", "dung_lam_toc_do",
-           "tram_dong_giay")
+# `tram_dong_giay` GỠ 06/09/2026 — cột thành cột chết, xem `services/dong_giay.py`.
+_FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active", "dung_lam_toc_do")
 # `cong_thuc` KHÔNG còn ghi được ở CẢ HAI bảng: cặp bỏ 14/08/2026 (mg 0198), đơn vị bỏ 17/08/2026
 # (mg 0215). Công thức tính lượng nay khai ở món hàng / máy / đầu việc khoán / công đoạn.
 _CAP_FIELDS = ("tu_id", "den_id", "he_so", "ghi_chu")
@@ -149,26 +149,10 @@ class DonViDoRepository(CatalogRepo):
         ).scalars().first()
 
 
-    def cong_doan_lay_lam_don_vi_ra(self, ma: str) -> list[str]:
-        """Tên công đoạn đang lấy `ma` làm ĐƠN VỊ RA, và CẢ HAI vế đều ngoài dòng giấy.
-
-        Dùng để chặn chiều ngược của luật vòng tròn: công đoạn khai xong xuôi rồi mới có người vào
-        sửa công thức của đơn vị thêm `sl_vao`. Chỉ kể ca hai-vế-ngoài-dòng vì chỉ ở đó công thức
-        của đơn vị RA mới được đọc.
-        """
-        from ..models.cong_doan import CongDoan
-        from ..models.don_vi_do import DonViDo
-
-        if not ma:
-            return []
-        tram = {d.ma: d.tram_dong_giay for d in self.db.execute(select(DonViDo)).scalars()}
-        ra: list[str] = []
-        for cd in self.db.execute(
-            select(CongDoan).where(CongDoan.don_vi_ra == ma)
-        ).scalars():
-            if tram.get(cd.don_vi_vao) is None and tram.get(cd.don_vi_ra) is None:
-                ra.append(cd.ten)
-        return ra
+    # GỠ 06/09/2026: `cong_doan_lay_lam_don_vi_ra(ma)`. Nó chặn chiều ngược của luật vòng tròn hồi
+    # sản lượng bước ngoài dòng còn lấy từ công thức của ĐƠN VỊ RA; cột `don_vi_do.cong_thuc` đã gỡ
+    # từ mg `0215` (công thức chuyển về chính công đoạn) nên hàm này đã không còn nơi gọi, và nó
+    # cũng là chỗ cuối cùng trong repo đọc cờ `tram_dong_giay`.
 
     def create_cap(self, data: dict):
         obj = DonViQuyDoi(tu_id=data["tu_id"], den_id=data["den_id"], he_so=data["he_so"])

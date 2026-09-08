@@ -45,6 +45,14 @@ def test_den_vat_tu_soi_dung_thu_tu_cua_cua_chan():
     assert thieu["muc"] == MUC_DO and "1 mặt hàng" in thieu["chu"]
     # `du` đòi `bool(can)`: không ra nhu cầu nào thì cửa vẫn chặn, nhưng đừng in "còn thiếu 0".
     assert "0" not in _den_vat_tu({"du": False, "bat": True, "khong_ro": False, "thieu": {}}, 1)["chu"]
+    # ĐANG giữ chỗ mà không ra món nào ⇒ chắc chắn chưa ai khai (08/09/2026: giấy chỉ vào bảng khi
+    # được khai thành dòng vật tư của bước). Nói thẳng việc phải làm.
+    chua = _den_vat_tu({"du": False, "bat": True, "chua_co_nhu_cau": True}, 1)
+    assert chua["muc"] == MUC_DO and "chưa khai vật tư nào" in chua["chu"].lower()
+    # Nhưng CHƯA bật giữ chỗ thì vẫn nói "chưa giữ chỗ" — lệnh ngoài phạm vi MRP (còn nháp) cũng
+    # cho `chua_co_nhu_cau`, đừng vu cho nó tội khai thiếu.
+    assert _den_vat_tu({"du": False, "bat": False, "chua_co_nhu_cau": True}, 1)["chu"] == (
+        "Chưa giữ chỗ vật tư")
 
 
 def test_den_vat_tu_do_thi_bam_duoc_sang_man_ke_hoach_vat_tu():

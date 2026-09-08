@@ -1141,6 +1141,15 @@ class XepLichService:
             raise XepLichConflict(
                 f"{ma} chưa giữ chỗ vật tư — vào màn Kế hoạch vật tư bấm Giữ chỗ trước khi xếp lịch."
             )
+        if tt.get("chua_co_nhu_cau"):
+            # `du` đòi `bool(can)`: lệnh KHÔNG ra được nhu cầu nào cũng bị chặn — ĐANG giữ chỗ mà
+            # vẫn rỗng thì chắc chắn là chưa ai khai. Từ 08/09/2026 đây là ca thường gặp (giấy chỉ
+            # vào bảng khi được khai thành dòng vật tư của bước), và câu cũ "còn thiếu 0 mặt hàng"
+            # thì vô nghĩa — người đọc đi lập yêu cầu mua cho 0 món.
+            raise XepLichConflict(
+                f"{ma} chưa khai vật tư nào ở bước — kể cả giấy. Mở lệnh, vào bước ăn giấy và "
+                "chọn loại giấy trong ô Thêm vật tư, rồi giữ chỗ lại."
+            )
         if tt["khong_ro"]:
             raise XepLichConflict(
                 f"{ma} có vật tư chưa quy đổi được về đơn vị kho nên không biết cần bao nhiêu — "
@@ -1527,7 +1536,7 @@ class XepLichService:
     # ================= GỢI Ý (cơ bản) =================
 
     def _may_lam_duoc(self, dong: XepLichCongDoan) -> list[MayThietBi]:
-        """Máy LÀM ĐƯỢC công đoạn của dòng — theo `cong_doan.nhom_may_cho_phep` (khớp `may.loai_may`).
+        """Máy LÀM ĐƯỢC công đoạn của dòng — theo danh sách máy của công đoạn, thiếu thì theo nhóm.
 
         Chưa khai ràng buộc ⇒ MỌI máy. Máy đang gán luôn có mặt kể cả khi sai loại, không thì gợi
         ý tự loại chính lựa chọn hiện tại và người dùng tưởng mình gán bậy.
@@ -1549,12 +1558,12 @@ class XepLichService:
         elif dong.bai_ghep_cong_doan_id:
             bgcd = self.db.get(BaiGhepCongDoan, dong.bai_ghep_cong_doan_id)
             cd = self.db.get(CongDoan, bgcd.cong_doan_id) if bgcd and bgcd.cong_doan_id else None
-        allow = (getattr(cd, "nhom_may_cho_phep", None) or []) if cd is not None else []
         mays = [m for m in self.db.execute(select(MayThietBi)).scalars()
                 if m.active or m.id == dong.may_id]
-        if allow:
-            mays = [m for m in mays if m.loai_may in allow or m.id == dong.may_id]
-        return mays
+        # Luật chặn nay dùng CHUNG một hàm với bài ghép (06/09/2026): danh sách máy của công đoạn
+        # thắng, chưa khai thì lùi về nhóm máy — hai nơi phán quyết khác nhau là mời khai lệch.
+        return [m for m in mays
+                if m.id == dong.may_id or not BaiGhepService.may_ngoai_cong_doan(cd, m)]
 
     def goi_y(self, *, dong_id: int) -> dict:
         """Gợi ý MÁY cho một dòng — top 3 sắp theo **GIỜ XONG**, không phải theo giờ trống.
@@ -2271,11 +2280,9 @@ class XepLichService:
                 ),
                 "can_xac_nhan": bool(ly_do_xn), "ly_do_xac_nhan": ly_do_xn,
                 "is_rush": bool(lsx.is_rush) if lsx else False,
-                # --- Nền cho detector số người tối thiểu (G) ---
+                # Kíp bố trí thật của bước (detector "thiếu người" đã gỡ cùng migration `0270`:
+                # hệ chỉ còn MỘT con số định mức, không còn mốc tối thiểu để so).
                 "so_nhan_cong": int(getattr(buoc, "so_nhan_cong", 1) or 1) if buoc else None,
-                "so_nhan_cong_toi_thieu": (
-                    getattr(buoc, "so_nhan_cong_toi_thieu", None) if buoc else None
-                ),
                 # (E) Khoá GOM việc cùng loại — cùng giấy · cùng khổ tờ in · cùng bộ mực. Hai việc
                 # cùng khoá thì đổi từ việc này sang việc kia gần như không phải canh lại máy.
                 "gom_key": self._gom_key(lsx),

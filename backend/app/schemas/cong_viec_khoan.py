@@ -31,9 +31,7 @@ class CongViecKhoanIn(BaseModel):
     # (dòng cũ, seed, import đang mang đơn vị ngoài danh mục — chặn ở đây là khoá luôn đường sửa).
     unit: str = Field(default="khác", max_length=24)
     unit_price: float = Field(ge=0)
-    #: Cách đo LƯỢNG của việc này (ra số đơn vị `unit` rồi mới nhân đơn giá). Rỗng = để hệ tự quy
-    #: đổi như cũ (cầu quy đổi, rồi công thức của đơn vị) — xem `LsxService._sl_theo_don_vi`.
-    cong_thuc_luong: str | None = None
+    #: Cách đo lượng ĐÃ GỠ khỏi bảng đơn giá (mg `0274`) — nay khai ở dòng đầu việc của công đoạn.
     note: str | None = Field(default=None, max_length=255)
     active: bool = True
 
@@ -49,10 +47,6 @@ class CongViecKhoanRow(BaseModel):
     department_id: int | None = None
     unit: str
     unit_price: float
-    cong_thuc_luong: str | None = None
-    # "Lần trước công thức lượng" (mục 3+7) — router gán từ `cong_thuc_lich_su`, không có trong DB.
-    cong_thuc_luong_truoc: str | None = None
-    cong_thuc_luong_sua_luc: datetime | None = None
     note: str | None = None
     active: bool
     #: TÊN đọc được của đơn vị, server gán từ danh mục (`to` → "tờ"). Không có mã trong danh mục

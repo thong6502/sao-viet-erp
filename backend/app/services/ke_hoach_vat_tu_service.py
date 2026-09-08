@@ -33,15 +33,14 @@ from sqlalchemy.orm import Session
 
 from ..models.bai_ghep import BaiGhep
 from ..models.bai_ghep_cong_doan import BaiGhepCongDoan
-from ..models.don_vi_do import TRAM_TO, TRAM_TO_NGUYEN
-from ..services.dong_giay import ban_do_tram, don_vi_chuoi, ma_cua_tram, tram_cua
+from ..models.don_vi_do import TRAM_TO
+from ..services.dong_giay import ban_do_tram, don_vi_chuoi, ma_cua_tram
 from ..models.lsx import (
     LB_MAY,
     TT_DA_LAP_KE_HOACH,
     TT_DA_PHAT_HANH,
     TT_SAN_SANG,
     Lsx,
-    LsxCongDoan,
 )
 from ..models.purchase import (
     DPR_IN_PURCHASE,
@@ -55,7 +54,7 @@ from ..models.vat_lieu_kho import HANG_GIAY
 from ..repositories.ke_hoach_vat_tu_repo import KeHoachVatTuRepository
 from ..repositories.purchase_repo import DepartmentPurchaseRequestRepository
 from .bien_cong_thuc import quy_cach_bien, quy_cach_bien_bai
-from .bien_cong_thuc import KHUNG_LUA_MAC_DINH, ngu_canh_lenh
+from .bien_cong_thuc import MAC_DINH_TANG_LENH, ngu_canh_lenh
 from .thanh_phan_engine import safe_eval
 from .quy_doi_service import _so, bien_trong, cap_map, doi, don_vi_map
 from .stock_request_service import StockRequestService
@@ -234,8 +233,8 @@ class KeHoachVatTuService:
         """Bản đồ `{mã đơn vị: trạm}` — CACHE.
 
         `getattr` chứ không đọc thẳng thuộc tính: `_nap_don_vi` mới là nơi khởi tạo cache, mà
-        `_buoc_dau_dong_giay` có thể được gọi trước nó. Bảng cân đối duyệt cả trăm lệnh nên hỏi lại
-        danh mục theo từng lệnh là đúng bài N+1.
+        `_dv_giay` có thể được gọi trước nó. Bảng cân đối duyệt cả trăm lệnh nên hỏi lại danh mục
+        theo từng lệnh là đúng bài N+1.
         """
         if getattr(self, "_tram_cache", None) is None:
             self._tram_cache = ban_do_tram(self.db)
@@ -308,19 +307,23 @@ class KeHoachVatTuService:
         # cân đối sẽ luôn báo đã cấp đủ. Chưa nổ vì tới 14/08/2026 chưa mặt hàng nào khai công thức;
         # điền công thức vào là nổ ngay, nên chặn ở đây cùng lượt.
         #
-        # ⚠️ Và CHỈ cho GIẤY (20/08/2026). Hai loại dòng hỏi hai câu khác nhau:
-        #   * GIẤY: dòng mang SỐ TỜ của lệnh, phải có công thức mới ra kg ⇒ chạy ở đây là đúng.
-        #   * VẬT TƯ: dòng lấy thẳng `lsx_cong_doan_vat_tu.so_luong` — số đó CHÍNH LÀ kết quả công
-        #     thức, `LsxService._luong_vat_tu` đã tính lúc lưu công đoạn, bằng ngữ cảnh ĐẦY ĐỦ có
-        #     cả `sl_vao`/`sl_ra` của bước. Chạy lại ở đây là tính lần hai bằng ngữ cảnh NGHÈO hơn
-        #     (`_quy_cach_cua` trả None cho mọi thứ không phải giấy ⇒ 16 biến đều 0), nên mọi món
-        #     có công thức đều rơi vào "Chưa biết <biến>" và nhu cầu về 0 — đúng hỏng đã thấy ở
-        #     LSX26-0020: BOM ghi 10 bản kẽm · 100 kg mực · 91.000 m² màng, kế hoạch vật tư hiện
-        #     "0 · Chưa rõ ĐVT" cho cả năm dòng.
+        # ⚠️ Và CHỈ cho GIẤY (20/08/2026), nay hẹp thêm: chỉ giấy của BÀI GHÉP (08/09/2026) — nơi
+        # gọi bật cờ theo từng dòng, xem `_quy_doi_dong`. Ranh giới thật không phải "giấy hay vật
+        # tư" mà là "dòng mang số gì":
+        #   * BÀI GHÉP: dòng mang SỐ TỜ của cả bài, phải có công thức mới ra kg ⇒ chạy ở đây là đúng.
+        #   * DÒNG CỦA BƯỚC (vật tư lẫn giấy): lấy thẳng `lsx_cong_doan_vat_tu.so_luong` — số đó
+        #     CHÍNH LÀ kết quả công thức, `LsxService._luong_vat_tu` đã tính lúc lưu công đoạn bằng
+        #     ngữ cảnh ĐẦY ĐỦ có cả `sl_vao`/`sl_ra` của bước. Chạy lại ở đây là tính lần hai bằng
+        #     ngữ cảnh NGHÈO hơn (`_quy_cach_cua` trả None cho mọi thứ không phải giấy ⇒ 16 biến
+        #     đều 0), nên mọi món có công thức đều rơi vào "Chưa biết <biến>" và nhu cầu về 0 —
+        #     đúng hỏng đã thấy ở LSX26-0020: BOM ghi 10 bản kẽm · 100 kg mực · 91.000 m² màng,
+        #     kế hoạch vật tư hiện "0 · Chưa rõ ĐVT" cho cả năm dòng.
         ct = (getattr(obj, "cong_thuc_luong", None) or "").strip() if (
             tong_lenh and hang[0] == HANG_GIAY) else ""
         if ct:
-            ctx = {**ngu_canh_lenh(qc), **KHUNG_LUA_MAC_DINH}
+            # Đường này chạy ở TẦNG LỆNH cho GIẤY — không đứng trong bước nào, nên số lượt
+            # lấy mặc định 1 chứ không hỏi được ai.
+            ctx = {**ngu_canh_lenh(qc), **MAC_DINH_TANG_LENH}
             thieu = [b for b in bien_trong(ct) if _f(ctx.get(b)) <= 0]
             if thieu:
                 return {"loi": f"Chưa biết {', '.join(thieu)} nên chưa tính được lượng {obj.ten}."}
@@ -361,23 +364,6 @@ class KeHoachVatTuService:
             for b in self.bai_ghep_repo.list()
             if any(tv.lsx_id in lenh_ids for tv in b.thanh_viens)
         ]
-
-    def _buoc_dau_dong_giay(self, lsx: Lsx) -> LsxCongDoan | None:
-        """Bước ĐẦU TIÊN chạm tờ giấy — nơi giấy phải có mặt.
-
-        Neo vào bước tiêu thụ chứ không vào bước cuối: giấy cần ở ĐẦU chuỗi. Neo nhầm vào cuối là
-        đặt hàng muộn đúng bằng độ dài cả chuỗi sản xuất.
-
-        Nhận diện theo TRẠM (`don_vi_do.tram_dong_giay`), không theo mã: `don_vi_vao` là mã xưởng
-        tự đặt. So mã với `("to_nguyen","to")` thì lệnh nào khai `to_chay` cũng trượt hết vòng lặp
-        rồi rơi về `buoc[0]` — thường là bước GHI KẼM, tức neo ngày cần giấy vào nhầm bước.
-        """
-        bd = self._tram()
-        buoc = sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
-        for cd in buoc:
-            if tram_cua(cd.don_vi_vao, bd) in (TRAM_TO_NGUYEN, TRAM_TO):
-                return cd
-        return buoc[0] if buoc else None
 
     def _dv_giay(self, buocs, buoc_neo=None) -> str | None:
         """MÃ đơn vị để ĐẾM số giấy của một lệnh/bài — đọc từ routing, không đóng đinh `to`.
@@ -802,10 +788,11 @@ class KeHoachVatTuService:
         Đi qua ĐÚNG `_gom_nhu_cau` mà bảng cân đối đang dùng, rồi LỌC về đúng bước — không viết
         lại MRP. Hai nguồn tính nhu cầu thì sớm muộn lệch, và lệch ở đây là tổ xin sai số vật tư.
 
-        KHÔNG đọc `cv.vat_tu_json`: snapshot ấy chỉ có vật tư khai TAY ở bước, không có giấy.
+        KHÔNG đọc `cv.vat_tu_json`: snapshot ấy dựng lúc phát hành công việc, còn `_gom_nhu_cau`
+        đọc dòng vật tư SỐNG của bước — hai nguồn lệch nhau sau mỗi lần sửa lệnh.
 
-        Giấy neo ở bước ĐẦU TIÊN thật sự tiêu thụ giấy (`_buoc_dau_dong_giay`), nên chỉ công việc
-        của bước đó mới thấy dòng giấy — đúng nghiệp vụ: tổ cán màng không đi xin giấy in.
+        Giấy neo vào ĐÚNG bước người lập kế hoạch khai nó (08/09/2026), nên chỉ công việc của bước
+        đó mới thấy dòng giấy — đúng nghiệp vụ: tổ cán màng không đi xin giấy in.
         """
         lsx_id = cv.lsx_id
         bai_id = cv.bai_ghep_id
@@ -960,25 +947,16 @@ class KeHoachVatTuService:
         tho: list[dict] = []
         bo_qua: list[dict] = []
 
-        # --- giấy của lệnh CHƯA GHÉP ---------------------------------------
-        for l in lenh:
-            if l.id in thanh_vien:
-                continue  # lệnh trong bài ghép KHÔNG sinh dòng giấy riêng — xem `_giay_bai`
-            qc = l.quy_cach_json or {}
-            # GỠ 2026-08-09 (Đợt 4 · K): nhánh bỏ qua lệnh "khách cấp giấy". Nguồn giấy khách đã
-            # gỡ khỏi phiếu tính giá, nên MỌI lệnh đều cần công ty lo giấy và đều phải cân đối.
-            # Lệnh CŨ còn cờ đó trong `quy_cach_json` nay cũng hiện dòng — đúng: giấy vẫn phải có
-            # mặt ở xưởng, còn ai trả tiền là chuyện của phiếu, không phải của bảng cân đối.
-            giay_id = qc.get("giay_id")
-            if not giay_id:
-                bo_qua.append({"ma": l.ma, "ly_do": "Lệnh chưa chọn giấy trong quy cách."})
-                continue
-            so_to = int(l.so_to_nguyen or 0)
-            if so_to <= 0:
-                continue
-            buoc = self._buoc_dau_dong_giay(l)
-            tho.append(self._dong_lenh(l, ("giay", int(giay_id)),
-                                       self._dv_giay(l.cong_doans, buoc), so_to, buoc))
+        # --- giấy của LỆNH: ĐÃ GỠ 08/09/2026 -------------------------------
+        # Trước đây lệnh tự đẻ một dòng giấy từ `quy_cach_json.giay_id` + `so_to_nguyen`, rồi treo
+        # ngày cần lên "bước đầu tiên chạm tờ" (`_buoc_dau_dong_giay`). Hai chỗ đoán, hai chỗ sai:
+        # người lập kế hoạch không chọn được loại giấy nào khác, không đổi được bước tiêu thụ, và
+        # một lệnh chỉ ôm được ĐÚNG MỘT loại giấy — trong khi hộp carton cần giấy mặt + giấy sóng
+        # + giấy đáy, mỗi loại vào một bước khác nhau.
+        #
+        # Nay giấy là một DÒNG VẬT TƯ của bước (`lsx_cong_doan_vat_tu` với `hang_loai='giay'`), đi
+        # chung vòng "vật tư khai tay ở bước lệnh" ngay dưới; ngày cần lấy theo CHÍNH bước mang nó.
+        # BÀI GHÉP giữ nguyên `bai_ghep.giay_id`: giấy in của một lượt chạy chung thuộc về BÀI.
 
         # --- giấy của BÀI GHÉP: MỘT dòng cho cả bài ------------------------
         # Thành viên + ba số tờ nạp MỘT lần cho mỗi bài rồi dùng lại ở vòng vật tư dưới: cả hai
@@ -1001,7 +979,7 @@ class KeHoachVatTuService:
             neo = buoc[0] if buoc else None
             tho.append(
                 self._dong_bai(bg, ("giay", int(bg.giay_id)),
-                               self._dv_giay(buoc, neo), so_to, neo)
+                               self._dv_giay(buoc, neo), so_to, neo, ct_mat_hang=True)
             )
 
         # --- vật tư khai tay ở bước lệnh ------------------------------------
@@ -1013,9 +991,22 @@ class KeHoachVatTuService:
                 if cd.step_key in bi_buoc_chung_de or _f(vt.so_luong) <= 0:
                     continue
                 tho.append(
-                    self._dong_lenh(l, ("vat_tu", int(vt.vat_tu_id)), vt.don_vi_snapshot,
+                    # `vt.hang_loai` chứ không đóng đinh `"vat_tu"`: từ 08/09/2026 dòng của bước
+                    # có thể trỏ vào danh mục GIẤY — đó là đường DUY NHẤT giấy vào bảng cân đối ở
+                    # tầng lệnh.
+                    self._dong_lenh(l, (vt.hang_loai, int(vt.vat_tu_id)), vt.don_vi_snapshot,
                                     _f(vt.so_luong), cd)
                 )
+
+        # --- lệnh không sinh dòng nào: nói ra, đừng để nó vắng mặt im lặng ---
+        # Trước 08/09/2026 câu này là "Lệnh chưa chọn giấy trong quy cách". Nay giấy chỉ vào bảng
+        # qua dòng của bước, nên câu hỏi đúng rộng hơn: lệnh này có khai NỔI một món vật tư nào
+        # chưa. Lệnh thành viên bài ghép không tính — giấy của nó nằm ở dòng của bài.
+        co_dong = {d["lsx_id"] for d in tho if d["lsx_id"]}
+        for l in lenh:
+            if l.id in thanh_vien or l.id in co_dong:
+                continue
+            bo_qua.append({"ma": l.ma, "ly_do": "Lệnh chưa khai vật tư nào ở bước — kể cả giấy."})
 
         # --- vật tư khai tay ở bước CHUNG của bài ---------------------------
         for bg in bais:
@@ -1085,7 +1076,7 @@ class KeHoachVatTuService:
             "qc": dict(self._qc(l)),
         }
 
-    def _dong_bai(self, bg: BaiGhep, hang, dvt, sl, buoc) -> dict:
+    def _dong_bai(self, bg: BaiGhep, hang, dvt, sl, buoc, *, ct_mat_hang: bool = False) -> dict:
         lsx_map, so_to, muc = getattr(self, "_bai_ctx", {}).get(bg.id, ({}, {}, {}))
         ngay = self._ngay_can_buoc(getattr(buoc, "id", None), cua_bai=True)
         moc_tam = ngay is None
@@ -1114,6 +1105,9 @@ class KeHoachVatTuService:
             "ngay_can": ngay, "moc_tam": moc_tam, "dvt": dvt, "sl": sl,
             "moc_suy_duoc": suy_duoc,
             "moc_ly_do": moc_ly_do,
+            # Dòng này mang SỐ TỜ của cả bài chứ không mang lượng theo đơn vị gốc ⇒ phải chạy công
+            # thức lượng của mặt hàng mới ra kg. Xem `_ve_goc(tong_lenh=…)`.
+            "ct_mat_hang": ct_mat_hang,
             # Bài GẤP khi có ÍT NHẤT MỘT thành viên gấp — cả bài chạy chung một lượt, không tách được.
             "is_rush": any(bool(getattr(l, "is_rush", False)) for l in (lsx_map or {}).values()),
             # Ngữ cảnh biến của BÀI — cùng bộ 16 biến với lệnh và với phiếu tính giá, xem
@@ -1130,9 +1124,12 @@ class KeHoachVatTuService:
 
     def _quy_doi_dong(self, tho: list[dict]) -> None:
         for d in tho:
-            # `tong_lenh=True`: đây là đường NHU CẦU — hỏi "lệnh này cần bao nhiêu", đúng câu mà
-            # công thức lượng của mặt hàng trả lời. Hai đường "đã cấp"/"đang về" thì không.
-            kq = self._ve_goc(d["hang"], d["dvt"], d["sl"], d.get("qc"), tong_lenh=True)
+            # `tong_lenh` bật theo TỪNG DÒNG (08/09/2026), không bật cứng cho cả đường nhu cầu
+            # nữa: chỉ dòng giấy của BÀI GHÉP mang số TỜ và cần công thức lượng của mặt hàng mới
+            # ra kg. Dòng của BƯỚC — vật tư lẫn giấy — đã mang sẵn số theo đơn vị gốc, chạy công
+            # thức thêm lần nữa là vứt số thật đi. Hai đường "đã cấp"/"đang về" thì không bao giờ.
+            kq = self._ve_goc(d["hang"], d["dvt"], d["sl"], d.get("qc"),
+                              tong_lenh=bool(d.get("ct_mat_hang")))
             if "loi" in kq:
                 d["nhu_cau"] = 0.0
                 d["nhu_cau_hien_thi"] = f"{_so(d['sl'])} {d['dvt']}"

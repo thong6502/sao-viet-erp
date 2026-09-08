@@ -72,6 +72,11 @@ LOAI_BUOC = (LB_MAY, LB_TO, LB_THUE_NGOAI)
 # Bước chiếm tổ (nhiều người làm song song được → `so_nhan_cong` chia thời gian chạy).
 LOAI_BUOC_THEO_TO = (LB_TO,)
 
+# Nhãn TẠM của bước chưa đặt tên và chưa gắn công đoạn. Cột `lsx_cong_doan.ten` NOT NULL nên phải
+# có gì đó; chuỗi này là "chưa có tên", KHÔNG phải tên do người đặt. Bước đã gắn `cong_doan_id`
+# thì tên đúng là tên danh mục — thấy chuỗi này ở đó là dữ liệu cũ, `replace_routing` tự lấy lại.
+TEN_BUOC_TRONG = "Công đoạn"
+
 # --- Đơn vị năng suất: KHÔNG có hằng nào ở đây, và đừng khai lại.
 #
 # Máy lưu `may_thiet_bi.don_vi_toc_do` dạng `<mã đơn vị>_gio`, mã lấy thẳng từ danh mục Đơn vị &
@@ -103,8 +108,11 @@ class Lsx(Base):
         Integer, ForeignKey("order_lines.id"), index=True, nullable=False
     )
     # Phiên bản báo giá đã chốt (truy vết thương mại) + "chi tiết tính giá" nguồn. CẢ HAI là soft-ref
-    # và chỉ để TRUY VẾT: `phieu_thanh_phan_id` KHÔNG đọc-sống để tính lại (id đổi mỗi lần lưu PTG vì
-    # phiếu ghi kiểu replace-all) — mọi số của lệnh nằm ở snapshot dưới đây.
+    # và chỉ để TRUY VẾT: `phieu_thanh_phan_id` KHÔNG đọc-sống để TÍNH LẠI — mọi số của lệnh nằm ở
+    # snapshot dưới đây; pin chỉ dùng kéo chi tiết kỹ thuật khi mở drawer ấn phẩm.
+    # Id thành phần ỔN ĐỊNH từ 07/09/2026 (router phiếu tính giá ghi ĐÈ TẠI CHỖ thay vì xoá-tạo-lại,
+    # migration `0279` đã nối lại các pin chết trước đó), nhưng hàng nguồn VẪN có thể biến mất khi
+    # người lập phiếu bỏ hẳn sản phẩm ⇒ mọi chỗ đọc pin phải chịu được None.
     quote_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     phieu_thanh_phan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -231,8 +239,8 @@ class LsxCongDoan(Base):
     so_luong_ra: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     # KẾ THỪA từ `cong_doan.don_vi_vao/ra`, server ghi — client KHÔNG gửi, drawer không có ô chọn.
     # Đơn vị vào/ra là bản chất của công đoạn (bế luôn là tờ in → con), không đổi theo từng đơn.
-    # NULL = CHƯA KHAI đơn vị (dữ liệu cũ / bước kế hoạch tự thêm). Bước có nằm trên dòng giấy hay
-    # không nay hỏi cờ `don_vi_do.tram_dong_giay` — xem `services/dong_giay.py`.
+    # NULL = bước NGOÀI dòng giấy (ghi kẽm, đóng thùng): kế thừa từ công đoạn bỏ trống cả hai ô.
+    # Đó là câu trả lời chứ không phải "chưa khai" — xem `services/dong_giay.py`.
     # String(24) khớp `don_vi_do.ma` (VARCHAR(8) rồi (12) đều đã chật một lần).
     don_vi_vao: Mapped[str | None] = mapped_column(String(24), nullable=True)
     don_vi_ra: Mapped[str | None] = mapped_column(String(24), nullable=True)
@@ -271,16 +279,13 @@ class LsxCongDoan(Base):
     so_nhan_cong: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1", default=1
     )
-    # Snapshot định mức tại lúc bung/chọn đầu việc. Với bước Máy đây là kíp tiêu chuẩn và max=NULL;
-    # với bước Tổ, `toi_da` chặn phần năng suất tăng thêm nhưng không cấm kế hoạch bố trí dư người.
+    # Kíp CHUẨN chụp từ công đoạn lúc bung/chọn đầu việc — kế thừa là MẶC ĐỊNH, sửa được tại bước.
+    # Bước tổ chia thời lượng cho số này; bàn tổ đóng băng nó lúc phát hành để đối chiếu điểm danh.
+    # Hai mốc tối thiểu/tối đa ĐÃ GỠ 06/09/2026 (migration `0270`) cùng lúc với hai cột nguồn ở
+    # `cong_doan_dau_viec` — nhân lực nay chỉ còn MỘT con số xuyên suốt.
     so_nhan_cong_tieu_chuan: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1", default=1
     )
-    so_nhan_cong_toi_da: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Mốc thứ ba của định mức nhân lực. Cả ba mốc KẾ THỪA từ `cong_doan_dau_viec` nhưng SỬA ĐƯỢC
-    # tại bước (kế thừa = mặc định, không read-only). Chỉ `toi_da` vào công thức (trần thời gian);
-    # `toi_thieu` hiện là khai báo.
-    so_nhan_cong_toi_thieu: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # --- Phương thức thực hiện ---
     # ĐẦU VIỆC KHOÁN của bước (`piece_rates`) — kế hoạch chọn "hôm nay bước cán này làm CÁN MỜ hay
@@ -339,11 +344,27 @@ class LsxCongDoan(Base):
 
 class LsxCongDoanVatTu(Base):
     __tablename__ = "lsx_cong_doan_vat_tu"
-    __table_args__ = (UniqueConstraint("lsx_cong_doan_id", "vat_tu_id", name="uq_lsx_buoc_vat_tu"),)
+    __table_args__ = (
+        UniqueConstraint("lsx_cong_doan_id", "hang_loai", "vat_tu_id", name="uq_lsx_buoc_vat_tu"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     lsx_cong_doan_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("lsx_cong_doan.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # DANH MỤC nào chứa món này (mg `0280`, 08/09/2026): `"giay"` → `giay_nguyen`, `"vat_tu"` →
+    # `vat_tu_in_an`. Trước đó bảng chỉ trỏ được vật tư, còn giấy đi một đường riêng suy từ
+    # `quy_cach_json.giay_id` rồi tự treo lên "bước đầu tiên chạm tờ" — hệ đoán cả LOẠI lẫn BƯỚC,
+    # nên một lệnh chỉ ôm được đúng một loại giấy và người dùng không sửa được bước tiêu thụ.
+    #
+    # Cặp `(hang_loai, vat_tu_id)` là khuôn `stock_lots` / `vat_tu_giu_cho` / `stock_requests` /
+    # `san_xuat_vat_tu_de_nghi_dong` đã dùng sẵn, nên bảng cân đối và mọi tầng kho hạ nguồn nhận
+    # dòng giấy mà không phải rẽ nhánh.
+    #
+    # Cột id vẫn giữ tên `vat_tu_id` nhưng ĐỌC LÀ `hang_id`: đổi tên là một lượt sửa rộng qua 8 file
+    # + 5 file test mà không đổi hành vi nào.
+    hang_loai: Mapped[str] = mapped_column(
+        String(8), nullable=False, server_default="vat_tu", default="vat_tu", index=True
     )
     vat_tu_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     vat_tu_ma_snapshot: Mapped[str] = mapped_column(String(30), nullable=False)

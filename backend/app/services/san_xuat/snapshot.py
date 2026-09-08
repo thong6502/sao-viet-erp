@@ -34,8 +34,6 @@ def _dinh_muc(cd) -> dict:
     """Ảnh định mức nhân lực + thời gian của một bước (LSX hoặc bài ghép — cùng hình dạng)."""
     return {
         "so_nhan_cong_tieu_chuan": getattr(cd, "so_nhan_cong_tieu_chuan", None),
-        "so_nhan_cong_toi_da": getattr(cd, "so_nhan_cong_toi_da", None),
-        "so_nhan_cong_toi_thieu": getattr(cd, "so_nhan_cong_toi_thieu", None),
         "setup_phut": _num(getattr(cd, "setup_phut", None)),
         "nang_suat": _num(getattr(cd, "nang_suat", None)),
         "don_vi_nang_suat": getattr(cd, "don_vi_nang_suat", None),
@@ -421,7 +419,7 @@ def dung_diem_toa(
             cvs = cv_by_step.get(cd.step_key)
             if not cvs or cvs[0].bai_ghep_id is None:
                 continue
-            if not tren_dong_giay(cd.don_vi_vao, cd.don_vi_ra, tram, nhom=cd.nhom):
+            if not tren_dong_giay(cd.don_vi_vao, cd.don_vi_ra, tram):
                 continue
             diem_toa_idx = i
         if diem_toa_idx is None:

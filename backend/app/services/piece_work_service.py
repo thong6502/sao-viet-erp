@@ -59,14 +59,22 @@ def dau_viec_khop(rates, *, department_id: int | None) -> list:
     ]
 
 
-def khoan_snapshot(rate) -> dict:
+def khoan_snapshot(rate, dm=None) -> dict:
     """Ảnh chụp đầu việc để GHIM vào bước lệnh — xưởng lên giá khoán về sau không được xê dịch
     lệnh đã phát, nên bước giữ số của chính nó thay vì đọc-sống bảng giá.
 
-    `cong_thuc` (mg `0213`) ghim CÙNG LÚC với đơn giá, và vì đúng một lý do: nó quyết định LƯỢNG mà
-    đơn giá nhân vào, nên sửa nó ở danh mục cũng là đổi tiền. Ghim một nửa (giá đóng băng, cách đo
-    đọc sống) là kiểu sai khó thấy nhất — tiền của lệnh cũ tự đổi mà không dòng nhật ký nào giải
+    `dm` là dòng ĐỊNH MỨC của đầu việc ấy TRONG công đoạn của bước (`CongDoanDauViec`); từ
+    06/09/2026 công thức tính tiền công lấy ở đó (`cong_thuc_khoan`) chứ không còn ở bảng đơn giá
+    khoán, vì cùng một đầu việc làm ở hai công đoạn thì đếm sản lượng khác nhau.
+
+    `cong_thuc` ghim CÙNG LÚC với đơn giá, và vì đúng một lý do: nó quyết định LƯỢNG mà đơn giá
+    nhân vào, nên sửa nó ở danh mục cũng là đổi tiền. Ghim một nửa (giá đóng băng, cách đo đọc
+    sống) là kiểu sai khó thấy nhất — tiền của lệnh cũ tự đổi mà không dòng nhật ký nào giải
     thích. Bước cũ muốn ăn công thức mới thì chọn lại đầu việc.
+
+    Từ 07/09/2026 chụp THÊM `cong_thuc_gio` — cách đo GIỜ, tách khỏi cách đo tiền. Hai ô ghim cùng
+    lúc vì cùng một lý do: chúng quyết định LƯỢNG, mà lượng thì một bên nhân đơn giá ra tiền, một
+    bên chia năng suất ra phút.
 
     Khoá VẮNG khi công thức rỗng (không ghi `None`): `khoan_json` là ảnh chụp đọc bằng mắt trong
     nhật ký lệnh, thêm một khoá luôn null chỉ làm dài dòng.
@@ -77,8 +85,15 @@ def khoan_snapshot(rate) -> dict:
         "don_vi": getattr(rate, "don_vi", getattr(rate, "unit", "")),
         "don_gia": float(getattr(rate, "unit_price", getattr(rate, "don_gia", 0)) or 0),
     }
-    if (ct := (getattr(rate, "cong_thuc_luong", None) or "").strip()):
+    if (ct := (getattr(dm, "cong_thuc_khoan", None) or "").strip()):
         snap["cong_thuc"] = ct
+    if dm is not None:
+        # Khoá này CÓ MẶT kể cả khi rỗng — khác luật "vắng khi rỗng" của `cong_thuc` ngay trên, và
+        # cố ý: chính SỰ CÓ MẶT của nó là dấu "ảnh chụp biết đầu việc có ô đo giờ riêng". Ảnh chụp
+        # trước 07/09/2026 vắng khoá ⇒ `dich_gio_cua_khoan` lùi về `cong_thuc` như cũ, nên lệnh đã
+        # phát không xê dịch một phút nào. Không có dấu này thì ô giờ để trống CÓ CHỦ ĐÍCH lại bị
+        # hiểu nhầm là ảnh chụp cũ, và chip `so_luot_chay` của tiền công lại chảy vào giờ.
+        snap["cong_thuc_gio"] = (getattr(dm, "cong_thuc_gio", None) or "").strip()
     return snap
 
 

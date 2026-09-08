@@ -874,7 +874,6 @@ td.khsx-num > .khsx-unit {
   background: var(--rule-hair);
   border-color: var(--rule);
 }
-.khsx-warnlist { margin: 0; padding-left: var(--sp-4); }
 
 .khsx-prev { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 1000px; }
 .khsx-prev thead th {
@@ -1282,21 +1281,8 @@ td.khsx-num > .khsx-unit {
   border-color: #f6d8c3;
 }
 
-/* Thẻ đang hiện số của THÔNG SỐ ĐANG SỬA (chưa bấm Lưu) — cùng con số với khối "Máy tự tính" ở
-   dưới, nhưng phải nói ra là chưa ghi vào DB. Viền đứt: đủ để mắt bắt được, không hét lên như
-   màu cảnh báo — đây không phải lỗi, chỉ là trạng thái tạm. */
-.khsx-kpi-tile--tam {
-  border-style: dashed;
-  border-color: var(--rust, #e05638);
-  background: var(--rust-soft, #fdf6f0);
-}
-.khsx-kpi-tile--tam .khsx-kpi-tile__label::after {
-  content: " · chưa lưu";
-  font-weight: var(--fw-regular);
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--rust, #e05638);
-}
+/* GỠ 07/09/2026: `.khsx-kpi-tile--tam` (viền đứt + đuôi "· chưa lưu"). Thẻ KPI chỉ còn một
+   trạng thái — số ĐÃ LƯU — từ khi quy cách ở lệnh không sửa được nữa. */
 
 /* Nhãn thẻ KPI nay là TÊN ĐƠN VỊ do xưởng khai ("TỜ CHẠY MÁY", "SẢN PHẨM XONG / TỜ CHẠY MÁY"),
    không còn là hằng hai chữ. Cho xuống dòng thoải mái — thẻ `flex: 1 1 0` nên nó tự cao thêm,
@@ -1453,22 +1439,8 @@ td.khsx-num > .khsx-unit {
   color: var(--rust);
   font-size: 11.5px;
 }
-/* Số dẫn xuất: giá trị cũ gạch ngang, giá trị mới đứng sau + chip "tính lại". */
-.khsx-kv--deriv .khsx-kv__cu {
-  color: var(--ash-2);
-  margin-right: 6px;
-  font-weight: var(--fw-regular);
-}
-.khsx-kv__moi {
-  margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: var(--r-pill);
-  background: var(--rust-soft);
-  color: var(--rust);
-  font-family: var(--ff-sans);
-  font-size: 10px;
-  font-weight: var(--fw-medium);
-}
+/* GỠ 07/09/2026: `.khsx-kv--deriv .khsx-kv__cu` + `.khsx-kv__moi` (số cũ gạch ngang và chip
+   "tính lại"). Ô số dẫn xuất không còn cặp cũ/mới để so — chỉ còn một con số đã lưu. */
 .khsx-spec__card-body {
   padding: 16px;
 }
@@ -1890,6 +1862,8 @@ td.khsx-num > .khsx-unit {
   word-break: break-word;
   line-height: 1.4;
 }
+/* GỠ 07/09/2026: `.khsx-kv__hint` — dòng phụ giải thích vì sao danh sách giấy bị bó hẹp. Ô Giấy
+   ở lệnh đã bỏ hẳn nên không còn ô THÔNG SỐ nào cần nói thêm. */
 .khsx-kv__val.khsx-num { text-align: left; font-family: var(--ff-sans); }
 /* Đơn vị đứng sau con số trong ô THÔNG SỐ — phải có khoảng thở, không thì đọc ra "241TỜ CHẠY MÁY".
    Dùng margin chứ không dựa vào dấu cách trong JSX: JSX nuốt khoảng trắng giữa hai thẻ. */
@@ -2100,7 +2074,7 @@ td.khsx-num > .khsx-unit {
 .khsx-lb--cho { background: var(--amber-soft); color: var(--amber-deep); }
 .khsx-lb--xa { background: var(--plum-soft); color: var(--plum-deep); }
 .khsx-lb--ghep { background: var(--rule-hair); color: var(--ash); }
-.khsx-lb--opt { background: transparent; color: var(--ash); border: 1px dashed var(--rule); }
+/* `.khsx-lb--opt` (nhãn "tùy chọn") GỠ 07/09/2026 cùng ô "Bước bắt buộc": không còn bước tuỳ chọn. */
 
 /* Thời lượng ("1 giờ 13 phút") có CHỮ CÓ DẤU nên KHÔNG được dùng mono — JetBrains Mono không
    dựng cho dấu tiếng Việt, đọc rất khó. Giữ canh cột bằng `tabular-nums` trên chính font app. */
@@ -2240,6 +2214,64 @@ td.khsx-num > .khsx-unit {
 }
 .khsx-luuy__x:hover { opacity: 1; background: color-mix(in srgb, var(--amber-deep) 12%, transparent); }
 .khsx-luuy__x:focus-visible { outline: 2px solid var(--amber-deep); outline-offset: 1px; opacity: 1; }
+
+/* --- băng "danh mục đã đổi" (07/09/2026) ------------------------------------
+   Dùng lại nguyên khối `.khsx-luuy` (amber) — cùng loại tin: máy báo, người quyết. Chỉ thêm chỗ
+   cho nút bên phải tiêu đề và bảng cũ → mới trong dialog. */
+.khsx-dmdoi { margin-bottom: var(--sp-3); }
+.khsx-dmdoi__nut { margin-left: auto; display: inline-flex; align-items: center; gap: var(--sp-2); }
+.khsx-dmdoi__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--amber-deep);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  color: var(--amber-deep);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.khsx-dmdoi__btn:hover { background: color-mix(in srgb, var(--amber-deep) 10%, var(--canvas)); }
+.khsx-dmdoi__btn:focus-visible { outline: 2px solid var(--amber-deep); outline-offset: 1px; }
+.khsx-dmdoi__khoa {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  opacity: 0.85;
+}
+/* Bảng trong dialog: nhiều bước × nhiều ô nên cho cuộn dọc trong thân dialog thay vì đẩy dài cả
+   trang — nút Đồng ý phải luôn nhìn thấy được. */
+.khsx-dmdoi__bang { display: grid; gap: var(--sp-3); max-height: 56vh; overflow: auto; }
+.khsx-dmdoi__buoc h4 {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.khsx-dmdoi__note {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--amber-deep);
+}
+.khsx-dmdoi__tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
+.khsx-dmdoi__tbl th,
+.khsx-dmdoi__tbl td {
+  padding: 5px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: top;
+}
+.khsx-dmdoi__tbl th { font-weight: var(--fw-bold); color: var(--ash); white-space: nowrap; }
+.khsx-dmdoi__cu { color: var(--ash); text-decoration: line-through; }
+.khsx-dmdoi__moi { color: var(--ink); font-weight: var(--fw-bold); }
+.khsx-dmdoi__foot { margin: 0; font-size: var(--fs-xs); color: var(--ash); }
 
 /* --- drawer chi tiết 1 bước ------------------------------------------------ */
 .khsx-drawer--buoc {
@@ -3426,12 +3458,6 @@ td.khsx-num > .khsx-unit {
   display: block;
   color: var(--ash, var(--ash-2));
 }
-/* Số người bố trí rơi ra ngoài biên tối thiểu–tối đa của bước. */
-.khsx-labor-warn {
-  color: var(--danger, #b91c1c);
-  font-weight: 700;
-}
-
 /* Khoán Card */
 .khsx-khoan-body {
   display: flex;
@@ -3613,6 +3639,19 @@ td.khsx-num > .khsx-unit {
 .khsx-vattu-name {
   font-weight: 600;
   color: var(--ink, #0f172a);
+}
+/* Dòng lấy từ danh mục GIẤY (08/09/2026). Đứng cạnh tên chứ không thay tên: người đọc cần biết
+   ngay dòng nào là NVL chính, vì đó là món quyết định ngày cần hàng của cả lệnh. */
+.khsx-vattu-nvl-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: 5px;
+  white-space: nowrap;
+  color: #9a3412;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
 }
 .khsx-vattu-td--why {
   min-width: 220px;
@@ -4815,6 +4854,31 @@ td.khsx-num > .khsx-unit {
   line-height: 1.5;
 }
 .khsx-ghep-bang svg { flex: 0 0 auto; margin-top: 2px; color: #7c5cbf; }
+/* Cùng khuôn băng, đổi màu theo NGHĨA: khoá (hổ phách) là "sửa cũng không ăn thua, đây là đường
+   lùi"; lỗi (đỏ) là "số đang hiện không phải số vừa tính". Đừng dùng chung màu tím của bài ghép —
+   băng tím đọc như thông tin, hai cái này là chặn và cảnh báo. */
+.khsx-ghep-bang--khoa { border-color: #c2871a; background: #fdf6e7; }
+.khsx-ghep-bang--khoa svg { color: #c2871a; }
+.khsx-ghep-bang--loi { border-color: var(--danger, #c0392b); background: #fdeeec; }
+.khsx-ghep-bang--loi svg { color: var(--danger, #c0392b); }
+
+/* Chip THAY nút "Xoá lệnh" khi lệnh đang giữ chỗ vật tư. Cùng hệ hổ phách với băng khoá. Cố ý
+   KHÔNG phải <button disabled>: nút mờ chỉ có tooltip, người dùng bấm không ăn rồi tự đoán là
+   mình hết quyền — chip nói thẳng lý do ngay trên mặt, và nó nằm ở đầu màn nên tab nào cũng thấy. */
+.khsx-khoa-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px dashed #c2871a;
+  border-radius: 6px;
+  background: #fdf6e7;
+  color: #8a5d09;
+  font-size: var(--fs-xs, 12px);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.khsx-khoa-chip svg { flex: 0 0 auto; color: #c2871a; }
 
 /* ---------- Technical Note Callout Banner (Vị trí Đầu Tab Quy Cách) ---------- */
 .khsx-spec__note {
@@ -6920,11 +6984,6 @@ td.khsx-num > .khsx-unit {
   margin-left: 6px;
 }
 
-.khsx-vtke__vattu-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
 .khsx-vtke__empty-step {
   font-size: 12px;
   font-style: italic;
@@ -6945,126 +7004,117 @@ td.khsx-num > .khsx-unit {
   width: fit-content;
 }
 
-/* 3. Card Vật Tư Cao Cấp (khsx-vtcard) */
-.khsx-vtcard {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 10px 14px;
-  background: var(--canvas);
+/* 3. BẢNG VẬT TƯ (khsx-vtbang) — thay cho lối xếp card dọc trước đây.
+   Card đẹp từng cái nhưng 8 món xếp dọc thì mã, tên, số lượng, đơn vị của chúng không thẳng cột
+   nào với nhau: muốn so hai con số phải quét mắt zig-zag qua cả khối chữ. Bảng cho số lượng
+   thẳng một cột, nhóm và bước thành cột — mắt lọc được mà không phải đọc.
+   Chip Nhóm/Bước vẫn dùng lại `.khsx-vtcard__tag*` và `.khsx-vtcard__buoc` bên dưới, đừng đẻ bộ
+   thứ hai cùng màu. */
+.khsx-vtbang__wrap {
+  overflow-x: auto;
   border: 1px solid var(--rule-soft);
   border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-  transition: all 0.15s ease;
+  background: var(--canvas);
 }
-.khsx-vtcard:hover {
-  border-color: var(--rule);
+.khsx-vtbang {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.khsx-vtbang thead th {
+  padding: 6px 10px;
+  text-align: left;
+  font-family: var(--ff-sans);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-soft);
+  white-space: nowrap;
+}
+.khsx-vtbang tbody td {
+  padding: 7px 10px;
+  border-top: 1px solid var(--rule-hair);
+  vertical-align: middle;
+}
+.khsx-vtbang tbody tr:first-child td {
+  border-top: 0;
+}
+.khsx-vtbang tbody tr:hover td {
   background: var(--paper);
 }
-.khsx-vtcard--nvl {
-  border-left: 3.5px solid var(--rust);
-  background: var(--paper);
+/* Dải màu nhóm ở mép trái hàng — thay cho viền trái của card cũ, giữ nguyên bộ màu. */
+.khsx-vtbang__r--nvl > td:first-child {
+  box-shadow: inset 3px 0 0 var(--rust);
 }
-.khsx-vtcard--dung_cu {
-  border-left: 3.5px solid var(--plum);
-  border-style: solid;
+.khsx-vtbang__r--dung_cu > td:first-child {
+  box-shadow: inset 3px 0 0 var(--plum);
 }
-.khsx-vtcard--vat_tu {
-  border-left: 3.5px solid var(--steel);
+.khsx-vtbang__r--vat_tu > td:first-child {
+  box-shadow: inset 3px 0 0 var(--steel);
 }
-
-.khsx-vtcard__main {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-.khsx-vtcard__ico {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  background: var(--paper);
-  color: var(--ash);
-  flex: 0 0 auto;
-}
-.khsx-vtcard--nvl .khsx-vtcard__ico {
-  color: var(--rust-deep);
+/* NVL chính là dòng giấy — món xương sống của lệnh, nền nhạt để nó nổi trong danh sách phụ liệu. */
+.khsx-vtbang__r--nvl > td {
   background: var(--rust-soft);
 }
-.khsx-vtcard--dung_cu .khsx-vtcard__ico {
-  color: var(--plum-deep);
-  background: var(--plum-soft);
+.khsx-vtbang__r--nvl:hover > td {
+  background: var(--rust-soft);
 }
-.khsx-vtcard--vat_tu .khsx-vtcard__ico {
-  color: var(--steel);
-  background: var(--steel-soft);
+td.khsx-vtbang__ma,
+th.khsx-vtbang__ma {
+  width: 1%;
+  white-space: nowrap;
 }
-
-.khsx-vtcard__content {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.khsx-vtcard__title-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.khsx-vtcard__ma {
+td.khsx-vtbang__ma {
   font-family: var(--ff-num, monospace) !important;
   font-size: 11px;
   font-weight: 700;
   color: var(--ash);
-  background: var(--paper);
-  padding: 1px 5px;
-  border-radius: 3px;
 }
-.khsx-vtcard__ten {
-  font-size: 13px;
+.khsx-vtbang__ten-txt {
   font-weight: 600;
   color: var(--ink);
 }
-.khsx-vtcard__sub {
-  font-size: 11.5px;
+.khsx-vtbang__sub {
+  display: block;
+  font-size: 11px;
   color: var(--ash);
 }
-
-.khsx-vtcard__meta {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex: 0 0 auto;
-}
-.khsx-vtcard__qty {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
+td.khsx-vtbang__sl,
+th.khsx-vtbang__sl {
+  width: 1%;
   text-align: right;
+  white-space: nowrap;
 }
-.khsx-vtcard__qty b {
+td.khsx-vtbang__sl {
   font-family: var(--ff-num, monospace) !important;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-.khsx-vtcard__qty small {
-  font-family: var(--ff-sans);
-  font-size: 11.5px;
+td.khsx-vtbang__dv,
+th.khsx-vtbang__dv {
+  width: 1%;
+  white-space: nowrap;
   color: var(--ash);
 }
-.khsx-vtcard__tags {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+td.khsx-vtbang__nhom,
+th.khsx-vtbang__nhom,
+td.khsx-vtbang__buoc,
+th.khsx-vtbang__buoc {
+  width: 1%;
+  white-space: nowrap;
 }
+.khsx-vtbang__nhom .khsx-vtcard__tag,
+.khsx-vtbang__buoc .khsx-vtcard__buoc {
+  display: inline-block;
+}
+
+/* 3b. Chip nhóm & chip bước — phần DUY NHẤT còn sống của bộ card cũ. Bảng ở trên dùng lại
+   nguyên bộ màu này; giữ tiền tố `vtcard` để khỏi phải sửa ba chỗ chỉ vì đổi tên lớp. */
 .khsx-vtcard__tag {
   font-size: 10.5px;
   font-weight: 600;
@@ -7835,13 +7885,6 @@ td.khsx-num > .khsx-unit {
   font-weight: 600 !important;
   text-align: center !important;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
-}
-
-/* Dòng "Kế hoạch N người" trên bảng routing khi số bố trí rơi ra ngoài định biên của bước — cùng
-   sắc đỏ với `.khsx-labor-warn` trong drawer để hai chỗ nói cùng một tiếng. */
-.khsx-rt__sub2--canhbao {
-  color: var(--signal-deep);
-  font-weight: 600;
 }
 
 /* ── "ĐỦ HÀNG" LÀ CHUYỆN BÌNH THƯỜNG — ĐỪNG TÔ MÀU ────────────────────────────

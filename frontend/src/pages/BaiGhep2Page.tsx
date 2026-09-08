@@ -28,6 +28,7 @@ import { keVatTuBaiGhep } from "./baiGhep2VatTu";
 import { LsxVatTuPanel } from "./LsxVatTuPanel";
 import {
   BangLoi,
+  CACH_IN_NHAN,
   ChipGap,
   EmptyState,
   Skeleton,
@@ -580,11 +581,6 @@ const toForm = (d: BaiGhep2Detail): MetaForm => ({
   // để hai con số lệch nhau. Cột vẫn còn ở DB (bài cũ lỡ khai tay vẫn được tôn trọng) và PUT dùng
   // `exclude_unset` nên vắng mặt ở đây = giữ nguyên, không phải xoá về null.
 });
-
-/** Nhãn cách in — cùng bộ chữ với màn Lệnh sản xuất, đừng đẻ bộ thứ hai. */
-const CACH_IN_NHAN: Record<string, string> = {
-  mot_mat: "1 mặt", hai_mat: "2 mặt (AB)", tu_tro: "Tự trở", tro_nhip: "Trở nhíp",
-};
 
 function BaiGhep2Detail({ id, eventTick, onBack, onChanged, navigate }: {
   id: number;

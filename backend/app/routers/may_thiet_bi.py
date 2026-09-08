@@ -96,7 +96,7 @@ make_catalog_router(
     # số duy nhất ⇒ không có "mã kế tiếp" nào đúng. (Bảng đoán tiền tố ở frontend ghi `TB-` —
     # không khớp bất kỳ máy nào đang có trong DB.)
     enable_clone=True,
-    cong_thuc_truong="cong_thuc_luong",
+    # `cong_thuc_truong` bỏ: màn Máy hết ô công thức (mg `0274`).
     excel_spec=MAY_THIET_BI,
 )
 

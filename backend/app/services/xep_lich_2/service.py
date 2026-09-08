@@ -933,15 +933,14 @@ class XepLich2Service:
 
     @staticmethod
     def _dinh_bien(op) -> dict:
-        """Ba mốc định biên tham khảo của bước (kế thừa từ danh mục, sửa được tại bước). None nếu
-        bước routing đã bị xoá — Panel hiện '—' thay vì đoán bừa."""
+        """Kíp chuẩn tham khảo của bước (kế thừa từ danh mục, sửa được tại bước). None nếu bước
+        routing đã bị xoá — Panel hiện '—' thay vì đoán bừa.
+
+        Hai mốc tối thiểu/tối đa đã gỡ (migration `0270`): cả hệ nay chỉ còn MỘT con số định mức
+        nhân lực, khai ở đầu việc của công đoạn."""
         if op is None:
-            return {"toi_thieu": None, "tieu_chuan": None, "toi_da": None}
-        return {
-            "toi_thieu": getattr(op, "so_nhan_cong_toi_thieu", None),
-            "tieu_chuan": getattr(op, "so_nhan_cong_tieu_chuan", None),
-            "toi_da": getattr(op, "so_nhan_cong_toi_da", None),
-        }
+            return {"tieu_chuan": None}
+        return {"tieu_chuan": getattr(op, "so_nhan_cong_tieu_chuan", None)}
 
     def _quan_so_buoc(self, r: XepLichCongDoan, department_id, start, finish) -> dict | None:
         """Quân số tổ NGÀY bước chạy + phần CÒN RẢNH tại đỉnh chồng giờ (gồm chính bước này).

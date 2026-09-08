@@ -11,13 +11,7 @@ import { Icon } from "../components/Icons";
 import { num } from "./keHoachSxShared";
 import { nhanDonVi } from "./lsxBuoc";
 import { useNapTenDonVi } from "./tenDonVi";
-import type { BangKeVatTu, DongKe, NhomVatTu } from "./lsxVatTu";
-
-const ICON: Record<NhomVatTu, "layers" | "box" | "scissors"> = {
-  nvl: "layers",
-  vat_tu: "box",
-  dung_cu: "scissors",
-};
+import type { BangKeVatTu, DongKe, TongKe } from "./lsxVatTu";
 
 /** Nhãn tình trạng khuôn — cùng bộ mã với danh mục Khuôn. Mã lạ thì hiện mã trần, không nuốt. */
 const TINH_TRANG: Record<string, string> = {
@@ -27,7 +21,10 @@ const TINH_TRANG: Record<string, string> = {
   thanh_ly: "đã thanh lý",
 };
 
-function DongMon({ d, buocs }: { d: DongKe; buocs?: number[] }) {
+/** Một hàng vật tư. Trước đây mỗi món là một CARD xếp dọc: cùng một thông tin mà mã, tên, số
+ *  lượng, đơn vị của các món không thẳng cột nào với nhau, đọc 8 món phải quét mắt zig-zag. Bảng
+ *  cho số lượng thẳng cột và nhóm/bước thành cột lọc được bằng mắt. */
+function HangMon({ d, buocs, coBuoc }: { d: DongKe; buocs?: number[]; coBuoc: boolean }) {
   const chu =
     d.nhom === "dung_cu" && d.chu_thich
       ? (TINH_TRANG[d.chu_thich] ?? d.chu_thich)
@@ -37,36 +34,57 @@ function DongMon({ d, buocs }: { d: DongKe; buocs?: number[] }) {
     d.nhom === "nvl" ? "NVL chính" : d.nhom === "dung_cu" ? "Dụng cụ / Khuôn" : "Phụ liệu";
 
   return (
-    <div className={`khsx-vtcard khsx-vtcard--${d.nhom}`}>
-      <div className="khsx-vtcard__main">
-        <span className="khsx-vtcard__ico" aria-hidden="true">
-          <Icon name={ICON[d.nhom]} size={14} />
-        </span>
-        <div className="khsx-vtcard__content">
-          <div className="khsx-vtcard__title-row">
-            {d.ma && <span className="khsx-vtcard__ma">{d.ma}</span>}
-            <span className="khsx-vtcard__ten">{d.ten}</span>
-          </div>
-          {chu && <div className="khsx-vtcard__sub">{chu}</div>}
-        </div>
-      </div>
-
-      <div className="khsx-vtcard__meta">
-        <div className="khsx-vtcard__qty">
-          <b>{d.so_luong != null ? num(d.so_luong) : "—"}</b>
-          {d.don_vi && <small>{nhanDonVi(d.don_vi)}</small>}
-        </div>
-        <div className="khsx-vtcard__tags">
-          <span className={`khsx-vtcard__tag khsx-vtcard__tag--${d.nhom}`}>
-            {nhomLabel}
-          </span>
+    <tr className={`khsx-vtbang__r khsx-vtbang__r--${d.nhom}`}>
+      <td className="khsx-vtbang__ma">{d.ma || ""}</td>
+      <td className="khsx-vtbang__ten">
+        <span className="khsx-vtbang__ten-txt">{d.ten}</span>
+        {chu && <span className="khsx-vtbang__sub">{chu}</span>}
+      </td>
+      <td className="khsx-vtbang__sl">{d.so_luong != null ? num(d.so_luong) : "—"}</td>
+      <td className="khsx-vtbang__dv">{d.don_vi ? nhanDonVi(d.don_vi) : ""}</td>
+      <td className="khsx-vtbang__nhom">
+        <span className={`khsx-vtcard__tag khsx-vtcard__tag--${d.nhom}`}>{nhomLabel}</span>
+      </td>
+      {coBuoc && (
+        <td className="khsx-vtbang__buoc">
           {buocs && buocs.length > 0 && (
             <span className={`khsx-vtcard__buoc${buocs.length > 1 ? " is-nhieu" : ""}`}>
-              {buocs.map((b) => `Bước #${b}`).join(" · ")}
+              {buocs.map((b) => `#${b}`).join(" · ")}
             </span>
           )}
-        </div>
-      </div>
+        </td>
+      )}
+    </tr>
+  );
+}
+
+/** Bảng vật tư dùng chung cho hai chỗ: trong từng bước (không có cột Bước — đã biết bước nào rồi)
+ *  và ở khối BOM tổng gom (có cột Bước, vì một món đi vào nhiều bước). */
+function BangMon({ dong, coBuoc = false }: { dong: (DongKe | TongKe)[]; coBuoc?: boolean }) {
+  return (
+    <div className="khsx-vtbang__wrap">
+      <table className="khsx-vtbang">
+        <thead>
+          <tr>
+            <th className="khsx-vtbang__ma">Mã</th>
+            <th className="khsx-vtbang__ten">Vật tư</th>
+            <th className="khsx-vtbang__sl">Số lượng</th>
+            <th className="khsx-vtbang__dv">ĐVT</th>
+            <th className="khsx-vtbang__nhom">Nhóm</th>
+            {coBuoc && <th className="khsx-vtbang__buoc">Bước</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {dong.map((d) => (
+            <HangMon
+              d={d}
+              buocs={"buocs" in d ? d.buocs : undefined}
+              coBuoc={coBuoc}
+              key={`${d.khoa}|${d.don_vi ?? ""}`}
+            />
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -170,11 +188,7 @@ export function LsxVatTuPanel({ ke }: { ke: BangKeVatTu }) {
                 </div>
 
                 {hasVatTu ? (
-                  <div className="khsx-vtke__vattu-list">
-                    {b.dong.map((m) => (
-                      <DongMon d={m} key={`${b.id}-${m.khoa}`} />
-                    ))}
-                  </div>
+                  <BangMon dong={b.dong} />
                 ) : (
                   <div className="khsx-vtke__empty-step">
                     <span>— Không tiêu hao vật tư ở bước này</span>
@@ -206,11 +220,7 @@ export function LsxVatTuPanel({ ke }: { ke: BangKeVatTu }) {
         {ke.tong.length === 0 ? (
           <p className="khsx-muted">Chưa có món nào để gom.</p>
         ) : (
-          <div className="khsx-vtke__vattu-list">
-            {ke.tong.map((t) => (
-              <DongMon d={t} buocs={t.buocs} key={`${t.khoa}|${t.don_vi ?? ""}`} />
-            ))}
-          </div>
+          <BangMon dong={ke.tong} coBuoc />
         )}
 
         <div className="khsx-vtke__bom-foot">

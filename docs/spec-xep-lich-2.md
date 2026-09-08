@@ -74,8 +74,8 @@ hôm sau, vẫn chiếm máy suốt khoảng đó.
 
 - Mỗi công đoạn chiếm **đúng `so_nhan_cong`** đã lưu ở LSX/bài ghép. Màn 2 không sửa số người và
   không chọn nhân viên cụ thể.
-- Hiện kèm tham khảo: kế hoạch · tối thiểu · tiêu chuẩn · tối đa. **Không** phán xét cao/thấp so
-  với định biên.
+- Hiện kèm tham khảo: số bố trí (kế hoạch) · kíp chuẩn. **Không** phán xét cao/thấp so
+  với kíp chuẩn. (Hai mốc tối thiểu/tối đa đã gỡ 06/09/2026 — migration `0270`.)
 - Quân số tổ khả dụng theo ngày: dòng gõ đè của `to_quan_so_ngay` nếu có (hiện kèm lý do), không
   thì số tự tính (nhân viên đang làm thuộc đúng tổ lá − nghỉ phép đã duyệt). **Ngày lễ không tự
   trừ quân số.**
@@ -206,7 +206,7 @@ NCC · chưa xếp · có vấn đề · lệnh gấp. **Không** dựng lại b
   Preview vẽ vị trí giả + nêu giờ kết thúc · công đoạn bị ảnh hưởng · hạn mới · vấn đề mới.
   **Preview không ghi dữ liệu**; chỉ xác nhận mới lưu.
 - **Panel (phải)** — LSX/bài + vị trí trong DAG · hai hạn + đệm · ba mức thời lượng kèm nguồn tính
-  · máy/tổ/NCC + ca + tải · số người kế hoạch và định biên tham khảo · quân số tổ và phần còn rảnh
+  · máy/tổ/NCC + ca + tải · số người kế hoạch và kíp chuẩn tham khảo · quân số tổ và phần còn rảnh
   · vật tư đã giữ / đang về / còn thiếu + ngày sớm nhất · danh sách chặn-cảnh báo kèm liên kết xử lý.
 - **Dải chân** — tổng số chặn đặt lịch · chặn phát hành · cảnh báo; bấm số làm nổi đúng thanh/LSX.
   Phát hành độc lập theo từng LSX hoặc bài ghép. Lịch đã phát hành bị khoá; sửa thì phải **thu hồi

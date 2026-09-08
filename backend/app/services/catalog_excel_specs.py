@@ -24,6 +24,7 @@ from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan, NHOM
 from ..models.customer import Customer
 from ..models.department import Department
+from ..models.may_thiet_bi import MayThietBi
 from ..models.piece_work import PieceRate
 from ..models.vat_lieu_kho import ChungLoaiGiay, VatTuInAn
 from ..repositories.bu_hao_repo import BuHaoRepository
@@ -115,6 +116,7 @@ TRA_KHACH = _Tra(Customer, "code", "khách hàng", cot_ten="name", man="Khách h
 TRA_BU_HAO = _Tra(BuHao, "ma", "mã bù hao", cot_ten="ten", man="Bù hao")
 TRA_CONG_DOAN = _Tra(CongDoan, "ma", "mã công đoạn", cot_ten="ten", man="Công đoạn")
 TRA_DAU_VIEC = _Tra(PieceRate, "ma", "mã công việc khoán", cot_ten="ten", man="Công việc khoán")
+TRA_MAY = _Tra(MayThietBi, "ma", "mã máy", cot_ten="ten", man="Thiết bị & Máy móc")
 TRA_VAT_TU = _Tra(VatTuInAn, "ma", "mã vật tư", cot_ten="ten", man="Vật tư khác")
 TRA_CHUNG_LOAI = _Tra(ChungLoaiGiay, "ma", "chủng loại giấy", cot_ten="ten",
                       man="Chủng loại giấy")
@@ -265,7 +267,6 @@ CONG_VIEC_KHOAN = CatalogExcelSpec(
         *_cot_to(nhan_cu=("Tổ",)),
         Cot("Đơn vị", "unit", rong=14),
         Cot("Đơn giá", "unit_price", kieu="so", rong=16),
-        Cot("Công thức lượng", "cong_thuc_luong", rong=36),
         Cot("Ghi chú", "note", rong=32),
         CO_ACTIVE,
     ),
@@ -327,7 +328,6 @@ DON_VI_DO = CatalogExcelSpec(
         Cot("Loại đo", "ho", rong=16),
         Cot("Hiệu lực từ", "hieu_luc_tu", kieu="ngay", rong=16),
         Cot("Dùng làm đơn vị tốc độ", "dung_lam_toc_do", kieu="bool", rong=22),
-        Cot("Trạm dòng giấy", "tram_dong_giay", rong=18),
         Cot("Ghi chú", "ghi_chu", rong=32),
         CO_ACTIVE,
     ),
@@ -402,7 +402,7 @@ GIAY = CatalogExcelSpec(
         Cot("Dùng tính giá", "kho_tinh_gia", kieu="bool", rong=14),
         Cot("Ghi chú", "ghi_chu", rong=32),
         Cot("Công thức giá", "cong_thuc_gia", rong=36),
-        Cot("Công thức lượng", "cong_thuc_luong", rong=36),
+        Cot("Công thức tính định mức", "cong_thuc_luong", rong=36),
         CO_ACTIVE,
         # Cột đời cũ: một ô "MÃ1, MÃ2". Nay là sheet con — sheet con áp SAU nên nó thắng nếu file
         # có cả hai.
@@ -421,7 +421,6 @@ VAT_TU = CatalogExcelSpec(
         Cot("Đơn giá", "don_gia", kieu="so", rong=16),
         Cot("Ghi chú", "ghi_chu", rong=32),
         Cot("Công thức giá", "cong_thuc_gia", rong=36),
-        Cot("Công thức lượng", "cong_thuc_luong", rong=36),
         CO_ACTIVE,
         Cot("NVL thay thế", "thay_the_ids", chi_nhap=True,
             doc=lambda gt, ctx: [_doc_thay_the(m, ctx) for m in _tach_danh_sach(gt, ctx)]),
@@ -484,31 +483,41 @@ def _doc_dau_viec_hien_co(obj, ctx: NguCanh) -> list[dict]:
             "nang_suat_nguoi_gio_max": (None if dv.nang_suat_nguoi_gio_max is None
                                         else float(dv.nang_suat_nguoi_gio_max)),
             "don_vi_nang_suat": dv.don_vi_nang_suat,
-            "so_nguoi_toi_thieu": dv.so_nguoi_toi_thieu,
             "so_nguoi_tieu_chuan": dv.so_nguoi_tieu_chuan,
-            "so_nguoi_toi_da": dv.so_nguoi_toi_da,
+            "cong_thuc_khoan": dv.cong_thuc_khoan,
+            "cong_thuc_gio": dv.cong_thuc_gio,
         }
         for dv in (getattr(obj, "dau_viec_dinh_muc", None) or [])
     ]
 
 
 def _giu_dau_viec(obj, ctx: NguCanh) -> list[dict]:
-    """Định mức đầu việc ĐANG CÓ, đủ cả `vat_tu_ids` — gán lại khi file KHÔNG có sheet đó.
+    """Định mức đầu việc ĐANG CÓ, đủ cả `vat_tus` — gán lại khi file KHÔNG có sheet đó.
 
     `CongDoanRepository._sau_gan` thay TRỌN bảng con mỗi lần ghi, kể cả khi khoá vắng mặt trong
     `data`; không gán lại là nhập một file thiếu sheet cũng xoá sạch định mức của mọi công đoạn.
     """
     ra = _doc_dau_viec_hien_co(obj, ctx)
     for dong, dv in zip(ra, getattr(obj, "dau_viec_dinh_muc", None) or [], strict=False):
-        dong["vat_tu_ids"] = list(dv.vat_tu_ids)
+        dong["vat_tus"] = [{"vat_tu_id": v.vat_tu_id, "cong_thuc_luong": v.cong_thuc_luong}
+                           for v in dv.vat_tus]
     return ra
+
+
+def _giu_may_cong_doan(obj, _ctx: NguCanh) -> list[dict]:
+    """Máy của công đoạn ĐANG CÓ — cùng lý do với `_giu_dau_viec`: `_sau_gan` cũng thay TRỌN bảng
+    `cong_doan_may`, sheet vắng mà không gán lại là xoá sạch công thức giờ/giá của mọi máy."""
+    return [{"may_id": m.may_id, "cong_thuc_gio": m.cong_thuc_gio,
+             "cong_thuc_gia": m.cong_thuc_gia}
+            for m in (getattr(obj, "may_lam_duoc", None) or [])]
 
 
 def _doc_vat_tu_dau_viec(obj, ctx: NguCanh) -> list[dict]:
     return [
-        {"piece_rate_id": dv.piece_rate_id, "vat_tu_id": vt}
+        {"piece_rate_id": dv.piece_rate_id, "vat_tu_id": vt.vat_tu_id,
+         "cong_thuc_luong": vt.cong_thuc_luong}
         for dv in (getattr(obj, "dau_viec_dinh_muc", None) or [])
-        for vt in dv.vat_tu_ids
+        for vt in dv.vat_tus
     ]
 
 
@@ -517,12 +526,15 @@ def _gop_vat_tu_dau_viec(du_lieu: dict, rieng: dict, _ctx: NguCanh) -> None:
     dong = rieng.get("Vật tư đầu việc")
     if dong is None:
         return
-    theo_dv: dict[Any, list[int]] = {}
+    theo_dv: dict[Any, list[dict]] = {}
     for r in dong:
         if r.get("vat_tu_id"):
-            theo_dv.setdefault(r.get("piece_rate_id"), []).append(int(r["vat_tu_id"]))
+            theo_dv.setdefault(r.get("piece_rate_id"), []).append({
+                "vat_tu_id": int(r["vat_tu_id"]),
+                "cong_thuc_luong": (r.get("cong_thuc_luong") or "").strip() or None,
+            })
     for dv in du_lieu.get("dau_viec_dinh_muc") or []:
-        dv["vat_tu_ids"] = theo_dv.get(dv.get("piece_rate_id"), [])
+        dv["vat_tus"] = theo_dv.get(dv.get("piece_rate_id"), [])
 
 
 def _cong_doan_truoc_khi_ghi(du_lieu: dict, _ctx: NguCanh, cu) -> dict:
@@ -600,9 +612,9 @@ CONG_DOAN = CatalogExcelSpec(
                 Cot("Năng suất tối thiểu", "nang_suat_nguoi_gio_min", kieu="so", rong=20),
                 Cot("Năng suất tối đa", "nang_suat_nguoi_gio_max", kieu="so", rong=20),
                 Cot("Đơn vị năng suất", "don_vi_nang_suat", rong=18),
-                Cot("Số người tối thiểu", "so_nguoi_toi_thieu", kieu="nguyen", rong=18),
                 Cot("Số người tiêu chuẩn", "so_nguoi_tieu_chuan", kieu="nguyen", rong=18),
-                Cot("Số người tối đa", "so_nguoi_toi_da", kieu="nguyen", rong=18),
+                Cot("Công thức tính tiền công", "cong_thuc_khoan", rong=36),
+                Cot("Cách đo giờ chạy", "cong_thuc_gio", rong=36),
             ),
             doc_hien_co=_doc_dau_viec_hien_co, giu_khi_vang=_giu_dau_viec,
         ),
@@ -610,8 +622,18 @@ CONG_DOAN = CatalogExcelSpec(
             "Vật tư đầu việc", rieng=True,
             khoa_phu=(Cot("Mã công việc khoán", "piece_rate_id",
                           doc=TRA_DAU_VIEC.doc, ghi=TRA_DAU_VIEC.ghi, rong=22),),
-            cot=(Cot("Mã vật tư", "vat_tu_id", doc=TRA_VAT_TU.doc, ghi=TRA_VAT_TU.ghi),),
+            cot=(Cot("Mã vật tư", "vat_tu_id", doc=TRA_VAT_TU.doc, ghi=TRA_VAT_TU.ghi),
+                 Cot("Công thức định mức", "cong_thuc_luong", rong=36)),
             doc_hien_co=_doc_vat_tu_dau_viec,
+        ),
+        SheetCon(
+            "Máy của công đoạn", field="may_lam_duoc",
+            cot=(
+                Cot("Mã máy", "may_id", doc=TRA_MAY.doc, ghi=TRA_MAY.ghi, rong=22),
+                Cot("Công thức giờ chạy", "cong_thuc_gio", rong=36),
+                Cot("Công thức giá", "cong_thuc_gia", rong=36),
+            ),
+            giu_khi_vang=_giu_may_cong_doan,
         ),
     ),
     gop_con=_gop_vat_tu_dau_viec,
@@ -734,9 +756,7 @@ MAY_THIET_BI = CatalogExcelSpec(
         Cot("Tốc độ tối thiểu", "toc_do_min", kieu="so", rong=18),
         Cot("Tốc độ tối đa", "toc_do_max", kieu="so", rong=18),
         Cot("Đơn vị tốc độ", "don_vi_toc_do", rong=16),
-        Cot("Công thức lượng", "cong_thuc_luong", rong=36),
         Cot("Thời gian canh máy mặc định", "makeready_time_default", kieu="so", rong=26),
-        Cot("Số nhân công", "so_nhan_cong", kieu="so", rong=16),
         Cot("Khổ tối đa - dài (mm)", "kho_max_dai", kieu="nguyen", rong=20),
         Cot("Khổ tối đa - rộng (mm)", "kho_max_rong", kieu="nguyen", rong=20),
         Cot("Khổ tối thiểu - dài (mm)", "kho_min_dai", kieu="nguyen", rong=22),

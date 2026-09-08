@@ -26,7 +26,7 @@ import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombobox";
 import { PrintSheet } from "../components/PrintSheet";
 import { fmtDate, fmtDateISO } from "../utils/format";
-import { DateFilterHead, DecimalInput, LoaiYeuCauChip, RequestStatusBadge, VoucherStatusBadge, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, isOverdue, todayISO, useHeaderTitles } from "./khoShared";
+import { AN_IN_YEU_CAU, DateFilterHead, DecimalInput, LoaiYeuCauChip, RequestStatusBadge, VoucherStatusBadge, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, isOverdue, todayISO, useHeaderTitles } from "./khoShared";
 import { tenDonVi, useNapTenDonVi } from "./tenDonVi";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
@@ -1540,7 +1540,7 @@ function RequestFooter(props: {
 
   return (
     <>
-      {!isNew && (
+      {!AN_IN_YEU_CAU && !isNew && (
         <button type="button" className="btn btn--ghost" onClick={props.onPrint}>
           In yêu cầu
         </button>

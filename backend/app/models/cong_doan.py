@@ -65,14 +65,15 @@ class CongDoan(Base):
     kieu_bu_hao: Mapped[str] = mapped_column(String(16), nullable=False, server_default="khong", default="khong")
     bu_hao_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → bu_hao.id (soft) khi kieu=tra_bang
     so_to_bu_hao: Mapped[int] = mapped_column(Integer, nullable=False, server_default="50", default=50)  # +tờ hao khi kieu_bu_hao=co_dinh
-    # Đơn vị VÀO / RA của công đoạn — KHAI, không đoán theo tên. MÃ trong danh mục `don_vi_do`
-    # (soft-ref như mọi chỗ khác dùng đơn vị), không còn bó trong 5 mã dòng giấy:
+    # Đơn vị VÀO / RA của công đoạn — KHAI, không đoán theo tên. Từ 06/09/2026 đây là MENU ĐÓNG
+    # đúng 5 CHẶNG của dòng giấy (`don_vi_do.TRAM_DONG_GIAY`), KHÔNG còn trỏ vào danh mục đơn vị:
     #   - bước trên dòng giấy khai `to_nguyen → to`, `to → con`, `to → cai`… (chảy một chiều)
-    #   - bước KHÔNG chạm giấy khai đơn vị THẬT của nó: ghi kẽm `bai → kem`, trộn keo `cai → me`
-    # Cờ `don_vi_do.tram_dong_giay` mới là thứ nói bước có nằm trên dòng giấy hay không.
+    #   - bước KHÔNG chạm giấy (ghi kẽm, đóng thùng) BỎ TRỐNG cả hai — SL của nó tự tính bằng
+    #     `cong_thuc_san_luong` của chính công đoạn, không dính chuỗi bù hao của giấy.
     #
-    # NULL = CHƯA KHAI (dữ liệu cũ, hoặc bước kế hoạch tự thêm) → engine lùi về luật theo `nhom`.
-    # Đây là trạng thái tạm, không phải cách khai bước ngoài dòng giấy nữa.
+    # NULL vì thế là một CÂU TRẢ LỜI ("ngoài dòng giấy"), không phải "chưa khai". Trước đó bước
+    # ngoài dòng khai đơn vị thật (`bai → kem`) và câu hỏi trên-dòng-hay-không đi vòng qua cờ
+    # `don_vi_do.tram_dong_giay` — cờ ấy đã gỡ, xem `services/dong_giay.py`.
     #
     # Hệ số quy đổi KHÔNG lưu ở đây: phiếu tính giá đã có `con` (bình bài) và `so_manh_xa` (khổ
     # giấy) — khai lại là đẻ nguồn sự thật thứ hai.
@@ -165,6 +166,13 @@ class CongDoan(Base):
         "CongDoanDauViec", back_populates="cong_doan", order_by="CongDoanDauViec.id",
         cascade="all, delete-orphan",
     )
+    # MÁY chạy được công đoạn này, mỗi dòng mang cách đo GIỜ và cách tính GIÁ của riêng cặp
+    # (công đoạn, máy) — xem `CongDoanMay`. Hàng `nhom_may_cho_phep` ở trên nay chỉ còn là BỘ LỌC
+    # để chọn máy cho danh sách này.
+    may_lam_duoc: Mapped[list["CongDoanMay"]] = relationship(
+        "CongDoanMay", back_populates="cong_doan", order_by="CongDoanMay.thu_tu",
+        cascade="all, delete-orphan",
+    )
 
 
 class CongDoanDauViec(Base):
@@ -187,18 +195,46 @@ class CongDoanDauViec(Base):
     # khai dải thì ba mức bằng nhau và râu Gantt co về một điểm — KHÔNG bịa min=max=TB.
     nang_suat_nguoi_gio_min: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     nang_suat_nguoi_gio_max: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
-    # Đơn vị năng suất do người khai CHỌN (mã `<đơn vị>_gio`, cùng bảng với ô "Đơn vị tốc độ" của
-    # máy). Đây là NHÃN KHAI BÁO: engine chia thẳng SL vào cho năng suất, KHÔNG quy đổi — bước
-    # quy đổi làm sau. Trống = giữ lối cũ (suy theo đơn vị vào của công đoạn).
+    # ĐƠN VỊ của NĂNG SUẤT khoán, do người khai CHỌN (mã `<đơn vị>_gio`, cùng bảng mã với ô "Đơn
+    # vị tốc độ" của máy). Đây là ĐƠN VỊ ĐÍCH mà `cong_thuc_gio` bên dưới phải quy về. Trống = lùi
+    # về đơn vị của ĐƠN GIÁ khoán.
+    #
+    # DORMANT 10/08/2026 → BẬT LẠI 07/09/2026: hồi đó nhãn bị khoá cứng theo đơn giá vì tiền và
+    # giờ dùng CHUNG một công thức, nên hai đơn vị buộc phải là một. Nay giờ có ô đo riêng nên
+    # tách được: khoán "600 đ/kg mực" mà năng suất đếm "500 tờ/h".
     don_vi_nang_suat: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    # Ba mốc nhân lực: tối thiểu ≤ tiêu chuẩn ≤ tối đa. `tieu_chuan` là số điền sẵn vào bước,
-    # `toi_da` là trần tính thời gian (thêm người nữa không nhanh hơn). `toi_thieu` là KHAI BÁO —
-    # chưa vào công thức, mặc định 1 nghĩa là không ràng buộc.
-    so_nguoi_toi_thieu: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=1, server_default="1"
-    )
+    # ĐỊNH MỨC NHÂN LỰC — nay chỉ còn MỘT số (chốt 06/09/2026, migration `0270`). Đây là kíp
+    # chuẩn của công đoạn: số điền sẵn vào bước lệnh cho MỌI loại bước (máy · tổ · thuê ngoài), và
+    # là số chia trong công thức thời lượng của bước tổ (năng suất khai theo đầu người).
+    # Hai mốc `so_nguoi_toi_thieu`/`so_nguoi_toi_da` ĐÃ GỠ: tối đa chỉ đổi màu chứ không chặn gì,
+    # còn tối thiểu chỉ có răng khi ai đó chịu khai ≥ 2 — để mặc định 1 thì nó im sẵn.
     so_nguoi_tieu_chuan: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    so_nguoi_toi_da: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # CÔNG THỨC TÍNH TIỀN CÔNG của đầu việc này TRONG công đoạn này (06/09/2026).
+    #
+    # Ra LƯỢNG theo đơn vị của ĐƠN GIÁ KHOÁN rồi engine mới nhân đơn giá — nhãn trên màn là
+    # "Công thức tính tiền công" cho người khai dễ hiểu, nhưng giá trị nó trả là LƯỢNG.
+    #
+    # Vì sao chuyển từ `piece_rates.cong_thuc_luong` (gỡ ở mg `0274`) xuống đây: cùng một đầu việc
+    # làm ở hai công đoạn khác nhau thì đếm khác nhau (in khổ lớn / khổ nhỏ), mà treo ở bảng đơn
+    # giá thì cả hai buộc dùng chung một cách đo.
+    #
+    # ⚠️ VẪN GHÌM vào bước lệnh qua `khoan_snapshot` — sửa ở đây KHÔNG xê dịch tiền công của lệnh
+    # đã phát. Muốn bước cũ ăn công thức mới thì chọn lại đầu việc ở bước đó.
+    cong_thuc_khoan: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # CÁCH ĐO GIỜ CHẠY của đầu việc này TRONG công đoạn này (07/09/2026).
+    #
+    # Ra LƯỢNG theo đơn vị của NĂNG SUẤT khoán (`don_vi_nang_suat` ngay trên), rồi engine mới chia
+    # cho năng suất — đối xứng đúng cặp `cong_doan_may.cong_thuc_gio` + `may_thiet_bi.don_vi_toc_do`
+    # của bước Máy.
+    #
+    # Vì sao phải tách khỏi `cong_thuc_khoan`: trước đây bước Tổ chỉ có MỘT công thức và engine
+    # dùng nó cho cả tiền lẫn giờ, nên "in trở 2 lượt" (`sl_vao * so_luot_chay`) vừa nhân đôi tiền
+    # công — ĐÚNG — vừa nhân đôi thời lượng — SAI: hai lượt in chồng lên nhau trên cùng một tờ,
+    # tổ vẫn chỉ sờ tay vào từng ấy tờ. Máy không mắc lỗi này vì đơn vị tốc độ của máy độc lập
+    # hoàn toàn với đơn vị đơn giá.
+    #
+    # ⚠️ GHIM vào bước lệnh qua `khoan_snapshot` — sửa ở đây KHÔNG xê dịch giờ của lệnh đã phát.
+    cong_thuc_gio: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="dau_viec_dinh_muc")
     # VẬT TƯ đầu việc này tiêu thụ — nền của BOM (12/08/2026). Khai một lần ở danh mục, đến lệnh thì
@@ -208,20 +244,21 @@ class CongDoanDauViec(Base):
         order_by="CongDoanDauViecVatTu.thu_tu", cascade="all, delete-orphan",
     )
 
-    @property
-    def vat_tu_ids(self) -> list[int]:
-        """Danh sách id vật tư — hình dạng API dùng (`CongDoanDauViecRow` đọc qua from_attributes).
-        Giữ ở đây để schema khỏi phải biết bảng nối, và để nơi gọi khỏi tự `.vat_tus` rồi map."""
-        return [v.vat_tu_id for v in self.vat_tus]
+    # Property `vat_tu_ids` GỠ 06/09/2026: API nay nói bằng `vat_tus` để mỗi dòng chở được công
+    # thức định mức của riêng nó. Giữ song song hai hình dạng là mời khai lệch.
 
 
 class CongDoanDauViecVatTu(Base):
-    """Vật tư mà MỘT đầu việc của công đoạn tiêu thụ — danh sách thuần, KHÔNG có số lượng.
+    """Vật tư mà MỘT đầu việc của công đoạn tiêu thụ, kèm ĐỊNH MỨC của riêng dòng đó.
 
-    Vì sao không có số lượng: định mức tuỳ quy cách của từng lệnh (khổ tờ, số màu, số tờ chạy), nên
-    một con số khai ở danh mục là số chết. Số lượng suy lúc bung ở bước lệnh, bằng cách đổi số lượng
-    của bước sang đơn vị của vật tư qua QUY ĐỔI ĐỘNG (`quy_doi_service.doi_theo_quy_cach`). Đổi
-    không được thì KHÔNG bung dòng đó kèm câu lý do — không đoán.
+    Vẫn KHÔNG có cột số lượng chết: định mức tuỳ quy cách của từng lệnh (khổ tờ, số màu, số tờ
+    chạy), nên cái khai ở đây là CÔNG THỨC (`cong_thuc_luong`), không phải con số. Số suy lúc bung
+    ở bước lệnh bằng cách thế quy cách lệnh vào công thức đó. Chưa khai công thức thì KHÔNG bung
+    dòng đó kèm câu lý do — không đoán.
+
+    Vì sao công thức nằm ở ĐÂY chứ không ở món hàng (06/09/2026): hai món cùng ĐVT `kg` ăn theo hai
+    trục khác hẳn — mực theo SỐ TỜ (`sl_vao / 40000`), dung môi rửa máy theo SỐ MÀU (`so_mau * 0.3`:
+    in 5.000 hay 50.000 tờ vẫn 1,2 kg). Và cùng một món ăn khác nhau ở hai công đoạn khác khổ.
 
     Vì sao neo vào `cong_doan_dau_viec` chứ không vào `piece_rates`: đây đúng là dòng người dùng
     nhìn thấy trong bảng "Đầu việc và định mức của tổ" ở drawer Công đoạn, và cho phép cùng một đầu
@@ -242,9 +279,49 @@ class CongDoanDauViecVatTu(Base):
     # riêng, service chặn id không tồn tại hoặc đã ngừng dùng.
     vat_tu_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # ĐỊNH MỨC của CHÍNH món này TRONG chính đầu việc này (06/09/2026) — ra LƯỢNG theo ĐVT của vật
+    # tư. Trước đây khai ở `vat_tu_in_an.cong_thuc_luong` (gỡ ở mg `0274`) nên mọi công đoạn dùng
+    # món đó lĩnh chung một con số: cùng "Mực Cyan" mà In khổ 79×109 ăn 1 kg / 8.000 tờ, In khổ
+    # 11×11 ăn 1 kg / 40.000 tờ. Trống = chưa khai ⇒ bước lệnh KHÔNG bung dòng đó, kèm câu lý do.
+    cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     dau_viec: Mapped["CongDoanDauViec"] = relationship(
         "CongDoanDauViec", back_populates="vat_tus"
     )
+
+
+class CongDoanMay(Base):
+    """Một MÁY chạy được công đoạn này, kèm cách đo giờ và cách tính giá của riêng cặp đó.
+
+    Vì sao là bảng nối chứ không phải cột trên máy hay trên công đoạn (06/09/2026): cả hai con số
+    đều là giao của VIỆC × MÁY.
+      · `cong_thuc_gio` — treo ở máy (`may_thiet_bi.cong_thuc_luong` cũ) thì mọi công đoạn chạy
+        máy đó dùng chung một cách đo, trong khi In khổ 79×109 và In khổ 11×11 đo khác nhau.
+      · `cong_thuc_gia` — treo ở công đoạn (`cong_doan.cong_thuc_gia`) thì mọi máy dùng chung một
+        đơn giá, trong khi máy 5 màu khổ lớn và máy 2 màu khổ nhỏ có giá khác nhau.
+
+    `may_id` là SOFT-REF (không FK) — cùng lối `piece_rate_id`/`vat_tu_id` ở hai bảng con kia:
+    danh mục máy có vòng đời riêng, service chặn id không tồn tại hoặc máy đã thanh lý.
+
+    `cong_thuc_gio` ra LƯỢNG theo đơn vị TỐC ĐỘ của máy, không ra giờ — engine vẫn tự chia tốc độ.
+    `cong_thuc_gia` ra TIỀN, và GHI ĐÈ `cong_doan.cong_thuc_gia` khi phiếu tính giá có chọn máy.
+    Cả hai để trống = lùi về hành vi cũ (cầu quy đổi cho giờ · công thức của công đoạn cho giá).
+    """
+
+    __tablename__ = "cong_doan_may"
+    __table_args__ = (
+        UniqueConstraint("cong_doan_id", "may_id", name="uq_cd_may"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cong_doan_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("cong_doan.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    may_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    cong_thuc_gio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cong_thuc_gia: Mapped[str | None] = mapped_column(Text, nullable=True)
+    thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="may_lam_duoc")
 
 

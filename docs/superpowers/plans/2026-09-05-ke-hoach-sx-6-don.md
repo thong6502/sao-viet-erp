@@ -947,3 +947,710 @@ Việc đăng nhập bằng tài khoản đó phải do người dùng tự làm
 **Còn nợ của Task 16:** duyệt 4 đơn → Kho hàng → Yêu cầu nhập xuất lập phiếu nhập cho 4 lô, ghi sổ →
 quay lại Kế hoạch vật tư xác nhận tồn tăng và 4 dòng đỏ tắt → bật lại Giữ chỗ cho
 `LSX26-0003`, `0005`, `0006`, `0010`.
+
+### Task 16 — bước 4-7 (XONG, đăng nhập `lequangdao`)
+
+**Bước 4 — duyệt đơn.** Người dùng đăng nhập `lequangdao` (Giám đốc). Kế toán → Đơn mua hàng,
+bấm **Duyệt** lần lượt 4 đơn `DMH-260905-WYS8`, `-2VOH`, `-IGM4`, `-3G0X` → cả 4 sang **Đã duyệt**.
+Chốt tách vai ở `purchase_service.approve` không miễn cho giám đốc, nhưng ở đây người lập là Admin
+nên giám đốc duyệt được.
+
+**Bước 5 — yêu cầu nhập + phiếu nhập kho.** Kho hàng → Yêu cầu nhập xuất → "+ Tạo yêu cầu":
+ngày cần nhập 12/09/2026, 4 dòng (Giấy C300 512,06 · Giấy C150 479,9 · Keo gáy nhiệt PUR 4,09 ·
+Màng BOPP cán mờ 4,47) kèm đơn giá 21.000 / 22.000 / 165.000 / 95.000 đ. Ra **`DNN00004`**,
+tổng ước tính 22.410.560 đ, và **tự duyệt luôn** (mỗi dòng ghi "Duyệt x/x") — nhập không đi qua
+cửa duyệt thứ hai như phiếu mua hàng.
+
+Tab "Phiếu từ yêu cầu" → nút **Lập phiếu**. Ô "Kho (nhập về)" chỉ chọn được **một kho cho cả phiếu**
+mà 4 món thuộc 3 kho khác nhau ⇒ phải chẻ làm **3 phiếu nhập**, mỗi phiếu để SL nhập của các dòng
+không thuộc kho đó bằng 0:
+
+| Phiếu | Kho | Dòng nhập | Tiến độ YC sau khi ghi sổ |
+|---|---|---|---|
+| 1 | Kho Giấy (KHO-0002) | C300 512,06 + C150 479,9 | 991,96 / 1.000,52 — Đã cấp một phần |
+| 2 | Kho Mực & Hóa chất (KHO-0003) | Keo gáy nhiệt PUR 4,09 | 996,05 / 1.000,52 — Đã cấp một phần |
+| 3 | Kho Vật tư đóng gói (KHO-0004) | Màng BOPP cán mờ 4,47 | 1.000,52 / 1.000,52 — **Hoàn tất** |
+
+Mỗi phiếu bấm "Tạo & Ghi sổ" → hộp xác nhận *"Tồn kho sẽ cộng ngay và phiếu không sửa được nữa"*
+→ "Ghi sổ". Sau phiếu 1, cột TỒN KHO trong drawer đổi ngay: C300 500 → **1.012,06 kg**,
+C150 800 → **1.279,9 kg**.
+
+**Bước 6 — Kế hoạch vật tư.** Bộ lọc: **Cần mua ngay 0 · Đã đủ 100% 15/15**. Bốn dòng đỏ cũ đã tắt:
+
+| Mặt hàng | Tồn / Cần | Độ phủ |
+|---|---|---|
+| Giấy C150 | 1.279,9 / 1.279,89 kg | 100% |
+| Giấy C300 | 1.012,06 / 1.012,06 kg | 100% |
+| Keo gáy nhiệt PUR | 4,09 / 4,08 kg | 100% |
+| Màng BOPP cán mờ | 4,47 / 4,47 kg | 100% |
+
+**Bước 7 — giữ chỗ.** Tab "Theo lệnh sản xuất": **Giữ đủ 7 · Đang giữ dở 0 · Chưa giữ 0**.
+Bốn lệnh trước bị kẹt đã tự lấp đầy khi hàng về (Live Sync), **không phải bấm lại Giữ chỗ**:
+
+| Lệnh | Trước | Sau |
+|---|---|---|
+| `LSX26-0003` | 0/1 (Chờ bù tồn) | **1/1** |
+| `LSX26-0005` | 7/8 | **8/8** |
+| `LSX26-0006` | 10/11 | **11/11** |
+| `LSX26-0010` | 6/8 | **8/8** |
+| `GB26-0001` · `LSX26-0007` · `LSX26-0009` | đã đủ | giữ nguyên đủ |
+
+### Task 17 — xác minh cửa Sẵn sàng (XONG, DỪNG trước phát hành)
+
+Kế hoạch sản xuất → tab "Lệnh sản xuất": **Tất cả 8 · Nháp 2 · Sẵn sàng 6**, cột VƯỚNG của cả 6
+lệnh Sẵn sàng là "—". Mở từng lệnh, băng trạng thái đều ghi **"Không vướng gì" + "Sẵn sàng lập kế
+hoạch"**: `LSX26-0003`, `0005`, `0006`, `0007`, `0009`, `0010`. Chip "Chưa giữ chỗ vật tư" đã biến
+mất khỏi cả 6. **Không bấm nút phát hành nào** — dừng đúng theo yêu cầu.
+
+**Chẩn đoán 2 lệnh còn Nháp (`LSX26-0004`, `LSX26-0008`).** Không phải thiếu vật tư. Băng cảnh báo
+mở ra ghi đúng một dòng: *"Chưa khai Số trang / Trang mỗi tay — có công đoạn đổi tay sách → cái"*,
+tức mã `thieu_trang_moi_tay` ở `lsx_service._thieu_cua`. Gốc rễ: hai lệnh này **không có phiếu thành
+phần đi kèm** — băng đầu trang không có chip `PTG-…` (so với `LSX26-0010` có `PTG-2026-0003`), và
+khối "Thành phẩm" trong tab Quy cách để trống hết (TÊN SẢN PHẨM —, LOẠI SẢN PHẨM —, ĐƠN VỊ TÍNH —),
+nên **màn lệnh không hiện ô Số trang / Trang mỗi tay để mà nhập**. `LSX26-0010` có ô đó với giá trị
+192 / 32. ⇒ Qua UI hiện tại không có đường mở khoá; giữ nguyên 2 lệnh ở Nháp.
+
+**Lỗi ghi nhận thêm ở cửa sổ này**
+- Ô "Vật tư" trong yêu cầu nhập kho **không khớp khi gõ có dấu tổ hợp**: gõ "Giấy C150" ra
+  "Không có trong danh mục", trong khi đặt cùng chuỗi đó bằng API form của trình duyệt lại khớp
+  ngay ⇒ hàm tìm không chuẩn hoá Unicode (NFC/NFD). Cùng họ với lỗi "BOPP cán mờ" đã ghi ở Task 16.
+- Ô đó cũng **không tìm theo mã và không tìm theo chuỗi con**: "C300" báo không có trong danh mục,
+  phải gõ từ đầu tên ("Giấy") mới ra danh sách.
+- Ở khung hẹp (~490px), thanh tab con của module Kho ("Yêu cầu" / "Phiếu từ yêu cầu") **nằm lọt
+  dưới thanh header chung** nên bấm không tới; phải cuộn nội dung lên hết mới bấm được.
+
+### Task 18 (bổ sung 5/9/2026) — nối bìa ↔ ruột ở bước "Vào bìa keo nhiệt"
+
+**Lỗi nhập liệu tự phát hiện khi bị hỏi lại:** ba cặp sách được dựng thành hai LSX rời nhưng chuỗi
+phụ thuộc chỉ chạy trong nội bộ từng lệnh, không có cạnh nào nối lệnh Bìa sang bước "Vào bìa keo
+nhiệt" của lệnh Ruột. Trên đồ thị, bìa và ruột là hai nhánh song song không gặp nhau — sai nghiệp
+vụ (vào bìa ăn bìa đã cắt xong) và làm mù cả xếp lịch lẫn gom cụm bài ghép.
+
+Hệ **có sẵn** chức năng này, đã ghi nhận ở nhật ký Task 11 mà không dùng: `lsx_cong_doan_phu_thuoc`
+không ràng buộc hai đầu cùng lệnh, `san_xuat_repo._cross_lsx_edges_all` lọc riêng cạnh khác lệnh,
+docstring `bai_ghep_graph.py` viết thẳng *"Sách = bìa (một lệnh) + ruột (một lệnh) nối nhau ở bước
+vào bìa"*, và tab Phụ thuộc của drawer bước gom chip theo từng LSX của cả đơn (`nhomPhuThuoc`).
+
+Đã bổ sung **3 cạnh chéo lệnh**, mỗi cạnh là `Cắt thành phẩm` (bước 60, bước cuối lệnh Bìa) →
+`Vào bìa keo nhiệt` (bước 70 lệnh Ruột):
+
+| Đơn | Lệnh Bìa (nguồn) | Lệnh Ruột (đích) | Trạng thái lúc sửa |
+|---|---|---|---|
+| DH005 | LSX26-0003 · bước 60 | LSX26-0004 · bước 70 | Nháp — sửa thẳng |
+| DH003 | LSX26-0007 · bước 60 | LSX26-0008 · bước 70 | Nháp — sửa thẳng |
+| DH006 | LSX26-0009 · bước 60 | LSX26-0010 · bước 70 | Sẵn sàng + **đang giữ chỗ** — phải nhả chỗ rồi giữ lại |
+
+Thao tác từng lệnh: mở lệnh → tab **Công đoạn** → **Bảng danh sách** → bấm hàng #70 mở drawer →
+tab **Phụ thuộc** → tick chip cuối trong nhóm lệnh Bìa → **Xong** → **Lưu công đoạn**. Sau khi lưu,
+cột "Tiền nhiệm" của hàng 70 đọc **`Bắt tay` + `Bước LSX khác`**.
+
+**Chặn gặp ở LSX26-0010:** bấm Lưu lần đầu bị từ chối, băng đỏ ghi *"Lệnh LSX26-0010 đang giữ chỗ
+vật tư — nhả chỗ ở màn Kế hoạch vật tư trước khi sửa số lượng, quy cách, routing hoặc xoá lệnh."*
+Đã đi đúng đường hệ chỉ: Kế hoạch vật tư → Theo lệnh sản xuất → **Nhả chỗ** (hộp xác nhận liệt kê
+8 món trả về kho, kèm cảnh báo *"bật lại vẫn không chắc giữ lại được"*) → sửa routing → **Giữ chỗ**
+lại. Sau khi giữ lại: bộ đếm về **Giữ đủ 7 · Đang giữ dở 0 · Chưa giữ 0**, dòng LSX26-0010 đọc
+**100% (8/8 món)**, cửa xếp lịch về "Mở khóa". Trong khoảng nhả–giữ, hộp thoại xác nhận không có
+lệnh nào khác thiếu 8 món này nên không ai cướp chỗ.
+
+**Hai lỗi giao diện gặp lúc làm:**
+- Chip trong tab Phụ thuộc của các lệnh cũ hiện trơ chữ **"Công đoạn"** thay vì tên bước (bug
+  `lsx_cong_doan.ten` đã ghi ở Task 11); LSX26-0009/0010 thì hiện đúng tên. Với lệnh hiện chữ trơ,
+  chỉ còn cách dựa vào **thứ tự chip = thứ tự bước** để chọn.
+- Chip cuối của nhóm dưới cùng bị **thanh chân drawer che khuất một nửa**; bấm vào phần bị che
+  không ăn, phải cuộn thân drawer xuống rồi mới tick được.
+
+**Còn nợ:** hai lệnh Ruột `LSX26-0004`/`LSX26-0008` vẫn ở Nháp vì `thieu_trang_moi_tay` (không có
+phiếu thành phần nên màn lệnh không hiện ô Số trang / Trang mỗi tay). Và bước "Vào bìa" mới chỉ khai
+keo PUR, chưa có dòng nào biểu diễn "ăn 2.000 tấm bìa từ lệnh kia" — chưa rõ hệ có mô hình bán thành
+phẩm chéo lệnh hay không, cần bàn riêng.
+
+---
+
+## Task 19 — Vá lỗi nhãn bước trơ chữ "Công đoạn" (05/09/2026)
+
+Chủ hỏi *"sao để công đoạn hết trơn vậy, bộ nó không có tên à"* rồi ra lệnh *"sửa luôn cả 3 đi"*.
+Đây là lần đầu trong phiên đụng CODE (từ Task 1 tới 18 chỉ thao tác UI).
+
+### Chuỗi nhân quả
+
+1. `toBody` ở FE gửi `ten: r.ten || "Công đoạn"`. Bước chèn tay để trống ô tên tự do ⇒ client tự
+   điền chuỗi tạm.
+2. `replace_routing` có sẵn đường lùi `ten = ten or cd_obj.ten` (lấy tên công đoạn đang gắn) nhưng
+   chuỗi tạm KHÔNG rỗng nên nhánh đó không bao giờ chạy; `row.ten = ten or "Công đoạn"` ghi thẳng
+   chuỗi tạm vào cột. Chọn công đoạn về sau chỉ set `cong_doan_id`, không đồng bộ lại `ten`.
+3. Nguồn đẩy dữ liệu hỏng vào: `doiCongDoan` gọi `GET /api/lsx/{id}/mac-dinh-buoc/{cd}`; endpoint
+   này đang 500 (chip `task_ae9163e6`), nhánh `catch` giữ nguyên `tenHienTai` — tức nhãn tạm.
+4. Ba bề mặt hiện SAI vì đọc thẳng cột `ten`, không tra qua `cong_doan_id`:
+   `bai_ghep_service._node()` (sơ đồ bài ghép), `phu_thuoc_options` (chip Phụ thuộc + panel
+   "Bước LSX khác"). Bảng routing và thẻ DAG của lệnh thì ĐÚNG vì đi qua `tenBuoc()`.
+
+### Đã sửa
+
+| # | Chỗ | Việc |
+|---|---|---|
+| 1 | `frontend/src/pages/lsxBuoc.ts:328` | `toBody` gửi `ten: r.ten.trim()`, bỏ literal |
+| 2 | `backend/app/services/lsx_service.py` (`replace_routing`) | Bước đã gắn công đoạn mà `ten` == nhãn tạm ⇒ coi như trống, lấy tên danh mục. Hằng `TEN_BUOC_TRONG` khai ở `models/lsx.py` |
+| 3 | `backend/app/services/lsx_service.py` (`phu_thuoc_options`) | Trả tên công đoạn trước, `step.ten` sau — khớp luật của `tenBuoc()` bên FE |
+| 4 | `backend/app/db_migrations.py` mg `0267_ten_buoc_tro_cong_doan` | Nắn ngược `lsx_cong_doan.ten` + `bai_ghep_cong_doan.ten` cho dòng đã có `cong_doan_id`. Đây là cái chữa sơ đồ bài ghép |
+| 5 | `frontend/src/pages/LsxRoutingTable.tsx` (`doiCongDoan`) | Nhánh `catch` lấy tên từ `congDoanRefs` thay vì giữ tên cũ |
+
+**Bẫy gặp khi viết migration:** bản đầu gọi `_existing_columns()` GIỮA vòng lặp hai bảng. Trên
+SQLite in-memory `inspect()` mượn đúng connection của Session nên lần soi thứ hai rollback mất
+UPDATE của bảng thứ nhất — đúng bẫy đã ghi chú ở mg `0265`. Test bắt được, đã hoisted phép soi ra
+trước vòng lặp. Giữ lại thành `backend/tests/test_migration_0267_ten_buoc.py`.
+
+### Xác minh
+
+- `npx tsc --noEmit` exit 0.
+- vitest `lsxBuoc.test.ts` + `BuocChungForm.test.tsx`: 10/10.
+- pytest `test_lsx_service` + `test_bai_ghep_service` + `test_giu_cho_vat_tu`: **213 passed**.
+- pytest `test_migration_0267_ten_buoc.py`: 2/2 (nắn đúng, KHÔNG đè tên tự do người đặt, idempotent).
+- Backend restart trỏ `svn_erp_trong` (đặt `SEED_DEMO=false` để seeder không đè routing nhập tay),
+  startup sạch, mg `0267` ghi vào `schema_migrations` lúc 07:01:01.
+- Đọc thẳng DB `svn_erp_trong` (script CHỈ ĐỌC ngoài `backend/`): **0 dòng** còn nhãn tạm ở cả
+  `lsx_cong_doan` lẫn `bai_ghep_cong_doan`; toàn bộ 6 bước LSX26-0009 và 10 bước LSX26-0010 khớp
+  đúng tên danh mục.
+
+### Nghiệm thu bằng UI thật (chủ tự đăng nhập, trợ lý thao tác chuột)
+
+Đường bấm: hamburger → **Bài ghép** → tab **Bài ghép đã tạo** → dòng **GB26-0001** → tab
+**Công đoạn**. Ba thẻ chủ khoanh đỏ nay đọc **#10 Bình bài & dàn trang · #20 Ghi kẽm CTP ·
+#30 In proof duyệt màu** trên CẢ hai hàng LSX26-0003 và LSX26-0009. Cuộn ngang canvas: **#50 cán
+màng mờ · #60 Cắt thành phẩm** cũng hết trơ (trước đó hàng LSX26-0003 hiện "Công đoạn" ở cả #50/#60).
+
+Đường bấm tiếp: hamburger → **Kế hoạch sản xuất** → tab **Lệnh sản xuất 8** → dòng **LSX26-0010** →
+tab **Công đoạn**. Node bóng mờ đầu chuỗi đọc **"LSX26-0009 · Cắt thành phẩm"** kèm câu "Lệnh này
+chỉ chạy sau khi bước trên của lệnh kia xong" — cạnh chéo lệnh Task 18 còn nguyên. Bấm bút chì trên
+thẻ **#10** → drawer **BƯỚC 01/10 · Tổ · Bình bài & dàn trang** → tab **Phụ thuộc**: cả 16 chip của
+hai nhóm `LSX26-0010 · hiện tại` và `LSX26-0009` đều mang tên thật, KHÔNG còn chip nào ghi
+"Công đoạn". Bấm **Xong**, nút "Lưu công đoạn" vẫn `disabled` ⇒ chỉ xem, không sửa gì.
+
+Bộ đếm danh sách lệnh giữ nguyên **Tất cả 8 · Nháp 2 · Sẵn sàng 6**; LSX26-0010 vẫn "Sẵn sàng ·
+Không vướng gì · 8 món vật tư".
+
+---
+
+## Task 20 — Lỗi 500 ở `GET /api/lsx/{id}/mac-dinh-buoc/{cd}` (05/09/2026)
+
+Đây là NGUỒN đẻ ra đám dữ liệu trơ chữ "Công đoạn" ở Task 19: `doiCongDoan` gọi endpoint này, gặp
+500 thì nhánh `catch` giữ nguyên tên cũ.
+
+**Nguyên nhân:** schema trả về `BuocMacDinhOut` khai `loai_buoc: str` BẮT BUỘC, còn
+`lsx_service.mac_dinh_buoc()` cố ý KHÔNG trả trường đó (loại Máy/Tổ/Thuê ngoài thuộc bước KHSX,
+đổi công đoạn không được ghi đè). Router `lsx.py:514` gọi `model_validate` trên dict thiếu trường
+⇒ `ValidationError` ⇒ 500 **mọi lần gọi**, không phải lúc được lúc không. Traceback nguyên văn nằm
+ở `backend/uv8000.log`.
+
+**Vì sao bộ test không bắt được:** cả ba test của endpoint gọi THẲNG service
+(`lsx_svc.mac_dinh_buoc(...)`), không đi qua router, nên `BuocMacDinhOut` chưa từng chạy trong
+suite. Tréo ngoe là `test_lsx_service.py:2618` còn khẳng định
+`{"loai_buoc", "may_id", "nang_suat", "don_vi_nang_suat"}.isdisjoint(m)` — test chốt "service không
+trả", schema chốt "bắt buộc phải có", hai bên khoá ngược nhau mà không ai đứng giữa.
+
+Mặt trái của bẫy `pydantic-nuot-field-im-lang`: thừa field so với schema thì bị nuốt im lặng,
+thiếu field bắt buộc thì 500 thẳng.
+
+**Đã sửa:**
+- `backend/app/schemas/lsx.py` — gỡ `loai_buoc` và 6 trường chết khác (`may_id`, `nang_suat`,
+  `don_vi_nang_suat`, `so_nhan_cong`, `so_nhan_cong_tieu_chuan`, `so_nhan_cong_toi_da`) khỏi
+  `BuocMacDinhOut`; ghi rõ trong docstring vì sao KHÔNG được khai lại. Type `LsxBuocMacDinh` bên FE
+  vốn đã không có mấy trường này — chỉ schema backend bị bỏ quên.
+- `backend/tests/test_lsx_service.py` — thêm `BuocMacDinhOut.model_validate(m)` vào
+  `test_mac_dinh_buoc_chi_tra_thuoc_tinh_cua_cong_doan`, tức chạy đúng chặng cuối của router.
+
+**Chu trình TDD đã chạy:** thêm assert → ĐỎ đúng `ValidationError: loai_buoc Field required` (khớp
+từng chữ với traceback production) → gỡ trường khỏi schema → XANH. Rồi
+`pytest tests/test_lsx_service.py tests/test_khsx_ui_contract.py` = **121 passed**.
+
+Backend restart (`Win32_Process.Create`, giữ `DATABASE_URL` trỏ `svn_erp_trong` + `SEED_DEMO=false`),
+`/api/health` 200 sau 8s, log khởi động sạch.
+
+**Nghiệm thu bằng UI thật (đã trả xong nợ, 05/09/2026 — chủ tự đăng nhập):**
+
+Đường bấm: hamburger → **Kế hoạch sản xuất** → tab **Lệnh sản xuất 8** → hàng **LSX26-0010** →
+tab **Công đoạn** → nút **Bảng danh sách** → bấm hàng **#10 Bình bài & dàn trang** (mở drawer
+"BƯỚC 01/10 · Tổ") → bấm nhãn **TÊN CÔNG ĐOẠN** để đưa focus vào ô select → đổi select sang
+**In proof duyệt màu** → đổi ngược lại **Bình bài & dàn trang** → **Đóng panel** → **Làm mới**.
+
+Thấy gì:
+
+- `backend/uv8000.log`: `GET /api/lsx/10/mac-dinh-buoc/55` → **200 OK** và
+  `GET /api/lsx/10/mac-dinh-buoc/53` → **200 OK**. Trước khi sửa schema, đúng hai lệnh này 500.
+- Vùng `aria-live` của bảng routing bắt được đúng câu của nhánh THÀNH CÔNG:
+  *"Đã đổi sang Bình bài & dàn trang và lấy lại đơn vị, tổ phụ trách"*, rồi ngay sau là
+  *"Đã nạp 1 đầu việc khoán"*. Câu thứ hai là của `napDauViec`, chỉ được gọi trong `try` —
+  nhánh `catch` không gọi, nên hai câu liên tiếp là bằng chứng phân biệt sạch.
+- Hàng #10 đổi đơn vị theo công đoạn mới (`bài in → bản proof` rồi về `bài in`), tổ vẫn giữ
+  **Tổ kỹ thuật** (nhánh `catch` sẽ đặt `department_id: null`), và băng
+  *"Bước này không nằm trên dòng giấy (đếm bằng bản proof)"* hiện lên — cả ba đều lấy từ payload
+  của chính endpoint vừa hết 500.
+- Không bấm **Lưu công đoạn**; log không có `PUT /api/lsx/*/routing`. Sau **Làm mới**, nút
+  **Lưu công đoạn** trở lại `disabled` và sơ đồ DAG vẫn `#10 Bình bài & dàn trang` — DB không bị đụng.
+- Cả 10 nút bước trên DAG hiện tên danh mục thật, không còn nhãn `Công đoạn` nào (kiểm bằng
+  đếm chuỗi `#<số>
+Công đoạn` trong `main` = 0) — Task 19 vẫn đứng.
+
+**Có tắt qua công cụ ở một chỗ, nói rõ:** ô công đoạn là `<select>` gốc của trình duyệt. Bấm chuột
+vào nó mở popup của Chrome — popup đó không nằm trong DOM nên phím mũi tên gửi qua CDP rơi vào
+khoảng không (đã thử: `selectedIndex` không nhúc nhích, `Escape` còn đóng luôn drawer). Vì vậy giá
+trị select được đặt bằng `form_input` của khung Browser — vẫn là thao tác trên chính control đó,
+bắn `input`/`change` thật lên React, không phải gọi API thay bước. Mọi bước còn lại đều bấm chuột
+theo toạ độ thật.
+
+**Phát hiện kèm (chưa sửa, chỉ ghi):** hai lần đổi công đoạn kéo theo
+`POST /api/lsx/10/xem-truoc-routing` → **409 Conflict**. Nguyên nhân: `LSX26-0010` có
+`giu_cho_bat = true`, mà `_chan_dang_giu_cho` cố ý chặn CẢ preview (docstring nói rõ: cho preview
+chạy qua thì màn nói dối). FE `xemTruocChuoi` nuốt lỗi im lặng nên người dùng không biết bản xem
+trước đã chết, và bấm Lưu mới ăn 409. Đây là hành vi có sẵn, không phải hồi quy của bản vá này.
+
+### Task 21 — 409 im lặng của bản xem-trước routing
+
+**Triệu chứng.** Mỗi lần đổi công đoạn trên `LSX26-0010`, ngoài `mac-dinh-buoc` (200 sau Task 20)
+còn có `POST /api/lsx/10/xem-truoc-routing` → **409 Conflict**. Trên màn không có dấu vết nào.
+
+**Nguyên nhân.** `LsxService._chan_dang_giu_cho` chặn khi `lsx.giu_cho_bat = true`, và docstring của
+nó nói rõ là **cố ý chặn CẢ preview**: cho preview chạy qua thì màn nói dối, bấm Lưu thật mới báo
+lỗi. `xem_truoc_routing` chạy đúng đường `replace_routing(commit=False)` nên dính guard này.
+`LSX26-0010` đang giữ chỗ (6/8 lệnh trong `svn_erp_trong` đều bật cờ — Task 15 bật, có chủ ý).
+
+Ba tầng cộng lại thành lỗi:
+
+1. Server khoá routing nhưng **không nói ra cho client** — `LsxOut` không có `giu_cho_bat`.
+2. FE do đó vẫn mở bảng routing cho sửa, nút **Lưu công đoạn** vẫn sáng.
+3. `xemTruocChuoi` có `catch {}` **rỗng**, kèm câu trấn an SAI trong comment ("bấm Lưu công đoạn
+   server vẫn tính đúng" — không, Lưu cũng 409). Nhánh `catch` của `doiCongDoan` cũng nuốt y hệt.
+
+Kết quả: người kế hoạch sửa xong cả routing, số vào–ra đứng im không ai giải thích, tới lúc bấm Lưu
+mới hiện băng đỏ — đúng chặng đã ghi ở Task 18. Đây cũng chính là cơ chế đẻ ra dữ liệu trơ nhãn
+"Công đoạn" ở Task 19: `mac-dinh-buoc` 500, `catch` nuốt, bước đổi được mỗi cái tên.
+
+**KHÔNG nới guard ở backend.** Docstring đã cân nhắc và bác đúng phương án đó; sửa nó là lật một
+quyết định có chủ ý của chủ. Chỗ sai là màn hình giấu cái khoá, nên vá ở đó.
+
+**Đã sửa (5 chỗ):**
+
+| Tầng | File | Việc |
+|---|---|---|
+| Schema | `backend/app/schemas/lsx.py` | `LsxOut` thêm `giu_cho_bat: bool = False` |
+| Type | `frontend/src/api/client.ts` | `LsxDetail.giu_cho_bat: boolean` |
+| Cha | `frontend/src/pages/LsxDetailView.tsx` | `giuCho={d.giu_cho_bat}` |
+| Bảng | `frontend/src/pages/LsxRoutingTable.tsx` | `suaDuoc = canUpdate && !giuCho` gác 8 cửa ghi · băng khoá hổ phách kèm đường lùi · dòng phụ đổi thành "chỉ xem" · băng đỏ `loiDoiCd` cho CẢ hai nhánh từng nuốt lỗi |
+| CSS | `frontend/src/pages/ke-hoach-sx.css` | `.khsx-ghep-bang--khoa` / `--loi` |
+
+`suaDuoc` tách khỏi `canUpdate` để giữ LÝ DO: hết quyền thì im lặng ẩn nút, còn giữ chỗ thì phải nói
+ra. Băng khoá xét `canUpdate && giuCho` chứ không xét `suaDuoc` — dùng `suaDuoc` là băng không bao
+giờ hiện.
+
+**TDD.** `test_chi_tiet_lenh_noi_ra_dang_giu_cho_vat_tu` → ĐỎ đúng
+`AttributeError: 'LsxOut' object has no attribute 'giu_cho_bat'` (bẫy pydantic-nuốt-field lần thứ
+hai trong hai task liền) → thêm field → XANH. Thêm 2 test hợp đồng UI trong
+`test_khsx_ui_contract.py` (mọi cửa ghi phải qua `suaDuoc`; hai nhánh catch phải gọi `setLoiDoiCd`).
+`pytest tests/test_lsx_service.py tests/test_khsx_ui_contract.py` = **124 passed**;
+`npx tsc --noEmit` sạch; vitest **348 passed / 37 file**.
+
+**Nghiệm thu bằng UI thật.** Restart uvicorn (`Win32_Process.Create`, `svn_erp_trong`,
+`SEED_DEMO=false`), `/api/health` 200 sau 3s.
+
+*Nhánh KHOÁ — LSX26-0010:* Kế hoạch sản xuất → Lệnh sản xuất 8 → hàng LSX26-0010 → tab Công đoạn.
+Thấy băng hổ phách *"Lệnh đang giữ chỗ vật tư nên công đoạn khoá lại… Vào Kế hoạch vật tư › Theo
+lệnh sản xuất bấm Nhả chỗ, sửa công đoạn xong rồi Giữ chỗ lại."*; dòng phụ đọc *"kế thừa từ bài tính
+giá · chỉ xem"*; **0 nút "Lưu công đoạn"**. Sang Bảng danh sách: cả 10 hàng `draggable=false`, 0 nút
+thao tác/hàng. Mở drawer bước #10: ô TÊN CÔNG ĐOẠN `disabled`, 3/3 ô nhập của tab khoá. Log: **không
+có** `mac-dinh-buoc`, `xem-truoc-routing`, 409 hay 500 nào.
+
+*Nhánh MỞ — LSX26-0008 (không giữ chỗ):* không băng, dòng phụ *"sửa được tại lệnh này"*, 2 nút Lưu
+(disabled vì chưa dirty), hàng kéo được, 4 nút/hàng. Đổi công đoạn bước #10 sang **In proof duyệt
+màu** → `GET /api/lsx/8/mac-dinh-buoc/55` **200** và `POST /api/lsx/8/xem-truoc-routing` **200**
+(không còn 409), vùng `aria-live` bắt được *"Đã đổi sang In proof duyệt màu và lấy lại đơn vị, tổ
+phụ trách"* rồi *"Đã nạp 1 đầu việc khoán"*, hàng đổi đơn vị sang `bản proof`, không băng đỏ.
+
+*Băng đỏ:* dựng lỗi THẬT bằng cách tắt uvicorn rồi đổi công đoạn ở LSX26-0008 → hiện đúng
+*"Chưa lấy được mặc định của công đoạn: Cannot reach the server… — bước mới chỉ đổi được TÊN, đơn vị
+và tổ phụ trách chưa lấy lại."*, và hàng bày đúng cái nó cảnh báo: tên đổi thành "In proof duyệt
+màu" nhưng đơn vị vẫn `bài in` và tổ thành *"tổ mặc định / chưa gán tổ"*. Trước bản vá, y hệt tình
+huống này chạy **câm** — đúng cách dữ liệu Task 19 hỏng.
+
+Bật lại uvicorn → **Làm mới** → bước #10 về `Bình bài & dàn trang · Tổ kỹ thuật`, băng đỏ tắt, hai
+nút Lưu `disabled`. Rà log cả lượt: **không có PUT/POST ghi nào, không 409, không 500** — DB không
+bị đụng.
+
+**Tắt qua công cụ một chỗ (nói rõ):** ô công đoạn là `<select>` gốc; bấm chuột mở popup của Chrome
+nằm ngoài DOM nên phím gửi qua CDP rơi vào khoảng không (đã thử, `selectedIndex` không đổi). Giá trị
+select đặt bằng `form_input` của khung Browser — vẫn tác động lên chính control đó và bắn
+`input`/`change` thật lên React. Mọi bước khác bấm chuột theo toạ độ thật.
+
+**Còn để lại (chưa sửa, không thuộc phạm vi câu hỏi):** `LsxService.update` cũng chặn giữ chỗ khi
+đổi `so_luong_dat`/`quy_cach`, và `xoa` cũng vậy. Hai đường đó BÁO ĐƯỢC lỗi (băng `BangLoi` của
+`LsxDetailView`) nên không câm như routing, nhưng vẫn để người dùng gõ xong mới biết. Muốn dọn nốt
+thì dùng đúng cờ `giu_cho_bat` vừa mở đường ra.
+
+
+---
+
+## Task 22 — Nốt hai đường còn lại của khoá giữ chỗ: sửa quy cách và xoá lệnh
+
+**Triệu chứng.** Cùng gốc với Task 21, nhẹ hơn một bậc. Lệnh đang giữ chỗ vật tư: người kế hoạch mở
+tab **Quy cách** gõ lại khổ giấy / số trang / bình bài — mọi ô đều sáng, nhãn khối còn ghi *"thông
+số — sửa được"* — gõ xong bấm **Lưu thay đổi** mới ăn 409 *"Lệnh LSX26-00xx đang giữ chỗ vật tư…"*.
+Nút **Xoá lệnh** y hệt: sáng, bấm ra hộp xác nhận nói *"Lệnh chưa phát hành nên xoá được"* (sai),
+bấm Xoá mới 409.
+
+**Nguyên nhân.** `_chan_dang_giu_cho` gác ba đường ghi vào lượng vật tư: `update` khi
+`so_luong_dat` ĐỔI hoặc payload có `quy_cach`, `replace_routing`, và `xoa`. Task 21 đã đưa cờ
+`giu_cho_bat` ra tới client và dọn đường routing; hai đường còn lại vẫn dựng màn theo `canUpdate`
+nên chỉ biết "có quyền hay không", không biết "server đang khoá".
+
+**Quyết định giữ nguyên backend.** Ranh giới của guard là đúng và FE bám theo ĐÚNG ranh giới đó:
+tên lệnh / hạn / ghi chú / cờ gấp không đụng vật tư nên vẫn lưu được. Không nới cũng không siết
+backend trong task này.
+
+**Sửa (chỉ FE + test).**
+
+| Chỗ | Trước | Sau |
+|---|---|---|
+| `LsxDetailView` | không biết cờ | `const giuCho = !!d?.giu_cho_bat` · `const suaQc = canUpdate && !giuCho` |
+| 13 ô nhập tab Quy cách | `disabled={!canUpdate}` | `disabled={!suaQc}` — khoá thì `qcDoi` đứng false ⇒ `luu()` không gửi `quy_cach` ⇒ nút Lưu vẫn dùng được cho tên/hạn/ghi chú |
+| Nhãn khối Giấy & tờ | chết cứng *"thông số — sửa được"* | `{suaQc ? "sửa được" : "chỉ xem"}` — không thì màn tự cãi nhau với băng khoá ngay trên |
+| Đầu tab Quy cách | không có gì | băng `khsx-ghep-bang--khoa` nói lý do + đường lùi + **cái gì vẫn lưu được** |
+| Nút **Xoá lệnh** | luôn sáng | thay bằng chip `khsx-khoa-chip` *"Giữ chỗ vật tư — chưa xoá được"* (title chỉ đường nhả chỗ) |
+
+Chip chứ không phải `<button disabled>`: nút mờ chỉ có tooltip, người dùng bấm không ăn rồi tự đoán
+là mình hết quyền. Chip nằm ở đầu màn nên tab nào cũng thấy — đó cũng là chỗ báo khoá cho ai đang
+đứng ngoài tab Quy cách.
+
+**TDD.** 3 test mới. `test_giu_cho_chan_dung_ba_duong_con_ten_ghi_chu_van_luu_duoc` chốt HÀNH VI
+server (chặn `so_luong_dat` đổi / `quy_cach` / `xoa`; cho qua tên+ghi chú+gấp; cho qua khi gửi lại
+đúng số cũ — `luu()` của FE gửi kèm `so_luong_dat` mỗi lần lưu, chặn chỗ này là nút Lưu thành nút
+báo lỗi). Hai test hợp đồng UI chốt CẤU TRÚC màn. Bẫy gặp phải: `update` GÁN field rồi mới gọi
+`_chan_dang_giu_cho`, nên trong CÙNG một session, lần nổ để lại số bẩn trong identity map và lần gọi
+sau so với số bẩn — test phải `db.rollback()` sau mỗi lần chặn (thật thì mỗi request một session).
+Đỏ trước khi sửa: bản HEAD có 13 lần `disabled={!canUpdate}` và 0 lần `khsx-khoa-chip`.
+`pytest tests/test_lsx_service.py tests/test_khsx_ui_contract.py` = **127 passed**;
+`npx tsc --noEmit` sạch; vitest **348 passed / 37 file**.
+
+**Nghiệm thu bằng UI thật.** Không restart BE (không đổi dòng nào ở backend ngoài test); `/api/health`
+200, FE 5173 200.
+
+*Nhánh MỞ — LSX26-0008:* tab **Quy cách** → không băng khoá, **0/11 ô khoá**, nút **Xoá lệnh** có
+mặt. Bấm ba lần vào ô **Bleed (mm)** rồi gõ `3` → ô nhận `3`, hiện cặp nút **Hoàn tác / Lưu thay
+đổi**, `POST /api/lsx/8/xem-truoc-quy-cach` **200**. Bấm **Hoàn tác** → Bleed về `0`, cặp nút biến
+mất. Không lưu.
+
+*Nhánh KHOÁ — LSX26-0010:* Quay lại danh sách lệnh → **Mở lệnh LSX26-0010** → tab **Quy cách**. Băng
+hổ phách đọc đúng *"Lệnh đang giữ chỗ vật tư nên thông số quy cách khoá lại — mọi số ở đây đều đổi
+lượng vật tư cần, mà phần đã giữ chỗ không hay biết. Vào Kế hoạch vật tư › Theo lệnh sản xuất bấm
+Nhả chỗ, sửa xong rồi Giữ chỗ lại. Tên lệnh, hạn, ghi chú và cờ gấp vẫn sửa và lưu được bình
+thường."*; nhãn khối *"thông số — chỉ xem"*; **13/13 ô khoá**. Bấm ba lần vào **Khổ giấy nguyên dài**
+rồi gõ `999` → ô vẫn `650`, focus không vào được ô (đứng ở `SECTION`), **không** hiện nút Lưu.
+
+*Chip xoá:* lệnh đang **Sẵn sàng** nên cả nút Xoá lẫn chip đều không render (đúng điều kiện
+`trang_thai !== "san_sang"`). Bấm **Mở lại để sửa** → trạng thái **Nháp** → chỗ nút Xoá hiện chip hổ
+phách viền đứt *"Giữ chỗ vật tư — chưa xoá được"*, `title` = *"Nhả chỗ ở Kế hoạch vật tư › Theo lệnh
+sản xuất rồi mới xoá được lệnh."*, và **0 nút "Xoá lệnh"**. Bấm **Sẵn sàng lập kế hoạch** trả lệnh về
+**Sẵn sàng** — dữ liệu về đúng chỗ cũ.
+
+*Log:* từ mốc `/api/health` của lượt này tới cuối, 145 dòng, **không có 409, không có 500**, request
+ghi duy nhất là 2 lần `POST /api/lsx/10/trang-thai` 200 (mở lại + đóng về Sẵn sàng, tự dựng rồi tự
+trả). Không PUT/DELETE nào.
+
+**Không tắt qua công cụ nào ở task này** — mọi bước bấm chuột/gõ phím thật; `find`/`scroll_to` chỉ
+dùng để cuộn phần tử vào tầm nhìn trước khi bấm theo toạ độ.
+
+**Ghi nhận bên lề.** (1) `LsxService.update` KHÔNG chặn `so_con` dù đổi số con/tờ là đổi số tờ kế
+hoạch, tức đổi lượng giấy cần — FE khoá ô này theo cụm quy cách nên chặt hơn server một nấc. **Đã
+sửa ở Task 23.** (2) LSX26-0010 lúc về Nháp hiện chip đỏ *"Chưa tính được nhu cầu vật tư của lệnh"* trong khi nó
+đang GIỮ CHỖ vật tư — hai câu này đọc ngược nhau, cần soi riêng.
+
+---
+
+## Task 23 — `so_con` lọt khoá giữ chỗ
+
+**Triệu chứng.** Lệnh đang giữ chỗ vật tư vẫn đổi được **số con/tờ** (ô *Bình bài*) qua
+`PUT /api/lsx/{id}` mà server không kêu gì. Đo bằng số thật trên LSX26-0008: bình bài `16 → 8` làm
+**Vào máy 368 → 505 tờ** và **Giấy nguyên 368 → 505 tờ** (+137 tờ giấy), công thợ 3.349.026 →
+3.376.705 đ. Đúng loại thay đổi mà giữ chỗ phải biết, mà nó không biết.
+
+**Nguyên nhân.** Điều kiện gọi guard hẹp hơn điều kiện tính lại chuỗi ngược ngay dưới nó:
+
+```python
+if ("so_luong_dat" in changed or data.get("quy_cach")):   # gác
+    self._chan_dang_giu_cho(lsx)
+...
+if {"so_luong_dat", "so_con"} & set(changed) or data.get("quy_cach"):   # tính lại
+    self._ap_chuoi_nguoc(lsx)
+```
+
+`so_con` nằm ở vế tính lại mà thiếu ở vế gác. Nó đọc như "thông số trình bày" nên lọt, nhưng bình
+bài lại là số tờ kế hoạch khác đi, tức lượng giấy cần khác đi.
+
+**Sửa.** `backend/app/services/lsx_service.py` — cho hai điều kiện TRÙNG KHÍT:
+`if {"so_luong_dat", "so_con"} & set(changed) or data.get("quy_cach")`. Luật rút ra và ghi thành
+comment tại chỗ: **cái gì làm `_ap_chuoi_nguoc` viết lại số tờ vào máy thì cái đó đổi lượng vật tư
+cần ⇒ phải qua guard.** Kèm sửa docstring `_chan_dang_giu_cho` và câu lỗi 409 cho đủ vế
+(*"…trước khi sửa số lượng, **số con/tờ**, quy cách, routing hoặc xoá lệnh."*).
+
+FE **không đổi dòng nào**: Task 22 đã khoá ô *Bình bài* theo cụm `suaQc`, lúc đó chặt hơn server
+một nấc — nay server bắt kịp, hai bên khớp.
+
+**TDD.** Thêm một `pytest.raises` cho `so_con` vào
+`test_giu_cho_chan_dung_ba_duong_con_ten_ghi_chu_van_luu_duoc` → ĐỎ đúng
+`Failed: DID NOT RAISE <class 'LsxConflict'>` → sửa guard → XANH.
+`pytest tests/test_lsx_service.py tests/test_khsx_ui_contract.py` = **127 passed**. Siết guard là
+đổi hành vi server nên chạy thêm cả nhóm có đụng giữ chỗ / bài ghép:
+`test_giu_cho_vat_tu · test_bai_ghep_service · test_bai_ghep_2_service · test_bai_ghep_2_api ·
+test_san_xuat_release · test_san_xuat_release_update · test_lsx_tong_quan` = **154 passed**. Rà
+người gọi: chỉ `routers/lsx.py:372` gọi `LsxService.update`; bài ghép dùng `so_con=` như tham số
+tính toán chứ không đi qua `update`, nên không dính.
+
+**Nghiệm thu bằng UI thật.** Restart uvicorn (`Win32_Process.Create`, `svn_erp_trong`,
+`SEED_DEMO=false`) vì đổi service; `/api/health` 200.
+
+*Nhánh KHOÁ — LSX26-0010:* tab Quy cách, ô **Bình bài** `disabled` (Task 22 đã khoá) ⇒ luật mới
+KHÔNG có đường nào chạm tới từ giao diện. Đây cũng là lý do 409 của `so_con` không có ảnh chụp UI:
+màn chặn trước, server chỉ là lưới cuối. Bằng chứng cho vế chặn là test ở trên.
+
+*Nhánh MỞ — LSX26-0008 (không giữ chỗ, phải KHÔNG bị siết oan):* mốc đầu Bình bài `16`, Vào máy
+`368 tờ`, Giấy nguyên `368 tờ`, Công thợ `3.349.026 đ`. Bấm ba lần vào ô **Bình bài**, gõ `8` → hiện
+**Hoàn tác / Lưu thay đổi** → bấm **Lưu thay đổi** → `PUT /api/lsx/8` **200**, KPI nhảy sang
+`8 cái · 505 tờ · 505 tờ · 3.376.705 đ`, không băng lỗi. Gõ lại `16` → **Lưu thay đổi** →
+`PUT /api/lsx/8` **200**, KPI về đúng mốc đầu `16 cái · 368 tờ · 368 tờ · 3.349.026 đ`. Dữ liệu trả
+nguyên trạng.
+
+*Log:* từ mốc `Application startup complete` của lần restart tới cuối — **0 dòng 409, 0 dòng 500**;
+request ghi vào LSX chỉ có đúng 2 lần `PUT /api/lsx/8` 200 nói trên.
+
+**Còn để lại.** Hai plan doc cũ (`2026-08-30-ke-hoach-vat-tu.md:1660` và mục Task 21 ở trên) còn
+trích câu lỗi 409 bản cũ. Đó là biên bản theo ngày nên không sửa ngược; nguồn sự thật là code.
+
+## Task 24 — Ô "Giấy" ở lệnh chỉ mở tới giấy đang dùng + giấy thay thế của nó
+
+**Yêu cầu.** *"Giấy ở đó chỉ chọn được giấy đó, với giấy thay thế của giấy đó thôi, còn lại không
+cho chọn và nhập liệu đâu."*
+
+**Ô "Giấy" ở lệnh là cái gì (chẩn đoán trước khi sửa).** Nó là **giấy chạy máy của lệnh**, cất ở
+`lsx.quy_cach_json.giay_id`, KHÔNG phải một dòng trong bảng vật tư: LSX26-0008 có 7 dòng
+`lsx_cong_doan_vat_tu` (4 mực offset, dung môi rửa máy, keo gáy PUR, băng keo) và **không có dòng
+giấy nào** — giấy đi đường quy cách, số tờ do chuỗi ngược tính ra. Đổi ô này chỉ kéo theo `gsm` +
+`giay_ten` (`ap_quy_cach`), **không kéo khổ**: danh mục giấy đã bỏ khổ (mọi dòng `kho_dai = kho_rong
+= 0`, ghi chú model *"0 = cuộn/khổ mở"*, đơn giá tính **đ/kg**), nên hai ô *Khổ giấy nguyên* là số
+gõ tay tại lệnh chứ không phải thuộc tính của loại giấy.
+
+**Vì sao phải bó lại.** Đổi giấy tại lệnh là **chữa cháy khi hết hàng**, không phải chọn lại giấy từ
+đầu. Mở cả danh mục là mời người kế hoạch đổi C150 ruột sách sang C300 bìa mà không ai chặn. Danh
+mục đã có sẵn chỗ khai điều đó: `giay_nguyen.thay_the_ids` (*"Giấy khác dùng thay được món này khi
+thiếu hàng. Chỉ để tra cứu, không tự suy chiều ngược lại."*).
+
+**Sửa — chỉ FE, backend không đụng dòng nào.** `GiayRow` của `GET /api/vat-lieu-kho/giay` đã trả sẵn
+`thay_the_ids`, nên `frontend/src/pages/LsxDetailView.tsx` chỉ cần nhận thêm trường đó vào `giayRefs`
+rồi lọc:
+
+```tsx
+const giayNeoId = qc.giay_id == null ? null : Number(qc.giay_id);
+const giayNeo = giayRefs?.find((g) => g.id === giayNeoId) ?? null;
+const giayChonDuoc = !giayRefs ? null
+  : giayNeoId == null ? giayRefs
+  : giayRefs.filter((g) => g.id === giayNeoId || (giayNeo?.thayThe ?? []).includes(g.id));
+```
+
+Ba quyết định trong mấy dòng đó, đã ghi thành comment tại chỗ:
+
+- **Neo vào giấy ĐÃ LƯU (`qc.giay_id`), không phải giấy đang chọn dở trong form.** Neo theo form thì
+  mỗi lần đổi, danh sách mở ra theo thay-thế-của-thay-thế; nhảy vài nhịp là ra khỏi vùng đã duyệt.
+- **Không suy ngược.** Quan hệ thay thế MỘT CHIỀU: C150 khai thay được bằng C100 không có nghĩa lệnh
+  đang chạy C100 được đổi về C150.
+- **Lệnh chưa có giấy (`giay_id` null) thì mở cả danh mục** — không có gì để neo, khoá lại là nhốt
+  luôn, không bao giờ chọn được giấy đầu tiên. Cũng vì vậy option rỗng *"— chưa chọn giấy —"* chỉ
+  hiện khi `giayNeoId == null`.
+
+Tính thẳng chứ **không `useMemo`**: chỗ này nằm sau các `return` sớm của component, đặt hook ở đây là
+hook có điều kiện. Danh mục giấy vài dòng, lọc không đáng kể.
+
+Thêm một dòng phụ dưới ô (`.khsx-kv__hint`) nói vì sao danh sách ngắn — không thì người dùng tưởng
+danh mục hỏng hoặc mất quyền: *"chỉ giấy đang dùng và giấy thay thế khai ở danh mục"*, hoặc *"chưa
+khai giấy thay thế cho loại này ở danh mục nên không đổi được"* khi chỉ còn đúng một lựa chọn. Đường
+đi tiếp nằm ở **danh mục**, không phải ở lệnh.
+
+Ô này vốn là `<select>` nên **không có đường nhập liệu tự do** — đã soi lại DOM cụm quy cách: khoá
+*Giấy* là `SELECT`, hai ô *Khổ giấy nguyên* là `INPUT[number]`, không có ô text nào cho tên giấy.
+
+**TDD.** Thêm `test_o_giay_o_lenh_chi_mo_toi_giay_thay_the` vào
+`backend/tests/test_khsx_ui_contract.py` (khoá cả `giayChonDuoc.map` lẫn *không còn* `giayRefs.map`,
+option rỗng có điều kiện, hai câu hint) → ĐỎ → sửa FE → XANH.
+`pytest tests/test_khsx_ui_contract.py` = **17 passed**; `npx tsc --noEmit` sạch; `npm test` =
+**348 passed / 37 files**.
+
+**Nghiệm thu bằng UI thật.** Không restart BE (không sửa backend); Vite HMR nhận FE.
+
+*Nhánh MỞ — LSX26-0008 (giấy C150, `thay_the_ids = [4, 2]`, không giữ chỗ):* hamburger → **Kế hoạch
+sản xuất** → tab **Lệnh sản xuất** → **Mở lệnh LSX26-0008** → tab **Quy cách**. Ô GIẤY liệt kê đúng
+**3 dòng**: `Giấy C150 · 150 gsm` (đang chọn), `Giấy C200 · 200 gsm`, `Giấy C100 · 100 gsm` — khớp
+`[4, 2]` cộng chính nó; **không có** dòng *"— chưa chọn giấy —"*, không có C250/C300; ô mở
+(`disabled = false`), dòng phụ hiện *"chỉ giấy đang dùng và giấy thay thế khai ở danh mục"*. Đổi
+sang **Giấy C100** → ĐỊNH LƯỢNG nhảy `150 → 100`, hiện **Hoàn tác / Lưu thay đổi**, và **danh sách
+vẫn đúng 3 dòng** (chứng minh nó neo vào giấy đã lưu chứ không mở tiếp theo thay-thế-của-C100). Bấm
+**Hoàn tác** → về `Giấy C150`, ĐỊNH LƯỢNG `150`, hết nút Lưu. **Không lưu gì.**
+
+*Nhánh KHOÁ + neo khác — LSX26-0003 (giấy C300, `thay_the_ids = [5]`, đang giữ chỗ):* **Quay lại
+danh sách lệnh** → **Mở lệnh LSX26-0003** → tab **Quy cách**. Ô GIẤY chỉ còn **2 dòng**:
+`Giấy C300 · 300 gsm` + `Giấy C250 · 250 gsm` — danh sách bám theo từng lệnh, không phải một tập cố
+định. Ô `disabled = true` cùng cả 9 ô input của cụm (khoá giữ chỗ của Task 22), dòng phụ không hiện
+vì cụm đang chỉ-xem. Không cần soi thêm LSX26-0010: nó cùng neo C150 với 0008, mà vế khoá đã có
+0003 chứng minh.
+
+*Công cụ không phải chuột:* đúng **một** chỗ — `form_input` để đổi giá trị `<select>` ở LSX26-0008.
+`<select>` gốc của Chrome bung popup **ngoài DOM**, CDP không lái được bằng phím; mọi bước còn lại
+(mở sidebar, sang màn, mở lệnh, đổi tab, Hoàn tác, quay lại danh sách) đều là click thật.
+
+*Log & dữ liệu:* từ mốc restart tới cuối — **0 dòng 409, 0 dòng 500**; request ghi vào LSX vẫn chỉ
+là 2 lần `PUT /api/lsx/8` của Task 23, phiên này **không phát sinh PUT/DELETE nào**. Đọc lại DB
+(`svn_erp_trong`, chỉ SELECT): `LSX26-0003 giay_id=3 gsm=300`, `LSX26-0008 giay_id=1 gsm=150
+so_con=16` — nguyên trạng.
+
+**Còn để lại (không sửa, chỉ ghi).** Danh mục giấy đang có mã nhân bản rõ ràng
+(`GL-0001-COPY`, `GL-0001-COPY-COPY`); cả ba lệnh "Ruột sách 192 trang" đều chạy C150 150 gsm là
+định lượng bìa chứ không phải ruột; LSX26-0008 có `so_trang = 1, trang_moi_tay = 1` trong khi
+LSX26-0010 cùng tên sản phẩm là `192 / 32`. Đều là dữ liệu, không phải lỗi màn này.
+
+## Task 25 — Quy cách ở lệnh: chỉ còn ô Giấy sửa được
+
+**Yêu cầu.** *"Chỉ được chọn giấy."* Cụ thể: trong tab Quy cách của màn lệnh, ngoài ô Giấy ra
+không ô nào chỉnh sửa được nữa.
+
+**Trước đó.** Khi lệnh chưa giữ chỗ thì **cả cụm** sửa được — khổ giấy nguyên, khổ tờ, khổ thành
+phẩm, cách in, số trang/tay, bleed, khe cắt, mực in, và cả **Bình bài** ở card *Máy tự tính*. Đó là
+quyết định cũ "kế thừa từ phiếu tính giá = **mặc định**, không phải chỉ-xem"; lớp khoá duy nhất là
+khoá giữ chỗ vật tư (Task 22), khoá theo **trạng thái** chứ không theo ô.
+
+**Vì sao đổi.** Cụm này là thứ đã tính ra giá và **đã báo cho khách**. Gõ lại ở lệnh là lệnh chạy
+một đằng, khách mua một nẻo, mà không có ai đối chiếu hai bên. Giấy là ngoại lệ duy nhất vì đổi giấy
+không phải "đổi sản phẩm" mà là **chữa cháy khi hết hàng**, và đã bó vào danh sách thay thế khai ở
+danh mục (Task 24).
+
+*Đã nêu trước khi làm, người dùng chốt giữ nguyên phạm vi:* danh mục giấy **không lưu khổ** (mọi
+dòng `kho_dai = kho_rong = 0`, bán theo kg) nên khổ giấy nguyên là số gõ tay tại lệnh — khoá nó lại
+thì đổi sang giấy thay thế **khác khổ** vẫn tính số tờ/số kg theo khổ cũ. Ghi ra đây làm biên bản,
+không phải để cãi lại quyết định.
+
+**Sửa — chỉ FE.** `frontend/src/pages/LsxDetailView.tsx`:
+
+| Chỗ | Trước | Sau |
+| --- | --- | --- |
+| Cờ quyền | `suaQc = canUpdate && !giuCho` gác 16 chỗ | `suaGiay = canUpdate && !giuCho` gác **đúng ô Giấy** |
+| 10 ô số | `KVNum` (`<input type="number">`) | `KVSo` — **bỏ hẳn `<input>`**, hiện giá trị |
+| Cách in | `<select>` 4 lựa chọn | chữ, qua `nhanCachIn()` |
+| Mực in | `disabled={!suaQc}` | `disabled` cứng, `onChange` rỗng |
+| Bình bài | `<input>` + `set("so_con", …)` | chữ |
+
+`<input disabled>` bị loại có chủ ý: ô mờ đọc như *"tạm thời không bấm được"*, trong khi ở đây là
+**không bao giờ** sửa ở màn này — bỏ ô nhập mới nói đúng.
+
+Nhãn khối đổi thành *"thông số — chỉ xem, đổi được giấy khi thiếu hàng"*, và thêm một dòng chỉ
+**đường đi tiếp** ngay trong khối: *"Thông số chụp từ phiếu tính giá lúc tạo lệnh và không sửa ở đây
+— muốn đổi thì sửa ở phiếu tính giá rồi tạo lại lệnh (lệnh không tự bám theo phiếu). Riêng giấy đổi
+được tại chỗ khi hết hàng."* Nói "chỉ xem" mà không nói đi đâu để đổi thật là mới xong nửa việc.
+
+Băng khoá giữ chỗ viết lại cho khớp: giờ nó chỉ còn khoá **ô Giấy**, không phải "cả cụm thông số".
+
+Tiện thể gộp nhãn cách in về một chỗ: `CACH_IN_NHAN` + `nhanCachIn()` chuyển vào
+`keHoachSxShared.tsx`, xoá hai bản chép tay ở `BaiGhep2Page.tsx` và `LenhSxHoSoView.tsx` — chú thích
+ở `BaiGhep2Page` vốn đã tự dặn *"đừng đẻ bộ thứ hai"* mà đang có ba bộ.
+
+**Backend không đụng dòng nào.** `_chan_dang_giu_cho` vẫn là lưới cuối cho đường HTTP, và server vẫn
+phải nhận `quy_cach` cho các cửa khác (bài ghép ép lại con/tờ). Màn lệnh chặt hơn server một nấc —
+đúng hướng, không phải lệch.
+
+**TDD.** Sửa `test_lenh_giu_cho_vat_tu_thi_thong_so_khoa_va_noi_ra` (đổi sang `suaGiay`, thêm
+`assert "suaQc" not in source`) và thêm `test_quy_cach_o_lenh_chi_con_o_giay_sua_duoc` (không còn
+`KVNum`, `source.count("setQc({") == 1`, không còn `set("so_con"`, hai câu microcopy) →
+**2 failed** → sửa FE → `pytest tests/test_khsx_ui_contract.py` = **18 passed**.
+`npx tsc --noEmit` sạch; `npm test` = **348 passed / 37 files**.
+
+**Nghiệm thu bằng UI thật.** Không restart BE (không sửa backend); Vite HMR nhận FE.
+
+*Nhánh MỞ — LSX26-0008 (không giữ chỗ):* hamburger → **Kế hoạch sản xuất** → tab **Lệnh sản xuất** →
+**Mở lệnh LSX26-0008** → tab **Quy cách**. Đếm trong `#khsx-panel-quycach`: **0 ô `<input>`**, đúng
+**1 `<select>`** là ô Giấy (mở, 3 lựa chọn C150/C200/C100 như Task 24). Toàn bộ 25 dòng còn lại là
+chữ: `Khổ giấy nguyên 650 / 980`, `Khổ tờ 650 / 980`, `Khổ thành phẩm 160 / 240`,
+`Cách in: 2 mặt (AB)` (nhãn dịch đúng từ khoá `hai_mat`), `Bleed 0`, `Khe cắt 0`, `Bình bài 16`.
+Mười nút chip mực trong khối: **0 nút mở**. Nhãn khối và dòng chỉ đường hiện đúng chữ đã chốt.
+
+*Ô giấy vẫn sống:* đổi ô Giấy sang **Giấy C100** → ĐỊNH LƯỢNG `150 → 100`, hiện **Hoàn tác / Lưu
+thay đổi**, số lựa chọn vẫn 3, panel vẫn **0 input**. Bấm **Hoàn tác** → về `Giấy C150`, hết nút
+Lưu. Không lưu gì.
+
+*Nhánh KHOÁ — LSX26-0003 (đang giữ chỗ):* **Quay lại danh sách lệnh** → **Mở lệnh LSX26-0003** → tab
+**Quy cách**: **0 input**, ô Giấy `disabled` với đúng 2 lựa chọn C300 + C250, băng hổ phách đọc
+*"Lệnh đang giữ chỗ vật tư nên ô Giấy khoá luôn… Tên lệnh, hạn, ghi chú và cờ gấp vẫn sửa và lưu được
+bình thường."* Sang tab **Thông tin chung** kiểm lại lời hứa đó: **3 ô nhập, cả 3 đều mở**.
+
+*Công cụ không phải chuột:* đúng **một** chỗ — `form_input` để đổi giá trị `<select>` Giấy ở
+LSX26-0008 (`<select>` gốc của Chrome bung popup ngoài DOM, CDP không lái được bằng phím). Mọi bước
+còn lại là click thật.
+
+*Log & dữ liệu:* từ mốc restart tới cuối — **0 dòng 409, 0 dòng 500**; request ghi vào LSX vẫn chỉ
+là 2 lần `PUT /api/lsx/8` của Task 23, phiên này **không phát sinh PUT/DELETE/PATCH nào**. Đọc lại DB
+(chỉ SELECT): `LSX26-0003 giay_id=3 gsm=300 kho_nguyen_dai=1090 so_con=9`,
+`LSX26-0008 giay_id=1 gsm=150 kho_nguyen_dai=650 so_con=16` — nguyên trạng.
+
+**Hệ quả để lại (biết trước, không vá).** Lệnh thiếu khổ thành phẩm (`thieu_kho`) hoặc thiếu giấy
+(`thieu_giay`) nay **không còn đường tự bổ sung ở màn lệnh** — phải sửa ở phiếu tính giá rồi tạo lại
+lệnh, và tạo lại là mất routing đã chỉnh. Dòng chỉ đường trong khối nói đúng chỗ phải tới, nhưng đây
+là chỗ đầu tiên nên xem lại nếu người kế hoạch kêu vướng.
+
+---
+
+## Task 26 — Bản in báo giá: cùng tên sản phẩm gộp một dòng, nhiều mức số lượng
+
+**Yêu cầu.** *"nếu cùng tên sản phẩm thì hợp lại thành 1 ô thôi, nhưng trong ô đơn giá thành tiền
+và số lượng sẽ có nhiều mức"* — và chốt lại khoá gộp: *"ý là nó phải trùng tên sản phẩm đó nhé"*.
+Phần chân bảng (Cộng tiền hàng · VAT · Tổng thanh toán) giữ nguyên như đang in.
+
+**Chẩn đoán.** Báo giá bậc thang số lượng (một món, ba mức 10.000 / 20.000 / 50.000 cái) là ba dòng
+`quote_items` riêng, `nhom` để trống. `utils/gop-nhom.ts` chỉ biết gộp theo nhãn `nhom` **và** cùng
+SL, nên ba dòng đó in ra ba dòng lặp y hệt: ba lần tên, ba lần khổ, ba lần chuỗi công đoạn — khách
+phải đọc chéo mới thấy chỉ khác mỗi con số.
+
+**Cách sửa.** Thêm TẦNG GỘP THỨ HAI chạy sau `gopTheoNhom`, khoá là TÊN (chuẩn hoá trim +
+hoa/thường), không đụng tầng cũ:
+
+| File | Sửa gì |
+| --- | --- |
+| `frontend/src/utils/gop-nhom.ts` | Thêm `MucSoLuong`, `DongTheoTen<T>`, `gopTrungTen()`. Không cộng dồn SL (ba mức là ba phương án của cùng một món). VAT% / kích thước lệch giữa các mức ⇒ `null`. Diễn giải hợp nhất, bỏ gạch trùng. |
+| `frontend/src/pages/BaoGiaPage.tsx` | `const dongIn = gopTrungTen(lines)`; thân bảng in mỗi mức một `<tr>`, ô STT · mô tả · ĐVT dùng `rowSpan={g.muc.length}`. Đơn giá vẫn tính tại chỗ `thanhTien / soLuong` (giữ 2 số lẻ) nên phép nhân trên giấy vẫn khớp. |
+| `frontend/src/pages/bao-gia.css` | `tr.q-muc-tiep > td { border-top-style: dashed; }` — mức 2 trở đi ngăn bằng gạch đứt. |
+| `frontend/src/pages/BaoGiaPage.tsx` (băng cảnh báo) | Băng "lệch số lượng" trước ghi *"sẽ in N dòng cho nhãn này"*; nay nhãn đó về lại một dòng nên đổi thành *"in nhãn này thành 1 dòng với N mức số lượng"*. |
+
+**Phạm vi.** CHỈ bản in báo giá. Đơn hàng bán và phiếu giao hàng không đổi một chữ — ở phiếu giao,
+số lượng là số giao thật, gộp thành mức là sai nghiệp vụ.
+
+**Biên bản TDD.** Viết 7 test cho `gopTrungTen` trong `frontend/src/utils/gop-nhom.test.ts` trước →
+chạy `npx vitest run src/utils/gop-nhom.test.ts` → **7 đỏ** (`gopTrungTen is not a function`), 8 test
+cũ vẫn xanh → viết hàm → **15/15 xanh**. `npx tsc --noEmit` sạch.
+
+**Biên bản nghiệm thu UI** (dev-browser tab `seed`, DB `svn_erp_trong`):
+
+1. Mở **BG26-0006** (Sách bìa mềm 192 trang) → bấm **Xem bản in** → đọc DOM bảng in: **1 dòng**,
+   không có `rowspan`, "Sách bìa mềm 192 trang, khổ 16x24cm" gộp bìa + ruột, 2.000 cuốn ·
+   29.732,93 · 59.465.855. **Không hồi quy.**
+2. Sidebar → **Tính giá** → **Lập phiếu tính giá** → **Thêm sản phẩm** → gõ `Hộp bánh` vào ô *Sản
+   phẩm tái bản* → chọn **Hộp bánh 200g** (nạp lại cấu hình: LSP-0001 Hộp giấy bồi, 420×300) → gõ
+   số lượng `10000` → **Xong**. Phiếu tự lưu thành **PTG-2026-0005**.
+3. Bấm **Nhân bản sản phẩm** → drawer mở "Hộp bánh 200g (bản sao)" → sửa tên về `Hộp bánh 200g`,
+   số lượng `20000` → **Xong**. Nhân bản lần nữa → sửa tên, số lượng `50000` → **Xong**.
+4. Bấm **Tính giá** → ba dòng cùng tên: 10.000 / 2.363 đ · 20.000 / 2.242 đ · 50.000 / 2.127 đ
+   (giá vốn đơn giảm dần theo SL — đúng bậc thang). KHÔNG tick ô "gộp khi báo giá" ⇒ `nhom` trống,
+   đúng ca cần thử.
+5. Bấm **Báo giá →** → sinh **BG26-0007** (nháp, 230.790.255 đ) → bấm **Xem bản in**.
+6. Bảng in đọc từ DOM: **1 `<tr>` đầu** mang `rowspan=3` ở cả STT, ô mô tả và ĐVT; **3 mức**
+   10.000 / 2.836,02 / 28.360.180 · 20.000 / 2.690,74 / 53.814.824 · 50.000 / 2.552,69 /
+   127.634.319. Hai `<tr>` sau mang class `q-muc-tiep`, `borderTopStyle` = `dashed` (mức 1 =
+   `solid`). Chân bảng: Cộng tiền hàng 209.809.323 · GTGT 10% 20.980.932 · Tổng 230.790.255 đ —
+   **nguyên như cũ**.
+
+**Tự khai.** Khung xem trước mang class `q-print-silent` (`display:none`) khi tài khoản có quyền in
+— nó bắn thẳng `window.print()`, hộp thoại in của Chrome nằm ngoài DOM nên không chụp được. Để chụp
+ảnh bản in, tôi **gỡ class đó khỏi element bằng JS ngay trên trình duyệt** (chỉ đổi hiển thị, không
+sửa code, không thay bước nghiệp vụ nào). Mọi bước bấm/gõ ở trên đều là chuột + bàn phím thật.
+
+**Còn để lại.** PTG-2026-0005 và BG26-0007 là dữ liệu dựng để nghiệm thu, **vẫn còn trong
+`svn_erp_trong`** — giữ lại để xem lại bản in, xoá lúc nào cũng được.

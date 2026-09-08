@@ -3074,7 +3074,7 @@ Cấu hình danh mục (`loai = cong_viec_khoan`, quyền `dm_cong_viec_khoan`, 
 | `cong_doan` | `String(30)` | **IX** | yes | — | **CỘT CHẾT** — trước tra đơn giá theo (tổ + công đoạn). Bảng này giờ là KHAI BÁO thuần: đơn giá chỉ treo vào TỔ, việc nào dùng dòng nào là bên sản xuất chọn ở bước lệnh. Giữ cột để không mất dữ liệu cũ, không đọc ở đâu nữa. |
 | `unit` | `String(24)` | — | no | `khác` | ĐVT — lưu **MÃ** danh mục `don_vi_do` (`to`, `kg`, `m2`), cùng lối `giay.don_vi_gia`. mg `0210` đổi dòng cũ từ TÊN sang MÃ khi khớp chính xác; chữ ngoài danh mục vẫn lưu được (dòng cũ · seed · import). |
 | `unit_price` | `Numeric(14,2)` | — | no | — | Đơn giá/đơn vị. |
-| `cong_thuc_luong` | `TEXT` | — | yes | — | **CÁCH ĐO LƯỢNG của đầu việc này** (mg `0213`) — ra số đơn vị `unit` rồi mới nhân `unit_price`. Vế thứ ba của cùng ý đã làm cho vật tư (mg `0194`) và giấy (mg `0195`): công thức RIÊNG thắng công thức của ĐƠN VỊ, vì hai việc cùng đo bằng `cuốn` có thể đo theo hai cách. Ca thật: "Bắt tay + vào keo" khoán đ/`cuốn` mà bước đếm `tay` — cầu `tay → cuốn` không có trong bảng cặp nên đầu việc đó chưa bao giờ ra tiền; khai `sl_ra` là xong. ⚠️ **GHÌM** vào `lsx_cong_doan.khoan_json["cong_thuc"]` lúc chọn đầu việc (`khoan_snapshot`): sửa ở danh mục KHÔNG xê dịch tiền của lệnh đã phát. Đọc ở `LsxService._sl_theo_don_vi` bậc ⓿. |
+🔴 **`cong_thuc_luong` GỠ 06/09/2026 (mg `0274`)** — ô "Cách đo lượng khoán". Cách đo tiền công nay khai ở `cong_doan_dau_viec.cong_thuc_khoan`: một đầu việc dùng chung ở nhiều công đoạn thì mỗi nơi đếm sản lượng khoán một khác, khai một lần ở bảng đơn giá là ép cả hệ dùng chung một cách đếm. Việc GHÌM ảnh chụp vào bước lệnh (`khoan_snapshot`) giữ nguyên, chỉ đổi nguồn đọc.
 | `note` | `String(255)` | — | yes | — | Ghi chú. |
 | `active` | `Boolean` | — | no | `true` | Còn dùng. Còn nơi dùng thì luật xoá chung chỉ tắt cờ này (xem `danh_muc_tham_chieu._cong_viec_khoan`). **Đổi tên từ `is_active`, mg `0210`.** |
 | `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
@@ -3193,10 +3193,9 @@ Bảng MỚI → `create_all` tự dựng, **không cần migration cho bảng**
 | `hang_san_xuat` `model` `so_seri`                            | `String(100)`  | nhận diện thiết bị (bày ra form 11/08/2026).                                  |
 | `nhip_giay_mm` `le_hong_mm` `duoi_thang_mau_mm`              |                | chừa lề tờ in — engine bình bài.                                              |
 | `kho_max_dai/rong` `kho_min_dai/rong` `kho_kem_dai/rong` `vung_in_dai/rong` | `Integer` | khổ giấy máy nhận · khổ kẽm · vùng in (mm).                          |
-| `so_nhan_cong`                                               | `Numeric(5,2)` | Số người vận hành tiêu chuẩn (kíp chuẩn); dùng hoạch định nhân lực, không nhân tốc độ máy. |
 | `fields_theo_loai`                                           | `JSON`         | field đặc thù theo `loai_may` + khối con của form: `chuan_bi_khoan` (các khoản chuẩn bị) và **`lich_bao_tri`** = danh sách **GÓI** bảo trì `[{id, viec, so, don_vi, hang_muc:[{id,ten}]}]` — gói mang chu kỳ, `hang_muc` là các việc con phải làm trong một lần dừng máy. Gói khai trước 12/08/2026 không có `hang_muc` vẫn đọc bình thường. Khoá cũ `lan_cuoi` / `dung_phut` đã bỏ ô nhập nhưng giá trị cũ được giữ nguyên khi lưu. |
 
-**Tất cả cột:** `id`, `ma`, `ten`, `loai_may`, `hang_san_xuat`, `model`, `so_seri`, `ghi_chu`, `toc_do`, `toc_do_min`, `toc_do_max`, `don_vi_toc_do`, `cong_thuc_luong`, `makeready_time_default`, `cho_ky_thuat_gio`, `so_nhan_cong`, `kho_max_dai`, `kho_max_rong`, `kho_min_dai`, `kho_min_rong`, `kho_kem_dai`, `kho_kem_rong`, `vung_in_dai`, `vung_in_rong`, `nhip_giay_mm`, `le_hong_mm`, `duoi_thang_mau_mm`, `fields_theo_loai`, `active`, `created_at`, `updated_at`. **`active`** (BOOLEAN NOT NULL DEFAULT TRUE, migration `0202`) = máy CÒN DÙNG hay đã thanh lý — cờ của nút "Ngừng dùng" trên màn Máy, nhờ nó màn này vào được luật xoá chung của danh mục. ĐỪNG NHẦM với `trang_thai` đã gỡ ở mg `0186`: cái cũ trộn ba nghĩa (đang chạy / bảo trì / đã nghỉ) và không có ô nhập nào. Máy dừng **TẠM** (bảo trì, hỏng) vẫn `active=TRUE` và khai bằng khoảng thời gian ở `machine_unavailable_periods` — đó vẫn là thứ Xếp lịch đọc để né khe. `xep_lich_service._may_lam_duoc` lọc `active`, nhưng luôn GIỮ máy đang gán để lệnh cũ mở ra không trống ô. **Nhíp GIẤY:** `nhip_giay_mm` (INTEGER nullable, migration 0107) = cạnh máy KẸP TỜ GIẤY (~8–12mm) → bình bài trừ vào chiều DÀI tờ in. (Ô cũ "Nhíp kẽm" `gripper_mm` = mép nhíp trên BẢN KẼM ~44mm đã GỠ ở mg `0228` — engine bình bài chưa từng đọc nó, giữ lại chỉ gây nhầm với nhíp giấy.) `le_hong_mm` trừ MỖI BÊN chiều rộng, `duoi_thang_mau_mm` trừ chiều dài; cả hai đã có cột từ trước nhưng tới migration 0107 mới có ô nhập trên UI. **Ba cột tốc độ — chỉ MỘT cột chảy vào tính toán:** `toc_do` = tốc độ TRUNG BÌNH, là số duy nhất Tính giá / Lệnh SX / Xếp lịch đọc (tên cột giữ nguyên dù nhãn UI đã đổi thành "Tốc độ trung bình"); `toc_do_min` / `toc_do_max` (NUMERIC(12,2) nullable, migration 0152) là dải năng lực **CHỈ ĐỂ KHAI** theo chốt của chủ 03/08/2026 — không nối vào công thức nào. Cho lịch chạy bằng khoảng [sớm–muộn] là việc viết lại lõi xếp lịch, không phải chỉ đọc thêm hai cột này. **`don_vi_toc_do`** (VARCHAR(32) sau migration 0153, trước là 16) mang mã dạng `<đơn vị đếm>_gio` **suy ra từ danh mục `don_vi_do`** — chủ tự thêm/xoá đơn vị ở màn "Đơn vị & quy đổi" là danh sách chọn tự đổi theo, không có bảng riêng. `don_vi_do.ma` rộng 24 nên mã ở đây tới 28 ký tự; SQLite không ép độ dài (test không bắt được) nhưng Postgres thật thì lỗi lúc lưu — đó là lý do nới cột. Lệnh SX so khớp mã này với thứ công đoạn ĐẾM (`_DV_VAO_SANG_NS`); lệch là bỏ qua tốc độ trong im lặng, nên **đừng đổi quy ước đặt mã**. **`cong_thuc_luong`** (TEXT nullable, mg `0213`) = **CÁCH ĐO LƯỢNG theo đơn vị tốc độ của CHÍNH máy này** — "bước chạy trên máy này thì bằng bao nhiêu <đơn vị tốc độ>", vd máy đo m²/giờ khai `sl_vao * dai_in * rong_in`, máy 5 màu chạy hàng 8 màu khai `sl_vao * so_mau / 5`. Ra **LƯỢNG**, KHÔNG ra giờ: phép `÷ tốc độ` và hai tầng thời lượng không đụng tới. Gắn vào MÁY chứ không vào đơn vị vì `don_vi_do.cong_thuc` là cách đo của một ĐƠN VỊ nên mọi máy đo bằng `to_gio` phải dùng chung một cách tính. Đọc **SỐNG** (khác `piece_rates.cong_thuc_luong` bị ghìm): đổi máy là đổi cả tốc độ lẫn cách đếm lượt. `LsxService._sl_theo_don_vi` đọc nó ở bậc ⓿, trước cầu quy đổi và trước công thức của đơn vị.
+**Tất cả cột:** `id`, `ma`, `ten`, `loai_may`, `hang_san_xuat`, `model`, `so_seri`, `ghi_chu`, `toc_do`, `toc_do_min`, `toc_do_max`, `don_vi_toc_do`, `makeready_time_default`, `cho_ky_thuat_gio`, `kho_max_dai`, `kho_max_rong`, `kho_min_dai`, `kho_min_rong`, `kho_kem_dai`, `kho_kem_rong`, `vung_in_dai`, `vung_in_rong`, `nhip_giay_mm`, `le_hong_mm`, `duoi_thang_mau_mm`, `fields_theo_loai`, `active`, `created_at`, `updated_at`. **`active`** (BOOLEAN NOT NULL DEFAULT TRUE, migration `0202`) = máy CÒN DÙNG hay đã thanh lý — cờ của nút "Ngừng dùng" trên màn Máy, nhờ nó màn này vào được luật xoá chung của danh mục. ĐỪNG NHẦM với `trang_thai` đã gỡ ở mg `0186`: cái cũ trộn ba nghĩa (đang chạy / bảo trì / đã nghỉ) và không có ô nhập nào. Máy dừng **TẠM** (bảo trì, hỏng) vẫn `active=TRUE` và khai bằng khoảng thời gian ở `machine_unavailable_periods` — đó vẫn là thứ Xếp lịch đọc để né khe. `xep_lich_service._may_lam_duoc` lọc `active`, nhưng luôn GIỮ máy đang gán để lệnh cũ mở ra không trống ô. 🔴 **`so_nhan_cong` GỠ 06/09/2026 (mg `0270`)** — ô "Số người vận hành tiêu chuẩn" của máy. Cả hệ nay chỉ còn MỘT con số nhân lực là `cong_doan_dau_viec.so_nguoi_tieu_chuan`: kíp của mọi loại bước (máy · tổ · thuê ngoài) đều điền sẵn từ đó. Khai kíp ở máy là nguồn sự thật thứ hai cho cùng một câu hỏi, và không màn nào bày hai số cạnh nhau để ai đó phát hiện chúng lệch. Hệ quả chấp nhận: hai máy cùng một công đoạn nhận cùng một kíp. **Nhíp GIẤY:** `nhip_giay_mm` (INTEGER nullable, migration 0107) = cạnh máy KẸP TỜ GIẤY (~8–12mm) → bình bài trừ vào chiều DÀI tờ in. (Ô cũ "Nhíp kẽm" `gripper_mm` = mép nhíp trên BẢN KẼM ~44mm đã GỠ ở mg `0228` — engine bình bài chưa từng đọc nó, giữ lại chỉ gây nhầm với nhíp giấy.) `le_hong_mm` trừ MỖI BÊN chiều rộng, `duoi_thang_mau_mm` trừ chiều dài; cả hai đã có cột từ trước nhưng tới migration 0107 mới có ô nhập trên UI. **Ba cột tốc độ — chỉ MỘT cột chảy vào tính toán:** `toc_do` = tốc độ TRUNG BÌNH, là số duy nhất Tính giá / Lệnh SX / Xếp lịch đọc (tên cột giữ nguyên dù nhãn UI đã đổi thành "Tốc độ trung bình"); `toc_do_min` / `toc_do_max` (NUMERIC(12,2) nullable, migration 0152) là dải năng lực **CHỈ ĐỂ KHAI** theo chốt của chủ 03/08/2026 — không nối vào công thức nào. Cho lịch chạy bằng khoảng [sớm–muộn] là việc viết lại lõi xếp lịch, không phải chỉ đọc thêm hai cột này. **`don_vi_toc_do`** (VARCHAR(32) sau migration 0153, trước là 16) mang mã dạng `<đơn vị đếm>_gio` **suy ra từ danh mục `don_vi_do`** — chủ tự thêm/xoá đơn vị ở màn "Đơn vị & quy đổi" là danh sách chọn tự đổi theo, không có bảng riêng. `don_vi_do.ma` rộng 24 nên mã ở đây tới 28 ký tự; SQLite không ép độ dài (test không bắt được) nhưng Postgres thật thì lỗi lúc lưu — đó là lý do nới cột. Lệnh SX so khớp mã này với thứ công đoạn ĐẾM (`_DV_VAO_SANG_NS`); lệch là bỏ qua tốc độ trong im lặng, nên **đừng đổi quy ước đặt mã**. 🔴 **`cong_thuc_luong` GỠ 06/09/2026 (mg `0274`)** — ô "Cách đo lượng theo đơn vị tốc độ" của máy. Cách đo nay khai theo CẶP ở `cong_doan_may.cong_thuc_gio`: treo ở máy thì mọi công đoạn chạy máy đó dùng chung một cách đo, trong khi cùng một máy in, công đoạn khổ 79×109 và khổ 11×11 đo khác nhau. Vẫn đọc SỐNG, vẫn ở bậc ⓿ của `LsxService._sl_theo_don_vi`, chỉ đổi chỗ khai.
 
 **`ca_lam_ids`** (`JSON`, nullable, mg 0178) — **ĐÃ GỠ KHỎI MODEL 11/08/2026** (trước đó dormant từ 10/08). Từng là tập ca riêng của MÁY; nay đã bỏ: **máy là thiết bị, bàn xếp lịch cho chạy LIÊN TỤC** (`XepLichService._lich_may` → `LichXuong(lien_tuc=True)`), chỉ dừng vì ngày nghỉ/lễ của xưởng và vùng KHOÁ máy (`machine_unavailable_periods` kiểu `chan`). Ca là chuyện của người: cần tăng ca thì cứ xếp việc vào giờ đó, không phải sửa danh mục máy. Không còn ô nhập, không còn trong API. Hệ quả đã biết: trần giờ máy/ngày thành 24h nên đèn "quá tải máy" gần như không sáng — trần thật nằm ở quỹ giờ-NGƯỜI của tổ. Cột giữ lại để không mất số cũ — **đừng khai lại ô này**.
 
@@ -3248,7 +3247,7 @@ dùng cho bình bài.
 
 **Purpose:** vật tư in ấn — danh mục PHẲNG (mực/kẽm/hoá chất/màng/keo… chung 1 bảng, phân biệt bằng tên) theo bảng xưởng: Mã · Tên · ĐVT · Giá · Ghi chú. Thay 2 bảng cũ `muc`+`ban_kem`.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `don_vi_gia`, `don_vi_dong_goi`, `he_so_dong_goi`, `don_gia`, `cong_thuc_gia`, `cong_thuc_luong`, `ghi_chu`, `thay_the_ids`, `anh_url`, `active`, `created_at`, `updated_at`, `customer_id`, `la_thanh_pham`, `order_id`, `order_line_id`.
+**Tất cả cột:** `id`, `ma`, `ten`, `don_vi_gia`, `don_vi_dong_goi`, `he_so_dong_goi`, `don_gia`, `cong_thuc_gia`, `ghi_chu`, `thay_the_ids`, `anh_url`, `active`, `created_at`, `updated_at`, `customer_id`, `la_thanh_pham`, `order_id`, `order_line_id`.
 
 `thay_the_ids` (JSON nullable, mảng int, mg 0239): **NVL THAY THẾ** — id các dòng `vat_tu_in_an` KHÁC dùng thay được món này. Xem ghi chú đầy đủ ở `giay_nguyen.thay_the_ids` (một chiều, chỉ tra cứu/gợi ý).
 
@@ -3264,7 +3263,7 @@ dùng cho bình bài.
 
 ⚠️ Đây **KHÔNG** phải `hang_loai` thứ ba: với kho, thành phẩm vẫn là `hang_loai="vat_tu"` — `VatLieuKhoService._mat_hang_row` ép về đúng giá trị đó. Soft-ref, không FK cứng: huỷ đơn KHÔNG xoá thành phẩm (có thể đã nhập kho, xoá là làm mồ côi lô tồn).
 
-`cong_thuc_luong` (TEXT nullable, mg 0194): **CÔNG THỨC RA LƯỢNG** của chính món hàng — "một lệnh cần bao nhiêu <đơn vị này>", biến lấy từ quy cách lệnh (vd keo: `0.002 * so_luong`). ĐỪNG LẪN với `cong_thuc_gia` ngay bên cạnh: ô kia ra **TIỀN** cho phiếu tính giá, ô này ra **LƯỢNG** cho BOM ở bước lệnh.
+🔴 **`cong_thuc_luong` GỠ 06/09/2026 (mg `0274`)** — ô "Công thức tính lượng" của món hàng. Định mức nay khai theo TỪNG DÒNG vật tư của đầu việc (`cong_doan_dau_viec_vat_tu.cong_thuc_luong`): hai món cùng ĐVT `kg` vẫn ăn theo hai trục khác hẳn — mực theo số tờ chạy, dung môi rửa máy theo số màu — nên công thức thuộc về CẶP (đầu việc × vật tư), không thuộc về món hàng. `giay_nguyen.cong_thuc_luong` GIỮ NGUYÊN.
 
 ⚠️ Vì sao đặt ở VẬT TƯ chứ không ở đơn vị (chủ chốt 13/08/2026): `kg` dùng chung cho keo · mực · giấy mà mỗi thứ tiêu hao một kiểu. Gắn công thức lên `kg` là mọi vật tư đo bằng kg đều tính theo cùng một công thức; né bằng cách đẻ `kg_keo`/`kg_giay_to_in`… thì kho và mua hàng phải nhìn mấy cái tên đó thay vì `kg` thật. `LsxService._luong_vat_tu` hỏi cột này TRƯỚC, không có mới lùi về quy đổi từ đơn vị của bước. (Đường giữa — `don_vi_do.cong_thuc` — gỡ 17/08/2026, mg `0215`.)
 
@@ -3290,17 +3289,23 @@ dùng cho bình bài.
 
 **Purpose:** quan hệ nhiều-nhiều giữa công đoạn loại Tổ và đầu việc khoán của đúng tổ, đồng thời giữ định mức thời gian.
 
-**Tất cả cột:** `id`, `cong_doan_id`, `piece_rate_id`, `nang_suat_nguoi_gio`, `nang_suat_nguoi_gio_min`, `nang_suat_nguoi_gio_max`, `don_vi_nang_suat`, `so_nguoi_toi_thieu`, `so_nguoi_tieu_chuan`, `so_nguoi_toi_da`, `cho_ky_thuat_gio`.
+**Tất cả cột:** `id`, `cong_doan_id`, `piece_rate_id`, `nang_suat_nguoi_gio`, `nang_suat_nguoi_gio_min`, `nang_suat_nguoi_gio_max`, `don_vi_nang_suat`, `so_nguoi_tieu_chuan`, `cong_thuc_khoan`, `cong_thuc_gio`, `cho_ky_thuat_gio`.
+
+**`cong_thuc_khoan`** (TEXT nullable, mg `0272`, 06/09/2026): **CÔNG THỨC TÍNH TIỀN CÔNG** của đầu việc này TRONG công đoạn này — ra **LƯỢNG** theo đơn vị của đơn giá khoán, engine nhân đơn giá sau. Dời từ `piece_rates.cong_thuc_luong` (gỡ ở mg `0274`): một đầu việc dùng chung ở nhiều công đoạn thì cách đếm sản lượng khoán mỗi nơi một khác, khai một lần ở danh mục Công việc khoán là ép cả hệ dùng chung một cách đếm. Ghim vào bước lệnh lúc chọn đầu việc (khác `cong_doan_may.cong_thuc_gio` đọc SỐNG) — đơn giá khoán đã trả cho thợ thì sửa công thức ở danh mục không được phép đổi ngược số của lệnh cũ.
+
+**`cong_thuc_gio`** (TEXT nullable, mg `0276`, 07/09/2026): **CÁCH ĐO GIỜ CHẠY** của đầu việc này TRONG công đoạn này — ra **LƯỢNG** theo đơn vị của `don_vi_nang_suat`, engine chia cho năng suất sau. Đối xứng đúng cặp `cong_doan_may.cong_thuc_gio` + `may_thiet_bi.don_vi_toc_do` của bước Máy. Trước đó bước Tổ chỉ có `cong_thuc_khoan` và engine dùng nó cho CẢ tiền lẫn giờ, nên `sl_vao * so_luot_chay` (in trở 2 lượt) vừa nhân đôi tiền công — đúng — vừa nhân đôi thời lượng — sai, hai lượt in chồng lên nhau trên cùng một tờ. Ghim vào bước lệnh cùng lúc với `cong_thuc_khoan` (`khoan_snapshot`); **sự CÓ MẶT của khoá `cong_thuc_gio` trong `khoan_json` là dấu phân biệt ảnh chụp mới với ảnh chụp cũ** — ảnh chụp cũ vắng khoá thì giờ vẫn đọc `cong_thuc`, nên lệnh đã phát không xê dịch một phút nào. Migration `0276` chép `cong_thuc_khoan` sang khi ô đích còn trống ⇒ số không nhảy, nhưng chip `so_luot_chay` cũng theo sang: muốn hết lỗi phải vào từng đầu việc bỏ nó ra khỏi ô giờ.
 
 🔴 **`is_default` GỠ 12/08/2026 (mg `0190`)** — cột radio "Mặc định" ở bảng đầu việc trong form Công đoạn. Nó chọn hộ đầu việc nào điền sẵn khi lập lệnh. Chủ chốt bỏ: cùng một công đoạn mà hai đầu việc khác nhau THẬT (bế TAY / bế MÁY · vào keo gáy vuông / khâu chỉ) thì chọn cái nào là quyết định theo **hàng cụ thể**, không phải hằng số khai một lần ở danh mục.
 
 **Luật điền sẵn còn lại (một luật duy nhất, `LsxService._khoan_mac_dinh` và `LsxRoutingTable` phải khớp):** công đoạn có **đúng MỘT** đầu việc ⇒ tự điền; **từ hai trở lên ⇒ để TRỐNG**, người lập lệnh chọn. Lúc gỡ có 10 công đoạn ≥2 đầu việc (Bế thành phẩm 3 · Bế nổi 3 · Xén 3 mặt 3 · Cán màng bóng/mờ · Gấp tay sách · Bắt tay+vào keo · Ép kim · Bồi sóng · Ghép màng metalize) — từ nay chúng cần chọn tay.
 
-**Ba mốc nhân lực:** `so_nguoi_tieu_chuan` là số điền sẵn vào bước lúc bung lệnh; `so_nguoi_toi_da` là TRẦN tính thời gian (`so_nguoi_tinh = min(kế hoạch, tối đa)` — thêm người nữa không rút ngắn thời gian, chỉ đẻ cảnh báo mềm). `so_nguoi_toi_thieu` (mg 0160, NOT NULL DEFAULT 1) hiện là **KHAI BÁO thuần** — ghim vào `lsx_cong_doan.khoan_json` để không mất, nhưng CHƯA vào công thức thời lượng và CHƯA chặn gì. Service chỉ kiểm thứ tự 1 ≤ tối thiểu ≤ tiêu chuẩn ≤ tối đa.
+**Định mức nhân lực — MỘT số duy nhất (mg `0270`, 06/09/2026):** `so_nguoi_tieu_chuan` là kíp chuẩn của công đoạn: số điền sẵn vào bước lệnh cho **mọi** loại bước (máy · tổ · thuê ngoài), và là số chia trong công thức thời lượng bước Tổ (năng suất khoán khai theo đầu người). Sửa đè được tại từng bước; Service chỉ kiểm `≥ 1`.
+
+🔴 **`so_nguoi_toi_thieu` (mg 0160) và `so_nguoi_toi_da` GỠ cùng mg `0270`.** Tối đa chỉ là trần tính thời gian kèm cảnh báo mềm; tối thiểu chỉ có răng khi ai đó chịu khai ≥ 2, mà mặc định 1 thì nó im sẵn — hai mốc đó bắt người khai điền ba ô cho một câu hỏi. Mất theo: chặn "thiếu người" của bàn Xung đột và cảnh báo "vượt trần".
 
 **Dải năng suất (mg 0158):** `nang_suat_nguoi_gio` là mức **TRUNG BÌNH** — số duy nhất chảy vào công thức thời lượng bước Tổ (`thời lượng = thời gian khác + SL vào ÷ (năng suất người × số người tính) × 60`); `nang_suat_nguoi_gio_min`/`_max` chỉ dùng để ra khoảng nhanh–chậm (râu Gantt), đúng lối `may_thiet_bi.toc_do` + `toc_do_min`/`toc_do_max`. Nullable — chưa khai thì ba mức bằng nhau, KHÔNG bịa min=max=TB. Service chặn min > TB và max < TB.
 
-`don_vi_nang_suat` (VARCHAR(32), nullable): đơn vị người khai chọn, cùng bảng mã với ô "Đơn vị tốc độ" của máy (`<đơn vị>_gio`). Đây là **NHÃN KHAI BÁO** — engine chia thẳng SL vào cho năng suất, KHÔNG quy đổi và KHÔNG kiểm khớp với đơn vị bước (bước quy đổi làm sau). Trống = giữ lối cũ, suy theo `cong_doan.don_vi_vao`.
+`don_vi_nang_suat` (VARCHAR(32), nullable): đơn vị người khai **CHỌN**, cùng bảng mã với ô "Đơn vị tốc độ" của máy (`<đơn vị>_gio`). Trống = lùi về đơn vị của **ĐƠN GIÁ khoán**. 🟢 **DORMANT 10/08/2026 → BẬT LẠI 07/09/2026 (cùng đợt `cong_thuc_gio`):** hồi đó nhãn bị khoá cứng theo đơn giá vì tiền và giờ dùng chung MỘT công thức nên hai đơn vị buộc phải là một; nay giờ có ô đo riêng nên tách được — khoán `600 đ/kg` mực mà năng suất đếm `500 tờ/h`. `LsxService.dich_gio_cua_khoan` cắt hậu tố `_gio` (`may_thiet_bi.ma_don_vi_goc`) để ra mã đơn vị đích, và **chỉ đọc khoá này khi ảnh chụp có khoá `cong_thuc_gio`** — dữ liệu cũ khai `to_gio` từ thời dormant không được phép đổi giờ của lệnh đã phát.
 
 🔴 **GỠ KHỎI MODEL 13/08/2026** — chờ kỹ thuật bỏ khỏi cả hệ theo yêu cầu chủ (lúc gỡ: 0/24 máy, 0/10 đầu việc, 0/14 bước lệnh có khai). Cột còn NẰM IM trong DB đang chạy, không code nào đọc. `cho_ky_thuat_gio` (NUMERIC(6,2) NOT NULL DEFAULT 0, mg 0182): **CHỜ KỸ THUẬT của bước TỔ** — số GIỜ hàng phải nằm chờ SAU khi làm xong đầu việc này (keo đông, màng nguội). Vế TỔ của cặp với `may_thiet_bi.cho_ky_thuat_gio` (vế MÁY); hai vế không chồng nhau vì một bước hoặc Máy hoặc Tổ.
 
@@ -3314,7 +3319,7 @@ dùng cho bình bài.
 
 ⚠️ **Trên dòng giấy KHÔNG đọc cột này**: hệ số ở đó là số con/tờ · số mảnh xả · số tay, đều suy từ quy cách LỆNH (`LsxService._he_so_cau`). Khai ở đây là dựng nguồn thứ hai cho cùng một số. Ô nhập cũng chỉ hiện khi hai đơn vị KHÁC nhau — `kẽm → kẽm` thì hệ số luôn 1.
 
-⚠️ **Vì sao vẫn cần dù bước đã có `cong_thuc_san_luong`**: chỉ vế **RA** đọc công thức; vế **VÀO** suy ngược qua `vào = (ra ÷ hệ_số + hao_cố_định) ÷ (1 − hao_%)`. Cho cả hai đầu đọc công thức là hai đầu chốt cứng, hao hụt hết chỗ nhét — đúng bệnh của bản cũ (`vao = ra = so_kem if nhom == "prepress"`, gỡ 14/08/2026).
+⚠️ **Vì sao vẫn cần dù bước đã có `cong_thuc_san_luong`**: chỉ vế **RA** đọc công thức; vế **VÀO** suy ngược qua `vào = ra ÷ hệ_số × (1 + hao_%) + hao_cố_định` (hao % đo trên số RA — chốt 06/09/2026). Cho cả hai đầu đọc công thức là hai đầu chốt cứng, hao hụt hết chỗ nhét — đúng bệnh của bản cũ (`vao = ra = so_kem if nhom == "prepress"`, gỡ 14/08/2026).
 
 `don_vi_vao` / `don_vi_ra` (VARCHAR(24) sau migration `0186`, trước là 12, **nullable**): đơn vị đếm ĐẦU VÀO / ĐẦU RA của bước — **KHAI**, không suy từ tên. Mang **mã trong danh mục `don_vi_do`** (soft-ref), KHÔNG còn bó trong 5 mã dòng giấy.
 
@@ -3322,7 +3327,9 @@ dùng cho bình bài.
 
 **Purpose:** VẬT TƯ mà một đầu việc của công đoạn tiêu thụ — nền của BOM (mg `0191`). Khai một lần ở danh mục Công đoạn; đến lệnh sản xuất, chọn "Công việc khoán" ở bước là các vật tư này tự bung vào khối "Vật tư cần dùng".
 
-**Tất cả cột:** `id`, `cong_doan_dau_viec_id`, `vat_tu_id`, `thu_tu`.
+**Tất cả cột:** `id`, `cong_doan_dau_viec_id`, `vat_tu_id`, `thu_tu`, `cong_thuc_luong`.
+
+**`cong_thuc_luong`** (TEXT nullable, mg `0272`, 06/09/2026): **ĐỊNH MỨC của CHÍNH dòng vật tư này** trong CHÍNH đầu việc này — ra LƯỢNG theo ĐVT của vật tư. Dời từ `vat_tu_in_an.cong_thuc_luong` (gỡ ở mg `0274`): hai món cùng ĐVT vẫn ăn theo hai trục khác hẳn — mực theo số tờ chạy, dung môi theo số màu (`so_mau * 0,3`: in 5.000 hay 50.000 tờ vẫn 1,2 kg) — nên công thức thuộc về CẶP (đầu việc × vật tư), không thuộc về món hàng. Trống = lùi về quy đổi động như trước.
 
 **KHÔNG có cột số lượng** — cố ý. Định mức tuỳ quy cách từng lệnh (khổ tờ · số màu · số tờ chạy), nên một con số khai ở danh mục là số chết. Số lượng suy **lúc bung ở bước lệnh**: đổi `lsx_cong_doan.so_luong_vao` (theo `don_vi_vao` của bước) sang `vat_tu_in_an.don_vi_gia` bằng **quy đổi động** (`quy_doi_service.doi_theo_quy_cach` + `bien_cong_thuc.quy_cach_bien`). Đổi không được ⇒ KHÔNG bung dòng đó, kèm câu lý do — không đoán.
 
@@ -3330,16 +3337,17 @@ dùng cho bình bài.
 
 **Vì sao neo vào `cong_doan_dau_viec` chứ không vào `piece_rates`:** đây đúng là dòng người dùng nhìn thấy trong bảng "Đầu việc và định mức của tổ" ở drawer Công đoạn, và cho phép cùng một đầu việc dùng vật tư khác nhau ở hai công đoạn khác nhau.
 
-Ba ca hợp lệ (`cong_doan_service`, chặn `[E-CD-DONVI]`):
-- **cùng để trống** — bước CHƯA khai đơn vị (dữ liệu cũ / bước kế hoạch tự thêm); engine lùi về luật theo `nhom`.
-- **hai đầu đều mang cờ trạm** (`don_vi_do.tram_dong_giay`) — bước TRÊN dòng giấy, phải đúng chiều: cùng trạm, hoặc một nhịp trong `CAU_TRAM` (`to_nguyen→to` · `to→con` · `con→cai` · `to→tay` · `tay→cai` · `to→cai`). Nhảy cóc `to_nguyen→cai` bị chặn.
-- **hai đầu đều ngoài trạm** — bước không chạm giấy, khai đơn vị THẬT của nó (`bai → kem` cho ghi kẽm, `cai → me` cho trộn keo). Không có chiều nào để mà sai nên không kiểm chiều.
+Ô Đơn vị đầu vào / đầu ra là **menu ĐÓNG đúng 5 chặng** dòng giấy (`to_nguyen · to · con · tay · cai` — `models/don_vi_do.TRAM_DONG_GIAY`), KHÔNG trỏ vào danh mục Đơn vị & quy đổi. Hai ca hợp lệ (`cong_doan_service`, chặn `[E-CD-DONVI]`):
+- **cùng để trống** — bước NGOÀI dòng giấy (ghi kẽm, đóng thùng). SL của nó tự tính bằng `cong_doan.cong_thuc_san_luong` (`lsx_service.buoc_ngoai_dong`), không dính chuỗi bù hao của giấy. Đây là một CÂU TRẢ LỜI, không phải "chưa khai".
+- **hai đầu đều là chặng** — bước TRÊN dòng giấy, phải đúng chiều: cùng chặng, hoặc một nhịp trong `CAU_TRAM` (`to_nguyen→to` · `to→con` · `con→cai` · `to→tay` · `tay→cai` · `to→cai`). Nhảy cóc `to_nguyen→cai` bị chặn.
 
-Ca **một chân trong một chân ngoài** (`cai → thung`, đóng gói) CHẶN ở lát này: hệ số của cặp đó là sức chứa từng đơn, chưa có chỗ khai → cho qua là engine ăn hệ số 1 trong im lặng.
+Ca **một đầu trống một đầu có** và ca **mã ngoài 5 chặng** đều bị chặn. Ca một-chân-trong-một-chân-ngoài (`cai → thung`, đóng gói) vì thế cũng không khai được: hệ số của cặp đó là sức chứa từng đơn, chưa có chỗ khai → cho qua là engine ăn hệ số 1 trong im lặng.
 
-🔴 **Đã gỡ 11/08/2026:** `DON_VI_DONG_GIAY` (5 mã cứng) + `CAP_DON_VI_HOP_LE` (6 cặp liệt kê theo MÃ). Chúng chính là thứ bắt bước ghi kẽm để trống đơn vị. Nay chỉ còn `CAU_TRAM` liệt kê theo **TRẠM** — đơn vị nào gắn cờ trạm nào thì tự khớp, thêm đơn vị không phải sửa code. Hệ số mỗi nhịp vẫn ở `lsx_service._he_so_cau` (lấy từ quy cách lệnh: bình bài · số mảnh xả · số tay), KHÔNG khai vào bảng cặp `don_vi_quy_doi` — khai hai nơi là hai số giấy đá nhau trên cùng một lệnh.
+🔴 **Đã gỡ 06/09/2026:** lớp trung gian `don_vi_do.tram_dong_giay`. Giữa 11/08 và 06/09, bước khai đơn vị TỰ DO từ danh mục (`bai → kem`) và câu "có nằm trên dòng giấy không" hỏi cờ trạm trên danh mục đơn vị. Cờ đó chỉ cho phép ĐỔI TÊN một chặng chứ không thêm được chặng thứ 6 (`CAU_TRAM` + `_he_so_cau` đóng cứng trong code), đổi lại bắt người khai đơn vị — việc của kho và mua hàng — phải hiểu dòng giấy. Migration `0273` đưa mọi cặp đơn vị ngoài 5 chặng (`kem → kem`, `m2 → bai`) của `cong_doan` · `lsx_cong_doan` · `bai_ghep_cong_doan` về NULL; số lượng không đổi vì `_he_so_ngoai_dong(None, None)` trả đúng hệ số 1,0 mà cặp `kem → kem` đang cho.
 
-**NULL = bước KHÔNG CHẠM GIẤY** (chế bản ghi kẽm) → `thanh_phan_engine` loại khỏi dòng giấy, bù hao của nó không cộng vào số giấy phải mua. Danh mục KHÔNG có mã đơn vị `kem`/`bai`: kẽm là đơn vị của khâu chế bản chứ không phải một mức trên dòng giấy, nên `lsx_service._don_vi_theo_buoc` tự suy `kem` từ `nhom='prepress'` khi bung lệnh. Bước **không phải** chế bản mà bỏ trống → engine đẩy warning "chưa khai đơn vị vào/ra", tránh bù hao im lặng về 0.
+🔴 **Đã gỡ 11/08/2026:** `CAP_DON_VI_HOP_LE` (6 cặp liệt kê theo MÃ). Nay chỉ còn `CAU_TRAM` liệt kê theo **CHẶNG**. Hệ số mỗi nhịp vẫn ở `lsx_service._he_so_cau` (lấy từ quy cách lệnh: bình bài · số mảnh xả · số tay), KHÔNG khai vào bảng cặp `don_vi_quy_doi` — khai hai nơi là hai số giấy đá nhau trên cùng một lệnh.
+
+**NULL = bước KHÔNG CHẠM GIẤY** (ghi kẽm, đóng thùng) → loại khỏi dòng giấy, bù hao của nó không cộng vào số giấy phải mua. `lsx_service._don_vi_theo_buoc` trả `(None, None, 1.0)`, và SL vào/ra của bước tính riêng bằng `buoc_ngoai_dong` từ `cong_doan.cong_thuc_san_luong` (`so_kem` ⇒ 5 bản), bù hao ngược trong phạm vi CHÍNH bước.
 
 **Hệ số quy đổi KHÔNG lưu ở đây** — phiếu tính giá đã có `con` (bình bài) và `so_manh_xa` (khổ giấy); lưu lại là đẻ nguồn sự thật thứ hai. Đây là thứ cho `bu_hao_engine.chuoi_nguoc_dv` tra bù hao ĐÚNG đơn vị của từng bước (bước đóng gói tra bậc theo số CON, không theo số tờ).
 
@@ -3348,6 +3356,24 @@ Ca **một chân trong một chân ngoài** (`cai → thung`, đóng gói) CHẶ
 `khoan_ghi_theo`: công đoạn có tính khoán không — `nguoi` (ghi Phiếu sản lượng theo từng người → cột Khoán bảng lương) / `khong`. `allowed_defect_pct`/`allowed_defect_abs`: ngưỡng hao cho phép (max của 2), phần vượt mới trừ lỗi.
 
 `kieu_bu_hao`: nối bù hao — `khong` / `tra_bang` (trỏ 1 mã bù hao qua `bu_hao_id` → tra bậc theo SL) / `co_dinh` (cộng `so_to_bu_hao` tờ). `bu_hao_id`: soft int → `bu_hao.id` (dùng khi `kieu_bu_hao='tra_bang'`).
+
+### `cong_doan_may`
+
+**Purpose:** MÁY chạy được một công đoạn, kèm **cách đo giờ** và **cách tính giá** của riêng cặp (công đoạn, máy) — mg `0271`, 06/09/2026.
+
+**Tất cả cột:** `id`, `cong_doan_id`, `may_id`, `cong_thuc_gio`, `cong_thuc_gia`, `thu_tu`.
+
+**Vì sao là bảng nối chứ không phải cột trên máy hay trên công đoạn:** cả hai con số đều là giao của VIỆC × MÁY. `cong_thuc_gio` treo ở máy (`may_thiet_bi.cong_thuc_luong`, gỡ ở mg `0274`) thì mọi công đoạn chạy máy đó dùng chung một cách đo — trong khi cùng một máy in, công đoạn khổ 79×109 và khổ 11×11 đo khác nhau. `cong_thuc_gia` treo ở công đoạn (`cong_doan.cong_thuc_gia`) thì mọi máy dùng chung một đơn giá — trong khi máy 5 màu khổ lớn và máy 2 màu khổ nhỏ có giá khác nhau.
+
+`cong_doan_id` → FK `cong_doan.id` ON DELETE CASCADE. `may_id` là **soft-ref** tới `may_thiet_bi.id` (cùng lối `piece_rate_id`/`vat_tu_id` ở hai bảng con kia); `cong_doan_service` chặn id không tồn tại hoặc máy đã ngừng dùng. UNIQUE `(cong_doan_id, may_id)` — `uq_cd_may`.
+
+`cong_thuc_gio` (TEXT nullable): ra **LƯỢNG theo đơn vị TỐC ĐỘ của máy**, KHÔNG ra giờ — engine vẫn tự chia tốc độ. `LsxService.sl_tinh_cua_buoc` đọc nó ở BẬC 0, trước cầu quy đổi; đọc **SỐNG** (không ghim vào bước) vì đổi máy là đổi cách đo. Trống = lùi về cầu quy đổi. ⚠️ ĐỪNG nhân `so_luot_chay` vào đây: `thoi_luong_buoc` đã tự nhân số lượt vào nhánh máy (`SL ÷ tốc độ × lượt`), viết thêm là đếm hai lần.
+
+`cong_thuc_gia` (TEXT nullable): ra **TIỀN**, và **GHI ĐÈ** `cong_doan.cong_thuc_gia` khi phiếu tính giá có chọn đúng máy này (`tinh_gia_service._cong_doan_to_dict`). Chỉ có nghĩa với công đoạn nhóm `print`: `phieu_thanh_phan.may_id` là chỗ DUY NHẤT phiếu tính giá chọn máy, và nó nằm trong khối In. Trống = dùng công thức chung của công đoạn — cặp có dòng mà ô trống KHÔNG làm phiếu ra 0đ.
+
+**KHÔNG backfill lúc tạo bảng:** `nhom_may_cho_phep` thường phủ hàng chục máy, sinh bằng ấy dòng rỗng chỉ để người dùng phải xoá bớt. Bảng ra đời RỖNG.
+
+**Quan hệ với `cong_doan.nhom_may_cho_phep`:** hàng tick nhóm nay chỉ là **BỘ LỌC** để chọn máy cho bảng này. Luật chặn gán máy ở bước (`BaiGhepService.may_ngoai_cong_doan`) đọc danh sách máy này TRƯỚC; công đoạn chưa khai máy nào thì mới lùi về luật nhóm.
 
 ### `cong_doan_cho_ky_thuat`
 
@@ -3409,9 +3435,11 @@ Ca **một chân trong một chân ngoài** (`cai → thung`, đóng gói) CHẶ
 
 | Ở đâu | Ra cái gì | Trả lời câu |
 |---|---|---|
-| `giay_nguyen` · `vat_tu_in_an` `.cong_thuc_luong` | **LƯỢNG** | một lệnh cần bao nhiêu <đơn vị của MÓN này> |
-| `may_thiet_bi.cong_thuc_luong` (mg `0213`) | **LƯỢNG** | bước chạy trên MÁY này bằng bao nhiêu <đơn vị tốc độ> |
-| `piece_rates.cong_thuc_luong` (mg `0213`) | **LƯỢNG** | ĐẦU VIỆC này khoán theo lượng nào (× đơn giá ⇒ tiền) |
+| `giay_nguyen.cong_thuc_luong` | **LƯỢNG** | một lệnh cần bao nhiêu kg giấy (ô DUY NHẤT còn tên này ở tầng món hàng) |
+| `cong_doan_may.cong_thuc_gio` (mg `0271`) | **LƯỢNG** | bước chạy CÔNG ĐOẠN này trên MÁY này bằng bao nhiêu <đơn vị tốc độ> |
+| `cong_doan_dau_viec.cong_thuc_khoan` (mg `0272`) | **LƯỢNG** | ĐẦU VIỆC này trong CÔNG ĐOẠN này khoán theo lượng nào (× đơn giá ⇒ tiền) |
+| `cong_doan_dau_viec.cong_thuc_gio` (mg `0276`) | **LƯỢNG** | ĐẦU VIỆC này trong CÔNG ĐOẠN này đo giờ theo lượng nào (÷ năng suất ⇒ phút) |
+| `cong_doan_dau_viec_vat_tu.cong_thuc_luong` (mg `0272`) | **LƯỢNG** | DÒNG VẬT TƯ này của đầu việc ăn bao nhiêu <ĐVT của nó> |
 | `cong_doan.cong_thuc_san_luong` (mg `0214`) | **LƯỢNG** | BƯỚC ngoài dòng giấy này ra bao nhiêu <đơn vị ra> |
 | `giay_nguyen` · `vat_tu_in_an` · `cong_doan` `.cong_thuc_gia` | **TIỀN** | — |
 
@@ -3419,7 +3447,7 @@ Ca **một chân trong một chân ngoài** (`cai → thung`, đóng gói) CHẶ
 
 Tất cả dùng chung bộ chip của `bien_cong_thuc`, nhưng kết quả khác nghĩa hẳn.
 
-**`tram_dong_giay`** (VARCHAR(12) NULL, migration `0186`): đơn vị này đứng ở TRẠM nào trên **dòng giấy** — `to_nguyen` → `to` → `con`/`tay` → `cai`. NULL = ngoài dòng giấy, và đó là trạng thái của gần hết danh mục (kg · m² · thùng · kẽm · lượt). Đây là thứ **duy nhất** engine bù hao cần biết về một đơn vị: bước có cả hai đầu mang cờ trạm thì vào chuỗi tính ngược (`lsx_service.tinh_nguoc_routing`), không thì đứng ngoài — xem `services/dong_giay.py`.
+**`tram_dong_giay`** (VARCHAR(12) NULL, migration `0186`): 🔴 **CỘT CHẾT 06/09/2026** — không nơi nào đọc, không màn nào khai, giữ lại để dữ liệu cũ không mất (cùng kiểu `he_so_goc` và `dung_lam_toc_do`). Nó từng nói đơn vị này đứng ở chặng nào trên dòng giấy, để công đoạn khai đơn vị tự do rồi engine tra ngược ra chặng. Nay ô Đơn vị vào/ra của công đoạn là menu đóng đúng 5 chặng nên không cần lớp dịch nữa — xem `services/dong_giay.py` và mục `cong_doan.don_vi_vao`.
 
 🔴 **Vì sao đẻ cột này:** trước 11/08/2026 câu hỏi "bước có nằm trên dòng giấy không" trả lời bằng danh sách 5 mã CỨNG trong code (`cong_doan.DON_VI_DONG_GIAY`, đã gỡ). Hệ quả: công đoạn không chạm giấy buộc phải **để trống** đơn vị (ghi kẽm không khai được `bai → kem`), và mọi cách đếm khác của xưởng (mẻ · lượt · thùng) bị service chặn ngay ở cổng. Nay khai đơn vị ở màn Đơn vị là công đoạn dùng được ngay, khỏi sửa code.
 
@@ -3452,7 +3480,7 @@ Vì sao bỏ: cặp-mang-công-thức trả lời câu *"một tờ nặng mấy
 
 | Khai ở đâu | Migration | Dùng khi |
 |---|---|---|
-| `vat_tu_in_an.cong_thuc_luong` | `0194` | mọi vật tư khác — **bắt buộc**, không khai thì bước lệnh để trống |
+| `cong_doan_dau_viec_vat_tu.cong_thuc_luong` | `0272` | mọi vật tư khác — **bắt buộc**, không khai thì bước lệnh để trống |
 | `giay_nguyen.cong_thuc_luong` | `0195` + `0197` điền sẵn `dinh_luong * dai_nguyen * rong_nguyen * to_nguyen` | giấy |
 
 (`don_vi_do.cong_thuc` — cách đo treo ở chính ĐƠN VỊ, mg `0192` — GỠ 17/08/2026 ở mg `0215`: nó trả lời hộ mọi món cùng đo bằng `kg`, trong khi keo và mực ăn khác nhau.)
@@ -3711,13 +3739,13 @@ khoá: `bao_tri` → `phieu_bao_tri`, `yeu_cau` → `yeu_cau_sua_chua` **hoặc*
 
 **Purpose:** 1 dòng công đoạn gia công sau in (finishing) của 1 thành phần — con của `phieu_thanh_phan` (`thanh_phan_id` FK thật, cascade xoá). Hoặc tính giá PHẲNG (`don_gia` > 0 × số lượng — `so_luong`=0 nghĩa dùng SL đặt của phiếu) hoặc dùng cấu hình công đoạn danh mục (`cong_doan_id`, soft FK) qua `routing_engine.compute_step_cost` với `so_mat`/`so_vi_tri`/`dien_tich`. `nha_cung_cap` → nhãn thuê ngoài. `bu_hao` cờ báo dòng có góp hao. (Không cột lợi nhuận — đây là giá vốn.)
 
-**Tất cả cột:** `id`, `thanh_phan_id`, `thu_tu`, `cong_doan_id`, `ten`, `don_gia`, `so_luong`, `bu_hao`, `so_mat`, `so_vi_tri`, `dien_tich`, `nha_cung_cap`, `ghi_chu`, `phi_khuon`, `khuon_nguon`, `khuon_ngay_du_kien`, `dai_khung_lua`, `rong_khung_lua`, `so_khung_lua`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `thanh_phan_id`, `thu_tu`, `cong_doan_id`, `ten`, `don_gia`, `so_luong`, `bu_hao`, `so_mat`, `so_vi_tri`, `dien_tich`, `nha_cung_cap`, `ghi_chu`, `phi_khuon`, `khuon_nguon`, `dai_khuon`, `rong_khuon`, `so_khuon`, `created_at`, `updated_at`.
 
 `phi_khuon` (NUMERIC(18,2) NOT NULL DEFAULT 0, migration `0202`) = phí làm khuôn của CHÍNH bước đó — khoản **MỘT LẦN**. Chỉ có nghĩa khi công đoạn nguồn bật `requires_tooling` với `tooling_type` là dao/dụng cụ lưu kho (`khuon_be` · `khuon_ep` · `khung_lua`, migration `0240`); `kem` KHÔNG nhận (bản kẽm là vật tư tiêu hao, tiền đã nằm trong công thức chế bản `so_kem × đơn giá` — lấy thêm là tính hai lần). 0 = **dùng lại dao cũ**, không tính tiền: thông lệ ngành in là thu phí dao ở đơn ĐẦU, dao giữ lại kho, đơn tái đặt không thu lại. ⚠️ **CÓ cộng vào `gia_von_tp`** (chốt 15/08/2026 — gộp để báo giá chỉ còn MỘT dòng), nghĩa là tiền dao BỊ CHIA theo sản lượng: cùng con dao 2 triệu, đơn 100 cái đội 20.000 đ/cái còn đơn 5.000 cái chỉ 400 đ/cái — đây là đánh đổi đã biết và đã chọn.
 
-`khuon_nguon` (VARCHAR(10) NULL) + `khuon_ngay_du_kien` (DATE NULL), migration `0257` (chốt 04/09/2026) = sale trả lời ĐÚNG MỘT CÂU cho bước cần dao: `co_san` (dùng khuôn có sẵn) hay `lam_moi` (làm khuôn mới). Trước đây chỉ có ô `phi_khuon` với quy ước NGẦM "để trống = dùng dao cũ", nên hệ thống không phân biệt được "đã cân nhắc và dùng dao cũ" với "quên nhập" — kế hoạch đọc phiếu không biết sale định thế nào, tới lúc lập lệnh mới lòi ra phải đặt dao mới: mất tiền và mất luôn thời gian chờ dao. **NULL = chưa chọn** (phiếu cũ, hoặc người lập bỏ qua) ⇒ engine giữ nguyên lời nhắc như trước; chọn `co_san` thì engine IM (đó là câu trả lời đúng, không phải chỗ trống bị bỏ quên); chọn `lam_moi` mà `phi_khuon = 0` thì engine nhắc "báo giá đang thiếu khoản này" (`thanh_phan_engine._canh_bao_khuon`). **KHÔNG backfill** ở migration: `phi_khuon = 0` của phiếu cũ là một chỗ trống MƠ HỒ, đoán hộ là ghi một câu trả lời mà không ai từng nói. `khuon_ngay_du_kien` chỉ có nghĩa với `lam_moi` — DỰ TRÙ để kế hoạch liệu cơm gắp mắm, KHÔNG phải mốc ràng buộc lịch: mốc thật nằm ở `khuon_be.ngay_ve_du_kien`.
+`khuon_nguon` (VARCHAR(10) NULL), migration `0257` (chốt 04/09/2026) = sale trả lời ĐÚNG MỘT CÂU cho bước cần dao: `co_san` (dùng khuôn có sẵn) hay `lam_moi` (làm khuôn mới). Trước đây chỉ có ô `phi_khuon` với quy ước NGẦM "để trống = dùng dao cũ", nên hệ thống không phân biệt được "đã cân nhắc và dùng dao cũ" với "quên nhập" — kế hoạch đọc phiếu không biết sale định thế nào, tới lúc lập lệnh mới lòi ra phải đặt dao mới: mất tiền và mất luôn thời gian chờ dao. **NULL = chưa chọn** (phiếu cũ, hoặc người lập bỏ qua) ⇒ engine giữ nguyên lời nhắc như trước; chọn `co_san` thì engine IM (đó là câu trả lời đúng, không phải chỗ trống bị bỏ quên); chọn `lam_moi` mà `phi_khuon = 0` thì engine nhắc "báo giá đang thiếu khoản này" (`thanh_phan_engine._canh_bao_khuon`). **KHÔNG backfill** ở migration: `phi_khuon = 0` của phiếu cũ là một chỗ trống MƠ HỒ, đoán hộ là ghi một câu trả lời mà không ai từng nói. Ô ngày đi kèm `khuon_ngay_du_kien` (DATE NULL) **ĐÃ GỠ 06/09/2026, migration `0269`**: nó chỉ là DỰ TRÙ, không nơi nào đọc: mốc thật để xếp lịch nằm ở `khuon_be.ngay_ve_du_kien` của chính con dao kế hoạch chọn. Hai mốc song song chỉ tổ bắt sale khai một ngày rồi lịch chạy theo ngày khác. Migration `0257` GIỮ NGUYÊN phần thêm cột — id đã phát hành thì không sửa, DB trung gian chạy 0257 rồi 0269 là thêm xong xoá, kết quả bằng DB fresh.
 
-`dai_khung_lua`/`rong_khung_lua` (NUMERIC(10,2) NOT NULL DEFAULT 0) + `so_khung_lua` (INTEGER NOT NULL DEFAULT 0), migration `0240` = kích thước (mm) và số khung lụa dùng ở CHÍNH bước đó. Chỉ có nghĩa khi bước dùng công đoạn `tooling_type = "khung_lua"`. TÁCH BIỆT với `phi_khuon`: ba ô này không tự tính phí, chỉ bơm vào công thức của công đoạn (chip `dai_khung_lua`/`rong_khung_lua`/`so_khung_lua`, xem `bien_cong_thuc.py`) để người khai công thức tự quy ra tiền (vd đơn giá/m² × dài × rộng × số khung).
+`dai_khuon`/`rong_khuon` (NUMERIC(10,2) NOT NULL DEFAULT 0) + `so_khuon` (INTEGER NOT NULL DEFAULT 0), migration `0240` = kích thước (mm) và số khuôn dùng ở CHÍNH bước đó. Chỉ có nghĩa khi bước dùng công đoạn `tooling_type = "khuon_ep"` (nhãn màn hình: **Khuôn ép kim**, đổi tên 06/09/2026 — trước là "Khuôn ép nhũ / dập nổi"). TÁCH BIỆT với `phi_khuon`: ba ô này không tự tính phí, chỉ bơm vào công thức của công đoạn (chip `dai_khuon`/`rong_khuon`/`so_khuon`, xem `bien_cong_thuc.py`) để người khai công thức tự quy ra tiền (vd đơn giá/cm² × dài × rộng × số khuôn). **Migration `0268` (06/09/2026)** đổi chủ ba ô này từ bước `khung_lua` sang bước `khuon_ep` và đổi tên cột (`dai_khung_lua`/`rong_khung_lua`/`so_khung_lua` → tên hiện tại), kèm viết lại chuỗi công thức đã lưu ở 8 ô công thức của 5 danh mục. Lý do: khung lụa xưởng trả một cục theo cái khung nên `phi_khuon` là đủ, còn khuôn ép nhũ mới báo giá theo diện tích khắc. Bảng nhật ký `cong_thuc_lich_su` KHÔNG bị viết lại (giữ nguyên chuỗi người dùng đã gõ).
 
 ---
 
@@ -3936,16 +3964,16 @@ Trả về BA số bằng cách thay `toc_do` bằng `toc_do_max` / `toc_do` / `
 | `loai_buoc` | `String(12)` | — | no | `may` | Snapshot `may|to|thue_ngoai`. |
 | `khuon_nguon` | `String(10)` → `VARCHAR(10)` | — | yes | — | Ý ĐỊNH CỦA SALE về khuôn (`co_san`/`lam_moi`), chép từ `phieu_thanh_pham.khuon_nguon` lúc dựng lệnh (mg `0258`, chốt 04/09/2026). KHÔNG phải quyết định cuối — quyết định cuối là `khuon_be_id`, do kế hoạch chốt. Hai thứ đứng cạnh nhau để **so được**: lệch nhau nghĩa là tiền đã báo cho khách không khớp việc sẽ làm. `lsx_service.canh_bao_lech_khuon` dựng câu nhắc (`khuon_lech` trong dict bước) — NHẮC chứ không chặn, vì máy không biết xưởng sẽ báo lại khách hay tự nuốt chi phí. NULL = phiếu nguồn chưa chọn ⇒ không có gì để so. **Không backfill**: lệnh đã dựng là ảnh chụp của thời điểm dựng, tra ngược phiếu bây giờ có thể lấy nhầm phiên bản phiếu đã sửa sau đó. |
 | `khuon_phi` | `Numeric(18,2)` | — | no | `0` | Tiền làm khuôn sale đã tính ở phiếu (`phieu_thanh_pham.phi_khuon`), mg `0258`. Chỉ để ĐỐI CHIẾU và bày ở drawer bước — KHÔNG cộng vào tiền của lệnh (giá vốn đã chốt ở phiếu tính giá). 0 = dùng dao cũ hoặc phiếu cũ. |
-| `bat_buoc` | `Boolean` → `BOOLEAN` | — | no | `true` | Bước bắt buộc hay tùy chọn (§4.1). |
+| `bat_buoc` | `Boolean` → `BOOLEAN` | — | no | `true` | LUÔN `true` từ 07/09/2026 (mg 0275): bước đã khai trong routing thì phải làm. Drawer không còn ô tick, `LsxCongDoanIn` không còn nhận field. |
 | `kcs_tieu_chi_bo_sung_json` | `JSON` | — | yes | — | Checklist KCS BỔ SUNG khai riêng ở lệnh (cộng vào checklist chuẩn của danh mục, không thay thế). Chỉ có nghĩa khi bước này là KCS — từ 2026-08-31 (mg `0252`) suy TỰ ĐỘNG (bước cuối routing + `departments.is_kcs`, xem `lsx_service._cong_doan_dict`), không còn cột `la_kcs` khai tay. |
 | `so_luong_vao` | `Numeric(14,2)` | — | no | `0` | SL đầu vào bước. |
 | `so_luong_ra` | `Numeric(14,2)` | — | no | `0` | SL đầu ra bước. |
-| `don_vi_vao` | `String(24)` | — | no | `to` | Mã trong `don_vi_do` — kế thừa từ `cong_doan.don_vi_vao` khi bung lệnh. Bước có nằm trên dòng giấy hay không đọc cờ `don_vi_do.tram_dong_giay`, KHÔNG suy từ "có khai đơn vị hay không" (mg `0186` nới từ 12). |
+| `don_vi_vao` | `String(24)` | — | no | `to` | Một trong 5 chặng dòng giấy (`TRAM_DONG_GIAY`) — kế thừa từ `cong_doan.don_vi_vao` khi bung lệnh. NULL = bước NGOÀI dòng giấy (mg `0186` nới từ 12; mg `0273` đưa mã ngoài 5 chặng về NULL). |
 | `don_vi_ra` | `String(24)` | — | no | `to` | Như trên — khác `don_vi_vao` là bình thường ở bước đổi đơn vị (xả giấy `to_nguyen→to`, bế/xén `to→cai`). |
 | `he_so_quy_doi` | `Numeric(12,4)` | — | no | `1` | Nhân khi đơn vị vào ≠ ra (tờ→con = số con/tờ). Vào ≠ ra mà hệ số vẫn `1` → chặn "Sẵn sàng". |
 | `hao_hut` | `Numeric(14,2)` | — | no | `0` | Hao hụt TUYỆT ĐỐI (BC: Fixed Scrap Qty) — tờ canh máy, không theo SL. |
-| `hao_hut_pct` | `Numeric(6,2)` | — | no | `0` | Hao hụt THEO % SL (BC: Scrap Factor %). Tính ngược: `SL_vào = SL_ra × (1 + pct) + hao_hut`, cộng dồn từ bước CUỐI về ĐẦU. Mặc định ← `cong_doan.spoilage_pct`. |
-| `so_luot_chay` | `Integer` | — | no | `1` | Chỉ áp dụng cho bước Máy; nhân vào thời gian chạy. |
+| `hao_hut_pct` | `Numeric(6,2)` | — | no | `0` | Hao hụt THEO % SL (BC: Scrap Factor %) — `%` đo trên số RA của bước. Tính ngược: `SL_vào = SL_ra ÷ he_so_quy_doi × (1 + pct) + hao_hut`, cộng dồn từ bước CUỐI về ĐẦU. KHÔNG kế thừa `cong_doan.spoilage_pct` (lấy thêm là đếm hai lần — module Bù hao đã bao cả bậc `don_vi='pct'`): server ghi cột này trong `lsx_service._ap_chuoi_nguoc` từ chuỗi ngược, bung lệnh mới để `0`. |
+| `so_luot_chay` | `Integer` | — | no | `1` | Số lượt chạy qua máy, khai được ở MỌI loại bước. Bước máy: nhân vào thời gian chạy. Bước tổ: KHÔNG nhân giờ, chỉ vào công thức tiền công / định mức vật tư qua chip `so_luot_chay`. |
 | `setup_phut` | `Numeric(10,2)` | — | no | `0` | Chuẩn bị máy, tính 1 LẦN/lệnh (không scale theo SL). Mặc định ← `cong_doan.setup_time`. |
 | `nang_suat` | `Numeric(12,2)` | — | yes | — | Sản lượng/giờ. Mặc định ← `may_thiet_bi.toc_do`. |
 | `don_vi_nang_suat` | `String(32)` | — | yes | — | Bước Máy: suy ra `to_gio`/`cai_gio`/`kem_gio`. Bước Tổ: mã người khai chọn ở định mức đầu việc (mg 0159 nới 10→32 vì `ban_proof_gio` dài 13). |
@@ -3955,8 +3983,7 @@ Trả về BA số bằng cách thay `toc_do` bằng `toc_do_max` / `toc_do` / `
 | `cho_phut` | `Numeric(10,2)` | — | no | `0` | 🔴 GỠ KHỎI MODEL 13/08/2026 — cột còn trong DB, không code nào đọc. |
 | `di_chuyen_phut` | `Numeric(10,2)` | — | no | `0` | Di chuyển bán thành phẩm sang tổ/máy kế. KHÔNG chiếm máy. |
 | `so_nhan_cong` | `Integer` | — | no | `1` | Số người kế hoạch. Chỉ bước Tổ dùng để tính năng suất; kíp Máy không tăng tốc máy. |
-| `so_nhan_cong_tieu_chuan` | `Integer` | — | no | `1` | Snapshot người tiêu chuẩn của đầu việc/kíp máy. |
-| `so_nhan_cong_toi_da` | `Integer` | — | yes | — | Snapshot ngưỡng hiệu quả tối đa của đầu việc Tổ. |
+| `so_nhan_cong_tieu_chuan` | `Integer` | — | no | `1` | Kíp chuẩn kế thừa từ `cong_doan_dau_viec.so_nguoi_tieu_chuan` — số chia trong công thức thời lượng bước Tổ. Hai mốc `so_nhan_cong_toi_thieu`/`so_nhan_cong_toi_da` đã GỠ ở mg `0270`. |
 | `khoan_json` | `JSON` | — | yes | — | ĐẦU VIỆC KHOÁN của bước — kế hoạch chọn "bước cán này làm *cán mờ* hay *ghép metalize*" (cùng công đoạn, hai đơn giá). SNAPSHOT `{rate_id, ten, don_vi, don_gia}` từ `piece_rates`, KHÔNG đọc-sống: xưởng lên giá khoán về sau không được xê dịch lệnh đã phát. Tiền khoán là số DẪN XUẤT (tính lúc đọc trong `lsx_service._khoan_derived`), không lưu cột. |
 | `nha_cung_cap` | `String(150)` | — | yes | — | Nhà gia công khi `loai_buoc='thue_ngoai'` — khai TAY (cơ sở nhỏ thường chưa có trong `suppliers`). |
 | `sl_gui` | `Numeric(14,2)` | — | yes | — | SL gửi đi gia công. |
@@ -3980,13 +4007,15 @@ Trả về BA số bằng cách thay `toc_do` bằng `toc_do_max` / `toc_do` / `
 > **Derived, KHÔNG lưu cột** (engine `lsx_service.thoi_luong_buoc(cd, may)` tính): `chiem_may_phut = phat_sinh + chuẩn bị(máy) + chạy(theo tốc độ máy)` · `chiem_may_phut_min`/`_max` theo `toc_do_max`/`toc_do_min` · `tong_phut = chiem_may_phut` (chờ/di chuyển đã bỏ) · `ty_le_hao_hut = hao_hut / so_luong_vao` · lead time cả lệnh.
 > **Đã BỎ ở migration `0093`:** `thue_ngoai` (tập con của `loai_buoc`) · `don_vi` (tách thành `don_vi_vao`/`don_vi_ra`).
 
-**Tất cả cột:** `id`, `step_key`, `lsx_id`, `thu_tu`, `cong_doan_id`, `ten`, `nhom`, `department_id`, `may_id`, `loai_buoc`, `bat_buoc`, `kcs_tieu_chi_bo_sung_json`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `hao_hut`, `hao_hut_pct`, `so_luot_chay`, `setup_phut`, `nang_suat`, `don_vi_nang_suat`, `chay_phut`, `ve_sinh_phut`, `phat_sinh_phut`, `cho_phut`, `di_chuyen_phut`, `so_nhan_cong`, `so_nhan_cong_tieu_chuan`, `so_nhan_cong_toi_da`, `so_nhan_cong_toi_thieu`, `so_nhan_cong_toi_thieu`, `khoan_json`, `nha_cung_cap`, `sl_gui`, `ngay_gui_dk`, `van_chuyen_ngay`, `gia_cong_ngay`, `ngay_nhan_dk`, `hao_hut_cho_phep`, `don_gia_gia_cong`, `yeu_cau_ky_thuat`, `nguoi_giao_id`, `giao_luc`, `sl_giao_thuc`, `nguoi_nhan_id`, `nhan_luc`, `sl_nhan_thuc`, `ghi_chu`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `step_key`, `lsx_id`, `thu_tu`, `cong_doan_id`, `ten`, `nhom`, `department_id`, `may_id`, `loai_buoc`, `bat_buoc`, `kcs_tieu_chi_bo_sung_json`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `hao_hut`, `hao_hut_pct`, `so_luot_chay`, `setup_phut`, `nang_suat`, `don_vi_nang_suat`, `chay_phut`, `ve_sinh_phut`, `phat_sinh_phut`, `cho_phut`, `di_chuyen_phut`, `so_nhan_cong`, `so_nhan_cong_tieu_chuan`, `khoan_json`, `nha_cung_cap`, `sl_gui`, `ngay_gui_dk`, `van_chuyen_ngay`, `gia_cong_ngay`, `ngay_nhan_dk`, `hao_hut_cho_phep`, `don_gia_gia_cong`, `yeu_cau_ky_thuat`, `nguoi_giao_id`, `giao_luc`, `sl_giao_thuc`, `nguoi_nhan_id`, `nhan_luc`, `sl_nhan_thuc`, `ghi_chu`, `created_at`, `updated_at`.
 
 ### `lsx_cong_doan_vat_tu`
 
 **Purpose:** nhu cầu vật tư khai trực tiếp trên từng bước LSX; chỉ snapshot nhận diện/đơn vị, không lưu giá hay trạng thái tồn.
 
-**Tất cả cột:** `id`, `lsx_cong_doan_id`, `vat_tu_id`, `vat_tu_ma_snapshot`, `vat_tu_ten_snapshot`, `don_vi_snapshot`, `so_luong`, `thu_tu`, `tu_dong`.
+**Tất cả cột:** `id`, `lsx_cong_doan_id`, `hang_loai`, `vat_tu_id`, `vat_tu_ma_snapshot`, `vat_tu_ten_snapshot`, `don_vi_snapshot`, `so_luong`, `thu_tu`, `tu_dong`.
+
+`hang_loai` (VARCHAR(8) NOT NULL DEFAULT `'vat_tu'`, IX, mg `0280`): **danh mục nào chứa món này** — `'giay'` → `giay_nguyen`, `'vat_tu'` → `vat_tu_in_an`. Thêm 08/09/2026 khi bước bắt đầu chọn được **NVL chính** từ danh mục Giấy; trước đó giấy đi đường riêng, suy từ `quy_cach_json.giay_id` rồi tự treo lên "bước đầu tiên chạm tờ" (hệ đoán cả loại lẫn bước, và một lệnh chỉ ôm được đúng một loại giấy). Cặp `(hang_loai, vat_tu_id)` là khuôn `stock_lots` / `vat_tu_giu_cho` / `stock_requests` / `san_xuat_vat_tu_de_nghi_dong` đã dùng, nên bảng cân đối và tầng kho nhận dòng giấy không phải rẽ nhánh. Cột id vẫn tên `vat_tu_id` nhưng **đọc là `hang_id`**. Unique key `uq_lsx_buoc_vat_tu` gồm cả ba cột: Giấy #7 và Vật tư #7 là hai món khác nhau.
 
 `tu_dong` (BOOLEAN NOT NULL DEFAULT false, mg `0191`): **MÁY BUNG hay NGƯỜI KHAI.** `true` = dòng máy tự thêm khi người kế hoạch chọn "Công việc khoán" ở bước (danh sách lấy từ `cong_doan_dau_viec_vat_tu`, số lượng quy đổi từ `so_luong_vao` của bước) ⇒ lần bung sau được **thay** bộ mới. `false` = người tự thêm, hoặc dòng máy bung nhưng người đã sửa số lượng ⇒ máy **CHỪA RA**, không ghi đè. Không có cờ này thì đổi công việc khoán một cái là mất sạch số người vừa chỉnh.
 
@@ -4109,13 +4138,12 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `ten` | `String(255)` | — | no | `""` | Tên bước (snapshot từ bước gốc). |
 | `nhom` | `String(12)` | — | yes | — | Nhóm công đoạn (snapshot) — `truoc_in` / `in` / `sau_in`… |
 | `loai_buoc` | `String(12)` | — | no | `may` | `may` / `thu_cong` / `thue_ngoai` — cùng bộ giá trị `lsx_cong_doan.loai_buoc`. |
-| `bat_buoc` | `Boolean` | — | no | `true` | Bước bắt buộc (snapshot). |
+| `bat_buoc` | `Boolean` | — | no | `true` | Bước bắt buộc (snapshot) — LUÔN `true`, chép từ bước gốc (mg 0275). |
 | `kcs_tieu_chi_bo_sung_json` | `JSON` | — | yes | — | Checklist KCS bổ sung của lượt gộp — mirror `lsx_cong_doan.kcs_tieu_chi_bo_sung_json`. |
 | `department_id` | `Integer` | IX | yes | — | Soft → `departments.id`. Một lượt chạy chung = MỘT tổ. NULL = chưa lập kế hoạch (thẻ hiện chip ⚠️). |
 | `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id`. Một lượt chạy chung = MỘT máy. |
 | `so_nhan_cong` | `Integer` | — | no | `1` | Số người kế hoạch cho lượt chung. |
-| `so_nhan_cong_tieu_chuan` | `Integer` | — | no | `1` | Định biên chuẩn (snapshot danh mục) — mốc so sánh. |
-| `so_nhan_cong_toi_da` | `Integer` | — | yes | — | Trần người của công đoạn (snapshot danh mục). |
+| `so_nhan_cong_tieu_chuan` | `Integer` | — | no | `1` | Kíp chuẩn (snapshot danh mục) — mốc so sánh. Hai mốc `so_nhan_cong_toi_thieu`/`so_nhan_cong_toi_da` đã GỠ ở mg `0270`. |
 | `khoan_json` | `JSON` | — | yes | — | Công việc khoán của bước chung — cùng hình dạng `lsx_cong_doan.khoan_json`. |
 | `so_luong_vao` | `Numeric(14,2)` | — | no | `0` | Số lượng vào, tính ở **đơn vị tờ ghép** cho cả lượt (không phải phần của một lệnh). |
 | `so_luong_ra` | `Numeric(14,2)` | — | no | `0` | Số lượng ra của cả lượt. Toả về từng lệnh theo `bai_ghep_thanh_vien.so_con_tren_to`. |
@@ -4124,7 +4152,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 | `he_so_quy_doi` | `Numeric(12,4)` | — | no | `1` | Hệ số vào→ra (vd 1 tờ → 4 con). |
 | `hao_hut` | `Numeric(14,2)` | — | no | `0` | Tờ hao **cố định** (canh máy) — đếm **ĐÚNG MỘT LẦN** cho cả lượt chung. Đây chính là chỗ sửa lỗi mỗi lệnh tự cộng một bộ hao cho cùng một lần lên máy. |
 | `hao_hut_pct` | `Numeric(6,2)` | — | no | `0` | % hao theo độ dài lượt. Tách đôi với `hao_hut` vì hai thứ áp khác nhau (kiểu BC). |
-| `so_luot_chay` | `Integer` | — | no | `1` | Số lượt chạy (vd in 2 mặt trở tự). |
+| `so_luot_chay` | `Integer` | — | no | `1` | Số lượt chạy qua máy (vd in 2 mặt trở tự), khai được ở MỌI loại bước — xem ghi chú cùng cột ở `lsx_cong_doan`. |
 | `setup_phut` | `Numeric(10,2)` | — | no | `0` | Phút canh máy — một lần cho lượt chung. |
 | `nang_suat` | `Numeric(12,2)` | — | yes | — | Năng suất (theo `don_vi_nang_suat`). |
 | `don_vi_nang_suat` | `String(32)` | — | yes | — | Như `lsx_cong_doan.don_vi_nang_suat` (mg 0159 nới 10→32). |
@@ -4157,7 +4185,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 - Một `bai_ghep` có nhiều `bai_ghep_cong_doan`. Mỗi dòng có nhiều `bai_ghep_cong_doan_map` (đè lên bước nào của lệnh nào) và nhiều `bai_ghep_cong_doan_vat_tu` — cả hai cascade delete.
 - **GHI ĐÈ, KHÔNG PHÁ GỐC:** bước của LSX vẫn còn nguyên trong `lsx_cong_doan` với số của nó; tách gộp là số cũ quay lại, không phải khôi phục từ đâu. Engine chỉ việc "chỗ nào bị đè thì lấy số của bài".
 
-**Tất cả cột:** `id`, `step_key`, `bai_ghep_id`, `thu_tu`, `cong_doan_id`, `ten`, `nhom`, `loai_buoc`, `bat_buoc`, `kcs_tieu_chi_bo_sung_json`, `department_id`, `may_id`, `so_nhan_cong`, `so_nhan_cong_tieu_chuan`, `so_nhan_cong_toi_da`, `so_nhan_cong_toi_thieu`, `so_nhan_cong_toi_thieu`, `khoan_json`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `hao_hut`, `hao_hut_pct`, `so_luot_chay`, `setup_phut`, `nang_suat`, `don_vi_nang_suat`, `chay_phut`, `ve_sinh_phut`, `phat_sinh_phut`, `cho_phut`, `di_chuyen_phut`, `nha_cung_cap`, `sl_gui`, `ngay_gui_dk`, `van_chuyen_ngay`, `gia_cong_ngay`, `ngay_nhan_dk`, `hao_hut_cho_phep`, `don_gia_gia_cong`, `yeu_cau_ky_thuat`, `ghi_chu`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `step_key`, `bai_ghep_id`, `thu_tu`, `cong_doan_id`, `ten`, `nhom`, `loai_buoc`, `bat_buoc`, `kcs_tieu_chi_bo_sung_json`, `department_id`, `may_id`, `so_nhan_cong`, `so_nhan_cong_tieu_chuan`, `khoan_json`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `hao_hut`, `hao_hut_pct`, `so_luot_chay`, `setup_phut`, `nang_suat`, `don_vi_nang_suat`, `chay_phut`, `ve_sinh_phut`, `phat_sinh_phut`, `cho_phut`, `di_chuyen_phut`, `nha_cung_cap`, `sl_gui`, `ngay_gui_dk`, `van_chuyen_ngay`, `gia_cong_ngay`, `ngay_nhan_dk`, `hao_hut_cho_phep`, `don_gia_gia_cong`, `yeu_cau_ky_thuat`, `ghi_chu`, `created_at`, `updated_at`.
 
 ---
 
@@ -6134,6 +6162,286 @@ giờ lệch với nhật ký. Router (`routers/catalog_base.make_catalog_router
 - Không FK cấu trúc. Đọc theo (`bang`, `row_id`, `truong`) — xem `repositories/cong_thuc_lich_su_repo.py`.
 
 **Tất cả cột:** `id`, `bang`, `row_id`, `truong`, `gia_tri_cu`, `gia_tri_moi`, `sua_boi`, `sua_luc`.
+
+---
+
+## Tài sản cố định & Công cụ dụng cụ (kế toán)
+
+Sổ tài sản của phòng Kế toán: ghi tăng → trích khấu hao/phân bổ theo tháng có chốt kỳ → ba chứng
+từ biến động (điều chuyển · nâng cấp · ghi giảm) → kiểm kê. Bảy bảng, tất cả MỚI ⇒ `create_all`
+tự dựng; mg `0277` cấp QUYỀN cho vai đã có trên DB live, mg `0278` gỡ cột `ghi_chu_hach_toan`.
+
+Hai điểm thiết kế cần nhớ khi đọc nhóm bảng này:
+
+- **KHÔNG có cột tài khoản kế toán, cũng không còn cột định khoản riêng.** `ghi_chu_hach_toan`
+  đã gỡ ở mg `0278` — hai ô ghi chú cạnh nhau mà hệ không đọc ô nào chỉ làm người nhập phân vân.
+  Còn MỘT ô `tai_san.ghi_chu`, chữ tự do, muốn ghi định khoản vào đó cũng được.
+- **Bộ ba `co_so_trich` / `so_thang_con` / `moc_tu_ngay`** trên `tai_san` là đầu vào DUY NHẤT của
+  engine khấu hao (`services/tai_san/khau_hao.py`). Nạp đầu kỳ, ghi tăng, nâng cấp và CCDC giảm
+  một phần lô đều quy về bộ ba đó, nên engine không cần biết tài sản đến từ đường nào.
+
+### `tai_san`
+
+**Purpose:** một tài sản cố định, hoặc một LÔ công cụ dụng cụ cùng loại mua cùng lượt (12 tấm cao
+su = 1 dòng, `so_luong` = 12). Phân biệt bằng `loai`, KHÔNG tách bảng — luật tính giống hệt nhau.
+
+| Column                  | Type (SQLAlchemy → SQLite / Postgres)                 | Key                          | Null | Default        | Meaning                                                                                     |
+| ----------------------- | ----------------------------------------------------- | ---------------------------- | ---- | -------------- | ------------------------------------------------------------------------------------------- |
+| `id`                    | `Integer` → `INTEGER` / `SERIAL`                       | **PK**                       | no   | auto-increment | Surrogate primary key.                                                                        |
+| `ma`                    | `String(32)` → `VARCHAR(32)`                           | **U**, **IX**                | no   | —              | Mã hệ sinh: `TS-0001` (TSCĐ) / `CC-0001` (CCDC).                                             |
+| `ten`                   | `String(255)` → `VARCHAR(255)`                         | —                            | no   | —              | Tên tài sản.                                                                                  |
+| `loai`                  | `String(8)` → `VARCHAR(8)`                             | **IX**                       | no   | `tscd`         | `tscd` \| `ccdc`.                                                                             |
+| `so_luong`              | `Integer` → `INTEGER`                                  | —                            | no   | `1`            | Số cái trong lô (CCDC). TSCĐ luôn 1.                                                          |
+| `don_gia`               | `BigInteger` → `BIGINT`                                | —                            | yes  | —              | Đơn giá một cái — CCDC nhập theo lô dùng ô này thay bảng chi phí.                             |
+| `nguyen_gia`            | `BigInteger` → `BIGINT`                                | —                            | no   | `0`            | Tổng `tai_san_chi_phi`, hoặc `so_luong × don_gia`. `BigInteger` vì nguyên giá máy in tràn int32. |
+| `so_thang`              | `Integer` → `INTEGER`                                  | —                            | no   | —              | Số tháng khấu hao/phân bổ kế toán chọn (gợi ý: máy in 7–15 năm, CCDC ≤ 3 năm).                |
+| `ngay_su_dung`          | `Date` → `DATE`                                        | —                            | no   | —              | Ngày đưa vào sử dụng — mốc trích tháng đầu (prorate theo ngày).                               |
+| `co_so_trich`           | `BigInteger` → `BIGINT`                                | —                            | no   | `0`            | Số tiền CÒN PHẢI TRÍCH tính từ `moc_tu_ngay`.                                                 |
+| `so_thang_con`          | `Integer` → `INTEGER`                                  | —                            | no   | `0`            | Số tháng còn phải trích kể từ `moc_tu_ngay`.                                                  |
+| `moc_tu_ngay`           | `Date` → `DATE`                                        | —                            | no   | —              | Ngày bắt đầu áp bộ cơ sở hiện tại (ghi tăng ⇒ ngày sử dụng; nâng cấp ⇒ đầu kỳ áp dụng).       |
+| `hao_mon_luy_ke`        | `BigInteger` → `BIGINT`                                | —                            | no   | `0`            | Hao mòn đã trích tới nay. CHỈ cộng lúc CHỐT kỳ, không cộng lúc tính thử.                      |
+| `nguon_vao`             | `String(8)` → `VARCHAR(8)`                             | —                            | no   | `ghi_tang`     | `ghi_tang` (mua mới) \| `dau_ky` (số dư mang sang lúc lên phần mềm).                          |
+| `hao_mon_dau_ky`        | `BigInteger` → `BIGINT`                                | —                            | no   | `0`            | Hao mòn đã trích TRƯỚC khi lên phần mềm (chỉ `nguon_vao='dau_ky'`).                           |
+| `thang_da_trich_dau_ky` | `Integer` → `INTEGER`                                  | —                            | no   | `0`            | Số tháng đã trích trước khi lên phần mềm.                                                     |
+| `bo_phan_id`            | `Integer` → `INTEGER`                                  | FK→`departments.id`, **IX**  | yes  | —              | Bộ phận đang giữ. `ON DELETE SET NULL`.                                                       |
+| `nguoi_quan_ly`         | `String(255)` → `VARCHAR(255)`                         | —                            | yes  | —              | Người phụ trách — chữ tự do, không FK sang `employees`.                                       |
+| `vi_tri`                | `String(255)` → `VARCHAR(255)`                         | —                            | yes  | —              | Vị trí đặt (xưởng/phòng).                                                                     |
+| `so_hoa_don`            | `String(64)` → `VARCHAR(64)`                           | —                            | yes  | —              | Số hoá đơn mua.                                                                               |
+| `nha_cung_cap`          | `String(255)` → `VARCHAR(255)`                         | —                            | yes  | —              | Nhà cung cấp — chữ tự do, KHÔNG FK sang `suppliers` (tài sản có thể mua ngoài danh mục NCC).  |
+| `ghi_chu`               | `Text` → `TEXT`                                        | —                            | yes  | —              | Ghi chú tự do — kể cả định khoản. Hệ KHÔNG đọc nội dung.                                      |
+| `trang_thai`            | `String(12)` → `VARCHAR(12)`                           | **IX**                       | no   | `dang_dung`    | `dang_dung` \| `da_giam`.                                                                     |
+| `ngay_giam`             | `Date` → `DATE`                                        | —                            | yes  | —              | Ngày ghi giảm — engine ngừng trích từ đây (tháng chứa nó tính theo số ngày dùng).             |
+| `created_by_user_id`    | `Integer` → `INTEGER`                                  | FK→`users.id`                | yes  | —              | Người lập phiếu ghi tăng. `ON DELETE SET NULL`.                                               |
+| `created_at`            | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                            | no   | now (UTC)      | Lúc tạo.                                                                                      |
+| `updated_at`            | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                            | no   | now (UTC)      | Lúc sửa gần nhất.                                                                             |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique + index: `ma`. Index: `loai`, `trang_thai`, `bo_phan_id`.
+- Foreign keys: `bo_phan_id FK→departments.id` (SET NULL), `created_by_user_id FK→users.id` (SET NULL).
+
+**Relationships**
+
+- 1 `tai_san` ⇢ n `tai_san_chi_phi` (cascade delete), n `tai_san_bien_dong` (RESTRICT — còn chứng
+  từ thì không xoá được tài sản), n `tai_san_khau_hao` (cascade delete).
+
+**Tất cả cột:** `id`, `ma`, `ten`, `loai`, `so_luong`, `don_gia`, `nguyen_gia`, `so_thang`,
+`ngay_su_dung`, `co_so_trich`, `so_thang_con`, `moc_tu_ngay`, `hao_mon_luy_ke`, `nguon_vao`,
+`hao_mon_dau_ky`, `thang_da_trich_dau_ky`, `bo_phan_id`, `nguoi_quan_ly`, `vi_tri`, `so_hoa_don`,
+`nha_cung_cap`, `ghi_chu`, `trang_thai`, `ngay_giam`, `created_by_user_id`,
+`created_at`, `updated_at`.
+
+---
+
+### `tai_san_chi_phi`
+
+**Purpose:** một dòng cấu thành nguyên giá (giá mua, vận chuyển, lắp đặt chạy thử…). Giữ lại để
+giải thích 3,3 tỷ đến từ đâu — cộng lại đúng bằng `tai_san.nguyen_gia`.
+
+| Column       | Type (SQLAlchemy → SQLite / Postgres) | Key                       | Null | Default        | Meaning                        |
+| ------------ | ------------------------------------- | ------------------------- | ---- | -------------- | ------------------------------ |
+| `id`         | `Integer` → `INTEGER` / `SERIAL`      | **PK**                    | no   | auto-increment | Surrogate primary key.         |
+| `tai_san_id` | `Integer` → `INTEGER`                 | FK→`tai_san.id`, **IX**   | no   | —              | Tài sản chủ. `ON DELETE CASCADE`. |
+| `dien_giai`  | `String(255)` → `VARCHAR(255)`        | —                         | no   | —              | Nội dung khoản chi.            |
+| `so_tien`    | `BigInteger` → `BIGINT`               | —                         | no   | `0`            | Số tiền khoản đó.              |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `tai_san_id`. Foreign key: `tai_san_id FK→tai_san.id` (CASCADE).
+
+**Relationships**
+
+- Nhiều `tai_san_chi_phi` thuộc một `tai_san`.
+
+**Tất cả cột:** `id`, `tai_san_id`, `dien_giai`, `so_tien`.
+
+---
+
+### `tai_san_bien_dong`
+
+**Purpose:** một chứng từ biến động — điều chuyển · nâng cấp · ghi giảm. MỘT bảng chứ không ba:
+ba nghiệp vụ dùng chung phần lớn cột và luôn được đọc chung ở tab lịch sử; cột riêng để NULL.
+
+| Column              | Type (SQLAlchemy → SQLite / Postgres)                 | Key                      | Null | Default        | Meaning                                                                 |
+| ------------------- | ----------------------------------------------------- | ------------------------ | ---- | -------------- | ------------------------------------------------------------------------ |
+| `id`                | `Integer` → `INTEGER` / `SERIAL`                       | **PK**                   | no   | auto-increment | Surrogate primary key.                                                    |
+| `tai_san_id`        | `Integer` → `INTEGER`                                  | FK→`tai_san.id`, **IX**  | no   | —              | Tài sản bị tác động. `ON DELETE RESTRICT`.                               |
+| `loai`              | `String(16)` → `VARCHAR(16)`                           | **IX**                   | no   | —              | `dieu_chuyen` \| `nang_cap` \| `ghi_giam`.                               |
+| `ngay`              | `Date` → `DATE`                                        | **IX**                   | no   | —              | Ngày chứng từ — rơi vào kỳ đã chốt thì bị chặn.                          |
+| `so_tien`           | `BigInteger` → `BIGINT`                                | —                        | yes  | —              | nâng cấp ⇒ chi phí; ghi giảm ⇒ giá bán/thu hồi; điều chuyển ⇒ NULL.       |
+| `bo_phan_moi_id`    | `Integer` → `INTEGER`                                  | FK→`departments.id`      | yes  | —              | Chỉ điều chuyển: bộ phận nhận. `ON DELETE SET NULL`.                     |
+| `so_thang_con_lai`  | `Integer` → `INTEGER`                                  | —                        | yes  | —              | Chỉ nâng cấp: số tháng còn dùng kể từ kỳ áp dụng.                        |
+| `so_luong_giam`     | `Integer` → `INTEGER`                                  | —                        | yes  | —              | Chỉ ghi giảm CCDC theo lô: bỏ mấy cái trong lô.                          |
+| `ly_do`             | `String(255)` → `VARCHAR(255)`                         | —                        | yes  | —              | Lý do (thanh lý, nhượng bán, mất, hỏng, góp vốn…).                       |
+| `nguoi_tao_id`      | `Integer` → `INTEGER`                                  | FK→`users.id`            | yes  | —              | Người lập. `ON DELETE SET NULL`.                                         |
+| `created_at`        | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                        | no   | now (UTC)      | Lúc lập.                                                                  |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `tai_san_id`, `loai`, `ngay`.
+- Foreign keys: `tai_san_id FK→tai_san.id` (RESTRICT), `bo_phan_moi_id FK→departments.id` (SET NULL),
+  `nguoi_tao_id FK→users.id` (SET NULL).
+
+**Relationships**
+
+- Nhiều `tai_san_bien_dong` thuộc một `tai_san`; đọc theo `ngay` để dựng lịch sử.
+
+**Tất cả cột:** `id`, `tai_san_id`, `loai`, `ngay`, `so_tien`, `bo_phan_moi_id`, `so_thang_con_lai`,
+`so_luong_giam`, `ly_do`, `nguoi_tao_id`, `created_at`.
+
+---
+
+### `tai_san_khau_hao`
+
+**Purpose:** số trích của MỘT tài sản trong MỘT kỳ. Kỳ chưa chốt thì tính lại = xoá dòng cũ rồi
+ghi lại (không cộng dồn); kỳ đã chốt thì đóng băng.
+
+| Column              | Type (SQLAlchemy → SQLite / Postgres) | Key                     | Null | Default        | Meaning                                                              |
+| ------------------- | ------------------------------------- | ----------------------- | ---- | -------------- | --------------------------------------------------------------------- |
+| `id`                | `Integer` → `INTEGER` / `SERIAL`      | **PK**                  | no   | auto-increment | Surrogate primary key.                                                 |
+| `tai_san_id`        | `Integer` → `INTEGER`                 | FK→`tai_san.id`, **IX** | no   | —              | Tài sản. `ON DELETE CASCADE`.                                          |
+| `ky_nam`            | `Integer` → `INTEGER`                 | **U** (bộ ba)           | no   | —              | Năm của kỳ.                                                            |
+| `ky_thang`          | `Integer` → `INTEGER`                 | **U** (bộ ba)           | no   | —              | Tháng của kỳ (1–12).                                                   |
+| `muc_trich`         | `BigInteger` → `BIGINT`               | —                       | no   | `0`            | Số trích riêng kỳ này.                                                 |
+| `luy_ke`            | `BigInteger` → `BIGINT`               | —                       | no   | `0`            | Hao mòn lũy kế SAU kỳ này.                                             |
+| `con_lai`           | `BigInteger` → `BIGINT`               | —                       | no   | `0`            | Giá trị còn lại sau kỳ này.                                            |
+| `bo_phan_id`        | `Integer` → `INTEGER`                 | FK→`departments.id`     | yes  | —              | Bộ phận chịu chi phí — CHỤP lúc tính (tài sản có thể điều chuyển sau). |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `tai_san_id`.
+- Unique: `uq_tai_san_khau_hao_ky` trên (`tai_san_id`, `ky_nam`, `ky_thang`) — chặn tính hai lần
+  cộng dồn thành số gấp đôi.
+- Foreign keys: `tai_san_id FK→tai_san.id` (CASCADE), `bo_phan_id FK→departments.id` (SET NULL).
+
+**Relationships**
+
+- Nhiều `tai_san_khau_hao` thuộc một `tai_san`; nhóm theo (`ky_nam`, `ky_thang`) ra bảng khấu hao kỳ.
+
+**Tất cả cột:** `id`, `tai_san_id`, `ky_nam`, `ky_thang`, `muc_trich`, `luy_ke`, `con_lai`,
+`bo_phan_id`.
+
+---
+
+### `tai_san_ky`
+
+**Purpose:** trạng thái một kỳ khấu hao. Chốt rồi thì mọi số của kỳ đó đóng băng: không tính lại,
+không sửa ô ảnh hưởng sổ, không lập chứng từ ngày trong kỳ. Cùng ý với `kho_khoa_so` /
+`cong_no_khoa_so` nhưng bảng này chỉ giữ TRẠNG THÁI HIỆN TẠI — kỳ là tháng rời rạc nên một dòng
+một kỳ là đủ; lịch sử chốt/mở nằm ở `tai_san_ky_log`.
+
+| Column          | Type (SQLAlchemy → SQLite / Postgres)                 | Key           | Null | Default        | Meaning                        |
+| --------------- | ----------------------------------------------------- | ------------- | ---- | -------------- | ------------------------------ |
+| `id`            | `Integer` → `INTEGER` / `SERIAL`                       | **PK**        | no   | auto-increment | Surrogate primary key.         |
+| `ky_nam`        | `Integer` → `INTEGER`                                  | **U** (cặp)   | no   | —              | Năm.                           |
+| `ky_thang`      | `Integer` → `INTEGER`                                  | **U** (cặp)   | no   | —              | Tháng (1–12).                  |
+| `trang_thai`    | `String(8)` → `VARCHAR(8)`                             | —             | no   | `mo`           | `mo` \| `da_chot`.             |
+| `ngay_chot`     | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —             | yes  | —              | Lúc chốt.                      |
+| `nguoi_chot_id` | `Integer` → `INTEGER`                                  | FK→`users.id` | yes  | —              | Người chốt. `ON DELETE SET NULL`. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique: `uq_tai_san_ky` trên (`ky_nam`, `ky_thang`).
+- Foreign key: `nguoi_chot_id FK→users.id` (SET NULL).
+
+**Relationships**
+
+- Không FK sang `tai_san_khau_hao`; nối logic theo cặp (`ky_nam`, `ky_thang`).
+- Một `tai_san_ky` có n `tai_san_ky_log` (nối theo cặp `ky_nam`/`ky_thang`, không FK).
+
+**Tất cả cột:** `id`, `ky_nam`, `ky_thang`, `trang_thai`, `ngay_chot`, `nguoi_chot_id`.
+
+---
+
+### `tai_san_ky_log`
+
+**Purpose:** vết CHỐT / MỞ LẠI kỳ khấu hao — APPEND-ONLY, không sửa không xoá. `tai_san_ky` chỉ
+giữ trạng thái hiện tại: mở lại kỳ là `ngay_chot`/`nguoi_chot_id` về NULL, lần chốt trước mất
+sạch. Chốt và mở lại là hai thao tác DUY NHẤT làm `tai_san.hao_mon_luy_ke` nhúc nhích, nên mất
+vết là mất câu trả lời cho "tháng 9 ai chốt, chốt bao nhiêu, sao giờ số khác". Cùng vai với
+`kho_khoa_so` bên báo cáo kho.
+
+| Column      | Type (SQLAlchemy → SQLite / Postgres)                 | Key           | Null | Default        | Meaning                                              |
+| ----------- | ----------------------------------------------------- | ------------- | ---- | -------------- | ---------------------------------------------------- |
+| `id`        | `Integer` → `INTEGER` / `SERIAL`                       | **PK**        | no   | auto-increment | Surrogate primary key.                                |
+| `ky_nam`    | `Integer` → `INTEGER`                                  | **IX** (cặp)  | no   | —              | Năm của kỳ.                                           |
+| `ky_thang`  | `Integer` → `INTEGER`                                  | **IX** (cặp)  | no   | —              | Tháng của kỳ (1–12).                                  |
+| `hanh_dong` | `String(8)` → `VARCHAR(8)`                             | —             | no   | —              | `chot` \| `mo`.                                       |
+| `so_tien`   | `BigInteger` → `BIGINT`                                | —             | no   | `0`            | ĐỘ LỚN (≥ 0) đã cộng vào / trừ ra khỏi hao mòn lũy kế tại đúng lúc bấm. Hướng đọc ở `hanh_dong`. |
+| `so_mon`    | `Integer` → `INTEGER`                                  | —             | no   | `0`            | Số tài sản có số trong kỳ lúc đó.                     |
+| `nguoi_id`  | `Integer` → `INTEGER`                                  | FK→`users.id` | yes  | —              | Người bấm. `ON DELETE SET NULL`.                      |
+| `thoi_diem` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —             | no   | now (UTC)      | Lúc bấm.                                              |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `ix_tai_san_ky_log_ky` trên (`ky_nam`, `ky_thang`) — màn hình luôn
+  đọc vết theo MỘT kỳ.
+- Foreign key: `nguoi_id FK→users.id` (SET NULL) — xoá tài khoản thì vết vẫn còn, chỉ mất tên.
+- KHÔNG unique: chốt rồi mở rồi chốt lại cùng một kỳ là chuyện bình thường, mỗi lần một dòng.
+
+**Relationships**
+
+- Nhiều `tai_san_ky_log` thuộc một kỳ; nối logic với `tai_san_ky` theo cặp (`ky_nam`, `ky_thang`).
+
+**Tất cả cột:** `id`, `ky_nam`, `ky_thang`, `hanh_dong`, `so_tien`, `so_mon`, `nguoi_id`,
+`thoi_diem`.
+
+---
+
+### `tai_san_kiem_ke`
+
+**Purpose:** một đợt kiểm kê — bung danh sách phải có, đối chiếu tay, ra thiếu/thừa. Mức tối giản:
+KHÔNG có QR, không quét điện thoại, không ký duyệt nhiều cấp.
+
+| Column         | Type (SQLAlchemy → SQLite / Postgres)                 | Key                 | Null | Default        | Meaning                          |
+| -------------- | ----------------------------------------------------- | ------------------- | ---- | -------------- | -------------------------------- |
+| `id`           | `Integer` → `INTEGER` / `SERIAL`                       | **PK**              | no   | auto-increment | Surrogate primary key.           |
+| `ma`           | `String(32)` → `VARCHAR(32)`                           | **U**               | no   | —              | Mã đợt hệ sinh (`KK-0001`).      |
+| `ngay`         | `Date` → `DATE`                                        | —                   | no   | —              | Ngày kiểm kê.                    |
+| `bo_phan_id`   | `Integer` → `INTEGER`                                  | FK→`departments.id` | yes  | —              | NULL = kiểm toàn công ty. `ON DELETE SET NULL`. |
+| `trang_thai`   | `String(12)` → `VARCHAR(12)`                           | —                   | no   | `dang_kiem`    | `dang_kiem` \| `da_ket`.         |
+| `ghi_chu`      | `Text` → `TEXT`                                        | —                   | yes  | —              | Ghi chú đợt.                     |
+| `nguoi_tao_id` | `Integer` → `INTEGER`                                  | FK→`users.id`       | yes  | —              | Người lập. `ON DELETE SET NULL`. |
+| `created_at`   | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                   | no   | now (UTC)      | Lúc tạo.                         |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique: `ma`.
+- Foreign keys: `bo_phan_id FK→departments.id` (SET NULL), `nguoi_tao_id FK→users.id` (SET NULL).
+
+**Relationships**
+
+- 1 `tai_san_kiem_ke` ⇢ n `tai_san_kiem_ke_dong` (cascade delete).
+
+**Tất cả cột:** `id`, `ma`, `ngay`, `bo_phan_id`, `trang_thai`, `ghi_chu`, `nguoi_tao_id`, `created_at`.
+
+---
+
+### `tai_san_kiem_ke_dong`
+
+**Purpose:** một dòng đối chiếu của đợt kiểm kê. `tai_san_id` NULL = món PHÁT HIỆN ngoài sổ (thừa);
+`ket_qua='khong_thay'` = thiếu.
+
+| Column          | Type (SQLAlchemy → SQLite / Postgres) | Key                            | Null | Default        | Meaning                                        |
+| --------------- | ------------------------------------- | ------------------------------ | ---- | -------------- | ---------------------------------------------- |
+| `id`            | `Integer` → `INTEGER` / `SERIAL`      | **PK**                         | no   | auto-increment | Surrogate primary key.                         |
+| `dot_id`        | `Integer` → `INTEGER`                 | FK→`tai_san_kiem_ke.id`, **IX**| no   | —              | Đợt kiểm kê. `ON DELETE CASCADE`.              |
+| `tai_san_id`    | `Integer` → `INTEGER`                 | FK→`tai_san.id`                | yes  | —              | Tài sản trong sổ; NULL = món thừa. `ON DELETE SET NULL`. |
+| `ket_qua`       | `String(12)` → `VARCHAR(12)`          | —                              | yes  | —              | `co` \| `khong_thay` \| NULL (chưa đối chiếu). |
+| `ten_phat_hien` | `String(255)` → `VARCHAR(255)`        | —                              | yes  | —              | Tên món thừa do người kiểm gõ vào.             |
+| `tinh_trang`    | `String(255)` → `VARCHAR(255)`        | —                              | yes  | —              | Tình trạng thực tế (còn tốt, hỏng, chờ sửa…).  |
+| `ghi_chu`       | `Text` → `TEXT`                       | —                              | yes  | —              | Ghi chú dòng.                                  |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `dot_id`.
+- Foreign keys: `dot_id FK→tai_san_kiem_ke.id` (CASCADE), `tai_san_id FK→tai_san.id` (SET NULL).
+
+**Relationships**
+
+- Nhiều `tai_san_kiem_ke_dong` thuộc một `tai_san_kiem_ke`; mỗi dòng trỏ tối đa một `tai_san`.
+
+**Tất cả cột:** `id`, `dot_id`, `tai_san_id`, `ket_qua`, `ten_phat_hien`, `tinh_trang`, `ghi_chu`.
 
 ---
 

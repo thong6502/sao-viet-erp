@@ -30,8 +30,9 @@ class _GiayRepo(CatalogRepo):
 
 class _VatTuRepo(CatalogRepo):
     model = VatTuInAn
+    # `cong_thuc_luong` GỠ ở mg `0274` — tuple của GIẤY ngay trên vẫn giữ, đừng gỡ nhầm.
     fields = ("ten", "don_vi_gia", "don_gia", "ghi_chu", "active", "cong_thuc_gia",
-              "cong_thuc_luong", "thay_the_ids")
+              "thay_the_ids")
     commit_on_write = False
 
     # THÀNH PHẨM ĐI MÀN RIÊNG (mg 0204 · docs/prd-thanh-pham.md §3). Dòng có `customer_id` là

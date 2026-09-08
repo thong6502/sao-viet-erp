@@ -131,26 +131,10 @@ function loiPhatHanh(e: unknown, macDinh: string): string {
 }
 
 // NHÂN LỰC CỦA BƯỚC — một chỗ tính, ba chỗ hiện (thẻ bước · hộp xác nhận · panel dòng đã xếp).
-// `so` là số BỐ TRÍ (kế hoạch) — đúng con số bàn xếp lịch cân quân số tổ; `db` là ba mốc định biên.
-// Bước máy chỉ khai kíp chuẩn (danh mục Máy không có tối thiểu/tối đa) nên viết gọn "chuẩn N" thay vì
-// "– · N · –": dấu gạch đọc như dữ liệu hỏng, trong khi thật ra máy không có khái niệm biên.
-function nhanLucTom(so: number | null | undefined, db: Xl2DinhBien | null | undefined): {
-  coBien: boolean; text: string | null; ngoai: boolean;
-} {
-  const coBien = !!db && (db.toi_thieu != null || db.toi_da != null);
-  const text = !db
-    ? null
-    : coBien
-      ? `${db.toi_thieu ?? "–"} · ${db.tieu_chuan ?? "–"} · ${db.toi_da ?? "–"}`
-      : db.tieu_chuan != null
-        ? `chuẩn ${db.tieu_chuan}`
-        : null;
-  // Từ 21/08/2026 quân số KHÔNG còn chặn đặt lịch, nên chỗ duy nhất người xếp nhìn thấy sai lệch là
-  // con số này — ra ngoài biên thì tô tín hiệu ngay tại chỗ.
-  const ngoai =
-    so != null && !!db &&
-    ((db.toi_thieu != null && so < db.toi_thieu) || (db.toi_da != null && so > db.toi_da));
-  return { coBien, text, ngoai };
+// Từ 06/09/2026 (mg `0270`) chỉ còn MỘT con số định mức: kíp chuẩn khai ở đầu việc của công đoạn,
+// dùng chung cho mọi loại bước. Hai mốc tối thiểu/tối đa đã gỡ nên không còn khái niệm "ngoài biên".
+function nhanLucTom(db: Xl2DinhBien | null | undefined): { text: string | null } {
+  return { text: db?.tieu_chuan != null ? `chuẩn ${db.tieu_chuan}` : null };
 }
 
 // Item 13 — MỞ MODULE NGUỒN để sửa GỐC vấn đề. Chỉ nối những `nguon` có màn sửa RIÊNG: vật tư → Kho,
@@ -1749,8 +1733,7 @@ function StepCard({
   const hasRange = b.chiem_may_phut_min !== b.chiem_may_phut_max;
   const nguonLb = b.nguon_thoi_luong === "thue_ngoai" ? "thuê ngoài"
     : b.nguon_thoi_luong === "may" ? "theo máy" : "làm tay";
-  const db = b.dinh_bien;
-  const { coBien: dbCoBien, text: dbText, ngoai: dbNgoai } = nhanLucTom(b.so_nhan_cong, db);
+  const { text: dbText } = nhanLucTom(b.dinh_bien);
   const worst = mucNangNhat(b.van_de);
   return (
     <div className={`xl2-step${b.is_locked ? " xl2-step--locked" : ""}`}>
@@ -1772,17 +1755,14 @@ function StepCard({
         <span className="xl2-step__tag">{nguonLb}</span>
         {b.so_nhan_cong != null && (
           <span
-            className={`xl2-step__fact${dbNgoai ? " xl2-step__fact--warn" : ""}`}
-            title={dbNgoai ? `Bố trí ${b.so_nhan_cong} người, ngoài biên ${db.toi_thieu ?? "–"}–${db.toi_da ?? "–"} của bước — sửa ở màn Lệnh sản xuất, khối Nhân lực.` : "Số người bố trí (kế hoạch) — bàn xếp lịch cân quân số tổ theo số này."}
+            className="xl2-step__fact"
+            title="Số người bố trí (kế hoạch) — bàn xếp lịch cân quân số tổ theo số này."
           >
-            <Icon name={dbNgoai ? "alert" : "users"} size={11} /> {b.so_nhan_cong} người
+            <Icon name="users" size={11} /> {b.so_nhan_cong} người
           </span>
         )}
         {dbText && (
-          <span
-            className="xl2-step__fact"
-            title={dbCoBien ? "Định biên của bước: tối thiểu · tiêu chuẩn · tối đa" : "Kíp vận hành tiêu chuẩn theo danh mục Máy"}
-          >
+          <span className="xl2-step__fact" title="Kíp chuẩn theo định mức công đoạn">
             ĐB {dbText}
           </span>
         )}
@@ -1875,11 +1855,10 @@ function Xl2PreviewDialogBody({
   const slackDays = computeSlackDays(xt.han_moi ?? finishIso, xt.han_sx);
   const hasIssues = xt.van_de && xt.van_de.length > 0;
   // Nhân lực bước. Câu cảnh báo quân số chỉ in con số đỉnh ("Đỉnh 5 người…") — đứng một mình nó
-  // không cho biết 5 ở đâu ra, cũng không cho biết bước định biên bao nhiêu. Dán thẳng vào hàng
-  // thẻ dữ kiện: bố trí bao nhiêu, biên bao nhiêu, ngoài biên thì tô đỏ.
-  const nl = nhanLucTom(xt.so_nhan_cong, xt.dinh_bien);
-  const nhanLucText = nl.text == null ? null : nl.coBien ? `định biên ${nl.text}` : `kíp ${nl.text}`;
-  const nhanLucNgoai = nl.ngoai;
+  // không cho biết 5 ở đâu ra, cũng không cho biết kíp chuẩn của bước là bao nhiêu. Dán thẳng vào
+  // hàng thẻ dữ kiện: bố trí bao nhiêu, kíp chuẩn bao nhiêu.
+  const nl = nhanLucTom(xt.dinh_bien);
+  const nhanLucText = nl.text == null ? null : `kíp ${nl.text}`;
 
   return (
     <div className="xl2-dlg-preview">
@@ -1934,15 +1913,10 @@ function Xl2PreviewDialogBody({
           </span>
           {xt.so_nhan_cong != null && (
             <span
-              className={`xl2-dlg-tag${nhanLucNgoai ? " xl2-dlg-tag--warn" : ""}`}
-              title={
-                nhanLucNgoai
-                  ? "Số người bố trí ở bước nằm ngoài định biên — sửa tại màn Lệnh sản xuất, khối Nhân lực."
-                  : "Số người bố trí ở bước (khai tại màn Lệnh sản xuất, khối Nhân lực)."
-              }
+              className="xl2-dlg-tag"
+              title="Số người bố trí ở bước (khai tại màn Lệnh sản xuất, khối Nhân lực)."
             >
-              <Icon name={nhanLucNgoai ? "alert" : "users"} size={11} /> Bố trí{" "}
-              <b>{xt.so_nhan_cong} người</b>
+              <Icon name="users" size={11} /> Bố trí <b>{xt.so_nhan_cong} người</b>
               {nhanLucText ? ` · ${nhanLucText}` : ""}
             </span>
           )}
@@ -2201,7 +2175,7 @@ function DongPanel({
       ? <><Icon name="users" size={13} /> {deptTen.get(dong.department_id) ?? `Tổ #${dong.department_id}`}</>
       : <><Icon name="truck" size={13} /> Chưa gán máy / tổ</>;
   const nhan = dongNhanParts(dong);
-  const nl = nhanLucTom(xt?.so_nhan_cong, xt?.dinh_bien);
+  const nl = nhanLucTom(xt?.dinh_bien);
   const gioSai = gioNhapSai(draftStart);
 
   return (
@@ -2225,23 +2199,15 @@ function DongPanel({
           {xt && <div className="xl2-kv"><span className="xl2-kv__k">Chiếm máy</span><span className="xl2-kv__v xl2-kv__v--num">{thoiLuong(xt.chiem_may_phut)}{xt.theo_may ? " (theo máy)" : ""}</span></div>}
           {/* NHÂN LỰC — khối này trước chỉ có tài nguyên + giờ + chiếm máy, nên khi lịch kêu "đỉnh N
               người vượt quân số tổ" người xếp không thấy bước khai bao nhiêu người, cũng không biết
-              đi đâu sửa. Nay số bố trí đứng cạnh ba mốc định biên, ra ngoài biên thì tô tín hiệu, và
-              có lối mở thẳng sang chỗ sửa. */}
+              đi đâu sửa. Nay số bố trí đứng cạnh kíp chuẩn, kèm lối mở thẳng sang chỗ sửa. */}
           {xt && xt.so_nhan_cong != null && (
             <div className="xl2-kv">
               <span className="xl2-kv__k">Nhân lực</span>
-              <span className={`xl2-kv__v xl2-kv__v--nhanluc${nl.ngoai ? " xl2-kv__v--canh" : ""}`}>
-                <span className="xl2-kv__v--num">
-                  {nl.ngoai && <Icon name="alert" size={11} />} {xt.so_nhan_cong} người
-                </span>
+              <span className="xl2-kv__v xl2-kv__v--nhanluc">
+                <span className="xl2-kv__v--num">{xt.so_nhan_cong} người</span>
                 {nl.text && (
-                  <span
-                    className="xl2-kv__bien"
-                    title={nl.coBien
-                      ? "Định biên của bước: tối thiểu · tiêu chuẩn · tối đa"
-                      : "Kíp vận hành tiêu chuẩn theo danh mục Máy"}
-                  >
-                    {nl.coBien ? "biên" : "kíp"} {nl.text}
+                  <span className="xl2-kv__bien" title="Kíp chuẩn theo định mức công đoạn">
+                    kíp {nl.text}
                   </span>
                 )}
                 {onMoBuoc && (

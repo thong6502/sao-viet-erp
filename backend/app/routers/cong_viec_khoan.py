@@ -68,6 +68,6 @@ make_catalog_router(
     dung_rows=_dung_rows,
     ma_goi_y=True,      # repo khai `ma_prefix = "KH-"`
     enable_clone=True,
-    cong_thuc_truong="cong_thuc_luong",
+    # `cong_thuc_truong` bỏ: bảng đơn giá khoán hết ô công thức (mg `0274`).
     excel_spec=CONG_VIEC_KHOAN,
 )

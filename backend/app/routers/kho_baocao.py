@@ -101,7 +101,7 @@ def _report_rows(
         stmt = stmt.where(StockVoucher.loai == loai)
     if kho_id:
         stmt = stmt.where(StockVoucher.kho_id == kho_id)
-    stmt = stmt.order_by(StockVoucher.ghi_so_luc, StockVoucher.id, StockVoucherLine.id)
+    stmt = stmt.order_by(StockVoucher.ngay, StockVoucher.id, StockVoucherLine.id)
 
     results = db.execute(stmt).all()
     # Mã / tên / ĐVT mặt hàng tra từ DANH MỤC GỐC theo (hang_loai, hang_id) — bảng `materials` đã bỏ.
@@ -116,8 +116,9 @@ def _report_rows(
     rows: list[BaoCaoKhoRow] = []
     for v, ln, req, kho, lot in results:
         mh = hang_map.get((ln.hang_loai, ln.hang_id))
-        # Lọc theo ngày GHI SỔ ở Python (tránh func.date lệ thuộc dialect + parse tz của SQLite).
-        d = _ngay_ghi_so_vn(v.ghi_so_luc)
+        # NGÀY HẠCH TOÁN = NGÀY NHẬP/XUẤT KHO trên phiếu (`v.ngay`) — CÙNG mốc với khóa kỳ, nên
+        # phiếu bị chặn ở kỳ nào thì cũng nằm đúng kỳ đó trên sổ. `ghi_so_luc` chỉ còn vai kiểm toán.
+        d = v.ngay
         if tu and (d is None or d < tu):
             continue
         if den and (d is None or d > den):
@@ -133,7 +134,7 @@ def _report_rows(
             price = int(lot.don_gia_nhap) if (lot is not None and lot.don_gia_nhap is not None) else None
         row = BaoCaoKhoRow(
             voucher_id=v.id,
-            ngay_ghi_so=d,
+            ngay_ghi_so=_ngay_ghi_so_vn(v.ghi_so_luc),   # vai KIỂM TOÁN (ai bấm lúc nào)
             ngay_ct=v.ngay,
             so_ct=v.ma,
             loai=v.loai,
@@ -189,7 +190,7 @@ def _chuyen_kho_rows(
             StockVoucher.dieu_chuyen.is_(True),
             StockVoucher.loai == VOUCHER_NHAP,  # vế NHẬP đích = đại diện cho cả điều chuyển
         )
-        .order_by(StockVoucher.ghi_so_luc, StockVoucher.id, StockVoucherLine.id)
+        .order_by(StockVoucher.ngay, StockVoucher.id, StockVoucherLine.id)
     )
     results = db.execute(stmt).all()
     # Tên kho NGUỒN (Xuất tại kho) tra từ `stock_requests.kho_nguon_id` — 1 lượt, tránh N+1.
@@ -207,7 +208,7 @@ def _chuyen_kho_rows(
     rows: list[BaoCaoChuyenKhoRow] = []
     for v, ln, req, kho in results:
         mh = hang_map.get((ln.hang_loai, ln.hang_id))
-        d = _ngay_ghi_so_vn(v.ghi_so_luc)
+        d = v.ngay        # NGÀY HẠCH TOÁN (ngày nhập/xuất kho) — cùng mốc với khóa kỳ
         if tu and (d is None or d < tu):
             continue
         if den and (d is None or d > den):
@@ -222,7 +223,7 @@ def _chuyen_kho_rows(
         price = round(float(ln.don_gia) * so / qty) if (qty and ln.don_gia is not None) else None
         row = BaoCaoChuyenKhoRow(
             voucher_id=v.id,
-            ngay_ghi_so=d,
+            ngay_ghi_so=_ngay_ghi_so_vn(v.ghi_so_luc),   # vai KIỂM TOÁN (ai bấm lúc nào)
             ngay_ct=v.ngay,
             so_ct=v.ma,
             ma_hang=getattr(mh, "ma", None),
@@ -297,7 +298,7 @@ def _nxt_compute(
     # Mọi key cần xét = key có snapshot ĐẦU KỲ ∪ key có chuyển động.
     acc: dict[tuple, _Acc] = {k: _Acc() for k in snap_map}
     for v, ln in results:
-        d = _ngay_ghi_so_vn(v.ghi_so_luc)
+        d = v.ngay        # NGÀY HẠCH TOÁN (ngày nhập/xuất kho) — cùng mốc với khóa kỳ
         if d is None or d > den:
             continue
         key = (v.kho_id, ln.hang_loai, ln.hang_id)
@@ -536,8 +537,9 @@ def set_khoa_so(payload: KhoKhoaSoIn, db: Db, user: CloseBookUser) -> KhoKhoaSoR
     if payload.hanh_dong == "khoa" and repo.overlaps_locked(
         payload.kho_id, payload.tu_ngay, payload.den_ngay
     ):
-        # Kỳ kế toán KHÔNG được dùng chung ngày (Luật Kế toán 2015 Đ.12: kỳ tính tới HẾT ngày cuối)
-        # → kỳ sau bắt đầu từ NGÀY LIỀN SAU. Nêu đích danh ngày hợp lệ cho người dùng khỏi mò.
+        # Kỳ RỜI NGÀY (chốt 2026-09-05 — "cách 3"): kỳ trước kết thúc HẾT ngày `den`, kỳ sau bắt
+        # đầu NGÀY KẾ TIẾP. Mỗi ngày chỉ thuộc ĐÚNG MỘT kỳ → không đếm 2 lần, nhãn khớp nội dung.
+        # Số dư vẫn nối liền: cuối kỳ trước = đầu kỳ sau (qua snapshot `kho_ky_ton`).
         cutoff = repo.locked_cutoff(payload.kho_id)
         goi_y = (
             f" Đã khóa tới {_fmt_date(cutoff)}; kỳ mới phải bắt đầu từ "
@@ -844,7 +846,9 @@ def _passes_funnel(
     """Lọc funnel theo CỘT giống hệt bảng FE (inDateRange/inNumRange): khoảng BAO GỒM hai đầu, để
     trống = không chặn, giá trị None mà đang có chặn = loại. Nhờ vậy 'xuất Excel' ĐÚNG BẰNG những gì
     màn đang hiển thị, không kéo thừa dòng đã bị lọc cột (Ngày CT · Số lượng · Đơn giá · Thành tiền)."""
-    d = r.ngay_ct
+    # `ct_from`/`ct_to` GIỮ TÊN cũ (khỏi đổi API/FE) nhưng nay lọc NGÀY GHI SỔ — đúng cột thứ 2 của
+    # sổ. Cột 1 (ngày nhập/xuất kho = ngày hạch toán) đã do `tu`/`den` lo.
+    d = r.ngay_ghi_so
     if ct_from is not None and (d is None or d < ct_from):
         return False
     if ct_to is not None and (d is None or d > ct_to):

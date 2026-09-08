@@ -422,8 +422,7 @@
   .khsx-kpi-tile__label,
   .khsx-kpi-tile__val small,
   .khsx-spec__hint,
-  .khsx-spec__canhbao,
-  .khsx-kv__moi {
+  .khsx-spec__canhbao {
     font-size: 12px !important;
   }
 
@@ -540,9 +539,8 @@
   .khsx-vtke__job-tag,
   .khsx-vtke__ngoai,
   .khsx-vtke__alert-box,
-  .khsx-vtcard__ma,
-  .khsx-vtcard__sub,
-  .khsx-vtcard__qty small,
+  .khsx-vtbang__ma,
+  .khsx-vtbang__sub,
   .khsx-vtcard__tag,
   .khsx-vtcard__buoc,
   .khsx .khvt-gom__chip,

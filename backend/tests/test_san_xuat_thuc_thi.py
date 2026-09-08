@@ -90,7 +90,68 @@ def _cvs(db, to) -> list[SanXuatCongViec]:
     )
 
 
-def _mot_cv(db, orders, lsx_svc, admin, customer, *, ma="TO-TT"):
+def _gan_giay_len_buoc(db, cv, *, dvt=None) -> None:
+    """Gắn dòng GIẤY lên bước của công việc — từ 08/09/2026 đó là đường DUY NHẤT giấy vào nhu cầu.
+
+    Trước đây bảng cân đối tự suy giấy từ `quy_cach_json.giay_id`, nên mọi fixture có quy cách là
+    tự nhiên có nhu cầu giấy. Nay người lập kế hoạch phải chọn giấy ở khối vật tư của BƯỚC, và
+    fixture phải làm đúng việc đó thì đường "tổ xin giấy" mới còn dữ liệu để chạy.
+
+    Số lượng ghi bằng ĐVT GỐC của chính loại giấy, đúng như `LsxService._luong_vat_tu` ghi: tính
+    ra kg trước (`so_to_nguyen × 0,08385` — một tờ 65×86 định lượng 150) rồi quy sang gốc bằng hệ
+    số của DANH MỤC, không gõ cứng 1000 — giấy seed bán theo TẤN nên gõ cứng là lệch nghìn lần.
+    Lệnh nào chưa có số tờ thì lấy 100 kg: các bài dùng helper này soi luật đề nghị/khoá/quyền,
+    không soi con số giấy.
+
+    `dvt` ép đơn vị ghi trên dòng (vd `"to"`) và ghi thẳng SỐ TỜ. Đây là trạng thái thật chứ không
+    phải mẹo: `don_vi_snapshot` là ẢNH CHỤP lúc lưu bước, danh mục đổi ĐVT sau đó thì dòng cũ vẫn
+    giữ đơn vị cũ — và đó là ca duy nhất còn để `dvt` khác `dvt_goc` ở tầng lệnh.
+    """
+    from app.models.lsx import Lsx, LsxCongDoanVatTu
+    from app.models.vat_lieu_kho import GiayNguyen
+    from app.repositories.don_vi_do_repo import DonViDoRepository
+    from app.repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+    from app.services.vat_lieu_kho_service import VatLieuKhoService
+
+    lsx = db.get(Lsx, cv.lsx_id) if cv.lsx_id else None
+    giay_id = (getattr(lsx, "quy_cach_json", None) or {}).get("giay_id") if lsx else None
+    if not giay_id or not cv.lsx_cong_doan_id:
+        return
+    g = db.get(GiayNguyen, int(giay_id))
+    if g is None:
+        return
+    kg = round(float(lsx.so_to_nguyen or 0) * 0.08385, 3) or 100.0
+    hang = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    he_so_kg = next(
+        (d["he_so_ve_goc"] for d in hang.don_vi_cua_mat_hang("giay", g.id)["ds"]
+         if d["ma"] == "kg"), 1.0
+    )
+    don_vi = dvt or g.don_vi_gia or "kg"
+    so_luong = ((float(lsx.so_to_nguyen or 0) or 1_000.0) if dvt
+                else round(kg * float(he_so_kg or 1.0), 6))
+    # GHI ĐÈ nếu bước đã có dòng giấy. Chuỗi fixture xếp lịch (`_hai_lsx_san_sang` → …
+    # `_khai_giay_len_buoc_in`) cũng khai giấy lên bước In để lệnh giữ chỗ được, nên tới đây bước
+    # thường ĐÃ có dòng — `db.add` thêm lần nữa là vỡ UNIQUE `(bước, hang_loai, hang_id)`. Ghi đè
+    # chứ không bỏ qua: các bài dưới cần ĐÚNG số/ĐVT mà helper này đặt.
+    cu = (
+        db.query(LsxCongDoanVatTu)
+        .filter_by(lsx_cong_doan_id=cv.lsx_cong_doan_id, hang_loai="giay", vat_tu_id=g.id)
+        .first()
+    )
+    if cu is not None:
+        cu.don_vi_snapshot = don_vi
+        cu.so_luong = so_luong
+    else:
+        db.add(LsxCongDoanVatTu(
+            lsx_cong_doan_id=cv.lsx_cong_doan_id, hang_loai="giay", vat_tu_id=g.id,
+            vat_tu_ma_snapshot=g.ma, vat_tu_ten_snapshot=g.ten,
+            don_vi_snapshot=don_vi, so_luong=so_luong,
+            thu_tu=0, tu_dong=False,
+        ))
+    db.commit()
+
+
+def _mot_cv(db, orders, lsx_svc, admin, customer, *, ma="TO-TT", giay_o_buoc=True, dvt_giay=None):
     """Một tổ khoán + một công việc BUOC_MAY không hạn dự kiến (khỏi vướng luật trễ)."""
     to = _to_khoan(db, admin, ma=ma)
     _phat_hanh_vao_to(db, orders, lsx_svc, admin, customer, to.id)
@@ -99,6 +160,8 @@ def _mot_cv(db, orders, lsx_svc, admin, customer, *, ma="TO-TT"):
     cv.du_kien_bat_dau = None
     cv.du_kien_ket_thuc = None
     db.commit()
+    if giay_o_buoc:
+        _gan_giay_len_buoc(db, cv, dvt=dvt_giay)
     return to, cv
 
 

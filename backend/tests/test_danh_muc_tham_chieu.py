@@ -124,7 +124,7 @@ def test_cascade_bao_bang_SO_chu_khong_chan(db):
     db.add(rate)
     db.commit()
     db.add(CongDoanDauViec(cong_doan_id=rows["cong_doan"].id, piece_rate_id=rate.id,
-                           nang_suat_nguoi_gio=100, so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2))
+                           nang_suat_nguoi_gio=100, so_nguoi_tieu_chuan=1))
     db.commit()
 
     tc = tham_chieu(db, "cong_doan", rows["cong_doan"])

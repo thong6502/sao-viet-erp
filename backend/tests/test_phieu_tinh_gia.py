@@ -664,3 +664,81 @@ def test_buoc_khong_can_dung_cu_thi_khong_xet():
     row = {"cong_doan": {"requires_tooling": False, "tooling_type": None, "ten": "In"},
            "ten": "In", "phi_khuon": 0}
     assert eng._canh_bao_khuon([row]) == []
+
+
+# ===================== GIỮ ID THÀNH PHẦN KHI LƯU LẠI (pin ấn phẩm) =====================
+# `quote_items` / `order_lines` / `lsx` ghim MỀM `phieu_thanh_phan.id`. Trước 07/09/2026 mỗi lần
+# lưu phiếu là router xoá–chèn lại nên id đổi hết ⇒ pin chết: drawer "Lệnh dự kiến" hiện "—" ở mọi
+# ô kỹ thuật, và chốt đơn bị chặn thẳng ("trỏ tới sản phẩm tính giá đã bị xoá").
+
+def _ids(body: dict) -> list[int]:
+    return [tp["id"] for tp in body["thanh_phans"]]
+
+
+def _tens(body: dict) -> list[str]:
+    return [tp["ten"] for tp in body["thanh_phans"]]
+
+
+def test_luu_lai_giu_nguyen_id_thanh_phan(client, auth_headers):
+    giay_id, cd_id = _seed_catalog()
+    ruot = {**_component(giay_id, cd_id), "ten": "Ruột"}
+    bia = {**_component(giay_id), "ten": "Bìa"}
+    tao = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 3000, "thanh_phans": [ruot, bia],
+    }, headers=auth_headers).json()
+    pid = tao["id"]
+    id_ruot, id_bia = _ids(tao)
+
+    # Sửa số + ĐẢO thứ tự hai sản phẩm: khớp theo tên nên id đi theo đúng sản phẩm của nó.
+    lan2 = client.put(f"/api/phieu-tinh-gia/{pid}", json={
+        "so_luong": 4000, "thanh_phans": [{**bia, "so_con": 4}, {**ruot, "so_luong": 4000}],
+    }, headers=auth_headers).json()
+    assert _tens(lan2) == ["Bìa", "Ruột"]
+    assert _ids(lan2) == [id_bia, id_ruot]
+
+    # Xoá bớt "Bìa": "Ruột" KHÔNG bị trượt sang hàng bên cạnh, giữ đúng id cũ.
+    lan3 = client.put(f"/api/phieu-tinh-gia/{pid}", json={
+        "thanh_phans": [{**ruot, "so_luong": 4000}],
+    }, headers=auth_headers).json()
+    assert _tens(lan3) == ["Ruột"] and _ids(lan3) == [id_ruot]
+
+    # Thêm sản phẩm mới: hàng cũ giữ id, hàng mới lấy id mới.
+    lan4 = client.put(f"/api/phieu-tinh-gia/{pid}", json={
+        "thanh_phans": [{**ruot, "so_luong": 4000}, {**_component(giay_id), "ten": "Tờ rơi kèm"}],
+    }, headers=auth_headers).json()
+    assert _tens(lan4) == ["Ruột", "Tờ rơi kèm"]
+    assert lan4["thanh_phans"][0]["id"] == id_ruot
+    # Chỉ so với id đang sống: SQLite (DB của test) TÁI DÙNG id vừa xoá của "Bìa", Postgres thì không.
+    assert lan4["thanh_phans"][1]["id"] != id_ruot
+
+
+def test_luu_lai_doi_ten_van_giu_id_theo_vi_tri(client, auth_headers):
+    """Đổi tên sản phẩm thì vòng khớp-theo-tên trượt, vòng khớp-theo-VỊ-TRÍ đỡ lại."""
+    giay_id, _ = _seed_catalog()
+    tao = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000, "thanh_phans": [{**_component(giay_id), "ten": "Ruột"}],
+    }, headers=auth_headers).json()
+    lan2 = client.put(f"/api/phieu-tinh-gia/{tao['id']}", json={
+        "thanh_phans": [{**_component(giay_id), "ten": "Ruột sách 192 trang"}],
+    }, headers=auth_headers).json()
+    assert _tens(lan2) == ["Ruột sách 192 trang"] and _ids(lan2) == _ids(tao)
+
+
+def test_luu_lai_o_bo_trong_ve_default_chu_khong_giu_so_cu(client, auth_headers):
+    """Ghi đè tại chỗ không được để sót số của lần lưu trước: ô payload bỏ trống phải rơi về
+    default của model, y như hồi hàng được dựng mới."""
+    giay_id, _ = _seed_catalog()
+    day_du = {**_component(giay_id), "ten": "Tờ rơi",
+              "ghi_chu_ky_thuat": "Canh màu như mẫu", "phi_giao_hang": 500000}
+    tao = client.post("/api/phieu-tinh-gia", json={
+        "so_luong": 1000, "thanh_phans": [day_du],
+    }, headers=auth_headers).json()
+    assert tao["thanh_phans"][0]["ghi_chu_ky_thuat"] == "Canh màu như mẫu"
+    assert tao["thanh_phans"][0]["phi_giao_hang"] == 500000
+
+    lan2 = client.put(f"/api/phieu-tinh-gia/{tao['id']}", json={
+        "thanh_phans": [{**_component(giay_id), "ten": "Tờ rơi"}],
+    }, headers=auth_headers).json()
+    assert _ids(lan2) == _ids(tao)
+    assert lan2["thanh_phans"][0]["ghi_chu_ky_thuat"] is None
+    assert lan2["thanh_phans"][0]["phi_giao_hang"] == 0

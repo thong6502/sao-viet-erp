@@ -243,7 +243,12 @@ def test_chay_lai_khong_de_hang_trung():
 
 
 def _fixture_ct_luong(co_cot=False):
-    """Hai bảng ĐỜI CŨ (chưa có `cong_thuc_luong`), hoặc đã có sẵn nếu `co_cot`."""
+    """Hai bảng ĐỜI CŨ (chưa có `cong_thuc_luong`), hoặc đã có sẵn nếu `co_cot`.
+
+    CỐ Ý giữ test này sau khi mg `0274` xoá lại chính hai cột mà `0213` thêm vào: DB đời cũ vẫn
+    phải chạy trọn chuỗi migration theo thứ tự (thêm → chép sang chỗ mới ở `0272` → xoá ở `0274`),
+    kết quả cuối bằng đúng DB dựng mới. Bỏ test này là mất chỗ canh khúc giữa của chuỗi đó.
+    """
     engine = create_engine("sqlite+pysqlite:///:memory:")
     cot = ", cong_thuc_luong TEXT" if co_cot else ""
     with engine.begin() as cn:

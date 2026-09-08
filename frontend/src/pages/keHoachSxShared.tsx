@@ -1,13 +1,10 @@
-// Mảnh dùng chung của bàn Kế hoạch sản xuất: pill trạng thái · chip cờ · chip thiếu · skeleton ·
-// empty-state · helper định dạng số/ngày. Tách riêng để 4 view (hàng chờ · preview · list · chi
-// tiết) không chép lại — và để mọi nhãn trạng thái nằm ĐÚNG MỘT chỗ.
+// Mảnh dùng chung của bàn Kế hoạch sản xuất: pill trạng thái · chip cờ · skeleton · empty-state ·
+// helper định dạng số/ngày. Tách riêng để 4 view (hàng chờ · preview · list · chi tiết) không chép
+// lại — và để mọi nhãn trạng thái nằm ĐÚNG MỘT chỗ.
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "../components/Icons";
 import {
   LSX_LOAI_BUOC_META,
-  LSX_THIEU_LABELS,
-  nhanMa,
-  type DonViNhan,
   type LsxDen,
   type LsxLoaiBuoc,
   type LsxTrangThai,
@@ -81,6 +78,22 @@ export const NHOM_CONG_DOAN: Record<string, string> = {
   finishing: "Gia công sau in",
   other: "Dịch vụ khác",
 };
+
+/** Nhãn CÁCH IN. Ba màn cùng hiện chữ này (lệnh · hồ sơ lệnh · bài ghép) và trước đây mỗi màn giữ
+ *  một bản chép tay — chú thích ở `BaiGhep2Page` còn tự dặn "đừng đẻ bộ thứ hai" mà vẫn có ba bộ.
+ *  Khoá lạ (ảnh chụp của lệnh cũ, hoặc danh mục thêm cách in mới) trả về NGUYÊN VĂN: thà hiện một
+ *  chữ khó đọc còn hơn nuốt mất thông số. */
+export const CACH_IN_NHAN: Record<string, string> = {
+  mot_mat: "1 mặt",
+  hai_mat: "2 mặt (AB)",
+  tu_tro: "Tự trở",
+  tro_nhip: "Trở nhíp",
+};
+
+export function nhanCachIn(v: string | null | undefined): string | null {
+  if (!v) return null;
+  return CACH_IN_NHAN[v] ?? v;
+}
 
 // --- trạng thái lệnh --------------------------------------------------------
 const PILL: Record<LsxTrangThai, { label: string; cls: string }> = {
@@ -221,20 +234,34 @@ export function ChipNgoai({ ncc }: { ncc?: string | null }) {
 }
 
 // --- Hàng đèn tiến độ (Đợt 1 redesign 18/08/2026) ---------------------------
-// Ba thứ bảng lệnh CHƯA nói: vật tư đã có chủ chưa · lịch đã đứng được chưa · có ai làm không.
-// Hạn và Định mức KHÔNG có đèn ở đây — cột `Hạn` đã tô bằng `classHan` và cột `CĐ` đã đỏ khi lệnh
-// chưa có công đoạn; đèn thứ tư chỉ nói lại chuyện cột bên cạnh vừa nói.
+// Bốn thứ bảng lệnh CHƯA nói: vật tư đã có chủ chưa · lịch đã đứng được chưa · có ai làm không ·
+// số trên lệnh còn khớp danh mục không (07/09/2026).
+// Hạn KHÔNG có đèn ở đây — cột `Hạn` đã tô bằng `classHan` và cột `CĐ` đã đỏ khi lệnh chưa có
+// công đoạn; đèn nói lại chuyện cột bên cạnh vừa nói chỉ làm loãng. Đèn Danh mục thì không cột
+// nào nói hộ được nên nó đứng đây.
 
 const DEN_META: Record<keyof LsxDen, { label: string; icon: IconName }> = {
   vat_tu: { label: "Vật tư", icon: "box" },
   may_gio: { label: "Máy & giờ", icon: "printer" },
   nguoi: { label: "Người", icon: "users" },
+  danh_muc: { label: "Danh mục", icon: "refresh" },
 };
-const DEN_KEYS = ["vat_tu", "may_gio", "nguoi"] as const;
+const DEN_KEYS = ["vat_tu", "may_gio", "nguoi", "danh_muc"] as const;
+
+/** Đèn được phép hiện cho lệnh NHÁP / CHỜ BỔ SUNG.
+ *
+ *  Ba đèn kia đọc thứ lệnh nháp chưa hề có (giữ chỗ vật tư, dòng lịch, tổ đã gán) nên hiện ra chỉ
+ *  là đỏ thường trực — mắt bỏ qua ngay. Đèn Danh mục thì ngược hẳn: lệnh nháp mới là lệnh SỬA
+ *  ĐƯỢC (phát hành rồi thì nút "Cập nhật theo danh mục" đã khoá), giấu nó ở đây là giấu đúng chỗ
+ *  người lập kế hoạch còn kịp làm gì đó. */
+export const DEN_NHAP = ["danh_muc"] as const;
+
+/** Lệnh chưa chốt: chưa chốt routing, chưa giữ chỗ vật tư, chưa có dòng lịch nào. */
+export const laNhap = (tt: string) => tt === "nhap" || tt === "cho_bo_sung";
 
 /** Chỉ vẽ chấm cho `do`/`vang`; `ok` để trống ô.
  *
- *  20 lệnh × 3 chấm mà đa số xanh thì mắt không bắt được cái đỏ — điều độ quét bảng để TÌM chỗ
+ *  20 lệnh × 4 chấm mà đa số xanh thì mắt không bắt được cái đỏ — điều độ quét bảng để TÌM chỗ
  *  tắc, không cần được xác nhận chỗ không tắc. `den == null` = chưa tải xong (đèn gọi rời sau
  *  bảng): giữ ô trống, đừng nhấp nháy skeleton trên từng dòng.
  */
@@ -242,14 +269,21 @@ export function DenTienDo({
   den,
   lg = false,
   onNhay,
+  keys = DEN_KEYS,
 }: {
   den: LsxDen | null | undefined;
   lg?: boolean;
   onNhay?: (nhay: { man: string; id: number }) => void;
+  /** Chỉ soi mấy đèn này (mặc định: cả bốn). Xem `DEN_NHAP`. */
+  keys?: readonly (keyof LsxDen)[];
 }) {
   if (!den) return <span className="khsx-den khsx-den--cho" aria-hidden="true" />;
-  const hien = DEN_KEYS.filter((k) => den[k].muc !== "ok");
+  const hien = keys.filter((k) => den[k].muc !== "ok");
   if (!hien.length) {
+    // Soi có MỘT phần thì không được kết luận hộ phần không soi: "Không vướng gì" lúc ấy là nói
+    // thay cho ba đèn vừa bị bỏ ra ngoài. Để trống ô.
+    if (keys.length < DEN_KEYS.length)
+      return <span className="khsx-den khsx-den--cho" aria-hidden="true" />;
     return (
       <span className="khsx-den__ok" title="Không vướng gì">
         {lg ? (
@@ -301,42 +335,9 @@ export function DenTienDo({
   );
 }
 
-/** Chip THIẾU — bo vuông (khác pill trạng thái bo tròn) để không lẫn.
- *
- *  `dv` = đơn vị bốn chặng của CHÍNH lệnh/dòng đang xét. Bốn câu checklist có nhắc đơn vị sẽ gọi
- *  tên xưởng đặt thay vì chữ cứng "tờ in → con" (xem `LSX_THIEU_LABELS`). Không truyền cũng chạy:
- *  câu lùi về bản chung. */
-export function ChipThieu({ code, dv }: { code: string; dv?: DonViNhan | null }) {
-  return (
-    <span className="khsx-need">
-      <Icon name="x" size={10} /> {nhanMa(LSX_THIEU_LABELS, code, dv)}
-    </span>
-  );
-}
-
-/** Xếp chồng chip thiếu, tối đa `max` rồi gộp phần dư → chiều cao hàng không giật. */
-export function ThieuStack(
-  { codes, max = 2, dv }: { codes: string[]; max?: number; dv?: DonViNhan | null },
-) {
-  if (!codes.length) return <span className="khsx-muted">—</span>;
-  const hien = codes.slice(0, max);
-  const du = codes.slice(max);
-  return (
-    <span className="khsx-need-stack">
-      {hien.map((c) => (
-        <ChipThieu key={c} code={c} dv={dv} />
-      ))}
-      {du.length > 0 && (
-        <span
-          className="khsx-need khsx-need--more"
-          title={du.map((c) => nhanMa(LSX_THIEU_LABELS, c, dv)).join(" · ")}
-        >
-          +{du.length}
-        </span>
-      )}
-    </span>
-  );
-}
+// `ChipThieu` / `ThieuStack` đã GỠ 07/09/2026 cùng cột "Thiếu" của bảng lệnh dự kiến — nơi duy
+// nhất dùng chúng. Màn LỆNH vẫn hiện checklist chặn, nhưng bằng dòng chữ trong khối "Còn thiếu"
+// (`LsxDetailView` gọi thẳng `nhanMa(LSX_THIEU_LABELS, …)`), không dùng chip.
 
 /** Cảnh báo MỀM (không nền) — phân cấp: đỏ có nền = chặn, vàng không nền = lưu ý. */
 export function CanhBaoMem({ children, title }: { children: ReactNode; title?: string }) {

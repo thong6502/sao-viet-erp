@@ -218,7 +218,10 @@ class SanXuatKcsTieuChi(Base):
     @property
     def cong_doan_ids(self) -> list[int]:
         """Danh sách id công đoạn — hình dạng API dùng (`SanXuatKcsTieuChiRow` đọc qua
-        from_attributes), y hệt `CongDoanDauViec.vat_tu_ids`."""
+        from_attributes).
+
+        `CongDoanDauViec.vat_tu_ids` từng là bản sao của khuôn này, đã GỠ 06/09/2026: mỗi dòng vật
+        tư nay mang công thức định mức riêng nên danh sách id thuần không chở đủ."""
         return [l.cong_doan_id for l in self.cong_doan_links]
 
 

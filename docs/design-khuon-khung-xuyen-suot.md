@@ -63,7 +63,7 @@ Bộ mã chốt (5 giá trị):
 | Mã | Nhãn |
 |---|---|
 | `khuon_be` | Khuôn bế |
-| `khuon_ep` | Khuôn ép nhũ |
+| `khuon_ep` | Khuôn ép kim |
 | `khuon_dap_noi` | Khuôn dập nổi |
 | `khung_lua` | Khung lụa |
 | `khac` | Khác |
@@ -81,7 +81,7 @@ bảng. Chuỗi đó đang nằm trong `role_permissions` của DB thật — đ
 ```
 Danh mục Công đoạn      → bước này cần dụng cụ loại gì (cờ nguồn, khai một lần)
    ↓
-Phiếu tính giá          → "có sẵn hay làm mới?" (làm mới ⇒ mở ô tiền + ngày dự kiến)
+Phiếu tính giá          → "có sẵn hay làm mới?" (làm mới ⇒ mở ô tiền)
    ↓
 Chuyển sang Lệnh SX     → ý định của sale đi theo bước
    ↓
@@ -108,7 +108,10 @@ Kết thúc lệnh           → snapshot dao là VẾT: lệnh nào đã dùng 
 Bước nào công đoạn có cờ cần dụng cụ thì khối "Phí khuôn" hiện thêm một lựa chọn hai nhánh:
 
 - **Dùng dao có sẵn** → 0đ, không hỏi thêm.
-- **Làm dao mới** → mở ô tiền (đang có) + ô **ngày dự kiến có dao**.
+- **Làm dao mới** → mở ô tiền (đang có).
+  Ô **ngày dự kiến có dao** từng nằm ở đây đã GỠ 06/09/2026 (migration `0269`): nó chỉ là dự trù,
+  không nơi nào đọc — mốc thật là `ngay_ve_du_kien` của chính con dao trong kho khuôn, do người
+  làm khuôn cập nhật (Đ6). Hai mốc song song chỉ tổ lệch nhau mà không ai thấy.
 
 Chưa chọn nhánh nào = **chưa trả lời**, khác hẳn với "đã trả lời là có sẵn". Đây là thay đổi nhỏ
 nhưng gỡ đứt gãy lớn nhất: kế hoạch đọc được *ý định của sale* thay vì đoán từ một ô tiền trống.

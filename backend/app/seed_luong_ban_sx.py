@@ -261,7 +261,7 @@ def _ensure_dinh_muc_to(db: Session) -> None:
                 continue
             cd.dau_viec_dinh_muc.append(CongDoanDauViec(
                 piece_rate_id=rate.id, nang_suat_nguoi_gio=float(cd.nang_suat or 500),
-                so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3,
+                so_nguoi_tieu_chuan=1,
             ))
     db.commit()
 

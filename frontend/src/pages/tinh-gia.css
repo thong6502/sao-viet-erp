@@ -1760,7 +1760,7 @@ select.tg-input--sm {
 /* Ô ĐVT của dải nhóm — thứ IN CHO KHÁCH trên dòng gộp. Nằm ở cột "Loại" (dải nhóm không có
    loại) nên phải gọn: cao bằng dải, chữ nhỏ, không kéo giãn chiều cao hàng. */
 .grouphd__dvt {
-  max-width: 160px;
+  max-width: 128px;
   min-height: 26px;
   padding-top: 2px;
   padding-bottom: 2px;
@@ -1785,6 +1785,33 @@ select.tg-input--sm {
   outline: 2px solid var(--rust);
   outline-offset: 2px;
 }
+/* Sổ dải nhóm ra là cột "Loại" mọc chip loại — chip `white-space: nowrap` nên bề rộng tối thiểu
+   của nó ~190px, trong khi cột "Tên" ngắt dòng được nên bề rộng tối thiểu gần bằng không. Bảng để
+   `table-layout: auto`, thuật toán vì thế lấy sạch chỗ của Tên đưa cho Loại: tên nhóm dài rơi
+   thành từng mẩu hai ba chữ mà bảng vẫn tràn ngang. Thu dải lại thì không có dòng con, không có
+   chip, nên trông vẫn bình thường — đó là lý do lỗi chỉ lộ ra lúc sổ.
+   Đặt SÀN cho Tên và TRẦN cho Loại thì hai cột chia theo nhu cầu thật, không theo cột nào cứng hơn. */
+.tg-complist__wrap th:nth-child(3),
+.tg-complist__wrap td:nth-child(3) {
+  min-width: 220px;
+}
+.tg-complist__wrap th:nth-child(4),
+.tg-complist__wrap td:nth-child(4) {
+  max-width: 150px;
+}
+/* Chip giữ nguyên inline-flex (chấm màu là flex item, đổi sang inline-block là mất chấm) nên "…"
+   phải đặt lên span chữ bên trong; chữ đủ nằm ở `title` của chip. */
+.tg-complist__wrap .badge {
+  max-width: 100%;
+  min-width: 0;
+}
+.tg-complist__wrap .badge__t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Dòng con thụt vào — chỉ thụt Ô TÊN, không thụt cả hàng (số liệu phải thẳng cột). */
 .tg-complist__wrap tr.prow--con > td:nth-child(3) {
   padding-left: 22px;
@@ -3673,8 +3700,4 @@ select.tg-input--sm {
 .tg-khuon__row--phu .tg-khuon__ten {
   font-size: 12.5px;
   color: var(--ash);
-}
-.tg-khuon__date {
-  text-align: left;
-  font-variant-numeric: normal;
 }

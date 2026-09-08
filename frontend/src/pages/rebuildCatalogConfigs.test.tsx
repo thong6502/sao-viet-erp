@@ -127,47 +127,50 @@ describe("màn Công việc khoán (đơn giá khoán theo tổ)", () => {
   });
 });
 
-describe("ô Cách đo lượng ở màn Máy và Công việc khoán (mg 0213)", () => {
-  it("cả hai dùng bộ chip `quy_doi` — ô ra LƯỢNG không được mời chip đơn giá", () => {
-    for (const cfg of [CFG_MAY, CFG_CONG_VIEC_KHOAN]) {
-      const f = truong(cfg, "cong_thuc_luong");
-      expect(f.type).toBe("formula");
-      expect(f.loaiO).toBe("quy_doi");
+describe("ô Cách đo lượng ĐÃ GỠ khỏi Máy · Công việc khoán · Vật tư khác (06/09/2026)", () => {
+  it("ba màn không còn ô `cong_thuc_luong`", () => {
+    // Cách đo nay khai ở drawer Công đoạn: theo CẶP (công đoạn × máy) cho giờ chạy, theo dòng đầu
+    // việc cho tiền công, theo dòng vật tư cho định mức. Giữ ô cũ song song là hai nguồn một câu.
+    for (const cfg of [CFG_MAY, CFG_CONG_VIEC_KHOAN, CFG_VAT_TU]) {
+      expect(cfg.fields.some((f) => f.key === "cong_thuc_luong")).toBe(false);
     }
   });
 
-  it("nhãn tab công thức KHÔNG phải \"Công thức tính giá\" — hai ô này không nhắc tới tiền", () => {
-    expect(CFG_MAY.nhanTabCongThuc).toBe("Cách đo lượng");
-    expect(CFG_CONG_VIEC_KHOAN.nhanTabCongThuc).toBe("Cách đo lượng");
+  it("hết ô công thức thì bỏ luôn nhãn tab công thức", () => {
+    // Nhãn của một tab không còn ô nào là nhãn chết — đọc code tưởng màn vẫn có chỗ khai.
+    expect(CFG_MAY.nhanTabCongThuc).toBeUndefined();
+    expect(CFG_CONG_VIEC_KHOAN.nhanTabCongThuc).toBeUndefined();
+    expect(CFG_VAT_TU.nhanTabCongThuc).toBeUndefined();
   });
 
-  it("Giấy: hai ô công thức TÁCH hai tab riêng (Tính giá · Tính lượng)", () => {
-    // Cả hai ô vẫn còn — chỉ tách tab qua `nhanTab`. `cong_thuc_gia` ra TIỀN cho phiếu tính giá,
-    // `cong_thuc_luong` ra kg cho bảng cân đối vật tư; không được nhét chung một tab.
+  it("Giấy GIỮ đường riêng: hai ô công thức, tab thứ hai tên \"tính định mức\"", () => {
+    // Giấy trả lời câu khác hẳn ba màn trên — "một lệnh cần bao nhiêu kg giấy", của MẶT HÀNG chứ
+    // không của bước — nên ô của nó không đi theo mg `0274`. Ẩn 06/09/2026 rồi MỞ LẠI 07/09/2026
+    // kèm đổi tên: "lượng" không nói được nó trả lời câu gì khi đứng cạnh ô "tính giá".
     expect(truong(CFG_GIAY, "cong_thuc_gia").nhanTab).toBe("Công thức tính giá");
-    expect(truong(CFG_GIAY, "cong_thuc_luong").nhanTab).toBe("Công thức tính lượng");
-    // Mỗi ô tự khai tab của nó nên KHÔNG dùng nhãn config-level.
+    const dm = truong(CFG_GIAY, "cong_thuc_luong");
+    expect(dm.label).toBe("Công thức tính định mức");
+    expect(dm.nhanTab).toBe("Công thức tính định mức");
+    // Ô ra LƯỢNG ⇒ bộ chip `quy_doi`: có `sl_vao`/`sl_ra`, KHÔNG mời chip đơn giá.
+    expect(dm.loaiO).toBe("quy_doi");
+    // Hai ô đều tự khai `nhanTab` nên KHÔNG dùng nhãn config-level.
     expect(CFG_GIAY.nhanTabCongThuc).toBeUndefined();
   });
 
-  it("Công đoạn: hai ô công thức TÁCH hai tab riêng (Tính giá · Sản lượng ra)", () => {
-    // Y như Giấy: `cong_thuc_gia` ra TIỀN cho phiếu tính giá, `cong_thuc_san_luong` ra LƯỢNG cho
-    // bước ngoài dòng giấy — mỗi ô tự khai `nhanTab`, không nhét chung một tab "Công thức".
+  it("Công đoạn: drawer chỉ còn ô Tính giá, ô Sản lượng ra đã ẩn khỏi UI", () => {
+    // `cong_thuc_san_luong` ẩn khỏi drawer 07/09/2026 — ẩn TRÊN UI thôi: cột DB và engine đọc nó
+    // vẫn còn, và vì `PUT` dùng `exclude_unset` nên ô vắng mặt trong form không ghi rỗng số cũ.
+    expect(CFG_CONG_DOAN.fields.some((f) => f.key === "cong_thuc_san_luong")).toBe(false);
+    // Ô còn lại vẫn tự khai `nhanTab` ⇒ tab công thức mang đúng tên, không rơi vào nhãn mặc định.
     expect(truong(CFG_CONG_DOAN, "cong_thuc_gia").nhanTab).toBe("Công thức tính giá");
-    expect(truong(CFG_CONG_DOAN, "cong_thuc_san_luong").nhanTab).toBe("Công thức sản lượng ra");
-    // Ô sản lượng ra dùng bộ chip `quy_doi` (ra lượng, không mời chip đơn giá).
-    expect(truong(CFG_CONG_DOAN, "cong_thuc_san_luong").loaiO).toBe("quy_doi");
-    // Mỗi ô tự khai tab nên KHÔNG dùng nhãn config-level.
     expect(CFG_CONG_DOAN.nhanTabCongThuc).toBeUndefined();
   });
 
-  it("Vật tư khác: CHỈ tab tính lượng — ẩn ô công thức GIÁ khỏi drawer", () => {
-    // Ô giá bị ẩn khỏi màn (cột DB + đường engine vẫn còn); nhãn tab đổi cho khớp để đừng mời
-    // người khai gõ công thức tiền vào ô ra lượng.
+  it("Vật tư khác: drawer KHÔNG còn ô công thức nào", () => {
+    // Ô giá ẩn từ trước (xưởng không thêm dòng mực/màng/keo rời vào phiếu tính giá), ô lượng gỡ
+    // 06/09/2026 — cả hai câu hỏi nay trả lời ở chỗ khác.
     expect(CFG_VAT_TU.fields.some((f) => f.key === "cong_thuc_gia")).toBe(false);
-    expect(CFG_VAT_TU.nhanTabCongThuc).toBe("Công thức tính lượng");
-    // Ô lượng vẫn còn, dùng bộ chip `quy_doi` (không mời chip đơn giá).
-    expect(truong(CFG_VAT_TU, "cong_thuc_luong").loaiO).toBe("quy_doi");
+    expect(CFG_VAT_TU.fields.some((f) => f.key === "cong_thuc_luong")).toBe(false);
   });
 });
 
