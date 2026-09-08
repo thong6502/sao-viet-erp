@@ -2532,6 +2532,11 @@ export interface LsxBuocMacDinh {
   /** Cặp đơn vị trên có nằm trên DÒNG GIẤY không — server quyết theo cờ trạm của danh mục Đơn vị.
    *  Phải áp CÙNG LÚC với hai ô đơn vị: cờ là thuộc tính của cặp đơn vị, không phải của dòng. */
   tren_dong_giay: boolean;
+  /** Cờ DỤNG CỤ của công đoạn mới — ô chọn khuôn của bước lọc kho theo `tooling_type`, mà client
+   *  không suy ra được nó từ tên. Áp cùng lúc, nếu không thì bước vừa đổi sang công đoạn cần
+   *  khung lụa vẫn bày dao BẾ. */
+  requires_tooling: boolean;
+  tooling_type: string | null;
   setup_phut: number;
 }
 /** Giờ chạy + tiền công của MỘT bước theo bộ số ĐANG SỬA trên drawer — server tính THỬ rồi vứt,
@@ -7445,7 +7450,8 @@ export interface KhuonBeRow {
   /** Khách đặt con dao — chiều lọc chính của ô chọn dao ở bước lệnh. */
   khach_hang_id: number | null;
   khach_hang_ten: string | null;
-  /** `khuon_be` | `khuon_ep` — CÙNG bộ mã với `cong_doan.tooling_type` để lọc bằng phép so thẳng. */
+  /** `khuon_be` | `khuon_ep` | `khung_lua` — CÙNG bộ mã với `cong_doan.tooling_type` để lọc bằng
+   *  phép so thẳng. */
   loai: string | null;
   so_ke: string | null;
   tinh_trang: string;
@@ -7458,7 +7464,8 @@ export interface KhuonChonDuoc {
   id: number;
   ma: string;
   ten: string;
-  /** null = dao khai trước mg 0205, chưa ai phân loại — VẪN hiện ở mọi bước, giấu đi là bắt
+  /** `khuon_be` | `khuon_ep` | `khung_lua` — CÙNG bộ mã với `cong_doan.tooling_type`.
+   *  null = dao khai trước mg 0205, chưa ai phân loại — VẪN hiện ở mọi bước, giấu đi là bắt
    *  người ta đi làm lại con dao đang nằm trên kệ. */
   loai: string | null;
   so_ke: string | null;

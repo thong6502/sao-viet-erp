@@ -2868,6 +2868,37 @@ def test_mac_dinh_buoc_tra_kem_co_dong_giay(db, orders, lsx_svc, admin, customer
     assert lsx_svc.mac_dinh_buoc(lsx_id=hop.id, cong_doan_id=xen.id)["tren_dong_giay"] is True
 
 
+def test_mac_dinh_buoc_tra_kem_co_dung_cu(db, orders, lsx_svc, admin, customer):
+    """Đổi công đoạn phải trả kèm `requires_tooling` + `tooling_type` CỦA CÔNG ĐOẠN MỚI.
+
+    Ô chọn dao ở drawer bước lọc kho Khuôn & khung theo đúng hai cờ này (khách của lệnh × loại của
+    bước). Không trả kèm thì dòng giữ cờ của công đoạn CŨ và frontend không suy lại được — đổi bước
+    Bế sang một công đoạn cần KHUNG LỤA vẫn thấy thẻ "Khuôn của bước (khuôn bế)" và ô chọn vẫn bày
+    dao bế, sai loại và im lặng cho tới lúc lưu rồi nạp lại màn.
+    """
+    ptg = _ptg_2_san_pham(db)
+    to_id = _to_san_xuat(db).id
+    lua = CongDoan(ma="CD-LUA-T", ten="In lụa", nhom="print",
+                   cong_thuc_gia="so_luong * don_gia", department_id=to_id, setup_time=20,
+                   don_vi_vao="to", don_vi_ra="to",
+                   requires_tooling=True, tooling_type="khung_lua")
+    xen = CongDoan(ma="CD-XEN-D", ten="Xén thành phẩm", nhom="finishing",
+                   cong_thuc_gia="so_luong * don_gia", department_id=to_id, setup_time=10,
+                   don_vi_vao="to", don_vi_ra="to")
+    db.add_all([lua, xen])
+    db.commit()
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [line["order_line_id"] for line in lsx_svc.preview(d.id)["lines"]]
+    hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
+
+    m = lsx_svc.mac_dinh_buoc(lsx_id=hop.id, cong_doan_id=lua.id)
+    assert m["requires_tooling"] is True and m["tooling_type"] == "khung_lua"
+    BuocMacDinhOut.model_validate(m)
+    # Công đoạn KHÔNG cần dụng cụ phải nói ra điều đó, không để client tự đoán bằng cách giữ cờ cũ.
+    m2 = lsx_svc.mac_dinh_buoc(lsx_id=hop.id, cong_doan_id=xen.id)
+    assert m2["requires_tooling"] is False and m2["tooling_type"] is None
+
+
 def test_replace_routing_ton_trong_loai_buoc_do_khsx_chon(
     db, orders, lsx_svc, admin, customer
 ):

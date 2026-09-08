@@ -1833,6 +1833,12 @@ class LsxService:
             # Đổi bước in → ghi kẽm là dòng đó mang cặp `m² → bài in` mà vẫn tự nhận "trên dòng
             # giấy" cho tới lúc lưu.
             "tren_dong_giay": tren_dong_giay(dv_vao, dv_ra, self._tram()),
+            # Cờ DỤNG CỤ cũng phải đi kèm, cùng một lẽ với cờ dòng giấy: ô chọn khuôn của bước lọc
+            # kho theo `tooling_type`, mà FE không suy ra được nó từ tên công đoạn. Không trả kèm
+            # thì đổi bước Bế sang một công đoạn cần KHUNG LỤA vẫn thấy thẻ "Khuôn của bước (khuôn
+            # bế)" và ô chọn vẫn bày dao bế — sai loại, im lặng, cho tới lúc lưu rồi nạp lại màn.
+            "requires_tooling": bool(cd.requires_tooling),
+            "tooling_type": cd.tooling_type,
             "setup_phut": _f(cd.setup_time),
         }
 

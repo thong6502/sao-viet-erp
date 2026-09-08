@@ -86,6 +86,7 @@ export function LsxBuocDrawer({
   mayRefs,
   khuonRefs,
   tenSanPham,
+  tenKhach,
   onTaoKhuon,
   vatTuRefs,
   giayRefs,
@@ -120,6 +121,8 @@ export function LsxBuocDrawer({
   khuonRefs: import("../api/client").KhuonChonDuoc[] | null;
   /** Tên sản phẩm của lệnh — mặc định cho tên dao mới (KHÔNG lấy tên bước). */
   tenSanPham: string;
+  /** Tên khách của lệnh — để khối Khuôn nói rõ danh sách đang lọc theo ai. */
+  tenKhach: string;
   /** Tạo dao mới cho bước — trả id dao vừa tạo để gán luôn. */
   onTaoKhuon: (input: { ten: string; loai: string | null; ngay_ve: string }) => Promise<number>;
   vatTuRefs: RefRow[] | null;
@@ -1038,6 +1041,7 @@ export function LsxBuocDrawer({
                     <KhuonCuaBuoc
                       row={row}
                       tenSanPham={tenSanPham}
+                      tenKhach={tenKhach}
                       khuonRefs={khuonRefs}
                       canUpdate={canUpdate}
                       onChon={(id) => set("khuon_be_id", id)}
@@ -1744,6 +1748,29 @@ export function LsxBuocDrawer({
   );
 }
 
+/** Nhãn loại dụng cụ — khớp `khuon_be.LOAI_KHUON` (mg 0205; `khung_lua` thêm 04/09/2026 vì khung
+ *  lụa cũng nằm kho dùng lại, không phải vật tư tiêu hao). Trước đây chỗ này là phép hỏi
+ *  `=== "khuon_ep" ? … : "khuôn bế"`, nên bước IN LỤA mở thẻ ra thấy chữ "khuôn bế" — kho đã nhận
+ *  khung lụa mà màn vẫn gọi sai tên. Dòng chưa phân loại (`loai = null`, 6 dòng khai trước mg
+ *  0205) rơi về chữ chung. */
+const NHAN_TOOLING: Record<string, string> = {
+  khuon_be: "khuôn bế",
+  khuon_ep: "khuôn ép kim",
+  khung_lua: "khung lụa",
+};
+
+/** Tình trạng khuôn rút thành CHỮ NGẮN đứng cạnh tên trong ô chọn — chỉ hiện khi KHÔNG bình
+ *  thường. Dao sẵn sàng thì để trống cho danh sách đỡ rối; đã chọn rồi mới xem câu đầy đủ ở
+ *  `moTaTinhTrang`. */
+function nhanTinhTrangNgan(tt: string | null | undefined): string | undefined {
+  switch (tt) {
+    case "dang_dat_lam": return "ĐANG LÀM";
+    case "hong": return "HỎNG";
+    case "thanh_ly": return "ĐÃ THANH LÝ";
+    default: return undefined;
+  }
+}
+
 /** Ba MỨC của tình trạng dao */
 function nhomTinhTrang(tt: string | null | undefined): "san" | "cho" | "hong" {
   if (tt === "hong" || tt === "thanh_ly") return "hong";
@@ -1778,6 +1805,7 @@ function ngayVN(s: string): string {
 function KhuonCuaBuoc({
   row,
   tenSanPham,
+  tenKhach,
   khuonRefs,
   canUpdate,
   onChon,
@@ -1785,6 +1813,9 @@ function KhuonCuaBuoc({
 }: {
   row: EditRow;
   tenSanPham: string;
+  /** Tên khách của lệnh — CHỈ để nói ra thành lời cái bộ lọc server đã áp. Danh sách chỉ có vài
+   *  dòng nên dễ tưởng kho rỗng; ghi tên khách ra thì người chốt dao biết ngay vì sao ngắn. */
+  tenKhach: string;
   khuonRefs: import("../api/client").KhuonChonDuoc[] | null;
   canUpdate: boolean;
   onChon: (id: number | null) => void;
@@ -1796,12 +1827,28 @@ function KhuonCuaBuoc({
   const [dangTao, setDangTao] = useState(false);
   const [loi, setLoi] = useState<string | null>(null);
 
-  const nhanLoai = row.tooling_type === "khuon_ep" ? "khuôn ép kim" : "khuôn bế";
+  const nhanLoai = NHAN_TOOLING[row.tooling_type ?? ""] ?? "khuôn / khung";
 
   const chonDuoc = useMemo(() => {
     const ds = khuonRefs ?? [];
     return ds.filter((k) => !row.tooling_type || !k.loai || k.loai === row.tooling_type);
   }, [khuonRefs, row.tooling_type]);
+
+  // Ô chọn là `<Select>` gõ-lọc (bỏ dấu), không phải `<select>` gốc: kho dao của một khách lặp
+  // lại vẫn tới vài chục con và tên chúng na ná nhau ("hộp bánh 20×20", "hộp bánh 20×25"), cuộn
+  // tay để tìm là chỗ người ta bỏ cuộc rồi bấm "Làm khuôn mới" — đặt lại con dao đang nằm trên kệ.
+  // MÃ + SỐ KỆ xuống dòng phụ chứ không bỏ đi như ô vật tư/máy: ở đây mã là thứ dán trên con dao
+  // và số kệ là chỗ đi lấy nó, hai thứ đều phải đọc được lúc chọn. `khopGanDung` quét cả dòng phụ
+  // nên gõ "kb-0002" hay "b1" vẫn ra.
+  const khuonOpts = useMemo<SelectOption<string>[]>(
+    () => chonDuoc.map((k) => ({
+      value: String(k.id),
+      label: k.ten || k.ma,
+      sub: [k.ma, k.so_ke].filter(Boolean).join(" · "),
+      hint: nhanTinhTrangNgan(k.tinh_trang),
+    })),
+    [chonDuoc],
+  );
 
   const dao = useMemo(() => {
     if (row.khuon_be_id == null) return null;
@@ -1913,32 +1960,34 @@ function KhuonCuaBuoc({
           </span>
         </div>
       ) : (
-        <div className="khsx-khuon__chon">
-          <select
-            className="khsx-select-std"
-            value=""
-            onChange={(e) => e.target.value && onChon(Number(e.target.value))}
-            aria-label={`Chọn ${nhanLoai} có sẵn`}
-          >
-            <option value="">
-              {chonDuoc.length > 0
+        <>
+          <div className="khsx-khuon__chon">
+            <Select
+              options={khuonOpts}
+              value=""
+              placeholder={chonDuoc.length > 0
                 ? `— chọn ${nhanLoai} có sẵn (${chonDuoc.length}) —`
                 : `— khách này chưa có ${nhanLoai} nào —`}
-            </option>
-            {chonDuoc.map((k) => (
-              <option key={k.id} value={k.id}>
-                {k.ma} · {k.ten}
-                {k.tinh_trang === "dang_dat_lam" ? " · ĐANG LÀM"
-                  : k.tinh_trang === "hong" ? " · HỎNG"
-                  : k.tinh_trang === "thanh_ly" ? " · ĐÃ THANH LÝ"
-                  : k.so_ke ? ` · ${k.so_ke}` : ""}
-              </option>
-            ))}
-          </select>
-          <Button variant="secondary" onClick={() => { setMoTaoMoi(true); setTenMoi(tenSanPham); }}>
-            + Làm khuôn mới
-          </Button>
-        </div>
+              ariaLabel={`Chọn ${nhanLoai} có sẵn`}
+              disabled={chonDuoc.length === 0}
+              searchable
+              searchPlaceholder="Gõ tên, mã hoặc số kệ…"
+              portal
+              onChange={(v) => v && onChon(Number(v))}
+            />
+            <Button variant="secondary" onClick={() => { setMoTaoMoi(true); setTenMoi(tenSanPham); }}>
+              + Làm khuôn mới
+            </Button>
+          </div>
+          {/* Nói THÀNH LỜI bộ lọc mà server đã áp (`lsx_service.khuon_chon_duoc`: khách của lệnh +
+              loại của bước). Không có câu này thì danh sách 1–2 dòng trông y như kho rỗng, và
+              người chốt dao đi làm con dao mới trong khi khách khác đang giữ đúng con đó. */}
+          <span className="khsx-field__hint">
+            Chỉ hiện {nhanLoai} của khách <b>{tenKhach || "— chưa có khách"}</b> — dụng cụ là của
+            khách, không dùng chéo. Chưa thấy con cần tìm thì kiểm ở màn Khuôn &amp; khung xem nó
+            đã gắn đúng khách chưa.
+          </span>
+        </>
       )}
     </section>
   );

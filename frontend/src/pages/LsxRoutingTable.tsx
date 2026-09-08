@@ -98,6 +98,7 @@ export function LsxRoutingTable({
   mayRefs,
   khuonRefs,
   tenSanPham,
+  tenKhach,
   onTaoKhuon,
   vatTuRefs,
   giayRefs,
@@ -125,6 +126,8 @@ export function LsxRoutingTable({
   khuonRefs: import("../api/client").KhuonChonDuoc[] | null;
   /** Tên sản phẩm của lệnh — mặc định cho tên dao mới. */
   tenSanPham: string;
+  /** Tên khách của lệnh — khối Khuôn của drawer bày ra để nói rõ đang lọc dao theo ai. */
+  tenKhach: string;
   onTaoKhuon: (input: { ten: string; loai: string | null; ngay_ve: string }) => Promise<number>;
   vatTuRefs: RefRow[] | null;
   /** Danh mục GIẤY — NVL chính chọn tay ở bước (08/09/2026). Đi RIÊNG với `vatTuRefs` vì hai
@@ -331,6 +334,7 @@ export function LsxRoutingTable({
       const seq = ++doiToSeq.current;
       try {
         const m = await onMacDinhBuoc(id);
+        const loaiCu = rowsRef.current.find((r) => r.key === key)?.tooling_type ?? null;
         const applied: Partial<EditRow> = {
           cong_doan_id: m.cong_doan_id, ten: m.ten, nhom: m.nhom,
           department_id: m.department_id,
@@ -339,6 +343,16 @@ export function LsxRoutingTable({
           // Giữ cờ cũ là bước vừa đổi sang ghi kẽm (`m² → bài in`) vẫn bị đem so đơn vị với bước
           // in ngay sau, tức đúng cảnh báo giả vừa sửa nhưng sống lại lúc người dùng đang sửa.
           tren_dong_giay: m.tren_dong_giay !== false,
+          // Cờ DỤNG CỤ đi cùng công đoạn mới. Giữ cờ cũ là thẻ "Khuôn của bước" vẫn xưng loại của
+          // công đoạn CŨ và ô chọn lọc kho theo loại đó — đổi Bế sang bước cần khung lụa thì vẫn
+          // chỉ thấy dao bế. `khuon_be_id` PHẢI reset theo: con dao đang gán là của công đoạn cũ,
+          // giữ lại là bước mang dao sai loại xuống xưởng.
+          requires_tooling: !!m.requires_tooling,
+          tooling_type: m.tooling_type ?? null,
+          ...((m.tooling_type ?? null) === loaiCu ? {} : {
+            khuon_be_id: null, khuon_be_ma: null, khuon_be_ten: null,
+            khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
+          }),
           he_so_quy_doi: m.he_so_quy_doi > 1 ? String(m.he_so_quy_doi) : "",
           // RESET khoán: giữ `khoan_rate_id` cũ thì nó trỏ đầu việc của công đoạn CŨ → lưu thì backend
           // tự GỠ nó như đầu việc mồ côi + báo lưu ý (không chặn nữa). Reset ngay ở đây để luồng đổi
@@ -1004,6 +1018,7 @@ export function LsxRoutingTable({
           mayRefs={mayRefs}
           khuonRefs={khuonRefs}
           tenSanPham={tenSanPham}
+          tenKhach={tenKhach}
           onTaoKhuon={onTaoKhuon}
           vatTuRefs={vatTuRefs}
           giayRefs={giayRefs}

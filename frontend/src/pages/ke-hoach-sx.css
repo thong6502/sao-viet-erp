@@ -6715,7 +6715,11 @@ td.khsx-num > .khsx-unit {
 }
 .khsx-khuon__bo:hover { color: var(--rust-deep); }
 .khsx-khuon__chon { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.khsx-khuon__chon select { flex: 1 1 260px; min-width: 0; }
+/* Ô chọn khuôn nay là `<Select>` (gõ-lọc) chứ không còn `<select>` gốc, nên bề ngang phải đặt lên
+   KHUNG `.sel` — nhắm vào thẻ trong nó thì ô co lại còn bằng bề ngang chữ. Giữ luôn luật cũ cho
+   `select` phòng còn thẻ gốc nào khác rơi vào khối này. */
+.khsx-khuon__chon select,
+.khsx-khuon__chon .sel { flex: 1 1 260px; min-width: 0; }
 .khsx-khuon__form { display: flex; flex-direction: column; gap: 10px; }
 .khsx-khuon__form-nut { display: flex; gap: 8px; }
 

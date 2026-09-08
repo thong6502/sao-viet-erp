@@ -698,6 +698,11 @@ class BuocMacDinhOut(BaseModel):
     #: Cặp đơn vị trên có nằm trên DÒNG GIẤY không. Đi kèm hai ô trên vì client áp cả cụm một lượt;
     #: thiếu nó thì dòng vừa đổi sang ghi kẽm (`m² → bài in`) vẫn đeo cờ của công đoạn cũ.
     tren_dong_giay: bool = True
+    #: Bước có phải mượn dụng cụ trong kho Khuôn & khung không, và LOẠI nào (`khuon_be` ·
+    #: `khuon_ep` · `khung_lua`). Đi kèm vì ô chọn dao lọc theo đúng hai cờ này — thiếu chúng thì
+    #: bước vừa đổi sang công đoạn cần khung lụa vẫn bày kho dao BẾ cho tới lúc lưu và nạp lại.
+    requires_tooling: bool = False
+    tooling_type: str | None = None
     setup_phut: float
 
 

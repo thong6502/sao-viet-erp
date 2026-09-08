@@ -1423,6 +1423,7 @@ export function LsxDetailView({
                     mayRefs={mayRefs}
                     khuonRefs={khuonRefs}
                     tenSanPham={d.ten}
+                    tenKhach={d.customer_name ?? ""}
                     onTaoKhuon={taoKhuon}
                     vatTuRefs={vatTuRefs}
                     giayRefs={giayRefs}
