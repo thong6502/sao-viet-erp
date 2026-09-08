@@ -175,11 +175,7 @@ from .tai_san import (
     TaiSan,
     TaiSanBienDong,
     TaiSanChiPhi,
-    TaiSanKhauHao,
-    TaiSanKiemKe,
-    TaiSanKiemKeDong,
-    TaiSanKy,
-    TaiSanKyLog,
+    TaiSanMoc,
 )
 
 __all__ = [
@@ -351,9 +347,5 @@ __all__ = [
     "TaiSan",
     "TaiSanChiPhi",
     "TaiSanBienDong",
-    "TaiSanKhauHao",
-    "TaiSanKy",
-    "TaiSanKyLog",
-    "TaiSanKiemKe",
-    "TaiSanKiemKeDong",
+    "TaiSanMoc",
 ]

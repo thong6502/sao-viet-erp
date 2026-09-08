@@ -1,5 +1,5 @@
 // Mảnh dùng chung của màn Tài sản & CCDC: ô nhập tiền, cách in số, badge, khoảng ngày hợp lệ.
-// Để riêng vì cả bốn khung (danh sách · ghi tăng · biến động · kiểm kê) đều đụng tới — chép mỗi
+// Để riêng vì cả bốn khung (danh sách · ghi tăng · biến động · xem chi tiết) đều đụng tới — chép mỗi
 // nơi một bản thì con số 3.300.000.000 hiện ba kiểu khác nhau trên cùng một màn.
 import type { ReactNode } from "react";
 
@@ -69,7 +69,7 @@ export function OTien({
   );
 }
 
-/** Badge tròn dùng cho loại · trạng thái tài sản · trạng thái kỳ · trạng thái đợt kiểm kê.
+/** Badge tròn dùng cho loại · trạng thái tài sản.
  *  `he` là tiền tố lớp CSS (`ts-badge--<he>`), khai màu ở `tai-san.css`. */
 export function Badge({ he, children }: { he: string; children: ReactNode }) {
   return <span className={`ts-badge ts-badge--${he}`}>{children}</span>;

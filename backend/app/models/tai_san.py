@@ -8,30 +8,24 @@ KHÔNG có ô tài khoản kế toán, và cũng KHÔNG còn ô định khoản 
 (mg 0278) vì hai ô ghi chú cạnh nhau chỉ làm người nhập phân vân gõ vào đâu. Cần nhớ định khoản
 thì gõ vào `ghi_chu` như mọi thứ cần nhớ khác — module không đọc nội dung ô đó.
 
-Ba trường `co_so_trich` / `so_thang_con` / `moc_tu_ngay` là ĐẦU VÀO DUY NHẤT của engine khấu
-hao — nạp đầu kỳ, ghi tăng, nâng cấp và CCDC giảm một phần lô đều quy về bộ ba này, nên engine
-không cần biết tài sản đến từ đường nào.
+KHÔNG có kỳ chốt (chủ chốt 08/09/2026: "nó chỉ theo dõi khấu hao thôi"). Hao mòn lũy kế không
+nằm ở cột nào — engine (`services/tai_san/khau_hao.py`) TÍNH từ bảng mốc `tai_san_moc` tới hết
+tháng trước. Mỗi lần cơ sở trích đổi (ghi tăng, nạp đầu kỳ, nâng cấp, CCDC giảm bớt cái) là thêm
+một mốc, mốc cũ giữ nguyên ⇒ tháng trước mốc mới vẫn tính theo cơ sở cũ. Bộ ba
+`co_so_trich` / `so_thang_con` / `moc_tu_ngay` trên `tai_san` chỉ là GƯƠNG của mốc hiện tại để
+bảng và form đọc thẳng. Ba bảng kỳ cũ (`tai_san_khau_hao`, `tai_san_ky`, `tai_san_ky_log`) và cột
+`hao_mon_luy_ke` gỡ ở mg 0281.
 
 Tiền để `BigInteger`: nguyên giá máy in tràn int32 trên Postgres (đã vỡ thật một lần).
 
-Bảng MỚI → `create_all` tự dựng (kể cả `tai_san_ky_log` thêm sau); mg 0277 cấp QUYỀN cho vai đã
-có, mg 0278 gỡ ô định khoản.
+Bảng MỚI → `create_all` tự dựng (kể cả `tai_san_moc`); mg 0277 cấp QUYỀN cho vai đã có, mg 0278
+gỡ ô định khoản, mg 0281 gỡ kỳ chốt + dựng mốc cho tài sản đã có sẵn trên DB.
 """
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import (
-    BigInteger,
-    Date,
-    DateTime,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-)
+from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -40,27 +34,27 @@ from ..db import Base
 LOAI_TSCD = "tscd"
 LOAI_CCDC = "ccdc"
 
-# `tai_san_bien_dong.loai` — ba chứng từ, một bảng.
+# `tai_san_bien_dong.loai` — hai chứng từ, một bảng. `ghi_giam` chỉ còn ở dòng CŨ: chủ bỏ nghiệp
+# vụ ghi giảm 08/09/2026 ("cái ghi giảm bỏ đi") — món bán / hỏng / không dùng nữa thì XOÁ khỏi sổ.
 BD_DIEU_CHUYEN = "dieu_chuyen"
 BD_NANG_CAP = "nang_cap"
 BD_GHI_GIAM = "ghi_giam"
 
 TT_DANG_DUNG = "dang_dung"
+#: Chỉ dòng CŨ (đã ghi giảm trước 08/09/2026): engine vẫn ngừng trích từ `ngay_giam`, bảng vẫn
+#: hiện "Đã ghi giảm" + còn lại 0; không mã nào đặt trạng thái này nữa.
 TT_DA_GIAM = "da_giam"
 
 # `nguon_vao` — tài sản mua mới trong kỳ vs số dư mang sang lúc bắt đầu dùng phần mềm.
 NGUON_GHI_TANG = "ghi_tang"
 NGUON_DAU_KY = "dau_ky"
 
-KY_MO = "mo"
-KY_DA_CHOT = "da_chot"
-
-# `tai_san_ky_log.hanh_dong` — hai thao tác làm hao mòn lũy kế nhúc nhích.
-KY_LOG_CHOT = "chot"
-KY_LOG_MO = "mo"
-
-KK_DANG_KIEM = "dang_kiem"
-KK_DA_KET = "da_ket"
+# `tai_san_moc.nguon` — việc gì đẻ ra mốc cơ sở đó. `giam_lo` chỉ còn ở dòng cũ (ghi giảm đã bỏ).
+MOC_GHI_TANG = "ghi_tang"
+MOC_DAU_KY = "dau_ky"
+MOC_NANG_CAP = "nang_cap"
+MOC_GIAM_LO = "giam_lo"
+MOC_SUA = "sua"
 
 
 def _utcnow() -> datetime:
@@ -88,15 +82,13 @@ class TaiSan(Base):
     so_thang: Mapped[int] = mapped_column(Integer, nullable=False)
     ngay_su_dung: Mapped[date] = mapped_column(Date, nullable=False)
 
-    # --- Bộ ba đầu vào của engine khấu hao (xem docstring module) ------------------------
+    # --- Gương của mốc cơ sở HIỆN TẠI (bảng thật là `tai_san_moc`, xem docstring module) ----
     #: Số tiền CÒN PHẢI TRÍCH tính từ `moc_tu_ngay`.
     co_so_trich: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     #: Số tháng còn phải trích kể từ `moc_tu_ngay`.
     so_thang_con: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     #: Ngày bắt đầu áp bộ cơ sở hiện tại (ghi tăng ⇒ ngày sử dụng; nâng cấp ⇒ đầu kỳ sau).
     moc_tu_ngay: Mapped[date] = mapped_column(Date, nullable=False)
-    #: Hao mòn đã trích tới nay — CHỈ cộng vào lúc CHỐT kỳ, không cộng lúc tính thử.
-    hao_mon_luy_ke: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
     # --- Nạp số dư đầu kỳ (tài sản đã dùng trước khi lên phần mềm) -----------------------
     nguon_vao: Mapped[str] = mapped_column(
@@ -105,13 +97,23 @@ class TaiSan(Base):
     hao_mon_dau_ky: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     thang_da_trich_dau_ky: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    # --- Ai giữ, ở đâu ------------------------------------------------------------------
+    # --- Ai giữ ---------------------------------------------------------------------------
     bo_phan_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("departments.id", ondelete="SET NULL"), index=True, nullable=True
     )
+    #: Người quản lý = MỘT NHÂN VIÊN của bộ phận đang giữ (chủ chốt 08/09/2026: không gõ tay).
+    #: Đổi bộ phận (sửa / điều chuyển) mà không chọn người mới thì về NULL — người cũ thuộc bộ
+    #: phận cũ. mg 0282.
+    nguoi_quan_ly_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("employees.id", ondelete="SET NULL"), nullable=True
+    )
+    #: Tên chụp lại lúc chọn nhân viên (bảng đọc thẳng, khỏi join); dòng cũ trước 08/09 còn chữ
+    #: tự gõ thì vẫn hiện nguyên.
     nguoi_quan_ly: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: Không còn ô nhập trên form từ 08/09/2026 (chủ bỏ) — cột giữ để không phải migrate.
     vi_tri: Mapped[str | None] = mapped_column(String(255), nullable=True)
     so_hoa_don: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Như `vi_tri`: form không hỏi nữa, cột nằm lại.
     nha_cung_cap: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     #: Chữ TỰ DO — kế toán ghi gì tuỳ ý, kể cả định khoản. Hệ KHÔNG đọc nội dung.
@@ -120,7 +122,8 @@ class TaiSan(Base):
     trang_thai: Mapped[str] = mapped_column(
         String(12), nullable=False, index=True, default=TT_DANG_DUNG, server_default=TT_DANG_DUNG
     )
-    #: Ngày ghi giảm — từ ngày này engine ngừng trích (tháng chứa nó tính theo số ngày dùng).
+    #: Chỉ dòng CŨ đã ghi giảm trước 08/09/2026 — từ ngày này engine ngừng trích. Không còn mã
+    #: nào ghi vào cột này.
     ngay_giam: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     created_by_user_id: Mapped[int | None] = mapped_column(
@@ -139,6 +142,10 @@ class TaiSan(Base):
     bien_dong: Mapped[list["TaiSanBienDong"]] = relationship(
         back_populates="tai_san", order_by="TaiSanBienDong.ngay, TaiSanBienDong.id"
     )
+    moc: Mapped[list["TaiSanMoc"]] = relationship(
+        back_populates="tai_san", cascade="all, delete-orphan",
+        order_by="TaiSanMoc.tu_ngay, TaiSanMoc.id",
+    )
 
 
 class TaiSanChiPhi(Base):
@@ -154,6 +161,40 @@ class TaiSanChiPhi(Base):
     so_tien: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
     tai_san: Mapped["TaiSan"] = relationship(back_populates="chi_phi")
+
+
+class TaiSanMoc(Base):
+    """Một đoạn cơ sở trích của tài sản — hiệu lực từ `tu_ngay` tới trước mốc kế tiếp.
+
+    Đây là ĐẦU VÀO của engine khấu hao. Ghi tăng / nạp đầu kỳ đẻ mốc đầu; nâng cấp và CCDC giảm
+    một phần lô đẻ mốc mới (mốc cũ giữ, nên tháng trước đó vẫn tính theo cơ sở cũ — trước 08/09
+    bộ ba bị ghi đè tại chỗ, tháng nâng cấp trích 0 và tháng trước nó về 0 khi tính lại). Sửa ô số
+    khi CHƯA có chứng từ thì dựng lại mốc duy nhất. Không ai sửa tay từng mốc: mốc là hệ quả
+    của chứng từ.
+    """
+
+    __tablename__ = "tai_san_moc"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tai_san_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("tai_san.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    #: Từ ngày này áp cơ sở dưới. Không rơi vào ngày 1 thì tháng đó prorate theo ngày.
+    tu_ngay: Mapped[date] = mapped_column(Date, nullable=False)
+    #: Nguyên giá lúc mốc bắt đầu (sau nâng cấp / sau rút bớt phần lô đã bỏ).
+    nguyen_gia: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    #: Số tiền còn phải trích kể từ `tu_ngay` = `nguyen_gia − luy_ke_dau`.
+    co_so_trich: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    so_thang_con: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Hao mòn lũy kế ngay TRƯỚC mốc (đã điều chỉnh). Mốc đầu của tài sản mua mới = 0.
+    luy_ke_dau: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    #: `ghi_tang` | `dau_ky` | `nang_cap` | `giam_lo` | `sua`.
+    nguon: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    tai_san: Mapped["TaiSan"] = relationship(back_populates="moc")
 
 
 class TaiSanBienDong(Base):
@@ -189,124 +230,3 @@ class TaiSanBienDong(Base):
     )
 
     tai_san: Mapped["TaiSan"] = relationship(back_populates="bien_dong")
-
-
-class TaiSanKhauHao(Base):
-    """Số trích của MỘT tài sản trong MỘT kỳ. Kỳ chưa chốt thì tính lại là ghi đè."""
-
-    __tablename__ = "tai_san_khau_hao"
-    __table_args__ = (
-        UniqueConstraint("tai_san_id", "ky_nam", "ky_thang", name="uq_tai_san_khau_hao_ky"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    tai_san_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("tai_san.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    ky_nam: Mapped[int] = mapped_column(Integer, nullable=False)
-    ky_thang: Mapped[int] = mapped_column(Integer, nullable=False)
-    muc_trich: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    luy_ke: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    con_lai: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    #: Bộ phận chịu chi phí kỳ này — CHỤP lại lúc tính, vì tài sản có thể điều chuyển sau đó.
-    bo_phan_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True
-    )
-
-
-class TaiSanKy(Base):
-    """Trạng thái một kỳ khấu hao. Chốt rồi thì mọi số của kỳ đó đóng băng."""
-
-    __tablename__ = "tai_san_ky"
-    __table_args__ = (UniqueConstraint("ky_nam", "ky_thang", name="uq_tai_san_ky"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ky_nam: Mapped[int] = mapped_column(Integer, nullable=False)
-    ky_thang: Mapped[int] = mapped_column(Integer, nullable=False)
-    trang_thai: Mapped[str] = mapped_column(
-        String(8), nullable=False, default=KY_MO, server_default=KY_MO
-    )
-    ngay_chot: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    nguoi_chot_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-
-
-class TaiSanKyLog(Base):
-    """Vết CHỐT / MỞ LẠI một kỳ khấu hao — APPEND-ONLY, không sửa không xoá.
-
-    `tai_san_ky` chỉ giữ trạng thái HIỆN TẠI: mở lại kỳ là `ngay_chot`/`nguoi_chot_id` về NULL,
-    lần chốt trước biến mất sạch. Mà chốt/mở là hai thao tác DUY NHẤT làm `hao_mon_luy_ke` nhúc
-    nhích, nên mất vết là mất luôn câu trả lời cho "tháng 9 ai chốt, chốt bao nhiêu tiền, sao
-    giờ số khác" — trong khi kho đã có vết ấy ở `kho_khoa_so`.
-
-    `so_tien` là ĐỘ LỚN (luôn ≥ 0) đã cộng vào (chốt) hoặc trừ ra (mở) khỏi hao mòn lũy kế —
-    hướng đọc ở `hanh_dong`. Số âm trong cột tiền chỉ tổ làm người đọc bảng phải tự suy.
-    """
-
-    __tablename__ = "tai_san_ky_log"
-    __table_args__ = (Index("ix_tai_san_ky_log_ky", "ky_nam", "ky_thang"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ky_nam: Mapped[int] = mapped_column(Integer, nullable=False)
-    ky_thang: Mapped[int] = mapped_column(Integer, nullable=False)
-    hanh_dong: Mapped[str] = mapped_column(String(8), nullable=False)
-    #: Tổng mức trích của kỳ tại ĐÚNG lúc bấm — chốt lại sau khi tính lại có thể ra số khác.
-    so_tien: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    so_mon: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    nguoi_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    thoi_diem: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, nullable=False
-    )
-
-
-class TaiSanKiemKe(Base):
-    """Một đợt kiểm kê tài sản — bung danh sách phải có, đối chiếu tay, ra thiếu/thừa."""
-
-    __tablename__ = "tai_san_kiem_ke"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ma: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
-    ngay: Mapped[date] = mapped_column(Date, nullable=False)
-    #: NULL = kiểm toàn công ty.
-    bo_phan_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("departments.id", ondelete="SET NULL"), nullable=True
-    )
-    trang_thai: Mapped[str] = mapped_column(
-        String(12), nullable=False, default=KK_DANG_KIEM, server_default=KK_DANG_KIEM
-    )
-    ghi_chu: Mapped[str | None] = mapped_column(Text, nullable=True)
-    nguoi_tao_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, nullable=False
-    )
-
-    dong: Mapped[list["TaiSanKiemKeDong"]] = relationship(
-        back_populates="dot", cascade="all, delete-orphan", order_by="TaiSanKiemKeDong.id"
-    )
-
-
-class TaiSanKiemKeDong(Base):
-    """Một dòng đối chiếu. `tai_san_id` NULL = món PHÁT HIỆN ngoài sổ (thừa)."""
-
-    __tablename__ = "tai_san_kiem_ke_dong"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    dot_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("tai_san_kiem_ke.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    tai_san_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("tai_san.id", ondelete="SET NULL"), nullable=True
-    )
-    #: 'co' | 'khong_thay' | NULL (chưa đối chiếu).
-    ket_qua: Mapped[str | None] = mapped_column(String(12), nullable=True)
-    #: Tên món thừa do người kiểm gõ vào (dòng không gắn tài sản nào trong sổ).
-    ten_phat_hien: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    tinh_trang: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    ghi_chu: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    dot: Mapped["TaiSanKiemKe"] = relationship(back_populates="dong")

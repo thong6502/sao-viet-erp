@@ -8,8 +8,10 @@ import {
   type LeaveType,
 } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
+import { ConfirmDialog } from "../../../../components/ConfirmDialog";
 import { Pager, trangHopLe } from "../../../../components/Pager";
 import { Info, Plus } from "lucide-react";
+import { fmtDate } from "../../../../utils/format";
 import { LeaveTable } from "../components/LeaveTable";
 import { LeaveRequestDetailModal } from "../modals/LeaveRequestDetailModal";
 import { LeaveRequestFormModal } from "../modals/LeaveRequestFormModal";
@@ -38,6 +40,11 @@ export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
   const [busy, setBusy] = useState(false);
   /** Lỗi THAO TÁC (gửi đơn) — chỉ hiện trong hộp thoại tạo đơn. */
   const [error, setError] = useState<string | null>(null);
+
+  // Quản lý popup xác nhận hủy đơn
+  const [cancelTargetId, setCancelTargetId] = useState<number | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [canceling, setCanceling] = useState(false);
   /** Lỗi TẢI DANH SÁCH — ô nhớ RIÊNG. Gộp chung với `error` thì một lần gửi đơn hỏng cũng
    *  làm cả bảng đơn của mình biến mất. */
   const [listError, setListError] = useState<string | null>(null);
@@ -105,20 +112,34 @@ export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
     } catch (e) { setError(errMsg(e)); } finally { setBusy(false); }
   }
   
-  async function cancel(id: number) {
-    if (!window.confirm("Bạn có chắc chắn muốn hủy đơn xin nghỉ này không?")) return;
-    setBusy(true);
+  // Bật popup xác nhận thay vì window.confirm
+  function cancel(id: number) {
+    setCancelTargetId(id);
+    setCancelError(null);
+  }
+
+  // Thực hiện hủy khi người dùng bấm xác nhận trong popup
+  async function handleConfirmCancel() {
+    if (!cancelTargetId) return;
+    setCanceling(true);
+    setCancelError(null);
     try {
-      await api.leaves.cancel(token, id);
+      await api.leaves.cancel(token, cancelTargetId);
+      setCancelTargetId(null);
       setSelectedRequest(null);
-      load(); 
+      load();
       onChanged?.();
     } catch (e) {
-      alert(errMsg(e));
+      setCancelError(errMsg(e));
     } finally {
-      setBusy(false);
+      setCanceling(false);
     }
   }
+
+  const cancelItem = cancelTargetId
+    ? items.find((i) => i.id === cancelTargetId) ??
+      (selectedRequest?.id === cancelTargetId ? selectedRequest : null)
+    : null;
 
   if (hasEmp === false) {
     return <div className="banner banner--warn" style={{ marginTop: 12 }}>
@@ -224,6 +245,52 @@ export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
           onCancel={cancel}
         />
       )}
+
+      {/* Popup xác nhận hủy đơn xin nghỉ chuẩn hệ thống */}
+      <ConfirmDialog
+        open={cancelTargetId !== null}
+        title="Hủy đơn xin nghỉ phép"
+        message="Bạn có chắc chắn muốn hủy đơn xin nghỉ này không? Thao tác này không thể hoàn tác."
+        confirmLabel="Hủy đơn"
+        cancelLabel="Giữ lại"
+        danger
+        busy={canceling}
+        error={cancelError}
+        onCancel={() => {
+          if (!canceling) {
+            setCancelTargetId(null);
+            setCancelError(null);
+          }
+        }}
+        onConfirm={handleConfirmCancel}
+      >
+        {cancelItem && (
+          <div
+            style={{
+              background: "var(--paper)",
+              border: "1px solid var(--rule-soft)",
+              borderRadius: "var(--r-3)",
+              padding: "10px 14px",
+              marginTop: "10px",
+              fontSize: "13px",
+              lineHeight: "1.6",
+              color: "var(--ink)",
+            }}
+          >
+            <div>
+              <strong>{cancelItem.leave_type_name ?? "Đơn xin nghỉ"}</strong> · {cancelItem.days} ngày
+            </div>
+            <div style={{ color: "var(--ash)" }}>
+              Từ {fmtDate(cancelItem.start_date)} đến {fmtDate(cancelItem.end_date)}
+            </div>
+            {cancelItem.reason && (
+              <div style={{ color: "var(--ash-2)", fontSize: "12px", marginTop: "4px" }}>
+                Lý do: {cancelItem.reason}
+              </div>
+            )}
+          </div>
+        )}
+      </ConfirmDialog>
     </div>
   );
 }

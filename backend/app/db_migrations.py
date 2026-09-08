@@ -12711,3 +12711,96 @@ def _migrate_phieu_chi_huy_khong_giu_cho(db) -> None:
 
 
 MIGRATIONS.append(("0271_phieu_chi_huy_khong_giu_cho", _migrate_phieu_chi_huy_khong_giu_cho))
+
+
+def _migrate_bo_ky_khau_hao_tai_san(db) -> None:
+    """BỎ KỲ CHỐT khấu hao của module Tài sản & CCDC (08/09/2026) — chủ chốt: "nó chỉ theo dõi
+    khấu hao thôi".
+
+    Hao mòn lũy kế nay TÍNH từ lịch qua bảng mốc `tai_san_moc` (bảng MỚI — `create_all` chạy
+    TRƯỚC migration nên tới đây đã có), không còn gì để tính / chốt / mở. Việc của migration:
+
+    1. Dựng MỘT mốc cho mỗi tài sản chưa có mốc nào, từ bộ ba đang nằm trên `tai_san`
+       (`moc_tu_ngay` / `co_so_trich` / `so_thang_con`), lũy kế đầu = `nguyen_gia − co_so_trich`
+       — đúng cho cả bốn đường (mua mới 0; đầu kỳ = hao mòn mang sang; đã nâng cấp / giảm lô =
+       lũy kế tại lúc đó). Tài sản đã nâng cấp trước 08/09 thì tháng trước chứng từ vẫn tính theo
+       cơ sở sau chứng từ (y như ky_service cũ), không tệ hơn; dữ liệu tới giờ chỉ là dữ liệu thử.
+    2. Gỡ `tai_san_ky_log`, `tai_san_khau_hao`, `tai_san_ky` và cột `tai_san.hao_mon_luy_ke` —
+       best-effort từng câu như mg 0278 (SQLite cũ từ chối DROP COLUMN thì cột mồ côi vô hại vì
+       model đã hết map).
+
+    Idempotent: mốc chỉ dựng cho tài sản CHƯA có mốc; bảng/cột soi trước khi gỡ.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    bang = set(insp.get_table_names())
+    if "tai_san" not in bang or "tai_san_moc" not in bang:
+        return
+    db.execute(text(
+        "INSERT INTO tai_san_moc (tai_san_id, tu_ngay, nguyen_gia, co_so_trich, so_thang_con, "
+        "luy_ke_dau, nguon, created_at) "
+        "SELECT t.id, t.moc_tu_ngay, t.nguyen_gia, t.co_so_trich, t.so_thang_con, "
+        "t.nguyen_gia - t.co_so_trich, "
+        "CASE WHEN t.nguon_vao = 'dau_ky' THEN 'dau_ky' ELSE 'ghi_tang' END, CURRENT_TIMESTAMP "
+        "FROM tai_san t "
+        "WHERE NOT EXISTS (SELECT 1 FROM tai_san_moc m WHERE m.tai_san_id = t.id)"
+    ))
+    db.commit()
+    for ten in ("tai_san_ky_log", "tai_san_khau_hao", "tai_san_ky"):
+        if ten not in bang:
+            continue
+        try:
+            db.execute(text(f"DROP TABLE {ten}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+    if "hao_mon_luy_ke" in _existing_columns(insp, "tai_san"):
+        try:
+            db.execute(text("ALTER TABLE tai_san DROP COLUMN hao_mon_luy_ke"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0281_bo_ky_khau_hao_tai_san", _migrate_bo_ky_khau_hao_tai_san))
+
+
+def _migrate_nguoi_quan_ly_tai_san_la_nhan_vien(db) -> None:
+    """`tai_san.nguoi_quan_ly_id` — người quản lý tài sản là MỘT NHÂN VIÊN của bộ phận đang giữ
+    (chủ chốt 08/09/2026: "chọn bộ phận sử dụng rồi thì người quản lý phải lấy nhân viên trong bộ
+    phận đó chứ sao lại nhập tay"). Cột chữ `nguoi_quan_ly` giữ: nay là tên chụp lại lúc chọn,
+    dòng cũ gõ tay vẫn hiện nguyên. KHÔNG dò tên cũ sang nhân viên — trùng tên là gán nhầm.
+    Idempotent."""
+    insp = inspect(db.get_bind())
+    if "tai_san" not in set(insp.get_table_names()):
+        return
+    if "nguoi_quan_ly_id" not in _existing_columns(insp, "tai_san"):
+        db.execute(text(
+            "ALTER TABLE tai_san ADD COLUMN nguoi_quan_ly_id INTEGER "
+            "REFERENCES employees(id) ON DELETE SET NULL"
+        ))
+        db.commit()
+
+
+MIGRATIONS.append((
+    "0282_nguoi_quan_ly_tai_san_la_nhan_vien", _migrate_nguoi_quan_ly_tai_san_la_nhan_vien,
+))
+
+
+def _migrate_bo_kiem_ke_tai_san(db) -> None:
+    """Bỏ kiểm kê tài sản (chủ 08/09/2026: "bỏ cái kiểm kê đi" — module chỉ theo dõi khấu hao):
+    gỡ `tai_san_kiem_ke_dong` rồi `tai_san_kiem_ke`. Dữ liệu trong đó chỉ là đợt thử của ngày
+    nghiệm thu, không chuyển đi đâu. Best-effort từng câu như mg 0278/0281; idempotent."""
+    insp = inspect(db.get_bind())
+    bang = set(insp.get_table_names())
+    for ten in ("tai_san_kiem_ke_dong", "tai_san_kiem_ke"):
+        if ten not in bang:
+            continue
+        try:
+            db.execute(text(f"DROP TABLE {ten}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0283_bo_kiem_ke_tai_san", _migrate_bo_kiem_ke_tai_san))

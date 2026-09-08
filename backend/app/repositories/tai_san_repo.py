@@ -1,16 +1,19 @@
 """Repository — sổ tài sản cố định & công cụ dụng cụ.
 
 KHÔNG kế thừa `CatalogRepo`: tài sản không phải danh mục phẳng (ghi tăng kèm nhiều dòng chi phí,
-sổ có trạng thái và kỳ chốt), ép vào nền chung là đẻ một loạt cờ mà mỗi cờ đúng một chỗ dùng.
+sổ có trạng thái và bảng mốc cơ sở), ép vào nền chung là đẻ một loạt cờ mà mỗi cờ đúng một chỗ.
 
-Lọc + cắt trang làm ở SQL, KHÔNG kéo cả bảng về rồi cắt trong Python.
+Lọc + cắt trang làm ở SQL, KHÔNG kéo cả bảng về rồi cắt trong Python. Truy vấn trả danh sách
+tài sản nạp sẵn `moc`: hao mòn lũy kế của từng dòng tính từ bảng mốc, không nạp sẵn là N+1.
 """
 from __future__ import annotations
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..models.tai_san import KY_DA_CHOT, TaiSan, TaiSanKhauHao, TaiSanKy
+from ..models.department import Department
+from ..models.employee import Employee
+from ..models.tai_san import TaiSan
 
 
 class TaiSanRepository:
@@ -23,10 +26,14 @@ class TaiSanRepository:
         return self.db.get(TaiSan, tai_san_id)
 
     def lay_kem_chi_tiet(self, tai_san_id: int) -> TaiSan | None:
-        """Nạp sẵn dòng chi phí + chứng từ biến động — màn chi tiết đọc cả hai, tránh N+1."""
+        """Nạp sẵn dòng chi phí + chứng từ + mốc — màn chi tiết đọc cả ba, tránh N+1."""
         stmt = (
             select(TaiSan)
-            .options(selectinload(TaiSan.chi_phi), selectinload(TaiSan.bien_dong))
+            .options(
+                selectinload(TaiSan.chi_phi),
+                selectinload(TaiSan.bien_dong),
+                selectinload(TaiSan.moc),
+            )
             .where(TaiSan.id == tai_san_id)
         )
         return self.db.execute(stmt).scalar_one_or_none()
@@ -61,6 +68,7 @@ class TaiSanRepository:
         rows = list(
             self.db.execute(
                 select(TaiSan)
+                .options(selectinload(TaiSan.moc))
                 .where(*conds)
                 .order_by(TaiSan.ma)
                 .offset(max(int(offset), 0))
@@ -75,44 +83,26 @@ class TaiSanRepository:
             select(func.max(TaiSan.ma)).where(TaiSan.ma.like(f"{tien_to}%"))
         ).scalar_one_or_none()
 
-    def dang_dung(self, *, bo_phan_id: int | None = None) -> list[TaiSan]:
-        conds = []
-        if bo_phan_id:
-            conds.append(TaiSan.bo_phan_id == bo_phan_id)
+    def ten_bo_phan(self, bo_phan_id: int) -> str | None:
+        bp = self.db.get(Department, bo_phan_id)
+        return bp.name if bp is not None else None
+
+    # --- Nhân viên (người quản lý) --------------------------------------------------------
+
+    def nhan_vien(self, nhan_vien_id: int) -> Employee | None:
+        return self.db.get(Employee, nhan_vien_id)
+
+    def nhan_vien_bo_phan(self, bo_phan_id: int, trang_thai) -> list[Employee]:
+        """Nhân viên của một bộ phận đang ở các trạng thái `trang_thai`, xếp theo tên."""
         return list(
-            self.db.execute(select(TaiSan).where(*conds).order_by(TaiSan.ma)).scalars()
-        )
-
-    # --- Kỳ chốt --------------------------------------------------------------------------
-
-    def ky_da_chot(self, nam: int, thang: int) -> bool:
-        tt = self.db.execute(
-            select(TaiSanKy.trang_thai).where(TaiSanKy.ky_nam == nam, TaiSanKy.ky_thang == thang)
-        ).scalar_one_or_none()
-        return tt == KY_DA_CHOT
-
-    def co_ky_chot_lien_quan(self, tai_san_id: int) -> bool:
-        """Tài sản đã có số ở một kỳ ĐÃ CHỐT ⇒ cấm sửa ô ảnh hưởng sổ và cấm xoá."""
-        stmt = (
-            select(func.count())
-            .select_from(TaiSanKhauHao)
-            .join(
-                TaiSanKy,
-                (TaiSanKy.ky_nam == TaiSanKhauHao.ky_nam)
-                & (TaiSanKy.ky_thang == TaiSanKhauHao.ky_thang),
-            )
-            .where(TaiSanKhauHao.tai_san_id == tai_san_id, TaiSanKy.trang_thai == KY_DA_CHOT)
-        )
-        return int(self.db.execute(stmt).scalar_one()) > 0
-
-    def so_ky_da_trich(self, tai_san_id: int) -> int:
-        """Đếm kỳ đã có dòng khấu hao — nền tính số tháng còn lại khi giảm một phần lô CCDC."""
-        return int(
             self.db.execute(
-                select(func.count())
-                .select_from(TaiSanKhauHao)
-                .where(TaiSanKhauHao.tai_san_id == tai_san_id)
-            ).scalar_one()
+                select(Employee)
+                .where(
+                    Employee.department_id == bo_phan_id,
+                    Employee.status.in_(list(trang_thai)),
+                )
+                .order_by(Employee.full_name, Employee.id)
+            ).scalars()
         )
 
     # --- Ghi ------------------------------------------------------------------------------

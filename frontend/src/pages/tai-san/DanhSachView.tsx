@@ -21,6 +21,7 @@ import { RowActionButton } from "../../components/RowActionButton";
 import { useDebounced } from "../../utils/useDebounced";
 import { Badge, ngay, tien } from "./chung";
 import { BienDongDialog } from "./BienDongDialog";
+import { ChiTietDialog } from "./ChiTietDialog";
 import { GhiTangDialog } from "./GhiTangDialog";
 
 const SIZE = 20;
@@ -48,9 +49,18 @@ export function DanhSachView() {
   const [moGhiTang, setMoGhiTang] = useState(false);
   const [dangSua, setDangSua] = useState<TaiSanChiTiet | null>(null);
   const [bienDong, setBienDong] = useState<TaiSanChiTiet | null>(null);
+  // Bấm vào DÒNG là xem chi tiết + bảng khấu hao dự kiến (chủ 08/09/2026) — trước đây lịch chỉ
+  // hiện đúng một lần ngay sau khi lưu phiếu.
+  const [xem, setXem] = useState<TaiSanChiTiet | null>(null);
   const [xoa, setXoa] = useState<TaiSanRow | null>(null);
   const [dangXoa, setDangXoa] = useState(false);
   const [loiXoa, setLoiXoa] = useState<string | null>(null);
+
+  // Máy chủ tính hao mòn tới hết tháng TRƯỚC (tháng đang chạy chưa hết thì chưa trích). Mốc ấy
+  // chỉ nằm ở tooltip tiêu đề cột — chủ 08/09/2026 không muốn dòng "hết MM/YYYY" hiện ra bảng.
+  const denThang = rows[0]?.luy_ke_den
+    ? `${rows[0].luy_ke_den.slice(5, 7)}/${rows[0].luy_ke_den.slice(0, 4)}`
+    : "";
 
   const nap = useCallback(() => {
     if (!token) return;
@@ -81,13 +91,14 @@ export function DanhSachView() {
 
   const doiLoc = (fn: () => void) => { fn(); setPage(1); };
 
-  /** Cả hai hộp thoại đều cần CHI TIẾT, không phải dòng bảng: form ghi tăng cần các dòng cấu
-   *  thành nguyên giá, hộp biến động cần lịch sử chứng từ — bảng chỉ có tổng. */
-  async function moChiTiet(r: TaiSanRow, dich: "sua" | "bien-dong") {
+  /** Cả ba ngăn kéo đều cần CHI TIẾT, không phải dòng bảng: form ghi tăng cần các dòng cấu
+   *  thành nguyên giá, hộp biến động và ngăn xem cần lịch sử chứng từ — bảng chỉ có tổng. */
+  async function moChiTiet(r: TaiSanRow, dich: "sua" | "bien-dong" | "xem") {
     if (!token) return;
     try {
       const ct = await taiSanApi.chiTiet(token, r.id);
       if (dich === "sua") setDangSua(ct);
+      else if (dich === "xem") setXem(ct);
       else setBienDong(ct);
     } catch (e) {
       setLoi(e instanceof ApiError ? e.message : "Không mở được tài sản này.");
@@ -115,7 +126,7 @@ export function DanhSachView() {
         <div className="rc__unified-right" style={{ marginLeft: "auto" }}>
           <div className="rc__search-wrapper">
             <Icon name="search" size={15} className="rc__search-icon" />
-            <input className="rc__search" placeholder="Tìm mã, tên, vị trí, người quản lý…"
+            <input className="rc__search" placeholder="Tìm theo mã hoặc tên…"
               value={q} onChange={(e) => doiLoc(() => setQ(e.target.value))} />
           </div>
           <select className="rc-input" value={loai} aria-label="Lọc theo loại"
@@ -133,7 +144,6 @@ export function DanhSachView() {
             onChange={(e) => doiLoc(() => setTrangThai(e.target.value))}>
             <option value="">Mọi trạng thái</option>
             <option value="dang_dung">{NHAN_TRANG_THAI.dang_dung}</option>
-            <option value="da_giam">{NHAN_TRANG_THAI.da_giam}</option>
           </select>
           {taoDuoc && (
             <Button variant="accent" onClick={() => setMoGhiTang(true)}>
@@ -164,7 +174,10 @@ export function DanhSachView() {
               <th style={{ width: "12%" }}>Loại</th>
               <th style={{ width: "9%" }}>Bộ phận</th>
               <th style={{ width: "10%" }} className="ts-num">Nguyên giá</th>
-              <th style={{ width: "10%" }} className="ts-num">Đã hao mòn</th>
+              <th style={{ width: "10%" }} className="ts-num"
+                title={denThang ? `Cộng dồn theo lịch tới hết tháng ${denThang}` : undefined}>
+                Đã hao mòn
+              </th>
               <th style={{ width: "10%" }} className="ts-num">Còn lại</th>
               <th style={{ width: "9%" }}>Trạng thái</th>
               <th style={{ width: "11%" }} className="text-center ts-actcol">Thao tác</th>
@@ -193,7 +206,8 @@ export function DanhSachView() {
               </tr>
             ) : (
               rows.map((r) => (
-                <tr key={r.id}>
+                <tr key={r.id} className="ts-row--xem" onClick={() => moChiTiet(r, "xem")}
+                  title="Bấm để xem chi tiết và bảng khấu hao dự kiến">
                   <td><span className="rc__code-badge">{r.ma}</span></td>
                   <td className="ts-col-ten">
                     <div>{r.ten}</div>
@@ -215,7 +229,8 @@ export function DanhSachView() {
                     </Badge>
                     {r.ngay_giam && <div className="ts-phu">{ngay(r.ngay_giam)}</div>}
                   </td>
-                  <td className="text-center ts-actcol">
+                  {/* Nút thao tác không được kéo theo ngăn xem — chặn nổi bọt lên <tr>. */}
+                  <td className="text-center ts-actcol" onClick={(e) => e.stopPropagation()}>
                     <RowActionButton dense label="Sửa" icon="pencil"
                       disabled={!suaDuoc} onClick={() => moChiTiet(r, "sua")} />
                     <RowActionButton dense label="Biến động" icon="workflow"
@@ -243,6 +258,10 @@ export function DanhSachView() {
         />
       )}
 
+      {token && xem && (
+        <ChiTietDialog token={token} taiSan={xem} onClose={() => setXem(null)} />
+      )}
+
       {token && bienDong && (
         <BienDongDialog
           token={token}
@@ -260,8 +279,8 @@ export function DanhSachView() {
         error={loiXoa}
         title={`Xoá ${xoa?.ma ?? ""}?`}
         message={
-          "Chỉ xoá được món CHƯA có số ở kỳ đã chốt và chưa có chứng từ biến động. "
-          + "Món đã dùng thật thì ghi giảm, đừng xoá — xoá là mất luôn vết."
+          "Xoá là gỡ hẳn khỏi sổ: mất cả lịch sử điều chuyển / sửa chữa lớn và các tháng đã trích, "
+          + "không hoàn lại được. Món đã bán, hỏng, không dùng nữa thì xoá."
         }
         confirmLabel="Xoá khỏi sổ"
         onConfirm={xacNhanXoa}
