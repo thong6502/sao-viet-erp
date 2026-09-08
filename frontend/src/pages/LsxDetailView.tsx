@@ -353,7 +353,8 @@ export function LsxDetailView({
     // `may_lam_duoc` = bảng "Máy chạy được công đoạn này" ở danh mục Công đoạn. Giữ lại id để
     // drawer bước lọc dropdown MÁY đúng như bài ghép và engine xếp lịch đang chặn (`RefRow`).
     api.congDoan.list(token).then((r) => setCongDoanRefs(r.items.map((c) => ({
-      id: c.id, ten: c.ten, nhomMayChoPhep: c.nhom_may_cho_phep,
+      // `ma` chỉ để GÕ TÌM trong drawer bước (không hiện ra) — người khai quen gõ "CD-0003".
+      id: c.id, ten: c.ten, ma: c.ma, nhomMayChoPhep: c.nhom_may_cho_phep,
       mayChoPhep: (c.may_lam_duoc ?? []).map((m) => m.may_id),
     })))).catch(() => setCongDoanRefs(null));
     crud("/api/cong-doan/phong-ban").list(token).then((r) => setToRefs(r.items.map((t) => ({ id: t.id, ten: t.ten })))).catch(() => setToRefs(null));

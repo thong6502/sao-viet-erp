@@ -154,6 +154,19 @@
   border-color: #4f46e5;
   background: #ffffff;
 }
+/* Tiêu đề nhóm (prop `group` của lựa chọn) — thay `<optgroup>`. Không bấm được, chỉ để mắt
+   biết đang ở khúc nào của danh sách dài. */
+.sel__group {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ash-2, #64748b);
+}
+.sel__group + .sel__opt {
+  margin-top: 0;
+}
 .sel__empty {
   padding: 10px;
   font-size: 12.5px;

@@ -3804,6 +3804,12 @@ td.khsx-num > .khsx-unit {
   font-weight: 700;
   color: var(--ash-2);
 }
+/* Ô "Thêm vật tư" nay là `<Select>` (gõ-lọc), nên `flex: 1` phải đặt lên KHUNG `.sel` — class
+   dưới đây rơi vào nút bấm bên trong, để nguyên thì ô co lại còn bằng bề ngang chữ. */
+.khsx-vattu-add-bar .sel {
+  flex: 1;
+  min-width: 0;
+}
 .khsx-vattu-select-clean {
   flex: 1;
   height: 32px;

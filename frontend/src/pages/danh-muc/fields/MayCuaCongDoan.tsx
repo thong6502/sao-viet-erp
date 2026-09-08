@@ -7,6 +7,7 @@
 // Hàng tick "Máy làm được công đoạn này" (nhóm máy) nay chỉ là BỘ LỌC cho bảng này.
 import { useMemo, useState } from "react";
 
+import { Select, type SelectOption } from "../../../components/Select";
 import { TrashIcon } from "../icons";
 import type { MayCongDoanRow, Row } from "../types";
 import { FormulaField } from "./FormulaField";
@@ -26,6 +27,16 @@ export function MayCuaCongDoanField({ value, options, nhomChoPhep, nhomCongDoan,
   );
   const theoId = useMemo(() => new Map(options.map((o) => [Number(o.id), o])), [options]);
   const daChon = new Set(chon.map((r) => r.may_id));
+  // Ô "＋ Chọn máy": nhãn CHỈ tên máy. Danh sách ~40 máy mà mã đứng trước thì cả cột chỉ thấy
+  // "BE-01 / BE-02 / BOI-01…", mắt phải đọc qua tiền tố mới tới tên. Mã chuyển sang `search` —
+  // vẫn gõ "be-07" ra được, chỉ là không chiếm chỗ.
+  const mayOpts = useMemo<SelectOption<string>[]>(
+    () => duocChon
+      .filter((o) => !daChon.has(Number(o.id)))
+      .map((o) => ({ value: String(o.id), label: String(o.ten), search: String(o.ma ?? "") })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [duocChon, chon],
+  );
   // Panel đang mở khoá theo CẶP (máy, ô) chứ không theo dòng: bảng có hai ô công thức mỗi dòng,
   // khoá theo dòng thì bấm ô "Cách tính giá" của dòng 3 vẫn ra panel dòng đang mở, người khai
   // tưởng mình đang sửa dòng 3 mà thật ra đang sửa dòng 1.
@@ -119,16 +130,20 @@ export function MayCuaCongDoanField({ value, options, nhomChoPhep, nhomCongDoan,
         onChange={(v) => patch(iMo, { cong_thuc_gia: v })} />}
     </FormulaPopover>}
     <div className="rc-dinh-muc-add">
-      <select className="rc-dinh-muc-add__select" value=""
-        onChange={(e) => {
-          const id = Number(e.target.value);
+      <Select
+        options={mayOpts}
+        value=""
+        placeholder="＋ Chọn máy cho công đoạn"
+        ariaLabel="Chọn máy cho công đoạn"
+        searchable
+        searchPlaceholder="Gõ tên hoặc mã máy…"
+        portal
+        className="rc-dinh-muc-add__select"
+        onChange={(v) => {
+          const id = Number(v);
           if (id) onChange([...chon, { may_id: id, cong_thuc_gio: null, cong_thuc_gia: null }]);
-        }}>
-        <option value="">＋ Chọn máy cho công đoạn</option>
-        {duocChon.filter((o) => !daChon.has(Number(o.id))).map((o) => (
-          <option key={o.id} value={o.id}>{String(o.ma)} · {String(o.ten)}</option>
-        ))}
-      </select>
+        }}
+      />
     </div>
   </div>;
 }
