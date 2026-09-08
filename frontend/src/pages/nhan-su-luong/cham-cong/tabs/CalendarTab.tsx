@@ -325,7 +325,13 @@ export function CalendarTab({ token }: { token: string }) {
               <Info size={14} style={{ color: "var(--ash)", flexShrink: 0 }} />
               <span>
                 Công chuẩn tháng {preview.month}/{preview.year}:{" "}
-                <strong>{preview.working_days}</strong> công
+                <strong>{preview.cong_chuan_luong ?? preview.working_days}</strong> công
+                {preview.cong_chuan_luong != null && preview.cong_chuan_luong !== preview.working_days && (
+                  <>
+                    {" "}({preview.working_days} ngày làm +{" "}
+                    {preview.cong_chuan_luong - preview.working_days} lễ hưởng lương)
+                  </>
+                )}
                 {preview.holidays.length > 0 && (
                   <> · {preview.holidays.length} ngày lễ</>
                 )}

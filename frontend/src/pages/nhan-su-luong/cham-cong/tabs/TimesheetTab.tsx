@@ -20,8 +20,10 @@ import {
   Trash2,
   Lock,
   Unlock,
+  ClipboardCheck,
 } from "lucide-react";
 import { MonthPicker } from "../../../../components/MonthPicker";
+import { OtConfirmModal } from "../modals/OtConfirmModal";
 import {
   FAULT_OPTIONS,
   FAULT_LABEL,
@@ -317,7 +319,19 @@ export function TimesheetTab({
   } | null>(null);
   // Hàng đang mở drawer "Công đặc biệt" — cột chỉ nói tổng, drawer nói từng ngày.
   const [specialFor, setSpecialFor] = useState<TimesheetRow | null>(null);
+  // Modal "Xác nhận TC theo phiếu" (07/09/2026) — bù cặp bấm tăng ca hàng loạt cho người quên bấm.
+  const [otConfirmOpen, setOtConfirmOpen] = useState(false);
   const [year, month] = ym.split("-").map(Number);
+  // Ngày mặc định của modal: đang xem tháng hiện tại thì lấy HÔM QUA (ngày hay cần bù nhất),
+  // tháng cũ thì lấy ngày cuối tháng đó.
+  const otDefaultDate = (() => {
+    const now = new Date();
+    const cungThang = now.getFullYear() === year && now.getMonth() + 1 === month;
+    const d = cungThang
+      ? new Date(now.getFullYear(), now.getMonth(), Math.max(1, now.getDate() - 1))
+      : new Date(year, month, 0);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
 
   useEffect(() => {
     api.employees
@@ -503,6 +517,49 @@ export function TimesheetTab({
           </div>
         )}
 
+      {/* 1.3 (07/09/2026) — phiếu TC đã duyệt mà KHÔNG có cặp bấm tăng ca: chốt là đóng băng 0 phút
+          TC cho những phiếu này mà không ai hay. Chỉ NHẮC, không chặn chốt (chủ giữ luật 4 lượt bấm). */}
+      {period && period.status !== "locked" && (period.ot_thieu_cap ?? 0) > 0 && (
+        <div
+          className="banner banner--warn cc-ts-warn-banner"
+          style={{ marginBottom: "16px", display: "block" }}
+        >
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+            <AlertTriangle size={14} style={{ marginTop: 2, flexShrink: 0 }} />
+            <span>
+              <strong>{period.ot_thieu_cap}</strong> phiếu tăng ca đã duyệt nhưng{" "}
+              <strong>chưa có cặp bấm tăng ca</strong> — chốt bây giờ là những phiếu này ra{" "}
+              <strong>0 phút</strong>.
+              {canAdjust ? (
+                <>
+                  {" "}
+                  Bấm{" "}
+                  <button
+                    type="button"
+                    className="cc-link-btn"
+                    onClick={() => setOtConfirmOpen(true)}
+                  >
+                    Xác nhận TC theo phiếu
+                  </button>{" "}
+                  để bù cho cả tổ một lần.
+                </>
+              ) : null}
+            </span>
+          </div>
+          <details style={{ marginTop: 6 }}>
+            <summary style={{ cursor: "pointer", fontSize: 12 }}>Xem danh sách</summary>
+            <ul className="cc-ot-thieu-list">
+              {(period.ot_thieu_cap_list ?? []).map((x) => (
+                <li key={`${x.employee_id}-${x.date}`}>
+                  <b>{x.employee_name}</b> · {x.date} · phiếu {x.from_time}–{x.to_time} ·{" "}
+                  {x.ly_do}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+      )}
+
       {/* L3 — kỳ ĐÃ CHỐT nhưng vẫn có lượt bấm mới. Băng này là thứ DUY NHẤT cho người dùng biết:
           ảnh chụp không có mấy lượt đó, nên Bảng lương cũng không tính. Không chặn thợ bấm giờ —
           chỉ nhắc HCNS chốt lại kỳ. */}
@@ -516,6 +573,20 @@ export function TimesheetTab({
             Kỳ công đã chốt nhưng có <strong>{period.phat_sinh_sau_chot}</strong> lượt bấm ghi
             vào sau đó — <strong>ảnh chụp không có mấy lượt này</strong>, nên Bảng lương cũng
             không tính. Mở lại kỳ công rồi chốt lại để cập nhật.
+          </span>
+        </div>
+      )}
+
+      {period && period.status === "locked" && (period.doi_ca_nen_sau_chot ?? 0) > 0 && (
+        <div
+          className="banner banner--warn cc-ts-warn-banner"
+          style={{ marginBottom: "16px" }}
+        >
+          <AlertTriangle size={14} style={{ marginRight: "6px" }} />
+          <span>
+            Kỳ công đã chốt nhưng có <strong>{period.doi_ca_nen_sau_chot}</strong> lần đổi ca (ca nền /
+            ô lưới) hiệu lực trong tháng ghi sau đó — <strong>ảnh chụp đang tính theo ca cũ</strong>,
+            Bảng lương chưa chốt được. Mở lại kỳ công, chốt lại rồi bấm Tính lại.
           </span>
         </div>
       )}
@@ -572,6 +643,19 @@ export function TimesheetTab({
         </div>
 
         <div className="cc-ts-actions">
+          {canAdjust && period && period.status !== "locked" && (
+            <button
+              className="btn btn--ghost"
+              onClick={() => setOtConfirmOpen(true)}
+              title="Sinh cặp bấm tăng ca cho người có phiếu đã duyệt nhưng quên bấm — cả tổ một lần"
+            >
+              <ClipboardCheck size={14} />
+              <span>
+                Xác nhận TC theo phiếu
+                {(period.ot_thieu_cap ?? 0) > 0 ? ` (${period.ot_thieu_cap})` : ""}
+              </span>
+            </button>
+          )}
           <button
             className="btn btn--ghost cc-ts-btn-export"
             onClick={exportCsv}
@@ -615,6 +699,19 @@ export function TimesheetTab({
           )}
         </div>
       </div>
+
+      {otConfirmOpen && (
+        <OtConfirmModal
+          token={token}
+          defaultDate={otDefaultDate}
+          depts={depts}
+          onClose={() => setOtConfirmOpen(false)}
+          onDone={() => {
+            reload();
+            loadPeriod();
+          }}
+        />
+      )}
 
       {/* 3. Timesheet Scroll Table */}
       {loading && <p className="ns__empty">Đang tải biểu công…</p>}
@@ -682,7 +779,10 @@ export function TimesheetTab({
           employeeName={openDay.employeeName}
           date={openDay.date}
           onClose={() => setOpenDay(null)}
-          onChanged={reload}
+          onChanged={() => {
+            reload();
+            loadPeriod(); // băng "phiếu TC thiếu cặp bấm" + số ngày treo đổi theo lượt chấm bù
+          }}
         />
       )}
 
@@ -883,6 +983,7 @@ function TimesheetRowView({
           (day.late ? " · đi muộn" : "") +
           (day.early ? " · về sớm" : "") +
           (day.ot_minutes ? ` · OT ${day.ot_minutes}′` : "") +
+          (day.ot_thieu_cap ? " · ⚠ phiếu tăng ca chưa có cặp bấm" : "") +
           (day.night ? " · ca đêm" : "");
 
         return (
@@ -895,6 +996,14 @@ function TimesheetRowView({
                   title={`Tăng ca: ${day.ot_minutes}′`}
                 >
                   +
+                </span>
+              ) : null}
+              {day.ot_thieu_cap ? (
+                <span
+                  className="cc-cell-ot-dot cc-cell-ot-dot--thieu"
+                  title="Phiếu tăng ca đã duyệt nhưng chưa có cặp bấm — chốt là 0 phút"
+                >
+                  !
                 </span>
               ) : null}
             </span>
@@ -962,7 +1071,11 @@ function DayDetailModal({
   // Chấm bù CẶP tăng ca (1 chạm) khi NV có phiếu TC nhưng thiếu cặp chấm — điền sẵn theo khung phiếu.
   const [otIn, setOtIn] = useState("");
   const [otOut, setOtOut] = useState("");
+  const [otOutNext, setOtOutNext] = useState(false);   // giờ RA tăng ca rơi sang hôm sau
   const [otBusy, setOtBusy] = useState(false);
+  // Chấm bù "sang hôm sau" (07/09/2026): ca đêm quên RA 06:00 sáng, tăng ca vắt nửa đêm. Không có
+  // ô này thì lượt 06:00 dính ngày công ⇒ gom về hôm trước, ngày treo vẫn treo.
+  const [nextDay, setNextDay] = useState(false);
 
   const load = useCallback(() => {
     api.attendance
@@ -976,12 +1089,14 @@ function DayDetailModal({
   // Điền sẵn giờ vào/ra tăng ca theo phiếu khi có gợi ý (HCNS chỉnh lại giờ ra thực tế rồi lưu).
   const sugFrom = detail?.ot_suggestion?.from_time;
   const sugTo = detail?.ot_suggestion?.to_time;
+  const sugToNext = !!detail?.ot_suggestion?.to_next_day;
   useEffect(() => {
     if (sugFrom && sugTo) {
       setOtIn(sugFrom);
       setOtOut(sugTo);
+      setOtOutNext(sugToNext);
     }
-  }, [sugFrom, sugTo]);
+  }, [sugFrom, sugTo, sugToNext]);
 
   async function addPunch() {
     if (!reason.trim()) {
@@ -996,6 +1111,7 @@ function DayDetailModal({
         date,
         check_type: checkType,
         time,
+        next_day: nextDay,
         reason: reason.trim(),
         fault_party: fault,
       });
@@ -1028,41 +1144,33 @@ function DayDetailModal({
     }
   }
 
-  // Chấm bù cặp tăng ca: thêm lượt VÀO rồi RA (2 punch) → engine tự gom thành phiên tăng ca.
-  async function addOtPair() {
-    if (!otIn || !otOut) {
-      setError("Nhập đủ giờ vào và ra tăng ca.");
-      return;
-    }
-    if (otOut <= otIn) {
-      setError("Giờ ra tăng ca phải sau giờ vào.");
+  // Xác nhận tăng ca theo phiếu (07/09/2026): máy quyết thêm lượt nào — `bu_cap` (đã ra ca chính
+  // trước giờ phiếu ⇒ thêm cặp VÀO/RA TC) hay `tach_phien` (thợ chỉ bấm 2 lượt ⇒ thêm RA ca chính +
+  // VÀO TC, lượt RA thật thành RA TC) — cùng một đường với nút hàng loạt trên Bảng công.
+  async function confirmOt() {
+    const kieu = detail?.ot_suggestion?.kieu ?? "bu_cap";
+    if (kieu === "bu_cap" && !otOut) {
+      setError("Nhập giờ ra tăng ca thực tế.");
       return;
     }
     setOtBusy(true);
     setError(null);
-    const reasonTxt = "Chấm bù cặp tăng ca (NV quên chấm)";
     try {
-      await api.attendance.adjust(token, {
-        employee_id: employeeId,
+      const res = await api.attendance.otConfirm(token, {
         date,
-        check_type: "in",
-        time: otIn,
-        reason: reasonTxt,
-        fault_party: "nv_quen",
+        employee_ids: [employeeId],
+        to_time: kieu === "bu_cap" ? otOut : null,
+        to_next_day: kieu === "bu_cap" ? otOutNext : false,
       });
-      const d = await api.attendance.adjust(token, {
-        employee_id: employeeId,
-        date,
-        check_type: "out",
-        time: otOut,
-        reason: reasonTxt,
-        fault_party: "nv_quen",
-      });
-      setDetail(d);
+      if (res.skipped.length) {
+        setError(res.skipped[0].reason);
+      }
+      load();
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Lỗi khi chấm bù cặp tăng ca.");
-      load(); // tải lại: có thể lượt VÀO đã thêm nhưng RA lỗi
+      setError(
+        e instanceof Error ? e.message : "Lỗi khi xác nhận tăng ca theo phiếu.",
+      );
     } finally {
       setOtBusy(false);
     }
@@ -1188,51 +1296,78 @@ function DayDetailModal({
               {canAdjust && detail.ot_suggestion && (
                 <div className="cc-ot-suggest">
                   <h4 className="cc-ot-suggest__title">
-                    <AlertTriangle size={14} /> Chưa chấm cặp tăng ca — phiếu{" "}
-                    {detail.ot_suggestion.from_time}–
+                    <AlertTriangle size={14} /> Chưa có cặp bấm tăng ca — phiếu{" "}
+                    {detail.ot_suggestion.from_time}
+                    {detail.ot_suggestion.from_next_day ? " (+1)" : ""}–
                     {detail.ot_suggestion.to_time}
+                    {detail.ot_suggestion.to_next_day ? " (+1)" : ""}
                   </h4>
-                  <p className="cc-ot-suggest__hint">
-                    Giờ điền sẵn theo phiếu; sửa <b>giờ ra</b> theo thực tế rồi
-                    lưu.
-                  </p>
-                  <div className="cc-ot-suggest__grid">
-                    <div className="cc-adjust-field">
-                      <span className="cc-field-label">Vào tăng ca</span>
-                      <div className="cc-input-time-wrapper">
-                        <input
-                          type="time"
-                          value={otIn}
-                          onChange={(e) => setOtIn(e.target.value)}
-                        />{" "}
+                  {detail.ot_suggestion.kieu === "tach_phien" ? (
+                    <>
+                      <p className="cc-ot-suggest__hint">
+                        NV chỉ bấm 2 lượt, lượt RA đã phủ luôn giờ tăng ca. Máy sẽ thêm{" "}
+                        <b>RA ca chính lúc hết ca</b> và{" "}
+                        <b>VÀO tăng ca {detail.ot_suggestion.from_time}</b>; lượt RA thật cuối
+                        ngày thành RA tăng ca (bấm ra là sự thật, phiếu là trần).
+                      </p>
+                      <div className="cc-adjust-action-row">
+                        <button
+                          className="btn cc-btn-add-punch"
+                          onClick={confirmOt}
+                          disabled={otBusy}
+                        >
+                          {otBusy ? (
+                            <RefreshCw className="cc-animate-spin" size={14} />
+                          ) : (
+                            "Tách phiên theo phiếu"
+                          )}
+                        </button>
                       </div>
-                    </div>
-                    <div className="cc-adjust-field">
-                      <span className="cc-field-label">
-                        Ra tăng ca (thực tế)
-                      </span>
-                      <div className="cc-input-time-wrapper">
-                        <input
-                          type="time"
-                          value={otOut}
-                          onChange={(e) => setOtOut(e.target.value)}
-                        />{" "}
+                    </>
+                  ) : (
+                    <>
+                      <p className="cc-ot-suggest__hint">
+                        Vào tăng ca lấy theo phiếu ({otIn}
+                        {detail.ot_suggestion.from_next_day ? " +1" : ""}); sửa{" "}
+                        <b>giờ ra</b> theo thực tế rồi lưu.
+                      </p>
+                      <div className="cc-ot-suggest__grid">
+                        <div className="cc-adjust-field">
+                          <span className="cc-field-label">
+                            Ra tăng ca (thực tế)
+                          </span>
+                          <div className="cc-input-time-wrapper">
+                            <input
+                              type="time"
+                              value={otOut}
+                              onChange={(e) => setOtOut(e.target.value)}
+                            />{" "}
+                          </div>
+                        </div>
+                        <label className="ns-check" style={{ alignSelf: "end" }}>
+                          <input
+                            type="checkbox"
+                            checked={otOutNext}
+                            onChange={(e) => setOtOutNext(e.target.checked)}
+                          />{" "}
+                          Sang ngày hôm sau
+                        </label>
                       </div>
-                    </div>
-                  </div>
-                  <div className="cc-adjust-action-row">
-                    <button
-                      className="btn cc-btn-add-punch"
-                      onClick={addOtPair}
-                      disabled={otBusy}
-                    >
-                      {otBusy ? (
-                        <RefreshCw className="cc-animate-spin" size={14} />
-                      ) : (
-                        "Chấm bù cặp tăng ca"
-                      )}
-                    </button>
-                  </div>
+                      <div className="cc-adjust-action-row">
+                        <button
+                          className="btn cc-btn-add-punch"
+                          onClick={confirmOt}
+                          disabled={otBusy}
+                        >
+                          {otBusy ? (
+                            <RefreshCw className="cc-animate-spin" size={14} />
+                          ) : (
+                            "Chấm bù cặp tăng ca"
+                          )}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -1264,6 +1399,20 @@ function DayDetailModal({
                           onChange={(e) => setTime(e.target.value)}
                         />{" "}
                       </div>
+                    </div>
+                    <div className="cc-adjust-field">
+                      <span className="cc-field-label">Ngày</span>
+                      <label
+                        className="ns-check"
+                        title="Ca đêm quên bấm RA 06:00 sáng, hoặc tăng ca vắt nửa đêm"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={nextDay}
+                          onChange={(e) => setNextDay(e.target.checked)}
+                        />{" "}
+                        Sang hôm sau
+                      </label>
                     </div>
                     <div className="cc-adjust-field">
                       <span className="cc-field-label">Nguyên nhân</span>

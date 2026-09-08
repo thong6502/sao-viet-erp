@@ -152,8 +152,6 @@ def create_department(
             description=payload.description,
             parent_id=payload.parent_id,
             level_id=payload.level_id,
-            salary_mechanism=payload.salary_mechanism,
-            probation_ratio=payload.probation_ratio,
             has_piece_work=payload.has_piece_work,
             la_san_xuat=payload.la_san_xuat,
             la_kinh_doanh=payload.la_kinh_doanh,
@@ -192,7 +190,7 @@ def update_department(
         # lại vô tình reset cơ chế lương về mặc định.
         salary_kw = {
             k: getattr(payload, k)
-            for k in ("salary_mechanism", "probation_ratio", "has_piece_work")
+            for k in ("has_piece_work",)   # cơ chế lương / % thử việc theo phòng đã gỡ 07/09/2026
             if k in payload.model_fields_set
         }
         # Cờ khối Kinh doanh: KHÔNG gửi = giữ nguyên — màn Phòng ban có nhiều luồng sửa chỉ đụng

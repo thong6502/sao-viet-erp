@@ -65,6 +65,16 @@ class AuditLogRepository:
             actor_user_id=actor_user_id, action=action, target=target, detail=detail
         )
 
+    def max_created_at(self, actions) -> datetime | None:
+        """Thời điểm MỚI NHẤT của một nhóm hành động — chốt lương L15 hỏi "hồ sơ lương / tham số có đổi
+        SAU lần Tính lại không" cho các bảng không có `updated_at` (08/09/2026)."""
+        acts = [a for a in (actions or []) if a]
+        if not acts:
+            return None
+        return self.db.execute(
+            select(func.max(AuditLog.created_at)).where(AuditLog.action.in_(acts))
+        ).scalar()
+
     def list_recent(self, limit: int = 100) -> list[AuditLog]:
         return list(
             self.db.execute(

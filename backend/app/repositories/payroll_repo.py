@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..models.payroll import (
     ADV_APPROVED,
+    ADV_PAID,
     ADV_PENDING,
     DepartmentSalaryComponent,
     EmployeeSalary,
@@ -177,6 +178,16 @@ class PayrollRepository:
             ).scalars()
         )
 
+    def max_salary_created_at(self, den_ngay: date):
+        """Mốc lương ĐƯỢC KHAI gần nhất (created_at) trong các mốc có hiệu lực ≤ `den_ngay` — L15."""
+        return self.db.execute(
+            select(func.max(EmployeeSalary.created_at)).where(EmployeeSalary.effective_from <= den_ngay)
+        ).scalar()
+
+    def max_dept_component_updated_at(self):
+        """Lần sửa gần nhất của cơ chế lương theo bộ phận — L15."""
+        return self.db.execute(select(func.max(DepartmentSalaryComponent.updated_at))).scalar()
+
     def current_salary(self, employee_id: int, on: date) -> EmployeeSalary | None:
         """Bản lương hiện hành cho ngày `on` = effective_from lớn nhất ≤ on."""
         return (
@@ -264,6 +275,28 @@ class PayrollRepository:
             select(func.count()).select_from(SalaryAdvance).where(SalaryAdvance.status == status)
         ).scalar_one()
 
+    def advance_decided_ats(self, year: int, month: int) -> list:
+        """`decided_at` của mọi phiếu (tạm ứng + đợt 1) thuộc kỳ — cho chốt lương (L12) so với lần
+        Tính lại cuối. So sánh làm ở service (`_as_utc`) để không dính chuyện SQLite trả naive."""
+        return [r[0] for r in self.db.execute(
+            select(SalaryAdvance.decided_at).where(
+                SalaryAdvance.period_year == year,
+                SalaryAdvance.period_month == month,
+                SalaryAdvance.decided_at.is_not(None),
+            )
+        ).all()]
+
+    def count_advances_in_period_by_status(self, year: int, month: int, status: str) -> int:
+        """Số phiếu (tạm ứng + đợt 1) của ĐÚNG kỳ đang ở `status` — guard chốt lương (L11 pending,
+        L11b approved-chưa-chi)."""
+        return int(self.db.execute(
+            select(func.count()).select_from(SalaryAdvance).where(
+                SalaryAdvance.status == status,
+                SalaryAdvance.period_year == year,
+                SalaryAdvance.period_month == month,
+            )
+        ).scalar_one())
+
     def count_pending_advances_in_period(self, year: int, month: int) -> int:
         """Số phiếu tạm ứng / lương đợt 1 CÒN CHỜ DUYỆT của ĐÚNG kỳ đó — guard chốt lương.
 
@@ -300,12 +333,16 @@ class PayrollRepository:
 
     def approved_advance_map(self, year: int, month: int, *,
                              kind: str | None = None) -> dict[int, float]:
-        """{employee_id → tổng ĐÃ DUYỆT của kỳ} — để trừ vào bảng lương. `kind` lọc loại phiếu
-        (tam_ung / luong_dot_1); None = mọi loại."""
+        """{employee_id → tổng ĐÃ CHI của kỳ} — để trừ vào bảng lương. `kind` lọc loại phiếu
+        (tam_ung / luong_dot_1); None = mọi loại.
+
+        Từ 07/09/2026 chỉ phiếu `paid` (kế toán đã lập phiếu chi) mới trừ — chủ: "kế toán phải lập
+        phiếu chi mới trừ vào lương". Phiếu `approved` chưa chi thì tiền chưa ra két, không trừ, và
+        chốt lương bị chặn (L11b) cho tới khi chi hoặc huỷ."""
         stmt = select(SalaryAdvance.employee_id, func.sum(SalaryAdvance.amount)).where(
             SalaryAdvance.period_year == year,
             SalaryAdvance.period_month == month,
-            SalaryAdvance.status == ADV_APPROVED,
+            SalaryAdvance.status == ADV_PAID,
         )
         if kind is not None:
             stmt = stmt.where(SalaryAdvance.kind == kind)

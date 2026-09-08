@@ -4,7 +4,9 @@
 - Đơn nghỉ (leave_requests): NV tạo (nguyên ngày) → workflow chờ duyệt → duyệt / từ chối /
   hủy. Đơn ĐÃ DUYỆT được Bảng công tháng đọc (đánh dấu P/KL). Người tạo = user đăng nhập →
   hồ sơ NV qua `employees.user_id`; HR có thể tạo hộ (truyền employee_id).
-Hạn mức phép năm trừ dần + quy lương nghỉ: để module Lương (giờ chỉ đánh dấu).
+Hạn mức phép năm trừ dần NGAY Ở ĐÂY (`_used_working_days`, đơn chờ + đã duyệt, theo ngày làm việc,
+reset dương lịch). Quy tiền ngày phép ở Lương (`_luong_cong_split`): từ 17/08/2026 ngày phép có lương
+trả ĐỦ mức nền (cơ bản + trách nhiệm), cùng đơn giá với công đi làm.
 """
 from __future__ import annotations
 
@@ -18,6 +20,8 @@ from ..models.leave import (
     LeaveRequest,
     LeaveType,
 )
+from ..models.role import SCOPE_ALL
+from .bien_che import ly_do_ngoai_bien_che
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.leave_repo import LeaveRepository
@@ -139,8 +143,22 @@ class LeaveService:
         if t is None:
             raise LeaveNotFound("Không tìm thấy loại nghỉ.")
         name, q = self._validate_type(name, annual_quota)
+        canh_bao = None
+        if bool(t.is_paid) != bool(is_paid):
+            # Đổi cờ có-lương hồi tố vào mọi đơn ĐÃ DUYỆT của tháng chưa chốt công (bản rà liên thông
+            # C16, 08/09/2026): Tính lại kỳ lương chưa chốt là đổi tiền. Không chặn (chủ có thể cố ý),
+            # nhưng nói ra số đơn bị ảnh hưởng để người sửa biết mà Tính lại / kiểm.
+            hom_nay = date.today()
+            dau_thang = date(hom_nay.year, hom_nay.month, 1)
+            anh_huong = [r for r in self.leaves.list_overlapping(dau_thang, date(2100, 1, 1), (STATUS_APPROVED,))
+                         if r.leave_type_id == t.id]
+            if anh_huong:
+                canh_bao = (f"Đổi cờ có lương ảnh hưởng {len(anh_huong)} đơn đã duyệt từ tháng "
+                            f"{hom_nay.month:02d}/{hom_nay.year} trở đi (kỳ chưa chốt công): công/tiền "
+                            "của những ngày đó đổi theo khi Tính lại bảng lương.")
         self.leaves.update_type(t, name=name, is_paid=bool(is_paid), annual_quota=q,
                                 note=_clean(note), is_active=bool(is_active))
+        t.canh_bao = canh_bao
         self.audit.create(actor_user_id=actor.id, action="update_leave_type",
                           target=f"leave_type:{t.id}", detail=f"{name} paid={t.is_paid}")
         return t
@@ -164,6 +182,16 @@ class LeaveService:
     def has_employee(self, *, user) -> bool:
         return self.employees.get_by_user_id(user.id) is not None
 
+    def _chan_ngoai_bien_che(self, emp, start_date: date, end_date: date) -> None:
+        """Đơn cho ngày NGOÀI biên chế (trước ngày vào, từ ngày nghỉ việc, đang nghỉ dài hạn / đình
+        chỉ) ⇒ 400 ở cả lúc gửi lẫn lúc duyệt (bản rà liên thông C1, 08/09/2026): trước đó người đã
+        rời công ty vẫn được duyệt phép và trả 1 công/ngày."""
+        su_kien = self.employees.list_events(emp.id)
+        for d in (start_date, end_date):
+            ly_do = ly_do_ngoai_bien_che(emp, su_kien, d)
+            if ly_do:
+                raise LeaveValidationError(ly_do)
+
     def create_request(self, *, actor, leave_type_id, start_date: date, end_date: date,
                        reason=None, employee_id=None) -> LeaveRequest:
         # HR có thể tạo hộ (employee_id); mặc định = hồ sơ của người đăng nhập.
@@ -178,6 +206,13 @@ class LeaveService:
             raise LeaveValidationError("Cần chọn từ ngày và đến ngày.")
         if end_date < start_date:
             raise LeaveValidationError("Đến ngày phải sau hoặc bằng từ ngày.")
+        self._chan_ngoai_bien_che(emp, start_date, end_date)
+        # Tháng đã chốt công: đơn treo vĩnh viễn, giữ chỗ hạn mức, badge sai — chặn lúc gửi cùng câu
+        # chữ với lúc duyệt (bản rà liên thông C4, 08/09/2026).
+        if self._attendance is not None:
+            loi = ly_do_ky_cong_da_chot(self._attendance, start_date, end_date, viec="gửi đơn nghỉ")
+            if loi:
+                raise LeaveValidationError(loi)
         lt = self.leaves.get_type(leave_type_id)
         if lt is None or not lt.is_active:
             raise LeaveValidationError("Loại nghỉ không hợp lệ.")
@@ -291,12 +326,18 @@ class LeaveService:
                 continue
             quota = self._quota_for(emp, t.annual_quota, year)  # prorate người mới vào giữa năm
             used = self._used_working_days(emp.id, t.id, year)
+            # Phần ĐANG CHỜ trong `used` (đơn nguyên ngày) — chip "đã dùng X · đang chờ Y" (C5b, 08/09/2026):
+            # gộp chung thì người ta tưởng đã mất phép cho đơn còn chưa ai duyệt.
+            pending = sum(self._wd(r.start_date, r.end_date)
+                          for r in self.leaves.list_for_quota(emp.id, t.id, year)
+                          if r.status == STATUS_PENDING)
             out.append({
                 "leave_type_id": t.id,
                 "name": t.name,
                 "annual_quota": quota,
                 "used": used,
                 "remaining": max(quota - used, 0),
+                "pending": float(pending),
             })
         return out
 
@@ -330,11 +371,20 @@ class LeaveService:
         if r is None:
             raise LeaveNotFound("Không tìm thấy đơn nghỉ.")
         self._guard_scope(r.employee_id, scope=scope, actor=actor)
+        # Không TỰ duyệt đơn của mình khi phạm vi chỉ là tổ (07/09/2026): tổ trưởng cũng là NV
+        # trong tổ mình. Phạm vi toàn công ty (HCNS/GĐ) là cấp duyệt cuối nên vẫn được.
+        if scope != SCOPE_ALL:
+            me = self.employees.get_by_user_id(actor.id)
+            if me is not None and me.id == r.employee_id:
+                raise LeaveForbidden("Không tự duyệt đơn nghỉ của chính mình — nhờ cấp trên duyệt.")
         if r.status != STATUS_PENDING:
             raise LeaveValidationError("Chỉ duyệt/từ chối được đơn đang chờ.")
         # TỪ CHỐI thì không chặn: đơn chờ vốn không tính vào bảng công, từ chối nó chẳng đổi số nào.
         # DUYỆT mới đổi — đó là lúc ngày nghỉ thành công (có lương hoặc không lương).
         if new_status == STATUS_APPROVED:
+            emp = self.employees.get_by_id(r.employee_id)
+            if emp is not None:
+                self._chan_ngoai_bien_che(emp, r.start_date, r.end_date)
             self._chan_neu_ky_cong_da_chot(r, "duyệt đơn nghỉ")
         self.leaves.update_request(
             r, status=new_status, decided_by=actor.id,

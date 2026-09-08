@@ -281,45 +281,42 @@ def _tinh_luong(client, eid: int, *, year=2026, month=8) -> dict:
     return next(l for l in r.json()["lines"] if l["employee_id"] == eid)
 
 
-def _dong_hh(line: dict) -> list[dict]:
-    return [c for c in line["components"] if c["code"] == "hoa_hong_kd"]
-
-
 def test_hoa_hong_LEN_PHIEU_LUONG_va_cong_vao_gross(client):
     """⭐ Cả tính năng chỉ có nghĩa ở đây: % khai xong phải RA TIỀN trên phiếu lương.
 
-    Trước đợt này ô `%` khai được từ mg 0128 mà engine không đọc — khai bao nhiêu cũng bằng 0.
+    Từ 07/09/2026 hoa hồng là CỘT `hoa_hong` trên dòng lương (chủ: "nó là một dạng lương"), không
+    còn là dòng khoản danh mục nguồn `auto`.
     """
     emp, uid = _sales("len phieu")
     truoc = _tinh_luong(client, emp)                  # chưa có hoá đơn nào
-    assert _dong_hh(truoc) == []
-
+    assert truoc["hoa_hong"] == 0
     oid = _don("DH-LUONG-01", uid, truoc_vat=100_000_000, vat_pct=8)
     _hoa_don(oid, 108_000_000)
     sau = _tinh_luong(client, emp)
-
-    assert len(_dong_hh(sau)) == 1
-    assert _dong_hh(sau)[0]["amount"] == 5_000_000
+    assert sau["hoa_hong"] == 5_000_000
     assert sau["gross"] == truoc["gross"] + 5_000_000, (
-        f"hoa hồng có dòng nhưng gross đi từ {truoc['gross']} sang {sau['gross']}")
+        f"hoa hồng có số nhưng gross đi từ {truoc['gross']} sang {sau['gross']}")
+    # Không còn dòng khoản danh mục nào mang hoa hồng.
+    assert all(c["code"] != "hoa_hong_kd" for c in sau["components"])
 
 
 def test_KHONG_de_dong_0_dong_cho_nguoi_khong_lam_kinh_doanh(client):
-    """Cả trăm người không làm kinh doanh — thêm dòng "Hoa hồng 0đ" cho từng người là rác phiếu."""
+    """Người không làm kinh doanh: cột hoa hồng = 0 và KHÔNG có dòng khoản rác nào trên phiếu."""
     emp, _uid = _sales("khong kinh doanh")
-    assert _dong_hh(_tinh_luong(client, emp)) == []
+    line = _tinh_luong(client, emp)
+    assert line["hoa_hong"] == 0
+    assert all(c["code"] != "hoa_hong_kd" for c in line["components"])
 
 
 def test_TINH_LAI_khong_cong_doi(client):
-    """⭐ Bẫy chết người của khoản hệ tự tính: mỗi lần bấm "Tính lại" lại đẻ thêm một dòng."""
+    """⭐ Bẫy chết người của khoản hệ tự tính: mỗi lần bấm "Tính lại" lại cộng dồn."""
     emp, uid = _sales("tinh lai")
     oid = _don("DH-LUONG-02", uid, truoc_vat=100_000_000)
     _hoa_don(oid, 108_000_000)
-
     l1 = _tinh_luong(client, emp)
     l2 = _tinh_luong(client, emp)
     l3 = _tinh_luong(client, emp)
-    assert len(_dong_hh(l3)) == 1, "tính lại 3 lần ra 3 dòng hoa hồng"
+    assert l3["hoa_hong"] == 5_000_000, "tính lại 3 lần cộng dồn hoa hồng"
     assert l3["gross"] == l1["gross"] == l2["gross"]
 
 
@@ -328,109 +325,97 @@ def test_HOA_DON_MOI_thi_so_moi_THAY_so_cu(client):
     emp, uid = _sales("hoa don moi")
     oid = _don("DH-LUONG-03", uid, truoc_vat=100_000_000)
     _hoa_don(oid, 54_000_000, ngay=date(2026, 8, 10))
-    assert _dong_hh(_tinh_luong(client, emp))[0]["amount"] == 2_500_000
-
+    assert _tinh_luong(client, emp)["hoa_hong"] == 2_500_000
     _hoa_don(oid, 54_000_000, ngay=date(2026, 8, 20))
-    dong = _dong_hh(_tinh_luong(client, emp))
-    assert len(dong) == 1
-    assert dong[0]["amount"] == 5_000_000, "phải là 5tr (số mới), không phải 2,5tr hay 7,5tr"
+    assert _tinh_luong(client, emp)["hoa_hong"] == 5_000_000, (
+        "phải là 5tr (số mới), không phải 2,5tr hay 7,5tr")
 
 
-def test_tinh_lai_hoa_hong_KHONG_XOA_thuong_nong_them_tay(client):
-    """⭐ Hoa hồng xoá-rồi-ghi-lại mỗi lần tính. Xoá lố sang nguồn `line` là mất thưởng nóng HCNS
-    đã nhập — mất tiền của người lao động mà không một thông báo nào."""
+def _dong_bang(client, line_id: int, *, year=2026, month=8) -> dict:
+    """Đọc lại dòng từ bảng lương (KHÔNG tính lại) — để soi đường "Sửa 1 ô"."""
+    r = client.get("/api/luong/table", params={"year": year, "month": month}, headers=_h(client))
+    assert r.status_code == 200, r.text
+    return next(l for l in r.json()["lines"] if l["id"] == line_id)
+
+
+def test_tinh_lai_hoa_hong_KHONG_XOA_thuong_nong_them_tay_va_SUA_1_O_khong_lam_mat_hoa_hong(client):
+    """⭐ Hai bẫy trên cùng một dòng:
+    1. "Tính lại" phải giữ thưởng nóng HCNS đã thêm tay (nguồn `line`).
+    2. Thêm khoản phát sinh đi qua đường "Sửa 1 ô" (`update_line`). Trước 07/09/2026 đường này
+       KHÔNG cộng nguồn `auto` ⇒ ngay lúc bấm Thêm, gross tụt mất 5tr hoa hồng mà bảng lương vẫn
+       trông bình thường (bản rà 07/09, D1). Nay hoa hồng là cột: gross chỉ được tăng đúng 300k.
+    """
     emp, uid = _sales("giu thuong nong")
     oid = _don("DH-LUONG-04", uid, truoc_vat=100_000_000)
     _hoa_don(oid, 108_000_000)
     line = _tinh_luong(client, emp)
-
+    assert line["hoa_hong"] == 5_000_000
     comps = client.get("/api/luong/components", headers=_h(client)).json()["items"]
     khac = next(c for c in comps if c["code"] == "thu_nhap_khac_ct")
     r = client.post(f"/api/luong/lines/{line['id']}/components",
                     json={"component_id": khac["id"], "amount": 300_000}, headers=_h(client))
     assert r.status_code == 201, r.text
-
+    sua = _dong_bang(client, line["id"])               # số ĐANG ghi sau "Sửa 1 ô", chưa Tính lại
+    assert sua["hoa_hong"] == 5_000_000
+    assert sua["gross"] == line["gross"] + 300_000, (
+        f"Sửa 1 ô làm gross đi từ {line['gross']} sang {sua['gross']} — hoa hồng bốc hơi?")
     sau = _tinh_luong(client, emp)                     # bấm "Tính lại"
     ma = {c["code"]: c["amount"] for c in sau["components"]}
-    assert ma.get("thu_nhap_khac_ct") == 300_000, "tính lại hoa hồng đã nuốt mất thưởng nóng"
-    assert ma.get("hoa_hong_kd") == 5_000_000
+    assert ma.get("thu_nhap_khac_ct") == 300_000, "tính lại đã nuốt mất thưởng nóng"
+    assert sau["hoa_hong"] == 5_000_000
+    assert sau["gross"] == sua["gross"], "Tính lại và Sửa 1 ô phải ra cùng một gross"
 
 
 def test_hoa_hong_CHIU_THUE_TNCN(client):
-    """Hoa hồng là thu nhập chịu thuế — cờ lấy từ DANH MỤC chứ không đóng đinh trong engine."""
+    """Hoa hồng là thu nhập từ tiền lương ⇒ LUÔN chịu thuế (cột riêng, không còn cờ danh mục)."""
     emp, uid = _sales("chiu thue")
     truoc = _tinh_luong(client, emp)
     oid = _don("DH-LUONG-05", uid, truoc_vat=100_000_000)
     _hoa_don(oid, 108_000_000)
     sau = _tinh_luong(client, emp)
-
-    assert _dong_hh(sau)[0]["is_taxable"] is True
     assert sau["thu_nhap_chiu_thue"] == truoc["thu_nhap_chiu_thue"] + 5_000_000
 
 
-def test_khoan_hoa_hong_la_nguon_AUTO_khong_phai_tay_go(client):
-    """Nguồn `auto` là thứ phân biệt "hệ tự tính" với "HCNS gõ" — giao diện dựa vào đó để KHOÁ ô."""
+def test_hoa_hong_la_COT_khong_phai_dong_khoan_nguon_auto(client):
+    """Từ 07/09/2026 không còn dòng khoản nguồn `auto`: mọi khoản trên dòng là `employee`/`line`,
+    hoa hồng nằm ở cột `hoa_hong`. (Giao diện không còn phải khoá ô của dòng `auto`.)"""
     emp, uid = _sales("nguon auto")
     oid = _don("DH-LUONG-06", uid, truoc_vat=100_000_000)
     _hoa_don(oid, 108_000_000)
-    assert _dong_hh(_tinh_luong(client, emp))[0]["source"] == "auto"
+    line = _tinh_luong(client, emp)
+    assert line["hoa_hong"] == 5_000_000
+    assert all(c["source"] in ("employee", "line") for c in line["components"])
 
 
-def _co_hoa_hong(client, ma_don: str, ten: str = "go tay"):
-    """NV kinh doanh + 1 hoá đơn 108tr ⇒ hoa hồng 5tr. Trả `(emp, row_id)` của dòng hoa hồng."""
-    emp, uid = _sales(ten)
-    _hoa_don(_don(ma_don, uid, truoc_vat=100_000_000), 108_000_000)
-    return emp, _dong_hh(_tinh_luong(client, emp))[0]["id"]
-
-
-def test_KHONG_CHO_GO_TAY_dong_hoa_hong(client):
-    """⭐ Sửa/gỡ tay dòng hoa hồng phải bị CHẶN, kèm câu chỉ đúng chỗ sửa.
-
-    Luật này đã bị mở ra rồi ĐÓNG LẠI trong cùng ngày 24/08/2026 — chủ thử xong chốt: *"số tiền
-    hoa hồng ấy đừng cho sửa tay nữa, kệ nó ăn theo đơn hàng cho chắc"*. Lý do đứng vững:
-
-    - Đè tay ⇒ kỳ đó THÔI chạy theo hoá đơn. Kế toán xuất thêm hoá đơn sau, tiền không tự cộng,
-      và không ai nhớ ra để sửa lại.
-    - Số bám hoá đơn thì luôn đối chiếu được với sổ bán hàng; số gõ tay thì không đối chiếu với
-      cái gì cả.
-
-    Cần trả thêm/bớt cho một người ⇒ khoản "Thu nhập khác", đúng chỗ và có ghi chú.
-    Gỡ dòng cũng chặn: tính lại là nó mọc lại, nút chỉ để người ta bấm vào một cái báo lỗi.
+def test_KHONG_CHO_GO_TAY_hoa_hong(client):
+    """⭐ Không có ô nào sửa được số hoa hồng (chốt 24/08/2026: *"kệ nó ăn theo đơn hàng cho chắc"*).
+    `PUT /lines/{id}` không nhận `hoa_hong`; sửa một ô khác cũng KHÔNG làm hoa hồng đổi hay mất.
     """
-    emp, row_id = _co_hoa_hong(client, "DH-LUONG-07")
-
-    r = client.put(f"/api/luong/lines/components/{row_id}", json={"amount": 99_000_000},
-                   headers=_h(client))
-    assert r.status_code == 400, r.text
-    assert "tự tính" in r.json()["detail"]
-
-    r = client.delete(f"/api/luong/lines/components/{row_id}", headers=_h(client))
-    assert r.status_code == 400, r.text
-    assert "Lương nhân viên" not in r.json()["detail"], "chỉ sai chỗ — hoa hồng không nằm ở đó"
-
-    assert _dong_hh(_tinh_luong(client, emp))[0]["amount"] == 5_000_000
+    emp, uid = _sales("go tay")
+    _hoa_don(_don("DH-LUONG-07", uid, truoc_vat=100_000_000), 108_000_000)
+    line = _tinh_luong(client, emp)
+    from app.schemas.payroll import LineUpdateIn
+    assert "hoa_hong" not in LineUpdateIn.model_fields
+    r = client.put(f"/api/luong/lines/{line['id']}", json={"vi_pham": 0}, headers=_h(client))
+    assert r.status_code == 200, r.text
+    assert r.json()["hoa_hong"] == 5_000_000
+    assert r.json()["gross"] == line["gross"]
 
 
 def test_HOA_HONG_khong_hien_trong_DANH_MUC_khoan_thu_nhap(client):
-    """⭐ Chốt của chủ 24/08/2026: *"cái danh mục cấu hình này làm khoản trợ cấp hoặc thưởng thôi
-    mà đừng dính cứng nó — mấy cái danh mục này họ thêm được và xoá được nha."*
-
-    Để hoa hồng lẫn trong đó sinh ra một cái bẫy thật: bấm xoá một "dòng phụ cấp" hoá ra là TẮT
-    TÍNH NĂNG hoa hồng của toàn công ty (`_hoa_hong_rows` kiểm `is_active` trước khi tính).
-
-    Giấu ở màn hình, KHÔNG xoá dòng trong DB — engine vẫn phải tra được nó để lấy `is_taxable` và
-    `component_id`. Nên test khoá cả hai vế.
-    """
+    """⭐ Chốt của chủ 24/08/2026 (và nhắc lại 07/09): danh mục là chỗ khai phụ cấp/thưởng thêm/xoá
+    tự do; hoa hồng "là một dạng lương" — không nằm đó. Từ 07/09 không còn dòng `hoa_hong_kd` nào
+    trong DB để mà giấu, và engine không cần dòng đó để chạy."""
     r = client.get("/api/luong/components", headers=_h(client))
     assert r.status_code == 200, r.text
     ma = [c["code"] for c in r.json()["items"]]
-    assert "hoa_hong_kd" not in ma, "hoa hồng vẫn nằm trong danh mục ⇒ xoá nhầm là tắt tính năng"
-    assert ma, "giấu nhầm cả danh mục — các khoản phụ cấp/thưởng phải còn nguyên"
-
-    # Vế hai: giấu khỏi màn hình KHÔNG được làm chết engine.
+    assert "hoa_hong_kd" not in ma
+    assert "khoan_km_gh" not in ma, "tàn dư bản nháp mg 0231 — khoán km là cột riêng"
+    assert ma, "các khoản phụ cấp/thưởng phải còn nguyên"
+    # Vế hai: không có dòng danh mục mà engine VẪN ra tiền.
     emp, uid = _sales("van chay")
     _hoa_don(_don("DH-LUONG-07E", uid, truoc_vat=100_000_000), 108_000_000)
-    assert _dong_hh(_tinh_luong(client, emp))[0]["amount"] == 5_000_000
+    assert _tinh_luong(client, emp)["hoa_hong"] == 5_000_000
 
 
 def test_FILE_XUAT_hoa_hong_co_COT_RIENG_khong_lan_vao_Thuong(client):
@@ -503,7 +488,7 @@ def test_NV_DA_NGHI_VIEC_van_duoc_tra_hoa_hong_don_cu(client):
     assert r.status_code in (200, 201), r.text
     dong = next((l for l in r.json()["lines"] if l["employee_id"] == emp), None)
     assert dong is not None, "NV nghỉ việc còn hoa hồng mà không có dòng lương nào"
-    assert _dong_hh(dong)[0]["amount"] == 5_000_000
+    assert dong["hoa_hong"] == 5_000_000
 
 
 def test_KHONG_CO_DUONG_NAO_de_sale_tu_dat_pct_cho_don(client):

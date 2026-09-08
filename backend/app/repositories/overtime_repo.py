@@ -14,11 +14,13 @@ from ..models.overtime import (
     STATUS_PENDING,
     STATUS_REJECTED,
     OvertimeRequest,
+    STATUS_CANCELLED,
 )
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from .org_scope import dept_subtree_ids
 
-_DECIDED = (STATUS_APPROVED, STATUS_REJECTED)
+# `cancelled` cũng là quyết định NV cần biết (huỷ hộ phiếu đã duyệt — D8, 08/09/2026).
+_DECIDED = (STATUS_APPROVED, STATUS_REJECTED, STATUS_CANCELLED)
 _LIVE = (STATUS_PENDING, STATUS_APPROVED)
 
 

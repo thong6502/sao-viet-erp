@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
+from ..models.role import SCOPE_ALL
 from ..models.employee import (
     ATTACHMENT_DOC_KINDS,
     DOC_KHAC,
@@ -28,6 +29,8 @@ from ..models.employee import (
     EVENT_RESIGNED,
     EVENT_SUSPENDED,
     EVENT_TRANSFERRED,
+    EVENT_UNSUSPENDED,
+    EVENT_UNSUSPENDED,
     GENDERS,
     SHIFT_LOG_ACTION_REMOVE,
     SHIFT_LOG_ACTION_SET,
@@ -73,11 +76,18 @@ _STATUS_TRANSITIONS: dict[str, tuple[set[str], str, str]] = {
     "resign": ({STATUS_PROBATION, STATUS_PROBATION_ENDED, STATUS_ACTIVE, STATUS_ON_LEAVE,
                 STATUS_SUSPENDED}, STATUS_RESIGNED, EVENT_RESIGNED),
     "reinstate": ({STATUS_RESIGNED}, STATUS_ACTIVE, EVENT_REINSTATED),
+    # Gỡ đình chỉ (test luồng 08/09/2026: đình chỉ xong không có đường quay lại). Trạng thái đích ở
+    # đây chỉ là MẶC ĐỊNH — `_apply_status` thay bằng trạng thái TRƯỚC khi đình chỉ (thử việc vẫn
+    # là thử việc: tiền 85%, chưa BHXH), xem `_trang_thai_truoc_dinh_chi`.
+    "unsuspend": ({STATUS_SUSPENDED}, STATUS_ACTIVE, EVENT_UNSUSPENDED),
 }
 # Fields the plain edit (PUT) may set — deliberately EXCLUDES status/department_id/job_grade
 # and resign_*, which only a transition may change.
 EDITABLE_FIELDS = (
     "full_name", "position", "probation_end_date", "date_of_birth", "gender",
+    # `hire_date` sửa được (bản rà liên thông A11, 08/09/2026): nhập sai ngày vào là mọi luật biên
+    # chế / mốc ca nền dựa số sai mà chỉ còn cách sửa DB tay. Bắt buộc có giá trị (xem update).
+    "hire_date",
     "national_id", "national_id_date", "national_id_place", "phone", "email",
     "permanent_address", "current_address", "emergency_contact_name",
     "emergency_contact_phone", "social_insurance_no", "pit_tax_code",
@@ -378,6 +388,11 @@ class EmployeeService:
         clean = self._clean_fields(clean)
         if "full_name" in clean:
             clean["full_name"] = self._validate_name(clean["full_name"])
+        if "hire_date" in clean:
+            if clean["hire_date"] is None:
+                raise EmployeeValidationError("Ngày vào làm không được để trống.")
+            if employee.resign_date is not None and clean["hire_date"] >= employee.resign_date:
+                raise EmployeeValidationError("Ngày vào làm phải trước ngày nghỉ việc.")
         # `status` KHÔNG nằm trong EDITABLE_FIELDS nên đây luôn là trạng thái hiện hành. Hồ sơ cũ
         # đang thử việc mà bỏ trống ngày sẽ bị chặn cho tới khi khai bù — cách duy nhất dọn hết
         # tồn mà không phải sửa dữ liệu bằng tay.
@@ -524,6 +539,14 @@ class EmployeeService:
         # Đọc mốc TRƯỚC khi xoá — sau đó không còn gì để biết nó vốn là ca gì, ngày nào.
         goc = next((a for a in self.employees.list_shift_assignments(employee.id)
                     if a.id == assignment_id), None)
+        # Gỡ mốc là công của mọi tháng từ ngày hiệu lực tính lại theo mốc liền trước (bản rà liên
+        # thông A3, 08/09/2026). Tháng CHƯA chốt công thì đó chính là sửa sai (lỡ tay "bỏ gán ca" làm
+        # NV mất ca — chủ 24/08); tháng ĐÃ chốt công thì ảnh chụp giữ ca cũ mà Bảng công sống đổi —
+        # hai màn hai số, không guard nào biết ⇒ chặn, chỉ đường mở lại kỳ.
+        if goc is not None and self.employees.co_ky_cong_da_chot_tu(goc.effective_from):
+            raise EmployeeValidationError(
+                f"Mốc ca nền hiệu lực từ {goc.effective_from:%d/%m/%Y} chạm kỳ công ĐÃ CHỐT — gỡ là "
+                "Bảng công lệch ảnh chụp. Mở lại kỳ công đó trước, hoặc đặt mốc mới từ hôm nay.")
         if not self.employees.delete_shift_assignment(employee, assignment_id):
             raise EmployeeNotFound("Không tìm thấy mốc ca này của nhân viên.")
         log = None
@@ -626,8 +649,18 @@ class EmployeeService:
         )
         return req
 
-    def list_update_requests(self, *, status=None):
-        return self.employees.list_update_requests(status=status)
+    def list_update_requests(self, *, status=None, scope=None, actor=None):
+        rows = self.employees.list_update_requests(status=status)
+        if scope is None or scope == "all":
+            return rows
+        # PHẠM VI (07/09/2026, bản rà C5): danh sách này kèm "giá trị hiện tại" của CCCD / số tài
+        # khoản / người phụ thuộc — không lọc là ai có `nhan_su:read` cũng đọc được của cả công ty.
+        out = []
+        for r in rows:
+            nv = self.employees.get_by_id(r.employee_id)
+            if nv is not None and self.employees.can_access(employee=nv, scope=scope, actor=actor):
+                out.append(r)
+        return out
 
     def decide_update_request(self, *, request_id: int, actor, approve: bool, scope: str,
                               note=None, can_edit_salary: bool = True):
@@ -643,6 +676,12 @@ class EmployeeService:
         nv = self.employees.get_by_id(req.employee_id)
         if nv is not None and not self.employees.can_access(employee=nv, scope=scope, actor=actor):
             raise EmployeeForbidden("Nhân viên này ngoài phạm vi quản lý của bạn.")
+        # Không TỰ duyệt yêu cầu sửa hồ sơ của chính mình khi phạm vi chỉ là tổ (bản rà liên thông
+        # E3, 08/09/2026): đổi số tài khoản nhận lương rồi tự ký là hết một cửa kiểm.
+        if scope is not None and scope != SCOPE_ALL:
+            me = self.employees.get_by_user_id(actor.id)
+            if me is not None and me.id == req.employee_id:
+                raise EmployeeForbidden("Không tự duyệt yêu cầu sửa hồ sơ của chính mình — nhờ cấp trên duyệt.")
         if req.status != "pending":
             raise EmployeeValidationError("Yêu cầu đã được xử lý.")
         if approve:
@@ -692,6 +731,14 @@ class EmployeeService:
         employee = self.get_employee(employee_id=employee_id, scope=scope, actor=actor)
         note = _clean(note)
         effective_date = effective_date or date.today()
+        # Ngày hiệu lực TƯƠNG LAI bị chặn (bản rà liên thông A1/A6, 08/09/2026): máy đổi trạng thái,
+        # phòng ban và khoá tài khoản NGAY lúc bấm — "cho nghỉ việc từ 27/09" bấm hôm 07/09 là 20
+        # ngày không bấm giờ được, điều chuyển tương lai là tổ trưởng cũ mất quyền ngay. Tới ngày đó
+        # hãy bấm. (`probation_end` là đường máy tự đi với ngày quá khứ, không qua đây.)
+        if effective_date > date.today():
+            raise EmployeeValidationError(
+                f"Ngày hiệu lực không được sau hôm nay ({date.today():%d/%m/%Y}) — máy áp thay đổi "
+                "ngay lúc bấm, tới ngày đó hãy bấm.")
 
         if kind in _STATUS_TRANSITIONS:
             return self._apply_status(employee, actor, kind, effective_date, note, resign_reason)
@@ -720,6 +767,8 @@ class EmployeeService:
                 "(sẽ khóa cứng đường đăng nhập). Gỡ liên kết tài khoản trước nếu thật sự cần."
             )
         old_status = employee.status
+        if kind == "unsuspend":
+            to_status = self._trang_thai_truoc_dinh_chi(employee)
         updates: dict = {"status": to_status}
         if kind == "resign":
             resign_reason = _clean(resign_reason)
@@ -738,6 +787,14 @@ class EmployeeService:
             account = self.users.get_by_id(employee.user_id)
             if account is not None:
                 self.users.bump_token_version(account)
+                # Bump chỉ giết access token; `/api/auth/refresh` chỉ hỏi `is_active` rồi cấp token
+                # MỚI theo token_version mới ⇒ người vừa nghỉ còn tab mở là vào tiếp (bản rà C7,
+                # 07/09/2026). Khoá tài khoản luôn — tuyển lại thì mở (nhánh `reinstate`).
+                self.users.set_active(account, False)
+        if kind == "reinstate" and employee.user_id is not None:
+            account = self.users.get_by_id(employee.user_id)
+            if account is not None and not account.is_active:
+                self.users.set_active(account, True)
         self.employees.add_event(
             employee_id=employee.id,
             event_type=event_type,
@@ -758,6 +815,32 @@ class EmployeeService:
             detail=f"{employee.code} {old_status}→{to_status}",
         )
         return employee
+
+    def _trang_thai_truoc_dinh_chi(self, employee) -> str:
+        """Trạng thái để trả về khi GỠ đình chỉ = `from_value` của mốc đình chỉ gần nhất. Đang thử
+        việc mà bị đình chỉ thì gỡ xong vẫn thử việc (không được "lên chính thức chui"); đang nghỉ
+        dài hạn mà bị đình chỉ thì gỡ xong là đi làm lại (active) — muốn nghỉ tiếp thì bấm Cho nghỉ
+        dài hạn. Không tìm thấy mốc (dữ liệu tồn) ⇒ active."""
+        for ev in self.employees.list_events(employee.id):      # mới nhất trước
+            if ev.event_type == EVENT_SUSPENDED and ev.field == "status":
+                truoc = ev.from_value
+                if truoc in (STATUS_PROBATION, STATUS_PROBATION_ENDED, STATUS_ACTIVE):
+                    return truoc
+                return STATUS_ACTIVE
+        return STATUS_ACTIVE
+
+    def _trang_thai_truoc_dinh_chi(self, employee) -> str:
+        """Trạng thái để trả về khi GỠ đình chỉ = `from_value` của mốc đình chỉ gần nhất. Đang thử
+        việc mà bị đình chỉ thì gỡ xong vẫn thử việc (không được "lên chính thức chui"); đang nghỉ
+        dài hạn mà bị đình chỉ thì gỡ xong là đi làm lại (active) — muốn nghỉ tiếp thì bấm Cho nghỉ
+        dài hạn. Không tìm thấy mốc (dữ liệu tồn) ⇒ active."""
+        for ev in self.employees.list_events(employee.id):      # mới nhất trước
+            if ev.event_type == EVENT_SUSPENDED and ev.field == "status":
+                truoc = ev.from_value
+                if truoc in (STATUS_PROBATION, STATUS_PROBATION_ENDED, STATUS_ACTIVE):
+                    return truoc
+                return STATUS_ACTIVE
+        return STATUS_ACTIVE
 
     def tu_danh_dau_het_thu_viec(self, *, moc: date | None = None) -> int:
         """Máy tự đổi Thử việc → **Hết thử việc** cho ai đã qua Ngày hết thử việc. Trả số hồ sơ

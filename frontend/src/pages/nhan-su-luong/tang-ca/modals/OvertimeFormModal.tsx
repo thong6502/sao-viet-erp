@@ -2,16 +2,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   api,
-  type EmployeeRow,
   type OvertimeRequest,
+  type OvertimeRoster,
   type TranThangOut,
 } from "../../../../api/client";
 import { Button } from "../../../../components/Button";
 import { fmtDateISO } from "../../../../utils/format";
-import {
-  EMPLOYEE_PICKER_SIZE,
-  TRAN_NGUONG_VANG,
-} from "../shared/constants";
+import { TRAN_NGUONG_VANG } from "../shared/constants";
 import {
   errText,
   gioPhut,
@@ -38,12 +35,11 @@ export function OvertimeFormModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [emps, setEmps] = useState<EmployeeRow[]>([]);
+  const [emps, setEmps] = useState<OvertimeRoster["employees"]>([]);
   const [employeeId, setEmployeeId] = useState<number | null>(null);
   const [workDate, setWorkDate] = useState(editing?.work_date ?? "");
   const [from, setFrom] = useState(editing ? plainHhmm(editing.from_minute) : "22:00");
   const [to, setTo] = useState(editing ? plainHhmm(editing.to_minute) : "00:00");
-  const [nextDay, setNextDay] = useState(editing ? editing.to_minute >= 1440 : true);
   const [reason, setReason] = useState(editing?.reason ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -53,14 +49,21 @@ export function OvertimeFormModal({
 
   useEffect(() => {
     if (!forEmployee) return;
-    api.employees
-      .list(token, { size: EMPLOYEE_PICKER_SIZE })
-      .then((r) => setEmps(r.items))
+    // Roster trong tầm của người duyệt — trước 08/09/2026 gọi `/api/employees` nên tổ trưởng
+    // (không có module nhân sự) bị 403 và dropdown rỗng (bản rà liên thông E8).
+    api.overtime
+      .roster(token)
+      .then((r) => setEmps(r.employees))
       .catch(() => setEmps([]));
   }, [forEmployee, token]);
 
   const fromMin = hhmmToMin(from);
   const toMin = hhmmToMin(to);
+  /** "Sang hôm sau" TỰ SUY từ hai ô giờ: đến ≤ từ là qua nửa đêm. Trước 08/09/2026 đây là ô tick
+   *  tay mặc định BẬT (22:00→00:00); đổi giờ thành 17:30→19:30 mà quên bỏ tick là phiếu 26h —
+   *  máy chủ chặn 12h nhưng người dùng không hiểu vì đâu (test luồng 08/09). Trần 12h/phiếu nên
+   *  không có ca "đến giờ sau từ giờ mà vẫn qua hôm sau". */
+  const nextDay = fromMin != null && toMin != null && toMin <= fromMin;
   const toAbs = toMin == null ? null : toMin + (nextDay ? 1440 : 0);
   const minutes = fromMin != null && toAbs != null ? toAbs - fromMin : null;
 
@@ -129,10 +132,8 @@ export function OvertimeFormModal({
     setErr(null);
     if (!workDate) return setErr("Cần chọn ngày công.");
     if (fromMin == null || toAbs == null) return setErr("Giờ phải dạng HH:MM.");
-    if (minutes == null || minutes <= 0)
-      return setErr(
-        "Giờ kết thúc phải sau giờ bắt đầu (nếu qua nửa đêm nhớ tích “sang hôm sau”).",
-      );
+    if (minutes == null || minutes <= 0 || minutes >= 24 * 60)
+      return setErr("Giờ kết thúc phải khác giờ bắt đầu.");
     if (forEmployee && employeeId == null) return setErr("Cần chọn nhân viên.");
     // Chốt cuối vẫn là backend (`_validate_window`) — chỗ này chỉ để phím Enter / gọi lại không
     // lách được cái nút đã tắt.
@@ -262,12 +263,11 @@ export function OvertimeFormModal({
           {loiTran && <p className="tc-tran-err">{loiTran}</p>}
           <label className="ns-field" style={{ marginTop: 12 }}>
             <span className="ns-field__label">
-              <input
-                type="checkbox"
-                checked={nextDay}
-                onChange={(e) => setNextDay(e.target.checked)}
-              />{" "}
-              Giờ kết thúc rơi sang <b>hôm sau</b>
+              <input type="checkbox" checked={nextDay} readOnly disabled />{" "}
+              Giờ kết thúc rơi sang <b>hôm sau</b>{" "}
+              <span className="tc-muted">
+                (tự suy: “đến giờ” nhỏ hơn hoặc bằng “từ giờ” là qua nửa đêm)
+              </span>
             </span>
             {minutes != null && minutes > 0 && (
               <span className="tc-muted">

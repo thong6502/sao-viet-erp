@@ -1,6 +1,6 @@
 """Pydantic schemas — sổ tài sản cố định & công cụ dụng cụ.
 
-⚠️ Service trả DICT cho bảng kỳ và kết quả kiểm kê: field nào không khai ở schema Out thì
+⚠️ Service trả DICT cho bảng tháng: field nào không khai ở schema Out thì
 Pydantic bỏ IM LẶNG, frontend nhận `undefined` mà không có lỗi nào bật ra. Thêm field phải đi
 hết chuỗi dict → schema → type TS.
 """
@@ -33,12 +33,15 @@ class TaiSanIn(BaseModel):
     ngay_su_dung: date
     #: `ghi_tang` (mua mới) | `dau_ky` (số dư mang sang lúc lên phần mềm).
     nguon_vao: str = "ghi_tang"
-    #: Chỉ `dau_ky`: tháng đầu tiên phần mềm chịu trách nhiệm tính.
+    #: Chỉ `dau_ky`: tháng đầu tiên phần mềm chịu trách nhiệm tính (ép về ngày 1).
     moc_tu_ngay: date | None = None
     hao_mon_dau_ky: int = 0
     thang_da_trich_dau_ky: int = 0
     chi_phi: list[ChiPhiIn] = []
     bo_phan_id: int | None = None
+    #: Một nhân viên của bộ phận `bo_phan_id` (máy chủ kiểm). Có id thì tên `nguoi_quan_ly` do
+    #: máy chủ chụp từ hồ sơ, chữ gửi lên bị bỏ qua.
+    nguoi_quan_ly_id: int | None = None
     nguoi_quan_ly: str | None = None
     vi_tri: str | None = None
     so_hoa_don: str | None = None
@@ -50,7 +53,7 @@ class TaiSanIn(BaseModel):
 class TaiSanSuaIn(BaseModel):
     """Sửa: mọi ô đều tuỳ chọn — chỉ gửi lên ô thật sự đổi.
 
-    Ô ảnh hưởng số bị máy chủ chặn khi tài sản đã có số ở kỳ đã chốt (409).
+    Ô ảnh hưởng số bị máy chủ chặn khi tài sản đã có chứng từ biến động (409).
     """
 
     ten: str | None = None
@@ -64,6 +67,7 @@ class TaiSanSuaIn(BaseModel):
     thang_da_trich_dau_ky: int | None = None
     chi_phi: list[ChiPhiIn] | None = None
     bo_phan_id: int | None = None
+    nguoi_quan_ly_id: int | None = None
     nguoi_quan_ly: str | None = None
     vi_tri: str | None = None
     so_hoa_don: str | None = None
@@ -84,12 +88,15 @@ class TaiSanRow(BaseModel):
     so_thang_con: int
     ngay_su_dung: date
     moc_tu_ngay: date
-    hao_mon_luy_ke: int
     co_so_trich: int
     nguon_vao: str
+    hao_mon_dau_ky: int = 0
+    thang_da_trich_dau_ky: int = 0
     bo_phan_id: int | None = None
     #: Tên bộ phận — server ghép sẵn để bảng khỏi tra danh mục cho từng dòng.
     bo_phan_ten: str | None = None
+    nguoi_quan_ly_id: int | None = None
+    #: Tên người quản lý (chụp từ hồ sơ nhân viên; dòng cũ có thể là chữ tự gõ).
     nguoi_quan_ly: str | None = None
     vi_tri: str | None = None
     so_hoa_don: str | None = None
@@ -97,7 +104,12 @@ class TaiSanRow(BaseModel):
     ghi_chu: str | None = None
     trang_thai: str
     ngay_giam: date | None = None
-    #: Nguyên giá − hao mòn lũy kế (chốt tại kỳ đã chốt gần nhất).
+    #: Hao mòn lũy kế TÍNH RA từ lịch, tới hết tháng `luy_ke_den` (tháng trước tháng hiện tại;
+    #: món đã ghi giảm thì tới ngày giảm).
+    hao_mon_luy_ke: int = 0
+    #: "YYYY-MM" — tháng cuối đã gộp vào `hao_mon_luy_ke`.
+    luy_ke_den: str = ""
+    #: Nguyên giá − hao mòn lũy kế; món đã ghi giảm = 0 (đã ra khỏi sổ).
     con_lai: int = 0
 
 
@@ -109,15 +121,17 @@ class BienDongOut(BaseModel):
     so_tien: int | None = None
     bo_phan_moi_id: int | None = None
     so_thang_con_lai: int | None = None
+    #: Chỉ dòng CŨ (ghi giảm theo lô, nghiệp vụ đã bỏ 08/09/2026).
     so_luong_giam: int | None = None
     ly_do: str | None = None
     created_at: datetime | None = None
 
 
 class KhauHaoDongOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    ky_nam: int
-    ky_thang: int
+    """Một tháng trong lịch khấu hao của một tài sản."""
+
+    nam: int
+    thang: int
     muc_trich: int
     luy_ke: int
     con_lai: int
@@ -126,9 +140,8 @@ class KhauHaoDongOut(BaseModel):
 class TaiSanDetailOut(TaiSanRow):
     chi_phi: list[ChiPhiOut] = []
     bien_dong: list[BienDongOut] = []
+    #: Phần lịch đã vào lũy kế (tới hết tháng trước). Phần sắp tới xem `/du-kien`.
     khau_hao: list[KhauHaoDongOut] = []
-    #: Giá bán − giá trị còn lại của chứng từ ghi giảm mới nhất. None nếu chưa/không khai giá bán.
-    chenh_lech_thanh_ly: int | None = None
 
 
 class TaiSanListOut(BaseModel):
@@ -136,120 +149,71 @@ class TaiSanListOut(BaseModel):
     total: int
 
 
+class SuKienOut(BaseModel):
+    """Một chuyện của tháng: nhãn ngắn (chip trên bảng) + câu đầy đủ (tooltip, ngăn chi tiết)."""
+
+    #: `dau` | `dau_ky` | `nang_cap` | `bot` | `giam` | `chuyen` | `cuoi`.
+    loai: str
+    nhan: str
+    chi_tiet: str
+
+
 class DongDuKienOut(BaseModel):
     nam: int
     thang: int
     muc_trich: int
     luy_ke: int
+    #: Tháng ghi giảm = 0 (món đã ra khỏi sổ; giá trị lúc bỏ nằm trong sự kiện `giam`).
     con_lai: int
+    su_kien: list[SuKienOut] = []
+    #: Các câu `chi_tiet` nối bằng "; " — để Excel và chỗ nào chỉ cần một chuỗi.
+    dien_giai: str | None = None
 
 
 class BienDongIn(BaseModel):
     """Một chứng từ biến động. `loai` quyết định ô nào bắt buộc — máy chủ kiểm, không phải FE."""
 
-    loai: str  # dieu_chuyen | nang_cap | ghi_giam
+    loai: str  # dieu_chuyen | nang_cap  (ghi_giam đã bỏ 08/09/2026 — món không dùng nữa thì xoá)
     ngay: date
     bo_phan_moi_id: int | None = None       # dieu_chuyen
+    #: dieu_chuyen: người quản lý mới (nhân viên của bộ phận nhận). Không gửi ⇒ bỏ trống.
+    nguoi_quan_ly_id: int | None = None
     so_tien: int | None = None              # nang_cap: chi phí
     so_thang_con_lai: int | None = None     # nang_cap
-    gia_ban: int | None = None              # ghi_giam
-    so_luong_giam: int | None = None        # ghi_giam CCDC theo lô
     ly_do: str | None = None
 
 
-class KyOut(BaseModel):
+class NhanVienChonOut(BaseModel):
+    """Một nhân viên đang làm của bộ phận — để chọn làm người quản lý tài sản."""
+
     model_config = ConfigDict(from_attributes=True)
-    ky_nam: int
-    ky_thang: int
-    trang_thai: str
-    ngay_chot: datetime | None = None
+    id: int
+    code: str
+    full_name: str
 
 
-class HangBangKyOut(BaseModel):
+class HangBangThangOut(BaseModel):
     tai_san_id: int
     ma: str
     ten: str
     loai: str
+    #: Lô CCDC còn mấy cái (TSCĐ = 1) — bớt cái là nguyên giá đổi, số này nói vì sao.
+    so_luong: int = 1
     bo_phan_ten: str | None = None
     nguyen_gia: int
     muc_trich: int
     luy_ke: int
+    #: Tháng ghi giảm = 0 (món đã ra khỏi sổ).
     con_lai: int
+    su_kien: list[SuKienOut] = []
+    #: Các câu `chi_tiet` nối bằng "; " (cột Diễn giải trên Excel); None nếu tháng bình thường.
+    dien_giai: str | None = None
 
 
-class VetKyOut(BaseModel):
-    """Một lần chốt hoặc mở lại kỳ. `so_tien` là độ lớn, hướng đọc ở `hanh_dong`."""
+class BangThangOut(BaseModel):
+    """Bảng khấu hao một tháng — tính tại chỗ từ sổ, không có trạng thái chốt/mở."""
 
-    id: int
-    hanh_dong: str          # chot | mo
-    so_tien: int
-    so_mon: int
-    nguoi_ten: str | None = None
-    thoi_diem: datetime
-
-
-class BangKyOut(BaseModel):
     nam: int
     thang: int
-    trang_thai: str
     tong_muc_trich: int
-    items: list[HangBangKyOut]
-    #: Vết chốt/mở của chính kỳ này — đi kèm bảng, không bắt màn hình gọi thêm một lượt.
-    lich_su: list[VetKyOut] = []
-
-
-# --- Kiểm kê -----------------------------------------------------------------------------
-
-
-class KiemKeIn(BaseModel):
-    ngay: date
-    bo_phan_id: int | None = None
-    ghi_chu: str | None = None
-
-
-class KiemKeDongIn(BaseModel):
-    ket_qua: str | None = None       # co | khong_thay
-    tinh_trang: str | None = None
-    ghi_chu: str | None = None
-
-
-class PhatHienIn(BaseModel):
-    ten_phat_hien: str = Field(min_length=1, max_length=255)
-    tinh_trang: str | None = None
-    ghi_chu: str | None = None
-
-
-class KiemKeDongOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    tai_san_id: int | None = None
-    ma: str | None = None
-    ten: str | None = None
-    ket_qua: str | None = None
-    ten_phat_hien: str | None = None
-    tinh_trang: str | None = None
-    ghi_chu: str | None = None
-
-
-class KiemKeRow(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    ma: str
-    ngay: date
-    bo_phan_id: int | None = None
-    trang_thai: str
-    ghi_chu: str | None = None
-
-
-class KiemKeDetailOut(KiemKeRow):
-    dong: list[KiemKeDongOut] = []
-
-
-class KiemKeListOut(BaseModel):
-    items: list[KiemKeRow]
-    total: int
-
-
-class KetQuaKiemKeOut(BaseModel):
-    thieu: list[KiemKeDongOut]
-    thua: list[KiemKeDongOut]
+    items: list[HangBangThangOut]

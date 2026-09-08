@@ -879,8 +879,6 @@ export function DepartmentsPage({
         currentDept?.level_id ?? null, // cấp đơn vị đã gỡ khỏi UI; giữ nguyên giá trị cũ
         editParentId,
         {
-          salary_mechanism: currentDept?.salary_mechanism ?? "cung",
-          probation_ratio: currentDept?.probation_ratio ?? 0.8,
           // `has_piece_work` KHÔNG gửi từ đây (backend: không gửi = giữ nguyên) — cửa sửa
           // duy nhất là công tắc "Lương khoán / sản lượng" ở Cấu hình lương.
         },
@@ -925,8 +923,6 @@ export function DepartmentsPage({
         currentDept.level_id ?? null,
         currentDept.parent_id ?? null,
         {
-          salary_mechanism: currentDept.salary_mechanism ?? "cung",
-          probation_ratio: currentDept.probation_ratio ?? 0.8,
         },
         currentDept.la_san_xuat,
       );
@@ -3058,7 +3054,7 @@ export function DepartmentsPage({
         <EmployeeWizard
           token={token}
           meta={empMeta}
-          canSalary={can("luong", "update")}
+          canSalary={can("nhan_su", "edit_salary")}
           initialDepartmentId={currentDept.id}
           onClose={() => setWizardOpen(false)}
           onCreated={async () => {

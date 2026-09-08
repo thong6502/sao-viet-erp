@@ -92,8 +92,11 @@ SelfWriter = Annotated[User, Depends(require_permission(MODULE_CHAM_CONG, "creat
 # đăng nhập là gọi được, đúng chỗ tester bắt.
 SelfOrApprover = Annotated[
     # Người TẠO sửa/huỷ phiếu của mình ⇒ đòi ô THAO TÁC của Tự phục vụ (`create`),
-    # không phải ô Xem. Người DUYỆT làm hộ thì đi bằng ô duyệt của phân hệ.
-    User, Depends(get_current_user)
+    # không phải ô Xem. Người DUYỆT làm hộ thì đi bằng ô duyệt của phân hệ. Trước 08/09/2026 chỗ
+    # này chỉ là `get_current_user` (chú thích nói một đằng, code một nẻo — Tăng ca đã vá 07/09,
+    # bản rà liên thông E9 bắt nốt bên này).
+    User, Depends(require_any_permission((MODULE_CHAM_CONG, "create"),
+                                         (MODULE_CHAM_CONG, "approve_late_early")))
 ]
 
 Service = Annotated[LateEarlyService, Depends(get_late_early_service)]

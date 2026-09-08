@@ -38,6 +38,7 @@ export const EVENT_LABEL: Record<string, string> = {
   leave_start: "Bắt đầu nghỉ dài hạn",
   leave_end: "Đi làm lại",
   suspended: "Đình chỉ",
+  unsuspended: "Gỡ đình chỉ",
   resigned: "Nghỉ việc",
   reinstated: "Tuyển lại",
 };
@@ -61,6 +62,7 @@ export const ACTION_TITLE: Record<string, string> = {
   leave_start: "Cho nghỉ dài hạn",
   leave_end: "Đi làm lại",
   suspend: "Đình chỉ",
+  unsuspend: "Gỡ đình chỉ · đi làm lại",
   resign: "Cho nghỉ việc",
   reinstate: "Tuyển lại",
   transfer: "Điều chuyển phòng/tổ",

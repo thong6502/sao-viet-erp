@@ -194,12 +194,21 @@ def test_row_khong_nuot_field(client, path, module, payload, auto_ma, xoa_mem):
         assert "active" in row, f"{path}: thiếu `active` ⇒ FE không vẽ được badge Đã ngừng"
 
 
+def _openapi() -> dict:
+    """Sơ đồ OpenAPI lấy THẲNG từ app: `/openapi.json` (và /docs, /redoc) đã tắt từ 08/09/2026
+    (commit 6f7341c — không bày sơ đồ API công khai), nhưng hai test dưới cần chính sơ đồ đó để
+    bắt route trùng tên và schema `items: list` trần. Sinh lỗi thì `app.openapi()` ném y như route cũ."""
+    from app.main import app
+    return app.openapi()
+
+
 def test_openapi_dung_duoc(client):
     """Sinh được OpenAPI = không có route nào trùng tên/`operation_id`. Đây là cái gãy đầu tiên
     khi một factory sinh router chạy nhiều lần mà quên tham số hoá tên."""
-    r = client.get("/openapi.json")
-    assert r.status_code == 200
-    assert r.json()["paths"]
+    spec = _openapi()
+    assert spec["paths"]
+    # Route HTTP đã tắt cố ý — khoá luôn để ai bật lại phải biết là có test canh.
+    assert client.get("/openapi.json").status_code == 404
 
 
 def test_items_khong_con_list_tran_trong_openapi(client):
@@ -213,7 +222,7 @@ def test_items_khong_con_list_tran_trong_openapi(client):
     sinh cho `list` trần ra `{"type": "array", "items": {}}`: khoá CÓ mặt nhưng RỖNG. Vì thế
     test vẫn xanh suốt trong lúc bốn schema kia đang hỏng. Nay bắt đúng ca `items` rỗng.
     """
-    spec = client.get("/openapi.json").json()
+    spec = _openapi()
     xau = []
     for ten, sch in spec["components"]["schemas"].items():
         it = (sch.get("properties") or {}).get("items")

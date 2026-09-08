@@ -38,7 +38,8 @@ class LeaveType(Base):
     is_paid: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
-    # Hạn mức ngày/năm (thông tin; trừ dần để module Lương xử lý sau). 0 = không giới hạn.
+    # Hạn mức ngày/năm — TRỪ DẦN ngay ở `LeaveService` (đơn chờ + đã duyệt, theo ngày làm việc,
+    # reset dương lịch, prorate năm đầu vào làm); vượt là chặn tạo đơn. 0 = không giới hạn.
     annual_quota: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )

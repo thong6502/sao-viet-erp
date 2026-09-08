@@ -28,7 +28,7 @@ from ..deps import (
     require_any_permission,
     require_permission,
 )
-from ..models.payroll import COMPONENT_CODE_HOA_HONG
+from ..models.payroll import PERIOD_DRAFT
 from ..models.user import User
 from ..models.role import SCOPE_ALL
 from ..realtime import hub
@@ -90,9 +90,6 @@ from ..schemas.payroll import (
     PitBracketsOut,
     PeriodOut,
     PeriodsOut,
-    RuleIn,
-    RuleOut,
-    RulesOut,
     SalariesOut,
     SalaryIn,
     SalaryOut,
@@ -194,6 +191,24 @@ def _chan_neu_khong_toan_cong_ty(authz: AuthorizationService, user: User, viec: 
         )
 
 
+def _nv_duoc_xem(authz: AuthorizationService, user: User, employees) -> set[int] | None:
+    """Tập NV người gọi được xem theo phạm vi (None = tất cả) — cùng nguồn `list_scoped_all`
+    với `PayrollService.nv_duoc_xem`. Dùng cho các endpoint đọc theo danh sách NV."""
+    scope = _emp_scope_for(authz, user)
+    if scope == "all":
+        return None
+    return {e.id for e in employees.list_scoped_all(scope=scope, actor=user)}
+
+
+def _chan_ngoai_pham_vi_nv(authz: AuthorizationService, user: User, employees, emp) -> None:
+    """403 khi hồ sơ `emp` ngoài phạm vi người gọi (07/09/2026 — bản rà C3/C4: các đường đi thẳng
+    theo `employee_id` trước đây không hỏi phạm vi)."""
+    duoc_xem = _nv_duoc_xem(authz, user, employees)
+    if duoc_xem is not None and int(emp.id) not in duoc_xem:
+        raise HTTPException(status_code=403,
+                            detail="Nhân viên này ngoài phạm vi quản lý của bạn.")
+
+
 def _emp_scope_for(authz: AuthorizationService, user: User) -> str:
     """Phạm vi DỮ LIỆU NHÂN VIÊN của người gọi. Quyền `luong:update` chỉ trả lời "được làm
     không"; "làm cho AI" là trục `nhan_su` (department_id) — hai chuyện khác nhau.
@@ -263,6 +278,8 @@ def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepo
         o = LineOut.model_validate(ln)
         o.components = [LineComponentOut.model_validate(c) for c in comp_map.get(ln.id, [])]
         o.ca_pay = float(ln.night_pay)     # alias FE v2 — CÙNG một số với night_pay
+        # Có công mà mức lương = 0 ⇒ chưa khai lương (bản rà A2) — màn hình gắn nhãn, chốt kỳ chặn (L13).
+        o.chua_khai_luong = (float(ln.monthly_salary or 0) <= 0 and float(ln.actual_cong or 0) > 0)
         o.night_premium_pay = float(getattr(ln, "night_premium_pay", 0) or 0)
         # "Phụ cấp khác" = phần còn lại của TỔNG phụ cấp sau khi tách 2 khoản khai ở tổ →
         # 3 dòng trên phiếu cộng lại đúng bằng `allowance` (dòng lương cũ: khác = allowance).
@@ -329,44 +346,11 @@ def get_params(svc: Service, user: ConfigViewer) -> ParamsOut:
 @router.put("/params", response_model=ParamsOut)
 def update_params(body: ParamsIn, svc: Service,
                   user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> ParamsOut:
-    return ParamsOut.model_validate(svc.update_params(**body.model_dump(exclude_none=True)))
+    return ParamsOut.model_validate(svc.update_params(actor=user, **body.model_dump(exclude_none=True)))
 
 
-@router.get("/rules", response_model=RulesOut)
-def list_rules(svc: Service, user: ConfigViewer) -> RulesOut:
-    return RulesOut(items=[RuleOut.model_validate(r) for r in svc.list_rules()])
-
-
-@router.post("/rules", response_model=RuleOut, status_code=status.HTTP_201_CREATED)
-def create_rule(body: RuleIn, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "create"))]) -> RuleOut:
-    try:
-        r = svc.create_rule(**body.model_dump())
-    except PayrollError as exc:
-        _raise(exc)
-    return RuleOut.model_validate(r)
-
-
-@router.put("/rules/{rule_id}", response_model=RuleOut)
-def update_rule(rule_id: int, body: RuleIn, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> RuleOut:
-    try:
-        r = svc.update_rule(rule_id, **body.model_dump())
-    except PayrollError as exc:
-        _raise(exc)
-    return RuleOut.model_validate(r)
-
-
-@router.delete("/rules/{rule_id}", status_code=204)
-def delete_rule(rule_id: int, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
-    try:
-        svc.delete_rule(rule_id)
-    except PayrollError as exc:
-        _raise(exc)
-
-
-# --- Cấu hình lương: thành phần lương theo BỘ PHẬN (Tab 2) ------------------
+# (07/09/2026) 4 route `/rules` — bảng mức lương theo nhóm/bậc/thâm niên — ĐÃ GỠ: engine không tra
+# bảng này từ lâu (`_lookup_rule` không còn), không màn nào gọi; để route sống là ô cấu hình giả.
 
 
 @router.get("/dept-components/{dept_id}", response_model=DeptComponentsOut)
@@ -399,7 +383,7 @@ def list_pit_brackets(svc: Service, user: ConfigViewer) -> PitBracketsOut:
 def create_pit_bracket(body: PitBracketIn, svc: Service,
                        user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PitBracketOut:
     try:
-        b = svc.create_pit_bracket(seq=body.seq, up_to=body.up_to, rate=body.rate)
+        b = svc.create_pit_bracket(seq=body.seq, up_to=body.up_to, rate=body.rate, actor=user)
     except PayrollError as exc:
         _raise(exc)
     return PitBracketOut.model_validate(b)
@@ -409,7 +393,7 @@ def create_pit_bracket(body: PitBracketIn, svc: Service,
 def update_pit_bracket(bracket_id: int, body: PitBracketIn, svc: Service,
                        user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PitBracketOut:
     try:
-        b = svc.update_pit_bracket(bracket_id, seq=body.seq, up_to=body.up_to, rate=body.rate)
+        b = svc.update_pit_bracket(bracket_id, seq=body.seq, up_to=body.up_to, rate=body.rate, actor=user)
     except PayrollError as exc:
         _raise(exc)
     return PitBracketOut.model_validate(b)
@@ -419,7 +403,7 @@ def update_pit_bracket(bracket_id: int, body: PitBracketIn, svc: Service,
 def delete_pit_bracket(bracket_id: int, svc: Service,
                        user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
     try:
-        svc.delete_pit_bracket(bracket_id)
+        svc.delete_pit_bracket(bracket_id, actor=user)
     except PayrollError as exc:
         _raise(exc)
 
@@ -440,7 +424,7 @@ def create_late_penalty_bracket(body: LatePenaltyBracketIn, svc: Service,
                                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LatePenaltyBracketOut:
     try:
         b = svc.create_late_penalty_bracket(
-            seq=body.seq, up_to_minute=body.up_to_minute, amount=body.amount)
+            seq=body.seq, up_to_minute=body.up_to_minute, amount=body.amount, actor=user)
     except PayrollError as exc:
         _raise(exc)
     return LatePenaltyBracketOut.model_validate(b)
@@ -451,7 +435,7 @@ def update_late_penalty_bracket(bracket_id: int, body: LatePenaltyBracketIn, svc
                                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LatePenaltyBracketOut:
     try:
         b = svc.update_late_penalty_bracket(
-            bracket_id, seq=body.seq, up_to_minute=body.up_to_minute, amount=body.amount)
+            bracket_id, seq=body.seq, up_to_minute=body.up_to_minute, amount=body.amount, actor=user)
     except PayrollError as exc:
         _raise(exc)
     return LatePenaltyBracketOut.model_validate(b)
@@ -461,7 +445,7 @@ def update_late_penalty_bracket(bracket_id: int, body: LatePenaltyBracketIn, svc
 def delete_late_penalty_bracket(bracket_id: int, svc: Service,
                                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
     try:
-        svc.delete_late_penalty_bracket(bracket_id)
+        svc.delete_late_penalty_bracket(bracket_id, actor=user)
     except PayrollError as exc:
         _raise(exc)
 
@@ -471,9 +455,12 @@ def delete_late_penalty_bracket(bracket_id: int, svc: Service,
 
 @router.get("/salaries/{employee_id}", response_model=SalariesOut)
 def list_salaries(employee_id: int, svc: Service, employees: Employees,
-                  users: Users, user: SalaryProfileViewer) -> SalariesOut:
+                  users: Users, authz: Authz, user: SalaryProfileViewer) -> SalariesOut:
     emp = employees.get_by_id(employee_id)
-    rows = svc.list_salaries(employee_id)
+    try:
+        rows = svc.list_salaries(employee_id, scope=_emp_scope_for(authz, user), actor=user)
+    except PayrollError as exc:
+        _raise(exc)
     today = date.today()
     actor_cache: dict[int, str | None] = {}
     items = []
@@ -497,19 +484,21 @@ def list_salaries(employee_id: int, svc: Service, employees: Employees,
 
 
 @router.get("/salaries/{employee_id}/preview", response_model=SalaryPreviewOut)
-def preview_salary(employee_id: int, svc: Service,
+def preview_salary(employee_id: int, svc: Service, authz: Authz,
                    user: SalaryProfileViewer) -> SalaryPreviewOut:
     try:
-        return SalaryPreviewOut(**svc.salary_preview(employee_id))
+        return SalaryPreviewOut(**svc.salary_preview(
+            employee_id, scope=_emp_scope_for(authz, user), actor=user))
     except PayrollError as exc:
         _raise(exc)
 
 
 @router.post("/salaries/{employee_id}", response_model=SalaryOut, status_code=status.HTTP_201_CREATED)
-def set_salary(employee_id: int, body: SalaryIn, svc: Service,
+def set_salary(employee_id: int, body: SalaryIn, svc: Service, authz: Authz,
                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SalaryOut:
     try:
-        s = svc.set_salary(employee_id=employee_id, actor=user, effective_from=body.effective_from,
+        s = svc.set_salary(employee_id=employee_id, actor=user, scope=_emp_scope_for(authz, user),
+                           effective_from=body.effective_from,
                            amount_mode=body.amount_mode, base_amount=body.base_amount,
                            insurance_base=body.insurance_base, allowance=body.allowance, note=body.note,
                            chuyen_can=body.chuyen_can,
@@ -525,10 +514,10 @@ def set_salary(employee_id: int, body: SalaryIn, svc: Service,
 
 
 @router.delete("/salaries/item/{salary_id}", status_code=204)
-def delete_salary(salary_id: int, svc: Service,
+def delete_salary(salary_id: int, svc: Service, authz: Authz,
                   user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
     try:
-        svc.delete_salary(salary_id)
+        svc.delete_salary(salary_id, scope=_emp_scope_for(authz, user), actor=user)
     except PayrollError as exc:
         _raise(exc)
 
@@ -537,19 +526,24 @@ def delete_salary(salary_id: int, svc: Service,
 
 
 @router.get("/advances", response_model=AdvancesOut)
-def list_advances(svc: Service, employees: Employees, departments: Departments,
+def list_advances(svc: Service, employees: Employees, departments: Departments, authz: Authz,
                   user: Annotated[User, Depends(require_permission(MODULE, "read"))],
                   year: int = Query(...), month: int = Query(...),
                   status_filter: str | None = Query(default=None, alias="status")) -> AdvancesOut:
-    advs = svc.list_advances(year=year, month=month, status=status_filter)
+    # Lọc theo PHẠM VI (07/09/2026, bản rà C4): `luong:read` là ô mọi vai seed đều có (xem phiếu
+    # lương của mình) — không lọc là ai cũng đọc được tạm ứng + số tài khoản của cả công ty.
+    advs = svc.list_advances(year=year, month=month, status=status_filter,
+                             scope=_emp_scope_for(authz, user), actor=user)
     return AdvancesOut(items=_adv_out(advs, employees, departments))
 
 
 @router.post("/advances", response_model=AdvanceOut, status_code=status.HTTP_201_CREATED)
 def create_advance(body: AdvanceIn, svc: Service, employees: Employees, departments: Departments,
+                   authz: Authz,
                    user: Annotated[User, Depends(require_permission(MODULE, "create"))]) -> AdvanceOut:
     try:
         a = svc.create_advance(employee_id=body.employee_id, actor=user, period_year=body.period_year,
+                               scope=_emp_scope_for(authz, user),
                                period_month=body.period_month, advance_date=body.advance_date,
                                amount=body.amount, reason=body.reason, kind=body.kind)
     except PayrollError as exc:
@@ -587,9 +581,10 @@ def reject_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, emplo
 
 @router.post("/advances/{advance_id}/cancel", response_model=AdvanceOut)
 def cancel_advance(advance_id: int, svc: Service, employees: Employees, departments: Departments,
+                   authz: Authz,
                    user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> AdvanceOut:
     try:
-        a = svc.cancel_advance(advance_id=advance_id, actor=user)
+        a = svc.cancel_advance(advance_id=advance_id, actor=user, scope=_emp_scope_for(authz, user))
     except PayrollError as exc:
         _raise(exc)
     return _adv_out([a], employees, departments)[0]
@@ -656,15 +651,19 @@ def get_table(svc: Service, employees: Employees, departments: Departments, auth
                          scope=_emp_scope_for(authz, user), actor=user)
     if data is None:
         return TableOut(period=None, lines=[], chan_chot_ly_do=ly_do)
-    return TableOut(period=PeriodOut.model_validate(data["period"]),
-                    lines=_lines_out(data["lines"], employees, departments, svc),
-                    chan_chot_ly_do=ly_do)
+    lines_out = _lines_out(data["lines"], employees, departments, svc)
+    return TableOut(period=PeriodOut.model_validate(data["period"]), lines=lines_out,
+                    chan_chot_ly_do=ly_do, canh_bao_chot=_canh_bao_chot(lines_out))
 
 
 @router.post("/generate", response_model=TableOut)
 def generate(body: GenerateIn, svc: Service, employees: Employees, departments: Departments,
-             emp_svc: EmpService,
-             user: Annotated[User, Depends(require_permission(MODULE, "create"))]) -> TableOut:
+             emp_svc: EmpService, authz: Authz,
+             user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> TableOut:
+    # "Tính lại" ghi đè dòng lương của CẢ kỳ ⇒ đòi ô Sửa + phạm vi TOÀN CÔNG TY như Chốt. Trước
+    # 07/09/2026 chỉ đòi `luong:create` — ô mà mọi vai seed đều có để xin tạm ứng — và trả bảng
+    # lương cả công ty không lọc phạm vi (bản rà C1).
+    _chan_neu_khong_toan_cong_ty(authz, user, "tính lại bảng lương")
     # Quét TRƯỚC khi tính: nếu tháng này không ai mở màn Nhân sự thì đây là chỗ duy nhất còn lại
     # để trạng thái kịp đúng. Không đổi tiền (engine coi "hết thử việc" y hệt thử việc) nhưng
     # đổi cái HIỆN trên bảng lương, và giữ hai màn nói cùng một chuyện.
@@ -673,10 +672,12 @@ def generate(body: GenerateIn, svc: Service, employees: Employees, departments: 
         svc.generate(year=body.year, month=body.month, actor=user)
     except PayrollError as exc:
         _raise(exc)
-    data = svc.get_table(year=body.year, month=body.month)
-    return TableOut(period=PeriodOut.model_validate(data["period"]),
-                    lines=_lines_out(data["lines"], employees, departments, svc),
-                    chan_chot_ly_do=svc.ly_do_chua_chot_duoc(body.year, body.month))
+    data = svc.get_table(year=body.year, month=body.month,
+                         scope=_emp_scope_for(authz, user), actor=user)
+    lines_out = _lines_out(data["lines"], employees, departments, svc)
+    return TableOut(period=PeriodOut.model_validate(data["period"]), lines=lines_out,
+                    chan_chot_ly_do=svc.ly_do_chua_chot_duoc(body.year, body.month),
+                    canh_bao_chot=_canh_bao_chot(lines_out))
 
 
 @router.put("/lines/{line_id}", response_model=LineOut)
@@ -689,7 +690,7 @@ def update_line(line_id: int, body: LineUpdateIn, svc: Service, employees: Emplo
                              scope=_emp_scope_for(authz, user), vi_pham=body.vi_pham,
                              pit=body.pit, pit_manual=body.pit_manual,
                              di_tre_manual=body.di_tre_manual,
-                             monthly_override=body.monthly_override, note=body.note,
+                             note=body.note,
                              dieu_chinh_luong=body.dieu_chinh_luong,
                              di_tre=body.di_tre, dt_vuot_troi=body.dt_vuot_troi,
                              phat_bien_ban=body.phat_bien_ban, phat_5s_dong_phuc=body.phat_5s_dong_phuc)
@@ -785,17 +786,28 @@ def _xlsx_response(content: bytes, filename: str) -> Response:
 
 
 def _hoa_hong_total(l: LineOut) -> float:
-    """Cột "Hoa hồng" — TÁCH RIÊNG khỏi "Thưởng" ngày 24/08/2026.
+    """Cột "Hoa hồng" — TÁCH RIÊNG khỏi "Thưởng" (24/08/2026); từ 07/09/2026 đọc thẳng cột
+    `payroll_lines.hoa_hong` thay vì cộng dòng khoản nguồn `auto`."""
+    return float(getattr(l, "hoa_hong", 0) or 0)
 
-    ⭐ Trước đó hoa hồng bị cộng gộp vào "Thưởng" nên coi như không tồn tại: chủ mở bảng lương tìm
-    cột hoa hồng không thấy, vì nó nằm lẫn trong MỘT con số chung với thưởng nóng. Muốn biết bao
-    nhiêu là hoa hồng thì phải rê chuột vào ô — ai không rê thì không bao giờ biết.
 
-    Luật rút ra: tiền do MÁY tự tính từ phân hệ khác (`source='auto'`) thì phải có cột mang ĐÚNG
-    TÊN nó. Trộn vào cột khai tay là bắt người đọc đoán, mà bảng lương thì không được phép đoán.
-    """
-    return sum(c.amount for c in l.components
-               if c.kind != "tru" and c.code == COMPONENT_CODE_HOA_HONG)
+def _canh_bao_chot(lines: list[LineOut]) -> str | None:
+    """Cảnh báo (KHÔNG chặn) trước khi chốt: ai thực lĩnh 0 vì bị trừ tạm ứng / nợ kỳ trước, ai còn nợ
+    chuyển kỳ sau. Chủ chốt 07/09/2026: cho ứng vượt lương, dồn nợ, chỉ cảnh báo."""
+    khong = [l for l in lines if float(l.net_pay or 0) <= 0
+             and (float(l.advance_total or 0) + float(l.luong_dot_1_total or 0)
+                  + float(getattr(l, "no_ung_ky_truoc", 0) or 0)) > 0]
+    no = [l for l in lines if float(getattr(l, "no_ung_chuyen_ky_sau", 0) or 0) > 0]
+    if not khong and not no:
+        return None
+    ten = lambda xs: ", ".join((x.employee_name or f"NV #{x.employee_id}") for x in xs[:3]) + (
+        f" và {len(xs) - 3} người nữa" if len(xs) > 3 else "")
+    parts = []
+    if khong:
+        parts.append(f"{len(khong)} người thực lĩnh 0đ vì trừ tạm ứng/nợ kỳ trước ({ten(khong)})")
+    if no:
+        parts.append(f"{len(no)} người còn nợ tạm ứng chuyển sang kỳ sau ({ten(no)})")
+    return "Lưu ý trước khi chốt: " + "; ".join(parts) + "."
 
 
 def _bonus_total(l: LineOut) -> float:
@@ -804,14 +816,10 @@ def _bonus_total(l: LineOut) -> float:
     ⚠️ KHÔNG tính khoản `source='employee'`: nó đã nằm trong `allowance` (cột "Phụ cấp") — cộng cả
     hai là file xuất ra đếm đôi tiền của cùng một khoản. Giữ ĐỒNG BỘ với `bonusRows()` ở FE.
 
-    `auto` vẫn PHẢI có mặt (nó nằm NGOÀI `allowance`, cộng thẳng vào `gross`) — TRỪ hoa hồng, nay
-    đã có cột riêng `_hoa_hong_total`. Để cả hai là đếm đôi; bỏ cả hai là tiền lọt vào "Tổng" mà
-    không cột nào giải thích được, đúng chuyện đã xảy ra với "Cơm ca"/"Phụ cấp ca" ngày 03/08/2026.
+    Nguồn `auto` (hoa hồng) không còn từ 07/09/2026 — hoa hồng là cột riêng (`_hoa_hong_total`).
     """
     return (
-        sum(c.amount for c in l.components
-            if c.kind != "tru" and c.source in ("line", "auto")
-            and c.code != COMPONENT_CODE_HOA_HONG)
+        sum(c.amount for c in l.components if c.kind != "tru" and c.source == "line")
         + float(l.other_bonus) + float(l.thuong_5s) + float(l.thuong_doanh_so)
         + float(l.thuong_thanh_tich) + float(l.phep_nam) + float(l.tra_dong_phuc)
     )
@@ -827,21 +835,26 @@ def _build_table_xlsx(year: int, month: int, lines) -> bytes:
     # ⚠️ Các cột khoản CỘNG LẠI phải ra đúng cột "Tổng" (= `gross`). Thêm khoản mới vào engine mà
     # quên thêm cột ở đây thì file xuất ra không khớp và kế toán không dò ra chênh ở đâu — đúng
     # chuyện đã xảy ra với "Cơm ca"/"Phụ cấp ca" khi nối hai khoản đó ngày 03/08/2026.
-    ws.append(["Mã", "Họ tên", "Phòng/Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
+    ws.append(["Mã", "Họ tên", "Phòng/Tổ", "Loại", "Công", "Giờ tăng ca", "Ngày ca đêm",
+               "Lương công", "Chuyên cần", "Phụ cấp",
                "Khoán", "Khoán km", "Thưởng/phạt tổ trưởng",
                "Tăng ca", "Ca đêm", "Ca đêm (giờ×hệ số)", "Cơm ca", "Phụ cấp ca",
                "Vi phạm", "Thưởng", "Hoa hồng", "Tổng", "BHXH", "TNCN",
-               "Tạm ứng", "Thực lĩnh"])
+               "Tạm ứng", "Nợ ứng kỳ trước", "Còn nợ chuyển kỳ sau", "Thực lĩnh"])
     for l in lines:
         ws.append([l.employee_code or "", l.employee_name or "", l.department_name or "",
                    "Thử việc" if l.is_probation else "Chính thức", float(l.actual_cong),
+                   # Giờ làm thêm / ngày ca đêm: bảng kê cho phần miễn thuế (D11, 08/09/2026).
+                   round(int(getattr(l, "ot_minutes", 0) or 0) / 60.0, 2), int(getattr(l, "night_days", 0) or 0),
                    int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan), int(getattr(l, "khoan_km", 0) or 0),
                    int(getattr(l, "thuong_to_truong", 0) or 0),
                    int(l.ot_pay), int(l.night_pay), int(getattr(l, "night_premium_pay", 0) or 0),
                    int(getattr(l, "meal_allowance_pay", 0) or 0),
                    int(getattr(l, "shift_allowance_pay", 0) or 0),
                    int(l.vi_pham), int(_bonus_total(l)), int(_hoa_hong_total(l)),
-                   int(l.gross), int(l.bhxh), int(l.pit), int(l.advance_total), int(l.net_pay)])
+                   int(l.gross), int(l.bhxh), int(l.pit), int(l.advance_total),
+                   int(getattr(l, "no_ung_ky_truoc", 0) or 0),
+                   int(getattr(l, "no_ung_chuyen_ky_sau", 0) or 0), int(l.net_pay)])
     buf = BytesIO()
     wb.save(buf)
     return buf.getvalue()
@@ -891,6 +904,11 @@ def export_bank_xlsx(svc: Service, employees: Employees, departments: Department
                          scope=_emp_scope_for(authz, user), actor=user)
     if data is None:
         raise HTTPException(status_code=404, detail="Chưa có bảng lương tháng này.")
+    if data["period"].status == PERIOD_DRAFT:
+        # Màn chỉ giấu nút, API vẫn tải được file của kỳ NHÁP (bản rà B9) — đem số chưa chốt đi
+        # ngân hàng là chuyện có thật. Chặn ở đây.
+        raise HTTPException(status_code=409,
+                            detail="Kỳ lương còn nháp — chốt kỳ rồi mới xuất file chuyển khoản.")
     lines = _lines_out(data["lines"], employees, departments)
     return _xlsx_response(_build_bank_xlsx(year, month, lines), f"chuyen-khoan-{year}-{month:02d}.xlsx")
 
@@ -1022,54 +1040,63 @@ def delete_component(component_id: int, csvc: CompService,
 
 @router.get("/components/{component_id}/holders", response_model=ComponentHoldersOut)
 def component_holders(component_id: int, csvc: CompService, repo: CompRepo,
-                      employees: Employees, user: ConfigViewer):
+                      employees: Employees, authz: Authz, user: ConfigViewer):
     """NV còn giữ khoản này khi khoản ĐÃ ngừng áp dụng. Lương vẫn trả đủ (chốt của chủ) — danh
     sách này để màn hình bật cảnh báo đỏ, không phải để cắt tiền ai."""
     c = repo.get_component(component_id)
     if c is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy khoản thu nhập.")
     out = []
+    duoc_xem = _nv_duoc_xem(authz, user, employees)
     for eid in csvc.employees_holding_inactive(component_id):
         emp = employees.get_by_id(eid)
-        if emp is not None:
+        if emp is not None and (duoc_xem is None or eid in duoc_xem):
             out.append({"employee_id": eid, "code": emp.code, "full_name": emp.full_name})
     return ComponentHoldersOut(component_id=c.id, component_name=c.name, items=out)
 
 
 @router.get("/components/employee/{employee_id}", response_model=ComponentValuesOut)
 def employee_component_values(employee_id: int, csvc: CompService, employees: Employees,
-                              user: ConfigViewer):
+                              authz: Authz, user: ConfigViewer):
     """Khoản ĐANG DÙNG của 1 NV (mặc định nhóm, đè bởi mức riêng) — cùng hàm engine dùng để ra tiền."""
     emp = employees.get_by_id(employee_id)
     if emp is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy nhân viên.")
+    _chan_ngoai_pham_vi_nv(authz, user, employees, emp)
     rows = csvc.resolve_for(employee_id=employee_id)
     return ComponentValuesOut(items=[ComponentValueOut(**r) for r in rows])
 
 
 @router.put("/components/employee/{employee_id}", response_model=ComponentValuesOut)
 def set_employee_component_values(employee_id: int, body: ComponentValuesIn, csvc: CompService,
-                                  employees: Employees,
+                                  employees: Employees, authz: Authz,
                                   user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
     """`amount = null` ⇒ xoá mức riêng, người đó rơi về mức mặc định của nhóm lương."""
+    emp = employees.get_by_id(employee_id)
+    if emp is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy nhân viên.")
+    _chan_ngoai_pham_vi_nv(authz, user, employees, emp)
     try:
         csvc.set_employee_values(actor=user, employee_id=employee_id,
                                  items=[i.model_dump() for i in body.items])
     except ComponentError as exc:
         _comp_raise(exc)
-    return employee_component_values(employee_id, csvc, employees, user)
+    return employee_component_values(employee_id, csvc, employees, authz, user)
 
 
 @router.get("/components/{component_id}/employee-amounts", response_model=ComponentAmountsOut)
-def component_employee_amounts(component_id: int, repo: CompRepo, user: ConfigViewer):
+def component_employee_amounts(component_id: int, repo: CompRepo, employees: Employees,
+                               authz: Authz, user: ConfigViewer):
     """Ai đang được gán khoản này và mức bao nhiêu — modal gán hàng loạt cần để hiện
     "đã có 500.000đ — bỏ qua" / "500.000đ → 800.000đ" TRƯỚC khi người dùng bấm Lưu."""
     if repo.get_component(component_id) is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy khoản thu nhập.")
+    duoc_xem = _nv_duoc_xem(authz, user, employees)
     return ComponentAmountsOut(
         component_id=component_id,
         items=[{"employee_id": r.employee_id, "amount": float(r.amount), "note": r.note}
-               for r in repo.rows_of_component(component_id)],
+               for r in repo.rows_of_component(component_id)
+               if duoc_xem is None or r.employee_id in duoc_xem],
     )
 
 

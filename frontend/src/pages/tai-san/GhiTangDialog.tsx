@@ -16,6 +16,7 @@ import {
   NGUONG_TSCD,
   taiSanApi,
   type DongDuKien,
+  type NhanVienChon,
   type TaiSanChiTiet,
 } from "../../api/taiSan";
 import { Button } from "../../components/Button";
@@ -36,10 +37,9 @@ interface Form {
   ngay_su_dung: string;
   chi_phi: DongChiPhi[];
   bo_phan_id: string;
-  nguoi_quan_ly: string;
-  vi_tri: string;
+  /** id nhân viên của bộ phận đã chọn — "" = chưa gán. Chữ tên do máy chủ chụp. */
+  nguoi_quan_ly_id: string;
   so_hoa_don: string;
-  nha_cung_cap: string;
   ghi_chu: string;
   // --- nhánh số dư đầu kỳ ---
   dau_ky: boolean;
@@ -51,7 +51,7 @@ interface Form {
 const FORM_RONG: Form = {
   ten: "", loai: "tscd", so_luong: 1, don_gia: 0, so_thang: 0, ngay_su_dung: HOM_NAY,
   chi_phi: [{ dien_giai: "Giá mua", so_tien: 0 }],
-  bo_phan_id: "", nguoi_quan_ly: "", vi_tri: "", so_hoa_don: "", nha_cung_cap: "",
+  bo_phan_id: "", nguoi_quan_ly_id: "", so_hoa_don: "",
   ghi_chu: "",
   dau_ky: false, moc_tu_ngay: "", thang_da_trich_dau_ky: 0, hao_mon_dau_ky: 0,
 };
@@ -79,6 +79,31 @@ export function GhiTangDialog({
   const [duKien, setDuKien] = useState<DongDuKien[] | null>(null);
   const [tenDaLuu, setTenDaLuu] = useState("");
 
+  // Người quản lý = NHÂN VIÊN của bộ phận đã chọn (chủ chốt 08/09/2026: không gõ tay) — nạp lại
+  // danh sách mỗi khi đổi bộ phận; đổi bộ phận thì bỏ chọn người (xem onChange ô Bộ phận).
+  const [nhanVien, setNhanVien] = useState<NhanVienChon[]>([]);
+  useEffect(() => {
+    if (!form.bo_phan_id) {
+      setNhanVien([]);
+      return;
+    }
+    let conDung = true;
+    taiSanApi
+      .nhanVienBoPhan(token, Number(form.bo_phan_id))
+      .then((ds) => { if (conDung) setNhanVien(ds); })
+      .catch(() => { if (conDung) setNhanVien([]); });
+    return () => { conDung = false; };
+  }, [token, form.bo_phan_id]);
+  // Người đang gán mà không còn trong danh sách (đã nghỉ, đã chuyển bộ phận) vẫn phải có trong
+  // ô chọn — không thì ô tự về trống và bấm Lưu là đè thành "chưa gán" mà không ai bấm gì.
+  const nhanVienChon = useMemo(() => {
+    const id = taiSan?.nguoi_quan_ly_id;
+    if (!id || form.nguoi_quan_ly_id !== String(id) || nhanVien.some((n) => n.id === id)) {
+      return nhanVien;
+    }
+    return [...nhanVien, { id, code: "", full_name: taiSan?.nguoi_quan_ly ?? `#${id}` }];
+  }, [nhanVien, taiSan, form.nguoi_quan_ly_id]);
+
   useEffect(() => {
     if (!taiSan) {
       setForm(FORM_RONG);
@@ -95,15 +120,13 @@ export function GhiTangDialog({
         ? taiSan.chi_phi.map((c) => ({ dien_giai: c.dien_giai, so_tien: c.so_tien }))
         : [{ dien_giai: "Giá mua", so_tien: taiSan.nguyen_gia }],
       bo_phan_id: taiSan.bo_phan_id ? String(taiSan.bo_phan_id) : "",
-      nguoi_quan_ly: taiSan.nguoi_quan_ly ?? "",
-      vi_tri: taiSan.vi_tri ?? "",
+      nguoi_quan_ly_id: taiSan.nguoi_quan_ly_id ? String(taiSan.nguoi_quan_ly_id) : "",
       so_hoa_don: taiSan.so_hoa_don ?? "",
-      nha_cung_cap: taiSan.nha_cung_cap ?? "",
       ghi_chu: taiSan.ghi_chu ?? "",
       dau_ky: taiSan.nguon_vao === "dau_ky",
       moc_tu_ngay: taiSan.moc_tu_ngay.slice(0, 10),
-      thang_da_trich_dau_ky: Math.max(0, taiSan.so_thang - taiSan.so_thang_con),
-      hao_mon_dau_ky: taiSan.hao_mon_luy_ke,
+      thang_da_trich_dau_ky: taiSan.thang_da_trich_dau_ky,
+      hao_mon_dau_ky: taiSan.hao_mon_dau_ky,
     });
   }, [taiSan]);
 
@@ -135,8 +158,8 @@ export function GhiTangDialog({
 
   /** Thân request. Khi SỬA thì chỉ gửi ô THẬT SỰ ĐỔI.
    *
-   *  Không phải để tiết kiệm byte: máy chủ chặn mọi ô ảnh hưởng số khi tài sản đã có số ở kỳ đã
-   *  chốt. Gửi cả form thì đổi mỗi chữ trong tên cũng ăn 409 "đang sửa: chi_phi, loai, so_luong…",
+   *  Không phải để tiết kiệm byte: máy chủ chặn mọi ô ảnh hưởng số khi tài sản đã có chứng từ
+   *  biến động. Gửi cả form thì đổi mỗi chữ trong tên cũng ăn 409 "đang sửa: chi_phi, loai…",
    *  và người dùng không hiểu vì sao sửa tên lại đụng tới nguyên giá. */
   function than(): Record<string, unknown> {
     const chiPhi = laCcdc ? [] : form.chi_phi.filter((d) => d.so_tien > 0);
@@ -150,10 +173,8 @@ export function GhiTangDialog({
       // CCDC theo lô KHÔNG khai dòng chi phí — máy chủ tự lấy số lượng × đơn giá.
       chi_phi: chiPhi,
       bo_phan_id: form.bo_phan_id ? Number(form.bo_phan_id) : null,
-      nguoi_quan_ly: form.nguoi_quan_ly.trim() || null,
-      vi_tri: form.vi_tri.trim() || null,
+      nguoi_quan_ly_id: form.nguoi_quan_ly_id ? Number(form.nguoi_quan_ly_id) : null,
       so_hoa_don: form.so_hoa_don.trim() || null,
-      nha_cung_cap: form.nha_cung_cap.trim() || null,
       ghi_chu: form.ghi_chu.trim() || null,
     };
     if (form.dau_ky) {
@@ -174,14 +195,12 @@ export function GhiTangDialog({
       ngay_su_dung: taiSan.ngay_su_dung.slice(0, 10),
       chi_phi: taiSan.chi_phi.map((c) => ({ dien_giai: c.dien_giai, so_tien: c.so_tien })),
       bo_phan_id: taiSan.bo_phan_id,
-      nguoi_quan_ly: taiSan.nguoi_quan_ly,
-      vi_tri: taiSan.vi_tri,
+      nguoi_quan_ly_id: taiSan.nguoi_quan_ly_id,
       so_hoa_don: taiSan.so_hoa_don,
-      nha_cung_cap: taiSan.nha_cung_cap,
       ghi_chu: taiSan.ghi_chu,
       moc_tu_ngay: taiSan.moc_tu_ngay.slice(0, 10),
-      thang_da_trich_dau_ky: Math.max(0, taiSan.so_thang - taiSan.so_thang_con),
-      hao_mon_dau_ky: taiSan.hao_mon_luy_ke,
+      thang_da_trich_dau_ky: taiSan.thang_da_trich_dau_ky,
+      hao_mon_dau_ky: taiSan.hao_mon_dau_ky,
     };
     const doi: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(day)) {
@@ -202,7 +221,7 @@ export function GhiTangDialog({
       setDuKien(await taiSanApi.duKien(token, t.id));
       onSaved();
     } catch (e) {
-      // 409 của máy chủ (mã trùng · đã có số ở kỳ đã chốt) là câu người dùng cần đọc NGUYÊN VĂN,
+      // 409 của máy chủ (mã trùng · đã có chứng từ biến động) là câu người dùng cần đọc NGUYÊN VĂN,
       // đừng gói lại thành "có lỗi xảy ra".
       setLoi(e instanceof ApiError ? e.message : "Không lưu được. Thử lại.");
     } finally {
@@ -236,17 +255,17 @@ export function GhiTangDialog({
 
           {duKien ? (
             <section className="rc-sec">
-              <div className="rc-sec__title">Bảng khấu hao dự kiến</div>
+              <div className="rc-sec__title">Lịch khấu hao</div>
               <p className="rc-field__hint" style={{ marginBottom: "var(--sp-2)" }}>
-                Đây mới là DỰ KIẾN — chưa ghi sổ kỳ nào. Số thật vào sổ khi bấm Tính rồi Chốt ở
-                tab “Khấu hao theo kỳ”.
+                Mỗi tháng một dòng, từ tháng đầu tới khi hết giá trị. Hao mòn lũy kế ở danh sách
+                tự cộng theo lịch này tới hết tháng trước — không cần bấm tính hay chốt gì thêm.
               </p>
               <div className="ts-dukien">
                 <table>
                   <thead>
                     <tr>
-                      <th>Kỳ</th>
-                      <th>Trích trong kỳ</th>
+                      <th>Tháng</th>
+                      <th>Trích trong tháng</th>
                       <th>Lũy kế</th>
                       <th>Còn lại</th>
                     </tr>
@@ -399,12 +418,14 @@ export function GhiTangDialog({
               </section>
 
               <section className="rc-sec">
-                <div className="rc-sec__title">Ai giữ, để ở đâu</div>
+                <div className="rc-sec__title">Ai giữ</div>
                 <div className="rc-grid">
                   <label className="rc-field">
                     <span className="rc-field__label">Bộ phận sử dụng</span>
                     <select className="rc-input" value={form.bo_phan_id}
-                      onChange={(e) => set("bo_phan_id", e.target.value)}>
+                      onChange={(e) => setForm((f) => ({
+                        ...f, bo_phan_id: e.target.value, nguoi_quan_ly_id: "",
+                      }))}>
                       <option value="">— Chưa gán —</option>
                       {boPhan.map((b) => (
                         <option key={b.id} value={b.id}>{b.name}</option>
@@ -413,24 +434,26 @@ export function GhiTangDialog({
                   </label>
                   <label className="rc-field">
                     <span className="rc-field__label">Người quản lý</span>
-                    <input className="rc-input" value={form.nguoi_quan_ly} maxLength={255}
-                      onChange={(e) => set("nguoi_quan_ly", e.target.value)} />
-                  </label>
-                  <label className="rc-field">
-                    <span className="rc-field__label">Vị trí</span>
-                    <input className="rc-input" value={form.vi_tri} maxLength={255}
-                      placeholder="Xưởng in — dãy A"
-                      onChange={(e) => set("vi_tri", e.target.value)} />
+                    <select className="rc-input" value={form.nguoi_quan_ly_id}
+                      disabled={!form.bo_phan_id}
+                      onChange={(e) => set("nguoi_quan_ly_id", e.target.value)}>
+                      <option value="">— Chưa gán —</option>
+                      {nhanVienChon.map((nv) => (
+                        <option key={nv.id} value={nv.id}>
+                          {nv.full_name}{nv.code ? ` (${nv.code})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="rc-field__hint">
+                      {form.bo_phan_id
+                        ? "Nhân viên đang làm của bộ phận đã chọn."
+                        : "Chọn bộ phận sử dụng trước."}
+                    </span>
                   </label>
                   <label className="rc-field">
                     <span className="rc-field__label">Số hóa đơn</span>
                     <input className="rc-input" value={form.so_hoa_don} maxLength={64}
                       onChange={(e) => set("so_hoa_don", e.target.value)} />
-                  </label>
-                  <label className="rc-field">
-                    <span className="rc-field__label">Nhà cung cấp</span>
-                    <input className="rc-input" value={form.nha_cung_cap} maxLength={255}
-                      onChange={(e) => set("nha_cung_cap", e.target.value)} />
                   </label>
                 </div>
               </section>

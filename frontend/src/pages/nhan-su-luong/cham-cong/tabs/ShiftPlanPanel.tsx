@@ -180,7 +180,13 @@ function clampNum(raw: string, lo: number, hi: number): number {
 // openQuickFill và icon Repeat thành mồ côi → tsc gãy vì noUnusedLocals (đúng lỗi CI 29/07).
 const SHOW_QUICK_FILL: boolean = false;
 
-export function ShiftPlanPanel({ token }: { token: string }) {
+export function ShiftPlanPanel({
+  token,
+  focusEmployeeId,
+}: {
+  token: string;
+  focusEmployeeId?: number;
+}) {
   const [ym, setYm] = useState(() => {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() + 1 };
@@ -354,6 +360,26 @@ export function ShiftPlanPanel({ token }: { token: string }) {
       m.set(r.employee_id, inheritOfRow(r, cal));
     return m;
   }, [data, cal]);
+
+  // Liên thông từ Hồ sơ NV → nút "Đặt ca nền" (bản rà E6, 07/09/2026): lưới lọc sẵn đúng người và
+  // mở luôn form ca nền cho họ — người vừa tạo hồ sơ khỏi phải tự dò "gán ca ở đâu". Chỉ MỘT lần
+  // cho mỗi người được trỏ tới (ref): sau đó người dùng xoá ô tìm / đóng form thì không bị kéo lại
+  // mỗi khi lưới tải lại. Không thấy người đó trong lưới (đã nghỉ, khác phòng đang lọc) thì thôi.
+  const focusDoneRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!focusEmployeeId || !data || focusDoneRef.current === focusEmployeeId) return;
+    const row = data.rows.find((r) => r.employee_id === focusEmployeeId);
+    if (!row) return;
+    focusDoneRef.current = focusEmployeeId;
+    setQ(row.employee_code || row.employee_name);
+    if (!data.locked) {
+      openBase(
+        [row.employee_id],
+        row.employee_name,
+        inheritInfo.get(row.employee_id)?.base ?? null,
+      );
+    }
+  }, [focusEmployeeId, data, inheritInfo]);
 
   /** Giá trị HIỂN THỊ của mọi ô = dữ liệu server + nháp đang giữ. */
   const grid: EffCell[][] = useMemo(

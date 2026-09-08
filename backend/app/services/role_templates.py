@@ -129,7 +129,11 @@ TEMPLATES: list[dict] = [
             },
             "nghi_phep": {
                 "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
-                "can_approve": True, "can_cancel": True, "scope": SCOPE_ALL,
+                "can_approve": True, "can_cancel": True,
+                # Khai/sửa loại nghỉ là việc của HCNS — thiếu ô này mẫu cấp xong không tạo được
+                # loại nghỉ (bản rà liên thông E8, 08/09/2026).
+                "can_manage_leave_types": True,
+                "scope": SCOPE_ALL,
             },
             "tang_ca": _duyet_don_cua_to(SCOPE_ALL),
             "luong": {
@@ -138,8 +142,15 @@ TEMPLATES: list[dict] = [
                 "can_lock": True,         # chốt bảng lương / mở lại kỳ
                 "can_export": True,
                 "can_view_salary": True, "can_edit_salary": True,
+                # Ba ô tách riêng 15/08/2026 (mg 0195): Bảng lương tháng · Lương nhân viên · Đơn giá
+                # khoán. Mẫu quên khai ⇒ HCNS cấp từ mẫu mở màn Lương mà không có tab nào (C12).
+                "can_view_payroll_table": True, "can_manage_salary_profiles": True,
+                "can_manage_piece_rates": True,
                 "scope": SCOPE_ALL,
             },
+            # Tạo NV kèm tài khoản có vai đi qua kiểm `nguoi_dung:assign_role` (C6, 07/09/2026) —
+            # HCNS là người tạo hồ sơ + nối tài khoản nên mẫu phải kèm ô này, nếu không tạo NV → 403.
+            "nguoi_dung": {"can_read": True, "can_assign_role": True, "scope": SCOPE_ALL},
             # Bảng ĐƠN GIÁ KHOÁN — ô quyền riêng từ 17/08/2026 (trước đi ké khoá `luong`, khai trong
             # một tab của màn Lương). HCNS vẫn là người khai nó, nên mẫu phải kèm khoá mới: thiếu thì
             # vai cấp lại từ mẫu mở được màn Lương mà mất chỗ khai đơn giá.

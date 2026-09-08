@@ -47,13 +47,15 @@ export function orderByTree(list: Department[]): Department[] {
 
 // --- Ô nhập số dùng chung (primitive .rc-* của màn danh mục) -----------------
 
+// `PayrollParams` nay có cả ô boolean (`ca_khop_gio_chuan`, 07/09/2026) nên gán theo khoá động phải
+// đi qua Record<string, unknown> — TS không cho gán union số|boolean vào ô có kiểu cụ thể.
 export function pick(
   p: PayrollParams,
   keys: readonly (keyof PayrollParams)[],
 ): Partial<PayrollParams> {
-  const out: Partial<PayrollParams> = {};
+  const out: Record<string, unknown> = {};
   for (const k of keys) out[k] = p[k];
-  return out;
+  return out as Partial<PayrollParams>;
 }
 
 export function restore(
@@ -61,9 +63,9 @@ export function restore(
   base: PayrollParams,
   keys: readonly (keyof PayrollParams)[],
 ): PayrollParams {
-  const out = { ...draft };
+  const out: Record<string, unknown> = { ...draft };
   for (const k of keys) out[k] = base[k];
-  return out;
+  return out as unknown as PayrollParams;
 }
 
 export function as2Draft(items: PitBracket[]): BracketDraft[] {

@@ -26,6 +26,8 @@ class LeaveTypeOut(BaseModel):
     annual_quota: int
     is_active: bool
     note: str | None = None
+    #: Chỉ có khi PUT đổi cờ có-lương và còn đơn đã duyệt ở kỳ chưa chốt công (C16, 08/09/2026).
+    canh_bao: str | None = None
 
 
 class LeaveTypesOut(BaseModel):
@@ -83,6 +85,8 @@ class LeaveQuotaOut(BaseModel):
     # (12 → 12 thay vì 11,5) và người ta xin nửa buổi thoải mái mà quỹ không bao giờ cạn.
     used: float        # ngày làm việc đã dùng + đang chờ (năm dương lịch)
     remaining: float
+    #: Phần ĐANG CHỜ duyệt trong `used` (đơn nguyên ngày) — chip hiện "đã dùng X · đang chờ Y" (C5b, 08/09/2026).
+    pending: float = 0
 
 
 class MyLeaveOut(BaseModel):

@@ -1520,7 +1520,7 @@ def test_boi_canh_buoc_du_khoa_va_sap_theo_thu_tu(v2, db, orders, lsx_svc, admin
     assert thu_tu == sorted(thu_tu), "chuỗi bước sắp theo thứ tự routing"
     for b in bc["buoc"]:
         assert _KHOA_BUOC <= set(b), f"bước thiếu khoá Panel: {_KHOA_BUOC - set(b)}"
-        # mg `0270` đã gỡ hai mốc tối thiểu/tối đa — `_dinh_bien` chỉ còn trả kíp chuẩn.
+        # Hai mốc tối thiểu/tối đa đã gỡ (mg 0270/0274) — `_dinh_bien` chỉ còn trả kíp chuẩn.
         assert set(b["dinh_bien"]) == {"tieu_chuan"}
         assert isinstance(b["van_de"], list)
         assert b["nguon_thoi_luong"] in ("may", "tay", "thue_ngoai")

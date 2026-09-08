@@ -48,6 +48,9 @@ def _mot_nhan_vien(client, h) -> dict:
     assert emp.status_code in (200, 201), emp.text
     body = emp.json()["employee"]
     client.post(f"/api/employees/{body['id']}/account", json={"user_id": _uid("admin")}, headers=h)
+    # Khai mức lương — từ 07/09/2026 có công mà chưa khai lương là chốt lương bị chặn (L13).
+    client.post(f"/api/luong/salaries/{body['id']}", json={"effective_from": "2026-01-01",
+                "luong_vi_tri": 10_400_000}, headers=h)
     return body
 
 

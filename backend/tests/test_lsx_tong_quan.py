@@ -95,7 +95,9 @@ def test_den_may_gio_do_thang_vang_va_uu_tien_trung_may():
 
 def test_den_nguoi_do_khi_qua_tai_vang_khi_buoc_to_chua_co_to():
     assert _den_nguoi({"qua_tai_to"}, [], 1)["muc"] == MUC_DO
-    assert _den_nguoi({"thieu_nguoi"}, [], 1)["muc"] == MUC_DO
+    # `thieu_nguoi` không còn là lý do của bộ dò (CAT_NGUOI_DO chỉ còn `qua_tai_to`) — một lý do
+    # lạ KHÔNG được làm đèn đỏ, kẻo lý do cũ còn sót trong dữ liệu bật đỏ oan.
+    assert _den_nguoi({"thieu_nguoi"}, [], 1)["muc"] == MUC_OK
     chua_to = [{"loai_buoc": LB_TO, "department_id": None},
                {"loai_buoc": LB_MAY, "department_id": None}]   # bước máy không cần tổ
     den = _den_nguoi(set(), chua_to, 1)
