@@ -655,7 +655,7 @@ class XepLichService:
                         if _aware(r["start_at"]) <= s and _aware(r["finish_at"]) >= e]
                 if not chay:
                     continue
-                dung = sum(int(r.get("so_nhan_cong") or 1) for r in chay)
+                dung = sum(int(r.get("so_nguoi") or 1) for r in chay)
                 qs = _qs(dept_id, s.date())
                 if qs["so_nguoi"] <= 0 and not qs["go_de"]:
                     continue                    # chưa khai nhân sự — không kết luận
@@ -844,13 +844,18 @@ class XepLichService:
         return round(tong, 2)
 
     def _so_nguoi_dong(self, r: XepLichCongDoan) -> int | None:
-        """Số người bố trí cho một dòng — bước lệnh đọc `lsx_cong_doan`, bài ghép đọc bước chung."""
+        """Kíp của một dòng — bước lệnh đọc `lsx_cong_doan`, bài ghép đọc bước chung.
+
+        Đọc KÍP CHUẨN (`so_nhan_cong_tieu_chuan`). Ô "số người bố trí" riêng đã gỡ 08/09/2026
+        (mg `0281`): nó luôn là bản sao của kíp chuẩn — cùng rót từ
+        `cong_doan_dau_viec.so_nguoi_tieu_chuan` — mà không ai đồng bộ lại bản sao đó.
+        """
         buoc = (
             self._lcd(r.lsx_cong_doan_id) if r.nguon == NGUON_LSX
             else self.db.get(BaiGhepCongDoan, r.bai_ghep_cong_doan_id)
             if r.bai_ghep_cong_doan_id else None
         )
-        return int(getattr(buoc, "so_nhan_cong", 1) or 1) if buoc else None
+        return int(getattr(buoc, "so_nhan_cong_tieu_chuan", 1) or 1) if buoc else None
 
     def _khoang_may(self, may_id: int | None, kieu: str) -> tuple[tuple[datetime, datetime], ...]:
         if not may_id:
@@ -1797,7 +1802,7 @@ class XepLichService:
         if dept and finish is not None:
             gia_dinh = [{"id": dong.id, "trang_thai": TT_DA_XEP, "department_id": dept,
                          "department_ten": None, "start_at": _naive(start),
-                         "finish_at": _naive(finish), "so_nhan_cong": self._so_nguoi_dong(dong)}]
+                         "finish_at": _naive(finish), "so_nguoi": self._so_nguoi_dong(dong)}]
             for r in self.repo.rows_da_xep_theo_to(dept):
                 if r.id == dong.id:
                     continue
@@ -1805,7 +1810,7 @@ class XepLichService:
                     continue
                 gia_dinh.append({"id": r.id, "trang_thai": TT_DA_XEP, "department_id": dept,
                                  "department_ten": None, "start_at": r.start_at,
-                                 "finish_at": r.finish_at, "so_nhan_cong": self._so_nguoi_dong(r)})
+                                 "finish_at": r.finish_at, "so_nguoi": self._so_nguoi_dong(r)})
             for k in self.khoang_tai_to(gia_dinh):
                 if k["qua_tai"]:
                     out.append({"loai": CB_THIEU_NGUOI,
@@ -2280,9 +2285,10 @@ class XepLichService:
                 ),
                 "can_xac_nhan": bool(ly_do_xn), "ly_do_xac_nhan": ly_do_xn,
                 "is_rush": bool(lsx.is_rush) if lsx else False,
-                # Kíp bố trí thật của bước (detector "thiếu người" đã gỡ cùng migration `0270`:
-                # hệ chỉ còn MỘT con số định mức, không còn mốc tối thiểu để so).
-                "so_nhan_cong": int(getattr(buoc, "so_nhan_cong", 1) or 1) if buoc else None,
+                # Kíp của bước — ĐẦU VÀO của `khoang_tai_to`/`_qua_tai_to`, không phải số để bày.
+                # Đọc kíp chuẩn: ô "số người bố trí" riêng gỡ ở mg `0281` (nó luôn là bản sao),
+                # và detector "thiếu người" gỡ ở `0270` (hết mốc tối thiểu để so).
+                "so_nguoi": int(getattr(buoc, "so_nhan_cong_tieu_chuan", 1) or 1) if buoc else None,
                 # (E) Khoá GOM việc cùng loại — cùng giấy · cùng khổ tờ in · cùng bộ mực. Hai việc
                 # cùng khoá thì đổi từ việc này sang việc kia gần như không phải canh lại máy.
                 "gom_key": self._gom_key(lsx),

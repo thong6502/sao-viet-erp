@@ -272,8 +272,10 @@ def thoi_luong_buoc(cd, may=None, sl_tinh=None) -> dict:
     bước lúc chọn đầu việc (`khoan_json`). Năng suất CAO ⇒ thời lượng NHỎ — GIỐNG hệt máy có ba
     mức tốc độ. **Nhân với số người TIÊU CHUẨN** (chốt 20/08/2026): năng suất khoán khai theo ĐẦU
     NGƯỜI (`nang_suat_nguoi_gio`), nên kíp chuẩn N người làm nhanh gấp N — cùng một kíp chuẩn nhân
-    đều cả ba mức. Dùng số người TIÊU CHUẨN (`so_nhan_cong_tieu_chuan`), KHÔNG dùng số người kế
-    hoạch (`so_nhan_cong`) — số kế hoạch chỉ để bàn xếp lịch cân quân số + đối chiếu thực hiện.
+    đều cả ba mức. Nhân lực của bước nay chỉ còn MỘT con số — kíp chuẩn (`so_nhan_cong_tieu_chuan`).
+    Ô "số người bố trí" (`so_nhan_cong`) GỠ 08/09/2026 (mg `0281`): nó chưa bao giờ có nguồn riêng,
+    mọi đường sinh đều chép từ đúng cùng `cong_doan_dau_viec.so_nguoi_tieu_chuan`. Kíp chuẩn nay
+    gánh cả hai vai — chia thời lượng ở đây, và là số bàn xếp lịch cân quân số tổ.
     Bước THUÊ NGOÀI đi theo ngày gửi/nhận, thời lượng máy = 0.
 
     **`sl_tinh` — SL vào ĐÃ QUY ĐỔI về đơn vị của tốc độ** (15/08/2026), dạng
@@ -303,7 +305,6 @@ def thoi_luong_buoc(cd, may=None, sl_tinh=None) -> dict:
     quy_doi_dien_giai = sl_tinh[2] if sl_tinh else None
     luot = max(int(getattr(cd, "so_luot_chay", 1) or 1), 1)
     khac = _f(getattr(cd, "phat_sinh_phut", 0))
-    nguoi_ke_hoach = max(int(getattr(cd, "so_nhan_cong", 1) or 1), 1)
     nguoi_tinh: int | None = None
 
     # THUÊ NGOÀI ăn CHUNG đường của bước máy: nhà thầu được khai như một MÁY trong danh mục (tên
@@ -388,7 +389,6 @@ def thoi_luong_buoc(cd, may=None, sl_tinh=None) -> dict:
         # 06/09/2026: MỌI loại bước đều có số lượt, mặc định 1. Trước đó bước tổ bị ép `None` —
         # nhưng công thức tiền công (chỉ chạy ở bước tổ) cần chip `so_luot_chay` có số thật.
         "so_luot_chay": luot,
-        "so_nhan_cong_ke_hoach": nguoi_ke_hoach,
         "so_nhan_cong_tieu_chuan": max(int(getattr(cd, "so_nhan_cong_tieu_chuan", 1) or 1), 1),
         "so_nhan_cong_tinh": nguoi_tinh,
         # Chuẩn bị KẾ THỪA từ máy — kèm chi tiết từng khoản để drawer xổ ra, không hiện cục tổng.
@@ -1573,7 +1573,6 @@ class LsxService:
             # · keo đông. Là GIÁ TRỊ KHỞI ĐIỂM, kế hoạch sửa đè được ở drawer bước; kế thừa nghĩa là
             # mặc định, không phải read-only.
             "may_id": may_id,
-            "so_nhan_cong": kip,
             "so_nhan_cong_tieu_chuan": kip,
             # Đầu việc khoán của bước: điền sẵn khi bảng giá của tổ chỉ khớp MỘT dòng. Nhiều dòng
             # (bế tay / bế máy) hoặc tổ không ăn khoán → None, kế hoạch tự chọn ở drawer.
@@ -2474,7 +2473,7 @@ class LsxService:
             "hao_hut": _f(cd.hao_hut), "hao_hut_pct": _f(cd.hao_hut_pct),
             # % thực tế suy từ số — KHÔNG lưu cột, tránh hai nguồn sự thật với `hao_hut`.
             "ty_le_hao_hut": round(_f(cd.hao_hut) / vao * 100, 2) if vao > 0 else 0.0,
-            "so_luot_chay": cd.so_luot_chay, "so_nhan_cong": cd.so_nhan_cong,
+            "so_luot_chay": cd.so_luot_chay,
             "so_nhan_cong_tieu_chuan": cd.so_nhan_cong_tieu_chuan,
             # Chuẩn bị TRẢ RA LÀ SỐ KẾ THỪA TỪ MÁY (`t`), không phải cột `cd.setup_phut` đã dormant
             # — nếu trả cột cũ thì UI hiện một số mà engine lại tính bằng số khác.
@@ -2918,7 +2917,7 @@ class LsxService:
     _ROUTING_FIELD_THUAN = (
         "may_id", "khuon_be_id", "so_luot_chay",
         # Nhân lực: kế thừa từ định mức công đoạn là MẶC ĐỊNH, người kế hoạch sửa được tại bước.
-        "so_nhan_cong", "so_nhan_cong_tieu_chuan", "phat_sinh_phut",
+        "so_nhan_cong_tieu_chuan", "phat_sinh_phut",
         # Chờ kỹ thuật: kế thừa từ danh mục Công đoạn là MẶC ĐỊNH, sửa đè tại bước (mục B).
         "nha_cung_cap", "sl_gui", "ngay_gui_dk", "van_chuyen_ngay", "gia_cong_ngay",
         "ngay_nhan_dk", "hao_hut_cho_phep", "don_gia_gia_cong", "yeu_cau_ky_thuat",
@@ -3009,10 +3008,10 @@ class LsxService:
                 if muc["khoan"]:
                     ap["khoan_json"] = kh_moi
                     if dm is not None:
-                        # Kíp CHUẨN đi theo công đoạn nên lấy số danh mục; `so_nhan_cong` (quân số
-                        # thật kế hoạch bố trí) KHÔNG đụng — đó là con số của người, không của
-                        # danh mục. Năng suất người-giờ chỉ có nghĩa ở bước TỔ; bước máy chia theo
-                        # tốc độ máy, ghi vào đó là dựng lên một số không ai đọc.
+                        # Kíp CHUẨN đi theo công đoạn nên lấy số danh mục. Số sửa tay tại bước vẫn
+                        # thắng: `_ke_thua` chỉ ghi khi client không gửi trường đó. Năng suất
+                        # người-giờ chỉ có nghĩa ở bước TỔ; bước máy chia theo tốc độ máy, ghi vào
+                        # đó là dựng lên một số không ai đọc.
                         ap["so_nhan_cong_tieu_chuan"] = int(dm.so_nguoi_tieu_chuan)
                         if cd.loai_buoc == LB_TO:
                             ap["nang_suat"] = _f(dm.nang_suat_nguoi_gio)
@@ -3092,8 +3091,7 @@ class LsxService:
 
         Ghi ba thứ: ảnh chụp khoán (kèm kíp chuẩn · năng suất bước tổ), dòng vật tư danh mục có mà
         bước chưa có, và số của dòng vật tư MÁY BUNG bị lệch. KHÔNG đụng: dòng người khai tay
-        (`tu_dong=False`), dòng danh mục không còn bung (xem `vat_tu_lech`), quân số bố trí
-        (`so_nhan_cong`), và máy của bước.
+        (`tu_dong=False`), dòng danh mục không còn bung (xem `vat_tu_lech`), và máy của bước.
         """
         lsx = self.get(lsx_id)
         if (loi := self._ly_do_khong_cap_nhat(lsx)) is not None:
@@ -3247,7 +3245,6 @@ class LsxService:
                         # KÍP theo CÔNG ĐOẠN, áp cho MỌI loại bước (06/09/2026). Còn NĂNG SUẤT
                         # người-giờ thì chỉ bước tổ mới chia — bước máy chia theo tốc độ máy.
                         _ke_thua("so_nhan_cong_tieu_chuan", int(dm.so_nguoi_tieu_chuan))
-                        _ke_thua("so_nhan_cong", int(dm.so_nguoi_tieu_chuan))
                         if row.loai_buoc == LB_TO:
                             row.nang_suat = _f(dm.nang_suat_nguoi_gio)
                             # Nhãn năng suất ĐI THEO đơn vị mà giờ quy về — hai thứ lệch nhau thì
@@ -3266,7 +3263,6 @@ class LsxService:
                 # Bước máy bị dọn `khoan_json` ở khối trên (không sinh tiền khoán) nên kíp đọc từ
                 # `snap` — ĐỊNH MỨC CỦA CÔNG ĐOẠN — chứ không đọc lại ảnh chụp đã dọn.
                 _ke_thua("so_nhan_cong_tieu_chuan", int(snap.get("so_nguoi_tieu_chuan") or 1))
-                _ke_thua("so_nhan_cong", row.so_nhan_cong_tieu_chuan)
                 if row.loai_buoc == LB_TO:
                     row.nang_suat = _f(snap.get("nang_suat_nguoi_gio")) or None
                     row.don_vi_nang_suat = dich_gio_cua_khoan(snap)[0]

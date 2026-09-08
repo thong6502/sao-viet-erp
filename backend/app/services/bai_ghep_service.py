@@ -761,7 +761,6 @@ class BaiGhepService:
             # CHƯA gán tổ/máy: gộp xong là phải lập lại kế hoạch cho lượt chạy chung, không thừa
             # kế mù của bất kỳ lệnh nào — hai lệnh có thể đang khai hai máy khác nhau.
             so_nhan_cong_tieu_chuan=1,
-            so_nhan_cong=1,
             don_vi_nang_suat=None,
             # Đơn vị vào/ra là thứ NGƯỜI khai ở danh mục công đoạn, không phải thứ bài tự đặt.
             # Đóng đinh `tờ ➔ tờ` là nói sai ngay khi bước gộp là bế (`to → cai`): thẻ chung ghi
@@ -822,10 +821,10 @@ class BaiGhepService:
         # (xem `_ghim_khoan_chung`), không phải thứ client gửi thẳng.
         # Thời lượng KẾ THỪA từ máy (2026-08-04): client chỉ còn gửi `phat_sinh_phut`.
         # `setup_phut`/`chay_phut`/`di_chuyen_phut`/`ve_sinh_phut` đã rời bộ này.
-        "department_id", "may_id", "so_nhan_cong", "loai_buoc",
+        "department_id", "may_id", "loai_buoc",
         # Kíp chuẩn: kế thừa từ định mức đầu việc nhưng SỬA ĐÈ được y như bước lệnh — bước chung
-        # của bài cũng là một bước có kế hoạch. Hai mốc tối thiểu/tối đa đã gỡ (migration `0270`):
-        # chỉ còn MỘT con số nhân lực cho cả hệ.
+        # của bài cũng là một bước có kế hoạch. Hai mốc tối thiểu/tối đa đã gỡ (migration `0270`),
+        # ô "số người bố trí" gỡ tiếp ở `0281`: chỉ còn MỘT con số nhân lực cho cả hệ.
         "so_nhan_cong_tieu_chuan",
         "nang_suat", "don_vi_nang_suat", "phat_sinh_phut",
         # Chờ kỹ thuật: gộp lấy mức lớn nhất làm MẶC ĐỊNH, người lập kế hoạch sửa đè được (mục B).
@@ -851,7 +850,6 @@ class BaiGhepService:
         if "piece_rate_id" in patch:
             self._ghim_khoan_chung(
                 chung, patch["piece_rate_id"],
-                giu_kip="so_nhan_cong" in patch,
                 giu_bien="so_nhan_cong_tieu_chuan" in patch,
             )
         if "vat_tus" in patch:
@@ -868,8 +866,7 @@ class BaiGhepService:
         return self._get(bg.id)
 
     def _ghim_khoan_chung(
-        self, chung: BaiGhepCongDoan, rate_id: int | None, *, giu_kip: bool,
-        giu_bien: bool = False,
+        self, chung: BaiGhepCongDoan, rate_id: int | None, *, giu_bien: bool = False,
     ) -> None:
         """Ghim đầu việc khoán cho lượt chạy chung — mượn NGUYÊN luật của bước lệnh.
 
@@ -906,8 +903,6 @@ class BaiGhepService:
         chung.don_vi_nang_suat = dich_gio_cua_khoan(chung.khoan_json)[0]
         if not giu_bien:                      # cùng lượt lưu mà người dùng tự gõ kíp chuẩn thì đừng đè
             chung.so_nhan_cong_tieu_chuan = int(dm.so_nguoi_tieu_chuan)
-        if not giu_kip:                       # người dùng vừa gõ tay kíp thì đừng đè lên
-            chung.so_nhan_cong = int(dm.so_nguoi_tieu_chuan)
 
     def _khoan_chung_dict(self, c: BaiGhepCongDoan, quy_cach: dict) -> dict:
         """Khối khoán của thẻ bước chung: phần ghim + danh sách chọn được + tiền DỰ KIẾN.
@@ -1662,8 +1657,8 @@ class BaiGhepService:
                 "chiem_may_phut_max": t["chiem_may_phut_max"],
                 # Giá trị NGƯỜI đã khai — form phải mồi lại được, không thì mỗi lần mở drawer là
                 # ô trống và lưu đè mất số cũ.
-                "so_nhan_cong": c.so_nhan_cong,
-                # Kíp chuẩn đi kèm luôn: form bài ghép cần biết định mức để so với số bố trí thật.
+                # Kíp chuẩn — con số nhân lực DUY NHẤT của bước chung (ô "số người bố trí" gỡ ở
+                # mg `0281`): vừa chia thời lượng bước tổ, vừa là số bàn xếp lịch cân quân số tổ.
                 "so_nhan_cong_tieu_chuan": c.so_nhan_cong_tieu_chuan,
                 "nang_suat": _f(c.nang_suat) or None, "don_vi_nang_suat": c.don_vi_nang_suat,
                 # Chuẩn bị + chạy là SỐ DẪN XUẤT từ máy, không phải cột cũ (đã dormant).

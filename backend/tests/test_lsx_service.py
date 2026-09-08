@@ -2161,35 +2161,35 @@ def test_may_nhan_so_luot_nhung_khong_chia_theo_kip_nguoi():
     may = _may_gia(toc_do=5000)
     assert _tlb(_buoc(loai_buoc="may", so_luong_vao=5000), may)["chay_phut"] == 60
     # In trở 2 lượt → chạy gấp đôi.
-    t = _tlb(_buoc(loai_buoc="may", so_luong_vao=5000,
-                              so_luot_chay=2, so_nhan_cong=3), may)
+    t = _tlb(_buoc(loai_buoc="may", so_luong_vao=5000, so_luot_chay=2), may)
     assert t["chay_phut"] == 120
     assert t["dien_giai"]["phuong_phap"] == "may"
     assert t["dien_giai"]["so_nhan_cong_tinh"] is None
-    assert t["dien_giai"]["so_nhan_cong_ke_hoach"] == 3
     assert t["dien_giai"]["so_nhan_cong_tieu_chuan"] == 1
 
 
-def test_to_chia_theo_nguoi_TIEU_CHUAN_khong_theo_ke_hoach():
-    """Bước TỔ nhân năng suất với SỐ NGƯỜI TIÊU CHUẨN — năng suất khoán khai theo ĐẦU NGƯỜI nên kíp
-    chuẩn N người làm nhanh gấp N (chốt 20/08/2026). Số người KẾ HOẠCH KHÔNG lái thời gian chuẩn —
-    nó chỉ để bàn xếp lịch cân quân số + đối chiếu lúc làm."""
-    # Kíp chuẩn 1 người: 5000 ÷ (500 × 1) × 60 = 600′. Kế hoạch 6 KHÔNG đụng số.
+def test_to_chia_theo_KIP_CHUAN():
+    """Bước TỔ nhân năng suất với KÍP CHUẨN — năng suất khoán khai theo ĐẦU NGƯỜI nên kíp chuẩn
+    N người làm nhanh gấp N (chốt 20/08/2026).
+
+    Từ 08/09/2026 (mg `0281`) đây là con số nhân lực DUY NHẤT của bước: ô "số người bố trí" riêng
+    đã gỡ vì nó luôn là bản sao của chính cột này.
+    """
+    # Kíp chuẩn 1 người: 5000 ÷ (500 × 1) × 60 = 600′.
     t1 = _tlb(_buoc(loai_buoc="to", so_luong_vao=5000, nang_suat=500,
-                    so_nhan_cong_tieu_chuan=1, so_nhan_cong=6))
+                    so_nhan_cong_tieu_chuan=1))
     assert t1["chay_phut"] == 600
     assert t1["chiem_may_phut"] == 600         # Tổ không gán máy ⇒ chuẩn bị = 0
     assert t1["dien_giai"]["so_nhan_cong_tinh"] == 1
     assert t1["dien_giai"]["nang_suat_hieu_dung"] == 500
-    # Kíp chuẩn 2 người: CÙNG năng suất, thời gian giảm còn nửa (300′). Kế hoạch GIỮ NGUYÊN.
+    # Kíp chuẩn 2 người: CÙNG năng suất, thời gian giảm còn nửa (300′).
     t2 = _tlb(_buoc(loai_buoc="to", so_luong_vao=5000, nang_suat=500,
-                    so_nhan_cong_tieu_chuan=2, so_nhan_cong=6))
+                    so_nhan_cong_tieu_chuan=2))
     assert t2["chay_phut"] == 300
     assert t2["chiem_may_phut"] == 300
     assert t2["dien_giai"]["so_nhan_cong_tinh"] == 2
     assert t2["dien_giai"]["nang_suat_co_so"] == 500        # /người, chưa nhân kíp
     assert t2["dien_giai"]["nang_suat_hieu_dung"] == 1000   # 500/người × 2 người
-    assert t2["dien_giai"]["so_nhan_cong_ke_hoach"] == 6
 
 
 def test_to_co_ba_muc_nang_suat_nhu_may_co_ba_muc_toc_do():
@@ -2198,11 +2198,10 @@ def test_to_co_ba_muc_nang_suat_nhu_may_co_ba_muc_toc_do():
     5.000 cái ÷ 500 cái/giờ × 60 = 600′ theo mức TRUNG BÌNH; mức CAO (1.000) chạy nhanh hơn nên ra
     thời lượng NHỎ nhất, mức THẤP (400) ra lớn nhất. "Thời gian khác" là hằng số nên cộng đều vào
     cả ba, không làm khoảng rộng ra. Ở đây kíp chuẩn = 1 (chưa khai) nên ba số theo đúng năng suất
-    gốc; số người KẾ HOẠCH KHÔNG lái thời gian (chốt 20/08/2026).
+    gốc.
     """
     t = _tlb(_buoc(
         loai_buoc="to", so_luong_vao=5000, nang_suat=500, phat_sinh_phut=10,
-        so_nhan_cong=2,
         khoan_json={"nang_suat_nguoi_gio": 500,
                     "nang_suat_nguoi_gio_min": 400, "nang_suat_nguoi_gio_max": 1000},
     ))
@@ -2211,9 +2210,9 @@ def test_to_co_ba_muc_nang_suat_nhu_may_co_ba_muc_toc_do():
     assert t["chiem_may_phut_min"] == 310                   # 10 + 5000/1000×60
     assert t["chiem_may_phut_max"] == 760                   # 10 + 5000/400×60
     assert t["dien_giai"]["co_dai_toc_do"] is True
-    # Số KẾ HOẠCH 4 người KHÔNG đổi thời gian (kíp chuẩn vẫn = 1): ba con số như trên.
+    # Chưa khai kíp chuẩn (= 1) thì ba con số vẫn theo đúng năng suất gốc.
     t4 = _tlb(_buoc(
-        loai_buoc="to", so_luong_vao=5000, nang_suat=500, so_nhan_cong=4,
+        loai_buoc="to", so_luong_vao=5000, nang_suat=500,
         khoan_json={"nang_suat_nguoi_gio_min": 400, "nang_suat_nguoi_gio_max": 1000},
     ))
     assert t4["chay_phut"] == 600
@@ -2223,7 +2222,7 @@ def test_to_co_ba_muc_nang_suat_nhu_may_co_ba_muc_toc_do():
 def test_to_chua_khai_dai_thi_ba_muc_bang_nhau():
     """Định mức cũ (chưa khai min/max) → râu co về một điểm, KHÔNG bịa khoảng."""
     t = _tlb(_buoc(
-        loai_buoc="to", so_luong_vao=5000, nang_suat=500, so_nhan_cong=2,
+        loai_buoc="to", so_luong_vao=5000, nang_suat=500,
         khoan_json={"nang_suat_nguoi_gio": 500},
     ))
     assert t["chiem_may_phut"] == t["chiem_may_phut_min"] == t["chiem_may_phut_max"] == 600
@@ -2281,7 +2280,7 @@ def test_buoc_to_go_may_va_ba_moc_nhan_luc_sua_duoc(db, orders, lsx_svc, admin, 
             # Kế hoạch bấm "Tổ" cho bước dán — server không tự đoán nữa (xem `_chon_loai_buoc`).
             loai_buoc="to" if cd.ten == "Dán hộp" else cd.loai_buoc,
             department_id=cd.department_id, may_id=cd.may_id,
-            **({"so_nhan_cong": 6, "so_nhan_cong_tieu_chuan": 5} if cd.ten == "Dán hộp" else {}),
+            **({"so_nhan_cong_tieu_chuan": 5} if cd.ten == "Dán hộp" else {}),
         )
         for cd in sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
     ]
@@ -2289,9 +2288,29 @@ def test_buoc_to_go_may_va_ba_moc_nhan_luc_sua_duoc(db, orders, lsx_svc, admin, 
     dan = {cd.ten: cd for cd in lsx.cong_doans}["Dán hộp"]
     assert dan.loai_buoc == "to" and dan.may_id is None   # Tổ ⇒ không giữ máy
     assert dan.so_nhan_cong_tieu_chuan == 5           # số gõ tay thắng định mức 2 của đầu việc
-    assert dan.so_nhan_cong == 6
     # Kíp chuẩn 5 người sửa tay LÁI thời gian ⇒ "số người tính" = 5 (chốt 20/08/2026).
     assert _tl(dan, db)["dien_giai"]["so_nhan_cong_tinh"] == 5
+
+
+def test_buoc_khong_con_o_so_nguoi_bo_tri(db, orders, lsx_svc, admin, customer):
+    """Gộp 08/09/2026 (mg `0281`): nhân lực của bước chỉ còn MỘT con số — KÍP CHUẨN.
+
+    Ô "số người bố trí" (`so_nhan_cong`) chưa bao giờ có nguồn riêng: mọi đường sinh nó đều chép
+    từ đúng cùng `cong_doan_dau_viec.so_nguoi_tieu_chuan` như kíp chuẩn, nên hai ô luôn hiện một
+    số cho tới khi ai đó gõ tay đè lên. Nay kíp chuẩn gánh cả hai vai — chia thời lượng bước tổ
+    VÀ là số bàn xếp lịch cộng dồn để dò đỉnh quân số tổ.
+    """
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp", don_vi="cái", don_gia=80, nang_suat=500)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    lsx = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
+
+    buoc = lsx_svc.detail_dict(lsx)["cong_doans"][0]
+    assert "so_nhan_cong" not in buoc
+    assert buoc["so_nhan_cong_tieu_chuan"] >= 1
+    assert "so_nhan_cong_ke_hoach" not in buoc["thoi_luong_dien_giai"]
 
 
 def test_thieu_nang_suat_thi_khong_bia_so():
@@ -2711,7 +2730,7 @@ def test_replace_routing_giu_nguyen_khoi_thue_ngoai(db, orders, lsx_svc, admin, 
             ngay_gui_dk=date.today(), ngay_nhan_dk=date.today() + timedelta(days=3),
             van_chuyen_ngay=1, gia_cong_ngay=1, hao_hut_cho_phep=50, don_gia_gia_cong=450,
             yeu_cau_ky_thuat="Màng mờ, không bong mép",
-            di_chuyen_phut=45, so_nhan_cong=3,
+            di_chuyen_phut=45,
         ),
     ])
     cd = lsx_svc.get(hop.id).cong_doans[0]
@@ -2723,7 +2742,7 @@ def test_replace_routing_giu_nguyen_khoi_thue_ngoai(db, orders, lsx_svc, admin, 
     # (nhà cung cấp · ngày gửi/nhận · đơn giá · yêu cầu kỹ thuật) mới là thứ phải giữ.
     # `bat_buoc` cũng rời hợp đồng lưu routing (07/09/2026): mọi bước đều bắt buộc, server giữ
     # TRUE nên client có gửi `false` cũng không ghi được (mg 0275 backfill dòng cũ).
-    assert cd.so_nhan_cong == 3 and cd.bat_buoc is True
+    assert cd.bat_buoc is True
     assert float(cd.hao_hut_cho_phep) == 50 and cd.ngay_nhan_dk is not None
 
 
@@ -2872,10 +2891,15 @@ def test_replace_routing_ton_trong_loai_buoc_do_khsx_chon(
     assert saved.may_id is None
 
 
-def test_doi_may_giu_kip_va_giu_so_nguoi_ke_hoach_nhap_tai_lsx(
+def test_doi_may_giu_kip_chuan_cua_cong_doan(
     db, orders, lsx_svc, admin, customer
 ):
-    """Đổi máy KHÔNG đụng nhân lực (06/09/2026, mg `0270`) — kíp bám công đoạn, máy hết ô người."""
+    """Đổi máy KHÔNG đụng nhân lực (06/09/2026, mg `0270`) — kíp bám công đoạn, máy hết ô người.
+
+    Vế "số gõ tay tại lệnh vẫn thắng định mức" nay do
+    `test_buoc_to_go_may_va_ba_moc_nhan_luc_sua_duoc` canh: sau mg `0281` cả hệ chỉ còn MỘT cột
+    nhân lực nên hai vế không đứng chung một bước được nữa.
+    """
     ptg = _ptg_2_san_pham(db)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     line_id = lsx_svc.preview(d.id)["lines"][0]["order_line_id"]
@@ -2894,14 +2918,12 @@ def test_doi_may_giu_kip_va_giu_so_nguoi_ke_hoach_nhap_tai_lsx(
             step_key=x.step_key, cong_doan_id=x.cong_doan_id, ten=x.ten, nhom=x.nhom,
             department_id=x.department_id, loai_buoc=x.loai_buoc,
             may_id=may_moi.id if x.id == muc_tieu.id else x.may_id,
-            so_nhan_cong=4 if x.id == muc_tieu.id else x.so_nhan_cong,
         )
         for x in sorted(hop.cong_doans, key=lambda item: item.thu_tu)
     ])
 
     saved = next(x for x in lsx_svc.get(hop.id).cong_doans if x.id == muc_tieu.id)
     assert saved.so_nhan_cong_tieu_chuan == kip_truoc   # máy mới không mang kíp riêng nào theo
-    assert saved.so_nhan_cong == 4                      # số gõ tay tại lệnh vẫn thắng
     assert saved.may_id == may_moi.id
     # Tốc độ KHÔNG chép lên bước nữa (15/08/2026) — đổi máy là thời lượng tự đổi theo máy mới,
     # khỏi cần đồng bộ một bản chép.
@@ -2943,7 +2965,6 @@ def test_buoc_MAY_lay_kip_cua_CONG_DOAN_khong_con_o_rieng_tren_may(
     saved = next(x for x in lsx.cong_doans if x.ten == "Bế")
     assert saved.loai_buoc == "may"
     assert saved.so_nhan_cong_tieu_chuan == 2                      # kíp chuẩn của CÔNG ĐOẠN
-    assert saved.so_nhan_cong == 2                                 # bố trí điền sẵn bằng kíp chuẩn
     # TIỀN khoán vẫn ghim như cũ — đổi nguồn kíp không đụng gì tới đơn giá.
     assert (saved.khoan_json or {}).get("rate_id")
 

@@ -671,10 +671,9 @@ export interface BaiGhepSoDoBuocChung {
   nha_cung_cap: string | null;
   tong_phut: number; chiem_may_phut: number;
   chiem_may_phut_min: number; chiem_may_phut_max: number;
-  /** Giá trị NGƯỜI đã khai — form mồi lại từ đây, không thì mở drawer là ô trống rồi lưu đè mất. */
-  so_nhan_cong: number;
   /** Kíp chuẩn của bước chung (kế thừa định mức đầu việc, sửa đè được) — cùng hợp đồng với bước
-   *  lệnh. Hai mốc tối thiểu/tối đa đã gỡ 06/09/2026 (mg `0270`). */
+   *  lệnh. Giá trị NGƯỜI đã khai: form mồi lại từ đây, không thì mở drawer là ô trống rồi lưu đè
+   *  mất. Hai mốc tối thiểu/tối đa gỡ ở mg `0270`, ô "số người bố trí" gỡ ở mg `0281`. */
   so_nhan_cong_tieu_chuan: number;
   nang_suat: number | null; don_vi_nang_suat: string | null;
   /** Dẫn xuất từ tốc độ máy; `setup_phut` kế thừa từ máy. Ô gõ được duy nhất là
@@ -773,7 +772,7 @@ export interface BaiGhepBuocChungBody {
   department_id?: number | null; may_id?: number | null; loai_buoc?: LsxLoaiBuoc;
   /** Đầu việc khoán ghim theo ID (0/null = bỏ chọn). Ảnh chụp đơn giá do SERVER chụp — client
    *  không gửi `khoan_json` thô, kẻo đơn giá bịa chảy thẳng vào phiếu lương. */
-  so_nhan_cong?: number; piece_rate_id?: number | null;
+  piece_rate_id?: number | null;
   /** Kíp chuẩn sửa đè được. Gửi kèm thì server GIỮ, không để nhánh ghim đầu việc đè lại. */
   so_nhan_cong_tieu_chuan?: number | null;
   nang_suat?: number | null; don_vi_nang_suat?: string | null;
@@ -1040,7 +1039,6 @@ export interface Xl2BoiCanhBuoc {
   department_id: number | null;
   to_ten: string | null;
   nha_cung_cap: string | null;
-  so_nhan_cong: number | null;
   dinh_bien: Xl2DinhBien;
   quan_so: Xl2QuanSo | null;
   van_de: Xl2Issue[];
@@ -1310,9 +1308,8 @@ export interface Xl2XemTruoc {
   /** `han_moi` vượt hạn SX ⇒ true; `tre_ngay` = số ngày trễ (null nếu không trễ). */
   tre_han_sx: boolean;
   tre_ngay: number | null;
-  /** Nhân lực của bước: số BỐ TRÍ (kế hoạch) + kíp chuẩn. Đi kèm xem-trước để hộp xác nhận tự
-   *  giải thích con số trong câu cảnh báo quân số, khỏi bắt người xếp mở màn Lệnh sản xuất tra. */
-  so_nhan_cong: number | null;
+  /** Nhân lực của bước: KÍP CHUẨN (con số duy nhất từ mg `0281`). Đi kèm xem-trước để hộp xác
+   *  nhận tự giải thích con số trong câu cảnh báo quân số, khỏi bắt người xếp mở màn Lệnh SX tra. */
   dinh_bien: Xl2DinhBien;
 }
 
@@ -2436,7 +2433,7 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
    *  trên dòng giấy (số suy ngược theo chuỗi, không có công thức riêng). */
   san_luong_dien_giai: string | null;
   hao_hut: number; hao_hut_pct: number; ty_le_hao_hut: number; so_luot_chay: number;
-  so_nhan_cong: number; so_nhan_cong_tieu_chuan: number;
+  so_nhan_cong_tieu_chuan: number;
   // `setup_phut` + `chay_phut` là số DẪN XUẤT (chuẩn bị + tốc độ kế thừa từ máy);
   // `phat_sinh_phut` = ô "Thời gian khác", thứ DUY NHẤT còn gõ được (2026-08-04).
   setup_phut: number; nang_suat: number | null; don_vi_nang_suat: string | null;
@@ -2497,7 +2494,7 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   khuon_be_id?: number | null;
   so_luong_vao?: number; so_luong_ra?: number;
   don_vi_vao?: string; don_vi_ra?: string; he_so_quy_doi?: number;
-  hao_hut?: number; hao_hut_pct?: number; so_luot_chay?: number; so_nhan_cong?: number;
+  hao_hut?: number; hao_hut_pct?: number; so_luot_chay?: number;
   /** Kíp chuẩn — kế thừa từ đầu việc nhưng sửa được tại bước. */
   so_nhan_cong_tieu_chuan?: number;
   setup_phut?: number; nang_suat?: number | null; don_vi_nang_suat?: string | null;

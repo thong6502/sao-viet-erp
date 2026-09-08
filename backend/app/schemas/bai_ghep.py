@@ -43,7 +43,6 @@ class BuocChungUpdateIn(BaseModel):
     department_id: int | None = None
     may_id: int | None = None
     loai_buoc: str | None = None
-    so_nhan_cong: int | None = None
     # Kíp chuẩn sửa đè được (mặc định kế thừa định mức công đoạn). Gửi kèm thì server GIỮ,
     # không để nhánh ghim đầu việc đè lại.
     so_nhan_cong_tieu_chuan: int | None = None
@@ -370,9 +369,8 @@ class SoDoBuocChung(BaseModel):
     # Dải nhanh/chậm nhất (tốc độ tối đa / tối thiểu của máy). Máy chưa khai dải ⇒ = TB.
     chiem_may_phut_min: float = 0
     chiem_may_phut_max: float = 0
-    # Giá trị NGƯỜI đã khai — form phải mồi lại được, không thì mở drawer là ô trống và lưu đè mất.
-    so_nhan_cong: int = 1
-    # Kíp chuẩn của bước chung — cùng hợp đồng với bước lệnh ở màn KHSX.
+    # Kíp chuẩn của bước chung — cùng hợp đồng với bước lệnh ở màn KHSX. Giá trị NGƯỜI đã khai,
+    # form phải mồi lại được, không thì mở drawer là ô trống và lưu đè mất.
     so_nhan_cong_tieu_chuan: int = 1
     nang_suat: float | None = None
     don_vi_nang_suat: str | None = None

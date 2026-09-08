@@ -498,7 +498,6 @@ class XepLich2Service:
             "han_giao": han_giao,
             "tre_han_sx": bool(tre is not None and tre > 0),
             "tre_ngay": tre if (tre is not None and tre > 0) else None,
-            "so_nhan_cong": int(getattr(op, "so_nhan_cong", 1) or 1) if op is not None else None,
             "dinh_bien": self._dinh_bien(op),
         }
 
@@ -925,7 +924,6 @@ class XepLich2Service:
             "department_id": r.department_id,
             "to_ten": self._ten_to(r.department_id),
             "nha_cung_cap": (r.nha_cung_cap or None),
-            "so_nhan_cong": int(getattr(op, "so_nhan_cong", 1) or 1) if op is not None else None,
             "dinh_bien": self._dinh_bien(op),
             "quan_so": self._quan_so_buoc(r, r.department_id, t["start"], t["finish"]),
             "van_de": t["van_de"],

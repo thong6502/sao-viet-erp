@@ -83,8 +83,9 @@ export interface EditRow {
   hao_hut_pct: string;
   so_luot_chay: string;
   // năng suất & thời gian (phút)
-  so_nhan_cong: string;
-  /** Kíp chuẩn — KẾ THỪA từ định mức công đoạn nhưng SỬA ĐƯỢC tại bước (mọi loại bước). */
+  /** Kíp chuẩn — con số nhân lực DUY NHẤT của bước (ô "số người bố trí" gỡ ở mg `0281`):
+   *  chia thời lượng bước tổ VÀ là số bàn xếp lịch cân quân số tổ. Kế thừa từ định mức công
+   *  đoạn nhưng SỬA ĐƯỢC tại bước, cho mọi loại bước. */
   so_nhan_cong_tieu_chuan: number;
   nang_suat: string;
   don_vi_nang_suat: string;
@@ -232,7 +233,6 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     hao_hut: s(cd.hao_hut),
     hao_hut_pct: s(cd.hao_hut_pct),
     so_luot_chay: s(cd.so_luot_chay),
-    so_nhan_cong: s(cd.so_nhan_cong),
     so_nhan_cong_tieu_chuan: cd.so_nhan_cong_tieu_chuan ?? 1,
     nang_suat: s(cd.nang_suat),
     don_vi_nang_suat: cd.don_vi_nang_suat ?? "",
@@ -337,7 +337,7 @@ export function emptyRow(): EditRow {
     khuon_nguon: null, khuon_phi: 0, khuon_lech: null,
     so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to",
     tren_dong_giay: true, loi_quy_doi: null, san_luong_dien_giai: null, he_so_quy_doi: "",
-    hao_hut: "", hao_hut_pct: "", so_luot_chay: "", so_nhan_cong: "",
+    hao_hut: "", hao_hut_pct: "", so_luot_chay: "",
     nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "",
     so_nhan_cong_tieu_chuan: 1,
     thoi_luong_dien_giai: {},
@@ -461,7 +461,6 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       hao_hut: on(r.hao_hut),
       hao_hut_pct: on(r.hao_hut_pct),
       so_luot_chay: on(r.so_luot_chay),
-      so_nhan_cong: on(r.so_nhan_cong),
       // Kíp chuẩn gửi lên để số sửa tay không bị server kéo lại theo danh mục. Gửi cho MỌI loại
       // bước (mg `0270`): kíp nay bám công đoạn chứ không còn bám máy.
       so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan || undefined,
@@ -557,7 +556,6 @@ export type ThoiLuongInput = Pick<
   EditRow,
   | "loai_buoc"
   | "so_luot_chay"
-  | "so_nhan_cong"
   | "so_nhan_cong_tieu_chuan"
   | "nang_suat"
   | "phat_sinh_phut"
@@ -579,7 +577,6 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
   const daQuyDoi = dgServer.phuong_phap !== "chua_quy_doi" && dgServer.so_luong_vao != null;
   const vao = daQuyDoi ? Number(dgServer.so_luong_vao) || 0 : 0;
   const luot = Math.max(Math.trunc(f(r.so_luot_chay)) || 1, 1);
-  const nguoiKeHoach = Math.max(Math.trunc(f(r.so_nhan_cong)) || 1, 1);
   const canhBao: string[] = [];
 
   // Số của MÁY ĐANG CHỌN trên form (`may`) — KHÔNG đợi server. Đổi máy trong drawer là chuẩn bị
@@ -665,7 +662,6 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
     // 06/09/2026: bước tổ cũng gửi số lượt (mặc định 1) — chip `so_luot_chay` của công thức
     // tiền công cần số thật, mà tiền công chỉ tính ở bước tổ.
     so_luot_chay: luot,
-    so_nhan_cong_ke_hoach: nguoiKeHoach,
     so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan,
     // Bước TỔ nhân kíp chuẩn vào công thức (chốt 20/08/2026) ⇒ "số người tính" = số người tiêu chuẩn.
     so_nhan_cong_tinh: nguoiTinh,

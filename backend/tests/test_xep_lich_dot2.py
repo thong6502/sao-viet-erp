@@ -44,7 +44,7 @@ def _dong(**kw) -> dict:
         "id": 1, "nguon": "lsx", "lsx_id": 1, "bai_ghep_id": None, "lsx_ma": "LSX-0001",
         "cong_doan_ten": "Bế", "may_id": None, "department_id": None,
         "trang_thai": "da_xep", "start_at": _utc(8), "finish_at": _utc(10),
-        "so_nhan_cong": 2,
+        "so_nguoi": 2,
         "loai_buoc": "to", "is_locked": False,
     }
     d.update(kw)

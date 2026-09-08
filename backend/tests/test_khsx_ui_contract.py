@@ -83,13 +83,21 @@ def test_drawer_hien_nhan_luc_ke_thua_va_ket_qua_thoi_gian_o_cuoi() -> None:
     source = _nhan(DRAWER)
     # 21/08/2026: MỘT khối nhân lực dùng chung cho cả bước máy lẫn bước tổ. Trước đó mỗi loại hở
     # một nửa — bước máy có ô kế hoạch mà ba mốc để trống, bước tổ ngược lại — nên nhãn cũ "số
-    # người vận hành kế hoạch" không còn. Con số bàn xếp lịch cân quân số tổ là ô "bố trí".
-    assert "số người bố trí (kế hoạch)" in source
+    # người vận hành kế hoạch" không còn.
+    # 08/09/2026 (mg `0281`): ô "số người bố trí (kế hoạch)" GỠ HẲN — nó luôn là bản sao của kíp
+    # chuẩn (cùng rót từ `cong_doan_dau_viec.so_nguoi_tieu_chuan`) nên hiện hai ô chỉ gây rối.
+    # Bám NGUYÊN VĂN NHÃN chứ không bám hai chữ "bố trí": comment lịch sử ngay trên khối nhân lực
+    # còn nhắc tên ô cũ, mà file này soi cả comment (xem docstring đầu file).
+    assert "số người bố trí (kế hoạch)" not in source
     # 06/09/2026 (mg `0270`): khối ba mốc "biên nhân lực" thu về MỘT ô kíp chuẩn, dùng chung cho
     # cả ba loại bước — nguồn là định mức đầu việc của công đoạn, không còn ô riêng trên máy.
     assert "kíp chuẩn (định mức công đoạn)" in source
+    # Kíp chuẩn nay gánh CẢ vai cũ của ô bố trí: bàn xếp lịch cân quân số tổ theo đúng số này.
+    assert "cân quân số tổ" in source
     # Bước MÁY: nhân lực không đổi tốc độ máy — nói rõ kíp kế thừa từ đâu (định mức công đoạn).
-    assert "nhân lực không thay đổi tốc độ máy" in source
+    # Câu cũ "nhân lực không thay đổi tốc độ máy" nằm ở hint của ô bố trí, gỡ cùng ô đó ở mg `0281`;
+    # hint của kíp chuẩn vẫn nói đúng ý ấy, kèm tên máy đang chọn.
+    assert "không ảnh hưởng tốc độ máy" in source
     assert "điền sẵn từ định mức đầu việc của công đoạn" in source
     # Bước TỔ: kíp chuẩn RÚT NGẮN thời gian (nhân năng suất/đầu người).
     assert "kíp chuẩn" in source

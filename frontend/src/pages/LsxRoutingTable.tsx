@@ -298,7 +298,6 @@ export function LsxRoutingTable({
           khoan_rate_id: chosen?.id ?? null,
           nang_suat: chosen ? String(chosen.nang_suat_nguoi_gio) : "",
           don_vi_nang_suat: chosen?.don_vi_nang_suat ?? "",
-          so_nhan_cong: String(chosen?.so_nguoi_tieu_chuan ?? 1),
           so_nhan_cong_tieu_chuan: chosen?.so_nguoi_tieu_chuan ?? 1,
         });
         setLive(options.length
@@ -347,7 +346,7 @@ export function LsxRoutingTable({
           // của công đoạn mới (đúng 1 thì tự chọn) — cùng một bản luật nạp khoán.
           khoan_rate_id: null, khoan_chon_duoc: [], khoan_dien_giai: null, khoan_ly_do: null,
           nang_suat: "", don_vi_nang_suat: "",
-          so_nhan_cong: "1", so_nhan_cong_tieu_chuan: 1,
+          so_nhan_cong_tieu_chuan: 1,
           // Thời gian chuẩn bị + chạy KHÔNG còn nằm ở bước: kế thừa sống từ máy đang gán.
         };
         patch(key, applied);
@@ -773,10 +772,10 @@ export function LsxRoutingTable({
                         bước một người: nhìn bảng không biết bước đã khai người hay chưa, phải mở
                         từng drawer — trong khi đây đúng là con số bàn xếp lịch dùng cân quân số tổ. */}
                     <span
-                        className="khsx-rt__sub2"
-                        title={`Kíp chuẩn của bước: ${r.so_nhan_cong_tieu_chuan ?? "–"} người`}
-                      >
-                      Kế hoạch {Math.max(1, n(r.so_nhan_cong) || 1)} người
+                      className="khsx-rt__sub2"
+                      title="Kíp chuẩn của bước — chia thời lượng bước tổ và là số bàn xếp lịch cân quân số tổ."
+                    >
+                      Kíp {Math.max(1, Number(r.so_nhan_cong_tieu_chuan) || 1)} người
                     </span>
                   </td>
                   <td className="khsx-rt__qty">

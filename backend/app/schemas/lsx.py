@@ -181,7 +181,6 @@ class LsxCongDoanIn(BaseModel):
     hao_hut_pct: float | None = Field(default=None, ge=0)
     so_luot_chay: int | None = Field(default=None, ge=1)
     # Năng suất & thời gian (phút)
-    so_nhan_cong: int | None = Field(default=None, ge=1)
     # Kíp chuẩn KẾ THỪA từ định mức công đoạn nhưng SỬA ĐƯỢC tại bước — mỗi lệnh một hoàn cảnh
     # (tổ mượn người, việc gấp). Không gửi = giữ số đang có / để server điền từ định mức.
     so_nhan_cong_tieu_chuan: int | None = Field(default=None, ge=1)
@@ -268,7 +267,6 @@ class LsxCongDoanOut(BaseModel):
     ty_le_hao_hut: float = 0      # derived = hao_hut / so_luong_vao
     so_luot_chay: int = 1
 
-    so_nhan_cong: int = 1
     so_nhan_cong_tieu_chuan: int = 1
     # `setup_phut` KẾ THỪA từ máy (read-only trên UI); `phat_sinh_phut` là ô người gõ.
     setup_phut: float = 0

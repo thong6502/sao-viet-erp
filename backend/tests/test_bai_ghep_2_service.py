@@ -161,7 +161,6 @@ def test_gop_bg2_chi_ke_thua_nhan_dien_danh_muc_don_vi_va_thu_tu(
     assert chung.nha_cung_cap is None
     assert chung.nang_suat is None
     assert chung.so_nhan_cong_tieu_chuan == 1
-    assert chung.so_nhan_cong == 1
     assert chung.don_vi_nang_suat is None
     assert chung.khoan_json is None
     assert chung.ghi_chu is None

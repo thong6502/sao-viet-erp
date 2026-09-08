@@ -133,8 +133,10 @@ function loiPhatHanh(e: unknown, macDinh: string): string {
 // NHÂN LỰC CỦA BƯỚC — một chỗ tính, ba chỗ hiện (thẻ bước · hộp xác nhận · panel dòng đã xếp).
 // Từ 06/09/2026 (mg `0270`) chỉ còn MỘT con số định mức: kíp chuẩn khai ở đầu việc của công đoạn,
 // dùng chung cho mọi loại bước. Hai mốc tối thiểu/tối đa đã gỡ nên không còn khái niệm "ngoài biên".
+/** Kíp chuẩn của bước — con số nhân lực DUY NHẤT từ mg `0281` (ô "số người bố trí" đã gỡ): vừa
+ *  chia thời lượng bước tổ, vừa là số bàn này cộng dồn để dò đỉnh quân số tổ. */
 function nhanLucTom(db: Xl2DinhBien | null | undefined): { text: string | null } {
-  return { text: db?.tieu_chuan != null ? `chuẩn ${db.tieu_chuan}` : null };
+  return { text: db?.tieu_chuan != null ? `${db.tieu_chuan} người` : null };
 }
 
 // Item 13 — MỞ MODULE NGUỒN để sửa GỐC vấn đề. Chỉ nối những `nguon` có màn sửa RIÊNG: vật tư → Kho,
@@ -1753,17 +1755,12 @@ function StepCard({
           {hasRange && <span className="xl2-step__range"> ({thoiLuong(b.chiem_may_phut_min)}–{thoiLuong(b.chiem_may_phut_max)})</span>}
         </span>
         <span className="xl2-step__tag">{nguonLb}</span>
-        {b.so_nhan_cong != null && (
+        {dbText && (
           <span
             className="xl2-step__fact"
-            title="Số người bố trí (kế hoạch) — bàn xếp lịch cân quân số tổ theo số này."
+            title="Kíp chuẩn của bước — bàn xếp lịch cân quân số tổ theo số này."
           >
-            <Icon name="users" size={11} /> {b.so_nhan_cong} người
-          </span>
-        )}
-        {dbText && (
-          <span className="xl2-step__fact" title="Kíp chuẩn theo định mức công đoạn">
-            ĐB {dbText}
+            <Icon name="users" size={11} /> {dbText}
           </span>
         )}
       </div>
@@ -1855,10 +1852,10 @@ function Xl2PreviewDialogBody({
   const slackDays = computeSlackDays(xt.han_moi ?? finishIso, xt.han_sx);
   const hasIssues = xt.van_de && xt.van_de.length > 0;
   // Nhân lực bước. Câu cảnh báo quân số chỉ in con số đỉnh ("Đỉnh 5 người…") — đứng một mình nó
-  // không cho biết 5 ở đâu ra, cũng không cho biết kíp chuẩn của bước là bao nhiêu. Dán thẳng vào
-  // hàng thẻ dữ kiện: bố trí bao nhiêu, kíp chuẩn bao nhiêu.
+  // không cho biết 5 ở đâu ra. Dán kíp chuẩn của bước thẳng vào hàng thẻ dữ kiện: đó chính là con
+  // số bàn xếp lịch cộng dồn để ra đỉnh kia (mg `0281`).
   const nl = nhanLucTom(xt.dinh_bien);
-  const nhanLucText = nl.text == null ? null : `kíp ${nl.text}`;
+  const nhanLucText = nl.text == null ? null : `kíp chuẩn ${nl.text}`;
 
   return (
     <div className="xl2-dlg-preview">
@@ -1911,13 +1908,12 @@ function Xl2PreviewDialogBody({
           <span className="xl2-dlg-tag">
             {xt.theo_may ? "Theo tốc độ máy" : "Theo định mức"}
           </span>
-          {xt.so_nhan_cong != null && (
+          {nhanLucText && (
             <span
               className="xl2-dlg-tag"
-              title="Số người bố trí ở bước (khai tại màn Lệnh sản xuất, khối Nhân lực)."
+              title="Kíp chuẩn của bước (khai tại màn Lệnh sản xuất, khối Nhân lực)."
             >
-              <Icon name="users" size={11} /> Bố trí <b>{xt.so_nhan_cong} người</b>
-              {nhanLucText ? ` · ${nhanLucText}` : ""}
+              <Icon name="users" size={11} /> <b>{nhanLucText}</b>
             </span>
           )}
         </div>
@@ -2199,17 +2195,15 @@ function DongPanel({
           {xt && <div className="xl2-kv"><span className="xl2-kv__k">Chiếm máy</span><span className="xl2-kv__v xl2-kv__v--num">{thoiLuong(xt.chiem_may_phut)}{xt.theo_may ? " (theo máy)" : ""}</span></div>}
           {/* NHÂN LỰC — khối này trước chỉ có tài nguyên + giờ + chiếm máy, nên khi lịch kêu "đỉnh N
               người vượt quân số tổ" người xếp không thấy bước khai bao nhiêu người, cũng không biết
-              đi đâu sửa. Nay số bố trí đứng cạnh kíp chuẩn, kèm lối mở thẳng sang chỗ sửa. */}
-          {xt && xt.so_nhan_cong != null && (
+              đi đâu sửa. Nay kíp chuẩn đứng đây kèm lối mở thẳng sang chỗ sửa — từ mg `0281` nó là
+              con số DUY NHẤT, đúng số bàn này cộng dồn để dò đỉnh. */}
+          {xt && nl.text && (
             <div className="xl2-kv">
               <span className="xl2-kv__k">Nhân lực</span>
               <span className="xl2-kv__v xl2-kv__v--nhanluc">
-                <span className="xl2-kv__v--num">{xt.so_nhan_cong} người</span>
-                {nl.text && (
-                  <span className="xl2-kv__bien" title="Kíp chuẩn theo định mức công đoạn">
-                    kíp {nl.text}
-                  </span>
-                )}
+                <span className="xl2-kv__v--num" title="Kíp chuẩn theo định mức công đoạn">
+                  kíp chuẩn {nl.text}
+                </span>
                 {onMoBuoc && (
                   <button type="button" className="xl2-kv__go" onClick={onMoBuoc}
                     title={dong.nguon === "lsx"

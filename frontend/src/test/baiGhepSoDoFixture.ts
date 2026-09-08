@@ -84,7 +84,6 @@ export function gop(
     chiem_may_phut: 90,
     chiem_may_phut_min: 90,
     chiem_may_phut_max: 90,
-    so_nhan_cong: 1,
     so_nhan_cong_tieu_chuan: 1,
     nang_suat: null,
     don_vi_nang_suat: null,

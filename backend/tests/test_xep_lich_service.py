@@ -1053,7 +1053,7 @@ def test_xem_truoc_bao_to_thieu_nguoi(db, orders, lsx_svc, xl_svc, admin, custom
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     dong, step = _dong_in_san_sang(db, orders, lsx_svc, xl_svc, admin, customer)
     to = _to_san_xuat(db)
-    step.so_nhan_cong = 3
+    step.so_nhan_cong_tieu_chuan = 3
     dong.department_id = to.id
     db.commit()
     xl_svc.dat_quan_so(department_id=to.id, ngay=date(2026, 7, 27), so_nguoi=1,

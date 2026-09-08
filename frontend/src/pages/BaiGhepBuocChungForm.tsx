@@ -191,9 +191,8 @@ export function BuocChungForm({
 
   const mayId = val("may_id", g.may_id) ?? null;
   const mayDaChon = (mayRefs ?? []).find((m) => m.id === mayId) ?? null;
-  // Nhân lực: số BỐ TRÍ + kíp chuẩn. Hai mốc tối thiểu/tối đa đã gỡ 06/09/2026 (mg `0270`) —
-  // cả hệ chỉ còn MỘT con số định mức, khai ở đầu việc của công đoạn.
-  const boTri = Math.max(1, Math.trunc(Number(val("so_nhan_cong", g.so_nhan_cong) ?? 1)) || 1);
+  // Nhân lực: MỘT con số — kíp chuẩn. Hai mốc tối thiểu/tối đa gỡ ở mg `0270`, ô "số người bố
+  // trí" gỡ ở mg `0281`; số này vừa chia thời lượng bước tổ vừa là số cân quân số tổ.
   const bienTc = val("so_nhan_cong_tieu_chuan", g.so_nhan_cong_tieu_chuan) ?? 1;
 
   // Thời lượng tính LẠI TẠI CHỖ bằng đúng công thức của bước lệnh: đổi máy / số lượt / thời gian
@@ -204,10 +203,7 @@ export function BuocChungForm({
       {
         loai_buoc: g.loai_buoc,
         so_luot_chay: String(val("so_luot_chay", g.so_luot_chay) ?? 1),
-        so_nhan_cong: String(val("so_nhan_cong", g.so_nhan_cong) ?? 1),
-        // Thời lượng chia theo KÍP CHUẨN (xem `thoi_luong_buoc` ở backend), không theo số bố trí.
-        // Trước đây chỗ này mượn tạm `so_nhan_cong` làm tiêu chuẩn vì form chưa có ô kíp chuẩn —
-        // hai bên lệch nhau ngay khi bố trí ≠ kíp chuẩn, xem-trước ra một số, lưu xong ra số khác.
+        // Thời lượng chia theo KÍP CHUẨN (xem `thoi_luong_buoc` ở backend).
         so_nhan_cong_tieu_chuan: Number(
           val("so_nhan_cong_tieu_chuan", g.so_nhan_cong_tieu_chuan) || 1,
         ),
@@ -220,7 +216,7 @@ export function BuocChungForm({
       mayDaChon,
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [g, f.so_luot_chay, f.so_nhan_cong, f.so_nhan_cong_tieu_chuan,
+    [g, f.so_luot_chay, f.so_nhan_cong_tieu_chuan,
      f.nang_suat, f.phat_sinh_phut, mayDaChon],
   );
 
@@ -535,30 +531,10 @@ export function BuocChungForm({
                     {g.loai_buoc === "may" ? "Nhân sự vận hành máy" : "Nhân sự làm tay"}
                   </h3>
                 </div>
-                {/* Cùng một hình với khối Nhân lực của bước lệnh: số BỐ TRÍ ở trên, kíp chuẩn ở
-                    dưới. Hai mốc tối thiểu/tối đa đã gỡ 06/09/2026 (mg `0270`). */}
+                {/* Cùng một hình với khối Nhân lực của bước lệnh: MỘT ô kíp chuẩn. Hai mốc tối
+                    thiểu/tối đa gỡ ở mg `0270`, ô "số người bố trí" gỡ ở mg `0281`. */}
                 <div className="khsx-labor-section">
-                  <label className="khsx-field">
-                    <span className="khsx-field__label">SỐ NGƯỜI BỐ TRÍ (KẾ HOẠCH)</span>
-                    <div className="khsx-input-unit-combine">
-                      <input
-                        type="number" min="1" className="khsx-input-combine__num"
-                        value={val("so_nhan_cong", g.so_nhan_cong) ?? ""}
-                        placeholder="1"
-                        disabled={!canUpdate}
-                        onChange={(e) => setF({ ...f, so_nhan_cong: Number(e.target.value) || 1 })}
-                      />
-                      <span className="khsx-input-combine__unit">người</span>
-                    </div>
-                    <span className="khsx-field__hint">
-                      Bàn xếp lịch cân quân số tổ theo đúng số này.{" "}
-                      {g.loai_buoc === "may"
-                        ? "Thêm người không làm máy chạy nhanh hơn."
-                        : "Không đổi thời lượng bước — thời lượng chia theo kíp chuẩn."}
-                    </span>
-                  </label>
-
-                  {/* KÍP CHUẨN — MỘT ô người duy nhất, kế thừa từ định mức đầu việc của công đoạn. */}
+                  {/* KÍP CHUẨN — ô nhân lực duy nhất, kế thừa từ định mức đầu việc của công đoạn. */}
                   <div className="khsx-labor-triplet-card">
                     <span className="khsx-field__label">KÍP CHUẨN (ĐỊNH MỨC CÔNG ĐOẠN)</span>
                     <div className="khsx-labor-triplet-grid">
@@ -571,30 +547,27 @@ export function BuocChungForm({
                           value={val("so_nhan_cong_tieu_chuan", g.so_nhan_cong_tieu_chuan) ?? ""}
                           placeholder="—"
                           disabled={!canUpdate}
-                          onChange={(e) => {
-                            const std = e.target.value === "" ? 1 : Math.max(1, Number(e.target.value) || 1);
-                            const cu = Math.max(1, Number(g.so_nhan_cong_tieu_chuan) || 1);
-                            // Kế hoạch đang bám kíp chuẩn ⇒ kéo theo cho khỏi lệch. Người khai đã
-                            // chỉnh tay số khác ⇒ giữ nguyên, không giẫm lên họ.
-                            setF(
-                              boTri === cu
-                                ? { ...f, so_nhan_cong_tieu_chuan: std, so_nhan_cong: std }
-                                : { ...f, so_nhan_cong_tieu_chuan: std },
-                            );
-                          }}
+                          onChange={(e) =>
+                            setF({
+                              ...f,
+                              so_nhan_cong_tieu_chuan:
+                                e.target.value === "" ? 1 : Math.max(1, Number(e.target.value) || 1),
+                            })
+                          }
                         />
                         <span className="khsx-labor-unit">người</span>
                       </label>
                     </div>
                     <span className="khsx-field__hint">
                       {g.loai_buoc === "may" ? (
-                        <>Kíp đứng máy chỉ để bàn xếp lịch cân người — không đổi thời lượng, vì thời
-                        lượng bước máy chạy theo tốc độ máy.</>
+                        <>Kíp đứng máy chỉ để bàn xếp lịch cân quân số tổ — không đổi thời lượng, vì
+                        thời lượng bước máy chạy theo tốc độ máy.</>
                       ) : (
                         <>
                           Kíp chuẩn <strong>rút ngắn thời gian</strong>: năng suất khoán khai theo
                           đầu người nên kíp {Math.max(1, Number(bienTc) || 1)} người làm nhanh gấp{" "}
-                          {Math.max(1, Number(bienTc) || 1)}.
+                          {Math.max(1, Number(bienTc) || 1)}. Bàn xếp lịch cũng{" "}
+                          <strong>cân quân số tổ</strong> theo đúng số này.
                         </>
                       )}
                     </span>

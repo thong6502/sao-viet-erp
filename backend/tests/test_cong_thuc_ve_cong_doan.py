@@ -161,7 +161,7 @@ def test_buoc_to_van_bao_so_luot_chay_mac_dinh_mot():
     from app.services.lsx_service import thoi_luong_buoc
 
     to = SimpleNamespace(
-        loai_buoc="to", so_luot_chay=2, nang_suat=100, so_nhan_cong=2,
+        loai_buoc="to", so_luot_chay=2, nang_suat=100,
         so_nhan_cong_tieu_chuan=2, phat_sinh_phut=0, so_luong_vao=1000,
         don_vi_vao="to", khoan_json={})
     dg = thoi_luong_buoc(to, None, (1000.0, "to", ""))["dien_giai"]
@@ -183,7 +183,7 @@ def test_so_luot_KHONG_nhan_vao_gio_cua_buoc_to():
 
     def _phut(luot):
         to = SimpleNamespace(
-            loai_buoc="to", so_luot_chay=luot, nang_suat=100, so_nhan_cong=1,
+            loai_buoc="to", so_luot_chay=luot, nang_suat=100,
             so_nhan_cong_tieu_chuan=1, phat_sinh_phut=0, so_luong_vao=1000,
             don_vi_vao="to", khoan_json={})
         return thoi_luong_buoc(to, None, (1000.0, "to", ""))["chiem_may_phut"]

@@ -1238,7 +1238,7 @@ def test_khoan_luot_chung_ghim_theo_id_va_chan_dau_viec_la(
     assert sau["khoan_ten"] == "In tờ rời" and sau["khoan_don_gia"] == 35
     assert rate.id in {k["id"] for k in sau["khoan_chon_duoc"]}
     # Định mức đi kèm: chọn xong mà năng suất vẫn trống thì thẻ vẫn kêu "Chưa có năng suất".
-    assert sau["nang_suat"] == 3000 and sau["so_nhan_cong"] == 2
+    assert sau["nang_suat"] == 3000 and sau["so_nhan_cong_tieu_chuan"] == 2
     assert "Chưa có năng suất" not in sau["thieu"]
 
     # Đầu việc không thuộc tổ / công đoạn → CHẶN, không âm thầm ghim.
