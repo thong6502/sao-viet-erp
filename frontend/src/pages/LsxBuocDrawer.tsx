@@ -21,6 +21,7 @@ import {
   capMon,
   heSoChu,
   mayChonDuoc,
+  nhanChang,
   nhanDonVi,
   phut,
   tenBuoc,
@@ -603,116 +604,9 @@ export function LsxBuocDrawer({
                   gán vẫn còn nguyên trong DB, chỉ không bày cửa gán/gỡ ở drawer nữa — bật lại là
                   trả `<TagPicker buocLoai="lsx" buocId={row.id} …>` vào đúng chỗ này. */}
 
-              {/* Tiêu chí KCS bổ sung (module KCS kiêm nhiệm, mg 0250, Task 3) — CHỈ hiện khi bước
-                  là KCS. Nối SAU checklist chuẩn của danh mục lúc phát hành (`nguon="bo_sung_lsx"`,
-                  `thu_tu` 1000+) — không sửa được checklist danh mục ở đây, chỉ thêm/bớt vài dòng
-                  riêng cho lệnh này. */}
-              {row.la_kcs && (
-                <section className="khsx-section-card">
-                  <div className="khsx-section-card__head">
-                    <div>
-                      <h3 className="khsx-section-card__title">Tiêu chí KCS bổ sung</h3>
-                      <p className="khsx-section-card__sub">
-                        Chỉ áp dụng riêng cho lệnh này — không sửa được checklist chuẩn ở danh mục
-                        Tiêu chí KCS.
-                      </p>
-                    </div>
-                    <span className="khsx-badge-count">
-                      {row.kcs_tieu_chi_bo_sung_json.length} tiêu chí
-                    </span>
-                  </div>
-
-                  {row.kcs_tieu_chi_bo_sung_json.length === 0 && (
-                    <p className="khsx-hint-muted">Chưa có tiêu chí bổ sung nào cho lệnh này.</p>
-                  )}
-
-                  {row.kcs_tieu_chi_bo_sung_json.map((tc, i) => (
-                    <div
-                      key={i}
-                      style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}
-                    >
-                      <input
-                        className="khsx-input-std"
-                        style={{ flex: "1 1 38%" }}
-                        placeholder="Tên tiêu chí"
-                        value={tc.ten}
-                        disabled={!canUpdate}
-                        onChange={(e) =>
-                          set(
-                            "kcs_tieu_chi_bo_sung_json",
-                            row.kcs_tieu_chi_bo_sung_json.map((x, j) =>
-                              j === i ? { ...x, ten: e.target.value } : x,
-                            ),
-                          )
-                        }
-                      />
-                      <input
-                        className="khsx-input-std"
-                        style={{ flex: "1 1 38%" }}
-                        placeholder="Hướng dẫn (tuỳ chọn)"
-                        value={tc.huong_dan ?? ""}
-                        disabled={!canUpdate}
-                        onChange={(e) =>
-                          set(
-                            "kcs_tieu_chi_bo_sung_json",
-                            row.kcs_tieu_chi_bo_sung_json.map((x, j) =>
-                              j === i ? { ...x, huong_dan: e.target.value || null } : x,
-                            ),
-                          )
-                        }
-                      />
-                      <label className={`khsx-check-pill ${tc.bat_buoc ? "is-checked" : ""}`}>
-                        <input
-                          type="checkbox"
-                          checked={tc.bat_buoc}
-                          disabled={!canUpdate}
-                          onChange={(e) =>
-                            set(
-                              "kcs_tieu_chi_bo_sung_json",
-                              row.kcs_tieu_chi_bo_sung_json.map((x, j) =>
-                                j === i ? { ...x, bat_buoc: e.target.checked } : x,
-                              ),
-                            )
-                          }
-                        />
-                        <span className="khsx-check-pill__text">Bắt buộc</span>
-                      </label>
-                      {canUpdate && (
-                        <button
-                          type="button"
-                          className="khsx-vattu-del-btn"
-                          title="Xoá tiêu chí bổ sung"
-                          onClick={() =>
-                            set(
-                              "kcs_tieu_chi_bo_sung_json",
-                              row.kcs_tieu_chi_bo_sung_json.filter((_, j) => j !== i),
-                            )
-                          }
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M18 6L6 18M6 6l12 12" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
-                  ))}
-
-                  {canUpdate && (
-                    <button
-                      type="button"
-                      className="khsx-vattu-sync-all-btn"
-                      onClick={() =>
-                        set("kcs_tieu_chi_bo_sung_json", [
-                          ...row.kcs_tieu_chi_bo_sung_json,
-                          { ten: "", huong_dan: null, bat_buoc: true },
-                        ])
-                      }
-                    >
-                      + Thêm tiêu chí
-                    </button>
-                  )}
-                </section>
-              )}
+              {/* Ô "Tiêu chí KCS bổ sung" GỠ 08/09/2026 (mg 0283): tiêu chí KCS chỉ còn MỘT
+                  nguồn là danh mục Tiêu chí KCS gắn theo công đoạn, khai một lần áp cho mọi
+                  lệnh chạy công đoạn đó. Xem `docs/design-kcs-theo-cong-doan.md` mục 5. */}
 
               {/* Khối Dòng chảy Số lượng (Production Flow Pipeline) */}
               <section className="khsx-section-card">
@@ -720,6 +614,10 @@ export function LsxBuocDrawer({
                   <h3 className="khsx-section-card__title">Dòng chảy số lượng & hao hụt</h3>
                 </div>
 
+                {/* Băng giải thích "bước không nằm trên dòng giấy" ĐÃ BỎ 09/09/2026 theo yêu cầu —
+                    nó chỉ mô tả lại cách máy tính số, không đòi người khai làm gì. `tren_dong_giay`
+                    vẫn về từ API và vẫn lái cách tính, chỉ không bày một câu chữ ở đây nữa.
+                    Băng ĐỎ dưới đây GIỮ: nó báo lệnh KHÔNG phát hành được, phải khai cầu quy đổi. */}
                 {row.loi_quy_doi ? (
                   <div className="khsx-note-banner khsx-note-banner--error">
                     <span className="khsx-note-icon">⚠</span>
@@ -727,14 +625,6 @@ export function LsxBuocDrawer({
                       <strong>Chưa tính được số vào.</strong> {row.loi_quy_doi}{" "}
                       Khai cầu quy đổi ở module <strong>Đơn vị &amp; quy đổi</strong> rồi mở lại
                       bước — không có cầu thì lệnh không phát hành được.
-                    </span>
-                  </div>
-                ) : row.tren_dong_giay === false ? (
-                  <div className="khsx-note-banner">
-                    <span>
-                      Bước này <strong>không nằm trên dòng giấy</strong> (đếm bằng{" "}
-                      {dvNhan(row.don_vi_vao)}) nên số vào suy từ số ra qua hệ số quy đổi + bù hao,
-                      không tính ngược từ bước cuối.
                     </span>
                   </div>
                 ) : null}
@@ -1608,7 +1498,7 @@ export function LsxBuocDrawer({
                         <div className="khsx-time-row__formula-card" style={{ marginTop: 0 }}>
                           <div className="khsx-formula-compact">
                             <span className="khsx-formula-token khsx-formula-token--qty">
-                              {tg.quy_doi_dien_giai ? String(tg.quy_doi_dien_giai) : `${num(Number(tg.so_luong_vao ?? 0))} ${nhanDonVi(tg.don_vi_vao as string | null)}`}
+                              {tg.quy_doi_dien_giai ? String(tg.quy_doi_dien_giai) : `${num(Number(tg.so_luong_vao ?? 0))} ${nhanChang(tg.don_vi_vao as string | null)}`}
                             </span>
                             <span className="khsx-formula-op">÷</span>
                             {row.loai_buoc === "to" && Number(tg.so_nhan_cong_tinh ?? 1) > 1 ? (

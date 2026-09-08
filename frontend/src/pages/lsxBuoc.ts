@@ -3,7 +3,7 @@
 // Tách riêng khỏi cả hai để không vòng import, và để chỗ nào cũng nhìn cùng một hình dạng dòng.
 // Mọi ô số giữ dạng CHUỖI: ô trống ("") khác 0 — trống nghĩa là "chưa khai, dùng gợi ý", còn 0 là
 // người dùng cố tình khai bằng 0. Ép sang number quá sớm sẽ xoá mất sự khác nhau đó.
-import { tenDonVi } from "./tenDonVi";
+import { nhanTram, tenDonVi } from "./tenDonVi";
 import type {
   LsxCongDoan,
   LsxCongDoanBody,
@@ -34,12 +34,10 @@ export interface EditRow {
   loai_buoc: LsxLoaiBuoc;
   /* `bat_buoc` GỠ khỏi form 07/09/2026: bước đã nằm trong routing thì PHẢI làm — không còn ô
      tick, không còn nhãn "tùy chọn", server cũng thôi nhận field này (xem migration 0275). */
-  /** KCS kiêm nhiệm (mg 0250): bước này có phải KCS không — quyết định khối "Tiêu chí KCS bổ
-   *  sung" có hiện trong drawer hay không. */
+  /** KCS kiêm nhiệm (mg 0250): bước này có thuộc tổ KCS không. Ô "Tiêu chí KCS bổ sung" đã GỠ
+   *  08/09/2026 (mg 0283) — tiêu chí chỉ còn MỘT nguồn là danh mục gắn theo công đoạn, xem
+   *  `docs/design-kcs-theo-cong-doan.md`. */
   la_kcs: boolean;
-  /** Tiêu chí KCS BỔ SUNG riêng cho LỆNH này (không sửa được checklist danh mục ở đây) — sửa qua
-   *  chính helper `set("kcs_tieu_chi_bo_sung_json", …)`, giống khuôn `vat_tus`. */
-  kcs_tieu_chi_bo_sung_json: { ten: string; huong_dan: string | null; bat_buoc: boolean }[];
   department_id: number | null;
   /** Tên tổ phụ trách server RESOLVE lúc đọc (kể cả khi `department_id` null vì lấy tổ mặc định của
    *  công đoạn). CHỈ ĐỌC — tổ khai ở danh mục Công đoạn, drawer chỉ bày lại, không cho đổi. */
@@ -202,7 +200,6 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     nhom: cd.nhom,
     loai_buoc: cd.loai_buoc,
     la_kcs: !!cd.la_kcs,
-    kcs_tieu_chi_bo_sung_json: cd.kcs_tieu_chi_bo_sung_json ?? [],
     department_id: cd.department_id,
     department_ten: cd.department_ten ?? null,
     may_id: cd.may_id,
@@ -330,7 +327,7 @@ export function mayChonDuoc<T extends { id: number; nhom?: string | null }>(
 export function emptyRow(): EditRow {
   return {
     key: newKey(), id: null, cong_doan_id: null, ten: "", nhom: null, loai_buoc: "may",
-    la_kcs: false, kcs_tieu_chi_bo_sung_json: [],
+    la_kcs: false,
     department_id: null, department_ten: null, may_id: null,
     requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ma: null,
     khuon_be_ten: null, khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
@@ -445,10 +442,8 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       loai_buoc: r.loai_buoc,
       // KHÔNG gửi `bat_buoc` (07/09/2026): mọi bước trong routing đều bắt buộc, cột để server tự
       // giữ TRUE. Gửi lại chỉ mở đường ghi nhầm `false` trong khi drawer không còn ô sửa.
-      // Tiêu chí KCS BỔ SUNG riêng của lệnh — KHÔNG gửi `la_kcs` ở đây: Task 3 chưa có ô sửa cờ
-      // này trên drawer (kế thừa nguyên từ danh mục Công đoạn lúc bung routing), gửi lại giá trị
-      // cũ vô nghĩa mà thêm rủi ro ghi nhầm nếu sau này FE thêm ô sửa mà quên đồng bộ đây.
-      kcs_tieu_chi_bo_sung_json: r.kcs_tieu_chi_bo_sung_json,
+      // KHÔNG gửi `la_kcs`: drawer không có ô sửa cờ này (kế thừa nguyên từ danh mục Công đoạn
+      // lúc bung routing), gửi lại giá trị cũ vô nghĩa mà thêm rủi ro ghi nhầm.
       // Để TRỐNG tổ → server tự lấy tổ mặc định của công đoạn (không ép khai lại).
       department_id: r.department_id,
       may_id: r.may_id,
@@ -564,7 +559,12 @@ export type ThoiLuongInput = Pick<
   | "thoi_luong_dien_giai"
   | "don_vi_vao"
   | "so_luong_vao"
->;
+> & {
+  /** Có để phân biệt "chưa gán máy" với "quy đổi tịt" trong câu cảnh báo — hai lỗi khác chỗ khai.
+   *  Optional để bước chung của bài ghép (dựng object bằng tay) không phải khai thêm; vắng thì câu
+   *  cảnh báo giữ nguyên như cũ. */
+  may_id?: number | null;
+};
 
 export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Record<string, unknown> {
   const f = (v: string | number | null | undefined): number => {
@@ -640,9 +640,17 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
   if (!daQuyDoi) {
     phuongPhap = "chua_quy_doi";
     chay = chayNhanh = chayCham = 0;
+    // CHƯA GÁN MÁY nói câu khác: bước máy trống máy thì server không có ĐÍCH nào để quy về — cách
+    // đo giờ chạy lẫn tốc độ đều treo ở cặp (công đoạn × máy). Câu "chưa quy đổi" ở ca này chỉ
+    // người ta sang Đơn vị & quy đổi, khai xong cũng không cứu được gì. Mã `phuong_phap` vẫn giữ
+    // `chua_quy_doi` — xếp lịch phân nhánh theo mã đó, chỉ CÂU cần đổi. `may_id === undefined`
+    // (bài ghép không truyền) coi như không biết ⇒ giữ câu cũ.
     canhBao.push(
-      "Chưa quy đổi được số lượng vào sang đơn vị của tốc độ nên không tính được thời gian chạy. " +
-      "Khai cầu quy đổi (hoặc công thức cho đơn vị đó) ở Cấu hình danh mục → Đơn vị & quy đổi."
+      theoMay && r.may_id === null
+        ? "Bước chưa gán máy nên chưa biết chạy trên máy nào — chọn máy ở tab Phân công & Thiết bị. "
+          + "Cách đo giờ chạy và tốc độ đều khai theo cặp (công đoạn × máy)."
+        : "Chưa quy đổi được số lượng vào sang đơn vị của tốc độ nên không tính được thời gian chạy. "
+          + "Khai cầu quy đổi (hoặc công thức cho đơn vị đó) ở Cấu hình danh mục → Đơn vị & quy đổi."
     );
   } else if (phuongPhap === "thieu_nang_suat") {
     canhBao.push("Máy đang gán chưa khai tốc độ (hoặc bước chưa gán máy) nên không tính được thời gian chạy.");
@@ -716,10 +724,26 @@ export function phut(v: number): string {
   return du ? `${gio} giờ ${du} phút` : `${gio} giờ`;
 }
 
-/** Mã đơn vị → TÊN trong danh mục (`to` → "tờ"). Chưa nạp xong / mã lạ ⇒ trả mã trần.
- *  Không còn bảng nhãn cứng — xem `tenDonVi.ts`. */
+/** Mã đơn vị → TÊN trong danh mục (`kg` → "kg", `thung` → "thùng"). Chưa nạp xong / mã lạ ⇒ trả mã
+ *  trần. Không còn bảng nhãn cứng — xem `tenDonVi.ts`.
+ *
+ *  Dùng cho ĐƠN VỊ THẬT: vật tư, kho, ĐVT sản phẩm, đơn giá khoán. Cột `don_vi_vao`/`don_vi_ra`
+ *  của công đoạn / bước / công việc tổ KHÔNG đi qua đây — chúng giữ mã CHẶNG, dùng `nhanChang`. */
 export function nhanDonVi(dv: string | null | undefined): string {
   return dv ? tenDonVi(dv) ?? dv : "";
+}
+
+/** Mã CHẶNG dòng giấy → nhãn ("to" → "tờ in", "cai" → "thành phẩm"). Cho mọi cột kế thừa
+ *  `cong_doan.don_vi_vao/ra`: bước lệnh · bước bài ghép · công việc tổ · chuỗi bù hao phiếu tính giá.
+ *
+ *  Vì sao KHÔNG gộp thẳng vào `nhanDonVi`: `to · con · tay · cai` cũng là mã đơn vị THẬT trong danh
+ *  mục (đơn giá khoán đ/tờ, vật tư bán theo cái). Đổi nhãn ở đó thì "70 đ/cái" hoá "70 đ/thành phẩm".
+ *  Hai từ vựng trùng chuỗi mã, phải tách ở nơi gọi — xem `tenDonVi.ts`.
+ *
+ *  Mã không phải chặng thì RƠI VỀ danh mục đơn vị: bước ngoài dòng giấy (ghi kẽm, đóng thùng) và
+ *  dữ liệu trước 06/09/2026 vẫn giữ mã đơn vị thật ở hai cột này. */
+export function nhanChang(dv: string | null | undefined): string {
+  return dv ? nhanTram(dv) ?? nhanDonVi(dv) : "";
 }
 
 export interface DonViChuoi {
@@ -756,12 +780,12 @@ export interface MaDonViChuoi {
  *  đã nói CHẶNG ("Vào máy" · "Giấy nguyên") nên rỗng cũng không mất nghĩa.
  */
 export function donViChuoi(src: MaDonViChuoi, dvSanPham?: string | null): DonViChuoi {
-  const to = nhanDonVi(src.don_vi_to);
+  const to = nhanChang(src.don_vi_to);
   return {
     to,
-    tp: nhanDonVi(src.don_vi_tp) || dvSanPham || "",
-    tay: nhanDonVi(src.don_vi_tay),
-    toNguyen: nhanDonVi(src.don_vi_to_nguyen) || to,
+    tp: nhanChang(src.don_vi_tp) || dvSanPham || "",
+    tay: nhanChang(src.don_vi_tay),
+    toNguyen: nhanChang(src.don_vi_to_nguyen) || to,
   };
 }
 
@@ -780,6 +804,6 @@ export function heSoChu(
   if (!dvVao || !dvRa || dvVao === dvRa || !Number.isFinite(hs) || hs === 1 || hs <= 0) return null;
   const so = (v: number) => v.toLocaleString("vi-VN", { maximumFractionDigits: 4 });
   return hs < 1
-    ? `${so(1 / hs)} ${nhanDonVi(dvVao)} = 1 ${nhanDonVi(dvRa)}`
-    : `1 ${nhanDonVi(dvVao)} = ${so(hs)} ${nhanDonVi(dvRa)}`;
+    ? `${so(1 / hs)} ${nhanChang(dvVao)} = 1 ${nhanChang(dvRa)}`
+    : `1 ${nhanChang(dvVao)} = ${so(hs)} ${nhanChang(dvRa)}`;
 }

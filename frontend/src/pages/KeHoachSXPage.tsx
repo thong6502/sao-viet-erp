@@ -21,7 +21,7 @@ import { Pager, trangHopLe } from "../components/Pager";
 import { StatusTabs } from "../components/StatusTabs";
 import { LsxDetailView } from "./LsxDetailView";
 import { LsxPreviewDrawer } from "./LsxPreviewDrawer";
-import { nhanDonVi } from "./lsxBuoc";
+import { nhanChang } from "./lsxBuoc";
 import { useNapTenDonVi } from "./tenDonVi";
 import {
   BangLoi,
@@ -620,7 +620,7 @@ function LenhTable({
                         {l.so_to_ke_hoach > 0 ? (
                           <>
                             <b>{num(l.so_to_ke_hoach)}</b>{" "}
-                            <small>{nhanDonVi(l.don_vi_to)}</small>
+                            <small>{nhanChang(l.don_vi_to)}</small>
                           </>
                         ) : (
                           <span className="khsx-muted">—</span>

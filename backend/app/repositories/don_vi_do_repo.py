@@ -95,6 +95,31 @@ class DonViDoRepository(CatalogRepo):
         """
         return {(d.ma or "").strip().lower(): d.ten for d in self.all_rows() if (d.ma or "").strip()}
 
+    def ma_theo_ten(self) -> dict[str, str]:
+        """Bảng tra NGƯỢC TÊN → MÃ: `{"cái": "cai", "bản kẽm": "kem"}` — gương của `ten_theo_ma`.
+
+        Dùng để ĐỠ những đường nhập vào cầm TÊN mà cột đích giữ MÃ: ĐVT của phiếu tính giá / báo
+        giá / đơn hàng cố ý lưu TÊN vì nó IN CHO KHÁCH (xem `PhieuTinhGiaDetailView.useDanhMucDonVi`),
+        nhưng `vat_tu_in_an.don_vi_gia` là MÃ. Ghi thẳng chuỗi "cái" vào cột mã là màn danh mục
+        báo đỏ "không có trong danh mục" mà không ai gõ sai gì cả.
+
+        `ten` KHÔNG unique: tên trùng nhau ⇒ BỎ HẲN khỏi bảng, không chọn bừa một mã. Thà để nơi
+        gọi coi như không tra được (ô trống, người dùng chọn tay) còn hơn gán sai đơn vị vào hàng.
+
+        Dùng `all_rows()` cùng lý do `ten_theo_ma`: chứng từ cũ trỏ vào đơn vị đã ngừng vẫn phải
+        tra ra được. Chặn GÁN MỚI đơn vị ngừng dùng là việc của `_kiem_don_vi`, không phải ở đây.
+        """
+        dem: dict[str, int] = {}
+        bang: dict[str, str] = {}
+        for d in self.all_rows():
+            ma = (d.ma or "").strip()
+            ten = (d.ten or "").strip().lower()
+            if not ma or not ten:
+                continue
+            dem[ten] = dem.get(ten, 0) + 1
+            bang[ten] = ma
+        return {t: m for t, m in bang.items() if dem[t] == 1}
+
     def distinct_ho(self) -> list[str]:
         """Họ đã có trong dữ liệu — gợi ý cho ô "Họ" (form MỞ, không phải whitelist)."""
         rows = self.db.execute(

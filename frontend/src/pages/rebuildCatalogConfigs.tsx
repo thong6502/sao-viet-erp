@@ -5,7 +5,9 @@
 import { useEffect, useState } from "react";
 import type { CatalogConfig, ChuanBiKhoanRow } from "./RebuildCatalogPage";
 import { ClockIcon, tongChuanBi } from "./RebuildCatalogPage";
+import { nhanDonViTocDo } from "./danh-muc/fields/DonViTocDo";
 import { nhanTo } from "./danh-muc/nhanTo";
+import { nhanTramDai, tramOptions } from "./tenDonVi";
 import { NHOM_CONG_DOAN } from "./keHoachSxShared";
 import { QuyDoiCuaDonVi } from "./QuyDoiCuaDonVi";
 import { KhoViTriPanel } from "./KhoViTriPanel";
@@ -45,8 +47,11 @@ const CHIP_KHUON = ["dai_khuon", "rong_khuon", "so_khuon"];
 const AN_CHIP_KHUON = (form: Record<string, unknown>) =>
   form.requires_tooling && String(form.tooling_type ?? "") === "khuon_ep" ? [] : CHIP_KHUON;
 
-// 5 CHẶNG của dòng giấy — menu ĐÓNG của ô "Đơn vị đầu vào / đầu ra" ở màn Công đoạn (06/09/2026),
-// khớp `models/don_vi_do.TRAM_DONG_GIAY` bên backend (service chặn giá trị lạ).
+// 5 CHẶNG của dòng giấy — nhãn lấy từ `/api/don-vi/tram` (hằng `models/don_vi_do.TRAM_NHAN`),
+// màn này KHÔNG giữ bản sao nữa. Bảng cứng `TRAM_DONG_GIAY` từng nằm đây GỠ 09/09/2026: nó là
+// bảng nhãn THỨ HAI cho cùng 5 mã, nên một bước Đóng gói hiện "Con → Thành phẩm" ở màn này mà
+// "20.000 con → 20.000 cái" ở phiếu tính giá — hai màn đọc hai bảng khác nhau. Nhãn nạp cùng
+// chuyến với danh mục Đơn vị (`useNapTenDonVi`, gọi ở `danh-muc/CatalogListPage`), xem `tenDonVi.ts`.
 //
 // Tờ giấy đổi cách đếm đúng 5 lần, chảy MỘT CHIỀU:
 //   tờ nguyên ──(số mảnh xả)──▶ tờ in ──(con/tờ)──▶ con ──▶ thành phẩm
@@ -54,16 +59,24 @@ const AN_CHIP_KHUON = (form: Record<string, unknown>) =>
 // `con` KHÁC `thành phẩm`: sách gấp tay thì nhiều tờ mới gom thành MỘT cuốn. Hệ số các cầu này
 // SUY ở `_he_so_cau` từ quy cách lệnh, không khai tay.
 //
-// Đây là menu đóng THẬT: engine chạy chuỗi bù hao theo đúng 5 mức này, thêm mức thứ 6 là phải khai
+// Đây là menu ĐÓNG thật: engine chạy chuỗi bù hao theo đúng 5 mức này, thêm mức thứ 6 là phải khai
 // cả hệ số cầu của nó trong code — nên nó KHÔNG mở ra danh mục Đơn vị & quy đổi (nơi có kg, ram,
 // thùng… của kho và mua hàng). Trước 06/09/2026 hai ô đó là picker vào danh mục, còn "chặng nào"
 // thì khai gián tiếp bằng cờ `don_vi_do.tram_dong_giay`; cờ ấy đã gỡ khỏi màn Đơn vị.
-const TRAM_DONG_GIAY: Lbls = {
-  to_nguyen: "Tờ nguyên (giấy mua về)",
-  to: "Tờ in",
-  con: "Con (mảnh bế ra)",
-  tay: "Tay sách",
-  cai: "Thành phẩm",
+
+/** Cặp chặng "vào → ra" cho Ô DANH SÁCH: cắt phần trong ngoặc để lọt bề ngang cột (`Tờ nguyên
+ *  (giấy mua về)` → `Tờ nguyên`), nhãn đủ nằm ở `title` khi rê chuột. Mã lạ (giá trị cũ còn sót)
+ *  thì hiện NGUYÊN mã, đừng nuốt — nuốt là người ta tưởng bước không chạm giấy. */
+const tramNgan = (v: unknown) => {
+  const s = String(v ?? "").trim();
+  if (!s) return "—";
+  return (nhanTramDai(s) ?? s).replace(/\s*\(.*$/, "");
+};
+const tramVaoRa = (vao: unknown, ra: unknown) => {
+  const co = (x: unknown) => x != null && x !== "";
+  if (!co(vao) && !co(ra)) return "—";
+  const day = [vao, ra].map((x) => (co(x) ? (nhanTramDai(String(x)) ?? String(x)) : "—")).join(" → ");
+  return <span title={day}>{`${tramNgan(vao)} → ${tramNgan(ra)}`}</span>;
 };
 
 // Cách công đoạn góp bù hao — trỏ 1 mã bù hao (tra bảng theo SL), hoặc cộng cố định.
@@ -151,16 +164,8 @@ export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
 
 // Form MỞ (phẳng): mọi ô luôn hiện, không phân loại cứng. Chủ xưởng tự đặt "Nhóm máy"
 // (chữ tự do) rồi nhập khổ kẽm / nhíp / khổ giấy / vùng in / ghi chú.
-// Nhãn đơn vị tốc độ ở BẢNG DANH SÁCH: server đã tra sẵn tên thật (`don_vi_toc_do_ten`, xem
-// `may_thiet_bi_service.gan_ten_don_vi`) nên chỉ việc đọc.
-//
-function nhanDonViTocDo(r: Row): string {
-  const ten = String(r.don_vi_toc_do_ten ?? "").trim();
-  if (ten) return `${ten}/h`;
-  const ma = String(r.don_vi_toc_do ?? "").trim();
-  if (!ma) return "";
-  return `${ma.endsWith("_gio") ? ma.slice(0, -4) : ma}/h`;
-}
+// Nhãn đơn vị tốc độ DỜI sang `fields/DonViTocDo` (08/09/2026): bảng "Máy chạy được công đoạn này"
+// của drawer Công đoạn nay cũng bày đơn vị của máy, hai bản sao là hai màn nói lệch nhau.
 
 export const CFG_MAY: CatalogConfig = {
   title: "Thiết bị & Máy móc",
@@ -356,14 +361,12 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   facet: { key: "nhom", values: mapOpt(NHOM_CD) },
   columns: [
     { key: "nhom", label: "Giai đoạn", render: (r) => lbl(NHOM_CD)(r.nhom) },
-    // Nhìn ra ngay bước nào ĐỔI ĐƠN VỊ, và bước nào để trống (không nằm trên dòng giấy).
-    // Tên đọc từ DANH MỤC (server gán) — không có bảng nhãn thứ hai trong code. Chưa khai đơn vị
-    // thì hiện "—", đúng nghĩa "bước không chạm giấy", chứ không bịa tên.
-    { key: "don_vi_vao", label: "Đơn vị", render: (r) => {
-        const vao = r.don_vi_vao_ten ?? r.don_vi_vao;
-        const ra = r.don_vi_ra_ten ?? r.don_vi_ra;
-        return vao || ra ? `${String(vao ?? "—")} → ${String(ra ?? "—")}` : "—";
-      } },
+    // Nhìn ra ngay bước nào ĐỔI CHẶNG, và bước nào để trống (không nằm trên dòng giấy).
+    // Nhãn lấy từ `/api/don-vi/tram` — CÙNG nguồn mà ô chọn trong drawer dùng. Trước 08/09/2026 cột này đọc
+    // `don_vi_vao_ten` server gán, mà server tra mã chặng vào danh mục Đơn vị & quy đổi: cùng một
+    // bước hiện "con → cái" ở danh sách nhưng "Con (mảnh bế ra) → Thành phẩm" trong drawer.
+    // Chưa khai thì hiện "—", đúng nghĩa "bước không chạm giấy", chứ không bịa tên.
+    { key: "don_vi_vao", label: "Đơn vị", render: (r) => tramVaoRa(r.don_vi_vao, r.don_vi_ra) },
     { key: "kieu_bu_hao", label: "Bù hao", render: (r) =>
         r.kieu_bu_hao === "co_dinh" ? `Cố định ${r.so_to_bu_hao ?? 50} tờ` : lbl(KIEU_BU_HAO)(r.kieu_bu_hao ?? "khong") },
     // Nhìn ra công đoạn nào chưa khai số cho Lệnh sản xuất (giống cột Tốc độ bên màn Máy).
@@ -422,10 +425,10 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // chúng (`CAU_TRAM` bên backend) — thêm chặng thứ 6 là phải sửa code chứ không phải khai danh mục.
     // Để TRỐNG cả hai = bước NGOÀI dòng giấy (ghi kẽm, đóng thùng…): số lượng của nó tự tính bằng
     // "Công thức sản lượng ra" phía dưới, không dính chuỗi bù hao của giấy.
-    { key: "don_vi_vao", label: "Đơn vị đầu vào", type: "select", options: mapOpt(TRAM_DONG_GIAY),
+    { key: "don_vi_vao", label: "Đơn vị đầu vào", type: "select", options: tramOptions,
       group: "Đơn vị", default: "to",
       hint: "Để trống = bước không nằm trên dòng giấy (ghi kẽm, đóng thùng…). Trống thì phải trống CẢ HAI ô." },
-    { key: "don_vi_ra", label: "Đơn vị đầu ra", type: "select", options: mapOpt(TRAM_DONG_GIAY),
+    { key: "don_vi_ra", label: "Đơn vị đầu ra", type: "select", options: tramOptions,
       group: "Đơn vị", default: "to",
       hint: "Chảy một chiều: tờ nguyên → tờ in → con / tay sách → thành phẩm. Không đi ngược." },
     // HỆ SỐ vào→ra KHÔNG còn khai tay ở đây (gỡ `he_so_ngoai_dong` 20/08/2026). Với bước ngoài
@@ -645,7 +648,7 @@ export const CFG_VAT_TU: CatalogConfig = {
   softDelete: true,
   columns: [
     { key: "don_vi_gia", label: "ĐVT", render: (r) => dvCell(r) },
-    { key: "don_gia", label: "Đơn giá", render: (r) => (Number(r.don_gia) ? Number(r.don_gia).toLocaleString("vi-VN") : "") },
+    // Cột "Đơn giá" ĐÃ ẨN 09/09/2026 — xem khối chú thích ở `fields` bên dưới.
     { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "") },
   ],
   fields: [
@@ -653,20 +656,28 @@ export const CFG_VAT_TU: CatalogConfig = {
     // người dùng nhớ luật vô ích. Cần "1 thùng keo = 20 kg" thì khai thẳng đơn vị đó trong danh
     // mục Đơn vị & quy đổi rồi chọn ở ô ĐVT — một nơi duy nhất cho mọi quy đổi.
     { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", ...F_DON_VI, group: "Thông số" },
-    // Đơn giá chốt ở danh mục — engine phơi thành ĐÚNG MỘT biến `don_gia` cho công thức vật tư
-    // (đã quy về đơn vị cơ sở; `don_gia_kg`/`don_gia_m2` gỡ 11/08/2026 vì trùng nghĩa).
-    { key: "don_gia", label: "Đơn giá", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn — dùng làm biến don_gia trong công thức" },
-    // Ô "cong_thuc_gia" (công thức ra TIỀN cho dòng vật tư trên phiếu tính giá) ĐÃ ẨN khỏi drawer
-    // theo yêu cầu — cột DB, dữ liệu cũ và đường engine (`thanh_phan_engine`/`tinh_gia_service`)
-    // vẫn nguyên; chỉ không cho khai mới ở đây. Cần mở lại thì thêm field formula `cong_thuc_gia`
-    // với `nhanTab: "Công thức tính giá"`.
+    // ẨN KHỎI UI 09/09/2026 — cùng lối đã làm với `cong_thuc_gia`: giấu ô, GIỮ NGUYÊN cột DB,
+    // dữ liệu cũ và mọi đường engine. Hai thứ bị giấu ở màn này:
+    //
+    //   · `don_gia` — cả ô trong drawer LẪN cột trong bảng. Cột `vat_tu_in_an.don_gia` còn
+    //     nguyên, engine vẫn phơi biến `don_gia` cho công thức vật tư (`thanh_phan_engine` /
+    //     `tinh_gia_service`), Excel nhập/xuất vẫn mang cột này — chỉ là không khai/không xem
+    //     bằng tay ở đây nữa.
+    //   · `thay_the_ids` ("Vật tư thay thế", mục 5 "Bảng định mức", mg 0239) — quan hệ MỘT CHIỀU
+    //     để tra cứu khi thiếu hàng. API `/api/vat-lieu-kho/vat-tu-in-an` vẫn nhận và trả nó.
+    //
+    // Cần mở lại thì thêm về đúng chỗ này:
+    //   { key: "don_gia", label: "Đơn giá", type: "number", group: "Giá",
+    //     hint: "Đơn giá theo ĐVT đã chọn — dùng làm biến don_gia trong công thức" },
+    //   { key: "thay_the_ids", label: "Vật tư thay thế", type: "self-ref-multi",
+    //     refPrefix: "/api/vat-lieu-kho/vat-tu-in-an", group: "Ghi chú", hint: "..." },
+    // và trả cột `don_gia` vào `columns`. Ô của GIẤY (CFG_GIAY) GIỮ NGUYÊN — giấy chốt đơn giá/kg
+    // ở danh mục là luật riêng của nó, đừng gỡ theo.
+    //
+    // Ô "cong_thuc_gia" (công thức ra TIỀN cho dòng vật tư trên phiếu tính giá) ĐÃ ẨN từ trước.
     // Ô "Công thức tính lượng" ĐÃ GỠ (06/09/2026): định mức khai theo TỪNG DÒNG vật tư trong đầu
-    // việc của công đoạn. Ô của GIẤY (CFG_GIAY) GIỮ NGUYÊN — câu hỏi khác.
+    // việc của công đoạn.
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
-    // NVL thay thế (mục 5 "Bảng định mức", mg 0239) — tra cứu/gợi ý khi thiếu hàng, MỘT CHIỀU.
-    { key: "thay_the_ids", label: "Vật tư thay thế", type: "self-ref-multi",
-      refPrefix: "/api/vat-lieu-kho/vat-tu-in-an", group: "Ghi chú",
-      hint: "Vật tư khác dùng thay được món này khi thiếu hàng. Chỉ để tra cứu, không tự suy chiều ngược lại." },
   ],
 };
 
@@ -853,42 +864,6 @@ export const CFG_LY_DO_SAN_XUAT: CatalogConfig = {
   ],
 };
 
-// Checklist KCS kiêm nhiệm (module KCS kiêm nhiệm, mg 0250, Task 3): tiêu chí kiểm tra chuẩn hoá
-// + công đoạn nào áp dụng. Khi phát hành lệnh, checklist áp dụng của mỗi bước KCS được CHỤP
-// (snapshot) xuống `san_xuat_cong_viec.kcs_tieu_chi_json` — đổi danh mục sau đó không ảnh hưởng
-// tới việc đã phát hành (xem `backend/app/services/san_xuat/snapshot.py`).
-export const CFG_KCS_TIEU_CHI: CatalogConfig = {
-  title: "Tiêu chí KCS",
-  moduleQuyen: "dm_kcs_tieu_chi",
-  enableImport: false,   // v1 không mở Excel cho danh mục này (cấu hình con nhiều-nhiều)
-  prefix: "/api/san-xuat-kcs-tieu-chi",
-  nhatKyLoai: "san_xuat_kcs_tieu_chi",
-  softDelete: true,
-  columns: [
-    { key: "huong_dan", label: "Hướng dẫn", render: (r) => r.huong_dan ? String(r.huong_dan) : "" },
-    { key: "bat_buoc", label: "Bắt buộc", render: (r) => r.bat_buoc ? "Bắt buộc" : "Tuỳ chọn" },
-    {
-      key: "cong_doan_ids", label: "Áp dụng cho",
-      render: (r) => {
-        const ids = (r.cong_doan_ids ?? []) as unknown[];
-        return <span className="badge-sem badge-sem--rust">{ids.length} công đoạn</span>;
-      },
-    },
-  ],
-  fields: [
-    { key: "huong_dan", label: "Hướng dẫn", type: "text", group: "Nội dung" },
-    // `default: true` PHẢI khai — khớp `SanXuatKcsTieuChiIn.bat_buoc: bool = True` ở backend. Thiếu
-    // dòng này thì toggle "Thêm mới" hiện "Không" (falsy mặc định của field checkbox), nhưng nếu
-    // người dùng không đụng vào, `submit()` bỏ hẳn key rỗng khỏi body (dòng ~334-339) → backend áp
-    // default `True` của schema → bản ghi lưu THẬT là "Bắt buộc" dù màn vừa hiện "Không". Phát hiện
-    // khi xác minh UI thật (Fix round 1, Task 3) — xem task-3-report.md.
-    { key: "bat_buoc", label: "Bắt buộc phải đạt", type: "checkbox", group: "Nội dung", default: true },
-    { key: "thu_tu", label: "Thứ tự hiển thị", type: "number", group: "Nội dung" },
-    { key: "cong_doan_ids", label: "Áp dụng cho công đoạn", type: "ref-multi",
-      refPrefix: "/api/cong-doan", group: "Áp dụng", hint: "Công đoạn nào cần kiểm tiêu chí này" },
-  ],
-};
-
 // Tình trạng khuôn — record-only (con người phán, máy chỉ ghi nhận).
 // `dang_dat_lam` (mg 0177): dao CHƯA có trong tay — thuê ngoài chưa về, hoặc xưởng đang tự làm.
 // Đi kèm NGÀY CÓ KHUÔN (dự kiến): bước dùng dao ở Lệnh sản xuất hiện ngày đó để người xếp việc
@@ -1062,5 +1037,4 @@ export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "thanh-pham": CFG_THANH_PHAM,
   "khuon-be": CFG_KHUON_BE,
   "ly-do-san-xuat": CFG_LY_DO_SAN_XUAT,
-  "kcs-tieu-chi": CFG_KCS_TIEU_CHI,
 };

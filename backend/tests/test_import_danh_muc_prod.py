@@ -35,7 +35,7 @@ from app.services.thanh_phan_engine import kiem_cong_thuc, safe_eval
 _CTX_DAY_DU = {b["ma"]: 1.0 for b in BIEN}
 _CTX_DAY_DU.update(
     dai_tp=0.21, rong_tp=0.29, dai_nguyen=0.79, rong_nguyen=1.09,
-    dai_in=0.52, rong_in=0.72, so_luong=5000, so_tp=8,
+    dai_in=0.52, rong_in=0.72, so_luong=5000, so_con=8,
     to_dau_vao=5200, to_sau_in=5100, to_nguyen=1050,
     so_mau=4, so_mau_pha=1, so_mat=2, so_kem=8,
     dinh_luong=0.15, sl_vao=5200, sl_ra=5000,

@@ -72,7 +72,7 @@ def main():
                     "0.43 * 0.635 * don_gia * to_sau_in", 1000)
         c_khuon = cdb("CDB-KHUON-BE", "Khuôn bế (một lần)", "finishing", "don_gia", 800000)
         c_be = cdb("CDB-BE", "Bế thành phẩm (theo con)", "finishing",
-                   "so_luong / so_tp * don_gia", 300)
+                   "so_luong / so_con * don_gia", 300)
         c_dan = cdb("CDB-DAN", "Dán thành phẩm (/sp)", "finishing", "so_luong * don_gia", 300)
         c_dong = cdb("CDB-DONG-GOI", "Đóng gói (/sp)", "finishing", "so_luong * don_gia", 50)
         c_gh = cdb("CDB-GH", "Giao hàng (khoán chuyến)", "finishing", "don_gia", 800000)

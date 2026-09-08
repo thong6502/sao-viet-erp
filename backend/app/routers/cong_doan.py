@@ -43,14 +43,8 @@ def get_service(db: Annotated[Session, Depends(get_db)]) -> CongDoanService:
 Service = Annotated[CongDoanService, Depends(get_service)]
 
 
-def _dung_rows(svc: CongDoanService, objs: list) -> list[CongDoanRow]:
-    """Điền TÊN đơn vị vào/ra (1 truy vấn cho cả trang) rồi mới dựng dòng.
-
-    Truyền vào factory nên list · get · create · update dùng CÙNG một đường — trước 15/08/2026
-    bốn handler tự gọi `gan_ten_don_vi` và chỉ cần quên một chỗ là màn hiện mã trần.
-    """
-    svc.gan_ten_don_vi(objs)
-    return [CongDoanRow.model_validate(o) for o in objs]
+# GỠ 08/09/2026: `_dung_rows` — nó chỉ tồn tại để gọi `gan_ten_don_vi` trước khi dựng dòng. Hàm ấy
+# đã gỡ (xem `cong_doan_service`), nên factory dùng lại đường mặc định `RowModel.model_validate`.
 
 
 # --- Route TĨNH: khai TRƯỚC factory (xem cảnh báo ở docstring) ---------------------------
@@ -84,7 +78,6 @@ make_catalog_router(
     InModel=CongDoanIn, RowModel=CongDoanRow, ListModel=CongDoanListOut,
     loc="nhom",
     facets=lambda svc, kw: svc.dem_theo_nhom(**kw),
-    dung_rows=_dung_rows,
     ma_goi_y=True,      # repo khai `ma_prefix = "CD-"`
     enable_clone=True,
     cong_thuc_truong="cong_thuc_san_luong",

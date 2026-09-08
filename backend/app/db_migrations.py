@@ -12589,3 +12589,308 @@ def _migrate_go_so_nguoi_bo_tri(db) -> None:
 
 
 MIGRATIONS.append(("0281_go_so_nguoi_bo_tri", _migrate_go_so_nguoi_bo_tri))
+
+
+def _migrate_thanh_pham_don_vi_ten_sang_ma(db) -> None:
+    """ĐVT của THÀNH PHẨM: đổi TÊN đã lỡ ghi sang MÃ danh mục (08/09/2026).
+
+    Lỗi thật: mở một dòng ở màn Thành phẩm thì ô "Đơn vị tính" báo đỏ *"cái · không có trong danh
+    mục"* — trong khi `cái` CÓ trong danh mục Đơn vị & quy đổi, chỉ là dưới mã `cai`.
+
+    Nguồn: `thanh_pham_khai_bao.tim_hoac_khai()` chép THẲNG `order_lines.don_vi_tinh` sang
+    `vat_tu_in_an.don_vi_gia`. Hai cột đó không cùng một thứ tiếng, và cả hai đều cố ý:
+    ĐVT của dòng đơn giữ TÊN vì nó in lên báo giá gửi khách, còn `don_vi_gia` giữ MÃ vì kho và
+    mọi quy đổi tra bằng mã. Mọi thành phẩm sinh ra từ lúc chốt đơn vì thế mang một cái tên nằm
+    trong cột mã. Cả hai đầu đã vá cùng lượt (`ma_don_vi()` lúc khai · `_don_vi_ve_ma()` lúc ghi
+    qua màn/Excel); migration này dọn dòng ĐÃ NẰM SẴN trong DB.
+
+    CHỈ đổi khi tên khớp CHÍNH XÁC một đơn vị, và chỉ khi giá trị hiện tại KHÔNG PHẢI một mã hợp
+    lệ (đề phòng một đơn vị lấy tên trùng mã của đơn vị khác — đụng thì mã thắng, vì cột này là
+    cột mã). Không khớp gì thì GIỮ NGUYÊN, không xoá trắng: thà để màn báo đỏ một dòng cho người
+    ta sửa tay, còn hơn tự ý bỏ mất đơn vị của một mặt hàng có thể đang có lô tồn. Cùng luật với
+    mg `0210` đã dùng cho `piece_rates.unit`.
+
+    Chạm CẢ BẢNG `vat_tu_in_an` chứ không chỉ dòng `la_thanh_pham`: hai màn Vật tư khác / Thành
+    phẩm chung một bảng, và dòng nào đang giữ mã hợp lệ thì vòng lặp bỏ qua — không cần lọc cho
+    hẹp lại rồi bỏ sót dòng lỡ ghi tên ở màn kia.
+    """
+    insp = inspect(db.get_bind())
+    bang = set(insp.get_table_names())
+    if "vat_tu_in_an" not in bang or "don_vi_do" not in bang:
+        return
+    if "don_vi_gia" not in _existing_columns(insp, "vat_tu_in_an"):
+        return
+
+    ma_hop_le: set[str] = set()
+    dem: dict[str, int] = {}
+    theo_ten: dict[str, str] = {}
+    for ma, ten in db.execute(text("SELECT ma, ten FROM don_vi_do")).all():
+        m = str(ma or "").strip()
+        t = str(ten or "").strip().lower()
+        if not m:
+            continue
+        ma_hop_le.add(m.lower())
+        if t:
+            dem[t] = dem.get(t, 0) + 1
+            theo_ten[t] = m
+    # Tên trùng nhau ⇒ bỏ, không chọn bừa (cùng luật `DonViDoRepository.ma_theo_ten`).
+    theo_ten = {t: m for t, m in theo_ten.items() if dem[t] == 1}
+    if not theo_ten:
+        return
+
+    for rid, dv in db.execute(
+        text("SELECT id, don_vi_gia FROM vat_tu_in_an WHERE don_vi_gia IS NOT NULL")
+    ).all():
+        v = str(dv or "").strip()
+        if not v or v.lower() in ma_hop_le:
+            continue
+        ma_moi = theo_ten.get(v.lower())
+        if not ma_moi:
+            continue
+        db.execute(text("UPDATE vat_tu_in_an SET don_vi_gia = :u WHERE id = :i"),
+                   {"u": ma_moi, "i": rid})
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0282_thanh_pham_don_vi_ten_sang_ma", _migrate_thanh_pham_don_vi_ten_sang_ma)
+)
+
+
+def _migrate_go_tieu_chi_kcs_bo_sung(db) -> None:
+    """Gỡ ô "Tiêu chí KCS bổ sung" của bước lệnh — tiêu chí về MỘT nguồn (08/09/2026).
+
+    Nghiệp vụ (xem `docs/design-kcs-theo-cong-doan.md`): KCS đổi từ "một checklist ở bước cuối"
+    sang ba tầng Giai đoạn → Công đoạn → Checklist của công đoạn, và checklist chỉ còn MỘT nguồn
+    là danh mục `san_xuat_kcs_tieu_chi` (gắn nhiều-nhiều với công đoạn). Cửa gõ thêm dòng riêng
+    cho một lệnh bị chủ chốt chốt bỏ: hai nguồn cho cùng một checklist thì không ai biết bản nào
+    là chuẩn, mà dòng gõ tay còn không có mã, không có lịch sử, không tái dùng cho lệnh sau.
+
+    MẤT THEO — KHÔNG backfill sang danh mục: dòng bổ sung là chữ tự do gõ trong một lệnh, đẩy
+    ngược lên danh mục là đẻ một mớ tiêu chí rác áp cho MỌI lệnh chạy công đoạn đó. Ai cần giữ
+    thì khai lại vào danh mục cho tử tế. Prod đang DB trắng nên thực tế không mất gì.
+
+    KHÔNG đụng `san_xuat_cong_viec.kcs_tieu_chi_json` — đó là ẢNH CHỤP đã phát hành, phải giữ
+    nguyên cho lệnh đang chạy dở (checklist thợ đang cầm không được đổi giữa chừng).
+
+    Chỉ DROP khi cột còn: DB fresh (`create_all` theo model đã bỏ cột) rơi vào nhánh bỏ qua.
+    """
+    insp = inspect(db.get_bind())
+    bang_co = set(insp.get_table_names())
+    for bang in ("lsx_cong_doan", "bai_ghep_cong_doan"):
+        if bang not in bang_co:
+            continue
+        if "kcs_tieu_chi_bo_sung_json" in _existing_columns(insp, bang):
+            db.execute(text(f"ALTER TABLE {bang} DROP COLUMN kcs_tieu_chi_bo_sung_json"))
+    db.commit()
+
+
+MIGRATIONS.append(("0283_go_tieu_chi_kcs_bo_sung", _migrate_go_tieu_chi_kcs_bo_sung))
+
+
+def _migrate_kcs_tieu_chi_json_null_that(db) -> None:
+    """Nắn `san_xuat_cong_viec.kcs_tieu_chi_json` từ chuỗi JSON `'null'` về NULL THẬT (08/09/2026).
+
+    Bẫy: kiểu `JSON` của SQLAlchemy mặc định ghi Python `None` thành chuỗi JSON `'null'`, KHÔNG
+    phải NULL của SQL. Đọc qua ORM vẫn ra `None` nên nhìn không thấy gì lạ — nhưng
+    `WHERE kcs_tieu_chi_json IS NOT NULL` thì khớp SẠCH mọi dòng. Bàn KCS lọc điểm kiểm đúng bằng
+    vị ngữ đó (`SanXuatRepository.diem_kiem`, `docs/design-kcs-theo-cong-doan.md` mục 3), nên để
+    nguyên là cả xưởng hiện lên bàn kiểm.
+
+    Model đã đổi sang `JSON(none_as_null=True)` để đường ghi MỚI không đẻ thêm; migration này dọn
+    dòng CŨ. So bằng `CAST(... AS TEXT)` cho chạy được cả Postgres lẫn SQLite.
+    """
+    insp = inspect(db.get_bind())
+    if "san_xuat_cong_viec" not in set(insp.get_table_names()):
+        return
+    if "kcs_tieu_chi_json" not in _existing_columns(insp, "san_xuat_cong_viec"):
+        return
+    db.execute(text(
+        "UPDATE san_xuat_cong_viec SET kcs_tieu_chi_json = NULL "
+        "WHERE CAST(kcs_tieu_chi_json AS TEXT) = 'null'"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0284_kcs_tieu_chi_json_null_that", _migrate_kcs_tieu_chi_json_null_that))
+
+
+def _migrate_kcs_tieu_chi_thuoc_mot_cong_doan(db) -> None:
+    """`san_xuat_kcs_tieu_chi` đổi từ NHIỀU-NHIỀU sang THUỘC ĐÚNG MỘT công đoạn (08/09/2026).
+
+    Nghiệp vụ đổi (`docs/design-kcs-theo-cong-doan.md` mục 5): người khai đi theo đường
+    Giai đoạn → Công đoạn → hạng mục kiểm của công đoạn đó, nên một hạng mục sinh ra ĐÃ thuộc về
+    một công đoạn. Bảng nối `san_xuat_kcs_tieu_chi_cong_doan` không còn diễn đạt được gì mà mô
+    hình mới không nói rõ hơn — gỡ hẳn thay vì để lơ lửng.
+
+    Chuyển dữ liệu: mỗi hạng mục CŨ gắn n công đoạn được TÁCH thành n dòng (dòng gốc giữ công
+    đoạn nhỏ nhất, các công đoạn còn lại nhân bản kèm hậu tố mã `-2`, `-3`…) — không mất khai
+    báo nào. Hạng mục không gắn công đoạn nào thì xoá: mô hình mới không có chỗ cho nó.
+    """
+    insp = inspect(db.get_bind())
+    bang_co = set(insp.get_table_names())
+    if "san_xuat_kcs_tieu_chi" not in bang_co:
+        return
+    cols = _existing_columns(insp, "san_xuat_kcs_tieu_chi")
+    pg = (db.get_bind().dialect.name or "").startswith("postgres")
+
+    if "cong_doan_id" not in cols:
+        db.execute(text("ALTER TABLE san_xuat_kcs_tieu_chi ADD COLUMN cong_doan_id INTEGER"))
+        db.commit()
+
+    if "san_xuat_kcs_tieu_chi_cong_doan" in bang_co:
+        # Dòng gốc nhận công đoạn NHỎ NHẤT.
+        db.execute(text(
+            "UPDATE san_xuat_kcs_tieu_chi SET cong_doan_id = ("
+            "  SELECT MIN(l.cong_doan_id) FROM san_xuat_kcs_tieu_chi_cong_doan l"
+            "  WHERE l.tieu_chi_id = san_xuat_kcs_tieu_chi.id)"
+            " WHERE cong_doan_id IS NULL"
+        ))
+        # Các công đoạn CÒN LẠI → nhân bản dòng. Liệt kê ĐÍCH DANH cột (đừng SELECT *: cột do
+        # migration SAU thêm sẽ làm vỡ INSERT trên DB trung gian).
+        du = db.execute(text(
+            "SELECT l.tieu_chi_id, l.cong_doan_id FROM san_xuat_kcs_tieu_chi_cong_doan l"
+            " JOIN san_xuat_kcs_tieu_chi t ON t.id = l.tieu_chi_id"
+            " WHERE l.cong_doan_id <> t.cong_doan_id ORDER BY l.tieu_chi_id, l.cong_doan_id"
+        )).all()
+        dem: dict[int, int] = {}
+        for tieu_chi_id, cong_doan_id in du:
+            dem[tieu_chi_id] = dem.get(tieu_chi_id, 1) + 1
+            db.execute(text(
+                "INSERT INTO san_xuat_kcs_tieu_chi"
+                " (ma, ten, huong_dan, bat_buoc, thu_tu, active, version, cong_doan_id,"
+                "  created_at, updated_at)"
+                " SELECT ma || :hau_to, ten, huong_dan, bat_buoc, thu_tu, active, 1, :cd,"
+                "        created_at, updated_at"
+                " FROM san_xuat_kcs_tieu_chi WHERE id = :id"
+            ), {"hau_to": f"-{dem[tieu_chi_id]}", "cd": cong_doan_id, "id": tieu_chi_id})
+        db.execute(text("DELETE FROM san_xuat_kcs_tieu_chi WHERE cong_doan_id IS NULL"))
+        db.commit()
+        db.execute(text(
+            "DROP TABLE san_xuat_kcs_tieu_chi_cong_doan" + (" CASCADE" if pg else "")
+        ))
+        db.commit()
+
+    # SQLite không ALTER được ràng buộc — DB test dựng thẳng từ model nên không cần.
+    if pg:
+        db.execute(text("DELETE FROM san_xuat_kcs_tieu_chi WHERE cong_doan_id IS NULL"))
+        db.execute(text(
+            "ALTER TABLE san_xuat_kcs_tieu_chi ALTER COLUMN cong_doan_id SET NOT NULL"
+        ))
+        db.execute(text(
+            "DO $$ BEGIN"
+            " IF NOT EXISTS (SELECT 1 FROM pg_constraint"
+            "                WHERE conname = 'fk_kcs_tieu_chi_cong_doan') THEN"
+            "  ALTER TABLE san_xuat_kcs_tieu_chi ADD CONSTRAINT fk_kcs_tieu_chi_cong_doan"
+            "   FOREIGN KEY (cong_doan_id) REFERENCES cong_doan(id) ON DELETE CASCADE;"
+            " END IF;"
+            "END $$;"
+        ))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_san_xuat_kcs_tieu_chi_cong_doan_id"
+            " ON san_xuat_kcs_tieu_chi (cong_doan_id)"
+        ))
+        # Cùng một công đoạn không khai trùng câu chữ. Dọn trùng (giữ id nhỏ nhất) TRƯỚC khi lên
+        # ràng buộc — nhân bản ở trên có thể đẻ trùng nếu bảng nối cũ có hai hạng mục cùng tên.
+        db.execute(text(
+            "DELETE FROM san_xuat_kcs_tieu_chi a USING san_xuat_kcs_tieu_chi b"
+            " WHERE a.cong_doan_id = b.cong_doan_id AND a.ten = b.ten AND a.id > b.id"
+        ))
+        db.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_kcs_hang_muc_cong_doan_ten"
+            " ON san_xuat_kcs_tieu_chi (cong_doan_id, ten)"
+        ))
+        db.commit()
+
+
+MIGRATIONS.append(("0285_kcs_tieu_chi_thuoc_mot_cong_doan", _migrate_kcs_tieu_chi_thuoc_mot_cong_doan))
+
+
+def _migrate_doi_bien_so_tp_ve_so_con(db: Session) -> None:
+    """Đổi TÊN BIẾN công thức `so_tp` → `so_con` — đảo lại phần cuối của mg `0189`.
+
+    Vì sao đảo: `tp` = thành phẩm, mà "thành phẩm" trong xưởng là TỔNG hàng làm ra. Nhìn chip
+    `so_tp` ai cũng đọc thành "số thành phẩm" rồi nhầm nó với `so_luong`, trong khi biến này là
+    một TỈ LỆ — mấy con trên MỘT tờ in. Nhãn chip vốn đã ghi "Số con/tờ in", cả xưởng nói "con",
+    và cột nguồn cũng tên `lsx.so_con`: sau đợt này tên biến khớp cả ba.
+
+    SỐ KHÔNG ĐỔI ở đâu cả — chỉ là đổi chữ trong công thức đã lưu. Viết lại bằng `\bso_tp\b` để
+    không đụng `so_tp_ra` (số thành phẩm ra ở CUỐI chuỗi — khái niệm khác, vẫn giữ tên).
+
+    Hai loại chỗ chứa công thức:
+
+    1. MƯỜI MỘT cột chữ của danh mục — ba ô công thức của công đoạn/đầu việc/máy, hai ô của giấy
+       và vật tư, ô quy đổi động. Bỏ sót một cột là công thức đó mất biến: `_thieu_bien` coi biến
+       vắng như 0, nên tiền/giờ tụt về 0 IM LẶNG chứ không báo lỗi.
+
+    2. BA bảng có `khoan_json` — ảnh chụp đầu việc ghim vào bước (`cong_thuc` + `cong_thuc_gio`,
+       xem `piece_work_service.khoan_snapshot`). Lệnh đã phát cố ý KHÔNG đọc-sống danh mục nữa,
+       nên không viết lại ảnh chụp thì đúng những lệnh đang chạy mới là thứ hỏng.
+
+    KHÔNG đụng `cong_thuc_lich_su`: bảng đó ghi công thức ĐÃ TỪNG được gõ, ở thời điểm nó được gõ.
+    Sửa nó là bịa lại lịch sử. Người đọc lịch sử thấy `so_tp` là đúng — hồi đó biến tên thế.
+
+    Raw SQL nêu đích danh cột, KHÔNG `db.query(Model)`: ORM full-select kéo theo mọi cột model
+    hiện tại, gặp DB prod chưa chạy migration sau là `UndefinedColumn` ngay tại bước này.
+    """
+    import re as _re
+
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    pg = db.get_bind().dialect.name == "postgresql"
+    def lam(s: str) -> str:
+        return _re.sub(r"\bso_tp\b", "so_con", s)
+
+    # --- 1. Các cột CHỮ chứa công thức -----------------------------------------------------------
+    cot_chu = (
+        ("cong_doan", "cong_thuc_san_luong"),
+        ("cong_doan", "cong_thuc_gia"),
+        ("cong_doan_dau_viec", "cong_thuc_khoan"),
+        ("cong_doan_dau_viec", "cong_thuc_gio"),
+        ("cong_doan_dau_viec_vat_tu", "cong_thuc_luong"),
+        ("cong_doan_may", "cong_thuc_gio"),
+        ("cong_doan_may", "cong_thuc_gia"),
+        ("giay_nguyen", "cong_thuc_gia"),
+        ("giay_nguyen", "cong_thuc_luong"),
+        ("vat_tu_in_an", "cong_thuc_gia"),
+        ("don_vi_quy_doi", "cong_thuc"),
+    )
+    for bang, cot in cot_chu:
+        if bang not in tables or cot not in _existing_columns(insp, bang):
+            continue
+        rows = db.execute(text(
+            f"SELECT id, {cot} FROM {bang} WHERE {cot} LIKE '%so_tp%'")).all()
+        for _id, ct in rows:
+            db.execute(text(f"UPDATE {bang} SET {cot} = :ct WHERE id = :id"),
+                       {"ct": lam(ct or ""), "id": _id})
+        if rows:
+            db.commit()
+
+    # --- 2. Ảnh chụp đầu việc ghim ở bước --------------------------------------------------------
+    sql_up = ("UPDATE {b} SET khoan_json = CAST(:v AS JSON) WHERE id = :i" if pg
+              else "UPDATE {b} SET khoan_json = :v WHERE id = :i")
+    for bang in ("lsx_cong_doan", "bai_ghep_cong_doan", "san_xuat_cong_viec"):
+        if bang not in tables or "khoan_json" not in _existing_columns(insp, bang):
+            continue
+        rows = db.execute(text(
+            f"SELECT id, khoan_json FROM {bang} WHERE khoan_json IS NOT NULL")).all()
+        doi = 0
+        for _id, snap in rows:
+            if isinstance(snap, str):
+                snap = json.loads(snap)
+            if not isinstance(snap, dict):
+                continue
+            moi = dict(snap)
+            for k in ("cong_thuc", "cong_thuc_gio"):
+                if isinstance(moi.get(k), str) and "so_tp" in moi[k]:
+                    moi[k] = lam(moi[k])
+            if moi == snap:
+                continue
+            db.execute(text(sql_up.format(b=bang)),
+                       {"v": json.dumps(moi, ensure_ascii=False), "i": _id})
+            doi += 1
+        if doi:
+            db.commit()
+
+
+MIGRATIONS.append(("0286_doi_bien_so_tp_ve_so_con", _migrate_doi_bien_so_tp_ve_so_con))

@@ -1942,10 +1942,49 @@ select.rc-input:focus {
   background: color-mix(in srgb, #2b6cb0 6%, #fff);
   border-bottom: 2px solid color-mix(in srgb, #2b6cb0 40%, transparent);
 }
+/* NĂNG LỰC MÁY (tốc độ · canh máy) trong bảng "Máy chạy được công đoạn này" — tông TRUNG TÍNH,
+   cố ý khác hẳn dải cam "Năng suất khoán" và dải xanh "Kíp chuẩn" của bảng đầu việc: hai dải kia
+   là số khai TẠI drawer này, dải này kế thừa từ danh mục Thiết bị & Máy móc và chỉ đọc. Cùng lối
+   nói của `.rc-dinh-muc-unit` bên dưới — mực nhạt để ô không trông như chỗ chờ điền. */
+.rc-dinh-muc-table .rc-group--may {
+  background: color-mix(in srgb, var(--ash, #8a8676) 9%, #fff);
+  border-bottom: 2px solid color-mix(in srgb, var(--ash, #8a8676) 38%, transparent);
+}
+/* ĐƠN GIÁ KHOÁN (đơn vị tính · đơn giá) trong bảng "Đầu việc và định mức của tổ" — cùng tông xám
+   trung tính với `.rc-group--may` ở trên và vì đúng một lý do: hai cột này KẾ THỪA từ danh mục
+   Công việc khoán, chỉ đọc. Dải cam/xanh dành riêng cho số khai tại chính drawer này. */
+.rc-dinh-muc-table .rc-group--dg {
+  background: color-mix(in srgb, var(--ash, #8a8676) 9%, #fff);
+  border-bottom: 2px solid color-mix(in srgb, var(--ash, #8a8676) 38%, transparent);
+}
 .rc-dinh-muc-table .rc-col--left { text-align: left; vertical-align: middle; }
 .rc-dinh-muc-table .rc-col--num { text-align: right; width: 72px; min-width: 68px; vertical-align: middle; }
+/* Đơn giá là tiền: rộng hơn cột số thường để "1.250.000 đ" không đẩy bảng ra. */
+.rc-dinh-muc-table .rc-col--dg { text-align: right; width: 104px; min-width: 96px; vertical-align: middle; }
 .rc-dinh-muc-table .rc-col--unit { text-align: center; width: 125px; min-width: 125px; vertical-align: middle; }
+/* Đơn vị của máy ngắn ("tờ/h"), không phải cột chọn như bên Năng suất khoán ⇒ 125px là thừa. */
+.rc-dinh-muc-table .rc-col--unit-hep { width: 78px; min-width: 78px; }
 .rc-dinh-muc-table .rc-col--center { text-align: center; vertical-align: middle; }
+/* `tabular-nums`: chữ số cùng bề ngang thì ba cột tốc độ xếp thẳng hàng đơn vị–chục–trăm, so
+   dọc giữa các máy mới ăn tiền. Mực nhạt = chỉ đọc. */
+.rc-dinh-muc-table .rc-may-nl {
+  color: var(--ash, #8a8676);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding: 6px 8px;
+}
+/* Trung bình đậm hơn hai mốc biên vì nó là số hệ THẬT SỰ chia để ra thời lượng bước
+   (`lsx_service._thoi_luong` / `xep_lich_service`); min–max chỉ dựng khoảng nhanh–chậm. */
+.rc-dinh-muc-table .rc-may-nl--tb { color: var(--ink, #14130f); font-weight: 600; }
+/* Bốn cột số cộng thêm ~400px: cho khung cuộn ngang (wrapper đã `overflow-x: auto`) thay vì bóp
+   hai ô công thức xuống còn vài ký tự. */
+.rc-dinh-muc-table--may { min-width: 1120px; }
+.rc-dinh-muc-table--may-gia { min-width: 1280px; }
+.rc-dinh-muc-note {
+  font-size: 11.5px;
+  color: var(--ash, #8a8676);
+  padding: 0 2px;
+}
 
 .rc-dinh-muc-name {
   font-weight: 500;

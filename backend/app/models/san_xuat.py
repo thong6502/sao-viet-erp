@@ -234,11 +234,19 @@ class SanXuatCongViec(Base):
     la_kcs_cuoi: Mapped[bool] = mapped_column(
         nullable=False, server_default=sa_false(), default=False
     )
-    # KCS kiêm nhiệm (mg `0250`): SNAPSHOT ĐẦY ĐỦ checklist (danh mục + bổ sung LSX/bài ghép) tại
-    # lúc PHÁT HÀNH — không chỉ phần bổ sung như `lsx_cong_doan.kcs_tieu_chi_bo_sung_json`. Task 3
-    # mới thực sự GHI nội dung này; ở đây CHỈ khai cột, nullable (chưa phát hành qua luồng mới =
-    # NULL, KHÔNG đoán). Hình dạng: list[{tieu_chi_id, ma, ten, huong_dan, bat_buoc, nguon, thu_tu}].
-    kcs_tieu_chi_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # SNAPSHOT checklist KCS của bước tại lúc PHÁT HÀNH, lấy từ danh mục tiêu chí gắn theo công
+    # đoạn (nguồn DUY NHẤT từ mg `0283`). Hình dạng:
+    # list[{tieu_chi_id, ma, ten, huong_dan, bat_buoc, nguon, thu_tu}].
+    # NULL ⇔ bước KHÔNG phải điểm kiểm — đây là bộ lọc của bàn KCS (`repo.diem_kiem`), nên đừng
+    # ghi `[]` thay NULL. KHÁC `la_kcs` ("thẻ việc thuộc tổ KCS"): xem
+    # `docs/design-kcs-theo-cong-doan.md` mục 3.
+    # `none_as_null=True` là BẮT BUỘC ở cột này: mặc định của kiểu JSON ghi Python `None` thành
+    # chuỗi JSON `'null'` chứ KHÔNG phải NULL của SQL, đọc ORM ra vẫn thấy `None` nên nhìn không
+    # ra — mà `WHERE ... IS NOT NULL` thì khớp SẠCH mọi dòng, bàn KCS nuốt trọn cả xưởng. Dòng cũ
+    # đã lỡ ghi `'null'` được nắn lại ở mg `0284`.
+    kcs_tieu_chi_json: Mapped[list | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True
+    )
     # Khoá MỀM → `may_thiet_bi.id` (danh mục máy ĐANG CHẠY), đúng quy ước của `lsx_cong_doan`
     # / `xep_lich_cong_doan` / `bai_ghep`. Trước mig `0237` đây là FK CỨNG trỏ `machines` —
     # danh mục đời tính giá, id lệch hẳn — nên bước dùng máy ngoài dải đó là phát hành VỠ.

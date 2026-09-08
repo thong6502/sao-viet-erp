@@ -182,11 +182,15 @@ def _bu_hao(db: Session, obj) -> ThamChieu:
 
 
 def _san_xuat_kcs_tieu_chi(db: Session, obj) -> ThamChieu:
-    from ..models.san_xuat_kcs import SanXuatKcsTieuChiCongDoan
+    """Hạng mục kiểm KHÔNG có ai tham chiếu ngược ⇒ xoá không bị chặn.
 
-    return ThamChieu(chan=_gom(_cau(
-        _dem(db, SanXuatKcsTieuChiCongDoan, SanXuatKcsTieuChiCongDoan.tieu_chi_id == obj.id),
-        "công đoạn đang gắn tiêu chí này")))
+    Từ mg `0285` hạng mục THUỘC một công đoạn (chiều ngược lại của bảng nối cũ), nên phép đếm
+    "bao nhiêu công đoạn đang gắn" hết nghĩa. Lệnh đã phát hành không vướng: checklist là ảnh
+    chụp trong `san_xuat_cong_viec.kcs_tieu_chi_json`, không trỏ về đây.
+
+    Giữ hàm (thay vì gỡ khỏi registry) để màn danh mục vẫn đi đúng luồng `kiem-xoa` chung — trả
+    rỗng nghĩa là "hỏi rồi, không vướng gì", khác hẳn 404 vì thiếu hàm."""
+    return ThamChieu()
 
 
 def _khuon_be(db: Session, obj) -> ThamChieu:

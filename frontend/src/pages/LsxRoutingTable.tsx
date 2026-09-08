@@ -23,7 +23,7 @@ import { Icon } from "../components/Icons";
 import { DagRoutingCanvas } from "../components/DagRoutingCanvas";
 import { LsxBuocDrawer, type TabKey as DrawerTabKey } from "./LsxBuocDrawer";
 import { ChuoiCongDoan, ngay, num } from "./keHoachSxShared";
-import { tenDonVi, useNapTenDonVi } from "./tenDonVi";
+import { nhanTram, tenDonVi, useNapTenDonVi } from "./tenDonVi";
 import {
   boBuoc,
   chenBuoc,
@@ -68,7 +68,10 @@ export interface RefRow {
 
 /** Nhãn đơn vị CỦA MỘT BƯỚC. Chưa khai đơn vị ⇒ “—”.
  *
- *  Tên lấy từ DANH MỤC, không còn bảng nhãn cứng. Chưa nạp xong ⇒ rơi về MÃ TRẦN, không bịa tên.
+ *  `don_vi_vao/ra` giữ MÃ CHẶNG dòng giấy (`to_nguyen · to · con · tay · cai`) nên tra bảng CHẶNG
+ *  trước (`/api/don-vi/tram`), rồi mới tới danh mục Đơn vị cho bước NGOÀI dòng giấy (`m²`, `kem`).
+ *  Đảo thứ tự là `to` đọc ra "tờ" ở đây trong khi màn Công đoạn nói "Tờ in" — cùng một bước, hai
+ *  chữ. Chưa nạp xong ⇒ rơi về MÃ TRẦN, không bịa tên.
  *
  *  Bộ lọc legacy hẹp lại (12/08/2026): trước đây cứ `nhom === "prepress"` là trả “—”, bất kể bước
  *  khai đơn vị gì. Từ khi công đoạn khai đơn vị TỰ DO, bước ghi kẽm khai `m² → bài in` cho tử tế
@@ -83,7 +86,7 @@ export function dvNhan(
   buoc?: { nhom?: string | null; tren_dong_giay?: boolean } | null,
 ): string {
   if (buoc?.nhom === "prepress" && buoc?.tren_dong_giay) return "—";
-  if (dv) return tenDonVi(dv) ?? dv;
+  if (dv) return nhanTram(dv) ?? tenDonVi(dv) ?? dv;
   return "—";
 }
 
@@ -334,8 +337,18 @@ export function LsxRoutingTable({
       const seq = ++doiToSeq.current;
       try {
         const m = await onMacDinhBuoc(id);
-        const loaiCu = rowsRef.current.find((r) => r.key === key)?.tooling_type ?? null;
+        const rowCu = rowsRef.current.find((r) => r.key === key);
+        const loaiCu = rowCu?.tooling_type ?? null;
+        // Máy GỢI Ý: chỉ điền khi dòng đang TRỐNG máy và không phải bước tổ. Cách đo giờ chạy và
+        // tốc độ đều treo ở cặp (công đoạn × máy), nên bước trống máy thì bảng bóc tách thời gian
+        // ra "—" mãi. Công đoạn khai đúng một máy còn dùng thì không có gì để đoán sai — server
+        // quyết (`may_id_goi_y`), client không tự dò danh mục. KHÔNG đè máy người ta đã chọn.
+        const mayGoiY =
+          m.may_id_goi_y != null && rowCu?.loai_buoc !== "to" && !rowCu?.may_id
+            ? { may_id: m.may_id_goi_y }
+            : {};
         const applied: Partial<EditRow> = {
+          ...mayGoiY,
           cong_doan_id: m.cong_doan_id, ten: m.ten, nhom: m.nhom,
           department_id: m.department_id,
           don_vi_vao: m.don_vi_vao, don_vi_ra: m.don_vi_ra,
@@ -364,7 +377,8 @@ export function LsxRoutingTable({
           // Thời gian chuẩn bị + chạy KHÔNG còn nằm ở bước: kế thừa sống từ máy đang gán.
         };
         patch(key, applied);
-        setLive(`Đã đổi sang ${m.ten} và lấy lại đơn vị, tổ phụ trách`);
+        setLive(`Đã đổi sang ${m.ten} và lấy lại đơn vị, tổ phụ trách`
+          + ("may_id" in mayGoiY ? ", điền sẵn máy duy nhất của công đoạn" : ""));
         // Số vào–ra + đơn vị cả chuỗi phải nhảy NGAY (chủ 20/08/2026). Dựng ảnh chụp từ `rowsRef`
         // (đã cộng patch vừa áp) vì closure `rows` ở nhịp này còn CŨ, chưa thấy bước vừa đổi.
         const snapshot = rowsRef.current.map(

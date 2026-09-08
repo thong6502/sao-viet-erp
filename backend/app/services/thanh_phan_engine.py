@@ -925,7 +925,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         dai_tp=dai_tp_m, rong_tp=rong_tp_m,
         dai_nguyen=dai_nguyen_m, rong_nguyen=rong_nguyen_m,
         dai_in=dai_in_m, rong_in=rong_in_m,
-        so_luong=sl, so_tp=con,
+        so_luong=sl, so_con=con,
         so_trang=so_trang, trang_moi_tay=trang_moi_tay,
         to_dau_vao=to_dau_vao, to_sau_in=to_sau_in, to_nguyen=to_nguyen,
         so_mau=so_mau, so_mau_pha=so_mau_pha, so_mat=passes, so_kem=so_kem,

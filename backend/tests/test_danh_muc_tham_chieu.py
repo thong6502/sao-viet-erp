@@ -42,8 +42,12 @@ def _mau(db):
     to = Department(name="ZZ Tổ mẫu", code="ZZTOM", la_san_xuat=True)
     db.add_all([cl, dv, to])
     db.commit()
+    # Công đoạn phải có ID TRƯỚC: hạng mục kiểm KCS neo vào nó (`cong_doan_id` NOT NULL, mg `0285`).
+    cd = CongDoan(ma="ZZCD", ten="ZZ Công đoạn", nhom="finishing")
+    db.add(cd)
+    db.commit()
     rows = {
-        "cong_doan": CongDoan(ma="ZZCD", ten="ZZ Công đoạn", nhom="finishing"),
+        "cong_doan": cd,
         "don_vi_do": dv,
         "bu_hao": BuHao(ma="ZZBH", ten="ZZ Bù hao"),
         "khuon_be": KhuonBe(ma="ZZKB", ten="ZZ Khuôn"),
@@ -57,10 +61,11 @@ def _mau(db):
         # Công việc khoán (17/08/2026): cùng bảng `piece_rates` mà Lương khoán tra.
         "cong_viec_khoan": PieceRate(group_name="ZZ Tổ mẫu", department_id=to.id,
                                      ma="ZZKH", ten="ZZ Việc khoán", unit="zzkg", unit_price=100),
-        # Tiêu chí KCS (Task 3 KCS kiêm nhiệm, 31/08/2026) — chưa gắn công đoạn nào ⇒ xoá hẳn được.
-        "san_xuat_kcs_tieu_chi": SanXuatKcsTieuChi(ma="ZZTC", ten="ZZ Tiêu chí"),
+        # Hạng mục kiểm KCS — không ai trỏ ngược về nó (mg `0285` gỡ bảng nối) ⇒ xoá hẳn được.
+        "san_xuat_kcs_tieu_chi": SanXuatKcsTieuChi(ma="ZZTC", ten="ZZ Tiêu chí", cong_doan_id=cd.id),
     }
-    db.add_all([v for k, v in rows.items() if k not in ("don_vi_do", "chung_loai_giay")])
+    db.add_all([v for k, v in rows.items()
+                if k not in ("don_vi_do", "chung_loai_giay", "cong_doan")])
     db.commit()
     return rows
 

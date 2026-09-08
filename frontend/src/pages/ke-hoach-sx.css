@@ -4411,12 +4411,15 @@ td.khsx-num > .khsx-unit {
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 .khsx-formula-compact {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
 }
 .khsx-formula-token {
   font-family: var(--ff-num, monospace);
@@ -4427,10 +4430,20 @@ td.khsx-num > .khsx-unit {
   border-radius: 5px;
   white-space: nowrap;
 }
+/* Ô SỐ LƯỢNG là ô DUY NHẤT trong công thức có thể dài — nó không phải một con số mà là cả câu
+   diễn giải quy đổi ("Dài tờ nguyên × Rộng tờ nguyên × Định lượng giấy × Tờ giấy nguyên = 0,39 ×
+   0,54 × 0,3 × 313 = 19,78 tấn", đo được 757px). `white-space: nowrap` kế thừa từ
+   `.khsx-formula-token` làm nó TRÀN khỏi thẻ (thẻ rộng 713px), chữ bị nuốt ở mép phải. Ba ô kia
+   (tốc độ · lượt · kết quả) vẫn giữ nowrap vì bẻ dòng giữa "9 giờ 53 phút" mới là khó đọc. */
 .khsx-formula-token--qty {
   background: #ffffff;
   color: var(--ink, #0f172a);
   border: 1px solid #cbd5e1;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+  min-width: 0;
+  max-width: 100%;
 }
 .khsx-formula-token--speed {
   background: #eef2ff;

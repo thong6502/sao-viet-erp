@@ -28,7 +28,7 @@ import { MucInHang } from "../components/MucIn";
 import { SanPhamTaiBanGoiY as SanPhamTaiBanCombo } from "../components/SanPhamTaiBanGoiY";
 import { Select, type SelectOption } from "../components/Select";
 import { ImpositionDiagram } from "./ImpositionDiagram";
-import { heSoChu, nhanDonVi } from "./lsxBuoc";
+import { heSoChu, nhanChang, nhanDonVi } from "./lsxBuoc";
 import { useNapTenDonVi } from "./tenDonVi";
 // Nhãn ĐƠN VỊ của biến công thức lấy từ TỪ ĐIỂN BIẾN (`/api/bien-cong-thuc`), không khai lại ở đây —
 // xem ghi chú chỗ `humanizeFormula`.
@@ -205,11 +205,12 @@ function cellValue(v: string | number | null): string {
 // Engine trả công thức thế số dạng "don_gia(2.000) × to_nguyen(334)" (tên biến + giá trị).
 // Đổi sang diễn giải người-đọc-được "2.000 đ × 334 tờ": bỏ tên biến, gắn đơn vị.
 // Token lạ → chỉ giữ giá trị. Không match gì → trả nguyên chuỗi (an toàn).
-// Đơn vị bước ở bảng phân rã bù hao PHẢI đọc y hệt tên đã khai trong danh mục Công đoạn — người
-// lập phiếu đối chiếu hai màn với nhau, nhãn lệch một chữ là mất dấu. Nên KHÔNG khai bộ nhãn
-// riêng ở đây. `nhanDonVi` nay đọc TÊN từ chính danh mục Đơn vị (xem `pages/tenDonVi.ts`), nên
-// xưởng đổi tên là cả ba màn đổi theo — không còn bảng nhãn cứng nào để lệch.
-const dvNgan = nhanDonVi;
+// Đơn vị bước ở bảng phân rã bù hao PHẢI đọc y hệt nhãn ở danh mục Công đoạn — người lập phiếu
+// đối chiếu hai màn với nhau, lệch một chữ là mất dấu. `dv_vao`/`dv_ra` của bước giữ MÃ CHẶNG
+// dòng giấy nên tra bằng `nhanChang` (bảng chặng, `/api/don-vi/tram`), KHÔNG tra danh mục Đơn vị:
+// tra nhầm thì bước Đóng gói hiện "Con → Thành phẩm" ở màn Công đoạn mà "con → cái" ở đây.
+// Đơn vị THẬT của kho/khoán (vd `don_vi_gia` của giá công đoạn) vẫn dùng thẳng `nhanDonVi`.
+const dvNgan = nhanChang;
 
 /** Số + đơn vị ở cột phải khối "Số tờ tự tính".
  *
@@ -1816,10 +1817,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     [loaiSPById],
   );
 
-  /** Các sản phẩm CHƯA chọn loại — khoá cửa "Báo giá →" lại. Đây là chỗ "ép chọn": loại quyết
-   *  định dòng gộp và nhãn đơn vị trên báo giá gửi khách, để trống là in ra sai nhóm. Khoá tại
-   *  chỗ + gọi tên sản phẩm còn thiếu, KHÔNG ẩn nút (ẩn thì người dùng tưởng hỏng). Vẫn cho
-   *  "Tính giá" bình thường — tính giá vốn không cần loại. */
+  /** Các sản phẩm CHƯA chọn loại — chỉ để NHẮC, KHÔNG chặn "Báo giá →" (user chốt 09/09/2026;
+   *  trước đó nút bị khoá). Thiếu loại thì báo giá in ra nhóm/nhãn đơn vị chưa chuẩn, nhưng đó là
+   *  việc sửa được ngay trên màn báo giá — chặn ở đây chỉ làm nghẽn. Tên sản phẩm còn thiếu nằm ở
+   *  tooltip của nút, chip "chưa chọn loại" vẫn hiện ở cột Loại. */
   const spThieuLoai = useMemo(
     () => comps.filter((c) => loaiLabelOf(c) === null).map((c) => c.ten || "(chưa đặt tên)"),
     [comps, loaiLabelOf],
@@ -1957,12 +1958,12 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
               variant="primary"
               onClick={openOrCreateQuote}
               loading={quoting}
-              disabled={!token || loading || !daLuu || spThieuLoai.length > 0}
+              disabled={!token || loading || !daLuu}
               title={
                 !daLuu
                   ? "Tính giá & lưu phiếu trước khi báo giá"
                   : spThieuLoai.length > 0
-                    ? `Chọn loại sản phẩm cho: ${keTen(spThieuLoai)} — loại quyết định dòng gộp và nhãn đơn vị trên báo giá.`
+                    ? `Tạo / mở báo giá. Chưa chọn loại: ${keTen(spThieuLoai)} — loại quyết định dòng gộp và nhãn đơn vị, chọn sau vẫn được.`
                     : "Tạo / mở báo giá từ phiếu tính giá này"
               }
             >
@@ -2692,13 +2693,13 @@ function ComponentModal({
   const chuoiHao = liveMeta?.bu_hao_chi_tiet ?? [];
   const buocDauChuoi = chuoiHao.find((b) => b.dv_vao);
   const dvDauChuoi =
-    dvNgan(buocIn?.dv_vao) || dvNgan(buocDauChuoi?.dv_vao) || "tờ";
-  // `so_tp` là số THÀNH PHẨM trên một tờ, nên mẫu số phải là đơn vị thành phẩm — lấy ở bước ĐỔI
+    dvNgan(buocIn?.dv_vao) || dvNgan(buocDauChuoi?.dv_vao) || "tờ in";
+  // `so_con` là số THÀNH PHẨM trên một tờ, nên mẫu số phải là đơn vị thành phẩm — lấy ở bước ĐỔI
   // MỨC (dv_ra ≠ dv_vao). Lấy bừa `dv_ra` của bước cuối là sai khi chuỗi KHÔNG có bước đổi mức
   // (bìa sách: In → Cán màng, cả hai `tờ → tờ`) — ra "8 tờ/tờ", vô nghĩa. Không có bước đổi mức
   // thì dùng đơn vị tính của chính sản phẩm, đúng thứ dòng "Thành phẩm cần" đang hiện.
   const buocDoiMuc = [...chuoiHao].reverse().find((b) => b.dv_ra && b.dv_ra !== b.dv_vao);
-  const dvCuoiChuoi = dvNgan(buocDoiMuc?.dv_ra) || c.don_vi_tinh || "cái";
+  const dvCuoiChuoi = dvNgan(buocDoiMuc?.dv_ra) || c.don_vi_tinh || "thành phẩm";
   // Bước ĐẦU chuỗi đếm khác bước in ⇒ nó đứng ở chặng TỜ NGUYÊN (bước xả giấy). Không có bước xả
   // thì tờ nguyên chỉ là số suy ra, dùng nhãn mặc định.
   const dvToNguyen =
@@ -3065,7 +3066,7 @@ function ComponentModal({
                       // Tên đơn vị đọc từ DANH MỤC, không phải chuỗi ba nhánh khai cứng ở đây —
                       // giấy bán theo đơn vị nào là việc của danh mục, thêm đơn vị mới thì dòng
                       // này tự hiện đúng thay vì rơi hết về "tờ".
-                      return `${fmt(numOf(g.don_gia))} đ / ${dvNgan(String(g.don_vi_gia ?? "")) || "—"}`;
+                      return `${fmt(numOf(g.don_gia))} đ / ${nhanDonVi(String(g.don_vi_gia ?? "")) || "—"}`;
                     })()}
                   </div>
                 </div>

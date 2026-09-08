@@ -46,6 +46,7 @@ import { LuongPage } from "../pages/nhan-su-luong/luong";
 import { HoSoCuaToiPage } from "../pages/nhan-su-luong/ho-so-cua-toi";
 import { NoiQuyPage } from "../pages/nhan-su-luong/noi-quy";
 import { NhanSuPage } from "../pages/nhan-su-luong/nhan-su";
+import { KcsKhaiBaoPage } from "../pages/danh-muc/KcsKhaiBaoPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
 import { KhoTonKhoPage } from "../pages/KhoTonKhoPage";
 import { KhoPage } from "../pages/KhoPage";
@@ -1292,6 +1293,11 @@ export function AppShell() {
     // Id cũ "quy-doi" (màn cặp riêng, đã gộp vào drawer đơn vị) → về đúng màn Đơn vị.
     if (baseId === "quy-doi") {
       return <RebuildCatalogPage key="don-vi" config={REBUILD_CONFIGS["don-vi"]} />;
+    }
+    // Tiêu chí KCS KHÔNG dùng nền danh mục phẳng: khai theo cây Giai đoạn → Công đoạn → hạng
+    // mục kiểm (08/09/2026, `docs/design-kcs-theo-cong-doan.md` mục 5).
+    if (baseId === "kcs-tieu-chi") {
+      return <KcsKhaiBaoPage key="kcs-tieu-chi" />;
     }
     // Danh mục rebuild (Máy · Vật liệu Kho · Công đoạn · Loại SP · Giấy) — 1 trang generic theo config.
     if (REBUILD_CONFIGS[baseId]) {

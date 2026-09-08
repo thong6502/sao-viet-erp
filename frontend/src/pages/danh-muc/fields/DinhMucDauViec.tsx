@@ -12,6 +12,15 @@ import { DonViTocDoField } from "./DonViTocDo";
 import { FormulaField } from "./FormulaField";
 import { FormulaPopover } from "./FormulaPopover";
 
+/** Chip "Đơn giá khoán" ẩn mặc định ở mọi ô công thức (`FormulaField.AN_MOI_O`) vì bộ chip
+ *  `quy_doi` dùng chung cho cả những ô không đứng ở đầu việc nào. Đúng MỘT ô xin bày lại: công
+ *  thức tính tiền công — nơi engine nhân đơn giá vào sau, nên muốn khai khoản TRỌN GÓI phải chia
+ *  lại chính đơn giá ấy (`50000 / don_gia_khoan`) thay vì gõ cứng con số 40 rồi quên sửa.
+ *
+ *  Hằng cấp module chứ không viết thẳng `hien={["don_gia_khoan"]}`: mảng dựng trong JSX đổi danh
+ *  tính mỗi lần vẽ, `useMemo` bên trong ô sẽ tính lại bảng chip liên tục. */
+const HIEN_DON_GIA_KHOAN = ["don_gia_khoan"];
+
 export function DinhMucDauViecField({ value, options, departmentId, onChange }: {
   value: DinhMucRow[]; options: Row[]; departmentId: number | null; donViVao: string;
   onChange: (v: DinhMucRow[]) => void;
@@ -104,6 +113,15 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
           <thead>
             <tr className="rc-dinh-muc-table__group-row">
               <th rowSpan={2} className="rc-col--left">Đầu việc chi tiết</th>
+              {/* Đơn vị + đơn giá KẾ THỪA từ danh mục Công việc khoán, chỉ đọc ở đây (08/09/2026).
+                  Bày ra vì không có nó thì ô "Công thức tiền công" bên phải là câu đố: công thức
+                  ra LƯỢNG rồi hệ nhân đơn giá vào sau, mà người khai không thấy đơn giá ấy tính
+                  theo đơn vị nào — phải mở màn Công việc khoán ở tab khác mới đối chiếu được.
+                  Tông XÁM trung tính, cố ý khác dải cam "Năng suất khoán" và dải xanh "Kíp chuẩn":
+                  hai dải kia là số khai TẠI drawer này, dải này chỉ đọc (cùng lối nói với
+                  `.rc-group--may` ở bảng máy). */}
+              <th colSpan={2} className="rc-col--group rc-group--dg"
+                title="Kế thừa từ danh mục Công việc khoán — sửa ở màn đó, không sửa được tại đây.">Đơn giá khoán</th>
               <th colSpan={4} className="rc-col--group rc-group--ns">Năng suất khoán</th>
               {/* MỘT ô người duy nhất (06/09/2026, mg `0270`): hai mốc tối thiểu/tối đa đã gỡ.
                   Số này điền sẵn vào bước lệnh cho MỌI loại bước — máy · tổ · thuê ngoài. */}
@@ -127,6 +145,11 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
               <th rowSpan={2} className="rc-col--center" style={{ width: 36 }} />
             </tr>
             <tr className="rc-dinh-muc-table__sub-row">
+              {/* Hai ô của nhóm "Đơn giá khoán" — phải đứng TRƯỚC bộ Năng suất khoán vì hàng phụ
+                  lấp các cột theo đúng thứ tự nhóm ở hàng trên. */}
+              <th className="rc-col--unit"
+                title="Đơn vị TÍNH TIỀN của đầu việc. KHÁC ô 'Đơn vị' bên Năng suất khoán — ô kia đo GIỜ, hai thứ tách rời cố ý.">Đơn vị tính</th>
+              <th className="rc-col--dg">Đơn giá (đ)</th>
               {/* Thứ tự tối thiểu → trung bình → tối đa: đọc thành một DẢI tăng dần. */}
               <th className="rc-col--num">Tối thiểu</th>
               <th className="rc-col--num">Trung bình</th>
@@ -134,7 +157,7 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
               <th className="rc-col--unit">Đơn vị</th>
             </tr>
           </thead>
-          <tbody>{value.length === 0 && <tr><td colSpan={10} className="rc-bands__empty">
+          <tbody>{value.length === 0 && <tr><td colSpan={12} className="rc-bands__empty">
             {allowed.length === 0 ? "Tổ này chưa có đầu việc khoán để liên kết." : "Chưa chọn đầu việc định mức."}
           </td></tr>}{value.map((r, i) => { const opt = options.find((o) => o.id === r.piece_rate_id); const vts = r.vat_tus ?? []; const mo = moVatTu === r.piece_rate_id; return <Fragment key={r.piece_rate_id}><tr>
             {/* Bấm tên để bung panel công thức tính tiền công — cùng lối bấm-dòng-mở-panel với
@@ -145,6 +168,16 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
                 onClick={(e) => batCt(r.piece_rate_id, e.currentTarget, r.cong_thuc_khoan ?? null)}>
                 {opt ? `${opt.ma} · ${opt.ten}` : `#${r.piece_rate_id}`}
               </button>
+            </td>
+            {/* Hai ô CHỈ ĐỌC (mực nhạt, không viền — cùng lối `.rc-dinh-muc-unit`) để không ai
+                tưởng là chỗ chờ điền. Đơn vị lấy TÊN, lùi về mã khi mã nằm ngoài danh mục Đơn vị. */}
+            <td className="rc-col--unit rc-dinh-muc-unit"
+              title="Đơn vị tính tiền khoán — khai ở danh mục Công việc khoán.">
+              {opt ? String(opt.don_vi_ten ?? opt.don_vi ?? "—") : "—"}
+            </td>
+            <td className="rc-col--dg rc-dinh-muc-unit"
+              title="Đơn giá khoán trên một đơn vị — khai ở danh mục Công việc khoán.">
+              {Number(opt?.don_gia) ? `${Number(opt?.don_gia).toLocaleString("vi-VN")} đ` : "—"}
             </td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0.01" step="any" placeholder="—"
               value={r.nang_suat_nguoi_gio_min ?? ""}
@@ -188,7 +221,7 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
               </button>
             </td>
             <td className="rc-col--center"><button type="button" className="rc-bands__del" onClick={() => onChange(value.filter((_, j) => j !== i))}><TrashIcon /></button></td>
-          </tr>{mo && <tr className="rc-dm-vt__row"><td colSpan={10}>
+          </tr>{mo && <tr className="rc-dm-vt__row"><td colSpan={12}>
             <div className="rc-dm-vt">
               {/* BẢNG chứ không phải dãy chip (06/09/2026): mỗi món nay mang ĐỊNH MỨC riêng, mà
                   công thức là chuỗi dài — xếp chip cạnh nhau thì không còn chỗ đọc công thức. */}
@@ -250,8 +283,9 @@ export function DinhMucDauViecField({ value, options, departmentId, onChange }: 
         onClose={() => setMoCongThuc(null)} onHuy={huyKhoan}>
         <FormulaField
           id={`ct-khoan-${moCt.id}`} configPrefix="/api/cong-doan" loaiO="quy_doi"
+          hien={HIEN_DON_GIA_KHOAN}
           nhanO="Công thức tính tiền công" onDong={huyKhoan}
-          goY="Ra LƯỢNG theo đơn vị đơn giá khoán, hệ nhân đơn giá sau. Bỏ trống = hệ tự quy đổi. vd in trở 2 lượt: sl_vao * so_luot_chay. Lệnh ĐÃ phát giữ cách đo cũ."
+          goY="Không dùng chip Đơn giá khoán ⇒ ra LƯỢNG theo đơn vị đơn giá, hệ nhân đơn giá sau (vd in trở 2 lượt: sl_vao * so_luot_chay). CÓ dùng chip ⇒ ra thẳng TIỀN, hệ không nhân nữa (vd 50.000đ mở khuôn + tiền theo nhịp: 50000 + don_gia_khoan * sl_ra). Bỏ trống = hệ tự quy đổi. Lệnh ĐÃ phát giữ cách đo cũ."
           value={value[iCt].cong_thuc_khoan ?? ""}
           onChange={(v) => patch(iCt, { cong_thuc_khoan: v })} />
       </FormulaPopover>}

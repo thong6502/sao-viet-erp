@@ -7,11 +7,13 @@
 // Khác biệt quan trọng giữa hai luồng LƯU (đọc kỹ trước khi sửa):
 //   - mode="ghi" (routing): backend TÁCH hai lệnh — `taoBatchKcs` (JSON) tạo mẻ, rồi NẾU lỗi>0
 //     mới gọi tiếp `ghiLoiKcs` (multipart) để ghi lỗi + ảnh vào batch vừa tạo.
-//   - mode="dot_xuat": backend GỘP một lệnh multipart `taoKiemDotXuat` — mẻ + lỗi + ảnh cùng lúc.
+//   - mode="dot_xuat" | "diem_kiem": backend GỘP một lệnh multipart `taoKiemDotXuat` — mẻ + lỗi +
+//     ảnh cùng lúc; khác nhau ở `loai` gửi lên và ở chỗ điểm kiểm ĐÃ BIẾT việc cần kiểm (mở từ bàn
+//     điểm kiểm) nên không có bước chọn tổ/việc. Xem `docs/design-kcs-theo-cong-doan.md` mục 4.
 import { useEffect, useRef, useState } from "react";
 import {
   ApiError, api,
-  type SxKcsBatchChiTiet, type SxKcsChiTiet, type SxHoTroUngVien,
+  type SxDiemKiemItem, type SxKcsBatchChiTiet, type SxKcsChiTiet, type SxHoTroUngVien,
   type SxLyDo, type SxTeam, type SxWorkItem,
 } from "../../api/client";
 import { ChipKhuon, ChipLoaiBuoc } from "../../components/ChipBuoc";
@@ -19,7 +21,7 @@ import { useAuth } from "../../auth/useAuth";
 import { Drawer } from "../danh-muc/components/Drawer";
 import { Select, type SelectOption } from "../../components/Select";
 import { num } from "../keHoachSxShared";
-import { nhanDonVi } from "../lsxBuoc";
+import { nhanChang, nhanDonVi } from "../lsxBuoc";
 import { useNapTenDonVi } from "../tenDonVi";
 
 export const KCS_TRANG_THAI_GUI_KHO_LABEL: Record<string, string> = {
@@ -40,7 +42,7 @@ export interface KcsSavedRow {
   luc: string;
   soDat: number;
   soLoi: number;
-  loai: "routing" | "dot_xuat";
+  loai: "routing" | "dot_xuat" | "diem_kiem";
   donVi: string;
   maNguon: string;
   tenNguon: string;
@@ -61,6 +63,17 @@ type Props =
       mode: "dot_xuat";
       teamId: number;
       tenTo: string;
+      onClose: () => void;
+      onSaved: (row: KcsSavedRow) => void;
+    }
+  | {
+      /** Điểm kiểm theo công đoạn: mở từ bàn KCS, việc thuộc tổ KHÁC và đã mang sẵn checklist —
+       *  không gọi lại `kcsChiTiet`, không có bước chọn tổ/việc. */
+      mode: "diem_kiem";
+      /** Tổ KCS ĐI KIỂM (ghi vào `kcs_department_id`) — KHÁC `item.to_id` là tổ bị kiểm. */
+      teamId: number;
+      tenTo: string;
+      item: SxDiemKiemItem;
       onClose: () => void;
       onSaved: (row: KcsSavedRow) => void;
     }
@@ -110,10 +123,18 @@ export function KcsResultDrawer(props: Props) {
     api.sanXuat.kcsChiTiet(token, props.item.id).then((r) => { if (alive) setChiTiet(r); }).catch(() => { if (alive) setChiTiet(null); });
     return () => { alive = false; };
   }, [props.mode, props.mode === "ghi" ? props.item.id : null, token]);
-  const checklist = chiTiet?.checklist ?? [];
+  // Điểm kiểm nhận checklist THEO THẺ VIỆC từ bàn KCS (đã gói sẵn trong một lượt tải); chỉ
+  // mode="ghi" mới phải gọi `kcsChiTiet`. Đột xuất không có snapshot tiêu chí nào để bám.
+  const checklist =
+    props.mode === "diem_kiem" ? props.item.checklist : chiTiet?.checklist ?? [];
 
   // ---- Khối 3: Đạt / Lỗi ----
-  const conChoBanDau = props.mode === "ghi" ? props.conCho : item?.so_luong_vao ?? 0;
+  // Điểm kiểm không có "còn chờ" theo bàn giao (không gác theo số bàn giao) — mốc gợi ý là mục
+  // tiêu RA của chính bước đó.
+  const conChoBanDau =
+    props.mode === "ghi" ? props.conCho
+      : props.mode === "diem_kiem" ? props.item.so_luong_ra ?? props.item.so_luong_vao ?? 0
+        : item?.so_luong_vao ?? 0;
   const [soDat, setSoDat] = useState<string>("");
   const [soLoi, setSoLoi] = useState<string>("0");
   const daKhoiTaoSoDat = useRef(false);
@@ -178,14 +199,17 @@ export function KcsResultDrawer(props: Props) {
         .filter((tc) => dat[tc.thu_tu] !== undefined)
         .map((tc) => ({ thu_tu: tc.thu_tu, dat: !!dat[tc.thu_tu], ghi_chu: ghiChuTc[tc.thu_tu] || null }));
 
-      if (props.mode === "dot_xuat") {
-        if (!pickedTeam || !item) throw new Error("Chưa chọn việc cần kiểm.");
+      if (props.mode === "dot_xuat" || props.mode === "diem_kiem") {
+        if (!item) throw new Error("Chưa chọn việc cần kiểm.");
+        const loai = props.mode === "diem_kiem" ? "diem_kiem" : "dot_xuat";
         const r = await api.sanXuat.taoKiemDotXuat(token, {
           cong_viec_id: item.id,
           kcs_department_id: props.teamId,
+          loai,
           bat_dau: now, ket_thuc: now,
           so_luong_nhan: nSoDat + nSoLoi, so_luong_dat: nSoDat, so_luong_khong_dat: nSoLoi,
           don_vi: donVi,
+          checklist_ket_qua: checklistKetQua.length ? checklistKetQua : null,
           nhom_loi_id: nSoLoi > 0 ? nhomLoiId : null,
           loi_mo_ta: nSoLoi > 0 ? moTaLoi.trim() || null : null,
           to_chiu_id: nSoLoi > 0 ? toChiuId : null,
@@ -194,7 +218,7 @@ export function KcsResultDrawer(props: Props) {
         setSaved({ kcsBatchId: r.kcs_batch_id, version: r.version, ctaEligible: false, soDat: nSoDat, donVi: donVi ?? "" });
         props.onSaved({
           kcsBatchId: r.kcs_batch_id, congViecId: item.id, luc: now,
-          soDat: nSoDat, soLoi: nSoLoi, loai: "dot_xuat", donVi: donVi ?? "",
+          soDat: nSoDat, soLoi: nSoLoi, loai, donVi: donVi ?? "",
           maNguon: item.nguon_ma, tenNguon: item.nguon_ten, tenCongDoan: item.ten_cong_doan,
         });
       } else if (props.mode === "ghi") {
@@ -250,7 +274,8 @@ export function KcsResultDrawer(props: Props) {
   const title =
     props.mode === "xem" ? "Chi tiết kết quả KCS"
       : props.mode === "dot_xuat" ? "Kiểm đột xuất"
-        : "Ghi kết quả KCS";
+        : props.mode === "diem_kiem" ? "Ghi điểm kiểm công đoạn"
+          : "Ghi kết quả KCS";
 
   // ================= mode="xem": chỉ đọc =================
   if (props.mode === "xem") {
@@ -361,7 +386,16 @@ export function KcsResultDrawer(props: Props) {
       ) : undefined}
     >
       <div className="rc-drawer__body">
-        <KhoiNguCanh item={item} tenTo={props.mode === "dot_xuat" ? pickedTeam?.ten ?? "" : props.tenTo} conCho={saved ? null : conChoBanDau} />
+        <KhoiNguCanh
+          item={item}
+          tenTo={
+            props.mode === "dot_xuat" ? pickedTeam?.ten ?? ""
+              : props.mode === "diem_kiem" ? props.item.to_ten
+                : props.tenTo
+          }
+          nguoi={props.mode === "diem_kiem" ? props.item.nguoi : []}
+          conCho={saved ? null : conChoBanDau}
+        />
 
         {saved ? (
           <div className="kcs-drawer__block">
@@ -381,7 +415,7 @@ export function KcsResultDrawer(props: Props) {
           </div>
         ) : (
           <>
-            {props.mode === "ghi" && checklist.length > 0 && (
+            {props.mode !== "dot_xuat" && checklist.length > 0 && (
               <div className="kcs-drawer__block">
                 <h3>Checklist</h3>
                 {checklist.map((tc) => (
@@ -471,7 +505,10 @@ export function KcsResultDrawer(props: Props) {
   );
 }
 
-function KhoiNguCanh({ item, tenTo, conCho }: { item: SxWorkItem; tenTo: string; conCho: number | null }) {
+function KhoiNguCanh(
+  { item, tenTo, conCho, nguoi = [] }:
+  { item: SxWorkItem; tenTo: string; conCho: number | null; nguoi?: string[] },
+) {
   return (
     <div className="kcs-drawer__ctx">
       <div className="kcs-drawer__ctx-row"><strong>{item.nguon_ma}</strong> — {item.nguon_ten}</div>
@@ -480,8 +517,12 @@ function KhoiNguCanh({ item, tenTo, conCho }: { item: SxWorkItem; tenTo: string;
         <ChipLoaiBuoc loai_buoc={item.loai_buoc} nha_cung_cap={item.nha_cung_cap} />
         <ChipKhuon can_khuon={!!item.khuon} khuon={{ ...(item.khuon ?? {}), da_nhan: item.khuon_da_nhan }} />
       </div>
+      {/* Cột "TÊN THỢ LÀM" của tờ ISO — đọc từ thẻ việc, KCS không phải gõ lại. */}
+      {nguoi.length > 0 && (
+        <div className="kcs-drawer__ctx-row">Thợ làm: {nguoi.join(", ")}</div>
+      )}
       {conCho != null && (
-        <div className="kcs-drawer__ctx-row">Còn chờ: <strong>{num(conCho)} {nhanDonVi(item.don_vi_vao)}</strong></div>
+        <div className="kcs-drawer__ctx-row">Còn chờ: <strong>{num(conCho)} {nhanChang(item.don_vi_vao)}</strong></div>
       )}
     </div>
   );

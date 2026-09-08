@@ -21,6 +21,8 @@ TypeError ngay, không im lặng ra 0 như dict rời trước kia.
 """
 from __future__ import annotations
 
+import re
+
 # Bốn ô gõ công thức. Ba ô đầu là công thức TIỀN (thế số ra đồng), ô cuối là công thức HỆ SỐ.
 LOAI_GIAY = "giay"
 LOAI_VAT_TU = "vat_tu"
@@ -35,7 +37,7 @@ _MOI_O = (*_TIEN, LOAI_QUY_DOI)                    # bộ CHUNG — có mặt �
 #
 # BỘ CHUNG 17 BIẾN (15 + hai chip quy cách sách, 03/09/2026) + đúng MỘT biến đơn giá cho ô nào có
 # mục để lấy giá, + năm chip TẦNG BƯỚC cho hai ô đứng ở một bước:
-#     Giấy 19 · Vật tư 18 · Công đoạn 22 · Quy đổi 23
+#     Giấy 19 · Vật tư 18 · Công đoạn 22 · Quy đổi 25
 # Con số này bị khoá bằng test (`test_bon_o_dung_chung_bo_bien_va_hai_chip_rieng_cua_buoc`).
 # Công đoạn KHÔNG có biến tiền — không có ô nhập đơn giá ở cả phiếu lẫn danh mục, và 13/13 công
 # thức đang gõ đơn giá thẳng vào công thức. Quy đổi dùng chung bộ 16: nó chỉ chạy ở TẦNG LỆNH
@@ -61,12 +63,17 @@ _BANG: tuple[tuple[str, str, str, str, str, tuple[str, ...]], ...] = (
     # --- Sản lượng ------------------------------------------------------------------------------
     ("so_luong", "Số lượng đặt", "Số cái cần làm (số lượng đặt)", "cái",
      "SL của dòng ĐƠN — lệnh ép theo đơn, không lấy SL của phiếu tính giá", _MOI_O),
-    ("so_tp", "Số con/tờ in", "Số con/tờ — 1 tờ in ra mấy cái", "con",
+    # Tên biến ĐỔI LẠI `so_tp` → `so_con` 08/09/2026 (mg `0286`), quay về đúng tên nó mang trước
+    # mg `0189`. Lý do đảo: `tp` = thành phẩm, mà "thành phẩm" trong xưởng là TỔNG hàng làm ra —
+    # nhìn chip `so_tp` ai cũng đọc thành "số thành phẩm" rồi tưởng nó là `so_luong`, trong khi
+    # đây là một TỈ LỆ (mấy con trên MỘT tờ in). Nhãn chip vốn đã ghi "Số con/tờ in" và cả xưởng
+    # nói "con", nên tên biến theo nốt cho khớp; tên cột nguồn (`lsx.so_con`) cũng là `so_con`.
+    ("so_con", "Số con/tờ in", "Số con/tờ — 1 tờ in ra mấy cái", "con",
      "bình bài của lệnh", _MOI_O),
     # --- Quy cách SÁCH (03/09/2026) --------------------------------------------------------------
     # Hai số này là thứ phân biệt sách với tờ rời, và trước nay KHÔNG có tên biến nào trỏ tới:
     # engine đọc chúng để dựng cầu `to → tay → cai` (`cau_to_sang_cai`) nhưng người khai công thức
-    # thì không, nên mọi công thức phải đi vòng qua `so_tp`/`sl_ra` — không tính được thứ tính theo
+    # thì không, nên mọi công thức phải đi vòng qua `so_con`/`sl_ra` — không tính được thứ tính theo
     # TRANG (bình file, ghi kẽm theo tay, gấp, bắt tay) mà chỉ tính theo tờ.
     #
     # Tờ rời và hộp: cả hai = 1 (mặc định cột, và mg 0147 backfill dữ liệu cũ về 1), nên
@@ -168,6 +175,24 @@ _BANG: tuple[tuple[str, str, str, str, str, tuple[str, ...]], ...] = (
      "Đơn giá của CHÍNH vật tư đang mở — đã quy về đơn vị công thức đang đếm", "đ",
      "ô Đơn giá của dòng vật tư, quy về đơn vị cơ sở (khai đ/tấn thì máy ÷ 1.000)",
      (LOAI_VAT_TU,)),
+    # ĐƠN GIÁ KHOÁN của chính đầu việc (08/09/2026). Gọi chip này là ĐỔI LUẬT của cả ô: công thức
+    # ra thẳng TIỀN và engine THÔI nhân đơn giá (`cong_thuc_ra_tien` dưới đây là chỗ chốt luật ấy,
+    # `lsx_service._khoan_theo_cong_thuc` là chỗ thi hành). Nhờ vậy viết được thứ mà ô cũ không
+    # viết nổi: `50000 + don_gia_khoan * sl_ra` = tiền mở khuôn trọn gói CỘNG tiền theo nhịp — cộng
+    # một khoản cố định vào công thức chỉ-ra-lượng thì khoản ấy cũng bị nhân đơn giá.
+    #
+    # Vì sao phải là CHIP chứ không để người khai gõ thẳng số 40: ngày xưởng lên giá 40 → 45, con
+    # số gõ tay nằm im, tiền công của đầu việc lệch mà không dòng nhật ký nào giải thích.
+    #
+    # Giá trị: ảnh chụp `khoan_json["don_gia"]` của CHÍNH bước (ghim lúc chọn đầu việc), nên lệnh
+    # đã phát không xê dịch khi danh mục lên giá. Ngữ cảnh không đứng ở đầu việc nào (công thức của
+    # máy, của đơn vị quy đổi, của Giấy/Vật tư) thì là 0 — chip bị ẩn ở những ô đó (`AN_MOI_O` bên
+    # frontend), y hệt cách ba chip khuôn ép kim chỉ hiện ở bước khai khuôn ép.
+    ("don_gia_khoan", "Đơn giá khoán",
+     "Đơn giá của CHÍNH đầu việc khoán đang khai — dùng chip này thì công thức RA TIỀN, "
+     "hệ không nhân đơn giá lần nữa", "đ",
+     "ô Đơn giá của đầu việc — ảnh chụp lúc bước chọn đầu việc, không đọc lại danh mục",
+     (LOAI_QUY_DOI,)),
 )
 
 BIEN: tuple[dict, ...] = tuple(
@@ -213,7 +238,33 @@ KHUON_MAC_DINH: dict[str, float] = {
 
 # Mặc định cho MỌI chip tầng bước khi chạy ở TẦNG LỆNH (không đứng trong một bước cụ thể) — vd
 # công thức lượng của GIẤY ở kế hoạch vật tư. Nơi nào BIẾT bước thì bơm số thật đè lên.
-MAC_DINH_TANG_LENH: dict[str, float] = {**KHUON_MAC_DINH, "so_luot_chay": 1.0}
+MAC_DINH_TANG_LENH: dict[str, float] = {
+    **KHUON_MAC_DINH, "so_luot_chay": 1.0,
+    # Ngữ cảnh không đứng ở đầu việc khoán nào ⇒ 0. Nơi BIẾT đầu việc
+    # (`lsx_service._ct_rieng`) bơm đơn giá thật đè lên.
+    "don_gia_khoan": 0.0,
+}
+
+MA_DON_GIA_KHOAN = "don_gia_khoan"
+_RE_DON_GIA_KHOAN = re.compile(rf"\b{MA_DON_GIA_KHOAN}\b")
+
+
+def cong_thuc_ra_tien(ct: str | None) -> bool:
+    """Ô "Công thức tính tiền công" này ra thẳng TIỀN hay chỉ ra LƯỢNG?
+
+    Ô ấy vốn ra LƯỢNG rồi engine mới nhân đơn giá (`lsx_service._khoan_theo_cong_thuc`). Từ
+    08/09/2026 người khai gọi được chính đơn giá vào công thức bằng chip `don_gia_khoan`, và khi
+    họ gọi thì họ đã tự nhân rồi: `50000 + don_gia_khoan * sl_ra` = tiền mở khuôn trọn gói cộng
+    tiền theo nhịp. Engine nhân đơn giá lần nữa lên số đó là tính tiền HAI LẦN.
+
+    Nên SỰ CÓ MẶT của chip chính là dấu "công thức này đã ra tiền" — không cần thêm một ô cờ nào
+    để người khai phải nhớ bật. Công thức KHÔNG gọi chip giữ nguyên nghĩa cũ (ra lượng, engine
+    nhân đơn giá), nên mọi công thức đã khai trước ngày này không xê dịch một đồng.
+
+    Khớp theo RANH GIỚI TỪ chứ không phải chuỗi con: `don_gia_khoan_cu` (nếu sau này có) là biến
+    khác, mà `in` thì nuốt luôn.
+    """
+    return bool(_RE_DON_GIA_KHOAN.search(ct or ""))
 
 
 def bien_cho(loai: str) -> list[dict]:
@@ -244,7 +295,7 @@ def ngu_canh_phieu(
     dai_tp: float, rong_tp: float,
     dai_nguyen: float, rong_nguyen: float,
     dai_in: float, rong_in: float,
-    so_luong: float, so_tp: float,
+    so_luong: float, so_con: float,
     so_trang: float, trang_moi_tay: float,
     to_dau_vao: float, to_sau_in: float, to_nguyen: float,
     so_mau: float, so_mau_pha: float, so_mat: float, so_kem: float,
@@ -262,7 +313,7 @@ def ngu_canh_phieu(
         "dai_tp": dai_tp, "rong_tp": rong_tp,
         "dai_nguyen": dai_nguyen, "rong_nguyen": rong_nguyen,
         "dai_in": dai_in, "rong_in": rong_in,
-        "so_luong": so_luong, "so_tp": so_tp,
+        "so_luong": so_luong, "so_con": so_con,
         "so_trang": so_trang, "trang_moi_tay": trang_moi_tay,
         "to_dau_vao": to_dau_vao, "to_sau_in": to_sau_in, "to_nguyen": to_nguyen,
         "so_mau": so_mau, "so_mau_pha": so_mau_pha, "so_mat": so_mat, "so_kem": so_kem,
@@ -331,8 +382,13 @@ def ngu_canh_lenh(quy_cach: dict | None) -> dict[str, float]:
         # Năm số dưới nằm ở CỘT của `lsx` chứ không trong `quy_cach_json`; `quy_cach_bien` ghi
         # chúng vào dict dưới ĐÚNG tên biến (khoá đầu) nên số sống của lệnh luôn thắng khoá cũ
         # còn sót trong ảnh chụp — `so_con` chép từ phiếu lúc tạo lệnh là loại hay lệch nhất.
+        # Từ 08/09/2026 tên biến TRÙNG tên khoá cũ (`so_con`), nên thứ tự đè đến từ chính phép gán
+        # `qc["so_con"] = ...` của `quy_cach_bien` chứ không còn nhờ thứ tự khoá ở đây.
         "so_luong": _so("so_luong"),
-        "so_tp": _so("so_tp", "so_con"),
+        # `so_tp` là tên biến giai đoạn 11/08 → 08/09/2026 (mg `0189` đặt, mg `0286` đổi lại). Giữ
+        # làm khoá LÙI cho ảnh chụp ngữ cảnh viết trong khoảng đó — công thức đã lưu thì migration
+        # viết lại rồi, nhưng dict ngữ cảnh nằm rải trong JSON thì không.
+        "so_con": _so("so_con", "so_tp"),
         # Hai số quy cách sách MẶC ĐỊNH 1, không phải 0 như các biến khác: 1 là phần tử trung hoà
         # (`x * so_trang` giữ nguyên `x`) và đúng nghĩa thật — tờ rời/hộp là 1 trang, 1 trang/tay,
         # y như default của cột. Để 0 thì mọi công thức nhân với chúng ra 0 trên bài tờ rời, và
@@ -365,7 +421,7 @@ def quy_cach_bien(lsx) -> dict:
     chúng là số DẪN XUẤT, để ở cột riêng của `lsx` vì cả UI lẫn xếp lịch đọc tới:
 
         so_luong   ← `so_luong_dat`     (SL của ĐƠN — lệnh ép theo đơn, không theo phiếu)
-        so_tp      ← `so_con`           (bình bài; `ap_quy_cach` tính lại khi đổi khổ)
+        so_con     ← `so_con`           (bình bài; `ap_quy_cach` tính lại khi đổi khổ)
         to_dau_vao ← `so_to_ke_hoach`   ─┐ hai mốc `_ap_chuoi_nguoc` đọc ra khỏi chuỗi
         to_nguyen  ← `so_to_nguyen`     ─┘ bù hao ngược
         to_sau_in  ← `so_luong_ra` của bước nhóm `print` (lệnh không có cột riêng)
@@ -374,15 +430,17 @@ def quy_cach_bien(lsx) -> dict:
     là THIẾU, nên cạnh động im lặng biến mất khỏi đồ thị trong khi màn Quy cách của lệnh đang hiện
     đủ số ngay trên đầu. Đó là trạng thái của hệ tới 11/08/2026.
 
-    Ghi bằng ĐÚNG TÊN BIẾN (`so_tp`, không phải `so_con`): `ngu_canh_lenh` tra tên biến TRƯỚC, tên
-    cột sau — nên số sống của lệnh luôn thắng khoá cũ còn sót trong ảnh chụp chép từ phiếu.
+    Số SỐNG của lệnh phải THẮNG khoá cũ còn sót trong ảnh chụp chép từ phiếu. Tới 08/09/2026 việc
+    đó nhờ tên biến khác tên cột (`so_tp` vs `so_con`) nên `ngu_canh_lenh` tra tên biến trước; nay
+    hai tên đã trùng, phép gán `qc["so_con"] = ...` dưới đây ĐÈ thẳng khoá của ảnh chụp — cùng kết
+    quả, ít mắt xích hơn. Đừng đổi thành `setdefault`: thế là ảnh chụp thắng số sống.
 
     Nhận `lsx` theo kiểu VỊT (chỉ đọc thuộc tính) để `bien_cong_thuc` không phải kéo theo model —
     file này là từ điển, phải nhẹ và không phụ thuộc tầng nào.
     """
     qc = dict(getattr(lsx, "quy_cach_json", None) or {})
     qc["so_luong"] = _f(getattr(lsx, "so_luong_dat", None))
-    qc["so_tp"] = _f(getattr(lsx, "so_con", None))
+    qc["so_con"] = _f(getattr(lsx, "so_con", None))
     qc["to_dau_vao"] = _f(getattr(lsx, "so_to_ke_hoach", None))
     qc["to_nguyen"] = _f(getattr(lsx, "so_to_nguyen", None))
     # Tờ sau in: mặc định = tờ vào máy, rồi bước in CUỐI ghi đè (lệnh in hai lượt thì lượt sau mới
@@ -400,7 +458,7 @@ def quy_cach_bien(lsx) -> dict:
 # Biến KHÔNG có nghĩa ở tầng BÀI GHÉP — mỗi thành viên một giá trị, gộp lại là bịa số.
 # Bài ghép gộp nhiều sản phẩm KHÁC nhau lên một tờ: thẻ 500 cái 99 con/tờ nằm cạnh bìa 2.000 cuốn
 # 8 con/tờ. Hỏi "bài này số lượng đặt bao nhiêu" là câu hỏi sai — không có đáp án đúng để điền.
-BIEN_KHONG_CO_O_BAI: tuple[str, ...] = ("so_luong", "so_tp", "dai_tp", "rong_tp")
+BIEN_KHONG_CO_O_BAI: tuple[str, ...] = ("so_luong", "so_con", "dai_tp", "rong_tp")
 
 def quy_cach_bien_bai(bai, *, thanh_vien=(), so_to=None, muc=None) -> dict:
     """Như `quy_cach_bien` nhưng cho BÀI GHÉP — nguồn số thứ ba của cùng bộ biến.

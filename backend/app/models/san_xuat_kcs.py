@@ -29,10 +29,10 @@ tồn tại trong DB dev/prod hiện tại nên đi qua `db_migrations.py`, KHÔ
 
 Hai bảng MỚI (`create_all` tự dựng, KHÔNG migration) là danh mục CHECKLIST tiêu chí KCS:
 
-  san_xuat_kcs_tieu_chi          — một TIÊU CHÍ kiểm tra chuẩn hoá (mã, tên, hướng dẫn, bắt buộc).
-  san_xuat_kcs_tieu_chi_cong_doan — tiêu chí này áp cho công đoạn nào (nhiều-nhiều với `cong_doan`).
+  san_xuat_kcs_tieu_chi — một HẠNG MỤC KIỂM của MỘT công đoạn (mã, tên, hướng dẫn, bắt buộc).
 
-Task 1 CHỈ khai hai bảng này — CRUD/API/UI thuộc Task 3.
+Bảng nối `san_xuat_kcs_tieu_chi_cong_doan` (nhiều-nhiều) đã GỠ ở mg `0285` — xem docstring của
+`SanXuatKcsTieuChi`.
 """
 from __future__ import annotations
 
@@ -60,9 +60,15 @@ TN_RECORDED = "recorded"    # lỗi MỚI (kiêm nhiệm, mg 0250) — ghi một
 TRANG_THAI_TRACH_NHIEM = (TN_CHO, TN_CHAP_NHAN, TN_TU_CHOI)
 
 # --- Loại batch KCS (module KCS kiêm nhiệm, mg `0250`) ---------------------------------------
-KCS_LOAI_ROUTING = "routing"    # KCS đứng SẴN trong routing/bài ghép của lệnh (cách cũ, duy nhất)
-KCS_LOAI_DOT_XUAT = "dot_xuat"  # KCS kiêm nhiệm — tổ SX khác được giao kiểm ĐỘT XUẤT, không sẵn ở routing
-LOAI_KCS_BATCH = (KCS_LOAI_ROUTING, KCS_LOAI_DOT_XUAT)  # validate ở service, KHÔNG CHECK constraint
+KCS_LOAI_ROUTING = "routing"    # BƯỚC KCS đứng sẵn trong routing (`la_kcs`) — có sản lượng + cửa kho
+KCS_LOAI_DOT_XUAT = "dot_xuat"  # KCS kiêm nhiệm — tổ SX khác được giao kiểm ĐỘT XUẤT, ngoài kế hoạch
+# ĐIỂM KIỂM theo công đoạn (08/09/2026, `docs/design-kcs-theo-cong-doan.md`): công đoạn có tiêu chí
+# gắn ở danh mục ⇒ tổ KCS tới kiểm tại chỗ. Ghi CHẤT LƯỢNG thuần như `dot_xuat` (không đẻ sản
+# lượng, không đụng kho, KHÔNG chặn bước sau), nhưng KHÔNG phải "đột xuất" — nó đứng sẵn trong kế
+# hoạch, nên tách mã riêng để báo cáo đừng gọi nhầm tên. Khác `routing` ở chỗ thẻ việc thuộc tổ
+# SẢN XUẤT chứ không thuộc tổ KCS.
+KCS_LOAI_DIEM_KIEM = "diem_kiem"
+LOAI_KCS_BATCH = (KCS_LOAI_ROUTING, KCS_LOAI_DOT_XUAT, KCS_LOAI_DIEM_KIEM)  # validate ở service
 
 
 def _utcnow() -> datetime:
@@ -106,8 +112,9 @@ class SanXuatKcsBatch(Base):
     # --- KCS kiêm nhiệm (mg `0250`) — cột CỘNG THÊM, KHÔNG động vào các cột legacy phía trên ---
     # `routing` (mặc định) = batch của công việc KCS ĐÃ có sẵn trong routing/bài ghép (cách cũ, duy
     # nhất trước đây — backfill set cứng giá trị này cho mọi dòng cũ). `dot_xuat` = tổ SX khác được
-    # GIAO kiểm đột xuất, không đứng sẵn trong routing. Validate ở service — String trần không CHECK,
-    # cùng phong cách `ket_luan`/`trang_thai` ở trên.
+    # GIAO kiểm đột xuất, không đứng sẵn trong routing. `diem_kiem` (08/09/2026) = điểm kiểm theo
+    # công đoạn, đứng sẵn trong kế hoạch nhờ tiêu chí gắn ở danh mục. Validate ở service — String
+    # trần không CHECK, cùng phong cách `ket_luan`/`trang_thai` ở trên.
     loai: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default=KCS_LOAI_ROUTING, default=KCS_LOAI_ROUTING
     )
@@ -186,18 +193,33 @@ class SanXuatKcsLoiAnh(Base):
 
 
 class SanXuatKcsTieuChi(Base):
-    """Danh mục TIÊU CHÍ kiểm tra KCS chuẩn hoá (module KCS kiêm nhiệm, mg `0250`) — vd
-    "Chồng màu đúng", "Không lệch viền nhìn thấy". Nhiều-nhiều với `cong_doan` qua
-    `SanXuatKcsTieuChiCongDoan`: một tiêu chí áp cho nhiều công đoạn, một công đoạn có nhiều
-    tiêu chí. `bat_buoc` là mặc định khi gắn vào công đoạn — LSX/bài ghép có thể bổ sung thêm
-    tiêu chí riêng (`kcs_tieu_chi_bo_sung_json`), không sửa được tiêu chí danh mục tại lệnh.
+    """Một HẠNG MỤC KIỂM của MỘT công đoạn — vd "Chồng màu đúng mẫu đã ký" của công đoạn In
+    offset. `bat_buoc` = mục này chưa trả lời thì KCS không gửi được kết luận.
 
-    Bảng MỚI → `create_all` tự dựng, KHÔNG migration. CRUD/API/UI thuộc Task 3."""
+    THUỘC ĐÚNG MỘT CÔNG ĐOẠN (mg `0285`, đổi từ nhiều-nhiều). Người khai đi theo đường
+    Giai đoạn → Công đoạn → hạng mục, nên hạng mục sinh ra đã nằm dưới một công đoạn; cùng một
+    câu chữ dùng cho hai công đoạn thì khai hai dòng. GIAI ĐOẠN không lưu ở đây — nó là
+    `cong_doan.nhom`, chỉ dùng để lọc lúc chọn công đoạn.
+
+    Từ 08/09/2026 (`docs/design-kcs-theo-cong-doan.md`) bảng này là NGUỒN DUY NHẤT của checklist:
+    ô "Tiêu chí KCS bổ sung" trên bước lệnh đã gỡ (mg `0283`). Mọi công đoạn có hạng mục khai vào
+    đều thành ĐIỂM KIỂM, không riêng bước KCS cuối routing.
+
+    `UniqueConstraint(cong_doan_id, ten)`: cùng một công đoạn không khai trùng câu chữ. Không đặt
+    unique theo `ten` toàn bảng — hai công đoạn khác nhau được phép có cùng hạng mục."""
 
     __tablename__ = "san_xuat_kcs_tieu_chi"
+    __table_args__ = (
+        UniqueConstraint("cong_doan_id", "ten", name="uq_kcs_hang_muc_cong_doan_ten"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
+    # Công đoạn sở hữu hạng mục này. CASCADE: gỡ công đoạn khỏi danh mục thì checklist của nó
+    # cũng hết nghĩa (bản đã phát hành không ảnh hưởng — đó là ảnh chụp trong `san_xuat_cong_viec`).
+    cong_doan_id: Mapped[int] = mapped_column(
+        ForeignKey("cong_doan.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     ten: Mapped[str] = mapped_column(String(200), nullable=False)
     huong_dan: Mapped[str | None] = mapped_column(String(500), nullable=True)
     bat_buoc: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
@@ -207,43 +229,4 @@ class SanXuatKcsTieuChi(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
-    )
-
-    # Công đoạn nào áp dụng tiêu chí này — nhiều-nhiều qua bảng nối. CRUD/API/UI ở Task 3.
-    cong_doan_links: Mapped[list["SanXuatKcsTieuChiCongDoan"]] = relationship(
-        "SanXuatKcsTieuChiCongDoan", back_populates="tieu_chi",
-        order_by="SanXuatKcsTieuChiCongDoan.id", cascade="all, delete-orphan",
-    )
-
-    @property
-    def cong_doan_ids(self) -> list[int]:
-        """Danh sách id công đoạn — hình dạng API dùng (`SanXuatKcsTieuChiRow` đọc qua
-        from_attributes).
-
-        `CongDoanDauViec.vat_tu_ids` từng là bản sao của khuôn này, đã GỠ 06/09/2026: mỗi dòng vật
-        tư nay mang công thức định mức riêng nên danh sách id thuần không chở đủ."""
-        return [l.cong_doan_id for l in self.cong_doan_links]
-
-
-class SanXuatKcsTieuChiCongDoan(Base):
-    """Bảng nối `san_xuat_kcs_tieu_chi` ↔ `cong_doan` (module KCS kiêm nhiệm, mg `0250`) — tiêu
-    chí nào áp cho công đoạn nào. Một cặp (tiêu chí, công đoạn) chỉ khai MỘT lần (unique).
-
-    Bảng MỚI → `create_all` tự dựng, KHÔNG migration."""
-
-    __tablename__ = "san_xuat_kcs_tieu_chi_cong_doan"
-    __table_args__ = (
-        UniqueConstraint("tieu_chi_id", "cong_doan_id", name="uq_kcs_tieu_chi_cong_doan"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    tieu_chi_id: Mapped[int] = mapped_column(
-        ForeignKey("san_xuat_kcs_tieu_chi.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    cong_doan_id: Mapped[int] = mapped_column(
-        ForeignKey("cong_doan.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-
-    tieu_chi: Mapped["SanXuatKcsTieuChi"] = relationship(
-        "SanXuatKcsTieuChi", back_populates="cong_doan_links"
     )

@@ -99,16 +99,38 @@ class VatLieuKhoService:
             f"{nhan} “{ma}” không có trong danh mục Đơn vị & quy đổi — khai ở đó trước."
         )
 
+    def _don_vi_ve_ma(self, data: dict) -> None:
+        """Người gõ TÊN ("cái") thì hiểu, nhưng LƯU MÃ ("cai") — sửa `data` tại chỗ.
+
+        Cột `don_vi_gia` giữ MÃ; ô trên màn là ô tìm-chọn danh mục nên nó luôn gửi mã. Đường vào
+        bằng chữ là Excel nhập danh mục và các đường máy khai hộ — ở đó người ta gõ cái tên họ đọc
+        thấy. Không quy về mã thì mở dòng ra là ô báo đỏ "không có trong danh mục" trong khi đơn vị
+        ĐANG NẰM trong danh mục, chỉ dưới một cái mã khác.
+
+        Chỉ đổi khi tên khớp CHÍNH XÁC và DUY NHẤT một đơn vị (`ma_theo_ten` tự bỏ tên trùng).
+        Không khớp thì để nguyên cho `_kiem_don_vi` báo lỗi đúng chữ người dùng vừa gõ.
+        """
+        v = (data.get("don_vi_gia") or "").strip()
+        if not v:
+            return
+        if v.lower() in {(d.ma or "").strip().lower() for d in self.don_vi.all_rows()}:
+            return
+        ma = self.don_vi.ma_theo_ten().get(v.lower())
+        if ma:
+            data["don_vi_gia"] = ma
+
     def _validate(self, kind: str, data: dict, *, obj=None) -> None:
         if not (data.get("ma") or "").strip():
             raise VatLieuKhoValidationError("Mã không được trống.")
         if not (data.get("ten") or "").strip():
             raise VatLieuKhoValidationError("Tên không được trống.")
+        self._don_vi_ve_ma(data)
         # `chung_loai_giay` không còn ô nào cần kiểm ngoài mã/tên (gỡ `be_mat`/`tho_mac_dinh`
         # 15/08/2026) — nhánh riêng của nó bỏ luôn, đừng để lại `if` rỗng.
-        # `thanh_pham` KHÔNG còn cổng nào ngoài mã/tên (21/08/2026): ô Khách hàng đã bỏ vì thành
-        # phẩm là một CÁI TÊN dùng lại, không thuộc về ai. Công tắc màn nay là `la_thanh_pham`,
-        # do lớp `MotDanhMucVatLieu` đặt lúc tạo — người dùng không khai.
+        # `thanh_pham` KHÔNG có cổng Khách hàng (21/08/2026): ô đó đã bỏ vì thành phẩm là một CÁI
+        # TÊN dùng lại, không thuộc về ai. Công tắc màn nay là `la_thanh_pham`, do lớp
+        # `MotDanhMucVatLieu` đặt lúc tạo — người dùng không khai. Đơn vị thì CÓ cổng, xem nhánh
+        # `elif` bên dưới.
         if kind == "giay":
             if not data.get("chung_loai_giay_id"):
                 raise VatLieuKhoValidationError("Phải chọn Chủng loại giấy.")
@@ -118,7 +140,11 @@ class VatLieuKhoService:
                               dang_co=getattr(obj, "don_vi_gia", None))
             if data.get("tho") not in (None, "") and data["tho"] not in THO:
                 raise VatLieuKhoValidationError("Thớ không hợp lệ.")
-        elif kind == "vat_tu":
+        elif kind in ("vat_tu", "thanh_pham"):
+            # `thanh_pham` VÀO CHUNG nhánh này từ 08/09/2026: cùng bảng, cùng cột, cùng người đọc
+            # (kho tra đơn vị bằng mã lúc nhập kho thành phẩm). Trước đây màn này không có cổng nào
+            # cho đơn vị nên nhận cả chuỗi lạ, và đó là nửa sau của lỗi "cái · không có trong danh
+            # mục" — nửa đầu là `thanh_pham_khai_bao` chép thẳng ĐVT của dòng đơn sang.
             self._kiem_don_vi(data.get("don_vi_gia"), "Đơn vị tính",
                               dang_co=getattr(obj, "don_vi_gia", None))
         self._kiem_cong_thuc(kind, data)

@@ -10,7 +10,7 @@ import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
 import { BangLoi, ChipGap, ChuoiCongDoan, CanhBaoMem, ngay, num } from "./keHoachSxShared";
-import { donViChuoi, nhanDonVi } from "./lsxBuoc";
+import { donViChuoi, nhanChang } from "./lsxBuoc";
 
 export function LsxPreviewDrawer({
   orderId,
@@ -356,7 +356,7 @@ function PreviewRow({
       </td>
       <td className="khsx-num khsx-num--val">
         <span className="khsx-num__main">{num(line.so_to_nguyen)}</span>{" "}
-        <span className="khsx-unit">{nhanDonVi(line.don_vi_to_nguyen) || dvTo}</span>
+        <span className="khsx-unit">{nhanChang(line.don_vi_to_nguyen) || dvTo}</span>
       </td>
       <td
         className="khsx-num khsx-num--val"

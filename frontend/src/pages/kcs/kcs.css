@@ -121,14 +121,47 @@
   .kcs-dash__seg:first-child { border-top: none; }
 }
 
+/* ---- Khối ba tầng "Điểm kiểm theo công đoạn": Giai đoạn → Công đoạn → checklist --------- */
+/* Tầng GIAI ĐOẠN là nhóm bên trong một `.kcs-section` sẵn có, nên nó chỉ cần khoảng cách dọc
+   riêng + tiêu đề nhỏ hơn h2 một bậc; không dựng lại khung/viền để tránh hai lớp hộp lồng nhau. */
+.kcs-giaidoan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.kcs-giaidoan + .kcs-giaidoan {
+  margin-top: var(--sp-4);
+}
+.kcs-giaidoan__ten {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  margin: 0;
+}
+
+/* Dòng phụ trong ô (tên sản phẩm dưới mã đơn, tên thợ dưới tên tổ): KHÔNG ellipsis — tên thợ
+   Việt bị cắt là mất họ, xem bẫy "ellipsis nuốt tên/mã" ở responsive. */
+.kcs-table--diemkiem .rc__sub {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
 /* ---- Bảng "Chờ KCS" / "Kết quả đã ghi": ô số căn phải, dòng bấm được -------------------- */
 .kcs-table--cho td.num,
+.kcs-table--diemkiem td.num,
 .kcs-table--ketqua td.num {
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
 .kcs-table--cho th.num,
+.kcs-table--diemkiem th.num,
 .kcs-table--ketqua th.num {
   text-align: right;
 }

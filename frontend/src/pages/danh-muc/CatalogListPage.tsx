@@ -10,6 +10,7 @@ import { Pager, trangHopLe } from "../../components/Pager";
 import { useTre } from "../../lib/useTre";
 import { ApiError } from "../../api/client";
 import { crud, type Row } from "../../api/rebuildCatalog";
+import { useNapTenDonVi } from "../tenDonVi";
 import { CatalogDrawer } from "./CatalogDrawer";
 import { ImportExcelDialog } from "./ImportExcelDialog";
 import { OTim } from "./OTim";
@@ -29,6 +30,11 @@ const PAGE_SIZE = 20;
 export function CatalogListPage({ config, onMutate }: { config: CatalogConfig; onMutate?: () => void }) {
   const { token } = useAuth();
   const can = useCan();
+  // Nạp bảng nhãn ĐƠN VỊ + CHẶNG dòng giấy cho cả trang lẫn drawer con: cột "Đơn vị" của màn Công
+  // đoạn và ô chọn Đơn vị đầu vào/ra đọc `/api/don-vi/tram` (xem `tenDonVi.ts`). Gọi ở ĐÂY chứ
+  // không ở từng config vì config là dữ liệu, không phải component — và một lần gọi ở gốc thì
+  // drawer vẽ lại theo. Bảng nạp một lần cho cả phiên nên các màn khác không tốn thêm chuyến nào.
+  useNapTenDonVi();
   // Gác nút GHI theo quyền module. Trước 15/08/2026 màn này không hỏi quyền một câu nào: vai
   // chỉ-đọc vẫn thấy đủ Thêm / Xóa / Bật lại, bấm xong mới ăn 403 — nút bày ra để rồi từ chối.
   // `moduleQuyen` bỏ trống (vd màn dùng trong test) = không gác, hành vi cũ y nguyên.

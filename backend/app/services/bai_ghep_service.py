@@ -1766,6 +1766,16 @@ class BaiGhepService:
         return {"so_mau_a": sa, "so_mau_b": sb, "so_mau_pha": sp,
                 "so_kem": so_kem_moi_tay(a, b, kieu_in[0])}
 
+    def quy_cach_bien_cua_bai(self, bg: BaiGhep) -> dict:
+        """Bộ BIẾN CÔNG THỨC của tờ ghép — cửa CÔNG KHAI của `_qc_bien_bai` cho người ngoài service.
+
+        Có vì lúc phát hành sản xuất (`san_xuat/snapshot.py`) phải chạy lại công thức tiền công của
+        bước chạy chung, mà quy cách của bài thì chỉ service này biết cách dựng (gộp `so_mau`/
+        `so_kem` của mọi thành viên, ba số tờ ở cấp bài). Bày ra một hàm còn hơn để nơi khác chép
+        lại cách dựng rồi lệch số khi luật gộp đổi.
+        """
+        return self._qc_bien_bai(bg, self._lsx_map(bg))
+
     def _qc_bien_bai(self, bg: BaiGhep, lsx_map: dict[int, Lsx],
                      so_to: dict | None = None) -> dict:
         """Quy cách của TỜ GHÉP dưới dạng bộ BIẾN CÔNG THỨC (khổ in bài · gsm · 3 số tờ · `so_mau`/

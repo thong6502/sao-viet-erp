@@ -290,11 +290,10 @@ class LsxCongDoan(Base):
     # SNAPSHOT {rate_id, ten, don_vi, don_gia} chứ không đọc-sống: xưởng lên giá khoán về
     # sau KHÔNG được làm xê dịch lệnh đã phát. Tiền khoán là số DẪN XUẤT (tính lúc đọc), không lưu.
     khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    # KCS kiêm nhiệm (mg `0250`): checklist BỔ SUNG riêng cho bước này (khai thêm ở LỆNH, cộng vào
-    # checklist chuẩn của danh mục — không thay thế). Hình dạng list[dict] tài liệu ở
-    # `docs/spec-*` (Task 3 mới thực sự GHI); nullable = chưa khai gì thêm. Chỉ có nghĩa khi
-    # `la_kcs=true`, nhưng KHÔNG chặn DB — service Task 2/3 tự kiểm.
-    kcs_tieu_chi_bo_sung_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # `kcs_tieu_chi_bo_sung_json` GỠ ở mg `0283`: checklist KCS nay chỉ còn MỘT nguồn là danh mục
+    # `san_xuat_kcs_tieu_chi` gắn theo công đoạn — xem `docs/design-kcs-theo-cong-doan.md`. Đừng
+    # bày lại ô gõ thêm dòng riêng cho một lệnh: hai nguồn cho cùng một checklist thì không ai
+    # biết bản nào chuẩn, mà dòng gõ tay không mã, không lịch sử, không tái dùng cho lệnh sau.
     # --- Gia công ngoài (§8) — chỉ dùng khi `loai_buoc = thue_ngoai`. NCC khai TAY (text tự do):
     # cơ sở gia công nhỏ lẻ thường chưa có trong danh mục `suppliers`, chốt không bắt khai trước.
     nha_cung_cap: Mapped[str | None] = mapped_column(String(150), nullable=True)

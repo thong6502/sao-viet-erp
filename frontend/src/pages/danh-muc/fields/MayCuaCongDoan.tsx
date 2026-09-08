@@ -10,8 +10,17 @@ import { useMemo, useState } from "react";
 import { Select, type SelectOption } from "../../../components/Select";
 import { TrashIcon } from "../icons";
 import type { MayCongDoanRow, Row } from "../types";
+import { nhanDonViTocDo } from "./DonViTocDo";
 import { FormulaField } from "./FormulaField";
 import { FormulaPopover } from "./FormulaPopover";
+
+// Số NĂNG LỰC kế thừa từ danh mục Thiết bị & Máy móc: trống / 0 / rác đều hiện TRẮNG chứ không
+// phải "—". Trong chính bảng này "—" đang mang nghĩa "chưa khai, bấm vào khai" ở hai ô công thức;
+// rải nó sang ô chỉ-đọc là mời một cú bấm không có thật.
+function so(v: unknown): string {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n.toLocaleString("vi-VN") : "";
+}
 
 export function MayCuaCongDoanField({ value, options, nhomChoPhep, nhomCongDoan, onChange }: {
   value: MayCongDoanRow[]; options: Row[]; nhomChoPhep: string[];
@@ -67,15 +76,32 @@ export function MayCuaCongDoanField({ value, options, nhomChoPhep, nhomCongDoan,
 
   return <div className="rc-bands rc-bands--dinh-muc">
     <div className="rc-dinh-muc-wrapper">
-      <table className="rc-dinh-muc-table">
-        <thead><tr>
-          <th className="rc-col--left">Máy</th>
-          <th className="rc-col--left">Cách đo giờ chạy</th>
-          {coOGia && <th className="rc-col--left">Cách tính giá</th>}
-          <th className="rc-col--center" style={{ width: 36 }} />
-        </tr></thead>
+      <table className={`rc-dinh-muc-table rc-dinh-muc-table--may ${coOGia ? "rc-dinh-muc-table--may-gia" : ""}`}>
+        <thead>
+          <tr className="rc-dinh-muc-table__group-row">
+            <th rowSpan={2} className="rc-col--left">Máy</th>
+            {/* Ba mốc + đơn vị đọc thành một DẢI, đúng ngữ pháp "Năng suất khoán" của bảng đầu việc
+                ngay phía trên: số xếp cột canh phải thì so DỌC giữa các máy được ngay, nối thành
+                một dòng thì mắt phải đếm vị trí ở từng dòng mới biết số nào là số nào. */}
+            <th colSpan={4} className="rc-col--group rc-group--may"
+              title="Khai ở danh mục Thiết bị & Máy móc. Trung bình là tốc độ hệ dùng để tính thời lượng bước; tối thiểu/tối đa chỉ dựng khoảng nhanh–chậm khi xếp lịch.">Tốc độ chạy</th>
+            {/* Canh máy luôn tính bằng phút ⇒ đơn vị lên đầu cột, ô chỉ còn con số trần. */}
+            <th rowSpan={2} className="rc-col--num rc-group--may"
+              title="Thời gian canh máy mặc định — Xếp lịch cộng thẳng vào thời gian chiếm máy. Khai ở danh mục Thiết bị & Máy móc.">Canh máy (phút)</th>
+            <th rowSpan={2} className="rc-col--left">Cách đo giờ chạy</th>
+            {coOGia && <th rowSpan={2} className="rc-col--left">Cách tính giá</th>}
+            <th rowSpan={2} className="rc-col--center" style={{ width: 36 }} />
+          </tr>
+          <tr className="rc-dinh-muc-table__sub-row">
+            {/* Thứ tự tối thiểu → trung bình → tối đa: đọc thành một dải tăng dần, y bảng trên. */}
+            <th className="rc-col--num">Tối thiểu</th>
+            <th className="rc-col--num">Trung bình</th>
+            <th className="rc-col--num">Tối đa</th>
+            <th className="rc-col--unit rc-col--unit-hep">Đơn vị</th>
+          </tr>
+        </thead>
         <tbody>
-          {chon.length === 0 && <tr><td colSpan={coOGia ? 4 : 3} className="rc-bands__empty">
+          {chon.length === 0 && <tr><td colSpan={coOGia ? 9 : 8} className="rc-bands__empty">
             {duocChon.length === 0
               ? "Chưa có máy nào thuộc nhóm đã tick ở trên."
               : "Chưa chọn máy nào cho công đoạn này."}
@@ -93,6 +119,18 @@ export function MayCuaCongDoanField({ value, options, nhomChoPhep, nhomCongDoan,
                     {may ? `${String(may.ma)} · ${String(may.ten)}` : `#${r.may_id}`}
                   </button>
                 </td>
+                {/* NĂNG LỰC MÁY — chỉ đọc, kế thừa từ danh mục Thiết bị & Máy móc. Bày ở đây vì
+                    người khai "Cách đo giờ chạy" cần biết máy chạy nhanh cỡ nào theo đơn vị nào
+                    thì mới viết nổi công thức; trước 08/09/2026 phải mở sang màn Máy mà tra. */}
+                <td className="rc-col--num rc-may-nl">{so(may?.toc_do_min)}</td>
+                <td className="rc-col--num rc-may-nl rc-may-nl--tb">{so(may?.toc_do)}</td>
+                <td className="rc-col--num rc-may-nl">{so(may?.toc_do_max)}</td>
+                <td className="rc-col--unit rc-col--unit-hep rc-may-nl">{may ? nhanDonViTocDo(may) : ""}</td>
+                {/* Đọc THẲNG `makeready_time_default` chứ không cộng lại `chuan_bi_khoan`: form Máy
+                    đã ghi tổng các khoản xuống đúng cột này lúc lưu (`CFG_MAY.transformSubmit`), và
+                    đây mới là cột Xếp lịch cộng vào thời gian chiếm máy. Tự cộng lại là bày một con
+                    số mà hệ không dùng. */}
+                <td className="rc-col--num rc-may-nl">{so(may?.makeready_time_default)}</td>
                 {/* Ô công thức là NÚT: bấm thẳng vào con số muốn sửa là mở đúng ô đó của đúng dòng đó. */}
                 <td className="rc-col--left rc-dinh-muc-unit">
                   <button type="button" title="Sửa cách đo giờ chạy của máy này"
@@ -114,6 +152,10 @@ export function MayCuaCongDoanField({ value, options, nhomChoPhep, nhomCongDoan,
         </tbody>
       </table>
     </div>
+    {/* Nói thẳng bốn cột kia sửa ở đâu — không có dòng này thì người khai bấm mãi vào con số. */}
+    {chon.length > 0 && <div className="rc-dinh-muc-note">
+      Tốc độ và canh máy khai ở danh mục Thiết bị &amp; Máy móc — ở đây chỉ đọc.
+    </div>}
     {mo && iMo >= 0 && <FormulaPopover neo={mo.neo} onClose={() => setMo(null)} onHuy={huy}
       nhan={mo.o === "gio" ? "Công thức giờ chạy" : "Công thức giá"}>
       {/* `id` phải DUY NHẤT: drawer còn những ô công thức khác, trùng id là hai ô dính nhau. */}

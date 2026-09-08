@@ -21,7 +21,7 @@ import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { num } from "./keHoachSxShared";
-import { heSoChu, nhanDonVi, phut, thoiLuongLive, type MayTinhGio } from "./lsxBuoc";
+import { heSoChu, nhanChang, nhanDonVi, phut, thoiLuongLive, type MayTinhGio } from "./lsxBuoc";
 import "./ke-hoach-sx.css";
 import "./bai-ghep.css";
 
@@ -121,8 +121,8 @@ export function BuocChungForm({
 
   const meta = LSX_LOAI_BUOC_META[g.loai_buoc];
   const ngoai = g.loai_buoc === "thue_ngoai";
-  const dvVao = nhanDonVi(g.don_vi_vao);
-  const dvRa = nhanDonVi(g.don_vi_ra);
+  const dvVao = nhanChang(g.don_vi_vao);
+  const dvRa = nhanChang(g.don_vi_ra);
 
   /** Đầu việc đang GHIM có thể không còn trong bảng khoán của tổ (đổi tổ, hoặc dòng bị ngừng) —
    *  vẫn phải bày ra, không thì `<select>` rơi về "— chọn —" và người dùng tưởng chưa ai chọn. */
@@ -345,6 +345,10 @@ export function BuocChungForm({
                 </div>
               </div>
 
+              {/* Băng giải thích "bước không nằm trên dòng giấy" ĐÃ BỎ 09/09/2026, cùng lượt với
+                  băng song sinh ở `LsxBuocDrawer` — nó chỉ mô tả lại cách máy tính số, không đòi
+                  người khai làm gì. `tren_giay` vẫn về từ API và vẫn lái cách tính.
+                  Băng ĐỎ dưới đây GIỮ: nó báo bài KHÔNG phát hành được, phải khai cầu quy đổi. */}
               {g.loi_quy_doi ? (
                 <div className="khsx-note-banner khsx-note-banner--error">
                   <span className="khsx-note-icon">⚠</span>
@@ -352,13 +356,6 @@ export function BuocChungForm({
                     <strong>Chưa tính được số vào.</strong> {g.loi_quy_doi}{" "}
                     Khai cầu quy đổi ở module <strong>Đơn vị &amp; quy đổi</strong> rồi mở lại bước —
                     không có cầu thì bài không phát hành được.
-                  </span>
-                </div>
-              ) : !g.tren_giay ? (
-                <div className="khsx-note-banner">
-                  <span>
-                    Bước này <strong>không nằm trên dòng giấy</strong> (chung bản/kẽm cho cả bài) nên
-                    số ra là số bản/kẽm tính từ quy cách tờ ghép, không đếm theo số tờ chạy máy.
                   </span>
                 </div>
               ) : null}
@@ -655,7 +652,14 @@ export function BuocChungForm({
                         <span className="khsx-compact-kpi-val">
                           {slHien != null ? num(slHien) : "—"}
                         </span>
-                        <span className="khsx-compact-kpi-sub">{nhanDonVi(dvSlHien) || "chưa quy đổi"}</span>
+                        {/* Trống có HAI nghĩa khác hẳn nhau, và đoán sai thì người khai đi sửa
+                            nhầm chỗ: công thức tiền công gọi chip Đơn giá khoán thì nó ra THẲNG
+                            tiền, không đi qua sản lượng nào cả (đúng, không phải lỗi); còn trống
+                            vì tịt cầu quy đổi mới là thứ phải sửa. */}
+                        <span className="khsx-compact-kpi-sub">
+                          {nhanDonVi(dvSlHien)
+                            || (tienHien != null ? "công thức ra thẳng tiền" : "chưa quy đổi")}
+                        </span>
                       </div>
                     </div>
                     <div className="khsx-compact-kpi-cell khsx-compact-kpi-cell--rust">
@@ -1154,7 +1158,7 @@ export function BuocChungForm({
                           <span className="khsx-formula-text">
                             {tg.quy_doi_dien_giai
                               ? String(tg.quy_doi_dien_giai)
-                              : `${num(Number(tg.so_luong_vao ?? 0))} ${nhanDonVi(String(tg.don_vi_vao ?? ""))}`}
+                              : `${num(Number(tg.so_luong_vao ?? 0))} ${nhanChang(String(tg.don_vi_vao ?? ""))}`}
                             {" ÷ "}
                             {num(Number(tg.nang_suat_hieu_dung ?? 0))}/giờ
                             {g.loai_buoc === "may" && Number(tg.so_luot_chay ?? 1) !== 1

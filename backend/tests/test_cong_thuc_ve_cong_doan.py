@@ -135,6 +135,83 @@ def test_dong_vat_tu_chua_khai_cong_thuc_thi_bo_ra_kem_ly_do(db, orders, lsx_svc
     assert len(canh_bao) == 1 and "Keo vào gáy" in canh_bao[0]
 
 
+def test_buoc_ngoai_dong_giay_van_bung_vat_tu_khong_an_theo_sl(db, orders, lsx_svc, admin,
+                                                              customer):
+    """Ghi kẽm CTP nằm NGOÀI dòng giấy ⇒ SL vào/ra luôn 0, mà bản kẽm vẫn phải bung ra bước.
+
+    Công thức khai ở CHÍNH DÒNG vật tư (`so_kem`) nên chẳng đụng `sl_vao` — chặn theo SL của bước
+    là cắt nhầm. Món nào thật sự ăn theo SL thì vẫn bị loại kèm lý do, không đoán số.
+    """
+    from types import SimpleNamespace
+
+    from app.models.cong_doan import CongDoanDauViec, CongDoanDauViecVatTu
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    cd = CongDoan(ma="CD-CTP", ten="Ghi kẽm CTP", nhom="prepress")
+    kem = VatTuInAn(ma="VT-KEM-01", ten="Bản kẽm CTP 1030x790", don_vi_gia="cai", active=True)
+    muc = VatTuInAn(ma="VT-MUC-K", ten="Mực offset Đen", don_vi_gia="kg", active=True)
+    db.add_all([cd, kem, muc])
+    db.flush()
+
+    dv = CongDoanDauViec(cong_doan_id=cd.id, piece_rate_id=1,
+                         nang_suat_nguoi_gio=12, so_nguoi_tieu_chuan=1)
+    dv.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=kem.id, thu_tu=0, cong_thuc_luong="so_kem"))
+    dv.vat_tus.append(CongDoanDauViecVatTu(
+        vat_tu_id=muc.id, thu_tu=1, cong_thuc_luong="sl_vao / 40000"))
+    db.add(dv)
+    db.commit()
+
+    buoc = SimpleNamespace(so_luong_vao=0, so_luong_ra=0, so_luot_chay=1)
+    ra, canh_bao = lsx_svc._vat_tu_bung(dv, buoc, {"so_kem": 4})
+
+    assert [r["ma"] for r in ra] == ["VT-KEM-01"], "bản kẽm bung được dù bước không có SL"
+    assert ra[0]["so_luong"] == 4
+    assert len(canh_bao) == 1 and "sl_vao" in canh_bao[0], "món ăn theo SL vẫn bị loại kèm lý do"
+
+
+def test_buoc_may_trong_may_bao_dung_cho_khong_do_cho_cau_quy_doi():
+    """Chưa gán máy thì gốc rễ không phải cầu quy đổi — cả cách đo giờ lẫn tốc độ treo ở CẶP."""
+    from types import SimpleNamespace
+
+    from app.services.lsx_service import thoi_luong_buoc
+
+    cd = SimpleNamespace(loai_buoc="may", so_luot_chay=1, phat_sinh_phut=0, nang_suat=0,
+                         so_nhan_cong_tieu_chuan=1, khoan_json=None, so_luong_vao=705)
+    kq = thoi_luong_buoc(cd, may=None, sl_tinh=None)["dien_giai"]
+    assert kq["phuong_phap"] == "chua_quy_doi", "mã giữ nguyên — xếp lịch phân nhánh theo nó"
+    assert "chưa gán máy" in kq["canh_bao"][0]
+    assert "quy đổi" not in kq["canh_bao"][0], "đừng chỉ người ta sang màn Đơn vị & quy đổi"
+
+    # Có máy mà vẫn không quy đổi được ⇒ câu cũ, đúng chỗ khai cầu quy đổi.
+    may = SimpleNamespace(toc_do=6000, toc_do_min=0, toc_do_max=0, don_vi_toc_do="to_gio",
+                          makeready_time_default=15)
+    kq2 = thoi_luong_buoc(cd, may=may, sl_tinh=None)["dien_giai"]
+    assert "Chưa quy đổi được" in kq2["canh_bao"][0]
+
+
+def test_may_mac_dinh_dien_cho_ca_buoc_ngoai_nhom_in(db, orders, lsx_svc, admin, customer):
+    """Công đoạn khai ĐÚNG MỘT máy còn dùng ⇒ điền sẵn, kể cả bước không thuộc nhóm in."""
+    from app.models.may_thiet_bi import MayThietBi
+
+    cat = CongDoan(ma="CD-CAT1", ten="Cắt tờ", nhom="prepress", don_vi_vao="to", don_vi_ra="to")
+    m1 = MayThietBi(ma="TI-08", ten="Máy cắt tờ Kyodo 132", loai_may="Máy cắt",
+                    toc_do=2, don_vi_toc_do="tan_gio", active=True)
+    m2 = MayThietBi(ma="TI-07", ten="Máy cắt tờ ITO 100", loai_may="Máy cắt",
+                    toc_do=1, don_vi_toc_do="tan_gio", active=True)
+    db.add_all([cat, m1, m2])
+    db.flush()
+    cat.may_lam_duoc.append(CongDoanMay(may_id=m1.id, cong_thuc_gio="sl_vao", thu_tu=0))
+    db.commit()
+
+    assert lsx_svc._may_mac_dinh(cat, None) == m1.id, "một máy ⇒ không có gì để đoán sai"
+
+    # Hai máy ⇒ để TRỐNG, không chọn hộ (cùng luật với đầu việc khoán).
+    cat.may_lam_duoc.append(CongDoanMay(may_id=m2.id, cong_thuc_gio="sl_vao", thu_tu=1))
+    db.commit()
+    lsx_svc._mon_cache = None
+    assert lsx_svc._may_mac_dinh(cat, None) is None
+
+
 def test_cong_thuc_gia_cua_may_ghi_de_cua_cong_doan(db):
     """Máy 5 màu khổ lớn và máy 2 màu khổ nhỏ có đơn giá khác nhau — nên giá phải theo máy."""
     from app.services.tinh_gia_service import _cong_doan_to_dict

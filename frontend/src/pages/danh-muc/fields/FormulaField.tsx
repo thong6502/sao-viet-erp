@@ -195,7 +195,13 @@ Nguồn: ${info.nguon}` : `Mã: ${tok}`}
 // khai công thức theo chúng là tính trên số TRƯỚC khi trừ hao của các bước đứng giữa. Ô nào cũng
 // nên dùng số của CHÍNH bước (`sl_vao`/`sl_ra`) hoặc `to_nguyen`. Chỉ giấu chip mời bấm — hai biến
 // vẫn hợp lệ, công thức cũ đã lỡ dùng không bị báo đỏ và vẫn tính y như trước.
-const AN_MOI_O = ["to_dau_vao", "to_sau_in"];
+// `don_gia_khoan` (08/09/2026) đi cùng danh sách này nhưng vì lý do khác: nó CHỈ có số ở ô "Công
+// thức tính tiền công" của đầu việc — mọi ô khác dùng chung bộ chip `quy_doi` (cách đo giờ, định
+// mức vật tư, công thức lượng của Giấy/Vật tư, quy đổi đơn vị) đều không đứng ở đầu việc nào nên
+// nó luôn bằng 0. Ô nào cần thì tự xin lại bằng prop `hien`. Ô xin lại rồi thì gánh thêm một luật
+// mà chip khác không có: gọi chip là công thức RA THẲNG TIỀN, engine thôi nhân đơn giá
+// (`bien_cong_thuc.cong_thuc_ra_tien` chốt, `lsx_service._khoan_theo_cong_thuc` thi hành).
+const AN_MOI_O = ["to_dau_vao", "to_sau_in", "don_gia_khoan"];
 
 export function FormulaField({
   value,
@@ -203,6 +209,7 @@ export function FormulaField({
   configPrefix,
   bienGoiY,
   an,
+  hien,
   loaiO: loaiOEp,
   nhanO = "Công thức tính giá",
   goY = "Nhập công thức tính giá (vd: dai_tp * rong_tp * don_gia)...",
@@ -220,6 +227,12 @@ export function FormulaField({
    *  nghĩa với MỘT số bản ghi trong cùng loại ô. Không ảnh hưởng `bienGoiY`, cũng KHÔNG làm biến
    *  mất hiệu lực: chỉ giấu chip mời bấm, công thức cũ đã dùng vẫn hợp lệ và vẫn tính như trước. */
   an?: string[];
+  /** Mã biến XIN BÀY LẠI dù nằm trong danh sách ẩn mặc định `AN_MOI_O` — ngược chiều với `an`.
+   *  Cần vì có biến chỉ đúng ở MỘT ô trong cả bộ chip dùng chung (`don_gia_khoan` chỉ có số ở
+   *  "Công thức tính tiền công"): mặc định ẩn rồi cho một ô xin lại thì thêm ô mới sau này không
+   *  vô tình thừa hưởng chip sai, còn làm ngược (mặc định bày, từng ô tự ẩn) thì quên một chỗ là
+   *  mời người ta gõ vào thứ mãi mãi bằng 0. */
+  hien?: string[];
   loaiO?: string;
   nhanO?: React.ReactNode;
   goY?: string;
@@ -251,8 +264,9 @@ export function FormulaField({
   // nên công thức cũ lỡ dùng biến ẩn không bị gạch đỏ, không bị chặn lưu, và vẫn tính y như trước.
   const bienHienThi = useMemo(() => {
     const bo = new Set([...AN_MOI_O, ...(an ?? [])]);
+    for (const ma of hien ?? []) bo.delete(ma);
     return whitelist.filter((ma) => !bo.has(ma));
-  }, [whitelist, an]);
+  }, [whitelist, an, hien]);
   const validVars = useMemo(
     () => (whitelist.length ? [...whitelist] : null),
     [whitelist],
@@ -531,7 +545,9 @@ export function FormulaField({
   const groups = useMemo(() => {
     const sizeVars = ["dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in",
       "dai", "rong"];
-    const qtyVars = ["so_luong", "so_tp", "so_trang", "trang_moi_tay", "so_mau", "so_mat",
+    // `so_con` là tên hiện hành (đổi lại từ `so_tp` ngày 08/09/2026, mg `0286`) — nó vốn đã nằm
+    // cuối danh sách này từ thời trước mg `0189`, nên xoá `so_tp` là đủ, chip vẫn về đúng nhóm.
+    const qtyVars = ["so_luong", "so_trang", "trang_moi_tay", "so_mau", "so_mat",
       "so_kem", "to_dau_vao", "to_sau_in", "to_nguyen", "so_con"];
     const priceVars = ["dinh_luong", "don_gia_giay", "don_gia_vat_tu"];
     const daXep = new Set([...sizeVars, ...qtyVars, ...priceVars]);

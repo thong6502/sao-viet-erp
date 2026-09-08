@@ -37,7 +37,7 @@ from .models.piece_work import PieceRate
 from .models.san_xuat_ly_do import SanXuatLyDo
 from .models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 from .repositories.rbac_repo import DepartmentRepository
-from .seed import seed_departments, seed_san_xuat_org
+from .seed import seed_departments, seed_san_xuat_org, to_sx_theo_ten_bat_ky
 from .seed_kho_ncc import seed_kho_ncc
 from .seed_rebuild import (
     _CT_LUONG_GIAY_CAN,
@@ -435,9 +435,12 @@ def _import_khoan(db: Session) -> int:
     for ma, ten, to_ten, grp, unit, gia in _KHOAN:
         if ma in co:
             continue
-        d = depts.get_by_name(to_ten)
+        d = to_sx_theo_ten_bat_ky(depts, to_ten)
+        # `grp` chỉ là mã gợi ý ở bảng trên. NHÃN TỔ ghi xuống phải là TÊN tổ tra ra được: tab lọc
+        # của màn Công việc khoán dựng từ `group_name`, ghi mã/tên tổ đời cũ vào là màn đẻ ra tab
+        # của tổ không còn tồn tại.
         moi.append(PieceRate(
-            ma=ma, ten=ten, group_name=grp, department_id=(d.id if d else None),
+            ma=ma, ten=ten, group_name=(d.name[:40] if d else grp), department_id=(d.id if d else None),
             unit=unit, unit_price=gia, active=True,
         ))
     if moi:

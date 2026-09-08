@@ -8,6 +8,11 @@
 //     dùng để chặn ghi vượt) − tổng so_luong_nhan. KHÔNG dùng `so_luong_vao` (kế hoạch tĩnh lúc phát
 //     hành LSX) — nó không tự đồng bộ khi bàn giao chạy dần từng đợt, gây "Còn chờ" ảo rồi 400 khi
 //     lưu.
+//   - "Điểm kiểm theo công đoạn" (khối ba tầng Giai đoạn → Công đoạn → checklist): `kcsDiemKiem()`
+//     — MỌI bước ĐÃ khởi động có checklist trong phạm vi quyền đọc, không riêng tổ này, vì tổ KCS
+//     đi kiểm việc của tổ KHÁC (`docs/design-kcs-theo-cong-doan.md` mục 4). Bỏ khỏi khối này những
+//     thẻ việc của CHÍNH tổ KCS đang mở trang: chúng đã nằm ở "Chờ KCS" bên trên, nơi có thêm cửa
+//     nhập kho + số bàn giao — bày hai lần là hai chỗ ghi cho cùng một việc.
 //   - "Kết quả đã ghi" (đột xuất): KHÔNG có endpoint liệt kê lịch sử đột xuất theo tổ KCS, vì việc
 //     bị kiểm thuộc tổ KHÁC (`kcs_department_id` = tổ này, nhưng `cong_viec_id` không nằm trong
 //     `workItems(teamId, "kcs")`). Mỗi lượt lưu đột xuất được ghim vào state PHIÊN NÀY qua
@@ -16,12 +21,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError, api,
-  type CongDoanLite, type SxKcsBatchChiTiet, type SxKcsChiTiet, type SxWorkItem,
+  type CongDoanLite, type SxDiemKiemGiaiDoan, type SxDiemKiemItem,
+  type SxKcsBatchChiTiet, type SxKcsChiTiet, type SxWorkItem,
 } from "../../api/client";
 import { ChipKhuon, ChipLoaiBuoc } from "../../components/ChipBuoc";
 import { useAuth } from "../../auth/useAuth";
 import { useCan } from "../../auth/permissions";
-import { num, ngayGio } from "../keHoachSxShared";
+import { NHOM_CONG_DOAN, num, ngayGio } from "../keHoachSxShared";
 import { KcsDashboard, KCS_DASH_FILTERS_RONG, type KcsDashFilters } from "./KcsDashboard";
 import { KCS_TRANG_THAI_GUI_KHO_LABEL, KcsResultDrawer, type KcsSavedRow } from "./KcsResultDrawer";
 import { KcsChotNhom } from "./KcsChotNhom";
@@ -40,7 +46,7 @@ interface KetQuaRow {
   luc: string;
   soDat: number;
   soLoi: number;
-  loai: "routing" | "dot_xuat";
+  loai: "routing" | "dot_xuat" | "diem_kiem";
   maNguon: string;
   tenNguon: string;
   tenCongDoan: string;
@@ -54,6 +60,7 @@ interface KetQuaRow {
 type DrawerState =
   | { mode: "ghi"; item: SxWorkItem; conCho: number }
   | { mode: "dot_xuat" }
+  | { mode: "diem_kiem"; item: SxDiemKiemItem }
   | { mode: "xem"; item: SxWorkItem; batch: SxKcsBatchChiTiet };
 
 /** Ngày theo LỊCH VN (không phải lát cắt chuỗi UTC thô) — khớp `_ngay_vn()` phía backend
@@ -142,7 +149,34 @@ export function ThucHienKcsPage({
       });
   }, [token, teamId]);
 
+  // Bàn ĐIỂM KIỂM — nguồn RIÊNG, không dùng chung `load()`: nó không phụ thuộc `teamId` (tổ KCS
+  // kiểm việc của tổ khác) nên tải lại khi đổi tổ là gọi thừa.
+  const [giaiDoan, setGiaiDoan] = useState<SxDiemKiemGiaiDoan[] | null>(null);
+  const [dkError, setDkError] = useState<string | null>(null);
+  const loadDiemKiem = useCallback(() => {
+    if (!token) return;
+    setDkError(null);
+    api.sanXuat.kcsDiemKiem(token)
+      .then((r) => setGiaiDoan(r.giai_doan))
+      .catch((e) => {
+        setGiaiDoan([]);
+        setDkError(e instanceof ApiError ? e.message : "Không tải được bàn điểm kiểm.");
+      });
+  }, [token]);
+
   useEffect(() => { load(); }, [load, eventTick]);
+  useEffect(() => { loadDiemKiem(); }, [loadDiemKiem, eventTick]);
+
+  // Bỏ thẻ việc của CHÍNH tổ KCS này — chúng đã nằm ở khối "Chờ KCS" (xem đầu file). Nhóm rỗng
+  // sau khi lọc thì ẩn hẳn, không bày tiêu đề giai đoạn trống.
+  const giaiDoanLoc = useMemo(
+    () =>
+      (giaiDoan ?? [])
+        .map((gd) => ({ ...gd, cong_viec: gd.cong_viec.filter((cv) => cv.to_id !== teamId) }))
+        .filter((gd) => gd.cong_viec.length > 0),
+    [giaiDoan, teamId],
+  );
+  const soDiemKiem = giaiDoanLoc.reduce((n, gd) => n + gd.cong_viec.length, 0);
 
   // Kết quả đột xuất ghi trong phiên này — xem giải thích ở đầu file.
   const [dotXuatPhien, setDotXuatPhien] = useState<KcsSavedRow[]>([]);
@@ -229,8 +263,11 @@ export function ThucHienKcsPage({
   const [dashRefreshKey, setDashRefreshKey] = useState(0);
 
   function daLuu(row: KcsSavedRow) {
-    if (row.loai === "dot_xuat") setDotXuatPhien((prev) => [row, ...prev]);
+    // Cả đột xuất lẫn điểm kiểm đều ghi lên việc của tổ KHÁC nên không có trong `items` — ghim vào
+    // state phiên để dòng vừa lưu hiện ngay ở "Kết quả đã ghi" (mất khi tải lại, xem đầu file).
+    if (row.loai !== "routing") setDotXuatPhien((prev) => [row, ...prev]);
     load();
+    loadDiemKiem();
     setDashRefreshKey((k) => k + 1);
     onBadgeStale?.();
   }
@@ -375,6 +412,86 @@ export function ThucHienKcsPage({
         )}
       </section>
 
+      {/* ĐIỂM KIỂM THEO CÔNG ĐOẠN (docs/design-kcs-theo-cong-doan.md) — ba tầng
+          Giai đoạn → Công đoạn → checklist, theo tờ ISO 9001-2015 của công ty. Tổ KCS ĐI KIỂM
+          việc của tổ khác nên khối này KHÔNG lọc theo `teamId`; ghi "không đạt" ở đây chỉ là bản
+          ghi chất lượng, KHÔNG chặn bước sau (không đẻ `san_xuat_batch`, không đổi trạng thái). */}
+      <section className="kcs-section">
+        <h2>Điểm kiểm theo công đoạn <span className="rc__count">{soDiemKiem}</span></h2>
+        {dkError ? (
+          <div className="rc__empty-state">
+            <p className="rc__empty-text">Không tải được bàn điểm kiểm.</p>
+            <p className="rc__empty-sub">{dkError}</p>
+            <button type="button" className="btn btn--ghost" onClick={loadDiemKiem}>Tải lại</button>
+          </div>
+        ) : giaiDoan == null ? (
+          <div className="rc__tablewrap">
+            <table className="rc__table">
+              <tbody>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <tr key={i} className="rc-skel__row"><td><span className="rc-skel" style={{ width: "60%" }} /></td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : soDiemKiem === 0 ? (
+          <div className="rc__empty-state">
+            <p className="rc__empty-text">Chưa có công đoạn nào đang chạy cần kiểm.</p>
+            <p className="rc__empty-sub">
+              Công đoạn chỉ hiện ở đây khi đã khai tiêu chí cho nó ở danh mục "Tiêu chí KCS" và
+              thợ đã bắt đầu bước.
+            </p>
+          </div>
+        ) : (
+          giaiDoanLoc.map((gd) => (
+            <div key={gd.nhom || "khac"} className="kcs-giaidoan">
+              <h3 className="kcs-giaidoan__ten">
+                {NHOM_CONG_DOAN[gd.nhom] ?? "Chưa xếp giai đoạn"}
+                <span className="rc__count">{gd.cong_viec.length}</span>
+              </h3>
+              <div className="rc__tablewrap">
+                <table className="rc__table kcs-table--diemkiem">
+                  <thead>
+                    <tr>
+                      <th>Công đoạn</th>
+                      <th>Mã đơn/LSX</th>
+                      <th>Tổ · thợ làm</th>
+                      <th className="num">Mục kiểm</th>
+                      <th className="num">Đạt</th>
+                      <th className="num">Lỗi</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gd.cong_viec.map((cv) => (
+                      <tr key={cv.id} className="kcs-row--clickable" onClick={() => setDrawer({ mode: "diem_kiem", item: cv })}>
+                        <td>
+                          {cv.ten_cong_doan}
+                          <ChipLoaiBuoc loai_buoc={cv.loai_buoc} nha_cung_cap={cv.nha_cung_cap} />
+                        </td>
+                        <td>{cv.nguon_ma}<div className="rc__sub">{cv.nguon_ten}</div></td>
+                        <td>
+                          {cv.to_ten}
+                          {cv.nguoi.length > 0 && <div className="rc__sub">{cv.nguoi.join(", ")}</div>}
+                        </td>
+                        <td className="num">{cv.checklist.length}</td>
+                        <td className="num">{num(cv.tong_dat)}</td>
+                        <td className="num">{num(cv.tong_loi)}</td>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <button type="button" className="btn btn--accent" onClick={() => setDrawer({ mode: "diem_kiem", item: cv })}>
+                            Ghi điểm kiểm
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))
+        )}
+      </section>
+
       {/* CHỐT NHÓM §13.3/§14.2 — đóng thiếu + phân loại BTP dư. Đặt giữa "Chờ KCS" và lịch sử: nó là
           việc làm SAU khi kiểm xong, trước khi lệnh khép lại. */}
       {/* KHÔNG gỡ khối khi `loading` — mỗi lần ghi xong `load()` bật lại cờ đó, gỡ ra là mất luôn
@@ -432,7 +549,7 @@ export function ThucHienKcsPage({
                     <td className="num">{num(r.soLoi)}</td>
                     <td>
                       <span className={`badge-sem ${r.loai === "routing" ? "badge-sem--steel" : "badge-sem--plum"}`}>
-                        {r.loai === "routing" ? "Routing" : "Đột xuất"}
+                        {r.loai === "routing" ? "Routing" : r.loai === "diem_kiem" ? "Điểm kiểm" : "Đột xuất"}
                       </span>
                     </td>
                     <td>{r.trangThaiGuiKho ? (KCS_TRANG_THAI_GUI_KHO_LABEL[r.trangThaiGuiKho] ?? r.trangThaiGuiKho) : "—"}</td>
@@ -454,6 +571,12 @@ export function ThucHienKcsPage({
       {drawer?.mode === "dot_xuat" && (
         <KcsResultDrawer
           mode="dot_xuat" teamId={teamId} tenTo={tenTo ?? ""}
+          onClose={() => setDrawer(null)} onSaved={daLuu}
+        />
+      )}
+      {drawer?.mode === "diem_kiem" && (
+        <KcsResultDrawer
+          mode="diem_kiem" teamId={teamId} tenTo={tenTo ?? ""} item={drawer.item}
           onClose={() => setDrawer(null)} onSaved={daLuu}
         />
       )}

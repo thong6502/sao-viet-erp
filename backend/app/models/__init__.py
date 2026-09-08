@@ -162,7 +162,6 @@ from .san_xuat_kcs import (
     SanXuatKcsLoi,
     SanXuatKcsLoiAnh,
     SanXuatKcsTieuChi,
-    SanXuatKcsTieuChiCongDoan,
 )
 from .san_xuat_kho import (
     SanXuatKhoHang,
@@ -342,7 +341,6 @@ __all__ = [
     "SanXuatKcsLoi",
     "SanXuatKcsLoiAnh",
     "SanXuatKcsTieuChi",
-    "SanXuatKcsTieuChiCongDoan",
     "SanXuatKhoHang",
     "SanXuatKhoLot",
     "SanXuatNhapKhoYc",

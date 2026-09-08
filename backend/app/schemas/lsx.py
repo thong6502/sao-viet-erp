@@ -160,9 +160,8 @@ class LsxCongDoanIn(BaseModel):
     # `bat_buoc` GỠ khỏi bộ nhận 07/09/2026: bước đã nằm trong routing thì PHẢI làm. Cột vẫn còn
     # ở `lsx_cong_doan` nhưng do server giữ TRUE (migration 0275 backfill dòng cũ) — client không
     # còn ô sửa nên nhận field này chỉ mở đường ghi nhầm `false` mà không ai gỡ lại được.
-    # Tiêu chí KCS BỔ SUNG riêng cho lệnh này (Task 3) — không sửa được checklist danh mục ở đây,
-    # chỉ thêm/bớt vài dòng chỉ áp cho lệnh này. `[]` để XOÁ SẠCH (không gửi field = giữ nguyên).
-    kcs_tieu_chi_bo_sung_json: list | None = None
+    # `kcs_tieu_chi_bo_sung_json` GỠ 08/09/2026 (mg `0283`): tiêu chí KCS chỉ còn MỘT nguồn là
+    # danh mục Tiêu chí KCS gắn theo công đoạn — xem `docs/design-kcs-theo-cong-doan.md` mục 5.
     department_id: int | None = None
     may_id: int | None = None
     #: Con dao của bước (`khuon_be.id`). Gửi null = bỏ gán.
@@ -218,13 +217,11 @@ class LsxCongDoanOut(BaseModel):
     loai_buoc: str
     bat_buoc: bool = True
     # KCS kiêm nhiệm — suy TỰ ĐỘNG (không còn khai tay): bước này có phải bước cuối của routing +
-    # tổ thực hiện có `Department.is_kcs=true` không (xem `lsx_service._cong_doan_dict`). FE dùng
-    # để ẩn/hiện khối "Tiêu chí KCS bổ sung" trong drawer bước. ⚠️ Thêm field vào schema THÔI CHƯA
-    # ĐỦ — `LsxCongDoanOut` được dựng bằng dict thủ công ở `lsx_service._cong_doan_dict()`, không
-    # phải `from_attributes` tự động; PHẢI copy hai khoá này vào dict đó (đúng bẫy "Pydantic nuốt
-    # field im lặng").
+    # tổ thực hiện có `Department.is_kcs=true` không (xem `lsx_service._cong_doan_dict`). ⚠️ Thêm
+    # field vào schema THÔI CHƯA ĐỦ — `LsxCongDoanOut` được dựng bằng dict thủ công ở
+    # `lsx_service._cong_doan_dict()`, không phải `from_attributes` tự động; PHẢI copy khoá vào
+    # dict đó (đúng bẫy "Pydantic nuốt field im lặng").
     la_kcs: bool = False
-    kcs_tieu_chi_bo_sung_json: list | None = None
     department_id: int | None = None
     department_ten: str | None = None
     may_id: int | None = None
@@ -704,6 +701,11 @@ class BuocMacDinhOut(BaseModel):
     requires_tooling: bool = False
     tooling_type: str | None = None
     setup_phut: float
+    #: GỢI Ý máy cho công đoạn mới — chỉ có số khi công đoạn khai ĐÚNG MỘT máy còn dùng. Không mâu
+    #: thuẫn với đoạn "KHÔNG có `may_id`" ở trên: chỗ đó cấm GHI ĐÈ máy người ta đã chọn, còn đây
+    #: là số để client điền vào ô đang TRỐNG. Cần vì cách đo giờ chạy và tốc độ đều treo ở cặp
+    #: (công đoạn × máy) — bước trống máy thì bảng thời gian không bao giờ ra số.
+    may_id_goi_y: int | None = None
 
 
 class TrangThaiIn(BaseModel):

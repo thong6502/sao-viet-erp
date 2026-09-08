@@ -114,12 +114,10 @@ class CongDoanRow(BaseModel):
     ten_hien_thi: str | None = None
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
-    # TÊN đơn vị đọc từ DANH MỤC (12/08/2026). Trước đó frontend có bảng nhãn cứng riêng nói
-    # `to` = "Tờ in", `cai` = "Thành phẩm" — trong khi danh mục ghi "tờ" và "cái", nên cùng một
-    # giá trị hiện HAI TÊN ở hai chỗ trên cùng một màn (danh sách vs drawer). Server trả tên là
-    # hết chuyện: một nguồn duy nhất, xưởng đổi tên đơn vị là bảng đổi theo.
-    don_vi_vao_ten: str | None = None
-    don_vi_ra_ten: str | None = None
+    # GỠ 08/09/2026: `don_vi_vao_ten` / `don_vi_ra_ten`. Hai ô này lưu MÃ CHẶNG của dòng giấy
+    # (`to_nguyen · to · con · tay · cai`), không phải mã đơn vị kho — nhãn của chúng là
+    # `models/don_vi_do.TRAM_NHAN`, hằng trong code, không phải thứ tra ở danh mục. Lý do đầy đủ:
+    # xem khối chú thích chỗ `cong_doan_service.gan_ten_don_vi` cũ.
     #: Công thức SẢN LƯỢNG RA của bước NGOÀI dòng giấy (mg `0214`). Bước trên dòng giấy bỏ qua
     #: — số của chúng đến từ chuỗi bù hao ngược.
     cong_thuc_san_luong: str | None = None

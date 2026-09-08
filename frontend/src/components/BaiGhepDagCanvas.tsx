@@ -5,7 +5,7 @@ import "../pages/dag-routing.css";
 import { Icon, type IconName } from "./Icons";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ChipGap, classHan, ngay, num } from "../pages/keHoachSxShared";
-import { heSoChu, nhanDonVi, phut } from "../pages/lsxBuoc";
+import { heSoChu, nhanChang, phut } from "../pages/lsxBuoc";
 
 type Node = SoDo["nhanh"][number]["buoc"][number];
 type BuocChung = SoDo["gop"][number];
@@ -206,7 +206,7 @@ function getStepIcon(node: { loai_buoc: string; nhom: string | null }): IconName
   }
 }
 
-// `nhanDonVi` + `heSoChu` dùng chung từ `pages/lsxBuoc` — bản riêng ở đây đã gỡ, chép đôi là hai
+// `nhanChang` + `heSoChu` dùng chung từ `pages/lsxBuoc` — bản riêng ở đây đã gỡ, chép đôi là hai
 // chỗ lệch nhau ngay lần đầu ai đó thêm một đơn vị mới.
 
 /** Khối "vào ➔ ra" — dùng lại `.dag-node__flow` chứ không đẻ CSS mới. */
@@ -224,11 +224,11 @@ function LuongSoLuong({
   return (
     <div className="dag-node__flow">
       <span>
-        {vao == null ? "—" : num(vao)} <small>{nhanDonVi(dvVao)}</small>
+        {vao == null ? "—" : num(vao)} <small>{nhanChang(dvVao)}</small>
       </span>
       <span className="dag-node__flow-arrow">➔</span>
       <span>
-        {ra == null ? "—" : num(ra)} <small>{nhanDonVi(dvRa)}</small>
+        {ra == null ? "—" : num(ra)} <small>{nhanChang(dvRa)}</small>
       </span>
     </div>
   );
@@ -939,12 +939,12 @@ export function BaiGhepDagCanvas({
                               className="dag-node__value"
                               title={
                                 g.so_luong_ra_quy != null
-                                  ? `cần ${num(g.so_luong_ra_quy)} ${nhanDonVi(g.don_vi_vao)} tốt `
-                                    + `+ ${num(g.hao_hut)} hao = ${num(g.so_luong_vao)} ${nhanDonVi(g.don_vi_vao)}`
+                                  ? `cần ${num(g.so_luong_ra_quy)} ${nhanChang(g.don_vi_vao)} tốt `
+                                    + `+ ${num(g.hao_hut)} hao = ${num(g.so_luong_vao)} ${nhanChang(g.don_vi_vao)}`
                                   : "Một lần lên máy thì canh máy một lần"
                               }
                             >
-                              {num(g.hao_hut)} {nhanDonVi(g.don_vi_vao)}
+                              {num(g.hao_hut)} {nhanChang(g.don_vi_vao)}
                               {g.hao_hut_pct > 0 ? ` (${g.hao_hut_pct}%)` : ""}
                             </span>
                           </div>

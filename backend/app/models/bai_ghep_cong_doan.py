@@ -79,9 +79,8 @@ class BaiGhepCongDoan(Base):
         Integer, nullable=False, server_default="1", default=1
     )
     khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    # KCS kiêm nhiệm (mg `0250`): checklist bổ sung của lượt gộp — mirror
-    # `LsxCongDoan.kcs_tieu_chi_bo_sung_json`. Chỉ có nghĩa khi `la_kcs=true`.
-    kcs_tieu_chi_bo_sung_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # `kcs_tieu_chi_bo_sung_json` GỠ ở mg `0283` cùng lượt với `LsxCongDoan` — checklist KCS chỉ
+    # còn MỘT nguồn là danh mục gắn theo công đoạn (`docs/design-kcs-theo-cong-doan.md`).
 
     # --- Số lượng & hao hụt: tính ở ĐƠN VỊ TỜ GHÉP, hao đếm ĐÚNG MỘT LẦN cho cả lượt ---
     so_luong_vao: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)

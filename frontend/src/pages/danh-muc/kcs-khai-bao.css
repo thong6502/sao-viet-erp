@@ -1,0 +1,238 @@
+/* Màn khai báo hạng mục kiểm KCS — cây Giai đoạn → Công đoạn → hạng mục.
+   Nền là khung `.rc` + class công cụ `.rc__*` (rebuild-catalog.css), file này chỉ chứa phần
+   không có tiền lệ: khối "thêm công đoạn", thẻ công đoạn, form hạng mục nội tuyến.
+
+   ⚠️ HAI CÁI BẪY ĐÃ SẬP Ở FILE NÀY, đừng sập lại:
+   1. Token KHÔNG CÓ THẬT (`--r-md`, `--r-sm`, `--ink-soft`, `--surface`, `--surface-soft`). CSS
+      không báo lỗi biến sai — nó bỏ nguyên khai báo. Thẻ mất bo góc, mất nền, chữ phụ ăn màu
+      thừa kế, nhìn y như trang chưa gắn CSS. Token đúng ở `styles/tokens.css`: bo góc --r-2/3/5/6,
+      nền --canvas/--paper, chữ mờ --ash/--ash-2.
+   2. `<select>`/`<input>` TRẦN. `styles/global.css` KHÔNG có rule `select {}` nền, nên select
+      không class rơi về widget gốc của Windows — xám, vuông góc, mũi tên hệ điều hành, cao lệch
+      hẳn so với nút bên cạnh. Ô nhập của app là `.rc-input` (rebuild-catalog.css:1494) và
+      `select.rc-input` (:1544, tự vẽ mũi tên chevron). Mọi ô trên màn này PHẢI mang class đó. */
+
+.kkb {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  /* Đây là màn ĐỌC một tờ checklist, không phải bảng nhiều cột cần kéo ngang. Thả tự do trên màn
+     rộng thì mỗi dòng hạng mục kéo dài cả nghìn pixel rồi bỏ trống, nút Sửa/Xoá văng ra tận rìa. */
+  max-width: 1120px;
+}
+
+.kkb .rc__sub {
+  max-width: 78ch;
+  color: var(--ash);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  margin: var(--sp-2) 0 0;
+}
+
+/* ---- Khối "Thêm công đoạn cần kiểm" ------------------------------------------------------ */
+.kkb-them {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  box-shadow: var(--shadow-1);
+}
+.kkb-them h2 {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin: 0;
+}
+.kkb-them__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-3);
+}
+/* Hai ô chọn có bề rộng CỐ ĐỊNH, không `flex: 1` chia nhau cả hàng: chúng chỉ chứa một tên công
+   đoạn ngắn, kéo tới 440px mỗi ô thì hàng này nặng hơn cả nội dung chính bên dưới. */
+.kkb-them__row label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  flex: 0 1 300px;
+  min-width: 200px;
+}
+.kkb-them__row label > span {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+}
+/* Nút CTA lúc chưa chọn đủ: `.btn:disabled` chỉ hạ opacity .55 nên nền cam nhạt đi mà VẪN đọc ra
+   "nút cam bấm được". Tắt hẳn màu cam khi disabled cho khỏi mời gọi bấm. */
+.kkb-them .btn--accent:disabled {
+  opacity: 1;
+  background: var(--rule-hair);
+  color: var(--ash-2);
+  border-color: var(--rule-soft);
+}
+
+/* ---- Tầng GIAI ĐOẠN ---------------------------------------------------------------------- */
+.kkb-giaidoan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+/* Nhãn giai đoạn kéo một kẻ ngang hết chiều rộng: nó là VÁCH NGĂN giữa các nhóm thẻ, không phải
+   tiêu đề của một thẻ. Không có kẻ thì hai giai đoạn liền nhau đọc thành một khối dài. */
+.kkb-giaidoan__ten {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--ash);
+  margin: var(--sp-2) 0 0;
+}
+.kkb-giaidoan__ten::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule-soft);
+}
+
+/* ---- Tầng CÔNG ĐOẠN — một thẻ, một dòng của tờ ISO ---------------------------------------- */
+.kkb-cd {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+/* Băng đầu thẻ tô nền: tên công đoạn là thứ người khai tìm khi lướt cả trang, phải bật ra khỏi
+   danh sách hạng mục bên dưới. */
+.kkb-cd__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.kkb-cd__head h3 {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin: 0;
+}
+.kkb-cd__ma {
+  font-family: var(--ff-num);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ash-2);
+  background: var(--rule-hair);
+  border-radius: var(--r-2);
+  padding: 2px 6px;
+}
+
+/* ---- Bảng hạng mục ----------------------------------------------------------------------- */
+/* Ba cột: số thứ tự · (câu chữ + hướng dẫn xuống dòng) · nút. `.rc__table` là table-layout: fixed
+   nên cột nào không khai bề rộng sẽ chia đều — phải ghim hai cột biên, chừa cột giữa co giãn. */
+.kkb-table col.kkb-col--num { width: 52px; }
+.kkb-table col.kkb-col--nut { width: 128px; }
+
+.kkb-table td.num {
+  text-align: right;
+  font-family: var(--ff-num);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ash-2);
+  padding-right: var(--sp-2);
+}
+.kkb-table td {
+  vertical-align: top;
+  padding-top: var(--sp-3);
+  padding-bottom: var(--sp-3);
+}
+.kkb-hm__ten {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  line-height: 1.45;
+}
+/* Hướng dẫn là chú thích của chính câu trên, không phải một cột riêng: thụt vào bằng cỡ chữ nhỏ +
+   màu mờ là đủ phân cấp. */
+.kkb-hm__hd {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  line-height: 1.5;
+}
+.kkb-td--nut {
+  white-space: nowrap;
+  text-align: right;
+}
+/* Nút hàng LUÔN hiện (không chờ hover): trên máy bảng ở xưởng không có con trỏ để hover. */
+.kkb-td--nut .btn + .btn { margin-left: var(--sp-1); }
+
+.kkb-row--tat td { opacity: .55; }
+.kkb-tat {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  color: var(--ash-2);
+}
+
+/* ---- Form hạng mục nội tuyến (không drawer: phải nhìn thấy các mục đã khai) ---------------- */
+/* Nằm trong thân thẻ, ngay dưới bảng — tô nhạt + vạch rust bên trái để đọc ra "đang khai dòng
+   mới cho ĐÚNG công đoạn này", chứ không phải một khối rời trôi giữa trang. */
+.kkb-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-3);
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--rule-soft);
+  border-left: 3px solid var(--rust);
+  background: var(--paper);
+}
+/* Trong khối "Thêm công đoạn cần kiểm" thì form là con của một thẻ khác — bo góc lại cho khớp. */
+.kkb-them .kkb-form {
+  border: 1px solid var(--rule-soft);
+  border-left: 3px solid var(--rust);
+  border-radius: var(--r-3);
+}
+.kkb-form label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.kkb-form label > span {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+}
+.kkb-form__ten { flex: 2 1 240px; }
+.kkb-form__hd  { flex: 3 1 300px; }
+.kkb-form__nut {
+  display: flex;
+  gap: var(--sp-2);
+  margin-left: auto;
+}
+
+/* ---- Màn hẹp (tablet trở xuống) ---------------------------------------------------------- */
+/* responsive.css §11 đổi `.rc__table` sang `table-layout: auto` và ép `white-space: normal` cho
+   MỌI ô (`.rc__table :is(th, td)` = 0-1-1, nặng hơn `.kkb-td--nut` 0-1-0 nên đè mất nowrap của
+   nó), lại chỉ chừa 72px cho cột cuối. Hai nút "Sửa"/"Xoá" cần ~110px, thiếu 38px là chúng rơi
+   xuống hai dòng và hàng cao gấp đôi. Neo lại bằng `.kkb-table td.kkb-td--nut` (0-2-1). */
+@media screen and (max-width: 1024px) {
+  .kkb-table td.kkb-td--nut {
+    min-width: 118px;
+    white-space: nowrap;
+  }
+  .kkb-table td.num {
+    min-width: 40px;
+  }
+}

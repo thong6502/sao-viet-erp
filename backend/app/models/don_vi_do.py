@@ -77,13 +77,48 @@ TRAM_CON = "con"
 TRAM_TAY = "tay"
 TRAM_CAI = "cai"
 TRAM_DONG_GIAY = (TRAM_TO_NGUYEN, TRAM_TO, TRAM_CON, TRAM_TAY, TRAM_CAI)
+# NHÃN của 5 chặng — NGUỒN DUY NHẤT cho cả hệ, bày ra `GET /api/don-vi/tram`.
+#
+# Trước 09/09/2026 nhãn chặng nằm ở BA nơi và lệch nhau: bảng này (không ai dùng), bảng cứng
+# `TRAM_DONG_GIAY` bên `frontend/rebuildCatalogConfigs.tsx` (màn Công đoạn), và — tệ nhất — phép
+# tra mã chặng vào DANH MỤC ĐƠN VỊ ở mọi màn còn lại (`nhanDonVi`). Nên cùng một công đoạn Đóng gói
+# hiện "Con → Thành phẩm" ở màn danh mục nhưng "20.000 con → 20.000 cái" ở phiếu tính giá.
+#
+# KHÔNG tra danh mục Đơn vị & quy đổi cho mấy mã này, dù chuỗi trùng nhau: `cong_doan.don_vi_vao/ra`
+# giữ MÃ CHẶNG của dòng giấy, còn danh mục kia là đơn vị KHO / MUA HÀNG do người khác khai. Tra
+# nhầm thì ai đổi tên đơn vị `con` ở màn Kho là chữ trong màn Công đoạn đổi theo, dù dòng giấy
+# chẳng liên quan gì (đã gỡ một lần 08/09/2026 — xem `cong_doan_service`, đừng nối lại).
+#
+# HAI dạng cho HAI vai, cùng một bảng nên không thể lệch nhau:
+#   · `TRAM_NHAN`      — đứng MỘT MÌNH: menu ô "Đơn vị đầu vào/ra", cột Đơn vị của màn Công đoạn.
+#                        Nói rõ chặng nào, chấp nhận dài.
+#   · `TRAM_NHAN_NGAN` — đứng SAU CON SỐ: "2.750 tờ in → 20.400 con". Bỏ phần trong ngoặc, viết
+#                        thường, vì nó là hậu tố của một con số chứ không phải một tiêu đề.
 TRAM_NHAN = {
     TRAM_TO_NGUYEN: "Tờ nguyên (giấy mua về)",
     TRAM_TO: "Tờ in",
-    TRAM_CON: "Con (mảnh bế ra)",
+    TRAM_CON: "Con",
     TRAM_TAY: "Tay sách",
     TRAM_CAI: "Thành phẩm",
 }
+TRAM_NHAN_NGAN = {
+    TRAM_TO_NGUYEN: "tờ nguyên",
+    TRAM_TO: "tờ in",
+    TRAM_CON: "con",
+    TRAM_TAY: "tay sách",
+    TRAM_CAI: "thành phẩm",
+}
+
+
+def nhan_tram(ma: str | None, *, ngan: bool = False) -> str | None:
+    """Nhãn của một MÃ CHẶNG. `None` = mã không phải chặng ⇒ nơi gọi tự lo (tra danh mục, hiện mã trần).
+
+    Trả `None` thay vì chính mã: nơi gọi cần phân biệt "chặng, có nhãn" với "không phải chặng" để
+    còn quyết định có tra danh mục Đơn vị hay không. Nuốt khác biệt đó là mở lại đúng cái lỗi
+    khối chú thích trên vừa kể.
+    """
+    k = (ma or "").strip().lower()
+    return (TRAM_NHAN_NGAN if ngan else TRAM_NHAN).get(k)
 # CẦU giữa hai trạm — dòng giấy chảy MỘT CHIỀU và chỉ qua những nhịp CÓ HỆ SỐ:
 #     tờ nguyên ──(số mảnh xả)──▶ tờ in ──┬─(con/tờ)─▶ con ─(1/số con)─▶ thành phẩm
 #                                         ├─(1)──────▶ tay ─(số tay)──▶ thành phẩm   (khâu sách)

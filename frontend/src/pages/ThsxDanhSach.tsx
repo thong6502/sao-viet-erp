@@ -6,7 +6,7 @@ import { Icon, type IconName } from "../components/Icons";
 import type { SxVatTuDinhMuc, SxWorkItem } from "../api/client";
 import { ChipKhuon, ChipLoaiBuoc } from "../components/ChipBuoc";
 import { num, ngayGio } from "./keHoachSxShared";
-import { nhanDonVi } from "./lsxBuoc";
+import { nhanChang, nhanDonVi } from "./lsxBuoc";
 import { sxNguonIcon, sxSerial, ThsxTrangThaiPill } from "./thsxShared";
 
 interface Props {
@@ -103,9 +103,9 @@ function DsRow({ w, selected, onPick }: { w: SxWorkItem; selected: boolean; onPi
       <td>{w.may || "—"}</td>
       <td className="thsx-num">{w.du_kien_bat_dau ? ngayGio(w.du_kien_bat_dau) : "—"}</td>
       <td className="r thsx-num">
-        {num(w.so_luong_vao)}{w.don_vi_vao ? ` ${nhanDonVi(w.don_vi_vao)}` : ""}
+        {num(w.so_luong_vao)}{w.don_vi_vao ? ` ${nhanChang(w.don_vi_vao)}` : ""}
         {" → "}
-        {num(w.so_luong_ra)}{w.don_vi_ra ? ` ${nhanDonVi(w.don_vi_ra)}` : ""}
+        {num(w.so_luong_ra)}{w.don_vi_ra ? ` ${nhanChang(w.don_vi_ra)}` : ""}
       </td>
       <td className="thsx-ds__vt" title={dinhMucText(w.dinh_muc_vat_tu)}>{dinhMucText(w.dinh_muc_vat_tu)}</td>
       <td><ThsxTrangThaiPill tt={w.trang_thai} size="xs" /></td>

@@ -57,6 +57,20 @@ class BienListOut(BaseModel):
     items: list[dict]
 
 
+class TramRow(BaseModel):
+    """MỘT chặng của dòng giấy — mã + hai dạng nhãn. Xem `models/don_vi_do.TRAM_NHAN`."""
+
+    ma: str
+    #: Đứng một mình (menu ô Đơn vị đầu vào/ra, cột Đơn vị của màn Công đoạn).
+    nhan: str
+    #: Đứng sau con số ("2.750 tờ in").
+    nhan_ngan: str
+
+
+class TramListOut(BaseModel):
+    items: list[TramRow]
+
+
 class HoListOut(BaseModel):
     """Gợi ý cho ô "Loại đo" — KHÔNG phải whitelist, gõ loại mới vẫn lưu được."""
 

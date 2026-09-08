@@ -6,6 +6,8 @@ gói (chưa làm versioning cập nhật). Tái dùng fixtures + helper của te
 """
 from __future__ import annotations
 
+import pytest
+
 from app.models.department import Department
 from app.models.lsx import LB_MAY, LsxCongDoan
 from app.models.order import OrderLine
@@ -65,28 +67,27 @@ def _cong_doan(db, ma: str):
     ))
 
 
-def _tieu_chi(db, ma: str, *, active=True, thu_tu=0, cong_doan_ids=()):
+def _tieu_chi(db, ma: str, *, cong_doan_id: int, active=True, thu_tu=0):
+    """Một HẠNG MỤC KIỂM của MỘT công đoạn (mg `0285` — không còn nhiều-nhiều)."""
     svc = SanXuatKcsTieuChiService(SanXuatKcsTieuChiRepository(db))
     return svc.create(dict(
-        ma=ma, ten=ma, active=active, thu_tu=thu_tu, cong_doan_ids=list(cong_doan_ids),
+        ma=ma, ten=ma, active=active, thu_tu=thu_tu, cong_doan_id=cong_doan_id,
     ))
 
 
 def _them_buoc(
     db, lsx_id, *, thu_tu, ten, department_id, cong_doan_id=None,
-    kcs_tieu_chi_bo_sung_json=None,
 ) -> LsxCongDoan:
     """Thêm MỘT bước routing thủ công vào LSX — tái dùng cho mọi test soi KCS kiêm nhiệm: engine
     giá không cần chạy lại, chỉ cần một `LsxCongDoan` mang đúng tổ để soi snapshot. `la_kcs` không
     còn khai tay (bỏ 2026-08-31, mg `0252`) — nay suy TỰ ĐỘNG lúc `phat_hanh` từ "bước này có phải
     CUỐI routing của LSX" + `department_id` có `is_kcs=true` hay không, xem `_them_buoc`'s caller
     và `docs/superpowers/plans/2026-08-31-kcs-kiem-nhiem-suy-tu-dong.md`.
-    `cong_doan_id`/`kcs_tieu_chi_bo_sung_json` (Task 3): neo tới danh mục công đoạn để checklist
-    KCS gắn đúng chỗ, và mang tiêu chí bổ sung riêng lệnh khi cần."""
+    `cong_doan_id`: neo tới danh mục công đoạn để checklist KCS gắn đúng chỗ (ô "tiêu chí bổ sung"
+    riêng lệnh đã GỠ ở mg `0283` — `docs/design-kcs-theo-cong-doan.md` mục 5)."""
     buoc = LsxCongDoan(
         lsx_id=lsx_id, thu_tu=thu_tu, ten=ten, nhom="finishing", loai_buoc=LB_MAY,
         department_id=department_id, cong_doan_id=cong_doan_id,
-        kcs_tieu_chi_bo_sung_json=kcs_tieu_chi_bo_sung_json,
         so_luong_vao=1000, so_luong_ra=1000, don_vi_vao="cai", don_vi_ra="cai",
     )
     db.add(buoc)
@@ -291,8 +292,8 @@ def test_snapshot_checklist_chi_lay_tieu_chi_active(db, orders, lsx_svc, admin, 
     a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     kcs = _kcs_dept(db)
     cd = _cong_doan(db, "CD-KT-CUOI")
-    tc_on = _tieu_chi(db, "TC-ON", active=True, thu_tu=1, cong_doan_ids=[cd.id])
-    _tieu_chi(db, "TC-OFF", active=False, thu_tu=2, cong_doan_ids=[cd.id])
+    tc_on = _tieu_chi(db, "TC-ON", active=True, thu_tu=1, cong_doan_id=cd.id)
+    _tieu_chi(db, "TC-OFF", active=False, thu_tu=2, cong_doan_id=cd.id)
     buoc = _them_buoc(
         db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=kcs.id,
         cong_doan_id=cd.id,
@@ -309,29 +310,35 @@ def test_snapshot_checklist_chi_lay_tieu_chi_active(db, orders, lsx_svc, admin, 
     }]
 
 
-def test_snapshot_checklist_gop_bo_sung_lsx_sau_danh_muc(db, orders, lsx_svc, admin, customer):
-    """`kcs_tieu_chi_bo_sung_json` của LSX được cộng THÊM vào SAU tiêu chí danh mục, đúng
-    `nguon="bo_sung_lsx"` và `thu_tu` bắt đầu từ 1000 (brief §D)."""
+def test_snapshot_checklist_moi_buoc_co_tieu_chi_khong_gate_la_kcs(db, orders, lsx_svc, admin, customer):
+    """ĐIỂM KIỂM không còn bó vào bước KCS cuối routing (08/09/2026,
+    `docs/design-kcs-theo-cong-doan.md` mục 3): bước GIỮA chuỗi ở tổ SX thường, chỉ cần công đoạn
+    của nó có tiêu chí trong danh mục là được chụp checklist — mà `la_kcs` vẫn phải là False.
+
+    Hai khái niệm tách rời: `la_kcs` = thẻ việc thuộc tổ KCS; `kcs_tieu_chi_json IS NOT NULL` =
+    thẻ việc là điểm kiểm. Gộp lại là ném cả xưởng lên bàn KCS và phá `la_kcs_cuoi` (cửa kho)."""
     a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    to_in = Department(name="Tổ In Điểm Kiểm", code="TO-IN-DK", la_san_xuat=True)
+    db.add(to_in)
+    db.flush()
     kcs = _kcs_dept(db)
-    cd = _cong_doan(db, "CD-KT-CUOI-2")
-    tc = _tieu_chi(db, "TC-CHUAN", active=True, thu_tu=1, cong_doan_ids=[cd.id])
-    buoc = _them_buoc(
-        db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=kcs.id,
-        cong_doan_id=cd.id,
-        kcs_tieu_chi_bo_sung_json=[{"ten": "Đối chiếu mẫu màu", "huong_dan": None, "bat_buoc": True}],
-    )
+    cd = _cong_doan(db, "CD-IN-GIUA")
+    tc = _tieu_chi(db, "TC-CHONG-MAU", active=True, thu_tu=1, cong_doan_id=cd.id)
+    giua = _them_buoc(db, a.id, thu_tu=1, ten="In offset", department_id=to_in.id, cong_doan_id=cd.id)
+    cuoi = _them_buoc(db, a.id, thu_tu=2, ten="Kiểm tra cuối", department_id=kcs.id)
     db.commit()
 
     goi = release.phat_hanh(db, lsx_ids={a.id}, actor=admin)
     db.commit()
 
-    cv = db.query(SanXuatCongViec).filter_by(goi_id=goi.id, step_key=buoc.step_key).one()
-    checklist = cv.kcs_tieu_chi_json
-    assert len(checklist) == 2
-    assert checklist[0]["tieu_chi_id"] == tc.id and checklist[0]["nguon"] == "danh_muc"
-    assert checklist[1]["nguon"] == "bo_sung_lsx" and checklist[1]["thu_tu"] == 1000
-    assert checklist[1]["ten"] == "Đối chiếu mẫu màu" and checklist[1]["tieu_chi_id"] is None
+    cv_giua = db.query(SanXuatCongViec).filter_by(goi_id=goi.id, step_key=giua.step_key).one()
+    assert cv_giua.la_kcs is False
+    assert [t["tieu_chi_id"] for t in cv_giua.kcs_tieu_chi_json] == [tc.id]
+
+    # Bước cuối thuộc tổ KCS nhưng công đoạn KHÔNG có tiêu chí ⇒ NULL chứ không phải `[]`: cột
+    # NULL chính là bộ lọc "có phải điểm kiểm không" của bàn KCS (`repo.diem_kiem`).
+    cv_cuoi = db.query(SanXuatCongViec).filter_by(goi_id=goi.id, step_key=cuoi.step_key).one()
+    assert cv_cuoi.la_kcs is True and cv_cuoi.kcs_tieu_chi_json is None
 
 
 def test_snapshot_checklist_bat_bien_sau_khi_sua_danh_muc(db, orders, lsx_svc, admin, customer):
@@ -340,7 +347,7 @@ def test_snapshot_checklist_bat_bien_sau_khi_sua_danh_muc(db, orders, lsx_svc, a
     a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     kcs = _kcs_dept(db)
     cd = _cong_doan(db, "CD-KT-CUOI-3")
-    tc = _tieu_chi(db, "TC-BAT-BIEN", active=True, thu_tu=1, cong_doan_ids=[cd.id])
+    tc = _tieu_chi(db, "TC-BAT-BIEN", active=True, thu_tu=1, cong_doan_id=cd.id)
     buoc = _them_buoc(
         db, a.id, thu_tu=1, ten="Kiểm tra cuối", department_id=kcs.id,
         cong_doan_id=cd.id,
@@ -398,3 +405,41 @@ def test_phat_hanh_chup_khuon_va_nha_gia_cong(db, orders, lsx_svc, admin, custom
     # Bước không trỏ dao → None, không phải dict rỗng (rỗng đọc như "có khuôn mà mất thông tin").
     assert cvs[ngoai.step_key].khuon_json is None
     assert cvs[ngoai.step_key].nha_cung_cap == "Cơ sở Minh Phát"
+
+
+def test_phat_hanh_ghim_don_gia_hieu_dung_cho_buoc_co_cong_thuc_ra_tien(
+    db, orders, lsx_svc, admin, customer,
+):
+    """⭐ Phát hành ĐÓNG BĂNG `don_gia_hd` cho bước khai ô tiền công bằng công thức RA TIỀN.
+
+    Vì sao chốt đúng lúc này: công thức ăn `sl_vao`/`sl_ra` của bước, hai số ấy còn đổi suốt lúc
+    lập kế hoạch, và phát hành là khoảnh khắc kế hoạch đóng băng — cùng lúc mọi ảnh chụp khác của
+    công việc được chụp. Không có số này thì tầng phân bổ nhân `don_gia` gốc với sản lượng, tức là
+    bỏ qua cả công thức người ta viết.
+
+    Bước khai kiểu CŨ (không gọi chip) phải KHÔNG có khoá này — đó là dấu để tầng lương biết đường
+    nào mà đi.
+    """
+    a, _b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    steps = _steps(db, a.id)
+    tien = _them_buoc(db, a.id, thu_tu=97, ten="Bế hộp",
+                      department_id=steps[0].department_id)
+    tien.khoan_json = {"don_gia": 40, "don_vi": "nhịp",
+                       "cong_thuc": "50000 + don_gia_khoan * sl_ra"}
+    luong = _them_buoc(db, a.id, thu_tu=98, ten="Dán hộp",
+                       department_id=steps[0].department_id)
+    luong.khoan_json = {"don_gia": 40, "don_vi": "cai", "cong_thuc": "sl_ra / 10"}
+    db.flush()
+
+    goi = release.phat_hanh(db, lsx_ids={a.id}, actor=admin)
+    db.commit()
+    cvs = {cv.step_key: cv for cv in
+           db.query(SanXuatCongViec).filter_by(goi_id=goi.id, lsx_id=a.id).all()}
+
+    # 1000 cái ra × (50.000 + 40 × 1000) ⇒ 90 đ trên mỗi cái. Nhân lại đủ 90.000 đ của công thức.
+    kh = cvs[tien.step_key].khoan_json
+    assert kh["don_gia_hd"] == pytest.approx(90.0)
+    assert kh["don_gia"] == 40          # đơn giá GỐC vẫn còn để đối chiếu ảnh chụp, không bị đè
+    assert kh["don_gia_hd"] * 1000 == pytest.approx(50000 + 40 * 1000)
+
+    assert "don_gia_hd" not in cvs[luong.step_key].khoan_json

@@ -18,7 +18,7 @@
 // tư thì ngược lại, PHẢI cộng — mỗi bước ăn một phần thật, nhìn riêng từng bước sẽ mua thiếu.
 // (Có thật ngay ở lệnh đầu tiên: màng cán bóng khai ở 2 bước, mỗi bước 5.200 m² ⇒ tổng 10.400 m².)
 import type { LsxCongDoan } from "../api/client";
-import { tenDonVi } from "./tenDonVi";
+import { nhanTram, tenDonVi } from "./tenDonVi";
 
 export type NhomVatTu = "nvl" | "vat_tu" | "dung_cu";
 
@@ -78,6 +78,13 @@ function nhanDv(ma: string | null | undefined): string {
   return k ? (tenDonVi(k) ?? k) : "";
 }
 
+/** Nhãn CHẶNG dòng giấy cho `don_vi_vao/ra` của bước — bảng RIÊNG, không tra danh mục Đơn vị:
+ *  hai từ vựng trùng chuỗi mã nhưng khác hẳn nhau. Mã ngoài 5 chặng (bước ngoài dòng giấy, dữ
+ *  liệu trước 06/09/2026) rơi về `nhanDv`. Xem `tenDonVi.ts`. */
+function nhanChang(ma: string | null | undefined): string {
+  return nhanTram(ma) ?? nhanDv(ma);
+}
+
 function soHoac0(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -129,9 +136,9 @@ export function bangKeVatTu(args: {
       dau_viec: c.khoan_ten ?? null,
       tren_dong_giay: c.tren_dong_giay !== false,
       sl_vao: soHoac0(c.so_luong_vao),
-      dv_vao: nhanDv(c.don_vi_vao),
+      dv_vao: nhanChang(c.don_vi_vao),
       sl_ra: soHoac0(c.so_luong_ra),
-      dv_ra: nhanDv(c.don_vi_ra),
+      dv_ra: nhanChang(c.don_vi_ra),
       dong,
       thieu_khuon: Boolean(c.requires_tooling) && c.khuon_be_id == null,
     };

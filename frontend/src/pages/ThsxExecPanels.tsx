@@ -449,7 +449,14 @@ function PhanBoBlock({
       </div>
       <div className="thsx-x-pb__sum">
         <span>Q trả lương <b className="thsx-num">{num(pb.q_tra_luong)}</b>{pb.don_vi_tra_luong ? ` ${nhanDonVi(pb.don_vi_tra_luong)}` : ""}</span>
-        <span>đơn giá <b className="thsx-num">{num(pb.don_gia)}</b></span>
+        {/* Đơn giá gộp từ công thức thì phải NÓI RA: tổ trưởng đối chiếu với danh mục thấy đầu việc
+            ghi 40 đ/nhịp mà đây hiện 620 đ, không có chú thích thì tưởng hệ tính sai và đi báo lỗi. */}
+        <span title={pb.don_gia_tu_cong_thuc
+          ? "Bước này khai tiền công bằng công thức ra thẳng tiền — cả công thức đã quy về một đơn giá trên mỗi đơn vị ra, không phải đơn giá của đầu việc."
+          : undefined}>
+          đơn giá <b className="thsx-num">{num(pb.don_gia)}</b>
+          {pb.don_gia_tu_cong_thuc && <span className="thsx-x-tag-ht">theo công thức</span>}
+        </span>
         {pb.tong_ty_le_ho_tro > 0 && <span>hỗ trợ <b className="thsx-num">{num(pb.tong_ty_le_ho_tro)}%</b></span>}
       </div>
 

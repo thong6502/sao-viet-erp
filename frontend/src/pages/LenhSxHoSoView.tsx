@@ -41,7 +41,7 @@ import {
   nhanCachIn,
   num,
 } from "./keHoachSxShared";
-import { nhanDonVi } from "./lsxBuoc";
+import { nhanChang, nhanDonVi } from "./lsxBuoc";
 import { useNapTenDonVi } from "./tenDonVi";
 
 /** Pill trạng thái lệnh — CÙNG bộ chữ và cùng họ màu với bảng danh sách. Mở hồ sơ ra thấy một
@@ -1416,8 +1416,8 @@ function RoutingRow({ n }: { n: LenhSxRoutingNode }) {
       <td className="hslsx-hs__num">{n.hoan_thanh_luc ? ngayGio(n.hoan_thanh_luc) : "—"}</td>
       <td className="hslsx-hs__num">
         {/* Máy chủ ép `None → 0.0`, nên 0 ở đây KHÔNG phân biệt được với "chưa khai". */}
-        {soHoac(n.so_luong_vao)} {nhanDonVi(n.don_vi_vao)} → {soHoac(n.so_luong_ra)}{" "}
-        {nhanDonVi(n.don_vi_ra)}
+        {soHoac(n.so_luong_vao)} {nhanChang(n.don_vi_vao)} → {soHoac(n.so_luong_ra)}{" "}
+        {nhanChang(n.don_vi_ra)}
       </td>
     </tr>
   );

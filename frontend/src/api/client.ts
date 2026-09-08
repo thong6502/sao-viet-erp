@@ -1762,6 +1762,9 @@ export interface SxPhanBo {
   q_tra_luong: number;
   don_vi_tra_luong: string | null;
   don_gia: number;
+  /** `don_gia` ở trên là số GỘP TỪ công thức tiền công của bước, không phải đơn giá của đầu việc:
+   *  bước ấy khai công thức RA THẲNG TIỀN nên cả công thức được quy về một đơn giá trên đơn vị ra. */
+  don_gia_tu_cong_thuc: boolean;
   q_ban_dia: number | null;
   don_vi_ban_dia: string | null;
   tong_ty_le_ho_tro: number;
@@ -2015,6 +2018,25 @@ export interface SxKcsChiTiet {
 }
 export interface SxKcsHopThu {
   loi: SxKcsLoi[];
+}
+/** Một ĐIỂM KIỂM trên bàn KCS (`docs/design-kcs-theo-cong-doan.md`) = thẻ việc + checklist đã chụp
+ *  + kết quả đã ghi, gói trong MỘT lượt tải (không gọi `kcsChiTiet` theo từng dòng). */
+export interface SxDiemKiemItem extends SxWorkItem {
+  /** Tổ ĐANG CHẠY công đoạn — KHÁC tổ KCS đi kiểm. Cột "NHÓM LÀM" của tờ ISO. */
+  to_id: number | null;
+  to_ten: string;
+  /** Thợ đang được giao việc — cột "TÊN THỢ LÀM", đọc từ thẻ việc chứ không chép sang bảng KCS. */
+  nguoi: string[];
+  checklist: SxKcsChiTietTieuChi[];
+  batch: SxKcsBatchChiTiet[];
+  tong_dat: number;
+  tong_loi: number;
+}
+/** Một GIAI ĐOẠN (`cong_doan.nhom`): prepress | print | finishing | other, hoặc "" khi bước không
+ *  tra được về danh mục. Nhóm rỗng KHÔNG được server trả về. */
+export interface SxDiemKiemGiaiDoan {
+  nhom: string;
+  cong_viec: SxDiemKiemItem[];
 }
 export interface SxKcsChecklistKetQuaIn {
   thu_tu: number;
@@ -2397,11 +2419,10 @@ export interface LsxGiaoNhanFields {
 export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   id: number; step_key: string; thu_tu: number; cong_doan_id: number | null;
   ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc; bat_buoc: boolean;
-  /** KCS kiêm nhiệm (mg 0250): bước này có phải KCS không — quyết định khối "Tiêu chí KCS bổ
-   *  sung" có hiện trong drawer hay không. */
+  /** KCS kiêm nhiệm (mg 0250): bước này có thuộc tổ KCS không (bước cuối routing + tổ `is_kcs`).
+   *  Ô "Tiêu chí KCS bổ sung" đã GỠ 08/09/2026 (mg 0283) — tiêu chí chỉ còn MỘT nguồn là danh
+   *  mục Tiêu chí KCS gắn theo công đoạn. */
   la_kcs: boolean;
-  /** Tiêu chí KCS BỔ SUNG riêng cho LỆNH này (không sửa được checklist danh mục ở đây). */
-  kcs_tieu_chi_bo_sung_json: { ten: string; huong_dan: string | null; bat_buoc: boolean }[] | null;
   department_id: number | null; department_ten: string | null;
   may_id: number | null; may_ten: string | null;
   /** Hai CỜ đọc từ danh mục Công đoạn — quyết định bước có hỏi khuôn không; `tooling_type` còn là
@@ -2488,7 +2509,6 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   /* `bat_buoc` GỠ 07/09/2026 — server không nhận nữa, mọi bước routing đều bắt buộc (mg 0275). */
   loai_buoc?: LsxLoaiBuoc;
   la_kcs?: boolean;
-  kcs_tieu_chi_bo_sung_json?: { ten: string; huong_dan: string | null; bat_buoc: boolean }[] | null;
   department_id?: number | null; may_id?: number | null;
   /** Con dao của bước (`khuon_be.id`). null = bỏ gán. */
   khuon_be_id?: number | null;
@@ -2538,6 +2558,9 @@ export interface LsxBuocMacDinh {
   requires_tooling: boolean;
   tooling_type: string | null;
   setup_phut: number;
+  /** GỢI Ý máy của công đoạn mới — chỉ có số khi công đoạn khai ĐÚNG MỘT máy còn dùng. Client chỉ
+   *  áp khi dòng đang TRỐNG máy: máy người dùng đã chọn không bị đổi. */
+  may_id_goi_y: number | null;
 }
 /** Giờ chạy + tiền công của MỘT bước theo bộ số ĐANG SỬA trên drawer — server tính THỬ rồi vứt,
  *  không ghi DB. */
@@ -5545,10 +5568,46 @@ export interface PieceRateInput {
   note?: string | null;
   active?: boolean;
 }
+/** Một HẠNG MỤC KIỂM của MỘT công đoạn (danh mục Tiêu chí KCS sau mg `0285`). */
+export interface KcsHangMuc {
+  id: number;
+  ma: string;
+  cong_doan_id: number;
+  ten: string;
+  huong_dan: string | null;
+  bat_buoc: boolean;
+  thu_tu: number;
+  active: boolean;
+}
+/** Thân ghi — KHÔNG có `ma` (server cấp `KM####`). */
+export interface KcsHangMucBody {
+  cong_doan_id: number;
+  ten: string;
+  huong_dan?: string | null;
+  bat_buoc: boolean;
+  thu_tu: number;
+  active: boolean;
+}
+export interface KcsKhaiBaoCongDoan {
+  cong_doan_id: number;
+  ma: string;
+  ten: string;
+  hang_muc: KcsHangMuc[];
+}
+export interface KcsKhaiBaoGiaiDoan {
+  /** Mã giai đoạn = `cong_doan.nhom`; "" = công đoạn chưa khai giai đoạn. */
+  nhom: string;
+  cong_doan: KcsKhaiBaoCongDoan[];
+}
+
 export interface CongDoanLite {
   id: number;
   ma: string;
   ten: string;
+  /** GIAI ĐOẠN (`cong_doan.nhom`): prepress · print · finishing · other. Màn khai báo hạng mục
+   *  kiểm KCS lọc ô chọn công đoạn theo giai đoạn người dùng vừa chọn — nhãn ở `NHOM_CONG_DOAN`
+   *  (`pages/keHoachSxShared.tsx`). Rỗng = công đoạn chưa khai giai đoạn. */
+  nhom?: string | null;
   khoan_ghi_theo: string;
   /** Nhóm máy (loai_may) làm được công đoạn — checkbox "Máy làm được công đoạn này" ở danh mục.
    *  Drawer routing lệnh SX lọc dropdown MÁY theo đây; null/rỗng = không giới hạn (hiện tất cả).
@@ -11812,6 +11871,11 @@ export const api = {
     kcsChiTiet(token: string, congViecId: number): Promise<SxKcsChiTiet> {
       return authed<SxKcsChiTiet>(`/api/san-xuat/work-items/${congViecId}/kcs`, token);
     },
+    /** Bàn ĐIỂM KIỂM: mọi bước ĐÃ khởi động có checklist, gom theo giai đoạn. KHÔNG nhận tổ — tổ
+     *  KCS kiểm việc của tổ KHÁC, phạm vi là mọi tổ người xem được phép thấy. */
+    kcsDiemKiem(token: string): Promise<{ giai_doan: SxDiemKiemGiaiDoan[] }> {
+      return authed<{ giai_doan: SxDiemKiemGiaiDoan[] }>(`/api/san-xuat/kcs/diem-kiem`, token);
+    },
     /** Hộp thư lỗi KCS chờ tổ mình phản hồi trách nhiệm (§13.2). */
     kcsHopThu(token: string): Promise<SxKcsHopThu> {
       return authed<SxKcsHopThu>(`/api/san-xuat/kcs/hop-thu`, token);
@@ -11887,11 +11951,15 @@ export const api = {
         to_chiu_id?: number | null;
         cong_doan_ref_id?: number | null;
         files?: File[];
+        /** `dot_xuat` = kiểm ngoài kế hoạch · `diem_kiem` = điểm kiểm theo công đoạn (tổ KCS đi
+         *  kiểm bước có checklist). Cả hai đều KHÔNG đẻ sản lượng và KHÔNG chặn bước sau. */
+        loai: "dot_xuat" | "diem_kiem";
       },
     ): Promise<SxKcsDotXuatKetQua> {
       const fd = new FormData();
       fd.append("cong_viec_id", String(body.cong_viec_id));
       fd.append("kcs_department_id", String(body.kcs_department_id));
+      fd.append("loai", body.loai);
       fd.append("bat_dau", body.bat_dau);
       fd.append("ket_thuc", body.ket_thuc);
       fd.append("so_luong_nhan", String(body.so_luong_nhan));
@@ -11906,7 +11974,7 @@ export const api = {
       if (body.to_chiu_id != null) fd.append("to_chiu_id", String(body.to_chiu_id));
       if (body.cong_doan_ref_id != null) fd.append("cong_doan_ref_id", String(body.cong_doan_ref_id));
       for (const f of body.files ?? []) fd.append("files", f);
-      return authed<SxKcsDotXuatKetQua>(`/api/san-xuat/kcs/dot-xuat`, token, {
+      return authed<SxKcsDotXuatKetQua>(`/api/san-xuat/kcs/kiem`, token, {
         method: "POST", body: fd,
       });
     },
@@ -13126,6 +13194,30 @@ export const api = {
   },
 
   // --- Sản xuất: Lệnh sản xuất (LSX) ---------------------------------------
+
+  // --- Hạng mục kiểm KCS (danh mục, khai theo cây Giai đoạn → Công đoạn → hạng mục) --------
+  // Nền CRUD chung `/api/san-xuat-kcs-tieu-chi` (POST "" · PUT /{id} · DELETE /{id}), thêm
+  // `GET /khai-bao` trả sẵn ba tầng để màn không phải tự ghép. `ma` server cấp — không gửi.
+  kcsHangMuc: {
+    khaiBao(token: string): Promise<{ giai_doan: KcsKhaiBaoGiaiDoan[] }> {
+      return authed<{ giai_doan: KcsKhaiBaoGiaiDoan[] }>(
+        "/api/san-xuat-kcs-tieu-chi/khai-bao", token,
+      );
+    },
+    tao(token: string, body: KcsHangMucBody): Promise<KcsHangMuc> {
+      return authed<KcsHangMuc>("/api/san-xuat-kcs-tieu-chi", token, {
+        method: "POST", body: JSON.stringify(body),
+      });
+    },
+    sua(token: string, id: number, body: KcsHangMucBody): Promise<KcsHangMuc> {
+      return authed<KcsHangMuc>(`/api/san-xuat-kcs-tieu-chi/${id}`, token, {
+        method: "PUT", body: JSON.stringify(body),
+      });
+    },
+    xoa(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/san-xuat-kcs-tieu-chi/${id}`, token, { method: "DELETE" });
+    },
+  },
 
   // --- Công đoạn (danh mục, lite cho dropdown) -----------------------------
   congDoan: {

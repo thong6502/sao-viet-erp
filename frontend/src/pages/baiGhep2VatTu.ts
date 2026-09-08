@@ -11,7 +11,7 @@
 // lệch số. `sd.gop` ở đây CHỈ cho phần MÔ TẢ bước (tên/tổ/máy/vào→ra), không cho con số vật tư.
 import type { BaiGhep2VatTuHieuLuc, BaiGhepSoDo } from "../api/client";
 import type { BangKeVatTu, BuocKe, DongKe, NhomVatTu, TongKe } from "./lsxVatTu";
-import { tenDonVi } from "./tenDonVi";
+import { nhanTram, tenDonVi } from "./tenDonVi";
 
 /** Cân đối chỉ đẻ hai nhóm: giấy là NVL chính, còn lại là vật tư tiêu hao. Khuôn/dụng cụ KHÔNG
  *  nằm trong bảng cân đối bài ghép (mượn-rồi-trả, không đi mua) nên không có nhánh `dung_cu`. */
@@ -23,6 +23,11 @@ function nhomCua(hang_loai: string): NhomVatTu {
 function nhanDv(ma: string | null | undefined): string {
   const k = (ma ?? "").trim();
   return k ? (tenDonVi(k) ?? k) : "";
+}
+
+/** Nhãn CHẶNG dòng giấy cho `don_vi_vao/ra` của bước — cùng lối `lsxVatTu.ts`. */
+function nhanChang(ma: string | null | undefined): string {
+  return nhanTram(ma) ?? nhanDv(ma);
 }
 
 function soHoac0(v: unknown): number {
@@ -67,9 +72,9 @@ export function keVatTuBaiGhep(sd: BaiGhepSoDo, materials: BaiGhep2VatTuHieuLuc)
       dau_viec: g.khoan_ten,
       tren_dong_giay: g.tren_giay,
       sl_vao: soHoac0(g.so_luong_vao),
-      dv_vao: nhanDv(g.don_vi_vao),
+      dv_vao: nhanChang(g.don_vi_vao),
       sl_ra: soHoac0(g.so_luong_ra),
-      dv_ra: nhanDv(g.don_vi_ra),
+      dv_ra: nhanChang(g.don_vi_ra),
       dong: dongTheoBuoc.get(g.step_key) ?? [],
       // Bước chung không mang dữ liệu khuôn ở sơ đồ ⇒ không dựng cảnh báo thiếu khuôn ở tầng bài.
       thieu_khuon: false,

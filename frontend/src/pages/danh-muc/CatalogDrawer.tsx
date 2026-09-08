@@ -19,6 +19,7 @@ import {
   SelfRefMultiField,
 } from "./fields";
 import { goiYMaTiepTheo } from "./maGoiY";
+import { useNapTenDonVi } from "../tenDonVi";
 import { NhatKyTab } from "./nhat-ky/NhatKyTab";
 import type {
   BacRow, CatalogConfig, ChuanBiKhoanRow, DinhMucRow, FieldDef, LichBaoTriRow, MayCongDoanRow,
@@ -42,6 +43,11 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
   onClose: () => void; onSaved: (moi?: Row) => void;
 }) {
   const { token } = useAuth();
+  // Nạp lại bảng nhãn (đơn vị + chặng dòng giấy) MỖI LẦN MỞ drawer. Trang danh sách cũng gọi hook
+  // này, nhưng nó đứng yên suốt buổi: chuyến nạp hụt lúc trang mở ra thì ở đó không có nhịp nào
+  // để thử lại, và ô "Đơn vị đầu vào/đầu ra" nằm im với menu rỗng. Mở drawer là một nhịp mount
+  // mới ⇒ hook tự nạp lại nếu còn thiếu bảng (đủ rồi thì không tốn request nào).
+  useNapTenDonVi();
   const api = useMemo(() => crud(config.prefix), [config.prefix]);
   const isEdit = existing != null;
   const [form, setForm] = useState<Record<string, unknown>>(() => {
@@ -208,7 +214,14 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
           <div className="rc-input-wrapper">
             <select className="rc-input" value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)}>
               <option value="">—</option>
-              {f.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {/* Menu RỖNG = bảng nhãn chưa về (ô chặng dòng giấy đọc `/api/don-vi/tram`), KHÔNG
+                  phải "không có lựa chọn nào". Nói thẳng ra, đừng để lại mỗi dòng "—" rồi người
+                  khai ngồi đoán mình mất menu hay danh mục trống. */}
+              {(() => {
+                const ds = typeof f.options === "function" ? f.options() : f.options;
+                if (f.options && !ds?.length) return <option disabled>Đang nạp danh sách…</option>;
+                return ds?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>);
+              })()}
             </select>
           </div>
         ) : f.type === "nhom_may" ? (

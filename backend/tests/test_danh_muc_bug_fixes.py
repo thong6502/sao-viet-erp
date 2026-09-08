@@ -103,8 +103,51 @@ def test_detail_mo_cho_ai_list_duoc(client, prefix, payload):
 def test_bang_quy_doi_doc_duoc_boi_nguoi_kho(client):
     """Người Kho chọn được ĐVT thì cũng phải đọc được bảng quy đổi của nó."""
     token = _token_for_role("kho-only", [("kho", "all")])
-    for ep in ("/api/don-vi", "/api/don-vi/quy-doi", "/api/don-vi/ho", "/api/don-vi/bien"):
+    for ep in ("/api/don-vi", "/api/don-vi/quy-doi", "/api/don-vi/ho", "/api/don-vi/bien",
+               "/api/don-vi/tram"):
         assert client.get(ep, headers=_h(token)).status_code == 200, ep
+
+
+# ── Nhãn 5 CHẶNG dòng giấy: MỘT nguồn cho cả hệ ─────────────────────────────────
+def test_tram_dong_giay_dung_mot_bang_nhan(client):
+    """⭐ `/api/don-vi/tram` là nguồn DUY NHẤT của nhãn chặng — frontend không giữ bản sao.
+
+    Trước 09/09/2026 có ba bảng nhãn cho cùng 5 mã (`models.TRAM_NHAN`, bảng cứng
+    `TRAM_DONG_GIAY` ở `rebuildCatalogConfigs.tsx`, và cú tra vào danh mục Đơn vị). Hậu quả là
+    một công đoạn Đóng gói hiện "Con → Thành phẩm" ở màn danh mục nhưng "20.000 con → 20.000 cái"
+    ở phiếu tính giá — cùng một bước, hai màn, hai chữ.
+
+    THỨ TỰ có nghĩa: nó là chiều chảy của tờ giấy, ô chọn bày đúng thứ tự này chứ không a→z.
+    """
+    from app.models.don_vi_do import TRAM_DONG_GIAY, TRAM_NHAN, TRAM_NHAN_NGAN
+
+    r = client.get("/api/don-vi/tram", headers=_admin(client))
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+
+    assert [x["ma"] for x in items] == list(TRAM_DONG_GIAY), "sai thứ tự dòng giấy chảy"
+    assert {x["ma"]: x["nhan"] for x in items} == TRAM_NHAN
+    assert {x["ma"]: x["nhan_ngan"] for x in items} == TRAM_NHAN_NGAN
+
+
+def test_doi_ten_don_vi_kho_KHONG_doi_nhan_chang(client):
+    """⭐ Hai từ vựng TÁCH RỜI dù chuỗi mã trùng nhau.
+
+    `cong_doan.don_vi_vao/ra` hỏi "bước này đứng ở CHẶNG nào", không hỏi "đếm bằng đơn vị kho
+    nào". Nối hai thứ lại thì người kho sửa tên đơn vị `to` thành "Tờ A4" là chữ ở màn Công đoạn,
+    phiếu tính giá và lệnh sản xuất đổi theo — đúng cái leak đã gỡ ở `cong_doan_service` ngày
+    08/09/2026."""
+    h = _admin(client)
+    # `to` là đơn vị nền, seed sẵn (xem `seed`) — lấy đúng dòng đó ra mà đổi tên.
+    ds = client.get("/api/don-vi?size=200", headers=h).json()["items"]
+    dv = next(x for x in ds if x["ma"] == "to")
+    sua = client.put(f"/api/don-vi/{dv['id']}", json={"ma": "to", "ten": "TỜ ĐỔI TÊN"}, headers=h)
+    assert sua.status_code == 200, sua.text
+    assert next(x["ten"] for x in client.get("/api/don-vi?size=200", headers=h).json()["items"]
+                if x["ma"] == "to") == "TỜ ĐỔI TÊN", "đổi tên đơn vị chưa ăn ⇒ bài này vô nghĩa"
+
+    nhan = {x["ma"]: x["nhan"] for x in client.get("/api/don-vi/tram", headers=h).json()["items"]}
+    assert nhan["to"] == "Tờ in", f"nhãn chặng bị kéo theo tên đơn vị kho: {nhan['to']}"
 
 
 # ── 5. Hỏi "còn ai dùng không" trước khi xoá ─────────────────────────────────────

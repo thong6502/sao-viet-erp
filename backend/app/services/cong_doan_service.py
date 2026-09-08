@@ -267,19 +267,20 @@ class CongDoanService(CatalogService):
                 self._kiem_o(v.get("cong_thuc_luong"),
                              nhan=f"Công thức định mức của vật tư “{ten_vt}”", loai=LOAI_QUY_DOI)
 
-    def gan_ten_don_vi(self, items) -> None:
-        """Điền TÊN đơn vị vào/ra cho cả trang bằng MỘT truy vấn.
-
-        Bảng chỉ lưu MÃ (`to`, `cai`) mà mã không phải lúc nào cũng đọc được. Gán ở server chứ
-        không để frontend tự tra: nó từng có bảng nhãn cứng riêng, và bảng đó **lệch với danh mục**
-        (`to` = "Tờ in" ở danh sách nhưng "tờ" ở drawer). Một nguồn thì hết lệch, và xưởng đổi tên
-        đơn vị là cả hai chỗ đổi theo.
-        """
-        ten = self.repo.don_vi_ten()
-        for it in items:
-            for dau in ("vao", "ra"):
-                ma = (getattr(it, f"don_vi_{dau}", None) or "").strip().lower()
-                setattr(it, f"don_vi_{dau}_ten", ten.get(ma) if ma else None)
+    # GỠ 08/09/2026: `gan_ten_don_vi` — tra `don_vi_vao`/`don_vi_ra` vào danh mục Đơn vị & quy đổi
+    # rồi gán `don_vi_vao_ten`/`don_vi_ra_ten`. Nó ra đời (12/08/2026) khi hai ô ấy CÒN trỏ danh
+    # mục, và mục đích là dẹp một bảng nhãn cứng bên frontend đang lệch với danh mục.
+    #
+    # Từ mg `0273` (06/09/2026) hai ô đó KHÔNG còn trỏ danh mục nữa: chúng là menu ĐÓNG đúng 5
+    # chặng dòng giấy (`TRAM_DONG_GIAY`). Phép tra ở lại thành ra lấy tên của một đơn vị KHO tình
+    # cờ trùng mã, nên đúng cái lỗi hàm này từng dẹp lại quay về — chỉ đảo vai: danh sách hiện
+    # "con → cái" (tên đơn vị kho) còn drawer hiện "Con (mảnh bế ra) → Thành phẩm" (nhãn chặng).
+    # Tệ hơn: ai đổi tên đơn vị `con` ở màn Kho là chữ trong cột Đơn vị của màn Công đoạn đổi theo,
+    # dù dòng giấy chẳng liên quan gì.
+    #
+    # Nay CHẶNG chỉ có một bộ nhãn (`models/don_vi_do.TRAM_NHAN`, frontend soi `TRAM_DONG_GIAY`),
+    # server thôi gửi tên. `repo.don_vi_ten()` GIỮ — `dau_viec_options` còn cần, vì đơn vị của đầu
+    # việc khoán thì đúng là lấy từ danh mục.
 
     def dem_theo_nhom(self, **kw) -> dict[str, int]:
         """Số công đoạn theo giai đoạn — cho tab lọc của màn Công đoạn (xem repo)."""
