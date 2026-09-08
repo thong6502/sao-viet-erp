@@ -374,6 +374,9 @@ export function LsxBuocDrawer({
     onPatch({
       loai_buoc: k,
       may_id: null,
+      // Ô "số lượt qua máy" không hiện ở bước tổ (08/09/2026) — trả về 1 ngay lúc đổi loại, để
+      // số 2 lượt của bước máy cũ không nằm lại vô hình trong bản nháp.
+      so_luot_chay: "1",
       ...(chon ? { khoan_rate_id: chon.id, ...tuDinhMuc(chon), ...bungVatTu(chon) } : {}),
     });
   }
@@ -1372,48 +1375,48 @@ export function LsxBuocDrawer({
                 </div>
 
                 <div className="khsx-thoi-gian-grid">
-                  {/* 06/09/2026: ô hiện ở MỌI loại bước. Bước tổ trước đây bị ẩn, nên công thức
-                      tính tiền công — thứ CHỈ chạy ở bước tổ — không có chip số lượt để dùng. */}
-                  <div className="khsx-field">
-                    <span className="khsx-field__label">SỐ LƯỢT CHẠY QUA MÁY</span>
-                    <div className="khsx-turns-control">
-                      <div className="khsx-turns-presets" role="group" aria-label="Số lượt chạy">
-                        <button
-                          type="button"
-                          className={`khsx-turn-btn ${row.so_luot_chay === "1" || !row.so_luot_chay ? "is-active" : ""}`}
-                          disabled={!canUpdate}
-                          onClick={() => set("so_luot_chay", "1")}
-                        >
-                          1 lượt
-                        </button>
-                        <button
-                          type="button"
-                          className={`khsx-turn-btn ${row.so_luot_chay === "2" ? "is-active" : ""}`}
-                          disabled={!canUpdate}
-                          onClick={() => set("so_luot_chay", "2")}
-                        >
-                          2 lượt
-                        </button>
+                  {/* 08/09/2026: ô CHỈ hiện ở bước máy/thuê ngoài — làm tay thì không có
+                      "lượt qua máy" nào để đếm. Bước tổ ép cứng 1 lượt (payload gửi 1, server ghi
+                      lại 1 lần nữa), nên chip `so_luot_chay` của công thức tiền công vẫn có số
+                      thật để dùng, chỉ là luôn bằng 1. */}
+                  {row.loai_buoc !== "to" && (
+                    <div className="khsx-field">
+                      <span className="khsx-field__label">SỐ LƯỢT CHẠY QUA MÁY</span>
+                      <div className="khsx-turns-control">
+                        <div className="khsx-turns-presets" role="group" aria-label="Số lượt chạy">
+                          <button
+                            type="button"
+                            className={`khsx-turn-btn ${row.so_luot_chay === "1" || !row.so_luot_chay ? "is-active" : ""}`}
+                            disabled={!canUpdate}
+                            onClick={() => set("so_luot_chay", "1")}
+                          >
+                            1 lượt
+                          </button>
+                          <button
+                            type="button"
+                            className={`khsx-turn-btn ${row.so_luot_chay === "2" ? "is-active" : ""}`}
+                            disabled={!canUpdate}
+                            onClick={() => set("so_luot_chay", "2")}
+                          >
+                            2 lượt
+                          </button>
+                        </div>
+                        <div className="khsx-input-unit-combine khsx-turns-custom">
+                          <input
+                            type="number"
+                            min="1"
+                            className="khsx-input-combine__num"
+                            value={row.so_luot_chay}
+                            placeholder="1"
+                            disabled={!canUpdate}
+                            onChange={(e) => set("so_luot_chay", e.target.value)}
+                          />
+                          <span className="khsx-input-combine__unit">lượt</span>
+                        </div>
                       </div>
-                      <div className="khsx-input-unit-combine khsx-turns-custom">
-                        <input
-                          type="number"
-                          min="1"
-                          className="khsx-input-combine__num"
-                          value={row.so_luot_chay}
-                          placeholder="1"
-                          disabled={!canUpdate}
-                          onChange={(e) => set("so_luot_chay", e.target.value)}
-                        />
-                        <span className="khsx-input-combine__unit">lượt</span>
-                      </div>
+                      <span className="khsx-field__hint">In trở 2 mặt = 2 lượt qua máy</span>
                     </div>
-                    <span className="khsx-field__hint">
-                      {row.loai_buoc === "to"
-                        ? "Số lần hàng đi qua bước này — mặc định 1. Ở bước tổ, số này chỉ chảy vào công thức nào có gõ chip so_luot_chay: tiền công và giờ chạy khai ở hai ô riêng tại danh mục Công đoạn."
-                        : "In trở 2 mặt = 2 lượt qua máy"}
-                    </span>
-                  </div>
+                  )}
 
                   <div className="khsx-field">
                     <span className="khsx-field__label">THỜI GIAN PHÁT SINH / KHÁC</span>

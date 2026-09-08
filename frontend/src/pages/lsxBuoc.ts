@@ -460,7 +460,9 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       he_so_quy_doi: on(r.he_so_quy_doi),
       hao_hut: on(r.hao_hut),
       hao_hut_pct: on(r.hao_hut_pct),
-      so_luot_chay: on(r.so_luot_chay),
+      // Bước TỔ luôn 1 lượt (08/09/2026): ô đã gỡ khỏi drawer ở loại bước này, nên số cũ
+      // khác 1 không được nằm lại vô hình. Server ghi đè 1 lần nữa ở `_ap_routing`.
+      so_luot_chay: r.loai_buoc === "to" ? 1 : on(r.so_luot_chay),
       // Kíp chuẩn gửi lên để số sửa tay không bị server kéo lại theo danh mục. Gửi cho MỌI loại
       // bước (mg `0270`): kíp nay bám công đoạn chứ không còn bám máy.
       so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan || undefined,
@@ -576,7 +578,7 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
   // phép quy đổi: công thức thì được phép có hai bản, bảng quy đổi thì không.
   const daQuyDoi = dgServer.phuong_phap !== "chua_quy_doi" && dgServer.so_luong_vao != null;
   const vao = daQuyDoi ? Number(dgServer.so_luong_vao) || 0 : 0;
-  const luot = Math.max(Math.trunc(f(r.so_luot_chay)) || 1, 1);
+  const luot = r.loai_buoc === "to" ? 1 : Math.max(Math.trunc(f(r.so_luot_chay)) || 1, 1);
   const canhBao: string[] = [];
 
   // Số của MÁY ĐANG CHỌN trên form (`may`) — KHÔNG đợi server. Đổi máy trong drawer là chuẩn bị
@@ -659,8 +661,8 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
     nguon_nang_suat: r.loai_buoc === "to" ? "dau_viec" : "may",
     nang_suat_co_so: nangSuatCoSo > 0 ? tron(nangSuatCoSo) : null,
     nang_suat_hieu_dung: nangSuatHieuDung > 0 ? tron(nangSuatHieuDung) : null,
-    // 06/09/2026: bước tổ cũng gửi số lượt (mặc định 1) — chip `so_luot_chay` của công thức
-    // tiền công cần số thật, mà tiền công chỉ tính ở bước tổ.
+    // Bước tổ vẫn BÁO số lượt — chip `so_luot_chay` của công thức tiền công cần số thật — nhưng
+    // từ 08/09/2026 số đó luôn là 1: ô nhập chỉ còn ở bước máy/thuê ngoài.
     so_luot_chay: luot,
     so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan,
     // Bước TỔ nhân kíp chuẩn vào công thức (chốt 20/08/2026) ⇒ "số người tính" = số người tiêu chuẩn.

@@ -25,7 +25,7 @@ from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan
 from ..models.customer import Customer
 from ..models.lsx import (
-    LB_MAY,
+    LB_MAY, LB_TO,
     TT_DA_LAP_KE_HOACH as LSX_DA_LAP, TT_SAN_SANG as LSX_SAN_SANG,
     Lsx, LsxCongDoan, LsxCongDoanPhuThuoc,
 )
@@ -846,6 +846,11 @@ class BaiGhepService:
         for field in self._SUA_DUOC_BUOC_CHUNG:
             if field in patch:
                 setattr(chung, field, patch[field])
+        # Bước TỔ không có "lượt qua máy" — ô gỡ khỏi form 08/09/2026, ép 1 ở SERVER y như bước
+        # tổ của routing lệnh (`_ap_routing`). Đặt SAU vòng trên để `loai_buoc` vừa đổi trong
+        # cùng lượt lưu cũng ăn luật này.
+        if chung.loai_buoc == LB_TO:
+            chung.so_luot_chay = 1
         # Sau vòng trên: tổ có thể vừa đổi trong cùng lượt lưu, mà đầu việc khoán lọc THEO TỔ.
         if "piece_rate_id" in patch:
             self._ghim_khoan_chung(

@@ -202,7 +202,8 @@ export function BuocChungForm({
     () => thoiLuongLive(
       {
         loai_buoc: g.loai_buoc,
-        so_luot_chay: String(val("so_luot_chay", g.so_luot_chay) ?? 1),
+        // Bước tổ: server ép 1 lượt (ô đã gỡ 08/09/2026) — bản xem trước phải nói cùng con số.
+        so_luot_chay: g.loai_buoc === "to" ? "1" : String(val("so_luot_chay", g.so_luot_chay) ?? 1),
         // Thời lượng chia theo KÍP CHUẨN (xem `thoi_luong_buoc` ở backend).
         so_nhan_cong_tieu_chuan: Number(
           val("so_nhan_cong_tieu_chuan", g.so_nhan_cong_tieu_chuan) || 1,
@@ -913,42 +914,41 @@ export function BuocChungForm({
               </div>
 
               <div className="khsx-thoi-gian-grid">
-                {/* 06/09/2026: ô hiện ở MỌI loại bước, giống drawer bước lệnh. Bước tổ trước
-                    đây bị ẩn, nên công thức tính tiền công — thứ CHỈ chạy ở bước tổ — không có
-                    chip số lượt để dùng, dù `bai_ghep_service` vẫn nhận field này. */}
-                <div className="khsx-field">
-                  <span className="khsx-field__label">SỐ LƯỢT CHẠY QUA MÁY</span>
-                  <div className="khsx-turns-control">
-                    <div className="khsx-turns-presets" role="group" aria-label="Số lượt chạy">
-                      {[1, 2].map((v) => (
-                        <button
-                          key={v}
-                          type="button"
-                          className={`khsx-turn-btn ${Number(val("so_luot_chay", g.so_luot_chay) ?? 1) === v ? "is-active" : ""}`}
+                {/* 08/09/2026: ô CHỈ hiện ở bước máy/thuê ngoài, giống drawer bước lệnh —
+                    làm tay thì không có "lượt qua máy" nào để đếm. Bước tổ ép 1 lượt ở server
+                    (`lap_ke_hoach_buoc_chung`), chip `so_luot_chay` của công thức tiền công vẫn
+                    có số thật để dùng, chỉ là luôn bằng 1. */}
+                {g.loai_buoc !== "to" && (
+                  <div className="khsx-field">
+                    <span className="khsx-field__label">SỐ LƯỢT CHẠY QUA MÁY</span>
+                    <div className="khsx-turns-control">
+                      <div className="khsx-turns-presets" role="group" aria-label="Số lượt chạy">
+                        {[1, 2].map((v) => (
+                          <button
+                            key={v}
+                            type="button"
+                            className={`khsx-turn-btn ${Number(val("so_luot_chay", g.so_luot_chay) ?? 1) === v ? "is-active" : ""}`}
+                            disabled={!canUpdate}
+                            onClick={() => setF({ ...f, so_luot_chay: v })}
+                          >
+                            {v === 1 ? "1 lượt" : "2 lượt"}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="khsx-input-unit-combine khsx-turns-custom">
+                        <input
+                          type="number" min="1" className="khsx-input-combine__num"
+                          value={val("so_luot_chay", g.so_luot_chay) ?? ""}
+                          placeholder="1"
                           disabled={!canUpdate}
-                          onClick={() => setF({ ...f, so_luot_chay: v })}
-                        >
-                          {v === 1 ? "1 lượt" : "2 lượt"}
-                        </button>
-                      ))}
+                          onChange={(e) => setF({ ...f, so_luot_chay: Number(e.target.value) || 1 })}
+                        />
+                        <span className="khsx-input-combine__unit">lượt</span>
+                      </div>
                     </div>
-                    <div className="khsx-input-unit-combine khsx-turns-custom">
-                      <input
-                        type="number" min="1" className="khsx-input-combine__num"
-                        value={val("so_luot_chay", g.so_luot_chay) ?? ""}
-                        placeholder="1"
-                        disabled={!canUpdate}
-                        onChange={(e) => setF({ ...f, so_luot_chay: Number(e.target.value) || 1 })}
-                      />
-                      <span className="khsx-input-combine__unit">lượt</span>
-                    </div>
+                    <span className="khsx-field__hint">In trở 2 mặt = 2 lượt qua máy</span>
                   </div>
-                  <span className="khsx-field__hint">
-                    {g.loai_buoc === "to"
-                      ? "Số lần hàng đi qua bước này — mặc định 1. Ở bước tổ, số này chỉ chảy vào công thức nào có gõ chip so_luot_chay: tiền công và giờ chạy khai ở hai ô riêng tại danh mục Công đoạn."
-                      : "In trở 2 mặt = 2 lượt qua máy"}
-                  </span>
-                </div>
+                )}
 
                 {g.loai_buoc === "to" ? (
                   <label className="khsx-field">

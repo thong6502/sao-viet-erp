@@ -2292,6 +2292,38 @@ def test_buoc_to_go_may_va_ba_moc_nhan_luc_sua_duoc(db, orders, lsx_svc, admin, 
     assert _tl(dan, db)["dien_giai"]["so_nhan_cong_tinh"] == 5
 
 
+def test_buoc_to_ep_mot_luot_chay(db, orders, lsx_svc, admin, customer):
+    """Chủ chốt 08/09/2026: "loại bước là tổ thì ẩn cái này đi và cho mặc định là 1".
+
+    Ô "số lượt chạy qua máy" nay CHỈ còn ở bước máy/thuê ngoài — làm tay thì không có lượt qua
+    máy nào để đếm. Ép ở SERVER chứ không chỉ ẩn ô trên form (cùng lẽ với `may_id = None` của
+    bước tổ): số 2 lượt còn sót lại từ hồi bước là máy sẽ nằm VÔ HÌNH trong DB, mà chip
+    `so_luot_chay` của công thức tiền công đọc thẳng cột này.
+    """
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp", don_vi="cái", don_gia=80, nang_suat=500)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    lsx = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
+
+    # Client cũ (hoặc bước từng là máy) gửi 2 lượt cho MỌI bước, kể cả bước tổ.
+    rows = [
+        LsxCongDoanIn(
+            step_key=cd.step_key, cong_doan_id=cd.cong_doan_id, ten=cd.ten, nhom=cd.nhom,
+            loai_buoc="to" if cd.ten == "Dán hộp" else cd.loai_buoc,
+            department_id=cd.department_id, may_id=cd.may_id, so_luot_chay=2,
+        )
+        for cd in sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
+    ]
+    lsx = lsx_svc.replace_routing(lsx_id=lsx.id, rows_in=rows, actor=admin)
+    theo_ten = {cd.ten: cd for cd in lsx.cong_doans}
+    assert theo_ten["Dán hộp"].so_luot_chay == 1
+    # Bước KHÔNG phải tổ giữ nguyên số đã khai — ô vẫn còn ở đó.
+    khac = [cd for cd in lsx.cong_doans if cd.loai_buoc != "to"]
+    assert khac and all(cd.so_luot_chay == 2 for cd in khac)
+
+
 def test_buoc_khong_con_o_so_nguoi_bo_tri(db, orders, lsx_svc, admin, customer):
     """Gộp 08/09/2026 (mg `0281`): nhân lực của bước chỉ còn MỘT con số — KÍP CHUẨN.
 

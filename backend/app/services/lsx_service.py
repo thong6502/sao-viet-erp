@@ -3207,6 +3207,11 @@ class LsxService:
             # trên form: máy còn dính lại thì bước vẫn chiếm một lane Gantt của máy đó.
             if row.loai_buoc == LB_TO:
                 row.may_id = None
+                # Cùng lẽ ấy với "số lượt qua máy" (08/09/2026): ô đã gỡ khỏi drawer ở bước tổ —
+                # làm tay thì không có lượt chạy qua máy nào. Ép 1 ở SERVER để số cũ khác 1 không
+                # nằm lại VÔ HÌNH: chip `so_luot_chay` của công thức tiền công vẫn có số thật để
+                # dùng (`thoi_luong_buoc` vẫn báo `so_luot_chay`), chỉ là luôn bằng 1.
+                row.so_luot_chay = 1
             source_changed = (
                 row.id is None or old_cd_id != cd_id or old_dept_id != dept
                 or old_may_id != row.may_id or old_loai != row.loai_buoc

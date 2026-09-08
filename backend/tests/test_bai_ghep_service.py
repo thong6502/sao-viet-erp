@@ -1460,6 +1460,32 @@ def test_khai_vat_tu_cho_luot_chung_va_snapshot_dung_don_vi(
         )
 
 
+def test_buoc_chung_to_ep_mot_luot_chay(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Bước chung TỔ ép 1 lượt — y như bước tổ của routing lệnh (chủ chốt 08/09/2026).
+
+    Ô "số lượt chạy qua máy" gỡ khỏi form bước chung ở loại bước tổ. Ép ở SERVER vì form chỉ
+    gửi phần NGƯỜI SỬA: đổi loại bước sang tổ mà không đụng ô lượt thì số 2 cũ ở lại vô hình.
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+    chung = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]
+
+    # Bước máy: số đã khai giữ nguyên.
+    bg_svc.lap_ke_hoach_buoc_chung(
+        bai_ghep_id=bg.id, gang_step_key=chung["step_key"],
+        patch={"loai_buoc": "may", "so_luot_chay": 2}, actor=admin,
+    )
+    assert bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]["so_luot_chay"] == 2
+
+    # Đổi sang TỔ trong lượt lưu KHÁC, không gửi lại ô lượt → server tự kéo về 1.
+    bg_svc.lap_ke_hoach_buoc_chung(
+        bai_ghep_id=bg.id, gang_step_key=chung["step_key"],
+        patch={"loai_buoc": "to"}, actor=admin,
+    )
+    assert bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]["so_luot_chay"] == 1
+
+
 def test_so_do_chung_mang_bang_boc_tach_gio_va_goi_y_vat_tu(
     db, orders, lsx_svc, bg_svc, admin, customer,
 ):

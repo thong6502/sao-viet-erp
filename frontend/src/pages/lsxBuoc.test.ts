@@ -8,7 +8,7 @@
 // cột "Cần xem lại". Không có test thì lần sau ai đó "dọn" cái cờ `tren_dong_giay` là nó lặng lẽ
 // quay lại.
 import { describe, expect, it } from "vitest";
-import { boBuoc, chenBuoc, emptyRow, loiDong, mayChonDuoc, type EditRow } from "./lsxBuoc";
+import { boBuoc, chenBuoc, emptyRow, loiDong, mayChonDuoc, toBody, type EditRow } from "./lsxBuoc";
 
 /** Dòng routing tối thiểu. `may_id` đặt sẵn để khỏi dính cảnh báo "chưa gán tổ / máy" — thứ đang
  *  không phải chủ đề của phần lớn test dưới đây. */
@@ -232,5 +232,20 @@ describe("boBuoc", () => {
       dong({ ten: "C", key: "kc", phu_thuoc_step_keys: ["kb"] }),
     ];
     expect(day(boBuoc(rows, 0))).toEqual([["C"]]);
+  });
+});
+
+describe("toBody — số lượt qua máy", () => {
+  // 08/09/2026, chủ chốt: "loại bước là tổ thì ẩn cái này đi và cho mặc định là 1". Ô đã gỡ khỏi
+  // drawer ở bước tổ, nên số 2 lượt còn sót của bước máy cũ KHÔNG được nằm lại vô hình trong DB —
+  // chip `so_luot_chay` của công thức tiền công đọc thẳng cột này.
+  it("bước TỔ luôn gửi 1 lượt dù dòng còn giữ số cũ", () => {
+    const [body] = toBody([dong({ ten: "Dán hộp", loai_buoc: "to", so_luot_chay: "2" })]);
+    expect(body.so_luot_chay).toBe(1);
+  });
+
+  it("bước MÁY vẫn gửi đúng số đã khai", () => {
+    const [body] = toBody([dong({ ten: "In offset", loai_buoc: "may", so_luot_chay: "2" })]);
+    expect(body.so_luot_chay).toBe(2);
   });
 });
