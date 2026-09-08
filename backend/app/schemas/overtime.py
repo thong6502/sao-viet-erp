@@ -102,3 +102,20 @@ class OvertimeSummaryOut(BaseModel):
     pending_in_scope: int | None = None
     # Số phiếu CỦA TÔI vừa được quyết mà tôi chưa xem → chuông Topbar.
     my_decided_unseen: int = 0
+
+
+class OvertimeRosterEmpOut(BaseModel):
+    id: int
+    code: str | None = None
+    full_name: str
+    department: str | None = None
+
+
+class OvertimeRosterOut(BaseModel):
+    """Thợ TRONG TẦM của người duyệt — nuôi dropdown "Tạo hộ thợ" ở Tăng ca.
+
+    Cùng lý do với `/api/late-early/roster`: vai Tổ trưởng có `tang_ca:approve` nhưng KHÔNG có
+    module `nhan_su` ⇒ `/api/employees` 403 và dropdown rỗng (bản rà liên thông E8, 08/09/2026).
+    Cho họ `nhan_su:read` chỉ để đổ dropdown là mở luôn hồ sơ nhân sự — nới quá tay."""
+    employees: list[OvertimeRosterEmpOut] = []
+

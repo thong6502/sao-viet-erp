@@ -401,8 +401,9 @@ def test_monthly_timesheet_and_csv(client):
     assert ts["days_in_month"] in (28, 29, 30, 31)
     row = next(r for r in ts["rows"] if r["employee_name"] == "NV Admin")
     assert row["total_days"] == 1
-    # đúng 1 ô ngày có giờ vào + giờ ra
-    day = next(iter(row["days"].values()))
+    # đúng 1 ô ngày có giờ vào + giờ ra (ngày lễ 2/9 cũng có ô — từ 08/09/2026 `hire_date` gửi qua PUT
+    # có hiệu lực thật nên hồ sơ admin trong biên chế cả tháng; chọn ô CÓ giờ vào, không lấy ô đầu).
+    day = next(v for v in row["days"].values() if v.get("first_in"))
     assert day["first_in"] and day["last_out"] and day["hours"] is not None
 
     # CSV: 200 + text/csv + có tên nhân viên

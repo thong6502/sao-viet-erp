@@ -67,8 +67,10 @@ def test_danh_muc_co_ma_buoc_chua_co_thi_vao_ro_THEM():
 
 def test_cung_mon_khac_so_thi_vao_ro_LECH():
     vt = vat_tu_lech([_mon(3, 1.5)], [_mon(3, 2.0)])
-    assert vt["lech"] == [{"vat_tu_id": 3, "ma": "VT-3", "ten": "Mực Cyan", "don_vi": "kg",
-                           "so_luong_cu": 1.5, "so_luong_moi": 2.0}]
+    # `hang_loai` đi kèm từ 08/09/2026: bước ăn cả giấy lẫn vật tư nên món được nhận dạng bằng
+    # cặp (hang_loai, id); dòng cũ không mang khoá này thì hiểu là vật tư.
+    assert vt["lech"] == [{"hang_loai": "vat_tu", "vat_tu_id": 3, "ma": "VT-3", "ten": "Mực Cyan",
+                           "don_vi": "kg", "so_luong_cu": 1.5, "so_luong_moi": 2.0}]
 
 
 def test_dong_NGUOI_KHAI_dung_ngoai_ca_bo_lan_lech():

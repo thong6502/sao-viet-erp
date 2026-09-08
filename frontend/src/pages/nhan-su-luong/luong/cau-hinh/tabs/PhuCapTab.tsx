@@ -21,7 +21,7 @@ export function PhuCapTab({
   busy,
 }: {
   p: PayrollParams;
-  setP: (key: keyof PayrollParams, value: number) => void;
+  setP: (key: keyof PayrollParams, value: number | boolean) => void;
   brackets: BracketDraft[];
   setBrackets: (f: (b: BracketDraft[]) => BracketDraft[]) => void;
   bracketErrors: Set<number>;
@@ -31,8 +31,20 @@ export function PhuCapTab({
   readOnly: boolean;
   busy: boolean;
 }) {
-  const totalEr = p.bhxh_rate_er + p.bhyt_rate_er + p.bhtn_rate_er;
   const totalEe = p.bhxh_rate + p.bhyt_rate + p.bhtn_rate;
+
+  /** 4 bậc mẫu (20k ≤15′ · 40k ≤30′ · 100k ≤60′ · 150k >60′) — chỉ điền sẵn, HCNS sửa rồi Lưu. */
+  function addPenaltyMau() {
+    const mau: [number | null, number][] = [[15, 20000], [30, 40000], [60, 100000], [null, 150000]];
+    setPenalties(() =>
+      mau.map(([upTo, amount], i) => ({
+        key: `mau${i}-${Math.random().toString(36).slice(2, 7)}`,
+        id: null,
+        up_to_minute: upTo,
+        amount,
+      })),
+    );
+  }
 
   function addPenalty() {
     setPenalties((bs) => {
@@ -97,7 +109,6 @@ export function PhuCapTab({
             <thead>
               <tr>
                 <th>Khoản</th>
-                <th className="num">NSDLĐ (%)</th>
                 <th className="num">NLĐ (%)</th>
               </tr>
             </thead>
@@ -105,17 +116,6 @@ export function PhuCapTab({
               {INSURANCE_ROWS.map((r) => (
                 <tr key={r.label}>
                   <td>{r.label}</td>
-                  <td className="num">
-                    <NumInput
-                      value={toPct(p[r.er])}
-                      disabled={readOnly || busy}
-                      suffix="%"
-                      step={0.5}
-                      min={0}
-                      max={100}
-                      onChange={(v) => setP(r.er, (v ?? 0) / 100)}
-                    />
-                  </td>
                   <td className="num">
                     <NumInput
                       value={toPct(p[r.ee])}
@@ -131,14 +131,14 @@ export function PhuCapTab({
               ))}
               <tr className="cl-ins__total">
                 <td>Tổng</td>
-                <td className="num">{toPct(totalEr)}%</td>
                 <td className="num">{toPct(totalEe)}%</td>
               </tr>
             </tbody>
           </table>
           <p className="cl-hint-inline">
-            Cột NSDLĐ KHÔNG trừ vào lương nhân viên — chỉ dùng để tính chi phí
-            bảo hiểm của công ty và tổng quỹ lương.
+            Tỷ lệ phía công ty không khai ở đây (bỏ 07/09/2026 — không dùng tới).
+            Chỉ giữ TNLĐ-BNN bên dưới cho trường hợp nhân viên đóng bảo hiểm ở nơi
+            khác.
           </p>
           <p className="cl-hint-inline">
             Nhân viên thử việc chưa đóng bảo hiểm.
@@ -509,11 +509,22 @@ export function PhuCapTab({
               · số tiền ≥ 0.
             </p>
           )}
+          {penalties.length === 0 && (
+            <p className="cl-note">
+              Bảng đang <strong>trống = không phạt</strong> đi trễ / về sớm (máy không tự đặt bậc). Muốn
+              phạt thì thêm bậc, hoặc lấy 4 bậc mẫu 20k/40k/100k/150k rồi sửa.
+            </p>
+          )}
           {!readOnly && (
             <div className="cl-note">
               <Button variant="ghost" onClick={addPenalty}>
                 + Thêm bậc
               </Button>
+              {penalties.length === 0 && (
+                <Button variant="ghost" onClick={addPenaltyMau}>
+                  + Thêm 4 bậc mẫu
+                </Button>
+              )}
             </div>
           )}
         </div>

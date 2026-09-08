@@ -13,11 +13,13 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -154,6 +156,14 @@ class SupplierBankAccount(Base):
 
 class PaymentVoucher(Base):
     __tablename__ = "payment_vouchers"
+    __table_args__ = (
+        # Chống chi HAI LẦN cho một phiếu tạm ứng ở tầng DB (hai request song song lách được service),
+        # nhưng CHỈ tính phiếu chi còn hiệu lực — phiếu đã huỷ phải nhường chỗ cho phiếu lập lại
+        # (bản rà B5, 07/09/2026). Postgres lẫn SQLite đều hiểu partial index.
+        Index("uq_payment_voucher_salary_advance", "salary_advance_id", unique=True,
+              postgresql_where=text("status <> 'cancelled'"),
+              sqlite_where=text("status <> 'cancelled'")),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
@@ -175,10 +185,12 @@ class PaymentVoucher(Base):
     delivery_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     # Phiếu TẠM ỨNG LƯƠNG nguồn (chủ chốt 18/08/2026). Chỉ có giá trị khi
     # `source_type = salary_advance`. RESTRICT: còn phiếu chi thì không xoá được phiếu tạm ứng.
-    # Một phiếu tạm ứng chỉ được lập ĐÚNG MỘT phiếu chi ⇒ UNIQUE.
+    # Một phiếu tạm ứng chỉ được lập ĐÚNG MỘT phiếu chi CÒN HIỆU LỰC ⇒ UNIQUE RIÊNG PHẦN
+    # (`uq_payment_voucher_salary_advance` ở `__table_args__`, mg 0271): phiếu chi đã HUỶ không giữ
+    # chỗ nữa — huỷ phiếu chi thì phiếu tạm ứng về "đã duyệt" và kế toán lập lại phiếu chi mới.
     salary_advance_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("salary_advances.id", ondelete="RESTRICT"),
-        nullable=True, unique=True, index=True,
+        nullable=True, index=True,
     )
     supplier_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True, index=True

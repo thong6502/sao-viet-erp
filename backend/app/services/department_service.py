@@ -304,8 +304,6 @@ class DepartmentService:
         description: str | None = None,
         parent_id: int | None = None,
         level_id: int | None = None,
-        salary_mechanism: str = "cung",
-        probation_ratio: float = 0.80,
         has_piece_work: bool = False,
         la_san_xuat: bool = False,
         la_kinh_doanh: bool = False,
@@ -330,8 +328,6 @@ class DepartmentService:
             name=name,
             description=desc,
             parent_id=parent_id,
-            salary_mechanism=salary_mechanism,
-            probation_ratio=probation_ratio,
             has_piece_work=has_piece_work,
         )
         if level_id is not None:
@@ -362,8 +358,6 @@ class DepartmentService:
         head_user_id: int | None,
         level_id: int | None = None,
         parent_id: int | None | object = _KEEP,
-        salary_mechanism: str | None = None,
-        probation_ratio: float | None = None,
         has_piece_work: bool | None = None,
         actor_id: int | None,
         allow_set_head: bool = True,
@@ -409,12 +403,9 @@ class DepartmentService:
         # Bộ nguyên tắc lương (Pha 1): chỉ đụng khi client gửi (giữ nguyên nếu bỏ trống).
         self.departments.set_salary_policy(
             dept,
-            salary_mechanism=salary_mechanism
-            if salary_mechanism is not None
-            else dept.salary_mechanism,
-            probation_ratio=probation_ratio
-            if probation_ratio is not None
-            else float(dept.probation_ratio),
+            # Cơ chế lương / % thử việc theo phòng: DORMANT 07/09/2026 — giữ nguyên số cũ.
+            salary_mechanism=dept.salary_mechanism,
+            probation_ratio=float(dept.probation_ratio),
             has_piece_work=has_piece_work
             if has_piece_work is not None
             else dept.has_piece_work,

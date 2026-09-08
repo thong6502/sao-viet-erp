@@ -141,7 +141,10 @@ export function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
                   <span className="cc-quota-chip-val">
                     còn <strong>{q.remaining}</strong>/{q.annual_quota} ngày
                   </span>
-                  <span className="cc-quota-chip-sub">(đã dùng {q.used} ngày)</span>
+                  <span className="cc-quota-chip-sub">
+                    (đã dùng {q.used - (q.pending ?? 0)} ngày
+                    {(q.pending ?? 0) > 0 ? ` · đang chờ ${q.pending}` : ""})
+                  </span>
                 </div>
               );
             })}

@@ -16,10 +16,11 @@ export function PayslipCard({
   line: PayrollLine;
   period: PayrollPeriod;
 }) {
-  // 3 khoản phụ cấp KHAI TAY — mỗi khoản một dòng. BẪY CỘNG ĐÔI: `l.allowance` là TỔNG của
-  // đúng 2 số (thâm niên + khác) → KHÔNG cộng `allowance` vào tổng thu nữa. Phụ cấp CA
-  // (`ca_pay`, chính là `night_pay`) là khoản RIÊNG, nằm NGOÀI `allowance`.
-  // Dòng lương cũ: khác = allowance, thâm niên = 0 → vẫn hiện đúng, không mất tiền.
+  // Phụ cấp KHAI TAY — mỗi khoản một dòng. BẪY CỘNG ĐÔI: `l.allowance` là TỔNG của đúng 2 số
+  // (thâm niên + khác) → KHÔNG cộng `allowance` vào tổng thu nữa. Phụ cấp CA (`ca_pay`, chính là
+  // `night_pay`) là khoản RIÊNG, nằm NGOÀI `allowance`.
+  // Thâm niên NGƯNG 07/09/2026 (engine ghi 0): kỳ mới khác = allowance; kỳ CŨ còn số thì vẫn
+  // in dòng riêng "(đã ngưng)" để phiếu in lại y nguyên.
   const pcCa = l.ca_pay ?? l.night_pay;
   const pcThamNien = l.phu_cap_tham_nien ?? 0;
 
@@ -71,7 +72,8 @@ export function PayslipCard({
     // lương tháng trước in lại vẫn đúng y nguyên.
     ...(pcCa ? ([["Phụ cấp ca (khai tay — đã ngưng)", pcCa]] as [string, number][]) : []),
     ["Phụ cấp ca đêm (giờ × hệ số)", l.night_premium_pay ?? 0],
-    ["Phụ cấp thâm niên", pcThamNien],
+    // Ô thâm niên đã ngưng 07/09/2026 ⇒ chỉ in khi kỳ CŨ còn số (cùng cách với phụ cấp ca ở trên).
+    ...(pcThamNien ? ([["Phụ cấp thâm niên (đã ngưng)", pcThamNien]] as [string, number][]) : []),
     ["Phụ cấp khác", pcKhac],
     ["Chuyên cần", l.chuyen_can],
     ["Lương khoán / sản lượng", l.khoan],
@@ -87,6 +89,11 @@ export function PayslipCard({
       ? ([["Thưởng/phạt tổ trưởng (chất lượng)", l.thuong_to_truong ?? 0]] as [string, number][])
       : []),
     ["Tăng ca", l.ot_pay],
+    // Hoa hồng KD — cột riêng (07/09/2026). Trước đó là khoản nguồn `auto` mà phiếu không in ⇒ TỔNG
+    // THU thiếu đúng phần hoa hồng (bản rà E5). Chỉ in khi có số.
+    ...((l.hoa_hong ?? 0) !== 0
+      ? ([["Hoa hồng kinh doanh", l.hoa_hong ?? 0]] as [string, number][])
+      : []),
     // Khoản danh mục — mỗi khoản MỘT DÒNG, đúng tên chủ đặt (chữa "phụ cấp một cục").
     ...compThuHoSo.map((c) => [compLabel(c), c.amount]),
     ...compThuKy.map((c) => [compLabel(c), c.amount]),
@@ -119,6 +126,14 @@ export function PayslipCard({
     // 2 dòng RIÊNG: đợt 1 (đã trả giữa tháng qua phiếu) và tạm ứng ad-hoc. Thực nhận = đợt 2.
     ["Thanh toán lương đợt 1", l.luong_dot_1_total ?? 0],
     ["Tạm ứng đã nhận", l.advance_total],
+    // Nợ tạm ứng dồn kỳ (07/09/2026): kỳ trước mang sang là khoản TRỪ; phần chưa trừ hết kỳ này
+    // in ÂM để tổng trừ = số thật sự trừ (tạm ứng trừ SAU CÙNG, phần dư chuyển sang kỳ sau).
+    ...((l.no_ung_ky_truoc ?? 0) > 0
+      ? ([["Nợ tạm ứng kỳ trước chuyển sang", l.no_ung_ky_truoc ?? 0]] as [string, number][])
+      : []),
+    ...((l.no_ung_chuyen_ky_sau ?? 0) > 0
+      ? ([["Tạm ứng chưa trừ hết — chuyển sang kỳ sau", -(l.no_ung_chuyen_ky_sau ?? 0)]] as [string, number][])
+      : []),
   ] as [string, number][];
   const deductTotal = deduct.reduce((s, [, v]) => s + v, 0);
 

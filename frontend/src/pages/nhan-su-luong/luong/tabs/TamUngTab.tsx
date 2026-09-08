@@ -103,7 +103,9 @@ export function TamUngTab({
 
   const STATUS: Record<string, [string, string]> = {
     pending: ["Chờ duyệt", "ns-badge--muted"],
-    approved: ["Đã duyệt", "ns-badge--ok"],
+    approved: ["Đã duyệt — chờ phiếu chi", "ns-badge--ok"],
+    // Kế toán đã lập phiếu chi (07/09/2026): CHỈ phiếu này mới trừ vào lương.
+    paid: ["Đã chi", "ns-badge--info"],
     rejected: ["Từ chối", "ns-badge--danger"],
     cancelled: ["Đã hủy", "ns-badge--muted"],
   };
@@ -112,7 +114,7 @@ export function TamUngTab({
     luong_dot_1: ["Lương đợt 1", "ns-badge--info"],
   };
   const totalApproved = items
-    .filter((a) => a.status === "approved")
+    .filter((a) => a.status === "approved" || a.status === "paid")
     .reduce((s, a) => s + a.amount, 0);
 
   return (
@@ -275,7 +277,7 @@ export function TamUngTab({
                       {/* CHỈ phiếu ĐÃ DUYỆT mới ra được tiền. Đã có phiếu chi thì thay nút bằng
                           CHIP mã phiếu — một phiếu tạm ứng chỉ một phiếu chi, bày nút lần hai chỉ
                           để người ta bấm rồi ăn 409. */}
-                      {a.status === "approved" &&
+                      {(a.status === "approved" || a.status === "paid") &&
                         (pc ? (
                           navigate ? (
                             <button

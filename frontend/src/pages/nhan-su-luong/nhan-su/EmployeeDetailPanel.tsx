@@ -1,5 +1,5 @@
 // Khay hồ sơ nhân viên: điều phối tab + chuỗi reload (tách từ pages/NhanSuPage.tsx).
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   assetUrl,
@@ -58,6 +58,8 @@ export function EmployeeDetailPanel({
   const canManageStatus = can("nhan_su", "manage_status");
   const canTransfer = can("nhan_su", "transfer");
   const canViewAccount = can("nguoi_dung", "read");
+  // Nút "Đặt ca nền" ở tab Thông tin đi theo đúng ô của tab Khai ca bên Chấm công.
+  const canKhaiCa = can("cham_cong", "manage_shifts");
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [tab, setTab] = useState<Tab>("info");
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +67,29 @@ export function EmployeeDetailPanel({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [editInfo, setEditInfo] = useState(false);
   const [editSalary, setEditSalary] = useState(false);
+
+  const panelRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (document.querySelector(".cdlg-overlay, .ns-modal")) return;
+      onCloseRef.current();
+    };
+    document.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, []);
 
   const reload = useCallback(() => {
     api.employees
@@ -81,15 +106,36 @@ export function EmployeeDetailPanel({
   }, [reload]);
 
   if (!emp) {
-    // Tách "đang tải" khỏi "gọi hỏng": trước đây cả hai in cùng một dòng chữ xám nên mất
-    // mạng cũng trông y như đang chờ — người dùng ngồi đợi mãi một khay không bao giờ mở.
     return (
-      <div className="ns2-detail__loading">
-        {error ? (
-          <EmptyState trangThai="loi" loi={error} onThuLai={reload} />
-        ) : (
-          <EmptyState trangThai="dang-tai" />
-        )}
+      <div className="rc-drawer__scrim" onClick={onClose}>
+        <aside
+          ref={panelRef}
+          className="rc-drawer ns-detail-drawer"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Chi tiết hồ sơ nhân sự"
+          tabIndex={-1}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <header className="rc-drawer__head ns-drawer__head">
+            <div className="rc-drawer__kicker">HỒ SƠ NHÂN SỰ</div>
+            <button
+              type="button"
+              className="rc-drawer__x"
+              onClick={onClose}
+              aria-label="Đóng"
+            >
+              <X size={18} />
+            </button>
+          </header>
+          <div className="rc-drawer__body ns2-detail__loading">
+            {error ? (
+              <EmptyState trangThai="loi" loi={error} onThuLai={reload} />
+            ) : (
+              <EmptyState trangThai="dang-tai" />
+            )}
+          </div>
+        </aside>
       </div>
     );
   }
@@ -108,45 +154,66 @@ export function EmployeeDetailPanel({
   ];
 
   return (
-    <div className="ns2-detail">
-      <header className="ns2-detail__head">
-        <button
-          type="button"
-          className="ns-modal__close-btn"
-          onClick={onClose}
-          aria-label="Đóng"
-        >
-          <X size={18} />
-        </button>
-        <div className="ns-avatar ns-avatar--lg">
-          {assetUrl(emp.photo_url) ? (
-            <img src={assetUrl(emp.photo_url)!} alt={emp.full_name} />
-          ) : (
-            emp.full_name.trim().slice(0, 1).toUpperCase()
-          )}
-        </div>
-        <div className="ns2-detail__id">
-          <h2>
-            {emp.full_name}
-            <StatusBadge status={emp.status} />
-          </h2>
-          <p className="ns-detail__meta">
-            <Briefcase size={13} />
-            {/* job_grade_name là nhãn danh mục (Thợ lành nghề…Lính mới) — hiện nguyên văn, không ghép tiền tố. */}
-            {emp.code} · {emp.department_name ?? "—"} · {emp.position ?? "—"}
-            {(emp.job_grade_name ?? emp.job_grade)
-              ? ` · ${emp.job_grade_name ?? emp.job_grade}`
-              : ""}
-          </p>
-          <p className="ns-detail__meta">
-            <Calendar size={13} />
-            Vào làm {fmtDate(emp.hire_date)} ·{" "}
-            {emp.account_username
-              ? `🔑 ${emp.account_username}`
-              : "chưa nối tài khoản"}
-          </p>
-        </div>
-      </header>
+    <div className="rc-drawer__scrim" onClick={onClose}>
+      <aside
+        ref={panelRef}
+        className="rc-drawer ns-detail-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="employee-detail-title"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="rc-drawer__head ns-drawer__head">
+          <div className="ns-drawer__head-info">
+            <div className="rc-drawer__kicker">
+              HỒ SƠ NHÂN SỰ · {emp.code}
+            </div>
+            <div className="ns-drawer__head-main">
+              <div className="ns-avatar ns-avatar--drawer">
+                {assetUrl(emp.photo_url) ? (
+                  <img src={assetUrl(emp.photo_url)!} alt={emp.full_name} />
+                ) : (
+                  emp.full_name.trim().slice(0, 1).toUpperCase()
+                )}
+              </div>
+              <div className="ns-drawer__head-text">
+                <h2 className="rc-drawer__title ns-drawer__title" id="employee-detail-title">
+                  {emp.full_name}
+                  <StatusBadge status={emp.status} />
+                </h2>
+                <div className="ns-detail__meta-wrap">
+                  <p className="ns-detail__meta">
+                    <Briefcase size={13} />
+                    <span>
+                      {emp.department_name ?? "—"} · {emp.position ?? "—"}
+                      {(emp.job_grade_name ?? emp.job_grade)
+                        ? ` · ${emp.job_grade_name ?? emp.job_grade}`
+                        : ""}
+                    </span>
+                  </p>
+                  <p className="ns-detail__meta">
+                    <Calendar size={13} />
+                    <span>
+                      Vào làm <span className="ns-num">{fmtDate(emp.hire_date)}</span> ·{" "}
+                      {emp.account_username
+                        ? `🔑 ${emp.account_username}`
+                        : "chưa nối tài khoản"}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="rc-drawer__x"
+            onClick={onClose}
+            aria-label="Đóng"
+          >
+            <X size={18} />
+          </button>
+        </header>
 
       {(navigate || canUpdate || canManageStatus || canTransfer) && (
         <div className="ns-detail__actions">
@@ -284,7 +351,22 @@ export function EmployeeDetailPanel({
                         <TrendingUp size={14} /> Nâng bậc / Chức danh
                       </button>
                     )}
-                    {canManageStatus && !resigned && (
+                    {/* Đang đình chỉ thì bày "Gỡ đình chỉ" thay vì "Đình chỉ" lần nữa (máy chủ vẫn
+                        chặn, nhưng bày nút vô nghĩa là người ta tưởng hết đường về — test luồng
+                        08/09/2026). Gỡ xong về đúng trạng thái trước khi đình chỉ. */}
+                    {canManageStatus && emp.status === "suspended" && (
+                      <button
+                        type="button"
+                        className="ns-dropdown-item"
+                        onClick={() => {
+                          setAction("unsuspend");
+                          setDropdownOpen(false);
+                        }}
+                      >
+                        <UserCheck size={14} /> Gỡ đình chỉ · đi làm lại
+                      </button>
+                    )}
+                    {canManageStatus && !resigned && emp.status !== "suspended" && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -355,6 +437,15 @@ export function EmployeeDetailPanel({
               reload();
               onChanged();
             }}
+            onDatCaNen={
+              navigate && canKhaiCa && !resigned
+                ? () =>
+                    navigate("cham-cong", {
+                      focusEmployeeId: emp.id,
+                      chamCongTab: "khai-ca",
+                    })
+                : undefined
+            }
           />
         )}
         {tab === "salary" && canViewSalary && (
@@ -409,6 +500,7 @@ export function EmployeeDetailPanel({
           }}
         />
       )}
-    </div>
-  );
+    </aside>
+  </div>
+);
 }

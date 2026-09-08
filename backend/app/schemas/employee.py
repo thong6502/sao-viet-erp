@@ -33,6 +33,7 @@ class InitialEmployeeSalaryIn(BaseModel):
     luong_dot_1: float = Field(default=0, ge=0)
     insurance_base: float | None = Field(default=None, ge=0)
     allowance: float = Field(default=0, ge=0)
+    # Hai ô đã NGƯNG (ca 03/08/2026 · thâm niên 07/09/2026) — nhận cho tương thích, engine không trả.
     phu_cap_ca: float = Field(default=0, ge=0)
     phu_cap_tham_nien: float = Field(default=0, ge=0)
     chuyen_can: float = Field(default=0, ge=0)
@@ -106,7 +107,7 @@ class EmployeeUpdate(EmployeeBase):
 
 
 class TransitionIn(BaseModel):
-    kind: str = Field(description="confirm|leave_start|leave_end|suspend|resign|reinstate|transfer|promote")
+    kind: str = Field(description="confirm|leave_start|leave_end|suspend|unsuspend|resign|reinstate|transfer|promote")
     effective_date: date | None = None
     note: str | None = Field(default=None, max_length=500)
     new_department_id: int | None = None      # transfer

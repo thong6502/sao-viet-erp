@@ -63,7 +63,7 @@ export function EventsTab({
     const tone: TimelineEntry["tone"] | undefined =
       ev.event_type === "hired"
         ? "rust"
-        : ["confirmed", "promoted", "leave_end", "reinstated"].includes(
+        : ["confirmed", "promoted", "leave_end", "unsuspended", "reinstated"].includes(
               ev.event_type,
             )
           ? "moss"

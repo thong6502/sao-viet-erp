@@ -18,9 +18,8 @@ class ParamsIn(BaseModel):
     bhyt_rate: float | None = Field(default=None, ge=0, le=1)
     bhtn_rate: float | None = Field(default=None, ge=0, le=1)
     # Phía NGƯỜI SỬ DỤNG LAO ĐỘNG — KHÔNG trừ vào lương NV, chỉ tính chi phí công ty.
-    bhxh_rate_er: float | None = Field(default=None, ge=0, le=1)
-    bhyt_rate_er: float | None = Field(default=None, ge=0, le=1)
-    bhtn_rate_er: float | None = Field(default=None, ge=0, le=1)
+    # `bhxh_rate_er` / `bhyt_rate_er` / `bhtn_rate_er`: DORMANT 07/09/2026 — không nhận nữa (cột NSDLĐ
+    # đã bỏ khỏi màn; chỉ còn `tnld_bnn_rate` cho ca "BH đóng ở nơi khác").
     cong_doan_rate: float | None = Field(default=None, ge=0, le=1)
     # TNLĐ-BNN do CÔNG TY chịu (mẫu 0.5% = 0.005) — dùng khi NV có BH đóng ở nơi khác.
     tnld_bnn_rate: float | None = Field(default=None, ge=0, le=1)
@@ -28,6 +27,8 @@ class ParamsIn(BaseModel):
     deduction_dependent: float | None = Field(default=None, ge=0)
     chuyen_can_default: float | None = Field(default=None, ge=0)
     standard_hours_per_day: float | None = Field(default=None, gt=0, le=24)
+    # Ca phải khớp giờ công chuẩn (07/09/2026) — None = giữ nguyên.
+    ca_khop_gio_chuan: bool | None = None
     ot_multiplier: float | None = Field(default=None, ge=1, le=5)
     ot_multiplier_restday: float | None = Field(default=None, ge=1, le=5)
     ot_multiplier_holiday: float | None = Field(default=None, ge=1, le=5)
@@ -76,6 +77,7 @@ class ParamsOut(BaseModel):
     # Mặc định để dòng params CŨ (chưa có cột) không vỡ validate — cùng lối các trường trên.
     com_tang_ca_nguong_phut: int = 180
     com_tang_ca_muc: float = 0
+    # 3 tỷ lệ NSDLĐ: DORMANT 07/09/2026 — chỉ còn trả ra cho tương thích, màn không hiện, PUT bỏ qua.
     bhxh_rate_er: float = 0.175
     bhyt_rate_er: float = 0.03
     bhtn_rate_er: float = 0.01
@@ -85,6 +87,7 @@ class ParamsOut(BaseModel):
     deduction_dependent: float
     chuyen_can_default: float
     standard_hours_per_day: float
+    ca_khop_gio_chuan: bool = True
     ot_multiplier: float
     ot_multiplier_restday: float
     ot_multiplier_holiday: float
@@ -176,38 +179,7 @@ class LatePenaltyBracketsOut(BaseModel):
 # --- salary_rate_rules ------------------------------------------------------
 
 
-class RuleIn(BaseModel):
-    payroll_group: str = Field(min_length=1, max_length=40)
-    pay_grade_key: str | None = Field(default=None, max_length=20)
-    seniority_band: str | None = Field(default=None, max_length=8)
-    gender: str | None = Field(default=None, max_length=8)
-    monthly_amount: float = Field(ge=0)
-    chuyen_can: float | None = Field(default=None, ge=0)
-    effective_from: date | None = None
-    is_active: bool = True
-    note: str | None = Field(default=None, max_length=255)
-
-
-class RuleOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    payroll_group: str
-    pay_grade_key: str | None = None
-    seniority_band: str | None = None
-    gender: str | None = None
-    monthly_amount: float
-    chuyen_can: float | None = None
-    effective_from: date | None = None
-    is_active: bool
-    note: str | None = None
-
-
-class RulesOut(BaseModel):
-    items: list[RuleOut]
-
-
-# --- employee_salaries ------------------------------------------------------
+# (07/09/2026) `RuleIn`/`RuleOut`/`RulesOut` gỡ cùng route `/rules` (bảng mức lương theo bậc — code chết).
 
 
 class SalaryIn(BaseModel):
@@ -219,9 +191,11 @@ class SalaryIn(BaseModel):
     luong_trach_nhiem: float = Field(default=0, ge=0)
     # DORMANT: mức đóng BH khai riêng — engine THÔI đọc (BH bám luong_vi_tri). Giữ nhận cho FE cũ.
     insurance_base: float | None = Field(default=None, ge=0)
-    # 3 khoản PHỤ CẤP KHAI TAY của NV — số cố định dùng mọi tháng, engine cộng phẳng
+    # Phụ cấp KHAI TAY của NV — số cố định dùng mọi tháng, engine cộng phẳng
     # (không prorate theo công, không vào gốc tính tăng ca), hệ thống KHÔNG tự tính.
     allowance: float = Field(default=0, ge=0)              # phụ cấp KHÁC (gộp)
+    # Hai ô ĐÃ NGƯNG (ca 03/08/2026 · thâm niên 07/09/2026): vẫn nhận để FE chép số cũ qua mốc
+    # lương mới (giữ lịch sử), engine KHÔNG trả tiền.
     phu_cap_ca: float = Field(default=0, ge=0)             # phụ cấp ca (đêm/tới sáng/cơm ca…)
     phu_cap_tham_nien: float = Field(default=0, ge=0)
     chuyen_can: float = Field(default=0, ge=0)         # chuyên cần riêng NV
@@ -253,8 +227,8 @@ class SalaryOut(BaseModel):
     luong_trach_nhiem: float = 0
     insurance_base: float | None = None
     allowance: float
-    phu_cap_ca: float = 0
-    phu_cap_tham_nien: float = 0
+    phu_cap_ca: float = 0            # đã ngưng 03/08/2026 — số hồ sơ, không ra tiền
+    phu_cap_tham_nien: float = 0     # đã ngưng 07/09/2026 — số hồ sơ, không ra tiền
     chuyen_can: float = 0
     insurance_elsewhere: bool = False   # cờ "BH đóng ở nơi khác" — để modal prefill checkbox
     union_member: bool = False          # cờ "đoàn viên công đoàn" — để modal prefill checkbox
@@ -429,13 +403,19 @@ class LineOut(BaseModel):
     chuyen_can: float
     allowance: float               # TỔNG phụ cấp tháng (đã gồm 3 dòng dưới)
     # Tách dòng cho phiếu lương (B2) — 2 số này CỘNG LẠI = `allowance`, đừng cộng thêm vào tổng.
+    # `phu_cap_tham_nien` NGƯNG 07/09/2026: kỳ mới luôn 0, chỉ kỳ cũ còn số (phiếu in dòng riêng).
     phu_cap_tham_nien: float = 0
     phu_cap_khac: float = 0        # router fills = allowance − thâm niên
+    #: Có công mà mức lương = 0 (chưa khai ở Lương nhân viên) — router điền; chốt kỳ chặn (L13).
+    chua_khai_luong: bool = False
     khoan: float = 0
     #: Khoán km giao hàng (mg 0231) — CỘNG THÊM vào gross, không phải "trong đó" của khoản nào.
     khoan_km: float = 0
     #: Thưởng/PHẠT tổ trưởng theo chất lượng (mg 0266) — CỘNG ĐẠI SỐ vào gross, CÓ THỂ ÂM.
     thuong_to_truong: float = 0
+    #: Hoa hồng KD (mg 0269, 07/09/2026) — cột riêng, hệ tự tính theo hoá đơn, CỘNG THÊM vào gross,
+    #: chịu TNCN, không sửa tay.
+    hoa_hong: float = 0
     ot_minutes: int = 0
     ot_pay: float = 0
     night_days: int = 0
@@ -483,6 +463,9 @@ class LineOut(BaseModel):
     thu_nhap_mien_thue: float = 0
     advance_total: float
     luong_dot_1_total: float = 0
+    #: Nợ tạm ứng dồn kỳ (07/09/2026): kỳ trước mang sang / kỳ này chưa trừ hết chuyển sang kỳ sau.
+    no_ung_ky_truoc: float = 0
+    no_ung_chuyen_ky_sau: float = 0
     net_pay: float
     note: str | None = None
 
@@ -494,6 +477,9 @@ class TableOut(BaseModel):
     #: tắt nút "Chốt"; KHÔNG tự suy lại luật (số lý do còn tăng, suy lại là hai bên trôi khác nhau).
     #: Xem `PayrollService.ly_do_chua_chot_duoc`.
     chan_chot_ly_do: str | None = None
+    #: CẢNH BÁO (không chặn) lúc chốt — vd người thực lĩnh 0 vì trừ nợ tạm ứng (chủ 07/09/2026: kệ,
+    #: chỉ báo). Router điền.
+    canh_bao_chot: str | None = None
 
 
 class LineUpdateIn(BaseModel):
@@ -506,7 +492,8 @@ class LineUpdateIn(BaseModel):
     pit: float | None = Field(default=None, ge=0)
     pit_manual: bool | None = None   # False = reset về tự tính; None = giữ nguyên
     di_tre_manual: bool | None = None  # False = đưa phạt trễ VỀ TỰ ĐỘNG (tính lại từ chấm công); None = giữ
-    monthly_override: float | None = Field(default=None, ge=0)
+    # `monthly_override` GỠ 07/09/2026 (bản rà D4): không màn nào dùng, bỏ quên hệ số thử việc, bị
+    # "Tính lại" xoá sạch. Đổi mức tháng ⇒ khai mốc lương mới ở Lương nhân viên.
     note: str | None = Field(default=None, max_length=255)
     # Khoản chi tiết (phiếu lương) — HCNS nhập tay. `dieu_chinh_luong` cho phép ÂM.
     dieu_chinh_luong: float | None = Field(default=None)
@@ -557,7 +544,8 @@ class ComponentIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     kind: str = Field(default="thu", pattern="^(thu|tru)$")
     is_taxable: bool = True
-    in_insurance_base: bool = False
+    # `in_insurance_base`: DORMANT 07/09/2026 — engine chưa bao giờ đọc; mức đóng BH = vị trí +
+    # trách nhiệm (chốt 12/08). Không nhận nữa.
     sort_order: int = 0
     note: str | None = Field(default=None, max_length=255)
 
@@ -567,7 +555,6 @@ class ComponentPatchIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     kind: str | None = Field(default=None, pattern="^(thu|tru)$")
     is_taxable: bool | None = None
-    in_insurance_base: bool | None = None
     sort_order: int | None = None
     is_active: bool | None = None
     note: str | None = Field(default=None, max_length=255)
@@ -581,7 +568,6 @@ class ComponentOut(BaseModel):
     name: str
     kind: str
     is_taxable: bool
-    in_insurance_base: bool
     sort_order: int
     is_active: bool
     note: str | None = None
@@ -697,9 +683,8 @@ class LineComponentOut(BaseModel):
     is_taxable: bool
     amount: float
     note: str | None = None
-    # `employee` = chép từ hồ sơ NV · `line` = thêm tay cho riêng kỳ này · `auto` = HỆ TỰ TÍNH
-    # (hoa hồng KD). Giao diện phải KHOÁ ô của dòng `auto`: backend chặn sửa/gỡ, vì số bám hoá
-    # đơn và bị ghi lại mỗi lần "Tính lại".
+    # `employee` = chép từ hồ sơ NV · `line` = thêm tay cho riêng kỳ này. (`auto` = hoa hồng KD chỉ
+    # còn ở dữ liệu trước 07/09/2026 — nay hoa hồng là cột `hoa_hong`, mg 0269 đã dọn dòng cũ.)
     source: str
     #: HCNS đã sửa tay số tiền CHO RIÊNG KỲ NÀY. Giao diện hiện nhãn "đã sửa cho kỳ này" + nút
     #: "Trả về theo hồ sơ". Hồ sơ nhân viên KHÔNG đổi — tháng sau tự về mức cũ.

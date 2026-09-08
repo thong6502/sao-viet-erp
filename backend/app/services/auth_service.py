@@ -5,6 +5,8 @@ route maps to HTTP — the service itself stays framework-agnostic.
 """
 from __future__ import annotations
 
+from datetime import date
+
 from ..models.employee import STATUS_RESIGNED
 from ..models.user import User
 from ..repositories.employee_repo import EmployeeRepository
@@ -47,7 +49,12 @@ class AuthService:
         # hệ thống không gắn hồ sơ (vd `admin`) không bị chặn.
         if self.employees is not None:
             employee = self.employees.get_by_user_id(user.id)
-            if employee is not None and employee.status == STATUS_RESIGNED:
+            # `resign_date` = ngày đầu không làm (định nghĩa biên chế chung, 08/09/2026): tới ngày
+            # đó là hết cửa, kể cả khi trạng thái cột chưa kịp đổi.
+            if employee is not None and (
+                employee.status == STATUS_RESIGNED
+                or (employee.resign_date is not None and employee.resign_date <= date.today())
+            ):
                 raise AuthError("Invalid username or password")
         return user
 

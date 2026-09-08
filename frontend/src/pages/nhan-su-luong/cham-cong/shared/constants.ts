@@ -11,9 +11,10 @@ export const FAULT_OPTIONS: { value: string; label: string }[] = [
 export const TIME_HOURS = Array.from({ length: 24 }, (_, index) =>
   String(index).padStart(2, "0"),
 );
-export const TIME_MINUTES = Array.from({ length: 60 }, (_, index) =>
-  String(index).padStart(2, "0"),
-);
+// Bước 5 phút phổ thông trong ca kíp sản xuất (12 options, tránh tràn dropdown native trên Windows)
+export const TIME_MINUTES = [
+  "00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55",
+];
 export const FAULT_LABEL: Record<string, string> = Object.fromEntries(
   FAULT_OPTIONS.map((o) => [o.value, o.label]),
 );

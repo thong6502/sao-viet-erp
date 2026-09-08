@@ -37,7 +37,7 @@ export function CoCheTab({
 }: {
   token: string;
   p: PayrollParams;
-  setP: (key: keyof PayrollParams, value: number) => void;
+  setP: (key: keyof PayrollParams, value: number | boolean) => void;
   depts: Department[];
   deptId: number | null;
   onPickDept: (id: number) => void;
@@ -108,7 +108,7 @@ export function CoCheTab({
             <div className="rc-grid">
               <ParamField
                 label="Giờ công chuẩn / ngày"
-                hint="Dùng để quy ra đơn giá 1 giờ tăng ca."
+                hint="Quy ra đơn giá 1 giờ tăng ca, và là số giờ mọi ca phải làm (khi bật ô dưới)."
                 suffix="h"
                 step={0.5}
                 min={1}
@@ -117,6 +117,19 @@ export function CoCheTab({
                 value={p.standard_hours_per_day}
                 onChange={(v) => setP("standard_hours_per_day", v)}
               />
+              {/* Chủ chốt 07/09/2026: khai ca phải khớp giờ công chuẩn — "không thì sinh ra hệ thống làm gì". */}
+              <label className="cl-check" style={{ gridColumn: "1 / -1" }}>
+                <input
+                  type="checkbox"
+                  checked={p.ca_khop_gio_chuan ?? true}
+                  disabled={readOnly}
+                  onChange={(e) => setP("ca_khop_gio_chuan", e.target.checked)}
+                />
+                <span>
+                  <b>Ca phải khớp giờ công chuẩn</b> — khai ca mà (giờ ra − giờ vào − nghỉ giữa ca)
+                  khác số trên thì không cho lưu. Tắt chỉ khi có ca bán thời gian.
+                </span>
+              </label>
               <ParamField
                 label="% lương thử việc"
                 hint="Nhân vào mức nền của người đang thử việc."

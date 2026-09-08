@@ -12557,3 +12557,157 @@ def _migrate_hang_loai_vat_tu_buoc(db: Session) -> None:
 
 
 MIGRATIONS.append(("0280_hang_loai_vat_tu_buoc", _migrate_hang_loai_vat_tu_buoc))
+
+
+def _migrate_nghi_giua_ca_va_cham_bu_hom_sau(db) -> None:
+    """0267 (chủ chốt 07/09/2026) — hai việc nhỏ cùng lát Chấm công:
+
+    (a) `work_shifts.break_start_minute` / `break_end_minute` — NGHỈ GIỮA CA. NULL = ca không khai
+        nghỉ ⇒ engine chạy y như cũ, KHÔNG đổi số công của ai. Khai vào thì mẫu số công = khung ca
+        trừ nghỉ (ca 7:30–16:30 nghỉ trưa 1h ⇒ 480' thay vì 540'), khớp cách bảng lương tay chia
+        cho 8 giờ.
+    (b) `attendance_adjust_requests.suggested_next_day` — giờ gợi ý rơi sang HÔM SAU (ca đêm quên
+        bấm RA 06:00 sáng). Không có cờ này thì punch bù dính ngày công ⇒ gom nhầm về hôm trước.
+
+    Idempotent: DB fresh dựng cột thẳng từ model ⇒ tới đây thấy có, bỏ qua.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "work_shifts" in tables:
+        cols = _existing_columns(insp, "work_shifts")
+        if "break_start_minute" not in cols:
+            db.execute(text("ALTER TABLE work_shifts ADD COLUMN break_start_minute INTEGER"))
+        if "break_end_minute" not in cols:
+            db.execute(text("ALTER TABLE work_shifts ADD COLUMN break_end_minute INTEGER"))
+    if "attendance_adjust_requests" in tables:
+        if "suggested_next_day" not in _existing_columns(insp, "attendance_adjust_requests"):
+            db.execute(text(
+                "ALTER TABLE attendance_adjust_requests "
+                "ADD COLUMN suggested_next_day BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+    db.commit()
+
+
+MIGRATIONS.append(("0267_nghi_giua_ca_va_cham_bu_hom_sau", _migrate_nghi_giua_ca_va_cham_bu_hom_sau))
+
+
+def _migrate_ca_khop_gio_chuan(db) -> None:
+    """0268 (chủ chốt 07/09/2026) — `payroll_params.ca_khop_gio_chuan`: khai ca phải khớp Giờ công
+    chuẩn / ngày (giờ ra − giờ vào − nghỉ giữa ca = giờ chuẩn), mặc định BẬT cho DB đang chạy.
+    Idempotent: DB fresh dựng cột từ model ⇒ thấy có, bỏ qua."""
+    insp = inspect(db.get_bind())
+    if "payroll_params" not in set(insp.get_table_names()):
+        return
+    if "ca_khop_gio_chuan" in _existing_columns(insp, "payroll_params"):
+        return
+    db.execute(text(
+        "ALTER TABLE payroll_params ADD COLUMN ca_khop_gio_chuan BOOLEAN NOT NULL DEFAULT TRUE"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0268_ca_khop_gio_chuan", _migrate_ca_khop_gio_chuan))
+
+
+def _migrate_hoa_hong_cot_luong(db) -> None:
+    """Hoa hồng KD thành CỘT `payroll_lines.hoa_hong` (chủ chốt 07/09/2026: "nó là một dạng lương",
+    không phải phụ cấp; Danh mục khoản thu nhập chỉ còn khoản HCNS tự khai).
+
+    Trước đó (mg 0227, 21/08) hoa hồng là dòng khoản danh mục nguồn `auto` — engine tra danh mục
+    theo mã `hoa_hong_kd` để lấy cờ chịu thuế và coi "còn dòng + đang áp dụng" là công tắc. Hai
+    hệ quả xấu: (1) công tắc toàn hệ thống nằm cạnh nút Xoá của HCNS (phải giấu bằng `_HE_THONG`);
+    (2) "Sửa 1 ô" không cộng nguồn `auto` ⇒ hoa hồng bốc hơi khỏi gross, và phiếu lương không in
+    dòng `auto` ⇒ tổng thu không cân (bản rà 07/09, D1/E5).
+
+    Việc làm, idempotent:
+      1. thêm cột `payroll_lines.hoa_hong`;
+      2. chuyển tiền từ dòng `payroll_line_components.source='auto'` (loại thu) vào cột — kỳ ĐÃ
+         CHỐT giữ đúng số cũ;
+      3. xoá các dòng `auto` đó;
+      4. xoá dòng danh mục `hoa_hong_kd` và tàn dư `khoan_km_gh` (bản nháp 0231) — CHỈ khi không
+         còn ai được gán và không còn dòng lương nào tham chiếu (an toàn FK).
+    """
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+    if "payroll_lines" not in ten_bang:
+        return
+    if "hoa_hong" not in _existing_columns(insp, "payroll_lines"):
+        db.execute(text(
+            "ALTER TABLE payroll_lines ADD COLUMN hoa_hong NUMERIC(14,2) NOT NULL DEFAULT 0"
+        ))
+    if "payroll_line_components" in ten_bang:
+        db.execute(text(
+            "UPDATE payroll_lines SET hoa_hong = COALESCE(("
+            "  SELECT SUM(c.amount) FROM payroll_line_components c"
+            "  WHERE c.line_id = payroll_lines.id AND c.source = 'auto' AND c.kind <> 'tru'), 0)"
+            " WHERE id IN (SELECT line_id FROM payroll_line_components WHERE source = 'auto')"
+        ))
+        db.execute(text("DELETE FROM payroll_line_components WHERE source = 'auto'"))
+    if {"payroll_components", "employee_salary_components", "payroll_line_components"} <= ten_bang:
+        for ma in ("hoa_hong_kd", "khoan_km_gh"):
+            db.execute(text(
+                "DELETE FROM payroll_components WHERE code = :ma"
+                " AND NOT EXISTS (SELECT 1 FROM employee_salary_components e"
+                "                 WHERE e.component_id = payroll_components.id)"
+                " AND NOT EXISTS (SELECT 1 FROM payroll_line_components l"
+                "                 WHERE l.component_id = payroll_components.id)"
+            ), {"ma": ma})
+    db.commit()
+
+
+MIGRATIONS.append(("0269_hoa_hong_cot_luong", _migrate_hoa_hong_cot_luong))
+
+
+def _migrate_tam_ung_da_chi_va_no_don_ky(db) -> None:
+    """Tạm ứng (chủ chốt 07/09/2026, bản rà B2/B4):
+      1. `payroll_lines.no_ung_ky_truoc` / `no_ung_chuyen_ky_sau` — nợ tạm ứng dồn kỳ: trừ không hết
+         thì chuyển sang tháng sau, tháng sau nữa… tới khi hết (trước đó `net = max(0, …)` và phần dư
+         biến mất). Tạm ứng + đợt 1 + nợ kỳ trước trừ SAU CÙNG.
+      2. `salary_advances.status = 'paid'` — chỉ phiếu kế toán ĐÃ LẬP PHIẾU CHI mới trừ vào lương.
+         Dữ liệu cũ: phiếu `approved` đã có phiếu chi (chưa huỷ) ⇒ `paid`; phiếu `approved` chưa có
+         phiếu chi giữ nguyên — từ nay không trừ nữa và chốt lương sẽ nhắc (L11b).
+    Idempotent."""
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+    if "payroll_lines" in ten_bang:
+        cot = _existing_columns(insp, "payroll_lines")
+        for ten in ("no_ung_ky_truoc", "no_ung_chuyen_ky_sau"):
+            if ten not in cot:
+                db.execute(text(f"ALTER TABLE payroll_lines ADD COLUMN {ten} NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    if {"salary_advances", "payment_vouchers"} <= ten_bang:
+        db.execute(text(
+            "UPDATE salary_advances SET status = 'paid' WHERE status = 'approved' AND id IN ("
+            "  SELECT salary_advance_id FROM payment_vouchers"
+            "  WHERE salary_advance_id IS NOT NULL AND status <> 'cancelled')"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0270_tam_ung_da_chi_va_no_don_ky", _migrate_tam_ung_da_chi_va_no_don_ky))
+
+
+def _migrate_phieu_chi_huy_khong_giu_cho(db) -> None:
+    """`payment_vouchers.salary_advance_id`: UNIQUE toàn cột (mg 0207) → UNIQUE RIÊNG PHẦN
+    `WHERE status <> 'cancelled'` (bản rà B5, 07/09/2026).
+
+    Từ mg 0270 huỷ phiếu chi trả phiếu tạm ứng về `approved` để kế toán lập phiếu chi MỚI; UNIQUE
+    toàn cột thì phiếu chi đã huỷ vẫn giữ chỗ ⇒ lập lại là IntegrityError 500. Vẫn chặn hai phiếu
+    chi CÒN HIỆU LỰC cho cùng một phiếu tạm ứng. Gỡ cả constraint `…_key` (DB dựng bằng
+    `create_all` khi cột còn `unique=True`) lẫn index cũ của mg 0207. Idempotent."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "payment_vouchers" not in set(insp.get_table_names()):
+        return
+    if bind.dialect.name == "postgresql":
+        db.execute(text(
+            "ALTER TABLE payment_vouchers DROP CONSTRAINT IF EXISTS payment_vouchers_salary_advance_id_key"
+        ))
+    db.execute(text("DROP INDEX IF EXISTS uq_payment_voucher_salary_advance"))
+    db.execute(text(
+        "CREATE UNIQUE INDEX uq_payment_voucher_salary_advance "
+        "ON payment_vouchers (salary_advance_id) WHERE status <> 'cancelled'"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0271_phieu_chi_huy_khong_giu_cho", _migrate_phieu_chi_huy_khong_giu_cho))

@@ -92,6 +92,7 @@ def test_holiday_excluded_from_standard_cong(client):
     t = _token(client)
     m = client.get("/api/calendar/month", params={"year": 2026, "month": 9}, headers=_h(t)).json()
     assert m["working_days"] == 25  # 26 ngày làm − lễ 2/9
+    assert m["cong_chuan_luong"] == 26  # công chuẩn LƯƠNG gồm lễ hưởng lương (B1 08/09/2026)
     assert any(h["date"] == "2026-09-02" for h in m["holidays"])
     cell = next(x for x in m["days"] if x["date"] == "2026-09-02")
     assert cell["kind"] == "holiday" and cell["is_working"] is False

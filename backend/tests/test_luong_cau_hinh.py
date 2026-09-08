@@ -131,14 +131,18 @@ def _salary_ns(**kw):
     return SimpleNamespace(**base)
 
 
-def test_params_employer_insurance_rates(client):
-    """3 tỷ lệ phía NSDLĐ: mặc định 17.5/3/1, sửa được, KHÔNG trừ vào lương NV."""
+def test_params_employer_insurance_rates_dormant(client):
+    """3 tỷ lệ phía NSDLĐ: DORMANT từ 07/09/2026 (chủ bỏ cột NSDLĐ khỏi màn — không dùng tới).
+    GET vẫn trả mặc định cho tương thích, PUT bị BỎ QUA (không phải ô cấu hình giả), engine không
+    trừ gì vào lương NV. `tnld_bnn_rate` thì vẫn sửa được (ca "BH đóng ở nơi khác")."""
     token = _admin_token(client)
     p = client.get("/api/luong/params", headers=_h(token)).json()
     assert p["bhxh_rate_er"] == 0.175 and p["bhyt_rate_er"] == 0.03 and p["bhtn_rate_er"] == 0.01
-    upd = client.put("/api/luong/params", json={"bhxh_rate_er": 0.18}, headers=_h(token)).json()
-    assert upd["bhxh_rate_er"] == 0.18
-    client.put("/api/luong/params", json={"bhxh_rate_er": 0.175}, headers=_h(token))
+    upd = client.put("/api/luong/params", json={"bhxh_rate_er": 0.18, "tnld_bnn_rate": 0.006},
+                     headers=_h(token)).json()
+    assert upd["bhxh_rate_er"] == 0.175, "cột NSDLĐ đã bỏ — PUT phải bị bỏ qua"
+    assert upd["tnld_bnn_rate"] == 0.006
+    client.put("/api/luong/params", json={"tnld_bnn_rate": 0.005}, headers=_h(token))
 
     db = SessionLocal()
     try:
@@ -146,12 +150,9 @@ def test_params_employer_insurance_rates(client):
         v = svc._compute(employee=_emp_ns(None), salary=_salary_ns(luong_vi_tri=10_000_000),
                          params=svc.get_params(), actual_cong=26, standard_cong=26,
                          on=date(2026, 6, 1))
-        assert v["bhxh"] == round(10_000_000 * 0.105)   # NV vẫn chỉ đóng 10.5% (trên lương vị trí)
+        assert v["bhxh"] == round(10_000_000 * 0.105)   # NV vẫn chỉ đóng 10.5%
     finally:
         db.close()
-
-
-# --- Ghi đè 2 cấp: NV → tổ (chuyên cần) -------------------------------------
 
 
 def test_chuyen_can_tien_chi_khai_o_ho_so_nv(client):
@@ -186,12 +187,14 @@ def test_chuyen_can_tien_chi_khai_o_ho_so_nv(client):
 
 
 def test_manual_allowances_add_flat(client):
-    """Phụ cấp thâm niên · khác KHAI TAY theo từng NV, một số cố định — engine cộng PHẲNG (không
-    prorate theo công, không vào gốc tính tăng ca).
+    """Phụ cấp KHÁC khai tay theo từng NV, một số cố định — engine cộng PHẲNG (không prorate theo
+    công, không vào gốc tính tăng ca).
 
     ⚠️ `phu_cap_ca` KHÔNG còn ra tiền từ 03/08/2026: phụ cấp cơm/ca nay tính theo CA THỰC LÀM
     (`work_shifts.meal_allowance` / `.shift_allowance`). Đường per-người phải tắt CÙNG LƯỢT với
-    việc bật đường theo ca — để cả hai cùng chạy là TRẢ HAI LẦN."""
+    việc bật đường theo ca — để cả hai cùng chạy là TRẢ HAI LẦN.
+    ⚠️ `phu_cap_tham_nien` KHÔNG còn ra tiền từ 07/09/2026 (chủ: bỏ ô Phụ cấp thâm niên ở Lương →
+    Lương nhân viên): số cũ trong hồ sơ chỉ để tra, engine ghi 0."""
     client
     db = SessionLocal()
     try:
@@ -204,18 +207,19 @@ def test_manual_allowances_add_flat(client):
 
         full = svc._compute(actual_cong=26, **kw)
         assert full["monthly_salary"] == 26_000_000                  # vị trí + trách nhiệm
-        assert full["allowance"] == 400_000 + 900_000                # khác + thâm niên
-        assert full["phu_cap_tham_nien"] == 900_000
+        assert full["allowance"] == 400_000                          # chỉ còn phụ cấp KHÁC
+        # ⭐ Thâm niên 900k trong hồ sơ KHÔNG chảy vào lương nữa (ngưng 07/09/2026).
+        assert full["phu_cap_tham_nien"] == 0
         # ⭐ Số `phu_cap_ca` cũ của hồ sơ KHÔNG được chảy vào lương nữa — đây là chốt chống trả
         # hai lần khi đường "phụ cấp theo ca" đã bật.
         assert full["night_pay"] == 0
         # Chuyên cần = 0 vì hồ sơ NV chưa khai (từ 2026-07-23 không còn mức mặc định công ty).
-        assert full["gross"] == (26_000_000 + 1_300_000)
+        assert full["gross"] == (26_000_000 + 400_000)
 
         # Nửa công: lương công prorate, phụ cấp khai tay giữ NGUYÊN số (cộng phẳng).
         half = svc._compute(actual_cong=13, **kw)
         assert half["luong_cong"] == 13_000_000
-        assert half["allowance"] == 1_300_000 and half["night_pay"] == 0
+        assert half["allowance"] == 400_000 and half["night_pay"] == 0
 
         # Tăng ca bám LƯƠNG VỊ TRÍ (20tr), KHÔNG bám mức nền 26tr — chủ chốt 12/08/2026.
         # Phụ cấp khai tay vẫn không làm tiền tăng ca nhảy (vế cũ, giữ nguyên).
@@ -231,8 +235,9 @@ def test_manual_allowances_add_flat(client):
 
 
 def test_manual_allowances_roundtrip_through_api(client):
-    """Phụ cấp khai ở màn Lương nhân viên → lưu, preview đọc lại, ra đúng tiền trên bảng lương
-    (phụ cấp ca đi vào `night_pay`/`ca_pay`). Mức đóng BH = lương vị trí."""
+    """Phụ cấp khai ở màn Lương nhân viên → lưu, preview đọc lại, ra đúng tiền trên bảng lương.
+    Hai ô đã ngưng (ca 03/08/2026 · thâm niên 07/09/2026) LƯU được nhưng KHÔNG ra tiền.
+    Mức đóng BH = lương vị trí."""
     token = _admin_token(client)
     eid = _make_emp(client, token, name="NV Phụ cấp tay")
     res = client.post(f"/api/luong/salaries/{eid}", json={
@@ -254,7 +259,9 @@ def test_manual_allowances_roundtrip_through_api(client):
     # phụ cấp cơm/ca tính theo CA THỰC LÀM. Giữ cột để không mất lịch sử, tắt đường tiền để không
     # trả hai lần.
     assert ln["night_pay"] == 0 and ln["ca_pay"] == 0
-    assert ln["allowance"] == 300_000 + 600_000
+    # ⭐ Tương tự, `phu_cap_tham_nien` 600k lưu ở hồ sơ nhưng KHÔNG ra tiền từ 07/09/2026.
+    assert ln["phu_cap_tham_nien"] == 0
+    assert ln["allowance"] == 300_000
     assert ln["phu_cap_khac"] == 300_000
     assert ln["insurance_base"] == 10_000_000        # vị trí 8tr + trách nhiệm 2tr
     # Sửa số → kỳ draft đổi theo (khai lại bản hiệu lực mới rồi Tính lại).
@@ -477,7 +484,6 @@ def test_salary_config_is_hidden_from_luong_read_only_but_self_service_stays_ope
     read_only = _luong_config_token("luong-read-no-config", can_read=True)
     protected_paths = [
         "/api/luong/params",
-        "/api/luong/rules",
         "/api/luong/pit-brackets",
         f"/api/luong/dept-components/{dept_id}",
     ]
@@ -506,8 +512,14 @@ def test_salary_config_is_hidden_from_luong_read_only_but_self_service_stays_ope
 
 
 def test_late_penalty_brackets_seeded_and_editable(client):
-    """Bảng phạt trễ/sớm auto-seed 4 bậc mặc định (20k/40k/100k/150k) + đọc/sửa/thêm/xóa được."""
+    """Bảng phạt trễ/sớm: TRỐNG = không phạt (chủ chốt 07/09/2026, B2 — không còn auto-seed);
+    HCNS khai 4 bậc rồi đọc/sửa/thêm/xóa được."""
     token = _admin_token(client)
+    assert client.get("/api/luong/late-penalty-brackets", headers=_h(token)).json()["items"] == []
+    for seq, up_to, amt in ((1, 15, 20000), (2, 30, 40000), (3, 60, 100000), (4, None, 150000)):
+        assert client.post("/api/luong/late-penalty-brackets",
+                           json={"seq": seq, "up_to_minute": up_to, "amount": amt},
+                           headers=_h(token)).status_code == 201
     items = client.get("/api/luong/late-penalty-brackets", headers=_h(token)).json()["items"]
     assert len(items) == 4
     assert [i["up_to_minute"] for i in items] == [15, 30, 60, None]   # phút; bậc cuối = ∞
@@ -699,7 +711,10 @@ def test_chuyen_can_tru_dan_bang_so_that(client):
 def test_allowance_split_visible_without_changing_totals(client):
     """B2: phiếu lương tách "Phụ cấp thâm niên" thành DÒNG RIÊNG khỏi "Phụ cấp khác" — mà TỔNG
     THU NHẬP y nguyên (2 dòng cộng lại đúng bằng `allowance`). Trách nhiệm KHÔNG ở đây (nó là
-    `luong_trach_nhiem` trong mức nền)."""
+    `luong_trach_nhiem` trong mức nền).
+
+    Từ 07/09/2026 ô thâm niên đã NGƯNG (chủ bỏ ở Lương → Lương nhân viên): dòng riêng chỉ còn ý
+    nghĩa với kỳ CŨ; kỳ mới `phu_cap_tham_nien` = 0 và khai bao nhiêu gross cũng không đổi."""
     token = _admin_token(client)
     eid = _make_emp(client, token, name="NV Tách phụ cấp")
     client.post(f"/api/luong/salaries/{eid}", json={
@@ -713,7 +728,8 @@ def test_allowance_split_visible_without_changing_totals(client):
     assert before["allowance"] == 700_000 and before["phu_cap_khac"] == 700_000
     assert before["phu_cap_tham_nien"] == 0
 
-    # (2) Khai TAY thêm thâm niên 1.950.000 cho CHÍNH NV này.
+    # (2) Khai TAY thêm thâm niên 1.950.000 cho CHÍNH NV này — hồ sơ LƯU số (API cũ vẫn nhận)
+    #     nhưng từ 07/09/2026 engine KHÔNG trả: chủ bỏ ô này khỏi Lương → Lương nhân viên.
     client.post(f"/api/luong/salaries/{eid}", json={
         "effective_from": "2026-02-01", "luong_vi_tri": 8_000_000,
         "luong_trach_nhiem": 2_000_000, "allowance": 700_000,
@@ -721,12 +737,11 @@ def test_allowance_split_visible_without_changing_totals(client):
     gen2 = client.post("/api/luong/generate", json={"year": 2026, "month": 12},
                        headers=_h(token)).json()
     ln = next(l for l in gen2["lines"] if l["employee_id"] == eid)
-    assert ln["phu_cap_tham_nien"] == 1_950_000
+    assert ln["phu_cap_tham_nien"] == 0
     assert ln["phu_cap_khac"] == 700_000
-    # 2 dòng cộng lại = TỔNG phụ cấp; tổng thu nhập chỉ tính MỘT lần.
-    assert (ln["phu_cap_khac"] + ln["phu_cap_tham_nien"]
-            == ln["allowance"] == 700_000 + 1_950_000)
-    assert ln["gross"] == before["gross"] + 1_950_000
+    # 2 dòng cộng lại = TỔNG phụ cấp; tổng thu nhập chỉ tính MỘT lần — và KHÔNG nhúc nhích.
+    assert (ln["phu_cap_khac"] + ln["phu_cap_tham_nien"] == ln["allowance"] == 700_000)
+    assert ln["gross"] == before["gross"]
     assert ln["net_pay"] == round(max(0.0, ln["gross"] - ln["bhxh"] - ln["cong_doan"]
                                       - ln["pit"] - ln["advance_total"]))
 

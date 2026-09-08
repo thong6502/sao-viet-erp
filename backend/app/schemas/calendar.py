@@ -83,7 +83,8 @@ class HolidayItem(BaseModel):
 class MonthCalendarOut(BaseModel):
     year: int
     month: int
-    working_days: int            # công chuẩn động (số ngày làm việc thực của tháng)
+    working_days: int            # số ngày làm việc thực của tháng (không gồm lễ) — hạn mức phép / tô lịch
+    cong_chuan_luong: int        # công chuẩn LƯƠNG = working_days + lễ hưởng lương rơi vào ngày làm (B1 08/09/2026)
     paid_holiday_count: int
     days: list[DayCell]
     holidays: list[HolidayItem]

@@ -187,7 +187,7 @@ export function CommissionCard({
         value={pct != null ? `${pct}%` : null}
         icon={TrendingUp}
         hint={
-          "Chỉ để khai — hệ thống chưa tự cộng vào lương. Đổi ở Lương → Lương nhân viên → Sửa lương." +
+          "Máy tự tính hoa hồng theo hoá đơn bán trong kỳ với % này (chụp vào đơn lúc chốt) — ĐỪNG thêm tay khoản hoa hồng ở bảng lương, là trả hai lần. Đổi % ở Lương → Lương nhân viên." +
           (state.kind === "error" ? " Không đọc được số hoa hồng." : "")
         }
       />

@@ -21,6 +21,7 @@ from ..models.attendance import (
     CHECK_IN,
     CHECK_OUT,
     CHECK_TYPES,
+    FAULT_DUYET,
     FAULT_PARTIES,
     REQ_APPROVED,
     REQ_CANCELLED,
@@ -46,6 +47,7 @@ from ..models.payroll import PERIOD_LOCKED, PERIOD_PAID
 # đằng sau vẫn sửa được ⇒ mất hẳn dấu vết "lương tháng này trả theo công nào".
 PAYROLL_DA_KHOA = (PERIOD_LOCKED, PERIOD_PAID)
 from ..models.role import SCOPE_ALL
+from .bien_che import ly_do_ngoai_bien_che, trong_bien_che, trong_bien_che_thang
 from ..repositories.attendance_repo import AttendanceRepository
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
@@ -58,6 +60,15 @@ CHECK_IN_EARLY_MINUTES = 60
 # nửa đêm mà vẫn cách rất xa giờ vào ca kế tiếp — ca 8h thì khoảng cách tới ca sau là 16h). Quá mốc
 # này ⇒ coi là VÀO ca mới, đêm cũ để treo (chống "kéo trạng thái xuyên ngày" khi quên chấm RA).
 CHECK_OUT_GRACE_HOURS = 8
+
+# Lý do (tiếng người) vì sao một phiếu TC đã duyệt KHÔNG xác nhận cặp bấm được — nuôi màn
+# "Xác nhận tăng ca theo phiếu" (07/09/2026).
+_LY_DO_TINH_TRANG = {
+    "khong_cham": "không có lượt bấm nào trong ngày",
+    "chua_gan_ca": "chưa gán ca làm việc ngày này",
+    "treo": "thiếu bấm RA ca chính (ngày treo) — chấm bù RA ca chính trước",
+    "da_co": "đã có cặp bấm tăng ca",
+}
 
 
 def _chuan_ot_days(v) -> dict[str, dict[int, int]]:
@@ -89,6 +100,12 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 def min_to_hhmm(m: int) -> str:
     return f"{int(m) // 60:02d}:{int(m) % 60:02d}"
+
+
+def _gio_text(phut: int) -> str:
+    """Số phút → "8 giờ" / "9 giờ 30" — cho thông báo người đọc."""
+    g, p = divmod(max(0, int(phut)), 60)
+    return f"{g} giờ {p:02d}" if p else f"{g} giờ"
 
 
 def check_in_block_reason(*, shift, work_day: date, now_local: datetime) -> str | None:
@@ -138,6 +155,23 @@ def _hhmm_to_min(s: str) -> int:
     return h * 60 + m
 
 
+def _khung_nghi(start_min: int, is_overnight: bool, break_start, break_end) -> tuple[int, int] | None:
+    """Khoảng NGHỈ GIỮA CA trên trục phút của NGÀY CÔNG (cùng trục `compute_day_cong`: vượt nửa đêm
+    thì > 1440). Ca qua đêm: mốc nghỉ nhỏ hơn giờ vào ca là rơi sang hôm sau (+1440) — ca 22:00–06:00
+    nghỉ 02:00–02:30 ⇒ (1560, 1590). None = ca không khai nghỉ ⇒ mọi thứ chạy y như trước 07/09/2026."""
+    if break_start is None or break_end is None:
+        return None
+    bs, be = int(break_start), int(break_end)
+    if is_overnight:
+        if bs < start_min:
+            bs += 1440
+        if be < start_min:
+            be += 1440
+    if be <= bs:
+        return None
+    return (bs, be)
+
+
 def compute_day_cong(
     *, start_min: int, end_min: int, is_overnight: bool, grace_min: int,
     first_in_min: int, main_out_min: int | None,
@@ -145,16 +179,26 @@ def compute_day_cong(
     ot_in_min: int | None = None, ot_out_min: int | None = None,
     ot_in_offset: int | None = None, ot_out_offset: int | None = None,
     ot_window: tuple[int, int] | None = None,
+    break_start_min: int | None = None, break_end_min: int | None = None,
+    ot_sessions: list | None = None,
+    main_absent: bool = False,
 ) -> dict:
     """Tính CÔNG + TĂNG CA một ngày theo ca (chốt với SVN, cập nhật 25/07/2026 — tăng ca là PHIÊN
-    CHẤM RIÊNG):
+    CHẤM RIÊNG; 07/09/2026 — nghỉ giữa ca + từng phiên TC tính riêng):
       công = (số phút làm trong khung ca) ÷ (số phút chuẩn của ca), giữ 2 chữ số, tối đa 1,00.
+      • Khung ca = (ra − vào) − NGHỈ GIỮA CA (`break_*`, None = không khai). Phút rơi vào khoảng nghỉ
+        không là LÀM, cũng không là TRỄ/SỚM — ca 7:30–16:30 nghỉ 11:30–12:30 ⇒ mẫu số 480' ⇒ làm
+        nửa buổi = 0,5, về sớm 1h = 0,875 (khớp bảng lương tay chia cho 8 giờ).
       • Vào trễ ≤ dung sai (grace) vẫn coi đúng giờ (không trừ).
       • Đủ giờ (đúng giờ + ra ≥ giờ ca) ⇒ 1,00. Đi muộn/về sớm ⇒ giảm theo tỷ lệ (0,94…).
       • Thiếu chấm RA ca chính ⇒ 0 công (đánh dấu incomplete).
     CÔNG tính theo PHIÊN CA CHÍNH `(first_in, main_out)` — `main_out` = lượt RA của phiên ĐẦU (ca
     chính), KHÔNG phải lượt ra cuối ngày. Về sớm ⇒ công giảm theo giờ ra thực tế của ca chính.
-    TĂNG CA tính theo PHIÊN RIÊNG `(ot_in, ot_out)` (lượt VÀO-RA sau khi đã chấm ra ca chính):
+    TĂNG CA tính theo (các) PHIÊN RIÊNG sau khi đã chấm ra ca chính:
+      • `ot_sessions` = [(in_min, out_min, in_offset, out_offset), …] — TỪNG phiên ∩ cửa sổ phiếu
+        rồi cộng lại; KHE giữa hai phiên (nghỉ ăn giữa tăng ca) KHÔNG trả. Trước 07/09/2026 gộp
+        một dải từ đầu phiên 1 tới cuối phiên cuối nên khe được trả.
+      • Không có `ot_sessions` thì dùng cặp `ot_in/ot_out` cũ (một phiên) — giữ cho caller cũ/test.
     `ot_minutes` = phần phiên TC NẰM TRONG cửa sổ phiếu `ot_window` (về sớm hơn phiếu ⇒ trả theo thực;
     quá phiếu ⇒ kẹp trần). KHÔNG có phiên TC (thiếu cặp chấm) ⇒ `ot_minutes = 0` (bắt buộc 2 cặp).
     Khe giữa `main_out` và `ot_in` (nghỉ giữa ca) KHÔNG tính vào đâu cả.
@@ -163,7 +207,41 @@ def compute_day_cong(
     tính đúng. Bỏ trống offset ⇒ suy đoán theo đồng hồ (ca đêm + mốc rạng sáng → +1440).
     `ot_window` = khoảng phiếu TC đã duyệt (cùng trục phút); `(0,0)` = không phiếu ⇒ TC = 0."""
     end_ref = (end_min + 1440) if is_overnight else end_min
-    window = end_ref - start_min
+
+    def _ov(a, b, c, d):  # độ dài giao [a,b] ∩ [c,d]
+        return max(0, min(b, d) - max(a, c))
+
+    def _night_ov(a: int, b: int) -> int:
+        """Phút của [a,b] rơi cửa sổ ĐÊM 22:00–06:00, LẶP theo từng ngày trên trục tuyến tính
+        ([1320,1800] + k×1440). MỘT công thức cho mọi ca — kể cả tăng ca vượt nửa đêm (nhánh
+        'trong ngày' cũ tính hụt phần 00:00–06:00 của hôm sau)."""
+        return sum(_ov(a, b, 1320 + 1440 * k, 1800 + 1440 * k) for k in (-1, 0, 1))
+
+    # NGHỈ GIỮA CA: kẹp vào khung ca (khai lệch ra ngoài thì chỉ phần nằm trong mới tính).
+    nghi = _khung_nghi(start_min, is_overnight, break_start_min, break_end_min)
+    if nghi is not None:
+        nb0, nb1 = max(start_min, nghi[0]), min(end_ref, nghi[1])
+        nghi = (nb0, nb1) if nb1 > nb0 else None
+    nghi_len = (nghi[1] - nghi[0]) if nghi else 0
+
+    def _doan(a: int, b: int) -> int:
+        """Số phút THẬT của đoạn [a,b] = độ dài − phần rơi vào khoảng nghỉ giữa ca. 0 nếu b ≤ a."""
+        if b <= a:
+            return 0
+        return (b - a) - (_ov(a, b, nghi[0], nghi[1]) if nghi else 0)
+
+    def _night_lam(a: int, b: int) -> int:
+        """Phút ĐÊM của [a,b] trừ phần nghỉ giữa ca rơi vào đêm."""
+        if b <= a:
+            return 0
+        n = _night_ov(a, b)
+        if nghi:
+            c, d = max(a, nghi[0]), min(b, nghi[1])
+            if d > c:
+                n -= _night_ov(c, d)
+        return max(0, n)
+
+    window = end_ref - start_min - nghi_len
     if window <= 0:
         return {"cong": 0.0, "late": False, "early": False, "late_minutes": 0,
                 "early_minutes": 0, "ot_minutes": 0, "ot_minutes_raw": 0, "night_minutes": 0,
@@ -177,17 +255,47 @@ def compute_day_cong(
             return m + 1440 * offset
         return m + 1440 if (is_overnight and m <= end_min) else m
 
+    if main_absent:
+        # Ngày KHÔNG có phiên ca chính, chỉ có phiên tăng ca (CN/lễ/nghỉ được gọi vào tối — bản rà
+        # liên thông D5, 08/09/2026): công 0, không trễ/không sớm/không treo; tăng ca = phiên ∩ phiếu.
+        ot_m = ot_raw = 0
+        ot_night = 0
+        for ss in (ot_sessions or []):
+            a = _lin(int(ss[0]), ss[2] if len(ss) > 2 else None)
+            b = _lin(int(ss[1]), ss[3] if len(ss) > 3 else None)
+            ot_raw += max(0, b - a)
+            f, t = (a, b) if ot_window is None else (max(a, int(ot_window[0])), min(b, int(ot_window[1])))
+            if t > f:
+                ot_m += t - f
+                ot_night += _night_ov(f, t)
+        return {"cong": 0.0, "late": False, "early": False, "late_minutes": 0,
+                "early_minutes": 0, "ot_minutes": ot_m, "ot_minutes_raw": ot_raw,
+                "night_minutes": 0, "ot_night_minutes": ot_night if ot_m > 0 else 0,
+                "incomplete": False, "window_minutes": window, "missing_minutes": window}
+
     fin = _lin(first_in_min, in_day_offset)
     late = fin > start_min + grace_min
-    # SỐ PHÚT đi trễ (quá dung sai) — nền cho phạt tự động (Đợt 2). > 0 đúng khi `late`.
-    late_minutes = max(0, fin - (start_min + grace_min))
+    # SỐ PHÚT đi trễ (quá dung sai) — nền cho phạt tự động. > 0 đúng khi `late`. Trừ phần rơi vào
+    # nghỉ giữa ca: vào 12:30 sau giờ nghỉ trưa 11:30–12:30 là trễ 4 tiếng LÀM, không phải 5.
+    late_minutes = _doan(start_min + grace_min, fin)
     effective_in = start_min if fin <= start_min + grace_min else fin
 
-    # --- TĂNG CA: phiên chấm riêng ∩ cửa sổ phiếu (độc lập với việc có chấm ra ca chính hay chưa) ---
-    if ot_in_min is None or ot_out_min is None:
-        ot_from = ot_to = 0
-        ot_minutes = ot_minutes_raw = 0
-    else:
+    # --- TĂNG CA: (các) phiên chấm riêng ∩ cửa sổ phiếu (độc lập với việc có chấm ra ca chính hay chưa) ---
+    ot_minutes = ot_minutes_raw = 0
+    ot_night_acc = 0
+    if ot_sessions:
+        for ss in ot_sessions:
+            a = _lin(int(ss[0]), ss[2] if len(ss) > 2 else None)
+            b = _lin(int(ss[1]), ss[3] if len(ss) > 3 else None)
+            ot_minutes_raw += max(0, b - a)            # độ dài phiên thô (đối chiếu duyệt vs thực)
+            if ot_window is None:
+                f, t = a, b
+            else:
+                f, t = max(a, int(ot_window[0])), min(b, int(ot_window[1]))
+            if t > f:
+                ot_minutes += t - f
+                ot_night_acc += _night_ov(f, t)
+    elif ot_in_min is not None and ot_out_min is not None:
         ot_in_lin = _lin(ot_in_min, ot_in_offset)
         ot_out_lin = _lin(ot_out_min, ot_out_offset)
         ot_minutes_raw = max(0, ot_out_lin - ot_in_lin)   # độ dài phiên TC thô (đối chiếu duyệt vs thực)
@@ -197,6 +305,7 @@ def compute_day_cong(
             ot_from = max(ot_in_lin, int(ot_window[0]))
             ot_to = min(ot_out_lin, int(ot_window[1]))
         ot_minutes = max(0, ot_to - ot_from)
+        ot_night_acc = _night_ov(ot_from, ot_to) if ot_minutes > 0 else 0
 
     if main_out_min is None:
         return {"cong": 0.0, "late": late, "early": False, "late_minutes": late_minutes,
@@ -206,25 +315,15 @@ def compute_day_cong(
 
     mout = _lin(main_out_min, main_out_offset)
     early = mout < end_ref
-    early_minutes = max(0, end_ref - mout)     # SỐ PHÚT về sớm ca chính; > 0 đúng khi `early`.
-    worked = min(mout, end_ref) - max(effective_in, start_min)
-    worked = max(0, min(worked, window))
+    early_minutes = _doan(mout, end_ref)     # SỐ PHÚT về sớm ca chính (trừ phần nghỉ giữa ca); > 0 đúng khi `early`.
+    w_start = max(effective_in, start_min)
+    in_end = min(mout, end_ref)
+    worked = max(0, min(_doan(w_start, in_end), window))
     cong = min(1.0, round(worked / window, 2))
     # SỐ PHÚT rơi cửa sổ ĐÊM 22:00–06:00 (nền tính lương ca đêm theo giờ). `night_minutes` = giờ đêm
     # TRONG ca (kẹp trần end_ref → loại phần OT); `ot_night_minutes` = giờ TĂNG CA (sau end_ref) rơi đêm.
-    def _ov(a, b, c, d):  # độ dài giao [a,b] ∩ [c,d]
-        return max(0, min(b, d) - max(a, c))
-
-    def _night_ov(a: int, b: int) -> int:
-        """Phút của [a,b] rơi cửa sổ ĐÊM 22:00–06:00, LẶP theo từng ngày trên trục tuyến tính
-        ([1320,1800] + k×1440). MỘT công thức cho mọi ca — kể cả tăng ca vượt nửa đêm (nhánh
-        'trong ngày' cũ tính hụt phần 00:00–06:00 của hôm sau)."""
-        return sum(_ov(a, b, 1320 + 1440 * k, 1800 + 1440 * k) for k in (-1, 0, 1))
-
-    w_start = max(effective_in, start_min)
-    in_end = min(mout, end_ref)
-    night_minutes = _night_ov(w_start, in_end)
-    ot_night_minutes = _night_ov(ot_from, ot_to) if ot_minutes > 0 else 0
+    night_minutes = _night_lam(w_start, in_end)
+    ot_night_minutes = ot_night_acc if ot_minutes > 0 else 0
     return {"cong": cong, "late": late, "early": early, "late_minutes": late_minutes,
             "early_minutes": early_minutes, "ot_minutes": ot_minutes,
             "ot_minutes_raw": ot_minutes_raw,
@@ -292,6 +391,10 @@ class AttendanceNotFound(AttendanceError):
     """No such work location."""
 
 
+class AttendanceForbidden(AttendanceError):
+    """Có quyền nhưng KHÔNG được làm việc này với đối tượng này (vd tự duyệt yêu cầu của mình)."""
+
+
 class NoLinkedEmployee(AttendanceError):
     """The acting user has no linked employee record — cannot self check-in."""
 
@@ -312,13 +415,9 @@ def _today_vn() -> date:
     return datetime.now(timezone.utc).astimezone(VN_TZ).date()
 
 
-def _in_headcount_on(emp, d: date) -> bool:
-    """NV có trong biên chế ngày d (đã vào làm & chưa nghỉ việc) → đủ điều kiện hưởng công lễ."""
-    if getattr(emp, "hire_date", None) is not None and emp.hire_date > d:
-        return False
-    if getattr(emp, "resign_date", None) is not None and emp.resign_date < d:
-        return False
-    return True
+# `_in_headcount_on` (2 cột hire/resign) đã GỠ 08/09/2026 — biên chế nay hỏi `services/bien_che`
+# qua `AttendanceService._trong_bien_che` (một định nghĩa cho cả 5 phân hệ, đọc cả trạng thái
+# nghỉ dài hạn / đình chỉ / tuyển lại từ `employee_events`).
 
 
 class AttendanceService:
@@ -378,24 +477,90 @@ class AttendanceService:
         previous_day = local.date() - timedelta(days=1)
         previous_shift = self._shift_for_day(employee, previous_day, shifts)
         minute = local.hour * 60 + local.minute
+        hire = getattr(employee, "hire_date", None)
         if (previous_shift is not None and previous_shift.is_overnight
-                and minute <= previous_shift.end_minute):
+                and minute <= previous_shift.end_minute
+                # Ngày biên vào làm (A10, 08/09/2026): lượt rạng sáng NGÀY ĐẦU TIÊN không thể thuộc
+                # ca hôm trước (người đó chưa vào làm) — coi là lượt của hôm nay.
+                and (hire is None or previous_day >= hire)):
             return previous_shift, previous_day
         shift = self._shift_for_day(employee, local.date(), shifts)
-        return shift, work_day_of(local, shift)
+        wd = work_day_of(local, shift)
+        if hire is not None and wd < hire:
+            wd = local.date()                 # cùng lý do A10: ngày công không thể trước ngày vào
+        return shift, wd
 
-    def _checkout_deadline_for(self, employee, in_local: datetime, shifts: dict | None = None):
+    def _checkout_deadline_for(self, employee, in_local: datetime, shifts: dict | None = None,
+                               ot_to_minute: int | None = None):
         """Hạn chót mà một lượt bấm còn được tính là RA của ca mở lúc `in_local`:
-        HẾT CA + `CHECK_OUT_GRACE_HOURS`. Nhờ mốc này, tăng ca vượt nửa đêm vẫn ghép đúng cặp
-        vào-ra (trước đây lượt RA rạng sáng bị ném sang ngày mới ⇒ mất trắng công cả ngày)."""
+        max(HẾT CA, HẾT PHIẾU TĂNG CA đã duyệt) + `CHECK_OUT_GRACE_HOURS`. Nhờ mốc này, tăng ca vượt
+        nửa đêm vẫn ghép đúng cặp vào-ra (trước đây lượt RA rạng sáng bị ném sang ngày mới ⇒ mất
+        trắng công cả ngày).
+
+        Vế PHIẾU thêm 07/09/2026: ca ngày 08–17h có phiếu tới 02:00 thì lượt RA 02:00 vẫn là RA của
+        ca ấy — trước đây hết 01:00 (17h + 8h) đã coi là VÀO ca mới ⇒ cặp tăng ca vỡ, cả GPS lẫn chấm
+        bù. `ot_to_minute`: caller đã biết (Bảng công nạp sẵn cả tháng) thì truyền vào — 0 = không
+        phiếu; None = tự tra phiếu của ngày công đó (một truy vấn, đường tự phục vụ)."""
         shift, wd = self._shift_and_work_day_for_local(employee, in_local, shifts)
         if shift is None:
             return in_local + timedelta(hours=CHECK_OUT_GRACE_HOURS)
+        if ot_to_minute is None:
+            otw = self._ot_window_on(employee, wd)
+            ot_to_minute = otw[1] if otw is not None else 0
         midnight = datetime(wd.year, wd.month, wd.day, tzinfo=VN_TZ)
-        end_at = midnight + timedelta(
-            minutes=shift.end_minute + (1440 if shift.is_overnight else 0)
-        )
+        het_ca = shift.end_minute + (1440 if shift.is_overnight else 0)
+        end_at = midnight + timedelta(minutes=max(het_ca, int(ot_to_minute or 0)))
         return end_at + timedelta(hours=CHECK_OUT_GRACE_HOURS)
+
+    def _gan_ngay_cong(self, emp, logs, shifts: dict | None = None,
+                       ot_theo_ngay: dict | None = None) -> list:
+        """Gán NGÀY CÔNG cho từng lượt bấm của MỘT NV — trả [(local, log, ngày công)] cũ→mới.
+
+        Duyệt TUẦN TỰ theo thời gian và giữ "ca đang mở": lượt RA rơi sau nửa đêm được ghép về NGÀY
+        CÔNG của lượt VÀO đang mở (tăng ca vượt 24:00) khi còn trong hạn (`_checkout_deadline_for`),
+        thay vì rơi sang ngày dương lịch mới — rơi sang ngày mới thì ngày cũ thiếu lượt RA ⇒ treo ⇒
+        MẤT TRẮNG cả công ca chính lẫn tăng ca (bug chủ phát hiện 23/07/2026). Một mối cho cả Bảng
+        công tháng lẫn "ô biết nói" (07/09/2026) — trước đây ô ngày gom theo đồng hồ nên lượt RA
+        02:00 của ca ngày có phiếu TC vắt đêm không hiện ở ngày vào ca.
+
+        `ot_theo_ngay` {(emp_id, ngày) → (từ, đến)}: phiếu TC đã duyệt caller nạp sẵn (Bảng công);
+        None ⇒ tra từng ngày (đường lẻ)."""
+        out = []
+        open_wd = None        # ngày công của ca đang mở (đã VÀO, chưa RA)
+        open_until = None     # hạn chót còn được ghép làm RA của ca đó
+        for lg in sorted(logs, key=lambda x: _as_utc(x.checked_at)):
+            local = _as_utc(lg.checked_at).astimezone(VN_TZ)
+            if lg.check_type == CHECK_OUT and open_wd is not None and local <= open_until:
+                wd = open_wd                       # ghép RA về đúng ca đang mở
+                open_wd = open_until = None
+            else:
+                _, wd = self._shift_and_work_day_for_local(emp, local, shifts)
+                if lg.check_type == CHECK_IN:
+                    open_wd = wd
+                    ot_to = (ot_theo_ngay.get((emp.id, wd), (0, 0))[1]
+                             if ot_theo_ngay is not None else None)
+                    open_until = self._checkout_deadline_for(emp, local, shifts, ot_to_minute=ot_to)
+                else:
+                    open_wd = open_until = None
+            out.append((local, lg, wd))
+        return out
+
+    @staticmethod
+    def _gio_lam(first_in: datetime, last_out: datetime, shift, wd: date) -> float:
+        """Số giờ có mặt (RA cuối − VÀO đầu) TRỪ phần rơi vào NGHỈ GIỮA CA của ca hôm đó — cột "giờ
+        làm" đọc 8h chứ không 9h cho ca 7:30–16:30 nghỉ trưa 1 tiếng (07/09/2026)."""
+        tong = (last_out - first_in).total_seconds() / 60
+        nghi = (_khung_nghi(shift.start_minute, shift.is_overnight,
+                            getattr(shift, "break_start_minute", None),
+                            getattr(shift, "break_end_minute", None))
+                if shift is not None else None)
+        if nghi:
+            nua_dem = datetime(wd.year, wd.month, wd.day, tzinfo=VN_TZ)
+            n0, n1 = nua_dem + timedelta(minutes=nghi[0]), nua_dem + timedelta(minutes=nghi[1])
+            lo, hi = max(first_in, n0), min(last_out, n1)
+            if hi > lo:
+                tong -= (hi - lo).total_seconds() / 60
+        return round(max(0.0, tong) / 60, 2)
 
     # --- work locations (HR) -----------------------------------------------
 
@@ -456,7 +621,8 @@ class AttendanceService:
     # --- work shifts / ca kíp (HR) -----------------------------------------
 
     @staticmethod
-    def _validate_shift(name, start_time, end_time, grace_minutes, is_overnight):
+    def _validate_shift(name, start_time, end_time, grace_minutes, is_overnight,
+                        break_start_time=None, break_end_time=None, gio_chuan_phut=None):
         name = (name or "").strip()
         if not name:
             raise AttendanceValidationError("Tên ca là bắt buộc.")
@@ -467,19 +633,76 @@ class AttendanceService:
         g = int(grace_minutes) if grace_minutes is not None else 0
         if g < 0:
             raise AttendanceValidationError("Dung sai đi muộn không được âm.")
-        return name, start_min, end_min, g
+        end_ref = end_min + (1440 if is_overnight else 0)
+        # NGHỈ GIỮA CA (07/09/2026): cả hai mốc hoặc không mốc nào; phải nằm trọn trong khung ca.
+        bs = be = None
+        nghi_len = 0
+        co_tu = bool((break_start_time or "").strip())
+        co_den = bool((break_end_time or "").strip())
+        if co_tu or co_den:
+            if not (co_tu and co_den):
+                raise AttendanceValidationError(
+                    "Nghỉ giữa ca: nhập đủ giờ bắt đầu và kết thúc, hoặc bỏ trống cả hai."
+                )
+            bs, be = _hhmm_to_min(break_start_time), _hhmm_to_min(break_end_time)
+            khung = _khung_nghi(start_min, is_overnight, bs, be)
+            if khung is None or khung[0] < start_min or khung[1] > end_ref:
+                raise AttendanceValidationError(
+                    "Nghỉ giữa ca phải nằm trọn trong khung ca và kết thúc sau lúc bắt đầu."
+                )
+            if khung[1] - khung[0] >= end_ref - start_min:
+                raise AttendanceValidationError("Nghỉ giữa ca không được dài bằng cả ca.")
+            nghi_len = khung[1] - khung[0]
+        # CA PHẢI KHỚP GIỜ CÔNG CHUẨN (chủ chốt 07/09/2026): "tôi cấu hình 8h/ca thì lúc tạo ca trừ
+        # nghỉ giữa ca phải bằng 8h — không thì sinh ra hệ thống làm gì, nó phải chặt chẽ với nhau".
+        # `gio_chuan_phut` None = luật tắt (Cấu hình lương) hoặc gọi nội bộ/unit test.
+        if gio_chuan_phut:
+            net = end_ref - start_min - nghi_len
+            if net != int(gio_chuan_phut):
+                raise AttendanceValidationError(
+                    f"Ca này làm {_gio_text(net)} (giờ ra − giờ vào − nghỉ giữa ca), khác Giờ công "
+                    f"chuẩn / ngày = {_gio_text(int(gio_chuan_phut))} ở Cấu hình lương. Khai nghỉ giữa "
+                    "ca cho đủ hoặc sửa giờ ca — hai chỗ phải khớp nhau."
+                )
+        return name, start_min, end_min, g, bs, be
+
+    def _gio_chuan_phut(self) -> int | None:
+        """Số PHÚT một ca phải làm theo Cấu hình lương, hoặc None khi luật "ca khớp giờ công chuẩn"
+        tắt / chưa có tham số (service dựng tay trong unit test)."""
+        if self._payroll is None:
+            return None
+        p = self._payroll.get_params()
+        if p is None or not bool(getattr(p, "ca_khop_gio_chuan", True)):
+            return None
+        gio = float(getattr(p, "standard_hours_per_day", 0) or 0)
+        return int(round(gio * 60)) if gio > 0 else None
+
+    def gio_cong_chuan_info(self) -> dict:
+        """Cho màn Khai ca biết mẫu số đang áp: {gio_cong_chuan, ca_khop_gio_chuan}."""
+        if self._payroll is None:
+            return {"gio_cong_chuan": None, "ca_khop_gio_chuan": False}
+        p = self._payroll.get_params()
+        if p is None:
+            return {"gio_cong_chuan": None, "ca_khop_gio_chuan": False}
+        gio = float(getattr(p, "standard_hours_per_day", 0) or 0)
+        return {"gio_cong_chuan": gio if gio > 0 else None,
+                "ca_khop_gio_chuan": bool(getattr(p, "ca_khop_gio_chuan", True))}
 
     def list_shifts(self, *, active_only: bool = False) -> list[WorkShift]:
         return self.attendance.list_shifts(active_only=active_only)
 
     def create_shift(self, *, actor, name, start_time, end_time, is_overnight=False,
                      grace_minutes=5, meal_allowance=25000, shift_allowance=50000,
-                     night_multiplier=1.3, note=None, ca_san_xuat=True) -> WorkShift:
+                     night_multiplier=1.3, note=None, ca_san_xuat=True,
+                     break_start_time=None, break_end_time=None) -> WorkShift:
         is_overnight = bool(is_overnight)
-        name, sm, em, g = self._validate_shift(name, start_time, end_time, grace_minutes, is_overnight)
+        name, sm, em, g, bs, be = self._validate_shift(
+            name, start_time, end_time, grace_minutes, is_overnight, break_start_time, break_end_time,
+            gio_chuan_phut=self._gio_chuan_phut())
         s = self.attendance.create_shift(
             name=name, start_minute=sm, end_minute=em, is_overnight=is_overnight,
             grace_minutes=g, meal_allowance=meal_allowance, shift_allowance=shift_allowance,
+            break_start_minute=bs, break_end_minute=be,
             night_multiplier=max(1.0, float(night_multiplier or 1.0)),
             note=_clean(note), is_active=True, ca_san_xuat=bool(ca_san_xuat),
         )
@@ -490,15 +713,18 @@ class AttendanceService:
     def update_shift(self, *, actor, shift_id, name, start_time, end_time, is_overnight=False,
                      grace_minutes=5, meal_allowance=25000, shift_allowance=50000,
                      night_multiplier=1.3, note=None, is_active=True,
-                     ca_san_xuat=True) -> WorkShift:
+                     ca_san_xuat=True, break_start_time=None, break_end_time=None) -> WorkShift:
         s = self.attendance.get_shift(shift_id)
         if s is None:
             raise AttendanceNotFound("Không tìm thấy ca làm việc.")
         is_overnight = bool(is_overnight)
-        name, sm, em, g = self._validate_shift(name, start_time, end_time, grace_minutes, is_overnight)
+        name, sm, em, g, bs, be = self._validate_shift(
+            name, start_time, end_time, grace_minutes, is_overnight, break_start_time, break_end_time,
+            gio_chuan_phut=self._gio_chuan_phut())
         self.attendance.update_shift(
             s, name=name, start_minute=sm, end_minute=em, is_overnight=is_overnight,
             grace_minutes=g, meal_allowance=meal_allowance, shift_allowance=shift_allowance,
+            break_start_minute=bs, break_end_minute=be,
             night_multiplier=max(1.0, float(night_multiplier or 1.0)),
             note=_clean(note), is_active=bool(is_active), ca_san_xuat=bool(ca_san_xuat),
         )
@@ -526,9 +752,35 @@ class AttendanceService:
             raise NoLinkedEmployee("Tài khoản của bạn chưa gắn hồ sơ nhân viên.")
         return emp
 
+    # --- biên chế: một định nghĩa dùng chung (services/bien_che, 08/09/2026) ---------------
+
+    def _su_kien(self, emp) -> list:
+        cache = self.__dict__.setdefault("_su_kien_cache", {})
+        if emp.id not in cache:
+            cache[emp.id] = self.employees.list_events(emp.id)
+        return cache[emp.id]
+
+    def _nap_su_kien(self, employee_ids) -> None:
+        """Nạp sự kiện của cả danh sách trong MỘT truy vấn trước khi dựng bảng/lưới."""
+        cache = self.__dict__.setdefault("_su_kien_cache", {})
+        thieu = [i for i in employee_ids if i not in cache]
+        if thieu:
+            cache.update(self.employees.events_map(thieu))
+
+    def _trong_bien_che(self, emp, d: date) -> bool:
+        return trong_bien_che(emp, self._su_kien(emp), d)
+
+    def _ly_do_ngoai_bien_che(self, emp, d: date) -> str | None:
+        return ly_do_ngoai_bien_che(emp, self._su_kien(emp), d)
+
     def _shift_for_check(self, employee, now_local: datetime):
         """Ca có hiệu lực tại thời điểm chấm; không có ca thì tuyệt đối không ghi log."""
         shift, work_day = self._shift_and_work_day_for_local(employee, now_local)
+        # Ngoài biên chế (chưa vào, đã nghỉ, nghỉ dài hạn, đình chỉ) thì không có gì để ghi — báo
+        # đúng lý do thay vì "chưa gán ca" (bản rà liên thông A4, 08/09/2026).
+        ly_do = self._ly_do_ngoai_bien_che(employee, work_day)
+        if ly_do:
+            raise AttendanceValidationError(ly_do)
         if shift is None:
             raise AttendanceValidationError(
                 "Bạn chưa được gán ca làm việc có hiệu lực hôm nay. Liên hệ HCNS để được gán ca."
@@ -566,6 +818,19 @@ class AttendanceService:
             return CHECK_IN
         return CHECK_OUT if now_local <= self._checkout_deadline_for(emp, last_local) else CHECK_IN
 
+    @staticmethod
+    def _phien_chi_tang_ca(shift, sessions, otw, wd: date) -> bool:
+        """Ngày chỉ có phiên TĂNG CA (không có ca chính): có phiếu TC, và phiên đầu bắt đầu SAU giờ ra
+        ca chính (D5, 08/09/2026). Thợ được gọi vào tối CN/lễ/ngày nghỉ phép thì cặp bấm đó là tăng ca,
+        không phải "ca chính vào trễ 8 tiếng"."""
+        if not sessions or otw is None or shift is None:
+            return False
+        a = sessions[0][0]
+        midnight = datetime(wd.year, wd.month, wd.day, tzinfo=VN_TZ)
+        a_min = (a - midnight).total_seconds() / 60
+        end_ref = int(shift.end_minute) + (1440 if shift.is_overnight else 0)
+        return a_min >= end_ref
+
     def _ot_window_on(self, emp, work_day: date) -> tuple[int, int] | None:
         """Cửa sổ (from_minute, to_minute) của phiếu TĂNG CA đã DUYỆT của NV cho ngày công `work_day`,
         hoặc None. Dùng để (a) cho phép chấm VÀO tăng ca sau khi ra ca chính, (b) hiện nhãn nút."""
@@ -601,6 +866,18 @@ class AttendanceService:
         ot_mode = False
         if action == CHECK_IN:
             reason = check_in_block_reason(shift=shift, work_day=work_day, now_local=now_local)
+            if reason is not None and ins_today == 0 and outs_today == 0:
+                # Chưa bấm lượt nào hôm nay mà đã qua giờ ca chính: nếu có phiếu TC duyệt phủ giờ này thì
+                # đây là VÀO TĂNG CA (D5, 08/09/2026 — CN/lễ/nghỉ được gọi vào tối). Trước đó chỉ mở khi đã
+                # RA ca chính, nên ngày chỉ có tăng ca không có đường nào ra phút.
+                ot_win0 = self._ot_window_on(emp, work_day)
+                midnight0 = datetime(work_day.year, work_day.month, work_day.day, tzinfo=VN_TZ)
+                now_min0 = round((now_local - midnight0).total_seconds() / 60)
+                end_ref0 = int(shift.end_minute) + (1440 if shift.is_overnight else 0)
+                if (ot_win0 is not None and now_min0 >= end_ref0
+                        and ot_win0[0] - CHECK_IN_EARLY_MINUTES <= now_min0 <= ot_win0[1] + CHECK_OUT_GRACE_HOURS * 60):
+                    reason = None
+                    ot_mode = True
             if outs_today >= 1:      # đã ra ca chính → lượt VÀO này là VÀO TĂNG CA
                 ot_mode = True
                 if reason is not None:   # sau tan ca: chỉ mở nếu có phiếu duyệt phủ giờ này
@@ -636,9 +913,10 @@ class AttendanceService:
         first_in = ins[0] if ins else entries[0][0]
         last_out = outs[-1] if outs else None
         sessions = pair_sessions(entries)
-        main_out = sessions[0][1] if sessions else None
-        ot_in, ot_out = ((sessions[1][0], sessions[-1][1])
-                         if len(sessions) >= 2 else (None, None))
+        otw_hom_nay = self._ot_window_on(emp, today)
+        chi_tc = self._phien_chi_tang_ca(shift, sessions, otw_hom_nay, today)
+        phien_tc = sessions if chi_tc else sessions[1:]
+        main_out = None if chi_tc else (sessions[0][1] if sessions else None)
         out = {"first_in": first_in.strftime("%H:%M"),
                "last_out": last_out.strftime("%H:%M") if last_out else None,
                "cong": None, "late": False, "early": False, "ot_minutes": 0, "reason": None}
@@ -652,11 +930,13 @@ class AttendanceService:
             main_out_min=(main_out.hour * 60 + main_out.minute) if main_out else None,
             in_day_offset=(first_in.date() - today).days,
             main_out_offset=((main_out.date() - today).days if main_out else None),
-            ot_in_min=(ot_in.hour * 60 + ot_in.minute) if ot_in else None,
-            ot_out_min=(ot_out.hour * 60 + ot_out.minute) if ot_out else None,
-            ot_in_offset=((ot_in.date() - today).days if ot_in else None),
-            ot_out_offset=((ot_out.date() - today).days if ot_out else None),
-            ot_window=self._ot_window_on(emp, today),
+            ot_sessions=[(a.hour * 60 + a.minute, b.hour * 60 + b.minute,
+                          (a.date() - today).days, (b.date() - today).days)
+                         for a, b in phien_tc] or None,
+            ot_window=otw_hom_nay,
+            main_absent=chi_tc,
+            break_start_min=getattr(shift, "break_start_minute", None),
+            break_end_min=getattr(shift, "break_end_minute", None),
         )
         out.update(cong=info["cong"], late=info["late"], early=info["early"], ot_minutes=info["ot_minutes"])
         if info["incomplete"]:
@@ -682,7 +962,11 @@ class AttendanceService:
         shift, work_day = self._shift_and_work_day_for_local(emp, now_local)
         if shift is not None and not shift.is_active:
             shift = None
-        if shift is None:
+        ly_do_bc = self._ly_do_ngoai_bien_che(emp, work_day)
+        if ly_do_bc:
+            # Nghỉ dài hạn / đình chỉ / đã nghỉ: thẻ chấm công nói thẳng lý do (A4, 08/09/2026).
+            next_action, block_reason, ot_mode = None, ly_do_bc, False
+        elif shift is None:
             next_action = None
             block_reason = "Bạn chưa được gán ca làm việc có hiệu lực hôm nay. Liên hệ HCNS để được gán ca."
             ot_mode = False
@@ -952,12 +1236,11 @@ class AttendanceService:
         đơn phép". Hệ quả: người CẢ THÁNG không chấm buổi nào biến mất khỏi Bảng công — HCNS không
         soi ra được ai vắng cả tháng, NV quên chấm thì không còn ô ngày nào để bấm xin chỉnh công,
         và họ mất luôn công lễ. Người chưa chấm công buổi nào chính là người cần nhìn thấy nhất."""
-        last = date(year, month, calendar.monthrange(year, month)[1])
-        first = date(year, month, 1)
-        rows = [
-            e for e in self.employees.list_scoped_all(scope=scope or SCOPE_ALL, actor=actor)
-            if _in_headcount_on(e, last) or _in_headcount_on(e, first)
-        ]
+        ung_vien = self.employees.list_scoped_all(scope=scope or SCOPE_ALL, actor=actor)
+        self._nap_su_kien([e.id for e in ung_vien])
+        # Còn biên chế ÍT NHẤT MỘT NGÀY trong tháng (trước: chỉ nhìn ngày đầu/cuối bằng 2 cột —
+        # người nghỉ dài hạn, tuyển lại, đình chỉ vẫn lên bảng; người vào-rồi-nghỉ giữa tháng thì rớt).
+        rows = [e for e in ung_vien if trong_bien_che_thang(e, self._su_kien(e), year, month)]
         if department_id is not None:
             rows = [e for e in rows if e.department_id == department_id]
         return sorted(rows, key=lambda e: (e.code or "", e.id))
@@ -1045,41 +1328,35 @@ class AttendanceService:
         # ghép về NGÀY CÔNG của lượt VÀO đang mở (tăng ca vượt 24:00), thay vì rơi sang ngày dương
         # lịch mới — rơi sang ngày mới thì ngày cũ thiếu lượt RA ⇒ treo ⇒ MẤT TRẮNG cả công ca chính
         # lẫn tăng ca (bug chủ phát hiện 23/07/2026).
-        punches_by_emp: dict[int, list] = {}
+        # Phiếu TĂNG CA đã duyệt quanh tháng (±2 ngày để ôm ca/phiếu vắt tháng): {(emp, ngày) → (từ, đến)}.
+        # Nạp TRƯỚC vòng ghép lượt bấm vì hạn ghép RA phải biết phiếu kéo tới mấy giờ (07/09/2026).
+        ot_theo_ngay: dict[tuple[int, date], tuple[int, int]] = {}
+        if self.overtime is not None:
+            for t in self.overtime.approved_in_range(
+                    date(year, month, 1) - timedelta(days=2),
+                    date(year, month, days_in_month) + timedelta(days=2)):
+                ot_theo_ngay[(t.employee_id, t.work_date)] = (int(t.from_minute), int(t.to_minute))
+
+        logs_by_emp: dict[int, list] = {}
         for lg in logs:
             if allowed is not None and lg.employee_id not in allowed:
                 continue
-            punches_by_emp.setdefault(lg.employee_id, []).append(
-                # Cờ thứ 3 = lượt này do HCNS CHẤM BÙ hay thợ tự bấm. Cần cho luật kẹp giờ ra theo
-                # phiếu về sớm: chấm bù là hành động có chủ ý, có lý do, có tên người sửa ⇒ THẮNG
-                # phiếu. Thợ quên bấm thì không.
-                (_as_utc(lg.checked_at).astimezone(VN_TZ), lg.check_type, bool(lg.is_manual))
-            )
+            logs_by_emp.setdefault(lg.employee_id, []).append(lg)
 
         by_emp: dict[int, dict[int, list]] = {}
-        # {emp → {ngày → set(thời điểm lượt RA do HCNS chấm bù)}} — tra lại ở vòng lặp ngày.
+        # {emp → {ngày → set(thời điểm lượt RA do HCNS chấm bù)}} — tra lại ở vòng lặp ngày. Cần cho
+        # luật kẹp giờ ra theo phiếu về sớm: chấm bù là hành động có chủ ý, có lý do, có tên người sửa
+        # ⇒ THẮNG phiếu. Thợ quên bấm thì không.
         ra_cham_bu: dict[int, dict[int, set]] = {}
-        for emp_id, punches in punches_by_emp.items():
+        for emp_id, logs_emp in logs_by_emp.items():
             emp0 = self.employees.get_by_id(emp_id)
             if emp0 is None:
                 continue
-            open_wd = None        # ngày công của ca đang mở (đã VÀO, chưa RA)
-            open_until = None     # hạn chót còn được ghép làm RA của ca đó
-            for local, ctype, la_cham_bu in sorted(punches, key=lambda x: x[0]):
-                if ctype == CHECK_OUT and open_wd is not None and local <= open_until:
-                    wd = open_wd                       # ghép RA về đúng ca đang mở
-                    open_wd = open_until = None
-                else:
-                    _, wd = self._shift_and_work_day_for_local(emp0, local, shifts)
-                    if ctype == CHECK_IN:
-                        open_wd = wd
-                        open_until = self._checkout_deadline_for(emp0, local, shifts)
-                    else:
-                        open_wd = open_until = None
+            for local, lg, wd in self._gan_ngay_cong(emp0, logs_emp, shifts, ot_theo_ngay):
                 if wd.year != year or wd.month != month:
                     continue  # lượt thuộc tháng khác (vd RA rạng sáng ngày 1 → thuộc tháng trước)
-                by_emp.setdefault(emp_id, {}).setdefault(wd.day, []).append((local, ctype))
-                if ctype == CHECK_OUT and la_cham_bu:
+                by_emp.setdefault(emp_id, {}).setdefault(wd.day, []).append((local, lg.check_type))
+                if lg.check_type == CHECK_OUT and bool(lg.is_manual):
                     ra_cham_bu.setdefault(emp_id, {}).setdefault(wd.day, set()).add(local)
 
         # Ngày NGHỈ NGUYÊN NGÀY đã duyệt: {emp_id → {day → {name, is_paid}}}.
@@ -1127,12 +1404,9 @@ class AttendanceService:
         # GIẤY PHÉP + MỨC TRẦN: phần giờ vượt ca NẰM NGOÀI phiếu không ra tiền; KHÔNG có phiếu ⇒ cửa
         # sổ rỗng (0,0) ⇒ tăng ca = 0 đ. CÔNG CA CHÍNH không bị ảnh hưởng (chốt với chủ 23/07/2026).
         ot_map: dict[int, dict[int, tuple[int, int]]] = {}
-        if self.overtime is not None:
-            for t in self.overtime.approved_in_range(date(year, month, 1),
-                                                     date(year, month, days_in_month)):
-                ot_map.setdefault(t.employee_id, {})[t.work_date.day] = (
-                    int(t.from_minute), int(t.to_minute)
-                )
+        for (eid_k, wd_k), win in ot_theo_ngay.items():
+            if wd_k.year == year and wd_k.month == month:
+                ot_map.setdefault(eid_k, {})[wd_k.day] = win
 
         # Ngày nghỉ lễ HƯỞNG LƯƠNG trong tháng (từ Lịch chung) → cộng 1 công cho NV trong biên chế
         # (giống ngày nghỉ phép có lương — PP-B: mẫu số Lương giữ 26, tử số phải gồm công lễ).
@@ -1145,11 +1419,13 @@ class AttendanceService:
                 paid_holidays[s.day.day] = s.name
                 holidays_info.append({"day": s.day.day, "date": s.day.isoformat(), "name": s.name})
             plain_days = {s.day.day for s in self._work_calendar.plain_days_in_month(year, month)}
-            standard_cong = self._work_calendar.standard_working_days(year, month)
+            standard_cong = self._work_calendar.standard_cong_luong(year, month)
 
         def _empty_cell() -> dict:
             return {"first_in": None, "last_out": None, "hours": None, "present": False,
                     "cong": None, "late": False, "early": False, "ot_minutes": 0, "night": False,
+                    # Có phiếu TC đã duyệt (ngày đã qua) mà không có cặp bấm tăng ca — 07/09/2026.
+                    "ot_thieu_cap": False,
                     "leave": None, "leave_paid": False, "holiday": False,
                     # Ô NGÀY tự nói LOẠI NGÀY của nó (18/08/2026). Trước đây chỉ có `holiday`, nên
                     # ngày nghỉ tuần / ngày `off1x` CÓ đi làm hiện y hệt ngày thường ("Công: 1") —
@@ -1196,7 +1472,7 @@ class AttendanceService:
             # is_paid của đơn nền ở nhánh dưới (nghỉ không lương phủ lễ → 0 công, đúng luật).
             emp_holidays = {d for d in paid_holidays
                             if d not in att_days
-                            and _in_headcount_on(emp, date(year, month, d))}
+                            and self._trong_bien_che(emp, date(year, month, d))}
             day_map: dict[str, dict] = {}
             total_hours = 0.0
             total_days = 0
@@ -1216,6 +1492,9 @@ class AttendanceService:
             # vào `paid_leave_days` để Lương trả theo lương vị trí như ngày phép nguyên ngày.
             paid_leave_cong = 0.0
             hanging = 0
+            # Phiếu TC đã duyệt (ngày đã qua) mà KHÔNG có cặp bấm tăng ca ⇒ tiền TC = 0 nếu cứ chốt.
+            # Chỉ CẢNH BÁO trước chốt (chủ chốt 07/09/2026, giữ 4 lượt bấm), không chặn.
+            ot_thieu_cap: list[dict] = []
             used_shift_ids: set[int] = set()
             late_off_days: list[int] = []   # số PHÚT vi phạm (trễ+sớm) mỗi ngày KHÔNG phép — nền phạt tự động
             # Phút tăng ca TỪNG NGÀY, tách theo LOẠI NGÀY — nền tính SUẤT CƠM TĂNG CA ở Lương.
@@ -1244,6 +1523,8 @@ class AttendanceService:
                 the_d = date(year, month, dd)
                 if the_d < today or (emp_id, the_d) in shift_day_map:
                     continue
+                if not self._trong_bien_che(emp, the_d):
+                    continue                                       # ngoài biên chế: không xem trước ca (A9)
                 if (self._work_calendar is not None
                         and not self._work_calendar.is_working_day(the_d)):
                     continue                                       # Chủ nhật: nghỉ mặc định
@@ -1255,10 +1536,14 @@ class AttendanceService:
                     xem_truoc.add(dd)
             # Ngày CHỈ có đơn giờ (không chấm công) vẫn hiện ô để HCNS thấy — nó rơi vào nhánh
             # "không phép" bên dưới ⇒ KHÔNG công, KHÔNG tiền (đúng: xin nghỉ 2h mà vắng cả ngày).
+            # Ngày có PHIẾU TC đã duyệt (đã qua) cũng phải có ô — để cảnh báo "phiếu mà không bấm".
+            phieu_tc_ngay = ot_map.get(emp_id, {})
+            ngay_phieu_qua = {dd for dd in phieu_tc_ngay if date(year, month, dd) < today}
             for d in sorted(set(att_days) | set(lv_days) | emp_holidays | planned_off
-                            | scheduled | xem_truoc | set(hl_days)):
+                            | scheduled | xem_truoc | set(hl_days) | ngay_phieu_qua):
                 cell = _empty_cell()
                 main_out_min_kep = None
+                phieu_tc = phieu_tc_ngay.get(d)
                 shift = self._shift_for_day(emp, date(year, month, d), shifts)
                 if shift is not None:
                     cell.update(shift_id=shift.id, shift_name=shift.name)
@@ -1280,12 +1565,19 @@ class AttendanceService:
                     # Ghép PHIÊN: phiên 0 = ca chính (tính công theo giờ RA thực tế của nó); phiên 1.. =
                     # tăng ca (chấm riêng sau khi ra ca chính). Khe giữa 2 phiên (nghỉ giữa ca) không tính.
                     sessions = pair_sessions(entries)
-                    main_out = sessions[0][1] if sessions else None
-                    ot_in, ot_out = ((sessions[1][0], sessions[-1][1])
-                                     if len(sessions) >= 2 else (None, None))
+                    chi_tc = self._phien_chi_tang_ca(shift, sessions, phieu_tc, date(year, month, d))
+                    phien_tc = sessions if chi_tc else sessions[1:]
+                    main_out = None if chi_tc else (sessions[0][1] if sessions else None)
+                    # Phiếu TC đã duyệt mà chưa có PHIÊN tăng ca (ngày đã qua) ⇒ cảnh báo trước chốt (1.3).
+                    if phieu_tc is not None and d in ngay_phieu_qua and len(phien_tc) < 1:
+                        cell["ot_thieu_cap"] = True
+                        ot_thieu_cap.append({
+                            "day": d, "from_minute": phieu_tc[0], "to_minute": phieu_tc[1],
+                            "ly_do": ("thiếu bấm RA ca chính (ngày treo)" if not sessions
+                                      else "thiếu cặp bấm tăng ca")})
                     hours = None
                     if last_out is not None and last_out > first_in:
-                        hours = round((last_out - first_in).total_seconds() / 3600, 2)
+                        hours = self._gio_lam(first_in, last_out, shift, date(year, month, d))
                         total_hours += hours
                     total_days += 1
                     if main_out is None:
@@ -1332,20 +1624,26 @@ class AttendanceService:
                             # → tăng ca / ca chính vượt nửa đêm tính đúng, không suy đoán theo đồng hồ.
                             in_day_offset=(first_in.date() - wd_date).days,
                             main_out_offset=mo_offset,
-                            # Phiên TĂNG CA (cặp chấm riêng) — thiếu cặp ⇒ None ⇒ TC = 0 (bắt buộc 2 cặp).
-                            ot_in_min=(ot_in.hour * 60 + ot_in.minute) if ot_in else None,
-                            ot_out_min=(ot_out.hour * 60 + ot_out.minute) if ot_out else None,
-                            ot_in_offset=((ot_in.date() - wd_date).days if ot_in else None),
-                            ot_out_offset=((ot_out.date() - wd_date).days if ot_out else None),
+                            # Các PHIÊN TĂNG CA (cặp chấm riêng; TỪNG phiên ∩ phiếu — khe giữa các phiên
+                            # KHÔNG trả, 07/09/2026). Thiếu cặp ⇒ None ⇒ TC = 0 (bắt buộc 2 cặp).
+                            ot_sessions=[(a.hour * 60 + a.minute, b.hour * 60 + b.minute,
+                                          (a.date() - wd_date).days, (b.date() - wd_date).days)
+                                         for a, b in phien_tc] or None,
                             # Phiếu tăng ca đã duyệt = TRẦN tiền TC; không có phiếu ⇒ (0,0) = 0 đ.
                             ot_window=(ot_map.get(emp.id, {}).get(d, (0, 0))
                                        if self.overtime is not None else None),
+                            main_absent=chi_tc,
+                            # Nghỉ giữa ca: phút rơi vào đó không là làm, không là trễ/sớm (07/09/2026).
+                            break_start_min=getattr(shift, "break_start_minute", None),
+                            break_end_min=getattr(shift, "break_end_minute", None),
                         )
                         cell.update(cong=info["cong"], late=info["late"], early=info["early"],
                                     ot_minutes=info["ot_minutes"], night=False)
                         total_cong += info["cong"]
                         total_ot += info["ot_minutes"]
-                        # night_days để dormant = 0 (đã gỡ cờ ca đêm; phụ cấp ca khai tay ở Lương).
+                        # Cờ `night` trên ô lịch KHÔNG dùng nữa (phụ cấp ca khai trên từng ca ⇒ Lương
+                        # tự cộng theo `ca_lam`); `night_days` bên dưới chỉ đếm ngày ca qua đêm có
+                        # giờ đêm để phơi — tiền giờ đêm đi qua `night_premium_minutes`.
                         # Đ98: phân loại công/OT theo LOẠI NGÀY (làm việc ngày lễ/nghỉ tuần → premium).
                         is_restday = (self._work_calendar is not None
                                       and not self._work_calendar.is_working_day(date(year, month, d)))
@@ -1363,6 +1661,12 @@ class AttendanceService:
                             holiday_cong += info["cong"]
                             ot_holiday += info["ot_minutes"]
                             cell["holiday"] = True
+                            # Ngày lễ HƯỞNG LƯƠNG có đi làm (chủ chốt 07/09/2026, bản rà liên thông D3):
+                            # công lễ 1,0 (Đ112) GIỮ NGUYÊN dù làm nửa ngày hay chỉ vào tối; giờ thực
+                            # (`holiday_cong`) chỉ là NỀN cho hệ số lễ 300%. Trước đó làm nửa ngày lễ
+                            # là mất nửa tiền lễ.
+                            total_cong += max(0.0, 1.0 - float(info["cong"]))
+                            cell["cong_le"] = 1.0
                         elif is_restday:
                             restday_cong += info["cong"]
                             ot_restday += info["ot_minutes"]
@@ -1427,7 +1731,12 @@ class AttendanceService:
                     # Ngày CHỈ mang dấu 'nghỉ theo lịch' HOẶC ngày đã XẾP CA nhưng chưa tới (tương
                     # lai): giữ ô để bảng công hiện ca / "nghỉ theo lịch" thay vì để trống giống
                     # vắng. Không công, không tiền — `cell.cong` vẫn None.
-                    pass
+                    if phieu_tc is not None and d in ngay_phieu_qua:
+                        # Có phiếu TC đã duyệt mà cả ngày không bấm lượt nào — vẫn phải nói ra.
+                        cell["ot_thieu_cap"] = True
+                        ot_thieu_cap.append({
+                            "day": d, "from_minute": phieu_tc[0], "to_minute": phieu_tc[1],
+                            "ly_do": "không có lượt bấm nào trong ngày"})
                 elif (self._work_calendar is not None
                       and not self._work_calendar.is_working_day(date(year, month, d))):
                     continue  # ngày nghỉ tuần (CN) trong đơn phép → không tiêu phép, không cộng công
@@ -1475,11 +1784,19 @@ class AttendanceService:
                 "excused_cong": round(excused_cong, 2),
                 "ot_holiday_minutes": ot_holiday, "ot_restday_minutes": ot_restday,
                 "hanging_days": hanging,
+                # [{day, from_minute, to_minute, ly_do}] phiếu TC đã duyệt mà thiếu cặp bấm — cảnh báo chốt.
+                "ot_thieu_cap": ot_thieu_cap,
                 "late_off_days": late_off_days,   # [số phút vi phạm mỗi ngày không phép] → payroll áp bảng phạt
                 # {ngày → phút tăng ca}, tách ngày làm việc / ngày nghỉ → Lương tính suất cơm tăng ca.
                 "ot_days": {"lam": ot_days_lam, "nghi": ot_days_nghi},
                 # {ca → [công của từng ngày làm ca đó]} → Lương tính phụ cấp cơm / phụ cấp ca
                 "ca_lam": ca_lam,
+                # Mức cơm ca / phụ cấp ca của từng ca TẠI THỜI ĐIỂM này — chốt công sẽ đóng băng kèm
+                # `ca_lam` (bản rà liên thông B6, 08/09/2026): sửa mức ở Khai ca sau đó không hồi tố
+                # vào kỳ đã chốt công. Kỳ chưa chốt vẫn đọc mức sống (đúng ý "khai xong Tính lại").
+                "ca_muc": {int(sid): {"meal": float(getattr(shifts.get(sid), "meal_allowance", 0) or 0),
+                                      "shift": float(getattr(shifts.get(sid), "shift_allowance", 0) or 0)}
+                           for sid in used_shift_ids if shifts.get(sid) is not None},
                 "night_premium_minutes": round(night_premium_minutes, 2),   # Σ phút đêm × (hệ số−1) → premium giờ đêm
                 "ot_night_normal_minutes": ot_night_normal,
                 "ot_night_restday_minutes": ot_night_restday,
@@ -1516,7 +1833,12 @@ class AttendanceService:
         first, lastd = date(year, month, 1), date(year, month, last)
         pending_leaves = 0
         if self.leaves is not None:
-            pending_leaves = len(self.leaves.list_overlapping(first, lastd, (LEAVE_PENDING,)))
+            # Đơn treo của người đã NGOÀI biên chế (nghỉ việc / nghỉ dài hạn / đình chỉ) không chặn
+            # chốt — duyệt cũng không được nữa (bản rà liên thông C2, 08/09/2026); HCNS từ chối sau.
+            for r in self.leaves.list_overlapping(first, lastd, (LEAVE_PENDING,)):
+                emp = self.employees.get_by_id(r.employee_id)
+                if emp is None or self._trong_bien_che(emp, max(r.start_date, first)):
+                    pending_leaves += 1
         # Phiếu đi muộn/về sớm treo cũng phải chặn: duyệt SAU khi chốt thì snapshot không nhận
         # nữa ⇒ NLĐ vẫn ăn phạt + mất chuyên cần dù đã xin phép. Đếm RIÊNG (không gộp vào
         # `pending_leaves`) để thông điệp gọi đúng tên loại phiếu — gộp là bắt HCNS đi mò.
@@ -1542,6 +1864,16 @@ class AttendanceService:
         blockers = self._pending_blockers(year, month)
         ts = self.monthly_timesheet(year=year, month=month)
         hanging = sum(r.get("hanging_days", 0) for r in ts["rows"])
+        # Phiếu TC đã duyệt (ngày đã qua) mà không có cặp bấm — CẢNH BÁO, không chặn (1.3, 07/09/2026):
+        # chốt là đóng băng 0 phút tăng ca cho những phiếu này mà không ai hay.
+        thieu_cap = []
+        for r in ts["rows"]:
+            for x in r.get("ot_thieu_cap") or []:
+                thieu_cap.append({
+                    "employee_id": r["employee_id"], "employee_name": r["employee_name"],
+                    "date": date(year, month, int(x["day"])).isoformat(),
+                    "from_time": min_to_hhmm(int(x["from_minute"]) % 1440),
+                    "to_time": min_to_hhmm(int(x["to_minute"]) % 1440), "ly_do": x["ly_do"]})
         payroll_locked = False
         if self._payroll is not None:
             pp = self._payroll.get_period_by_ym(year, month)
@@ -1560,11 +1892,14 @@ class AttendanceService:
             # chặn (chặn thợ bấm giờ là họ đứng ở cổng bấm mãi không xong, nhất là ca đêm qua nửa
             # đêm), nên phải ĐÁNH DẤU: ảnh chụp không có mấy lượt này, Bảng lương cũng không.
             "phat_sinh_sau_chot": self._dem_phat_sinh_sau_chot(p, year, month),
+            "doi_ca_nen_sau_chot": self.so_doi_ca_nen_sau_chot(year, month),
             "pending_leaves": blockers["pending_leaves"],
             "pending_late_early": blockers["pending_late_early"],
             "pending_overtime": blockers["pending_overtime"],
             "pending_adjusts": blockers["pending_adjusts"],
             "payroll_locked": payroll_locked,
+            "ot_thieu_cap": len(thieu_cap),
+            "ot_thieu_cap_list": thieu_cap[:200],
         }
 
     def lock_period(self, *, year: int, month: int, actor) -> dict:
@@ -1621,14 +1956,15 @@ class AttendanceService:
                 ot_night_restday_minutes=r.get("ot_night_restday_minutes", 0),
                 ot_night_holiday_minutes=r.get("ot_night_holiday_minutes", 0),
                 late_off_days_json=json.dumps(r.get("late_off_days") or []),
-                ca_lam_json=json.dumps(r.get("ca_lam") or {}),
+                # {"ca": {ca → [công/ngày]}, "muc": {ca → {meal, shift}}} — mức đóng băng cùng công (B6).
+                ca_lam_json=json.dumps({"ca": r.get("ca_lam") or {}, "muc": r.get("ca_muc") or {}}),
                 ot_days_json=json.dumps(r.get("ot_days") or {"lam": {}, "nghi": {}}),
             )
         # CÔNG CHUẨN vào ảnh chụp cùng lúc với công từng người (15/08/2026). Đọc TRỰC TIẾP từ
         # lịch, KHÔNG gọi `self.standard_working_days` — hàm đó nay ưu tiên số đóng băng, mà lúc
         # này kỳ chưa chuyển sang locked nên nó vẫn trả số sống; gọi vòng chỉ thêm chỗ để sai sau
         # này nếu ai đó đổi thứ tự hai lệnh dưới đây.
-        std = (self._work_calendar.standard_working_days(year, month)
+        std = (self._work_calendar.standard_cong_luong(year, month)
                if self._work_calendar is not None else None)
         self.attendance.update_period(
             p, status=APERIOD_LOCKED, locked_at=datetime.now(timezone.utc),
@@ -1672,14 +2008,41 @@ class AttendanceService:
             return 0
         # Cùng biên ±12h với `monthly_timesheet`: lượt RA rạng sáng ngày 1 tháng sau vẫn thuộc ca
         # VÀO của ngày cuối tháng này. Lệch biên là đếm sót đúng ca đêm — chỗ hay phát sinh nhất.
+        # Nhưng KHÔNG đếm thô cả cửa sổ (bản rà liên thông B7/D6, 08/09/2026): lượt VÀO sáng ngày 1
+        # tháng sau cũng rơi vào cửa sổ +12h ⇒ cả xưởng bấm vào sáng mùng 1 là chốt lương tháng
+        # trước bị chặn oan. Gán NGÀY CÔNG cho từng lượt rồi chỉ đếm lượt thuộc tháng này.
         start_vn = datetime(year, month, 1, tzinfo=VN_TZ)
         end_vn = (datetime(year + 1, 1, 1, tzinfo=VN_TZ) if month == 12
                   else datetime(year, month + 1, 1, tzinfo=VN_TZ))
-        return self.attendance.count_logs_created_after(
+        logs = self.attendance.list_logs_created_after(
             (start_vn - timedelta(hours=12)).astimezone(timezone.utc),
             (end_vn + timedelta(hours=12)).astimezone(timezone.utc),
             _as_utc(p.locked_at),
         )
+        if not logs:
+            return 0
+        emp_cache: dict[int, object] = {}
+        dem = 0
+        for lg in logs:
+            emp = emp_cache.get(lg.employee_id)
+            if emp is None:
+                emp = emp_cache[lg.employee_id] = self.employees.get_by_id(lg.employee_id)
+            if emp is None:
+                continue
+            local = _as_utc(lg.checked_at).astimezone(VN_TZ)
+            _, wd = self._shift_and_work_day_for_local(emp, local)
+            if wd.year == year and wd.month == month:
+                dem += 1
+        return dem
+
+    def so_doi_ca_nen_sau_chot(self, year: int, month: int) -> int:
+        """Số lần đổi ca nền / ô lưới có hiệu lực ≤ cuối tháng, ghi SAU lúc chốt kỳ công (B8). 0 nếu
+        chưa chốt. Ảnh chụp tính theo ca cũ ⇒ Lương phải chặn chốt (L8) như lượt bấm sau chốt."""
+        p = self.attendance.get_period_by_ym(year, month)
+        if p is None or p.status != APERIOD_LOCKED or p.locked_at is None:
+            return 0
+        last = date(year, month, calendar.monthrange(year, month)[1])
+        return self.employees.count_shift_changes_after(_as_utc(p.locked_at), last)
 
     def so_luot_bam_sau_chot(self, year: int, month: int) -> int:
         """Cho LƯƠNG hỏi: tháng này đã chốt công rồi mà còn bao nhiêu lượt bấm ghi vào sau đó.
@@ -1740,6 +2103,7 @@ class AttendanceService:
                 # {ca → [công từng ngày]}. PHẢI có ở CẢ nhánh snapshot bên dưới, không thì phụ cấp
                 # ca/cơm NHẢY SỐ đúng lúc chốt công — lỗi đã gặp với `excused_cong`/`paid_leave_days`.
                 "ca_lam": {int(k): [float(x) for x in v] for k, v in (r.get("ca_lam") or {}).items()},
+                "ca_muc": {int(k): v for k, v in (r.get("ca_muc") or {}).items()},
                 # {"lam"/"nghi": {ngày: phút}} — nền tính suất cơm tăng ca. PHẢI có ở CẢ nhánh
                 # ảnh chụp bên dưới, không thì tiền cơm NHẢY SỐ đúng lúc chốt công (đã dính hai
                 # lần với `excused_cong` / `paid_leave_days` / `ca_lam`).
@@ -1772,7 +2136,7 @@ class AttendanceService:
             return float(p.standard_cong)
         if self._work_calendar is None:
             return None
-        return self._work_calendar.standard_working_days(year, month)
+        return self._work_calendar.standard_cong_luong(year, month)
 
     # --- lưới phân ca theo tháng (khai ca NV × ngày) ------------------------
 
@@ -1827,6 +2191,10 @@ class AttendanceService:
             days: dict[str, dict] = {}
             for d in range(1, days_in_month + 1):
                 the_day = date(year, month, d)
+                if not self._trong_bien_che(e, the_day):
+                    # Ngoài biên chế (chưa vào / đã nghỉ / nghỉ dài hạn): lưới không vẽ ca (A9).
+                    days[str(d)] = {"shift_id": None, "source": "none", "is_off": False}
+                    continue
                 cell = day_map.get((e.id, the_day))
                 if cell is not None and cell.is_off:
                     days[str(d)] = {"shift_id": None, "source": "day", "is_off": True}
@@ -1941,8 +2309,9 @@ class AttendanceService:
             if emp is None:
                 _reject(c, "Không tìm thấy nhân viên.")
                 continue
-            if not _in_headcount_on(emp, wd):
-                _reject(c, "Ngày này nhân viên chưa vào làm hoặc đã nghỉ việc.")
+            ly_do_bc = self._ly_do_ngoai_bien_che(emp, wd)
+            if ly_do_bc:
+                _reject(c, ly_do_bc)
                 continue
             # ⭐ KHOÁ NGÀY QUÁ KHỨ (chủ chốt 24/08/2026 — "lỗi chí mạng", chủ chốt lại: "quá khứ rồi
             # thì không cho sửa nữa"): gán một loạt 1–30 mà đè lên ngày đã chấm công / đang chờ đơn
@@ -1996,6 +2365,14 @@ class AttendanceService:
 
     # --- "ô biết nói": chi tiết 1 ngày + điều chỉnh punch nguồn -------------
 
+    def _chan_tu_duyet(self, employee_id: int, *, scope, actor) -> None:
+        """Phạm vi tổ thì không tự ký cho chính mình; toàn công ty (HCNS/GĐ) là cấp cuối, vẫn được."""
+        if scope is None or scope == SCOPE_ALL:
+            return
+        me = self.employees.get_by_user_id(actor.id)
+        if me is not None and me.id == employee_id:
+            raise AttendanceForbidden("Không tự duyệt yêu cầu chỉnh công của chính mình — nhờ cấp trên duyệt.")
+
     def _employee_in_scope(self, employee_id: int, scope, actor):
         allowed = self._allowed_employee_ids(scope, actor)
         if allowed is not None and employee_id not in allowed:
@@ -2014,17 +2391,15 @@ class AttendanceService:
             raise AttendanceValidationError("Ngày phải dạng YYYY-MM-DD.")
 
     def _day_punches(self, emp, shift, the_day: date) -> list:
-        """Các punch thuộc NGÀY CÔNG `the_day` (giờ VN, gồm gộp ca đêm), cũ→mới."""
-        start = datetime(the_day.year, the_day.month, the_day.day, tzinfo=VN_TZ).astimezone(timezone.utc)
-        end = (datetime(the_day.year, the_day.month, the_day.day, tzinfo=VN_TZ)
-               + timedelta(days=1, hours=12)).astimezone(timezone.utc)
-        out = []
-        for lg in self.attendance.list_by_employee_in_range(emp.id, start, end):
-            local = _as_utc(lg.checked_at).astimezone(VN_TZ)
-            if work_day_of(local, shift) == the_day:
-                out.append((local, lg))
-        out.sort(key=lambda x: x[0])
-        return out
+        """Các punch thuộc NGÀY CÔNG `the_day` (giờ VN), cũ→mới — ghép theo "ca đang mở" y như Bảng
+        công (`_gan_ngay_cong`): lượt RA rạng sáng hôm sau của ca ngày có phiếu TC vắt đêm về đúng
+        ngày vào ca. Nạp rộng [hôm trước 00:00, hôm sau 12:00) rồi giữ đúng ngày công. `shift` giữ
+        cho chữ ký cũ (ngày công nay do `_gan_ngay_cong` quyết)."""
+        nua_dem = datetime(the_day.year, the_day.month, the_day.day, tzinfo=VN_TZ)
+        start = (nua_dem - timedelta(days=1)).astimezone(timezone.utc)
+        end = (nua_dem + timedelta(days=1, hours=12)).astimezone(timezone.utc)
+        logs = self.attendance.list_by_employee_in_range(emp.id, start, end)
+        return [(local, lg) for local, lg, wd in self._gan_ngay_cong(emp, logs) if wd == the_day]
 
     def _khung_tra_cong_utc(self, employee, shift, work_day: date) -> list[tuple[datetime, datetime]]:
         """Khung 'được trả công' của NGÀY CÔNG (mốc UTC): cửa sổ CA THƯỜNG + cửa sổ PHIẾU TĂNG CA
@@ -2035,7 +2410,17 @@ class AttendanceService:
         if shift is not None:
             s0 = nua_dem + timedelta(minutes=shift.start_minute)
             s1 = nua_dem + timedelta(minutes=shift.end_minute + (1440 if shift.is_overnight else 0))
-            khung.append((s0.astimezone(timezone.utc), s1.astimezone(timezone.utc)))
+            nghi = _khung_nghi(shift.start_minute, shift.is_overnight,
+                               getattr(shift, "break_start_minute", None),
+                               getattr(shift, "break_end_minute", None))
+            if nghi:
+                # Nghỉ giữa ca không phải giờ được trả công ⇒ khung ca tách làm hai mảnh (07/09/2026).
+                n0, n1 = nua_dem + timedelta(minutes=nghi[0]), nua_dem + timedelta(minutes=nghi[1])
+                for a, b in ((s0, min(n0, s1)), (max(n1, s0), s1)):
+                    if b > a:
+                        khung.append((a.astimezone(timezone.utc), b.astimezone(timezone.utc)))
+            else:
+                khung.append((s0.astimezone(timezone.utc), s1.astimezone(timezone.utc)))
         otw = self._ot_window_on(employee, work_day)
         if otw is not None and otw[1] > otw[0]:
             o0 = nua_dem + timedelta(minutes=int(otw[0]))
@@ -2075,6 +2460,130 @@ class AttendanceService:
             d += timedelta(days=1)
         return _gop_khoang(manh, start_utc, end_utc)
 
+    @staticmethod
+    def _cap_bam_theo_phieu(shift, phien_chinh, otw: tuple[int, int], wd: date) -> dict:
+        """Lượt bấm tay cần THÊM để ngày có phiên TĂNG CA khớp phiếu, khi NV chỉ có MỘT phiên trong ngày
+        (07/09/2026 — chủ giữ luật 4 lượt bấm, đây là đường bù cho thợ quên).
+        · RA ca chính ≤ đầu phiếu ⇒ `bu_cap`: thêm VÀO = đầu phiếu, RA = cuối phiếu (HCNS sửa RA theo
+          thực tế nếu về sớm hơn).
+        · RA ca chính > đầu phiếu ⇒ `tach_phien`: thợ chỉ bấm 2 lượt, lượt RA đã phủ luôn tăng ca ⇒
+          thêm RA ca chính lúc HẾT CA + VÀO tăng ca lúc đầu phiếu; lượt RA thật cuối ngày thành RA
+          tăng ca (bấm ra = sự thật, phiếu = trần). Thêm cặp VÀO/RA theo phiếu ở ca này là đè mất
+          phiên ca chính (VÀO mới mở lại phiên đang mở).
+        Trả {"kieu", "punches": [(check_type, phút trên trục ngày công — ≥1440 là hôm sau)]}."""
+        nua_dem = datetime(wd.year, wd.month, wd.day, tzinfo=VN_TZ)
+        ra_min = int(round((phien_chinh[1] - nua_dem).total_seconds() / 60))
+        tu, den = int(otw[0]), int(otw[1])
+        if ra_min <= tu:
+            return {"kieu": "bu_cap", "punches": [(CHECK_IN, tu), (CHECK_OUT, den)]}
+        het_ca = shift.end_minute + (1440 if shift.is_overnight else 0)
+        moc_ra = min(het_ca, tu)
+        vao_tc = tu if tu > moc_ra else moc_ra + 1     # tránh hai lượt cùng phút (ghép phiên vỡ)
+        return {"kieu": "tach_phien", "punches": [(CHECK_OUT, moc_ra), (CHECK_IN, vao_tc)]}
+
+    def phieu_tc_ngay(self, *, scope, actor, the_day: date,
+                      department_id: int | None = None) -> list[dict]:
+        """Phiếu TC đã duyệt của NGÀY `the_day` trong phạm vi người gọi + tình trạng cặp bấm của từng
+        NV — nuôi màn "Xác nhận tăng ca theo phiếu" (tổ trưởng/HCNS làm hàng loạt, 07/09/2026)."""
+        allowed = self._allowed_employee_ids(scope, actor)
+        out: list[dict] = []
+        if self.overtime is None:
+            return out
+        for t in self.overtime.approved_in_range(the_day, the_day):
+            if t.work_date != the_day:
+                continue
+            if allowed is not None and t.employee_id not in allowed:
+                continue
+            emp = self.employees.get_by_id(t.employee_id)
+            if emp is None or (department_id is not None and emp.department_id != department_id):
+                continue
+            shift = self._shift_for_day(emp, the_day)
+            punches = self._day_punches(emp, shift, the_day)
+            sessions = pair_sessions([(lc, lg.check_type) for lc, lg in punches])
+            otw = (int(t.from_minute), int(t.to_minute))
+            kieu = None
+            if not punches:
+                tinh_trang = "khong_cham"
+            elif shift is None:
+                tinh_trang = "chua_gan_ca"
+            elif not sessions:
+                tinh_trang = "treo"
+            elif len(sessions) >= 2:
+                tinh_trang = "da_co"
+            else:
+                tinh_trang = "thieu_cap"
+                kieu = self._cap_bam_theo_phieu(shift, sessions[0], otw, the_day)["kieu"]
+            out.append({
+                "ticket_id": t.id, "employee_id": emp.id, "employee_code": emp.code,
+                "employee_name": emp.full_name, "department_id": emp.department_id,
+                "date": the_day.isoformat(),
+                "from_minute": otw[0], "to_minute": otw[1],
+                "from_time": min_to_hhmm(otw[0] % 1440), "to_time": min_to_hhmm(otw[1] % 1440),
+                "from_next_day": otw[0] >= 1440, "to_next_day": otw[1] >= 1440,
+                "tinh_trang": tinh_trang, "kieu": kieu,
+                "punches": [{"time": lc.strftime("%H:%M"), "check_type": lg.check_type,
+                             "next_day": lc.date() > the_day} for lc, lg in punches],
+            })
+        out.sort(key=lambda x: (x["employee_code"] or "", x["employee_id"]))
+        return out
+
+    def xac_nhan_tc_theo_phieu(self, *, actor, scope, the_day: date, employee_ids, reason=None,
+                               to_time: str | None = None, to_next_day: bool = False) -> dict:
+        """Sinh cặp bấm tay theo phiếu TC đã duyệt cho các NV THIẾU cặp (1.5 — 07/09/2026). Ai không
+        thiếu (đã có / không đi làm / treo / ngoài phạm vi) thì BỎ QUA có lý do, không vỡ cả mẻ.
+        `to_time` = giờ RA thực tế (chỉ dùng cho kiểu `bu_cap` — thợ về sớm hơn phiếu thì trả theo
+        thật); bỏ trống = cuối phiếu. Mọi lượt sinh ra là punch tay có audit, `fault_party = duyet`."""
+        self._require_not_future(the_day, "xác nhận tăng ca theo phiếu")
+        self._require_period_open(the_day, "xác nhận tăng ca theo phiếu")
+        ra_thuc = None
+        if to_time:
+            ra_thuc = _hhmm_to_min(to_time) + (1440 if to_next_day else 0)
+        ung_vien = {c["employee_id"]: c
+                    for c in self.phieu_tc_ngay(scope=scope, actor=actor, the_day=the_day)}
+        ly_do_goc = (reason or "").strip() or "Tổ trưởng xác nhận đã làm theo phiếu"
+        done: list[dict] = []
+        skipped: list[dict] = []
+        for eid in sorted({int(x) for x in (employee_ids or [])}):
+            c = ung_vien.get(eid)
+            if c is None:
+                skipped.append({"employee_id": eid, "employee_name": None,
+                                "reason": "không có phiếu tăng ca đã duyệt trong phạm vi của bạn"})
+                continue
+            if c["tinh_trang"] != "thieu_cap":
+                skipped.append({"employee_id": eid, "employee_name": c["employee_name"],
+                                "reason": _LY_DO_TINH_TRANG.get(c["tinh_trang"], c["tinh_trang"])})
+                continue
+            emp = self.employees.get_by_id(eid)
+            shift = self._shift_for_day(emp, the_day)
+            sessions = pair_sessions([(lc, lg.check_type)
+                                      for lc, lg in self._day_punches(emp, shift, the_day)])
+            otw = (int(c["from_minute"]), int(c["to_minute"]))
+            goi_y = self._cap_bam_theo_phieu(shift, sessions[0], otw, the_day)
+            punches = goi_y["punches"]
+            if goi_y["kieu"] == "bu_cap" and ra_thuc is not None:
+                if ra_thuc <= otw[0]:
+                    skipped.append({"employee_id": eid, "employee_name": c["employee_name"],
+                                    "reason": "giờ ra thực tế phải sau giờ bắt đầu phiếu"})
+                    continue
+                punches = [(CHECK_IN, otw[0]), (CHECK_OUT, ra_thuc)]   # trần vẫn do engine kẹp
+            ly_do = f"[Xác nhận TC theo phiếu #{c['ticket_id']}] {ly_do_goc}"
+            ghi: list[dict] = []
+            for ct, m in punches:
+                self._create_manual_punch(
+                    actor=actor, emp=emp, the_day=the_day, check_type=ct,
+                    time_hhmm=min_to_hhmm(m % 1440), reason=ly_do, fault_party=FAULT_DUYET,
+                    next_day=m >= 1440,
+                )
+                ghi.append({"time": min_to_hhmm(m % 1440), "check_type": ct, "next_day": m >= 1440})
+            done.append({"employee_id": eid, "employee_name": c["employee_name"],
+                         "kieu": goi_y["kieu"], "punches": ghi})
+        self.audit.create(
+            actor_user_id=getattr(actor, "id", None), action="xac_nhan_tang_ca_theo_phieu",
+            target=f"attendance_day:{the_day.isoformat()}",
+            detail=f"{len(done)} NV được sinh cặp bấm · bỏ qua {len(skipped)}",
+        )
+        return {"done": done, "skipped": skipped}
+
     def day_detail(self, *, scope, actor, employee_id: int, date_str: str) -> dict:
         """'Ô biết nói': punch thật của 1 NV trong 1 ngày + công tính lại + lý do."""
         emp = self._employee_in_scope(employee_id, scope, actor)
@@ -2088,7 +2597,6 @@ class AttendanceService:
         # Ghép phiên: phiên 0 = ca chính (tính công), phiên 1.. = tăng ca (cặp chấm riêng).
         sessions = pair_sessions([(lc, lg.check_type) for lc, lg in punches])
         main_out = sessions[0][1] if sessions else None
-        ot_in, ot_out = ((sessions[1][0], sessions[-1][1]) if len(sessions) >= 2 else (None, None))
         cong = reason = None
         if shift is not None and first_in is not None:
             info = compute_day_cong(
@@ -2098,11 +2606,12 @@ class AttendanceService:
                 main_out_min=(main_out.hour * 60 + main_out.minute) if main_out else None,
                 in_day_offset=(first_in.date() - the_day).days,
                 main_out_offset=((main_out.date() - the_day).days if main_out else None),
-                ot_in_min=(ot_in.hour * 60 + ot_in.minute) if ot_in else None,
-                ot_out_min=(ot_out.hour * 60 + ot_out.minute) if ot_out else None,
-                ot_in_offset=((ot_in.date() - the_day).days if ot_in else None),
-                ot_out_offset=((ot_out.date() - the_day).days if ot_out else None),
+                ot_sessions=[(a.hour * 60 + a.minute, b.hour * 60 + b.minute,
+                              (a.date() - the_day).days, (b.date() - the_day).days)
+                             for a, b in sessions[1:]] or None,
                 ot_window=self._ot_window_on(emp, the_day),
+                break_start_min=getattr(shift, "break_start_minute", None),
+                break_end_min=getattr(shift, "break_end_minute", None),
             )
             cong = info["cong"]
             if info["incomplete"]:
@@ -2114,12 +2623,16 @@ class AttendanceService:
         elif shift is None:
             reason = "Chưa gán ca làm việc"
         # Gợi ý chấm bù CẶP TĂNG CA: có phiếu TC đã duyệt (trong ngày) + đã xong ca chính nhưng CHƯA có
-        # phiên tăng ca (thiếu cặp chấm) → HCNS bấm 1 nút điền sẵn khung phiếu. Phiếu qua nửa đêm
-        # (to > 1440) bỏ gợi ý (ô giờ HH:MM 1 ngày không biểu diễn được lượt RA hôm sau).
+        # phiên tăng ca (thiếu cặp chấm) → HCNS bấm 1 nút (`xac_nhan_tc_theo_phieu`). Phiếu vắt nửa
+        # đêm cũng gợi ý (07/09/2026): mốc ≥ 1440 đánh dấu `*_next_day`. `kieu` nói máy sẽ thêm gì.
         ot_suggestion = None
         otw = self._ot_window_on(emp, the_day)
-        if otw is not None and len(sessions) == 1 and otw[1] <= 1440:
-            ot_suggestion = {"from_time": min_to_hhmm(otw[0]), "to_time": min_to_hhmm(otw[1] % 1440)}
+        if otw is not None and len(sessions) == 1 and shift is not None:
+            goi_y = self._cap_bam_theo_phieu(shift, sessions[0], otw, the_day)
+            ot_suggestion = {"from_time": min_to_hhmm(otw[0] % 1440),
+                             "to_time": min_to_hhmm(otw[1] % 1440),
+                             "from_next_day": otw[0] >= 1440, "to_next_day": otw[1] >= 1440,
+                             "kieu": goi_y["kieu"]}
         return {
             "employee_id": emp.id, "employee_name": emp.full_name, "date": date_str,
             "shift_name": shift.name if shift is not None else None,
@@ -2132,8 +2645,15 @@ class AttendanceService:
         }
 
     def _create_manual_punch(self, *, actor, emp, the_day: date, check_type: str,
-                             time_hhmm: str, reason: str, fault_party: str | None):
-        """Tạo 1 punch điều chỉnh tay (dùng chung cho chấm bù trực tiếp & duyệt YC)."""
+                             time_hhmm: str, reason: str, fault_party: str | None,
+                             next_day: bool = False):
+        """Tạo 1 punch điều chỉnh tay (dùng chung cho chấm bù trực tiếp & duyệt YC & xác nhận TC).
+        `next_day` = giờ rơi SANG HÔM SAU (ca đêm quên RA 06:00; tăng ca vắt nửa đêm) — 07/09/2026.
+        Trước đó punch bù luôn dính ngày công ⇒ RA 06:00 của ca 22:00–06:00 bị gom về HÔM TRƯỚC,
+        ngày treo vẫn treo, và không có cách nào chấm bù đúng cho ca đêm."""
+        ly_do_bc = self._ly_do_ngoai_bien_che(emp, the_day)
+        if ly_do_bc:
+            raise AttendanceValidationError(ly_do_bc)          # chấm bù / duyệt YC ngày ngoài biên chế (A5)
         self._require_period_open(the_day, "chấm bù")
         self._require_shift_on_day(emp, the_day)
         if check_type not in CHECK_TYPES:
@@ -2144,7 +2664,9 @@ class AttendanceService:
         if fault_party is not None and fault_party not in FAULT_PARTIES:
             raise AttendanceValidationError("Nguyên nhân không hợp lệ.")
         hh, mm = divmod(_hhmm_to_min(time_hhmm), 60)
-        when_utc = datetime(the_day.year, the_day.month, the_day.day, hh, mm, tzinfo=VN_TZ).astimezone(timezone.utc)
+        ngay_that = the_day + timedelta(days=1) if next_day else the_day
+        when_utc = datetime(ngay_that.year, ngay_that.month, ngay_that.day, hh, mm,
+                            tzinfo=VN_TZ).astimezone(timezone.utc)
         log = self.attendance.create_log(
             employee_id=emp.id, work_location_id=None, check_type=check_type,
             checked_at=when_utc, within_range=True, is_manual=True,
@@ -2153,7 +2675,8 @@ class AttendanceService:
         self.audit.create(
             actor_user_id=actor.id, action="adjust_attendance",
             target=f"attendance_log:{log.id}",
-            detail=f"{emp.code} {the_day.isoformat()} {time_hhmm} {check_type} ({fault_party or '-'}): {reason}",
+            detail=(f"{emp.code} {the_day.isoformat()} {time_hhmm}{' (+1)' if next_day else ''} "
+                    f"{check_type} ({fault_party or '-'}): {reason}"),
         )
         return log
 
@@ -2189,7 +2712,8 @@ class AttendanceService:
             )
 
     def adjust(self, *, actor, scope, employee_id: int, date_str: str, check_type: str,
-               time_hhmm: str, reason: str, fault_party: str | None) -> dict:
+               time_hhmm: str, reason: str, fault_party: str | None,
+               next_day: bool = False) -> dict:
         """HCNS thêm 1 PUNCH điều chỉnh tay (chấm bù/sửa) — công tự tính lại từ punch.
         KHÔNG ghi đè số công. Bắt buộc lý do; ghi audit + người thực hiện."""
         emp = self._employee_in_scope(employee_id, scope, actor)
@@ -2197,7 +2721,7 @@ class AttendanceService:
         self._require_not_future(the_day, "chấm bù")
         self._create_manual_punch(actor=actor, emp=emp, the_day=the_day,
                                   check_type=check_type, time_hhmm=time_hhmm, reason=reason,
-                                  fault_party=fault_party)
+                                  fault_party=fault_party, next_day=bool(next_day))
         return self.day_detail(scope=scope, actor=actor, employee_id=emp.id, date_str=date_str)
 
     def delete_manual(self, *, actor, scope, log_id: int, date_str: str, employee_id: int) -> dict:
@@ -2207,8 +2731,15 @@ class AttendanceService:
             raise AttendanceNotFound("Không tìm thấy bản ghi chấm công.")
         if not log.is_manual:
             raise AttendanceValidationError("Chỉ được xóa punch điều chỉnh tay (không xóa chấm GPS gốc).")
-        self._require_period_open(
-            _as_utc(log.checked_at).astimezone(VN_TZ).date(), "xóa punch chấm bù")
+        # Guard theo NGÀY CÔNG chứ không phải ngày lịch của `checked_at` (bản rà liên thông D7,
+        # 08/09/2026): lượt RA 02:00 ngày 1/7 thuộc ca 30/6 — tháng 6 đã chốt thì không được xoá,
+        # nếu không Bảng công sống lệch ảnh chụp mà "phát sinh sau chốt" không đếm lượt XOÁ.
+        emp_cua_log = self.employees.get_by_id(log.employee_id)
+        local_log = _as_utc(log.checked_at).astimezone(VN_TZ)
+        ngay_cong = local_log.date()
+        if emp_cua_log is not None:
+            _, ngay_cong = self._shift_and_work_day_for_local(emp_cua_log, local_log)
+        self._require_period_open(ngay_cong, "xóa punch chấm bù")
         self._employee_in_scope(log.employee_id, scope, actor)
         self.attendance.delete_log(log)
         self.audit.create(
@@ -2224,7 +2755,9 @@ class AttendanceService:
         return {
             "id": r.id, "employee_id": r.employee_id, "employee_name": emp_name,
             "work_date": r.work_date.isoformat(), "check_type": r.check_type,
-            "suggested_time": r.suggested_time, "reason": r.reason, "fault_party": r.fault_party,
+            "suggested_time": r.suggested_time,
+            "suggested_next_day": bool(getattr(r, "suggested_next_day", False)),
+            "reason": r.reason, "fault_party": r.fault_party,
             "status": r.status, "decided_at": r.decided_at, "decision_note": r.decision_note,
             "decided_by_name": decider_name,
         }
@@ -2249,7 +2782,7 @@ class AttendanceService:
                 "remaining": max(0, limit - len(days)) if limit else None, "days": days}
 
     def request_adjust(self, *, user, date_str: str, check_type: str, suggested_time: str | None,
-                       reason: str) -> dict:
+                       reason: str, suggested_next_day: bool = False) -> dict:
         """NV tự gửi yêu cầu chỉnh công cho 1 ngày (self-service)."""
         emp = self._employee_for_user(user)
         if check_type not in CHECK_TYPES:
@@ -2258,6 +2791,9 @@ class AttendanceService:
         if not reason:
             raise AttendanceValidationError("Phải nhập lý do.")
         the_day = self._parse_ymd(date_str)
+        ly_do_bc = self._ly_do_ngoai_bien_che(emp, the_day)
+        if ly_do_bc:
+            raise AttendanceValidationError(ly_do_bc)          # ngày ngoài biên chế (A5)
         # Chặn ngay từ lúc GỬI, không đợi tới lúc duyệt: đơn cho tháng đã chốt không bao giờ
         # duyệt được, để NV gửi là ăn oan một lượt hạn mức.
         # Cùng lý do đó, hai chốt dưới phải đứng TRƯỚC `adjust_quota` — chặn sau khi đã trừ hạn
@@ -2280,6 +2816,7 @@ class AttendanceService:
         r = self.attendance.create_request(
             employee_id=emp.id, work_date=the_day, check_type=check_type,
             suggested_time=suggested_time or None, reason=reason,
+            suggested_next_day=bool(suggested_next_day and suggested_time),
             status=REQ_PENDING, created_by_user_id=user.id,
         )
         return self._req_out(r, emp_name=emp.full_name)
@@ -2304,6 +2841,9 @@ class AttendanceService:
         if r.status != REQ_PENDING:
             raise AttendanceValidationError("Chỉ hủy được yêu cầu đang chờ duyệt.")
         self.attendance.update_request(r, status=REQ_CANCELLED)
+        self.audit.create(actor_user_id=user.id, action="cancel_attendance_adjust_request",
+                          target=f"attendance_adjust_request:{r.id}",
+                          detail=f"{emp.code} {r.work_date} {r.check_type}")
         return self._req_out(r, emp_name=emp.full_name)
 
     def list_requests(self, *, scope, actor, status: str | None = REQ_PENDING) -> list[dict]:
@@ -2317,20 +2857,27 @@ class AttendanceService:
         return out
 
     def approve_request(self, *, actor, scope, request_id: int, time_hhmm: str | None,
-                        fault_party: str | None, note: str | None = None) -> dict:
-        """Duyệt YC → sinh 1 punch điều chỉnh tay (công tự tính lại) + đánh dấu approved."""
+                        fault_party: str | None, note: str | None = None,
+                        next_day: bool | None = None) -> dict:
+        """Duyệt YC → sinh 1 punch điều chỉnh tay (công tự tính lại) + đánh dấu approved.
+        `next_day` None = lấy cờ "sang hôm sau" NV đã khai trên đơn; HCNS ghi đè được."""
         r = self.attendance.get_request(request_id)
         if r is None:
             raise AttendanceNotFound("Không tìm thấy yêu cầu.")
         emp = self._employee_in_scope(r.employee_id, scope, actor)
+        # Không TỰ duyệt yêu cầu chỉnh công của mình khi phạm vi chỉ là tổ (bản rà liên thông E2,
+        # 08/09/2026): duyệt = sinh lượt bấm tay ra công thật — cùng luật với phép/tăng ca/đi muộn.
+        self._chan_tu_duyet(r.employee_id, scope=scope, actor=actor)
         if r.status != REQ_PENDING:
             raise AttendanceValidationError("Yêu cầu đã được xử lý.")
         time_val = time_hhmm or r.suggested_time
         if not time_val:
             raise AttendanceValidationError("Cần nhập giờ cho punch chấm bù.")
+        nd = (bool(getattr(r, "suggested_next_day", False)) if next_day is None else bool(next_day))
         log = self._create_manual_punch(
             actor=actor, emp=emp, the_day=r.work_date, check_type=r.check_type,
             time_hhmm=time_val, reason=f"[Duyệt YC #{r.id}] {r.reason}", fault_party=fault_party or r.fault_party,
+            next_day=nd,
         )
         self.attendance.update_request(
             r, status=REQ_APPROVED, decided_by=actor.id, decided_at=datetime.now(timezone.utc),
@@ -2353,6 +2900,10 @@ class AttendanceService:
             r, status=REQ_REJECTED, decided_by=actor.id, decided_at=datetime.now(timezone.utc),
             decision_note=note,
         )
+        # Từ chối / huỷ cũng phải có vết như duyệt (bản rà liên thông E7, 08/09/2026).
+        self.audit.create(actor_user_id=actor.id, action="reject_attendance_adjust_request",
+                          target=f"attendance_adjust_request:{r.id}",
+                          detail=f"{emp.code} {r.work_date} {r.check_type} · {note}")
         return self._req_out(r, emp_name=emp.full_name)
 
     # --- KPI giám sát hôm nay (HR) -----------------------------------------

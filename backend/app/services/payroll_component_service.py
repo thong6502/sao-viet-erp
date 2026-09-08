@@ -30,7 +30,8 @@ _RESERVED: dict[str, str] = {
     "phu_cap_ca": "ô \"Phụ cấp ca\" trong hồ sơ lương",
     "phu_cap_ca_dem": "ô \"Phụ cấp ca\" trong hồ sơ lương",
     "ca_dem": "ô \"Phụ cấp ca\" trong hồ sơ lương",
-    "phu_cap_tham_nien": "ô \"Phụ cấp thâm niên\" trong hồ sơ lương",
+    # `phu_cap_tham_nien` GỠ khỏi danh sách chặn 07/09/2026: ô tay "Phụ cấp thâm niên" đã bị bỏ
+    # khỏi màn Lương nhân viên (engine trả 0) ⇒ danh mục là đường DUY NHẤT còn khai được khoản này.
     "luong_vi_tri": "ô \"Lương cơ bản (đóng BH)\" trong hồ sơ lương",
     "luong_trach_nhiem": "ô \"Lương trách nhiệm\" trong hồ sơ lương",
     "tang_ca": "tiền tăng ca — engine tự tính từ chấm công",
@@ -63,20 +64,8 @@ _RESERVED: dict[str, str] = {
 }
 
 
-# Khoản của HỆ THỐNG — engine tự tính, KHÔNG hiện trong màn "Danh mục khoản thu nhập".
-#
-# ⭐ Chốt của chủ 24/08/2026: *"cái danh mục cấu hình này làm khoản trợ cấp hoặc thưởng thôi mà
-# đừng dính cứng nó — mấy cái danh mục này họ thêm được và xoá được nha."* Màn đó là chỗ HCNS khai
-# phụ cấp/thưởng rồi gán cho TỪNG NGƯỜI. Hoa hồng không thuộc loại đó: nó chạy theo hoá đơn, áp
-# cho cả hệ thống.
-#
-# Để lẫn vào đấy sinh ra một cái bẫy thật: bấm nút xoá một "dòng phụ cấp" hoá ra là TẮT TÍNH NĂNG
-# hoa hồng của toàn công ty — `_hoa_hong_rows` kiểm `is_active` trước khi tính, tắt là mọi người
-# mất hoa hồng, không một lời cảnh báo.
-#
-# Giấu ở tầng service (không phải xoá dòng): dòng vẫn phải tồn tại vì `payroll_line_components`
-# cần `component_id` và cần `is_taxable` khai được. Chỉ là màn danh mục không còn nó để xoá nhầm.
-_HE_THONG: frozenset[str] = frozenset({"hoa_hong_kd"})
+# (07/09/2026) Hoa hồng KD KHÔNG còn là dòng danh mục — nó là cột `payroll_lines.hoa_hong` (mg 0269).
+# Danh mục này thuần khoản HCNS tự khai; `_RESERVED` ở trên vẫn chặn tạo khoản trùng tên hoa hồng.
 
 
 class ComponentError(Exception):
@@ -125,18 +114,11 @@ class PayrollComponentService:
 
     # --- danh mục -----------------------------------------------------------
 
-    def list_components(self, *, active_only: bool = False,
-                        gom_he_thong: bool = False) -> list[PayrollComponent]:
-        """Danh mục cho MÀN HÌNH — mặc định GIẤU khoản hệ thống (xem `_HE_THONG`).
-
-        Engine không đi qua đây (nó tra thẳng `get_by_code`), nên giấu ở đây không tắt tính năng
-        nào. Hai chỗ khác trong hệ cũng gọi `repo.list_components()` trực tiếp để dựng bảng tra
-        id → khoản; chúng PHẢI thấy đủ, và chúng không đi qua hàm này.
-        """
-        rows = self.components.list_components(active_only=active_only)
-        if gom_he_thong:
-            return rows
-        return [c for c in rows if c.code not in _HE_THONG]
+    def list_components(self, *, active_only: bool = False) -> list[PayrollComponent]:
+        """Danh mục cho màn hình. Từ 07/09/2026 không còn khoản hệ thống nào phải giấu: hoa hồng KD
+        là cột `payroll_lines.hoa_hong`, khoán km là cột `khoan_km` — danh mục thuần khoản HCNS tự
+        khai (thêm/xoá theo một luật, xem `delete_component`)."""
+        return self.components.list_components(active_only=active_only)
 
     def _unique_code(self, name: str) -> str:
         base = _slug(name)
@@ -190,7 +172,11 @@ class PayrollComponentService:
         return c
 
     def delete_component(self, *, actor, component_id: int) -> dict:
-        """Chưa có số liệu ⇒ xoá hẳn. Đã dùng ⇒ CHỈ ngừng áp dụng, giữ nguyên dữ liệu cũ.
+        """Luật xoá (chủ chốt 07/09/2026: *"ai đang dùng tới thì không xoá được"*):
+        · còn NV đang được gán → CHẶN (phải Gỡ khỏi từng người / gỡ hàng loạt trước);
+        · đã nằm trong kỳ lương ĐÃ CHỐT / ĐÃ CHI → chỉ NGỪNG ÁP DỤNG (phiếu kỳ cũ in lại đúng);
+        · còn lại → xoá hẳn; dòng của kỳ NHÁP bị gỡ theo (Tính lại cũng tự bỏ).
+        Kỳ nháp KHÔNG tính là "đang dùng" (xem `period_count`).
 
         Trả `{deleted, deactivated, employee_count, period_count, message}` — màn hình phải nói
         ĐÚNG việc vừa xảy ra, không được báo "đã xoá" khi thực ra chỉ tắt đi."""
@@ -198,29 +184,39 @@ class PayrollComponentService:
         if c is None:
             raise ComponentNotFound("Không tìm thấy khoản thu nhập.")
         emp_n = self.components.employee_count(component_id)
-        period_n = self.components.period_count(component_id)
-        if emp_n or period_n:
+        if emp_n:
+            raise ComponentValidationError(
+                f"Còn {emp_n} nhân viên đang được gán khoản này — vào Lương → Lương nhân viên (hoặc "
+                f"nút Gán hàng loạt) gỡ khỏi từng người trước rồi mới xoá.")
+        ky_chot = self.components.period_count(component_id)
+        if ky_chot:
             if not c.is_active:
                 raise ComponentValidationError("Khoản này đã ngừng áp dụng rồi.")
             self.components.update_component(c, is_active=False)
             self.audit.create(actor_user_id=actor.id, action="deactivate_payroll_component",
                               target=f"payroll_component:{c.id}",
-                              detail=f"{c.name} — {emp_n} NV, {period_n} kỳ lương")
+                              detail=f"{c.name} — đã có trong {ky_chot} kỳ lương đã chốt")
             return {
                 "deleted": False, "deactivated": True,
-                "employee_count": emp_n, "period_count": period_n,
+                "employee_count": 0, "period_count": ky_chot,
                 "message": (
-                    f"Khoản thu nhập này đã có phát sinh dữ liệu (gán cho {emp_n} nhân viên, "
-                    f"đã chốt {period_n} kỳ lương) nên KHÔNG THỂ XOÁ vĩnh viễn. Hệ thống đã "
-                    f"chuyển sang trạng thái NGỪNG SỬ DỤNG. Dữ liệu cũ vẫn được bảo lưu."
+                    f"Khoản này đã nằm trong {ky_chot} kỳ lương đã chốt nên KHÔNG THỂ XOÁ vĩnh viễn "
+                    "(phiếu lương kỳ cũ phải in lại đúng). Hệ thống đã chuyển sang trạng thái "
+                    "NGỪNG SỬ DỤNG — khoản ẩn khỏi danh sách và không chọn được khi gán mới."
                 ),
             }
         name = c.name
+        go_nhap = self.components.delete_draft_line_rows(component_id)
         self.components.delete_component(c)
         self.audit.create(actor_user_id=actor.id, action="delete_payroll_component",
-                          target=f"payroll_component:{component_id}", detail=name)
-        return {"deleted": True, "deactivated": False, "employee_count": 0,
-                "period_count": 0, "message": "Đã xoá khoản thu nhập."}
+                          target=f"payroll_component:{component_id}",
+                          detail=name + (f" — gỡ {go_nhap} dòng ở kỳ nháp" if go_nhap else ""))
+        return {
+            "deleted": True, "deactivated": False, "employee_count": 0, "period_count": 0,
+            "message": (f"Đã xoá khoản “{name}”."
+                        + (f" Đã gỡ khỏi {go_nhap} dòng lương nháp — bấm Tính lại để cập nhật số."
+                           if go_nhap else "")),
+        }
 
     def employees_holding_inactive(self, component_id: int) -> list[int]:
         """NV còn được gán một khoản ĐÃ NGỪNG ÁP DỤNG — nuôi cảnh báo đỏ ở màn danh mục."""

@@ -24,6 +24,7 @@ from ..deps import (
 )
 from ..models.role import SCOPE_ALL
 from ..models.user import User
+from ..realtime import hub
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository
 from ..schemas.attendance import (
@@ -38,6 +39,9 @@ from ..schemas.attendance import (
     CheckIn,
     CheckResultOut,
     DayDetailOut,
+    OtConfirmCandidatesOut,
+    OtConfirmIn,
+    OtConfirmResultOut,
     MyShiftOut,
     MyStatusOut,
     NearestLocationOut,
@@ -68,6 +72,7 @@ from ..schemas.attendance import (
 from ..services.rbac_service import AuthorizationService
 from ..services.attendance_service import (
     AttendanceError,
+    AttendanceForbidden,
     AttendanceNotFound,
     AttendanceService,
     AttendanceValidationError,
@@ -184,6 +189,8 @@ def _ghi_cau_hinh_chung(action: str, viec: str):
 def _raise(exc: Exception) -> None:
     if isinstance(exc, AttendanceNotFound):
         raise HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, AttendanceForbidden):
+        raise HTTPException(status_code=403, detail=str(exc))
     if isinstance(exc, (AttendanceValidationError, NoLinkedEmployee)):
         raise HTTPException(status_code=400, detail=str(exc))
     raise exc
@@ -203,6 +210,10 @@ def _shift_out(s) -> WorkShiftOut:
         end_time=min_to_hhmm(s.end_minute), is_overnight=s.is_overnight,
         night_multiplier=float(getattr(s, "night_multiplier", 1.3) or 1.3),
         grace_minutes=s.grace_minutes,
+        break_start_time=(min_to_hhmm(s.break_start_minute)
+                          if getattr(s, "break_start_minute", None) is not None else None),
+        break_end_time=(min_to_hhmm(s.break_end_minute)
+                        if getattr(s, "break_end_minute", None) is not None else None),
         meal_allowance=s.meal_allowance, shift_allowance=s.shift_allowance,
         is_active=s.is_active, ca_san_xuat=bool(getattr(s, "ca_san_xuat", True)), note=s.note,
     )
@@ -216,7 +227,7 @@ def list_shifts(
     svc: Service,
     user: Annotated[User, Depends(require_permission(MODULE, "manage_shifts"))],
 ) -> WorkShiftsOut:
-    return WorkShiftsOut(items=[_shift_out(s) for s in svc.list_shifts()])
+    return WorkShiftsOut(items=[_shift_out(s) for s in svc.list_shifts()], **svc.gio_cong_chuan_info())
 
 
 # Endpoint `/ca-lam` ĐÃ BỎ (2026-08-10) cùng hai ô "Ca làm riêng" ở màn Máy / Phòng ban: máy chạy
@@ -236,6 +247,7 @@ def create_shift(
             meal_allowance=body.meal_allowance, shift_allowance=body.shift_allowance,
             night_multiplier=body.night_multiplier, note=body.note,
             ca_san_xuat=body.ca_san_xuat,
+            break_start_time=body.break_start_time, break_end_time=body.break_end_time,
         )
     except AttendanceError as exc:
         _raise(exc)
@@ -256,6 +268,7 @@ def update_shift(
             grace_minutes=body.grace_minutes, meal_allowance=body.meal_allowance,
             shift_allowance=body.shift_allowance, night_multiplier=body.night_multiplier,
             note=body.note, is_active=body.is_active, ca_san_xuat=body.ca_san_xuat,
+            break_start_time=body.break_start_time, break_end_time=body.break_end_time,
         )
     except AttendanceError as exc:
         _raise(exc)
@@ -656,7 +669,7 @@ def timesheet_csv(
 
 
 @router.get("/period", response_model=AttendancePeriodOut)
-def get_period(svc: Service,
+def get_period(svc: Service, authz: Authz,
                user: Annotated[User, Depends(require_permission(MODULE, "read"))],
                year: int = Query(ge=2000, le=2100),
                month: int = Query(ge=1, le=12)) -> AttendancePeriodOut:
@@ -664,6 +677,11 @@ def get_period(svc: Service,
         data = svc.period_status(year=year, month=month)
     except AttendanceError as exc:
         _raise(exc)
+    if not authz.can(user, MODULE, "view_timesheet"):
+        # Vai `read` phạm vi "của tôi" (mọi công nhân) chỉ cần biết kỳ đã chốt chưa; số người cả
+        # xưởng, ngày treo và danh sách TÊN + giờ tăng ca thiếu cặp là dữ liệu của Bảng công (ô
+        # `view_timesheet`) — bản rà liên thông E4, 08/09/2026.
+        data = {**data, "employee_count": 0, "hanging_days": 0, "ot_thieu_cap_list": []}
     return AttendancePeriodOut(**data)
 
 
@@ -718,7 +736,7 @@ def adjust(
         data = svc.adjust(
             actor=user, scope=_scope_for(authz, user), employee_id=body.employee_id,
             date_str=body.date, check_type=body.check_type, time_hhmm=body.time,
-            reason=body.reason, fault_party=body.fault_party,
+            reason=body.reason, fault_party=body.fault_party, next_day=body.next_day,
         )
     except AttendanceError as exc:
         _raise(exc)
@@ -744,6 +762,49 @@ def delete_manual_log(
     return DayDetailOut(**data)
 
 
+# --- Xác nhận tăng ca theo phiếu (tổ trưởng/HCNS, hàng loạt) — 07/09/2026 -------
+# Chủ giữ luật 4 lượt bấm; đây là đường bù cho thợ quên bấm cặp tăng ca: cùng ô quyền Chấm bù
+# (`adjust`), cùng phạm vi — tổ trưởng được cấp ô này với phạm vi tổ thì chỉ xác nhận được tổ mình.
+
+
+@router.get("/ot-confirm", response_model=OtConfirmCandidatesOut)
+def ot_confirm_candidates(
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "adjust"))],
+    date: str = Query(description="YYYY-MM-DD"),
+    department_id: int | None = Query(default=None),
+) -> OtConfirmCandidatesOut:
+    """Phiếu TC đã duyệt của ngày + tình trạng cặp bấm từng NV, trong phạm vi người gọi."""
+    try:
+        the_day = AttendanceService._parse_ymd(date)
+        items = svc.phieu_tc_ngay(scope=_scope_for(authz, user), actor=user, the_day=the_day,
+                                  department_id=department_id)
+    except AttendanceError as exc:
+        _raise(exc)
+    return OtConfirmCandidatesOut(date=date, items=items)
+
+
+@router.post("/ot-confirm", response_model=OtConfirmResultOut)
+def ot_confirm(
+    body: OtConfirmIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "adjust"))],
+) -> OtConfirmResultOut:
+    """Sinh cặp bấm tay theo phiếu cho các NV thiếu cặp; ai không thiếu thì bỏ qua có lý do."""
+    try:
+        the_day = AttendanceService._parse_ymd(body.date)
+        data = svc.xac_nhan_tc_theo_phieu(
+            actor=user, scope=_scope_for(authz, user), the_day=the_day,
+            employee_ids=body.employee_ids, reason=body.reason,
+            to_time=body.to_time, to_next_day=body.to_next_day,
+        )
+    except AttendanceError as exc:
+        _raise(exc)
+    return OtConfirmResultOut(**data)
+
+
 # --- KPI giám sát hôm nay (HR) ----------------------------------------------
 
 
@@ -759,13 +820,32 @@ def today_kpi(
 # --- yêu cầu chỉnh công: NV tự gửi (self-service) ---------------------------
 
 
+# --- real-time yêu cầu chỉnh công (bản rà liên thông E7, 08/09/2026) ------------------------
+# Trước đó gửi/duyệt/từ chối/huỷ không đẩy gì: người duyệt phải F5 mới thấy, NV không biết bị từ
+# chối ⇒ ngày treo tới lúc chốt. Cùng khuôn với tăng ca / đi muộn: tín hiệu nhẹ, FE tự refetch.
+
+
+def _notify_adjust_pending() -> None:
+    hub.broadcast({"type": "adjust_pending_changed"})
+
+
+def _notify_adjust_decision(svc, data: dict, decision: str) -> None:
+    emp = svc.employees.get_by_id(int(data.get("employee_id") or 0))
+    if emp is not None and emp.user_id is not None:
+        hub.publish(emp.user_id, {"type": "adjust_decision", "decision": decision,
+                                  "code": data.get("work_date")})
+    hub.broadcast({"type": "adjust_pending_changed"})
+
+
 @router.post("/me/adjust-request", response_model=AdjustRequestOut)
 def create_adjust_request(body: RequestAdjustIn, svc: Service, user: SelfWriter) -> AdjustRequestOut:
     try:
         data = svc.request_adjust(user=user, date_str=body.date, check_type=body.check_type,
-                                  suggested_time=body.suggested_time, reason=body.reason)
+                                  suggested_time=body.suggested_time, reason=body.reason,
+                                  suggested_next_day=body.suggested_next_day)
     except AttendanceError as exc:
         _raise(exc)
+    _notify_adjust_pending()
     return AdjustRequestOut(**data)
 
 
@@ -790,6 +870,7 @@ def cancel_adjust_request(request_id: int, svc: Service, user: SelfWriter) -> Ad
         data = svc.cancel_request(user=user, request_id=request_id)
     except AttendanceError as exc:
         _raise(exc)
+    _notify_adjust_pending()
     return AdjustRequestOut(**data)
 
 
@@ -818,9 +899,11 @@ def approve_adjust_request(
 ) -> AdjustRequestOut:
     try:
         data = svc.approve_request(actor=user, scope=_scope_for(authz, user), request_id=request_id,
-                                   time_hhmm=body.time, fault_party=body.fault_party, note=body.note)
+                                   time_hhmm=body.time, fault_party=body.fault_party, note=body.note,
+                                   next_day=body.next_day)
     except AttendanceError as exc:
         _raise(exc)
+    _notify_adjust_decision(svc, data, "approved")
     return AdjustRequestOut(**data)
 
 
@@ -836,4 +919,5 @@ def reject_adjust_request(
         data = svc.reject_request(actor=user, scope=_scope_for(authz, user), request_id=request_id, note=body.note)
     except AttendanceError as exc:
         _raise(exc)
+    _notify_adjust_decision(svc, data, "rejected")
     return AdjustRequestOut(**data)

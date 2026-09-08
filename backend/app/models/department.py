@@ -52,7 +52,9 @@ class Department(Base):
     # Logical reference to users.id (the trưởng phòng). Kept as a plain column to avoid a
     # users<->departments FK cycle under create_all; the DB-level FK can land with Alembic.
     head_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # --- Bộ nguyên tắc lương của phòng (Pha 1) ---------------------------------------
+    # --- Bộ nguyên tắc lương của phòng (Pha 1) — HAI CỘT DƯỚI DORMANT 07/09/2026 ------------
+    # `salary_mechanism` và `probation_ratio` theo phòng: engine chưa bao giờ đọc (mức lương khai ở hồ
+    # sơ từng người, tỷ lệ thử việc là tham số công ty). Màn + API đã gỡ; giữ cột, không drop.
     # Cơ chế ra mức lương (xem SALARY_MECHANISMS). Mặc định 'cung' = ấn định tay.
     salary_mechanism: Mapped[str] = mapped_column(
         String(24), nullable=False, default="cung", server_default="cung"

@@ -56,8 +56,9 @@ export function SalaryModal({
   // khoản mới khai theo DANH MỤC ở `comps` bên dưới.
   const [allowance, setAllowance] = useState(0); // phụ cấp KHÁC (gộp — legacy)
   const [chuyenCan, setChuyenCan] = useState(0); // chuyên cần riêng NV
-  // 2 phụ cấp khai tay còn lại. TRƯỚC ĐÂY modal không có 2 ô này nên mỗi lần bấm Lưu là chúng
-  // bị ghi về 0 (mỗi lần lưu tạo MỘT mốc lương mới, field thiếu = mặc định 0) — mất tiền của NV.
+  // 2 phụ cấp khai tay ĐÃ NGƯNG (ca 03/08/2026 · thâm niên 07/09/2026). Vẫn giữ state + gửi lại
+  // số cũ khi Lưu: mỗi lần lưu tạo MỘT mốc lương mới, field thiếu = mặc định 0 ⇒ mất số lịch sử
+  // của NV. Engine không trả tiền cho hai ô này nữa; màn chỉ hiện chỉ-đọc khi còn số cũ.
   const [phuCapCa, setPhuCapCa] = useState(0);
   const [phuCapThamNien, setPhuCapThamNien] = useState(0);
   // TẦNG 2 — khoản ĐANG GÁN cho người này. null = ĐANG TẢI (khởi tạo [] sẽ báo "chưa gán khoản
@@ -386,9 +387,11 @@ export function SalaryModal({
   }
 
   // Tiền BHXH/BHYT/BHTN nhân viên đóng — theo TỶ LỆ đã cấu hình + áp trần RIÊNG đúng như engine
-  // (_compute): mức đóng BH = LƯƠNG CƠ BẢN (chỉ vị trí), KHÔNG gồm trách nhiệm.
-  const salaryBase = luongViTri + luongTrachNhiem; // mức nền: prorate công + gốc tính tăng ca
-  const bhBase = luongViTri; // đóng BH trên lương cơ bản (vị trí)
+  // (`_compute`): MỨC ĐÓNG BH = MỨC NỀN = cơ bản + trách nhiệm (chủ chốt 12/08/2026). Bản cũ lấy
+  // chỉ vị trí nên khối BH cuối modal báo THIẾU tiền cho mọi NV có lương trách nhiệm, trong khi
+  // dòng đầu modal (số server) và phiếu lương in số đúng (bản rà 07/09, E2).
+  const salaryBase = luongViTri + luongTrachNhiem; // mức nền: prorate công + gốc đóng BH
+  const bhBase = salaryBase;
 
   // Tổng khoản THU của danh mục (khoản `tru` là khấu trừ, không cộng vào đây) + số cũ gộp cục.
   const compThu = (comps ?? []).reduce(
@@ -422,7 +425,7 @@ export function SalaryModal({
     {
       key: "luong_vi_tri",
       name: "Lương cơ bản",
-      note: "BHXH/BHYT/BHTN đóng trên số này",
+      note: "Gốc tính tăng ca. BHXH/BHYT/BHTN đóng trên mức nền (cơ bản + trách nhiệm)",
       taxable: true,
       value: luongViTri,
       set: setLuongViTri,
@@ -430,7 +433,7 @@ export function SalaryModal({
     {
       key: "luong_trach_nhiem",
       name: "Lương trách nhiệm",
-      note: `Mức nền = cơ bản + trách nhiệm: ${money(salaryBase)}đ — tăng ca tính trên số này`,
+      note: `Mức nền = cơ bản + trách nhiệm: ${money(salaryBase)}đ — gốc đóng BH và lương theo công; tăng ca chỉ tính trên lương cơ bản`,
       taxable: true,
       value: luongTrachNhiem,
       set: setLuongTrachNhiem,
@@ -438,7 +441,7 @@ export function SalaryModal({
     {
       key: "chuyen_can",
       name: "Thưởng chuyên cần",
-      note: "Để 0 = dùng mức của tổ. Trừ dần theo ngày nghỉ",
+      note: "Để 0 = KHÔNG có chuyên cần (tổ chỉ bật/tắt, không có mức tổ). Trừ dần theo ngày nghỉ",
       taxable: true,
       value: chuyenCan,
       set: setChuyenCan,
@@ -463,16 +466,25 @@ export function SalaryModal({
       readOnly: true,
         }] as SysRow[]
       : []),
-    {
+    // Ô ĐÃ NGƯNG (chủ 07/09/2026: "Lương → Lương nhân viên bỏ Phụ cấp thâm niên"). Cùng cách với
+    // `phu_cap_ca` ở trên: CHỈ hiện chỉ-đọc khi người này CÒN SỐ CŨ — engine trả 0 tuyệt đối
+    // (`tham_nien = 0.0` trong `_compute`), phiếu lương chỉ in dòng khi kỳ cũ còn số.
+    // Đếm trước khi gỡ (07/09/2026, DB dev): 0/8 dòng `employee_salaries` có số.
+    ...(phuCapThamNien > 0
+      ? [{
       key: "phu_cap_tham_nien",
-      name: "Phụ cấp thâm niên",
-      note: "Số cố định khai tay, không tự tính theo năm công tác",
+      name: "Phụ cấp thâm niên (đã ngưng)",
+      note: "KHÔNG còn ra tiền từ 07/09/2026 — khoản này đã bỏ. Số cũ giữ lại để tra lịch sử; cần trả thâm niên thì khai bằng khoản Danh mục bên dưới.",
       taxable: true,
       value: phuCapThamNien,
       set: setPhuCapThamNien,
-    },
+      readOnly: true,
+        }] as SysRow[]
+      : []),
   ];
-  const sysThu = sysRows.reduce((s, r) => s + r.value, 0);
+  // Tổng "ô cố định" chỉ cộng các ô CÒN RA TIỀN — hai ô đã ngưng (readOnly) không vào đây, không
+  // thì con số nhắc ở cuối màn cao hơn lương thật của người còn số cũ.
+  const sysThu = sysRows.reduce((s, r) => s + (r.readOnly ? 0 : r.value), 0);
 
   // --- Khối thuế TNCN --------------------------------------------------------
   // Người phụ thuộc lấy từ HỒ SƠ (ô `dependents_count` đã có sẵn ở đó) — ở đây chỉ nhẩm hộ.
@@ -1021,7 +1033,9 @@ export function SalaryModal({
               <button
                 className="btn btn--primary"
                 onClick={saveSalary}
-                disabled={busy}
+                // Chưa đọc được lịch sử lương thì mọi ô đang là 0 — Lưu lúc này là ghi mốc mới xoá
+                // trắng 6 trường tiền (bản rà E1, 07/09/2026).
+                disabled={busy || history === null}
               >
                 {busy ? "Đang lưu…" : "Lưu điều chỉnh"}
               </button>
@@ -1046,7 +1060,7 @@ export function SalaryModal({
                 </>
               ) : (
                 <>
-                  Đóng BH trên lương cơ bản <b>{money(bhBase)}đ</b>, nhân viên
+                  Đóng BH trên mức nền <b>{money(bhBase)}đ</b>, nhân viên
                   đóng gồm:
                   <br />· BHXH {pctOf(params.bhxh_rate)}% ={" "}
                   <b>{money(bhxhAmt)}đ</b>

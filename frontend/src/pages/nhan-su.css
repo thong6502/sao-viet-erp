@@ -262,21 +262,125 @@ button.ns__kpi {
   outline: none;
 }
 
+.ns-search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--ash-2, #94a3b8);
+  padding: 0;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.ns-search-clear:hover {
+  color: var(--ink, #14130f);
+  background: var(--rule-hair, #f1f5f9);
+}
+
 /* nowrap có chủ đích: với flex-wrap, trình duyệt XUỐNG DÒNG trước rồi mới co,
    nên 4 select + nút Excel luôn bị đẩy thành 2 hàng dù thừa chỗ để co.
    Cho co xuống min-width thay vì rớt dòng; màn hẹp thật thì media query bên dưới lo. */
+.ns-search-wrapper {
+  flex: 1 1 220px;
+  min-width: 180px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  order: 1;
+}
+
 .ns2__filters {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   display: flex;
   gap: 8px;
   flex-wrap: nowrap;
   align-items: center;
-  justify-content: flex-end;
+  order: 2;
+  margin-left: auto;
 }
 
-@media (max-width: 1180px) {
+.ns-btn-excel {
+  order: 3;
+}
+
+/* ── Tablet / iPad (769px – 1180px) ───────────────────────────────────
+   Bố cục 2 tầng cân xứng:
+     - Hàng 1: Ô tìm kiếm co giãn bên trái + Nút Xuất Excel bên phải
+     - Hàng 2: 4 select bộ lọc dàn đều 4 cột ngang bằng nhau */
+@media (min-width: 769px) and (max-width: 1180px) {
+  .ns {
+    padding: 16px 18px;
+  }
+
+  .ns2__toolbar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    gap: 10px 12px;
+    width: 100%;
+  }
+
+  /* Hàng 1 bên trái: Ô tìm kiếm */
+  .ns-search-wrapper {
+    grid-row: 1;
+    grid-column: 1;
+    width: 100%;
+    min-width: 0;
+    order: initial;
+  }
+
+  .ns__search {
+    height: 38px;
+    font-size: 13px;
+  }
+
+  /* Hàng 1 bên phải: Nút Xuất Excel */
+  .ns-btn-excel {
+    grid-row: 1;
+    grid-column: 2;
+    height: 38px;
+    width: auto;
+    margin-left: 0;
+    order: initial;
+    white-space: nowrap;
+  }
+
+  /* Hàng 2: Lưới 4 select chia đều 4 cột */
   .ns2__filters {
-    flex-wrap: wrap;
+    grid-row: 2;
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+    margin-left: 0;
+    order: initial;
+  }
+
+  .ns-select-wrapper {
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .ns-select-wrapper select {
+    height: 38px;
+    font-size: 13px;
+  }
+
+  /* Bảng danh sách hỗ trợ cuộn ngang mượt mà trên iPad */
+  .ns-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 
@@ -1175,6 +1279,10 @@ button.ns__kpi {
   font-size: 11px;
   line-height: 1.4;
   color: var(--ash-2);
+}
+.ns-info-field__action {
+  display: block;
+  margin-top: 6px;
 }
 
 .ns-inforow {
@@ -2244,4 +2352,381 @@ button.ns__kpi {
   line-height: 1.45;
   text-align: right;
   color: var(--danger, #dc2626);
+}
+
+/* ── Chuẩn hoá font số tabular-nums ── */
+.ns-num {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Mobile Cards cho danh sách nhân sự (< 768px) ── */
+.ns-cards-wrapper {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ns-mobile-card {
+  background: var(--paper, #ffffff);
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: var(--r-4, 12px);
+  padding: 14px;
+  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.04);
+  cursor: pointer;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  user-select: none;
+}
+
+.ns-mobile-card:hover,
+.ns-mobile-card:focus-visible {
+  border-color: var(--rust, #c5400a);
+  box-shadow: 0 3px 10px rgba(197, 64, 10, 0.08);
+  outline: none;
+}
+
+.ns-mobile-card__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ns-mobile-card__title-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ns-mobile-card__title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ns-mobile-card__name {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--ink, #14130f);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-mobile-card__badge-col {
+  flex-shrink: 0;
+}
+
+.ns-mobile-card__meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--rule-soft, #e8e3d3);
+}
+
+.ns-mobile-card__meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ns-mobile-card__meta-label {
+  font-size: 11px;
+  color: var(--ash, #6b665b);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.ns-mobile-card__meta-val {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink, #14130f);
+}
+
+/* ── Slide-over Drawer Nhân sự (.ns-detail-drawer) ── */
+.ns-detail-drawer {
+  width: min(740px, 95vw);
+  background: var(--canvas);
+}
+
+.ns-drawer__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--paper);
+  border-top: 4px solid var(--rust);
+  flex-shrink: 0;
+}
+
+.ns-drawer__head-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ns-drawer__head-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.ns-avatar--drawer {
+  width: 50px;
+  height: 50px;
+  font-size: 18px;
+  border-radius: 50%;
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  border: 2px solid var(--rule-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.ns-avatar--drawer img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ns-drawer__head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.ns-drawer__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ns-detail__meta-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.ns-detail__meta-wrap .ns-detail__meta {
+  color: var(--ash);
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.ns-detail__meta-wrap .ns-detail__meta svg {
+  color: var(--ash);
+  opacity: 0.8;
+  flex-shrink: 0;
+}
+
+/* ── Stepper Mobile & Callout Box ── */
+.ns-wizard__mobile-stepper {
+  display: none;
+  padding: 12px 16px;
+  background: var(--canvas);
+  border-bottom: 1px solid var(--rule-soft);
+  flex-shrink: 0;
+}
+
+.ns-wizard__mobile-stepper-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.ns-wizard__mobile-step-num {
+  font-weight: 700;
+  color: var(--rust);
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+}
+
+.ns-wizard__mobile-step-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ns-wizard__progress-track {
+  height: 4px;
+  background: var(--rule-soft);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.ns-wizard__progress-fill {
+  height: 100%;
+  background: var(--rust);
+  border-radius: 999px;
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Callout Box Tokens */
+.ns-callout {
+  padding: 12px 14px;
+  border-radius: var(--r-3, 8px);
+  border-left: 3.5px solid var(--rule);
+  background: var(--paper);
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: 0 1px 4px rgba(20, 19, 15, 0.03);
+}
+
+.ns-callout__title {
+  font-weight: 700;
+  margin-bottom: 3px;
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+}
+
+.ns-callout__text {
+  color: var(--ash);
+  font-size: 12.5px;
+}
+
+.ns-callout--info {
+  border-left-color: var(--plum, #733c7a);
+}
+.ns-callout--info .ns-callout__title {
+  color: var(--plum, #733c7a);
+}
+
+.ns-callout--amber {
+  border-left-color: var(--amber, #9c7714);
+}
+.ns-callout--amber .ns-callout__title {
+  color: var(--amber-deep, #7a5c0f);
+}
+
+/* ── Responsive Queries cập nhật ── */
+@media (max-width: 768px) {
+  /* Khung bao ngoài & Header */
+  .ns {
+    padding: 12px 14px;
+  }
+  .ns__head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+  }
+  .ns2__headact {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Khung điều khiển & Thanh công cụ */
+  .ns2__controls {
+    padding: 10px 12px;
+  }
+  .ns2__toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+  }
+
+  /* Ô tìm kiếm mobile full width */
+  .ns-search-wrapper {
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 100%;
+    order: 1;
+  }
+  .ns__search {
+    height: 40px;
+    font-size: 13.5px;
+  }
+
+  /* Lưới bộ lọc: 2 cột x 2 hàng cho 4 select */
+  .ns2__filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+    justify-content: stretch;
+    order: 2;
+    margin-left: 0;
+  }
+  .ns-select-wrapper {
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+  .ns-select-wrapper select {
+    height: 40px;
+    font-size: 13px;
+  }
+  .ns-btn-excel {
+    order: 3;
+    width: 100%;
+    height: 40px;
+    justify-content: center;
+    margin-left: 0;
+  }
+
+  .ns-table-wrapper {
+    display: none !important;
+  }
+  .ns-cards-wrapper {
+    display: flex;
+  }
+  .ns-detail-drawer {
+    width: 100vw;
+    border-radius: 0;
+  }
+  .ns-detail__actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .ns-detail__shortcuts,
+  .ns-detail__ops {
+    flex-wrap: wrap;
+  }
+  .ns2-detail__tabs {
+    scrollbar-width: none;
+  }
+  .ns2-detail__tabs::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .ns-steps--desktop {
+    display: none !important;
+  }
+  .ns-wizard__mobile-stepper {
+    display: block;
+  }
+  .ns-modal {
+    padding: 0;
+  }
+  .ns-modal__box--wide {
+    width: 100%;
+    height: 100%;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
 }
