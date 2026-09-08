@@ -8,6 +8,13 @@ import {
   Clock,
   TrendingDown,
   Search,
+  RefreshCw,
+  Lock,
+  Unlock,
+  CheckCircle2,
+  RotateCcw,
+  Send,
+  X,
 } from "lucide-react";
 import {
   api,
@@ -200,160 +207,164 @@ export function BangLuongTab({
   return (
     <div>
       <div className="cc-toolbar cc-ts-toolbar lg-toolbar">
-        <div className="lg-date-wrapper">
-          <span className="lg-date-icon">
-            <Calendar size={14} />
-          </span>
-          <MonthPicker value={ym} onChange={setYm} ariaLabel="Kỳ lương" />
-        </div>
-        <div className="lg-search-wrapper">
-          <span className="lg-search-icon">
-            <Search size={14} />
-          </span>
-          <input
-            className="lg-search-input"
-            placeholder="Tìm theo tên / mã…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-        </div>
-        {dsPhong.length > 1 && (
-          <select
-            className="lg-dept-filter"
-            value={dept}
-            onChange={(e) => setDept(e.target.value)}
-            title="Lọc theo Phòng / Tổ"
-          >
-            <option value="all">Tất cả phòng / tổ</option>
-            {dsPhong.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-        )}
-        <div className="lg-seg">
-          {(["all", "ct", "tv"] as const).map((f) => (
-            <button
-              key={f}
-              className={filter === f ? "is-active" : ""}
-              onClick={() => setFilter(f)}
+        {/* Nhóm bộ lọc (bên trái) */}
+        <div className="lg-toolbar-filters">
+          <div className="lg-date-wrapper">
+            <span className="lg-date-icon">
+              <Calendar size={14} />
+            </span>
+            <MonthPicker value={ym} onChange={setYm} ariaLabel="Kỳ lương" />
+          </div>
+          <div className="lg-search-wrapper">
+            <span className="lg-search-icon">
+              <Search size={14} />
+            </span>
+            <input
+              className="lg-search-input"
+              placeholder="Tìm theo tên / mã…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            {q && (
+              <button
+                type="button"
+                className="lg-search-clear"
+                onClick={() => setQ("")}
+                title="Xóa tìm kiếm"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+          {dsPhong.length > 1 && (
+            <select
+              className="lg-dept-filter"
+              value={dept}
+              onChange={(e) => setDept(e.target.value)}
+              title="Lọc theo Phòng / Tổ"
             >
-              {f === "all" ? "Tất cả" : f === "ct" ? "Chính thức" : "Thử việc"}
-            </button>
-          ))}
+              <option value="all">Tất cả phòng / tổ</option>
+              {dsPhong.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          )}
+          <div className="lg-seg">
+            {(["all", "ct", "tv"] as const).map((f) => (
+              <button
+                key={f}
+                className={filter === f ? "is-active" : ""}
+                onClick={() => setFilter(f)}
+              >
+                {f === "all" ? "Tất cả" : f === "ct" ? "Chính thức" : "Thử việc"}
+              </button>
+            ))}
+          </div>
         </div>
-        {/* Nút CAM (`btn--accent`) = việc chính của màn. "Tính lại" và "Khởi tạo bảng lương" là
-            CÙNG một việc ở hai trạng thái nên cùng vai; hai nút KHÔNG BAO GIỜ hiện cùng lúc
-            ("Tính lại" đòi `period`, "Khởi tạo" nằm trong nhánh `!period`) nên vẫn đúng luật
-            MỖI MÀN CHỈ MỘT NÚT CAM. Thêm nút cam thứ hai vào thanh này là phá luật đó.
-            ⚠️ `btn--primary` trong bộ CSS này ra màu NAVY, không phải cam — đừng "sửa" ngược lại. */}
-        {canManage && isDraft && period && (
-          <button
-            className="btn btn--accent"
-            onClick={() => run(() => api.luong.generate(token, year, month))}
-            disabled={busy}
-          >
-            {busy ? "Đang tính…" : "↻ Tính lại"}
-          </button>
-        )}
-        {canLockPeriod && period && isDraft && (
-          // Kỳ công chưa chốt ⇒ KHOÁ nút chứ không để bấm rồi ăn lỗi đỏ (luật đợt 5). `title` là
-          // chỗ DUY NHẤT nói được lý do khi nút đã xám, nên phải nói rõ phải làm gì tiếp.
-          <button
-            className="btn btn--ghost"
-            onClick={() => run(() => api.luong.lock(token, year, month))}
-            disabled={busy || Boolean(chanChotLyDo)}
-            title={chanChotLyDo ?? undefined}
-          >
-            🔒 Chốt
-          </button>
-        )}
-        {canLockPeriod && locked && (
-          <button
-            className="btn btn--ghost"
-            onClick={() => run(() => api.luong.reopen(token, year, month))}
-            disabled={busy}
-          >
-            Mở lại
-          </button>
-        )}
-        {canMarkPaid && locked && (
-          <button
-            className="btn btn--primary"
-            onClick={() => run(() => api.luong.pay(token, year, month))}
-            disabled={busy}
-          >
-            💵 Đã chi
-          </button>
-        )}
-        {canMarkPaid && paid && (
-          <button
-            className="btn btn--ghost"
-            onClick={() =>
-              run(() => api.luong.unpay(token, year, month, "hủy đã chi"))
-            }
-            disabled={busy}
-          >
-            ↩ Hủy đã chi
-          </button>
-        )}
-        {/* CÔNG BỐ PHIẾU LƯƠNG (12/08/2026) — trả lời câu "KHI NÀO người lao động thấy phiếu".
-            Chỉ hiện khi kỳ ĐÃ CHỐT: bản nháp thì số chưa đóng băng, phát ra là mời người ta đọc
-            một con số sắp đổi. Gác chung ô quyền với Chốt bảng lương (đường 2 — bớt ô để quên). */}
-        {canLockPeriod && (locked || paid) && (
-          <button
-            className="btn btn--ghost"
-            onClick={() =>
-              setCongBo((v) => (v ? null : { mo: "", dong: "" }))
-            }
-            disabled={busy}
-            title="Chọn khoảng thời gian người lao động xem được phiếu lương của kỳ này."
-          >
-            📤 {period?.cong_bo_luc ? "Đổi lịch phiếu" : "Công bố phiếu"}
-          </button>
-        )}
-        {canLockPeriod && period?.cong_bo_luc && (
-          <button
-            className="btn btn--ghost"
-            onClick={() => run(() => api.luong.thuHoi(token, year, month))}
-            disabled={busy}
-            title="Rút phiếu lại — người lao động thôi thấy ngay lập tức."
-          >
-            ↩ Thu hồi phiếu
-          </button>
-        )}
-        {/* Ký tự ⬇ gõ thẳng trong chuỗi đã bỏ: mỗi hệ điều hành vẽ một kiểu, không nhận màu/kích
-            thước theo nút. Dùng icon thật. Bộ `components/Icons.tsx` KHÔNG có glyph tải xuống
-            (đã soát: gần nhất chỉ là `chevron` — mũi tên xuống của menu, đọc thành "mở danh
-            sách"), nên lấy `Download` của lucide đúng như màn Nhân sự đang dùng cho CHÍNH nút
-            "Xuất Excel" (NhanSuPage.tsx:654). Nhãn giữ nguyên: backend nay sinh .xlsx thật. */}
-        {canExportPayroll && period && (
-          <button
-            className="btn btn--ghost"
-            onClick={() => downloadXlsx("table")}
-            disabled={busy}
-          >
-            <Download size={14} /> Xuất Excel
-          </button>
-        )}
-        {canExportPayroll && (locked || paid) && (
-          <button
-            className="btn btn--ghost"
-            onClick={() => downloadXlsx("bank")}
-            disabled={busy}
-          >
-            <Download size={14} /> File chuyển khoản
-          </button>
-        )}
-        {locked && <span className="ns-badge ns-badge--muted">Đã chốt</span>}
-        {paid && (
-          <span className="ns-badge ns-badge--muted">
-            💵 Đã chi
-            {/* `fmtDateTime` (utils/format) chứ không phải `new Date().toLocaleDateString`:
-                backend trả mốc thời gian UTC KHÔNG có hậu tố Z, để `new Date()` tự hiểu là giờ
-                địa phương thì ngày chi lệch mất một hôm nếu chi vào đầu/cuối ngày. */}
-            {period?.paid_at ? ` ${fmtDateTime(period.paid_at)}` : ""}
-          </span>
-        )}
+
+        {/* Nhóm thao tác & xuất file (bên phải) */}
+        <div className="lg-toolbar-actions">
+          {canManage && isDraft && period && (
+            <button
+              className="btn btn--accent"
+              onClick={() => run(() => api.luong.generate(token, year, month))}
+              disabled={busy}
+            >
+              <RefreshCw size={14} className={busy ? "spin" : ""} />
+              {busy ? "Đang tính…" : "Tính lại"}
+            </button>
+          )}
+          {canLockPeriod && period && isDraft && (
+            <button
+              className="btn btn--ghost"
+              onClick={() => run(() => api.luong.lock(token, year, month))}
+              disabled={busy || Boolean(chanChotLyDo)}
+              title={chanChotLyDo ?? undefined}
+            >
+              <Lock size={14} /> Chốt
+            </button>
+          )}
+          {canLockPeriod && locked && (
+            <button
+              className="btn btn--ghost"
+              onClick={() => run(() => api.luong.reopen(token, year, month))}
+              disabled={busy}
+            >
+              <Unlock size={14} /> Mở lại
+            </button>
+          )}
+          {canMarkPaid && locked && (
+            <button
+              className="btn btn--primary"
+              onClick={() => run(() => api.luong.pay(token, year, month))}
+              disabled={busy}
+            >
+              <CheckCircle2 size={14} /> Đã chi
+            </button>
+          )}
+          {canMarkPaid && paid && (
+            <button
+              className="btn btn--ghost"
+              onClick={() =>
+                run(() => api.luong.unpay(token, year, month, "hủy đã chi"))
+              }
+              disabled={busy}
+            >
+              <RotateCcw size={14} /> Hủy đã chi
+            </button>
+          )}
+          {canLockPeriod && (locked || paid) && (
+            <button
+              className="btn btn--ghost"
+              onClick={() =>
+                setCongBo((v) => (v ? null : { mo: "", dong: "" }))
+              }
+              disabled={busy}
+              title="Chọn khoảng thời gian người lao động xem được phiếu lương của kỳ này."
+            >
+              <Send size={14} /> {period?.cong_bo_luc ? "Đổi lịch phiếu" : "Công bố phiếu"}
+            </button>
+          )}
+          {canLockPeriod && period?.cong_bo_luc && (
+            <button
+              className="btn btn--ghost"
+              onClick={() => run(() => api.luong.thuHoi(token, year, month))}
+              disabled={busy}
+              title="Rút phiếu lại — người lao động thôi thấy ngay lập tức."
+            >
+              <RotateCcw size={14} /> Thu hồi phiếu
+            </button>
+          )}
+          {canExportPayroll && period && (
+            <button
+              className="btn btn--ghost"
+              onClick={() => downloadXlsx("table")}
+              disabled={busy}
+            >
+              <Download size={14} /> Xuất Excel
+            </button>
+          )}
+          {canExportPayroll && (locked || paid) && (
+            <button
+              className="btn btn--ghost"
+              onClick={() => downloadXlsx("bank")}
+              disabled={busy}
+            >
+              <Download size={14} /> File chuyển khoản
+            </button>
+          )}
+          {locked && (
+            <span className="ns-badge ns-badge--muted">
+              <Lock size={12} /> Đã chốt
+            </span>
+          )}
+          {paid && (
+            <span className="ns-badge ns-badge--ok">
+              <CheckCircle2 size={12} /> Đã chi
+              {period?.paid_at ? ` ${fmtDateTime(period.paid_at)}` : ""}
+            </span>
+          )}
+        </div>
       </div>
 
       {err && (
@@ -680,8 +691,8 @@ export function BangLuongTab({
           <table className="ns__table">
             <thead>
               <tr>
-                <th>Mã</th>
-                <th>Họ tên</th>
+                <th className="lg-sticky-code">Mã</th>
+                <th className="lg-sticky-name">Họ tên</th>
                 <th>Phòng/Tổ</th>
                 <th className="lg-num">Công</th>
                 <th className="lg-num">Lương công</th>
@@ -708,14 +719,14 @@ export function BangLuongTab({
                 {/* Tên cột thống nhất toàn hệ là "Thao tác" (không phải "Hành động"), và có CHỮ
                     chứ không để trống — ô trống thì người đọc bảng 16 cột không biết cột cuối
                     làm gì. `lg-actcol` canh phải để tiêu đề đứng thẳng cột nút. */}
-                <th className="lg-actcol">Thao tác</th>
+                <th className="lg-actcol lg-sticky-act">Thao tác</th>
               </tr>
             </thead>
             <tbody>
               {shown.map((l) => (
                 <tr key={l.id}>
-                  <td className="ns__code">{l.employee_code}</td>
-                  <td>
+                  <td className="ns__code lg-sticky-code">{l.employee_code}</td>
+                  <td className="lg-sticky-name">
                     {l.employee_name}{" "}
                     {l.chua_khai_luong && (
                       <span
@@ -843,7 +854,7 @@ export function BangLuongTab({
                     {!l.advance_total && !l.luong_dot_1_total && !(l.no_ung_ky_truoc ?? 0) ? "—" : null}
                   </td>
                   <td className="lg-num lg-net">{money(l.net_pay)}</td>
-                  <td className="lg-rowact">
+                  <td className="lg-rowact lg-sticky-act">
                     {canManage && !locked && (
                       <RowActionButton
                         dense
@@ -861,13 +872,10 @@ export function BangLuongTab({
                   </td>
                 </tr>
               ))}
-              {/* colSpan=18 = ĐÚNG số cột đang hiện (16 → 17 khi tách cột "Hoa hồng" → 18 khi
-                  thêm "Khoán km", cùng ngày 24/08/2026). Bảng này KHÔNG ẩn/hiện cột theo quyền
-                  (chỉ nút trong ô Thao tác mới theo quyền) nên số cứng là đúng — thêm/bớt <th>
-                  thì phải sửa cả số này lẫn colSpan của <tfoot> bên dưới. */}
+              {/* colSpan=19 = ĐÚNG số cột đang hiện trong bảng. */}
               {shown.length === 0 && (
                 <EmptyRow
-                  colSpan={18}
+                  colSpan={19}
                   trangThai={
                     listErr ? "loi" : listLoading ? "dang-tai" : "rong"
                   }
@@ -905,9 +913,9 @@ export function BangLuongTab({
             </tbody>
             <tfoot>
               <tr className="lg-foot">
-                <td colSpan={16}>Tổng thực lĩnh ({shown.length} người)</td>
+                <td colSpan={17}>Tổng thực lĩnh ({shown.length} người)</td>
                 <td className="lg-num lg-net">{money(totalNet)}</td>
-                <td></td>
+                <td className="lg-sticky-act"></td>
               </tr>
             </tfoot>
           </table>

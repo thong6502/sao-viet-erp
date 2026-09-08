@@ -105,7 +105,57 @@
   box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
 }
 
-.lg-toolbar { flex-wrap: wrap; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+.lg-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.lg-toolbar-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.lg-toolbar-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.lg-toolbar .btn {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  padding: 0 14px;
+  white-space: nowrap;
+}
+.lg-search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--ash-2);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all var(--duration-fast);
+}
+.lg-search-clear:hover {
+  color: var(--ink);
+  background: var(--rule-soft);
+}
 
 /* Hạn mức tạm ứng còn lại — hiện TRƯỚC ô nhập tiền để NV khỏi gõ đại rồi ăn lỗi. */
 .lg-quota {
@@ -185,37 +235,89 @@
   color: var(--on-charcoal);
 }
 
-/* Bảng lương — số căn phải, thực lĩnh nổi bật */
+/* Bảng lương — số căn phải, thực lĩnh nổi bật, sticky 2 đầu */
 .lg-table {
   border-radius: var(--r-5);
   box-shadow: var(--shadow-1);
   border: 1px solid var(--rule-soft);
-  overflow: hidden;
+  overflow-x: auto;
   background: var(--canvas);
 }
 .lg-table .ns__table {
   margin-top: 0;
   border-collapse: collapse;
+  min-width: 1400px;
 }
 .lg-table .ns__table th {
   background: var(--paper-contrast);
   color: var(--ash);
   font-weight: var(--fw-bold);
-  font-size: 12px;
+  font-size: 11.5px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border-bottom: 2px solid var(--rule);
+  padding: 10px 12px;
 }
-.lg-table .ns__table th, .lg-table .ns__table td { padding: 8px 12px; white-space: nowrap; }
-.lg-table .ns__table tbody tr:hover {
-  background: var(--rule-hair);
+.lg-table .ns__table th, .lg-table .ns__table td { padding: 9px 12px; white-space: nowrap; }
+.lg-table .ns__table tbody tr:hover td {
+  background: var(--rust-soft) !important;
 }
-.lg-num {   font-family: var(--ff-num);
-  text-align: right; font-variant-numeric: tabular-nums; }
-.lg-net { font-weight: var(--fw-bold); color: var(--moss-deep); font-size: 14.5px; }
+.lg-num {
+  font-family: var(--ff-num);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.lg-net {
+  font-weight: var(--fw-bold);
+  color: var(--moss-deep);
+  font-size: 14px;
+  background: rgba(47, 93, 58, 0.04);
+}
 .lg-minus { color: var(--rust); font-weight: var(--fw-medium); }
 .lg-plus-val { color: var(--moss-deep); }
 .lg-foot td { border-top: 2px solid var(--rule); font-weight: var(--fw-bold); background: var(--paper-contrast); }
+
+/* Cố định cột Mã + Họ tên (trái) và Thao tác (phải) khi cuộn bảng */
+.lg-table th.lg-sticky-code,
+.lg-table td.lg-sticky-code {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--canvas);
+}
+.lg-table th.lg-sticky-code {
+  background: var(--paper-contrast);
+  z-index: 3;
+}
+.lg-table th.lg-sticky-name,
+.lg-table td.lg-sticky-name {
+  position: sticky;
+  left: 68px;
+  z-index: 2;
+  background: var(--canvas);
+  box-shadow: 2px 0 6px rgba(15, 23, 42, 0.04);
+}
+.lg-table th.lg-sticky-name {
+  background: var(--paper-contrast);
+  z-index: 3;
+}
+.lg-table th.lg-sticky-act,
+.lg-table td.lg-sticky-act {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: var(--canvas);
+  box-shadow: -2px 0 6px rgba(15, 23, 42, 0.04);
+}
+.lg-table th.lg-sticky-act {
+  background: var(--paper-contrast);
+  z-index: 3;
+}
+.lg-table .ns__table tbody tr:hover td.lg-sticky-code,
+.lg-table .ns__table tbody tr:hover td.lg-sticky-name,
+.lg-table .ns__table tbody tr:hover td.lg-sticky-act {
+  background: var(--rust-soft) !important;
+}
 
 /* Modal rộng cho Lương nhân viên */
 .ns-modal__box--wide { max-width: 720px; width: 92vw; }
@@ -359,49 +461,36 @@
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-5);
-  padding: 10px 14px;
-  box-shadow: 0 2px 8px rgba(20, 19, 15, 0.02);
+  padding: 12px 16px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
   position: relative;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  transition: all 0.25s ease;
+  gap: 3px;
+  transition: all 0.2s ease;
 }
 .lg-kpi-card:hover {
   transform: translateY(-1px);
-  box-shadow: var(--shadow-3);
+  box-shadow: var(--shadow-2);
   border-color: var(--rule);
 }
-.lg-kpi-card::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 3px;
-  height: 100%;
-  background: var(--rule);
-}
-.lg-kpi-card--net::after { background: var(--moss); }
-.lg-kpi-card--staff::after { background: var(--steel); }
-.lg-kpi-card--workday::after { background: var(--amber); }
-.lg-kpi-card--deduct::after { background: var(--rust); }
 
 .lg-kpi-card-header {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  margin-bottom: 1px;
+  margin-bottom: 2px;
 }
 .lg-kpi-card-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--r-2);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
   color: var(--ash);
   background: var(--rule-hair);
+  flex-shrink: 0;
 }
 .lg-kpi-card--net .lg-kpi-card-icon { background: var(--moss-soft); color: var(--moss-deep); }
 .lg-kpi-card--staff .lg-kpi-card-icon { background: var(--steel-soft); color: var(--steel); }
@@ -409,21 +498,23 @@
 .lg-kpi-card--deduct .lg-kpi-card-icon { background: var(--rust-soft); color: var(--rust-deep); }
 
 .lg-kpi-card-label {
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: var(--fw-bold);
   color: var(--ash);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 .lg-kpi-card-val {
-  font-family: var(--ff-sans);
-  font-size: 16px;
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
   font-weight: var(--fw-bold);
   color: var(--ink);
-  margin-top: 1px;
+  margin-top: 2px;
+  letter-spacing: -0.01em;
 }
 .lg-kpi-card-sub {
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--ash-2);
   margin-top: 1px;
 }
@@ -1179,9 +1270,22 @@
   opacity: 0.85;
 }
 
-/* Nút dạng liên kết trong ghi chú ô "Đi trễ" (đổi tự động ⇄ sửa tay). */
-.lg-linkbtn { background: none; border: none; padding: 0; font: inherit; color: var(--rust);
-  cursor: pointer; text-decoration: underline; }
+.lg-linkbtn {
+  background: none;
+  border: none;
+  padding: 1px 4px;
+  font: inherit;
+  color: var(--rust);
+  cursor: pointer;
+  border-radius: var(--r-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: all var(--duration-fast);
+}
+.lg-linkbtn:hover {
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+}
 
 /* ==========================================================================
    Danh mục khoản thu nhập (Cấu hình lương, tab con 2) + danh sách khoản của
