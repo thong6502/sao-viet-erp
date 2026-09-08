@@ -72,9 +72,9 @@ class BaiGhepCongDoan(Base):
     # --- Phân công: MỘT lượt chạy thì một tổ, một máy, một kíp ---
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
-    so_nhan_cong: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)
     # Mirror `lsx_cong_doan.so_nhan_cong_tieu_chuan` — bước chung của bài cũng là một bước có kế
-    # hoạch. Hai mốc tối thiểu/tối đa gỡ cùng đợt (migration `0270`).
+    # hoạch, và cũng là con số nhân lực DUY NHẤT của nó. Hai mốc tối thiểu/tối đa gỡ ở mg `0270`,
+    # ô "số người bố trí" (`so_nhan_cong`) gỡ ở mg `0281` vì luôn là bản sao của cột này.
     so_nhan_cong_tieu_chuan: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1", default=1
     )

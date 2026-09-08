@@ -69,7 +69,7 @@ LB_TO = "to"                   # chiếm TỔ lao động (dán tay, đóng gói
 LB_THUE_NGOAI = "thue_ngoai"   # nhà gia công làm — máy của họ khai trong danh mục Máy; nhập
                                # liệu Y HỆT bước máy, chỉ KHÔNG sinh tiền khoán / sản lượng tổ
 LOAI_BUOC = (LB_MAY, LB_TO, LB_THUE_NGOAI)
-# Bước chiếm tổ (nhiều người làm song song được → `so_nhan_cong` chia thời gian chạy).
+# Bước chiếm tổ (nhiều người làm song song được → `so_nhan_cong_tieu_chuan` chia thời gian chạy).
 LOAI_BUOC_THEO_TO = (LB_TO,)
 
 # Nhãn TẠM của bước chưa đặt tên và chưa gắn công đoạn. Cột `lsx_cong_doan.ten` NOT NULL nên phải
@@ -274,15 +274,12 @@ class LsxCongDoan(Base):
     # cộng THẲNG vào thời gian chiếm máy. Chuẩn bị/tốc độ nay kế thừa từ máy, không sửa tại bước.
     phat_sinh_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
     di_chuyen_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
-    # Số người/máy chạy ĐỒNG THỜI (BC: Concurrent Capacities) — 5 người dán thì thời gian chạy ÷ 5.
-    # Chỉ có nghĩa với bước chiếm tổ; bước chiếm máy để 1.
-    so_nhan_cong: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="1", default=1
-    )
     # Kíp CHUẨN chụp từ công đoạn lúc bung/chọn đầu việc — kế thừa là MẶC ĐỊNH, sửa được tại bước.
     # Bước tổ chia thời lượng cho số này; bàn tổ đóng băng nó lúc phát hành để đối chiếu điểm danh.
     # Hai mốc tối thiểu/tối đa ĐÃ GỠ 06/09/2026 (migration `0270`) cùng lúc với hai cột nguồn ở
-    # `cong_doan_dau_viec` — nhân lực nay chỉ còn MỘT con số xuyên suốt.
+    # `cong_doan_dau_viec`. Ô "số người bố trí" (`so_nhan_cong`) GỠ nốt 08/09/2026 (mg `0281`) —
+    # nó luôn là bản sao của cột này; kíp chuẩn nay gánh CẢ HAI vai: chia thời lượng bước tổ VÀ
+    # là số bàn xếp lịch cộng dồn để cân quân số tổ. Nhân lực còn MỘT con số xuyên suốt.
     so_nhan_cong_tieu_chuan: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1", default=1
     )

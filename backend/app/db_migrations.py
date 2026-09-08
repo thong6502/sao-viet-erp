@@ -12557,3 +12557,35 @@ def _migrate_hang_loai_vat_tu_buoc(db: Session) -> None:
 
 
 MIGRATIONS.append(("0280_hang_loai_vat_tu_buoc", _migrate_hang_loai_vat_tu_buoc))
+
+
+def _migrate_go_so_nguoi_bo_tri(db) -> None:
+    """Gỡ ô "số người bố trí" — nhân lực của bước còn MỘT con số (08/09/2026).
+
+    Nghiệp vụ: bước lệnh (và bước chung bài ghép) có hai ô người đứng cạnh nhau — "số người bố
+    trí (kế hoạch)" và "kíp chuẩn". Chúng KHÔNG phải hai đại lượng: mọi đường sinh `so_nhan_cong`
+    đều chép từ đúng cùng một nguồn `cong_doan_dau_viec.so_nguoi_tieu_chuan` như kíp chuẩn, nên
+    hai ô luôn hiện cùng một số cho tới khi ai đó gõ tay đè lên một ô. Đây là đợt tiếp của `0270`
+    (gộp 4 mốc định mức nhân lực về 1), cùng lý lẽ.
+
+    Kíp chuẩn nay gánh cả hai vai: chia thời lượng bước tổ (`thoi_luong_buoc`) VÀ là số bàn xếp
+    lịch cộng dồn để dò đỉnh quân số tổ (`XepLichService._so_nguoi_dong`, `TinhHuong._so_nguoi`).
+
+    MẤT THEO — KHÔNG backfill: bước nào đang có `so_nhan_cong` khác kíp chuẩn thì số đó mất.
+    Cố ý: gõ "6 người bố trí" trong khi kíp chuẩn 2 nghĩa là tổ dồn 6 người vào, chép 6 sang kíp
+    chuẩn sẽ nhân 6 vào công thức và rút thời lượng còn 1/3 — bịa số tệ hơn là mất số.
+
+    Chỉ DROP khi cột còn: DB fresh (create_all theo model đã bỏ cột) rơi vào nhánh bỏ qua, nên
+    DB trung gian chạy tới đây cho kết quả bằng DB fresh.
+    """
+    insp = inspect(db.get_bind())
+    bang_co = set(insp.get_table_names())
+    for bang in ("lsx_cong_doan", "bai_ghep_cong_doan"):
+        if bang not in bang_co:
+            continue
+        if "so_nhan_cong" in _existing_columns(insp, bang):
+            db.execute(text(f"ALTER TABLE {bang} DROP COLUMN so_nhan_cong"))
+    db.commit()
+
+
+MIGRATIONS.append(("0281_go_so_nguoi_bo_tri", _migrate_go_so_nguoi_bo_tri))

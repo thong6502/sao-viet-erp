@@ -211,7 +211,8 @@ Test khoá:
 ### §2b. Trường backend nhận mà FE không có ô nhập (17 + vật tư)
 
 `_SUA_DUOC_BUOC_CHUNG` + `BuocChungUpdateIn` có 23 trường + `vat_tus`.
-`BuocChungForm` chỉ có: `department_id`, `may_id`, `so_nhan_cong`, `chay_phut`, `ghi_chu`,
+`BuocChungForm` chỉ có: `department_id`, `may_id`, `so_nhan_cong_tieu_chuan` (kíp chuẩn — ô
+`so_nhan_cong` gỡ ở mg `0281`), `chay_phut`, `ghi_chu`,
 `nha_cung_cap`, `don_gia_gia_cong`.
 
 **Thiếu ô nhập**: `loai_buoc`, `khoan_json`, `nang_suat`, `don_vi_nang_suat`, `setup_phut`,
