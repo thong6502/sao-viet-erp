@@ -58,8 +58,14 @@ class XepLichCongDoan(Base):
 
     __tablename__ = "xep_lich_cong_doan"
     # Query xung đột máy: gom theo máy rồi so khoảng [start_at, finish_at) → index (máy, giờ bắt đầu).
+    # Query BÀN LÀM VIỆC không có máy để bám: nó cắt theo CỬA SỔ NGÀY (`start_at <= den` +
+    # `finish_at >= tu`, lọc thêm trạng thái) và hỏi luôn nhóm nháp chưa giờ (`start_at IS NULL`).
+    # Cột dẫn là `start_at` để một index phục vụ CẢ HAI — btree Postgres đánh cả NULL nên nhánh
+    # nháp cũng bám được. Bảng lịch chỉ có tăng: một năm điều độ là vài chục nghìn dòng, mỗi lần
+    # mở bàn mà quét cả bảng thì chi phí nền cứ thế phình theo lịch sử.
     __table_args__ = (
         Index("ix_xep_lich_may_thoigian", "may_id", "start_at"),
+        Index("ix_xep_lich_start_trangthai", "start_at", "trang_thai"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

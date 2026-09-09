@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import date
 
-from sqlalchemy import Integer, case, cast, exists, func, literal, select, union_all
+from sqlalchemy import Integer, case, cast, exists, func, literal, or_, select, union_all
 
 from ..models.bai_ghep import TT_SAN_SANG as BG_SAN_SANG, BaiGhep, BaiGhepThanhVien
 from ..models.bai_ghep_cong_doan import BaiGhepCongDoan
@@ -33,6 +33,28 @@ class XepLich2Repository(XepLichRepository):
         q = select(XepLichCongDoan).where(
             XepLichCongDoan.trang_thai == TT_DA_XEP,
             XepLichCongDoan.may_id == may_id,
+            XepLichCongDoan.start_at.is_not(None),
+            XepLichCongDoan.finish_at.is_not(None),
+        )
+        if exclude_id is not None:
+            q = q.where(XepLichCongDoan.id != exclude_id)
+        return list(self.db.execute(q).scalars())
+
+    def lan_chay_khac_da_xep(
+        self, goc_id: int | None, exclude_id: int | None = None,
+    ) -> list[XepLichCongDoan]:
+        """Các LẦN CHẠY khác trong CÙNG cụm phân đoạn, đã xếp + có giờ — nền dò `trung_lan_chay`.
+
+        Cụm nhận diện bằng dòng GỐC: phân đoạn 1 giữ nguyên id gốc (`goc_dong_id` rỗng), phân đoạn
+        2..n trỏ `goc_dong_id` về nó (xem `phan_doan.tach`). Lọc theo TÀI NGUYÊN là việc của
+        `ctx.khoang_lan_chay_khac` — kho chỉ trả trọn cụm để một lượt hỏi dùng lại được cho mọi máy
+        ứng viên của cùng dòng đó.
+        """
+        if not goc_id:
+            return []
+        q = select(XepLichCongDoan).where(
+            XepLichCongDoan.trang_thai == TT_DA_XEP,
+            or_(XepLichCongDoan.id == goc_id, XepLichCongDoan.goc_dong_id == goc_id),
             XepLichCongDoan.start_at.is_not(None),
             XepLichCongDoan.finish_at.is_not(None),
         )

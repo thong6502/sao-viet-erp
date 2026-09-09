@@ -33,7 +33,7 @@ from ...repositories.xep_lich_van_de_repo import XepLichVanDeRepository
 from ..lsx_service import _f
 from ..xep_lich_service import XepLichNotFound, XepLichService, _aware, _naive
 from . import constraint as C
-from . import auto, chan_doan, overlay, release, suggestion
+from . import auto, chan_doan, overlay, release, routing as R, suggestion
 from .context import XepLich2Context
 from .thuc_te import nap_thuc_te
 
@@ -104,6 +104,9 @@ class _NhanMaps:
     bg_cd: dict[int, tuple[str, float]] = field(default_factory=dict)
     #: Khuôn/khung theo bước LSX — chỉ dòng LSX có; dòng bài ghép luôn rơi về `KHUON_TRONG`.
     khuon: dict[int, dict] = field(default_factory=dict)
+    #: Cạnh phụ thuộc THẬT `{dong_id: [dong_id tiền nhiệm]}` — để Gantt vẽ đúng DAG routing thay vì
+    #: tự nối `buoc_thu_tu` liền kề. Dòng bài ghép không có bảng phụ thuộc ⇒ vắng mặt.
+    canh: dict[int, list[int]] = field(default_factory=dict)
 
     def _cd(self, r) -> tuple[str, float] | None:
         return (self.lsx_cd.get(r.lsx_cong_doan_id) if r.nguon == NGUON_LSX
@@ -207,19 +210,30 @@ class XepLich2Service:
             goc_dong_id=getattr(dong, "goc_dong_id", None),
         )
 
-    def _tinh(self, dong: XepLichCongDoan, patch: dict) -> dict:
+    def _tinh(self, dong: XepLichCongDoan, patch: dict, *, dur: dict | None = None) -> dict:
+        """`dur` = thời lượng đã tính SẴN của đúng dòng-sau-patch (không bắt buộc).
+
+        Bàn làm việc cần cả mức nặng nhất (`muc`, qua hàm này) lẫn "râu" bóc tách của cùng một
+        thanh — hai lượt gọi engine thời lượng cho cùng một dòng, mà engine đó là phần đắt nhất
+        (~4 câu SQL mỗi lượt). Truyền vào để chạy MỘT lượt; bỏ trống thì tự tính như cũ.
+        """
         shadow = self._shadow(dong, patch)
         # TRÒN PHÚT ngay từ đây: `luu` ghi thẳng `t["start"]`/`t["finish"]` nên chuẩn hoá một chỗ
         # là cả xem-trước lẫn bản ghi đều sạch giây (xem `C.tron_phut`).
         start = C.tron_phut(
             _aware(patch["start_at"]) if "start_at" in patch else _aware(dong.start_at))
-        dur = self._thoi_luong_v2(shadow)
+        dur = dur if dur is not None else self._thoi_luong_v2(shadow)
         chiem = int(dur.get("chiem_may_phut") or 0)
         chiem_min = int(dur.get("chiem_may_phut_min") or chiem)
         chiem_max = int(dur.get("chiem_may_phut_max") or chiem)
         canh_bao = dur.get("canh_bao")
-        finish = C.finish_lien_tuc(start, chiem) if start is not None else None
-        finish_max = C.finish_lien_tuc(start, chiem_max) if start is not None else None
+        nghi = self.ctx.nghi_windows()
+        finish = C.finish_lien_tuc(start, chiem, nghi) if start is not None else None
+        # Ba mốc xong theo DẢI tốc độ máy: nhanh nhất · lịch (tốc độ danh nghĩa) · chậm nhất.
+        # `finish_max` vốn đã tính sẵn cho cảnh báo "lấn việc kế"; nay trả cả ba ra ngoài để panel
+        # nói được "xong sớm nhất / muộn nhất", khỏi để người xếp tưởng 02:03 là con số chắc chắn.
+        finish_min = C.finish_lien_tuc(start, chiem_min, nghi) if start is not None else None
+        finish_max = C.finish_lien_tuc(start, chiem_max, nghi) if start is not None else None
         van_de = self._van_de_dat_lich(
             shadow, start=start, finish=finish, finish_max=finish_max, may_id=shadow.may_id,
             department_id=shadow.department_id, canh_bao=canh_bao, exclude_id=dong.id,
@@ -227,6 +241,7 @@ class XepLich2Service:
         self._dien_doi_tuong(van_de, may_id=shadow.may_id, department_id=shadow.department_id)
         return {
             "start": start, "finish": finish, "chiem_may_phut": chiem,
+            "finish_min": finish_min, "finish_max": finish_max,
             "chiem_may_phut_min": chiem_min, "chiem_may_phut_max": chiem_max,
             "theo_may": bool(dur.get("theo_may")), "canh_bao": canh_bao, "van_de": van_de,
         }
@@ -235,8 +250,8 @@ class XepLich2Service:
                          canh_bao, exclude_id, finish_max=None) -> list[dict]:
         """Gom mọi vấn đề của một cách đặt.
 
-        CHẶN ĐẶT LỊCH: ngoài ca · trước ngày vật tư · sai tiền nhiệm · trùng máy · (khi đã chọn
-        giờ mà) thiếu thời lượng / chưa quy đổi.
+        CHẶN ĐẶT LỊCH: ngoài ca · rơi vào nghỉ giữa ca · trước ngày vật tư · sai tiền nhiệm ·
+        trùng máy · trùng lần chạy · (khi đã chọn giờ mà) thiếu thời lượng / chưa quy đổi.
         CẢNH BÁO (chỉ nhắc): đè khoá máy · vượt quân số tổ (cả hai HẠ từ chặn xuống nhắc ngày
         21/08/2026 — xưởng vẫn chạy đè được, máy chỉ là kế hoạch) · sát hạn SX · đệm giao ngắn ·
         lấn việc kế (chạy tới max) · máy sắp bảo trì · tải máy/tổ cao có mức · máy chưa tốc độ /
@@ -244,9 +259,11 @@ class XepLich2Service:
         """
         vd: list[dict] = []
         ca = self.ctx.ca_windows()
+        nghi = self.ctx.nghi_windows()
         if start is not None:
             for fn in (
                 C.ngoai_ca(start, ca),
+                C.trong_gio_nghi(start, nghi),
                 C.chua_tai_nguyen(start, may_id, department_id,
                                   getattr(dong, "nha_cung_cap", None)),
                 C.truoc_ngay_vat_tu(start, self.ctx.ngay_vat_tu(dong), ca),
@@ -261,12 +278,18 @@ class XepLich2Service:
             for fn in (
                 C.de_vung_khoa_may(start, finish, khoa_may),
                 C.trung_may(start, finish, da_xep),
+                # Bước LÀM TAY không có máy nên `trung_may` soi vào chỗ rỗng; cửa này gác đúng
+                # phần `trung_may` không với tới: các lần chạy của CHÍNH bước này (xem
+                # `C.trung_lan_chay`). Dòng chưa tách thì nền soi rỗng, không tốn gì.
+                C.trung_lan_chay(start, finish, self.ctx.khoang_lan_chay_khac(
+                    dong, may_id, department_id, exclude_id)),
                 # CỐ Ý khác `trung_may` ở nền soi: bước sau của chính lệnh này không phải "việc
                 # kế phải giữ chỗ" (xem `ctx.khoang_may_lenh_khac`).
                 C.lan_viec_ke(finish, finish_max,
                               self.ctx.khoang_may_lenh_khac(may_id, exclude_id, dong)),
                 C.sap_bao_tri(finish, khoa_may),
-                C.tai_may_cao(self._tai_may_ngay(may_id, start, finish, da_xep), C.phut_ca_moi_ngay(ca)),
+                C.tai_may_cao(self._tai_may_ngay(may_id, start, finish, da_xep, nghi),
+                              C.phut_ca_moi_ngay(ca, nghi)),
             ):
                 if fn:
                     vd.append(fn)
@@ -305,9 +328,12 @@ class XepLich2Service:
         canh = C.tai_to_cao(dinh, qs["so_nguoi"])
         return [canh] if canh else []
 
-    def _tai_may_ngay(self, may_id, start, finish, da_xep) -> float:
+    def _tai_may_ngay(self, may_id, start, finish, da_xep, nghi=()) -> float:
         """Tổng phút máy `may_id` bị chiếm trong NGÀY của `start` — gồm chính việc đang đặt (`start`,
         `finish`) + các việc đã xếp (`da_xep`), cắt theo ranh giới ngày. Mẫu số đo tải là quỹ giờ ca.
+
+        `nghi` trừ bữa cơm giữa ca ra khỏi phần chiếm (09/09/2026) để TỬ SỐ nói cùng thứ với mẫu số
+        `phut_ca_moi_ngay(ca, nghi)` — cùng quy ước với `overlay.tai_may`.
 
         Không có máy ⇒ 0 (tải máy vô nghĩa khi chưa chọn máy)."""
         if not may_id or start is None or finish is None:
@@ -318,7 +344,12 @@ class XepLich2Service:
         def _giao(s, f) -> float:
             if s is None or f is None:
                 return 0.0
-            return max(0.0, (min(f, d1) - max(s, d0)).total_seconds() / 60.0)
+            a, b = max(s, d0), min(f, d1)
+            if b <= a:
+                return 0.0
+            phut = (b - a).total_seconds() / 60.0
+            return max(0.0, phut - C.phut_giao_nghi(
+                int((a - d0).total_seconds() // 60), int((b - d0).total_seconds() // 60), nghi))
 
         tong = _giao(start, finish)
         for s, f in da_xep:
@@ -486,6 +517,10 @@ class XepLich2Service:
             "dong_id": dong_id,
             "start_at": _naive(t["start"]),
             "finish_at": _naive(t["finish"]),
+            # Hai mốc xong theo dải tốc độ máy — bằng `finish_at` khi máy chưa khai tốc độ
+            # nhanh/chậm nhất (lúc đó ba số dính làm một, panel tự thôi bày dải).
+            "finish_at_min": _naive(t["finish_min"]),
+            "finish_at_max": _naive(t["finish_max"]),
             "chiem_may_phut": t["chiem_may_phut"],
             "chiem_may_phut_min": t["chiem_may_phut_min"],
             "chiem_may_phut_max": t["chiem_may_phut_max"],
@@ -555,7 +590,8 @@ class XepLich2Service:
             dong.finish_at = None
             return
         chiem = int(self._thoi_luong_v2(self._shadow(dong, {})).get("chiem_may_phut") or 0)
-        dong.finish_at = C.finish_lien_tuc(start, chiem) if chiem > 0 else None
+        dong.finish_at = (C.finish_lien_tuc(start, chiem, self.ctx.nghi_windows())
+                          if chiem > 0 else None)
 
     def tach_dong(self, *, dong_id: int, cac_phan: list[float], actor) -> list[dict]:
         """Tách một công đoạn thành nhiều LẦN CHẠY, trả view của CẢ CỤM (spec §2.4).
@@ -836,7 +872,14 @@ class XepLich2Service:
 
         Đọc thuần, KHÔNG ghi. Chưa 'Đưa vào kế hoạch' thì `buoc` rỗng (`da_vao_ke_hoach=False`) — Panel
         chỉ hiện đầu thực thể + vật tư + vấn đề, đúng như EntityPanel cũ; đã có nháp thì bày cả chuỗi.
+
+        ĐÓNG BĂNG như `workspace`: Panel chấm `_tinh` cho TỪNG bước của lệnh (và `kiem_phat_hanh`
+        chấm lại lượt nữa), mà mọi bước cùng lệnh hỏi chung một bộ nền.
         """
+        with self.ctx.dong_bang():
+            return self._boi_canh(nguon=nguon, id=id)
+
+    def _boi_canh(self, *, nguon: str, id: int) -> dict:
         if nguon == NGUON_LSX:
             ent = self.core.lsx_repo.get(id)
             if ent is None:
@@ -972,6 +1015,10 @@ class XepLich2Service:
             bai_ghep_ma = bg.ma if bg else None
             ten_san_pham = bg.ten if bg else None
         cong_doan_ten = nhan.ten_cd(r)
+        # Engine thời lượng chạy MỘT lượt rồi dùng cho cả "râu" bóc tách lẫn mức nặng nhất — hai ô
+        # cuối dict này vốn hỏi cùng một câu, mà đây là phần đắt nhất của mỗi thanh (~4 câu SQL).
+        # Dòng nháp chưa-giờ không có thanh nên không hỏi câu nào.
+        dur = self._thoi_luong_v2(r) if r.start_at is not None else None
         return {
             "id": r.id, "nguon": r.nguon, "lsx_id": r.lsx_id, "bai_ghep_id": r.bai_ghep_id,
             "may_id": r.may_id, "department_id": r.department_id,
@@ -992,6 +1039,11 @@ class XepLich2Service:
             "ten_san_pham": ten_san_pham,
             "cong_doan_ten": cong_doan_ten,
             "buoc_thu_tu": int(r.source_thu_tu or 0),
+            # Tiền nhiệm THẬT của thanh (cạnh `lsx_cong_doan_phu_thuoc`) — mũi tên Gantt phải bám
+            # cái này. `buoc_thu_tu` chỉ là số thứ tự phẳng: nối liền kề theo nó thì hai gốc song
+            # song (Ghi kẽm CTP · Cắt tờ cùng chảy vào In) hiện thành một hàng dọc sai routing.
+            # Rỗng = bước gốc, hoặc dòng bài ghép (nguồn này không có bảng phụ thuộc).
+            "phu_thuoc_dong_ids": nhan.canh.get(r.id, []),
             # Chiều LẦN CHẠY: thanh phải tự nói "2/3" và phần việc của nó, không thì người xếp
             # nhìn ba thanh giống hệt nhau mà không biết cái nào làm bao nhiêu.
             # `so_luong` NULL = trọn bước (dòng chưa tách) — KHÁC hẳn 0.
@@ -1005,11 +1057,11 @@ class XepLich2Service:
             "so_luong_buoc": nhan.sl_vao_cd(r),
             # "Râu" giải thích độ dài thanh: chỉ tính cho dòng ĐÃ có giờ (thanh nằm trên trục thời
             # gian). Nháp chưa-giờ nằm ở cụm "Chưa đặt giờ", không có thanh để bóc tách → None.
-            "boc_tach": self._boc_tach(r) if r.start_at is not None else None,
+            "boc_tach": self._boc_tach(r, dur) if dur is not None else None,
             # Mức NẶNG NHẤT của thanh tại chỗ đang đặt (chan_dat_lich | canh_bao | None) — dùng
             # chung detector `_van_de_dat_lich` với panel/xem-trước nên dải chân bàn khớp từng thanh.
             # Chỉ tính cho dòng đã có giờ (nháp chưa-giờ không có thanh để đếm mức).
-            "muc": _muc_worst(self._tinh(r, {})["van_de"]) if r.start_at is not None else None,
+            "muc": _muc_worst(self._tinh(r, {}, dur=dur)["van_de"]) if dur is not None else None,
             # Lớp THỰC TẾ — CHỈ ĐỌC, không bao giờ dời thanh (spec-thuc-te-vs-ke-hoach §2.1).
             # None = chưa phát hành / phát hành phiên bản khác ⇒ FE vẽ thanh trơn như trước.
             "thuc_te": (tt or {}).get(r.id),
@@ -1027,9 +1079,10 @@ class XepLich2Service:
             lsx_cd=self.repo.lsx_cong_doan_nhan_map(r.lsx_cong_doan_id for r in rows),
             bg_cd=self.repo.bai_ghep_cong_doan_nhan_map(r.bai_ghep_cong_doan_id for r in rows),
             khuon=self.repo.khuon_buoc_map(r.lsx_cong_doan_id for r in rows),
+            canh=R.canh_dong_day_du(self.db, rows),
         )
 
-    def _boc_tach(self, r: XepLichCongDoan) -> dict:
+    def _boc_tach(self, r: XepLichCongDoan, dur: dict | None = None) -> dict:
         """Bóc thời lượng một thanh thành CANH MÁY + CHẠY + KHÁC — để "râu" trên Gantt tự nói vì sao dài.
 
         Ba cấu phần THẬT engine cộng ra giờ chiếm máy (rửa mực đã bỏ 2026-08-04):
@@ -1037,8 +1090,10 @@ class XepLich2Service:
                         + khác (`phat_sinh_phut`, thời gian khai tay).
         Hiển thị số NGUYÊN nên để khỏi lệch làm tròn (canh + chạy + khác ≠ chiếm), giữ nguyên canh máy
         và khác, còn CHẠY suy từ hiệu — phần lẻ rơi vào bucket lớn nhất, ba số luôn khép đúng thanh.
-        Min/max đi kèm để hiện dải khi bước có khoảng thời lượng."""
-        d = self._thoi_luong_v2(r)
+        Min/max đi kèm để hiện dải khi bước có khoảng thời lượng.
+
+        `dur` truyền vào = kết quả engine thời lượng đã tính sẵn cho ĐÚNG dòng này (xem `_tinh`)."""
+        d = dur if dur is not None else self._thoi_luong_v2(r)
         chiem = int(d.get("chiem_may_phut") or 0)
         canh_may = int(d.get("setup_phut") or 0)
         khac = int(d.get("phat_sinh_phut") or 0)
@@ -1059,7 +1114,17 @@ class XepLich2Service:
         lớp phủ tải máy + đỉnh quân số · các dòng trên bàn. Gộp hết để màn khỏi gọi lắt nhắt nhiều lần.
 
         Dòng gồm HAI nhóm: đã xếp có giờ CHẠM cửa sổ (windowed) + nháp CHƯA đặt giờ (hiện trên mọi
-        bàn tới khi được xếp). Lớp phủ chỉ gộp trên nhóm ĐÃ có giờ trong cửa sổ."""
+        bàn tới khi được xếp). Lớp phủ chỉ gộp trên nhóm ĐÃ có giờ trong cửa sổ.
+
+        CHẠY TRONG KHỐI ĐÓNG BĂNG (`ctx.dong_bang`) — đây đúng là thứ khối đó sinh ra để phục vụ:
+        một vòng CHỈ-ĐỌC hỏi cùng vài câu nền (ca · nghỉ · khoá máy · việc trên máy · việc của tổ ·
+        quân số · sàn in-chung · hai hạn) cho HÀNG TRĂM thanh. Không có nó, mỗi thanh tự đi hỏi
+        lại: đo ngày 09/09/2026 là ~23 câu SQL mỗi thanh, bàn 9 thanh trên Postgres dev mất 0,9–1,2
+        giây và tăng THẲNG theo số thanh. Bàn không ghi gì nên không có cửa nào đọc phải số cũ."""
+        with self.ctx.dong_bang():
+            return self._workspace(tu=tu, den=den)
+
+    def _workspace(self, *, tu: date, den: date) -> dict:
         da_xep = self.repo.da_xep_trong_khoang(tu, den)
         nhap = self.repo.nhap_chua_gio()
         co_gio = [r for r in da_xep if r.start_at is not None]
@@ -1080,9 +1145,12 @@ class XepLich2Service:
             "tu": tu, "den": den,
             "ca": self.ctx.ca_windows(),
             "ca_nhan": self._ca_nhan(),
+            # Bữa nghỉ giữa ca (phút-trong-ngày) — Gantt khía trên dải ca và gạch chéo phần thanh
+            # vắt qua, để người xem đọc được vì sao thanh dài hơn số giờ chạy (09/09/2026).
+            "nghi": [{"bat_dau": a, "ket_thuc": b} for a, b in self.ctx.nghi_windows()],
             "ngay_le": self.ctx.ngay_le(tu, den),
             "khoa_may": self._khoa_may_trong_cua_so({r.may_id for r in co_gio if r.may_id}, tu, den),
-            "tai_may": overlay.tai_may(pl_may, tu, den),
+            "tai_may": overlay.tai_may(pl_may, tu, den, self.ctx.nghi_windows()),
             "tai_to": tai_to,
             "dong": dong,
         }

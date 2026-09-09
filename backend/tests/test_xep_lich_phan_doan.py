@@ -408,3 +408,160 @@ def test_route_tach_doi_quyen_sua_lich(client):
     dong_id = _dong_qua_app()
     r = client.post(f"/api/xep-lich-2/dong/{dong_id}/tach", json={"cac_phan": [6000, 4000]})
     assert r.status_code in (401, 403)
+
+
+# ============================ Các lần chạy phải NỐI ĐUÔI ==================================
+# Sửa 09/09/2026. LSX26-0003 · Đóng gói tách 5.000/10.000/5.000 rồi bấm Tự xếp: cả BA mẻ nhận đúng
+# một mốc 10/09/2026 13:12 trên Tổ thành phẩm. `phan_doan.tach` không sai (mẻ 2..n về CHỜ XẾP,
+# không giờ) — chỗ thủng nằm ở lượt tự-xếp ngay sau đó: bước làm tay không có máy nên `trung_may`
+# soi vào nền rỗng, còn cửa tổ duy nhất `vuot_quan_so_to` chỉ đo đỉnh quân số (3 mẻ kíp 1 người
+# trong tổ 10 người là "sạch"). Kết quả: tổ đáng lẽ bị chiếm 20 giờ nối nhau thì chỉ còn 10 giờ.
+def test_trung_lan_chay_chan_khi_hai_me_chong_gio():
+    from app.services.xep_lich_2 import constraint as C
+
+    s, f = _T0, _T0 + timedelta(hours=5)
+    vd = C.trung_lan_chay(s, f, [(_T0 + timedelta(hours=2), _T0 + timedelta(hours=7))])
+    assert vd["ma"] == "trung_lan_chay" and vd["muc"] == C.MUC_CHAN_DAT_LICH
+    assert C.trung_lan_chay(s, f, [(f, f + timedelta(hours=5))]) is None      # nối đuôi: hợp lệ
+    assert C.trung_lan_chay(s, f, []) is None                                  # chưa mẻ nào có giờ
+
+
+def test_trung_lan_chay_bo_qua_chong_lan_le_giay():
+    """Cùng dung sai với `trung_may`: mốc auto-xếp lẻ giây còn ô nhập của màn chỉ tới phút."""
+    from app.services.xep_lich_2 import constraint as C
+
+    s, f = _T0, _T0 + timedelta(hours=5)
+    assert C.trung_lan_chay(s, f, [(f - timedelta(seconds=30), f + timedelta(hours=5))]) is None
+    assert C.trung_lan_chay(s, f, [(f - timedelta(minutes=90), f)])["ma"] == "trung_lan_chay"
+
+
+def _cum_da_xep(db, *, phan=(6000.0, 4000.0), to_id=8) -> list:
+    """Một cụm đã tách, MỌI mẻ đều `da_xep` trên CÙNG tổ và nối đuôi nhau — nền của các test dưới."""
+    from app.models.xep_lich import TT_DA_XEP
+    from app.services.xep_lich_2 import phan_doan as P
+
+    g = _dong_theo_buoc(db, so_luong=sum(phan), start=_T0)
+    cum = P.tach(db, dong_id=g.id, cac_phan=list(phan))
+    moc = _T0
+    for d in cum:
+        d.trang_thai, d.department_id, d.may_id = TT_DA_XEP, to_id, None
+        d.start_at, d.finish_at = moc, moc + timedelta(hours=1)
+        moc = d.finish_at
+    db.commit()
+    return cum
+
+
+def test_nen_do_lan_chay_chi_lay_me_cung_tai_nguyen(db):
+    """Nền dò lọc theo TÀI NGUYÊN: cùng tổ thì thấy, khác máy thì không.
+
+    Hai mẻ đặt trên hai máy khác nhau chạy song song được thật (chia việc cho hai máy để về đích
+    sớm) — chặn cả trường hợp đó là cấm một cách làm hợp lệ của xưởng.
+    """
+    ctx = _svc(db).ctx
+    m1, m2 = _cum_da_xep(db)
+
+    assert len(ctx.khoang_lan_chay_khac(m2, None, 8, m2.id)) == 1        # cùng tổ, thấy mẻ 1
+    assert ctx.khoang_lan_chay_khac(m2, None, 999, m2.id) == []          # tổ khác
+    assert ctx.khoang_lan_chay_khac(m2, 42, None, m2.id) == []           # mẻ 1 không nằm trên máy 42
+    assert ctx.khoang_lan_chay_khac(m1, None, 8, m1.id) != []            # soi ngược cũng thấy
+
+
+def test_nen_do_lan_chay_rong_khi_dong_chua_tach(db):
+    """Dòng trọn bước không có cụm nào để soi ⇒ thoát trước khi chạm DB (gần như mọi dòng trên bàn)."""
+    ctx = _svc(db).ctx
+    d = _dong_theo_buoc(db, start=_T0)
+    assert ctx.khoang_lan_chay_khac(d, None, 8, d.id) == []
+
+
+def test_dat_me_hai_trung_gio_me_mot_thi_chan_dat_lich(db):
+    """Cửa `luu`/xem-trước phải la — không thì kéo tay cũng dựng lại đúng lỗi mà tự-xếp vừa gây."""
+    from app.services.xep_lich_2 import constraint as C
+
+    svc = _svc(db)
+    m1, m2 = _cum_da_xep(db)
+    ma = {v["ma"] for v in svc.xem_truoc(dong_id=m2.id, patch={"start_at": m1.start_at})["van_de"]}
+    assert "trung_lan_chay" in ma
+    # Dời ra sau mẻ 1 thì sạch — luật chặn CHỒNG GIỜ, không cấm hai mẻ ở cùng tổ.
+    sach = svc.xem_truoc(dong_id=m2.id, patch={"start_at": m1.finish_at})["van_de"]
+    assert not any(v["ma"] == "trung_lan_chay" for v in sach)
+    assert C.MUC_CHAN_DAT_LICH == "chan_dat_lich"
+
+
+# ============================ Mũi tên phụ thuộc: MỘT dây, không toả nan hoa =================
+# Bảng `lsx_cong_doan_phu_thuoc` chỉ khai ở mức BƯỚC. Nối thẳng theo nó thì mọi mẻ của bước sau
+# nhận cạnh từ mọi mẻ của bước trước, Gantt vẽ ra một chùm nan hoa (09/09/2026: Dán bắn ba mũi tên
+# sang ba lần chạy Đóng gói) — trong khi các mẻ nay buộc nối đuôi nhau, đường đi thật là một dây.
+def _hai_buoc_noi_nhau(db):
+    from app.models.lsx import LsxCongDoanPhuThuoc
+
+    truoc = _buoc_to(db)
+    sau = LsxCongDoan(lsx_id=9_999, thu_tu=1, ten="Đóng gói", loai_buoc=LB_TO,
+                      so_luong_vao=10000.0, don_vi_vao="to",
+                      nang_suat=1000, so_nhan_cong_tieu_chuan=1, khoan_json={"don_vi": "to"})
+    db.add(sau)
+    db.flush()
+    db.add(LsxCongDoanPhuThuoc(buoc_truoc_id=truoc.id, buoc_sau_id=sau.id))
+    db.commit()
+    return truoc, sau
+
+
+def _day_hai_buoc(db, *, phan=(4000.0, 3000.0, 3000.0), to_id=8):
+    """Dòng bước trước ĐÃ xếp + dòng bước sau tách thành `len(phan)` mẻ, tất cả cùng một tổ."""
+    from app.models.xep_lich import TT_DA_XEP
+    from app.services.xep_lich_2 import phan_doan as P
+
+    b1, b2 = _hai_buoc_noi_nhau(db)
+    d1 = XepLichCongDoan(nguon=NGUON_LSX, lsx_cong_doan_id=b1.id, source_thu_tu=0,
+                         loai_buoc=LB_TO, trang_thai=TT_DA_XEP, department_id=to_id,
+                         start_at=_T0, finish_at=_T0 + timedelta(hours=2))
+    d2 = XepLichCongDoan(nguon=NGUON_LSX, lsx_cong_doan_id=b2.id, source_thu_tu=1,
+                         loai_buoc=LB_TO, trang_thai=TT_CHO_XEP, department_id=to_id,
+                         so_luong=sum(phan))
+    db.add_all([d1, d2])
+    db.commit()
+    cum = P.tach(db, dong_id=d2.id, cac_phan=list(phan))
+    db.commit()
+    return d1, cum
+
+
+def test_canh_phu_thuoc_noi_lan_chay_thanh_mot_day(db):
+    from app.services.xep_lich_2 import routing as R
+
+    d1, (m1, m2, m3) = _day_hai_buoc(db)
+    canh = R.canh_dong_day_du(db, [d1, m1, m2, m3])
+
+    assert canh.get(m1.id) == [d1.id], "cạnh routing chỉ chạm mẻ ĐẦU của bước sau"
+    assert canh.get(m2.id) == [m1.id]
+    assert canh.get(m3.id) == [m2.id]
+    assert d1.id not in canh, "bước gốc không có tiền nhiệm"
+
+
+def test_canh_phu_thuoc_lay_me_CUOI_lam_cua_ra_cua_buoc_truoc(db):
+    """Bước TRƯỚC cũng tách: bước sau chỉ đợi mẻ cuối — mẻ cuối xong thì cả bước mới xong."""
+    from app.services.xep_lich_2 import phan_doan as P
+    from app.services.xep_lich_2 import routing as R
+
+    d1, (m1, m2, m3) = _day_hai_buoc(db)
+    t1, t2 = P.tach(db, dong_id=d1.id, cac_phan=[600.0, 400.0], tong_buoc=1000.0)
+    db.commit()
+    canh = R.canh_dong_day_du(db, [t1, t2, m1, m2, m3])
+
+    assert canh.get(m1.id) == [t2.id]      # KHÔNG phải [t1, t2]
+    assert canh.get(t2.id) == [t1.id]
+    assert canh.get(m2.id) == [m1.id] and canh.get(m3.id) == [m2.id]
+
+
+def test_canh_phu_thuoc_giu_hai_day_khi_me_nam_tren_hai_may(db):
+    """Chia mẻ sang HAI MÁY để chạy song song ⇒ hai dây riêng, mỗi dây nhận cạnh từ bước trước."""
+    from app.services.xep_lich_2 import routing as R
+
+    d1, (m1, m2, m3) = _day_hai_buoc(db, phan=(4000.0, 3000.0, 3000.0))
+    m1.may_id, m1.department_id = 11, None
+    m2.may_id, m2.department_id = 12, None
+    m3.may_id, m3.department_id = 12, None
+    db.commit()
+    canh = R.canh_dong_day_du(db, [d1, m1, m2, m3])
+
+    assert canh.get(m1.id) == [d1.id]
+    assert canh.get(m2.id) == [d1.id]      # máy khác ⇒ KHÔNG nối sau m1
+    assert canh.get(m3.id) == [m2.id]      # cùng máy 12 ⇒ nối đuôi m2

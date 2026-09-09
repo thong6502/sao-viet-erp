@@ -1288,8 +1288,38 @@
   white-space: nowrap;
   overflow: hidden;
 }
-.xl2-carib__ten { font-weight: var(--fw-bold); }
+/* KHÍA NGHỈ GIỮA CA — bữa cơm của ca, nằm TRONG chính thanh ca. Trước 09/09/2026 khía là một khối
+   nền đục phủ lên ruy-băng: nó cắt luôn chữ, "Ca 2 15:00–00:00" hiện ra thành "Ca 2 15:" + một chip
+   "00:00" trôi nổi (bữa 18:00–19:00 rơi đúng giữa nhãn). Nay là con của thanh ca ⇒ cao đúng bằng
+   thanh, bo góc và cắt mép theo thanh; nước rửa TRONG SUỐT + hai vạch đứt màu ca = "khoảng này
+   không ai đứng máy", còn nhãn nổi lên trên nhờ `position: relative` ở hai span chữ. */
+.xl2-carib__nghi {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Con tuyệt đối neo vào PADDING-box của thanh ca, mà toạ độ tính ra là theo mép NGOÀI — lùi đúng
+     bề dày viền 1px thì khía mới trùng giờ thật. */
+  margin-left: -1px;
+  background-color: rgba(255, 255, 255, 0.5);
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.85),
+    rgba(255, 255, 255, 0.85) 3px,
+    transparent 3px,
+    transparent 6px
+  );
+  border-left: 1px dashed var(--xl2-ca, var(--rule));
+  border-right: 1px dashed var(--xl2-ca, var(--rule));
+  pointer-events: auto;
+}
+/* Nhãn ca phải nổi TRÊN khía nghỉ: cùng một ngữ cảnh xếp lớp, con tuyệt đối luôn vẽ sau chữ thường,
+   nên hai span này cần `position: relative` mới giành lại lớp trên. */
+.xl2-carib__ten {
+  position: relative;
+  font-weight: var(--fw-bold);
+}
 .xl2-carib__gio {
+  position: relative;
   color: var(--ash-2);
   font-variant-numeric: tabular-nums;
 }
@@ -1485,6 +1515,26 @@
   bottom: 0;
   background: hsl(var(--lsx-h), 55%, 85%);
   border-right: 1.5px solid hsl(var(--lsx-h), 50%, 62%);
+  pointer-events: none;
+}
+
+/* Khúc NGHỈ GIỮA CA nằm trong thanh: máy đứng chờ người ăn cơm. Sọc chéo — đúng thứ ngôn ngữ
+   hình mà bàn này đã dành cho "không làm việc" (`.xl2-nonwork` ngoài ca · `.xl2-khoa` máy khoá),
+   nên không phải học thêm ký hiệu mới. Việc KHÔNG bị tách lần chạy nên thanh vẫn liền một khối:
+   chỗ gạch chéo là phần thanh DÀI RA, không phải giờ chạy. */
+.xl2-bar__nghi {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.75),
+    rgba(255, 255, 255, 0.75) 3px,
+    rgba(255, 255, 255, 0.15) 3px,
+    rgba(255, 255, 255, 0.15) 6px
+  );
+  border-left: 1px dashed hsl(var(--lsx-h), 40%, 55%);
+  border-right: 1px dashed hsl(var(--lsx-h), 40%, 55%);
   pointer-events: none;
 }
 
@@ -1893,6 +1943,20 @@
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
 }
+/* ô giá trị HAI TẦNG: mốc/số chính ở trên, dải sớm–muộn nhất ở dưới (hàng Kết thúc, Chiếm máy).
+   Vẫn canh phải như mọi ô giá trị khác để cột số thẳng hàng. */
+.xl2-kv__v--cot {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+.xl2-kv__dai {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  color: var(--ash-2);
+}
+
 /* đệm SX→giao âm: chữ tín-hiệu (lệnh SX xong SAU hạn giao) */
 .xl2-kv__v--tre { color: var(--signal); font-weight: var(--fw-bold); }
 

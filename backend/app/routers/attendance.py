@@ -6,8 +6,6 @@
 """
 from __future__ import annotations
 
-import csv
-import io
 from datetime import date
 from typing import Annotated
 
@@ -69,6 +67,7 @@ from ..schemas.attendance import (
     WorkShiftOut,
     WorkShiftsOut,
 )
+from ..services.bang_cong_excel import MEDIA_XLSX, loc_nhan_vien, xuat_bang_cong
 from ..services.rbac_service import AuthorizationService
 from ..services.attendance_service import (
     AttendanceError,
@@ -618,8 +617,8 @@ def timesheet(
     )
 
 
-@router.get("/timesheet.csv")
-def timesheet_csv(
+@router.get("/timesheet.xlsx")
+def timesheet_xlsx(
     svc: Service,
     depts: Depts,
     authz: Authz,
@@ -627,41 +626,35 @@ def timesheet_csv(
     year: int = Query(ge=2000, le=2100),
     month: int = Query(ge=1, le=12),
     department_id: int | None = Query(default=None),
+    # Ô tìm tên/mã NV trên màn — file phải ra ĐÚNG thứ đang thấy, không phải cả xưởng.
+    q: str | None = Query(default=None, max_length=100),
 ) -> Response:
+    """Bảng công tháng ra .xlsx (thay bản .csv — chủ chốt 09/09/2026).
+
+    Bản .csv cũ in chữ "có" cho mọi ô ngày không ra được công/giờ (ngày mới xếp ca, nghỉ luân
+    phiên, ngày treo…) và GIẤU MẤT tăng ca. Ký hiệu từng loại ngày + cột tăng ca nằm ở
+    `services/bang_cong_excel.py`."""
     try:
         data = svc.monthly_timesheet(year=year, month=month, department_id=department_id,
                                      scope=_scope_for(authz, user), actor=user)
     except AttendanceError as exc:
         _raise(exc)
     rows = _timesheet_rows(svc, depts, data)
-    n = data["days_in_month"]
-
-    buf = io.StringIO()
-    buf.write("﻿")  # BOM để Excel đọc đúng tiếng Việt
-    w = csv.writer(buf)
-    w.writerow(["Mã", "Họ tên", "Phòng/Tổ", "Ca", *[str(d) for d in range(1, n + 1)],
-                "Số công", "Tổng giờ"])
-    for r in rows:
-        cells = []
-        for d in range(1, n + 1):
-            day = r.days.get(str(d))
-            if not day:
-                cells.append("")
-            elif day.leave:              # ngày nghỉ đã duyệt
-                cells.append("P" if day.leave_paid else "KL")
-            elif day.cong is not None:   # có gán ca → công theo ca
-                cells.append(f"{day.cong:g}")
-            elif day.hours is not None:  # chưa gán ca → số giờ
-                cells.append(f"{day.hours:g}h")
-            else:
-                cells.append("có")
-        total = f"{r.total_cong:g}" if r.total_cong is not None else str(r.total_days)
-        w.writerow([r.employee_code, r.employee_name, r.department_name or "", r.shift_name or "",
-                    *cells, total, f"{r.total_hours:g}"])
+    ten_bo_phan = None
+    if department_id is not None:
+        d = depts.get_by_id(department_id)
+        ten_bo_phan = d.name if d is not None else None
+    noi_dung = xuat_bang_cong(
+        loc_nhan_vien([r.model_dump() for r in rows], q),
+        nam=year, thang=month, so_ngay=data["days_in_month"],
+        ten_bo_phan=ten_bo_phan, cong_chuan=data.get("standard_cong"),
+        ngay_le={h["day"]: h["name"] for h in data.get("holidays", [])},
+        tim=q,
+    )
     return Response(
-        content=buf.getvalue(),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="bang-cong-{year}-{month:02d}.csv"'},
+        content=noi_dung,
+        media_type=MEDIA_XLSX,
+        headers={"Content-Disposition": f'attachment; filename="bang-cong-{year}-{month:02d}.xlsx"'},
     )
 
 

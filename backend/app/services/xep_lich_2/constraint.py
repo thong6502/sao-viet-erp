@@ -42,12 +42,94 @@ def _phut_trong_ngay(mth: datetime) -> int:
     return mth.hour * 60 + mth.minute
 
 
-def finish_lien_tuc(start: datetime, chiem_may_phut: int) -> datetime:
-    """Đã bắt đầu thì CHẠY LIÊN TỤC tới xong (§3.3): finish = start + chiếm-máy, theo đồng hồ tường.
+TRAN_VONG_NGHI = 2000      # chặn vòng khi đi bộ qua các bữa nghỉ của một việc rất dài
 
-    KHÔNG cắt theo ca, KHÔNG đi bộ qua từng khung giờ làm — kéo qua cuối ca / nửa đêm là bình thường.
+
+def _hhmm(phut: int) -> str:
+    return f"{int(phut) // 60 % 24:02d}:{int(phut) % 60:02d}"
+
+
+def _nghi_om(moc: datetime, nghi) -> datetime | None:
+    """Đang ở TRONG bữa nghỉ nào không? Có thì trả mốc HẾT bữa đó.
+
+    Mép trái tính là đã nghỉ, mép phải là đã làm lại — cùng quy ước nửa mở với mọi khoảng khác
+    trong file này, nhờ vậy chạy khít tới 12:00 thì xong lúc 12:00 chứ không bị đẩy sang 13:00.
     """
-    return start + timedelta(minutes=int(chiem_may_phut))
+    m = _phut_trong_ngay(moc)
+    goc = moc - timedelta(minutes=m)
+    for a, b in nghi:
+        if a <= m < b:
+            return goc + timedelta(minutes=int(b))
+    return None
+
+
+def _nghi_ke_tiep(moc: datetime, nghi) -> tuple[datetime, datetime] | None:
+    """Bữa nghỉ SỚM NHẤT bắt đầu ≥ `moc`. Nghỉ lặp lại hằng ngày nên soi hôm nay + hôm sau là đủ."""
+    m = _phut_trong_ngay(moc)
+    goc = moc - timedelta(minutes=m)
+    som: tuple[datetime, datetime] | None = None
+    for ngay in (0, 1):
+        for a, b in nghi:
+            bat_dau = goc + timedelta(days=ngay, minutes=int(a))
+            if bat_dau >= moc and (som is None or bat_dau < som[0]):
+                som = (bat_dau, goc + timedelta(days=ngay, minutes=int(b)))
+        if som is not None:
+            break
+    return som
+
+
+def finish_lien_tuc(start: datetime, chiem_may_phut: int, nghi=()) -> datetime:
+    """Đã bắt đầu thì CHẠY LIÊN TỤC tới xong (§3.3), chỉ DỪNG ở bữa nghỉ giữa ca.
+
+    KHÔNG cắt theo ca, KHÔNG đi bộ qua từng khung giờ làm — kéo qua cuối ca / nửa đêm là bình
+    thường. Nhưng giờ nghỉ thì khác: máy ở xưởng này có người đứng vận hành nên tới giờ cơm là máy
+    dừng theo người (chủ chốt 09/09/2026). Việc đang chạy dở TẠM NGHỈ rồi chạy tiếp — finish bị đẩy
+    ra đúng phần bữa nghỉ mà nó vắt qua, không đẻ thêm lần chạy nào (lần chạy là bản ghi thật, dành
+    cho việc chia sản lượng lên nhiều máy).
+
+    `nghi` = các khoảng NGHỈ HIỆU LỰC trong ngày `[(bat_dau_phut, ket_thuc_phut), …]`, lặp lại mỗi
+    ngày — dựng bằng `doan_nghi_trong_ngay`. Rỗng ⇒ đúng hành vi cũ (cộng thẳng).
+    """
+    con = int(chiem_may_phut)
+    if not nghi or con <= 0:
+        return start + timedelta(minutes=con)
+    cur = start
+    for _ in range(TRAN_VONG_NGHI):
+        het_nghi = _nghi_om(cur, nghi)
+        if het_nghi is not None:
+            cur = het_nghi
+            continue
+        ke = _nghi_ke_tiep(cur, nghi)
+        if ke is None:
+            break
+        chay_duoc = int((ke[0] - cur).total_seconds() // 60)
+        if con <= chay_duoc:
+            return cur + timedelta(minutes=con)
+        con -= chay_duoc
+        cur = ke[1]
+    return cur + timedelta(minutes=con)
+
+
+def trong_gio_nghi(start: datetime, nghi) -> dict | None:
+    """Giờ bắt đầu rơi đúng bữa nghỉ ⇒ chặn ĐẶT LỊCH, cùng mức với `ngoai_ca`.
+
+    Giờ nghỉ là giờ không làm, nên đặt việc khởi hành vào đó cũng vô nghĩa hệt như đặt ngoài ca.
+    Chặn thay vì nhắc để tự-xếp và người gõ tay cùng một luật — mốc "hết nghỉ" đã nằm sẵn trong
+    danh sách ứng viên của tự-xếp nên không ai bị kẹt vì cửa này.
+    """
+    het = _nghi_om(start, nghi) if nghi else None
+    if het is None:
+        return None
+    m = _phut_trong_ngay(start)
+    cua = next(((a, b) for a, b in nghi if a <= m < b), None)
+    khung = f"{_hhmm(cua[0])}–{_hhmm(cua[1])}" if cua else ""
+    return issue(
+        "nghi_giua_ca", MUC_CHAN_DAT_LICH,
+        f"Giờ bắt đầu rơi vào nghỉ giữa ca ({khung}) — giờ đó xưởng không đứng máy.",
+        nguon="ca",
+        goi_y=f"Đặt bắt đầu từ {_hhmm(cua[1])} trở đi, hoặc trước giờ nghỉ." if cua else
+              "Đặt giờ bắt đầu ngoài bữa nghỉ giữa ca.",
+    )
 
 
 def tron_phut(moc: datetime | None, *, len_tren: bool = False) -> datetime | None:
@@ -148,17 +230,57 @@ def trung_may(
     OAN (25/08/2026). Chồng lấn dưới một phút cũng không có nghĩa với xưởng: người xếp không có
     đường nào đặt giờ lẻ giây để mà sửa.
     """
-    dung_sai = timedelta(minutes=dung_sai_phut)
-    for o_start, o_finish in da_xep:
+    if _chong_qua_dung_sai(start, finish, da_xep, timedelta(minutes=dung_sai_phut)):
+        return issue(
+            "trung_may", MUC_CHAN_DAT_LICH,
+            "Trùng giờ với một việc khác trên cùng máy.",
+            nguon="may",
+            goi_y="Dời sang khe trống hoặc đổi máy.",
+        )
+    return None
+
+
+def _chong_qua_dung_sai(
+    start: datetime, finish: datetime,
+    khoang: list[tuple[datetime, datetime]], dung_sai: timedelta,
+) -> bool:
+    """[start, finish) chồng một khoảng nào đó QUÁ `dung_sai` — nền chung của `trung_may` và
+    `trung_lan_chay` (hai cửa khác nhau ở NỀN SOI, giống hệt nhau ở phép so giờ)."""
+    for o_start, o_finish in khoang:
         if o_start < finish and start < o_finish:
             if min(finish, o_finish) - max(start, o_start) <= dung_sai:
                 continue
-            return issue(
-                "trung_may", MUC_CHAN_DAT_LICH,
-                "Trùng giờ với một việc khác trên cùng máy.",
-                nguon="may",
-                goi_y="Dời sang khe trống hoặc đổi máy.",
-            )
+            return True
+    return False
+
+
+def trung_lan_chay(
+    start: datetime, finish: datetime, khoang: list[tuple[datetime, datetime]],
+    *, dung_sai_phut: int = 1,
+) -> dict | None:
+    """Hai LẦN CHẠY của CÙNG một bước chồng giờ trên CÙNG tài nguyên (§2.4) ⇒ CHẶN.
+
+    Tách lần chạy là chia một bước thành các mẻ chạy NỐI NHAU trên đúng tài nguyên đó; hai mẻ chồng
+    giờ thì tổng giờ chiếm co lại còn một phần, và giờ xong cả lệnh thành con số lạc quan.
+
+    Bước MÁY vốn đã được `trung_may` gác nên cửa này không thêm gì. Bước LÀM TAY THEO TỔ thì không:
+    `may_id` rỗng ⇒ nền dò của `trung_may` trả rỗng (`da_xep_khac_tren_may` thoát sớm khi thiếu
+    máy), mà cửa tổ duy nhất `vuot_quan_so_to` chỉ đo ĐỈNH QUÂN SỐ — ba mẻ kíp 1 người trong một tổ
+    10 người là hoàn toàn "sạch". Nên tự-xếp dồn cả ba mẻ vào đúng một mốc: LSX26-0003 · Đóng gói
+    tách 5.000/10.000/5.000 mà cả ba cùng bắt đầu 10/09/2026 13:12 trên Tổ thành phẩm (09/09/2026).
+
+    Soi theo CỤM PHÂN ĐOẠN chứ không theo tổ: hai LỆNH khác nhau chạy song song trong một tổ vẫn
+    hợp lệ (đó là việc của `vuot_quan_so_to`), và hai mẻ đặt trên HAI MÁY khác nhau cũng hợp lệ —
+    chia việc cho hai máy để về đích sớm là cách xưởng vẫn làm. Nền soi lọc sẵn theo tài nguyên
+    (xem `ctx.khoang_lan_chay_khac`), ở đây chỉ còn phép so giờ.
+    """
+    if _chong_qua_dung_sai(start, finish, khoang, timedelta(minutes=dung_sai_phut)):
+        return issue(
+            "trung_lan_chay", MUC_CHAN_DAT_LICH,
+            "Trùng giờ với một lần chạy khác của chính bước này.",
+            nguon="buoc",
+            goi_y="Các lần chạy phải nối nhau — dời sang khe sau, đổi tài nguyên, hoặc gộp lại.",
+        )
     return None
 
 
@@ -263,7 +385,54 @@ def doan_ca_trong_ngay(ca) -> list[tuple[int, int]]:
     return doan
 
 
-def phut_ca_moi_ngay(ca) -> int:
+def doan_nghi_trong_ngay(ca_nghi) -> list[tuple[int, int]]:
+    """Bữa nghỉ HIỆU LỰC của cả xưởng, trải trong MỘT ngày `[0, 1440)`.
+
+    `ca_nghi` = list `(bat_dau, ket_thuc, qua_dem, nghi_bat_dau, nghi_ket_thuc)`; hai ô nghỉ NULL
+    nghĩa là ca đó làm suốt.
+
+    Luật: một phút là NGHỈ khi có ca phủ nó VÀ mọi ca đang phủ nó đều đang nghỉ. Ca xưởng gối nhau
+    (Hành chính 08:00–17:00 nằm đè Ca 1), nên chỉ cần một ca còn đứng máy là giờ đó xưởng vẫn chạy
+    — lấy hợp các bữa nghỉ sẽ tắt oan giờ làm của ca kia. Nghỉ khai lạc ra ngoài giờ ca thì bỏ:
+    nó là lỗi khai, không được phép biến giờ ngoài ca thành giờ nghỉ.
+
+    Đếm theo từng phút (1440 × số ca, chạy một lần rồi cache ở context) thay vì gấp khoảng: rẻ như
+    nhau ở quy mô này mà đọc ra ngay đúng luật trên, khỏi ba tầng giao–hợp–bù dễ sai mép.
+    """
+    co_ca = [0] * 1440
+    dang_nghi = [0] * 1440
+    for row in (ca_nghi or []):
+        doan_ca = doan_ca_trong_ngay([(row[0], row[1], row[2])])
+        for b, e in doan_ca:
+            for m in range(b, e):
+                co_ca[m] += 1
+        nb, nk = (row[3], row[4]) if len(row) > 4 else (None, None)
+        if nb is None or nk is None or int(nb) == int(nk):
+            continue
+        trong_ca = [False] * 1440
+        for b, e in doan_ca:
+            for m in range(b, e):
+                trong_ca[m] = True
+        for b, e in doan_ca_trong_ngay([(nb, nk, int(nk) <= int(nb))]):
+            for m in range(b, e):
+                if trong_ca[m]:
+                    dang_nghi[m] += 1
+    ra: list[list[int]] = []
+    for m in range(1440):
+        if co_ca[m] > 0 and dang_nghi[m] == co_ca[m]:
+            if ra and ra[-1][1] == m:
+                ra[-1][1] = m + 1
+            else:
+                ra.append([m, m + 1])
+    return [(a, b) for a, b in ra]
+
+
+def phut_giao_nghi(bat_dau: int, ket_thuc: int, nghi) -> int:
+    """Số phút của đoạn `[bat_dau, ket_thuc)` (phút-trong-ngày) rơi vào bữa nghỉ."""
+    return sum(max(0, min(ket_thuc, int(b)) - max(bat_dau, int(a))) for a, b in (nghi or []))
+
+
+def phut_ca_moi_ngay(ca, nghi=()) -> int:
     """Quỹ giờ (PHÚT) một ngày làm việc theo ca đã khai — mẫu số để đo tải máy/ngày.
 
     Đo phần giờ ĐƯỢC PHỦ (HỢP các khoảng ca, chồng nhau chỉ tính MỘT lần), KHÔNG cộng thẳng độ
@@ -275,13 +444,17 @@ def phut_ca_moi_ngay(ca) -> int:
     Sửa 22/08/2026. Docstring cũ ghi thẳng "giả định các ca không chồng nhau" — giả định đó chết
     từ khi mg 0226 (bỏ `dung_cho_lich_may`) cho engine đọc TẤT CẢ ca thật của xưởng; trước đó nó
     rơi về fallback 480'/ngày nên không ai thấy.
+
+    `nghi` TRỪ ra giờ cơm giữa ca (09/09/2026): Ca 1 khai 06:00–15:00 nghỉ 12:00–13:00 mà không trừ
+    thì mẫu số là 540' trong khi màn ca ghi 8.0 giờ công — mọi % tải thấp giả một phần tám.
     """
     tong = 0
     het = 0
     for b, e in sorted(doan_ca_trong_ngay(ca)):
         if e <= het:
             continue
-        tong += e - max(b, het)
+        dau = max(b, het)
+        tong += (e - dau) - phut_giao_nghi(dau, e, nghi)
         het = e
     return tong
 

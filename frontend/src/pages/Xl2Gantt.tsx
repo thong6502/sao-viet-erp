@@ -10,11 +10,11 @@ import {
 } from "react";
 import type { IconName } from "../components/Icons";
 import type {
-  Xl2Ca, Xl2CaNhan, Xl2Dong, Xl2KhoaMay, Xl2Muc, Xl2NgayLe, Xl2QRow, Xl2TaiMay, Xl2TaiTo,
+  Xl2Ca, Xl2CaNhan, Xl2Dong, Xl2KhoaMay, Xl2Muc, Xl2NgayLe, Xl2Nghi, Xl2QRow, Xl2TaiMay, Xl2TaiTo,
 } from "../api/client";
 import { ngay, ngayGio, num, thoiLuong, thoiLuongNgan } from "./keHoachSxShared";
 import {
-  BAR_H, CLUSTER_HEAD_H, LANE_H, LABEL_W, buildLinearScale, demViecLanes, dongHue, dongEntityKey, dongNhanParts,
+  BAR_H, CLUSTER_HEAD_H, LANE_H, LABEL_W, STACK_H, buildLinearScale, demViecLanes, dongHue, dongEntityKey, dongNhanParts,
   dongSerial, ngayToWall, wallToNaive, type Xl2Zoom,
 } from "./xl2Shared";
 import { wallMinutes, fromWall, nowWall } from "./gantt-time";
@@ -55,6 +55,9 @@ interface Props {
   ca: Xl2Ca[];
   /** Ca nền KÈM TÊN (§7.1) — để ruy-băng gọi được "Ca 2" thay vì tô một dải xám vô danh. */
   caNhan: Xl2CaNhan[];
+  /** Bữa nghỉ giữa ca (phút-trong-ngày, lặp hằng ngày). Việc KHÔNG bị tách lần chạy — nó tạm dừng
+   *  rồi chạy tiếp — nên thanh phải tự nói ra khúc nào là cơm, khúc nào là chạy. */
+  nghi: Xl2Nghi[];
   /** Lane đang gom theo tài nguyên hay theo lệnh (đổi cả ý nghĩa của kéo DỌC). */
   nhom: Xl2Nhom;
   ngayLe: Xl2NgayLe[];
@@ -115,7 +118,7 @@ function hhm(m: number): string {
 }
 
 export function Xl2Gantt({
-  clusters, ca, caNhan, nhom, ngayLe, khoaMay, taiMay, taiTo, winTu, winDen, zoom,
+  clusters, ca, caNhan, nghi, nhom, ngayLe, khoaMay, taiMay, taiTo, winTu, winDen, zoom,
   selectedDongId, selectedEntityKey, barMuc, canUpdate, onSelectDong, onPropose, onDropQueue,
 }: Props) {
   const winStart = ngayToWall(winTu);
@@ -190,6 +193,29 @@ export function Xl2Gantt({
     return { items, rows: Math.max(rows.length, 1), trong };
   }, [ca, caNhan]);
 
+  // NGHỈ GIỮA CA (09/09/2026) — giờ cơm của ca, xưởng KHÔNG đứng máy. Máy ở đây có người vận hành
+  // nên tới giờ là dừng theo người: việc đang chạy dở tạm nghỉ rồi chạy tiếp, KHÔNG tách thành lần
+  // chạy mới (`phan_doan_*` vẫn dành riêng cho chuyện chia sản lượng sang máy khác). Hệ quả là cái
+  // thanh DÀI HƠN số giờ chạy đúng bằng bữa nó vắt qua — không vẽ ra thì người xem đọc "chạy 4
+  // tiếng" trên một thanh trải 5 tiếng rồi tưởng lịch sai.
+  const nghiPhutNgay = useMemo(
+    () => nghi.reduce((n, k) => n + Math.max(0, k.ket_thuc - k.bat_dau), 0), [nghi]);
+
+  /** Các khúc nghỉ (phút TƯỜNG) giao với `[a, b)`. Nghỉ lặp lại hằng ngày nên quét theo từng ngày
+   *  chạm vào khoảng — việc vắt qua nhiều đêm thì ăn nhiều bữa, đúng như engine cộng bên máy chủ. */
+  const doanNghi = useCallback((a: number, b: number): [number, number][] => {
+    if (!nghi.length || !(b > a)) return [];
+    const ra: [number, number][] = [];
+    for (let d = Math.floor(a / 1440) * 1440; d < b; d += 1440) {
+      for (const k of nghi) {
+        const s = Math.max(a, d + k.bat_dau);
+        const e = Math.min(b, d + k.ket_thuc);
+        if (e > s) ra.push([s, e] as [number, number]);
+      }
+    }
+    return ra.sort((x, y) => x[0] - y[0]);
+  }, [nghi]);
+
   // Nền: lưới ngày + tô ngày lễ + vạch mốc bắt đầu ca + khoảng ngoài mọi ca.
   const bg = useMemo(() => {
     const dayLines: number[] = [];
@@ -216,7 +242,10 @@ export function Xl2Gantt({
 
   // Ruy-băng ca dưới thước: mỗi ngày lặp lại đúng bộ ca, mỗi ca một thanh CÓ TÊN ở hàng của nó.
   const ribbon = useMemo(() => {
-    const out: { x: number; w: number; row: number; idx: number; ten: string; gio: string }[] = [];
+    const out: {
+      x: number; w: number; row: number; idx: number; ten: string; gio: string;
+      nghi: { x: number; w: number; title: string }[];
+    }[] = [];
     // Lùi MỘT NGÀY trước mép trái: ca qua đêm (Ca 3 22:00–06:00) khởi hành từ HÔM TRƯỚC, mà vòng lặp
     // cũ bắt đầu đúng `winStart` nên khúc 00:00–06:00 của ngày đầu cửa sổ không ai vẽ. Người xem thấy
     // dải trống rồi kết luận "máy xếp việc ngoài ca" — trong khi engine xếp ĐÚNG luật, chỉ là cái ca
@@ -226,11 +255,33 @@ export function Xl2Gantt({
         const x = scale.xOf(d + c.s);
         const x2 = scale.xOf(d + c.s + c.dai);
         if (x2 <= x) continue;
-        out.push({ x, w: x2 - x, row: c.row, idx: c.idx, ten: c.ten, gio: `${hhm(c.s)}–${hhm(c.s + c.dai)}` });
+        // Khía NGHỈ nằm TRONG chính thanh ca, không phải một khối phủ lên ruy-băng. Vẽ đè bên ngoài
+        // thì khối đục cắt ngang nhãn: "Ca 2 15:00–00:00" đọc ra thành "Ca 2 15:" và một chip "00:00"
+        // trôi nổi, mà bữa nghỉ 18:00–19:00 rơi đúng giữa nhãn nên lần nào cũng dính (sửa 09/09/2026).
+        // Nằm trong thanh thì cao đúng bằng thanh, bo góc theo thanh, và ăn `overflow:hidden` của nó.
+        const khia: { x: number; w: number; title: string }[] = [];
+        for (let e = d; e < d + c.s + c.dai; e += 1440) {
+          for (const k of nghi) {
+            const a = Math.max(d + c.s, e + k.bat_dau);
+            const b = Math.min(d + c.s + c.dai, e + k.ket_thuc);
+            if (b <= a) continue;
+            const kx = scale.xOf(a);
+            const kx2 = scale.xOf(b);
+            if (kx2 <= kx) continue;
+            khia.push({
+              x: kx - x, w: kx2 - kx,
+              title: `Nghỉ giữa ca ${hhm(k.bat_dau)}–${hhm(k.ket_thuc)} — xưởng dừng máy`,
+            });
+          }
+        }
+        out.push({
+          x, w: x2 - x, row: c.row, idx: c.idx, ten: c.ten,
+          gio: `${hhm(c.s)}–${hhm(c.s + c.dai)}`, nghi: khia,
+        });
       }
     }
     return out;
-  }, [caLayout, winStart, winEnd, scale]);
+  }, [caLayout, nghi, winStart, winEnd, scale]);
 
   // Overlay F1: gom vùng khoá máy + tải máy/ngày + đỉnh quân số tổ/ngày về map theo tài nguyên (O(1) khi vẽ).
   const overlay = useMemo(() => {
@@ -241,7 +292,11 @@ export function Xl2Gantt({
     // tải thấp giả ~27% (sửa 22/08/2026, khớp `constraint.phut_ca_moi_ngay` bên máy chủ).
     // Từ mg 0227 máy chủ chỉ gửi ca có cờ `ca_san_xuat` (ca văn phòng ở lại màn Ca kíp), nên ruy-băng
     // ca và mẫu số này cùng nói về MỘT thứ: giờ xưởng có người đứng máy.
-    const caPhut = 1440 - caLayout.trong.reduce((n, [a, b]) => n + Math.max(0, b - a), 0);
+    // Trừ tiếp NGHỈ GIỮA CA (09/09/2026): Ca 1 khai 06:00–15:00 nghỉ 12:00–13:00 mà để mẫu số 540'
+    // thì mọi % tải thấp giả một phần tám, trong khi màn Ca kíp ghi đúng 8.0 giờ công. Tử số
+    // (`overlay.tai_may` bên máy chủ) cũng đã trừ đúng khoảng này nên hai đầu phân số cùng thước.
+    const caPhut = 1440 - caLayout.trong.reduce((n, [a, b]) => n + Math.max(0, b - a), 0)
+      - nghiPhutNgay;
     const availPerDay = caPhut > 0 ? caPhut : 1440;
 
     const khoaByMay = new Map<number, { x: number; w: number; title: string }[]>();
@@ -270,7 +325,7 @@ export function Xl2Gantt({
       m.set(day, t);
     }
     return { khoaByMay, taiMayByDay, taiToByDept };
-  }, [khoaMay, taiMay, taiTo, caLayout, scale]);
+  }, [khoaMay, taiMay, taiTo, caLayout, nghiPhutNgay, scale]);
 
   // Thước: nhãn ngày + tick giờ 2 tầng hiện đại.
   const todayYmd = useMemo(() => {
@@ -457,6 +512,53 @@ export function Xl2Gantt({
     }
   }, [canUpdate, nhom, zoom, winStart, winEnd, clusters, onPropose, onSelectDong]);
 
+  // Xếp TẦNG cho các thanh trùng giờ trong cùng một lane.
+  //
+  // Trước 09/09/2026 mọi thanh đều `top: 50%` nên hai việc chồng giờ trên CÙNG tài nguyên nằm đè
+  // khít lên nhau: chỉ thanh vẽ sau còn bấm được, thanh dưới biến mất khỏi màn. Lộ ra ở LSX26-0003
+  // · Đóng gói — ba lần chạy cùng mốc, bấm chỗ nào cũng mở đúng ngăn kéo "Lần chạy 1/3". Backend
+  // nay chặn ba mẻ chồng nhau (`trung_lan_chay`), nhưng HAI LỆNH khác nhau cùng chạy trong một tổ
+  // vẫn hợp lệ và vẫn chồng giờ — nên bàn phải vẽ được, không phải giấu bớt.
+  //
+  // Thuật toán: quét theo mốc bắt đầu, thả mỗi thanh xuống TẦNG ĐẦU TIÊN còn trống. Số tầng đúng
+  // bằng đỉnh số việc chồng nhau, nên lane chỉ cao thêm đúng lúc có chồng.
+  const laneStack = useMemo(() => {
+    const ra = new Map<string, { rows: number; rowOf: Map<number, number> }>();
+    for (const cluster of clusters) {
+      for (const lane of cluster.lanes) {
+        const rowOf = new Map<number, number>();
+        if (lane.packed) { ra.set(lane.key, { rows: 1, rowOf }); continue; }
+        const co = lane.dong
+          .filter((d) => !!d.start_at)
+          .map((d) => {
+            const s = wallMinutes(d.start_at!);
+            return { id: d.id, s, e: d.finish_at ? wallMinutes(d.finish_at) : s + 30 };
+          })
+          .sort((a, b) => a.s - b.s || a.e - b.e || a.id - b.id);
+        const hetO: number[] = [];   // mốc kết thúc hiện tại của từng tầng
+        for (const it of co) {
+          let t = hetO.findIndex((f) => f <= it.s);
+          if (t < 0) { t = hetO.length; hetO.push(it.e); } else { hetO[t] = it.e; }
+          rowOf.set(it.id, t);
+        }
+        ra.set(lane.key, { rows: Math.max(hetO.length, 1), rowOf });
+      }
+    }
+    return ra;
+  }, [clusters]);
+
+  const laneHeight = useCallback(
+    (key: string) => LANE_H + ((laneStack.get(key)?.rows ?? 1) - 1) * STACK_H,
+    [laneStack],
+  );
+
+  /** Lệch dọc (px) của một thanh so với TÂM lane — tầng giữa nằm đúng tâm như lane một tầng. */
+  const barOffset = useCallback((laneKey: string, dongId: number) => {
+    const st = laneStack.get(laneKey);
+    if (!st || st.rows <= 1) return 0;
+    return ((st.rowOf.get(dongId) ?? 0) - (st.rows - 1) / 2) * STACK_H;
+  }, [laneStack]);
+
   // Tính toán tọa độ Y chính xác của từng lane để vẽ đường nối SVG
   const laneYMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -467,15 +569,27 @@ export function Xl2Gantt({
         currentY += LANE_H;
       } else {
         for (const lane of cluster.lanes) {
-          map.set(lane.key, currentY + 8 + BAR_H / 2);
-          currentY += LANE_H;
+          const h = laneHeight(lane.key);
+          // TÂM lane, đúng chỗ CSS đặt thanh (`top: 50%`) — lane cao lên vì xếp tầng thì tâm cũng
+          // trôi theo, mũi tên phụ thuộc phải bám cùng một mốc với thanh.
+          map.set(lane.key, currentY + h / 2);
+          currentY += h;
         }
       }
     }
     return { map, totalHeight: currentY };
-  }, [clusters]);
+  }, [clusters, laneHeight]);
 
   // Vẽ đường cong liên kết thứ tự quy trình (Dependency Flow Curves)
+  //
+  // Cạnh vẽ ra là cạnh THẬT của DAG routing (`phu_thuoc_dong_ids`, tra từ bảng
+  // `lsx_cong_doan_phu_thuoc`). Trước 09/09/2026 màn tự sắp thanh theo `buoc_thu_tu` rồi nối liền
+  // kề i → i+1: mọi routing đều hiện thành MỘT hàng dọc, nên hai gốc song song (Ghi kẽm CTP và
+  // Cắt tờ cùng chảy vào In) bị vẽ thành CTP → Cắt tờ → In — sai hẳn sơ đồ ở màn Lệnh sản xuất.
+  // Cờ đỏ "ngược thứ tự" (`hasConflict`) cũng chấm trên cạnh bịa ấy nên đỏ oan / bỏ sót.
+  //
+  // Nguồn `in_ghep` KHÔNG có bảng phụ thuộc (backend trả rỗng) ⇒ giữ nguyên lối nối theo thứ tự
+  // cũ cho nó, và cho cả lệnh cũ chưa khai cạnh nào — thà nối tạm còn hơn mất sạch mũi tên.
   const dependencyCurves = useMemo(() => {
     const activeKey = hoverEntityKey || selectedEntityKey;
     if (!activeKey) return [];
@@ -494,17 +608,30 @@ export function Xl2Gantt({
               laneKey: lane.key,
               x1: labelW + scale.xOf(sW),
               x2: labelW + scale.xOf(eW),
-              y,
+              // Cộng lệch TẦNG: thanh bị đẩy lên/xuống vì trùng giờ thì mũi tên phải bắn tới đúng
+              // thanh đó, không phải tới tâm lane.
+              y: y + barOffset(lane.key, d.id),
             });
           }
         }
       }
     }
     items.sort((a, b) => (a.dong.buoc_thu_tu ?? 0) - (b.dong.buoc_thu_tu ?? 0));
+    // Cặp (tiền nhiệm → bước sau) sẽ nối. Chỉ giữ cạnh mà CẢ HAI đầu đang hiện trên bàn — tiền
+    // nhiệm nằm ngoài cửa sổ ngày hoặc trong lane đã gấp thì không có toạ độ để bắn mũi tên tới.
+    const theoId = new Map(items.map((it) => [it.dong.id, it]));
+    const canhThat: [typeof items[number], typeof items[number]][] = [];
+    for (const it of items) {
+      for (const pid of it.dong.phu_thuoc_dong_ids ?? []) {
+        const truoc = theoId.get(pid);
+        if (truoc && truoc !== it) canhThat.push([truoc, it]);
+      }
+    }
+    const cap = canhThat.length > 0
+      ? canhThat
+      : items.slice(0, -1).map((from, i) => [from, items[i + 1]] as [typeof items[number], typeof items[number]]);
     const curves: { id: string; d: string; hasConflict: boolean; xMid: number; yMid: number }[] = [];
-    for (let i = 0; i < items.length - 1; i++) {
-      const from = items[i];
-      const to = items[i + 1];
+    for (const [from, to] of cap) {
       const xFrom = from.x2;
       const yFrom = from.y;
       const xTo = to.x1;
@@ -526,7 +653,7 @@ export function Xl2Gantt({
       });
     }
     return curves;
-  }, [hoverEntityKey, selectedEntityKey, clusters, laneYMap, scale]);
+  }, [hoverEntityKey, selectedEntityKey, clusters, laneYMap, scale, barOffset]);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -570,6 +697,14 @@ export function Xl2Gantt({
                 style={{ left: labelW + b.x, width: Math.max(b.w, 2), top: 3 + b.row * 16 }}
                 title={`${b.ten} · ${b.gio}`}
               >
+                {b.nghi.map((k, j) => (
+                  <span
+                    key={`nb${j}`}
+                    className="xl2-carib__nghi"
+                    style={{ left: k.x, width: Math.max(k.w, 2) }}
+                    title={k.title}
+                  />
+                ))}
                 {b.w >= 40 && <span className="xl2-carib__ten">{b.ten}</span>}
                 {b.w >= 100 && <span className="xl2-carib__gio">{b.gio}</span>}
               </div>
@@ -656,7 +791,8 @@ export function Xl2Gantt({
                 const avgLoad = tai?.pct ?? null;
 
                 return (
-                  <div key={lane.key} className="xl2-lane">
+                  <div key={lane.key} className="xl2-lane"
+                       style={{ height: laneHeight(lane.key) }}>
                     <div className="xl2-lane__label" title={lane.label}>
                       <div className="xl2-lane__info">
                         <div className="xl2-lane__name-row">
@@ -792,6 +928,10 @@ export function Xl2Gantt({
                               ? `, chưa về${dong.khuon_ngay_ve ? ` (dự kiến ${ngay(dong.khuon_ngay_ve)})` : ""}`
                               : dong.khuon_so_ke ? `, ${dong.khuon_so_ke}` : ""}`
                           : "";
+                      // Tầng của thanh trong lane (0 khi lane không có thanh nào trùng giờ). Đẩy
+                      // bằng `top` chứ KHÔNG bằng `transform`: `.xl2-bar--dimmed` có transform
+                      // riêng, cộng vào đó là thanh mờ tự nhảy về giữa lane.
+                      const dy = barOffset(lane.key, dong.id);
                       const isWide = width >= 96;
                       const isMedium = width >= 44 && !isWide;
                       // HAI VÙNG dưới đây vẽ NẰM TRONG chip (chốt 25/08/2026). Trước kia dải sai số là
@@ -799,6 +939,21 @@ export function Xl2Gantt({
                       // Gantt nên ai cũng đọc nhầm thành "việc này nối sang việc kia".
                       const inner = Math.max(width - 4, 0); // trừ dải accent mép trái
                       const chiem = bt?.chiem_may_phut || 0;
+                      // NGHỈ GIỮA CA vắt qua thanh: vẽ đúng chỗ trong thanh + cộng ra tổng phút để
+                      // tooltip tách bạch "chiếm máy" (đồng hồ tường) với "chạy" (giờ có việc).
+                      const nghiKhuc = timed && Number.isFinite(eW) ? doanNghi(sW, eW) : [];
+                      const nghiTrongThanh = nghiKhuc.map(([a, b]) => ({
+                        x: (a - sW) * scale.ppm,
+                        w: Math.max((b - a) * scale.ppm, 1),
+                        title: `Nghỉ giữa ca ${hh(a)}–${hh(b)} — máy đứng chờ, không tính giờ chạy`,
+                      }));
+                      const phutNghi = nghiKhuc.reduce((n, [a, b]) => n + (b - a), 0);
+                      // Nói thẳng hai con số khác nhau: thanh CHIẾM MÁY bao lâu (đồng hồ tường) và
+                      // trong đó bao nhiêu là cơm. Thiếu vế này thì "chạy 4g" trên một thanh 5g
+                      // trông y như engine tính sai.
+                      const nghiTitle = phutNghi > 0
+                        ? ` · nghỉ giữa ca ${thoiLuongNgan(phutNghi)} (thanh kéo dài, không tính giờ chạy)`
+                        : "";
                       //  ĐẦU chip = chuẩn bị máy, vẽ ĐÚNG TỈ LỆ (bản cũ ép 4–30% nên bước canh 45ph/chạy
                       //  15ph vẫn hiện ra mẩu bé tí, nhìn ngược hẳn sự thật). Nhỏ quá thì thôi không vẽ.
                       const setupPx = timed && bt && bt.canh_may_phut > 0 && chiem > 0
@@ -867,8 +1022,9 @@ export function Xl2Gantt({
                           key={dong.id}
                           type="button"
                           className={`xl2-bar${isNcc ? " xl2-bar--ncc" : ""}${mucCls}${sel ? " xl2-bar--sel" : ""}${chain ? " xl2-bar--chain" : ""}${isHoveredChain ? " xl2-bar--chain-hover" : ""}${isDimmed ? " xl2-bar--dimmed" : ""}${dong.is_locked ? " xl2-bar--locked" : ""}${canDrag ? " xl2-bar--draggable" : ""}${!timed ? " xl2-bar--pack" : ""}${quaGio ? " xl2-bar--qua-gio" : ""}`}
-                          style={{ left, width, "--lsx-h": hue } as CSSProperties}
-                          title={`${nhan.ma}${nhan.congDoan ? ` · ${nhan.congDoan}` : ""}${nhan.sanPham ? ` · ${nhan.sanPham}` : ""}${slTitle}${dong.start_at ? ` · ${ngayGio(dong.start_at)}` : " · chưa đặt giờ"}${dong.is_locked ? " · đã khóa" : ""}${btTitle}${ttTitle}${daoTitle}`}
+                          style={{ left, width, "--lsx-h": hue,
+                                   ...(dy ? { top: `calc(50% + ${dy}px)` } : null) } as CSSProperties}
+                          title={`${nhan.ma}${nhan.congDoan ? ` · ${nhan.congDoan}` : ""}${nhan.sanPham ? ` · ${nhan.sanPham}` : ""}${slTitle}${dong.start_at ? ` · ${ngayGio(dong.start_at)}` : " · chưa đặt giờ"}${dong.is_locked ? " · đã khóa" : ""}${btTitle}${nghiTitle}${ttTitle}${daoTitle}`}
                           aria-label={`${nhan.ma}${nhan.congDoan ? `, ${nhan.congDoan}` : ""}${nhan.sanPham ? `, ${nhan.sanPham}` : ""}${slAria}${dong.start_at ? `, bắt đầu ${ngayGio(dong.start_at)}` : ", chưa đặt giờ"}`}
                           onPointerDown={canDrag ? (e) => onBarDown(dong, e) : undefined}
                           onClick={() => onBarClick(dong)}
@@ -903,6 +1059,19 @@ export function Xl2Gantt({
                               aria-hidden="true"
                             />
                           )}
+
+                          {/* Khúc NGHỈ GIỮA CA nằm TRONG thanh: gạch chéo mờ, không đè chữ. Việc
+                              không bị tách lần chạy nên thanh vẫn liền — chỗ gạch chéo là phần
+                              thanh dài ra vì máy đứng chờ người ăn cơm, không phải giờ chạy. */}
+                          {nghiTrongThanh.map((k, i) => (
+                            <span
+                              key={`bn${i}`}
+                              className="xl2-bar__nghi"
+                              style={{ left: k.x, width: k.w }}
+                              title={k.title}
+                              aria-hidden="true"
+                            />
+                          ))}
 
                           {/* Đuôi chip: quãng XÊ DỊCH giờ xong — nhạt dần, ngăn bằng vạch đứt dọc. */}
                           {slackPx >= 6 && bt && (

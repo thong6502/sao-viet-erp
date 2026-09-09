@@ -156,7 +156,9 @@ class LichXuong:
     lịch ngày nghỉ (`CalendarService`). Cấp khoảng làm-việc để engine cộng/lùi thời lượng theo GIỜ.
 
     - Mỗi ca → 1 khoảng/ngày; ca đêm (`is_overnight` hoặc end≤start) vắt sang ngày sau.
-    - Nghỉ trưa = KHE giữa 2 ca liên tiếp (không mô hình riêng).
+    - Nghỉ giữa ca = tham số `nghi` (khoét thẳng khỏi khung, xem `_tru_nghi`). Trước 09/09/2026
+      chỗ này ghi "nghỉ trưa = KHE giữa 2 ca liên tiếp" — sai từ lúc xưởng khai Ca 1 liền mạch
+      06:00–15:00 rồi đẩy giờ nghỉ vào `work_shifts.break_*`: khe không còn, khung phồng 9 tiếng.
     - Ca gate theo `is_working_day(ngày-bắt-đầu-ca)`; nhiều ca chồng giờ → MERGE (không đếm trùng).
     - TẬP CA RỖNG → fallback 8h phẳng [08:00,16:00) giữ hành vi lát 1.
     Giờ "nhà máy" một múi — mọi mốc tz-aware UTC danh nghĩa (không đổi múi).
@@ -174,7 +176,7 @@ class LichXuong:
     _MAX_NGAY = 400  # chặn vòng khi gặp chuỗi ngày nghỉ dài (Tết) — vẫn dừng
 
     def __init__(self, cal: CalendarService, ca_rows: list, mo_them: tuple = (),
-                 lien_tuc: bool = False) -> None:
+                 lien_tuc: bool = False, nghi: tuple = ()) -> None:
         self.cal = cal
         # (start_minute, end_minute, is_overnight) — tách khỏi ORM; end≤start ⇒ coi qua đêm.
         self.cas = [
@@ -184,6 +186,12 @@ class LichXuong:
         ]
         self.mo_them = tuple(mo_them)
         self.lien_tuc = bool(lien_tuc)
+        # NGHỈ GIỮA CA (09/09/2026) — `[(bat_dau_phut, ket_thuc_phut), …]` lặp mỗi ngày, khoét
+        # thẳng khỏi khung giờ làm. Áp cho CẢ khung máy (`lien_tuc`): máy ở đây có người đứng vận
+        # hành nên tới giờ cơm là dừng theo người. Docstring lớp từng ghi "nghỉ trưa = KHE giữa 2 ca
+        # liên tiếp" — giả định đó chết khi xưởng khai Ca 1 liền mạch 06:00–15:00 rồi để giờ nghỉ ở
+        # `work_shifts.break_*`, nên khung phồng thành 9 tiếng dù màn ca ghi 8.0 giờ công.
+        self.nghi = tuple(nghi)
 
     @staticmethod
     def _midnight(d: date) -> datetime:
@@ -215,9 +223,44 @@ class LichXuong:
             ra.append((max(s, dau), min(e, cuoi)))
         return ra
 
+    def _tru_nghi(self, iv: list[tuple[datetime, datetime]], d: date) -> list[tuple[datetime, datetime]]:
+        """Khoét các bữa nghỉ giữa ca khỏi khung giờ làm.
+
+        Khung của ngày `d` có thể vắt sang hôm sau (ca đêm, hoặc khung máy trọn ngày) nên dựng mốc
+        nghỉ cho cả `d-1 · d · d+1` rồi mới cắt — thiếu một đầu là bữa cơm rơi đúng chỗ nối hai ngày
+        sẽ lọt lưới.
+        """
+        if not self.nghi or not iv:
+            return iv
+        cam: list[tuple[datetime, datetime]] = []
+        for lech in (-1, 0, 1):
+            m = self._midnight(d + timedelta(days=lech))
+            cam += [(m + timedelta(minutes=int(a)), m + timedelta(minutes=int(b)))
+                    for a, b in self.nghi]
+        ra: list[tuple[datetime, datetime]] = []
+        for s, e in iv:
+            khuc = [(s, e)]
+            for cs, ce in cam:
+                con: list[tuple[datetime, datetime]] = []
+                for a, b in khuc:
+                    if ce <= a or cs >= b:
+                        con.append((a, b))
+                        continue
+                    if a < cs:
+                        con.append((a, cs))
+                    if ce < b:
+                        con.append((ce, b))
+                khuc = con
+            ra += khuc
+        return sorted(ra)
+
     def _khung_ngay(self, d: date) -> list[tuple[datetime, datetime]]:
+        """Khoảng LÀM VIỆC của ngày `d`, đã khoét bữa nghỉ giữa ca."""
+        return self._tru_nghi(self._khung_ngay_tho(d), d)
+
+    def _khung_ngay_tho(self, d: date) -> list[tuple[datetime, datetime]]:
         """Khoảng làm-việc CHẠM ngày `d`: ca bắt-đầu-trong-`d` + đuôi ca đêm bắt-đầu-`d-1`
-        + vùng MỞ THÊM của riêng máy."""
+        + vùng MỞ THÊM của riêng máy. CHƯA trừ nghỉ giữa ca (xem `_khung_ngay`)."""
         them = self._mo_them_ngay(d)
         if self.lien_tuc:
             # Máy: trọn ngày làm việc. Hai ngày liền kề cho hai khoảng dính nhau ở nửa đêm —
@@ -439,12 +482,15 @@ class XepLichService:
         self.bg_repo = BaiGhepRepository(db)
         self.bg_svc = BaiGhepService(db, self.bg_repo, audit, None)
         self.cal = CalendarService(CalendarRepository(db), audit)
-        # Khung giờ làm của xưởng theo CA THẬT (nghỉ trưa/đa ca/ca đêm); tập ca rỗng → 8h phẳng.
-        self.lich = LichXuong(self.cal, self._ca_lich_may())
+        # Khung giờ làm của xưởng theo CA THẬT (nghỉ giữa ca/đa ca/ca đêm); tập ca rỗng → 8h phẳng.
+        self._nghi_cache: tuple | None = None
+        self.lich = LichXuong(self.cal, self._ca_lich_may(), nghi=self.nghi_xuong())
         self.unavail_repo = MachineUnavailableRepository(db)
         # Lịch riêng TỪNG MÁY (vùng mở thêm khác nhau) — dựng trễ, cache trong vòng đời service.
         # Một lần vẽ bảng gọi `_lich_may` hàng trăm lần; không cache là mỗi dòng thêm 1 query.
         self._lich_cache: dict[int, LichXuong] = {}
+        # Quy cách BIẾN của lệnh (`quy_cach_bien`) — cùng lối cache, cùng vòng đời (xem `_sl_tinh`).
+        self._qc_cache: dict[int, dict] = {}
 
     def _ca_lich_may(self) -> list[WorkShift]:
         """Tập ca CHUNG của xưởng = ca đang dùng VÀ có tick "chạy dưới xưởng", sort theo giờ vào.
@@ -475,6 +521,27 @@ class XepLichService:
 
         return AttendanceRepository(self.db).ca_lich_xuong()
 
+    def nghi_xuong(self) -> tuple:
+        """Bữa nghỉ giữa ca HIỆU LỰC của xưởng — `((bat_dau_phut, ket_thuc_phut), …)` lặp mỗi ngày.
+
+        Đọc `work_shifts.break_*` của ĐÚNG tập ca xưởng ở trên, rồi để `constraint` chốt luật "chỉ
+        là nghỉ khi mọi ca đang phủ mốc đó đều nghỉ" (ca gối nhau thì một ca còn đứng máy là xưởng
+        vẫn chạy). Cửa DUY NHẤT dựng khoảng nghỉ — Xếp lịch 2 gọi lại qua `ctx.nghi_windows()` nên
+        hai lát không thể trôi nhau.
+
+        Import trễ: `xep_lich_2/__init__` kéo `service` mà `service` lại kéo chính module này.
+        """
+        if self._nghi_cache is None:
+            from .xep_lich_2 import constraint as C
+
+            self._nghi_cache = tuple(C.doan_nghi_trong_ngay([
+                (int(s.start_minute), int(s.end_minute),
+                 bool(s.is_overnight) or int(s.end_minute) <= int(s.start_minute),
+                 getattr(s, "break_start_minute", None), getattr(s, "break_end_minute", None))
+                for s in self._ca_lich_may()
+            ]))
+        return self._nghi_cache
+
     def _lich_may(self, may_id: int | None) -> LichXuong:
         """Khung giờ của MÁY — chạy LIÊN TỤC (2026-08-10: bỏ ca riêng của máy và của tổ).
 
@@ -490,7 +557,8 @@ class XepLichService:
             return self.lich
         if may_id in self._lich_cache:
             return self._lich_cache[may_id]
-        lich = LichXuong(self.cal, [], self._mo_them_may(may_id), lien_tuc=True)
+        lich = LichXuong(self.cal, [], self._mo_them_may(may_id), lien_tuc=True,
+                         nghi=self.nghi_xuong())
         self._lich_cache[may_id] = lich
         return lich
 
@@ -1008,11 +1076,24 @@ class XepLichService:
         `dong` là DÒNG LỊCH đang xét (không bắt buộc): dòng đã tách lần chạy chỉ làm một phần
         việc của bước, nên SL đưa cho engine phải là phần của nó. Bỏ trống ⇒ nguyên bước như cũ.
         `ty_le` để nơi gọi lặp nhiều máy truyền lại tỉ lệ đã tính sẵn (xem `_ty_le_phan_doan`).
+
+        Quy cách của lệnh NHỚ theo `lsx_id` trong vòng đời service (như `_lich_cache`): `lsx_repo.get`
+        kéo TRỌN cây routing (bước + vật tư + phụ thuộc = 4 lượt hỏi DB) chỉ để lấy mấy biến quy
+        cách, mà mọi bước của cùng một lệnh dùng chung đúng bộ biến đó. Bàn làm việc gọi hàm này
+        một lần cho MỖI thanh — đây là phần đắt nhất còn lại của bàn (đo 09/09/2026: 0,33 s trên
+        tổng 0,67 s cho 9 thanh).
         """
         from .bien_cong_thuc import quy_cach_bien
 
-        lsx = self.lsx_repo.get(lcd.lsx_id) if getattr(lcd, "lsx_id", None) else None
-        qc = quy_cach_bien(lsx) if lsx is not None else {}
+        lsx_id = getattr(lcd, "lsx_id", None)
+        if not lsx_id:
+            qc = {}
+        elif lsx_id in self._qc_cache:
+            qc = self._qc_cache[lsx_id]
+        else:
+            lsx = self.lsx_repo.get(lsx_id)
+            qc = quy_cach_bien(lsx) if lsx is not None else {}
+            self._qc_cache[lsx_id] = qc
         goc = self.bg_svc._lsx_svc().sl_tinh_cua_buoc(lcd, may, qc)
         return _nhan_sl_tinh(goc, self._ty_le_phan_doan(dong) if ty_le is None else ty_le)
 
