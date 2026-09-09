@@ -27,9 +27,13 @@ function bay(props: Parameters<typeof MayCuaCongDoanField>[0]) {
 }
 
 describe("MayCuaCongDoanField", () => {
-  it("chỉ bày máy thuộc nhóm đã tick", () => {
+  it("chỉ bày máy thuộc nhóm đã tick", async () => {
+    const user = userEvent.setup();
     bay({ value: [], options: MAY, nhomChoPhep: ["Máy in"], nhomCongDoan: "print",
           onChange: () => {} });
+    // Máy nay nằm trong ô chọn GÕ-TÌM (`5340acff`), không bày sẵn thành danh sách nữa ⇒ phải mở
+    // ô ra mới thấy tên. Danh sách lọc theo nhóm vẫn là thứ đang kiểm.
+    await user.click(screen.getByRole("button", { name: "Chọn máy cho công đoạn" }));
     expect(screen.getByText(/Komori 5 màu/)).toBeInTheDocument();
     expect(screen.queryByText(/Yawa 1050/)).not.toBeInTheDocument();
   });
