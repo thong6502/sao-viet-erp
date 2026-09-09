@@ -90,7 +90,25 @@ export function docONgay(day: TimesheetDay | undefined, heSo: HeSoNgay): ONgay {
 /** Số công gọn: 1 chứ không phải 1.00, nhưng 0,5 công vẫn phải thấy. */
 export const soCong = (v?: number | null) => Number((v ?? 0).toFixed(2));
 
-/** Chip tóm tắt cho cột "Công đặc biệt" — rỗng ⇒ caller vẽ "—".
+/** Cột "CN/Lễ" trên bảng công: MỘT con số = tổng công của ngày nghỉ tuần + ngày lễ + ngày công ty
+ *  cho nghỉ (chủ chốt 09/09/2026: *"1 công lễ và 1 công chủ nhật thì phải thể hiện là 1.94, bấm vào
+ *  nó mới phân biệt ra"*). Đây là công THẬT đã chấm, chưa nhân hệ số — phần quy đổi nằm trong ngăn
+ *  chi tiết, vì hệ số lễ khác hệ số Chủ nhật, cộng gộp sau quy đổi là ra một số không ai đối chiếu
+ *  được với bảng chấm công. */
+export function tongCongDacBiet(row: TimesheetRow): number {
+  return soCong(
+    soCong(row.restday_cong) + soCong(row.holiday_cong) + soCong(row.plain_cong),
+  );
+}
+
+/** Tổng GIỜ tăng ca cả tháng của một hàng — cột riêng trên bảng công (chủ 09/09/2026: *"cho thêm 1
+ *  cột tổng giờ tăng ca để người ta còn biết"*). Cùng con số với cột "Tăng ca (giờ)" của file .xlsx. */
+export function gioTangCa(row: TimesheetRow): number {
+  const phut = Object.values(row.days).reduce((s, d) => s + (d.ot_minutes ?? 0), 0);
+  return Number((phut / 60).toFixed(2));
+}
+
+/** Chip tóm tắt từng loại — giờ chỉ dùng trong ngăn chi tiết / lịch, cột bảng đã gộp thành một số.
  *  Không bày chip rỗng: tháng không lễ thì ~90% hàng chẳng có gì, chip rỗng chỉ tổ làm bẩn cột. */
 export function congDacBiet(row: TimesheetRow): PillO[] {
   const chips: PillO[] = [];
