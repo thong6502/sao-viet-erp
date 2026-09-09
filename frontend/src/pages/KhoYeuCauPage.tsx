@@ -1684,7 +1684,9 @@ function VoucherCreateDrawer({
   // Kho do BƯỚC LẬP PHIẾU quyết định (yêu cầu không còn chọn kho). Mặc định = kho đang xem ở
   // toolbar; thủ kho đổi được ngay tại đây. Đổi kho = nạp lại toàn bộ lô (dep của effect dưới).
   const [khoId, setKhoId] = useState<number>(request.kho_id ?? initialKhoId);
-  const [ngay, setNgay] = useState(todayISO());
+  // NGÀY NHẬP/XUẤT KHO = HÔM NAY, KHÓA CỨNG (không cho chọn). Đây là NGÀY HẠCH TOÁN — mốc
+  // quyết định phiếu thuộc kỳ nào (khóa sổ + Sổ kho + N-X-T), nên không để người lập tự đặt.
+  const [ngay] = useState(todayISO());
   // Người giao/nhận hàng mặc định = NGƯỜI YÊU CẦU (hàng về/ra theo đúng người xin); thủ kho sửa được.
   const [nguoiGiaoNhan, setNguoiGiaoNhan] = useState(request.nguoi_tao_ten ?? "");
   // ĐIỀU CHUYỂN: ghi chú phiếu nhập đích LẤY SẴN từ ghi chú điều chuyển (đã gắn vào yêu cầu); sửa được.
@@ -2089,10 +2091,9 @@ function VoucherCreateDrawer({
                     type="date"
                     className="rc-input"
                     value={ngay}
-                    onChange={(e) => {
-                      setDirty(true);
-                      setNgay(e.target.value);
-                    }}
+                    disabled
+                    readOnly
+                    title="Ngày nhập/xuất kho luôn là hôm nay — đây là mốc phân kỳ khóa sổ nên không sửa được"
                   />
                 </div>
                 <div className="rc-field">
