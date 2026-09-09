@@ -83,19 +83,74 @@ class XepLich2Context:
         ]
         return cas or [(GIO_BAT_DAU * 60, GIO_BAT_DAU * 60 + PHUT_LAM_NGAY, False)]
 
+    def nghi_windows(self) -> list[tuple[int, int]]:
+        """Bữa nghỉ giữa ca của xưởng `[(bat_dau_phut, ket_thuc_phut), …]`, lặp lại mỗi ngày.
+
+        Giờ nghỉ là giờ KHÔNG LÀM: việc đang chạy dở tạm dừng (giờ xong bị đẩy ra), đặt bắt đầu vào
+        đó bị chặn, và nó bị trừ khỏi cả tử lẫn mẫu của % tải máy. Máy ở xưởng này có người đứng vận
+        hành nên bước máy cũng nghỉ, không riêng bước tổ.
+
+        Gọi thẳng `XepLichService.nghi_xuong()` — cùng một cửa với lịch xưởng lát 1, để engine v2 và
+        "Tổng thời gian dẫn" của lệnh không thể nói hai giờ khác nhau. Xưởng chưa khai nghỉ ⇒ rỗng ⇒
+        mọi hàm rơi về đúng hành vi cũ.
+        """
+        return self._nho(("nghi",), lambda: list(self.core.nghi_xuong()))
+
     # --- Máy ---------------------------------------------------------------
     def khoang_chan_may(self, may_id: int | None) -> list[tuple]:
         """Vùng KHOÁ (bảo trì/hỏng/nghỉ) của máy — đã tz-aware sẵn từ engine cũ."""
         return self._nho(("chan_may", may_id), lambda: list(self.core._chan_may(may_id)))
 
+    def _viec_tren_may(self, may_id: int | None) -> list[tuple]:
+        """MỌI việc đã xếp trên MỘT máy: `(id, start, finish, lsx_id, bai_ghep_id)` — nền chung của
+        hai cửa dưới, nhớ theo ĐÚNG MÁY chứ không theo dòng đang xét.
+
+        Khoá nhớ CỐ Ý không mang `exclude_id`: dòng nào bị loại là việc của NGƯỜI HỎI, không phải
+        của câu hỏi. Trước đây nó nằm trong khoá nên mỗi thanh trên bàn là một khoá riêng và khối
+        `dong_bang` không đỡ được gì — bàn 62 thanh vẫn quét cùng một máy 126 lượt (đo 09/09/2026).
+        Nay hỏi MỘT lần mỗi máy rồi lọc trong bộ nhớ.
+        """
+        return self._nho(("viec_tren_may", may_id), lambda: [
+            (r.id, _aware(r.start_at), _aware(r.finish_at), r.lsx_id, r.bai_ghep_id)
+            for r in self.repo.da_xep_khac_tren_may(may_id)
+        ])
+
     def khoang_may_da_xep(
         self, may_id: int | None, exclude_id: int | None = None,
     ) -> list[tuple]:
         """Các khoảng việc khác ĐÃ chiếm trên cùng máy (nền dò `trung_may`)."""
-        return self._nho(("may_da_xep", may_id, exclude_id), lambda: [
-            (_aware(r.start_at), _aware(r.finish_at))
-            for r in self.repo.da_xep_khac_tren_may(may_id, exclude_id)
+        return [(s, f) for (rid, s, f, _l, _b) in self._viec_tren_may(may_id)
+                if rid != exclude_id]
+
+    def khoang_lan_chay_khac(
+        self, dong, may_id: int | None, department_id: int | None,
+        exclude_id: int | None = None,
+    ) -> list[tuple]:
+        """Khoảng đã chiếm của các LẦN CHẠY KHÁC cùng bước, LỌC lấy mẻ dùng CHUNG tài nguyên.
+
+        Có máy ⇒ so theo MÁY; bước làm tay (không máy) ⇒ so theo TỔ. Hai mẻ nằm trên hai máy khác
+        nhau chạy song song được thật, nên không đưa vào nền chặn (xem `C.trung_lan_chay`).
+
+        Dòng chưa tách (`phan_doan_tong <= 1`) không có cụm nào để soi ⇒ thoát sớm, khỏi tốn một
+        câu hỏi DB cho gần như mọi dòng trên bàn.
+        """
+        if int(getattr(dong, "phan_doan_tong", 1) or 1) <= 1:
+            return []
+        goc = getattr(dong, "goc_dong_id", None) or getattr(dong, "id", None)
+        if not goc:
+            return []
+
+        def hop(rm, rd) -> bool:
+            if may_id:
+                return rm == may_id
+            return bool(department_id) and not rm and rd == department_id
+
+        # Nhớ theo CỤM thôi — lọc tài nguyên + dòng đang xét làm ở ngoài, cùng lý do `_viec_tren_may`.
+        cum = self._nho(("lan_chay_cum", goc), lambda: [
+            (r.id, _aware(r.start_at), _aware(r.finish_at), r.may_id, r.department_id)
+            for r in self.repo.lan_chay_khac_da_xep(goc)
         ])
+        return [(s, f) for (rid, s, f, rm, rd) in cum if rid != exclude_id and hop(rm, rd)]
 
     def khoang_may_lenh_khac(self, may_id: int | None, exclude_id: int | None, dong) -> list[tuple]:
         """Như trên nhưng BỎ các bước của CHÍNH lệnh/bài này (nền cảnh báo `lan_viec_ke`).
@@ -107,12 +162,11 @@ class XepLich2Context:
         """
         lsx_id = getattr(dong, "lsx_id", None)
         bai_id = getattr(dong, "bai_ghep_id", None)
-        return self._nho(("may_lenh_khac", may_id, exclude_id, lsx_id, bai_id), lambda: [
-            (_aware(r.start_at), _aware(r.finish_at))
-            for r in self.repo.da_xep_khac_tren_may(may_id, exclude_id)
-            if not ((lsx_id is not None and r.lsx_id == lsx_id)
-                    or (bai_id is not None and r.bai_ghep_id == bai_id))
-        ])
+        return [
+            (s, f) for (rid, s, f, r_lsx, r_bai) in self._viec_tren_may(may_id)
+            if rid != exclude_id and not ((lsx_id is not None and r_lsx == lsx_id)
+                                          or (bai_id is not None and r_bai == bai_id))
+        ]
 
     # --- Tổ / quân số ------------------------------------------------------
     def _so_nguoi(self, dong: XepLichCongDoan) -> int:
@@ -136,11 +190,15 @@ class XepLich2Context:
         Trả BẢN SAO: nơi gọi (`_vuot_quan_so`) nối thêm chính việc đang đặt vào danh sách, mà khi
         đóng băng thì danh sách gốc nằm trong kho dùng chung — cho ghi thẳng thì mỗi mốc quét lại
         cộng dồn thêm một người ma.
+
+        Nhớ theo ĐÚNG TỔ, không theo dòng đang xét (cùng lý do `_viec_tren_may`) — mà ở đây còn
+        đắt hơn: mỗi lượt quét lại tra kíp chuẩn của TỪNG việc trong tổ.
         """
-        return list(self._nho(("to", department_id, exclude_id), lambda: [
-            (_aware(r.start_at), _aware(r.finish_at), self._so_nguoi(r))
-            for r in self.repo.da_xep_khac_theo_to(department_id, exclude_id)
-        ]))
+        rows = self._nho(("viec_theo_to", department_id), lambda: [
+            (r.id, _aware(r.start_at), _aware(r.finish_at), self._so_nguoi(r))
+            for r in self.repo.da_xep_khac_theo_to(department_id)
+        ])
+        return [(s, f, n) for (rid, s, f, n) in rows if rid != exclude_id]
 
     def quan_so(self, department_id: int | None, ngay: date) -> dict:
         """Quân số CÓ HIỆU LỰC của tổ trong ngày (số tự tính hoặc dòng gõ đè) — mượn engine cũ."""
@@ -161,10 +219,19 @@ class XepLich2Context:
                 getattr(dong, "lsx_cong_doan_id", None))
         return self._nho(khoa, lambda: self._tien_nhiem_moi(dong))
 
+    def _gang_finish(self, lsx_id: int) -> datetime | None:
+        """Sàn IN-CHUNG của một LỆNH — nhớ theo LỆNH, không theo bước.
+
+        Khoá của `tien_nhiem_finish` mang cả `lsx_cong_doan_id` (đúng, vì cạnh routing khác nhau
+        theo bước), nên sàn này bị hỏi lại cho TỪNG bước của cùng một lệnh dù câu trả lời chỉ phụ
+        thuộc lệnh.
+        """
+        return self._nho(("gang_finish", lsx_id), lambda: self.core._gang_finish_cho_lsx(lsx_id))
+
     def _tien_nhiem_moi(self, dong) -> list[datetime]:
         finishes: list[datetime] = []
         if getattr(dong, "lsx_id", None):
-            gang = self.core._gang_finish_cho_lsx(dong.lsx_id)
+            gang = self._gang_finish(dong.lsx_id)
             if gang:
                 finishes.append(_aware(gang))
         step_id = getattr(dong, "lsx_cong_doan_id", None)

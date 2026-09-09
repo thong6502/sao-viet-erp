@@ -4272,7 +4272,7 @@ Trước đó bảng cân đối **chỉ đọc**, tồn không thuộc về ai:
 
 **Keys & indexes**
 
-- Primary key: `id`. Foreign keys: `lsx_id` FK→`lsx.id` (on delete CASCADE), `bai_ghep_id` FK→`bai_ghep.id` (on delete CASCADE). Indexes: `lsx_id`, `lsx_cong_doan_id`, `bai_ghep_id`, `may_id`, `department_id`, `work_shift_id`, `goc_dong_id` (`ix_xep_lich_cong_doan_goc_dong_id`, mg `0253` — tra CẢ CỤM phân đoạn của một bước), tổ hợp `ix_xep_lich_may_thoigian` (`may_id`, `start_at`).
+- Primary key: `id`. Foreign keys: `lsx_id` FK→`lsx.id` (on delete CASCADE), `bai_ghep_id` FK→`bai_ghep.id` (on delete CASCADE). Indexes: `lsx_id`, `lsx_cong_doan_id`, `bai_ghep_id`, `may_id`, `department_id`, `work_shift_id`, `goc_dong_id` (`ix_xep_lich_cong_doan_goc_dong_id`, mg `0253` — tra CẢ CỤM phân đoạn của một bước), tổ hợp `ix_xep_lich_may_thoigian` (`may_id`, `start_at`), tổ hợp `ix_xep_lich_start_trangthai` (`start_at`, `trang_thai`, mg `0287` — bàn làm việc cắt theo CỬA SỔ NGÀY và hỏi nhóm nháp `start_at IS NULL`, hai câu đều không có máy để bám). Index của `bai_ghep_cong_doan_id` chỉ có trên DB dựng bằng `create_all`: cột thêm bằng `ALTER TABLE` ở mg `0151` mà thiếu `CREATE INDEX`, mg `0287` vá lại cho DB cũ.
 
 **Relationships**
 

@@ -120,7 +120,8 @@ def chi_tiet(service, dong, ma: str) -> tuple[str, str]:
         may = _may(service, dong, cd)
         if may is None:
             return ("Bước chưa gán máy nên chưa có tốc độ để tính giờ chạy.",
-                    "Chọn máy cho bước ở Lệnh SX → drawer bước (hoặc để Xếp lịch tự chọn máy).")
+                    "Chọn máy cho bước ở Lệnh SX → drawer bước → tab Phân công & Thiết bị (hoặc "
+                    "để Xếp lịch tự chọn máy).")
         return (f"Máy “{may.ten}” chưa khai tốc độ nên chưa tính được giờ chạy của bước.",
                 f"Khai ô Tốc độ (và đơn vị tốc độ) cho “{may.ten}” ở Danh mục → Máy & thiết bị.")
 
@@ -138,9 +139,16 @@ def chi_tiet(service, dong, ma: str) -> tuple[str, str]:
             return _cau_quy_doi(nhan, dv_nguon, dv_dich, f"năng suất khoán của “{ten}”")
         may = _may(service, dong, cd)
         if may is None:
-            return ("Bước chưa gán máy nên chưa biết quy số lượng về đơn vị nào để chia ra giờ "
-                    "chạy.",
-                    "Chọn máy cho bước ở Lệnh SX → drawer bước (hoặc để Xếp lịch tự chọn máy).")
+            # NÓI ĐÚNG THỨ ĐANG THIẾU LÀ CÁI MÁY (09/09/2026) — khớp câu engine dựng ở
+            # `lsx_service.thoi_luong_buoc`. Bước máy chưa có máy thì `sl_tinh` về None không phải
+            # vì cầu quy đổi tịt, mà vì KHÔNG CÓ ĐÍCH để quy về: cả cách đo giờ
+            # (`cong_doan_may.cong_thuc_gio`) lẫn tốc độ đều treo ở CẶP (công đoạn × máy). Câu cũ
+            # ("chưa biết quy số lượng về đơn vị nào") đẩy người xếp lịch đi khai Đơn vị & quy đổi
+            # — khai xong cảnh báo vẫn còn nguyên vì thứ thiếu vốn là cái máy.
+            return ("Bước chưa gán máy nên chưa biết chạy trên máy nào — cách đo giờ chạy và tốc "
+                    "độ đều khai theo cặp (công đoạn × máy).",
+                    "Chọn máy cho bước ở Lệnh SX → drawer bước → tab Phân công & Thiết bị (hoặc "
+                    "để Xếp lịch tự chọn máy).")
         dv_dich = _dv(service, ma_don_vi_toc_do(may))
         if not dv_dich:
             cai_gi = dv_nguon or "số lượng của bước"

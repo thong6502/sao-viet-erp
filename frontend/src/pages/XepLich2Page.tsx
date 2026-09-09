@@ -98,6 +98,19 @@ const TACH_EPS = 0.001;
 
 // TỔNG đem đi chia của một dòng. Dòng CHƯA tách gần như luôn có `so_luong` NULL (không nơi nào ghi
 // cột này lúc sinh dòng) nên phải rơi về SL vào của bước — cùng con số `phan_doan.tach` tự đọc lại.
+/** Phút thanh bị KÉO DÀI ngoài giờ chạy = đồng-hồ-tường (bắt đầu→kết thúc) trừ số phút chiếm máy.
+ *  Với luật nghỉ giữa ca (09/09/2026) chênh này chính là bữa cơm việc vắt qua: máy có người vận
+ *  hành nên tới giờ là dừng theo người, việc tạm nghỉ rồi chạy tiếp chứ KHÔNG tách lần chạy mới.
+ *  Không nói ra thì "chạy 4g" nằm trên một thanh trải 5g trông y như engine tính sai. */
+function phutKeoDai(start: string | null | undefined, finish: string | null | undefined,
+                    chiem: number | null | undefined): number {
+  if (!start || !finish || !chiem) return 0;
+  const a = new Date(start).getTime();
+  const b = new Date(finish).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return 0;
+  return Math.max(0, Math.round((b - a) / 60000) - chiem);
+}
+
 function tachTongCua(d: Xl2Dong): number {
   return d.so_luong ?? d.so_luong_buoc ?? 0;
 }
@@ -1113,6 +1126,7 @@ export function XepLich2Page({
                   clusters={clustersHienThi}
                   ca={ban.ca}
                   caNhan={ban.ca_nhan ?? []}
+                  nghi={ban.nghi ?? []}
                   nhom={nhom}
                   ngayLe={ban.ngay_le}
                   khoaMay={ban.khoa_may}
@@ -1849,6 +1863,7 @@ function Xl2PreviewDialogBody({
 
   const startIso = xt.start_at ?? patch.start_at ?? dong.start_at;
   const finishIso = xt.finish_at ?? dong.finish_at;
+  const nghiKeoDai = phutKeoDai(startIso, finishIso, xt.chiem_may_phut);
   const slackDays = computeSlackDays(xt.han_moi ?? finishIso, xt.han_sx);
   const hasIssues = xt.van_de && xt.van_de.length > 0;
   // Nhân lực bước. Câu cảnh báo quân số chỉ in con số đỉnh ("Đỉnh 5 người…") — đứng một mình nó
@@ -1903,6 +1918,14 @@ function Xl2PreviewDialogBody({
           {dong.boc_tach && (
             <span className="xl2-dlg-tag">
               Canh máy {dong.boc_tach.canh_may_phut}p · Chạy {dong.boc_tach.chay_phut}p
+            </span>
+          )}
+          {nghiKeoDai > 0 && (
+            <span
+              className="xl2-dlg-tag"
+              title="Việc vắt qua nghỉ giữa ca: máy đứng chờ rồi chạy tiếp (không tách lần chạy), nên giờ kết thúc lùi ra đúng bằng bữa nghỉ."
+            >
+              Nghỉ giữa ca: <b>{thoiLuong(nghiKeoDai)}</b>
             </span>
           )}
           <span className="xl2-dlg-tag">
@@ -2043,6 +2066,18 @@ function DaiThoiLuong({ tb, min, max }: { tb: number; min?: number | null; max?:
   );
 }
 
+// Mốc PHỤ (xong sớm nhất / muộn nhất) đứng cạnh mốc chính: cùng NGÀY thì chỉ in giờ cho đỡ dài,
+// khác ngày mới in đủ ngày — dải tốc độ máy hay vắt qua nửa đêm, giấu ngày đi là đọc nhầm ngày.
+function gioSoVoi(v: string | null | undefined, moc: string | null | undefined): string {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "—";
+  const g = d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  const m = moc ? new Date(moc) : null;
+  const cungNgay = m != null && !Number.isNaN(m.getTime()) && m.toDateString() === d.toDateString();
+  return cungNgay ? g : `${d.toLocaleDateString("vi-VN")} ${g}`;
+}
+
 // Ba BẬC điểm máy — chỉ để đổi màu chip, KHÔNG phải một luật nghiệp vụ. Cố ý không có bậc "đỏ":
 // mọi máy còn trong danh sách đều xếp được, chỉ hơn kém nhau chỗ phí; cái thật sự phải cảnh báo là
 // cờ `tre_han` chứ không phải điểm thấp.
@@ -2173,6 +2208,15 @@ function DongPanel({
   const nhan = dongNhanParts(dong);
   const nl = nhanLucTom(xt?.dinh_bien);
   const gioSai = gioNhapSai(draftStart);
+  // DẢI thời lượng của bước: lịch đặt theo tốc độ danh nghĩa của máy, còn nhanh nhất/chậm nhất là
+  // hai ô `toc_do_max`/`toc_do_min` khai ở danh mục máy. Máy chưa khai hai ô đó ⇒ ba số dính làm
+  // một ⇒ THÔI bày dải (bày ra chỉ khiến người xếp tưởng máy chạy chính xác tuyệt đối).
+  const ketThuc = xt?.finish_at ?? dong.finish_at;
+  const batDau = xt?.start_at ?? dong.start_at;
+  const nghiKeoDai = phutKeoDai(batDau, ketThuc, xt?.chiem_may_phut);
+  const coDaiTl = xt != null && xt.chiem_may_phut_max > xt.chiem_may_phut_min;
+  const coDaiKt = xt != null && xt.finish_at_min != null && xt.finish_at_max != null
+    && xt.finish_at_min !== xt.finish_at_max;
 
   return (
     <>
@@ -2191,8 +2235,47 @@ function DongPanel({
         <div style={{ marginTop: "var(--sp-2)" }}>
           <div className="xl2-kv"><span className="xl2-kv__k">Tài nguyên</span><span className="xl2-kv__v" style={{ display: "inline-flex", gap: 5, alignItems: "center" }}>{resLabel}</span></div>
           <div className="xl2-kv"><span className="xl2-kv__k">Bắt đầu</span><span className="xl2-kv__v xl2-kv__v--num">{dong.start_at ? ngayGio(dong.start_at) : "—"}</span></div>
-          <div className="xl2-kv"><span className="xl2-kv__k">Kết thúc</span><span className="xl2-kv__v xl2-kv__v--num">{(xt?.finish_at ?? dong.finish_at) ? ngayGio(xt?.finish_at ?? dong.finish_at) : "—"}</span></div>
-          {xt && <div className="xl2-kv"><span className="xl2-kv__k">Chiếm máy</span><span className="xl2-kv__v xl2-kv__v--num">{thoiLuong(xt.chiem_may_phut)}{xt.theo_may ? " (theo máy)" : ""}</span></div>}
+          {/* KẾT THÚC — mốc lịch đứng trên, dải sớm/muộn nhất đứng dưới. Trước 09/09/2026 chỗ này
+              chỉ có MỘT mốc nên người xếp đọc "02:03" như một con số chắc chắn, trong khi cùng cái
+              bước ấy chạy hết tốc độ khai của máy có thể xong sớm/muộn hơn cả tiếng. */}
+          <div className="xl2-kv">
+            <span className="xl2-kv__k">Kết thúc</span>
+            <span className="xl2-kv__v xl2-kv__v--num xl2-kv__v--cot">
+              <span>{ketThuc ? ngayGio(ketThuc) : "—"}</span>
+              {coDaiKt && (
+                <span className="xl2-kv__dai" title="Lịch đặt theo tốc độ trung bình của máy; hai mốc này là chạy hết tốc độ nhanh nhất / chậm nhất khai ở danh mục máy">
+                  sớm nhất {gioSoVoi(xt!.finish_at_min, ketThuc)} · muộn nhất {gioSoVoi(xt!.finish_at_max, ketThuc)}
+                </span>
+              )}
+            </span>
+          </div>
+          {xt && (
+            <div className="xl2-kv">
+              <span className="xl2-kv__k">Chiếm máy</span>
+              <span className="xl2-kv__v xl2-kv__v--num xl2-kv__v--cot">
+                <span>{thoiLuong(xt.chiem_may_phut)}{xt.theo_may ? " (theo máy)" : ""}</span>
+                {coDaiTl && (
+                  <span className="xl2-kv__dai" title="Nhanh nhất – chậm nhất theo dải tốc độ của máy">
+                    {thoiLuong(xt.chiem_may_phut_min)} – {thoiLuong(xt.chiem_may_phut_max)}
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+          {/* Việc vắt qua bữa cơm giữa ca thì giờ kết thúc lùi ra mà số giờ chạy không đổi — phải
+              nói thành hai con số, không thì người xếp trừ tay giữa "chiếm máy" và hai mốc giờ rồi
+              tưởng engine cộng nhầm. KHÔNG tách lần chạy: máy dừng theo người rồi chạy tiếp. */}
+          {nghiKeoDai > 0 && (
+            <div className="xl2-kv">
+              <span className="xl2-kv__k">Nghỉ giữa ca</span>
+              <span className="xl2-kv__v xl2-kv__v--num xl2-kv__v--cot">
+                <span>{thoiLuong(nghiKeoDai)}</span>
+                <span className="xl2-kv__dai" title="Máy có người vận hành nên tới giờ nghỉ là dừng theo người; việc chạy tiếp sau đó, không tách thành lần chạy mới.">
+                  máy đứng chờ, kéo dài giờ kết thúc
+                </span>
+              </span>
+            </div>
+          )}
           {/* NHÂN LỰC — khối này trước chỉ có tài nguyên + giờ + chiếm máy, nên khi lịch kêu "đỉnh N
               người vượt quân số tổ" người xếp không thấy bước khai bao nhiêu người, cũng không biết
               đi đâu sửa. Nay kíp chuẩn đứng đây kèm lối mở thẳng sang chỗ sửa — từ mg `0281` nó là
@@ -2441,7 +2524,7 @@ function DongPanel({
 
       <div className="xl2-psec">
         <div className="xl2-psec__h">
-          <Icon name="alert" size={13} /> Vấn đề của cách đặt đang gõ
+          <Icon name="alert" size={13} /> Vấn đề
           {xtBusy && xt != null && <span className="xl2-psec__hint">đang soi lại…</span>}
         </div>
         {/* Ba trạng thái KHÁC NHAU: chưa soi xong · soi hỏng · soi xong và sạch. Gộp cả ba thành

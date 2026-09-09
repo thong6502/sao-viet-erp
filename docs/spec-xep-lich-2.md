@@ -59,6 +59,17 @@ Không lưu thêm số dẫn xuất nào: thời lượng · sớm-nhất/muộn
 - **Đã bắt đầu thì chạy liên tục tới xong**: `finish = start + chiem_may_phut` theo giờ tường,
   KHÔNG cắt theo khung ca, KHÔNG tách nhiều đoạn. Phần tràn qua cuối ca vẫn chiếm máy và vẫn ăn
   suất người của tổ.
+- **NGHỈ GIỮA CA là ngoại lệ DUY NHẤT của "chạy liên tục"** (09/09/2026): máy có người vận hành nên
+  tới giờ cơm là dừng theo người, việc tạm nghỉ rồi chạy tiếp. `finish` bị đẩy ra đúng bằng các bữa
+  nghỉ nó vắt qua, còn `chiem_may_phut` (giờ CHẠY) không đổi — **không** tách thành lần chạy mới
+  (`phan_doan_*` vẫn chỉ dành cho chuyện chia sản lượng sang máy khác). Giờ bắt đầu rơi vào bữa nghỉ
+  bị CHẶN, cùng cửa với `ngoai_ca`; tự-xếp có sẵn mốc "hết nghỉ" trong danh sách ứng viên nên không
+  ai bị kẹt vì cửa này.
+- Một phút chỉ tính là nghỉ khi **MỌI ca đang phủ phút đó đều đang nghỉ** — ca khác còn đứng máy thì
+  xưởng vẫn chạy. Nguồn là `work_shifts.break_start_minute/break_end_minute`; nghỉ khai lạc ra ngoài
+  giờ ca bị bỏ (lỗi khai, không được biến giờ ngoài ca thành giờ nghỉ).
+- **% tải máy trừ nghỉ ở CẢ tử lẫn mẫu**: tử số là phút chiếm đã trừ bữa cơm, mẫu số là quỹ giờ ca
+  đã trừ bữa cơm (Ca 1 06:00–15:00 nghỉ 12:00–13:00 ⇒ 480', đúng bằng 8.0 giờ công ở màn Ca kíp).
 - **Ngày nghỉ · ngày lễ vẫn có ca khả dụng như ngày thường** — chỉ tô nền khác + ghi chú tên ngày
   lễ lấy từ `special_days.name`. Đây là chỗ v2 khác hẳn màn cũ (màn cũ để trống ngày nghỉ).
 - Việc kéo qua nửa đêm là bình thường, không phải lỗi.
@@ -156,9 +167,11 @@ Mỗi vấn đề trả về: `muc` · `ma` · `cau` (câu người đọc) · `
 | `thieu_quy_doi` | Thiếu cầu quy đổi đơn vị giữa SL vào và đơn vị tốc độ |
 | `thieu_tai_nguyen` | Chưa có máy / tổ / NCC cần thiết |
 | `ngoai_ca` | Giờ bắt đầu không nằm trong ca nào |
+| `nghi_giua_ca` | Giờ bắt đầu rơi vào bữa nghỉ giữa ca (giờ xưởng không đứng máy) |
 | `sai_tien_nhiem` | Bắt đầu trước khi bước tiền nhiệm hoàn thành |
 | `truoc_ngay_vat_tu` | Bắt đầu trước ca đầu tiên của ngày vật tư hứa về |
 | `trung_may` | Trùng việc khác trên cùng máy |
+| `trung_lan_chay` | Trùng một **lần chạy khác của chính bước này** trên cùng tài nguyên — các lần chạy phải nối đuôi (tách lần chạy: `spec-thuc-te-vs-ke-hoach.md` §2.4) |
 
 **7.2 Cho lưu nháp, chặn phát hành** (`chan_phat_hanh`):
 
@@ -208,6 +221,10 @@ NCC · chưa xếp · có vấn đề · lệnh gấp. **Không** dựng lại b
 - **Panel (phải)** — LSX/bài + vị trí trong DAG · hai hạn + đệm · ba mức thời lượng kèm nguồn tính
   · máy/tổ/NCC + ca + tải · số người kế hoạch và kíp chuẩn tham khảo · quân số tổ và phần còn rảnh
   · vật tư đã giữ / đang về / còn thiếu + ngày sớm nhất · danh sách chặn-cảnh báo kèm liên kết xử lý.
+- **Mũi tên phụ thuộc** — vẽ đúng cạnh DAG routing (`lsx_cong_doan_phu_thuoc`), không phải dây nối
+  liền kề theo thứ tự bảng. Bước đã **tách lần chạy** thì các mẻ cùng tài nguyên nối đuôi thành
+  MỘT dây `1 → 2 → 3`: bước trước chỉ bắn mũi tên tới mẻ ĐẦU, và cửa ra của bước trước là mẻ CUỐI
+  của nó. Chia mẻ sang hai máy khác nhau thì thành hai dây song song, mỗi dây nhận một mũi tên.
 - **Dải chân** — tổng số chặn đặt lịch · chặn phát hành · cảnh báo; bấm số làm nổi đúng thanh/LSX.
   Phát hành độc lập theo từng LSX hoặc bài ghép. Lịch đã phát hành bị khoá; sửa thì phải **thu hồi
   có quyền + lý do** rồi phát hành lại.
@@ -257,7 +274,9 @@ thay cho nhánh riêng của nó, nên phát hành từ màn cũ không vượt 
 1. **Ngày lễ** đọc `special_days` của module Nhân sự — không đẻ bảng lịch lễ riêng. v2 vẫn cho xếp
    ngày lễ (khác `is_working_day` của màn cũ), chỉ tô nền + ghi chú.
 2. **Chạy liên tục qua cuối ca**: ca chỉ gác *giờ bắt đầu*; nền ca thành nền hiển thị chứ không
-   còn cắt thời lượng.
+   còn cắt thời lượng. **Bổ sung 09/09/2026**: riêng NGHỈ GIỮA CA thì cắt — máy có người vận hành,
+   tới giờ cơm là dừng theo người. Việc không bị tách lần chạy; Gantt khía bữa nghỉ trên dải ca và
+   gạch chéo đúng khúc đó trong thanh, panel tách bạch "chiếm máy" với phần "kéo dài vì nghỉ".
 3. **Lane NCC** gom theo chuỗi `nha_cung_cap` đã chuẩn hoá (chưa có danh mục NCC cho thuê ngoài).
 4. **Trạng thái vấn đề dùng chung** `issue_key` với màn cũ — cùng một lịch thật thì cùng một vết
    xử lý; đã tiếp nhận/duyệt ngoại lệ ở màn cũ thì màn 2 thấy luôn.

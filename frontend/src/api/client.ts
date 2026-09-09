@@ -1128,6 +1128,10 @@ export interface Xl2Dong {
   cong_doan_ten: string | null;
   /** Thứ tự bước trong chuỗi routing (snapshot `source_thu_tu`). */
   buoc_thu_tu: number;
+  /** Dòng TIỀN NHIỆM thật của bước (cạnh `lsx_cong_doan_phu_thuoc`) — mũi tên Gantt bám cái này,
+   *  KHÔNG suy từ `buoc_thu_tu` (số thứ tự phẳng, nối liền kề sẽ bóp DAG thành một hàng dọc).
+   *  Rỗng = bước gốc hoặc dòng bài ghép (nguồn `in_ghep` không có bảng phụ thuộc). */
+  phu_thuoc_dong_ids: number[];
   /** Phần việc của CHÍNH thanh này khi công đoạn bị tách. null = chưa tách (trọn bước) — KHÁC 0. */
   so_luong: number | null;
   /** Lần chạy thứ mấy / mấy lần. Chưa tách = 1/1. */
@@ -1164,6 +1168,14 @@ export interface Xl2CaNhan {
   bat_dau_phut: number;
   ket_thuc_phut: number;
   qua_dem: boolean;
+}
+
+/** Bữa NGHỈ GIỮA CA lặp lại hằng ngày, tính bằng phút từ nửa đêm. Chỉ gồm những phút mà MỌI ca
+ *  đang phủ đều nghỉ — ca khác còn đứng máy thì giờ đó xưởng vẫn chạy. Việc đang chạy KHÔNG bị
+ *  tách lần chạy: nó tạm dừng rồi chạy tiếp, nên thanh dài ra đúng bằng bữa nó vắt qua. */
+export interface Xl2Nghi {
+  bat_dau: number;
+  ket_thuc: number;
 }
 
 /** Ngày lễ tô nền (vẫn xếp được). `ngay` = "YYYY-MM-DD". */
@@ -1205,6 +1217,7 @@ export interface Xl2BanLamViec {
   den: string;
   ca: Xl2Ca[];
   ca_nhan: Xl2CaNhan[];
+  nghi: Xl2Nghi[];
   ngay_le: Xl2NgayLe[];
   khoa_may: Xl2KhoaMay[];
   tai_may: Xl2TaiMay[];
@@ -1295,6 +1308,10 @@ export interface Xl2XemTruoc {
   dong_id: number;
   start_at: string | null;
   finish_at: string | null;
+  /** Mốc xong SỚM NHẤT / MUỘN NHẤT theo dải tốc độ máy (`toc_do_max` / `toc_do_min` khai ở danh
+   *  mục máy). Bằng `finish_at` khi máy chưa khai dải — lúc đó panel thôi bày ba mốc. */
+  finish_at_min: string | null;
+  finish_at_max: string | null;
   chiem_may_phut: number;
   chiem_may_phut_min: number;
   chiem_may_phut_max: number;

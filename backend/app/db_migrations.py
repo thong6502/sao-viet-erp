@@ -13141,3 +13141,34 @@ def _migrate_doi_bien_so_tp_ve_so_con(db: Session) -> None:
 
 
 MIGRATIONS.append(("0286_doi_bien_so_tp_ve_so_con", _migrate_doi_bien_so_tp_ve_so_con))
+
+
+def _migrate_xep_lich_index_ban_lam_viec(db: Session) -> None:
+    """`xep_lich_cong_doan`: hai index cho đường ĐỌC nóng nhất (bàn Xếp lịch 2).
+
+    1. `ix_xep_lich_start_trangthai` (`start_at`, `trang_thai`) — MỚI. Bàn làm việc hỏi hai câu
+       không có máy để bám: dòng đã xếp CHẠM cửa sổ `[tu, den]` và dòng nháp `start_at IS NULL`.
+       Cột dẫn `start_at` phục vụ cả hai (btree Postgres đánh cả NULL).
+
+    2. `ix_xep_lich_cong_doan_bai_ghep_cong_doan_id` — VÁ NỢ. Model khai `index=True` cho cột này
+       từ đầu, nhưng cột được thêm bằng `ALTER TABLE ... ADD COLUMN` (mg `0151`) mà KHÔNG kèm
+       `CREATE INDEX`. Hệ quả: DB trắng dựng bằng `create_all` thì có index, còn DB dev/prod có
+       bảng từ trước migration đó thì KHÔNG — hai môi trường chạy trên hai kế hoạch truy vấn khác
+       nhau mà không ai thấy.
+
+    Không đụng dữ liệu, chỉ tạo index; `IF NOT EXISTS` lo phần chạy lại.
+    """
+    insp = inspect(db.get_bind())
+    if "xep_lich_cong_doan" not in set(insp.get_table_names()):
+        return
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_xep_lich_start_trangthai "
+        "ON xep_lich_cong_doan (start_at, trang_thai)"))
+    if "bai_ghep_cong_doan_id" in _existing_columns(insp, "xep_lich_cong_doan"):
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_xep_lich_cong_doan_bai_ghep_cong_doan_id "
+            "ON xep_lich_cong_doan (bai_ghep_cong_doan_id)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0287_xep_lich_index_ban_lam_viec", _migrate_xep_lich_index_ban_lam_viec))

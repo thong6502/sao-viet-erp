@@ -29,6 +29,7 @@ from app.models.khuon_be import KhuonBe
 from app.models.lsx import (
     LB_MAY, LB_TO, TT_DA_PHAT_HANH, TT_SAN_SANG, LsxCongDoan, LsxCongDoanPhuThuoc,
 )
+from app.models.may_thiet_bi import MayThietBi
 from app.models.purchase import PR_PURCHASED, PurchaseRequest, PurchaseRequestLine
 from app.models.vat_tu_giu_cho import NGUON_DANG_VE, VatTuGiuCho
 from app.repositories.audit_repo import AuditLogRepository
@@ -1640,8 +1641,11 @@ def test_khe_dau_tien_ne_cach_dat_de_ra_canh_bao(monkeypatch):
                         lambda service, dong, shadow, *, san, chan_ngay, ca: moc)
 
     def dung(theo_moc: dict):
-        """`service` giả: mỗi mốc trả sẵn danh sách vấn đề đã dựng."""
-        return SimpleNamespace(_van_de_dat_lich=lambda shadow, *, start, **kw: theo_moc[start])
+        """`service` giả: mỗi mốc trả sẵn danh sách vấn đề đã dựng (xưởng không khai nghỉ giữa ca)."""
+        return SimpleNamespace(
+            _van_de_dat_lich=lambda shadow, *, start, **kw: theo_moc[start],
+            ctx=SimpleNamespace(nghi_windows=lambda: []),
+        )
 
     lan = [C.issue("lan_viec_ke", MUC_CANH_BAO, "lấn việc kế")]
     chan = [C.issue("trung_may", MUC_CHAN_DAT_LICH, "trùng máy")]
@@ -1674,7 +1678,8 @@ def test_khe_dau_tien_khong_ne_qua_tran_gio(monkeypatch):
                         lambda service, dong, shadow, *, san, chan_ngay, ca: moc)
     lan = [C.issue("lan_viec_ke", MUC_CANH_BAO, "lấn việc kế")]
     theo_moc = {moc[0]: lan, moc[1]: []}
-    sv = SimpleNamespace(_van_de_dat_lich=lambda shadow, *, start, **kw: theo_moc[start])
+    sv = SimpleNamespace(_van_de_dat_lich=lambda shadow, *, start, **kw: theo_moc[start],
+                         ctx=SimpleNamespace(nghi_windows=lambda: []))
     start, cb, _ = A._khe_dau_tien(sv, SimpleNamespace(id=1), SimpleNamespace(may_id=9,
                                    department_id=3), chiem=30, chiem_max=60, san=t0,
                                    chan_ngay=7, ca=[(480, 960, False)])
@@ -2037,3 +2042,192 @@ def test_khong_ca_nao_tick_thi_khung_gio_KHONG_roi_ve_8h(v2, db):
         c.ca_san_xuat = False
     db.commit()
     assert len(v2._ca_nhan()) == 4          # KHÔNG phải 1 dải "Giờ mặc định (chưa khai ca)"
+
+
+# ======================================================================
+# Mũi tên Gantt bám CẠNH THẬT của DAG routing, KHÔNG suy từ `buoc_thu_tu`.
+# ======================================================================
+def _lsx_hai_goc_vao_in(db, orders, lsx_svc, admin, customer):
+    """Lệnh có DAG rẽ nhánh: Ghi kẽm CTP ‖ Cắt tờ → In (đúng hình routing của lệnh in thật)."""
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    inb = _in_theo_may(db, lsx.id)
+    inb.thu_tu = 2
+    goc = [
+        LsxCongDoan(lsx_id=lsx.id, thu_tu=i, ten=ten, nhom="prepress", loai_buoc=LB_MAY,
+                    may_id=inb.may_id, so_luong_vao=5000, nang_suat=6000,
+                    don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to")
+        for i, ten in enumerate(("Ghi kẽm CTP", "Cắt tờ"))
+    ]
+    db.add_all(goc)
+    db.flush()
+    db.add_all([LsxCongDoanPhuThuoc(buoc_truoc_id=g.id, buoc_sau_id=inb.id) for g in goc])
+    db.commit()
+    return lsx, inb, goc[0], goc[1]
+
+
+def test_workspace_dong_kem_tien_nhiem_that_khong_suy_tu_thu_tu(
+    v2, db, orders, lsx_svc, admin, customer
+):
+    """In có HAI tiền nhiệm; hai gốc song song KHÔNG nối vào nhau.
+
+    Trước 09/09/2026 màn Gantt tự nối `buoc_thu_tu` liền kề (i → i+1) nên mọi routing đều hiện
+    thành một hàng dọc: CTP → Cắt tờ → In, sai hẳn sơ đồ ở màn Lệnh sản xuất."""
+    lsx, inb, ctp, cat = _lsx_hai_goc_vao_in(db, orders, lsx_svc, admin, customer)
+    v2.tao_nhap(nguon="lsx", id=lsx.id, actor=admin)
+    dong = {d.lsx_cong_doan_id: d.id for d in XepLichRepository(db).by_lsx(lsx.id)}
+    ban = v2.workspace(tu=date(2026, 7, 27), den=date(2026, 7, 29))
+    theo_id = {d["id"]: d for d in ban["dong"]}
+    assert theo_id[dong[inb.id]]["phu_thuoc_dong_ids"] == sorted([dong[ctp.id], dong[cat.id]])
+    assert theo_id[dong[ctp.id]]["phu_thuoc_dong_ids"] == []
+    assert theo_id[dong[cat.id]]["phu_thuoc_dong_ids"] == []
+
+
+def test_dong_view_le_van_giu_tien_nhiem_ngoai_tap(v2, db, orders, lsx_svc, admin, customer):
+    """`PUT /dong` trả view MỘT dòng — tiền nhiệm vẫn phải đủ, không thì lưu xong là mất mũi tên."""
+    lsx, inb, ctp, cat = _lsx_hai_goc_vao_in(db, orders, lsx_svc, admin, customer)
+    v2.tao_nhap(nguon="lsx", id=lsx.id, actor=admin)
+    dong = {d.lsx_cong_doan_id: d for d in XepLichRepository(db).by_lsx(lsx.id)}
+    v = v2.dong_view(dong[inb.id])
+    assert v["phu_thuoc_dong_ids"] == sorted([dong[ctp.id].id, dong[cat.id].id])
+
+
+def test_bai_ghep_khong_co_bang_phu_thuoc_thi_tra_rong(v2, db, orders, lsx_svc, bg_svc, admin, customer):
+    """Nguồn `in_ghep` không có bảng phụ thuộc ⇒ danh sách rỗng (màn tự rơi về nối theo thứ tự)."""
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    _nha_cho(db, [l.id for l in created])
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    bg = _gop_in_va_san_sang(db, bg_svc, bg, admin)
+    v2.tao_nhap(nguon="in_ghep", id=bg.id, actor=admin)
+    ban = v2.workspace(tu=date(2026, 7, 27), den=date(2026, 7, 29))
+    bai = [d for d in ban["dong"] if d["bai_ghep_id"] == bg.id]
+    assert bai and all(d["phu_thuoc_dong_ids"] == [] for d in bai)
+
+
+# ======================================================================
+# Panel phải nói được BA mốc xong: sớm nhất · theo lịch · muộn nhất.
+# ======================================================================
+def test_xem_truoc_kem_moc_xong_som_nhat_va_muon_nhat(
+    v2, db, orders, lsx_svc, admin, customer, monkeypatch
+):
+    """Máy khai dải tốc độ ⇒ ba mốc tách nhau và khớp đúng dải thời lượng.
+
+    Trước 09/09/2026 xem-trước chỉ trả MỘT `finish_at`, panel in ra như một con số chắc chắn trong
+    khi engine vẫn ngầm tính `finish_max` để cảnh báo lấn việc kế."""
+    monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    inb = _in_theo_may(db, lsx.id)
+    may = db.get(MayThietBi, inb.may_id)
+    may.toc_do, may.toc_do_min, may.toc_do_max = 5_000, 2_500, 10_000
+    db.commit()
+    v2.tao_nhap(nguon="lsx", id=lsx.id, actor=admin)
+    dong = next(d for d in XepLichRepository(db).by_lsx(lsx.id) if d.lsx_cong_doan_id == inb.id)
+    pv = v2.xem_truoc(dong_id=dong.id,
+                      patch={"may_id": inb.may_id, "start_at": _utc(2026, 7, 28, 8, 0)})
+    assert pv["finish_at_min"] < pv["finish_at"] < pv["finish_at_max"]
+    assert pv["finish_at_min"] == pv["start_at"] + timedelta(minutes=pv["chiem_may_phut_min"])
+    assert pv["finish_at_max"] == pv["start_at"] + timedelta(minutes=pv["chiem_may_phut_max"])
+    # Máy CHƯA khai dải ⇒ ba mốc dính làm một (panel tự thôi bày dải, không vờ có độ chính xác).
+    may.toc_do_min = may.toc_do_max = None
+    db.commit()
+    pv = v2.xem_truoc(dong_id=dong.id,
+                      patch={"may_id": inb.may_id, "start_at": _utc(2026, 7, 28, 8, 0)})
+    assert pv["finish_at_min"] == pv["finish_at"] == pv["finish_at_max"]
+
+
+# ======================================================================
+# TÁCH LẦN CHẠY + TỰ XẾP — các mẻ của cùng một bước phải NỐI ĐUÔI.
+#
+# Lỗi thật 09/09/2026 (LSX26-0003 · Đóng gói, Tổ thành phẩm/KCS): tách 5.000/10.000/5.000 rồi bấm
+# Tự xếp, cả BA mẻ nhận đúng một mốc 10/09 13:12. `phan_doan.tach` đúng — mẻ 2..n về CHỜ XẾP, không
+# giờ. Chỗ thủng ở lượt tự-xếp: bước làm tay không có máy nên `trung_may` soi nền RỖNG
+# (`da_xep_khac_tren_may` thoát sớm khi thiếu máy), còn cửa tổ duy nhất `vuot_quan_so_to` chỉ đo
+# ĐỈNH QUÂN SỐ — ba mẻ kíp 1 người trong tổ 10 người là hoàn toàn "sạch". Tổ đáng lẽ bị chiếm 20
+# giờ nối nhau thì chỉ còn 10 giờ, và giờ xong cả lệnh thành con số lạc quan.
+# ======================================================================
+def _buoc_dong_goi_theo_to(db, lsx_id: int, *, so_luong=2000.0) -> LsxCongDoan:
+    """Bước làm tay theo TỔ, tính ra giờ thật: 2.000 tờ ÷ (1.000 tờ/người-giờ × 1) × 60 = 120'.
+
+    `thu_tu` đặt cuối và KHÔNG khai cạnh phụ thuộc: test này chỉ soi quan hệ giữa các mẻ với nhau,
+    kéo thêm ràng buộc tiền nhiệm vào chỉ làm mốc khó đọc.
+    """
+    from app.models.don_vi_do import DonViDo
+
+    if db.query(DonViDo).filter(DonViDo.ma == "to").first() is None:
+        db.add(DonViDo(ma="to", ten="tờ", ho="to"))
+    to = Department(name="Tổ thành phẩm XL", code="TO-TP-XL")
+    db.add(to)
+    db.flush()
+    b = LsxCongDoan(lsx_id=lsx_id, thu_tu=9, ten="Đóng gói", nhom="finishing", loai_buoc=LB_TO,
+                    department_id=to.id, so_luong_vao=so_luong, don_vi_vao="to",
+                    nang_suat=1000, so_nhan_cong_tieu_chuan=1, khoan_json={"don_vi": "to"})
+    db.add(b)
+    db.commit()
+    return b
+
+
+def test_tu_xep_khong_dat_hai_lan_chay_vao_cung_mot_moc(
+    v2, db, orders, lsx_svc, admin, customer, monkeypatch
+):
+    """Dựng lại ĐÚNG lối người dùng đi: xếp → tách → xếp lại. Ba mẻ phải rời nhau."""
+    monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    buoc = _buoc_dong_goi_theo_to(db, lsx.id)
+    v2.tao_nhap(nguon="lsx", id=lsx.id, actor=admin)
+    v2.tu_xep(nguon="lsx", id=lsx.id, actor=admin)
+
+    goc = next(d for d in XepLichRepository(db).by_lsx(lsx.id) if d.lsx_cong_doan_id == buoc.id)
+    assert goc.start_at is not None, "bước tổ phải xếp được trước đã"
+    v2.tach_dong(dong_id=goc.id, cac_phan=[500, 1000, 500], actor=admin)
+    v2.tu_xep(nguon="lsx", id=lsx.id, actor=admin)
+
+    cum = sorted((d for d in XepLichRepository(db).by_lsx(lsx.id)
+                  if d.lsx_cong_doan_id == buoc.id), key=lambda d: d.phan_doan_so)
+    assert [d.phan_doan_so for d in cum] == [1, 2, 3]
+    assert all(d.start_at and d.finish_at for d in cum), "mẻ nào cũng phải nhận được giờ"
+    assert all(d.department_id == buoc.department_id and d.may_id is None for d in cum)
+    for truoc, sau in zip(cum, cum[1:]):
+        assert sau.start_at >= truoc.finish_at, (
+            "lần chạy sau phải đợi lần chạy trước xong: "
+            f"{truoc.phan_doan_so}→{truoc.finish_at} vs {sau.phan_doan_so}→{sau.start_at}"
+        )
+    # Thời lượng chia theo số lượng (500/1000/500 của 2.000 ⇒ 30'/60'/30'), và tổ bị chiếm ĐỦ
+    # 120 phút chứ không co lại còn 60 vì ba mẻ chồng nhau.
+    phut = [(d.finish_at - d.start_at).total_seconds() / 60 for d in cum]
+    assert phut == [30.0, 60.0, 30.0]
+
+
+def test_hai_lan_chay_tren_hai_may_khac_nhau_van_duoc_song_song(
+    v2, db, orders, lsx_svc, admin, customer, monkeypatch
+):
+    """Luật chặn soi theo TÀI NGUYÊN, không theo cụm suông.
+
+    Chia một bước cho HAI MÁY chạy cùng lúc để về đích sớm là cách xưởng vẫn làm — chặn cả nó là
+    đổi một lỗi lấy một lỗi khác.
+    """
+    monkeypatch.setattr(v2.core.cal, "is_working_day", lambda d: True)
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    inb = _in_theo_may(db, lsx.id)
+    goc_may = db.get(MayThietBi, inb.may_id)
+    may2 = MayThietBi(ma="M-XL-2", ten="Máy in phụ", loai_may=goc_may.loai_may,
+                      toc_do=goc_may.toc_do, don_vi_toc_do=goc_may.don_vi_toc_do)
+    db.add(may2)
+    db.flush()
+    v2.tao_nhap(nguon="lsx", id=lsx.id, actor=admin)
+    dong = next(d for d in XepLichRepository(db).by_lsx(lsx.id) if d.lsx_cong_doan_id == inb.id)
+    m1, m2 = v2.tach_dong(dong_id=dong.id, cac_phan=[2500, 2500], actor=admin)
+
+    r1 = v2.core._get_dong(m1["id"])
+    r1.may_id, r1.trang_thai = inb.may_id, TT_DA_XEP
+    r1.start_at = _utc(2026, 7, 28, 8, 0)
+    r1.finish_at = _utc(2026, 7, 28, 9, 0)
+    db.commit()
+    ma = _ma(v2.xem_truoc(dong_id=m2["id"],
+                          patch={"may_id": may2.id,
+                                 "start_at": _utc(2026, 7, 28, 8, 0)})["van_de"])
+    assert "trung_lan_chay" not in ma
+    # Cùng máy thì vẫn chặn — và chặn hai lần (trùng máy + trùng lần chạy) là đúng, hai cửa soi
+    # hai nền khác nhau.
+    ma = _ma(v2.xem_truoc(dong_id=m2["id"],
+                          patch={"may_id": inb.may_id,
+                                 "start_at": _utc(2026, 7, 28, 8, 0)})["van_de"])
+    assert {"trung_may", "trung_lan_chay"} <= ma

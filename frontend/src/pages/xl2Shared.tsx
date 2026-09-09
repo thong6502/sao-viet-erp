@@ -76,6 +76,8 @@ export const BAR_H = 40;
 export const LANE_OVERLAY_H = 12;
 /** thanh (40) + đệm trên (8) + band overlay đáy (12) = 60. Đồng bộ với `--xl2-lane-h` trong CSS. */
 export const LANE_H = BAR_H + 8 + LANE_OVERLAY_H;
+/** Lane cao thêm bấy nhiêu cho MỖI tầng phụ, khi có thanh trùng giờ phải xếp chồng (thanh + khe). */
+export const STACK_H = BAR_H + 4;
 export const CLUSTER_HEAD_H = 32;
 
 /** Phân nhóm công đoạn để tô màu Chroma Task Capsules: In (Blue) · Sau in (Amber) · Đóng gói (Emerald) · Thuê ngoài (Purple) */

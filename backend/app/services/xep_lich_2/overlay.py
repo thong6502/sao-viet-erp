@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 
+from . import constraint as C
+
 
 def _ngay_bounds(d: date) -> tuple[datetime, datetime]:
     """[00:00, 24:00) của một ngày theo đồng hồ tường UTC — cùng gốc với start/finish đã aware."""
@@ -27,12 +29,16 @@ def _cac_ngay(tu: date, den: date):
         d = d + timedelta(days=1)
 
 
-def tai_may(placements, tu: date, den: date) -> list[dict]:
-    """Phút CHIẾM của mỗi máy theo từng ngày trong [tu, den].
+def tai_may(placements, tu: date, den: date, nghi=()) -> list[dict]:
+    """Phút CHẠY của mỗi máy theo từng ngày trong [tu, den].
 
     `placements` = list `(may_id, start, finish)` đã aware. Chỉ trả (máy, ngày) có phút > 0, sắp theo
     (máy, ngày) cho ổn định. Trần giờ máy/ngày là 24h (máy chạy liên tục) nên đây là số để NHÌN tải,
     không phải cửa chặn.
+
+    `nghi` (09/09/2026) trừ bữa cơm giữa ca ra khỏi phần chiếm: một việc 8 tiếng vắt qua trưa nằm
+    trên trục 9 tiếng, không trừ thì tải ra 112% trong khi máy chỉ chạy đúng quỹ giờ của ca. Mẫu số
+    ở `phut_ca_moi_ngay` cũng trừ đúng khoảng ấy nên hai đầu của phân số nói cùng một thứ.
     """
     out: dict[tuple[int, date], float] = {}
     for may_id, start, finish in placements:
@@ -40,7 +46,11 @@ def tai_may(placements, tu: date, den: date) -> list[dict]:
             continue
         for d in _cac_ngay(tu, den):
             d0, d1 = _ngay_bounds(d)
-            phut = (min(finish, d1) - max(start, d0)).total_seconds() / 60.0
+            s, f = max(start, d0), min(finish, d1)
+            if f <= s:
+                continue
+            phut = (f - s).total_seconds() / 60.0 - C.phut_giao_nghi(
+                int((s - d0).total_seconds() // 60), int((f - d0).total_seconds() // 60), nghi)
             if phut > 0:
                 out[(may_id, d)] = out.get((may_id, d), 0.0) + phut
     return [

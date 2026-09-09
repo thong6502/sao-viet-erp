@@ -62,14 +62,19 @@ def _ten_buoc(db, step_id: int) -> str:
 
 # ============================ THỨ TỰ TÔ-PÔ ============================
 def thu_tu_xep(rows, canh_dong: dict[int, list[int]]) -> list:
-    """`rows` sắp theo thứ tự tô-pô của DAG; hoà nhau thì theo `(source_thu_tu, id)`.
+    """`rows` sắp theo thứ tự tô-pô của DAG; hoà nhau thì theo `(source_thu_tu, phân đoạn, id)`.
 
     Kahn + luôn bốc ứng viên "nhỏ" nhất ⇒ DAG trùng với `thu_tu` (đại đa số lệnh) cho ra ĐÚNG thứ
     tự cũ, không đảo lung tung. Còn sót vòng (đáng lẽ `_kiem_chu_trinh_phu_thuoc` đã chặn) thì phần
     kẹt được nối vào cuối theo `thu_tu` thay vì ném lỗi — tự xếp không được phép chết vì dữ liệu cũ.
+
+    Các LẦN CHẠY của cùng một bước đứng ngang hàng trong DAG (chung `source_thu_tu`, không có cạnh
+    nối nhau), nên `phan_doan_so` là thứ phá hoà: `trung_lan_chay` đẩy chúng nối đuôi theo ĐÚNG thứ
+    tự được xếp, mà lần chạy 2 xếp trước lần chạy 1 thì nhãn "2/3" lại nằm ở khe sớm hơn "1/3".
     """
     def khoa(r):
-        return (int(getattr(r, "source_thu_tu", 0) or 0), r.id)
+        return (int(getattr(r, "source_thu_tu", 0) or 0),
+                int(getattr(r, "phan_doan_so", 1) or 1), r.id)
 
     con = {r.id: r for r in rows}
     con_lai = {rid: [p for p in canh_dong.get(rid, []) if p in con] for rid in con}
@@ -88,20 +93,95 @@ def thu_tu_xep(rows, canh_dong: dict[int, list[int]]) -> list:
     return ra
 
 
+def _dong_theo_step(db, step_ids) -> dict[int, list[tuple]]:
+    """`{step_id: [(dong_id, phân đoạn, may_id, department_id)]}` — MỘT bước có thể mang NHIỀU dòng
+    (đã tách lần chạy), nên map phải là danh sách. Tra một truy vấn cho cả tập.
+
+    Kèm tài nguyên + số phân đoạn vì `_chuoi_lan_chay` cần đúng bấy nhiêu để biết mấy mẻ này là một
+    dây nối tiếp hay là mấy dây chạy song song."""
+    ids = [i for i in dict.fromkeys(step_ids) if i]
+    if not ids:
+        return {}
+    ra: dict[int, list[tuple]] = {}
+    for did, sid, pd, may, dept in db.execute(
+        select(XepLichCongDoan.id, XepLichCongDoan.lsx_cong_doan_id,
+               XepLichCongDoan.phan_doan_so, XepLichCongDoan.may_id,
+               XepLichCongDoan.department_id)
+        .where(XepLichCongDoan.lsx_cong_doan_id.in_(ids))
+    ).all():
+        ra.setdefault(sid, []).append((did, int(pd or 1), may, dept))
+    return ra
+
+
+def _chuoi_lan_chay(dong: list[tuple]) -> list[list[int]]:
+    """Các dòng của MỘT bước → những DÂY nối tiếp, mỗi dây sắp theo số lần chạy.
+
+    Các mẻ trên CÙNG tài nguyên buộc phải nối đuôi (`constraint.trung_lan_chay`) nên chúng là MỘT
+    dây: mẻ 1 → mẻ 2 → mẻ 3. Chia sang HAI MÁY khác nhau thì hai mẻ chạy song song thật (cách xưởng
+    vẫn dùng để về đích sớm) — mỗi máy một dây riêng. Chưa gán tài nguyên thì xếp chung một dây:
+    tách lần chạy vốn thừa kế máy/tổ của gốc, nên mặc định là nối tiếp.
+    """
+    nhom: dict[tuple, list[tuple]] = {}
+    for d in dong:
+        _, _, may, dept = d
+        nhom.setdefault(("may", may) if may else ("to", dept), []).append(d)
+    return [[x[0] for x in sorted(v, key=lambda x: (x[1], x[0]))] for v in nhom.values()]
+
+
+def canh_dong_day_du(db, rows) -> dict[int, list[int]]:
+    """`{dong_id: [dong_id tiền nhiệm]}` — tiền nhiệm tra TOÀN BỘ dòng của bước trước, kể cả dòng
+    KHÔNG nằm trong `rows` (ngoài cửa sổ Gantt, đã phát hành, đang khoá).
+
+    Dùng cho VIEW: mũi tên trên Gantt phải là cạnh THẬT của DAG routing. Trước đây màn tự nối
+    `buoc_thu_tu` liền kề thành một hàng dọc nên hai gốc song song (Ghi kẽm CTP · Cắt tờ cùng chảy
+    vào In) bị vẽ thành nối tiếp nhau.
+
+    Bước bị TÁCH lần chạy nối thành MỘT DÂY, không toả nan hoa: cạnh routing chỉ chạm mẻ ĐẦU của
+    bên nhận và mẻ CUỐI của bên cho, còn giữa các mẻ là cạnh 1→2→3. Bảng phụ thuộc chỉ khai ở mức
+    BƯỚC nên trước đây mọi mẻ của bước sau nhận cạnh từ mọi mẻ của bước trước — Gantt vẽ ra một
+    chùm nan hoa (09/09/2026: Dán bắn ba mũi tên sang ba lần chạy Đóng gói) trong khi đường đi thật
+    của công việc chỉ là một dây, và các mẻ nay buộc phải nối đuôi nhau (`trung_lan_chay`). Dây
+    dựng theo TÀI NGUYÊN nên chia mẻ sang hai máy vẫn ra hai dây song song — xem `_chuoi_lan_chay`.
+
+    Dòng bài ghép (`lsx_cong_doan_id` NULL) không có bảng phụ thuộc ⇒ vắng mặt trong kết quả."""
+    theo_step: dict[int, list] = {}
+    for r in rows:
+        if r.lsx_cong_doan_id:
+            theo_step.setdefault(r.lsx_cong_doan_id, []).append(r)
+    if not theo_step:
+        return {}
+    canh = canh_tien_nhiem(db, theo_step.keys())
+    dong_truoc = _dong_theo_step(db, (t for truocs in canh.values() for t in truocs))
+    ra: dict[int, list[int]] = {}
+    for sau_step, rs in theo_step.items():
+        # Cửa RA của bước trước = mẻ CUỐI của từng dây: mẻ cuối xong thì cả bước mới xong.
+        truoc_ids = sorted({c[-1] for t in canh.get(sau_step, [])
+                            for c in _chuoi_lan_chay(dong_truoc.get(t, []))})
+        for chuoi in _chuoi_lan_chay(
+            [(r.id, int(getattr(r, "phan_doan_so", 1) or 1), r.may_id, r.department_id)
+             for r in rs]
+        ):
+            dau = [i for i in truoc_ids if i != chuoi[0]]
+            if dau:
+                ra[chuoi[0]] = dau
+            for truoc, sau in zip(chuoi, chuoi[1:]):
+                ra[sau] = [truoc]
+    return ra
+
+
 def canh_giua_dong(db, rows) -> dict[int, list[int]]:
     """`{dong_id: [dong_id tiền nhiệm]}` — chỉ giữ cạnh mà CẢ HAI đầu nằm trong `rows`.
 
     Cạnh trỏ ra ngoài tập (bước của LSX khác cùng đơn, hoặc bước đã xếp/đang khoá) không tham gia
     xếp thứ tự — chúng đã có giờ thật nên `tien_nhiem_finish` lo, khỏi ràng buộc thêm.
     """
-    theo_step = {r.lsx_cong_doan_id: r.id for r in rows if r.lsx_cong_doan_id}
-    if not theo_step:
-        return {}
-    canh = canh_tien_nhiem(db, theo_step.keys())
-    return {
-        theo_step[sau]: [theo_step[t] for t in truocs if t in theo_step]
-        for sau, truocs in canh.items() if sau in theo_step
-    }
+    trong_tap = {r.id for r in rows}
+    ra: dict[int, list[int]] = {}
+    for sau, truocs in canh_dong_day_du(db, rows).items():
+        con = [i for i in truocs if i in trong_tap]
+        if con:
+            ra[sau] = con
+    return ra
 
 
 # ============================ SÀN THỜI GIAN ============================
@@ -164,7 +244,8 @@ def _uoc_xong(service, dong, ca, memo: dict, dang_di: set) -> datetime | None:
             if f is not None and (san is None or f > san):
                 san = f
     chiem = _chiem_uoc(service, dong)
-    ra = C.finish_lien_tuc(san, chiem) if (san is not None and chiem > 0) else san
+    ra = (C.finish_lien_tuc(san, chiem, service.ctx.nghi_windows())
+          if (san is not None and chiem > 0) else san)
     dang_di.discard(dong.id)
     memo[dong.id] = ra
     return ra

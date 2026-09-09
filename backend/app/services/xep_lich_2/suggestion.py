@@ -122,13 +122,14 @@ def _goi_y_khe(service, *, dong_id: int, tu, den, toi_da: int = 3) -> dict:
                                       f"{_naive(san):%d/%m %H:%M}{vi} — ngoài khoảng đang xem."}
     chan_ngay = max(1, (tran.date() - san.date()).days)
     khe: list[dict] = []
+    nghi = service.ctx.nghi_windows()
     for start in auto._moc_ung_vien(service, dong, shadow, san=san, chan_ngay=chan_ngay, ca=ca):
         if start >= tran:
             break
-        finish = C.finish_lien_tuc(start, chiem)
+        finish = C.finish_lien_tuc(start, chiem, nghi)
         vd = service._van_de_dat_lich(
             shadow, start=start, finish=finish,
-            finish_max=C.finish_lien_tuc(start, chiem_max),
+            finish_max=C.finish_lien_tuc(start, chiem_max, nghi),
             may_id=shadow.may_id, department_id=shadow.department_id,
             canh_bao=None, exclude_id=dong.id,
         )

@@ -129,18 +129,25 @@ def _moc_ung_vien(service, dong, shadow, *, san: datetime, chan_ngay: int,
                   ca: list[tuple[int, int, bool]]) -> list[datetime]:
     """Mốc bắt đầu ứng viên ≥ `san`, tăng dần, đã khử trùng.
 
-    Một khe chỉ "mở ra" tại bốn loại thời điểm: chính cái sàn · đầu mỗi ca từng ngày · ngay sau một
-    việc/vùng-khoá vừa nhả máy · lúc tổ vừa rảnh bớt người. Rà đúng bấy nhiêu mốc là đủ phủ — giữa
-    hai mốc thì tình trạng máy không đổi, dời thêm một phút chẳng mở thêm chỗ nào.
+    Một khe chỉ "mở ra" tại năm loại thời điểm: chính cái sàn · đầu mỗi ca từng ngày · mốc HẾT
+    NGHỈ giữa ca · ngay sau một việc/vùng-khoá vừa nhả máy · lúc tổ vừa rảnh bớt người. Rà đúng
+    bấy nhiêu mốc là đủ phủ — giữa hai mốc thì tình trạng máy không đổi, dời thêm một phút chẳng
+    mở thêm chỗ nào.
+
+    Mốc "hết nghỉ" (09/09/2026) đi cùng cửa chặn `trong_gio_nghi`: sàn rơi đúng bữa cơm thì mốc
+    duy nhất cứu được là lúc xưởng đứng máy lại, không có nó tự-xếp phải nhảy tới tận đầu ca sau.
     """
     tran = san + timedelta(days=max(1, int(chan_ngay)))
     moc: set[datetime] = {san}
+    nghi = service.ctx.nghi_windows()
     ngay = san.date()
     het = tran.date()
     while ngay <= het:
         base = datetime.combine(ngay, time.min, tzinfo=timezone.utc)
         for bat_dau, _, _ in ca:
             moc.add(base + timedelta(minutes=int(bat_dau)))
+        for _, ket_thuc in nghi:
+            moc.add(base + timedelta(minutes=int(ket_thuc)))
         ngay = ngay + timedelta(days=1)
     if shadow.may_id:
         for _, f in service.ctx.khoang_may_da_xep(shadow.may_id, dong.id):
@@ -182,15 +189,16 @@ def _khe_dau_tien(service, dong, shadow, *, chiem: int, chiem_max: int, san: dat
     so_moc = 0
     du_phong: tuple[datetime, list[dict]] | None = None   # khe sớm nhất, nhưng dính MA_NE
     them = 0
+    nghi = service.ctx.nghi_windows()
     for start in _moc_ung_vien(service, dong, shadow, san=san, chan_ngay=chan_ngay, ca=ca):
         if du_phong is not None and (them >= TRAN_NE_MOC
                                      or start - du_phong[0] > timedelta(hours=TRAN_NE_GIO)):
             break
         so_moc += 1
-        finish = C.finish_lien_tuc(start, chiem)
+        finish = C.finish_lien_tuc(start, chiem, nghi)
         vd = service._van_de_dat_lich(
             shadow, start=start, finish=finish,
-            finish_max=C.finish_lien_tuc(start, chiem_max),
+            finish_max=C.finish_lien_tuc(start, chiem_max, nghi),
             may_id=shadow.may_id, department_id=shadow.department_id,
             canh_bao=None, exclude_id=dong.id,
         )
@@ -250,7 +258,7 @@ def _ung_vien_may(service, dong, *, san: datetime, chan_ngay: int, ca,
             if ket is not None:
                 ket.append(f"{may.ten}: {vi_sao or 'không còn khe trống'}.")
             continue
-        finish = C.finish_lien_tuc(start, d["chiem_may_phut"])
+        finish = C.finish_lien_tuc(start, d["chiem_may_phut"], service.ctx.nghi_windows())
         ra.append({
             "may_id": may.id,
             "may_ten": may.ten,
@@ -262,11 +270,12 @@ def _ung_vien_may(service, dong, *, san: datetime, chan_ngay: int, ca,
             # KHÔNG ĐO ĐƯỢC — khác hẳn với đo được rồi thấy không nối được (`cung_gom = False`).
             "co_gom": gom is not None,
             "tai_ngay": service._tai_may_ngay(
-                may.id, start, finish, service.ctx.khoang_may_da_xep(may.id, dong.id)),
+                may.id, start, finish, service.ctx.khoang_may_da_xep(may.id, dong.id),
+                service.ctx.nghi_windows()),
             **d,
         })
     han_sx, han_giao = service.ctx.hai_han(dong)
-    DM.cham_tat_ca(ra, han=han_sx or han_giao, ca=ca)
+    DM.cham_tat_ca(ra, han=han_sx or han_giao, ca=ca, nghi=service.ctx.nghi_windows())
     return ra
 
 
@@ -363,7 +372,7 @@ def _xep_theo_thoi_luong_san(service, dong, shadow, *, san, chan_ngay, ca, ly_do
         return {"ok": False,
                 "ly_do": f"Không tìm được khe hợp lệ trong {chan_ngay} ngày tới"
                          + (f" — {vi_sao}." if vi_sao else ".")}
-    finish = C.finish_lien_tuc(start, chiem)
+    finish = C.finish_lien_tuc(start, chiem, service.ctx.nghi_windows())
     _ap(dong, may_id=None, start=start, finish=finish)
     return {"ok": True, "may_id": None, "may_ten": None, "start": start, "finish": finish,
             "chiem_may_phut": chiem,
@@ -456,7 +465,8 @@ def tu_xep(service, *, nguon: str, id: int, actor, ghi_de: bool = False,
     else:
         rows = service.repo.by_bai_ghep(id)
         han_sx, han_giao = service.ctx.hai_han(_ns(bai_ghep_id=id))
-    rows = sorted(rows, key=lambda r: (int(r.source_thu_tu or 0), r.id))
+    rows = sorted(rows, key=lambda r: (int(r.source_thu_tu or 0),
+                                       int(r.phan_doan_so or 1), r.id))
     lam = [r for r in rows if not r.is_locked and (ghi_de or r.start_at is None)]
     # Xếp theo ĐỒ THỊ phụ thuộc, không theo `thu_tu`: cạnh routing được phép ngược `thu_tu` (LSX
     # 26-0020 chạy B1→B6→B2→…), mà đặt bước sau trước bước trước thì sàn của nó thiếu mất tiền

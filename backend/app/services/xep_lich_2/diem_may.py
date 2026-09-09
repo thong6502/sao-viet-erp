@@ -61,15 +61,18 @@ def _f(v) -> float:
         return 0.0
 
 
-def quy_ca_phut(ca) -> float:
+def quy_ca_phut(ca, nghi=()) -> float:
     """Quỹ phút làm việc của MỘT ngày theo lịch ca — mẫu số của trục `san_tai`.
 
     UỶ THÁC cho `constraint.phut_ca_moi_ngay` để cảnh báo "máy ken đặc" và điểm "san tải" luôn đo
     bằng CÙNG MỘT thước — trước 22/08/2026 đây là bản sao độc lập của cùng phép cộng, nên khi phép
     cộng thẳng lộ ra sai (ca xưởng gối nhau) thì phải sửa hai nơi mới hết.
+
+    `nghi` trừ bữa cơm giữa ca (09/09/2026) — cùng lý do: `tai_ngay` của ứng viên cũng đã trừ, hai
+    đầu phân số lệch thước thì trục "san tải" chấm sai theo hướng nói máy còn rảnh hơn thực tế.
     """
     return float(C.phut_ca_moi_ngay(
-        [(_f(b), _f(e), bool(qd)) for b, e, qd in (ca or [])],
+        [(_f(b), _f(e), bool(qd)) for b, e, qd in (ca or [])], nghi,
     ))
 
 
@@ -132,7 +135,7 @@ def _truc(ma: str, dat: float, cau: str) -> dict:
             "ty_le": (dat / toi_da) if toi_da else 0.0, "cau": cau}
 
 
-def cham_tat_ca(ung_vien: list[dict], *, han: date | None, ca) -> None:
+def cham_tat_ca(ung_vien: list[dict], *, han: date | None, ca, nghi=()) -> None:
     """Gắn `u["diem"]` cho TỪNG ứng viên, tại chỗ.
 
     Chấm MỘT LẦN trên cả danh sách (không chấm lẻ từng máy) vì trục `kip_han` ở chế độ không-hạn
@@ -143,7 +146,7 @@ def cham_tat_ca(ung_vien: list[dict], *, han: date | None, ca) -> None:
         return
     het = _het_han(han)
     tot = min(u["finish"] for u in ung_vien)
-    quy = quy_ca_phut(ca)
+    quy = quy_ca_phut(ca, nghi)
     for u in ung_vien:
         dat_kh, cau_kh, tre = _kip_han(u, het, tot)
         truc: list[dict] = [_truc("kip_han", dat_kh, cau_kh)]
