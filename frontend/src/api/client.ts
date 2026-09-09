@@ -10450,12 +10450,16 @@ export const api = {
       if (departmentId != null) qs.set("department_id", String(departmentId));
       return authed<Timesheet>(`/api/attendance/timesheet?${qs.toString()}`, token);
     },
-    /** Xuất bảng công tháng ra CSV — fetch as a blob (bearer + refresh-aware). */
-    async timesheetCsvBlobUrl(token: string, year: number, month: number, departmentId?: number | null): Promise<string> {
+    /** Xuất bảng công tháng ra .xlsx — fetch as a blob (bearer + refresh-aware).
+     *  Bản .csv cũ đã bỏ 09/09/2026: ô ngày không ra công/giờ in chữ "có" và tăng ca không hiện. */
+    async timesheetExcelBlobUrl(token: string, year: number, month: number, departmentId?: number | null,
+                                q?: string | null): Promise<string> {
       const qs = new URLSearchParams({ year: String(year), month: String(month) });
       if (departmentId != null) qs.set("department_id", String(departmentId));
+      // `q` = ô tìm tên/mã trên màn: file xuất ra phải đúng thứ đang thấy, không phải cả xưởng.
+      if (q && q.trim()) qs.set("q", q.trim());
       const doFetch = (bearer: string) =>
-        fetch(`${BASE_URL}/api/attendance/timesheet.csv?${qs.toString()}`, {
+        fetch(`${BASE_URL}/api/attendance/timesheet.xlsx?${qs.toString()}`, {
           credentials: "include", cache: "no-store", headers: authHeader(bearer),
         });
       let resp = await doFetch(token);
