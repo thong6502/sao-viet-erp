@@ -120,31 +120,35 @@ export function TamUngTab({
   return (
     <div>
       <div className="cc-toolbar cc-ts-toolbar lg-toolbar">
-        <div className="lg-date-wrapper">
-          <span className="lg-date-icon">
-            <Calendar size={14} />
-          </span>
-          <MonthPicker value={ym} onChange={setYm} ariaLabel="Kỳ lương" />
+        <div className="lg-toolbar-filters">
+          <div className="lg-date-wrapper">
+            <span className="lg-date-icon">
+              <Calendar size={14} />
+            </span>
+            <MonthPicker value={ym} onChange={setYm} ariaLabel="Kỳ lương" />
+          </div>
         </div>
-        {canCreateAdvance && (
-          <button
-            className="btn btn--primary"
-            onClick={() => setAdding("tam_ung")}
-          >
-            + Thêm ứng
-          </button>
-        )}
-        {canCreateAdvance && (
-          <button
-            className="btn btn--ghost"
-            onClick={() => setAdding("luong_dot_1")}
-          >
-            + Phiếu lương đợt 1
-          </button>
-        )}
-        <span className="lg-approved-badge">
-          Đã duyệt: <b>{money(totalApproved)}đ</b>
-        </span>
+        <div className="lg-toolbar-actions">
+          <span className="lg-approved-badge">
+            Đã duyệt: <b>{money(totalApproved)}đ</b>
+          </span>
+          {canCreateAdvance && (
+            <button
+              className="btn btn--ghost"
+              onClick={() => setAdding("luong_dot_1")}
+            >
+              + Phiếu lương đợt 1
+            </button>
+          )}
+          {canCreateAdvance && (
+            <button
+              className="btn btn--primary"
+              onClick={() => setAdding("tam_ung")}
+            >
+              + Thêm ứng
+            </button>
+          )}
+        </div>
       </div>
 
       {actErr && (

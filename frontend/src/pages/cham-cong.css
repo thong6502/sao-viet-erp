@@ -1928,6 +1928,24 @@
 }
 .cc-ts-special:hover { border-color: var(--rule); background: var(--rule-hair); }
 .cc-ts-special:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
+/* Dòng tách loại trong ngăn "CN/Lễ": cột ngoài bảng chỉ nói MỘT số, bấm vào mới thấy 1.94 =
+   0.94 CN + 1 lễ (chủ 09/09/2026). */
+.cc-sp-drawer__tach {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: var(--sp-3) 0;
+}
+.cc-sp-drawer__tach-tong {
+  font-size: 16px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.cc-sp-drawer__tach-dau {
+  color: var(--ash-2);
+}
+
 .cc-ts-special__total {
   display: flex;
   justify-content: space-between;
@@ -2910,15 +2928,49 @@
 }
 
 /* Warning block inside Timesheet */
-.cc-ts-warn-banner {
+/* ⚠️ PHẢI kèm `.banner` cho đủ nặng: `.banner` toàn cục đặt `justify-content: space-between` +
+   `align-items: flex-start` và nạp SAU file này, nên một class không thắng nổi — chữ bị đẩy dạt
+   sang mép phải, biểu tượng nằm trơ một mình bên trái (chủ chê 09/09/2026 "giao diện hơi xấu"). */
+.banner.cc-ts-warn-banner {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
   background: var(--amber-soft);
   color: var(--amber-deep);
   border: 1px solid rgba(156, 119, 20, 0.15);
   border-radius: var(--r-3);
   padding: 10px var(--sp-4);
+  margin-bottom: var(--sp-4);
   font-size: 12.5px;
+  line-height: 1.45;
+}
+/* Băng có phần bung ra (danh sách phiếu thiếu cặp bấm) thì xếp dọc. */
+.banner.cc-ts-warn-banner--khoi {
+  display: block;
+}
+.cc-ts-warn-banner svg {
+  flex-shrink: 0;
+}
+.cc-ts-warn-banner__head {
+  font-weight: var(--fw-bold);
+}
+.cc-ts-warn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--paper);
+  border: 1px solid rgba(156, 119, 20, 0.28);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.cc-ts-warn-chip b {
+  font-weight: var(--fw-bold);
+}
+.banner.cc-ts-msg-banner {
+  margin-bottom: var(--sp-4);
 }
 
 /* 14.2 Redeemed header action layout */
@@ -2984,6 +3036,52 @@
 }
 .cc-ts-select-dept:hover {
   border-color: var(--ash-2);
+}
+
+/* Ô tìm tên/mã NV trên Bảng công tháng (09/09/2026) — bảng 31 cột ngày cuộn ngang, không có ô
+   này thì tìm một người là dò mắt cả trang. */
+.cc-ts-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-4);
+  padding: 5px 10px;
+  transition: all var(--duration-fast);
+}
+.cc-ts-search:hover {
+  border-color: var(--ash-2);
+}
+.cc-ts-search:focus-within {
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px var(--rust-soft);
+}
+.cc-ts-search__icon {
+  color: var(--ash);
+  flex-shrink: 0;
+}
+.cc-ts-search__input {
+  font-family: var(--ff-sans);
+  font-size: 13.5px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  outline: none;
+  width: 170px;
+  max-width: 40vw;
+}
+.cc-ts-search__x {
+  border: 0;
+  background: transparent;
+  color: var(--ash);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.cc-ts-search__x:hover {
+  color: var(--ink);
 }
 
 /* Legend in filters strip (styled as small color dot indicators with clean gap) */
@@ -3226,6 +3324,20 @@
   background: var(--steel-soft) !important;
   color: var(--steel) !important;
   border: 1px solid rgba(74, 85, 96, 0.15);
+}
+/* Ngày ĐÃ XẾP CA mà chưa có lượt chấm (thường là ngày chưa tới): dấu lặng, KHÔNG mượn nền xanh
+   của ngày đã có công — nhìn nhầm thành "đã đi làm" là đọc sai cả bảng (09/09/2026). */
+.cc-cell-badge--plan {
+  background: transparent !important;
+  color: var(--ash-2) !important;
+  border: 1px dashed var(--rule-soft);
+  font-weight: var(--fw-regular);
+}
+/* Ngày TREO: có lượt bấm mà không ra công/giờ (thiếu lượt RA) — phải nhảy vào mắt để còn chấm bù. */
+.cc-cell-badge--treo {
+  background: var(--amber-soft) !important;
+  color: var(--amber-deep) !important;
+  border: 1px solid var(--amber-deep);
 }
 .cc-cell-ot-dot {
   position: absolute;

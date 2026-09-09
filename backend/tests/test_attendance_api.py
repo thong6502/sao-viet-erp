@@ -387,7 +387,7 @@ def _vn_year_month() -> tuple[int, int]:
     return vn.year, vn.month
 
 
-def test_monthly_timesheet_and_csv(client):
+def test_monthly_timesheet_and_xlsx(client):
     token = _admin_token(client)
     _make_location(client, token, lat=10.0, lng=106.0, radius=200)
     _link_admin_employee(client, token)
@@ -406,11 +406,31 @@ def test_monthly_timesheet_and_csv(client):
     day = next(v for v in row["days"].values() if v.get("first_in"))
     assert day["first_in"] and day["last_out"] and day["hours"] is not None
 
-    # CSV: 200 + text/csv + có tên nhân viên
-    csv_resp = client.get(f"/api/attendance/timesheet.csv?year={year}&month={month}", headers=_h(token))
-    assert csv_resp.status_code == 200
-    assert "text/csv" in csv_resp.headers["content-type"]
-    assert "NV Admin" in csv_resp.text
+    # .xlsx (thay .csv từ 09/09/2026): 200 + đúng media type + có tên nhân viên trong file
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    resp = client.get(f"/api/attendance/timesheet.xlsx?year={year}&month={month}", headers=_h(token))
+    assert resp.status_code == 200
+    assert "spreadsheetml.sheet" in resp.headers["content-type"]
+    assert ".xlsx" in resp.headers["content-disposition"]
+    ws = load_workbook(BytesIO(resp.content)).active
+    ten = [ws.cell(row=r, column=2).value for r in range(7, ws.max_row + 1)]
+    assert "NV Admin" in ten
+    # ô ngày không ra được công/giờ KHÔNG được in chữ "có" nữa (chủ chê 09/09/2026)
+    assert not any(c.value == "có" for hang in ws.iter_rows(min_row=7) for c in hang)
+
+    # ô tìm trên màn đi kèm file: `q` lọc theo tên/mã, bỏ dấu (chủ 09/09/2026)
+    r2 = client.get(f"/api/attendance/timesheet.xlsx?year={year}&month={month}&q=admin",
+                    headers=_h(token))
+    ws2 = load_workbook(BytesIO(r2.content)).active
+    assert "Lọc theo: admin" in ws2.cell(row=2, column=1).value
+    assert ws2.cell(row=7, column=2).value == "NV Admin"
+    assert ws2.cell(row=8, column=1).value == "TỔNG"      # đúng MỘT hàng dữ liệu
+    r3 = client.get(f"/api/attendance/timesheet.xlsx?year={year}&month={month}&q=khong-co-ai",
+                    headers=_h(token))
+    assert load_workbook(BytesIO(r3.content)).active.cell(row=7, column=1).value == "TỔNG"
 
 
 def test_timesheet_forbidden_without_permission(client):
