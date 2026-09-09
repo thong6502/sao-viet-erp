@@ -39,6 +39,7 @@ from ..services.payroll_component_service import (
     PayrollComponentService,
 )
 from ..services.employee_service import EmployeeService
+from ..services.luong_excel import xuat_bang_luong
 from ..services.rbac_service import AuthorizationService
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository
@@ -264,11 +265,8 @@ def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepo
     dept_names = {d.id: d.name for d in departments.list_all()} if lines else {}
     # Tỷ lệ + trần BH: lấy MỘT lần cho cả mẻ. Không có `svc` (đường xuất Excel) → bỏ qua phần tách.
     params = svc.get_params() if svc is not None else None
-    emp_map = {}
-    for eid in {ln.employee_id for ln in lines}:
-        emp = employees.get_by_id(eid)
-        if emp is not None:
-            emp_map[eid] = emp
+    # NV của cả mẻ trong 1 truy vấn — bảng lương 300 dòng thì hỏi từng dòng là 300 round-trip.
+    emp_map = employees.map_by_ids({ln.employee_id for ln in lines})
     # Khoản danh mục của CẢ MẺ trong 1 truy vấn (bảng lương ~100 dòng → đừng hỏi từng dòng).
     comp_map: dict[int, list] = {}
     if lines and svc is not None and getattr(svc, "components", None) is not None:
@@ -301,11 +299,7 @@ def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepo
 def _adv_out(advs, employees: EmployeeRepository,
              departments: DepartmentRepository | None = None) -> list[AdvanceOut]:
     dept_names = {d.id: d.name for d in departments.list_all()} if (departments is not None and advs) else {}
-    emp_map = {}
-    for eid in {a.employee_id for a in advs}:
-        emp = employees.get_by_id(eid)
-        if emp is not None:
-            emp_map[eid] = emp
+    emp_map = employees.map_by_ids({a.employee_id for a in advs})
     res = []
     for a in advs:
         o = AdvanceOut.model_validate(a)
@@ -825,41 +819,6 @@ def _bonus_total(l: LineOut) -> float:
     )
 
 
-def _build_table_xlsx(year: int, month: int, lines) -> bytes:
-    from io import BytesIO
-
-    from openpyxl import Workbook  # lazy import: thiếu dep chỉ hỏng endpoint này, không sập app
-    wb = Workbook()
-    ws = wb.active
-    ws.title = f"Luong {month:02d}-{year}"
-    # ⚠️ Các cột khoản CỘNG LẠI phải ra đúng cột "Tổng" (= `gross`). Thêm khoản mới vào engine mà
-    # quên thêm cột ở đây thì file xuất ra không khớp và kế toán không dò ra chênh ở đâu — đúng
-    # chuyện đã xảy ra với "Cơm ca"/"Phụ cấp ca" khi nối hai khoản đó ngày 03/08/2026.
-    ws.append(["Mã", "Họ tên", "Phòng/Tổ", "Loại", "Công", "Giờ tăng ca", "Ngày ca đêm",
-               "Lương công", "Chuyên cần", "Phụ cấp",
-               "Khoán", "Khoán km", "Thưởng/phạt tổ trưởng",
-               "Tăng ca", "Ca đêm", "Ca đêm (giờ×hệ số)", "Cơm ca", "Phụ cấp ca",
-               "Vi phạm", "Thưởng", "Hoa hồng", "Tổng", "BHXH", "TNCN",
-               "Tạm ứng", "Nợ ứng kỳ trước", "Còn nợ chuyển kỳ sau", "Thực lĩnh"])
-    for l in lines:
-        ws.append([l.employee_code or "", l.employee_name or "", l.department_name or "",
-                   "Thử việc" if l.is_probation else "Chính thức", float(l.actual_cong),
-                   # Giờ làm thêm / ngày ca đêm: bảng kê cho phần miễn thuế (D11, 08/09/2026).
-                   round(int(getattr(l, "ot_minutes", 0) or 0) / 60.0, 2), int(getattr(l, "night_days", 0) or 0),
-                   int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan), int(getattr(l, "khoan_km", 0) or 0),
-                   int(getattr(l, "thuong_to_truong", 0) or 0),
-                   int(l.ot_pay), int(l.night_pay), int(getattr(l, "night_premium_pay", 0) or 0),
-                   int(getattr(l, "meal_allowance_pay", 0) or 0),
-                   int(getattr(l, "shift_allowance_pay", 0) or 0),
-                   int(l.vi_pham), int(_bonus_total(l)), int(_hoa_hong_total(l)),
-                   int(l.gross), int(l.bhxh), int(l.pit), int(l.advance_total),
-                   int(getattr(l, "no_ung_ky_truoc", 0) or 0),
-                   int(getattr(l, "no_ung_chuyen_ky_sau", 0) or 0), int(l.net_pay)])
-    buf = BytesIO()
-    wb.save(buf)
-    return buf.getvalue()
-
-
 def _build_bank_xlsx(year: int, month: int, lines) -> bytes:
     from io import BytesIO
 
@@ -891,7 +850,28 @@ def export_table_xlsx(svc: Service, employees: Employees, departments: Departmen
     # PHẢI truyền `svc`: thiếu nó thì `LineOut.components` rỗng ⇒ cột "Thưởng" trong file xuất ra
     # bằng 0 trong khi cột "Tổng" đã gồm tiền thưởng — kế toán đối chiếu là lệch.
     lines = _lines_out(data["lines"], employees, departments, svc)
-    return _xlsx_response(_build_table_xlsx(year, month, lines), f"bang-luong-{year}-{month:02d}.xlsx")
+    params = svc.get_params()
+    # Chức vụ · ngày vào làm · người phụ thuộc: bảng lương KHÔNG giữ, mà bảng của kế toán có.
+    emp_map = employees.map_by_ids({ln.employee_id for ln in lines})
+    nhan_vien = {
+        eid: {"chuc_vu": getattr(e, "position", None), "ngay_vao_lam": getattr(e, "hire_date", None),
+              "nguoi_phu_thuoc": getattr(e, "dependents_count", 0)}
+        for eid, e in emp_map.items()
+    }
+    # Phiếu ứng ĐÃ CHI của kỳ — sheet "Tạm ứng" xếp theo NGÀY CHI như bảng của kế toán. Lọc theo
+    # đúng tập dòng đang xem, không để file rò tên người ngoài phạm vi.
+    duoc_xem = {ln.employee_id for ln in lines}
+    tam_ung = [{"employee_id": a.employee_id, "ngay": a.advance_date,
+                "so_tien": float(a.amount or 0), "loai": a.kind}
+               for a in svc.tam_ung_da_chi(year, month) if a.employee_id in duoc_xem]
+    noi_dung = xuat_bang_luong(
+        lines, nam=year, thang=month, nhan_vien=nhan_vien,
+        # Tách 3 dòng bảo hiểm bằng ĐÚNG hàm phiếu lương đang dùng — phần dư dồn vào BHTN nên
+        # ba cột luôn cộng đúng tổng đã đóng băng.
+        bh_tach=lambda ln: tuple(float(x.amount) for x in _insurance_lines(ln, params)),
+        tam_ung=tam_ung,
+    )
+    return _xlsx_response(noi_dung, f"bang-luong-{year}-{month:02d}.xlsx")
 
 
 @router.get("/bank.xlsx")

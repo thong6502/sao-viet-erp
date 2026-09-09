@@ -219,6 +219,39 @@ class EmployeeRepository:
             ).scalars()
         )
 
+    def map_by_ids(self, employee_ids) -> dict[int, Employee]:
+        """`{id: Employee}` trong MỘT truy vấn — cho các màn dựng danh sách (bảng lương, tạm ứng)
+        thay vì `get_by_id` từng dòng."""
+        ids = sorted({int(i) for i in (employee_ids or [])})
+        if not ids:
+            return {}
+        return {e.id: e for e in self.db.execute(
+            select(Employee).where(Employee.id.in_(ids))
+        ).scalars()}
+
+    def shift_assignments_map(self, employee_ids=None) -> dict[int, list[EmployeeShiftAssignment]]:
+        """Mốc ca nền của NHIỀU người trong MỘT truy vấn (`None` = tất cả nhân viên).
+
+        Thứ tự trong mỗi người GIỮ ĐÚNG `list_shift_assignments` (effective_from giảm dần, id
+        giảm dần) — hai đường phải trả cùng một đáp án, vì cùng nuôi `base_shift_id_on`."""
+        stmt = select(EmployeeShiftAssignment)
+        ids = None
+        if employee_ids is not None:
+            ids = sorted({int(i) for i in employee_ids})
+            if not ids:
+                return {}
+            stmt = stmt.where(EmployeeShiftAssignment.employee_id.in_(ids))
+        out: dict[int, list[EmployeeShiftAssignment]] = {i: [] for i in (ids or [])}
+        for r in self.db.execute(
+            stmt.order_by(
+                EmployeeShiftAssignment.employee_id,
+                EmployeeShiftAssignment.effective_from.desc(),
+                EmployeeShiftAssignment.id.desc(),
+            )
+        ).scalars():
+            out.setdefault(r.employee_id, []).append(r)
+        return out
+
     def shift_assignment_on(self, employee_id: int, on: date) -> EmployeeShiftAssignment | None:
         return self.db.execute(
             select(EmployeeShiftAssignment)
@@ -261,12 +294,21 @@ class EmployeeRepository:
             return day.shift_id
         return self.base_shift_id_on(employee, on)
 
-    def base_shift_id_on(self, employee: Employee, on: date) -> int | None:
+    def base_shift_id_on(self, employee: Employee, on: date, *,
+                         assignments: list | None = None) -> int | None:
         """CHỈ lớp CA NỀN tại ngày `on` — cố ý BỎ QUA ô lưới của ngày đó.
 
         Dùng khi cần biết "nếu gỡ ô lưới thì ngày này rơi về ca nào" (hành động `inherit`
         trên lưới, và dòng lịch sử của nó). `shift_id_on` không thay được: nó ưu tiên đúng
         cái ô sắp bị xoá nên sẽ trả về ca CŨ."""
+        if assignments is not None:
+            # Bản NẠP SẴN (mốc đã sắp giảm dần) — cùng luật, chỉ khác nguồn: mốc đầu tiên có
+            # hiệu lực ≤ `on`; không có mốc nào ≤ `on` mà NV vẫn có lịch sử thì là "chưa có ca",
+            # còn NV chưa từng có mốc nào mới rơi về `default_shift_id` (tương thích dữ liệu cũ).
+            row = next((a for a in assignments if a.effective_from <= on), None)
+            if row is not None:
+                return row.shift_id
+            return None if assignments else employee.default_shift_id
         row = self.shift_assignment_on(employee.id, on)
         if row is not None:
             return row.shift_id

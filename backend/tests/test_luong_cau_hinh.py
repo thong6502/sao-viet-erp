@@ -443,8 +443,9 @@ def test_xuat_excel_co_cot_com_ca_va_phu_cap_ca(client):
     r = client.get("/api/luong/export.xlsx?year=2026&month=6", headers=_h(token))
     assert r.status_code == 200, r.text
     ws = load_workbook(BytesIO(r.content)).active
-    head = [c.value for c in ws[1]]
-    row = next(x for x in ws.iter_rows(min_row=2, values_only=True) if x[1] == "NV Xuất Ca")
+    # Khuôn mới (09/09/2026): tiêu đề ở dòng 4, dữ liệu từ dòng 5, cột 3 là Họ và tên.
+    head = [c.value for c in ws[4]]
+    row = next(x for x in ws.iter_rows(min_row=5, values_only=True) if x[2] == "NV Xuất Ca")
     assert row[head.index("Cơm ca")] == 35_000
     assert row[head.index("Phụ cấp ca")] == 45_000
 

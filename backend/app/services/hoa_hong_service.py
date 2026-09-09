@@ -30,6 +30,7 @@ from __future__ import annotations
 from datetime import date
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from ..models.accounting import SALES_INVOICE_ISSUED, SalesInvoice
 from ..models.employee import Employee
@@ -82,6 +83,46 @@ class HoaHongService:
         return truoc / co_vat
 
     # ---------------------------------------------------------------- API
+    def hoa_hong_ky_map(self, *, tu_ngay: date, den_ngay: date) -> dict[int, float]:
+        """Hoa hồng của TẤT CẢ nhân viên trong kỳ — `{employee_id: tiền}`, 3 truy vấn cho cả mẻ.
+
+        CÙNG công thức với `hoa_hong_ky` (bản gọi từng người), chỉ khác là gom một lượt: vòng tính
+        lương gọi bản lẻ cho từng người ⇒ mỗi người một lần quét `sales_invoices` (đo 09/09/2026).
+        Người không có đồng nào thì KHÔNG có khoá trong map — caller dùng `.get(id, 0.0)`.
+        """
+        moc = self._moc_phat_sinh(tu_ngay, den_ngay)
+        if not moc:
+            return {}
+        ids = sorted({oid for oid, _ in moc})
+        # Nạp kèm dòng đơn: `_ty_le_truoc_vat` đọc `order.lines`, để lazy là N+1 theo số hoá đơn.
+        don = {
+            o.id: o for o in self.db.execute(
+                select(Order).options(selectinload(Order.lines)).where(Order.id.in_(ids))
+            ).scalars()
+        }
+        uids = {int(o.sale_user_id) for o in don.values() if o.sale_user_id}
+        if not uids:
+            return {}
+        # user_id (trên đơn) → employee_id (trên bảng lương)
+        nv_theo_user = {
+            int(e.user_id): int(e.id) for e in self.db.execute(
+                select(Employee).where(Employee.user_id.in_(sorted(uids)))
+            ).scalars()
+        }
+        tong: dict[int, float] = {}
+        for oid, tien_co_vat in moc:
+            o = don.get(oid)
+            if o is None or not o.sale_user_id:
+                continue
+            emp_id = nv_theo_user.get(int(o.sale_user_id))
+            if emp_id is None:
+                continue                      # sales chưa nối hồ sơ NV
+            pct = float(o.commission_pct or 0)
+            if pct <= 0:
+                continue                      # đơn không có hoa hồng
+            tong[emp_id] = tong.get(emp_id, 0.0) + tien_co_vat * self._ty_le_truoc_vat(o) * pct
+        return {k: round(v) for k, v in tong.items()}
+
     def hoa_hong_ky(self, employee_id: int, *, tu_ngay: date, den_ngay: date) -> float:
         """Tiền hoa hồng của MỘT nhân viên trong kỳ `[tu_ngay, den_ngay]`. 0 nếu không có.
 

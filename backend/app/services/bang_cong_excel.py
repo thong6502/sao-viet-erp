@@ -34,7 +34,7 @@ MEDIA_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 THU_VN = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"]
 
 COT_THONG_TIN = ["Mã", "Họ tên", "Phòng/Tổ", "Ca"]
-COT_TONG = ["Số công", "Công CN/Lễ", "Tăng ca (giờ)", "Tổng giờ"]
+COT_TONG = ["Công thường", "Công CN/Lễ", "Tăng ca (giờ)", "Tổng công", "Tổng giờ"]
 
 CHU_THICH = (
     "Ký hiệu: 1 / 0.5 = số công · 8h = số giờ (ngày chưa gán ca) · +2h = giờ tăng ca của ngày đó · "
@@ -120,10 +120,19 @@ def cong_cn_le(row: dict) -> float:
 
 
 def _cong_thang(row: dict) -> float:
+    """TỔNG công của tháng — số Bảng lương dùng (đã gồm công lễ/CN và công phép có lương)."""
     cong = row.get("total_cong")
     if cong is None:
         cong = row.get("total_days") or 0
     return round(float(cong), 2)
+
+
+def cong_thuong(row: dict) -> float:
+    """Công NGÀY THƯỜNG = tổng công − công CN/lễ − công phép có lương (chủ 09/09/2026).
+
+    Trước đó file chỉ có cột "Số công" (là TỔNG) đứng cạnh "Công CN/Lễ" nên bị đọc thành hai rổ
+    rời nhau; giờ ba cột cộng đúng ra Tổng công."""
+    return round(_cong_thang(row) - cong_cn_le(row) - round(float(row.get("paid_leave_days") or 0), 2), 2)
 
 
 def xuat_bang_cong(rows: list[dict], *, nam: int, thang: int, so_ngay: int,
@@ -215,7 +224,7 @@ def xuat_bang_cong(rows: list[dict], *, nam: int, thang: int, so_ngay: int,
             o.border = VIEN
             if cot in nen_cot:
                 o.fill = nen_cot[cot]
-        so_tong = [_cong_thang(r), cong_cn_le(r), gio_tang_ca(r),
+        so_tong = [cong_thuong(r), cong_cn_le(r), gio_tang_ca(r), _cong_thang(r),
                    round(float(r.get("total_hours") or 0), 2)]
         for i, v in enumerate(so_tong, start=cot_tong_dau):
             o = ws.cell(row=hang, column=i, value=v)
@@ -229,9 +238,10 @@ def xuat_bang_cong(rows: list[dict], *, nam: int, thang: int, so_ngay: int,
     o.font = Font(bold=True)
     ws.merge_cells(start_row=hang, start_column=1, end_row=hang, end_column=cot_tong_dau - 1)
     tong = [
-        sum(_cong_thang(r) for r in rows),
+        sum(cong_thuong(r) for r in rows),
         sum(cong_cn_le(r) for r in rows),
         sum(gio_tang_ca(r) for r in rows),
+        sum(_cong_thang(r) for r in rows),
         sum(float(r.get("total_hours") or 0) for r in rows),
     ]
     for i, v in enumerate(tong, start=cot_tong_dau):

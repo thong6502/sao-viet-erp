@@ -5212,6 +5212,10 @@ export interface PayrollLine {
   luong_ngay_phep?: number;
   /** Số công phép CÓ lương đã được trả trong `luong_ngay_phep`. */
   paid_leave_cong?: number;
+  /** Công ngày LỄ + NGHỈ TUẦN có đi làm (⊂ `actual_cong`) — gốc của hệ số Đ98.1.b/c. */
+  special_cong?: number;
+  /** TRONG ĐÓ của `ot_pay`: tiền ngày `off1x` (trả 1× phẳng). Đừng cộng lại vào tổng. */
+  off1x_pay?: number;
   /** Công thiếu nhưng có đơn nghỉ theo giờ đã duyệt (được miễn phạt, giữ chuyên cần). */
   excused_cong?: number;
   chuyen_can: number;
